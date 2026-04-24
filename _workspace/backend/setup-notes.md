@@ -116,6 +116,24 @@ subprojects {
 
 이로써 Phase B·C의 전 구간을 **키 없이 끝까지 실행 가능**하게 한다. 키 발급 후 `.env`만 채우면 실제 호출 경로가 즉시 활성화된다.
 
+## 6.1 Phase B-1 완료 체크리스트 (실제 구축 결과)
+
+- [x] Gradle Wrapper 8.10.2 (`gradlew`, `gradle/wrapper/*`)
+- [x] 7 서브모듈 (`core`, `market-data`, `strategy`, `ai`, `order-exec`, `web`, `app`)
+- [x] 공통 플러그인: `kotlin("jvm")`, `plugin.spring`, `ktlint`, `io.spring.dependency-management`
+- [x] JPA 사용 모듈만 `plugin.jpa`: `market-data`, `strategy`
+- [x] `jvmToolchain(21)` + `foojay-resolver-convention` 0.8.0 (settings에서)
+- [x] Spring Boot 3.3.5 BOM + Spring AI 1.0.0-M3 BOM
+- [x] 도메인 data class 21개 + 이벤트 3개 + 포트 9개 (Double 없음, 전부 BigDecimal/Int/Long)
+- [x] `MagicJarApplication` (KST TimeZone)
+- [x] `NoOpAiClient` (`@ConditionalOnMissingBean(AiClient)`)
+- [x] `PlaceholderOrderSender` (`@ConditionalOnMissingBean(OrderSender)`, Phase B-2에서 자동 대체)
+- [x] `application.yml` + mock/backtest/real 프로파일
+- [x] `logback-spring.xml` + `SecretMaskingConverter` (%mask 패턴)
+- [x] Flyway V0 placeholder
+- [x] `docker-compose.yml`, `.env.example`, `.editorconfig`
+- [x] 빌드 검증: `:core:build`, `:app:classes`, `ktlintCheck` 모두 `BUILD SUCCESSFUL`
+
 ## 7. Phase B 시작 진입점
 
 새 세션에서 아래 문구를 입력:
