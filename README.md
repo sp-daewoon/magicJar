@@ -6,7 +6,8 @@ Spring Boot 3.x + Spring AI + 한국투자증권 KIS OpenAPI 기반. **백테스
 
 ## 상태
 
-**초기 부트스트랩 단계.** 아직 애플리케이션 코드는 비어 있으며, Claude Code 하네스(에이전트 팀 + 스킬)만 구성되어 있다. 다음 단계는 `magicjar-orchestrator` 스킬을 트리거해 스캐폴딩·구현·검증을 진행하는 것.
+**Phase B-1 완료: Gradle 멀티모듈 스캐폴딩 + `core` 도메인/포트 + `app` 부팅 뼈대.**
+다음 단계(Phase B-2)는 market-data / strategy / ai / frontend 4개 에이전트가 병렬로 각 모듈을 구현한다.
 
 ## 핵심 스택 (예정)
 
@@ -29,22 +30,61 @@ Spring Boot 3.x + Spring AI + 한국투자증권 KIS OpenAPI 기반. **백테스
 - **매매일지(Trading Journal)** — 모든 매매 자동 기록 + AI 복기 + 사용자 메모
 - **하네스 운영 페이지(`/harness`)** — 지금 어떤 에이전트가 무엇을 하고 있는지 웹에서 직접 조회
 
-## 실행 방법 (구축 후)
+## 빌드 · 실행 방법
+
+### 사전 준비
+
+1. JDK 21 (Temurin). 설치되어 있지 않아도 Gradle Toolchain + foojay resolver가 자동 다운로드한다.
+2. Docker / Docker Compose (PostgreSQL 15 + Redis 7 로컬 기동용).
+3. 저장소 클론 직후 `npm install` 1회 → Husky 훅 자동 설치 (ADR 0010).
+
+### 인프라 기동 (선택, DB 사용 시)
 
 ```bash
-# 개발 프로파일(모의계좌)
-./gradlew :app:bootRun --args='--spring.profiles.active=mock'
+docker compose up -d
 ```
 
-필수 환경변수(예정):
+### 환경변수
+
+```bash
+cp .env.example .env
+# .env 파일 열어 값을 채워넣을 것 (모든 키는 선택값이며, 미설정 시 해당 기능이 자동 비활성)
+```
+
+### 빌드 · 실행
+
+```bash
+# 전체 빌드
+./gradlew build
+
+# core 모듈만
+./gradlew :core:build
+
+# 앱 클래스 컴파일 (DB 없이 가능)
+./gradlew :app:classes
+
+# 앱 실행 (모의투자 프로파일, DB 필요)
+SPRING_PROFILES_ACTIVE=mock ./gradlew :app:bootRun
+
+# 백테스트 프로파일
+SPRING_PROFILES_ACTIVE=backtest ./gradlew :app:bootRun
+```
+
+### 프로파일 / 모드
+
+- `mock` (기본): `magicjar.mode=MOCK` — KIS 모의계좌 경로
+- `backtest`: `magicjar.mode=BACKTEST` — 가상 체결, 과거 데이터 기반
+- `real`: `magicjar.mode=REAL` + `magicjar.allow-real=true` **둘 다** 필요 (ADR 0006 이중 스위치)
+
+필수 환경변수(설정 시 활성화, 미설정 시 해당 기능 비활성):
 
 ```
 KIS_MOCK_APP_KEY=...
 KIS_MOCK_APP_SECRET=...
 KIS_ACCOUNT_CANO=...
 KIS_ACCOUNT_PRDT=01
-ANTHROPIC_API_KEY=...
-DART_API_KEY=...
+ANTHROPIC_API_KEY=...   # 미설정 → NoOpAiClient 주입, AI 기능 비활성 부팅
+DART_API_KEY=...        # 미설정 → 공시 수집 비활성
 ```
 
 ## 개발 워크플로우 요약
