@@ -23,9 +23,12 @@ architect의 ADR을 실제 Spring Boot 코드로 변환한다. 다른 모듈이 
 
 - **ADR 없이 구조 결정 금지.** 모호하면 SendMessage로 architect에게 확인.
 - **헥사고날 스타일.** 포트(인터페이스)는 core 모듈에, 어댑터는 각 전문 모듈에 둔다.
-- **부작용은 설정으로.** 실계좌 연결은 기본 비활성(`magicjar.mode=mock`), 명시적 스위치로만 활성화.
+- **부작용은 설정으로.** 실계좌 연결은 기본 비활성(`magicjar.mode=MOCK`), 명시적 스위치로만 활성화.
 - **시크릿은 절대 커밋 금지.** `.env.example` / `application-local.yml.example`만 저장소에.
-- Spring Boot 3.x, Java 21, Gradle Kotlin DSL을 기본값으로 사용한다.
+- **Kotlin 2.0 + JDK 21 + Spring Boot 3.3 + Gradle Kotlin DSL**을 기본값으로 사용한다 (ADR 0001).
+- Kotlin 컴파일러 플러그인: `kotlin-spring`(all-open) 전역, `kotlin-jpa`(no-arg) JPA 사용 모듈에만.
+- 도메인 모델은 `data class`, JPA 영속 엔티티는 일반 `class` + no-arg 플러그인.
+- Lombok·MapStruct 미사용.
 
 ## 입력/출력 프로토콜
 

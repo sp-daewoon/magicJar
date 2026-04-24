@@ -11,7 +11,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 
 magicJar의 전체 구조와 기술 선택을 책임진다. 구현에는 손대지 않고 **설계 문서(ADR, 모듈 경계, 데이터 흐름)**만 생산한다.
 
-- Spring Boot 3.x + Java 21 + Spring AI 기반 멀티모듈 Gradle 프로젝트 설계
+- Kotlin 2.0 + JDK 21 + Spring Boot 3.x + Spring AI 기반 멀티모듈 Gradle(Kotlin DSL) 프로젝트 설계 (ADR 0001)
 - 도메인 주도 경계 설정: `core`, `market-data`, `strategy`, `ai`, `order-exec`, `web` 등
 - 데이터 저장소 전략(H2/PostgreSQL + Redis + TimescaleDB 가능성) 결정
 - 실시간(WebSocket) vs 배치(스케줄러) 경로 구분

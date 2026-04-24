@@ -1,0 +1,44 @@
+#!/usr/bin/env sh
+# magicJar pre-commit — ADR 0010
+# 빠른 로컬 가드. 무거운 검사는 pre-push.
+
+set -e
+
+STAGED="$(git diff --cached --name-only --diff-filter=ACM)"
+[ -z "$STAGED" ] && exit 0
+
+# 1) 시크릿 우발 커밋 차단
+BLOCKED_PATTERNS='(^|/)(\.env|application-local\.ya?ml|application-secret\.[a-z]+|.*\.p12|.*\.jks|id_rsa|.*\.pem)$'
+if echo "$STAGED" | grep -E "$BLOCKED_PATTERNS" > /dev/null; then
+  echo "✗ pre-commit: 시크릿으로 추정되는 파일이 stage되어 있습니다."
+  echo "  ↳ 대상:"; echo "$STAGED" | grep -E "$BLOCKED_PATTERNS" | sed 's/^/     /'
+  echo "  .gitignore를 확인하거나 --no-verify 대신 파일을 unstaging 하세요."
+  exit 1
+fi
+
+# 2) stage된 텍스트 파일의 BOM / tab 혼용 간단 경고 (실패시키진 않음)
+for f in $STAGED; do
+  case "$f" in
+    *.kt|*.kts|*.md|*.yml|*.yaml|*.json|*.html|*.css|*.js|*.ts|*.sh)
+      if head -c 3 "$f" 2>/dev/null | od -An -tx1 | tr -d ' \n' | grep -q '^efbbbf'; then
+        echo "⚠  pre-commit: BOM 감지 — $f"
+      fi
+      ;;
+  esac
+done
+
+# 3) Kotlin 린트 — Gradle wrapper가 있으면 실행, 없으면 skip
+if [ -x ./gradlew ]; then
+  CHANGED_KT="$(echo "$STAGED" | grep -E '\.kts?$' || true)"
+  if [ -n "$CHANGED_KT" ]; then
+    echo "→ ktlintCheck (변경된 Kotlin 파일)"
+    ./gradlew ktlintCheck -q --daemon || {
+      echo "✗ pre-commit: ktlint 실패. './gradlew ktlintFormat -q --daemon' 으로 자동 정정 후 재커밋 권장."
+      exit 1
+    }
+  fi
+else
+  echo "ℹ pre-commit: Gradle wrapper 미존재 — Phase B 이후에는 ktlintCheck가 강제됩니다."
+fi
+
+exit 0

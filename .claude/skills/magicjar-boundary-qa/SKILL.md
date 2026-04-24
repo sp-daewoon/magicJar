@@ -32,7 +32,36 @@ description: magicJar의 모듈 간 경계면(API↔DB↔UI↔AI 출력) 정합�
    - 시나리오: 종목 조회 → 일봉 다운로드 → 백테스트 실행 → AI 설명 → 대시보드 렌더링
    - 각 단계의 HTTP 로그·DB 로우·UI 렌더 결과를 `_workspace/qa/smoke-{YYYYMMDD}.md`에 저장
 
-3. **이슈 기록.**
+3. **스크린샷 캡처 (ADR 0011 게이트).**
+   - 경로: `_workspace/qa/screenshots/{pr-id-or-branch-slug}/`
+   - 파일명: `NN-{screen}-{state}.png` (예: `01-home-happy.png`, `02-journal-empty.png`)
+   - 최소 커버리지: happy + empty. 선택: error, loading, mobile(-mobile 접미어)
+   - 해상도 1440×900 기본 (Chromium `--window-size=1440,900`)
+   - 도구 우선순위: Playwright(Kotlin/JVM) > Chrome headless(`--headless=new --screenshot=...`) > 수동 캡처
+   - 디렉토리마다 `INDEX.md`에 표(파일명·화면·상태·캡처 시각·메모) 기록
+
+4. **보고서(`_workspace/qa/report-{timestamp}.md`) 생성 — 표준 양식.**
+   ```markdown
+   # QA Report — {brief 대상}
+
+   - Status: APPROVED | CHANGES_REQUESTED | BLOCKED
+   - QA at: <ISO-8601 KST>
+   - Screenshots: _workspace/qa/screenshots/{slug}/ (N장)
+
+   ## Scenario Coverage
+   - [x] ...
+
+   ## Boundary Checks
+   - [x] ...
+
+   ## Findings
+   (없으면 "없음")
+
+   ## Verdict
+   ...
+   ```
+
+5. **이슈 기록.**
    - 발견한 모든 경계 불일치를 `_workspace/qa/issues.md`에:
      ```
      ## ISSUE-003: SentimentAnalysis.score 단위 불일치
@@ -41,6 +70,10 @@ description: magicJar의 모듈 간 경계면(API↔DB↔UI↔AI 출력) 정합�
      - 담당 제안: ai-engineer + strategy-engine 협의
      - 상태: OPEN
      ```
+
+6. **PR 승인.**
+   - 위 1~5 모두 충족 + `Status: APPROVED` 보고서 존재 → `gh pr review {pr-id} --approve --body "QA 통과: _workspace/qa/report-{ts}.md"`
+   - 하나라도 실패 → `gh pr review {pr-id} --request-changes --body "..."` + 원 에이전트에 SendMessage.
 
 ## Incremental QA 트리거
 

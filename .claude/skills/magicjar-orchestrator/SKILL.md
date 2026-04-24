@@ -17,7 +17,13 @@ magicJar 프로젝트의 모든 비트리비얼 작업은 이 오케스트레이
 | strategy-engine | magicjar-backtest-engine, magicjar-trading-journal | 지표·DSL·백테스트·주문 로직·매매일지 자동 기록 |
 | ai-engineer | magicjar-spring-ai | Spring AI·프롬프트·감성·조언·매매 AI 복기 |
 | frontend | magicjar-dashboard, magicjar-trading-journal, magicjar-harness-dashboard | UI·차트·매매일지 페이지·하네스 운영 페이지 |
-| qa | magicjar-boundary-qa | 경계면 교차 검증 |
+| qa | magicjar-boundary-qa | 경계면 교차 검증 + 스크린샷 게이트 (ADR 0011) + PR 승인 |
+
+**브랜치 / PR 규약 (ADR 0009·0010·0011):**
+- 모든 에이전트 작업은 `agent/{agent-name}/{task-slug}` 브랜치에서 수행 후 `main`으로 PR.
+- 커밋 메시지는 Conventional Commits.
+- PR 머지 조건: 빌드·ktlint·경계면·스크린샷 아티팩트·QA APPROVED 모두 충족.
+- 자세한 운영 절차: `_workspace/arch/branching-and-qa-gates.md`.
 
 모든 Agent 호출은 `model: "opus"` 명시.
 
@@ -95,17 +101,26 @@ TeamDelete 후 Phase B 진입
 
 **멤버:** `qa` + Phase B에서 산출물을 낸 에이전트들
 
-**목표:** 경계면 교차 검증, 스모크 시나리오 통과, 이슈 리포트.
+**목표:** 경계면 교차 검증, 스모크 시나리오 통과, **스크린샷 게이트 통과(ADR 0011)**, 이슈 리포트, PR 승인.
 
 **실행:**
 ```
 TeamCreate(team_name="magicjar-qa", members=["qa", <Phase B 참여자들>])
-TaskCreate: qa가 `_workspace/qa/boundary-matrix.md` 갱신 → 이슈 발견 시 해당 에이전트에 수정 요청
-스모크 실행: ./gradlew :app:bootRun (profile=mock) → 종목조회→백테스트→AI설명→대시보드
-이슈가 블로커(P0)면 Phase B로 되돌아감, 그렇지 않으면 리포트 저장 후 종료
+각 Open PR(agent/*)에 대해:
+  1. qa가 브랜치 체크아웃(gh pr checkout) → ./gradlew check
+  2. 경계면 매트릭스 재검증
+  3. UI/사용자 흐름 영향 시 스크린샷 캡처 (_workspace/qa/screenshots/{slug}/)
+  4. _workspace/qa/report-{ts}.md 생성 (status: APPROVED|CHANGES_REQUESTED|BLOCKED)
+  5. APPROVED이면 gh pr review --approve, 아니면 --request-changes + SendMessage
 ```
 
-**통과 조건:** `_workspace/qa/issues.md`에 OPEN·P0 이슈 없음. 스모크 시나리오 전 구간 통과.
+**통과 조건 (PR별):**
+- 빌드·테스트 통과
+- `_workspace/qa/issues.md`에 OPEN·P0 이슈 없음
+- UI 변경 PR은 스크린샷 디렉토리 + `INDEX.md` 존재
+- QA 보고서 `status: APPROVED`
+
+**Phase C 완료 조건:** 해당 Phase에서 열린 모든 PR이 머지되었거나 `qa-exempt`로 면제 처리. main이 다시 그린 상태.
 
 ## 실행 모드 선택 요약
 

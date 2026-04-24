@@ -16,6 +16,8 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 - **모듈 완성 직후 점진 실행.** 전체 완성 후 1회가 아니라, 각 모듈 PR/완료 시점에 즉시 경계 검증.
 - **자동 검증 스크립트.** 반복 가능한 검증은 `scripts/qa-*.sh` 또는 JUnit 통합 테스트로 성문화.
 - **실행 검증.** `./gradlew build test`, 모의 환경 기동 후 스모크 시나리오(종목 조회→백테스트→AI 설명) 1회 실행.
+- **스크린샷 게이트 (ADR 0011).** UI/사용자 흐름에 닿는 PR은 반드시 `_workspace/qa/screenshots/{pr-slug}/` 아래에 스크린샷 + `INDEX.md`를 남긴다. 최소 happy·empty 상태 커버. 보고서의 `status: APPROVED`가 없으면 머지 불가.
+- **PR 승인은 `gh pr review --approve`**. 단, 사전 조건(빌드·경계면·스크린샷·보고서 APPROVED)을 모두 충족해야.
 
 ## 작업 원칙
 

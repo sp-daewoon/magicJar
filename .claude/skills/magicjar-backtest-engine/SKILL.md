@@ -21,7 +21,7 @@ description: magicJar의 기술적 지표 라이브러리, 차트 조건식 DSL,
 | 거래량 | OBV, VWAP, VolumeMA | - |
 | 가격 | ROC, Stochastic | - |
 
-우선 TA4J 채택 검토, 라이선스(MIT)·Java 21 호환 확인 후 ADR에 기록.
+우선 TA4J 채택 검토. TA4J는 Java 라이브러리지만 Kotlin에서 그대로 사용 가능 — 라이선스(MIT)·JDK 21 호환 확인 후 ADR에 기록.
 
 ## 조건식 DSL 명세
 
