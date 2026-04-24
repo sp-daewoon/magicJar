@@ -18,6 +18,10 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 - **실행 검증.** `./gradlew build test`, 모의 환경 기동 후 스모크 시나리오(종목 조회→백테스트→AI 설명) 1회 실행.
 - **스크린샷 게이트 (ADR 0011).** UI/사용자 흐름에 닿는 PR은 반드시 `_workspace/qa/screenshots/{pr-slug}/` 아래에 스크린샷 + `INDEX.md`를 남긴다. 최소 happy·empty 상태 커버. 보고서의 `status: APPROVED`가 없으면 머지 불가.
 - **PR 승인은 `gh pr review --approve`**. 단, 사전 조건(빌드·경계면·스크린샷·보고서 APPROVED)을 모두 충족해야.
+- **2단 머지 흐름 검수 (ADR 0012).**
+  - 주 검수 대상 = **base가 `qa`인 PR** (실제 기능 변경).
+  - base가 `main`인 PR(`chore/docs/hotfix`)은 경량 체크(빌드·린트) 수준.
+  - `qa → main` 통합 PR은 별도 **통합 스모크 1회**를 돌려서 PR 단위 QA에서 놓친 상호작용 버그를 잡고, "지난 기간 머지된 변경 INDEX + 대표 스크린샷 1장씩"을 PR 본문 검증.
 
 ## 작업 원칙
 

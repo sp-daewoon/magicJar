@@ -1,3 +1,10 @@
+<!--
+Base 브랜치 안내 (ADR 0012):
+- agent/<agent>/<task> 브랜치에서 만드는 PR → base=qa
+- chore/* · docs/* · hotfix/* 브랜치에서 만드는 PR → base=main
+`gh pr create --base qa` 또는 `--base main` 을 잊지 마세요.
+-->
+
 ## 요약
 <!-- 1~3줄. 무엇을 바꿨고 왜. -->
 

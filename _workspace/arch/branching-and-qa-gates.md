@@ -1,44 +1,72 @@
 # 브랜치 운영 & QA 게이트 실전 가이드
 
-ADR 0009·0010·0011의 실무 요약. 에이전트·사용자 모두 이 문서를 참조해서 매 PR을 수행한다.
+ADR 0009·0010·0011·**0012**의 실무 요약. 에이전트·사용자 모두 이 문서를 참조해서 매 PR을 수행한다.
 
-## 한눈에 보는 흐름
+## 한눈에 보는 흐름 (2단 머지, ADR 0012)
 
 ```
 [오케스트레이터가 작업 할당]
         │
         ▼
-[에이전트] git switch -c agent/{name}/{task}
+[에이전트] git switch -c agent/{name}/{task}     # main에서 분기
         │   (작업·커밋 반복)
         ▼
-[에이전트] git push -u origin ...    ──▶ Husky pre-push (로컬 1차 검증)
+[에이전트] git push -u origin ...               # Husky pre-push 로컬 1차 검증
         │
         ▼
-[에이전트] gh pr create   (PR 템플릿 채움)
+[에이전트] gh pr create --base qa               # 1단 PR — base는 qa
         │
         ▼
 [QA 에이전트] 체크아웃 → 실행 → 스크린샷 → 보고서
         │
-        ▼
-[QA]  _workspace/qa/report-{ts}.md  (status: APPROVED?)
+        ├── APPROVED
+        │       │
+        │       ▼
+        │   (사용자 승인) gh pr merge --squash    # ★ 승인 지점 1: qa로 진입
+        │       │
+        │       ▼
+        │   브랜치 qa (누적)
         │
-        ├── APPROVED         ──▶ squash merge → 브랜치 삭제
         └── CHANGES_REQUESTED ──▶ 원 에이전트에 SendMessage(수정 사항)
+
+
+...일정 주기 or Phase 완료 시점...
+
+[오케스트레이터] gh pr create --base main --head qa   # 2단 PR — qa → main
+        │     PR 본문에 지난 기간 머지된 변경 목록 + 대표 스크린샷 INDEX
+        ▼
+[QA 에이전트] 통합 스모크 1회 실행 → 추가 보고서
+        │
+        ▼
+(사용자 승인) gh pr merge --squash                   # ★ 승인 지점 2: main 진입
+        │
+        ▼
+main (배포 가능 상태)
 ```
+
+**승인 포인트는 정확히 두 개:**
+1. `agent/* → qa` 머지 (이 변경을 QA 영역에 넣음)
+2. `qa → main` 머지 (쌓인 변경을 배포 상태로 확정)
+
+그 외의 커밋·push·PR 생성·PR 리뷰·QA 작업은 전부 자율 실행 (`.claude/settings.json`의 `allow`).
 
 ## 브랜치 네이밍 (강제)
 
-| 패턴 | 예시 |
-|------|------|
-| `agent/backend-core/{task}` | `agent/backend-core/scaffold-multimodule` |
-| `agent/market-data/{task}` | `agent/market-data/kis-token-refresh` |
-| `agent/strategy-engine/{task}` | `agent/strategy-engine/rsi-backtest` |
-| `agent/ai-engineer/{task}` | `agent/ai-engineer/sentiment-prompt-v1` |
-| `agent/frontend/{task}` | `agent/frontend/journal-list-page` |
-| `agent/qa/{task}` | `agent/qa/phase-b-smoke` |
-| `chore/{slug}` | `chore/update-deps-2026-05` |
-| `docs/{slug}` | `docs/readme-quickstart` |
-| `hotfix/{slug}` | `hotfix/order-guard-bypass` |
+| 패턴 | 기본 base | 용도 |
+|------|----------|------|
+| `agent/backend-core/{task}` | `qa` | 기능·UI·도메인 변경 |
+| `agent/market-data/{task}` | `qa` | 외부 데이터 연동 |
+| `agent/strategy-engine/{task}` | `qa` | 전략·백테스트·매매일지 |
+| `agent/ai-engineer/{task}` | `qa` | LLM·프롬프트 |
+| `agent/frontend/{task}` | `qa` | UI·차트·매매일지 페이지 |
+| `agent/qa/{task}` | `qa` | QA 도구·스모크 자동화 개선 |
+| `chore/{slug}` | `main` | 하네스·설정·CI·의존성 |
+| `docs/{slug}` | `main` | 순수 문서 |
+| `hotfix/{slug}` | `main` (+ 사후 qa 백포트) | 운영 긴급 수정 |
+
+**영속 브랜치**
+- `main` — 배포 가능 상태 (엄격)
+- `qa` — 통합 검수 대상 누적 (영속, main에서 분기)
 
 슬러그는 kebab-case, 4~8단어 이내.
 
@@ -105,16 +133,31 @@ PR을 main으로 머지하기 전 모두 충족:
 
 **작업 시작:**
 ```bash
-git switch main && git pull --ff-only
-git switch -c agent/{name}/{task}
+git switch main && git pull --ff-only        # main 최신화
+git switch -c agent/{name}/{task}            # main에서 분기 (qa가 아님)
 ```
 
-**작업 완료:**
+> `qa`에 직접 커밋 금지. 모든 작업은 main에서 분기한 `agent/*`에서 수행하고, PR로만 qa에 들어간다.
+
+**작업 완료 (1단 PR, base=qa):**
 ```bash
 git add -A
 git commit -m "feat({scope}): ..."
 git push -u origin HEAD
-gh pr create --fill
+gh pr create --base qa --fill                # ★ base를 qa로 명시
+```
+
+**chore/docs/hotfix (base=main 예외):**
+```bash
+gh pr create --base main --fill              # qa 경유 없이 바로 main
+```
+
+**qa → main 주기 PR (오케스트레이터 책임):**
+```bash
+git switch main && git pull
+gh pr create --base main --head qa \
+  --title "chore(release): qa → main (Phase B batch)" \
+  --body "$(cat _workspace/qa/qa-to-main-summary-{date}.md)"
 ```
 
 **QA 요청:**

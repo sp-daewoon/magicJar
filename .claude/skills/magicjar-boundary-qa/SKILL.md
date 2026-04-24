@@ -75,6 +75,18 @@ description: magicJar의 모듈 간 경계면(API↔DB↔UI↔AI 출력) 정합�
    - 위 1~5 모두 충족 + `Status: APPROVED` 보고서 존재 → `gh pr review {pr-id} --approve --body "QA 통과: _workspace/qa/report-{ts}.md"`
    - 하나라도 실패 → `gh pr review {pr-id} --request-changes --body "..."` + 원 에이전트에 SendMessage.
 
+## 2단 머지 흐름 적용 (ADR 0012)
+
+- 주 검수 대상은 **base=`qa` PR**. 여기서 스크린샷·경계면·보고서 APPROVED 확인.
+- `base=main`인 `chore/docs/hotfix` PR은 경량 체크만 — 빌드·린트·문서 정합성 확인 후 `gh pr review --approve`.
+- **`qa → main` 통합 PR**이 생성되면 추가로:
+  1. `gh pr checkout {pr-id}` 후 `./gradlew check`
+  2. 통합 스모크 1회 실행 (여러 모듈이 함께 돌아가는 end-to-end 시나리오)
+  3. PR 본문의 "변경 INDEX"에 누락된 PR/스크린샷 없는지 대조
+  4. 추가 보고서 `_workspace/qa/qa-to-main-{date}.md` 생성
+  5. APPROVED면 `gh pr review --approve`
+- **`qa` 브랜치에 직접 push·커밋 금지 감시.** `gh api repos/sp-daewoon/magicJar/commits?sha=qa` 결과에서 머지 커밋 아닌 직접 커밋이 관찰되면 즉시 이슈로 기록.
+
 ## Incremental QA 트리거
 
 오케스트레이터는 다음 시점에 QA를 호출한다:
