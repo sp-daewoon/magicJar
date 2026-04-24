@@ -10,7 +10,7 @@ Spring Boot 3.x + Spring AI + 한국투자증권 KIS OpenAPI 기반. **백테스
 
 ## 핵심 스택 (예정)
 
-- Java 21, Spring Boot 3.3+, Gradle Kotlin DSL (멀티모듈)
+- **Kotlin 2.0 (K2)** + JDK 21 + Spring Boot 3.3+, Gradle Kotlin DSL (멀티모듈)
 - Spring AI (ChatClient, 기본 공급자 Anthropic Claude)
 - KIS OpenAPI (REST + WebSocket, 실계좌/모의계좌)
 - PostgreSQL / Redis (캐시·실시간 시세)
@@ -46,6 +46,14 @@ KIS_ACCOUNT_PRDT=01
 ANTHROPIC_API_KEY=...
 DART_API_KEY=...
 ```
+
+## 개발 워크플로우 요약
+
+- 브랜치: `agent/<agent>/<task>` · `chore/*` · `docs/*` · `hotfix/*` — `main` 직접 푸시 금지
+- 커밋: Conventional Commits (`feat|fix|chore|docs|refactor|test`)
+- 훅: **Husky v9**. 클론 직후 `npm install` 한 번 → `pre-commit`(시크릿 차단 · ktlint) + `pre-push`(main 차단 · `./gradlew check`) 자동 적용
+- PR: `.github/pull_request_template.md` 양식 필수. **QA 에이전트 APPROVED 보고서 + 스크린샷**이 있어야 `main` 머지 가능 (ADR 0009·0011)
+- 상세: `_workspace/arch/branching-and-qa-gates.md`
 
 ## Claude Code 하네스
 
