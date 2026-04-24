@@ -1,0 +1,57 @@
+# Build output
+build/
+out/
+bin/
+target/
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+*.war
+*.ear
+*.class
+
+# Gradle
+.gradle/
+!gradle-wrapper.properties
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.project
+.classpath
+.settings/
+.factorypath
+
+# macOS
+.DS_Store
+
+# Logs
+logs/
+*.log
+
+# Secrets / local profiles
+.env
+.env.*
+!.env.example
+application-local.yml
+application-local.yaml
+application-secret.*
+src/main/resources/application-local.*
+src/main/resources/application-secret.*
+
+# Harness workspace (intermediate artifacts of agents)
+_workspace/
+_workspace_prev/
+
+# Claude Code local overrides (per-user, do not commit)
+.claude/settings.local.json
+
+# Coverage
+coverage/
+.jacoco/
+
+# OS / editor backups
+*.swp
+*~
