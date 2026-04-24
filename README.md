@@ -89,11 +89,14 @@ DART_API_KEY=...        # 미설정 → 공시 수집 비활성
 
 ## 개발 워크플로우 요약
 
-- 브랜치: `agent/<agent>/<task>` · `chore/*` · `docs/*` · `hotfix/*` — `main` 직접 푸시 금지
+- 브랜치: `agent/<agent>/<task>` · `chore/*` · `docs/*` · `hotfix/*` — `main`·`qa` 직접 푸시 금지
+- 영속 브랜치 2개: **`main`**(배포 가능) ← **`qa`**(통합 검수 누적, ADR 0012)
+- 머지 흐름: `agent/* → qa → main` (2단, 각 단계의 `gh pr merge`는 사용자 승인)
 - 커밋: Conventional Commits (`feat|fix|chore|docs|refactor|test`)
-- 훅: **Husky v9**. 클론 직후 `npm install` 한 번 → `pre-commit`(시크릿 차단 · ktlint) + `pre-push`(main 차단 · `./gradlew check`) 자동 적용
-- PR: `.github/pull_request_template.md` 양식 필수. **QA 에이전트 APPROVED 보고서 + 스크린샷**이 있어야 `main` 머지 가능 (ADR 0009·0011)
-- 상세: `_workspace/arch/branching-and-qa-gates.md`
+- 훅: **Husky v9**. 클론 직후 `npm install` 한 번 → `pre-commit`(시크릿 차단 · ktlint) + `pre-push`(main·qa 차단 · `./gradlew check`) 자동 적용
+- 권한: `.claude/settings.json`이 일상적 행동(파일 편집·gradle·git·gh PR 조작)을 자동 허용, 되돌리기 어려운 것만 `ask`/`deny`
+- PR: `.github/pull_request_template.md` 양식 필수. **QA 에이전트 APPROVED 보고서 + 스크린샷**이 있어야 머지 가능 (ADR 0011)
+- 상세: `_workspace/arch/branching-and-qa-gates.md`, ADR 0009·0012
 
 ## Claude Code 하네스
 

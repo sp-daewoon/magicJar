@@ -19,11 +19,19 @@ magicJar 프로젝트의 모든 비트리비얼 작업은 이 오케스트레이
 | frontend | magicjar-dashboard, magicjar-trading-journal, magicjar-harness-dashboard | UI·차트·매매일지 페이지·하네스 운영 페이지 |
 | qa | magicjar-boundary-qa | 경계면 교차 검증 + 스크린샷 게이트 (ADR 0011) + PR 승인 |
 
-**브랜치 / PR 규약 (ADR 0009·0010·0011):**
-- 모든 에이전트 작업은 `agent/{agent-name}/{task-slug}` 브랜치에서 수행 후 `main`으로 PR.
+**브랜치 / PR 규약 (ADR 0009·0010·0011·0012):**
+- 모든 에이전트 작업은 `agent/{agent-name}/{task-slug}` 브랜치에서 수행.
+- **기본 base는 `qa`** (영속 QA 통합 브랜치, ADR 0012). `chore/*`·`docs/*`·`hotfix/*`만 base=main 예외.
 - 커밋 메시지는 Conventional Commits.
 - PR 머지 조건: 빌드·ktlint·경계면·스크린샷 아티팩트·QA APPROVED 모두 충족.
+- **`gh pr merge`는 `.claude/settings.json`의 `ask`에 지정되어 있어 사용자 승인 지점**. 승인 지점은 정확히 2개: (1) `agent/* → qa` 머지 (2) `qa → main` 머지.
 - 자세한 운영 절차: `_workspace/arch/branching-and-qa-gates.md`.
+
+**Phase C 완료 시 오케스트레이터 추가 책임 (2단 PR):**
+- Phase에서 `qa`에 누적된 변경들을 한 번에 main으로 올리는 PR을 생성.
+- `_workspace/qa/qa-to-main-summary-{date}.md`를 먼저 만들어 각 머지된 PR의 요약 + 대표 스크린샷 경로를 INDEX로 정리.
+- `gh pr create --base main --head qa --title "chore(release): qa → main (...)" --body "$(cat ...)"`.
+- 사용자 승인 후 `gh pr merge --squash` (이것도 ask). 머지 후 main → qa fast-forward 동기화로 drift 방지.
 
 모든 Agent 호출은 `model: "opus"` 명시.
 

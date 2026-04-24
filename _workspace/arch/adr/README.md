@@ -15,12 +15,13 @@
 | 0009 | 브랜치 전략과 머지 규칙 (Feature-branch + QA 게이트) | Accepted | 2026-04-25 |
 | 0010 | Git 훅 관리 — Husky v9 | Accepted | 2026-04-25 |
 | 0011 | QA 스크린샷 게이트 | Accepted | 2026-04-25 |
+| 0012 | Feature → QA → Main 2단 머지 흐름 (ADR 0009 보완) | Accepted | 2026-04-25 |
 
 ## 후속 예정(Proposed 후보)
 
-- 0012: GitHub Actions CI 파이프라인 (build / check / qa-gate 자동화)
-- 0013: KIS WebSocket 구독 상한(≈40) 대응 설계 (우선순위 큐 / 회전 구독)
-- 0014: 실시간 시세 파이프라인 — Redis Stream vs Pub/Sub 선택
-- 0015: 캔들 저장소 스케일업 트리거 및 TimescaleDB 도입 기준
-- 0016: 프롬프트 캐시·토큰 최적화 정책
-- 0017: commitlint · Release-Please 도입 여부
+- 0013: GitHub Actions CI 파이프라인 (build / check / qa-gate 자동화)
+- 0014: KIS WebSocket 구독 상한(≈40) 대응 설계 (우선순위 큐 / 회전 구독)
+- 0015: 실시간 시세 파이프라인 — Redis Stream vs Pub/Sub 선택
+- 0016: 캔들 저장소 스케일업 트리거 및 TimescaleDB 도입 기준
+- 0017: 프롬프트 캐시·토큰 최적화 정책
+- 0018: commitlint · Release-Please 도입 여부
