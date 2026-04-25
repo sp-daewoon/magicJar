@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page(~{::title/text()}, ~{::section})}">
+<head><title>종목</title></head>
+<body>
+<section>
+    <div class="flex items-baseline gap-3 mb-4">
+        <h1 class="text-2xl font-bold" th:text="${instrument.name}">삼성전자</h1>
+        <span class="text-sm text-slate-500" th:text="${instrument.code}">005930</span>
+        <span class="text-xs bg-slate-200 text-slate-700 rounded px-2 py-0.5" th:text="${instrument.market}">KOSPI</span>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div class="lg:col-span-2 bg-white rounded-lg shadow-sm p-4 border border-slate-200">
+            <div class="flex items-center justify-between mb-2">
+                <h2 class="text-sm font-semibold text-slate-500">일봉 차트 (최근 60일)</h2>
+                <!-- 시세 폴링 자리 (MVP). market-data 머지 후 WS 로 대체 예정 -->
+                <div hx-get="/api/quote/live"
+                     hx-trigger="every 3s"
+                     hx-swap="none"
+                     class="text-xs text-slate-400 htmx-indicator">폴링중…</div>
+            </div>
+            <canvas id="candleChart" height="260"></canvas>
+            <script th:inline="javascript">
+                /*<![CDATA[*/
+                const candles = /*[[${candles}]]*/ [];
+                document.addEventListener('DOMContentLoaded', function () {
+                    const ctx = document.getElementById('candleChart');
+                    if (!ctx || !window.Chart || candles.length === 0) return;
+                    const data = candles.map(function (c) {
+                        return {
+                            x: c.openTime,
+                            o: Number(c.open), h: Number(c.high), l: Number(c.low), c: Number(c.close)
+                        };
+                    });
+                    new Chart(ctx, {
+                        type: 'candlestick',
+                        data: { datasets: [{ label: /*[[${instrument.name}]]*/ '', data: data }] },
+                        options: {
+                            parsing: false,
+                            scales: {
+                                x: { type: 'time', time: { unit: 'day' }, adapters: { date: { zone: 'Asia/Seoul' } } },
+                                y: { beginAtZero: false }
+                            },
+                            plugins: { legend: { display: false } }
+                        }
+                    });
+                });
+                /*]]>*/
+            </script>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-sm p-4 border border-slate-200">
+            <h2 class="text-sm font-semibold text-slate-500 mb-2">최근 뉴스 · 공시</h2>
+            <ul class="space-y-2 text-sm">
+                <li th:each="n : ${news}" class="border-b border-slate-100 pb-2">
+                    <div class="font-medium" th:text="${n.title}">-</div>
+                    <div class="text-xs text-slate-500">
+                        <span th:text="${n.source}">-</span> ·
+                        <span th:text="${#temporals.format(n.publishedAt, 'yyyy-MM-dd HH:mm')}">-</span>
+                    </div>
+                </li>
+                <li th:if="${news.isEmpty()}" class="text-slate-400 text-xs">뉴스 수집기(market-data)가 조립되면 표시됩니다.</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="mt-6 bg-white rounded-lg shadow-sm p-4 border border-slate-200">
+        <h2 class="text-sm font-semibold text-slate-500 mb-2">AI 인사이트</h2>
+        <div th:if="${aiEnabled}" class="text-sm text-slate-700">AI 감성·전략 설명 패널이 여기에 표시됩니다.</div>
+        <div th:unless="${aiEnabled}" class="text-xs text-slate-400">AI 비활성 — ANTHROPIC_API_KEY 설정 시 활성화됩니다.</div>
+    </div>
+</section>
+</body>
+</html>

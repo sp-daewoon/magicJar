@@ -1,0 +1,47 @@
+/* magicJar 보조 스타일. Tailwind 유틸 외 커스텀이 필요한 부분만 담는다. */
+
+:root {
+    --mj-accent: #0e7490; /* teal-700, 한국 금융 HMI에 적합한 차분한 톤 */
+    --mj-up: #dc2626; /* 한국 증시 관행: 상승 빨강 */
+    --mj-down: #2563eb; /* 하락 파랑 */
+}
+
+body {
+    font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+}
+
+.mj-up { color: var(--mj-up); }
+.mj-down { color: var(--mj-down); }
+
+.mj-skeleton {
+    background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 37%, #f3f4f6 63%);
+    background-size: 400% 100%;
+    animation: mj-skeleton-shimmer 1.4s ease infinite;
+}
+
+@keyframes mj-skeleton-shimmer {
+    0% { background-position: 100% 50%; }
+    100% { background-position: 0 50%; }
+}
+
+/* 하네스 Phase 타임라인 도트 */
+.mj-phase-dot {
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 9999px;
+    display: inline-block;
+}
+.mj-phase-dot.current { background-color: var(--mj-accent); box-shadow: 0 0 0 3px rgba(14, 116, 144, 0.25); }
+.mj-phase-dot.done { background-color: #10b981; }
+.mj-phase-dot.idle { background-color: #9ca3af; }
+.mj-phase-dot.blocked { background-color: #ef4444; }
+
+/* HTMX 로딩 인디케이터 */
+.htmx-indicator { opacity: 0; transition: opacity 150ms ease-in; }
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator { opacity: 1; }
+
+/* WS 연결 상태 뱃지 */
+.mj-ws-status[data-state="connected"] { color: #10b981; }
+.mj-ws-status[data-state="disconnected"] { color: #ef4444; }
+.mj-ws-status[data-state="connecting"] { color: #f59e0b; }
