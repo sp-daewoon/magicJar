@@ -13,12 +13,13 @@ interface NewsJpaRepository : JpaRepository<NewsJpa, UUID> {
     ): List<NewsJpa>
 
     @Query(
-        """
-        SELECT n FROM NewsJpa n
-         WHERE n.publishedAt BETWEEN :from AND :to
-           AND n.instrumentsJson LIKE CONCAT('%', :code, '%')
-         ORDER BY n.publishedAt DESC
+        value = """
+        SELECT * FROM news_item
+         WHERE published_at BETWEEN :from AND :to
+           AND instruments::text LIKE CONCAT('%', :code, '%')
+         ORDER BY published_at DESC
         """,
+        nativeQuery = true,
     )
     fun searchByCode(
         @Param("code") code: String,
