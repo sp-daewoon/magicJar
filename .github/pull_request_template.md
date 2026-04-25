@@ -1,8 +1,7 @@
 <!--
-Base 브랜치 안내 (ADR 0012):
-- agent/<agent>/<task> 브랜치에서 만드는 PR → base=qa
-- chore/* · docs/* · hotfix/* 브랜치에서 만드는 PR → base=main
-`gh pr create --base qa` 또는 `--base main` 을 잊지 마세요.
+Base 브랜치 (ADR 0015 단일 머지 흐름):
+- 모든 PR base = main 직접
+- (ADR 0012의 영속 qa 브랜치는 폐기됨)
 -->
 
 ## 요약
@@ -10,8 +9,17 @@ Base 브랜치 안내 (ADR 0012):
 
 ## 담당
 - Agent: <!-- 예: strategy-engine -->
+- Model: <!-- opus / sonnet (ADR 0014) -->
+- Task: <!-- T-YYYYMMDD-HHMM-... (ADR 0018, _workspace/tasks/) -->
 - Skill(s): <!-- 예: magicjar-backtest-engine, magicjar-trading-journal -->
 - 관련 ADR: <!-- 예: 0006, 0007 -->
+
+## QA (ADR 0016)
+<!-- 다음 중 하나 선택:
+- QA: not required (이유: 단순 리팩터/문서/스타일 등)
+- QA: required (트리거 #N: ...) → qa 에이전트 검수 결과 첨부
+-->
+QA: <!-- not required / required (#N) -->
 
 ## 변경 유형
 - [ ] feat (새 기능)

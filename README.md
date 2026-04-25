@@ -87,16 +87,17 @@ ANTHROPIC_API_KEY=...   # 미설정 → NoOpAiClient 주입, AI 기능 비활성
 DART_API_KEY=...        # 미설정 → 공시 수집 비활성
 ```
 
-## 개발 워크플로우 요약
+## 개발 워크플로우 요약 (v2 — ADR 0013~0018)
 
-- 브랜치: `agent/<agent>/<task>` · `chore/*` · `docs/*` · `hotfix/*` — `main`·`qa` 직접 푸시 금지
-- 영속 브랜치 2개: **`main`**(배포 가능) ← **`qa`**(통합 검수 누적, ADR 0012)
-- 머지 흐름: `agent/* → qa → main` (2단, 각 단계의 `gh pr merge`는 사용자 승인)
-- 커밋: Conventional Commits (`feat|fix|chore|docs|refactor|test`)
-- 훅: **Husky v9**. 클론 직후 `npm install` 한 번 → `pre-commit`(시크릿 차단 · ktlint) + `pre-push`(main·qa 차단 · `./gradlew check`) 자동 적용
-- 권한: `.claude/settings.json`이 일상적 행동(파일 편집·gradle·git·gh PR 조작)을 자동 허용, 되돌리기 어려운 것만 `ask`/`deny`
-- PR: `.github/pull_request_template.md` 양식 필수. **QA 에이전트 APPROVED 보고서 + 스크린샷**이 있어야 머지 가능 (ADR 0011)
-- 상세: `_workspace/arch/branching-and-qa-gates.md`, ADR 0009·0012
+- **단일 메인 worktree** + 브랜치 전환 순차 작업 (ADR 0013)
+- **머지 1단**: `agent/<agent>/<task> → main` 직행 (ADR 0015 — qa 영속 브랜치 폐기)
+- **모델 차등** (ADR 0014): architect / ai-engineer / strategy-engine = **opus**, 나머지 4명 = **sonnet**. 부족 시 1회 opus 에스컬레이션
+- **Git author 분리** (ADR 0017): 에이전트별 `magicjar-<agent>` author로 commit → `git log`에서 누가 했는지 즉시 식별
+- **Task 파일 시스템** (ADR 0018): 작업 시작 시 `_workspace/tasks/<id>.md` 생성. `node scripts/task.mjs <start|check|touch|block|done|archive|list>` CLI
+- **QA On-Demand** (ADR 0016): 7개 트리거(돈 흐름·도메인 변경·새 UI 흐름·보안·회귀·Phase 통합·명시 판단) 시에만. 평소엔 셀프 + 자동 검사
+- 커밋: Conventional Commits. 훅: Husky(`pre-commit` 시크릿·ktlint, `pre-push` main 차단·`./gradlew check`)
+- 권한: `.claude/settings.json`이 일상 자동 허용, `gh pr merge`·main push·`npm publish`만 사용자 승인
+- 상세: `_workspace/arch/branching-and-qa-gates.md`, ADR 0009·0013·0015·0016·0018
 
 ## Claude Code 하네스
 

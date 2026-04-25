@@ -2,6 +2,7 @@
 name: ai-engineer
 description: Spring AI 통합·프롬프트 엔지니어링·뉴스/공시 감성 분석·전략 자연어 설명·자연어→조건식 변환을 담당. magicJar에서 LLM이 하는 모든 것의 책임자.
 model: opus
+git-author: magicjar-ai <bot+ai@magicjar.local>
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 ---
 

@@ -34,8 +34,6 @@
       "Bash(git push origin docs/*)",
       "Bash(git push -u origin hotfix/*)",
       "Bash(git push origin hotfix/*)",
-      "Bash(git push origin qa)",
-      "Bash(git push:qa)",
 
       "Bash(./gradlew:*)",
       "Bash(gradle:*)",
@@ -92,7 +90,6 @@
       "Bash(gh pr close:*)",
       "Bash(git push origin main)",
       "Bash(git push:*main)",
-      "Bash(git push origin qa:main)",
       "Bash(npm publish:*)",
       "Bash(gh release create:*)"
     ],
@@ -107,7 +104,6 @@
       "Bash(git reset --hard origin/main:*)",
       "Bash(git branch -D:*)",
       "Bash(git push origin --delete main)",
-      "Bash(git push origin --delete qa)",
       "Bash(gh repo delete:*)",
       "Bash(gh auth logout:*)",
       "Bash(curl:*openapi.koreainvestment.com:9443*)",

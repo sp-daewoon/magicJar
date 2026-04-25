@@ -1,199 +1,173 @@
 ---
 name: magicjar-orchestrator
-description: magicJar(마법의항아리) 한국 주식 자동매매 프로젝트의 모든 구현·설계·확장·유지보수 작업을 전문 에이전트 팀으로 조율하는 오케스트레이터. Spring Boot + Spring AI + KIS OpenAPI 기반 백테스트/모의/실전 시스템 구축, 모듈 추가, 전략 추가, AI 기능 추가, 화면 추가, 경계면 검증, 재실행/업데이트/부분 수정 요청에 반드시 이 스킬을 사용. "magicJar 시작", "자동매매 기능 추가", "전체 빌드", "백테스트 돌려줘", "부분 재실행", "이전 결과 기반 개선"도 포함.
+description: magicJar(마법의항아리) 한국 주식 자동매매 프로젝트의 모든 구현·설계·확장·유지보수 작업을 단일 메인 worktree에서 자율 조율하는 오케스트레이터. Spring Boot + Spring AI + KIS OpenAPI 기반 백테스트/모의/실전 시스템 구축, 모듈 추가, 전략 추가, AI 기능 추가, 화면 추가, 부분 재실행, 이전 결과 기반 개선 요청에 반드시 이 스킬을 사용. "magicJar 시작", "자동매매 기능 추가", "전체 빌드", "백테스트 돌려줘", "부분 재실행", "이전 결과 기반 개선"도 포함.
 ---
 
-# magicjar-orchestrator — magicJar 팀 조율자
+# magicjar-orchestrator — magicJar 자율 운영 v2
 
-magicJar 프로젝트의 모든 비트리비얼 작업은 이 오케스트레이터를 통한다. 7명의 전문 에이전트(`architect`, `backend-core`, `market-data`, `strategy-engine`, `ai-engineer`, `frontend`, `qa`)를 Phase별 하이브리드 모드로 조율한다.
+magicJar 프로젝트의 모든 비트리비얼 작업은 이 오케스트레이터를 통한다. **단일 메인 worktree + 순차 작업 + 모델 차등 + 머지 단순화 + QA on-demand + Task 파일 시스템** 기반. 에이전트 7명은 worktree 격리가 아닌 "역할 모자"로 사용 — 메인 세션이 그 모자만 바꿔 쓰며 작업한다.
 
-## 에이전트 지도
+## 에이전트 지도 (model 차등 — ADR 0014)
 
-| 에이전트 | 전용 스킬 | 주 담당 |
-|---------|---------|--------|
-| architect | magicjar-adr | 시스템 설계·ADR·모듈 경계 |
-| backend-core | magicjar-spring-boot-scaffold, magicjar-harness-dashboard | Spring Boot 뼈대·도메인 모델·공용 인프라·하네스 대시보드 백엔드 |
-| market-data | magicjar-kis-openapi | KIS API·시세·뉴스·공시 수집 |
-| strategy-engine | magicjar-backtest-engine, magicjar-trading-journal | 지표·DSL·백테스트·주문 로직·매매일지 자동 기록 |
-| ai-engineer | magicjar-spring-ai | Spring AI·프롬프트·감성·조언·매매 AI 복기 |
-| frontend | magicjar-dashboard, magicjar-trading-journal, magicjar-harness-dashboard | UI·차트·매매일지 페이지·하네스 운영 페이지 |
-| qa | magicjar-boundary-qa | 경계면 교차 검증 + 스크린샷 게이트 (ADR 0011) + PR 승인 |
+| 에이전트 | 모델 | 전용 스킬 | 주 담당 |
+|---------|------|---------|--------|
+| architect | **opus** | magicjar-adr | 시스템 설계·ADR·모듈 경계 |
+| backend-core | sonnet | magicjar-spring-boot-scaffold, magicjar-harness-dashboard | Spring Boot 뼈대·도메인 모델·공용 인프라·하네스 대시보드 백엔드 |
+| market-data | sonnet | magicjar-kis-openapi | KIS API·시세·뉴스·공시 수집 |
+| strategy-engine | **opus** | magicjar-backtest-engine, magicjar-trading-journal | 지표·DSL·백테스트·주문 로직·매매일지 자동 기록 |
+| ai-engineer | **opus** | magicjar-spring-ai | Spring AI·프롬프트·감성·조언·매매 AI 복기 |
+| frontend | sonnet | magicjar-dashboard, magicjar-trading-journal, magicjar-harness-dashboard | UI·차트·매매일지 페이지·하네스 운영 페이지 |
+| qa | sonnet | magicjar-boundary-qa | **On-Demand** 경계면 교차 검증 (ADR 0016 트리거 시에만) |
 
-**브랜치 / PR 규약 (ADR 0009·0010·0011·0012):**
-- 모든 에이전트 작업은 `agent/{agent-name}/{task-slug}` 브랜치에서 수행.
-- **기본 base는 `qa`** (영속 QA 통합 브랜치, ADR 0012). `chore/*`·`docs/*`·`hotfix/*`만 base=main 예외.
-- 커밋 메시지는 Conventional Commits.
-- PR 머지 조건: 빌드·ktlint·경계면·스크린샷 아티팩트·QA APPROVED 모두 충족.
-- **`gh pr merge`는 `.claude/settings.json`의 `ask`에 지정되어 있어 사용자 승인 지점**. 승인 지점은 정확히 2개: (1) `agent/* → qa` 머지 (2) `qa → main` 머지.
-- 자세한 운영 절차: `_workspace/arch/branching-and-qa-gates.md`.
+**에스컬레이션**: 기본 모델로 시도 후 결과 부족 시 1회 opus로 재시도. 더 부족하면 작업 분할 또는 사용자 의사결정 요청. (ADR 0014)
 
-**Phase C 완료 시 오케스트레이터 추가 책임 (2단 PR):**
-- Phase에서 `qa`에 누적된 변경들을 한 번에 main으로 올리는 PR을 생성.
-- `_workspace/qa/qa-to-main-summary-{date}.md`를 먼저 만들어 각 머지된 PR의 요약 + 대표 스크린샷 경로를 INDEX로 정리.
-- `gh pr create --base main --head qa --title "chore(release): qa → main (...)" --body "$(cat ...)"`.
-- 사용자 승인 후 `gh pr merge --squash` (이것도 ask). 머지 후 main → qa fast-forward 동기화로 drift 방지.
+## 운영 모델 (v2 핵심)
 
-모든 Agent 호출은 `model: "opus"` 명시.
+### 1. 단일 메인 worktree (ADR 0013)
+- `.claude/worktrees/agent-*` 디렉토리는 **만들지 않는다**.
+- 모든 작업은 본 디렉토리(`/Users/ak-song/magic_ch1`)에서 브랜치 전환으로 순차.
+- 예외: 본 디렉토리가 dirty인데 급한 경우 임시 worktree 1회 + 끝나면 즉시 `git worktree remove`.
+
+### 2. 작업 시작 시 task 파일 (ADR 0018) — 반드시
+```bash
+git switch main && git pull --ff-only
+git switch -c agent/<agent>/<task-slug>
+node scripts/task.mjs start --agent <a> --goal "..." --deliverables "..., ..., ..."
+```
+task 파일이 없으면 시작 안 한 것으로 간주. 대시보드가 "고아 brach" 경고.
+
+### 3. 작업 중 task 파일 갱신
+- 결과물 한 개 완료 → `node scripts/task.mjs check "<항목>"`
+- 의미 있는 진전 → `node scripts/task.mjs touch "<메모>"`
+- 막힘 → `node scripts/task.mjs block --reason "..."`
+- 사용자 개입이 필요한 BLOCKED는 즉시 사용자에게 보고
+
+### 4. 커밋 시 author 분리 (ADR 0017)
+```bash
+git -c user.name="magicjar-<agent>" -c user.email="bot+<agent>@magicjar.local" \
+    commit -m "feat(<scope>): ..."
+```
+또는 작업 시작 시 `git config user.name/email` 설정 (전환 시 갱신 잊지 말기).
+
+### 5. PR 생성 (ADR 0015 — `agent/* → main` 직행)
+```bash
+gh pr create --base main --fill --body "$(...)"
+node scripts/task.mjs done --pr <N>
+```
+- 기본 base는 **main** (qa 영속 브랜치 폐기)
+- PR 본문에 `QA: not required (사유)` 또는 `QA: required (트리거 #N)` 명시
+
+### 6. QA 호출 (ADR 0016 — On-Demand)
+다음 7개 트리거 중 하나라도 해당 시 QA 에이전트 호출:
+1. 돈 흐름 변경 (OrderSender·실계좌·안전 게이트)
+2. 공용 도메인 모델 깨는 변경
+3. 새 사용자 흐름 UI
+4. 보안 경계 (인증·키·시크릿)
+5. 이전 버그 회귀 영역
+6. Phase 통합·실배포 직전
+7. 사용자 또는 메인 세션 명시 판단
+
+이 외에는 메인 세션이 셀프 리뷰 + pre-commit/pre-push 자동 검사로 충분.
+
+### 7. 머지 (사용자 승인 1회)
+`gh pr merge <N> --squash --delete-branch` — `.claude/settings.json`의 `ask` 대상.
+머지 후:
+```bash
+git switch main && git pull --ff-only
+node scripts/task.mjs archive T-...
+```
+
+## 표준 작업 순서 (Phase B+ 기본)
+
+설계가 정해진 상태에서 새 기능 추가 시 권장 순서:
+
+```
+1. architect       (필요 시 — 새 ADR·모듈 경계 변경)
+2. backend-core    (도메인 모델·공용 인프라 우선)
+3. market-data     (외부 어댑터)
+4. strategy-engine (도메인 로직·매매일지)
+5. ai-engineer     (LLM 통합)
+6. frontend        (UI — 항상 마지막)
+7. qa              (트리거 시에만)
+```
+
+> frontend가 마지막인 이유: 백엔드·AI가 정해진 다음에 UI를 짜야 재작업 적음.
 
 ## Phase 0: 컨텍스트 확인 (항상 첫 단계)
 
-오케스트레이터가 트리거되면 **가장 먼저** 다음을 확인해 실행 모드를 결정한다:
+오케스트레이터가 트리거되면 **가장 먼저** 다음 확인:
 
-1. `_workspace/` 존재 여부 → 초기 실행 vs 후속
-2. 사용자 요청 패턴 분석:
-   - "처음부터", "새로 시작" → **초기 실행**. 기존 `_workspace/`가 있다면 `_workspace_prev/`로 이동
-   - "{모듈명}만 다시", "{에이전트}에게 {작업}" → **부분 재실행**. 해당 에이전트만 재호출
-   - "전체 업데이트", "이전 결과 개선" → **전체 증분 실행**. 각 에이전트가 기존 산출물 기반으로 보완
-3. 필요 시 `MEMORY.md`와 `memory/project_overview.md`를 확인하여 프로젝트 제약 재확인
+1. `_workspace/_harness-state.json` — 현재 Phase, 활성 작업
+2. `_workspace/tasks/*.md` — 진행 중 task가 있는지 (있으면 그 작업 이어가기)
+3. 사용자 요청 패턴 분석:
+   - "처음부터" → **초기 실행**
+   - "{모듈}만 다시", "{에이전트}에게 {작업}" → **부분 재실행**
+   - "전체 업데이트", "이전 결과 개선" → **증분 실행**
+4. `MEMORY.md`와 `memory/*.md` 확인하여 사용자 선호·정책 재확인 (특히 `feedback_autonomy.md`, `feedback_qa_on_demand.md`)
 
-결정된 모드를 한 줄 요약으로 사용자에게 알린 뒤 Phase A로 진입.
+결정된 모드를 한 줄 요약으로 사용자에게 알린 뒤 작업 진입.
 
-**Phase 전환 시 반드시 `_workspace/_harness-state.json` 갱신** — 아래 스키마로 기록하여 `/harness` 대시보드가 현재 상태를 읽을 수 있게 한다:
+**Phase 전환 시 `_workspace/_harness-state.json` 갱신 의무.**
 
-```json
-{
-  "currentPhase": "A|B|C|DONE",
-  "phaseHistory": [
-    {"phase": "0", "startedAt": "ISO-8601", "finishedAt": "ISO-8601", "mode": "initial|partial|incremental"},
-    {"phase": "A", "startedAt": "...", "finishedAt": "...", "agents": ["architect","backend-core"]}
-  ],
-  "activeAgents": ["..."],
-  "blockedAgents": [],
-  "updatedAt": "ISO-8601"
-}
+## 작업 호출 패턴 (sub-agent)
+
+작은 작업은 메인 세션이 직접 처리. 큰 작업·도메인 분리가 필요한 작업만 sub-agent 호출:
+
+```
+Agent({
+  subagent_type: "architect",      // 커스텀 에이전트 (새 세션에선 자동 등록)
+  model: "opus",                    // 명시 — 또는 escalation 시 override
+  prompt: ".claude/agents/architect.md를 역할로, magicjar-adr 스킬 적용. 작업 시작 시 task 파일 생성. 목표: <...>",
+  run_in_background: false          // 보통 false — 단일 worktree라 동시 실행 회피
+})
 ```
 
-(상세는 `magicjar-harness-dashboard` 스킬 참조.)
+**중요**: `run_in_background: true`는 진짜 독립 작업일 때만. 기본은 직렬 처리.
 
-## Phase A: 설계 (에이전트 팀 모드)
+## 데이터 전달
 
-**실행 모드:** 에이전트 팀 (실시간 토론·합의)
-
-**멤버:** `architect`, `backend-core`
-
-**목표:** 이번 작업에 필요한 ADR·모듈 경계·도메인 모델 합의.
-
-**실행:**
-```
-TeamCreate(team_name="magicjar-design", members=["architect","backend-core"])
-TaskCreate로 세부 작업 할당 (예: "KIS 연동 모듈의 포트 인터페이스 설계", "백테스트 엔진 위치 결정")
-→ architect가 ADR 초안 → backend-core가 구현 타당성 검토 → 합의
-→ 결과물: _workspace/arch/* (ADR, module-boundaries, tech-stack)
-TeamDelete 후 Phase B 진입
-```
-
-**통과 조건:** 필요한 ADR이 Accepted 상태, 모듈 경계 문서 존재, 공용 도메인 모델 확정.
-
-## Phase B: 구현 (서브 에이전트 병렬 모드)
-
-**실행 모드:** 서브 에이전트 병렬 (`run_in_background: true`)
-
-**멤버:** `market-data`, `strategy-engine`, `ai-engineer`, `frontend` (+ 필요 시 `backend-core`)
-
-**목표:** Phase A의 설계를 각 도메인별로 병렬 구현.
-
-**실행:**
-- 각 에이전트는 독립 모듈을 작업. 공용 의존은 backend-core가 먼저 제공.
-- 병렬 호출 시 backend-core를 먼저 완료시키고, 그 이후에 나머지 4개를 병렬 실행하는 **2단 병렬**을 기본으로 한다:
-  ```
-  1단: Agent(backend-core)            # 공용 타입·설정 먼저
-  2단: Agent(market-data) || Agent(strategy-engine) || Agent(ai-engineer) || Agent(frontend)
-  ```
-- 각 에이전트는 `_workspace/{module}/` 에 산출물 저장.
-
-**통과 조건:** 각 모듈 빌드 성공(`./gradlew :{module}:build`), 각 모듈의 `_workspace/` 스키마·샘플 파일 존재.
-
-## Phase C: 검증 (에이전트 팀 모드, 증분)
-
-**실행 모드:** 에이전트 팀 (qa 중심)
-
-**멤버:** `qa` + Phase B에서 산출물을 낸 에이전트들
-
-**목표:** 경계면 교차 검증, 스모크 시나리오 통과, **스크린샷 게이트 통과(ADR 0011)**, 이슈 리포트, PR 승인.
-
-**실행:**
-```
-TeamCreate(team_name="magicjar-qa", members=["qa", <Phase B 참여자들>])
-각 Open PR(agent/*)에 대해:
-  1. qa가 브랜치 체크아웃(gh pr checkout) → ./gradlew check
-  2. 경계면 매트릭스 재검증
-  3. UI/사용자 흐름 영향 시 스크린샷 캡처 (_workspace/qa/screenshots/{slug}/)
-  4. _workspace/qa/report-{ts}.md 생성 (status: APPROVED|CHANGES_REQUESTED|BLOCKED)
-  5. APPROVED이면 gh pr review --approve, 아니면 --request-changes + SendMessage
-```
-
-**통과 조건 (PR별):**
-- 빌드·테스트 통과
-- `_workspace/qa/issues.md`에 OPEN·P0 이슈 없음
-- UI 변경 PR은 스크린샷 디렉토리 + `INDEX.md` 존재
-- QA 보고서 `status: APPROVED`
-
-**Phase C 완료 조건:** 해당 Phase에서 열린 모든 PR이 머지되었거나 `qa-exempt`로 면제 처리. main이 다시 그린 상태.
-
-## 실행 모드 선택 요약
-
-| 상황 | 모드 |
-|------|------|
-| 초기 빌드 (A→B→C 전체) | 하이브리드 (팀/서브/팀) |
-| 단일 에이전트 작업(예: "프롬프트만 고치자") | 서브 에이전트 1회 호출, QA 스킵 또는 부분 QA |
-| 설계 재검토 | Phase A만 실행 |
-| 통합 이슈만 집중 | Phase C만 실행 |
-
-## 데이터 전달 프로토콜
-
-- **파일 기반(1순위):** 모든 중간 산출물은 `_workspace/{module}/` 에. 이전 Phase 산출물은 보존.
-- **태스크 기반:** `TaskCreate/TaskUpdate`로 의존성 관리 (예: market-data의 샘플 데이터 준비 완료 → strategy-engine 작업 시작).
-- **메시지 기반:** 팀 모드에서만 `SendMessage` 사용. 서브 에이전트 모드에선 Agent 반환값으로 수집.
-
-파일명 규칙: `_workspace/{module}/{artifact-kebab-case}.{ext}`.
-최종 사용자 산출물은 프로젝트 루트(`src/`, `README.md` 등)에 출력, 중간 산출물은 `_workspace/` 유지.
+- **파일 기반**: 모든 산출물 `_workspace/<module>/`에. 다른 에이전트가 읽음.
+- **task 파일**: 진행 상태·체크리스트·BLOCKED는 `_workspace/tasks/<id>.md`에.
+- **메시지 기반**: 단일 메인 세션 모드에선 SendMessage 거의 불필요. 사용자 보고만.
 
 ## 에러 핸들링
 
 | 유형 | 전략 |
 |------|------|
-| 에이전트 1회 실패 | 동일 입력으로 1회 재호출 → 재실패 시 해당 결과 없이 진행 + `_workspace/qa/issues.md`에 BLOCKED 기록 |
-| 빌드 실패 | backend-core에 즉시 SendMessage, 다른 에이전트 작업 정지 |
-| 서로 다른 에이전트의 결론 상충 | 둘 중 어느 쪽도 삭제 금지, 양쪽 출처 병기하여 architect에 중재 요청(Phase A 팀 재소집) |
-| 외부 API 장애(KIS/LLM) | 해당 기능만 mock 폴백, 리포트에 명시 |
-| 비트리비얼 결정 요구 | 사용자에게 AskUserQuestion으로 확인 후 진행 |
+| sub-agent 1회 실패 | 동일 입력으로 재시도 1회. 재실패 시 모델 escalate(opus)로 1회. 또 실패면 task 파일 BLOCKED + 사용자 보고. |
+| 빌드 실패 | 즉시 중단, 원인 분석 후 자체 수정. 외부 의존(API 한도·네트워크) 시 BLOCKED + 30분 후 재시도. |
+| 토큰 한도 도달 | task 파일 BLOCKED + 작업 분할 시도. 사용자 보고. |
+| 다른 에이전트 결론 상충 | 사용자 의사결정 요청 (자동매매 도메인이라 자동 합의 위험) |
+| pre-push 차단 | hook 메시지 따라 수정 (브랜치명·시크릿 등) |
 
-## 사용자에게 투명하게 보고할 것
+## Phase 종료 시점
 
-각 Phase 종료 시 한 단락 요약:
-- 무엇을 했는가 (에이전트별 산출물 간단 리스트)
-- 남은 이슈 (있으면)
-- 다음 Phase 진입 여부 (자동 vs 사용자 확인)
+- Phase 내 모든 작업 머지 완료 → `_workspace/_harness-state.json` 갱신
+- 회고 문서 `docs/phase-N-summary` 또는 `_workspace/arch/phase-N-retrospective.md` 작성 (선택)
+- 사용자에게 다음 Phase 진입 여부 확인
 
-## Phase 7: 피드백 수집 & 진화
+## 사용자에게 보고할 것 (간결)
 
-전체 실행 완료 후 반드시 사용자에게 묻는다:
-- "결과 중 개선하고 싶은 부분이 있나요?"
-- "팀 구성·워크플로우에 바꾸고 싶은 점이 있나요?"
-
-피드백 유형별 수정 대상:
-- 결과물 품질 → 해당 에이전트의 전용 스킬 수정
-- 에이전트 역할 → `.claude/agents/{name}.md` 수정
-- Phase 순서 → 본 오케스트레이터 수정
-- 팀 구성 → 오케스트레이터 + 에이전트
-
-모든 변경은 **CLAUDE.md의 변경 이력 테이블**에 기록.
+- **작업 시작**: "X 작업 시작 (task T-..., agent <a>, model <m>)"
+- **진척**: 사용자가 묻기 전엔 침묵. 대시보드(`_workspace/dashboard.html`)가 진척 노출.
+- **블로커**: 즉시 보고. "BLOCKED — 이유, 사용자 결정 필요."
+- **PR 생성**: "PR #N 만들었음. 머지 승인 부탁."
+- **머지 후**: "머지 완료. 다음 작업: ..."
 
 ## 테스트 시나리오
 
-### 정상 흐름
-1. 사용자: "magicJar MVP 전체 구축해줘"
-2. Phase 0: `_workspace/` 없음 → 초기 실행
-3. Phase A: architect+backend-core 팀이 ADR 3~5건 생성, 모듈 경계 확정
-4. Phase B: backend-core 스캐폴딩 후 4개 에이전트 병렬 구현, `_workspace/` 산출물 쌓임
-5. Phase C: qa가 스모크 통과 확인, issues.md OPEN=0
-6. 종료 요약 + 피드백 요청
+### 정상 흐름 (단일 작업)
+1. 사용자: "frontend에 새 화면 추가해줘"
+2. Phase 0: 활성 task 없음 → 새 작업 시작
+3. `git switch -c agent/frontend/new-screen` + task 파일 생성
+4. frontend 에이전트(sonnet) 호출 → 작업
+5. 결과 검토 → 문제 없음
+6. 커밋(magicjar-frontend author) + push + PR(base=main)
+7. 사용자 머지 승인 → main 반영
+8. task archive
 
-### 에러 흐름
-1. 사용자: "백테스트 엔진 개선해줘"
-2. Phase 0: `_workspace/strategy/` 존재 → 부분 재실행
-3. strategy-engine만 재호출, ai-engineer에 `SendMessage`로 DSL 변경사항 고지
-4. strategy-engine이 기존 DSL 버전과 호환성 검토 → 호환 불가 발견 → DSL v2 ADR 요청
-5. 오케스트레이터가 Phase A 팀을 소규모로 재소집(architect+strategy-engine)하여 ADR 추가
-6. DSL v2 적용 후 qa가 경계 매트릭스 재검증
-7. 종료 요약
+### 에러 흐름 (escalation)
+1. ai-engineer가 sonnet으로 프롬프트 작성 → 결과 품질 미달 (메인 세션 판단)
+2. 같은 작업 opus로 1회 재시도
+3. 통과 → 진행
+4. (또 부족하면 작업 분할 또는 사용자 결정)

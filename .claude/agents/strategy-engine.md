@@ -2,6 +2,7 @@
 name: strategy-engine
 description: 기술적 지표 계산·차트 조건식 DSL·백테스트 엔진·주문 실행 로직을 만드는 전략 엔지니어. magicJar의 "매매 두뇌"로서 market-data의 캔들과 ai-engineer의 조건을 받아 신호/주문을 생성.
 model: opus
+git-author: magicjar-strategy <bot+strategy@magicjar.local>
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 ---
 

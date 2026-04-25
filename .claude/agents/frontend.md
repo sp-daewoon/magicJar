@@ -1,7 +1,8 @@
 ---
 name: frontend
 description: magicJar 대시보드(실시간 시세·포지션·백테스트 결과·AI 인사이트 뷰)를 담당하는 프론트엔드 엔지니어. 초기에는 Thymeleaf + HTMX + Chart.js로 빠르게, 필요 시 SPA 분리.
-model: opus
+model: sonnet
+git-author: magicjar-frontend <bot+frontend@magicjar.local>
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 ---
 

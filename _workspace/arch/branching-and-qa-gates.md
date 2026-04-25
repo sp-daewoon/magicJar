@@ -1,74 +1,72 @@
-# 브랜치 운영 & QA 게이트 실전 가이드
+# 브랜치 운영 & QA 게이트 실전 가이드 (v2)
 
-ADR 0009·0010·0011·**0012**의 실무 요약. 에이전트·사용자 모두 이 문서를 참조해서 매 PR을 수행한다.
+ADR 0009·0010·0011·**0013·0014·0015·0016·0017·0018**의 실무 요약. v1(2단 머지·worktree 7개)에서 **v2(단일 worktree·1단 머지·on-demand QA·model 차등·task 시스템)**로 전환됨.
 
-## 한눈에 보는 흐름 (2단 머지, ADR 0012)
+## 한눈에 보는 흐름
 
 ```
-[오케스트레이터가 작업 할당]
+[오케스트레이터(메인 세션) 작업 할당]
         │
         ▼
-[에이전트] git switch -c agent/{name}/{task}     # main에서 분기
-        │   (작업·커밋 반복)
-        ▼
-[에이전트] git push -u origin ...               # Husky pre-push 로컬 1차 검증
+git switch main && git pull --ff-only
+git switch -c agent/<agent>/<task-slug>          # 브랜치 생성
         │
         ▼
-[에이전트] gh pr create --base qa               # 1단 PR — base는 qa
+node scripts/task.mjs start --agent <a> --goal "..."  # task 파일 (ADR 0018)
         │
         ▼
-[QA 에이전트] 체크아웃 → 실행 → 스크린샷 → 보고서
-        │
-        ├── APPROVED
-        │       │
-        │       ▼
-        │   (사용자 승인) gh pr merge --squash    # ★ 승인 지점 1: qa로 진입
-        │       │
-        │       ▼
-        │   브랜치 qa (누적)
-        │
-        └── CHANGES_REQUESTED ──▶ 원 에이전트에 SendMessage(수정 사항)
-
-
-...일정 주기 or Phase 완료 시점...
-
-[오케스트레이터] gh pr create --base main --head qa   # 2단 PR — qa → main
-        │     PR 본문에 지난 기간 머지된 변경 목록 + 대표 스크린샷 INDEX
-        ▼
-[QA 에이전트] 통합 스모크 1회 실행 → 추가 보고서
+[작업 — 메인 worktree에서 직접 또는 sub-agent 호출]
+   ├─ task.mjs check "<항목>"   결과물 한 개 완료마다
+   ├─ task.mjs touch "<메모>"   진척마다
+   └─ git commit (author = magicjar-<agent>)    ADR 0017
         │
         ▼
-(사용자 승인) gh pr merge --squash                   # ★ 승인 지점 2: main 진입
+git push -u origin agent/<a>/<task>     # pre-push 자동 검증
         │
         ▼
-main (배포 가능 상태)
+gh pr create --base main --fill         # base = main 직접 (ADR 0015)
+node scripts/task.mjs done --pr N
+        │
+        ▼
+[QA 트리거 7개 중 하나 해당? — ADR 0016]
+   ├─ 해당 → qa 에이전트 호출 (별도 보고서 작성)
+   └─ 미해당 → 메인 세션 셀프 리뷰 + pre-commit/pre-push 자동 검사로 충분
+        │
+        ▼
+[사용자 승인] gh pr merge N --squash --delete-branch       (ask)
+        │
+        ▼
+git switch main && git pull
+node scripts/task.mjs archive T-...
 ```
 
-**승인 포인트는 정확히 두 개:**
-1. `agent/* → qa` 머지 (이 변경을 QA 영역에 넣음)
-2. `qa → main` 머지 (쌓인 변경을 배포 상태로 확정)
+**사용자 승인 지점은 정확히 1개**: `gh pr merge`. 그 외 모든 단계는 메인 세션 자율.
 
-그 외의 커밋·push·PR 생성·PR 리뷰·QA 작업은 전부 자율 실행 (`.claude/settings.json`의 `allow`).
-
-## 브랜치 네이밍 (강제)
+## 브랜치 네이밍
 
 | 패턴 | 기본 base | 용도 |
 |------|----------|------|
-| `agent/backend-core/{task}` | `qa` | 기능·UI·도메인 변경 |
-| `agent/market-data/{task}` | `qa` | 외부 데이터 연동 |
-| `agent/strategy-engine/{task}` | `qa` | 전략·백테스트·매매일지 |
-| `agent/ai-engineer/{task}` | `qa` | LLM·프롬프트 |
-| `agent/frontend/{task}` | `qa` | UI·차트·매매일지 페이지 |
-| `agent/qa/{task}` | `qa` | QA 도구·스모크 자동화 개선 |
-| `chore/{slug}` | `main` | 하네스·설정·CI·의존성 |
-| `docs/{slug}` | `main` | 순수 문서 |
-| `hotfix/{slug}` | `main` (+ 사후 qa 백포트) | 운영 긴급 수정 |
+| `agent/architect/<task>` | `main` | 시스템 설계·ADR 변경 |
+| `agent/backend-core/<task>` | `main` | Spring Boot 뼈대·도메인·인프라 |
+| `agent/market-data/<task>` | `main` | KIS API·데이터 수집 |
+| `agent/strategy-engine/<task>` | `main` | 지표·DSL·백테스트·매매일지 |
+| `agent/ai-engineer/<task>` | `main` | Spring AI·프롬프트 |
+| `agent/frontend/<task>` | `main` | UI·차트 |
+| `agent/qa/<task>` | `main` | QA 도구·스모크 자동화 |
+| `chore/<slug>` | `main` | 하네스·설정·CI·의존성 |
+| `docs/<slug>` | `main` | 순수 문서 |
+| `hotfix/<slug>` | `main` | 운영 긴급 수정 |
 
-**영속 브랜치**
-- `main` — 배포 가능 상태 (엄격)
-- `qa` — 통합 검수 대상 누적 (영속, main에서 분기)
+영속 브랜치 = `main` 단 하나. (qa 영속 브랜치 폐기 — ADR 0015)
 
-슬러그는 kebab-case, 4~8단어 이내.
+## 모델 차등 (ADR 0014)
+
+| 에이전트 | 기본 모델 |
+|---------|----------|
+| architect, ai-engineer, strategy-engine | **opus** |
+| backend-core, market-data, frontend, qa | **sonnet** |
+
+**에스컬레이션**: 결과 부족 시 1회 opus 재시도. 또 부족하면 작업 분할 또는 사용자 결정.
 
 ## 커밋 메시지 (Conventional Commits)
 
@@ -76,109 +74,113 @@ main (배포 가능 상태)
 feat(strategy): add RSI oversold signal
 fix(market-data): KIS token cache TTL off-by-one
 chore(husky): tighten pre-push check
-docs(adr): add 0011 qa screenshot gate
+docs(adr): add 0018 task file system
 refactor(core): split OrderResult into sealed class hierarchy
 test(ai): add sentiment parsing edge cases
 ```
 
-스코프는 모듈 이름(`core`, `market-data`, `strategy`, `ai`, `order-exec`, `web`, `app`, `husky`, `adr`, `qa`, `deps` 등).
+## 커밋 author 분리 (ADR 0017)
 
-## PR 템플릿 (PR Description에 필수)
+```bash
+git -c user.name="magicjar-backend-core" \
+    -c user.email="bot+backend-core@magicjar.local" \
+    commit -m "feat(core): ..."
+```
+
+또는 작업 시작 시 `git config user.name/email`로 한 번 설정 후 작업.
+
+`git log --pretty=format:"%h %an %s"` 출력에서 누가 했는지 즉시 식별.
+
+## QA 트리거 7개 (ADR 0016)
+
+이 중 하나라도 해당 시 qa 에이전트 호출:
+
+1. **돈 흐름** — `OrderSender`, 실계좌, 안전 게이트
+2. **공용 도메인 모델 깨는 변경** — `core/domain/*`
+3. **새 사용자 흐름 UI**
+4. **보안 경계** — 인증·키·시크릿
+5. **이전 버그 회귀 영역**
+6. **Phase 통합·실배포 직전**
+7. **사용자 또는 메인 세션의 명시 판단**
+
+이외엔 PR 본문에 `QA: not required (사유)` 한 줄 명시.
+
+## "프로덕트한 코드" 기준 (ADR 0016)
+
+게이트 대신 코드 자체 기준:
+- 단위 테스트 커버리지 70%+ 지향
+- 공개 API·도메인 모델 KDoc 1줄 이상
+- 에러 처리 sealed class·Result 타입
+- 외부 호출 Resilience4j Circuit Breaker
+- 시크릿 환경변수만, 로그 노출 금지
+- 로그 구조화(JSON) + 마스킹
+- 각 모듈 짧은 `README.md`
+
+## PR 템플릿 (요약)
 
 ```markdown
 ## 요약
-<1~3줄 — 무엇을 바꿨고 왜>
+<1~3줄>
 
 ## 담당
-- Agent: strategy-engine
-- Skill(s): magicjar-backtest-engine, magicjar-trading-journal
-- 관련 ADR: 0006, 0007
+- Agent: <a>
+- Model: <opus | sonnet>
+- Task: T-YYYYMMDD-HHMM-...
+- Skill(s): magicjar-...
+- 관련 ADR: ...
+
+## QA (ADR 0016)
+QA: not required (사유) | required (#N)
+
+## 변경 유형
+- [x] feat / fix / refactor / chore / docs / test
 
 ## 테스트 방법
-- `./gradlew :strategy:test`
-- 수동: `./gradlew :app:bootRun --args='--spring.profiles.active=mock'` → /journal
-
-## QA 체크리스트 (QA 에이전트가 채움)
-- [ ] 경계면 매트릭스 재검증
-- [ ] 스모크 시나리오 통과
-- [ ] 스크린샷 저장 완료 (`_workspace/qa/screenshots/<slug>/`)
-- [ ] 보고서 생성 (`_workspace/qa/report-<ts>.md`, status: APPROVED)
-
-## Screenshot Summary
-(UI 변경 있을 때만. 주요 화면 1장 임베드 + 나머지 경로 링크)
+- ./gradlew :<module>:test
+- 수동 시나리오: ...
 ```
 
-GitHub에 `.github/pull_request_template.md` 를 만들어 이 양식을 자동 주입 (Phase B 초기 backend-core가 생성).
+## 머지 조건
 
-## QA 스크린샷 규칙 (ADR 0011 요약)
+- 빌드·테스트 통과 (pre-push가 자동)
+- ktlint 통과 (pre-commit 자동)
+- task 파일 status=DONE + PR 번호 연결
+- QA required PR이라면 보고서 APPROVED
+- 사용자 `gh pr merge` 승인
 
-- 경로: `_workspace/qa/screenshots/{pr-id or branch-slug}/`
-- 파일명: `NN-{screen}-{state}.png` (`01-home-happy.png`, `02-journal-list-empty.png`)
-- 상태 커버리지(최소): happy·empty, 선택: error·loading
-- 해상도 기본 1440×900, 모바일 필요 시 `-mobile` 접미어
-- 각 스크린샷 디렉토리에 `INDEX.md` — 표 형식(파일명, 화면, 상태, 캡처 시각, 메모)
+## 에이전트 치트시트
 
-## 머지 조건 체크 (병합 차단 기준)
-
-PR을 main으로 머지하기 전 모두 충족:
-
-- [ ] 빌드·테스트 통과 (CI 도입 전에는 로컬 `./gradlew check`)
-- [ ] ktlint 통과
-- [ ] QA 에이전트 APPROVED 보고서 존재
-- [ ] UI/사용자 흐름 변경 시 스크린샷 아티팩트 존재
-- [ ] PR Description이 템플릿 완전히 채워짐
-- [ ] main과 최신 상태 (rebase 또는 merge)
-
-## 에이전트 전용 치트시트
-
-**작업 시작:**
 ```bash
-git switch main && git pull --ff-only        # main 최신화
-git switch -c agent/{name}/{task}            # main에서 분기 (qa가 아님)
-```
+# 1. 새 작업 시작
+git switch main && git pull --ff-only
+git switch -c agent/<a>/<task>
+node scripts/task.mjs start --agent <a> --branch agent/<a>/<task> \
+   --goal "..." --deliverables "...; ...; ..."
 
-> `qa`에 직접 커밋 금지. 모든 작업은 main에서 분기한 `agent/*`에서 수행하고, PR로만 qa에 들어간다.
+# 2. 작업 진행
+# ... 코드 작성 ...
+node scripts/task.mjs check "<완료 항목>"
+node scripts/task.mjs touch "<메모>"
 
-**작업 완료 (1단 PR, base=qa):**
-```bash
-git add -A
-git commit -m "feat({scope}): ..."
+# 3. 커밋 (author 분리)
+git -c user.name="magicjar-<a>" -c user.email="bot+<a>@magicjar.local" \
+    commit -m "feat(<scope>): ..."
+
+# 4. push & PR
 git push -u origin HEAD
-gh pr create --base qa --fill                # ★ base를 qa로 명시
-```
+gh pr create --base main --fill
+node scripts/task.mjs done --pr N
 
-**chore/docs/hotfix (base=main 예외):**
-```bash
-gh pr create --base main --fill              # qa 경유 없이 바로 main
-```
-
-**qa → main 주기 PR (오케스트레이터 책임):**
-```bash
+# 5. 머지 후 정리
 git switch main && git pull
-gh pr create --base main --head qa \
-  --title "chore(release): qa → main (Phase B batch)" \
-  --body "$(cat _workspace/qa/qa-to-main-summary-{date}.md)"
-```
-
-**QA 요청:**
-```
-SendMessage(to: qa, "PR #NN 브랜치 agent/.../...에 대해 QA 바랍니다. 화면 변경: 매매일지 목록")
-```
-
-## QA 에이전트 전용 치트시트
-
-```bash
-gh pr checkout {pr-id}
-./gradlew :app:bootRun --args='--spring.profiles.active=mock' &   # 또는 수동
-# 스크린샷 캡처 → _workspace/qa/screenshots/{slug}/
-# 경계면 점검 → _workspace/qa/boundary-matrix.md 갱신
-# 보고서 → _workspace/qa/report-{ts}.md (status: APPROVED)
-gh pr review {pr-id} --approve --body "QA 통과: _workspace/qa/report-{ts}.md"
+node scripts/task.mjs archive T-...
 ```
 
 ## 자주 하는 실수
 
-- **main 직접 push** — Husky pre-push가 1차 차단, 원격 branch protection이 2차 차단.
-- **커밋 후 스크린샷 깜빡** — PR에 스크린샷 경로 누락하면 QA가 CHANGES_REQUESTED.
-- **QA Report status 누락** — 보고서 있어도 `status: APPROVED` 키가 없으면 자동화 체크 실패.
-- **브랜치 네이밍 오류** — `agent/frontend/foo`가 아니라 `feature/foo`로 만들면 오케스트레이터 추적 실패.
+- **main 직접 push** — pre-push가 차단
+- **task 파일 없이 작업 시작** — 대시보드에 "고아 브랜치" 경고, push 시 hook 권고
+- **qa 트리거 무시** — 돈 흐름·도메인 모델 변경에 `QA: not required` 적으면 안 됨
+- **commit author 통일된 채로** — `git -c user.name=...`로 작업 주체 분리
+- **task 파일 archive 잊음** — 머지 후 즉시 archive (`done/` 디렉토리로)
+- **worktree 만들기** — 단일 메인 worktree가 기본. 만들 때 명시 ADR 또는 사용자 승인 필요.

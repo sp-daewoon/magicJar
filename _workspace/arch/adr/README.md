@@ -14,14 +14,21 @@
 | 0008 | 하네스 운영 페이지(`/harness`) 노출 정책 | Accepted | 2026-04-25 |
 | 0009 | 브랜치 전략과 머지 규칙 (Feature-branch + QA 게이트) | Accepted | 2026-04-25 |
 | 0010 | Git 훅 관리 — Husky v9 | Accepted | 2026-04-25 |
-| 0011 | QA 스크린샷 게이트 | Accepted | 2026-04-25 |
-| 0012 | Feature → QA → Main 2단 머지 흐름 (ADR 0009 보완) | Accepted | 2026-04-25 |
+| 0011 | QA 스크린샷 게이트 | Accepted (개정 by 0016) | 2026-04-25 |
+| 0012 | Feature → QA → Main 2단 머지 흐름 | **Partially Superseded by 0015** | 2026-04-25 |
+| 0013 | 단일 Worktree + 순차 작업 정책 | Accepted | 2026-04-25 |
+| 0014 | 에이전트별 모델 차등 + 에스컬레이션 | Accepted | 2026-04-25 |
+| 0015 | 머지 흐름 단순화 (`agent/* → main`) | Accepted | 2026-04-25 |
+| 0016 | QA On-Demand 정책 (MVP) | Accepted | 2026-04-25 |
+| 0017 | 에이전트별 Git Author 분리 | Accepted | 2026-04-25 |
+| 0018 | Task 파일 시스템 | Accepted | 2026-04-25 |
 
 ## 후속 예정(Proposed 후보)
 
-- 0013: GitHub Actions CI 파이프라인 (build / check / qa-gate 자동화)
-- 0014: KIS WebSocket 구독 상한(≈40) 대응 설계 (우선순위 큐 / 회전 구독)
-- 0015: 실시간 시세 파이프라인 — Redis Stream vs Pub/Sub 선택
-- 0016: 캔들 저장소 스케일업 트리거 및 TimescaleDB 도입 기준
-- 0017: 프롬프트 캐시·토큰 최적화 정책
-- 0018: commitlint · Release-Please 도입 여부
+- 0019: GitHub Actions CI 파이프라인 (build / check 자동화)
+- 0020: KIS WebSocket 구독 상한(≈40) 대응 설계 (우선순위 큐 / 회전 구독)
+- 0021: 실시간 시세 파이프라인 — Redis Stream vs Pub/Sub 선택
+- 0022: 캔들 저장소 스케일업 트리거 및 TimescaleDB 도입 기준
+- 0023: 프롬프트 캐시·토큰 최적화 정책
+- 0024: commitlint · Release-Please 도입 여부
+- 0025: 실서비스 진입 시 QA 강제 게이트 회귀 (ADR 0016 sunset)
