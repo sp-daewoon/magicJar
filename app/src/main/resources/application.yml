@@ -2,7 +2,11 @@ spring:
   application:
     name: magicjar
   config:
-    import: optional:classpath:application-ai.yml
+    import:
+      - optional:classpath:application-ai.yml
+      - optional:classpath:application-market-data.yml
+      - optional:classpath:application-strategy.yml
+      - optional:classpath:application-web.yml
   profiles:
     active: mock
   jackson:
