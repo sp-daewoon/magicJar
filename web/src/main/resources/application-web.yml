@@ -1,0 +1,40 @@
+# web 모듈 전용 설정. app 모듈이 `spring.config.import: optional:classpath:application-web.yml` 로 불러온다.
+server:
+  port: 8080
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+spring:
+  thymeleaf:
+    prefix: classpath:/templates/
+    suffix: .html
+    mode: HTML
+    encoding: UTF-8
+    cache: false
+  mvc:
+    format:
+      date: yyyy-MM-dd
+      date-time: yyyy-MM-dd'T'HH:mm:ssXXX
+  web:
+    locale: ko_KR
+    locale-resolver: fixed
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui/index.html
+    operations-sorter: method
+  api-docs:
+    path: /v3/api-docs
+
+# AI 비활성 플래그(ai 모듈 조립 전까지 true로 간주). 실제 ai 모듈 빈 등록 시 false로 덮어쓰임.
+magicjar:
+  ai:
+    enabled: ${MAGICJAR_AI_ENABLED:false}
+  harness:
+    state-file: ${MAGICJAR_HARNESS_STATE_FILE:_workspace/_harness-state.json}
+    agents-dir: ${MAGICJAR_HARNESS_AGENTS_DIR:.claude/agents}
+    qa-issues-file: ${MAGICJAR_HARNESS_QA_ISSUES_FILE:_workspace/qa/issues.md}
+    claude-md-file: ${MAGICJAR_HARNESS_CLAUDE_MD_FILE:CLAUDE.md}
