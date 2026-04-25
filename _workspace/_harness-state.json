@@ -1,12 +1,11 @@
 {
-  "currentPhase": "A_DONE",
+  "currentPhase": "B_MERGED_TO_QA",
   "phaseHistory": [
     {
       "phase": "0",
       "startedAt": "2026-04-25T03:40:00+09:00",
       "finishedAt": "2026-04-25T03:45:00+09:00",
-      "mode": "initial",
-      "notes": "빈 워크스페이스 확인, 초기 실행. API 키 없음 제약 인지."
+      "mode": "initial"
     },
     {
       "phase": "A",
@@ -14,35 +13,40 @@
       "finishedAt": "2026-04-25T04:10:00+09:00",
       "agents": ["architect", "backend-core"],
       "mode": "team",
-      "artifacts": [
-        "_workspace/arch/adr/0001-language-and-framework.md",
-        "_workspace/arch/adr/0002-multi-module-structure.md",
-        "_workspace/arch/adr/0003-broker-api-kis-openapi.md",
-        "_workspace/arch/adr/0004-datastores.md",
-        "_workspace/arch/adr/0005-llm-provider-spring-ai.md",
-        "_workspace/arch/adr/0006-order-executor-three-modes.md",
-        "_workspace/arch/adr/0007-trading-journal-architecture.md",
-        "_workspace/arch/adr/0008-harness-dashboard-exposure.md",
-        "_workspace/arch/adr/0009-branching-strategy.md",
-        "_workspace/arch/adr/0010-git-hooks-husky.md",
-        "_workspace/arch/adr/0011-qa-screenshot-gate.md",
-        "_workspace/arch/adr/README.md",
-        "_workspace/arch/module-boundaries.md",
-        "_workspace/arch/tech-stack.md",
-        "_workspace/arch/branching-and-qa-gates.md",
-        "_workspace/backend/domain-model-draft.md",
-        "_workspace/backend/setup-notes.md",
-        "package.json",
-        ".husky/pre-commit",
-        ".husky/pre-push",
-        ".github/pull_request_template.md"
+      "notes": "12 ADR Accepted (0001~0012), Kotlin 2.0 도메인 모델, 모듈 경계 확정"
+    },
+    {
+      "phase": "B",
+      "startedAt": "2026-04-25T04:20:00+09:00",
+      "finishedAt": "2026-04-25T17:50:00+09:00",
+      "mode": "subagent-parallel-staged",
+      "stage1": ["backend-core"],
+      "stage1Status": "MERGED_TO_MAIN",
+      "stage1Note": "PR #2 머지 → main 7644320",
+      "stage2": ["market-data", "strategy-engine", "ai-engineer", "frontend"],
+      "stage2Status": "MERGED_TO_QA",
+      "stage2Note": "1차 동시 4개 호출 한도 hit → 2차 분할(2+2) 재실행으로 마무리. 4개 PR(#4·#5·#6·#7) qa squash 머지 완료. application.yml 충돌은 4 모듈 import 통합으로 해소.",
+      "mergedCommits": [
+        {"pr": 4, "agent": "ai-engineer", "qaCommit": "d451bee", "via": "GH auto-merge"},
+        {"pr": 6, "agent": "market-data", "qaCommit": "fb4cb02", "via": "local squash + heredoc conflict resolve"},
+        {"pr": 7, "agent": "strategy-engine", "qaCommit": "fa4628a", "via": "local squash + heredoc conflict resolve"},
+        {"pr": 5, "agent": "frontend", "qaCommit": "18a0dfd", "via": "local squash + heredoc conflict resolve, with QA-001 보강 포함"}
       ],
-      "notes": "Phase A 완료. 11개 ADR Accepted. Kotlin 2.0 도메인 모델, 3-mode OrderSender, 매매일지, 하네스 대시보드, 브랜치 전략(ADR 0009), Husky 훅(ADR 0010) 실제 설치, QA 스크린샷 게이트(ADR 0011) 포함."
+      "qaResult": {
+        "round1": "3 APPROVED + 1 CHANGES_REQUESTED (PR#5 P1 템플릿 4개 누락)",
+        "round1Issues": ["QA-001 P1 (FIXED)", "QA-002 P3 (FIXED)", "QA-003 P3 OPEN", "QA-004 P3 OPEN"],
+        "round2": "frontend 보강 push 후 qa 재검수 시작 → 사용자 결정으로 보류, 회고 문서로 대체"
+      },
+      "exceptions": [
+        "Husky pre-push qa-direct-push 차단 룰을 batch squash merge 위해 1회 --no-verify 우회 (사용자 명시 승인)"
+      ]
     }
   ],
   "activeAgents": [],
   "blockedAgents": [],
-  "nextPhase": "B",
-  "nextPhaseTriggerHint": "새 세션에서 'magicjar-orchestrator 스킬로 Phase B 시작' 입력. backend-core가 magicjar-spring-boot-scaffold 스킬로 Gradle 멀티모듈 뼈대 먼저, 이후 market-data/strategy/ai/frontend 병렬.",
-  "updatedAt": "2026-04-25T04:10:00+09:00"
+  "openIssues": ["QA-003 P3 (market-data 두 샘플 JSON 형식 차이 README 명시)", "QA-004 P3 (strategy 테이블 JPA 엔티티/포트 부재)"],
+  "nextPhase": "qa-to-main",
+  "nextPhaseTriggerHint": "qa→main PR 생성 + 사용자 승인 머지(ADR 0012 승인 지점 2). 그 후 Phase D(이슈 해소 + 환경 셋업 + 통합 스모크) 진입.",
+  "retrospective": "_workspace/_retrospective-phase-b.md",
+  "updatedAt": "2026-04-25T17:50:00+09:00"
 }
