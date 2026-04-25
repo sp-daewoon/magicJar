@@ -2,6 +2,7 @@
 name: architect
 description: magicJar의 전체 시스템 아키텍처·모듈 경계·기술 결정·ADR을 담당하는 수석 설계자. Spring Boot + Spring AI 기반 한국 주식 자동매매 시스템의 상위 설계 책임.
 model: opus
+git-author: magicjar-architect <bot+architect@magicjar.local>
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 ---
 

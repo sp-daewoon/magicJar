@@ -41,11 +41,12 @@ application-secret.*
 src/main/resources/application-local.*
 src/main/resources/application-secret.*
 
-# Harness workspace — 설계 산출물(ADR, module-boundaries 등)은 커밋 대상 (ADR 0009, B 옵션)
-# _workspace/ 자체는 커밋. 단, 이전 Phase 스냅샷과 일시적 실행 로그는 제외.
+# Harness workspace — 설계 산출물(ADR·tasks·module-boundaries 등)은 커밋 대상 (ADR 0009, B 옵션)
+# _workspace/ 자체는 커밋. 다만 이전 Phase 스냅샷·실행 로그·생성 산출물은 제외.
 _workspace_prev/
 _workspace/**/smoke-*.md
 _workspace/_harness-state.lock
+_workspace/dashboard.html
 
 # Claude Code local overrides (per-user, do not commit)
 .claude/settings.local.json

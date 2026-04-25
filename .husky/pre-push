@@ -1,30 +1,18 @@
 #!/usr/bin/env sh
-# magicJar pre-push — ADR 0010 / 0009 / 0011
+# magicJar pre-push — ADR 0009·0010·0015
 
 set -e
 
 # 0) 현재 브랜치
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 
-# 1) main/qa 직접 push 차단 (원격 branch protection 보조)
+# 1) main 직접 push 차단 (원격 branch protection 보조)
 while read -r local_ref local_sha remote_ref remote_sha; do
   case "$remote_ref" in
     refs/heads/main)
       echo "✗ pre-push: main 브랜치 직접 푸시는 금지입니다 (ADR 0009)."
       echo "  ↳ agent/*/* 또는 chore|docs|hotfix/* 브랜치에서 PR을 만들어 주세요."
       exit 1
-      ;;
-    refs/heads/qa)
-      # qa 브랜치도 직접 push 금지 — PR 머지로만 갱신 (ADR 0012).
-      # 예외: 최초 생성 시 빈 qa 브랜치를 올리는 경우만 허용 (main과 동일 sha).
-      LOCAL_SHA="$local_sha"
-      MAIN_SHA="$(git rev-parse main 2>/dev/null || echo '')"
-      if [ "$LOCAL_SHA" != "$MAIN_SHA" ]; then
-        echo "✗ pre-push: qa 브랜치에 직접 푸시 금지 (ADR 0012)."
-        echo "  ↳ 변경은 agent/*/* 에서 PR(base=qa)을 통해서만 들어가야 합니다."
-        echo "  ↳ 예외적으로 main → qa fast-forward 동기화만 허용."
-        exit 1
-      fi
       ;;
   esac
 done
@@ -49,12 +37,12 @@ else
   echo "ℹ pre-push: Gradle wrapper 미존재 — 추후 활성화 예정."
 fi
 
-# 4) QA APPROVED 보고서 존재 경고 (agent/*/* 브랜치에 한해 권고)
+# 4) agent/* 브랜치는 task 파일 존재 권고 (ADR 0018)
 case "$BRANCH" in
   agent/*/*)
-    if ! ls _workspace/qa/report-*.md > /dev/null 2>&1; then
-      echo "⚠ pre-push: QA 보고서(_workspace/qa/report-*.md)가 아직 없습니다."
-      echo "  머지 전에 QA 에이전트의 APPROVED 리포트가 필요합니다 (ADR 0011)."
+    if ! ls _workspace/tasks/*.md > /dev/null 2>&1; then
+      echo "⚠ pre-push: 활성 task 파일이 없습니다 (ADR 0018)."
+      echo "  ↳ node scripts/task.mjs start --agent <a> --goal \"...\" 으로 등록하세요."
     fi
     ;;
 esac
