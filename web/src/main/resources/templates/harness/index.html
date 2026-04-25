@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page(~{::title/text()}, ~{::section})}">
+<head><title>하네스 운영</title></head>
+<body>
+<section hx-get="/harness" hx-trigger="every 10s" hx-select="section" hx-swap="outerHTML">
+    <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <div class="flex items-center gap-3">
+            <h1 class="text-2xl font-bold">하네스 운영</h1>
+            <!-- 현재 Phase 배지 -->
+            <span class="text-xs font-bold px-2.5 py-1 rounded uppercase tracking-wide"
+                  th:classappend="${state.currentPhase.startsWith('0') || state.currentPhase.startsWith('A')} ? 'bg-blue-100 text-blue-800'
+                                : (${state.currentPhase.startsWith('B')} ? 'bg-amber-100 text-amber-800'
+                                : (${state.currentPhase.startsWith('C')} ? 'bg-green-100 text-green-800'
+                                : (${state.currentPhase == 'DONE'} ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-100 text-slate-700')))"
+                  th:text="${state.currentPhase}">B_DONE</span>
+        </div>
+        <div class="text-xs text-slate-500">
+            상태 갱신: <span th:text="${#temporals.format(state.generatedAt, 'yyyy-MM-dd HH:mm:ss')}">-</span>
+            · 자동 새로고침 10초
+        </div>
+    </div>
+
+    <!-- 1행: 에이전트 카드 + Phase 타임라인 -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+        <!-- 에이전트 카드 -->
+        <div class="lg:col-span-2 bg-white rounded-lg shadow-sm p-4 border border-slate-200">
+            <h2 class="text-sm font-semibold text-slate-500 mb-3">에이전트</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div th:each="a : ${state.agents}"
+                     class="border border-slate-200 rounded-lg p-3 hover:shadow-sm">
+                    <div class="flex items-center justify-between mb-1">
+                        <div class="font-semibold text-sm" th:text="${a.name}">backend-core</div>
+                        <div class="flex items-center gap-1.5 text-xs">
+                            <span class="inline-block w-2 h-2 rounded-full"
+                                  th:classappend="${a.status == 'RUNNING'} ? 'bg-green-500 animate-pulse'
+                                                : (${a.status == 'BLOCKED'} ? 'bg-red-500'
+                                                : 'bg-slate-300')"></span>
+                            <span class="text-slate-600" th:text="${a.status}">IDLE</span>
+                        </div>
+                    </div>
+                    <p class="text-xs text-slate-600 leading-snug" th:text="${a.roleSummary}">role</p>
+                    <div class="mt-2 flex flex-wrap gap-1">
+                        <span th:each="s : ${a.skills}"
+                              class="inline-block text-[10px] bg-slate-100 text-slate-600 rounded px-1.5 py-0.5"
+                              th:text="${s}">skill</span>
+                    </div>
+                    <div th:if="${a.lastActivity != null}" class="mt-2 text-[10px] text-slate-400">
+                        최근 활동
+                        <span th:text="${#temporals.format(a.lastActivity, 'yyyy-MM-dd HH:mm')}">-</span>
+                    </div>
+                </div>
+                <div th:if="${state.agents.isEmpty()}"
+                     class="col-span-full text-xs text-slate-400 py-6 text-center">
+                    등록된 에이전트가 없습니다.
+                </div>
+            </div>
+        </div>
+
+        <!-- Phase 타임라인 -->
+        <div class="bg-white rounded-lg shadow-sm p-4 border border-slate-200">
+            <h2 class="text-sm font-semibold text-slate-500 mb-3">Phase 타임라인</h2>
+            <ol class="relative border-l-2 border-slate-200 pl-4 space-y-3">
+                <li th:each="p : ${state.phaseHistory}" class="text-xs">
+                    <span class="absolute -left-1.5 mt-1 w-3 h-3 rounded-full bg-teal-600"></span>
+                    <div class="font-semibold text-sm" th:text="${p.phase}">A_DONE</div>
+                    <div class="text-slate-500">
+                        모드 <span class="font-medium" th:text="${p.mode}">team</span>
+                    </div>
+                    <div class="text-slate-400 mt-0.5">
+                        <span th:text="${#temporals.format(p.startedAt, 'MM-dd HH:mm')}">-</span>
+                        <span th:if="${p.finishedAt != null}">
+                            → <span th:text="${#temporals.format(p.finishedAt, 'MM-dd HH:mm')}">-</span>
+                        </span>
+                    </div>
+                    <div class="mt-1 flex flex-wrap gap-1">
+                        <span th:each="ag : ${p.agents}"
+                              class="text-[10px] bg-slate-100 text-slate-600 rounded px-1.5 py-0.5"
+                              th:text="${ag}">agent</span>
+                    </div>
+                </li>
+                <li th:if="${state.phaseHistory.isEmpty()}" class="text-xs text-slate-400">기록 없음</li>
+            </ol>
+        </div>
+    </div>
+
+    <!-- 2행: 산출물 트리 + QA 이슈 -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+        <!-- 산출물 트리 (_workspace) -->
+        <div class="lg:col-span-2 bg-white rounded-lg shadow-sm p-4 border border-slate-200">
+            <h2 class="text-sm font-semibold text-slate-500 mb-3">산출물 트리 (<code>_workspace/</code>)</h2>
+            <table class="w-full text-xs">
+                <thead class="text-slate-400">
+                <tr>
+                    <th class="px-2 py-1 text-left">경로</th>
+                    <th class="px-2 py-1 text-right">파일 수</th>
+                </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                <tr th:each="n : ${workspaceTree}" class="hover:bg-slate-50">
+                    <td class="px-2 py-1 font-mono" th:text="${n.path}">arch</td>
+                    <td class="px-2 py-1 text-right tabular-nums" th:text="${n.fileCount}">0</td>
+                </tr>
+                <tr th:if="${workspaceTree.isEmpty()}">
+                    <td colspan="2" class="px-2 py-3 text-slate-400 text-center">디렉토리가 비어 있거나 접근 불가</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- QA 이슈 -->
+        <div class="bg-white rounded-lg shadow-sm p-4 border border-slate-200">
+            <h2 class="text-sm font-semibold text-slate-500 mb-3">QA 이슈</h2>
+            <div class="grid grid-cols-2 gap-3 mb-3">
+                <div class="border border-red-200 bg-red-50 rounded-lg p-3 text-center">
+                    <div class="text-[10px] text-red-700 uppercase tracking-wide">Open</div>
+                    <div class="text-2xl font-bold tabular-nums text-red-800"
+                         th:text="${state.issuesOpen}">0</div>
+                </div>
+                <div class="border border-green-200 bg-green-50 rounded-lg p-3 text-center">
+                    <div class="text-[10px] text-green-700 uppercase tracking-wide">Fixed</div>
+                    <div class="text-2xl font-bold tabular-nums text-green-800"
+                         th:text="${state.issuesFixed}">0</div>
+                </div>
+            </div>
+            <div class="text-xs text-slate-500">
+                이슈 카탈로그:
+                <code class="bg-slate-100 rounded px-1 py-0.5">_workspace/qa/issues.md</code>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3행: CLAUDE.md 변경 이력 -->
+    <div class="bg-white rounded-lg shadow-sm p-4 border border-slate-200">
+        <h2 class="text-sm font-semibold text-slate-500 mb-3">CLAUDE.md 변경 이력 (최근 10건)</h2>
+        <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+                <thead class="text-slate-400 border-b border-slate-200">
+                <tr>
+                    <th class="px-2 py-1.5 text-left whitespace-nowrap">날짜</th>
+                    <th class="px-2 py-1.5 text-left">변경</th>
+                    <th class="px-2 py-1.5 text-left">대상</th>
+                    <th class="px-2 py-1.5 text-left">사유</th>
+                </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                <tr th:each="c : ${changelog}">
+                    <td class="px-2 py-1.5 whitespace-nowrap text-slate-600" th:text="${c.date}">2026-04-25</td>
+                    <td class="px-2 py-1.5" th:text="${c.change}">-</td>
+                    <td class="px-2 py-1.5 text-slate-500" th:text="${c.target}">-</td>
+                    <td class="px-2 py-1.5 text-slate-500" th:text="${c.reason}">-</td>
+                </tr>
+                <tr th:if="${changelog.isEmpty()}">
+                    <td colspan="4" class="px-2 py-3 text-slate-400 text-center">변경 이력이 없습니다</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+</body>
+</html>

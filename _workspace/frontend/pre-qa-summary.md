@@ -44,3 +44,6 @@
 - 종목 페이지 실시간 시세는 폴링 기반 MVP (3s HTMX) — core에 `RealtimeQuoteEvent` 추가 후 WS 전환
 - 백테스트 트리거는 strategy 모듈 통합 후 활성 (현재 `NotImplementedBacktestService`)
 - Tailwind CLI 빌드 전환 (현재 CDN)
+
+## Phase C에서 캡처 예정
+- QA-001 해소: journal/{list,detail,report} + harness/index 추가, 7+4=11 템플릿
