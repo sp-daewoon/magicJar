@@ -1,6 +1,9 @@
 spring:
   application:
     name: magicjar
+  config:
+    import:
+      - optional:classpath:application-market-data.yml
   profiles:
     active: mock
   jackson:
