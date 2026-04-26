@@ -1,5 +1,5 @@
 {
-  "currentPhase": "B_MERGED_TO_QA",
+  "currentPhase": "C_DONE",
   "phaseHistory": [
     {
       "phase": "0",
@@ -18,19 +18,20 @@
     {
       "phase": "B",
       "startedAt": "2026-04-25T04:20:00+09:00",
-      "finishedAt": "2026-04-25T17:50:00+09:00",
+      "finishedAt": "2026-04-25T21:38:47+09:00",
       "mode": "subagent-parallel-staged",
       "stage1": ["backend-core"],
       "stage1Status": "MERGED_TO_MAIN",
       "stage1Note": "PR #2 머지 → main 7644320",
       "stage2": ["market-data", "strategy-engine", "ai-engineer", "frontend"],
-      "stage2Status": "MERGED_TO_QA",
-      "stage2Note": "1차 동시 4개 호출 한도 hit → 2차 분할(2+2) 재실행으로 마무리. 4개 PR(#4·#5·#6·#7) qa squash 머지 완료. application.yml 충돌은 4 모듈 import 통합으로 해소.",
+      "stage2Status": "MERGED_TO_MAIN",
+      "stage2Note": "1차 동시 4개 호출 한도 hit → 2차 분할(2+2) 재실행으로 마무리. 4개 PR(#4·#5·#6·#7) qa squash 머지 완료. application.yml 충돌은 4 모듈 import 통합으로 해소. PR #8(qa→main, a18ef79)로 main 흡수.",
       "mergedCommits": [
         {"pr": 4, "agent": "ai-engineer", "qaCommit": "d451bee", "via": "GH auto-merge"},
         {"pr": 6, "agent": "market-data", "qaCommit": "fb4cb02", "via": "local squash + heredoc conflict resolve"},
         {"pr": 7, "agent": "strategy-engine", "qaCommit": "fa4628a", "via": "local squash + heredoc conflict resolve"},
-        {"pr": 5, "agent": "frontend", "qaCommit": "18a0dfd", "via": "local squash + heredoc conflict resolve, with QA-001 보강 포함"}
+        {"pr": 5, "agent": "frontend", "qaCommit": "18a0dfd", "via": "local squash + heredoc conflict resolve, with QA-001 보강 포함"},
+        {"pr": 8, "agent": "merge", "mainCommit": "a18ef79", "via": "qa→main merge commit (ADR 0012 승인 지점 2)"}
       ],
       "qaResult": {
         "round1": "3 APPROVED + 1 CHANGES_REQUESTED (PR#5 P1 템플릿 4개 누락)",
@@ -40,13 +41,37 @@
       "exceptions": [
         "Husky pre-push qa-direct-push 차단 룰을 batch squash merge 위해 1회 --no-verify 우회 (사용자 명시 승인)"
       ]
+    },
+    {
+      "phase": "C",
+      "startedAt": "2026-04-25T22:13:00+09:00",
+      "finishedAt": "2026-04-25T22:52:25+09:00",
+      "mode": "harness-maintenance",
+      "agents": ["architect"],
+      "tasks": [
+        {
+          "id": "T-20260425-2213-harness-v2-six-pack",
+          "pr": 9,
+          "mainCommit": "e3300ab",
+          "summary": "하네스 v2 6 패키지 일괄 적용 — ADR 0013~0018, 7 에이전트 frontmatter 모델 차등, 오케스트레이터 v2, boundary-qa on-demand, pre-push qa차단 폐기, settings.json 정리, Task 파일 시스템 + scripts/task.mjs"
+        },
+        {
+          "id": "bootRun-hotfix",
+          "pr": 10,
+          "mainCommit": "b4553a8",
+          "summary": "bootRun 5건 통합 hotfix — Spring Boot 정상 부팅 확인"
+        }
+      ]
     }
   ],
   "activeAgents": [],
   "blockedAgents": [],
-  "openIssues": ["QA-003 P3 (market-data 두 샘플 JSON 형식 차이 README 명시)", "QA-004 P3 (strategy 테이블 JPA 엔티티/포트 부재)"],
-  "nextPhase": "qa-to-main",
-  "nextPhaseTriggerHint": "qa→main PR 생성 + 사용자 승인 머지(ADR 0012 승인 지점 2). 그 후 Phase D(이슈 해소 + 환경 셋업 + 통합 스모크) 진입.",
+  "openIssues": [
+    "QA-003 P3 (market-data 두 샘플 JSON 형식 차이 README 명시)",
+    "QA-004 P3 (strategy 테이블 JPA 엔티티/포트 부재)"
+  ],
+  "nextPhase": "D",
+  "nextPhaseTriggerHint": "Phase D — 잔여 QA 이슈(QA-003·004) 해소 + KIS 토큰/캔들 환경 셋업 + 1종목 1전략 백테스트 통합 스모크. Phase B 회고(_retrospective-phase-b.md)의 개선안 반영.",
   "retrospective": "_workspace/_retrospective-phase-b.md",
-  "updatedAt": "2026-04-25T17:50:00+09:00"
+  "updatedAt": "2026-04-25T23:30:00+09:00"
 }
