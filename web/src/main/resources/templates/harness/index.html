@@ -3,7 +3,8 @@
       th:replace="~{layout :: page(~{::title/text()}, ~{::section})}">
 <head><title>하네스 운영</title></head>
 <body>
-<section hx-get="/harness" hx-trigger="every 10s" hx-select="section" hx-swap="outerHTML">
+<section x-data="{ tab: (sessionStorage.getItem('harnessTab') || 'ops') }"
+         x-init="$watch('tab', v => sessionStorage.setItem('harnessTab', v))">
     <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
         <div class="flex items-center gap-3">
             <h1 class="text-2xl font-bold">하네스 운영</h1>
@@ -17,10 +18,33 @@
         </div>
         <div class="text-xs text-slate-500">
             상태 갱신: <span th:text="${#temporals.format(state.generatedAt, 'yyyy-MM-dd HH:mm:ss')}">-</span>
-            · 자동 새로고침 10초
+            <span x-show="tab==='ops'">· 운영 상황 10초 폴링</span>
+            <span x-show="tab==='dashboard'">· 대시보드 60초 자체 갱신</span>
         </div>
     </div>
 
+    <!-- 탭 헤더 -->
+    <div class="flex gap-1 border-b border-slate-200 mb-4 text-sm">
+        <button type="button" @click="tab='ops'"
+                :class="tab==='ops' ? 'border-teal-600 text-teal-700 font-semibold' : 'border-transparent text-slate-500 hover:text-slate-700'"
+                class="px-4 py-2 border-b-2 -mb-px transition-colors">
+            운영 상황
+        </button>
+        <button type="button" @click="tab='dashboard'"
+                :class="tab==='dashboard' ? 'border-teal-600 text-teal-700 font-semibold' : 'border-transparent text-slate-500 hover:text-slate-700'"
+                class="px-4 py-2 border-b-2 -mb-px transition-colors">
+            에이전트 대시보드
+        </button>
+    </div>
+
+    <!-- 탭 1: 운영 상황 (HTMX 10초 폴링) -->
+    <div x-show="tab==='ops'"
+         hx-get="/harness"
+         hx-trigger="every 10s"
+         hx-select="#ops-pane > *"
+         hx-target="#ops-pane"
+         hx-swap="innerHTML">
+    <div id="ops-pane">
     <!-- 1행: 에이전트 카드 + Phase 타임라인 -->
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
         <!-- 에이전트 카드 -->
@@ -156,6 +180,17 @@
                 </tbody>
             </table>
         </div>
+    </div>
+    </div><!-- /#ops-pane -->
+    </div><!-- /tab=ops -->
+
+    <!-- 탭 2: 에이전트 대시보드 (render-status.mjs 산출물 임베드) -->
+    <div x-show="tab==='dashboard'" x-cloak
+         class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+        <iframe src="/harness/dashboard"
+                class="w-full block border-0"
+                style="height: calc(100vh - 220px); min-height: 640px"
+                title="에이전트 대시보드"></iframe>
     </div>
 </section>
 </body>
