@@ -13,6 +13,9 @@ target/
 .gradle/
 !gradle-wrapper.properties
 
+# Kotlin / IntelliJ session caches
+.kotlin/
+
 # IDE
 .idea/
 *.iml
