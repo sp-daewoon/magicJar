@@ -1,5 +1,5 @@
 {
-  "currentPhase": "C_DONE",
+  "currentPhase": "D_P1_IN_PROGRESS",
   "phaseHistory": [
     {
       "phase": "0",
@@ -64,14 +64,28 @@
       ]
     }
   ],
-  "activeAgents": [],
+  "activeAgents": ["architect"],
   "blockedAgents": [],
   "openIssues": [
-    "QA-003 P3 (market-data 두 샘플 JSON 형식 차이 README 명시)",
-    "QA-004 P3 (strategy 테이블 JPA 엔티티/포트 부재)"
+    "QA-003 P3 (market-data 두 샘플 JSON 형식 차이 README 명시) — Phase B 잔여, P2 시점 재검토",
+    "QA-004 P3 (strategy 테이블 JPA 엔티티/포트 부재) — P1에서 _legacy/strategy-journal로 백업, P2에서 application layer 영구 위치 결정 시 해소"
   ],
-  "nextPhase": "D",
-  "nextPhaseTriggerHint": "Phase D — 잔여 QA 이슈(QA-003·004) 해소 + KIS 토큰/캔들 환경 셋업 + 1종목 1전략 백테스트 통합 스모크. Phase B 회고(_retrospective-phase-b.md)의 개선안 반영.",
+  "currentSubPhase": {
+    "id": "P1",
+    "agent": "architect",
+    "branch": "agent/architect/p1-foundation",
+    "summary": "MSA 재구성 1단계: 5 모듈(domain/api/batch/consumer + frontend/pyworker/docker) 신설, 기존 7 모듈 git rm, domain 라이브러리 채우기 (순수 도메인 + port만, Spring/JPA 의존 코드는 _legacy/로 백업)",
+    "spec": "docs/superpowers/specs/2026-04-27-msa-restructure-design.md",
+    "plan": "docs/superpowers/plans/2026-04-27-msa-restructure.md",
+    "adrs": ["0019", "0020", "0021", "0022", "0023", "0024", "0025", "0026"],
+    "buildResult": "BUILD SUCCESSFUL — 4 모듈, 29 tasks; :domain:test 25 PASS, 0 FAIL; 잔존 kr.spdaewoon 0건"
+  },
+  "phaseDPlan": {
+    "P1": "Foundation + domain (architect, opus) — 진행 중",
+    "P2": "JVM 3 앱 + Kafka 와이어링 (backend-core, sonnet) — 대기. _legacy 백업분 application layer로 영구 이전",
+    "P3": "pyworker (ai-engineer, opus) + frontend React+LWC (frontend, sonnet) — 병렬",
+    "P4": "Docker compose + 통합 스모크 + main 머지 + QA 풀 게이트 1회 (architect, opus)"
+  },
   "retrospective": "_workspace/_retrospective-phase-b.md",
-  "updatedAt": "2026-04-25T23:30:00+09:00"
+  "updatedAt": "2026-04-27T19:30:00+09:00"
 }
