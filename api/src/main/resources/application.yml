@@ -89,6 +89,8 @@ magicjar:
   allow-real: ${MAGICJAR_ALLOW_REAL:false}
   pyworker:
     base-url: ${PYWORKER_URL:http://localhost:8000}
+  batch:
+    base-url: ${BATCH_URL:http://localhost:8081}
 
 logging:
   level:
