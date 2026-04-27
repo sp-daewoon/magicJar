@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.core.event
+package com.mj.domain.common.event
 
 import java.util.UUID
 

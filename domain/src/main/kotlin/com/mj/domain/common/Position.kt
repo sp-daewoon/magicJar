@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.core.domain
+package com.mj.domain.common
 
 import java.math.BigDecimal
 import java.time.Instant

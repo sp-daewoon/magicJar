@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.core.domain
+package com.mj.domain.common
 
 data class Instrument(
     val code: String,
