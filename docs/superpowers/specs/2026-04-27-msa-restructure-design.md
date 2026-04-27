@@ -241,19 +241,19 @@ docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up
 | **Advanced Charts** (proprietary, 무료 발급) | Closed source | ❌ 미채택 — 그리기 도구·커스텀 study 필수 시 ADR 0027(미래) 트리거 |
 | **Trading Platform** (유상) | Closed | ❌ 범위 외 |
 
-### 11-2. LWC 한계 → 우리 시스템이 메우는 방법
+### 11-2. LWC 한계 → 우리 시스템이 메우는 방법 (LWC 공식 API 한정)
 
 | LWC 한계 | 대응 |
 |---------|------|
-| 보조지표 계산 미지원 | `domain.strategy.indicator/` (Kotlin)에서 계산 → API 응답에 시리즈 동봉 → LWC 추가 시리즈로 plot |
-| 그리기 도구 없음 | MVP 미지원. 필요 시 캔버스 오버레이 또는 Advanced Charts 전환 (ADR 0027) |
-| 차트 시간축 동기화 | `subscribeVisibleLogicalRangeChange`로 자체 `<ChartGroup>` 구현 |
-| 심볼 검색 | api-app `/api/symbols/search` + shadcn/ui Combobox |
-| Replay 모드 | `setData` 슬라이싱 + 자체 재생 컨트롤 |
+| 보조지표 계산 미지원 | `domain.strategy.indicator/` (Kotlin)에서 계산 → API 응답에 시리즈 동봉 → **LWC 공식 시리즈 API**(LineSeries/HistogramSeries)로 plot |
+| 그리기 도구 없음 | **MVP 미지원**. 캔버스 오버레이·DOM hack 금지. 사업적으로 필수해지면 Advanced Charts 전환 (ADR 0027) |
+| 차트 시간축 동기화 | LWC 공식 `subscribeVisibleLogicalRangeChange` + `setVisibleLogicalRange`만 사용 |
+| 심볼 검색 | 차트 외부 — api-app `/api/symbols/search` + shadcn/ui Combobox |
+| Replay 모드 | LWC 공식 `setData` 슬라이싱 + 외부 재생 버튼 (LWC 내부 조작 없음) |
 | 사용자 정의 study 작성기 | 미지원 — 필요 시 Advanced Charts |
-| 틱 차트 전용 시리즈 | LineSeries로 `update({time, value})` (로지컬 인덱스 기반이라 비균등 시간도 자연) |
+| 틱 차트 전용 시리즈 | LineSeries로 `update({time, value})` (LWC 공식, 비균등 시간 자연 처리) |
 
-### 11-3. 차트 컴포넌트 추상화
+### 11-3. 차트 컴포넌트 추상화 (얇은 래퍼만)
 
 ```tsx
 // frontend/src/components/chart/Chart.tsx
@@ -263,26 +263,40 @@ type ChartProps = {
   realtime?: { topic: string };
   onCapture?: (png: Blob) => void;
 };
-// 현재 구현: LightweightChartsAdapter
-// 미래 구현: AdvancedChartsAdapter (어댑터 교체로 전환)
-// pages/* 는 <Chart/> 만 import. LWC API 직접 노출 금지.
+// 구현: LWC 공식 API 호출만. 자체 캔버스 그리기·DOM 조작·내부 prototype hack 금지.
+// pages/* 는 <Chart/>만 import (props 표면 단순화 목적).
+// 미래 Advanced Charts 전환 시 어댑터 교체 가능 — 하지만 그건 ADR 0027 발동 시점.
 ```
 
-### 11-4. 차트 캡처 — 3중 fallback
+### 11-4. 차트 캡처 — LWC 공식 + 서버 사이드 2단
 
-1. **1차** — `chart.takeScreenshot()` (LWC 내장)
-2. **2차** — `html-to-image` 라이브러리로 wrapper DOM → PNG
-3. **3차 (서버)** — pyworker `/screenshot`로 차트 페이지 URL → Playwright PNG
+1. **1차** — `chart.takeScreenshot()` (LWC 공식 API)
+2. **2차 (서버)** — pyworker `/screenshot`로 차트 페이지 URL → Playwright PNG
 
-`ChartSnapshot.source` 필드(`CLIENT_LWC` / `CLIENT_DOM` / `SERVER_BROWSER`)로 경로 추적.
+`html-to-image` 등 외부 캡처 라이브러리 도입 금지 — LWC 공식 캡처가 안 되는 케이스는 서버 사이드로 위임.
 
-### 11-5. 실시간 (STOMP over WebSocket)
+`ChartSnapshot.source` 필드(`CLIENT_LWC` / `SERVER_BROWSER`)로 경로 추적.
+
+### 11-5. 커스텀 지양 원칙 (사용자 명시 제약)
+
+| 항목 | 정책 |
+|------|------|
+| LWC 공식 API 호출 | ✅ 허용 (시리즈 추가, setData/update, 스케일·옵션 설정, 공식 이벤트 구독) |
+| props로 데이터 받아 LWC에 전달하는 React 래퍼 | ✅ 허용 (얇게) |
+| LWC 내부 prototype·private 필드 조작 | ❌ 금지 |
+| 차트 위에 자체 `<canvas>` 오버레이 | ❌ 금지 |
+| LWC가 제공하지 않는 기능을 외부 라이브러리로 흉내 (drawing, indicator 위젯, 캡처 라이브러리 등) | ❌ 금지 |
+| 그래도 사업적으로 필수가 된 기능 | ADR 0027 발동(Advanced Charts 전환), 커스텀 코드로 메우지 않음 |
+
+→ **MVP 동안 차트 컴포넌트 코드는 "LWC 공식 가이드 예시 ± 데이터 어댑팅" 수준을 넘지 않는다.** PR 리뷰 시 이 원칙을 명시 게이트로.
+
+### 11-6. 실시간 (STOMP over WebSocket)
 
 - api-app `spring-boot-starter-websocket` + STOMP broker
 - consumer-app이 처리한 결과를 api-app이 직접 Kafka consume → STOMP fan-out (MVP는 이 방식)
 - Phase E+ 에서 Redis pub/sub 또는 Kafka Streams 도입 검토
 
-### 11-6. 페이지 구성
+### 11-7. 페이지 구성
 
 | 페이지 | 핵심 컴포넌트 |
 |--------|------------|
@@ -322,7 +336,7 @@ type ChartProps = {
 
 ### 12-3. 미래 후보
 
-- ADR 0027 (Phase E+ 후보): Advanced Charts 도입 — 그리기 도구·커스텀 study 필수가 되는 시점에.
+- ADR 0027 (Phase E+ 후보): Advanced Charts 도입 — **트리거 조건**: LWC 공식 API로 안 되는 기능(그리기 도구·custom study·심볼 비교·고급 replay 등)이 사업적으로 분명히 필요해지고, 커스텀 코드로 메우는 게 아니라 라이브러리 교체로 가야 한다고 architect가 판단한 시점.
 
 ## 13. 에이전트 책임 갱신 (`.claude/agents/*.md`)
 
@@ -404,7 +418,7 @@ type ChartProps = {
 | Phase B 코드 손실 | 7 디렉토리 `git rm`은 마지막 단계, 그 전에 신규 위치 빌드 통과 확인 |
 | Kafka 학습 곡선 | docker compose로 로컬 클러스터 → 1 토픽씩 추가하며 검증 |
 | pyworker Playwright 이미지 크기 (~1GB+) | playwright slim base + `--with-deps chromium`만 (1 브라우저) |
-| LWC 캡처 버전 호환성 | 11-4 절 3중 fallback |
+| LWC 캡처 버전 호환성 | 11-4 절 2단 fallback (LWC 공식 + 서버 사이드) |
 | MSA 운영 복잡도 (단계 D 단계에선 과한 분할) | compose로 로컬 통합 단순화. k8s는 실서비스 진입 시 |
 
 ## 18. 다음 단계
