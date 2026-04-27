@@ -1,7 +1,7 @@
 package com.mj.domain.strategy.indicator
 
-import io.kotest.matchers.shouldBe
 import com.mj.domain.strategy.CandleFixtures
+import io.kotest.matchers.shouldBe
 import org.junit.jupiter.api.Test
 
 class StochasticTest {

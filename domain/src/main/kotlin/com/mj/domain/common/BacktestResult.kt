@@ -1,5 +1,6 @@
 package com.mj.domain.common
 
+import com.mj.domain.journal.TradeRef
 import java.time.LocalDate
 
 data class BacktestResult(

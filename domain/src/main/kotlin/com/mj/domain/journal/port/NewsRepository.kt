@@ -1,6 +1,6 @@
 package com.mj.domain.journal.port
 
-import com.mj.domain.common.NewsItem
+import com.mj.domain.journal.NewsItem
 import java.time.Instant
 
 /**
