@@ -1,3 +1,3 @@
-package kr.spdaewoon.magicjar.core.domain
+package com.mj.domain.common
 
 enum class Mode { BACKTEST, MOCK, REAL }
