@@ -71,3 +71,14 @@ coverage/
 # OS / editor backups
 *.swp
 *~
+
+# Python (pyworker)
+pyworker/.venv/
+pyworker/__pycache__/
+pyworker/**/__pycache__/
+pyworker/.pytest_cache/
+pyworker/.ruff_cache/
+pyworker/*.egg-info/
+pyworker/.python-version-local
+# uv.lock 은 commit 권장 (reproducible build) — ignore 하지 않음.
+
