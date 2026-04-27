@@ -1,0 +1,103 @@
+"""Pydantic 모델 — Kotlin domain event JSON과 호환.
+
+호환 규약 (spec §4 + domain/news, domain/market 참고):
+- 필드명: camelCase (Kotlin data class 그대로)
+- UUID: 문자열로 직렬화
+- Instant: `2026-04-27T10:30:00Z` (ISO-8601 UTC, milliseconds 허용)
+- BigDecimal: 문자열 직렬화 (Spring Jackson default가 plain string 처리하므로 우리도 string)
+
+Kotlin 측 클래스 (스키마 정의 단일 진실):
+- com.mj.domain.news.event.NewsRawEvent
+- com.mj.domain.news.event.DartDisclosureEvent
+- com.mj.domain.market.event.CandleEvent  (참고용, pyworker는 publish 안 함)
+- com.mj.domain.market.event.TickEvent     (참고용)
+
+ScreenshotCapturedEvent: Kotlin domain class는 P3 시점에 미정의 (consumer 토픽 설정만 존재).
+pyworker가 정의하는 스키마가 사실상 단일 진실 — Kotlin 측은 P4에서 동일 필드로 추가 정의 예정.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Literal
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+def _to_iso_utc(value: datetime) -> str:
+    """Kotlin Instant 호환 ISO-8601 UTC 문자열."""
+    if value.tzinfo is None:
+        # naive datetime은 UTC로 가정 (caller 책임)
+        from datetime import timezone
+
+        value = value.replace(tzinfo=timezone.utc)
+    return value.isoformat().replace("+00:00", "Z")
+
+
+class _KafkaModel(BaseModel):
+    """공통 Pydantic 설정.
+
+    - alias 적용 (혹시 이후 snake_case 호환이 필요하면 by_alias 옵션 사용)
+    - Instant 직렬화 = ISO-8601 UTC
+    - UUID 직렬화 = 문자열
+    """
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        json_encoders={
+            datetime: _to_iso_utc,
+            UUID: str,
+        },
+    )
+
+
+class NewsRawEvent(_KafkaModel):
+    """Topic: `news.raw.v1` — Kotlin com.mj.domain.news.event.NewsRawEvent."""
+
+    newsId: UUID
+    source: str
+    publishedAt: datetime
+    title: str
+    body: str
+    instruments: list[str] = Field(default_factory=list)
+
+
+class DartDisclosureEvent(_KafkaModel):
+    """Topic: `dart.disclosure.v1` — Kotlin com.mj.domain.news.event.DartDisclosureEvent."""
+
+    disclosureId: UUID
+    code: str
+    companyName: str
+    disclosureType: str
+    title: str
+    filedAt: datetime
+    url: str | None = None
+
+
+class ScreenshotCapturedEvent(_KafkaModel):
+    """Topic: `screenshot.captured.v1`.
+
+    pyworker가 헤드리스 캡처 후 MinIO 업로드하면 발행. Kotlin 측 domain class는
+    P4 시점에 매칭하여 추가 (필드명·타입 동일). API 안정화 위해 v1.
+    """
+
+    snapshotId: UUID
+    sourceUrl: str
+    storageKey: str
+    publicUrl: str | None = None
+    contentType: Literal["image/png", "image/jpeg"] = "image/png"
+    width: int
+    height: int
+    capturedAt: datetime
+    requestedBy: str | None = None  # api-app 호출 컨텍스트 (journalId 등)
+
+
+# Kafka __TypeId__ 헤더 매핑
+# JsonDeserializer 가 Kotlin 측에서 본인 클래스를 찾을 수 있도록 FQN 부여.
+# Kotlin 측에서 spring.json.type.mapping 으로 alias도 가능하지만 FQN이 가장 안전.
+TYPE_ID_HEADERS: dict[type[_KafkaModel], str] = {
+    NewsRawEvent: "com.mj.domain.news.event.NewsRawEvent",
+    DartDisclosureEvent: "com.mj.domain.news.event.DartDisclosureEvent",
+    ScreenshotCapturedEvent: "com.mj.domain.market.event.ScreenshotCapturedEvent",
+}
