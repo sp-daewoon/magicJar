@@ -3,6 +3,9 @@ spring:
     name: magicjar-api
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.autoconfigure.openai.OpenAiAutoConfiguration
   jackson:
     default-property-inclusion: non_null
     time-zone: Asia/Seoul
@@ -22,7 +25,11 @@ spring:
     password: ${DB_PASSWORD:magicjar}
   flyway:
     enabled: true
+    # baseline-version=0으로 명시 → V0__init.sql부터 정상 적용.
+    # batch/consumer가 spring.batch metadata 테이블을 먼저 만들어도 baseline에 영향 X.
+    # (기본 baseline-version=1이라 V0·V1을 둘 다 skip하던 문제 해결)
     baseline-on-migrate: true
+    baseline-version: "0"
     locations: classpath:db/migration
   data:
     redis:
@@ -56,6 +63,26 @@ management:
     web:
       exposure:
         include: health,info,metrics
+
+spring.ai:
+  openai:
+    # api는 AI 호출 안 함. autoconfig를 명시적으로 disabled.
+    api-key: ${OPENAI_API_KEY:placeholder-not-used}
+    chat:
+      enabled: ${OPENAI_API_KEY_PRESENT:false}
+      options:
+        model: ${OPENAI_MODEL:gpt-4o-mini}
+    embedding:
+      enabled: false
+    image:
+      enabled: false
+    audio:
+      transcription:
+        enabled: false
+      speech:
+        enabled: false
+    moderation:
+      enabled: false
 
 magicjar:
   mode: ${MAGICJAR_MODE:MOCK}

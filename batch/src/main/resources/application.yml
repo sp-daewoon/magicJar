@@ -3,6 +3,13 @@ spring:
     name: magicjar-batch
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.autoconfigure.openai.OpenAiAutoConfiguration
+  main:
+    # spring-ai-openai-starter가 webflux를 끌어와 기본 reactive로 잡히는 문제를 강제로
+    # servlet으로 고정. actuator health 엔드포인트는 servlet 위에서 노출.
+    web-application-type: servlet
   jackson:
     default-property-inclusion: non_null
     time-zone: Asia/Seoul
@@ -42,10 +49,22 @@ spring:
 
 spring.ai:
   openai:
-    api-key: ${OPENAI_API_KEY:}
+    api-key: ${OPENAI_API_KEY:placeholder-not-used}
     chat:
+      enabled: ${OPENAI_API_KEY_PRESENT:false}
       options:
         model: ${OPENAI_MODEL:gpt-4o-mini}
+    embedding:
+      enabled: false
+    image:
+      enabled: false
+    audio:
+      transcription:
+        enabled: false
+      speech:
+        enabled: false
+    moderation:
+      enabled: false
 
 server:
   port: 8081

@@ -3,6 +3,12 @@ spring:
     name: magicjar-consumer
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
+  autoconfigure:
+    # P4 자율 hotfix — OPENAI_API_KEY 미설정 시 Spring AI autoconfig가 Moderation/Image 등
+    # 빈 생성에서 실패해 컨텍스트 자체가 죽는 문제를 회피. 실제 ChatModel은 ai 모듈에서 생성.
+    # OPENAI_API_KEY 채워지면 별도 @Configuration에서 명시 enable 처리 (Phase E).
+    exclude:
+      - org.springframework.ai.autoconfigure.openai.OpenAiAutoConfiguration
   jackson:
     default-property-inclusion: non_null
     time-zone: Asia/Seoul
@@ -41,10 +47,24 @@ spring:
 
 spring.ai:
   openai:
-    api-key: ${OPENAI_API_KEY:}
+    # 키 비어있으면 hasText 검증으로 빈 생성 실패 → autoconfig 비활성으로 우회.
+    # 실제 호출 필요 시 OPENAI_API_KEY 채우고 enabled=true로.
+    api-key: ${OPENAI_API_KEY:placeholder-not-used}
     chat:
+      enabled: ${OPENAI_API_KEY_PRESENT:false}
       options:
         model: ${OPENAI_MODEL:gpt-4o-mini}
+    embedding:
+      enabled: false
+    image:
+      enabled: false
+    audio:
+      transcription:
+        enabled: false
+      speech:
+        enabled: false
+    moderation:
+      enabled: false
 
 server:
   port: 8082

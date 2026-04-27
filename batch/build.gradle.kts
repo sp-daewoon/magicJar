@@ -11,6 +11,8 @@ dependencies {
 
     implementation("org.springframework.boot:spring-boot-starter-batch")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    // actuator/health 노출을 위해 servlet web 부착 (jobs는 spring.batch.job.enabled=false로 차단)
+    implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     runtimeOnly("org.postgresql:postgresql")
     implementation("org.flywaydb:flyway-core")
