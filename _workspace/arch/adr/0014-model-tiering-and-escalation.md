@@ -1,8 +1,15 @@
 # ADR 0014: 에이전트별 모델 차등 + 에스컬레이션
 
-- 상태: Accepted
-- 작성일: 2026-04-25
+- 상태: Accepted (footnote 보강 by ADR 0023)
+- 작성일: 2026-04-25 (개정: 2026-04-27 — ai-engineer 책임 확장)
 - 결정자: architect (사용자 제안 반영)
+
+## 변경 이력
+
+| 날짜 | 변경 |
+|------|------|
+| 2026-04-25 | 최초 채택 (3 opus + 4 sonnet) |
+| 2026-04-27 | **ai-engineer 책임 확장 footnote 추가** — Spring AI(JVM) + pyworker(ADR 0023) 양쪽 프롬프트·구조화 출력 일관성 책임. opus 등급 유지 근거 강화. |
 
 ## 맥락
 
@@ -21,7 +28,7 @@ Phase A 시점엔 모든 에이전트를 `model: opus`로 통일했다. 결과: 
 | 에이전트 | 기본 모델 | 사유 |
 |---------|----------|------|
 | architect | **opus** | 시스템 설계·ADR·트레이드오프 판단 |
-| ai-engineer | **opus** | 프롬프트 설계·구조화 출력·미묘한 판단 |
+| ai-engineer | **opus** | 프롬프트 설계·구조화 출력·미묘한 판단 (¹) |
 | strategy-engine | **opus** | 지표 수학·DSL 파서/평가기·백테스트 정밀도 |
 | backend-core | **sonnet** | Spring Boot 스캐폴딩·도메인 모델은 ADR 따라가기 |
 | market-data | **sonnet** | KIS API 클라이언트는 문서 따라가는 패턴 |
@@ -29,6 +36,8 @@ Phase A 시점엔 모든 에이전트를 `model: opus`로 통일했다. 결과: 
 | qa | **sonnet** | 체크리스트·경계면 비교는 결정적 |
 
 > Haiku는 채택 안 함 — 절약보다 재작업 비용이 큼. Sonnet이 sweet spot.
+
+> (¹) **ai-engineer 책임 확장 (2026-04-27, ADR 0023 도입에 따름)**: ai-engineer는 이제 Spring AI(JVM, `domain/ai` + api·consumer)뿐 아니라 **pyworker 측 LLM 호출(있을 경우)·프롬프트 템플릿·구조화 출력 스키마의 양 끝 일관성**을 함께 책임진다. JVM Kotlin data class와 Python pydantic 모델이 같은 LLM 응답 스키마를 표현하도록 동기화하고, 프롬프트 템플릿은 `domain/ai/prompt/`를 single source로 두되 Python 측 사본의 drift를 게이트한다. 이 추가 책임으로 인해 ai-engineer의 모델 등급은 opus 유지가 필수 (단순 코딩이 아닌 양 측 스키마 정합 판단 포함).
 
 ### 에스컬레이션 규칙
 
