@@ -37,7 +37,7 @@ magic_ch1/
 ├─ domain/                          ← 신규 (Kotlin java-library, Spring 미부착)
 │  ├─ build.gradle.kts
 │  └─ src/
-│     ├─ main/kotlin/com/magicjar/domain/
+│     ├─ main/kotlin/com/mj/domain/
 │     │  ├─ common/                 ← 기존 core/domain + core/event 이전
 │     │  ├─ market/                 ← market-data/* 비-WS 부분 이전
 │     │  ├─ strategy/               ← strategy/* 이전
@@ -67,15 +67,15 @@ magic_ch1/
 
 | 기존 패키지 | 신규 패키지 |
 |------------|-----------|
-| `kr.spdaewoon.magicjar.core.domain.*` | `com.magicjar.domain.common.*` |
-| `kr.spdaewoon.magicjar.core.port.*` | `com.magicjar.domain.<영역>.port.*` (CandleRepository→market, BrokerGateway→order, AiClient→ai, TradeJournalRepository→journal, 등) |
-| `kr.spdaewoon.magicjar.core.event.*` | `com.magicjar.domain.common.event.*` |
-| `kr.spdaewoon.magicjar.marketdata.*` | `com.magicjar.domain.market.*` |
-| `kr.spdaewoon.magicjar.strategy.*` | `com.magicjar.domain.strategy.*` |
-| `kr.spdaewoon.magicjar.ai.*` | `com.magicjar.domain.ai.*` |
-| `kr.spdaewoon.magicjar.orderexec.*` | `com.magicjar.domain.order.*` |
+| `kr.spdaewoon.magicjar.core.domain.*` | `com.mj.domain.common.*` |
+| `kr.spdaewoon.magicjar.core.port.*` | `com.mj.domain.<영역>.port.*` (CandleRepository→market, BrokerGateway→order, AiClient→ai, TradeJournalRepository→journal, 등) |
+| `kr.spdaewoon.magicjar.core.event.*` | `com.mj.domain.common.event.*` |
+| `kr.spdaewoon.magicjar.marketdata.*` | `com.mj.domain.market.*` |
+| `kr.spdaewoon.magicjar.strategy.*` | `com.mj.domain.strategy.*` |
+| `kr.spdaewoon.magicjar.ai.*` | `com.mj.domain.ai.*` |
+| `kr.spdaewoon.magicjar.orderexec.*` | `com.mj.domain.order.*` |
 
-→ 패키지 prefix 일괄 변경(`kr.spdaewoon.magicjar` → `com.magicjar.domain`). 그룹 ID는 `build.gradle.kts`의 `group` 변수로 유지 (`kr.spdaewoon.magicjar`).
+→ 패키지 prefix 일괄 변경(`kr.spdaewoon.magicjar` → `com.mj.domain`). 그룹 ID는 `build.gradle.kts`의 `group` 변수로 유지 (`kr.spdaewoon.magicjar`).
 
 ### Pre-flight 체크
 
@@ -163,11 +163,11 @@ touch frontend/.gitkeep pyworker/.gitkeep docker/.gitkeep
 - [ ] **Step 1.1-4: 신규 src 디렉토리 골격 생성**
 
 ```bash
-mkdir -p domain/src/main/kotlin/com/magicjar/domain/{common,market,strategy,ai,order,journal}
-mkdir -p domain/src/test/kotlin/com/magicjar/domain
-mkdir -p api/src/main/kotlin/com/magicjar/api
-mkdir -p batch/src/main/kotlin/com/magicjar/batch
-mkdir -p consumer/src/main/kotlin/com/magicjar/consumer
+mkdir -p domain/src/main/kotlin/com/mj/domain/{common,market,strategy,ai,order,journal}
+mkdir -p domain/src/test/kotlin/com/mj/domain
+mkdir -p api/src/main/kotlin/com/mj/api
+mkdir -p batch/src/main/kotlin/com/mj/batch
+mkdir -p consumer/src/main/kotlin/com/mj/consumer
 # 빈 디렉토리 보존용
 find domain api batch consumer -type d -empty -exec touch {}/.gitkeep \;
 ```
@@ -256,14 +256,14 @@ git -c user.name="architect" -c user.email="bot+architect@magicjar.local" \
 ### Task 1.3: 도메인 검증용 가드 테스트 1개 추가 (TDD red-green)
 
 **Files:**
-- Create: `domain/src/test/kotlin/com/magicjar/domain/PackageGuardTest.kt`
+- Create: `domain/src/test/kotlin/com/mj/domain/PackageGuardTest.kt`
 
-**의도:** 패키지 prefix 규칙(`com.magicjar.domain`)과 6개 서브 패키지가 존재하는지 가드. Task 1.4~1.9의 코드 이전이 진행되며 이 테스트가 점진 통과한다.
+**의도:** 패키지 prefix 규칙(`com.mj.domain`)과 6개 서브 패키지가 존재하는지 가드. Task 1.4~1.9의 코드 이전이 진행되며 이 테스트가 점진 통과한다.
 
 - [ ] **Step 1.3-1: 실패 테스트 작성**
 
 ```kotlin
-package com.magicjar.domain
+package com.mj.domain
 
 import io.kotest.matchers.collections.shouldContainAll
 import io.kotest.matchers.shouldBe
@@ -274,7 +274,7 @@ class PackageGuardTest {
 
     @Test
     fun `domain 모듈은 6 서브 패키지 디렉토리를 가진다`() {
-        val baseDir = File("src/main/kotlin/com/magicjar/domain")
+        val baseDir = File("src/main/kotlin/com/mj/domain")
         baseDir.exists() shouldBe true
         val subDirs = baseDir.listFiles { f -> f.isDirectory }
             .orEmpty()
@@ -284,7 +284,7 @@ class PackageGuardTest {
 
     @Test
     fun `domain 모듈에 최소 1개의 Kotlin 소스가 common 패키지에 존재한다`() {
-        val commonDir = File("src/main/kotlin/com/magicjar/domain/common")
+        val commonDir = File("src/main/kotlin/com/mj/domain/common")
         val ktFiles = commonDir.walk().filter { it.extension == "kt" }.toList()
         (ktFiles.size > 0) shouldBe true
     }
@@ -294,7 +294,7 @@ class PackageGuardTest {
 - [ ] **Step 1.3-2: 테스트 실행 — 두 번째 테스트만 실패해야 함**
 
 ```bash
-./gradlew :domain:test --tests "com.magicjar.domain.PackageGuardTest"
+./gradlew :domain:test --tests "com.mj.domain.PackageGuardTest"
 ```
 
 Expected: 첫 번째(서브 디렉토리 존재) PASS, 두 번째(common에 .kt 파일 존재) FAIL.
@@ -304,7 +304,7 @@ Expected: 첫 번째(서브 디렉토리 존재) PASS, 두 번째(common에 .kt 
 - [ ] **Step 1.3-3: 커밋**
 
 ```bash
-git add domain/src/test/kotlin/com/magicjar/domain/PackageGuardTest.kt
+git add domain/src/test/kotlin/com/mj/domain/PackageGuardTest.kt
 git -c user.name="architect" -c user.email="bot+architect@magicjar.local" \
   commit -m "test(p1): domain 패키지 가드 테스트 (common 비어있음을 일부러 fail)"
 ```
@@ -314,56 +314,56 @@ git -c user.name="architect" -c user.email="bot+architect@magicjar.local" \
 ### Task 1.4: `core/` → `domain/common` 이전
 
 **Files:**
-- Move: `core/src/main/kotlin/kr/spdaewoon/magicjar/core/domain/*.kt` → `domain/src/main/kotlin/com/magicjar/domain/common/`
-- Move: `core/src/main/kotlin/kr/spdaewoon/magicjar/core/event/*.kt` → `domain/src/main/kotlin/com/magicjar/domain/common/event/`
+- Move: `core/src/main/kotlin/kr/spdaewoon/magicjar/core/domain/*.kt` → `domain/src/main/kotlin/com/mj/domain/common/`
+- Move: `core/src/main/kotlin/kr/spdaewoon/magicjar/core/event/*.kt` → `domain/src/main/kotlin/com/mj/domain/common/event/`
 - Move: `core/src/main/kotlin/kr/spdaewoon/magicjar/core/port/*.kt` → 영역별 분배 (Task 1.5~1.9)
-- Move: `core/src/test/**` → `domain/src/test/kotlin/com/magicjar/domain/common/`
+- Move: `core/src/test/**` → `domain/src/test/kotlin/com/mj/domain/common/`
 
 - [ ] **Step 1.4-1: 도메인 데이터 클래스 이전 (port 제외)**
 
 ```bash
-mkdir -p domain/src/main/kotlin/com/magicjar/domain/common/event
+mkdir -p domain/src/main/kotlin/com/mj/domain/common/event
 git mv core/src/main/kotlin/kr/spdaewoon/magicjar/core/domain/*.kt \
-  domain/src/main/kotlin/com/magicjar/domain/common/
+  domain/src/main/kotlin/com/mj/domain/common/
 git mv core/src/main/kotlin/kr/spdaewoon/magicjar/core/event/*.kt \
-  domain/src/main/kotlin/com/magicjar/domain/common/event/
+  domain/src/main/kotlin/com/mj/domain/common/event/
 ```
 
 - [ ] **Step 1.4-2: 패키지 선언 일괄 변경 (Mac BSD sed)**
 
 ```bash
-find domain/src/main/kotlin/com/magicjar/domain/common -name "*.kt" -exec \
+find domain/src/main/kotlin/com/mj/domain/common -name "*.kt" -exec \
   sed -i '' \
-    -e 's|^package kr.spdaewoon.magicjar.core.domain.*|package com.magicjar.domain.common|' \
-    -e 's|^package kr.spdaewoon.magicjar.core.event.*|package com.magicjar.domain.common.event|' \
+    -e 's|^package kr.spdaewoon.magicjar.core.domain.*|package com.mj.domain.common|' \
+    -e 's|^package kr.spdaewoon.magicjar.core.event.*|package com.mj.domain.common.event|' \
     {} \;
 ```
 
 - [ ] **Step 1.4-3: import 보정 — 같은 모듈 내 참조**
 
-도메인 데이터 클래스끼리 서로 import 했던 부분(`kr.spdaewoon.magicjar.core.domain.X`)을 `com.magicjar.domain.common.X`로 일괄 치환.
+도메인 데이터 클래스끼리 서로 import 했던 부분(`kr.spdaewoon.magicjar.core.domain.X`)을 `com.mj.domain.common.X`로 일괄 치환.
 
 ```bash
-find domain/src/main/kotlin/com/magicjar/domain -name "*.kt" -exec \
+find domain/src/main/kotlin/com/mj/domain -name "*.kt" -exec \
   sed -i '' \
-    -e 's|kr\.spdaewoon\.magicjar\.core\.domain|com.magicjar.domain.common|g' \
-    -e 's|kr\.spdaewoon\.magicjar\.core\.event|com.magicjar.domain.common.event|g' \
+    -e 's|kr\.spdaewoon\.magicjar\.core\.domain|com.mj.domain.common|g' \
+    -e 's|kr\.spdaewoon\.magicjar\.core\.event|com.mj.domain.common.event|g' \
     {} \;
 ```
 
 - [ ] **Step 1.4-4: 테스트 이전**
 
 ```bash
-mkdir -p domain/src/test/kotlin/com/magicjar/domain/common
+mkdir -p domain/src/test/kotlin/com/mj/domain/common
 # core 테스트 디렉토리가 비어있으면 skip; 존재하면 이전
 if [ -d core/src/test/kotlin ]; then
-  find core/src/test/kotlin -name "*.kt" -exec git mv {} domain/src/test/kotlin/com/magicjar/domain/common/ \;
+  find core/src/test/kotlin -name "*.kt" -exec git mv {} domain/src/test/kotlin/com/mj/domain/common/ \;
 fi
-find domain/src/test/kotlin/com/magicjar/domain/common -name "*.kt" -exec \
+find domain/src/test/kotlin/com/mj/domain/common -name "*.kt" -exec \
   sed -i '' \
-    -e 's|^package kr\.spdaewoon\.magicjar\.core.*|package com.magicjar.domain.common|' \
-    -e 's|kr\.spdaewoon\.magicjar\.core\.domain|com.magicjar.domain.common|g' \
-    -e 's|kr\.spdaewoon\.magicjar\.core\.event|com.magicjar.domain.common.event|g' \
+    -e 's|^package kr\.spdaewoon\.magicjar\.core.*|package com.mj.domain.common|' \
+    -e 's|kr\.spdaewoon\.magicjar\.core\.domain|com.mj.domain.common|g' \
+    -e 's|kr\.spdaewoon\.magicjar\.core\.event|com.mj.domain.common.event|g' \
     {} \;
 ```
 
@@ -380,7 +380,7 @@ Expected: common 패키지의 데이터 클래스만 컴파일됨. port 참조�
 - [ ] **Step 1.4-6: PackageGuardTest 두 번째 테스트 통과 확인**
 
 ```bash
-./gradlew :domain:test --tests "com.magicjar.domain.PackageGuardTest"
+./gradlew :domain:test --tests "com.mj.domain.PackageGuardTest"
 ```
 
 Expected: 두 테스트 모두 PASS.
@@ -411,41 +411,41 @@ git -c user.name="architect" -c user.email="bot+architect@magicjar.local" \
 - `market-data/src/main/kotlin/.../marketdata/persistence/**` → `domain/market/persistence/`
 - `market-data/src/main/kotlin/.../marketdata/MarketDataConfig.kt` → **삭제** (P2에서 api-app config로 재구성)
 - `market-data/src/main/kotlin/.../marketdata/news/**` → **삭제** (pyworker로 이관, P3)
-- `market-data/src/test/kotlin/.../kis/**` → `domain/src/test/kotlin/com/magicjar/domain/market/kis/`
-- `market-data/src/test/kotlin/.../persistence/**` → `domain/src/test/kotlin/com/magicjar/domain/market/persistence/`
+- `market-data/src/test/kotlin/.../kis/**` → `domain/src/test/kotlin/com/mj/domain/market/kis/`
+- `market-data/src/test/kotlin/.../persistence/**` → `domain/src/test/kotlin/com/mj/domain/market/persistence/`
 - `market-data/src/test/kotlin/.../news/**` → **삭제**
 
 - [ ] **Step 1.5-1: port 영역별 이전**
 
 ```bash
-mkdir -p domain/src/main/kotlin/com/magicjar/domain/{market,order,ai,strategy,journal,common}/port
+mkdir -p domain/src/main/kotlin/com/mj/domain/{market,order,ai,strategy,journal,common}/port
 
 git mv core/src/main/kotlin/kr/spdaewoon/magicjar/core/port/CandleRepository.kt \
-       domain/src/main/kotlin/com/magicjar/domain/market/port/
+       domain/src/main/kotlin/com/mj/domain/market/port/
 
 git mv core/src/main/kotlin/kr/spdaewoon/magicjar/core/port/InstrumentCatalog.kt \
-       domain/src/main/kotlin/com/magicjar/domain/market/port/
+       domain/src/main/kotlin/com/mj/domain/market/port/
 
 git mv core/src/main/kotlin/kr/spdaewoon/magicjar/core/port/BrokerGateway.kt \
-       domain/src/main/kotlin/com/magicjar/domain/order/port/
+       domain/src/main/kotlin/com/mj/domain/order/port/
 
 git mv core/src/main/kotlin/kr/spdaewoon/magicjar/core/port/OrderSender.kt \
-       domain/src/main/kotlin/com/magicjar/domain/order/port/
+       domain/src/main/kotlin/com/mj/domain/order/port/
 
 git mv core/src/main/kotlin/kr/spdaewoon/magicjar/core/port/AiClient.kt \
-       domain/src/main/kotlin/com/magicjar/domain/ai/port/
+       domain/src/main/kotlin/com/mj/domain/ai/port/
 
 git mv core/src/main/kotlin/kr/spdaewoon/magicjar/core/port/TradeJournalRepository.kt \
-       domain/src/main/kotlin/com/magicjar/domain/journal/port/
+       domain/src/main/kotlin/com/mj/domain/journal/port/
 
 git mv core/src/main/kotlin/kr/spdaewoon/magicjar/core/port/NewsRepository.kt \
-       domain/src/main/kotlin/com/magicjar/domain/journal/port/
+       domain/src/main/kotlin/com/mj/domain/journal/port/
 
 git mv core/src/main/kotlin/kr/spdaewoon/magicjar/core/port/StrategyEvaluator.kt \
-       domain/src/main/kotlin/com/magicjar/domain/strategy/port/
+       domain/src/main/kotlin/com/mj/domain/strategy/port/
 
 git mv core/src/main/kotlin/kr/spdaewoon/magicjar/core/port/HarnessStateReader.kt \
-       domain/src/main/kotlin/com/magicjar/domain/common/port/
+       domain/src/main/kotlin/com/mj/domain/common/port/
 ```
 
 - [ ] **Step 1.5-2: 패키지 선언 + import 일괄 치환**
@@ -453,43 +453,43 @@ git mv core/src/main/kotlin/kr/spdaewoon/magicjar/core/port/HarnessStateReader.k
 ```bash
 # 각 영역의 port 파일에 대해 신규 패키지 적용
 for area in market order ai journal strategy common; do
-  find domain/src/main/kotlin/com/magicjar/domain/$area/port -name "*.kt" -exec \
+  find domain/src/main/kotlin/com/mj/domain/$area/port -name "*.kt" -exec \
     sed -i '' \
-      -e "s|^package kr\.spdaewoon\.magicjar\.core\.port.*|package com.magicjar.domain.$area.port|" \
+      -e "s|^package kr\.spdaewoon\.magicjar\.core\.port.*|package com.mj.domain.$area.port|" \
       {} \;
 done
 
 # 모든 도메인 파일의 import 보정
 find domain/src -name "*.kt" -exec \
   sed -i '' \
-    -e 's|kr\.spdaewoon\.magicjar\.core\.port\.CandleRepository|com.magicjar.domain.market.port.CandleRepository|g' \
-    -e 's|kr\.spdaewoon\.magicjar\.core\.port\.InstrumentCatalog|com.magicjar.domain.market.port.InstrumentCatalog|g' \
-    -e 's|kr\.spdaewoon\.magicjar\.core\.port\.BrokerGateway|com.magicjar.domain.order.port.BrokerGateway|g' \
-    -e 's|kr\.spdaewoon\.magicjar\.core\.port\.OrderSender|com.magicjar.domain.order.port.OrderSender|g' \
-    -e 's|kr\.spdaewoon\.magicjar\.core\.port\.AiClient|com.magicjar.domain.ai.port.AiClient|g' \
-    -e 's|kr\.spdaewoon\.magicjar\.core\.port\.TradeJournalRepository|com.magicjar.domain.journal.port.TradeJournalRepository|g' \
-    -e 's|kr\.spdaewoon\.magicjar\.core\.port\.NewsRepository|com.magicjar.domain.journal.port.NewsRepository|g' \
-    -e 's|kr\.spdaewoon\.magicjar\.core\.port\.StrategyEvaluator|com.magicjar.domain.strategy.port.StrategyEvaluator|g' \
-    -e 's|kr\.spdaewoon\.magicjar\.core\.port\.HarnessStateReader|com.magicjar.domain.common.port.HarnessStateReader|g' \
+    -e 's|kr\.spdaewoon\.magicjar\.core\.port\.CandleRepository|com.mj.domain.market.port.CandleRepository|g' \
+    -e 's|kr\.spdaewoon\.magicjar\.core\.port\.InstrumentCatalog|com.mj.domain.market.port.InstrumentCatalog|g' \
+    -e 's|kr\.spdaewoon\.magicjar\.core\.port\.BrokerGateway|com.mj.domain.order.port.BrokerGateway|g' \
+    -e 's|kr\.spdaewoon\.magicjar\.core\.port\.OrderSender|com.mj.domain.order.port.OrderSender|g' \
+    -e 's|kr\.spdaewoon\.magicjar\.core\.port\.AiClient|com.mj.domain.ai.port.AiClient|g' \
+    -e 's|kr\.spdaewoon\.magicjar\.core\.port\.TradeJournalRepository|com.mj.domain.journal.port.TradeJournalRepository|g' \
+    -e 's|kr\.spdaewoon\.magicjar\.core\.port\.NewsRepository|com.mj.domain.journal.port.NewsRepository|g' \
+    -e 's|kr\.spdaewoon\.magicjar\.core\.port\.StrategyEvaluator|com.mj.domain.strategy.port.StrategyEvaluator|g' \
+    -e 's|kr\.spdaewoon\.magicjar\.core\.port\.HarnessStateReader|com.mj.domain.common.port.HarnessStateReader|g' \
     {} \;
 ```
 
 - [ ] **Step 1.5-3: market-data 본체 이전 (KIS REST + persistence)**
 
 ```bash
-mkdir -p domain/src/main/kotlin/com/magicjar/domain/market/{kis,persistence}
-mkdir -p domain/src/test/kotlin/com/magicjar/domain/market/{kis,persistence}
+mkdir -p domain/src/main/kotlin/com/mj/domain/market/{kis,persistence}
+mkdir -p domain/src/test/kotlin/com/mj/domain/market/{kis,persistence}
 
 # KIS REST
 if [ -d market-data/src/main/kotlin/kr/spdaewoon/magicjar/marketdata/kis ]; then
   git mv market-data/src/main/kotlin/kr/spdaewoon/magicjar/marketdata/kis/* \
-         domain/src/main/kotlin/com/magicjar/domain/market/kis/
+         domain/src/main/kotlin/com/mj/domain/market/kis/
 fi
 
 # persistence
 if [ -d market-data/src/main/kotlin/kr/spdaewoon/magicjar/marketdata/persistence ]; then
   git mv market-data/src/main/kotlin/kr/spdaewoon/magicjar/marketdata/persistence/* \
-         domain/src/main/kotlin/com/magicjar/domain/market/persistence/
+         domain/src/main/kotlin/com/mj/domain/market/persistence/
 fi
 
 # news → 삭제 (pyworker로 P3에서 재구현)
@@ -502,12 +502,12 @@ git rm -f market-data/src/main/kotlin/kr/spdaewoon/magicjar/marketdata/MarketDat
 # 테스트 이전 (kis + persistence만)
 if [ -d market-data/src/test/kotlin/kr/spdaewoon/magicjar/marketdata/kis ]; then
   git mv market-data/src/test/kotlin/kr/spdaewoon/magicjar/marketdata/kis/* \
-         domain/src/test/kotlin/com/magicjar/domain/market/kis/
+         domain/src/test/kotlin/com/mj/domain/market/kis/
 fi
 
 if [ -d market-data/src/test/kotlin/kr/spdaewoon/magicjar/marketdata/persistence ]; then
   git mv market-data/src/test/kotlin/kr/spdaewoon/magicjar/marketdata/persistence/* \
-         domain/src/test/kotlin/com/magicjar/domain/market/persistence/
+         domain/src/test/kotlin/com/mj/domain/market/persistence/
 fi
 ```
 
@@ -516,14 +516,14 @@ fi
 ```bash
 find domain/src -name "*.kt" -path "*market*" -exec \
   sed -i '' \
-    -e 's|^package kr\.spdaewoon\.magicjar\.marketdata\.kis.*|package com.magicjar.domain.market.kis|' \
-    -e 's|^package kr\.spdaewoon\.magicjar\.marketdata\.persistence.*|package com.magicjar.domain.market.persistence|' \
+    -e 's|^package kr\.spdaewoon\.magicjar\.marketdata\.kis.*|package com.mj.domain.market.kis|' \
+    -e 's|^package kr\.spdaewoon\.magicjar\.marketdata\.persistence.*|package com.mj.domain.market.persistence|' \
     {} \;
 
 find domain/src -name "*.kt" -exec \
   sed -i '' \
-    -e 's|kr\.spdaewoon\.magicjar\.marketdata\.kis|com.magicjar.domain.market.kis|g' \
-    -e 's|kr\.spdaewoon\.magicjar\.marketdata\.persistence|com.magicjar.domain.market.persistence|g' \
+    -e 's|kr\.spdaewoon\.magicjar\.marketdata\.kis|com.mj.domain.market.kis|g' \
+    -e 's|kr\.spdaewoon\.magicjar\.marketdata\.persistence|com.mj.domain.market.persistence|g' \
     {} \;
 ```
 
@@ -550,22 +550,22 @@ git -c user.name="architect" -c user.email="bot+architect@magicjar.local" \
 ### Task 1.6: `strategy/` → `domain/strategy` 이전
 
 **Files:**
-- Move: `strategy/src/main/kotlin/.../strategy/**` → `domain/src/main/kotlin/com/magicjar/domain/strategy/`
-- Move: `strategy/src/test/kotlin/.../strategy/**` → `domain/src/test/kotlin/com/magicjar/domain/strategy/`
+- Move: `strategy/src/main/kotlin/.../strategy/**` → `domain/src/main/kotlin/com/mj/domain/strategy/`
+- Move: `strategy/src/test/kotlin/.../strategy/**` → `domain/src/test/kotlin/com/mj/domain/strategy/`
 
 - [ ] **Step 1.6-1: 코드·테스트 일괄 이전**
 
 ```bash
-mkdir -p domain/src/main/kotlin/com/magicjar/domain/strategy
-mkdir -p domain/src/test/kotlin/com/magicjar/domain/strategy
+mkdir -p domain/src/main/kotlin/com/mj/domain/strategy
+mkdir -p domain/src/test/kotlin/com/mj/domain/strategy
 
 if [ -d strategy/src/main/kotlin ]; then
   rsync -a --remove-source-files strategy/src/main/kotlin/kr/spdaewoon/magicjar/strategy/ \
-        domain/src/main/kotlin/com/magicjar/domain/strategy/
+        domain/src/main/kotlin/com/mj/domain/strategy/
 fi
 if [ -d strategy/src/test/kotlin ]; then
   rsync -a --remove-source-files strategy/src/test/kotlin/kr/spdaewoon/magicjar/strategy/ \
-        domain/src/test/kotlin/com/magicjar/domain/strategy/
+        domain/src/test/kotlin/com/mj/domain/strategy/
 fi
 git add -A
 ```
@@ -577,12 +577,12 @@ git add -A
 ```bash
 find domain/src -name "*.kt" -path "*strategy*" -exec \
   sed -i '' \
-    -e 's|^package kr\.spdaewoon\.magicjar\.strategy|package com.magicjar.domain.strategy|' \
+    -e 's|^package kr\.spdaewoon\.magicjar\.strategy|package com.mj.domain.strategy|' \
     {} \;
 
 find domain/src -name "*.kt" -exec \
   sed -i '' \
-    -e 's|kr\.spdaewoon\.magicjar\.strategy|com.magicjar.domain.strategy|g' \
+    -e 's|kr\.spdaewoon\.magicjar\.strategy|com.mj.domain.strategy|g' \
     {} \;
 ```
 
@@ -608,21 +608,21 @@ git -c user.name="architect" -c user.email="bot+architect@magicjar.local" \
 
 ### Task 1.7: `ai/` → `domain/ai` 이전
 
-**Files:** `ai/src/{main,test}/kotlin/...` → `domain/src/{main,test}/kotlin/com/magicjar/domain/ai/`
+**Files:** `ai/src/{main,test}/kotlin/...` → `domain/src/{main,test}/kotlin/com/mj/domain/ai/`
 
 - [ ] **Step 1.7-1: 이전**
 
 ```bash
-mkdir -p domain/src/main/kotlin/com/magicjar/domain/ai
-mkdir -p domain/src/test/kotlin/com/magicjar/domain/ai
+mkdir -p domain/src/main/kotlin/com/mj/domain/ai
+mkdir -p domain/src/test/kotlin/com/mj/domain/ai
 
 if [ -d ai/src/main/kotlin ]; then
   rsync -a --remove-source-files ai/src/main/kotlin/kr/spdaewoon/magicjar/ai/ \
-        domain/src/main/kotlin/com/magicjar/domain/ai/
+        domain/src/main/kotlin/com/mj/domain/ai/
 fi
 if [ -d ai/src/test/kotlin ]; then
   rsync -a --remove-source-files ai/src/test/kotlin/kr/spdaewoon/magicjar/ai/ \
-        domain/src/test/kotlin/com/magicjar/domain/ai/
+        domain/src/test/kotlin/com/mj/domain/ai/
 fi
 git add -A
 ```
@@ -630,14 +630,14 @@ git add -A
 - [ ] **Step 1.7-2: 패키지 + import 치환**
 
 ```bash
-find domain/src -name "*.kt" -path "*com/magicjar/domain/ai*" -exec \
+find domain/src -name "*.kt" -path "*com/mj/domain/ai*" -exec \
   sed -i '' \
-    -e 's|^package kr\.spdaewoon\.magicjar\.ai|package com.magicjar.domain.ai|' \
+    -e 's|^package kr\.spdaewoon\.magicjar\.ai|package com.mj.domain.ai|' \
     {} \;
 
 find domain/src -name "*.kt" -exec \
   sed -i '' \
-    -e 's|kr\.spdaewoon\.magicjar\.ai|com.magicjar.domain.ai|g' \
+    -e 's|kr\.spdaewoon\.magicjar\.ai|com.mj.domain.ai|g' \
     {} \;
 ```
 
@@ -658,32 +658,32 @@ git -c user.name="architect" -c user.email="bot+architect@magicjar.local" \
 
 ### Task 1.8: `order-exec/` → `domain/order` 이전
 
-**Files:** `order-exec/src/{main,test}/kotlin/...` → `domain/src/{main,test}/kotlin/com/magicjar/domain/order/`
+**Files:** `order-exec/src/{main,test}/kotlin/...` → `domain/src/{main,test}/kotlin/com/mj/domain/order/`
 
 - [ ] **Step 1.8-1~3: Task 1.7과 동일 패턴 (orderexec ↔ order)**
 
 ```bash
-mkdir -p domain/src/main/kotlin/com/magicjar/domain/order
-mkdir -p domain/src/test/kotlin/com/magicjar/domain/order
+mkdir -p domain/src/main/kotlin/com/mj/domain/order
+mkdir -p domain/src/test/kotlin/com/mj/domain/order
 
 if [ -d order-exec/src/main/kotlin ]; then
   rsync -a --remove-source-files order-exec/src/main/kotlin/kr/spdaewoon/magicjar/orderexec/ \
-        domain/src/main/kotlin/com/magicjar/domain/order/
+        domain/src/main/kotlin/com/mj/domain/order/
 fi
 if [ -d order-exec/src/test/kotlin ]; then
   rsync -a --remove-source-files order-exec/src/test/kotlin/kr/spdaewoon/magicjar/orderexec/ \
-        domain/src/test/kotlin/com/magicjar/domain/order/
+        domain/src/test/kotlin/com/mj/domain/order/
 fi
 git add -A
 
-find domain/src -name "*.kt" -path "*com/magicjar/domain/order*" -exec \
+find domain/src -name "*.kt" -path "*com/mj/domain/order*" -exec \
   sed -i '' \
-    -e 's|^package kr\.spdaewoon\.magicjar\.orderexec|package com.magicjar.domain.order|' \
+    -e 's|^package kr\.spdaewoon\.magicjar\.orderexec|package com.mj.domain.order|' \
     {} \;
 
 find domain/src -name "*.kt" -exec \
   sed -i '' \
-    -e 's|kr\.spdaewoon\.magicjar\.orderexec|com.magicjar.domain.order|g' \
+    -e 's|kr\.spdaewoon\.magicjar\.orderexec|com.mj.domain.order|g' \
     {} \;
 
 ./gradlew :domain:compileKotlin
@@ -701,20 +701,20 @@ git -c user.name="architect" -c user.email="bot+architect@magicjar.local" \
 - [ ] **Step 1.9-1: journal 관련 클래스를 common → journal로 이동**
 
 ```bash
-mkdir -p domain/src/main/kotlin/com/magicjar/domain/journal
+mkdir -p domain/src/main/kotlin/com/mj/domain/journal
 
-git mv domain/src/main/kotlin/com/magicjar/domain/common/TradeJournalEntry.kt \
-       domain/src/main/kotlin/com/magicjar/domain/journal/ 2>/dev/null || true
-git mv domain/src/main/kotlin/com/magicjar/domain/common/TradeRef.kt \
-       domain/src/main/kotlin/com/magicjar/domain/journal/ 2>/dev/null || true
+git mv domain/src/main/kotlin/com/mj/domain/common/TradeJournalEntry.kt \
+       domain/src/main/kotlin/com/mj/domain/journal/ 2>/dev/null || true
+git mv domain/src/main/kotlin/com/mj/domain/common/TradeRef.kt \
+       domain/src/main/kotlin/com/mj/domain/journal/ 2>/dev/null || true
 ```
 
 - [ ] **Step 1.9-2: 신규 ChartSnapshot 도메인 객체 추가 (spec §5에서 정의)**
 
-`domain/src/main/kotlin/com/magicjar/domain/journal/ChartSnapshot.kt`:
+`domain/src/main/kotlin/com/mj/domain/journal/ChartSnapshot.kt`:
 
 ```kotlin
-package com.magicjar.domain.journal
+package com.mj.domain.journal
 
 import java.time.Instant
 import java.util.UUID
@@ -736,10 +736,10 @@ data class ChartSnapshot(
 
 - [ ] **Step 1.9-3: ChartSnapshot 단위 테스트**
 
-`domain/src/test/kotlin/com/magicjar/domain/journal/ChartSnapshotTest.kt`:
+`domain/src/test/kotlin/com/mj/domain/journal/ChartSnapshotTest.kt`:
 
 ```kotlin
-package com.magicjar.domain.journal
+package com.mj.domain.journal
 
 import io.kotest.matchers.shouldBe
 import org.junit.jupiter.api.Test
@@ -770,15 +770,15 @@ class ChartSnapshotTest {
 - [ ] **Step 1.9-4: package + import 치환 (journal로 옮긴 클래스들)**
 
 ```bash
-find domain/src -name "*.kt" -path "*com/magicjar/domain/journal*" -exec \
+find domain/src -name "*.kt" -path "*com/mj/domain/journal*" -exec \
   sed -i '' \
-    -e 's|^package com\.magicjar\.domain\.common$|package com.magicjar.domain.journal|' \
+    -e 's|^package com\.magicjar\.domain\.common$|package com.mj.domain.journal|' \
     {} \;
 
 find domain/src -name "*.kt" -exec \
   sed -i '' \
-    -e 's|com\.magicjar\.domain\.common\.TradeJournalEntry|com.magicjar.domain.journal.TradeJournalEntry|g' \
-    -e 's|com\.magicjar\.domain\.common\.TradeRef|com.magicjar.domain.journal.TradeRef|g' \
+    -e 's|com\.magicjar\.domain\.common\.TradeJournalEntry|com.mj.domain.journal.TradeJournalEntry|g' \
+    -e 's|com\.magicjar\.domain\.common\.TradeRef|com.mj.domain.journal.TradeRef|g' \
     {} \;
 ```
 
@@ -936,7 +936,7 @@ gh pr create --title "Phase D-P1: MSA 재구성 — Foundation + domain 라이�
 ## Summary
 - 신규 4 Gradle 모듈 + frontend/pyworker/docker 디렉토리 신설 (spec §1 §3)
 - 비즈니스 로직 일괄 이전: core/market-data/strategy/ai/order-exec → `domain/<영역>`
-- 패키지 prefix `kr.spdaewoon.magicjar.*` → `com.magicjar.domain.*` 일괄 변경
+- 패키지 prefix `kr.spdaewoon.magicjar.*` → `com.mj.domain.*` 일괄 변경
 - 구 7 모듈 디렉토리 git rm, settings.gradle.kts 4 모듈로 정리
 - ChartSnapshot 도메인 객체 신규 추가 (spec §5)
 - application.yml `_workspace/_legacy/`로 백업 (P2 분할 참고)
@@ -1091,13 +1091,13 @@ Phase 1 종료. 다음 Phase plan(`2026-04-XX-msa-restructure-phase2.md`) 작성
 
 ### Type 일관성
 - `ChartSnapshot.source: SnapshotSource` (enum), `SnapshotSource = CLIENT_LWC | SERVER_BROWSER` — spec §11-4와 일치 (3중 fallback이 2단으로 줄면서 `CLIENT_DOM` 제거됨, spec과 plan 동일).
-- 패키지 prefix `com.magicjar.domain.*` 일관 적용.
+- 패키지 prefix `com.mj.domain.*` 일관 적용.
 - 영역명 `common/market/strategy/ai/order/journal` 6개 일관.
 
 ### 보강 필요 발견
 - Task 1.5의 NewsRepository port 위치를 `domain/journal/port`로 임시 배치한 부분은 spec §6에서 명확히 안 함. P3-A에서 pyworker가 news 전체 책임지면서 `journal/port/NewsRepository`는 삭제 또는 이동 가능 — P3-A plan에서 결정.
 - `app/src/main/resources/application.yml` 백업본은 P2에서 4개 앱 yml로 분할 시 사용. P1 plan에 백업 단계 명시했음.
-- ktlint가 신규 패키지 prefix 규칙(`com.magicjar.*`)을 어떻게 처리하는지 확인 필요. 기존 `kr.spdaewoon.*`은 OK였으니 prefix 길이만 다를 뿐 문제없을 가능성 높음. P1 빌드 시 자동 검증.
+- ktlint가 신규 패키지 prefix 규칙(`com.mj.*`)을 어떻게 처리하는지 확인 필요. 기존 `kr.spdaewoon.*`은 OK였으니 prefix 길이만 다를 뿐 문제없을 가능성 높음. P1 빌드 시 자동 검증.
 
 (보강은 inline 적용 완료.)
 

@@ -23,7 +23,7 @@ magic_ch1/
 │  └─ kafka/, postgres/, minio/
 │
 ├─ domain/                           Kotlin java-library, Spring Boot 미부착
-│  └─ src/main/kotlin/com/magicjar/domain/
+│  └─ src/main/kotlin/com/mj/domain/
 │     ├─ common/                     Money, Symbol, TimeRange, DomainEvent
 │     ├─ market/                     Candle, Tick, Quote, KisClient port
 │     ├─ strategy/                   DSL, Indicator, BacktestEngine
@@ -33,15 +33,15 @@ magic_ch1/
 │
 ├─ api/                              Spring Boot 3.x — REST + Spring @Scheduled + STOMP
 │  ├─ Dockerfile
-│  └─ src/main/kotlin/com/magicjar/api/{controller, scheduler, websocket, config}
+│  └─ src/main/kotlin/com/mj/api/{controller, scheduler, websocket, config}
 │
 ├─ batch/                            Spring Boot 3.x + Spring Batch
 │  ├─ Dockerfile
-│  └─ src/main/kotlin/com/magicjar/batch/{job, step, reader, writer, config}
+│  └─ src/main/kotlin/com/mj/batch/{job, step, reader, writer, config}
 │
 ├─ consumer/                         Spring Boot 3.x + Spring Kafka
 │  ├─ Dockerfile
-│  └─ src/main/kotlin/com/magicjar/consumer/{listener, producer, kis_ws_bridge, config}
+│  └─ src/main/kotlin/com/mj/consumer/{listener, producer, kis_ws_bridge, config}
 │
 ├─ pyworker/                         Python 3.12 + FastAPI + Playwright + APScheduler
 │  ├─ Dockerfile
@@ -104,7 +104,7 @@ Kafka 토픽 (모두 v1 suffix, 스키마 진화 대비):
 ## 5. domain 패키지 상세
 
 ```
-com.magicjar.domain
+com.mj.domain
 ├── common/        Money, Symbol(KrxCode), TimeRange, DomainEvent base, Result
 ├── market/        Candle, Tick, Quote, OrderBook
 │                  port: KisRestClient, KisWsClient
