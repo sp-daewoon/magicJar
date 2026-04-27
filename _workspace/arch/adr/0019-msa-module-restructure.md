@@ -46,8 +46,8 @@ magic_ch1/
 
 ### 패키지 루트
 
-- JVM: `com.magicjar.domain`, `com.magicjar.api`, `com.magicjar.batch`, `com.magicjar.consumer`
-- 도메인 영역: `com.magicjar.domain.{common, market, strategy, ai, order, journal}`
+- JVM: `com.mj.domain`, `com.mj.api`, `com.mj.batch`, `com.mj.consumer`
+- 도메인 영역: `com.mj.domain.{common, market, strategy, ai, order, journal}`
 
 ### 매핑 (구 7 → 신규 5 + pyworker + frontend)
 
