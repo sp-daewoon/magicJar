@@ -6,18 +6,31 @@ Spring Boot 3.x + Spring AI + 한국투자증권 KIS OpenAPI 기반. **백테스
 
 ## 상태
 
-**Phase C 완료**: 7개 PR(#2·#3·#4·#5·#6·#7·#8) main 머지 + 하네스 v2(PR #9) + bootRun hotfix(PR #10).
-부팅 정상, 6개 페이지(`/`, `/instruments/{code}`, `/strategies`, `/portfolio`, `/journal`, `/harness`) 동작.
-다음 단계(Phase D)는 잔여 QA 이슈 해소 + KIS/DB 환경 셋업 + 1종목 1전략 백테스트 통합 스모크.
+**Phase D-P1 진행 중** (MSA 재구성 1단계). 이전 7 모듈 빅뱅 폐기 → 4 Gradle 모듈 + 3 디렉토리(frontend·pyworker·docker).
+spec `docs/superpowers/specs/2026-04-27-msa-restructure-design.md` + plan `docs/superpowers/plans/2026-04-27-msa-restructure.md` + ADR 0019~0026 발행.
+다음(P2): JVM 3 앱 스켈레톤 + Kafka 와이어링.
 
-## 핵심 스택 (예정)
+## 모듈 구조
 
-- **Kotlin 2.0 (K2)** + JDK 21 + Spring Boot 3.3+, Gradle Kotlin DSL (멀티모듈)
-- Spring AI (ChatClient, 기본 공급자 Anthropic Claude)
-- KIS OpenAPI (REST + WebSocket, 실계좌/모의계좌)
-- PostgreSQL / Redis (캐시·실시간 시세)
-- Thymeleaf + HTMX + Chart.js (MVP 대시보드)
-- Resilience4j, Bucket4j (외부 API 안정성)
+```
+magic_ch1/
+├─ domain/         Kotlin java-library (순수 도메인 + port, Spring 미부착)
+│  └─ com.mj.domain/{common, market, strategy, ai, order, journal}
+├─ api/            Spring Boot — REST + @Scheduled + STOMP (P2에서 채움)
+├─ batch/          Spring Boot + Spring Batch (P2)
+├─ consumer/       Spring Boot + Spring Kafka (P2)
+├─ pyworker/       Python 3.12 + FastAPI + Playwright + APScheduler (P3)
+├─ frontend/       React + TS + Vite + TradingView Lightweight Charts (P3)
+└─ docker/         docker-compose 통합 기동 (P4)
+```
+
+## 핵심 스택
+
+- **JVM**: Kotlin 2.0 (K2) + JDK 21 + Spring Boot 3.3 + Spring AI 1.0.0-M3 + Spring Kafka + Spring Batch + Gradle Kotlin DSL
+- **Python**: 3.12 + FastAPI + Playwright + aiokafka + APScheduler
+- **Frontend**: React 19 + TypeScript + Vite + shadcn/ui + TanStack Query + Zustand + TradingView Lightweight Charts v4 (Apache 2.0, 공식 API만 — 커스텀 지양)
+- **Infra**: PostgreSQL 16, Kafka 3.7 (KRaft), Redis 7, MinIO, KIS OpenAPI (REST + WebSocket)
+- **Docker**: 멀티 스테이지 + 비루트, MSA 기본 + compose 로컬 통합
 
 ## AI 기능 (예정)
 
