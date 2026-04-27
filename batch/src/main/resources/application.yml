@@ -1,0 +1,72 @@
+spring:
+  application:
+    name: magicjar-batch
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  jackson:
+    default-property-inclusion: non_null
+    time-zone: Asia/Seoul
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: Asia/Seoul
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/magicjar}
+    username: ${DB_USER:magicjar}
+    password: ${DB_PASSWORD:magicjar}
+  flyway:
+    enabled: false   # api가 DB owner
+  batch:
+    jdbc:
+      initialize-schema: always
+    job:
+      enabled: false   # 명시 트리거만 실행
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.mj"
+      group-id: ${KAFKA_GROUP_ID:magicjar-batch}
+      auto-offset-reset: earliest
+
+spring.ai:
+  openai:
+    api-key: ${OPENAI_API_KEY:}
+    chat:
+      options:
+        model: ${OPENAI_MODEL:gpt-4o-mini}
+
+server:
+  port: 8081
+  shutdown: graceful
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when-authorized
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+magicjar:
+  mode: ${MAGICJAR_MODE:BACKTEST}
+  allow-real: ${MAGICJAR_ALLOW_REAL:false}
+
+logging:
+  level:
+    root: INFO
+    com.mj: DEBUG

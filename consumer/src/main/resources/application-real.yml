@@ -1,0 +1,4 @@
+magicjar:
+  mode: REAL
+  # 이중 스위치: REAL 모드여도 allow-real=true여야 실주문 허용 (ADR 0006)
+  allow-real: false

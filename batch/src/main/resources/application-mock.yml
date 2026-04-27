@@ -1,0 +1,3 @@
+magicjar:
+  mode: MOCK
+  allow-real: false
