@@ -2,7 +2,7 @@ spring:
   application:
     name: magicjar-batch
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:dev}
+    active: ${SPRING_PROFILES_ACTIVE:stub-kis}
   autoconfigure:
     exclude:
       - org.springframework.ai.autoconfigure.openai.OpenAiAutoConfiguration
@@ -84,8 +84,32 @@ management:
 magicjar:
   mode: ${MAGICJAR_MODE:BACKTEST}
   allow-real: ${MAGICJAR_ALLOW_REAL:false}
+  kis:
+    mode: STUB
 
 logging:
   level:
     root: INFO
     com.mj: DEBUG
+
+---
+spring:
+  config:
+    activate:
+      on-profile: stub-kis
+magicjar:
+  kis:
+    mode: STUB
+
+---
+spring:
+  config:
+    activate:
+      on-profile: real-kis
+magicjar:
+  kis:
+    mode: REAL
+    base-url: https://openapivts.koreainvestment.com:29443
+    app-key: ${KIS_MOCK_APP_KEY:}
+    app-secret: ${KIS_MOCK_APP_SECRET:}
+    account: ${KIS_ACCOUNT_CANO:}-${KIS_ACCOUNT_PRDT:01}
