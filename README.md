@@ -6,9 +6,9 @@ Spring Boot 3.x + Spring AI + 한국투자증권 KIS OpenAPI 기반. **백테스
 
 ## 상태
 
-**Phase D-P1 진행 중** (MSA 재구성 1단계). 이전 7 모듈 빅뱅 폐기 → 4 Gradle 모듈 + 3 디렉토리(frontend·pyworker·docker).
-spec `docs/superpowers/specs/2026-04-27-msa-restructure-design.md` + plan `docs/superpowers/plans/2026-04-27-msa-restructure.md` + ADR 0019~0026 발행.
-다음(P2): JVM 3 앱 스켈레톤 + Kafka 와이어링.
+**Phase D 완료** (MSA 재구성 4단계 — P1 Foundation · P2 JVM Apps · P3 pyworker+frontend · P4 Docker compose + 통합 스모크).
+spec `docs/superpowers/specs/2026-04-27-msa-restructure-design.md` + plan `docs/superpowers/plans/2026-04-27-msa-restructure.md` + ADR 0019~0026 발행 완료.
+**다음(Phase E)**: KIS 모의 키 연동 + 1종목 1전략 전체 파이프라인 검증, CI/CD(GitHub Actions), k8s/ECS 배포 manifest.
 
 ## 모듈 구조
 
@@ -16,12 +16,13 @@ spec `docs/superpowers/specs/2026-04-27-msa-restructure-design.md` + plan `docs/
 magic_ch1/
 ├─ domain/         Kotlin java-library (순수 도메인 + port, Spring 미부착)
 │  └─ com.mj.domain/{common, market, strategy, ai, order, journal}
-├─ api/            Spring Boot — REST + @Scheduled + STOMP (P2에서 채움)
-├─ batch/          Spring Boot + Spring Batch (P2)
-├─ consumer/       Spring Boot + Spring Kafka (P2)
-├─ pyworker/       Python 3.12 + FastAPI + Playwright + APScheduler (P3)
-├─ frontend/       React + TS + Vite + TradingView Lightweight Charts (P3)
-└─ docker/         docker-compose 통합 기동 (P4)
+├─ api/            Spring Boot — REST + @Scheduled + STOMP
+├─ batch/          Spring Boot + Spring Batch
+├─ consumer/       Spring Boot + Spring Kafka (KIS WS 브리지·전략·AI 분석·매매일지)
+├─ pyworker/       Python 3.12 + FastAPI + Playwright + APScheduler
+├─ frontend/       React + TS + Vite + TradingView Lightweight Charts v4
+├─ docker/         docker-compose 3 모드 (전체·infra·dev override)
+└─ scripts/        smoke.sh (5 시나리오 통합 검증) · task.mjs · render-status.mjs
 ```
 
 ## 핵심 스택
@@ -44,21 +45,17 @@ magic_ch1/
 - **매매일지(Trading Journal)** — 모든 매매 자동 기록 + AI 복기 + 사용자 메모
 - **하네스 운영 페이지(`/harness`)** — 지금 어떤 에이전트가 무엇을 하고 있는지 웹에서 직접 조회
 
-## 빌드 · 실행 방법 (IntelliJ + Docker 기준)
+## 빌드 · 실행 방법 (Docker compose 3 모드 + 통합 스모크)
 
 ### 0. 사전 준비 (1회만)
 
 | 항목 | 비고 |
 |------|------|
-| **JDK 21 (Temurin)** | 미설치라도 Gradle Toolchain + foojay resolver가 자동 다운로드 |
-| **Docker Desktop** | PostgreSQL 15 + Redis 7 로컬 컨테이너용. 실행 중이어야 함 (`docker info` 로 확인) |
-| `npm install` | 저장소 클론 직후 1회 — Husky 훅 자동 설치 (ADR 0010) |
-
-**IntelliJ 설정** (한 번만):
-- Settings → Build Tools → Gradle → **Gradle JVM** = `21 (Temurin)`
-- Settings → Kotlin Compiler → **Target JVM** = `21`
-- 프로젝트 import: `build.gradle.kts` 선택 → "Open as Project" → Gradle sync 자동
-- (권장) **EnvFile** 플러그인 설치 — Run Config 에서 `.env` 자동 로딩
+| **Docker Desktop** | 4 인프라(postgres·kafka·redis·minio) + 5 앱 컨테이너용. 실행 중이어야 함. |
+| **JDK 21 (Temurin)** | infra 모드에서 호스트의 `./gradlew bootRun` 사용 시 필요. Gradle Toolchain 자동 다운로드 가능. |
+| **Node.js 20 + pnpm** | frontend 호스트 dev 서버 사용 시. `corepack enable && corepack prepare pnpm@9 --activate` |
+| **uv** | pyworker 호스트 dev 시. `pip install uv` 또는 brew. |
+| `npm install` | 저장소 클론 직후 1회 — Husky 훅 자동 설치 (ADR 0010·0017) |
 
 ### 1. 환경변수 준비
 
@@ -70,86 +67,98 @@ cp .env.example .env
 
 ```bash
 SPRING_PROFILES_ACTIVE=mock          # 또는 backtest
-MAGICJAR_MODE=MOCK                   # 또는 BACKTEST
+MAGICJAR_MODE=MOCK                   # 또는 BACKTEST · REAL
 MAGICJAR_ALLOW_REAL=false            # 실계좌 가드, 평소 false 유지
 
 KIS_MOCK_APP_KEY=...                 # 비우면 KIS 호출 비활성
 KIS_MOCK_APP_SECRET=...
-KIS_ACCOUNT_CANO=...
-ANTHROPIC_API_KEY=sk-ant-...         # 비우면 NoOpAiClient 주입
-DART_API_KEY=...                     # 비우면 공시 수집 비활성
+OPENAI_API_KEY=sk-...                # 비우면 AI 분석 자동 비활성 (consumer-app)
+ANTHROPIC_API_KEY=sk-ant-...         # 옵션
+OPENDART_API_KEY=...                 # 비우면 DART 공시 수집 비활성 (pyworker)
+NAVER_NEWS_RSS_URL=...               # 네이버 금융 뉴스 RSS (pyworker)
 ```
 
-> ⚠ `MAGICJAR_MODE=REAL` + `MAGICJAR_ALLOW_REAL=true` **둘 다 true**일 때만 실계좌 모드 (ADR 0006 이중 스위치).
+> WARNING: `MAGICJAR_MODE=REAL` + `MAGICJAR_ALLOW_REAL=true` **둘 다 true**일 때만 실계좌 모드 (ADR 0006 이중 스위치).
 
-### 2. 인프라 기동 (PostgreSQL + Redis)
+### 2. Docker compose — 3 모드
+
+| 모드 | 명령 | 용도 |
+|------|------|------|
+| **전체 스택** | `docker compose -f docker/docker-compose.yml up -d --build` | 인프라 4 + 앱 5 통합 기동. 머지 전 검증·CI |
+| **인프라만** | `docker compose -f docker/docker-compose.infra.yml up -d` | postgres·kafka·redis·minio만. 호스트 `./gradlew bootRun`으로 디버깅 |
+| **dev override** | `docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up -d` | 위 1 + volume mount + uvicorn `--reload` |
+
+상태 확인:
 
 ```bash
-docker compose up -d              # 백그라운드 기동
-docker compose ps                 # postgres·redis 둘 다 Up 확인
-docker compose logs -f postgres   # 로그 보기
-docker compose down               # 끄기
-docker compose down -v            # 데이터까지 삭제 (주의)
+docker compose -f docker/docker-compose.yml ps        # 9개 모두 (healthy) 여야 정상
+docker compose -f docker/docker-compose.yml logs -f api-app
+docker compose -f docker/docker-compose.yml down      # 끄기
+docker compose -f docker/docker-compose.yml down -v   # 데이터까지 삭제 (주의)
 ```
 
-| 서비스 | 호스트 | 인증 |
-|--------|--------|------|
-| PostgreSQL | `localhost:5432` | DB/user/pwd 모두 `magicjar` |
-| Redis | `localhost:6379` | 없음 |
+| 서비스 | 호스트 포트 | 비고 |
+|--------|-----------|------|
+| PostgreSQL | `5432` | DB/user/pwd 모두 `magicjar` |
+| Kafka | `9092` | KRaft 단일 노드, auto-create-topics |
+| Redis | `6379` | |
+| MinIO | `9000` (S3) / `9001` (콘솔) | user `magicjar` / pwd `magicjar123` |
+| api-app | `8080` | REST + STOMP. `/actuator/health` |
+| batch-app | `8081` | Spring Batch (job.enabled=false, 명시 트리거) |
+| consumer-app | `8082` | Spring Kafka 컨슈머 + AI 분석 + KIS 브리지 |
+| pyworker | `8000` | FastAPI + Playwright. `/health` `/scrape/{source}` `/screenshot` |
+| frontend | `3000` | nginx 정적 + React SPA (포트 80 → 3000 매핑) |
 
-IntelliJ 우측 **Database 패널** → `+` → PostgreSQL → 위 정보 입력 → Test Connection.
+### 3. 통합 스모크 — `scripts/smoke.sh`
 
-### 3. Gradle 빌드 (IntelliJ Gradle 패널 또는 터미널)
+5 시나리오를 한 번에 검증 (spec §15-2):
 
 ```bash
-./gradlew clean build           # 전체 빌드 + 테스트
-./gradlew :app:classes          # 빠른 컴파일 체크 (DB 없이)
-./gradlew :app:bootJar          # 실행 가능한 jar 생성
+./scripts/smoke.sh
 ```
 
-### 4. 앱 실행
+| # | 시나리오 | 의존 |
+|---|---------|------|
+| 1 | 백테스트 트리거 → 매매일지 | api-app `/api/backtest` (Phase E 정식 구현 예정 — 현재 SKIP) |
+| 2 | 시세 → 신호 → STOMP fan-out | kafka 컨테이너 + api-app health |
+| 3 | 뉴스 크롤(pyworker) → AI 분석(consumer) | pyworker `/scrape/naver` + consumer `news.analyzed.v1` |
+| 4 | 차트 캡처 클라이언트 → MinIO | api-app `/api/journal/{tradeId}/snapshots` (Phase E — SKIP) |
+| 5 | 서버사이드 캡처(pyworker Playwright) | pyworker `/screenshot` + MinIO public URL |
 
-#### 옵션 A — IntelliJ Run Configuration (추천)
+종료 코드 `0`=PASS/SKIP만, `1`=FAIL 1건 이상.
+환경변수 override: `API_URL=http://localhost:8080 PYWORKER_URL=http://localhost:8000 ./scripts/smoke.sh`
 
-**Run → Edit Configurations… → `+` → Spring Boot**
+### 4. 호스트 직접 실행 (infra 모드 + bootRun)
 
-| 항목 | 값 |
-|------|------|
-| Name | `magicJar (mock)` |
-| Main class | `kr.spdaewoon.magicjar.MagicJarApplication` |
-| Module classpath | `magic_ch1.app.main` |
-| JRE | `21` |
-| Active profiles | `mock` (또는 `backtest`) |
-| Environment variables | EnvFile 탭에서 `.env` 추가 (또는 수동 입력) |
-
-▶️ 실행 → 콘솔에 `Started MagicJarApplication in X seconds` → 접속:
-
-| URL | 설명 |
-|-----|------|
-| http://localhost:8080/ | 홈 (시장 개요·관심 종목·최근 매매) |
-| http://localhost:8080/instruments/005930 | 종목 상세 (캔들·뉴스·AI 인사이트) |
-| http://localhost:8080/strategies | 전략 목록 / 백테스트 |
-| http://localhost:8080/portfolio | 포트폴리오 |
-| http://localhost:8080/journal | 매매일지 |
-| http://localhost:8080/harness | 하네스 운영 + 에이전트 대시보드 (탭) |
-| http://localhost:8080/actuator/health | 헬스체크 |
-
-#### 옵션 B — 터미널 한 방
+호스트에서 앱을 직접 띄우고 싶을 때 (디버거 attach 등):
 
 ```bash
-# .env 로드 + mock 프로파일
-export $(grep -v '^#' .env | xargs) && ./gradlew :app:bootRun
+# 1) 인프라만 띄우기 — kafka가 localhost:9092로 광고됨 (compose-infra 전용)
+docker compose -f docker/docker-compose.infra.yml up -d
 
-# 프로파일만 바꿔서
-SPRING_PROFILES_ACTIVE=backtest ./gradlew :app:bootRun
+# 2) 환경변수 export
+export $(grep -v '^#' .env | xargs)
+
+# 3) 각 앱 bootRun (각 터미널에서)
+./gradlew :api:bootRun
+./gradlew :batch:bootRun
+./gradlew :consumer:bootRun
+
+# 4) frontend dev 서버 (호스트)
+cd frontend && pnpm install && pnpm dev      # http://localhost:5173
+
+# 5) pyworker dev (호스트)
+cd pyworker && uv sync && uv run uvicorn app.main:app --reload --port 8000
 ```
 
-### 5. 종료 (역순)
+각 앱의 `/actuator/health` (JVM) 또는 `/health` (pyworker)가 200 UP이면 정상.
+
+### 5. 빌드만
 
 ```bash
-# 1. 앱 끄기 — IntelliJ ■ 또는 Ctrl+C
-# 2. 인프라 끄기
-docker compose down
+./gradlew clean build                 # 4 Gradle 모듈 (domain·api·batch·consumer)
+./gradlew :api:bootJar                # 실행 가능한 jar
+docker compose -f docker/docker-compose.yml build   # 5 이미지 빌드
 ```
 
 ### 프로파일 / 모드
@@ -164,11 +173,12 @@ docker compose down
 
 | 증상 | 원인 / 조치 |
 |------|------------|
-| `Connection refused 5432` | `docker compose up -d` 안 함. 컨테이너 헬스 확인. |
-| 종목 페이지 404 (`종목을 찾을 수 없습니다`) | `instrument` 테이블 비어 있음. Flyway `V3__seed_instruments.sql`이 핵심 16개 종목을 자동 적재. 적용 안 됐다면 `flyway_schema_history` 확인. |
-| Bean `AiClient` not found | `ANTHROPIC_API_KEY` 빈 상태에서 NoOpAiClient 주입 실패. `ai/src/main/resources/application-ai.yml` 확인. |
-| 포트 8080 충돌 | `lsof -i :8080` → kill, 또는 `server.port=8081`. |
-| Husky 훅 차단 | 시크릿 또는 ktlint 위반. **`--no-verify`는 금지** (ADR 0010). |
+| `docker compose ps`에 `unhealthy` | `docker compose logs <service>`. kafka는 start_period 20s 필요. |
+| `Connection refused 5432/9092/9000` | infra 미기동 또는 healthcheck 미통과. `docker compose ps`로 health 확인. |
+| Kafka 호스트 vs 컨테이너 광고 차이 | infra 모드 yml은 `localhost:9092`로 광고, 전체 모드 yml은 `kafka:9092`로 광고. 두 yml은 의도적으로 분리. |
+| 포트 충돌 (8080·8081·8082·8000·9092·5432·6379·9000·9001·3000) | `lsof -iTCP -sTCP:LISTEN -P`로 점유 확인 → kill, 또는 yml의 host 포트만 변경. |
+| pyworker 빌드 시 `uv sync --frozen` 실패 | `uv.lock` 부재. `docker compose run --user root --no-deps --entrypoint sh -v $(pwd)/pyworker:/host pyworker -c "cp /host/pyproject.toml /tmp/ && cp /host/README.md /tmp/ && cp -r /host/app /tmp/ && cd /tmp && pip install -q uv && uv lock && cp uv.lock /host/uv.lock"` |
+| Husky 훅 차단 | 시크릿·ktlint·author 화이트리스트 위반. **`--no-verify`는 금지** (ADR 0010·0017). |
 
 ## 개발 워크플로우 요약 (v2 — ADR 0013~0018)
 

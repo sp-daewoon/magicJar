@@ -13,16 +13,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 FROM base AS builder
 RUN pip install uv
 WORKDIR /app
-COPY pyproject.toml uv.lock* ./
+# pyproject.toml의 readme="README.md" 검증 + hatchling 빌드용 패키지 소스 함께 복사
+COPY pyproject.toml uv.lock* README.md ./
+COPY app ./app
 RUN uv sync --frozen --no-dev || uv sync --no-dev
 
 FROM base AS runtime
-RUN groupadd -r magicjar && useradd -r -g magicjar -u 1000 magicjar
+# 비루트 user. playwright는 -u 1000의 home(/home/magicjar)에 chromium을 설치해야 한다.
+RUN groupadd -r magicjar && useradd -r -g magicjar -u 1000 -m magicjar
 WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY app /app/app
-RUN /app/.venv/bin/playwright install chromium --with-deps
+RUN chown -R magicjar:magicjar /app
 USER 1000
+# magicjar user의 home (/home/magicjar/.cache/ms-playwright)에 chromium 설치
+RUN /app/.venv/bin/playwright install chromium
 ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=3s --retries=10 \

@@ -11,7 +11,7 @@
 - `agent/frontend/p3-frontend` (frontend, sonnet)
 
 **Authors:**
-- pyworker: `bot+ai-engineer@magicjar.local`
+- pyworker: `bot+ai@magicjar.local` (ADR 0017 화이트리스트 키 일치 — Phase 4에서 정정)
 - frontend: `bot+frontend@magicjar.local`
 
 **병렬 안전성:** 두 에이전트가 다른 디렉토리(`pyworker/`, `frontend/`)에서만 작업하고, 각자 worktree isolation으로 격리됨. 같은 main 기반 두 브랜치 동시 작업.
