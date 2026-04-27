@@ -1,8 +1,16 @@
 # ADR 0011: QA 스크린샷 게이트
 
-- 상태: Accepted
-- 작성일: 2026-04-25
+- 상태: Accepted (개정 by ADR 0016, 0022, 0023, 0026)
+- 작성일: 2026-04-25 (개정: 2026-04-27)
 - 결정자: architect (협의: qa, frontend, 사용자 지시)
+
+## 변경 이력
+
+| 날짜 | 변경 |
+|------|------|
+| 2026-04-25 | 최초 채택 |
+| 2026-04-25 | ADR 0016(QA On-Demand) 도입으로 "모든 PR 강제"는 7 트리거로 한정 |
+| 2026-04-27 | **본 개정** — 스크린샷 캡처 경로를 클라이언트(LWC `chart.takeScreenshot()`) + 서버(pyworker Playwright) 2 경로로 명시. 저장소는 MinIO(ADR 0026)로 이전. `_workspace/qa/screenshots/` 는 INDEX.md·메타만 보관, 바이너리는 MinIO `chart-snapshots/...` 키 참조. |
 
 ## 맥락
 
@@ -21,26 +29,33 @@
 | 전략/AI/데이터 수집 등 내부 모듈 변경이지만 대시보드·/harness 반영 | **필수** — 해당 페이지 |
 | 순수 내부 변경(테스트만, 리팩터, 문서) | 면제 |
 
-### 저장 규칙
+### 저장 규칙 (2026-04-27 개정 — MinIO 이전)
+
+바이너리 저장: **MinIO `chart-snapshots/qa/{pr-id or branch-slug}/...`** (ADR 0026).
+
+git 저장: 메타데이터만.
 
 ```
 _workspace/qa/screenshots/{pr-id or branch-slug}/
-├── 01-home.png
-├── 02-journal-list.png
-├── 03-journal-detail-happy.png
-├── 04-journal-detail-empty.png
-├── 05-harness-dashboard.png
-├── INDEX.md          # 각 스크린샷에 대한 설명 + 캡처 시각 + 어떤 화면 어떤 상태
+└── INDEX.md          # 각 스크린샷에 대한 설명 + 캡처 시각 + 화면/상태 + MinIO key + source(CLIENT_LWC|SERVER_BROWSER)
 ```
 
-파일명: `NN-{screen}-{state}.png` — 순번으로 정렬, 상태 명시(`happy`/`error`/`empty`/`loading`).
+(레거시: 초기 MVP 일부 PR은 git에 PNG 직접 두었음 — 점진 이전.)
 
-### 캡처 방법 (qa 에이전트 책임)
+파일명(MinIO key 마지막 segment): `NN-{screen}-{state}.png` — 순번으로 정렬, 상태 명시(`happy`/`error`/`empty`/`loading`).
 
-1. **자동 캡처 선호**: Playwright(Java/Kotlin)·Selenium으로 시나리오 주도 + 정지 시점 캡처.
-2. **수동 캡처 허용**: 초기 MVP에서 Playwright 셋업 전에는 QA 에이전트가 앱 실행 → Chrome `--headless=new --screenshot` 사용.
-3. 해상도: 1440×900 기본 (데스크톱 기준). 모바일 반응형 검증 필요 시 추가.
-4. 동적 요소(시각, 실시간 시세)는 마스킹 또는 고정값(테스트 픽스처) 사용.
+### 캡처 방법 (qa 에이전트 책임) — 2 경로 (2026-04-27 개정)
+
+| 경로 | 트리거 | 도구 | 사용처 |
+|------|--------|------|--------|
+| **클라이언트 (CLIENT_LWC)** | 사용자가 차트에서 "캡처" 버튼 → 프런트 `chart.takeScreenshot()` (LWC 공식 API) → api-app `/journal/{id}/snapshots`로 PUT → MinIO `chart-snapshots/...` | LWC 공식 (ADR 0022) | 매매일지 첨부, 사용자 자가 기록 |
+| **서버 (SERVER_BROWSER)** | api-app → pyworker `POST /screenshot` (URL 전달) → Playwright 헤드리스 캡처 → MinIO `chart-snapshots/...` | pyworker Playwright (ADR 0023) | LWC 공식 캡처 실패 시 폴백, QA 자동 시나리오, 외부 페이지 캡처 |
+
+`html-to-image` 등 외부 캡처 라이브러리 도입 금지 (ADR 0022 §"커스텀 지양 원칙").
+
+`ChartSnapshot.source` 필드(`CLIENT_LWC` / `SERVER_BROWSER`)로 경로 추적. QA 보고서 INDEX.md에도 source 표기.
+
+해상도: 1440×900 기본 (데스크톱). 동적 요소(시각·실시간 시세)는 마스킹 또는 고정 픽스처.
 
 ### QA 승인 프로세스
 
