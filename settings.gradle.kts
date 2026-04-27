@@ -12,6 +12,13 @@ plugins {
 rootProject.name = "magicjar"
 
 include(
+    // === 신규 (P1~) ===
+    "domain",
+    "api",
+    "batch",
+    "consumer",
+
+    // === 구 (P1 Task 1.10에서 일괄 제거 예정) ===
     "app",
     "core",
     "market-data",
