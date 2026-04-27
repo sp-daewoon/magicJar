@@ -1,0 +1,98 @@
+spring:
+  application:
+    name: magicjar-consumer
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  jackson:
+    default-property-inclusion: non_null
+    time-zone: Asia/Seoul
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: Asia/Seoul
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/magicjar}
+    username: ${DB_USER:magicjar}
+    password: ${DB_PASSWORD:magicjar}
+  flyway:
+    enabled: false   # api가 DB owner
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.mj"
+      group-id: ${KAFKA_GROUP_ID:magicjar-consumer}
+      auto-offset-reset: earliest
+
+spring.ai:
+  openai:
+    api-key: ${OPENAI_API_KEY:}
+    chat:
+      options:
+        model: ${OPENAI_MODEL:gpt-4o-mini}
+
+server:
+  port: 8082
+  shutdown: graceful
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when-authorized
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+kis:
+  app-key: ${KIS_APP_KEY:}
+  app-secret: ${KIS_APP_SECRET:}
+  account-no: ${KIS_ACCOUNT_NO:}
+  base-url: ${KIS_BASE_URL:https://openapivts.koreainvestment.com:29443}
+  ws-url: ${KIS_WS_URL:ws://ops.koreainvestment.com:21000}
+  rate:
+    capacity-per-second: ${KIS_RATE_CAPACITY:15}
+    order-per-second: ${KIS_RATE_ORDER:5}
+
+magicjar:
+  mode: ${MAGICJAR_MODE:MOCK}
+  allow-real: ${MAGICJAR_ALLOW_REAL:false}
+  ai:
+    provider: openai
+    model: ${OPENAI_MODEL:gpt-4o-mini}
+    temperature: 0.3
+    max-tokens: 1024
+  kafka:
+    topics:
+      tick: market.tick.v1
+      candle1m: market.candle.1m.v1
+      newsRaw: news.raw.v1
+      newsAnalyzed: news.analyzed.v1
+      dartDisclosure: dart.disclosure.v1
+      screenshotCaptured: screenshot.captured.v1
+      signal: signal.v1
+      orderIntent: order.intent.v1
+      orderExecuted: order.executed.v1
+      journalEntry: journal.entry.v1
+
+logging:
+  level:
+    root: INFO
+    com.mj: DEBUG

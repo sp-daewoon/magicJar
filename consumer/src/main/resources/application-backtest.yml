@@ -1,0 +1,3 @@
+magicjar:
+  mode: BACKTEST
+  allow-real: false
