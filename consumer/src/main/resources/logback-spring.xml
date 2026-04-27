@@ -3,28 +3,10 @@
 
     <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
 
-    <!-- KIS appkey/appsecret 및 OPENAI_API_KEY 마스킹 -->
-    <conversionRule conversionWord="mask"
-                    converterClass="com.mj.api.config.SecretMaskingConverter"/>
-
-    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
-            <timeZone>Asia/Seoul</timeZone>
-            <customFields>{"app":"magicjar-consumer"}</customFields>
-            <fieldNames>
-                <timestamp>@timestamp</timestamp>
-                <message>message</message>
-                <logger>logger</logger>
-                <thread>thread</thread>
-                <level>level</level>
-            </fieldNames>
-        </encoder>
-    </appender>
-
     <springProfile name="!prod">
         <appender name="CONSOLE_TEXT" class="ch.qos.logback.core.ConsoleAppender">
             <encoder>
-                <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %mask(%msg)%n</pattern>
+                <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n</pattern>
             </encoder>
         </appender>
         <root level="INFO">
@@ -33,6 +15,19 @@
     </springProfile>
 
     <springProfile name="prod">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <timeZone>Asia/Seoul</timeZone>
+                <customFields>{"app":"magicjar-consumer"}</customFields>
+                <fieldNames>
+                    <timestamp>@timestamp</timestamp>
+                    <message>message</message>
+                    <logger>logger</logger>
+                    <thread>thread</thread>
+                    <level>level</level>
+                </fieldNames>
+            </encoder>
+        </appender>
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
         </root>
