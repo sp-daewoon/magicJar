@@ -1,8 +1,8 @@
 package com.mj.domain.strategy.indicator
 
+import com.mj.domain.strategy.CandleFixtures
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
-import com.mj.domain.strategy.CandleFixtures
 import org.junit.jupiter.api.Test
 
 class RsiTest {

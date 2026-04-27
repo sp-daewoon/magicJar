@@ -1,7 +1,7 @@
 package com.mj.domain.strategy.indicator
 
-import io.kotest.matchers.shouldNotBe
 import com.mj.domain.strategy.CandleFixtures
+import io.kotest.matchers.shouldNotBe
 import org.junit.jupiter.api.Test
 
 class AdxCciDisparityVolumeTest {

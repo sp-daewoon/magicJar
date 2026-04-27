@@ -2,7 +2,7 @@ package com.mj.domain.journal.port
 
 import com.mj.domain.common.Mode
 import com.mj.domain.common.Side
-import com.mj.domain.common.TradeJournalEntry
+import com.mj.domain.journal.TradeJournalEntry
 import java.time.Instant
 import java.util.UUID
 
