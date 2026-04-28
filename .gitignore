@@ -82,3 +82,4 @@ pyworker/*.egg-info/
 pyworker/.python-version-local
 # uv.lock 은 commit 권장 (reproducible build) — ignore 하지 않음.
 
+.claude/scheduled_tasks.lock

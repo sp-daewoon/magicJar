@@ -34,6 +34,9 @@ dependencies {
     // 보안 (rate-limit·인증은 P3+ 보강)
     implementation("org.springframework.boot:spring-boot-starter-security")
 
+    // OpenAPI / Swagger UI — /swagger-ui/index.html, /v3/api-docs
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0")
+
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.kafka:spring-kafka-test")
     testImplementation("org.testcontainers:junit-jupiter:1.20.4")
