@@ -1,5 +1,5 @@
 {
-  "currentPhase": "D_COMPLETED",
+  "currentPhase": "E_P3_IN_PROGRESS",
   "phaseHistory": [
     {
       "phase": "0",
@@ -144,8 +144,40 @@
       "4) STOMP fanout e2e 검증 (frontend Playwright e2e)",
       "5) CI/CD GitHub Actions matrix (build·test·docker push to ghcr.io)",
       "6) k8s/ECS 배포 manifest"
-    ]
+    ],
+    "subPhases": {
+      "P1": {
+        "agent": "backend-core",
+        "status": "MERGED_TO_MAIN",
+        "pr": "Phase E-P1 hotfix(0f9d288)",
+        "summary": "P0 hotfix — REST 컨트롤러 4종(/api/backtest·/api/journal·/api/instruments·/api/strategy) + 각 앱 자체 JpaRepositoryAdapter"
+      },
+      "P2": {
+        "agent": "market-data",
+        "status": "MERGED_TO_MAIN",
+        "pr": "PR #23 (4854988)",
+        "summary": "KIS 어댑터 stub/real 분기 + 캔들 backfill + 백테스트 e2e (1종목 1전략 stub fixture 기반)"
+      },
+      "P3": {
+        "agent": "architect",
+        "status": "IN_PROGRESS",
+        "branch": "agent/architect/e3-cicd",
+        "startedAt": "2026-04-27T22:30:00+09:00",
+        "summary": "GitHub Actions matrix CI/CD — JVM 4 + pyworker + frontend 검증, main push 시 5 서비스 컨테이너 ghcr.io 자동 발행. release.yml skeleton(v*.*.*). CODEOWNERS. README CI/CD 섹션.",
+        "deliverables": {
+          "workflows": [".github/workflows/ci.yml", ".github/workflows/release.yml"],
+          "codeowners": ".github/CODEOWNERS",
+          "readme_section": "CI/CD",
+          "lint_validation": "yaml-lint PASS (actionlint은 sandbox 외부 도구 다운로드 차단으로 GitHub UI 검증으로 대체 — PR 본문에 명시)",
+          "manual_user_actions": [
+            "Settings → Actions → General → Workflow permissions: Read and write 활성화",
+            "Settings → Packages → ghcr.io visibility 결정 (기본 private 권장)"
+          ]
+        },
+        "endGate": "PR agent/architect/e3-cicd → main 발행 + 첫 CI run 사용자 확인 후 머지"
+      }
+    }
   },
   "retrospective": "_workspace/_retrospective-phase-b.md",
-  "updatedAt": "2026-04-27T22:00:00+09:00"
+  "updatedAt": "2026-04-27T22:30:00+09:00"
 }
