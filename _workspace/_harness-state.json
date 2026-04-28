@@ -160,24 +160,28 @@
       },
       "P3": {
         "agent": "architect",
-        "status": "IN_PROGRESS",
+        "status": "MERGED_TO_MAIN",
+        "pr": "PR #25",
         "branch": "agent/architect/e3-cicd",
         "startedAt": "2026-04-27T22:30:00+09:00",
+        "mergedAt": "2026-04-28T13:22:00+09:00",
         "summary": "GitHub Actions matrix CI/CD — JVM 4 + pyworker + frontend 검증, main push 시 5 서비스 컨테이너 ghcr.io 자동 발행. release.yml skeleton(v*.*.*). CODEOWNERS. README CI/CD 섹션.",
         "deliverables": {
-          "workflows": [".github/workflows/ci.yml", ".github/workflows/release.yml"],
-          "codeowners": ".github/CODEOWNERS",
-          "readme_section": "CI/CD",
-          "lint_validation": "yaml-lint PASS (actionlint은 sandbox 외부 도구 다운로드 차단으로 GitHub UI 검증으로 대체 — PR 본문에 명시)",
-          "manual_user_actions": [
-            "Settings → Actions → General → Workflow permissions: Read and write 활성화",
-            "Settings → Packages → ghcr.io visibility 결정 (기본 private 권장)"
-          ]
-        },
-        "endGate": "PR agent/architect/e3-cicd → main 발행 + 첫 CI run 사용자 확인 후 머지"
+          "workflows": [".github/workflows/ci.yml (184줄)", ".github/workflows/release.yml (94줄)"],
+          "codeowners": ".github/CODEOWNERS (21줄)",
+          "readme_section": "CI/CD (+34줄)",
+          "lint_validation": "yaml-lint PASS",
+          "user_settings_completed": "사용자(2026-04-28): Workflow permissions Read and write 활성화. Allow Actions create PRs는 미사용(필요 없음)."
+        }
       }
-    }
+    },
+    "currentSubPhase": null,
+    "openTodos": [
+      "첫 CI run 결과 모니터링 (PR + main push 자동 트리거됨, 사용자 확인 권장)",
+      "ghcr.io 첫 push 결과 확인 (5 이미지: api·batch·consumer·pyworker·frontend)",
+      "다음 sub-phase 결정: E-P4 (k8s/ECS) 또는 E-P5 (KIS 모의 키 e2e — 사용자 키 발급 의존) 또는 E-P6 (도메인 회귀 강화)"
+    ]
   },
   "retrospective": "_workspace/_retrospective-phase-b.md",
-  "updatedAt": "2026-04-27T22:30:00+09:00"
+  "updatedAt": "2026-04-28T13:25:00+09:00"
 }
