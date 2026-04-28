@@ -1,0 +1,19 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="MagicJarApi" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+    <module name="magicjar.api.main" />
+    <option name="SPRING_BOOT_MAIN_CLASS" value="com.mj.api.MagicJarApiApplicationKt" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="false" />
+    <option name="ALTERNATIVE_JRE_PATH" value="" />
+    <option name="ENABLE_LAUNCH_OPTIMIZATION" value="false" />
+    <option name="ENABLE_JMX_AGENT" value="false" />
+    <option name="ENABLE_SWAP_INIT" value="false" />
+    <option name="HIDE_BANNER" value="false" />
+    <option name="DEBUG_MODE" value="false" />
+    <option name="UPDATE_ACTION_UPDATE_POLICY" value="UPDATE_RESOURCES" />
+    <option name="FRAME_DEACTIVATION_UPDATE_POLICY" value="DO_NOTHING" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

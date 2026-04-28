@@ -153,6 +153,60 @@ cd pyworker && uv sync && uv run uvicorn app.main:app --reload --port 8000
 
 각 앱의 `/actuator/health` (JVM) 또는 `/health` (pyworker)가 200 UP이면 정상.
 
+### 4-1. IntelliJ에서 실행 (`.run/` 공유 Run Config)
+
+`.run/` 디렉토리에 IntelliJ가 자동 인식하는 Run Configuration 7종이 commit돼있다 — 누구나 같은 셋업으로 띄울 수 있다.
+
+| Run Config | 종류 | 설명 |
+|---|---|---|
+| **Infra-Up** | Shell | `docker-compose.infra.yml up -d` + healthy 폴링 (수동, JVM 앞에 1회) |
+| **MagicJarApi** | Spring Boot | api-app 8080 |
+| **MagicJarBatch** | Spring Boot | batch-app 8081 (`spring.batch.job.enabled=false` — 자동 잡 실행 없음) |
+| **MagicJarConsumer** | Spring Boot | consumer-app 8082 |
+| **Pyworker** | Python (uvicorn) | pyworker 8000 — env 5종 주입(KAFKA·S3 등). `.venv` 인터프리터 필요 |
+| **Job-Backfill** | Spring Boot | batch jar로 `dailyCandleBackfillJob`만 단발 실행 (web 서버 미부팅) |
+| **Job-Backtest** | Spring Boot | batch jar로 `backtestRunJob`만 단발 실행 |
+
+#### 셋업 절차 (1회)
+
+```bash
+# 1) pyworker 호스트 환경 준비
+brew install uv                              # 또는 https://astral.sh/uv/install.sh
+cd pyworker && bash scripts/setup.sh         # uv sync + playwright chromium 설치
+cd ..
+
+# 2) frontend 호스트 환경 준비 (터미널 실행용)
+cd frontend && npm install
+cd ..
+```
+
+#### IntelliJ 측 1회 설정
+
+1. **Project Structure → SDK** → JDK 21 선택
+2. **Settings → Plugins** → "Python" 설치 (Community/Ultimate 둘 다 무료)
+3. **Settings → Project → Python Interpreter** → "Add Local Interpreter" → Existing → `<project>/pyworker/.venv/bin/python`
+4. Gradle 모듈 reload (`./gradlew --refresh-dependencies` 또는 IntelliJ 우상단 코끼리 아이콘)
+
+#### 평소 실행 흐름
+
+```
+1. Infra-Up         ▶  (인프라 4개 healthy까지 기다림)
+2. MagicJarApi      ▶  (Flyway가 api에서 돌아 스키마 적용)
+3. MagicJarBatch    ▶  / MagicJarConsumer ▶
+4. Pyworker         ▶
+5. (터미널)         cd frontend && npm run dev    # http://localhost:5173
+```
+
+#### 잡 단발 실행
+
+`Job-Backfill` 또는 `Job-Backtest`를 ▶ 누르면 batch jar가 잡만 실행하고 종료한다. 파라미터(symbol/from/to/runId 등)는 Run Config의 Program Arguments에서 직접 수정. web 서버는 안 띄우므로 **MagicJarBatch가 떠있어도 8081 포트 충돌 없음**.
+
+#### 주의
+
+- **frontend는 터미널 권장** (`npm run dev`) — vite HMR 출력이 IntelliJ Run Window보다 터미널에서 보기 편함
+- pyworker를 IntelliJ에서 띄우는 동안 docker compose에서 pyworker도 띄우지 말 것 (8000 포트 충돌). `docker-compose.infra.yml`에는 pyworker가 없으니 문제 없음
+- Active profile 옵션은 비워뒀음(application.yml의 default `dev` / `stub-kis` 사용). local/dev/prd 분리는 향후 별도 작업
+
 ### 5. 빌드만
 
 ```bash
