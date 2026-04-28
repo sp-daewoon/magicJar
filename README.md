@@ -192,6 +192,40 @@ docker compose -f docker/docker-compose.yml build   # 5 이미지 빌드
 - 권한: `.claude/settings.json`이 일상 자동 허용, `gh pr merge`·main push·`npm publish`만 사용자 승인
 - 상세: `_workspace/arch/branching-and-qa-gates.md`, ADR 0009·0013·0015·0016·0018
 
+## CI/CD (Phase E-P3)
+
+GitHub Actions로 PR 검증 + main 머지 시 컨테이너 자동 발행을 수행한다.
+
+| 워크플로 | 트리거 | 역할 |
+|---------|--------|------|
+| `.github/workflows/ci.yml` | PR(→main) + main push | JVM 4 모듈 `:check` + `:bootJar` (matrix), pyworker `pytest`, frontend `pnpm test/build`. main push 시 5 서비스(api·batch·consumer·pyworker·frontend) 컨테이너를 ghcr.io에 push. |
+| `.github/workflows/release.yml` | `v*.*.*` 태그 push | semver 태그 컨테이너 push + GitHub Release draft 생성 (skeleton, Phase E-P4 이후 정식 사용). |
+
+**이미지 식별자 규칙** — `ghcr.io/<owner>/magicjar-<service>:<tag>`
+
+| tag | 의미 |
+|-----|------|
+| `sha-<short>` | 모든 main push에서 자동 생성. 정확한 commit pin용. |
+| `latest` | main의 최신 이미지. dev/staging compose에서 기본 사용. |
+| `vX.Y.Z` / `vX.Y` | release 워크플로 (semver 태그 전용). |
+
+**Pull 예시:**
+
+```bash
+docker pull ghcr.io/sp-daewoon/magicjar-api:latest
+docker pull ghcr.io/sp-daewoon/magicjar-frontend:sha-abc1234
+```
+
+> ghcr.io visibility는 기본 private. public 공개를 원하면 GitHub UI → Packages → Package settings → Change visibility에서 변경. private 유지 시 pull 전에 `echo $GITHUB_TOKEN | docker login ghcr.io -u <user> --password-stdin` 필요.
+
+**1회 수동 설정 (저장소 owner):**
+
+1. Settings → Actions → General → Workflow permissions → "Read and write permissions" 활성화
+2. Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests" (선택)
+3. (선택) ghcr.io 패키지 visibility를 public으로 변경하면 외부에서 인증 없이 pull 가능
+
+**CODEOWNERS** — `.github/CODEOWNERS`로 1인 owner 등록 (향후 팀 확장 대비).
+
 ## Claude Code 하네스
 
 본 저장소는 Claude Code 하네스로 자동화된다. `CLAUDE.md` 참고.
