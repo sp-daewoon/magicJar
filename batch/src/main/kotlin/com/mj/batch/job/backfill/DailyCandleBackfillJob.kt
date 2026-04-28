@@ -29,8 +29,10 @@ import java.time.LocalDate
  *
  * stub-kis 프로파일: StubKisRestAdapter → kis-samples JSON 반환
  * real-kis 프로파일: RealKisRestAdapter → 실제 KIS REST 호출
+ *
+ * 클래스 빈 이름과 @Bean fun dailyCandleBackfillJob() 빈 이름이 충돌하므로 Configuration 빈 이름을 명시.
  */
-@Configuration
+@Configuration("dailyCandleBackfillJobConfig")
 class DailyCandleBackfillJob(
     private val jobRepository: JobRepository,
     private val transactionManager: PlatformTransactionManager,
