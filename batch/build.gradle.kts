@@ -21,6 +21,9 @@ dependencies {
     implementation("org.springframework.kafka:spring-kafka") // 결과 publish
     implementation("org.springframework.ai:spring-ai-openai-spring-boot-starter")
 
+    // OpenAPI / Swagger UI — /swagger-ui/index.html, /v3/api-docs
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0")
+
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.batch:spring-batch-test")
     testImplementation("org.testcontainers:junit-jupiter:1.20.4")
