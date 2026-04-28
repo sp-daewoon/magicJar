@@ -46,8 +46,10 @@ import java.util.UUID
  *   - symbol      : 종목코드 (예: 005930)
  *   - from        : 백테스트 시작일 yyyy-MM-dd
  *   - to          : 백테스트 종료일 yyyy-MM-dd
+ *
+ * 클래스 빈 이름과 @Bean fun backtestRunJob() 빈 이름이 충돌하므로 Configuration 빈 이름을 명시.
  */
-@Configuration
+@Configuration("backtestRunJobConfig")
 class BacktestRunJob(
     private val jobRepository: JobRepository,
     private val transactionManager: PlatformTransactionManager,
