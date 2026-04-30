@@ -1,5 +1,5 @@
 {
-  "currentPhase": "E_P3_IN_PROGRESS",
+  "currentPhase": "F_R1_DONE",
   "phaseHistory": [
     {
       "phase": "0",
@@ -11,7 +11,10 @@
       "phase": "A",
       "startedAt": "2026-04-25T03:45:00+09:00",
       "finishedAt": "2026-04-25T04:10:00+09:00",
-      "agents": ["architect", "backend-core"],
+      "agents": [
+        "architect",
+        "backend-core"
+      ],
       "mode": "team",
       "notes": "12 ADR Accepted (0001~0012), Kotlin 2.0 도메인 모델, 모듈 경계 확정"
     },
@@ -20,22 +23,59 @@
       "startedAt": "2026-04-25T04:20:00+09:00",
       "finishedAt": "2026-04-25T21:38:47+09:00",
       "mode": "subagent-parallel-staged",
-      "stage1": ["backend-core"],
+      "stage1": [
+        "backend-core"
+      ],
       "stage1Status": "MERGED_TO_MAIN",
       "stage1Note": "PR #2 머지 → main 7644320",
-      "stage2": ["market-data", "strategy-engine", "ai-engineer", "frontend"],
+      "stage2": [
+        "market-data",
+        "strategy-engine",
+        "ai-engineer",
+        "frontend"
+      ],
       "stage2Status": "MERGED_TO_MAIN",
       "stage2Note": "1차 동시 4개 호출 한도 hit → 2차 분할(2+2) 재실행으로 마무리. 4개 PR(#4·#5·#6·#7) qa squash 머지 완료. application.yml 충돌은 4 모듈 import 통합으로 해소. PR #8(qa→main, a18ef79)로 main 흡수.",
       "mergedCommits": [
-        {"pr": 4, "agent": "ai-engineer", "qaCommit": "d451bee", "via": "GH auto-merge"},
-        {"pr": 6, "agent": "market-data", "qaCommit": "fb4cb02", "via": "local squash + heredoc conflict resolve"},
-        {"pr": 7, "agent": "strategy-engine", "qaCommit": "fa4628a", "via": "local squash + heredoc conflict resolve"},
-        {"pr": 5, "agent": "frontend", "qaCommit": "18a0dfd", "via": "local squash + heredoc conflict resolve, with QA-001 보강 포함"},
-        {"pr": 8, "agent": "merge", "mainCommit": "a18ef79", "via": "qa→main merge commit (ADR 0012 승인 지점 2)"}
+        {
+          "pr": 4,
+          "agent": "ai-engineer",
+          "qaCommit": "d451bee",
+          "via": "GH auto-merge"
+        },
+        {
+          "pr": 6,
+          "agent": "market-data",
+          "qaCommit": "fb4cb02",
+          "via": "local squash + heredoc conflict resolve"
+        },
+        {
+          "pr": 7,
+          "agent": "strategy-engine",
+          "qaCommit": "fa4628a",
+          "via": "local squash + heredoc conflict resolve"
+        },
+        {
+          "pr": 5,
+          "agent": "frontend",
+          "qaCommit": "18a0dfd",
+          "via": "local squash + heredoc conflict resolve, with QA-001 보강 포함"
+        },
+        {
+          "pr": 8,
+          "agent": "merge",
+          "mainCommit": "a18ef79",
+          "via": "qa→main merge commit (ADR 0012 승인 지점 2)"
+        }
       ],
       "qaResult": {
         "round1": "3 APPROVED + 1 CHANGES_REQUESTED (PR#5 P1 템플릿 4개 누락)",
-        "round1Issues": ["QA-001 P1 (FIXED)", "QA-002 P3 (FIXED)", "QA-003 P3 OPEN", "QA-004 P3 OPEN"],
+        "round1Issues": [
+          "QA-001 P1 (FIXED)",
+          "QA-002 P3 (FIXED)",
+          "QA-003 P3 OPEN",
+          "QA-004 P3 OPEN"
+        ],
         "round2": "frontend 보강 push 후 qa 재검수 시작 → 사용자 결정으로 보류, 회고 문서로 대체"
       },
       "exceptions": [
@@ -47,7 +87,9 @@
       "startedAt": "2026-04-25T22:13:00+09:00",
       "finishedAt": "2026-04-25T22:52:25+09:00",
       "mode": "harness-maintenance",
-      "agents": ["architect"],
+      "agents": [
+        "architect"
+      ],
       "tasks": [
         {
           "id": "T-20260425-2213-harness-v2-six-pack",
@@ -62,13 +104,27 @@
           "summary": "bootRun 5건 통합 hotfix — Spring Boot 정상 부팅 확인"
         }
       ]
+    },
+    {
+      "phase": "E_DONE",
+      "finishedAt": "2026-04-30T00:00:00+09:00",
+      "summary": "Phase E-P1·E-P2·E-P3 main 머지 완료. v0.1.0 베이스라인 컷 + release/v0 immutable. ADR 0027 발행.",
+      "tag": "v0.1.0",
+      "releaseBranch": "release/v0"
     }
   ],
-  "activeAgents": ["architect"],
+  "activeAgents": [],
   "blockedAgents": [],
   "openIssues": [
-    "QA-003 P3 (market-data 두 샘플 JSON 형식 차이 README 명시) — Phase B 잔여, P2 시점 재검토",
-    "QA-004 P3 (strategy 테이블 JPA 엔티티/포트 부재) — P1에서 _legacy/strategy-journal로 백업, P2에서 application layer 영구 위치 결정 시 해소"
+    "Phase E P0 — REST API 컨트롤러 미구현 (api 모듈에 /api/backtest, /api/journal 등 controller 패키지 없음. spec §4 시나리오 1·4 충족 위해 필수)",
+    "Phase E P0 — batch/consumer JPA 어댑터 부재 (P2 모듈 경계 회귀). 현재 P4 자율 hotfix로 in-memory stub로 컨텍스트 부팅만 가능. 영속성 필요. shared-infra 모듈 신설 또는 어댑터 복제 결정 필요",
+    "Phase E P1 — STOMP fanout 검증 (Kafka tick → /topic/market.tick.<symbol> 실제 frontend 수신 확인). 현재는 publish + api health만 확인",
+    "Phase E P1 — pyworker storage MinIO 객체 실제 저장 검증. screenshot의 publicUrl 도달성 검증",
+    "Phase E P2 — spring.batch.jdbc.initialize-schema 와 api flyway baseline 충돌 가능성. 현재 baseline-version=0으로 우회",
+    "Phase E P2 — frontend healthcheck IPv4 binding 의존 (ipv6에서 nginx wget connection refused). nginx.conf에 listen [::]:80 추가 hotfix 필요",
+    "Phase E P2 — host docker disk usage 모니터링·정리 가이드 (사용자 환경)",
+    "QA-003 P3 (market-data 두 샘플 JSON 형식 차이 README 명시) — Phase B 잔여, 후속",
+    "QA-004 P3 (strategy 테이블 JPA 엔티티/포트 부재) — P1에서 _legacy로 백업, Phase E에서 application layer 영구 위치 결정 시 해소"
   ],
   "phaseD": {
     "startedAt": "2026-04-27T18:00:00+09:00",
@@ -79,7 +135,16 @@
         "agent": "architect",
         "branch": "agent/architect/p1-foundation",
         "summary": "MSA 재구성 1단계: 5 모듈 신설(domain/api/batch/consumer + frontend/pyworker/docker), 기존 7 모듈 git rm, domain 라이브러리(순수 도메인 + port) 채움",
-        "adrs": ["0019", "0020", "0021", "0022", "0023", "0024", "0025", "0026"],
+        "adrs": [
+          "0019",
+          "0020",
+          "0021",
+          "0022",
+          "0023",
+          "0024",
+          "0025",
+          "0026"
+        ],
         "result": "BUILD SUCCESSFUL — 4 모듈, :domain:test 25 PASS"
       },
       "P2": {
@@ -88,7 +153,10 @@
         "result": "MERGED — bootRun deferred 게이트는 P4 docker compose 검증으로 대체"
       },
       "P3": {
-        "agents": ["ai-engineer", "frontend"],
+        "agents": [
+          "ai-engineer",
+          "frontend"
+        ],
         "summary": "pyworker(FastAPI+Playwright+aiokafka+APScheduler) + frontend(React+TS+Vite+shadcn+TanStack+LWC v4) 병렬",
         "result": "MERGED — pyworker 20 파일/frontend 44 파일, vitest 20 PASS, dist gzip 170KB, Docker 62.1MB"
       },
@@ -118,17 +186,6 @@
       }
     }
   },
-  "openIssues": [
-    "Phase E P0 — REST API 컨트롤러 미구현 (api 모듈에 /api/backtest, /api/journal 등 controller 패키지 없음. spec §4 시나리오 1·4 충족 위해 필수)",
-    "Phase E P0 — batch/consumer JPA 어댑터 부재 (P2 모듈 경계 회귀). 현재 P4 자율 hotfix로 in-memory stub로 컨텍스트 부팅만 가능. 영속성 필요. shared-infra 모듈 신설 또는 어댑터 복제 결정 필요",
-    "Phase E P1 — STOMP fanout 검증 (Kafka tick → /topic/market.tick.<symbol> 실제 frontend 수신 확인). 현재는 publish + api health만 확인",
-    "Phase E P1 — pyworker storage MinIO 객체 실제 저장 검증. screenshot의 publicUrl 도달성 검증",
-    "Phase E P2 — spring.batch.jdbc.initialize-schema 와 api flyway baseline 충돌 가능성. 현재 baseline-version=0으로 우회",
-    "Phase E P2 — frontend healthcheck IPv4 binding 의존 (ipv6에서 nginx wget connection refused). nginx.conf에 listen [::]:80 추가 hotfix 필요",
-    "Phase E P2 — host docker disk usage 모니터링·정리 가이드 (사용자 환경)",
-    "QA-003 P3 (market-data 두 샘플 JSON 형식 차이 README 명시) — Phase B 잔여, 후속",
-    "QA-004 P3 (strategy 테이블 JPA 엔티티/포트 부재) — P1에서 _legacy로 백업, Phase E에서 application layer 영구 위치 결정 시 해소"
-  ],
   "phaseDPlan": {
     "P1": "Foundation + domain (architect, opus) — DONE",
     "P2": "JVM 3 앱 + Kafka 와이어링 (backend-core, sonnet) — DONE",
@@ -167,7 +224,10 @@
         "mergedAt": "2026-04-28T13:22:00+09:00",
         "summary": "GitHub Actions matrix CI/CD — JVM 4 + pyworker + frontend 검증, main push 시 5 서비스 컨테이너 ghcr.io 자동 발행. release.yml skeleton(v*.*.*). CODEOWNERS. README CI/CD 섹션.",
         "deliverables": {
-          "workflows": [".github/workflows/ci.yml (184줄)", ".github/workflows/release.yml (94줄)"],
+          "workflows": [
+            ".github/workflows/ci.yml (184줄)",
+            ".github/workflows/release.yml (94줄)"
+          ],
           "codeowners": ".github/CODEOWNERS (21줄)",
           "readme_section": "CI/CD (+34줄)",
           "lint_validation": "yaml-lint PASS",
@@ -183,5 +243,87 @@
     ]
   },
   "retrospective": "_workspace/_retrospective-phase-b.md",
-  "updatedAt": "2026-04-28T13:25:00+09:00"
+  "updatedAt": "2026-04-30T23:50:00+09:00",
+  "phaseF": {
+    "startedAt": "2026-04-30",
+    "round1": {
+      "mode": "parallel-worktree-isolation",
+      "agents": [
+        {
+          "agent": "market-data",
+          "model": "sonnet",
+          "task": "RealKisRestAdapter — fetchCandles+fetchQuote (KIS 모의 API trId=FHKST01010400/FHKST01010100) + 401 토큰 갱신 + 기본 에러 처리"
+        },
+        {
+          "agent": "ai-engineer",
+          "model": "opus-4.6",
+          "task": "AI 1차 통합 — 뉴스 감성 분석 (Spring AI ChatClient + Anthropic) + ConsumerKafkaListener 연동 + Mock LLM 테스트"
+        },
+        {
+          "agent": "frontend",
+          "model": "sonnet",
+          "task": "대시보드 1화면 본격 — LWC 캔들 + 매매일지 리스트 + WebSocket STOMP 시세 fanout (stub 데이터로 시작 OK)"
+        }
+      ],
+      "blocker_keys": {
+        "KIS_MOCK_APP_KEY": "user pending",
+        "KIS_MOCK_APP_SECRET": "user pending",
+        "ANTHROPIC_API_KEY": "user pending"
+      },
+      "status": "MERGED_TO_MAIN",
+      "mergedPRs": [
+        {
+          "pr": 33,
+          "agent": "ai-engineer",
+          "model": "opus-4.6",
+          "scope": "Anthropic 어댑터 + SentimentScore + Test heap 2g"
+        },
+        {
+          "pr": 32,
+          "agent": "market-data",
+          "model": "sonnet",
+          "scope": "RealKisRestAdapter fetchCandles/fetchQuote + WireMock IT 5"
+        },
+        {
+          "pr": 31,
+          "agent": "frontend",
+          "model": "sonnet",
+          "scope": "종목상세 화면 + LWC + STOMP + vite-env.d.ts"
+        }
+      ],
+      "hotfixes": [
+        "frontend: SymbolDetail.test waitFor timeout 1s → 5s (retry:1 컴포넌트 옵션 대응)",
+        "frontend: vite-env.d.ts 추가 (import.meta.env 타입 정의 누락)",
+        "leak/회수: sub-agent worktree에서 메인 worktree로 일부 파일 leak — 주된 원인은 worktree isolation 빌드 명령 권한 부재. 라운드 2에서 architect가 보강"
+      ]
+    },
+    "round2_seq": "모의투자 1종목 1전략 24h 가동 (strategy-engine + market-data) — 라운드 1 완료 + 키 SET 후 트리거",
+    "round2": {
+      "status": "PENDING_USER_KEY",
+      "blockers": {
+        "KIS_MOCK_APP_KEY": "사용자 재발급 진행 중 (2026-04-30 채팅 노출 후 폐기)",
+        "KIS_MOCK_APP_SECRET": "재발급 진행 중",
+        "KIS_ACCOUNT_CANO": "발급 필요",
+        "GEMINI_API_KEY": "보류 — C안 채택 후 사용자 발급 예정"
+      },
+      "candidates": [
+        {
+          "id": "A",
+          "agent": "ai-engineer",
+          "model": "opus",
+          "scope": "GeminiNewsSentimentAnalyzer + ADR 0028 (Anthropic + Gemini 듀얼 어댑터, 1차 = Gemini 무료)"
+        },
+        {
+          "id": "B",
+          "agent": "strategy-engine + market-data",
+          "scope": "모의투자 1종목 1전략 24h 가동 — KIS 모의 키 SET 후"
+        },
+        {
+          "id": "C",
+          "agent": "architect",
+          "scope": "sub-agent worktree leak 가드 + isolation 보강 (build 명령 권한 + leak 차단)"
+        }
+      ]
+    }
+  }
 }
