@@ -15,4 +15,10 @@ data class KisRestProperties(
     val appKey: String = "",
     val appSecret: String = "",
     val account: String = "",
+    /**
+     * 발급된 토큰의 캐시 TTL (초).
+     * KIS 발급 유효기간은 24h (86400초)이나 여유 마진을 두어 기본값 82800초(23h)로 설정.
+     * JVM 재시작 시 cachedToken=null이 되므로 재발급한다.
+     */
+    val tokenTtlSeconds: Long = 82800L,
 )
