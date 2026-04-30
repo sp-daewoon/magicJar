@@ -18,6 +18,7 @@ dependencies {
 
     implementation("org.springframework.kafka:spring-kafka")
     implementation("org.springframework.ai:spring-ai-openai-spring-boot-starter")
+    implementation("org.springframework.ai:spring-ai-anthropic-spring-boot-starter")
     implementation("io.minio:minio:8.5.12")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
