@@ -30,10 +30,11 @@
 | 0024 | Docker 표준 — 모듈별 Dockerfile + compose 통합 기동 | Accepted | 2026-04-27 |
 | 0025 | 데이터 저장소 — PostgreSQL 단일 인스턴스 + 스키마 분리 | Accepted | 2026-04-27 |
 | 0026 | 객체 저장소 도입 — MinIO (S3 호환) | Accepted | 2026-04-27 |
+| 0027 | v0 베이스라인 태그(`v0.1.0`) + `release/v0` immutable 보존 브랜치 | Accepted | 2026-04-30 |
 
 ## 후속 예정(Proposed 후보)
 
-- 0027: TradingView Advanced Charts 전환 — **트리거**: LWC 공식 API로 안 되는 기능(그리기·custom study·심볼 비교·고급 replay)이 사업적으로 분명히 필요해진 시점 (ADR 0022 §"커스텀 지양 원칙"에 명시)
+- TradingView Advanced Charts 전환 — **트리거**: LWC 공식 API로 안 되는 기능(그리기·custom study·심볼 비교·고급 replay)이 사업적으로 분명히 필요해진 시점 (ADR 0022 §"커스텀 지양 원칙"에 명시)
 - GitHub Actions CI 파이프라인 (5 서비스 matrix 빌드, ADR 0024 후속)
 - Avro / Schema Registry 도입 (ADR 0020 후속, 프로듀서 ≥3팀 또는 v2 필요 시)
 - KIS WebSocket 구독 상한(≈40) 대응 — 우선순위 큐 / 회전 구독

@@ -6,12 +6,18 @@ set -e
 # 0) 현재 브랜치
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 
-# 1) main 직접 push 차단 (원격 branch protection 보조)
+# 1) main / release/* 직접 push 차단 (원격 branch protection 보조)
 while read -r local_ref local_sha remote_ref remote_sha; do
   case "$remote_ref" in
     refs/heads/main)
       echo "✗ pre-push: main 브랜치 직접 푸시는 금지입니다 (ADR 0009)."
       echo "  ↳ agent/*/* 또는 chore|docs|hotfix/* 브랜치에서 PR을 만들어 주세요."
+      exit 1
+      ;;
+    refs/heads/release/*)
+      echo "✗ pre-push: release/* 브랜치는 immutable(체크아웃 전용)입니다 (ADR 0027)."
+      echo "  ↳ release/v0는 v0.1.0 영구 베이스라인 백업이라 push·머지·삭제 모두 금지."
+      echo "  ↳ 살 붙이기·버그 수정은 main 트렁크에서 진행하세요."
       exit 1
       ;;
   esac

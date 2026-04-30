@@ -1,6 +1,16 @@
 # 브랜치 운영 & QA 게이트 실전 가이드 (v2)
 
-ADR 0009·0010·0011·**0013·0014·0015·0016·0017·0018**의 실무 요약. v1(2단 머지·worktree 7개)에서 **v2(단일 worktree·1단 머지·on-demand QA·model 차등·task 시스템)**로 전환됨.
+ADR 0009·0010·0011·**0013·0014·0015·0016·0017·0018·0027**의 실무 요약. v1(2단 머지·worktree 7개)에서 **v2(단일 worktree·1단 머지·on-demand QA·model 차등·task 시스템)**로 전환됨.
+
+## 베이스라인 태그·release 브랜치 (ADR 0027)
+
+| 베이스라인 | 태그 | 보존 브랜치 | 베이스 commit | 시점 |
+|-----------|------|------------|---------------|------|
+| v0 (껍데기) | `v0.1.0` | `release/v0` (immutable) | `1aa3949` | 2026-04-30 |
+
+- `release/v*` 브랜치는 **체크아웃 전용**. push·머지·삭제 모두 금지 (pre-push hook + 정책)
+- v0 hotfix는 받지 **않는다**. 살 붙이기·버그 수정은 main 트렁크에서, 다음 베이스라인 컷 시 `vX.Y.0` 새 태그 + `release/vX.Y` 신설
+- `v*.*.*` 태그 push 시 `release.yml`이 ghcr.io 이미지 + GitHub Release draft 자동 생성
 
 ## 한눈에 보는 흐름
 
@@ -179,6 +189,7 @@ node scripts/task.mjs archive T-...
 ## 자주 하는 실수
 
 - **main 직접 push** — pre-push가 차단
+- **`release/*` 브랜치 push** — pre-push가 차단 (immutable 백업, ADR 0027)
 - **task 파일 없이 작업 시작** — 대시보드에 "고아 브랜치" 경고, push 시 hook 권고
 - **qa 트리거 무시** — 돈 흐름·도메인 모델 변경에 `QA: not required` 적으면 안 됨
 - **commit author 통일된 채로** — `git -c user.name=...`로 작업 주체 분리

@@ -6,9 +6,19 @@ Spring Boot 3.x + Spring AI + 한국투자증권 KIS OpenAPI 기반. **백테스
 
 ## 상태
 
-**Phase D 완료** (MSA 재구성 4단계 — P1 Foundation · P2 JVM Apps · P3 pyworker+frontend · P4 Docker compose + 통합 스모크).
-spec `docs/superpowers/specs/2026-04-27-msa-restructure-design.md` + plan `docs/superpowers/plans/2026-04-27-msa-restructure.md` + ADR 0019~0026 발행 완료.
-**다음(Phase E)**: KIS 모의 키 연동 + 1종목 1전략 전체 파이프라인 검증, CI/CD(GitHub Actions), k8s/ECS 배포 manifest.
+**Phase D 완료** (MSA 토대) + **Phase E-P1·E-P2·E-P3 완료** (REST 5종 + KIS stub/real 분기 + e2e backtest + GitHub Actions CI/CD).
+spec `docs/superpowers/specs/2026-04-27-msa-restructure-design.md` + plans `docs/superpowers/plans/` + ADR 0019~0027 발행 완료.
+
+## 베이스라인 (ADR 0027)
+
+| 베이스라인 | 태그 | 보존 브랜치 | 시점 |
+|-----------|------|------------|------|
+| v0 (껍데기) | `v0.1.0` | `release/v0` (immutable, 체크아웃 전용) | 2026-04-30 |
+
+- 살 붙이기·버그 수정은 **main 트렁크에서** 진행 (ADR 0015 단일 머지 흐름 유지)
+- `release/v*` push·머지·삭제 모두 금지 — pre-push hook이 차단
+- 다음 안정판 컷 시 `vX.Y.0` 태그 + `release/vX.Y` 신설, 직전 release 브랜치는 그대로 보존
+- v0 시점 코드 보고 싶을 때: `git checkout v0.1.0` 또는 `git checkout release/v0`
 
 ## 모듈 구조
 
