@@ -49,6 +49,14 @@ subprojects {
 
     tasks.withType<Test>().configureEach {
         useJUnitPlatform()
+        // Kotest autoscan(classgraph) + Spring AI 신규 의존성(anthropic/openai 양쪽) 합쳐
+        // 클래스패스가 커지면서 기본 heap으로 OOM이 발생 → 모든 모듈 공통 2g로 상향.
+        // (cf. _workspace/ai/ news-sentiment-v1 통합)
+        maxHeapSize = "2g"
+        jvmArgs(
+            "-XX:+UseG1GC",
+            "-XX:MaxMetaspaceSize=512m",
+        )
     }
 
     dependencies {
