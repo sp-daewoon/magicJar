@@ -6,6 +6,7 @@ const BacktestPage = lazy(() => import('@/pages/Backtest'))
 const JournalPage = lazy(() => import('@/pages/Journal'))
 const StrategyPage = lazy(() => import('@/pages/Strategy'))
 const HarnessOpsPage = lazy(() => import('@/pages/HarnessOps'))
+const SymbolDetailPage = lazy(() => import('@/pages/SymbolDetail'))
 
 function LoadingFallback() {
   return (
@@ -36,6 +37,9 @@ function RootLayout({ children }: { children?: React.ReactNode }) {
         </a>
         <a href="/harness" className="text-sm hover:underline">
           하네스
+        </a>
+        <a href="/symbol/005930" className="text-sm hover:underline">
+          종목상세
         </a>
       </nav>
       <main className="p-4">
@@ -83,6 +87,14 @@ export const router = createBrowserRouter([
     element: (
       <RootLayout>
         <HarnessOpsPage />
+      </RootLayout>
+    ),
+  },
+  {
+    path: '/symbol/:code',
+    element: (
+      <RootLayout>
+        <SymbolDetailPage />
       </RootLayout>
     ),
   },
