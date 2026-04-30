@@ -164,9 +164,13 @@ describe('SymbolDetail 페이지', () => {
 
     renderPage('INVALID')
 
-    await waitFor(() => {
-      expect(screen.getByText(/종목 정보를 불러오지 못했습니다/)).toBeInTheDocument()
-    })
+    // 컴포넌트가 retry: 1 사용 → 1차 실패 + 재시도 + 2차 실패 = 시간 여유 필요
+    await waitFor(
+      () => {
+        expect(screen.getByText(/종목 정보를 불러오지 못했습니다/)).toBeInTheDocument()
+      },
+      { timeout: 5000 },
+    )
   })
 
   // ── 시나리오 4c: 빈 매매일지 ─────────────────────────────────────────────
