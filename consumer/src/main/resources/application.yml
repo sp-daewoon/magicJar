@@ -7,6 +7,8 @@ spring:
     # P4 자율 hotfix — OPENAI_API_KEY 미설정 시 Spring AI autoconfig가 Moderation/Image 등
     # 빈 생성에서 실패해 컨텍스트 자체가 죽는 문제를 회피. 실제 ChatModel은 ai 모듈에서 생성.
     # OPENAI_API_KEY 채워지면 별도 @Configuration에서 명시 enable 처리 (Phase E).
+    # ※ Anthropic autoconfig는 exclude하지 않음 — 키 미설정 시 빈 자체가 만들어지지 않으므로
+    #   AnthropicAiConfig의 @ConditionalOnBean(AnthropicChatModel)으로 안전하게 차단됨.
     exclude:
       - org.springframework.ai.autoconfigure.openai.OpenAiAutoConfiguration
   jackson:
@@ -65,6 +67,16 @@ spring.ai:
         enabled: false
     moderation:
       enabled: false
+  anthropic:
+    # ANTHROPIC_API_KEY 미설정 시 빈 문자열 → autoconfig가 ChatModel 빈 자체를 만들지 않음.
+    # AnthropicAiConfig는 @ConditionalOnBean(AnthropicChatModel)이므로 안전하게 비활성.
+    api-key: ${ANTHROPIC_API_KEY:}
+    chat:
+      options:
+        # 감성 분석은 haiku 4.5로 충분 — 비용·지연 최소화. opus는 차후 복잡 task용.
+        model: ${ANTHROPIC_MODEL:claude-haiku-4-5-20251001}
+        temperature: 0.2
+        max-tokens: 1024
 
 server:
   port: 8082
@@ -95,9 +107,11 @@ magicjar:
   mode: ${MAGICJAR_MODE:MOCK}
   allow-real: ${MAGICJAR_ALLOW_REAL:false}
   ai:
-    provider: openai
-    model: ${OPENAI_MODEL:gpt-4o-mini}
-    temperature: 0.3
+    # 1차 통합: 기본 OFF. ANTHROPIC_API_KEY 채우고 enabled=true로 부팅 시 자동 활성.
+    enabled: ${MAGICJAR_AI_ENABLED:false}
+    provider: anthropic
+    model: ${ANTHROPIC_MODEL:claude-haiku-4-5-20251001}
+    temperature: 0.2
     max-tokens: 1024
   kafka:
     topics:
