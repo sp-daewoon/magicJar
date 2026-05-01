@@ -1,5 +1,5 @@
 {
-  "currentPhase": "F_R2_QA_HOTFIX",
+  "currentPhase": "F_R2_QA_HOTFIX_DONE",
   "phaseHistory": [
     {
       "phase": "0",
@@ -130,14 +130,14 @@
     "F-R1-003 (P3): sub-agent worktree → 메인 worktree leak — 라운드1 중 untracked 누출, pre-push gradle check 실패 유발. R2 architect 보강 (C안).",
     "F-R1-004 (P2): 사용자 채팅 KIS 모의 키 평문 노출 — 재발급 보류, 메모리 정책 등록(feedback_secret_handling.md). IP 화이트리스트 등록 권장.",
     "F-R2-D-VERIFY (PARTIAL 2026-05-01): docker compose 재빌드 시 사용자가 candles 404 발견 → root cause: host gradle bootJar 누락(QA ISSUE-002 P1). 차트 진입 시 'instrument fetch 실패' 에러 → root cause: frontend nginx /api proxy 부재(QA P1, PR #40). 두 P1 모두 hotfix 발행, 머지·재빌드 후 재검증.",
-    "QA-ISSUE-001 (P2 → PR #40): frontend /backtest/run ↔ backend /backtest path mismatch — 405. PR #40에 묶음.",
-    "QA-ISSUE-002 (P1 → PR #41): host gradle bootJar 강제 부재 — 사용자 환경에서 stale jar로 V7 미적용. scripts/smoke.sh jar staleness 가드 + scripts/build-and-deploy.sh 헬퍼 + README 운영 함정 경고.",
-    "QA-ISSUE-003 (P2 → PR #39): pyworker .dockerignore 부재 — 선제 hotfix.",
+    "QA-ISSUE-001 (CLOSED 2026-05-01 PR #40): frontend /backtest/run ↔ backend /backtest path mismatch — 405. backtestApi.run()→trigger(), result()→status() + path /backtest로 정정.",
+    "QA-ISSUE-002 (CLOSED 2026-05-01 PR #41): host gradle bootJar 강제 부재 → scripts/smoke.sh jar staleness 가드 + scripts/build-and-deploy.sh 1줄 헬퍼 + README 운영 함정 경고.",
+    "QA-ISSUE-003 (CLOSED 2026-05-01 PR #39): pyworker .dockerignore 부재 — 선제 hotfix 완료.",
     "QA-ISSUE-004 (P3 OPEN): /strategy 페이지 placeholder — 안내 메시지 있어 즉시 hotfix 불요. 후속 phase에 본격 구현.",
     "QA-ISSUE-005 (P3 DEFERRED): V7 시드(125일) vs lookback(180일) — backfill 정상화 시 자연 해소.",
     "QA-ISSUE-006 (P3 DEFERRED): WebSecurity permitAll — 실 매매 진입 게이트로 PIN. Phase F+ JWT/OAuth2.",
     "QA-ISSUE-007 (P3 OPEN): /api/strategy 컨트롤러 phaseE.P1 기록 vs 실제 코드 mismatch — 기록 정정 또는 신설.",
-    "FR-CHART-ERROR (P1 → PR #40): localhost:3000/symbol/005930 진입 시 차트 잠깐 + '종목 정보를 불러오지 못했습니다' 에러 + 대시보드 실시간 시세 0건. 원인 = nginx /api·/ws proxy 부재. PR #40에서 해소."
+    "FR-CHART-ERROR (CLOSED 2026-05-01 PR #40): localhost:3000/symbol/005930 진입 시 차트 잠깐 + '종목 정보를 불러오지 못했습니다' 에러 + 대시보드 실시간 시세 0건. 원인 = nginx /api·/ws proxy 부재. 9 컨테이너 healthy + JSON 응답 + candles 89봉 + STOMP /ws proxy 모두 정상화 검증."
   ],
   "phaseD": {
     "startedAt": "2026-04-27T18:00:00+09:00",
