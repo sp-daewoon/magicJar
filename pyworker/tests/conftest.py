@@ -79,6 +79,44 @@ def storage_with_public_host_secure():
 
 
 @pytest.fixture
+def fake_playwright():
+    """모든 단계 PASS하는 fake — Task 5/7 단위 테스트용."""
+    from app.screenshot.scenario import PlaywrightRunResult
+
+    class FakePW:
+        async def run_spec(self, spec_path, viewport):
+            return PlaywrightRunResult(
+                captures=[
+                    ("01-goto.png", b"\x89PNG\r\n\x1a\nfake", 850),
+                    ("02-final.png", b"\x89PNG\r\n\x1a\nfake", 320),
+                ],
+                failed_step_name=None,
+                error_message=None,
+            )
+
+    return FakePW()
+
+
+@pytest.fixture
+def fake_playwright_failing_at_step_2():
+    """2단계에서 selector not found로 fail하는 fake."""
+    from app.screenshot.scenario import PlaywrightRunResult
+
+    class FakePW:
+        async def run_spec(self, spec_path, viewport):
+            return PlaywrightRunResult(
+                captures=[
+                    ("01-goto.png", b"\x89PNG\r\n\x1a\nok", 800),
+                    ("02-click.png", b"\x89PNG\r\n\x1a\nfail-shot", 300),
+                ],
+                failed_step_name="02-click.png",
+                error_message="selector .candle-series not visible (timeout 30000ms)",
+            )
+
+    return FakePW()
+
+
+@pytest.fixture
 def kafka_producer(fake_producer: FakeAioProducer) -> KafkaProducer:
     p = KafkaProducer(
         bootstrap_servers="fake:9092", client_id="test", enabled=True
