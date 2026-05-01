@@ -3,24 +3,29 @@
  *
  * 구성:
  *  1. SymbolHeader — 종목명 + WebSocket 실시간 시세
- *  2. 메인 차트 — LWC CandlestickSeries + 볼륨 히스토그램 (ADR 0022)
- *  3. JournalTable — 해당 종목 매매일지 리스트
+ *  2. 봉 단위 선택 (일/주/월/년/분봉)
+ *  3. TradingChart — 단일 LWC chart + 볼륨 overlay + crosshair OHLC tooltip (ADR 0022)
+ *  4. JournalTable — 해당 종목 매매일지 리스트
  */
+import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import CandleChart from '@/components/chart/CandleChart'
-import VolumeChart from '@/components/chart/VolumeChart'
+import TradingChart from '@/components/chart/TradingChart'
+import IntervalSelector from '@/components/chart/IntervalSelector'
 import SymbolHeader from './SymbolHeader'
 import JournalTable from './JournalTable'
 import { instrumentsApi } from '@/api/instruments'
 import { journalApiV2 } from '@/api/journal'
 import { useSymbolQuote } from '@/hooks/useSymbolQuote'
 import { useWsConnectionState } from '@/hooks/useWsConnectionState'
+import { resolveInterval, type ClientInterval } from '@/lib/candleAggregator'
 
 export default function SymbolDetailPage() {
   const { code } = useParams<{ code: string }>()
   const symbolCode = (code ?? '').toUpperCase()
+  const [interval, setInterval] = useState<ClientInterval>('DAY')
+  const { serverInterval, transform } = resolveInterval(interval)
 
   // 종목 정보 조회
   const {
@@ -34,17 +39,19 @@ export default function SymbolDetailPage() {
     retry: 1,
   })
 
-  // 캔들 데이터 조회
+  // 캔들 데이터 조회 — 백엔드는 D1/M1/M5/M15/M30/H1만 — W/MO/Y는 클라이언트 집계
   const {
-    data: candles = [],
+    data: rawCandles = [],
     isLoading: candlesLoading,
     isError: candlesError,
   } = useQuery({
-    queryKey: ['candles', symbolCode, 'DAY'],
-    queryFn: () => instrumentsApi.candles(symbolCode, 'DAY'),
+    queryKey: ['candles', symbolCode, serverInterval],
+    queryFn: () => instrumentsApi.candles(symbolCode, serverInterval),
     enabled: !!symbolCode,
     staleTime: 60_000,
   })
+
+  const candles = transform(rawCandles)
 
   // 매매일지 조회
   const {
@@ -102,51 +109,48 @@ export default function SymbolDetailPage() {
         </CardContent>
       </Card>
 
-      {/* 메인 차트 — 캔들 + 볼륨 */}
+      {/* 메인 차트 — 단일 LWC chart + 볼륨 오버레이 + 봉 단위 선택 + crosshair OHLC tooltip */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between text-base">
-            <span>일봉 차트</span>
-            {candlesLoading && (
-              <span className="text-xs text-muted-foreground">로딩 중...</span>
-            )}
-            {candlesError && (
-              <span className="text-xs text-destructive">차트 데이터 오류 (mock 사용 중)</span>
-            )}
-            {!candlesLoading && (
-              <span className="text-xs text-muted-foreground">
-                {candles.length}개 봉
-                {import.meta.env.VITE_USE_MOCK === 'true' && ' (mock)'}
-              </span>
-            )}
+        <CardHeader className="pb-2">
+          <CardTitle className="flex flex-col gap-2 text-base sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <span>차트</span>
+              {candlesLoading && (
+                <span className="text-xs text-muted-foreground">로딩 중...</span>
+              )}
+              {candlesError && (
+                <span className="text-xs text-destructive">데이터 오류 (mock fallback)</span>
+              )}
+              {!candlesLoading && !candlesError && (
+                <span className="text-xs font-normal text-muted-foreground">
+                  {candles.length}개 봉
+                  {candles.length === 0 && ' — 해당 봉 단위 시드 부재'}
+                  {import.meta.env.VITE_USE_MOCK === 'true' && ' (mock)'}
+                </span>
+              )}
+            </div>
+            <IntervalSelector value={interval} onChange={setInterval} />
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0 pb-2">
           {candlesLoading ? (
-            <div className="flex h-72 items-center justify-center">
-              <div className="h-64 w-full animate-pulse rounded bg-gray-100 mx-4" />
+            <div className="flex h-[480px] items-center justify-center">
+              <div className="h-[440px] w-full animate-pulse rounded bg-gray-100 mx-4" />
+            </div>
+          ) : candles.length === 0 ? (
+            <div className="flex h-[480px] flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+              <span>해당 봉 단위 데이터가 아직 없습니다.</span>
+              <span className="text-xs">
+                일/주/월/년은 일봉 시드(V7)를 클라이언트 집계, 분봉은 백엔드 backfill 필요.
+              </span>
             </div>
           ) : (
-            <>
-              <CandleChart
-                candles={candles.map((c) => ({
-                  // LWC Time은 'YYYY-MM-DD' 문자열 또는 unix seconds 모두 지원
-                  // CandleDto.time은 'YYYY-MM-DD' 형식 → as unknown as number 캐스팅으로 전달
-                  time: c.time as unknown as number,
-                  open: c.open,
-                  high: c.high,
-                  low: c.low,
-                  close: c.close,
-                }))}
-                height={320}
-                className="px-2"
-              />
-              <VolumeChart
-                candles={candles}
-                height={90}
-                className="px-2"
-              />
-            </>
+            <TradingChart
+              candles={candles}
+              interval={interval}
+              height={480}
+              className="px-2"
+            />
           )}
         </CardContent>
       </Card>
