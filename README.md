@@ -130,6 +130,7 @@ docker compose -f docker/docker-compose.yml down -v   # 데이터까지 삭제 (
 | consumer-app | `8082` | Spring Kafka 컨슈머 + AI 분석 + KIS 브리지 |
 | pyworker | `8000` | FastAPI + Playwright. `/health` `/scrape/{source}` `/screenshot` |
 | frontend | `3000` | nginx 정적 + React SPA (포트 80 → 3000 매핑) |
+| kafka-ui | `8090` | provectuslabs/kafka-ui — 토픽·메시지·consumer lag GUI (디버깅 전용, 운영 시 제외) |
 
 ### 3. 통합 스모크 — `scripts/smoke.sh`
 

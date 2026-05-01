@@ -94,6 +94,29 @@ services:
       timeout: 5s
       retries: 10
 
+  # ─────────── Kafka UI (디버깅용) ───────────
+  # provectuslabs/kafka-ui — 토픽 메시지 viewer, consumer group lag, schema 등 GUI.
+  # localhost:8090에서 접속. dev/디버깅 전용 (운영 진입 시 제외 가능).
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: magicjar-kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: magicjar
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      DYNAMIC_CONFIG_ENABLED: "true"
+      AUTH_TYPE: DISABLED
+    ports: ["${KAFKA_UI_HOST_PORT:-8090}:8080"]
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "wget -qO- http://localhost:8080/actuator/health 2>&1 | grep -q UP || exit 1"
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
   # ─────────── 앱 5 ───────────
   api-app:
     build:
