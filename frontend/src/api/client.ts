@@ -52,8 +52,9 @@ export const symbolsApi = {
 }
 
 export const backtestApi = {
-  run: (params: unknown) => apiClient.post<{ jobId: string }>('/backtest/run', params),
-  result: (jobId: string) => apiClient.get<unknown>(`/backtest/${jobId}`),
+  // POST /api/backtest (root) — 서버는 runId 즉시 반환, 실 실행은 batch가 비동기
+  trigger: (params: unknown) => apiClient.post<{ runId: string; status: string }>('/backtest', params),
+  status: (runId: string) => apiClient.get<unknown>(`/backtest/${runId}`),
 }
 
 export const journalApi = {

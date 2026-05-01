@@ -24,7 +24,7 @@ export default function BacktestPage() {
 
   function handleRun() {
     setRunning(true)
-    // P4에서 backtestApi.run() 실제 연결 — 현재는 mock
+    // 추후 backtestApi.trigger()/status() 실 연결 — 현재는 mock
     setTimeout(() => {
       setResult({
         jobId: 'mock-001',
