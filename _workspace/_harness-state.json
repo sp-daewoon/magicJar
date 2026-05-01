@@ -1,5 +1,5 @@
 {
-  "currentPhase": "F_R2_FEATURE_BURST_DONE",
+  "currentPhase": "F_TRACK5_QA_DEFECT_LOOP_R1_DONE",
   "phaseHistory": [
     {
       "phase": "0",
@@ -116,6 +116,7 @@
   "activeAgents": [],
   "blockedAgents": [],
   "openIssues": [
+    "ISSUE-008 (DEFERRED 2026-05-01) — pyworker presigned URL SignatureDoesNotMatch. 인프라(scenario endpoint·CLI·MinIO 업로드·디렉토리 양식) 모두 동작 검증, presigned URL 호스트 치환만 다음 사이클 hotfix. 해결: MinIO client 두 개 운영 또는 MINIO_DOMAIN 설정 또는 s3_endpoint를 localhost:9000로 통일+extra_hosts 매핑 중 택일.",
     "Phase E P0 — REST API 컨트롤러 미구현 (api 모듈에 /api/backtest, /api/journal 등 controller 패키지 없음. spec §4 시나리오 1·4 충족 위해 필수)",
     "Phase E P0 — batch/consumer JPA 어댑터 부재 (P2 모듈 경계 회귀). 현재 P4 자율 hotfix로 in-memory stub로 컨텍스트 부팅만 가능. 영속성 필요. shared-infra 모듈 신설 또는 어댑터 복제 결정 필요",
     "Phase E P1 — STOMP fanout 검증 (Kafka tick → /topic/market.tick.<symbol> 실제 frontend 수신 확인). 현재는 publish + api health만 확인",
