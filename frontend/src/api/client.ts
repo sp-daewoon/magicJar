@@ -45,16 +45,24 @@ export const apiClient = {
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 }
 
-// Mock stubs — P4에서 orval generated/로 교체
+import type {
+  BacktestStatusResponse,
+  BacktestTriggerRequest,
+  BacktestTriggerResponse,
+} from './types'
+
+// Mock stubs — 추후 orval generated/로 교체
 export const symbolsApi = {
   search: (q: string) =>
     apiClient.get<Array<{ code: string; name: string }>>(`/symbols/search?q=${q}`),
 }
 
 export const backtestApi = {
-  // POST /api/backtest (root) — 서버는 runId 즉시 반환, 실 실행은 batch가 비동기
-  trigger: (params: unknown) => apiClient.post<{ runId: string; status: string }>('/backtest', params),
-  status: (runId: string) => apiClient.get<unknown>(`/backtest/${runId}`),
+  /** POST /api/backtest — 즉시 runId 반환, 실 실행은 batch-app이 비동기. */
+  trigger: (params: BacktestTriggerRequest) =>
+    apiClient.post<BacktestTriggerResponse>('/backtest', params),
+  /** GET /api/backtest/{runId} — 폴링용. summaryJson은 string, 클라이언트가 JSON.parse. */
+  status: (runId: string) => apiClient.get<BacktestStatusResponse>(`/backtest/${runId}`),
 }
 
 export const journalApi = {
