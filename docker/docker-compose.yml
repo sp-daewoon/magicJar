@@ -129,6 +129,11 @@ services:
       kafka: { condition: service_healthy }
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
+    # ADR 0029: 데이터는 실 KIS 베이스. .env 전체를 컨테이너 env로 주입
+    # (KIS_*·NAVER_*·DART_*·MAGICJAR_MARKET_MOCK*·ANTHROPIC_API_KEY 등 전 변수).
+    # environment 섹션의 명시 매핑이 우선 적용됨.
+    env_file:
+      - ../.env
     environment:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-mock}
       DB_URL: jdbc:postgresql://postgres:5432/magicjar
@@ -166,6 +171,8 @@ services:
       postgres: { condition: service_healthy }
       kafka: { condition: service_healthy }
       api-app: { condition: service_healthy }   # api-app의 Flyway 완료 후 시작
+    env_file:
+      - ../.env
     environment:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-mock}
       DB_URL: jdbc:postgresql://postgres:5432/magicjar
@@ -186,6 +193,8 @@ services:
       postgres: { condition: service_healthy }
       minio: { condition: service_healthy }
       api-app: { condition: service_healthy }   # api-app의 Flyway 완료 후 시작
+    env_file:
+      - ../.env
     environment:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-mock}
       DB_URL: jdbc:postgresql://postgres:5432/magicjar
@@ -209,6 +218,8 @@ services:
     depends_on:
       kafka: { condition: service_healthy }
       minio: { condition: service_healthy }
+    env_file:
+      - ../.env
     environment:
       KAFKA_BOOTSTRAP: kafka:9092
       # pyworker config: MinIO·Kafka 실제 연결 → MinIO 객체 저장 + Kafka publish 활성
