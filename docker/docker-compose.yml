@@ -207,6 +207,14 @@ services:
       MINIO_SECRET_KEY: magicjar123
       MAGICJAR_MODE: ${MAGICJAR_MODE:-MOCK}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # 1번 트랙 (T2~T3) — KIS 키 암호화 master key + 시드 사용자 등록 데이터.
+      # mock profile에선 master key 검증 skip. dev/prd에선 fail-fast.
+      MAGICJAR_SECRET_MASTER_KEY: ${MAGICJAR_SECRET_MASTER_KEY:-}
+      MAGICJAR_SEED_KIS_APP_KEY: ${KIS_MOCK_APP_KEY:-}
+      MAGICJAR_SEED_KIS_APP_SECRET: ${KIS_MOCK_APP_SECRET:-}
+      MAGICJAR_SEED_KIS_ACCOUNT_CANO: ${KIS_ACCOUNT_CANO:-}
+      MAGICJAR_SEED_KIS_ACCOUNT_PRDT: ${KIS_ACCOUNT_PRDT:-01}
+      MAGICJAR_SEED_KIS_HTS_ID: ${KIS_HTS_ID:-PLACEHOLDER}
     ports: ["${CONSUMER_HOST_PORT:-8082}:8082"]
 
   pyworker:
