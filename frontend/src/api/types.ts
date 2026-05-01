@@ -52,6 +52,46 @@ export interface CandleDto {
   volume: number
 }
 
+/* ---------- 백테스트 ---------- */
+
+export type BacktestRunStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED'
+
+export interface BacktestTriggerRequest {
+  strategyId: string
+  symbol: string
+  from: string  // 'YYYY-MM-DD'
+  to: string    // 'YYYY-MM-DD'
+}
+
+export interface BacktestTriggerResponse {
+  runId: string
+  status: BacktestRunStatus
+  message: string
+}
+
+/** 백테스트 결과 요약 — summaryJson 파싱 결과 (전략별 스키마 상이) */
+export interface BacktestSummary {
+  netReturn?: number    // 0.123 = 12.3%
+  winRate?: number      // 0.55 = 55%
+  mdd?: number          // -0.082 = -8.2%
+  trades?: number
+  [key: string]: unknown
+}
+
+export interface BacktestStatusResponse {
+  runId: string
+  strategyId: string
+  symbol: string
+  from: string
+  to: string
+  status: BacktestRunStatus
+  startedAt: string | null
+  finishedAt: string | null
+  /** 백엔드는 string으로 직렬화. 클라이언트가 JSON.parse → BacktestSummary */
+  summaryJson: string | null
+  errorMessage: string | null
+}
+
 /**
  * WebSocket STOMP 실시간 시세 메시지 — 백엔드 TickEvent와 1:1 호환.
  * 토픽: /topic/market.tick.{code}
