@@ -4,7 +4,7 @@
 
 **Goal:** 사용자 보고 → architect 시나리오 → pyworker 단계별 캡처 → MinIO + presigned URL → ISSUE 카드 → 시각 검토 → 수정 → 재캡처 → close 한 사이클을 코드로 살린다. 실 매매 진입 5트랙 중 5번 1차 (QA 자동화 살리기) 종결.
 
-**Architecture:** pyworker에 `POST /screenshot/scenario` 신규 endpoint(specCode inline 받아 Playwright 단일 세션 실행 + 단계별 PNG → MinIO + presigned URL). 호스트에 `scripts/qa-run.mjs` CLI(task.mjs 패턴). `_workspace/qa/issues/ISSUE-NNN/`에 카드·시나리오 인용·report 누적. ADR 0011 개정·0016 보강·0028 신규.
+**Architecture:** pyworker에 `POST /screenshot/scenario` 신규 endpoint(specCode inline 받아 Playwright 단일 세션 실행 + 단계별 PNG → MinIO + presigned URL). 호스트에 `scripts/qa-run.mjs` CLI(task.mjs 패턴). `_workspace/qa/issues/ISSUE-NNN/`에 카드·시나리오 인용·report 누적. ADR 0011 개정·0016 보강·0030 신규.
 
 **Tech Stack:** Python 3.12 + FastAPI + Playwright async + minio-py / Node.js (host) / Kotlin 미변경 / Mermaid 미변경.
 
@@ -30,16 +30,16 @@
 
 코드 작성 전에 ADR을 먼저 갱신해 결정 근거를 고정한다. 모든 후속 task가 이 ADR을 참조한다.
 
-### Task 1: ADR 0028 신규 — 오케스트레이터 = architect 메타 규약
+### Task 1: ADR 0030 신규 — 오케스트레이터 = architect 메타 규약
 
 **Files:**
-- Create: `_workspace/arch/adr/0028-orchestrator-as-architect.md`
+- Create: `_workspace/arch/adr/0030-orchestrator-as-architect.md`
 - Modify: `_workspace/arch/adr/README.md` (목차 한 행 추가)
 
 - [ ] **1-1**: 신규 ADR 작성
 
 ```markdown
-# ADR 0028: 오케스트레이터 = architect 일체화 (메타 운영 규약)
+# ADR 0030: 오케스트레이터 = architect 일체화 (메타 운영 규약)
 
 - 상태: Accepted
 - 작성일: 2026-05-01
@@ -82,7 +82,7 @@ ADR 0013(단일 worktree·순차)·0014(모델 차등)·0016(QA On-Demand)이 �
 - [ ] **1-2**: README.md 목차에 행 추가
 
 ```markdown
-| 0028 | 오케스트레이터 = architect 일체화 (메타 규약) | Accepted | 2026-05-01 |
+| 0030 | 오케스트레이터 = architect 일체화 (메타 규약) | Accepted | 2026-05-01 |
 ```
 
 `_workspace/arch/adr/README.md`의 0027 행 다음에 추가.
@@ -90,8 +90,8 @@ ADR 0013(단일 worktree·순차)·0014(모델 차등)·0016(QA On-Demand)이 �
 - [ ] **1-3**: Commit
 
 ```bash
-git add _workspace/arch/adr/0028-orchestrator-as-architect.md _workspace/arch/adr/README.md
-git commit -m "feat(adr): 0028 — 오케스트레이터=architect 일체화 메타 규약"
+git add _workspace/arch/adr/0030-orchestrator-as-architect.md _workspace/arch/adr/README.md
+git commit -m "feat(adr): 0030 — 오케스트레이터=architect 일체화 메타 규약"
 ```
 
 ### Task 2: ADR 0011 개정 — 다단계 시나리오 + presigned URL
@@ -168,7 +168,7 @@ git commit -m "docs(adr): 0011 개정 — 다단계 시나리오 + presigned URL
 
 7 트리거 조건 발동 시, 또는 사용자 명시 호출 시:
 
-1. architect(=오케스트레이터=메인 세션)가 ADR 0011·0022 베이스로 Playwright `.spec.ts` 작성 (ADR 0028 자율 규약)
+1. architect(=오케스트레이터=메인 세션)가 ADR 0011·0022 베이스로 Playwright `.spec.ts` 작성 (ADR 0030 자율 규약)
 2. `scripts/qa-run.mjs new` → ISSUE-NNN 채번
 3. `scripts/qa-run.mjs scenario --issue ISSUE-NNN --spec <path> --attempt before`
 4. 사용자 시각 검토 → 디펙 확정
@@ -1553,7 +1553,7 @@ magicjar-screenshots/issues/ISSUE-NNN/{before|after}/{ts}/NN-step-name.png
 
 - ADR 0011 (개정 2026-05-01) — 다단계 시나리오 게이트
 - ADR 0016 (보강 2026-05-01) — On-Demand 시나리오 모드 트리거
-- ADR 0028 — 오케스트레이터=architect 일체화 메타 규약
+- ADR 0030 — 오케스트레이터=architect 일체화 메타 규약
 - spec: `docs/superpowers/specs/2026-05-01-qa-defect-loop-design.md`
 ```
 
@@ -1591,7 +1591,7 @@ ADR 0011 개정 + spec `docs/superpowers/specs/2026-05-01-qa-defect-loop-design.
 
 | 책임 | 책임자 |
 |---|---|
-| 시나리오 `.spec.ts` 작성 | architect (= 메인 세션, ADR 0028) |
+| 시나리오 `.spec.ts` 작성 | architect (= 메인 세션, ADR 0030) |
 | 받은 스크립트 실행 | **QA 에이전트** (이 파일) |
 | pyworker `/screenshot/scenario` 호출 | QA 에이전트 (`scripts/qa-run.mjs`) |
 | 결과 분석 + ISSUE 카드 갱신 | **QA 에이전트** |
@@ -1633,7 +1633,7 @@ git commit -m "docs(agent): qa — 시나리오 모드 운영 인터페이스 �
 
 ADR 0011 개정 + spec `2026-05-01-qa-defect-loop-design.md` 채택 후. 사용자 보고가 시각·인터랙션 디펙으로 보일 때 (백엔드 500 같은 명시 에러는 비범위 — 로그/curl로 즉시 식별):
 
-1. **architect (= 메인 세션, ADR 0028)** — ADR 베이스로 Playwright `.spec.ts` 작성. ADR 충돌·부자연 시 사용자 한 줄 컨펌.
+1. **architect (= 메인 세션, ADR 0030)** — ADR 베이스로 Playwright `.spec.ts` 작성. ADR 충돌·부자연 시 사용자 한 줄 컨펌.
 2. **QA 에이전트** — `scripts/qa-run.mjs new` → ISSUE-NNN 채번 → `qa-run.mjs scenario --attempt before`로 pyworker 호출.
 3. **사용자** — presigned URL 시각 검토 → "맞다, 진짜 안 보임" → 디펙 확정.
 4. **architect** — 수정 dispatch (frontend/backend-core 등). PR 머지 후 `--attempt after`로 재캡처.
@@ -1786,7 +1786,7 @@ rm -f /tmp/issue-008.spec.ts /tmp/issue-008-after.spec.ts
       "completedAt": "<ISO>",
       "spec": "docs/superpowers/specs/2026-05-01-qa-defect-loop-design.md",
       "plan": "docs/superpowers/plans/2026-05-01-qa-defect-loop.md",
-      "adr": ["0011 개정", "0016 보강", "0028 신규"],
+      "adr": ["0011 개정", "0016 보강", "0030 신규"],
       "deliverables": [
         "pyworker /screenshot/scenario",
         "scripts/qa-run.mjs",
@@ -1804,7 +1804,7 @@ rm -f /tmp/issue-008.spec.ts /tmp/issue-008-after.spec.ts
 - [ ] **16-2**: CLAUDE.md 변경 이력 표에 행 추가
 
 ```markdown
-| 2026-05-01 | **5번 트랙 1차 완료 — QA 디펙 순환 루프.** spec `2026-05-01-qa-defect-loop-design.md` + plan + ADR 0011 개정·0016 보강·0028 신규. pyworker `POST /screenshot/scenario` 신설(다단계 Playwright + MinIO presigned URL 24h). `scripts/qa-run.mjs` CLI 신설(new·scenario·close·wontfix·list). `_workspace/qa/issues/ISSUE-NNN/` 디렉토리 양식(card.md + scenario-{before\|after}.spec.ts + report-{before\|after}.md). ISSUE-001~007 legacy 보존, ISSUE-008부터 신 양식. ISSUE-008 dogfooding 사이클로 인프라 end-to-end 검증. `agents/qa.md` + `skills/magicjar-boundary-qa/SKILL.md` 책임 갱신(architect=시나리오 작성, QA 에이전트=실행+카드, pyworker=인프라). 비범위 다음 사이클: expect 자동 검증·픽셀 diff·시나리오 영속·머지 게이트 강제·자동 dispatch·sandbox. | `pyworker/app/{config.py,routers/scenario.py,screenshot/{scenario.py,scenario_pw.py,storage.py}}`, `pyworker/tests/test_*scenario*.py`, `scripts/qa-run.mjs`, `docker/docker-compose.yml`, `_workspace/arch/adr/{0011,0016,0028}*.md`, `_workspace/qa/{issues.md,issues/README.md,issues/ISSUE-008/}`, `.claude/agents/qa.md`, `.claude/skills/magicjar-boundary-qa/SKILL.md`, `_workspace/_harness-state.json` | spec/plan + 사용자 brainstorm 12 결정 |
+| 2026-05-01 | **5번 트랙 1차 완료 — QA 디펙 순환 루프.** spec `2026-05-01-qa-defect-loop-design.md` + plan + ADR 0011 개정·0016 보강·0030 신규. pyworker `POST /screenshot/scenario` 신설(다단계 Playwright + MinIO presigned URL 24h). `scripts/qa-run.mjs` CLI 신설(new·scenario·close·wontfix·list). `_workspace/qa/issues/ISSUE-NNN/` 디렉토리 양식(card.md + scenario-{before\|after}.spec.ts + report-{before\|after}.md). ISSUE-001~007 legacy 보존, ISSUE-008부터 신 양식. ISSUE-008 dogfooding 사이클로 인프라 end-to-end 검증. `agents/qa.md` + `skills/magicjar-boundary-qa/SKILL.md` 책임 갱신(architect=시나리오 작성, QA 에이전트=실행+카드, pyworker=인프라). 비범위 다음 사이클: expect 자동 검증·픽셀 diff·시나리오 영속·머지 게이트 강제·자동 dispatch·sandbox. | `pyworker/app/{config.py,routers/scenario.py,screenshot/{scenario.py,scenario_pw.py,storage.py}}`, `pyworker/tests/test_*scenario*.py`, `scripts/qa-run.mjs`, `docker/docker-compose.yml`, `_workspace/arch/adr/{0011,0016,0030}*.md`, `_workspace/qa/{issues.md,issues/README.md,issues/ISSUE-008/}`, `.claude/agents/qa.md`, `.claude/skills/magicjar-boundary-qa/SKILL.md`, `_workspace/_harness-state.json` | spec/plan + 사용자 brainstorm 12 결정 |
 ```
 
 - [ ] **16-3**: 최종 commit
@@ -1823,7 +1823,7 @@ gh pr create --title "feat: 5번 트랙 1차 — QA 디펙 순환 루프 (pywork
 - pyworker 신규 endpoint `POST /screenshot/scenario` (Playwright 단계별 캡처 + MinIO + presigned URL 24h)
 - 호스트 CLI `scripts/qa-run.mjs` 5명령 (new·scenario·close·wontfix·list)
 - `_workspace/qa/issues/ISSUE-NNN/` 디렉토리 양식 + 인덱스 마이그레이션
-- ADR 0011 개정 (다단계 시나리오) + 0016 보강 (시나리오 모드) + 0028 신규 (오케스트레이터=architect 메타 규약)
+- ADR 0011 개정 (다단계 시나리오) + 0016 보강 (시나리오 모드) + 0030 신규 (오케스트레이터=architect 메타 규약)
 - ISSUE-008 dogfooding 사이클 (인프라 end-to-end 검증)
 
 ## 관련 문서
@@ -1880,6 +1880,6 @@ Plan 완성 + 저장 완료 (`docs/superpowers/plans/2026-05-01-qa-defect-loop.m
 1. **Subagent-Driven (권장)** — task별로 fresh subagent dispatch, task 사이 두 단계 review (architect dispatch + main review). 빠른 반복.
 2. **Inline Execution** — 메인 세션에서 직접 실행, batch checkpoint로 review.
 
-본 plan은 ADR 0013(단일 worktree·순차) + 0028(메인 세션 자율)을 따르므로 **Inline Execution이 자연**할 가능성이 높습니다 — 다만 Phase 2 pyworker 코드는 분량이 크니 subagent dispatch도 합리적.
+본 plan은 ADR 0013(단일 worktree·순차) + 0030(메인 세션 자율)을 따르므로 **Inline Execution이 자연**할 가능성이 높습니다 — 다만 Phase 2 pyworker 코드는 분량이 크니 subagent dispatch도 합리적.
 
 사용자 선택 부탁드립니다.
