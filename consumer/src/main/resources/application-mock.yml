@@ -1,3 +1,10 @@
 magicjar:
   mode: MOCK
   allow-real: false
+  market:
+    mock-tick:
+      # KIS WebSocket 연동 전 frontend·strategy 검증용. 실제 시세 흐름이 필요하면 true.
+      # 환경변수 MAGICJAR_MARKET_MOCKTICK_ENABLED=true 로도 토글 가능.
+      enabled: ${MAGICJAR_MARKET_MOCKTICK_ENABLED:true}
+      interval-ms: 1000
+      volatility-percent: 0.5
