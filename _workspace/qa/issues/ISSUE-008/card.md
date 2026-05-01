@@ -1,13 +1,13 @@
 ---
 id: ISSUE-008
-status: DEFERRED
+status: FIXED
 reportedAt: 2026-05-01T13:41:58.460Z
 reportedBy: user
-symptom: dogfooding — pyworker /screenshot/scenario 인프라 동작 검증 + presigned URL SignatureDoesNotMatch (후속 hotfix)
+symptom: dogfooding — pyworker /screenshot/scenario 인프라 동작 검증 + presigned URL SignatureDoesNotMatch (hotfix 완료)
 target: /symbol/005930
 relatedAdr: [0011, 0022, 0026, 0030]
 relatedPr: null
-fixedAt: null
+fixedAt: 2026-05-02T00:00:00Z
 ---
 
 ## 증상
@@ -39,4 +39,7 @@ pyworker의 `_rewrite_host`가 presigned URL 발급 후 호스트만 갈아끼�
 `scenario-before.py` 참조.
 
 ## 상태
-**DEFERRED** — 인프라(scenario endpoint·CLI·디렉토리 양식·MinIO 업로드)는 모두 정상 동작 검증됨. presigned URL 호스트 치환 이슈만 다음 사이클로 미룸. 본 PR은 인프라 골격을 main에 들이는 데 충분.
+**FIXED (2026-05-02)** — 해결안 (a) 채택: MinIO 클라이언트를 internal(`minio:9000`, 업로드)·public(`localhost:9000`, presign) 둘로 분리. `_rewrite_host` 후처리 치환 폐기 → 서명 자체가 외부 endpoint 기준으로 만들어져 사용자 GET 시 호스트 일치. pyworker pytest 25 PASS, 회귀 0. ADR 0011 변경 이력 갱신. 환경변수 변화 0.
+
+## 해결 후 검증 (after)
+`report-after.md` 참조.
