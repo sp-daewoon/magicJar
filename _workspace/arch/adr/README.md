@@ -14,7 +14,7 @@
 | 0008 | 하네스 운영 페이지(`/harness`) 노출 정책 | Accepted (재구현 by 0022 React SPA) | 2026-04-25 |
 | 0009 | 브랜치 전략과 머지 규칙 (Feature-branch + QA 게이트) | Accepted | 2026-04-25 |
 | 0010 | Git 훅 관리 — Husky v9 | Accepted | 2026-04-25 |
-| 0011 | QA 스크린샷 게이트 | **개정 2026-04-27** (CLIENT_LWC + SERVER_BROWSER 2 경로, MinIO 저장) | 2026-04-25 / 2026-04-27 |
+| 0011 | QA 스크린샷 게이트 | **개정 2026-05-01** (다단계 시나리오 + presigned URL + 캡처만) | 2026-04-25 / 2026-04-27 / 2026-05-01 |
 | 0012 | Feature → QA → Main 2단 머지 흐름 | **Superseded by 0015** (본문 상단 명시 — 2026-04-27) | 2026-04-25 |
 | 0013 | 단일 Worktree + 순차 작업 정책 | Accepted | 2026-04-25 |
 | 0014 | 에이전트별 모델 차등 + 에스컬레이션 | Accepted (**footnote 보강 2026-04-27** — ai-engineer pyworker 책임 확장) | 2026-04-25 / 2026-04-27 |
