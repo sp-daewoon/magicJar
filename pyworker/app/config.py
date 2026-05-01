@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     )
     s3_secure: bool = Field(default=False, alias="S3_SECURE")
     s3_region: str = Field(default="us-east-1", alias="S3_REGION")
+    # ADR 0011 (2026-05-01) — presigned URL을 사용자 접근 가능한 호스트로 발급.
+    # docker network 내부 endpoint(minio:9000)와 호스트(localhost:9000)가 다를 때 사용.
+    minio_public_host: str = Field(default="localhost:9000", alias="MINIO_PUBLIC_HOST")
 
     # Naver news
     naver_news_list_url: str = Field(

@@ -60,6 +60,25 @@ def fake_producer() -> FakeAioProducer:
 
 
 @pytest.fixture
+def storage_with_public_host():
+    """ADR 0011 (2026-05-01) — MINIO_PUBLIC_HOST 기반 InMemoryStorage."""
+    return InMemoryStorage(
+        bucket="magicjar-screenshots",
+        public_host="localhost:9000",
+        secure=False,
+    )
+
+
+@pytest.fixture
+def storage_with_public_host_secure():
+    return InMemoryStorage(
+        bucket="magicjar-screenshots",
+        public_host="localhost:9000",
+        secure=True,
+    )
+
+
+@pytest.fixture
 def kafka_producer(fake_producer: FakeAioProducer) -> KafkaProducer:
     p = KafkaProducer(
         bootstrap_servers="fake:9092", client_id="test", enabled=True
