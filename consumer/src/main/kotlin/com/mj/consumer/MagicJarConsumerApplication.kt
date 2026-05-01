@@ -1,5 +1,6 @@
 package com.mj.consumer
 
+import com.mj.consumer.application.mock.MockNewsProperties
 import com.mj.consumer.application.mock.MockTickProperties
 import com.mj.consumer.config.ai.AiProperties
 import com.mj.consumer.infrastructure.kis.KisProperties
@@ -16,7 +17,12 @@ import org.springframework.scheduling.annotation.EnableScheduling
 @EnableJpaRepositories(basePackages = ["com.mj"])
 @EnableKafka
 @EnableScheduling
-@EnableConfigurationProperties(KisProperties::class, AiProperties::class, MockTickProperties::class)
+@EnableConfigurationProperties(
+    KisProperties::class,
+    AiProperties::class,
+    MockTickProperties::class,
+    MockNewsProperties::class,
+)
 class MagicJarConsumerApplication
 
 fun main(args: Array<String>) {

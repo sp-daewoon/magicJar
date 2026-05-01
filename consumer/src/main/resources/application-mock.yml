@@ -8,3 +8,7 @@ magicjar:
       enabled: ${MAGICJAR_MARKET_MOCKTICK_ENABLED:true}
       interval-ms: 1000
       volatility-percent: 0.5
+    mock-news:
+      # 실 LLM(Anthropic/Gemini) 키 없이 AI 카드 시각 검증용. 30초마다 1건 가짜 분석.
+      enabled: ${MAGICJAR_MARKET_MOCKNEWS_ENABLED:true}
+      interval-ms: 30000

@@ -99,6 +99,24 @@ export interface BacktestStatusResponse {
 }
 
 /**
+ * AI 뉴스 감성 분석 STOMP 메시지 — 백엔드 NewsAnalyzedEvent 정합.
+ * 토픽: /topic/news (전역) — 클라이언트가 instruments 배열을 보고 종목별 필터.
+ */
+export type SentimentLabel = 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE'
+
+export interface NewsAnalyzedMessage {
+  newsId: string             // UUID
+  source: string             // NAVER, OPEN_DART 등
+  publishedAt: string        // ISO-8601
+  title: string
+  sentiment: SentimentLabel
+  sentimentScore: number     // 0.0 ~ 1.0 (LLM 신뢰도)
+  summary: string | null
+  instruments: string[]      // 관련 종목 코드 (예: ['005930'])
+  analyzedAt: string         // ISO-8601
+}
+
+/**
  * WebSocket STOMP 실시간 시세 메시지 — 백엔드 TickEvent와 1:1 호환.
  * 토픽: /topic/market.tick.{code}
  */
