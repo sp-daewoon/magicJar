@@ -24,6 +24,7 @@ import {
 import { cn } from '@/lib/cn'
 import { stompService } from '@/ws/stomp'
 import type { TickMessage } from '@/api/types'
+import { getMarketStatus, marketStatusLabel } from '@/lib/marketHours'
 
 interface Props {
   code: string
@@ -230,8 +231,23 @@ export default function RealtimeTickChart({ code, height = 480, className, windo
         style={{ zIndex: 10 }}
       >
         <div className="flex items-center gap-2">
-          <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-red-500" />
-          <span className="text-xs font-semibold text-gray-700">LIVE · {code}</span>
+          {(() => {
+            const ms = getMarketStatus()
+            const isOpen = ms.state === 'OPEN'
+            return (
+              <>
+                <span
+                  className={cn(
+                    'inline-flex h-2 w-2 rounded-full',
+                    isOpen ? 'animate-pulse bg-red-500' : 'bg-gray-400',
+                  )}
+                />
+                <span className="text-xs font-semibold text-gray-700">
+                  {isOpen ? `LIVE · ${code}` : `${marketStatusLabel(ms)} · ${code}`}
+                </span>
+              </>
+            )
+          })()}
         </div>
         <div className="mt-1 text-base font-bold tabular-nums">
           {latestPrice != null ? latestPrice.toLocaleString() : '대기 중...'}

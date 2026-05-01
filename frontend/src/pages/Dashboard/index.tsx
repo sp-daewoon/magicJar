@@ -6,6 +6,7 @@ import { useMarketTickStore } from '@/stores/marketTick'
 import { usePositionStore } from '@/stores/position'
 import { useMarketTickStream } from '@/hooks/useMarketTickStream'
 import { useWsConnectionState } from '@/hooks/useWsConnectionState'
+import MarketStatusBadge from '@/components/market/MarketStatusBadge'
 
 /** 보유 포지션이 없을 때 watch할 default 종목 (대형주 5개) */
 const DEFAULT_WATCHLIST = ['005930', '000660', '035720', '005380', '051910']
@@ -42,7 +43,10 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-bold">대시보드</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">대시보드</h1>
+        <MarketStatusBadge />
+      </div>
 
       {/* 포지션 요약 */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -141,7 +145,7 @@ export default function DashboardPage() {
           </div>
           {watchCodes.every((c) => !latestTick[c]) && (
             <div className="mt-4 rounded border border-dashed border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              실시간 시세 0건. 백엔드 \`market.tick.v1\` Kafka publisher가 가동되어야 표시됨
+              실시간 시세 0건. 백엔드 <code>market.tick.v1</code> Kafka publisher가 가동되어야 표시됨
               (KIS WebSocket 연동 또는 mock tick generator 필요).
             </div>
           )}
