@@ -26,8 +26,23 @@ class StompService {
 
     this.setState('CONNECTING')
 
+    // brokerURL은 raw WebSocket 절대 URL 필요 (ws:// 또는 wss://).
+    // 상대 경로 '/ws'면 location.protocol·host 기반으로 동적 생성.
+    const brokerURL =
+      url.startsWith('ws://') || url.startsWith('wss://')
+        ? url
+        : (() => {
+            const proto =
+              typeof window !== 'undefined' && window.location.protocol === 'https:'
+                ? 'wss:'
+                : 'ws:'
+            const host = typeof window !== 'undefined' ? window.location.host : 'localhost:3000'
+            const path = url.startsWith('/') ? url : `/${url}`
+            return `${proto}//${host}${path}`
+          })()
+
     this.client = new Client({
-      brokerURL: url,
+      brokerURL,
       reconnectDelay: 5_000,
       onConnect: () => {
         this.setState('CONNECTED')

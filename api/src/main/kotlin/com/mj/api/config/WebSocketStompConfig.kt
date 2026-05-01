@@ -27,9 +27,15 @@ class WebSocketStompConfig : WebSocketMessageBrokerConfigurer {
     }
 
     override fun registerStompEndpoints(registry: StompEndpointRegistry) {
+        // raw WebSocket 엔드포인트 — frontend는 @stomp/stompjs Client로 직결.
+        // SockJS 폴백은 모던 브라우저에선 불필요 + 핸드셰이크 path mismatch로
+        // 'WebSocket connection to ws://.../ws failed' 발현 (2026-05-01 사용자 보고).
         registry
             .addEndpoint("/ws")
-            // CORS — frontend dev 서버(5173)·nginx(3000) 모두 허용
+            .setAllowedOriginPatterns("*")
+        // SockJS 호환 별도 엔드포인트 (구 브라우저용 보존 — 사용 안 하면 자동 idle)
+        registry
+            .addEndpoint("/ws-sockjs")
             .setAllowedOriginPatterns("*")
             .withSockJS()
     }
