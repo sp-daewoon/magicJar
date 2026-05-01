@@ -16,6 +16,7 @@ legacy 양식 ISSUE-001~007은 본 파일 하단에 단일 본문으로 보존.
 
 | ID | 상태 | 증상 | PR |
 |---|---|---|---|
+| [ISSUE-008](issues/ISSUE-008/card.md) | DEFERRED | dogfooding — pyworker /screenshot/scenario 인프라 동작 검증 + presigned URL SignatureDoesNotMatch (후속 hotfix) | |
 
 <!-- AUTO-INDEX:END -->
 
