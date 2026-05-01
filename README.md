@@ -92,9 +92,21 @@ NAVER_NEWS_RSS_URL=...               # 네이버 금융 뉴스 RSS (pyworker)
 
 ### 2. Docker compose — 3 모드
 
+> ⚠️ **중요 운영 함정 (2026-05-01 추가)**
+>
+> `api`/`batch`/`consumer` Dockerfile은 호스트의 `<module>/build/libs/*.jar`를 그대로 복사한다. **즉 `docker compose build`만으로는 새 코드가 컨테이너에 안 들어간다.** `./gradlew bootJar`를 먼저 돌려야 함.
+>
+> 이걸 한 줄로 자동화한 헬퍼:
+> ```bash
+> ./scripts/build-and-deploy.sh                # 전체 (gradle + docker build + up)
+> ./scripts/build-and-deploy.sh api-app frontend  # 일부만
+> ```
+> `scripts/smoke.sh`는 시작 시 jar staleness를 자동 검사하고 stale 감지 시 abort한다.
+
 | 모드 | 명령 | 용도 |
 |------|------|------|
-| **전체 스택** | `docker compose -f docker/docker-compose.yml up -d --build` | 인프라 4 + 앱 5 통합 기동. 머지 전 검증·CI |
+| **전체 스택 (권장)** | `./scripts/build-and-deploy.sh` | gradle bootJar + docker build + up -d 한 번에 |
+| **수동 전체** | `./gradlew :api:bootJar :batch:bootJar :consumer:bootJar`<br>`docker compose -f docker/docker-compose.yml up -d --build` | 명시적으로 단계 분리 |
 | **인프라만** | `docker compose -f docker/docker-compose.infra.yml up -d` | postgres·kafka·redis·minio만. 호스트 `./gradlew bootRun`으로 디버깅 |
 | **dev override** | `docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up -d` | 위 1 + volume mount + uvicorn `--reload` |
 
