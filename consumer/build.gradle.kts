@@ -27,4 +27,5 @@ dependencies {
     testImplementation("org.testcontainers:kafka:1.20.4")
     testImplementation("io.kotest:kotest-runner-junit5:5.9.1")
     testImplementation("io.mockk:mockk:1.13.13")
+    testImplementation("com.github.tomakehurst:wiremock-standalone:3.0.1") // KIS REST mock IT (T4·T8)
 }
