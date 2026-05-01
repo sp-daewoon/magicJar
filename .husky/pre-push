@@ -15,10 +15,17 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       exit 1
       ;;
     refs/heads/release/*)
-      echo "✗ pre-push: release/* 브랜치는 immutable(체크아웃 전용)입니다 (ADR 0027)."
-      echo "  ↳ release/v0는 v0.1.0 영구 베이스라인 백업이라 push·머지·삭제 모두 금지."
-      echo "  ↳ 살 붙이기·버그 수정은 main 트렁크에서 진행하세요."
-      exit 1
+      # 신규 ref 생성(remote_sha = 0000…)은 베이스라인 컷이라 허용.
+      # 이미 존재하는 release/* ref에 대한 update/delete만 차단 = immutable 보존.
+      ZERO="0000000000000000000000000000000000000000"
+      if [ "$remote_sha" = "$ZERO" ]; then
+        echo "ℹ pre-push: release/* 신규 베이스라인 push 허용 (ADR 0027)."
+      else
+        echo "✗ pre-push: release/* 브랜치는 immutable(체크아웃 전용)입니다 (ADR 0027)."
+        echo "  ↳ 기존 release/* (v0·v1 …) 영구 베이스라인 백업 — update·delete 금지."
+        echo "  ↳ 살 붙이기·버그 수정은 main 트렁크에서 진행하세요."
+        exit 1
+      fi
       ;;
   esac
 done

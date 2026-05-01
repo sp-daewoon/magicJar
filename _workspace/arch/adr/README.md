@@ -31,6 +31,7 @@
 | 0025 | 데이터 저장소 — PostgreSQL 단일 인스턴스 + 스키마 분리 | Accepted | 2026-04-27 |
 | 0026 | 객체 저장소 도입 — MinIO (S3 호환) | Accepted | 2026-04-27 |
 | 0027 | v0 베이스라인 태그(`v0.1.0`) + `release/v0` immutable 보존 브랜치 | Accepted | 2026-04-30 |
+| 0028 | v1.0.1 베이스라인 태그 + `release/v1` immutable 보존 + pre-push 신규 ref 허용 | Accepted | 2026-05-01 |
 
 ## 후속 예정(Proposed 후보)
 
