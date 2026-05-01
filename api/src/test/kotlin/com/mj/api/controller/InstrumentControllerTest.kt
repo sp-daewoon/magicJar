@@ -1,8 +1,11 @@
 package com.mj.api.controller
 
 import com.mj.api.application.instrument.InstrumentService
+import com.mj.api.application.market.CandleQueryService
 import com.mj.api.config.WebSecurityConfig
+import com.mj.domain.common.Candle
 import com.mj.domain.common.Instrument
+import com.mj.domain.common.Interval
 import com.mj.domain.common.Market
 import io.mockk.every
 import io.mockk.mockk
@@ -18,6 +21,8 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Import
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
+import java.math.BigDecimal
+import java.time.Instant
 
 @WebMvcTest(
     controllers = [InstrumentController::class],
@@ -34,6 +39,9 @@ class InstrumentControllerTest {
     class MockConfig {
         @Bean
         fun instrumentService(): InstrumentService = mockk()
+
+        @Bean
+        fun candleQueryService(): CandleQueryService = mockk()
     }
 
     @Autowired
@@ -41,6 +49,9 @@ class InstrumentControllerTest {
 
     @Autowired
     lateinit var instrumentService: InstrumentService
+
+    @Autowired
+    lateinit var candleQueryService: CandleQueryService
 
     @Test
     fun `GET api instruments returns 200 with list`() {
@@ -78,6 +89,72 @@ class InstrumentControllerTest {
             .get("/api/instruments/xxxxx")
             .andExpect {
                 status { isNotFound() }
+            }
+    }
+
+    @Test
+    fun `GET api instruments code candles returns 200 with array`() {
+        every { instrumentService.get("005930") } returns Instrument("005930", "삼성전자", Market.KOSPI)
+        every { candleQueryService.query("005930", Interval.D1, null, null) } returns
+            listOf(
+                Candle(
+                    code = "005930",
+                    interval = Interval.D1,
+                    openTime = Instant.parse("2026-04-30T00:00:00Z"),
+                    open = BigDecimal("60000"),
+                    high = BigDecimal("60500"),
+                    low = BigDecimal("59500"),
+                    close = BigDecimal("60200"),
+                    volume = 12_345_678L,
+                    tradeCount = 100_000L,
+                ),
+            )
+
+        mvc
+            .get("/api/instruments/005930/candles")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$[0].time") { value("2026-04-30") }
+                jsonPath("$[0].open") { value(60000) }
+                jsonPath("$[0].high") { value(60500) }
+                jsonPath("$[0].low") { value(59500) }
+                jsonPath("$[0].close") { value(60200) }
+                jsonPath("$[0].volume") { value(12_345_678) }
+            }
+    }
+
+    @Test
+    fun `GET api instruments code candles returns 404 for unknown code`() {
+        every { instrumentService.get("XXXXX") } returns null
+
+        mvc
+            .get("/api/instruments/xxxxx/candles")
+            .andExpect {
+                status { isNotFound() }
+            }
+    }
+
+    @Test
+    fun `GET api instruments code candles returns 400 for invalid interval`() {
+        every { instrumentService.get("005930") } returns Instrument("005930", "삼성전자", Market.KOSPI)
+
+        mvc
+            .get("/api/instruments/005930/candles?interval=BOGUS")
+            .andExpect {
+                status { isBadRequest() }
+            }
+    }
+
+    @Test
+    fun `GET api instruments code candles accepts DAY alias and empty result`() {
+        every { instrumentService.get("005930") } returns Instrument("005930", "삼성전자", Market.KOSPI)
+        every { candleQueryService.query("005930", Interval.D1, null, null) } returns emptyList()
+
+        mvc
+            .get("/api/instruments/005930/candles?interval=DAY")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$.length()") { value(0) }
             }
     }
 }
