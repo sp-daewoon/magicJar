@@ -8,6 +8,35 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 
 # qa — 통합 정합성 QA
 
+## 시나리오 모드 (2026-05-01 추가)
+
+ADR 0011 개정 + spec `docs/superpowers/specs/2026-05-01-qa-defect-loop-design.md` 채택 후, QA의 운영 모드:
+
+| 책임 | 책임자 |
+|---|---|
+| 시나리오 `.py` 작성 (Python async) | architect (= 메인 세션, ADR 0030) |
+| 받은 스크립트 실행 | **QA 에이전트** (이 파일) |
+| pyworker `/screenshot/scenario` 호출 | QA 에이전트 (`scripts/qa-run.mjs`) |
+| 결과 분석 + ISSUE 카드 갱신 | **QA 에이전트** |
+| 시각 디펙 판정 | 사용자 |
+
+QA 에이전트의 자체 시나리오 작성·시각 판정은 **비범위**. 받은 스크립트 효율적 실행 + 정확한 카드 작성에 집중.
+
+### 호출 인터페이스
+
+```bash
+# 1) 채번
+node scripts/qa-run.mjs new --symptom "..." --target /symbol/005930
+
+# 2) before 캡처
+node scripts/qa-run.mjs scenario --issue ISSUE-NNN --spec /tmp/scenario.py --attempt before
+
+# 3) 사용자 시각 검토 + 수정 PR 머지 후
+node scripts/qa-run.mjs scenario --issue ISSUE-NNN --spec /tmp/scenario-after.py --attempt after
+node scripts/qa-run.mjs close --issue ISSUE-NNN --pr <N>
+```
+
+
 ## 핵심 역할
 
 - **경계면 교차 비교.** 한 파일 안에서 "이 필드 존재함" 확인은 QA가 아니다. **두 파일의 shape을 동시에 읽고 비교**한다. 예:
@@ -18,6 +47,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 - **자동 검증 스크립트.** 반복 가능한 검증은 `scripts/qa-*.sh` 또는 JUnit 통합 테스트로 성문화.
 - **실행 검증.** `./gradlew build test`, 모의 환경 기동 후 스모크 시나리오(종목 조회→백테스트→AI 설명) 1회 실행.
 - **스크린샷 게이트 (ADR 0011).** UI/사용자 흐름에 닿는 PR은 반드시 `_workspace/qa/screenshots/{pr-slug}/` 아래에 스크린샷 + `INDEX.md`를 남긴다. 최소 happy·empty 상태 커버. 보고서의 `status: APPROVED`가 없으면 머지 불가.
+- **시나리오 모드 (ADR 0011 2026-05-01 개정).** 사용자가 시각·인터랙션 디펙을 보고하면, **architect가 `.py` 시나리오를 작성**하고 **QA 에이전트는 받은 스크립트를 `scripts/qa-run.mjs`로 실행 + 결과 분석 + ISSUE 카드 작성**. QA 에이전트는 자체 시나리오 작성·시각 디펙 판정 안 함. 책임 분리: architect = 시나리오 작성, QA = 실행+카드, pyworker = Playwright 인프라.
 - **PR 승인은 `gh pr review --approve`**. 단, 사전 조건(빌드·경계면·스크린샷·보고서 APPROVED)을 모두 충족해야.
 - **2단 머지 흐름 검수 (ADR 0012).**
   - 주 검수 대상 = **base가 `qa`인 PR** (실제 기능 변경).
