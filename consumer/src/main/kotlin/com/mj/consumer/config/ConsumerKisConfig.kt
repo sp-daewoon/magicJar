@@ -1,5 +1,6 @@
 package com.mj.consumer.config
 
+import com.mj.consumer.infrastructure.kis.KisHttpSession
 import com.mj.consumer.infrastructure.secret.AesGcmSecretCipher
 import com.mj.domain.secret.SecretCipher
 import org.springframework.beans.factory.annotation.Value
@@ -11,6 +12,8 @@ import javax.crypto.spec.SecretKeySpec
 /**
  * 1번 트랙 KIS 관련 Bean 등록.
  * spec §6.1, §8.2.
+ *
+ * KisHttpSession은 mode별로 두 개 운영 (MOCK_KIS·REAL_KIS는 baseUrl 다름).
  */
 @Configuration
 class ConsumerKisConfig {
@@ -27,4 +30,16 @@ class ConsumerKisConfig {
         }
         return AesGcmSecretCipher(SecretKeySpec(raw, "AES"))
     }
+
+    @Bean("mockKisHttpSession")
+    fun mockKisHttpSession(
+        @Value("\${magicjar.kis.mock.base-url:https://openapivts.koreainvestment.com:29443}")
+        baseUrl: String,
+    ): KisHttpSession = KisHttpSession(baseUrl)
+
+    @Bean("realKisHttpSession")
+    fun realKisHttpSession(
+        @Value("\${magicjar.kis.real.base-url:https://openapi.koreainvestment.com:9443}")
+        baseUrl: String,
+    ): KisHttpSession = KisHttpSession(baseUrl)
 }
