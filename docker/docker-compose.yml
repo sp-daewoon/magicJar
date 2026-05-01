@@ -230,6 +230,9 @@ services:
       S3_SECRET_KEY: magicjar123
       S3_SECURE: "false"
       S3_BUCKET_SCREENSHOT: magicjar-screenshots
+      # ADR 0011 (2026-05-01) — presigned URL용 사용자 접근 가능 host.
+      # docker network 내부(minio:9000)와 host 접근(localhost:9000)이 다르므로 분리.
+      MINIO_PUBLIC_HOST: ${MINIO_PUBLIC_HOST:-localhost:9000}
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: magicjar
       MINIO_SECRET_KEY: magicjar123
