@@ -12,7 +12,17 @@
  */
 import type { CandleDto } from '@/api/types'
 
-export type ClientInterval = 'DAY' | 'WEEK' | 'MONTH' | 'YEAR' | 'M1' | 'M5' | 'M15' | 'M30' | 'H1'
+export type ClientInterval =
+  | 'DAY'
+  | 'WEEK'
+  | 'MONTH'
+  | 'YEAR'
+  | 'M1'
+  | 'M5'
+  | 'M15'
+  | 'M30'
+  | 'H1'
+  | 'TICK'
 
 /** YYYY-MM-DD → Date(UTC). 'YYYY-MM-DD' 또는 epoch second 지원. */
 function parseTime(time: string | number): Date {
@@ -100,5 +110,8 @@ export function resolveInterval(client: ClientInterval): {
     case 'M30':
     case 'H1':
       return { serverInterval: client, transform: (c) => c }
+    case 'TICK':
+      // 틱은 candle endpoint 호출 안 함 — 별도 STOMP 스트림 (RealtimeTickChart)
+      return { serverInterval: 'TICK', transform: () => [] }
   }
 }

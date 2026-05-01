@@ -12,6 +12,7 @@ import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import TradingChart from '@/components/chart/TradingChart'
+import RealtimeTickChart from '@/components/chart/RealtimeTickChart'
 import IntervalSelector from '@/components/chart/IntervalSelector'
 import IndicatorPanel from '@/components/chart/IndicatorPanel'
 import SymbolHeader from './SymbolHeader'
@@ -43,7 +44,9 @@ export default function SymbolDetailPage() {
     retry: 1,
   })
 
-  // 캔들 데이터 조회 — 백엔드는 D1/M1/M5/M15/M30/H1만 — W/MO/Y는 클라이언트 집계
+  const isTick = interval === 'TICK'
+
+  // 캔들 데이터 조회 — 백엔드 D1/M1/M5/M15/M30/H1만 — W/MO/Y 클라 집계, 틱은 endpoint 호출 안 함
   const {
     data: rawCandles = [],
     isLoading: candlesLoading,
@@ -51,11 +54,11 @@ export default function SymbolDetailPage() {
   } = useQuery({
     queryKey: ['candles', symbolCode, serverInterval],
     queryFn: () => instrumentsApi.candles(symbolCode, serverInterval),
-    enabled: !!symbolCode,
+    enabled: !!symbolCode && !isTick,
     staleTime: 60_000,
   })
 
-  const candles = transform(rawCandles)
+  const candles = isTick ? [] : transform(rawCandles)
 
   // 매매일지 조회
   const {
@@ -119,25 +122,35 @@ export default function SymbolDetailPage() {
           <CardTitle className="flex flex-col gap-2 text-base sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <span>차트</span>
-              {candlesLoading && (
-                <span className="text-xs text-muted-foreground">로딩 중...</span>
-              )}
-              {candlesError && (
-                <span className="text-xs text-destructive">데이터 오류 (mock fallback)</span>
-              )}
-              {!candlesLoading && !candlesError && (
+              {isTick ? (
                 <span className="text-xs font-normal text-muted-foreground">
-                  {candles.length}개 봉
-                  {candles.length === 0 && ' — 해당 봉 단위 시드 부재'}
-                  {import.meta.env.VITE_USE_MOCK === 'true' && ' (mock)'}
+                  STOMP 실시간 틱 스트림
                 </span>
+              ) : (
+                <>
+                  {candlesLoading && (
+                    <span className="text-xs text-muted-foreground">로딩 중...</span>
+                  )}
+                  {candlesError && (
+                    <span className="text-xs text-destructive">데이터 오류 (mock fallback)</span>
+                  )}
+                  {!candlesLoading && !candlesError && (
+                    <span className="text-xs font-normal text-muted-foreground">
+                      {candles.length}개 봉
+                      {candles.length === 0 && ' — 해당 봉 단위 시드 부재'}
+                      {import.meta.env.VITE_USE_MOCK === 'true' && ' (mock)'}
+                    </span>
+                  )}
+                </>
               )}
             </div>
             <IntervalSelector value={interval} onChange={setInterval} />
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0 pb-2">
-          {candlesLoading ? (
+          {isTick ? (
+            <RealtimeTickChart code={symbolCode} height={480} className="px-2" />
+          ) : candlesLoading ? (
             <div className="flex h-[480px] items-center justify-center">
               <div className="h-[440px] w-full animate-pulse rounded bg-gray-100 mx-4" />
             </div>

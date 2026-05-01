@@ -23,7 +23,7 @@ const OPTIONS: Option[] = [
   { value: 'M15', label: '15분', available: true },
   { value: 'M5', label: '5분', available: true },
   { value: 'M1', label: '1분', available: true },
-  { value: 'TICK', label: '틱', available: false },
+  { value: 'TICK', label: '틱', available: true },
 ]
 
 interface Props {
@@ -42,8 +42,8 @@ export default function IntervalSelector({ value, onChange }: Props) {
             key={opt.value}
             type="button"
             disabled={disabled}
-            onClick={() => !disabled && opt.value !== 'TICK' && onChange(opt.value as ClientInterval)}
-            title={disabled ? '준비 중 (실시간 STOMP 연결 후)' : undefined}
+            onClick={() => !disabled && onChange(opt.value as ClientInterval)}
+            title={disabled ? '준비 중' : undefined}
             className={cn(
               'rounded px-2.5 py-1 text-xs font-medium transition',
               isActive
