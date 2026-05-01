@@ -34,14 +34,14 @@ QA를 **"사용자 보고 → 시각 증거 → 수정 → 재검증"** 순환 �
 1. **사용자 명시 호출 시만 발동** — 메인 세션이 자율 판단(=ADR 베이스)으로 시나리오 작성. ADR 충돌·코드 부자연·범위 밖만 사용자 컨펌
 2. **다단계 시나리오** — 단일 URL 캡처는 1단계 시나리오로 통합
 3. **캡처만, 디펙 판정은 사용자** — Playwright `expect` 자동 검증은 비범위 (다음 사이클)
-4. **카탈로그·영속 시나리오 0** — 매 호출마다 architect가 새 `.spec.ts` 작성, ISSUE 카드에 코드 블록 인용으로만 보존
+4. **카탈로그·영속 시나리오 0** — 매 호출마다 architect가 새 `scenario.py` 작성, ISSUE 카드에 코드 블록 인용으로만 보존
 5. **시각 증거의 source of truth = MinIO** — git에는 메타·카드만
 
 ## 3. 책임 boundary
 
 | 컴포넌트 | 책임 | 비책임 |
 |---|---|---|
-| **architect** (=오케스트레이터=메인 세션) | 시나리오 `.spec.ts` 작성, ADR 해석, 사용자 인터페이스, 컨펌 판단, 디펙 확정 후 수정 dispatch | 직접 캡처 실행 |
+| **architect** (=오케스트레이터=메인 세션) | 시나리오 `scenario.py` 작성, ADR 해석, 사용자 인터페이스, 컨펌 판단, 디펙 확정 후 수정 dispatch | 직접 캡처 실행 |
 | **QA 에이전트** (sub-agent) | 받은 스크립트를 `qa-run.mjs`로 호출, 결과(단계별 PNG·실패 단계·소요 시간) 분석, ISSUE 카드 작성·갱신 | 시나리오 작성, 디펙 확정 판정 |
 | **pyworker** | `POST /screenshot/scenario` — Playwright runner, 단계별 캡처, MinIO 업로드, presigned URL 발급 | 시나리오 해석·재작성 |
 | **`scripts/qa-run.mjs`** (신규 CLI) | 호출 어댑터 — pyworker 호출 + 응답 파싱 + ISSUE 카드 갱신 + presigned URL 콘솔 출력 | 시나리오 생성 |
@@ -56,16 +56,16 @@ QA를 **"사용자 보고 → 시각 증거 → 수정 → 재검증"** 순환 �
 
 2. 메인 세션(=architect)
    - 직전 작업 컨텍스트 + ADR 0011·0016·0022·0023 + 사용자 보고를 바탕으로
-     Playwright .spec.ts 시나리오 작성
+     Playwright scenario.py 시나리오 작성
    - ADR 정합·기존 코드와 자연스러우면 → 진행
    - ADR 충돌 또는 부자연 → 한 줄 컨펌 ("이 단계로 돌릴게요. OK?")
 
 3. 메인 세션 → QA 에이전트 dispatch
-   입력: ISSUE-NNN(신규 채번) + .spec.ts(인라인 코드) + attempt="before"
+   입력: ISSUE-NNN(신규 채번) + scenario.py(인라인 코드) + attempt="before"
    QA 에이전트가 sub-agent로 작업
 
 4. QA 에이전트 → scripts/qa-run.mjs 실행
-   qa-run.mjs scenario --issue ISSUE-008 --spec /tmp/scenario.spec.ts --attempt before
+   qa-run.mjs scenario --issue ISSUE-008 --spec /tmp/scenarioscenario.py --attempt before
 
 5. qa-run.mjs → pyworker POST /screenshot/scenario
    요청: {specCode, issueId, attempt, retry, viewport}
@@ -81,7 +81,7 @@ QA를 **"사용자 보고 → 시각 증거 → 수정 → 재검증"** 순환 �
 7. qa-run.mjs → ISSUE 디렉토리 생성·갱신
    _workspace/qa/issues/ISSUE-008/
      ├─ card.md          (frontmatter + 증상·재현·라이프사이클)
-     ├─ scenario-before.spec.ts (인용)
+     ├─ scenario-before.py (인용)
      └─ report-before.md (단계별 결과 + presigned URL 목록)
 
 8. QA 에이전트 → 메인 세션 보고
@@ -94,7 +94,7 @@ QA를 **"사용자 보고 → 시각 증거 → 수정 → 재검증"** 순환 �
     메인 세션이 수정 작업 dispatch (frontend/backend-core 등)
 
 11. 수정 PR 머지 후
-    메인 세션이 변경 반영해 .spec.ts 재작성(셀렉터/단계 변경 시) 또는 동일 코드 재사용
+    메인 세션이 변경 반영해 scenario.py 재작성(셀렉터/단계 변경 시) 또는 동일 코드 재사용
     → 재dispatch, attempt="after"
 
 12. after 캡처 → 사용자 검토 → "이제 보임"
@@ -112,8 +112,8 @@ _workspace/qa/
 ├─ issues/
 │  ├─ ISSUE-008/
 │  │  ├─ card.md                      frontmatter + 증상·재현·라이프사이클·관련 PR
-│  │  ├─ scenario-before.spec.ts       (인용용, qa-run.mjs가 카드 작성 시 함께 저장)
-│  │  ├─ scenario-after.spec.ts        (있는 경우)
+│  │  ├─ scenario-before.py       (인용용, qa-run.mjs가 카드 작성 시 함께 저장)
+│  │  ├─ scenario-after.py        (있는 경우)
 │  │  ├─ report-before.md              단계 결과 + presigned URL 목록 + MinIO 키
 │  │  └─ report-after.md               (있는 경우)
 │  └─ ...
@@ -177,17 +177,15 @@ fixedAt: null
 (수정 후 갱신)
 
 ## 시나리오 코드 (인용)
-\`\`\`typescript
-// scenario-before.spec.ts 인용 — 위 파일과 동일
-import { test } from '@playwright/test';
-test('symbol detail interval toggle', async ({ page }) => {
-  await page.goto('http://frontend:80/symbol/005930');
-  await page.screenshot({ path: '01-goto-symbol-page.png' });
-  await page.click('[data-testid=interval-D]');
-  await page.screenshot({ path: '02-click-interval-d.png' });
-  await page.waitForTimeout(500);
-  await page.screenshot({ path: '03-after-toggle.png' });
-});
+\`\`\`python
+# scenario-before.py 인용 — 위 파일과 동일
+async def scenario(page):
+    await page.goto("http://frontend:80/symbol/005930")
+    await page.screenshot(path="01-goto-symbol-page.png")
+    await page.click("[data-testid=interval-D]")
+    await page.screenshot(path="02-click-interval-d.png")
+    await page.wait_for_timeout(500)
+    await page.screenshot(path="03-after-toggle.png")
 \`\`\`
 ```
 
@@ -216,7 +214,7 @@ POST /screenshot/scenario
 **요청**:
 ```json
 {
-  "specCode": "<Playwright TypeScript 코드 inline>",
+  "specCode": "<Playwright Python async 코드 inline>",
   "issueId": "ISSUE-008",
   "attempt": "before",
   "retry": 1,
@@ -259,7 +257,7 @@ POST /screenshot/scenario
 
 **구현**:
 - `app/routers/scenario.py` 신규 (또는 `screenshot.py` 확장)
-- `specCode` → 임시 파일 (`/tmp/scenario-{uuid}.spec.ts`)
+- `specCode` → 임시 파일 (`/tmp/scenario-{uuid}scenario.py`)
 - Playwright headless 단일 브라우저 컨텍스트 실행
 - `page.screenshot({path})` 호출 시 자동 단계 추적 (파일명 = 단계명)
 - Playwright runtime error(timeout, selector not found, navigation error 등) 발생 시 해당 단계를 `status: fail`로 표기. 그 외(시각 디펙) 판정은 사용자 시각 검토에 위임
@@ -278,8 +276,8 @@ POST /screenshot/scenario
 | 명령 | 효과 |
 |---|---|
 | `qa-run.mjs new --symptom "..." --target /symbol/005930` | ISSUE-NNN 신규 채번 + 디렉토리 생성 + card.md 초안 |
-| `qa-run.mjs scenario --issue ISSUE-008 --spec ./tmp.spec.ts --attempt before` | pyworker `/screenshot/scenario` 호출 + 응답을 `report-before.md`로 저장 + 카드 status `INVESTIGATING` 갱신 + presigned URL 콘솔 출력 |
-| `qa-run.mjs scenario --issue ISSUE-008 --spec ./tmp.spec.ts --attempt after` | 동일 (after 양식) |
+| `qa-run.mjs scenario --issue ISSUE-008 --spec ./tmpscenario.py --attempt before` | pyworker `/screenshot/scenario` 호출 + 응답을 `report-before.md`로 저장 + 카드 status `INVESTIGATING` 갱신 + presigned URL 콘솔 출력 |
+| `qa-run.mjs scenario --issue ISSUE-008 --spec ./tmpscenario.py --attempt after` | 동일 (after 양식) |
 | `qa-run.mjs close --issue ISSUE-008 --pr 50` | status `FIXED` + `relatedPr` 갱신 + 인덱스 `issues.md` 정렬 |
 | `qa-run.mjs wontfix --issue ISSUE-008 --reason "..."` | status `WONTFIX` |
 | `qa-run.mjs list` | 활성 이슈 목록 (OPEN/INVESTIGATING) |
@@ -300,7 +298,7 @@ CLI는 frontmatter 파싱·갱신을 task.mjs와 동일 헬퍼 함수로 구현 
 
 ### 8.1 입력 컨텍스트
 
-architect가 `.spec.ts` 작성 시 참고하는 정보:
+architect가 `scenario.py` 작성 시 참고하는 정보:
 
 1. 사용자 보고 (자연어)
 2. 직전 작업 컨텍스트 (메인 세션이 보유)
@@ -310,9 +308,9 @@ architect가 `.spec.ts` 작성 시 참고하는 정보:
 
 ### 8.2 출력 규약
 
-- ESM `@playwright/test` 사용
-- 하나의 `test('...')` 블록
-- `page.screenshot({path: 'NN-step-name.png'})` 패턴 (NN: 두 자리, step-slug: kebab)
+- **Python async** — `async def scenario(page):` 단일 함수 패턴 (in-process `playwright.async_api`, Node.js 의존 0)
+- 한 함수 = 한 시나리오 (test runner 사용 안 함)
+- `await page.screenshot(path="NN-step-name.png")` 패턴 (NN: 두 자리, step-slug: kebab) — pyworker가 `page.screenshot`을 monkey-patch로 감싸 단계 자동 추적
 - 진입 URL은 docker network 내부 호스트네임(`http://frontend:80/...`) — pyworker가 같은 네트워크 안에 있음
 - 외부 자원 의존(API 키 등) 미사용
 
@@ -375,14 +373,14 @@ architect가 `.spec.ts` 작성 시 참고하는 정보:
 메인 세션(=architect):
   - ADR 0011·0022 참조 (시나리오 모드, LWC 공식 API)
   - 직전 작업 컨텍스트(F R2 차트 통합) 인지
-  - .spec.ts 작성:
+  - scenario.py 작성:
       goto /symbol/005930 → screenshot 01
       click [data-testid=interval-D] → screenshot 02
       wait 500 → screenshot 03 (예상: 캔들 표시)
   - ADR 정합·자연 → 자율 진행
 ↓
 메인 세션 → QA 에이전트 dispatch
-  ISSUE-008 신규 채번 + .spec.ts 인라인 + attempt=before
+  ISSUE-008 신규 채번 + scenario.py 인라인 + attempt=before
 ↓
 QA 에이전트 → qa-run.mjs scenario --issue ISSUE-008 --attempt before
 ↓

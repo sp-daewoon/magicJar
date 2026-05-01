@@ -10,6 +10,18 @@
 
 **Source spec:** `docs/superpowers/specs/2026-05-01-qa-defect-loop-design.md` (commit `e15d578`).
 
+**NOTE (2026-05-01 Phase 2 진입 시 정정):** 본 plan 작성 시 `.spec.ts` (TypeScript) 형식을 가정했으나, pyworker 컨테이너에 Node.js 미설치 + 기존 `PlaywrightCapturer`가 이미 Python async API 사용 중 → **spec_code 형식을 Python async로 변경**. Plan 본문의 TypeScript 코드 블록(Task 5·6·7·10·15의 spec_code 예시)은 다음 Python 패턴으로 대체해 작성:
+
+```python
+async def scenario(page):
+    await page.goto("http://frontend:80/symbol/005930")
+    await page.screenshot(path="01-goto.png")
+    await page.click("[data-testid=interval-D]")
+    await page.screenshot(path="02-click-d.png")
+```
+
+Task 6 `RealPlaywrightRunner`도 subprocess + npx playwright test + JSON reporter 파싱이 아닌, **in-process `playwright.async_api`** 사용 (기존 `PlaywrightCapturer` 패턴 일관). 단계 추적은 `page.screenshot` monkey-patch로 (path 인자 + duration + bytes 누적). 시나리오 영속 파일명은 `.py`.
+
 **Branch:** `agent/architect/qa-defect-loop` (단일 worktree, ADR 0013).
 **Author:** `bot+architect@magicjar.local` (ADR 0017).
 **Model:** opus (architect 전담).
@@ -116,7 +128,7 @@ git commit -m "feat(adr): 0030 — 오케스트레이터=architect 일체화 메
 | 항목 | 결정 |
 |---|---|
 | Endpoint | `POST /screenshot/scenario` |
-| 입력 | `{specCode, issueId, attempt: "before"\|"after", retry, viewport}` — Playwright TypeScript 코드를 inline 문자열로 |
+| 입력 | `{specCode, issueId, attempt: "before"\|"after", retry, viewport}` — **Playwright Python async 코드** inline 문자열 (in-process 실행, Node.js 의존 0) |
 | 단계별 캡처 | `page.screenshot({path: "NN-step-name.png"})` 패턴, pyworker가 자동 추적 |
 | 검증 | **캡처만**. Playwright runtime error(timeout/selector not found 등)만 자동 fail 표기. 시각 디펙 판정은 사용자 시각 검토 |
 | 결과 노출 | MinIO presigned URL (TTL 24h). pyworker 환경변수 `MINIO_PUBLIC_HOST`로 사용자 접근 가능한 호스트 사용 |

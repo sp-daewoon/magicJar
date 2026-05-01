@@ -65,11 +65,11 @@ _workspace/qa/screenshots/{pr-id or branch-slug}/
 | 항목 | 결정 |
 |---|---|
 | Endpoint | `POST /screenshot/scenario` |
-| 입력 | `{specCode, issueId, attempt: "before"\|"after", retry, viewport}` — Playwright TypeScript 코드를 inline 문자열로 |
-| 단계별 캡처 | `page.screenshot({path: "NN-step-name.png"})` 패턴, pyworker가 자동 추적 |
+| 입력 | `{specCode, issueId, attempt: "before"\|"after", retry, viewport}` — **Playwright Python async 코드** inline 문자열로 (in-process 실행, Node.js 의존 0) |
+| 단계별 캡처 | `await page.screenshot(path="NN-step-name.png")` 패턴 — pyworker가 monkey-patch로 자동 추적 |
 | 검증 | **캡처만**. Playwright runtime error(timeout/selector not found 등)만 자동 fail 표기. 시각 디펙 판정은 사용자 시각 검토 |
 | 결과 노출 | MinIO presigned URL (TTL 24h). pyworker 환경변수 `MINIO_PUBLIC_HOST`로 사용자 접근 가능한 호스트 사용 |
-| 영속 | MinIO 키 `magicjar-screenshots/issues/ISSUE-NNN/{before\|after}/{ts}/NN-step.png`. 시나리오 코드는 git `_workspace/qa/issues/ISSUE-NNN/scenario-{before\|after}.spec.ts`로 인용 보존 |
+| 영속 | MinIO 키 `magicjar-screenshots/issues/ISSUE-NNN/{before\|after}/{ts}/NN-step.png`. 시나리오 코드는 git `_workspace/qa/issues/ISSUE-NNN/scenario-{before\|after}.py`로 인용 보존 |
 
 상세는 spec `docs/superpowers/specs/2026-05-01-qa-defect-loop-design.md` 참조.
 
