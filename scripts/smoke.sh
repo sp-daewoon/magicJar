@@ -24,6 +24,45 @@ PYWORKER="${PYWORKER_URL:-http://localhost:8000}"
 MINIO="${MINIO_URL:-http://localhost:9000}"
 KAFKA_CONTAINER="${KAFKA_CONTAINER:-magicjar-kafka}"
 
+# ───── jar staleness 가드 (P1 — 운영 함정 차단) ─────
+# api/batch/consumer Dockerfile은 `COPY build/libs/<m>-*.jar /app/app.jar`로
+# 호스트의 build 산출물을 그대로 가져온다. 즉 코드 변경 후 `./gradlew bootJar`를
+# 안 돌리면 컨테이너에 옛 jar가 들어가 V7 시드 미적용·신규 엔드포인트 404 발생.
+# 검사: 각 모듈 src의 최신 .kt mtime > build/libs/*.jar mtime 이면 abort.
+check_jar_freshness() {
+  local module="$1"
+  local jar
+  jar=$(ls -t "$module"/build/libs/${module}-*-SNAPSHOT.jar 2>/dev/null | head -1)
+  if [[ -z "$jar" ]]; then
+    echo "✗ $module: bootJar 산출물 없음. './gradlew :$module:bootJar' 먼저 실행." >&2
+    return 1
+  fi
+  local newest_src
+  newest_src=$(find "$module/src/main" -name "*.kt" -newer "$jar" -print -quit 2>/dev/null)
+  if [[ -n "$newest_src" ]]; then
+    echo "✗ $module: src의 $newest_src 가 jar($(basename "$jar"))보다 최신." >&2
+    echo "  ./gradlew :$module:bootJar 다시 실행 후 docker compose build 진행." >&2
+    return 1
+  fi
+  return 0
+}
+
+if [[ "${SKIP_FRESHNESS_CHECK:-0}" != "1" ]]; then
+  freshness_failed=0
+  for m in api batch consumer; do
+    check_jar_freshness "$m" || freshness_failed=1
+  done
+  if [[ $freshness_failed -ne 0 ]]; then
+    echo "" >&2
+    echo "운영 함정 가드: stale jar 감지. 다음 1줄로 일괄 갱신:" >&2
+    echo "  ./gradlew :api:bootJar :batch:bootJar :consumer:bootJar" >&2
+    echo "  docker compose -f docker/docker-compose.yml build api-app batch-app consumer-app" >&2
+    echo "  docker compose -f docker/docker-compose.yml up -d" >&2
+    echo "(우회 필요 시 SKIP_FRESHNESS_CHECK=1 prefix)" >&2
+    exit 3
+  fi
+fi
+
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
