@@ -146,6 +146,34 @@ class InstrumentControllerTest {
     }
 
     @Test
+    fun `GET api instruments code candles M1 returns time as JSON number (epoch second)`() {
+        every { instrumentService.get("005930") } returns Instrument("005930", "삼성전자", Market.KOSPI)
+        every { candleQueryService.query("005930", Interval.M1, null, null) } returns
+            listOf(
+                Candle(
+                    code = "005930",
+                    interval = Interval.M1,
+                    openTime = Instant.parse("2026-04-30T05:30:00Z"), // = epoch 1777527000
+                    open = BigDecimal("60100"),
+                    high = BigDecimal("60150"),
+                    low = BigDecimal("60050"),
+                    close = BigDecimal("60120"),
+                    volume = 1_234L,
+                    tradeCount = 10L,
+                ),
+            )
+
+        mvc
+            .get("/api/instruments/005930/candles?interval=M1")
+            .andExpect {
+                status { isOk() }
+                // LWC UTCTimestamp 호환 — 분봉은 number(Long)로 직렬화 (string 아님)
+                jsonPath("$[0].time") { value(1_777_527_000) }
+                jsonPath("$[0].open") { value(60_100) }
+            }
+    }
+
+    @Test
     fun `GET api instruments code candles accepts DAY alias and empty result`() {
         every { instrumentService.get("005930") } returns Instrument("005930", "삼성전자", Market.KOSPI)
         every { candleQueryService.query("005930", Interval.D1, null, null) } returns emptyList()
