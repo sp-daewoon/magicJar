@@ -1,24 +1,30 @@
 package com.mj.consumer.messaging.listener
 
 import com.mj.consumer.messaging.producer.OrderExecutedPublisher
+import com.mj.domain.common.Order
 import com.mj.domain.common.OrderStatus
 import com.mj.domain.order.event.OrderExecutedEvent
 import com.mj.domain.order.event.OrderIntentEvent
-import com.mj.domain.order.port.BrokerGateway
+import com.mj.domain.order.port.OrderSender
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
+import java.math.BigDecimal
 import java.time.Instant
-import java.util.UUID
 
 /**
- * order.intent.v1 → BrokerGateway(KIS 주문) → OrderExecutedPublisher.
+ * order.intent.v1 → OrderSender(profile별 분기) → order.executed.v1.
  *
- * BrokerGateway는 @ConditionalOnMissingBean 으로 KIS 실구현 또는 FakeBrokerGateway 주입.
+ * 1번 트랙(T14) — 기존 BrokerGateway 의존을 OrderSender로 전환.
+ * - mock profile: MockOrderSender → 즉시 FILLED publish
+ * - dev/prd profile: KisOrderSender → Guard chain + KisOrderPort + 영속 + PENDING publish
+ *   체결은 별도 흐름(KisExecutionNoticeListener·OrderExecutionSweep, T15)에서 추가 publish
+ *
+ * BrokerGateway는 deprecate. KisBrokerGateway·FakeBrokerGateway 빈은 호출처 0이나 일단 잔존.
  */
 @Component
 class OrderDispatcherListener(
-    private val brokerGateway: BrokerGateway,
+    private val orderSender: OrderSender,
     private val orderExecutedPublisher: OrderExecutedPublisher,
 ) {
     private val log = LoggerFactory.getLogger(OrderDispatcherListener::class.java)
@@ -36,17 +42,17 @@ class OrderDispatcherListener(
         )
         runCatching {
             val order =
-                com.mj.domain.common.Order(
-                    id = UUID.randomUUID(),
+                Order(
+                    id = event.intentId, // intentId 그대로 orderId 사용 — orders.intent_id 매핑 일관
                     code = event.code,
                     side = event.side,
                     qty = event.qty,
                     price = event.price,
                     type = event.orderType,
-                    status = com.mj.domain.common.OrderStatus.PENDING,
+                    status = OrderStatus.PENDING,
                     createdAt = Instant.now(),
                 )
-            val result = brokerGateway.placeOrder(order)
+            val result = orderSender.send(order)
             val executed =
                 OrderExecutedEvent(
                     orderId = result.order.id,
@@ -54,14 +60,19 @@ class OrderDispatcherListener(
                     code = event.code,
                     side = event.side,
                     executedQty = result.filledQty,
-                    executedPrice = result.avgFillPrice ?: event.price ?: java.math.BigDecimal.ZERO,
+                    executedPrice = result.avgFillPrice ?: event.price ?: BigDecimal.ZERO,
                     status = result.resultStatus,
                     executedAt = result.filledAt ?: Instant.now(),
                     mode = event.mode,
                 )
             orderExecutedPublisher.publish(executed)
+            log.info(
+                "OrderDispatcherListener published executed (intentId={}, status={})",
+                event.intentId,
+                result.resultStatus,
+            )
         }.onFailure { ex ->
-            log.error("OrderDispatcherListener failed (intentId={}): {}", event.intentId, ex.message)
+            log.error("OrderDispatcherListener failed (intentId={}): {}", event.intentId, ex.message, ex)
         }
     }
 }
