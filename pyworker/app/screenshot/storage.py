@@ -2,9 +2,14 @@
 
 `MinioStorage` 가 실 구현, `InMemoryStorage` 는 테스트용.
 
-ADR 0011 (2026-05-01 개정) — 사용자 노출 정식 경로는 presigned URL.
-docker network 내부 endpoint(minio:9000)와 host 접근 endpoint(localhost:9000)가
-다를 수 있으므로 `public_host` 인자로 사용자 접근 가능한 호스트를 명시.
+ADR 0011 (2026-05-02 ISSUE-008 hotfix) —
+컨테이너 내부 endpoint(minio:9000)와 사용자 접근 endpoint(localhost:9000)에 대해
+**두 개의 minio-py 클라이언트**를 운영한다.
+- internal: 업로드/bucket ensure (실 네트워크 호출, 빠른 사설망 경유)
+- public:   presigned_get_object 만 호출 (네트워크 0, 외부 호스트 기반 서명 생성)
+
+이전(2026-05-01) 구현은 단일 클라이언트로 presigned URL 발급 후 호스트만 치환했으나,
+AWS4-HMAC-SHA256 서명에 호스트가 포함되어 사용자 GET 시 SignatureDoesNotMatch 발생.
 """
 
 from __future__ import annotations
@@ -14,7 +19,6 @@ import logging
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Protocol
-from urllib.parse import urlparse, urlunparse
 from uuid import UUID
 
 log = logging.getLogger(__name__)
@@ -41,8 +45,10 @@ class StorageBackend(Protocol):
 class MinioStorage:
     """minio-py 동기 클라이언트 + asyncio.to_thread 비동기 wrap.
 
-    presigned_get_object로 24h TTL URL 발급 후, MINIO_PUBLIC_HOST로 호스트 치환.
-    이유: 컨테이너 내부 endpoint(minio:9000)는 사용자 브라우저에서 접근 불가.
+    internal 클라이언트는 컨테이너 내부 endpoint 로 업로드/bucket 검사를 수행하고,
+    public 클라이언트는 외부 endpoint 기준으로 presigned URL을 만든다.
+    public 쪽은 presigned_get_object 만 호출하므로 실제 네트워크 도달 가능 여부와 무관
+    — 서명 생성에는 endpoint 문자열만 사용된다.
     """
 
     def __init__(
@@ -53,12 +59,21 @@ class MinioStorage:
         bucket: str,
         secure: bool = False,
         region: str = "us-east-1",
-        public_host: str | None = None,
+        public_endpoint: str | None = None,
     ) -> None:
         from minio import Minio  # 지연 import
 
-        self._client = Minio(
+        self._internal = Minio(
             endpoint=endpoint,
+            access_key=access_key,
+            secret_key=secret_key,
+            secure=secure,
+            region=region,
+        )
+        # public_endpoint 미지정 시 internal 과 동일 — 단일 클라이언트와 같은 동작
+        public_ep = public_endpoint or endpoint
+        self._public = Minio(
+            endpoint=public_ep,
             access_key=access_key,
             secret_key=secret_key,
             secure=secure,
@@ -67,14 +82,14 @@ class MinioStorage:
         self.bucket = bucket
         self.secure = secure
         self.endpoint = endpoint
-        self.public_host = public_host or endpoint
+        self.public_endpoint = public_ep
 
     async def ensure_bucket(self) -> None:
         import asyncio
 
         def _run() -> None:
-            if not self._client.bucket_exists(self.bucket):
-                self._client.make_bucket(self.bucket)
+            if not self._internal.bucket_exists(self.bucket):
+                self._internal.make_bucket(self.bucket)
 
         await asyncio.to_thread(_run)
 
@@ -85,7 +100,7 @@ class MinioStorage:
 
         def _put() -> int:
             buf = io.BytesIO(data)
-            self._client.put_object(
+            self._internal.put_object(
                 self.bucket,
                 key,
                 data=buf,
@@ -96,26 +111,13 @@ class MinioStorage:
 
         size = await asyncio.to_thread(_put)
 
-        # ADR 0011 — presigned GET URL 발급 (TTL 24h)
         def _presign() -> str:
-            return self._client.presigned_get_object(
+            return self._public.presigned_get_object(
                 self.bucket, key, expires=PRESIGNED_TTL
             )
 
-        signed = await asyncio.to_thread(_presign)
-        public_url = _rewrite_host(signed, self.public_host, self.secure)
+        public_url = await asyncio.to_thread(_presign)
         return StoreResult(key=key, public_url=public_url, size=size)
-
-
-def _rewrite_host(url: str, public_host: str, secure: bool) -> str:
-    """presigned URL의 호스트를 사용자 접근 가능한 host로 치환.
-
-    예: http://minio:9000/bucket/key?X-Amz-...  →  http://localhost:9000/bucket/key?X-Amz-...
-    경로·쿼리(서명)는 그대로 유지.
-    """
-    parsed = urlparse(url)
-    scheme = "https" if secure else "http"
-    return urlunparse(parsed._replace(netloc=public_host, scheme=scheme))
 
 
 class InMemoryStorage:

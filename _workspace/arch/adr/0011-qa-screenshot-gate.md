@@ -1,7 +1,7 @@
 # ADR 0011: QA 스크린샷 게이트
 
-- 상태: Accepted (개정 by ADR 0016, 0022, 0023, 0026, **0011 자체 2026-05-01 개정**)
-- 작성일: 2026-04-25 (개정: 2026-04-27, 2026-05-01)
+- 상태: Accepted (개정 by ADR 0016, 0022, 0023, 0026, **0011 자체 2026-05-01 / 2026-05-02 개정**)
+- 작성일: 2026-04-25 (개정: 2026-04-27, 2026-05-01, 2026-05-02)
 - 결정자: architect (협의: qa, frontend, 사용자 지시)
 
 ## 변경 이력
@@ -12,6 +12,7 @@
 | 2026-04-25 | ADR 0016(QA On-Demand) 도입으로 "모든 PR 강제"는 7 트리거로 한정 |
 | 2026-04-27 | **본 개정** — 스크린샷 캡처 경로를 클라이언트(LWC `chart.takeScreenshot()`) + 서버(pyworker Playwright) 2 경로로 명시. 저장소는 MinIO(ADR 0026)로 이전. `_workspace/qa/screenshots/` 는 INDEX.md·메타만 보관, 바이너리는 MinIO `chart-snapshots/...` 키 참조. |
 | 2026-05-01 | **본 개정** — 다단계 시나리오 모드 명문화(단일 URL은 1단계 시나리오로 통합), pyworker `POST /screenshot/scenario` endpoint 신설, **MinIO presigned URL을 사용자 노출 정식 경로로 추가**, "캡처만 (Playwright `expect` 자동 검증은 비범위)" 명시. 시나리오 코드 영속화 0(매 호출 새 작성, ISSUE 카드에 인용으로만 보존). spec `docs/superpowers/specs/2026-05-01-qa-defect-loop-design.md` 참조. |
+| 2026-05-02 | **ISSUE-008 hotfix** — presigned URL `SignatureDoesNotMatch` 해결. 단일 minio-py 클라이언트 + 호스트 후처리 치환(`_rewrite_host`) 방식 폐기 → **internal(업로드용 `minio:9000`) + public(presign용 `localhost:9000`) 두 클라이언트 분리**. AWS4-HMAC-SHA256 서명에 호스트가 포함되므로, 서명 자체를 외부 endpoint 기준으로 만들어야 사용자 GET 시 일치한다. public 클라이언트는 `presigned_get_object` 만 호출 → 네트워크 도달 가능 여부 무관. 환경변수 변화 0 (`MINIO_PUBLIC_HOST` 의미 그대로, host:port 형식 = endpoint). |
 
 ## 맥락
 
@@ -68,7 +69,7 @@ _workspace/qa/screenshots/{pr-id or branch-slug}/
 | 입력 | `{specCode, issueId, attempt: "before"\|"after", retry, viewport}` — **Playwright Python async 코드** inline 문자열로 (in-process 실행, Node.js 의존 0) |
 | 단계별 캡처 | `await page.screenshot(path="NN-step-name.png")` 패턴 — pyworker가 monkey-patch로 자동 추적 |
 | 검증 | **캡처만**. Playwright runtime error(timeout/selector not found 등)만 자동 fail 표기. 시각 디펙 판정은 사용자 시각 검토 |
-| 결과 노출 | MinIO presigned URL (TTL 24h). pyworker 환경변수 `MINIO_PUBLIC_HOST`로 사용자 접근 가능한 호스트 사용 |
+| 결과 노출 | MinIO presigned URL (TTL 24h). pyworker는 internal(`S3_ENDPOINT`)·public(`MINIO_PUBLIC_HOST`) 두 minio-py 클라이언트를 운영해, 서명 자체를 외부 endpoint 기준으로 만든다 (2026-05-02 ISSUE-008 hotfix) |
 | 영속 | MinIO 키 `magicjar-screenshots/issues/ISSUE-NNN/{before\|after}/{ts}/NN-step.png`. 시나리오 코드는 git `_workspace/qa/issues/ISSUE-NNN/scenario-{before\|after}.py`로 인용 보존 |
 
 상세는 spec `docs/superpowers/specs/2026-05-01-qa-defect-loop-design.md` 참조.

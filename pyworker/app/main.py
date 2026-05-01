@@ -77,7 +77,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             bucket=settings.s3_bucket_screenshot,
             secure=settings.s3_secure,
             region=settings.s3_region,
-            public_host=settings.minio_public_host,
+            public_endpoint=settings.minio_public_host,
         )
         try:
             await minio.ensure_bucket()
