@@ -44,7 +44,7 @@ spring:
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
-        spring.json.trusted.packages: "com.mj"
+        spring.json.trusted.packages: "*"
       group-id: ${KAFKA_GROUP_ID:magicjar-api}
       auto-offset-reset: earliest
 
