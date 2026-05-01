@@ -17,6 +17,7 @@ import IntervalSelector from '@/components/chart/IntervalSelector'
 import IndicatorPanel from '@/components/chart/IndicatorPanel'
 import SymbolHeader from './SymbolHeader'
 import JournalTable from './JournalTable'
+import NewsAnalysisCard from './NewsAnalysisCard'
 import { instrumentsApi } from '@/api/instruments'
 import { journalApiV2 } from '@/api/journal'
 import { useSymbolQuote } from '@/hooks/useSymbolQuote'
@@ -177,6 +178,9 @@ export default function SymbolDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* AI 뉴스 감성 분석 */}
+      <NewsAnalysisCard code={symbolCode} />
 
       {/* 매매일지 */}
       <Card>
