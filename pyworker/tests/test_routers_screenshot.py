@@ -26,7 +26,8 @@ async def test_post_screenshot_returns_response_and_publishes_event(
     assert body["height"] == 720
     assert body["contentType"] == "image/png"
     assert body["storageKey"].startswith("screenshots/")
-    assert body["publicUrl"].startswith("memory://")
+    # ADR 0011 (2026-05-01 개정) — InMemoryStorage도 public_host 기반 URL 발급
+    assert body["publicUrl"].startswith("http://localhost:9000/")
 
     # storage 에 저장됐는지
     storage = app.state.storage

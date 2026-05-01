@@ -28,11 +28,13 @@ from app.messaging.kafka_producer import (
     NewsRawPublisher,
     ScreenshotCapturedPublisher,
 )
-from app.routers import health, scrape, screenshot
+from app.routers import health, scenario, scrape, screenshot
 from app.scrapers.dart import fetch_dart_disclosures
 from app.scrapers.naver_news import fetch_naver_news
 from app.scrapers.scheduler import ScrapeScheduler
 from app.screenshot.capture import PlaywrightCapturer, StubCapturer
+from app.screenshot.scenario import ScenarioRunner
+from app.screenshot.scenario_pw import RealPlaywrightRunner
 from app.screenshot.storage import InMemoryStorage, MinioStorage, StorageBackend
 
 log = logging.getLogger(__name__)
@@ -75,19 +77,26 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             bucket=settings.s3_bucket_screenshot,
             secure=settings.s3_secure,
             region=settings.s3_region,
+            public_host=settings.minio_public_host,
         )
         try:
             await minio.ensure_bucket()
         except Exception as ex:
             log.warning("MinIO ensure_bucket failed: %s — falling back to InMemoryStorage", ex)
-            storage = InMemoryStorage(bucket=settings.s3_bucket_screenshot)
+            storage = InMemoryStorage(
+                bucket=settings.s3_bucket_screenshot,
+                public_host=settings.minio_public_host,
+            )
         else:
             storage = minio
     else:
-        storage = InMemoryStorage(bucket=settings.s3_bucket_screenshot)
+        storage = InMemoryStorage(
+            bucket=settings.s3_bucket_screenshot,
+            public_host=settings.minio_public_host,
+        )
     app.state.storage = storage
 
-    # 4) Capturer
+    # 4) Capturer (단일 URL — 기존 /screenshot endpoint)
     if settings.bootstrap_external:
         app.state.capturer = PlaywrightCapturer(
             headless=settings.playwright_headless,
@@ -95,6 +104,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
     else:
         app.state.capturer = StubCapturer()
+
+    # 4-2) ScenarioRunner — 다단계 시나리오 (ADR 0011 2026-05-01)
+    # 항상 Real 사용 (테스트는 conftest에서 fake로 덮어씀).
+    app.state.scenario_runner = ScenarioRunner(
+        playwright=RealPlaywrightRunner(
+            headless=settings.playwright_headless,
+            default_timeout_ms=settings.playwright_default_timeout_ms,
+        )
+    )
 
     # 5) Scheduler
     scheduler = ScrapeScheduler()
@@ -156,6 +174,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(scrape.router)
     app.include_router(screenshot.router)
+    app.include_router(scenario.router)
     return app
 
 

@@ -145,9 +145,55 @@ async def app(monkeypatch, kafka_producer: KafkaProducer, fake_producer: FakeAio
         fastapi_app.state.screenshot_publisher = ScreenshotCapturedPublisher(
             kafka_producer, "screenshot.captured.v1"
         )
-        fastapi_app.state.storage = InMemoryStorage(bucket="test-bucket")
+        fastapi_app.state.storage = InMemoryStorage(
+            bucket="magicjar-screenshots",
+            public_host="localhost:9000",
+        )
         fastapi_app.state.capturer = StubCapturer()
         yield fastapi_app
+
+
+@pytest.fixture
+def fake_scenario_runner_3pass(app):
+    """3단계 모두 PASS — Task 7 통합 테스트용."""
+    from app.screenshot.scenario import ScenarioResult, StepResult
+
+    class FakeRunner:
+        async def run(self, req):
+            return ScenarioResult(
+                steps=[
+                    StepResult(0, "01-blank", "pass", 800, b"\x89PNG\r\n\x1a\nfake1"),
+                    StepResult(1, "02-still", "pass", 350, b"\x89PNG\r\n\x1a\nfake2"),
+                    StepResult(2, "03-final", "pass", 200, b"\x89PNG\r\n\x1a\nfake3"),
+                ],
+                failed_at_step=None,
+                total_duration_ms=1350,
+            )
+
+    app.state.scenario_runner = FakeRunner()
+    return app
+
+
+@pytest.fixture
+def fake_scenario_runner_step2_fail(app):
+    from app.screenshot.scenario import ScenarioResult, StepResult
+
+    class FakeRunner:
+        async def run(self, req):
+            return ScenarioResult(
+                steps=[
+                    StepResult(0, "01-goto", "pass", 800, b"\x89PNG\r\n\x1a\nok"),
+                    StepResult(
+                        1, "02-error", "fail", 300, b"\x89PNG\r\n\x1a\nfail",
+                        error="TimeoutError: selector .candle-series",
+                    ),
+                ],
+                failed_at_step=1,
+                total_duration_ms=1100,
+            )
+
+    app.state.scenario_runner = FakeRunner()
+    return app
 
 
 @pytest_asyncio.fixture
