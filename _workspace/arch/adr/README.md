@@ -19,7 +19,7 @@
 | 0013 | 단일 Worktree + 순차 작업 정책 | Accepted | 2026-04-25 |
 | 0014 | 에이전트별 모델 차등 + 에스컬레이션 | Accepted (**footnote 보강 2026-04-27** — ai-engineer pyworker 책임 확장) | 2026-04-25 / 2026-04-27 |
 | 0015 | 머지 흐름 단순화 (`agent/* → main`) | Accepted | 2026-04-25 |
-| 0016 | QA On-Demand 정책 (MVP) | Accepted | 2026-04-25 |
+| 0016 | QA On-Demand 정책 (MVP) | Accepted (**보강 2026-05-01** — 시나리오 모드 트리거) | 2026-04-25 / 2026-05-01 |
 | 0017 | 에이전트별 Git Author 분리 | Accepted | 2026-04-25 |
 | 0018 | Task 파일 시스템 | Accepted | 2026-04-25 |
 | 0019 | MSA 모듈 재구성 (5 모듈 + pyworker + frontend) | Accepted | 2026-04-27 |

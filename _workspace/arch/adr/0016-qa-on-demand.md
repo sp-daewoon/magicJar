@@ -1,9 +1,16 @@
 # ADR 0016: QA On-Demand 정책 (MVP 단계)
 
-- 상태: Accepted
-- 작성일: 2026-04-25
+- 상태: Accepted (**보강 2026-05-01** — 시나리오 모드 트리거)
+- 작성일: 2026-04-25 (보강: 2026-05-01)
 - 결정자: architect (사용자 직접 진단)
-- 관계: **ADR 0011 개정** (스크린샷 게이트 적용 범위 축소)
+- 관계: **ADR 0011 개정** (스크린샷 게이트 적용 범위 축소), **ADR 0030 통합** (오케스트레이터=architect)
+
+## 변경 이력
+
+| 날짜 | 변경 |
+|------|------|
+| 2026-04-25 | 최초 채택 |
+| 2026-05-01 | **시나리오 모드 트리거 명시** — On-Demand 호출 시 architect가 `.spec.ts` 작성 → `scripts/qa-run.mjs scenario` 실행. 7 트리거 조건은 그대로 유지. spec 2026-05-01-qa-defect-loop-design.md 참조 |
 
 ## 맥락
 
@@ -77,3 +84,16 @@ ADR 0011의 "스크린샷 양식·캡처 도구·QA 보고서 양식" 부분은 
   - `magicjar-boundary-qa` 스킬에 트리거 조건 + 호출 절차 반영
   - `.github/pull_request_template.md`에 `QA:` 한 줄 의무 추가
   - `agents/qa.md`에 on-demand 모델 명시
+
+## 시나리오 모드 트리거 (2026-05-01)
+
+7 트리거 조건 발동 시, 또는 사용자 명시 호출 시:
+
+1. architect(=오케스트레이터=메인 세션)가 ADR 0011·0022 베이스로 Playwright `.spec.ts` 작성 (ADR 0030 자율 규약)
+2. `scripts/qa-run.mjs new` → ISSUE-NNN 채번
+3. `scripts/qa-run.mjs scenario --issue ISSUE-NNN --spec <path> --attempt before`
+4. 사용자 시각 검토 → 디펙 확정
+5. 수정 PR 머지 후 `scripts/qa-run.mjs scenario --attempt after`
+6. `scripts/qa-run.mjs close --pr <N>` → ISSUE FIXED + 인덱스 갱신
+
+상세 spec: `docs/superpowers/specs/2026-05-01-qa-defect-loop-design.md` §4 흐름.
