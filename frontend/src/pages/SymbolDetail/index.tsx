@@ -13,6 +13,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import TradingChart from '@/components/chart/TradingChart'
 import IntervalSelector from '@/components/chart/IntervalSelector'
+import IndicatorPanel from '@/components/chart/IndicatorPanel'
 import SymbolHeader from './SymbolHeader'
 import JournalTable from './JournalTable'
 import { instrumentsApi } from '@/api/instruments'
@@ -25,6 +26,9 @@ export default function SymbolDetailPage() {
   const { code } = useParams<{ code: string }>()
   const symbolCode = (code ?? '').toUpperCase()
   const [interval, setInterval] = useState<ClientInterval>('DAY')
+  const [activeIndicators, setActiveIndicators] = useState<Set<string>>(
+    () => new Set(['SMA-5', 'SMA-20']), // 기본 활성: 단/중기 이평
+  )
   const { serverInterval, transform } = resolveInterval(interval)
 
   // 종목 정보 조회
@@ -145,12 +149,18 @@ export default function SymbolDetailPage() {
               </span>
             </div>
           ) : (
-            <TradingChart
-              candles={candles}
-              interval={interval}
-              height={480}
-              className="px-2"
-            />
+            <div className="space-y-2">
+              <div className="px-2">
+                <IndicatorPanel active={activeIndicators} onChange={setActiveIndicators} />
+              </div>
+              <TradingChart
+                candles={candles}
+                interval={interval}
+                activeIndicators={activeIndicators}
+                height={480}
+                className="px-2"
+              />
+            </div>
           )}
         </CardContent>
       </Card>
