@@ -1,8 +1,29 @@
 # magicJar QA — 누적 이슈 카탈로그
 
-상태 표기: OPEN / FIXED / WONTFIX / DEFERRED. 같은 이슈는 상태만 업데이트, 중복 추가 금지.
+본 파일은 **인덱스**다. 신 양식 ISSUE-008부터는 디렉토리 양식 (`_workspace/qa/issues/ISSUE-NNN/`).
+legacy 양식 ISSUE-001~007은 본 파일 하단에 단일 본문으로 보존.
+
+- 신규 이슈 채번: `node scripts/qa-run.mjs new --symptom <s> --target <url>`
+- 라이프사이클: OPEN → INVESTIGATING → FIXED (또는 WONTFIX/DEFERRED)
+- 신 양식 가이드: `_workspace/qa/issues/README.md`
+- ADR: 0011 (스크린샷 게이트, 2026-05-01 개정) · 0016 (On-Demand) · 0030 (오케스트레이터=architect)
+
+## 신 양식 인덱스 (ISSUE-008~)
+
+`qa-run.mjs close` / `wontfix` 호출 시 아래 표가 자동 갱신된다.
+
+<!-- AUTO-INDEX:START -->
+
+| ID | 상태 | 증상 | PR |
+|---|---|---|---|
+
+<!-- AUTO-INDEX:END -->
 
 ---
+
+## Legacy 양식 (ISSUE-001~007 — 보존)
+
+> 상태 갱신은 본문 안에서 수동. ISSUE-008부터는 디렉토리 양식.
 
 ## ISSUE-001 (P2): frontend ↔ backend backtest 경로 mismatch
 - **관측**:
