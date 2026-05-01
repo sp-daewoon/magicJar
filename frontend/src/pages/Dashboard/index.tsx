@@ -1,12 +1,15 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import TickChart from '@/components/chart/TickChart'
+import CandleChart from '@/components/chart/CandleChart'
+import type { Candle as ChartCandle } from '@/components/chart/Chart'
 import { useMarketTickStore } from '@/stores/marketTick'
 import { usePositionStore } from '@/stores/position'
 import { useMarketTickStream } from '@/hooks/useMarketTickStream'
 import { useWsConnectionState } from '@/hooks/useWsConnectionState'
 import MarketStatusBadge from '@/components/market/MarketStatusBadge'
+import { instrumentsApi } from '@/api/instruments'
 
 /** 보유 포지션이 없을 때 watch할 default 종목 (대형주 5개) */
 const DEFAULT_WATCHLIST = ['005930', '000660', '035720', '005380', '051910']
@@ -26,7 +29,7 @@ function formatPnlRate(rate: number): string {
 }
 
 export default function DashboardPage() {
-  const { ticks, latestTick } = useMarketTickStore()
+  const { latestTick } = useMarketTickStore()
   const { positions, totalPnl } = usePositionStore()
   const wsState = useWsConnectionState()
 
@@ -37,9 +40,25 @@ export default function DashboardPage() {
   )
   useMarketTickStream(watchCodes)
 
-  // 대표 종목 틱 (첫 번째 보유 종목 또는 watch list 첫 항목)
+  // 대표 종목 (첫 번째 보유 종목 또는 watch list 첫 항목)
   const representativeCode = positions[0]?.code ?? watchCodes[0]
-  const representativeTicks = representativeCode ? (ticks[representativeCode] ?? []) : []
+
+  // 대표 종목 일봉 — 최근 6개월
+  const { data: representativeCandles = [], isLoading: candleLoading } = useQuery({
+    queryKey: ['dashboard-candles', representativeCode],
+    queryFn: () => instrumentsApi.candles(representativeCode, 'DAY'),
+    enabled: !!representativeCode,
+    staleTime: 5 * 60_000,
+  })
+
+  // CandleChart는 number time(epoch second) 또는 'YYYY-MM-DD' 둘 다 받음
+  const chartCandles: ChartCandle[] = representativeCandles.map((c) => ({
+    time: c.time as unknown as number,
+    open: c.open,
+    high: c.high,
+    low: c.low,
+    close: c.close,
+  }))
 
   return (
     <div className="space-y-4">
@@ -152,29 +171,39 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
-      {/* 대표 종목 틱 차트 */}
+      {/* 대표 종목 일봉 차트 */}
       <Card>
         <CardHeader>
-          <CardTitle>
-            대표 종목 틱 차트
+          <CardTitle className="flex items-center justify-between text-base">
+            <span>
+              대표 종목 일봉
+              {representativeCode && (
+                <span className="ml-2 text-sm font-normal text-muted-foreground">
+                  {representativeCode}
+                </span>
+              )}
+            </span>
             {representativeCode && (
-              <span className="ml-2 text-sm font-normal text-muted-foreground">
-                {representativeCode}
-              </span>
+              <Link
+                to={`/symbol/${representativeCode}`}
+                className="text-xs font-normal text-primary hover:underline"
+              >
+                상세 →
+              </Link>
             )}
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0 pb-4">
-          {representativeTicks.length > 0 ? (
-            <TickChart
-              ticks={representativeTicks.map((t) => ({ time: t.timestamp, value: t.price }))}
-              height={300}
-              className="px-4"
-            />
-          ) : (
-            <div className="flex h-64 items-center justify-center px-4 text-sm text-muted-foreground">
-              실시간 틱 메시지 수신 시 자동 표시
+          {candleLoading ? (
+            <div className="flex h-72 items-center justify-center px-4">
+              <div className="h-64 w-full animate-pulse rounded bg-gray-100" />
             </div>
+          ) : chartCandles.length === 0 ? (
+            <div className="flex h-64 items-center justify-center px-4 text-sm text-muted-foreground">
+              일봉 데이터 없음 (백엔드 candle 시드 또는 KIS backfill 필요)
+            </div>
+          ) : (
+            <CandleChart candles={chartCandles} height={300} className="px-4" />
           )}
         </CardContent>
       </Card>

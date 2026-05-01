@@ -2,13 +2,16 @@ magicjar:
   mode: MOCK
   allow-real: false
   market:
+    # ADR 0029: 데이터(시세·뉴스·캔들·공시)는 실 KIS·외부 API 베이스가 표준.
+    # mock 발행기는 "키 부재 시 데모용" — 기본 OFF, 키 미설정 환경에서만 명시 ON으로 사용.
     mock-tick:
-      # KIS WebSocket 연동 전 frontend·strategy 검증용. 실제 시세 흐름이 필요하면 true.
-      # 환경변수 MAGICJAR_MARKET_MOCKTICK_ENABLED=true 로도 토글 가능.
-      enabled: ${MAGICJAR_MARKET_MOCKTICK_ENABLED:true}
+      # KIS WebSocket 어댑터 미구현·KIS 키 부재 시에만 ON.
+      # 환경변수 MAGICJAR_MARKET_MOCKTICK_ENABLED=true 로 명시 활성.
+      enabled: ${MAGICJAR_MARKET_MOCKTICK_ENABLED:false}
       interval-ms: 1000
       volatility-percent: 0.5
     mock-news:
-      # 실 LLM(Anthropic/Gemini) 키 없이 AI 카드 시각 검증용. 30초마다 1건 가짜 분석.
-      enabled: ${MAGICJAR_MARKET_MOCKNEWS_ENABLED:true}
+      # LLM 뉴스 분석은 사용 계획 미확정 (사용자 보류, 2026-05-01).
+      # 실 ANTHROPIC_API_KEY 활성·mock 모두 기본 OFF — 추후 사용 계획 확정 시 재토글.
+      enabled: ${MAGICJAR_MARKET_MOCKNEWS_ENABLED:false}
       interval-ms: 30000
