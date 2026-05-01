@@ -42,9 +42,15 @@ export interface TradeJournalEntry {
   updatedAt: string
 }
 
-/** LWC용 캔들 데이터 (서버 Candle 모델 → 클라이언트 변환) */
+/**
+ * LWC용 캔들 데이터 (서버 CandleResponse → 클라이언트 변환).
+ * - 일봉(D1): time = 'YYYY-MM-DD' 문자열 (LWC BusinessDay)
+ * - 분봉(M1·M5·M15·M30·H1): time = epoch second number (LWC UTCTimestamp)
+ *   Backend Jackson이 String/Long 자동 분기 직렬화. 분봉을 string으로 받으면
+ *   LWC가 BusinessDay로 파싱 시도해 'Invalid date string' 에러 발생.
+ */
 export interface CandleDto {
-  time: string    // 'YYYY-MM-DD' or unix timestamp
+  time: string | number
   open: number
   high: number
   low: number
