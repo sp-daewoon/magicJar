@@ -12,7 +12,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import SymbolDetailPage from './index'
 import { generateMockCandles } from '@/api/instruments'
 import { generateMockJournalEntries } from '@/api/journal'
-import type { QuoteMessage } from '@/api/types'
+import type { TickMessage } from '@/api/types'
 
 // ── STOMP 리스너 레지스트리 (모듈 스코프 공유) ───────────────────────────────
 type MsgHandler = (msg: { body: string }) => void
@@ -109,16 +109,16 @@ describe('SymbolDetail 페이지', () => {
   })
 
   // ── 시나리오 2: LWC 차트 컨테이너 마운트 ─────────────────────────────────
-  it('CandleChart와 VolumeChart 스타일 컨테이너가 DOM에 존재한다', async () => {
+  it('TradingChart 컨테이너가 DOM에 존재한다', async () => {
     const { container } = renderPage('005930')
 
     await waitFor(() => {
       expect(screen.getByText('삼성전자')).toBeInTheDocument()
     })
 
-    // CandleChart(height=320) + VolumeChart(height=90) div[style*="height"]
+    // TradingChart(height=480) div[style*="height"] 1개 이상
     const heightDivs = container.querySelectorAll('div[style*="height"]')
-    expect(heightDivs.length).toBeGreaterThanOrEqual(2)
+    expect(heightDivs.length).toBeGreaterThanOrEqual(1)
   })
 
   // ── 시나리오 3: WebSocket 시세 갱신 ──────────────────────────────────────
@@ -129,18 +129,18 @@ describe('SymbolDetail 페이지', () => {
       expect(screen.getByText('삼성전자')).toBeInTheDocument()
     })
 
-    const quoteMsg: QuoteMessage = {
+    // 백엔드 TickEvent 정합 (토픽: /topic/market.tick.{code})
+    const tickMsg: TickMessage = {
       code: '005930',
+      at: new Date().toISOString(),
       price: 75_000,
-      change: 1_500,
-      changeRate: 2.04,
       volume: 12_000_000,
-      timestamp: Date.now(),
+      source: 'KIS_WS',
     }
 
     act(() => {
-      const handler = _stompListeners.get('/topic/quote/005930')
-      handler?.({ body: JSON.stringify(quoteMsg) })
+      const handler = _stompListeners.get('/topic/market.tick.005930')
+      handler?.({ body: JSON.stringify(tickMsg) })
     })
 
     await waitFor(() => {

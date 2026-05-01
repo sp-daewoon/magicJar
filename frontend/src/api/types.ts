@@ -52,12 +52,27 @@ export interface CandleDto {
   volume: number
 }
 
-/** WebSocket STOMP 실시간 시세 메시지 */
+/**
+ * WebSocket STOMP 실시간 시세 메시지 — 백엔드 TickEvent와 1:1 호환.
+ * 토픽: /topic/market.tick.{code}
+ */
+export interface TickMessage {
+  code: string
+  at: string         // ISO-8601 (백엔드 Instant 직렬화)
+  price: number      // BigDecimal → number (KRW 정수)
+  volume: number     // 누적 또는 체결 단위 (백엔드 source에 따라 의미 상이)
+  source?: string    // KIS_WS, MOCK 등
+}
+
+/**
+ * @deprecated 사용 중지. TickMessage를 사용하라. (토픽 mismatch hotfix 2026-05-01)
+ * change/changeRate 필드는 백엔드 미발행 — 클라이언트가 전일 종가 대비 계산.
+ */
 export interface QuoteMessage {
   code: string
   price: number
-  change: number        // 전일 대비 변동
-  changeRate: number   // 등락률 (%)
+  change: number
+  changeRate: number
   volume: number
-  timestamp: number    // unix ms
+  timestamp: number
 }
