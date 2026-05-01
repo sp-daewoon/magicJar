@@ -3,10 +3,10 @@ id: T-20260501-0958-candles-endpoint
 agent: backend-core
 model: sonnet
 branch: agent/backend-core/candles-endpoint
-status: RUNNING
+status: DONE
 startedAt: 2026-05-01T00:58:19.267Z
-completedAt: null
-pr: null
+completedAt: 2026-05-01T01:03:49.977Z
+pr: #36
 parentPhase: F_R1_DONE_VERIFICATION
 ---
 

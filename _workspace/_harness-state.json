@@ -1,5 +1,5 @@
 {
-  "currentPhase": "F_R1_DONE_VERIFICATION",
+  "currentPhase": "F_R2_D_PARTIAL",
   "phaseHistory": [
     {
       "phase": "0",
@@ -125,10 +125,11 @@
     "Phase E P2 — host docker disk usage 모니터링·정리 가이드 (사용자 환경)",
     "QA-003 P3 (market-data 두 샘플 JSON 형식 차이 README 명시) — Phase B 잔여, 후속",
     "QA-004 P3 (strategy 테이블 JPA 엔티티/포트 부재) — P1에서 _legacy로 백업, Phase E에서 application layer 영구 위치 결정 시 해소",
-    "F-R1-001 (P1): frontend /symbol/:code 라우트 React Router 404 — PR #31 머지됐으나 빌드 산출물에 라우트 등록 누락 의심. 사용자 검증 시 발견(2026-05-01).",
-    "F-R1-002 (P2): api GET /api/instruments/{code}/candles 미구현 — frontend 호출 시 404. CandleRepositoryAdapter는 save만 있음. R2에 GET + JpaCandleRepository 쿼리 + 시드/backfill 추가.",
+    "F-R1-001 (CLOSED 2026-05-01): frontend /symbol/:code 라우트 — 진단 결과 router.tsx:94 정상 등록 + nginx SPA fallback 정상. 사용자가 본 404는 stale Docker 이미지(PR #31 머지 후 frontend 컨테이너 미재빌드). 사용자 재검증 시 'docker compose build frontend && up -d frontend'로 해소.",
+    "F-R1-002 (CLOSED 2026-05-01 PR #36): api GET /api/instruments/{code}/candles 신규 + V7 005930 일봉 ~90 영업일 시드 + CandleQueryService(interval alias) + 4 신규 테스트.",
     "F-R1-003 (P3): sub-agent worktree → 메인 worktree leak — 라운드1 중 untracked 누출, pre-push gradle check 실패 유발. R2 architect 보강 (C안).",
-    "F-R1-004 (P2): 사용자 채팅 KIS 모의 키 평문 노출 — 재발급 보류, 메모리 정책 등록(feedback_secret_handling.md). IP 화이트리스트 등록 권장."
+    "F-R1-004 (P2): 사용자 채팅 KIS 모의 키 평문 노출 — 재발급 보류, 메모리 정책 등록(feedback_secret_handling.md). IP 화이트리스트 등록 권장.",
+    "F-R2-D-VERIFY (USER): docker compose 재빌드 후 localhost:3000/symbol/005930 차트 표시 + curl localhost:8080/api/instruments/005930/candles?interval=DAY 200 확인 — PR #36 머지 후 사용자 trigger."
   ],
   "phaseD": {
     "startedAt": "2026-04-27T18:00:00+09:00",
@@ -247,7 +248,7 @@
     ]
   },
   "retrospective": "_workspace/_retrospective-phase-b.md",
-  "updatedAt": "2026-05-01T00:00:00+09:00",
+  "updatedAt": "2026-05-01T10:11:00+09:00",
   "phaseF": {
     "startedAt": "2026-04-30",
     "round1": {
@@ -308,12 +309,25 @@
     },
     "round2_seq": "모의투자 1종목 1전략 24h 가동 (strategy-engine + market-data) — 라운드 1 완료 + 키 SET 후 트리거",
     "round2": {
-      "status": "PENDING_USER_KEY",
+      "status": "D_MERGED_PENDING_VERIFY",
+      "completed": [
+        {
+          "id": "D",
+          "pr": 36,
+          "mergedAt": "2026-05-01T01:11:32Z",
+          "mainCommit": "e1f23a4",
+          "agent": "backend-core (메인 세션 직접)",
+          "model": "sonnet",
+          "scope": "GET /api/instruments/{code}/candles + CandleQueryService(application) + CandleResponse DTO/매퍼 + V7 Flyway 시드(005930 일봉 ~90 영업일) + 4 신규 테스트(7 PASS). F-R1-001은 진단 결과 코드 OK(stale Docker 이미지 99% 확실) — 사용자 재빌드만 필요.",
+          "frontendChanges": "0 (router.tsx:94 이미 등록 + nginx SPA fallback 정상)",
+          "userVerifyTodo": "docker compose build api frontend && up -d api frontend → localhost:3000/symbol/005930 차트 표시 + curl /api/instruments/005930/candles?interval=DAY 200 + 60~70봉 응답"
+        }
+      ],
       "blockers": {
         "KIS_MOCK_APP_KEY": "사용자 재발급 진행 중 (2026-04-30 채팅 노출 후 폐기)",
         "KIS_MOCK_APP_SECRET": "재발급 진행 중",
         "KIS_ACCOUNT_CANO": "발급 필요",
-        "GEMINI_API_KEY": "보류 — C안 채택 후 사용자 발급 예정"
+        "GEMINI_API_KEY": "보류 — A안 채택 후 사용자 발급 예정"
       },
       "candidates": [
         {
@@ -331,11 +345,6 @@
           "id": "C",
           "agent": "architect",
           "scope": "sub-agent worktree leak 가드 + isolation 보강 (build 명령 권한 + leak 차단)"
-        },
-        {
-          "id": "D",
-          "agent": "frontend + backend-core 협업",
-          "scope": "frontend route 404 hotfix(F-R1-001) + api candles GET 엔드포인트 추가(F-R1-002). 005930 차트 실 데이터 end-to-end. 사용자 가시성 최우선 — R2 1번 권장."
         }
       ]
     }
