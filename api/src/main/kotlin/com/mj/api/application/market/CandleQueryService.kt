@@ -36,11 +36,13 @@ class CandleQueryService(
                     .minusDays(180)
                     .atStartOfDay(zone)
                     .toInstant()
-            Interval.M1 -> to.minus(2, ChronoUnit.HOURS)
-            Interval.M5 -> to.minus(12, ChronoUnit.HOURS)
-            Interval.M15 -> to.minus(2, ChronoUnit.DAYS)
-            Interval.M30 -> to.minus(5, ChronoUnit.DAYS)
-            Interval.H1 -> to.minus(14, ChronoUnit.DAYS)
+            // V8 시드(어제 영업일 09~14시)와 휴일 갭을 고려해 lookback을 충분히 길게.
+            // 클라이언트는 fitContent로 자동 zoom — 데이터가 있는 만큼 보여주면 됨.
+            Interval.M1 -> to.minus(2, ChronoUnit.DAYS)
+            Interval.M5 -> to.minus(7, ChronoUnit.DAYS)
+            Interval.M15 -> to.minus(14, ChronoUnit.DAYS)
+            Interval.M30 -> to.minus(14, ChronoUnit.DAYS)
+            Interval.H1 -> to.minus(30, ChronoUnit.DAYS)
         }
     }
 
