@@ -124,3 +124,31 @@ description: magicJar의 모듈 간 경계면(API↔DB↔UI↔AI 출력) 정합�
 - `issues.md`는 누적 문서. 이미 있는 이슈는 **상태만 업데이트**(open → fixed / wontfix), 중복 추가 금지.
 - 경계 매트릭스는 새 모듈 추가 시 행 추가.
 - Phase 완료 리포트는 파일명에 날짜 포함하여 보존(`report-20260425-1830.md`).
+
+
+## 시나리오 모드 워크플로 (2026-05-01)
+
+ADR 0011 개정 + spec `2026-05-01-qa-defect-loop-design.md` 채택 후. 사용자 보고가 시각·인터랙션 디펙으로 보일 때 (백엔드 500 같은 명시 에러는 비범위 — 로그/curl로 즉시 식별):
+
+1. **architect (= 메인 세션, ADR 0030)** — ADR 베이스로 Playwright Python `.py` 시나리오 작성. ADR 충돌·부자연 시 사용자 한 줄 컨펌.
+2. **QA 에이전트** — `scripts/qa-run.mjs new` → ISSUE-NNN 채번 → `qa-run.mjs scenario --attempt before`로 pyworker 호출.
+3. **사용자** — presigned URL 시각 검토 → "맞다, 진짜 안 보임" → 디펙 확정.
+4. **architect** — 수정 dispatch (frontend/backend-core 등). PR 머지 후 `--attempt after`로 재캡처.
+5. **사용자** — after 캡처 검토 → "이제 보임".
+6. **QA 에이전트** — `qa-run.mjs close --pr <N>` → FIXED + 인덱스 갱신.
+
+### 책임 분리 boundary
+
+| 컴포넌트 | 책임 | 비책임 |
+|---|---|---|
+| architect | 시나리오 작성·디펙 확정·수정 dispatch | 직접 캡처 실행 |
+| QA 에이전트 | 받은 스크립트 실행·결과 분석·카드 작성 | 시나리오 작성·시각 판정 |
+| pyworker | Playwright runner + MinIO + presigned URL | 시나리오 해석 |
+
+### 비범위 (다음 사이클)
+
+- Playwright `expect` 자동 검증
+- 픽셀 diff (Percy/Chromatic)
+- 시나리오 카탈로그 영속
+- 머지 게이트 강제
+- 자동 dispatch (메인 세션 키워드 감지)
