@@ -9,13 +9,14 @@
  *
  * LWC 공식 API만 사용 (ADR 0022 — html2canvas·DOM hack 금지)
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   createChart,
   type IChartApi,
   type ISeriesApi,
   type CandlestickData,
   type HistogramData,
+  type LineData,
   type Time,
   type MouseEventParams,
   type UTCTimestamp,
@@ -23,12 +24,15 @@ import {
 import { cn } from '@/lib/cn'
 import type { CandleDto } from '@/api/types'
 import type { ClientInterval } from '@/lib/candleAggregator'
+import { computeIndicators } from '@/lib/indicators'
 
 interface TradingChartProps {
   candles: CandleDto[]
   interval: ClientInterval
   height?: number
   className?: string
+  /** 활성 보조지표 id 집합 */
+  activeIndicators?: Set<string>
 }
 
 interface HoverInfo {
@@ -84,14 +88,24 @@ export default function TradingChart({
   interval,
   height = 480,
   className,
+  activeIndicators,
 }: TradingChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const rsiContainerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
+  const rsiChartRef = useRef<IChartApi | null>(null)
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null)
+  const indicatorSeriesRef = useRef<Map<string, ISeriesApi<'Line'>>>(new Map())
   const [hover, setHover] = useState<HoverInfo | null>(null)
 
   const intraday = isIntradayInterval(interval)
+  const active = activeIndicators ?? new Set<string>()
+  const showRsi = active.has('RSI-14')
+
+  const indicators = useMemo(() => computeIndicators(candles, active), [candles, active])
+  const mainIndicators = indicators.filter((i) => i.pane === 'main')
+  const rsiIndicator = indicators.find((i) => i.pane === 'rsi')
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -250,9 +264,124 @@ export default function TradingChart({
     }
   }, [candles])
 
+  // 보조지표 시리즈 add/remove/update — main pane
+  useEffect(() => {
+    if (!chartRef.current) return
+    const chart = chartRef.current
+    const seriesMap = indicatorSeriesRef.current
+
+    const toLwcTime = (t: string | number): Time =>
+      typeof t === 'number' ? (t as UTCTimestamp) : (t as Time)
+
+    // 활성 main pane indicator만 처리 (RSI는 별도 chart)
+    const activeMainIds = new Set(mainIndicators.map((i) => i.id))
+
+    // 비활성된 series 제거
+    for (const [id, series] of seriesMap) {
+      if (!activeMainIds.has(id)) {
+        chart.removeSeries(series)
+        seriesMap.delete(id)
+      }
+    }
+
+    // 추가/업데이트
+    for (const ind of mainIndicators) {
+      let series = seriesMap.get(ind.id)
+      if (!series) {
+        series = chart.addLineSeries({
+          color: ind.color,
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        })
+        seriesMap.set(ind.id, series)
+      }
+      const data: LineData[] = ind.data.map((p) => ({
+        time: toLwcTime(p.time),
+        value: p.value,
+      }))
+      series.setData(data)
+    }
+  }, [mainIndicators])
+
+  // RSI 별도 sub-chart
+  useEffect(() => {
+    if (!rsiContainerRef.current) return
+    if (!showRsi) {
+      // RSI 끄면 chart 제거
+      rsiChartRef.current?.remove()
+      rsiChartRef.current = null
+      return
+    }
+
+    const chart = createChart(rsiContainerRef.current, {
+      height: 120,
+      layout: {
+        background: { color: '#ffffff' },
+        textColor: '#374151',
+        fontFamily: 'Pretendard, -apple-system, sans-serif',
+      },
+      grid: {
+        vertLines: { color: '#f3f4f6' },
+        horzLines: { color: '#f3f4f6' },
+      },
+      timeScale: { timeVisible: intraday, secondsVisible: false, borderColor: '#e5e7eb' },
+      rightPriceScale: { borderColor: '#e5e7eb' },
+      crosshair: { mode: 1 },
+    })
+    rsiChartRef.current = chart
+
+    const rsiSeries = chart.addLineSeries({
+      color: '#dc2626',
+      lineWidth: 1,
+      priceLineVisible: false,
+    })
+
+    // 30·70 기준선
+    rsiSeries.createPriceLine({ price: 70, color: '#fbbf24', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '70' })
+    rsiSeries.createPriceLine({ price: 30, color: '#fbbf24', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '30' })
+
+    if (rsiIndicator) {
+      const toLwcTime = (t: string | number): Time =>
+        typeof t === 'number' ? (t as UTCTimestamp) : (t as Time)
+      const data: LineData[] = rsiIndicator.data.map((p) => ({
+        time: toLwcTime(p.time),
+        value: p.value,
+      }))
+      rsiSeries.setData(data)
+    }
+
+    // 메인 차트와 timeScale 동기화 (LWC 공식 subscribeVisibleLogicalRangeChange)
+    const mainChart = chartRef.current
+    if (mainChart) {
+      const sync = (range: { from: number; to: number } | null) => {
+        if (range) chart.timeScale().setVisibleLogicalRange(range)
+      }
+      mainChart.timeScale().subscribeVisibleLogicalRangeChange(sync)
+    }
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (entry) chart.resize(entry.contentRect.width, 120)
+    })
+    observer.observe(rsiContainerRef.current)
+
+    return () => {
+      observer.disconnect()
+      chart.remove()
+      rsiChartRef.current = null
+    }
+  }, [showRsi, rsiIndicator, intraday])
+
   return (
     <div className={cn('relative', className)}>
       <div ref={containerRef} style={{ height }} />
+      {showRsi && (
+        <div className="mt-1 border-t pt-1">
+          <div className="px-2 text-[10px] font-medium text-muted-foreground">RSI 14</div>
+          <div ref={rsiContainerRef} style={{ height: 120 }} />
+        </div>
+      )}
       {hover && (
         <div
           className="pointer-events-none absolute left-3 top-3 rounded-md border border-gray-200 bg-white/95 px-3 py-2 shadow-md backdrop-blur-sm"
