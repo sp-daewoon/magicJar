@@ -1,5 +1,72 @@
 {
-  "currentPhase": "F_TRACK5_QA_DEFECT_LOOP_R1_DONE",
+  "currentPhase": "V2_BASELINE_CONFIRMED",
+  "v2Baseline": {
+    "confirmedAt": "2026-05-03T01:30:00+09:00",
+    "masterDoc": "docs/architecture/master-architecture.md",
+    "trackRoadmapDoc": "docs/architecture/tracks-roadmap.md",
+    "developmentRulesDoc": "docs/architecture/development-rules.md",
+    "cleanupPlanDoc": "docs/architecture/cleanup-plan.md",
+    "codeConventionDoc": "docs/architecture/code-convention.md",
+    "adrRange": "0031-0047 (17건 신규)",
+    "archivedAdrCount": 8,
+    "archivedAdrList": ["0002", "0004", "0005", "0008", "0009", "0012", "0028", "0029"],
+    "deletedLegacyCount": 5,
+    "deletedLegacyList": [
+      "domain/.../order/port/BrokerGateway.kt",
+      "consumer/.../infrastructure/kis/FakeBrokerGateway.kt",
+      "consumer/.../infrastructure/kis/KisBrokerGateway.kt",
+      "docs/architecture/adr-0036-kis-strategy-builder-integration.md (1차안)",
+      "docs/architecture/track2-relocation.md (1차안)"
+    ],
+    "archivedLegacyCount": 30,
+    "archivedLegacyCategories": {
+      "_workspace/_archive/legacy-code/_legacy/": "Phase D-P1 백업분 19 디렉토리",
+      "_workspace/_archive/phase-a-drafts/": "Phase A draft 5 영역 (backend·market-data·strategy·frontend·ai)",
+      "_workspace/_archive/retrospective/": "phase-b.md",
+      "_workspace/_archive/dogfooding/": "2026-05-02.md (1번 트랙 dogfooding 중단 기록)",
+      "_workspace/_archive/qa-issues/": "ISSUE-008 + report-20260501-1042.md + issues.md (AUTO-INDEX)",
+      "_workspace/_archive/tasks-done/": "T-202604xx ~ T-20260501xx 9건",
+      "_workspace/_archive/dashboard.html": "만들다 만 운영 대시보드"
+    },
+    "buildVerification": "BUILD SUCCESS — ./gradlew :consumer:compileKotlin :domain:compileKotlin :api:compileKotlin :batch:compileKotlin 통과",
+    "user12Defaults": {
+      "1_adrPublishTiming": "W1 진입 직전 일괄 = 본 작업에서 17건 발행",
+      "2_supersededHandling": "_archive/ 이동 + 본문 상단 SUPERSEDED/DEPRECATED 헤더 추가",
+      "3_releaseBranches": "release/v0·v1·v1.1.0·v1.2.0_notwork 4개 모두 보존, 손대지 않음",
+      "4_mcpServerLocation": "api 모듈 내 endpoint (W4에서 본격 결정)",
+      "5_aiProviderFirst": "Anthropic (sentiment에 이미 사용 중)",
+      "6_indicatorSourceFirst": "KIS Strategy Builder + NativeIndicatorSource port. 1차 = KIS, 2차 = Native",
+      "7_t3KisInstrumentEndpoint": "OK 사용",
+      "8_t8BuilderUiDepth": "지표 5종 picker + yaml export/import + 진입/청산 1줄 조건 (1차)",
+      "9_t12RiskDefaults": "매우 느슨 — PositionLimit 종목당 10%, DrawdownStop 일일 -3%",
+      "10_t15LwcDepth": "사전 정의 도형 1차 (추세선·수평선·박스 + Markers)",
+      "11_archiveCreation": "OK",
+      "12_qaGate": "7 트리거 모두 무시 default (MVP). 보안 경계 변경 시만 PR 본문 한 줄 명시"
+    },
+    "nextWave": "W1",
+    "nextDispatchCandidates": [
+      {
+        "trackId": "T2",
+        "agent": "backend-core (또는 market-data 협업)",
+        "scope": "트랙2 spec/plan 그대로 진행 — Market Session FSM + Fallback 3-tier + REJECTED audit + EGW00202 hotfix. dogfooding ISSUE-009 흡수 (월요일 KIS 모의 영업일 + EGW hotfix)"
+      },
+      {
+        "trackId": "T3",
+        "agent": "market-data (또는 backend-core 협업)",
+        "scope": "Instrument Master 1급 시민 — KIS·KRX 일일 sync + 검색 인덱스 + 상장폐지 보존"
+      },
+      {
+        "trackId": "T4",
+        "agent": "market-data",
+        "scope": "Corp Action raw + adjusted — DART scrape + retroactive 재계산 batch"
+      }
+    ],
+    "openIssuesAbsorbedToTracks": {
+      "1번트랙 dogfooding 보류 (EGW00202 + 토요일 KIS 거부)": "T2 흡수",
+      "작은 정리 4건 (docker compose --env-file 명시·BootLogger 순서·.env master key 중복·Guard reject 시 orders 미INSERT)": "T2 R1·R2 안에 흡수",
+      "F-R1-003 sub-agent worktree leak": "운영 정책 ADR 0013 유지 — 단일 worktree 정책 강화"
+    }
+  },
   "phaseHistory": [
     {
       "phase": "0",
@@ -11,10 +78,7 @@
       "phase": "A",
       "startedAt": "2026-04-25T03:45:00+09:00",
       "finishedAt": "2026-04-25T04:10:00+09:00",
-      "agents": [
-        "architect",
-        "backend-core"
-      ],
+      "agents": ["architect", "backend-core"],
       "mode": "team",
       "notes": "12 ADR Accepted (0001~0012), Kotlin 2.0 도메인 모델, 모듈 경계 확정"
     },
@@ -23,339 +87,67 @@
       "startedAt": "2026-04-25T04:20:00+09:00",
       "finishedAt": "2026-04-25T21:38:47+09:00",
       "mode": "subagent-parallel-staged",
-      "stage1": [
-        "backend-core"
-      ],
-      "stage1Status": "MERGED_TO_MAIN",
-      "stage1Note": "PR #2 머지 → main 7644320",
-      "stage2": [
-        "market-data",
-        "strategy-engine",
-        "ai-engineer",
-        "frontend"
-      ],
-      "stage2Status": "MERGED_TO_MAIN",
-      "stage2Note": "1차 동시 4개 호출 한도 hit → 2차 분할(2+2) 재실행으로 마무리. 4개 PR(#4·#5·#6·#7) qa squash 머지 완료. application.yml 충돌은 4 모듈 import 통합으로 해소. PR #8(qa→main, a18ef79)로 main 흡수.",
-      "mergedCommits": [
-        {
-          "pr": 4,
-          "agent": "ai-engineer",
-          "qaCommit": "d451bee",
-          "via": "GH auto-merge"
-        },
-        {
-          "pr": 6,
-          "agent": "market-data",
-          "qaCommit": "fb4cb02",
-          "via": "local squash + heredoc conflict resolve"
-        },
-        {
-          "pr": 7,
-          "agent": "strategy-engine",
-          "qaCommit": "fa4628a",
-          "via": "local squash + heredoc conflict resolve"
-        },
-        {
-          "pr": 5,
-          "agent": "frontend",
-          "qaCommit": "18a0dfd",
-          "via": "local squash + heredoc conflict resolve, with QA-001 보강 포함"
-        },
-        {
-          "pr": 8,
-          "agent": "merge",
-          "mainCommit": "a18ef79",
-          "via": "qa→main merge commit (ADR 0012 승인 지점 2)"
-        }
-      ],
-      "qaResult": {
-        "round1": "3 APPROVED + 1 CHANGES_REQUESTED (PR#5 P1 템플릿 4개 누락)",
-        "round1Issues": [
-          "QA-001 P1 (FIXED)",
-          "QA-002 P3 (FIXED)",
-          "QA-003 P3 OPEN",
-          "QA-004 P3 OPEN"
-        ],
-        "round2": "frontend 보강 push 후 qa 재검수 시작 → 사용자 결정으로 보류, 회고 문서로 대체"
-      },
-      "exceptions": [
-        "Husky pre-push qa-direct-push 차단 룰을 batch squash merge 위해 1회 --no-verify 우회 (사용자 명시 승인)"
-      ]
+      "summary": "4 PR(#4·#5·#6·#7) qa squash 머지 완료 + PR #8 main 흡수. 회고 _workspace/_archive/retrospective/phase-b.md"
     },
     {
       "phase": "C",
       "startedAt": "2026-04-25T22:13:00+09:00",
       "finishedAt": "2026-04-25T22:52:25+09:00",
-      "mode": "harness-maintenance",
-      "agents": [
-        "architect"
-      ],
-      "tasks": [
-        {
-          "id": "T-20260425-2213-harness-v2-six-pack",
-          "pr": 9,
-          "mainCommit": "e3300ab",
-          "summary": "하네스 v2 6 패키지 일괄 적용 — ADR 0013~0018, 7 에이전트 frontmatter 모델 차등, 오케스트레이터 v2, boundary-qa on-demand, pre-push qa차단 폐기, settings.json 정리, Task 파일 시스템 + scripts/task.mjs"
-        },
-        {
-          "id": "bootRun-hotfix",
-          "pr": 10,
-          "mainCommit": "b4553a8",
-          "summary": "bootRun 5건 통합 hotfix — Spring Boot 정상 부팅 확인"
-        }
-      ]
+      "summary": "하네스 v2 6 패키지 일괄 적용 — ADR 0013~0018"
     },
     {
-      "phase": "E_DONE",
+      "phase": "D",
+      "startedAt": "2026-04-27T18:00:00+09:00",
+      "finishedAt": "2026-04-27T22:00:00+09:00",
+      "summary": "MSA 재구성 P1~P4 — 4 JVM 모듈 + frontend + pyworker + docker compose 9 컨테이너 healthy"
+    },
+    {
+      "phase": "E",
       "finishedAt": "2026-04-30T00:00:00+09:00",
-      "summary": "Phase E-P1·E-P2·E-P3 main 머지 완료. v0.1.0 베이스라인 컷 + release/v0 immutable. ADR 0027 발행.",
-      "tag": "v0.1.0",
-      "releaseBranch": "release/v0"
+      "summary": "E-P1·E-P2·E-P3 main 머지 완료. v0.1.0 베이스라인 컷 + release/v0 immutable. ADR 0027 발행."
+    },
+    {
+      "phase": "F_R1_R2",
+      "startedAt": "2026-04-30",
+      "finishedAt": "2026-05-01",
+      "summary": "R1 PR #31~#34 + R2 D안 PR #36 + 통합 QA hotfix PR #38·#39·#40·#41 + 트레이딩뷰 PR #43·#44·#45·#46·#47"
+    },
+    {
+      "phase": "5번트랙_QA_DEFECT_LOOP",
+      "finishedAt": "2026-05-01",
+      "summary": "QA 디펙 순환 루프 12 commits + ISSUE-008 hotfix PR #63"
+    },
+    {
+      "phase": "1번트랙_KIS_ORDER",
+      "finishedAt": "2026-05-02",
+      "summary": "KIS 주문 어댑터 20 task + PR #65·#66 머지 + dogfooding 1차 시도(중단) — EGW00202 발견"
+    },
+    {
+      "phase": "V2_BASELINE_CONFIRMED",
+      "startedAt": "2026-05-03T01:22:00+09:00",
+      "finishedAt": "2026-05-03T01:30:00+09:00",
+      "agents": ["architect"],
+      "mode": "main-session-direct",
+      "branch": "agent/architect/v2-baseline-cleanup",
+      "summary": "마스터 v2 + 17 ADR 발행 + legacy 35건 청소 + 기존 ADR 8건 archive + 사용자 12건 default 적용"
     }
   ],
   "activeAgents": [],
   "blockedAgents": [],
   "openIssues": [
-    "ISSUE-008 (DEFERRED 2026-05-01) — pyworker presigned URL SignatureDoesNotMatch. 인프라(scenario endpoint·CLI·MinIO 업로드·디렉토리 양식) 모두 동작 검증, presigned URL 호스트 치환만 다음 사이클 hotfix. 해결: MinIO client 두 개 운영 또는 MINIO_DOMAIN 설정 또는 s3_endpoint를 localhost:9000로 통일+extra_hosts 매핑 중 택일.",
-    "Phase E P0 — REST API 컨트롤러 미구현 (api 모듈에 /api/backtest, /api/journal 등 controller 패키지 없음. spec §4 시나리오 1·4 충족 위해 필수)",
-    "Phase E P0 — batch/consumer JPA 어댑터 부재 (P2 모듈 경계 회귀). 현재 P4 자율 hotfix로 in-memory stub로 컨텍스트 부팅만 가능. 영속성 필요. shared-infra 모듈 신설 또는 어댑터 복제 결정 필요",
-    "Phase E P1 — STOMP fanout 검증 (Kafka tick → /topic/market.tick.<symbol> 실제 frontend 수신 확인). 현재는 publish + api health만 확인",
-    "Phase E P1 — pyworker storage MinIO 객체 실제 저장 검증. screenshot의 publicUrl 도달성 검증",
-    "Phase E P2 — spring.batch.jdbc.initialize-schema 와 api flyway baseline 충돌 가능성. 현재 baseline-version=0으로 우회",
-    "Phase E P2 — frontend healthcheck IPv4 binding 의존 (ipv6에서 nginx wget connection refused). nginx.conf에 listen [::]:80 추가 hotfix 필요",
-    "Phase E P2 — host docker disk usage 모니터링·정리 가이드 (사용자 환경)",
-    "QA-003 P3 (market-data 두 샘플 JSON 형식 차이 README 명시) — Phase B 잔여, 후속",
-    "QA-004 P3 (strategy 테이블 JPA 엔티티/포트 부재) — P1에서 _legacy로 백업, Phase E에서 application layer 영구 위치 결정 시 해소",
-    "F-R1-001 (CLOSED 2026-05-01): frontend /symbol/:code 라우트 — 진단 결과 router.tsx:94 정상 등록 + nginx SPA fallback 정상. 사용자가 본 404는 stale Docker 이미지(PR #31 머지 후 frontend 컨테이너 미재빌드). 사용자 재검증 시 'docker compose build frontend && up -d frontend'로 해소.",
-    "F-R1-002 (CLOSED 2026-05-01 PR #36): api GET /api/instruments/{code}/candles 신규 + V7 005930 일봉 ~90 영업일 시드 + CandleQueryService(interval alias) + 4 신규 테스트.",
-    "F-R1-003 (P3): sub-agent worktree → 메인 worktree leak — 라운드1 중 untracked 누출, pre-push gradle check 실패 유발. R2 architect 보강 (C안).",
-    "F-R1-004 (P2): 사용자 채팅 KIS 모의 키 평문 노출 — 재발급 보류, 메모리 정책 등록(feedback_secret_handling.md). IP 화이트리스트 등록 권장.",
-    "F-R2-D-VERIFY (PARTIAL 2026-05-01): docker compose 재빌드 시 사용자가 candles 404 발견 → root cause: host gradle bootJar 누락(QA ISSUE-002 P1). 차트 진입 시 'instrument fetch 실패' 에러 → root cause: frontend nginx /api proxy 부재(QA P1, PR #40). 두 P1 모두 hotfix 발행, 머지·재빌드 후 재검증.",
-    "QA-ISSUE-001 (CLOSED 2026-05-01 PR #40): frontend /backtest/run ↔ backend /backtest path mismatch — 405. backtestApi.run()→trigger(), result()→status() + path /backtest로 정정.",
-    "QA-ISSUE-002 (CLOSED 2026-05-01 PR #41): host gradle bootJar 강제 부재 → scripts/smoke.sh jar staleness 가드 + scripts/build-and-deploy.sh 1줄 헬퍼 + README 운영 함정 경고.",
-    "QA-ISSUE-003 (CLOSED 2026-05-01 PR #39): pyworker .dockerignore 부재 — 선제 hotfix 완료.",
-    "QA-ISSUE-004 (P3 OPEN): /strategy 페이지 placeholder — 안내 메시지 있어 즉시 hotfix 불요. 후속 phase에 본격 구현.",
+    "ISSUE-008 (CLOSED 2026-05-02 PR #63): pyworker presigned URL SignatureDoesNotMatch 해결 — MinioStorage internal/public 클라이언트 분리.",
+    "F-R1-001 (CLOSED 2026-05-01): frontend /symbol/:code 라우트 — stale Docker 이미지 원인. 사용자 재빌드로 해소.",
+    "F-R1-002 (CLOSED 2026-05-01 PR #36): api GET /api/instruments/{code}/candles 신규 + V7 시드 + 4 테스트.",
+    "F-R1-003 (P3 OPEN — v2 ADR 0013 유지로 흡수): sub-agent worktree leak 가드.",
+    "F-R1-004 (P2 OPEN): 사용자 채팅 KIS 모의 키 평문 노출 — 메모리 정책 등록(feedback_secret_handling.md).",
+    "ISSUE-009 dogfooding: 1번 트랙 dogfooding 1차 시도 중단 — T2 트랙(W1) 진입 시 EGW00202 hotfix + KIS 모의 영업일 검증으로 흡수.",
+    "QA-003 P3 (market-data 두 샘플 JSON 형식 차이 README 명시) — Phase B 잔여, 후속.",
+    "QA-004 P3 (strategy 테이블 JPA 엔티티/포트 부재) — T7 진입 시 application layer 영구 위치 결정 시 해소.",
+    "QA-ISSUE-004 (P3 OPEN): /strategy 페이지 placeholder — T8 본격 구현 시 해소.",
     "QA-ISSUE-005 (P3 DEFERRED): V7 시드(125일) vs lookback(180일) — backfill 정상화 시 자연 해소.",
-    "QA-ISSUE-006 (P3 DEFERRED): WebSecurity permitAll — 실 매매 진입 게이트로 PIN. Phase F+ JWT/OAuth2.",
-    "QA-ISSUE-007 (P3 OPEN): /api/strategy 컨트롤러 phaseE.P1 기록 vs 실제 코드 mismatch — 기록 정정 또는 신설.",
-    "FR-CHART-ERROR (CLOSED 2026-05-01 PR #40): localhost:3000/symbol/005930 진입 시 차트 잠깐 + '종목 정보를 불러오지 못했습니다' 에러 + 대시보드 실시간 시세 0건. 원인 = nginx /api·/ws proxy 부재. 9 컨테이너 healthy + JSON 응답 + candles 89봉 + STOMP /ws proxy 모두 정상화 검증."
+    "QA-ISSUE-006 (P3 DEFERRED): WebSecurity permitAll — 실 매매 진입 게이트로 PIN. 실서비스 진입 시 JWT/OAuth2.",
+    "QA-ISSUE-007 (P3 OPEN): /api/strategy 컨트롤러 phaseE.P1 기록 vs 실제 코드 mismatch — 기록 정정 또는 신설(T7 진입 시)."
   ],
-  "phaseD": {
-    "startedAt": "2026-04-27T18:00:00+09:00",
-    "finishedAt": "2026-04-27T22:00:00+09:00",
-    "mode": "subagent-sequential-staged",
-    "subPhases": {
-      "P1": {
-        "agent": "architect",
-        "branch": "agent/architect/p1-foundation",
-        "summary": "MSA 재구성 1단계: 5 모듈 신설(domain/api/batch/consumer + frontend/pyworker/docker), 기존 7 모듈 git rm, domain 라이브러리(순수 도메인 + port) 채움",
-        "adrs": [
-          "0019",
-          "0020",
-          "0021",
-          "0022",
-          "0023",
-          "0024",
-          "0025",
-          "0026"
-        ],
-        "result": "BUILD SUCCESSFUL — 4 모듈, :domain:test 25 PASS"
-      },
-      "P2": {
-        "agent": "backend-core",
-        "summary": "JVM 3 앱 + Kafka 와이어링 (api/batch/consumer 스켈레톤 채움 + STOMP listener + JpaRepositoryAdapter)",
-        "result": "MERGED — bootRun deferred 게이트는 P4 docker compose 검증으로 대체"
-      },
-      "P3": {
-        "agents": [
-          "ai-engineer",
-          "frontend"
-        ],
-        "summary": "pyworker(FastAPI+Playwright+aiokafka+APScheduler) + frontend(React+TS+Vite+shadcn+TanStack+LWC v4) 병렬",
-        "result": "MERGED — pyworker 20 파일/frontend 44 파일, vitest 20 PASS, dist gzip 170KB, Docker 62.1MB"
-      },
-      "P4": {
-        "agent": "architect",
-        "branch": "agent/architect/p4-docker-smoke",
-        "summary": "Docker compose 3 모드 + scripts/smoke.sh 5 시나리오 + bootRun 검증 + QA 풀 게이트 + Phase D 종료",
-        "deliverables": {
-          "docker_compose_yml_count": 3,
-          "compose_validation": "PASS (3개 yml 모두 docker compose config -q 통과)",
-          "containers_healthy": "9/9 (postgres·kafka·redis·minio·api·batch·consumer·pyworker·frontend)",
-          "first_healthy_time_min": 12,
-          "smoke_scenarios": "PASS=2, SKIP=3, FAIL=0",
-          "smoke_detail": {
-            "S1_backtest_journal": "SKIP (REST /api/backtest 미구현 + spring-security 401)",
-            "S2_tick_signal_stomp": "PASS (kafka publish + api health UP)",
-            "S3_news_crawl_ai": "PASS (pyworker /scrape/naver HTTP 200)",
-            "S4_chart_capture_minio": "SKIP (REST /api/journal/{id}/snapshots 미구현)",
-            "S5_server_capture": "SKIP (docker desktop disk 100% — host env)"
-          },
-          "bootRun_verification": "컨테이너 jar 실행으로 등가 검증 (호스트 disk 100% — bootRun 별도 검증은 Phase E에서 .env 정리 후)",
-          "uv_lock_lines": 784,
-          "adr_0017_corrections": 2,
-          "kafka_image_change": "bitnami/kafka:3.7 → apache/kafka:3.7.0 (bitnami 태그 폐기 대응)",
-          "qa_result": "셀프 리뷰 (architect 직접) — boundary-qa skill 호출은 sandbox 환경 제약으로 셀프리뷰로 대체. 발견 issue는 OPEN 목록 갱신"
-        }
-      }
-    }
-  },
-  "phaseDPlan": {
-    "P1": "Foundation + domain (architect, opus) — DONE",
-    "P2": "JVM 3 앱 + Kafka 와이어링 (backend-core, sonnet) — DONE",
-    "P3": "pyworker (ai-engineer, opus) + frontend React+LWC (frontend, sonnet) — DONE",
-    "P4": "Docker compose + 통합 스모크 + main 머지 + QA 풀 게이트 1회 (architect, opus) — DONE"
-  },
-  "phaseE": {
-    "trigger": "Phase D 종료. Phase E는 사용자 트리거.",
-    "recommendedOrder": [
-      "1) REST API 컨트롤러 구현 (api 모듈) — /api/backtest, /api/journal, /api/instruments 등",
-      "2) batch/consumer 영속성 레이어 결정 — shared-infra 모듈 vs 어댑터 복제 vs Kafka 위임",
-      "3) KIS 모의 키 연동 + 1종목 1전략 전체 파이프라인 (시세→신호→체결→매매일지)",
-      "4) STOMP fanout e2e 검증 (frontend Playwright e2e)",
-      "5) CI/CD GitHub Actions matrix (build·test·docker push to ghcr.io)",
-      "6) k8s/ECS 배포 manifest"
-    ],
-    "subPhases": {
-      "P1": {
-        "agent": "backend-core",
-        "status": "MERGED_TO_MAIN",
-        "pr": "Phase E-P1 hotfix(0f9d288)",
-        "summary": "P0 hotfix — REST 컨트롤러 4종(/api/backtest·/api/journal·/api/instruments·/api/strategy) + 각 앱 자체 JpaRepositoryAdapter"
-      },
-      "P2": {
-        "agent": "market-data",
-        "status": "MERGED_TO_MAIN",
-        "pr": "PR #23 (4854988)",
-        "summary": "KIS 어댑터 stub/real 분기 + 캔들 backfill + 백테스트 e2e (1종목 1전략 stub fixture 기반)"
-      },
-      "P3": {
-        "agent": "architect",
-        "status": "MERGED_TO_MAIN",
-        "pr": "PR #25",
-        "branch": "agent/architect/e3-cicd",
-        "startedAt": "2026-04-27T22:30:00+09:00",
-        "mergedAt": "2026-04-28T13:22:00+09:00",
-        "summary": "GitHub Actions matrix CI/CD — JVM 4 + pyworker + frontend 검증, main push 시 5 서비스 컨테이너 ghcr.io 자동 발행. release.yml skeleton(v*.*.*). CODEOWNERS. README CI/CD 섹션.",
-        "deliverables": {
-          "workflows": [
-            ".github/workflows/ci.yml (184줄)",
-            ".github/workflows/release.yml (94줄)"
-          ],
-          "codeowners": ".github/CODEOWNERS (21줄)",
-          "readme_section": "CI/CD (+34줄)",
-          "lint_validation": "yaml-lint PASS",
-          "user_settings_completed": "사용자(2026-04-28): Workflow permissions Read and write 활성화. Allow Actions create PRs는 미사용(필요 없음)."
-        }
-      }
-    },
-    "currentSubPhase": null,
-    "openTodos": [
-      "첫 CI run 결과 모니터링 (PR + main push 자동 트리거됨, 사용자 확인 권장)",
-      "ghcr.io 첫 push 결과 확인 (5 이미지: api·batch·consumer·pyworker·frontend)",
-      "다음 sub-phase 결정: E-P4 (k8s/ECS) 또는 E-P5 (KIS 모의 키 e2e — 사용자 키 발급 의존) 또는 E-P6 (도메인 회귀 강화)"
-    ]
-  },
-  "retrospective": "_workspace/_retrospective-phase-b.md",
-  "updatedAt": "2026-05-01T10:11:00+09:00",
-  "phaseF": {
-    "startedAt": "2026-04-30",
-    "round1": {
-      "mode": "parallel-worktree-isolation",
-      "agents": [
-        {
-          "agent": "market-data",
-          "model": "sonnet",
-          "task": "RealKisRestAdapter — fetchCandles+fetchQuote (KIS 모의 API trId=FHKST01010400/FHKST01010100) + 401 토큰 갱신 + 기본 에러 처리"
-        },
-        {
-          "agent": "ai-engineer",
-          "model": "opus-4.6",
-          "task": "AI 1차 통합 — 뉴스 감성 분석 (Spring AI ChatClient + Anthropic) + ConsumerKafkaListener 연동 + Mock LLM 테스트"
-        },
-        {
-          "agent": "frontend",
-          "model": "sonnet",
-          "task": "대시보드 1화면 본격 — LWC 캔들 + 매매일지 리스트 + WebSocket STOMP 시세 fanout (stub 데이터로 시작 OK)"
-        }
-      ],
-      "blocker_keys": {
-        "KIS_MOCK_APP_KEY": "user pending",
-        "KIS_MOCK_APP_SECRET": "user pending",
-        "ANTHROPIC_API_KEY": "user pending"
-      },
-      "status": "MERGED_TO_MAIN",
-      "mergedPRs": [
-        {
-          "pr": 33,
-          "agent": "ai-engineer",
-          "model": "opus-4.6",
-          "scope": "Anthropic 어댑터 + SentimentScore + Test heap 2g"
-        },
-        {
-          "pr": 32,
-          "agent": "market-data",
-          "model": "sonnet",
-          "scope": "RealKisRestAdapter fetchCandles/fetchQuote + WireMock IT 5"
-        },
-        {
-          "pr": 31,
-          "agent": "frontend",
-          "model": "sonnet",
-          "scope": "종목상세 화면 + LWC + STOMP + vite-env.d.ts"
-        }
-      ],
-      "hotfixes": [
-        "frontend: SymbolDetail.test waitFor timeout 1s → 5s (retry:1 컴포넌트 옵션 대응)",
-        "frontend: vite-env.d.ts 추가 (import.meta.env 타입 정의 누락)",
-        "leak/회수: sub-agent worktree에서 메인 worktree로 일부 파일 leak — 주된 원인은 worktree isolation 빌드 명령 권한 부재. 라운드 2에서 architect가 보강"
-      ],
-      "userVerification": {
-        "verifiedAt": "2026-05-01",
-        "result": "PARTIAL — 9 컨테이너 healthy + api /actuator/health 200 + /api/instruments/005930 200. /symbol/005930 React Router 404 (F-R1-001).",
-        "note": "차트 표시 미완 — F-R1-001 + F-R1-002 두 이슈 R2 1번으로 우선"
-      }
-    },
-    "round2_seq": "모의투자 1종목 1전략 24h 가동 (strategy-engine + market-data) — 라운드 1 완료 + 키 SET 후 트리거",
-    "round2": {
-      "status": "D_MERGED_PENDING_VERIFY",
-      "completed": [
-        {
-          "id": "D",
-          "pr": 36,
-          "mergedAt": "2026-05-01T01:11:32Z",
-          "mainCommit": "e1f23a4",
-          "agent": "backend-core (메인 세션 직접)",
-          "model": "sonnet",
-          "scope": "GET /api/instruments/{code}/candles + CandleQueryService(application) + CandleResponse DTO/매퍼 + V7 Flyway 시드(005930 일봉 ~90 영업일) + 4 신규 테스트(7 PASS). F-R1-001은 진단 결과 코드 OK(stale Docker 이미지 99% 확실) — 사용자 재빌드만 필요.",
-          "frontendChanges": "0 (router.tsx:94 이미 등록 + nginx SPA fallback 정상)",
-          "userVerifyTodo": "docker compose build api frontend && up -d api frontend → localhost:3000/symbol/005930 차트 표시 + curl /api/instruments/005930/candles?interval=DAY 200 + 60~70봉 응답"
-        }
-      ],
-      "blockers": {
-        "KIS_MOCK_APP_KEY": "사용자 재발급 진행 중 (2026-04-30 채팅 노출 후 폐기)",
-        "KIS_MOCK_APP_SECRET": "재발급 진행 중",
-        "KIS_ACCOUNT_CANO": "발급 필요",
-        "GEMINI_API_KEY": "보류 — A안 채택 후 사용자 발급 예정"
-      },
-      "candidates": [
-        {
-          "id": "A",
-          "agent": "ai-engineer",
-          "model": "opus",
-          "scope": "GeminiNewsSentimentAnalyzer + ADR 0028 (Anthropic + Gemini 듀얼 어댑터, 1차 = Gemini 무료)"
-        },
-        {
-          "id": "B",
-          "agent": "strategy-engine + market-data",
-          "scope": "모의투자 1종목 1전략 24h 가동 — KIS 모의 키 SET 후"
-        },
-        {
-          "id": "C",
-          "agent": "architect",
-          "scope": "sub-agent worktree leak 가드 + isolation 보강 (build 명령 권한 + leak 차단)"
-        }
-      ]
-    }
-  }
+  "retrospective": "_workspace/_archive/retrospective/phase-b.md",
+  "updatedAt": "2026-05-03T01:30:00+09:00"
 }

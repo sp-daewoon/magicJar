@@ -9,18 +9,21 @@ Spring Boot 3.x + Spring AI + 한국투자증권 KIS OpenAPI 기반. **백테스
 **Phase D 완료** (MSA 토대) + **Phase E-P1·E-P2·E-P3 완료** (REST 5종 + KIS stub/real 분기 + e2e backtest + GitHub Actions CI/CD).
 spec `docs/superpowers/specs/2026-04-27-msa-restructure-design.md` + plans `docs/superpowers/plans/` + ADR 0019~0027 발행 완료.
 
-## 베이스라인 (ADR 0027·0028)
+## 베이스라인 (ADR 0027·0028 + v2 마스터)
 
 | 베이스라인 | 태그 | 보존 브랜치 | 시점 | 단계 |
 |-----------|------|------------|------|------|
 | v0 (껍데기) | `v0.1.0` | `release/v0` (immutable) | 2026-04-30 | MSA + CI/CD 골격 |
 | v1 (데모 가시성) | `v1.0.1` | `release/v1` (immutable) | 2026-05-01 | 트레이딩뷰·시세·차트·AI 카드 mock 흐름 |
+| v1.1 | (태그) | `release/v1.1.0` (immutable) | 2026-05-01 | 1번 트랙 KIS 주문 어댑터 직전 |
+| v1.2_notwork | (태그) | `release/v1.2.0_notwork` (immutable) | 2026-05-02 | 1번 트랙 dogfooding 중단 시점 |
+| **v2 (베이스라인 확정 — 룰 본체 + AI 옵션 + MCP 미래)** | (W3 종료 후 컷 예정) | (`release/v2.0.0` 후보) | 2026-05-03 | v2 마스터 아키텍처 + ADR 0031~0047 17건 발행 |
 
 - 살 붙이기·버그 수정은 **main 트렁크에서** 진행 (ADR 0015 단일 머지 흐름 유지)
 - 기존 `release/v*` update·delete 금지 — pre-push hook 차단 (ADR 0028로 신규 ref 생성은 허용)
-- 다음 안정판 컷 시 `vX.Y.0` 태그 + `release/vX.Y` 신설, 직전 release 브랜치는 그대로 보존
-- 시점 코드 보고 싶을 때: `git checkout v1.0.1` 또는 `git checkout release/v1`
-- 다음 베이스라인 후보: **v2.0.0** — KIS 모의 키 적용 + 1종목 1전략 24h 가동 검증 직후
+- v2 마스터는 `docs/architecture/master-architecture.md` 단일 진실원 (ADR 0047)
+- 다음 안정판 컷: W1·W2·W3 종료 후 `v2.0.0` + `release/v2.0` 신설 예정
+- 시점 코드 체크아웃: `git checkout v1.0.1` 또는 `git checkout release/v1`
 
 ## 모듈 구조
 

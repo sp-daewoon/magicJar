@@ -20,7 +20,7 @@ import java.time.Instant
  * - dev/prd profile: KisOrderSender → Guard chain + KisOrderPort + 영속 + PENDING publish
  *   체결은 별도 흐름(KisExecutionNoticeListener·OrderExecutionSweep, T15)에서 추가 publish
  *
- * BrokerGateway는 deprecate. KisBrokerGateway·FakeBrokerGateway 빈은 호출처 0이나 일단 잔존.
+ * BrokerGateway 폐기 완료 (2026-05-03 v2 베이스라인) — KisBrokerGateway·FakeBrokerGateway 빈 모두 git rm.
  */
 @Component
 class OrderDispatcherListener(

@@ -1,6 +1,8 @@
 # ADR 0029: 데이터는 실 KIS·외부 API 베이스 — Dev/Prd 분리는 OrderSender만
 
-- 상태: Accepted
+> **STATUS: SUPERSEDED by ADR 0033 + 0046 (2026-05-03 v2 베이스라인)** — 1차안의 "AI 직접 매매" 가정에 데이터 정책 부분이 묶여있었음. v2에서 데이터 fallback 3-tier(0033) + AI 옵션 보조(0046)로 분리. `MAGICJAR_AI_OPTION_ENABLED=false` default + Mock 발행기는 mock profile 한정 활성, dev/prd는 실 KIS·외부 API 베이스 유지(이 부분은 정합). 본 ADR은 참조용 보존.
+
+- 상태: Superseded by 0033 · 0046
 - 작성일: 2026-05-01
 - 결정자: architect (사용자 직접 명시)
 - 관계: ADR 0006(이중 게이트 mode), ADR 0028(v1.0.1 베이스라인)

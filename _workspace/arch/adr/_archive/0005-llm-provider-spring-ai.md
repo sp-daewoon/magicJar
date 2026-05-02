@@ -1,6 +1,8 @@
 # ADR 0005: LLM 공급자와 Spring AI 추상화
 
-- 상태: Accepted
+> **STATUS: DEPRECATED — 사유**: 1차안이 "AI 본체 결정권" 가정 (Anthropic + Ollama 폴백, 매매 의사결정 흐름의 노드). 사용자 비전 정정(2026-05-02)으로 v2에서는 ADR 0046 "AI 옵션 보조 (사용자 트리거 한정)"로 교체됨. AI 매매 결정권 0, 사용자 클릭 시 코멘트만. (2026-05-03)
+
+- 상태: Deprecated by 0046
 - 작성일: 2026-04-25
 - 결정자: architect (협의: ai-engineer)
 
