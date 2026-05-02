@@ -40,7 +40,7 @@ import java.time.format.DateTimeFormatter
  * @see StubKisRestAdapter stub-kis 프로파일 어댑터 (키 없이 동작, CI 기본)
  */
 @Component
-@Profile("real-kis")
+@Profile("dev | prd")
 class RealKisRestAdapter(
     private val props: KisRestProperties,
 ) : KisRestPort {

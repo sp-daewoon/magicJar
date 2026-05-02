@@ -26,7 +26,7 @@ import java.time.ZoneId
  * KIS 모의/실계좌 키 없이도 동작하므로 CI/CD·백테스트 개발 환경에서 기본 어댑터로 사용.
  */
 @Component
-@Profile("!real-kis")
+@Profile("mock")
 class StubKisRestAdapter(
     private val objectMapper: ObjectMapper,
 ) : KisRestPort {
