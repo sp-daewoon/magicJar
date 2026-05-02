@@ -83,3 +83,6 @@ pyworker/.python-version-local
 # uv.lock 은 commit 권장 (reproducible build) — ignore 하지 않음.
 
 .claude/scheduled_tasks.lock
+
+# 1번 트랙 T19 — 실 운영(prd) docker-compose는 사용자별·환경별 발급 후 별도 보관
+docker/docker-compose.prd.yml
