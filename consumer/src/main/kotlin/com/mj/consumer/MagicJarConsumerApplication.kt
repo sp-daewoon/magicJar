@@ -3,6 +3,7 @@ package com.mj.consumer
 import com.mj.consumer.application.mock.MockNewsProperties
 import com.mj.consumer.application.mock.MockTickProperties
 import com.mj.consumer.config.ai.AiProperties
+import com.mj.consumer.infrastructure.kis.KisHashKeyProperties
 import com.mj.consumer.infrastructure.kis.KisProperties
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.autoconfigure.domain.EntityScan
@@ -19,6 +20,7 @@ import org.springframework.scheduling.annotation.EnableScheduling
 @EnableScheduling
 @EnableConfigurationProperties(
     KisProperties::class,
+    KisHashKeyProperties::class,
     AiProperties::class,
     MockTickProperties::class,
     MockNewsProperties::class,

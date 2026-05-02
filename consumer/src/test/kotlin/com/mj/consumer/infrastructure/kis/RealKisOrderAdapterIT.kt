@@ -56,7 +56,15 @@ class RealKisOrderAdapterIT {
                         htsId = "HTSID",
                     )
             }
-        adapter = RealKisOrderAdapter(sharedSession, sharedSession, credProvider)
+        // T2-T7: hashkey endpoint stub
+        wm.stubFor(
+            post(urlEqualTo("/uapi/hashkey")).willReturn(
+                okJson("""{"HASH":"FAKE_HASH_VALUE_FOR_TEST"}"""),
+            ),
+        )
+        val hashKeyProps = KisHashKeyProperties(hashkeyEnabled = true)
+        val hashKeyClient = KisHashKeyClient(sharedSession, sharedSession, hashKeyProps)
+        adapter = RealKisOrderAdapter(sharedSession, sharedSession, credProvider, hashKeyClient, rawHttpLogging = false)
     }
 
     @AfterEach
