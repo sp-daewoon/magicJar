@@ -204,6 +204,9 @@ services:
       MINIO_ACCESS_KEY: magicjar
       MINIO_SECRET_KEY: magicjar123
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # MockTickGenerator — KIS 시세 WebSocket 미구현 시 sin 합성 모의 시세 발행.
+      # 2번 트랙(실시간 시세 WS) 진입 시 false로 전환.
+      MAGICJAR_MARKET_MOCKTICK_ENABLED: ${MAGICJAR_MARKET_MOCKTICK_ENABLED:-true}
       # 1번 트랙 (T2~T3) — KIS 키 암호화 master key + 시드 사용자 등록 데이터.
       # mock profile에선 master key 검증 skip. dev/prd에선 fail-fast.
       MAGICJAR_SECRET_MASTER_KEY: ${MAGICJAR_SECRET_MASTER_KEY:-}
