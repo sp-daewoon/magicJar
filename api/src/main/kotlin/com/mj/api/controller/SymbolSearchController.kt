@@ -1,7 +1,8 @@
 package com.mj.api.controller
 
 import com.mj.api.application.instrument.InstrumentService
-import com.mj.domain.common.Instrument
+import com.mj.api.controller.dto.InstrumentSearchResponse
+import com.mj.api.controller.dto.toSearchResponse
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.tags.Tag
@@ -33,5 +34,5 @@ class SymbolSearchController(
     fun search(
         @Parameter(description = "검색어 (종목 코드 또는 종목명 일부)", example = "삼성")
         @RequestParam(defaultValue = "") q: String,
-    ): ResponseEntity<List<Instrument>> = ResponseEntity.ok(instrumentService.search(q))
+    ): ResponseEntity<List<InstrumentSearchResponse>> = ResponseEntity.ok(instrumentService.search(q).map { it.toSearchResponse() })
 }

@@ -10,8 +10,8 @@ import com.mj.domain.common.OrderStatus
 import com.mj.domain.common.OrderType
 import com.mj.domain.common.Side
 import com.mj.domain.journal.TradeRef
+import com.mj.domain.market.instrument.port.InstrumentRepository
 import com.mj.domain.market.port.CandleRepository
-import com.mj.domain.market.port.InstrumentCatalog
 import com.mj.domain.order.port.OrderSender
 import com.mj.domain.strategy.backtest.BacktestExecutionContext
 import com.mj.domain.strategy.backtest.BacktestExecutionContextHolder
@@ -39,7 +39,7 @@ import java.util.UUID
 @Component
 class BacktestEngine(
     private val candleRepository: CandleRepository,
-    private val instrumentCatalog: InstrumentCatalog,
+    private val instrumentCatalog: InstrumentRepository,
     private val orderSender: OrderSender,
     private val clock: Clock = Clock.systemUTC(),
 ) {

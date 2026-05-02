@@ -3,8 +3,10 @@ package com.mj.api.controller
 import com.mj.api.application.instrument.InstrumentService
 import com.mj.api.application.market.CandleQueryService
 import com.mj.api.controller.dto.CandleResponse
+import com.mj.api.controller.dto.InstrumentSearchResponse
 import com.mj.api.controller.dto.toResponse
-import com.mj.domain.common.Instrument
+import com.mj.api.controller.dto.toSearchResponse
+import com.mj.domain.market.instrument.Instrument
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.responses.ApiResponse
@@ -37,6 +39,35 @@ class InstrumentController(
     @Operation(summary = "종목 전체 목록", description = "현재 등록된 모든 Instrument를 코드 오름차순으로 반환.")
     @GetMapping
     fun list(): ResponseEntity<List<Instrument>> = ResponseEntity.ok(instrumentService.list())
+
+    @Operation(
+        summary = "종목 검색",
+        description = """
+            종목 코드(prefix) 또는 종목명(substring) 으로 검색한다 (ADR 0037 §2-4).
+
+            - 코드 검색: '005930', '005', '0059' 등 prefix 매칭
+            - 이름 검색: '삼성', '전자', 'Samsung' 등 부분 일치
+            - 빈 쿼리는 빈 배열 반환 (전체 목록은 GET /api/instruments 사용)
+            - limit 기본값 20, 최대 100
+        """,
+    )
+    @ApiResponses(
+        value = [
+            ApiResponse(responseCode = "200", description = "검색 결과 (0건이어도 200)"),
+            ApiResponse(responseCode = "400", description = "limit 파라미터 범위 초과 (>100)"),
+        ],
+    )
+    @GetMapping("/search")
+    fun search(
+        @Parameter(description = "검색어 — 종목코드 prefix 또는 종목명 substring", example = "삼성")
+        @RequestParam(defaultValue = "") q: String,
+        @Parameter(description = "최대 결과 수 (기본 20, 최대 100)", example = "20")
+        @RequestParam(defaultValue = "20") limit: Int,
+    ): ResponseEntity<List<InstrumentSearchResponse>> {
+        if (limit > 100) return ResponseEntity.badRequest().build()
+        val results = instrumentService.search(q.trim(), limit)
+        return ResponseEntity.ok(results.map { it.toSearchResponse() })
+    }
 
     @Operation(
         summary = "종목 단건 조회",

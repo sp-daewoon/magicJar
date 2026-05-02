@@ -7,7 +7,7 @@ import com.mj.domain.common.event.AiReviewRequestedEvent
 import com.mj.domain.common.event.OrderFilledEvent
 import com.mj.domain.journal.TradeJournalEntry
 import com.mj.domain.journal.port.TradeJournalRepository
-import com.mj.domain.market.port.InstrumentCatalog
+import com.mj.domain.market.instrument.port.InstrumentRepository
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.ApplicationEventPublisher
@@ -32,7 +32,7 @@ import java.util.UUID
 @Component
 class TradeJournalRecorder(
     private val journalRepository: TradeJournalRepository,
-    private val instrumentCatalog: InstrumentCatalog,
+    private val instrumentCatalog: InstrumentRepository,
     private val publisher: ApplicationEventPublisher,
     @Value("\${magicjar.journal.ai-review:false}")
     private val aiReviewEnabled: Boolean,

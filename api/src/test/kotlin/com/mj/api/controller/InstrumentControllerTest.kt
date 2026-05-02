@@ -4,9 +4,10 @@ import com.mj.api.application.instrument.InstrumentService
 import com.mj.api.application.market.CandleQueryService
 import com.mj.api.config.WebSecurityConfig
 import com.mj.domain.common.Candle
-import com.mj.domain.common.Instrument
 import com.mj.domain.common.Interval
 import com.mj.domain.common.Market
+import com.mj.domain.market.instrument.Instrument
+import com.mj.domain.market.instrument.InstrumentType
 import io.mockk.every
 import io.mockk.mockk
 import org.junit.jupiter.api.Test
@@ -23,6 +24,7 @@ import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
 import java.math.BigDecimal
 import java.time.Instant
+import java.time.LocalDate
 
 @WebMvcTest(
     controllers = [InstrumentController::class],
@@ -53,12 +55,25 @@ class InstrumentControllerTest {
     @Autowired
     lateinit var candleQueryService: CandleQueryService
 
+    private fun samsungInstrument() =
+        Instrument(
+            code = "005930",
+            isin = "KR7005930003",
+            name = "삼성전자",
+            nameEn = "Samsung Electronics",
+            market = Market.KOSPI,
+            type = InstrumentType.STOCK,
+            sector = "전기·전자",
+            listedAt = LocalDate.of(1975, 6, 11),
+            delistedAt = null,
+            parValue = BigDecimal("100"),
+            tradingUnit = 1,
+            active = true,
+        )
+
     @Test
     fun `GET api instruments returns 200 with list`() {
-        every { instrumentService.list() } returns
-            listOf(
-                Instrument("005930", "삼성전자", Market.KOSPI),
-            )
+        every { instrumentService.list() } returns listOf(samsungInstrument())
 
         mvc
             .get("/api/instruments")
@@ -70,8 +85,31 @@ class InstrumentControllerTest {
     }
 
     @Test
+    fun `GET api instruments search returns 200`() {
+        every { instrumentService.search("삼성", 20) } returns listOf(samsungInstrument())
+
+        mvc
+            .get("/api/instruments/search?q=삼성")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$[0].code") { value("005930") }
+                jsonPath("$[0].name") { value("삼성전자") }
+                jsonPath("$[0].market") { value("KOSPI") }
+            }
+    }
+
+    @Test
+    fun `GET api instruments search limit over 100 returns 400`() {
+        mvc
+            .get("/api/instruments/search?q=삼성&limit=101")
+            .andExpect {
+                status { isBadRequest() }
+            }
+    }
+
+    @Test
     fun `GET api instruments code returns 200 for existing`() {
-        every { instrumentService.get("005930") } returns Instrument("005930", "삼성전자", Market.KOSPI)
+        every { instrumentService.get("005930") } returns samsungInstrument()
 
         mvc
             .get("/api/instruments/005930")
@@ -94,7 +132,7 @@ class InstrumentControllerTest {
 
     @Test
     fun `GET api instruments code candles returns 200 with array`() {
-        every { instrumentService.get("005930") } returns Instrument("005930", "삼성전자", Market.KOSPI)
+        every { instrumentService.get("005930") } returns samsungInstrument()
         every { candleQueryService.query("005930", Interval.D1, null, null) } returns
             listOf(
                 Candle(
@@ -136,7 +174,7 @@ class InstrumentControllerTest {
 
     @Test
     fun `GET api instruments code candles returns 400 for invalid interval`() {
-        every { instrumentService.get("005930") } returns Instrument("005930", "삼성전자", Market.KOSPI)
+        every { instrumentService.get("005930") } returns samsungInstrument()
 
         mvc
             .get("/api/instruments/005930/candles?interval=BOGUS")
@@ -147,7 +185,7 @@ class InstrumentControllerTest {
 
     @Test
     fun `GET api instruments code candles M1 returns time as JSON number (epoch second)`() {
-        every { instrumentService.get("005930") } returns Instrument("005930", "삼성전자", Market.KOSPI)
+        every { instrumentService.get("005930") } returns samsungInstrument()
         every { candleQueryService.query("005930", Interval.M1, null, null) } returns
             listOf(
                 Candle(
@@ -175,7 +213,7 @@ class InstrumentControllerTest {
 
     @Test
     fun `GET api instruments code candles accepts DAY alias and empty result`() {
-        every { instrumentService.get("005930") } returns Instrument("005930", "삼성전자", Market.KOSPI)
+        every { instrumentService.get("005930") } returns samsungInstrument()
         every { candleQueryService.query("005930", Interval.D1, null, null) } returns emptyList()
 
         mvc
