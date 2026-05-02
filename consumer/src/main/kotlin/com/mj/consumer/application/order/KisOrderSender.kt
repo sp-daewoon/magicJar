@@ -10,6 +10,7 @@ import com.mj.domain.order.OrderEventRecord
 import com.mj.domain.order.OrderEventSource
 import com.mj.domain.order.OrderEventType
 import com.mj.domain.order.OrderRecord
+import com.mj.domain.order.RejectReason
 import com.mj.domain.order.port.KisOrderPort
 import com.mj.domain.order.port.OrderEventRepository
 import com.mj.domain.order.port.OrderRepository
@@ -20,15 +21,19 @@ import java.time.OffsetDateTime
 import java.util.UUID
 
 /**
- * dev/prd profile용 OrderSender. spec §3 D6, §6.2, §7.
+ * dev/prd profile용 OrderSender. spec §3 D6, §6.2, §7, ADR 0034.
  *
  * 흐름:
- * 1. Guard chain 통과 검증 (KillSwitch · DailyOrderLimit · PriceSanity)
+ * 1. Guard chain 통과 검증 (KillSwitch · MarketSession · DailyOrderLimit · PriceSanity)
  * 2. KisOrderPort.placeOrder (KIS REST 호출)
  * 3. orders + order_events(PLACED) 영속
  * 4. OrderResult.PENDING 반환 (체결은 별도 흐름 — KisExecutionNoticeListener·OrderExecutionSweep)
  *
- * Bean 등록은 OrderSenderProfileConfig에서 @Profile 분기.
+ * V11 (ADR 0034) REJECTED audit trail:
+ * - Guard reject 시 orders(REJECTED) + order_events(REJECTED) INSERT
+ * - KisApiException 시 orders(REJECTED) + order_events(REJECTED) INSERT
+ *
+ * Bean 등록은 OrderSenderConfig에서 @Profile 분기.
  */
 class KisOrderSender(
     private val kisOrderPort: KisOrderPort,
@@ -45,26 +50,35 @@ class KisOrderSender(
         val accountNo = cred.accountNo
         val kisMode = cred.tradingMode.name
 
+        // 1. Guard chain
         when (val d = guard.check(userId, accountNo, order)) {
             is GuardDecision.Reject -> {
-                log.warn("[KIS_SENDER] guard reject — order_id={} reason={}", order.id, d.reason)
+                val rejectReason = mapGuardReason(d.reason)
+                log.warn(
+                    "[KIS_SENDER] guard reject — order_id={} reason_code={} detail={}",
+                    order.id,
+                    rejectReason.code,
+                    d.reason,
+                )
+                recordRejected(order, userId, accountNo, kisMode, rejectReason, "GUARD")
                 return OrderResult(
                     order = order,
                     resultStatus = OrderStatus.REJECTED,
                     filledQty = 0,
                     avgFillPrice = null,
                     filledAt = null,
-                    rejectReason = d.reason,
+                    rejectReason = rejectReason.code,
                 )
             }
             GuardDecision.Pass -> {}
         }
 
+        // 2. KIS REST 호출
         val kisResult =
             try {
                 kisOrderPort.placeOrder(userId, order)
             } catch (e: KisApiException) {
-                val reason = "KIS_${e.category}: ${e.msgCd} ${e.msgRaw}"
+                val rejectReason = RejectReason.KisApiError(rtCd = e.msgCd ?: "UNKNOWN", msg = e.msgRaw ?: "")
                 log.warn(
                     "[KIS_SENDER] KIS API exception — order_id={} category={} msg_cd={} msg={}",
                     order.id,
@@ -72,16 +86,18 @@ class KisOrderSender(
                     e.msgCd,
                     e.msgRaw,
                 )
+                recordRejected(order, userId, accountNo, kisMode, rejectReason, "KIS_API")
                 return OrderResult(
                     order = order,
                     resultStatus = OrderStatus.REJECTED,
                     filledQty = 0,
                     avgFillPrice = null,
                     filledAt = null,
-                    rejectReason = reason,
+                    rejectReason = rejectReason.code,
                 )
             }
 
+        // 3. PLACED 영속
         val now = OffsetDateTime.now()
         val record =
             OrderRecord(
@@ -101,6 +117,9 @@ class KisOrderSender(
                 filledQty = 0,
                 avgFillPrice = null,
                 rejectReason = null,
+                rejectReasonCode = null,
+                rejectDetail = null,
+                rejectSource = null,
                 createdAt = now,
                 updatedAt = now,
             )
@@ -141,6 +160,95 @@ class KisOrderSender(
             rejectReason = null,
         )
     }
+
+    /**
+     * REJECTED 주문 audit trail 기록 (ADR 0034).
+     * orders INSERT + order_events INSERT (kis_order_no=null, V11 NULLABLE).
+     */
+    private fun recordRejected(
+        order: Order,
+        userId: UUID,
+        accountNo: String,
+        kisMode: String,
+        reason: RejectReason,
+        source: String,
+    ) {
+        val now = OffsetDateTime.now()
+        val orderId = order.id
+        val record =
+            OrderRecord(
+                orderId = orderId,
+                userId = userId,
+                accountNo = accountNo,
+                kisMode = kisMode,
+                intentId = orderId,
+                kisOrderNo = null,
+                krxFwdgOrdOrgno = null,
+                code = order.code,
+                side = order.side,
+                qty = order.qty,
+                price = order.price,
+                orderType = order.type,
+                status = OrderStatus.REJECTED,
+                filledQty = 0,
+                avgFillPrice = null,
+                rejectReason = reason.code,
+                rejectReasonCode = reason.code,
+                rejectDetail = reason.toDetail(),
+                rejectSource = source,
+                createdAt = now,
+                updatedAt = now,
+            )
+        try {
+            orders.save(record)
+            orderEvents.insertIdempotent(
+                OrderEventRecord(
+                    eventId = UUID.randomUUID(),
+                    orderId = orderId,
+                    userId = userId,
+                    accountNo = accountNo,
+                    kisMode = kisMode,
+                    kisOrderNo = null,
+                    eventType = OrderEventType.REJECTED,
+                    cumulativeQty = null,
+                    partialQty = null,
+                    execPrice = null,
+                    source = OrderEventSource.INTERNAL,
+                    payload = """{"rejectReasonCode":"${reason.code}","rejectDetail":"${reason.toDetail().replace(
+                        "\"",
+                        "'",
+                    )}","rejectSource":"$source"}""",
+                    occurredAt = now,
+                    ingestedAt = now,
+                ),
+            )
+            log.info(
+                "[KIS_SENDER] REJECTED audit recorded — order_id={} reason_code={} source={}",
+                orderId,
+                reason.code,
+                source,
+            )
+        } catch (e: Exception) {
+            log.error("[KIS_SENDER] REJECTED audit INSERT failed — order_id={} error={}", orderId, e.message, e)
+        }
+    }
+
+    /**
+     * GuardDecision.Reject.reason String → RejectReason sealed class 매핑.
+     * 기존 Guard들이 String reason을 반환하므로 prefix 기반 파싱.
+     */
+    private fun mapGuardReason(reason: String): RejectReason =
+        when {
+            reason.startsWith("KILL_SWITCH") -> RejectReason.KillSwitchActive
+            reason.startsWith("SESSION_CLOSED") -> RejectReason.MarketSessionClosed
+            reason.startsWith("NOT_BUSINESS_DAY") -> RejectReason.MarketNotBusinessDay
+            reason.startsWith("MARKET_CLOSED") -> RejectReason.MarketSessionClosed
+            reason.startsWith("DAILY_LIMIT") -> RejectReason.DailyOrderLimitExceeded
+            reason.startsWith("POSITION_LIMIT") -> RejectReason.PositionLimitExceeded
+            reason.startsWith("DRAWDOWN_STOP") -> RejectReason.DrawdownStopTriggered
+            reason.startsWith("PRICE_") || reason.startsWith("PRICE_OUT") -> RejectReason.PriceSanityFailed
+            else -> RejectReason.Internal(reason)
+        }
 
     private fun currentUserId(): UUID = DEFAULT_USER_ID
 

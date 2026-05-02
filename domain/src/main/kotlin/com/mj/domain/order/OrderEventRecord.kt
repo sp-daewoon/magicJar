@@ -31,7 +31,8 @@ data class OrderEventRecord(
     val userId: UUID,
     val accountNo: String,
     val kisMode: String,
-    val kisOrderNo: String,
+    /** V11: REJECTED 이벤트는 KIS 미도달이므로 null. */
+    val kisOrderNo: String?,
     val eventType: OrderEventType,
     val cumulativeQty: Int?,
     val partialQty: Int?,

@@ -17,7 +17,11 @@ import java.util.UUID
 /**
  * api 모듈의 orders 테이블 read view.
  * consumer 모듈에 OrderEntity가 있지만 api는 그 모듈에 의존하지 않으므로 자체 매핑.
- * 같은 테이블·같은 schema 매핑이라 V9 Flyway 그대로 사용.
+ * V9·V11 Flyway schema 대응.
+ *
+ * V11 변경:
+ * - kisOrderNo / krxFwdgOrdOrgno NULLABLE (REJECTED 주문은 KIS 미도달)
+ * - rejectReasonCode / rejectDetail / rejectSource 컬럼 추가 (ADR 0034)
  */
 @Entity
 @Table(name = "orders")
@@ -33,10 +37,12 @@ class OrderApiEntity(
     val kisMode: String,
     @Column(name = "intent_id", nullable = false)
     val intentId: UUID,
-    @Column(name = "kis_order_no", nullable = false, length = 20)
-    val kisOrderNo: String,
-    @Column(name = "krx_fwdg_ord_orgno", nullable = false, length = 8)
-    val krxFwdgOrdOrgno: String,
+    /** V11: NULLABLE — REJECTED 주문은 null. */
+    @Column(name = "kis_order_no", length = 20)
+    val kisOrderNo: String?,
+    /** V11: NULLABLE — REJECTED 주문은 null. */
+    @Column(name = "krx_fwdg_ord_orgno", length = 8)
+    val krxFwdgOrdOrgno: String?,
     @Column(name = "code", nullable = false, length = 7)
     val code: String,
     @Enumerated(EnumType.STRING)
@@ -58,6 +64,15 @@ class OrderApiEntity(
     val avgFillPrice: BigDecimal? = null,
     @Column(name = "reject_reason", columnDefinition = "TEXT")
     val rejectReason: String? = null,
+    /** V11: RejectReason.code. */
+    @Column(name = "reject_reason_code", length = 64)
+    val rejectReasonCode: String? = null,
+    /** V11: RejectReason.toDetail() 상세 메시지. */
+    @Column(name = "reject_detail", columnDefinition = "TEXT")
+    val rejectDetail: String? = null,
+    /** V11: 거부 출처 — GUARD | KIS_API | INTERNAL. */
+    @Column(name = "reject_source", length = 32)
+    val rejectSource: String? = null,
     @Column(name = "created_at", nullable = false)
     val createdAt: OffsetDateTime,
     @Column(name = "updated_at", nullable = false)

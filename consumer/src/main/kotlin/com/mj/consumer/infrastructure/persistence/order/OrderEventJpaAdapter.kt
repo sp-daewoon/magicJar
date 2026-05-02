@@ -20,6 +20,15 @@ import java.math.BigDecimal
 import java.time.OffsetDateTime
 import java.util.UUID
 
+/**
+ * order_events 테이블 JPA 엔티티. V9·V11 Flyway 대응.
+ *
+ * V11 변경:
+ * - kisOrderNo NULLABLE (REJECTED 이벤트는 KIS 미도달이므로 null)
+ * - 기존 UNIQUE(kis_mode, kis_order_no, event_type, cumulative_qty) 제약 삭제 →
+ *   V11 PARTIAL INDEX(kis_order_no IS NOT NULL)로 교체. NOT NULL인 PLACED 이벤트는
+ *   여전히 중복 방지, REJECTED 이벤트는 여러 건 허용.
+ */
 @Entity
 @Table(name = "order_events")
 class OrderEventEntity(
@@ -34,8 +43,9 @@ class OrderEventEntity(
     val accountNo: String,
     @Column(name = "kis_mode", nullable = false, length = 8)
     val kisMode: String,
-    @Column(name = "kis_order_no", nullable = false, length = 20)
-    val kisOrderNo: String,
+    /** V11: NULLABLE — REJECTED 이벤트는 KIS 미도달. */
+    @Column(name = "kis_order_no", length = 20)
+    val kisOrderNo: String?,
     @Enumerated(EnumType.STRING)
     @Column(name = "event_type", nullable = false, length = 20)
     val eventType: OrderEventType,
@@ -57,39 +67,39 @@ class OrderEventEntity(
 ) {
     fun toDomain(): OrderEventRecord =
         OrderEventRecord(
-            eventId,
-            orderId,
-            userId,
-            accountNo,
-            kisMode,
-            kisOrderNo,
-            eventType,
-            cumulativeQty,
-            partialQty,
-            execPrice,
-            source,
-            payload,
-            occurredAt,
-            ingestedAt,
+            eventId = eventId,
+            orderId = orderId,
+            userId = userId,
+            accountNo = accountNo,
+            kisMode = kisMode,
+            kisOrderNo = kisOrderNo,
+            eventType = eventType,
+            cumulativeQty = cumulativeQty,
+            partialQty = partialQty,
+            execPrice = execPrice,
+            source = source,
+            payload = payload,
+            occurredAt = occurredAt,
+            ingestedAt = ingestedAt,
         )
 
     companion object {
         fun from(e: OrderEventRecord): OrderEventEntity =
             OrderEventEntity(
-                e.eventId,
-                e.orderId,
-                e.userId,
-                e.accountNo,
-                e.kisMode,
-                e.kisOrderNo,
-                e.eventType,
-                e.cumulativeQty,
-                e.partialQty,
-                e.execPrice,
-                e.source,
-                e.payload,
-                e.occurredAt,
-                e.ingestedAt,
+                eventId = e.eventId,
+                orderId = e.orderId,
+                userId = e.userId,
+                accountNo = e.accountNo,
+                kisMode = e.kisMode,
+                kisOrderNo = e.kisOrderNo,
+                eventType = e.eventType,
+                cumulativeQty = e.cumulativeQty,
+                partialQty = e.partialQty,
+                execPrice = e.execPrice,
+                source = e.source,
+                payload = e.payload,
+                occurredAt = e.occurredAt,
+                ingestedAt = e.ingestedAt,
             )
     }
 }
@@ -105,10 +115,10 @@ class OrderEventJpaAdapter(
     private val log = LoggerFactory.getLogger(javaClass)
 
     /**
-     * INSERT 시도. UNIQUE(kis_mode, kis_order_no, event_type, cumulative_qty) 충돌 시 false (멱등).
+     * INSERT 시도. UNIQUE 충돌 시 false (멱등).
      *
-     * REQUIRES_NEW로 nested transaction을 만들어 충돌 발생 시 호출자 트랜잭션에 영향 없게 한다.
-     * (DataIntegrityViolation은 트랜잭션 자체를 rollback-only로 만들기 때문)
+     * V11 이후: PARTIAL INDEX(kis_order_no IS NOT NULL)로 PLACED 이벤트만 dedup.
+     * REJECTED 이벤트(kisOrderNo=null)는 중복 허용 — REQUIRES_NEW에서 충돌 시 false.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     override fun insertIdempotent(event: OrderEventRecord): Boolean =
