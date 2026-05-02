@@ -106,6 +106,12 @@ kis:
 magicjar:
   mode: ${MAGICJAR_MODE:MOCK}
   allow-real: ${MAGICJAR_ALLOW_REAL:false}
+  guard:
+    market-session:
+      # dev profile에서 장외 시간(주말·공휴일·오프아워)에도 주문 통과 허용.
+      # prd profile에선 이 설정이 무시되고 항상 REJECT (ADR 0042).
+      # mock profile에선 MarketSessionGuard Bean 자체가 미등록.
+      offline-fallback: ${MAGICJAR_GUARD_SESSION_OFFLINE_FALLBACK:false}
   kis:
     # T2-T7 EGW00202 hotfix: POST 요청 hashkey 헤더 자동 첨부 (default true)
     hashkey-enabled: ${MAGICJAR_KIS_HASHKEY_ENABLED:true}

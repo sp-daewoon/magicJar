@@ -21,6 +21,13 @@ import java.math.BigDecimal
 import java.time.OffsetDateTime
 import java.util.UUID
 
+/**
+ * orders 테이블 JPA 엔티티. V9·V11 Flyway 대응.
+ *
+ * V11 변경:
+ * - kisOrderNo / krxFwdgOrdOrgno NULLABLE (REJECTED 주문은 KIS 미도달)
+ * - rejectReasonCode / rejectDetail / rejectSource 컬럼 추가 (ADR 0034)
+ */
 @Entity
 @Table(name = "orders")
 class OrderEntity(
@@ -35,10 +42,12 @@ class OrderEntity(
     val kisMode: String,
     @Column(name = "intent_id", nullable = false)
     val intentId: UUID,
-    @Column(name = "kis_order_no", nullable = false, length = 20)
-    val kisOrderNo: String,
-    @Column(name = "krx_fwdg_ord_orgno", nullable = false, length = 8)
-    val krxFwdgOrdOrgno: String,
+    /** V11: NULLABLE — REJECTED 주문은 KIS 미도달이므로 null. */
+    @Column(name = "kis_order_no", length = 20)
+    val kisOrderNo: String?,
+    /** V11: NULLABLE — REJECTED 주문은 null. */
+    @Column(name = "krx_fwdg_ord_orgno", length = 8)
+    val krxFwdgOrdOrgno: String?,
     @Column(name = "code", nullable = false, length = 7)
     val code: String,
     @Enumerated(EnumType.STRING)
@@ -60,6 +69,15 @@ class OrderEntity(
     val avgFillPrice: BigDecimal? = null,
     @Column(name = "reject_reason", columnDefinition = "TEXT")
     val rejectReason: String? = null,
+    /** V11: RejectReason.code (KILL_SWITCH·SESSION_CLOSED 등). */
+    @Column(name = "reject_reason_code", length = 64)
+    val rejectReasonCode: String? = null,
+    /** V11: RejectReason.toDetail() 상세 메시지. */
+    @Column(name = "reject_detail", columnDefinition = "TEXT")
+    val rejectDetail: String? = null,
+    /** V11: 거부 출처 — GUARD | KIS_API | INTERNAL. */
+    @Column(name = "reject_source", length = 32)
+    val rejectSource: String? = null,
     @Column(name = "created_at", nullable = false)
     val createdAt: OffsetDateTime,
     @Column(name = "updated_at", nullable = false)
@@ -67,47 +85,53 @@ class OrderEntity(
 ) {
     fun toDomain(): OrderRecord =
         OrderRecord(
-            orderId,
-            userId,
-            accountNo,
-            kisMode,
-            intentId,
-            kisOrderNo,
-            krxFwdgOrdOrgno,
-            code,
-            side,
-            qty,
-            price,
-            orderType,
-            status,
-            filledQty,
-            avgFillPrice,
-            rejectReason,
-            createdAt,
-            updatedAt,
+            orderId = orderId,
+            userId = userId,
+            accountNo = accountNo,
+            kisMode = kisMode,
+            intentId = intentId,
+            kisOrderNo = kisOrderNo,
+            krxFwdgOrdOrgno = krxFwdgOrdOrgno,
+            code = code,
+            side = side,
+            qty = qty,
+            price = price,
+            orderType = orderType,
+            status = status,
+            filledQty = filledQty,
+            avgFillPrice = avgFillPrice,
+            rejectReason = rejectReason,
+            rejectReasonCode = rejectReasonCode,
+            rejectDetail = rejectDetail,
+            rejectSource = rejectSource,
+            createdAt = createdAt,
+            updatedAt = updatedAt,
         )
 
     companion object {
         fun from(r: OrderRecord): OrderEntity =
             OrderEntity(
-                r.orderId,
-                r.userId,
-                r.accountNo,
-                r.kisMode,
-                r.intentId,
-                r.kisOrderNo,
-                r.krxFwdgOrdOrgno,
-                r.code,
-                r.side,
-                r.qty,
-                r.price,
-                r.orderType,
-                r.status,
-                r.filledQty,
-                r.avgFillPrice,
-                r.rejectReason,
-                r.createdAt,
-                r.updatedAt,
+                orderId = r.orderId,
+                userId = r.userId,
+                accountNo = r.accountNo,
+                kisMode = r.kisMode,
+                intentId = r.intentId,
+                kisOrderNo = r.kisOrderNo,
+                krxFwdgOrdOrgno = r.krxFwdgOrdOrgno,
+                code = r.code,
+                side = r.side,
+                qty = r.qty,
+                price = r.price,
+                orderType = r.orderType,
+                status = r.status,
+                filledQty = r.filledQty,
+                avgFillPrice = r.avgFillPrice,
+                rejectReason = r.rejectReason,
+                rejectReasonCode = r.rejectReasonCode,
+                rejectDetail = r.rejectDetail,
+                rejectSource = r.rejectSource,
+                createdAt = r.createdAt,
+                updatedAt = r.updatedAt,
             )
     }
 }

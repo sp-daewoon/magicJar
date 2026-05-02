@@ -15,6 +15,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-websocket") // KisWsClient (Jakarta WS)
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     runtimeOnly("org.postgresql:postgresql")
+    implementation("org.springframework.boot:spring-boot-starter-data-redis")
 
     implementation("org.springframework.kafka:spring-kafka")
     implementation("org.springframework.ai:spring-ai-openai-spring-boot-starter")
