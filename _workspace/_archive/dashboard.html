@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="refresh" content="60" />
+<title>magicJar — 상태 대시보드 v2</title>
+<style>
+:root {
+  --bg:#0f0e17; --panel:#1a1925; --panel-2:#232133; --text:#fffffe;
+  --muted:#a7a9be; --accent:#ff8906; --lilac:#a786df;
+  --green:#2cb67d; --red:#e53170; --line:#393952; --code-bg:#0a0915;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg:#fffffe; --panel:#f7f5fb; --panel-2:#efeaf6; --text:#2e2f3e;
+    --muted:#6f6c90; --accent:#cc6c00; --lilac:#7a4fd9;
+    --green:#1e8a5d; --red:#c41e5d; --line:#d8d4e2; --code-bg:#e8e4ee;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin:0; padding:0; background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Pretendard","Apple SD Gothic Neo","Noto Sans KR","Segoe UI",sans-serif;
+  line-height:1.55; -webkit-font-smoothing:antialiased; }
+body { padding:28px 16px 80px; }
+.wrap { max-width:1180px; margin:0 auto; }
+header.hero {
+  border:1px solid var(--line); border-radius:16px; padding:22px 28px;
+  background:linear-gradient(135deg,var(--panel),var(--panel-2));
+  margin-bottom:16px; display:grid; grid-template-columns:1fr auto; gap:20px; align-items:center;
+}
+header h1 { margin:0; font-size:22px; letter-spacing:-0.02em; }
+header h1 .accent { color:var(--accent); }
+header .sub { color:var(--muted); font-size:13px; margin-top:4px; }
+.phase-pill {
+  display:inline-flex; align-items:center; gap:8px; padding:8px 14px; border-radius:999px;
+  background:rgba(255,137,6,0.12); border:1px solid var(--accent); color:var(--accent);
+  font-weight:700; font-size:14px;
+}
+.refresh-info { font-size:11px; color:var(--muted); text-align:right; }
+.refresh-btn {
+  display:inline-flex; align-items:center; gap:6px; padding:6px 12px; font-size:12px;
+  font-weight:600; background:var(--accent); color:var(--bg); border:none; border-radius:6px;
+  cursor:pointer; margin-top:6px; font-family:inherit;
+}
+.refresh-btn:hover { opacity:0.85; }
+.staleness-banner {
+  border-radius:10px; padding:12px 16px; margin-bottom:16px; font-size:13px;
+  display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+}
+.staleness-banner code {
+  background:var(--code-bg); padding:2px 7px; border-radius:4px;
+  font-family:"SF Mono",Menlo,monospace; font-size:12px; color:var(--text);
+}
+.staleness-banner.fresh { background:rgba(44,182,125,0.12); border:1px solid var(--green); color:var(--green); }
+.staleness-banner.cooling { background:rgba(255,137,6,0.12); border:1px solid var(--accent); color:var(--accent); }
+.staleness-banner.stale { background:rgba(229,49,112,0.15); border:1px solid var(--red); color:var(--red); }
+.staleness-banner .age { font-weight:700; }
+.staleness-banner .help-cmd { font-family:"SF Mono",Menlo,monospace; font-size:11.5px; color:var(--text); }
+.grid { display:grid; gap:16px; grid-template-columns:repeat(12,1fr); }
+.card { border:1px solid var(--line); border-radius:12px; background:var(--panel); padding:18px 20px; }
+.card h2 {
+  margin:0 0 12px; font-size:14px; letter-spacing:0.02em; text-transform:uppercase;
+  color:var(--muted); display:flex; align-items:center; justify-content:space-between;
+}
+.card h2 .count {
+  background:var(--panel-2); border-radius:999px; padding:2px 9px;
+  font-size:11px; color:var(--text); font-weight:600; text-transform:none; letter-spacing:0;
+}
+.span-12 { grid-column:span 12; } .span-8 { grid-column:span 8; }
+.span-6 { grid-column:span 6; } .span-4 { grid-column:span 4; }
+@media (max-width:900px) { .span-8,.span-6,.span-4 { grid-column:span 12; } }
+
+/* Task cards */
+.task-list { list-style:none; padding:0; margin:0; display:grid; gap:10px; }
+.task-card {
+  border:1px solid var(--line); border-radius:10px; padding:14px 16px;
+  background:var(--panel-2); position:relative;
+}
+.task-card.running { border-left:3px solid var(--accent); }
+.task-card.blocked { border-left:3px solid var(--red); background:rgba(229,49,112,0.06); }
+.task-card.done { border-left:3px solid var(--green); opacity:0.85; }
+.task-card .top { display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; }
+.task-card .id { font-family:"SF Mono",Menlo,monospace; font-size:11.5px; color:var(--lilac); }
+.task-card .agent { font-weight:700; color:var(--accent); font-size:13px; }
+.task-card .model {
+  font-size:10.5px; padding:1px 6px; border-radius:3px;
+  background:var(--code-bg); color:var(--text); font-family:"SF Mono",Menlo,monospace;
+}
+.task-card .status-pill {
+  font-size:10px; padding:2px 7px; border-radius:999px; font-weight:700;
+  letter-spacing:0.04em; text-transform:uppercase;
+}
+.task-card .status-pill.running { background:rgba(255,137,6,0.18); color:var(--accent); }
+.task-card .status-pill.blocked { background:rgba(229,49,112,0.18); color:var(--red); }
+.task-card .status-pill.done { background:rgba(44,182,125,0.18); color:var(--green); }
+.task-card .branch { font-family:"SF Mono",Menlo,monospace; font-size:11.5px; color:var(--muted); margin-top:4px; }
+.task-card .goal { font-size:13px; color:var(--text); margin:6px 0 8px; }
+.task-card .progress-row { display:flex; align-items:center; gap:10px; margin:4px 0 6px; }
+.task-card .progress-bar { flex:1; height:8px; border-radius:4px; background:var(--code-bg); overflow:hidden; }
+.task-card .progress-fill {
+  height:100%; background:linear-gradient(90deg,var(--lilac),var(--accent)); transition:width 0.3s ease;
+}
+.task-card .progress-text { font-size:11px; color:var(--muted); white-space:nowrap; }
+.task-card .meta-row { font-size:11px; color:var(--muted); display:flex; gap:10px; flex-wrap:wrap; }
+.task-card .pr-link { color:var(--lilac); }
+
+/* Worktree list */
+.wt-list { list-style:none; padding:0; margin:0; }
+.wt-list li {
+  border:1px solid var(--line); border-radius:9px; padding:10px 14px;
+  background:var(--panel-2); margin-bottom:8px;
+  display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:center;
+}
+.wt-list li:last-child { margin-bottom:0; }
+.wt-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+.wt-fresh { background:var(--green); box-shadow:0 0 0 4px rgba(44,182,125,0.18); }
+.wt-recent { background:var(--accent); box-shadow:0 0 0 4px rgba(255,137,6,0.18); }
+.wt-cooling { background:var(--lilac); }
+.wt-stale { background:var(--red); }
+.wt-list .branch { font-family:"SF Mono",Menlo,monospace; font-size:12px; color:var(--lilac); }
+.wt-list .subject {
+  font-size:12.5px; color:var(--text);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.wt-list .time { font-size:11px; color:var(--muted); }
+
+/* PR cards */
+.pr-list { list-style:none; padding:0; margin:0; }
+.pr-list li {
+  border:1px solid var(--line); border-radius:9px; padding:10px 14px;
+  background:var(--panel-2); margin-bottom:8px;
+}
+.pr-list li:last-child { margin-bottom:0; }
+.pr-num { font-family:"SF Mono",Menlo,monospace; color:var(--accent); font-weight:700; }
+.pr-title { font-size:13px; color:var(--text); margin:4px 0; }
+.pr-meta { font-size:11px; color:var(--muted); display:flex; gap:10px; flex-wrap:wrap; }
+.pr-meta .branch { font-family:"SF Mono",Menlo,monospace; color:var(--lilac); }
+.pr-empty { color:var(--muted); font-size:13px; padding:8px 0; }
+.pr-empty code { background:var(--code-bg); padding:1px 6px; border-radius:4px; font-family:"SF Mono",Menlo,monospace; font-size:11px; }
+
+/* Commit list */
+.commit-list { list-style:none; padding:0; margin:0; font-family:"SF Mono",Menlo,monospace; font-size:12px; }
+.commit-list li {
+  padding:6px 0; border-bottom:1px dashed var(--line);
+  display:grid; grid-template-columns:70px auto 1fr; gap:12px; align-items:baseline;
+}
+.commit-list li:last-child { border-bottom:none; }
+.commit-list .sha { color:var(--lilac); }
+.commit-list .when { color:var(--muted); font-size:11px; }
+.commit-list .msg { color:var(--text); }
+
+/* Phase timeline */
+.phase-row { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+.phase-cell {
+  border:1px solid var(--line); border-radius:8px; padding:10px 12px;
+  background:var(--panel-2); position:relative;
+}
+.phase-cell.done { border-color:var(--green); }
+.phase-cell.active { border-color:var(--accent); box-shadow:0 0 0 2px rgba(255,137,6,0.15); }
+.phase-cell .label { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.08em; }
+.phase-cell .title { font-weight:700; font-size:13px; margin:3px 0 4px; }
+.phase-cell .body { font-size:11.5px; color:var(--muted); }
+.phase-cell.active::after {
+  content:"●"; color:var(--accent); position:absolute; top:8px; right:10px;
+  font-size:10px; animation:pulse 1.5s infinite;
+}
+.phase-cell.done::after {
+  content:"✓"; color:var(--green); position:absolute; top:8px; right:10px;
+  font-size:13px; font-weight:700;
+}
+@keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+
+/* Quick stats */
+.stats { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:4px; }
+.stat {
+  background:var(--panel-2); border-radius:9px; padding:12px 14px;
+  border-left:3px solid var(--accent);
+}
+.stat .v { font-size:20px; font-weight:800; color:var(--text); }
+.stat .l { font-size:11px; color:var(--muted); margin-top:2px; }
+.stat.green { border-left-color:var(--green); }
+.stat.red { border-left-color:var(--red); }
+.stat.lilac { border-left-color:var(--lilac); }
+
+/* Agents */
+.agent-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:8px; }
+.agent-card {
+  border:1px solid var(--line); border-radius:8px; padding:10px 12px;
+  background:var(--panel-2);
+}
+.agent-card .n { font-weight:700; color:var(--accent); font-size:13px; }
+.agent-card .m {
+  font-size:10px; padding:1px 5px; border-radius:3px; background:var(--code-bg);
+  font-family:"SF Mono",Menlo,monospace; color:var(--text); margin-left:6px;
+}
+.agent-card .d {
+  font-size:11.5px; color:var(--muted); margin-top:3px;
+  display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical;
+  overflow:hidden; line-height:1.4;
+}
+
+footer { text-align:center; color:var(--muted); font-size:11px; margin-top:32px; }
+footer a { color:var(--lilac); }
+footer code { background:var(--code-bg); padding:1px 6px; border-radius:4px; font-family:"SF Mono",Menlo,monospace; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <div>
+      <h1><span class="accent">magicJar</span> · 상태 대시보드 v2</h1>
+      <div class="sub">생성 시각: <strong>2026. 5. 2. 오후 12:59:01</strong> (KST)</div>
+      <div class="sub" id="age-line" style="margin-top:4px">데이터 신선도: 계산 중…</div>
+    </div>
+    <div>
+      <div class="phase-pill">◌ Phase F_TRACK5_QA_DEFECT_LOOP_R1_DONE</div>
+      <button class="refresh-btn" onclick="location.reload()" title="dashboard.html을 브라우저에서 다시 읽기">
+        ↻ 페이지 새로고침
+      </button>
+      <div class="refresh-info" style="margin-top:6px">
+        브라우저는 60초마다 자동 reload
+      </div>
+    </div>
+  </header>
+
+  <div id="staleness" class="staleness-banner cooling" style="display:none">
+    <div><span class="age">데이터 신선도 확인 중</span></div>
+  </div>
+
+  <script>
+    const GENERATED_AT = new Date("2026-05-02T03:59:01.547Z");
+    function fmtAge(sec) {
+      if (sec < 60) return Math.round(sec) + '초 전';
+      if (sec < 3600) return Math.round(sec / 60) + '분 전';
+      return (sec / 3600).toFixed(1) + '시간 전';
+    }
+    function tickAge() {
+      const sec = (Date.now() - GENERATED_AT.getTime()) / 1000;
+      const ageStr = fmtAge(sec);
+      const line = document.getElementById('age-line');
+      if (line) line.innerHTML = '데이터 신선도: <strong>' + ageStr + '</strong>';
+      const banner = document.getElementById('staleness');
+      if (!banner) return;
+      banner.style.display = '';
+      let cls, html;
+      if (sec < 90) {
+        cls = 'fresh';
+        html = '<span><span class="age">✓ 신선 (' + ageStr + ')</span> — watcher 또는 새로고침이 정상 동작 중입니다.</span>';
+      } else if (sec < 300) {
+        cls = 'cooling';
+        html = '<span><span class="age">~~ 식는 중 (' + ageStr + ')</span> — 곧 갱신되거나, watcher가 안 떠있을 수 있어요.</span>'
+             + '<span class="help-cmd">백그라운드 갱신: <code>nohup npm run status:watch &gt; /tmp/magicjar-status.log 2&gt;&amp;1 &amp;</code></span>';
+      } else {
+        cls = 'stale';
+        html = '<span><span class="age">✗ 오래됨 (' + ageStr + ')</span> — 데이터가 신선하지 않습니다.</span>'
+             + '<span class="help-cmd"><code>nohup npm run status:watch &gt; /tmp/magicjar-status.log 2&gt;&amp;1 &amp;</code></span>';
+      }
+      banner.className = 'staleness-banner ' + cls;
+      banner.innerHTML = html;
+    }
+    tickAge();
+    setInterval(tickAge, 5000);
+  </script>
+
+  <!-- Quick stats -->
+  <div class="card span-12" style="margin-bottom:16px">
+    <div class="stats">
+      <div class="stat"><div class="v">7</div><div class="l">에이전트</div></div>
+      <div class="stat lilac"><div class="v">0</div><div class="l">활성 Task</div></div>
+      <div class="stat green"><div class="v">0</div><div class="l">열린 PR</div></div>
+      <div class="stat green"><div class="v">30</div><div class="l">ADR</div></div>
+    </div>
+  </div>
+
+  <div class="grid">
+
+    <div class="card span-12">
+      <h2>Phase 진행</h2>
+      <div class="phase-row">
+        <div class="phase-cell done">
+            <div class="label">Phase 0</div>
+            <div class="title">컨텍스트</div>
+            <div class="body">완료</div>
+          </div><div class="phase-cell done">
+            <div class="label">Phase A</div>
+            <div class="title">설계</div>
+            <div class="body">완료</div>
+          </div><div class="phase-cell done">
+            <div class="label">Phase B</div>
+            <div class="title">구현</div>
+            <div class="body">완료</div>
+          </div><div class="phase-cell done">
+            <div class="label">Phase C</div>
+            <div class="title">QA 통합</div>
+            <div class="body">완료</div>
+          </div>
+      </div>
+    </div>
+
+    <!-- 활성 Task (ADR 0018) -->
+    <div class="card span-12">
+      <h2>활성 Task <span class="count">0</span></h2>
+      <div class="pr-empty">활성 task 없음 — <code>node scripts/task.mjs start --agent ... --goal ...</code></div>
+    </div>
+
+    
+    <div class="card span-12">
+      <h2>최근 완료된 Task (24시간) <span class="count">1</span></h2>
+      <ul class="task-list">
+        <li class="task-card done">
+          <div class="top">
+            <span class="agent">architect</span>
+            <span class="model">opus</span>
+            <span class="status-pill done">DONE</span>
+            <span class="id">T-20260501-1140-ops-jar-staleness-guard</span>
+          </div>
+          <div class="goal">Docker 운영 함정(ISSUE-002 P1) hotfix — host gradle build 누락 시 옛 jar가 컨테이너에 들어가는 footgun 해소. `scripts/smoke.sh` jar stalenes</div>
+          <div class="meta-row">
+            <span>완료 23시간 전</span>
+            <span class="pr-link">· PR #41</span>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    
+
+    <div class="card span-4">
+      <h2>열린 PR <span class="count">0</span></h2>
+      <div class="pr-empty">열린 PR 없음</div>
+    </div>
+
+    <div class="card span-6">
+      <h2>최근 main 커밋 <span class="count">10</span></h2>
+      <ul class="commit-list">
+        <li>
+          <span class="sha">70cf71e</span>
+          <span class="when">32분 전</span>
+          <span class="msg">fix(track1): mock profile 부팅 회귀 + MockTickGenerator default 활성</span>
+        </li><li>
+          <span class="sha">581dee6</span>
+          <span class="when">2시간 전</span>
+          <span class="msg">chore(harness): 1번 트랙 1차 완료 기록 — KIS 주문 어댑터 (T20/20)</span>
+        </li><li>
+          <span class="sha">8b38890</span>
+          <span class="when">2시간 전</span>
+          <span class="msg">refactor(track1): profile 명명 정리 (mock/dev/prd) + MAGICJAR_MODE 폐기 (T19/20)</span>
+        </li><li>
+          <span class="sha">372e0d5</span>
+          <span class="when">2시간 전</span>
+          <span class="msg">docs(track1): 운영 가이드 — order-policy.md (T18/20)</span>
+        </li><li>
+          <span class="sha">7212606</span>
+          <span class="when">2시간 전</span>
+          <span class="msg">feat(track1): KisMetricsRecorder — actuator counter 8종 (T17/20)</span>
+        </li><li>
+          <span class="sha">3bb4528</span>
+          <span class="when">2시간 전</span>
+          <span class="msg">feat(track1): /api/orders + /orders 페이지 + Dashboard 수동 주문 패널 (T16/20)</span>
+        </li><li>
+          <span class="sha">d5b12ad</span>
+          <span class="when">2시간 전</span>
+          <span class="msg">feat(track1): WS Listener + REST Sweep + 멱등 dedup (T15/20)</span>
+        </li><li>
+          <span class="sha">a2adcd1</span>
+          <span class="when">2시간 전</span>
+          <span class="msg">feat(track1): OrderDispatcherListener — BrokerGateway → OrderSender (T14/20)</span>
+        </li><li>
+          <span class="sha">c6e9c89</span>
+          <span class="when">2시간 전</span>
+          <span class="msg">test(track1): OrderSenderConfig profile 분기 단위 검증 (T13/20)</span>
+        </li><li>
+          <span class="sha">7139836</span>
+          <span class="when">2시간 전</span>
+          <span class="msg">feat(track1): MockOrderSender + KisOrderSender + Profile 분기 + BootLogger (T12/20)</span>
+        </li>
+      </ul>
+    </div>
+
+    <div class="card span-6">
+      <h2>최근 머지된 PR <span class="count">8</span></h2>
+      
+      <ul class="pr-list">
+        <li>
+          <div><span class="pr-num">#66</span></div>
+          <div class="pr-title">fix(track1): mock profile 부팅 회귀 + MockTickGenerator default 활성</div>
+          <div class="pr-meta">
+            <span class="branch">hotfix/track1-mock-profile-bootfail → main</span>
+            <span>32분 전</span>
+          </div>
+        </li><li>
+          <div><span class="pr-num">#65</span></div>
+          <div class="pr-title">feat: 1번 트랙 1차 — KIS 주문 어댑터 (20 task, ~57 unit/IT PASS)</div>
+          <div class="pr-meta">
+            <span class="branch">agent/architect/track1-kis-order → main</span>
+            <span>2시간 전</span>
+          </div>
+        </li><li>
+          <div><span class="pr-num">#64</span></div>
+          <div class="pr-title">chore(harness): ISSUE-008 hotfix 기록</div>
+          <div class="pr-meta">
+            <span class="branch">chore/harness/issue-008-fixed → main</span>
+            <span>12시간 전</span>
+          </div>
+        </li><li>
+          <div><span class="pr-num">#63</span></div>
+          <div class="pr-title">fix(pyworker): ISSUE-008 — presigned URL SignatureDoesNotMatch hotfix</div>
+          <div class="pr-meta">
+            <span class="branch">agent/architect/issue-008-presigned-host → main</span>
+            <span>12시간 전</span>
+          </div>
+        </li><li>
+          <div><span class="pr-num">#62</span></div>
+          <div class="pr-title">feat: 5번 트랙 1차 — QA 디펙 순환 루프 (pyworker scenario + qa-run.mjs + ISSUE 디렉토리)</div>
+          <div class="pr-meta">
+            <span class="branch">agent/architect/qa-defect-loop → main</span>
+            <span>14시간 전</span>
+          </div>
+        </li><li>
+          <div><span class="pr-num">#61</span></div>
+          <div class="pr-title">fix(ops): compose env_file 추가 — KIS·NAVER 변수 컨테이너 주입</div>
+          <div class="pr-meta">
+            <span class="branch">hotfix/ops/compose-env-file-v2 → main</span>
+            <span>15시간 전</span>
+          </div>
+        </li><li>
+          <div><span class="pr-num">#60</span></div>
+          <div class="pr-title">chore(policy): 데이터 실 KIS 베이스 + Dashboard 일봉 + ADR 0029</div>
+          <div class="pr-meta">
+            <span class="branch">chore/policy/real-data-base → main</span>
+            <span>15시간 전</span>
+          </div>
+        </li><li>
+          <div><span class="pr-num">#59</span></div>
+          <div class="pr-title">feat(frontend): 장외 모드 가드 — KRX 정규장 시간 배지</div>
+          <div class="pr-meta">
+            <span class="branch">feat/frontend/market-hours-guard → main</span>
+            <span>15시간 전</span>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <div class="card span-4">
+      <h2>QA 상태 (On-Demand)</h2>
+      <div class="stats" style="grid-template-columns:1fr 1fr;">
+        <div class="stat green">
+          <div class="v">1</div><div class="l">보고서</div>
+        </div>
+        <div class="stat green">
+          <div class="v">0</div><div class="l">OPEN 이슈</div>
+        </div>
+      </div>
+      <div style="font-size:11.5px; color:var(--muted); margin-top:10px;">
+        FIXED 0건 · ADR 0016 — 7개 트리거 시에만 호출
+      </div>
+    </div>
+
+    <div class="card span-8">
+      <h2>에이전트 <span class="count">7</span></h2>
+      <div class="agent-grid">
+        <div class="agent-card">
+          <div><span class="n">ai-engineer</span><span class="m">opus</span></div>
+          <div class="d">Spring AI 통합·프롬프트 엔지니어링·뉴스/공시 감성 분석·전략 자연어 설명·자연어→조건식 변환을 담당. magicJar에서 LLM이 하는 모든 것의 책임자.</div>
+        </div><div class="agent-card">
+          <div><span class="n">architect</span><span class="m">opus</span></div>
+          <div class="d">magicJar의 전체 시스템 아키텍처·모듈 경계·기술 결정·ADR을 담당하는 수석 설계자. Spring Boot + Spring AI 기반 한국 주식 자동매매 시스템의 상위 설계 책임.</div>
+        </div><div class="agent-card">
+          <div><span class="n">backend-core</span><span class="m">sonnet</span></div>
+          <div class="d">magicJar의 Spring Boot 뼈대·도메인 모델·설정·보안·공용 인프라(REST/WebSocket/스케줄러)를 담당하는 백엔드 코어 엔지니어.</div>
+        </div><div class="agent-card">
+          <div><span class="n">frontend</span><span class="m">sonnet</span></div>
+          <div class="d">magicJar 대시보드(실시간 시세·포지션·백테스트 결과·AI 인사이트 뷰)를 담당하는 프론트엔드 엔지니어. 초기에는 Thymeleaf + HTMX + Chart.js로 빠르게, 필요 시 SPA 분리.</div>
+        </div><div class="agent-card">
+          <div><span class="n">market-data</span><span class="m">sonnet</span></div>
+          <div class="d">KIS OpenAPI 연동과 국내 주식 시세·뉴스·공시 수집 파이프라인을 책임지는 데이터 엔지니어. 실시간 WebSocket 체결/호가, 일봉·분봉 적재, DART 공시·네이버 뉴스 크롤링.</div>
+        </div><div class="agent-card">
+          <div><span class="n">qa</span><span class="m">sonnet</span></div>
+          <div class="d">magicJar 통합 정합성 검증을 담당하는 QA 엔지니어. 존재 확인이 아닌 **경계면 교차 비교**(API↔DB↔UI↔AI 출력)로 버그를 찾는다. ADR 0016 — On-Demand 호출(7개 트리거 조건 시), MVP 단계엔 모든 PR 강제 아님.</div>
+        </div><div class="agent-card">
+          <div><span class="n">strategy-engine</span><span class="m">opus</span></div>
+          <div class="d">기술적 지표 계산·차트 조건식 DSL·백테스트 엔진·주문 실행 로직을 만드는 전략 엔지니어. magicJar의 &quot;매매 두뇌&quot;로서 market-data의 캔들과 ai-engineer의 조건을 받아 신호/주문을 생성.</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <footer>
+    데이터 소스 — <code>_workspace/_harness-state.json</code> · <code>_workspace/tasks/*.md</code> · <code>git log</code> ·
+    <code>gh pr list</code> · <code>.claude/agents/*.md</code> · <code>.claude/worktrees/*</code> · <code>_workspace/qa/*</code><br>
+    워크플로우 다이어그램 → <a href="arch/workflow.html">arch/workflow.html</a> · 운영 가이드 → <a href="arch/branching-and-qa-gates.md">arch/branching-and-qa-gates.md</a>
+  </footer>
+
+</div>
+</body>
+</html>

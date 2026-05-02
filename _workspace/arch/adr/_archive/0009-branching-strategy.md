@@ -1,6 +1,8 @@
 # ADR 0009: 브랜치 전략과 머지 규칙
 
-- 상태: Accepted
+> **STATUS: SUPERSEDED by ADR 0015 + 0016 (2026-05-03 v2 베이스라인)** — Feature → QA → Main 2단 머지 + QA 게이트 강제 → 0015 단일 머지 흐름(`agent/* → main`) + 0016 QA on-demand로 단순화. 본 ADR은 참조용 보존.
+
+- 상태: Superseded by 0015 · 0016
 - 작성일: 2026-04-25
 - 결정자: architect (협의: backend-core, qa, 사용자 지시)
 

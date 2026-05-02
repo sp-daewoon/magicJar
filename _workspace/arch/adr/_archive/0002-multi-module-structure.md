@@ -1,6 +1,8 @@
 # ADR 0002: Gradle 멀티모듈 구조와 모듈 경계
 
-- 상태: Accepted
+> **STATUS: SUPERSEDED by ADR 0019 (2026-05-03 v2 베이스라인)** — 7 수직 도메인 모듈 → 4 JVM(domain·api·batch·consumer) + frontend·pyworker로 재배치됨. 본 ADR은 참조용 보존.
+
+- 상태: Superseded by 0019
 - 작성일: 2026-04-25
 - 결정자: architect (협의: backend-core)
 

@@ -1,6 +1,8 @@
 # ADR 0028: v1.0.1 베이스라인 태그 + release/v1 immutable 보존 브랜치
 
-- 상태: Accepted
+> **STATUS: DEPRECATED — 사유**: 사용자 명시(2026-05-02) "release말곤 싹 지울 예정" 정합. 단 사용자 결정(2026-05-03 default 12 §3) — `release/v0`·`release/v1`·`release/v1.1.0`·`release/v1.2.0_notwork` 4개 모두 보존. v2 베이스라인 컷은 별도 ADR(차후 발행)에서 결정. 본 ADR의 보존 정책 자체는 유효, 단 v2 흐름의 baseline 컷 표준은 새 ADR로 재기술 예정. (2026-05-03 archive 이동)
+
+- 상태: Deprecated (보존 룰만 유효, v2 baseline 표준은 후속 ADR)
 - 작성일: 2026-05-01
 - 결정자: architect (사용자 직접 명시 — "v1.0.1 된거 같다")
 - 관계: ADR 0027(v0 베이스라인), ADR 0009(브랜치 전략), ADR 0015(머지 흐름)

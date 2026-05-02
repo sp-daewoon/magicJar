@@ -1,6 +1,8 @@
 # ADR 0004: 영속 저장소와 캐시 전략
 
-- 상태: Accepted
+> **STATUS: SUPERSEDED by ADR 0025 (2026-05-03 v2 베이스라인)** — PostgreSQL 단일 인스턴스 + 스키마 분리로 본격 결정됨. 본 ADR은 참조용 보존.
+
+- 상태: Superseded by 0025
 - 작성일: 2026-04-25
 - 결정자: architect (협의: backend-core, market-data, strategy-engine)
 

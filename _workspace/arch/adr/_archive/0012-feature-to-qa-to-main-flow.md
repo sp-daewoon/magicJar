@@ -1,5 +1,7 @@
 # ADR 0012: Feature → QA → Main 2단 머지 흐름
 
+> **STATUS: SUPERSEDED by ADR 0015 (2026-04-25, archive 이동 2026-05-03)** — `qa` 영속 브랜치 폐기, `agent/* → main` 1단 머지로 단순화. v2 베이스라인 진입 시 `_archive/`로 이동.
+
 - 상태: **Superseded by ADR 0015 (2026-04-25)** — `qa` 영속 브랜치 폐기, `agent/* → main` 1단 머지로 단순화
 - 작성일: 2026-04-25 (대체: 2026-04-25, 본문 supersede 명시: 2026-04-27)
 - 결정자: architect (사용자 지시 반영 · qa 협의)

@@ -1,6 +1,8 @@
 # ADR 0008: 하네스 운영 페이지(/harness) 노출 정책
 
-- 상태: Accepted
+> **STATUS: SUPERSEDED by ADR 0022 (2026-05-03 v2 베이스라인)** — Spring 직접 노출 정적 페이지 → React SPA(`frontend/`) 흡수로 재구현됨. `/harness` 라우트는 `frontend/src/pages/Harness/`에서 React로 제공. 본 ADR은 참조용 보존.
+
+- 상태: Superseded by 0022
 - 작성일: 2026-04-25
 - 결정자: architect (협의: backend-core, frontend)
 
