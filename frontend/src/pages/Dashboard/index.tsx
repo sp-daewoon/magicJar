@@ -10,6 +10,7 @@ import { useMarketTickStream } from '@/hooks/useMarketTickStream'
 import { useWsConnectionState } from '@/hooks/useWsConnectionState'
 import MarketStatusBadge from '@/components/market/MarketStatusBadge'
 import { instrumentsApi } from '@/api/instruments'
+import ManualOrderPanel from '@/components/ManualOrderPanel'
 
 /** 보유 포지션이 없을 때 watch할 default 종목 (대형주 5개) */
 const DEFAULT_WATCHLIST = ['005930', '000660', '035720', '005380', '051910']
@@ -262,6 +263,9 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* 1번 트랙 — 수동 주문 입구 (dogfooding) */}
+      <ManualOrderPanel />
     </div>
   )
 }
