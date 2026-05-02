@@ -15,6 +15,7 @@ import com.mj.domain.user.port.KisCredential
 import com.mj.domain.user.port.KisCredentialProvider
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Profile
 import org.springframework.http.HttpStatusCode
 import org.springframework.stereotype.Component
@@ -25,7 +26,18 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
- * KIS 주문/잔고/체결조회 어댑터. spec §5, §6.1.
+ * KIS 주문/잔고/체결조회 어댑터. spec §5, §6.1, ADR 0035.
+ *
+ * T2-T6: raw HTTP 로깅 추가 (debug level, `MAGICJAR_KIS_RAW_HTTP_LOGGING=true` 시 활성).
+ *   - request: 메서드·URI·헤더(secret 마스킹)·body
+ *   - response: status·body 요약
+ *   - 컨벤션 §8: appkey·appsecret·authorization 값 마스킹
+ *
+ * T2-T7: EGW00202 hotfix
+ *   (a) hashkey 헤더 자동 첨부 — `/uapi/hashkey` POST 후 응답 HASH 값을 `hashkey` 헤더로 전달.
+ *   (b) Accept·Content-Type 명시 override (RestClient 기본 협상 헤더 방지).
+ *   (c) User-Agent 명시 (KIS gateway가 표준 브라우저/서버 UA 기대할 수 있음).
+ *   (d) SLL_TYPE 빈 문자열 → BUY 시 제거 (KIS 명세: SELL에만 "01" 전달, BUY는 키 미포함).
  *
  * - mode (MOCK_KIS / REAL_KIS) 별로 별도 KisHttpSession 사용 (서로 다른 baseUrl)
  * - TR_ID는 mode + 메서드 조합으로 결정 (spec §3 D2)
@@ -38,6 +50,8 @@ class RealKisOrderAdapter(
     @Qualifier("mockKisHttpSession") private val mockSession: KisHttpSession,
     @Qualifier("realKisHttpSession") private val realSession: KisHttpSession,
     private val credentials: KisCredentialProvider,
+    private val hashKeyClient: KisHashKeyClient,
+    @Value("\${magicjar.kis.raw-http-logging:false}") private val rawHttpLogging: Boolean,
 ) : KisOrderPort {
     private val log = LoggerFactory.getLogger(javaClass)
     private val mapper: ObjectMapper = jacksonObjectMapper()
@@ -65,18 +79,19 @@ class RealKisOrderAdapter(
                 OrderType.MARKET -> "01"
                 OrderType.LIMIT -> "00"
             }
+        // T2-T7 (d): BUY 시 SLL_TYPE 키 미포함, SELL만 "01"
+        // KIS 명세: 빈 문자열 필드가 오히려 파싱 오류 유발 가능성 있음
         val body =
-            mapOf(
-                "CANO" to cred.accountNo,
-                "ACNT_PRDT_CD" to cred.accountProductCode,
-                "PDNO" to order.code,
-                "ORD_DVSN" to ordDvsn,
-                "ORD_QTY" to order.qty.toString(),
-                "ORD_UNPR" to (order.price?.toPlainString() ?: "0"),
-                "EXCG_ID_DVSN_CD" to "KRX",
-                "SLL_TYPE" to if (order.side == Side.SELL) "01" else "",
-                "CNDT_PRIC" to "",
-            )
+            buildMap<String, Any> {
+                put("CANO", cred.accountNo)
+                put("ACNT_PRDT_CD", cred.accountProductCode)
+                put("PDNO", order.code)
+                put("ORD_DVSN", ordDvsn)
+                put("ORD_QTY", order.qty.toString())
+                put("ORD_UNPR", order.price?.toPlainString() ?: "0")
+                put("EXCG_ID_DVSN_CD", "KRX")
+                if (order.side == Side.SELL) put("SLL_TYPE", "01")
+            }
         val output = postWithAuth(cred, trId, "/uapi/domestic-stock/v1/trading/order-cash", body)
         return KisOrderResponseMapper.toOrderResult(output)
     }
@@ -194,6 +209,10 @@ class RealKisOrderAdapter(
         return KisOrderResponseMapper.toExecutionLines(body)
     }
 
+    // ----------------------------------------------------------------
+    // 내부 HTTP 호출 공통 메서드
+    // ----------------------------------------------------------------
+
     private fun postWithAuth(
         cred: KisCredential,
         trId: String,
@@ -201,31 +220,58 @@ class RealKisOrderAdapter(
         body: Map<String, Any>,
     ): JsonNode {
         val session = sessionFor(cred.tradingMode)
+        val isMock = cred.tradingMode == TradingMode.MOCK_KIS
+
         return session.executeWithRetry(cred.appKey, cred.appSecret) {
             val token = session.acquireToken(cred.appKey, cred.appSecret)
-            val resp =
+
+            // T2-T7 (a): hashkey 발급
+            val hashKey = hashKeyClient.fetchHashKey(isMock, cred.appKey, cred.appSecret, body)
+
+            // T2-T6: raw HTTP 로깅
+            if (rawHttpLogging) {
+                logRawRequest("POST", path, trId, body, cred.appKey, hashKey)
+            }
+
+            val resp: JsonNode =
                 try {
-                    session.client
-                        .post()
-                        .uri(path)
-                        .header("authorization", "Bearer $token")
-                        .header("appkey", cred.appKey)
-                        .header("appsecret", cred.appSecret)
-                        .header("tr_id", trId)
-                        .header("custtype", "P")
-                        .body(body)
-                        .retrieve()
-                        .onStatus(HttpStatusCode::isError) { _, r ->
-                            throw RestClientResponseException(
-                                "http=${r.statusCode}",
-                                r.statusCode,
-                                r.statusText,
-                                r.headers,
-                                r.body.readAllBytes(),
-                                Charsets.UTF_8,
-                            )
-                        }.body(JsonNode::class.java)
-                        ?: error("[KIS_ORDER] empty response path=$path tr_id=$trId")
+                    val result =
+                        session.client
+                            .post()
+                            .uri(path)
+                            // T2-T7 (b)(c): 헤더 명시 override
+                            .header("Accept", "application/json; charset=utf-8")
+                            .header("Content-Type", "application/json; charset=utf-8")
+                            .header("User-Agent", "magicjar/1.0")
+                            .header("authorization", "Bearer $token")
+                            .header("appkey", cred.appKey)
+                            .header("appsecret", cred.appSecret)
+                            .header("tr_id", trId)
+                            .header("custtype", "P")
+                            .also { r ->
+                                if (hashKey != null) r.header("hashkey", hashKey)
+                            }.body(body)
+                            .retrieve()
+                            .onStatus(HttpStatusCode::isError) { _, r ->
+                                val bodyBytes = r.body.readAllBytes()
+                                if (rawHttpLogging) {
+                                    log.debug("[KIS_RAW] response status={} body={}", r.statusCode, String(bodyBytes, Charsets.UTF_8))
+                                }
+                                throw RestClientResponseException(
+                                    "http=${r.statusCode}",
+                                    r.statusCode,
+                                    r.statusText,
+                                    r.headers,
+                                    bodyBytes,
+                                    Charsets.UTF_8,
+                                )
+                            }.body(JsonNode::class.java)
+                            ?: error("[KIS_ORDER] empty response path=$path tr_id=$trId")
+
+                    if (rawHttpLogging) {
+                        log.debug("[KIS_RAW] response OK rt_cd={} msg_cd={}", result.path("rt_cd").asText(), result.path("msg_cd").asText())
+                    }
+                    result
                 } catch (ex: RestClientResponseException) {
                     if (ex.statusCode.value() == 401) throw ex
                     val node =
@@ -251,8 +297,14 @@ class RealKisOrderAdapter(
         params: Map<String, String>,
     ): JsonNode {
         val session = sessionFor(cred.tradingMode)
+
         return session.executeWithRetry(cred.appKey, cred.appSecret) {
             val token = session.acquireToken(cred.appKey, cred.appSecret)
+
+            if (rawHttpLogging) {
+                log.debug("[KIS_RAW] GET {} tr_id={} params_keys={}", path, trId, params.keys)
+            }
+
             val resp =
                 try {
                     session.client
@@ -261,19 +313,27 @@ class RealKisOrderAdapter(
                             val u = b.path(path)
                             params.forEach { (k, v) -> u.queryParam(k, v) }
                             u.build()
-                        }.header("authorization", "Bearer $token")
+                        }
+                        // T2-T7 (b)(c): 헤더 명시 override
+                        .header("Accept", "application/json; charset=utf-8")
+                        .header("User-Agent", "magicjar/1.0")
+                        .header("authorization", "Bearer $token")
                         .header("appkey", cred.appKey)
                         .header("appsecret", cred.appSecret)
                         .header("tr_id", trId)
                         .header("custtype", "P")
                         .retrieve()
                         .onStatus(HttpStatusCode::isError) { _, r ->
+                            val bodyBytes = r.body.readAllBytes()
+                            if (rawHttpLogging) {
+                                log.debug("[KIS_RAW] response status={} body={}", r.statusCode, String(bodyBytes, Charsets.UTF_8))
+                            }
                             throw RestClientResponseException(
                                 "http=${r.statusCode}",
                                 r.statusCode,
                                 r.statusText,
                                 r.headers,
-                                r.body.readAllBytes(),
+                                bodyBytes,
                                 Charsets.UTF_8,
                             )
                         }.body(JsonNode::class.java)
@@ -291,6 +351,9 @@ class RealKisOrderAdapter(
                         httpStatus = ex.statusCode.value(),
                     )
                 }
+            if (rawHttpLogging) {
+                log.debug("[KIS_RAW] GET response OK rt_cd={}", resp.path("rt_cd").asText())
+            }
             checkRtCd(resp, path, trId)
             resp
         }
@@ -308,5 +371,42 @@ class RealKisOrderAdapter(
             log.warn("[KIS_ORDER] rt_cd={} msg_cd={} msg={} path={} tr_id={}", rtCd, msgCd, msg1, path, trId)
             throw KisApiException(rtCd, msgCd, msg1, httpStatus = 200)
         }
+    }
+
+    /**
+     * T2-T6: raw request 로그. secret/authorization 값 마스킹 (컨벤션 §8).
+     */
+    private fun logRawRequest(
+        method: String,
+        path: String,
+        trId: String,
+        body: Map<String, Any>,
+        appKey: String,
+        hashKey: String?,
+    ) {
+        val maskedBody =
+            body.entries.joinToString(", ") { (k, v) ->
+                val masked =
+                    when (k.uppercase()) {
+                        "CANO" -> maskMiddle(v.toString())
+                        else -> v.toString()
+                    }
+                "$k=$masked"
+            }
+        log.debug(
+            "[KIS_RAW] {} {} tr_id={} appkey={}*** hashkey={} body=[{}]",
+            method,
+            path,
+            trId,
+            appKey.take(4),
+            hashKey?.take(8)?.let { "$it..." } ?: "none",
+            maskedBody,
+        )
+    }
+
+    /** 계좌번호 가운데 마스킹 — 앞 2자리·뒤 2자리만 노출. */
+    private fun maskMiddle(value: String): String {
+        if (value.length <= 4) return "****"
+        return "${value.take(2)}${"*".repeat(value.length - 4)}${value.takeLast(2)}"
     }
 }

@@ -106,6 +106,11 @@ kis:
 magicjar:
   mode: ${MAGICJAR_MODE:MOCK}
   allow-real: ${MAGICJAR_ALLOW_REAL:false}
+  kis:
+    # T2-T7 EGW00202 hotfix: POST 요청 hashkey 헤더 자동 첨부 (default true)
+    hashkey-enabled: ${MAGICJAR_KIS_HASHKEY_ENABLED:true}
+    # T2-T6 진단용 raw HTTP 로깅 (default false, dev에서만 활성화 권장)
+    raw-http-logging: ${MAGICJAR_KIS_RAW_HTTP_LOGGING:false}
   ai:
     # 1차 통합: 기본 OFF. ANTHROPIC_API_KEY 채우고 enabled=true로 부팅 시 자동 활성.
     enabled: ${MAGICJAR_AI_ENABLED:false}
