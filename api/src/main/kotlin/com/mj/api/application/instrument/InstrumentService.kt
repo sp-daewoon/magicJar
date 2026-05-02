@@ -1,23 +1,22 @@
 package com.mj.api.application.instrument
 
-import com.mj.domain.common.Instrument
-import com.mj.domain.market.port.InstrumentCatalog
+import com.mj.domain.market.instrument.Instrument
+import com.mj.domain.market.instrument.port.InstrumentRepository
 import org.springframework.stereotype.Service
 
 @Service
 class InstrumentService(
-    private val catalog: InstrumentCatalog,
+    private val repository: InstrumentRepository,
 ) {
-    fun list(): List<Instrument> = catalog.findAll()
+    fun list(): List<Instrument> = repository.findAll()
 
-    fun get(code: String): Instrument? = catalog.findByCode(code)
+    fun get(code: String): Instrument? = repository.findByCode(code)
 
-    fun search(query: String): List<Instrument> {
+    fun search(
+        query: String,
+        limit: Int = 20,
+    ): List<Instrument> {
         if (query.isBlank()) return emptyList()
-        val q = query.lowercase()
-        return catalog
-            .findAll()
-            .filter { it.code.lowercase().contains(q) || it.name.lowercase().contains(q) }
-            .take(20)
+        return repository.search(query, limit)
     }
 }

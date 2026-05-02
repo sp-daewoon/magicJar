@@ -16,7 +16,7 @@ import com.mj.domain.common.Interval
 import com.mj.domain.common.Mode
 import com.mj.domain.common.Side
 import com.mj.domain.common.StrategyRef
-import com.mj.domain.market.port.InstrumentCatalog
+import com.mj.domain.market.instrument.port.InstrumentRepository
 import com.mj.domain.order.port.OrderSender
 import io.mockk.every
 import io.mockk.justRun
@@ -51,7 +51,7 @@ class BacktestRunJobTest {
 
     private val candleJpaRepository = mockk<CandleJpaRepository>(relaxed = true)
     private val candleRepositoryAdapter = CandleRepositoryAdapter(candleJpaRepository)
-    private val instrumentCatalog = mockk<InstrumentCatalog>(relaxed = true)
+    private val instrumentCatalog = mockk<InstrumentRepository>(relaxed = true)
     private val orderSender = mockk<OrderSender>(relaxed = true)
 
     private val backtestEngine =
