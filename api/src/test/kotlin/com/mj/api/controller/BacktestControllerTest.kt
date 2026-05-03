@@ -1,10 +1,15 @@
 package com.mj.api.controller
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.mj.api.application.backtest.BacktestDetailQueryService
 import com.mj.api.application.backtest.BacktestRunStatus
 import com.mj.api.application.backtest.BacktestService
 import com.mj.api.application.backtest.BacktestStatusResponse
 import com.mj.api.application.backtest.BacktestTriggerResponse
+import com.mj.api.application.backtest.EquityCurveResponse
+import com.mj.api.application.backtest.EquityPointDto
+import com.mj.api.application.backtest.TradeDto
+import com.mj.api.application.backtest.TradesResponse
 import com.mj.api.config.WebSecurityConfig
 import io.mockk.every
 import io.mockk.mockk
@@ -38,6 +43,9 @@ class BacktestControllerTest {
     class MockConfig {
         @Bean
         fun backtestService(): BacktestService = mockk()
+
+        @Bean
+        fun backtestDetailQueryService(): BacktestDetailQueryService = mockk()
     }
 
     @Autowired
@@ -45,6 +53,9 @@ class BacktestControllerTest {
 
     @Autowired
     lateinit var backtestService: BacktestService
+
+    @Autowired
+    lateinit var backtestDetailQueryService: BacktestDetailQueryService
 
     @Autowired
     lateinit var mapper: ObjectMapper
@@ -112,6 +123,104 @@ class BacktestControllerTest {
                 content = """{"symbol":"005930"}"""
             }.andExpect {
                 status { isBadRequest() }
+            }
+    }
+
+    @Test
+    fun `GET equity-curve returns 200 with points for existing run`() {
+        every { backtestDetailQueryService.getEquityCurve("run-1") } returns
+            EquityCurveResponse(
+                runId = "run-1",
+                count = 2,
+                points =
+                    listOf(
+                        EquityPointDto(
+                            sequence = 0,
+                            at = "2024-01-01T00:00:00Z",
+                            equity = java.math.BigDecimal("1000000.00"),
+                            cash = java.math.BigDecimal("1000000.00"),
+                            positionValue = java.math.BigDecimal("0.00"),
+                        ),
+                        EquityPointDto(
+                            sequence = 1,
+                            at = "2024-01-02T00:00:00Z",
+                            equity = java.math.BigDecimal("1050000.00"),
+                            cash = java.math.BigDecimal("0.00"),
+                            positionValue = java.math.BigDecimal("1050000.00"),
+                        ),
+                    ),
+            )
+
+        mvc
+            .get("/api/backtest/run-1/equity-curve")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$.runId") { value("run-1") }
+                jsonPath("$.count") { value(2) }
+                jsonPath("$.points.length()") { value(2) }
+                jsonPath("$.points[0].sequence") { value(0) }
+                jsonPath("$.points[1].equity") { value(1050000.00) }
+            }
+    }
+
+    @Test
+    fun `GET equity-curve returns 404 for unknown run`() {
+        every { backtestDetailQueryService.getEquityCurve("unknown") } returns null
+
+        mvc
+            .get("/api/backtest/unknown/equity-curve")
+            .andExpect {
+                status { isNotFound() }
+            }
+    }
+
+    @Test
+    fun `GET trades returns 200 with trade list`() {
+        every { backtestDetailQueryService.getTrades("run-1") } returns
+            TradesResponse(
+                runId = "run-1",
+                count = 1,
+                trades =
+                    listOf(
+                        TradeDto(
+                            tradeId = "t-1",
+                            sequence = 0,
+                            symbol = "005930",
+                            entryAt = "2024-01-02T00:00:00Z",
+                            exitAt = "2024-01-10T00:00:00Z",
+                            entryPrice = java.math.BigDecimal("70000.00"),
+                            exitPrice = java.math.BigDecimal("73000.00"),
+                            shares = 100,
+                            pnl = java.math.BigDecimal("298000.00"),
+                            pnlPercent = java.math.BigDecimal("0.04257143"),
+                            entryCommission = java.math.BigDecimal("105.00"),
+                            exitCommission = java.math.BigDecimal("109.50"),
+                            exitTax = java.math.BigDecimal("1314.00"),
+                            exitReason = "SIGNAL_EXIT",
+                        ),
+                    ),
+            )
+
+        mvc
+            .get("/api/backtest/run-1/trades")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$.count") { value(1) }
+                jsonPath("$.trades[0].tradeId") { value("t-1") }
+                jsonPath("$.trades[0].symbol") { value("005930") }
+                jsonPath("$.trades[0].pnl") { value(298000.00) }
+                jsonPath("$.trades[0].exitReason") { value("SIGNAL_EXIT") }
+            }
+    }
+
+    @Test
+    fun `GET trades returns 404 for unknown run`() {
+        every { backtestDetailQueryService.getTrades("unknown") } returns null
+
+        mvc
+            .get("/api/backtest/unknown/trades")
+            .andExpect {
+                status { isNotFound() }
             }
     }
 }

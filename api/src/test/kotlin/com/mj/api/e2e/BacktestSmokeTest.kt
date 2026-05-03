@@ -1,6 +1,7 @@
 package com.mj.api.e2e
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.mj.api.application.backtest.BacktestDetailQueryService
 import com.mj.api.application.backtest.BacktestRunStatus
 import com.mj.api.application.backtest.BacktestService
 import com.mj.api.application.backtest.BacktestStatusResponse
@@ -50,6 +51,9 @@ class BacktestSmokeTest {
     class SmokeConfig {
         @Bean
         fun backtestService(): BacktestService = mockk()
+
+        @Bean
+        fun backtestDetailQueryService(): BacktestDetailQueryService = mockk()
     }
 
     @Autowired

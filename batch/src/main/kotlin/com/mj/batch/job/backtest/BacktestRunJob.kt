@@ -55,6 +55,7 @@ class BacktestRunJob(
     private val transactionManager: PlatformTransactionManager,
     private val kisRestPort: KisRestPort,
     private val backtestEngine: BacktestEngine,
+    private val backtestExecutor: BacktestExecutor,
     private val backtestRunRepository: BacktestRunJpaRepository,
     private val journalRepository: TradeJournalJpaRepository,
     private val journalPublisher: JournalEntryPublisher,
@@ -142,6 +143,30 @@ class BacktestRunJob(
                 log.info("[backtest-run] running backtest runId={}", resolvedRunId)
                 val result = backtestEngine.run(request)
 
+                // track9 R1: 도메인 BacktestEngine으로 추가 실행해 trades/equity 영속.
+                // 기존 batch BacktestEngine은 OrderSender 통해 OrderFilledEvent 발행하지만
+                // raw trade/equity 시계열을 영속하지 않는다.
+                // BacktestExecutor가 도메인 엔진 호출 + V15 테이블 적재.
+                val executorResult =
+                    runCatching {
+                        backtestExecutor.execute(
+                            runId = resolvedRunId,
+                            symbol = resolvedSymbol,
+                            from = resolvedFrom,
+                            to = resolvedTo,
+                            conditionExpr = conditionExpr,
+                            initialCapital = defaultConfig().initialCapitalKrw,
+                            costModel = com.mj.domain.strategy.backtest.CostModel.DEFAULT,
+                            interval = Interval.D1,
+                        )
+                    }.onFailure {
+                        log.warn(
+                            "[backtest-run] BacktestExecutor failed runId={}: {}",
+                            resolvedRunId,
+                            it.message,
+                        )
+                    }.getOrNull()
+
                 // 4. TradeJournal entries 생성 (진입/청산 페어)
                 val journalEntries =
                     buildJournalEntries(
@@ -170,8 +195,10 @@ class BacktestRunJob(
                 }
 
                 // 6. COMPLETED
+                // track9 R1: BacktestExecutor 결과의 강화 metrics(profitFactor·maxConsecutiveLosses 등)도 노출.
+                val executorMetrics = executorResult?.summary?.metrics
                 val summaryMap =
-                    mapOf(
+                    mutableMapOf<String, Any>(
                         "totalReturn" to result.metrics.totalReturn,
                         "cagr" to result.metrics.cagr,
                         "mdd" to result.metrics.mdd,
@@ -179,7 +206,16 @@ class BacktestRunJob(
                         "winRate" to result.metrics.winRate,
                         "tradeCount" to result.metrics.tradeCount,
                         "journalEntries" to journalEntries.size,
-                    )
+                    ).apply {
+                        if (executorMetrics != null) {
+                            put("profitFactor", executorMetrics.profitFactor)
+                            put("maxConsecutiveLosses", executorMetrics.maxConsecutiveLosses)
+                            put("avgWin", executorMetrics.avgWin)
+                            put("avgLoss", executorMetrics.avgLoss)
+                            put("persistedTrades", executorResult.persistedTrades)
+                            put("persistedEquityPoints", executorResult.persistedEquityPoints)
+                        }
+                    }
                 run.status = "COMPLETED"
                 run.finishedAt = Instant.now()
                 run.summaryJson = objectMapper.writeValueAsString(summaryMap)
