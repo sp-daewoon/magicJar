@@ -112,6 +112,20 @@ magicjar:
       # prd profile에선 이 설정이 무시되고 항상 REJECT (ADR 0042).
       # mock profile에선 MarketSessionGuard Bean 자체가 미등록.
       offline-fallback: ${MAGICJAR_GUARD_SESSION_OFFLINE_FALLBACK:false}
+    position-limit:
+      # 종목당 포지션 비중 한도. 1차 매우 느슨한 값(10%) — 정상 매매 차단 0.
+      # dev/prd 프로파일에서만 활성 (mock에선 Bean 미등록).
+      # 운영 시 단계적 조정: _workspace/operations/order-policy.md 참조.
+      limit-percent: ${MAGICJAR_GUARD_POSITION_LIMIT_PERCENT:0.10}
+      # 전체 자본 추정액 (KRW). 계좌 잔고 조회 없이 1차 운영. 실거래 전환 시 실잔고로 교체.
+      total-capital: ${MAGICJAR_GUARD_POSITION_TOTAL_CAPITAL:10000000}
+    drawdown-stop:
+      # 일일 손실 한도. 음수 값. 1차 매우 느슨한 값(-3%) — 정상 매매 차단 0.
+      # dev/prd 프로파일에서만 활성 (mock에선 Bean 미등록).
+      # 운영 시 단계적 조정: _workspace/operations/order-policy.md 참조.
+      limit-percent: ${MAGICJAR_GUARD_DRAWDOWN_LIMIT_PERCENT:-0.03}
+      # 전체 자본 추정액 (KRW). position-limit.total-capital과 같은 값 사용 권장.
+      total-capital: ${MAGICJAR_GUARD_DRAWDOWN_TOTAL_CAPITAL:10000000}
   kis:
     # T2-T7 EGW00202 hotfix: POST 요청 hashkey 헤더 자동 첨부 (default true)
     hashkey-enabled: ${MAGICJAR_KIS_HASHKEY_ENABLED:true}

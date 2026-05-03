@@ -165,6 +165,63 @@ interface OrderJpaRepository : JpaRepository<OrderEntity, UUID> {
         @Param("filledQty") filledQty: Int,
         @Param("avgFillPrice") avgFillPrice: BigDecimal?,
     ): Int
+
+    /**
+     * 사용자의 특정 종목 현재 포지션 평가액 계산.
+     *
+     * FILLED·PARTIALLY_FILLED 주문 기준:
+     * - BUY: filledQty * avgFillPrice → 보유 자산
+     * - SELL: -(filledQty * avgFillPrice) → 보유 감소
+     *
+     * SUM 결과는 현재 종목 순 포지션 평가액(원).
+     * avgFillPrice가 null인 경우(체결 미완, 드문 케이스) COALESCE(0)으로 처리.
+     */
+    @Query(
+        value = """
+            SELECT COALESCE(SUM(
+                CASE o.side
+                    WHEN 'BUY'  THEN  o.filled_qty * COALESCE(o.avg_fill_price, 0)
+                    WHEN 'SELL' THEN -o.filled_qty * COALESCE(o.avg_fill_price, 0)
+                    ELSE 0
+                END
+            ), 0)
+            FROM orders o
+            WHERE o.user_id = :userId
+              AND o.code = :code
+              AND o.status IN ('FILLED','PARTIALLY_FILLED')
+        """,
+        nativeQuery = true,
+    )
+    fun sumPositionValue(
+        @Param("userId") userId: UUID,
+        @Param("code") code: String,
+    ): BigDecimal
+
+    /**
+     * 사용자의 오늘 일일 실현 P&L 계산 (KST 기준 당일 체결 이벤트).
+     *
+     * SELL 체결금액 - BUY 체결금액의 당일 합계.
+     * 비용(수수료·세금) 미포함 — 1차 보수적 추정.
+     */
+    @Query(
+        value = """
+            SELECT COALESCE(SUM(
+                CASE o.side
+                    WHEN 'SELL' THEN  o.filled_qty * COALESCE(o.avg_fill_price, 0)
+                    WHEN 'BUY'  THEN -o.filled_qty * COALESCE(o.avg_fill_price, 0)
+                    ELSE 0
+                END
+            ), 0)
+            FROM orders o
+            WHERE o.user_id = :userId
+              AND o.status = 'FILLED'
+              AND DATE(o.updated_at AT TIME ZONE 'Asia/Seoul') = CURRENT_DATE AT TIME ZONE 'Asia/Seoul'
+        """,
+        nativeQuery = true,
+    )
+    fun sumTodayRealizedPnl(
+        @Param("userId") userId: UUID,
+    ): BigDecimal
 }
 
 @Component
@@ -191,4 +248,13 @@ class OrderJpaAdapter(
     ) {
         repo.updateStatus(orderId, status, filledQty, avgFillPrice)
     }
+
+    /** 종목 포지션 평가액 (BUY 체결합 - SELL 체결합, 원 단위). */
+    fun positionValue(
+        userId: UUID,
+        code: String,
+    ): BigDecimal = repo.sumPositionValue(userId, code)
+
+    /** 오늘 KST 일일 실현 P&L. 수수료 미포함 보수적 추정. */
+    fun todayRealizedPnl(userId: UUID): BigDecimal = repo.sumTodayRealizedPnl(userId)
 }

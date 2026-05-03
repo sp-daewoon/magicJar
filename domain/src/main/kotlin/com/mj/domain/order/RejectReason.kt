@@ -24,11 +24,31 @@ sealed class RejectReason(
     /** @Order(200) DailyOrderLimitGuard — 일별 주문 횟수 또는 명목금액 초과. */
     data object DailyOrderLimitExceeded : RejectReason("DAILY_LIMIT")
 
-    /** @Order(250) PositionLimitGuard — 종목당 또는 전체 포지션 비중 초과. (T12 트랙 구현) */
-    data object PositionLimitExceeded : RejectReason("POSITION_LIMIT")
+    /**
+     * @Order(220) PositionLimitGuard — 종목당 포지션 비중 초과.
+     *
+     * @param attemptedQty 신규 주문 수량
+     * @param currentPositionValue 현재 종목 포지션 평가액 (원)
+     * @param limitPercent 종목당 최대 허용 비중 (예: 0.10 = 10%)
+     * @param totalCapital 전체 자본 추정액 (원)
+     */
+    data class PositionLimitExceeded(
+        val attemptedQty: Int,
+        val currentPositionValue: java.math.BigDecimal,
+        val limitPercent: Double,
+        val totalCapital: java.math.BigDecimal,
+    ) : RejectReason("POSITION_LIMIT")
 
-    /** @Order(280) DrawdownStopGuard — 일일·주간·전체 drawdown 한도 초과. (T14 트랙 구현) */
-    data object DrawdownStopTriggered : RejectReason("DRAWDOWN_STOP")
+    /**
+     * @Order(240) DrawdownStopGuard — 일일 drawdown 한도 초과.
+     *
+     * @param currentDrawdownPercent 현재 일일 손실률 (음수, 예: -0.035 = -3.5%)
+     * @param limitPercent 허용 최대 손실률 (음수, 예: -0.03 = -3%)
+     */
+    data class DrawdownStopTriggered(
+        val currentDrawdownPercent: Double,
+        val limitPercent: Double,
+    ) : RejectReason("DRAWDOWN_STOP")
 
     /** @Order(300) PriceSanityGuard — tick stale 또는 주문가 이상. */
     data object PriceSanityFailed : RejectReason("PRICE_SANITY")
@@ -64,8 +84,18 @@ sealed class RejectReason(
             is MarketSessionClosed -> "장 시간 외 — 정규장(09:00~15:30)·동시호가(08:30~09:00)·장후(15:30~18:00) 아님"
             is MarketNotBusinessDay -> "비영업일 — 주말 또는 공휴일"
             is DailyOrderLimitExceeded -> "일별 주문 한도 초과 (건수 또는 명목금액)"
-            is PositionLimitExceeded -> "포지션 한도 초과 (종목당 또는 전체 비중)"
-            is DrawdownStopTriggered -> "Drawdown 한도 초과 (일일·주간·전체)"
+            is PositionLimitExceeded ->
+                buildString {
+                    append("포지션 한도 초과: 현재평가액=${currentPositionValue}원 ")
+                    append("한도=${(limitPercent * 100).toInt()}% 총자본=${totalCapital}원 ")
+                    append("시도수량=${attemptedQty}주")
+                }
+            is DrawdownStopTriggered ->
+                buildString {
+                    val dd = String.format("%.2f", currentDrawdownPercent * 100)
+                    val lim = String.format("%.2f", limitPercent * 100)
+                    append("Drawdown 한도 초과: 현재일일손실=$dd% 한도=$lim%")
+                }
             is PriceSanityFailed -> "가격 이상 감지 (tick stale 또는 호가 범위 이탈)"
             is KisApiError -> "KIS API 오류: rt_cd=$rtCd msg=$msg"
             is Internal -> "내부 오류: $message"
