@@ -10,6 +10,9 @@ import java.time.LocalDate
 interface InstrumentJpaRepository : JpaRepository<InstrumentJpa, String> {
     fun findByMarket(market: Market): List<InstrumentJpa>
 
+    /** 활성 종목 전체 조회 (Corp Action backfill 대상) */
+    fun findByActiveTrue(): List<InstrumentJpa>
+
     @Modifying
     @Query(
         """

@@ -1,0 +1,14 @@
+{
+  "rt_cd": "0",
+  "msg_cd": "KIOK0000",
+  "msg1": "정상처리 되었습니다.",
+  "output1": [
+    {
+      "sht_cd": "005930",
+      "ex_dt": "20240426",
+      "bfac_nmvl": "50",
+      "bfor_par_prc": "100",
+      "aftr_par_prc": "5000"
+    }
+  ]
+}
