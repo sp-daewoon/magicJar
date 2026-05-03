@@ -7,6 +7,9 @@ import com.mj.api.application.market.CandleCacheService
 import com.mj.api.application.market.CandleQueryService
 import com.mj.api.application.market.CandleQueryService.QueryResult
 import com.mj.api.application.market.InstrumentDetailService
+import com.mj.api.application.market.InvestorTrendService
+import com.mj.api.application.market.OrderbookService
+import com.mj.api.application.market.RecentTradesService
 import com.mj.api.config.WebSecurityConfig
 import com.mj.domain.common.Candle
 import com.mj.domain.common.Interval
@@ -61,6 +64,15 @@ class InstrumentControllerTest {
 
         @Bean
         fun instrumentDetailService(): InstrumentDetailService = mockk()
+
+        @Bean
+        fun orderbookService(): OrderbookService = mockk()
+
+        @Bean
+        fun recentTradesService(): RecentTradesService = mockk()
+
+        @Bean
+        fun investorTrendService(): InvestorTrendService = mockk()
     }
 
     @Autowired

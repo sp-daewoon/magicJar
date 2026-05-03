@@ -5,12 +5,18 @@ import com.mj.api.application.instrument.InstrumentService
 import com.mj.api.application.market.CandleCacheService
 import com.mj.api.application.market.CandleQueryService
 import com.mj.api.application.market.InstrumentDetailService
+import com.mj.api.application.market.InvestorTrendService
+import com.mj.api.application.market.OrderbookService
+import com.mj.api.application.market.RecentTradesService
 import com.mj.api.controller.dto.CandleResponse
 import com.mj.api.controller.dto.InstrumentDetailResponse
 import com.mj.api.controller.dto.InstrumentMasterSyncRequest
 import com.mj.api.controller.dto.InstrumentMasterSyncResponse
 import com.mj.api.controller.dto.InstrumentMasterSyncStatusResponse
 import com.mj.api.controller.dto.InstrumentSearchResponse
+import com.mj.api.controller.dto.InvestorTrendResponse
+import com.mj.api.controller.dto.OrderbookResponse
+import com.mj.api.controller.dto.RecentTradeResponse
 import com.mj.api.controller.dto.toDetailResponse
 import com.mj.api.controller.dto.toResponse
 import com.mj.api.controller.dto.toSearchResponse
@@ -53,6 +59,9 @@ class InstrumentController(
     private val candleCacheService: CandleCacheService,
     private val masterSyncService: InstrumentMasterSyncApiService,
     private val instrumentDetailService: InstrumentDetailService,
+    private val orderbookService: OrderbookService,
+    private val recentTradesService: RecentTradesService,
+    private val investorTrendService: InvestorTrendService,
 ) {
     private val kst = ZoneId.of("Asia/Seoul")
 
@@ -334,6 +343,104 @@ class InstrumentController(
                 errorMessage = status["errorMessage"]?.toString(),
             ),
         )
+    }
+
+    // ── 호가창 ────────────────────────────────────────────────────────────────
+
+    @Operation(
+        summary = "호가창 조회",
+        description = """
+            KIS inquire-asking-price-exp-ccn (FHKST01010200) 기반 호가창.
+
+            - 매도 10단 + 매수 10단 호가·잔량·잔량증감
+            - 총 매도/매수 잔량 + 현재가 + 예상체결가
+            - Redis 캐시 TTL: 5초 (실시간성 중요)
+            - KIS 키 미설정 시 404 반환
+        """,
+    )
+    @ApiResponses(
+        value = [
+            ApiResponse(responseCode = "200", description = "조회 성공"),
+            ApiResponse(responseCode = "404", description = "해당 코드의 종목 없음 또는 KIS 키 미설정"),
+        ],
+    )
+    @GetMapping("/{code}/orderbook")
+    fun orderbook(
+        @Parameter(description = "KRX 종목 코드 6자리", example = "005930")
+        @PathVariable code: String,
+    ): ResponseEntity<OrderbookResponse> {
+        val normalized = code.uppercase()
+        instrumentService.get(normalized) ?: return ResponseEntity.notFound().build()
+        val result = orderbookService.getOrderbook(normalized) ?: return ResponseEntity.notFound().build()
+        return ResponseEntity.ok(result.toResponse())
+    }
+
+    // ── 실시간 체결 list ───────────────────────────────────────────────────────
+
+    @Operation(
+        summary = "최근 체결 리스트 조회",
+        description = """
+            KIS inquire-ccnl (FHKST01010300) 기반 최근 체결 리스트.
+
+            - KIS 응답 최대 30건 (장 마감 후 당일 마지막 체결 기준)
+            - 체결 시각은 HHmmss 형식 (예: "155959")
+            - Redis 캐시 TTL: 10초
+            - KIS 키 미설정 시 빈 배열 반환 (200)
+        """,
+    )
+    @ApiResponses(
+        value = [
+            ApiResponse(responseCode = "200", description = "조회 성공 (빈 배열도 200)"),
+            ApiResponse(responseCode = "400", description = "limit 파라미터 범위 초과"),
+            ApiResponse(responseCode = "404", description = "해당 코드의 종목 없음"),
+        ],
+    )
+    @GetMapping("/{code}/trades")
+    fun trades(
+        @Parameter(description = "KRX 종목 코드 6자리", example = "005930")
+        @PathVariable code: String,
+        @Parameter(description = "반환 건수 (기본 30, 최대 30)", example = "30")
+        @RequestParam(defaultValue = "30") limit: Int,
+    ): ResponseEntity<List<RecentTradeResponse>> {
+        if (limit < 1 || limit > 30) return ResponseEntity.badRequest().build()
+        val normalized = code.uppercase()
+        instrumentService.get(normalized) ?: return ResponseEntity.notFound().build()
+        val result = recentTradesService.getRecentTrades(normalized, limit)
+        return ResponseEntity.ok(result.map { it.toResponse() })
+    }
+
+    // ── 외국인·기관 동향 ──────────────────────────────────────────────────────
+
+    @Operation(
+        summary = "외국인·기관·개인 동향 조회",
+        description = """
+            KIS inquire-investor (FHKST01010900) 기반 일자별 투자자 동향.
+
+            - KIS 응답 최대 30 영업일 (최신 날짜부터 역순)
+            - 개인·외국인·기관 순매수 수량·금액(백만원) + 매수/매도 수량 포함
+            - Redis 캐시 TTL: 5분 (일별 데이터)
+            - KIS 키 미설정 시 빈 배열 반환 (200)
+        """,
+    )
+    @ApiResponses(
+        value = [
+            ApiResponse(responseCode = "200", description = "조회 성공 (빈 배열도 200)"),
+            ApiResponse(responseCode = "400", description = "days 파라미터 범위 초과"),
+            ApiResponse(responseCode = "404", description = "해당 코드의 종목 없음"),
+        ],
+    )
+    @GetMapping("/{code}/investors")
+    fun investors(
+        @Parameter(description = "KRX 종목 코드 6자리", example = "005930")
+        @PathVariable code: String,
+        @Parameter(description = "조회 영업일 수 (기본 20, 최대 30)", example = "20")
+        @RequestParam(defaultValue = "20") days: Int,
+    ): ResponseEntity<List<InvestorTrendResponse>> {
+        if (days < 1 || days > 30) return ResponseEntity.badRequest().build()
+        val normalized = code.uppercase()
+        instrumentService.get(normalized) ?: return ResponseEntity.notFound().build()
+        val result = investorTrendService.getInvestorTrend(normalized, days)
+        return ResponseEntity.ok(result.map { it.toResponse() })
     }
 
     private fun parseInstantOrNull(raw: String): Instant? =
