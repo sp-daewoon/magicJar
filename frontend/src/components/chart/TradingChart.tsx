@@ -20,11 +20,14 @@ import {
   type Time,
   type MouseEventParams,
   type UTCTimestamp,
+  type Range,
+  type TimeRange,
 } from 'lightweight-charts'
 import { cn } from '@/lib/cn'
 import type { CandleDto } from '@/api/types'
 import type { ClientInterval } from '@/lib/candleAggregator'
 import { computeIndicators } from '@/lib/indicators'
+import { SCROLL_TRIGGER_THRESHOLD } from '@/hooks/useCandles'
 
 interface TradingChartProps {
   candles: CandleDto[]
@@ -33,6 +36,13 @@ interface TradingChartProps {
   className?: string
   /** 활성 보조지표 id 집합 */
   activeIndicators?: Set<string>
+  /**
+   * 좌측 스크롤 끝 도달 시 호출 (T19-T6 infinite scroll 트리거).
+   * useCandles.fetchOlderCandles를 전달하면 자동 추가 fetch.
+   */
+  onScrollEnd?: () => void
+  /** 추가 데이터 fetch 중 여부 — 로딩 인디케이터 표시용 */
+  isFetchingMore?: boolean
 }
 
 interface HoverInfo {
@@ -89,6 +99,8 @@ export default function TradingChart({
   height = 480,
   className,
   activeIndicators,
+  onScrollEnd,
+  isFetchingMore = false,
 }: TradingChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const rsiContainerRef = useRef<HTMLDivElement>(null)
@@ -264,6 +276,42 @@ export default function TradingChart({
     }
   }, [candles])
 
+  // infinite scroll — 좌측 스크롤 끝 감지 (T19-T6)
+  useEffect(() => {
+    if (!chartRef.current || !onScrollEnd || candles.length === 0) return
+    const chart = chartRef.current
+
+    const handleRangeChange = (range: Range<Time> | null) => {
+      if (!range || candles.length === 0) return
+      // 보이는 범위의 from이 전체 데이터의 앞쪽 THRESHOLD 봉 안에 들면 추가 fetch
+      const fromTime = range.from
+      const thresholdIdx = SCROLL_TRIGGER_THRESHOLD
+      if (thresholdIdx >= candles.length) return
+      const thresholdCandle = candles[thresholdIdx]
+      const thresholdTime = thresholdCandle.time
+
+      // Time 비교: epoch second(number) 또는 문자열(YYYY-MM-DD)
+      const isBeforeThreshold =
+        typeof fromTime === 'number' && typeof thresholdTime === 'number'
+          ? (fromTime as number) <= (thresholdTime as number)
+          : String(fromTime) <= String(thresholdTime)
+
+      if (isBeforeThreshold) {
+        onScrollEnd()
+      }
+    }
+
+    const timeScale = chart.timeScale()
+    timeScale.subscribeVisibleTimeRangeChange(
+      handleRangeChange as (range: TimeRange | null) => void,
+    )
+    return () => {
+      timeScale.unsubscribeVisibleTimeRangeChange(
+        handleRangeChange as (range: TimeRange | null) => void,
+      )
+    }
+  }, [candles, onScrollEnd])
+
   // 보조지표 시리즈 add/remove/update — main pane
   useEffect(() => {
     if (!chartRef.current) return
@@ -376,6 +424,14 @@ export default function TradingChart({
   return (
     <div className={cn('relative', className)}>
       <div ref={containerRef} style={{ height }} />
+      {isFetchingMore && (
+        <div
+          className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-gray-200 bg-white/90 px-3 py-1 text-xs text-muted-foreground shadow-sm"
+          style={{ zIndex: 10 }}
+        >
+          과거 데이터 불러오는 중...
+        </div>
+      )}
       {showRsi && (
         <div className="mt-1 border-t pt-1">
           <div className="px-2 text-[10px] font-medium text-muted-foreground">RSI 14</div>

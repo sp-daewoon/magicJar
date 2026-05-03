@@ -40,6 +40,7 @@ vi.mock('@/ws/stomp', () => ({
 // ── API mocks ─────────────────────────────────────────────────────────────────
 const mockGetInstrument = vi.fn()
 const mockGetCandles = vi.fn()
+const mockCandlesPage = vi.fn()
 const mockListJournal = vi.fn()
 const mockGetQuote = vi.fn()
 
@@ -50,6 +51,8 @@ vi.mock('@/api/instruments', async (importOriginal) => {
     instrumentsApi: {
       get: (...args: unknown[]) => mockGetInstrument(...args),
       candles: (...args: unknown[]) => mockGetCandles(...args),
+      // T19-T6: infinite scroll hook 사용
+      candlesPage: (...args: unknown[]) => mockCandlesPage(...args),
       // T2-R4: quote 메서드 mock 추가 (stale/source/session 포함 응답)
       quote: (...args: unknown[]) => mockGetQuote(...args),
     },
@@ -93,6 +96,8 @@ describe('SymbolDetail 페이지', () => {
     _stompListeners.clear()
     mockGetInstrument.mockResolvedValue({ code: '005930', name: '삼성전자', market: 'KOSPI' })
     mockGetCandles.mockResolvedValue(generateMockCandles('005930', 30))
+    // T19-T6: candlesPage mock (infinite scroll)
+    mockCandlesPage.mockResolvedValue(generateMockCandles('005930', 30))
     mockListJournal.mockResolvedValue(generateMockJournalEntries('005930', 3))
     // T2-R4: quote mock 기본값 (LIVE, not stale)
     mockGetQuote.mockResolvedValue({
