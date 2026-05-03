@@ -6,7 +6,6 @@ import com.mj.domain.market.port.CandleRepository
 import org.springframework.stereotype.Service
 import java.time.Instant
 import java.time.ZoneId
-import java.time.temporal.ChronoUnit
 
 @Service
 class CandleQueryService(
@@ -28,22 +27,23 @@ class CandleQueryService(
         to: Instant,
     ): Instant {
         val zone = ZoneId.of("Asia/Seoul")
-        return when (interval) {
-            Interval.D1 ->
-                to
-                    .atZone(zone)
-                    .toLocalDate()
-                    .minusDays(180)
-                    .atStartOfDay(zone)
-                    .toInstant()
-            // V8 시드(어제 영업일 09~14시)와 휴일 갭을 고려해 lookback을 충분히 길게.
-            // 클라이언트는 fitContent로 자동 zoom — 데이터가 있는 만큼 보여주면 됨.
-            Interval.M1 -> to.minus(2, ChronoUnit.DAYS)
-            Interval.M5 -> to.minus(7, ChronoUnit.DAYS)
-            Interval.M15 -> to.minus(14, ChronoUnit.DAYS)
-            Interval.M30 -> to.minus(14, ChronoUnit.DAYS)
-            Interval.H1 -> to.minus(30, ChronoUnit.DAYS)
-        }
+        // 모든 lookback을 KST 자정 align — 시드 분봉(09:00 시작)이 from 이후로 들어오게 보장.
+        // 사용자 차트는 클라이언트 fitContent라 데이터가 있는 만큼만 보여주면 됨 → lookback은 넉넉하게.
+        val daysBack =
+            when (interval) {
+                Interval.D1 -> 180L
+                Interval.M1 -> 7L
+                Interval.M5 -> 90L
+                Interval.M15 -> 180L
+                Interval.M30 -> 180L
+                Interval.H1 -> 365L
+            }
+        return to
+            .atZone(zone)
+            .toLocalDate()
+            .minusDays(daysBack)
+            .atStartOfDay(zone)
+            .toInstant()
     }
 
     /**

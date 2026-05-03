@@ -14,7 +14,6 @@ import org.springframework.web.client.RestClient
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.temporal.ChronoUnit
 
 /**
  * 분봉 캐시 서비스 (candle-data-policy.md §2, T19-T3).
@@ -75,27 +74,19 @@ class CandleCacheService(
         val candles = candleRepository.find(code, interval, fromResolved, toResolved)
         val meta = cacheMetaRepository.findByCodeAndInterval(code, interval)
 
-        return if (isCacheHit(candles, fromResolved, toResolved, meta)) {
+        // 분봉은 있는 그대로 반환 (D1 fallback 정책 폐기 — 사용자가 분봉 선택했는데 일봉이 나오면 혼란).
+        // 데이터 부족 시 백그라운드 fetch trigger만 추가로 발사.
+        if (candles.isNotEmpty() && meta != null) {
             log.debug("[cache] HIT code={} interval={} rows={}", code, interval, candles.size)
-            // last_accessed_at 갱신 (LRU 정책)
-            if (meta != null) {
-                touchMeta(meta)
-            }
-            candles
-        } else {
-            log.info("[cache] MISS code={} interval={} — triggering background fetch", code, interval)
-            // 즉시 D1 반환
-            val fallback =
-                candleRepository.find(
-                    code,
-                    Interval.D1,
-                    defaultFrom(Interval.D1, toResolved),
-                    toResolved,
-                )
-            // 백그라운드 fetch trigger (비동기 — 응답 차단 X)
+            touchMeta(meta)
+        } else if (candles.isEmpty()) {
+            log.info("[cache] MISS code={} interval={} — triggering background fetch (returning empty)", code, interval)
             triggerBackgroundFetchAsync(code)
-            fallback
+        } else {
+            // candles는 있는데 meta는 없음 — V19 적용 전 시드 데이터. 백그라운드 trigger 안 함.
+            log.debug("[cache] PARTIAL code={} interval={} rows={} (no meta — legacy seed)", code, interval, candles.size)
         }
+        return candles
     }
 
     /**
@@ -201,19 +192,23 @@ class CandleCacheService(
     private fun defaultFrom(
         interval: Interval,
         to: Instant,
-    ): Instant =
-        when (interval) {
-            Interval.D1 ->
-                to
-                    .atZone(kst)
-                    .toLocalDate()
-                    .minusDays(180)
-                    .atStartOfDay(kst)
-                    .toInstant()
-            Interval.M1 -> to.minus(2, ChronoUnit.DAYS)
-            Interval.M5 -> to.minus(7, ChronoUnit.DAYS)
-            Interval.M15 -> to.minus(14, ChronoUnit.DAYS)
-            Interval.M30 -> to.minus(14, ChronoUnit.DAYS)
-            Interval.H1 -> to.minus(30, ChronoUnit.DAYS)
-        }
+    ): Instant {
+        // KST 자정 align — 시드 분봉(09:00 시작)이 from 이후로 들어오게 보장.
+        // CandleQueryService.defaultFrom과 동기화 유지.
+        val daysBack =
+            when (interval) {
+                Interval.D1 -> 180L
+                Interval.M1 -> 7L
+                Interval.M5 -> 90L
+                Interval.M15 -> 180L
+                Interval.M30 -> 180L
+                Interval.H1 -> 365L
+            }
+        return to
+            .atZone(kst)
+            .toLocalDate()
+            .minusDays(daysBack)
+            .atStartOfDay(kst)
+            .toInstant()
+    }
 }
