@@ -34,9 +34,9 @@
 <body>
 
 <h1>magicJar 세션 요약 — 2026-05-03 토요일</h1>
-<div class="meta">v0/v1 누더기 → v2 베이스라인 + W1·W2·W3·W4 + 인증 UI + sanity dogfooding 정상화 → 다음 세션 T19·T20·T21 디스패치 대기</div>
+<div class="meta">v0/v1 누더기 → v2 베이스라인 + W1·W2·W3·W4 + 인증 UI + sanity dogfooding 정상화 → T22 R1·R2 (Devlog 메뉴 + 하네스 탭 통합) + T19 1차 분봉 캐시 백엔드 머지 → 다음 사이클 T19 후속(T5·T6·T7·T8) + T20·T21 디스패치 대기</div>
 
-<h2>1. 머지 PR 24건 (오늘)</h2>
+<h2>1. 머지 PR 32건 (오늘)</h2>
 <table>
   <tr><th>Wave</th><th>PR</th><th>트랙·내용</th><th>에이전트·모델</th></tr>
   <tr><td rowspan="1">베이스라인</td><td class="pr">#68</td><td>v2 마스터 + ADR 17 + legacy 청소</td><td>architect (opus)</td></tr>
@@ -63,6 +63,14 @@
   <tr><td class="pr">#87</td><td>frontend tooltip + nginx no-cache + Dockerfile + AuthSection localStorage</td><td>메인 (architect)</td></tr>
   <tr><td class="pr">#88</td><td>docker dev,real-kis profile + api → batch URL 매핑</td><td>메인 (architect)</td></tr>
   <tr><td class="pr">#91</td><td>캔들 데이터 정책 가이드라인 v1</td><td>메인 (architect)</td></tr>
+  <tr><td rowspan="3">T22 Devlog 메뉴</td><td class="pr">#95</td><td>T22 R1 frontend — `/devlog` 페이지 + 3 탭(일지·하네스·빌드CI) + iframe</td><td>frontend (sonnet)</td></tr>
+  <tr><td class="pr">#96</td><td>T22 R1 backend — DevlogController + path traversal 차단</td><td>메인 (architect, sub-agent 차단 takeover)</td></tr>
+  <tr><td class="pr">#99</td><td>T22 R2 — 하네스 탭 = dashboard.html iframe + 검색 NPE hotfix</td><td>메인 (architect)</td></tr>
+  <tr><td rowspan="5">사용자 검증 hotfix</td><td class="pr">#94</td><td>frontend userId UUID + lastUpdatedAt 백엔드 정합</td><td>메인 (architect)</td></tr>
+  <tr><td class="pr">#97</td><td>T22 부팅 회귀 — AnalysisAiPropertiesConfig 분리 + frontend TS 3건</td><td>메인 (architect)</td></tr>
+  <tr><td class="pr">#98</td><td>/devlog iframe X-Frame-Options 충돌 (DENY+SAMEORIGIN → SAMEORIGIN)</td><td>메인 (architect)</td></tr>
+  <tr><td class="pr">#101</td><td>하네스 탭 accordion 정정 + pnpm-lock CI 만성 fail 해소</td><td>메인 (architect)</td></tr>
+  <tr><td class="pr">#100</td><td><b>T19 1차 — 분봉 캐시 백엔드 (CacheMeta·CandleCacheService·infinite scroll·MinuteCandleBackfillJob)</b></td><td>market-data (sonnet)</td></tr>
 </table>
 
 <h2>2. PostgreSQL 테이블 — Flyway V0 ~ V18</h2>
@@ -84,7 +92,7 @@
   <tr><td>V16</td><td>screen_run · screen_match · instrument_index_member</td><td>T10 R1</td><td>스크리너 실행 결과·KOSPI200/KOSDAQ150 멤버</td></tr>
   <tr><td>V17</td><td>ai_analysis_log (model·tokens·cost·prompt 버전 audit)</td><td>T16 R1</td><td>AI 분석 호출 audit·비용 추적</td></tr>
   <tr><td>V18</td><td>mcp_call_log (api key hash·tool·args·duration)</td><td>T17 R1</td><td>MCP 서버 호출 audit</td></tr>
-  <tr><td class="b-todo">V19</td><td><span class="badge b-todo">예정</span> instrument_cache_meta (LRU)</td><td>T19 (다음 세션)</td><td>분봉 cache LRU eviction 메타</td></tr>
+  <tr><td>V19</td><td>instrument_cache_meta <code>(code, interval)</code> PK + <code>last_accessed_at</code> LRU index</td><td>T19 1차 (오늘 머지)</td><td>분봉 cache LRU eviction 메타 — <span class="badge b-ok">적용 success</span></td></tr>
 </table>
 
 <h2>3. Kafka 토픽·데이터 흐름</h2>
@@ -159,20 +167,23 @@
 <h2>5. sub-agent 오늘 디스패치 내역</h2>
 <table>
   <tr><th>에이전트</th><th>모델</th><th>주 담당 트랙</th><th>호출 횟수</th></tr>
-  <tr><td>architect</td><td>opus 4.7</td><td>v2 베이스라인·cleanup·ADR·T17 MCP·conflict resolve·hotfix·docs</td><td>5+ (메인 포함)</td></tr>
-  <tr><td>backend-core</td><td>sonnet 4.6</td><td>T2 R1·R2·R3·T12·T14 (T14 sub-agent 3회 fail로 메인이 직접 처리)</td><td>5</td></tr>
-  <tr><td>market-data</td><td>sonnet 4.6</td><td>T3 R1·T4 R1·T5 R1·T10 R1 (T10는 leak으로 메인이 마무리)</td><td>4</td></tr>
+  <tr><td>architect</td><td>opus 4.7</td><td>v2 베이스라인·cleanup·ADR·T17 MCP·T22 R1 backend(takeover)·T22 R2·conflict resolve·hotfix 7건·docs</td><td>10+ (메인 포함)</td></tr>
+  <tr><td>backend-core</td><td>sonnet 4.6</td><td>T2 R1·R2·R3·T12·T14·T22 R1 backend(차단 takeover됨)</td><td>5</td></tr>
+  <tr><td>market-data</td><td>sonnet 4.6</td><td>T3 R1·T4 R1·T5 R1·T10 R1·<b>T19 1차 백엔드</b> (worktree isolation)</td><td>5</td></tr>
   <tr><td>strategy-engine</td><td>opus 4.7</td><td>T6 R1·T7 R1·T9 R1·T11 R1</td><td>4</td></tr>
-  <tr><td>frontend</td><td>sonnet 4.6</td><td>T2 R4·T8 R1·T18b</td><td>3</td></tr>
+  <tr><td>frontend</td><td>sonnet 4.6</td><td>T2 R4·T8 R1·T18b·T22 R1 frontend</td><td>4</td></tr>
   <tr><td>ai-engineer</td><td>opus 4.6</td><td>T16 R1 (사용자 명시 모델)</td><td>1</td></tr>
 </table>
 <div class="card" style="margin-top:8px">
   <h3>이슈·복구</h3>
   <ul>
-    <li>sub-agent Bash 권한 차단 — settings.json read-only 추가 (PR #74)로 정상화</li>
+    <li>sub-agent Bash 권한 차단 — settings.json read-only 추가 (PR #74)로 정상화. 다만 T22 R1 backend·T19 등 일부 sub-agent는 chain command deny로 메인 takeover (worktree isolation 도입으로 부분 해소).</li>
     <li>토큰 한도 hit 3회 — T4 R1 1차·T9·T10·T14 1차 (재시도로 회복)</li>
-    <li>worktree leak 5건 — 메인 worktree에 sub-agent 코드 leak (T5·T8·T9·T10·T18a) — `.gitignore`에 `.claude/worktrees/` 추가 + 메인이 정리 commit</li>
-    <li>force push deny — T16 conflict 시 새 branch (`-rebased`) 우회</li>
+    <li>worktree leak 누적 — 등록 worktree 2건 locked 방치 + orphan 디렉토리 7건 + squash-merged 임시 브랜치 19건 + worktree-agent-* 26건 — 사용자 점검 후 일괄 정리 + memory <code>feedback_worktree_cleanup.md</code> 신설(머지 즉시 정리 의무화)</li>
+    <li>force push deny — T16 conflict 시 새 branch (<code>-rebased</code>) 우회</li>
+    <li>T22 머지 후 부팅 회귀 — AnalysisAiPropertiesConfig <code>@ConditionalOnProperty</code> 비활성 시 properties 빈 누락 → API ApplicationContext 초기화 실패 → 분리 fix (#97)</li>
+    <li>X-Frame-Options 충돌 — Spring Security default <code>DENY</code> + nginx <code>SAMEORIGIN</code> 양쪽 헤더 발행 → 브라우저 deny fallback → <code>frameOptions { sameOrigin() }</code> 명시 (#98)</li>
+    <li>pnpm-lock CI 만성 fail — T18b가 testing-library 버전 올리며 lockfile sync 누락 → 매 PR frontend job red. <code>pnpm install --no-frozen-lockfile</code> 후 commit (#101)</li>
   </ul>
 </div>
 
@@ -204,21 +215,41 @@
       <li>postgres·kafka·redis·minio·api·batch·consumer·pyworker·frontend</li>
     </ul>
   </div>
+  <div class="card">
+    <h3>Devlog 메뉴 + 하네스 탭 (T22 R1·R2)</h3>
+    <ul>
+      <li>헤더 "개발일지" 메뉴 + <code>/devlog</code> 페이지 + 3 탭(일지·하네스·빌드CI)</li>
+      <li>일지 탭 — <code>/api/devlog/list</code> 목록 + iframe HTML 렌더 + 검색·월필터</li>
+      <li>하네스 탭 — placeholder 카드 + "하네스 운영 현황 (dashboard.html)" accordion 토글 + tip 바</li>
+      <li>죽은 <code>/harness</code> 라우트·헤더 메뉴·HarnessOpsPage 제거</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>T19 1차 백엔드 검증 (PR #100)</h3>
+    <ul>
+      <li>Flyway V19 instrument_cache_meta success</li>
+      <li><code>GET /candles?before=...&limit=N</code> 200 응답</li>
+      <li>:domain·:api·:batch:test PASS, ktlint PASS</li>
+      <li>실제 cache hit/miss 동작은 frontend hook(T19-T6) 작업 후 확인 가능</li>
+    </ul>
+  </div>
 </div>
 
-<h2>7. 다음 세션 일정</h2>
+<h2>7. 다음 사이클 일정</h2>
 <table>
   <tr><th>우선순위</th><th>작업</th><th>사이즈</th><th>비고</th></tr>
-  <tr><td>1</td><td>PR <span class="pr">#92</span> T19·T20·T21 spec docs 머지</td><td>—</td><td>이미 발행, 다음 세션 첫 머지</td></tr>
-  <tr><td>2</td><td>PR <span class="pr">#94</span> frontend userId UUID + lastUpdatedAt hotfix 머지</td><td>—</td><td>이미 발행</td></tr>
-  <tr><td>3</td><td><b>T19 분봉 캐시 인프라</b> 디스패치 (market-data + frontend 병렬)</td><td>~5~7일</td><td>candle-data-policy.md 정합. LRU 8GB·30분→5분→1분 단계적 fetch·infinite scroll</td></tr>
-  <tr><td>4</td><td><b>T20 종목 검색 + 상세 메타</b> 디스패치 (T19 머지 후, 또는 영역 분리 병렬)</td><td>~5일</td><td>헤더 검색창·자동완성·종목 상세 (시총·영업이익·PER·대주주 지분율)</td></tr>
-  <tr><td>5</td><td><b>T21 대시보드 = KOSPI/KOSDAQ 지수</b> 디스패치</td><td>~3일</td><td>대표종목 5개 → 지수 카드. 거래대금·등락률 상위 위젯 (선택)</td></tr>
-  <tr><td>6</td><td>W5 사용자 학습 진입</td><td>~3일</td><td>사용자와 함께 데이터 흐름·아키 검증·교육</td></tr>
+  <tr><td>1</td><td><b>T19-T5·T6 frontend</b> — candleAggregator M15/M30/H1 합성 + useCandles infinite scroll hook</td><td>~2일</td><td>분봉 차트 실제 동작·사용자 검증성 가장 빠름. 본 사이클 1차 디스패치 우선</td></tr>
+  <tr><td>2</td><td><b>T19-T7 backend</b> — eviction cron 6h LRU (8GB 초과 시 last_accessed_at ASC DELETE)</td><td>~1일</td><td>T5·T6과 영역 분리 → 병렬 디스패치 가능</td></tr>
+  <tr><td>3</td><td><b>T19-T8 docs</b> — <code>_workspace/operations/candle-cache-guide.md</code></td><td>~0.5일</td><td>메인 직접 작성 (운영 절차·장애 대응)</td></tr>
+  <tr><td>4</td><td>pyworker pytest CI fail hotfix</td><td>~0.5일</td><td>main 만성 red. PR #100·#101 무관. 별도 사이드 hotfix</td></tr>
+  <tr><td>5</td><td><b>T20 종목 검색 + 상세 메타</b> 디스패치</td><td>~5일</td><td>헤더 검색창·자동완성·시총·영업이익·PER·대주주 지분율. T19 cache 위에 올라감</td></tr>
+  <tr><td>6</td><td><b>T21 대시보드 = KOSPI/KOSDAQ 지수</b> 디스패치</td><td>~3일</td><td>대표종목 5개 → 지수 카드. 거래대금·등락률 상위 위젯 (선택)</td></tr>
+  <tr><td>7</td><td>devlog 슬래시 커맨드 — comment 인자 + title 검색 매칭</td><td>~0.3일</td><td>사용자 사이드 요청 보류. <code>/devlog &lt;comment&gt;</code> → HTML title → DevlogController.list summary 채움</td></tr>
+  <tr><td>8</td><td>W5 사용자 학습 진입</td><td>~3일</td><td>T19 frontend 완료 + T20·T21 후 진입 권장</td></tr>
 </table>
 
 <div style="margin-top:32px;padding:14px;background:#f0f9ff;border-radius:6px;font-size:13px">
-  <b>다음 세션 첫 명령</b>: <code>"PR #92, #94 머지하고 T19 디스패치 시작"</code> 한 마디 주시면 컨텍스트 그대로 이어집니다. 본 문서는 <code>_workspace/dashboard/2026-05-03-session-summary.html</code>에 영속됩니다.
+  <b>이번 사이클 핵심</b>: T19 백엔드 머지 완료(<code>4181b55</code>). 다음 디스패치는 T19-T5·T6 frontend(분봉 차트 실작동) + T19-T7 eviction cron 병렬. 분봉 차트가 작동해야 사용자 검증 흐름 끊김 없이 이어집니다.
 </div>
 
 </body>
