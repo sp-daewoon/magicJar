@@ -110,7 +110,7 @@ class DartFinancialAdapter(
                 ?: return null
 
         if (response.status != "000") {
-            log.debug("[dart] 재무제표 없음 corp_code={} status={} message={}", corpCode, response.status, response.message)
+            log.info("[dart] 재무제표 없음 corp_code={} year={} status={} message={}", corpCode, targetYear, response.status, response.message)
             return null
         }
 
@@ -190,7 +190,20 @@ class DartFinancialAdapter(
 
     /**
      * ZIP → CORPCODE.xml 파싱.
-     * XML 구조: <list><corp><corp_code>...</corp_code><stock_code>...</stock_code></corp>...</list>
+     *
+     * 실제 DART CORPCODE.xml 구조:
+     * <result>
+     *   <list>
+     *     <corp_code>00126380</corp_code>
+     *     <corp_name>삼성전자</corp_name>
+     *     <stock_code>005930</stock_code>
+     *     ...
+     *   </list>
+     *   ...
+     * </result>
+     *
+     * 각 항목 태그가 <corp>가 아닌 <list>이므로 listPattern으로 파싱.
+     * stock_code는 상장 기업만 6자리(leading zero 포함), 비상장은 공백.
      */
     private fun parseCorpCodeZip(zipBytes: ByteArray): Map<String, String> {
         val map = mutableMapOf<String, String>()
@@ -204,30 +217,40 @@ class DartFinancialAdapter(
                 }
 
                 val content = zipStream.readBytes().toString(Charsets.UTF_8)
-                // 간단한 정규식 파싱 (DOM 파서 의존 없음)
-                val corpPattern = Regex("<corp>(.*?)</corp>", RegexOption.DOT_MATCHES_ALL)
+                // 실제 XML 태그는 <list>...</list> (구버전 코드의 <corp>는 잘못된 태그명)
+                val listPattern = Regex("<list>(.*?)</list>", RegexOption.DOT_MATCHES_ALL)
                 val corpCodePat = Regex("<corp_code>(.*?)</corp_code>")
                 val stockCodePat = Regex("<stock_code>(.*?)</stock_code>")
 
-                corpPattern.findAll(content).forEach { match ->
-                    val corpBlock = match.groupValues[1]
+                listPattern.findAll(content).forEach { match ->
+                    val block = match.groupValues[1]
                     val corpCode =
                         corpCodePat
-                            .find(corpBlock)
+                            .find(block)
                             ?.groupValues
                             ?.get(1)
                             ?.trim() ?: return@forEach
-                    val stockCode =
+                    val stockCodeRaw =
                         stockCodePat
-                            .find(corpBlock)
+                            .find(block)
                             ?.groupValues
-                            ?.get(1)
-                            ?.trim() ?: return@forEach
-                    if (stockCode.isNotBlank() && stockCode.length == 6) {
+                            ?.get(1) ?: return@forEach
+                    // trim + zero-padding 정규화: "5930" → "005930"
+                    val stockCode = stockCodeRaw.trim().padStart(6, '0')
+                    if (stockCode.isNotBlank() && stockCode.length == 6 && stockCode != "000000") {
                         map[stockCode] = corpCode
                     }
                 }
                 zipStream.closeEntry()
+
+                val sampleKeys = map.entries.take(5).map { it.key }
+                val samsungEntry = map["005930"]
+                log.info(
+                    "[dart] CORPCODE.xml 파싱 완료 — 총 {}건, sample={}, 005930={}",
+                    map.size,
+                    sampleKeys,
+                    samsungEntry ?: "미발견(상장코드 없는 항목 제외됨 — 파싱 버그 가능성)",
+                )
             }
         } catch (ex: Exception) {
             log.warn("[dart] corpCode.xml 파싱 실패: {}", ex.message)
@@ -258,6 +281,12 @@ class DartFinancialAdapter(
         @JsonProperty("account_nm") val accountNm: String = "",
         @JsonProperty("thstrm_amount") val thstrmAmount: String = "",
     )
+
+    /**
+     * 테스트 전용 — parseCorpCodeZip internal 노출.
+     * 프로덕션 코드에서는 직접 호출하지 않는다.
+     */
+    internal fun parseCorpCodeZipForTest(zipBytes: ByteArray): Map<String, String> = parseCorpCodeZip(zipBytes)
 
     companion object {
         private const val BASE_URL = "https://opendart.fss.or.kr"

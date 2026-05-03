@@ -99,7 +99,7 @@ class CandleCacheService(
      */
     @Async
     fun triggerBackgroundFetchAsync(code: String) {
-        log.info("[cache] cold-start backfill 시작 — code={} (pyworker yfinance, 1m × 30일)", code)
+        log.info("[cache] cold-start backfill 시작 — code={} pyworker={} (yfinance 1m×30일)", code, pyworkerBaseUrl)
         try {
             val request =
                 mapOf(
@@ -107,15 +107,25 @@ class CandleCacheService(
                     "interval" to "1m",
                     "days" to 30,
                 )
-            pyworkerClient
-                .post()
-                .uri("/backfill/yahoo")
-                .body(request)
-                .retrieve()
-                .toBodilessEntity()
-            log.info("[cache] cold-start backfill 요청 OK — code={} (Kafka 적재 비동기 진행)", code)
+            val resp =
+                pyworkerClient
+                    .post()
+                    .uri("/backfill/yahoo")
+                    .body(request)
+                    .retrieve()
+                    .toBodilessEntity()
+            log.info(
+                "[cache] cold-start backfill 요청 성공 — code={} httpStatus={} (Kafka 적재 비동기 진행)",
+                code,
+                resp.statusCode,
+            )
         } catch (e: Exception) {
-            log.warn("[cache] cold-start backfill 요청 실패 — code={} error={}", code, e.message)
+            log.warn(
+                "[cache] cold-start backfill 요청 실패 — code={} pyworker={} error={} (pyworker 미기동 또는 네트워크 오류)",
+                code,
+                pyworkerBaseUrl,
+                e.message,
+            )
         }
     }
 
