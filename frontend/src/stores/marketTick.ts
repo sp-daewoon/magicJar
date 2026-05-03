@@ -1,10 +1,19 @@
+/**
+ * marketTick store — 멀티 종목 실시간 시세 상태.
+ * T2-R4: stale·source·asOf 필드 추가 (대시보드 종목 카드 StaleIndicator 렌더링).
+ */
 import { create } from 'zustand'
+import type { QuoteSource } from '@/api/types'
 
 export interface Tick {
   code: string
   price: number
   volume: number
   timestamp: number
+  // T2-R4 추가: 데이터 품질 필드
+  stale?: boolean
+  source?: QuoteSource
+  asOf?: number  // epoch ms (stale=true 시 의미 있음)
 }
 
 const MAX_TICKS = 500

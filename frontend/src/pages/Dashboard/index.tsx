@@ -9,6 +9,7 @@ import { usePositionStore } from '@/stores/position'
 import { useMarketTickStream } from '@/hooks/useMarketTickStream'
 import { useWsConnectionState } from '@/hooks/useWsConnectionState'
 import MarketStatusBadge from '@/components/market/MarketStatusBadge'
+import StaleIndicator, { stalePriceClassName } from '@/components/market/StaleIndicator'
 import { instrumentsApi } from '@/api/instruments'
 import ManualOrderPanel from '@/components/ManualOrderPanel'
 
@@ -136,14 +137,25 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             {watchCodes.map((code) => {
               const tick = latestTick[code]
+              const isStale = tick?.stale ?? false
+              const asOfDate = tick?.asOf ? new Date(tick.asOf) : null
               return (
                 <Link
                   key={code}
                   to={`/symbol/${code}`}
                   className="block rounded-lg border bg-white p-3 transition hover:border-primary hover:shadow-sm"
                 >
-                  <div className="text-xs font-medium text-muted-foreground">{code}</div>
-                  <div className="mt-1 text-lg font-bold tabular-nums">
+                  <div className="flex items-center justify-between gap-1">
+                    <div className="text-xs font-medium text-muted-foreground">{code}</div>
+                    {isStale && tick?.source && (
+                      <StaleIndicator
+                        source={tick.source}
+                        stale={isStale}
+                        asOf={asOfDate}
+                      />
+                    )}
+                  </div>
+                  <div className={`mt-1 text-lg font-bold tabular-nums ${stalePriceClassName(isStale)}`}>
                     {tick ? tick.price.toLocaleString() : '-'}
                   </div>
                   <div className="mt-1 text-xs tabular-nums text-muted-foreground">

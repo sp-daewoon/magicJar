@@ -2,15 +2,29 @@
  * Instrument API 클라이언트
  * GET /api/instruments/{code}  — 종목 단건 조회
  * GET /api/instruments/{code}/candles  — 캔들 조회 (미구현 시 mock fallback)
+ * GET /api/instruments/{code}/quote  — 현재 시세 + stale/source/session 조회 (R3)
  */
 import { apiClient } from './client'
-import type { CandleDto, Instrument } from './types'
+import type { CandleDto, Instrument, QuoteResponse } from './types'
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
 
 export const instrumentsApi = {
   /** 종목 단건 조회 */
   get: (code: string) => apiClient.get<Instrument>(`/instruments/${code.toUpperCase()}`),
+
+  /**
+   * 현재 시세 조회 — stale/source/session 포함 (R3 GET /api/instruments/{code}/quote).
+   * 실패 시 null 반환 (UI가 STOMP fallback 또는 스켈레톤 표시).
+   */
+  quote: async (code: string): Promise<QuoteResponse | null> => {
+    try {
+      return await apiClient.get<QuoteResponse>(`/instruments/${code.toUpperCase()}/quote`)
+    } catch {
+      console.warn('[instruments] quote API unavailable')
+      return null
+    }
+  },
 
   /** 종목 캔들 조회 — 서버 미구현 시 mock fallback */
   candles: async (code: string, interval = 'DAY', from?: string, to?: string): Promise<CandleDto[]> => {

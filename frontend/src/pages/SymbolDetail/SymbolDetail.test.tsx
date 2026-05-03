@@ -41,6 +41,7 @@ vi.mock('@/ws/stomp', () => ({
 const mockGetInstrument = vi.fn()
 const mockGetCandles = vi.fn()
 const mockListJournal = vi.fn()
+const mockGetQuote = vi.fn()
 
 vi.mock('@/api/instruments', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/api/instruments')>()
@@ -49,6 +50,8 @@ vi.mock('@/api/instruments', async (importOriginal) => {
     instrumentsApi: {
       get: (...args: unknown[]) => mockGetInstrument(...args),
       candles: (...args: unknown[]) => mockGetCandles(...args),
+      // T2-R4: quote 메서드 mock 추가 (stale/source/session 포함 응답)
+      quote: (...args: unknown[]) => mockGetQuote(...args),
     },
   }
 })
@@ -91,6 +94,16 @@ describe('SymbolDetail 페이지', () => {
     mockGetInstrument.mockResolvedValue({ code: '005930', name: '삼성전자', market: 'KOSPI' })
     mockGetCandles.mockResolvedValue(generateMockCandles('005930', 30))
     mockListJournal.mockResolvedValue(generateMockJournalEntries('005930', 3))
+    // T2-R4: quote mock 기본값 (LIVE, not stale)
+    mockGetQuote.mockResolvedValue({
+      code: '005930',
+      price: 70_000,
+      volume: 10_000_000,
+      source: 'LIVE',
+      stale: false,
+      asOf: new Date().toISOString(),
+      session: 'Open',
+    })
   })
 
   afterEach(() => {

@@ -3,11 +3,14 @@
  * 대시보드 등 멀티 종목 실시간 페이지에서 사용.
  *
  * codes 배열이 변할 때마다 추가/제거 자동 반영. 빈 배열 → 구독 해제.
+ *
+ * 변경 이력:
+ *   2026-05-03: T2-R4 — stale·asOf 필드 store dispatch 추가.
  */
 import { useEffect } from 'react'
 import { stompService } from '@/ws/stomp'
 import { useMarketTickStore } from '@/stores/marketTick'
-import type { TickMessage } from '@/api/types'
+import type { TickMessage, QuoteSource } from '@/api/types'
 
 export function useMarketTickStream(codes: string[]): void {
   const addTick = useMarketTickStore((s) => s.addTick)
@@ -27,6 +30,10 @@ export function useMarketTickStream(codes: string[]): void {
             price: data.price,
             volume: data.volume,
             timestamp: new Date(data.at).getTime(),
+            // T2-R4: stale/source/asOf 전달
+            stale: data.stale,
+            source: data.stale ? undefined : ('LIVE' as QuoteSource),
+            asOf: data.asOf ? new Date(data.asOf).getTime() : new Date(data.at).getTime(),
           })
         } catch {
           console.warn('[useMarketTickStream] parse error', msg.body)
