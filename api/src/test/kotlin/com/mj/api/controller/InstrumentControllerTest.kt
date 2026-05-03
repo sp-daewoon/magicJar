@@ -5,6 +5,7 @@ import com.mj.api.application.instrument.InstrumentService
 import com.mj.api.application.instrument.SyncTriggerResult
 import com.mj.api.application.market.CandleCacheService
 import com.mj.api.application.market.CandleQueryService
+import com.mj.api.application.market.CandleQueryService.QueryResult
 import com.mj.api.application.market.InstrumentDetailService
 import com.mj.api.config.WebSecurityConfig
 import com.mj.domain.common.Candle
@@ -158,20 +159,24 @@ class InstrumentControllerTest {
     @Test
     fun `GET api instruments code candles returns 200 with array`() {
         every { instrumentService.get("005930") } returns samsungInstrument()
-        // v2: queryByString 경유 (interval=DAY)
-        every { candleQueryService.queryByString("005930", "DAY", null, null) } returns
-            listOf(
-                Candle(
-                    code = "005930",
-                    interval = Interval.D1,
-                    openTime = Instant.parse("2026-04-30T00:00:00Z"),
-                    open = BigDecimal("60000"),
-                    high = BigDecimal("60500"),
-                    low = BigDecimal("59500"),
-                    close = BigDecimal("60200"),
-                    volume = 12_345_678L,
-                    tradeCount = 100_000L,
-                ),
+        // v2: queryByString 경유 (interval=DAY) — QueryResult 반환
+        every { candleQueryService.queryByString("005930", "DAY", null, null, 200) } returns
+            QueryResult(
+                candles =
+                    listOf(
+                        Candle(
+                            code = "005930",
+                            interval = Interval.D1,
+                            openTime = Instant.parse("2026-04-30T00:00:00Z"),
+                            open = BigDecimal("60000"),
+                            high = BigDecimal("60500"),
+                            low = BigDecimal("59500"),
+                            close = BigDecimal("60200"),
+                            volume = 12_345_678L,
+                            tradeCount = 100_000L,
+                        ),
+                    ),
+                hasMore = false,
             )
 
         mvc
@@ -184,6 +189,8 @@ class InstrumentControllerTest {
                 jsonPath("$[0].low") { value(59500) }
                 jsonPath("$[0].close") { value(60200) }
                 jsonPath("$[0].volume") { value(12_345_678) }
+                header { string("X-Has-More", "false") }
+                header { string("X-Total-Count", "1") }
             }
     }
 
@@ -212,20 +219,24 @@ class InstrumentControllerTest {
     @Test
     fun `GET api instruments code candles M1 returns time as JSON number (epoch second)`() {
         every { instrumentService.get("005930") } returns samsungInstrument()
-        // v2: M1은 queryByString 경유
-        every { candleQueryService.queryByString("005930", "M1", null, null) } returns
-            listOf(
-                Candle(
-                    code = "005930",
-                    interval = Interval.M1,
-                    openTime = Instant.parse("2026-04-30T05:30:00Z"), // = epoch 1777527000
-                    open = BigDecimal("60100"),
-                    high = BigDecimal("60150"),
-                    low = BigDecimal("60050"),
-                    close = BigDecimal("60120"),
-                    volume = 1_234L,
-                    tradeCount = 10L,
-                ),
+        // v2: M1은 queryByString 경유 — QueryResult 반환
+        every { candleQueryService.queryByString("005930", "M1", null, null, 200) } returns
+            QueryResult(
+                candles =
+                    listOf(
+                        Candle(
+                            code = "005930",
+                            interval = Interval.M1,
+                            openTime = Instant.parse("2026-04-30T05:30:00Z"), // = epoch 1777527000
+                            open = BigDecimal("60100"),
+                            high = BigDecimal("60150"),
+                            low = BigDecimal("60050"),
+                            close = BigDecimal("60120"),
+                            volume = 1_234L,
+                            tradeCount = 10L,
+                        ),
+                    ),
+                hasMore = false,
             )
 
         mvc
@@ -298,13 +309,16 @@ class InstrumentControllerTest {
     @Test
     fun `GET api instruments code candles accepts DAY alias and empty result`() {
         every { instrumentService.get("005930") } returns samsungInstrument()
-        every { candleQueryService.queryByString("005930", "DAY", null, null) } returns emptyList()
+        every { candleQueryService.queryByString("005930", "DAY", null, null, 200) } returns
+            QueryResult(candles = emptyList(), hasMore = false)
 
         mvc
             .get("/api/instruments/005930/candles?interval=DAY")
             .andExpect {
                 status { isOk() }
                 jsonPath("$.length()") { value(0) }
+                header { string("X-Has-More", "false") }
+                header { string("X-Total-Count", "0") }
             }
     }
 
@@ -325,7 +339,8 @@ class InstrumentControllerTest {
                 volume = 61_000L,
                 tradeCount = 500L,
             )
-        every { candleQueryService.queryByString("005930", "M5", null, null) } returns listOf(aggregatedCandle)
+        every { candleQueryService.queryByString("005930", "M5", null, null, 200) } returns
+            QueryResult(candles = listOf(aggregatedCandle), hasMore = false)
 
         mvc
             .get("/api/instruments/005930/candles?interval=M5")
@@ -355,7 +370,8 @@ class InstrumentControllerTest {
                 volume = 360_000L,
                 tradeCount = 3_000L,
             )
-        every { candleQueryService.queryByString("005930", "M30", null, null) } returns listOf(aggregatedCandle)
+        every { candleQueryService.queryByString("005930", "M30", null, null, 200) } returns
+            QueryResult(candles = listOf(aggregatedCandle), hasMore = false)
 
         mvc
             .get("/api/instruments/005930/candles?interval=M30")
@@ -383,7 +399,8 @@ class InstrumentControllerTest {
                 volume = 540_000L,
                 tradeCount = 4_500L,
             )
-        every { candleQueryService.queryByString("005930", "90m", null, null) } returns listOf(aggregatedCandle)
+        every { candleQueryService.queryByString("005930", "90m", null, null, 200) } returns
+            QueryResult(candles = listOf(aggregatedCandle), hasMore = false)
 
         mvc
             .get("/api/instruments/005930/candles?interval=90m")
@@ -391,6 +408,147 @@ class InstrumentControllerTest {
                 status { isOk() }
                 jsonPath("$.length()") { value(1) }
                 jsonPath("$[0].volume") { value(540_000) }
+            }
+    }
+
+    // ── cursor 페이징 / X-Has-More 헤더 테스트 ─────────────────────────────────
+
+    @Test
+    fun `GET candles returns X-Has-More true when result equals limit`() {
+        every { instrumentService.get("005930") } returns samsungInstrument()
+        // limit=1 + 1개 반환 → hasMore=true (다음 페이지 존재 추정)
+        every { candleQueryService.queryByString("005930", "DAY", null, null, 1) } returns
+            QueryResult(
+                candles =
+                    listOf(
+                        Candle(
+                            code = "005930",
+                            interval = Interval.D1,
+                            openTime = Instant.parse("2026-04-30T00:00:00Z"),
+                            open = BigDecimal("60000"),
+                            high = BigDecimal("60500"),
+                            low = BigDecimal("59500"),
+                            close = BigDecimal("60200"),
+                            volume = 1_000L,
+                            tradeCount = 100L,
+                        ),
+                    ),
+                hasMore = true,
+            )
+
+        mvc
+            .get("/api/instruments/005930/candles?interval=DAY&limit=1")
+            .andExpect {
+                status { isOk() }
+                header { string("X-Has-More", "true") }
+                header { string("X-Total-Count", "1") }
+                jsonPath("$.length()") { value(1) }
+            }
+    }
+
+    @Test
+    fun `GET candles returns X-Has-More false when result is less than limit`() {
+        every { instrumentService.get("005930") } returns samsungInstrument()
+        // 데이터 1개, limit=200 → hasMore=false
+        every { candleQueryService.queryByString("005930", "DAY", null, null, 200) } returns
+            QueryResult(
+                candles =
+                    listOf(
+                        Candle(
+                            code = "005930",
+                            interval = Interval.D1,
+                            openTime = Instant.parse("2026-04-30T00:00:00Z"),
+                            open = BigDecimal("60000"),
+                            high = BigDecimal("60500"),
+                            low = BigDecimal("59500"),
+                            close = BigDecimal("60200"),
+                            volume = 1_000L,
+                            tradeCount = 100L,
+                        ),
+                    ),
+                hasMore = false,
+            )
+
+        mvc
+            .get("/api/instruments/005930/candles")
+            .andExpect {
+                status { isOk() }
+                header { string("X-Has-More", "false") }
+                header { string("X-Total-Count", "1") }
+            }
+    }
+
+    @Test
+    fun `GET candles limit 1 valid request`() {
+        every { instrumentService.get("005930") } returns samsungInstrument()
+        every { candleQueryService.queryByString("005930", "DAY", null, null, 1) } returns
+            QueryResult(candles = emptyList(), hasMore = false)
+
+        mvc
+            .get("/api/instruments/005930/candles?limit=1")
+            .andExpect {
+                status { isOk() }
+                header { string("X-Has-More", "false") }
+            }
+    }
+
+    @Test
+    fun `GET candles limit 1000 valid request`() {
+        every { instrumentService.get("005930") } returns samsungInstrument()
+        every { candleQueryService.queryByString("005930", "DAY", null, null, 1000) } returns
+            QueryResult(candles = emptyList(), hasMore = false)
+
+        mvc
+            .get("/api/instruments/005930/candles?limit=1000")
+            .andExpect {
+                status { isOk() }
+            }
+    }
+
+    @Test
+    fun `GET candles before mode returns X-Has-More false when less than limit`() {
+        every { instrumentService.get("005930") } returns samsungInstrument()
+        // before 모드: 1개 반환, limit=200 → hasMore=false
+        every {
+            candleQueryService.queryBeforeByString(
+                "005930",
+                "DAY",
+                Instant.parse("2026-04-30T15:00:00Z"),
+                200,
+            )
+        } returns
+            listOf(
+                Candle(
+                    code = "005930",
+                    interval = Interval.D1,
+                    openTime = Instant.parse("2026-04-29T00:00:00Z"),
+                    open = BigDecimal("59000"),
+                    high = BigDecimal("59500"),
+                    low = BigDecimal("58500"),
+                    close = BigDecimal("59200"),
+                    volume = 10_000_000L,
+                    tradeCount = 80_000L,
+                ),
+            )
+
+        mvc
+            .get("/api/instruments/005930/candles?before=2026-04-30T15:00:00Z&limit=200")
+            .andExpect {
+                status { isOk() }
+                header { string("X-Has-More", "false") }
+                header { string("X-Total-Count", "1") }
+                jsonPath("$[0].time") { value("2026-04-29") }
+            }
+    }
+
+    @Test
+    fun `GET candles negative limit returns 400`() {
+        every { instrumentService.get("005930") } returns samsungInstrument()
+
+        mvc
+            .get("/api/instruments/005930/candles?limit=-1")
+            .andExpect {
+                status { isBadRequest() }
             }
     }
 

@@ -20,6 +20,7 @@ import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.responses.ApiResponse
 import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
+import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
@@ -189,14 +190,14 @@ class InstrumentController(
         @RequestParam(required = false) to: String?,
         @Parameter(description = "infinite scroll: 이 시각 이전 캔들 반환 (YYYY-MM-DD 또는 ISO-8601 또는 epoch second)", example = "2026-01-01")
         @RequestParam(required = false) before: String?,
-        @Parameter(description = "infinite scroll: 최대 반환 건수 (기본 200, 최대 1000)", example = "200")
+        @Parameter(description = "infinite scroll: 최대 반환 건수 (기본 200, 최대 1000). 응답 헤더 X-Has-More=true 시 추가 페이지 존재.", example = "200")
         @RequestParam(defaultValue = "200") limit: Int,
     ): ResponseEntity<List<CandleResponse>> {
         val normalized = code.uppercase()
         instrumentService.get(normalized) ?: return ResponseEntity.notFound().build()
 
         // limit 검증
-        if (limit <= 0 || limit > 1000) return ResponseEntity.badRequest().build()
+        if (limit <= 0 || limit > CandleQueryService.MAX_LIMIT) return ResponseEntity.badRequest().build()
 
         // interval 검증 — v2: D1·M1 또는 합성 N분봉 모두 허용
         val intervalIsValid = runCatching { validateInterval(interval) }.isSuccess
@@ -209,7 +210,9 @@ class InstrumentController(
                 runCatching {
                     candleQueryService.queryBeforeByString(normalized, interval, beforeInstant, limit)
                 }.getOrElse { return ResponseEntity.badRequest().build() }
-            return ResponseEntity.ok(candles.map { it.toResponse() })
+            // before 모드: 반환 봉 수가 limit와 같으면 이전 페이지 존재 가능 → hasMore=true
+            val hasMore = candles.size >= limit
+            return buildCandleResponse(candles, hasMore)
         }
 
         val fromInstant =
@@ -225,12 +228,35 @@ class InstrumentController(
                 parseInstantOrNull(to) ?: return ResponseEntity.badRequest().build()
             }
 
-        // v2: queryByString이 D1/M1/합성 interval 모두 처리
-        val candles =
+        // v2: queryByString이 D1/M1/합성 interval 모두 처리 (limit 적용 + hasMore 판단)
+        val result =
             runCatching {
-                candleQueryService.queryByString(normalized, interval, fromInstant, toInstant)
+                candleQueryService.queryByString(normalized, interval, fromInstant, toInstant, limit)
             }.getOrElse { return ResponseEntity.badRequest().build() }
-        return ResponseEntity.ok(candles.map { it.toResponse() })
+        return buildCandleResponse(result.candles, result.hasMore)
+    }
+
+    /**
+     * 캔들 응답 빌드 — 공통 헤더 포함.
+     *
+     * 응답 헤더:
+     * - `X-Has-More`: 다음 페이지 존재 여부 (true/false)
+     * - `X-Total-Count`: 이번 응답에 포함된 봉 수
+     */
+    private fun buildCandleResponse(
+        candles: List<com.mj.domain.common.Candle>,
+        hasMore: Boolean,
+    ): ResponseEntity<List<CandleResponse>> {
+        val headers =
+            HttpHeaders().apply {
+                set("X-Has-More", hasMore.toString())
+                set("X-Total-Count", candles.size.toString())
+                set("Access-Control-Expose-Headers", "X-Has-More, X-Total-Count")
+            }
+        return ResponseEntity
+            .ok()
+            .headers(headers)
+            .body(candles.map { it.toResponse() })
     }
 
     /**
