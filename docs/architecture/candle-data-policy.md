@@ -1,6 +1,14 @@
-# 캔들 데이터 정책 (Candle Data Policy)
+# 캔들 데이터 정책 (Candle Data Policy) — DEPRECATED
 
-> **Status**: ACTIVE v1 (2026-05-03 사용자 결정)
+> **Status**: 🚨 **DEPRECATED v1 (2026-05-03)** — superseded by `candle-data-policy-v2.md`
+> **Reason**: 1차안의 다중 interval 영속(M1·M5·M30 동시) + 부분 합성(M5→M15/H1)은 정석 quant 플랫폼 패턴 어긋남. 또한 KIS `FHKST03010200` 분봉 API가 **당일 전용**임이 1번 트랙 dogfooding에서 확인되어 과거 분봉 backfill 전략 재설계 필요.
+> **Migration**: ADR 0048 + Flyway V20 — M5/M15/M30/H1 row DELETE + interval CHECK constraint (M1·D1만 허용) + 백엔드 CandleAggregator 신규 + pyworker yfinance backfill.
+> **본 문서는 v2 운영 안정화(약 1주) 후 `_workspace/_archive/candle-data-policy-v1.md`로 이동 예정.**
+
+---
+
+## v1 원본 내용 (참조용 보존)
+
 > **Stewards**: market-data 에이전트 + architect
 > **References**: ADR 0033 (3-tier fallback), ADR 0037 (Instrument Master), 마스터 §3-5 (데이터 정합성 7원칙)
 > **변경 정책**: 본 문서 변경 시 사용자 컨펌 필수 — 데이터 모델·운영 비용에 직결
