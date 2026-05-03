@@ -157,3 +157,39 @@ T19가 1차 priority. T20·T21은 T19의 cache 인프라 위에 동작.
 - 외국인·기관 매매 동향 차트 — T23 후보
 - 종목 비교 차트 (multi-symbol overlay) — T24 후보
 - TimescaleDB 도입 (1분봉 5년 전종목 영속) — 50 GB 초과 시 ADR 신규
+
+---
+
+## T22 — Devlog 메뉴 (frontend 통합)
+
+### 목표
+`_workspace/devlog/*.html` 일자별 개발일지를 magicJar frontend에서 직접 열람. 기존 하네스 메뉴를 **Devlog 메뉴**로 확장 + 탭 구조.
+
+### 사용자 흐름
+```
+1. 헤더 메뉴에 "Devlog" 추가 (또는 기존 하네스 메뉴 rebrand)
+2. /devlog 페이지 진입 시 탭:
+   a. 일지 탭 (default) — 일자별 list (index.html 정합)
+   b. 하네스 탭 — 에이전트 활동·worktree·task 파일 (기존 magicjar-harness-dashboard 통합)
+   c. 빌드/CI 탭 (선택) — GitHub Actions 결과
+3. 일지 탭에서 날짜 클릭 → iframe 또는 inline 렌더로 YYYY-MM-DD.html 표시
+4. 검색·필터 (월·키워드)
+```
+
+### 작업 분해 (~3일)
+- **T22-T1** backend `GET /api/devlog/list` — `_workspace/devlog/*.html` 파일 list (mtime·summary 추출)
+- **T22-T2** backend `GET /api/devlog/{date}` — 해당 일자 HTML 반환 (또는 정적 파일 nginx serve)
+- **T22-T3** frontend `/devlog` 페이지 + 탭 컴포넌트 (shadcn/ui Tabs)
+- **T22-T4** 일지 탭 — 날짜 list + 클릭 시 iframe 또는 dangerouslySetInnerHTML 렌더
+- **T22-T5** 하네스 탭 — 기존 magicjar-harness-dashboard 통합
+- **T22-T6** 헤더 메뉴 정정 — Dashboard·Symbol·Strategy·Backtest·Orders·**Devlog**
+
+### 디스패치 권장
+- **backend-core (sonnet)**: T22-T1·T2
+- **frontend (sonnet)**: T22-T3·T4·T5·T6
+
+T19·T20·T21과 영역 일부 겹침 (frontend) — 4개 트랙 다음 세션 **순차** 권장:
+1. T19 (분봉 cache, 가장 큰 가치)
+2. T22 (Devlog 메뉴, 작음)
+3. T20 (검색·상세)
+4. T21 (대시보드 지수)
