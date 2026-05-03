@@ -1,9 +1,12 @@
 package com.mj.api.controller
 
+import com.mj.api.application.backtest.BacktestDetailQueryService
 import com.mj.api.application.backtest.BacktestService
 import com.mj.api.application.backtest.BacktestStatusResponse
 import com.mj.api.application.backtest.BacktestTriggerRequest
 import com.mj.api.application.backtest.BacktestTriggerResponse
+import com.mj.api.application.backtest.EquityCurveResponse
+import com.mj.api.application.backtest.TradesResponse
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.responses.ApiResponse
@@ -36,6 +39,7 @@ import org.springframework.web.bind.annotation.RestController
 @RequestMapping("/api/backtest")
 class BacktestController(
     private val backtestService: BacktestService,
+    private val detailQueryService: BacktestDetailQueryService,
 ) {
     @Operation(
         summary = "백테스트 잡 트리거",
@@ -85,6 +89,61 @@ class BacktestController(
     ): ResponseEntity<BacktestStatusResponse> {
         val result =
             backtestService.getStatus(runId)
+                ?: return ResponseEntity.notFound().build()
+        return ResponseEntity.ok(result)
+    }
+
+    @Operation(
+        summary = "백테스트 자산곡선 조회",
+        description = """
+            특정 백테스트 실행의 봉 단위 자산곡선(equity curve)을 시간 오름차순으로 반환한다.
+
+            - 백테스트 미완료(QUEUED/RUNNING) 또는 trades 미저장 시 빈 리스트 응답.
+            - mark-to-market: equity = cash + positionValue. positionValue = 보유 주식 수 × 봉 종가.
+            - track9 R1 부터 영속화.
+        """,
+    )
+    @ApiResponses(
+        value = [
+            ApiResponse(responseCode = "200", description = "조회 성공 (빈 리스트 가능)"),
+            ApiResponse(responseCode = "404", description = "해당 runId의 백테스트 기록 없음"),
+        ],
+    )
+    @GetMapping("/{runId}/equity-curve")
+    fun equityCurve(
+        @Parameter(description = "백테스트 실행 ID", example = "8f6c1c10-9d0e-4b2c-a5b6-1234567890ab")
+        @PathVariable runId: String,
+    ): ResponseEntity<EquityCurveResponse> {
+        val result =
+            detailQueryService.getEquityCurve(runId)
+                ?: return ResponseEntity.notFound().build()
+        return ResponseEntity.ok(result)
+    }
+
+    @Operation(
+        summary = "백테스트 거래 목록 조회",
+        description = """
+            특정 백테스트 실행의 라운드트립 거래(entry → exit 한 쌍) 목록을 sequence 오름차순으로 반환한다.
+
+            - 비용(수수료·거래세·슬리피지) 차감 후 순손익(`pnl`)이 핵심 지표.
+            - `pnlPercent`는 진입 명목금액 대비 비율 (예: 0.0234 = 2.34%).
+            - `exitReason`: SIGNAL_EXIT(신호 종료) / STOP_LOSS / TAKE_PROFIT / END_OF_DATA.
+            - track9 R1 부터 영속화.
+        """,
+    )
+    @ApiResponses(
+        value = [
+            ApiResponse(responseCode = "200", description = "조회 성공 (빈 리스트 가능)"),
+            ApiResponse(responseCode = "404", description = "해당 runId의 백테스트 기록 없음"),
+        ],
+    )
+    @GetMapping("/{runId}/trades")
+    fun trades(
+        @Parameter(description = "백테스트 실행 ID", example = "8f6c1c10-9d0e-4b2c-a5b6-1234567890ab")
+        @PathVariable runId: String,
+    ): ResponseEntity<TradesResponse> {
+        val result =
+            detailQueryService.getTrades(runId)
                 ?: return ResponseEntity.notFound().build()
         return ResponseEntity.ok(result)
     }
