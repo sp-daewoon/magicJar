@@ -3,7 +3,7 @@
  * 인증 상태 카드 + 모드 전환 라디오 + 로그인 폼
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -22,6 +22,57 @@ function maskAccountNo(raw: string): string {
 function modeLabel(mode: KisMode | null): string {
   if (!mode) return '미설정'
   return mode === 'vps' ? '모의투자 (VPS)' : '실전투자 (PROD)'
+}
+
+/**
+ * KIS 인증 입력값 localStorage 캐시 (개발 편의 — `project_kis_key_management.md` 정책).
+ * 모드(vps/prod)별로 분리 저장. 본격 운영 진입 시 secret manager로 이전.
+ */
+const STORAGE_KEY_PREFIX = 'magicjar.kis.creds'
+
+interface StoredCreds {
+  appKey: string
+  appSecret: string
+  accountNo: string
+}
+
+function loadCreds(mode: KisMode): StoredCreds {
+  try {
+    const raw = localStorage.getItem(`${STORAGE_KEY_PREFIX}.${mode}`)
+    if (!raw) return { appKey: '', appSecret: '', accountNo: '' }
+    const parsed = JSON.parse(raw)
+    return {
+      appKey: typeof parsed.appKey === 'string' ? parsed.appKey : '',
+      appSecret: typeof parsed.appSecret === 'string' ? parsed.appSecret : '',
+      accountNo: typeof parsed.accountNo === 'string' ? parsed.accountNo : '',
+    }
+  } catch {
+    return { appKey: '', appSecret: '', accountNo: '' }
+  }
+}
+
+function saveCreds(mode: KisMode, creds: StoredCreds): void {
+  try {
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}.${mode}`, JSON.stringify(creds))
+  } catch {
+    // localStorage 비활성·할당 초과 시 무시
+  }
+}
+
+/** 마지막 선택 모드도 별도 저장 (다음 모달 열 때 default 채움) */
+const LAST_MODE_KEY = 'magicjar.kis.lastMode'
+
+function loadLastMode(): KisMode {
+  const v = localStorage.getItem(LAST_MODE_KEY)
+  return v === 'prod' ? 'prod' : 'vps'
+}
+
+function saveLastMode(mode: KisMode): void {
+  try {
+    localStorage.setItem(LAST_MODE_KEY, mode)
+  } catch {
+    // ignore
+  }
 }
 
 /** 마지막 로그인 시각 포맷 */
@@ -46,13 +97,23 @@ export function AuthSection() {
   const loginMutation = useLoginMutation(DEFAULT_USER_ID)
   const changeMutation = useChangeMode(DEFAULT_USER_ID)
 
-  const [selectedMode, setSelectedMode] = useState<KisMode>('vps')
-  const [appKey, setAppKey] = useState('')
-  const [appSecret, setAppSecret] = useState('')
-  const [accountNoRaw, setAccountNoRaw] = useState('')
+  const [selectedMode, setSelectedMode] = useState<KisMode>(() => loadLastMode())
+  const initial = loadCreds(selectedMode)
+  const [appKey, setAppKey] = useState(initial.appKey)
+  const [appSecret, setAppSecret] = useState(initial.appSecret)
+  const [accountNoRaw, setAccountNoRaw] = useState(initial.accountNo)
 
   const [loginMsg, setLoginMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [modeMsg, setModeMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  // 모드 전환 시 해당 모드의 마지막 입력값 자동 채움
+  useEffect(() => {
+    const cached = loadCreds(selectedMode)
+    setAppKey(cached.appKey)
+    setAppSecret(cached.appSecret)
+    setAccountNoRaw(cached.accountNo)
+    saveLastMode(selectedMode)
+  }, [selectedMode])
 
   async function handleLogin() {
     setLoginMsg(null)
@@ -65,9 +126,8 @@ export function AuthSection() {
         accountNo: accountNoRaw,
       })
       setLoginMsg({ ok: true, text: res.message || '로그인 성공' })
-      setAppKey('')
-      setAppSecret('')
-      setAccountNoRaw('')
+      // 마지막 값 기억 (모드별, 개발 편의 — project_kis_key_management.md)
+      saveCreds(selectedMode, { appKey, appSecret, accountNo: accountNoRaw })
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
       setLoginMsg({ ok: false, text: `로그인 실패: ${msg}` })
