@@ -5,11 +5,13 @@ import com.mj.api.application.instrument.InstrumentService
 import com.mj.api.application.instrument.SyncTriggerResult
 import com.mj.api.application.market.CandleCacheService
 import com.mj.api.application.market.CandleQueryService
+import com.mj.api.application.market.InstrumentDetailService
 import com.mj.api.config.WebSecurityConfig
 import com.mj.domain.common.Candle
 import com.mj.domain.common.Interval
 import com.mj.domain.common.Market
 import com.mj.domain.market.instrument.Instrument
+import com.mj.domain.market.instrument.InstrumentDetail
 import com.mj.domain.market.instrument.InstrumentType
 import io.mockk.every
 import io.mockk.mockk
@@ -55,6 +57,9 @@ class InstrumentControllerTest {
 
         @Bean
         fun instrumentMasterSyncApiService(): InstrumentMasterSyncApiService = mockk()
+
+        @Bean
+        fun instrumentDetailService(): InstrumentDetailService = mockk()
     }
 
     @Autowired
@@ -71,6 +76,9 @@ class InstrumentControllerTest {
 
     @Autowired
     lateinit var candleCacheService: CandleCacheService
+
+    @Autowired
+    lateinit var instrumentDetailService: InstrumentDetailService
 
     private fun samsungInstrument() =
         Instrument(
@@ -326,6 +334,63 @@ class InstrumentControllerTest {
             .get("/api/instruments/master/sync/unknown-run")
             .andExpect {
                 status { isNotFound() }
+            }
+    }
+
+    // ── T20-T5: /detail 엔드포인트 테스트 ────────────────────────────────────
+
+    @Test
+    fun `GET api instruments code detail returns 200 with detail response`() {
+        every { instrumentService.get("005930") } returns samsungInstrument()
+        every { instrumentDetailService.getDetail("005930", "삼성전자") } returns
+            InstrumentDetail(
+                code = "005930",
+                name = "삼성전자",
+                market = "KOSPI",
+                sector = "반도체",
+                marketCap = java.math.BigDecimal("400000000000000"),
+                per = java.math.BigDecimal("12.34"),
+                pbr = java.math.BigDecimal("1.23"),
+                eps = java.math.BigDecimal("5765"),
+            )
+
+        mvc
+            .get("/api/instruments/005930/detail")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$.code") { value("005930") }
+                jsonPath("$.name") { value("삼성전자") }
+                jsonPath("$.market") { value("KOSPI") }
+                jsonPath("$.per") { value(12.34) }
+            }
+    }
+
+    @Test
+    fun `GET api instruments code detail returns 404 for unknown code`() {
+        every { instrumentService.get("999999") } returns null
+
+        mvc
+            .get("/api/instruments/999999/detail")
+            .andExpect {
+                status { isNotFound() }
+            }
+    }
+
+    @Test
+    fun `GET api instruments code detail returns 200 with null fields when KIS key not set`() {
+        every { instrumentService.get("005930") } returns samsungInstrument()
+        every { instrumentDetailService.getDetail("005930", "삼성전자") } returns
+            InstrumentDetail(code = "005930", name = "삼성전자")
+
+        mvc
+            .get("/api/instruments/005930/detail")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$.code") { value("005930") }
+                jsonPath("$.name") { value("삼성전자") }
+                // KIS 키 미설정 → 필드 null (non_null 직렬화 정책으로 응답에서 제외됨)
+                jsonPath("$.market") { doesNotExist() }
+                jsonPath("$.per") { doesNotExist() }
             }
     }
 }
