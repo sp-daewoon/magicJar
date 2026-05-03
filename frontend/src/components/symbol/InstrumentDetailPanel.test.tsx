@@ -107,4 +107,64 @@ describe('InstrumentDetailPanel', () => {
     fireEvent.click(btn)
     expect(onOpenSettings).toHaveBeenCalledTimes(1)
   })
+
+  // ── 시나리오 6: warnings 배열 — KIS + DART 두 코드 표시 ─────────────────
+  it('warnings 배열에 KIS_API_FAILED, DART_CORP_CODE_NOT_FOUND가 있으면 경고 배너가 표시된다', () => {
+    const detailWithWarnings: InstrumentDetail = {
+      ...MOCK_DETAIL,
+      warnings: ['KIS_API_FAILED', 'DART_CORP_CODE_NOT_FOUND'],
+    }
+    render(
+      <InstrumentDetailPanel detail={detailWithWarnings} isLoading={false} isError={false} />,
+    )
+
+    const banner = screen.getByTestId('warnings-banner')
+    expect(banner).toBeInTheDocument()
+    // 한글 메시지가 렌더링되어야 함
+    expect(
+      screen.getByText(/KIS OpenAPI 호출 실패 — 시총·PER·EPS 등 미수신/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/DART 종목 매핑 실패 — 재무 데이터 미수신/),
+    ).toBeInTheDocument()
+  })
+
+  // ── 시나리오 7: warnings 빈 배열 — 배너 미표시 ──────────────────────────
+  it('warnings 배열이 비어 있으면 경고 배너가 표시되지 않는다', () => {
+    const detailNoWarnings: InstrumentDetail = {
+      ...MOCK_DETAIL,
+      warnings: [],
+    }
+    render(
+      <InstrumentDetailPanel detail={detailNoWarnings} isLoading={false} isError={false} />,
+    )
+
+    expect(screen.queryByTestId('warnings-banner')).not.toBeInTheDocument()
+  })
+
+  // ── 시나리오 8: warnings 필드 absent — 배너 미표시 ──────────────────────
+  it('warnings 필드가 없으면 경고 배너가 표시되지 않는다', () => {
+    const detailAbsent: InstrumentDetail = { ...MOCK_DETAIL }
+    // warnings 키가 없는 경우 (optional)
+    delete (detailAbsent as Partial<InstrumentDetail>).warnings
+    render(
+      <InstrumentDetailPanel detail={detailAbsent} isLoading={false} isError={false} />,
+    )
+
+    expect(screen.queryByTestId('warnings-banner')).not.toBeInTheDocument()
+  })
+
+  // ── 시나리오 9: unknown 경고 코드 — 코드 그대로 표시 ────────────────────
+  it('알 수 없는 경고 코드는 코드 문자열 그대로 표시된다', () => {
+    const detailUnknown: InstrumentDetail = {
+      ...MOCK_DETAIL,
+      warnings: ['UNKNOWN_ERROR_CODE'],
+    }
+    render(
+      <InstrumentDetailPanel detail={detailUnknown} isLoading={false} isError={false} />,
+    )
+
+    expect(screen.getByTestId('warnings-banner')).toBeInTheDocument()
+    expect(screen.getByText(/UNKNOWN_ERROR_CODE/)).toBeInTheDocument()
+  })
 })

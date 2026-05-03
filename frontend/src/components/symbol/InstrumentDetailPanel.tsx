@@ -166,6 +166,64 @@ function KeyMissingAlert({ onOpenSettings }: KeyMissingAlertProps) {
   )
 }
 
+// ── 경고 코드 → 한글 메시지 매핑 ───────────────────────────────────────────────
+
+const WARNING_MESSAGES: Record<string, string> = {
+  KIS_API_FAILED:
+    'KIS OpenAPI 호출 실패 — 시총·PER·EPS 등 미수신. 키 활성화·발급 상태 확인 필요',
+  DART_CORP_CODE_NOT_FOUND: 'DART 종목 매핑 실패 — 재무 데이터 미수신',
+}
+
+function resolveWarningMessage(code: string): string {
+  return WARNING_MESSAGES[code] ?? code
+}
+
+// ── 경고 배너 ────────────────────────────────────────────────────────────────────
+
+interface WarningsBannerProps {
+  warnings: string[]
+}
+
+function WarningsBanner({ warnings }: WarningsBannerProps) {
+  if (warnings.length === 0) return null
+  return (
+    <div
+      role="alert"
+      data-testid="warnings-banner"
+      className="flex gap-2.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 text-amber-800 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+    >
+      {/* 삼각형 경고 아이콘 */}
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        className="mt-0.5 shrink-0"
+      >
+        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+        <path d="M12 9v4" />
+        <path d="M12 17h.01" />
+      </svg>
+      <div className="space-y-0.5">
+        <p className="text-xs font-semibold">데이터 일부 미수신</p>
+        <ul className="list-none space-y-0.5">
+          {warnings.map((code) => (
+            <li key={code} className="text-[11px]">
+              • {resolveWarningMessage(code)}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  )
+}
+
 // ── 메인 컴포넌트 ───────────────────────────────────────────────────────────────
 
 export default function InstrumentDetailPanel({
@@ -179,6 +237,8 @@ export default function InstrumentDetailPanel({
   if (isError || !detail) {
     return <KeyMissingAlert onOpenSettings={onOpenSettings} />
   }
+
+  const warnings = detail.warnings ?? []
 
   return (
     <Card>
@@ -203,6 +263,10 @@ export default function InstrumentDetailPanel({
       </CardHeader>
 
       <CardContent className="space-y-3 pb-4 pt-0">
+        {/* 경고 배너 — warnings 배열이 있을 때만 표시 */}
+        {warnings.length > 0 && (
+          <WarningsBanner warnings={warnings} />
+        )}
         {/* 시장 규모 섹션 */}
         <Separator />
         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
