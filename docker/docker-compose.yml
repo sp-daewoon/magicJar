@@ -148,9 +148,12 @@ services:
       PYWORKER_URL: http://pyworker:8000
       MAGICJAR_BATCH_BASE_URL: http://batch-app:8081
       MAGICJAR_DEVLOG_DIR: /workspace/devlog
+      MAGICJAR_HARNESS_DASHBOARD_PATH: /workspace/dashboard.html
     # T22: 개발일지 HTML read-only mount (DevlogController가 read)
+    # T22 R2: 하네스 dashboard.html read-only 마운트 (HarnessController가 read)
     volumes:
       - ../_workspace/devlog:/workspace/devlog:ro
+      - ../_workspace/dashboard.html:/workspace/dashboard.html:ro
     # 호스트 포트는 ${API_HOST_PORT} env로 override 가능. 기본은 8080.
     ports: ["${API_HOST_PORT:-8080}:8080"]
     # api-app이 Flyway 스키마 적용 완료까지 batch/consumer가 기다리도록 healthcheck 명시.
