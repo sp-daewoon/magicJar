@@ -4,11 +4,14 @@ import com.mj.api.application.instrument.InstrumentMasterSyncApiService
 import com.mj.api.application.instrument.InstrumentService
 import com.mj.api.application.market.CandleCacheService
 import com.mj.api.application.market.CandleQueryService
+import com.mj.api.application.market.InstrumentDetailService
 import com.mj.api.controller.dto.CandleResponse
+import com.mj.api.controller.dto.InstrumentDetailResponse
 import com.mj.api.controller.dto.InstrumentMasterSyncRequest
 import com.mj.api.controller.dto.InstrumentMasterSyncResponse
 import com.mj.api.controller.dto.InstrumentMasterSyncStatusResponse
 import com.mj.api.controller.dto.InstrumentSearchResponse
+import com.mj.api.controller.dto.toDetailResponse
 import com.mj.api.controller.dto.toResponse
 import com.mj.api.controller.dto.toSearchResponse
 import com.mj.domain.market.instrument.Instrument
@@ -48,6 +51,7 @@ class InstrumentController(
     private val candleQueryService: CandleQueryService,
     private val candleCacheService: CandleCacheService,
     private val masterSyncService: InstrumentMasterSyncApiService,
+    private val instrumentDetailService: InstrumentDetailService,
 ) {
     private val kst = ZoneId.of("Asia/Seoul")
 
@@ -103,6 +107,39 @@ class InstrumentController(
             instrumentService.get(code.uppercase())
                 ?: return ResponseEntity.notFound().build()
         return ResponseEntity.ok(instrument)
+    }
+
+    @Operation(
+        summary = "종목 상세 메타 조회",
+        description = """
+            KIS inquire-stock-info + DART 재무제표를 병합한 종목 상세 정보를 반환한다 (T20-T5).
+
+            - 시가총액·상장주식수·PER·PBR·EPS·BPS·배당률: KIS inquire-stock-info (CTPF1002R)
+            - 매출액·영업이익·당기순이익: DART fnlttSinglAcntAll (연간 연결재무제표)
+            - 외국인·기관 비율: 현재 미구현 (R2 예정)
+            - Redis TTL 6시간 캐시. 캐시 hit 시 외부 API 호출 없음.
+
+            **KIS/DART 키 미설정 시**: code·name만 채워진 200 응답 (각 필드 null).
+            사용자 화면에서 null인 필드는 '—' 또는 빈 칸으로 처리.
+        """,
+    )
+    @ApiResponses(
+        value = [
+            ApiResponse(responseCode = "200", description = "조회 성공 (필드 일부 null 가능)"),
+            ApiResponse(responseCode = "404", description = "해당 코드의 종목 없음"),
+        ],
+    )
+    @GetMapping("/{code}/detail")
+    fun detail(
+        @Parameter(description = "KRX 종목 코드 6자리", example = "005930")
+        @PathVariable code: String,
+    ): ResponseEntity<InstrumentDetailResponse> {
+        val normalized = code.uppercase()
+        val instrument =
+            instrumentService.get(normalized)
+                ?: return ResponseEntity.notFound().build()
+        val detail = instrumentDetailService.getDetail(normalized, instrument.name)
+        return ResponseEntity.ok(detail.toDetailResponse())
     }
 
     @Operation(

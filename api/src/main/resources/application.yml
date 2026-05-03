@@ -95,6 +95,12 @@ spring.ai:
 
 magicjar:
   mode: ${MAGICJAR_MODE:MOCK}
+  dart:
+    api-key: ${OPENDART_API_KEY:}
+  kis:
+    base-url: ${KIS_BASE_URL:https://openapivts.koreainvestment.com:29443}
+    app-key: ${KIS_MOCK_APP_KEY:}
+    app-secret: ${KIS_MOCK_APP_SECRET:}
   allow-real: ${MAGICJAR_ALLOW_REAL:false}
   pyworker:
     base-url: ${PYWORKER_URL:http://localhost:8000}
