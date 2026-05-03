@@ -49,6 +49,7 @@ import type {
   BacktestStatusResponse,
   BacktestTriggerRequest,
   BacktestTriggerResponse,
+  DevlogListResponse,
 } from './types'
 
 // Mock stubs — 추후 orval generated/로 교체
@@ -68,4 +69,19 @@ export const backtestApi = {
 export const journalApi = {
   list: (page = 0) => apiClient.get<unknown>(`/journal?page=${page}`),
   get: (id: string) => apiClient.get<unknown>(`/journal/${id}`),
+}
+
+/**
+ * 개발일지 API — T22 backend (GET /api/devlog/list, GET /api/devlog/{date})
+ * 백엔드 미머지 시 graceful fallback: 호출 측에서 에러 처리
+ */
+export const devlogApi = {
+  /** GET /api/devlog/list — 일지 목록 (최신 우선) */
+  list: () => apiClient.get<DevlogListResponse>('/devlog/list'),
+  /**
+   * GET /api/devlog/{date} — raw HTML (Content-Type: text/html)
+   * iframe src에서 직접 사용하므로 별도 fetch 불필요.
+   * URL 생성 헬퍼만 제공.
+   */
+  htmlUrl: (date: string) => `${BASE_URL}/devlog/${date}`,
 }

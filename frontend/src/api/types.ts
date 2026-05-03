@@ -189,3 +189,25 @@ export interface QuoteMessage {
   volume: number
   timestamp: number
 }
+
+/* ---------- 개발일지(Devlog) ---------- */
+
+/**
+ * GET /api/devlog/list 응답 항목 — 백엔드 DevlogEntry와 1:1 대응.
+ * date: 'YYYY-MM-DD' 형식
+ * dayOfWeek: '월'~'일' (한국어 요일)
+ * mtime: ISO-8601 (마지막 수정 시각)
+ * sizeBytes: 파일 크기 (bytes)
+ * summary: HTML 첫 <title> 또는 <h1> 텍스트
+ */
+export interface DevlogEntry {
+  date: string       // 'YYYY-MM-DD'
+  dayOfWeek: string  // '월' ~ '일'
+  mtime: string      // ISO-8601
+  sizeBytes: number
+  summary: string
+}
+
+export interface DevlogListResponse {
+  entries: DevlogEntry[]
+}
