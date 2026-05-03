@@ -91,6 +91,11 @@ magicjar:
     base-url: ${PYWORKER_URL:http://localhost:8000}
   batch:
     base-url: ${BATCH_URL:http://localhost:8081}
+  mcp:
+    api-key: ${MAGICJAR_MCP_API_KEY:}
+    protocol-version: 2025-03-26
+    server-name: magicjar-mcp
+    server-version: 0.1.0
 
 logging:
   level:
