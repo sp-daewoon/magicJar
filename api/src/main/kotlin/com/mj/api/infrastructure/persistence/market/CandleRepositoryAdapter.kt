@@ -6,6 +6,8 @@ import com.mj.domain.market.port.CandleRepository
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 
 @Component
 class CandleRepositoryAdapter(
@@ -43,4 +45,22 @@ class CandleRepositoryAdapter(
         repository
             .findByCodeAndIntervalAndOpenTimeBetweenOrderByOpenTimeAsc(code, interval, from, to)
             .map { it.toDomain() }
+
+    @Transactional(readOnly = true)
+    override fun findLastClose(
+        code: String,
+        asOfDate: LocalDate,
+    ): Candle? {
+        val beforeInstant = asOfDate.plusDays(1).atStartOfDay(KST).toInstant()
+        return repository
+            .findFirstByCodeAndIntervalAndOpenTimeLessThanEqualOrderByOpenTimeDesc(
+                code = code,
+                interval = Interval.D1,
+                before = beforeInstant,
+            )?.toDomain()
+    }
+
+    companion object {
+        private val KST: ZoneId = ZoneId.of("Asia/Seoul")
+    }
 }

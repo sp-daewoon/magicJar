@@ -7,6 +7,8 @@ import org.springframework.context.annotation.Primary
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 
 @Component
 @Primary
@@ -27,4 +29,23 @@ class CandleRepositoryAdapter(
         from: Instant,
         to: Instant,
     ): List<Candle> = jpa.findByCodeAndIntervalAndOpenTimeBetween(code, interval, from, to).map { it.toDomain() }
+
+    @Transactional(readOnly = true)
+    override fun findLastClose(
+        code: String,
+        asOfDate: LocalDate,
+    ): Candle? {
+        // asOfDate 당일 자정(KST) 이하의 가장 최근 D1 캔들
+        val beforeInstant = asOfDate.plusDays(1).atStartOfDay(KST).toInstant()
+        return jpa
+            .findFirstByCodeAndIntervalAndOpenTimeLessThanEqualOrderByOpenTimeDesc(
+                code = code,
+                interval = Interval.D1,
+                before = beforeInstant,
+            )?.toDomain()
+    }
+
+    companion object {
+        private val KST: ZoneId = ZoneId.of("Asia/Seoul")
+    }
 }
