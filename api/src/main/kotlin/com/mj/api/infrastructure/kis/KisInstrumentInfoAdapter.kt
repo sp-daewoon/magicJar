@@ -106,11 +106,12 @@ class KisInstrumentInfoAdapter(
                 .get()
                 .uri { b ->
                     b
-                        .path("/uapi/domestic-stock/v1/quotations/inquire-stock-info")
-                        // CTPF1002R 국내주식 기본정보 파라미터 (KIS OpenAPI 공식 스펙)
-                        // FID_COND_MRKT_DIV_CODE: J (주식), FID_INPUT_ISCD: 종목코드 6자리
-                        .queryParam("FID_COND_MRKT_DIV_CODE", "J")
-                        .queryParam("FID_INPUT_ISCD", code)
+                        // KIS 공식 endpoint (사용자 가이드 검증):
+                        // https://apiportal.koreainvestment.com/apiservice-apiservice?/uapi/domestic-stock/v1/quotations/search-stock-info
+                        // PDNO=종목코드 6자리, PRDT_TYPE_CD=300 (국내주식)
+                        .path("/uapi/domestic-stock/v1/quotations/search-stock-info")
+                        .queryParam("PDNO", code)
+                        .queryParam("PRDT_TYPE_CD", "300")
                         .build()
                 }.headers { h ->
                     h["authorization"] = "Bearer ${cachedToken!!}"
@@ -124,7 +125,7 @@ class KisInstrumentInfoAdapter(
                         throw KisInstrumentInfoException("401", 401)
                     }
                     log.warn("[kis-info] HTTP 오류 code={} status={}", code, resp.statusCode)
-                    throw KisInstrumentInfoException("KIS inquire-stock-info 오류: ${resp.statusCode}", resp.statusCode.value())
+                    throw KisInstrumentInfoException("KIS search-stock-info 오류: ${resp.statusCode}", resp.statusCode.value())
                 }.body(StockInfoResponse::class.java)
                 ?: return null
 
@@ -197,23 +198,25 @@ class KisInstrumentInfoAdapter(
     )
 
     /**
-     * CTPF1002R 응답 매핑.
+     * CTPF1002R 응답 매핑 (search-stock-info — KIS 공식 spec, 직접 호출 검증 완료).
      *
-     * output 필드 참조 (KIS 공식 docs + MCP 검색):
-     * - hts_kor_isnm : 한글 종목명
-     * - stck_shrn_iscd : 단축 종목코드
-     * - stck_prpr : 현재가
-     * - lstn_stcn : 상장 주식수
-     * - hts_avls : 시가총액 (억원 단위)
-     * - per : 주가수익비율
-     * - pbr : 주가순자산비율
-     * - eps : 주당순이익
-     * - bps : 주당순자산가치
-     * - divi : 주당배당금
-     * - itewhol_loan_rmnd_ratem : 배당률
-     * - idst_scls_cd_name : 업종명
-     * - stck_sdpr : 기준가 / 전일 종가 근사값 사용
-     * - corp_name : 회사명
+     * 실 응답 필드 (사용자 가이드 + 컨테이너 직접 호출):
+     * - pdno          : 표준 종목코드 (00000A005930)
+     * - prdt_name     : 종목명 (삼성전자보통주)
+     * - prdt_abrv_name: 종목 약칭 (삼성전자)
+     * - prdt_eng_name : 영문명
+     * - shtn_pdno     : 단축 종목코드 (005930)
+     * - lstg_stqt     : 상장 주식수
+     * - cpta          : 자본금 (KRW)
+     * - papr          : 액면가
+     * - setl_mmdd     : 결산월 (12)
+     * - kospi200_item_yn : KOSPI200 편입 여부 (Y/N)
+     * - mket_id_cd    : 시장 ID (STK·KSQ)
+     * - excg_dvsn_cd  : 거래소 구분 (02)
+     * - idx_bztp_lcls_cd : 업종 분류 코드
+     * - scts_mket_lstg_dt : 코스피 상장일 (yyyyMMdd)
+     *
+     * PER·PBR·EPS·BPS·시총은 본 endpoint 미제공 — inquire-price 등 별도 endpoint (다음 사이클).
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     private data class StockInfoResponse(
@@ -224,52 +227,60 @@ class KisInstrumentInfoAdapter(
     ) {
         fun toDetail(code: String): InstrumentDetail {
             val o = output
+            // 시총 = 자본금 (정확한 시총은 별도 endpoint — 1차 자본금으로 가용성 확보)
+            // 실제로는 lstg_stqt × 현재가가 시총. 다음 사이클에 inquire-price 통합.
+            val capital = o.cpta.parseBigDecimal()
             return InstrumentDetail(
                 code = code,
-                name = o.htsKorIsnm.ifBlank { code },
-                sector = o.idstSclsCdName.takeIf { it.isNotBlank() },
-                // 시가총액: KIS는 억원 단위로 제공 → 원 단위 변환 (×10^8)
-                marketCap = o.htsAvls.parseBigDecimal()?.let { it.multiply(BigDecimal("100000000")) },
-                sharesOutstanding = o.lstnStcn.parseLong(),
-                // KIS inquire-stock-info는 외국인/기관 비율 미제공 (별도 API 필요)
+                name = o.prdtAbrvName.ifBlank { o.prdtName }.ifBlank { code },
+                sector = o.idxBztpLclsCd.takeIf { it.isNotBlank() },
+                marketCap = capital, // 1차: 자본금. 다음 사이클: lstg_stqt × current_price
+                sharesOutstanding = o.lstgStqt.parseLong(),
                 foreignRatio = null,
                 institutionRatio = null,
-                // 재무정보는 DART에서 보완
+                // 재무정보는 DART에서 보완 (이미 정상화)
                 revenue = null,
                 operatingIncome = null,
                 netIncome = null,
-                per = o.per.parseBigDecimal(),
-                pbr = o.pbr.parseBigDecimal(),
-                eps = o.eps.parseBigDecimal(),
-                bps = o.bps.parseBigDecimal(),
-                dividendYield = o.diviRt.parseBigDecimal(),
+                // PER/PBR/EPS/BPS는 search-stock-info 미제공 — 다음 사이클 inquire-price 통합
+                per = null,
+                pbr = null,
+                eps = null,
+                bps = null,
+                dividendYield = null,
                 majorShareholderRatio = null,
                 representativeName = null,
-                industry = o.idstSclsCdName.takeIf { it.isNotBlank() },
+                industry = o.idxBztpLclsCd.takeIf { it.isNotBlank() },
             )
         }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private data class StockInfoOutput(
-        /** 한글 종목명 */
-        @JsonProperty("hts_kor_isnm") val htsKorIsnm: String = "",
+        /** 표준 종목코드 (00000A005930) */
+        @JsonProperty("pdno") val pdno: String = "",
+        /** 종목명 (삼성전자보통주) */
+        @JsonProperty("prdt_name") val prdtName: String = "",
+        /** 종목 약칭 (삼성전자) — 사용자 표시용 */
+        @JsonProperty("prdt_abrv_name") val prdtAbrvName: String = "",
+        /** 단축 종목코드 (005930) */
+        @JsonProperty("shtn_pdno") val shtnPdno: String = "",
         /** 상장 주식수 */
-        @JsonProperty("lstn_stcn") val lstnStcn: String = "",
-        /** 시가총액 (억원 단위) */
-        @JsonProperty("hts_avls") val htsAvls: String = "",
-        /** PER */
-        @JsonProperty("per") val per: String = "",
-        /** PBR */
-        @JsonProperty("pbr") val pbr: String = "",
-        /** EPS (주당순이익) */
-        @JsonProperty("eps") val eps: String = "",
-        /** BPS (주당순자산가치) */
-        @JsonProperty("bps") val bps: String = "",
-        /** 배당률 */
-        @JsonProperty("divi_rt") val diviRt: String = "",
-        /** 업종명 */
-        @JsonProperty("idst_scls_cd_name") val idstSclsCdName: String = "",
+        @JsonProperty("lstg_stqt") val lstgStqt: String = "",
+        /** 자본금 (KRW) */
+        @JsonProperty("cpta") val cpta: String = "",
+        /** 액면가 */
+        @JsonProperty("papr") val papr: String = "",
+        /** 결산월 (12) */
+        @JsonProperty("setl_mmdd") val setlMmdd: String = "",
+        /** KOSPI200 편입 (Y/N) */
+        @JsonProperty("kospi200_item_yn") val kospi200ItemYn: String = "",
+        /** 시장 ID (STK·KSQ) */
+        @JsonProperty("mket_id_cd") val mketIdCd: String = "",
+        /** 업종 분류 코드 (industry) */
+        @JsonProperty("idx_bztp_lcls_cd") val idxBztpLclsCd: String = "",
+        /** 코스피 상장일 (yyyyMMdd) */
+        @JsonProperty("scts_mket_lstg_dt") val sctsMketLstgDt: String = "",
     )
 
     companion object {
