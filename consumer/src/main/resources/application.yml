@@ -142,6 +142,8 @@ magicjar:
     topics:
       tick: market.tick.v1
       candle1m: market.candle.1m.v1
+      # ADR 0048: TickToMinuteAggregator → api CandleMinuteEventListener 전용 토픽
+      candleMinuteAggregated: candle.minute.aggregated.v1
       newsRaw: news.raw.v1
       newsAnalyzed: news.analyzed.v1
       dartDisclosure: dart.disclosure.v1
@@ -153,6 +155,7 @@ magicjar:
       journalEntry: journal.entry.v1
     consumer-groups:
       signal-engine: magicjar-signal-engine
+      tick-aggregator: magicjar-tick-aggregator
 
 logging:
   level:
