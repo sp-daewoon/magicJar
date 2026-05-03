@@ -14,10 +14,15 @@ import java.math.BigDecimal
 import java.time.Instant
 
 /**
- * CandleCacheService 단위 테스트 (T19-T3).
+ * CandleCacheService 단위 테스트 (T19-T3 정정).
  *
- * - cache hit: DB 분봉 있으면 즉시 반환 + last_accessed_at 갱신
- * - cache miss: DB 분봉 0건이면 D1 fallback 반환
+ * 정책 변경 — D1 fallback 정책 폐기 (사용자 보고로 회귀 fix).
+ * 사용자가 분봉 선택했는데 일봉이 응답되면 혼란 → 분봉은 있는 그대로 반환,
+ * 0건이면 빈 배열 반환 + 백그라운드 fetch trigger.
+ *
+ * - cache hit: DB 분봉 있고 meta 있으면 즉시 반환 + last_accessed_at 갱신
+ * - cache miss: DB 분봉 0건이면 빈 배열 반환 + background fetch trigger
+ * - cache partial (meta 부재): legacy 시드 — 있는 그대로 반환, trigger 안 함
  * - D1 요청: cache 로직 우회, candleRepository 직접 조회
  */
 class CandleCacheServiceTest {
@@ -101,19 +106,36 @@ class CandleCacheServiceTest {
     }
 
     @Test
-    fun `M30 cache miss — 0건이면 D1 fallback 반환`() {
+    fun `M30 cache miss — 0건이면 빈 배열 반환 (D1 fallback 폐기)`() {
         val to = Instant.now()
         val from = to.minusSeconds(86400L)
-        val d1Candles = listOf(candleFixture(Interval.D1))
 
         every { candleRepository.find("005930", Interval.M30, any(), any()) } returns emptyList()
         every { cacheMetaRepository.findByCodeAndInterval("005930", Interval.M30) } returns null
-        every { candleRepository.find("005930", Interval.D1, any(), any()) } returns d1Candles
 
         val result = sut.fetchOrTrigger("005930", Interval.M30, from, to)
 
-        // D1 fallback 반환
-        assertThat(result).hasSize(1)
-        assertThat(result[0].interval).isEqualTo(Interval.D1)
+        // 빈 배열 — 사용자가 M30 선택했는데 D1을 주면 혼란.
+        assertThat(result).isEmpty()
+        // D1 조회는 발생하지 않아야 함 (fallback 정책 폐기 확인)
+        verify(exactly = 0) { candleRepository.find("005930", Interval.D1, any(), any()) }
+    }
+
+    @Test
+    fun `M30 partial — candles 있고 meta 없으면 legacy 시드로 그대로 반환`() {
+        val to = Instant.now()
+        val from = to.minusSeconds(86400 * 7)
+        val candles =
+            (1..10).map { i ->
+                candleFixture(Interval.M30).copy(openTime = from.plusSeconds(i * 1800L))
+            }
+
+        every { candleRepository.find("005930", Interval.M30, any(), any()) } returns candles
+        every { cacheMetaRepository.findByCodeAndInterval("005930", Interval.M30) } returns null
+
+        val result = sut.fetchOrTrigger("005930", Interval.M30, from, to)
+
+        // legacy 시드는 그대로 반환 (백그라운드 trigger 없음)
+        assertThat(result).hasSize(10)
     }
 }
