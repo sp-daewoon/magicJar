@@ -47,7 +47,7 @@ function mkDayCandles(count: number): CandleDto[] {
 }
 
 // instruments API mock
-const mockCandlesPage = vi.fn<Parameters<typeof import('@/api/instruments').instrumentsApi.candlesPage>>()
+const mockCandlesPage = vi.fn<typeof import('@/api/instruments').instrumentsApi.candlesPage>()
 
 vi.mock('@/api/instruments', () => ({
   instrumentsApi: {
