@@ -140,16 +140,39 @@ class KisInstrumentInfoAdapter(
 
     private fun issueToken(): String? =
         try {
+            log.info("[kis-info] 토큰 발급 요청 baseUrl={} appKey={}...", baseUrl, appKey.take(8))
             val resp =
                 restClient
                     .post()
                     .uri("/oauth2/tokenP")
                     .body(TokenRequest(appkey = appKey, appsecret = appSecret))
                     .retrieve()
-                    .body(TokenResponse::class.java)
-            resp?.accessToken
+                    .onStatus(org.springframework.http.HttpStatusCode::isError) { _, r ->
+                        val body =
+                            runCatching {
+                                r.body
+                                    .readBytes()
+                                    .toString(Charsets.UTF_8)
+                                    .take(200)
+                            }.getOrDefault("")
+                        log.warn(
+                            "[kis-info] 토큰 발급 HTTP 오류 status={} body={} — IP 화이트리스트 미등록 또는 키 만료 가능",
+                            r.statusCode,
+                            body,
+                        )
+                        throw KisInstrumentInfoException("token issue failed: ${r.statusCode} $body", r.statusCode.value())
+                    }.body(TokenResponse::class.java)
+            if (resp?.accessToken.isNullOrBlank()) {
+                log.warn("[kis-info] 토큰 발급 응답 access_token 비어있음 — KIS API 서버 오류 가능")
+                null
+            } else {
+                log.info("[kis-info] 토큰 발급 성공 expires={}", resp?.tokenExpired)
+                resp!!.accessToken
+            }
+        } catch (ex: KisInstrumentInfoException) {
+            null // 이미 warn 로그 찍힘
         } catch (ex: Exception) {
-            log.warn("[kis-info] 토큰 발급 실패: {}", ex.message)
+            log.warn("[kis-info] 토큰 발급 실패 — error={} (IP 화이트리스트·키 만료·네트워크 확인 필요)", ex.message)
             null
         }
 
@@ -170,6 +193,7 @@ class KisInstrumentInfoAdapter(
 
     private data class TokenResponse(
         @JsonProperty("access_token") val accessToken: String = "",
+        @JsonProperty("access_token_token_expired") val tokenExpired: String = "",
     )
 
     /**

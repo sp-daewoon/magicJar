@@ -42,10 +42,12 @@ class CandleQueryService(
         val upper = intervalRaw.trim().uppercase()
         val toResolved = to ?: Instant.now()
 
-        // D1 / DAY alias
+        // D1 / DAY alias — D1은 KIS 배치 백필 경로. cold-start trigger는 M1 경로에만 적용.
         if (isD1(upper)) {
             val fromResolved = from ?: defaultFrom(Interval.D1, toResolved)
-            return candleRepository.find(code, Interval.D1, fromResolved, toResolved)
+            val candles = candleRepository.find(code, Interval.D1, fromResolved, toResolved)
+            log.info("[query-svc] D1 조회 code={} rows={} from={}", code, candles.size, fromResolved)
+            return candles
         }
 
         // M1 alias
