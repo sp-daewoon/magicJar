@@ -195,6 +195,11 @@ export interface QuoteMessage {
 /**
  * InstrumentDetail — GET /api/instruments/{code}/detail 응답.
  * T20-T1 도메인과 1:1 대응. null 필드는 DART/KIS 미연동 시 반환.
+ *
+ * warnings: 외부 API 호출 실패 시 백엔드가 채워 내려보내는 경고 코드 배열.
+ *   - 'KIS_API_FAILED'           — KIS OpenAPI 호출 실패
+ *   - 'DART_CORP_CODE_NOT_FOUND' — DART 종목 코드 매핑 실패
+ * 정상 케이스에서는 빈 배열 또는 필드 미포함.
  */
 export interface InstrumentDetail {
   code: string
@@ -219,6 +224,8 @@ export interface InstrumentDetail {
   bps: number | null
   dividendYield: number | null      // 배당률 (0.0~1.0)
   majorShareholderRatio: number | null  // 대주주 지분율 (0.0~1.0)
+  // 외부 API 경고 (PR #123 도입 — 정상 케이스에서는 빈 배열 또는 absent)
+  warnings?: string[]
 }
 
 /**
