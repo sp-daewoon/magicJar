@@ -87,7 +87,7 @@ function EntryItem({ entry, selected, onClick }: EntryItemProps) {
 /* ------------------------------------------------------------------ */
 
 function JournalTab() {
-  const { entries, isLoading, isError, isMock, refetch } = useDevlogList()
+  const { entries, isLoading, isMock, refetch } = useDevlogList()
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedMonth, setSelectedMonth] = useState<string>('all')

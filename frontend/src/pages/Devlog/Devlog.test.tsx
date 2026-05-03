@@ -16,7 +16,7 @@ import type { DevlogListResponse } from '@/api/types'
 /* API mock                                                             */
 /* ------------------------------------------------------------------ */
 
-const mockDevlogList = vi.fn<[], Promise<DevlogListResponse>>()
+const mockDevlogList = vi.fn<() => Promise<DevlogListResponse>>()
 
 vi.mock('@/api/client', () => ({
   devlogApi: {
