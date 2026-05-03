@@ -108,8 +108,9 @@ spring:
       on-profile: real-kis
 magicjar:
   kis:
+    # 데이터 조회 정책: 실전 키 + 실전 URL 사용 (사용자 정책 — 모의 키는 주문 전용).
     mode: REAL
-    base-url: https://openapivts.koreainvestment.com:29443
-    app-key: ${KIS_MOCK_APP_KEY:}
-    app-secret: ${KIS_MOCK_APP_SECRET:}
+    base-url: https://openapi.koreainvestment.com:9443
+    app-key: ${KIS_APP_KEY:}
+    app-secret: ${KIS_APP_SECRET:}
     account: ${KIS_ACCOUNT_CANO:}-${KIS_ACCOUNT_PRDT:01}

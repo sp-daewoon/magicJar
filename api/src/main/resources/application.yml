@@ -103,9 +103,11 @@ magicjar:
   dart:
     api-key: ${OPENDART_API_KEY:}
   kis:
-    base-url: ${KIS_BASE_URL:https://openapivts.koreainvestment.com:29443}
-    app-key: ${KIS_MOCK_APP_KEY:}
-    app-secret: ${KIS_MOCK_APP_SECRET:}
+    # 데이터 조회(시세·캔들·종목 메타·재무) 정책: 항상 실전 키.
+    # 모의 키는 주문(consumer/orders)에서만 사용 — 사용자 정책.
+    base-url: ${KIS_BASE_URL:https://openapi.koreainvestment.com:9443}
+    app-key: ${KIS_APP_KEY:}
+    app-secret: ${KIS_APP_SECRET:}
   allow-real: ${MAGICJAR_ALLOW_REAL:false}
   pyworker:
     base-url: ${PYWORKER_URL:http://localhost:8000}
