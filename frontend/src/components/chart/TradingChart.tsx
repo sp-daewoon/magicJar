@@ -21,8 +21,10 @@ import {
   type MouseEventParams,
   type UTCTimestamp,
   type Range,
-  type TimeRange,
 } from 'lightweight-charts'
+
+// lightweight-charts v4에선 TimeRange 별도 export X — Range<Time>으로 inline 정의.
+type TimeRange = Range<Time>
 import { cn } from '@/lib/cn'
 import type { CandleDto } from '@/api/types'
 import type { ClientInterval } from '@/lib/candleAggregator'
