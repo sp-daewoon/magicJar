@@ -117,8 +117,42 @@ export interface NewsAnalyzedMessage {
 }
 
 /**
+ * 시장 세션 상태 — 백엔드 MarketSession enum과 1:1 대응.
+ * GET /api/instruments/{code}/quote 응답 및 STOMP 메시지에서 수신.
+ */
+export type MarketSession =
+  | 'Open'
+  | 'PreMarket'
+  | 'PostMarket'
+  | 'Closed'
+  | 'Holiday'
+
+/**
+ * 시세 데이터 소스 — 백엔드 QuoteSource enum과 1:1 대응.
+ * LIVE: KIS WebSocket 실시간
+ * CACHED: Redis 캐시 (마지막 실시간 값)
+ * LAST_DAY_CLOSE: 전일 종가 (장외/캐시 없음)
+ */
+export type QuoteSource = 'LIVE' | 'CACHED' | 'LAST_DAY_CLOSE'
+
+/**
+ * GET /api/instruments/{code}/quote 응답 — 백엔드 QuoteResponse와 1:1 대응.
+ * R3 머지 산출물: stale·asOf·source·session 필드 추가.
+ */
+export interface QuoteResponse {
+  code: string
+  price: number
+  volume: number
+  source: QuoteSource
+  stale: boolean
+  asOf: string        // ISO-8601 (백엔드 Instant 직렬화)
+  session: MarketSession
+}
+
+/**
  * WebSocket STOMP 실시간 시세 메시지 — 백엔드 TickEvent와 1:1 호환.
  * 토픽: /topic/market.tick.{code}
+ * R3 머지: stale·asOf 필드 추가 (STOMP fanout에서 수신 가능).
  */
 export interface TickMessage {
   code: string
@@ -126,6 +160,8 @@ export interface TickMessage {
   price: number      // BigDecimal → number (KRW 정수)
   volume: number     // 누적 또는 체결 단위 (백엔드 source에 따라 의미 상이)
   source?: string    // KIS_WS, MOCK 등
+  stale?: boolean    // true = 실시간 아님 (캐시 또는 전일 종가)
+  asOf?: string      // 데이터 기준 시각 ISO-8601 (stale=true 시 의미 있음)
 }
 
 /**
