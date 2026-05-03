@@ -142,7 +142,13 @@ interface IndexCardProps {
 }
 
 function IndexCard({ index }: IndexCardProps) {
-  const colorClass = changeColorClass(index.changePercent)
+  // Backend 응답이 일부 필드 미제공 또는 0 가능 — 안전 기본값.
+  const currentValue = index.currentValue ?? 0
+  const prevClose = index.prevClose ?? 0
+  const changePercent = index.changePercent ?? 0
+  // changeAmount는 backend 응답에 없음 — 직접 계산 (prevClose=0이면 0).
+  const changeAmount = prevClose > 0 ? currentValue - prevClose : 0
+  const colorClass = changeColorClass(changePercent)
 
   return (
     <Card>
@@ -157,24 +163,24 @@ function IndexCard({ index }: IndexCardProps) {
       <CardContent className="pb-2">
         {/* 지수값 */}
         <div className="text-2xl font-bold tabular-nums">
-          {index.currentValue.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          {currentValue.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </div>
         {/* 전일 대비 */}
         <div className={`mt-0.5 text-sm font-medium tabular-nums ${colorClass}`}>
-          {formatChangeAmount(index.changeAmount)}
+          {prevClose > 0 ? formatChangeAmount(changeAmount) : '—'}
           <span className="ml-2">
-            ({formatChangePercent(index.changePercent)})
+            ({formatChangePercent(changePercent)})
           </span>
         </div>
         {/* 거래대금 */}
-        {index.volume != null && (
+        {index.volume != null && index.volume > 0 && (
           <div className="mt-0.5 text-xs text-muted-foreground">
             거래대금: {formatKrw(index.volume)}
           </div>
         )}
         {/* 미니 라인 차트 */}
         <div className="mt-2">
-          <MiniLineChart changePercent={index.changePercent} height={80} />
+          <MiniLineChart changePercent={changePercent} height={80} />
         </div>
       </CardContent>
     </Card>
