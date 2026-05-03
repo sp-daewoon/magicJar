@@ -87,7 +87,7 @@ function EntryItem({ entry, selected, onClick }: EntryItemProps) {
 /* ------------------------------------------------------------------ */
 
 function JournalTab() {
-  const { entries, isLoading, isMock, refetch } = useDevlogList()
+  const { entries, isLoading, isApiUnavailable, refetch } = useDevlogList()
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedMonth, setSelectedMonth] = useState<string>('all')
@@ -135,7 +135,7 @@ function JournalTab() {
         ].join(' ')}
       >
         {/* API 미연결 경고 */}
-        {isMock && !isLoading && (
+        {isApiUnavailable && !isLoading && (
           <div className="flex items-start gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800">
             {/* AlertCircle icon */}
             <svg

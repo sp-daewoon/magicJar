@@ -1,15 +1,20 @@
 /**
  * candleAggregator.ts 단위 테스트
- * T19-T5: M5 → M15/M30/H1 합성 정확성 검증
+ *
+ * 분봉 아키 v2 정책:
+ *   - M5→M15/M30/H1 클라이언트 합성 폐기 (백엔드가 직접 제공)
+ *   - aggregateToM15/M30/H1/aggregateMinutes 함수 삭제
+ *   - 이 파일에서 해당 분봉 합성 테스트도 제거
+ *
+ * 유지 테스트:
+ *   - D1→W/MO/Y 집계 정확성
+ *   - resolveInterval 경로 (분봉은 identity, W/MO/Y는 집계)
  */
 import { describe, it, expect } from 'vitest'
 import {
   aggregateToWeek,
   aggregateToMonth,
   aggregateToYear,
-  aggregateToM15,
-  aggregateToM30,
-  aggregateToH1,
   resolveInterval,
 } from './candleAggregator'
 import type { CandleDto } from '@/api/types'
@@ -27,7 +32,6 @@ function mkDayCandles(dates: string[], prices: number[]): CandleDto[] {
 }
 
 // 유틸: epoch second 기반 분봉 생성
-// baseEpoch: 기준 epoch (초), intervalSec: 봉 간격(초), count: 봉 개수
 function mkMinuteCandles(baseEpoch: number, intervalSec: number, count: number): CandleDto[] {
   const candles: CandleDto[] = []
   for (let i = 0; i < count; i++) {
@@ -46,134 +50,38 @@ function mkMinuteCandles(baseEpoch: number, intervalSec: number, count: number):
 }
 
 // KST 09:00 = UTC 00:00 ≒ 2026-05-03T00:00:00Z epoch
-// 2026-05-03 00:00:00 UTC = 1746230400
-const BASE_EPOCH = 1746230400 // 2026-05-03 00:00:00 UTC
+const BASE_EPOCH = 1746230400
 
-describe('aggregateToM15 (M5 → M15 합성)', () => {
-  it('5분봉 3개 → 15분봉 1개, OHLCV 정확', () => {
-    // 3개 M5봉: 0분, 5분, 10분 (모두 같은 15분 그룹)
-    const candles = mkMinuteCandles(BASE_EPOCH, 5 * 60, 3)
-    const result = aggregateToM15(candles)
-    expect(result).toHaveLength(1)
-    const bar = result[0]
-    // time: 그룹 첫 epoch (15분 경계로 floor)
-    expect(typeof bar.time).toBe('number')
-    // open: 첫 봉 open
-    expect(bar.open).toBe(candles[0].open)
-    // close: 마지막 봉 close
-    expect(bar.close).toBe(candles[2].close)
-    // high: max(high)
-    expect(bar.high).toBe(Math.max(candles[0].high, candles[1].high, candles[2].high))
-    // low: min(low)
-    expect(bar.low).toBe(Math.min(candles[0].low, candles[1].low, candles[2].low))
-    // volume: 합계
-    expect(bar.volume).toBe(candles[0].volume + candles[1].volume + candles[2].volume)
-  })
-
-  it('5분봉 6개 → 15분봉 2개 (각 3개씩 그룹)', () => {
-    const candles = mkMinuteCandles(BASE_EPOCH, 5 * 60, 6)
-    const result = aggregateToM15(candles)
-    expect(result).toHaveLength(2)
-  })
-
-  it('빈 배열 → 빈 배열', () => {
-    expect(aggregateToM15([])).toHaveLength(0)
-  })
-
-  it('M15 결과 시간순 정렬 보장', () => {
-    const candles = mkMinuteCandles(BASE_EPOCH, 5 * 60, 9)
-    const result = aggregateToM15(candles)
-    expect(result).toHaveLength(3)
-    for (let i = 1; i < result.length; i++) {
-      expect(Number(result[i].time)).toBeGreaterThan(Number(result[i - 1].time))
-    }
-  })
-})
-
-describe('aggregateToM30 (M5 → M30 합성)', () => {
-  it('5분봉 6개 → 30분봉 1개, OHLCV 정확', () => {
-    const candles = mkMinuteCandles(BASE_EPOCH, 5 * 60, 6)
-    const result = aggregateToM30(candles)
-    expect(result).toHaveLength(1)
-    const bar = result[0]
-    expect(bar.open).toBe(candles[0].open)
-    expect(bar.close).toBe(candles[5].close)
-    expect(bar.high).toBe(Math.max(...candles.map((c) => c.high)))
-    expect(bar.low).toBe(Math.min(...candles.map((c) => c.low)))
-    expect(bar.volume).toBe(candles.reduce((s, c) => s + c.volume, 0))
-  })
-
-  it('5분봉 12개 → 30분봉 2개', () => {
-    const candles = mkMinuteCandles(BASE_EPOCH, 5 * 60, 12)
-    expect(aggregateToM30(candles)).toHaveLength(2)
-  })
-})
-
-describe('aggregateToH1 (M5 → H1 합성)', () => {
-  it('5분봉 12개 → 60분봉 1개, volume 합계 일치', () => {
-    const candles = mkMinuteCandles(BASE_EPOCH, 5 * 60, 12)
-    const result = aggregateToH1(candles)
-    expect(result).toHaveLength(1)
-    const totalVol = candles.reduce((s, c) => s + c.volume, 0)
-    expect(result[0].volume).toBe(totalVol)
-  })
-
-  it('5분봉 24개 → 60분봉 2개', () => {
-    const candles = mkMinuteCandles(BASE_EPOCH, 5 * 60, 24)
-    expect(aggregateToH1(candles)).toHaveLength(2)
-  })
-
-  it('H1 결과 time은 epoch second(number) 타입', () => {
-    const candles = mkMinuteCandles(BASE_EPOCH, 5 * 60, 12)
-    const result = aggregateToH1(candles)
-    expect(typeof result[0].time).toBe('number')
-  })
-})
-
-describe('resolveInterval — 분봉 합성 경로', () => {
-  it('M15 → serverInterval=M5, transform=aggregateToM15', () => {
-    const { serverInterval, transform } = resolveInterval('M15')
-    expect(serverInterval).toBe('M5')
-    const candles = mkMinuteCandles(BASE_EPOCH, 5 * 60, 3)
-    expect(transform(candles)).toHaveLength(1)
-  })
-
-  it('M30 → serverInterval=M5, transform=aggregateToM30', () => {
-    const { serverInterval, transform } = resolveInterval('M30')
-    expect(serverInterval).toBe('M5')
-    const candles = mkMinuteCandles(BASE_EPOCH, 5 * 60, 6)
-    expect(transform(candles)).toHaveLength(1)
-  })
-
-  it('H1 → serverInterval=M5, transform=aggregateToH1', () => {
-    const { serverInterval, transform } = resolveInterval('H1')
-    expect(serverInterval).toBe('M5')
-    const candles = mkMinuteCandles(BASE_EPOCH, 5 * 60, 12)
-    expect(transform(candles)).toHaveLength(1)
-  })
-
-  it('M5 → serverInterval=M5, transform=identity', () => {
-    const { serverInterval, transform } = resolveInterval('M5')
-    expect(serverInterval).toBe('M5')
-    const candles = mkMinuteCandles(BASE_EPOCH, 5 * 60, 5)
-    expect(transform(candles)).toHaveLength(5)
-  })
-
-  it('DAY → serverInterval=DAY, transform=identity', () => {
-    const { serverInterval, transform } = resolveInterval('DAY')
-    expect(serverInterval).toBe('DAY')
-    const candles = mkDayCandles(['2026-01-01', '2026-01-02'], [50000, 51000])
-    expect(transform(candles)).toHaveLength(2)
-  })
-})
-
-// 기존 일봉 합성 (회귀)
-describe('aggregateToWeek/Month/Year (회귀)', () => {
+// 일봉 집계 (회귀)
+describe('aggregateToWeek/Month/Year', () => {
   it('같은 주 3개 일봉 → 주봉 1개', () => {
     // 2026-05-04(월), 05(화), 06(수) → 같은 ISO 주
     const candles = mkDayCandles(['2026-05-04', '2026-05-05', '2026-05-06'], [100, 110, 120])
     const result = aggregateToWeek(candles)
     expect(result).toHaveLength(1)
+  })
+
+  it('같은 주 OHLCV 정확성', () => {
+    const candles = mkDayCandles(['2026-05-04', '2026-05-05', '2026-05-06'], [100, 110, 120])
+    const result = aggregateToWeek(candles)
+    const bar = result[0]
+    // open: 첫 캔들 open
+    expect(bar.open).toBe(100)
+    // close: 마지막 캔들 close
+    expect(bar.close).toBe(170) // 120 + 50
+    // high: max(high) = max(200, 210, 220) = 220
+    expect(bar.high).toBe(220)
+    // low: min(low) = min(0, 10, 20) = 0
+    expect(bar.low).toBe(0)
+    // volume: 합계 = 1000 + 2000 + 3000 = 6000
+    expect(bar.volume).toBe(6000)
+  })
+
+  it('다른 주 2개 일봉 → 주봉 2개', () => {
+    // 2026-04-27(월) 와 2026-05-04(월) → 다른 주
+    const candles = mkDayCandles(['2026-04-27', '2026-05-04'], [100, 200])
+    const result = aggregateToWeek(candles)
+    expect(result).toHaveLength(2)
   })
 
   it('같은 월 2개 일봉 → 월봉 1개', () => {
@@ -182,9 +90,99 @@ describe('aggregateToWeek/Month/Year (회귀)', () => {
     expect(result).toHaveLength(1)
   })
 
+  it('다른 월 2개 일봉 → 월봉 2개', () => {
+    const candles = mkDayCandles(['2026-04-30', '2026-05-01'], [100, 200])
+    const result = aggregateToMonth(candles)
+    expect(result).toHaveLength(2)
+  })
+
   it('같은 연도 2개 일봉 → 연봉 1개', () => {
     const candles = mkDayCandles(['2026-01-01', '2026-12-31'], [100, 200])
     const result = aggregateToYear(candles)
     expect(result).toHaveLength(1)
+  })
+
+  it('다른 연도 2개 일봉 → 연봉 2개', () => {
+    const candles = mkDayCandles(['2025-12-31', '2026-01-01'], [100, 200])
+    const result = aggregateToYear(candles)
+    expect(result).toHaveLength(2)
+  })
+
+  it('빈 배열 → 빈 배열', () => {
+    expect(aggregateToWeek([])).toHaveLength(0)
+    expect(aggregateToMonth([])).toHaveLength(0)
+    expect(aggregateToYear([])).toHaveLength(0)
+  })
+})
+
+describe('resolveInterval — 분봉 v2 경로 (백엔드 직접 제공)', () => {
+  it('DAY → serverInterval=DAY, transform=identity', () => {
+    const { serverInterval, transform } = resolveInterval('DAY')
+    expect(serverInterval).toBe('DAY')
+    const candles = mkDayCandles(['2026-01-01', '2026-01-02'], [50000, 51000])
+    expect(transform(candles)).toHaveLength(2)
+  })
+
+  it('WEEK → serverInterval=DAY, transform=aggregateToWeek', () => {
+    const { serverInterval, transform } = resolveInterval('WEEK')
+    expect(serverInterval).toBe('DAY')
+    const candles = mkDayCandles(['2026-05-04', '2026-05-05'], [100, 110])
+    expect(transform(candles)).toHaveLength(1) // 같은 주 → 주봉 1개
+  })
+
+  it('MONTH → serverInterval=DAY, transform=aggregateToMonth', () => {
+    const { serverInterval, transform } = resolveInterval('MONTH')
+    expect(serverInterval).toBe('DAY')
+    const candles = mkDayCandles(['2026-05-01', '2026-05-15'], [100, 150])
+    expect(transform(candles)).toHaveLength(1)
+  })
+
+  it('YEAR → serverInterval=DAY, transform=aggregateToYear', () => {
+    const { serverInterval, transform } = resolveInterval('YEAR')
+    expect(serverInterval).toBe('DAY')
+    const candles = mkDayCandles(['2026-01-01', '2026-06-30'], [100, 200])
+    expect(transform(candles)).toHaveLength(1)
+  })
+
+  it('M5 → serverInterval=M5, transform=identity (백엔드 직접)', () => {
+    const { serverInterval, transform } = resolveInterval('M5')
+    expect(serverInterval).toBe('M5')
+    const candles = mkMinuteCandles(BASE_EPOCH, 5 * 60, 5)
+    expect(transform(candles)).toHaveLength(5)
+  })
+
+  it('M15 → serverInterval=M15, transform=identity (백엔드 직접)', () => {
+    const { serverInterval, transform } = resolveInterval('M15')
+    expect(serverInterval).toBe('M15')
+    const candles = mkMinuteCandles(BASE_EPOCH, 15 * 60, 3)
+    expect(transform(candles)).toHaveLength(3)
+  })
+
+  it('M30 → serverInterval=M30, transform=identity (백엔드 직접)', () => {
+    const { serverInterval, transform } = resolveInterval('M30')
+    expect(serverInterval).toBe('M30')
+    const candles = mkMinuteCandles(BASE_EPOCH, 30 * 60, 2)
+    expect(transform(candles)).toHaveLength(2)
+  })
+
+  it('H1 → serverInterval=H1, transform=identity (백엔드 직접)', () => {
+    const { serverInterval, transform } = resolveInterval('H1')
+    expect(serverInterval).toBe('H1')
+    const candles = mkMinuteCandles(BASE_EPOCH, 60 * 60, 4)
+    expect(transform(candles)).toHaveLength(4)
+  })
+
+  it('M1 → serverInterval=M1, transform=identity', () => {
+    const { serverInterval, transform } = resolveInterval('M1')
+    expect(serverInterval).toBe('M1')
+    const candles = mkMinuteCandles(BASE_EPOCH, 60, 10)
+    expect(transform(candles)).toHaveLength(10)
+  })
+
+  it('TICK → serverInterval=TICK, transform=[]', () => {
+    const { serverInterval, transform } = resolveInterval('TICK')
+    expect(serverInterval).toBe('TICK')
+    const candles = mkMinuteCandles(BASE_EPOCH, 1, 5)
+    expect(transform(candles)).toHaveLength(0)
   })
 })

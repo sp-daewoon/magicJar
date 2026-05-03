@@ -1,10 +1,9 @@
 /**
- * 캔들 집계 — 백엔드는 D1만 시드되어 있으므로 클라이언트에서 W1/MO1/Y1을 합성.
- * 분봉 합성:
- *   - W/MO/Y: D1 → W/MO/Y (기존)
- *   - M15: M5 → M15 (15분 그룹)
- *   - M30: M5 → M30 (30분 그룹) — 또는 캐시 hit 시 서버 M30 직접 사용
- *   - H1:  M5 → H1  (60분 그룹)
+ * 캔들 집계 — 백엔드는 D1을 영속, 주봉/월봉/연봉은 클라이언트에서 합성.
+ *
+ * 분봉 합성 정책 (분봉 아키 v2):
+ *   - M1·M5·M15·M30·H1: 백엔드가 직접 제공 (DB 또는 합성) → 클라이언트 변환 없음.
+ *   - W1·MO1·Y1: D1 → 클라이언트 집계 (D1은 영속이므로 단일 진실 원천 유지).
  *
  * OHLCV 합성 규칙:
  *   - open: 첫 캔들 open
@@ -12,9 +11,7 @@
  *   - high: max(high)
  *   - low: min(low)
  *   - volume: sum(volume)
- *   - time:
- *     - D1 기반: 그룹 키 (W=ISO 주의 월요일, MO=해당 월 1일, Y=해당 년 1월 1일)
- *     - 분봉 기반: 그룹의 첫 캔들 time (epoch second) — LWC UTCTimestamp
+ *   - time: 그룹 키 (W=ISO 주의 월요일, MO=해당 월 1일, Y=해당 년 1월 1일)
  */
 import type { CandleDto } from '@/api/types'
 
@@ -96,67 +93,6 @@ export function aggregateToYear(candles: CandleDto[]): CandleDto[] {
   return aggregate(candles, startOfYear)
 }
 
-// ---- 분봉 합성 (epoch second 기반) ----
-
-/**
- * 분봉 epoch second 기반 집계.
- * epoch second를 intervalMinutes 간격으로 버림(floor) → 그룹 키 = floor된 epoch second.
- * LWC UTCTimestamp(number) 그대로 time 필드에 반환.
- */
-function aggregateMinutes(candles: CandleDto[], intervalMinutes: number): CandleDto[] {
-  if (candles.length === 0) return []
-
-  const intervalSec = intervalMinutes * 60
-  const groups = new Map<number, CandleDto[]>()
-
-  for (const c of candles) {
-    const epochSec = typeof c.time === 'number' ? c.time : parseInt(String(c.time), 10)
-    if (isNaN(epochSec)) continue
-    const key = Math.floor(epochSec / intervalSec) * intervalSec
-    const arr = groups.get(key) ?? []
-    arr.push(c)
-    groups.set(key, arr)
-  }
-
-  const out: CandleDto[] = []
-  for (const [key, group] of [...groups.entries()].sort(([a], [b]) => a - b)) {
-    if (group.length === 0) continue
-    out.push({
-      time: key, // epoch second (LWC UTCTimestamp)
-      open: group[0].open,
-      close: group[group.length - 1].close,
-      high: group.reduce((m, c) => Math.max(m, c.high), group[0].high),
-      low: group.reduce((m, c) => Math.min(m, c.low), group[0].low),
-      volume: group.reduce((s, c) => s + c.volume, 0),
-    })
-  }
-  return out
-}
-
-/**
- * M5 → M15 합성 (5분봉 3개 → 15분봉 1개).
- * 캔들 정책: M15는 합성 only (DB 저장 X).
- */
-export function aggregateToM15(candles: CandleDto[]): CandleDto[] {
-  return aggregateMinutes(candles, 15)
-}
-
-/**
- * M5 → M30 합성 (5분봉 6개 → 30분봉 1개).
- * 캔들 정책: M30은 선택 — 캐시 miss 시 합성, 캐시 hit 시 서버 M30 직접 사용.
- */
-export function aggregateToM30(candles: CandleDto[]): CandleDto[] {
-  return aggregateMinutes(candles, 30)
-}
-
-/**
- * M5 → H1 합성 (5분봉 12개 → 60분봉 1개).
- * 캔들 정책: H1은 합성 only (DB 저장 X).
- */
-export function aggregateToH1(candles: CandleDto[]): CandleDto[] {
-  return aggregateMinutes(candles, 60)
-}
-
 /** 클라이언트 interval → 백엔드 호출 interval + 후처리 변환기 */
 export function resolveInterval(client: ClientInterval): {
   serverInterval: string
@@ -173,17 +109,11 @@ export function resolveInterval(client: ClientInterval): {
       return { serverInterval: 'DAY', transform: aggregateToYear }
     case 'M1':
     case 'M5':
-      // M1·M5는 서버에서 직접 가져옴 (raw)
-      return { serverInterval: client, transform: (c) => c }
     case 'M15':
-      // M15: M5 취득 후 클라 합성 (캔들 정책: 저장 X)
-      return { serverInterval: 'M5', transform: aggregateToM15 }
     case 'M30':
-      // M30: M5 취득 후 클라 합성 (또는 서버 M30 캐시 — 여기서는 M5 합성 우선)
-      return { serverInterval: 'M5', transform: aggregateToM30 }
     case 'H1':
-      // H1: M5 취득 후 클라 합성 (캔들 정책: 저장 X)
-      return { serverInterval: 'M5', transform: aggregateToH1 }
+      // 분봉 아키 v2: 백엔드가 모든 분봉 단위를 직접 제공 → identity transform
+      return { serverInterval: client, transform: (c) => c }
     case 'TICK':
       // 틱은 candle endpoint 호출 안 함 — 별도 STOMP 스트림 (RealtimeTickChart)
       return { serverInterval: 'TICK', transform: () => [] }

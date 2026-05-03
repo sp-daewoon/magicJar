@@ -1,20 +1,16 @@
 /**
- * Dashboard 페이지 — / (T21-T4 전면 교체)
- *
- * 기존 5종목 카드(watch list) 제거 → KOSPI·KOSDAQ 지수 카드 2열로 교체.
+ * Dashboard 페이지 — /
  *
  * 구성:
  *  - 상단: MarketSessionBadge + 수동 주문 패널
  *  - KOSPI 카드 + KOSDAQ 카드 (2열 grid)
  *    - 지수명·현재값·전일대비·등락률 색상 (빨강=양수, 파랑=음수)
- *    - LWC 미니 라인 차트 (높이 80px)
  *  - 보유 포지션 목록 (포지션 있을 때만)
  *
  * 데이터:
- *  - GET /api/market/index?codes=KOSPI,KOSDAQ (T21-T3, 1분 refetch)
- *  - backend 미구현 시 mock fallback
+ *  - GET /api/market/index?codes=KOSPI,KOSDAQ (1분 refetch)
+ *  - API 응답 없음 시 "지수 데이터 미수신" 안내 표시 (mock 합성 없음)
  */
-import { useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import MarketSessionBadge from '@/components/market/MarketSessionBadge'
 import ManualOrderPanel from '@/components/ManualOrderPanel'
@@ -22,9 +18,6 @@ import { useMarketIndex } from '@/hooks/useMarketIndex'
 import { usePositionStore } from '@/stores/position'
 import { useWsConnectionState } from '@/hooks/useWsConnectionState'
 import type { MarketIndex } from '@/api/types'
-
-// LWC 임포트 (타입만 사용)
-import { createChart } from 'lightweight-charts'
 
 /** 지수 등락률 색상 */
 function changeColorClass(changePercent: number): string {
@@ -52,87 +45,6 @@ function formatKrw(value: number): string {
     currency: 'KRW',
     minimumFractionDigits: 0,
   }).format(value)
-}
-
-// ── LWC 미니 차트 ─────────────────────────────────────────────────────────────
-
-interface MiniLineChartProps {
-  changePercent: number
-  height?: number
-}
-
-/**
- * MiniLineChart — LWC 미니 라인 차트 (지수 추이 시뮬레이션).
- * 실제 지수 히스토리 데이터는 T19 캐시 인프라 이후 연결 예정.
- * 현재는 등락률 기반 의사 데이터로 시각화.
- */
-function MiniLineChart({ changePercent, height = 80 }: MiniLineChartProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-
-    const chart = createChart(container, {
-      width: container.clientWidth || 240,
-      height,
-      layout: {
-        background: { color: 'transparent' },
-        textColor: 'transparent',
-      },
-      grid: {
-        vertLines: { visible: false },
-        horzLines: { visible: false },
-      },
-      crosshair: { mode: 0 },
-      rightPriceScale: { visible: false },
-      leftPriceScale: { visible: false },
-      timeScale: {
-        visible: false,
-        borderVisible: false,
-      },
-      handleScroll: false,
-      handleScale: false,
-    })
-
-    const color = changePercent >= 0 ? '#ef4444' : '#3b82f6'
-    const series = chart.addLineSeries({
-      color,
-      lineWidth: 1,
-      crosshairMarkerVisible: false,
-      lastValueVisible: false,
-      priceLineVisible: false,
-    })
-
-    // 30일치 의사 데이터 생성 (종목 코드 seed 대신 changePercent seed 사용)
-    const now = Math.floor(Date.now() / 1000)
-    const data = []
-    let val = 100
-    const seed = Math.abs(changePercent * 1000)
-    for (let i = 29; i >= 0; i--) {
-      const t = now - i * 86400
-      const rand = Math.sin((i + seed) * 9301 + 49297) * 0.5 + 0.5
-      val = val * (1 + (rand - 0.49) * 0.008)
-      data.push({ time: t as unknown as import('lightweight-charts').UTCTimestamp, value: val })
-    }
-    series.setData(data)
-    chart.timeScale().fitContent()
-
-    const handleResize = () => {
-      if (container) {
-        chart.applyOptions({ width: container.clientWidth })
-      }
-    }
-    const ro = new ResizeObserver(handleResize)
-    ro.observe(container)
-
-    return () => {
-      ro.disconnect()
-      chart.remove()
-    }
-  }, [changePercent, height])
-
-  return <div ref={containerRef} style={{ height }} />
 }
 
 // ── 지수 카드 ─────────────────────────────────────────────────────────────────
@@ -178,10 +90,6 @@ function IndexCard({ index }: IndexCardProps) {
             거래대금: {formatKrw(index.volume)}
           </div>
         )}
-        {/* 미니 라인 차트 */}
-        <div className="mt-2">
-          <MiniLineChart changePercent={changePercent} height={80} />
-        </div>
       </CardContent>
     </Card>
   )
@@ -198,7 +106,6 @@ function IndexCardSkeleton() {
       <CardContent className="pb-2 space-y-2">
         <div className="h-7 w-32 animate-pulse rounded bg-muted" />
         <div className="h-4 w-24 animate-pulse rounded bg-muted" />
-        <div className="mt-2 h-20 w-full animate-pulse rounded bg-muted" />
       </CardContent>
     </Card>
   )
@@ -243,7 +150,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* KOSPI·KOSDAQ 지수 카드 2열 (T21-T4) */}
+      {/* KOSPI·KOSDAQ 지수 카드 2열 */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {indexLoading ? (
           <>
@@ -252,7 +159,7 @@ export default function DashboardPage() {
           </>
         ) : indices.length === 0 ? (
           <div className="col-span-2 rounded-lg border border-dashed border-amber-300 bg-amber-50 px-4 py-6 text-center text-sm text-amber-800">
-            지수 데이터 없음 — backend <code>GET /api/market/index</code> (T21-T3) 또는 mock 활성화 필요
+            지수 데이터 미수신 (KIS API) — <code>GET /api/market/index</code> 응답 없음
           </div>
         ) : (
           indices.map((idx) => <IndexCard key={idx.code} index={idx} />)

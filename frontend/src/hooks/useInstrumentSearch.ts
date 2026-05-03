@@ -1,10 +1,10 @@
 /**
  * useInstrumentSearch — 종목 검색 자동완성 훅.
- * T20-T6: GET /api/instruments/search?q=...&limit=10
+ * GET /api/instruments/search?q=...&limit=10
  *
  * - debounce 300ms 적용 (내부 setTimeout 구현, 외부 라이브러리 0)
  * - q.length < 1 이면 query 비활성화 (enabled: false)
- * - 실패 시 mock fallback (instrumentsApi.search 내부에서 처리)
+ * - API 실패 시 빈 배열 반환 (instrumentsApi.search 내부에서 처리)
  */
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'

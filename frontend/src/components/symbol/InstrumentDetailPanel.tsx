@@ -115,8 +115,9 @@ export default function InstrumentDetailPanel({
   if (isError || !detail) {
     return (
       <Card>
-        <CardContent className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-          상세 정보를 불러오지 못했습니다.
+        <CardContent className="flex flex-col items-center justify-center gap-1 py-8 text-sm text-muted-foreground">
+          <span>재무 데이터 없음 (DART API)</span>
+          <span className="text-xs">백엔드 <code>GET /api/instruments/&#123;code&#125;/detail</code> 응답 없음</span>
         </CardContent>
       </Card>
     )
