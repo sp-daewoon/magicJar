@@ -4,15 +4,46 @@
  * GET /api/instruments/{code}/candles  — 캔들 조회 (미구현 시 mock fallback)
  * GET /api/instruments/{code}/candles?before=<cursor>&limit=<N>  — infinite scroll (T19-T4)
  * GET /api/instruments/{code}/quote  — 현재 시세 + stale/source/session 조회 (R3)
+ * GET /api/instruments/{code}/detail  — 종목 상세 메타 (T20-T5)
+ * GET /api/instruments/search?q=...&limit=N  — 종목 검색 자동완성
+ * GET /api/market/index?codes=KOSPI,KOSDAQ  — 지수 조회 (T21-T3)
  */
 import { apiClient } from './client'
-import type { CandleDto, Instrument, QuoteResponse } from './types'
+import type { CandleDto, Instrument, InstrumentDetail, QuoteResponse, SearchResult } from './types'
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
 
 export const instrumentsApi = {
   /** 종목 단건 조회 */
   get: (code: string) => apiClient.get<Instrument>(`/instruments/${code.toUpperCase()}`),
+
+  /**
+   * 종목 검색 자동완성 — GET /api/instruments/search?q=...&limit=N.
+   * T3 R1에서 이미 구현된 endpoint.
+   */
+  search: async (q: string, limit = 10): Promise<SearchResult[]> => {
+    if (!q || q.length < 1) return []
+    try {
+      const params = new URLSearchParams({ q, limit: String(limit) })
+      return await apiClient.get<SearchResult[]>(`/instruments/search?${params}`)
+    } catch {
+      console.warn('[instruments] search API unavailable, using mock')
+      return generateMockSearchResults(q)
+    }
+  },
+
+  /**
+   * 종목 상세 메타 — GET /api/instruments/{code}/detail (T20-T5 신규).
+   * 실패 시 mock fallback 반환 (backend 미머지 상태에서도 UI 검증 가능).
+   */
+  detail: async (code: string): Promise<InstrumentDetail> => {
+    try {
+      return await apiClient.get<InstrumentDetail>(`/instruments/${code.toUpperCase()}/detail`)
+    } catch {
+      console.warn('[instruments] detail API unavailable, using mock')
+      return generateMockInstrumentDetail(code)
+    }
+  },
 
   /**
    * 현재 시세 조회 — stale/source/session 포함 (R3 GET /api/instruments/{code}/quote).
@@ -178,4 +209,102 @@ function generateMockCandlesPage(
     const end = idx === -1 ? all.length : idx
     return all.slice(Math.max(0, end - limit), end)
   }
+}
+
+/** Mock 종목 검색 결과 — search API 미구현 시 사용 */
+export function generateMockSearchResults(q: string): SearchResult[] {
+  const ALL_STOCKS = [
+    { code: '005930', name: '삼성전자', market: 'KOSPI' },
+    { code: '000660', name: 'SK하이닉스', market: 'KOSPI' },
+    { code: '035720', name: '카카오', market: 'KOSPI' },
+    { code: '005380', name: '현대차', market: 'KOSPI' },
+    { code: '051910', name: 'LG화학', market: 'KOSPI' },
+    { code: '035420', name: 'NAVER', market: 'KOSPI' },
+    { code: '096770', name: 'SK이노베이션', market: 'KOSPI' },
+    { code: '006400', name: '삼성SDI', market: 'KOSPI' },
+    { code: '373220', name: 'LG에너지솔루션', market: 'KOSPI' },
+    { code: '207940', name: '삼성바이오로직스', market: 'KOSPI' },
+    { code: '263750', name: '펄어비스', market: 'KOSDAQ' },
+    { code: '293490', name: '카카오게임즈', market: 'KOSDAQ' },
+    { code: '112040', name: '위메이드', market: 'KOSDAQ' },
+    { code: '095340', name: 'ISC', market: 'KOSDAQ' },
+    { code: '039200', name: '오스코텍', market: 'KOSDAQ' },
+  ] as SearchResult[]
+
+  const lower = q.toLowerCase()
+  return ALL_STOCKS.filter(
+    (s) =>
+      s.code.includes(q) ||
+      s.name.toLowerCase().includes(lower)
+  ).slice(0, 10)
+}
+
+/** Mock 종목 상세 메타 — detail API 미구현 시 사용 */
+export function generateMockInstrumentDetail(code: string): InstrumentDetail {
+  const MOCK_DETAILS: Record<string, Partial<InstrumentDetail>> = {
+    '005930': {
+      name: '삼성전자',
+      market: 'KOSPI',
+      sector: '전기·전자',
+      industry: '반도체',
+      representativeName: '이재용',
+      marketCap: 450_000_000_000_000,
+      sharesOutstanding: 7_780_000_000,
+      foreignRatio: 0.537,
+      institutionRatio: 0.221,
+      revenue: 79_400_000_000_000,
+      operatingIncome: 6_600_000_000_000,
+      netIncome: 5_400_000_000_000,
+      per: 22.4,
+      pbr: 1.3,
+      eps: 3_166,
+      bps: 53_428,
+      dividendYield: 0.024,
+      majorShareholderRatio: 0.234,
+    },
+    '000660': {
+      name: 'SK하이닉스',
+      market: 'KOSPI',
+      sector: '전기·전자',
+      industry: '반도체',
+      representativeName: '곽노정',
+      marketCap: 112_000_000_000_000,
+      sharesOutstanding: 728_000_000,
+      foreignRatio: 0.498,
+      institutionRatio: 0.189,
+      revenue: 34_000_000_000_000,
+      operatingIncome: 6_900_000_000_000,
+      netIncome: 5_200_000_000_000,
+      per: 18.6,
+      pbr: 1.7,
+      eps: 7_146,
+      bps: 88_960,
+      dividendYield: 0.011,
+      majorShareholderRatio: 0.205,
+    },
+  }
+
+  const base: InstrumentDetail = {
+    code,
+    name: MOCK_DETAILS[code]?.name ?? code,
+    market: MOCK_DETAILS[code]?.market ?? 'KOSPI',
+    sector: MOCK_DETAILS[code]?.sector ?? null,
+    industry: MOCK_DETAILS[code]?.industry ?? null,
+    representativeName: MOCK_DETAILS[code]?.representativeName ?? null,
+    marketCap: MOCK_DETAILS[code]?.marketCap ?? null,
+    sharesOutstanding: MOCK_DETAILS[code]?.sharesOutstanding ?? null,
+    foreignRatio: MOCK_DETAILS[code]?.foreignRatio ?? null,
+    institutionRatio: MOCK_DETAILS[code]?.institutionRatio ?? null,
+    revenue: MOCK_DETAILS[code]?.revenue ?? null,
+    operatingIncome: MOCK_DETAILS[code]?.operatingIncome ?? null,
+    netIncome: MOCK_DETAILS[code]?.netIncome ?? null,
+    per: MOCK_DETAILS[code]?.per ?? null,
+    pbr: MOCK_DETAILS[code]?.pbr ?? null,
+    eps: MOCK_DETAILS[code]?.eps ?? null,
+    bps: MOCK_DETAILS[code]?.bps ?? null,
+    dividendYield: MOCK_DETAILS[code]?.dividendYield ?? null,
+    majorShareholderRatio: MOCK_DETAILS[code]?.majorShareholderRatio ?? null,
+  }
+
+  return base
 }

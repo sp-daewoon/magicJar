@@ -190,6 +190,63 @@ export interface QuoteMessage {
   timestamp: number
 }
 
+/* ---------- T20 종목 상세 메타 ---------- */
+
+/**
+ * InstrumentDetail — GET /api/instruments/{code}/detail 응답.
+ * T20-T1 도메인과 1:1 대응. null 필드는 DART/KIS 미연동 시 반환.
+ */
+export interface InstrumentDetail {
+  code: string
+  name: string
+  market: Market
+  sector: string | null
+  industry: string | null
+  representativeName: string | null
+  // 시장 규모
+  marketCap: number | null          // 원 단위
+  sharesOutstanding: number | null  // 발행주식수
+  foreignRatio: number | null       // 외국인 비율 (0.0~1.0)
+  institutionRatio: number | null   // 기관 비율 (0.0~1.0)
+  // 재무 (최근 분기 또는 연간)
+  revenue: number | null            // 매출액 (원 단위)
+  operatingIncome: number | null    // 영업이익 (원 단위)
+  netIncome: number | null          // 당기순이익 (원 단위)
+  // 밸류에이션
+  per: number | null
+  pbr: number | null
+  eps: number | null
+  bps: number | null
+  dividendYield: number | null      // 배당률 (0.0~1.0)
+  majorShareholderRatio: number | null  // 대주주 지분율 (0.0~1.0)
+}
+
+/**
+ * SearchResult — GET /api/instruments/search?q=...&limit=N 응답 항목.
+ */
+export interface SearchResult {
+  code: string
+  name: string
+  market: Market
+}
+
+/* ---------- T21 시장 지수 ---------- */
+
+/**
+ * MarketIndex — GET /api/market/index?codes=KOSPI,KOSDAQ 응답 항목.
+ * T21-T1 도메인과 1:1 대응.
+ */
+export interface MarketIndex {
+  code: string                     // 'KOSPI' | 'KOSDAQ'
+  name: string                     // 'KOSPI' | '코스닥'
+  currentValue: number             // 현재 지수값
+  prevClose: number                // 전일 종가
+  changeAmount: number             // 전일 대비 (포인트)
+  changePercent: number            // 등락률 (예: 1.23 = 1.23%)
+  volume: number | null            // 거래대금
+  session: MarketSessionStateValue | null
+}
+
 /* ---------- 개발일지(Devlog) ---------- */
 
 /**

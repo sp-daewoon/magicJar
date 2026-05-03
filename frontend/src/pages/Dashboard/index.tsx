@@ -1,22 +1,51 @@
-import { useMemo } from 'react'
-import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+/**
+ * Dashboard 페이지 — / (T21-T4 전면 교체)
+ *
+ * 기존 5종목 카드(watch list) 제거 → KOSPI·KOSDAQ 지수 카드 2열로 교체.
+ *
+ * 구성:
+ *  - 상단: MarketSessionBadge + 수동 주문 패널
+ *  - KOSPI 카드 + KOSDAQ 카드 (2열 grid)
+ *    - 지수명·현재값·전일대비·등락률 색상 (빨강=양수, 파랑=음수)
+ *    - LWC 미니 라인 차트 (높이 80px)
+ *  - 보유 포지션 목록 (포지션 있을 때만)
+ *
+ * 데이터:
+ *  - GET /api/market/index?codes=KOSPI,KOSDAQ (T21-T3, 1분 refetch)
+ *  - backend 미구현 시 mock fallback
+ */
+import { useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import CandleChart from '@/components/chart/CandleChart'
-import type { Candle as ChartCandle } from '@/components/chart/Chart'
-import { useMarketTickStore } from '@/stores/marketTick'
-import { usePositionStore } from '@/stores/position'
-import { useMarketTickStream } from '@/hooks/useMarketTickStream'
-import { useWsConnectionState } from '@/hooks/useWsConnectionState'
-import MarketStatusBadge from '@/components/market/MarketStatusBadge'
-import StaleIndicator, { stalePriceClassName } from '@/components/market/StaleIndicator'
-import { instrumentsApi } from '@/api/instruments'
+import MarketSessionBadge from '@/components/market/MarketSessionBadge'
 import ManualOrderPanel from '@/components/ManualOrderPanel'
+import { useMarketIndex } from '@/hooks/useMarketIndex'
+import { usePositionStore } from '@/stores/position'
+import { useWsConnectionState } from '@/hooks/useWsConnectionState'
+import type { MarketIndex } from '@/api/types'
 
-/** 보유 포지션이 없을 때 watch할 default 종목 (대형주 5개) */
-const DEFAULT_WATCHLIST = ['005930', '000660', '035720', '005380', '051910']
+// LWC 임포트 (타입만 사용)
+import { createChart } from 'lightweight-charts'
 
-/** 숫자 천 단위 포맷 (KRW) */
+/** 지수 등락률 색상 */
+function changeColorClass(changePercent: number): string {
+  if (changePercent > 0) return 'text-red-500'
+  if (changePercent < 0) return 'text-blue-500'
+  return 'text-muted-foreground'
+}
+
+/** 등락률 포맷 (부호 포함) */
+function formatChangePercent(changePercent: number): string {
+  const sign = changePercent >= 0 ? '+' : ''
+  return `${sign}${changePercent.toFixed(2)}%`
+}
+
+/** 포인트 변동 포맷 (부호 포함) */
+function formatChangeAmount(changeAmount: number): string {
+  const sign = changeAmount >= 0 ? '+' : ''
+  return `${sign}${changeAmount.toFixed(2)}`
+}
+
+/** 천 단위 콤마 포맷 */
 function formatKrw(value: number): string {
   return new Intl.NumberFormat('ko-KR', {
     style: 'currency',
@@ -25,68 +54,218 @@ function formatKrw(value: number): string {
   }).format(value)
 }
 
+// ── LWC 미니 차트 ─────────────────────────────────────────────────────────────
+
+interface MiniLineChartProps {
+  changePercent: number
+  height?: number
+}
+
+/**
+ * MiniLineChart — LWC 미니 라인 차트 (지수 추이 시뮬레이션).
+ * 실제 지수 히스토리 데이터는 T19 캐시 인프라 이후 연결 예정.
+ * 현재는 등락률 기반 의사 데이터로 시각화.
+ */
+function MiniLineChart({ changePercent, height = 80 }: MiniLineChartProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const chart = createChart(container, {
+      width: container.clientWidth || 240,
+      height,
+      layout: {
+        background: { color: 'transparent' },
+        textColor: 'transparent',
+      },
+      grid: {
+        vertLines: { visible: false },
+        horzLines: { visible: false },
+      },
+      crosshair: { mode: 0 },
+      rightPriceScale: { visible: false },
+      leftPriceScale: { visible: false },
+      timeScale: {
+        visible: false,
+        borderVisible: false,
+      },
+      handleScroll: false,
+      handleScale: false,
+    })
+
+    const color = changePercent >= 0 ? '#ef4444' : '#3b82f6'
+    const series = chart.addLineSeries({
+      color,
+      lineWidth: 1,
+      crosshairMarkerVisible: false,
+      lastValueVisible: false,
+      priceLineVisible: false,
+    })
+
+    // 30일치 의사 데이터 생성 (종목 코드 seed 대신 changePercent seed 사용)
+    const now = Math.floor(Date.now() / 1000)
+    const data = []
+    let val = 100
+    const seed = Math.abs(changePercent * 1000)
+    for (let i = 29; i >= 0; i--) {
+      const t = now - i * 86400
+      const rand = Math.sin((i + seed) * 9301 + 49297) * 0.5 + 0.5
+      val = val * (1 + (rand - 0.49) * 0.008)
+      data.push({ time: t as unknown as import('lightweight-charts').UTCTimestamp, value: val })
+    }
+    series.setData(data)
+    chart.timeScale().fitContent()
+
+    const handleResize = () => {
+      if (container) {
+        chart.applyOptions({ width: container.clientWidth })
+      }
+    }
+    const ro = new ResizeObserver(handleResize)
+    ro.observe(container)
+
+    return () => {
+      ro.disconnect()
+      chart.remove()
+    }
+  }, [changePercent, height])
+
+  return <div ref={containerRef} style={{ height }} />
+}
+
+// ── 지수 카드 ─────────────────────────────────────────────────────────────────
+
+interface IndexCardProps {
+  index: MarketIndex
+}
+
+function IndexCard({ index }: IndexCardProps) {
+  const colorClass = changeColorClass(index.changePercent)
+
+  return (
+    <Card>
+      <CardHeader className="pb-1">
+        <CardTitle className="flex items-center justify-between text-sm font-semibold">
+          <span>{index.name}</span>
+          {index.session && (
+            <MarketSessionBadge session={index.session} compact />
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pb-2">
+        {/* 지수값 */}
+        <div className="text-2xl font-bold tabular-nums">
+          {index.currentValue.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </div>
+        {/* 전일 대비 */}
+        <div className={`mt-0.5 text-sm font-medium tabular-nums ${colorClass}`}>
+          {formatChangeAmount(index.changeAmount)}
+          <span className="ml-2">
+            ({formatChangePercent(index.changePercent)})
+          </span>
+        </div>
+        {/* 거래대금 */}
+        {index.volume != null && (
+          <div className="mt-0.5 text-xs text-muted-foreground">
+            거래대금: {formatKrw(index.volume)}
+          </div>
+        )}
+        {/* 미니 라인 차트 */}
+        <div className="mt-2">
+          <MiniLineChart changePercent={index.changePercent} height={80} />
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ── IndexCard 스켈레톤 ─────────────────────────────────────────────────────────
+
+function IndexCardSkeleton() {
+  return (
+    <Card>
+      <CardHeader className="pb-1">
+        <div className="h-4 w-20 animate-pulse rounded bg-muted" />
+      </CardHeader>
+      <CardContent className="pb-2 space-y-2">
+        <div className="h-7 w-32 animate-pulse rounded bg-muted" />
+        <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+        <div className="mt-2 h-20 w-full animate-pulse rounded bg-muted" />
+      </CardContent>
+    </Card>
+  )
+}
+
+// ── 메인 컴포넌트 ─────────────────────────────────────────────────────────────
+
 function formatPnlRate(rate: number): string {
   const sign = rate >= 0 ? '+' : ''
   return `${sign}${rate.toFixed(2)}%`
 }
 
 export default function DashboardPage() {
-  const { latestTick } = useMarketTickStore()
   const { positions, totalPnl } = usePositionStore()
   const wsState = useWsConnectionState()
 
-  // 구독할 종목: 보유 포지션이 있으면 그것, 없으면 default 5종목
-  const watchCodes = useMemo(
-    () => (positions.length > 0 ? positions.map((p) => p.code) : DEFAULT_WATCHLIST),
-    [positions],
-  )
-  useMarketTickStream(watchCodes)
-
-  // 대표 종목 (첫 번째 보유 종목 또는 watch list 첫 항목)
-  const representativeCode = positions[0]?.code ?? watchCodes[0]
-
-  // 대표 종목 일봉 — 최근 6개월
-  const { data: representativeCandles = [], isLoading: candleLoading } = useQuery({
-    queryKey: ['dashboard-candles', representativeCode],
-    queryFn: () => instrumentsApi.candles(representativeCode, 'DAY'),
-    enabled: !!representativeCode,
-    staleTime: 5 * 60_000,
-  })
-
-  // CandleChart는 number time(epoch second) 또는 'YYYY-MM-DD' 둘 다 받음
-  const chartCandles: ChartCandle[] = representativeCandles.map((c) => ({
-    time: c.time as unknown as number,
-    open: c.open,
-    high: c.high,
-    low: c.low,
-    close: c.close,
-  }))
+  // KOSPI·KOSDAQ 지수 조회 (1분 refetch)
+  const { data: indices = [], isLoading: indexLoading } = useMarketIndex(['KOSPI', 'KOSDAQ'])
 
   return (
     <div className="space-y-4">
+      {/* 헤더 */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">대시보드</h1>
-        <MarketStatusBadge />
+        <div className="flex items-center gap-2">
+          <MarketSessionBadge session={indices[0]?.session ?? null} />
+          {/* WebSocket 연결 상태 표시 */}
+          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+            <span
+              className={`h-2 w-2 rounded-full ${
+                wsState === 'CONNECTED'
+                  ? 'bg-green-500'
+                  : wsState === 'CONNECTING'
+                    ? 'bg-yellow-400 animate-pulse'
+                    : wsState === 'ERROR'
+                      ? 'bg-red-500'
+                      : 'bg-gray-400'
+              }`}
+            />
+            {wsState === 'CONNECTED' ? 'STOMP 연결됨' : wsState === 'CONNECTING' ? '연결 중' : wsState === 'ERROR' ? '연결 오류' : '미연결'}
+          </span>
+        </div>
       </div>
 
-      {/* 포지션 요약 */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      {/* KOSPI·KOSDAQ 지수 카드 2열 (T21-T4) */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {indexLoading ? (
+          <>
+            <IndexCardSkeleton />
+            <IndexCardSkeleton />
+          </>
+        ) : indices.length === 0 ? (
+          <div className="col-span-2 rounded-lg border border-dashed border-amber-300 bg-amber-50 px-4 py-6 text-center text-sm text-amber-800">
+            지수 데이터 없음 — backend <code>GET /api/market/index</code> (T21-T3) 또는 mock 활성화 필요
+          </div>
+        ) : (
+          indices.map((idx) => <IndexCard key={idx.code} index={idx} />)
+        )}
+      </div>
+
+      {/* 포지션 요약 카드 */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              보유 종목 수
-            </CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">보유 종목 수</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">{positions.length}개</p>
           </CardContent>
         </Card>
-
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              평가손익 합계
-            </CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">평가손익 합계</CardTitle>
           </CardHeader>
           <CardContent>
             <p className={`text-2xl font-bold ${totalPnl >= 0 ? 'text-red-500' : 'text-blue-500'}`}>
@@ -94,134 +273,9 @@ export default function DashboardPage() {
             </p>
           </CardContent>
         </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium text-muted-foreground">실시간 연결</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <span className="inline-flex items-center gap-1 text-sm">
-              <span
-                className={`h-2 w-2 rounded-full ${
-                  wsState === 'CONNECTED'
-                    ? 'bg-green-500'
-                    : wsState === 'CONNECTING'
-                      ? 'bg-yellow-400 animate-pulse'
-                      : wsState === 'ERROR'
-                        ? 'bg-red-500'
-                        : 'bg-gray-400'
-                }`}
-              />
-              {wsState === 'CONNECTED' && 'STOMP 연결됨'}
-              {wsState === 'CONNECTING' && '연결 중...'}
-              {wsState === 'ERROR' && '연결 오류'}
-              {wsState === 'DISCONNECTED' && '미연결'}
-            </span>
-          </CardContent>
-        </Card>
       </div>
 
-      {/* 관심 종목 시세 그리드 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between text-base">
-            <span>
-              {positions.length > 0 ? '보유 종목 실시간' : '관심 종목 실시간'}
-            </span>
-            <span className="text-xs font-normal text-muted-foreground">
-              {watchCodes.length}개 구독 중
-            </span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-            {watchCodes.map((code) => {
-              const tick = latestTick[code]
-              const isStale = tick?.stale ?? false
-              const asOfDate = tick?.asOf ? new Date(tick.asOf) : null
-              return (
-                <Link
-                  key={code}
-                  to={`/symbol/${code}`}
-                  className="block rounded-lg border bg-white p-3 transition hover:border-primary hover:shadow-sm"
-                >
-                  <div className="flex items-center justify-between gap-1">
-                    <div className="text-xs font-medium text-muted-foreground">{code}</div>
-                    {isStale && tick?.source && (
-                      <StaleIndicator
-                        source={tick.source}
-                        stale={isStale}
-                        asOf={asOfDate}
-                      />
-                    )}
-                  </div>
-                  <div className={`mt-1 text-lg font-bold tabular-nums ${stalePriceClassName(isStale)}`}>
-                    {tick ? tick.price.toLocaleString() : '-'}
-                  </div>
-                  <div className="mt-1 text-xs tabular-nums text-muted-foreground">
-                    거래량: {tick ? tick.volume.toLocaleString() : '-'}
-                  </div>
-                  <div className="mt-1 text-[10px] text-muted-foreground">
-                    {tick
-                      ? new Date(tick.timestamp).toLocaleTimeString('ko-KR', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          second: '2-digit',
-                          hour12: false,
-                        })
-                      : 'STOMP 대기'}
-                  </div>
-                </Link>
-              )
-            })}
-          </div>
-          {watchCodes.every((c) => !latestTick[c]) && (
-            <div className="mt-4 rounded border border-dashed border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              실시간 시세 0건. 백엔드 <code>market.tick.v1</code> Kafka publisher가 가동되어야 표시됨
-              (KIS WebSocket 연동 또는 mock tick generator 필요).
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* 대표 종목 일봉 차트 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between text-base">
-            <span>
-              대표 종목 일봉
-              {representativeCode && (
-                <span className="ml-2 text-sm font-normal text-muted-foreground">
-                  {representativeCode}
-                </span>
-              )}
-            </span>
-            {representativeCode && (
-              <Link
-                to={`/symbol/${representativeCode}`}
-                className="text-xs font-normal text-primary hover:underline"
-              >
-                상세 →
-              </Link>
-            )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-0 pb-4">
-          {candleLoading ? (
-            <div className="flex h-72 items-center justify-center px-4">
-              <div className="h-64 w-full animate-pulse rounded bg-gray-100" />
-            </div>
-          ) : chartCandles.length === 0 ? (
-            <div className="flex h-64 items-center justify-center px-4 text-sm text-muted-foreground">
-              일봉 데이터 없음 (백엔드 candle 시드 또는 KIS backfill 필요)
-            </div>
-          ) : (
-            <CandleChart candles={chartCandles} height={300} className="px-4" />
-          )}
-        </CardContent>
-      </Card>
-
-      {/* 포지션 목록 */}
+      {/* 보유 포지션 목록 */}
       {positions.length > 0 && (
         <Card>
           <CardHeader>
@@ -271,7 +325,7 @@ export default function DashboardPage() {
       {positions.length === 0 && (
         <Card>
           <CardContent className="flex h-24 items-center justify-center text-muted-foreground">
-            보유 포지션 없음 — P4 통합 후 실시간 데이터 연결 예정
+            보유 포지션 없음
           </CardContent>
         </Card>
       )}
