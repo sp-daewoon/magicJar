@@ -155,9 +155,14 @@ class CandleQueryService(
         targetMinutes: Int,
         to: Instant,
     ): Instant {
-        // N분봉 lookback: 합성 봉 200개 기준 = N × 200분 (최대 365일)
-        val lookbackMinutes = (targetMinutes.toLong() * 200L).coerceAtMost(365L * 24 * 60)
-        return to.minusSeconds(lookbackMinutes * 60)
+        // N분봉 lookback: M1 영속 한도(yfinance 30일)와 정합 — 30일 KST 자정 align.
+        // 키움 MTS 등 일반 차트가 합성 결과 봉 100~500개 정도 보여주므로 30일이면 충분.
+        return to
+            .atZone(kst)
+            .toLocalDate()
+            .minusDays(30)
+            .atStartOfDay(kst)
+            .toInstant()
     }
 
     companion object {
