@@ -20,8 +20,10 @@ import java.time.ZoneId
 class CandleQueryService(
     private val candleRepository: CandleRepository,
     private val candleAggregator: CandleAggregator,
+    private val candleCacheService: CandleCacheService,
 ) {
     private val kst = ZoneId.of("Asia/Seoul")
+    private val log = org.slf4j.LoggerFactory.getLogger(CandleQueryService::class.java)
 
     /**
      * 캔들 조회 — interval 문자열 기반 (v2 주 진입점).
@@ -49,7 +51,13 @@ class CandleQueryService(
         // M1 alias
         if (isM1(upper)) {
             val fromResolved = from ?: defaultFrom(Interval.M1, toResolved)
-            return candleRepository.find(code, Interval.M1, fromResolved, toResolved)
+            val candles = candleRepository.find(code, Interval.M1, fromResolved, toResolved)
+            // cold-start (사용자 정책): 신규 종목 첫 진입 시 분봉 0건이면 yfinance backfill 자동 trigger.
+            if (candles.isEmpty()) {
+                log.info("[query-svc] M1 0건 — cold-start backfill trigger 시도 code={}", code)
+                candleCacheService.triggerBackgroundFetchAsync(code)
+            }
+            return candles
         }
 
         // 일봉 기반 합성 (W/MO/Y)
@@ -69,6 +77,11 @@ class CandleQueryService(
 
         val fromResolved = from ?: defaultFromMinutes(targetMinutes, toResolved)
         val m1Candles = candleRepository.find(code, Interval.M1, fromResolved, toResolved)
+        // cold-start (N분봉 합성 path도 동일) — M1 0건이면 backfill trigger.
+        if (m1Candles.isEmpty()) {
+            log.info("[query-svc] M1 0건(N={}분봉 합성) — cold-start backfill trigger code={}", targetMinutes, code)
+            candleCacheService.triggerBackgroundFetchAsync(code)
+        }
         return candleAggregator.aggregate(m1Candles, targetMinutes)
     }
 
