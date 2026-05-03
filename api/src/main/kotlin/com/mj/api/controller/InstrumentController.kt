@@ -138,8 +138,8 @@ class InstrumentController(
         val instrument =
             instrumentService.get(normalized)
                 ?: return ResponseEntity.notFound().build()
-        val detail = instrumentDetailService.getDetail(normalized, instrument.name)
-        return ResponseEntity.ok(detail.toDetailResponse())
+        val result = instrumentDetailService.getDetail(normalized, instrument.name)
+        return ResponseEntity.ok(result.detail.toDetailResponse(warnings = result.warnings.takeIf { it.isNotEmpty() }))
     }
 
     @Operation(

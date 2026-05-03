@@ -54,6 +54,11 @@ class KisInstrumentInfoAdapter(
     private var cachedToken: String? = null
 
     /**
+     * KIS appKey/appSecret 설정 여부. 경고 코드 구분에 사용.
+     */
+    fun isKeyConfigured(): Boolean = appKey.isNotBlank() && appSecret.isNotBlank()
+
+    /**
      * 종목 기본정보 조회. KIS 키 미설정 시 null 반환.
      */
     fun fetchInstrumentInfo(code: String): InstrumentDetail? {
@@ -95,19 +100,17 @@ class KisInstrumentInfoAdapter(
     }
 
     private fun callApi(code: String): InstrumentDetail? {
+        log.info("[kis-info] CTPF1002R 호출 code={} baseUrl={}", code, baseUrl)
         val response =
             restClient
                 .get()
                 .uri { b ->
                     b
                         .path("/uapi/domestic-stock/v1/quotations/inquire-stock-info")
-                        .queryParam("AUTH", "")
-                        .queryParam("EXCD", "")
-                        .queryParam("SYMB", code)
-                        .queryParam("GUBN", "0")
-                        .queryParam("BYMD", "")
-                        .queryParam("MODP", "1")
-                        .queryParam("KEYB", "")
+                        // CTPF1002R 국내주식 기본정보 파라미터 (KIS OpenAPI 공식 스펙)
+                        // FID_COND_MRKT_DIV_CODE: J (주식), FID_INPUT_ISCD: 종목코드 6자리
+                        .queryParam("FID_COND_MRKT_DIV_CODE", "J")
+                        .queryParam("FID_INPUT_ISCD", code)
                         .build()
                 }.headers { h ->
                     h["authorization"] = "Bearer ${cachedToken!!}"
@@ -120,12 +123,15 @@ class KisInstrumentInfoAdapter(
                     if (resp.statusCode == HttpStatus.UNAUTHORIZED) {
                         throw KisInstrumentInfoException("401", 401)
                     }
+                    log.warn("[kis-info] HTTP 오류 code={} status={}", code, resp.statusCode)
                     throw KisInstrumentInfoException("KIS inquire-stock-info 오류: ${resp.statusCode}", resp.statusCode.value())
                 }.body(StockInfoResponse::class.java)
                 ?: return null
 
+        log.info("[kis-info] CTPF1002R 응답 code={} rt_cd={} msg={}", code, response.rtCd, response.msg1)
+
         if (response.rtCd != "0") {
-            log.warn("[kis-info] rt_cd={} msg={} code={}", response.rtCd, response.msg1, code)
+            log.warn("[kis-info] rt_cd 비정상 code={} rt_cd={} msg={}", code, response.rtCd, response.msg1)
             return null
         }
 

@@ -53,21 +53,28 @@ class DartFinancialAdapter(
     }
 
     /**
+     * DART API 키 설정 여부. 경고 코드 구분에 사용.
+     */
+    fun isKeyConfigured(): Boolean = opendartApiKey.isNotBlank()
+
+    /**
      * 종목코드로 최근 연간 재무정보 조회.
      * 실패 또는 키 미설정 시 null 반환.
      */
     fun fetchFinancials(stockCode: String): DartFinancials? {
         if (opendartApiKey.isBlank()) {
-            log.debug("[dart] api-key 미설정 — fetchFinancials 건너뜀 code={}", stockCode)
+            log.info("[dart] api-key 미설정 — fetchFinancials 건너뜀 code={}", stockCode)
             return null
         }
 
+        log.info("[dart] fetchFinancials 시작 code={}", stockCode)
         return try {
             val corpCode =
                 resolveCorpCode(stockCode) ?: run {
-                    log.debug("[dart] corp_code 미발견 code={}", stockCode)
+                    log.info("[dart] corp_code 미발견 code={} — DART에 상장 정보 없거나 corp_code 맵 미로드", stockCode)
                     return null
                 }
+            log.info("[dart] corp_code 조회 성공 stockCode={} corpCode={}", stockCode, corpCode)
             fetchStatement(corpCode)
         } catch (ex: Exception) {
             log.warn("[dart] fetchFinancials 실패 code={} error={}", stockCode, ex.message)
@@ -154,6 +161,7 @@ class DartFinancialAdapter(
      * ZIP 안의 CORPCODE.xml을 파싱해 stock_code(6자리) → corp_code(8자리) 맵 생성.
      */
     private fun loadCorpCodeMap() {
+        log.info("[dart] corp_code 맵 다운로드 시작 (ZIP ~3.5MB, 최초 1회)")
         try {
             val bytes =
                 restClient
@@ -165,8 +173,12 @@ class DartFinancialAdapter(
                             .build()
                     }.retrieve()
                     .body(ByteArray::class.java)
-                    ?: return
+                    ?: run {
+                        log.warn("[dart] corp_code ZIP 응답 null — DART API 키 또는 네트워크 확인 필요")
+                        return
+                    }
 
+            log.info("[dart] corp_code ZIP 수신 완료 size={}bytes — 파싱 중", bytes.size)
             val map = parseCorpCodeZip(bytes)
             corpCodeMap = map
             corpMapLoadedAt = System.currentTimeMillis()

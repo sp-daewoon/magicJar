@@ -33,29 +33,66 @@ class InstrumentDetailService(
     private val log = LoggerFactory.getLogger(javaClass)
 
     /**
+     * 종목 상세 조회 결과 + 데이터 소스 경고 목록.
+     *
+     * warnings: KIS/DART 키 미설정 또는 외부 API 실패 시 사유 코드 포함.
+     *   - KIS_KEY_NOT_SET : KIS appKey/appSecret 미설정
+     *   - KIS_API_FAILED  : KIS API 호출은 했으나 실패
+     *   - DART_KEY_NOT_SET: DART API key 미설정
+     *   - DART_CORP_CODE_NOT_FOUND: DART corp_code 매핑 없음
+     */
+    data class DetailResult(
+        val detail: InstrumentDetail,
+        val warnings: List<String>,
+    )
+
+    /**
      * 종목 상세 조회.
      *
      * @param code KRX 종목 코드 6자리 (대문자)
      * @param name 종목명 (InstrumentService에서 이미 조회한 값 재사용)
-     * @return InstrumentDetail (KIS/DART 미설정 시 code·name만 채워진 객체)
+     * @return DetailResult (detail + warnings 목록)
      */
     fun getDetail(
         code: String,
         name: String,
-    ): InstrumentDetail {
-        // 1. 캐시 hit
+    ): DetailResult {
+        // 1. 캐시 hit (캐시에는 warnings 미저장 — 캐시 hit 시 warnings 빈 목록)
         detailRepository.find(code)?.let {
-            log.debug("[detail-svc] cache hit code={}", code)
-            return it
+            log.info("[detail-svc] cache hit code={}", code)
+            return DetailResult(detail = it, warnings = emptyList())
         }
 
-        log.debug("[detail-svc] cache miss — KIS+DART 호출 code={}", code)
+        log.info("[detail-svc] cache miss — KIS+DART 호출 시작 code={}", code)
+
+        val warnings = mutableListOf<String>()
 
         // 2. KIS 기본정보 조회
         val kisDetail = kisAdapter.fetchInstrumentInfo(code)
+        if (kisDetail == null) {
+            log.info("[detail-svc] KIS 응답 없음 code={} — 키 미설정 또는 API 실패. code·name만 반환.", code)
+            // 키 설정 여부에 따라 경고 코드 구분
+            if (kisAdapter.isKeyConfigured()) {
+                warnings.add("KIS_API_FAILED")
+            } else {
+                warnings.add("KIS_KEY_NOT_SET")
+            }
+        } else {
+            log.info("[detail-svc] KIS 응답 OK code={} name={} marketCap={}", code, kisDetail.name, kisDetail.marketCap)
+        }
 
         // 3. DART 재무정보 조회
         val dartFinancials = dartAdapter.fetchFinancials(code)
+        if (dartFinancials == null) {
+            log.info("[detail-svc] DART 응답 없음 code={} — 키 미설정 또는 corp_code 미발견.", code)
+            if (dartAdapter.isKeyConfigured()) {
+                warnings.add("DART_CORP_CODE_NOT_FOUND")
+            } else {
+                warnings.add("DART_KEY_NOT_SET")
+            }
+        } else {
+            log.info("[detail-svc] DART 응답 OK code={} revenue={} opIncome={}", code, dartFinancials.revenue, dartFinancials.operatingIncome)
+        }
 
         // 4. 병합
         val merged =
@@ -79,8 +116,9 @@ class InstrumentDetailService(
 
         // 5. 캐시 저장 (KIS/DART 미설정이어도 저장 — 다음 요청 시 불필요한 외부 호출 방지)
         detailRepository.save(merged)
+        log.info("[detail-svc] 저장 완료 code={} kisNull={} dartNull={} warnings={}", code, kisDetail == null, dartFinancials == null, warnings)
 
-        return merged
+        return DetailResult(detail = merged, warnings = warnings)
     }
 
     /**

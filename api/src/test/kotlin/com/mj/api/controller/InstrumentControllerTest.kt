@@ -431,15 +431,19 @@ class InstrumentControllerTest {
     fun `GET api instruments code detail returns 200 with detail response`() {
         every { instrumentService.get("005930") } returns samsungInstrument()
         every { instrumentDetailService.getDetail("005930", "삼성전자") } returns
-            InstrumentDetail(
-                code = "005930",
-                name = "삼성전자",
-                market = "KOSPI",
-                sector = "반도체",
-                marketCap = java.math.BigDecimal("400000000000000"),
-                per = java.math.BigDecimal("12.34"),
-                pbr = java.math.BigDecimal("1.23"),
-                eps = java.math.BigDecimal("5765"),
+            InstrumentDetailService.DetailResult(
+                detail =
+                    InstrumentDetail(
+                        code = "005930",
+                        name = "삼성전자",
+                        market = "KOSPI",
+                        sector = "반도체",
+                        marketCap = java.math.BigDecimal("400000000000000"),
+                        per = java.math.BigDecimal("12.34"),
+                        pbr = java.math.BigDecimal("1.23"),
+                        eps = java.math.BigDecimal("5765"),
+                    ),
+                warnings = emptyList(),
             )
 
         mvc
@@ -468,7 +472,10 @@ class InstrumentControllerTest {
     fun `GET api instruments code detail returns 200 with null fields when KIS key not set`() {
         every { instrumentService.get("005930") } returns samsungInstrument()
         every { instrumentDetailService.getDetail("005930", "삼성전자") } returns
-            InstrumentDetail(code = "005930", name = "삼성전자")
+            InstrumentDetailService.DetailResult(
+                detail = InstrumentDetail(code = "005930", name = "삼성전자"),
+                warnings = listOf("KIS_KEY_NOT_SET", "DART_KEY_NOT_SET"),
+            )
 
         mvc
             .get("/api/instruments/005930/detail")
