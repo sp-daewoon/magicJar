@@ -45,4 +45,16 @@ interface CandleRepository {
         before: Instant,
         limit: Int,
     ): List<Candle> = emptyList() // default — 구현체 미제공 시 빈 목록
+
+    /**
+     * 특정 종목+interval의 분봉 캔들 전체 삭제 (T19-T7 LRU eviction 용도).
+     *
+     * @param code     종목코드
+     * @param interval 삭제 대상 interval
+     * @return 삭제된 row 수
+     */
+    fun deleteByCodeAndInterval(
+        code: String,
+        interval: Interval,
+    ): Int = 0 // default — 구현체 미제공 시 0 반환
 }

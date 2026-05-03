@@ -100,6 +100,11 @@ magicjar:
     base-url: ${PYWORKER_URL:http://localhost:8000}
   batch:
     base-url: ${BATCH_URL:http://localhost:8081}
+  candle:
+    cache:
+      max-bytes: ${MAGICJAR_CANDLE_CACHE_MAX_BYTES:8589934592}  # 8 GB
+      eviction:
+        enabled: ${MAGICJAR_CANDLE_EVICTION_ENABLED:true}
   devlog:
     # 개발일지 HTML 디렉토리. 컨테이너 내부에선 docker-compose volume mount path.
     # `/devlog` 슬래시 커멘드가 작성, DevlogController가 frontend로 노출.

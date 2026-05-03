@@ -3,6 +3,7 @@ package com.mj.api.infrastructure.persistence.market
 import com.mj.domain.common.Interval
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 import java.time.Instant
 
@@ -40,4 +41,15 @@ interface CandleJpaRepository : JpaRepository<CandleJpa, CandleId> {
         before: Instant,
         pageable: Pageable,
     ): List<CandleJpa>
+
+    /**
+     * LRU eviction: 특정 종목+interval 분봉 전체 삭제 (T19-T7).
+     * @return 삭제된 row 수
+     */
+    @Modifying
+    @Query("DELETE FROM CandleJpa c WHERE c.code = :code AND c.interval = :interval")
+    fun deleteByCodeAndInterval(
+        code: String,
+        interval: Interval,
+    ): Int
 }

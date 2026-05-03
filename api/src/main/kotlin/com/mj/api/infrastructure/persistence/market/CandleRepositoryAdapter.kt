@@ -79,6 +79,16 @@ class CandleRepositoryAdapter(
             .reversed()
             .map { it.toDomain() }
 
+    /**
+     * LRU eviction: 특정 종목+interval 분봉 캔들 전체 삭제 (T19-T7).
+     * @return 삭제된 row 수
+     */
+    @Transactional
+    override fun deleteByCodeAndInterval(
+        code: String,
+        interval: Interval,
+    ): Int = repository.deleteByCodeAndInterval(code, interval)
+
     companion object {
         private val KST: ZoneId = ZoneId.of("Asia/Seoul")
     }
