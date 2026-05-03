@@ -195,7 +195,7 @@ export function AuthSection() {
               <span>{status.hasAppSecret ? '등록됨' : '미등록'}</span>
 
               <span className="text-muted-foreground">마지막 로그인</span>
-              <span>{formatLastLogin(status.lastLoginAt)}</span>
+              <span>{formatLastLogin(status.lastUpdatedAt ?? status.lastLoginAt ?? null)}</span>
             </div>
           )}
         </CardContent>
