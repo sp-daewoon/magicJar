@@ -244,8 +244,18 @@ class KisOrderSender(
             reason.startsWith("NOT_BUSINESS_DAY") -> RejectReason.MarketNotBusinessDay
             reason.startsWith("MARKET_CLOSED") -> RejectReason.MarketSessionClosed
             reason.startsWith("DAILY_LIMIT") -> RejectReason.DailyOrderLimitExceeded
-            reason.startsWith("POSITION_LIMIT") -> RejectReason.PositionLimitExceeded
-            reason.startsWith("DRAWDOWN_STOP") -> RejectReason.DrawdownStopTriggered
+            reason.startsWith("POSITION_LIMIT") || reason.startsWith("포지션 한도 초과") ->
+                RejectReason.PositionLimitExceeded(
+                    attemptedQty = 0,
+                    currentPositionValue = java.math.BigDecimal.ZERO,
+                    limitPercent = 0.10,
+                    totalCapital = java.math.BigDecimal.ZERO,
+                )
+            reason.startsWith("DRAWDOWN_STOP") || reason.startsWith("Drawdown 한도 초과") ->
+                RejectReason.DrawdownStopTriggered(
+                    currentDrawdownPercent = 0.0,
+                    limitPercent = -0.03,
+                )
             reason.startsWith("PRICE_") || reason.startsWith("PRICE_OUT") -> RejectReason.PriceSanityFailed
             else -> RejectReason.Internal(reason)
         }

@@ -3,6 +3,7 @@ package com.mj.domain.order
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.math.BigDecimal
 
 /**
  * RejectReason sealed class 검증. spec §4.2, ADR 0034 §2-2.
@@ -13,14 +14,28 @@ import org.junit.jupiter.api.Test
  * 4. KisApiError.code 포맷
  */
 class RejectReasonTest {
+    private fun samplePositionLimit() =
+        RejectReason.PositionLimitExceeded(
+            attemptedQty = 10,
+            currentPositionValue = BigDecimal("700000"),
+            limitPercent = 0.10,
+            totalCapital = BigDecimal("10000000"),
+        )
+
+    private fun sampleDrawdownStop() =
+        RejectReason.DrawdownStopTriggered(
+            currentDrawdownPercent = -0.035,
+            limitPercent = -0.03,
+        )
+
     @Test
     fun `all sealed subclasses have correct code values`() {
         assertEquals("KILL_SWITCH", RejectReason.KillSwitchActive.code)
         assertEquals("SESSION_CLOSED", RejectReason.MarketSessionClosed.code)
         assertEquals("NOT_BUSINESS_DAY", RejectReason.MarketNotBusinessDay.code)
         assertEquals("DAILY_LIMIT", RejectReason.DailyOrderLimitExceeded.code)
-        assertEquals("POSITION_LIMIT", RejectReason.PositionLimitExceeded.code)
-        assertEquals("DRAWDOWN_STOP", RejectReason.DrawdownStopTriggered.code)
+        assertEquals("POSITION_LIMIT", samplePositionLimit().code)
+        assertEquals("DRAWDOWN_STOP", sampleDrawdownStop().code)
         assertEquals("PRICE_SANITY", RejectReason.PriceSanityFailed.code)
     }
 
@@ -44,8 +59,8 @@ class RejectReasonTest {
                 RejectReason.MarketSessionClosed,
                 RejectReason.MarketNotBusinessDay,
                 RejectReason.DailyOrderLimitExceeded,
-                RejectReason.PositionLimitExceeded,
-                RejectReason.DrawdownStopTriggered,
+                samplePositionLimit(),
+                sampleDrawdownStop(),
                 RejectReason.PriceSanityFailed,
                 RejectReason.KisApiError("EGW00202", "GW 라우팅 오류"),
                 RejectReason.Internal("test error"),
@@ -64,8 +79,8 @@ class RejectReasonTest {
                 RejectReason.MarketSessionClosed -> "SESSION_CLOSED"
                 RejectReason.MarketNotBusinessDay -> "NOT_BUSINESS_DAY"
                 RejectReason.DailyOrderLimitExceeded -> "DAILY_LIMIT"
-                RejectReason.PositionLimitExceeded -> "POSITION_LIMIT"
-                RejectReason.DrawdownStopTriggered -> "DRAWDOWN_STOP"
+                is RejectReason.PositionLimitExceeded -> "POSITION_LIMIT"
+                is RejectReason.DrawdownStopTriggered -> "DRAWDOWN_STOP"
                 RejectReason.PriceSanityFailed -> "PRICE_SANITY"
                 is RejectReason.KisApiError -> "KIS_API:${r.rtCd}"
                 is RejectReason.Internal -> "INTERNAL"
@@ -77,8 +92,8 @@ class RejectReasonTest {
                 RejectReason.MarketSessionClosed,
                 RejectReason.MarketNotBusinessDay,
                 RejectReason.DailyOrderLimitExceeded,
-                RejectReason.PositionLimitExceeded,
-                RejectReason.DrawdownStopTriggered,
+                samplePositionLimit(),
+                sampleDrawdownStop(),
                 RejectReason.PriceSanityFailed,
                 RejectReason.KisApiError("40100000", "영업일 아님"),
                 RejectReason.Internal("msg"),
