@@ -156,14 +156,13 @@ export default function SymbolDetailPage() {
                     <span className="text-xs text-muted-foreground">로딩 중...</span>
                   )}
                   {candlesError && (
-                    <span className="text-xs text-destructive">데이터 오류 (mock fallback)</span>
+                    <span className="text-xs text-destructive">데이터 오류 — 백엔드 응답 확인 필요</span>
                   )}
                   {!candlesLoading && !candlesError && (
                     <span className="text-xs font-normal text-muted-foreground">
                       {candles.length}개 봉
-                      {candles.length === 0 && ' — 해당 봉 단위 시드 부재'}
+                      {candles.length === 0 && ' — 데이터 없음'}
                       {candlesHasMore && ' (더 있음)'}
-                      {import.meta.env.VITE_USE_MOCK === 'true' && ' (mock)'}
                     </span>
                   )}
                 </>
@@ -181,9 +180,9 @@ export default function SymbolDetailPage() {
             </div>
           ) : candles.length === 0 ? (
             <div className="flex h-[480px] flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
-              <span>해당 봉 단위 데이터가 아직 없습니다.</span>
+              <span>분봉 데이터 없음 — 장 시작 후 누적 예정</span>
               <span className="text-xs">
-                일/주/월/년은 일봉 시드(V7)를 클라이언트 집계, 분봉은 백엔드 backfill 필요.
+                일/주/월/년은 일봉 DB에서 집계, 분봉은 백엔드 backfill 또는 실시간 누적 필요.
               </span>
             </div>
           ) : (
@@ -218,7 +217,6 @@ export default function SymbolDetailPage() {
             {!journalLoading && !journalError && (
               <span className="ml-2 text-sm font-normal text-muted-foreground">
                 {journalEntries.length}건
-                {import.meta.env.VITE_USE_MOCK === 'true' && ' (mock)'}
               </span>
             )}
           </CardTitle>

@@ -10,9 +10,60 @@ import { render, screen, act, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import SymbolDetailPage from './index'
-import { generateMockCandles } from '@/api/instruments'
-import { generateMockJournalEntries } from '@/api/journal'
-import type { TickMessage } from '@/api/types'
+import type { CandleDto, TickMessage, TradeJournalEntry } from '@/api/types'
+
+// ── 테스트용 로컬 데이터 생성 (mock API 함수 의존 제거) ──────────────────────
+function makeDayCandles(count: number): CandleDto[] {
+  return Array.from({ length: count }, (_, i) => {
+    const d = new Date(2026, 0, 1 + i)
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return {
+      time: `${y}-${m}-${day}`,
+      open: 70000,
+      high: 70500,
+      low: 69500,
+      close: 70200,
+      volume: 1_000_000,
+    }
+  })
+}
+
+function makeJournalEntries(code: string, count: number): TradeJournalEntry[] {
+  const entries: TradeJournalEntry[] = []
+  const now = Date.now()
+  for (let i = 0; i < count; i++) {
+    const daysAgo = (i + 1) * 3
+    const entryAt = new Date(now - daysAgo * 86_400_000).toISOString()
+    const exitAt = new Date(now - (daysAgo - 1) * 86_400_000).toISOString()
+    entries.push({
+      id: `test-id-${i}`,
+      tradeId: `test-trade-${i}`,
+      mode: 'BACKTEST',
+      code,
+      name: '삼성전자',
+      side: 'BUY',
+      entryAt,
+      entryPrice: 70_000,
+      entryQty: 10,
+      exitAt,
+      exitPrice: 71_000,
+      exitQty: 10,
+      pnl: 10_000,
+      pnlRate: 1.43,
+      strategyId: 'test-strategy',
+      entrySnapshot: {},
+      exitSnapshot: {},
+      entryReason: '테스트 진입',
+      exitReason: '테스트 청산',
+      tags: [],
+      createdAt: entryAt,
+      updatedAt: exitAt,
+    })
+  }
+  return entries
+}
 
 // ── STOMP 리스너 레지스트리 (모듈 스코프 공유) ───────────────────────────────
 type MsgHandler = (msg: { body: string }) => void
@@ -44,30 +95,22 @@ const mockCandlesPage = vi.fn()
 const mockListJournal = vi.fn()
 const mockGetQuote = vi.fn()
 
-vi.mock('@/api/instruments', async (importOriginal) => {
-  const original = await importOriginal<typeof import('@/api/instruments')>()
-  return {
-    ...original,
-    instrumentsApi: {
-      get: (...args: unknown[]) => mockGetInstrument(...args),
-      candles: (...args: unknown[]) => mockGetCandles(...args),
-      // T19-T6: infinite scroll hook 사용
-      candlesPage: (...args: unknown[]) => mockCandlesPage(...args),
-      // T2-R4: quote 메서드 mock 추가 (stale/source/session 포함 응답)
-      quote: (...args: unknown[]) => mockGetQuote(...args),
-    },
-  }
-})
+vi.mock('@/api/instruments', () => ({
+  instrumentsApi: {
+    get: (...args: unknown[]) => mockGetInstrument(...args),
+    candles: (...args: unknown[]) => mockGetCandles(...args),
+    candlesPage: (...args: unknown[]) => mockCandlesPage(...args),
+    quote: (...args: unknown[]) => mockGetQuote(...args),
+    detail: () => Promise.reject(new Error('mock: detail not available')),
+    search: () => Promise.resolve([]),
+  },
+}))
 
-vi.mock('@/api/journal', async (importOriginal) => {
-  const original = await importOriginal<typeof import('@/api/journal')>()
-  return {
-    ...original,
-    journalApiV2: {
-      list: (...args: unknown[]) => mockListJournal(...args),
-    },
-  }
-})
+vi.mock('@/api/journal', () => ({
+  journalApiV2: {
+    list: (...args: unknown[]) => mockListJournal(...args),
+  },
+}))
 
 // ── 헬퍼 ────────────────────────────────────────────────────────────────────
 function makeQueryClient() {
@@ -95,11 +138,9 @@ describe('SymbolDetail 페이지', () => {
   beforeEach(() => {
     _stompListeners.clear()
     mockGetInstrument.mockResolvedValue({ code: '005930', name: '삼성전자', market: 'KOSPI' })
-    mockGetCandles.mockResolvedValue(generateMockCandles('005930', 30))
-    // T19-T6: candlesPage mock (infinite scroll)
-    mockCandlesPage.mockResolvedValue(generateMockCandles('005930', 30))
-    mockListJournal.mockResolvedValue(generateMockJournalEntries('005930', 3))
-    // T2-R4: quote mock 기본값 (LIVE, not stale)
+    mockGetCandles.mockResolvedValue(makeDayCandles(30))
+    mockCandlesPage.mockResolvedValue(makeDayCandles(30))
+    mockListJournal.mockResolvedValue(makeJournalEntries('005930', 3))
     mockGetQuote.mockResolvedValue({
       code: '005930',
       price: 70_000,

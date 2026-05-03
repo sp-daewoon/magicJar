@@ -62,7 +62,7 @@ describe('InstrumentDetailPanel', () => {
   // ── 시나리오 3: 에러 상태 ────────────────────────────────────────────────
   it('isError=true 시 에러 메시지가 표시된다', () => {
     render(<InstrumentDetailPanel detail={undefined} isLoading={false} isError={true} />)
-    expect(screen.getByText(/상세 정보를 불러오지 못했습니다/)).toBeInTheDocument()
+    expect(screen.getByText(/재무 데이터 없음/)).toBeInTheDocument()
   })
 
   // ── 시나리오 4: null 필드 → "—" ─────────────────────────────────────────

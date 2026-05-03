@@ -2,7 +2,7 @@
  * Devlog 페이지 테스트
  * 1. 탭 3개 렌더링 확인 (일지·하네스·빌드/CI)
  * 2. useDevlogList — 정상 응답 시 목록 표시
- * 3. useDevlogList — API 실패 시 mock 데이터 + 경고 메시지
+ * 3. useDevlogList — API 실패 시 "API 미연결" 경고 + 빈 목록 (mock 데이터 없음)
  * 4. 일자 선택 시 iframe URL 설정
  * 5. 검색 필터링
  */
@@ -100,14 +100,16 @@ describe('DevlogPage', () => {
     })
   })
 
-  it('T22-T4: API 실패 시 mock 데이터 + 경고 메시지', async () => {
+  it('T22-T4: API 실패 시 경고 메시지 표시 (mock 데이터 없음, 빈 목록)', async () => {
     mockDevlogList.mockRejectedValue(new Error('Network Error'))
     renderPage()
     await waitFor(() => {
       // API 미연결 경고
       expect(screen.getByText(/API 미연결/)).toBeInTheDocument()
-      // mock 데이터 표시 (가장 최신 날짜)
-      expect(screen.getByText('2026-05-03')).toBeInTheDocument()
+    })
+    // mock 데이터 없음 — 목록 비어있음
+    await waitFor(() => {
+      expect(screen.getByText('일지 없음')).toBeInTheDocument()
     })
   })
 

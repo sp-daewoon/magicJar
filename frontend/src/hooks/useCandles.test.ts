@@ -1,12 +1,12 @@
 /**
- * useCandles hook 단위 테스트 (T19-T6)
+ * useCandles hook 단위 테스트
  *
  * 검증 항목:
  *   1. 초기 fetch 성공 → candles 반환 (최신 200봉)
  *   2. 응답 < limit → hasMore=false (종료 조건)
  *   3. 응답 == limit → hasMore=true (더 있음)
- *   4. fetchOlderCandles() 호출 시 다음 cursor로 추가 fetch
- *   5. M15 resolveInterval → serverInterval=M5, 합성 결과 반환
+ *   4. M15 resolveInterval v2 → serverInterval=M15 (백엔드 직접), identity transform
+ *   5. API 실패 → isError=true, candles=[]
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
@@ -91,7 +91,6 @@ describe('useCandles', () => {
   })
 
   it('응답 길이 < CANDLES_PAGE_LIMIT → hasMore=false', async () => {
-    // CANDLES_PAGE_LIMIT보다 적게 반환
     const mockData = mkDayCandles(CANDLES_PAGE_LIMIT - 50)
     mockCandlesPage.mockResolvedValue(mockData)
 
@@ -107,7 +106,6 @@ describe('useCandles', () => {
   })
 
   it('응답 길이 == CANDLES_PAGE_LIMIT → hasMore=true', async () => {
-    // 정확히 limit만큼 반환하면 더 있다고 판단
     const mockData = mkDayCandles(CANDLES_PAGE_LIMIT)
     mockCandlesPage.mockResolvedValue(mockData)
 
@@ -122,10 +120,10 @@ describe('useCandles', () => {
     expect(result.current.hasMore).toBe(true)
   })
 
-  it('M15 interval → serverInterval=M5, 분봉 합성 후 candles 반환', async () => {
-    // M5 5분봉 3개 = M15 1개로 합성
-    const m5Candles = mkMinuteCandles(BASE_EPOCH, 5 * 60, 3)
-    mockCandlesPage.mockResolvedValue(m5Candles)
+  it('M15 interval v2 → serverInterval=M15 (백엔드 직접), identity transform', async () => {
+    // 분봉 아키 v2: M15는 백엔드가 직접 제공 → identity transform
+    const m15Candles = mkMinuteCandles(BASE_EPOCH, 15 * 60, 3)
+    mockCandlesPage.mockResolvedValue(m15Candles)
 
     const { result } = renderHook(() => useCandles('005930', 'M15'), {
       wrapper: makeWrapper(),
@@ -135,12 +133,12 @@ describe('useCandles', () => {
       expect(result.current.isLoading).toBe(false)
     })
 
-    // M5 3개 → M15 1개 (같은 15분 그룹)
-    expect(result.current.candles.length).toBe(1)
-    // candlesPage가 serverInterval='M5'로 호출됐는지 확인
+    // M15 3개 → 그대로 3개 (identity, 합성 없음)
+    expect(result.current.candles.length).toBe(3)
+    // candlesPage가 serverInterval='M15'로 호출됐는지 확인
     expect(mockCandlesPage).toHaveBeenCalledWith(
       '005930',
-      'M5',
+      'M15',
       undefined,
       CANDLES_PAGE_LIMIT,
     )

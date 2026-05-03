@@ -1,8 +1,8 @@
 /**
- * Dashboard 페이지 테스트 (T21-T4 전면 교체 후)
+ * Dashboard 페이지 테스트
  * 1. KOSPI·KOSDAQ 지수 카드 정상 렌더링
  * 2. 로딩 스켈레톤 표시
- * 3. 빈 데이터 시 fallback 메시지
+ * 3. 빈 데이터 시 "지수 데이터 미수신" 안내 메시지 (mock 합성 없음)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
@@ -29,16 +29,6 @@ vi.mock('@/api/market', () => ({
   marketApi: {
     index: (...args: unknown[]) => mockMarketIndex(...args),
   },
-}))
-
-// ── LWC mock (chart는 jsdom에서 동작 불가) ─────────────────────────────────────
-vi.mock('lightweight-charts', () => ({
-  createChart: () => ({
-    addLineSeries: () => ({ setData: vi.fn() }),
-    timeScale: () => ({ fitContent: vi.fn() }),
-    applyOptions: vi.fn(),
-    remove: vi.fn(),
-  }),
 }))
 
 const MOCK_INDICES: MarketIndex[] = [
@@ -78,7 +68,7 @@ function renderPage() {
   )
 }
 
-describe('Dashboard 페이지 (T21-T4)', () => {
+describe('Dashboard 페이지', () => {
   beforeEach(() => {
     mockMarketIndex.mockReset()
   })
@@ -119,7 +109,7 @@ describe('Dashboard 페이지 (T21-T4)', () => {
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByText(/지수 데이터 없음/)).toBeInTheDocument()
+      expect(screen.getByText(/지수 데이터 미수신/)).toBeInTheDocument()
     })
   })
 })

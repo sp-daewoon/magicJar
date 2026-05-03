@@ -1,9 +1,9 @@
 /**
  * useMarketIndex — KOSPI·KOSDAQ 지수 조회 훅.
- * T21-T4: GET /api/market/index?codes=KOSPI,KOSDAQ
+ * GET /api/market/index?codes=KOSPI,KOSDAQ
  *
  * - 1분 자동 refetch (refetchInterval: 60_000)
- * - backend 미구현 시 mock fallback (marketApi.index 내부에서 처리)
+ * - API 실패 시 isError=true, 상위 컴포넌트에서 "데이터 미수신" 안내 표시
  */
 import { useQuery } from '@tanstack/react-query'
 import { marketApi } from '@/api/market'

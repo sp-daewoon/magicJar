@@ -1,9 +1,9 @@
 /**
  * useInstrumentDetail — 종목 상세 메타 조회 훅.
- * T20-T7: GET /api/instruments/{code}/detail
+ * GET /api/instruments/{code}/detail
  *
  * - Redis 캐시 6시간 TTL (재무 정보는 자주 변경 X) → staleTime: 6h
- * - backend 미구현 시 mock fallback (instrumentsApi.detail 내부에서 처리)
+ * - API 실패 시 isError=true → InstrumentDetailPanel에서 "재무 데이터 없음" 안내
  * - code 없으면 query 비활성화
  */
 import { useQuery } from '@tanstack/react-query'
