@@ -15,21 +15,21 @@ services:
     volumes:
       - ../api/build/libs:/app/libs:ro
     environment:
-      SPRING_PROFILES_ACTIVE: dev
+      SPRING_PROFILES_ACTIVE: dev,real-kis
       LOGGING_LEVEL_COM_MJ: TRACE
 
   batch-app:
     volumes:
       - ../batch/build/libs:/app/libs:ro
     environment:
-      SPRING_PROFILES_ACTIVE: dev
+      SPRING_PROFILES_ACTIVE: dev,real-kis
       LOGGING_LEVEL_COM_MJ: TRACE
 
   consumer-app:
     volumes:
       - ../consumer/build/libs:/app/libs:ro
     environment:
-      SPRING_PROFILES_ACTIVE: dev
+      SPRING_PROFILES_ACTIVE: dev,real-kis
       LOGGING_LEVEL_COM_MJ: TRACE
 
   pyworker:
