@@ -237,14 +237,15 @@ export interface SearchResult {
  * T21-T1 도메인과 1:1 대응.
  */
 export interface MarketIndex {
-  code: string                     // 'KOSPI' | 'KOSDAQ'
-  name: string                     // 'KOSPI' | '코스닥'
+  code: string                     // '0001' | '1001' (KIS code) — name은 KOSPI/KOSDAQ
+  name: string                     // 'KOSPI' | 'KOSDAQ'
   currentValue: number             // 현재 지수값
-  prevClose: number                // 전일 종가
-  changeAmount: number             // 전일 대비 (포인트)
+  prevClose: number                // 전일 종가 (KIS 미응답 시 0)
+  changeAmount?: number            // (선택) 전일 대비 포인트 — frontend가 currentValue-prevClose로 계산
   changePercent: number            // 등락률 (예: 1.23 = 1.23%)
-  volume: number | null            // 거래대금
-  session: MarketSessionStateValue | null
+  volume?: number | null           // 거래량 (체결주식수)
+  tradingValue?: number | null     // 거래대금 (KRW)
+  session?: MarketSessionStateValue | null
 }
 
 /* ---------- 개발일지(Devlog) ---------- */

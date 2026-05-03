@@ -77,17 +77,25 @@ function IndexCard({ index }: IndexCardProps) {
         <div className="text-2xl font-bold tabular-nums">
           {currentValue.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </div>
-        {/* 전일 대비 */}
-        <div className={`mt-0.5 text-sm font-medium tabular-nums ${colorClass}`}>
-          {prevClose > 0 ? formatChangeAmount(changeAmount) : '—'}
-          <span className="ml-2">
-            ({formatChangePercent(changePercent)})
-          </span>
-        </div>
-        {/* 거래대금 */}
+        {/* 전일 대비 — prevClose 없으면 표시 안 함 (mock 합성 X) */}
+        {prevClose > 0 ? (
+          <div className={`mt-0.5 text-sm font-medium tabular-nums ${colorClass}`}>
+            {formatChangeAmount(changeAmount)}
+            <span className="ml-2">({formatChangePercent(changePercent)})</span>
+          </div>
+        ) : (
+          <div className="mt-0.5 text-xs text-muted-foreground">전일 종가 미수신</div>
+        )}
+        {/* 거래량(주) — KIS index 응답의 volume은 거래량(체결주식수). 거래대금은 tradingValue. */}
         {index.volume != null && index.volume > 0 && (
           <div className="mt-0.5 text-xs text-muted-foreground">
-            거래대금: {formatKrw(index.volume)}
+            거래량: {index.volume.toLocaleString('ko-KR')}주
+          </div>
+        )}
+        {/* 거래대금 (KRW) */}
+        {index.tradingValue != null && index.tradingValue > 0 && (
+          <div className="text-xs text-muted-foreground">
+            거래대금: {formatKrw(index.tradingValue)}
           </div>
         )}
       </CardContent>
