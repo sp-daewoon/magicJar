@@ -146,6 +146,7 @@ services:
       MINIO_ACCESS_KEY: magicjar
       MINIO_SECRET_KEY: magicjar123
       PYWORKER_URL: http://pyworker:8000
+      MAGICJAR_BATCH_BASE_URL: http://batch-app:8081
     # 호스트 포트는 ${API_HOST_PORT} env로 override 가능. 기본은 8080.
     ports: ["${API_HOST_PORT:-8080}:8080"]
     # api-app이 Flyway 스키마 적용 완료까지 batch/consumer가 기다리도록 healthcheck 명시.
