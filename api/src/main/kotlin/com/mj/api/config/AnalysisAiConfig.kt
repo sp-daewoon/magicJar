@@ -18,6 +18,14 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 
 /**
+ * `AnalysisAiProperties`는 항상 등록 (controller·service가 enabled=false에서도 props 의존).
+ * 빈 결정 트리(어시스턴트 등록)는 [AnalysisAiConfig]에서 enabled=true일 때만 동작.
+ */
+@Configuration
+@EnableConfigurationProperties(AnalysisAiProperties::class)
+class AnalysisAiPropertiesConfig
+
+/**
  * AI 분석 보조 빈 등록 (T16, ADR 0046).
  *
  * 빈 결정 트리:
@@ -29,7 +37,6 @@ import org.springframework.context.annotation.Configuration
  * 5. `mock-mode=real` + 키 미설정 → 어떤 빈도 등록 X (controller 503).
  */
 @Configuration
-@EnableConfigurationProperties(AnalysisAiProperties::class)
 @ConditionalOnProperty(prefix = "magicjar.ai", name = ["enabled"], havingValue = "true")
 class AnalysisAiConfig {
     private val log = LoggerFactory.getLogger(AnalysisAiConfig::class.java)
