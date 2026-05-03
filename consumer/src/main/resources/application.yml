@@ -133,9 +133,12 @@ magicjar:
       dartDisclosure: dart.disclosure.v1
       screenshotCaptured: screenshot.captured.v1
       signal: signal.v1
+      signalGenerated: signal.generated.v1
       orderIntent: order.intent.v1
       orderExecuted: order.executed.v1
       journalEntry: journal.entry.v1
+    consumer-groups:
+      signal-engine: magicjar-signal-engine
 
 logging:
   level:
