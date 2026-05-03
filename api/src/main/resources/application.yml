@@ -148,5 +148,12 @@ magicjar:
 
 logging:
   level:
+    # 사용자 정책: 최소 INFO 레벨만 유지. 시끄러운 Kafka/JPA/Hibernate 로그는 WARN+로 억제.
     root: INFO
-    com.mj: DEBUG
+    com.mj: INFO
+    org.apache.kafka: WARN
+    org.springframework.kafka: WARN
+    org.hibernate: WARN
+    org.hibernate.SQL: WARN
+    com.zaxxer.hikari: WARN
+    org.springframework.data.redis: WARN

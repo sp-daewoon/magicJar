@@ -38,5 +38,11 @@
         </root>
     </springProfile>
 
-    <logger name="com.mj" level="DEBUG"/>
+    <!-- com.mj 로그 레벨은 application.yml `logging.level.com.mj`로 제어. 기본 INFO. -->
+    <logger name="com.mj" level="INFO"/>
+    <!-- 시끄러운 라이브러리 로그 억제 (사용자 정책). -->
+    <logger name="org.apache.kafka" level="WARN"/>
+    <logger name="org.springframework.kafka" level="WARN"/>
+    <logger name="org.hibernate" level="WARN"/>
+    <logger name="com.zaxxer.hikari" level="WARN"/>
 </configuration>

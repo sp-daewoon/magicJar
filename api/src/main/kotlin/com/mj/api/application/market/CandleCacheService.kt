@@ -12,7 +12,6 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.client.RestClient
 import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneId
 
 /**
@@ -33,13 +32,12 @@ import java.time.ZoneId
 class CandleCacheService(
     private val candleRepository: CandleRepository,
     private val cacheMetaRepository: CacheMetaRepository,
-    private val candleQueryService: CandleQueryService,
-    @Value("\${magicjar.batch.base-url:http://localhost:8081}") private val batchBaseUrl: String,
+    @Value("\${magicjar.pyworker.base-url:http://localhost:8000}") private val pyworkerBaseUrl: String,
 ) {
     private val log = LoggerFactory.getLogger(CandleCacheService::class.java)
     private val kst = ZoneId.of("Asia/Seoul")
-    private val batchClient: RestClient by lazy {
-        RestClient.builder().baseUrl(batchBaseUrl).build()
+    private val pyworkerClient: RestClient by lazy {
+        RestClient.builder().baseUrl(pyworkerBaseUrl).build()
     }
 
     /**
@@ -91,49 +89,35 @@ class CandleCacheService(
     }
 
     /**
-     * 백그라운드 M1 fetch trigger — v2.
-     * M1 only (30분봉·5분봉 trigger 폐기).
+     * 백그라운드 M1 fetch trigger — v2 cold-start (ADR 0048).
+     *
+     * KIS REST 분봉 API는 "당일 분봉 전용"이라 과거 backfill 불가능 → pyworker `yfinance` 사용.
+     * `POST pyworker:8000/backfill/yahoo` body `{code, interval=1m, days=30}`
+     * → Yahoo Finance fetch → Kafka publish (`candle.minute.aggregated.v1`)
+     * → api consume → DB INSERT (interval=M1)
+     *
+     * 사용자 정책: 신규 종목 첫 진입 시 자동 backfill (사용자가 빈 차트 안 보도록).
      */
     @Async
     @Transactional
     fun triggerBackgroundFetchAsync(code: String) {
-        log.info("[cache] background M1 fetch start — code={}", code)
-        val today = LocalDate.now(kst)
-
-        // M1 1주 분봉 backfill
-        triggerMinuteBackfill(code, intervalStr = "M1", from = today.minusDays(7), to = today)
-
-        log.info("[cache] background M1 fetch completed — code={}", code)
-    }
-
-    private fun triggerMinuteBackfill(
-        code: String,
-        intervalStr: String,
-        from: LocalDate,
-        to: LocalDate,
-    ) {
+        log.info("[cache] cold-start backfill 시작 — code={} (pyworker yfinance, 1m × 30일)", code)
         try {
             val request =
                 mapOf(
                     "code" to code,
-                    "interval" to intervalStr,
-                    "from" to from.toString(),
-                    "to" to to.toString(),
+                    "interval" to "1m",
+                    "days" to 30,
                 )
-            batchClient
+            pyworkerClient
                 .post()
-                .uri("/jobs/minute-backfill")
+                .uri("/backfill/yahoo")
                 .body(request)
                 .retrieve()
                 .toBodilessEntity()
-            log.info("[cache] minute-backfill triggered code={} interval={} from={} to={}", code, intervalStr, from, to)
+            log.info("[cache] cold-start backfill 요청 OK — code={} (Kafka 적재 비동기 진행)", code)
         } catch (e: Exception) {
-            log.warn(
-                "[cache] minute-backfill trigger failed code={} interval={}: {}",
-                code,
-                intervalStr,
-                e.message,
-            )
+            log.warn("[cache] cold-start backfill 요청 실패 — code={} error={}", code, e.message)
         }
     }
 

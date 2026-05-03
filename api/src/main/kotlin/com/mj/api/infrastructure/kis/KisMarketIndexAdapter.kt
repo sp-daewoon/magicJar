@@ -148,14 +148,21 @@ class KisMarketIndexAdapter(
                 when (code) {
                     "0001" -> "KOSPI"
                     "1001" -> "KOSDAQ"
-                    else -> o.bstpNmixPrpr.takeIf { it.isNotBlank() } ?: code
+                    else -> code
                 }
+            // 필드 매핑 정정 (사용자 정책 — KIS 실 응답 schema):
+            // - prdy_ctrt → bstp_nmix_prdy_ctrt (지수 등락률 KIS 정확 필드명)
+            // - prevClose 직접 응답 X → currentValue - 전일대비변동(prdy_vrss)으로 계산
+            val currentValue = o.bstpNmixPrpr.parseBigDecimal() ?: BigDecimal.ZERO
+            val changeAmount = o.bstpNmixPrdyVrss.parseBigDecimal() ?: BigDecimal.ZERO
+            val prevClose =
+                if (currentValue > BigDecimal.ZERO) currentValue - changeAmount else BigDecimal.ZERO
             return MarketIndex(
                 code = code,
                 name = name,
-                currentValue = o.bstpNmixPrpr.parseBigDecimal() ?: BigDecimal.ZERO,
-                prevClose = o.bstpNmixPrdyClpr.parseBigDecimal() ?: BigDecimal.ZERO,
-                changePercent = o.prdyCtrt.parseBigDecimal() ?: BigDecimal.ZERO,
+                currentValue = currentValue,
+                prevClose = prevClose,
+                changePercent = o.bstpNmixPrdyCtrt.parseBigDecimal() ?: BigDecimal.ZERO,
                 volume = o.acmlVol.parseLong() ?: 0L,
                 session = o.mrktTrndCls.takeIf { it.isNotBlank() },
                 tradingValue = o.acmlTrPbmn.parseBigDecimal(),
@@ -167,16 +174,14 @@ class KisMarketIndexAdapter(
     private data class IndexOutput(
         /** 현재 지수 */
         @JsonProperty("bstp_nmix_prpr") val bstpNmixPrpr: String = "",
-        /** 전일 대비 */
+        /** 전일 대비 변동 (포인트, 부호 포함) */
         @JsonProperty("bstp_nmix_prdy_vrss") val bstpNmixPrdyVrss: String = "",
-        /** 등락률(%) */
-        @JsonProperty("prdy_ctrt") val prdyCtrt: String = "",
-        /** 누적 거래량 */
+        /** 전일 대비 등락률(%) — KIS 정확한 필드명 (지수는 bstp_nmix_prdy_ctrt) */
+        @JsonProperty("bstp_nmix_prdy_ctrt") val bstpNmixPrdyCtrt: String = "",
+        /** 누적 거래량 (체결주식수) */
         @JsonProperty("acml_vol") val acmlVol: String = "",
-        /** 거래대금 */
+        /** 거래대금 (KRW) */
         @JsonProperty("acml_tr_pbmn") val acmlTrPbmn: String = "",
-        /** 전일 종가 */
-        @JsonProperty("bstp_nmix_prdy_clpr") val bstpNmixPrdyClpr: String = "",
         /** 시장 구분 코드 (장전/장중/장마감) */
         @JsonProperty("mrkt_trad_cls_name") val mrktTrndCls: String = "",
     )

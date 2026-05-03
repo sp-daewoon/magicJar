@@ -24,14 +24,12 @@ import java.time.Instant
 class CandleCacheServiceTest {
     private val candleRepository: CandleRepository = mockk(relaxed = true)
     private val cacheMetaRepository: CacheMetaRepository = mockk(relaxed = true)
-    private val candleQueryService: CandleQueryService = mockk(relaxed = true)
 
     private val sut =
         CandleCacheService(
             candleRepository = candleRepository,
             cacheMetaRepository = cacheMetaRepository,
-            candleQueryService = candleQueryService,
-            batchBaseUrl = "http://localhost:8081",
+            pyworkerBaseUrl = "http://localhost:8000",
         )
 
     // --------------------------------------------------
