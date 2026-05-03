@@ -95,6 +95,11 @@ spring.ai:
 
 magicjar:
   mode: ${MAGICJAR_MODE:MOCK}
+  kafka:
+    topics:
+      tick: market.tick.v1
+      # ADR 0048: consumer TickToMinuteAggregator → api CandleMinuteEventListener
+      candleMinuteAggregated: candle.minute.aggregated.v1
   dart:
     api-key: ${OPENDART_API_KEY:}
   kis:
