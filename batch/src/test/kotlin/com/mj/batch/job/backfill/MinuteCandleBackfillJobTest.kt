@@ -5,31 +5,33 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
 /**
- * MinuteCandleBackfillJob 단위 테스트 (T19-T1).
+ * MinuteCandleBackfillJob 단위 테스트 — v2 정책 (ADR 0048).
  *
+ * v2 변경: M1 only 영속. M5/M30/H1 입력은 M1로 폴백.
  * KIS 실제 호출 없이 interval 파싱 로직과 alignedTo 필터 로직을 검증한다.
- * 실제 DB/HTTP 의존 없이 순수 로직만 검증 (Profile 분기 무관).
  */
 class MinuteCandleBackfillJobTest {
     /**
-     * interval 문자열 → Interval enum 매핑 검증.
-     * MinuteCandleBackfillJob.parseInterval 로직과 동일.
+     * interval 문자열 → Interval enum 매핑 검증 (v2).
+     * M1 only — 합성 interval은 M1 폴백.
      */
     @Test
-    fun `parseInterval maps string to correct Interval enum`() {
+    fun `parseInterval maps M1 and aliases correctly`() {
         val cases =
             listOf(
                 "M1" to Interval.M1,
                 "1M" to Interval.M1,
-                "M5" to Interval.M5,
-                "5M" to Interval.M5,
-                "M15" to Interval.M15,
-                "15M" to Interval.M15,
-                "M30" to Interval.M30,
-                "30M" to Interval.M30,
-                "H1" to Interval.H1,
-                "1H" to Interval.H1,
-                "UNKNOWN" to Interval.M30, // 기본값
+                "1MIN" to Interval.M1,
+                // v2: 합성 interval은 M1 폴백
+                "M5" to Interval.M1,
+                "5M" to Interval.M1,
+                "M15" to Interval.M1,
+                "15M" to Interval.M1,
+                "M30" to Interval.M1,
+                "30M" to Interval.M1,
+                "H1" to Interval.M1,
+                "1H" to Interval.M1,
+                "UNKNOWN" to Interval.M1,
             )
 
         cases.forEach { (input, expected) ->
@@ -41,10 +43,22 @@ class MinuteCandleBackfillJobTest {
     }
 
     /**
-     * isAlignedTo 로직 — 5분봉(M5) 기준 5분 배수만 통과.
+     * isAlignedTo 로직 — M1 기준은 모든 분봉 통과 (intervalMinutes = 1).
      */
     @Test
-    fun `isAlignedTo M5 passes only 5-minute aligned minutes`() {
+    fun `isAlignedTo M1 passes all minutes`() {
+        listOf(0, 1, 5, 10, 15, 30, 59).forEach { minute ->
+            assertThat(isAlignedTo(minute, 1))
+                .withFailMessage("minute=%d should be aligned to 1", minute)
+                .isTrue()
+        }
+    }
+
+    /**
+     * isAlignedTo 5분 — 5분 배수만 통과 (합성 로직 검증).
+     */
+    @Test
+    fun `isAlignedTo 5 passes only 5-minute aligned minutes`() {
         val alignedMinutes = listOf(0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55)
         val notAligned = listOf(1, 2, 3, 4, 6, 7, 11, 13, 17, 31)
 
@@ -61,10 +75,10 @@ class MinuteCandleBackfillJobTest {
     }
 
     /**
-     * isAlignedTo M30 — 30분 배수만 통과.
+     * isAlignedTo 30 — 30분 배수만 통과.
      */
     @Test
-    fun `isAlignedTo M30 passes only 30-minute aligned minutes`() {
+    fun `isAlignedTo 30 passes only 30-minute aligned minutes`() {
         assertThat(isAlignedTo(0, 30)).isTrue()
         assertThat(isAlignedTo(30, 30)).isTrue()
         assertThat(isAlignedTo(15, 30)).isFalse()
@@ -77,12 +91,9 @@ class MinuteCandleBackfillJobTest {
 
     private fun parseInterval(raw: String): Interval =
         when (raw.uppercase()) {
-            "M1", "1M" -> Interval.M1
-            "M5", "5M" -> Interval.M5
-            "M15", "15M" -> Interval.M15
-            "M30", "30M" -> Interval.M30
-            "H1", "1H" -> Interval.H1
-            else -> Interval.M30
+            "M1", "1M", "1MIN" -> Interval.M1
+            "D1", "DAY" -> Interval.D1
+            else -> Interval.M1 // 합성 interval(M5/M30/H1 등) → M1 폴백 (v2 정책)
         }
 
     private fun isAlignedTo(

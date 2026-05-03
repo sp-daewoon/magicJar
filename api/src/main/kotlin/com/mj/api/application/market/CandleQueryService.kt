@@ -7,10 +7,75 @@ import org.springframework.stereotype.Service
 import java.time.Instant
 import java.time.ZoneId
 
+/**
+ * 캔들 조회 서비스 — 분봉 합성 정책 v2 (ADR 0048).
+ *
+ * 분기 규칙:
+ *   D1/DAY alias  → DB에서 D1 직접 조회
+ *   M1/1m alias   → DB에서 M1 직접 조회
+ *   W/MO/Y        → D1 조회 후 [CandleAggregator.aggregateDailyToWeekly]
+ *   그 외 N분봉   → M1 조회 후 [CandleAggregator.aggregate(targetMinutes)]
+ */
 @Service
 class CandleQueryService(
     private val candleRepository: CandleRepository,
+    private val candleAggregator: CandleAggregator,
 ) {
+    private val kst = ZoneId.of("Asia/Seoul")
+
+    /**
+     * 캔들 조회 — interval 문자열 기반 (v2 주 진입점).
+     *
+     * @param code        종목코드
+     * @param intervalRaw interval 문자열 (D1/M1/M5/M30/H1/60m/90m/W/MO/Y 등)
+     * @param from        조회 시작 시각 (null이면 봉별 기본 lookback)
+     * @param to          조회 종료 시각 (null이면 현재)
+     */
+    fun queryByString(
+        code: String,
+        intervalRaw: String,
+        from: Instant?,
+        to: Instant?,
+    ): List<Candle> {
+        val upper = intervalRaw.trim().uppercase()
+        val toResolved = to ?: Instant.now()
+
+        // D1 / DAY alias
+        if (isD1(upper)) {
+            val fromResolved = from ?: defaultFrom(Interval.D1, toResolved)
+            return candleRepository.find(code, Interval.D1, fromResolved, toResolved)
+        }
+
+        // M1 alias
+        if (isM1(upper)) {
+            val fromResolved = from ?: defaultFrom(Interval.M1, toResolved)
+            return candleRepository.find(code, Interval.M1, fromResolved, toResolved)
+        }
+
+        // 일봉 기반 합성 (W/MO/Y)
+        if (CandleAggregator.isDailyPeriod(upper)) {
+            val fromResolved = from ?: defaultFrom(Interval.D1, toResolved)
+            val d1Candles = candleRepository.find(code, Interval.D1, fromResolved, toResolved)
+            return candleAggregator.aggregateDailyToWeekly(d1Candles, upper)
+        }
+
+        // 분봉 합성 (M5/M15/M30/H1/임의 N분봉)
+        val targetMinutes =
+            CandleAggregator.parseToMinutesOrNull(intervalRaw)
+                ?: throw IllegalArgumentException("Unsupported interval: $intervalRaw")
+
+        require(targetMinutes > 0) { "interval must be positive minutes, got $intervalRaw" }
+        require(targetMinutes <= 1440) { "interval must be <= 1440 minutes (1 day), got $intervalRaw" }
+
+        val fromResolved = from ?: defaultFromMinutes(targetMinutes, toResolved)
+        val m1Candles = candleRepository.find(code, Interval.M1, fromResolved, toResolved)
+        return candleAggregator.aggregate(m1Candles, targetMinutes)
+    }
+
+    /**
+     * 하위 호환: Interval enum을 직접 받는 경우 (기존 테스트·MCP tool 에서 사용).
+     * D1·M1만 지원. 그 외 enum 값은 queryByString으로 전환 필요.
+     */
     fun query(
         code: String,
         interval: Interval,
@@ -22,35 +87,39 @@ class CandleQueryService(
         return candleRepository.find(code, interval, fromResolved, toResolved)
     }
 
-    private fun defaultFrom(
-        interval: Interval,
-        to: Instant,
-    ): Instant {
-        val zone = ZoneId.of("Asia/Seoul")
-        // 모든 lookback을 KST 자정 align — 시드 분봉(09:00 시작)이 from 이후로 들어오게 보장.
-        // 사용자 차트는 클라이언트 fitContent라 데이터가 있는 만큼만 보여주면 됨 → lookback은 넉넉하게.
-        val daysBack =
-            when (interval) {
-                Interval.D1 -> 180L
-                Interval.M1 -> 7L
-                Interval.M5 -> 90L
-                Interval.M15 -> 180L
-                Interval.M30 -> 180L
-                Interval.H1 -> 365L
-            }
-        return to
-            .atZone(zone)
-            .toLocalDate()
-            .minusDays(daysBack)
-            .atStartOfDay(zone)
-            .toInstant()
+    /**
+     * infinite scroll: before 이전 캔들 반환 — interval 문자열 기반 (v2).
+     *
+     * 합성 interval 처리: M1을 limit * targetMinutes 만큼 조회 후 합성.
+     */
+    fun queryBeforeByString(
+        code: String,
+        intervalRaw: String,
+        before: Instant,
+        limit: Int,
+    ): List<Candle> {
+        val upper = intervalRaw.trim().uppercase()
+
+        if (isD1(upper)) return candleRepository.findBefore(code, Interval.D1, before, limit)
+        if (isM1(upper)) return candleRepository.findBefore(code, Interval.M1, before, limit)
+
+        if (CandleAggregator.isDailyPeriod(upper)) {
+            val d1Candles = candleRepository.findBefore(code, Interval.D1, before, limit)
+            return candleAggregator.aggregateDailyToWeekly(d1Candles, upper)
+        }
+
+        val targetMinutes =
+            CandleAggregator.parseToMinutesOrNull(intervalRaw)
+                ?: throw IllegalArgumentException("Unsupported interval: $intervalRaw")
+
+        // M1 기준 더 넓게 조회 (합성 후 limit개 확보)
+        val m1Limit = (limit.toLong() * targetMinutes).coerceAtMost(10_000L).toInt()
+        val m1Candles = candleRepository.findBefore(code, Interval.M1, before, m1Limit)
+        return candleAggregator.aggregate(m1Candles, targetMinutes)
     }
 
     /**
-     * infinite scroll: before 이전 캔들을 최대 limit개 ASC 반환 (T19-T4).
-     *
-     * @param before  기준 시각 (exclusive)
-     * @param limit   최대 건수 (1~1000, 컨트롤러에서 사전 검증)
+     * 하위 호환: Interval enum 기반 infinite scroll (기존 테스트).
      */
     fun queryBefore(
         code: String,
@@ -59,17 +128,55 @@ class CandleQueryService(
         limit: Int,
     ): List<Candle> = candleRepository.findBefore(code, interval, before, limit)
 
+    // ── private helpers ─────────────────────────────────────────────────────
+
+    private fun isD1(upper: String): Boolean = upper in setOf("D1", "DAY", "D", "1D")
+
+    private fun isM1(upper: String): Boolean = upper in setOf("M1", "1M", "1MIN", "MIN1")
+
+    private fun defaultFrom(
+        interval: Interval,
+        to: Instant,
+    ): Instant {
+        val daysBack =
+            when (interval) {
+                Interval.D1 -> 180L
+                Interval.M1 -> 7L
+            }
+        return to
+            .atZone(kst)
+            .toLocalDate()
+            .minusDays(daysBack)
+            .atStartOfDay(kst)
+            .toInstant()
+    }
+
+    private fun defaultFromMinutes(
+        targetMinutes: Int,
+        to: Instant,
+    ): Instant {
+        // N분봉 lookback: 합성 봉 200개 기준 = N × 200분 (최대 365일)
+        val lookbackMinutes = (targetMinutes.toLong() * 200L).coerceAtMost(365L * 24 * 60)
+        return to.minusSeconds(lookbackMinutes * 60)
+    }
+
     companion object {
-        // 'DAY' alias support — 프론트는 'DAY'로 보냄, 도메인은 D1
+        /**
+         * interval 문자열 → Interval enum 파싱.
+         *
+         * v2 정책: D1·M1 alias만 허용.
+         * M5/M15/M30/H1 등 합성 interval은 queryByString이 처리 — 이 메서드는 IllegalArgumentException 발생.
+         * 기존 코드 호환을 위해 companion object로 유지.
+         */
         fun parseInterval(raw: String): Interval =
-            when (raw.uppercase()) {
+            when (raw.trim().uppercase()) {
                 "DAY", "D", "D1", "1D" -> Interval.D1
-                "M1", "1M" -> Interval.M1
-                "M5", "5M" -> Interval.M5
-                "M15", "15M" -> Interval.M15
-                "M30", "30M" -> Interval.M30
-                "H1", "1H" -> Interval.H1
-                else -> Interval.valueOf(raw.uppercase())
+                "M1", "1M", "1MIN", "MIN1" -> Interval.M1
+                else ->
+                    throw IllegalArgumentException(
+                        "Unsupported storage interval: '$raw'. " +
+                            "Synthetic intervals (M5/M15/M30/H1/N분봉) are handled by CandleQueryService.queryByString.",
+                    )
             }
     }
 }
