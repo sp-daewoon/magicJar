@@ -6,6 +6,9 @@ import java.math.BigDecimal
 
 /**
  * 종목 상세 메타 응답 DTO (T20-T5).
+ *
+ * _warnings: KIS·DART 키 미설정 또는 외부 API 실패 시 frontend에 사유를 명시.
+ * null인 필드가 많을 때 사용자에게 "—" 표시하며 이유를 알려줄 수 있다.
  */
 @Schema(description = "종목 상세 메타 정보 (KIS 기본정보 + DART 재무정보 병합)")
 data class InstrumentDetailResponse(
@@ -47,10 +50,19 @@ data class InstrumentDetailResponse(
     val representativeName: String?,
     @Schema(description = "업종 분류명", example = "전자부품, 컴퓨터, 영상, 음향 및 통신장비 제조업")
     val industry: String?,
+    @Schema(
+        description = "데이터 소스 경고 목록. KIS·DART 키 미설정 또는 외부 API 실패 시 항목 포함. null이면 경고 없음.",
+        example = "[\"KIS_KEY_NOT_SET\", \"DART_CORP_CODE_NOT_FOUND\"]",
+    )
+    val warnings: List<String>? = null,
 )
 
-/** InstrumentDetail → InstrumentDetailResponse 변환 */
-fun InstrumentDetail.toDetailResponse(): InstrumentDetailResponse =
+/**
+ * InstrumentDetail → InstrumentDetailResponse 변환.
+ *
+ * @param warnings KIS/DART 데이터 소스 경고 목록 (null = 경고 없음)
+ */
+fun InstrumentDetail.toDetailResponse(warnings: List<String>? = null): InstrumentDetailResponse =
     InstrumentDetailResponse(
         code = code,
         name = name,
@@ -71,4 +83,5 @@ fun InstrumentDetail.toDetailResponse(): InstrumentDetailResponse =
         majorShareholderRatio = majorShareholderRatio,
         representativeName = representativeName,
         industry = industry,
+        warnings = warnings?.takeIf { it.isNotEmpty() },
     )

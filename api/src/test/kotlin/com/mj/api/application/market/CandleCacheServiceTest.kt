@@ -130,4 +130,22 @@ class CandleCacheServiceTest {
         // legacy 시드는 그대로 반환 (백그라운드 trigger 없음)
         assertThat(result).hasSize(10)
     }
+
+    @Test
+    fun `triggerBackgroundFetchAsync — pyworker 연결 실패 시 예외 전파 없이 warn 로그만`() {
+        // pyworker URL이 없는 호스트 → RestClient 연결 실패 예상
+        // @Async는 테스트 컨텍스트에서 동기 실행 (Spring 컨텍스트 없으므로)
+        // → 예외가 외부로 전파되지 않고 내부 catch에서 warn으로 처리되는지 검증
+        val sutWithBadUrl =
+            CandleCacheService(
+                candleRepository = candleRepository,
+                cacheMetaRepository = cacheMetaRepository,
+                pyworkerBaseUrl = "http://127.0.0.1:19999", // 없는 포트
+            )
+
+        // 예외가 밖으로 나오지 않아야 함 (catch 후 warn만)
+        org.junit.jupiter.api.assertDoesNotThrow {
+            sutWithBadUrl.triggerBackgroundFetchAsync("004090")
+        }
+    }
 }

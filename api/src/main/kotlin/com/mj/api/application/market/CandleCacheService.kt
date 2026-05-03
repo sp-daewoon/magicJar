@@ -9,7 +9,6 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Async
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.client.RestClient
 import java.time.Instant
 import java.time.ZoneId
@@ -99,7 +98,6 @@ class CandleCacheService(
      * 사용자 정책: 신규 종목 첫 진입 시 자동 backfill (사용자가 빈 차트 안 보도록).
      */
     @Async
-    @Transactional
     fun triggerBackgroundFetchAsync(code: String) {
         log.info("[cache] cold-start backfill 시작 — code={} (pyworker yfinance, 1m × 30일)", code)
         try {
