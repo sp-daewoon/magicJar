@@ -53,6 +53,7 @@ _workspace/dashboard.html
 
 # Claude Code local overrides (per-user, do not commit)
 .claude/settings.local.json
+.claude/worktrees/
 
 # Node.js (husky host)
 node_modules/
