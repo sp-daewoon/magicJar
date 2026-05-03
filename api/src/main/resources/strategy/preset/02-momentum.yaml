@@ -1,0 +1,29 @@
+version: "1.0"
+metadata:
+  name: rsi_momentum
+  description: RSI 30 이하 과매도 진입 + 70 이상 과매수 청산
+  author: kis-strategy-builder
+  tags: [momentum, rsi]
+strategy:
+  id: rsi_momentum_14
+  category: momentum
+  indicators:
+    - id: rsi
+      alias: rsi14
+      params: { period: 14 }
+  entry:
+    logic: AND
+    conditions:
+      - lhs: { alias: rsi14 }
+        op: less_than
+        rhs: { value: 30 }
+  exit:
+    logic: AND
+    conditions:
+      - lhs: { alias: rsi14 }
+        op: greater_than
+        rhs: { value: 70 }
+risk:
+  stop_loss:
+    enabled: true
+    percent: 0.04

@@ -37,6 +37,9 @@ dependencies {
     // OpenAPI / Swagger UI — /swagger-ui/index.html, /v3/api-docs
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0")
 
+    // Jackson YAML (Strategy DSL parser, ADR 0040)
+    implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml")
+
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.kafka:spring-kafka-test")
     testImplementation("org.testcontainers:junit-jupiter:1.20.4")

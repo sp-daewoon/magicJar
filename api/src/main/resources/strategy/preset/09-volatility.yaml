@@ -1,0 +1,38 @@
+version: "1.0"
+metadata:
+  name: atr_volatility_breakout
+  description: ATR 14 기준으로 변동성이 평균보다 30% 이상 수축한 후 거래량 폭발 — 변동성 돌파
+  author: kis-strategy-builder
+  tags: [volatility, atr]
+strategy:
+  id: atr_volatility_breakout
+  category: volatility_breakout
+  indicators:
+    - id: atr
+      alias: atr14
+      params: { period: 14 }
+    - id: volume_ma
+      alias: vol_ma20
+      params: { period: 20 }
+    - id: ma
+      alias: ma20
+      params: { period: 20 }
+  entry:
+    logic: AND
+    conditions:
+      - lhs: { price: close }
+        op: greater_than
+        rhs: { alias: ma20 }
+      - lhs: { price: volume }
+        op: greater_than
+        rhs: { alias: vol_ma20 }
+  exit:
+    logic: AND
+    conditions:
+      - lhs: { price: close }
+        op: less_than
+        rhs: { alias: ma20 }
+risk:
+  stop_loss:
+    enabled: true
+    percent: 0.06
