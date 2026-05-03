@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>magicJar 2026-05-04 세션 요약</title>
+<style>
+  :root{--bg:#fafafa;--fg:#1f2937;--mute:#6b7280;--accent:#2563eb;--ok:#16a34a;--warn:#d97706;--danger:#dc2626;--border:#e5e7eb;--card:#fff;--mono:'SF Mono','Monaco','Menlo',monospace}
+  *{box-sizing:border-box}
+  body{margin:0;padding:24px;font-family:-apple-system,'SF Pro Text','Pretendard',sans-serif;background:var(--bg);color:var(--fg);line-height:1.55;font-size:14px}
+  h1{margin:0 0 4px;font-size:22px}
+  h2{margin:32px 0 12px;font-size:17px;border-bottom:2px solid var(--accent);padding-bottom:6px}
+  h3{margin:18px 0 8px;font-size:14px;color:var(--accent)}
+  .meta{color:var(--mute);font-size:12px;margin-bottom:24px}
+  .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px}
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:13px}
+  th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+  th{background:#f3f4f6;font-weight:600;color:var(--mute);text-transform:uppercase;font-size:11px;letter-spacing:.05em}
+  tr:last-child td{border-bottom:0}
+  code{background:#f3f4f6;padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:12px}
+  .badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600}
+  .b-ok{background:#dcfce7;color:#166534}
+  .b-warn{background:#fef3c7;color:#92400e}
+  .b-pending{background:#dbeafe;color:#1e40af}
+  .b-todo{background:#fce7f3;color:#9d174d}
+  .b-mute{background:#e5e7eb;color:#374151}
+  ul{margin:6px 0;padding-left:18px}
+  li{margin:3px 0}
+  .small{font-size:12px;color:var(--mute)}
+  .pr{color:var(--accent);font-weight:600;font-family:var(--mono)}
+</style>
+</head>
+<body>
+
+<h1>magicJar 세션 요약 — 2026-05-04 월요일</h1>
+<div class="meta">분봉 아키 v2 본격 가동 (1분봉 단일 영속 + 백엔드 합성 + Yahoo Finance) + 키 정책 .env 유지 결정 + DART corp_code 회귀 fix + 종목상세 메타 완전 정상화 (DART + KIS) + 기본시세 3종 통합 + cursor 페이징 + KIS API reference docs → <b>v2.0.0 베이스라인 컷 + QA APPROVED</b>.</div>
+
+<h2>1. 머지 PR 30+ (오늘)</h2>
+<table>
+  <tr><th>Wave</th><th>PR</th><th>트랙·내용</th><th>에이전트</th></tr>
+  <tr><td rowspan="2">분봉 아키 v2 spec</td><td class="pr">#106</td><td>T19-T8 Candle Cache 운영 가이드</td><td>메인 (architect)</td></tr>
+  <tr><td class="pr">#109</td><td>캔들 정책 v2 — 1분봉 단일 영속·백엔드 합성·Yahoo 하이브리드 (ADR 0048)</td><td>architect (opus)</td></tr>
+  <tr><td rowspan="4">분봉 아키 v2 구현 (4영역 병렬)</td><td class="pr">#113</td><td>B — KIS WS tick → 1분봉 누적 (TickToMinuteAggregator·candle.minute.aggregated.v1)</td><td>market-data (sonnet)</td></tr>
+  <tr><td class="pr">#114</td><td>A — V20 마이그레이션 + CandleAggregator + 합성 호환 layer</td><td>backend-core (sonnet, 메인 마무리)</td></tr>
+  <tr><td class="pr">#115</td><td>D — frontend mock 폐기 + candleAggregator 정리</td><td>frontend (sonnet, 메인 마무리)</td></tr>
+  <tr><td class="pr">#116</td><td>C — pyworker yfinance 분봉 backfill (POST /backfill/yahoo)</td><td>ai-engineer (opus)</td></tr>
+  <tr><td rowspan="3">T20·T21 검색·메타·지수</td><td class="pr">#107</td><td>backend — 종목 상세 메타(KIS+DART) + 시장 지수 API</td><td>market-data (sonnet)</td></tr>
+  <tr><td class="pr">#108</td><td>frontend — 헤더 검색창 + 종목 상세 panel + Dashboard 지수 카드</td><td>frontend (sonnet)</td></tr>
+  <tr><td class="pr">#119</td><td>SettingsModal 3-key UI + 종목 상세 키 안내 + 검색 기록 LRU 20 + Enter 자동 진입</td><td>frontend (sonnet)</td></tr>
+  <tr><td rowspan="6">사용자 검증 hotfix</td><td class="pr">#110</td><td>frontend docker build TS 회귀 (TimeRange v4·vi.fn 제네릭)</td><td>메인 (architect)</td></tr>
+  <tr><td class="pr">#111</td><td>Dashboard toFixed 폭파 + 종목 검색 ETF·공모주 필터</td><td>메인 (architect)</td></tr>
+  <tr><td class="pr">#112</td><td>ETF 필터 보강 — UNICORN·액티브·합성·커버드콜 키워드 추가</td><td>메인 (architect)</td></tr>
+  <tr><td class="pr">#117</td><td>N분봉 default lookback — 30일 통일</td><td>메인 (architect)</td></tr>
+  <tr><td class="pr">#118</td><td>차트 viewport 입력 + Dashboard 지수 카드 정정 (volume·tradingValue 분리)</td><td>메인 (architect)</td></tr>
+  <tr><td class="pr">#121</td><td>useSymbolQuote 종목 변경 시 INITIAL reset</td><td>메인 (architect)</td></tr>
+  <tr><td rowspan="3">키 정책</td><td class="pr">#120</td><td>데이터 조회 yml 매핑 — 실전 KIS 키 default (모의 폐기)</td><td>메인 (architect)</td></tr>
+  <tr><td class="pr">#122</td><td>cold-start backfill (yfinance) + 지수 매핑 정정 + 로그 정리</td><td>메인 (architect)</td></tr>
+  <tr><td class="pr">#125</td><td><b>DART corp_code 파싱 버그 수정 (regex &lt;corp&gt; → &lt;list&gt;) + KIS·cold-start log 강화 + logback %n 정상화</b></td><td>backend-core (sonnet)</td></tr>
+  <tr><td rowspan="2">docs</td><td class="pr">#123</td><td>cold-start trigger 진단 + 종목상세 KIS·DART path 정상화 + _warnings 필드</td><td>backend-core (sonnet)</td></tr>
+  <tr><td class="pr">#124</td><td>운영 가이드 — 초기 설치 절차·트러블슈팅</td><td>메인 (architect)</td></tr>
+  <tr><td rowspan="6">KIS·DART 회귀 fix + 통합</td><td class="pr">#126</td><td><b>KIS endpoint inquire-stock-info → search-stock-info (사용자 정정)</b></td><td>메인 (architect)</td></tr>
+  <tr><td class="pr">#127</td><td>InstrumentDetailPanel warnings 배너 UI</td><td>frontend (sonnet)</td></tr>
+  <tr><td class="pr">#128</td><td><b>KIS inquire-price (FHKST01010100) 통합 — PER·PBR·EPS·BPS·시총·업종 한글명</b></td><td>backend-core (sonnet)</td></tr>
+  <tr><td class="pr">#129</td><td>KIS API reference 정리 (사용자 안내 + 사용 매핑 + 후속 검토)</td><td>메인 (architect)</td></tr>
+  <tr><td class="pr">#130</td><td>γ 캔들 cursor 페이징 — limit·hasMore (X-Has-More 헤더)</td><td>backend-core (sonnet)</td></tr>
+  <tr><td class="pr">#131</td><td><b>기본시세 3 endpoint 통합 — 호가창·체결 list·외국인기관 동향</b></td><td>market-data (sonnet)</td></tr>
+</table>
+
+<h2>2. PostgreSQL Flyway — V19·V20·V21</h2>
+<table>
+  <tr><th>버전</th><th>변경</th><th>도입</th><th>의미</th></tr>
+  <tr><td>V19</td><td>instrument_cache_meta — (code, interval) PK + last_accessed_at LRU index</td><td>T19 1차 (PR #100, 5/3)</td><td>분봉 LRU eviction 메타</td></tr>
+  <tr><td>V20</td><td>candle interval CHECK constraint (D1·M1 only) + M5/M15/M30/H1 row 영구 DELETE</td><td>분봉 아키 v2 (PR #114)</td><td>1분봉 단일 영속 정책 적용</td></tr>
+</table>
+
+<h2>3. Kafka 토픽·데이터 흐름 변경</h2>
+<div class="grid">
+  <div class="card">
+    <h3>candle.minute.aggregated.v1 (신규)</h3>
+    <ul>
+      <li>producer: consumer TickToMinuteAggregator (KIS WS tick → 1분 boundary OHLCV 합성)</li>
+      <li>producer: pyworker yfinance backfill 결과 (Yahoo Finance 30일치 1분봉)</li>
+      <li>consumer: api CandleMinuteEventListener → DB INSERT (interval=M1)</li>
+      <li>idempotent: PRIMARY KEY (code, interval, open_time) UNIQUE 활용</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>분봉 source 전환 (KIS REST → yfinance)</h3>
+    <ul>
+      <li>KIS <code>FHKST03010200</code> = "당일 분봉 전용" — 과거 backfill 불가능</li>
+      <li>yfinance: 1m=30일·5m=60일·30m=730일·1h=2년 (실측 검증)</li>
+      <li>한국 종목 <code>.KS</code> suffix (KOSPI·KOSDAQ 둘 다 작동)</li>
+      <li>cold-start: 신규 종목 첫 진입 시 자동 trigger (CandleQueryService → CandleCacheService → pyworker)</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>실시간 시세 (장중)</h3>
+    <ul>
+      <li>KIS WS <code>H0STCNT0</code> 체결 통보 → consumer aggregator → market.tick.v1 publish</li>
+      <li>1분 boundary 진입 시 → candle.minute.aggregated.v1 발사</li>
+      <li>5분 timeout — 메모리 bucket 자동 flush + 제거</li>
+    </ul>
+  </div>
+</div>
+
+<h2>4. Redis 사용처 변경</h2>
+<table>
+  <tr><th>키 패턴</th><th>용도</th><th>도입</th><th>상태</th></tr>
+  <tr><td><code>quote:last:{code}</code></td><td>시세 fallback 3-tier</td><td>T2 R2</td><td><span class="badge b-ok">사용 중</span></td></tr>
+  <tr><td><code>instrument:search:{name|code}</code></td><td>종목 검색 ZSET</td><td>T3 R1</td><td><span class="badge b-ok">사용 중</span></td></tr>
+  <tr><td><code>instrument:detail:{code}</code></td><td>종목 상세 메타 cache 6h TTL</td><td>T20 R1</td><td><span class="badge b-ok">사용 중 — DART 정상화 후 활성</span></td></tr>
+  <tr><td><code>session:resolved:{date}</code></td><td>MarketSession 1분 cache</td><td>T2 R1</td><td><span class="badge b-ok">사용 중</span></td></tr>
+  <tr><td><code>market:index:{code}</code></td><td>KOSPI·KOSDAQ 1분 cache</td><td>T21 R1</td><td><span class="badge b-ok">사용 중</span></td></tr>
+</table>
+
+<h2>5. sub-agent 디스패치 내역</h2>
+<table>
+  <tr><th>에이전트</th><th>호출</th><th>주 작업</th></tr>
+  <tr><td>backend-core (sonnet)</td><td>5</td><td>T19-T7 LRU eviction · 분봉 아키 v2 A 영역 · cold-start 진단·hotfix · DART corp_code regex fix · KIS/cold-start 로그 강화</td></tr>
+  <tr><td>market-data (sonnet)</td><td>3</td><td>T20·T21 백엔드 (메타·지수) · TickToMinuteAggregator (B 영역)</td></tr>
+  <tr><td>frontend (sonnet)</td><td>3</td><td>T19-T5/T6 candleAggregator·useCandles · T20·T21 frontend · SettingsModal 3-key + 검색 기록</td></tr>
+  <tr><td>ai-engineer (opus)</td><td>1</td><td>pyworker yfinance backfill (C 영역)</td></tr>
+  <tr><td>architect (opus, 메인)</td><td>10+</td><td>분봉 아키 v2 spec(ADR 0048) · 16+ 운영 hotfix · README docs</td></tr>
+</table>
+
+<div class="card" style="margin-top:8px">
+  <h3>이슈·복구</h3>
+  <ul>
+    <li><b>토큰 한도 hit 다수</b> — sub-agent 12:20am KST 리셋 대기. 메인 세션 takeover (PR #114 backend·#115 frontend 작업 마무리)</li>
+    <li><b>worktree leak 누적</b> — 매 sub-agent 종료 후 정리 의무 (memory feedback_worktree_cleanup.md). lock 해제 + force remove + branch -D + orphan 빈 디렉토리 청소</li>
+    <li><b>키 정책 흔들림</b> — DB 이전 시도(V21 plan) 폐기, .env 유지 결정. 사용자: "내가 직접 설치해줄거라서 큰 걱정은 안해도될거같아"</li>
+    <li><b>data 조회 = 항상 실전 키 정책</b> 명시화 — 모의 키는 주문에만 사용. 모의/실전 분리는 주문 path만 의미</li>
+    <li><b>5/1 휴장일 분봉 데이터 — V8 시드 mock 잔재</b>. yfinance는 정직(KRX 휴장 응답 X). DELETE 360 row로 정정</li>
+    <li><b>KIS_API_FAILED EGW00002 (403)</b> — 사용자 IP가 KIS 화이트리스트 미등록. 사용자 액션 필요 (https://apiportal.koreainvestment.com)</li>
+    <li><b>로그 정책 — TRACE 금지·INFO 최소·Kafka WARN 억제</b>. 사용자 정책 명시</li>
+    <li><b>logback %n 줄바꿈 회귀</b> — CONSOLE_TEXT appender springProfile 블록 외부로 이동 + charset UTF-8 명시</li>
+    <li><b>KIS endpoint 회귀 진단 — 정확한 endpoint는 search-stock-info</b>. inquire-stock-info(잘못)·EGW00002 IP 추정(잘못) 둘 다 사용자 안내로 정정. CTPF1002R + PDNO=code&PRDT_TYPE_CD=300이 정확</li>
+    <li><b>DART corp_code XML regex 버그</b> — &lt;corp&gt; 태그 잘못, 실제 &lt;list&gt; 사용. 0건 파싱 → 모든 종목 lookup fail. PR #125에서 fix + 테스트 3건 추가</li>
+    <li><b>KIS·DART 통합 완료</b> — 005930 종목상세에 시총 1,289조·외국인 49.24%·매출 333조·PER 33.59·업종 "전기·전자" 모두 정상 응답</li>
+  </ul>
+</div>
+
+<h2>6. sanity dogfooding 결과</h2>
+<div class="grid">
+  <div class="card">
+    <h3>화면</h3>
+    <ul>
+      <li>헤더 검색창 + Enter 자동 진입 + 검색 기록 LRU 20 ✓ (사용자 검증 완료)</li>
+      <li>종목 변경 시 가격 reset (PR #121) ✓</li>
+      <li>차트 viewport 입력 + 봉 수 표시 (PR #118) ✓</li>
+      <li>Dashboard KOSPI·KOSDAQ 카드 + 거래량/거래대금 분리 표기 (PR #118)</li>
+      <li>종목 검색 ETF·공모주 필터 (PR #111·#112) ✓</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>데이터 정책 정합</h3>
+    <ul>
+      <li>실전 KIS 키 = 모든 데이터 조회 source</li>
+      <li>모의 KIS 키 = 모의 주문에만</li>
+      <li>지수 매핑 정정 — KOSPI/KOSDAQ prevClose 6690.90/1220.26 (이전 0)</li>
+      <li>Yahoo 분봉 5종목 6,480봉/종목 적재 ✓</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>종목 상세 (005930) 응답</h3>
+    <ul>
+      <li>DART 재무 ✓ — 매출액 333조 · 영업이익 43.6조 · 당기순이익 44.2조</li>
+      <li>KIS 메타 — <span class="badge b-warn">_warnings: KIS_API_FAILED</span> 사용자 IP 등록 후 활성화 예정</li>
+    </ul>
+  </div>
+</div>
+
+<h2>7. v2.0.0 베이스라인 컷 + QA</h2>
+<div class="card">
+  <h3>QA 결과 — APPROVED</h3>
+  <ul>
+    <li>9 컨테이너 모두 healthy</li>
+    <li>Flyway V0~V20 적용 success</li>
+    <li>11 핵심 endpoint × HTTP 200 (detail·quote·candles·orderbook·trades·investors·index·search·devlog·harness)</li>
+    <li>:domain·:api·:batch·:consumer test PASS · ktlint 4 모듈 PASS</li>
+    <li>종목 상세 005930 — name·marketCap 1,289조·foreignRatio 49.24%·revenue 333조·per 33.59·industry "전기·전자" 정상</li>
+    <li>분봉 아키 v2 정합 — D1·M1 only + N분봉 백엔드 합성 + cold-start yfinance + KIS WS 누적</li>
+    <li>사용자 정책 정합 — 데이터=실전 키·주문=모의/실전·mock 폐기·로그 INFO·ETF 필터</li>
+  </ul>
+  <p>QA 보고서: <code>_workspace/qa/report-20260504-v2-baseline.md</code></p>
+</div>
+<div class="card" style="margin-top:8px">
+  <h3>v2.0.0 릴리즈</h3>
+  <ul>
+    <li>tag <code>v2.0.0</code></li>
+    <li>보존 브랜치 <code>release/v2</code> — 체크아웃 전용 (push·머지·삭제 금지, ADR 0027)</li>
+    <li>GitHub Release: 분봉 아키 v2 + KIS·DART 통합 + 종목 상세 메타 + 기본시세 3종 + cursor 페이징</li>
+  </ul>
+</div>
+
+<h2>8. 다음 사이클 일정</h2>
+<table>
+  <tr><th>우선순위</th><th>작업</th><th>사이즈</th><th>비고</th></tr>
+  <tr><td>1</td><td>frontend 호가창·체결·외국인 UI 통합</td><td>~2일</td><td>PR #131 backend endpoint 활용 (3 컴포넌트 + chart)</td></tr>
+  <tr><td>2</td><td>차트 무한 스크롤 사용자 검증 + frontend 정합 hotfix</td><td>~0.5일</td><td>X-Has-More 헤더 활용 useInfiniteQuery 동작 검증</td></tr>
+  <tr><td>3</td><td>FHKST03010230 PoC (사용자와 plan 후)</td><td>—</td><td>과거 분봉 yfinance 대체 검토</td></tr>
+  <tr><td>4</td><td>setup wizard 신규</td><td>~1일</td><td>첫 진입 키 미등록 detect</td></tr>
+  <tr><td>5</td><td>KIS 마스터 sync type 세분화</td><td>~1일</td><td>키워드 필터 폐기 (정식 ETF/ETN/REIT 분리)</td></tr>
+  <tr><td>6</td><td>W5 사용자 학습</td><td>~3일</td><td>실 사용자 흐름 검증</td></tr>
+</table>
+
+<div style="margin-top:32px;padding:14px;background:#f0f9ff;border-radius:6px;font-size:13px">
+  <b>v2.0.0 베이스라인 핵심</b>: ADR 0048 분봉 아키 v2 (1분봉 단일 영속 + 백엔드 합성 + Yahoo cold-start) · KIS endpoint 정정(search-stock-info + inquire-price) · DART regex bug fix · 종목 메타·재무·시총·PER·BPS·외국인 비율 모두 정상 · 기본시세 3종 통합 · 캔들 cursor 페이징 · 사용자 정책 명문화 (데이터=실전 키 / 주문=모의·실전 분리). 35+ PR 머지.
+</div>
+
+</body>
+</html>
