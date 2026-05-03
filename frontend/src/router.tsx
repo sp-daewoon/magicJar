@@ -11,7 +11,6 @@ const BacktestPage = lazy(() => import('@/pages/Backtest'))
 const JournalPage = lazy(() => import('@/pages/Journal'))
 const StrategyPage = lazy(() => import('@/pages/Strategy'))
 const StrategyBuilderPage = lazy(() => import('@/pages/StrategyBuilder'))
-const HarnessOpsPage = lazy(() => import('@/pages/HarnessOps'))
 const SymbolDetailPage = lazy(() => import('@/pages/SymbolDetail'))
 const OrdersPage = lazy(() => import('@/pages/Orders'))
 const DevlogPage = lazy(() => import('@/pages/Devlog'))
@@ -103,9 +102,6 @@ function RootLayout({ children }: { children?: React.ReactNode }) {
         <a href="/strategy/builder" className="text-sm hover:underline">
           전략빌더
         </a>
-        <a href="/harness" className="text-sm hover:underline">
-          하네스
-        </a>
         <a href="/symbol/005930" className="text-sm hover:underline">
           종목상세
         </a>
@@ -181,14 +177,6 @@ export const router = createBrowserRouter([
     element: (
       <RootLayout>
         <StrategyBuilderPage />
-      </RootLayout>
-    ),
-  },
-  {
-    path: '/harness',
-    element: (
-      <RootLayout>
-        <HarnessOpsPage />
       </RootLayout>
     ),
   },

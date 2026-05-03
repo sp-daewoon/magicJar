@@ -104,6 +104,10 @@ magicjar:
     # 개발일지 HTML 디렉토리. 컨테이너 내부에선 docker-compose volume mount path.
     # `/devlog` 슬래시 커멘드가 작성, DevlogController가 frontend로 노출.
     dir: ${MAGICJAR_DEVLOG_DIR:_workspace/devlog}
+  harness:
+    # 하네스 운영 현황 HTML 단일 파일. `node scripts/render-status.mjs`가 task 파일을 파싱해 생성.
+    # 컨테이너 내부에선 docker-compose volume mount path.
+    dashboard-path: ${MAGICJAR_HARNESS_DASHBOARD_PATH:_workspace/dashboard.html}
   mcp:
     api-key: ${MAGICJAR_MCP_API_KEY:}
     protocol-version: 2025-03-26
