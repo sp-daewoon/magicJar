@@ -25,8 +25,9 @@ dependencies {
     // Kafka (api도 STOMP fan-out 위해 일부 토픽 consume)
     implementation("org.springframework.kafka:spring-kafka")
 
-    // Spring AI (api에서도 동기 분석 호출 가능)
+    // Spring AI (api에서도 동기 분석 호출 가능 — T16 사용자 트리거 분석 보조)
     implementation("org.springframework.ai:spring-ai-openai-spring-boot-starter")
+    implementation("org.springframework.ai:spring-ai-anthropic-spring-boot-starter")
 
     // MinIO
     implementation("io.minio:minio:8.5.12")
