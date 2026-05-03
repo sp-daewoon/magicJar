@@ -1,6 +1,8 @@
 package com.mj.api.controller
 
+import com.mj.api.application.instrument.InstrumentMasterSyncApiService
 import com.mj.api.application.instrument.InstrumentService
+import com.mj.api.application.instrument.SyncTriggerResult
 import com.mj.api.application.market.CandleQueryService
 import com.mj.api.config.WebSecurityConfig
 import com.mj.domain.common.Candle
@@ -22,9 +24,11 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Import
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
+import org.springframework.test.web.servlet.post
 import java.math.BigDecimal
 import java.time.Instant
 import java.time.LocalDate
+import java.time.OffsetDateTime
 
 @WebMvcTest(
     controllers = [InstrumentController::class],
@@ -44,6 +48,9 @@ class InstrumentControllerTest {
 
         @Bean
         fun candleQueryService(): CandleQueryService = mockk()
+
+        @Bean
+        fun instrumentMasterSyncApiService(): InstrumentMasterSyncApiService = mockk()
     }
 
     @Autowired
@@ -51,6 +58,9 @@ class InstrumentControllerTest {
 
     @Autowired
     lateinit var instrumentService: InstrumentService
+
+    @Autowired
+    lateinit var instrumentMasterSyncApiService: InstrumentMasterSyncApiService
 
     @Autowired
     lateinit var candleQueryService: CandleQueryService
@@ -221,6 +231,37 @@ class InstrumentControllerTest {
             .andExpect {
                 status { isOk() }
                 jsonPath("$.length()") { value(0) }
+            }
+    }
+
+    @Test
+    fun `POST api instruments master sync returns 202 with runId`() {
+        every { instrumentMasterSyncApiService.triggerSync(null) } returns
+            SyncTriggerResult(
+                runId = "test-run-id",
+                status = "STARTED",
+                scheduledAt = OffsetDateTime.parse("2026-05-02T12:00:00+09:00"),
+            )
+
+        mvc
+            .post("/api/instruments/master/sync") {
+                contentType = org.springframework.http.MediaType.APPLICATION_JSON
+                content = "{}"
+            }.andExpect {
+                status { isAccepted() }
+                jsonPath("$.runId") { value("test-run-id") }
+                jsonPath("$.status") { value("STARTED") }
+            }
+    }
+
+    @Test
+    fun `GET api instruments master sync runId returns 404 when batch app unavailable`() {
+        every { instrumentMasterSyncApiService.syncStatus("unknown-run") } returns null
+
+        mvc
+            .get("/api/instruments/master/sync/unknown-run")
+            .andExpect {
+                status { isNotFound() }
             }
     }
 }
