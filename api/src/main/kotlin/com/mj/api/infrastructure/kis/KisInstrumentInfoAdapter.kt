@@ -14,19 +14,24 @@ import org.springframework.web.client.RestClientResponseException
 import java.math.BigDecimal
 
 /**
- * KIS inquire-stock-info REST 어댑터 (T20-T2).
+ * KIS 종목 정보 REST 어댑터 (T20-T2 + inquire-price 통합).
  *
- * 엔드포인트: GET /uapi/domestic-stock/v1/quotations/inquire-stock-info
- * TR_ID: CTPF1002R (종목 기본정보 — 시가총액·상장주식수·업종 등)
+ * **두 가지 KIS endpoint 활용:**
  *
- * MCP 검증 요약:
- * - TR_ID: CTPF1002R (국내주식 종목 기본정보)
- * - FID_COND_MRKT_DIV_CODE: J (주식)
- * - FID_INPUT_ISCD: 종목코드 6자리
- * - output 필드: hts_kor_isnm(한글명), stck_mxpr(상한가), stck_llam(하한가),
- *   stck_sdpr(기준가), stck_prpr(현재가), lstn_stcn(상장주식수),
- *   hts_avls(시가총액), per(PER), pbr(PBR), eps(EPS), bps(BPS),
- *   stac_month(결산월), mxrt(배당률), idst_scls_cd_name(업종명)
+ * 1. search-stock-info (CTPF1002R) — 종목 기본정보
+ *    - 엔드포인트: GET /uapi/domestic-stock/v1/quotations/search-stock-info
+ *    - 응답: 종목명·상장주식수·자본금·업종코드·시장ID 등
+ *
+ * 2. inquire-price (FHKST01010100) — 현재가 + 투자지표
+ *    - 엔드포인트: GET /uapi/domestic-stock/v1/quotations/inquire-price
+ *    - 쿼리파라미터: FID_COND_MRKT_DIV_CODE=J, FID_INPUT_ISCD=종목코드
+ *    - 응답: stck_prpr(현재가), hts_avls(시가총액·억원 단위), per, pbr, eps, bps,
+ *      bstp_kor_isnm(업종 한글명), hts_frgn_ehrt(외국인보유율)
+ *    - hts_avls 단위: 억원 → * 100_000_000 으로 원 단위 환산
+ *
+ * MCP + 직접 호출로 실측 검증 완료 (2026-05-03):
+ *   - 005930: stck_prpr=220500, hts_avls=12891044(억원=약 1289조),
+ *     per=33.59, pbr=3.45, eps=6564, bps=63997, bstp_kor_isnm=전기·전자
  *
  * KIS 키 미설정(appKey blank) 시 graceful degradation — 모든 필드 null 반환.
  */
@@ -59,7 +64,8 @@ class KisInstrumentInfoAdapter(
     fun isKeyConfigured(): Boolean = appKey.isNotBlank() && appSecret.isNotBlank()
 
     /**
-     * 종목 기본정보 조회. KIS 키 미설정 시 null 반환.
+     * 종목 기본정보 조회 (search-stock-info / CTPF1002R).
+     * KIS 키 미설정 시 null 반환.
      */
     fun fetchInstrumentInfo(code: String): InstrumentDetail? {
         if (appKey.isBlank() || appSecret.isBlank()) {
@@ -74,6 +80,66 @@ class KisInstrumentInfoAdapter(
             null
         }
     }
+
+    /**
+     * 현재가 + 투자지표 조회 (inquire-price / FHKST01010100).
+     *
+     * 반환 필드:
+     * - per·pbr·eps·bps (투자지표)
+     * - marketCap (hts_avls * 100_000_000 — 억원→원 환산)
+     * - industry (bstp_kor_isnm — 한글 업종명, 예: "전기·전자")
+     * - foreignRatio (hts_frgn_ehrt — 외국인 보유율 %)
+     *
+     * KIS 키 미설정 또는 API 실패 시 null 반환 (graceful degradation).
+     */
+    fun fetchPriceMetrics(code: String): PriceMetrics? {
+        if (appKey.isBlank() || appSecret.isBlank()) {
+            log.debug("[kis-price] appKey 미설정 — fetchPriceMetrics 건너뜀 code={}", code)
+            return null
+        }
+
+        return try {
+            if (cachedToken == null) cachedToken = issueToken() ?: return null
+            callInquirePrice(code)
+        } catch (ex: KisInstrumentInfoException) {
+            if (ex.statusCode == 401) {
+                log.warn("[kis-price] 401 — 토큰 재발급 후 1회 재시도 code={}", code)
+                cachedToken = issueToken() ?: return null
+                runCatching { callInquirePrice(code) }.getOrElse { null }
+            } else {
+                log.warn("[kis-price] fetchPriceMetrics 실패 code={} error={}", code, ex.message)
+                null
+            }
+        } catch (ex: RestClientResponseException) {
+            if (ex.statusCode == HttpStatus.UNAUTHORIZED) {
+                cachedToken = issueToken() ?: return null
+                runCatching { callInquirePrice(code) }.getOrElse { null }
+            } else {
+                log.warn("[kis-price] HTTP 오류 code={} status={}", code, ex.statusCode)
+                null
+            }
+        } catch (ex: Exception) {
+            log.warn("[kis-price] fetchPriceMetrics 실패 code={} error={}", code, ex.message)
+            null
+        }
+    }
+
+    /**
+     * inquire-price에서 추출한 투자지표 데이터 클래스.
+     *
+     * @param marketCap    시가총액 (원). hts_avls(억) × 100_000_000 환산.
+     * @param industry     업종 한글명 (bstp_kor_isnm, 예: "전기·전자").
+     * @param foreignRatio 외국인 보유율 (%, hts_frgn_ehrt).
+     */
+    data class PriceMetrics(
+        val per: BigDecimal?,
+        val pbr: BigDecimal?,
+        val eps: BigDecimal?,
+        val bps: BigDecimal?,
+        val marketCap: BigDecimal?,
+        val industry: String?,
+        val foreignRatio: BigDecimal?,
+    )
 
     private fun executeWithTokenRefresh(code: String): InstrumentDetail? {
         if (cachedToken == null) cachedToken = issueToken() ?: return null
@@ -139,6 +205,43 @@ class KisInstrumentInfoAdapter(
         return response.toDetail(code)
     }
 
+    private fun callInquirePrice(code: String): PriceMetrics? {
+        log.info("[kis-price] FHKST01010100 호출 code={}", code)
+        val response =
+            restClient
+                .get()
+                .uri { b ->
+                    b
+                        .path("/uapi/domestic-stock/v1/quotations/inquire-price")
+                        .queryParam("FID_COND_MRKT_DIV_CODE", "J")
+                        .queryParam("FID_INPUT_ISCD", code)
+                        .build()
+                }.headers { h ->
+                    h["authorization"] = "Bearer ${cachedToken!!}"
+                    h["appkey"] = appKey
+                    h["appsecret"] = appSecret
+                    h["tr_id"] = "FHKST01010100"
+                    h["custtype"] = "P"
+                }.retrieve()
+                .onStatus(HttpStatusCode::isError) { _, resp ->
+                    if (resp.statusCode == HttpStatus.UNAUTHORIZED) {
+                        throw KisInstrumentInfoException("401", 401)
+                    }
+                    log.warn("[kis-price] HTTP 오류 code={} status={}", code, resp.statusCode)
+                    throw KisInstrumentInfoException("KIS inquire-price 오류: ${resp.statusCode}", resp.statusCode.value())
+                }.body(InquirePriceResponse::class.java)
+                ?: return null
+
+        log.info("[kis-price] FHKST01010100 응답 code={} rt_cd={} msg={}", code, response.rtCd, response.msg1)
+
+        if (response.rtCd != "0") {
+            log.warn("[kis-price] rt_cd 비정상 code={} rt_cd={} msg={}", code, response.rtCd, response.msg1)
+            return null
+        }
+
+        return response.toPriceMetrics()
+    }
+
     private fun issueToken(): String? =
         try {
             log.info("[kis-info] 토큰 발급 요청 baseUrl={} appKey={}...", baseUrl, appKey.take(8))
@@ -200,23 +303,18 @@ class KisInstrumentInfoAdapter(
     /**
      * CTPF1002R 응답 매핑 (search-stock-info — KIS 공식 spec, 직접 호출 검증 완료).
      *
-     * 실 응답 필드 (사용자 가이드 + 컨테이너 직접 호출):
+     * 실 응답 필드:
      * - pdno          : 표준 종목코드 (00000A005930)
      * - prdt_name     : 종목명 (삼성전자보통주)
      * - prdt_abrv_name: 종목 약칭 (삼성전자)
-     * - prdt_eng_name : 영문명
      * - shtn_pdno     : 단축 종목코드 (005930)
      * - lstg_stqt     : 상장 주식수
-     * - cpta          : 자본금 (KRW)
-     * - papr          : 액면가
-     * - setl_mmdd     : 결산월 (12)
-     * - kospi200_item_yn : KOSPI200 편입 여부 (Y/N)
-     * - mket_id_cd    : 시장 ID (STK·KSQ)
-     * - excg_dvsn_cd  : 거래소 구분 (02)
-     * - idx_bztp_lcls_cd : 업종 분류 코드
-     * - scts_mket_lstg_dt : 코스피 상장일 (yyyyMMdd)
+     * - cpta          : 자본금 (KRW) — 시총과 다름
+     * - mket_id_cd    : 시장 ID (STK=KOSPI, KSQ=KOSDAQ)
+     * - idx_bztp_lcls_cd : 업종 분류 코드 (예: "002"; 한글명은 inquire-price에서 취득)
      *
-     * PER·PBR·EPS·BPS·시총은 본 endpoint 미제공 — inquire-price 등 별도 endpoint (다음 사이클).
+     * 주의: 시총·PER·PBR·EPS·BPS는 이 endpoint에서 미제공.
+     *       fetchPriceMetrics (FHKST01010100)에서 병합.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     private data class StockInfoResponse(
@@ -227,30 +325,33 @@ class KisInstrumentInfoAdapter(
     ) {
         fun toDetail(code: String): InstrumentDetail {
             val o = output
-            // 시총 = 자본금 (정확한 시총은 별도 endpoint — 1차 자본금으로 가용성 확보)
-            // 실제로는 lstg_stqt × 현재가가 시총. 다음 사이클에 inquire-price 통합.
-            val capital = o.cpta.parseBigDecimal()
             return InstrumentDetail(
                 code = code,
                 name = o.prdtAbrvName.ifBlank { o.prdtName }.ifBlank { code },
+                // 시장 ID: STK=KOSPI, KSQ=KOSDAQ
+                market =
+                    when (o.mketIdCd.trim().uppercase()) {
+                        "STK" -> "KOSPI"
+                        "KSQ" -> "KOSDAQ"
+                        else -> o.mketIdCd.takeIf { it.isNotBlank() }
+                    },
                 sector = o.idxBztpLclsCd.takeIf { it.isNotBlank() },
-                marketCap = capital, // 1차: 자본금. 다음 사이클: lstg_stqt × current_price
+                // 시총·PER/PBR/EPS/BPS·업종한글명·외국인보유율은 fetchPriceMetrics에서 병합
+                marketCap = null,
                 sharesOutstanding = o.lstgStqt.parseLong(),
-                foreignRatio = null,
-                institutionRatio = null,
-                // 재무정보는 DART에서 보완 (이미 정상화)
-                revenue = null,
-                operatingIncome = null,
-                netIncome = null,
-                // PER/PBR/EPS/BPS는 search-stock-info 미제공 — 다음 사이클 inquire-price 통합
                 per = null,
                 pbr = null,
                 eps = null,
                 bps = null,
+                foreignRatio = null,
+                institutionRatio = null,
+                revenue = null,
+                operatingIncome = null,
+                netIncome = null,
                 dividendYield = null,
                 majorShareholderRatio = null,
                 representativeName = null,
-                industry = o.idxBztpLclsCd.takeIf { it.isNotBlank() },
+                industry = null,
             )
         }
     }
@@ -275,12 +376,74 @@ class KisInstrumentInfoAdapter(
         @JsonProperty("setl_mmdd") val setlMmdd: String = "",
         /** KOSPI200 편입 (Y/N) */
         @JsonProperty("kospi200_item_yn") val kospi200ItemYn: String = "",
-        /** 시장 ID (STK·KSQ) */
+        /** 시장 ID (STK=KOSPI, KSQ=KOSDAQ) */
         @JsonProperty("mket_id_cd") val mketIdCd: String = "",
-        /** 업종 분류 코드 (industry) */
+        /** 업종 분류 코드 (예: "002") */
         @JsonProperty("idx_bztp_lcls_cd") val idxBztpLclsCd: String = "",
         /** 코스피 상장일 (yyyyMMdd) */
         @JsonProperty("scts_mket_lstg_dt") val sctsMketLstgDt: String = "",
+    )
+
+    /**
+     * FHKST01010100 응답 매핑 (inquire-price).
+     *
+     * 실측 검증 완료 (2026-05-03, 005930 기준):
+     * - stck_prpr : 현재가 (220500원)
+     * - hts_avls  : 시가총액 — 억원 단위 (12891044 → * 1억 = 약 1,289조원)
+     * - per       : PER (33.59)
+     * - pbr       : PBR (3.45)
+     * - eps       : EPS (6564.00원)
+     * - bps       : BPS (63997.00원)
+     * - bstp_kor_isnm    : 업종 한글명 ("전기·전자")
+     * - rprs_mrkt_kor_name: 대표시장 ("KOSPI200")
+     * - hts_frgn_ehrt    : 외국인 보유율 (49.24%)
+     * - lstn_stcn        : 상장주식수 (5846278608)
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private data class InquirePriceResponse(
+        @JsonProperty("rt_cd") val rtCd: String = "",
+        @JsonProperty("msg_cd") val msgCd: String = "",
+        @JsonProperty("msg1") val msg1: String = "",
+        @JsonProperty("output") val output: InquirePriceOutput = InquirePriceOutput(),
+    ) {
+        fun toPriceMetrics(): PriceMetrics {
+            val o = output
+            // hts_avls는 억원 단위 → 원 단위 변환 (* 100_000_000)
+            val marketCapValue = o.htsAvls.parseLong()?.let { BigDecimal(it).multiply(BigDecimal("100000000")) }
+            return PriceMetrics(
+                per = o.per.parseBigDecimal(),
+                pbr = o.pbr.parseBigDecimal(),
+                eps = o.eps.parseBigDecimal(),
+                bps = o.bps.parseBigDecimal(),
+                marketCap = marketCapValue,
+                industry = o.bstpKorIsnm.takeIf { it.isNotBlank() },
+                foreignRatio = o.htsFrgnEhrt.parseBigDecimal(),
+            )
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private data class InquirePriceOutput(
+        /** 현재가 (원) */
+        @JsonProperty("stck_prpr") val stckPrpr: String = "",
+        /** 시가총액 (억원 단위) — * 100_000_000 으로 원 환산 필요 */
+        @JsonProperty("hts_avls") val htsAvls: String = "",
+        /** PER */
+        @JsonProperty("per") val per: String = "",
+        /** PBR */
+        @JsonProperty("pbr") val pbr: String = "",
+        /** EPS (원) */
+        @JsonProperty("eps") val eps: String = "",
+        /** BPS (원) */
+        @JsonProperty("bps") val bps: String = "",
+        /** 업종 한글명 (예: "전기·전자") */
+        @JsonProperty("bstp_kor_isnm") val bstpKorIsnm: String = "",
+        /** 대표시장 (예: "KOSPI200") */
+        @JsonProperty("rprs_mrkt_kor_name") val rprsMrktKorName: String = "",
+        /** 외국인 보유율 (%) */
+        @JsonProperty("hts_frgn_ehrt") val htsFrgnEhrt: String = "",
+        /** 상장주식수 */
+        @JsonProperty("lstn_stcn") val lstnStcn: String = "",
     )
 
     companion object {
