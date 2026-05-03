@@ -7,8 +7,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { authApi } from '@/api/auth'
 import type { LoginRequest, ChangeModeRequest, KisMode } from '@/api/auth'
 
-/** 기본 userId — MVP 단계 단일 사용자 */
-export const DEFAULT_USER_ID = 'default'
+/** 기본 userId — MVP 단계 단일 사용자 (1번 트랙 V9 시드 default user UUID) */
+export const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000001'
 
 const AUTH_QUERY_KEY = (userId: string) => ['auth', 'status', userId]
 

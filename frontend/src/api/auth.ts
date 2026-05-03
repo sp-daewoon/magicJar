@@ -17,7 +17,8 @@ export interface AuthStatusResponse {
   accountNo: string | null   // 마스킹 표시용 (예: 1234-XX-XXXX)
   hasAppKey: boolean
   hasAppSecret: boolean
-  lastLoginAt: string | null // ISO-8601
+  lastLoginAt?: string | null // (legacy, 미사용)
+  lastUpdatedAt?: string | null // T18a 백엔드 필드명
 }
 
 /**
