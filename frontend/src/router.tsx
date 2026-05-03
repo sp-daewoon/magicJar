@@ -1,10 +1,11 @@
 import { createBrowserRouter } from 'react-router-dom'
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SettingsModal } from '@/components/settings/SettingsModal'
 import InstrumentSearch from '@/components/header/InstrumentSearch'
 import { useAuthStatus, DEFAULT_USER_ID } from '@/hooks/useAuth'
+import { useUiStore } from '@/stores/ui'
 import type { KisMode } from '@/api/auth'
 
 const DashboardPage = lazy(() => import('@/pages/Dashboard'))
@@ -43,7 +44,7 @@ function ModeBadge({ mode }: { mode: KisMode | null }) {
 
 /** 헤더 — 설정 버튼 + 인증 모드 배지 */
 function HeaderActions() {
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const { settingsOpen, openSettings, closeSettings } = useUiStore()
   const { data: authStatus } = useAuthStatus(DEFAULT_USER_ID)
 
   return (
@@ -53,7 +54,7 @@ function HeaderActions() {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => setSettingsOpen(true)}
+          onClick={openSettings}
           aria-label="설정 열기"
           title="설정"
           className="h-8 w-8"
@@ -76,7 +77,7 @@ function HeaderActions() {
         </Button>
       </div>
 
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsModal open={settingsOpen} onClose={closeSettings} />
     </>
   )
 }

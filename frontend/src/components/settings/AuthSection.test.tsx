@@ -1,9 +1,9 @@
 /**
- * AuthSection 컴포넌트 단위 테스트
+ * AuthSection 컴포넌트 단위 테스트 (3섹션 버전)
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthSection } from './AuthSection'
 
@@ -18,7 +18,8 @@ vi.mock('@/hooks/useAuth', async () => {
         accountNo: '1234-XX-XX',
         hasAppKey: true,
         hasAppSecret: true,
-        lastLoginAt: '2026-05-02T10:00:00+09:00',
+        lastUpdatedAt: '2026-05-02T10:00:00+09:00',
+        lastLoginAt: null,
       },
       isError: false,
       isLoading: false,
@@ -41,6 +42,7 @@ function wrapper({ children }: { children: React.ReactNode }) {
 describe('AuthSection', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
   })
 
   it('인증 상태 카드 렌더링', () => {
@@ -54,49 +56,44 @@ describe('AuthSection', () => {
     expect(screen.getByText('모의')).toBeInTheDocument()
   })
 
-  it('계좌번호 마스킹 표시', () => {
+  it('KIS 모의투자 카드 — App Key 입력 필드 존재', () => {
     render(<AuthSection />, { wrapper })
-    expect(screen.getByText('1234-XX-XX')).toBeInTheDocument()
+    const input = screen.getByLabelText('App Key', { selector: '#mock-app-key' })
+    expect(input).toBeInTheDocument()
+    expect(input).toHaveAttribute('type', 'text')
   })
 
-  it('App Key·App Secret 등록됨 표시', () => {
+  it('KIS 모의투자 카드 — App Secret 입력 필드는 password type', () => {
     render(<AuthSection />, { wrapper })
-    const elements = screen.getAllByText('등록됨')
-    expect(elements.length).toBeGreaterThanOrEqual(2)
-  })
-
-  it('로그인 폼 렌더링 — App Key·App Secret·계좌번호 입력 필드', () => {
-    render(<AuthSection />, { wrapper })
-    expect(screen.getByPlaceholderText('App Key를 입력하세요')).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('App Secret을 입력하세요')).toBeInTheDocument()
-    expect(screen.getByPlaceholderText(/계좌번호/)).toBeInTheDocument()
-  })
-
-  it('앱 시크릿 입력 필드는 password type', () => {
-    render(<AuthSection />, { wrapper })
-    const secretInput = screen.getByPlaceholderText('App Secret을 입력하세요')
+    const secretInput = screen.getByLabelText('App Secret', { selector: '#mock-app-secret' })
     expect(secretInput).toHaveAttribute('type', 'password')
   })
 
-  it('로그인 버튼 — 빈 입력 시 disabled', () => {
+  it('KIS 실전투자 카드 — 실전 App Key 입력 필드 존재', () => {
     render(<AuthSection />, { wrapper })
-    const loginBtn = screen.getByRole('button', { name: '로그인' })
-    expect(loginBtn).toBeDisabled()
+    const input = screen.getByLabelText('App Key', { selector: '#prod-app-key' })
+    expect(input).toBeInTheDocument()
   })
 
-  it('계좌번호 8자리 이상 입력 시 마스킹 미리보기 표시', () => {
+  it('DART 카드 — DART API Key 입력 필드 존재', () => {
     render(<AuthSection />, { wrapper })
-    const input = screen.getByPlaceholderText(/계좌번호/)
-    fireEvent.change(input, { target: { value: '12345678' } })
-    // maskAccountNo('12345678') → '1234-XX-XX'
-    // '표시 형식: 1234-XX-XX' 문구가 포함된 엘리먼트 존재 확인
-    const preview = screen.getByText(/표시 형식:/)
-    expect(preview).toBeInTheDocument()
-    expect(preview.textContent).toContain('1234-XX-XX')
+    expect(screen.getByLabelText('DART API Key')).toBeInTheDocument()
   })
 
-  it('보안 경고 문구 표시', () => {
+  it('모드 전환 — 모의/실전 라디오 버튼 존재', () => {
     render(<AuthSection />, { wrapper })
-    expect(screen.getByText(/App Secret은 평문 전송됩니다/)).toBeInTheDocument()
+    expect(screen.getByText('매매 시 사용 모드')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('vps')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('prod')).toBeInTheDocument()
+  })
+
+  it('실전투자 카드 — 보안 경고 문구 표시', () => {
+    render(<AuthSection />, { wrapper })
+    expect(screen.getByText(/실전 키 등록 후 매매 모드를 실전으로/)).toBeInTheDocument()
+  })
+
+  it('DART 카드 — 금감원 안내 문구 표시', () => {
+    render(<AuthSection />, { wrapper })
+    expect(screen.getByText(/금감원 DART API 키/)).toBeInTheDocument()
   })
 })

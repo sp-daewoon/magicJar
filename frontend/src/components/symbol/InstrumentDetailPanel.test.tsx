@@ -2,11 +2,12 @@
  * InstrumentDetailPanel 컴포넌트 테스트
  * 1. detail 데이터 정상 렌더링 (삼성전자 mock)
  * 2. isLoading=true 시 Skeleton 표시
- * 3. isError=true 시 에러 메시지 표시
+ * 3. isError=true 시 키 미등록 안내 Alert 표시 + "지금 등록" 버튼
  * 4. null 필드 → "—" 표시
+ * 5. onOpenSettings 콜백 — "지금 등록" 버튼 클릭 시 호출
  */
-import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
 import InstrumentDetailPanel from './InstrumentDetailPanel'
 import type { InstrumentDetail } from '@/api/types'
 
@@ -35,7 +36,9 @@ const MOCK_DETAIL: InstrumentDetail = {
 describe('InstrumentDetailPanel', () => {
   // ── 시나리오 1: 정상 렌더링 ──────────────────────────────────────────────
   it('detail 데이터가 있을 때 종목명·시가총액·PER 등이 렌더링된다', () => {
-    render(<InstrumentDetailPanel detail={MOCK_DETAIL} isLoading={false} isError={false} />)
+    render(
+      <InstrumentDetailPanel detail={MOCK_DETAIL} isLoading={false} isError={false} />,
+    )
 
     expect(screen.getByText('삼성전자')).toBeInTheDocument()
     expect(screen.getByText('005930')).toBeInTheDocument()
@@ -59,10 +62,13 @@ describe('InstrumentDetailPanel', () => {
     expect(skeletons.length).toBeGreaterThan(0)
   })
 
-  // ── 시나리오 3: 에러 상태 ────────────────────────────────────────────────
-  it('isError=true 시 에러 메시지가 표시된다', () => {
-    render(<InstrumentDetailPanel detail={undefined} isLoading={false} isError={true} />)
-    expect(screen.getByText(/재무 데이터 없음/)).toBeInTheDocument()
+  // ── 시나리오 3: 에러 시 키 미등록 안내 ───────────────────────────────────
+  it('isError=true 시 키 미등록 안내 메시지가 표시된다', () => {
+    render(
+      <InstrumentDetailPanel detail={undefined} isLoading={false} isError={true} />,
+    )
+    expect(screen.getByText(/종목 메타·재무 데이터 미수신/)).toBeInTheDocument()
+    expect(screen.getByText(/KIS 실전 키 또는 DART 키/)).toBeInTheDocument()
   })
 
   // ── 시나리오 4: null 필드 → "—" ─────────────────────────────────────────
@@ -75,10 +81,30 @@ describe('InstrumentDetailPanel', () => {
       bps: null,
       dividendYield: null,
     }
-    render(<InstrumentDetailPanel detail={minimal} isLoading={false} isError={false} />)
+    render(
+      <InstrumentDetailPanel detail={minimal} isLoading={false} isError={false} />,
+    )
 
     // "—" 표시가 여러 개 있어야 함
     const dashes = screen.getAllByText('—')
     expect(dashes.length).toBeGreaterThanOrEqual(4)
+  })
+
+  // ── 시나리오 5: onOpenSettings 콜백 호출 ────────────────────────────────
+  it('onOpenSettings 전달 시 "지금 등록" 버튼이 표시되고 클릭하면 콜백이 호출된다', () => {
+    const onOpenSettings = vi.fn()
+    render(
+      <InstrumentDetailPanel
+        detail={undefined}
+        isLoading={false}
+        isError={true}
+        onOpenSettings={onOpenSettings}
+      />,
+    )
+
+    const btn = screen.getByTestId('open-settings-btn')
+    expect(btn).toBeInTheDocument()
+    fireEvent.click(btn)
+    expect(onOpenSettings).toHaveBeenCalledTimes(1)
   })
 })

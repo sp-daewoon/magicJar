@@ -9,7 +9,7 @@
  *  3. AI 뉴스 감성 분석
  *  4. JournalTable — 해당 종목 매매일지 리스트
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -27,6 +27,8 @@ import { useSymbolQuote } from '@/hooks/useSymbolQuote'
 import { useWsConnectionState } from '@/hooks/useWsConnectionState'
 import { useCandles } from '@/hooks/useCandles'
 import { useInstrumentDetail } from '@/hooks/useInstrumentDetail'
+import { useSearchHistory } from '@/hooks/useSearchHistory'
+import { useUiStore } from '@/stores/ui'
 import type { ClientInterval } from '@/lib/candleAggregator'
 
 export default function SymbolDetailPage() {
@@ -39,6 +41,12 @@ export default function SymbolDetailPage() {
     () => new Set(['SMA-5', 'SMA-20']), // 기본 활성: 단/중기 이평
   )
 
+  // 검색 기록 — 직접 URL 접근 시에도 기록 추가
+  const { addToHistory } = useSearchHistory()
+
+  // SettingsModal 열기 (전역 ui store)
+  const openSettings = useUiStore((s) => s.openSettings)
+
   // 종목 정보 조회
   const {
     data: instrument,
@@ -50,6 +58,17 @@ export default function SymbolDetailPage() {
     enabled: !!symbolCode,
     retry: 1,
   })
+
+  // 직접 URL 접근 시 검색 기록에 추가
+  useEffect(() => {
+    if (instrument) {
+      addToHistory({
+        code: instrument.code,
+        name: instrument.name,
+        market: instrument.market,
+      })
+    }
+  }, [instrument, addToHistory])
 
   const isTick = interval === 'TICK'
 
@@ -137,6 +156,7 @@ export default function SymbolDetailPage() {
             detail={instrumentDetail}
             isLoading={detailLoading}
             isError={detailError}
+            onOpenSettings={openSettings}
           />
         </div>
 

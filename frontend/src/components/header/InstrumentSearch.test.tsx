@@ -3,6 +3,9 @@
  * 1. debounce 후 검색 결과 드롭다운 렌더
  * 2. 키보드 ↑↓·Enter 네비게이션 → 종목 선택 → navigate 호출
  * 3. Esc 키로 드롭다운 닫기
+ * 4. Enter 키 + 결과 1건 → 자동 진입
+ * 5. Enter 키 + 결과 다수 + 선택 없음 → 첫 결과 navigate
+ * 6. 포커스 + query 없음 + 기록 있음 → 검색 기록 드롭다운 표시
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, act } from '@testing-library/react'
@@ -10,6 +13,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import InstrumentSearch from './InstrumentSearch'
 import type { SearchResult } from '@/api/types'
+import type { SearchHistoryItem } from '@/hooks/useSearchHistory'
 
 // ── react-router-dom mock ────────────────────────────────────────────────────
 const mockNavigate = vi.fn()
@@ -34,9 +38,34 @@ vi.mock('@/api/instruments', async (importOriginal) => {
   }
 })
 
+// ── useSearchHistory mock ────────────────────────────────────────────────────
+const mockAddToHistory = vi.fn()
+const mockRemoveFromHistory = vi.fn()
+const mockClearHistory = vi.fn()
+let mockHistoryData: SearchHistoryItem[] = []
+
+vi.mock('@/hooks/useSearchHistory', () => ({
+  useSearchHistory: () => ({
+    history: mockHistoryData,
+    addToHistory: mockAddToHistory,
+    removeFromHistory: mockRemoveFromHistory,
+    clearHistory: mockClearHistory,
+    getHistory: () => mockHistoryData,
+  }),
+}))
+
 const MOCK_RESULTS: SearchResult[] = [
   { code: '005930', name: '삼성전자', market: 'KOSPI' },
   { code: '000660', name: 'SK하이닉스', market: 'KOSPI' },
+]
+
+const SINGLE_RESULT: SearchResult[] = [
+  { code: '005930', name: '삼성전자', market: 'KOSPI' },
+]
+
+const MOCK_HISTORY: SearchHistoryItem[] = [
+  { code: '005930', name: '삼성전자', market: 'KOSPI', lastVisitedAt: new Date().toISOString() },
+  { code: '000660', name: 'SK하이닉스', market: 'KOSPI', lastVisitedAt: new Date().toISOString() },
 ]
 
 function makeQc() {
@@ -57,6 +86,11 @@ describe('InstrumentSearch', () => {
   beforeEach(() => {
     mockNavigate.mockReset()
     mockSearch.mockResolvedValue(MOCK_RESULTS)
+    mockAddToHistory.mockReset()
+    mockRemoveFromHistory.mockReset()
+    mockClearHistory.mockReset()
+    mockHistoryData = []
+    localStorage.clear()
   })
 
   afterEach(() => {
@@ -70,14 +104,6 @@ describe('InstrumentSearch', () => {
     renderComponent()
 
     const input = screen.getByRole('searchbox', { name: '종목 검색' })
-    // 직접 change 이벤트로 입력 (fake timer 환경에서 userEvent.type 대신)
-    act(() => {
-      input.focus()
-      Object.defineProperty(input, 'value', { value: '삼성', writable: true })
-      input.dispatchEvent(new Event('input', { bubbles: true }))
-    })
-
-    // React onChange를 트리거하려면 fireEvent 사용
     const { fireEvent } = await import('@testing-library/react')
     act(() => {
       fireEvent.focus(input)
@@ -167,5 +193,89 @@ describe('InstrumentSearch', () => {
     })
 
     vi.useRealTimers()
+  })
+
+  // ── 시나리오 4: Enter + 결과 1건 → 자동 진입 ─────────────────────────────
+  it('Enter 키 + 결과 1건이면 자동으로 해당 종목 상세로 이동한다', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    mockSearch.mockResolvedValue(SINGLE_RESULT)
+    const { fireEvent } = await import('@testing-library/react')
+
+    renderComponent()
+
+    const input = screen.getByRole('searchbox', { name: '종목 검색' })
+    act(() => {
+      fireEvent.focus(input)
+      fireEvent.change(input, { target: { value: '삼성전자' } })
+    })
+
+    await act(async () => {
+      vi.advanceTimersByTime(400)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('삼성전자')).toBeInTheDocument()
+    })
+
+    // 선택 없이 Enter
+    act(() => {
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+
+    expect(mockNavigate).toHaveBeenCalledWith('/symbol/005930')
+
+    vi.useRealTimers()
+  })
+
+  // ── 시나리오 5: Enter + 다수 결과 + 선택 없음 → 첫 결과 navigate ──────────
+  it('Enter 키 + 다수 결과 + 선택 없음이면 첫 번째 결과로 이동한다', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    mockSearch.mockResolvedValue(MOCK_RESULTS)
+    const { fireEvent } = await import('@testing-library/react')
+
+    renderComponent()
+
+    const input = screen.getByRole('searchbox', { name: '종목 검색' })
+    act(() => {
+      fireEvent.focus(input)
+      fireEvent.change(input, { target: { value: '전자' } })
+    })
+
+    await act(async () => {
+      vi.advanceTimersByTime(400)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('삼성전자')).toBeInTheDocument()
+    })
+
+    // 선택 없이 Enter (focusedIdx = -1)
+    act(() => {
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+
+    // 첫 번째 결과(005930)로 navigate
+    expect(mockNavigate).toHaveBeenCalledWith('/symbol/005930')
+
+    vi.useRealTimers()
+  })
+
+  // ── 시나리오 6: 포커스 + query 없음 + 기록 있음 → 기록 dropdown 표시 ──────
+  it('포커스 후 query가 없고 기록이 있으면 검색 기록 드롭다운이 표시된다', async () => {
+    mockHistoryData = MOCK_HISTORY
+    const { fireEvent } = await import('@testing-library/react')
+
+    renderComponent()
+
+    const input = screen.getByRole('searchbox', { name: '종목 검색' })
+    act(() => {
+      fireEvent.focus(input)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('listbox', { name: '검색 기록' })).toBeInTheDocument()
+      expect(screen.getByText('삼성전자')).toBeInTheDocument()
+      expect(screen.getByText('SK하이닉스')).toBeInTheDocument()
+    })
   })
 })
