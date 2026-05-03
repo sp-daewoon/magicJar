@@ -1,0 +1,38 @@
+version: "1.0"
+metadata:
+  name: bb_mean_reversion
+  description: 볼린저 하단 터치 + RSI 30 이하 진입 / 중심선 회귀 시 청산
+  author: kis-strategy-builder
+  tags: [mean_reversion, bollinger, rsi]
+strategy:
+  id: bb_mean_reversion
+  category: mean_reversion
+  indicators:
+    - id: bb
+      alias: bb20
+      params: { period: 20, k: 2 }
+    - id: rsi
+      alias: rsi14
+      params: { period: 14 }
+  entry:
+    logic: AND
+    conditions:
+      - lhs: { price: low }
+        op: less_equal
+        rhs: { alias: bb20, output: bb_lower }
+      - lhs: { alias: rsi14 }
+        op: less_than
+        rhs: { value: 35 }
+  exit:
+    logic: OR
+    conditions:
+      - lhs: { price: close }
+        op: greater_equal
+        rhs: { alias: bb20, output: bb_middle }
+      - lhs: { alias: rsi14 }
+        op: greater_than
+        rhs: { value: 65 }
+risk:
+  stop_loss:
+    enabled: true
+    percent: 0.04

@@ -1,0 +1,32 @@
+version: "1.0"
+metadata:
+  name: breakout_fail_short
+  description: 볼린저 상단 돌파 후 종가가 다시 상단 아래로 돌아오면 진입 (페이크 브레이크 매도)
+  author: kis-strategy-builder
+  tags: [reversal, bollinger]
+strategy:
+  id: breakout_fail
+  category: reversal
+  indicators:
+    - id: bb
+      alias: bb20
+      params: { period: 20, k: 2 }
+  entry:
+    logic: AND
+    conditions:
+      - lhs: { price: high, offset: 1 }
+        op: greater_than
+        rhs: { alias: bb20, output: bb_upper, offset: 1 }
+      - lhs: { price: close }
+        op: less_than
+        rhs: { alias: bb20, output: bb_upper }
+  exit:
+    logic: OR
+    conditions:
+      - lhs: { price: close }
+        op: less_equal
+        rhs: { alias: bb20, output: bb_middle }
+risk:
+  stop_loss:
+    enabled: true
+    percent: 0.04
