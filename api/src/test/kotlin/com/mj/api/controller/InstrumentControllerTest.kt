@@ -3,6 +3,7 @@ package com.mj.api.controller
 import com.mj.api.application.instrument.InstrumentMasterSyncApiService
 import com.mj.api.application.instrument.InstrumentService
 import com.mj.api.application.instrument.SyncTriggerResult
+import com.mj.api.application.market.CandleCacheService
 import com.mj.api.application.market.CandleQueryService
 import com.mj.api.config.WebSecurityConfig
 import com.mj.domain.common.Candle
@@ -50,6 +51,9 @@ class InstrumentControllerTest {
         fun candleQueryService(): CandleQueryService = mockk()
 
         @Bean
+        fun candleCacheService(): CandleCacheService = mockk()
+
+        @Bean
         fun instrumentMasterSyncApiService(): InstrumentMasterSyncApiService = mockk()
     }
 
@@ -64,6 +68,9 @@ class InstrumentControllerTest {
 
     @Autowired
     lateinit var candleQueryService: CandleQueryService
+
+    @Autowired
+    lateinit var candleCacheService: CandleCacheService
 
     private fun samsungInstrument() =
         Instrument(
@@ -196,7 +203,8 @@ class InstrumentControllerTest {
     @Test
     fun `GET api instruments code candles M1 returns time as JSON number (epoch second)`() {
         every { instrumentService.get("005930") } returns samsungInstrument()
-        every { candleQueryService.query("005930", Interval.M1, null, null) } returns
+        // M1은 CandleCacheService.fetchOrTrigger로 흐름 (T19-T3)
+        every { candleCacheService.fetchOrTrigger("005930", Interval.M1, null, null) } returns
             listOf(
                 Candle(
                     code = "005930",
@@ -218,6 +226,62 @@ class InstrumentControllerTest {
                 // LWC UTCTimestamp 호환 — 분봉은 number(Long)로 직렬화 (string 아님)
                 jsonPath("$[0].time") { value(1_777_527_000) }
                 jsonPath("$[0].open") { value(60_100) }
+            }
+    }
+
+    @Test
+    fun `GET api instruments code candles before mode returns 200 with candles`() {
+        every { instrumentService.get("005930") } returns samsungInstrument()
+        every {
+            candleQueryService.queryBefore(
+                "005930",
+                Interval.D1,
+                Instant.parse("2026-04-30T15:00:00Z"),
+                200,
+            )
+        } returns
+            listOf(
+                Candle(
+                    code = "005930",
+                    interval = Interval.D1,
+                    openTime = Instant.parse("2026-04-29T00:00:00Z"),
+                    open = BigDecimal("59000"),
+                    high = BigDecimal("59500"),
+                    low = BigDecimal("58500"),
+                    close = BigDecimal("59200"),
+                    volume = 10_000_000L,
+                    tradeCount = 80_000L,
+                ),
+            )
+
+        mvc
+            .get("/api/instruments/005930/candles?before=2026-04-30T15:00:00Z&limit=200")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$[0].time") { value("2026-04-29") }
+                jsonPath("$[0].close") { value(59200) }
+            }
+    }
+
+    @Test
+    fun `GET api instruments code candles limit over 1000 returns 400`() {
+        every { instrumentService.get("005930") } returns samsungInstrument()
+
+        mvc
+            .get("/api/instruments/005930/candles?limit=1001")
+            .andExpect {
+                status { isBadRequest() }
+            }
+    }
+
+    @Test
+    fun `GET api instruments code candles limit zero returns 400`() {
+        every { instrumentService.get("005930") } returns samsungInstrument()
+
+        mvc
+            .get("/api/instruments/005930/candles?limit=0")
+            .andExpect {
+                status { isBadRequest() }
             }
     }
 

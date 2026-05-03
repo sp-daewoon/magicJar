@@ -30,4 +30,19 @@ interface CandleRepository {
         code: String,
         asOfDate: LocalDate,
     ): Candle? = null // default — 구현체 미제공 시 null 반환 (하위호환)
+
+    /**
+     * infinite scroll: before 시각 이전 캔들을 최대 limit개 ASC 정렬로 반환 (T19-T4).
+     *
+     * 차트 좌측 스크롤 시 추가 과거 데이터를 가져오는 용도.
+     * @param before   기준 시각 (exclusive) — 이전 캔들만 반환
+     * @param limit    최대 반환 건수 (기본 200, 최대 1000)
+     * @return openTime ASC 정렬된 캔들 목록
+     */
+    fun findBefore(
+        code: String,
+        interval: Interval,
+        before: Instant,
+        limit: Int,
+    ): List<Candle> = emptyList() // default — 구현체 미제공 시 빈 목록
 }
