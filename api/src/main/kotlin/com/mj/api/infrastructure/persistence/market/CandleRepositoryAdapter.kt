@@ -3,6 +3,7 @@ package com.mj.api.infrastructure.persistence.market
 import com.mj.domain.common.Candle
 import com.mj.domain.common.Interval
 import com.mj.domain.market.port.CandleRepository
+import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -59,6 +60,24 @@ class CandleRepositoryAdapter(
                 before = beforeInstant,
             )?.toDomain()
     }
+
+    @Transactional(readOnly = true)
+    override fun findBefore(
+        code: String,
+        interval: Interval,
+        before: Instant,
+        limit: Int,
+    ): List<Candle> =
+        repository
+            .findPageBeforeOrderByOpenTimeDesc(
+                code = code,
+                interval = interval,
+                before = before,
+                pageable = PageRequest.ofSize(limit),
+            )
+            // DESC로 가져왔으므로 ASC 재정렬
+            .reversed()
+            .map { it.toDomain() }
 
     companion object {
         private val KST: ZoneId = ZoneId.of("Asia/Seoul")

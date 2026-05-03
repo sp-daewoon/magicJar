@@ -2,6 +2,7 @@ package com.mj.api.controller
 
 import com.mj.api.application.instrument.InstrumentMasterSyncApiService
 import com.mj.api.application.instrument.InstrumentService
+import com.mj.api.application.market.CandleCacheService
 import com.mj.api.application.market.CandleQueryService
 import com.mj.api.controller.dto.CandleResponse
 import com.mj.api.controller.dto.InstrumentMasterSyncRequest
@@ -27,6 +28,8 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import java.time.format.DateTimeParseException
 
 @Tag(
@@ -43,8 +46,11 @@ import java.time.format.DateTimeParseException
 class InstrumentController(
     private val instrumentService: InstrumentService,
     private val candleQueryService: CandleQueryService,
+    private val candleCacheService: CandleCacheService,
     private val masterSyncService: InstrumentMasterSyncApiService,
 ) {
+    private val kst = ZoneId.of("Asia/Seoul")
+
     @Operation(summary = "종목 전체 목록", description = "현재 등록된 모든 Instrument를 코드 오름차순으로 반환.")
     @GetMapping
     fun list(): ResponseEntity<List<Instrument>> = ResponseEntity.ok(instrumentService.list())
@@ -107,6 +113,14 @@ class InstrumentController(
             interval은 'DAY' 또는 'D1' 등 alias 허용. from·to 미지정 시 일봉은 최근 180일 lookback.
             응답 time 필드는 일봉의 경우 'YYYY-MM-DD'(KST 기준), 분봉은 epoch second 문자열.
 
+            **infinite scroll 모드 (T19-T4)**:
+            - `before` 파라미터를 지정하면 해당 시각 이전 `limit`개 캔들을 반환 (차트 좌측 스크롤 시 사용).
+            - `before`와 `from/to`는 상호 배타적. `before` 지정 시 `from/to` 무시.
+            - `limit` 기본값 200, 최대 1000. 초과 시 400 반환.
+
+            **캐시 정책 (T19-T3)**:
+            - 분봉(M1·M5·M30)은 캐시 hit 여부 판정 후 miss 시 D1 즉시 반환 + 백그라운드 fetch trigger.
+
             005930(삼성전자) 일봉은 Flyway V7로 90 영업일 시드되어 있다 — 차트 검증용.
             실제 운영에서는 batch 모듈의 DailyCandleBackfillJob이 KIS API로 채운다.
         """,
@@ -114,7 +128,7 @@ class InstrumentController(
     @ApiResponses(
         value = [
             ApiResponse(responseCode = "200", description = "조회 성공 (빈 배열도 200)"),
-            ApiResponse(responseCode = "400", description = "interval 또는 from/to 파라미터 형식 오류"),
+            ApiResponse(responseCode = "400", description = "interval·from/to·limit 파라미터 오류"),
             ApiResponse(responseCode = "404", description = "해당 코드의 종목 없음"),
         ],
     )
@@ -128,13 +142,27 @@ class InstrumentController(
         @RequestParam(required = false) from: String?,
         @Parameter(description = "조회 종료 시각 (ISO-8601, 미지정 시 현재 시각)", example = "2026-04-30T23:59:59Z")
         @RequestParam(required = false) to: String?,
+        @Parameter(description = "infinite scroll: 이 시각 이전 캔들 반환 (YYYY-MM-DD 또는 ISO-8601 또는 epoch second)", example = "2026-01-01")
+        @RequestParam(required = false) before: String?,
+        @Parameter(description = "infinite scroll: 최대 반환 건수 (기본 200, 최대 1000)", example = "200")
+        @RequestParam(defaultValue = "200") limit: Int,
     ): ResponseEntity<List<CandleResponse>> {
         val normalized = code.uppercase()
         instrumentService.get(normalized) ?: return ResponseEntity.notFound().build()
 
+        // limit 검증
+        if (limit <= 0 || limit > 1000) return ResponseEntity.badRequest().build()
+
         val intervalEnum =
             runCatching { CandleQueryService.parseInterval(interval) }
                 .getOrElse { return ResponseEntity.badRequest().build() }
+
+        // before 모드: infinite scroll
+        if (!before.isNullOrBlank()) {
+            val beforeInstant = parseBeforeInstant(before) ?: return ResponseEntity.badRequest().build()
+            val candles = candleQueryService.queryBefore(normalized, intervalEnum, beforeInstant, limit)
+            return ResponseEntity.ok(candles.map { it.toResponse() })
+        }
 
         val fromInstant =
             if (from.isNullOrBlank()) {
@@ -149,7 +177,13 @@ class InstrumentController(
                 parseInstantOrNull(to) ?: return ResponseEntity.badRequest().build()
             }
 
-        val candles = candleQueryService.query(normalized, intervalEnum, fromInstant, toInstant)
+        // 분봉 캐시 서비스 경유 (T19-T3)
+        val candles =
+            if (intervalEnum != com.mj.domain.common.Interval.D1) {
+                candleCacheService.fetchOrTrigger(normalized, intervalEnum, fromInstant, toInstant)
+            } else {
+                candleQueryService.query(normalized, intervalEnum, fromInstant, toInstant)
+            }
         return ResponseEntity.ok(candles.map { it.toResponse() })
     }
 
@@ -211,4 +245,21 @@ class InstrumentController(
         } catch (_: DateTimeParseException) {
             null
         }
+
+    /**
+     * before 파라미터 파싱 — 3가지 형식 지원:
+     * 1. YYYY-MM-DD → 해당 날짜 00:00:00 KST
+     * 2. ISO-8601 Instant (e.g. 2026-01-01T00:00:00Z)
+     * 3. epoch second (숫자)
+     */
+    private fun parseBeforeInstant(raw: String): Instant? {
+        // epoch second
+        raw.toLongOrNull()?.let { return Instant.ofEpochSecond(it) }
+        // YYYY-MM-DD
+        runCatching {
+            LocalDate.parse(raw).atStartOfDay(kst).toInstant()
+        }.getOrNull()?.let { return it }
+        // ISO-8601
+        return parseInstantOrNull(raw)
+    }
 }

@@ -46,6 +46,19 @@ class CandleQueryService(
         }
     }
 
+    /**
+     * infinite scroll: before 이전 캔들을 최대 limit개 ASC 반환 (T19-T4).
+     *
+     * @param before  기준 시각 (exclusive)
+     * @param limit   최대 건수 (1~1000, 컨트롤러에서 사전 검증)
+     */
+    fun queryBefore(
+        code: String,
+        interval: Interval,
+        before: Instant,
+        limit: Int,
+    ): List<Candle> = candleRepository.findBefore(code, interval, before, limit)
+
     companion object {
         // 'DAY' alias support — 프론트는 'DAY'로 보냄, 도메인은 D1
         fun parseInterval(raw: String): Interval =
