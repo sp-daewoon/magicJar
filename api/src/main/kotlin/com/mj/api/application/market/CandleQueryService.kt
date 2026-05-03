@@ -28,17 +28,20 @@ class CandleQueryService(
     /**
      * 캔들 조회 — interval 문자열 기반 (v2 주 진입점).
      *
-     * @param code        종목코드
+     * @param code 종목코드
      * @param intervalRaw interval 문자열 (D1/M1/M5/M30/H1/60m/90m/W/MO/Y 등)
-     * @param from        조회 시작 시각 (null이면 봉별 기본 lookback)
-     * @param to          조회 종료 시각 (null이면 현재)
+     * @param from 조회 시작 시각 (null이면 봉별 기본 lookback)
+     * @param to 조회 종료 시각 (null이면 현재)
+     * @param limit 최대 반환 봉 수 (default 200, max 1000). DB에서 limit+1개 가져와 hasMore 판단.
+     * @return [QueryResult] — candles(최대 limit개) + hasMore(다음 페이지 존재 여부)
      */
     fun queryByString(
         code: String,
         intervalRaw: String,
         from: Instant?,
         to: Instant?,
-    ): List<Candle> {
+        limit: Int = DEFAULT_LIMIT,
+    ): QueryResult {
         val upper = intervalRaw.trim().uppercase()
         val toResolved = to ?: Instant.now()
 
@@ -47,7 +50,7 @@ class CandleQueryService(
             val fromResolved = from ?: defaultFrom(Interval.D1, toResolved)
             val candles = candleRepository.find(code, Interval.D1, fromResolved, toResolved)
             log.info("[query-svc] D1 조회 code={} rows={} from={}", code, candles.size, fromResolved)
-            return candles
+            return candles.toQueryResult(limit)
         }
 
         // M1 alias
@@ -59,14 +62,14 @@ class CandleQueryService(
                 log.info("[query-svc] M1 0건 — cold-start backfill trigger 시도 code={}", code)
                 candleCacheService.triggerBackgroundFetchAsync(code)
             }
-            return candles
+            return candles.toQueryResult(limit)
         }
 
         // 일봉 기반 합성 (W/MO/Y)
         if (CandleAggregator.isDailyPeriod(upper)) {
             val fromResolved = from ?: defaultFrom(Interval.D1, toResolved)
             val d1Candles = candleRepository.find(code, Interval.D1, fromResolved, toResolved)
-            return candleAggregator.aggregateDailyToWeekly(d1Candles, upper)
+            return candleAggregator.aggregateDailyToWeekly(d1Candles, upper).toQueryResult(limit)
         }
 
         // 분봉 합성 (M5/M15/M30/H1/임의 N분봉)
@@ -84,7 +87,22 @@ class CandleQueryService(
             log.info("[query-svc] M1 0건(N={}분봉 합성) — cold-start backfill trigger code={}", targetMinutes, code)
             candleCacheService.triggerBackgroundFetchAsync(code)
         }
-        return candleAggregator.aggregate(m1Candles, targetMinutes)
+        return candleAggregator.aggregate(m1Candles, targetMinutes).toQueryResult(limit)
+    }
+
+    /**
+     * queryByString 결과 DTO — candles(최대 limit개) + hasMore(다음 페이지 존재 여부).
+     */
+    data class QueryResult(
+        val candles: List<Candle>,
+        val hasMore: Boolean,
+    )
+
+    private fun List<Candle>.toQueryResult(limit: Int): QueryResult {
+        // limit 이상이면 hasMore=true, 실제 반환은 limit개만 (마지막에서 limit개: 가장 최근 봉 기준).
+        val hasMore = this.size >= limit
+        val trimmed = if (this.size > limit) this.takeLast(limit) else this
+        return QueryResult(candles = trimmed, hasMore = hasMore)
     }
 
     /**
@@ -181,6 +199,9 @@ class CandleQueryService(
     }
 
     companion object {
+        const val DEFAULT_LIMIT = 200
+        const val MAX_LIMIT = 1000
+
         /**
          * interval 문자열 → Interval enum 파싱.
          *
