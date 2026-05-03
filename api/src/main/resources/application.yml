@@ -66,7 +66,7 @@ management:
 
 spring.ai:
   openai:
-    # api는 AI 호출 안 함. autoconfig를 명시적으로 disabled.
+    # api는 OpenAI 호출 안 함. autoconfig를 명시적으로 disabled.
     api-key: ${OPENAI_API_KEY:placeholder-not-used}
     chat:
       enabled: ${OPENAI_API_KEY_PRESENT:false}
@@ -83,6 +83,15 @@ spring.ai:
         enabled: false
     moderation:
       enabled: false
+  anthropic:
+    # ANTHROPIC_API_KEY 미설정 시 placeholder → AnthropicChatModel 빈 미등록 → mock fallback.
+    # 사용자 트리거 분석 보조 (ADR 0046, T16).
+    api-key: ${ANTHROPIC_API_KEY:placeholder-not-used}
+    chat:
+      options:
+        model: ${MAGICJAR_AI_MODEL:claude-sonnet-4-5}
+        max-tokens: 1024
+        temperature: 0.4
 
 magicjar:
   mode: ${MAGICJAR_MODE:MOCK}
@@ -96,6 +105,20 @@ magicjar:
     protocol-version: 2025-03-26
     server-name: magicjar-mcp
     server-version: 0.1.0
+  ai:
+    # AI 분석 보조 (사용자 트리거 한정, ADR 0046).
+    # default false — mock 환경에서 비용 0.
+    # 활성화: ANTHROPIC_API_KEY 설정 + MAGICJAR_AI_ENABLED=true.
+    enabled: ${MAGICJAR_AI_ENABLED:false}
+    provider: ${MAGICJAR_AI_PROVIDER:anthropic}
+    model: ${MAGICJAR_AI_MODEL:claude-sonnet-4-5}
+    # auto: 키 없으면 자동 mock · mock: 강제 mock · real: 키 필수 (없으면 부팅 실패 X, 503 응답)
+    mock-mode: ${MAGICJAR_AI_MOCK_MODE:auto}
+    timeout: 45s
+    max-tokens: 1024
+    temperature: 0.4
+    price-per-input-token: 0.000003
+    price-per-output-token: 0.000015
 
 logging:
   level:
