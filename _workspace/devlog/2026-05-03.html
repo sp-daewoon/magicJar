@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>magicJar 2026-05-03 세션 요약</title>
+<style>
+  :root{--bg:#fafafa;--fg:#1f2937;--mute:#6b7280;--accent:#2563eb;--ok:#16a34a;--warn:#d97706;--danger:#dc2626;--border:#e5e7eb;--card:#fff;--mono:'SF Mono','Monaco','Menlo',monospace}
+  *{box-sizing:border-box}
+  body{margin:0;padding:24px;font-family:-apple-system,'SF Pro Text','Pretendard',sans-serif;background:var(--bg);color:var(--fg);line-height:1.55;font-size:14px}
+  h1{margin:0 0 4px;font-size:22px}
+  h2{margin:32px 0 12px;font-size:17px;border-bottom:2px solid var(--accent);padding-bottom:6px}
+  h3{margin:18px 0 8px;font-size:14px;color:var(--accent)}
+  .meta{color:var(--mute);font-size:12px;margin-bottom:24px}
+  .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px}
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:13px}
+  th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+  th{background:#f3f4f6;font-weight:600;color:var(--mute);text-transform:uppercase;font-size:11px;letter-spacing:.05em}
+  tr:last-child td{border-bottom:0}
+  code{background:#f3f4f6;padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:12px}
+  .badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600}
+  .b-ok{background:#dcfce7;color:#166534}
+  .b-warn{background:#fef3c7;color:#92400e}
+  .b-pending{background:#dbeafe;color:#1e40af}
+  .b-todo{background:#fce7f3;color:#9d174d}
+  .b-mute{background:#e5e7eb;color:#374151}
+  ul{margin:6px 0;padding-left:18px}
+  li{margin:3px 0}
+  .arrow{color:var(--mute);margin:0 4px}
+  .small{font-size:12px;color:var(--mute)}
+  .pr{color:var(--accent);font-weight:600;font-family:var(--mono)}
+</style>
+</head>
+<body>
+
+<h1>magicJar 세션 요약 — 2026-05-03 토요일</h1>
+<div class="meta">v0/v1 누더기 → v2 베이스라인 + W1·W2·W3·W4 + 인증 UI + sanity dogfooding 정상화 → 다음 세션 T19·T20·T21 디스패치 대기</div>
+
+<h2>1. 머지 PR 24건 (오늘)</h2>
+<table>
+  <tr><th>Wave</th><th>PR</th><th>트랙·내용</th><th>에이전트·모델</th></tr>
+  <tr><td rowspan="1">베이스라인</td><td class="pr">#68</td><td>v2 마스터 + ADR 17 + legacy 청소</td><td>architect (opus)</td></tr>
+  <tr><td rowspan="6">W1 데이터 기반</td><td class="pr">#69</td><td>T2 R1 — Market Session FSM·KRX 캘린더·EGW00202 hashkey</td><td>backend-core (sonnet)</td></tr>
+  <tr><td class="pr">#70</td><td>T2 R2 — Guard chain·REJECTED audit·QuoteCache</td><td>backend-core (sonnet)</td></tr>
+  <tr><td class="pr">#71</td><td>T3 R1 — KIS 종목 마스터·검색 인덱스·REST</td><td>market-data (sonnet)</td></tr>
+  <tr><td class="pr">#72</td><td>T2 R3 — Tick fallback 3-tier·STOMP stale</td><td>backend-core (sonnet)</td></tr>
+  <tr><td class="pr">#73</td><td>T2 R4 — frontend MarketSessionBadge·StaleIndicator</td><td>frontend (sonnet)</td></tr>
+  <tr><td class="pr">#75</td><td>T4 R1 — Corp Action raw/adjusted·룩어헤드 차단</td><td>market-data (sonnet)</td></tr>
+  <tr><td rowspan="4">W2 분석 도구</td><td class="pr">#76</td><td>T6 R1 — 57 캔들 패턴 카탈로그·PatternRecognizer</td><td>strategy-engine (opus)</td></tr>
+  <tr><td class="pr">#77</td><td>T5 R1 — 80지표 + IndicatorSource Pluggability</td><td>market-data (sonnet)</td></tr>
+  <tr><td class="pr">#78</td><td>T8 R1 — Strategy Builder UI 1차 (블록 빌더)</td><td>frontend (sonnet)</td></tr>
+  <tr><td class="pr">#79</td><td>T7 R1 — DSL .kis.yaml superset + 10 프리셋</td><td>strategy-engine (opus)</td></tr>
+  <tr><td rowspan="5">W3 자동매매 본체</td><td class="pr">#80</td><td>T10 R1 — Screener (universe × DSL → 종목 발굴)</td><td>strategy-engine + 메인 (sonnet)</td></tr>
+  <tr><td class="pr">#81</td><td>T9 R1 — Backtest Engine (MDD·Sharpe·승률·룩어헤드 차단)</td><td>strategy-engine (opus)</td></tr>
+  <tr><td class="pr">#82</td><td>T14 R1 — Performance Loop (실거래 통계, T9 재활용)</td><td>메인 직접 (sonnet 부재)</td></tr>
+  <tr><td class="pr">#83</td><td>T12 R1 — Risk Guard 6단 (PositionLimit·DrawdownStop)</td><td>backend-core (sonnet)</td></tr>
+  <tr><td class="pr">#84</td><td>T11 R1 — Signal Engine (룰 매칭·Kafka 발행·STOMP)</td><td>strategy-engine (opus)</td></tr>
+  <tr><td rowspan="2">인증 UI</td><td class="pr">#85</td><td>T18b — KIS 인증 UI 모달 + 모드 전환 + localStorage 기억</td><td>frontend (sonnet)</td></tr>
+  <tr><td class="pr">#86</td><td>T18a — 인증 backend endpoint + AES 암호화 + 마스터 sync trigger</td><td>backend-core (sonnet)</td></tr>
+  <tr><td rowspan="2">W4 AI + MCP</td><td class="pr">#89</td><td>T17 R1 — MCP 서버 (read·analysis tool 5종, write 영구 X)</td><td>architect (opus)</td></tr>
+  <tr><td class="pr">#93</td><td>T16 R1 — AI 분석 보조 (DISCLAIMER·사용자 트리거 한정)</td><td>ai-engineer (opus 4.6)</td></tr>
+  <tr><td rowspan="4">운영 hotfix</td><td class="pr">#74</td><td>sub-agent Bash 권한 read-only 추가</td><td>메인 (architect)</td></tr>
+  <tr><td class="pr">#87</td><td>frontend tooltip + nginx no-cache + Dockerfile + AuthSection localStorage</td><td>메인 (architect)</td></tr>
+  <tr><td class="pr">#88</td><td>docker dev,real-kis profile + api → batch URL 매핑</td><td>메인 (architect)</td></tr>
+  <tr><td class="pr">#91</td><td>캔들 데이터 정책 가이드라인 v1</td><td>메인 (architect)</td></tr>
+</table>
+
+<h2>2. PostgreSQL 테이블 — Flyway V0 ~ V18</h2>
+<table>
+  <tr><th>버전</th><th>테이블·컬럼</th><th>도입 시점</th><th>용도</th></tr>
+  <tr><td>V0~V3</td><td>instrument_catalog · candle 초기 schema</td><td>Phase B (legacy)</td><td>기본 시세·종목 메타</td></tr>
+  <tr><td>V4</td><td>backtest_run · trade_journal</td><td>Phase E-P1</td><td>백테스트 실행 추적·매매일지</td></tr>
+  <tr><td>V5</td><td>candle 보강 (interval enum 등)</td><td>Phase E-P2</td><td>봉 단위 분리</td></tr>
+  <tr><td>V6</td><td>news_analyzed · sentiment</td><td>Phase F R1</td><td>뉴스 감성 분석 영속</td></tr>
+  <tr><td>V7</td><td>candle 005930 일봉 시드 (~89 row)</td><td>Phase F R2</td><td><span class="badge b-warn">2026-05-03 삭제</span> KIS 실데이터로 대체</td></tr>
+  <tr><td>V8</td><td>분봉 시드 (옆 세션)</td><td>Phase F R3</td><td>5분봉 일부 fixture</td></tr>
+  <tr><td>V9</td><td>users · user_trading_config · orders · order_events · daily_order_counter · kill_switch_state · secrets</td><td>1번 트랙</td><td>주문 audit·인증·KIS 키 암호화 저장</td></tr>
+  <tr><td>V10</td><td>market_calendar (2026·2027 공휴일 18+18)</td><td>T2 R1</td><td>KRX 영업일·세션 FSM</td></tr>
+  <tr><td>V11</td><td>orders.kis_order_no NULLABLE + order_reject_audit</td><td>T2 R2</td><td>REJECTED audit trail</td></tr>
+  <tr><td>V12</td><td>instrument_master (KOSPI·KOSDAQ·ETF·ETN)</td><td>T3 R1</td><td>전 종목 마스터파일·검색</td></tr>
+  <tr><td>V13</td><td>corp_action (split·dividend·rights·spinoff·merger·bonus)</td><td>T4 R1</td><td>액면분할·증자·배당 보정</td></tr>
+  <tr><td>V14</td><td>candle.{open|high|low|close|volume}_adjusted + adjustment_factor</td><td>T4 R1</td><td>raw + adjusted 두 컬럼·룩어헤드 차단</td></tr>
+  <tr><td>V15</td><td>backtest_trade · backtest_equity_point</td><td>T9 R1</td><td>백테스트 거래 기록·equity curve</td></tr>
+  <tr><td>V16</td><td>screen_run · screen_match · instrument_index_member</td><td>T10 R1</td><td>스크리너 실행 결과·KOSPI200/KOSDAQ150 멤버</td></tr>
+  <tr><td>V17</td><td>ai_analysis_log (model·tokens·cost·prompt 버전 audit)</td><td>T16 R1</td><td>AI 분석 호출 audit·비용 추적</td></tr>
+  <tr><td>V18</td><td>mcp_call_log (api key hash·tool·args·duration)</td><td>T17 R1</td><td>MCP 서버 호출 audit</td></tr>
+  <tr><td class="b-todo">V19</td><td><span class="badge b-todo">예정</span> instrument_cache_meta (LRU)</td><td>T19 (다음 세션)</td><td>분봉 cache LRU eviction 메타</td></tr>
+</table>
+
+<h2>3. Kafka 토픽·데이터 흐름</h2>
+<div class="grid">
+  <div class="card">
+    <h3>실시간 시세 흐름 (consumer → api → frontend)</h3>
+    <ul>
+      <li><code>market.tick.v1</code> — KIS WS bridge 또는 MockTickGenerator → consumer publish</li>
+      <li>api KafkaListener consume <span class="arrow">→</span> STOMP <code>/topic/market.tick.{code}</code> fanout</li>
+      <li>frontend useMarketTickStream 구독 <span class="arrow">→</span> 차트·Dashboard 실시간 갱신</li>
+      <li><span class="small">retention 1시간 (영속 X). 캔들 영속은 별도 backfill job.</span></li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>주문·체결 흐름 (consumer → api → STOMP)</h3>
+    <ul>
+      <li><code>order.executed.v1</code> — KIS 체결 통보(H0STCNI0) + REST sweep → consumer publish</li>
+      <li>api STOMP <code>/topic/orders</code> fanout · <code>journal.entry.v1</code> 매매일지 자동 기록</li>
+      <li>order_events append-only audit · idempotent (retries safe)</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>시그널 흐름 (T11 — consumer → api → STOMP)</h3>
+    <ul>
+      <li>consumer SignalEngineListener: <code>market.tick.v1</code> 수신 → DSL Evaluator → BUY/SELL</li>
+      <li><code>signal.generated.v1</code> publish (HOLD 미발행, 트래픽 절감)</li>
+      <li>api STOMP <code>/topic/signal[.{userId}]</code> fanout</li>
+      <li><span class="small">AI 호출 0 (ADR 0041 룰 매칭 only)</span></li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>뉴스 감성 흐름 (Phase F R1 — pyworker → consumer)</h3>
+    <ul>
+      <li>pyworker 네이버 크롤 → <code>news.crawled.v1</code></li>
+      <li>consumer Anthropic LLM → <code>news.analyzed.v1</code> (sentimentScore·label)</li>
+      <li>api STOMP <code>/topic/news</code> fanout</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>스크린샷 흐름 (Phase E — pyworker)</h3>
+    <ul>
+      <li>매매일지 차트 캡처 요청 → pyworker Playwright</li>
+      <li>MinIO 업로드 + presigned URL 응답</li>
+      <li><span class="small">QA 디펙 시나리오에도 활용 (ISSUE-008)</span></li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>retention 정책</h3>
+    <ul>
+      <li>기본 1시간 (KAFKA_LOG_RETENTION_HOURS=1)</li>
+      <li>200MB · 10MB segment</li>
+      <li>MockTickGenerator 1초/회 누적 broker fail 차단</li>
+    </ul>
+  </div>
+</div>
+
+<h2>4. Redis 사용처 (현재 + 미래)</h2>
+<table>
+  <tr><th>키 패턴</th><th>용도</th><th>도입</th><th>상태</th></tr>
+  <tr><td><code>quote:last:{code}</code></td><td>시세 fallback 3-tier 캐시 (live → cached → last_day_close)</td><td>T2 R2</td><td><span class="badge b-ok">사용 중</span></td></tr>
+  <tr><td><code>instrument:search:name</code> · <code>instrument:search:code</code></td><td>종목 검색 ZSET 인덱스 (한국어 prefix·infix)</td><td>T3 R1</td><td><span class="badge b-ok">사용 중</span></td></tr>
+  <tr><td><code>session:resolved:{date}</code></td><td>MarketSession 1분 cache (KST 시간 + 캘린더 lookup 절감)</td><td>T2 R1</td><td><span class="badge b-ok">사용 중</span></td></tr>
+  <tr><td><code>candle:hot:{code}:{interval}</code></td><td>L2 hot cache — 자주 보는 종목 분봉 in-memory mirror</td><td>T19</td><td><span class="badge b-pending">예정</span></td></tr>
+  <tr><td><code>mcp:rate:{key}</code></td><td>MCP 서버 rate limit (Bucket4j 또는 in-memory)</td><td>T17</td><td><span class="badge b-ok">사용 중</span></td></tr>
+  <tr><td><code>analysis:cache:{request_hash}</code></td><td>AI 분석 응답 cache 6h TTL (동일 입력 중복 호출 비용 절감)</td><td>T16 R2 (선택)</td><td><span class="badge b-pending">예정</span></td></tr>
+  <tr><td><code>screen:result:{run_id}</code></td><td>Screener 실행 결과 캐시 (15분 TTL)</td><td>T10 R2 (선택)</td><td><span class="badge b-pending">예정</span></td></tr>
+  <tr><td><code>backtest:job:{run_id}</code></td><td>백테스트 진행률·중간 결과 (long-running job)</td><td>T9 R2 (선택)</td><td><span class="badge b-pending">예정</span></td></tr>
+  <tr><td><code>company:detail:{code}</code></td><td>종목 상세 메타 캐시 (DART·KIS 회사정보 6h TTL)</td><td>T20</td><td><span class="badge b-pending">예정</span></td></tr>
+  <tr><td><code>index:price:{code}</code></td><td>KOSPI·KOSDAQ 지수 1분 cache</td><td>T21</td><td><span class="badge b-pending">예정</span></td></tr>
+</table>
+
+<h2>5. sub-agent 오늘 디스패치 내역</h2>
+<table>
+  <tr><th>에이전트</th><th>모델</th><th>주 담당 트랙</th><th>호출 횟수</th></tr>
+  <tr><td>architect</td><td>opus 4.7</td><td>v2 베이스라인·cleanup·ADR·T17 MCP·conflict resolve·hotfix·docs</td><td>5+ (메인 포함)</td></tr>
+  <tr><td>backend-core</td><td>sonnet 4.6</td><td>T2 R1·R2·R3·T12·T14 (T14 sub-agent 3회 fail로 메인이 직접 처리)</td><td>5</td></tr>
+  <tr><td>market-data</td><td>sonnet 4.6</td><td>T3 R1·T4 R1·T5 R1·T10 R1 (T10는 leak으로 메인이 마무리)</td><td>4</td></tr>
+  <tr><td>strategy-engine</td><td>opus 4.7</td><td>T6 R1·T7 R1·T9 R1·T11 R1</td><td>4</td></tr>
+  <tr><td>frontend</td><td>sonnet 4.6</td><td>T2 R4·T8 R1·T18b</td><td>3</td></tr>
+  <tr><td>ai-engineer</td><td>opus 4.6</td><td>T16 R1 (사용자 명시 모델)</td><td>1</td></tr>
+</table>
+<div class="card" style="margin-top:8px">
+  <h3>이슈·복구</h3>
+  <ul>
+    <li>sub-agent Bash 권한 차단 — settings.json read-only 추가 (PR #74)로 정상화</li>
+    <li>토큰 한도 hit 3회 — T4 R1 1차·T9·T10·T14 1차 (재시도로 회복)</li>
+    <li>worktree leak 5건 — 메인 worktree에 sub-agent 코드 leak (T5·T8·T9·T10·T18a) — `.gitignore`에 `.claude/worktrees/` 추가 + 메인이 정리 commit</li>
+    <li>force push deny — T16 conflict 시 새 branch (`-rebased`) 우회</li>
+  </ul>
+</div>
+
+<h2>6. sanity dogfooding 정상화 (오늘 작업 결과)</h2>
+<div class="grid">
+  <div class="card">
+    <h3>화면</h3>
+    <ul>
+      <li><code>localhost:3000/symbol/005930</code> tooltip 에러 fix (PR #87)</li>
+      <li>⚙️ 인증 모달 정상 (PR #93·#94)</li>
+      <li>모드별 localStorage 기억 (모의·실전 분리)</li>
+      <li>종목 마스터파일 수집 STARTED 응답 (PR #88)</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>데이터</h3>
+    <ul>
+      <li>profile mock → dev,real-kis 전환</li>
+      <li>KIS 5종목 일봉 실데이터 fetch:</li>
+      <li><code>005930</code> 220,500 / <code>000660</code> 1,286,000</li>
+      <li><code>035720</code> 47,300 / <code>005380</code> 531,000</li>
+      <li><code>051910</code> 397,000</li>
+      <li>V7 시드 가데이터 89 row 삭제</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>9 컨테이너 모두 healthy</h3>
+    <ul>
+      <li>postgres·kafka·redis·minio·api·batch·consumer·pyworker·frontend</li>
+    </ul>
+  </div>
+</div>
+
+<h2>7. 다음 세션 일정</h2>
+<table>
+  <tr><th>우선순위</th><th>작업</th><th>사이즈</th><th>비고</th></tr>
+  <tr><td>1</td><td>PR <span class="pr">#92</span> T19·T20·T21 spec docs 머지</td><td>—</td><td>이미 발행, 다음 세션 첫 머지</td></tr>
+  <tr><td>2</td><td>PR <span class="pr">#94</span> frontend userId UUID + lastUpdatedAt hotfix 머지</td><td>—</td><td>이미 발행</td></tr>
+  <tr><td>3</td><td><b>T19 분봉 캐시 인프라</b> 디스패치 (market-data + frontend 병렬)</td><td>~5~7일</td><td>candle-data-policy.md 정합. LRU 8GB·30분→5분→1분 단계적 fetch·infinite scroll</td></tr>
+  <tr><td>4</td><td><b>T20 종목 검색 + 상세 메타</b> 디스패치 (T19 머지 후, 또는 영역 분리 병렬)</td><td>~5일</td><td>헤더 검색창·자동완성·종목 상세 (시총·영업이익·PER·대주주 지분율)</td></tr>
+  <tr><td>5</td><td><b>T21 대시보드 = KOSPI/KOSDAQ 지수</b> 디스패치</td><td>~3일</td><td>대표종목 5개 → 지수 카드. 거래대금·등락률 상위 위젯 (선택)</td></tr>
+  <tr><td>6</td><td>W5 사용자 학습 진입</td><td>~3일</td><td>사용자와 함께 데이터 흐름·아키 검증·교육</td></tr>
+</table>
+
+<div style="margin-top:32px;padding:14px;background:#f0f9ff;border-radius:6px;font-size:13px">
+  <b>다음 세션 첫 명령</b>: <code>"PR #92, #94 머지하고 T19 디스패치 시작"</code> 한 마디 주시면 컨텍스트 그대로 이어집니다. 본 문서는 <code>_workspace/dashboard/2026-05-03-session-summary.html</code>에 영속됩니다.
+</div>
+
+</body>
+</html>
