@@ -147,19 +147,22 @@ class InstrumentController(
         description = """
             LWC(Lightweight Charts) 호환 OHLCV 배열을 반환한다.
 
-            interval은 'DAY' 또는 'D1' 등 alias 허용. from·to 미지정 시 일봉은 최근 180일 lookback.
-            응답 time 필드는 일봉의 경우 'YYYY-MM-DD'(KST 기준), 분봉은 epoch second 문자열.
+            **분봉 합성 정책 v2 (ADR 0048)**:
+            - interval=D1/DAY → 일봉 DB 직접 조회
+            - interval=M1/1m → 1분봉 DB 직접 조회
+            - interval=M5/M15/M30/H1/5m/30m/60m/90m/120m 등 → M1 DB 조회 후 백엔드 합성
+            - interval=W/MO/Y → D1 DB 조회 후 주봉/월봉/연봉 합성
+
+            from·to 미지정 시 봉 단위별 기본 lookback 자동 적용.
+            응답 time 필드: 일봉='YYYY-MM-DD'(KST), 분봉=epoch second(Long).
 
             **infinite scroll 모드 (T19-T4)**:
             - `before` 파라미터를 지정하면 해당 시각 이전 `limit`개 캔들을 반환 (차트 좌측 스크롤 시 사용).
             - `before`와 `from/to`는 상호 배타적. `before` 지정 시 `from/to` 무시.
             - `limit` 기본값 200, 최대 1000. 초과 시 400 반환.
 
-            **캐시 정책 (T19-T3)**:
-            - 분봉(M1·M5·M30)은 캐시 hit 여부 판정 후 miss 시 D1 즉시 반환 + 백그라운드 fetch trigger.
-
-            005930(삼성전자) 일봉은 Flyway V7로 90 영업일 시드되어 있다 — 차트 검증용.
-            실제 운영에서는 batch 모듈의 DailyCandleBackfillJob이 KIS API로 채운다.
+            005930(삼성전자) 일봉은 Flyway V7로 90 영업일 시드, M1 분봉은 V8로 1 영업일 시드.
+            실제 운영에서는 batch 모듈의 DailyCandleBackfillJob·MinuteCandleBackfillJob이 KIS API로 채운다.
         """,
     )
     @ApiResponses(
@@ -173,7 +176,12 @@ class InstrumentController(
     fun candles(
         @Parameter(description = "KRX 종목 코드 6자리", example = "005930")
         @PathVariable code: String,
-        @Parameter(description = "봉 단위 (DAY/D1, M1, M5, M15, M30, H1)", example = "DAY")
+        @Parameter(
+            description =
+                "봉 단위. D1/DAY(일봉), M1/1m(1분봉), M5/5m(5분봉), M30/30m(30분봉), H1/60m(60분봉), 90m, 120m, W(주봉), MO(월봉), Y(연봉) 등. " +
+                    "M5·M30·H1 등은 M1 DB 조회 후 백엔드 합성 응답.",
+            example = "DAY",
+        )
         @RequestParam(defaultValue = "DAY") interval: String,
         @Parameter(description = "조회 시작 시각 (ISO-8601, 미지정 시 봉 단위별 기본 lookback)", example = "2026-01-01T00:00:00Z")
         @RequestParam(required = false) from: String?,
@@ -190,14 +198,17 @@ class InstrumentController(
         // limit 검증
         if (limit <= 0 || limit > 1000) return ResponseEntity.badRequest().build()
 
-        val intervalEnum =
-            runCatching { CandleQueryService.parseInterval(interval) }
-                .getOrElse { return ResponseEntity.badRequest().build() }
+        // interval 검증 — v2: D1·M1 또는 합성 N분봉 모두 허용
+        val intervalIsValid = runCatching { validateInterval(interval) }.isSuccess
+        if (!intervalIsValid) return ResponseEntity.badRequest().build()
 
         // before 모드: infinite scroll
         if (!before.isNullOrBlank()) {
             val beforeInstant = parseBeforeInstant(before) ?: return ResponseEntity.badRequest().build()
-            val candles = candleQueryService.queryBefore(normalized, intervalEnum, beforeInstant, limit)
+            val candles =
+                runCatching {
+                    candleQueryService.queryBeforeByString(normalized, interval, beforeInstant, limit)
+                }.getOrElse { return ResponseEntity.badRequest().build() }
             return ResponseEntity.ok(candles.map { it.toResponse() })
         }
 
@@ -214,14 +225,37 @@ class InstrumentController(
                 parseInstantOrNull(to) ?: return ResponseEntity.badRequest().build()
             }
 
-        // 분봉 캐시 서비스 경유 (T19-T3)
+        // v2: queryByString이 D1/M1/합성 interval 모두 처리
         val candles =
-            if (intervalEnum != com.mj.domain.common.Interval.D1) {
-                candleCacheService.fetchOrTrigger(normalized, intervalEnum, fromInstant, toInstant)
-            } else {
-                candleQueryService.query(normalized, intervalEnum, fromInstant, toInstant)
-            }
+            runCatching {
+                candleQueryService.queryByString(normalized, interval, fromInstant, toInstant)
+            }.getOrElse { return ResponseEntity.badRequest().build() }
         return ResponseEntity.ok(candles.map { it.toResponse() })
+    }
+
+    /**
+     * interval 문자열 유효성 검사 (v2).
+     * 허용: D1·DAY·M1·1m + M<n>·<n>m·H<n>·<n>h (N분봉) + W·MO·Y (일봉 합성).
+     */
+    private fun validateInterval(interval: String) {
+        val upper = interval.trim().uppercase()
+        val d1Aliases = setOf("D1", "DAY", "D", "1D")
+        val m1Aliases = setOf("M1", "1M", "1MIN", "MIN1")
+        val weeklyAliases = setOf("W", "WK", "MO", "MONTH", "Y", "YEAR")
+
+        when {
+            upper in d1Aliases -> return
+            upper in m1Aliases -> return
+            upper in weeklyAliases -> return
+            else -> {
+                val minutes =
+                    com.mj.api.application.market.CandleAggregator
+                        .parseToMinutesOrNull(interval)
+                        ?: throw IllegalArgumentException("Unsupported interval: $interval")
+                require(minutes > 0) { "interval must be positive: $interval" }
+                require(minutes <= 1440) { "interval must be <= 1440 min: $interval" }
+            }
+        }
     }
 
     @Operation(

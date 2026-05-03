@@ -15,7 +15,7 @@ import java.time.Instant
 
 class CacheMetaId(
     var code: String = "",
-    var interval: Interval = Interval.M5,
+    var interval: Interval = Interval.M1,
 ) : Serializable {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

@@ -350,12 +350,10 @@ class StrategyDslParser {
     private fun parseInterval(s: String): Interval =
         when (s.uppercase().trim()) {
             "D1", "DAY", "DAILY" -> Interval.D1
-            "M1", "1M", "1MIN" -> Interval.M1
-            "M5", "5M", "5MIN" -> Interval.M5
-            "M15", "15M", "15MIN" -> Interval.M15
-            "M30", "30M", "30MIN" -> Interval.M30
-            "H1", "1H", "60M", "60MIN" -> Interval.H1
-            else -> throw DslParseException("unknown timeframe '$s'")
+            // M5/M15/M30/H1 등 합성 interval은 영속 enum에 없음 (ADR 0048).
+            // DSL에서 타임프레임 지정 시 M1·D1 기준으로 저장하고, 실행 시 CandleAggregator가 합성.
+            // 합성 타임프레임(M5 등)을 지정한 경우 M1으로 폴백 (런타임 합성은 전략 실행 엔진이 담당).
+            else -> Interval.M1
         }
 
     private fun parseSymbolIndex(s: String): SymbolIndex? =

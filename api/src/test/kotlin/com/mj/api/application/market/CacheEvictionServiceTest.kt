@@ -12,7 +12,9 @@ import org.junit.jupiter.api.Test
 import java.time.Instant
 
 /**
- * CacheEvictionService 단위 테스트 (T19-T7).
+ * CacheEvictionService 단위 테스트 (T19-T7, v2 정책 정합).
+ *
+ * v2 변경: 캐시 단위는 M1·D1 only. CacheMeta.interval은 M1 또는 D1.
  *
  * - threshold 미만 → eviction 0 row
  * - threshold 초과 → ASC 순서대로 가장 오래된 cache 항목 삭제
@@ -39,14 +41,14 @@ class CacheEvictionServiceTest {
 
     private fun metaFixture(
         code: String,
-        interval: Interval = Interval.M30,
+        interval: Interval = Interval.M1,
         lastAccessedAt: Instant = Instant.parse("2026-01-01T00:00:00Z"),
         byteEstimate: Long = 200L,
     ) = CacheMeta(
         code = code,
         interval = interval,
         lastAccessedAt = lastAccessedAt,
-        oldestBar = Instant.parse("2023-01-01T00:00:00Z"),
+        oldestBar = Instant.parse("2026-04-24T00:00:00Z"),
         newestBar = Instant.parse("2026-04-30T15:30:00Z"),
         byteEstimate = byteEstimate,
     )
@@ -77,8 +79,7 @@ class CacheEvictionServiceTest {
     fun `threshold 초과 — 가장 오래된 항목부터 순서대로 삭제`() {
         // total = 200 + 300 + 600 + 500 = 1600 bytes > maxBytes(1000)
         // excess = 600, target = 600 * 1.1 = 660 bytes
-        // A(200) 삭제 후 200 < 660 → B(300) 삭제 후 500 < 660 → C(600) 삭제 후 1100 >= 660 → 종료
-        // D(500)는 삭제 안 함
+        // A(200) + B(300) = 500 < 660 → C(600) 삭제 후 1100 >= 660 → 종료 (D 미삭제)
         val oldestMeta = metaFixture("A", lastAccessedAt = Instant.parse("2026-01-01T00:00:00Z"), byteEstimate = 200L)
         val middleMeta = metaFixture("B", lastAccessedAt = Instant.parse("2026-02-01T00:00:00Z"), byteEstimate = 300L)
         val thirdMeta = metaFixture("C", lastAccessedAt = Instant.parse("2026-03-01T00:00:00Z"), byteEstimate = 600L)
@@ -95,14 +96,14 @@ class CacheEvictionServiceTest {
         assertThat(result.reclaimedBytes).isEqualTo(1100L)
 
         // 삭제 순서 검증: A → B → C (D는 삭제 안 함)
-        verify(exactly = 1) { candleRepository.deleteByCodeAndInterval("A", Interval.M30) }
-        verify(exactly = 1) { candleRepository.deleteByCodeAndInterval("B", Interval.M30) }
-        verify(exactly = 1) { candleRepository.deleteByCodeAndInterval("C", Interval.M30) }
-        verify(exactly = 0) { candleRepository.deleteByCodeAndInterval("D", Interval.M30) }
-        verify(exactly = 1) { cacheMetaRepository.deleteByCodeAndInterval("A", Interval.M30) }
-        verify(exactly = 1) { cacheMetaRepository.deleteByCodeAndInterval("B", Interval.M30) }
-        verify(exactly = 1) { cacheMetaRepository.deleteByCodeAndInterval("C", Interval.M30) }
-        verify(exactly = 0) { cacheMetaRepository.deleteByCodeAndInterval("D", Interval.M30) }
+        verify(exactly = 1) { candleRepository.deleteByCodeAndInterval("A", Interval.M1) }
+        verify(exactly = 1) { candleRepository.deleteByCodeAndInterval("B", Interval.M1) }
+        verify(exactly = 1) { candleRepository.deleteByCodeAndInterval("C", Interval.M1) }
+        verify(exactly = 0) { candleRepository.deleteByCodeAndInterval("D", Interval.M1) }
+        verify(exactly = 1) { cacheMetaRepository.deleteByCodeAndInterval("A", Interval.M1) }
+        verify(exactly = 1) { cacheMetaRepository.deleteByCodeAndInterval("B", Interval.M1) }
+        verify(exactly = 1) { cacheMetaRepository.deleteByCodeAndInterval("C", Interval.M1) }
+        verify(exactly = 0) { cacheMetaRepository.deleteByCodeAndInterval("D", Interval.M1) }
     }
 
     @Test
@@ -125,16 +126,16 @@ class CacheEvictionServiceTest {
         assertThat(result.evictedCount).isEqualTo(1)
         assertThat(result.reclaimedBytes).isEqualTo(300L)
 
-        verify(exactly = 1) { candleRepository.deleteByCodeAndInterval("A", Interval.M30) }
-        verify(exactly = 0) { candleRepository.deleteByCodeAndInterval("B", Interval.M30) }
-        verify(exactly = 0) { candleRepository.deleteByCodeAndInterval("C", Interval.M30) }
+        verify(exactly = 1) { candleRepository.deleteByCodeAndInterval("A", Interval.M1) }
+        verify(exactly = 0) { candleRepository.deleteByCodeAndInterval("B", Interval.M1) }
+        verify(exactly = 0) { candleRepository.deleteByCodeAndInterval("C", Interval.M1) }
     }
 
     @Test
-    fun `D1 interval은 eviction 대상 제외 — 분봉만 삭제`() {
-        // total = 1800 bytes > maxBytes(1000)
-        // excess = 800, target = 880 bytes
-        // D1(300) 건너뜀, M30_A(500) 삭제 후 500 < 880 → M30_B(400) 삭제 후 900 >= 880 → 종료
+    fun `D1 interval은 eviction 대상 제외 — M1만 삭제`() {
+        // total = 300 + 500 + 400 = 1200 bytes > maxBytes(1000)
+        // excess = 200, target = 220 bytes
+        // D1(300) 건너뜀, M1_A(500) 삭제 후 500 >= 220 → 종료 (M1_B 삭제 X)
         val d1Meta =
             metaFixture(
                 "005930",
@@ -142,45 +143,37 @@ class CacheEvictionServiceTest {
                 lastAccessedAt = Instant.parse("2026-01-01T00:00:00Z"),
                 byteEstimate = 300L,
             )
-        val m30A =
+        val m1A =
             metaFixture(
                 "A",
-                interval = Interval.M30,
+                interval = Interval.M1,
                 lastAccessedAt = Instant.parse("2026-01-02T00:00:00Z"),
                 byteEstimate = 500L,
             )
-        val m30B =
+        val m1B =
             metaFixture(
                 "B",
-                interval = Interval.M30,
+                interval = Interval.M1,
                 lastAccessedAt = Instant.parse("2026-02-01T00:00:00Z"),
                 byteEstimate = 400L,
             )
-        val m5C =
-            metaFixture(
-                "C",
-                interval = Interval.M5,
-                lastAccessedAt = Instant.parse("2026-03-01T00:00:00Z"),
-                byteEstimate = 600L,
-            )
-        val allMeta = listOf(d1Meta, m30A, m30B, m5C)
+        val allMeta = listOf(d1Meta, m1A, m1B)
 
         every { cacheMetaRepository.listByLastAccessedAsc(Int.MAX_VALUE) } returns allMeta
         every { candleRepository.deleteByCodeAndInterval(any(), any()) } returns 7
 
         val result = sut.evictIfNeeded()
 
-        // D1 제외, M30_A(500) + M30_B(400) = 900 >= 880 → 종료 (C 삭제 X)
-        assertThat(result.evictedCount).isEqualTo(2)
-        assertThat(result.reclaimedBytes).isEqualTo(900L)
+        // D1 제외, M1_A(500) 삭제 후 500 >= 220 → 종료 (M1_B 삭제 X)
+        assertThat(result.evictedCount).isEqualTo(1)
+        assertThat(result.reclaimedBytes).isEqualTo(500L)
 
         // D1은 삭제 안 함
         verify(exactly = 0) { candleRepository.deleteByCodeAndInterval("005930", Interval.D1) }
         verify(exactly = 0) { cacheMetaRepository.deleteByCodeAndInterval("005930", Interval.D1) }
 
-        // M30_A, M30_B 삭제
-        verify(exactly = 1) { candleRepository.deleteByCodeAndInterval("A", Interval.M30) }
-        verify(exactly = 1) { candleRepository.deleteByCodeAndInterval("B", Interval.M30) }
-        verify(exactly = 0) { candleRepository.deleteByCodeAndInterval("C", Interval.M5) }
+        // M1_A 삭제, M1_B는 삭제 X
+        verify(exactly = 1) { candleRepository.deleteByCodeAndInterval("A", Interval.M1) }
+        verify(exactly = 0) { candleRepository.deleteByCodeAndInterval("B", Interval.M1) }
     }
 }

@@ -158,7 +158,8 @@ class InstrumentControllerTest {
     @Test
     fun `GET api instruments code candles returns 200 with array`() {
         every { instrumentService.get("005930") } returns samsungInstrument()
-        every { candleQueryService.query("005930", Interval.D1, null, null) } returns
+        // v2: queryByString 경유 (interval=DAY)
+        every { candleQueryService.queryByString("005930", "DAY", null, null) } returns
             listOf(
                 Candle(
                     code = "005930",
@@ -211,8 +212,8 @@ class InstrumentControllerTest {
     @Test
     fun `GET api instruments code candles M1 returns time as JSON number (epoch second)`() {
         every { instrumentService.get("005930") } returns samsungInstrument()
-        // M1은 CandleCacheService.fetchOrTrigger로 흐름 (T19-T3)
-        every { candleCacheService.fetchOrTrigger("005930", Interval.M1, null, null) } returns
+        // v2: M1은 queryByString 경유
+        every { candleQueryService.queryByString("005930", "M1", null, null) } returns
             listOf(
                 Candle(
                     code = "005930",
@@ -240,10 +241,11 @@ class InstrumentControllerTest {
     @Test
     fun `GET api instruments code candles before mode returns 200 with candles`() {
         every { instrumentService.get("005930") } returns samsungInstrument()
+        // v2: queryBeforeByString 경유
         every {
-            candleQueryService.queryBefore(
+            candleQueryService.queryBeforeByString(
                 "005930",
-                Interval.D1,
+                "DAY",
                 Instant.parse("2026-04-30T15:00:00Z"),
                 200,
             )
@@ -296,13 +298,99 @@ class InstrumentControllerTest {
     @Test
     fun `GET api instruments code candles accepts DAY alias and empty result`() {
         every { instrumentService.get("005930") } returns samsungInstrument()
-        every { candleQueryService.query("005930", Interval.D1, null, null) } returns emptyList()
+        every { candleQueryService.queryByString("005930", "DAY", null, null) } returns emptyList()
 
         mvc
             .get("/api/instruments/005930/candles?interval=DAY")
             .andExpect {
                 status { isOk() }
                 jsonPath("$.length()") { value(0) }
+            }
+    }
+
+    // ── v2 분봉 합성 검증 ─────────────────────────────────────────────────────
+
+    @Test
+    fun `GET api instruments code candles interval M5 returns aggregated candles from queryByString`() {
+        every { instrumentService.get("005930") } returns samsungInstrument()
+        val aggregatedCandle =
+            Candle(
+                code = "005930",
+                interval = Interval.M1, // 합성 봉은 M1 interval로 반환 (스토리지 타입 재사용)
+                openTime = Instant.parse("2026-04-30T00:00:00Z"),
+                open = BigDecimal("60000"),
+                high = BigDecimal("60600"),
+                low = BigDecimal("59400"),
+                close = BigDecimal("60300"),
+                volume = 61_000L,
+                tradeCount = 500L,
+            )
+        every { candleQueryService.queryByString("005930", "M5", null, null) } returns listOf(aggregatedCandle)
+
+        mvc
+            .get("/api/instruments/005930/candles?interval=M5")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$.length()") { value(1) }
+                jsonPath("$[0].open") { value(60000) }
+                jsonPath("$[0].high") { value(60600) }
+                jsonPath("$[0].low") { value(59400) }
+                jsonPath("$[0].close") { value(60300) }
+                jsonPath("$[0].volume") { value(61_000) }
+            }
+    }
+
+    @Test
+    fun `GET api instruments code candles interval M30 returns aggregated candles from queryByString`() {
+        every { instrumentService.get("005930") } returns samsungInstrument()
+        val aggregatedCandle =
+            Candle(
+                code = "005930",
+                interval = Interval.M1,
+                openTime = Instant.parse("2026-04-30T00:00:00Z"),
+                open = BigDecimal("59800"),
+                high = BigDecimal("61000"),
+                low = BigDecimal("59200"),
+                close = BigDecimal("60500"),
+                volume = 360_000L,
+                tradeCount = 3_000L,
+            )
+        every { candleQueryService.queryByString("005930", "M30", null, null) } returns listOf(aggregatedCandle)
+
+        mvc
+            .get("/api/instruments/005930/candles?interval=M30")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$.length()") { value(1) }
+                jsonPath("$[0].open") { value(59800) }
+                jsonPath("$[0].close") { value(60500) }
+                jsonPath("$[0].volume") { value(360_000) }
+            }
+    }
+
+    @Test
+    fun `GET api instruments code candles interval 90m returns 200`() {
+        every { instrumentService.get("005930") } returns samsungInstrument()
+        val aggregatedCandle =
+            Candle(
+                code = "005930",
+                interval = Interval.M1,
+                openTime = Instant.parse("2026-04-30T00:00:00Z"),
+                open = BigDecimal("60000"),
+                high = BigDecimal("61000"),
+                low = BigDecimal("59000"),
+                close = BigDecimal("60800"),
+                volume = 540_000L,
+                tradeCount = 4_500L,
+            )
+        every { candleQueryService.queryByString("005930", "90m", null, null) } returns listOf(aggregatedCandle)
+
+        mvc
+            .get("/api/instruments/005930/candles?interval=90m")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$.length()") { value(1) }
+                jsonPath("$[0].volume") { value(540_000) }
             }
     }
 

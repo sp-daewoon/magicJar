@@ -214,14 +214,18 @@ class RealKisRestAdapter(
         return resp.access_token
     }
 
-    /** Interval → KIS FID_PERIOD_DIV_CODE 매핑. 분봉은 별도 TR_ID 필요하므로 일봉으로 대체. */
+    /**
+     * Interval → KIS FID_PERIOD_DIV_CODE 매핑 (v2).
+     *
+     * inquire-daily-itemchartprice 엔드포인트는 일봉·주봉·월봉만 지원.
+     * M1 분봉은 별도 TR_ID(FHKST03010200 — MinuteCandleBackfillJob)로 처리.
+     */
     private fun intervalToPeriodDivCode(interval: Interval): String =
         when (interval) {
             Interval.D1 -> "D"
-            Interval.H1, Interval.M30, Interval.M15, Interval.M5, Interval.M1 -> {
+            Interval.M1 -> {
                 log.warn(
-                    "[real-kis] interval={} is not supported for inquire-daily-itemchartprice — falling back to D",
-                    interval,
+                    "[real-kis] interval=M1 is not supported for inquire-daily-itemchartprice — use MinuteCandleBackfillJob instead. Falling back to D.",
                 )
                 "D"
             }

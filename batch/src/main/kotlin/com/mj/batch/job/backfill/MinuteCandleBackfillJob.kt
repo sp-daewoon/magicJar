@@ -380,21 +380,24 @@ class MinuteCandleBackfillJob(
     private fun intervalToMinutes(interval: Interval): Int =
         when (interval) {
             Interval.M1 -> 1
-            Interval.M5 -> 5
-            Interval.M15 -> 15
-            Interval.M30 -> 30
-            Interval.H1 -> 60
             Interval.D1 -> error("D1은 MinuteCandleBackfillJob 대상이 아님")
         }
 
+    /**
+     * interval 문자열 → Interval enum 파싱 (v2).
+     *
+     * v2 정책: MinuteCandleBackfillJob은 M1 only 영속.
+     * M5/M15/M30/H1 요청은 M1으로 강제 폴백 — 합성은 api 모듈 CandleAggregator 담당.
+     */
     private fun parseInterval(raw: String): Interval =
         when (raw.uppercase()) {
-            "M1", "1M" -> Interval.M1
-            "M5", "5M" -> Interval.M5
-            "M15", "15M" -> Interval.M15
-            "M30", "30M" -> Interval.M30
-            "H1", "1H" -> Interval.H1
-            else -> Interval.M30 // 기본값
+            "M1", "1M", "1MIN" -> Interval.M1
+            "D1", "DAY" -> Interval.D1
+            else -> {
+                // 합성 interval(M5/M30/H1 등) → M1으로 폴백
+                log.info("[minute-backfill] interval={} → M1 폴백 (v2 정책: 1분봉 단일 영속)", raw)
+                Interval.M1
+            }
         }
 
     // -------------------------------------------------------------------------
