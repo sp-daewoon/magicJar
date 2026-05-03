@@ -5,6 +5,7 @@ const DashboardPage = lazy(() => import('@/pages/Dashboard'))
 const BacktestPage = lazy(() => import('@/pages/Backtest'))
 const JournalPage = lazy(() => import('@/pages/Journal'))
 const StrategyPage = lazy(() => import('@/pages/Strategy'))
+const StrategyBuilderPage = lazy(() => import('@/pages/StrategyBuilder'))
 const HarnessOpsPage = lazy(() => import('@/pages/HarnessOps'))
 const SymbolDetailPage = lazy(() => import('@/pages/SymbolDetail'))
 const OrdersPage = lazy(() => import('@/pages/Orders'))
@@ -35,6 +36,9 @@ function RootLayout({ children }: { children?: React.ReactNode }) {
         </a>
         <a href="/strategy" className="text-sm hover:underline">
           전략
+        </a>
+        <a href="/strategy/builder" className="text-sm hover:underline">
+          전략빌더
         </a>
         <a href="/harness" className="text-sm hover:underline">
           하네스
@@ -83,6 +87,14 @@ export const router = createBrowserRouter([
     element: (
       <RootLayout>
         <StrategyPage />
+      </RootLayout>
+    ),
+  },
+  {
+    path: '/strategy/builder',
+    element: (
+      <RootLayout>
+        <StrategyBuilderPage />
       </RootLayout>
     ),
   },
