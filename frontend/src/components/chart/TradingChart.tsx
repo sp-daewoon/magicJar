@@ -45,6 +45,8 @@ interface TradingChartProps {
   onScrollEnd?: () => void
   /** 추가 데이터 fetch 중 여부 — 로딩 인디케이터 표시용 */
   isFetchingMore?: boolean
+  /** 화면에 보일 봉 수 (사용자 입력). 미지정 시 fitContent (전체). */
+  viewportSize?: number
 }
 
 interface HoverInfo {
@@ -103,6 +105,7 @@ export default function TradingChart({
   activeIndicators,
   onScrollEnd,
   isFetchingMore = false,
+  viewportSize,
 }: TradingChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const rsiContainerRef = useRef<HTMLDivElement>(null)
@@ -272,11 +275,19 @@ export default function TradingChart({
     candleSeriesRef.current.setData(candleData)
     volumeSeriesRef.current.setData(volumeData)
 
-    // 마지막 100봉만 보이도록 초기 zoom (사용자 조작 시 그대로 유지)
+    // viewportSize 지정 시 마지막 N봉만 보이게, 미지정 시 fitContent.
     if (candles.length > 0 && chartRef.current) {
-      chartRef.current.timeScale().fitContent()
+      const ts = chartRef.current.timeScale()
+      if (viewportSize && viewportSize > 0 && viewportSize < candles.length) {
+        ts.setVisibleLogicalRange({
+          from: candles.length - viewportSize,
+          to: candles.length - 1,
+        })
+      } else {
+        ts.fitContent()
+      }
     }
-  }, [candles])
+  }, [candles, viewportSize])
 
   // infinite scroll — 좌측 스크롤 끝 감지 (T19-T6)
   useEffect(() => {

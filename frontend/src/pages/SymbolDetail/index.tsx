@@ -33,6 +33,8 @@ export default function SymbolDetailPage() {
   const { code } = useParams<{ code: string }>()
   const symbolCode = (code ?? '').toUpperCase()
   const [interval, setInterval] = useState<ClientInterval>('DAY')
+  // 화면에 보일 봉 수 (사용자가 input으로 변경 가능). 기본 100봉.
+  const [viewportSize, setViewportSize] = useState<number>(100)
   const [activeIndicators, setActiveIndicators] = useState<Set<string>>(
     () => new Set(['SMA-5', 'SMA-20']), // 기본 활성: 단/중기 이평
   )
@@ -159,11 +161,30 @@ export default function SymbolDetailPage() {
                     <span className="text-xs text-destructive">데이터 오류 — 백엔드 응답 확인 필요</span>
                   )}
                   {!candlesLoading && !candlesError && (
-                    <span className="text-xs font-normal text-muted-foreground">
-                      {candles.length}개 봉
-                      {candles.length === 0 && ' — 데이터 없음'}
-                      {candlesHasMore && ' (더 있음)'}
-                    </span>
+                    <>
+                      {candles.length === 0 ? (
+                        <span className="text-xs font-normal text-muted-foreground">데이터 없음</span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-xs font-normal text-muted-foreground">
+                          뷰
+                          <input
+                            type="number"
+                            min={10}
+                            max={candles.length}
+                            value={viewportSize}
+                            onChange={(e) => {
+                              const n = Math.max(10, Math.min(candles.length, Number(e.target.value) || 100))
+                              setViewportSize(n)
+                            }}
+                            className="w-16 rounded border border-input bg-background px-1 py-0.5 text-xs tabular-nums"
+                            aria-label="화면에 보일 봉 수"
+                          />
+                          봉 / 로드: <span className="tabular-nums">{candles.length}</span>개
+                          {candlesFetchingMore && <span className="text-primary">⏳</span>}
+                          {candlesHasMore && !candlesFetchingMore && <span title="좌측 스크롤 시 추가 fetch">↺</span>}
+                        </span>
+                      )}
+                    </>
                   )}
                 </>
               )}
@@ -198,6 +219,7 @@ export default function SymbolDetailPage() {
                 className="px-2"
                 onScrollEnd={candlesHasMore ? fetchOlderCandles : undefined}
                 isFetchingMore={candlesFetchingMore}
+                viewportSize={viewportSize}
               />
             </div>
           )}
