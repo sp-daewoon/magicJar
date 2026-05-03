@@ -117,15 +117,28 @@ export interface NewsAnalyzedMessage {
 }
 
 /**
- * 시장 세션 상태 — 백엔드 MarketSession enum과 1:1 대응.
- * GET /api/instruments/{code}/quote 응답 및 STOMP 메시지에서 수신.
+ * 시장 세션 상태값 — 백엔드 MarketSessionState sealed class의 5 sub-class 이름.
  */
-export type MarketSession =
+export type MarketSessionStateValue =
   | 'Open'
   | 'PreMarket'
   | 'PostMarket'
   | 'Closed'
   | 'Holiday'
+
+/**
+ * 시장 세션 정보 — 백엔드 `MarketSession` data class와 1:1 대응.
+ *
+ * 백엔드 응답 예시:
+ *   { state: "Closed", lastBusinessDate: "2026-04-30", nextOpenAt: "2026-05-04T09:00+09:00" }
+ *
+ * GET /api/instruments/{code}/quote 응답에 포함.
+ */
+export interface MarketSession {
+  state: MarketSessionStateValue
+  lastBusinessDate?: string | null      // ISO-8601 yyyy-MM-dd
+  nextOpenAt?: string | null            // ISO-8601 OffsetDateTime
+}
 
 /**
  * 시세 데이터 소스 — 백엔드 QuoteSource enum과 1:1 대응.
