@@ -299,42 +299,114 @@ function JournalTab() {
 }
 
 /* ------------------------------------------------------------------ */
-/* 하네스 탭 — _workspace/dashboard.html iframe                         */
+/* 하네스 탭 — placeholder 카드 + dashboard.html accordion              */
 /* ------------------------------------------------------------------ */
 
 function HarnessTab() {
-  // 캐시 우회용 timestamp — 사용자가 npm run status 후 새로고침하면 갱신.
+  const [dashboardOpen, setDashboardOpen] = useState(false)
   const [reloadKey, setReloadKey] = useState(() => Date.now())
   const iframeUrl = `/api/harness/dashboard?t=${reloadKey}`
 
   return (
-    <div className="flex flex-col gap-3 lg:h-[calc(100vh-220px)]">
-      {/* tip 바: 갱신 명령 안내 + 새로고침 버튼 */}
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-muted bg-muted/30 px-3 py-2 text-xs">
-        <div className="flex items-center gap-2 text-muted-foreground">
-          <span className="font-semibold text-foreground">갱신:</span>
-          <code className="rounded bg-background px-1.5 py-0.5 font-mono">npm run status</code>
-          <span className="text-muted-foreground/70">또는</span>
-          <code className="rounded bg-background px-1.5 py-0.5 font-mono">node scripts/render-status.mjs</code>
-        </div>
-        <button
-          type="button"
-          onClick={() => setReloadKey(Date.now())}
-          className="rounded border border-input bg-background px-2 py-1 text-xs hover:bg-accent"
-          aria-label="iframe 새로고침"
-        >
-          새로고침
-        </button>
+    <div className="flex flex-col items-center gap-4 py-8 text-muted-foreground">
+      {/* 안내 아이콘 */}
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="40"
+        height="40"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="opacity-40"
+        aria-hidden="true"
+      >
+        <rect x="2" y="6" width="20" height="8" rx="1" />
+        <path d="M17 14v7" />
+        <path d="M7 14v7" />
+        <path d="M17 3v3" />
+        <path d="M7 3v3" />
+        <path d="M10 14L2.3 6.3" />
+        <path d="m14 6 7.7 7.7" />
+        <path d="m8 6 8 8" />
+      </svg>
+      <div className="text-center">
+        <p className="text-sm font-medium">에이전트 활동 · worktree · task 파일 — 다음 사이클 통합</p>
+        <p className="mt-1 text-xs">아래 "하네스 운영 현황"을 펼치면 실시간 dashboard를 볼 수 있습니다.</p>
       </div>
 
-      {/* dashboard iframe */}
-      <iframe
-        key={reloadKey}
-        src={iframeUrl}
-        title="하네스 운영 현황"
-        sandbox="allow-same-origin allow-scripts"
-        className="w-full flex-1 rounded-md border border-border bg-background min-h-[60vh]"
-      />
+      {/* T22 R2 계획 카드 (placeholder) */}
+      <div className="rounded-md border border-dashed border-muted p-4 text-left text-xs w-full max-w-sm">
+        <p className="font-semibold mb-1">T22 R2 계획 (다음 사이클)</p>
+        <ul className="space-y-0.5 list-disc list-inside text-muted-foreground">
+          <li>_workspace/_harness-state.json 파싱 → 에이전트 카드</li>
+          <li>_workspace/tasks/ 파일 목록 → 타임라인</li>
+          <li>ADR 목록 실시간 조회</li>
+          <li>QA 이슈 현황 카드</li>
+        </ul>
+      </div>
+
+      {/* dashboard.html accordion — 클릭 시 펼침 */}
+      <div className="w-full max-w-4xl">
+        <button
+          type="button"
+          onClick={() => setDashboardOpen((v) => !v)}
+          className="flex w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm font-medium hover:bg-accent"
+          aria-expanded={dashboardOpen}
+        >
+          <span className="flex items-center gap-2 text-foreground">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`transition-transform ${dashboardOpen ? 'rotate-90' : ''}`}
+              aria-hidden="true"
+            >
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+            하네스 운영 현황 (dashboard.html)
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {dashboardOpen ? '접기' : '펼치기'}
+          </span>
+        </button>
+
+        {dashboardOpen && (
+          <div className="mt-2 flex flex-col gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-muted bg-muted/30 px-3 py-2 text-xs">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <span className="font-semibold text-foreground">갱신:</span>
+                <code className="rounded bg-background px-1.5 py-0.5 font-mono">npm run status</code>
+                <span className="text-muted-foreground/70">또는</span>
+                <code className="rounded bg-background px-1.5 py-0.5 font-mono">node scripts/render-status.mjs</code>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReloadKey(Date.now())}
+                className="rounded border border-input bg-background px-2 py-1 text-xs hover:bg-accent"
+                aria-label="iframe 새로고침"
+              >
+                새로고침
+              </button>
+            </div>
+            <iframe
+              key={reloadKey}
+              src={iframeUrl}
+              title="하네스 운영 현황"
+              sandbox="allow-same-origin allow-scripts"
+              className="w-full rounded-md border border-border bg-background min-h-[60vh]"
+            />
+          </div>
+        )}
+      </div>
     </div>
   )
 }
