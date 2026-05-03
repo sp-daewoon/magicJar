@@ -18,13 +18,28 @@
  * T2-R4: 트랙2 D12 스펙 구현.
  */
 import { cn } from '@/lib/cn'
-import type { MarketSession } from '@/api/types'
+import type { MarketSession, MarketSessionStateValue } from '@/api/types'
 
 interface MarketSessionBadgeProps {
-  session: MarketSession | null | undefined
+  /**
+   * 세션 정보. 다음 형식 모두 허용:
+   *  - 객체: `{ state: 'Closed', lastBusinessDate, nextOpenAt }` (백엔드 응답)
+   *  - 문자열: `'Closed'` (간단 케이스)
+   *  - null/undefined (로딩 중)
+   */
+  session: MarketSession | MarketSessionStateValue | null | undefined
   className?: string
   /** 작게 표시 (아이콘+라벨만). 기본은 normal. */
   compact?: boolean
+}
+
+/** 객체이든 문자열이든 state 값만 추출 */
+function extractState(
+  session: MarketSession | MarketSessionStateValue | null | undefined,
+): MarketSessionStateValue | undefined {
+  if (!session) return undefined
+  if (typeof session === 'string') return session
+  return session.state
 }
 
 interface SessionStyle {
@@ -35,7 +50,7 @@ interface SessionStyle {
   tooltip: string
 }
 
-const SESSION_STYLE: Record<MarketSession, SessionStyle> = {
+const SESSION_STYLE: Record<MarketSessionStateValue, SessionStyle> = {
   Open: {
     bg: 'bg-green-50',
     fg: 'text-green-700',
@@ -87,7 +102,8 @@ export default function MarketSessionBadge({
   className,
   compact = false,
 }: MarketSessionBadgeProps) {
-  const style = session ? SESSION_STYLE[session] : LOADING_STYLE
+  const stateValue = extractState(session)
+  const style = stateValue ? SESSION_STYLE[stateValue] : LOADING_STYLE
 
   if (compact) {
     return (
@@ -118,14 +134,14 @@ export default function MarketSessionBadge({
       <span className={cn('h-2 w-2 rounded-full flex-shrink-0', style.dot)} />
       {style.label}
       <span className="ml-0.5 font-normal text-[10px] text-muted-foreground">
-        {getSessionSubtext(session)}
+        {getSessionSubtext(stateValue)}
       </span>
     </div>
   )
 }
 
 /** 세션별 보조 문구 (짧게) */
-function getSessionSubtext(session: MarketSession | null | undefined): string {
+function getSessionSubtext(session: MarketSessionStateValue | null | undefined): string {
   switch (session) {
     case 'Open':
       return '09:00~15:30'
