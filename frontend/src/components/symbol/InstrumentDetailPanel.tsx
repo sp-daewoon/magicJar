@@ -10,16 +10,22 @@
  *  - 업종·대표자
  *
  * 반응형: 기본 grid 2열, 모바일 1열 (sm:grid-cols-2)
+ *
+ * 키 미등록 안내:
+ *  - isError=true 시 "KIS 실전 키 + DART 키 등록 필요" Alert 표시
+ *  - "지금 등록" 버튼 → onOpenSettings 콜백 호출 (SettingsModal 열기)
  */
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
+import { Button } from '@/components/ui/button'
 import type { InstrumentDetail } from '@/api/types'
 
 interface InstrumentDetailPanelProps {
   detail: InstrumentDetail | undefined
   isLoading: boolean
   isError: boolean
+  onOpenSettings?: () => void
 }
 
 // ── 포맷 유틸 ──────────────────────────────────────────────────────────────────
@@ -103,24 +109,75 @@ function DetailSkeleton() {
   )
 }
 
+// ── 키 미등록 안내 패널 ──────────────────────────────────────────────────────────
+
+interface KeyMissingAlertProps {
+  onOpenSettings?: () => void
+}
+
+function KeyMissingAlert({ onOpenSettings }: KeyMissingAlertProps) {
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-3 py-6 px-4">
+        {/* 경고 아이콘 + 제목 */}
+        <div className="flex items-start gap-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600 dark:bg-amber-900/30">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+              <path d="M12 9v4" />
+              <path d="M12 17h.01" />
+            </svg>
+          </div>
+          <div className="space-y-1">
+            <p className="text-sm font-medium">종목 메타·재무 데이터 미수신</p>
+            <p className="text-xs text-muted-foreground">
+              KIS 실전 키 또는 DART 키가 등록되지 않았습니다.
+              설정에서 KIS 실전 키와 DART 키를 등록하면 시가총액·PER·재무 데이터를 확인할 수 있습니다.
+            </p>
+          </div>
+        </div>
+        {onOpenSettings && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onOpenSettings}
+            className="w-full h-8 text-xs"
+            data-testid="open-settings-btn"
+          >
+            지금 등록 (설정 열기)
+          </Button>
+        )}
+        <p className="text-[11px] text-muted-foreground text-center">
+          백엔드 <code className="font-mono text-[10px]">GET /api/instruments/&#123;code&#125;/detail</code> 응답 없음
+        </p>
+      </CardContent>
+    </Card>
+  )
+}
+
 // ── 메인 컴포넌트 ───────────────────────────────────────────────────────────────
 
 export default function InstrumentDetailPanel({
   detail,
   isLoading,
   isError,
+  onOpenSettings,
 }: InstrumentDetailPanelProps) {
   if (isLoading) return <DetailSkeleton />
 
   if (isError || !detail) {
-    return (
-      <Card>
-        <CardContent className="flex flex-col items-center justify-center gap-1 py-8 text-sm text-muted-foreground">
-          <span>재무 데이터 없음 (DART API)</span>
-          <span className="text-xs">백엔드 <code>GET /api/instruments/&#123;code&#125;/detail</code> 응답 없음</span>
-        </CardContent>
-      </Card>
-    )
+    return <KeyMissingAlert onOpenSettings={onOpenSettings} />
   }
 
   return (

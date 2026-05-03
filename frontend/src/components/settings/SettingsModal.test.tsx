@@ -54,6 +54,7 @@ function wrapper({ children }: { children: React.ReactNode }) {
 describe('SettingsModal', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
   })
 
   it('open=false 시 렌더링 안 됨', () => {
@@ -67,7 +68,7 @@ describe('SettingsModal', () => {
     expect(screen.getByText('설정')).toBeInTheDocument()
   })
 
-  it('기본 탭은 인증', () => {
+  it('기본 탭은 인증 — 인증 상태 카드 표시', () => {
     render(<SettingsModal open={true} onClose={vi.fn()} />, { wrapper })
     expect(screen.getByText('인증 상태')).toBeInTheDocument()
   })
@@ -96,5 +97,33 @@ describe('SettingsModal', () => {
     render(<SettingsModal open={true} onClose={vi.fn()} />, { wrapper })
     fireEvent.click(screen.getByText('기타'))
     expect(screen.getByText(/추가 설정은 향후/)).toBeInTheDocument()
+  })
+
+  // ── 3섹션 카드 검증 ──────────────────────────────────────────────────────
+
+  it('인증 탭 — KIS 모의투자 카드가 표시된다', () => {
+    render(<SettingsModal open={true} onClose={vi.fn()} />, { wrapper })
+    expect(screen.getByText('KIS 모의투자')).toBeInTheDocument()
+  })
+
+  it('인증 탭 — KIS 실전투자 카드가 표시된다', () => {
+    render(<SettingsModal open={true} onClose={vi.fn()} />, { wrapper })
+    expect(screen.getByText('KIS 실전투자')).toBeInTheDocument()
+  })
+
+  it('인증 탭 — DART 재무 데이터 카드가 표시된다', () => {
+    render(<SettingsModal open={true} onClose={vi.fn()} />, { wrapper })
+    expect(screen.getByText('DART 재무 데이터')).toBeInTheDocument()
+  })
+
+  it('KIS 모의투자 카드 — App Key 입력창이 있다', () => {
+    render(<SettingsModal open={true} onClose={vi.fn()} />, { wrapper })
+    const input = screen.getByLabelText('App Key', { selector: '#mock-app-key' })
+    expect(input).toBeInTheDocument()
+  })
+
+  it('DART 카드 — DART API Key 입력창이 있다', () => {
+    render(<SettingsModal open={true} onClose={vi.fn()} />, { wrapper })
+    expect(screen.getByLabelText('DART API Key')).toBeInTheDocument()
   })
 })
