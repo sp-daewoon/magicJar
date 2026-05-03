@@ -49,6 +49,20 @@ interface InstrumentJpaRepository : JpaRepository<InstrumentJpa, String> {
               AND UPPER(i.name) NOT LIKE 'SMART%'
               AND UPPER(i.name) NOT LIKE 'MASTERS%'
               AND UPPER(i.name) NOT LIKE '%H ETN%'
+              -- 추가 ETF 발행사 + 액티브 ETF 패턴 (UNICORN·KoAct·KIWOOM·BNK·KGI·SHINHAN)
+              AND UPPER(i.name) NOT LIKE 'UNICORN%'
+              AND UPPER(i.name) NOT LIKE 'KOACT%'
+              AND UPPER(i.name) NOT LIKE 'KIWOOM%'
+              AND UPPER(i.name) NOT LIKE 'BNK %'
+              AND UPPER(i.name) NOT LIKE 'KGI %'
+              AND UPPER(i.name) NOT LIKE 'SHINHAN %'
+              AND UPPER(i.name) NOT LIKE 'NH-AMUNDI%'
+              -- 액티브·합성·커버드콜·채권혼합·ETN 등 ETF 시리즈 패턴
+              AND i.name NOT LIKE '%액티브%'
+              AND i.name NOT LIKE '%합성%'
+              AND i.name NOT LIKE '%커버드콜%'
+              AND i.name NOT LIKE '%채권혼합%'
+              AND i.name NOT LIKE '%만기형%'
               AND (LOWER(i.code) LIKE LOWER(CONCAT('%', :query, '%'))
                    OR LOWER(i.name) LIKE LOWER(CONCAT('%', :query, '%')))
             ORDER BY i.code
