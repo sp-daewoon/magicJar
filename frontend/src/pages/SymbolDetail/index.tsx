@@ -4,7 +4,7 @@
  * 구성:
  *  1. SymbolHeader — 종목명 + WebSocket 실시간 시세
  *  2. 봉 단위 선택 (일/주/월/년/분봉)
- *  3. TradingChart — 단일 LWC chart + 볼륨 overlay + crosshair OHLC tooltip (ADR 0022)
+ *  3. TradingChart — 단일 LWC chart + 볼륨 overlay + crosshair OHLC tooltip + infinite scroll (T19-T6)
  *  4. JournalTable — 해당 종목 매매일지 리스트
  */
 import { useState } from 'react'
@@ -22,7 +22,8 @@ import { instrumentsApi } from '@/api/instruments'
 import { journalApiV2 } from '@/api/journal'
 import { useSymbolQuote } from '@/hooks/useSymbolQuote'
 import { useWsConnectionState } from '@/hooks/useWsConnectionState'
-import { resolveInterval, type ClientInterval } from '@/lib/candleAggregator'
+import { useCandles } from '@/hooks/useCandles'
+import type { ClientInterval } from '@/lib/candleAggregator'
 
 export default function SymbolDetailPage() {
   const { code } = useParams<{ code: string }>()
@@ -31,7 +32,6 @@ export default function SymbolDetailPage() {
   const [activeIndicators, setActiveIndicators] = useState<Set<string>>(
     () => new Set(['SMA-5', 'SMA-20']), // 기본 활성: 단/중기 이평
   )
-  const { serverInterval, transform } = resolveInterval(interval)
 
   // 종목 정보 조회
   const {
@@ -47,19 +47,18 @@ export default function SymbolDetailPage() {
 
   const isTick = interval === 'TICK'
 
-  // 캔들 데이터 조회 — 백엔드 D1/M1/M5/M15/M30/H1만 — W/MO/Y 클라 집계, 틱은 endpoint 호출 안 함
+  // infinite scroll 캔들 hook (T19-T6)
+  // - 첫 fetch: 최신 200봉 (before=undefined)
+  // - 좌측 스크롤 끝 → fetchOlderCandles() 자동 추가 fetch
+  // - M15/M30/H1: 내부적으로 M5 서버 fetch 후 클라 합성 (T19-T5)
   const {
-    data: rawCandles = [],
+    candles,
+    fetchOlderCandles,
+    hasMore: candlesHasMore,
     isLoading: candlesLoading,
+    isFetchingMore: candlesFetchingMore,
     isError: candlesError,
-  } = useQuery({
-    queryKey: ['candles', symbolCode, serverInterval],
-    queryFn: () => instrumentsApi.candles(symbolCode, serverInterval),
-    enabled: !!symbolCode && !isTick,
-    staleTime: 60_000,
-  })
-
-  const candles = isTick ? [] : transform(rawCandles)
+  } = useCandles(symbolCode, interval)
 
   // 매매일지 조회
   const {
@@ -139,6 +138,7 @@ export default function SymbolDetailPage() {
                     <span className="text-xs font-normal text-muted-foreground">
                       {candles.length}개 봉
                       {candles.length === 0 && ' — 해당 봉 단위 시드 부재'}
+                      {candlesHasMore && ' (더 있음)'}
                       {import.meta.env.VITE_USE_MOCK === 'true' && ' (mock)'}
                     </span>
                   )}
@@ -173,6 +173,8 @@ export default function SymbolDetailPage() {
                 activeIndicators={activeIndicators}
                 height={480}
                 className="px-2"
+                onScrollEnd={candlesHasMore ? fetchOlderCandles : undefined}
+                isFetchingMore={candlesFetchingMore}
               />
             </div>
           )}

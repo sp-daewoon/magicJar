@@ -15,6 +15,7 @@ describe('App', () => {
     expect(screen.getByText('백테스트')).toBeInTheDocument()
     expect(screen.getByText('매매일지')).toBeInTheDocument()
     expect(screen.getByText('전략')).toBeInTheDocument()
-    expect(screen.getByText('하네스')).toBeInTheDocument()
+    // T22: 하네스 → 개발일지로 변경됨
+    expect(screen.getByText('개발일지')).toBeInTheDocument()
   })
 })
