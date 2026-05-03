@@ -3,6 +3,7 @@ import { lazy, Suspense, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SettingsModal } from '@/components/settings/SettingsModal'
+import InstrumentSearch from '@/components/header/InstrumentSearch'
 import { useAuthStatus, DEFAULT_USER_ID } from '@/hooks/useAuth'
 import type { KisMode } from '@/api/auth'
 
@@ -127,8 +128,9 @@ function RootLayout({ children }: { children?: React.ReactNode }) {
           </svg>
           개발일지
         </a>
-        {/* 우측 정렬: 인증 상태 배지 + 설정 버튼 */}
-        <div className="ml-auto">
+        {/* 헤더 검색창 (T20-T6) + 우측 정렬: 인증 상태 배지 + 설정 버튼 */}
+        <div className="ml-auto flex items-center gap-3">
+          <InstrumentSearch />
           <HeaderActions />
         </div>
       </nav>

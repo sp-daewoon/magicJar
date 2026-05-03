@@ -3,8 +3,10 @@
  *
  * 구성:
  *  1. SymbolHeader — 종목명 + WebSocket 실시간 시세
- *  2. 봉 단위 선택 (일/주/월/년/분봉)
- *  3. TradingChart — 단일 LWC chart + 볼륨 overlay + crosshair OHLC tooltip + infinite scroll (T19-T6)
+ *  2. 좌측 메타 패널 + 우측 차트 2열 레이아웃 (T20-T7)
+ *     - 메타: 시가총액·재무·밸류에이션·주주·배당
+ *     - 차트: 봉 단위 선택 + TradingChart (LWC)
+ *  3. AI 뉴스 감성 분석
  *  4. JournalTable — 해당 종목 매매일지 리스트
  */
 import { useState } from 'react'
@@ -15,6 +17,7 @@ import TradingChart from '@/components/chart/TradingChart'
 import RealtimeTickChart from '@/components/chart/RealtimeTickChart'
 import IntervalSelector from '@/components/chart/IntervalSelector'
 import IndicatorPanel from '@/components/chart/IndicatorPanel'
+import InstrumentDetailPanel from '@/components/symbol/InstrumentDetailPanel'
 import SymbolHeader from './SymbolHeader'
 import JournalTable from './JournalTable'
 import NewsAnalysisCard from './NewsAnalysisCard'
@@ -23,6 +26,7 @@ import { journalApiV2 } from '@/api/journal'
 import { useSymbolQuote } from '@/hooks/useSymbolQuote'
 import { useWsConnectionState } from '@/hooks/useWsConnectionState'
 import { useCandles } from '@/hooks/useCandles'
+import { useInstrumentDetail } from '@/hooks/useInstrumentDetail'
 import type { ClientInterval } from '@/lib/candleAggregator'
 
 export default function SymbolDetailPage() {
@@ -59,6 +63,13 @@ export default function SymbolDetailPage() {
     isFetchingMore: candlesFetchingMore,
     isError: candlesError,
   } = useCandles(symbolCode, interval)
+
+  // 종목 상세 메타 (T20-T7)
+  const {
+    data: instrumentDetail,
+    isLoading: detailLoading,
+    isError: detailError,
+  } = useInstrumentDetail(symbolCode)
 
   // 매매일지 조회
   const {
@@ -116,6 +127,19 @@ export default function SymbolDetailPage() {
         </CardContent>
       </Card>
 
+      {/* 메인 레이아웃: 좌측 메타 패널 + 우측 차트 (T20-T7) */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">
+        {/* 좌측: 종목 상세 메타 */}
+        <div className="order-2 lg:order-1">
+          <InstrumentDetailPanel
+            detail={instrumentDetail}
+            isLoading={detailLoading}
+            isError={detailError}
+          />
+        </div>
+
+        {/* 우측: 메인 차트 */}
+        <div className="order-1 lg:order-2">
       {/* 메인 차트 — 단일 LWC chart + 볼륨 오버레이 + 봉 단위 선택 + crosshair OHLC tooltip */}
       <Card>
         <CardHeader className="pb-2">
@@ -180,6 +204,8 @@ export default function SymbolDetailPage() {
           )}
         </CardContent>
       </Card>
+        </div>{/* 우측 chart div 닫기 */}
+      </div>{/* grid 레이아웃 닫기 */}
 
       {/* AI 뉴스 감성 분석 */}
       <NewsAnalysisCard code={symbolCode} />
