@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     kafka_topic_screenshot: str = Field(
         default="screenshot.captured.v1", alias="KAFKA_TOPIC_SCREENSHOT"
     )
+    # ADR 0048 §C — yahoo backfill publish topic
+    # api 측 CandleMinuteEventListener와 동일 (consumer TickToMinuteAggregator도 같은 토픽 사용).
+    kafka_topic_candle_minute: str = Field(
+        default="candle.minute.aggregated.v1", alias="KAFKA_TOPIC_CANDLE_MINUTE"
+    )
 
     # S3 / MinIO
     s3_endpoint: str = Field(default="localhost:9000", alias="S3_ENDPOINT")

@@ -11,6 +11,7 @@ Kotlin 측 클래스 (스키마 정의 단일 진실):
 - com.mj.domain.news.event.DartDisclosureEvent
 - com.mj.domain.market.event.CandleEvent  (참고용, pyworker는 publish 안 함)
 - com.mj.domain.market.event.TickEvent     (참고용)
+- com.mj.domain.market.event.CandleMinuteAggregatedEvent  (ADR 0048, pyworker yahoo backfill publish)
 
 ScreenshotCapturedEvent: Kotlin domain class는 P3 시점에 미정의 (consumer 토픽 설정만 존재).
 pyworker가 정의하는 스키마가 사실상 단일 진실 — Kotlin 측은 P4에서 동일 필드로 추가 정의 예정.
@@ -19,6 +20,7 @@ pyworker가 정의하는 스키마가 사실상 단일 진실 — Kotlin 측은 
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
@@ -48,6 +50,7 @@ class _KafkaModel(BaseModel):
         json_encoders={
             datetime: _to_iso_utc,
             UUID: str,
+            Decimal: str,
         },
     )
 
@@ -93,6 +96,31 @@ class ScreenshotCapturedEvent(_KafkaModel):
     requestedBy: str | None = None  # api-app 호출 컨텍스트 (journalId 등)
 
 
+class CandleMinuteAggregatedEvent(_KafkaModel):
+    """Topic: `candle.minute.aggregated.v1` — Kotlin com.mj.domain.market.event.CandleMinuteAggregatedEvent.
+
+    PR #113 정의. consumer:TickToMinuteAggregator가 1분 버킷 flush 시 발행하던 토픽을
+    pyworker yahoo backfill도 동일 schema로 재사용 (ADR 0048 §C). api 측
+    CandleMinuteEventListener가 수신 후 candle 테이블에 INSERT (interval=M1).
+
+    필드 (Kotlin data class 그대로):
+    - code        종목코드 (e.g. "005930")
+    - openTime    1분 버킷 시작 시각 (Instant, KST 분 단위 align)
+    - open/high/low/close  BigDecimal → 문자열 직렬화
+    - volume      Long
+    - tradeCount  Long (yahoo backfill은 0으로 채움 — yahoo는 tick count 미제공)
+    """
+
+    code: str
+    openTime: datetime
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    volume: int
+    tradeCount: int = 0
+
+
 # Kafka __TypeId__ 헤더 매핑
 # JsonDeserializer 가 Kotlin 측에서 본인 클래스를 찾을 수 있도록 FQN 부여.
 # Kotlin 측에서 spring.json.type.mapping 으로 alias도 가능하지만 FQN이 가장 안전.
@@ -100,4 +128,7 @@ TYPE_ID_HEADERS: dict[type[_KafkaModel], str] = {
     NewsRawEvent: "com.mj.domain.news.event.NewsRawEvent",
     DartDisclosureEvent: "com.mj.domain.news.event.DartDisclosureEvent",
     ScreenshotCapturedEvent: "com.mj.domain.market.event.ScreenshotCapturedEvent",
+    CandleMinuteAggregatedEvent: (
+        "com.mj.domain.market.event.CandleMinuteAggregatedEvent"
+    ),
 }
