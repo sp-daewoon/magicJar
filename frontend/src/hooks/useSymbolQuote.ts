@@ -56,6 +56,9 @@ export function useSymbolQuote(code: string, prevClose?: number | null): QuoteSt
   useEffect(() => {
     if (!code) return
 
+    // 종목 변경 시 이전 가격 잔재 표시 회피 — INITIAL로 즉시 reset.
+    setQuote(INITIAL)
+
     let cancelled = false
     instrumentsApi.quote(code).then((resp) => {
       if (cancelled || !resp) return
