@@ -76,10 +76,51 @@ class RealKisRestAdapter(
         interval: Interval,
         from: LocalDate,
         to: LocalDate,
+    ): List<Candle> {
+        if (from.isAfter(to)) return emptyList()
+
+        // KIS inquire-daily-itemchartprice는 1회 호출 최대 100봉(역순) — 1년 = 약 250 영업일이라 페이징 필요.
+        // 안전 한도 MAX_PAGES — 무한 loop·과도한 호출 방지. 1년 backfill에 3페이지 충분, 6페이지 = 약 2년치.
+        val accumulator = mutableListOf<Candle>()
+        var cursor = to
+
+        for (page in 0 until MAX_PAGES) {
+            if (cursor.isBefore(from)) break
+
+            val pageCandles = fetchCandlesSinglePage(code, interval, from, cursor)
+            if (pageCandles.isEmpty()) break
+
+            accumulator.addAll(pageCandles)
+
+            // KIS 응답이 KIS_PAGE_LIMIT(100) 미만이면 from에 도달했거나 더 이전 데이터 없음 → 종료.
+            if (pageCandles.size < KIS_PAGE_LIMIT) break
+
+            // 다음 페이지 — 가장 오래된 candle 다음 날을 새 `to`로.
+            // (그 candle은 이미 받았으므로 -1day 하지 않으면 한 봉이 두 번 들어옴)
+            val oldestDate =
+                pageCandles
+                    .minBy { it.openTime }
+                    .openTime
+                    .atZone(zone)
+                    .toLocalDate()
+            if (!oldestDate.isAfter(from)) break // from 이하 도달
+            cursor = oldestDate.minusDays(1)
+        }
+
+        // 페이지 경계 중복 가능성 차단 (방어적) + openTime ASC 정렬
+        return accumulator.distinctBy { it.openTime }.sortedBy { it.openTime }
+    }
+
+    /** 단일 페이지 — KIS API 1회 호출 (최대 KIS_PAGE_LIMIT 봉). */
+    private fun fetchCandlesSinglePage(
+        code: String,
+        interval: Interval,
+        from: LocalDate,
+        to: LocalDate,
     ): List<Candle> =
         executeWithTokenRefresh {
             val periodDivCode = intervalToPeriodDivCode(interval)
-            log.debug("[real-kis] fetchCandles code={} interval={} from={} to={}", code, interval, from, to)
+            log.debug("[real-kis] fetchCandles page code={} interval={} from={} to={}", code, interval, from, to)
 
             val response =
                 restClient
@@ -351,6 +392,12 @@ class RealKisRestAdapter(
     // -------------------------------------------------------------------------
 
     companion object {
+        /** KIS inquire-daily-itemchartprice 1회 호출 최대 봉 수. */
+        const val KIS_PAGE_LIMIT: Int = 100
+
+        /** 페이징 안전 한도 — 1년 = 약 250 영업일이라 3페이지 충분, 6페이지 = 약 2년치. */
+        const val MAX_PAGES: Int = 6
+
         private fun String.parseDecimal(): BigDecimal = if (isBlank()) BigDecimal.ZERO else BigDecimal(trim())
 
         private fun String.parseLong(): Long = if (isBlank()) 0L else trim().toLongOrNull() ?: 0L
