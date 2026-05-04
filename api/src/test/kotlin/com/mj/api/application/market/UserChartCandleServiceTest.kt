@@ -1,6 +1,7 @@
 package com.mj.api.application.market
 
 import com.mj.api.infrastructure.kis.KisChartCandleAdapter
+import com.mj.api.messaging.producer.UserCandleEventPublisher
 import com.mj.domain.common.Candle
 import com.mj.domain.common.Interval
 import com.mj.domain.market.cache.port.UserCandleCachePort
@@ -23,13 +24,15 @@ import java.time.Instant
  *   3. cache miss + DB miss → 빈 응답 + touchRecent만 (warm-up 안 함)
  *
  * W/MO KIS direct fetch 검증은 [UserChartCandleServiceWmoTest] 참조.
+ * R3-4: UserCandleEventPublisher 추가 — relaxed mock으로 publish 호출 허용.
  */
 class UserChartCandleServiceTest {
     private val cache = mockk<UserCandleCachePort>()
     private val candleRepository = mockk<CandleRepository>()
     private val candleAggregator = CandleAggregator() // 실제 로직 사용 (단위 테스트)
     private val kisChartCandleAdapter = mockk<KisChartCandleAdapter>(relaxed = true)
-    private val sut = UserChartCandleService(cache, candleRepository, candleAggregator, kisChartCandleAdapter)
+    private val userCandleEventPublisher = mockk<UserCandleEventPublisher>(relaxed = true) // R3-4 fail-soft
+    private val sut = UserChartCandleService(cache, candleRepository, candleAggregator, kisChartCandleAdapter, userCandleEventPublisher)
 
     private val userId = UserChartCandleService.DEFAULT_USER_ID
     private val code = "005930"
