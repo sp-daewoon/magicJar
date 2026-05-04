@@ -47,6 +47,7 @@ import java.time.OffsetDateTime
         JpaRepositoriesAutoConfiguration::class,
         FlywayAutoConfiguration::class,
     ],
+    properties = ["magicjar.chart.redis-first.enabled=false"],
 )
 @Import(WebSecurityConfig::class)
 class InstrumentControllerTest {

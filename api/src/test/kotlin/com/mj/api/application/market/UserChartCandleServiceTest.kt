@@ -135,83 +135,84 @@ class UserChartCandleServiceTest {
 
     @Test
     fun `fetchByString M5 — M1 base 캐시에서 조회 후 5분봉 합성`() {
-        // KST 09:00 시작 30개 M1 → 5분봉 6개로 합성될 것
+        val limit = 6
+        val targetMinutes = 5
+        val m1Limit = limit * targetMinutes // 30 — cache hit 조건 충족
         val baseM1 =
-            (0 until 30).map {
-                candleFixture(
-                    Instant.parse("2026-04-30T00:00:00Z").plusSeconds(it * 60L), // KST 09:00 = UTC 00:00
-                    Interval.M1,
-                )
-            }
-        // M5 limit=200 → m1Limit = 200*5 = 1000
-        every { cache.fetch(userId, code, "M1", null, 1000) } returns baseM1
-        every { cache.touchRecent(userId, code) } returns emptyList()
-
-        val result = sut.fetchByString(userId, code, "M5", limit = 200)
-
-        // 30개 M1 → 6개 M5
-        assert(result.size == 6) { "expected 6 M5 candles, got ${result.size}" }
-        // 첫 봉의 openTime이 base의 첫 봉과 같아야
-        assert(result.first().openTime == baseM1.first().openTime)
-        verify(exactly = 1) { cache.fetch(userId, code, "M1", null, 1000) }
-    }
-
-    @Test
-    fun `fetchByString H1 — M1 base + 60분 합성`() {
-        // 60개 M1 → 1개 H1
-        val baseM1 =
-            (0 until 60).map {
+            (0 until m1Limit).map {
                 candleFixture(
                     Instant.parse("2026-04-30T00:00:00Z").plusSeconds(it * 60L),
                     Interval.M1,
                 )
             }
-        // limit*60=12000 > MAX_BASE_LIMIT(10_000)이라 clamp
-        every { cache.fetch(userId, code, "M1", null, 10_000) } returns baseM1
+        every { cache.fetch(userId, code, "M1", null, m1Limit) } returns baseM1
         every { cache.touchRecent(userId, code) } returns emptyList()
 
-        val result = sut.fetchByString(userId, code, "H1", limit = 200)
+        val result = sut.fetchByString(userId, code, "M5", limit = limit)
+
+        assert(result.size == limit) { "expected $limit M5 candles, got ${result.size}" }
+        assert(result.first().openTime == baseM1.first().openTime)
+        verify(exactly = 1) { cache.fetch(userId, code, "M1", null, m1Limit) }
+    }
+
+    @Test
+    fun `fetchByString H1 — M1 base + 60분 합성`() {
+        val limit = 1
+        val targetMinutes = 60
+        val m1Limit = limit * targetMinutes // 60
+        val baseM1 =
+            (0 until m1Limit).map {
+                candleFixture(
+                    Instant.parse("2026-04-30T00:00:00Z").plusSeconds(it * 60L),
+                    Interval.M1,
+                )
+            }
+        every { cache.fetch(userId, code, "M1", null, m1Limit) } returns baseM1
+        every { cache.touchRecent(userId, code) } returns emptyList()
+
+        val result = sut.fetchByString(userId, code, "H1", limit = limit)
 
         assert(result.size == 1) { "expected 1 H1 candle from 60 M1, got ${result.size}" }
     }
 
     @Test
     fun `fetchByString W — D1 base + 주봉 합성`() {
-        // 14일 D1 → 3주 (월~금 기준 ISO week)
+        val limit = 4
+        val baseLimit = limit * 5 // 20일치 D1
         val baseD1 =
-            (0 until 14).map {
+            (0 until baseLimit).map {
                 candleFixture(
                     Instant.parse("2026-04-13T00:00:00Z").plusSeconds(it * 86400L),
                     Interval.D1,
                 )
             }
-        // W → baseLimit = limit * 5 = 1000
-        every { cache.fetch(userId, code, "D1", null, 1000) } returns baseD1
+        every { cache.fetch(userId, code, "D1", null, baseLimit) } returns baseD1
         every { cache.touchRecent(userId, code) } returns emptyList()
 
-        val result = sut.fetchByString(userId, code, "W", limit = 200)
+        val result = sut.fetchByString(userId, code, "W", limit = limit)
 
-        // 14일이 ISO week로 3주에 걸침 (대략)
-        assert(result.size in 2..4) { "expected 2~4 W candles from 14 D1, got ${result.size}" }
+        // 20일이 ISO week로 3~5주에 걸침. takeLast(limit=4) 적용
+        assert(result.size in 2..4) { "expected 2~4 W candles from 20 D1, got ${result.size}" }
     }
 
     @Test
     fun `fetchByString MO — D1 base + 월봉 합성`() {
-        // 4월 5일 + 5월 5일 → 2개월
+        val limit = 2
+        val baseLimit = limit * 22 // 44일치 D1
         val baseD1 =
-            listOf(
-                candleFixture(Instant.parse("2026-04-05T00:00:00Z"), Interval.D1),
-                candleFixture(Instant.parse("2026-04-15T00:00:00Z"), Interval.D1),
-                candleFixture(Instant.parse("2026-05-05T00:00:00Z"), Interval.D1),
-                candleFixture(Instant.parse("2026-05-15T00:00:00Z"), Interval.D1),
-            )
-        // MO → baseLimit = 200 * 22 = 4400
-        every { cache.fetch(userId, code, "D1", null, 4400) } returns baseD1
+            (0 until baseLimit).map {
+                candleFixture(
+                    Instant.parse("2026-04-15T00:00:00Z").plusSeconds(it * 86400L),
+                    Interval.D1,
+                )
+            }
+        every { cache.fetch(userId, code, "D1", null, baseLimit) } returns baseD1
         every { cache.touchRecent(userId, code) } returns emptyList()
 
-        val result = sut.fetchByString(userId, code, "MO", limit = 200)
+        val result = sut.fetchByString(userId, code, "MO", limit = limit)
 
-        assert(result.size == 2) { "expected 2 MO candles, got ${result.size}" }
+        // 4-15 ~ 5-28 = 4월·5월 2개월. takeLast(2) = 2
+        assert(result.size == 2) { "expected 2 MO candles from 44 D1, got ${result.size}" }
     }
 
     @Test

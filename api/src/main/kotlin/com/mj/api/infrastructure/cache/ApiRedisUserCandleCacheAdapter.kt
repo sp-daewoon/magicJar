@@ -10,7 +10,6 @@ import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
 import java.time.Instant
-import java.util.UUID
 
 /**
  * Redis ZSet 기반 사용자 차트 캐시 구현체. ADR 0050.
@@ -73,7 +72,7 @@ class ApiRedisUserCandleCacheAdapter(
     }
 
     override fun upsert(
-        userId: UUID,
+        userId: String,
         code: String,
         interval: String,
         candle: Candle,
@@ -88,7 +87,7 @@ class ApiRedisUserCandleCacheAdapter(
     }
 
     override fun upsertAll(
-        userId: UUID,
+        userId: String,
         code: String,
         interval: String,
         candles: List<Candle>,
@@ -106,7 +105,7 @@ class ApiRedisUserCandleCacheAdapter(
     }
 
     override fun fetch(
-        userId: UUID,
+        userId: String,
         code: String,
         interval: String,
         before: Instant?,
@@ -143,7 +142,7 @@ class ApiRedisUserCandleCacheAdapter(
     }
 
     override fun touchRecent(
-        userId: UUID,
+        userId: String,
         code: String,
     ): List<String> {
         val recentKey = recentKey(userId)
@@ -177,7 +176,7 @@ class ApiRedisUserCandleCacheAdapter(
     }
 
     override fun setLastFetch(
-        userId: UUID,
+        userId: String,
         code: String,
         interval: String,
         at: Instant,
@@ -186,7 +185,7 @@ class ApiRedisUserCandleCacheAdapter(
     }
 
     override fun getLastFetch(
-        userId: UUID,
+        userId: String,
         code: String,
         interval: String,
     ): Instant? {
@@ -195,15 +194,15 @@ class ApiRedisUserCandleCacheAdapter(
     }
 
     private fun candleKey(
-        userId: UUID,
+        userId: String,
         code: String,
         interval: String,
     ) = "$CANDLE_PREFIX$userId:$code:$interval"
 
-    private fun recentKey(userId: UUID) = "$RECENT_PREFIX$userId"
+    private fun recentKey(userId: String) = "$RECENT_PREFIX$userId"
 
     private fun lastfetchKey(
-        userId: UUID,
+        userId: String,
         code: String,
         interval: String,
     ) = "$LASTFETCH_PREFIX$userId:$code:$interval"
