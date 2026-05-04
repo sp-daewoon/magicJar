@@ -31,6 +31,7 @@ import java.time.ZoneId
 class CandleCacheService(
     private val candleRepository: CandleRepository,
     private val cacheMetaRepository: CacheMetaRepository,
+    private val instrumentService: com.mj.api.application.instrument.InstrumentService,
     private val restClientBuilder: RestClient.Builder,
     @Value("\${magicjar.pyworker.base-url:http://localhost:8000}") private val pyworkerBaseUrl: String,
 ) {
@@ -106,13 +107,24 @@ class CandleCacheService(
      */
     @Async
     fun triggerBackgroundFetchAsync(code: String) {
-        log.info("[cache] cold-start backfill 시작 — code={} pyworker={} (yfinance 1m×30일)", code, pyworkerBaseUrl)
+        // instrument.market 조회 — KOSPI/KOSDAQ에 따라 yfinance primary suffix 결정.
+        // 누락 시 pyworker가 .KS로 시도 후 .KQ fallback (사용자 보고 2026-05-04 에코플라스틱
+        // 케이스: yfinance가 .KS에 일봉 형태 잘못 응답 → fallback 안 됨).
+        val market = instrumentService.get(code)?.market?.name ?: "KOSPI"
+
+        log.info(
+            "[cache] cold-start backfill 시작 — code={} market={} pyworker={} (yfinance 1m×30일)",
+            code,
+            market,
+            pyworkerBaseUrl,
+        )
         try {
             val request =
                 mapOf(
                     "code" to code,
                     "interval" to "1m",
                     "days" to 30,
+                    "market" to market,
                 )
             val resp =
                 pyworkerClient

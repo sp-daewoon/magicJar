@@ -52,6 +52,14 @@ class YahooBackfillRequestBody(BaseModel):
         examples=["1m"],
     )
     days: int = Field(..., gt=0, description="거꾸로 fetch할 일수 (1m은 30일 한도)", examples=[30])
+    market: str | None = Field(
+        default=None,
+        description=(
+            "KOSPI | KOSDAQ | KONEX. 명시 시 해당 시장 suffix를 primary로 사용. "
+            "누락 시 .KS 우선·실패 시 .KQ fallback (legacy)."
+        ),
+        examples=["KOSDAQ"],
+    )
     kospiSuffix: str = Field(default=".KS", description="KOSPI suffix")
     kosdaqFallbackSuffix: str = Field(
         default=".KQ", description="`.KS` 빈 결과 시 fallback suffix"
@@ -86,13 +94,19 @@ async def trigger_yahoo_backfill(
     service: Annotated[YahooBackfillService, Depends(_service)],
 ) -> YahooBackfillResponse:
     """yfinance.history 호출 → CandleMinuteAggregatedEvent로 변환 → Kafka publish."""
+    # market 명시 시 primary suffix 결정 — KOSDAQ이면 .KQ, 그 외(KOSPI·KONEX·null)는 .KS
+    primary = body.kospiSuffix
+    fallback = body.kosdaqFallbackSuffix
+    if (body.market or "").upper() == "KOSDAQ":
+        primary, fallback = body.kosdaqFallbackSuffix, body.kospiSuffix
+
     try:
         normalized = normalize_request(
             code=body.code,
             interval=body.interval,
             days=body.days,
-            kospi_suffix=body.kospiSuffix,
-            kosdaq_fallback_suffix=body.kosdaqFallbackSuffix,
+            kospi_suffix=primary,
+            kosdaq_fallback_suffix=fallback,
         )
     except YahooFetchError as ex:
         raise HTTPException(status_code=400, detail=str(ex)) from ex
