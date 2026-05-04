@@ -1,9 +1,10 @@
 /**
  * Market API 클라이언트
  * GET /api/market/index?codes=KOSPI,KOSDAQ  — KOSPI·KOSDAQ 지수 조회
+ * GET /api/market/session                   — KRX 장 상태 스냅샷 (R2-A3 §T18)
  */
 import { apiClient } from './client'
-import type { MarketIndex } from './types'
+import type { MarketIndex, MarketSession } from './types'
 
 export const marketApi = {
   /**
@@ -15,4 +16,10 @@ export const marketApi = {
     const params = new URLSearchParams({ codes: codes.join(',') })
     return apiClient.get<MarketIndex[]>(`/market/index?${params}`)
   },
+
+  /**
+   * 현재 장 상태 조회 — GET /api/market/session.
+   * 1분 in-memory cache (백엔드).
+   */
+  session: (): Promise<MarketSession> => apiClient.get<MarketSession>(`/market/session`),
 }

@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import MarketSessionBadge from '@/components/market/MarketSessionBadge'
 import ManualOrderPanel from '@/components/ManualOrderPanel'
 import { useMarketIndex } from '@/hooks/useMarketIndex'
+import { useMarketSession } from '@/hooks/useMarketSession'
 import { usePositionStore } from '@/stores/position'
 import { useWsConnectionState } from '@/hooks/useWsConnectionState'
 import type { MarketIndex } from '@/api/types'
@@ -133,13 +134,16 @@ export default function DashboardPage() {
   // KOSPI·KOSDAQ 지수 조회 (1분 refetch)
   const { data: indices = [], isLoading: indexLoading } = useMarketIndex(['KOSPI', 'KOSDAQ'])
 
+  // 장 상태 스냅샷 — 지수 응답이 없어도 세션 배지가 노출되도록 별도 polling (R2-A3 §T22)
+  const { data: marketSession } = useMarketSession()
+
   return (
     <div className="space-y-4">
       {/* 헤더 */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">대시보드</h1>
         <div className="flex items-center gap-2">
-          <MarketSessionBadge session={indices[0]?.session ?? null} />
+          <MarketSessionBadge session={marketSession ?? indices[0]?.session ?? null} />
           {/* WebSocket 연결 상태 표시 */}
           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
             <span
