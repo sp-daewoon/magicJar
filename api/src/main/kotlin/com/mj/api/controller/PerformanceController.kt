@@ -16,7 +16,6 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.time.LocalDate
-import java.util.UUID
 
 /**
  * 실거래 매매일지 기반 성과 조회 REST controller (T14 ADR 0046 정합).
@@ -46,7 +45,7 @@ class PerformanceController(
     fun summary(
         @Parameter(description = "사용자 식별자 UUID", example = "00000000-0000-0000-0000-000000000001", required = true)
         @RequestParam("userId")
-        userId: UUID,
+        userId: String,
         @Parameter(description = "조회 시작일 (yyyy-MM-dd, inclusive)", example = "2026-01-01", required = true)
         @RequestParam("from")
         @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
@@ -67,7 +66,7 @@ class PerformanceController(
     @GetMapping("/equity-curve")
     fun equityCurve(
         @Parameter(description = "사용자 식별자", required = true)
-        @RequestParam("userId") userId: UUID,
+        @RequestParam("userId") userId: String,
         @Parameter(description = "조회 시작일", required = true)
         @RequestParam("from")
         @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) from: LocalDate,
@@ -90,7 +89,7 @@ class PerformanceController(
     @GetMapping("/period")
     fun byPeriod(
         @Parameter(description = "사용자 식별자", required = true)
-        @RequestParam("userId") userId: UUID,
+        @RequestParam("userId") userId: String,
         @Parameter(
             description = "집계 단위",
             example = "MONTHLY",

@@ -38,7 +38,7 @@ class OrderEventEntity(
     @Column(name = "order_id", nullable = false)
     val orderId: UUID,
     @Column(name = "user_id", nullable = false)
-    val userId: UUID,
+    val userId: String,
     @Column(name = "account_no", nullable = false, length = 20)
     val accountNo: String,
     @Column(name = "kis_mode", nullable = false, length = 8)

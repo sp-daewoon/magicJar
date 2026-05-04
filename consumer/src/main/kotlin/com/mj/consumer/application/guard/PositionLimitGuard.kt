@@ -9,7 +9,6 @@ import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
 import java.math.RoundingMode
-import java.util.UUID
 import org.springframework.core.annotation.Order as SpringOrder
 
 /**
@@ -44,7 +43,7 @@ class PositionLimitGuard(
     private val log = LoggerFactory.getLogger(javaClass)
 
     override fun check(
-        userId: UUID,
+        userId: String,
         accountNo: String,
         order: Order,
     ): GuardDecision {

@@ -14,7 +14,6 @@ import jakarta.persistence.Table
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.stereotype.Component
 import java.time.OffsetDateTime
-import java.util.UUID
 
 // ─── users ───────────────────────────────────────────────────────────────────
 
@@ -23,7 +22,7 @@ import java.util.UUID
 class UserApiEntity(
     @Id
     @Column(name = "user_id")
-    val userId: UUID,
+    val userId: String,
     @Column(name = "username", nullable = false, unique = true, length = 64)
     val username: String,
     @Column(name = "display_name", length = 128)
@@ -40,13 +39,13 @@ class UserApiEntity(
     }
 }
 
-interface UserApiJpaRepository : JpaRepository<UserApiEntity, UUID>
+interface UserApiJpaRepository : JpaRepository<UserApiEntity, String>
 
 @Component
 class UserApiJpaAdapter(
     private val repo: UserApiJpaRepository,
 ) : UserRepository {
-    override fun findById(userId: UUID): User? = repo.findById(userId).orElse(null)?.toDomain()
+    override fun findById(userId: String): User? = repo.findById(userId).orElse(null)?.toDomain()
 
     override fun save(user: User): User = repo.save(UserApiEntity.from(user)).toDomain()
 }
@@ -58,7 +57,7 @@ class UserApiJpaAdapter(
 class UserTradingConfigApiEntity(
     @Id
     @Column(name = "user_id")
-    val userId: UUID,
+    val userId: String,
     @Enumerated(EnumType.STRING)
     @Column(name = "trading_mode", nullable = false, length = 16)
     val tradingMode: TradingMode,
@@ -106,13 +105,13 @@ class UserTradingConfigApiEntity(
     }
 }
 
-interface UserTradingConfigApiJpaRepository : JpaRepository<UserTradingConfigApiEntity, UUID>
+interface UserTradingConfigApiJpaRepository : JpaRepository<UserTradingConfigApiEntity, String>
 
 @Component
 class UserTradingConfigApiJpaAdapter(
     private val repo: UserTradingConfigApiJpaRepository,
 ) : UserTradingConfigRepository {
-    override fun findByUserId(userId: UUID): UserTradingConfig? = repo.findById(userId).orElse(null)?.toDomain()
+    override fun findByUserId(userId: String): UserTradingConfig? = repo.findById(userId).orElse(null)?.toDomain()
 
     override fun save(config: UserTradingConfig): UserTradingConfig = repo.save(UserTradingConfigApiEntity.from(config)).toDomain()
 }

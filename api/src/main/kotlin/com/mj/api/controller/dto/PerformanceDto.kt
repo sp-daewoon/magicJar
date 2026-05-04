@@ -7,7 +7,6 @@ import com.mj.domain.journal.performance.PerformanceSummary
 import io.swagger.v3.oas.annotations.media.Schema
 import java.math.BigDecimal
 import java.time.LocalDate
-import java.util.UUID
 
 @Schema(description = "성과 통계 메트릭 (T9 PerformanceMetrics 정합)")
 data class PerformanceMetricsDto(
@@ -36,7 +35,7 @@ data class PerformanceMetricsDto(
 @Schema(description = "성과 요약 응답 (메트릭 + equity curve)")
 data class PerformanceSummaryResponse(
     @Schema(description = "사용자 식별자", example = "00000000-0000-0000-0000-000000000001")
-    val userId: UUID,
+    val userId: String,
     @Schema(description = "조회 시작일", example = "2026-01-01")
     val fromDate: LocalDate,
     @Schema(description = "조회 종료일", example = "2026-12-31")

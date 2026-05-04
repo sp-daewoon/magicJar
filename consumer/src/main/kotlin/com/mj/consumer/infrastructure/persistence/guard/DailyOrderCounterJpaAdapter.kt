@@ -15,14 +15,13 @@ import java.io.Serializable
 import java.math.BigDecimal
 import java.time.LocalDate
 import java.time.OffsetDateTime
-import java.util.UUID
 
 @Embeddable
 data class DailyOrderCounterId(
     @Column(name = "counter_date")
     val counterDate: LocalDate,
     @Column(name = "user_id")
-    val userId: UUID,
+    val userId: String,
     @Column(name = "account_no", length = 20)
     val accountNo: String,
 ) : Serializable
@@ -55,7 +54,7 @@ interface DailyOrderCounterJpaRepository : JpaRepository<DailyOrderCounterEntity
     )
     fun incrementCounter(
         @Param("date") date: LocalDate,
-        @Param("userId") userId: UUID,
+        @Param("userId") userId: String,
         @Param("accountNo") accountNo: String,
         @Param("value") value: BigDecimal,
     ): Int
@@ -72,13 +71,13 @@ class DailyOrderCounterJpaAdapter(
 ) {
     fun current(
         date: LocalDate,
-        userId: UUID,
+        userId: String,
         accountNo: String,
     ): DailyOrderCounterEntity? = repo.findById(DailyOrderCounterId(date, userId, accountNo)).orElse(null)
 
     fun increment(
         date: LocalDate,
-        userId: UUID,
+        userId: String,
         accountNo: String,
         value: BigDecimal,
     ) {

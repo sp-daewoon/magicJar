@@ -31,7 +31,7 @@ import java.util.UUID
 class RealKisOrderAdapterIT {
     private lateinit var wm: WireMockServer
     private lateinit var adapter: RealKisOrderAdapter
-    private val userId = UUID.fromString("00000000-0000-0000-0000-000000000001")
+    private val userId = "74683223"
 
     @BeforeEach
     fun setUp() {

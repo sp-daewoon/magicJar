@@ -10,7 +10,6 @@ import java.time.YearMonth
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import java.time.temporal.IsoFields
-import java.util.UUID
 
 /**
  * 실거래 매매일지 기반 성과 계산기.
@@ -39,7 +38,7 @@ object PerformanceCalculator {
      * 전체 통계 요약 + equity curve 동시 산출.
      */
     fun summarize(
-        userId: UUID,
+        userId: String,
         fromDate: LocalDate,
         toDate: LocalDate,
         initialCapital: BigDecimal,

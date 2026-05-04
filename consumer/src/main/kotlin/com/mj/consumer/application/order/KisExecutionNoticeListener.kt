@@ -197,7 +197,7 @@ class KisExecutionNoticeListener(
         OrderEventRecord(
             eventId = UUID.randomUUID(),
             orderId = UUID.randomUUID(), // 헬퍼 — 미사용
-            userId = UUID.randomUUID(), // 헬퍼 — 미사용
+            userId = "", // 헬퍼 — 미사용
             accountNo = "",
             kisMode = "",
             kisOrderNo = "",

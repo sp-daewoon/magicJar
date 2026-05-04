@@ -7,7 +7,6 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Component
-import java.util.UUID
 import org.springframework.core.annotation.Order as SpringOrder
 
 /**
@@ -35,7 +34,7 @@ class MarketSessionGuard(
     private val log = LoggerFactory.getLogger(javaClass)
 
     override fun check(
-        userId: UUID,
+        userId: String,
         accountNo: String,
         order: Order,
     ): GuardDecision {

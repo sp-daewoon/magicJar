@@ -5,7 +5,6 @@ import com.mj.domain.strategy.backtest.Trade
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
 import java.time.LocalDate
-import java.util.UUID
 
 /**
  * [RealizedTradeRepository] 1차 stub adapter (R1).
@@ -24,10 +23,10 @@ import java.util.UUID
 @Component
 class StubRealizedTradeRepositoryAdapter : RealizedTradeRepository {
     override fun findClosedTrades(
-        userId: UUID,
+        userId: String,
         from: LocalDate,
         to: LocalDate,
     ): List<Trade> = emptyList()
 
-    override fun findInitialCapital(userId: UUID): BigDecimal = BigDecimal("10000000")
+    override fun findInitialCapital(userId: String): BigDecimal = BigDecimal("10000000")
 }

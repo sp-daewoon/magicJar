@@ -26,7 +26,6 @@ import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import java.time.OffsetDateTime
-import java.util.UUID
 
 @WebMvcTest(
     controllers = [AuthController::class],
@@ -54,7 +53,7 @@ class AuthControllerTest {
     @Autowired
     lateinit var objectMapper: ObjectMapper
 
-    private val defaultUserId = UUID.fromString("00000000-0000-0000-0000-000000000001")
+    private val defaultUserId = "74683223"
 
     // ─── GET /api/auth/status ─────────────────────────────────────────────────
 

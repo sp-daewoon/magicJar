@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.mj.api.application.order.OrderApiService
 import org.springframework.stereotype.Component
 import java.time.Instant
-import java.util.UUID
 
 /**
  * `get_journal` (read) — spec §4-5.
@@ -82,7 +81,7 @@ class GetJournalTool(
                 ?.get("userId")
                 ?.asText()
                 ?.takeIf { it.isNotBlank() }
-                ?.let { UUID.fromString(it) }
+                ?.takeIf { it.isNotBlank() }
                 ?: DEFAULT_USER_ID
         val from =
             arguments
@@ -110,7 +109,7 @@ class GetJournalTool(
                 .toList()
 
         return mapOf(
-            "userId" to userId.toString(),
+            "userId" to userId,
             "orders" to
                 filtered.map { o ->
                     mapOf(
@@ -135,6 +134,6 @@ class GetJournalTool(
     companion object {
         // 1번 트랙 시드 사용자 — OrderController.DEFAULT_USER_ID 동일.
         // 인증 도입 시 (ISSUE-006 후속) @AuthenticationPrincipal에서 추출하도록 교체.
-        val DEFAULT_USER_ID: UUID = UUID.fromString("00000000-0000-0000-0000-000000000001")
+        const val DEFAULT_USER_ID: String = "74683223"
     }
 }

@@ -9,14 +9,13 @@ import jakarta.persistence.Table
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.stereotype.Component
 import java.time.OffsetDateTime
-import java.util.UUID
 
 @Entity
 @Table(name = "users")
 class UserEntity(
     @Id
     @Column(name = "user_id")
-    val userId: UUID,
+    val userId: String,
     @Column(name = "username", nullable = false, unique = true, length = 64)
     val username: String,
     @Column(name = "display_name", length = 128)
@@ -40,13 +39,13 @@ class UserEntity(
     }
 }
 
-interface UserJpaRepository : JpaRepository<UserEntity, UUID>
+interface UserJpaRepository : JpaRepository<UserEntity, String>
 
 @Component
 class UserJpaAdapter(
     private val repo: UserJpaRepository,
 ) : UserRepository {
-    override fun findById(userId: UUID): User? = repo.findById(userId).orElse(null)?.toDomain()
+    override fun findById(userId: String): User? = repo.findById(userId).orElse(null)?.toDomain()
 
     override fun save(user: User): User = repo.save(UserEntity.from(user)).toDomain()
 }

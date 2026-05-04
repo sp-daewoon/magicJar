@@ -11,10 +11,9 @@ import io.mockk.mockk
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.time.OffsetDateTime
-import java.util.UUID
 
 class DbKisCredentialProviderTest {
-    private val userId = UUID.fromString("00000000-0000-0000-0000-000000000001")
+    private val userId = "74683223"
     private val repo = mockk<UserTradingConfigRepository>()
     private val cipher = mockk<SecretCipher>()
     private val provider = DbKisCredentialProvider(repo, cipher)

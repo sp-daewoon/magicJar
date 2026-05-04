@@ -23,7 +23,6 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
-import java.util.UUID
 
 /**
  * KIS 인증 REST endpoint.
@@ -63,7 +62,7 @@ class AuthController(
     @GetMapping("/status", produces = [MediaType.APPLICATION_JSON_VALUE])
     fun status(
         @Parameter(description = "사용자 ID (기본: DEFAULT_USER_ID)", example = "00000000-0000-0000-0000-000000000001")
-        @RequestParam(required = false) userId: UUID?,
+        @RequestParam(required = false) userId: String?,
     ): ResponseEntity<AuthStatusResponse> {
         val result = authService.status(userId ?: DEFAULT_USER_ID)
         return ResponseEntity.ok(
@@ -100,7 +99,7 @@ class AuthController(
     @PostMapping("/login", consumes = [MediaType.APPLICATION_JSON_VALUE], produces = [MediaType.APPLICATION_JSON_VALUE])
     fun login(
         @Parameter(description = "사용자 ID (기본: DEFAULT_USER_ID)", example = "00000000-0000-0000-0000-000000000001")
-        @RequestParam(required = false) userId: UUID?,
+        @RequestParam(required = false) userId: String?,
         @Valid @RequestBody body: LoginRequestDto,
     ): ResponseEntity<LoginResponse> {
         val result =
@@ -143,7 +142,7 @@ class AuthController(
     @PostMapping("/mode", consumes = [MediaType.APPLICATION_JSON_VALUE], produces = [MediaType.APPLICATION_JSON_VALUE])
     fun switchMode(
         @Parameter(description = "사용자 ID (기본: DEFAULT_USER_ID)", example = "00000000-0000-0000-0000-000000000001")
-        @RequestParam(required = false) userId: UUID?,
+        @RequestParam(required = false) userId: String?,
         @Valid @RequestBody body: ModeChangeRequestDto,
     ): ResponseEntity<ModeChangeResponse> {
         val result = authService.switchMode(userId ?: DEFAULT_USER_ID, ModeChangeRequest(KisMode.fromValue(body.mode)))
@@ -157,7 +156,7 @@ class AuthController(
     }
 
     companion object {
-        val DEFAULT_USER_ID: UUID = UUID.fromString("00000000-0000-0000-0000-000000000001")
+        const val DEFAULT_USER_ID: String = "74683223"
     }
 }
 

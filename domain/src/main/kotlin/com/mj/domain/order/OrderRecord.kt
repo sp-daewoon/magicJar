@@ -20,7 +20,7 @@ import java.util.UUID
  */
 data class OrderRecord(
     val orderId: UUID,
-    val userId: UUID,
+    val userId: String,
     val accountNo: String,
     val kisMode: String,
     val intentId: UUID,

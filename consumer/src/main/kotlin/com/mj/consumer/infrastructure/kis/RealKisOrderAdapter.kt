@@ -23,7 +23,6 @@ import org.springframework.web.client.RestClientResponseException
 import java.math.BigDecimal
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import java.util.UUID
 
 /**
  * KIS 주문/잔고/체결조회 어댑터. spec §5, §6.1, ADR 0035.
@@ -64,7 +63,7 @@ class RealKisOrderAdapter(
         }
 
     override fun placeOrder(
-        userId: UUID,
+        userId: String,
         order: Order,
     ): KisOrderResult {
         val cred = credentials.forUser(userId)
@@ -97,7 +96,7 @@ class RealKisOrderAdapter(
     }
 
     override fun cancelOrder(
-        userId: UUID,
+        userId: String,
         kisOrderNo: String,
         krxFwdgOrdOrgno: String,
         qtyAll: Boolean,
@@ -114,7 +113,7 @@ class RealKisOrderAdapter(
         )
 
     override fun modifyOrder(
-        userId: UUID,
+        userId: String,
         kisOrderNo: String,
         krxFwdgOrdOrgno: String,
         newQty: Int,
@@ -131,7 +130,7 @@ class RealKisOrderAdapter(
         )
 
     private fun rvseCncl(
-        userId: UUID,
+        userId: String,
         kisOrderNo: String,
         krxFwdgOrdOrgno: String,
         rvseCnclCode: String,
@@ -159,7 +158,7 @@ class RealKisOrderAdapter(
         return KisOrderResponseMapper.toOrderResult(output)
     }
 
-    override fun fetchBalance(userId: UUID): KisBalanceSnapshot {
+    override fun fetchBalance(userId: String): KisBalanceSnapshot {
         val cred = credentials.forUser(userId)
         val trId = if (cred.tradingMode == TradingMode.MOCK_KIS) "VTTC8434R" else "TTTC8434R"
         val params =
@@ -181,7 +180,7 @@ class RealKisOrderAdapter(
     }
 
     override fun fetchExecutions(
-        userId: UUID,
+        userId: String,
         date: LocalDate,
         executedOnly: Boolean,
     ): List<KisExecutionLine> {

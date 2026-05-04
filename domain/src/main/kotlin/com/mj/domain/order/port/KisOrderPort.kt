@@ -6,7 +6,6 @@ import com.mj.domain.order.KisExecutionLine
 import com.mj.domain.order.KisOrderResult
 import java.math.BigDecimal
 import java.time.LocalDate
-import java.util.UUID
 
 /**
  * KIS 주문/잔고/체결조회 시스템 어댑터 포트. spec §3 D1, §6.2.
@@ -14,12 +13,12 @@ import java.util.UUID
  */
 interface KisOrderPort {
     fun placeOrder(
-        userId: UUID,
+        userId: String,
         order: Order,
     ): KisOrderResult
 
     fun cancelOrder(
-        userId: UUID,
+        userId: String,
         kisOrderNo: String,
         krxFwdgOrdOrgno: String,
         qtyAll: Boolean = true,
@@ -27,17 +26,17 @@ interface KisOrderPort {
     ): KisOrderResult
 
     fun modifyOrder(
-        userId: UUID,
+        userId: String,
         kisOrderNo: String,
         krxFwdgOrdOrgno: String,
         newQty: Int,
         newPrice: BigDecimal,
     ): KisOrderResult
 
-    fun fetchBalance(userId: UUID): KisBalanceSnapshot
+    fun fetchBalance(userId: String): KisBalanceSnapshot
 
     fun fetchExecutions(
-        userId: UUID,
+        userId: String,
         date: LocalDate,
         executedOnly: Boolean = false,
     ): List<KisExecutionLine>

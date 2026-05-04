@@ -3,7 +3,6 @@ package com.mj.domain.journal.performance.port
 import com.mj.domain.strategy.backtest.Trade
 import java.math.BigDecimal
 import java.time.LocalDate
-import java.util.UUID
 
 /**
  * 실거래 매매일지 trade 조회 port.
@@ -15,10 +14,10 @@ import java.util.UUID
  */
 interface RealizedTradeRepository {
     fun findClosedTrades(
-        userId: UUID,
+        userId: String,
         from: LocalDate,
         to: LocalDate,
     ): List<Trade>
 
-    fun findInitialCapital(userId: UUID): BigDecimal
+    fun findInitialCapital(userId: String): BigDecimal
 }
