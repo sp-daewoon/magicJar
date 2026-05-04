@@ -4,13 +4,26 @@
   "lastReleaseAt": "2026-05-05T02:50:00+09:00",
   "lastReleaseUrl": "https://github.com/sp-daewoon/magicJar/releases/tag/v2.0.1",
   "lastReleaseNotes": "차트 Redis-first + user_id 통일 (28 commits since v2.0.0). ADR 0050 + R3-1/2/3 + V21 user_id UUID→String. release/v2는 v2.0.0 immutable 보존(ADR 0027).",
+  "lastCompletedCycle": {
+    "id": "R3-4",
+    "completedAt": "2026-05-05T03:35:00+09:00",
+    "prs": [
+      {"n": 161, "track": "B (frontend)", "sha": "e5fc971", "title": "IntervalSelector 자유 입력 + 10m 버튼"},
+      {"n": 163, "track": "A (market-data)", "sha": "ac6a168", "title": "KIS W/MO endpoint (FID_PERIOD_DIV_CODE 분기)"},
+      {"n": 162, "track": "C (strategy)", "sha": "ed19297", "title": "user candle Kafka publish + consumer ZADD listener (dual-write)"}
+    ],
+    "newKafkaTopic": "market.candle.user.v1",
+    "kafkaPolicy": "dual-write — api 직접 ZADD 보존 + Kafka publish 추가 + consumer ZADD listener (idempotent). 다음 사이클에서 단일 path 전환",
+    "subagentDispatch": "3 worktree isolation (frontend·market-data·strategy sonnet). sub-agent Bash 권한 차단 → 메인 세션이 build·test·commit·PR 일괄 처리",
+    "rebaseConflictResolution": "PR #162 (Track C) UserChartCandleService.kt + Test에서 A=KisChartCandleAdapter 주입 vs C=UserCandleEventPublisher 주입 둘 다 보존으로 해결",
+    "knownLimitations": ["force-push 정책 차단 — 사용자 본인 명시 행위로 1회 우회"]
+  },
   "nextSessionEntry": {
     "priorities": [
-      "R3-4 — KIS W/MO endpoint (FID_PERIOD_DIV_CODE='W'/'M' 분기, RealKisRestAdapter)",
-      "R3-4 — frontend IntervalSelector 직접 입력 input + 10m 버튼 추가 (버튼 유지)",
-      "R3-4 — Kafka publish + consumer ZADD listener (market.candle.user.v1 신규)",
+      "R3-4 라이브 검증 (사용자 환경 docker 재빌드 — W/MO interval 200 + 자유 입력 차트 + Kafka publish→consumer ZADD 동작)",
+      "R3-5 (가칭) — Kafka candle 단일 path 전환 (dual-write 검증 후 api 직접 ZADD 제거)",
       "1번 트랙 dogfooding 재개 (월요일 영업일 KIS 주문 + EGW00202 헤더 진단 또는 mock 전환)",
-      "v2.0.2 또는 v2.1.0 다음 컷 시점 결정"
+      "v2.0.2 또는 v2.1.0 다음 컷 시점 결정 (R3-4 라이브 + 단일 path + dogfooding 누적)"
     ],
     "userChartCacheUserId": "74683223",
     "redisFirstChartFlag": "magicjar.chart.redis-first.enabled = true (default)",

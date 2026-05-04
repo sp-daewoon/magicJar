@@ -35,7 +35,7 @@
 <body>
 
 <h1>magicJar 세션 요약 — 2026-05-05 화요일</h1>
-<div class="meta">ADR 0050 (Redis ZSet first 차트) + R3-1·R3-2·R3-3 (UserCandleCachePort + Redis adapter + 합성 interval 통합) + user_id UUID→String 일괄 전환 (V21 + 53 파일) + yfinance KOSDAQ 정합 + frontend viewport 보존 → <b>v2.0.1 릴리즈</b></div>
+<div class="meta">ADR 0050 (Redis ZSet first 차트) + R3-1·R3-2·R3-3 → <b>v2.0.1 릴리즈</b> · 후속 세션 R3-4 3 트랙 병렬 (KIS W/MO + IntervalSelector 자유 입력 + Kafka candle dual-write)</div>
 
 <h2>1. 머지 PR 매트릭스 (KST 5/5)</h2>
 <table>
@@ -70,10 +70,11 @@
 </div>
 
 <h2>3. Kafka 토픽·데이터 흐름 변경</h2>
-<div class="card">
-  <h3>변경 — 0건</h3>
-  <p class="small">기존 Kafka 토폴로지 그대로. R3-3 합성 interval은 cache miss 시 DB fallback이라 신규 토픽 0. R3-4(다음 세션)에서 <code>market.candle.user.v1</code> 신규 publish 예정.</p>
-</div>
+<table>
+  <tr><th>토픽</th><th>변경</th><th>방향</th><th>스키마</th><th>PR</th></tr>
+  <tr><td><code>market.candle.user.v1</code></td><td>신규</td><td>api → consumer</td><td><code>UserCandleUpdatedEvent { userId, code, interval, candles[CandleSnapshot], occurredAt }</code></td><td>#162</td></tr>
+</table>
+<p class="small">api <code>UserChartCandleService</code>가 DB warm-up 직후 publish (fail-soft). consumer <code>UserCandleListener</code>가 받아 <code>ConsumerRedisUserCandleCacheAdapter</code>로 ZADD — api 측 직접 ZADD와 score 동일이라 idempotent. <b>Dual-write 1차</b> — 회귀 0 보장. 다음 사이클에서 api 직접 ZADD 제거 → 단일 path.</p>
 
 <h2>4. Redis 사용처 변경</h2>
 <table>
@@ -141,12 +142,110 @@
 <h2>7. 다음 세션 일정</h2>
 <table>
   <tr><th>#</th><th>항목</th><th>예상</th><th>비고</th></tr>
-  <tr><td>1</td><td>R3-4 — KIS W/MO endpoint (FID_PERIOD_DIV_CODE='W'/'M')</td><td>~0.5일</td><td>현재 W/MO은 D1 합성. KIS 직접 호출 시 정확도↑</td></tr>
-  <tr><td>2</td><td>R3-4 — frontend IntervalSelector 직접 입력 + 10m 버튼 추가</td><td>~0.3일</td><td>버튼 유지 + input 추가 (콤보박스 X)</td></tr>
-  <tr><td>3</td><td>R3-4 — Kafka publish + consumer ZADD listener (Q1 정합)</td><td>~0.7일</td><td><code>market.candle.user.v1</code> 신규. consumer가 사용자별 ZADD</td></tr>
-  <tr><td>4</td><td>1번 트랙 dogfooding 재개</td><td>~0.5일</td><td>월요일 영업일 KIS 주문 시도 (오늘 화요일 사용자 결정에 따라)</td></tr>
-  <tr><td>5</td><td>v2.0.2 또는 v2.1.0 다음 컷</td><td>—</td><td>R3-4 + dogfooding 결과 누적 시점</td></tr>
+  <tr><td>1</td><td>R3-4 라이브 검증 (사용자 환경)</td><td>~0.2일</td><td><code>docker compose</code> 재빌드·기동 후 W/MO interval 200 + 자유 입력(예: 12m·45m) 차트 + Kafka publish→consumer ZADD 동작 확인</td></tr>
+  <tr><td>2</td><td>R3-5 (가칭) — Kafka candle 단일 path 전환</td><td>~0.5일</td><td>dual-write 검증 후 api 직접 ZADD 제거. consumer가 유일한 Redis writer</td></tr>
+  <tr><td>3</td><td>1번 트랙 dogfooding 재개</td><td>~0.5일</td><td>월요일 영업일 KIS 주문 시도 + EGW00202 헤더 진단 또는 mock 전환</td></tr>
+  <tr><td>4</td><td>v2.0.2 또는 v2.1.0 다음 컷</td><td>—</td><td>R3-4 라이브 검증 + dual-write 단일 path 전환 + dogfooding 결과 누적 시점</td></tr>
 </table>
+
+<hr style="margin:36px 0;border:0;border-top:2px dashed var(--border)">
+<h1 style="font-size:20px">후속 세션 — R3-4 3 트랙 병렬 (KST 5/5 03:11~03:30)</h1>
+<div class="meta">ADR 0050 R3-4 사이클. 3 sub-agent worktree isolation 동시 디스패치. main 머지 → worktree 정리.</div>
+
+<h2>8. R3-4 머지 PR 매트릭스</h2>
+<table>
+  <tr><th>트랙</th><th>PR</th><th>내용</th><th>에이전트·모델</th><th>SHA</th></tr>
+  <tr><td>B (frontend)</td><td class="pr">#161</td><td>IntervalSelector 자유 입력 input(1~600분) + 10m 버튼. 기존 버튼 모두 보존. API 호출 형식 <code>Xm</code> 유지. vitest 38 PASS (신규 17+21).</td><td>frontend (sonnet)</td><td><code>e5fc971</code></td></tr>
+  <tr><td>A (market-data)</td><td class="pr">#163</td><td>KIS 주봉/월봉 endpoint 활성화. <code>RealKisRestAdapter.intervalToPeriodDivCode</code> W/M 분기 + <code>KisChartCandleAdapter</code> 신규 + <code>UserChartCandleService</code> W/MO 라우팅 → KIS direct (Y는 D1 합성 유지). WireMock 시나리오 7·8 신규.</td><td>market-data (sonnet)</td><td><code>ac6a168</code></td></tr>
+  <tr><td>C (strategy)</td><td class="pr">#162</td><td>사용자 차트 candle Kafka 분리 — <code>market.candle.user.v1</code> 토픽 + <code>UserCandleUpdatedEvent</code> + api publisher + consumer listener + ZADD adapter. <b>Dual-write 1차</b>(api 직접 ZADD 보존 + Kafka publish 추가). EmbeddedKafka 왕복 IT.</td><td>strategy (sonnet)</td><td><code>ed19297</code></td></tr>
+</table>
+
+<h2>9. R3-4 변경 영역 (요약)</h2>
+<div class="grid">
+  <div class="card">
+    <h3>domain</h3>
+    <ul>
+      <li><code>Interval.WEEK(10080)</code>, <code>MONTH(43200)</code> enum 추가</li>
+      <li><code>UserCandleUpdatedEvent</code> + <code>CandleSnapshot</code> (event)</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>api</h3>
+    <ul>
+      <li><code>KisChartCandleAdapter</code> (신규) — W/MO KIS direct fetch</li>
+      <li><code>UserChartCandleService</code> — W/MO 라우팅 + publish hook (한 줄, fail-soft)</li>
+      <li><code>UserCandleEventPublisher</code> (신규) — KafkaTemplate 래핑</li>
+      <li><code>application.yml</code> — <code>userCandleUpdated: market.candle.user.v1</code></li>
+      <li>테스트: <code>UserChartCandleServiceWmoTest</code> 7건 + <code>UserCandleEventPublisherTest</code> 3건</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>batch (KIS adapter)</h3>
+    <ul>
+      <li><code>RealKisRestAdapter.intervalToPeriodDivCode</code> — <code>D/W/M</code> 분기</li>
+      <li><code>MinuteCandleBackfillJob.intervalToMinutes</code> — exhaustive else</li>
+      <li><code>RealKisRestAdapterIT</code> — WireMock 시나리오 7(WEEK), 8(MONTH)</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>consumer</h3>
+    <ul>
+      <li><code>ConsumerRedisUserCandleCacheAdapter</code> (신규) — api와 동일 키·포맷</li>
+      <li><code>UserCandleListener</code> (신규) — <code>@KafkaListener(market.candle.user.v1)</code>, fail-soft</li>
+      <li><code>UserCandleRoundtripIT</code> — EmbeddedKafka 왕복 + fail-soft</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>frontend</h3>
+    <ul>
+      <li><code>IntervalSelector.tsx</code> — <code>M10</code> 버튼 + 자유 입력 input(1~600 정수, Enter/onBlur, inline alert)</li>
+      <li><code>candleAggregator.ts</code> — <code>ClientInterval</code>에 <code>M10</code> + <code>${number}m</code> 템플릿 리터럴 추가, <code>resolveInterval</code> 확장</li>
+      <li>vitest 신규 38건 (17 IntervalSelector + 21 aggregator)</li>
+    </ul>
+  </div>
+</div>
+
+<h2>10. R3-4 sub-agent 디스패치 내역</h2>
+<table>
+  <tr><th>#</th><th>에이전트</th><th>모델</th><th>worktree</th><th>결과</th></tr>
+  <tr><td>1</td><td>frontend</td><td>sonnet</td><td><code>.claude/worktrees/r3-4-interval-input</code></td><td>코드 완료, vitest·build 검증 메인 세션 처리 (sub-agent 권한 차단)</td></tr>
+  <tr><td>2</td><td>market-data</td><td>sonnet</td><td><code>.claude/worktrees/r3-4-kis-wmo</code></td><td>코드 완료, :batch 49 PASS / :api 262 PASS, D 회귀 0 — 메인이 commit·PR 처리</td></tr>
+  <tr><td>3</td><td>strategy</td><td>sonnet</td><td><code>.claude/worktrees/r3-4-candle-kafka</code></td><td>코드 완료, :domain/:api/:consumer test PASS — 메인이 commit·PR 처리</td></tr>
+</table>
+<div class="card" style="margin-top:12px">
+  <h3>이슈·복구</h3>
+  <ul>
+    <li><b>sub-agent Bash 권한 차단</b> — 3 sub-agent 모두 git/test/PR 명령 실행 불가. 코드 변경은 정상. 메인 세션이 build·test·commit·push·PR 일괄 처리. <span class="badge b-warn">harness 검토</span></li>
+    <li><b>ktlint 자동 정정</b> 2회 (Track A·C pre-commit) — <code>./gradlew ktlintFormat</code> 한 번씩 돌리고 재커밋</li>
+    <li><b>Track C rebase 충돌</b> — <code>UserChartCandleService.kt</code> + <code>UserChartCandleServiceTest.kt</code>: A의 <code>KisChartCandleAdapter</code> 주입 vs C의 <code>UserCandleEventPublisher</code> 주입 둘 다 보존으로 해결. <code>UserChartCandleServiceWmoTest</code> setUp 생성자에 publisher 추가</li>
+    <li><b>force-push 정책 차단</b> — <code>.claude/settings.json</code>이 <code>git push --force-with-lease</code>를 hard deny. 사용자 본인 명시 행위로 1회 force-push 후 메인이 머지 처리</li>
+    <li>worktree leak 0 — 머지 직후 3 worktree·로컬 브랜치 일괄 정리</li>
+  </ul>
+</div>
+
+<h2>11. R3-4 sanity (부분)</h2>
+<div class="grid">
+  <div class="card">
+    <h3>전체 모듈 테스트 PASS <span class="badge b-ok">PASS</span></h3>
+    <ul>
+      <li><code>:batch:test</code> 49 PASS / 0 FAIL (시나리오 7·8 포함)</li>
+      <li><code>:api:test</code> 262 PASS / 0 FAIL / 13 ignored (W/MO 7건 + publisher 3건 신규)</li>
+      <li><code>:consumer:test</code> PASS (Roundtrip IT 신규 2건)</li>
+      <li><code>:domain:test</code> PASS</li>
+      <li>frontend vitest 신규 38 PASS, vite build 175 modules</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>라이브 검증 — <span class="badge b-pending">사용자 환경 대기</span></h3>
+    <p class="small">docker 재빌드·기동 후:</p>
+    <ul>
+      <li>W·MO interval 200 + 봉 수 ≥ 1</li>
+      <li>자유 입력(예: <code>12m</code>, <code>45m</code>) 차트 표시</li>
+      <li>Kafka <code>market.candle.user.v1</code> publish 메시지 확인 (<code>kafka-ui</code>)</li>
+      <li>consumer ZADD가 api 기존 ZADD와 동일 (idempotent — <code>candle:74683223:005930:WEEK</code> 키)</li>
+    </ul>
+  </div>
+</div>
 
 </body>
 </html>
