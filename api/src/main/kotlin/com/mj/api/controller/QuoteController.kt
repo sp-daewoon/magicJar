@@ -64,8 +64,6 @@ class QuoteController(
 
             응답의 source 필드로 어느 단계에서 반환됐는지 확인할 수 있다.
             stale=true 이면 실시간이 아닌 fallback 데이터임을 표시해야 한다.
-
-            mock profile 에서는 MockTickGenerator가 1초마다 tick을 발행하므로 항상 source=LIVE.
         """,
     )
     @ApiResponses(

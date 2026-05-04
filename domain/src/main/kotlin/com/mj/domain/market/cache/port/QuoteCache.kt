@@ -7,13 +7,13 @@ import java.time.Instant
  * 시세 마지막 tick 캐시 포트. spec §5.4, ADR 0033 T2 Tier.
  *
  * 3-tier fallback:
- *   T1 live: KIS WebSocket tick (mock: MockTickGenerator)
+ *   T1 live: KIS WebSocket tick
  *   T2 cache: QuoteCache (Redis `quote:last:{code}`) ← 이 포트
  *   T3 last-day-close: Redis `quote:lastbusinessday:{code}:{yyyyMMdd}` (선택)
  *
  * 구현체:
  *   - consumer dev/prd: RedisQuoteCacheAdapter (Redis hash, TTL 7일)
- *   - consumer mock: InMemoryQuoteCacheAdapter
+ *   - consumer mock: InMemoryQuoteCacheAdapter (jvm test 전용)
  */
 interface QuoteCache {
     /**

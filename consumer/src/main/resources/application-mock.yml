@@ -1,17 +1,7 @@
 magicjar:
   mode: MOCK
   allow-real: false
-  market:
-    # ADR 0029: 데이터(시세·뉴스·캔들·공시)는 실 KIS·외부 API 베이스가 표준.
-    # mock 발행기는 "키 부재 시 데모용" — 기본 OFF, 키 미설정 환경에서만 명시 ON으로 사용.
-    mock-tick:
-      # KIS WebSocket 어댑터 미구현·KIS 키 부재 시에만 ON.
-      # 환경변수 MAGICJAR_MARKET_MOCKTICK_ENABLED=true 로 명시 활성.
-      enabled: ${MAGICJAR_MARKET_MOCKTICK_ENABLED:false}
-      interval-ms: 1000
-      volatility-percent: 0.5
-    mock-news:
-      # LLM 뉴스 분석은 사용 계획 미확정 (사용자 보류, 2026-05-01).
-      # 실 ANTHROPIC_API_KEY 활성·mock 모두 기본 OFF — 추후 사용 계획 확정 시 재토글.
-      enabled: ${MAGICJAR_MARKET_MOCKNEWS_ENABLED:false}
-      interval-ms: 30000
+  # ADR 0049 + memory feedback_no_mock_data.md (2026-05-04 강화):
+  # 운영 main src에 mock 합성 코드 0건. mock-tick/mock-news 발행기 영구 폐기.
+  # mock profile은 NoOpMarketSessionResolverImpl·InMemoryQuoteCacheAdapter·StubKisRestAdapter
+  # 등 단순 stub 어댑터 활성용으로만 잔존 (데이터 합성 X). 사용자 흐름은 dev/prd 전용.

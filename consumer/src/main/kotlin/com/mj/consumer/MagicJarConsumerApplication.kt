@@ -1,7 +1,5 @@
 package com.mj.consumer
 
-import com.mj.consumer.application.mock.MockNewsProperties
-import com.mj.consumer.application.mock.MockTickProperties
 import com.mj.consumer.config.ai.AiProperties
 import com.mj.consumer.infrastructure.kis.KisHashKeyProperties
 import com.mj.consumer.infrastructure.kis.KisProperties
@@ -22,8 +20,6 @@ import org.springframework.scheduling.annotation.EnableScheduling
     KisProperties::class,
     KisHashKeyProperties::class,
     AiProperties::class,
-    MockTickProperties::class,
-    MockNewsProperties::class,
 )
 class MagicJarConsumerApplication
 
