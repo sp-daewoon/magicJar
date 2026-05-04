@@ -1,12 +1,10 @@
 package com.mj.consumer.infrastructure.bootstrap
 
 import com.mj.domain.secret.SecretCipher
-import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertThrows
 import org.springframework.jdbc.core.JdbcTemplate
 import java.time.OffsetDateTime
 
@@ -86,7 +84,7 @@ class InitialUserSeederTest {
     }
 
     @Test
-    fun `seeder fails when appKey is blank`() {
+    fun `appKey blank — user는 INSERT, trading_config는 skip (SettingsModal 입력 정합)`() {
         every {
             jdbc.queryForObject(
                 "SELECT COUNT(*) FROM users WHERE user_id = ?",
@@ -95,10 +93,57 @@ class InitialUserSeederTest {
             )
         } returns 0
 
-        val ex =
-            assertThrows<IllegalArgumentException> {
-                seeder(appKey = "").seedIfNotExists()
-            }
-        ex.message?.contains("app-key") shouldBe true
+        seeder(appKey = "").seedIfNotExists()
+
+        // users INSERT는 항상 실행
+        verify(exactly = 1) {
+            jdbc.update(
+                match<String> { it.contains("INSERT INTO users") },
+                InitialUserSeeder.DEFAULT_USER_ID,
+                "default",
+                "Default User",
+                any<OffsetDateTime>(),
+                any<OffsetDateTime>(),
+            )
+        }
+        // trading_config INSERT는 skip — 사용자가 SettingsModal에서 입력
+        verify(exactly = 0) {
+            jdbc.update(match<String> { it.contains("user_trading_config") }, *anyVararg())
+        }
+        verify(exactly = 0) { cipher.encrypt(any()) }
+    }
+
+    @Test
+    fun `appSecret blank — trading_config skip + 예외 없음`() {
+        every {
+            jdbc.queryForObject(
+                "SELECT COUNT(*) FROM users WHERE user_id = ?",
+                Int::class.java,
+                InitialUserSeeder.DEFAULT_USER_ID,
+            )
+        } returns 0
+
+        seeder(appSecret = "").seedIfNotExists()
+
+        verify(exactly = 0) {
+            jdbc.update(match<String> { it.contains("user_trading_config") }, *anyVararg())
+        }
+    }
+
+    @Test
+    fun `accountCano blank — trading_config skip + 예외 없음`() {
+        every {
+            jdbc.queryForObject(
+                "SELECT COUNT(*) FROM users WHERE user_id = ?",
+                Int::class.java,
+                InitialUserSeeder.DEFAULT_USER_ID,
+            )
+        } returns 0
+
+        seeder(cano = "").seedIfNotExists()
+
+        verify(exactly = 0) {
+            jdbc.update(match<String> { it.contains("user_trading_config") }, *anyVararg())
+        }
     }
 }
