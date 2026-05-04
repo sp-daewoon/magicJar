@@ -1,5 +1,6 @@
 package com.mj.consumer.application.market
 
+import com.mj.consumer.infrastructure.kis.KisOrderbookWsAdapter
 import com.mj.consumer.infrastructure.kis.KisQuoteWsAdapter
 import com.mj.consumer.infrastructure.kis.KisWsRouter
 import com.mj.domain.market.event.SubscriptionEvictedEvent
@@ -30,6 +31,7 @@ import java.util.LinkedHashMap
 class SubscriptionManager(
     private val router: KisWsRouter,
     private val quoteListener: KisQuoteWsAdapter,
+    private val orderbookListener: KisOrderbookWsAdapter,
     private val eventPublisher: ApplicationEventPublisher,
     @Value("\${magicjar.market.max-subscriptions:18}")
     private val maxSubscriptions: Int = DEFAULT_MAX,
@@ -97,9 +99,11 @@ class SubscriptionManager(
 
         accessOrder[code] = System.currentTimeMillis()
         try {
+            // 종목당 trId 2개 — 체결가(H0UNCNT0) + 호가(H0UNASP0). KisWsRouter가 (trId, code) 단위 멱등.
             router.subscribe(KisQuoteWsAdapter.TR_ID, code, quoteListener)
+            router.subscribe(KisOrderbookWsAdapter.TR_ID, code, orderbookListener)
             log.info(
-                "[SUBSCRIPTION_MANAGER] add code={} bootstrap={} size={}/{}",
+                "[SUBSCRIPTION_MANAGER] add code={} bootstrap={} size={}/{} (quote+orderbook)",
                 code,
                 isBootstrap,
                 accessOrder.size,
@@ -116,11 +120,12 @@ class SubscriptionManager(
         accessOrder.remove(code)
         try {
             router.unsubscribe(KisQuoteWsAdapter.TR_ID, code)
+            router.unsubscribe(KisOrderbookWsAdapter.TR_ID, code)
         } catch (e: Exception) {
             log.warn("[SUBSCRIPTION_MANAGER] unsubscribe failed code={}: {}", code, e.message)
         }
         eventPublisher.publishEvent(SubscriptionEvictedEvent(evictedCode = code))
-        log.info("[SUBSCRIPTION_MANAGER] evict code={} (LRU over-limit)", code)
+        log.info("[SUBSCRIPTION_MANAGER] evict code={} (LRU over-limit, quote+orderbook)", code)
     }
 
     companion object {

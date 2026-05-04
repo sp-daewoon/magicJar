@@ -1,5 +1,6 @@
 package com.mj.consumer.application.market
 
+import com.mj.consumer.infrastructure.kis.KisOrderbookWsAdapter
 import com.mj.consumer.infrastructure.kis.KisQuoteWsAdapter
 import com.mj.consumer.infrastructure.kis.KisWsRouter
 import com.mj.domain.market.event.SubscriptionEvictedEvent
@@ -17,6 +18,7 @@ import org.springframework.context.ApplicationEventPublisher
 class SubscriptionManagerTest {
     private val router = mockk<KisWsRouter>()
     private val quoteAdapter = mockk<KisQuoteWsAdapter>()
+    private val orderbookAdapter = mockk<KisOrderbookWsAdapter>()
     private val eventPublisher = mockk<ApplicationEventPublisher>(relaxed = true)
 
     private fun newManager(maxSubs: Int = 18): SubscriptionManager {
@@ -25,6 +27,7 @@ class SubscriptionManagerTest {
         return SubscriptionManager(
             router = router,
             quoteListener = quoteAdapter,
+            orderbookListener = orderbookAdapter,
             eventPublisher = eventPublisher,
             maxSubscriptions = maxSubs,
         )
@@ -40,35 +43,38 @@ class SubscriptionManagerTest {
     }
 
     @Test
-    fun `bootstrap — 명시 collection이면 router subscribe + activeCodes 누적`() {
+    fun `bootstrap — 명시 collection이면 router subscribe + activeCodes 누적 (종목당 quote+orderbook 2 trId)`() {
         val mgr = newManager()
         mgr.bootstrap(listOf("005930", "000660", "035720"))
 
         verify(exactly = 3) { router.subscribe(KisQuoteWsAdapter.TR_ID, any(), quoteAdapter) }
+        verify(exactly = 3) { router.subscribe(KisOrderbookWsAdapter.TR_ID, any(), orderbookAdapter) }
         assert(mgr.activeSize() == 3)
     }
 
     @Test
-    fun `addOnDemand 신규 — router subscribe + activeCodes 포함`() {
+    fun `addOnDemand 신규 — quote+orderbook 둘 다 subscribe`() {
         val mgr = newManager()
         mgr.addOnDemand("035420")
 
         verify(exactly = 1) { router.subscribe(KisQuoteWsAdapter.TR_ID, "035420", quoteAdapter) }
+        verify(exactly = 1) { router.subscribe(KisOrderbookWsAdapter.TR_ID, "035420", orderbookAdapter) }
         assert("035420" in mgr.activeCodes())
     }
 
     @Test
-    fun `addOnDemand 멱등 — 같은 코드 재호출 시 router 호출 1회만`() {
+    fun `addOnDemand 멱등 — 같은 코드 재호출 시 router 호출 1회씩만 (각 trId)`() {
         val mgr = newManager()
         mgr.addOnDemand("035420")
         mgr.addOnDemand("035420")
         mgr.addOnDemand("035420")
 
         verify(exactly = 1) { router.subscribe(KisQuoteWsAdapter.TR_ID, "035420", quoteAdapter) }
+        verify(exactly = 1) { router.subscribe(KisOrderbookWsAdapter.TR_ID, "035420", orderbookAdapter) }
     }
 
     @Test
-    fun `LRU 한도 초과 — 가장 오래된 종목 evict + 이벤트 publish (default5 면제 없음)`() {
+    fun `LRU 한도 초과 — quote+orderbook 둘 다 unsubscribe + 이벤트 publish`() {
         val mgr = newManager(maxSubs = 5)
         // 5개 채움
         listOf("AAA111", "BBB222", "CCC333", "DDD444", "EEE555").forEach { mgr.addOnDemand(it) }
@@ -79,6 +85,7 @@ class SubscriptionManagerTest {
 
         assert(mgr.activeSize() == 5)
         verify(exactly = 1) { router.unsubscribe(KisQuoteWsAdapter.TR_ID, "AAA111") }
+        verify(exactly = 1) { router.unsubscribe(KisOrderbookWsAdapter.TR_ID, "AAA111") }
         verify(exactly = 1) {
             eventPublisher.publishEvent(match<SubscriptionEvictedEvent> { it.evictedCode == "AAA111" })
         }
@@ -87,7 +94,7 @@ class SubscriptionManagerTest {
     }
 
     @Test
-    fun `addOnDemand로 LRU 갱신 — 재진입 종목은 MRU로 이동, 다른 종목이 evict됨`() {
+    fun `addOnDemand로 LRU 갱신 — 재진입 종목은 MRU로 이동, 다른 종목이 quote+orderbook 둘 다 evict됨`() {
         val mgr = newManager(maxSubs = 3)
         mgr.addOnDemand("AAA111")
         mgr.addOnDemand("BBB222")
@@ -100,6 +107,7 @@ class SubscriptionManagerTest {
         mgr.addOnDemand("DDD444")
 
         verify(exactly = 1) { router.unsubscribe(KisQuoteWsAdapter.TR_ID, "BBB222") }
+        verify(exactly = 1) { router.unsubscribe(KisOrderbookWsAdapter.TR_ID, "BBB222") }
         assert("AAA111" in mgr.activeCodes())
         assert("BBB222" !in mgr.activeCodes())
     }
@@ -113,6 +121,7 @@ class SubscriptionManagerTest {
             SubscriptionManager(
                 router = router,
                 quoteListener = quoteAdapter,
+                orderbookListener = orderbookAdapter,
                 eventPublisher = eventPublisher,
                 maxSubscriptions = 18,
             )

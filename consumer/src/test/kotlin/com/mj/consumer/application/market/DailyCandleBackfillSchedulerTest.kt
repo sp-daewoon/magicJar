@@ -1,5 +1,6 @@
 package com.mj.consumer.application.market
 
+import com.mj.consumer.infrastructure.kis.KisOrderbookWsAdapter
 import com.mj.consumer.infrastructure.kis.KisQuoteWsAdapter
 import com.mj.consumer.infrastructure.kis.KisWsRouter
 import com.mj.consumer.messaging.producer.MarketCandleBackfillCommandPublisher
@@ -18,12 +19,13 @@ class DailyCandleBackfillSchedulerTest {
     private val publisher = mockk<MarketCandleBackfillCommandPublisher>()
     private val router = mockk<KisWsRouter>(relaxed = true)
     private val quoteAdapter = mockk<KisQuoteWsAdapter>()
+    private val orderbookAdapter = mockk<KisOrderbookWsAdapter>()
     private val eventPublisher = mockk<ApplicationEventPublisher>(relaxed = true)
 
     private fun newManager(): SubscriptionManager {
         every { router.subscribe(any(), any(), any()) } just Runs
         every { router.unsubscribe(any(), any()) } just Runs
-        return SubscriptionManager(router, quoteAdapter, eventPublisher, maxSubscriptions = 18)
+        return SubscriptionManager(router, quoteAdapter, orderbookAdapter, eventPublisher, maxSubscriptions = 18)
     }
 
     @Test
