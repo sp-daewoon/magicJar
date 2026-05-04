@@ -78,22 +78,28 @@ magic_ch1/
 cp .env.example .env
 ```
 
-`.env` 편집 — 최소 셋업이면 키 다 비워둬도 OK (해당 기능만 자동 비활성):
+`.env` 편집 — 최소 셋업이면 키 다 비워둬도 OK. 사용자 화면 ⚙️ SettingsModal에서 입력 가능 (memory `project_kis_key_management.md`):
 
 ```bash
-SPRING_PROFILES_ACTIVE=mock          # 또는 backtest
-MAGICJAR_MODE=MOCK                   # 또는 BACKTEST · REAL
-MAGICJAR_ALLOW_REAL=false            # 실계좌 가드, 평소 false 유지
+SPRING_PROFILES_ACTIVE=dev,real-kis  # default. 데이터 조회=실전 키 (memory feedback_no_mock_data.md)
 
-KIS_MOCK_APP_KEY=...                 # 비우면 KIS 호출 비활성
+KIS_APP_KEY=...                      # 실전 KIS — 데이터 조회 (시세·캔들·종목)
+KIS_APP_SECRET=...
+KIS_HTS_ID=...                       # 8자리 HTS ID (체결통보)
+KIS_ACCOUNT_CANO=...                 # 계좌번호 8자리
+KIS_ACCOUNT_PRDT=01
+
+KIS_MOCK_APP_KEY=...                 # (선택) 모의투자 — 주문 전용
 KIS_MOCK_APP_SECRET=...
-OPENAI_API_KEY=sk-...                # 비우면 AI 분석 자동 비활성 (consumer-app)
-ANTHROPIC_API_KEY=sk-ant-...         # 옵션
-OPENDART_API_KEY=...                 # 비우면 DART 공시 수집 비활성 (pyworker)
-NAVER_NEWS_RSS_URL=...               # 네이버 금융 뉴스 RSS (pyworker)
+
+MAGICJAR_SECRET_MASTER_KEY=...       # 32 bytes hex — KIS 키 AES 암호화 master key
+ANTHROPIC_API_KEY=sk-ant-...         # (선택) AI 분석
+OPENDART_API_KEY=...                 # (선택) DART 공시
+NAVER_CLIENT_ID=...                  # (선택) 네이버 뉴스
+NAVER_CLIENT_SECRET=...
 ```
 
-> WARNING: `MAGICJAR_MODE=REAL` + `MAGICJAR_ALLOW_REAL=true` **둘 다 true**일 때만 실계좌 모드 (ADR 0006 이중 스위치).
+> **mock 부팅 path 폐기 (2026-05-04 PR #144·#147)** — `mock` profile은 jvm test fixture 전용. 운영/사용자 흐름은 `dev,real-kis`만 사용. `--mock` 옵션 + `MAGICJAR_MARKET_MOCKTICK_ENABLED` 환경변수 폐기.
 
 ### 2. Docker compose — 3 모드
 
@@ -118,11 +124,23 @@ NAVER_NEWS_RSS_URL=...               # 네이버 금융 뉴스 RSS (pyworker)
 상태 확인:
 
 ```bash
-docker compose -f docker/docker-compose.yml ps        # 9개 모두 (healthy) 여야 정상
+docker compose -f docker/docker-compose.yml ps        # 11개 모두 (healthy) 여야 정상
 docker compose -f docker/docker-compose.yml logs -f api-app
 docker compose -f docker/docker-compose.yml down      # 끄기
 docker compose -f docker/docker-compose.yml down -v   # 데이터까지 삭제 (주의)
 ```
+
+### 디버깅 전용 web UI 4종 (한 페이지에서 다 가능)
+
+| URL | 용도 |
+|---|---|
+| **http://localhost:8888** | **dozzle** — 모든 컨테이너 로그 실시간 (색상·검색·multi-pane). IntelliJ Console 대체 |
+| http://localhost:8090 | kafka-ui — 토픽·메시지·consumer lag |
+| http://localhost:9001 | MinIO 콘솔 (`magicjar`/`magicjar123`) |
+| http://localhost:18080/swagger-ui/index.html | api Swagger |
+| http://localhost:8000/docs | pyworker Swagger |
+
+### 서비스 포트
 
 | 서비스 | 호스트 포트 | 비고 |
 |--------|-----------|------|
@@ -130,12 +148,13 @@ docker compose -f docker/docker-compose.yml down -v   # 데이터까지 삭제 (
 | Kafka | `9092` | KRaft 단일 노드, auto-create-topics |
 | Redis | `6379` | |
 | MinIO | `9000` (S3) / `9001` (콘솔) | user `magicjar` / pwd `magicjar123` |
-| api-app | `8080` | REST + STOMP. `/actuator/health` |
+| api-app | `18080` (호스트) → `8080` (컨테이너) | REST + STOMP. `/actuator/health` |
 | batch-app | `8081` | Spring Batch (job.enabled=false, 명시 트리거) |
 | consumer-app | `8082` | Spring Kafka 컨슈머 + AI 분석 + KIS 브리지 |
 | pyworker | `8000` | FastAPI + Playwright. `/health` `/scrape/{source}` `/screenshot` |
 | frontend | `3000` | nginx 정적 + React SPA (포트 80 → 3000 매핑) |
-| kafka-ui | `8090` | provectuslabs/kafka-ui — 토픽·메시지·consumer lag GUI (디버깅 전용, 운영 시 제외) |
+| dozzle | `8888` | **컨테이너 로그 web viewer** (PR #150) |
+| kafka-ui | `8090` | provectuslabs/kafka-ui — 토픽·메시지·consumer lag GUI |
 
 ### 3. 통합 스모크 — `scripts/smoke.sh`
 

@@ -1,18 +1,21 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="MagicJarConsumer" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+    <option name="ACTIVE_PROFILES" value="dev,real-kis" />
+    <option name="ENABLE_JMX_AGENT" value="false" />
+    <option name="ENABLE_LAUNCH_OPTIMIZATION" value="false" />
     <module name="magicjar.consumer.main" />
     <option name="SPRING_BOOT_MAIN_CLASS" value="com.mj.consumer.MagicJarConsumerApplicationKt" />
-    <option name="ACTIVE_PROFILES" value="dev,real-kis" />
-    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
-    <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="false" />
-    <option name="ALTERNATIVE_JRE_PATH" value="" />
-    <option name="ENABLE_LAUNCH_OPTIMIZATION" value="false" />
-    <option name="ENABLE_JMX_AGENT" value="false" />
-    <option name="ENABLE_SWAP_INIT" value="false" />
-    <option name="HIDE_BANNER" value="false" />
-    <option name="DEBUG_MODE" value="false" />
-    <option name="UPDATE_ACTION_UPDATE_POLICY" value="UPDATE_RESOURCES" />
-    <option name="FRAME_DEACTIVATION_UPDATE_POLICY" value="DO_NOTHING" />
+    <option name="WORKING_DIRECTORY" value="file://$PROJECT_DIR$" />
+    <extension name="net.ashald.envfile">
+      <option name="IS_ENABLED" value="false" />
+      <option name="IS_SUBST" value="false" />
+      <option name="IS_PATH_MACRO_SUPPORTED" value="false" />
+      <option name="IS_IGNORE_MISSING_FILES" value="false" />
+      <option name="IS_ENABLE_EXPERIMENTAL_INTEGRATIONS" value="false" />
+      <ENTRIES>
+        <ENTRY IS_ENABLED="true" PARSER="runconfig" IS_EXECUTABLE="false" />
+      </ENTRIES>
+    </extension>
     <method v="2">
       <option name="Make" enabled="true" />
     </method>
