@@ -226,20 +226,12 @@ class InstrumentController(
         val intervalIsValid = runCatching { validateInterval(interval) }.isSuccess
         if (!intervalIsValid) return ResponseEntity.badRequest().build()
 
-        // R3-2 (ADR 0050): D1·M1는 Redis-first 라우팅 (UserChartCandleService).
+        // R3-3 (ADR 0050): redis-first 활성 시 모든 interval을 UserChartCandleService.fetchByString로 라우팅.
+        // - D1·M1 → Redis cache 직접
+        // - W/MO/Y → D1 base + aggregateDailyToWeekly
+        // - M5/M15/M30/H1/Xm/Hn → M1 base + aggregate(targetMinutes)
         // feature flag `magicjar.chart.redis-first.enabled` 활성 시만 — 라이브 점진 전환.
-        // 합성 interval (M5·M15·M30·H1·90m·120m·W·MO·Y)는 R3-3에서 통합. 그 전까지 기존 흐름 fallback.
-        val redisInterval =
-            if (!redisFirstEnabled) {
-                null
-            } else {
-                when (interval.uppercase()) {
-                    "D1", "DAY" -> com.mj.domain.common.Interval.D1
-                    "M1", "1M" -> com.mj.domain.common.Interval.M1
-                    else -> null
-                }
-            }
-        if (redisInterval != null) {
+        if (redisFirstEnabled) {
             val beforeInstant =
                 if (before.isNullOrBlank()) {
                     null
@@ -248,10 +240,10 @@ class InstrumentController(
                 }
             val candles =
                 runCatching {
-                    userChartCandleService.fetch(
+                    userChartCandleService.fetchByString(
                         userId = UserChartCandleService.DEFAULT_USER_ID,
                         code = normalized,
-                        interval = redisInterval,
+                        intervalRaw = interval,
                         limit = limit,
                         before = beforeInstant,
                     )

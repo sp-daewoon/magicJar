@@ -13,19 +13,23 @@ import java.util.UUID
 /**
  * 사용자 차트 화면용 candle fetch — Redis ZSet first + DB fallback. ADR 0050.
  *
- * 동작:
+ * 동작 (D1·M1 base 흐름):
  *   1. cache hit (Redis ZSet에 limit개 이상 있으면) → 즉시 응답 + LRU touchRecent
  *   2. cache miss → DB candle 조회 → Redis ZADD warm-up + LRU touchRecent + 응답
- *   3. DB 비어 있으면 → 빈 응답 (backfill trigger는 R3-2에서 통합)
+ *   3. DB 비어 있으면 → 빈 응답
+ *
+ * R3-3 (ADR 0050) 합성 interval — [fetchByString]:
+ *   - W/MO/Y → D1 base cache + [CandleAggregator.aggregateDailyToWeekly]
+ *   - M5/M15/M30/H1/Xm → M1 base cache + [CandleAggregator.aggregate(targetMinutes)]
+ *   - 합성 결과는 Redis 미저장 (raw base만 캐시 — LRU·일관성 단순화)
  *
  * 핵심: DB candle 영속은 그대로 유지 (백테스트·룰 엔진용). 차트 화면은 Redis 통과.
- *
- * R3-1 범위 — Redis warm-up + cache hit 흐름. backfill 명령 통합·봉단위 합성·자유 입력은 R3-2.
  */
 @Service
 class UserChartCandleService(
     private val cache: UserCandleCachePort,
     private val candleRepository: CandleRepository,
+    private val candleAggregator: CandleAggregator,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -103,6 +107,57 @@ class UserChartCandleService(
         return cache.fetch(userId, code, intervalKey, before, limit)
     }
 
+    /**
+     * 사용자 차트 candle 조회 — interval 문자열 기반. ADR 0050 R3-3.
+     *
+     * 분기:
+     *   - D1/DAY alias  → [fetch] (Redis cache 직접)
+     *   - M1/1m alias   → [fetch] (Redis cache 직접)
+     *   - W/MO/Y        → D1 base [fetch] + [CandleAggregator.aggregateDailyToWeekly]
+     *   - M<n>/<n>m/H<n>/<n>h → M1 base [fetch] + [CandleAggregator.aggregate]
+     *
+     * 합성 결과는 Redis 미저장 — raw base(D1·M1)만 캐시한다. LRU·일관성 단순화.
+     */
+    fun fetchByString(
+        userId: UUID,
+        code: String,
+        intervalRaw: String,
+        limit: Int = DEFAULT_LIMIT,
+        before: Instant? = null,
+    ): List<Candle> {
+        val upper = intervalRaw.trim().uppercase()
+
+        if (upper in D1_ALIASES) return fetch(userId, code, Interval.D1, limit, before)
+        if (upper in M1_ALIASES) return fetch(userId, code, Interval.M1, limit, before)
+
+        // W/MO/Y — D1 base + aggregate
+        if (CandleAggregator.isDailyPeriod(upper)) {
+            val baseLimit =
+                when (upper) {
+                    "W", "WK" -> (limit.toLong() * 5)
+                    "MO", "MONTH" -> (limit.toLong() * 22)
+                    "Y", "YEAR" -> (limit.toLong() * 250)
+                    else -> limit.toLong()
+                }.coerceAtMost(MAX_BASE_LIMIT.toLong()).toInt()
+
+            val d1Candles = fetch(userId, code, Interval.D1, baseLimit, before)
+            val aggregated = candleAggregator.aggregateDailyToWeekly(d1Candles, upper)
+            return if (aggregated.size > limit) aggregated.takeLast(limit) else aggregated
+        }
+
+        // M<n>/Xm/Hn — M1 base + aggregate
+        val targetMinutes =
+            CandleAggregator.parseToMinutesOrNull(intervalRaw)
+                ?: throw IllegalArgumentException("Unsupported interval: $intervalRaw")
+        require(targetMinutes > 0) { "interval must be positive: $intervalRaw" }
+        require(targetMinutes <= 1440) { "interval must be <= 1440 min: $intervalRaw" }
+
+        val m1Limit = (limit.toLong() * targetMinutes).coerceAtMost(MAX_BASE_LIMIT.toLong()).toInt()
+        val m1Candles = fetch(userId, code, Interval.M1, m1Limit, before)
+        val aggregated = candleAggregator.aggregate(m1Candles, targetMinutes)
+        return if (aggregated.size > limit) aggregated.takeLast(limit) else aggregated
+    }
+
     /** before 없으면 최신 limit개의 lookback으로 from·to 계산. */
     private fun computeRange(
         interval: Interval,
@@ -118,6 +173,12 @@ class UserChartCandleService(
 
     companion object {
         const val DEFAULT_LIMIT: Int = 200
+
+        /** 합성 시 base interval(M1·D1) fetch 한도. CandleQueryService의 10_000과 동일. */
+        const val MAX_BASE_LIMIT: Int = 10_000
+
+        private val D1_ALIASES = setOf("D1", "DAY", "D", "1D")
+        private val M1_ALIASES = setOf("M1", "1M", "1MIN", "MIN1")
 
         /** ADR 0049 정합 — 단일 사용자 모드 default. */
         val DEFAULT_USER_ID: UUID = UUID.fromString("00000000-0000-0000-0000-000000000001")
