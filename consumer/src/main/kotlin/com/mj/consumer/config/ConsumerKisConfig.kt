@@ -1,9 +1,11 @@
 package com.mj.consumer.config
 
+import com.mj.consumer.application.market.HoldingsCodeFetcher
 import com.mj.consumer.infrastructure.kis.KisHttpSession
 import com.mj.consumer.infrastructure.secret.AesGcmSecretCipher
 import com.mj.domain.secret.SecretCipher
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
@@ -23,6 +25,15 @@ import javax.crypto.spec.SecretKeySpec
  */
 @Configuration
 class ConsumerKisConfig {
+    /**
+     * R2-A1 stub: HoldingsCodeFetcher — 빈 List 반환.
+     * 1번 트랙 dogfooding 일시 중단 중이라 빈 구현으로 시작.
+     * R2-A3 watchlist 도입 시 DB 어댑터로 교체.
+     */
+    @Bean
+    @ConditionalOnMissingBean(HoldingsCodeFetcher::class)
+    fun stubHoldingsCodeFetcher(): HoldingsCodeFetcher = HoldingsCodeFetcher { emptyList() }
+
     @Bean
     @Profile("dev | prd")
     fun secretCipher(

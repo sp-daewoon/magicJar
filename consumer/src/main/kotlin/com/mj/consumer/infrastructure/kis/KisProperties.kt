@@ -12,12 +12,13 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 data class KisProperties(
     val appKey: String? = null,
     val appSecret: String? = null,
-    val baseUrl: String = "https://openapivts.koreainvestment.com:29443",
-    val wsUrl: String = "ws://ops.koreainvestment.com:31000",
+    val baseUrl: String = "https://openapi.koreainvestment.com:9443",
+    val wsUrl: String = "ws://ops.koreainvestment.com:21000",
     val accountCano: String? = null,
     val accountPrdt: String = "01",
     val mockMode: Boolean = true,
     val tokenTtlSeconds: Long = 23 * 60 * 60,
+    val htsId: String = "",
     val rate: RateLimit = RateLimit(),
 ) {
     data class RateLimit(
