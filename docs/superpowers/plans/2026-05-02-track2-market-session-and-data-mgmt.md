@@ -470,18 +470,35 @@ T22 (T1~T21)
 - **사이즈**: ~3일
 - **결과물 후 사용자 검증**: 평일 또는 dev offline-fallback 흐름 dogfooding
 
-### R2 — Guard + Audit + Resolver (T3·T4·T5·T8·T9·T10·T11)
+### R2 — 시세 WS 본격 (R2-A) + Guard·Audit·Resolver (R2-B)
 
-- **목표**: REJECTED audit trail + Guard chain 합류 + 캐시 어댑터
-- **branch**: `agent/architect/track2-r2-guard-audit`
+R2는 사용자 보고(2026-05-04 장중 tick 미수신)에 따라 **R2-A**(시세 WS 본격 구현)이 우선이고, 기존 R2 잔여(Guard·Audit·Resolver)는 **R2-B**로 후속.
+
+#### R2-A — KIS 실시간 시세 WS (체결가·호가·지수·Fallback)
+
+- **하위 plan**: [`docs/superpowers/plans/2026-05-04-track2-r2-quote-ws.md`](./2026-05-04-track2-r2-quote-ws.md)
+- **분할**:
+  - R2-A1 — 체결가 (KisWsRouter + H0UNCNT0 + 자동 부팅 구독)
+  - R2-A2 — 호가 + 지수 (H0UNASP0 + H0UPCNT0 + 신규 STOMP 토픽 + Orderbook UI + Index 카드)
+  - R2-A3 — Fallback 통합 (TickFallbackEmitter + Market Session FSM wiring + 18종목 LRU + watchlist 변경 listener)
+- **branch (3개)**:
+  - `agent/market-data/track2-r2-a1-quote-ws`
+  - `agent/market-data/track2-r2-a2-orderbook-index`
+  - `agent/architect/track2-r2-a3-fallback-session-wiring`
+- **결과물 후 사용자 검증**: 장중 차트 갱신 + KOSPI/KOSDAQ 등락률 갱신 + 호가창 + 장외 stale 배지
+
+#### R2-B — Guard + Audit + Resolver (T3·T4·T5·T8·T9·T10·T11)
+
+- **목표**: REJECTED audit trail + Guard chain 합류 + 캐시 어댑터 (1번 트랙 dogfooding 재개와 함께)
+- **branch**: `agent/architect/track2-r2-b-guard-audit`
 - **사이즈**: ~5일
 - **결과물 후 사용자 검증**: 토요일 매수 → REJECTED row 보임
 
-### R3 — Tick Fallback + REST + Frontend (T12·T13·T14·T15·T16·T17·T18)
+### R3 — Tick Fallback REST + Frontend (T12·T13·T14·T15·T16·T17·T18)
 
-- **목표**: 시세 fallback emit + UI 표시
+- **목표**: REST quote fallback + 시세 fallback emit + UI 표시 (R2-A3에서 emitter 본체는 이미 도입 — 본 R3는 REST quote 통합과 잔여 UI)
 - **branch**: `agent/architect/track2-r3-fallback-ui`
-- **사이즈**: ~5일
+- **사이즈**: ~3일 (R2-A3 도입분 제외)
 - **결과물 후 사용자 검증**: 토요일 Dashboard 진입 → "장 마감 5/1 기준" 배지 + cached 가격
 
 ### R4 — Profile + ADR 정식 발행 + Docs (T19·T20·T21·T22)
@@ -572,3 +589,21 @@ T22 (T1~T21)
 | 날짜 | 변경 |
 |---|---|
 | 2026-05-02 | 초안 작성 (architect, opus 4.7 1M) |
+| 2026-05-04 | R2 진입 — R2-A 신설(시세 WS 본격, 하위 plan `2026-05-04-track2-r2-quote-ws.md`), R2-B는 기존 Guard·Audit 잔여로 분리. R1 EGW hotfix 머지 완료. (architect, opus 4.7 1M) |
+
+---
+
+## R2 진입 (2026-05-04)
+
+**트리거**: 사용자 보고 — 장중 차트 미수신 + Dashboard 지수 등락률 불변. 진단 결과 **KIS 실시간 시세 WS subscribe 미구현**이 근본 원인.
+
+**디스패치**: 본 plan의 R2를 두 분기로 분할:
+
+1. **R2-A** — 시세 WS 본격 구현 (위 §R2 참조, 하위 plan: `2026-05-04-track2-r2-quote-ws.md`)
+2. **R2-B** — Guard + REJECTED audit + Resolver wiring (기존 R2 task T3·T4·T5·T8·T9·T10·T11 그대로)
+
+R2-A 머지 완료 + 사용자 검증 완료 후 R2-B 진입. R3는 R2-A3 이후 잔여(REST quote + 추가 UI)로 사이즈 축소.
+
+**KIS trId 정합 검증** (R2-A plan §2-A): `H0UNCNT0`(체결가 통합)·`H0UNASP0`(호가 통합)·`H0UPCNT0`(지수 체결)·`H0UPANC0`(지수 예상)·`H0UNMKO0`(장운영) 5종 모두 GitHub source 검증 완료, 평문 (AES 미적용 — 체결통보만 적용).
+
+**ADR 신규 발행 없음** — R2-A 결정은 ADR 0033·0035에 흡수 (ADR 0035에 시세 trId 표 footnote 추가는 R2-A1 시점 architect 직접 1줄 갱신).
