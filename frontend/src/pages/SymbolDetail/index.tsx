@@ -233,6 +233,7 @@ export default function SymbolDetailPage() {
                 <IndicatorPanel active={activeIndicators} onChange={setActiveIndicators} />
               </div>
               <TradingChart
+                key={symbolCode}
                 candles={candles}
                 interval={interval}
                 activeIndicators={activeIndicators}
