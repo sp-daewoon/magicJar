@@ -8,6 +8,7 @@ import com.mj.api.application.market.InstrumentDetailService
 import com.mj.api.application.market.InvestorTrendService
 import com.mj.api.application.market.OrderbookService
 import com.mj.api.application.market.RecentTradesService
+import com.mj.api.application.market.UserChartCandleService
 import com.mj.api.controller.dto.CandleResponse
 import com.mj.api.controller.dto.InstrumentDetailResponse
 import com.mj.api.controller.dto.InstrumentMasterSyncRequest
@@ -64,6 +65,9 @@ class InstrumentController(
     private val recentTradesService: RecentTradesService,
     private val investorTrendService: InvestorTrendService,
     private val backfillCommandPublisher: MarketCandleBackfillCommandPublisher,
+    private val userChartCandleService: UserChartCandleService,
+    @org.springframework.beans.factory.annotation.Value("\${magicjar.chart.redis-first.enabled:false}")
+    private val redisFirstEnabled: Boolean,
 ) {
     private val kst = ZoneId.of("Asia/Seoul")
 
@@ -221,6 +225,41 @@ class InstrumentController(
         // interval 검증 — v2: D1·M1 또는 합성 N분봉 모두 허용
         val intervalIsValid = runCatching { validateInterval(interval) }.isSuccess
         if (!intervalIsValid) return ResponseEntity.badRequest().build()
+
+        // R3-2 (ADR 0050): D1·M1는 Redis-first 라우팅 (UserChartCandleService).
+        // feature flag `magicjar.chart.redis-first.enabled` 활성 시만 — 라이브 점진 전환.
+        // 합성 interval (M5·M15·M30·H1·90m·120m·W·MO·Y)는 R3-3에서 통합. 그 전까지 기존 흐름 fallback.
+        val redisInterval =
+            if (!redisFirstEnabled) {
+                null
+            } else {
+                when (interval.uppercase()) {
+                    "D1", "DAY" -> com.mj.domain.common.Interval.D1
+                    "M1", "1M" -> com.mj.domain.common.Interval.M1
+                    else -> null
+                }
+            }
+        if (redisInterval != null) {
+            val beforeInstant =
+                if (before.isNullOrBlank()) {
+                    null
+                } else {
+                    parseBeforeInstant(before) ?: return ResponseEntity.badRequest().build()
+                }
+            val candles =
+                runCatching {
+                    userChartCandleService.fetch(
+                        userId = UserChartCandleService.DEFAULT_USER_ID,
+                        code = normalized,
+                        interval = redisInterval,
+                        limit = limit,
+                        before = beforeInstant,
+                    )
+                }.getOrElse { return ResponseEntity.badRequest().build() }
+            // hasMore: 응답 size >= limit이면 더 fetch 가능
+            val hasMore = candles.size >= limit
+            return buildCandleResponse(candles, hasMore)
+        }
 
         // before 모드: infinite scroll
         if (!before.isNullOrBlank()) {
