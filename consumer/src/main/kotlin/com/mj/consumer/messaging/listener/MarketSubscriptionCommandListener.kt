@@ -1,7 +1,7 @@
 package com.mj.consumer.messaging.listener
 
+import com.mj.consumer.application.market.SubscriptionManager
 import com.mj.consumer.infrastructure.kis.KisQuoteWsAdapter
-import com.mj.consumer.infrastructure.kis.KisWsRouter
 import com.mj.domain.market.event.MarketSubscriptionCommandEvent
 import org.slf4j.LoggerFactory
 import org.springframework.context.annotation.Profile
@@ -23,8 +23,7 @@ import org.springframework.stereotype.Component
 @Component
 @Profile("dev | prd")
 class MarketSubscriptionCommandListener(
-    private val router: KisWsRouter,
-    private val quoteListener: KisQuoteWsAdapter,
+    private val subscriptionManager: SubscriptionManager,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -44,7 +43,7 @@ class MarketSubscriptionCommandListener(
         try {
             // 현재는 체결가(H0UNCNT0)만 지원. 호가/지수 trId는 R2-A2에서 추가.
             if (trId == KisQuoteWsAdapter.TR_ID) {
-                router.subscribe(trId, code, quoteListener)
+                subscriptionManager.addOnDemand(code)
                 log.info("[SUBSCRIPTION_CMD] ensure-subscribe trId={} code={}", trId, code)
             } else {
                 log.warn("[SUBSCRIPTION_CMD] unsupported trId={} code={} — skip", trId, code)
