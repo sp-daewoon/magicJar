@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>magicJar 2026-05-05 세션 요약</title>
+<style>
+  :root{--bg:#fafafa;--fg:#1f2937;--mute:#6b7280;--accent:#2563eb;--ok:#16a34a;--warn:#d97706;--danger:#dc2626;--border:#e5e7eb;--card:#fff;--mono:'SF Mono','Monaco','Menlo',monospace}
+  *{box-sizing:border-box}
+  body{margin:0;padding:24px;font-family:-apple-system,'SF Pro Text','Pretendard',sans-serif;background:var(--bg);color:var(--fg);line-height:1.55;font-size:14px}
+  h1{margin:0 0 4px;font-size:22px}
+  h2{margin:32px 0 12px;font-size:17px;border-bottom:2px solid var(--accent);padding-bottom:6px}
+  h3{margin:18px 0 8px;font-size:14px;color:var(--accent)}
+  .meta{color:var(--mute);font-size:12px;margin-bottom:24px}
+  .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px}
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:13px}
+  th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+  th{background:#f3f4f6;font-weight:600;color:var(--mute);text-transform:uppercase;font-size:11px;letter-spacing:.05em}
+  tr:last-child td{border-bottom:0}
+  code{background:#f3f4f6;padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:12px}
+  .badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600}
+  .b-ok{background:#dcfce7;color:#166534}
+  .b-warn{background:#fef3c7;color:#92400e}
+  .b-pending{background:#dbeafe;color:#1e40af}
+  .b-todo{background:#fce7f3;color:#9d174d}
+  .b-mute{background:#e5e7eb;color:#374151}
+  ul{margin:6px 0;padding-left:18px}
+  li{margin:3px 0}
+  .arrow{color:var(--mute);margin:0 4px}
+  .small{font-size:12px;color:var(--mute)}
+  .pr{color:var(--accent);font-weight:600;font-family:var(--mono)}
+  .release{background:linear-gradient(135deg,#dcfce7,#dbeafe);border:1px solid #16a34a}
+</style>
+</head>
+<body>
+
+<h1>magicJar 세션 요약 — 2026-05-05 화요일</h1>
+<div class="meta">ADR 0050 (Redis ZSet first 차트) + R3-1·R3-2·R3-3 (UserCandleCachePort + Redis adapter + 합성 interval 통합) + user_id UUID→String 일괄 전환 (V21 + 53 파일) + yfinance KOSDAQ 정합 + frontend viewport 보존 → <b>v2.0.1 릴리즈</b></div>
+
+<h2>1. 머지 PR 매트릭스 (KST 5/5)</h2>
+<table>
+  <tr><th>Wave</th><th>PR</th><th>트랙·내용</th><th>에이전트·모델</th></tr>
+  <tr><td rowspan="2">차트 안정화</td><td class="pr">#153</td><td>yfinance KOSDAQ <code>.KQ</code> market 정합 + 응답 interval 검증 (에코플라스틱 일봉 오인 차단)</td><td>architect (opus)</td></tr>
+  <tr><td class="pr">#154</td><td>TradingChart viewport 보존 — infinite scroll fetch 시 사용자 줌 reset 차단</td><td>architect (opus)</td></tr>
+  <tr><td rowspan="4">R3 트랙 — Redis ZSet 차트 (ADR 0050)</td><td class="pr">#155</td><td>ADR 0050 — 사용자 차트 캐시 Redis ZSet first + LRU 10 + 봉단위 자유 입력</td><td>architect (opus)</td></tr>
+  <tr><td class="pr">#156</td><td>R3-1 — UserCandleCachePort + Redis ZSet adapter + UserChartCandleService 골격</td><td>architect (opus)</td></tr>
+  <tr><td class="pr">#157</td><td>R3-2 — InstrumentController.candles 라우팅 D1·M1 Redis-first 전환 (feature flag)</td><td>architect (opus)</td></tr>
+  <tr><td class="pr">#158</td><td>R3-3 — UserChartCandleService 합성 interval(M5·M30·H1·W·MO·Y) Redis 통합 + default true 활성 + cache hit 버그 fix + chart user id를 String "74683223"으로 전환</td><td>architect (opus)</td></tr>
+  <tr><td>1번 트랙 정합</td><td class="pr">#159</td><td>user_id UUID → String 일괄 전환 (V21 + 도메인·entity·service ~53 파일)</td><td>architect (opus)</td></tr>
+</table>
+<div class="card release" style="margin-top:14px">
+  <h3 style="color:#166534">🎉 v2.0.1 릴리즈 — 차트 Redis-first + user_id 통일</h3>
+  <p class="small">v2.0.0(2026-05-04) 이후 28 commits. annotated tag + GitHub Release 발행.</p>
+  <ul>
+    <li><b>Tag</b>: <code>v2.0.1</code> (main HEAD <code>4322132</code>)</li>
+    <li><b>Release</b>: <a href="https://github.com/sp-daewoon/magicJar/releases/tag/v2.0.1">https://github.com/sp-daewoon/magicJar/releases/tag/v2.0.1</a></li>
+    <li><b>Policy</b>: ADR 0027 — patch 릴리즈는 태그만 추가, <code>release/v2</code> 브랜치는 v2.0.0 immutable 보존</li>
+  </ul>
+</div>
+
+<h2>2. PostgreSQL 테이블 변경</h2>
+<div class="card">
+  <h3>V21 — user_id UUID → VARCHAR(64) 일괄 전환 <span class="badge b-ok">적용</span></h3>
+  <p>1번 트랙 6 테이블 user_id 타입 통일. 차트 cache(R3-3)와 일관성. KIS 모의 계좌번호 8자리 등 사람이 읽는 ID 사용 path.</p>
+  <ul>
+    <li><code>users</code> · <code>user_trading_config</code> · <code>orders</code> · <code>order_events</code> · <code>daily_order_counter</code> · <code>order_reject_audit</code></li>
+    <li>FK 제약 제거 → <code>ALTER TYPE ... USING user_id::VARCHAR</code> → 시드 row 일괄 <code>74683223</code> UPDATE → FK 재추가</li>
+    <li>데이터 무손실 — KIS 키 암호화 row(SecretCipher) 보존</li>
+  </ul>
+</div>
+
+<h2>3. Kafka 토픽·데이터 흐름 변경</h2>
+<div class="card">
+  <h3>변경 — 0건</h3>
+  <p class="small">기존 Kafka 토폴로지 그대로. R3-3 합성 interval은 cache miss 시 DB fallback이라 신규 토픽 0. R3-4(다음 세션)에서 <code>market.candle.user.v1</code> 신규 publish 예정.</p>
+</div>
+
+<h2>4. Redis 사용처 변경</h2>
+<table>
+  <tr><th>키 패턴</th><th>용도</th><th>구조·정책</th><th>PR</th></tr>
+  <tr><td><code>candle:{userId}:{code}:{interval}</code></td><td>사용자 차트 OHLCV 캐시 — base D1·M1만 저장</td><td>ZSet (score=epoch second, value=JSON OHLCV). TTL 없음, LRU 10 정책</td><td>#156·#158</td></tr>
+  <tr><td><code>candle:recent:{userId}</code></td><td>사용자 LRU 진입 종목 (10개 한도)</td><td>ZSet (score=last access ms, value=code)</td><td>#156</td></tr>
+  <tr><td><code>candle:lastfetch:{userId}:{code}:{interval}</code></td><td>마지막 fetch 시각 (재진입 freshness)</td><td>String (epoch second)</td><td>#156</td></tr>
+</table>
+<p class="small">실제 라이브 키 예: <code>candle:74683223:005930:D1</code>, <code>candle:74683223:005930:M1</code>, <code>candle:recent:74683223</code>. 합성 interval(M5·H1·W·MO 등)은 base만 캐시하고 응답 시 <code>CandleAggregator</code>로 즉석 합성.</p>
+
+<h2>5. sub-agent 디스패치 내역</h2>
+<div class="card">
+  <p>전체 메인 세션이 architect 권한 직접 처리 (ADR 0030). sub-agent 호출 0건.</p>
+  <ul>
+    <li>R3-1 (PR #156): UserCandleCachePort domain port + ApiRedisUserCandleCacheAdapter (api 모듈로 이전 — DI 빈 정합) + UserChartCandleService 골격</li>
+    <li>R3-2 (PR #157): InstrumentController <code>@Value</code> feature flag default false 도입. 27건 controller 테스트 fix (<code>properties = ["...redis-first.enabled=false"]</code>)</li>
+    <li>R3-3 (PR #158): cache hit 조건 버그 fix (<code>cached.size &gt;= limit</code> 단순화). computeRange 영업일 buffer (D1: ×1.7+7일, M1: limit/300+7일)</li>
+    <li>B (PR #159): UUID → String sed 일괄 + JpaRepository PK 변경 + DEFAULT_USER_ID 4곳 + KisExecutionNoticeListener helper UUID.randomUUID() → "" 변환</li>
+    <li>worktree leak·conflict 0건. ktlintFormat pre-commit 1회 자동 정정.</li>
+  </ul>
+</div>
+
+<h2>6. sanity / dogfooding 결과</h2>
+<div class="grid">
+  <div class="card">
+    <h3>R3-3 라이브 검증 <span class="badge b-ok">전체 200</span></h3>
+    <table>
+      <tr><th>interval</th><th>HTTP</th><th>count</th></tr>
+      <tr><td>DAY</td><td>200</td><td>200봉 (2025-07-09~2026-05-04)</td></tr>
+      <tr><td>M1</td><td>200</td><td>200봉</td></tr>
+      <tr><td>M5</td><td>200</td><td>200봉 합성</td></tr>
+      <tr><td>M30</td><td>200</td><td>168봉 합성</td></tr>
+      <tr><td>H1</td><td>200</td><td>84봉 합성</td></tr>
+      <tr><td>W</td><td>200</td><td>54봉</td></tr>
+      <tr><td>MO</td><td>200</td><td>13봉</td></tr>
+      <tr><td>Y</td><td>200</td><td>2봉</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h3>B 작업 라이브 검증</h3>
+    <ul>
+      <li>V21 마이그레이션 적용 확인 (flyway_schema_history v21 정상)</li>
+      <li><code>SELECT user_id FROM users</code> → <code>74683223</code> 통일</li>
+      <li><code>GET /api/auth/status</code> 200 (KIS 키 보존, mode=vps)</li>
+      <li><code>GET /api/orders</code> 200 (빈 배열)</li>
+      <li><code>GET /api/instruments/005930/candles</code> 200</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>11/11 컨테이너 healthy</h3>
+    <p class="small">api·batch·consumer·frontend·postgres·kafka·redis·minio·pyworker·dozzle·kafka-ui</p>
+  </div>
+  <div class="card">
+    <h3>전체 모듈 테스트 PASS</h3>
+    <ul>
+      <li><code>:api:test</code> ✓ — UserChartCandleServiceTest 11 PASS (6 신규)</li>
+      <li><code>:consumer:test</code> ✓</li>
+      <li><code>:batch:test</code> ✓</li>
+      <li><code>:domain:test</code> ✓</li>
+      <li>회귀 0건</li>
+    </ul>
+  </div>
+</div>
+
+<h2>7. 다음 세션 일정</h2>
+<table>
+  <tr><th>#</th><th>항목</th><th>예상</th><th>비고</th></tr>
+  <tr><td>1</td><td>R3-4 — KIS W/MO endpoint (FID_PERIOD_DIV_CODE='W'/'M')</td><td>~0.5일</td><td>현재 W/MO은 D1 합성. KIS 직접 호출 시 정확도↑</td></tr>
+  <tr><td>2</td><td>R3-4 — frontend IntervalSelector 직접 입력 + 10m 버튼 추가</td><td>~0.3일</td><td>버튼 유지 + input 추가 (콤보박스 X)</td></tr>
+  <tr><td>3</td><td>R3-4 — Kafka publish + consumer ZADD listener (Q1 정합)</td><td>~0.7일</td><td><code>market.candle.user.v1</code> 신규. consumer가 사용자별 ZADD</td></tr>
+  <tr><td>4</td><td>1번 트랙 dogfooding 재개</td><td>~0.5일</td><td>월요일 영업일 KIS 주문 시도 (오늘 화요일 사용자 결정에 따라)</td></tr>
+  <tr><td>5</td><td>v2.0.2 또는 v2.1.0 다음 컷</td><td>—</td><td>R3-4 + dogfooding 결과 누적 시점</td></tr>
+</table>
+
+</body>
+</html>
