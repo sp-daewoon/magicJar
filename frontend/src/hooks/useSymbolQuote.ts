@@ -10,6 +10,9 @@
  *   2026-05-01: 토픽 /topic/quote/{code} → /topic/market.tick.{code} (P1 hotfix).
  *               메시지 스키마 QuoteMessage → TickMessage (백엔드 TickEvent 정합).
  *   2026-05-03: T2-R4 — QuoteResponse REST 초기 로드 + stale·source·asOf·session 상태 추가.
+ *   2026-05-04: STOMP handler에 code 정합성 검증 추가 (사용자 보고: "default5 외 종목 진입 시
+ *               이전 종목 가격이 1초마다 표시"). 종목 변경 시점의 race로 stale handler가
+ *               다른 토픽 메시지를 setQuote에 흘려 SymbolHeader가 wrong code 표시하던 증상 차단.
  */
 import { useEffect, useRef, useState } from 'react'
 import { stompService } from '@/ws/stomp'
@@ -94,6 +97,15 @@ export function useSymbolQuote(code: string, prevClose?: number | null): QuoteSt
     const unsubscribe = stompService.subscribe(topic, (msg) => {
       try {
         const data: TickMessage = JSON.parse(msg.body)
+        // 정합성 검증 — STOMP topic ↔ message body code mismatch 차단.
+        // 종목 변경 race 또는 stale handler가 다른 토픽 메시지를 흘릴 때 SymbolHeader
+        // 가격이 wrong code 값으로 표시되는 사고 방지 (2026-05-04 사용자 보고).
+        if (data.code && data.code !== code) {
+          if (import.meta.env.DEV) {
+            console.warn('[useSymbolQuote] topic/code mismatch', { topic, expected: code, got: data.code })
+          }
+          return
+        }
         const ref = prevCloseRef.current
         const change = ref != null && ref > 0 ? data.price - ref : null
         const changeRate = ref != null && ref > 0 ? ((data.price - ref) / ref) * 100 : null
