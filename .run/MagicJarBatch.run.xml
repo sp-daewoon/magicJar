@@ -2,6 +2,7 @@
   <configuration default="false" name="MagicJarBatch" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
     <module name="magicjar.batch.main" />
     <option name="SPRING_BOOT_MAIN_CLASS" value="com.mj.batch.MagicJarBatchApplicationKt" />
+    <option name="ACTIVE_PROFILES" value="dev,real-kis" />
     <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
     <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="false" />
     <option name="ALTERNATIVE_JRE_PATH" value="" />

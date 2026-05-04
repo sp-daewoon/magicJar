@@ -36,7 +36,14 @@ class CandleCacheService(
     private val log = LoggerFactory.getLogger(CandleCacheService::class.java)
     private val kst = ZoneId.of("Asia/Seoul")
     private val pyworkerClient: RestClient by lazy {
-        RestClient.builder().baseUrl(pyworkerBaseUrl).build()
+        // Content-Type 명시 — RestClient.builder()는 default header 미설정. 누락 시 pyworker가
+        // body를 null로 인식해 422 "Field required" 응답 (사용자 보고 2026-05-04).
+        RestClient
+            .builder()
+            .baseUrl(pyworkerBaseUrl)
+            .defaultHeader("Content-Type", "application/json; charset=utf-8")
+            .defaultHeader("Accept", "application/json")
+            .build()
     }
 
     /**
