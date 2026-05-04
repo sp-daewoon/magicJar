@@ -240,6 +240,23 @@ export interface SearchResult {
 /* ---------- T21 시장 지수 ---------- */
 
 /**
+ * IndexTickMessage — STOMP `/topic/market.index.{code}` payload.
+ * 백엔드 `IndexTickEvent`와 1:1. R2-A2 §T12.
+ */
+export interface IndexTickMessage {
+  code: string         // '0001'=KOSPI, '1001'=KOSDAQ
+  at: string           // ISO-8601
+  value: number        // 현재 지수값
+  change: number       // 전일 대비
+  changeRate: number   // 등락률 (%)
+  volume: number       // 누적 거래량
+  turnover: number     // 누적 거래대금 (원)
+  source?: string      // 'KIS_WS' | 'KIS_REST' | 'CACHED'
+  stale?: boolean
+  asOf?: string | null
+}
+
+/**
  * MarketIndex — GET /api/market/index?codes=KOSPI,KOSDAQ 응답 항목.
  * T21-T1 도메인과 1:1 대응.
  */
