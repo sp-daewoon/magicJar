@@ -11,20 +11,19 @@ import org.springframework.stereotype.Component
 import java.util.LinkedHashMap
 
 /**
- * KIS 실시간 시세 구독 LRU 매니저. plan T2-R2-A3 §T21, §2-C 정책.
+ * KIS 실시간 시세 구독 LRU 매니저. ADR 0049 — recent-only bootstrap.
  *
  * 정책 요약:
- *   - 한도 18종목 (KIS account 동시 등록 41건 중 시세 5종 × 종목, 호가·지수 등 안배 후 여유).
- *   - default5(005930·000660·035720·005380·051910)는 **eviction 면제**.
- *   - 사용자 진입 시 동적 추가 → 한도 초과면 default5 제외 LRU 가장 오래된 종목을 unsubscribe.
- *   - touch(code) — 호출 시 access order 갱신 (사용자 재진입 시 LRU 갱신용).
+ *   - 한도 18종목 (KIS account 동시 등록 41건 정합).
+ *   - **모든 종목 동일 priority** — eviction 면제 없음 (ADR 0049: default5 하드코드 폐기).
+ *   - 사용자 진입 시 동적 추가 → 한도 초과면 LRU 가장 오래된 종목을 unsubscribe.
  *   - eviction 시 [SubscriptionEvictedEvent] in-process publish — STOMP fanout listener 후속에서 추가.
  *
  * 동시성:
  *   - 모든 mutating 메서드는 `synchronized` 블록 내에서 실행 — 진입 빈도 낮음 (TPS 1 미만).
  *   - LinkedHashMap access-order 사용해 LRU 순서 자동 관리.
  *
- * Profile dev|prd 한정 — mock 환경은 MockTickGenerator가 default5만 발행, 본 매니저 미적용.
+ * Profile dev|prd 한정 — mock 환경은 MockTickGenerator가 activeCodes() 기반으로 발행.
  */
 @Component
 @Profile("dev | prd")
@@ -32,21 +31,10 @@ class SubscriptionManager(
     private val router: KisWsRouter,
     private val quoteListener: KisQuoteWsAdapter,
     private val eventPublisher: ApplicationEventPublisher,
-    @Value("\${magicjar.market.default-codes:005930,000660,035720,005380,051910}")
-    private val defaultCodesRaw: String,
     @Value("\${magicjar.market.max-subscriptions:18}")
     private val maxSubscriptions: Int = DEFAULT_MAX,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
-
-    /** eviction 면제 종목 — Dashboard 카드 가시화 보장. */
-    val defaultCodes: Set<String> by lazy {
-        defaultCodesRaw
-            .split(",")
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .toSet()
-    }
 
     /**
      * access-order LinkedHashMap — 마지막 사용 시각 기준 LRU.
@@ -101,16 +89,9 @@ class SubscriptionManager(
             return
         }
 
-        // 신규 — 한도 초과 검사 후 eviction
+        // 신규 — 한도 초과 시 LRU 가장 오래된 종목 evict (ADR 0049 — 모든 종목 동일 priority)
         if (accessOrder.size >= maxSubscriptions) {
-            val evicted = chooseEviction()
-            if (evicted == null) {
-                log.warn(
-                    "[SUBSCRIPTION_MANAGER] cannot evict (all in default5) — refuse add code={}",
-                    code,
-                )
-                return
-            }
+            val evicted = accessOrder.entries.first().key
             evict(evicted)
         }
 
@@ -129,17 +110,6 @@ class SubscriptionManager(
             accessOrder.remove(code)
             log.warn("[SUBSCRIPTION_MANAGER] subscribe failed code={}: {}", code, e.message)
         }
-    }
-
-    /**
-     * default5 외 LRU 가장 오래된 종목 1개 선택. 모두 default5면 null.
-     */
-    private fun chooseEviction(): String? {
-        // accessOrder iteration은 LRU 순서 (가장 오래된 것이 먼저)
-        for (entry in accessOrder) {
-            if (entry.key !in defaultCodes) return entry.key
-        }
-        return null
     }
 
     private fun evict(code: String) {

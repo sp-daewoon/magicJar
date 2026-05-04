@@ -11,6 +11,7 @@ import com.mj.api.application.market.InvestorTrendService
 import com.mj.api.application.market.OrderbookService
 import com.mj.api.application.market.RecentTradesService
 import com.mj.api.config.WebSecurityConfig
+import com.mj.api.messaging.producer.MarketCandleBackfillCommandPublisher
 import com.mj.domain.common.Candle
 import com.mj.domain.common.Interval
 import com.mj.domain.common.Market
@@ -73,6 +74,9 @@ class InstrumentControllerTest {
 
         @Bean
         fun investorTrendService(): InvestorTrendService = mockk()
+
+        @Bean
+        fun marketCandleBackfillCommandPublisher(): MarketCandleBackfillCommandPublisher = mockk(relaxed = true)
     }
 
     @Autowired
