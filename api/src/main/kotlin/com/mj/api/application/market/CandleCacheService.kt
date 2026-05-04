@@ -31,17 +31,17 @@ import java.time.ZoneId
 class CandleCacheService(
     private val candleRepository: CandleRepository,
     private val cacheMetaRepository: CacheMetaRepository,
+    private val restClientBuilder: RestClient.Builder,
     @Value("\${magicjar.pyworker.base-url:http://localhost:8000}") private val pyworkerBaseUrl: String,
 ) {
     private val log = LoggerFactory.getLogger(CandleCacheService::class.java)
     private val kst = ZoneId.of("Asia/Seoul")
     private val pyworkerClient: RestClient by lazy {
-        // Content-Type 명시 — RestClient.builder()는 default header 미설정. 누락 시 pyworker가
-        // body를 null로 인식해 422 "Field required" 응답 (사용자 보고 2026-05-04).
-        RestClient
-            .builder()
+        // Spring Boot autoconfigure가 제공하는 RestClient.Builder bean 주입 — Jackson messageConverter
+        // 자동 등록 상태. RestClient.builder()로 직접 생성하면 messageConverter 미등록 → body Map이
+        // 직렬화 안 되어 pyworker가 body=null로 처리, 422 "Field required" 발생 (사용자 보고 2026-05-04).
+        restClientBuilder
             .baseUrl(pyworkerBaseUrl)
-            .defaultHeader("Content-Type", "application/json; charset=utf-8")
             .defaultHeader("Accept", "application/json")
             .build()
     }
