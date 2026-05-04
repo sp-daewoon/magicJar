@@ -380,7 +380,8 @@ class MinuteCandleBackfillJob(
     private fun intervalToMinutes(interval: Interval): Int =
         when (interval) {
             Interval.M1 -> 1
-            Interval.D1 -> error("D1은 MinuteCandleBackfillJob 대상이 아님")
+            // D1·WEEK·MONTH 는 MinuteCandleBackfillJob 대상 아님. WEEK/MONTH는 ADR 0050 R3-4 신규.
+            else -> error("$interval 은 MinuteCandleBackfillJob 대상이 아님")
         }
 
     /**

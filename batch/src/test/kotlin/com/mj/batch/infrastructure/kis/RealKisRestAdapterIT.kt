@@ -332,6 +332,80 @@ class RealKisRestAdapterIT {
     }
 
     // -------------------------------------------------------------------------
+    // 시나리오 7: fetchCandles — 주봉 (WEEK, FID_PERIOD_DIV_CODE=W)
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `scenario 7 - fetchCandles WEEK uses FID_PERIOD_DIV_CODE W`() {
+        stubTokenOk("week-token")
+
+        // KIS 주봉 응답 (3건)
+        stubFor(
+            get(urlPathEqualTo("/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice"))
+                .withQueryParam("FID_INPUT_ISCD", equalTo("005930"))
+                .withQueryParam("FID_PERIOD_DIV_CODE", equalTo("W"))
+                .withHeader("tr_id", equalTo("FHKST03010100"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(WEEK_CANDLE_RESPONSE_3ROWS),
+                ),
+        )
+
+        val candles =
+            adapter.fetchCandles(
+                code = "005930",
+                interval = Interval.WEEK,
+                from = LocalDate.of(2024, 1, 1),
+                to = LocalDate.of(2024, 1, 19),
+            )
+
+        assertEquals(3, candles.size)
+        // ASC 정렬 — 첫 봉이 가장 오래된 봉
+        assertTrue(candles.first().openTime.isBefore(candles.last().openTime))
+        // interval 필드가 WEEK로 매핑되어야 함
+        assertEquals(Interval.WEEK, candles.first().interval)
+        // open 값 확인 (픽스처 첫 봉 73000)
+        assertEquals(java.math.BigDecimal("73000"), candles.first().open)
+    }
+
+    // -------------------------------------------------------------------------
+    // 시나리오 8: fetchCandles — 월봉 (MONTH, FID_PERIOD_DIV_CODE=M)
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `scenario 8 - fetchCandles MONTH uses FID_PERIOD_DIV_CODE M`() {
+        stubTokenOk("month-token")
+
+        // KIS 월봉 응답 (2건)
+        stubFor(
+            get(urlPathEqualTo("/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice"))
+                .withQueryParam("FID_INPUT_ISCD", equalTo("005930"))
+                .withQueryParam("FID_PERIOD_DIV_CODE", equalTo("M"))
+                .withHeader("tr_id", equalTo("FHKST03010100"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(MONTH_CANDLE_RESPONSE_2ROWS),
+                ),
+        )
+
+        val candles =
+            adapter.fetchCandles(
+                code = "005930",
+                interval = Interval.MONTH,
+                from = LocalDate.of(2023, 12, 1),
+                to = LocalDate.of(2024, 1, 31),
+            )
+
+        assertEquals(2, candles.size)
+        assertTrue(candles.first().openTime.isBefore(candles.last().openTime))
+        assertEquals(Interval.MONTH, candles.first().interval)
+    }
+
+    // -------------------------------------------------------------------------
     // 공통 헬퍼
     // -------------------------------------------------------------------------
 
@@ -435,6 +509,82 @@ class RealKisRestAdapterIT {
                 "prdy_vrss_sign": "2",
                 "prdy_ctrt": "0.82"
               }
+            }
+            """.trimIndent()
+
+        /**
+         * 주봉(W) 픽스처 — 3개 주봉 (내림차순, 2024-01-15 / 2024-01-08 / 2024-01-02).
+         * KIS는 날짜를 desc 순으로 반환하므로 내림차순으로 작성.
+         */
+        private val WEEK_CANDLE_RESPONSE_3ROWS =
+            """
+            {
+              "rt_cd": "0",
+              "msg_cd": "MCA00000",
+              "msg1": "정상처리 되었습니다.",
+              "output1": { "stck_prpr": "73800" },
+              "output2": [
+                {
+                  "stck_bsop_date": "20240119",
+                  "stck_oprc": "74000",
+                  "stck_hgpr": "74800",
+                  "stck_lwpr": "73500",
+                  "stck_clpr": "74200",
+                  "acml_vol": "65000000",
+                  "acml_tr_pbmn": "4810000000000"
+                },
+                {
+                  "stck_bsop_date": "20240112",
+                  "stck_oprc": "73500",
+                  "stck_hgpr": "74200",
+                  "stck_lwpr": "73000",
+                  "stck_clpr": "73800",
+                  "acml_vol": "70000000",
+                  "acml_tr_pbmn": "5145000000000"
+                },
+                {
+                  "stck_bsop_date": "20240105",
+                  "stck_oprc": "73000",
+                  "stck_hgpr": "73600",
+                  "stck_lwpr": "72500",
+                  "stck_clpr": "73500",
+                  "acml_vol": "60000000",
+                  "acml_tr_pbmn": "4377000000000"
+                }
+              ]
+            }
+            """.trimIndent()
+
+        /**
+         * 월봉(M) 픽스처 — 2개 월봉 (내림차순, 2024-01 / 2023-12).
+         */
+        private val MONTH_CANDLE_RESPONSE_2ROWS =
+            """
+            {
+              "rt_cd": "0",
+              "msg_cd": "MCA00000",
+              "msg1": "정상처리 되었습니다.",
+              "output1": { "stck_prpr": "73800" },
+              "output2": [
+                {
+                  "stck_bsop_date": "20240131",
+                  "stck_oprc": "73000",
+                  "stck_hgpr": "75000",
+                  "stck_lwpr": "72000",
+                  "stck_clpr": "74200",
+                  "acml_vol": "280000000",
+                  "acml_tr_pbmn": "20720000000000"
+                },
+                {
+                  "stck_bsop_date": "20231229",
+                  "stck_oprc": "71000",
+                  "stck_hgpr": "73500",
+                  "stck_lwpr": "70500",
+                  "stck_clpr": "72800",
+                  "acml_vol": "250000000",
+                  "acml_tr_pbmn": "18200000000000"
+                }
+              ]
             }
             """.trimIndent()
     }

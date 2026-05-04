@@ -156,6 +156,8 @@ class CandleCacheService(
             when (interval) {
                 Interval.D1 -> 180L
                 Interval.M1 -> 7L
+                // WEEK/MONTH는 KIS direct fetch 경로 (ADR 0050 R3-4) — CandleCacheService에서 미사용.
+                else -> 180L
             }
         return to
             .atZone(kst)

@@ -1,5 +1,6 @@
 package com.mj.api.application.market
 
+import com.mj.api.infrastructure.kis.KisChartCandleAdapter
 import com.mj.domain.common.Candle
 import com.mj.domain.common.Interval
 import com.mj.domain.market.cache.port.UserCandleCachePort
@@ -20,12 +21,15 @@ import java.time.Instant
  *   1. cache hit → 즉시 응답 + touchRecent (DB 안 거침)
  *   2. cache miss → DB 조회 + Redis warm-up + 응답
  *   3. cache miss + DB miss → 빈 응답 + touchRecent만 (warm-up 안 함)
+ *
+ * W/MO KIS direct fetch 검증은 [UserChartCandleServiceWmoTest] 참조.
  */
 class UserChartCandleServiceTest {
     private val cache = mockk<UserCandleCachePort>()
     private val candleRepository = mockk<CandleRepository>()
     private val candleAggregator = CandleAggregator() // 실제 로직 사용 (단위 테스트)
-    private val sut = UserChartCandleService(cache, candleRepository, candleAggregator)
+    private val kisChartCandleAdapter = mockk<KisChartCandleAdapter>(relaxed = true)
+    private val sut = UserChartCandleService(cache, candleRepository, candleAggregator, kisChartCandleAdapter)
 
     private val userId = UserChartCandleService.DEFAULT_USER_ID
     private val code = "005930"
@@ -176,43 +180,58 @@ class UserChartCandleServiceTest {
     }
 
     @Test
-    fun `fetchByString W — D1 base + 주봉 합성`() {
+    fun `fetchByString W — R3-4 KIS direct fetch (WEEK interval)`() {
         val limit = 4
-        val baseLimit = limit * 5 // 20일치 D1
-        val baseD1 =
-            (0 until baseLimit).map {
+        val weekCandles =
+            (0 until limit).map {
                 candleFixture(
-                    Instant.parse("2026-04-13T00:00:00Z").plusSeconds(it * 86400L),
-                    Interval.D1,
+                    Instant.parse("2024-01-05T00:00:00Z").plusSeconds(it * 7L * 86400L),
+                    Interval.WEEK,
                 )
             }
-        every { cache.fetch(userId, code, "D1", null, baseLimit) } returns baseD1
-        every { cache.touchRecent(userId, code) } returns emptyList()
+        every {
+            kisChartCandleAdapter.fetchCandles(
+                code = code,
+                interval = Interval.WEEK,
+                from = any(),
+                to = any(),
+            )
+        } returns weekCandles
 
         val result = sut.fetchByString(userId, code, "W", limit = limit)
 
-        // 20일이 ISO week로 3~5주에 걸침. takeLast(limit=4) 적용
-        assert(result.size in 2..4) { "expected 2~4 W candles from 20 D1, got ${result.size}" }
+        // R3-4: KIS direct — 반환된 봉 수 그대로
+        assert(result.size == limit) { "expected $limit W candles from KIS direct, got ${result.size}" }
+        verify(exactly = 1) {
+            kisChartCandleAdapter.fetchCandles(code = code, interval = Interval.WEEK, from = any(), to = any())
+        }
     }
 
     @Test
-    fun `fetchByString MO — D1 base + 월봉 합성`() {
+    fun `fetchByString MO — R3-4 KIS direct fetch (MONTH interval)`() {
         val limit = 2
-        val baseLimit = limit * 22 // 44일치 D1
-        val baseD1 =
-            (0 until baseLimit).map {
+        val monthCandles =
+            (0 until limit).map {
                 candleFixture(
-                    Instant.parse("2026-04-15T00:00:00Z").plusSeconds(it * 86400L),
-                    Interval.D1,
+                    Instant.parse("2024-01-01T00:00:00Z").plusSeconds(it * 30L * 86400L),
+                    Interval.MONTH,
                 )
             }
-        every { cache.fetch(userId, code, "D1", null, baseLimit) } returns baseD1
-        every { cache.touchRecent(userId, code) } returns emptyList()
+        every {
+            kisChartCandleAdapter.fetchCandles(
+                code = code,
+                interval = Interval.MONTH,
+                from = any(),
+                to = any(),
+            )
+        } returns monthCandles
 
         val result = sut.fetchByString(userId, code, "MO", limit = limit)
 
-        // 4-15 ~ 5-28 = 4월·5월 2개월. takeLast(2) = 2
-        assert(result.size == 2) { "expected 2 MO candles from 44 D1, got ${result.size}" }
+        assert(result.size == limit) { "expected $limit MO candles from KIS direct, got ${result.size}" }
+        verify(exactly = 1) {
+            kisChartCandleAdapter.fetchCandles(code = code, interval = Interval.MONTH, from = any(), to = any())
+        }
     }
 
     @Test
