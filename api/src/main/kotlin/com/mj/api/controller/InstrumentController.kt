@@ -66,7 +66,7 @@ class InstrumentController(
     private val investorTrendService: InvestorTrendService,
     private val backfillCommandPublisher: MarketCandleBackfillCommandPublisher,
     private val userChartCandleService: UserChartCandleService,
-    @org.springframework.beans.factory.annotation.Value("\${magicjar.chart.redis-first.enabled:false}")
+    @org.springframework.beans.factory.annotation.Value("\${magicjar.chart.redis-first.enabled:true}")
     private val redisFirstEnabled: Boolean,
 ) {
     private val kst = ZoneId.of("Asia/Seoul")

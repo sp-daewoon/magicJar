@@ -8,7 +8,6 @@ import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.time.Instant
 import java.time.temporal.ChronoUnit
-import java.util.UUID
 
 /**
  * 사용자 차트 화면용 candle fetch — Redis ZSet first + DB fallback. ADR 0050.
@@ -43,7 +42,7 @@ class UserChartCandleService(
      * @param before   cursor — 이 시각 이전 봉만 (infinite scroll). null = 최신부터
      */
     fun fetch(
-        userId: UUID,
+        userId: String,
         code: String,
         interval: Interval,
         limit: Int = DEFAULT_LIMIT,
@@ -53,8 +52,9 @@ class UserChartCandleService(
         val intervalKey = interval.name
 
         val cached = cache.fetch(userId, code, intervalKey, before, limit)
-        if (cached.size >= limit || (before == null && cached.isNotEmpty())) {
-            // cache hit — touchRecent로 LRU 갱신 + 즉시 응답
+        // cache hit 조건: cached가 limit 이상 (이전의 작은 limit 호출 잔재가 큰 limit 호출에 전염되는 것 방지).
+        // limit 미만이면 무조건 DB fallback → warm-up.
+        if (cached.size >= limit) {
             val evicted = cache.touchRecent(userId, code)
             if (evicted.isNotEmpty()) {
                 log.info("[USER_CANDLE] LRU evict user={} evicted={}", userId, evicted)
@@ -119,7 +119,7 @@ class UserChartCandleService(
      * 합성 결과는 Redis 미저장 — raw base(D1·M1)만 캐시한다. LRU·일관성 단순화.
      */
     fun fetchByString(
-        userId: UUID,
+        userId: String,
         code: String,
         intervalRaw: String,
         limit: Int = DEFAULT_LIMIT,
@@ -158,16 +158,26 @@ class UserChartCandleService(
         return if (aggregated.size > limit) aggregated.takeLast(limit) else aggregated
     }
 
-    /** before 없으면 최신 limit개의 lookback으로 from·to 계산. */
+    /**
+     * before 없으면 최신 limit개의 lookback으로 from·to 계산.
+     * - D1: limit일 * 1.7 (주말·공휴일 buffer — 5/7 영업일 + 공휴일)
+     * - M1: limit분 (장중 5h*60=300분 단위로 큰 limit는 일 단위 환산)
+     */
     private fun computeRange(
         interval: Interval,
         before: Instant?,
         limit: Int,
     ): Pair<Instant, Instant> {
         val to = before ?: Instant.now()
-        val secondsPerCandle = if (interval == Interval.D1) 86400L else 60L
-        // 영업일 considering 없이 단순 backfill — backend candle 조회는 from~to 사이 모든 행 반환
-        val from = to.minus(secondsPerCandle * limit, ChronoUnit.SECONDS)
+        val daysBack: Long =
+            when (interval) {
+                // D1: limit개 영업일 + 주말·공휴일 buffer (× 1.7 + 7일 여유)
+                Interval.D1 -> ((limit * 1.7).toLong() + 7L).coerceAtLeast(7L)
+                // M1: 장 5시간(300분) per day → limit개 잡으려면 limit/300일치, 최소 7일.
+                //     M1 yfinance 한도 30일 — 그 이상 가더라도 DB는 30일치만 반환.
+                Interval.M1 -> ((limit / 300L) + 7L).coerceAtLeast(7L)
+            }
+        val from = to.minus(daysBack, ChronoUnit.DAYS)
         return from to to
     }
 
@@ -180,7 +190,7 @@ class UserChartCandleService(
         private val D1_ALIASES = setOf("D1", "DAY", "D", "1D")
         private val M1_ALIASES = setOf("M1", "1M", "1MIN", "MIN1")
 
-        /** ADR 0049 정합 — 단일 사용자 모드 default. */
-        val DEFAULT_USER_ID: UUID = UUID.fromString("00000000-0000-0000-0000-000000000001")
+        /** ADR 0049 정합 — 단일 사용자 모드 default. KIS 모의 계좌번호 8자리. */
+        const val DEFAULT_USER_ID: String = "74683223"
     }
 }

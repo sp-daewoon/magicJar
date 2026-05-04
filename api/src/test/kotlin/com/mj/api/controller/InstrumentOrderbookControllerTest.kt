@@ -44,6 +44,7 @@ import java.time.LocalDate
         JpaRepositoriesAutoConfiguration::class,
         FlywayAutoConfiguration::class,
     ],
+    properties = ["magicjar.chart.redis-first.enabled=false"],
 )
 @Import(WebSecurityConfig::class)
 class InstrumentOrderbookControllerTest {

@@ -2,7 +2,6 @@ package com.mj.domain.market.cache.port
 
 import com.mj.domain.common.Candle
 import java.time.Instant
-import java.util.UUID
 
 /**
  * 사용자별 차트 캔들 캐시 포트 (ADR 0050).
@@ -22,7 +21,7 @@ interface UserCandleCachePort {
      * 단일 candle ZADD upsert. 같은 score(openTime)면 덮어쓰기.
      */
     fun upsert(
-        userId: UUID,
+        userId: String,
         code: String,
         interval: String,
         candle: Candle,
@@ -32,7 +31,7 @@ interface UserCandleCachePort {
      * 다중 candle 일괄 ZADD. backfill 결과 적재용.
      */
     fun upsertAll(
-        userId: UUID,
+        userId: String,
         code: String,
         interval: String,
         candles: List<Candle>,
@@ -44,7 +43,7 @@ interface UserCandleCachePort {
      * @param before  null이면 최신부터 limit개 (역방향 ZREVRANGE)
      */
     fun fetch(
-        userId: UUID,
+        userId: String,
         code: String,
         interval: String,
         before: Instant?,
@@ -57,7 +56,7 @@ interface UserCandleCachePort {
      * @return evicted된 종목 코드 목록 (0~N개). 호출자가 SubscriptionEvictedEvent fanout 등 후속 처리.
      */
     fun touchRecent(
-        userId: UUID,
+        userId: String,
         code: String,
     ): List<String>
 
@@ -65,7 +64,7 @@ interface UserCandleCachePort {
      * 마지막 fetch 시각 기록. 재진입 시 cache freshness 검증용.
      */
     fun setLastFetch(
-        userId: UUID,
+        userId: String,
         code: String,
         interval: String,
         at: Instant,
@@ -75,7 +74,7 @@ interface UserCandleCachePort {
      * 마지막 fetch 시각 조회. 없으면 null.
      */
     fun getLastFetch(
-        userId: UUID,
+        userId: String,
         code: String,
         interval: String,
     ): Instant?
