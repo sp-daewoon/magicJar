@@ -18,6 +18,7 @@ import RealtimeTickChart from '@/components/chart/RealtimeTickChart'
 import IntervalSelector from '@/components/chart/IntervalSelector'
 import IndicatorPanel from '@/components/chart/IndicatorPanel'
 import InstrumentDetailPanel from '@/components/symbol/InstrumentDetailPanel'
+import Orderbook from '@/components/Orderbook/Orderbook'
 import SymbolHeader from './SymbolHeader'
 import JournalTable from './JournalTable'
 import NewsAnalysisCard from './NewsAnalysisCard'
@@ -148,10 +149,10 @@ export default function SymbolDetailPage() {
         </CardContent>
       </Card>
 
-      {/* 메인 레이아웃: 좌측 메타 패널 + 우측 차트 (T20-T7) */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">
+      {/* 메인 레이아웃: 좌측 메타 + 가운데 차트 + 우측 호가창 (T20-T7 + R2-A2 호가) */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr_240px]">
         {/* 좌측: 종목 상세 메타 */}
-        <div className="order-2 lg:order-1">
+        <div className="order-3 lg:order-1">
           <InstrumentDetailPanel
             detail={instrumentDetail}
             isLoading={detailLoading}
@@ -160,7 +161,7 @@ export default function SymbolDetailPage() {
           />
         </div>
 
-        {/* 우측: 메인 차트 */}
+        {/* 가운데: 메인 차트 */}
         <div className="order-1 lg:order-2">
       {/* 메인 차트 — 단일 LWC chart + 볼륨 오버레이 + 봉 단위 선택 + crosshair OHLC tooltip */}
       <Card>
@@ -245,7 +246,12 @@ export default function SymbolDetailPage() {
           )}
         </CardContent>
       </Card>
-        </div>{/* 우측 chart div 닫기 */}
+        </div>{/* 가운데 chart div 닫기 */}
+
+        {/* 우측: 호가창 10단계 (R2-A2 H0UNASP0) */}
+        <div className="order-2 lg:order-3">
+          <Orderbook code={symbolCode} />
+        </div>
       </div>{/* grid 레이아웃 닫기 */}
 
       {/* AI 뉴스 감성 분석 */}

@@ -237,6 +237,32 @@ export interface SearchResult {
   market: Market
 }
 
+/* ---------- 호가창 (Orderbook) ---------- */
+
+/**
+ * OrderbookLevelMessage — 호가 1단계 (asks/bids).
+ */
+export interface OrderbookLevelMessage {
+  price: number
+  quantity: number
+}
+
+/**
+ * OrderbookMessage — STOMP `/topic/market.orderbook.{code}` payload.
+ * 백엔드 OrderbookEvent와 1:1.
+ */
+export interface OrderbookMessage {
+  code: string
+  at: string                              // ISO-8601
+  asks: OrderbookLevelMessage[]           // 10단계 (asks[0]=최우선 매도1)
+  bids: OrderbookLevelMessage[]           // 10단계 (bids[0]=최우선 매수1)
+  totalAskQty: number
+  totalBidQty: number
+  source?: string
+  stale?: boolean
+  asOf?: string | null
+}
+
 /* ---------- 사용자 알림 ---------- */
 
 /**
