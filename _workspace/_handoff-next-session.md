@@ -28,18 +28,27 @@
 
 ## 2. 다음 사이클 우선순위
 
-### P0 — R2-A 잔여 (T2 R2-A 본 plan 계속)
-**plan**: `docs/superpowers/plans/2026-05-04-track2-r2-quote-ws.md`
+### P0 — Quote hotfix (B → C 순) — 사용자 보고 "종목 검색 시 가격 미반영"
 
-1. **R2-A2 — 호가 + 지수 (8 task, T10~T17)**
+**진단 (2026-05-04)**: R2-A1까지의 KIS WS 흐름은 살아있지만 **(R-A) Redis QuoteCache writer 미연결** + **(R-B) 동적 구독 부재**라 사용자가 검색→상세 진입 시 가격이 LAST_DAY_CLOSE(stale) 또는 404로 떨어진다.
+
+1. **B — Quote hotfix (R-A + R-B 통합, 본 사이클 진행 중)**
+   - R-A: Kafka `market.tick.v1` 컨슈머 신규 → `quoteCache.putLatest` (consumer 모듈)
+   - R-B: `market.subscription.command.v1` 명령 토픽 신설 + api `/quote` 호출 시 ensure subscribe 발행 + consumer dedup add
+   - 영역: 메인 세션 직접 (market-data 모자) — sonnet
+   - 사이즈: 2~3시간
+   - 효과: 모든 종목 진입 시 1~2초 내 LIVE 가격 표시. 18 LRU·Fallback은 C에서 마감.
+
+2. **C — R2-A3 Fallback 통합 (6 task, T18~T23) — B 직후**
+   - TickFallbackEmitter + MarketSessionResolver wiring + 18종목 LRU SubscriptionManager + frontend stale 배지
+   - **B에서 R-A·R-B 흡수했으니 C는 LRU·Fallback·UI 잔여만**
+   - 영역: backend-core (sonnet) — opus escalation 후보
+   - 사이즈: 0.5~1일
+
+3. **R2-A2 — 호가 + 지수 (8 task, T10~T17)** — C 이후
    - H0UNASP0(호가) + H0UPCNT0(KOSPI) + H0UPANC0(지수 예상) + market.orderbook.v1 + market.index.v1 + STOMP 신규 토픽 + frontend Orderbook 컴포넌트 + Dashboard 지수 실시간
    - 영역: market-data (sonnet) + frontend (sonnet)
    - 사이즈: 1~1.5일
-
-2. **R2-A3 — Fallback 통합 (6 task, T18~T23)**
-   - TickFallbackEmitter + MarketSessionResolver wiring + QuoteCacheRedis + 18종목 LRU SubscriptionManager + frontend stale 배지
-   - 영역: backend-core 또는 architect (opus 검토 권장)
-   - 사이즈: 1일
 
 ### P1 — 별도 점검 후보
 3. **frontend 호가창·체결·외국인 UI** (이전 세션 P0-1, R2-A2와 일부 겹침 — 통합 권장)
@@ -77,13 +86,13 @@
 ## 6. 다음 세션 첫 명령 권장
 
 ```
-"R2-A2 진입 — 호가 + KOSPI/KOSDAQ 지수 실시간"
+"B(quote hotfix) 머지 후 C(R2-A3 Fallback 통합) 진입"
 ```
 
 또는
 
 ```
-"R2-A3 먼저 (fallback + LRU)"
+"R2-A2 진입 — 호가 + KOSPI/KOSDAQ 지수 실시간"
 ```
 
 ## 7. 운영 명령 변경 (a2f4a75)

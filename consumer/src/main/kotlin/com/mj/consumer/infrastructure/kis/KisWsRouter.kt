@@ -66,7 +66,13 @@ class KisWsRouter(
         listener: KisWsFrameListener,
     ) {
         val key = SubKey(trId, trKey)
-        listeners[key] = listener
+        // 멱등 — 같은 (trId, trKey)에 대한 재구독은 listener만 갱신하고 KIS WS 프레임은 보내지 않는다.
+        // 동적 구독 명령이 중복 들어와도 KIS WS에 SUBSCRIBE 메시지가 매번 가지 않도록 보호.
+        val existing = listeners.putIfAbsent(key, listener)
+        if (existing != null) {
+            log.debug("[KIS_WS_ROUTER] already subscribed trId={} trKey={} — skip frame", trId, trKey)
+            return
+        }
         val sink = outboundSink.get()
         if (sink != null) {
             sendSubscribeFrame(sink, trId, trKey, register = true)

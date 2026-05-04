@@ -125,6 +125,24 @@ class KisWsRouterTest {
     }
 
     @Test
+    fun `subscribe 멱등 — 같은 trId·trKey 재호출 시 listener 유지·pending 중복 등록 없음`() {
+        val listener1 = mockk<KisWsFrameListener>(relaxed = true)
+        val listener2 = mockk<KisWsFrameListener>(relaxed = true)
+
+        // 첫 subscribe — pending에 등록 (sink 미연결 상태)
+        router.subscribe("H0UNCNT0", "005930", listener1)
+        // 두 번째 subscribe — 멱등 동작, listener1 유지
+        router.subscribe("H0UNCNT0", "005930", listener2)
+
+        // 동일 trKey frame 도착 시 listener1만 호출 (listener2는 무시)
+        val frame = "0|H0UNCNT0|001|005930^093045^75000^0^0^0^0^0^0^0^0^0^500^1234567"
+        router.handleFrame(sink, "APPROVAL_KEY_TEST", frame)
+
+        verify(exactly = 1) { listener1.onFrame(any(), any(), any()) }
+        verify(exactly = 0) { listener2.onFrame(any(), any(), any()) }
+    }
+
+    @Test
     fun `컬럼 분리 검증 — caret 구분 columns 올바르게 전달`() {
         val capturedCols = mutableListOf<List<String>>()
         val listener = KisWsFrameListener { _, _, columns -> capturedCols.add(columns) }
