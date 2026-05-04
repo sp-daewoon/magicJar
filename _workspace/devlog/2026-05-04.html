@@ -68,6 +68,16 @@
   <tr><td class="pr">#138</td><td><b>C — R2-A3 Fallback 통합</b> (Session API · TickFallbackEmitter @Scheduled 10s · SubscriptionManager LRU 18+default5 면제 · useMarketSession 훅)</td><td>메인 (backend-core 모자, sonnet)</td></tr>
   <tr><td class="pr">#139</td><td><b>E — useSymbolQuote STOMP topic↔code mismatch guard</b> (사용자 보고: "default5 외 종목 진입 시 다른 종목 가격이 1초마다 변동")</td><td>메인 (frontend 모자, sonnet)</td></tr>
   <tr><td class="pr">#140</td><td><b>D — 동적 일봉 backfill</b> (api → batch Kafka command + 16:30 KST scheduled · 멱등 dedup) — 한국석유 100봉 saved 검증</td><td>메인 (market-data 모자, sonnet)</td></tr>
+  <tr><td rowspan="9">밤: 정합 정리 + R2 마무리 + 운영 도구</td><td class="pr">#141</td><td><b>KIS REST 일봉 페이징 — 1년 full backfill</b> (100봉 limit 우회, 한국석유 100→243봉)</td><td>메인 (market-data 모자, sonnet)</td></tr>
+  <tr><td class="pr">#142</td><td><b>ADR 0049 — mount-only bootstrap + default5 폐기 + 종목 진입 단일 흐름 통합</b> (사용자 정정: "디폴트 5개 X · 최근 조회 종목 · mount 개념")</td><td>메인 (architect 모자, opus)</td></tr>
+  <tr><td class="pr">#143</td><td><b>R2-A2 KOSPI·KOSDAQ 지수 실시간</b> (KIS WS H0UPCNT0 + Kafka market.index.v1 + STOMP /topic/market.index.{code} + Dashboard 1초 갱신)</td><td>메인 (market-data 모자, sonnet)</td></tr>
+  <tr><td class="pr">#144</td><td><b>MockTickGenerator·MockNewsGenerator 영구 제거</b> (사용자: "mock 정보는 너 혼자 junit할때만 쓰셔" → memory feedback_no_mock_data.md 강화 + 운영 main src에 합성 코드 0건)</td><td>메인 (architect 모자, opus)</td></tr>
+  <tr><td class="pr">#145</td><td><b>SubscriptionEvictedEvent → STOMP /topic/notifications toast</b> (NotificationEvent 일반화 + frontend NotificationToasts banner)</td><td>메인 (architect 모자, opus)</td></tr>
+  <tr><td class="pr">#146</td><td><b>R2-A2 호가 H0UNASP0 실시간 + frontend Orderbook 10단계</b> (R2 마지막 사이클 — 종목당 quote+orderbook 2 trId)</td><td>메인 (market-data 모자, sonnet)</td></tr>
+  <tr><td class="pr">#147</td><td><b>타임존 KST 통일 + V3·V7·V8 시드 폐기</b> (10 컨테이너 TZ=Asia/Seoul + 마스터 sync 정공법) — 옆 세션 작업</td><td>옆 세션 (architect, opus)</td></tr>
+  <tr><td class="pr">#148</td><td><b>InitialUserSeeder fix</b> — KIS 키 미설정 시 user만 INSERT, trading_config skip (SettingsModal 입력 정합) — 사용자 IntelliJ 부팅 fail-fast 해소</td><td>메인 (architect 모자, opus)</td></tr>
+  <tr><td class="pr">#149</td><td><b>pyworker Content-Type 명시 + 3 Run config ACTIVE_PROFILES=dev,real-kis 통일</b> (api → pyworker 422 + batch 모의 URL 403 동시 fix)</td><td>메인 (architect 모자, opus)</td></tr>
+  <tr><td class="pr">#150</td><td><b>dozzle web UI 도입</b> — 컨테이너 로그 실시간 viewer (color·search·multi-pane) — 사용자: "compose만으로 편하게 로그 보고싶어"</td><td>메인 (architect 모자, opus)</td></tr>
 </table>
 
 <h2>2. PostgreSQL Flyway — V19·V20·V21</h2>
@@ -277,6 +287,47 @@
     <li>E: 0 (frontend test 미작성 — root cause 추적은 별도 P2)</li>
     <li>D: 15 (BackfillCommandListener 8 + Scheduler 3 + QuoteController 4)</li>
   </ul>
+</div>
+
+<h2>10. 밤 사이클 — R2 마무리 + 정합 정리 + 운영 도구 (PR #141~150)</h2>
+<div class="card">
+  <h3>R2 마무리 (호가·지수·페이징)</h3>
+  <ul>
+    <li><b>PR #141 KIS 일봉 페이징</b> — 100봉 limit 우회. for-break + MAX_PAGES=6 + ASC 정렬 + distinctBy. 한국석유 100→243봉 (1년 full)</li>
+    <li><b>PR #143 KOSPI·KOSDAQ 지수 실시간</b> — H0UPCNT0 30 columns + IndexTickEvent + Dashboard useMarketIndexStream 1초 갱신</li>
+    <li><b>PR #146 호가 H0UNASP0 + Orderbook UI</b> — 10단계 매도/매수 + 잔량 막대 + SubscriptionManager가 종목당 quote+orderbook 2 trId 동시 add</li>
+  </ul>
+  <h3>아키텍처 정합 (사용자 정정)</h3>
+  <ul>
+    <li><b>PR #142 ADR 0049 mount-only</b> — 사용자: "디폴트 5개 X, 최근 조회 종목, mount 개념"<br>
+        default5 하드코드 7군데 폐기. KisQuoteSubscriber bootstrap 0건 (router.start만), SubscriptionManager eviction 면제 폐기, holdings 자동 add 폐기, scheduler activeCodes 기반</li>
+    <li><b>PR #144 mock 영구 제거</b> — 사용자: "mock 정보는 너 혼자 junit할때만 쓰셔"<br>
+        MockTickGenerator·MockNewsGenerator·Properties·Test 5 파일 영구 삭제. application-mock.yml 정책 주석으로 대체. docker-compose default profile mock→dev,real-kis. build-and-deploy.sh --mock 옵션 폐기. memory feedback_no_mock_data.md 강화 (junit-only)</li>
+    <li><b>PR #147 TZ KST 통일 + V3·V7·V8 시드 폐기</b> (옆 세션) — 10 컨테이너 TZ=Asia/Seoul + JVM user.timezone + PostgreSQL PGTZ. instrument 16종·candle 시드 영구 삭제 (마스터 sync 정공법)</li>
+    <li><b>PR #145 NotificationEvent 일반화</b> — SubscriptionEvictedEvent → Kafka notifications.v1 → STOMP /topic/notifications → frontend NotificationToasts banner. 후속 (주문 거부·키 만료·sync 실패) 통합 path 확보</li>
+  </ul>
+  <h3>사용자 IntelliJ→COMPOSE 흐름 hotfix</h3>
+  <ul>
+    <li><b>PR #148 InitialUserSeeder fix</b> — IntelliJ 부팅 fail-fast (magicjar.seed.kis.app-key 미설정 throw) 해소.
+        users row는 항상 INSERT (FK 보장), KIS 키 시드는 OPTIONAL.
+        SettingsModal 저장 실패도 동시 해결 (FK 위반 회피)</li>
+    <li><b>PR #149 pyworker 422 + batch 모의 URL 403 동시 fix</b> —
+        api CandleCacheService에 Content-Type 명시 (RestClient builder default 미설정) +
+        3 Run config (Api·Batch·Consumer)에 ACTIVE_PROFILES=dev,real-kis 통일 (KisProperties default VTS 모의 회피)</li>
+    <li><b>PR #150 dozzle web UI</b> — 사용자: "compose만으로 편하게 로그 보고싶어".
+        amir20/dozzle 도입 — http://localhost:8888 → 모든 컨테이너 로그 실시간 (color·search·multi-pane).
+        IntelliJ Console 대체 가능. ~50MB, CPU 거의 0</li>
+  </ul>
+  <h3 style="margin-top:14px">밤 사이클 PASS</h3>
+  <ul>
+    <li>#141 7 (paging IT WireMock 시나리오 6+6b 신규 + 시나리오 2 ASC 정렬 정정)</li>
+    <li>#142 22+ (KisQuoteSubscriber 4 재작성 + SubscriptionManager 8 재작성 + DailyCandleBackfillScheduler 3 + InstrumentControllerTest mock 빈 추가 등)</li>
+    <li>#143 9 (KisIndexWsAdapter 6 + KisIndexSubscriber 1 + IndexStompFanoutListener 2)</li>
+    <li>#145 3 (SubscriptionEvictedNotificationAdapter 2 + NotificationStompFanoutListener 1)</li>
+    <li>#146 16 (KisOrderbookWsAdapter 4 + OrderbookStompFanoutListener 1 + SubscriptionManager 8 정정 + DailyCandleBackfillScheduler 3 정정)</li>
+    <li>#148 5 (InitialUserSeeder 재작성 — throw → skip + blank app-key/secret/cano 3 case 신규)</li>
+  </ul>
+  <h3 style="margin-top:14px">14 PR 머지 누적 (오전 분봉 아키 v2 + 오후 Quote 안정화 + 밤 R2/정합/운영) — main `6db53b3` → `037382a`</h3>
 </div>
 
 </body>
