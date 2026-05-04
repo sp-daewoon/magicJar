@@ -24,11 +24,13 @@ import java.time.Instant
 class CandleCacheServiceTest {
     private val candleRepository: CandleRepository = mockk(relaxed = true)
     private val cacheMetaRepository: CacheMetaRepository = mockk(relaxed = true)
+    private val restClientBuilder: org.springframework.web.client.RestClient.Builder = mockk(relaxed = true)
 
     private val sut =
         CandleCacheService(
             candleRepository = candleRepository,
             cacheMetaRepository = cacheMetaRepository,
+            restClientBuilder = restClientBuilder,
             pyworkerBaseUrl = "http://localhost:8000",
         )
 
@@ -140,6 +142,9 @@ class CandleCacheServiceTest {
             CandleCacheService(
                 candleRepository = candleRepository,
                 cacheMetaRepository = cacheMetaRepository,
+                restClientBuilder =
+                    org.springframework.web.client.RestClient
+                        .builder(),
                 pyworkerBaseUrl = "http://127.0.0.1:19999", // 없는 포트
             )
 
