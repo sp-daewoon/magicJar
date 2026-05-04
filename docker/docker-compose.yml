@@ -100,6 +100,24 @@ services:
       timeout: 5s
       retries: 10
 
+  # ─────────── Dozzle (모든 컨테이너 로그 web UI) ───────────
+  # amir20/dozzle — 컨테이너 로그 실시간 web viewer (색상·검색·multi-pane·다운로드).
+  # localhost:8888 접속 → 모든 컨테이너 stdout/stderr 한 화면. 메모리 50MB 미만.
+  # 운영 진입 시 제외 가능 (개발·디버깅 전용).
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: magicjar-dozzle
+    environment:
+      TZ: Asia/Seoul
+      DOZZLE_LEVEL: info
+      # 한국어 인코딩 처리 (UTF-8 보장)
+      DOZZLE_NO_ANALYTICS: "true"
+    volumes:
+      # docker socket 읽기 전용 mount — 모든 컨테이너 로그 read
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports: ["${DOZZLE_HOST_PORT:-8888}:8080"]
+    # healthcheck 미정의 — dozzle scratch 기반 이미지라 wget/curl 없음. 컨테이너 자체는 가벼워 영향 0.
+
   # ─────────── Kafka UI (디버깅용) ───────────
   # provectuslabs/kafka-ui — 토픽 메시지 viewer, consumer group lag, schema 등 GUI.
   # localhost:8090에서 접속. dev/디버깅 전용 (운영 진입 시 제외 가능).
