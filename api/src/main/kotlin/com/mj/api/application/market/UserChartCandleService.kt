@@ -1,6 +1,7 @@
 package com.mj.api.application.market
 
 import com.mj.api.infrastructure.kis.KisChartCandleAdapter
+import com.mj.api.messaging.producer.UserCandleEventPublisher
 import com.mj.domain.common.Candle
 import com.mj.domain.common.Interval
 import com.mj.domain.market.cache.port.UserCandleCachePort
@@ -33,6 +34,7 @@ class UserChartCandleService(
     private val candleRepository: CandleRepository,
     private val candleAggregator: CandleAggregator,
     private val kisChartCandleAdapter: KisChartCandleAdapter,
+    private val userCandleEventPublisher: UserCandleEventPublisher,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val zone: ZoneId = ZoneId.of("Asia/Seoul")
@@ -107,6 +109,9 @@ class UserChartCandleService(
             intervalKey,
             dbCandles.size,
         )
+
+        // R3-4 dual-write: Kafka publish (fail-soft — 발행 실패가 사용자 응답 차단 안 함)
+        userCandleEventPublisher.publish(userId, code, intervalKey, dbCandles)
 
         // 응답 — limit·before 적용
         return cache.fetch(userId, code, intervalKey, before, limit)

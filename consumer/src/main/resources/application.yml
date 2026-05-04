@@ -168,6 +168,8 @@ magicjar:
       marketOrderbook: market.orderbook.v1
       # 사용자 알림 (subscription eviction · order · system)
       notifications: notifications.v1
+      # R3-4 (ADR 0050): api warm-up 후 Kafka publish → consumer ZADD (dual-write)
+      userCandleUpdated: market.candle.user.v1
     consumer-groups:
       signal-engine: magicjar-signal-engine
       tick-aggregator: magicjar-tick-aggregator
