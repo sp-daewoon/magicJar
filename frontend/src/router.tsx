@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SettingsModal } from '@/components/settings/SettingsModal'
 import InstrumentSearch from '@/components/header/InstrumentSearch'
+import NotificationToasts from '@/components/NotificationToasts'
 import { useAuthStatus, DEFAULT_USER_ID } from '@/hooks/useAuth'
 import { useUiStore } from '@/stores/ui'
 import type { KisMode } from '@/api/auth'
@@ -85,6 +86,8 @@ function HeaderActions() {
 function RootLayout({ children }: { children?: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-background">
+      {/* 사용자 알림 toast — 모든 페이지에서 STOMP /topic/notifications 수신 */}
+      <NotificationToasts />
       <nav className="border-b px-4 py-2 flex items-center gap-6">
         <a href="/" className="font-bold text-primary">
           magicJar

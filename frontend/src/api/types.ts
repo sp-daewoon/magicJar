@@ -237,6 +237,21 @@ export interface SearchResult {
   market: Market
 }
 
+/* ---------- 사용자 알림 ---------- */
+
+/**
+ * NotificationMessage — STOMP `/topic/notifications` payload.
+ * 백엔드 `NotificationEvent`와 1:1.
+ */
+export interface NotificationMessage {
+  id: string                                     // UUID — 중복 dismiss 추적
+  level: 'INFO' | 'WARN' | 'ERROR'
+  category: 'subscription' | 'order' | 'system'
+  title: string
+  body: string
+  at: string                                     // ISO-8601
+}
+
 /* ---------- T21 시장 지수 ---------- */
 
 /**
