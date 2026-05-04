@@ -115,6 +115,39 @@ def validate_days(interval: str, days: int) -> None:
         )
 
 
+def _interval_seconds(interval: str) -> int:
+    """interval string → 초 변환 (검증용)."""
+    return {
+        "1m": 60,
+        "5m": 300,
+        "15m": 900,
+        "30m": 1800,
+        "60m": 3600,
+        "1d": 86400,
+    }.get(interval, 60)
+
+
+def _is_interval_consistent(df: pd.DataFrame, expected_interval: str) -> bool:
+    """yfinance 응답이 요청 interval과 시간 간격이 일치하는지 검증.
+
+    yfinance가 잘못된 시장 suffix(.KS / .KQ)로 호출돼도 응답을 줄 때가 있음 — 이 경우
+    응답의 시간 간격이 일봉 형태로 나옴. 검증 후 일치 안 하면 fallback 시도하도록 false 반환.
+
+    검증 방식:
+      - 첫 두 row의 시간 차이를 expected와 비교
+      - 차이 > expected * 5 이면 mismatch (예: 1m 요청에 1d 응답)
+      - row 1개 이하면 검증 불가 — true (그대로 진행)
+    """
+    if len(df) < 2:
+        return True
+    try:
+        diff_seconds = (df.index[1] - df.index[0]).total_seconds()
+    except Exception:  # noqa: BLE001
+        return True
+    expected = _interval_seconds(expected_interval)
+    return abs(diff_seconds) <= expected * 5
+
+
 def split_chunks(interval: str, days: int, now: datetime | None = None) -> list[tuple[datetime, datetime]]:
     """now ~ now-days 구간을 chunk_days 단위로 분할.
 
@@ -169,7 +202,7 @@ def fetch_history(req: FetchRequest, now: datetime | None = None) -> pd.DataFram
     primary_symbol = f"{req.code}{req.kospi_suffix}"
     fallback_symbol = f"{req.code}{req.kosdaq_fallback_suffix}"
 
-    # 1차 시도: .KS
+    # 1차 시도
     try:
         df_primary = _concat_chunks(primary_symbol, chunks, req.interval)
     except Exception as ex:  # noqa: BLE001
@@ -181,7 +214,10 @@ def fetch_history(req: FetchRequest, now: datetime | None = None) -> pd.DataFram
         )
         df_primary = pd.DataFrame()
 
-    if not df_primary.empty:
+    # 검증 — 응답 row의 시간 간격이 요청 interval과 매칭되는지.
+    # yfinance가 잘못된 시장 suffix로 호출돼도 일봉 형태 19행 응답하는 케이스 차단
+    # (사용자 보고 2026-05-04: 에코플라스틱 038110.KS — 19행 일봉 형태 응답 → fallback 안 됨).
+    if not df_primary.empty and _is_interval_consistent(df_primary, req.interval):
         log.info(
             "yahoo_client: fetched code=%s symbol=%s rows=%d",
             req.code,
@@ -189,10 +225,17 @@ def fetch_history(req: FetchRequest, now: datetime | None = None) -> pd.DataFram
             len(df_primary),
         )
         return df_primary
+    if not df_primary.empty:
+        log.warning(
+            "yahoo_client: primary interval mismatch code=%s symbol=%s rows=%d → fallback 시도",
+            req.code,
+            primary_symbol,
+            len(df_primary),
+        )
 
-    # 2차 시도: .KQ
+    # 2차 시도: fallback symbol
     log.info(
-        "yahoo_client: primary empty, trying fallback code=%s symbol=%s",
+        "yahoo_client: primary empty/mismatch, trying fallback code=%s symbol=%s",
         req.code,
         fallback_symbol,
     )
