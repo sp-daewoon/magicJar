@@ -23,11 +23,13 @@ import java.time.Instant
 class CandleMinuteEventListenerTest {
     private lateinit var repository: CandleJpaRepository
     private lateinit var listener: CandleMinuteEventListener
+    private lateinit var publisher: com.mj.api.messaging.producer.UserCandleEventPublisher
 
     @BeforeEach
     fun setUp() {
         repository = mockk(relaxed = true)
-        listener = CandleMinuteEventListener(repository)
+        publisher = mockk(relaxed = true)
+        listener = CandleMinuteEventListener(repository, publisher)
     }
 
     // ─────────────────────────────────────────

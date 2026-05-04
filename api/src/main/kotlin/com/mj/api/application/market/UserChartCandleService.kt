@@ -46,6 +46,7 @@ class UserChartCandleService(
     private val candleAggregator: CandleAggregator,
     private val kisChartCandleAdapter: KisChartCandleAdapter,
     private val userCandleEventPublisher: UserCandleEventPublisher,
+    private val candleCacheService: CandleCacheService,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val zone: ZoneId = ZoneId.of("Asia/Seoul")
@@ -100,9 +101,21 @@ class UserChartCandleService(
         val dbCandles = candleRepository.find(code, interval, from, to)
 
         if (dbCandles.isEmpty()) {
-            log.debug("[USER_CANDLE] DB miss user={} code={} interval={} — empty response", userId, code, intervalKey)
+            log.info(
+                "[USER_CANDLE] DB miss user={} code={} interval={} — empty response (M1: yfinance backfill 트리거)",
+                userId,
+                code,
+                intervalKey,
+            )
             // touchRecent는 진입 의사 표현이라 실행 (LRU 갱신)
             cache.touchRecent(userId, code)
+            // R3-5b: M1 cache miss + DB miss 시 yfinance backfill 비동기 트리거.
+            //   pyworker → Kafka publish (candle.minute.aggregated.v1)
+            //   → CandleMinuteEventListener → DB INSERT + 종목 throttled publish (market.candle.user.v1)
+            //   → STOMP fanout → frontend useUserCandleStream invalidate → 자동 차트 갱신.
+            if (interval == Interval.M1) {
+                candleCacheService.triggerBackgroundFetchAsync(code)
+            }
             return emptyList()
         }
 

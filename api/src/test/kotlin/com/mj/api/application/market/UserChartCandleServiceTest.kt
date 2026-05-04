@@ -32,7 +32,16 @@ class UserChartCandleServiceTest {
     private val candleAggregator = CandleAggregator() // 실제 로직 사용 (단위 테스트)
     private val kisChartCandleAdapter = mockk<KisChartCandleAdapter>(relaxed = true)
     private val userCandleEventPublisher = mockk<UserCandleEventPublisher>(relaxed = true) // R3-4 fail-soft
-    private val sut = UserChartCandleService(cache, candleRepository, candleAggregator, kisChartCandleAdapter, userCandleEventPublisher)
+    private val candleCacheService = mockk<CandleCacheService>(relaxed = true) // R3-5b — backfill trigger 호출 허용
+    private val sut =
+        UserChartCandleService(
+            cache,
+            candleRepository,
+            candleAggregator,
+            kisChartCandleAdapter,
+            userCandleEventPublisher,
+            candleCacheService,
+        )
 
     private val userId = UserChartCandleService.DEFAULT_USER_ID
     private val code = "005930"

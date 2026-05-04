@@ -34,6 +34,7 @@ class UserChartCandleServiceWmoTest {
     private val candleAggregator: CandleAggregator = CandleAggregator()
     private val kisChartCandleAdapter: KisChartCandleAdapter = mockk()
     private val userCandleEventPublisher: com.mj.api.messaging.producer.UserCandleEventPublisher = mockk(relaxed = true)
+    private val candleCacheService: CandleCacheService = mockk(relaxed = true)
 
     private lateinit var service: UserChartCandleService
 
@@ -46,6 +47,7 @@ class UserChartCandleServiceWmoTest {
                 candleAggregator = candleAggregator,
                 kisChartCandleAdapter = kisChartCandleAdapter,
                 userCandleEventPublisher = userCandleEventPublisher,
+                candleCacheService = candleCacheService,
             )
 
         // cache: always return empty (force DB fallback for D1/M1)
