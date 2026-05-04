@@ -1,6 +1,8 @@
 package com.mj.consumer.application.order
 
 import com.mj.consumer.infrastructure.kis.KisExecutionNoticeRaw
+import com.mj.consumer.infrastructure.kis.KisWsFrameListener
+import com.mj.consumer.infrastructure.kis.KisWsRouter
 import com.mj.consumer.messaging.producer.OrderExecutedPublisher
 import com.mj.domain.order.OrderEventRecord
 import com.mj.domain.order.OrderEventSource
@@ -10,6 +12,11 @@ import com.mj.domain.order.event.OrderExecutedEvent
 import com.mj.domain.order.port.OrderEventRepository
 import com.mj.domain.order.port.OrderRepository
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
+import org.springframework.boot.context.event.ApplicationReadyEvent
+import org.springframework.context.annotation.Profile
+import org.springframework.context.event.EventListener
+import org.springframework.stereotype.Component
 import java.math.BigDecimal
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -18,8 +25,8 @@ import java.util.UUID
 /**
  * KIS H0STCNI0/H0STCNI9 체결통보 WS push 처리. spec §5.5, §7.2 (D3 WS Primary).
  *
- * subscribe·재접속·복호는 KisWsSession이 담당. 이 클래스는 KisWsSession.subscribe의 callback에서
- * 받은 KisExecutionNoticeRaw를 도메인 흐름으로 처리:
+ * subscribe·재접속·복호는 KisWsRouter가 담당. 이 클래스는 KisWsRouter에 KisWsFrameListener로 등록되어
+ * frame columns → KisExecutionNoticeRaw 변환 후 도메인 흐름으로 처리:
  *   - CNTG_YN=2(체결통보) → orders 매칭 → order_events.insertIdempotent(EXECUTED)
  *     → 통과 시 orders.updateStatus + order.executed.v1 publish
  *   - CNTG_YN=1(접수통보) → order_events.insertIdempotent(RECEIPT_ACCEPTED) — 무동작 audit
@@ -27,16 +34,52 @@ import java.util.UUID
  * 멱등 dedup 키: (kis_mode, kis_order_no, EXECUTED, cumulative_qty)
  *  - WS push와 OrderExecutionSweep(REST)이 같은 체결을 중복 ingest해도 한 번만 통과.
  *
- * KisWsSession 자체 부팅·subscribe는 KisExecutionNoticeBootstrap(별도) 또는 본 클래스에서 처리.
- * 1차에는 KisWsSession Bean 등록 + 본 클래스가 callback로 받는 구조 — 부팅 wiring은 host docker 환경에서.
+ * T3 (plan 2026-05-04): KisWsSession → KisWsRouter 마이그.
+ * KisWsRouter.start()는 KisQuoteSubscriber.onReady에서 호출.
+ * 체결통보 subscribe는 본 클래스의 onReady에서 처리.
  */
+@Component
+@Profile("dev | prd")
 class KisExecutionNoticeListener(
     private val orders: OrderRepository,
     private val events: OrderEventRepository,
     private val projection: OrderProjectionUpdater,
     private val publisher: OrderExecutedPublisher,
-) {
+    private val router: KisWsRouter,
+    @Value("\${kis.hts-id:}") private val htsId: String,
+) : KisWsFrameListener {
     private val log = LoggerFactory.getLogger(javaClass)
+
+    /**
+     * ApplicationReadyEvent — KisWsRouter에 체결통보 구독 등록.
+     * H0STCNI0(실전)·H0STCNI9(모의) — 두 trId 모두 등록 (KIS는 계좌 모드별로 하나만 수신됨).
+     * htsId 미설정 시 구독 skip (오류 아님 — 체결통보만 미활성).
+     */
+    @EventListener(ApplicationReadyEvent::class)
+    fun onReady() {
+        if (htsId.isBlank()) {
+            log.warn("[KIS_WS_NOTICE] kis.hts-id not configured — execution notice subscription skipped")
+            return
+        }
+        router.subscribe("H0STCNI0", htsId, this)
+        router.subscribe("H0STCNI9", htsId, this)
+        log.info("[KIS_WS_NOTICE] subscribed H0STCNI0/9 for htsId={}***", htsId.take(3))
+    }
+
+    /**
+     * KisWsFrameListener 구현 — frame columns → KisExecutionNoticeRaw 변환 후 처리.
+     */
+    override fun onFrame(
+        trId: String,
+        trKey: String,
+        columns: List<String>,
+    ) {
+        if (columns.size < 15) {
+            log.warn("[KIS_WS_NOTICE] too few columns ({}) for trId={}", columns.size, trId)
+            return
+        }
+        onFrame(KisExecutionNoticeRaw.fromColumns(columns))
+    }
 
     fun onFrame(raw: KisExecutionNoticeRaw) {
         val orderRow =
@@ -170,7 +213,7 @@ class KisExecutionNoticeListener(
 
     private fun computeWeightedAverage(
         priorAndCurrent: List<OrderEventRecord>,
-        orderRow: OrderRecord,
+        @Suppress("UNUSED_PARAMETER") orderRow: OrderRecord,
     ): BigDecimal {
         val totalQty = priorAndCurrent.sumOf { it.partialQty ?: 0 }
         if (totalQty <= 0) return BigDecimal.ZERO

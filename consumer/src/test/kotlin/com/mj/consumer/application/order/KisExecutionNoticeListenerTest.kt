@@ -1,6 +1,7 @@
 package com.mj.consumer.application.order
 
 import com.mj.consumer.infrastructure.kis.KisExecutionNoticeRaw
+import com.mj.consumer.infrastructure.kis.KisWsRouter
 import com.mj.consumer.messaging.producer.OrderExecutedPublisher
 import com.mj.domain.common.OrderStatus
 import com.mj.domain.common.OrderType
@@ -23,11 +24,12 @@ import java.util.UUID
 class KisExecutionNoticeListenerTest {
     private val orders = mockk<OrderRepository>(relaxed = true)
     private val events = mockk<OrderEventRepository>(relaxed = true)
+    private val router = mockk<KisWsRouter>(relaxed = true)
 
     // 실 인스턴스 — computeStatus가 실 동작해야 publish에 정확한 status 반영
     private val projection = OrderProjectionUpdater(orders)
     private val publisher = mockk<OrderExecutedPublisher>(relaxed = true)
-    private val listener = KisExecutionNoticeListener(orders, events, projection, publisher)
+    private val listener = KisExecutionNoticeListener(orders, events, projection, publisher, router, htsId = "")
 
     private val orderRow =
         OrderRecord(
