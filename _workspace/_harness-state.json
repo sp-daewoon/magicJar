@@ -1,5 +1,21 @@
 {
   "currentPhase": "V2_BASELINE_CONFIRMED",
+  "lastReleaseTag": "v2.0.1",
+  "lastReleaseAt": "2026-05-05T02:50:00+09:00",
+  "lastReleaseUrl": "https://github.com/sp-daewoon/magicJar/releases/tag/v2.0.1",
+  "lastReleaseNotes": "차트 Redis-first + user_id 통일 (28 commits since v2.0.0). ADR 0050 + R3-1/2/3 + V21 user_id UUID→String. release/v2는 v2.0.0 immutable 보존(ADR 0027).",
+  "nextSessionEntry": {
+    "priorities": [
+      "R3-4 — KIS W/MO endpoint (FID_PERIOD_DIV_CODE='W'/'M' 분기, RealKisRestAdapter)",
+      "R3-4 — frontend IntervalSelector 직접 입력 input + 10m 버튼 추가 (버튼 유지)",
+      "R3-4 — Kafka publish + consumer ZADD listener (market.candle.user.v1 신규)",
+      "1번 트랙 dogfooding 재개 (월요일 영업일 KIS 주문 + EGW00202 헤더 진단 또는 mock 전환)",
+      "v2.0.2 또는 v2.1.0 다음 컷 시점 결정"
+    ],
+    "userChartCacheUserId": "74683223",
+    "redisFirstChartFlag": "magicjar.chart.redis-first.enabled = true (default)",
+    "openIssues": []
+  },
   "v2Baseline": {
     "confirmedAt": "2026-05-03T01:30:00+09:00",
     "masterDoc": "docs/architecture/master-architecture.md",
