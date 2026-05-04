@@ -179,10 +179,31 @@ describe('resolveInterval — 분봉 v2 경로 (백엔드 직접 제공)', () =>
     expect(transform(candles)).toHaveLength(10)
   })
 
+  it('M10 → serverInterval=M10, transform=identity (백엔드 직접)', () => {
+    const { serverInterval, transform } = resolveInterval('M10')
+    expect(serverInterval).toBe('M10')
+    const candles = mkMinuteCandles(BASE_EPOCH, 10 * 60, 6)
+    expect(transform(candles)).toHaveLength(6)
+  })
+
   it('TICK → serverInterval=TICK, transform=[]', () => {
     const { serverInterval, transform } = resolveInterval('TICK')
     expect(serverInterval).toBe('TICK')
     const candles = mkMinuteCandles(BASE_EPOCH, 1, 5)
     expect(transform(candles)).toHaveLength(0)
+  })
+
+  it('자유 입력 "45m" → serverInterval="45m", transform=identity', () => {
+    const { serverInterval, transform } = resolveInterval('45m' as Parameters<typeof resolveInterval>[0])
+    expect(serverInterval).toBe('45m')
+    const candles = mkMinuteCandles(BASE_EPOCH, 45 * 60, 4)
+    expect(transform(candles)).toHaveLength(4)
+  })
+
+  it('자유 입력 "12m" → serverInterval="12m", transform=identity', () => {
+    const { serverInterval, transform } = resolveInterval('12m' as Parameters<typeof resolveInterval>[0])
+    expect(serverInterval).toBe('12m')
+    const candles = mkMinuteCandles(BASE_EPOCH, 12 * 60, 3)
+    expect(transform(candles)).toHaveLength(3)
   })
 })
