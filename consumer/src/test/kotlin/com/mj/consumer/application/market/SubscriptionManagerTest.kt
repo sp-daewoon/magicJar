@@ -12,22 +12,12 @@ import org.junit.jupiter.api.Test
 import org.springframework.context.ApplicationEventPublisher
 
 /**
- * SubscriptionManager 단위 테스트 — plan T2-R2-A3 §T21.
- *
- * 검증 시나리오:
- *   1. bootstrap — default5 + holdings 등록.
- *   2. addOnDemand — 신규 종목 add.
- *   3. addOnDemand 멱등 — 같은 코드 재호출 시 router subscribe 1회만.
- *   4. 18 한도 초과 — default5 외 LRU 가장 오래된 종목 evict + SubscriptionEvictedEvent publish.
- *   5. default5는 evict 면제.
- *   6. router 예외 시 추적 set rollback.
- *   7. blank 코드 skip.
+ * SubscriptionManager 단위 테스트 — ADR 0049 정합 (default5 면제 폐기, 모든 종목 동일 priority).
  */
 class SubscriptionManagerTest {
     private val router = mockk<KisWsRouter>()
     private val quoteAdapter = mockk<KisQuoteWsAdapter>()
     private val eventPublisher = mockk<ApplicationEventPublisher>(relaxed = true)
-    private val defaultCodes = "005930,000660,035720,005380,051910"
 
     private fun newManager(maxSubs: Int = 18): SubscriptionManager {
         every { router.subscribe(any(), any(), any()) } just Runs
@@ -36,18 +26,26 @@ class SubscriptionManagerTest {
             router = router,
             quoteListener = quoteAdapter,
             eventPublisher = eventPublisher,
-            defaultCodesRaw = defaultCodes,
             maxSubscriptions = maxSubs,
         )
     }
 
     @Test
-    fun `bootstrap — 모든 default5 router subscribe 호출 + size 5`() {
+    fun `bootstrap — 빈 collection이면 router subscribe 0회 (mount-only 정책)`() {
         val mgr = newManager()
-        mgr.bootstrap(listOf("005930", "000660", "035720", "005380", "051910"))
+        mgr.bootstrap(emptyList())
 
-        verify(exactly = 5) { router.subscribe(KisQuoteWsAdapter.TR_ID, any(), quoteAdapter) }
-        assert(mgr.activeSize() == 5)
+        verify(exactly = 0) { router.subscribe(any(), any(), any()) }
+        assert(mgr.activeSize() == 0)
+    }
+
+    @Test
+    fun `bootstrap — 명시 collection이면 router subscribe + activeCodes 누적`() {
+        val mgr = newManager()
+        mgr.bootstrap(listOf("005930", "000660", "035720"))
+
+        verify(exactly = 3) { router.subscribe(KisQuoteWsAdapter.TR_ID, any(), quoteAdapter) }
+        assert(mgr.activeSize() == 3)
     }
 
     @Test
@@ -70,44 +68,40 @@ class SubscriptionManagerTest {
     }
 
     @Test
-    fun `18 한도 — 19번째 신규 시 default5 외 가장 오래된 종목 evict + 이벤트 publish`() {
-        val mgr = newManager(maxSubs = 18)
-        // default5 + non-default 13개 = 18종목
-        mgr.bootstrap(listOf("005930", "000660", "035720", "005380", "051910"))
-        val nonDefault = (1..13).map { "00${100 + it}".takeLast(6) }
-        nonDefault.forEach { mgr.addOnDemand(it) }
-        assert(mgr.activeSize() == 18)
+    fun `LRU 한도 초과 — 가장 오래된 종목 evict + 이벤트 publish (default5 면제 없음)`() {
+        val mgr = newManager(maxSubs = 5)
+        // 5개 채움
+        listOf("AAA111", "BBB222", "CCC333", "DDD444", "EEE555").forEach { mgr.addOnDemand(it) }
+        assert(mgr.activeSize() == 5)
 
-        // 19번째 신규 진입
-        mgr.addOnDemand("999999")
+        // 6번째 진입 — LRU 가장 오래된 AAA111 evict
+        mgr.addOnDemand("FFF666")
 
-        // size 유지 18
-        assert(mgr.activeSize() == 18)
-        // 가장 오래된 non-default(첫 번째 nonDefault[0])이 evict됨
+        assert(mgr.activeSize() == 5)
+        verify(exactly = 1) { router.unsubscribe(KisQuoteWsAdapter.TR_ID, "AAA111") }
         verify(exactly = 1) {
-            router.unsubscribe(KisQuoteWsAdapter.TR_ID, nonDefault[0])
+            eventPublisher.publishEvent(match<SubscriptionEvictedEvent> { it.evictedCode == "AAA111" })
         }
-        verify(exactly = 1) {
-            eventPublisher.publishEvent(match<SubscriptionEvictedEvent> { it.evictedCode == nonDefault[0] })
-        }
-        assert("999999" in mgr.activeCodes())
-        assert(nonDefault[0] !in mgr.activeCodes())
+        assert("FFF666" in mgr.activeCodes())
+        assert("AAA111" !in mgr.activeCodes())
     }
 
     @Test
-    fun `default5는 evict 면제 — 18 자리가 모두 default5+면제 종목이면 신규 add refuse`() {
-        // 한도 5로 좁혀 default5만 채우고 신규 진입 시도
-        val mgr = newManager(maxSubs = 5)
-        mgr.bootstrap(listOf("005930", "000660", "035720", "005380", "051910"))
-        assert(mgr.activeSize() == 5)
+    fun `addOnDemand로 LRU 갱신 — 재진입 종목은 MRU로 이동, 다른 종목이 evict됨`() {
+        val mgr = newManager(maxSubs = 3)
+        mgr.addOnDemand("AAA111")
+        mgr.addOnDemand("BBB222")
+        mgr.addOnDemand("CCC333")
 
-        mgr.addOnDemand("999999")
+        // AAA111 재진입 → MRU로 이동 (이제 LRU는 BBB222)
+        mgr.addOnDemand("AAA111")
 
-        // default5는 모두 면제 → evict 불가 → 신규 add refuse
-        assert(mgr.activeSize() == 5)
-        assert("999999" !in mgr.activeCodes())
-        verify(exactly = 0) { router.unsubscribe(any(), any()) }
-        verify(exactly = 0) { router.subscribe(KisQuoteWsAdapter.TR_ID, "999999", quoteAdapter) }
+        // 4번째 신규 → LRU = BBB222가 evict
+        mgr.addOnDemand("DDD444")
+
+        verify(exactly = 1) { router.unsubscribe(KisQuoteWsAdapter.TR_ID, "BBB222") }
+        assert("AAA111" in mgr.activeCodes())
+        assert("BBB222" !in mgr.activeCodes())
     }
 
     @Test
@@ -120,7 +114,6 @@ class SubscriptionManagerTest {
                 router = router,
                 quoteListener = quoteAdapter,
                 eventPublisher = eventPublisher,
-                defaultCodesRaw = defaultCodes,
                 maxSubscriptions = 18,
             )
         mgr.addOnDemand("035420")

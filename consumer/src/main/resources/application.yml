@@ -112,10 +112,7 @@ kis:
 magicjar:
   mode: ${MAGICJAR_MODE:MOCK}
   allow-real: ${MAGICJAR_ALLOW_REAL:false}
-  market:
-    # KIS 시세 WS 기본 구독 종목 (콤마 구분, 최대 18개, 영구 면제)
-    # plan §2-C §2-D: holdings ∪ default5 → take(18)
-    default-codes: ${MAGICJAR_MARKET_DEFAULT_CODES:005930,000660,035720,005380,051910}
+  # ADR 0049: default-codes 하드코드 폐기. bootstrap = holdings(보유)만, recent-history는 사용자 진입 시 동적 add.
   guard:
     market-session:
       # dev profile에서 장외 시간(주말·공휴일·오프아워)에도 주문 통과 허용.

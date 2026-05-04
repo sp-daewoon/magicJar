@@ -20,6 +20,7 @@ import com.mj.api.controller.dto.RecentTradeResponse
 import com.mj.api.controller.dto.toDetailResponse
 import com.mj.api.controller.dto.toResponse
 import com.mj.api.controller.dto.toSearchResponse
+import com.mj.api.messaging.producer.MarketCandleBackfillCommandPublisher
 import com.mj.domain.market.instrument.Instrument
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.Parameter
@@ -62,6 +63,7 @@ class InstrumentController(
     private val orderbookService: OrderbookService,
     private val recentTradesService: RecentTradesService,
     private val investorTrendService: InvestorTrendService,
+    private val backfillCommandPublisher: MarketCandleBackfillCommandPublisher,
 ) {
     private val kst = ZoneId.of("Asia/Seoul")
 
@@ -204,6 +206,14 @@ class InstrumentController(
     ): ResponseEntity<List<CandleResponse>> {
         val normalized = code.uppercase()
         instrumentService.get(normalized) ?: return ResponseEntity.notFound().build()
+
+        // ADR 0049 §2-B: mount = 단일 보장 흐름. 차트 hook 호출 시도 backfill trigger.
+        // batch listener가 멱등 처리 (DB max(openTime)≥어제 skip + 60s dedup TTL).
+        try {
+            backfillCommandPublisher.ensureBackfill(normalized)
+        } catch (e: Exception) {
+            // 본 명령 실패는 캔들 응답을 막지 않는다.
+        }
 
         // limit 검증
         if (limit <= 0 || limit > CandleQueryService.MAX_LIMIT) return ResponseEntity.badRequest().build()
