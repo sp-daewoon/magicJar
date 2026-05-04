@@ -164,6 +164,8 @@ magicjar:
       marketSubscriptionCommand: market.subscription.command.v1
       # R2-A2 (2026-05-04): KIS WS H0UPCNT0 → KOSPI·KOSDAQ 지수 실시간
       marketIndex: market.index.v1
+      # 사용자 알림 (subscription eviction · order · system)
+      notifications: notifications.v1
     consumer-groups:
       signal-engine: magicjar-signal-engine
       tick-aggregator: magicjar-tick-aggregator
