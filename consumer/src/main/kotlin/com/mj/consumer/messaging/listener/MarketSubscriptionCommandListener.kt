@@ -15,8 +15,7 @@ import org.springframework.stereotype.Component
  * (체결가) trId로 추가 구독한다. KisWsRouter.subscribe는 멱등이라 같은 (trId, code)에
  * 대해 중복 명령이 와도 안전.
  *
- * Profile dev/prd 한정 — mock 환경은 MockTickGenerator가 default5만 발행하므로
- * 본 리스너는 비활성. (mock에서 default5 외 종목 LIVE 시세는 R2-A3 또는 mock 확장 범위)
+ * Profile dev/prd 한정. mock profile은 jvm test fixture 전용으로 운영에서 활성 안 됨.
  *
  * Quote hotfix B (R-B) — handoff 2026-05-04 P0.
  */

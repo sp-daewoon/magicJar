@@ -130,12 +130,13 @@ services:
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
     # ADR 0029: 데이터는 실 KIS 베이스. .env 전체를 컨테이너 env로 주입
-    # (KIS_*·NAVER_*·DART_*·MAGICJAR_MARKET_MOCK*·ANTHROPIC_API_KEY 등 전 변수).
-    # environment 섹션의 명시 매핑이 우선 적용됨.
+    # (KIS_*·NAVER_*·DART_*·ANTHROPIC_API_KEY 등 전 변수). environment 섹션이 우선.
     env_file:
       - ../.env
     environment:
-      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-mock}
+      # ADR 0049 + memory feedback_no_mock_data: default profile = dev,real-kis. mock 합성 0.
+      # build-and-deploy.sh가 docker-compose.dev.yml override로 적용되며, 직접 호출 시도 안전.
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev,real-kis}
       DB_URL: jdbc:postgresql://postgres:5432/magicjar
       DB_USER: magicjar
       DB_PASSWORD: magicjar
@@ -181,7 +182,7 @@ services:
     env_file:
       - ../.env
     environment:
-      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-mock}
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev,real-kis}
       DB_URL: jdbc:postgresql://postgres:5432/magicjar
       DB_USER: magicjar
       DB_PASSWORD: magicjar
@@ -202,7 +203,7 @@ services:
     env_file:
       - ../.env
     environment:
-      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-mock}
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev,real-kis}
       DB_URL: jdbc:postgresql://postgres:5432/magicjar
       DB_USER: magicjar
       DB_PASSWORD: magicjar
@@ -212,9 +213,6 @@ services:
       MINIO_ACCESS_KEY: magicjar
       MINIO_SECRET_KEY: magicjar123
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      # MockTickGenerator — KIS 시세 WebSocket 미구현 시 sin 합성 모의 시세 발행.
-      # 2번 트랙(실시간 시세 WS) 진입 시 false로 전환.
-      MAGICJAR_MARKET_MOCKTICK_ENABLED: ${MAGICJAR_MARKET_MOCKTICK_ENABLED:-true}
       # 1번 트랙 (T2~T3) — KIS 키 암호화 master key + 시드 사용자 등록 데이터.
       # mock profile에선 master key 검증 skip. dev/prd에선 fail-fast.
       MAGICJAR_SECRET_MASTER_KEY: ${MAGICJAR_SECRET_MASTER_KEY:-}

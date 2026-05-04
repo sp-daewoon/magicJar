@@ -30,7 +30,7 @@ import java.time.Instant
  *        b) 없으면 candleRepository.findLastClose → stale=true source="last-day-close" emit.
  *        c) 둘 다 없으면 emit 없음.
  *
- * Profile dev|prd 한정. mock에서는 MockTickGenerator가 1초마다 tick 발행하므로 fallback 불필요.
+ * Profile dev|prd 한정. mock profile은 jvm test fixture 전용으로 운영에서 활성화 안 됨.
  *
  * 운영 토글: `magicjar.market.tick-fallback.enabled` (default true).
  */

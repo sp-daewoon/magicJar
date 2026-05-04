@@ -23,7 +23,7 @@ import java.util.LinkedHashMap
  *   - 모든 mutating 메서드는 `synchronized` 블록 내에서 실행 — 진입 빈도 낮음 (TPS 1 미만).
  *   - LinkedHashMap access-order 사용해 LRU 순서 자동 관리.
  *
- * Profile dev|prd 한정 — mock 환경은 MockTickGenerator가 activeCodes() 기반으로 발행.
+ * Profile dev|prd 한정 — mock profile은 jvm test fixture 전용 (운영 영향 0).
  */
 @Component
 @Profile("dev | prd")
