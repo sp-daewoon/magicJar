@@ -248,6 +248,14 @@ export default function TradingChart({
   }, [height, intraday])
 
   // 데이터 업데이트
+  // viewport 정책 (사용자 보고 2026-05-04: "줌아웃 더 하면 차트가 돌아온다"):
+  //   - 첫 데이터 로드 시 1회만 자동 viewport 설정 (last N or fitContent)
+  //   - viewportSize prop 변경 시(사용자 명시) 강제 재설정
+  //   - 그 외 candles 변경(infinite scroll fetch 등) 시 사용자 viewport 보존
+  // 이전엔 매 candles 변경마다 setVisibleLogicalRange/fitContent를 호출해 사용자 줌이 reset되던 문제.
+  const initialViewportSetRef = useRef(false)
+  const prevViewportSizeRef = useRef<number | undefined>(viewportSize)
+  const prevIntervalRef = useRef<ClientInterval>(interval)
   useEffect(() => {
     if (!candleSeriesRef.current || !volumeSeriesRef.current) return
 
@@ -275,9 +283,15 @@ export default function TradingChart({
     candleSeriesRef.current.setData(candleData)
     volumeSeriesRef.current.setData(volumeData)
 
-    // viewportSize 지정 시 마지막 N봉만 보이게, 미지정 시 fitContent.
-    if (candles.length > 0 && chartRef.current) {
-      const ts = chartRef.current.timeScale()
+    if (candles.length === 0 || !chartRef.current) return
+    const ts = chartRef.current.timeScale()
+
+    // 자동 viewport 설정이 필요한 케이스만 적용
+    const isInitialLoad = !initialViewportSetRef.current
+    const viewportSizeChanged = prevViewportSizeRef.current !== viewportSize
+    const intervalChanged = prevIntervalRef.current !== interval
+
+    if (isInitialLoad || viewportSizeChanged || intervalChanged) {
       if (viewportSize && viewportSize > 0 && viewportSize < candles.length) {
         ts.setVisibleLogicalRange({
           from: candles.length - viewportSize,
@@ -286,8 +300,12 @@ export default function TradingChart({
       } else {
         ts.fitContent()
       }
+      initialViewportSetRef.current = true
+      prevViewportSizeRef.current = viewportSize
+      prevIntervalRef.current = interval
     }
-  }, [candles, viewportSize])
+    // infinite scroll fetch 등 자동 변경 시 → 사용자 viewport 그대로 보존
+  }, [candles, viewportSize, interval])
 
   // infinite scroll — 좌측 스크롤 끝 감지 (T19-T6)
   useEffect(() => {
