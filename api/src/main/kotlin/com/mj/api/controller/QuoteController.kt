@@ -4,6 +4,7 @@ import com.mj.api.application.instrument.InstrumentService
 import com.mj.api.application.market.QuoteQueryService
 import com.mj.api.controller.dto.QuoteResponse
 import com.mj.api.controller.dto.toResponse
+import com.mj.api.messaging.producer.MarketCandleBackfillCommandPublisher
 import com.mj.api.messaging.producer.MarketSubscriptionCommandPublisher
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.Parameter
@@ -50,6 +51,7 @@ class QuoteController(
     private val instrumentService: InstrumentService,
     private val quoteQueryService: QuoteQueryService,
     private val subscriptionCommandPublisher: MarketSubscriptionCommandPublisher,
+    private val backfillCommandPublisher: MarketCandleBackfillCommandPublisher,
 ) {
     @Operation(
         summary = "종목 현재 시세 조회",
@@ -92,6 +94,14 @@ class QuoteController(
             subscriptionCommandPublisher.ensureSubscribe(normalized)
         } catch (e: Exception) {
             // 구독 명령 발행 실패는 시세 조회 자체를 막지 않는다 (best-effort).
+        }
+
+        // D (handoff 2026-05-04): 일봉 candle backfill 보장. batch listener가 멱등 dedup.
+        // 차트 데이터 즉시 채워 사용자 진입 시 빈 차트 회피.
+        try {
+            backfillCommandPublisher.ensureBackfill(normalized)
+        } catch (e: Exception) {
+            // 본 명령 실패는 시세 조회 응답을 막지 않는다.
         }
 
         // 3-tier fallback 조회

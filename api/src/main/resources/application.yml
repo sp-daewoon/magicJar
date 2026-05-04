@@ -102,6 +102,8 @@ magicjar:
       candleMinuteAggregated: candle.minute.aggregated.v1
       # Quote hotfix B (R-B): api QuoteController → consumer KisWsRouter 동적 구독 명령
       marketSubscriptionCommand: market.subscription.command.v1
+      # D (2026-05-04): api QuoteController/Scheduler → batch 일봉 backfill 명령
+      marketCandleBackfillCommand: market.candle.backfill.command.v1
   dart:
     api-key: ${OPENDART_API_KEY:}
   kis:
