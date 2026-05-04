@@ -167,7 +167,7 @@ class KisOrderSender(
      */
     private fun recordRejected(
         order: Order,
-        userId: UUID,
+        userId: String,
         accountNo: String,
         kisMode: String,
         reason: RejectReason,
@@ -260,10 +260,10 @@ class KisOrderSender(
             else -> RejectReason.Internal(reason)
         }
 
-    private fun currentUserId(): UUID = DEFAULT_USER_ID
+    private fun currentUserId(): String = DEFAULT_USER_ID
 
     companion object {
         // 인증 도입 시 SecurityContext에서 가져오도록 변경. 1차는 시드 사용자 고정.
-        val DEFAULT_USER_ID: UUID = UUID.fromString("00000000-0000-0000-0000-000000000001")
+        const val DEFAULT_USER_ID: String = "74683223"
     }
 }

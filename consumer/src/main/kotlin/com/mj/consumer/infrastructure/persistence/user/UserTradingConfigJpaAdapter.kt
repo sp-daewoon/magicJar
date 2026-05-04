@@ -12,14 +12,13 @@ import jakarta.persistence.Table
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.stereotype.Component
 import java.time.OffsetDateTime
-import java.util.UUID
 
 @Entity
 @Table(name = "user_trading_config")
 class UserTradingConfigEntity(
     @Id
     @Column(name = "user_id")
-    val userId: UUID,
+    val userId: String,
     @Enumerated(EnumType.STRING)
     @Column(name = "trading_mode", nullable = false, length = 16)
     val tradingMode: TradingMode,
@@ -67,13 +66,13 @@ class UserTradingConfigEntity(
     }
 }
 
-interface UserTradingConfigJpaRepository : JpaRepository<UserTradingConfigEntity, UUID>
+interface UserTradingConfigJpaRepository : JpaRepository<UserTradingConfigEntity, String>
 
 @Component
 class UserTradingConfigJpaAdapter(
     private val repo: UserTradingConfigJpaRepository,
 ) : UserTradingConfigRepository {
-    override fun findByUserId(userId: UUID): UserTradingConfig? = repo.findById(userId).orElse(null)?.toDomain()
+    override fun findByUserId(userId: String): UserTradingConfig? = repo.findById(userId).orElse(null)?.toDomain()
 
     override fun save(config: UserTradingConfig): UserTradingConfig = repo.save(UserTradingConfigEntity.from(config)).toDomain()
 }

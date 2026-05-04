@@ -10,7 +10,6 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.Instant
 import java.time.temporal.ChronoUnit
-import java.util.UUID
 import org.springframework.core.annotation.Order as SpringOrder
 
 /**
@@ -29,7 +28,7 @@ class PriceSanityGuard(
     private val log = LoggerFactory.getLogger(javaClass)
 
     override fun check(
-        userId: UUID,
+        userId: String,
         accountNo: String,
         order: Order,
     ): GuardDecision {

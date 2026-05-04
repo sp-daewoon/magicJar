@@ -16,7 +16,7 @@ import java.time.LocalDate
  * @property tradeCount 종결 거래 수 (BUY-SELL 라운드트립)
  */
 data class PerformanceSummary(
-    val userId: java.util.UUID,
+    val userId: String,
     val fromDate: LocalDate,
     val toDate: LocalDate,
     val initialCapital: BigDecimal,

@@ -6,7 +6,6 @@ import com.mj.domain.user.port.KisCredentialProvider
 import com.mj.domain.user.port.UserTradingConfigRepository
 import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Component
-import java.util.UUID
 
 /**
  * `KisCredentialProvider` DB 기반 구현. spec §6.2, §8.3.
@@ -20,7 +19,7 @@ class DbKisCredentialProvider(
     private val configRepo: UserTradingConfigRepository,
     private val cipher: SecretCipher,
 ) : KisCredentialProvider {
-    override fun forUser(userId: UUID): KisCredential {
+    override fun forUser(userId: String): KisCredential {
         val cfg =
             configRepo.findByUserId(userId)
                 ?: error("UserTradingConfig not found for userId=$userId")

@@ -16,7 +16,7 @@ interface OrderRepository {
         kisOrderNo: String,
     ): OrderRecord?
 
-    fun findOpenByUser(userId: UUID): List<OrderRecord>
+    fun findOpenByUser(userId: String): List<OrderRecord>
 
     fun updateStatus(
         orderId: UUID,

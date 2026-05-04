@@ -27,7 +27,7 @@ class GuardChainTest {
     private val killSwitch = mockk<KillSwitchJpaAdapter>(relaxed = true)
     private val counter = mockk<DailyOrderCounterJpaAdapter>(relaxed = true)
     private val candles = mockk<CandleJpaRepository>(relaxed = true)
-    private val userId = UUID.fromString("00000000-0000-0000-0000-000000000001")
+    private val userId = "74683223"
     private val account = "50185338"
 
     private fun chain(): GuardChain =

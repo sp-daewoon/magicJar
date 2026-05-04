@@ -3,7 +3,6 @@ package com.mj.consumer.application.guard
 import com.mj.consumer.infrastructure.persistence.guard.KillSwitchJpaAdapter
 import com.mj.domain.common.Order
 import org.springframework.stereotype.Component
-import java.util.UUID
 import org.springframework.core.annotation.Order as SpringOrder
 
 /**
@@ -20,7 +19,7 @@ class KillSwitchGuard(
     private val state: KillSwitchJpaAdapter,
 ) : OrderGuard {
     override fun check(
-        userId: UUID,
+        userId: String,
         accountNo: String,
         order: com.mj.domain.common.Order,
     ): GuardDecision =

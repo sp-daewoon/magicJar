@@ -14,14 +14,13 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.time.OffsetDateTime
-import java.util.UUID
 
 class AuthServiceTest {
     private val configRepo: UserTradingConfigRepository = mockk()
     private val cipher: SecretCipher = mockk()
     private val service = AuthService(configRepo, cipher)
 
-    private val userId = UUID.fromString("00000000-0000-0000-0000-000000000001")
+    private val userId = "74683223"
 
     private fun sampleConfig(
         tradingMode: TradingMode = TradingMode.MOCK_KIS,

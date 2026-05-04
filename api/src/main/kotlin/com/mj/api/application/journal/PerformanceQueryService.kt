@@ -8,7 +8,6 @@ import com.mj.domain.journal.performance.PerformanceSummary
 import com.mj.domain.journal.performance.port.RealizedTradeRepository
 import org.springframework.stereotype.Service
 import java.time.LocalDate
-import java.util.UUID
 
 /**
  * 실거래 매매일지 기반 성과 조회 application service.
@@ -26,7 +25,7 @@ class PerformanceQueryService(
      * 전체 통계 요약 + equity curve 동시 산출.
      */
     fun summary(
-        userId: UUID,
+        userId: String,
         from: LocalDate,
         to: LocalDate,
     ): Pair<PerformanceSummary, List<EquityCurvePoint>> {
@@ -39,7 +38,7 @@ class PerformanceQueryService(
      * Equity curve만 추출 (차트용).
      */
     fun equityCurve(
-        userId: UUID,
+        userId: String,
         from: LocalDate,
         to: LocalDate,
     ): List<EquityCurvePoint> = summary(userId, from, to).second
@@ -48,7 +47,7 @@ class PerformanceQueryService(
      * 기간별 집계 (DAILY·WEEKLY·MONTHLY·YEARLY·ALL_TIME).
      */
     fun byPeriod(
-        userId: UUID,
+        userId: String,
         period: PerformancePeriod,
         from: LocalDate,
         to: LocalDate,

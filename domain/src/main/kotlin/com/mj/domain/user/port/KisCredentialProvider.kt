@@ -1,7 +1,6 @@
 package com.mj.domain.user.port
 
 import com.mj.domain.user.TradingMode
-import java.util.UUID
 
 /**
  * 사용자 KIS 자격증명 해석. spec §6.2, §8.3.
@@ -10,7 +9,7 @@ import java.util.UUID
  * + SecretCipher.decrypt. 인증 도입 시(ISSUE-006 후속 트랙) SecurityContext 기반 구현으로 교체.
  */
 interface KisCredentialProvider {
-    fun forUser(userId: UUID): KisCredential
+    fun forUser(userId: String): KisCredential
 }
 
 /**

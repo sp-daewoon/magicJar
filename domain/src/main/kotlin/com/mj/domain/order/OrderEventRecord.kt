@@ -28,7 +28,7 @@ enum class OrderEventSource {
 data class OrderEventRecord(
     val eventId: UUID,
     val orderId: UUID,
-    val userId: UUID,
+    val userId: String,
     val accountNo: String,
     val kisMode: String,
     /** V11: REJECTED 이벤트는 KIS 미도달이므로 null. */

@@ -30,7 +30,7 @@ class OrderApiEntity(
     @Column(name = "order_id")
     val orderId: UUID,
     @Column(name = "user_id", nullable = false)
-    val userId: UUID,
+    val userId: String,
     @Column(name = "account_no", nullable = false, length = 20)
     val accountNo: String,
     @Column(name = "kis_mode", nullable = false, length = 8)
@@ -80,10 +80,10 @@ class OrderApiEntity(
 )
 
 interface OrderApiJpaRepository : JpaRepository<OrderApiEntity, UUID> {
-    fun findTop100ByUserIdOrderByCreatedAtDesc(userId: UUID): List<OrderApiEntity>
+    fun findTop100ByUserIdOrderByCreatedAtDesc(userId: String): List<OrderApiEntity>
 
     fun findByUserIdAndStatusInOrderByCreatedAtDesc(
-        userId: UUID,
+        userId: String,
         statuses: List<OrderStatus>,
     ): List<OrderApiEntity>
 }

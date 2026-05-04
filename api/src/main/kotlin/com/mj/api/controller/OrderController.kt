@@ -14,7 +14,6 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
-import java.util.UUID
 
 /**
  * 주문 REST endpoint. spec §6.3, §12.
@@ -39,7 +38,7 @@ class OrderController(
     @GetMapping(produces = [MediaType.APPLICATION_JSON_VALUE])
     fun list(
         @Parameter(description = "사용자 ID (default DEFAULT_USER_ID)")
-        @RequestParam(required = false) userId: UUID?,
+        @RequestParam(required = false) userId: String?,
     ): List<OrderResponse> = service.listOrders(userId ?: DEFAULT_USER_ID)
 
     @Operation(
@@ -48,7 +47,7 @@ class OrderController(
     )
     @GetMapping("/open", produces = [MediaType.APPLICATION_JSON_VALUE])
     fun listOpen(
-        @RequestParam(required = false) userId: UUID?,
+        @RequestParam(required = false) userId: String?,
     ): List<OrderResponse> = service.listOpenOrders(userId ?: DEFAULT_USER_ID)
 
     @Operation(
@@ -58,11 +57,11 @@ class OrderController(
     @PostMapping(consumes = [MediaType.APPLICATION_JSON_VALUE], produces = [MediaType.APPLICATION_JSON_VALUE])
     fun trigger(
         @RequestBody body: OrderRequest,
-        @RequestParam(required = false) userId: UUID?,
+        @RequestParam(required = false) userId: String?,
     ): OrderTriggerResponse = service.triggerOrder(userId ?: DEFAULT_USER_ID, body)
 
     companion object {
         // 인증 도입 시 SecurityContext에서 가져오도록 변경. 1차는 시드 사용자 고정.
-        val DEFAULT_USER_ID: UUID = UUID.fromString("00000000-0000-0000-0000-000000000001")
+        const val DEFAULT_USER_ID: String = "74683223"
     }
 }

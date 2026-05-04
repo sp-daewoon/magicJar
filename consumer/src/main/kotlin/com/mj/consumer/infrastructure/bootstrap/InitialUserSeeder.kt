@@ -9,7 +9,6 @@ import org.springframework.context.event.EventListener
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Component
 import java.time.OffsetDateTime
-import java.util.UUID
 
 /**
  * 시드 사용자 1명을 INSERT한다 (KIS 키는 OPTIONAL — frontend SettingsModal 입력 정합).
@@ -100,6 +99,6 @@ class InitialUserSeeder(
     }
 
     companion object {
-        val DEFAULT_USER_ID: UUID = UUID.fromString("00000000-0000-0000-0000-000000000001")
+        const val DEFAULT_USER_ID: String = "74683223"
     }
 }

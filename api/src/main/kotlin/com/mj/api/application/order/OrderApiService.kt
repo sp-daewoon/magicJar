@@ -19,10 +19,10 @@ class OrderApiService(
     private val publisher: OrderIntentApiPublisher,
 ) {
     /** 사용자별 최근 100건 (모든 상태). */
-    fun listOrders(userId: UUID): List<OrderResponse> = repo.findTop100ByUserIdOrderByCreatedAtDesc(userId).map { it.toResponse() }
+    fun listOrders(userId: String): List<OrderResponse> = repo.findTop100ByUserIdOrderByCreatedAtDesc(userId).map { it.toResponse() }
 
     /** 미체결만 (PENDING + PARTIALLY_FILLED). */
-    fun listOpenOrders(userId: UUID): List<OrderResponse> =
+    fun listOpenOrders(userId: String): List<OrderResponse> =
         repo
             .findByUserIdAndStatusInOrderByCreatedAtDesc(
                 userId,
@@ -31,7 +31,7 @@ class OrderApiService(
 
     /** 수동 주문 트리거 — Kafka order.intent.v1 publish. */
     fun triggerOrder(
-        userId: UUID,
+        userId: String,
         request: OrderRequest,
     ): OrderTriggerResponse {
         val intentId = UUID.randomUUID()

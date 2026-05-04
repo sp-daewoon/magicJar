@@ -9,7 +9,6 @@ import com.mj.domain.user.port.UserTradingConfigRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.time.OffsetDateTime
-import java.util.UUID
 
 /**
  * KIS 인증(자격증명 등록·조회·모드 전환) 애플리케이션 서비스.
@@ -28,7 +27,7 @@ class AuthService(
     private val log = LoggerFactory.getLogger(AuthService::class.java)
 
     /** 인증 상태 조회. */
-    fun status(userId: UUID): AuthStatusResult {
+    fun status(userId: String): AuthStatusResult {
         val cfg = configRepo.findByUserId(userId)
         if (cfg == null) {
             return AuthStatusResult(
@@ -57,7 +56,7 @@ class AuthService(
      * appKey·appSecret은 AES-256-GCM 암호화 후 저장.
      */
     fun login(
-        userId: UUID,
+        userId: String,
         request: LoginRequest,
     ): LoginResult {
         // secret 마스킹 로그
@@ -116,7 +115,7 @@ class AuthService(
      * 자격증명이 없는 경우(자격증명 미설정 상태) reject.
      */
     fun switchMode(
-        userId: UUID,
+        userId: String,
         request: ModeChangeRequest,
     ): ModeChangeResult {
         val cfg =

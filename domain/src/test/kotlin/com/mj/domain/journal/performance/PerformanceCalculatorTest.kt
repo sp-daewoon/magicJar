@@ -7,7 +7,6 @@ import org.junit.jupiter.api.Test
 import java.math.BigDecimal
 import java.time.LocalDate
 import java.time.ZoneOffset
-import java.util.UUID
 
 /**
  * [PerformanceCalculator] 단위 테스트.
@@ -19,7 +18,7 @@ import java.util.UUID
  * - MONTHLY 집계 — 같은 월 trade 합산
  */
 class PerformanceCalculatorTest {
-    private val userId = UUID.fromString("00000000-0000-0000-0000-000000000001")
+    private val userId = "74683223"
     private val initialCapital = BigDecimal("10000000")
 
     @Test

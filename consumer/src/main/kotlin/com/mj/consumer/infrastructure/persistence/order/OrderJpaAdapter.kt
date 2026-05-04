@@ -35,7 +35,7 @@ class OrderEntity(
     @Column(name = "order_id")
     val orderId: UUID,
     @Column(name = "user_id", nullable = false)
-    val userId: UUID,
+    val userId: String,
     @Column(name = "account_no", nullable = false, length = 20)
     val accountNo: String,
     @Column(name = "kis_mode", nullable = false, length = 8)
@@ -147,7 +147,7 @@ interface OrderJpaRepository : JpaRepository<OrderEntity, UUID> {
              AND o.status IN ('PENDING','PARTIALLY_FILLED')""",
     )
     fun findOpenByUser(
-        @Param("userId") userId: UUID,
+        @Param("userId") userId: String,
     ): List<OrderEntity>
 
     @Modifying
@@ -193,7 +193,7 @@ interface OrderJpaRepository : JpaRepository<OrderEntity, UUID> {
         nativeQuery = true,
     )
     fun sumPositionValue(
-        @Param("userId") userId: UUID,
+        @Param("userId") userId: String,
         @Param("code") code: String,
     ): BigDecimal
 
@@ -220,7 +220,7 @@ interface OrderJpaRepository : JpaRepository<OrderEntity, UUID> {
         nativeQuery = true,
     )
     fun sumTodayRealizedPnl(
-        @Param("userId") userId: UUID,
+        @Param("userId") userId: String,
     ): BigDecimal
 }
 
@@ -238,7 +238,7 @@ class OrderJpaAdapter(
         kisOrderNo: String,
     ): OrderRecord? = repo.findByKisModeAndKisOrderNo(kisMode, kisOrderNo)?.toDomain()
 
-    override fun findOpenByUser(userId: UUID): List<OrderRecord> = repo.findOpenByUser(userId).map { it.toDomain() }
+    override fun findOpenByUser(userId: String): List<OrderRecord> = repo.findOpenByUser(userId).map { it.toDomain() }
 
     override fun updateStatus(
         orderId: UUID,
@@ -251,10 +251,10 @@ class OrderJpaAdapter(
 
     /** 종목 포지션 평가액 (BUY 체결합 - SELL 체결합, 원 단위). */
     fun positionValue(
-        userId: UUID,
+        userId: String,
         code: String,
     ): BigDecimal = repo.sumPositionValue(userId, code)
 
     /** 오늘 KST 일일 실현 P&L. 수수료 미포함 보수적 추정. */
-    fun todayRealizedPnl(userId: UUID): BigDecimal = repo.sumTodayRealizedPnl(userId)
+    fun todayRealizedPnl(userId: String): BigDecimal = repo.sumTodayRealizedPnl(userId)
 }

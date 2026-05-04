@@ -34,7 +34,7 @@ class KisExecutionNoticeListenerTest {
     private val orderRow =
         OrderRecord(
             orderId = UUID.fromString("00000000-0000-0000-0000-00000000aa10"),
-            userId = UUID.fromString("00000000-0000-0000-0000-000000000001"),
+            userId = "74683223",
             accountNo = "50185338",
             kisMode = "MOCK_KIS",
             intentId = UUID.randomUUID(),

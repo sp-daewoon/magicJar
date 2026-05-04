@@ -10,7 +10,6 @@ import java.math.BigDecimal
 import java.time.Clock
 import java.time.LocalDate
 import java.time.ZoneId
-import java.util.UUID
 import org.springframework.core.annotation.Order as SpringOrder
 
 /**
@@ -37,7 +36,7 @@ class DailyOrderLimitGuard(
     private val log = LoggerFactory.getLogger(javaClass)
 
     override fun check(
-        userId: UUID,
+        userId: String,
         accountNo: String,
         order: Order,
     ): GuardDecision {

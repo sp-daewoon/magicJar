@@ -1,7 +1,6 @@
 package com.mj.consumer.application.guard
 
 import com.mj.domain.common.Order
-import java.util.UUID
 
 /**
  * 주문 사전 가드. spec §3 D4.
@@ -22,7 +21,7 @@ sealed interface GuardDecision {
 
 interface OrderGuard {
     fun check(
-        userId: UUID,
+        userId: String,
         accountNo: String,
         order: Order,
     ): GuardDecision
@@ -35,7 +34,7 @@ class GuardChain(
     private val guards: List<OrderGuard>,
 ) : OrderGuard {
     override fun check(
-        userId: UUID,
+        userId: String,
         accountNo: String,
         order: Order,
     ): GuardDecision {
