@@ -4,6 +4,7 @@ import com.mj.api.application.instrument.InstrumentService
 import com.mj.api.application.market.QuoteQueryService
 import com.mj.api.controller.dto.QuoteResponse
 import com.mj.api.controller.dto.toResponse
+import com.mj.api.messaging.producer.MarketSubscriptionCommandPublisher
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.media.Content
@@ -48,6 +49,7 @@ import org.springframework.web.bind.annotation.RestController
 class QuoteController(
     private val instrumentService: InstrumentService,
     private val quoteQueryService: QuoteQueryService,
+    private val subscriptionCommandPublisher: MarketSubscriptionCommandPublisher,
 ) {
     @Operation(
         summary = "종목 현재 시세 조회",
@@ -83,6 +85,14 @@ class QuoteController(
 
         // 종목 존재 여부 검증
         instrumentService.get(normalized) ?: return ResponseEntity.notFound().build()
+
+        // R-B (Quote hotfix B): consumer 측 KIS WebSocket 동적 구독 보장.
+        // 멱등 — KisWsRouter가 이미 구독 중이면 frame 미전송. 응답 블로킹하지 않는다.
+        try {
+            subscriptionCommandPublisher.ensureSubscribe(normalized)
+        } catch (e: Exception) {
+            // 구독 명령 발행 실패는 시세 조회 자체를 막지 않는다 (best-effort).
+        }
 
         // 3-tier fallback 조회
         val result =

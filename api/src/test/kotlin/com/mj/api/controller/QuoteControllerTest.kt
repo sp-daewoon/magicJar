@@ -4,14 +4,18 @@ import com.mj.api.application.instrument.InstrumentService
 import com.mj.api.application.market.QuoteQueryService
 import com.mj.api.application.market.QuoteResult
 import com.mj.api.config.WebSecurityConfig
+import com.mj.api.messaging.producer.MarketSubscriptionCommandPublisher
 import com.mj.domain.common.Market
 import com.mj.domain.market.cache.port.QuoteSource
 import com.mj.domain.market.instrument.Instrument
 import com.mj.domain.market.instrument.InstrumentType
 import com.mj.domain.market.session.MarketSession
 import com.mj.domain.market.session.MarketSessionState
+import io.mockk.Runs
 import io.mockk.every
+import io.mockk.just
 import io.mockk.mockk
+import io.mockk.verify
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.autoconfigure.data.jpa.JpaRepositoriesAutoConfiguration
@@ -58,6 +62,9 @@ class QuoteControllerTest {
 
         @Bean
         fun quoteQueryService(): QuoteQueryService = mockk()
+
+        @Bean
+        fun marketSubscriptionCommandPublisher(): MarketSubscriptionCommandPublisher = mockk(relaxed = true)
     }
 
     @Autowired
@@ -68,6 +75,9 @@ class QuoteControllerTest {
 
     @Autowired
     lateinit var quoteQueryService: QuoteQueryService
+
+    @Autowired
+    lateinit var subscriptionCommandPublisher: MarketSubscriptionCommandPublisher
 
     private val now = Instant.parse("2026-05-02T01:30:00Z")
     private val zone = ZoneId.of("Asia/Seoul")
@@ -187,6 +197,46 @@ class QuoteControllerTest {
         mvc
             .get("/api/instruments/005930/quote")
             .andExpect { status { isNotFound() } }
+    }
+
+    @Test
+    fun `GET quote 등록 종목 - ensureSubscribe 호출됨 (R-B 동적 구독)`() {
+        every { instrumentService.get("000020") } returns
+            Instrument(
+                code = "000020",
+                isin = "KR7000020008",
+                name = "동화약품",
+                nameEn = null,
+                market = Market.KOSPI,
+                type = InstrumentType.STOCK,
+                sector = null,
+                listedAt = LocalDate.of(1976, 3, 24),
+                delistedAt = null,
+                parValue = null,
+                tradingUnit = 1,
+                active = true,
+            )
+        every { quoteQueryService.query("000020") } returns null
+        every { subscriptionCommandPublisher.ensureSubscribe("000020") } just Runs
+
+        mvc
+            .get("/api/instruments/000020/quote")
+            .andExpect { status { isNotFound() } }
+
+        // 시세가 없어 404가 떨어져도 구독 명령은 발행되어야 한다 (다음 진입 시 LIVE 보장).
+        verify(exactly = 1) { subscriptionCommandPublisher.ensureSubscribe("000020") }
+    }
+
+    @Test
+    fun `GET quote 미등록 종목 - ensureSubscribe 호출 안 됨`() {
+        every { instrumentService.get("888888") } returns null
+
+        mvc
+            .get("/api/instruments/888888/quote")
+            .andExpect { status { isNotFound() } }
+
+        // 미등록 코드에 한해 ensureSubscribe 미호출 검증 (다른 테스트의 누적 호출과 격리).
+        verify(exactly = 0) { subscriptionCommandPublisher.ensureSubscribe("888888") }
     }
 
     @Test
