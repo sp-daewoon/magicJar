@@ -99,3 +99,22 @@ raw HTTP 로그 + curl 비교 1회로 원인 식별 후 fix.
 - ADR 0034 (REJECTED Audit — KIS 에러 audit)
 - `_workspace/_archive/dogfooding/2026-05-02.md` (EGW00202 발견)
 - KIS 공식 doc: https://apiportal.koreainvestment.com/
+
+---
+
+## Appendix A — KIS 실시간 시세 trId 표 (T2 R2-A 추가, 2026-05-04)
+
+WS subscribe frame body `input.tr_id` + `input.tr_key` 매핑. GitHub source(`koreainvestment/open-trading-api/examples_llm/domestic_stock`) 검증 결과.
+
+| 함수 | tr_id | tr_key | encrypted | 응답 컬럼 |
+|---|---|---|---|---|
+| 체결가 (통합) `ccnl_total` | `H0UNCNT0` | 종목코드(6자리) | N | 47 |
+| 호가 (통합) `asking_price_total` | `H0UNASP0` | 종목코드(6자리) | N | ~58 |
+| 지수 체결 `index_ccnl` | `H0UPCNT0` | 지수코드(KOSPI=`0001`, KOSDAQ=`1001`) | N | 30 |
+| 지수 예상체결 `index_exp_ccnl` | `H0UPANC0` | 지수코드 | N | 30 |
+| 장운영(통합) `market_status_total` | `H0UNMKO0` | 종목코드(6자리) | N | 10 |
+| 체결통보 `ccnl_notice` | `H0STCNI0`(real) / `H0STCNI9`(demo) | HTS ID | **Y** (AES) | — |
+
+**중요**: 시세 5종은 평문 — AES iv/key 분기는 체결통보(`H0STCNI*`)에만 적용. `KisWsRouter`(R2-A1)는 trId별 분기 처리.
+
+approval_key 발급: `POST /oauth2/Approval` body `{grant_type:"client_credentials", appkey, secretkey}` → response `{approval_key:"..."}`. WS subscribe frame header에 첨부.
