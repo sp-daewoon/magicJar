@@ -10,6 +10,7 @@ import com.mj.api.application.market.InstrumentDetailService
 import com.mj.api.application.market.InvestorTrendService
 import com.mj.api.application.market.OrderbookService
 import com.mj.api.application.market.RecentTradesService
+import com.mj.api.application.market.UserChartCandleService
 import com.mj.api.config.WebSecurityConfig
 import com.mj.api.messaging.producer.MarketCandleBackfillCommandPublisher
 import com.mj.domain.common.Candle
@@ -77,6 +78,9 @@ class InstrumentControllerTest {
 
         @Bean
         fun marketCandleBackfillCommandPublisher(): MarketCandleBackfillCommandPublisher = mockk(relaxed = true)
+
+        @Bean
+        fun userChartCandleService(): UserChartCandleService = mockk(relaxed = true)
     }
 
     @Autowired
