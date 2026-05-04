@@ -4,6 +4,7 @@ import com.mj.api.application.instrument.InstrumentService
 import com.mj.api.application.market.QuoteQueryService
 import com.mj.api.application.market.QuoteResult
 import com.mj.api.config.WebSecurityConfig
+import com.mj.api.messaging.producer.MarketCandleBackfillCommandPublisher
 import com.mj.api.messaging.producer.MarketSubscriptionCommandPublisher
 import com.mj.domain.common.Market
 import com.mj.domain.market.cache.port.QuoteSource
@@ -65,6 +66,9 @@ class QuoteControllerTest {
 
         @Bean
         fun marketSubscriptionCommandPublisher(): MarketSubscriptionCommandPublisher = mockk(relaxed = true)
+
+        @Bean
+        fun marketCandleBackfillCommandPublisher(): MarketCandleBackfillCommandPublisher = mockk(relaxed = true)
     }
 
     @Autowired
@@ -78,6 +82,9 @@ class QuoteControllerTest {
 
     @Autowired
     lateinit var subscriptionCommandPublisher: MarketSubscriptionCommandPublisher
+
+    @Autowired
+    lateinit var backfillCommandPublisher: MarketCandleBackfillCommandPublisher
 
     private val now = Instant.parse("2026-05-02T01:30:00Z")
     private val zone = ZoneId.of("Asia/Seoul")
@@ -218,13 +225,15 @@ class QuoteControllerTest {
             )
         every { quoteQueryService.query("000020") } returns null
         every { subscriptionCommandPublisher.ensureSubscribe("000020") } just Runs
+        every { backfillCommandPublisher.ensureBackfill("000020") } just Runs
 
         mvc
             .get("/api/instruments/000020/quote")
             .andExpect { status { isNotFound() } }
 
-        // 시세가 없어 404가 떨어져도 구독 명령은 발행되어야 한다 (다음 진입 시 LIVE 보장).
+        // 시세가 없어 404가 떨어져도 구독·backfill 명령은 발행되어야 한다 (다음 진입 시 LIVE 보장).
         verify(exactly = 1) { subscriptionCommandPublisher.ensureSubscribe("000020") }
+        verify(exactly = 1) { backfillCommandPublisher.ensureBackfill("000020") }
     }
 
     @Test
@@ -235,8 +244,9 @@ class QuoteControllerTest {
             .get("/api/instruments/888888/quote")
             .andExpect { status { isNotFound() } }
 
-        // 미등록 코드에 한해 ensureSubscribe 미호출 검증 (다른 테스트의 누적 호출과 격리).
+        // 미등록 코드에 한해 ensureSubscribe·ensureBackfill 미호출 검증 (다른 테스트 호출과 격리).
         verify(exactly = 0) { subscriptionCommandPublisher.ensureSubscribe("888888") }
+        verify(exactly = 0) { backfillCommandPublisher.ensureBackfill("888888") }
     }
 
     @Test

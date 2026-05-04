@@ -86,6 +86,10 @@ magicjar:
   allow-real: ${MAGICJAR_ALLOW_REAL:false}
   kis:
     mode: STUB
+  kafka:
+    topics:
+      # D (2026-05-04): api → batch 일봉 backfill 명령 토픽
+      marketCandleBackfillCommand: market.candle.backfill.command.v1
 
 logging:
   level:

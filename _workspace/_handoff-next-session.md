@@ -28,11 +28,15 @@
 
 ## 2. 다음 사이클 우선순위
 
-### B·C 완료 (2026-05-04) — Quote 흐름 안정화
+### B·C·E·D 완료 (2026-05-04) — Quote 흐름 + Backfill 안정화
 
-**B (PR #137 머지)**: Redis QuoteCache writer 연결 + 동적 구독 명령 토픽. 모든 종목 진입 시 1~6초 내 LIVE 표시.
+**B (PR #137)**: Redis QuoteCache writer 연결 + 동적 구독 명령 토픽. 모든 종목 진입 시 1~6초 내 LIVE 표시.
 
-**C (PR #N — 본 사이클)**: R2-A3 잔여 — `MarketSessionController(GET /api/market/session)` + `TickFallbackEmitter(@Scheduled 10s)` + `SubscriptionManager(LRU 18 + default5 면제 + SubscriptionEvictedEvent)` + `useMarketSession` 훅 + Dashboard 통합. 라이브 검증: PostMarket 시간 KIS_WS LIVE + CACHED source tick 동시 흐름, GET /api/market/session = `{state:PostMarket, lastBusinessDate:2026-05-04, nextOpenAt:2026-05-06T09:00+09:00}` (휴일 캘린더 정합).
+**C (PR #138)**: R2-A3 잔여 — `MarketSessionController` + `TickFallbackEmitter` + `SubscriptionManager` LRU + `useMarketSession`.
+
+**E (PR #139)**: `useSymbolQuote` STOMP topic↔code mismatch guard — wrong code 가격 표시 사고 차단.
+
+**D (PR #N — 본 사이클)**: 동적 일봉 backfill — `MarketCandleBackfillCommandEvent` + api `Publisher`(QuoteController + DailyCandleBackfillScheduler 16:30 KST) + batch `Listener`(KisRestPort fetch + DB saveAll, 멱등 dedup 60s + DB max(openTime) ≥ 어제 skip). 라이브 검증: 한국석유 004090 진입 → 100봉 saved (2025-12-04 ~ 2026-05-04). 알려진 한계: KIS REST 100봉 limit — 1년 full backfill은 페이징 후속.
 
 ### P0 — R2-A2 호가 + 지수 (8 task, T10~T17)
 

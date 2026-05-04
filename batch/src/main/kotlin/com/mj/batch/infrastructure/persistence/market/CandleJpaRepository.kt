@@ -17,4 +17,10 @@ interface CandleJpaRepository : JpaRepository<CandleJpa, CandleId> {
         code: String,
         interval: Interval,
     ): List<CandleJpa>
+
+    /** 가장 최근 candle 1건 — backfill 대상 종목의 catch-up 시작점 결정용. */
+    fun findFirstByCodeAndIntervalOrderByOpenTimeDesc(
+        code: String,
+        interval: Interval,
+    ): CandleJpa?
 }
