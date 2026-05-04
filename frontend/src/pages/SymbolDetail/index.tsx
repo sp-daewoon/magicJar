@@ -27,6 +27,7 @@ import { journalApiV2 } from '@/api/journal'
 import { useSymbolQuote } from '@/hooks/useSymbolQuote'
 import { useWsConnectionState } from '@/hooks/useWsConnectionState'
 import { useCandles } from '@/hooks/useCandles'
+import { useUserCandleStream } from '@/hooks/useUserCandleStream'
 import { useInstrumentDetail } from '@/hooks/useInstrumentDetail'
 import { useSearchHistory } from '@/hooks/useSearchHistory'
 import { useUiStore } from '@/stores/ui'
@@ -108,6 +109,9 @@ export default function SymbolDetailPage() {
   // WebSocket 실시간 시세
   const quote = useSymbolQuote(symbolCode)
   const wsState = useWsConnectionState()
+
+  // ADR 0050 R3-5a — 새 candle Kafka publish → STOMP fanout 수신 시 차트 자동 갱신
+  useUserCandleStream(symbolCode || undefined)
 
   if (!symbolCode) {
     return (

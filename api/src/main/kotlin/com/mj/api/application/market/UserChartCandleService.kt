@@ -14,19 +14,30 @@ import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 
 /**
- * 사용자 차트 화면용 candle fetch — Redis ZSet first + DB fallback. ADR 0050.
+ * 사용자 차트 화면용 candle fetch — Redis ZSet first. ADR 0050.
  *
- * 동작 (D1·M1 base 흐름):
- *   1. cache hit (Redis ZSet에 limit개 이상 있으면) → 즉시 응답 + LRU touchRecent
- *   2. cache miss → DB candle 조회 → Redis ZADD warm-up + LRU touchRecent + 응답
- *   3. DB 비어 있으면 → 빈 응답
+ * R3-5a (2026-05-05): 사용자 직접 D1 요청은 KIS direct + Kafka publish (DB 안 거침).
+ * api 측 직접 ZADD 제거 — consumer가 단일 ZADD writer (ADR 0050 §2-A 정합).
+ * Y/분봉 합성용 internal D1 base는 [fetch]가 DB fallback path 그대로 (R3-5b에서 정리).
+ * M1 base는 R3-5b에서 yfinance direct로 전환 예정.
  *
- * R3-3 (ADR 0050) 합성 interval — [fetchByString]:
- *   - W/MO/Y → D1 base cache + [CandleAggregator.aggregateDailyToWeekly]
- *   - M5/M15/M30/H1/Xm → M1 base cache + [CandleAggregator.aggregate(targetMinutes)]
- *   - 합성 결과는 Redis 미저장 (raw base만 캐시 — LRU·일관성 단순화)
+ * 흐름 (D1 사용자 직접):
+ *   사용자 → KisChartCandleAdapter (KIS REST, FID_PERIOD_DIV_CODE=D)
+ *         → publisher.publish(market.candle.user.v1)
+ *         → 응답 (KIS direct 결과 그대로)
+ *               ↓ Kafka
+ *               consumer.UserCandleListener → Redis ZADD
+ *               api.UserCandleStompFanoutListener → STOMP /topic/market.candle.user.{userId}.{code}
  *
- * 핵심: DB candle 영속은 그대로 유지 (백테스트·룰 엔진용). 차트 화면은 Redis 통과.
+ * 흐름 (D1 internal base — Y/분봉 합성용):
+ *   [fetch] → cache hit / DB fallback → Redis warm-up + publish (legacy R3-3·R3-4 path)
+ *   ※ R3-5b에서 외부 API direct로 통합 예정.
+ *
+ * 흐름 (M1):
+ *   [fetch] → cache hit / DB fallback → Redis warm-up + publish (legacy)
+ *   ※ R3-5b에서 yfinance direct로 전환 예정.
+ *
+ * 핵심: DB candle 영속은 그대로 유지 (백테스트·룰 엔진용). ADR 0050 §2-A 분리.
  */
 @Service
 class UserChartCandleService(
@@ -118,18 +129,18 @@ class UserChartCandleService(
     }
 
     /**
-     * 사용자 차트 candle 조회 — interval 문자열 기반. ADR 0050 R3-3 / R3-4.
+     * 사용자 차트 candle 조회 — interval 문자열 기반. ADR 0050 R3-3 / R3-4 / R3-5a.
      *
      * 분기:
-     *   - D1/DAY alias  → [fetch] (Redis cache 직접)
-     *   - M1/1m alias   → [fetch] (Redis cache 직접)
-     *   - W/WK          → KIS direct (FID_PERIOD_DIV_CODE=W) [ADR 0050 R3-4]
-     *   - MO/MONTH      → KIS direct (FID_PERIOD_DIV_CODE=M) [ADR 0050 R3-4]
-     *   - Y/YEAR        → D1 base [fetch] + [CandleAggregator.aggregateDailyToWeekly] (합성 유지)
+     *   - D1/DAY alias  → KIS direct (FID_PERIOD_DIV_CODE=D) [R3-5a]
+     *   - M1/1m alias   → [fetch] (R3-3·R3-4 dual-write — R3-5b에서 yfinance direct로 전환)
+     *   - W/WK          → KIS direct (FID_PERIOD_DIV_CODE=W) [R3-4]
+     *   - MO/MONTH      → KIS direct (FID_PERIOD_DIV_CODE=M) [R3-4]
+     *   - Y/YEAR        → D1 base [fetch] + [CandleAggregator.aggregateDailyToWeekly] (합성 유지 — internal D1 cache 사용)
      *   - M<n>/<n>m/H<n>/<n>h → M1 base [fetch] + [CandleAggregator.aggregate]
      *
-     * 합성 결과(Y, 분봉)는 Redis 미저장 — raw base(D1·M1)만 캐시한다. LRU·일관성 단순화.
-     * W/MO KIS direct fetch 결과도 Redis 미저장 — Track C(Kafka publish + consumer ZADD listener) 에서 추가.
+     * KIS direct (D1·W·MO) 결과는 publisher.publish → consumer ZADD로 Redis 적재 + STOMP fanout.
+     * Y/분봉 합성용 internal base 호출은 [fetch]를 거쳐 DB fallback 사용 (R3-5b에서 정리).
      */
     fun fetchByString(
         userId: String,
@@ -140,17 +151,19 @@ class UserChartCandleService(
     ): List<Candle> {
         val upper = intervalRaw.trim().uppercase()
 
-        if (upper in D1_ALIASES) return fetch(userId, code, Interval.D1, limit, before)
+        // D1/DAY — KIS direct fetch (ADR 0050 R3-5a)
+        if (upper in D1_ALIASES) return fetchKisDirect(userId, code, Interval.D1, limit, before)
+
         if (upper in M1_ALIASES) return fetch(userId, code, Interval.M1, limit, before)
 
         // W/WK — KIS direct fetch (ADR 0050 R3-4)
         if (upper == "W" || upper == "WK") {
-            return fetchKisDirect(code, Interval.WEEK, limit, before)
+            return fetchKisDirect(userId, code, Interval.WEEK, limit, before)
         }
 
         // MO/MONTH — KIS direct fetch (ADR 0050 R3-4)
         if (upper == "MO" || upper == "MONTH") {
-            return fetchKisDirect(code, Interval.MONTH, limit, before)
+            return fetchKisDirect(userId, code, Interval.MONTH, limit, before)
         }
 
         // Y/YEAR — D1 base + application 합성 (ADR 0050 §2-D: 1y는 합성 유지)
@@ -175,18 +188,21 @@ class UserChartCandleService(
     }
 
     /**
-     * KIS direct fetch (W/MO) — Redis 캐시 우회. ADR 0050 R3-4.
+     * KIS direct fetch (D1/W/MO) — Redis 캐시 우회. ADR 0050 R3-4 + R3-5a.
      *
      * KIS 키 미설정 시 빈 리스트 반환 (graceful degradation).
-     * Track C(Kafka publish + consumer ZADD listener)가 추가되면 이 경로에서도
-     * 결과를 Redis에 적재할 예정. 현재는 API 응답을 즉시 반환한다.
+     * 결과는 [UserCandleEventPublisher.publish]로 Kafka 발행 →
+     *   - consumer.UserCandleListener: Redis ZADD (single writer)
+     *   - api.UserCandleStompFanoutListener: STOMP /topic/market.candle.user.{userId}.{code} fanout
      *
+     * @param userId   사용자 식별자 (Kafka payload·STOMP key용)
      * @param code     KRX 종목코드
-     * @param interval [Interval.WEEK] 또는 [Interval.MONTH]
-     * @param limit    최대 봉 수 (ADR 0050 §2-D: W=200, MO=60)
+     * @param interval [Interval.D1] · [Interval.WEEK] · [Interval.MONTH]
+     * @param limit    최대 봉 수 (ADR 0050 §2-D: D1=500, W=200, MO=60)
      * @param before   cursor — 이 시각 이전 봉만 (무한 스크롤). null = 최신부터
      */
     private fun fetchKisDirect(
+        userId: String,
         code: String,
         interval: Interval,
         limit: Int,
@@ -195,15 +211,36 @@ class UserChartCandleService(
         val to = (before?.let { LocalDate.ofInstant(it, zone) } ?: LocalDate.now(zone))
         val from =
             when (interval) {
-                Interval.WEEK -> to.minusWeeks(limit.toLong() + 10L) // 여유 포함
+                Interval.D1 -> to.minusDays((limit * 1.7).toLong() + 7L)
+                Interval.WEEK -> to.minusWeeks(limit.toLong() + 10L)
                 Interval.MONTH -> to.minusMonths(limit.toLong() + 3L)
                 else -> to.minusDays(limit.toLong() * 2)
             }
 
-        log.debug("[USER_CANDLE] KIS direct fetch code={} interval={} from={} to={} limit={}", code, interval, from, to, limit)
+        log.debug(
+            "[USER_CANDLE] KIS direct fetch user={} code={} interval={} from={} to={} limit={}",
+            userId,
+            code,
+            interval,
+            from,
+            to,
+            limit,
+        )
         val candles = kisChartCandleAdapter.fetchCandles(code, interval, from, to)
+        val trimmed = if (candles.size > limit) candles.takeLast(limit) else candles
 
-        return if (candles.size > limit) candles.takeLast(limit) else candles
+        // R3-5a: LRU touchRecent (사용자 진입 의사 표현)
+        val evicted = cache.touchRecent(userId, code)
+        if (evicted.isNotEmpty()) {
+            log.info("[USER_CANDLE] LRU evict user={} evicted={}", userId, evicted)
+        }
+
+        // R3-5a: Kafka publish — consumer ZADD + STOMP fanout (fail-soft)
+        if (trimmed.isNotEmpty()) {
+            userCandleEventPublisher.publish(userId, code, interval.name, trimmed)
+        }
+
+        return trimmed
     }
 
     /**

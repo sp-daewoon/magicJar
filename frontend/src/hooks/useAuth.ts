@@ -7,8 +7,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { authApi } from '@/api/auth'
 import type { LoginRequest, ChangeModeRequest, KisMode } from '@/api/auth'
 
-/** 기본 userId — MVP 단계 단일 사용자 (1번 트랙 V9 시드 default user UUID) */
-export const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000001'
+/** 기본 userId — MVP 단계 단일 사용자. V21에서 UUID→VARCHAR(64) + KIS 모의 계좌번호 8자리로 통일. */
+export const DEFAULT_USER_ID = '74683223'
 
 const AUTH_QUERY_KEY = (userId: string) => ['auth', 'status', userId]
 

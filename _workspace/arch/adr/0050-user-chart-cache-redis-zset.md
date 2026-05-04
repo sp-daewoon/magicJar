@@ -192,3 +192,5 @@ application service `UserChartCandleService.fetchOrCompose(userId, code, interva
 | 날짜 | 변경 | 사유 |
 |---|---|---|
 | 2026-05-05 | 발행 | 사용자 결정 — 차트 화면 Redis-first, 백테스트는 DB 유지 |
+| 2026-05-05 | R3-4 — `market.candle.user.v1` Kafka 토픽 + dual-write (api 직접 ZADD + consumer ZADD) | KIS W/MO endpoint + IntervalSelector 자유 입력과 함께 한 사이클 (PRs #161·#163·#162) |
+| 2026-05-05 | **R3-5a — 사용자 직접 D1 요청을 KIS direct로 전환 (DB fallback 제거) + STOMP fanout 추가** | 사용자 지적 §2-A 정합 위반 — 사용자 차트 path에서 DB 거치고 있었음. 정정: D1·W·MO 모두 KIS direct + Kafka publish → consumer 단일 ZADD writer + api STOMP `/topic/market.candle.user.{userId}.{code}` fanout으로 실시간 차트 갱신 (페이지 새로고침 불요). M1·internal D1 base는 R3-5b에서 yfinance/외부 API direct로 통합 예정. 부수 hotfix 2건 흡수: frontend `DEFAULT_USER_ID` UUID `00000000-...-0001` → `74683223` (V21 정합), `index.html` favicon `/vite.svg` 404 차단 (data: URI). |

@@ -18,14 +18,16 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
- * KIS inquire-daily-itemchartprice 주봉(W)/월봉(M) 직접 fetch 어댑터. ADR 0050 R3-4.
+ * KIS inquire-daily-itemchartprice 일봉(D)/주봉(W)/월봉(M) 직접 fetch 어댑터.
+ * ADR 0050 R3-4 (W/M) + R3-5a (D1 추가, DB fallback 제거).
  *
  * 지원 interval:
+ *   - [Interval.D1]    → FID_PERIOD_DIV_CODE=D  (일봉, 기본 200봉 / 2페이지)
  *   - [Interval.WEEK]  → FID_PERIOD_DIV_CODE=W  (주봉, 최대 200봉 / 2페이지)
  *   - [Interval.MONTH] → FID_PERIOD_DIV_CODE=M  (월봉, 최대 60봉  / 1페이지)
  *
- * D1(일봉) fetch는 batch 모듈 [RealKisRestAdapter] + [DailyCandleBackfillJob]이 담당한다.
- * 이 어댑터는 api 레이어에서 사용자 차트 화면 전용으로 W/MO를 직접 조회한다.
+ * 사용자 차트 화면 전용 (ADR 0050 §2-A). batch [RealKisRestAdapter]는
+ * 룰 엔진/백테스트 backfill 용도로 별도 유지. M1(분봉)은 R3-5b에서 yfinance direct.
  *
  * KIS 키(appKey/appSecret) 미설정 시 빈 리스트 반환 (graceful degradation).
  * 401 응답 → 토큰 무효화 + 1회 재발급 재시도.
@@ -84,8 +86,8 @@ class KisChartCandleAdapter(
             log.debug("[kis-chart] KIS 키 미설정 — fetchCandles 건너뜀 code={} interval={}", code, interval)
             return emptyList()
         }
-        if (interval == Interval.D1 || interval == Interval.M1) {
-            log.warn("[kis-chart] D1/M1 간격은 지원하지 않음 — code={} interval={}", code, interval)
+        if (interval == Interval.M1) {
+            log.warn("[kis-chart] M1(분봉) 간격은 지원하지 않음 — code={} interval={}", code, interval)
             return emptyList()
         }
         if (from.isAfter(to)) return emptyList()
@@ -234,6 +236,7 @@ class KisChartCandleAdapter(
 
     private fun intervalToPeriodDivCode(interval: Interval): String =
         when (interval) {
+            Interval.D1 -> "D"
             Interval.WEEK -> "W"
             Interval.MONTH -> "M"
             else -> throw KisChartException("Unsupported interval for KisChartCandleAdapter: $interval")

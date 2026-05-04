@@ -129,15 +129,34 @@ class UserChartCandleServiceTest {
     // ── R3-3 합성 interval 테스트 ──────────────────────────────────────────────
 
     @Test
-    fun `fetchByString D1 alias — 기존 fetch와 동일`() {
-        val cached = (1..200).map { candleFixture(Instant.parse("2026-01-01T00:00:00Z").plusSeconds(it * 86400L), Interval.D1) }
-        every { cache.fetch(userId, code, "D1", null, 200) } returns cached
+    fun `fetchByString D1 alias — R3-5a KIS direct fetch (D1 interval)`() {
+        val limit = 200
+        val dayCandles =
+            (0 until limit).map {
+                candleFixture(
+                    Instant.parse("2025-01-01T00:00:00Z").plusSeconds(it * 86400L),
+                    Interval.D1,
+                )
+            }
+        every {
+            kisChartCandleAdapter.fetchCandles(
+                code = code,
+                interval = Interval.D1,
+                from = any(),
+                to = any(),
+            )
+        } returns dayCandles
         every { cache.touchRecent(userId, code) } returns emptyList()
 
-        val result = sut.fetchByString(userId, code, "DAY", limit = 200)
+        val result = sut.fetchByString(userId, code, "DAY", limit = limit)
 
-        assert(result.size == 200)
-        verify(exactly = 1) { cache.fetch(userId, code, "D1", null, 200) }
+        // R3-5a: D1도 KIS direct path 사용 (DB fallback 제거)
+        assert(result.size == limit) { "expected $limit D1 candles from KIS direct, got ${result.size}" }
+        verify(exactly = 1) {
+            kisChartCandleAdapter.fetchCandles(code = code, interval = Interval.D1, from = any(), to = any())
+        }
+        // cache.fetch는 D1 path에서 호출되지 않음
+        verify(exactly = 0) { cache.fetch(userId, code, "D1", any(), any()) }
     }
 
     @Test
@@ -200,6 +219,7 @@ class UserChartCandleServiceTest {
                 to = any(),
             )
         } returns weekCandles
+        every { cache.touchRecent(userId, code) } returns emptyList()
 
         val result = sut.fetchByString(userId, code, "W", limit = limit)
 
@@ -228,6 +248,7 @@ class UserChartCandleServiceTest {
                 to = any(),
             )
         } returns monthCandles
+        every { cache.touchRecent(userId, code) } returns emptyList()
 
         val result = sut.fetchByString(userId, code, "MO", limit = limit)
 
