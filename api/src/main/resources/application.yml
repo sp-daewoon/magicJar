@@ -104,6 +104,8 @@ magicjar:
       marketSubscriptionCommand: market.subscription.command.v1
       # D (2026-05-04): api QuoteController/Scheduler → batch 일봉 backfill 명령
       marketCandleBackfillCommand: market.candle.backfill.command.v1
+      # R2-A2 (2026-05-04): KIS WS H0UPCNT0 → KOSPI·KOSDAQ 지수 실시간
+      marketIndex: market.index.v1
   dart:
     api-key: ${OPENDART_API_KEY:}
   kis:

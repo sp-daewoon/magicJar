@@ -162,6 +162,8 @@ magicjar:
       journalEntry: journal.entry.v1
       # Quote hotfix B (R-B): api → consumer 동적 구독 명령
       marketSubscriptionCommand: market.subscription.command.v1
+      # R2-A2 (2026-05-04): KIS WS H0UPCNT0 → KOSPI·KOSDAQ 지수 실시간
+      marketIndex: market.index.v1
     consumer-groups:
       signal-engine: magicjar-signal-engine
       tick-aggregator: magicjar-tick-aggregator

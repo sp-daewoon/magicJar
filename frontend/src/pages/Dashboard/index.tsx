@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import MarketSessionBadge from '@/components/market/MarketSessionBadge'
 import ManualOrderPanel from '@/components/ManualOrderPanel'
 import { useMarketIndex } from '@/hooks/useMarketIndex'
+import { useMarketIndexStream } from '@/hooks/useMarketIndexStream'
 import { useMarketSession } from '@/hooks/useMarketSession'
 import { usePositionStore } from '@/stores/position'
 import { useWsConnectionState } from '@/hooks/useWsConnectionState'
@@ -55,12 +56,14 @@ interface IndexCardProps {
 }
 
 function IndexCard({ index }: IndexCardProps) {
-  // Backend 응답이 일부 필드 미제공 또는 0 가능 — 안전 기본값.
-  const currentValue = index.currentValue ?? 0
+  // R2-A2: STOMP 실시간 1초 tick 우선 (KIS WS H0UPCNT0). 미수신 시 REST 1분 polling 결과로 fallback.
+  const liveTick = useMarketIndexStream(index.code)
+
+  const currentValue = liveTick?.value ?? index.currentValue ?? 0
   const prevClose = index.prevClose ?? 0
-  const changePercent = index.changePercent ?? 0
-  // changeAmount는 backend 응답에 없음 — 직접 계산 (prevClose=0이면 0).
-  const changeAmount = prevClose > 0 ? currentValue - prevClose : 0
+  const changePercent = liveTick?.changeRate ?? index.changePercent ?? 0
+  // changeAmount: liveTick.change 우선, 없으면 prevClose 기반 계산
+  const changeAmount = liveTick?.change ?? (prevClose > 0 ? currentValue - prevClose : 0)
   const colorClass = changeColorClass(changePercent)
 
   return (
