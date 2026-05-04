@@ -22,10 +22,12 @@ export type ClientInterval =
   | 'YEAR'
   | 'M1'
   | 'M5'
+  | 'M10'
   | 'M15'
   | 'M30'
   | 'H1'
   | 'TICK'
+  | `${number}m`  // 자유 입력 분봉 (예: '12m', '45m')
 
 /** YYYY-MM-DD → Date(UTC). 'YYYY-MM-DD' 또는 epoch second 지원. */
 function parseTime(time: string | number): Date {
@@ -109,6 +111,7 @@ export function resolveInterval(client: ClientInterval): {
       return { serverInterval: 'DAY', transform: aggregateToYear }
     case 'M1':
     case 'M5':
+    case 'M10':
     case 'M15':
     case 'M30':
     case 'H1':
@@ -117,5 +120,14 @@ export function resolveInterval(client: ClientInterval): {
     case 'TICK':
       // 틱은 candle endpoint 호출 안 함 — 별도 STOMP 스트림 (RealtimeTickChart)
       return { serverInterval: 'TICK', transform: () => [] }
+    default: {
+      // 자유 입력 분봉 (예: '12m', '45m') — Xm 형식 그대로 백엔드에 전달
+      const match = (client as string).match(/^(\d+)m$/)
+      if (match) {
+        return { serverInterval: client, transform: (c) => c }
+      }
+      // 알 수 없는 interval — DAY fallback
+      return { serverInterval: 'DAY', transform: (c) => c }
+    }
   }
 }
