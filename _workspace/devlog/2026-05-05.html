@@ -236,16 +236,80 @@
     </ul>
   </div>
   <div class="card">
-    <h3>라이브 검증 — <span class="badge b-pending">사용자 환경 대기</span></h3>
-    <p class="small">docker 재빌드·기동 후:</p>
+    <h3>R3-4 라이브 검증 <span class="badge b-ok">PASS</span></h3>
     <ul>
-      <li>W·MO interval 200 + 봉 수 ≥ 1</li>
-      <li>자유 입력(예: <code>12m</code>, <code>45m</code>) 차트 표시</li>
-      <li>Kafka <code>market.candle.user.v1</code> publish 메시지 확인 (<code>kafka-ui</code>)</li>
-      <li>consumer ZADD가 api 기존 ZADD와 동일 (idempotent — <code>candle:74683223:005930:WEEK</code> 키)</li>
+      <li>W·MO·45m·12m·D·M1 6 interval 모두 HTTP 200</li>
+      <li>Redis 키 정상: <code>candle:74683223:{code}:{D1|M1}</code> 5종목, LRU·lastfetch</li>
+      <li>신규 토픽 <code>market.candle.user.v1</code> 생성 확인</li>
+      <li>D1 ZSet 정상 OHLCV (score=epoch second)</li>
     </ul>
   </div>
 </div>
+
+<hr style="margin:36px 0;border:0;border-top:2px dashed var(--border)">
+<h1 style="font-size:20px">후속 세션 — R3-5 시리즈 (KST 5/5 04:00~14:30)</h1>
+<div class="meta">사용자 정책 정정 — "사용자 차트는 DB 안 거치기로 했는데 왜 자꾸 DB?" + "외부 API 막무가내 호출 안 됨, 정책 잡자". 5 PR + 1 hotfix.</div>
+
+<h2>12. R3-5 머지 PR 매트릭스</h2>
+<table>
+  <tr><th>사이클</th><th>PR</th><th>내용</th></tr>
+  <tr><td>R3-5a</td><td class="pr">#165</td><td>D1 KIS direct + STOMP fanout. <code>UserCandleStompFanoutListener</code> 신규(`market.candle.user.v1` 별도 consumer-group → STOMP `/topic/market.candle.user.{userId}.{code}`). frontend <code>useUserCandleStream</code> + SymbolDetail 통합 → 자동 차트 갱신(페이지 새로고침 불요). hotfix 흡수 — `DEFAULT_USER_ID` UUID→`74683223`, favicon 404 차단</td></tr>
+  <tr><td>R3-5b</td><td class="pr">#166</td><td>M1 cache miss 시 <code>candleCacheService.triggerBackgroundFetchAsync(code)</code> 자동 호출. <code>CandleMinuteEventListener</code>가 INSERT 직후 종목당 5초 throttle로 <code>market.candle.user.v1</code> publish → STOMP fanout → frontend 자동 채워짐(~10초)</td></tr>
+  <tr><td>R3-5c-1</td><td class="pr">#167</td><td>사용자 차트 path DB 호출 0건 (ADR 0050 §2-A 정합). <code>UserChartCandleService</code>에서 <code>candleRepository</code> 의존성 자체 제거. Y/YEAR 합성 base는 <code>fetchKisDirect(D1)</code>로. <code>consumer/KisTokenStore</code> 갱신 마진 5min → 60min (사용자 정책: 23h 시점 갱신)</td></tr>
+  <tr><td>hotfix</td><td class="pr">#168</td><td>logback <code>%mask(%msg)%n</code> 깨짐 — `%n`이 child로 흡수돼 모든 로그 한 줄로 합쳐짐. CONSOLE_TEXT pattern <code>%mask(%msg)</code> → <code>%msg</code>로 임시 비활성화. 코드 측 마스킹(`appKey.take(8)`) 이미 적용. 검증: USER_CANDLE / cold-start backfill 로그 정상 출력 복원</td></tr>
+  <tr><td>R3-5c-2 1차</td><td class="pr">#169</td><td>외부 API 정책 명문화 + KIS 토큰 단일 store 도입. <code>docs/architecture/external-api-policy.md</code> 신규(KIS·yfinance·DART 한도 + 우리 75% 마진 정책). <code>KisTokenStorePort</code>(domain) + <code>InMemoryKisTokenStoreAdapter</code>(api). <code>KisChartCandleAdapter</code>가 첫 어댑터로 통합 — 자체 토큰 발급 코드 제거</td></tr>
+</table>
+
+<h2>13. 외부 API 호출 정책 (`docs/architecture/external-api-policy.md`)</h2>
+<table>
+  <tr><th>API</th><th>공식 한도</th><th>우리 정책</th></tr>
+  <tr><td><b>KIS</b></td><td>토큰 1분 1회 / 24h<br>REST 초당 20</td><td>단일 store + 23h 갱신<br>초당 15(75% 마진) — limiter는 R3-5c-4</td></tr>
+  <tr><td><b>yfinance</b></td><td>비공식 — 보수적 초당 1~2</td><td>종목당 분당 1회 backfill + 전역 초당 2</td></tr>
+  <tr><td><b>DART</b></td><td>1일 10000건</td><td>종목당 6h Redis 캐시</td></tr>
+</table>
+
+<h2>14. 흐름 정합 (R3-5 시리즈 후)</h2>
+<div class="card">
+  <p class="small"><b>사용자 차트 (Redis only)</b></p>
+  <pre style="font-size:11px;background:#f3f4f6;padding:8px;border-radius:4px;overflow-x:auto">
+GET /candles?interval=D
+  ↓ KisChartCandleAdapter (KisTokenStorePort 토큰)
+  ↓ KIS direct fetch
+  ↓ publisher.publish → market.candle.user.v1
+  ↓ 응답 (KIS direct)
+                  ↓ Kafka
+                  consumer.UserCandleListener → Redis ZADD
+                  api.UserCandleStompFanoutListener → STOMP fanout
+                                  ↓
+                  frontend useUserCandleStream → invalidate → 자동 refetch
+
+GET /candles?interval=M1 (신규 종목)
+  ↓ cache miss → trigger pyworker /backfill/yahoo
+  ↓ 빈 응답 (frontend "분봉 데이터 없음" 메시지)
+                  ↓ 백그라운드 (~5초)
+                  pyworker yfinance → Kafka
+                  → CandleMinuteEventListener → DB INSERT + 5s throttled publish
+                  → STOMP fanout → frontend 자동 채워짐
+  </pre>
+</div>
+
+<h2>15. 알려진 이슈 (다음 세션 진단 대상)</h2>
+<ul>
+  <li><b>R3-5c-2 1차 라이브 — 응답 빈 배열</b>: bytecode·Spring DI 정상이나 KIS API 빈 응답. 토요일 KIS 휴장 / 토큰 1분 한도(EGW00133) 잔재 / 모의↔실전 키 mismatch 조사 필요</li>
+  <li><b>logback mask 근본 fix</b>: PR #168은 임시 비활성화. <code>SecretMaskingConverter</code> 재작성 또는 logback pattern syntax 수정 별도 트랙</li>
+  <li><b>KIS 통합 미완</b>: 7 어댑터(api 5 + batch 2) 통합 + Redis 영속 + rate limiter + 재시도 헬퍼 → R3-5c-3·5c-4</li>
+</ul>
+
+<h2>16. 다음 세션 일정</h2>
+<table>
+  <tr><th>#</th><th>항목</th><th>예상</th></tr>
+  <tr><td>1</td><td>R3-5c-2 1차 빈 응답 진단 + R3-5c-2 본 검증</td><td>~0.3일</td></tr>
+  <tr><td>2</td><td>R3-5c-3 — 나머지 7 어댑터 KisTokenStorePort 통합 (api 5 + batch 2) + consumer 흡수</td><td>~1일</td></tr>
+  <tr><td>3</td><td>R3-5c-4 — Redis 영속(분산 lock) + REST rate limiter(Semaphore) + 401·EGW00133·EGW00201 재시도 공통 헬퍼</td><td>~1일</td></tr>
+  <tr><td>4</td><td>logback mask 근본 fix (별도 트랙)</td><td>~0.3일</td></tr>
+  <tr><td>5</td><td>1번 트랙 dogfooding 재개 (월요일 영업일 KIS 주문)</td><td>~0.5일</td></tr>
+  <tr><td>6</td><td>v2.1.0 컷 시점 (R3-5c-3·5c-4 완료 후 결정)</td><td>—</td></tr>
+</table>
 
 </body>
 </html>
