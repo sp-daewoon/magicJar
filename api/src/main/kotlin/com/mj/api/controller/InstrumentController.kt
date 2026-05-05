@@ -253,20 +253,26 @@ class InstrumentController(
                 }.getOrElse { return ResponseEntity.badRequest().build() }
             // hasMore: 응답 size >= limit이면 더 fetch 가능
             val hasMore = candles.size >= limit
-            // 사용자 결정 2026-05-05 — frontend가 cache 범위 알아 무작위 yfinance 호출 차단.
-            // M1만 cache 메타 노출 (D1·합성 path는 Redis 캐시 우회 또는 KIS direct).
+            // 사용자 결정 2026-05-05 — frontend가 cache 범위 알아 무작위 KIS·yfinance 호출 차단.
+            // 모든 interval에 cache 메타 노출 (R3-5c 정정: D1·W/MO도 cache-first).
+            val cacheKey =
+                when (interval.uppercase()) {
+                    "M1", "1M", "1MIN", "MIN1" -> "M1"
+                    "D1", "DAY", "D", "1D" -> "D1"
+                    "W", "WK" -> "WEEK"
+                    "MO", "MONTH" -> "MONTH"
+                    else -> null
+                }
             val meta =
-                runCatching {
-                    if (interval.uppercase() in setOf("M1", "1M", "1MIN", "MIN1")) {
+                cacheKey?.let { key ->
+                    runCatching {
                         userCandleCache.rangeMeta(
                             UserChartCandleService.DEFAULT_USER_ID,
                             normalized,
-                            "M1",
+                            key,
                         )
-                    } else {
-                        null
-                    }
-                }.getOrNull()
+                    }.getOrNull()
+                }
             return buildCandleResponse(candles, hasMore, cacheMeta = meta)
         }
 

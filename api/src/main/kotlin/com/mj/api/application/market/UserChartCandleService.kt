@@ -174,12 +174,14 @@ class UserChartCandleService(
     }
 
     /**
-     * KIS direct fetch (D1/W/MO) — Redis 캐시 우회. ADR 0050 R3-4 + R3-5a.
+     * KIS direct fetch (D1/W/MO) — Redis cache-first, miss 시 KIS API 호출. ADR 0050 R3-4·R3-5a·R3-5c.
      *
-     * KIS 키 미설정 시 빈 리스트 반환 (graceful degradation).
-     * 결과는 [UserCandleEventPublisher.publish]로 Kafka 발행 →
-     *   - consumer.UserCandleListener: Redis ZADD (single writer)
-     *   - api.UserCandleStompFanoutListener: STOMP /topic/market.candle.user.{userId}.{code} fanout
+     * **2026-05-05 정정 (사용자 결정)**:
+     * 이전엔 매 호출마다 KIS direct fetch → publish → STOMP fanout → frontend invalidate →
+     * 또 호출 → 또 KIS hit ... 무한 루프 (KIS rate limit 위험). 정정:
+     *   1. cache hit (size >= limit) → 즉시 반환, KIS 호출 skip, publish skip
+     *   2. cache partial (0 < size < limit) → cached 반환, KIS 호출 skip (cursor로 채우기는 frontend 책임)
+     *   3. cache empty → KIS direct fetch + publish (consumer가 ZADD)
      *
      * @param userId   사용자 식별자 (Kafka payload·STOMP key용)
      * @param code     KRX 종목코드
@@ -194,6 +196,22 @@ class UserChartCandleService(
         limit: Int,
         before: Instant?,
     ): List<Candle> {
+        // (1) cache 우선 — partial이라도 cache 있으면 KIS 호출 skip (frontend cursor로 추가 호출 시만 KIS)
+        val cached = cache.fetch(userId, code, interval.name, before, limit)
+        if (cached.isNotEmpty()) {
+            cache.touchRecent(userId, code)
+            log.debug(
+                "[USER_CANDLE] KIS-direct cache hit user={} code={} interval={} cached={}/{}",
+                userId,
+                code,
+                interval,
+                cached.size,
+                limit,
+            )
+            return cached
+        }
+
+        // (2) cache empty → KIS direct fetch
         val to = (before?.let { LocalDate.ofInstant(it, zone) } ?: LocalDate.now(zone))
         val from =
             when (interval) {
@@ -203,8 +221,8 @@ class UserChartCandleService(
                 else -> to.minusDays(limit.toLong() * 2)
             }
 
-        log.debug(
-            "[USER_CANDLE] KIS direct fetch user={} code={} interval={} from={} to={} limit={}",
+        log.info(
+            "[USER_CANDLE] KIS direct fetch (cache miss) user={} code={} interval={} from={} to={} limit={}",
             userId,
             code,
             interval,
