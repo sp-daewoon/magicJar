@@ -168,11 +168,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await http_client.aclose()
 
 
+class _HealthAccessFilter(logging.Filter):
+    """uvicorn.access 로그에서 GET /health 라인만 제거.
+
+    Docker HEALTHCHECK가 10초마다 /health를 치기 때문에 access log가 그걸로 가득 찬다.
+    /health는 단순 liveness probe라 노이즈만 추가 — 다른 경로는 그대로 보존.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return "GET /health " not in msg and 'GET /health"' not in msg
+
+
 def create_app() -> FastAPI:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s — %(message)s",
     )
+    logging.getLogger("uvicorn.access").addFilter(_HealthAccessFilter())
     app = FastAPI(
         title="magicJar pyworker",
         version="0.1.0",
