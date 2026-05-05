@@ -1,16 +1,20 @@
 ---
-description: 현재 세션 시점까지의 작업을 개발일지 HTML로 정리해서 _workspace/devlog/YYYY-MM-DD.html에 저장하고 index.html을 갱신
+description: 현재 세션 시점까지의 작업을 개발일지 HTML로 정리해서 _workspace/devlog/YYYY-MM-DD[-N].html에 저장하고 index.html을 갱신
 ---
 
 # /devlog — 개발일지 HTML 작성
 
-호출 시점까지의 세션 작업을 정리해서 **`_workspace/devlog/YYYY-MM-DD.html`** 파일로 작성하고 **`_workspace/devlog/index.html`** 을 갱신하라.
+호출 시점까지의 세션 작업을 정리해서 **`_workspace/devlog/YYYY-MM-DD[-N].html`** 파일로 작성하고 **`_workspace/devlog/index.html`** 을 갱신하라.
 
 ## 동작 원칙
 
-1. **호출 시점 기준** — `date +%Y-%m-%d` 한국 시간 기준 파일명 결정
-2. **기존 파일이 있으면 갱신** (덮어쓰기 + index.html 항목 갱신)
-3. **여러 번 호출 가능** — 세션 중간에 호출해도 OK. 그 시점까지 작업 누적 정리
+1. **호출 시점 기준** — `TZ='Asia/Seoul' date +%Y-%m-%d` 한국 시간 기준 날짜 결정
+2. **호출할 때마다 신규 파일 생성 — 덮어쓰기 금지**
+   - 같은 날 첫 호출: `YYYY-MM-DD.html`
+   - 같은 날 두 번째 호출부터: `YYYY-MM-DD-2.html`, `YYYY-MM-DD-3.html`, … (시퀀스 +1)
+   - 시퀀스 산출: 해당 날짜로 시작하는 기존 파일 중 가장 큰 번호 + 1 (없으면 base 그대로, base만 있으면 `-2`부터 시작)
+   - 기존 파일은 절대 수정하지 않는다 — 매 호출은 그 시점 스냅샷
+3. **여러 번 호출 가능** — 세션 중간에 호출해도 OK. 호출 시점까지 작업 누적 정리. 직전 회차와 중복돼도 그대로 남겨 이력 추적
 4. **사용자가 명시 트리거** — 자동 작성 X. `/devlog` 호출 시에만
 
 ## 7 표준 섹션 (모든 일지 공통)
@@ -25,7 +29,19 @@ description: 현재 세션 시점까지의 작업을 개발일지 HTML로 정리
 
 ## 파일 작성
 
-- **위치**: `_workspace/devlog/YYYY-MM-DD.html` (KST 기준)
+- **위치**: `_workspace/devlog/YYYY-MM-DD[-N].html` (KST 기준, 신규 파일)
+- **시퀀스 산출 예시**:
+  ```bash
+  DATE=$(TZ='Asia/Seoul' date +%Y-%m-%d)
+  DIR=_workspace/devlog
+  if [ ! -e "$DIR/$DATE.html" ]; then
+    OUT="$DIR/$DATE.html"
+  else
+    N=$(ls "$DIR" | sed -n "s/^${DATE}-\\([0-9]\\+\\)\\.html$/\\1/p" | sort -n | tail -1)
+    NEXT=$(( ${N:-1} + 1 ))
+    OUT="$DIR/${DATE}-${NEXT}.html"
+  fi
+  ```
 - **디자인**:
   - inline CSS (외부 의존 0)
   - SF Pro / Pretendard 폰트
@@ -33,18 +49,22 @@ description: 현재 세션 시점까지의 작업을 개발일지 HTML로 정리
   - badge 색상: `b-ok` 초록 / `b-warn` 노랑 / `b-pending` 파랑 / `b-todo` 분홍 / `b-mute` 회색
   - `.grid` auto-fit minmax(280px, 1fr)
 - **참조 표준**: `_workspace/devlog/2026-05-03.html`
+- **회차 표시**: HTML `<h1>` 또는 헤더 영역에 회차 번호와 작성 시각(`HH:mm KST`) 표기. 같은 날 N회차임을 한눈에 확인 가능하도록.
 
 ## index.html 갱신
 
-`_workspace/devlog/index.html`의 `<ul>` 안에 새 `<li>` 추가 (최신 우선).
-이미 같은 날짜 항목 있으면 summary 갱신.
+`_workspace/devlog/index.html`의 `<ul>` 안에 새 `<li>` 추가 (최신 우선, 같은 날 회차도 별도 항목으로).
+**같은 날 항목이라도 갱신이 아니라 신규 `<li>` 추가** — 회차마다 고유 링크 보존.
 
 ```html
 <li>
-  <a href="YYYY-MM-DD.html">YYYY-MM-DD (요일)</a>
+  <a href="YYYY-MM-DD[-N].html">YYYY-MM-DD (요일) #N</a>
   <span class="summary">{한 줄 요약} <span class="badge">{상태 badge}</span></span>
 </li>
 ```
+
+- 첫 회차는 `#1` 생략 가능 (`YYYY-MM-DD (요일)`).
+- 두 번째 회차부터는 `#2`, `#3` 식으로 명시.
 
 ## 데이터 수집 명령 참고
 
@@ -72,14 +92,14 @@ docker compose -f docker/docker-compose.yml ps --format "table {{.Service}}\t{{.
 작성 완료 후 한국어로 짧게 보고:
 
 ```
-## 개발일지 작성 완료
-- 파일: _workspace/devlog/YYYY-MM-DD.html
+## 개발일지 작성 완료 (#N회차)
+- 파일: _workspace/devlog/YYYY-MM-DD[-N].html
 - 머지 PR: NN건
 - 신규 Flyway: V19 등 NN개
 - sub-agent 호출: NN건
 - 다음 세션 일정: ...
 
-브라우저: open _workspace/devlog/YYYY-MM-DD.html
+브라우저: open _workspace/devlog/YYYY-MM-DD[-N].html
 ```
 
 ## 주의
