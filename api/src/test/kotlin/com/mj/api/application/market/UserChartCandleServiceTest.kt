@@ -140,6 +140,8 @@ class UserChartCandleServiceTest {
                 to = any(),
             )
         } returns dayCandles
+        // R3-5c (2026-05-05): fetchKisDirect도 cache 우선 — cache miss 시 KIS direct.
+        every { cache.fetch(userId, code, "D1", null, limit) } returns emptyList()
         every { cache.touchRecent(userId, code) } returns emptyList()
 
         val result = sut.fetchByString(userId, code, "DAY", limit = limit)
@@ -149,8 +151,8 @@ class UserChartCandleServiceTest {
         verify(exactly = 1) {
             kisChartCandleAdapter.fetchCandles(code = code, interval = Interval.D1, from = any(), to = any())
         }
-        // cache.fetch는 D1 path에서 호출되지 않음
-        verify(exactly = 0) { cache.fetch(userId, code, "D1", any(), any()) }
+        // cache.fetch는 D1 path에서 한 번 호출 (cache 검사 후 miss → KIS direct)
+        verify(exactly = 1) { cache.fetch(userId, code, "D1", null, limit) }
     }
 
     @Test
@@ -213,6 +215,7 @@ class UserChartCandleServiceTest {
                 to = any(),
             )
         } returns weekCandles
+        every { cache.fetch(userId, code, "WEEK", null, limit) } returns emptyList()
         every { cache.touchRecent(userId, code) } returns emptyList()
 
         val result = sut.fetchByString(userId, code, "W", limit = limit)
@@ -242,6 +245,7 @@ class UserChartCandleServiceTest {
                 to = any(),
             )
         } returns monthCandles
+        every { cache.fetch(userId, code, "MONTH", null, limit) } returns emptyList()
         every { cache.touchRecent(userId, code) } returns emptyList()
 
         val result = sut.fetchByString(userId, code, "MO", limit = limit)
