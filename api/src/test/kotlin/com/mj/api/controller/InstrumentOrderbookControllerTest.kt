@@ -16,6 +16,7 @@ import com.mj.domain.market.InvestorTrend
 import com.mj.domain.market.Orderbook
 import com.mj.domain.market.OrderbookLevel
 import com.mj.domain.market.RecentTrade
+import com.mj.domain.market.cache.port.UserCandleCachePort
 import com.mj.domain.market.instrument.Instrument
 import com.mj.domain.market.instrument.InstrumentType
 import io.mockk.every
@@ -69,6 +70,8 @@ class InstrumentOrderbookControllerTest {
         @Bean fun marketCandleBackfillCommandPublisher(): MarketCandleBackfillCommandPublisher = mockk(relaxed = true)
 
         @Bean fun userChartCandleService(): UserChartCandleService = mockk(relaxed = true)
+
+        @Bean fun userCandleCache(): UserCandleCachePort = mockk(relaxed = true)
     }
 
     @Autowired lateinit var mvc: MockMvc

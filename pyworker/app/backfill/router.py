@@ -29,6 +29,7 @@ ADR 0048 §C. KIS 분봉 API의 당일 한도를 우회하기 위한 외부 sour
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -51,7 +52,15 @@ class YahooBackfillRequestBody(BaseModel):
         description="봉 단위 (1m·5m·15m·30m·60m 만 1차 지원, 1d는 KIS 영구 영속이라 비범위)",
         examples=["1m"],
     )
-    days: int = Field(..., gt=0, description="거꾸로 fetch할 일수 (1m은 30일 한도)", examples=[30])
+    days: int = Field(..., gt=0, description="거꾸로 fetch할 일수 (1m은 30일 한도, ADR 0050 §C-1 정합 시 2)", examples=[2])
+    end: str | None = Field(
+        default=None,
+        description=(
+            "cursor — 그 시점 이전 days만큼 fetch (ISO-8601 UTC, 예: '2026-04-01T00:00:00Z'). "
+            "미지정 시 now() 기준 (최신 윈도우)."
+        ),
+        examples=["2026-04-01T00:00:00Z"],
+    )
     market: str | None = Field(
         default=None,
         description=(
@@ -100,11 +109,22 @@ async def trigger_yahoo_backfill(
     if (body.market or "").upper() == "KOSDAQ":
         primary, fallback = body.kosdaqFallbackSuffix, body.kospiSuffix
 
+    end_dt: datetime | None = None
+    if body.end:
+        try:
+            # `2026-04-01T00:00:00Z` 호환 — Z를 +00:00로 치환 후 fromisoformat
+            end_dt = datetime.fromisoformat(body.end.replace("Z", "+00:00"))
+        except ValueError as ex:
+            raise HTTPException(
+                status_code=400, detail=f"end must be ISO-8601 (got '{body.end}'): {ex}"
+            ) from ex
+
     try:
         normalized = normalize_request(
             code=body.code,
             interval=body.interval,
             days=body.days,
+            end=end_dt,
             kospi_suffix=primary,
             kosdaq_fallback_suffix=fallback,
         )

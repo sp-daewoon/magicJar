@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import com.mj.domain.common.Candle
 import com.mj.domain.common.Interval
+import com.mj.domain.market.cache.port.CacheRangeMeta
 import com.mj.domain.market.cache.port.UserCandleCachePort
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
@@ -191,6 +192,34 @@ class ApiRedisUserCandleCacheAdapter(
     ): Instant? {
         val raw = redis.opsForValue().get(lastfetchKey(userId, code, interval)) ?: return null
         return raw.toLongOrNull()?.let { Instant.ofEpochSecond(it) }
+    }
+
+    override fun rangeMeta(
+        userId: String,
+        code: String,
+        interval: String,
+    ): CacheRangeMeta {
+        val key = candleKey(userId, code, interval)
+        val count = redis.opsForZSet().size(key) ?: 0L
+        if (count == 0L) return CacheRangeMeta.EMPTY
+
+        val firstScore =
+            redis
+                .opsForZSet()
+                .rangeWithScores(key, 0L, 0L)
+                ?.firstOrNull()
+                ?.score
+        val lastScore =
+            redis
+                .opsForZSet()
+                .reverseRangeWithScores(key, 0L, 0L)
+                ?.firstOrNull()
+                ?.score
+        return CacheRangeMeta(
+            first = firstScore?.toLong()?.let(Instant::ofEpochSecond),
+            last = lastScore?.toLong()?.let(Instant::ofEpochSecond),
+            count = count,
+        )
     }
 
     private fun candleKey(

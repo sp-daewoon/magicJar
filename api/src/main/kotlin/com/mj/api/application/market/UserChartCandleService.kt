@@ -92,8 +92,9 @@ class UserChartCandleService(
         )
         cache.touchRecent(userId, code)
         if (interval == Interval.M1) {
-            // M1: pyworker /backfill/yahoo 비동기 트리거 → Kafka → consumer ZADD → STOMP fanout
-            candleCacheService.triggerBackgroundFetchAsync(code)
+            // M1: pyworker /backfill/yahoo 비동기 트리거 → Kafka → consumer ZADD → STOMP fanout.
+            // before가 지정된 경우(infinite scroll) 그 시점 이전 1000개분 fetch.
+            candleCacheService.triggerBackgroundFetchAsync(code, before)
         }
         // cached가 일부 있으면 그대로 반환 (LRU+freshness용 partial), miss면 빈 배열.
         return cached

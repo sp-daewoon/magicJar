@@ -16,6 +16,7 @@ import com.mj.api.messaging.producer.MarketCandleBackfillCommandPublisher
 import com.mj.domain.common.Candle
 import com.mj.domain.common.Interval
 import com.mj.domain.common.Market
+import com.mj.domain.market.cache.port.UserCandleCachePort
 import com.mj.domain.market.instrument.Instrument
 import com.mj.domain.market.instrument.InstrumentDetail
 import com.mj.domain.market.instrument.InstrumentType
@@ -82,6 +83,9 @@ class InstrumentControllerTest {
 
         @Bean
         fun userChartCandleService(): UserChartCandleService = mockk(relaxed = true)
+
+        @Bean
+        fun userCandleCache(): UserCandleCachePort = mockk(relaxed = true)
     }
 
     @Autowired

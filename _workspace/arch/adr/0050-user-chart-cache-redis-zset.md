@@ -81,19 +81,40 @@ candle:lastfetch:{userId}:{code}:{interval}
   - `ZREM candle:recent:{userId} X`
 - 재진입 시 score 갱신 (LRU 갱신) + `lastfetch` 검증 후 필요하면 새 fetch
 
-### 2-D. 봉단위 fetch·합성 정책
+### 2-D. 봉단위 fetch·합성 정책 (정정 2026-05-05 — 사용자 결정)
 
-| Interval | default 봉 수 | 시간 범위 | Source | 합성 |
+**핵심 정책**: yfinance 호출 단위는 항상 **1분봉 1000개분 ≈ 2 영업일 (days=2)**. 응답 봉 수는 `1000 / 봉단위`. frontend는 1000개까지 표시 + 사용자가 더 보면 cursor(before) 기반 추가 호출.
+
+| Interval | 응답 봉 수 | yfinance 1분봉 fetch 분량 | Source | 합성 |
 |---|---|---|---|---|
-| **1m** | 1000 | 약 2.5 영업일 | yfinance | direct |
-| **3m / 5m / 10m / 15m / 30m** | 1000 | 봉단위 × 1000분 | yfinance 1m | application 합성 |
-| **60m / 90m / 120m** | 1000 | 봉단위 × 1000분 | yfinance 1m → 합성 | application |
-| **1d** | 500 | 약 2년 (영업일) | KIS `inquire-daily-itemchartprice` (D, 5 페이지) | direct |
-| **1w** | 200 | 약 4년 | KIS (W, 2 페이지) | direct |
-| **1mo** | 60 | 5년 | KIS (M, 1 페이지) | direct |
-| **1y** | 20 | 20년 | KIS D1 → 합성 | application |
+| **1m** | 1000 | days=2 (1분봉 ~720개분) | yfinance | direct |
+| **5m** | 1000/5 = 200 | days=2 (M1 base) | yfinance 1m | application 합성 |
+| **10m** | 1000/10 = 100 | days=2 (M1 base) | yfinance 1m | application 합성 |
+| **15m / 30m** | 1000/N | days=2 (M1 base) | yfinance 1m | application 합성 |
+| **60m / 90m / 120m** | 1000/N | days=2 (M1 base) | yfinance 1m → 합성 | application |
+| **1d** | 500 | — | KIS `inquire-daily-itemchartprice` (D, 5 페이지) | direct |
+| **1w** | 200 | — | KIS (W, 2 페이지) | direct |
+| **1mo** | 60 | — | KIS (M, 1 페이지) | direct |
+| **1y** | 20 | — | KIS D1 → 합성 | application |
+
+> 1차안의 `봉단위 × 1000분` 표기는 사용자 정정 — 항상 1분봉 1000개분 (≈2영업일)을 fetch하고 봉 단위 합성 결과만 응답에 노출.
 
 **자유 입력**: 분 단위만 (`12m`·`45m` 등). 일 이상은 버튼만.
+
+**fetch 흐름 (1분봉 cold-start, 사용자 결정 2026-05-05)**:
+- pyworker yfinance backfill → 사용자 차트 전용 Kafka 토픽 `market.candle.user.v1`에 단일 batch event publish
+- consumer가 Redis ZADD batch + STOMP fanout 1회 (DB INSERT 0건 — 사용자 차트 path는 Redis only)
+- 기존 `candle.minute.aggregated.v1` 토픽은 KIS WS 1분봉 누적분 전용으로 보존 (룰엔진/백테스트용 DB INSERT)
+
+**cursor 기반 추가 호출**:
+- frontend가 `before=epoch_second`로 호출 → backend가 그 시점 이전 1000개 응답
+- backend cache MISS 시 pyworker `/backfill/yahoo` `{end: before}` 트리거 → 그 시점 이전 ~2일 fetch
+
+**무작위 yfinance 호출 차단 (사용자 결정 2026-05-05)**:
+- backend 응답 헤더 `X-Cache-First`/`X-Cache-Last`/`X-Cache-Count` 노출 (사용자 차트 ZSet 메타)
+- frontend는 cache 범위 추적 후 사용자가 cache 너머 더 과거 필요할 때만 추가 호출
+- caller 측 `triggerBackgroundFetchAsync` 동시 호출 차단은 **in-flight set만** (cooldown 없음 — 사용자가 cursor로 빠르게 반복 호출해도 막히지 않음)
+- pyworker 측 종목별 `asyncio.Lock`으로 동시 호출 fold
 
 **fetch 절감 (재진입)**:
 - 분봉: `candle:lastfetch` ≥ 5분 전이면 cache hit, 그 이전이면 last 봉만 추가 fetch
@@ -194,3 +215,4 @@ application service `UserChartCandleService.fetchOrCompose(userId, code, interva
 | 2026-05-05 | 발행 | 사용자 결정 — 차트 화면 Redis-first, 백테스트는 DB 유지 |
 | 2026-05-05 | R3-4 — `market.candle.user.v1` Kafka 토픽 + dual-write (api 직접 ZADD + consumer ZADD) | KIS W/MO endpoint + IntervalSelector 자유 입력과 함께 한 사이클 (PRs #161·#163·#162) |
 | 2026-05-05 | **R3-5a — 사용자 직접 D1 요청을 KIS direct로 전환 (DB fallback 제거) + STOMP fanout 추가** | 사용자 지적 §2-A 정합 위반 — 사용자 차트 path에서 DB 거치고 있었음. 정정: D1·W·MO 모두 KIS direct + Kafka publish → consumer 단일 ZADD writer + api STOMP `/topic/market.candle.user.{userId}.{code}` fanout으로 실시간 차트 갱신 (페이지 새로고침 불요). M1·internal D1 base는 R3-5b에서 yfinance/외부 API direct로 통합 예정. 부수 hotfix 2건 흡수: frontend `DEFAULT_USER_ID` UUID `00000000-...-0001` → `74683223` (V21 정합), `index.html` favicon `/vite.svg` 404 차단 (data: URI). |
+| 2026-05-05 | **§C-1 정정 — 1분봉 fetch 단위 정합 + Kafka 토픽 분리 + cache 메타 응답 + in-flight only** | 사용자 결정 5건 묶음 정정: (1) `CandleCacheService` `days=30 → 2` (yfinance 한도 boundary reject 차단·ADR 0050 §C-1 정합), (2) `CandleMinuteEventListener` DB INSERT는 KIS WS 누적분 전용으로 책임 명시 + yfinance backfill은 새 path `market.candle.user.v1` 토픽으로 분리 (DB INSERT 0건 — 사용자 결정 "캔들 사용할때 DB 안 씀"), (3) pyworker `service.py`가 종목별 candles를 단일 batch event로 publish (이전: 분당 1건 × N회 = 동일 (code, openTime) 메시지 N×6840건 적재), (4) 종목별 `asyncio.Lock` (pyworker) + `inFlightCodes` ConcurrentHashMap (api caller) 동시 호출만 fold (cooldown 없음 — 사용자 인용: "Redis로 넣은 이유가 짧게 반복해서 가져오기 좋아서"), (5) 응답 헤더 `X-Cache-First`/`X-Cache-Last`/`X-Cache-Count` 노출 + frontend `useCandles` cache 메타 추적 (사용자 인용: "프론트엔드에서는 레디스의 값을 먼저 알고 있어야 하는거야 무작위한 야후 호출을 막아야해서"). 표 정정: `봉단위 × 1000분` → `1000분 / 봉단위`. RestClient readTimeout 120s. frontend default `CANDLES_PAGE_LIMIT 200 → 1000`. |

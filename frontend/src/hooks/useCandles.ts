@@ -21,11 +21,16 @@
  */
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
-import { instrumentsApi } from '@/api/instruments'
+import { instrumentsApi, type CandlesPageResponse } from '@/api/instruments'
 import { resolveInterval, type ClientInterval } from '@/lib/candleAggregator'
-import type { CandleDto } from '@/api/types'
+import type { CandleDto, ChartCacheMeta } from '@/api/types'
 
-export const CANDLES_PAGE_LIMIT = 200
+/**
+ * 캔들 페이지 default limit.
+ * ADR 0050 §C-1 (사용자 결정 2026-05-05) — 1분봉 1000개 ≈ 2.5 영업일.
+ * frontend는 1000개까지 표시하고 사용자가 더 보면 cursor 추가 호출.
+ */
+export const CANDLES_PAGE_LIMIT = 1000
 
 /** infinite scroll 트리거 임계값: 남은 봉이 TRIGGER_THRESHOLD개 이하이면 추가 fetch */
 export const SCROLL_TRIGGER_THRESHOLD = 30
@@ -43,6 +48,12 @@ export interface UseCandlesResult {
   isFetchingMore: boolean
   /** 에러 여부 */
   isError: boolean
+  /**
+   * 사용자 차트 ZSet cache 메타 — 마지막 응답 헤더에서 추출.
+   * 사용자가 가진 cache 범위 안 → backend 호출 X (이미 표시 중)
+   * cache 너머 더 과거 필요 → before=firstEpochSec로 추가 호출 (사용자 결정 2026-05-05)
+   */
+  cacheMeta: ChartCacheMeta | null
 }
 
 /**
@@ -73,11 +84,11 @@ export function useCandles(code: string, interval: ClientInterval): UseCandlesRe
       return instrumentsApi.candlesPage(code, serverInterval, pageParam, CANDLES_PAGE_LIMIT)
     },
     initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage: CandleDto[]) => {
+    getNextPageParam: (lastPage: CandlesPageResponse) => {
       // 마지막 페이지 길이 < limit → 더 이상 없음
-      if (lastPage.length < CANDLES_PAGE_LIMIT) return undefined
+      if (lastPage.candles.length < CANDLES_PAGE_LIMIT) return undefined
       // 다음 cursor = 마지막 페이지의 oldest 봉 cursor
-      return oldestCursor(lastPage)
+      return oldestCursor(lastPage.candles)
     },
     enabled: !!code && !isTick,
     staleTime: 60_000,
@@ -90,7 +101,7 @@ export function useCandles(code: string, interval: ClientInterval): UseCandlesRe
     const allRaw = data.pages
       .slice()
       .reverse()
-      .flat()
+      .flatMap((p) => p.candles)
     // 시간순 정렬
     const sorted = [...allRaw].sort((a, b) => {
       const ta = typeof a.time === 'number' ? a.time : a.time
@@ -107,6 +118,12 @@ export function useCandles(code: string, interval: ClientInterval): UseCandlesRe
     return transform(deduped)
   }, [data, transform])
 
+  // 마지막 응답에서 cache 메타 추출 — frontend가 cache 범위 추적 (사용자 결정 2026-05-05).
+  const cacheMeta = useMemo<ChartCacheMeta | null>(() => {
+    if (!data || data.pages.length === 0) return null
+    return data.pages[data.pages.length - 1].cacheMeta
+  }, [data])
+
   const fetchOlderCandles = () => {
     if (!isFetchingNextPage && hasNextPage) {
       void fetchNextPage()
@@ -120,5 +137,6 @@ export function useCandles(code: string, interval: ClientInterval): UseCandlesRe
     isLoading,
     isFetchingMore: isFetchingNextPage,
     isError,
+    cacheMeta,
   }
 }

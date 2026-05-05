@@ -78,7 +78,7 @@ class UserChartCandleServiceTest {
 
         assert(result.isEmpty()) { "cache miss → 빈 응답 (DB 안 거침)" }
         verify(exactly = 1) { cache.touchRecent(userId, code) }
-        verify(exactly = 1) { candleCacheService.triggerBackgroundFetchAsync(code) }
+        verify(exactly = 1) { candleCacheService.triggerBackgroundFetchAsync(code, null) }
         verify(exactly = 0) { cache.upsertAll(any(), any(), any(), any()) }
     }
 
@@ -92,7 +92,7 @@ class UserChartCandleServiceTest {
         assert(result.isEmpty())
         verify(exactly = 1) { cache.touchRecent(userId, code) }
         // D1은 M1 trigger와 무관 — fetchByString의 D1 alias가 fetchKisDirect로 라우팅
-        verify(exactly = 0) { candleCacheService.triggerBackgroundFetchAsync(any()) }
+        verify(exactly = 0) { candleCacheService.triggerBackgroundFetchAsync(any(), any()) }
     }
 
     @Test

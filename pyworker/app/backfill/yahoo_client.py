@@ -82,7 +82,8 @@ class FetchRequest:
 
     code: str  # 6자리 한국 종목코드 (e.g. "005930")
     interval: str  # yfinance 표준 (e.g. "1m", "1d")
-    days: int  # 거꾸로 fetch할 일수 (now - days ~ now)
+    days: int  # 거꾸로 fetch할 일수 (end - days ~ end)
+    end: datetime | None = None  # cursor — 미지정 시 now() (UTC). 지정 시 그 시점 기준.
     kospi_suffix: str = ".KS"
     kosdaq_fallback_suffix: str = ".KQ"
 
@@ -195,9 +196,13 @@ def fetch_history(req: FetchRequest, now: datetime | None = None) -> pd.DataFram
     3) 결과 DataFrame index는 KST tz-aware DatetimeIndex.
     4) columns: ["Open", "High", "Low", "Close", "Volume"] 보장.
 
+    `req.end` 지정 시 그 시점 이전 days만큼 fetch (cursor 기반).
+    `req.end` 미지정 시 `now` (test injection) 또는 datetime.now(UTC) 기준.
+
     raises YahooFetchError on yfinance exception (외부 네트워크 실패 등).
     """
-    chunks = split_chunks(req.interval, req.days, now=now)
+    end_for_chunks = req.end if req.end is not None else now
+    chunks = split_chunks(req.interval, req.days, now=end_for_chunks)
 
     primary_symbol = f"{req.code}{req.kospi_suffix}"
     fallback_symbol = f"{req.code}{req.kosdaq_fallback_suffix}"

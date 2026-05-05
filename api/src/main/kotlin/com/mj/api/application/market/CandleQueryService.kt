@@ -57,11 +57,8 @@ class CandleQueryService(
         if (isM1(upper)) {
             val fromResolved = from ?: defaultFrom(Interval.M1, toResolved)
             val candles = candleRepository.find(code, Interval.M1, fromResolved, toResolved)
-            // cold-start (사용자 정책): 신규 종목 첫 진입 시 분봉 0건이면 yfinance backfill 자동 trigger.
-            if (candles.isEmpty()) {
-                log.info("[query-svc] M1 0건 — cold-start backfill trigger 시도 code={}", code)
-                candleCacheService.triggerBackgroundFetchAsync(code)
-            }
+            // 룰엔진/스크리너 path는 KIS WS 누적분만 사용 (사용자 결정 2026-05-05).
+            // yfinance backfill은 사용자 차트(Redis) 전용이므로 여기서 trigger하지 않음.
             return candles.toQueryResult(limit)
         }
 
@@ -82,11 +79,7 @@ class CandleQueryService(
 
         val fromResolved = from ?: defaultFromMinutes(targetMinutes, toResolved)
         val m1Candles = candleRepository.find(code, Interval.M1, fromResolved, toResolved)
-        // cold-start (N분봉 합성 path도 동일) — M1 0건이면 backfill trigger.
-        if (m1Candles.isEmpty()) {
-            log.info("[query-svc] M1 0건(N={}분봉 합성) — cold-start backfill trigger code={}", targetMinutes, code)
-            candleCacheService.triggerBackgroundFetchAsync(code)
-        }
+        // 룰엔진/스크리너 N분봉 합성 — KIS WS 누적분만 사용 (사용자 결정 2026-05-05).
         return candleAggregator.aggregate(m1Candles, targetMinutes).toQueryResult(limit)
     }
 

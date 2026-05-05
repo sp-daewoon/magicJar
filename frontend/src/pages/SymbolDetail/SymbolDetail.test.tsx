@@ -139,7 +139,7 @@ describe('SymbolDetail 페이지', () => {
     _stompListeners.clear()
     mockGetInstrument.mockResolvedValue({ code: '005930', name: '삼성전자', market: 'KOSPI' })
     mockGetCandles.mockResolvedValue(makeDayCandles(30))
-    mockCandlesPage.mockResolvedValue(makeDayCandles(30))
+    mockCandlesPage.mockResolvedValue({ candles: makeDayCandles(30), cacheMeta: null })
     mockListJournal.mockResolvedValue(makeJournalEntries('005930', 3))
     mockGetQuote.mockResolvedValue({
       code: '005930',

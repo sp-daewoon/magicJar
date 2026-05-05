@@ -99,16 +99,19 @@ class ScreenshotCapturedEvent(_KafkaModel):
 class CandleMinuteAggregatedEvent(_KafkaModel):
     """Topic: `candle.minute.aggregated.v1` — Kotlin com.mj.domain.market.event.CandleMinuteAggregatedEvent.
 
-    PR #113 정의. consumer:TickToMinuteAggregator가 1분 버킷 flush 시 발행하던 토픽을
-    pyworker yahoo backfill도 동일 schema로 재사용 (ADR 0048 §C). api 측
-    CandleMinuteEventListener가 수신 후 candle 테이블에 INSERT (interval=M1).
+    PR #113 정의. consumer:TickToMinuteAggregator가 1분 버킷 flush 시 발행 (KIS WS 1분봉 누적).
+    api 측 CandleMinuteEventListener가 수신 후 candle 테이블에 INSERT (interval=M1) — 룰엔진/백테스트용.
+
+    **2026-05-05 정정 (사용자 결정)**: pyworker yahoo backfill은 더 이상 이 토픽에 publish하지 않는다.
+    yfinance 결과는 사용자 차트 전용(Redis only) path이므로 `UserCandleUpdatedEvent` /
+    `market.candle.user.v1` 토픽으로 단일 batch 발행 (ADR 0050 §C-1 정합).
 
     필드 (Kotlin data class 그대로):
     - code        종목코드 (e.g. "005930")
     - openTime    1분 버킷 시작 시각 (Instant, KST 분 단위 align)
     - open/high/low/close  BigDecimal → 문자열 직렬화
     - volume      Long
-    - tradeCount  Long (yahoo backfill은 0으로 채움 — yahoo는 tick count 미제공)
+    - tradeCount  Long
     """
 
     code: str
@@ -121,6 +124,34 @@ class CandleMinuteAggregatedEvent(_KafkaModel):
     tradeCount: int = 0
 
 
+class CandleSnapshot(_KafkaModel):
+    """Kotlin com.mj.domain.market.event.CandleSnapshot — UserCandleUpdatedEvent의 element."""
+
+    openTime: datetime
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    volume: int
+
+
+class UserCandleUpdatedEvent(_KafkaModel):
+    """Topic: `market.candle.user.v1` — Kotlin com.mj.domain.market.event.UserCandleUpdatedEvent.
+
+    사용자 차트 cache update 이벤트. consumer:UserCandleListener가 수신 후 Redis ZADD를 수행한다.
+    api:UserChartCandleService(KIS direct fetch)와 pyworker(yfinance backfill) 양쪽이 같은 토픽에 발행.
+
+    yfinance backfill은 종목별 단 1건 메시지로 fetch한 모든 candles(보통 ~1000건)를 batch publish —
+    consumer가 단 1번 ZADD batch + STOMP fanout 1회로 묶음 처리.
+    """
+
+    userId: str
+    code: str
+    interval: str  # "M1", "D1" 등
+    candles: list[CandleSnapshot]
+    occurredAt: datetime
+
+
 # Kafka __TypeId__ 헤더 매핑
 # JsonDeserializer 가 Kotlin 측에서 본인 클래스를 찾을 수 있도록 FQN 부여.
 # Kotlin 측에서 spring.json.type.mapping 으로 alias도 가능하지만 FQN이 가장 안전.
@@ -130,5 +161,8 @@ TYPE_ID_HEADERS: dict[type[_KafkaModel], str] = {
     ScreenshotCapturedEvent: "com.mj.domain.market.event.ScreenshotCapturedEvent",
     CandleMinuteAggregatedEvent: (
         "com.mj.domain.market.event.CandleMinuteAggregatedEvent"
+    ),
+    UserCandleUpdatedEvent: (
+        "com.mj.domain.market.event.UserCandleUpdatedEvent"
     ),
 }

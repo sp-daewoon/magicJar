@@ -27,9 +27,9 @@ import pytest
 
 from app.backfill.service import (
     BackfillRequest,
-    CandleMinutePublisher,
+    UserCandleEventPublisher,
     YahooBackfillService,
-    dataframe_to_events,
+    dataframe_to_snapshots,
     normalize_request,
 )
 from app.backfill.yahoo_client import (
@@ -41,7 +41,7 @@ from app.backfill.yahoo_client import (
     to_kst_aware,
     validate_days,
 )
-from app.messaging.schemas import CandleMinuteAggregatedEvent
+from app.messaging.schemas import CandleSnapshot, UserCandleUpdatedEvent
 
 # ============================================================
 # 1. chunk 분할
@@ -145,28 +145,26 @@ def test_fetch_history_returns_empty_when_both_suffixes_fail() -> None:
 # ============================================================
 
 
-def test_dataframe_to_events_preserves_ohlcv_with_decimal() -> None:
+def test_dataframe_to_snapshots_preserves_ohlcv_with_decimal() -> None:
     """OHLC는 Decimal, Volume은 int. NaN row는 skip."""
     df = _make_fake_df(rows=3, start_ts=datetime(2026, 4, 30, 9, 0, tzinfo=UTC))
-    events = dataframe_to_events(df, code="005930")
-    assert len(events) == 3
-    assert all(isinstance(e, CandleMinuteAggregatedEvent) for e in events)
-    e0 = events[0]
-    assert e0.code == "005930"
-    assert e0.open == Decimal("70000.0")
-    assert e0.high == Decimal("70100.0")
-    assert e0.low == Decimal("69900.0")
-    assert e0.close == Decimal("70050.0")
-    assert e0.volume == 1000
-    assert e0.tradeCount == 0
+    snapshots = dataframe_to_snapshots(df)
+    assert len(snapshots) == 3
+    assert all(isinstance(s, CandleSnapshot) for s in snapshots)
+    s0 = snapshots[0]
+    assert s0.open == Decimal("70000.0")
+    assert s0.high == Decimal("70100.0")
+    assert s0.low == Decimal("69900.0")
+    assert s0.close == Decimal("70050.0")
+    assert s0.volume == 1000
 
 
-def test_dataframe_to_events_skips_nan_rows() -> None:
+def test_dataframe_to_snapshots_skips_nan_rows() -> None:
     """row 중 OHLCV NaN 있으면 skip."""
     df = _make_fake_df(rows=3, start_ts=datetime(2026, 4, 30, 9, 0, tzinfo=UTC))
     df.iloc[1, df.columns.get_loc("Close")] = float("nan")
-    events = dataframe_to_events(df, code="005930")
-    assert len(events) == 2
+    snapshots = dataframe_to_snapshots(df)
+    assert len(snapshots) == 2
 
 
 # ============================================================
@@ -193,40 +191,46 @@ def test_to_kst_aware_localizes_naive_index() -> None:
 
 
 @pytest.mark.asyncio
-async def test_candle_minute_publisher_sends_camel_case_with_type_id(
+async def test_user_candle_publisher_sends_camel_case_with_type_id(
     kafka_producer, fake_producer
 ) -> None:
-    publisher = CandleMinutePublisher(kafka_producer, "candle.minute.aggregated.v1")
-    event = CandleMinuteAggregatedEvent(
-        code="005930",
+    publisher = UserCandleEventPublisher(kafka_producer, "market.candle.user.v1")
+    snapshot = CandleSnapshot(
         openTime=datetime(2026, 4, 30, 0, 0, tzinfo=UTC),
         open=Decimal("70000"),
         high=Decimal("70200"),
         low=Decimal("69800"),
         close=Decimal("70100"),
         volume=1234567,
-        tradeCount=0,
+    )
+    event = UserCandleUpdatedEvent(
+        userId="74683223",
+        code="005930",
+        interval="M1",
+        candles=[snapshot],
+        occurredAt=datetime(2026, 5, 5, 12, 0, tzinfo=UTC),
     )
     await publisher.publish(event)
 
     assert len(fake_producer.records) == 1
     rec = fake_producer.records[0]
-    assert rec["topic"] == "candle.minute.aggregated.v1"
+    assert rec["topic"] == "market.candle.user.v1"
     body = json.loads(rec["value"])
-    # Kotlin data class 필드명
+    assert body["userId"] == "74683223"
     assert body["code"] == "005930"
-    assert body["openTime"] == "2026-04-30T00:00:00Z"
-    # BigDecimal → string
-    assert body["open"] == "70000"
-    assert body["volume"] == 1234567
-    assert body["tradeCount"] == 0
+    assert body["interval"] == "M1"
+    assert len(body["candles"]) == 1
+    c0 = body["candles"][0]
+    assert c0["openTime"] == "2026-04-30T00:00:00Z"
+    assert c0["open"] == "70000"
+    assert c0["volume"] == 1234567
     # Type-Id FQN
     assert (
         rec["headers"]["__TypeId__"].decode("utf-8")
-        == "com.mj.domain.market.event.CandleMinuteAggregatedEvent"
+        == "com.mj.domain.market.event.UserCandleUpdatedEvent"
     )
-    # key = code:openTime
-    assert rec["key"].startswith("005930:")
+    # key = code (api Kotlin publisher와 같음)
+    assert rec["key"] == "005930"
 
 
 # ============================================================
@@ -283,8 +287,8 @@ def test_normalize_request_rejects_daily_interval() -> None:
 
 @pytest.mark.asyncio
 async def test_service_run_handles_empty_dataframe(kafka_producer, fake_producer) -> None:
-    """0 rows 응답 — published=0, error 없음."""
-    pub = CandleMinutePublisher(kafka_producer, "candle.minute.aggregated.v1")
+    """0 rows 응답 — published=0, error 없음, Kafka publish 0건."""
+    pub = UserCandleEventPublisher(kafka_producer, "market.candle.user.v1")
     svc = YahooBackfillService(pub)
 
     with patch("app.backfill.service.fetch_history", return_value=pd.DataFrame()):
@@ -297,9 +301,9 @@ async def test_service_run_handles_empty_dataframe(kafka_producer, fake_producer
 
 
 @pytest.mark.asyncio
-async def test_service_run_publishes_each_row(kafka_producer, fake_producer) -> None:
-    """비어있지 않은 DataFrame → 모든 row publish."""
-    pub = CandleMinutePublisher(kafka_producer, "candle.minute.aggregated.v1")
+async def test_service_run_publishes_single_batch_event(kafka_producer, fake_producer) -> None:
+    """비어있지 않은 DataFrame → 단 1건 batch event publish (모든 candles 포함)."""
+    pub = UserCandleEventPublisher(kafka_producer, "market.candle.user.v1")
     svc = YahooBackfillService(pub)
     df = _make_fake_df(rows=5, start_ts=datetime(2026, 4, 30, 9, 0, tzinfo=UTC))
 
@@ -308,7 +312,12 @@ async def test_service_run_publishes_each_row(kafka_producer, fake_producer) -> 
 
     assert result.fetched == 5
     assert result.published == 5
-    assert len(fake_producer.records) == 5
+    # 단 1건 Kafka 메시지에 5건 candles batch — Kafka 중복 방지의 본질
+    assert len(fake_producer.records) == 1
+    body = json.loads(fake_producer.records[0]["value"])
+    assert body["code"] == "005930"
+    assert body["interval"] == "M1"
+    assert len(body["candles"]) == 5
     assert result.time_window["start"] is not None
     assert result.time_window["end"] is not None
 
@@ -337,6 +346,42 @@ async def test_router_returns_200_with_summary(client, fake_producer) -> None:
     assert body["published"] == 3
     assert "timeWindow" in body
     assert body["timeWindow"]["start"] is not None
+
+
+@pytest.mark.asyncio
+async def test_router_accepts_end_cursor(client, fake_producer) -> None:
+    """POST /backfill/yahoo with end — cursor 기반 윈도우 fetch."""
+    df = _make_fake_df(rows=3, start_ts=datetime(2026, 4, 25, 9, 0, tzinfo=UTC))
+
+    with patch("app.backfill.service.fetch_history", return_value=df) as fh:
+        resp = await client.post(
+            "/backfill/yahoo",
+            json={
+                "code": "005930",
+                "interval": "1m",
+                "days": 2,
+                "end": "2026-04-27T00:00:00Z",
+            },
+        )
+    assert resp.status_code == 200
+    # FetchRequest에 end가 전달됐는지 검증
+    assert fh.call_count == 1
+    fr = fh.call_args.args[0]
+    assert fr.end == datetime(2026, 4, 27, 0, 0, tzinfo=UTC)
+
+
+@pytest.mark.asyncio
+async def test_router_400_on_invalid_end_format(client) -> None:
+    resp = await client.post(
+        "/backfill/yahoo",
+        json={
+            "code": "005930",
+            "interval": "1m",
+            "days": 2,
+            "end": "not-a-date",
+        },
+    )
+    assert resp.status_code == 400
 
 
 @pytest.mark.asyncio

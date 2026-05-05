@@ -22,7 +22,7 @@ import httpx
 from fastapi import FastAPI
 
 from app.backfill.router import router as backfill_router
-from app.backfill.service import CandleMinutePublisher, YahooBackfillService
+from app.backfill.service import UserCandleEventPublisher, YahooBackfillService
 from app.config import get_settings
 from app.messaging.kafka_producer import (
     DartDisclosurePublisher,
@@ -68,12 +68,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.screenshot_publisher = ScreenshotCapturedPublisher(
         producer, settings.kafka_topic_screenshot
     )
-    # ADR 0048 §C — yahoo backfill publisher + service
-    candle_minute_publisher = CandleMinutePublisher(
-        producer, settings.kafka_topic_candle_minute
+    # ADR 0050 §C-1 (2026-05-05) — yahoo backfill은 사용자 차트 전용 path.
+    # market.candle.user.v1 토픽에 UserCandleUpdatedEvent 단일 batch event publish →
+    # consumer:UserCandleListener → Redis ZADD batch + STOMP fanout 1회. DB INSERT 0건.
+    user_candle_publisher = UserCandleEventPublisher(
+        producer, settings.kafka_topic_user_candle
     )
-    app.state.candle_minute_publisher = candle_minute_publisher
-    app.state.yahoo_backfill_service = YahooBackfillService(candle_minute_publisher)
+    app.state.user_candle_publisher = user_candle_publisher
+    app.state.yahoo_backfill_service = YahooBackfillService(user_candle_publisher)
 
     # 3) Storage
     storage: StorageBackend

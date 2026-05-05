@@ -12,7 +12,7 @@ import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 
-from app.backfill.service import CandleMinutePublisher, YahooBackfillService
+from app.backfill.service import UserCandleEventPublisher, YahooBackfillService
 from app.config import reset_settings_for_test
 from app.main import create_app
 from app.messaging.kafka_producer import (
@@ -146,11 +146,11 @@ async def app(monkeypatch, kafka_producer: KafkaProducer, fake_producer: FakeAio
         fastapi_app.state.screenshot_publisher = ScreenshotCapturedPublisher(
             kafka_producer, "screenshot.captured.v1"
         )
-        candle_minute_pub = CandleMinutePublisher(
-            kafka_producer, "candle.minute.aggregated.v1"
+        user_candle_pub = UserCandleEventPublisher(
+            kafka_producer, "market.candle.user.v1"
         )
-        fastapi_app.state.candle_minute_publisher = candle_minute_pub
-        fastapi_app.state.yahoo_backfill_service = YahooBackfillService(candle_minute_pub)
+        fastapi_app.state.user_candle_publisher = user_candle_pub
+        fastapi_app.state.yahoo_backfill_service = YahooBackfillService(user_candle_pub)
         fastapi_app.state.storage = InMemoryStorage(
             bucket="magicjar-screenshots",
             public_host="localhost:9000",

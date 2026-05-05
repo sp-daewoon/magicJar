@@ -4,6 +4,28 @@ import com.mj.domain.common.Candle
 import java.time.Instant
 
 /**
+ * 사용자 차트 ZSet 메타정보. frontend가 무작위 backend 호출을 막기 위한 판단 근거.
+ *
+ * frontend는 응답 헤더로 받은 first/last/count를 추적하고,
+ *   - 사용자가 가진 cache 범위 안 → backend 호출 X
+ *   - cache 너머 더 과거 필요 → before=first cursor로 backend 호출
+ * 이 흐름으로 yfinance 호출 빈도를 자연스럽게 줄인다 (사용자 결정 2026-05-05).
+ *
+ * @param first  ZSet의 가장 과거 봉 openTime (count=0이면 null)
+ * @param last   ZSet의 가장 최근 봉 openTime (count=0이면 null)
+ * @param count  ZSet 전체 봉 수 (limit 무관)
+ */
+data class CacheRangeMeta(
+    val first: Instant?,
+    val last: Instant?,
+    val count: Long,
+) {
+    companion object {
+        val EMPTY: CacheRangeMeta = CacheRangeMeta(null, null, 0L)
+    }
+}
+
+/**
  * 사용자별 차트 캔들 캐시 포트 (ADR 0050).
  *
  * Redis ZSet 기반 사용자 화면 전용 캐시. DB candle 영속과 별도 파이프라인.
@@ -78,4 +100,16 @@ interface UserCandleCachePort {
         code: String,
         interval: String,
     ): Instant?
+
+    /**
+     * ZSet의 first openTime, last openTime, count 메타 조회.
+     *
+     * frontend가 cache 범위를 판단하는 근거. 응답 헤더 X-Cache-First/Last/Count로 노출.
+     * count=0이면 first·last는 null.
+     */
+    fun rangeMeta(
+        userId: String,
+        code: String,
+        interval: String,
+    ): CacheRangeMeta
 }

@@ -40,10 +40,12 @@ class Settings(BaseSettings):
     kafka_topic_screenshot: str = Field(
         default="screenshot.captured.v1", alias="KAFKA_TOPIC_SCREENSHOT"
     )
-    # ADR 0048 §C — yahoo backfill publish topic
-    # api 측 CandleMinuteEventListener와 동일 (consumer TickToMinuteAggregator도 같은 토픽 사용).
-    kafka_topic_candle_minute: str = Field(
-        default="candle.minute.aggregated.v1", alias="KAFKA_TOPIC_CANDLE_MINUTE"
+    # ADR 0048 §C (2026-05-04) — yahoo backfill publish topic.
+    # 2026-05-05 정정 (사용자 결정): yahoo backfill은 사용자 차트 전용 path로 분리.
+    #   topic = market.candle.user.v1 (api 측 KIS direct path와 같은 토픽 — single batch event 발행)
+    #   기존 candle.minute.aggregated.v1는 KIS WS 1분봉 누적분 전용으로 보존 (룰엔진/백테스트용 DB INSERT).
+    kafka_topic_user_candle: str = Field(
+        default="market.candle.user.v1", alias="KAFKA_TOPIC_USER_CANDLE"
     )
 
     # S3 / MinIO

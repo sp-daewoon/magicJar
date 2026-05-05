@@ -58,6 +58,25 @@ export interface CandleDto {
   volume: number
 }
 
+/**
+ * 사용자 차트 ZSet 메타 — backend 응답 헤더 X-Cache-First/Last/Count에서 추출.
+ *
+ * frontend가 무작위 yfinance 호출을 막기 위한 판단 근거 (사용자 결정 2026-05-05):
+ *   - 사용자가 가진 cache 범위 안 → backend 호출 X (이미 표시 중)
+ *   - cache 너머 더 과거 필요 → before=first 로 추가 호출
+ *
+ * count = 0 또는 first/last 미수신 시 빈 cache.
+ *
+ * @field firstEpochSec  ZSet 가장 과거 봉 epoch second
+ * @field lastEpochSec   ZSet 가장 최근 봉 epoch second
+ * @field count          ZSet 전체 봉 수
+ */
+export interface ChartCacheMeta {
+  firstEpochSec: number | null
+  lastEpochSec: number | null
+  count: number
+}
+
 /* ---------- 백테스트 ---------- */
 
 export type BacktestRunStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED'

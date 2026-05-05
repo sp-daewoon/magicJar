@@ -8,7 +8,38 @@
  * GET /api/instruments/search?q=...&limit=N  — 종목 검색 자동완성
  */
 import { apiClient } from './client'
-import type { CandleDto, Instrument, InstrumentDetail, QuoteResponse, SearchResult } from './types'
+import type {
+  CandleDto,
+  ChartCacheMeta,
+  Instrument,
+  InstrumentDetail,
+  QuoteResponse,
+  SearchResult,
+} from './types'
+
+/**
+ * candlesPage 응답 — body + cache 메타 헤더 추출.
+ *
+ * 사용자 결정 2026-05-05: frontend가 cache 범위 알아 무작위 호출 차단.
+ */
+export interface CandlesPageResponse {
+  candles: CandleDto[]
+  cacheMeta: ChartCacheMeta | null
+}
+
+function parseCacheMeta(headers: Headers): ChartCacheMeta | null {
+  const countRaw = headers.get('X-Cache-Count')
+  if (countRaw == null) return null
+  const count = Number.parseInt(countRaw, 10)
+  if (Number.isNaN(count)) return null
+  const firstRaw = headers.get('X-Cache-First')
+  const lastRaw = headers.get('X-Cache-Last')
+  return {
+    firstEpochSec: firstRaw ? Number.parseInt(firstRaw, 10) : null,
+    lastEpochSec: lastRaw ? Number.parseInt(lastRaw, 10) : null,
+    count,
+  }
+}
 
 export const instrumentsApi = {
   /** 종목 단건 조회 */
@@ -62,19 +93,25 @@ export const instrumentsApi = {
    * GET /api/instruments/{code}/candles?interval=<I>&before=<cursor>&limit=<N>
    *
    * - before: cursor (D1=YYYY-MM-DD, 분봉=epoch second string). 없으면 최신부터.
-   * - limit: 최대 응답 봉 수 (기본 200).
+   * - limit: 최대 응답 봉 수 (default 1000 — ADR 0050 §C-1, 사용자 결정 2026-05-05).
    * - 응답 길이 < limit 이면 더 이상 데이터 없음 (hasMore=false).
+   *
+   * 응답 헤더 X-Cache-First/Last/Count 파싱 — frontend가 cache 범위 추적.
    */
-  candlesPage: (
+  candlesPage: async (
     code: string,
     interval: string,
     before?: string,
-    limit = 200,
-  ): Promise<CandleDto[]> => {
+    limit = 1000,
+  ): Promise<CandlesPageResponse> => {
     const params = new URLSearchParams({ interval, limit: String(limit) })
     if (before) params.set('before', before)
-    return apiClient.get<CandleDto[]>(
+    const { body, headers } = await apiClient.getWithHeaders<CandleDto[]>(
       `/instruments/${code.toUpperCase()}/candles?${params}`,
     )
+    return {
+      candles: body,
+      cacheMeta: parseCacheMeta(headers),
+    }
   },
 }

@@ -22,6 +22,8 @@ import com.mj.api.controller.dto.toDetailResponse
 import com.mj.api.controller.dto.toResponse
 import com.mj.api.controller.dto.toSearchResponse
 import com.mj.api.messaging.producer.MarketCandleBackfillCommandPublisher
+import com.mj.domain.market.cache.port.CacheRangeMeta
+import com.mj.domain.market.cache.port.UserCandleCachePort
 import com.mj.domain.market.instrument.Instrument
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.Parameter
@@ -66,6 +68,7 @@ class InstrumentController(
     private val investorTrendService: InvestorTrendService,
     private val backfillCommandPublisher: MarketCandleBackfillCommandPublisher,
     private val userChartCandleService: UserChartCandleService,
+    private val userCandleCache: UserCandleCachePort,
     @org.springframework.beans.factory.annotation.Value("\${magicjar.chart.redis-first.enabled:true}")
     private val redisFirstEnabled: Boolean,
 ) {
@@ -250,7 +253,21 @@ class InstrumentController(
                 }.getOrElse { return ResponseEntity.badRequest().build() }
             // hasMore: 응답 size >= limit이면 더 fetch 가능
             val hasMore = candles.size >= limit
-            return buildCandleResponse(candles, hasMore)
+            // 사용자 결정 2026-05-05 — frontend가 cache 범위 알아 무작위 yfinance 호출 차단.
+            // M1만 cache 메타 노출 (D1·합성 path는 Redis 캐시 우회 또는 KIS direct).
+            val meta =
+                runCatching {
+                    if (interval.uppercase() in setOf("M1", "1M", "1MIN", "MIN1")) {
+                        userCandleCache.rangeMeta(
+                            UserChartCandleService.DEFAULT_USER_ID,
+                            normalized,
+                            "M1",
+                        )
+                    } else {
+                        null
+                    }
+                }.getOrNull()
+            return buildCandleResponse(candles, hasMore, cacheMeta = meta)
         }
 
         // before 모드: infinite scroll
@@ -292,16 +309,30 @@ class InstrumentController(
      * 응답 헤더:
      * - `X-Has-More`: 다음 페이지 존재 여부 (true/false)
      * - `X-Total-Count`: 이번 응답에 포함된 봉 수
+     * - `X-Cache-First`: 사용자 차트 ZSet 가장 과거 봉 epoch second (M1 + redis-first 모드 only)
+     * - `X-Cache-Last`: 사용자 차트 ZSet 가장 최근 봉 epoch second
+     * - `X-Cache-Count`: 사용자 차트 ZSet 전체 봉 수
+     *
+     * frontend는 X-Cache-First/Last/Count로 cache 범위를 추적하고,
+     * 사용자가 cache 너머 더 과거 필요 시 `before=X-Cache-First`로 추가 호출 (사용자 결정 2026-05-05).
      */
     private fun buildCandleResponse(
         candles: List<com.mj.domain.common.Candle>,
         hasMore: Boolean,
+        cacheMeta: CacheRangeMeta? = null,
     ): ResponseEntity<List<CandleResponse>> {
+        val exposed = mutableListOf("X-Has-More", "X-Total-Count")
         val headers =
             HttpHeaders().apply {
                 set("X-Has-More", hasMore.toString())
                 set("X-Total-Count", candles.size.toString())
-                set("Access-Control-Expose-Headers", "X-Has-More, X-Total-Count")
+                cacheMeta?.let { meta ->
+                    meta.first?.let { set("X-Cache-First", it.epochSecond.toString()) }
+                    meta.last?.let { set("X-Cache-Last", it.epochSecond.toString()) }
+                    set("X-Cache-Count", meta.count.toString())
+                    exposed += listOf("X-Cache-First", "X-Cache-Last", "X-Cache-Count")
+                }
+                set("Access-Control-Expose-Headers", exposed.joinToString(", "))
             }
         return ResponseEntity
             .ok()

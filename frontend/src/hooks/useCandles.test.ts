@@ -14,6 +14,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createElement, type ReactNode } from 'react'
 import { useCandles, CANDLES_PAGE_LIMIT } from './useCandles'
 import type { CandleDto } from '@/api/types'
+import type { CandlesPageResponse } from '@/api/instruments'
+
+/** 새 응답 타입 wrapper — body + cacheMeta. 테스트에선 cacheMeta=null로 충분. */
+function wrap(candles: CandleDto[]): CandlesPageResponse {
+  return { candles, cacheMeta: null }
+}
 
 // BASE_EPOCH: 2026-05-03 00:00:00 UTC
 const BASE_EPOCH = 1746230400
@@ -74,7 +80,7 @@ describe('useCandles', () => {
 
   it('초기 fetch 성공 — candles 반환, isLoading=false', async () => {
     const mockData = mkDayCandles(50)
-    mockCandlesPage.mockResolvedValue(mockData)
+    mockCandlesPage.mockResolvedValue(wrap(mockData))
 
     const { result } = renderHook(() => useCandles('005930', 'DAY'), {
       wrapper: makeWrapper(),
@@ -92,7 +98,7 @@ describe('useCandles', () => {
 
   it('응답 길이 < CANDLES_PAGE_LIMIT → hasMore=false', async () => {
     const mockData = mkDayCandles(CANDLES_PAGE_LIMIT - 50)
-    mockCandlesPage.mockResolvedValue(mockData)
+    mockCandlesPage.mockResolvedValue(wrap(mockData))
 
     const { result } = renderHook(() => useCandles('005930', 'DAY'), {
       wrapper: makeWrapper(),
@@ -107,7 +113,7 @@ describe('useCandles', () => {
 
   it('응답 길이 == CANDLES_PAGE_LIMIT → hasMore=true', async () => {
     const mockData = mkDayCandles(CANDLES_PAGE_LIMIT)
-    mockCandlesPage.mockResolvedValue(mockData)
+    mockCandlesPage.mockResolvedValue(wrap(mockData))
 
     const { result } = renderHook(() => useCandles('005930', 'DAY'), {
       wrapper: makeWrapper(),
@@ -123,7 +129,7 @@ describe('useCandles', () => {
   it('M15 interval v2 → serverInterval=M15 (백엔드 직접), identity transform', async () => {
     // 분봉 아키 v2: M15는 백엔드가 직접 제공 → identity transform
     const m15Candles = mkMinuteCandles(BASE_EPOCH, 15 * 60, 3)
-    mockCandlesPage.mockResolvedValue(m15Candles)
+    mockCandlesPage.mockResolvedValue(wrap(m15Candles))
 
     const { result } = renderHook(() => useCandles('005930', 'M15'), {
       wrapper: makeWrapper(),

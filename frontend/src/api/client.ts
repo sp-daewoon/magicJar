@@ -36,8 +36,32 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
+/**
+ * 헤더 + body 함께 반환하는 GET — 응답 헤더 추출이 필요한 endpoint용 (예: 캔들 cache 메타).
+ * baseURL · credentials · 에러 처리는 request()와 동일.
+ */
+async function requestWithHeaders<T>(path: string): Promise<{ body: T; headers: Headers }> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  if (!res.ok) {
+    const err: ApiError = {
+      status: res.status,
+      message: await res.text().catch(() => res.statusText),
+    }
+    throw err
+  }
+  if (res.status === 204) {
+    return { body: undefined as T, headers: res.headers }
+  }
+  const body = (await res.json()) as T
+  return { body, headers: res.headers }
+}
+
 export const apiClient = {
   get: <T>(path: string) => request<T>(path),
+  getWithHeaders: <T>(path: string) => requestWithHeaders<T>(path),
   post: <T>(path: string, body: unknown) =>
     request<T>(path, { method: 'POST', body: JSON.stringify(body) }),
   put: <T>(path: string, body: unknown) =>
