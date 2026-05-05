@@ -5,8 +5,33 @@
   "lastReleaseUrl": "https://github.com/sp-daewoon/magicJar/releases/tag/v2.0.1",
   "lastReleaseNotes": "차트 Redis-first + user_id 통일 (28 commits since v2.0.0). ADR 0050 + R3-1/2/3 + V21 user_id UUID→String. release/v2는 v2.0.0 immutable 보존(ADR 0027).",
   "lastCompletedCycle": {
-    "id": "R3-5c-2 1차",
-    "completedAt": "2026-05-05T14:30:00+09:00",
+    "id": "R3-5c-3 PR1+PR2 (자율 머지)",
+    "completedAt": "2026-05-05T16:55:00+09:00",
+    "currentCycle": {
+      "id": "R3-5c-3",
+      "status": "PR3~PR5 진입 대기 — 사용자 D11 결정",
+      "specPath": "docs/superpowers/specs/2026-05-05-track-r3-5c-3-kis-token-unification-design.md",
+      "planPath": "docs/superpowers/plans/2026-05-05-track-r3-5c-3-kis-token-unification.md",
+      "mergedPrs": [
+        {"n": 173, "title": "PR1 — KisAuthScope/KisApprovalScope sealed + port 일반화", "merge": "2b7e024"}
+      ],
+      "pendingPrs": [
+        "PR2 — Redisson 의존성 + KisAuthRedissonConfig + KisAuthMetrics (default 비활성, 본 작업)",
+        "PR3 — api 6 어댑터 통합 (D11 결정 후)",
+        "PR4 — batch 3 어댑터 통합 (D11 결정 후)",
+        "PR5 — consumer + 설정 prefix 일원화 (D11 결정 후)"
+      ],
+      "userDecisionsPending": [
+        "D11 — Spring 설정 prefix `magicjar.kis.*` 일원화 + `.env` 변수명 정정 + docker compose 재기동 영향 컨펌"
+      ],
+      "d7ReinforceDone": [
+        "spec §10-3 ERROR 로그 표준 prefix `[kis-auth][redis-down]`",
+        "spec §10-4 `KisAuthHealthIndicator` (api `/actuator/health/kisAuth` DEGRADED 매핑) — PR3에서 신설",
+        "plan Task 15b·19b·24b — 모듈별 ERROR 로그 정합 + HealthIndicator"
+      ]
+    },
+    "previousCycle": "R3-5c-2 1차 (2026-05-05T14:30:00+09:00)",
+    "_priorCycleCompletedAt": "2026-05-05T14:30:00+09:00",
     "sessionPrs": [
       {"n": 161, "title": "R3-4 frontend IntervalSelector 자유 입력 + 10m"},
       {"n": 163, "title": "R3-4 market-data KIS W/MO endpoint"},
@@ -188,5 +213,5 @@
     "QA-ISSUE-007 (P3 OPEN): /api/strategy 컨트롤러 phaseE.P1 기록 vs 실제 코드 mismatch — 기록 정정 또는 신설(T7 진입 시)."
   ],
   "retrospective": "_workspace/_archive/retrospective/phase-b.md",
-  "updatedAt": "2026-05-03T01:30:00+09:00"
+  "updatedAt": "2026-05-05T16:55:00+09:00"
 }

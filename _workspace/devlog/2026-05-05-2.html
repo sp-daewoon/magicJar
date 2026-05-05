@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>magicJar 2026-05-05 (#2) 세션 요약</title>
+<style>
+  :root{--bg:#fafafa;--fg:#1f2937;--mute:#6b7280;--accent:#2563eb;--ok:#16a34a;--warn:#d97706;--danger:#dc2626;--border:#e5e7eb;--card:#fff;--mono:'SF Mono','Monaco','Menlo',monospace}
+  *{box-sizing:border-box}
+  body{margin:0;padding:24px;font-family:-apple-system,'SF Pro Text','Pretendard',sans-serif;background:var(--bg);color:var(--fg);line-height:1.55;font-size:14px}
+  h1{margin:0 0 4px;font-size:22px}
+  h2{margin:32px 0 12px;font-size:17px;border-bottom:2px solid var(--accent);padding-bottom:6px}
+  h3{margin:18px 0 8px;font-size:14px;color:var(--accent)}
+  .meta{color:var(--mute);font-size:12px;margin-bottom:24px}
+  .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px}
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:13px}
+  th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+  th{background:#f3f4f6;font-weight:600;color:var(--mute);text-transform:uppercase;font-size:11px;letter-spacing:.05em}
+  tr:last-child td{border-bottom:0}
+  code{background:#f3f4f6;padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:12px}
+  .badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600}
+  .b-ok{background:#dcfce7;color:#166534}
+  .b-warn{background:#fef3c7;color:#92400e}
+  .b-pending{background:#dbeafe;color:#1e40af}
+  .b-todo{background:#fce7f3;color:#9d174d}
+  .b-mute{background:#e5e7eb;color:#374151}
+  ul{margin:6px 0;padding-left:18px}
+  li{margin:3px 0}
+  .pr{color:var(--accent);font-weight:600;font-family:var(--mono)}
+</style>
+</head>
+<body>
+
+<h1>magicJar 세션 요약 — 2026-05-05 (#2) 화요일</h1>
+<div class="meta">R3-5c-3 PR1+PR2 자율 머지 — KIS 토큰 분산 single-flight 골격 완성. PR3~5는 사용자 D11 결정 대기.</div>
+
+<h2>1. 머지 PR 매트릭스</h2>
+<table>
+  <tr><th>Wave</th><th>PR</th><th>내용</th><th>에이전트·모델</th></tr>
+  <tr><td rowspan="2">R3-5c-3 — KIS 토큰 분산 single-flight</td><td class="pr">#173</td><td>PR1 — 도메인 port 일반화 (<code>KisAuthScope</code>·<code>KisApprovalScope</code> sealed + <code>KisTokenStorePort</code> 시그니처 정정 + <code>KisApprovalStorePort</code> 신설). 도메인 단위 테스트 신규 PASS</td><td>architect (opus)</td></tr>
+  <tr><td class="pr">PR2</td><td>Redisson 의존성 3 모듈 + <code>KisAuthRedissonConfig</code> + <code>KisAuthMetrics</code> (Micrometer 6 메트릭) — <b>default 비활성</b>. 모듈별 회귀 테스트 3종. 회귀 0 (4 모듈 전체 BUILD SUCCESS)</td><td>architect (opus)</td></tr>
+</table>
+
+<h2>2. 사용자 결정 매트릭스</h2>
+<table>
+  <tr><th>결정</th><th>채택안</th><th>반영 위치</th></tr>
+  <tr><td>1 (PR1 머지)</td><td><b>A — 머지 진행</b>. CI 6 jobs FAILURE는 외부 인프라 이슈 (main HEAD도 동일 상태) → 본 PR 변경분 무관 명시 후 자율 머지</td><td>PR #173 머지 (commit <code>2b7e024</code>)</td></tr>
+  <tr><td>2-D7 (Redis 다운 fallback)</td><td><b>OK + 보강</b> — 프론트 노출 surface 결정 + ERROR 로그 표준 prefix + 향후 알림 통합 path</td><td>spec §10-3·§10-4·§10-5 + plan Task 15b·19b·24b</td></tr>
+  <tr><td>2-D9 (모듈별 직접 구현)</td><td><b>OK</b> — 공유 helper 신규 모듈 회피, 코드 중복 ~150줄/모듈 수용</td><td>PR2 — api·batch·consumer 모듈별 동일 Config·Metrics 클래스 작성</td></tr>
+  <tr><td>2-D11 (Spring 설정 prefix 일원화)</td><td><b>대기</b> — 사용자 컨펌 필요 (<code>.env</code> 변수명 정정 + docker compose 재기동)</td><td>PR3~5 진입 보류</td></tr>
+</table>
+
+<h2>3. PR2 산출물</h2>
+<table>
+  <tr><th>영역</th><th>파일</th><th>요점</th></tr>
+  <tr><td>의존성</td><td><code>{api,batch,consumer}/build.gradle.kts</code></td><td><code>org.redisson:redisson-spring-boot-starter:3.40.2</code> + batch에 <code>spring-boot-starter-data-redis</code> 부착 (RedisProperties 활용)</td></tr>
+  <tr><td>Bean</td><td>3 모듈 <code>KisAuthRedissonConfig.kt</code></td><td><code>@ConditionalOnProperty(magicjar.kis.redis-token.enabled, default=false)</code> + <code>@ConditionalOnMissingBean(RedissonClient)</code>. 같은 Redis 인스턴스 공유, 별도 connection 풀</td></tr>
+  <tr><td>메트릭</td><td>3 모듈 <code>KisAuthMetrics.kt</code></td><td>Micrometer 6 카운터/타이머: <code>kis_token_issuance_total</code>·<code>kis_token_invalidation_total</code>·<code>kis_token_lock_wait_seconds</code>·<code>kis_token_redis_unavailable_total</code>·<code>kis_token_fallback_used_total</code>·<code>kis_approval_issuance_total</code></td></tr>
+  <tr><td>회귀 테스트</td><td>3 모듈 <code>KisAuthRedissonConfigTest.kt</code></td><td><code>ApplicationContextRunner</code>로 default OFF (Bean 미등록) + enabled=true (Bean 등록 + 메트릭 발급) 시나리오. 3 모듈 PASS</td></tr>
+</table>
+
+<h2>4. D7 보강 — Redis 다운 surface 정합</h2>
+<div class="card">
+  <h3>spec §10-3 ERROR 로그 표준 양식</h3>
+  <code>ERROR [kis-auth][redis-down] fallback=in-memory race-risk-high scope={scope} op={current|invalidate|lock-acquire} reason={...}</code>
+  <p class="meta">모든 모듈 동일 prefix. 향후 알림 시스템(loki/promtail/slack webhook)에서 단일 grep 패턴으로 trigger.</p>
+  <h3>spec §10-4 KisAuthHealthIndicator (PR3에서 신설)</h3>
+  <ul>
+    <li>endpoint: <code>/actuator/health/kisAuth</code> (component health)</li>
+    <li>UP / DEGRADED (커스텀 status) — 5분 fallback 누적 기준</li>
+    <li>DEGRADED detail JSON — <code>redisUnavailableLast5m</code>·<code>fallbackUsedLast5m</code>·<code>lastDownAt</code>·<code>raceRisk</code>·<code>advice</code> (한국어 운영 메시지)</li>
+    <li>frontend 통합은 별도 사이클 — 30s 폴링 + 상단 banner 표시</li>
+  </ul>
+  <p class="meta">2차 후보(HTTP 응답 헤더 <code>X-MagicJar-KIS-Degraded</code>) 미채택 — HealthIndicator 단일 폴링 endpoint가 깔끔.</p>
+</div>
+
+<h2>5. 자율 게이트 운영</h2>
+<ul>
+  <li>토글 ON 시작: 전 architect agent 작업 시점 (잔여 ~57분 인계)</li>
+  <li>본 세션 머지 1건: PR #173 (PR1)</li>
+  <li>본 세션 PR 1건 작성 + 자율 머지 예정: PR2 (Redisson + Bean + 메트릭)</li>
+  <li>6 체크리스트 자체검증: PR1 ✅ (CI 외부 인프라 이슈 명시 + 4 항목 OK), PR2 ✅ (build/test PASS·ktlint·worktree 정리 의무·CLAUDE.md 라인)</li>
+</ul>
+
+<h2>6. 다음 사이클 진입점</h2>
+<ul>
+  <li>사용자 D11 결정 대기 — Spring 설정 prefix <code>magicjar.kis.*</code> 일원화 채택 여부</li>
+  <li>D11 OK 시: PR3 (api 6 어댑터) → PR4 (batch 3 어댑터) → PR5 (consumer + 설정 일원화) 일괄 진행</li>
+  <li>병행: 1번 트랙 dogfooding 재개 (월요일 영업일 KIS 주문)</li>
+  <li>logback mask 근본 fix (별도 트랙)</li>
+  <li>v2.1.0 컷 시점 — R3-5c-3 PR3~5 + 1번 트랙 dogfooding 완료 후 결정</li>
+</ul>
+
+</body>
+</html>

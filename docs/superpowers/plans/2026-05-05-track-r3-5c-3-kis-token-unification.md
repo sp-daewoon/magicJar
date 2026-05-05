@@ -276,6 +276,20 @@ PR5 머지 후 사용자 환경에서 `docker stop redis` → 사용자 차트 �
 
 WireMock 401 응답 → invalidate + retry 회귀.
 
+### Task 15b (D7 보강 — 사용자 결정 정합): `KisAuthHealthIndicator` + ERROR 로그 정합
+
+**Files:**
+- Create: `api/src/main/kotlin/com/mj/api/infrastructure/kis/auth/KisAuthHealthIndicator.kt`
+- 회귀 테스트: `api/src/test/.../KisAuthHealthIndicatorTest.kt`
+
+- [ ] Step 1: `HealthIndicator` 구현 — `MeterRegistry` 주입 → `kis_token_redis_unavailable_total` 최근 5분 증분 측정.
+  - 5분 증분 0 → `Health.up().withDetail("redisUnavailableLast5m", 0).build()`
+  - 5분 증분 > 0 → `Health.status("DEGRADED").withDetails(...)` + `advice` 메시지 포함.
+- [ ] Step 2: endpoint 노출 — Spring Boot 기본 `/actuator/health/kisAuth` 자동 발견(`@Component` Bean 이름). `application.yml`에 `management.endpoint.health.show-details: always` 또는 `always-on-component`.
+- [ ] Step 3: spec §10-4 detail JSON 정합 — `lastDownAt`(ISO-8601 KST), `raceRisk: "high"`, `advice` 한국어 운영 메시지.
+- [ ] Step 4: 어댑터별 ERROR 로그를 spec §10-3 표준 양식(`[kis-auth][redis-down]`)으로 정합 — `ApiRedisKisTokenStoreAdapter`의 fallback path에서 `logger.error("[kis-auth][redis-down] fallback=in-memory race-risk-high scope={} op={} reason={}", scope, op, reason.javaClass.simpleName)`. INFO 복구 라인 발행 (`[kis-auth][redis-recovered]`).
+- [ ] Step 5: PR4·PR5 어댑터도 동일 ERROR/INFO prefix 사용 (모듈별 helper 부재 결정 D9 정합 — 모듈마다 같은 로그 양식 직접 작성, ~5줄/어댑터).
+
 ---
 
 ## Phase 4 — batch 3 어댑터 통합 (PR4, **사용자 컨펌 후**)
@@ -289,6 +303,10 @@ WireMock IT (R3-4 시나리오 7·8) 회귀 검증.
 ### Task 18: `KisCorpActionTokenHolder` 폐기 + `RealKisCorpActionAdapter` 직접 주입
 
 ### Task 19: `MinuteCandleBackfillJob` 통합
+
+### Task 19b (D7 보강): batch ERROR 로그 정합
+
+PR4 어댑터(BatchRedisKisTokenStoreAdapter / RealKisRestAdapter / RealKisCorpActionAdapter / MinuteCandleBackfillJob)에서 Redis 예외 catch 시 spec §10-3 표준 양식 `[kis-auth][redis-down]` 사용. batch는 HealthIndicator 미노출(api 책임 — batch는 actuator endpoint 외부 노출 0).
 
 ---
 
@@ -305,6 +323,11 @@ WireMock IT (R3-4 시나리오 7·8) 회귀 검증.
 ### Task 23: `KisWsApprovalProvider` 통합 — port 위임
 
 ### Task 24: 시세 WS approval 통합 (별도 holder 없는 path)
+
+### Task 24b (D7 보강): consumer ERROR 로그 정합
+
+PR5 어댑터(ConsumerRedisKisTokenStoreAdapter / KisHttpSession 흡수 / ConsumerRedisKisApprovalStoreAdapter)에서 동일 `[kis-auth][redis-down]` prefix 적용. consumer는 HealthIndicator 미노출(api 책임).
+
 
 ### Task 25: `KisCredentialProvider.forSystem(mode)` 추가
 

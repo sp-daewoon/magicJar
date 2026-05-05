@@ -652,24 +652,66 @@ Redis 다운 중 multi-JVM이 같은 KIS 키로 동시 발급 → KIS 1분 1회 
 
 대안: Redis 다운 중 토큰 발급 자체 차단(503). 사용자 path 전체 다운. 채택하지 않음(D7 trade-off).
 
-### 10-3. ERROR 로그 메시지 양식
+### 10-3. ERROR 로그 메시지 양식 (D7 보강 — 사용자 결정 정합)
+
+표준 prefix `[kis-auth][redis-down]` — 향후 알림 시스템(grep/loki/promtail) 정합 위해 모든 모듈에서 동일.
 
 ```
-ERROR [kis-token] redis-unavailable scope={scope} fallback=in-memory race-risk-high op=current
-ERROR [kis-token] redis-unavailable scope={scope} fallback=in-memory race-risk-high op=invalidate
-ERROR [kis-token] redis-fallback-recovered scope={scope}  ← Redis 복구 후 첫 성공 시
+ERROR [kis-auth][redis-down] fallback=in-memory race-risk-high scope={scope} op=current source={hit|fresh}
+ERROR [kis-auth][redis-down] fallback=in-memory race-risk-high scope={scope} op=invalidate
+ERROR [kis-auth][redis-down] fallback=in-memory race-risk-high scope={scope} op=lock-acquire reason={timeout|ConnectionException}
+INFO  [kis-auth][redis-recovered] scope={scope}  ← Redis 복구 후 첫 성공 시 (PR3+ 어댑터에서 발행)
 ```
 
-P0 알람 트리거: Prometheus rule `increase(kis_token_redis_unavailable_total[5m]) > 0` (운영 트랙 후속 — 본 spec은 메트릭 노출까지).
+각 ERROR 라인은 `KisAuthMetrics.redisUnavailable(scope)` + `fallbackUsed(scope, kind)` 호출과 1:1 정합한다. 향후 알림 시스템 도입 시 `grep -E '\[kis-auth\]\[redis-down\]'` 단일 패턴으로 슬랙/PagerDuty trigger 가능.
 
-### 10-4. 운영 runbook 위치
+P0 알람 트리거: Prometheus rule `increase(kis_token_redis_unavailable_total[5m]) > 0` (운영 트랙 후속 — 본 spec은 메트릭 + 로그 노출까지).
+
+### 10-4. 프론트 노출 surface (D7 보강 — 사용자 결정 정합)
+
+사용자 결정: Redis 다운 fallback 시 프론트에 "서비스 제한" 상태 노출 + 향후 알림 시스템 통합 path 명시.
+
+**1차 채택 — Spring Actuator HealthIndicator (api 모듈)**:
+
+- 위치: `api/src/main/kotlin/com/mj/api/infrastructure/kis/auth/KisAuthHealthIndicator.kt` (PR3에서 신설).
+- 노출 endpoint: `/actuator/health/kisAuth` (component health). `/actuator/health` 전체에도 합산.
+- 상태 매핑:
+  - `UP` — Redis 정상 + 최근 5분 `kis_token_redis_unavailable_total` 증가 0.
+  - `DEGRADED` (커스텀 status, Spring 표준 `OUT_OF_SERVICE` 매핑) — 최근 5분 fallback 발생.
+  - `DOWN` — 본 사이클 미사용(Redis 다운 자체로 사용자 path는 in-memory fallback이라 작동 중).
+- detail JSON 예시:
+
+```json
+{
+  "status": "DEGRADED",
+  "details": {
+    "redisUnavailableLast5m": 12,
+    "fallbackUsedLast5m": 247,
+    "lastDownAt": "2026-05-05T16:42:11+09:00",
+    "raceRisk": "high",
+    "advice": "redis 컨테이너 즉시 복구 — 다중 JVM이 KIS API에 동시 발급 중 (EGW00133 한도 초과 위험)"
+  }
+}
+```
+
+**프론트 통합 (별도 사이클, 본 spec은 backend surface까지)**:
+- `useQuery(['health', 'kis-auth'], () => GET /actuator/health/kisAuth, { refetchInterval: 30s })`
+- DEGRADED 응답 시 상단 banner "차트·시세 서비스가 일시적으로 제한될 수 있습니다 (KIS 인증 캐시 장애)" + `data.details.advice` 표시.
+
+**2차 후보 (미채택)** — HTTP 응답 헤더 `X-MagicJar-KIS-Degraded: true`:
+- 모든 응답에 헤더 추가 — Filter 1개로 가능하나 frontend 모든 fetch 코드가 헤더 검사 필요.
+- HealthIndicator는 단일 폴링 endpoint로 깔끔. 채택하지 않음.
+
+**알림 시스템 미구현 명시**: 본 사이클은 메트릭 + 로그 + HealthIndicator surface 까지. Slack webhook / PagerDuty 통합은 별도 운영 트랙(향후 사이클).
+
+### 10-5. 운영 runbook 위치
 
 `_workspace/operations/redis-outage-runbook.md` (후속 작성). 본 spec은 작성 명시만:
 
-- 증상: ERROR 로그 패턴 + 카운터 증가
-- 즉시 조치: docker compose `redis` 컨테이너 healthy 확인 → 재시작 → 자동 회복
-- 사후 분석: KIS 호출 로그(`grep '\[kis-token\] issued'`)로 race 발생 여부 확인
-- 예방: Redis Sentinel/Cluster 도입(별도 운영 트랙)
+- 증상: ERROR 로그 패턴 (`grep '\[kis-auth\]\[redis-down\]'`) + 카운터 증가 + `/actuator/health/kisAuth` DEGRADED.
+- 즉시 조치: docker compose `redis` 컨테이너 healthy 확인 → 재시작 → 자동 회복.
+- 사후 분석: KIS 호출 로그(`grep '\[kis-auth\] issued'`)로 race 발생 여부 + `kis_token_issuance_total{source="in-memory"}` 누적량 확인.
+- 예방: Redis Sentinel/Cluster 도입(별도 운영 트랙).
 
 ---
 
