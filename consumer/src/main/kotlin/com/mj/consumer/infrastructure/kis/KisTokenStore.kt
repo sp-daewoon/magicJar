@@ -76,7 +76,8 @@ class KisTokenStore(
         val token: String,
         val expiresAt: Instant,
     ) {
-        fun isValid(now: Instant): Boolean = now.isBefore(expiresAt.minus(Duration.ofMinutes(5)))
+        // R3-5c: 사용자 정책 — KIS 토큰 24h 유효, 23h 시점에 갱신 유도 (1h 마진).
+        fun isValid(now: Instant): Boolean = now.isBefore(expiresAt.minus(Duration.ofHours(1)))
     }
 
     internal data class TokenResponse(

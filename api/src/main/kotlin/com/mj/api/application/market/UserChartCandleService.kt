@@ -5,7 +5,6 @@ import com.mj.api.messaging.producer.UserCandleEventPublisher
 import com.mj.domain.common.Candle
 import com.mj.domain.common.Interval
 import com.mj.domain.market.cache.port.UserCandleCachePort
-import com.mj.domain.market.port.CandleRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.time.Instant
@@ -14,35 +13,29 @@ import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 
 /**
- * 사용자 차트 화면용 candle fetch — Redis ZSet first. ADR 0050.
+ * 사용자 차트 화면용 candle fetch — Redis ZSet only. ADR 0050 §2-A.
  *
- * R3-5a (2026-05-05): 사용자 직접 D1 요청은 KIS direct + Kafka publish (DB 안 거침).
- * api 측 직접 ZADD 제거 — consumer가 단일 ZADD writer (ADR 0050 §2-A 정합).
- * Y/분봉 합성용 internal D1 base는 [fetch]가 DB fallback path 그대로 (R3-5b에서 정리).
- * M1 base는 R3-5b에서 yfinance direct로 전환 예정.
+ * R3-5c (2026-05-05): 사용자 차트 path에서 DB candle 호출 0건. 사용자 정책 정합 완료.
+ *   - D1·W·MO: KIS direct → 즉시 응답 + Kafka publish → consumer ZADD
+ *   - M1: cache miss → yfinance backfill 트리거 (pyworker) + 빈 응답 → INSERT 시 STOMP fanout
+ *   - Y/YEAR: D1 KIS direct + application 합성 (Redis 캐시 우회)
+ *   - M<n>·H<n>·Xm: M1 base [fetch] → cache miss 시 trigger + 빈 응답
  *
- * 흐름 (D1 사용자 직접):
- *   사용자 → KisChartCandleAdapter (KIS REST, FID_PERIOD_DIV_CODE=D)
- *         → publisher.publish(market.candle.user.v1)
- *         → 응답 (KIS direct 결과 그대로)
- *               ↓ Kafka
- *               consumer.UserCandleListener → Redis ZADD
- *               api.UserCandleStompFanoutListener → STOMP /topic/market.candle.user.{userId}.{code}
+ * 흐름 (M1 cache miss):
+ *   사용자 → cache miss → trigger pyworker /backfill/yahoo → 빈 응답
+ *           ↓ 백그라운드
+ *           pyworker yfinance → Kafka publish (candle.minute.aggregated.v1)
+ *           → CandleMinuteEventListener → DB INSERT (룰 엔진/백테스트용)
+ *                                       + 종목 throttled publish (market.candle.user.v1)
+ *           → consumer.UserCandleListener → Redis ZADD (사용자 차트용)
+ *           → api.UserCandleStompFanoutListener → STOMP fanout
+ *           → frontend invalidate → 자동 차트 갱신 (페이지 새로고침 불요)
  *
- * 흐름 (D1 internal base — Y/분봉 합성용):
- *   [fetch] → cache hit / DB fallback → Redis warm-up + publish (legacy R3-3·R3-4 path)
- *   ※ R3-5b에서 외부 API direct로 통합 예정.
- *
- * 흐름 (M1):
- *   [fetch] → cache hit / DB fallback → Redis warm-up + publish (legacy)
- *   ※ R3-5b에서 yfinance direct로 전환 예정.
- *
- * 핵심: DB candle 영속은 그대로 유지 (백테스트·룰 엔진용). ADR 0050 §2-A 분리.
+ * 핵심: 사용자 차트는 Redis only. DB candle은 룰 엔진/백테스트 전용 (CandleQueryService 등).
  */
 @Service
 class UserChartCandleService(
     private val cache: UserCandleCachePort,
-    private val candleRepository: CandleRepository,
     private val candleAggregator: CandleAggregator,
     private val kisChartCandleAdapter: KisChartCandleAdapter,
     private val userCandleEventPublisher: UserCandleEventPublisher,
@@ -67,12 +60,12 @@ class UserChartCandleService(
         limit: Int = DEFAULT_LIMIT,
         before: Instant? = null,
     ): List<Candle> {
-        // R3-1: cache hit 시 ZSet 그대로 반환. miss 시 DB 조회 + warm-up.
+        // R3-5c: 사용자 차트 path는 Redis only. DB candle 호출 0건 (ADR 0050 §2-A 정합).
+        // M1만 cache miss 시 yfinance backfill 트리거. D1 등은 fetchKisDirect를 사용해야 함 (외부 호출자).
         val intervalKey = interval.name
 
         val cached = cache.fetch(userId, code, intervalKey, before, limit)
         // cache hit 조건: cached가 limit 이상 (이전의 작은 limit 호출 잔재가 큰 limit 호출에 전염되는 것 방지).
-        // limit 미만이면 무조건 DB fallback → warm-up.
         if (cached.size >= limit) {
             val evicted = cache.touchRecent(userId, code)
             if (evicted.isNotEmpty()) {
@@ -89,56 +82,21 @@ class UserChartCandleService(
             return cached
         }
 
-        // cache miss — DB 조회 후 warm-up
-        log.debug(
-            "[USER_CANDLE] cache miss user={} code={} interval={} cached={} → DB fallback",
+        // cache miss — Redis only path. DB 호출 0.
+        log.info(
+            "[USER_CANDLE] cache miss user={} code={} interval={} cached={} (M1: yfinance backfill 트리거)",
             userId,
             code,
             intervalKey,
             cached.size,
         )
-        val (from, to) = computeRange(interval, before, limit)
-        val dbCandles = candleRepository.find(code, interval, from, to)
-
-        if (dbCandles.isEmpty()) {
-            log.info(
-                "[USER_CANDLE] DB miss user={} code={} interval={} — empty response (M1: yfinance backfill 트리거)",
-                userId,
-                code,
-                intervalKey,
-            )
-            // touchRecent는 진입 의사 표현이라 실행 (LRU 갱신)
-            cache.touchRecent(userId, code)
-            // R3-5b: M1 cache miss + DB miss 시 yfinance backfill 비동기 트리거.
-            //   pyworker → Kafka publish (candle.minute.aggregated.v1)
-            //   → CandleMinuteEventListener → DB INSERT + 종목 throttled publish (market.candle.user.v1)
-            //   → STOMP fanout → frontend useUserCandleStream invalidate → 자동 차트 갱신.
-            if (interval == Interval.M1) {
-                candleCacheService.triggerBackgroundFetchAsync(code)
-            }
-            return emptyList()
+        cache.touchRecent(userId, code)
+        if (interval == Interval.M1) {
+            // M1: pyworker /backfill/yahoo 비동기 트리거 → Kafka → consumer ZADD → STOMP fanout
+            candleCacheService.triggerBackgroundFetchAsync(code)
         }
-
-        // Redis ZADD warm-up
-        cache.upsertAll(userId, code, intervalKey, dbCandles)
-        cache.setLastFetch(userId, code, intervalKey, Instant.now())
-        val evicted = cache.touchRecent(userId, code)
-        if (evicted.isNotEmpty()) {
-            log.info("[USER_CANDLE] LRU evict user={} evicted={}", userId, evicted)
-        }
-        log.info(
-            "[USER_CANDLE] DB → Redis warm-up user={} code={} interval={} n={}",
-            userId,
-            code,
-            intervalKey,
-            dbCandles.size,
-        )
-
-        // R3-4 dual-write: Kafka publish (fail-soft — 발행 실패가 사용자 응답 차단 안 함)
-        userCandleEventPublisher.publish(userId, code, intervalKey, dbCandles)
-
-        // 응답 — limit·before 적용
-        return cache.fetch(userId, code, intervalKey, before, limit)
+        // cached가 일부 있으면 그대로 반환 (LRU+freshness용 partial), miss면 빈 배열.
+        return cached
     }
 
     /**
@@ -179,10 +137,11 @@ class UserChartCandleService(
             return fetchKisDirect(userId, code, Interval.MONTH, limit, before)
         }
 
-        // Y/YEAR — D1 base + application 합성 (ADR 0050 §2-D: 1y는 합성 유지)
+        // Y/YEAR — D1 base + application 합성 (ADR 0050 §2-D: 1y는 합성 유지).
+        // R3-5c: D1 base를 fetchKisDirect로 직접 가져옴 (DB 우회). KIS adapter 페이지 한도 내 가능한 봉 수만큼 반환.
         if (upper == "Y" || upper == "YEAR") {
             val baseLimit = (limit.toLong() * 250).coerceAtMost(MAX_BASE_LIMIT.toLong()).toInt()
-            val d1Candles = fetch(userId, code, Interval.D1, baseLimit, before)
+            val d1Candles = fetchKisDirect(userId, code, Interval.D1, baseLimit, before)
             val aggregated = candleAggregator.aggregateDailyToWeekly(d1Candles, upper)
             return if (aggregated.size > limit) aggregated.takeLast(limit) else aggregated
         }
