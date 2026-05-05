@@ -87,3 +87,6 @@ pyworker/.python-version-local
 
 # 1번 트랙 T19 — 실 운영(prd) docker-compose는 사용자별·환경별 발급 후 별도 보관
 docker/docker-compose.prd.yml
+
+# Autonomy gate runtime state (architect 자율 위임)
+_workspace/.autonomy_until
