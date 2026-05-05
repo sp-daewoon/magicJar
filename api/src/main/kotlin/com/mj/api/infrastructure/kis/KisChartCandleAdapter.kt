@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.mj.domain.common.Candle
 import com.mj.domain.common.Interval
+import com.mj.domain.market.kis.port.KisTokenStorePort
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatus
@@ -38,16 +39,18 @@ import java.time.format.DateTimeFormatter
  */
 @Component
 class KisChartCandleAdapter(
-    @Value("\${magicjar.kis.base-url:https://openapivts.koreainvestment.com:29443}")
+    @Value("\${spring.kis.base-url:https://openapi.koreainvestment.com:9443}")
     private val baseUrl: String,
-    @Value("\${magicjar.kis.app-key:}")
+    @Value("\${spring.kis.app-key:}")
     private val appKey: String,
-    @Value("\${magicjar.kis.app-secret:}")
+    @Value("\${spring.kis.app-secret:}")
     private val appSecret: String,
+    private val tokenStore: KisTokenStorePort,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val zone: ZoneId = ZoneId.of("Asia/Seoul")
     private val yyyymmdd: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd")
+    private val mode: String = "prod" // 사용자 정책: 데이터 조회는 항상 실전 키
 
     private val restClient: RestClient by lazy {
         RestClient
@@ -57,9 +60,6 @@ class KisChartCandleAdapter(
             .requestFactory(SimpleClientHttpRequestFactory())
             .build()
     }
-
-    @Volatile
-    private var cachedToken: String? = null
 
     /**
      * KIS 키가 설정되어 있는지 여부.
@@ -136,25 +136,21 @@ class KisChartCandleAdapter(
         interval: Interval,
         from: LocalDate,
         to: LocalDate,
-    ): List<Candle> {
-        if (cachedToken == null) cachedToken = issueToken()
-
-        return try {
+    ): List<Candle> =
+        try {
             callOnePage(code, periodDivCode, interval, from, to)
         } catch (ex: KisChartException) {
             if (ex.statusCode == 401 || ex.rtCd == "401") {
-                log.warn("[kis-chart] 401 — 토큰 재발급 후 1회 재시도 code={}", code)
-                cachedToken = null
-                cachedToken = issueToken()
+                log.warn("[kis-chart] 401 — 토큰 invalidate + 1회 재시도 code={}", code)
+                tokenStore.invalidate(mode)
                 callOnePage(code, periodDivCode, interval, from, to)
             } else {
                 throw ex
             }
         } catch (ex: RestClientResponseException) {
             if (ex.statusCode == HttpStatus.UNAUTHORIZED) {
-                log.warn("[kis-chart] 401 HTTP — 토큰 재발급 후 1회 재시도 code={}", code)
-                cachedToken = null
-                cachedToken = issueToken()
+                log.warn("[kis-chart] 401 HTTP — 토큰 invalidate + 1회 재시도 code={}", code)
+                tokenStore.invalidate(mode)
                 callOnePage(code, periodDivCode, interval, from, to)
             } else {
                 throw KisChartException(
@@ -163,7 +159,6 @@ class KisChartCandleAdapter(
                 )
             }
         }
-    }
 
     private fun callOnePage(
         code: String,
@@ -194,7 +189,7 @@ class KisChartCandleAdapter(
                         .queryParam("FID_ORG_ADJ_PRC", "0")
                         .build()
                 }.headers { h ->
-                    h["authorization"] = "Bearer ${cachedToken!!}"
+                    h["authorization"] = "Bearer ${tokenStore.currentTokenOrIssue(mode)}"
                     h["appkey"] = appKey
                     h["appsecret"] = appSecret
                     h["tr_id"] = "FHKST03010100"
@@ -213,25 +208,6 @@ class KisChartCandleAdapter(
 
         response.assertSuccess()
         return response.toDomain(code, interval, zone, yyyymmdd)
-    }
-
-    private fun issueToken(): String {
-        log.info("[kis-chart] 토큰 발급 baseUrl={} appKey={}...", baseUrl, appKey.take(8))
-        val resp =
-            restClient
-                .post()
-                .uri("/oauth2/tokenP")
-                .body(TokenRequest(appkey = appKey, appsecret = appSecret))
-                .retrieve()
-                .onStatus(HttpStatusCode::isError) { _, r ->
-                    throw KisChartException(
-                        "[kis-chart] 토큰 발급 실패 HTTP ${r.statusCode}",
-                        statusCode = r.statusCode.value(),
-                    )
-                }.body(TokenResponse::class.java)
-                ?: throw KisChartException("[kis-chart] 토큰 발급 null 응답")
-        log.info("[kis-chart] 토큰 발급 성공")
-        return resp.access_token
     }
 
     private fun intervalToPeriodDivCode(interval: Interval): String =
@@ -255,16 +231,6 @@ class KisChartCandleAdapter(
     // -------------------------------------------------------------------------
     // 내부 DTO
     // -------------------------------------------------------------------------
-
-    private data class TokenRequest(
-        val grant_type: String = "client_credentials",
-        val appkey: String,
-        val appsecret: String,
-    )
-
-    private data class TokenResponse(
-        val access_token: String,
-    )
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private data class DailyCandleResponse(
