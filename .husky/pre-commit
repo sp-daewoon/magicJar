@@ -50,8 +50,8 @@ for f in $STAGED; do
   esac
 done
 
-# 3) Kotlin 린트 — Gradle wrapper가 있으면 실행, 없으면 skip
-if [ -x ./gradlew ]; then
+# 3) Kotlin 린트 — Gradle wrapper script + jar 모두 있으면 실행, 없으면 skip
+if [ -x ./gradlew ] && [ -f gradle/wrapper/gradle-wrapper.jar ]; then
   CHANGED_KT="$(echo "$STAGED" | grep -E '\.kts?$' || true)"
   if [ -n "$CHANGED_KT" ]; then
     echo "→ ktlintCheck (변경된 Kotlin 파일)"
@@ -61,7 +61,7 @@ if [ -x ./gradlew ]; then
     }
   fi
 else
-  echo "ℹ pre-commit: Gradle wrapper 미존재 — Phase B 이후에는 ktlintCheck가 강제됩니다."
+  echo "ℹ pre-commit: Gradle wrapper 부재(script 또는 wrapper jar) — JVM 모듈 부트스트랩 후 ktlintCheck가 강제됩니다."
 fi
 
 exit 0

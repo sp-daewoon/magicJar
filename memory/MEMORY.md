@@ -1,0 +1,10 @@
+- [User language preference](user_language.md) — 사용자는 한국어 소통 선호(영어 약함), 모든 응답 한국어로
+- [Swagger 작성 구조](feedback_swagger_pattern.md) — 컨트롤러/메서드/파라미터/DTO 4단 어노테이션 + 한국어 설명 + example 값
+- [시크릿 평문 전송 처리](feedback_secret_handling.md) — 채팅에 키 평문 들어오면 즉시 재발급 권고 + IP 화이트리스트 + 사용자 직접 .env 편집. 응답에 그 키 재출력 금지
+- [magicJar 시스템 비전](project_system_vision.md) — 룰 기반 quant trading 본체 + AI 옵션 보조. 사용자=최고 관리자/설계자, 매매=룰/시그널, AI=분석 코멘트만. magicJar=MCP 서버. 마스터 아키텍처는 `docs/architecture/master-architecture.md`
+- [존댓말 의무](feedback_honorific.md) — 모든 응답 존댓말 ("~합니다·~입니다"), 단답·반말 금지. 사용자=최고 관리자
+- [개발일지 HTML 매일 관리](feedback_devlog_html.md) — `/devlog` 호출마다 `_workspace/devlog/YYYY-MM-DD[-N].html` 신규 생성(덮어쓰기 금지) + index.html 누적, 7 표준 섹션
+- [KIS 키 화면 입력 정책](project_kis_key_management.md) — 개발 중에는 ⚙️ SettingsModal 입력 + DB AES 암호화. 본격 운영 시 secret manager 재논의
+- [Worktree 정리 의무](feedback_worktree_cleanup.md) — PR 머지 직후 worktree unlock+remove + 로컬 브랜치 -d + orphan 빈 디렉토리 청소 즉시. locked 방치 금지
+- [Mock 데이터 사용 금지](feedback_no_mock_data.md) — 사용자 흐름에서 mock 합성 폐기. backend 0건/에러 시 "데이터 없음" 명시 표시
+- [spec/plan 발행 범위](feedback_spec_plan_scope.md) — 신규 트랙·새 모듈·다중 ADR일 때만. hotfix·결함 정정·정책 정합·작은 묶음 변경은 spec/plan 0건 + 바로 코드
