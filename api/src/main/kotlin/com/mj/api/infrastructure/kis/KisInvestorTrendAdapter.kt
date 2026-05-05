@@ -3,6 +3,8 @@ package com.mj.api.infrastructure.kis
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.mj.domain.market.InvestorTrend
+import com.mj.domain.market.kis.port.KisAuthScope
+import com.mj.domain.market.kis.port.KisTokenStorePort
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatus
@@ -34,14 +36,16 @@ import java.math.BigDecimal
  */
 @Component
 class KisInvestorTrendAdapter(
-    @Value("\${magicjar.kis.base-url:https://openapivts.koreainvestment.com:29443}")
+    @Value("\${magicjar.kis.base-url.prod:\${magicjar.kis.base-url:https://openapivts.koreainvestment.com:29443}}")
     private val baseUrl: String,
-    @Value("\${magicjar.kis.app-key:}")
+    @Value("\${magicjar.kis.system.app-key.prod:\${magicjar.kis.app-key:}}")
     private val appKey: String,
-    @Value("\${magicjar.kis.app-secret:}")
+    @Value("\${magicjar.kis.system.app-secret.prod:\${magicjar.kis.app-secret:}}")
     private val appSecret: String,
+    private val tokenStore: KisTokenStorePort,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
+    private val authScope: KisAuthScope = KisAuthScope.System("prod")
 
     private val restClient: RestClient by lazy {
         RestClient
@@ -52,11 +56,9 @@ class KisInvestorTrendAdapter(
             .build()
     }
 
-    @Volatile
-    private var cachedToken: String? = null
-
     /**
      * 종목 외국인·기관 동향 조회 (inquire-investor / FHKST01010900).
+     * R3-5c-3 PR3: 자체 토큰 관리 제거 → [KisTokenStorePort] 주입.
      * KIS 키 미설정 시 빈 리스트. days는 1~30 (KIS 응답 최대 30 영업일).
      */
     fun fetchInvestorTrend(
@@ -69,37 +71,45 @@ class KisInvestorTrendAdapter(
         }
 
         return try {
-            if (cachedToken == null) cachedToken = issueToken() ?: return emptyList()
-            callInvestorTrend(code, days)
-        } catch (ex: KisInvestorTrendException) {
-            if (ex.statusCode == 401) {
-                log.warn("[kis-investor] 401 — 토큰 재발급 후 1회 재시도 code={}", code)
-                cachedToken = issueToken() ?: return emptyList()
-                runCatching { callInvestorTrend(code, days) }.getOrElse {
-                    log.warn("[kis-investor] 재시도 실패 code={} error={}", code, it.message)
-                    emptyList()
-                }
-            } else {
-                log.warn("[kis-investor] fetchInvestorTrend 실패 code={} error={}", code, ex.message)
-                emptyList()
-            }
-        } catch (ex: RestClientResponseException) {
-            if (ex.statusCode == HttpStatus.UNAUTHORIZED) {
-                cachedToken = issueToken() ?: return emptyList()
-                runCatching { callInvestorTrend(code, days) }.getOrElse { emptyList() }
-            } else {
-                log.warn("[kis-investor] HTTP 오류 code={} status={}", code, ex.statusCode)
-                emptyList()
-            }
+            executeWithTokenRetry(code) { token -> callInvestorTrend(code, days, token) } ?: emptyList()
         } catch (ex: Exception) {
             log.warn("[kis-investor] fetchInvestorTrend 실패 code={} error={}", code, ex.message)
             emptyList()
         }
     }
 
+    /** 표준 401 retry once 패턴 (R3-5c-3 D10). */
+    private fun <T> executeWithTokenRetry(
+        code: String,
+        action: (String) -> T?,
+    ): T? {
+        val token = tokenStore.currentTokenOrIssue(authScope)
+        return try {
+            action(token)
+        } catch (ex: KisInvestorTrendException) {
+            if (ex.statusCode == 401) {
+                log.warn("[kis-investor] 401 — invalidate + 1회 재시도 code={}", code)
+                tokenStore.invalidate(authScope)
+                action(tokenStore.currentTokenOrIssue(authScope))
+            } else {
+                throw ex
+            }
+        } catch (ex: RestClientResponseException) {
+            if (ex.statusCode == HttpStatus.UNAUTHORIZED) {
+                log.warn("[kis-investor] 401 HTTP — invalidate + 1회 재시도 code={}", code)
+                tokenStore.invalidate(authScope)
+                action(tokenStore.currentTokenOrIssue(authScope))
+            } else {
+                log.warn("[kis-investor] HTTP 오류 code={} status={}", code, ex.statusCode)
+                null
+            }
+        }
+    }
+
     private fun callInvestorTrend(
         code: String,
         days: Int,
+        token: String,
     ): List<InvestorTrend> {
         log.info("[kis-investor] FHKST01010900 호출 code={}", code)
         val response =
@@ -112,7 +122,7 @@ class KisInvestorTrendAdapter(
                         .queryParam("FID_INPUT_ISCD", code)
                         .build()
                 }.headers { h ->
-                    h["authorization"] = "Bearer ${cachedToken!!}"
+                    h["authorization"] = "Bearer $token"
                     h["appkey"] = appKey
                     h["appsecret"] = appSecret
                     h["tr_id"] = "FHKST01010900"
@@ -123,7 +133,10 @@ class KisInvestorTrendAdapter(
                         throw KisInvestorTrendException("401", 401)
                     }
                     log.warn("[kis-investor] HTTP 오류 code={} status={}", code, resp.statusCode)
-                    throw KisInvestorTrendException("KIS inquire-investor 오류: ${resp.statusCode}", resp.statusCode.value())
+                    throw KisInvestorTrendException(
+                        "KIS inquire-investor 오류: ${resp.statusCode}",
+                        resp.statusCode.value(),
+                    )
                 }.body(InvestorResponse::class.java)
                 ?: return emptyList()
 
@@ -140,21 +153,6 @@ class KisInvestorTrendAdapter(
             .mapNotNull { it.toInvestorTrend(code) }
     }
 
-    private fun issueToken(): String? =
-        try {
-            val resp =
-                restClient
-                    .post()
-                    .uri("/oauth2/tokenP")
-                    .body(TokenRequest(appkey = appKey, appsecret = appSecret))
-                    .retrieve()
-                    .body(TokenResponse::class.java)
-            resp?.accessToken
-        } catch (ex: Exception) {
-            log.warn("[kis-investor] 토큰 발급 실패 error={}", ex.message)
-            null
-        }
-
     // ── 내부 예외 ─────────────────────────────────────────────────────────────
 
     private class KisInvestorTrendException(
@@ -163,16 +161,6 @@ class KisInvestorTrendAdapter(
     ) : RuntimeException(message)
 
     // ── 내부 DTO ──────────────────────────────────────────────────────────────
-
-    private data class TokenRequest(
-        val grant_type: String = "client_credentials",
-        val appkey: String,
-        val appsecret: String,
-    )
-
-    private data class TokenResponse(
-        @JsonProperty("access_token") val accessToken: String = "",
-    )
 
     /**
      * FHKST01010900 응답 (inquire-investor).

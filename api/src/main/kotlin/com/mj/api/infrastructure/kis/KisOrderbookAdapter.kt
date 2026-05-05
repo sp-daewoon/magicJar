@@ -4,6 +4,8 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.mj.domain.market.Orderbook
 import com.mj.domain.market.OrderbookLevel
+import com.mj.domain.market.kis.port.KisAuthScope
+import com.mj.domain.market.kis.port.KisTokenStorePort
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatus
@@ -36,16 +38,18 @@ import java.time.format.DateTimeFormatter
  */
 @Component
 class KisOrderbookAdapter(
-    @Value("\${magicjar.kis.base-url:https://openapivts.koreainvestment.com:29443}")
+    @Value("\${magicjar.kis.base-url.prod:\${magicjar.kis.base-url:https://openapivts.koreainvestment.com:29443}}")
     private val baseUrl: String,
-    @Value("\${magicjar.kis.app-key:}")
+    @Value("\${magicjar.kis.system.app-key.prod:\${magicjar.kis.app-key:}}")
     private val appKey: String,
-    @Value("\${magicjar.kis.app-secret:}")
+    @Value("\${magicjar.kis.system.app-secret.prod:\${magicjar.kis.app-secret:}}")
     private val appSecret: String,
+    private val tokenStore: KisTokenStorePort,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val kst = ZoneId.of("Asia/Seoul")
     private val timeFormatter = DateTimeFormatter.ofPattern("HHmmss")
+    private val authScope: KisAuthScope = KisAuthScope.System("prod")
 
     private val restClient: RestClient by lazy {
         RestClient
@@ -56,11 +60,9 @@ class KisOrderbookAdapter(
             .build()
     }
 
-    @Volatile
-    private var cachedToken: String? = null
-
     /**
      * 종목 호가창 조회 (inquire-asking-price-exp-ccn / FHKST01010200).
+     * R3-5c-3 PR3: 자체 토큰 관리 제거 → [KisTokenStorePort] 주입.
      * KIS 키 미설정 또는 API 실패 시 null 반환.
      */
     fun fetchOrderbook(code: String): Orderbook? {
@@ -70,35 +72,45 @@ class KisOrderbookAdapter(
         }
 
         return try {
-            if (cachedToken == null) cachedToken = issueToken() ?: return null
-            callOrderbook(code)
-        } catch (ex: KisOrderbookException) {
-            if (ex.statusCode == 401) {
-                log.warn("[kis-orderbook] 401 — 토큰 재발급 후 1회 재시도 code={}", code)
-                cachedToken = issueToken() ?: return null
-                runCatching { callOrderbook(code) }.getOrElse {
-                    log.warn("[kis-orderbook] 재시도 실패 code={} error={}", code, it.message)
-                    null
-                }
-            } else {
-                log.warn("[kis-orderbook] fetchOrderbook 실패 code={} error={}", code, ex.message)
-                null
-            }
-        } catch (ex: RestClientResponseException) {
-            if (ex.statusCode == HttpStatus.UNAUTHORIZED) {
-                cachedToken = issueToken() ?: return null
-                runCatching { callOrderbook(code) }.getOrElse { null }
-            } else {
-                log.warn("[kis-orderbook] HTTP 오류 code={} status={}", code, ex.statusCode)
-                null
-            }
+            executeWithTokenRetry(code) { token -> callOrderbook(code, token) }
         } catch (ex: Exception) {
             log.warn("[kis-orderbook] fetchOrderbook 실패 code={} error={}", code, ex.message)
             null
         }
     }
 
-    private fun callOrderbook(code: String): Orderbook? {
+    /** 표준 401 retry once 패턴 (R3-5c-3 D10). */
+    private fun <T> executeWithTokenRetry(
+        code: String,
+        action: (String) -> T?,
+    ): T? {
+        val token = tokenStore.currentTokenOrIssue(authScope)
+        return try {
+            action(token)
+        } catch (ex: KisOrderbookException) {
+            if (ex.statusCode == 401) {
+                log.warn("[kis-orderbook] 401 — invalidate + 1회 재시도 code={}", code)
+                tokenStore.invalidate(authScope)
+                action(tokenStore.currentTokenOrIssue(authScope))
+            } else {
+                throw ex
+            }
+        } catch (ex: RestClientResponseException) {
+            if (ex.statusCode == HttpStatus.UNAUTHORIZED) {
+                log.warn("[kis-orderbook] 401 HTTP — invalidate + 1회 재시도 code={}", code)
+                tokenStore.invalidate(authScope)
+                action(tokenStore.currentTokenOrIssue(authScope))
+            } else {
+                log.warn("[kis-orderbook] HTTP 오류 code={} status={}", code, ex.statusCode)
+                null
+            }
+        }
+    }
+
+    private fun callOrderbook(
+        code: String,
+        token: String,
+    ): Orderbook? {
         log.info("[kis-orderbook] FHKST01010200 호출 code={}", code)
         val response =
             restClient
@@ -110,7 +122,7 @@ class KisOrderbookAdapter(
                         .queryParam("FID_INPUT_ISCD", code)
                         .build()
                 }.headers { h ->
-                    h["authorization"] = "Bearer ${cachedToken!!}"
+                    h["authorization"] = "Bearer $token"
                     h["appkey"] = appKey
                     h["appsecret"] = appSecret
                     h["tr_id"] = "FHKST01010200"
@@ -121,7 +133,10 @@ class KisOrderbookAdapter(
                         throw KisOrderbookException("401", 401)
                     }
                     log.warn("[kis-orderbook] HTTP 오류 code={} status={}", code, resp.statusCode)
-                    throw KisOrderbookException("KIS inquire-asking-price-exp-ccn 오류: ${resp.statusCode}", resp.statusCode.value())
+                    throw KisOrderbookException(
+                        "KIS inquire-asking-price-exp-ccn 오류: ${resp.statusCode}",
+                        resp.statusCode.value(),
+                    )
                 }.body(AskingPriceResponse::class.java)
                 ?: return null
 
@@ -135,30 +150,6 @@ class KisOrderbookAdapter(
         return response.toOrderbook(code, kst, timeFormatter)
     }
 
-    private fun issueToken(): String? =
-        try {
-            log.info("[kis-orderbook] 토큰 발급 요청 baseUrl={}", baseUrl)
-            val resp =
-                restClient
-                    .post()
-                    .uri("/oauth2/tokenP")
-                    .body(TokenRequest(appkey = appKey, appsecret = appSecret))
-                    .retrieve()
-                    .onStatus(org.springframework.http.HttpStatusCode::isError) { _, r ->
-                        log.warn("[kis-orderbook] 토큰 발급 HTTP 오류 status={}", r.statusCode)
-                        throw KisOrderbookException("token issue failed: ${r.statusCode}", r.statusCode.value())
-                    }.body(TokenResponse::class.java)
-            if (resp?.accessToken.isNullOrBlank()) {
-                log.warn("[kis-orderbook] 토큰 발급 응답 access_token 비어있음")
-                null
-            } else {
-                resp!!.accessToken
-            }
-        } catch (ex: Exception) {
-            log.warn("[kis-orderbook] 토큰 발급 실패 error={}", ex.message)
-            null
-        }
-
     // ── 내부 예외 ─────────────────────────────────────────────────────────────
 
     private class KisOrderbookException(
@@ -167,16 +158,6 @@ class KisOrderbookAdapter(
     ) : RuntimeException(message)
 
     // ── 내부 DTO ──────────────────────────────────────────────────────────────
-
-    private data class TokenRequest(
-        val grant_type: String = "client_credentials",
-        val appkey: String,
-        val appsecret: String,
-    )
-
-    private data class TokenResponse(
-        @JsonProperty("access_token") val accessToken: String = "",
-    )
 
     /**
      * FHKST01010200 응답 (inquire-asking-price-exp-ccn).

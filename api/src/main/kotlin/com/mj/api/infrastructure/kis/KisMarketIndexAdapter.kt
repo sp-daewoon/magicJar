@@ -3,6 +3,8 @@ package com.mj.api.infrastructure.kis
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.mj.domain.market.index.MarketIndex
+import com.mj.domain.market.kis.port.KisAuthScope
+import com.mj.domain.market.kis.port.KisTokenStorePort
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatus
@@ -10,34 +12,34 @@ import org.springframework.http.HttpStatusCode
 import org.springframework.http.client.SimpleClientHttpRequestFactory
 import org.springframework.stereotype.Component
 import org.springframework.web.client.RestClient
+import org.springframework.web.client.RestClientResponseException
 import java.math.BigDecimal
 
 /**
- * KIS 지수 조회 REST 어댑터 (T21-T2).
+ * KIS 지수 조회 REST 어댑터.
+ *
+ * R3-5c-3 PR3:
+ *   - 자체 토큰 관리(`cachedToken`/`issueToken()`) 제거 → [KisTokenStorePort] 주입.
+ *   - **변종 폐기**: 401 즉시 재발급 후 그대로 throw → 표준 retry once 패턴 통일 (D10).
  *
  * 엔드포인트: GET /uapi/domestic-stock/v1/quotations/inquire-index-price
  * TR_ID: FHPUP02100000 (국내 업종·지수 현재 지수 조회)
- *
- * MCP 검증 요약:
- * - TR_ID: FHPUP02100000
- * - FID_COND_MRKT_DIV_CODE: U (업종지수)
- * - FID_INPUT_ISCD: 0001(KOSPI) / 1001(KOSDAQ)
- * - output 필드: bstp_nmix_prpr(현재지수), bstp_nmix_prdy_vrss(전일대비),
- *   prdy_ctrt(등락률%), acml_vol(누적거래량), acml_tr_pbmn(거래대금),
- *   bstp_nmix_prdy_clpr(전일종가)
  *
  * KIS 키 미설정 시 빈 리스트 반환 (graceful degradation).
  */
 @Component
 class KisMarketIndexAdapter(
-    @Value("\${magicjar.kis.base-url:https://openapivts.koreainvestment.com:29443}")
+    @Value("\${magicjar.kis.base-url.prod:\${magicjar.kis.base-url:https://openapivts.koreainvestment.com:29443}}")
     private val baseUrl: String,
-    @Value("\${magicjar.kis.app-key:}")
+    @Value("\${magicjar.kis.system.app-key.prod:\${magicjar.kis.app-key:}}")
     private val appKey: String,
-    @Value("\${magicjar.kis.app-secret:}")
+    @Value("\${magicjar.kis.system.app-secret.prod:\${magicjar.kis.app-secret:}}")
     private val appSecret: String,
+    private val tokenStore: KisTokenStorePort,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
+
+    private val authScope: KisAuthScope = KisAuthScope.System("prod")
 
     private val restClient: RestClient by lazy {
         RestClient
@@ -48,9 +50,6 @@ class KisMarketIndexAdapter(
             .build()
     }
 
-    @Volatile
-    private var cachedToken: String? = null
-
     /** 코드 목록으로 지수 조회. KIS 키 미설정 시 빈 리스트. */
     fun fetchMarketIndex(codes: List<String>): List<MarketIndex> {
         if (appKey.isBlank() || appSecret.isBlank()) {
@@ -58,13 +57,9 @@ class KisMarketIndexAdapter(
             return emptyList()
         }
 
-        if (cachedToken == null) {
-            cachedToken = issueToken() ?: return emptyList()
-        }
-
         return codes.mapNotNull { code ->
             try {
-                fetchSingleIndex(code)
+                executeWithTokenRetry(code) { token -> fetchSingleIndex(code, token) }
             } catch (ex: Exception) {
                 log.warn("[kis-index] 지수 조회 실패 code={} error={}", code, ex.message)
                 null
@@ -72,7 +67,38 @@ class KisMarketIndexAdapter(
         }
     }
 
-    private fun fetchSingleIndex(code: String): MarketIndex? {
+    /** 표준 401 retry once 패턴 (R3-5c-3 D10 — 변종 폐기). */
+    private fun <T> executeWithTokenRetry(
+        code: String,
+        action: (String) -> T?,
+    ): T? {
+        val token = tokenStore.currentTokenOrIssue(authScope)
+        return try {
+            action(token)
+        } catch (ex: KisIndexException) {
+            if (ex.statusCode == 401) {
+                log.warn("[kis-index] 401 — invalidate + 1회 재시도 code={}", code)
+                tokenStore.invalidate(authScope)
+                action(tokenStore.currentTokenOrIssue(authScope))
+            } else {
+                throw ex
+            }
+        } catch (ex: RestClientResponseException) {
+            if (ex.statusCode == HttpStatus.UNAUTHORIZED) {
+                log.warn("[kis-index] 401 HTTP — invalidate + 1회 재시도 code={}", code)
+                tokenStore.invalidate(authScope)
+                action(tokenStore.currentTokenOrIssue(authScope))
+            } else {
+                log.warn("[kis-index] HTTP 오류 code={} status={}", code, ex.statusCode)
+                null
+            }
+        }
+    }
+
+    private fun fetchSingleIndex(
+        code: String,
+        token: String,
+    ): MarketIndex? {
         val response =
             restClient
                 .get()
@@ -83,7 +109,7 @@ class KisMarketIndexAdapter(
                         .queryParam("FID_INPUT_ISCD", code)
                         .build()
                 }.headers { h ->
-                    h["authorization"] = "Bearer ${cachedToken!!}"
+                    h["authorization"] = "Bearer $token"
                     h["appkey"] = appKey
                     h["appsecret"] = appSecret
                     h["tr_id"] = "FHPUP02100000"
@@ -91,12 +117,13 @@ class KisMarketIndexAdapter(
                 }.retrieve()
                 .onStatus(HttpStatusCode::isError) { _, resp ->
                     if (resp.statusCode == HttpStatus.UNAUTHORIZED) {
-                        cachedToken = null
-                        cachedToken = issueToken() ?: throw RuntimeException("토큰 재발급 실패")
-                        // 재시도 시도 생략 — 다음 호출에서 갱신된 토큰 사용
+                        throw KisIndexException("401", 401)
                     }
                     log.warn("[kis-index] HTTP 오류 code={} status={}", code, resp.statusCode)
-                    null
+                    throw KisIndexException(
+                        "KIS inquire-index-price 오류: ${resp.statusCode}",
+                        resp.statusCode.value(),
+                    )
                 }.body(IndexPriceResponse::class.java)
                 ?: return null
 
@@ -108,32 +135,14 @@ class KisMarketIndexAdapter(
         return response.toMarketIndex(code)
     }
 
-    private fun issueToken(): String? =
-        try {
-            val resp =
-                restClient
-                    .post()
-                    .uri("/oauth2/tokenP")
-                    .body(TokenRequest(appkey = appKey, appsecret = appSecret))
-                    .retrieve()
-                    .body(TokenResponse::class.java)
-            resp?.accessToken
-        } catch (ex: Exception) {
-            log.warn("[kis-index] 토큰 발급 실패: {}", ex.message)
-            null
-        }
+    // ── 내부 예외 ─────────────────────────────────────────────────────────────
+
+    private class KisIndexException(
+        message: String,
+        val statusCode: Int = 0,
+    ) : RuntimeException(message)
 
     // ── 내부 DTO ──────────────────────────────────────────────────────────────
-
-    private data class TokenRequest(
-        val grant_type: String = "client_credentials",
-        val appkey: String,
-        val appsecret: String,
-    )
-
-    private data class TokenResponse(
-        @JsonProperty("access_token") val accessToken: String = "",
-    )
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private data class IndexPriceResponse(
@@ -150,9 +159,6 @@ class KisMarketIndexAdapter(
                     "1001" -> "KOSDAQ"
                     else -> code
                 }
-            // 필드 매핑 정정 (사용자 정책 — KIS 실 응답 schema):
-            // - prdy_ctrt → bstp_nmix_prdy_ctrt (지수 등락률 KIS 정확 필드명)
-            // - prevClose 직접 응답 X → currentValue - 전일대비변동(prdy_vrss)으로 계산
             val currentValue = o.bstpNmixPrpr.parseBigDecimal() ?: BigDecimal.ZERO
             val changeAmount = o.bstpNmixPrdyVrss.parseBigDecimal() ?: BigDecimal.ZERO
             val prevClose =
@@ -172,17 +178,11 @@ class KisMarketIndexAdapter(
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private data class IndexOutput(
-        /** 현재 지수 */
         @JsonProperty("bstp_nmix_prpr") val bstpNmixPrpr: String = "",
-        /** 전일 대비 변동 (포인트, 부호 포함) */
         @JsonProperty("bstp_nmix_prdy_vrss") val bstpNmixPrdyVrss: String = "",
-        /** 전일 대비 등락률(%) — KIS 정확한 필드명 (지수는 bstp_nmix_prdy_ctrt) */
         @JsonProperty("bstp_nmix_prdy_ctrt") val bstpNmixPrdyCtrt: String = "",
-        /** 누적 거래량 (체결주식수) */
         @JsonProperty("acml_vol") val acmlVol: String = "",
-        /** 거래대금 (KRW) */
         @JsonProperty("acml_tr_pbmn") val acmlTrPbmn: String = "",
-        /** 시장 구분 코드 (장전/장중/장마감) */
         @JsonProperty("mrkt_trad_cls_name") val mrktTrndCls: String = "",
     )
 
@@ -190,9 +190,8 @@ class KisMarketIndexAdapter(
         private fun String.parseBigDecimal(): BigDecimal? =
             trim()
                 .replace(",", "")
-                .takeIf {
-                    it.isNotBlank()
-                }?.let { runCatching { BigDecimal(it) }.getOrNull() }
+                .takeIf { it.isNotBlank() }
+                ?.let { runCatching { BigDecimal(it) }.getOrNull() }
 
         private fun String.parseLong(): Long? = trim().replace(",", "").takeIf { it.isNotBlank() }?.toLongOrNull()
     }
