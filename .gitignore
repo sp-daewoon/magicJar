@@ -90,3 +90,8 @@ docker/docker-compose.prd.yml
 
 # Autonomy gate runtime state (architect 자율 위임)
 _workspace/.autonomy_until
+
+# 옆 세션 마이그레이션 작업 디렉토리 — main 트렁크 무관 (사용자 결정 2026-05-05)
+move/
+_workspace/migration-inventory-v2.html
+_workspace/migration-inventory.html
