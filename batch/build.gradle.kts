@@ -21,6 +21,11 @@ dependencies {
     implementation("org.springframework.kafka:spring-kafka") // 결과 publish
     implementation("org.springframework.ai:spring-ai-openai-spring-boot-starter")
 
+    // Redisson — KIS 토큰 분산 single-flight (R3-5c-3 PR2). default 비활성, PR4에서 활성화.
+    // batch는 spring-data-redis 미부착 — Redisson 자체 connection 풀 사용 (config는 RedisProperties 재사용).
+    implementation("org.springframework.boot:spring-boot-starter-data-redis")
+    implementation("org.redisson:redisson-spring-boot-starter:3.40.2")
+
     // OpenAPI / Swagger UI — /swagger-ui/index.html, /v3/api-docs
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0")
 

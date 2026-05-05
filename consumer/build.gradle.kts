@@ -21,7 +21,9 @@ dependencies {
     implementation("org.springframework.ai:spring-ai-openai-spring-boot-starter")
     implementation("org.springframework.ai:spring-ai-anthropic-spring-boot-starter")
     implementation("io.minio:minio:8.5.12")
-    implementation("org.springframework.boot:spring-boot-starter-data-redis")
+
+    // Redisson — KIS 토큰 분산 single-flight (R3-5c-3 PR2). default 비활성, PR5에서 활성화.
+    implementation("org.redisson:redisson-spring-boot-starter:3.40.2")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.kafka:spring-kafka-test")

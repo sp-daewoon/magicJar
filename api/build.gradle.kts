@@ -22,6 +22,9 @@ dependencies {
     runtimeOnly("org.flywaydb:flyway-database-postgresql")
     implementation("org.springframework.boot:spring-boot-starter-data-redis")
 
+    // Redisson — KIS 토큰 분산 single-flight (R3-5c-3 PR2). default 비활성, PR3+에서 활성화.
+    implementation("org.redisson:redisson-spring-boot-starter:3.40.2")
+
     // Kafka (api도 STOMP fan-out 위해 일부 토픽 consume)
     implementation("org.springframework.kafka:spring-kafka")
 
