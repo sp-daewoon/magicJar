@@ -206,6 +206,7 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       kafka: { condition: service_healthy }
+      redis: { condition: service_started }
       api-app: { condition: service_healthy }   # api-app의 Flyway 완료 후 시작
     env_file:
       - ../.env
@@ -217,6 +218,11 @@ services:
       DB_USER: magicjar
       DB_PASSWORD: magicjar
       KAFKA_BOOTSTRAP: kafka:9092
+      REDIS_HOST: redis
+      # KIS 분산 토큰 store + secret 암호화 (R3-5c-3 + 1번 트랙).
+      # MAGICJAR_KIS_REDIS_TOKEN_ENABLED=true 시 Redisson client 등록 → redis:6379 연결 필요.
+      MAGICJAR_SECRET_MASTER_KEY: ${MAGICJAR_SECRET_MASTER_KEY:-}
+      MAGICJAR_KIS_REDIS_TOKEN_ENABLED: ${MAGICJAR_KIS_REDIS_TOKEN_ENABLED:-false}
     ports: ["${BATCH_HOST_PORT:-8081}:8081"]
 
   consumer-app:

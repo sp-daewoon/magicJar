@@ -27,6 +27,12 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/magicjar}
     username: ${DB_USER:magicjar}
     password: ${DB_PASSWORD:magicjar}
+  data:
+    redis:
+      # R3-5c-3 PR4 — KIS 분산 토큰 store가 Redisson으로 사용 (RedisProperties 자동 binding).
+      # 누락 시 default localhost로 connect 시도해 docker compose에서 부팅 실패.
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
   flyway:
     enabled: false   # api가 DB owner
   batch:

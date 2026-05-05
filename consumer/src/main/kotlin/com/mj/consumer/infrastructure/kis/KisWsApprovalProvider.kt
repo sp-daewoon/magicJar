@@ -6,7 +6,6 @@ import com.mj.domain.market.kis.port.KisApprovalScope
 import com.mj.domain.market.kis.port.KisApprovalStorePort
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Profile
 import org.springframework.http.HttpStatusCode
 import org.springframework.stereotype.Component
@@ -26,12 +25,6 @@ import java.util.concurrent.atomic.AtomicReference
  */
 @Component
 @Profile("dev | prd")
-@ConditionalOnProperty(
-    prefix = "magicjar.kis.redis-token",
-    name = ["enabled"],
-    havingValue = "false",
-    matchIfMissing = true,
-)
 class KisWsApprovalProvider(
     private val properties: KisProperties,
     @Qualifier("realKisHttpSession") private val httpSession: KisHttpSession,

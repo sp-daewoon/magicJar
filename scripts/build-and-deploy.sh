@@ -38,8 +38,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Compose 명령 합성: --env-file 명시 + dev override 항상 포함 (mock 부팅 path 폐기)
-COMPOSE_ARGS=(--env-file .env -f docker/docker-compose.yml -f docker/docker-compose.dev.yml)
+# Compose 명령 합성: --env-file을 **절대 경로**로 명시 (compose의 working dir이 docker/로
+# 잡혀 `.env`를 못 찾는 함정 회피). --project-directory는 쓰면 build.context: ../batch
+# 해석이 root 기준으로 바뀌어 `/Users/<user>/batch`로 잘못 잡힘 (사용자 보고 2026-05-05).
+COMPOSE_ARGS=(--env-file "$PWD/.env" -f docker/docker-compose.yml -f docker/docker-compose.dev.yml)
 
 # 서비스 미지정 시 전체
 if [[ ${#SERVICES[@]} -eq 0 ]]; then
