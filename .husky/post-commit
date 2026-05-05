@@ -1,7 +1,0 @@
-#!/usr/bin/env sh
-# magicJar post-commit — ADR 0018 대시보드 자동 갱신
-# commit 직후 _workspace/dashboard.html 재생성. 실패해도 무시 (commit은 이미 끝남).
-
-if [ -f "scripts/render-status.mjs" ] && command -v node >/dev/null 2>&1; then
-  node scripts/render-status.mjs 2>/dev/null && echo "  → _workspace/dashboard.html 갱신됨" || true
-fi
