@@ -43,7 +43,6 @@ class UserChartCandleServiceWmoTest {
         service =
             UserChartCandleService(
                 cache = cache,
-                candleRepository = candleRepository,
                 candleAggregator = candleAggregator,
                 kisChartCandleAdapter = kisChartCandleAdapter,
                 userCandleEventPublisher = userCandleEventPublisher,
@@ -145,18 +144,28 @@ class UserChartCandleServiceWmoTest {
     }
 
     // -------------------------------------------------------------------------
-    // 시나리오 5: "Y" → D1 합성 경로 (KIS adapter 미호출)
+    // 시나리오 5: "Y" → R3-5c부터 D1 KIS direct fetch + 합성 (DB 우회)
     // -------------------------------------------------------------------------
 
     @Test
-    fun `scenario 5 - intervalRaw Y does NOT call kisChartCandleAdapter`() {
-        // D1 경로: cache empty → DB fallback → empty
-        // Y는 합성 — D1 먼저 fetch 후 aggregateDailyToWeekly
+    fun `scenario 5 - intervalRaw Y calls kisChartCandleAdapter with D1 (R3-5c)`() {
+        // R3-5c: Y 합성 base를 fetchKisDirect(D1)로 가져옴 (DB 안 거침)
+        every {
+            kisChartCandleAdapter.fetchCandles(
+                code = "005930",
+                interval = Interval.D1,
+                from = any(),
+                to = any(),
+            )
+        } returns emptyList() // KIS 키 미설정 또는 빈 응답 시나리오
+
         val result = service.fetchByString("74683223", "005930", "Y", limit = 20)
 
-        // kisChartCandleAdapter는 호출되지 않아야 함
-        verify(exactly = 0) { kisChartCandleAdapter.fetchCandles(any(), any(), any(), any()) }
-        // DB도 비어있으므로 빈 응답
+        // R3-5c: D1 KIS direct가 호출되어야 함
+        verify(atLeast = 1) {
+            kisChartCandleAdapter.fetchCandles(code = "005930", interval = Interval.D1, from = any(), to = any())
+        }
+        // 빈 응답이면 합성 결과도 빈
         assertEquals(0, result.size)
     }
 

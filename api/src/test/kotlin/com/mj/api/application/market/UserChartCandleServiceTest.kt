@@ -5,10 +5,7 @@ import com.mj.api.messaging.producer.UserCandleEventPublisher
 import com.mj.domain.common.Candle
 import com.mj.domain.common.Interval
 import com.mj.domain.market.cache.port.UserCandleCachePort
-import com.mj.domain.market.port.CandleRepository
-import io.mockk.Runs
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
 import io.mockk.verify
 import org.junit.jupiter.api.Test
@@ -28,7 +25,6 @@ import java.time.Instant
  */
 class UserChartCandleServiceTest {
     private val cache = mockk<UserCandleCachePort>()
-    private val candleRepository = mockk<CandleRepository>()
     private val candleAggregator = CandleAggregator() // 실제 로직 사용 (단위 테스트)
     private val kisChartCandleAdapter = mockk<KisChartCandleAdapter>(relaxed = true)
     private val userCandleEventPublisher = mockk<UserCandleEventPublisher>(relaxed = true) // R3-4 fail-soft
@@ -36,7 +32,6 @@ class UserChartCandleServiceTest {
     private val sut =
         UserChartCandleService(
             cache,
-            candleRepository,
             candleAggregator,
             kisChartCandleAdapter,
             userCandleEventPublisher,
@@ -62,7 +57,7 @@ class UserChartCandleServiceTest {
     )
 
     @Test
-    fun `cache hit — DB 안 거치고 즉시 반환 + touchRecent`() {
+    fun `cache hit — 즉시 반환 + touchRecent`() {
         val cached = (1..200).map { candleFixture(Instant.parse("2026-04-30T00:00:00Z").plusSeconds(it * 60L)) }
         every { cache.fetch(userId, code, "M1", null, 200) } returns cached
         every { cache.touchRecent(userId, code) } returns emptyList()
@@ -72,41 +67,32 @@ class UserChartCandleServiceTest {
         assert(result.size == 200)
         verify(exactly = 1) { cache.fetch(userId, code, "M1", null, 200) }
         verify(exactly = 1) { cache.touchRecent(userId, code) }
-        // DB 호출 없음 — cache hit 검증
-        verify(exactly = 0) { candleRepository.find(any(), any(), any(), any()) }
     }
 
     @Test
-    fun `cache miss — DB 조회 + Redis warm-up`() {
-        val dbCandles = (1..150).map { candleFixture(Instant.parse("2026-04-30T00:00:00Z").plusSeconds(it * 60L)) }
-        every { cache.fetch(userId, code, "M1", null, 200) } returnsMany listOf(emptyList(), dbCandles)
-        every { candleRepository.find(code, Interval.M1, any(), any()) } returns dbCandles
-        every { cache.upsertAll(userId, code, "M1", dbCandles) } just Runs
-        every { cache.setLastFetch(userId, code, "M1", any()) } just Runs
-        every { cache.touchRecent(userId, code) } returns emptyList()
-
-        val result = sut.fetch(userId, code, Interval.M1, limit = 200)
-
-        verify(exactly = 1) { candleRepository.find(code, Interval.M1, any(), any()) }
-        verify(exactly = 1) { cache.upsertAll(userId, code, "M1", dbCandles) }
-        verify(exactly = 1) { cache.setLastFetch(userId, code, "M1", any()) }
-        verify(exactly = 1) { cache.touchRecent(userId, code) }
-        assert(result.size == 150)
-    }
-
-    @Test
-    fun `cache miss + DB miss — 빈 응답 + touchRecent만`() {
+    fun `R3-5c — M1 cache miss 시 yfinance backfill trigger + 빈 응답 (DB 호출 0)`() {
         every { cache.fetch(userId, code, "M1", null, 200) } returns emptyList()
-        every { candleRepository.find(code, Interval.M1, any(), any()) } returns emptyList()
         every { cache.touchRecent(userId, code) } returns emptyList()
 
         val result = sut.fetch(userId, code, Interval.M1, limit = 200)
+
+        assert(result.isEmpty()) { "cache miss → 빈 응답 (DB 안 거침)" }
+        verify(exactly = 1) { cache.touchRecent(userId, code) }
+        verify(exactly = 1) { candleCacheService.triggerBackgroundFetchAsync(code) }
+        verify(exactly = 0) { cache.upsertAll(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `R3-5c — D1 cache miss 시 빈 응답 (trigger 안 함, KIS direct는 fetchByString 분기에서 처리)`() {
+        every { cache.fetch(userId, code, "D1", null, 200) } returns emptyList()
+        every { cache.touchRecent(userId, code) } returns emptyList()
+
+        val result = sut.fetch(userId, code, Interval.D1, limit = 200)
 
         assert(result.isEmpty())
-        verify(exactly = 1) { candleRepository.find(code, Interval.M1, any(), any()) }
-        verify(exactly = 0) { cache.upsertAll(any(), any(), any(), any()) }
-        verify(exactly = 0) { cache.setLastFetch(any(), any(), any(), any()) }
         verify(exactly = 1) { cache.touchRecent(userId, code) }
+        // D1은 M1 trigger와 무관 — fetchByString의 D1 alias가 fetchKisDirect로 라우팅
+        verify(exactly = 0) { candleCacheService.triggerBackgroundFetchAsync(any()) }
     }
 
     @Test
@@ -132,7 +118,6 @@ class UserChartCandleServiceTest {
         val result = sut.fetch(userId, code, Interval.M1, limit = 200, before = before)
 
         assert(result.size == 200)
-        verify(exactly = 0) { candleRepository.find(any(), any(), any(), any()) }
     }
 
     // ── R3-3 합성 interval 테스트 ──────────────────────────────────────────────
