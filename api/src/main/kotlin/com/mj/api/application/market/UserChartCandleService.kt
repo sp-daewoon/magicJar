@@ -82,21 +82,34 @@ class UserChartCandleService(
             return cached
         }
 
-        // cache miss — Redis only path. DB 호출 0.
+        // partial cache (0 < cached.size < limit): 그대로 반환, cold-start 안 함.
+        // frontend가 더 과거 필요 시 before cursor로 명시 호출 (사용자 결정 2026-05-05).
+        // 이 분기를 trigger로 보내면 STOMP fanout → frontend invalidate → 재호출 무한 루프.
+        cache.touchRecent(userId, code)
+        if (cached.isNotEmpty()) {
+            log.debug(
+                "[USER_CANDLE] cache partial user={} code={} interval={} cached={}/{} (cursor 추가 호출 대기)",
+                userId,
+                code,
+                intervalKey,
+                cached.size,
+                limit,
+            )
+            return cached
+        }
+
+        // 완전 cache miss (cached=0) — cold-start trigger.
         log.info(
-            "[USER_CANDLE] cache miss user={} code={} interval={} cached={} (M1: yfinance backfill 트리거)",
+            "[USER_CANDLE] cache miss user={} code={} interval={} cached=0 (M1: yfinance backfill 트리거)",
             userId,
             code,
             intervalKey,
-            cached.size,
         )
-        cache.touchRecent(userId, code)
         if (interval == Interval.M1) {
             // M1: pyworker /backfill/yahoo 비동기 트리거 → Kafka → consumer ZADD → STOMP fanout.
             // before가 지정된 경우(infinite scroll) 그 시점 이전 1000개분 fetch.
             candleCacheService.triggerBackgroundFetchAsync(code, before)
         }
-        // cached가 일부 있으면 그대로 반환 (LRU+freshness용 partial), miss면 빈 배열.
         return cached
     }
 
