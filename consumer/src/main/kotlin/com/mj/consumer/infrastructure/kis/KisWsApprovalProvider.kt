@@ -2,8 +2,11 @@ package com.mj.consumer.infrastructure.kis
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
+import com.mj.domain.market.kis.port.KisApprovalScope
+import com.mj.domain.market.kis.port.KisApprovalStorePort
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Profile
 import org.springframework.http.HttpStatusCode
 import org.springframework.stereotype.Component
@@ -23,13 +26,27 @@ import java.util.concurrent.atomic.AtomicReference
  */
 @Component
 @Profile("dev | prd")
+@ConditionalOnProperty(
+    prefix = "magicjar.kis.redis-token",
+    name = ["enabled"],
+    havingValue = "false",
+    matchIfMissing = true,
+)
 class KisWsApprovalProvider(
     private val properties: KisProperties,
     @Qualifier("realKisHttpSession") private val httpSession: KisHttpSession,
     private val clock: Clock = Clock.systemUTC(),
-) {
+) : KisApprovalStorePort {
     private val log = LoggerFactory.getLogger(javaClass)
     private val cached = AtomicReference<CachedApproval?>(null)
+
+    /**
+     * R3-5c-3 PR5: 도메인 port 시그니처 추가. scope 분기는 후속 사이클에서 활용.
+     * 기존 caller(`getApprovalKey()`)는 아래 호환 메서드로 동작.
+     */
+    override fun currentApprovalOrIssue(scope: KisApprovalScope): String = getApprovalKey()
+
+    override fun invalidate(scope: KisApprovalScope) = invalidate()
 
     /**
      * approval_key 반환. 캐시 hit 시 바로, miss 시 KIS API 호출.

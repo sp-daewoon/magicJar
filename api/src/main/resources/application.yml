@@ -117,7 +117,25 @@ magicjar:
   kis:
     # 데이터 조회(시세·캔들·종목 메타·재무) 정책: 항상 실전 키.
     # 모의 키는 주문(consumer/orders)에서만 사용 — 사용자 정책.
-    base-url: ${KIS_BASE_URL:https://openapi.koreainvestment.com:9443}
+    # R3-5c-3 PR5: 설정 prefix 일원화 (D11=A 통합) — 신규 path.
+    base-url:
+      prod: ${MAGICJAR_KIS_BASE_URL_PROD:${KIS_BASE_URL:https://openapi.koreainvestment.com:9443}}
+      vps: ${MAGICJAR_KIS_BASE_URL_VPS:https://openapivts.koreainvestment.com:29443}
+    system:
+      app-key:
+        prod: ${MAGICJAR_KIS_APP_KEY:${KIS_APP_KEY:}}
+        vps: ${MAGICJAR_KIS_VPS_APP_KEY:${KIS_MOCK_APP_KEY:}}
+      app-secret:
+        prod: ${MAGICJAR_KIS_APP_SECRET:${KIS_APP_SECRET:}}
+        vps: ${MAGICJAR_KIS_VPS_APP_SECRET:${KIS_MOCK_APP_SECRET:}}
+    token:
+      refresh-margin-seconds: ${MAGICJAR_KIS_TOKEN_REFRESH_MARGIN:3600}
+      lock-wait-time-seconds: ${MAGICJAR_KIS_TOKEN_LOCK_WAIT:10}
+      lock-lease-time-seconds: ${MAGICJAR_KIS_TOKEN_LOCK_LEASE:15}
+      redis-ttl-hours: ${MAGICJAR_KIS_TOKEN_REDIS_TTL:25}
+    redis-token:
+      enabled: ${MAGICJAR_KIS_REDIS_TOKEN_ENABLED:false}
+    # 하위 호환 fallback (deprecated, 다음 사이클 정리)
     app-key: ${KIS_APP_KEY:}
     app-secret: ${KIS_APP_SECRET:}
   allow-real: ${MAGICJAR_ALLOW_REAL:false}

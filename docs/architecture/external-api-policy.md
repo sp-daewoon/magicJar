@@ -1,7 +1,7 @@
 # 외부 API 호출 정책 (KIS · yfinance · DART)
 
 - 작성일: 2026-05-05
-- 최종 갱신: R3-5c-2
+- 최종 갱신: R3-5c-3 PR5 (KIS 토큰 단일 store + Redis 분산 single-flight 통합)
 
 magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공식 한도와 우리 운영 정책을 정리한다.
 
@@ -29,7 +29,7 @@ magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공
 
 | 영역 | 정책 |
 |---|---|
-| **토큰** | `KisTokenStorePort` 단일 store. Redis 영속(분산 lock SETNX). 24h 유효 — **23h 시점에 갱신 유도**(1h 마진). 모든 어댑터(api 6 + batch 2 + consumer 1) 공유. |
+| **토큰** | `KisTokenStorePort` 단일 store. Redis HASH 영속 + Redisson RLock 분산 single-flight + RTopic broadcast (R3-5c-3 PR5). 24h 유효 — **23h 시점에 갱신 유도**(1h 마진). 모든 어댑터(api 6 + batch 3 + consumer KisHttpSession/KisTokenStore/KisWsApprovalProvider) 공유. multi-JVM에서 KIS `/oauth2/tokenP` 호출 빈도 11회/JVM → **1회/JVM** (single-flight). 게이트: `magicjar.kis.redis-token.enabled` (default false; PR5 docker rebuild로 활성). Redis 다운 시 in-memory fallback + ERROR 로그 + 메트릭(P0 알람 후보). |
 | **REST 호출** | 초당 **15건** (KIS 한도의 75%). 단순 Semaphore + permit 1=1초/15ms. 사용자 path 우선, backfill·corp action은 후순위. |
 | **재시도** | `401 Unauthorized` → 토큰 invalidate + 1회 재발급 후 재시도. `EGW00133` → 60초 대기 + 1회 재시도. `EGW00201` (TPS 초과) → 1초 대기 + 1회 재시도. 그 외 5xx → exponential backoff 3회. |
 | **circuit breaker** | 분당 50% fail 시 5분 차단 → empty fallback. (1차는 logging만, 본격 적용은 후속 사이클) |
@@ -46,8 +46,15 @@ magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공
 | `KisOrderbookAdapter` | api | 호가 | ✅ R3-5c-2 |
 | `KisRecentTradesAdapter` | api | 최근 체결 | ✅ R3-5c-2 |
 | `RealKisRestAdapter` (batch) | batch | 룰 엔진/백테스트 D1 backfill | ✅ R3-5c-2 |
-| `RealKisCorpActionAdapter` (batch) | batch | 권리주 일정 | ✅ R3-5c-2 |
-| `KisHttpSession`/`KisTokenStore` (consumer) | consumer | WebSocket 인증 | ✅ 기존 (port adapter로 흡수) |
+| `RealKisCorpActionAdapter` (batch) | batch | 권리주 일정 | ✅ R3-5c-3 PR4 (KisCorpActionTokenHolder 폐기) |
+| `MinuteCandleBackfillJob` (batch) | batch | 분봉 backfill | ✅ R3-5c-3 PR4 |
+| `KisTokenStore` (consumer) | consumer | KIS REST 토큰 (KisRestClient·시세 모듈) | ✅ R3-5c-3 PR5 (도메인 port 구현체로 일반화) |
+| `KisHttpSession` (consumer) | consumer | KIS REST 사용자 키 (RealKisOrderAdapter·KisHashKeyClient) | partial — 본 사이클은 RestClient·executeWithRetry 보존, 토큰 흡수는 후속 사이클 |
+| `KisWsApprovalProvider` (consumer) | consumer | KIS WS approval_key (체결통보 WS) | ✅ R3-5c-3 PR5 (KisApprovalStorePort 구현체) |
+| `ApiRedisKisTokenStoreAdapter` (api) | api | Redis 분산 single-flight (시스템 키) | ✅ R3-5c-3 PR3 |
+| `BatchRedisKisTokenStoreAdapter` (batch) | batch | Redis 분산 single-flight (시스템 키) | ✅ R3-5c-3 PR4 |
+| `ConsumerRedisKisTokenStoreAdapter` (consumer) | consumer | Redis 분산 single-flight (시스템·사용자 키) | ✅ R3-5c-3 PR5 |
+| `KisAuthHealthIndicator` (api) | api | `/actuator/health/kisAuth` DEGRADED 노출 | ✅ R3-5c-3 PR3 |
 
 ---
 

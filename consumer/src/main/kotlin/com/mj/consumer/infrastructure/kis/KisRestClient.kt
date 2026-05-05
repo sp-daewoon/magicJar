@@ -1,5 +1,7 @@
 package com.mj.consumer.infrastructure.kis
 
+import com.mj.domain.market.kis.port.KisAuthScope
+import com.mj.domain.market.kis.port.KisTokenStorePort
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatusCode
 import org.springframework.stereotype.Component
@@ -19,11 +21,18 @@ import org.springframework.web.client.RestClient
 @Component
 class KisRestClient(
     private val properties: KisProperties,
-    private val tokenStore: KisTokenStore,
+    private val tokenStore: KisTokenStorePort,
     private val rateLimiter: KisRateLimiter,
     restClientBuilder: RestClient.Builder = RestClient.builder(),
 ) {
     private val log = LoggerFactory.getLogger(KisRestClient::class.java)
+
+    /**
+     * R3-5c-3 PR5: 데이터 조회용 시스템 키 scope (mockMode일 때도 동일 — properties.mockMode가
+     * 토큰 자체엔 영향 없음. baseUrl만 다름).
+     * Multi-user 진입은 후속 사이클에서 KisAuthScope.User로 분기.
+     */
+    private val authScope: KisAuthScope = KisAuthScope.System(if (properties.mockMode) "vps" else "prod")
 
     private val client: RestClient =
         restClientBuilder
@@ -101,13 +110,13 @@ class KisRestClient(
             error("KIS credentials missing — cannot $method $path (trId=$trId, isOrder=$isOrder)")
         }
         return try {
-            val token = tokenStore.currentTokenOrIssue()
+            val token = tokenStore.currentTokenOrIssue(authScope)
             log.debug("KIS {} {} trId={} isOrder={}", method, path, trId, isOrder)
             block(token)
         } catch (ex: org.springframework.web.client.HttpClientErrorException.Unauthorized) {
             log.warn("KIS 401 — invalidating token and retrying once (trId={})", trId)
-            tokenStore.invalidate()
-            block(tokenStore.currentTokenOrIssue())
+            tokenStore.invalidate(authScope)
+            block(tokenStore.currentTokenOrIssue(authScope))
         }
     }
 
