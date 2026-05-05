@@ -5,25 +5,35 @@
   "lastReleaseUrl": "https://github.com/sp-daewoon/magicJar/releases/tag/v2.0.1",
   "lastReleaseNotes": "차트 Redis-first + user_id 통일 (28 commits since v2.0.0). ADR 0050 + R3-1/2/3 + V21 user_id UUID→String. release/v2는 v2.0.0 immutable 보존(ADR 0027).",
   "lastCompletedCycle": {
-    "id": "R3-4",
-    "completedAt": "2026-05-05T03:35:00+09:00",
-    "prs": [
-      {"n": 161, "track": "B (frontend)", "sha": "e5fc971", "title": "IntervalSelector 자유 입력 + 10m 버튼"},
-      {"n": 163, "track": "A (market-data)", "sha": "ac6a168", "title": "KIS W/MO endpoint (FID_PERIOD_DIV_CODE 분기)"},
-      {"n": 162, "track": "C (strategy)", "sha": "ed19297", "title": "user candle Kafka publish + consumer ZADD listener (dual-write)"}
+    "id": "R3-5c-2 1차",
+    "completedAt": "2026-05-05T14:30:00+09:00",
+    "sessionPrs": [
+      {"n": 161, "title": "R3-4 frontend IntervalSelector 자유 입력 + 10m"},
+      {"n": 163, "title": "R3-4 market-data KIS W/MO endpoint"},
+      {"n": 162, "title": "R3-4 strategy Kafka publish + consumer ZADD (dual-write)"},
+      {"n": 164, "title": "R3-4 handoff"},
+      {"n": 165, "title": "R3-5a D1 KIS direct + STOMP fanout (DB fallback 제거)"},
+      {"n": 166, "title": "R3-5b M1 cache miss yfinance backfill 자동 trigger"},
+      {"n": 167, "title": "R3-5c-1 사용자 차트 path DB 호출 0 + KIS 토큰 23h 마진"},
+      {"n": 168, "title": "logback %mask(%msg)%n hotfix"},
+      {"n": 169, "title": "R3-5c-2 1차 KisTokenStorePort + 외부 API 정책 + KisChartCandleAdapter 통합"}
     ],
     "newKafkaTopic": "market.candle.user.v1",
-    "kafkaPolicy": "dual-write — api 직접 ZADD 보존 + Kafka publish 추가 + consumer ZADD listener (idempotent). 다음 사이클에서 단일 path 전환",
-    "subagentDispatch": "3 worktree isolation (frontend·market-data·strategy sonnet). sub-agent Bash 권한 차단 → 메인 세션이 build·test·commit·PR 일괄 처리",
-    "rebaseConflictResolution": "PR #162 (Track C) UserChartCandleService.kt + Test에서 A=KisChartCandleAdapter 주입 vs C=UserCandleEventPublisher 주입 둘 다 보존으로 해결",
-    "knownLimitations": ["force-push 정책 차단 — 사용자 본인 명시 행위로 1회 우회"]
+    "newDomainPort": "domain/.../market/kis/port/KisTokenStorePort.kt",
+    "newPolicyDoc": "docs/architecture/external-api-policy.md",
+    "knownIssues": [
+      "R3-5c-2 1차 라이브 응답 빈 배열 — bytecode·Spring DI 정상이나 KIS API 빈 응답. 토요일 KIS 휴장 / EGW00133 잔재 / 모의↔실전 키 mismatch 진단 필요",
+      "logback mask 근본 fix 보류 — PR #168은 임시 비활성화"
+    ]
   },
   "nextSessionEntry": {
     "priorities": [
-      "R3-4 라이브 검증 (사용자 환경 docker 재빌드 — W/MO interval 200 + 자유 입력 차트 + Kafka publish→consumer ZADD 동작)",
-      "R3-5 (가칭) — Kafka candle 단일 path 전환 (dual-write 검증 후 api 직접 ZADD 제거)",
-      "1번 트랙 dogfooding 재개 (월요일 영업일 KIS 주문 + EGW00202 헤더 진단 또는 mock 전환)",
-      "v2.0.2 또는 v2.1.0 다음 컷 시점 결정 (R3-4 라이브 + 단일 path + dogfooding 누적)"
+      "R3-5c-2 1차 빈 응답 진단 + 본 검증 (영업일·토큰 한도·키 모드)",
+      "R3-5c-3 — 나머지 7 어댑터 KisTokenStorePort 통합 (api 5: RecentTrades·Orderbook·InstrumentInfo·InvestorTrend·MarketIndex + batch 2: RealKisRest·CorpAction) + consumer/KisTokenStore 흡수",
+      "R3-5c-4 — Redis 영속(분산 lock SETNX) + REST rate limiter(Semaphore) + 401·EGW00133·EGW00201 재시도 공통 헬퍼",
+      "logback mask 근본 fix (별도 트랙)",
+      "1번 트랙 dogfooding 재개 (월요일 영업일 KIS 주문)",
+      "v2.1.0 컷 시점 — R3-5c-3·5c-4 완료 후 결정"
     ],
     "userChartCacheUserId": "74683223",
     "redisFirstChartFlag": "magicjar.chart.redis-first.enabled = true (default)",
