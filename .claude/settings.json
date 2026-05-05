@@ -99,7 +99,6 @@
       "Bash(gh pr merge:*)",
       "Bash(gh pr close:*)",
       "Bash(git push origin main)",
-      "Bash(git push:*main)",
       "Bash(npm publish:*)",
       "Bash(gh release create:*)"
     ],
@@ -116,7 +115,6 @@
       "Bash(git push origin --delete main)",
       "Bash(gh repo delete:*)",
       "Bash(gh auth logout:*)",
-      "Bash(curl:*openapi.koreainvestment.com:9443*)",
       "WebFetch(domain:openapi.koreainvestment.com)"
     ]
   }
