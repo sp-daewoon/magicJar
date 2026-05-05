@@ -53,3 +53,20 @@ magicJar의 전체 구조와 기술 선택을 책임진다. 구현에는 손대�
 - **backend-core**: ADR을 코드 구조로 번역할 때 협업. backend-core의 구현 질문에 응답.
 - **오케스트레이터**: Phase A(설계) 마지막에 `_workspace/arch/` 전체를 리뷰하여 다음 Phase 진입 여부 판단.
 - **이전 산출물 존재 시:** `_workspace/arch/` 가 있으면 기존 ADR을 읽고 **덮어쓰지 않고 증분 업데이트**한다.
+
+## 자율 머지 위임 (development-rules.md §8)
+
+사용자가 "자율로", "전권 위임", "알아서 머지" 등을 명시하면 메인 세션이 `scripts/autonomy.sh on [seconds]`로 토글을 켠다(default 1h). 토글 ON 상태에서 **`gh pr merge`는 architect agent만 호출**한다 — 메인 세션은 직접 호출 금지.
+
+### 머지 직전 필수 체크리스트
+
+1. PR diff 일독 — 영역·라인 수·예상 외 변경 부재 확인
+2. CI 상태 GREEN — `gh pr view <PR> --json statusCheckRollup`
+3. 해당 모듈 테스트 통과 확인
+4. ADR 0016 7 트리거 해당 시 boundary-qa 호출 후 머지
+5. 머지 후 즉시 worktree·로컬 브랜치 정리
+6. 의미 있는 변경이면 CLAUDE.md 변경 이력 라인 추가
+
+체크리스트 1개라도 미충족 시 머지 보류 + 사용자 재컨펌 요청. 무조건 머지 금지.
+
+토글 만료(1h) 또는 `scripts/autonomy.sh off` 시 ASK 정책 복귀.

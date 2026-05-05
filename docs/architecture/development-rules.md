@@ -297,7 +297,52 @@ Husky pre-commit에 author 화이트리스트 가드 적용 (ADR 0017 강제).
 
 ---
 
-## §8. 사용자 결정 필요 사항
+## §8. architect 자율 머지 위임 게이트
+
+사용자가 명시적으로 **"자율로 해줘" / "전권 위임" / "알아서 머지" / "지금부터 모든 권한"** 같은 신호를 보낸 경우에만 활성. 활성 후 1시간 동안 `gh pr merge`가 ASK 프롬프트 없이 통과한다. 단 머지 결정 권한은 architect agent에게만 있다.
+
+### 8-1. 동작 원리
+
+- 메커니즘: PreToolUse hook (`bash .claude/hooks/autonomy-gate.sh`)이 `gh pr merge:*` 호출을 가로채 토글 파일 검사
+- 토글 파일: `_workspace/.autonomy_until` (epoch 만료 시각, .gitignore)
+- 미만료면 `permissionDecision: allow` 출력 → ASK 우회. 만료/없음이면 기본 ASK 정책 fallback
+- TTL 범위: 60s ~ 7200s (default 3600s = 1h)
+
+### 8-2. 운영 규약 (필수)
+
+| 항목 | 규칙 |
+|---|---|
+| 토글 ON 트리거 | 사용자 명시 신호("자율로", "전권", "알아서") 시에만. Claude 자체 판단으로 ON 금지 |
+| 토글 ON 명령 | `scripts/autonomy.sh on [seconds]` |
+| 머지 권한자 | **architect agent 단독.** 메인 세션이 직접 `gh pr merge` 호출 금지 |
+| architect 책임 | PR 검토(diff·테스트·CI·QA 트리거) → 머지 가부 결정 → 머지 수행 |
+| 자동 만료 | 1h 경과 후 hook이 자동으로 ASK fallback. 토글 파일은 다음 호출 시점에 자연 무효화 |
+| 명시적 OFF | `scripts/autonomy.sh off` 또는 사용자 "자율 종료" 신호 |
+| 적용 범위 | 현재 `gh pr merge:*`만. `git push origin main`·`gh release create`·`npm publish`는 ASK 유지 |
+
+### 8-3. architect의 머지 체크리스트 (필수)
+
+토글 ON 상태에서 머지 직전 architect가 **반드시 자체 검증**:
+
+1. PR diff 일독 — 영역·라인 수·예상 외 변경 부재 확인
+2. CI 상태 — `gh pr view <PR> --json statusCheckRollup` GREEN 확인
+3. 테스트 — 해당 모듈 `./gradlew :module:test` 또는 vitest/pytest 통과 확인
+4. QA 트리거 — ADR 0016 7 트리거 중 해당 사항 시 boundary-qa 호출 후 머지
+5. 머지 후 즉시 worktree·로컬 브랜치 정리 (메모리 `feedback_worktree_cleanup` 정합)
+6. CLAUDE.md 변경 이력 라인 추가
+
+체크리스트 1개라도 미충족 시 머지 보류 + 사용자 재컨펌 요청.
+
+### 8-4. 안전장치
+
+- hook은 `gh pr merge:*` 외 어떤 명령도 자동 허용하지 않음 — settings.json `if` 필터로 강제
+- force-push, main 직접 push, repo delete 등 deny는 hook이 못 우회 (deny가 우선)
+- 토글 파일 손상(파싱 실패)/만료 시 무조건 ASK fallback — fail-closed
+- 사용자가 PR 본문·diff 보고 싶으면 토글 OFF 후 정상 ASK 흐름 복귀
+
+---
+
+## §9. 사용자 결정 필요 사항
 
 본 룰북 검토 시 사용자가 확정:
 
@@ -309,8 +354,9 @@ Husky pre-commit에 author 화이트리스트 가드 적용 (ADR 0017 강제).
 
 ---
 
-## §9. 변경 이력
+## §10. 변경 이력
 
 | 날짜 | 변경 |
 |---|---|
 | 2026-05-03 | 초안 — v2 베이스라인 5 룰 + 운영 정책 + 트랙별 매트릭스 (architect, opus 4.7 1M) |
+| 2026-05-05 | §8 architect 자율 머지 위임 게이트 추가 (PreToolUse hook + scripts/autonomy.sh + 토글 1h, 사용자 명시) |

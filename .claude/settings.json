@@ -117,5 +117,22 @@
       "Bash(gh auth logout:*)",
       "WebFetch(domain:openapi.koreainvestment.com)"
     ]
+  },
+
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/autonomy-gate.sh",
+            "if": "Bash(gh pr merge:*)",
+            "timeout": 5,
+            "statusMessage": "autonomy-gate 검사…"
+          }
+        ]
+      }
+    ]
   }
 }
