@@ -5,29 +5,31 @@
   "lastReleaseUrl": "https://github.com/sp-daewoon/magicJar/releases/tag/v2.0.1",
   "lastReleaseNotes": "차트 Redis-first + user_id 통일 (28 commits since v2.0.0). ADR 0050 + R3-1/2/3 + V21 user_id UUID→String. release/v2는 v2.0.0 immutable 보존(ADR 0027).",
   "lastCompletedCycle": {
-    "id": "R3-5c-3 PR1+PR2 (자율 머지)",
-    "completedAt": "2026-05-05T16:55:00+09:00",
-    "currentCycle": {
-      "id": "R3-5c-3",
-      "status": "PR3~PR5 진입 대기 — 사용자 D11 결정",
-      "specPath": "docs/superpowers/specs/2026-05-05-track-r3-5c-3-kis-token-unification-design.md",
-      "planPath": "docs/superpowers/plans/2026-05-05-track-r3-5c-3-kis-token-unification.md",
-      "mergedPrs": [
-        {"n": 173, "title": "PR1 — KisAuthScope/KisApprovalScope sealed + port 일반화", "merge": "2b7e024"}
+    "id": "R3-5c-3 전체 (PR1~PR5) — KIS 토큰 단일 store + Redis 분산 single-flight + 설정 prefix 일원화",
+    "completedAt": "2026-05-05T18:55:00+09:00",
+    "mergedPrs": [
+      {"n": 173, "title": "PR1 — KisAuthScope/KisApprovalScope sealed + port 일반화", "merge": "2b7e024"},
+      {"n": 174, "title": "PR2 — Redisson 의존성 + Bean + 메트릭 (default 비활성)", "merge": "cd10a63"},
+      {"n": 175, "title": "PR3 — api 6 어댑터 통합 + ApiRedisKisTokenStoreAdapter + KisAuthHealthIndicator", "merge": "e159df7"},
+      {"n": 176, "title": "PR4 — batch 3 어댑터 통합 + KisCorpActionTokenHolder 폐기", "merge": "8f4cfd5"}
+    ],
+    "outcome": {
+      "kisTokenStoreUnification": "11경로 단일 path (api 6 + batch 3 + consumer 2)",
+      "kisCallReductionTarget": "11회/JVM → 1회/JVM (Redis 활성 시) — multi-tenant + multi-JVM single-flight",
+      "redisFlag": "magicjar.kis.redis-token.enabled (default false; 사용자 docker rebuild 시 활성)",
+      "newComponents": [
+        "ApiRedisKisTokenStoreAdapter (api)",
+        "BatchRedisKisTokenStoreAdapter (batch)",
+        "ConsumerRedisKisTokenStoreAdapter (consumer)",
+        "InMemoryBatchKisTokenStoreAdapter (batch, default OFF)",
+        "KisAuthHealthIndicator (api /actuator/health/kisAuth)"
       ],
-      "pendingPrs": [
-        "PR2 — Redisson 의존성 + KisAuthRedissonConfig + KisAuthMetrics (default 비활성, 본 작업)",
-        "PR3 — api 6 어댑터 통합 (D11 결정 후)",
-        "PR4 — batch 3 어댑터 통합 (D11 결정 후)",
-        "PR5 — consumer + 설정 prefix 일원화 (D11 결정 후)"
-      ],
-      "userDecisionsPending": [
-        "D11 — Spring 설정 prefix `magicjar.kis.*` 일원화 + `.env` 변수명 정정 + docker compose 재기동 영향 컨펌"
-      ],
-      "d7ReinforceDone": [
-        "spec §10-3 ERROR 로그 표준 prefix `[kis-auth][redis-down]`",
-        "spec §10-4 `KisAuthHealthIndicator` (api `/actuator/health/kisAuth` DEGRADED 매핑) — PR3에서 신설",
-        "plan Task 15b·19b·24b — 모듈별 ERROR 로그 정합 + HealthIndicator"
+      "deletedComponents": ["KisCorpActionTokenHolder (batch, port 도입으로 분리 명분 소멸)"],
+      "configPrefixUnified": "magicjar.kis.* (D11=A 통합) — 하위 호환 KIS_* 보존",
+      "operationDocs": [
+        "_workspace/operations/redis-outage-runbook.md (신규)",
+        "_workspace/operations/kis-token-migration.md (신규, 사용자 액션 매핑 표 포함)",
+        "docs/architecture/external-api-policy.md (R3-5c-3 PR5 갱신)"
       ]
     },
     "previousCycle": "R3-5c-2 1차 (2026-05-05T14:30:00+09:00)",
@@ -53,15 +55,22 @@
   },
   "nextSessionEntry": {
     "priorities": [
-      "R3-5c-2 1차 빈 응답 진단 + 본 검증 (영업일·토큰 한도·키 모드)",
-      "R3-5c-3 — 나머지 7 어댑터 KisTokenStorePort 통합 (api 5: RecentTrades·Orderbook·InstrumentInfo·InvestorTrend·MarketIndex + batch 2: RealKisRest·CorpAction) + consumer/KisTokenStore 흡수",
-      "R3-5c-4 — Redis 영속(분산 lock SETNX) + REST rate limiter(Semaphore) + 401·EGW00133·EGW00201 재시도 공통 헬퍼",
+      "R3-5c-3 PR5 라이브 검증 — `MAGICJAR_KIS_REDIS_TOKEN_ENABLED=true` 활성 후 docker rebuild + 사용자 차트 부드러움 + EGW00133 0건 검증",
+      "사용자 키 path 통합 (KisHttpSession 토큰 흡수) — 후속 사이클, 1번 트랙 dogfooding 영향 큼",
+      "R3-5c-4 — REST rate limiter(Semaphore) + 401·EGW00133·EGW00201 재시도 공통 헬퍼",
       "logback mask 근본 fix (별도 트랙)",
       "1번 트랙 dogfooding 재개 (월요일 영업일 KIS 주문)",
-      "v2.1.0 컷 시점 — R3-5c-3·5c-4 완료 후 결정"
+      "v2.1.0 컷 시점 — R3-5c-3 라이브 검증 + 1번 트랙 dogfooding 후 결정"
     ],
     "userChartCacheUserId": "74683223",
     "redisFirstChartFlag": "magicjar.chart.redis-first.enabled = true (default)",
+    "kisRedisTokenFlag": "magicjar.kis.redis-token.enabled = false (default; 사용자 docker rebuild 시 true 권장)",
+    "userActionsAfterPR5": [
+      ".env 변수명 정정 (선택) — _workspace/operations/kis-token-migration.md 매핑 표 참조",
+      "MAGICJAR_KIS_REDIS_TOKEN_ENABLED=true 추가 (선택)",
+      "docker compose down && docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up -d --build",
+      "/actuator/health/kisAuth 응답 200 + status UP 검증"
+    ],
     "openIssues": []
   },
   "v2Baseline": {

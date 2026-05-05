@@ -1,7 +1,10 @@
 package com.mj.consumer.infrastructure.kis
 
 import com.fasterxml.jackson.annotation.JsonProperty
+import com.mj.domain.market.kis.port.KisAuthScope
+import com.mj.domain.market.kis.port.KisTokenStorePort
 import org.slf4j.LoggerFactory
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.stereotype.Component
 import org.springframework.web.client.RestClient
 import java.time.Clock
@@ -10,18 +13,28 @@ import java.time.Instant
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * KIS access token 캐시 + 발급기.
+ * KIS access token 캐시 + 발급기 (consumer 모듈 InMemory 구현).
+ *
+ * R3-5c-3 PR5: [KisTokenStorePort] 구현체로 일반화.
+ * `magicjar.kis.redis-token.enabled=false` (default) 시 활성. true 시
+ * [com.mj.consumer.infrastructure.kis.auth.ConsumerRedisKisTokenStoreAdapter] 가 활성화되며 본 어댑터는 미등록.
  *
  * - 동일 앱키당 동시 1개 권장이라 in-process AtomicReference 로 충분.
  * - TTL 기본 23h(만료 1h 전 갱신 여유).
  * - appKey/appSecret이 비었으면 발급을 시도하지 않고 IllegalStateException 던진다.
  */
 @Component
+@ConditionalOnProperty(
+    prefix = "magicjar.kis.redis-token",
+    name = ["enabled"],
+    havingValue = "false",
+    matchIfMissing = true,
+)
 class KisTokenStore(
     private val properties: KisProperties,
     private val clock: Clock = Clock.systemUTC(),
     restClientBuilder: RestClient.Builder = RestClient.builder(),
-) {
+) : KisTokenStorePort {
     private val log = LoggerFactory.getLogger(KisTokenStore::class.java)
     private val cached = AtomicReference<CachedToken?>()
 
@@ -30,6 +43,14 @@ class KisTokenStore(
             .baseUrl(properties.baseUrl)
             .defaultHeader("Content-Type", "application/json")
             .build()
+
+    /**
+     * R3-5c-3 PR5: 도메인 port 시그니처 추가.
+     * scope 분리는 consumer 모듈의 신규 path. 기존 caller(`currentTokenOrIssue()`)는 deprecated overload로 호환.
+     */
+    override fun currentTokenOrIssue(scope: KisAuthScope): String = currentTokenOrIssue()
+
+    override fun invalidate(scope: KisAuthScope) = invalidate()
 
     fun currentTokenOrIssue(): String {
         val now = clock.instant()

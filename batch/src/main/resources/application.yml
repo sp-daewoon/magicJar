@@ -86,6 +86,22 @@ magicjar:
   allow-real: ${MAGICJAR_ALLOW_REAL:false}
   kis:
     mode: STUB
+    # R3-5c-3 PR5: 설정 prefix 일원화 (D11=A) — base-url 신규 path 추가, 기존 base-url 보존(legacy fallback).
+    base-url:
+      prod: ${MAGICJAR_KIS_BASE_URL_PROD:${KIS_BASE_URL:https://openapi.koreainvestment.com:9443}}
+      vps: ${MAGICJAR_KIS_BASE_URL_VPS:https://openapivts.koreainvestment.com:29443}
+    system:
+      app-key:
+        prod: ${MAGICJAR_KIS_APP_KEY:${KIS_APP_KEY:}}
+      app-secret:
+        prod: ${MAGICJAR_KIS_APP_SECRET:${KIS_APP_SECRET:}}
+    token:
+      refresh-margin-seconds: ${MAGICJAR_KIS_TOKEN_REFRESH_MARGIN:3600}
+      lock-wait-time-seconds: ${MAGICJAR_KIS_TOKEN_LOCK_WAIT:10}
+      lock-lease-time-seconds: ${MAGICJAR_KIS_TOKEN_LOCK_LEASE:15}
+      redis-ttl-hours: ${MAGICJAR_KIS_TOKEN_REDIS_TTL:25}
+    redis-token:
+      enabled: ${MAGICJAR_KIS_REDIS_TOKEN_ENABLED:false}
   kafka:
     topics:
       # D (2026-05-04): api → batch 일봉 backfill 명령 토픽

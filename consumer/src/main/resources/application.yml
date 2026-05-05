@@ -94,8 +94,10 @@ management:
         include: health,info,metrics
 
 kis:
-  app-key: ${KIS_APP_KEY:}
-  app-secret: ${KIS_APP_SECRET:}
+  # R3-5c-3 PR5 (D11=A): 기존 prefix 호환 보존 (KisProperties는 prefix=kis로 바인딩 중).
+  # 신규 magicjar.kis.* 통합 path는 후속 사이클 (KisProperties prefix 변경은 침습 큼 — 보류).
+  app-key: ${MAGICJAR_KIS_APP_KEY:${KIS_APP_KEY:}}
+  app-secret: ${MAGICJAR_KIS_APP_SECRET:${KIS_APP_SECRET:}}
   account-no: ${KIS_ACCOUNT_NO:}
   hts-id: ${KIS_HTS_ID:}
   # 시세 WS URL — 실전: ws://ops.koreainvestment.com:21000 / 모의: ws://ops.koreainvestment.com:31000
@@ -103,8 +105,8 @@ kis:
   #   H0UNCNT0 — 국내주식 실시간체결가(통합) / H0UNASP0 — 실시간호가(통합)
   #   H0UPCNT0 — 국내지수 실시간체결 (KOSPI=0001, KOSDAQ=1001) / H0UNMKO0 — 장운영정보
   #   H0STCNI0/9 — 실시간체결통보 (encrypted, AES)
-  base-url: ${KIS_BASE_URL:https://openapi.koreainvestment.com:9443}
-  ws-url: ${KIS_WS_URL:ws://ops.koreainvestment.com:21000}
+  base-url: ${MAGICJAR_KIS_BASE_URL_PROD:${KIS_BASE_URL:https://openapi.koreainvestment.com:9443}}
+  ws-url: ${MAGICJAR_KIS_WS_URL:${KIS_WS_URL:ws://ops.koreainvestment.com:21000}}
   rate:
     capacity-per-second: ${KIS_RATE_CAPACITY:15}
     order-per-second: ${KIS_RATE_ORDER:5}
@@ -138,6 +140,17 @@ magicjar:
     hashkey-enabled: ${MAGICJAR_KIS_HASHKEY_ENABLED:true}
     # T2-T6 진단용 raw HTTP 로깅 (default false, dev에서만 활성화 권장)
     raw-http-logging: ${MAGICJAR_KIS_RAW_HTTP_LOGGING:false}
+    # R3-5c-3 PR5 (D11=A): KIS 토큰 단일 store + Redis 분산 single-flight 운영 정책.
+    base-url:
+      prod: ${MAGICJAR_KIS_BASE_URL_PROD:${KIS_BASE_URL:https://openapi.koreainvestment.com:9443}}
+      vps: ${MAGICJAR_KIS_BASE_URL_VPS:https://openapivts.koreainvestment.com:29443}
+    token:
+      refresh-margin-seconds: ${MAGICJAR_KIS_TOKEN_REFRESH_MARGIN:3600}
+      lock-wait-time-seconds: ${MAGICJAR_KIS_TOKEN_LOCK_WAIT:10}
+      lock-lease-time-seconds: ${MAGICJAR_KIS_TOKEN_LOCK_LEASE:15}
+      redis-ttl-hours: ${MAGICJAR_KIS_TOKEN_REDIS_TTL:25}
+    redis-token:
+      enabled: ${MAGICJAR_KIS_REDIS_TOKEN_ENABLED:false}
   ai:
     # 1차 통합: 기본 OFF. ANTHROPIC_API_KEY 채우고 enabled=true로 부팅 시 자동 활성.
     enabled: ${MAGICJAR_AI_ENABLED:false}
