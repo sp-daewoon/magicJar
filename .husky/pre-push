@@ -39,15 +39,15 @@ case "$BRANCH" in
     ;;
 esac
 
-# 3) Gradle check — wrapper가 있으면 실행, 없으면 skip
-if [ -x ./gradlew ]; then
+# 3) Gradle check — wrapper script + jar 모두 있으면 실행, 없으면 skip
+if [ -x ./gradlew ] && [ -f gradle/wrapper/gradle-wrapper.jar ]; then
   echo "→ ./gradlew check"
   ./gradlew check -q --daemon || {
     echo "✗ pre-push: ./gradlew check 실패."
     exit 1
   }
 else
-  echo "ℹ pre-push: Gradle wrapper 미존재 — 추후 활성화 예정."
+  echo "ℹ pre-push: Gradle wrapper 부재(script 또는 wrapper jar) — JVM 모듈 부트스트랩 후 활성화."
 fi
 
 # 4) agent/* 브랜치는 task 파일 존재 권고 (ADR 0018)
