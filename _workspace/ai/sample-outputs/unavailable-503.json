@@ -1,8 +1,0 @@
-{
-  "_note": "AnalysisAssistant 빈 부재 또는 LLM 호출 실패 시 controller 503 응답. 본체 흐름은 영향 받지 않는다 (graceful degradation).",
-  "_status": 503,
-  "_endpoint": "POST /api/analysis/symbol/005930/commentary",
-  "_scenario": "magicjar.ai.enabled=false (default)",
-  "error": "ANALYSIS_UNAVAILABLE",
-  "message": "AI 분석 보조가 비활성 상태입니다 (magicjar.ai.enabled=false, mock-mode=auto)."
-}

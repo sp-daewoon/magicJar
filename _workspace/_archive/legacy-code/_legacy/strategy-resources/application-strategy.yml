@@ -1,8 +1,0 @@
-magicjar:
-  journal:
-    ai-review: false
-  backtest:
-    default-fee-rate: 0.00015
-    default-tax-rate-kospi: 0.0023
-    default-tax-rate-kosdaq: 0.0023
-    default-slippage-bp: 5

@@ -1,7 +1,0 @@
-magicjar:
-  mode: MOCK
-  allow-real: false
-  # ADR 0049 + memory feedback_no_mock_data.md (2026-05-04 강화):
-  # 운영 main src에 mock 합성 코드 0건. mock-tick/mock-news 발행기 영구 폐기.
-  # mock profile은 NoOpMarketSessionResolverImpl·InMemoryQuoteCacheAdapter·StubKisRestAdapter
-  # 등 단순 stub 어댑터 활성용으로만 잔존 (데이터 합성 X). 사용자 흐름은 dev/prd 전용.
