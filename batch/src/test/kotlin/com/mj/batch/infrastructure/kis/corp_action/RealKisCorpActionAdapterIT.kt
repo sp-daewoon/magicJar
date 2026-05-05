@@ -9,7 +9,9 @@ import com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig
 import com.mj.batch.infrastructure.kis.KisApiException
 import com.mj.batch.infrastructure.kis.KisRestProperties
+import com.mj.batch.infrastructure.kis.auth.InMemoryBatchKisTokenStoreAdapter
 import com.mj.domain.market.corp_action.CorpAction
+import com.mj.domain.market.kis.port.KisTokenStorePort
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -32,7 +34,7 @@ import java.time.LocalDate
  */
 class RealKisCorpActionAdapterIT {
     private lateinit var wireMock: WireMockServer
-    private lateinit var tokenHolder: KisCorpActionTokenHolder
+    private lateinit var tokenStore: KisTokenStorePort
     private lateinit var adapter: RealKisCorpActionAdapter
 
     @BeforeEach
@@ -50,8 +52,9 @@ class RealKisCorpActionAdapterIT {
                 appKey = "test-app-key",
                 appSecret = "test-app-secret",
             )
-        tokenHolder = KisCorpActionTokenHolder()
-        adapter = RealKisCorpActionAdapter(props, tokenHolder)
+        // R3-5c-3 PR4: KisCorpActionTokenHolder 폐기 → InMemoryBatchKisTokenStoreAdapter 회귀
+        tokenStore = InMemoryBatchKisTokenStoreAdapter(props)
+        adapter = RealKisCorpActionAdapter(props, tokenStore)
 
         // 토큰 발급 stub
         stubTokenOk("test-corp-token")

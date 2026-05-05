@@ -7,6 +7,8 @@ import com.mj.batch.infrastructure.kis.KisRestProperties
 import com.mj.batch.infrastructure.persistence.market.CandleJpa
 import com.mj.batch.infrastructure.persistence.market.CandleJpaRepository
 import com.mj.domain.common.Interval
+import com.mj.domain.market.kis.port.KisAuthScope
+import com.mj.domain.market.kis.port.KisTokenStorePort
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.media.Schema
 import io.swagger.v3.oas.annotations.responses.ApiResponse
@@ -74,18 +76,15 @@ class MinuteCandleBackfillJob(
     private val transactionManager: PlatformTransactionManager,
     private val kisProperties: KisRestProperties,
     private val candleJpaRepository: CandleJpaRepository,
+    private val tokenStore: KisTokenStorePort,
 ) {
     private val log = LoggerFactory.getLogger(MinuteCandleBackfillJob::class.java)
     private val zone = ZoneId.of("Asia/Seoul")
     private val yyyymmdd = DateTimeFormatter.ofPattern("yyyyMMdd")
     private val hhmmss = DateTimeFormatter.ofPattern("HHmmss")
 
-    /**
-     * access_token JVM-level 캐시 (DailyCandleBackfillJob과 독립).
-     * dev/prd 프로파일에서 KisRestProperties.appKey/appSecret 필요.
-     */
-    @Volatile
-    private var cachedToken: String? = null
+    /** R3-5c-3 PR4: 자체 토큰 캐시 폐기 → port 위임 + 표준 401 retry once. */
+    private val authScope: KisAuthScope = KisAuthScope.System("prod")
 
     private val restClient: RestClient by lazy {
         RestClient
@@ -154,7 +153,7 @@ class MinuteCandleBackfillJob(
         from: LocalDate,
         to: LocalDate,
     ): Int {
-        ensureToken()
+        // R3-5c-3 PR4: ensureToken() 폐기 — port가 첫 호출 시 자동 발급.
         var totalInserted = 0
         var currentDate = to
 
@@ -248,47 +247,26 @@ class MinuteCandleBackfillJob(
         date: LocalDate,
         hourStr: String,
     ): List<MinuteCandleRow> {
-        val token =
-            cachedToken ?: run {
-                ensureToken()
-                cachedToken!!
-            }
+        val token = tokenStore.currentTokenOrIssue(authScope)
 
         val response =
             try {
-                restClient
-                    .get()
-                    .uri { builder ->
-                        builder
-                            .path("/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice")
-                            .queryParam("FID_ETC_CLS_CODE", "")
-                            .queryParam("FID_COND_MRKT_DIV_CODE", "J")
-                            .queryParam("FID_INPUT_ISCD", code)
-                            .queryParam("FID_INPUT_HOUR_1", hourStr)
-                            .queryParam("FID_PW_DATA_INCU_YN", "Y")
-                            .build()
-                    }.headers { h ->
-                        h["authorization"] = "Bearer $token"
-                        h["appkey"] = kisProperties.appKey
-                        h["appsecret"] = kisProperties.appSecret
-                        h["tr_id"] = "FHKST03010200"
-                    }.retrieve()
-                    .onStatus(HttpStatusCode::isError) { _, resp ->
-                        if (resp.statusCode == HttpStatus.UNAUTHORIZED) {
-                            throw KisApiException("401 Unauthorized — token will be refreshed", rtCd = "401")
-                        }
-                        throw KisApiException(
-                            "KIS minute chart HTTP error: ${resp.statusCode} for code=$code",
-                            rtCd = resp.statusCode.value().toString(),
-                        )
-                    }.body(MinuteCandleResponse::class.java)
-                    ?: return emptyList()
+                callMinuteChartOnce(code, hourStr, token)
             } catch (ex: KisApiException) {
                 if (ex.rtCd == "401") {
-                    log.warn("[minute-backfill] 401 — refreshing token")
-                    cachedToken = null
-                    ensureToken()
-                    return callKisMinuteChart(code, date, hourStr) // 1회 재시도
+                    log.warn("[minute-backfill] 401 — invalidate + retry once")
+                    tokenStore.invalidate(authScope)
+                    val newToken = tokenStore.currentTokenOrIssue(authScope)
+                    return runCatching { callMinuteChartOnce(code, hourStr, newToken)?.output2 ?: emptyList() }
+                        .getOrElse {
+                            log.warn(
+                                "[minute-backfill] retry 실패 code={} hour={}: {}",
+                                code,
+                                hourStr,
+                                it.message,
+                            )
+                            emptyList()
+                        }
                 }
                 log.warn("[minute-backfill] KIS API error code={} hour={}: {}", code, hourStr, ex.message)
                 return emptyList()
@@ -296,6 +274,8 @@ class MinuteCandleBackfillJob(
                 log.warn("[minute-backfill] unexpected error code={} hour={}: {}", code, hourStr, ex.message)
                 return emptyList()
             }
+
+        if (response == null) return emptyList()
 
         if (response.rtCd != "0") {
             log.debug(
@@ -311,34 +291,37 @@ class MinuteCandleBackfillJob(
         return response.output2
     }
 
-    private fun ensureToken() {
-        if (cachedToken != null) return
-        cachedToken = issueToken()
-    }
-
-    private fun issueToken(): String {
-        log.info("[minute-backfill] issuing access token")
-        val resp =
-            restClient
-                .post()
-                .uri("/oauth2/tokenP")
-                .body(
-                    mapOf(
-                        "grant_type" to "client_credentials",
-                        "appkey" to kisProperties.appKey,
-                        "appsecret" to kisProperties.appSecret,
-                    ),
-                ).retrieve()
-                .onStatus(HttpStatusCode::isError) { _, r ->
-                    throw KisApiException(
-                        "[minute-backfill] token issue failed — HTTP ${r.statusCode}",
-                        rtCd = r.statusCode.value().toString(),
-                    )
-                }.body(Map::class.java)
-                ?: error("[minute-backfill] token issue failed — null response")
-        return resp["access_token"] as? String
-            ?: error("[minute-backfill] access_token field missing in token response")
-    }
+    private fun callMinuteChartOnce(
+        code: String,
+        hourStr: String,
+        token: String,
+    ): MinuteCandleResponse? =
+        restClient
+            .get()
+            .uri { builder ->
+                builder
+                    .path("/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice")
+                    .queryParam("FID_ETC_CLS_CODE", "")
+                    .queryParam("FID_COND_MRKT_DIV_CODE", "J")
+                    .queryParam("FID_INPUT_ISCD", code)
+                    .queryParam("FID_INPUT_HOUR_1", hourStr)
+                    .queryParam("FID_PW_DATA_INCU_YN", "Y")
+                    .build()
+            }.headers { h ->
+                h["authorization"] = "Bearer $token"
+                h["appkey"] = kisProperties.appKey
+                h["appsecret"] = kisProperties.appSecret
+                h["tr_id"] = "FHKST03010200"
+            }.retrieve()
+            .onStatus(HttpStatusCode::isError) { _, resp ->
+                if (resp.statusCode == HttpStatus.UNAUTHORIZED) {
+                    throw KisApiException("401 Unauthorized — token will be refreshed", rtCd = "401")
+                }
+                throw KisApiException(
+                    "KIS minute chart HTTP error: ${resp.statusCode} for code=$code",
+                    rtCd = resp.statusCode.value().toString(),
+                )
+            }.body(MinuteCandleResponse::class.java)
 
     /**
      * HTTP 트리거용 공개 메서드.

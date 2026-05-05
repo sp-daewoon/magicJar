@@ -7,6 +7,8 @@ import com.mj.batch.infrastructure.kis.KisRestProperties
 import com.mj.domain.market.corp_action.CorpAction
 import com.mj.domain.market.corp_action.CorpActionSource
 import com.mj.domain.market.corp_action.port.KisCorpActionPort
+import com.mj.domain.market.kis.port.KisAuthScope
+import com.mj.domain.market.kis.port.KisTokenStorePort
 import org.slf4j.LoggerFactory
 import org.springframework.context.annotation.Profile
 import org.springframework.http.HttpStatus
@@ -61,10 +63,17 @@ private fun String.parseDecimalSafe(): BigDecimal? = trim().takeIf { it.isNotBla
 @Profile("dev | prd")
 class RealKisCorpActionAdapter(
     private val props: KisRestProperties,
-    private val tokenHolder: KisCorpActionTokenHolder,
+    private val tokenStore: KisTokenStorePort,
 ) : KisCorpActionPort {
     private val log = LoggerFactory.getLogger(RealKisCorpActionAdapter::class.java)
     private val yyyymmdd = DateTimeFormatter.ofPattern("yyyyMMdd")
+
+    /** R3-5c-3 PR4: KisCorpActionTokenHolder 폐기 → port 직접 주입. */
+    private val authScope: KisAuthScope = KisAuthScope.System("prod")
+
+    /** 호출 시점 토큰. executeWithTokenRefresh 내부에서 갱신. applyKisHeaders가 참조. */
+    @Volatile
+    private var currentToken: String = ""
 
     private val restClient: RestClient =
         RestClient
@@ -240,30 +249,34 @@ class RealKisCorpActionAdapter(
         headers: org.springframework.http.HttpHeaders,
         trId: String,
     ) {
-        headers["authorization"] = "Bearer ${tokenHolder.getToken()}"
+        headers["authorization"] = "Bearer $currentToken"
         headers["appkey"] = props.appKey
         headers["appsecret"] = props.appSecret
         headers["tr_id"] = trId
     }
 
+    /**
+     * R3-5c-3 PR4: KisCorpActionTokenHolder 폐기 → [KisTokenStorePort] 위임 + 표준 401 retry once.
+     * `currentToken` 필드를 통해 같은 호출 내 헤더가 일관되게 사용되도록 한다.
+     */
     private fun <T> executeWithTokenRefresh(action: () -> T): T {
-        tokenHolder.ensureToken(props)
+        currentToken = tokenStore.currentTokenOrIssue(authScope)
         return try {
             action()
         } catch (ex: KisApiException) {
             if (ex.rtCd == "401") {
-                log.warn("[real-kis] 401 — invalidating corp action token and retrying once")
-                tokenHolder.invalidate()
-                tokenHolder.ensureToken(props)
+                log.warn("[real-kis] 401 — invalidate corp action token + retry once")
+                tokenStore.invalidate(authScope)
+                currentToken = tokenStore.currentTokenOrIssue(authScope)
                 action()
             } else {
                 throw ex
             }
         } catch (ex: RestClientResponseException) {
             if (ex.statusCode == HttpStatus.UNAUTHORIZED) {
-                log.warn("[real-kis] 401 HTTP — invalidating corp action token and retrying once")
-                tokenHolder.invalidate()
-                tokenHolder.ensureToken(props)
+                log.warn("[real-kis] 401 HTTP — invalidate corp action token + retry once")
+                tokenStore.invalidate(authScope)
+                currentToken = tokenStore.currentTokenOrIssue(authScope)
                 action()
             } else {
                 throw KisApiException(

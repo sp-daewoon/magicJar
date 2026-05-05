@@ -5,6 +5,8 @@ import com.fasterxml.jackson.annotation.JsonProperty
 import com.mj.domain.common.Candle
 import com.mj.domain.common.Interval
 import com.mj.domain.common.Quote
+import com.mj.domain.market.kis.port.KisAuthScope
+import com.mj.domain.market.kis.port.KisTokenStorePort
 import com.mj.domain.market.port.KisRestPort
 import org.slf4j.LoggerFactory
 import org.springframework.context.annotation.Profile
@@ -43,10 +45,14 @@ import java.time.format.DateTimeFormatter
 @Profile("dev | prd")
 class RealKisRestAdapter(
     private val props: KisRestProperties,
+    private val tokenStore: KisTokenStorePort,
 ) : KisRestPort {
     private val log = LoggerFactory.getLogger(RealKisRestAdapter::class.java)
     private val zone = ZoneId.of("Asia/Seoul")
     private val yyyymmdd = DateTimeFormatter.ofPattern("yyyyMMdd")
+
+    /** R3-5c-3 PR4: batch는 시스템 키 prod 모드 단일 (백테스트·시세 backfill). */
+    private val authScope: KisAuthScope = KisAuthScope.System("prod")
 
     private val restClient: RestClient =
         RestClient
@@ -58,18 +64,11 @@ class RealKisRestAdapter(
             .requestFactory(SimpleClientHttpRequestFactory())
             .build()
 
-    /** 발급된 access_token 캐시. @Volatile 으로 가시성 보장. */
-    @Volatile
-    private var cachedToken: String? = null
-
     // -------------------------------------------------------------------------
     // KisRestPort 구현
     // -------------------------------------------------------------------------
 
-    override fun token(): String {
-        cachedToken?.let { return it }
-        return issueToken().also { cachedToken = it }
-    }
+    override fun token(): String = tokenStore.currentTokenOrIssue(authScope)
 
     override fun fetchCandles(
         code: String,
@@ -118,7 +117,7 @@ class RealKisRestAdapter(
         from: LocalDate,
         to: LocalDate,
     ): List<Candle> =
-        executeWithTokenRefresh {
+        executeWithTokenRefresh { token ->
             val periodDivCode = intervalToPeriodDivCode(interval)
             log.debug("[real-kis] fetchCandles page code={} interval={} from={} to={}", code, interval, from, to)
 
@@ -136,7 +135,7 @@ class RealKisRestAdapter(
                             .queryParam("FID_ORG_ADJ_PRC", "0")
                             .build()
                     }.headers { h ->
-                        h["authorization"] = "Bearer ${cachedToken!!}"
+                        h["authorization"] = "Bearer $token"
                         h["appkey"] = props.appKey
                         h["appsecret"] = props.appSecret
                         h["tr_id"] = "FHKST03010100"
@@ -157,7 +156,7 @@ class RealKisRestAdapter(
         }
 
     override fun fetchQuote(code: String): Quote =
-        executeWithTokenRefresh {
+        executeWithTokenRefresh { token ->
             log.debug("[real-kis] fetchQuote code={}", code)
 
             val response =
@@ -170,7 +169,7 @@ class RealKisRestAdapter(
                             .queryParam("FID_INPUT_ISCD", code)
                             .build()
                     }.headers { h ->
-                        h["authorization"] = "Bearer ${cachedToken!!}"
+                        h["authorization"] = "Bearer $token"
                         h["appkey"] = props.appKey
                         h["appsecret"] = props.appSecret
                         h["tr_id"] = "FHKST01010100"
@@ -195,32 +194,28 @@ class RealKisRestAdapter(
     // -------------------------------------------------------------------------
 
     /**
-     * 401 응답 시 토큰을 무효화하고 1회 재발급 후 재시도하는 실행 래퍼.
+     * 401 응답 시 [KisTokenStorePort.invalidate] + 1회 재발급 후 재시도하는 실행 래퍼.
      * 재시도 후에도 401이 발생하면 즉시 KisApiException 전파.
+     *
+     * R3-5c-3 PR4: 자체 토큰 캐시 폐기 → port 위임 + scope 단일 (System("prod")).
      */
-    private fun <T> executeWithTokenRefresh(action: () -> T): T {
-        // 최초 토큰 확보
-        if (cachedToken == null) {
-            cachedToken = issueToken()
-        }
+    private fun <T> executeWithTokenRefresh(action: (String) -> T): T {
+        val token = tokenStore.currentTokenOrIssue(authScope)
         return try {
-            action()
+            action(token)
         } catch (ex: KisApiException) {
             if (ex.rtCd == "401") {
-                log.warn("[real-kis] 401 received — invalidating token and retrying once")
-                cachedToken = null
-                cachedToken = issueToken()
-                // 재시도: 이번에 401이 또 나오면 그냥 전파
-                action()
+                log.warn("[real-kis] 401 received — invalidate + retry once")
+                tokenStore.invalidate(authScope)
+                action(tokenStore.currentTokenOrIssue(authScope))
             } else {
                 throw ex
             }
         } catch (ex: RestClientResponseException) {
             if (ex.statusCode == HttpStatus.UNAUTHORIZED) {
-                log.warn("[real-kis] 401 HTTP exception — invalidating token and retrying once")
-                cachedToken = null
-                cachedToken = issueToken()
-                action()
+                log.warn("[real-kis] 401 HTTP exception — invalidate + retry once")
+                tokenStore.invalidate(authScope)
+                action(tokenStore.currentTokenOrIssue(authScope))
             } else {
                 throw KisApiException(
                     "KIS API HTTP error: ${ex.statusCode} — ${ex.message}",
@@ -228,31 +223,6 @@ class RealKisRestAdapter(
                 )
             }
         }
-    }
-
-    private fun issueToken(): String {
-        log.info("[real-kis] issuing access token (baseUrl={})", props.baseUrl)
-
-        val resp =
-            restClient
-                .post()
-                .uri("/oauth2/tokenP")
-                .body(
-                    TokenRequest(
-                        appkey = props.appKey,
-                        appsecret = props.appSecret,
-                    ),
-                ).retrieve()
-                .onStatus(HttpStatusCode::isError) { _, r ->
-                    throw KisApiException(
-                        "[real-kis] token issue failed — HTTP ${r.statusCode}",
-                        rtCd = r.statusCode.value().toString(),
-                    )
-                }.body(TokenResponse::class.java)
-                ?: error("[real-kis] token issue failed — null response")
-
-        log.info("[real-kis] access token issued")
-        return resp.access_token
     }
 
     /**
@@ -283,16 +253,6 @@ class RealKisRestAdapter(
     // -------------------------------------------------------------------------
     // 내부 DTO — KIS 응답 역직렬화
     // -------------------------------------------------------------------------
-
-    private data class TokenRequest(
-        val grant_type: String = "client_credentials",
-        val appkey: String,
-        val appsecret: String,
-    )
-
-    private data class TokenResponse(
-        val access_token: String,
-    )
 
     /**
      * 일봉/주봉/월봉 응답.

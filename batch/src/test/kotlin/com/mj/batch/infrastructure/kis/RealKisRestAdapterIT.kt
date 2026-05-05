@@ -10,6 +10,7 @@ import com.github.tomakehurst.wiremock.client.WireMock.stubFor
 import com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo
 import com.github.tomakehurst.wiremock.client.WireMock.verify
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig
+import com.mj.batch.infrastructure.kis.auth.InMemoryBatchKisTokenStoreAdapter
 import com.mj.domain.common.Interval
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -51,7 +52,9 @@ class RealKisRestAdapterIT {
                 appKey = "test-app-key",
                 appSecret = "test-app-secret",
             )
-        adapter = RealKisRestAdapter(props)
+        // R3-5c-3 PR4: KisTokenStorePort 주입 — InMemory 어댑터로 회귀 검증
+        val tokenStore = InMemoryBatchKisTokenStoreAdapter(props)
+        adapter = RealKisRestAdapter(props, tokenStore)
     }
 
     @AfterEach
