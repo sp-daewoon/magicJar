@@ -40,11 +40,11 @@ import java.time.format.DateTimeFormatter
  */
 @Component
 class KisChartCandleAdapter(
-    @Value("\${spring.kis.base-url:https://openapi.koreainvestment.com:9443}")
+    @Value("\${magicjar.kis.base-url.prod:\${spring.kis.base-url:https://openapi.koreainvestment.com:9443}}")
     private val baseUrl: String,
-    @Value("\${spring.kis.app-key:}")
+    @Value("\${magicjar.kis.system.app-key.prod:\${spring.kis.app-key:}}")
     private val appKey: String,
-    @Value("\${spring.kis.app-secret:}")
+    @Value("\${magicjar.kis.system.app-secret.prod:\${spring.kis.app-secret:}}")
     private val appSecret: String,
     private val tokenStore: KisTokenStorePort,
 ) {

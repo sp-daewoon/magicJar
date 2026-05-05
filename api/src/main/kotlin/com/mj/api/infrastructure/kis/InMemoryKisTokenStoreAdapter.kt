@@ -5,6 +5,7 @@ import com.mj.domain.market.kis.port.KisAuthScope
 import com.mj.domain.market.kis.port.KisTokenStorePort
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.http.client.SimpleClientHttpRequestFactory
 import org.springframework.stereotype.Component
 import org.springframework.web.client.RestClient
@@ -21,10 +22,16 @@ import java.util.concurrent.atomic.AtomicReference
  *   - scope별 분리 ([KisAuthScope.System.mode] = "vps"·"prod") — 키·base URL 다름
  *   - 동시 발급 lock — `synchronized` (단일 JVM 내 충분, multi-JVM 분산 lock은 R3-5c-3 PR2~PR5 Redis 어댑터)
  *
- * 본 구현은 R3-5c-3 단계에서도 유지 — `magicjar.kis.redis-token.enabled=false` 디폴트일 때 활성. PR5에서
- * Redis 어댑터로 전환 시 `@ConditionalOnProperty(... matchIfMissing=true)` 게이팅 추가 예정.
+ * 본 구현은 R3-5c-3 단계에서도 유지 — `magicjar.kis.redis-token.enabled=false` 디폴트일 때 활성.
+ * `magicjar.kis.redis-token.enabled=true` 일 때는 [ApiRedisKisTokenStoreAdapter] 가 활성화되며 본 어댑터는 미등록.
  */
 @Component
+@ConditionalOnProperty(
+    prefix = "magicjar.kis.redis-token",
+    name = ["enabled"],
+    havingValue = "false",
+    matchIfMissing = true,
+)
 class InMemoryKisTokenStoreAdapter(
     @Value("\${spring.kis.base-url:https://openapi.koreainvestment.com:9443}")
     private val prodBaseUrl: String,
