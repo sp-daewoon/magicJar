@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.mj.domain.common.Candle
 import com.mj.domain.common.Interval
+import com.mj.domain.market.kis.port.KisAuthScope
 import com.mj.domain.market.kis.port.KisTokenStorePort
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -50,7 +51,9 @@ class KisChartCandleAdapter(
     private val log = LoggerFactory.getLogger(javaClass)
     private val zone: ZoneId = ZoneId.of("Asia/Seoul")
     private val yyyymmdd: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd")
-    private val mode: String = "prod" // 사용자 정책: 데이터 조회는 항상 실전 키
+
+    /** 사용자 정책: 데이터 조회는 항상 실전 시스템 키. R3-5c-3 KisAuthScope.System("prod"). */
+    private val authScope: KisAuthScope = KisAuthScope.System("prod")
 
     private val restClient: RestClient by lazy {
         RestClient
@@ -142,7 +145,7 @@ class KisChartCandleAdapter(
         } catch (ex: KisChartException) {
             if (ex.statusCode == 401 || ex.rtCd == "401") {
                 log.warn("[kis-chart] 401 — 토큰 invalidate + 1회 재시도 code={}", code)
-                tokenStore.invalidate(mode)
+                tokenStore.invalidate(authScope)
                 callOnePage(code, periodDivCode, interval, from, to)
             } else {
                 throw ex
@@ -150,7 +153,7 @@ class KisChartCandleAdapter(
         } catch (ex: RestClientResponseException) {
             if (ex.statusCode == HttpStatus.UNAUTHORIZED) {
                 log.warn("[kis-chart] 401 HTTP — 토큰 invalidate + 1회 재시도 code={}", code)
-                tokenStore.invalidate(mode)
+                tokenStore.invalidate(authScope)
                 callOnePage(code, periodDivCode, interval, from, to)
             } else {
                 throw KisChartException(
@@ -189,7 +192,7 @@ class KisChartCandleAdapter(
                         .queryParam("FID_ORG_ADJ_PRC", "0")
                         .build()
                 }.headers { h ->
-                    h["authorization"] = "Bearer ${tokenStore.currentTokenOrIssue(mode)}"
+                    h["authorization"] = "Bearer ${tokenStore.currentTokenOrIssue(authScope)}"
                     h["appkey"] = appKey
                     h["appsecret"] = appSecret
                     h["tr_id"] = "FHKST03010100"
