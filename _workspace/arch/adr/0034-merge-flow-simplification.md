@@ -27,19 +27,21 @@ agent/<agent>/<task>
    │
    └─ PR(base=main)
         │
-        └─ 사용자 승인 1회 → squash merge → main
+        └─ 사용자 승인 1회 → rebase merge → main
 ```
+
+**머지 방식**: `--rebase` 사용 (squash 금지). 사유: squash는 PR 작성 author를 web user(사용자)로 덮어써서 ADR 0036 author 화이트리스트(`bot+<agent>@magicjar.local`) 정합이 깨짐 — 에이전트의 실제 작업 history를 보존하려면 rebase가 정답.
 
 `gh pr merge:*` 는 여전히 `.claude/settings.json` 의 `ask` (사용자 승인 1회만 남음).
 
-### Phase 통합 PR (선택적, 큰 변경 묶음)
+### Wave 통합 PR (선택적, 큰 변경 묶음)
 
-Phase 단위 통합이 필요한 경우(예: Phase B 종료 시점), 임시 통합 브랜치를 그때만 만들어 단일 큰 PR로 묶을 수 있음. 영속 브랜치 아님 — **임시·1회용**.
+Wave(W1·W2·W3·W4·W5) 단위 통합이 필요한 경우(예: W2 종료 시점), 임시 통합 브랜치를 그때만 만들어 단일 큰 PR로 묶을 수 있음. 영속 브랜치 아님 — **임시·1회용**.
 
 ```
-[Phase 종료 시점, 선택]
+[Wave 종료 시점, 선택]
    여러 agent/* PR이 이미 main에 들어와 있음
-   → 별도 회고/요약 PR(`docs/phase-N-summary`)만 main에 직접
+   → 별도 회고/요약 PR(`docs/wave-N-summary`)만 main에 직접
 ```
 
 ### `qa` 브랜치 처리
