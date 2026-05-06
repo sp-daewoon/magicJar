@@ -2,6 +2,11 @@
 // magicJar Task 파일 시스템 CLI 헬퍼.
 // _workspace/tasks/<id>.md 를 생성·갱신·archive 한다.
 //
+// v3 (ADR 0036 §2-2) — 멀티 agent 호환:
+//   각 sub-agent (architect · backend-core · market-data · strategy · ai · frontend · qa)
+//   가 독립 발급·자기 git author로 commit. 병렬 디스패치 안전.
+//   task ID 충돌 방지: slug에 agent 이름 권장 (T-YYYYMMDD-HHMM-<agent>-<topic>).
+//
 // 사용 예:
 //   node scripts/task.mjs start --agent backend-core --branch agent/backend-core/X --goal "Gradle 멀티모듈 뼈대"
 //   node scripts/task.mjs check "core 도메인 모델"

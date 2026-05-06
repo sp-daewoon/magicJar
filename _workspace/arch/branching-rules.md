@@ -1,6 +1,6 @@
-# 브랜치 운영 실전 가이드 (v2 · QA 게이트 배제 후속)
+# 브랜치 운영 실전 가이드 (v3 · 3단 hierarchy + 병렬 worktree 허용)
 
-ADR 0033·0034·0035·0036 정합. 단일 worktree·1단 머지·model 차등·orchestrator-meta(git author + task 시스템). **QA 게이트는 본 새 repo에서 배제** (사용자 명시 — 실서비스 진입 시 별도 ADR로 회귀 검토).
+ADR 0033·0034·0035·0036 정합. 오케스트라 판단 하 병렬 worktree·1단 머지·model 차등·3단 hierarchy(최고 관리자 → 오케스트라 → architect → 실무 sub-agents). **QA 게이트는 본 새 repo에서 배제** (사용자 명시 — 실서비스 진입 시 별도 ADR로 회귀 검토).
 
 ## 베이스라인 태그·release 브랜치 (ADR 0031)
 
@@ -15,17 +15,23 @@ ADR 0033·0034·0035·0036 정합. 단일 worktree·1단 머지·model 차등·o
 ## 한눈에 보는 흐름
 
 ```
-[오케스트레이터(architect) 작업 할당]
+[최고 관리자 — 비전·우선순위 결정]
+        │
+        ▼
+[오케스트라 — 작업 분해 + 충돌 행렬 점검 (ADR 0036 §2-3)]
+        │
+        ▼
+[architect — 설계·ADR 발행 (필요 시)] / [sub-agent 직접 dispatch (병렬 가능)]
         │
         ▼
 git switch main && git pull --ff-only
-git switch -c agent/<agent>/<task-slug>          # 브랜치 생성
+git switch -c agent/<agent>/<task-slug>          # 브랜치 생성 (메인 worktree 또는 병렬 worktree)
         │
         ▼
 node scripts/task.mjs start --agent <a> --goal "..."  # task 파일 (ADR 0036)
         │
         ▼
-[작업 — 메인 worktree에서 직접 또는 sub-agent 호출]
+[작업 — sub-agent 자기 worktree·자기 author]
    ├─ task.mjs check "<항목>"     결과물 한 개 완료마다
    ├─ task.mjs touch "<메모>"     진척마다
    └─ git commit (author = bot+<agent>@magicjar.local)    ADR 0036
@@ -44,11 +50,19 @@ node scripts/task.mjs done --pr N
 [사용자 승인] gh pr merge N --rebase --delete-branch
         │
         ▼
+[오케스트라 — 머지 후 정리 의무 (ADR 0033 §결과)]
+   ├─ git worktree unlock + remove --force
+   ├─ git branch -d agent/<a>/<task>
+   ├─ git worktree prune + 빈 디렉토리 청소
+   └─ node scripts/task.mjs archive T-...
+        │
+        ▼
 git switch main && git pull
-node scripts/task.mjs archive T-...
 ```
 
 **사용자 승인 지점은 정확히 1개**: `gh pr merge`.
+
+오케스트라가 충돌 행렬에서 독립 작업으로 판단한 경우 다수 sub-agent를 동시 dispatch 가능 (ADR 0033 §결정 — 병렬 디스패치 권장 케이스).
 
 ## 브랜치 네이밍
 
