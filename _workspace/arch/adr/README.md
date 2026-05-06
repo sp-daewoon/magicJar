@@ -92,15 +92,25 @@
 | 0039 | 종목 마스터 갱신 Cron (KIS 갱신 시각 +5분) |
 | 0040 | 관심종목 우선 UI 흐름 (Strategy Builder → 발굴 → Watchlist → 상세) |
 
+## §10-1. 자동매매 Critical Fitness 갭 (3건)
+
+자동매매 본체 정상 작동 의무 — 2026-05-07 architect 감사 발굴 6대 갭 중 Critical 3건.
+
+| 번호 | 제목 | 영향 Wave |
+|------|------|------|
+| 0041 | Broker Reconciliation Job (KIS 잔고 ↔ 내부 position 정합) | W1·W3 |
+| 0042 | Position Bootstrap & Recovery (앱 시작·WS 재연결 시 잔고 복구) | W1 |
+| 0043 | KillSwitch 행동 정의 (ON 시 신호·주문·통지·재시작 정책) | W3 |
+
 ## §11. 운영 규약
 
 - **새 ADR 발행 시** — 본 README + master §10 + tracks-roadmap §3 동시 갱신
 - **Superseded 처리 시** — 본문 상단 헤더 + `_archive/` 이동 + 본 README §추가
-- **신규 진입 시 후속 ADR 번호** — 0041부터 sequential
+- **신규 진입 시 후속 ADR 번호** — 0044부터 sequential (0041~0043 발행 완료 — §10-1 정합)
 
 ## §12. 후속 예정 (Proposed)
 
-- **0041** (T-PAT 진입 시) — 57 캔들 패턴 표준
-- **0042** (T-BT 진입 시) — Backtest 표준 (룩어헤드·세금·수수료·슬리피지)
-- **0043** (T-SC 진입 시) — Screener 표준
-- **0044** (T-PERF 진입 시) — Performance 표준
+- **0044** (T-PAT 진입 시) — 57 캔들 패턴 표준
+- **0045** (T-BT 진입 시) — Backtest 표준 (룩어헤드·세금·수수료·슬리피지)
+- **0046** (T-SC 진입 시) — Screener 표준
+- **0047** (T-PERF 진입 시) — Performance 표준

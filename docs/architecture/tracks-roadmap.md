@@ -11,7 +11,7 @@
 |---|---|---|---|---|
 | **W1 — Watchlist + 데이터 기반** (오프라인 1순위) | **관심종목 등록·Ingestion (최우선)** + 종목 마스터·시세 fallback·세션·corp action | **T-W1·T-W2·T-S1** + T-MS1·T-IM1·T-CA1 | 0 | 필수 |
 | **W2 — 분석 도구** | 80지표·57패턴·DSL·Strategy Builder UI | T-IND·T-PAT·T-DSL·T-SB | 0 | 필수 |
-| **W3 — 자동 매매 본체** (룰만) | 백테스트·screener·signal·risk·order 통합·perf | T-BT·T-SC·T-SIG·T-RISK·T-PERF | 0 | 필수 |
+| **W3 — 자동 매매 본체** (룰만) | 백테스트·screener·signal·risk·order 통합·**reconcile**·perf | T-BT·T-SC·T-SIG·T-RISK·T-O·**T-RECON**·T-PERF | 0 | 필수 |
 | **W4 — AI 옵션 + MCP 서버** | 사용자 트리거 AI 코멘트·기업 분석·MCP server | T-AI·T-MCP | 옵션 (사용자 트리거만) | 필수 (AI 끊겨도 본체 영향 0) |
 | **W5 — 사용자 학습 + 일원화** | LWC 확장 시각화·사용자 학습 시나리오·데이터 정합성 검증 | T-LWC·T-LEARN | 0 | 필수 |
 
@@ -21,11 +21,11 @@
 
 ---
 
-## §2. 트랙 목록표 (총 17 트랙)
+## §2. 트랙 목록표 (총 18 트랙)
 
 | ID | 이름 | 마스터 §위치 | 목표 한 줄 | 선행 | 후행 | Wave | 사이즈 | 담당 |
 |---|---|---|---|---|---|---|---|---|
-| **T-W1** ★ | **Watchlist CRUD (UI + REST + DB)** | §D.15 | 관심종목 등록 화면(최우선) + REST + Flyway watchlist 테이블 | - | T-W2·T-S1·T-SB | **W1 ★** | M | frontend+backend-core |
+| **T-W1** ★ | **Watchlist CRUD (UI + REST + DB)** + Position Bootstrap (ADR 0042) | §D.15 | 관심종목 등록 화면(최우선) + REST + Flyway watchlist 테이블 + 부팅 시 KIS 잔고 워밍 | - | T-W2·T-S1·T-SB | **W1 ★** | M | frontend+backend-core |
 | **T-W2** ★ | **Watchlist Ingestion Worker** | §A.2 | consumer 1~5초 polling + KIS WS sub + Yahoo cold-start fetch | T-W1 + ADR 0028·0037·0038 | T-S1·W3 | **W1 ★** | L | market-data+backend-core |
 | **T-S1** ★ | **Symbol Detail (현재가·종목상세·차트)** | §A.2·§D.17 | Watchlist row 클릭 → 상세 화면 (현재가 + PER/PBR/시총 + LWC 차트) | T-W2 + ADR 0019·0029 | T-SB·T-O | **W1 ★** | M | frontend+market-data |
 | T-MS1 | Market Session + Data Fallback | §A.2·§3.2 | 장 상태 인지·시세 fallback·REJECTED audit | T-W2 | W3 | W1 | M | backend-core+market-data |
@@ -39,7 +39,8 @@
 | T-SC | Screener | §C.10 | universe × DSL → 후보+랭킹 + 캐시 | T-IM1·T-CA1·T-DSL | T-SIG | W3 | M | backend-core |
 | T-SIG | Signal Engine (룰 매칭 only, AI 호출 0) | §C.11 | Watchlist × 활성 전략 → BUY/SELL/HOLD + 강도 | T-MS1·T-IND·T-PAT·T-DSL·T-SC | T-RISK·T-O·T-PERF | W3 | M | strategy-engine |
 | T-RISK | Risk & Position (Guard chain 6단) | §C.13 | PositionLimit·DrawdownStop·Position projection | T-MS1·T-SIG | T-O·T-PERF | W3 | L | backend-core |
-| T-O | Order (KIS Order Adapter + multi-tenant + 안전 게이트) | §C.12 | 시그널 → Guard → KisOrderSender → 체결 → audit | T-W2·T-SIG·T-RISK | T-J·T-PERF | W3 | XL | backend-core+market-data |
+| T-O | Order (KIS Order Adapter + multi-tenant + 안전 게이트) + KillSwitch 행동 (ADR 0043) | §C.12 | 시그널 → Guard → KisOrderSender → 체결 → audit + KillSwitch ON 5대 행동 | T-W2·T-SIG·T-RISK | T-J·T-PERF·T-RECON | W3 | XL | backend-core+market-data |
+| **T-RECON** | **Broker Reconciliation (ADR 0041)** | §C.12·§3-1 부수 | KIS 잔고 cron 폴링 + drift 검출 + KillSwitch auto-ON | T-O | T-PERF | **W3** | M | backend-core+market-data |
 | T-J | Trading Journal | §D.16 | 모든 주문·체결·시그널·차트 스냅샷 영속 + 사용자 메모 | T-O | T-PERF | W3 | M | backend-core+frontend |
 | T-PERF | Performance Loop (오프라인 통계) | §C.14 | 일/주 P&L·MDD·승률 | T-J·T-SIG·T-RISK | W4 | W3 | M | backend-core |
 | T-LWC | LWC 확장 + 자체 도형/주석/패턴 | §D.17 | TradingView Advanced 의존 0 + 자체 overlay layer | T-PAT·T-SIG | - | W5 | M | frontend |
@@ -122,7 +123,7 @@
 - **선행/후행**: T-IND / T-DSL·T-SIG (DSL이 패턴을 조건으로 사용, T-LWC가 시각화 강화)
 - **오프라인 동작**: 필수 (in-process 룰)
 - **KIS 흡수**: 57개 패턴 명세만 (KIS doc 기반)
-- **ADR**: T-PAT 진입 시 발행 (0041 후보 — 57 캔들 패턴 표준, README §12 정합)
+- **ADR**: T-PAT 진입 시 발행 (0044 후보 — 57 캔들 패턴 표준, README §12 정합)
 - **데이터**: 영속 안 함 (실시간 인식 + 차트 마커만). Redis 캐시 선택
 - **산출물**:
   - `domain/.../pattern/` (port·spec·match)
@@ -176,7 +177,7 @@
 - **선행/후행**: T-CA1·T-DSL / T-SIG·T-PERF
 - **오프라인 동작**: 필수 (영속 candle만 있으면)
 - **KIS 흡수**: KIS는 백테스트 엔진 미공개. magicJar 자체 (현행 BacktestRunJob 확장)
-- **ADR**: T-BT 진입 시 발행 (0042 후보 — Backtest 표준, README §12 정합)
+- **ADR**: T-BT 진입 시 발행 (0045 후보 — Backtest 표준, README §12 정합)
 - **데이터**: `backtest_run` 현행 + `backtest_summary` 보강
 - **산출물**:
   - `batch/.../job/backtest/BacktestRunJob.kt` v2 (T-CORP-ACTION adjusted 사용)
@@ -192,7 +193,7 @@
 - **선행/후행**: T-IM1·T-CA1·T-DSL / T-SIG
 - **오프라인 동작**: 필수 (영속 candle + 룰만)
 - **KIS 흡수**: 자체 — KIS는 screener 부재
-- **ADR**: T-SC 진입 시 발행 (0043 후보 — Screener 표준, README §12 정합)
+- **ADR**: T-SC 진입 시 발행 (0046 후보 — Screener 표준, README §12 정합)
 - **데이터**: `screener_query`·`screener_result` (V16). Redis `screener:result:{queryHash}` TTL 5분. Kafka `screener.result.v1`
 - **산출물**:
   - `domain/.../screener/` 도메인
@@ -223,10 +224,10 @@
 
 - **마스터 §위치**: §C.13
 - **목표**: PositionLimit·DrawdownStop·Position projection. Guard chain 6단 합류
-- **선행/후행**: T-MS1·T-SIG / T-PERF
+- **선행/후행**: T-MS1·T-SIG / T-PERF·T-RECON
 - **오프라인 동작**: 필수 (in-process 정책)
 - **KIS 흡수**: KIS `core/position_manager.py` 참조
-- **ADR**: 0024 (Risk Guard chain 6단)
+- **ADR**: 0024 (Risk Guard chain 6단) · **0043 (KillSwitch 행동 정의)**
 - **데이터**: `position`·`pnl_daily`·`risk_event` (V18). Kafka `risk.event.v1`
 - **산출물**:
   - `domain/.../position/`·`risk/`
@@ -239,6 +240,24 @@
   - `frontend/src/pages/{Positions,Risk}/index.tsx`
 - **비범위**: VaR·CVaR 정밀 (post-MVP)
 
+### T-RECON — Broker Reconciliation (ADR 0041 자동매매 fitness 갭 1번)
+
+- **마스터 §위치**: §C.12·§3-1 부수 흐름
+- **목표**: KIS 잔고 cron 폴링(시장 OPEN 5분/CLOSED 1시간) + 내부 position diff → drift 시 DB upsert + Redis 갱신 + KillSwitch auto-ON + Kafka publish
+- **선행/후행**: T-O / T-PERF
+- **오프라인 동작**: 부분 (KIS REST 의존 — 끊겨도 본체 매매 영향 0, drift 검출만 잠시 부재)
+- **KIS 흡수**: `inquire_balance.py` 정합 (TR_ID `TTTC8434R`/`VTTC8434R`)
+- **ADR**: **0041 (Broker Reconciliation Job)** + ADR 0037 (Rate Limit) + ADR 0038 (OAuth 분산락)
+- **데이터**: `reconcile_run` 신규(V22) · `risk_event.type=POSITION_DRIFT` · Kafka `position.reconciled.v1` / `position.drift.v1`
+- **산출물**:
+  - `domain/.../position/port/KisBalancePort.kt` (interface)
+  - `domain/.../position/BalanceReconciler.kt` (도메인 diff 로직)
+  - `consumer/.../infrastructure/kis/KisBalanceAdapter.kt` (REST adapter)
+  - `batch/.../job/reconcile/BalanceReconcileJob.kt` (`@Scheduled`)
+  - `consumer/.../messaging/listener/KillSwitchAutoToggler.kt` (drift sub)
+  - `api/.../controller/RiskController.kt`에 `POST /api/risk/reconcile/{userId}` 추가
+- **비범위**: 글로벌 reconcile (1차는 user별만), drift 임계치 사용자 설정화 (post-MVP — 0047 후보)
+
 ### T-PERF — Performance Loop (오프라인 통계 + Journal Auto-screenshot)
 
 - **마스터 §위치**: §C.14·§D.15
@@ -246,7 +265,7 @@
 - **선행/후행**: T-SIG·T-RISK / W4
 - **오프라인 동작**: 필수 (영속 데이터만)
 - **KIS 흡수**: 없음
-- **ADR**: T-PERF 진입 시 발행 (0044 후보 — Performance 표준, README §12 정합)
+- **ADR**: T-PERF 진입 시 발행 (0047 후보 — Performance 표준, README §12 정합)
 - **데이터**: `pnl_daily` (V18) · `chart_snapshot` 영속 강화. Kafka `journal.recorded.v1`
 - **산출물**:
   - `batch/.../job/perf/DailyPerformanceJob.kt` (오프라인 통계만)
@@ -399,7 +418,7 @@ W4는 W3 완료 후 진입. W5는 옵션 (T-LWC는 W3와 병렬 가능).
 |---|---|---|---|
 | **W1 — 데이터 기반** | T-MS1 + T-IM1 (병렬) → T-CA1 | ~3주 | 토요일 dogfooding 통과 + 종목 검색·universe 정상 + 차트 adjusted 정확 |
 | **W2 — 분석 도구** | T-IND + T-PAT (병렬) → T-DSL → T-SB | ~5주 | 80지표 정확성·차트 overlay + GUI 블록 빌더 yaml export/import 동작 |
-| **W3 — 자동 매매 본체** (룰 only) | T-BT + T-SC (병렬) → T-SIG → T-RISK → T-PERF | ~5주 | 시그널 → 주문 e2e 1사이클 + 일별 perf 기록 + AI 호출 0 검증 |
+| **W3 — 자동 매매 본체** (룰 only) | T-BT + T-SC (병렬) → T-SIG → T-RISK → T-O → **T-RECON** → T-PERF | ~5주 | 시그널 → 주문 e2e 1사이클 + reconcile drift 검출 1사이클 + KillSwitch ON 시 5대 행동 검증 + 일별 perf 기록 + AI 호출 0 검증 |
 | **W4 — AI 옵션 + MCP** | T-AI → T-MCP | ~3주 | 사용자 클릭 시 AI 응답 + MCP tool 5종 외부 호출 가능 |
 | **W5 — 사용자 학습 + LWC 확장** | T-LWC + T-LEARN (병렬) | ~3주 | 사용자 시스템 투어 완료 + 데이터 정합성 체크리스트 통과 |
 
@@ -461,3 +480,4 @@ W4는 W3 완료 후 진입. W5는 옵션 (T-LWC는 W3와 병렬 가능).
 | 2026-05-03 (v1) | 13 트랙 + 5 Wave (architect, opus 4.7 1M) — "AI Decision Layer T-RISK" 가정. 사용자 비전 정정으로 폐기. |
 | 2026-05-03 (v2) | **풀 재작성** — 14 트랙 + 5 Wave. AI 트랙(W4 T-AI·T-MCP) 분리. T-LWC LWC 확장(TradingView Advanced 폐기). T-LEARN 사용자 학습 신설. (architect, opus 4.7 1M) |
 | 2026-05-07 (PR-2) | §3 outline ADR 매핑 정합 — 옛 0032·0033·0034·0035·0036·0037·0038·0039·0040·0041·0042·0044·0045·0046 → 현행 0013·0014·0015·0016·0017·0018·0020·0021·0022·0023·0024·0025·0026·0027 재매핑. T-PAT/T-BT/T-SC/T-PERF 후속 후보 0048~0051 → 0041~0044 (README §12 정합). (architect) |
+| 2026-05-07 (PR-3a) | 자동매매 fitness 갭 ADR 0041·0042·0043 발행 정합 — §2 T-W1·T-O ADR cross-ref + 신규 트랙 **T-RECON (W3)** 신설, §3 T-RECON outline 추가, §3 T-RISK ADR 0043 추가, §5 W3 진행 순서에 T-RECON 합류, T-PAT/T-BT/T-SC/T-PERF 후속 후보 0044~0047 시프트 (3 슬롯). (architect) |
