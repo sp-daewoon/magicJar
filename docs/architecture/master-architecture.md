@@ -546,10 +546,11 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 
 | 후보 번호 | 제목 (예정) | 진입 트랙 |
 |---|---|---|
-| 0048 | 57 캔들 패턴 표준 | T-PAT |
-| 0049 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT |
-| 0050 | Screener 표준 | T-SC |
-| 0051 | Performance 표준 | T-PERF |
+| 0048 | KIS WS 41건 구독 한도 + 우선순위 정책 (관심종목 41 종목 초과 시 priority eviction · stream multiplexing) | T-W1·T-MS1 |
+| 0049 | 57 캔들 패턴 표준 | T-PAT |
+| 0050 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT |
+| 0051 | Screener 표준 | T-SC |
+| 0052 | Performance 표준 | T-PERF |
 
 ---
 
@@ -596,3 +597,4 @@ v1·v2 검토 시점에 누적된 결정 항목과 v3.0.0 베이스라인 컷(20
 | 2026-05-07 (PR-3a) | 자동매매 fitness 갭 Critical 3건 ADR 0041·0042·0043 신규 발행 정합 — §10 인덱스 3행 추가, §3-1 [0] Position Bootstrap 단계 prepend + 부수 흐름 3건 명시, §6 Kafka topic 3건 추가(`position.reconciled.v1`·`position.drift.v1`·`risk.killswitch.v1`), §10 후속 예정 0044~0047 시프트. (architect) |
 | 2026-05-07 (PR-3b) | 운영·UX fitness 갭 3건 ADR 0044·0045·0046 신규 발행 정합 — §10 인덱스 3행 추가(0044 Notification·0045 Graceful Shutdown·0046 Onboarding), §10 헤더 0001~0046 갱신, §6 Kafka topic 5건 추가(`risk.violation.v1`·`kis.token.expired.v1`·`system.startup.v1`·`system.shutdown.v1`·`notification.sent.v1`) + position.drift.v1·risk.killswitch.v1 consumer에 NotificationDispatcher 합류, §3-1 부수 흐름 3건 추가(Notification·Graceful Shutdown·Onboarding Setup), §10 후속 예정 0047~0050 시프트. (architect) |
 | 2026-05-07 (PR-3c) | DSL 안전성 갭 ADR 0047(DSL Evaluation Sandbox) 신규 발행 정합 — §10 인덱스 1행 추가, §10 헤더 0001~0047 갱신, §3-1 부수 흐름 1건 추가(DSL Sandbox — static 검증·runtime timeout·strategy-eval-pool 격리·auto-disable·`risk.violation.v1` type 확장), §10 후속 예정 0048~0051 시프트. Kafka 신규 topic 0건(기존 `risk.violation.v1` payload type 확장만). (architect) |
+| 2026-05-07 (PR-4) | v1/v2 잔여 grep 8회 검증 — 실질 잔재 0건(모두 의도된 historical context — 0014 T1/T2/T3 tier 표기·0004/0005/0006/0031/0032 Phase 역사적 마커·0020/0021/0027/0030 1차안 폐기 마커). §10 후속 예정에 ADR 0048 후보 prepend(KIS WS 41건 구독 한도 + 우선순위 정책 — PR-3b architect 발굴 갭) + 기존 0048~0051을 0049~0052로 시프트. v3.0.1 컷 준비 — CHANGELOG entry 추가, ADR 47건(0001~0047) + 파일명/헤더 일치 + README §12 정합 모두 GREEN. (architect) |

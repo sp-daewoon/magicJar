@@ -124,13 +124,14 @@
 
 - **새 ADR 발행 시** — 본 README + master §10 + tracks-roadmap §3 동시 갱신
 - **Superseded 처리 시** — 본문 상단 헤더 + `_archive/` 이동 + 본 README §추가
-- **신규 진입 시 후속 ADR 번호** — 0048부터 sequential (0041~0047 발행 완료 — §10-1·§10-2·§10-3 정합)
+- **신규 진입 시 후속 ADR 번호** — 0048부터 sequential (0041~0047 발행 완료 — §10-1·§10-2·§10-3 정합). 0048 슬롯은 PR-4에서 **KIS WS 41건 구독 한도 + 우선순위 정책**으로 prepend(57 캔들 패턴 등은 1씩 시프트).
 
 ## §12. 후속 예정 (Proposed)
 
-| 후보 번호 | 제목 (예정) | 진입 트랙 |
-|---|---|---|
-| 0048 | 57 캔들 패턴 표준 | T-PAT |
-| 0049 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT |
-| 0050 | Screener 표준 | T-SC |
-| 0051 | Performance 표준 | T-PERF |
+| 후보 번호 | 제목 (예정) | 진입 트랙 | 사유 |
+|---|---|---|---|
+| 0048 | KIS WS 41건 구독 한도 + 우선순위 정책 (관심종목 41 종목 초과 시 priority eviction · stream multiplexing 검토) | T-W1·T-MS1 (W1 후반) | PR-3b architect 발굴 갭 — 41 종목 이상 동시 watchlist 시 구독 우선순위 정책 ADR 부재 |
+| 0049 | 57 캔들 패턴 표준 | T-PAT | — |
+| 0050 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT | — |
+| 0051 | Screener 표준 | T-SC | — |
+| 0052 | Performance 표준 | T-PERF | — |
