@@ -130,6 +130,10 @@ magicJar는 미래에 **MCP 서버를 외부에 노출**해 Claude/Cursor 등 AI
 ### 3-1. 본체 자동 매매 흐름 (오프라인 동작 — AI 호출 0)
 
 ```
+[0] Position Bootstrap (consumer ApplicationRunner — ADR 0042)
+       활성 user 순회 → KIS REST 잔고(TTTC8434R) → DB position upsert →
+       Redis position:current:{userId} 워밍 (TTL 24h) → KIS WS 구독 시작
+       ↓
 [1] InstrumentSyncJob (cron 17:00) → instrument 테이블 갱신
        ↓
 [2] DailyCandleBackfillJob (cron 18:00) → candle 테이블 영속
@@ -150,7 +154,12 @@ magicJar는 미래에 **MCP 서버를 외부에 노출**해 Claude/Cursor 등 AI
 [9] 일별 PerformanceJob — P&L·MDD·승률 통계
 ```
 
-**위 9단계 모두 AI 호출 0건. 외부 LLM 끊겨도 정상 동작**.
+**위 0~9단계 모두 AI 호출 0건. 외부 LLM 끊겨도 정상 동작**.
+
+**부수 흐름 (사이클 외 안전망)**:
+- **WS 재연결 시 Recovery (ADR 0042)** — `KisWsReconnectedEvent` listener → `inquire-daily-ccld` (TTTC0081R) 호출 → missed exec fetch → DB·Redis 적용
+- **Balance Reconcile (ADR 0041)** — 시장 OPEN 5분 cron / CLOSED 1시간 cron → KIS REST 잔고 vs DB diff → drift 시 KillSwitch auto-ON + Kafka publish
+- **KillSwitch ON 행동 (ADR 0043)** — ON 시 시그널 emit 정지 + pending cancel(`order-rvsecncl` TTTC0803U) + STOMP push + 신규 주문 422 + 체결통보는 정상 수신
 
 ### 3-2. 장외 시세 fallback 흐름 (오프라인 정합)
 
@@ -375,6 +384,9 @@ domain/src/main/kotlin/com/mj/domain/
 | `order.rejected.v1` | consumer | api (STOMP) | 30d | T-MS1 |
 | `journal.recorded.v1` | consumer | api (STOMP fanout) | 30d | T-J |
 | `risk.event.v1` | consumer | api (STOMP), consumer (KillSwitch trigger) | 30d | T-RISK |
+| `position.reconciled.v1` (ADR 0041) | batch | (audit) | 7d | T-RECON·T-O |
+| `position.drift.v1` (ADR 0041) | batch | consumer(KillSwitchAutoToggler), api(STOMP) | 30d | T-RECON·T-O |
+| `risk.killswitch.v1` (ADR 0043) | api·batch·consumer | api(STOMP fanout) | 30d | T-RISK·T-O |
 | `ai.comment.requested.v1` (W4) | api | consumer (LLM 호출) | 1d | W4 |
 | `ai.comment.responded.v1` (W4) | consumer | api (STOMP) | 7d | W4 |
 
@@ -513,15 +525,18 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | 0038 | KIS OAuth 24h 토큰 + Redis 분산락 공통 모듈 | 외부 API·UI 흐름 | W1 |
 | 0039 | 종목 마스터 갱신 Cron (KIS 갱신 시각 +5분) | 외부 API·UI 흐름 | W1 |
 | 0040 | 관심종목 우선 UI 흐름 (Strategy Builder → 발굴 → Watchlist → 상세) | 외부 API·UI 흐름 | W1 |
+| 0041 | Broker Reconciliation Job (KIS 잔고 ↔ 내부 position 정합) | 자동매매 fitness | W1·W3 |
+| 0042 | Position Bootstrap & Recovery (앱 시작·WS 재연결 시 잔고 복구) | 자동매매 fitness | W1 |
+| 0043 | KillSwitch 행동 정의 (ON 시 신호·주문·통지·재시작 정책) | 자동매매 fitness | W3 |
 
 ### 후속 예정 (Proposed — `_workspace/arch/adr/README.md` §12 정합)
 
 | 후보 번호 | 제목 (예정) | 진입 트랙 |
 |---|---|---|
-| 0041 | 57 캔들 패턴 표준 | T-PAT |
-| 0042 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT |
-| 0043 | Screener 표준 | T-SC |
-| 0044 | Performance 표준 | T-PERF |
+| 0044 | 57 캔들 패턴 표준 | T-PAT |
+| 0045 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT |
+| 0046 | Screener 표준 | T-SC |
+| 0047 | Performance 표준 | T-PERF |
 
 ---
 
@@ -565,3 +580,4 @@ v1·v2 검토 시점에 누적된 결정 항목과 v3.0.0 베이스라인 컷(20
 | 2026-05-03 (v1) | 1차안 (architect, opus 4.7 1M) — "AI quant trading platform" 가정. 사용자 비전 정정으로 폐기. |
 | 2026-05-03 (v2) | **풀 재작성** — 룰 기반 본체 + AI 옵션 + MCP 서버 미래. 18 컴포넌트 4 영역. 새 ADR 0031~0047 17건. (architect, opus 4.7 1M) |
 | 2026-05-07 (PR-2) | SoT 동기화 — §10 ADR 인덱스 0001~0040 풀 재작성, §2 헤더 19 컴포넌트 정정, §6 Kafka `watchlist.changed.v1` topic 추가, §12 사용자 결정 누적 카드 정리, AI 변수명 `MAGICJAR_AI_OPTION_ENABLED` → `MAGICJAR_AI_ENABLED` 통일. (architect) |
+| 2026-05-07 (PR-3a) | 자동매매 fitness 갭 Critical 3건 ADR 0041·0042·0043 신규 발행 정합 — §10 인덱스 3행 추가, §3-1 [0] Position Bootstrap 단계 prepend + 부수 흐름 3건 명시, §6 Kafka topic 3건 추가(`position.reconciled.v1`·`position.drift.v1`·`risk.killswitch.v1`), §10 후속 예정 0044~0047 시프트. (architect) |
