@@ -102,15 +102,27 @@
 | 0042 | Position Bootstrap & Recovery (앱 시작·WS 재연결 시 잔고 복구) | W1 |
 | 0043 | KillSwitch 행동 정의 (ON 시 신호·주문·통지·재시작 정책) | W3 |
 
+## §10-2. 운영·UX Fitness 갭 (3건)
+
+자동매매 본체 운영 안정성 + 첫 사용자 경험 — 2026-05-07 PR-3b 발굴.
+
+| 번호 | 제목 | 영향 Wave |
+|------|------|------|
+| 0044 | Notification System (Slack webhook 1차 + Kafka 트리거 + outbox fallback) | W3 (T-NOTIFY 신설 후보) |
+| 0045 | Graceful Shutdown & In-flight 처리 (SIGTERM · Kafka manual commit · idempotency) | W1 (횡단 — 모든 트랙 의무) |
+| 0046 | Onboarding & Credential Registration (테이블 3종 분리 · 마스터 키 단일 예외) | W1 ★ (T-ONBOARD 신설 후보 — T-W1보다 먼저) |
+
 ## §11. 운영 규약
 
 - **새 ADR 발행 시** — 본 README + master §10 + tracks-roadmap §3 동시 갱신
 - **Superseded 처리 시** — 본문 상단 헤더 + `_archive/` 이동 + 본 README §추가
-- **신규 진입 시 후속 ADR 번호** — 0044부터 sequential (0041~0043 발행 완료 — §10-1 정합)
+- **신규 진입 시 후속 ADR 번호** — 0047부터 sequential (0041~0046 발행 완료 — §10-1·§10-2 정합)
 
 ## §12. 후속 예정 (Proposed)
 
-- **0044** (T-PAT 진입 시) — 57 캔들 패턴 표준
-- **0045** (T-BT 진입 시) — Backtest 표준 (룩어헤드·세금·수수료·슬리피지)
-- **0046** (T-SC 진입 시) — Screener 표준
-- **0047** (T-PERF 진입 시) — Performance 표준
+| 후보 번호 | 제목 (예정) | 진입 트랙 |
+|---|---|---|
+| 0047 | 57 캔들 패턴 표준 | T-PAT |
+| 0048 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT |
+| 0049 | Screener 표준 | T-SC |
+| 0050 | Performance 표준 | T-PERF |
