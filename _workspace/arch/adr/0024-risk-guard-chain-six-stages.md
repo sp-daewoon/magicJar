@@ -100,4 +100,4 @@ Kafka `risk.event.v1` — Drawdown trigger·KillSwitch toggle·PositionLimit 도
 - ADR 0013 (Market Session)
 - ADR 0014 (PriceSanity의 stale 판정)
 - ADR 0015 (REJECTED Audit)
-- 트랙1 KIS Order Adapter (`_workspace/_archive/dogfooding/2026-05-02.md`)
+- 관련 트랙: T-RISK (Risk Guard chain, W3), T-O (Order/Watchlist 1차, W3) — tracks-roadmap.md §2

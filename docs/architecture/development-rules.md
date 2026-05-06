@@ -187,7 +187,7 @@ Husky pre-commit에 author 화이트리스트 가드 적용 (ADR 0036 강제).
 
 - [ ] master §X 위치 명시
 - [ ] 선행 트랙 상태 확인 (DONE 또는 R3 머지)
-- [ ] 신규 ADR 후보 식별 (있으면 master §10·REORGANIZATION §3 참조)
+- [ ] 신규 ADR 후보 식별 (있으면 master §10 + ADR 0030 SoT 운영 규약 참조)
 - [ ] task 파일 생성
 - [ ] 데이터 영향 식별 (Flyway 번호·Kafka 토픽·Redis key 매트릭스)
 - [ ] 사용자 결정 필요 사항 사전 컨펌 (외부 자원·아키 결정)

@@ -109,5 +109,4 @@ class DbKisCredentialProvider(
 
 - master-architecture.md §1, §D.18, §6-2
 - ADR 0036 (Git author per agent — bot 사용자도 같은 schema)
-- 트랙1 spec/plan `docs/superpowers/{specs,plans}/2026-05-02-track1-kis-order-*.md`
-- `_workspace/operations/order-policy.md` (트랙1 운영 가이드)
+- 관련 트랙: T-O (Order/Watchlist 1차, W3) — tracks-roadmap.md §2

@@ -5,8 +5,8 @@
 > **작성자**: architect (opus 4.7 1M)
 > **선행 폐기**: 1차안 v1 (765줄, 2026-05-03) — "AI quant trading platform · AI 직접 매매" 가정 비전 정정으로 풀 폐기.
 > **범위**: magicJar 전체 시스템의 단일 진실원. 룰 기반 quant 본체 + AI 옵션 보조 + MCP 서버 미래.
-> **선행 ADR**: 0001~0030 (재분류 — `_workspace/arch/adr/REORGANIZATION.md` 참조)
-> **신규 ADR**: 0031~0047 (master §10에 핵심 결정 한 줄. 정식 발행은 W1 진입 직전 + 트랙 진입 시 부분).
+> **선행 ADR**: 0001~0040 (전체 인덱스는 `_workspace/arch/adr/README.md`)
+> **신규 ADR**: 0041~ (master §10에 핵심 결정 한 줄. 정식 발행은 W1 진입 직전 + 트랙 진입 시 부분).
 
 ---
 
@@ -468,7 +468,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 
 ## §10. 핵심 ADR 세트 (v2 — 0031~0047)
 
-상세는 `_workspace/arch/adr/REORGANIZATION.md` §3 + 각 트랙 진입 시 발행. 핵심만 한 줄:
+상세는 `_workspace/arch/adr/README.md` 인덱스 + 각 트랙 진입 시 신규 ADR 발행 (PR-2 SoT 동기화 시점에 §10 표 0001~0040 기준 재정렬 예정). 현 시점 핵심만 한 줄:
 
 | 새 번호 | 제목 | 핵심 결정 |
 |---|---|---|

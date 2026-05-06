@@ -35,11 +35,8 @@ docs/architecture/cleanup-plan.md                    ← legacy 청소 계획
 docs/architecture/code-convention.md                 ← 코드 컨벤션
    ↓
 _workspace/arch/adr/00XX-*.md                        ← ADR (0001~0040, 파일명 = 본문 헤더 번호)
-   ↓ 인용
-docs/superpowers/specs/<date>-<slug>-design.md       ← 트랙별 spec
-docs/superpowers/plans/<date>-<slug>.md              ← 트랙별 plan
    ↓
-_workspace/tasks/T-YYYYMMDD-HHMM-<slug>.md           ← 트랙별 task
+_workspace/tasks/T-YYYYMMDD-HHMM-<slug>.md           ← agent/* 작업 단위 task 파일 (ADR 0036)
 ```
 
 ### 2-3. 운영 규약
@@ -69,8 +66,6 @@ _workspace/tasks/T-YYYYMMDD-HHMM-<slug>.md           ← 트랙별 task
 - 사용자 비전 정정 → master §1 + ADR 0001 + 사용자 메모리 일관성
 - AI 옵션 정책 → master §3-3 + ADR 0026 + 사용자 메모리 정합
 
-(매핑) ADR 옛 번호(0031~0047)는 새 번호 체계로 통합 — 0031→0001, 0036→0020, 0040→0022 등.
-
 ## 3. 결과·영향
 
 - 새 트랙 진입 시점부터 master §X 위치 명시 의무 — 누락 시 spec/plan review reject.
@@ -85,9 +80,8 @@ _workspace/tasks/T-YYYYMMDD-HHMM-<slug>.md           ← 트랙별 task
 
 ## 5. References
 
-- master-architecture.md 전체 (524줄)
-- tracks-roadmap.md (461줄)
-- development-rules.md (316줄)
-- cleanup-plan.md (197줄)
+- master-architecture.md 전체
+- tracks-roadmap.md
+- development-rules.md
+- cleanup-plan.md
 - ADR 0036 (orchestrator-meta — architect-as-orchestrator 흡수)
-- REORGANIZATION.md

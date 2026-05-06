@@ -72,5 +72,5 @@ ADR 0002의 7 모듈(`app, core, market-data, strategy, ai, order-exec, web`)은
 
 ## Links
 
-- spec: `docs/superpowers/specs/2026-04-27-msa-restructure-design.md` §1, §6, §14
+- master-architecture.md §5 (모듈 매트릭스), settings.gradle.kts (모듈 권위)
 - supersedes 부분: ADR 0002 (모듈 분할 축만 전환, 멀티모듈 자체는 유지)

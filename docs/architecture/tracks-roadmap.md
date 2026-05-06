@@ -60,7 +60,7 @@
 - **KIS Strategy Builder 흡수**: 없음 (자체 도메인)
 - **ADR**: 0032·0033·0034·0035 (4건 일괄)
 - **데이터**: `market_calendar` V10·`order_reject_audit` V11. Redis `quote:last:*`·`session:cache:current`. Kafka `order.rejected.v1`·`market.session.v1`
-- **산출물 핵심**: 트랙2 spec/plan 22 task 그대로 살림 + AI 의사결정 가정 부분만 제거. spec `docs/superpowers/specs/2026-05-02-track2-market-session-and-data-mgmt-design.md` (969줄), plan `docs/superpowers/plans/2026-05-02-track2-market-session-and-data-mgmt.md` (573줄)
+- **산출물 핵심**: 룰 기반 세션 FSM + REJECTED Audit + last-day-close fallback (AI 의사결정 가정 배제)
 - **비범위**: KRX 캘린더 자동 동기화 (정적 시드 1차), 분봉 backfill 강화 (별도 트랙), 알림 통합 (post-MVP)
 
 ### T-IM1 — Instrument Master

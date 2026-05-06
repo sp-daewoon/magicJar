@@ -89,5 +89,4 @@ sealed class RejectReason(val code: String) {
 
 - master-architecture.md §C.13, §3-1, §6-2
 - ADR 0024 (Risk Guard chain 6단)
-- 트랙2 spec §6 (REJECTED Audit Trail 상세)
-- `_workspace/_archive/dogfooding/2026-05-02.md` (사유 발견)
+- 관련 트랙: T-W2 (KIS REJECTED Audit, W1) — tracks-roadmap.md §2
