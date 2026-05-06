@@ -4,7 +4,7 @@
 - 작성일: 2026-05-03
 - 결정자: architect (opus 4.7 1M)
 - master §위치: `docs/architecture/master-architecture.md` v2 §외부.KIS·§3-1
-- 트랙: T2 (W1)
+- 트랙: T-W1 (KIS HTTP Adapter, W1)
 - 선행: ADR 0003 (KIS 채택), ADR 0015
 
 ---
@@ -102,7 +102,7 @@ raw HTTP 로그 + curl 비교 1회로 원인 식별 후 fix.
 
 ---
 
-## Appendix A — KIS 실시간 시세 trId 표 (T2 R2-A 추가, 2026-05-04)
+## Appendix A — KIS 실시간 시세 trId 표 (T-W1 R2-A 추가, 2026-05-04)
 
 WS subscribe frame body `input.tr_id` + `input.tr_key` 매핑. GitHub source(`koreainvestment/open-trading-api/examples_llm/domestic_stock`) 검증 결과.
 

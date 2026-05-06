@@ -4,7 +4,7 @@
 - 작성일: 2026-05-03
 - 결정자: architect (opus 4.7 1M) — 사용자 결정(2026-05-03 default 12 §9) 정합
 - master §위치: `docs/architecture/master-architecture.md` v2 §C.13
-- 트랙: T12 (W3, T1 트랙1 완료분 흡수)
+- 트랙: T-RISK (Risk Guard chain, W3) — T-O(Order/Watchlist) PoC 완료분 흡수
 - 선행: ADR 0013, 0014, 0015
 
 ---
@@ -84,7 +84,7 @@ Kafka `risk.event.v1` — Drawdown trigger·KillSwitch toggle·PositionLimit 도
 
 ## 3. 결과·영향
 
-- T12·T14·T1(트랙1) 모두 본 ADR 직접 의존.
+- T-RISK·T-PERF·T-O(Order/Watchlist) 모두 본 ADR 직접 의존.
 - 1차 매우 느슨 default — 실서비스 진입 시 ADR 추가 발행으로 한도 강화.
 - 모든 Guard reject은 ADR 0015 정합 — orders + order_reject_audit INSERT.
 

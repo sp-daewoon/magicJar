@@ -4,8 +4,8 @@
 - 작성일: 2026-05-03
 - 결정자: architect (opus 4.7 1M) — 사용자 비전(2026-05-02) + 결정(default 12 §5) 정합
 - master §위치: `docs/architecture/master-architecture.md` v2 §1·§3-3·§D.17·§7
-- 트랙: T16 (W4)
-- 선행: ADR 0001, 0041 (Signal Engine 룰 only)
+- 트랙: T-AI (AI Option Console, W4)
+- 선행: ADR 0001, 0023 (Signal Engine 룰 only)
 - 폐기 대체: 1차안 LLM 공급자 ADR (본 ADR로 superseded)
 
 ---
@@ -115,7 +115,7 @@ frontend AiCard 표시
 ## 3. 결과·영향
 
 - W1·W2·W3 트랙 코드에 AI provider import 0건 — 트랙 R3 진입 시 architect grep 검증.
-- W4 진입 시 본 ADR 의존 — T16·T17 트랙.
+- W4 진입 시 본 ADR 의존 — T-AI·T-MCP 트랙.
 - 사용자 비용 통제 — `MAGICJAR_AI_OPTION_ENABLED=false` default.
 
 ## 4. 검토 대안

@@ -4,7 +4,7 @@
 - 작성일: 2026-05-03
 - 결정자: architect (opus 4.7 1M) — 사용자 dogfooding 가시성 확보 정합
 - master §위치: `docs/architecture/master-architecture.md` v2 §C.13·§3-1
-- 트랙: T2 (W1)
+- 트랙: T-W2 (KIS REJECTED Audit, W1)
 - 선행: ADR 0001, 0032
 
 ---

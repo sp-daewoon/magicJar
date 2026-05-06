@@ -4,7 +4,7 @@
 - 작성일: 2026-05-03
 - 결정자: architect (opus 4.7 1M)
 - master §위치: `docs/architecture/master-architecture.md` v2 §A.2·§3-2·§7
-- 트랙: T2 (W1)
+- 트랙: T-MS1 (Market Session FSM, W1)
 - 선행: ADR 0001 (오프라인 1순위 비전)
 
 ---

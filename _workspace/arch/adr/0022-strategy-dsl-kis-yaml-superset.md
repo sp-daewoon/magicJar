@@ -4,7 +4,7 @@
 - 작성일: 2026-05-03
 - 결정자: architect (opus 4.7 1M)
 - master §위치: `docs/architecture/master-architecture.md` v2 §B.7
-- 트랙: T7 (W2)
+- 트랙: T-DSL (Strategy DSL, W2)
 - 선행: ADR 0020, 0039
 
 ---
@@ -59,7 +59,7 @@ tf: D1                              # default timeframe
 entry:
   conditions:
     - tf: D1
-      pattern: "BULLISH_ENGULFING"  # 패턴 조건 (T6)
+      pattern: "BULLISH_ENGULFING"  # 패턴 조건 (T-PAT)
     - tf: 60m                       # 다중 timeframe
       lhs: { indicator: RSI, params: { period: 14 } }
       op: "<"
@@ -80,7 +80,7 @@ sizing:
 
 - `POST /api/strategy/import?format=kis-yaml` — `.kis.yaml` 그대로 받아 magicJar 형식으로 등록 (확장 키워드 default값)
 - `GET /api/strategy/{id}?format=kis-yaml` — magicJar 전략을 KIS 호환으로 export. 단 magicJar 확장 키워드(`tf:`·`time:`·`pattern:`·`universe.filter:`·`sizing:`)는 **YAML comment(#)로 처리** — KIS 파서가 무시하지만 사람은 볼 수 있음.
-- GUI 블록 빌더(T8)에서 만든 전략은 `format=magicjar` (default) 또는 `format=kis-yaml` (comment fallback) 둘 다 export.
+- GUI 블록 빌더(T-SB)에서 만든 전략은 `format=magicjar` (default) 또는 `format=kis-yaml` (comment fallback) 둘 다 export.
 
 ### 2-4. 평가 흐름
 
@@ -95,11 +95,11 @@ val result: StrategyEvalResult = evaluator.evaluate(strategy, candles, context)
 ### 2-5. 검증·테스트
 
 - `POST /api/strategy/validate` — DSL syntax·indicator name·timeframe 정합성 검증, 200 OK + warnings
-- 10개 KIS 프리셋 (strategy_NN_*.py) → Kotlin port → e2e backtest 결과를 KIS examples와 cross-check (T9 R3 게이트)
+- 10개 KIS 프리셋 (strategy_NN_*.py) → Kotlin port → e2e backtest 결과를 KIS examples와 cross-check (T-BT R3 게이트)
 
 ## 3. 결과·영향
 
-- T7 (DSL)·T8 (Builder UI)·T9 (Backtest)·T10 (Screener)·T11 (Signal) 모두 본 ADR 직접 의존.
+- T-DSL·T-SB·T-BT·T-SC·T-SIG 모두 본 ADR 직접 의존.
 - 사용자가 KIS GUI에서 만든 .kis.yaml 그대로 magicJar에서 사용 가능 — 호환성 우선.
 - magicJar 확장 키워드는 점진적 추가 (R3 라운드별).
 

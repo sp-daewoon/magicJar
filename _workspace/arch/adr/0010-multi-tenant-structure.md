@@ -4,7 +4,7 @@
 - 작성일: 2026-05-03
 - 결정자: architect (opus 4.7 1M) — 트랙1 완료(2026-05-02) 사실 흡수
 - master §위치: `docs/architecture/master-architecture.md` v2 §1·§D.18·§6-2
-- 트랙: T1 (DONE) + 모든 후속 트랙 정합 의무
+- 트랙: T-O (Order/Watchlist 1차, W3) — PoC 결과 흡수. 모든 후속 트랙(T-W1·T-W2·T-MS1·T-IM1·T-CA1·T-IND·T-PAT·T-DSL·T-SB·T-BT·T-SC·T-SIG·T-RISK·T-PERF·T-J·T-AI·T-MCP·T-LWC·T-LEARN) 정합 의무
 - 선행: ADR 0036 (Git author + orchestrator-meta), ADR 0001
 
 ---
@@ -95,7 +95,7 @@ class DbKisCredentialProvider(
 
 ## 3. 결과·영향
 
-- 모든 트랙(T2~T17) 신설 테이블에 user_id 의무 — 누락 시 review reject.
+- 모든 후속 트랙(W1~W5 전체) 신설 테이블에 user_id 의무 — 누락 시 review reject.
 - 인증 도입 시점 확장 비침습 — Provider port 교체만.
 - MCP server (W4)는 client 식별을 user_id로 매핑 의무 — API key → user_id resolver.
 
