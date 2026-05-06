@@ -56,13 +56,13 @@ ADR 0004로 `api`/`batch`/`consumer` 3 JVM 런타임이 분리되면서, 그들 
 - **컨슈머**: 클래스 단위 `@KafkaListener` (예: `TickAggregatorListener`, `StrategyRunnerListener`, `OrderDispatcherListener`). **한 클래스 = 한 책임** (multi-method listener 금지).
 - 키 정책: 종목 단위 토픽(market.*, signal.*, order.*)은 **종목코드(KrxCode)를 키로** → 종목 단위 순서 보장.
 
-### 직렬화 — JSON (Phase D)
+### 직렬화 — JSON (v3 베이스라인 시점)
 
 - JVM 측: Kotlin data class + Jackson (`spring-kafka` 기본).
 - Python 측: pydantic v2 모델 + `model_dump_json()`.
 - 양 끝에서 동일 필드명·타입을 유지하기 위해 **스키마 정의는 spec(2026-04-27) §4 + 본 ADR 부록을 single source**로 둔다.
 - 헤더 `schema-version: 1` 필수.
-- **Avro / Schema Registry는 Phase E+ 검토** (별도 ADR 후보, 본 ADR에 미래 후보로만 명시).
+- **Avro / Schema Registry는 v3 베이스라인 이후 검토** (별도 ADR 후보, 본 ADR에 미래 후보로만 명시).
 
 ### 운영 기본값 (MVP)
 

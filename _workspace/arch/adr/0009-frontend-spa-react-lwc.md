@@ -7,7 +7,7 @@
 
 ## 맥락
 
-Phase B의 `web/` 모듈은 Spring Boot + Thymeleaf + HTMX 조합이었다. 한계:
+PoC v1 시점의 `web/` 모듈은 Spring Boot + Thymeleaf + HTMX 조합이었다. 한계:
 
 - 차트(틱·캔들·보조지표)·실시간 STOMP 구독·복잡한 사용자 상태(재생/replay·종목 비교 등)에 SSR + HTMX 조합이 명백히 부족.
 - API 변경 시 서버 렌더링 코드가 같이 흔들려 백엔드·프런트 동시 작업 충돌 빈번.
