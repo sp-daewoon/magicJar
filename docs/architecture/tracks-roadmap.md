@@ -34,11 +34,11 @@
 | T-CA1 | Corporate Action & Adjusted Price | §A.3 | 액면분할·증자·배당락 보정 + retroactive 재계산 | T-IM1 | T-BT·T-SC | W1 | M | market-data |
 | T-IND | Technical Indicators (80) + Source 추상화 | §B.5 | 80지표 일괄 + `IndicatorSource` plug-in 인터페이스 | T-MS1·T-IM1 | T-PAT·T-DSL·T-SIG | W2 | XL | backend-core+ai-engineer |
 | T-PAT | Candlestick Patterns (57) | §B.6 | 57개 패턴 인식 엔진 + 차트 마커 | T-IND | T-DSL·T-SIG | W2 | M | backend-core |
-| T-DSL | Strategy DSL | §B.7 | `.kis.yaml` 호환 superset 파서·평가기 | T-IND·T-PAT | T-SB·T-BT·T-SIG | W2 | L | architect+backend-core |
+| T-DSL | Strategy DSL + sandbox (ADR 0047) | §B.7 | `.kis.yaml` 호환 superset 파서·평가기 + static 검증(AST depth/노드/indicator 호출/화이트리스트) | T-IND·T-PAT | T-SB·T-BT·T-SIG | W2 | L | architect+backend-core |
 | T-SB | Strategy Builder UI (GUI 블록 빌더) | §B.8 | GUI 블록 빌더 + 발굴 결과 → Watchlist 등록 | T-W1·T-DSL | T-BT | W2 | XL | frontend |
-| T-BT | Backtest Engine 강화 | §B.9 | 룩어헤드·세금·수수료·슬리피지 모델 + 성과 카드 | T-CA1·T-DSL | T-SIG·T-PERF | W3 | L | backend-core |
+| T-BT | Backtest Engine 강화 + DSL sandbox (ADR 0047) | §B.9 | 룩어헤드·세금·수수료·슬리피지 모델 + 성과 카드 + 백테스트 timeout 1000ms·abort 정책 | T-CA1·T-DSL | T-SIG·T-PERF | W3 | L | backend-core |
 | T-SC | Screener | §C.10 | universe × DSL → 후보+랭킹 + 캐시 | T-IM1·T-CA1·T-DSL | T-SIG | W3 | M | backend-core |
-| T-SIG | Signal Engine (룰 매칭 only, AI 호출 0) | §C.11 | Watchlist × 활성 전략 → BUY/SELL/HOLD + 강도 | T-MS1·T-IND·T-PAT·T-DSL·T-SC | T-RISK·T-O·T-PERF | W3 | M | strategy-engine |
+| T-SIG | Signal Engine (룰 매칭 only, AI 호출 0) + sandbox (ADR 0047) | §C.11 | Watchlist × 활성 전략 → BUY/SELL/HOLD + 강도 + strategy-eval-pool 격리 + timeout 100ms·CPU budget 50ms·auto-disable | T-MS1·T-IND·T-PAT·T-DSL·T-SC | T-RISK·T-O·T-PERF | W3 | M | strategy-engine |
 | T-RISK | Risk & Position (Guard chain 6단) + risk.violation.v1 publish (ADR 0044 정합) | §C.13 | PositionLimit·DrawdownStop·Position projection + Guard 위반 시 risk.violation.v1 emit | T-MS1·T-SIG | T-O·T-PERF·T-NOTIFY | W3 | L | backend-core |
 | T-O | Order (KIS Order Adapter + multi-tenant + 안전 게이트) + KillSwitch 행동 (ADR 0043) + idempotency (ADR 0045) | §C.12 | 시그널 → Guard → KisOrderSender → 체결 → audit + KillSwitch ON 5대 행동 + order.intent.v1 idempotency 키 | T-W2·T-SIG·T-RISK | T-J·T-PERF·T-RECON | W3 | XL | backend-core+market-data |
 | **T-RECON** | **Broker Reconciliation (ADR 0041)** | §C.12·§3-1 부수 | KIS 잔고 cron 폴링 + drift 검출 + KillSwitch auto-ON | T-O | T-PERF·T-NOTIFY | **W3** | M | backend-core+market-data |
@@ -125,7 +125,7 @@
 - **선행/후행**: T-IND / T-DSL·T-SIG (DSL이 패턴을 조건으로 사용, T-LWC가 시각화 강화)
 - **오프라인 동작**: 필수 (in-process 룰)
 - **KIS 흡수**: 57개 패턴 명세만 (KIS doc 기반)
-- **ADR**: T-PAT 진입 시 발행 (0044 후보 — 57 캔들 패턴 표준, README §12 정합)
+- **ADR**: T-PAT 진입 시 발행 (0048 후보 — 57 캔들 패턴 표준, README §12 정합)
 - **데이터**: 영속 안 함 (실시간 인식 + 차트 마커만). Redis 캐시 선택
 - **산출물**:
   - `domain/.../pattern/` (port·spec·match)
@@ -145,15 +145,15 @@
   - `strategy_core/dsl/parser.py` 11개 클래스 (ConditionType·Operator·LogicalOperator·ArithmeticOperator·Indicator·Value·ArithmeticExpr·Condition·CompositeCondition·StrategyDSLParser·StrategyDefinition) → Kotlin sealed class
   - `strategy_core/registry.py` `@register` → Kotlin annotation + `StrategyRegistry`
   - 10개 프리셋 (strategy_NN_*.py) → Kotlin `PresetStrategies` 등록
-- **ADR**: 0022 (Strategy DSL = .kis.yaml superset)
-- **데이터**: `strategy` 테이블 본격(V15) · `strategy_dsl_yaml`(raw YAML)
+- **ADR**: 0022 (Strategy DSL = .kis.yaml superset) · **0047 (DSL Evaluation Sandbox — static 검증 + complexity 응답)**
+- **데이터**: `strategy` 테이블 본격(V15) · `strategy_dsl_yaml`(raw YAML) · `strategy.disabled_reason`·`last_disabled_at`·`eval_metric_summary` 컬럼 추가(V26 ADR 0047)
 - **산출물**:
-  - `domain/.../strategy/` 도메인 + AST + port
-  - `consumer/.../application/strategy/KisYamlDslParser.kt`
+  - `domain/.../strategy/` 도메인 + AST + port + `StrategyComplexity` data class + `StrategyDisabledReason` enum + `DslDepthExceededException`·`DslNodeCountExceededException`·`UnknownDslSymbolException` (ADR 0047)
+  - `consumer/.../application/strategy/KisYamlDslParser.kt` (parse + static 검증 — AST depth ≤ 32·노드 ≤ 10000·indicator 호출 ≤ 50·키워드 화이트리스트)
   - `consumer/.../application/strategy/JvmStrategyEvaluator.kt`
   - `consumer/.../application/strategy/preset/PresetStrategies.kt` (10개)
-  - `api/.../controller/StrategyController.kt` CRUD + `POST /api/strategy/validate` + `POST /api/strategy/import?format=kis-yaml`
-- **비범위**: 자연어 → DSL 번역 (W4 후속 옵션)
+  - `api/.../controller/StrategyController.kt` CRUD + `POST /api/strategy/validate` + `POST /api/strategy/import?format=kis-yaml` + complexity 응답
+- **비범위**: 자연어 → DSL 번역 (W4 후속 옵션) · custom indicator 등록 (post-MVP — 0091 후보)
 
 ### T-SB — Strategy Builder UI (GUI 블록 빌더 1차)
 
@@ -179,13 +179,13 @@
 - **선행/후행**: T-CA1·T-DSL / T-SIG·T-PERF
 - **오프라인 동작**: 필수 (영속 candle만 있으면)
 - **KIS 흡수**: KIS는 백테스트 엔진 미공개. magicJar 자체 (현행 BacktestRunJob 확장)
-- **ADR**: T-BT 진입 시 발행 (0045 후보 — Backtest 표준, README §12 정합)
-- **데이터**: `backtest_run` 현행 + `backtest_summary` 보강
+- **ADR**: **0047 (DSL Evaluation Sandbox — 백테스트 timeout 1000ms·abort 정책)** + T-BT 진입 시 추가 발행 (0049 후보 — Backtest 표준, README §12 정합)
+- **데이터**: `backtest_run` 현행 + `backtest_summary` 보강 + `strategy_eval_metric` (V27 ADR 0047 — 백테스트 평가 metric 적재)
 - **산출물**:
-  - `batch/.../job/backtest/BacktestRunJob.kt` v2 (T-CORP-ACTION adjusted 사용)
+  - `batch/.../job/backtest/BacktestRunJob.kt` v2 (T-CORP-ACTION adjusted 사용 + ADR 0047 timeout 1000ms·abort 누적 50회)
   - `domain/.../perf/PerformanceMetrics.kt` + port
-  - `api/.../controller/BacktestController.kt` 보강
-  - `frontend/src/pages/Backtest/index.tsx` 차트 + 통계
+  - `api/.../controller/BacktestController.kt` 보강 + abort 결과 페이지
+  - `frontend/src/pages/Backtest/index.tsx` 차트 + 통계 + abort 사유 표시
 - **비범위**: monte carlo simulation (post-MVP)
 
 ### T-SC — Screener
@@ -195,7 +195,7 @@
 - **선행/후행**: T-IM1·T-CA1·T-DSL / T-SIG
 - **오프라인 동작**: 필수 (영속 candle + 룰만)
 - **KIS 흡수**: 자체 — KIS는 screener 부재
-- **ADR**: T-SC 진입 시 발행 (0046 후보 — Screener 표준, README §12 정합)
+- **ADR**: T-SC 진입 시 발행 (0050 후보 — Screener 표준, README §12 정합)
 - **데이터**: `screener_query`·`screener_result` (V16). Redis `screener:result:{queryHash}` TTL 5분. Kafka `screener.result.v1`
 - **산출물**:
   - `domain/.../screener/` 도메인
@@ -212,15 +212,17 @@
 - **선행/후행**: T-MS1·T-IND·T-PAT·T-DSL·T-SC / T-RISK·T-PERF
 - **오프라인 동작**: 필수 (in-process 룰)
 - **KIS 흡수**: KIS `core/signal.py` Action·Signal·strength → Kotlin
-- **ADR**: 0023 (룰 매칭 only — AI 호출 0 명시)
-- **데이터**: `signal` 테이블 (V17). Kafka `signal.generated.v1`. Redis `signal:active:{code}` TTL 5분
+- **ADR**: 0023 (룰 매칭 only — AI 호출 0 명시) · **0047 (DSL Evaluation Sandbox — strategy-eval-pool 격리 + timeout 100ms + auto-disable)**
+- **데이터**: `signal` 테이블 (V17). Kafka `signal.generated.v1`. Redis `signal:active:{code}` TTL 5분 · `strategy_eval_metric` (V27 ADR 0047 — 평가 metric 적재) · `risk.violation.v1` payload type 확장 (`STRATEGY_TIMEOUT`·`STRATEGY_CPU_BUDGET_EXCEEDED`·`EVAL_POOL_OVERLOAD`)
 - **산출물**:
-  - `domain/.../signal/`
-  - `consumer/.../application/signal/RealtimeSignalGenerator.kt` (tick listen → 활성 전략 평가)
+  - `domain/.../signal/` + `StrategyTimeoutException` (ADR 0047)
+  - `consumer/.../application/signal/RealtimeSignalGenerator.kt` (tick listen → 활성 전략 평가, strategy-eval-pool 경유)
   - `consumer/.../application/signal/BatchSignalGenerator.kt` (T-SC screener 결과 → 후속 전략)
+  - `consumer/.../config/StrategyEvalPoolConfig.kt` (ADR 0047 — fixed 4 threads, queue 100, CallerRunsPolicy)
   - `api/.../controller/SignalController.kt`
   - `frontend/src/pages/Dashboard/SignalsPanel.tsx`
-- **비범위**: AI 컨설트 (W4 옵션 분리). 사용자 알림 (W5)
+  - `frontend/src/pages/Strategy/StrategyMetricPanel.tsx` (ADR 0047 — metric·timeout 누적·[다시 활성화] 버튼)
+- **비범위**: AI 컨설트 (W4 옵션 분리). 사용자 알림 (W5). per-thread heap allocation tracking (post-MVP — ADR 0047 §2-2-C 0090 후보)
 
 ### T-RISK — Risk & Position (Guard chain 6단)
 
@@ -308,7 +310,7 @@
 - **선행/후행**: T-SIG·T-RISK / W4
 - **오프라인 동작**: 필수 (영속 데이터만)
 - **KIS 흡수**: 없음
-- **ADR**: T-PERF 진입 시 발행 (0047 후보 — Performance 표준, README §12 정합)
+- **ADR**: T-PERF 진입 시 발행 (0051 후보 — Performance 표준, README §12 정합)
 - **데이터**: `pnl_daily` (V18) · `chart_snapshot` 영속 강화. Kafka `journal.recorded.v1`
 - **산출물**:
   - `batch/.../job/perf/DailyPerformanceJob.kt` (오프라인 통계만)
@@ -525,3 +527,4 @@ W4는 W3 완료 후 진입. W5는 옵션 (T-LWC는 W3와 병렬 가능).
 | 2026-05-07 (PR-2) | §3 outline ADR 매핑 정합 — 옛 0032·0033·0034·0035·0036·0037·0038·0039·0040·0041·0042·0044·0045·0046 → 현행 0013·0014·0015·0016·0017·0018·0020·0021·0022·0023·0024·0025·0026·0027 재매핑. T-PAT/T-BT/T-SC/T-PERF 후속 후보 0048~0051 → 0041~0044 (README §12 정합). (architect) |
 | 2026-05-07 (PR-3a) | 자동매매 fitness 갭 ADR 0041·0042·0043 발행 정합 — §2 T-W1·T-O ADR cross-ref + 신규 트랙 **T-RECON (W3)** 신설, §3 T-RECON outline 추가, §3 T-RISK ADR 0043 추가, §5 W3 진행 순서에 T-RECON 합류, T-PAT/T-BT/T-SC/T-PERF 후속 후보 0044~0047 시프트 (3 슬롯). (architect) |
 | 2026-05-07 (PR-3b) | 운영·UX fitness 갭 ADR 0044·0045·0046 발행 정합 — §1 W1·W3 트랙 ID 갱신 (**T-ONBOARD**·**T-NOTIFY** 신설), §2 트랙 목록표 18→20 트랙 (T-ONBOARD W1 ★★ 최우선·T-NOTIFY W3), §2 T-RISK·T-O cross-ref ADR 0044/0045 추가, §3 T-ONBOARD·T-NOTIFY outline 신규, §5 W1 진행 순서에 T-ONBOARD prepend (~4주)·W3에 T-NOTIFY 합류 (~6주), 총 추정 21주로 시프트, T-PAT/T-BT/T-SC/T-PERF 후속 후보 0047~0050 시프트 (3 슬롯). (architect) |
+| 2026-05-07 (PR-3c) | DSL 안전성 갭 ADR 0047(DSL Evaluation Sandbox) 발행 정합 — §2 T-DSL·T-BT·T-SIG cross-ref ADR 0047 추가 (sandbox 명세 — static 검증·strategy-eval-pool 격리·timeout 100ms/1000ms·auto-disable·complexity 응답), §3 T-DSL outline ADR 0047 추가 + 산출물 보강(StrategyComplexity·DslDepthExceededException·키워드 화이트리스트 검증·V26 컬럼 3건 V27 strategy_eval_metric)·§3 T-BT outline ADR 0047 백테스트 timeout/abort 추가·§3 T-SIG outline ADR 0047 strategy-eval-pool config 추가, T-PAT/T-SC/T-PERF 후속 후보 0048/0050/0051 시프트 (1 슬롯). (architect) |

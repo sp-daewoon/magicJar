@@ -14,7 +14,7 @@ parentPhase: ?
 PR-3c 신규 ADR 0047 발행 (DSL Evaluation Sandbox)
 
 ## 결과물 체크리스트
-- [ ] ADR 0047 본문·README/master/tracks SoT 갱신·sandbox 정책·cross-ref
+- [x] ADR 0047 본문·README/master/tracks SoT 갱신·sandbox 정책·cross-ref
 
 ## 의존성
 - (필요 시 기록)

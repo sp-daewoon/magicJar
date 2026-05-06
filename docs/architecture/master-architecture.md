@@ -163,6 +163,7 @@ magicJar는 미래에 **MCP 서버를 외부에 노출**해 Claude/Cursor 등 AI
 - **Notification 통지 (ADR 0044)** — consumer NotificationDispatcher가 7 Kafka topic 구독 → Slack webhook POST + outbox fallback. 사용자 부재(취침·자리비움) 중 사고 즉시 모바일 push
 - **Graceful Shutdown (ADR 0045)** — SIGTERM 수신 시 api(HTTP draining 30s)·consumer(Kafka manual commit + KIS WS close)·batch(JobOperator.stop) 순차 종료. 미체결 주문은 PENDING 보존 → 재기동 시 ADR 0042+0041로 진위 판정. order.intent.v1 idempotency 키 `{user}:{strategy}:{ymd}:{tickSeq}` + Redis SETNX 24h
 - **Onboarding Setup (ADR 0046)** — 첫 부팅 시 활성 user 0명 idle. localhost:3000 진입 → 셋업 마법사 7-step → KIS REST `/oauth2/tokenP` 검증 → AES-256-GCM 암호화 → user_account + user_kis_credential 영속 → UserOnboardedEvent → WatchlistIngestionWorker polling 시작
+- **DSL Sandbox (ADR 0047)** — Strategy 등록 시 static 검증(AST depth ≤ 32·노드 ≤ 10000·indicator ≤ 50·키워드 화이트리스트). SignalGenerator 평가 시 strategy-eval-pool(fixed 4) 경유 → realtime timeout 100ms / backtest 1000ms · CPU budget 50ms. Timeout 1회 시 strategy auto-disable + `risk.violation.v1`(type=STRATEGY_TIMEOUT) → ADR 0044 통지
 
 ### 3-2. 장외 시세 fallback 흐름 (오프라인 정합)
 
@@ -487,7 +488,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 
 ---
 
-## §10. 핵심 ADR 인덱스 (0001~0046 — 발행 완료)
+## §10. 핵심 ADR 인덱스 (0001~0047 — 발행 완료)
 
 상세 본문은 `_workspace/arch/adr/<NNNN>-*.md`. 분류 카테고리는 `_workspace/arch/adr/README.md` §1~§10-2 정합. 본 §10은 한 줄 요약 인덱스 — 신규 ADR 발행 시 본 표 + README 동시 갱신 (ADR 0030 SoT 운영 규약).
 
@@ -539,15 +540,16 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | 0044 | Notification System (Slack webhook 1차 + Kafka 트리거 + outbox fallback) | 운영·UX fitness | W3 (T-NOTIFY) |
 | 0045 | Graceful Shutdown & In-flight 처리 (SIGTERM · Kafka manual commit · idempotency) | 운영·UX fitness | W1 (횡단) |
 | 0046 | Onboarding & Credential Registration (테이블 3종 분리 · 마스터 키 단일 예외) | 운영·UX fitness | W1 ★ (T-ONBOARD) |
+| 0047 | DSL Evaluation Sandbox (정적 검증 + 런타임 timeout/CPU budget + thread pool 격리 + auto-disable) | DSL 안전성 | W2 (T-DSL) · W3 (T-SIG·T-BT) |
 
 ### 후속 예정 (Proposed — `_workspace/arch/adr/README.md` §12 정합)
 
 | 후보 번호 | 제목 (예정) | 진입 트랙 |
 |---|---|---|
-| 0047 | 57 캔들 패턴 표준 | T-PAT |
-| 0048 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT |
-| 0049 | Screener 표준 | T-SC |
-| 0050 | Performance 표준 | T-PERF |
+| 0048 | 57 캔들 패턴 표준 | T-PAT |
+| 0049 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT |
+| 0050 | Screener 표준 | T-SC |
+| 0051 | Performance 표준 | T-PERF |
 
 ---
 
@@ -593,3 +595,4 @@ v1·v2 검토 시점에 누적된 결정 항목과 v3.0.0 베이스라인 컷(20
 | 2026-05-07 (PR-2) | SoT 동기화 — §10 ADR 인덱스 0001~0040 풀 재작성, §2 헤더 19 컴포넌트 정정, §6 Kafka `watchlist.changed.v1` topic 추가, §12 사용자 결정 누적 카드 정리, AI 변수명 `MAGICJAR_AI_OPTION_ENABLED` → `MAGICJAR_AI_ENABLED` 통일. (architect) |
 | 2026-05-07 (PR-3a) | 자동매매 fitness 갭 Critical 3건 ADR 0041·0042·0043 신규 발행 정합 — §10 인덱스 3행 추가, §3-1 [0] Position Bootstrap 단계 prepend + 부수 흐름 3건 명시, §6 Kafka topic 3건 추가(`position.reconciled.v1`·`position.drift.v1`·`risk.killswitch.v1`), §10 후속 예정 0044~0047 시프트. (architect) |
 | 2026-05-07 (PR-3b) | 운영·UX fitness 갭 3건 ADR 0044·0045·0046 신규 발행 정합 — §10 인덱스 3행 추가(0044 Notification·0045 Graceful Shutdown·0046 Onboarding), §10 헤더 0001~0046 갱신, §6 Kafka topic 5건 추가(`risk.violation.v1`·`kis.token.expired.v1`·`system.startup.v1`·`system.shutdown.v1`·`notification.sent.v1`) + position.drift.v1·risk.killswitch.v1 consumer에 NotificationDispatcher 합류, §3-1 부수 흐름 3건 추가(Notification·Graceful Shutdown·Onboarding Setup), §10 후속 예정 0047~0050 시프트. (architect) |
+| 2026-05-07 (PR-3c) | DSL 안전성 갭 ADR 0047(DSL Evaluation Sandbox) 신규 발행 정합 — §10 인덱스 1행 추가, §10 헤더 0001~0047 갱신, §3-1 부수 흐름 1건 추가(DSL Sandbox — static 검증·runtime timeout·strategy-eval-pool 격리·auto-disable·`risk.violation.v1` type 확장), §10 후속 예정 0048~0051 시프트. Kafka 신규 topic 0건(기존 `risk.violation.v1` payload type 확장만). (architect) |
