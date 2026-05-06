@@ -68,7 +68,7 @@ magicJar는 미래에 **MCP 서버를 외부에 노출**해 Claude/Cursor 등 AI
 
 ---
 
-## §2. 핵심 컴포넌트 맵 (4 영역 18 컴포넌트)
+## §2. 핵심 컴포넌트 맵 (4 영역 19 컴포넌트)
 
 각 컴포넌트는 **오프라인 동작 가능 여부** 컬럼 명시 — 본체는 모두 가능, AI는 옵션.
 
@@ -179,7 +179,7 @@ api STOMP `/topic/ai.explain.{requestId}` → frontend AI Card 표시
 **호출 조건**:
 - 사용자 명시 클릭만 (자동 호출 0)
 - LLM 응답 실패·타임아웃 시 frontend "AI 응답 없음" 표시 + **본체 흐름 영향 0**
-- dev profile은 prompt cache 5분 + `MAGICJAR_AI_OPTION_ENABLED=false` 기본 (비용 통제)
+- dev profile은 prompt cache 5분 + `MAGICJAR_AI_ENABLED=false` 기본 (비용 통제)
 
 ### 3-4. MCP 서버 흐름 (W4 미래)
 
@@ -364,6 +364,7 @@ domain/src/main/kotlin/com/mj/domain/
 | `market.tick.v1` | consumer (WS·Mock·Fallback) | api (STOMP) | 1h | 현행 + T-MS1 |
 | `market.candle.v1` | batch · consumer | consumer (지표 갱신) | 1d | T-IND |
 | `market.session.v1` | consumer | api (STOMP) | 1d | T-MS1 |
+| `watchlist.changed.v1` | api | consumer (WatchlistIngestionWorker) | 7d | T-W1·T-W2 (ADR 0028) |
 | `instrument.updated.v1` | batch | consumer (캐시 invalidate) | 7d | T-IM1 |
 | `corp_action.applied.v1` | batch | consumer (candle 재조정) | 30d | T-CA1 |
 | `news.crawled.v1` | api | consumer | 7d | post-MVP |
@@ -404,14 +405,14 @@ domain/src/main/kotlin/com/mj/domain/
 | KillSwitch | bypass(default OFF) | DB row | DB row | DB row (default ON, 명시 OFF) |
 | RiskCalculator | active | active | active | active(strict) |
 | TradingJournal | active | active | active | active |
-| **AI Option Console** | inactive (default) | inactive (default) — `MAGICJAR_AI_OPTION_ENABLED=true` 시 활성 | inactive (default) | inactive (default) |
+| **AI Option Console** | inactive (default) | inactive (default) — `MAGICJAR_AI_ENABLED=true` 시 활성 | inactive (default) | inactive (default) |
 | **AiCommentProvider** (Anthropic·Gemini·OpenAI) | n/a | toggle ON 시 호출 + 5분 cache | toggle ON | toggle ON |
 | **MCP Server** (W4) | inactive | toggle ON 시 활성 (localhost) | toggle ON | toggle ON |
 
 ### 7-2. AI 호출 토글 (비용·속도 제어)
 
-- `MAGICJAR_AI_OPTION_ENABLED=false` (default 모든 profile) — AI 옵션 사용 안 함, LLM 호출 0
-- `MAGICJAR_AI_OPTION_ENABLED=true` + `MAGICJAR_AI_PROVIDER=anthropic|gemini|openai` — 사용자 트리거 시 호출
+- `MAGICJAR_AI_ENABLED=false` (default 모든 profile) — AI 옵션 사용 안 함, LLM 호출 0
+- `MAGICJAR_AI_ENABLED=true` + `MAGICJAR_AI_PROVIDER=anthropic|gemini|openai` — 사용자 트리거 시 호출
 - 5분 prompt cache (`ai:prompt:cache:{hash}`) — 동일 입력 재사용
 - LLM 응답 실패·타임아웃 시 frontend "AI 응답 없음" 표시 + **본체 흐름 영향 0**
 
@@ -466,29 +467,61 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 
 ---
 
-## §10. 핵심 ADR 세트 (v2 — 0031~0047)
+## §10. 핵심 ADR 인덱스 (0001~0040 — 발행 완료)
 
-상세는 `_workspace/arch/adr/README.md` 인덱스 + 각 트랙 진입 시 신규 ADR 발행 (PR-2 SoT 동기화 시점에 §10 표 0001~0040 기준 재정렬 예정). 현 시점 핵심만 한 줄:
+상세 본문은 `_workspace/arch/adr/<NNNN>-*.md`. 분류 카테고리는 `_workspace/arch/adr/README.md` §1~§10 정합. 본 §10은 한 줄 요약 인덱스 — 신규 ADR 발행 시 본 표 + README 동시 갱신 (ADR 0030 SoT 운영 규약).
 
-| 새 번호 | 제목 | 핵심 결정 |
+| ADR | 제목 | 카테고리 | Wave/시점 |
+|---|---|---|---|
+| 0001 | 시스템 비전 — 룰 본체 + AI 옵션 + MCP 서버 미래 | 비전 | 베이스 |
+| 0002 | 언어·프레임워크 (Kotlin 2.0 / Spring Boot 3.3 / JDK 21 / Gradle KTS) | 기술 스택 | 베이스 |
+| 0003 | 증권사 API로 한국투자증권 KIS OpenAPI 선택 | 기술 스택 | 베이스 |
+| 0004 | MSA 모듈 재구성 (4 JVM + frontend) | 기술 스택 | 베이스 |
+| 0005 | 하이브리드 런타임 — api / batch / consumer 3 JVM | 기술 스택 | 베이스 |
+| 0006 | PostgreSQL 단일 + 스키마 분리 | 기술 스택 | 베이스 |
+| 0007 | Kafka 이벤트 백본 | 기술 스택 | 베이스 |
+| 0008 | Docker 표준 — 모듈별 Dockerfile + compose 통합 기동 | 기술 스택 | 베이스 |
+| 0009 | 프론트엔드 SPA (React + TS + Vite + LWC v4) | 프론트엔드 | 베이스 |
+| 0010 | Multi-tenant 구조 | 도메인 본체 | W1 |
+| 0011 | 주문 실행기 3-mode + 안전 게이트 | 도메인 본체 | W3 |
+| 0012 | 매매일지 아키텍처 | 도메인 본체 | W3 |
+| 0013 | Market Session FSM (KRX 영업일·장중·장외·휴장) | 시장 데이터 | W1 |
+| 0014 | 시세 데이터 Fallback 3-tier (live → cache → last-day-close) | 시장 데이터 | W1 |
+| 0015 | REJECTED Audit Trail | 시장 데이터 | W1 |
+| 0016 | KIS REST/WS HTTP 정밀화 | 시장 데이터 | W1 |
+| 0017 | Instrument Master 1급 시민 | 시장 데이터 | W1 |
+| 0018 | Corp Action raw + adjusted | 시장 데이터 | W1 |
+| 0019 | 캔들 저장 정책 (Watchlist 기반 + Yahoo 분봉 DB 영속) | 시장 데이터 | W1 |
+| 0020 | KIS Strategy Builder 흡수 = 명세 port | 전략·신호·리스크 | W2 |
+| 0021 | Indicator Source 추상화 | 전략·신호·리스크 | W2 |
+| 0022 | Strategy DSL = .kis.yaml 호환 superset | 전략·신호·리스크 | W2 |
+| 0023 | Signal Engine = 룰 매칭 only (AI 호출 0) | 전략·신호·리스크 | W3 |
+| 0024 | Risk Guard chain 6단 | 전략·신호·리스크 | W3 |
+| 0025 | LWC 확장 + 자체 도형/주석/패턴 | 시각화·AI·MCP | W5 |
+| 0026 | AI 옵션 보조 (사용자 트리거 한정 + 분석 코멘트) | 시각화·AI·MCP | W4 |
+| 0027 | MCP 서버 미래 노출 | 시각화·AI·MCP | W4 |
+| 0028 | Watchlist 기반 Ingestion Worker (1~5초 polling) | Watchlist·차트 데이터 | W1 |
+| 0029 | 당일 진행 중 캔들 Redis 캐시 | Watchlist·차트 데이터 | W1 |
+| 0030 | 마스터 아키텍처 = 단일 진실원 (SoT) | 메타·운영·하네스 | 베이스 |
+| 0031 | 베이스라인 태그 + release/v* immutable 보존 브랜치 | 메타·운영·하네스 | 베이스 |
+| 0032 | Husky v9 git hooks (pre-commit author whitelist + pre-push) | 메타·운영·하네스 | 베이스 |
+| 0033 | 단일 worktree + 순차 작업 정책 | 메타·운영·하네스 | 베이스 |
+| 0034 | 머지 흐름 단순화 (`agent/* → main` rebase) | 메타·운영·하네스 | 베이스 |
+| 0035 | 에이전트별 모델 차등 + 에스컬레이션 | 메타·운영·하네스 | 베이스 |
+| 0036 | Orchestrator Meta Rules (git-author + task-file-system + architect-as-orchestrator) | 메타·운영·하네스 | 베이스 |
+| 0037 | KIS API Rate Limit 강제 (초당 10건 + 토큰 버킷) | 외부 API·UI 흐름 | W1 |
+| 0038 | KIS OAuth 24h 토큰 + Redis 분산락 공통 모듈 | 외부 API·UI 흐름 | W1 |
+| 0039 | 종목 마스터 갱신 Cron (KIS 갱신 시각 +5분) | 외부 API·UI 흐름 | W1 |
+| 0040 | 관심종목 우선 UI 흐름 (Strategy Builder → 발굴 → Watchlist → 상세) | 외부 API·UI 흐름 | W1 |
+
+### 후속 예정 (Proposed — `_workspace/arch/adr/README.md` §12 정합)
+
+| 후보 번호 | 제목 (예정) | 진입 트랙 |
 |---|---|---|
-| 0031 | 시스템 비전 v2 (룰 본체 + AI 옵션 + MCP 서버 미래) | AI 결정권 0. 오프라인 1순위. |
-| 0032 | Market Session FSM | KRX 영업일·장중·장외·휴장 FSM. MarketSessionResolver port. |
-| 0033 | 시세 Fallback 3-tier (live → cache → last-day-close) | stale=true 명시 + UI 배지. |
-| 0034 | REJECTED Audit Trail | Guard reject·KisApiException 모두 orders INSERT. |
-| 0035 | KIS REST/WS 정밀화 (EGW00202 hotfix + hashkey) | RealKisRestAdapter raw HTTP 표준. |
-| 0036 | KIS Strategy Builder 흡수 = 명세 port (AI hook 제거) | DSL·80지표·57패턴·10프리셋만 port. .kis.yaml 호환. |
-| 0037 | Instrument Master 1급 시민 | KIS·KRX 일일 sync + Redis 검색 인덱스. 상장폐지 보존. |
-| 0038 | Corp Action raw + adjusted | 룩어헤드 차단. retroactive 재계산. |
-| 0039 | Indicator Source 추상화 | `IndicatorSource` plug-in. KIS·TA-Lib·Native·KRX. |
-| 0040 | Strategy DSL = `.kis.yaml` 호환 superset | magicJar 확장(다중 TF·시간 필터·종목 그룹·패턴 조건). |
-| 0041 | Signal Engine = 룰 매칭 only (AI 호출 0) | DSL 평가만. AI 컨설트는 W4 옵션 분리. |
-| 0042 | Risk Guard chain 6단 | 1차 매우 느슨 default. PositionLimit 종목당 10%. DrawdownStop 일일 -3%. |
-| 0043 | Multi-tenant 구조 (트랙1 완료 흡수) | user_id 컬럼. 인증은 post-MVP. |
-| 0044 | LWC 확장 + 자체 도형/주석/패턴 (TradingView Advanced 폐기) | LWC v4 공식 API 한정 + 자체 overlay layer. |
-| 0045 | MCP 서버 미래 (W4) | tool 5종. 1차 localhost. 우리가 server. |
-| 0046 | AI 옵션 보조 (사용자 트리거 한정) | 종목 코멘트·기업 분석·차트 해석·지표 의미. 매매 트리거 0. |
-| 0047 | 새 v2 마스터 = 단일 진실원 | 트랙 spec/plan은 §X 위치 명시 의무. 충돌 시 master 선 개정. |
+| 0041 | 57 캔들 패턴 표준 | T-PAT |
+| 0042 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT |
+| 0043 | Screener 표준 | T-SC |
+| 0044 | Performance 표준 | T-PERF |
 
 ---
 
@@ -502,16 +535,26 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 
 ---
 
-## §12. 사용자 결정 필요 사항 (v2 검토 시)
+## §12. 사용자 결정 누적 카드
 
-본 마스터 검토 시 사용자가 확정:
+v1·v2 검토 시점에 누적된 결정 항목과 v3.0.0 베이스라인 컷(2026-05-05) 결과를 함께 기록한다. 트랙 진입 시 신규 결정 필요 항목이 생기면 본 절에 누적 + 사용자 답변 시 결과 표시.
 
-1. **새 v2 ADR 0031~0047 발행 시점** — W1 진입 직전 일괄 / 트랙별 진입 시 부분?
-2. **Deprecated/Superseded 13건 처리** — 즉시 삭제 / `_archive/` 이동 / 본문 헤더만?
-3. **release/v1 처리** — 사용자 명시 "release말곤 싹지울 예정" 정합 시 v1 삭제? v0만 보존?
-4. **MCP server 1차 위치** — W4의 별도 sidecar 컨테이너 vs api 모듈 내 endpoint?
-5. **AI provider 1차** — Anthropic / Gemini(free) / OpenAI 중 default?
-6. **Indicator source 1차 plug-in** — KIS Strategy Builder 1차만 / NativeSource 자체 구현 동시?
+### 12-1. v1·v2 잔여 결정 (모두 결정됨/자연 해소)
+
+| # | 결정 항목 | 상태 | 결과·해소 사유 |
+|---|---|---|---|
+| 1 | 새 v2 ADR 발행 시점 (W1 진입 직전 일괄 vs 트랙별 부분) | 결정됨 | ADR 0001~0040 베이스 일괄 발행. 트랙 진입 시 ADR 0041~ sequential 추가. |
+| 2 | Deprecated/Superseded 13건 처리 (삭제 / `_archive/` / 본문 헤더만) | 자연 해소 | v3.0.0 베이스라인 컷에서 PoC 잔재 일괄 정리. ADR 디렉토리 1~40만 보존. |
+| 3 | release/v1 처리 (v1 삭제 / v0만 보존) | 자연 해소 | release/v* 브랜치 immutable 보존 정책 (ADR 0031). v3.0.0 베이스라인 컷 완료. |
+| 4 | MCP server 1차 위치 (sidecar 컨테이너 vs api 모듈 내 endpoint) | 보류 (W4) | T-MCP 진입 시 결정. tracks-roadmap §7 결정 항목 #6 정합. |
+| 5 | AI provider 1차 (Anthropic / Gemini free / OpenAI) | 보류 (W4) | T-AI 진입 시 결정. .env.example default `MAGICJAR_AI_PROVIDER=anthropic`. |
+| 6 | Indicator source 1차 plug-in (KIS만 / NativeSource 동시) | 보류 (W2) | T-IND 진입 시 결정. ADR 0021 source 추상화 인터페이스 확정. |
+
+### 12-2. v3 베이스라인 컷 후 신규 결정 (트랙 진입 시 채움)
+
+| # | 결정 항목 | 상태 | 영향 트랙 |
+|---|---|---|---|
+| (트랙 진입 시 누적) | | | |
 
 ---
 
@@ -521,3 +564,4 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 |---|---|
 | 2026-05-03 (v1) | 1차안 (architect, opus 4.7 1M) — "AI quant trading platform" 가정. 사용자 비전 정정으로 폐기. |
 | 2026-05-03 (v2) | **풀 재작성** — 룰 기반 본체 + AI 옵션 + MCP 서버 미래. 18 컴포넌트 4 영역. 새 ADR 0031~0047 17건. (architect, opus 4.7 1M) |
+| 2026-05-07 (PR-2) | SoT 동기화 — §10 ADR 인덱스 0001~0040 풀 재작성, §2 헤더 19 컴포넌트 정정, §6 Kafka `watchlist.changed.v1` topic 추가, §12 사용자 결정 누적 카드 정리, AI 변수명 `MAGICJAR_AI_OPTION_ENABLED` → `MAGICJAR_AI_ENABLED` 통일. (architect) |
