@@ -58,7 +58,7 @@
 - **선행/후행**: 트랙1 / W1·W2·W3 모든 트랙의 전제 (장 상태 인지 의무)
 - **오프라인 동작**: 필수 (정적 캘린더 시드 + last-day-close fallback + MockTickGenerator)
 - **KIS Strategy Builder 흡수**: 없음 (자체 도메인)
-- **ADR**: 0032·0033·0034·0035 (4건 일괄)
+- **ADR**: 0013·0014·0015·0016 (4건 일괄)
 - **데이터**: `market_calendar` V10·`order_reject_audit` V11. Redis `quote:last:*`·`session:cache:current`. Kafka `order.rejected.v1`·`market.session.v1`
 - **산출물 핵심**: 룰 기반 세션 FSM + REJECTED Audit + last-day-close fallback (AI 의사결정 가정 배제)
 - **비범위**: KRX 캘린더 자동 동기화 (정적 시드 1차), 분봉 backfill 강화 (별도 트랙), 알림 통합 (post-MVP)
@@ -70,7 +70,7 @@
 - **선행/후행**: 없음 / T-CA1·T-IND·T-DSL·T-BT·T-SC·T-SIG
 - **오프라인 동작**: 필수 (정적 시드 fallback + KIS sync는 옵션)
 - **KIS 흡수**: KIS `genfile_*.py` 종목 마스터 다운로더 로직 → Kotlin batch job으로 port
-- **ADR**: 0037
+- **ADR**: 0017 · 0039 (Cron 갱신)
 - **데이터**: `instrument` (V12) · `instrument_alias`. Redis `instrument:search:*`·`instrument:list:*`. Kafka `instrument.updated.v1`
 - **산출물**:
   - `domain/.../instrument/` 도메인 + port
@@ -87,7 +87,7 @@
 - **선행/후행**: T-IM1 / T-BT·T-SC·T-SIG
 - **오프라인 동작**: 필수 (일별 batch + 정적 시드)
 - **KIS 흡수**: KIS 종목 정보 변경 + DART 공시 양쪽
-- **ADR**: 0038
+- **ADR**: 0018
 - **데이터**: `corp_action` (V13) · `candle.close_raw`·`close_adjusted` (V14). Kafka `corp_action.applied.v1`
 - **산출물**:
   - `domain/.../instrument/CorpAction.kt`
@@ -103,7 +103,7 @@
 - **선행/후행**: T-MS1·T-IM1 / T-PAT·T-DSL·T-SIG
 - **오프라인 동작**: 필수 (전부 in-process 계산)
 - **KIS 흡수**: `strategy_builder/core/indicators.py` 80개 함수 명세 그대로 — Kotlin port. KisStrategyBuilderSource adapter로 등록
-- **ADR**: 0039 (source 추상화 핵심)
+- **ADR**: 0021 (source 추상화 핵심) · 0020 (KIS Strategy Builder 흡수 명세 port)
 - **데이터**: Redis `indicator:cache:{code}:{interval}:{ind}:{params}` TTL 5분(분봉)/1일(일봉). Kafka 영향 없음
 - **산출물**:
   - `domain/.../indicator/IndicatorSource.kt` (port)
@@ -122,7 +122,7 @@
 - **선행/후행**: T-IND / T-DSL·T-SIG (DSL이 패턴을 조건으로 사용, T-LWC가 시각화 강화)
 - **오프라인 동작**: 필수 (in-process 룰)
 - **KIS 흡수**: 57개 패턴 명세만 (KIS doc 기반)
-- **ADR**: T-PAT 진입 시 발행 (0048 후보)
+- **ADR**: T-PAT 진입 시 발행 (0041 후보 — 57 캔들 패턴 표준, README §12 정합)
 - **데이터**: 영속 안 함 (실시간 인식 + 차트 마커만). Redis 캐시 선택
 - **산출물**:
   - `domain/.../pattern/` (port·spec·match)
@@ -142,7 +142,7 @@
   - `strategy_core/dsl/parser.py` 11개 클래스 (ConditionType·Operator·LogicalOperator·ArithmeticOperator·Indicator·Value·ArithmeticExpr·Condition·CompositeCondition·StrategyDSLParser·StrategyDefinition) → Kotlin sealed class
   - `strategy_core/registry.py` `@register` → Kotlin annotation + `StrategyRegistry`
   - 10개 프리셋 (strategy_NN_*.py) → Kotlin `PresetStrategies` 등록
-- **ADR**: 0040
+- **ADR**: 0022 (Strategy DSL = .kis.yaml superset)
 - **데이터**: `strategy` 테이블 본격(V15) · `strategy_dsl_yaml`(raw YAML)
 - **산출물**:
   - `domain/.../strategy/` 도메인 + AST + port
@@ -159,7 +159,7 @@
 - **선행/후행**: T-DSL / T-BT
 - **오프라인 동작**: 필수 (frontend in-browser)
 - **KIS 흡수**: KIS `frontend/` (Next.js) 흡수 안 함. UX 컨셉(블록·드래그·미리보기) 참고만
-- **ADR**: 0036 ("GUI 블록 빌더 1차" 명시)
+- **ADR**: 0009 (frontend SPA) · 0040 (관심종목 우선 UI 흐름)
 - **데이터**: 없음 (read·write는 T-DSL의 `strategy` 테이블)
 - **산출물**:
   - `frontend/src/pages/Strategy/Builder.tsx` — **GUI 블록 빌더 1차** (드래그·드롭 + 지표 picker + 연산자 + 논리 조합 + 파라미터)
@@ -176,7 +176,7 @@
 - **선행/후행**: T-CA1·T-DSL / T-SIG·T-PERF
 - **오프라인 동작**: 필수 (영속 candle만 있으면)
 - **KIS 흡수**: KIS는 백테스트 엔진 미공개. magicJar 자체 (현행 BacktestRunJob 확장)
-- **ADR**: T-BT 진입 시 발행 (0049 후보 — Backtest 표준)
+- **ADR**: T-BT 진입 시 발행 (0042 후보 — Backtest 표준, README §12 정합)
 - **데이터**: `backtest_run` 현행 + `backtest_summary` 보강
 - **산출물**:
   - `batch/.../job/backtest/BacktestRunJob.kt` v2 (T-CORP-ACTION adjusted 사용)
@@ -192,7 +192,7 @@
 - **선행/후행**: T-IM1·T-CA1·T-DSL / T-SIG
 - **오프라인 동작**: 필수 (영속 candle + 룰만)
 - **KIS 흡수**: 자체 — KIS는 screener 부재
-- **ADR**: T-SC 진입 시 발행 (0050 후보 — Screener 표준)
+- **ADR**: T-SC 진입 시 발행 (0043 후보 — Screener 표준, README §12 정합)
 - **데이터**: `screener_query`·`screener_result` (V16). Redis `screener:result:{queryHash}` TTL 5분. Kafka `screener.result.v1`
 - **산출물**:
   - `domain/.../screener/` 도메인
@@ -209,7 +209,7 @@
 - **선행/후행**: T-MS1·T-IND·T-PAT·T-DSL·T-SC / T-RISK·T-PERF
 - **오프라인 동작**: 필수 (in-process 룰)
 - **KIS 흡수**: KIS `core/signal.py` Action·Signal·strength → Kotlin
-- **ADR**: 0041 (룰 매칭 only — AI 호출 0 명시)
+- **ADR**: 0023 (룰 매칭 only — AI 호출 0 명시)
 - **데이터**: `signal` 테이블 (V17). Kafka `signal.generated.v1`. Redis `signal:active:{code}` TTL 5분
 - **산출물**:
   - `domain/.../signal/`
@@ -226,7 +226,7 @@
 - **선행/후행**: T-MS1·T-SIG / T-PERF
 - **오프라인 동작**: 필수 (in-process 정책)
 - **KIS 흡수**: KIS `core/position_manager.py` 참조
-- **ADR**: 0042
+- **ADR**: 0024 (Risk Guard chain 6단)
 - **데이터**: `position`·`pnl_daily`·`risk_event` (V18). Kafka `risk.event.v1`
 - **산출물**:
   - `domain/.../position/`·`risk/`
@@ -246,7 +246,7 @@
 - **선행/후행**: T-SIG·T-RISK / W4
 - **오프라인 동작**: 필수 (영속 데이터만)
 - **KIS 흡수**: 없음
-- **ADR**: T-PERF 진입 시 발행 (0051 후보 — Performance 표준)
+- **ADR**: T-PERF 진입 시 발행 (0044 후보 — Performance 표준, README §12 정합)
 - **데이터**: `pnl_daily` (V18) · `chart_snapshot` 영속 강화. Kafka `journal.recorded.v1`
 - **산출물**:
   - `batch/.../job/perf/DailyPerformanceJob.kt` (오프라인 통계만)
@@ -261,7 +261,7 @@
 - **선행/후행**: T-PAT·T-SIG / -
 - **오프라인 동작**: 필수 (frontend in-browser)
 - **KIS 흡수**: 없음
-- **ADR**: 0044 (TradingView Advanced 폐기 명시)
+- **ADR**: 0025 (LWC 확장 — TradingView Advanced 폐기 명시)
 - **데이터**: 없음 (frontend 한정)
 - **산출물**:
   - `frontend/src/components/chart/AdvancedChart.tsx` — LWC 확장 main
@@ -279,7 +279,7 @@
 - **선행/후행**: W3 완료 / T-MCP
 - **오프라인 동작**: **필수 (AI 끊겨도 본체 흐름 영향 0)** — frontend는 "AI 응답 없음" 표시 + 본체 데이터는 그대로 표시
 - **KIS 흡수**: 없음
-- **ADR**: 0046
+- **ADR**: 0026 (AI 옵션 보조 — 사용자 트리거 한정)
 - **데이터**: `ai_comment_log` (V20) · `prompt_template` (V20). Kafka `ai.comment.requested.v1`·`ai.comment.responded.v1`. Redis `ai:prompt:cache:{hash}` TTL 5분
 - **산출물**:
   - `domain/.../ai/AiCommentRequest·Response.kt` (코멘트만, 의사결정 X)
@@ -305,7 +305,7 @@
 - **선행/후행**: T-AI / -
 - **오프라인 동작**: 필수 (read 전용 — DB·캐시 직접 접근, AI provider 의존 0)
 - **KIS 흡수**: 없음
-- **ADR**: 0045
+- **ADR**: 0027 (MCP 서버 미래 노출)
 - **데이터**: `mcp_audit` (V21) — 호출 로그
 - **산출물**:
   - `domain/.../mcp/McpToolSpec.kt` · `port/McpToolHandler.kt`
@@ -460,3 +460,4 @@ W4는 W3 완료 후 진입. W5는 옵션 (T-LWC는 W3와 병렬 가능).
 |---|---|
 | 2026-05-03 (v1) | 13 트랙 + 5 Wave (architect, opus 4.7 1M) — "AI Decision Layer T-RISK" 가정. 사용자 비전 정정으로 폐기. |
 | 2026-05-03 (v2) | **풀 재작성** — 14 트랙 + 5 Wave. AI 트랙(W4 T-AI·T-MCP) 분리. T-LWC LWC 확장(TradingView Advanced 폐기). T-LEARN 사용자 학습 신설. (architect, opus 4.7 1M) |
+| 2026-05-07 (PR-2) | §3 outline ADR 매핑 정합 — 옛 0032·0033·0034·0035·0036·0037·0038·0039·0040·0041·0042·0044·0045·0046 → 현행 0013·0014·0015·0016·0017·0018·0020·0021·0022·0023·0024·0025·0026·0027 재매핑. T-PAT/T-BT/T-SC/T-PERF 후속 후보 0048~0051 → 0041~0044 (README §12 정합). (architect) |
