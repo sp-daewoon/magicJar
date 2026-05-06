@@ -1,4 +1,4 @@
-# ADR 0004 — 캔들 저장 정책 (Watchlist 기반 + Yahoo 분봉 DB 영속)
+# ADR 0019 — 캔들 저장 정책 (Watchlist 기반 + Yahoo 분봉 DB 영속)
 
 - 상태: Accepted
 - 작성일: TBD

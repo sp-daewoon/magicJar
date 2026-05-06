@@ -1,4 +1,4 @@
-# ADR 0005: Indicator Source 추상화 (`IndicatorSource` plug-in)
+# ADR 0021: Indicator Source 추상화 (`IndicatorSource` plug-in)
 
 - 상태: Accepted
 - 작성일: 2026-05-03

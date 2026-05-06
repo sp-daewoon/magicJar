@@ -1,4 +1,4 @@
-# ADR 0013: Git 훅 관리 — Husky
+# ADR 0032: Git 훅 관리 — Husky
 
 - 상태: Accepted
 - 작성일: 2026-04-25
