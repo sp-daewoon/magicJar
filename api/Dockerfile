@@ -16,7 +16,7 @@ WORKDIR /app
 
 # 호스트 산출물 COPY — :api:bootJar 가 build/libs/api-0.0.1-SNAPSHOT.jar 생성
 # archiveClassifier="" 설정으로 plain.jar 미생성 (build.gradle.kts 정합)
-COPY --chown=magicjar:magicjar build/libs/api-*.jar /app/app.jar
+COPY --chown=magicjar:magicjar build/libs/api-0.0.1-SNAPSHOT.jar /app/app.jar
 
 # JVM 옵션 — KST 타임존 의무 (KIS·DB·log 정합)
 ENV JAVA_TOOL_OPTIONS="-Duser.timezone=Asia/Seoul -XX:+UseG1GC -XX:MaxRAMPercentage=75"
