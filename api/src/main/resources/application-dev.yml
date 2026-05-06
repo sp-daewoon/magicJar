@@ -1,0 +1,8 @@
+# dev profile 오버라이드
+# PR-6+ 활성화 예정: KIS endpoint, base URL, dev-specific 설정 등
+
+# 예시 (PR-6에서 채움):
+# magicjar:
+#   kis:
+#     base-url: https://openapi.koreainvestment.com:9443
+#     ws-url: ws://ops.koreainvestment.com:21000
