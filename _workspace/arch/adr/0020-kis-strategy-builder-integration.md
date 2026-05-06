@@ -105,8 +105,8 @@ KIS Strategy Builder 별도 운영 + magicJar이 HTTP 호출 → 죽으면 magic
 | **10 프리셋** | Kotlin (`com.mj.consumer.application.strategy.preset.*`) — 각 strategy_NN_*.py 본문 port | 사용자 `.kis.yaml` import 동적 로드 |
 | **Strategy Builder UI** | React (`frontend/src/pages/Strategy/Builder.tsx`) — **GUI 블록 빌더 1차 골격** (지표 5종 + 진입/청산 1줄) + **yaml export/import 동시** | 2차 풀 GUI (80지표 picker·패턴·다중 TF·시간 필터) |
 | **백테스트** | JVM (`batch/.../BacktestRunJob.kt`) — 현행 확장 + corp_action adjusted | (해당 없음) |
-| **Strategy 실행** | JVM (consumer SignalGenerator) — **AI 호출 0** | **AI Comment 옵션은 W4 분리 트랙 (T16) — 매매 흐름과 분리** |
-| **Order 실행** | magicJar 기존 KisOrderSender 그대로 | (KIS Strategy Builder의 order_executor.py 흡수 안 함 — 트랙1 견고) |
+| **Strategy 실행** | JVM (consumer SignalGenerator) — **AI 호출 0** | **AI Comment 옵션은 W4 분리 트랙 (T-AI) — 매매 흐름과 분리** |
+| **Order 실행** | magicJar 기존 KisOrderSender 그대로 | (KIS Strategy Builder의 order_executor.py 흡수 안 함 — T-O 트랙 견고) |
 
 **v2 변경 핵심**:
 1. **AI hook 제거** — 1차안의 "Strategy 실행 → AI Decision Maker 호출" 가정 폐기. 시그널 → 주문은 룰 평가 직접.
@@ -207,7 +207,7 @@ KIS open-trading-api는 MIT 라이선스. magicJar 흡수 시:
 1차안의 "Strategy 실행 → AI Decision Maker hook" 가정은 **폐기**. v2:
 
 - 시그널 → 주문은 **DSL 룰 평가 직접** (consumer SignalGenerator + Risk Guard chain 6단)
-- AI 호출 = W4 별도 트랙 (T16) — **사용자 클릭 시** 종목 코멘트만
+- AI 호출 = W4 별도 트랙 (T-AI) — **사용자 클릭 시** 종목 코멘트만
 - 매매 흐름에 AI 0건. 본 ADR로 명시.
 
 ### 3-6. TradingView Advanced 폐기 명시 (v2 신규)
@@ -224,18 +224,18 @@ KIS open-trading-api는 MIT 라이선스. magicJar 흡수 시:
 
 본 결정은 다음 트랙의 기반 (tracks-roadmap.md v2):
 
-- **T5 (Indicators)** — 80개 일괄 + `IndicatorSource` plug-in 인터페이스
-- **T6 (Patterns)** — 57개 Kotlin 자체
-- **T7 (DSL)** — `.kis.yaml` 호환 + magicJar 확장(다중 TF·시간 필터·종목·패턴)
-- **T8 (Builder UI)** — GUI 블록 빌더 1차 골격 + yaml export/import
-- **T9 (Backtest)** — 자체 엔진 강화
-- **T11 (Signal)** — DSL 평가 직접 (AI 호출 0)
-- **T15 (LWC 확장)** — 자체 도형/주석/패턴 시각화 (TradingView Advanced 폐기)
+- **T-IND (Indicators, W2)** — 80개 일괄 + `IndicatorSource` plug-in 인터페이스
+- **T-PAT (Patterns, W2)** — 57개 Kotlin 자체
+- **T-DSL (Strategy DSL, W2)** — `.kis.yaml` 호환 + magicJar 확장(다중 TF·시간 필터·종목·패턴)
+- **T-SB (Strategy Builder UI, W2)** — GUI 블록 빌더 1차 골격 + yaml export/import
+- **T-BT (Backtest, W3)** — 자체 엔진 강화
+- **T-SIG (Signal, W3)** — DSL 평가 직접 (AI 호출 0)
+- **T-LWC (LWC 확장, W5)** — 자체 도형/주석/패턴 시각화 (TradingView Advanced 폐기)
 
 ### 4-2. 컨테이너 영향
 
 - 신규 컨테이너 0
-- frontend 책임 확장: +Strategy Builder UI (T8 GUI 블록 빌더)
+- frontend 책임 확장: +Strategy Builder UI (T-SB GUI 블록 빌더)
 
 ### 4-3. 운영 영향
 
@@ -245,12 +245,12 @@ KIS open-trading-api는 MIT 라이선스. magicJar 흡수 시:
 
 ### 4-4. 검증·정확성
 
-- **80개 지표 1차 구현 시 단위 테스트 fixture 기반 정확성 검증** (T5 R3 게이트). 표준 입력에 대한 expected output 비교, drift 0.001% 이상 0건 운영.
-- 백테스트 결과는 **KIS Strategy Builder의 examples/run_all_strategies.py와 동일 시드·기간·데이터로 재현 비교** (T9 R3 게이트).
+- **80개 지표 1차 구현 시 단위 테스트 fixture 기반 정확성 검증** (T-IND R3 게이트). 표준 입력에 대한 expected output 비교, drift 0.001% 이상 0건 운영.
+- 백테스트 결과는 **KIS Strategy Builder의 examples/run_all_strategies.py와 동일 시드·기간·데이터로 재현 비교** (T-BT R3 게이트).
 
 ### 4-5. AI 호출 차단 검증 (v2 핵심)
 
-- T5·T6·T7·T8·T9·T10·T11·T12·T14 트랙의 코드에서 AI provider import·호출 0 검증 (R3 진입 시 architect 1회 grep)
+- T-IND·T-PAT·T-DSL·T-SB·T-BT·T-SC·T-SIG·T-RISK·T-PERF 트랙의 코드에서 AI provider import·호출 0 검증 (R3 진입 시 architect 1회 grep)
 - W4 트랙 진입 시점에만 AI provider 코드 추가 OK
 
 ---

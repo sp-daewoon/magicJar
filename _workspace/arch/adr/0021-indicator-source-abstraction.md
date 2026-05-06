@@ -4,7 +4,7 @@
 - 작성일: 2026-05-03
 - 결정자: architect (opus 4.7 1M) — 사용자 명시(2026-05-03)
 - master §위치: `docs/architecture/master-architecture.md` v2 §B.5·§7-3
-- 트랙: T5 (W2)
+- 트랙: T-IND (Indicators, W2)
 - 선행: ADR 0020 (KIS Strategy Builder 흡수), ADR 0001
 
 ---
@@ -69,12 +69,13 @@ class IndicatorEngine(
 }
 ```
 
-### 2-3. 1차 구현 (T5 R1·R2)
+### 2-3. 1차 구현 (T-IND R1·R2)
+
 
 | Source | priority | 범위 | 비고 |
 |---|---|---|---|
-| `KisStrategyBuilderSource` | 100 | 80지표 (KIS `indicators.py` port) | T5 R1 — 일괄 |
-| `NativeIndicatorSource` | 50 | 핵심 5지표 (SMA·EMA·RSI·MACD·BB) — magicJar 자체 | T5 R2 — KIS와 cross-check |
+| `KisStrategyBuilderSource` | 100 | 80지표 (KIS `indicators.py` port) | T-IND R1 — 일괄 |
+| `NativeIndicatorSource` | 50 | 핵심 5지표 (SMA·EMA·RSI·MACD·BB) — magicJar 자체 | T-IND R2 — KIS와 cross-check |
 | `TaLibSource` | 200 | (선택) JNI 또는 HTTP | post-W2 |
 | `KrxSource` | 300 | (선택) KRX 공식 | post-MVP |
 
@@ -104,9 +105,9 @@ cache key에 source 식별자 포함하지 않음 — 사용자 토글 시점에
 
 ## 3. 결과·영향
 
-- **T5 (Indicators)** — 80지표 KIS port + Native 5지표 1차.
-- **T6 (Patterns)** — 별도 ADR (0048 후보), source 추상화는 indicator 한정 (1차).
-- **T7 (DSL)** — `IndicatorEngine`을 사용. DSL은 source 무관 — `MA(20)` 호출하면 priority 낮은 source 자동.
+- **T-IND (Indicators, W2)** — 80지표 KIS port + Native 5지표 1차.
+- **T-PAT (Patterns, W2)** — 별도 ADR 후보, source 추상화는 indicator 한정 (1차).
+- **T-DSL (Strategy DSL, W2)** — `IndicatorEngine`을 사용. DSL은 source 무관 — `MA(20)` 호출하면 priority 낮은 source 자동.
 - **사용자 정의 지표** — `NativeIndicatorSource`에 추가 (post-MVP)
 
 ## 4. 검토 대안

@@ -4,8 +4,8 @@
 - 작성일: 2026-05-03
 - 결정자: architect (opus 4.7 1M) — 사용자 비전(2026-05-02) 명시 정합
 - master §위치: `docs/architecture/master-architecture.md` v2 §1-5·§D.18·§3-4
-- 트랙: T17 (W4)
-- 선행: ADR 0001, 0046
+- 트랙: T-MCP (MCP Server, W4)
+- 선행: ADR 0001, 0026 (AI Option)
 
 ---
 
@@ -109,8 +109,8 @@ CREATE INDEX idx_mcp_user_time ON mcp_audit(user_id, called_at DESC);
 
 ## 3. 결과·영향
 
-- T17 (W4) 트랙 진입 시 본 ADR 직접 의존.
-- W4 = T16 (AI Option Console) + T17 (MCP server) — 둘 다 W4 안에 포함 (사용자 결정 default 12).
+- T-MCP (W4) 트랙 진입 시 본 ADR 직접 의존.
+- W4 = T-AI (AI Option Console) + T-MCP (MCP server) — 둘 다 W4 안에 포함 (사용자 결정 default 12).
 - magicJar는 **server**. AI 클라이언트가 magicJar의 사용자.
 
 ## 4. 검토 대안

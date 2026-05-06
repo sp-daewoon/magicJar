@@ -4,7 +4,7 @@
 - 작성일: 2026-05-03
 - 결정자: architect (opus 4.7 1M)
 - master §위치: `docs/architecture/master-architecture.md` v2 §A.3·§3-5
-- 트랙: T4 (W1)
+- 트랙: T-CA1 (Corp Action, W1) — 선행 T-IM1 (Instrument Master)
 - 선행: ADR 0017
 
 ---
@@ -91,7 +91,7 @@ DART는 api 모듈 외부 어댑터에서 스크래핑.
 
 ## 3. 결과·영향
 
-- backtest의 정확성 핵심 — KIS Strategy Builder examples와 동일 시드·기간으로 결과 비교 게이트 (T9 R3).
+- backtest의 정확성 핵심 — KIS Strategy Builder examples와 동일 시드·기간으로 결과 비교 게이트 (T-BT R3).
 - candle storage size 약 2x (양 컬럼) — 1년 일봉 ~250 row × 3000종목 × 2 = 150만 row. 부담 0.
 - 분봉도 양 컬럼 의무? — 분봉은 ex-date 당일에만 영향, raw + 1회 보정 OK. 단 일관성 위해 양 컬럼 유지 (1차).
 

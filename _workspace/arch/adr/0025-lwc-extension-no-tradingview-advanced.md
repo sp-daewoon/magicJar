@@ -4,7 +4,7 @@
 - 작성일: 2026-05-03
 - 결정자: architect (opus 4.7 1M) — 사용자 결정(2026-05-03 default 12 §10) 정합
 - master §위치: `docs/architecture/master-architecture.md` v2 §D.16, §9
-- 트랙: T15 (W5)
+- 트랙: T-LWC (LWC extension, W5)
 - 선행: ADR 0022 (Frontend SPA — LWC), ADR 0020
 
 ---
@@ -34,7 +34,7 @@ frontend/src/components/chart/
 ├── overlay/
 │   ├── ShapeOverlay.tsx     # 추세선·수평선·박스 (사전 정의)
 │   ├── AnnotationOverlay.tsx # 텍스트 주석
-│   ├── PatternOverlay.tsx   # T6 패턴 마커 (Bullish Engulfing 등)
+│   ├── PatternOverlay.tsx   # T-PAT 패턴 마커 (Bullish Engulfing 등)
 │   └── MarkerOverlay.tsx    # signal·order 마커 (LWC Markers API)
 ├── controls/
 │   ├── ShapeToolbox.tsx     # 도형 추가 toolbox
@@ -44,7 +44,7 @@ frontend/src/components/chart/
     └── shapeStore.ts        # Zustand store — 사용자 그린 도형 영속 (localStorage + post-MVP DB)
 ```
 
-### 2-3. 1차 깊이 (W5 T15 R1·R2)
+### 2-3. 1차 깊이 (W5 T-LWC R1·R2)
 
 | 기능 | R1 | R2 | 후속 (post-W5) |
 |---|---|---|---|
@@ -52,9 +52,9 @@ frontend/src/components/chart/
 | 수평선 (가격 클릭) | ✓ | | |
 | 박스 (사각형 영역) | ✓ | | |
 | 텍스트 주석 | | ✓ | |
-| 패턴 마커 (T6 자동) | ✓ | | |
-| 시그널 마커 (T11) | ✓ | | |
-| 주문/체결 마커 (T1) | ✓ | | |
+| 패턴 마커 (T-PAT 자동) | ✓ | | |
+| 시그널 마커 (T-SIG) | ✓ | | |
+| 주문/체결 마커 (T-O) | ✓ | | |
 | 다중 timeframe 동기 차트 (D + 60m) | | ✓ | |
 | 종목 비교 overlay | | ✓ | |
 | Replay (시점 시그널 재생) | | ✓ | |
@@ -80,7 +80,7 @@ LWC v4 공식 API:
 
 - **LWC v4 외부 lib 0건** — 사용자 비전 정합 (PR #31에서 LWC 공식 API 한정 검증 통과 정합)
 - TradingView Advanced 도입 시점 결정 부담 0
-- 풀 GUI는 W5 T15에서 점진 — W2 트랙(T8 Strategy Builder UI)과는 별도
+- 풀 GUI는 W5 T-LWC에서 점진 — W2 트랙(T-SB Strategy Builder UI)과는 별도
 
 ## 4. 검토 대안
 
