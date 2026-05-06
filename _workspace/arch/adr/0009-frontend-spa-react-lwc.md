@@ -111,9 +111,9 @@ frontend/
   - `frontend/` 신규 디렉토리 부트스트랩 (frontend 에이전트)
   - shadcn/ui 초기 컴포넌트 picking
   - LWC 래퍼 1차 구현 + PR 시 본 ADR §"커스텀 지양 원칙" 체크리스트 강제
-  - **별도 ADR 후보 트리거 (TradingView Advanced 재검토)**: 그리기 도구·custom study·심볼 비교·고급 replay가 사업적으로 분명히 필요해진 시점
+  - TradingView Advanced 채택 가능성은 **폐기, 재검토 안 함** (ADR 0025·master 정합)
 
 ## Links
 
-- spec: `docs/superpowers/specs/2026-04-27-msa-restructure-design.md` §11 (특히 §11-5)
-- 관련 ADR: 0019, 0023, 0011(개정)
+- master-architecture.md §5 (frontend 모듈)
+- 관련 ADR: 0019, 0023, 0011(개정), 0025 (LWC extension only)

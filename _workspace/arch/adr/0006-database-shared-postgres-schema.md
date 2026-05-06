@@ -77,5 +77,5 @@ ADR 0004로 3 JVM 앱(`api`·`batch`·`consumer`)이 서로 다른 시점에 같
 
 ## Links
 
-- spec: `docs/superpowers/specs/2026-04-27-msa-restructure-design.md` §9
+- master-architecture.md §6 (저장소·스키마)
 - 관련 ADR: 0004(확장), 0019, 0021, 0023

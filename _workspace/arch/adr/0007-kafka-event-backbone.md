@@ -82,5 +82,5 @@ ADR 0004로 `api`/`batch`/`consumer` 3 JVM 런타임이 분리되면서, 그들 
 
 ## Links
 
-- spec: `docs/superpowers/specs/2026-04-27-msa-restructure-design.md` §4
+- master-architecture.md §6 (이벤트 백본 + 토픽 매트릭스)
 - 관련 ADR: 0019, 0021, 0023

@@ -97,7 +97,7 @@ raw HTTP 로그 + curl 비교 1회로 원인 식별 후 fix.
 - master-architecture.md §외부 매트릭스, §3-1
 - ADR 0003 (KIS OpenAPI 채택)
 - ADR 0015 (REJECTED Audit — KIS 에러 audit)
-- `_workspace/_archive/dogfooding/2026-05-02.md` (EGW00202 발견)
+- 관련 트랙: T-W1 (KIS HTTP Adapter, W1) — tracks-roadmap.md §2
 - KIS 공식 doc: https://apiportal.koreainvestment.com/
 
 ---

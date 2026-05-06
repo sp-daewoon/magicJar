@@ -69,5 +69,5 @@ ADR 0004로 모듈을 런타임 축으로 재배치했지만, 실제 실행 단�
 
 ## Links
 
-- spec: `docs/superpowers/specs/2026-04-27-msa-restructure-design.md` §2
+- master-architecture.md §5 (런타임 매트릭스)
 - 관련 ADR: 0019, 0020, 0023, 0024

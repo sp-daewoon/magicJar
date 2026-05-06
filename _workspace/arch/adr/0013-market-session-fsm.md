@@ -76,4 +76,4 @@ interface MarketSessionResolver {
 - ADR 0001 (오프라인 1순위)
 - ADR 0014 (Fallback 3-tier)
 - ADR 0015 (REJECTED Audit)
-- 트랙2 spec `docs/superpowers/specs/2026-05-02-track2-market-session-and-data-mgmt-design.md`
+- 관련 트랙: T-MS1 (Market Session FSM, W1) — tracks-roadmap.md §2
