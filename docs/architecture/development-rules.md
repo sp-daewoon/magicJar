@@ -94,11 +94,13 @@ QA 게이트가 없어도 다음으로 품질 보장:
 - timeout default 5s + retry 3회 + circuit open 30s
 - 실패 시 fallback 명시 (KIS REST → 캐시; LLM → "AI 응답 없음")
 
-### 2-6. 시크릿 환경변수만
+### 2-6. 시크릿 — 사용자 secret은 DB AES + 마스터 키 단일 예외 (ADR 0046)
 
 - 코드·로그·docker compose 파일에 시크릿 평문 금지
-- `.env`만 시크릿 보관 — git 미추적
-- master key 암호화 (트랙1 완료) — DB에는 AES-256-GCM 암호문만
+- **사용자 secret(KIS APP_KEY·SECRET·DART·Slack URL)은 환경변수 X** — 셋업 마법사로 입력 → AES-256-GCM 암호화 → DB 저장 (ADR 0046)
+- `.env`에는 **마스터 키 1개만** (`MAGICJAR_SECRET_MASTER_KEY` base64(32) — DB 암호화에 필요)
+- DB BYTEA 컬럼은 항상 암호문만 (`app_key_enc`·`secret_key_enc`·`dart_api_key`·`notification_slack_webhook`)
+- 메모리 hold → 즉시 AES → DB → 메모리 zero-fill (key array fill) — 메모리 `feedback_secret_handling.md` 정합
 
 ### 2-7. 로그 구조화 + 마스킹
 

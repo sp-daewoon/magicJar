@@ -11,7 +11,7 @@
 |---|---|---|---|---|
 | **W1 — Watchlist + 데이터 기반** (오프라인 1순위) | **관심종목 등록·Ingestion (최우선)** + 종목 마스터·시세 fallback·세션·corp action | **T-W1·T-W2·T-S1** + T-MS1·T-IM1·T-CA1 | 0 | 필수 |
 | **W2 — 분석 도구** | 80지표·57패턴·DSL·Strategy Builder UI | T-IND·T-PAT·T-DSL·T-SB | 0 | 필수 |
-| **W3 — 자동 매매 본체** (룰만) | 백테스트·screener·signal·risk·order 통합·**reconcile**·perf | T-BT·T-SC·T-SIG·T-RISK·T-O·**T-RECON**·T-PERF | 0 | 필수 |
+| **W3 — 자동 매매 본체** (룰만) | 백테스트·screener·signal·risk·order 통합·**reconcile**·**notify**·perf | T-BT·T-SC·T-SIG·T-RISK·T-O·**T-RECON**·**T-NOTIFY**·T-PERF | 0 | 필수 |
 | **W4 — AI 옵션 + MCP 서버** | 사용자 트리거 AI 코멘트·기업 분석·MCP server | T-AI·T-MCP | 옵션 (사용자 트리거만) | 필수 (AI 끊겨도 본체 영향 0) |
 | **W5 — 사용자 학습 + 일원화** | LWC 확장 시각화·사용자 학습 시나리오·데이터 정합성 검증 | T-LWC·T-LEARN | 0 | 필수 |
 
@@ -21,11 +21,12 @@
 
 ---
 
-## §2. 트랙 목록표 (총 18 트랙)
+## §2. 트랙 목록표 (총 20 트랙)
 
 | ID | 이름 | 마스터 §위치 | 목표 한 줄 | 선행 | 후행 | Wave | 사이즈 | 담당 |
 |---|---|---|---|---|---|---|---|---|
-| **T-W1** ★ | **Watchlist CRUD (UI + REST + DB)** + Position Bootstrap (ADR 0042) | §D.15 | 관심종목 등록 화면(최우선) + REST + Flyway watchlist 테이블 + 부팅 시 KIS 잔고 워밍 | - | T-W2·T-S1·T-SB | **W1 ★** | M | frontend+backend-core |
+| **T-ONBOARD** ★★ | **Onboarding Setup (ADR 0046 — 셋업 마법사 + 테이블 3종 + AES)** | §3-1 부수 | 첫 부팅 시 KIS 키 등록 마법사 7-step + system_config·user_account·user_kis_credential 테이블 + AES-256-GCM 암호화 + 마스터 키 단일 예외 | - | **T-W1** | **W1 ★★** | L | architect+backend-core+frontend |
+| **T-W1** ★ | **Watchlist CRUD (UI + REST + DB)** + Position Bootstrap (ADR 0042) | §D.15 | 관심종목 등록 화면(최우선) + REST + Flyway watchlist 테이블 + 부팅 시 KIS 잔고 워밍 | **T-ONBOARD** | T-W2·T-S1·T-SB | **W1 ★** | M | frontend+backend-core |
 | **T-W2** ★ | **Watchlist Ingestion Worker** | §A.2 | consumer 1~5초 polling + KIS WS sub + Yahoo cold-start fetch | T-W1 + ADR 0028·0037·0038 | T-S1·W3 | **W1 ★** | L | market-data+backend-core |
 | **T-S1** ★ | **Symbol Detail (현재가·종목상세·차트)** | §A.2·§D.17 | Watchlist row 클릭 → 상세 화면 (현재가 + PER/PBR/시총 + LWC 차트) | T-W2 + ADR 0019·0029 | T-SB·T-O | **W1 ★** | M | frontend+market-data |
 | T-MS1 | Market Session + Data Fallback | §A.2·§3.2 | 장 상태 인지·시세 fallback·REJECTED audit | T-W2 | W3 | W1 | M | backend-core+market-data |
@@ -38,9 +39,10 @@
 | T-BT | Backtest Engine 강화 | §B.9 | 룩어헤드·세금·수수료·슬리피지 모델 + 성과 카드 | T-CA1·T-DSL | T-SIG·T-PERF | W3 | L | backend-core |
 | T-SC | Screener | §C.10 | universe × DSL → 후보+랭킹 + 캐시 | T-IM1·T-CA1·T-DSL | T-SIG | W3 | M | backend-core |
 | T-SIG | Signal Engine (룰 매칭 only, AI 호출 0) | §C.11 | Watchlist × 활성 전략 → BUY/SELL/HOLD + 강도 | T-MS1·T-IND·T-PAT·T-DSL·T-SC | T-RISK·T-O·T-PERF | W3 | M | strategy-engine |
-| T-RISK | Risk & Position (Guard chain 6단) | §C.13 | PositionLimit·DrawdownStop·Position projection | T-MS1·T-SIG | T-O·T-PERF | W3 | L | backend-core |
-| T-O | Order (KIS Order Adapter + multi-tenant + 안전 게이트) + KillSwitch 행동 (ADR 0043) | §C.12 | 시그널 → Guard → KisOrderSender → 체결 → audit + KillSwitch ON 5대 행동 | T-W2·T-SIG·T-RISK | T-J·T-PERF·T-RECON | W3 | XL | backend-core+market-data |
-| **T-RECON** | **Broker Reconciliation (ADR 0041)** | §C.12·§3-1 부수 | KIS 잔고 cron 폴링 + drift 검출 + KillSwitch auto-ON | T-O | T-PERF | **W3** | M | backend-core+market-data |
+| T-RISK | Risk & Position (Guard chain 6단) + risk.violation.v1 publish (ADR 0044 정합) | §C.13 | PositionLimit·DrawdownStop·Position projection + Guard 위반 시 risk.violation.v1 emit | T-MS1·T-SIG | T-O·T-PERF·T-NOTIFY | W3 | L | backend-core |
+| T-O | Order (KIS Order Adapter + multi-tenant + 안전 게이트) + KillSwitch 행동 (ADR 0043) + idempotency (ADR 0045) | §C.12 | 시그널 → Guard → KisOrderSender → 체결 → audit + KillSwitch ON 5대 행동 + order.intent.v1 idempotency 키 | T-W2·T-SIG·T-RISK | T-J·T-PERF·T-RECON | W3 | XL | backend-core+market-data |
+| **T-RECON** | **Broker Reconciliation (ADR 0041)** | §C.12·§3-1 부수 | KIS 잔고 cron 폴링 + drift 검출 + KillSwitch auto-ON | T-O | T-PERF·T-NOTIFY | **W3** | M | backend-core+market-data |
+| **T-NOTIFY** | **Notification System (ADR 0044 — Slack webhook + Kafka 7 트리거 + outbox)** | §3-1 부수 | NotificationDispatcher (consumer) + SlackWebhookSender + notification_outbox + 5분 retry worker + system_config.notification_slack_webhook | T-RISK·T-O·T-RECON | - | **W3** | M | backend-core |
 | T-J | Trading Journal | §D.16 | 모든 주문·체결·시그널·차트 스냅샷 영속 + 사용자 메모 | T-O | T-PERF | W3 | M | backend-core+frontend |
 | T-PERF | Performance Loop (오프라인 통계) | §C.14 | 일/주 P&L·MDD·승률 | T-J·T-SIG·T-RISK | W4 | W3 | M | backend-core |
 | T-LWC | LWC 확장 + 자체 도형/주석/패턴 | §D.17 | TradingView Advanced 의존 0 + 자체 overlay layer | T-PAT·T-SIG | - | W5 | M | frontend |
@@ -244,7 +246,7 @@
 
 - **마스터 §위치**: §C.12·§3-1 부수 흐름
 - **목표**: KIS 잔고 cron 폴링(시장 OPEN 5분/CLOSED 1시간) + 내부 position diff → drift 시 DB upsert + Redis 갱신 + KillSwitch auto-ON + Kafka publish
-- **선행/후행**: T-O / T-PERF
+- **선행/후행**: T-O / T-PERF·T-NOTIFY
 - **오프라인 동작**: 부분 (KIS REST 의존 — 끊겨도 본체 매매 영향 0, drift 검출만 잠시 부재)
 - **KIS 흡수**: `inquire_balance.py` 정합 (TR_ID `TTTC8434R`/`VTTC8434R`)
 - **ADR**: **0041 (Broker Reconciliation Job)** + ADR 0037 (Rate Limit) + ADR 0038 (OAuth 분산락)
@@ -257,6 +259,47 @@
   - `consumer/.../messaging/listener/KillSwitchAutoToggler.kt` (drift sub)
   - `api/.../controller/RiskController.kt`에 `POST /api/risk/reconcile/{userId}` 추가
 - **비범위**: 글로벌 reconcile (1차는 user별만), drift 임계치 사용자 설정화 (post-MVP — 0047 후보)
+
+### T-ONBOARD — Onboarding Setup (ADR 0046 운영·UX fitness 갭 3번 — W1 ★★ 최우선)
+
+- **마스터 §위치**: §3-1 부수 흐름 (Onboarding Setup)
+- **목표**: 첫 부팅 시 KIS 키 등록 마법사 7-step + 테이블 3종 (system_config·user_account·user_kis_credential) + AES-256-GCM 암호화 + 마스터 키 단일 예외 (.env 1개만). T-W1·T-W2·T-S1보다 먼저 진입 의무.
+- **선행/후행**: - / T-W1
+- **오프라인 동작**: 부분 (KIS REST `/oauth2/tokenP` 검증 의존 — 인터넷 끊기면 셋업 불가, 단 셋업 후 운영은 캐시·fallback으로 정상)
+- **KIS 흡수**: OAuth 토큰 발급(`/oauth2/tokenP`) — `kis_devlp.yaml` 정합 (실전 host `openapi.koreainvestment.com:9443` / 모의 host `openapivts.koreainvestment.com:29443`)
+- **ADR**: **0046 (Onboarding & Credential Registration)** + ADR 0010 (Multi-tenant 정합) + ADR 0044 (system_config Slack webhook 통합) + ADR 0038 (OAuth 토큰 캐시)
+- **데이터**: `system_config`·`user_account`·`user_kis_credential` 신규 (V25) · `user_id`=KIS 실전계좌 8자리 · `account_type` 복합키 (REAL/MOCK)
+- **산출물**:
+  - `domain/.../account/UserAccount.kt` · `UserKisCredential.kt` · `SystemConfig.kt`
+  - `domain/.../security/CredentialPort.kt` (interface) · `AesGcmCipherPort.kt`
+  - `api/.../controller/OnboardingController.kt` (5 endpoint — status·kis/validate·kis/mock·system-config·complete)
+  - `api/.../infrastructure/kis/KisAuthAdapter.kt` (검증용 — `/oauth2/tokenP` 호출)
+  - `consumer/.../infrastructure/kis/KisAuthAdapter.kt` (운영용 — 토큰 캐시 + 분산락 ADR 0038 정합)
+  - `domain/.../security/AesGcmCipher.kt` (AES-256-GCM 구현)
+  - `frontend/src/pages/Onboarding/OnboardingWizard.tsx` (Step 1~6 화면)
+  - `frontend/src/pages/Settings/SettingsModal.tsx` (system_config UI 통합)
+  - Flyway `V25__onboarding_tables.sql` (3 테이블 + masked_account GENERATED 컬럼)
+  - `.env.example` 갱신 — `MAGICJAR_SECRET_MASTER_KEY` 1개만 + KIS·DART 평문 deprecated 처리
+- **비범위**: 외부 secret manager 통합 (post-MVP — 0090 후보), 마스터 키 자동 회전 (post-MVP — 0091 후보), 사용자별 권한 분리 (post-MVP — 0092 후보)
+
+### T-NOTIFY — Notification System (ADR 0044 운영·UX fitness 갭 1번)
+
+- **마스터 §위치**: §3-1 부수 흐름 (Notification 통지)
+- **목표**: NotificationDispatcher (consumer) + SlackWebhookSender + notification_outbox 패턴 + 5분 retry worker + 7 Kafka topic 구독 (risk.killswitch·risk.violation·kis.token.expired·order.rejected·position.drift·system.startup·system.shutdown)
+- **선행/후행**: T-RISK·T-O·T-RECON / -
+- **오프라인 동작**: 부분 (Slack 외부 의존 — Slack 끊겨도 outbox 보존 + 5분 retry. 본체 매매 영향 0)
+- **KIS 흡수**: 없음 (Slack webhook은 KIS 무관)
+- **ADR**: **0044 (Notification System)** + ADR 0046 (system_config.notification_slack_webhook 정합)
+- **데이터**: `notification_outbox` 신규(V24) · `system_config.notification_slack_webhook` (V25 ADR 0046 통합) · Kafka 5 topic 신규 (`risk.violation.v1`·`kis.token.expired.v1`·`system.startup.v1`·`system.shutdown.v1`·`notification.sent.v1`)
+- **산출물**:
+  - `domain/.../notification/NotificationPort.kt` · `NotificationPayload.kt` · `NotificationPriority.kt` (P0/P1/P2 enum)
+  - `consumer/.../infrastructure/notification/NotificationDispatcher.kt` (7 @KafkaListener)
+  - `consumer/.../infrastructure/notification/SlackWebhookSender.kt` (HTTP + Resilience4j retry)
+  - `consumer/.../infrastructure/notification/NotificationFormatter.kt` (한국어 메시지 + 5필드)
+  - `consumer/.../infrastructure/notification/NotificationRateLimiter.kt` (Redis sliding window — P1 누적)
+  - `consumer/.../infrastructure/notification/NotificationOutboxRetryWorker.kt` (`@Scheduled 5분`)
+  - Flyway `V24__notification_outbox.sql`
+- **비범위**: 이메일·SMS·푸시 채널 (post-MVP — 0072 후보), user별 webhook 분리 (post-MVP — 0070 후보), 통지 정책 사용자 설정화 (post-MVP — 0071 후보)
 
 ### T-PERF — Performance Loop (오프라인 통계 + Journal Auto-screenshot)
 
@@ -416,13 +459,13 @@ W4는 W3 완료 후 진입. W5는 옵션 (T-LWC는 W3와 병렬 가능).
 
 | Wave | 트랙 | 기간 추정 | 사용자 검증 게이트 |
 |---|---|---|---|
-| **W1 — 데이터 기반** | T-MS1 + T-IM1 (병렬) → T-CA1 | ~3주 | 토요일 dogfooding 통과 + 종목 검색·universe 정상 + 차트 adjusted 정확 |
+| **W1 — 데이터 기반** | **T-ONBOARD ★★ (최우선)** → T-W1·T-W2·T-S1 → T-MS1 + T-IM1 (병렬) → T-CA1 | ~4주 | 셋업 마법사 7-step 완료 + 토요일 dogfooding 통과 + 종목 검색·universe 정상 + 차트 adjusted 정확 |
 | **W2 — 분석 도구** | T-IND + T-PAT (병렬) → T-DSL → T-SB | ~5주 | 80지표 정확성·차트 overlay + GUI 블록 빌더 yaml export/import 동작 |
-| **W3 — 자동 매매 본체** (룰 only) | T-BT + T-SC (병렬) → T-SIG → T-RISK → T-O → **T-RECON** → T-PERF | ~5주 | 시그널 → 주문 e2e 1사이클 + reconcile drift 검출 1사이클 + KillSwitch ON 시 5대 행동 검증 + 일별 perf 기록 + AI 호출 0 검증 |
+| **W3 — 자동 매매 본체** (룰 only) | T-BT + T-SC (병렬) → T-SIG → T-RISK → T-O → **T-RECON** → **T-NOTIFY** → T-PERF | ~6주 | 시그널 → 주문 e2e 1사이클 + reconcile drift 검출 1사이클 + KillSwitch ON 시 5대 행동 검증 + Slack 통지 7 trigger 검증 + 일별 perf 기록 + AI 호출 0 검증 |
 | **W4 — AI 옵션 + MCP** | T-AI → T-MCP | ~3주 | 사용자 클릭 시 AI 응답 + MCP tool 5종 외부 호출 가능 |
 | **W5 — 사용자 학습 + LWC 확장** | T-LWC + T-LEARN (병렬) | ~3주 | 사용자 시스템 투어 완료 + 데이터 정합성 체크리스트 통과 |
 
-총 추정: ~19주 (5개월). 단일 인력 + 사용자 검증 시간 + 외부 자원 발급 시간 별도.
+총 추정: ~21주 (5.5개월) — T-ONBOARD·T-NOTIFY 합류 정합. 단일 인력 + 사용자 검증 시간 + 외부 자원 발급 시간 별도.
 
 **현실 보정**:
 - KIS API 호출 한도 도달 시 W1·W3 늘어남
@@ -481,3 +524,4 @@ W4는 W3 완료 후 진입. W5는 옵션 (T-LWC는 W3와 병렬 가능).
 | 2026-05-03 (v2) | **풀 재작성** — 14 트랙 + 5 Wave. AI 트랙(W4 T-AI·T-MCP) 분리. T-LWC LWC 확장(TradingView Advanced 폐기). T-LEARN 사용자 학습 신설. (architect, opus 4.7 1M) |
 | 2026-05-07 (PR-2) | §3 outline ADR 매핑 정합 — 옛 0032·0033·0034·0035·0036·0037·0038·0039·0040·0041·0042·0044·0045·0046 → 현행 0013·0014·0015·0016·0017·0018·0020·0021·0022·0023·0024·0025·0026·0027 재매핑. T-PAT/T-BT/T-SC/T-PERF 후속 후보 0048~0051 → 0041~0044 (README §12 정합). (architect) |
 | 2026-05-07 (PR-3a) | 자동매매 fitness 갭 ADR 0041·0042·0043 발행 정합 — §2 T-W1·T-O ADR cross-ref + 신규 트랙 **T-RECON (W3)** 신설, §3 T-RECON outline 추가, §3 T-RISK ADR 0043 추가, §5 W3 진행 순서에 T-RECON 합류, T-PAT/T-BT/T-SC/T-PERF 후속 후보 0044~0047 시프트 (3 슬롯). (architect) |
+| 2026-05-07 (PR-3b) | 운영·UX fitness 갭 ADR 0044·0045·0046 발행 정합 — §1 W1·W3 트랙 ID 갱신 (**T-ONBOARD**·**T-NOTIFY** 신설), §2 트랙 목록표 18→20 트랙 (T-ONBOARD W1 ★★ 최우선·T-NOTIFY W3), §2 T-RISK·T-O cross-ref ADR 0044/0045 추가, §3 T-ONBOARD·T-NOTIFY outline 신규, §5 W1 진행 순서에 T-ONBOARD prepend (~4주)·W3에 T-NOTIFY 합류 (~6주), 총 추정 21주로 시프트, T-PAT/T-BT/T-SC/T-PERF 후속 후보 0047~0050 시프트 (3 슬롯). (architect) |
