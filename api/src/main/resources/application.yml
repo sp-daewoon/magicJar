@@ -56,3 +56,5 @@ magicjar:
   ai:
     enabled: ${MAGICJAR_AI_ENABLED:false}
     mock-mode: ${MAGICJAR_AI_MOCK_MODE:auto}
+  secret:
+    master-key: ${MAGICJAR_SECRET_MASTER_KEY:}  # 생성: openssl rand -base64 32. 부재 시 부팅 거부 (ADR 0046 §2-4)
