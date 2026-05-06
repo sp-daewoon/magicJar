@@ -107,7 +107,19 @@ QA 게이트가 없어도 다음으로 품질 보장:
 - SLF4J + Logback (또는 JSON encoder)
 - 민감 데이터(KIS app key·account number·user PII) 자동 마스킹
 
-### 2-8. 각 모듈 README
+### 2-8. DSL 등록 검증 sandbox (ADR 0047)
+
+- **Static 검증 의무** — `POST /api/strategy` · `POST /api/strategy/import?format=kis-yaml` 진입 시 KisYamlDslParser는 다음 한도를 모두 통과해야 200 OK
+  - AST depth ≤ **32** (`MAGICJAR_DSL_AST_DEPTH_LIMIT`)
+  - AST 노드 수 ≤ **10000** (`MAGICJAR_DSL_NODE_COUNT_LIMIT`)
+  - `indicator()` 호출 수 ≤ **50** (`MAGICJAR_DSL_INDICATOR_CALL_LIMIT`)
+  - 키워드 화이트리스트만 (조건/연산자/논리/산술/`indicator()`·`pattern()`·`value()`·메타)
+- **Runtime 평가** — JvmStrategyEvaluator는 반드시 `strategy-eval-pool` (consumer @Bean fixed 4 threads, queue 100, CallerRunsPolicy) 경유. 직접 caller thread 평가 금지
+- **Timeout** — realtime 100ms / backtest 1000ms. 1회 timeout 발생 시 strategy `disabled_reason='TIMEOUT'`로 즉시 auto-disable + `risk.violation.v1` publish (ADR 0044 통지)
+- **Complexity 응답 의무** — 등록 성공 응답 body에 `complexity` 필드 (astDepth·nodeCount·indicatorCallCount·estimatedEvalTimeMs·complexityClass) 포함
+- **검증 누락 차단** — T-DSL·T-SIG·T-BT R3 진입 시 architect 1회 grep — strategy 평가 직접 호출(pool 우회) 발견 시 reject
+
+### 2-9. 각 모듈 README
 
 - 모듈 루트에 `README.md` — 책임·의존·실행 방법
 - W1 진입 시 모든 모듈에 README 의무화
@@ -316,3 +328,4 @@ Husky pre-commit에 author 화이트리스트 가드 적용 (ADR 0036 강제).
 |---|---|
 | 2026-05-03 | 초안 — 베이스라인 룰 + 운영 정책 + 트랙별 매트릭스 |
 | 2026-05-07 (PR-2) | AI 변수명 통일 (`MAGICJAR_AI_OPTION_ENABLED` → `MAGICJAR_AI_ENABLED`, .env.example 정합). (architect) |
+| 2026-05-07 (PR-3c) | §2-8 DSL 등록 검증 sandbox 룰 신규 추가 (ADR 0047 정합) — static 검증 한도(AST depth 32·노드 10000·indicator 50·키워드 화이트리스트), strategy-eval-pool 경유 의무, timeout 100ms/1000ms·auto-disable, complexity 응답 의무, R3 grep 검증. 기존 §2-8 README 항목은 §2-9로 시프트. (architect) |

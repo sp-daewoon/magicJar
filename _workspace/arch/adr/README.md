@@ -1,6 +1,6 @@
 # magicJar ADR 목차
 
-아키텍처 결정 기록(Architecture Decision Record). 40건 sequential. 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
+아키텍처 결정 기록(Architecture Decision Record). 47건 sequential. 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
 
 ## §1. 비전 (1건)
 
@@ -112,17 +112,25 @@
 | 0045 | Graceful Shutdown & In-flight 처리 (SIGTERM · Kafka manual commit · idempotency) | W1 (횡단 — 모든 트랙 의무) |
 | 0046 | Onboarding & Credential Registration (테이블 3종 분리 · 마스터 키 단일 예외) | W1 ★ (T-ONBOARD 신설 후보 — T-W1보다 먼저) |
 
+## §10-3. DSL 안전성 (1건)
+
+자동매매 본체 안정성 — 2026-05-07 PR-3c 발굴 (이전 감사 6번 — DSL Evaluation Sandbox).
+
+| 번호 | 제목 | 영향 Wave |
+|------|------|------|
+| 0047 | DSL Evaluation Sandbox (정적 검증 + 런타임 timeout/CPU budget + thread pool 격리 + auto-disable) | W2 (T-DSL 합류) · W3 (T-SIG·T-BT 합류) |
+
 ## §11. 운영 규약
 
 - **새 ADR 발행 시** — 본 README + master §10 + tracks-roadmap §3 동시 갱신
 - **Superseded 처리 시** — 본문 상단 헤더 + `_archive/` 이동 + 본 README §추가
-- **신규 진입 시 후속 ADR 번호** — 0047부터 sequential (0041~0046 발행 완료 — §10-1·§10-2 정합)
+- **신규 진입 시 후속 ADR 번호** — 0048부터 sequential (0041~0047 발행 완료 — §10-1·§10-2·§10-3 정합)
 
 ## §12. 후속 예정 (Proposed)
 
 | 후보 번호 | 제목 (예정) | 진입 트랙 |
 |---|---|---|
-| 0047 | 57 캔들 패턴 표준 | T-PAT |
-| 0048 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT |
-| 0049 | Screener 표준 | T-SC |
-| 0050 | Performance 표준 | T-PERF |
+| 0048 | 57 캔들 패턴 표준 | T-PAT |
+| 0049 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT |
+| 0050 | Screener 표준 | T-SC |
+| 0051 | Performance 표준 | T-PERF |
