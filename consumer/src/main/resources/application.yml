@@ -1,0 +1,52 @@
+spring:
+  profiles:
+    active: dev,real-kis
+  application:
+    name: magicjar-consumer
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/magicjar}
+    username: ${DB_USER:magicjar}
+    password: ${DB_PASSWORD:magicjar}
+    hikari:
+      maximum-pool-size: 5
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate.dialect: org.hibernate.dialect.PostgreSQLDialect
+  flyway:
+    enabled: false  # api 모듈만 Flyway 실행 (ADR 0006 §마이그레이션)
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    consumer:
+      group-id: magicjar-consumer
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+
+server:
+  port: 8082
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+magicjar:
+  mode: ${MAGICJAR_MODE:MOCK}
+  allow-real: ${MAGICJAR_ALLOW_REAL:false}
+  ai:
+    enabled: ${MAGICJAR_AI_ENABLED:false}
+    mock-mode: ${MAGICJAR_AI_MOCK_MODE:auto}
