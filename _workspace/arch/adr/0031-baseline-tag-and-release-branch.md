@@ -1,4 +1,4 @@
-# ADR 0001: v0 베이스라인 태그 + release/v0 immutable 보존 브랜치
+# ADR 0031: v0 베이스라인 태그 + release/v0 immutable 보존 브랜치
 
 - 상태: Accepted
 - 작성일: 2026-04-30

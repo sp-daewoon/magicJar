@@ -1,4 +1,4 @@
-# ADR 0036 — KIS OAuth 24h 토큰 + Redis 분산락 공통 모듈
+# ADR 0038 — KIS OAuth 24h 토큰 + Redis 분산락 공통 모듈
 
 - 상태: Accepted
 - 작성일: TBD

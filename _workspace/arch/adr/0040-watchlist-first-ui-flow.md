@@ -1,4 +1,4 @@
-# ADR 0022 — 관심종목 우선 UI 흐름 (Strategy Builder → 발굴 → Watchlist → 상세)
+# ADR 0040 — 관심종목 우선 UI 흐름 (Strategy Builder → 발굴 → Watchlist → 상세)
 
 - 상태: Accepted
 - 작성일: TBD
