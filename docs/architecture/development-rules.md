@@ -53,7 +53,7 @@
 
 - 본 시스템 코드에서 LLM 호출은 **W4 트랙 외 0건**
 - W1·W2·W3 트랙에서 AI provider import·호출 코드 발견 시 review reject
-- dev에서 prompt 디버깅 비용도 통제 — `MAGICJAR_AI_OPTION_ENABLED=false` default
+- dev에서 prompt 디버깅 비용도 통제 — `MAGICJAR_AI_ENABLED=false` default
 
 **근거**: master ADR 0001 (AI는 옵션, 매매 결정권 0).
 
@@ -263,7 +263,7 @@ Husky pre-commit에 author 화이트리스트 가드 적용 (ADR 0036 강제).
 
 - W1·W2·W3 트랙: AI 호출 0 (코드·테스트·prompt 디버깅 모두)
 - W4 트랙 (T-AI·T-MCP): AI 호출 가능
-  - dev: `MAGICJAR_AI_OPTION_ENABLED=true` + provider 선택 + 5분 prompt cache + 사용자 트리거만
+  - dev: `MAGICJAR_AI_ENABLED=true` + provider 선택 + 5분 prompt cache + 사용자 트리거만
   - prd: 동일
 
 ### 6-2. AI provider 1차 결정 (사용자 결정 필요)
@@ -312,4 +312,5 @@ Husky pre-commit에 author 화이트리스트 가드 적용 (ADR 0036 강제).
 
 | 날짜 | 변경 |
 |---|---|
-| TBD | 초안 — 베이스라인 룰 + 운영 정책 + 트랙별 매트릭스 |
+| 2026-05-03 | 초안 — 베이스라인 룰 + 운영 정책 + 트랙별 매트릭스 |
+| 2026-05-07 (PR-2) | AI 변수명 통일 (`MAGICJAR_AI_OPTION_ENABLED` → `MAGICJAR_AI_ENABLED`, .env.example 정합). (architect) |
