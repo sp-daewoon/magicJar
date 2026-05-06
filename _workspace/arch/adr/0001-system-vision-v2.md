@@ -51,7 +51,7 @@ magicJar의 **시스템 본체는 룰 기반 quant trading 시스템**이다. AI
 
 - **W1·W2·W3 트랙은 AI 호출 0** — 코드·테스트·prompt 디버깅 모두. W4 진입 전 AI provider import 0건 검증 의무.
 - **모든 본체 컴포넌트는 오프라인 동작 1순위 검증** — KIS REST·WS·LLM 끊겨도 영속 candle + mock + last-day-close fallback으로 차트·지표·screener·DSL 평가가 동작해야 함.
-- **W4 진입 시점부터** AI provider 코드 추가 OK, 단 사용자 트리거 한정 + 5분 prompt cache + `MAGICJAR_AI_OPTION_ENABLED=false` default.
+- **W4 진입 시점부터** AI provider 코드 추가 OK, 단 사용자 트리거 한정 + 5분 prompt cache + `MAGICJAR_AI_ENABLED=false` default.
 
 ## 4. 검토 대안
 

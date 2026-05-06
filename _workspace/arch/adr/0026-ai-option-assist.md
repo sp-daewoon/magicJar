@@ -95,7 +95,7 @@ frontend AiCard 표시
 ### 2-5. 비용 통제
 
 - 5분 prompt cache (`ai:prompt:cache:{templateHash}`) — 동일 입력 재사용
-- `MAGICJAR_AI_OPTION_ENABLED=false` default — 사용자 명시 활성 후 사용
+- `MAGICJAR_AI_ENABLED=false` default — 사용자 명시 활성 후 사용
 - audit 테이블 `ai_comment_log` (V20) — model·tokens·cost_usd 기록
 - 1일 1사용자 토큰 한도 (post-MVP)
 
@@ -116,7 +116,7 @@ frontend AiCard 표시
 
 - W1·W2·W3 트랙 코드에 AI provider import 0건 — 트랙 R3 진입 시 architect grep 검증.
 - W4 진입 시 본 ADR 의존 — T-AI·T-MCP 트랙.
-- 사용자 비용 통제 — `MAGICJAR_AI_OPTION_ENABLED=false` default.
+- 사용자 비용 통제 — `MAGICJAR_AI_ENABLED=false` default.
 
 ## 4. 검토 대안
 
