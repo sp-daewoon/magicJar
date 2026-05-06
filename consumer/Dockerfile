@@ -14,7 +14,7 @@ USER magicjar
 WORKDIR /app
 
 # 호스트 산출물 COPY — :consumer:bootJar 가 build/libs/consumer-0.0.1-SNAPSHOT.jar 생성
-COPY --chown=magicjar:magicjar build/libs/consumer-*.jar /app/app.jar
+COPY --chown=magicjar:magicjar build/libs/consumer-0.0.1-SNAPSHOT.jar /app/app.jar
 
 # JVM 옵션 — KST 타임존 의무
 ENV JAVA_TOOL_OPTIONS="-Duser.timezone=Asia/Seoul -XX:+UseG1GC -XX:MaxRAMPercentage=75"
