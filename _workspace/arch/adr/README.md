@@ -1,6 +1,6 @@
 # magicJar ADR 목차
 
-아키텍처 결정 기록(Architecture Decision Record). 47건 sequential. 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
+아키텍처 결정 기록(Architecture Decision Record). 49건 sequential(0048 슬롯은 §12 후속 예약 — KIS WS 41건 한도). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
 
 ## §1. 비전 (1건)
 
@@ -120,18 +120,27 @@
 |------|------|------|
 | 0047 | DSL Evaluation Sandbox (정적 검증 + 런타임 timeout/CPU budget + thread pool 격리 + auto-disable) | W2 (T-DSL 합류) · W3 (T-SIG·T-BT 합류) |
 
+## §10-4. 메타·CI/CD·하네스 정합 (2건)
+
+자동매매 본체 운영 속도 + 협업 충돌 회피 — 2026-05-07 PR-8 발굴.
+
+| 번호 | 제목 | 영향 Wave |
+|------|------|------|
+| 0049 | GitHub Actions = release 트리거 한정 (일상 검증은 pre-push hook 단독) | 횡단 (모든 Wave) |
+| 0050 | CHANGELOG 슬롯 채번룰 (architect 사전 발행 + sub-agent in-place edit) | 횡단 (병렬 디스패치 사이클) |
+
 ## §11. 운영 규약
 
 - **새 ADR 발행 시** — 본 README + master §10 + tracks-roadmap §3 동시 갱신
 - **Superseded 처리 시** — 본문 상단 헤더 + `_archive/` 이동 + 본 README §추가
-- **신규 진입 시 후속 ADR 번호** — 0048부터 sequential (0041~0047 발행 완료 — §10-1·§10-2·§10-3 정합). 0048 슬롯은 PR-4에서 **KIS WS 41건 구독 한도 + 우선순위 정책**으로 prepend(57 캔들 패턴 등은 1씩 시프트).
+- **신규 진입 시 후속 ADR 번호** — 0051부터 sequential (0041~0047·0049·0050 발행 완료 — §10-1·§10-2·§10-3·§10-4 정합). 0048 슬롯은 PR-4에서 **KIS WS 41건 구독 한도 + 우선순위 정책**으로 prepend 예약(§12 후속 예정).
 
 ## §12. 후속 예정 (Proposed)
 
 | 후보 번호 | 제목 (예정) | 진입 트랙 | 사유 |
 |---|---|---|---|
 | 0048 | KIS WS 41건 구독 한도 + 우선순위 정책 (관심종목 41 종목 초과 시 priority eviction · stream multiplexing 검토) | T-W1·T-MS1 (W1 후반) | PR-3b architect 발굴 갭 — 41 종목 이상 동시 watchlist 시 구독 우선순위 정책 ADR 부재 |
-| 0049 | 57 캔들 패턴 표준 | T-PAT | — |
-| 0050 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT | — |
-| 0051 | Screener 표준 | T-SC | — |
-| 0052 | Performance 표준 | T-PERF | — |
+| 0051 | 57 캔들 패턴 표준 | T-PAT | (기존 0049 자리에서 시프트 — PR-8에서 0049/0050이 메타 ADR로 채택됨) |
+| 0052 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT | (기존 0050 자리에서 시프트) |
+| 0053 | Screener 표준 | T-SC | (기존 0051 자리에서 시프트) |
+| 0054 | Performance 표준 | T-PERF | (기존 0052 자리에서 시프트) |
