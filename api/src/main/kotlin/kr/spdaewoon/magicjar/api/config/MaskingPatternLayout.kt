@@ -23,8 +23,7 @@ class MaskingPatternLayout : PatternLayout() {
             .replace(sensitivePattern) { matchResult ->
                 val key = matchResult.groupValues[1]
                 "$key=[REDACTED]"
-            }
-            .replace(accountNumberPattern) { matchResult ->
+            }.replace(accountNumberPattern) { matchResult ->
                 "${matchResult.groupValues[1]}****"
             }
     }
