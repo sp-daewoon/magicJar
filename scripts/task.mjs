@@ -27,7 +27,13 @@ function sh(cmd) {
   try { return execSync(cmd, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); }
   catch { return ''; }
 }
-function nowIso() { return new Date().toISOString(); }
+// PR-22 — 사용자 보고: task 파일 시간이 UTC로 찍혀 한국시간보다 9시간 빠름.
+// startedAt·completedAt 등은 KST(+09:00) ISO 8601로 표기.
+function nowIso() {
+  const now = new Date();
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  return kst.toISOString().slice(0, -1) + '+09:00';
+}
 function nowKstStamp() {
   // YYYYMMDD-HHMM in Asia/Seoul
   const fmt = new Intl.DateTimeFormat('en-CA', {
