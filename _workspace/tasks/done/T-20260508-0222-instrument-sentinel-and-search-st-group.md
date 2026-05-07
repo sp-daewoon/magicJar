@@ -3,9 +3,9 @@ id: T-20260508-0222-instrument-sentinel-and-search-st-group
 agent: orchestrator
 model: opus
 branch: hotfix/instrument-sentinel-and-search-st-group
-status: RUNNING
+status: DONE
 startedAt: 2026-05-08T02:22:20.438+09:00
-completedAt: null
+completedAt: 2026-05-08T02:39:02.635+09:00
 pr: null
 parentPhase: ?
 ---

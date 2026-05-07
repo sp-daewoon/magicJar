@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>magicJar devlog · 2026-05-08 — 앞으로의 계획 정리</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #fafaf7;
+      --fg: #222;
+      --muted: #666;
+      --border: #d8d4c8;
+      --accent: #5b3a1f;
+      --done: #2f7d32;
+      --pending: #b3500f;
+      --blocked: #b22222;
+      --soft: #fff8ed;
+      --code-bg: #f1ede2;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.65;
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 32px 24px 80px;
+    }
+    header {
+      border-bottom: 2px solid var(--accent);
+      padding-bottom: 16px;
+      margin-bottom: 28px;
+    }
+    h1 {
+      margin: 0 0 4px;
+      font-size: 1.5rem;
+      color: var(--accent);
+    }
+    h1 .badge {
+      font-size: 0.75rem;
+      font-weight: 500;
+      padding: 2px 8px;
+      border-radius: 12px;
+      background: var(--soft);
+      color: var(--accent);
+      vertical-align: middle;
+      margin-left: 8px;
+    }
+    header .meta {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    h2 {
+      margin: 36px 0 12px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid var(--border);
+      font-size: 1.15rem;
+      color: var(--accent);
+    }
+    h3 {
+      margin: 22px 0 8px;
+      font-size: 1rem;
+      color: #444;
+    }
+    p, li { font-size: 0.95rem; }
+    ul, ol { padding-left: 22px; }
+    li { margin: 4px 0; }
+    code {
+      background: var(--code-bg);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 0.85em;
+      font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0;
+      font-size: 0.9rem;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 7px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: var(--soft);
+      font-weight: 600;
+    }
+    tr:nth-child(even) td { background: #fcfaf3; }
+    .status-done    { color: var(--done);    font-weight: 600; }
+    .status-pending { color: var(--pending); font-weight: 600; }
+    .status-blocked { color: var(--blocked); font-weight: 600; }
+    .callout {
+      background: var(--soft);
+      border-left: 3px solid var(--accent);
+      padding: 12px 16px;
+      margin: 14px 0;
+      border-radius: 0 4px 4px 0;
+    }
+    .callout strong { color: var(--accent); }
+    .small { color: var(--muted); font-size: 0.85rem; }
+    nav.toc {
+      background: var(--soft);
+      border: 1px solid var(--border);
+      padding: 12px 18px;
+      border-radius: 6px;
+      margin: 16px 0 28px;
+      font-size: 0.9rem;
+    }
+    nav.toc ol { margin: 4px 0 0; }
+    nav.toc a { color: var(--accent); text-decoration: none; }
+    nav.toc a:hover { text-decoration: underline; }
+    footer {
+      margin-top: 50px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>magicJar devlog · 2026-05-08 <span class="badge">앞으로의 계획 정리</span></h1>
+  <div class="meta">작성: 오케스트라 · PR-26(헌법 통합) 머지 직후 · v3.0.1 베이스라인</div>
+</header>
+
+<nav class="toc">
+  <strong>목차</strong>
+  <ol>
+    <li><a href="#s1">오늘 한 줄 요약</a></li>
+    <li><a href="#s2">현재 위치 — Wave 진척 매트릭스</a></li>
+    <li><a href="#s3">직전 사이클(PR-21~PR-26) 무엇을 매듭지었나</a></li>
+    <li><a href="#s4">앞으로의 계획 — 5 Wave · 17.5 트랙 · ~18.5주</a></li>
+    <li><a href="#s5">운영성 backlog 잔재</a></li>
+    <li><a href="#s6">권장 다음 행보 (3 안)</a></li>
+    <li><a href="#s7">사용자 결정 필요 사항</a></li>
+  </ol>
+</nav>
+
+<!-- §1 ───────────────────────────────────────────── -->
+<h2 id="s1">§1. 오늘 한 줄 요약</h2>
+
+<div class="callout">
+  <strong>W1 거의 끝, W2~W5 미진행.</strong> PR-1 베이스라인부터 PR-26 운영 헌법까지 약 26 사이클 진행 완료. 헌법(<code>_workspace/arch/agent-charter.md</code>) 통합으로 7 sub-agent 운영 룰이 단일 출처로 정리되었고, 9 SKILL은 1줄 참조만 남기는 12.6% LOC 감축 달성. 다음 갈림길은 <strong>T-MS1(장 세션·fallback) 진입으로 W1 마감</strong>인지, <strong>T-IM1 dogfooding 결함 흡수 우선</strong>인지, 또는 <strong>W2 직진</strong>인지의 3 안 선택입니다.
+</div>
+
+<!-- §2 ───────────────────────────────────────────── -->
+<h2 id="s2">§2. 현재 위치 — Wave 진척 매트릭스</h2>
+
+<table>
+  <thead>
+    <tr><th style="width:80px">Wave</th><th style="width:220px">트랙</th><th style="width:90px">상태</th><th>비고</th></tr>
+  </thead>
+  <tbody>
+    <tr><td rowspan="7"><strong>W1</strong><br/>데이터 기반</td>
+        <td>T-ONBOARD (셋업 마법사)</td>
+        <td class="status-done">✅ DONE</td>
+        <td>PR-6 — 7-step 마법사 + AES-256-GCM + system_config·user_account·user_kis_credential</td></tr>
+    <tr><td>T-W1 (Watchlist CRUD)</td><td class="status-done">✅ DONE</td><td>PR-7~10 — Position Bootstrap 포함</td></tr>
+    <tr><td>T-W2 (Ingestion Worker)</td><td class="status-done">✅ DONE</td><td>PR-9 — KIS WS + REST polling fallback + Yahoo cold-start</td></tr>
+    <tr><td>T-S1 (Symbol Detail)</td><td class="status-pending">⚠️ 부분</td><td>화면 진입은 OK, 차트·호가·STOMP 내부 동작 backlog §6.4</td></tr>
+    <tr><td>T-IM1 (Instrument Master)</td><td class="status-pending">⚠️ 마무리</td><td>PR-11(14컬럼 → KIS-first 위반) → PR-21(70+컬럼 재설계) 머지. ROE sentinel(-36100000) 옆 세션 진행 중</td></tr>
+    <tr><td>T-MS1 (Market Session + Fallback)</td><td class="status-blocked">미진행</td><td>장 상태 FSM·KRX 캘린더·last-day-close fallback. W3 모든 트랙 선행</td></tr>
+    <tr><td>T-CA1 (Corporate Action)</td><td class="status-blocked">미진행</td><td>액면분할·증자·배당락 보정 + retroactive 재계산. T-BT 선행</td></tr>
+
+    <tr><td><strong>W2</strong><br/>분석 도구</td>
+        <td>T-IND · T-PAT · T-DSL · T-SB</td>
+        <td class="status-blocked">미진행</td>
+        <td>80지표 → 57패턴 → DSL → GUI 빌더</td></tr>
+
+    <tr><td><strong>W3</strong><br/>자동매매 본체</td>
+        <td>T-BT · T-SC · T-SIG · T-RISK · T-O · T-RECON · T-NOTIFY · T-J · T-PERF</td>
+        <td class="status-blocked">미진행</td>
+        <td>9 트랙 — 룰 only 매매 본체 풀가동 후 W4 진입 게이트</td></tr>
+
+    <tr><td><strong>W4</strong><br/>AI + MCP</td>
+        <td>T-AI · T-MCP</td>
+        <td class="status-blocked">미진행</td>
+        <td>사용자 트리거 LLM 코멘트(매매 결정권 0) + MCP 서버 노출</td></tr>
+
+    <tr><td><strong>W5</strong><br/>마무리</td>
+        <td>T-LWC · T-LEARN</td>
+        <td class="status-blocked">미진행</td>
+        <td>LWC 자체 overlay layer + 사용자 학습 시나리오</td></tr>
+  </tbody>
+</table>
+
+<!-- §3 ───────────────────────────────────────────── -->
+<h2 id="s3">§3. 직전 사이클(PR-21 ~ PR-26) 무엇을 매듭지었나</h2>
+
+<table>
+  <thead><tr><th style="width:90px">PR</th><th>내용</th><th style="width:90px">결과</th></tr></thead>
+  <tbody>
+    <tr><td>PR-21</td><td>instrument 14 컬럼 → <strong>KIS-first 70+ 컬럼 재설계</strong> (KOSPI 73 / KOSDAQ 67 헤더 raw 검증, byte-level EUC-KR 파싱)</td><td class="status-done">✅</td></tr>
+    <tr><td>PR-22</td><td>task.mjs <code>nowIso()</code> KST 정정</td><td class="status-done">✅</td></tr>
+    <tr><td>PR-23</td><td>Repository <code>upsert</code> wrapper Spring Data 함정 hotfix + batch test 2건 <code>@Disabled</code></td><td class="status-done">✅</td></tr>
+    <tr><td>PR-24</td><td>ktlint format 잔재 정리</td><td class="status-done">✅</td></tr>
+    <tr><td>PR-25</td><td>upsert wrapper → <code>InstrumentSeedRunner.upsertSeed</code> private helper 이동</td><td class="status-done">✅</td></tr>
+    <tr><td><strong>PR-26</strong></td><td><strong>운영 헌법 통합</strong> — <code>agent-charter.md</code> 7 § 신설 + 9 SKILL 슬림화 + ADR 0051(Spring Data default fun 함정) + task.mjs <code>--force</code> flag 보강</td><td class="status-done">✅</td></tr>
+    <tr><td><s>PR-28</s></td><td>ROE NUMERIC overflow → V6 NUMERIC 확장 시도 (KIS-first 위반)</td><td class="status-blocked">폐기</td></tr>
+  </tbody>
+</table>
+
+<p class="small">PR-28 폐기 사유: KIS-first 검증 없이 NUMERIC precision 확장 시도. 옆 세션에서 <code>-36100000</code>이 KIS magic number(ROE 산정 불가)임을 확인하여 sentinel detection으로 정정 진행 중.</p>
+
+<!-- §4 ───────────────────────────────────────────── -->
+<h2 id="s4">§4. 앞으로의 계획 — 5 Wave · 17.5 트랙 · ~18.5주</h2>
+
+<p>roadmap §5-1 기준 총 21주, W1 진척분(T-ONBOARD·T-W1·T-W2 + T-S1·T-IM1 부분) 차감하면 <strong>~18.5주 ≈ 4.5개월</strong> 남았습니다.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:90px">Wave</th>
+      <th>잔여 트랙 + 사이즈</th>
+      <th style="width:80px">추정</th>
+      <th style="width:240px">사용자 검증 게이트</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>W1 마감</strong></td>
+      <td>T-MS1(M) + T-CA1(M) + T-S1 잔재(차트·호가·STOMP, S)</td>
+      <td>~1.5주</td>
+      <td>휴장일 정합 + 종목 차트 adjusted 정확 + dogfooding 통과</td>
+    </tr>
+    <tr>
+      <td><strong>W2</strong><br/>분석 도구</td>
+      <td>T-IND(80지표 XL) → T-PAT(57패턴 M) → T-DSL(L) → T-SB(GUI 빌더 XL)</td>
+      <td>~5주</td>
+      <td>80지표 차트 overlay + GUI 블록 빌더 yaml export/import 동작</td>
+    </tr>
+    <tr>
+      <td><strong>W3</strong><br/>자동매매 본체<br/>(룰 only)</td>
+      <td>T-BT(L) · T-SC(M) · T-SIG(M) · T-RISK(L) · T-O(XL) · T-RECON(M) · T-NOTIFY(M) · T-J(M) · T-PERF(M)</td>
+      <td>~6주</td>
+      <td>시그널 → 주문 e2e 1사이클 + reconcile drift 1건 검출 + KillSwitch 5대 행동 + Slack 7 trigger + AI 호출 0 검증</td>
+    </tr>
+    <tr>
+      <td><strong>W4</strong><br/>AI 옵션 + MCP</td>
+      <td>T-AI(L) → T-MCP(M)</td>
+      <td>~3주</td>
+      <td>사용자 클릭 시 AI 응답 + MCP tool 5종 외부 호출 가능</td>
+    </tr>
+    <tr>
+      <td><strong>W5</strong><br/>학습 + LWC</td>
+      <td>T-LWC(M) + T-LEARN(M, 병렬 가능)</td>
+      <td>~3주</td>
+      <td>시스템 투어 완료 + 데이터 정합성 체크리스트 통과</td>
+    </tr>
+    <tr>
+      <th colspan="2" style="text-align:right">합계</th>
+      <th>~18.5주</th>
+      <th>≈ 4.5개월</th>
+    </tr>
+  </tbody>
+</table>
+
+<h3>현실 보정 변수</h3>
+<ul>
+  <li><strong>KIS API 호출 한도</strong> 도달 시 W1·W3 늘어날 수 있음 (Rate Limit 정책 ADR 0037)</li>
+  <li><strong>LLM 비용</strong> 부담 시 W4 1주 단축 (cache 적극 활용)</li>
+  <li><strong>사용자 dogfooding 빈도</strong>에 따라 W3 1~2주 추가 가능 (1주 단위 dogfooding 사이클 흡수)</li>
+  <li><strong>외부 자원 발급 대기</strong>(KIS 실계좌 키, Slack webhook URL, DART API 키)는 별도 — 사용자 액션</li>
+</ul>
+
+<!-- §5 ───────────────────────────────────────────── -->
+<h2 id="s5">§5. 운영성 backlog 잔재 (영양가 있는 것만)</h2>
+
+<table>
+  <thead><tr><th style="width:60px">§</th><th>항목</th><th style="width:150px">처리 시점</th></tr></thead>
+  <tbody>
+    <tr><td>§2</td><td><code>KisRestPort</code> 분리 (Candle / Price / PriceMetrics 3 port)</td><td>T-O · T-RECON 진입 시 자연 처리</td></tr>
+    <tr><td>§3</td><td><code>CLAUDE.md</code> ADR 인덱스 갱신 (1~40 → 1~51)</td><td>5분 hotfix · 다음 메타 정리 사이클</td></tr>
+    <tr><td>§4</td><td><code>worktree-agent-*</code> 누적 fallback 브랜치</td><td>15건 초과 또는 사용자 명시 시 일괄</td></tr>
+    <tr><td>§6.5</td><td>관심종목 한글 종목명 검색 안 됨 / 일부 종목(004090 한국석유) 노출 안 됨</td><td>다음 dogfooding 사이클 흡수 (T-IM1 마무리)</td></tr>
+    <tr><td>§11 · §18</td><td>SymbolControllerTest + batch test <code>@Disabled</code> 3건 mock 보강</td><td>W1 R3 일괄 테스트 사이클</td></tr>
+    <tr><td>§16</td><td>instrument fitness gap 91.7% → 13% 축소 (PR-21 + 옆 세션 ROE sentinel)</td><td>옆 세션 마무리되면 ✅</td></tr>
+  </tbody>
+</table>
+
+<!-- §6 ───────────────────────────────────────────── -->
+<h2 id="s6">§6. 권장 다음 행보 (3 안)</h2>
+
+<table>
+  <thead><tr><th style="width:60px">안</th><th style="width:200px">내용</th><th>사유</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>A</strong></td>
+      <td>T-MS1 진입 (W1 마감)</td>
+      <td>장 세션·last-day-close fallback은 W3 모든 트랙 선행. roadmap §5-1 권장 흐름. SimpleMarketSessionResolver stub 정합 보강</td>
+    </tr>
+    <tr>
+      <td><strong>B</strong></td>
+      <td>T-IM1 dogfooding 검증 + 종목명 한글 검색 hotfix</td>
+      <td>사용자가 직접 화면에서 fitness 검증, 결함 흡수 후 마감. backlog §6.5 처리</td>
+    </tr>
+    <tr>
+      <td><strong>C</strong></td>
+      <td>W2 직접 진입 (T-IND 시작)</td>
+      <td>자동매매 두뇌 본체 빨리 — 단 T-MS1·T-CA1 미정합으로 후속에서 보강 risk</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout">
+  <strong>architect 권장</strong>: <strong>A → B 묶음</strong>. T-MS1 끝나면 본격 dogfooding로 T-IM1·T-S1 결함 흡수 → T-CA1 마무리 → W2 진입. C(W2 직진)는 <em>T-MS1·T-CA1 데이터 정합 부재 위에 80지표 쌓는 risk</em>가 있어 비권장.
+</div>
+
+<!-- §7 ───────────────────────────────────────────── -->
+<h2 id="s7">§7. 사용자 결정 필요 사항</h2>
+
+<ol>
+  <li><strong>다음 트랙 진입</strong> — A · B · C 중 택1</li>
+  <li><strong>옆 세션 ROE sentinel</strong> 처리 결과 검증 후 PR-21 fitness gap close 마킹</li>
+  <li><strong>T-IND 진입 시 KIS Strategy Builder 흡수 깊이</strong> — 80지표 일괄 vs 30개 우선 (roadmap §7 #2 — 사용자 명시 = 80개 일괄)</li>
+  <li><strong>T-RISK PositionLimit·DrawdownStop default</strong> (예: 종목당 10%·일일 -3%) — W3 진입 전 결정 필요</li>
+  <li><strong>실계좌 진입 시점</strong> — W3 끝나고 dogfooding 통과 후 <code>MAGICJAR_MODE=REAL</code> + <code>MAGICJAR_ALLOW_REAL=true</code> 이중 게이트 해제</li>
+</ol>
+
+<footer>
+  본 devlog는 <code>/devlog</code> 호출당 신규 생성 정책(memory: 개발일지 HTML 매일 관리)에 따라 작성되었습니다. 같은 날짜 추가 호출 시 <code>2026-05-08-2.html</code>로 누적, <code>index.html</code>에 자동 등재. SoT 출처: <code>docs/architecture/tracks-roadmap.md §1·§2·§5</code> + <code>_workspace/backlog.md</code> + <code>git log main</code>.
+</footer>
+
+</body>
+</html>
