@@ -9,19 +9,16 @@ import org.springframework.core.annotation.Order
 import org.springframework.stereotype.Component
 import org.springframework.web.filter.OncePerRequestFilter
 
-/**
- * 셋업 미완 시 /api/* 차단 필터 (ADR 0046 §2-6, spec §4-7-1 LOCK 정합).
- *
- * 인증 정책:
- * - /api/onboarding/* → 통과 (셋업 진행 중 언제나 허용)
- * - /actuator/*       → 통과 (헬스 체크)
- * - /api/ 외 경로     → 통과 (정적 리소스·frontend)
- * - 그 외 /api/*      → user_account 1행 존재 시 통과, 0행이면 401 + ONBOARDING_REQUIRED
- *
- * user 세션 정책 (1차 single-tenant 단순화):
- * - user_account가 1행 이상 존재 = 셋업 완료 = 모든 API 통과
- * - Spring Security·JWT 미도입 (post-MVP 예정 — spec §7 비범위)
- */
+// ADR 0046, spec 4-7-1 LOCK 정합
+// 인증 정책:
+//   /api/onboarding/... -> 통과 (셋업 진행 중 언제나 허용)
+//   /actuator/...       -> 통과 (헬스 체크)
+//   /api/ 외 경로       -> 통과 (정적 리소스, frontend)
+//   그 외 /api/...      -> user_account 1행 존재 시 통과, 0행이면 401 + ONBOARDING_REQUIRED
+//
+// user 세션 정책 (1차 single-tenant 단순화):
+//   user_account가 1행 이상 존재 = 셋업 완료 = 모든 API 통과
+//   Spring Security, JWT 미도입 (post-MVP 예정)
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 10)
 class OnboardingGuardFilter(
@@ -34,7 +31,7 @@ class OnboardingGuardFilter(
     ) {
         val path = req.requestURI
 
-        // 통과 조건: /api/onboarding/*, /actuator/*, /api/ 외 경로
+        // 통과 조건: /api/onboarding/..., /actuator/..., /api/ 외 경로
         if (path.startsWith("/api/onboarding/") ||
             path.startsWith("/actuator/") ||
             !path.startsWith("/api/")
@@ -43,7 +40,7 @@ class OnboardingGuardFilter(
             return
         }
 
-        // 그 외 /api/* — 셋업 완료 여부 확인
+        // 그 외 /api/... -- 셋업 완료 여부 확인
         if (userAccountJpaRepository.existsAny()) {
             chain.doFilter(req, res)
         } else {

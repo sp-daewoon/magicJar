@@ -15,18 +15,15 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 
-/**
- * 온보딩 셋업 마법사 REST 컨트롤러 (ADR 0046 §2-8, spec §4-1 LOCK 정합).
- *
- * 5 endpoint:
- * - GET  /api/onboarding/status         — 셋업 진행 상태 조회
- * - POST /api/onboarding/kis/validate   — KIS 실전 키 검증·등록
- * - POST /api/onboarding/kis/mock       — KIS 모의 키 검증·등록
- * - POST /api/onboarding/system-config  — DART·Slack 설정
- * - POST /api/onboarding/complete       — 셋업 완료 처리
- *
- * 인증 정책 (spec §4-7): OnboardingGuardFilter가 /api/onboarding/* 전부 통과 허용.
- */
+// ADR 0046, spec 4-1 LOCK 정합
+// 5 endpoint:
+//   GET  /api/onboarding/status         -- 셋업 진행 상태 조회
+//   POST /api/onboarding/kis/validate   -- KIS 실전 키 검증, 등록
+//   POST /api/onboarding/kis/mock       -- KIS 모의 키 검증, 등록
+//   POST /api/onboarding/system-config  -- DART, Slack 설정
+//   POST /api/onboarding/complete       -- 셋업 완료 처리
+//
+// 인증 정책 (spec 4-7): OnboardingGuardFilter가 /api/onboarding/... 전부 통과 허용.
 @Tag(name = "온보딩", description = "셋업 마법사 — KIS 키 등록 7-step 흐름 (ADR 0046)")
 @RestController
 @RequestMapping("/api/onboarding")
@@ -35,8 +32,9 @@ class OnboardingController(
 ) {
     @Operation(
         summary = "셋업 진행 상태 조회",
-        description = "user_account·user_kis_credential·system_config 4 항목의 등록 여부를 반환합니다. " +
-            "첫 부팅 시 frontend가 본 endpoint로 마법사 분기 결정. 인증 불요.",
+        description =
+            "user_account·user_kis_credential·system_config 4 항목의 등록 여부를 반환합니다. " +
+                "첫 부팅 시 frontend가 본 endpoint로 마법사 분기 결정. 인증 불요.",
     )
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "성공"),
@@ -51,8 +49,9 @@ class OnboardingController(
 
     @Operation(
         summary = "KIS 실전 키 검증 + 등록",
-        description = "KIS OAuth tokenP(/oauth2/tokenP)로 실전 키 검증 후 AES-256-GCM 암호화 → DB 영속. " +
-            "첫 등록 시 인증 불요. 이미 등록 시 409 반환.",
+        description =
+            "KIS OAuth tokenP 호출로 실전 키 검증 후 AES-256-GCM 암호화 및 DB 영속. " +
+                "첫 등록 시 인증 불요. 이미 등록 시 409 반환.",
     )
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "검증·등록 성공"),
@@ -80,13 +79,15 @@ class OnboardingController(
     @PostMapping("/kis/validate")
     fun validateKisReal(
         @Parameter(description = "KIS 실전 키 등록 요청")
-        @Valid @RequestBody request: KisValidateRequest,
+        @Valid
+        @RequestBody request: KisValidateRequest,
     ): KisValidateResponse = onboardingService.validateAndPersistKisReal(request)
 
     @Operation(
         summary = "KIS 모의 계좌 키 검증 + 등록",
-        description = "KIS 모의 서버(openapivts:29443)로 모의 키 검증 후 AES-256-GCM 암호화 → DB 영속. " +
-            "실전 계좌 등록이 선행 필요. 건너뛰기 가능 (Step 4 선택).",
+        description =
+            "KIS 모의 서버(openapivts:29443)로 모의 키 검증 후 AES-256-GCM 암호화 및 DB 영속. " +
+                "실전 계좌 등록이 선행 필요. 건너뛰기 가능 (Step 4 선택).",
     )
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "검증·등록 성공"),
@@ -99,14 +100,16 @@ class OnboardingController(
     @PostMapping("/kis/mock")
     fun validateKisMock(
         @Parameter(description = "KIS 모의 키 등록 요청")
-        @Valid @RequestBody request: KisMockRequest,
+        @Valid
+        @RequestBody request: KisMockRequest,
     ): KisMockResponse = onboardingService.validateAndPersistKisMock(request)
 
     @Operation(
-        summary = "시스템 전역 설정 (DART·Slack)",
-        description = "DART API 키·Slack webhook URL을 등록·갱신·삭제합니다. " +
-            "null = 변경 안 함, 빈 문자열 = 삭제. Slack webhook 등록 시 test message 1회 발송 검증. " +
-            "건너뛰기 가능 (Step 5 선택).",
+        summary = "시스템 전역 설정 (DART, Slack)",
+        description =
+            "DART API 키, Slack webhook URL을 등록, 갱신, 삭제합니다. " +
+                "null = 변경 안 함, 빈 문자열 = 삭제. Slack webhook 등록 시 test message 1회 발송 검증. " +
+                "건너뛰기 가능 (Step 5 선택).",
     )
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "설정 갱신 성공"),
@@ -116,13 +119,15 @@ class OnboardingController(
     @PostMapping("/system-config")
     fun updateSystemConfig(
         @Parameter(description = "시스템 전역 설정 요청")
-        @Valid @RequestBody request: SystemConfigRequest,
+        @Valid
+        @RequestBody request: SystemConfigRequest,
     ): SystemConfigResponse = onboardingService.updateSystemConfig(request)
 
     @Operation(
         summary = "셋업 완료 처리",
-        description = "셋업 마법사를 완료합니다. KIS 실전 계좌 등록이 선행 필요 (없으면 412). " +
-            "완료 후 UserOnboardedEvent 발행 → consumer가 워처 polling 시작 (PR-7+ T-W2).",
+        description =
+            "셋업 마법사를 완료합니다. KIS 실전 계좌 등록이 선행 필요 (없으면 412). " +
+                "완료 후 UserOnboardedEvent 발행 — consumer가 polling 시작 (PR-7+).",
     )
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "셋업 완료 성공 + Dashboard 리다이렉트 경로 반환"),
@@ -132,6 +137,7 @@ class OnboardingController(
     @PostMapping("/complete")
     fun complete(
         @Parameter(description = "온보딩 완료 요청")
-        @Valid @RequestBody request: OnboardingCompleteRequest,
+        @Valid
+        @RequestBody request: OnboardingCompleteRequest,
     ): OnboardingCompleteResponse = onboardingService.complete(request.userId)
 }

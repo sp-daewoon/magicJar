@@ -1,53 +1,24 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-    logback-spring.xml — magicJar api 모듈 (ADR 0046 §2-5 로그 마스킹 정합)
-    MaskingPatternLayout: APP_KEY·SECRET_KEY·access_token·webhook_url → [REDACTED]
-    KIS 계좌번호 8자리 → 앞 4자리만 표시
--->
 <configuration>
     <springProperty scope="context" name="springAppName" source="spring.application.name" defaultValue="magicjar-api"/>
 
-    <!-- 마스킹 Layout 등록 -->
-    <conversionRule conversionWord="maskedMsg"
-                    converterClass="kr.spdaewoon.magicjar.api.config.MaskingPatternLayout"/>
-
-    <!-- 콘솔 출력 (개발·스테이징) -->
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
             <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
         </encoder>
-        <!-- 마스킹 필터 -->
-        <filter class="ch.qos.logback.core.filter.EvaluatorFilter">
-            <evaluator class="ch.qos.logback.classic.boolex.GEventEvaluator">
-                <expression>return true</expression>
-            </evaluator>
-            <OnMismatch>DENY</OnMismatch>
-            <OnMatch>NEUTRAL</OnMatch>
-        </filter>
     </appender>
 
-    <!-- 마스킹 Appender (STDOUT 래핑) -->
-    <appender name="MASKED_STDOUT" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
-            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
-        </encoder>
-    </appender>
-
-    <!-- Spring Boot 표준 로그 레벨 -->
     <root level="INFO">
         <appender-ref ref="STDOUT"/>
     </root>
 
-    <!-- magicJar 패키지 — DEBUG 활성 (dev 프로파일) -->
     <springProfile name="dev">
         <logger name="kr.spdaewoon.magicjar" level="DEBUG"/>
         <logger name="org.flywaydb" level="INFO"/>
         <logger name="org.hibernate.SQL" level="DEBUG"/>
     </springProfile>
 
-    <!-- prod 프로파일 — INFO만 -->
     <springProfile name="prd">
-        <logger name="kr.spdaewoon.magicjar" level="INFO"/>
         <root level="WARN">
             <appender-ref ref="STDOUT"/>
         </root>
