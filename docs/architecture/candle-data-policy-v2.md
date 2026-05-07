@@ -47,7 +47,7 @@
 ```
 사용자 [관심등록 클릭] (frontend /watchlist)
     ↓
-api POST /api/watchlist/{code}
+api POST /api/watchlists  (body: {code})
     ↓
 DB watchlist INSERT + Kafka watchlist.changed.v1
     ↓

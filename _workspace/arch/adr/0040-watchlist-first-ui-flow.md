@@ -2,6 +2,7 @@
 
 - 상태: Accepted
 - 작성일: TBD
+- 정정일: 2026-05-07 (PR-8 endpoint 단수→복수 정정 — RESTful 관례 정합 + PR-7 T-W1 spec lock 결정 정합)
 - 결정자: architect
 - 관계: ADR 0028(Watchlist Ingestion), ADR 0020(KIS Strategy Builder), ADR 0009(프론트엔드 SPA)
 
@@ -36,7 +37,7 @@ magicJar의 사용자 운영 흐름 1순위는 **관심종목(Watchlist) 등록�
     └─ 결과 row마다 [관심등록] 버튼
 
 [3단계] 관심등록
-    └─ POST /api/watchlist/{code}
+    └─ POST /api/watchlists  (body: {code})
     └─ Kafka watchlist.changed.v1
     └─ consumer WatchlistIngestionWorker (ADR 0028)
         ├─ KIS WS subscribe
@@ -74,7 +75,7 @@ magicJar의 사용자 운영 흐름 1순위는 **관심종목(Watchlist) 등록�
 | 위치 | 컴포넌트 | 책임 |
 |---|---|---|
 | `domain/.../market/watchlist/` | `Watchlist`·`WatchlistEntry`·`WatchlistRepositoryPort` | 도메인 모델 |
-| `api/.../controller/WatchlistController.kt` | `WatchlistController` | REST CRUD (`/api/watchlist`) |
+| `api/.../controller/WatchlistController.kt` | `WatchlistController` | REST CRUD (`/api/watchlists` — 복수형 RESTful 관례) |
 | `api/.../application/watchlist/` | `WatchlistService` | 등록·삭제·조회 + Kafka publish |
 | `api/.../infrastructure/persistence/` | `WatchlistJpaAdapter` | DB 영속 |
 | `frontend/src/pages/Watchlist/` | `WatchlistPage` | 관심종목 list + CTA |
@@ -120,3 +121,10 @@ watchlist.changed.v1     producer: api    consumer: consumer(IngestionWorker)
 - ADR 0009 — 프론트엔드 SPA (React + LWC v4)
 - ADR 0010 — Multi-tenant 구조 (user_id)
 - `frontend/src/pages/Watchlist/` — 본 ADR UI 구현 진입점
+
+## 5. 변경 이력
+
+| 날짜 | 변경 |
+|---|---|
+| TBD (최초) | 관심종목 우선 UI 흐름 결정 (architect) |
+| 2026-05-07 (PR-8) | endpoint 단수 `/api/watchlist` → 복수 `/api/watchlists` 정정 — RESTful 관례(resource collection은 복수형) + PR-7 T-W1 spec lock(2026-05-07) 결정 정합. §2-2 [3단계] · §2-4 WatchlistController 표 동시 갱신. (architect) |
