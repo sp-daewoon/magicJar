@@ -143,7 +143,7 @@ describe('Watchlist 등록 flow', () => {
     // "총 2종목" 헤더 영역 확인 — 숫자가 별도 span으로 분리됨
     await waitFor(() => {
       // "총 N종목" 패턴으로 확인 (숫자 포함 상위 span)
-      const countText = screen.getByText((content, element) => {
+      const countText = screen.getByText((_content, element) => {
         return element?.tagName === 'SPAN' && /총\s+\d+종목/.test(element?.textContent ?? '')
       })
       expect(countText).toBeInTheDocument()
