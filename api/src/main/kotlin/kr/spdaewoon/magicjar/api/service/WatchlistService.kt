@@ -44,6 +44,10 @@ class WatchlistService(
     companion object {
         private const val AUDIT_ACTOR = "user"
         private const val WATCHLIST_CHANGED_TOPIC = "watchlist.changed.v1"
+
+        // watchlist 응답 허용 type — securities_group이 비어있는 시드/상장폐지/stub 종목의 보조 판별.
+        // STOCK·PREFERRED는 보통주·우선주, UNKNOWN은 stub(sync 전 임시).
+        private val WATCHLIST_ALLOWED_TYPES = setOf("STOCK", "PREFERRED", "UNKNOWN")
     }
 
     /**
@@ -61,6 +65,13 @@ class WatchlistService(
      * 관심종목 목록 조회 (priority 오름차순, created_at 내림차순).
      * PR-20 — instrument 테이블 join으로 name/market 채움 (사용자 가시성).
      * PR-21b — type·securitiesGroup·marketCapPrev·tradingHalt·managementStock·industryMedium 추가 노출.
+     *
+     * 응답 정책 (사용자 요청):
+     * - 보통주+우선주만 응답 포함 (1차 KIS securities_group='ST').
+     * - 시드/상장폐지/stub 등 securities_group이 비어있는 옛 종목은 type ∈ {STOCK, PREFERRED, UNKNOWN}으로 보조 판별
+     *   (KIS-first sync 후 미보강된 시드 데이터 fallback).
+     * - ETF·ETN·REIT·WARRANT·DR·외국주식·펀드는 응답 제외 (DB row는 보존).
+     * - active=false (상장폐지/구코드)는 delisted=true 라벨로 노출 — 사용자가 직접 제거 결정.
      */
     @Transactional(readOnly = true)
     fun list(userId: String): List<WatchlistEntryDto> {
@@ -71,8 +82,11 @@ class WatchlistService(
             instrumentJpaRepository
                 .findAllById(codes)
                 .associateBy { it.code }
-        return entries.map { entry ->
-            val instrument = instrumentMap[entry.code]
+        return entries.mapNotNull { entry ->
+            val instrument = instrumentMap[entry.code] ?: return@mapNotNull null
+            val isStockGroup = instrument.securitiesGroup == "ST"
+            val isAllowedType = instrument.type in WATCHLIST_ALLOWED_TYPES
+            if (!isStockGroup && !isAllowedType) return@mapNotNull null
             entry.toDto(instrument)
         }
     }
@@ -223,6 +237,8 @@ class WatchlistService(
             industryMedium = instrument?.industryMedium,
             isKospi200 = instrument?.isKospi200 ?: false,
             isKosdaq150 = instrument?.isKosdaq150 ?: false,
+            // 상장폐지 라벨 — 사용자가 직접 제거 결정용
+            delisted = instrument?.active == false,
         )
     }
 }

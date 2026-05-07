@@ -45,11 +45,15 @@ interface InstrumentJpaRepository : JpaRepository<InstrumentJpaEntity, String> {
      * JPQL fallback 검색 (pg_trgm 미가용 시 LIKE 기반).
      * name·nameNorm·code prefix 부분 일치.
      * 정규화: 공백·점 제거 + lowercase는 InstrumentSearchService에서 전처리.
+     *
+     * 사용자 요청: 보통주+우선주만 검색 (KIS scrt_grp_cls_code='ST').
+     * ETF(EF/FE)·ETN·REIT(RT)·WARRANT(EW/SW/SR)·DR·외국주식(FS)·펀드(MF/BC/SC/IF) 제외.
      */
     @Query(
         """
         SELECT i FROM InstrumentJpaEntity i
         WHERE i.active = true
+        AND i.securitiesGroup = 'ST'
         AND (
             LOWER(i.name) LIKE LOWER(CONCAT('%', :query, '%'))
             OR i.code LIKE CONCAT(:query, '%')
@@ -124,4 +128,10 @@ interface InstrumentJpaRepository : JpaRepository<InstrumentJpaEntity, String> {
      * T-SC 기준 universe.
      */
     fun findByActiveTrueAndIsKospi200True(): List<InstrumentJpaEntity>
+
+    /**
+     * 활성 일반/우선주 조회 (securities_group='ST').
+     * 사용자 검색 인덱스 rebuild — ETF·ETN·REIT·DR·WARRANT 제외, 보통주+우선주 포함.
+     */
+    fun findByActiveTrueAndSecuritiesGroup(securitiesGroup: String): List<InstrumentJpaEntity>
 }

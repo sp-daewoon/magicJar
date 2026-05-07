@@ -13,6 +13,7 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import java.io.BufferedReader
 import java.io.ByteArrayInputStream
 import java.io.InputStreamReader
+import java.math.BigDecimal
 import java.nio.charset.Charset
 import java.time.Duration
 import java.util.zip.ZipInputStream
@@ -241,6 +242,18 @@ class KisInstrumentMasterAdapter(
 
         private const val KOSPI_PART2_LENGTH = 227 // KOSPI_PART2_WIDTHS.sum() — 줄바꿈 1byte 미포함
         private const val KOSDAQ_PART2_LENGTH = 221 // KOSDAQ_PART2_WIDTHS.sum() — 줄바꿈 1byte 미포함
+
+        // ROE NUMERIC(7,2) 한계 = 절댓값 < 100000.00.
+        // KIS는 ROE 산정 불가 종목(적자/자본잠식/신생/소수점 누락)에 sentinel 값(-36100000 등 9자리 숫자)을 채워서 보냄.
+        // 정상 raw는 "000010.85" 형식(소수점 포함, 절댓값 99999.99 이내).
+        // overflow가 들어가면 row 전체 upsert가 rollback되므로 어댑터에서 sentinel → null + warn.
+        private val ROE_DB_LIMIT = BigDecimal("99999.99")
+
+        // KIS 알려진 sentinel 값 — "산정 불가/데이터 없음" 표식.
+        // 2026-05 기준 raw 검증: ROE 16건(KOSPI 3 + KOSDAQ 13)에서만 발견.
+        // 다른 재무 필드(sale_account/bsop_prfi/op_prfi/thtr_ntin/prdy_avls_scal)에는 현재 미사용이지만
+        // 사용자 요청에 따라 동일 패턴으로 안전망 적용 (향후 KIS가 다른 필드에 같은 sentinel 채워도 무방).
+        private const val KIS_SENTINEL_INVALID = "-36100000"
     }
 
     /**
@@ -528,13 +541,13 @@ class KisInstrumentMasterAdapter(
             capital = p.getOrEmpty(51).toBigDecimalOrNull(),
             settlementMonth = p.getOrEmpty(52).toShortOrNull(),
             publicOfferingPrice = p.getOrEmpty(53).toBigDecimalOrNull(),
-            salesAmount = p.getOrEmpty(59).toLongOrNull(),
-            operatingProfit = p.getOrEmpty(60).toLongOrNull(),
-            ordinaryProfit = p.getOrEmpty(61).toLongOrNull(),
-            netIncome = p.getOrEmpty(62).toLongOrNull(),
-            roe = p.getOrEmpty(63).toBigDecimalOrNull(), // 함정 §12-4: 음수 가능 — toBigDecimalOrNull 안전
+            salesAmount = sanitizeFinancialLong(code, p.getOrEmpty(59), "sale_account"),
+            operatingProfit = sanitizeFinancialLong(code, p.getOrEmpty(60), "bsop_prfi"),
+            ordinaryProfit = sanitizeFinancialLong(code, p.getOrEmpty(61), "op_prfi"),
+            netIncome = sanitizeFinancialLong(code, p.getOrEmpty(62), "thtr_ntin"),
+            roe = sanitizeRoe(code, p.getOrEmpty(63)), // 함정 §12-4: 음수 가능 + KIS sentinel(-36100000 등) → null
             financialBaseDate = parseYyyymmdd(p.getOrEmpty(64)),
-            marketCapPrev = p.getOrEmpty(65).toLongOrNull(),
+            marketCapPrev = sanitizeFinancialLong(code, p.getOrEmpty(65), "prdy_avls_scal"),
             creditLimitExceeded = p.getOrEmpty(67) == "Y",
             collateralLendable = p.getOrEmpty(68) == "Y",
             shortLendable = p.getOrEmpty(69) == "Y",
@@ -641,13 +654,13 @@ class KisInstrumentMasterAdapter(
             capital = p.getOrEmpty(46).toBigDecimalOrNull(),
             settlementMonth = p.getOrEmpty(47).toShortOrNull(),
             publicOfferingPrice = p.getOrEmpty(48).toBigDecimalOrNull(),
-            salesAmount = p.getOrEmpty(53).toLongOrNull(),
-            operatingProfit = p.getOrEmpty(54).toLongOrNull(),
-            ordinaryProfit = p.getOrEmpty(55).toLongOrNull(),
-            netIncome = p.getOrEmpty(56).toLongOrNull(),
-            roe = p.getOrEmpty(57).toBigDecimalOrNull(),
+            salesAmount = sanitizeFinancialLong(code, p.getOrEmpty(53), "sale_account"),
+            operatingProfit = sanitizeFinancialLong(code, p.getOrEmpty(54), "bsop_prfi"),
+            ordinaryProfit = sanitizeFinancialLong(code, p.getOrEmpty(55), "op_prfi"),
+            netIncome = sanitizeFinancialLong(code, p.getOrEmpty(56), "thtr_ntin"),
+            roe = sanitizeRoe(code, p.getOrEmpty(57)),
             financialBaseDate = parseYyyymmdd(p.getOrEmpty(58)),
-            marketCapPrev = p.getOrEmpty(59).toLongOrNull(),
+            marketCapPrev = sanitizeFinancialLong(code, p.getOrEmpty(59), "prdy_avls_scal"),
             creditLimitExceeded = p.getOrEmpty(61) == "Y",
             collateralLendable = p.getOrEmpty(62) == "Y",
             shortLendable = p.getOrEmpty(63) == "Y",
@@ -694,6 +707,59 @@ class KisInstrumentMasterAdapter(
     }
 
     private fun List<String>.getOrEmpty(index: Int): String = getOrElse(index) { "" }
+
+    /**
+     * ROE 파싱 + DB precision clamp.
+     *
+     * 정상 raw: "000010.85" 형식 (소수점 포함, 9자리 width, 절댓값 < 100000.00).
+     * 비정상 raw: "-36100000" 등 KIS sentinel — ROE 산정 불가 종목(적자/자본잠식/신생/소수점 누락)에 채워짐.
+     *
+     * NUMERIC(7,2)는 절댓값 < 100000.00만 허용. raw가 sentinel이면 null 반환 + WARN 로그.
+     * sentinel을 그대로 BigDecimal로 넘기면 upsert 트랜잭션 전체가 numeric overflow로 rollback되어
+     * 해당 row의 다른 필드(name·base_price 등) 갱신이 모두 누락된다.
+     */
+    private fun sanitizeRoe(
+        code: String,
+        raw: String,
+    ): BigDecimal? {
+        val parsed = raw.toBigDecimalOrNull() ?: return null
+        if (parsed.abs() >= ROE_DB_LIMIT) {
+            log.warn(
+                "[instrument-master] ROE sentinel/overflow → null code={} raw='{}' parsed={}",
+                code,
+                raw,
+                parsed,
+            )
+            return null
+        }
+        return parsed
+    }
+
+    /**
+     * KIS 재무 필드(BIGINT) 파싱 + sentinel 안전망.
+     *
+     * 정상 raw: "000001110" (1110억) 또는 "-00000266" (-266억) 등.
+     * sentinel: "-36100000" — KIS "산정 불가" 표식 (현재는 ROE에만 사용되지만 향후 확장 대비).
+     *
+     * sentinel이면 null + WARN 로그. 일반 미산정(공백/0)은 정상 toLongOrNull 처리.
+     */
+    private fun sanitizeFinancialLong(
+        code: String,
+        raw: String,
+        fieldName: String,
+    ): Long? {
+        val trimmed = raw.trim()
+        if (trimmed == KIS_SENTINEL_INVALID) {
+            log.warn(
+                "[instrument-master] {} sentinel → null code={} raw='{}'",
+                fieldName,
+                code,
+                raw,
+            )
+            return null
+        }
+        return trimmed.toLongOrNull()
+    }
 
     /**
      * KisInstrumentRaw → 도메인 Instrument 변환 (기존 port 계약 유지용).

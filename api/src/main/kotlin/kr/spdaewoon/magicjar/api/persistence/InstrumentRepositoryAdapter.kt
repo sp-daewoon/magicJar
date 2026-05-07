@@ -222,6 +222,10 @@ class InstrumentRepositoryAdapter(
     @Transactional(readOnly = true)
     override fun findByKospi200(): List<Instrument> = instrumentJpaRepository.findByActiveTrueAndIsKospi200True().map { it.toDomain() }
 
+    @Transactional(readOnly = true)
+    override fun findActiveStocks(): List<Instrument> =
+        instrumentJpaRepository.findByActiveTrueAndSecuritiesGroup("ST").map { it.toDomain() }
+
     // ── private helpers ─────────────────────────────────────────────────
 
     /** 종목명 정규화 — 공백·점 제거 + lowercase. design §6-5. */

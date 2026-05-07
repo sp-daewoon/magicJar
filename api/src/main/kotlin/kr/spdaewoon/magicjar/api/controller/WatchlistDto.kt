@@ -78,4 +78,11 @@ data class WatchlistEntryDto(
     val isKospi200: Boolean = false,
     @Schema(description = "KOSDAQ150 편입 여부.", example = "false")
     val isKosdaq150: Boolean = false,
+    @Schema(
+        description =
+            "상장폐지 여부 (instrument.active=false). " +
+                "true 시 사용자에게 '상장폐지' 작은 라벨 표시 — 사용자가 직접 watchlist에서 제거 결정.",
+        example = "false",
+    )
+    val delisted: Boolean = false,
 )
