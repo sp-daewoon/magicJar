@@ -45,3 +45,13 @@ management:
 magicjar:
   mode: ${MAGICJAR_MODE:MOCK}
   allow-real: ${MAGICJAR_ALLOW_REAL:false}
+  instrument:
+    # 부팅 직후 즉시 sync (dev=true 권장, prd=false — cron만)
+    sync-at-boot: ${MAGICJAR_INSTRUMENT_SYNC_AT_BOOT:false}
+    # KIS 종목 마스터 zip URL (KIS-first — kis-api-reference.md §6)
+    kospi-mst-url: ${MAGICJAR_KIS_KOSPI_MST_URL:https://new.real.download.dws.co.kr/common/master/kospi_code.mst.zip}
+    kosdaq-mst-url: ${MAGICJAR_KIS_KOSDAQ_MST_URL:https://new.real.download.dws.co.kr/common/master/kosdaq_code.mst.zip}
+    # KIS 비활성화 (test profile·CI 환경 — 시드 fallback 사용)
+    kis-disabled: ${MAGICJAR_INSTRUMENT_KIS_DISABLED:false}
+    # 시드 파일 경로 (classpath 기준)
+    seed-path: ${MAGICJAR_INSTRUMENT_SEED_PATH:instrument-seed.json}
