@@ -3,10 +3,10 @@ id: T-20260508-0112-pr-26-charter-integration
 agent: architect
 model: opus
 branch: agent/architect/pr-26-charter-integration
-status: RUNNING
+status: DONE
 startedAt: 2026-05-08T01:12:39.415+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-08T01:25:12.941+09:00
+pr: #224
 parentPhase: ?
 ---
 
