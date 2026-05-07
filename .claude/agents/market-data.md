@@ -59,3 +59,11 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 - **strategy-engine**: 캔들 조회 인터페이스·지표 계산용 원시 데이터 합의
 - **ai-engineer**: 뉴스/공시 텍스트 포맷, 종목 매핑(종목코드↔회사명) 제공
 - **qa**: 샘플 응답을 기반으로 경계면 테스트 픽스처 제공
+
+## CHANGELOG 작성 룰 (ADR 0050)
+
+PR 작업 시 `CHANGELOG.md`에 다음 절차로 변경 이력을 기록한다:
+
+1. **architect spec/plan PR이 본인용 슬롯 row를 미리 발행했다면** (`(작성: market-data)` 마커 row 존재) — 그 row를 **in-place edit**으로 `TBD` 자리표시자만 실제 한 줄 사유로 교체. **다른 row는 절대 수정 금지** (영역 침범).
+2. **슬롯 row가 없으면** (architect 미개입 사이클 — hotfix·결함 정정·작은 묶음) — `CHANGELOG.md` 표 끝에 **add-only insert**. 두 번째 머지자가 push 시 git rebase 충돌 발생하면 본인이 자체 해결 (상대 row + 본인 row 모두 보존).
+3. 슬롯 row와 다른 산출물(예: 추가 변경 1건 더)을 만들면 별도 정정 commit으로 row 보강.
