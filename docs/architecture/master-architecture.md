@@ -6,7 +6,7 @@
 > **선행 폐기**: 1차안 v1 (765줄, 2026-05-03) — "AI quant trading platform · AI 직접 매매" 가정 비전 정정으로 풀 폐기.
 > **범위**: magicJar 전체 시스템의 단일 진실원. 룰 기반 quant 본체 + AI 옵션 보조 + MCP 서버 미래.
 > **선행 ADR**: 0001~0040 (전체 인덱스는 `_workspace/arch/adr/README.md`)
-> **신규 ADR**: 0041~ (master §10에 핵심 결정 한 줄. 정식 발행은 W1 진입 직전 + 트랙 진입 시 부분).
+> **신규 ADR**: 0041~ (master §10에 핵심 결정 한 줄. 정식 발행은 W1 진입 직전 + 트랙 진입 시 부분). 0048 슬롯은 §12 후속 예약 — 0049·0050은 PR-8 메타 ADR(GitHub Actions release 한정 / CHANGELOG 슬롯 채번룰)로 채택.
 
 ---
 
@@ -488,9 +488,9 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 
 ---
 
-## §10. 핵심 ADR 인덱스 (0001~0047 — 발행 완료)
+## §10. 핵심 ADR 인덱스 (0001~0047 + 0049·0050 — 발행 완료, 0048 후속 예약)
 
-상세 본문은 `_workspace/arch/adr/<NNNN>-*.md`. 분류 카테고리는 `_workspace/arch/adr/README.md` §1~§10-2 정합. 본 §10은 한 줄 요약 인덱스 — 신규 ADR 발행 시 본 표 + README 동시 갱신 (ADR 0030 SoT 운영 규약).
+상세 본문은 `_workspace/arch/adr/<NNNN>-*.md`. 분류 카테고리는 `_workspace/arch/adr/README.md` §1~§10-4 정합. 본 §10은 한 줄 요약 인덱스 — 신규 ADR 발행 시 본 표 + README 동시 갱신 (ADR 0030 SoT 운영 규약).
 
 | ADR | 제목 | 카테고리 | Wave/시점 |
 |---|---|---|---|
@@ -541,16 +541,18 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | 0045 | Graceful Shutdown & In-flight 처리 (SIGTERM · Kafka manual commit · idempotency) | 운영·UX fitness | W1 (횡단) |
 | 0046 | Onboarding & Credential Registration (테이블 3종 분리 · 마스터 키 단일 예외) | 운영·UX fitness | W1 ★ (T-ONBOARD) |
 | 0047 | DSL Evaluation Sandbox (정적 검증 + 런타임 timeout/CPU budget + thread pool 격리 + auto-disable) | DSL 안전성 | W2 (T-DSL) · W3 (T-SIG·T-BT) |
+| 0049 | GitHub Actions = release 트리거 한정 (일상 검증은 pre-push hook 단독) | 메타·CI/CD | 횡단 |
+| 0050 | CHANGELOG 슬롯 채번룰 (architect 사전 발행 + sub-agent in-place edit) | 메타·하네스 | 횡단 |
 
 ### 후속 예정 (Proposed — `_workspace/arch/adr/README.md` §12 정합)
 
 | 후보 번호 | 제목 (예정) | 진입 트랙 |
 |---|---|---|
 | 0048 | KIS WS 41건 구독 한도 + 우선순위 정책 (관심종목 41 종목 초과 시 priority eviction · stream multiplexing) | T-W1·T-MS1 |
-| 0049 | 57 캔들 패턴 표준 | T-PAT |
-| 0050 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT |
-| 0051 | Screener 표준 | T-SC |
-| 0052 | Performance 표준 | T-PERF |
+| 0051 | 57 캔들 패턴 표준 | T-PAT |
+| 0052 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT |
+| 0053 | Screener 표준 | T-SC |
+| 0054 | Performance 표준 | T-PERF |
 
 ---
 
@@ -598,3 +600,4 @@ v1·v2 검토 시점에 누적된 결정 항목과 v3.0.0 베이스라인 컷(20
 | 2026-05-07 (PR-3b) | 운영·UX fitness 갭 3건 ADR 0044·0045·0046 신규 발행 정합 — §10 인덱스 3행 추가(0044 Notification·0045 Graceful Shutdown·0046 Onboarding), §10 헤더 0001~0046 갱신, §6 Kafka topic 5건 추가(`risk.violation.v1`·`kis.token.expired.v1`·`system.startup.v1`·`system.shutdown.v1`·`notification.sent.v1`) + position.drift.v1·risk.killswitch.v1 consumer에 NotificationDispatcher 합류, §3-1 부수 흐름 3건 추가(Notification·Graceful Shutdown·Onboarding Setup), §10 후속 예정 0047~0050 시프트. (architect) |
 | 2026-05-07 (PR-3c) | DSL 안전성 갭 ADR 0047(DSL Evaluation Sandbox) 신규 발행 정합 — §10 인덱스 1행 추가, §10 헤더 0001~0047 갱신, §3-1 부수 흐름 1건 추가(DSL Sandbox — static 검증·runtime timeout·strategy-eval-pool 격리·auto-disable·`risk.violation.v1` type 확장), §10 후속 예정 0048~0051 시프트. Kafka 신규 topic 0건(기존 `risk.violation.v1` payload type 확장만). (architect) |
 | 2026-05-07 (PR-4) | v1/v2 잔여 grep 8회 검증 — 실질 잔재 0건(모두 의도된 historical context — 0014 T1/T2/T3 tier 표기·0004/0005/0006/0031/0032 Phase 역사적 마커·0020/0021/0027/0030 1차안 폐기 마커). §10 후속 예정에 ADR 0048 후보 prepend(KIS WS 41건 구독 한도 + 우선순위 정책 — PR-3b architect 발굴 갭) + 기존 0048~0051을 0049~0052로 시프트. v3.0.1 컷 준비 — CHANGELOG entry 추가, ADR 47건(0001~0047) + 파일명/헤더 일치 + README §12 정합 모두 GREEN. (architect) |
+| 2026-05-07 (PR-8) | 메타 정리 4건 — ADR 0049(GitHub Actions = release 트리거 한정 — 일상 검증 pre-push 단독)·ADR 0050(CHANGELOG 슬롯 채번룰 — architect 사전 발행 + sub-agent in-place edit) 신규 발행. ADR 0040 endpoint 단수→복수 정정(`/api/watchlist` → `/api/watchlists` — RESTful 관례 + PR-7 T-W1 spec lock 정합) + 정합 차원 ADR 0019·0028·candle-data-policy-v2 동시 갱신. §10 인덱스 0049·0050 추가, 후속 예정 기존 0049~0052 → 0051~0054 시프트(0048 KIS WS 41건은 그대로). agent SKILL 보강(architect 슬롯 발행 의무 + sub-agent fallback 룰 + magicjar-orchestrator 운영 절차). `.github/workflows/ci.yml` 삭제 + `release.yml` 재구성. `.husky/pre-push` 보강(frontend 변경 시 pnpm typecheck/build 조건부 실행). (architect) |
