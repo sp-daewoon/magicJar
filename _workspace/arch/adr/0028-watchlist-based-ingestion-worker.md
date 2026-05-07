@@ -43,7 +43,7 @@ KIS WS 41건 한도 안에서 자연 제약. 풀 size 30 초과 시 우선순위
 ```
 사용자 [관심등록 클릭] (frontend /watchlist)
     ↓
-api POST /api/watchlist/{code}
+api POST /api/watchlists  (body: {code})
     ↓
 DB INSERT watchlist + Kafka publish watchlist.changed.v1
     ↓

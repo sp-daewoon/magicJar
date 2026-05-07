@@ -47,7 +47,7 @@ KIS REST는 일봉/주봉/월봉/년봉 backfill 가능. 분봉은 당일분만 
 사용자가 Watchlist에 종목 등록 시 (ADR 0028 — `WatchlistIngestionWorker`):
 
 ```
-0초:    api POST /api/watchlist/{code}
+0초:    api POST /api/watchlists  (body: {code})
         → DB watchlist INSERT
         → Kafka watchlist.changed.v1
 1~3초:  consumer WatchlistIngestionWorker
