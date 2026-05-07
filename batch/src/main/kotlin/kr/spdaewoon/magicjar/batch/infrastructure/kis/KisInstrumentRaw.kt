@@ -28,11 +28,9 @@ data class KisInstrumentRaw(
     val isin: String?, // stnd_iscd 12byte
     val name: String, // hts_kor_isnm 가변 byte (cp949/EUC-KR)
     val market: InstrumentMarket,
-
     // Tier 1 — 식별·시장 메타 보강
     val type: InstrumentType, // scrt_grp_cls_code + prst_cls_code 권위 매핑 (mapType 참조)
     val securitiesGroup: String?, // scrt_grp_cls_code (ST/MF/RT/SC/IF/DR/EW/EF/SW/SR/BC/FE/FS)
-
     // Tier 2 — 매매 가드 (자동매매 본체 필수)
     val tradingHalt: Boolean, // trht_yn
     val liquidation: Boolean, // sltr_yn
@@ -51,7 +49,6 @@ data class KisInstrumentRaw(
     val creditDays: Short?, // crdt_days
     val marginRate: Short?, // marg_rate (3자리 정수 %)
     val shortOverheatedStatus: String?, // short_over_cls_code (0/1:지정예고/2:지정/3:지정연장)
-
     // Tier 3 — 분류 인덱스 (screening·universe)
     val avlsScale: String?, // avls_scal_cls_code (KOSPI:0:제외/1대/2중/3소 KOSDAQ:0:제외/1KOSDAQ100/2KOSDAQmid300/3KOSDAQsmall)
     val industryLarge: String?, // bstp_larg_div_code
@@ -87,7 +84,6 @@ data class KisInstrumentRaw(
     val isElwPublisher: Boolean, // elw_pblc_yn (KOSPI만)
     val preferredStockType: String?, // prst_cls_code (0:보통주/1:구형우선주/2:신형우선주)
     val groupCode: String?, // grp_code
-
     // Tier 4 — 시장 메타 + 재무
     val basePrice: BigDecimal?, // stck_sdpr (9자리)
     val tradingUnitNormal: Int?, // frml_mrkt_deal_qty_unit (5자리)

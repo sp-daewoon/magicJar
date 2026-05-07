@@ -62,36 +62,93 @@ class KisInstrumentMasterAdapter(
         // raw 검증 출처: _workspace/specs/pr-21-kis-header-raw-verification.md §2-2
         // Python kis_kospi_code_mst.py L54~L68 + 종목마스터정보(코스피).h L9~L98 정합 (mismatch 0건)
         // =============================================================================
-        private val KOSPI_PART2_WIDTHS = intArrayOf(
-            // #1~5: scrt_grp_cls(2) avls_scal(1) bstp_larg(4) bstp_medm(4) bstp_smal(4)
-            2, 1, 4, 4, 4,
-            // #6~10: mnin_cls(1) low_current(1) sprn_strr(1) kospi200_apnt(1) kospi100(1)
-            1, 1, 1, 1, 1,
-            // #11~15: kospi50(1) krx(1) etp_prod(1) elw_pblc(1) krx100(1)
-            1, 1, 1, 1, 1,
-            // #16~20: krx_car(1) krx_smcn(1) krx_bio(1) krx_bank(1) etpr_undt_SPAC(1)
-            1, 1, 1, 1, 1,
-            // #21~25: krx_enrg_chms(1) krx_stel(1) short_over(1) krx_medi_cmnc(1) krx_cnst(1)
-            1, 1, 1, 1, 1,
-            // #26~30: krx_fnnc_svc_dummy(1) krx_scrt(1) krx_ship(1) krx_insu(1) krx_trnp(1)
-            1, 1, 1, 1, 1,
-            // #31~35: sri_nmix(1) stck_sdpr(9) frml_mrkt_deal(5) ovtm_mrkt_deal(5) trht(1)
-            1, 9, 5, 5, 1,
-            // #36~40: sltr(1) mang(1) mrkt_alrm(2) mrkt_alrm_risk_adnt(1) insn_pbnt(1)
-            1, 1, 2, 1, 1,
-            // #41~45: byps_lstn(1) flng(2) fcam_mod(2) icic(2) marg_rate(3)
-            1, 2, 2, 2, 3,
-            // #46~50: crdt_able(1) crdt_days(3) prdy_vol(12) stck_fcam(12) stck_lstn_date(8)
-            1, 3, 12, 12, 8,
-            // #51~55: lstn_stcn(15) cpfn(21) stac_month(2) po_prc(7) prst_cls(1)
-            15, 21, 2, 7, 1,
-            // #56~60: ssts_hot(1) stange_runup(1) krx300(1) kospi_issu(1) sale_account(9)
-            1, 1, 1, 1, 9,
-            // #61~65: bsop_prfi(9) op_prfi(9) thtr_ntin(5) roe(9) base_date(8)
-            9, 9, 5, 9, 8,
-            // #66~70: prdy_avls_scal(9) grp_code(3) co_crdt_limt_over(1) secu_lend_able(1) stln_able(1)
-            9, 3, 1, 1, 1,
-        )
+        private val KOSPI_PART2_WIDTHS =
+            intArrayOf(
+                // #1~5: scrt_grp_cls(2) avls_scal(1) bstp_larg(4) bstp_medm(4) bstp_smal(4)
+                2,
+                1,
+                4,
+                4,
+                4,
+                // #6~10: mnin_cls(1) low_current(1) sprn_strr(1) kospi200_apnt(1) kospi100(1)
+                1,
+                1,
+                1,
+                1,
+                1,
+                // #11~15: kospi50(1) krx(1) etp_prod(1) elw_pblc(1) krx100(1)
+                1,
+                1,
+                1,
+                1,
+                1,
+                // #16~20: krx_car(1) krx_smcn(1) krx_bio(1) krx_bank(1) etpr_undt_SPAC(1)
+                1,
+                1,
+                1,
+                1,
+                1,
+                // #21~25: krx_enrg_chms(1) krx_stel(1) short_over(1) krx_medi_cmnc(1) krx_cnst(1)
+                1,
+                1,
+                1,
+                1,
+                1,
+                // #26~30: krx_fnnc_svc_dummy(1) krx_scrt(1) krx_ship(1) krx_insu(1) krx_trnp(1)
+                1,
+                1,
+                1,
+                1,
+                1,
+                // #31~35: sri_nmix(1) stck_sdpr(9) frml_mrkt_deal(5) ovtm_mrkt_deal(5) trht(1)
+                1,
+                9,
+                5,
+                5,
+                1,
+                // #36~40: sltr(1) mang(1) mrkt_alrm(2) mrkt_alrm_risk_adnt(1) insn_pbnt(1)
+                1,
+                1,
+                2,
+                1,
+                1,
+                // #41~45: byps_lstn(1) flng(2) fcam_mod(2) icic(2) marg_rate(3)
+                1,
+                2,
+                2,
+                2,
+                3,
+                // #46~50: crdt_able(1) crdt_days(3) prdy_vol(12) stck_fcam(12) stck_lstn_date(8)
+                1,
+                3,
+                12,
+                12,
+                8,
+                // #51~55: lstn_stcn(15) cpfn(21) stac_month(2) po_prc(7) prst_cls(1)
+                15,
+                21,
+                2,
+                7,
+                1,
+                // #56~60: ssts_hot(1) stange_runup(1) krx300(1) kospi_issu(1) sale_account(9)
+                1,
+                1,
+                1,
+                1,
+                9,
+                // #61~65: bsop_prfi(9) op_prfi(9) thtr_ntin(5) roe(9) base_date(8)
+                9,
+                9,
+                5,
+                9,
+                8,
+                // #66~70: prdy_avls_scal(9) grp_code(3) co_crdt_limt_over(1) secu_lend_able(1) stln_able(1)
+                9,
+                3,
+                1,
+                1,
+                1,
+            )
 
         // =============================================================================
         // KOSDAQ Part2 widths — 64 필드, sum=221byte
@@ -100,36 +157,87 @@ class KisInstrumentMasterAdapter(
         // KOSPI 대비 차이: mnin·sprn·kospi200_apnt·kospi100·kospi50·elw_pblc·krx_fnnc_svc·sri_nmix·kospi_issu 부재(9필드)
         //                  vntr_issu·invt_alrm·ksq150_nmix 추가(3필드)
         // =============================================================================
-        private val KOSDAQ_PART2_WIDTHS = intArrayOf(
-            // #1~2: scrt_grp_cls(2) avls_scal(1)
-            2, 1,
-            // #3~7: bstp_larg(4) bstp_medm(4) bstp_smal(4) vntr_issu(1) low_current(1)
-            4, 4, 4, 1, 1,
-            // #8~12: krx(1) etp_prod(1) krx100(1) krx_car(1) krx_smcn(1)
-            1, 1, 1, 1, 1,
-            // #13~17: krx_bio(1) krx_bank(1) etpr_undt_SPAC(1) krx_enrg_chms(1) krx_stel(1)
-            1, 1, 1, 1, 1,
-            // #18~22: short_over(1) krx_medi_cmnc(1) krx_cnst(1) invt_alrm(1) krx_scrt(1)
-            1, 1, 1, 1, 1,
-            // #23~27: krx_ship(1) krx_insu(1) krx_trnp(1) ksq150_nmix(1) stck_sdpr(9)
-            1, 1, 1, 1, 9,
-            // #28~32: frml_mrkt_deal(5) ovtm_mrkt_deal(5) trht(1) sltr(1) mang(1)
-            5, 5, 1, 1, 1,
-            // #33~37: mrkt_alrm(2) mrkt_alrm_risk_adnt(1) insn_pbnt(1) byps_lstn(1) flng(2)
-            2, 1, 1, 1, 2,
-            // #38~42: fcam_mod(2) icic(2) marg_rate(3) crdt_able(1) crdt_days(3)
-            2, 2, 3, 1, 3,
-            // #43~47: prdy_vol(12) stck_fcam(12) stck_lstn_date(8) lstn_stcn(15) cpfn(21)
-            12, 12, 8, 15, 21,
-            // #48~52: stac_month(2) po_prc(7) prst_cls(1) ssts_hot(1) stange_runup(1)
-            2, 7, 1, 1, 1,
-            // #53~57: krx300(1) sale_account(9) bsop_prfi(9) op_prfi(9) thtr_ntin(5)
-            1, 9, 9, 9, 5,
-            // #58~62: roe(9) base_date(8) prdy_avls_scal(9) grp_code(3) co_crdt_limt_over(1)
-            9, 8, 9, 3, 1,
-            // #63~64: secu_lend_able(1) stln_able(1)
-            1, 1,
-        )
+        private val KOSDAQ_PART2_WIDTHS =
+            intArrayOf(
+                // #1~2: scrt_grp_cls(2) avls_scal(1)
+                2,
+                1,
+                // #3~7: bstp_larg(4) bstp_medm(4) bstp_smal(4) vntr_issu(1) low_current(1)
+                4,
+                4,
+                4,
+                1,
+                1,
+                // #8~12: krx(1) etp_prod(1) krx100(1) krx_car(1) krx_smcn(1)
+                1,
+                1,
+                1,
+                1,
+                1,
+                // #13~17: krx_bio(1) krx_bank(1) etpr_undt_SPAC(1) krx_enrg_chms(1) krx_stel(1)
+                1,
+                1,
+                1,
+                1,
+                1,
+                // #18~22: short_over(1) krx_medi_cmnc(1) krx_cnst(1) invt_alrm(1) krx_scrt(1)
+                1,
+                1,
+                1,
+                1,
+                1,
+                // #23~27: krx_ship(1) krx_insu(1) krx_trnp(1) ksq150_nmix(1) stck_sdpr(9)
+                1,
+                1,
+                1,
+                1,
+                9,
+                // #28~32: frml_mrkt_deal(5) ovtm_mrkt_deal(5) trht(1) sltr(1) mang(1)
+                5,
+                5,
+                1,
+                1,
+                1,
+                // #33~37: mrkt_alrm(2) mrkt_alrm_risk_adnt(1) insn_pbnt(1) byps_lstn(1) flng(2)
+                2,
+                1,
+                1,
+                1,
+                2,
+                // #38~42: fcam_mod(2) icic(2) marg_rate(3) crdt_able(1) crdt_days(3)
+                2,
+                2,
+                3,
+                1,
+                3,
+                // #43~47: prdy_vol(12) stck_fcam(12) stck_lstn_date(8) lstn_stcn(15) cpfn(21)
+                12,
+                12,
+                8,
+                15,
+                21,
+                // #48~52: stac_month(2) po_prc(7) prst_cls(1) ssts_hot(1) stange_runup(1)
+                2,
+                7,
+                1,
+                1,
+                1,
+                // #53~57: krx300(1) sale_account(9) bsop_prfi(9) op_prfi(9) thtr_ntin(5)
+                1,
+                9,
+                9,
+                9,
+                5,
+                // #58~62: roe(9) base_date(8) prdy_avls_scal(9) grp_code(3) co_crdt_limt_over(1)
+                9,
+                8,
+                9,
+                3,
+                1,
+                // #63~64: secu_lend_able(1) stln_able(1)
+                1,
+                1,
+            )
 
         private const val KOSPI_PART2_LENGTH = 227 // KOSPI_PART2_WIDTHS.sum() — 줄바꿈 1byte 미포함
         private const val KOSDAQ_PART2_LENGTH = 221 // KOSDAQ_PART2_WIDTHS.sum() — 줄바꿈 1byte 미포함
@@ -186,19 +294,29 @@ class KisInstrumentMasterAdapter(
                 if (e.statusCode.value() in 400..499) {
                     log.error(
                         "[instrument-master] {} 4xx 오류 — 즉시 실패: status={} body={}",
-                        marketName, e.statusCode, e.responseBodyAsString.take(200),
+                        marketName,
+                        e.statusCode,
+                        e.responseBodyAsString.take(200),
                     )
                     throw e
                 }
                 log.warn(
                     "[instrument-master] {} 5xx 오류 (시도 {}/{}) — {}ms 후 재시도: status={}",
-                    marketName, idx + 1, BACKOFF_DELAYS.size, delay, e.statusCode,
+                    marketName,
+                    idx + 1,
+                    BACKOFF_DELAYS.size,
+                    delay,
+                    e.statusCode,
                 )
             } catch (e: Exception) {
                 lastException = e
                 log.warn(
                     "[instrument-master] {} 네트워크 오류 (시도 {}/{}) — {}ms 후 재시도: {}",
-                    marketName, idx + 1, BACKOFF_DELAYS.size, delay, e.message,
+                    marketName,
+                    idx + 1,
+                    BACKOFF_DELAYS.size,
+                    delay,
+                    e.message,
                 )
             }
             if (idx < BACKOFF_DELAYS.size - 1) Thread.sleep(delay)
@@ -303,7 +421,9 @@ class KisInstrumentMasterAdapter(
         } catch (e: Exception) {
             log.warn(
                 "[instrument-master] 줄 파싱 실패 skip: market={} line='{}'... err={}",
-                market, line.take(30), e.message,
+                market,
+                line.take(30),
+                e.message,
             )
             null
         }
@@ -337,7 +457,10 @@ class KisInstrumentMasterAdapter(
         val scrtGrpCls = p.getOrEmpty(0)
         val prstCls = p.getOrEmpty(54)
         return KisInstrumentRaw(
-            code = code, isin = isin, name = name, market = InstrumentMarket.KOSPI,
+            code = code,
+            isin = isin,
+            name = name,
+            market = InstrumentMarket.KOSPI,
             type = mapType(scrtGrpCls, prstCls),
             securitiesGroup = scrtGrpCls.ifBlank { null },
             // Tier 2 매매 가드
@@ -448,7 +571,10 @@ class KisInstrumentMasterAdapter(
         val scrtGrpCls = p.getOrEmpty(0)
         val prstCls = p.getOrEmpty(49)
         return KisInstrumentRaw(
-            code = code, isin = isin, name = name, market = InstrumentMarket.KOSDAQ,
+            code = code,
+            isin = isin,
+            name = name,
+            market = InstrumentMarket.KOSDAQ,
             type = mapType(scrtGrpCls, prstCls),
             securitiesGroup = scrtGrpCls.ifBlank { null },
             // Tier 2 매매 가드

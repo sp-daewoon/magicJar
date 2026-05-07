@@ -50,14 +50,12 @@ class BatchInstrumentJpaEntity(
     val createdAt: Instant = Instant.now(),
     @Column(name = "updated_at", nullable = false)
     var updatedAt: Instant = Instant.now(),
-
     // =========================================================================
     // PR-21a 신규: Tier 1 보강 — 1 컬럼
     // KIS scrt_grp_cls_code — ST/MF/RT/SC/IF/DR/EW/EF/SW/SR/BC/FE/FS
     // =========================================================================
     @Column(name = "securities_group", length = 2)
     var securitiesGroup: String? = null,
-
     // =========================================================================
     // PR-21a 신규: Tier 2 매매 가드 — 17 컬럼 (자동매매 본체 필수)
     // =========================================================================
@@ -95,7 +93,6 @@ class BatchInstrumentJpaEntity(
     var marginRate: Short? = null, // marg_rate
     @Column(name = "short_overheated_status", length = 1)
     var shortOverheatedStatus: String? = null, // short_over_cls_code
-
     // =========================================================================
     // PR-21a 신규: Tier 3 분류 인덱스 — 33 컬럼 (screening·universe)
     // =========================================================================
@@ -167,7 +164,6 @@ class BatchInstrumentJpaEntity(
     var preferredStockType: String? = null, // prst_cls_code
     @Column(name = "group_code", length = 3)
     var groupCode: String? = null, // grp_code
-
     // =========================================================================
     // PR-21a 신규: Tier 4 시장 메타 + 재무 — 19 컬럼
     // =========================================================================

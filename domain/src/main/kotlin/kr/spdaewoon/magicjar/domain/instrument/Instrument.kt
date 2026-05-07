@@ -21,7 +21,12 @@ data class Instrument(
 enum class InstrumentMarket { KOSPI, KOSDAQ, KONEX }
 
 enum class InstrumentType {
-    STOCK, ETF, ETN, PREFERRED, WARRANT, REIT,
+    STOCK,
+    ETF,
+    ETN,
+    PREFERRED,
+    WARRANT,
+    REIT,
     DR, // 주식예탁증서 — KIS scrt_grp_cls_code='DR' (PR-21a add-only)
     UNKNOWN,
 }
