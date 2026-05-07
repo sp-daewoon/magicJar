@@ -260,5 +260,20 @@ services:
       TZ: Asia/Seoul
     ports: ["3000:80"]
 
+  # Dozzle — docker compose 로그 web UI (PR-14 추가, 사용자 요청)
+  # http://localhost:${DOZZLE_HOST_PORT:-9999}/ 에서 모든 컨테이너 로그 실시간 보기
+  # docker.sock read-only 마운트 — 로그만 읽기, 컨테이너 제어 불가
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: magicjar-dozzle
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      DOZZLE_NO_ANALYTICS: "true"
+      DOZZLE_LEVEL: info
+      TZ: Asia/Seoul
+    ports: ["${DOZZLE_HOST_PORT:-9999}:8080"]
+
 volumes:
   pg_data:

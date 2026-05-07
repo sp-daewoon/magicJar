@@ -40,7 +40,58 @@ orchestrator는 별도 운영 절차를 보유하지 않는다. 다음 SoT를 �
 2. 적절한 에이전트의 git-author 모자로 전환 (ADR 0036)
 3. `node scripts/task.mjs start ...`로 task 파일 생성
 4. 작업 진행, 막힘 시 즉시 사용자 보고
-5. 완료 → PR(`--base main`) → 사용자 머지 승인 → archive
+5. 완료 → PR(`--base main`) → 사용자 머지 승인 → **머지 후 정리 4단계 의무 (아래 §머지 후 정리 의무)**
+
+## 머지 후 정리 의무 (반드시 즉시 수행 — ADR 0033·0036 정합)
+
+PR 머지가 끝난 직후, 다음 4단계를 **빠짐없이** 수행. 어느 하나 누락 시 운영 부채 누적:
+
+### 1. main pull (root worktree 동기화)
+
+```bash
+cd <repo-root> && git pull --ff-only origin main
+```
+
+### 2. task 파일 archive (ADR 0036 §47·§57·§79)
+
+머지된 PR의 task 파일을 `_workspace/tasks/done/`로 이동:
+
+```bash
+node scripts/task.mjs archive T-<id>
+```
+
+여러 PR 동시 머지 시 각 task 모두 archive. **누적 금지** — `_workspace/tasks/`에 옛 task 파일이 쌓이면 다음 사이클 시작 시 한 번에 일괄 archive.
+
+### 3. worktree 제거 (ADR 0033 §92·§112)
+
+머지된 PR의 sub-agent worktree를 즉시 제거:
+
+```bash
+git worktree unlock <path> 2>/dev/null
+git -C <path> restore _workspace/tasks/ 2>/dev/null    # task done 마킹 unstaged 정리
+git worktree remove <path>
+```
+
+unlock + restore 후 remove (force 없이) 시도. 사용자 메모리 `feedback_worktree_cleanup.md` 정합.
+
+### 4. 머지된 agent/* 로컬 브랜치 삭제
+
+```bash
+git branch -d agent/<agent>/<task>     # -d (안전 — origin 머지 인식 시 삭제 허용)
+```
+
+`worktree-agent-*` Agent 도구 부산물 브랜치는 누적 15+ 시 일괄 정리 (backlog §4). 사용자 명시 cleanup 또는 `git branch -D` 사용자 직접 권장.
+
+### 자동 점검 (사이클 시작 시)
+
+다음 사이클 architect/sub-agent 디스패치 전에 다음 점검:
+
+```bash
+ls _workspace/tasks/T-*.md 2>/dev/null | wc -l    # 누적 5건 이상이면 일괄 archive 의무
+git worktree list                                  # main 외 worktree 잔재 여부
+```
+
+**위반 시 다음 작업 시작 전 자동 점검·정리** (ADR 0033 §112).
 
 ## CI/CD 인지 (ADR 0049)
 
