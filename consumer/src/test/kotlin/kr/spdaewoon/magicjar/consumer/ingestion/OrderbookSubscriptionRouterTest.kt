@@ -6,9 +6,6 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.mockito.kotlin.mock
-import org.mockito.kotlin.times
-import org.mockito.kotlin.verify
 import java.util.concurrent.CopyOnWriteArraySet
 
 /**
@@ -103,7 +100,9 @@ class OrderbookSubscriptionRouterTest {
         var subscribeOrderbookCount = 0
 
         override fun subscribe(codes: List<String>) {}
+
         override fun unsubscribe(codes: List<String>) {}
+
         override fun subscribedCodes(): Set<String> = emptySet()
 
         override fun subscribeOrderbook(codes: List<String>) {

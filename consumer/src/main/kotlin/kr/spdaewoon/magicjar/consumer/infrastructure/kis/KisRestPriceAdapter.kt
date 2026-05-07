@@ -42,7 +42,8 @@ class KisRestPriceAdapter(
     private val kisBaseProd: String,
     @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
     private val kisBaseVps: String,
-) : KisRestPort, KisRestPriceMetricsPort {
+) : KisRestPort,
+    KisRestPriceMetricsPort {
     private val log = LoggerFactory.getLogger(KisRestPriceAdapter::class.java)
 
     /**

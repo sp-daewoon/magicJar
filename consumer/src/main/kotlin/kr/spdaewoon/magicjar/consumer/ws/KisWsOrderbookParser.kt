@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.consumer.ws
 import kotlinx.datetime.Clock
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toInstant
+import kotlinx.datetime.toLocalDateTime
 import kr.spdaewoon.magicjar.domain.market.OrderbookSnapshot
 import kr.spdaewoon.magicjar.domain.market.PriceLevel
 import org.slf4j.LoggerFactory
@@ -70,39 +71,46 @@ object KisWsOrderbookParser {
             val code = fields[IDX_CODE].trim()
             val timeStr = fields[IDX_BSOP_HOUR].trim()
 
-            val ts = if (timeStr.length == 6) {
-                try {
-                    val now = kotlinx.datetime.Clock.System.now().toLocalDateTime(kst)
-                    val hour = timeStr.substring(0, 2).toInt()
-                    val minute = timeStr.substring(2, 4).toInt()
-                    val second = timeStr.substring(4, 6).toInt()
-                    kotlinx.datetime.LocalDateTime(now.year, now.monthNumber, now.dayOfMonth, hour, minute, second)
-                        .toInstant(kst)
-                } catch (e: Exception) {
-                    log.debug("H0STASP0 시각 파싱 실패 — Clock.now() 사용: time={}", timeStr)
+            val ts =
+                if (timeStr.length == 6) {
+                    try {
+                        val now =
+                            kotlinx.datetime.Clock.System
+                                .now()
+                                .toLocalDateTime(kst)
+                        val hour = timeStr.substring(0, 2).toInt()
+                        val minute = timeStr.substring(2, 4).toInt()
+                        val second = timeStr.substring(4, 6).toInt()
+                        kotlinx.datetime
+                            .LocalDateTime(now.year, now.monthNumber, now.dayOfMonth, hour, minute, second)
+                            .toInstant(kst)
+                    } catch (e: Exception) {
+                        log.debug("H0STASP0 시각 파싱 실패 — Clock.now() 사용: time={}", timeStr)
+                        Clock.System.now()
+                    }
+                } else {
                     Clock.System.now()
                 }
-            } else {
-                Clock.System.now()
-            }
 
             // 매도호가 10단계 (ASKP1~ASKP10, index 3~12) + 매도호가잔량 (ASKP_RSQN1~10, index 23~32)
-            val asks = (0 until LEVELS).mapNotNull { i ->
-                val priceStr = fields.getOrNull(IDX_ASKP_START + i)?.trim() ?: return@mapNotNull null
-                val qtyStr = fields.getOrNull(IDX_ASKP_RSQN_START + i)?.trim() ?: "0"
-                val price = priceStr.ifBlank { "0" }.toBigDecimalOrNull() ?: BigDecimal.ZERO
-                val qty = qtyStr.ifBlank { "0" }.toLongOrNull() ?: 0L
-                if (price == BigDecimal.ZERO) null else PriceLevel(price = price, quantity = qty)
-            }
+            val asks =
+                (0 until LEVELS).mapNotNull { i ->
+                    val priceStr = fields.getOrNull(IDX_ASKP_START + i)?.trim() ?: return@mapNotNull null
+                    val qtyStr = fields.getOrNull(IDX_ASKP_RSQN_START + i)?.trim() ?: "0"
+                    val price = priceStr.ifBlank { "0" }.toBigDecimalOrNull() ?: BigDecimal.ZERO
+                    val qty = qtyStr.ifBlank { "0" }.toLongOrNull() ?: 0L
+                    if (price == BigDecimal.ZERO) null else PriceLevel(price = price, quantity = qty)
+                }
 
             // 매수호가 10단계 (BIDP1~BIDP10, index 13~22) + 매수호가잔량 (BIDP_RSQN1~10, index 33~42)
-            val bids = (0 until LEVELS).mapNotNull { i ->
-                val priceStr = fields.getOrNull(IDX_BIDP_START + i)?.trim() ?: return@mapNotNull null
-                val qtyStr = fields.getOrNull(IDX_BIDP_RSQN_START + i)?.trim() ?: "0"
-                val price = priceStr.ifBlank { "0" }.toBigDecimalOrNull() ?: BigDecimal.ZERO
-                val qty = qtyStr.ifBlank { "0" }.toLongOrNull() ?: 0L
-                if (price == BigDecimal.ZERO) null else PriceLevel(price = price, quantity = qty)
-            }
+            val bids =
+                (0 until LEVELS).mapNotNull { i ->
+                    val priceStr = fields.getOrNull(IDX_BIDP_START + i)?.trim() ?: return@mapNotNull null
+                    val qtyStr = fields.getOrNull(IDX_BIDP_RSQN_START + i)?.trim() ?: "0"
+                    val price = priceStr.ifBlank { "0" }.toBigDecimalOrNull() ?: BigDecimal.ZERO
+                    val qty = qtyStr.ifBlank { "0" }.toLongOrNull() ?: 0L
+                    if (price == BigDecimal.ZERO) null else PriceLevel(price = price, quantity = qty)
+                }
 
             OrderbookSnapshot(
                 code = code,

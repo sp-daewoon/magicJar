@@ -299,6 +299,28 @@ W2·W4 진입 시 architect 사전 발행.
 
 ---
 
+## §11. SymbolControllerTest OnboardingGuardFilter mock 보강
+
+### 사유
+
+PR-10 통합 빌드 시 `SymbolControllerTest` 3건 모두 401 응답으로 fail (OnboardingGuardFilter가 셋업 미완으로 인식). hotfix PR에서 `@Disabled`로 일시 비활성화. 사용자 dogfooding 진입 우선 + 별도 PR로 정정.
+
+### 정정 안
+
+- `@MockBean` 또는 `@SpringBootTest` 설정에서 `UserAccountJpaRepository.existsAny()` mock = `true` 반환
+- 또는 `OnboardingGuardFilter` 자체를 `@MockBean`으로 stub (모든 요청 통과)
+- 또는 test profile에서 `OnboardingGuardFilter` 비활성화
+
+### 트리거
+
+PR-11(다음 사이클) 진입 시 R3 일괄 테스트 단계와 함께 처리. 또는 향후 다른 controller 테스트 추가 시 동일 패턴 정합 필요 시 우선.
+
+### 예상 처리
+
+소형 PR (`hotfix/symbol-test-mock`) — backend-core 또는 market-data 영역 책임 (테스트 작성한 sub-agent).
+
+---
+
 ## 운영 메모
 
 - **orchestrator 책임**: 사이클 시작 시 본 backlog 점검 의무 — 우선순위 ↑ 항목 first 처리

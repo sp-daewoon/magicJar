@@ -10,7 +10,6 @@ import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.WebClientResponseException
-import java.math.BigDecimal
 import java.time.Duration
 
 /**
@@ -105,34 +104,38 @@ class KisRestPriceMetricsAdapter(
         val cacheKey = "access_token:$userId:REAL"
 
         // 1. Redis 캐시 확인
-        val cached = try {
-            redisTemplate.opsForValue().get(cacheKey)
-        } catch (e: Exception) {
-            null
-        }
+        val cached =
+            try {
+                redisTemplate.opsForValue().get(cacheKey)
+            } catch (e: Exception) {
+                null
+            }
         if (!cached.isNullOrBlank()) return cached
 
         // 2. DB 자격증명 조회 (REAL 계좌)
-        val credential = credentialJpaRepository.findAllByAccountType("REAL").firstOrNull()
-            ?: run {
-                log.warn("KIS REAL 자격증명 없음 — userId={}...", userId.take(4))
-                // MOCK 계좌도 시도
-                credentialJpaRepository.findAllByAccountType("MOCK").firstOrNull()
-                    ?: throw IllegalStateException("KIS 자격증명이 등록되지 않았습니다")
-            }
+        val credential =
+            credentialJpaRepository.findAllByAccountType("REAL").firstOrNull()
+                ?: run {
+                    log.warn("KIS REAL 자격증명 없음 — userId={}...", userId.take(4))
+                    // MOCK 계좌도 시도
+                    credentialJpaRepository.findAllByAccountType("MOCK").firstOrNull()
+                        ?: throw IllegalStateException("KIS 자격증명이 등록되지 않았습니다")
+                }
 
-        val appKey = try {
-            String(aesGcmCipher.decrypt(credential.appKeyEnc))
-        } catch (e: Exception) {
-            log.error("KIS appKey 복호화 실패: {}", e.message)
-            throw IllegalStateException("KIS 자격증명 복호화 실패")
-        }
-        val secretKey = try {
-            String(aesGcmCipher.decrypt(credential.secretKeyEnc))
-        } catch (e: Exception) {
-            log.error("KIS secretKey 복호화 실패: {}", e.message)
-            throw IllegalStateException("KIS 자격증명 복호화 실패")
-        }
+        val appKey =
+            try {
+                String(aesGcmCipher.decrypt(credential.appKeyEnc))
+            } catch (e: Exception) {
+                log.error("KIS appKey 복호화 실패: {}", e.message)
+                throw IllegalStateException("KIS 자격증명 복호화 실패")
+            }
+        val secretKey =
+            try {
+                String(aesGcmCipher.decrypt(credential.secretKeyEnc))
+            } catch (e: Exception) {
+                log.error("KIS secretKey 복호화 실패: {}", e.message)
+                throw IllegalStateException("KIS 자격증명 복호화 실패")
+            }
 
         // 3. KIS /oauth2/tokenP 발급
         val accountType = credential.id.accountType
@@ -158,8 +161,9 @@ class KisRestPriceMetricsAdapter(
                     .block() as? Map<String, Any>
                     ?: throw IllegalStateException("KIS tokenP 응답 없음")
 
-            val accessToken = tokenResponse["access_token"]?.toString()
-                ?: throw IllegalStateException("KIS access_token 없음")
+            val accessToken =
+                tokenResponse["access_token"]?.toString()
+                    ?: throw IllegalStateException("KIS access_token 없음")
 
             // Redis 캐시 (TTL 23h — KIS 토큰 24h 유효)
             try {

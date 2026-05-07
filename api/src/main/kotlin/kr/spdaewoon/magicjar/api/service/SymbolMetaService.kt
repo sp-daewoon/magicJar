@@ -38,17 +38,18 @@ class SymbolMetaService(
     fun getSymbol(code: String): SymbolDto {
         // 1. Redis quote:last:{code} — 현재가
         val quoteJson = redisTemplate.opsForValue().get("quote:last:$code")
-        val quoteMap: Map<String, Any?> = if (quoteJson != null) {
-            try {
-                @Suppress("UNCHECKED_CAST")
-                objectMapper.readValue(quoteJson, Map::class.java) as Map<String, Any?>
-            } catch (e: Exception) {
-                log.warn("quote:last 파싱 실패: code={} err={}", code, e.message)
+        val quoteMap: Map<String, Any?> =
+            if (quoteJson != null) {
+                try {
+                    @Suppress("UNCHECKED_CAST")
+                    objectMapper.readValue(quoteJson, Map::class.java) as Map<String, Any?>
+                } catch (e: Exception) {
+                    log.warn("quote:last 파싱 실패: code={} err={}", code, e.message)
+                    emptyMap()
+                }
+            } else {
                 emptyMap()
             }
-        } else {
-            emptyMap()
-        }
 
         val currentPrice = quoteMap["price"]?.toString()
         val quoteTs = quoteMap["ts"]?.toString()
@@ -57,68 +58,74 @@ class SymbolMetaService(
 
         // 2. Redis meta:{code} 5분 cache — PER·PBR·시총 등
         val metaJson = redisTemplate.opsForValue().get("meta:$code")
-        val metrics: PriceMetrics? = if (metaJson != null) {
-            try {
-                objectMapper.readValue(metaJson, PriceMetrics::class.java)
-            } catch (e: Exception) {
-                log.debug("meta cache 파싱 실패: code={}", code)
-                null
-            }
-        } else {
-            null
-        }
-
-        // 3. KIS REST 호출 — meta cache miss 시 (PER·PBR·시총·종목명 등)
-        val resolvedMetrics: PriceMetrics? = metrics ?: run {
-            val userId = currentUserId()
-            if (userId != null) {
+        val metrics: PriceMetrics? =
+            if (metaJson != null) {
                 try {
-                    val fresh = priceMetricsPort.fetchPriceMetrics(userId, code)
-                    // Redis meta cache 저장 (5분 TTL)
-                    try {
-                        redisTemplate.opsForValue().set(
-                            "meta:$code",
-                            objectMapper.writeValueAsString(fresh),
-                            metaCacheTtl,
-                        )
-                    } catch (e: Exception) {
-                        log.warn("meta cache 저장 실패: code={} err={}", code, e.message)
-                    }
-                    fresh
+                    objectMapper.readValue(metaJson, PriceMetrics::class.java)
                 } catch (e: Exception) {
-                    log.warn("KIS inquire-price 실패: code={} err={}", code, e.message)
+                    log.debug("meta cache 파싱 실패: code={}", code)
                     null
                 }
             } else {
-                log.warn("userId 없음 — KIS inquire-price 호출 불가: code={}", code)
                 null
             }
-        }
+
+        // 3. KIS REST 호출 — meta cache miss 시 (PER·PBR·시총·종목명 등)
+        val resolvedMetrics: PriceMetrics? =
+            metrics ?: run {
+                val userId = currentUserId()
+                if (userId != null) {
+                    try {
+                        val fresh = priceMetricsPort.fetchPriceMetrics(userId, code)
+                        // Redis meta cache 저장 (5분 TTL)
+                        try {
+                            redisTemplate.opsForValue().set(
+                                "meta:$code",
+                                objectMapper.writeValueAsString(fresh),
+                                metaCacheTtl,
+                            )
+                        } catch (e: Exception) {
+                            log.warn("meta cache 저장 실패: code={} err={}", code, e.message)
+                        }
+                        fresh
+                    } catch (e: Exception) {
+                        log.warn("KIS inquire-price 실패: code={} err={}", code, e.message)
+                        null
+                    }
+                } else {
+                    log.warn("userId 없음 — KIS inquire-price 호출 불가: code={}", code)
+                    null
+                }
+            }
 
         // 현재가: Redis quote 우선, 없으면 metrics의 previousClose fallback
-        val price = currentPrice
-            ?: resolvedMetrics?.previousClose?.toPlainString()
-            ?: throw org.springframework.web.server.ResponseStatusException(
-                org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
-                "종목 데이터를 가져올 수 없습니다",
-            )
+        val price =
+            currentPrice
+                ?: resolvedMetrics?.previousClose?.toPlainString()
+                ?: throw org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
+                    "종목 데이터를 가져올 수 없습니다",
+                )
 
         // 전일대비 계산
         val prevClose = resolvedMetrics?.previousClose
         val priceDecimal = price.toBigDecimalOrNull()
-        val change = if (priceDecimal != null && prevClose != null) {
-            (priceDecimal - prevClose).toPlainString()
-        } else {
-            "0"
-        }
-        val changeRate = if (priceDecimal != null && prevClose != null && prevClose != BigDecimal.ZERO) {
-            (priceDecimal - prevClose).divide(prevClose, 4, RoundingMode.HALF_UP)
-                .multiply(BigDecimal("100"))
-                .setScale(2, RoundingMode.HALF_UP)
-                .toPlainString()
-        } else {
-            "0.00"
-        }
+        val change =
+            if (priceDecimal != null && prevClose != null) {
+                (priceDecimal - prevClose).toPlainString()
+            } else {
+                "0"
+            }
+        val changeRate =
+            if (priceDecimal != null && prevClose != null && prevClose != BigDecimal.ZERO) {
+                (priceDecimal - prevClose)
+                    .divide(prevClose, 4, RoundingMode.HALF_UP)
+                    .multiply(BigDecimal("100"))
+                    .setScale(2, RoundingMode.HALF_UP)
+                    .toPlainString()
+            } else {
+                "0.00"
+            }
 
         val stale = staleFromCache || (currentPrice == null)
 
@@ -140,18 +147,20 @@ class SymbolMetaService(
             pbr = resolvedMetrics?.pbr?.toPlainString(),
             eps = resolvedMetrics?.eps?.toPlainString(),
             bps = resolvedMetrics?.bps?.toPlainString(),
-            asOf = quoteTs ?: java.time.Instant.now().toString(),
+            asOf =
+                quoteTs ?: java.time.Instant
+                    .now()
+                    .toString(),
             source = source,
             stale = stale,
         )
     }
 
-    fun currentUserId(): String? {
-        return try {
+    fun currentUserId(): String? =
+        try {
             userAccountJpaRepository.findAll().firstOrNull()?.userId
         } catch (e: Exception) {
             log.warn("userId 조회 실패: {}", e.message)
             null
         }
-    }
 }
