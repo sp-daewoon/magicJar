@@ -27,9 +27,10 @@ class OrderbookSubscriptionRouter(
     private val lock = ReentrantLock()
 
     // LRU Map: code → lastAccessMs (insertion-order LinkedHashMap)
-    private val lruMap: LinkedHashMap<String, Long> = object : LinkedHashMap<String, Long>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?): Boolean = false
-    }
+    private val lruMap: LinkedHashMap<String, Long> =
+        object : LinkedHashMap<String, Long>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?): Boolean = false
+        }
 
     // 200ms debounce: code → pendingUntilMs
     private val pendingDebounce: MutableMap<String, Long> = mutableMapOf()
@@ -106,9 +107,10 @@ class OrderbookSubscriptionRouter(
     fun evictIdleSubscriptions() {
         val now = System.currentTimeMillis()
         lock.withLock {
-            val idleCodes = lruMap.entries
-                .filter { (_, lastAccessMs) -> (now - lastAccessMs) > idleTimeoutMs }
-                .map { it.key }
+            val idleCodes =
+                lruMap.entries
+                    .filter { (_, lastAccessMs) -> (now - lastAccessMs) > idleTimeoutMs }
+                    .map { it.key }
 
             if (idleCodes.isNotEmpty()) {
                 idleCodes.forEach { code ->

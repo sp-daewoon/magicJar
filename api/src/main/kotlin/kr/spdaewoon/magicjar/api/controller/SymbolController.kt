@@ -14,12 +14,12 @@ import kr.spdaewoon.magicjar.api.service.SymbolMetaService
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.kafka.core.KafkaTemplate
+import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
-import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.server.ResponseStatusException
 import java.time.Instant
 
@@ -179,19 +179,21 @@ class SymbolController(
         code: String,
         action: String,
     ) {
-        val userId = try {
-            userAccountJpaRepository.findAll().firstOrNull()?.userId ?: "unknown"
-        } catch (e: Exception) {
-            "unknown"
-        }
-        val payload = objectMapper.writeValueAsString(
-            mapOf(
-                "action" to action,
-                "code" to code,
-                "userId" to userId,
-                "ts" to Instant.now().toString(),
-            ),
-        )
+        val userId =
+            try {
+                userAccountJpaRepository.findAll().firstOrNull()?.userId ?: "unknown"
+            } catch (e: Exception) {
+                "unknown"
+            }
+        val payload =
+            objectMapper.writeValueAsString(
+                mapOf(
+                    "action" to action,
+                    "code" to code,
+                    "userId" to userId,
+                    "ts" to Instant.now().toString(),
+                ),
+            )
         kafkaTemplate.send("symbol.detail.command.v1", code, payload)
         log.info("symbol.detail.command 발행: action={} code={}", action, code)
     }

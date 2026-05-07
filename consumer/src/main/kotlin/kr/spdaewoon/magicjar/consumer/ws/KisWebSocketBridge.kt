@@ -267,14 +267,15 @@ class KisWebSocketBridge(
         log.debug("KIS WS orderbook: code={} bids={} asks={}", snapshot.code, snapshot.bids.size, snapshot.asks.size)
         // Kafka market.orderbook.v1 publish
         try {
-            val payload = objectMapper.writeValueAsString(
-                mapOf(
-                    "code" to snapshot.code,
-                    "ts" to snapshot.ts.toString(),
-                    "bids" to snapshot.bids.map { mapOf("price" to it.price.toPlainString(), "quantity" to it.quantity) },
-                    "asks" to snapshot.asks.map { mapOf("price" to it.price.toPlainString(), "quantity" to it.quantity) },
-                ),
-            )
+            val payload =
+                objectMapper.writeValueAsString(
+                    mapOf(
+                        "code" to snapshot.code,
+                        "ts" to snapshot.ts.toString(),
+                        "bids" to snapshot.bids.map { mapOf("price" to it.price.toPlainString(), "quantity" to it.quantity) },
+                        "asks" to snapshot.asks.map { mapOf("price" to it.price.toPlainString(), "quantity" to it.quantity) },
+                    ),
+                )
             kafkaTemplate.send("market.orderbook.v1", snapshot.code, payload)
         } catch (e: Exception) {
             log.error("KIS WS orderbook Kafka publish 실패: code={} error={}", snapshot.code, e.message)

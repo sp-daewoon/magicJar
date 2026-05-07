@@ -37,13 +37,14 @@ class CandleQueryService(
     val maxLimit = 500
 
     // interval → DB candle interval code 매핑
-    private val intervalCodeMap = mapOf(
-        "1m" to "1m",
-        "5m" to "5m",
-        "30m" to "30m",
-        "1h" to "1h",
-        "1d" to "1d",
-    )
+    private val intervalCodeMap =
+        mapOf(
+            "1m" to "1m",
+            "5m" to "5m",
+            "30m" to "30m",
+            "1h" to "1h",
+            "1d" to "1d",
+        )
 
     fun getCandles(
         code: String,
@@ -56,54 +57,70 @@ class CandleQueryService(
         val dbInterval = intervalCodeMap[effectiveInterval] ?: effectiveInterval
 
         // DB 조회
-        val beforeInstant = if (before != null) {
-            try {
-                Instant.parse(before)
-            } catch (e: Exception) {
-                log.warn("before 파싱 실패: before={} — 최신 기준 사용", before)
+        val beforeInstant =
+            if (before != null) {
+                try {
+                    Instant.parse(before)
+                } catch (e: Exception) {
+                    log.warn("before 파싱 실패: before={} — 최신 기준 사용", before)
+                    null
+                }
+            } else {
                 null
             }
-        } else null
 
         val pageable = PageRequest.of(0, effectiveLimit)
 
-        val dbRows = if (beforeInstant != null) {
-            candleJpaRepository.findByCodeAndIntervalAndTsBefore(code, dbInterval, beforeInstant, pageable)
-        } else {
-            candleJpaRepository.findByCodeAndIntervalLatest(code, dbInterval, pageable)
-        }
+        val dbRows =
+            if (beforeInstant != null) {
+                candleJpaRepository.findByCodeAndIntervalAndTsBefore(code, dbInterval, beforeInstant, pageable)
+            } else {
+                candleJpaRepository.findByCodeAndIntervalLatest(code, dbInterval, pageable)
+            }
 
         // DB rows → CandleDto 변환 (DESC → ASC 변환)
-        val candleDtos = dbRows
-            .sortedBy { it.ts }
-            .map { entity ->
-                CandleDto(
-                    ts = entity.ts.toString(),
-                    open = (entity.openRaw ?: entity.openAdj)?.toPlainString() ?: "0",
-                    high = (entity.highRaw ?: entity.highAdj)?.toPlainString() ?: "0",
-                    low = (entity.lowRaw ?: entity.lowAdj)?.toPlainString() ?: "0",
-                    close = (entity.closeRaw ?: entity.closeAdj)?.toPlainString() ?: "0",
-                    volume = entity.volume ?: 0L,
-                )
-            }.toMutableList()
+        val candleDtos =
+            dbRows
+                .sortedBy { it.ts }
+                .map { entity ->
+                    CandleDto(
+                        ts = entity.ts.toString(),
+                        open = (entity.openRaw ?: entity.openAdj)?.toPlainString() ?: "0",
+                        high = (entity.highRaw ?: entity.highAdj)?.toPlainString() ?: "0",
+                        low = (entity.lowRaw ?: entity.lowAdj)?.toPlainString() ?: "0",
+                        close = (entity.closeRaw ?: entity.closeAdj)?.toPlainString() ?: "0",
+                        volume = entity.volume ?: 0L,
+                    )
+                }.toMutableList()
 
         // Redis current/today 합류 (장중 마지막 미확정 bar)
-        val redisCandle = when (effectiveInterval) {
-            "1m" -> readRedisCandleHash("candle:current:$code:1m")
-            "1d" -> readRedisCandleHash("candle:today:$code:1d")
-            else -> null
-        }
+        val redisCandle =
+            when (effectiveInterval) {
+                "1m" -> readRedisCandleHash("candle:current:$code:1m")
+                "1d" -> readRedisCandleHash("candle:today:$code:1d")
+                else -> null
+            }
 
         if (redisCandle != null && beforeInstant == null) {
             // before 없는 최신 요청일 때만 합류 (페이지네이션 시 제외)
             val redisTs = redisCandle["startTs"] ?: redisCandle["ts"]
             if (redisTs != null) {
                 // DB 마지막 candle과 중복 방지 (같은 ts이면 replace)
-                val redisInstant = try { Instant.parse(redisTs) } catch (_: Exception) { null }
-                if (redisInstant != null) {
-                    val lastDbTs = candleDtos.lastOrNull()?.ts?.let {
-                        try { Instant.parse(it) } catch (_: Exception) { null }
+                val redisInstant =
+                    try {
+                        Instant.parse(redisTs)
+                    } catch (_: Exception) {
+                        null
                     }
+                if (redisInstant != null) {
+                    val lastDbTs =
+                        candleDtos.lastOrNull()?.ts?.let {
+                            try {
+                                Instant.parse(it)
+                            } catch (_: Exception) {
+                                null
+                            }
+                        }
                     if (lastDbTs == null || redisInstant > lastDbTs) {
                         candleDtos.add(
                             CandleDto(
@@ -132,13 +149,12 @@ class CandleQueryService(
         )
     }
 
-    private fun readRedisCandleHash(key: String): Map<String, String>? {
-        return try {
+    private fun readRedisCandleHash(key: String): Map<String, String>? =
+        try {
             val entries = redisTemplate.opsForHash<String, String>().entries(key)
             if (entries.isEmpty()) null else entries
         } catch (e: Exception) {
             log.debug("Redis candle hash 조회 실패: key={} err={}", key, e.message)
             null
         }
-    }
 }

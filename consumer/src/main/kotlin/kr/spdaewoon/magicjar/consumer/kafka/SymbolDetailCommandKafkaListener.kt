@@ -41,8 +41,16 @@ class SymbolDetailCommandKafkaListener(
         try {
             @Suppress("UNCHECKED_CAST")
             val payload = objectMapper.readValue(record.value(), Map::class.java) as Map<String, Any?>
-            val action = payload["action"]?.toString() ?: return also { ack.acknowledge() }
-            val code = payload["code"]?.toString() ?: return also { ack.acknowledge() }
+            val action =
+                payload["action"]?.toString() ?: run {
+                    ack.acknowledge()
+                    return
+                }
+            val code =
+                payload["code"]?.toString() ?: run {
+                    ack.acknowledge()
+                    return
+                }
 
             log.info("symbol.detail.command 수신: action={} code={}", action, code)
 
