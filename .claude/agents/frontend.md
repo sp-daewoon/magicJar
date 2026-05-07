@@ -52,3 +52,15 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 - **strategy-engine**: 백테스트 결과 JSON 스키마 공유 → 차트·표 렌더링
 - **ai-engineer**: AI 응답 포맷(설명 길이, 감성 라벨) 합의
 - **qa**: 각 화면별 수동 테스트 시나리오 제공
+
+## CHANGELOG 작성 룰 (ADR 0050)
+
+PR 작업 시 `CHANGELOG.md`에 다음 절차로 변경 이력을 기록한다:
+
+1. **architect spec/plan PR이 본인용 슬롯 row를 미리 발행했다면** (`(작성: frontend)` 마커 row 존재) — 그 row를 **in-place edit**으로 `TBD` 자리표시자만 실제 한 줄 사유로 교체. **다른 row는 절대 수정 금지** (영역 침범).
+2. **슬롯 row가 없으면** (architect 미개입 사이클 — hotfix·결함 정정·작은 묶음) — `CHANGELOG.md` 표 끝에 **add-only insert**. 두 번째 머지자가 push 시 git rebase 충돌 발생하면 본인이 자체 해결 (상대 row + 본인 row 모두 보존).
+3. 슬롯 row와 다른 산출물(예: 추가 변경 1건 더)을 만들면 별도 정정 commit으로 row 보강.
+
+## CI/CD 인지 (ADR 0049)
+
+frontend 변경 push 시 `.husky/pre-push`가 자동으로 `pnpm install --frozen-lockfile + pnpm typecheck + pnpm build` 실행. PR/main push 트리거 GitHub Actions는 **없음** — release/v* 또는 v*.*.* 태그 push 시점에만 release.yml이 발동.

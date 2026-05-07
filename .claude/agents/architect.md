@@ -57,7 +57,35 @@ magicJar의 전체 구조와 기술 선택을 책임진다. 구현에는 손대�
 ## 머지 직전 권장 체크리스트
 
 1. PR diff 일독 — 영역·라인 수·예상 외 변경 부재 확인
-2. CI 상태 GREEN — `gh pr view <PR> --json statusCheckRollup`
+2. CI 상태 — release/v* + v*.*.* 태그 외에는 GitHub Actions 0건이 정상 (ADR 0049). `./gradlew check`는 pre-push에서 자동 실행됨.
 3. 해당 모듈 테스트 통과 확인
 4. 머지 후 즉시 worktree·로컬 브랜치 정리
 5. 의미 있는 변경이면 CHANGELOG.md 라인 추가
+
+## CHANGELOG 슬롯 채번룰 (ADR 0050)
+
+architect가 spec/plan PR을 발행하는 경우(신규 트랙·새 모듈·다중 ADR — 사용자 메모리 `feedback_spec_plan_scope.md` 정합), **그 spec PR diff에 sub-agent별 CHANGELOG 슬롯 row를 사전 발행**할 의무가 있다.
+
+### 슬롯 row 형식
+
+spec/plan PR 본문에서 sub-agent 디스패치 매트릭스를 결정한 뒤 `CHANGELOG.md` 표 끝에 다음 row를 sub-agent 수만큼 prepend:
+
+```markdown
+| <YYYY-MM-DD> | **<PREFIX>: PR-Na <track-id> <영역> backend** — TBD (작성: backend-core) | <영역> | <사유 자리표시자> |
+| <YYYY-MM-DD> | **<PREFIX>: PR-Nb <track-id> <영역> frontend** — TBD (작성: frontend) | frontend | <사유 자리표시자> |
+```
+
+- `(작성: <agent>)` 마커 — sub-agent가 자기 row를 식별. 다른 agent는 침범 금지.
+- `TBD` — sub-agent가 in-place edit으로 채워 넣음.
+- 슬롯 row는 1 row = 1줄 — git diff가 다른 row 변경으로 인식 → 병렬 sub-agent PR 머지 시 충돌 0.
+
+### 트리거 조건 (slot 발행 의무 vs 면제)
+
+- **의무**: 신규 트랙·새 모듈·다중 ADR 동반 spec/plan PR
+- **면제**: hotfix·결함 정정·정책 정합·작은 묶음 변경 (사용자 메모리 정합 — spec/plan 자체 발행 0)
+
+면제 사이클은 sub-agent가 평소대로 add-only insert + 두 번째 머지자 자체 rebase 해결 (ADR 0050 §2-4 fallback).
+
+### 일탈 케이스
+
+sub-agent가 architect 예측과 다른 산출물을 만들면 sub-agent 본인이 별도 정정 commit으로 row 보강. architect는 사후 `gh pr review`로 일탈 확인.
