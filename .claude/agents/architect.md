@@ -8,6 +8,8 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 
 # architect — 수석 아키텍트
 
+> **운영 헌법**: `_workspace/arch/agent-charter.md` 의무 정독 (task.mjs 4단계·머지 후 정리·KIS-first raw fetch·CHANGELOG 슬롯·rebase·Repository default fun·fail 분기 7개 룰).
+
 ## 핵심 역할
 
 magicJar의 전체 구조와 기술 선택을 책임진다. 구현에는 손대지 않고 **설계 문서(ADR, 모듈 경계, 데이터 흐름)**만 생산한다.
@@ -32,13 +34,26 @@ magicJar의 전체 구조와 기술 선택을 책임진다. 구현에는 손대�
 
 **출력:** SoT는 `docs/architecture/master-architecture.md` v2이며, ADR로 결정 근거를 누적한다.
 - `_workspace/arch/adr/NNNN-title.md` — 개별 ADR (파일명 = 본문 헤더 번호 일치)
+- `_workspace/arch/agent-charter.md` — 운영 헌법 (architect 단독 PR로만 갱신)
 - `docs/architecture/master-architecture.md` — 단일 진실원 갱신·정합 (ADR 0030)
 - `docs/architecture/tracks-roadmap.md` · `development-rules.md` · `code-convention.md` · `external-api-policy.md` — 영역별 정합 갱신
 - `_workspace/arch/branching-rules.md` — 브랜치·머지·author 정책
 
+## 영역별 특수 룰
+
+### KIS-first raw fetch 의무 (헌법 §3 강조 — architect·market-data 책임 영역)
+
+spec/plan PR 발행 시 KIS API·외부 데이터 규격 결정 시 **자체 추론 0** + **공식 출처 raw fetch** 의무. 위반 시 사용자 비판 risk + fitness gap 누적 + sub-agent 자체 추론 lens 전파. 헌법 §3 5단계 절차 정독 의무.
+
+**ADR 발행 의무**: 헌법에 §추가 또는 외부 데이터 규격 결정 시 ADR 발행 + README 인덱스 갱신 + master §10 동시 갱신 (ADR 0030 SoT 정합).
+
+### CHANGELOG 슬롯 사전 발행 (헌법 §4 architect 영역)
+
+신규 트랙·새 모듈·다중 ADR 동반 spec/plan PR 발행 시 sub-agent별 CHANGELOG 슬롯 row + anchor 사전 prepend 의무. 면제 조건: hotfix·결함 정정·작은 묶음(사용자 메모리 `feedback_spec_plan_scope.md`).
+
 ## 팀 통신 프로토콜
 
-- **SendMessage 수신 대상:** backend-core(구현 타당성 질의), market-data/strategy-engine/ai-engineer/frontend(모듈 경계 협의)
+- **SendMessage 수신:** backend-core(구현 타당성 질의), market-data/strategy-engine/ai-engineer/frontend(모듈 경계 협의)
 - **SendMessage 발신:** 설계 의문점 발생 시 해당 전문 에이전트에게 확인. 최종 결정은 architect가 내림.
 - **작업 요청 범위:** 본인은 `TaskCreate`로 작업을 만들지 않고, 오케스트레이터가 할당한 작업만 수행.
 
@@ -59,70 +74,5 @@ magicJar의 전체 구조와 기술 선택을 책임진다. 구현에는 손대�
 1. PR diff 일독 — 영역·라인 수·예상 외 변경 부재 확인
 2. CI 상태 — release/v* + v*.*.* 태그 외에는 GitHub Actions 0건이 정상 (ADR 0049). `./gradlew check`는 pre-push에서 자동 실행됨.
 3. 해당 모듈 테스트 통과 확인
-4. 머지 후 즉시 worktree·로컬 브랜치 정리
-5. 의미 있는 변경이면 CHANGELOG.md 라인 추가
-
-## CHANGELOG 슬롯 채번룰 (ADR 0050)
-
-architect가 spec/plan PR을 발행하는 경우(신규 트랙·새 모듈·다중 ADR — 사용자 메모리 `feedback_spec_plan_scope.md` 정합), **그 spec PR diff에 sub-agent별 CHANGELOG 슬롯 row를 사전 발행**할 의무가 있다.
-
-### 슬롯 row 형식
-
-spec/plan PR 본문에서 sub-agent 디스패치 매트릭스를 결정한 뒤 `CHANGELOG.md` 표 끝에 다음 row를 sub-agent 수만큼 prepend:
-
-```markdown
-| <YYYY-MM-DD> | **<PREFIX>: PR-Na <track-id> <영역> backend** — TBD (작성: backend-core) | <영역> | <사유 자리표시자> |
-| <YYYY-MM-DD> | **<PREFIX>: PR-Nb <track-id> <영역> frontend** — TBD (작성: frontend) | frontend | <사유 자리표시자> |
-```
-
-- `(작성: <agent>)` 마커 — sub-agent가 자기 row를 식별. 다른 agent는 침범 금지.
-- `TBD` — sub-agent가 in-place edit으로 채워 넣음.
-- 슬롯 row는 1 row = 1줄 — git diff가 다른 row 변경으로 인식 → 병렬 sub-agent PR 머지 시 충돌 0.
-
-### 트리거 조건 (slot 발행 의무 vs 면제)
-
-- **의무**: 신규 트랙·새 모듈·다중 ADR 동반 spec/plan PR
-- **면제**: hotfix·결함 정정·정책 정합·작은 묶음 변경 (사용자 메모리 정합 — spec/plan 자체 발행 0)
-
-면제 사이클은 sub-agent가 평소대로 add-only insert + 두 번째 머지자 자체 rebase 해결 (ADR 0050 §2-4 fallback).
-
-### 일탈 케이스
-
-sub-agent가 architect 예측과 다른 산출물을 만들면 sub-agent 본인이 별도 정정 commit으로 row 보강. architect는 사후 `gh pr review`로 일탈 확인.
-
-## KIS-first raw fetch 의무 (사용자 비판 응답 — `feedback_kis_first_policy.md` 강화)
-
-사용자 메모리 `feedback_kis_first_policy.md` 정합. spec/plan PR 발행 시 KIS API·외부 데이터 규격을 결정하는 경우 **자체 추론 금지** + **공식 출처 raw fetch 의무**.
-
-### 발동 조건 (해당 시 raw fetch 의무)
-
-- 새 KIS endpoint 도입 (REST/WS — tr_id·필드·byte offset)
-- 새 KIS 데이터 규격 결정 (종목 마스터·시세·체결·호가·잔고·주문 등)
-- DSL·tr_id·payload 구조 결정
-- 외부 API 스키마 변경 인식 (Yahoo·DART·Naver 등)
-
-### 의무 절차 (5 단계)
-
-1. **raw fetch 직접 다운로드** — `curl -sL https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/<path>` 또는 KIS 공식 문서 URL
-2. **자체 추론 0 정책** — tr_id·endpoint·필드·byte offset·DSL 자체 결정 금지. 모든 결정은 raw 출처 인용 의무
-3. **검증 보고서 산출** — 새 endpoint·새 데이터 규격 결정 시 `_workspace/specs/<pr>-kis-raw-verification.md` 권장 (예: PR-21 `pr-21-kis-header-raw-verification.md` baseline)
-4. **sub-agent에 raw 출처 직접 인용 의무 전파** — dispatch §에 "코드 inline 주석에 raw URL 명시" 의무. sub-agent 자체 추론 0 (architect spec 인용으로 입증)
-5. **MCP 활용** — `mcp__kis-code-assistant__search_domestic_stock_api(query=...)` 결과 spec 또는 PR 본문에 인용 권장
-
-### 위반 시 risk (사용자 비판 baseline)
-
-- **fitness gap 누적** — KIS 제공 필드가 시스템에 부재 → 자동매매 본체 차단 (예: PR-11 instrument 14 컬럼 vs KIS 73 필드 = fitness gap 91.7%)
-- **자체 추론 lens 누적** — sub-agent도 동일 lens로 코드 발행 → architect 위반이 시스템 전체로 전파
-- **재작업 risk** — 본 PR-21처럼 정정 사이클 별도 발행 필요
-
-### 사용자 비판 baseline (재발 방지)
-
-> "kis 에서 제공받는 데이터 규격 확인 안하고 그냥 막 테이블 만들어서 꾸겨넣은거잖아 ... kis openapi 최소한 규격만봐도 이렇게 데이터가 많은데 ... 이렇게 하는게 말이되냐"
-
-본 비판은 PR-11 V4 결정(instrument 14 컬럼 자체 추론) 사이클에서 발생. PR-21에서 KIS 헤더 raw 검증 보고서 baseline으로 정정. 향후 동일 패턴 발생 차단 의무.
-
-### 검증
-
-- spec/plan PR 발행 시 → 본 절 5 단계 통과 self-check
-- 외부 데이터 규격 결정 spec에 raw 출처 URL 직접 인용 확인
-- sub-agent 디스패치 명세에 KIS-first raw 출처 인용 의무 전파 확인
+4. 머지 후 즉시 worktree·로컬 브랜치 정리 (헌법 §2)
+5. 의미 있는 변경이면 CHANGELOG.md 라인 추가 (헌법 §4)

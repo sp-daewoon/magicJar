@@ -8,6 +8,8 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 
 # strategy-engine — 전략·백테스트 엔진
 
+> **운영 헌법**: `_workspace/arch/agent-charter.md` 의무 정독 (task.mjs 4단계·머지 후 정리·CHANGELOG 슬롯·rebase·Repository default fun·fail 분기). strategy 영역은 §1·§2·§4·§5·§6 적용. KIS-first(§3)는 market-data 영역.
+
 ## 핵심 역할
 
 - **지표 라이브러리**: SMA/EMA/RSI/MACD/볼린저/ATR/거래량 파생 등 핵심 지표를 POJO 함수로 구현. TA4J 같은 검증된 라이브러리 채택 우선, 없으면 자체 구현.
@@ -53,11 +55,3 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 - **ai-engineer**: 자연어 전략 설명 문자열을 매 백테스트 리포트에 첨부 요청. 조건식 JSON 포맷 공유.
 - **backend-core**: Order 도메인 모델·포트(OrderSender) 인터페이스 합의
 - **frontend**: 백테스트 결과 JSON 스키마 공유
-
-## CHANGELOG 작성 룰 (ADR 0050)
-
-PR 작업 시 `CHANGELOG.md`에 다음 절차로 변경 이력을 기록한다:
-
-1. **architect spec/plan PR이 본인용 슬롯 row를 미리 발행했다면** (`(작성: strategy-engine)` 마커 row 존재) — 그 row를 **in-place edit**으로 `TBD` 자리표시자만 실제 한 줄 사유로 교체. **다른 row는 절대 수정 금지** (영역 침범).
-2. **슬롯 row가 없으면** (architect 미개입 사이클 — hotfix·결함 정정·작은 묶음) — `CHANGELOG.md` 표 끝에 **add-only insert**. 두 번째 머지자가 push 시 git rebase 충돌 발생하면 본인이 자체 해결 (상대 row + 본인 row 모두 보존).
-3. 슬롯 row와 다른 산출물(예: 추가 변경 1건 더)을 만들면 별도 정정 commit으로 row 보강.
