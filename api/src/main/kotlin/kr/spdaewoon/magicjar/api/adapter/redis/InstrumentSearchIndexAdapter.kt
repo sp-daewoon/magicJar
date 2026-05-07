@@ -65,23 +65,37 @@ class InstrumentSearchIndexAdapter(
             // 이름 2자 prefix 버킷
             if (nameNorm.length >= 2) {
                 val prefixKey = nameNorm.take(2)
-                prefixBuckets.getOrPut(prefixKey) { mutableSetOf() }
-                    .add(org.springframework.data.redis.core.DefaultTypedTuple(member, 0.0))
+                prefixBuckets
+                    .getOrPut(prefixKey) { mutableSetOf() }
+                    .add(
+                        org.springframework.data.redis.core
+                            .DefaultTypedTuple(member, 0.0),
+                    )
             } else if (nameNorm.length == 1) {
                 val prefixKey = nameNorm
-                prefixBuckets.getOrPut(prefixKey) { mutableSetOf() }
-                    .add(org.springframework.data.redis.core.DefaultTypedTuple(member, 0.0))
+                prefixBuckets
+                    .getOrPut(prefixKey) { mutableSetOf() }
+                    .add(
+                        org.springframework.data.redis.core
+                            .DefaultTypedTuple(member, 0.0),
+                    )
             }
 
             // code 2자 prefix 버킷 (코드 검색용)
             if (instrument.code.length >= 2) {
                 val codePrefixKey = "code:${instrument.code.take(2)}"
-                prefixBuckets.getOrPut(codePrefixKey) { mutableSetOf() }
-                    .add(org.springframework.data.redis.core.DefaultTypedTuple(member, 0.0))
+                prefixBuckets
+                    .getOrPut(codePrefixKey) { mutableSetOf() }
+                    .add(
+                        org.springframework.data.redis.core
+                            .DefaultTypedTuple(member, 0.0),
+                    )
             }
 
             // by-code JSON 캐시
-            val json = """{"code":"${instrument.code}","name":"${escapeJson(instrument.name)}","market":"${instrument.market.name}","sector":"${instrument.sector ?: ""}","active":${instrument.active}}"""
+            val json = """{"code":"${instrument.code}","name":"${escapeJson(
+                instrument.name,
+            )}","market":"${instrument.market.name}","sector":"${instrument.sector ?: ""}","active":${instrument.active}}"""
             valueOps.set("$BY_CODE_KEY_PREFIX${instrument.code}", json, SEARCH_KEY_TTL)
         }
 
@@ -141,24 +155,26 @@ class InstrumentSearchIndexAdapter(
 
         // 1. 이름 prefix 버킷 검색
         val nameKey = "$SEARCH_KEY_PREFIX$prefix"
-        val codeKey = "$SEARCH_KEY_PREFIX" + "code:${
-            if (query.length >= 2) {
-                query.take(2)
-            } else {
-                query
-            }
-        }"
+        val codeKey =
+            "$SEARCH_KEY_PREFIX" + "code:${
+                if (query.length >= 2) {
+                    query.take(2)
+                } else {
+                    query
+                }
+            }"
 
         val candidates = mutableListOf<Pair<String, Double>>() // code, score
 
         // ZRANGEBYLEX: "[{normalizedQuery} ~ "[{normalizedQuery}￿"
-        val nameMembers = zSetOps.rangeByLex(
-            nameKey,
-            org.springframework.data.redis.connection.RedisZSetCommands.Range
-                .range()
-                .gte("[$normalizedQuery")
-                .lte("[$normalizedQuery￿"),
-        ) ?: emptySet()
+        val nameMembers =
+            zSetOps.rangeByLex(
+                nameKey,
+                org.springframework.data.redis.connection.RedisZSetCommands.Range
+                    .range()
+                    .gte("[$normalizedQuery")
+                    .lte("[$normalizedQuery￿"),
+            ) ?: emptySet()
 
         nameMembers.forEach { member ->
             val parts = member.split("\t")
@@ -177,13 +193,14 @@ class InstrumentSearchIndexAdapter(
         }
 
         // code prefix 버킷도 검색
-        val codeMembers = zSetOps.rangeByLex(
-            codeKey,
-            org.springframework.data.redis.connection.RedisZSetCommands.Range
-                .range()
-                .gte("[${query.lowercase()}")
-                .lte("[${query.lowercase()}￿"),
-        ) ?: emptySet()
+        val codeMembers =
+            zSetOps.rangeByLex(
+                codeKey,
+                org.springframework.data.redis.connection.RedisZSetCommands.Range
+                    .range()
+                    .gte("[${query.lowercase()}")
+                    .lte("[${query.lowercase()}￿"),
+            ) ?: emptySet()
 
         codeMembers.forEach { member ->
             val parts = member.split("\t")
@@ -216,8 +233,7 @@ class InstrumentSearchIndexAdapter(
     // ── private helpers ─────────────────────────────────────────────────
 
     /** 종목명 정규화: 공백·점·괄호 제거 + lowercase. design §6-5. */
-    private fun normalizeForIndex(name: String): String =
-        name.replace(Regex("[\\s.·()（）]"), "").lowercase()
+    private fun normalizeForIndex(name: String): String = name.replace(Regex("[\\s.·()（）]"), "").lowercase()
 
     /** JSON 이스케이프 (단순 구현 — 큰따옴표만). */
     private fun escapeJson(s: String): String = s.replace("\"", "\\\"")
@@ -231,7 +247,12 @@ class InstrumentSearchIndexAdapter(
             val code = Regex(""""code"\s*:\s*"([^"]+)"""").find(json)?.groupValues?.get(1) ?: return null
             val name = Regex(""""name"\s*:\s*"([^"]+)"""").find(json)?.groupValues?.get(1) ?: return null
             val marketStr = Regex(""""market"\s*:\s*"([^"]+)"""").find(json)?.groupValues?.get(1) ?: return null
-            val sector = Regex(""""sector"\s*:\s*"([^"]*)"""").find(json)?.groupValues?.get(1)?.takeIf { it.isNotEmpty() }
+            val sector =
+                Regex(""""sector"\s*:\s*"([^"]*)"""")
+                    .find(json)
+                    ?.groupValues
+                    ?.get(1)
+                    ?.takeIf { it.isNotEmpty() }
             val market = runCatching { InstrumentMarket.valueOf(marketStr) }.getOrElse { return null }
             InstrumentSearchResult(code = code, name = name, market = market, sector = sector, score = score)
         }.getOrNull()

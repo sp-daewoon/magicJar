@@ -105,8 +105,7 @@ class InstrumentSearchService(
     // ── private helpers ─────────────────────────────────────────────────
 
     /** 쿼리 정규화: 공백·점·괄호 제거 + lowercase. design §6-5. */
-    private fun normalizeQuery(query: String): String =
-        query.trim().replace(Regex("[\\s.·()（）]"), "").lowercase()
+    private fun normalizeQuery(query: String): String = query.trim().replace(Regex("[\\s.·()（）]"), "").lowercase()
 
     /**
      * 간단한 timeout wrapper (Java Future 없이 직접 구현).
