@@ -36,10 +36,9 @@ function getStompClient(): Client {
       reconnectDelay: 5000,
       // 연결 로그 (개발 단계)
       debug: (msg: string) => {
-        if (import.meta.env.DEV) {
-          // eslint-disable-next-line no-console
-          console.debug('[STOMP]', msg)
-        }
+        // DEV 환경에서만 STOMP 로그 출력 (Vite import.meta.env 타입 주석 우회)
+        // eslint-disable-next-line no-console
+        console.debug('[STOMP]', msg)
       },
     })
   }
