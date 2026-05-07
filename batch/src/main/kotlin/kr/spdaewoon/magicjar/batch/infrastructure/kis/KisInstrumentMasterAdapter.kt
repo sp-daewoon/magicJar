@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.consumer.infrastructure.kis
+package kr.spdaewoon.magicjar.batch.infrastructure.kis
 
 import kotlinx.datetime.LocalDate
 import kr.spdaewoon.magicjar.domain.instrument.Instrument

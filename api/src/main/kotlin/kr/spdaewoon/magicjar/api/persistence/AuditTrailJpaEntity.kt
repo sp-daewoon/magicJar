@@ -6,6 +6,8 @@ import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Table
+import org.hibernate.annotations.JdbcTypeCode
+import org.hibernate.type.SqlTypes
 import java.time.Instant
 
 /**
@@ -27,6 +29,7 @@ class AuditTrailJpaEntity(
     val entityType: String,
     @Column(name = "entity_id", length = 40, nullable = false)
     val entityId: String,
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "detail_json", columnDefinition = "JSONB")
     val detailJson: String? = null,
     @Column(name = "occurred_at", nullable = false)
