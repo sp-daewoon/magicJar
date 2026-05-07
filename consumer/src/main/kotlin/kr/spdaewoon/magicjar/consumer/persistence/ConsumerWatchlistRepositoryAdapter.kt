@@ -1,10 +1,10 @@
 package kr.spdaewoon.magicjar.consumer.persistence
 
+import kotlinx.datetime.toKotlinInstant
 import kr.spdaewoon.magicjar.domain.watchlist.WatchlistEntry
 import kr.spdaewoon.magicjar.domain.watchlist.port.WatchlistRepository
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
-import kotlinx.datetime.toKotlinInstant
 
 /**
  * WatchlistRepository 도메인 포트 구현 — consumer 모듈 (읽기 전용 · 부팅 reconcile 용).
@@ -43,8 +43,7 @@ class ConsumerWatchlistRepositoryAdapter(
      * 모든 사용자 watchlist 목록 (부팅 reconcile용).
      */
     @Transactional(readOnly = true)
-    fun findAll(): List<WatchlistEntry> =
-        repo.findAllByOrderByPriorityAscCreatedAtDesc().map { it.toDomain() }
+    fun findAll(): List<WatchlistEntry> = repo.findAllByOrderByPriorityAscCreatedAtDesc().map { it.toDomain() }
 
     private fun ConsumerWatchlistJpaEntity.toDomain(): WatchlistEntry =
         WatchlistEntry(

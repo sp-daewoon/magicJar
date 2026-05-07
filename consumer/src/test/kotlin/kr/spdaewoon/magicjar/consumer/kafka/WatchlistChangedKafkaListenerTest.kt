@@ -3,14 +3,12 @@ package kr.spdaewoon.magicjar.consumer.kafka
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import io.mockk.every
-import io.mockk.justRun
 import io.mockk.mockk
 import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisQuoteCacheAdapter
 import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisSourceTrackerAdapter
 import kr.spdaewoon.magicjar.consumer.ingestion.ColdStartExecutor
 import kr.spdaewoon.magicjar.consumer.ingestion.SubscriptionRouter
-import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.BeforeEach

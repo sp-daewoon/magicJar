@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.infrastructure.kis
 
+import kotlinx.datetime.TimeZone
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
@@ -16,8 +17,6 @@ import java.time.Duration
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import kotlinx.datetime.Instant as KtInstant
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
 
 /**
  * KIS REST 캔들 조회 어댑터 (ADR 0019 §7-4 — KIS-first 정책 정합).
@@ -159,11 +158,12 @@ class KisRestCandleAdapter(
             val volume = item["acml_vol"]?.toString()?.trim()?.toLongOrNull() ?: 0L
 
             // dateStr = "20240507" → epoch second (KST 00:00:00)
-            val ts = runCatching {
-                val ld = LocalDate.parse(dateStr, DATE_FMT)
-                val epochSecond = ld.atStartOfDay(java.time.ZoneId.of("Asia/Seoul")).toEpochSecond()
-                KtInstant.fromEpochSeconds(epochSecond)
-            }.getOrNull() ?: continue
+            val ts =
+                runCatching {
+                    val ld = LocalDate.parse(dateStr, DATE_FMT)
+                    val epochSecond = ld.atStartOfDay(java.time.ZoneId.of("Asia/Seoul")).toEpochSecond()
+                    KtInstant.fromEpochSeconds(epochSecond)
+                }.getOrNull() ?: continue
 
             candles.add(
                 Candle(
@@ -186,4 +186,13 @@ class KisRestCandleAdapter(
         log.debug("KIS REST candle 파싱: code={} interval={} count={}", code, interval.code, candles.size)
         return candles
     }
+
+    override fun fetchPrice(
+        userId: String,
+        code: String,
+    ): kr.spdaewoon.magicjar.domain.market.tick.TickEvent =
+        throw NotImplementedError(
+            "KisRestCandleAdapter는 fetchPrice 미지원. KisRestPriceAdapter 사용. " +
+                "후속 minor PR에서 KisRestPort 인터페이스 분리 (KisRestCandlePort + KisRestPricePort) 예정.",
+        )
 }
