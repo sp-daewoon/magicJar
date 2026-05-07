@@ -1,0 +1,307 @@
+# magicJar Backlog (미뤄둔 의제)
+
+> **위치**: `_workspace/backlog.md`
+> **관리자**: orchestrator (사이클 시작 시 점검 의무) + architect (사용자 의제 흡수 시 갱신)
+> **형식**: 항목 = 사유 + 트리거 조건 + 보강 안 + 예상 처리 PR 또는 사이클
+> **신설일**: 2026-05-07 (PR-10 사이클 — 사용자 명시 "미뤄두는 의제들 관리해줘")
+
+---
+
+## §1. ADR 0050 슬롯 채번룰 보강 (hunk 분리 + 영역 분배 강화)
+
+### 사유
+
+PR-9 첫 운영에서 한계 노출:
+- (a) git이 hunk-based merge라 인접한 슬롯 row가 같은 hunk로 묶여 CHANGELOG 충돌 1건 발생
+- (b) ADR 0050은 CHANGELOG에만 적용되고 다른 modify-shared 파일은 dispatch §4-1 영역 분배 모호로 add-add 충돌 4건 발생
+
+### 보강 안
+
+1. **CHANGELOG hunk 분리** — 슬롯 row 사이에 anchor line 또는 markdown 안전한 분리 마커 삽입
+   - 본 PR-10에서 HTML 주석 anchor (`<!-- pr-10-slot-{agent} -->`) 첫 시도 — 사용자 검증 후 ADR 0050 본문 정정 여부 결정
+   - 단순 빈 줄은 markdown table 깨짐 risk → 부적합
+2. **dispatch-spec §4-1 작성 의무에 영역 분배 LOCK 항목 추가**:
+   - 양 sub-agent의 add-add 가능 파일 사전 점검 의무 (본 PR-10에서 사전 비교 검증)
+   - consumer 모듈 신규 add 파일은 어느 sub-agent 책임인지 명시 의무
+   - application.yml 보강은 한 sub-agent 단독으로 분배 (양쪽 분배 금지)
+   - domain port 신규는 양 sub-agent의 산출물에 어디 속하는지 명시
+3. **architect SKILL에 영역 침범 점검 의무 명시** — sub-agent에 디스패치 전 architect가 행렬 점검 의무
+
+### 트리거
+
+- **우선순위 ↑**: PR-11 이후에서 또 modify-shared 충돌 또는 add-add 발생 시
+- **우선순위 ↓**: PR-10에서 HTML 주석 anchor 시도가 성공하면 ADR 0050 본문에 anchor 명세 추가만 (기능 안정 시 보강 충분)
+- 안 발생하면 사용자 명시 트리거까지 대기
+
+### 예상 처리 PR
+
+PR-11~12 사이클 또는 사용자 명시 트리거 시 — architect 단독 PR (`docs(adr): ADR 0050 slot anchor 명세 보강`).
+
+---
+
+## §2. KisRestPort 인터페이스 분리 (KisRestCandlePort + KisRestPricePort)
+
+### 사유
+
+PR-9b에서 발견된 결함:
+- `KisRestPort.fetchPrice` 추가 시 `KisRestCandleAdapter`(backend-core 산출, candle만 담당)가 fetchPrice 미구현 컴파일 에러
+- 임시 fix `NotImplementedError throw` 적용 (commit `7adedea`)
+
+### 정정 안
+
+KisRestPort를 다음과 같이 분리:
+- `KisRestCandlePort` — `fetchCandles(code, interval, count)` only
+- `KisRestPricePort` — `fetchPrice(code): TickEvent` only
+- `KisRestPriceMetricsPort` — `fetchPriceMetrics(code): PriceMetrics` only (본 PR-10b 신규 — 기존 KisRestPort에 추가하지 않고 별도 port)
+
+각 어댑터는 자기 port만 implement:
+- `KisRestCandleAdapter` → KisRestCandlePort
+- `KisRestPriceAdapter` → KisRestPricePort + KisRestPriceMetricsPort (1 어댑터 2 port)
+
+### 트리거
+
+- **우선순위 ↑**: KisRestCandleAdapter.fetchPrice 호출 시 NotImplementedError 발생 (현재 임시 fix로 발생 가능성 0이지만 향후 reflection 호출 시 risk)
+- **우선순위 ↓**: 향후 KisRestPort 추가 메서드 도입 시점 (T-O·T-RECON·T-IM1)
+- **본 PR-10에서 부분 정정**: PR-10b가 `KisRestPriceMetricsPort` 별도 port로 신규 (KisRestPort에 추가하지 않음) — 분리 정책 정합
+
+### 예상 처리 PR
+
+T-O 또는 T-RECON 진입 시 — backend-core PR (`refactor(domain): KisRestPort 책임 분리 — KisRestCandlePort + KisRestPricePort`).
+
+---
+
+## §3. CLAUDE.md ADR 인덱스 SoT 갱신
+
+### 사유
+
+root `CLAUDE.md` "단일 진실원" 표 중 다음 라인이 옛 정보:
+- `ADR 인덱스 ... README.md (1~40, 파일명 = 본문 헤더 번호)` — 현재 ADR 50건 발행됨
+
+### 정정 안
+
+다음 중 택1:
+- (A) 정확한 카운트로 갱신 — `(1~50, 파일명 = 본문 헤더 번호)` (단 발행할 때마다 갱신 필요)
+- (B) 카운트 제거 — `(1~N, README가 권위)` (README가 SoT 정합)
+- **architect 권장 = 옵션 B** (자동 갱신 부담 최소)
+
+### 트리거
+
+- 다음 메타 정리 사이클
+- 사용자 의식 시 또는 ADR 50건 초과 시점
+
+### 예상 처리 PR
+
+PR-11 이후 메타 정리 사이클 또는 별도 hotfix PR (architect 단독, ~5분).
+
+---
+
+## §4. worktree-agent-* fallback 브랜치 정리
+
+### 사유
+
+Agent 도구 isolation worktree가 만든 임시 fallback 브랜치 7건 누적:
+- origin push 0이라 `-d` 거부
+- `-D` 강제 삭제는 사용자 정책에서 거부 가능성 (사용자 메모리 `feedback_worktree_cleanup.md` — "머지 후 정리는 그대로 의무")
+
+현재 branch list 예시 (본 PR-10 시작 시):
+- `worktree-agent-a726ac98dd501f34b`
+- `worktree-agent-a6ae1b8738b4ca062`
+- (외 5건 가정)
+
+### 정정 안
+
+다음 중 택1:
+- (A) 누적 더 늘면 한 번에 사용자 직접 승인 후 일괄 정리
+- (B) Agent 도구 자체에 isolation worktree 자동 cleanup 기능 추가 (도구 변경 — 사용자 결정 필요)
+- (C) 정기 cleanup cron (1주 단위) — Husky/CI 외부 작업
+
+**architect 권장 = 옵션 A** (사용자 결정 단순).
+
+### 트리거
+
+- worktree-agent-* 누적 15건 초과
+- 사용자 명시 cleanup 요청
+- 또는 Agent 도구 isolation worktree 정책 재검토 사이클
+
+### 예상 처리 PR
+
+별도 chore PR (architect 또는 사용자 직접 — `chore: worktree-agent-* fallback 브랜치 일괄 cleanup`).
+
+---
+
+## §5. backend-core 영역 침범 패턴 (consumer 모듈에 add-add)
+
+### 사유
+
+PR-7·PR-9에서 backend-core가 consumer 모듈에 ConsumerWatchlistJpa·ConsumerCandleJpa 등 add. dispatch-spec §F의 "consumer 자체 모듈 사본 패턴" 정합으로 명시되긴 했으나, market-data 영역과 add-add 충돌 4건 야기 (PR-9 운영 결과).
+
+### 정정 안
+
+1. **dispatch-spec §4-1 작성 의무에 명시 (본 PR-10에서 적용 — backlog §1과 함께)**:
+   - "consumer 모듈에 새로 add할 entity/repository/adapter는 어느 sub-agent 책임인지 명시"
+   - 양 sub-agent의 add-add 가능 파일 사전 비교 검증
+2. **ADR 신규 발행 (장기)**:
+   - 모듈 영역 매트릭스 정의 — backend-core/market-data/strategy-engine/ai-engineer/frontend가 각 모듈에 add 가능한 디렉토리 명시
+   - 예: backend-core는 consumer 모듈 "persistence·application·service" 디렉토리만, market-data는 consumer 모듈 "ws·infrastructure/kis·market·ingestion" 디렉토리만
+3. **본 PR-10에서 부분 적용**:
+   - dispatch-spec §4-1 영역 분배 LOCK으로 add-add 0% 사전 검증
+   - frontend·market-data 영역이 frontend vs api/consumer/domain로 자연 분리
+
+### 트리거
+
+- **우선순위 ↑**: PR-11 이후 또 영역 침범 add-add 발생 시
+- **우선순위 ↓**: ADR 0050 보강(§1)과 함께 처리 가능
+- 또는 모듈 영역 매트릭스 정의 ADR 발행 결정 시 (예: ADR 0051 후보)
+
+### 예상 처리 PR
+
+backlog §1과 함께 — `docs(adr): ADR 0051 모듈 영역 매트릭스 (sub-agent × 모듈 × 디렉토리)` (architect 단독, ~30분).
+
+---
+
+## §6. 사용자 첫 dogfooding 결과 흡수 (PR-10 머지 후)
+
+### 사유
+
+본 PR-10 머지 후 사용자 첫 dogfooding 직전 — 사용자 메모리 `project_track1_dogfooding_paused.md` 정합. 사용자가 화면에서 발견한 결함은 본 backlog에 흡수 후 다음 사이클 처리 의무.
+
+### 정정 안
+
+dogfooding 결과 발견 결함 분류:
+- (A) **단순 결함 (1줄·1파일)**: 즉시 hotfix PR (frontend 또는 architect 단독)
+- (B) **정책 변경 또는 다중 모듈**: 본 backlog에 항목 추가 + 다음 사이클 architect 디스패치
+- (C) **블로킹 결함 (사용 불가)**: 사용자 → 오케스트라 호출 → architect 즉시 진입 → 새 PR 사이클
+
+### 트리거
+
+- 본 PR-10 머지 후 24시간 이내 사용자 dogfooding 진행
+- 발견 결함은 **본 항목에 sub-section 추가** (dogfooding 시점 갱신)
+
+### 예상 처리 PR
+
+dogfooding 결함 발견 시 즉시 갱신 — 사용자 명시 + orchestrator 다음 사이클 첫 의제로 점검 의무.
+
+### dogfooding 결과 (예약 — 본 PR-10 머지 후 채움)
+
+| 발견 시점 | 결함 항목 | 분류 | 처리 PR |
+|---|---|---|---|
+| TBD | TBD | TBD | TBD |
+
+---
+
+## §7. 후속 트랙 진입 가이드 (W2 시작점 결정)
+
+### 사유
+
+본 PR-10 머지 + dogfooding 통과 후 **W1 종료** — T-W1·T-W2·T-S1 모두 완료. W2 진입 첫 트랙 결정 사용자 의제.
+
+### 후보 트랙 (tracks-roadmap §1)
+
+W2 — 분석 도구 (T-IND·T-PAT·T-DSL·T-SB):
+- **T-IND** (80지표 일괄 + Source 추상화) — XL 분량
+- **T-PAT** (57패턴 인식 + 차트 마커) — M 분량 (T-IND 선행)
+- **T-DSL** (.kis.yaml superset 파서·평가기) — L 분량 (T-IND·T-PAT 선행)
+- **T-SB** (GUI 블록 빌더) — XL 분량 (T-DSL 선행)
+
+W1 보강 후보:
+- **T-MS1** (Market Session FSM + Fallback 3-tier T3 last-day-close) — M 분량 (W1 보강이지만 후속 모든 트랙 선행)
+- **T-IM1** (Instrument Master + 종목 검색·자동완성) — M 분량 (T-CA1·T-IND 선행)
+- **T-CA1** (Corp Action + adjusted) — M 분량 (T-BT 선행)
+
+### 정정 안
+
+**architect 권장 진행 순서** (사용자 결정 필요):
+- (A) T-MS1 + T-IM1 병렬 (W1 보강) → T-CA1 → W2 (안전 — 데이터 정합 우선)
+- (B) T-IND + T-PAT 병렬 (W2 직접 진입) → T-DSL → T-SB (속도 우선)
+- (C) T-MS1만 우선 (last-day-close fallback 의무 — 사용자 dogfooding 결과 정합) → W2 (균형)
+
+**architect 권장 = (C)** — T-MS1만 우선 W1 마무리 + W2 진입.
+
+### 트리거
+
+- 본 PR-10 머지 + dogfooding 결과 + backlog §6 점검 후
+- 사용자 결정 → orchestrator 다음 사이클 첫 의제
+
+### 예상 처리 PR
+
+PR-11 architect 디스패치 — 다음 트랙 spec/plan 발행.
+
+---
+
+## §8. STOMP relay broker 도입 (post-MVP)
+
+### 사유
+
+본 PR-10b는 simple broker (in-process). 사용자 path 분산 시 한도. relay broker(Redis backend)는 multi-tenant 본격 진입 시 필요.
+
+### 정정 안
+
+`@EnableWebSocketMessageBroker` 설정에서 `enableStompBrokerRelay` 사용 + Redis backend.
+
+### 트리거
+
+- multi-tenant 본격 진입 시점
+- 사용자 부담 분산 측정 시 (post-MVP)
+
+### 예상 처리 PR
+
+post-MVP — 별도 트랙 또는 사용자 명시 시.
+
+---
+
+## §9. frontend 모바일 반응형 1차 미지원
+
+### 사유
+
+본 PR-10a는 desktop 우선. 모바일은 stacked layout 1차 OK 정도. 사용자 dogfooding 모바일 시 표시 깨짐 가능.
+
+### 정정 안
+
+`tailwindcss` breakpoint(`md:`·`lg:`) 본격 적용 + 모바일 chart UX 정책.
+
+### 트리거
+
+- 사용자 모바일 dogfooding 시 깨짐 발견
+- T-LWC 진입 시 함께 정합
+
+### 예상 처리 PR
+
+T-LWC 또는 별도 frontend hotfix PR.
+
+---
+
+## §10. AI 에이전트 영역 침범 ADR 누락 (장기)
+
+### 사유
+
+magicJar 7 sub-agent 중 strategy-engine·ai-engineer는 본 PR-10까지 미출연. 출연 시 영역 침범 정책 부재.
+
+### 정정 안
+
+ADR 0036 §2 (orchestrator 룰) 또는 신규 ADR로 sub-agent별 modify 가능 영역 매트릭스 정의.
+
+### 트리거
+
+- W2(T-IND·T-DSL) 진입 시 strategy-engine 첫 출연 → 영역 침범 risk 검증
+- W4(T-AI) 진입 시 ai-engineer 첫 출연
+
+### 예상 처리 PR
+
+W2·W4 진입 시 architect 사전 발행.
+
+---
+
+## §11. 변경 이력
+
+| 날짜 | 변경 | 사유 |
+|------|------|------|
+| 2026-05-07 | 본 backlog 신설 (10건 흡수 — 사용자 명시 5건 + architect 추가 5건) | PR-9 완료 후 사용자 명시 — "미뤄두는 의제들 관리해줘". architect가 5건 추가 (§6 dogfooding 결과·§7 W2 진입·§8 STOMP relay·§9 모바일 반응형·§10 AI 에이전트 영역 침범) |
+
+---
+
+## 운영 메모
+
+- **orchestrator 책임**: 사이클 시작 시 본 backlog 점검 의무 — 우선순위 ↑ 항목 first 처리
+- **사용자 책임**: dogfooding 결과 → §6 sub-section 추가 (또는 orchestrator에 통보)
+- **architect 책임**: ADR 발행 시 본 backlog cross-reference 의무 (예: ADR 0050 보강 시 §1 처리 + 항목 close)
+- **항목 close 정책**: 처리 완료 PR 머지 시 backlog에서 제거 OR `### §X. ✅ 처리 완료` 마킹 + 변경 이력 갱신
