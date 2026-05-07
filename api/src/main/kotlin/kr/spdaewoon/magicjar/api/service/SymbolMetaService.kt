@@ -52,6 +52,15 @@ class SymbolMetaService(
         val instrumentName = instrumentEntity?.name?.takeIf { instrumentEntity.market != "UNKNOWN" }
         val instrumentMarket = instrumentEntity?.market?.takeIf { it != "UNKNOWN" }
         val instrumentSector = instrumentEntity?.sector
+        // PR-21b: 신규 KIS-first 필드 추출 (V5 sync 전: null/false graceful)
+        val instrumentType = instrumentEntity?.type?.takeIf { it != "UNKNOWN" }
+        val instrumentSecuritiesGroup = instrumentEntity?.securitiesGroup
+        val instrumentTradingHalt = instrumentEntity?.tradingHalt ?: false
+        val instrumentManagementStock = instrumentEntity?.managementStock ?: false
+        val instrumentIndustryMedium = instrumentEntity?.industryMedium
+        val instrumentMarketCapPrev = instrumentEntity?.marketCapPrev
+        val instrumentBasePrice = instrumentEntity?.basePrice?.toPlainString()
+        val instrumentPrevVolume = instrumentEntity?.prevVolume
 
         // 1. Redis quote:last:{code} — 현재가
         val quoteJson = redisTemplate.opsForValue().get("quote:last:$code")
@@ -177,6 +186,15 @@ class SymbolMetaService(
                     .toString(),
             source = source,
             stale = stale,
+            // PR-21b: KIS-first instrument 신규 필드 (V5 sync 전: null/false graceful)
+            type = instrumentType,
+            securitiesGroup = instrumentSecuritiesGroup,
+            tradingHalt = instrumentTradingHalt,
+            managementStock = instrumentManagementStock,
+            industryMedium = instrumentIndustryMedium,
+            marketCapPrev = instrumentMarketCapPrev,
+            basePrice = instrumentBasePrice,
+            prevVolume = instrumentPrevVolume,
         )
     }
 

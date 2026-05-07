@@ -87,16 +87,26 @@ class InstrumentController(
             }
         val effectiveLimit = limit.coerceIn(1, 20)
         val results = instrumentSearchService.search(q, effectiveLimit, marketEnum)
+        // PR-21b: 검색 결과에 type·marketCapPrev·tradingHalt 추가 노출 (위험 가드 표시)
+        // instrument entity join: code 목록으로 일괄 조회 후 매핑 (N+1 회피)
+        val entityMap =
+            instrumentJpaRepository
+                .findAllById(results.map { it.code })
+                .associateBy { it.code }
         return InstrumentSearchResponseDto(
             query = q,
             results =
                 results.map {
+                    val entity = entityMap[it.code]
                     InstrumentSearchItemDto(
                         code = it.code,
                         name = it.name,
                         market = it.market.name,
                         sector = it.sector,
                         score = it.score,
+                        type = entity?.type?.takeIf { t -> t != "UNKNOWN" },
+                        marketCapPrev = entity?.marketCapPrev,
+                        tradingHalt = entity?.tradingHalt ?: false,
                     )
                 },
             totalMatched = results.size,
@@ -136,6 +146,7 @@ class InstrumentController(
                 ResponseStatusException(HttpStatus.NOT_FOUND, "종목을 찾을 수 없습니다: $code")
             }
         val aliases = instrumentAliasJpaRepository.findByCode(code)
+        // PR-21b: Tier 1·2·3 핵심 필드 응답 schema 추가 (Tier 4 재무는 T-IND 후속)
         return InstrumentDetailDto(
             code = entity.code,
             isin = entity.isin,
@@ -152,6 +163,50 @@ class InstrumentController(
                 aliases.map {
                     InstrumentAliasDto(alias = it.alias, source = it.source)
                 },
+            securitiesGroup = entity.securitiesGroup,
+            tradingGuards =
+                InstrumentTradingGuardsDto(
+                    tradingHalt = entity.tradingHalt,
+                    liquidation = entity.liquidation,
+                    managementStock = entity.managementStock,
+                    marketAlert = entity.marketAlert,
+                    shortOverheated = entity.shortOverheated,
+                    abnormalRunup = entity.abnormalRunup,
+                    falseDisclosure = entity.falseDisclosure,
+                    backdoorListing = entity.backdoorListing,
+                    creditAble = entity.creditAble,
+                    marginRate = entity.marginRate,
+                    shortOverheatedStatus = entity.shortOverheatedStatus,
+                ),
+            classification =
+                InstrumentClassificationDto(
+                    industryLarge = entity.industryLarge,
+                    industryMedium = entity.industryMedium,
+                    industrySmall = entity.industrySmall,
+                    isKospi200 = entity.isKospi200,
+                    kospi200Sector = entity.kospi200Sector,
+                    isKosdaq150 = entity.isKosdaq150,
+                    isKospi100 = entity.isKospi100,
+                    isKospi50 = entity.isKospi50,
+                    isKrx = entity.isKrx,
+                    isKrx100 = entity.isKrx100,
+                    isKrx300 = entity.isKrx300,
+                    isSpac = entity.isSpac,
+                    isVenture = entity.isVenture,
+                    isLowLiquidity = entity.isLowLiquidity,
+                    preferredStockType = entity.preferredStockType,
+                    etpProductType = entity.etpProductType,
+                    avlsScale = entity.avlsScale,
+                ),
+            marketMeta =
+                InstrumentMarketMetaDto(
+                    basePrice = entity.basePrice?.toPlainString(),
+                    tradingUnitNormal = entity.tradingUnitNormal,
+                    prevVolume = entity.prevVolume,
+                    marketCapPrev = entity.marketCapPrev,
+                    listedShares = entity.listedShares,
+                    settlementMonth = entity.settlementMonth,
+                ),
         )
     }
 
