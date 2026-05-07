@@ -2,6 +2,13 @@
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+<!-- pr-11-slot-architect -->
+| 2026-05-07 | **docs(specs): PR-11 T-IM1 설계 + sub-agent 분배 + 충돌 행렬 + CHANGELOG 슬롯 (W1 잔여 진입)** — `_workspace/specs/pr-11-im1-design.md` (DB V4 신설 LOCK·REST 4 endpoint LOCK·Cron 13 LOCK·Redis 검색 인덱스 LOCK·frontend 자동완성 통합 LOCK·정적 시드 KOSPI 200·KOSDAQ 100 LOCK·상장폐지 보존 LOCK·KIS-first 강조), `pr-11-dispatch-spec.md` (PR-11a market-data·PR-11b backend-core 분배 + 룰 2 단일 책임 사유 명시 + 영역 분배 LOCK ★ — add-add 0% 검증), `pr-11-conflict-matrix.md` (**완전 병렬 권장** — modify-shared 1건 CHANGELOG는 ADR 0050 in-place edit + anchor 정합 — PR-10 효과 입증). `_workspace/backlog.md` 갱신 (§6 dogfooding 보류·§7 W1 잔여 진입 정정·§11 SymbolControllerTest mock 별도 PR 권장). ADR 0017·0039 정합으로 신규 ADR 0건. (architect) | docs/backlog | PR-11 T-IM1 설계 산출물 + W1 잔여 진입 |
+<!-- pr-11-slot-market-data -->
+| 2026-05-07 | **TBD: PR-11a T-IM1 market-data** (작성: market-data) — TBD | batch/consumer/domain | TBD |
+<!-- pr-11-slot-backend-core -->
+| 2026-05-07 | **TBD: PR-11b T-IM1 backend-core** (작성: backend-core) — TBD | api/domain/frontend | TBD |
+<!-- pr-11-slot-end -->
 <!-- pr-10-slot-architect -->
 | 2026-05-07 | **docs(specs): PR-10 T-S1 설계 + sub-agent 분배 + 충돌 행렬 + backlog md 신설(10건) + CHANGELOG 슬롯 두 번째 적용** — `_workspace/specs/pr-10-s1-design.md` (REST 3 endpoint LOCK·차트 series source LOCK·호가 LRU 10 라이프사이클 LOCK·frontend UI 계약 LOCK·KIS-first 의무·사용자 첫 dogfooding 직전 12 검증 항목), `pr-10-dispatch-spec.md` (PR-10a frontend·PR-10b market-data 분배 + 영역 분배 LOCK 강화 — add-add 0% 사전 검증 — PR-9 결함 정정), `pr-10-conflict-matrix.md` (**완전 병렬 권장 시나리오 A** — modify-shared 1건 CHANGELOG는 ADR 0050 in-place edit + HTML 주석 anchor hunk 분리 첫 시도). `_workspace/backlog.md` 신설 (10건 의제 흡수 — ADR 0050 보강·KisRestPort 분리·CLAUDE.md ADR 인덱스 갱신·worktree fallback 정리·backend-core 영역 침범 패턴·dogfooding 결과 흡수·W2 진입 가이드·STOMP relay·모바일 반응형·AI 에이전트 영역 ADR). (architect) | docs/backlog | PR-10 T-S1 설계 산출물 + backlog md 신설 |
 <!-- pr-10-slot-frontend -->
