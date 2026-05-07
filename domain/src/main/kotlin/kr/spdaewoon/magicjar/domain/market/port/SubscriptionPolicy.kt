@@ -15,6 +15,5 @@ object SubscriptionPolicy {
     const val PRICE_TICK_MAX = 30 // H0STCNT0
     const val ORDERBOOK_MAX = 10 // H0STASP0 (LRU)
 
-    fun priceTickSlotsAvailable(currentSubscribed: Int): Int =
-        (PRICE_TICK_MAX - currentSubscribed).coerceAtLeast(0)
+    fun priceTickSlotsAvailable(currentSubscribed: Int): Int = (PRICE_TICK_MAX - currentSubscribed).coerceAtLeast(0)
 }
