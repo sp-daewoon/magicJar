@@ -1,0 +1,181 @@
+/**
+ * Symbol REST API 클라이언트 + DTO 정의
+ *
+ * spec §3 REST 시그니처 LOCK 1:1 정합:
+ *   GET  /api/symbols/{code}                      → SymbolDto
+ *   GET  /api/symbols/{code}/candles?interval=...  → CandlesResponseDto
+ *   POST /api/symbols/{code}/orderbook/subscribe   → OrderbookSubscribeResponseDto
+ *   POST /api/symbols/{code}/orderbook/unsubscribe → OrderbookUnsubscribeResponseDto
+ *
+ * ADR 0019 §2-2 인터벌 5종: 1m·5m·30m·1h·1d
+ * ADR 0014 stale 배지: source 필드 + stale boolean
+ */
+import apiClient from '../lib/axios'
+
+// ──────────────────────────────────────────────
+// 인터벌 타입 (ADR 0019 §2-2 — 5종 한정)
+// ──────────────────────────────────────────────
+
+export type CandleInterval = '1m' | '5m' | '30m' | '1h' | '1d'
+
+// ──────────────────────────────────────────────
+// DTO 정의 (spec §3-2 LOCK)
+// ──────────────────────────────────────────────
+
+/**
+ * GET /api/symbols/{code} 응답
+ * source: 'live' | 'polling' | 'closed' — ADR 0014 Fallback tier
+ */
+export interface SymbolDto {
+  code: string
+  name?: string
+  market?: string
+  industry?: string
+  currentPrice: string
+  previousClose: string
+  change: string
+  changeRate: string
+  high: string
+  low: string
+  open: string
+  volume: number
+  marketCap?: string
+  per?: string
+  pbr?: string
+  eps?: string
+  bps?: string
+  asOf: string // ISO 8601
+  source: 'live' | 'polling' | 'closed'
+  stale: boolean
+}
+
+/** GET /api/symbols/{code}/candles 단일 캔들 */
+export interface CandleDto {
+  ts: string // ISO 8601
+  open: string
+  high: string
+  low: string
+  close: string
+  volume: number
+}
+
+/** GET /api/symbols/{code}/candles 응답 */
+export interface CandlesResponseDto {
+  code: string
+  interval: CandleInterval
+  candles: CandleDto[]
+  hasMore: boolean
+  nextBefore?: string
+}
+
+/** POST /api/symbols/{code}/orderbook/subscribe 응답 */
+export interface OrderbookSubscribeResponseDto {
+  subscribed: boolean
+  slot: 'live' | 'queued'
+}
+
+/** POST /api/symbols/{code}/orderbook/unsubscribe 응답 */
+export interface OrderbookUnsubscribeResponseDto {
+  unsubscribed: boolean
+}
+
+// ──────────────────────────────────────────────
+// STOMP 실시간 payload 타입 (spec §4-4 STOMP LOCK)
+// ──────────────────────────────────────────────
+
+/** /topic/market.tick.{code} */
+export interface TickPayload {
+  code: string
+  price: string
+  volume: number
+  ts: string
+  source: 'live' | 'polling' | 'closed'
+  stale: boolean
+}
+
+/** /topic/market.candle.minute.{code} */
+export interface CandleMinutePayload {
+  code: string
+  interval: string
+  ts: string
+  open: string
+  high: string
+  low: string
+  close: string
+  volume: number
+}
+
+/** /topic/market.orderbook.{code} */
+export interface OrderbookLevel {
+  price: string
+  quantity: number
+}
+
+export interface OrderbookPayload {
+  code: string
+  ts: string
+  bids: OrderbookLevel[]
+  asks: OrderbookLevel[]
+}
+
+// ──────────────────────────────────────────────
+// axios API 함수
+// ──────────────────────────────────────────────
+
+export const symbolApi = {
+  /**
+   * GET /api/symbols/{code}
+   * 종목 메타 + 현재가 (KIS inquire-price + Redis quote:last)
+   */
+  getSymbol: async (code: string): Promise<SymbolDto> => {
+    const res = await apiClient.get<SymbolDto>(`/symbols/${encodeURIComponent(code)}`)
+    return res.data
+  },
+
+  /**
+   * GET /api/symbols/{code}/candles
+   * 차트 series — DB candle + Redis current·today 합류
+   *
+   * @param code - 종목 코드
+   * @param interval - 인터벌 (ADR 0019 §2-2: 1m·5m·30m·1h·1d)
+   * @param before - 페이지네이션 cursor (ISO 8601, 미지정 시 최신)
+   * @param limit - 최대 캔들 수 (default 200, max 500)
+   */
+  getCandles: async (
+    code: string,
+    interval: CandleInterval,
+    before?: string,
+    limit = 200,
+  ): Promise<CandlesResponseDto> => {
+    const params = new URLSearchParams({ interval, limit: String(limit) })
+    if (before) params.set('before', before)
+    const res = await apiClient.get<CandlesResponseDto>(
+      `/symbols/${encodeURIComponent(code)}/candles?${params.toString()}`,
+    )
+    return res.data
+  },
+
+  /**
+   * POST /api/symbols/{code}/orderbook/subscribe
+   * 호가 slot 사용 통보 (ADR 0048 LRU 10)
+   * 페이지 mount 시 호출
+   */
+  subscribeOrderbook: async (code: string): Promise<OrderbookSubscribeResponseDto> => {
+    const res = await apiClient.post<OrderbookSubscribeResponseDto>(
+      `/symbols/${encodeURIComponent(code)}/orderbook/subscribe`,
+    )
+    return res.data
+  },
+
+  /**
+   * POST /api/symbols/{code}/orderbook/unsubscribe
+   * 호가 slot 회수 (ADR 0048 LRU 10)
+   * 페이지 unmount 시 호출 + sendBeacon fallback
+   */
+  unsubscribeOrderbook: async (code: string): Promise<OrderbookUnsubscribeResponseDto> => {
+    const res = await apiClient.post<OrderbookUnsubscribeResponseDto>(
+      `/symbols/${encodeURIComponent(code)}/orderbook/unsubscribe`,
+    )
+    return res.data
+  },
+}
