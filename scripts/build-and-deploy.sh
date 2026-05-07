@@ -20,7 +20,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 ALL_JVM=(api batch consumer)
-ALL_SERVICES=(api-app batch-app consumer-app frontend)
+# 빌드+up 대상. dozzle·kafka-ui는 image-only(외부)라 build는 noop, up만 동작.
+ALL_SERVICES=(api-app batch-app consumer-app frontend dozzle kafka-ui)
 
 GRADLE=1
 DOCKER=1

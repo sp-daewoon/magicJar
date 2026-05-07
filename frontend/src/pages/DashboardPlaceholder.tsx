@@ -44,12 +44,12 @@ export function DashboardPlaceholder() {
           </li>
         </ul>
 
-        {/* 셋업 마법사 링크 */}
+        {/* 관심종목 진입 (ADR 0040 — Watchlist-first UI) */}
         <a
-          href="/setup"
+          href="/watchlist"
           className="block w-full rounded-xl bg-blue-600 px-4 py-3 text-center text-sm font-medium text-white transition-colors hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 focus:ring-offset-gray-900"
         >
-          셋업 마법사 시작 →
+          관심종목 시작하기 →
         </a>
       </div>
 
