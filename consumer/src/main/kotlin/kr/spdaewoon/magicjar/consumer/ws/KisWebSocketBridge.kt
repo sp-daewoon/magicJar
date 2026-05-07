@@ -20,6 +20,7 @@ import reactor.core.publisher.Sinks
 import java.math.BigDecimal
 import java.net.URI
 import java.time.Duration
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
@@ -76,6 +77,9 @@ class KisWebSocketBridge(
     private val scheduler = Executors.newScheduledThreadPool(1)
     private val wsClient = ReactorNettyWebSocketClient()
 
+    // 호가 구독 종목코드 Set (H0STASP0 — ADR 0048 §2-1 LRU 10 slot)
+    private val orderbookSubscribedCodes: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
     // Sink: 메시지 전송용 (subscribe/unsubscribe 메시지를 WS에 보냄)
     private var sendSink: Sinks.Many<String>? = null
     private var wsDisposable: Disposable? = null
@@ -125,6 +129,41 @@ class KisWebSocketBridge(
     }
 
     override fun subscribedCodes(): Set<String> = session.subscribedCodes.toSet()
+
+    /**
+     * KIS WS 호가 구독 (H0STASP0) — ADR 0048 §2-1 LRU 10 slot.
+     * KIS-first 출처: open-trading-api asking_price_krx.py subscribe tr_type="1"
+     */
+    override fun subscribeOrderbook(codes: List<String>) {
+        if (codes.isEmpty()) return
+        val approvalKey = getApprovalKey()
+        codes.forEach { code ->
+            if (!orderbookSubscribedCodes.contains(code)) {
+                val msg = buildSubscribeMessage(approvalKey, code, trType = "1", trId = "H0STASP0")
+                sendSink?.tryEmitNext(msg)
+                orderbookSubscribedCodes.add(code)
+                log.info("KIS WS orderbook subscribe: code={}", code)
+            }
+        }
+    }
+
+    /**
+     * KIS WS 호가 구독 해제 (H0STASP0).
+     */
+    override fun unsubscribeOrderbook(codes: List<String>) {
+        if (codes.isEmpty()) return
+        val approvalKey = getApprovalKey()
+        codes.forEach { code ->
+            if (orderbookSubscribedCodes.contains(code)) {
+                val msg = buildSubscribeMessage(approvalKey, code, trType = "2", trId = "H0STASP0")
+                sendSink?.tryEmitNext(msg)
+                orderbookSubscribedCodes.remove(code)
+                log.info("KIS WS orderbook unsubscribe: code={}", code)
+            }
+        }
+    }
+
+    override fun subscribedOrderbookCodes(): Set<String> = orderbookSubscribedCodes.toSet()
 
     /**
      * WebSocket 연결 시작.
@@ -206,7 +245,7 @@ class KisWebSocketBridge(
             is KisWsMessageParser.ParsedMessage.RealtimeData -> {
                 when (parsed.trId) {
                     "H0STCNT0" -> handleTickData(parsed.rawData)
-                    "H0STASP0" -> log.debug("KIS WS 호가 수신: trId=H0STASP0 (호가 처리 미구현 — T-S1)")
+                    "H0STASP0" -> handleOrderbookData(parsed.rawData)
                     "H0STCNI0" -> log.info("KIS WS 체결통보 수신: trId=H0STCNI0 (handler 미구현 — T-O)")
                     else -> log.debug("KIS WS 알 수 없는 TR_ID: trId={}", parsed.trId)
                 }
@@ -220,6 +259,25 @@ class KisWebSocketBridge(
             is KisWsMessageParser.ParsedMessage.Unknown -> {
                 log.debug("KIS WS 알 수 없는 메시지: raw={}", raw.take(200))
             }
+        }
+    }
+
+    private fun handleOrderbookData(rawData: String) {
+        val snapshot = KisWsOrderbookParser.parseH0Stasp0(rawData) ?: return
+        log.debug("KIS WS orderbook: code={} bids={} asks={}", snapshot.code, snapshot.bids.size, snapshot.asks.size)
+        // Kafka market.orderbook.v1 publish
+        try {
+            val payload = objectMapper.writeValueAsString(
+                mapOf(
+                    "code" to snapshot.code,
+                    "ts" to snapshot.ts.toString(),
+                    "bids" to snapshot.bids.map { mapOf("price" to it.price.toPlainString(), "quantity" to it.quantity) },
+                    "asks" to snapshot.asks.map { mapOf("price" to it.price.toPlainString(), "quantity" to it.quantity) },
+                ),
+            )
+            kafkaTemplate.send("market.orderbook.v1", snapshot.code, payload)
+        } catch (e: Exception) {
+            log.error("KIS WS orderbook Kafka publish 실패: code={} error={}", snapshot.code, e.message)
         }
     }
 
@@ -444,6 +502,7 @@ class KisWebSocketBridge(
         approvalKey: String,
         code: String,
         trType: String, // "1" = subscribe, "2" = unsubscribe
+        trId: String = "H0STCNT0", // 기본: H0STCNT0 체결가 / H0STASP0 호가
     ): String =
         objectMapper.writeValueAsString(
             mapOf(
@@ -458,7 +517,7 @@ class KisWebSocketBridge(
                     mapOf(
                         "input" to
                             mapOf(
-                                "tr_id" to "H0STCNT0",
+                                "tr_id" to trId,
                                 "tr_key" to code,
                             ),
                     ),
