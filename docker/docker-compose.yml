@@ -209,6 +209,9 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      # PR-19 hotfix — 부팅 시 KIS 종목 마스터 즉시 sync (시드만 있는 상태 → universe 전체로 보강).
+      # KIS 인증 불필요 (`https://new.real.download.dws.co.kr/...` zip 다운로드).
+      MAGICJAR_INSTRUMENT_SYNC_AT_BOOT: "true"
     ports: ["${BATCH_HOST_PORT:-8081}:8081"]
 
   consumer-app:

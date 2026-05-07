@@ -44,7 +44,9 @@ class KisRestPriceMetricsAdapter(
         code: String,
     ): PriceMetrics {
         val baseUrl = if (magicjarMode == "REAL") kisBaseProd else kisBaseProd // 조회는 항상 실전 endpoint
-        val token = resolveAccessToken(userId)
+        // PR-19 hotfix — appkey/appsecret 헤더 누락으로 KIS EGW00104 "AppSecret은 필수입니다" 발생.
+        // KIS quotation endpoint는 Bearer token 외에 appkey + appsecret 헤더도 필수 (KIS-first 정합).
+        val (token, appKey, secretKey) = resolveAccessTokenAndKeys(userId)
 
         return try {
             @Suppress("UNCHECKED_CAST")
@@ -55,6 +57,8 @@ class KisRestPriceMetricsAdapter(
                         "$baseUrl/uapi/domestic-stock/v1/quotations/inquire-price" +
                             "?fid_cond_mrkt_div_code=J&fid_input_iscd=$code",
                     ).header("authorization", "Bearer $token")
+                    .header("appkey", appKey)
+                    .header("appsecret", secretKey)
                     .header("tr_id", "FHKST01010100")
                     .header("custtype", "P")
                     .retrieve()
@@ -94,25 +98,16 @@ class KisRestPriceMetricsAdapter(
     }
 
     /**
-     * KIS access_token 해결:
-     * 1. Redis access_token:{userId}:REAL 캐시 확인
-     * 2. miss → DB 자격증명 조회 + AES-256-GCM 복호화 + KIS /oauth2/tokenP 발급 + Redis 캐시
+     * KIS access_token + appKey + secretKey 묶음 해결 (PR-19 — KIS 헤더 fix).
      *
-     * KIS-first 출처: open-trading-api kis_auth.py OAuth2 tokenP 발급 패턴.
+     * 1. DB 자격증명 조회 + AES-256-GCM 복호화 (매 호출 — 보안 + 단순성)
+     * 2. Redis access_token:{userId}:REAL 캐시 확인 (token만 cache)
+     * 3. token miss → KIS /oauth2/tokenP 발급 + Redis 캐시
+     *
+     * KIS-first 출처: open-trading-api kis_auth.py OAuth2 tokenP 패턴 + quotation header 명세.
      */
-    private fun resolveAccessToken(userId: String): String {
-        val cacheKey = "access_token:$userId:REAL"
-
-        // 1. Redis 캐시 확인
-        val cached =
-            try {
-                redisTemplate.opsForValue().get(cacheKey)
-            } catch (e: Exception) {
-                null
-            }
-        if (!cached.isNullOrBlank()) return cached
-
-        // 2. DB 자격증명 조회 (REAL 계좌)
+    private fun resolveAccessTokenAndKeys(userId: String): Triple<String, String, String> {
+        // 1. DB 자격증명 조회 (REAL 우선, MOCK fallback) + 복호화
         val credential =
             credentialJpaRepository.findAllByAccountType("REAL").firstOrNull()
                 ?: run {
@@ -137,11 +132,23 @@ class KisRestPriceMetricsAdapter(
                 throw IllegalStateException("KIS 자격증명 복호화 실패")
             }
 
-        // 3. KIS /oauth2/tokenP 발급
+        // 2. accountType 기반 token cache key + base URL
         val accountType = credential.id.accountType
         val baseUrl = if (accountType == "REAL") kisBaseProd else kisBaseVps
-        val trId = if (accountType == "REAL") "FHKST01010100" else "VTTC0802U" // 모의는 VTS prefix
+        val cacheKey = "access_token:$userId:$accountType"
 
+        // 3. Redis 캐시 확인 (token만 cache)
+        val cachedToken =
+            try {
+                redisTemplate.opsForValue().get(cacheKey)
+            } catch (e: Exception) {
+                null
+            }
+        if (!cachedToken.isNullOrBlank()) {
+            return Triple(cachedToken, appKey, secretKey)
+        }
+
+        // 4. cache miss — KIS /oauth2/tokenP 발급 + Redis 캐시
         return try {
             @Suppress("UNCHECKED_CAST")
             val tokenResponse =
@@ -172,12 +179,8 @@ class KisRestPriceMetricsAdapter(
                 log.warn("Redis access_token 캐시 실패 (무시): {}", e.message)
             }
 
-            // 메모리 zero-fill
-            appKey.toCharArray().fill('0')
-            secretKey.toCharArray().fill('0')
-
             log.info("KIS access_token 발급 성공: userId={}... accountType={}", userId.take(4), accountType)
-            accessToken
+            Triple(accessToken, appKey, secretKey)
         } catch (e: Exception) {
             log.error("KIS access_token 발급 실패: {}", e.message)
             throw e
