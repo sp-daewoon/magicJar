@@ -8,6 +8,7 @@ import java.time.LocalDate
 /**
  * 종목 마스터 영속 포트 (ADR 0017).
  * PR-11b 보강: findByActiveTrue·findActiveByCodeIn·markDelisted·searchByPgTrgm 추가.
+ * PR-21b 보강: findActiveTradeable·countByMarket·findByMarketCapDesc·findByKospi200 추가 (add-only).
  */
 interface InstrumentRepository {
     fun findByCode(code: String): Instrument?
@@ -42,4 +43,35 @@ interface InstrumentRepository {
     fun upsert(instrument: Instrument): Instrument
 
     fun upsertAll(instruments: List<Instrument>): Int
+
+    // ==========================================================================
+    // PR-21b add-only 신규 메서드 — T-SC·T-IND screening 지원
+    // ==========================================================================
+
+    /**
+     * 매매 가능한 활성 종목 목록.
+     * 조건: active=true AND trading_halt=false AND liquidation=false.
+     * T-SC universe 필터링 + 매매 가드 1차 차단.
+     */
+    fun findActiveTradeable(): List<Instrument>
+
+    /**
+     * market별 활성 종목 수 집계.
+     * 반환: Map<"KOSPI"|"KOSDAQ"|..., count>
+     */
+    fun countByMarket(): Map<String, Long>
+
+    /**
+     * 시가총액 내림차순 종목 목록.
+     * T-SC universe — 대형주 screening.
+     *
+     * @param limit 최대 결과 수
+     */
+    fun findByMarketCapDesc(limit: Int): List<Instrument>
+
+    /**
+     * KOSPI200 편입 종목 목록.
+     * T-SC universe — 기준 universe 조회.
+     */
+    fun findByKospi200(): List<Instrument>
 }
