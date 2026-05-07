@@ -19,6 +19,14 @@ data class WatchlistAddRequest(
 
 /**
  * 관심종목 응답 DTO (spec §4-1-1 LOCK).
+ *
+ * PR-21b 보강: type·securitiesGroup·marketCapPrev·tradingHalt·managementStock
+ *             industryMedium·isKospi200·isKosdaq150 추가.
+ * - type: 사용자가 ETF/우선주/REIT 즉시 식별 가능 (KIS scrt_grp_cls_code 기반)
+ * - marketCapPrev: watchlist row에 시총 표시 (사용자 직관)
+ * - tradingHalt·managementStock: 매매 위험 가드 (즉시 인지)
+ * - industryMedium: 업종 중분류 표시
+ * instrument 테이블 V5 미적용 또는 sync 전: 신규 필드 모두 null/false graceful 처리.
  */
 @Schema(description = "관심종목 응답")
 data class WatchlistEntryDto(
@@ -36,4 +44,38 @@ data class WatchlistEntryDto(
     val priority: Int,
     @Schema(description = "등록 시각 (UTC ISO-8601)", example = "2026-05-07T10:23:45.123Z")
     val createdAt: Instant,
+    // PR-21b 신규 필드 — KIS-first 보강 (사용자 가시성)
+    // instrument V5 sync 완료 후 채워짐. 미완료 시 null/false graceful.
+    @Schema(
+        description = "종목 유형 (STOCK·ETF·ETN·PREFERRED·REIT·WARRANT·DR·UNKNOWN)",
+        example = "STOCK",
+        nullable = true,
+    )
+    val type: String? = null,
+    @Schema(
+        description = "KIS 증권그룹구분코드 (scrt_grp_cls_code). ST·MF·RT·SC·IF·DR·EW·EF·SW·SR·BC·FE·FS",
+        example = "ST",
+        nullable = true,
+    )
+    val securitiesGroup: String? = null,
+    @Schema(
+        description = "전일기준 시가총액 억 단위 (market_cap_prev). T-SC 대형주 분류용.",
+        example = "4150000",
+        nullable = true,
+    )
+    val marketCapPrev: Long? = null,
+    @Schema(description = "거래정지 여부. true 시 매매 차단 필요 (KIS trht_yn).", example = "false")
+    val tradingHalt: Boolean = false,
+    @Schema(description = "관리종목 여부. 투자 위험 가드 (KIS mang_issu_yn).", example = "false")
+    val managementStock: Boolean = false,
+    @Schema(
+        description = "지수업종 중분류 코드 (bstp_medm_div_code). 업종 필터용.",
+        example = "G251",
+        nullable = true,
+    )
+    val industryMedium: String? = null,
+    @Schema(description = "KOSPI200 편입 여부.", example = "true")
+    val isKospi200: Boolean = false,
+    @Schema(description = "KOSDAQ150 편입 여부.", example = "false")
+    val isKosdaq150: Boolean = false,
 )

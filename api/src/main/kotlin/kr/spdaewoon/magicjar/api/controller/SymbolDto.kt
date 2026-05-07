@@ -5,6 +5,9 @@ package kr.spdaewoon.magicjar.api.controller
  *
  * source: "live" (KIS WS 실시간) | "polling" (REST polling) | "closed" (장 마감)
  * stale: true → 데이터 오래됨 (ADR 0014 fallback 3-tier 정합)
+ *
+ * PR-21b 보강: type·securitiesGroup·tradingHalt·managementStock·industryMedium·marketCapPrev 추가.
+ * instrument V5 sync 완료 전: 신규 필드 null/false graceful.
  */
 data class SymbolDto(
     val code: String,
@@ -27,6 +30,15 @@ data class SymbolDto(
     val asOf: String,
     val source: String,
     val stale: Boolean,
+    // PR-21b 신규 — KIS-first instrument 메타 (V5 sync 전: null/false graceful)
+    val type: String? = null,
+    val securitiesGroup: String? = null,
+    val tradingHalt: Boolean = false,
+    val managementStock: Boolean = false,
+    val industryMedium: String? = null,
+    val marketCapPrev: Long? = null,
+    val basePrice: String? = null,
+    val prevVolume: Long? = null,
 )
 
 /**

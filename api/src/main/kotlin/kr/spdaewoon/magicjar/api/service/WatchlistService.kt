@@ -25,6 +25,10 @@ import java.time.Instant
  * - Kafka watchlist.changed.v1 producer (consumer listener는 T-W2)
  * - user_id: user_account 첫 row 자동 resolve (1차 single-tenant 단순화)
  *
+ * PR-21b 보강: list/add 응답 DTO에 KIS-first 신규 필드 채움.
+ * - type·securitiesGroup·marketCapPrev·tradingHalt·managementStock·industryMedium·isKospi200·isKosdaq150
+ * - instrument V5 sync 완료 전: 신규 필드 null/false graceful (기존 동작 변경 0)
+ *
  * 룰 5 위반 금지: LLM provider import 0건.
  */
 @Service
@@ -56,6 +60,7 @@ class WatchlistService(
     /**
      * 관심종목 목록 조회 (priority 오름차순, created_at 내림차순).
      * PR-20 — instrument 테이블 join으로 name/market 채움 (사용자 가시성).
+     * PR-21b — type·securitiesGroup·marketCapPrev·tradingHalt·managementStock·industryMedium 추가 노출.
      */
     @Transactional(readOnly = true)
     fun list(userId: String): List<WatchlistEntryDto> {
@@ -68,7 +73,7 @@ class WatchlistService(
                 .associateBy { it.code }
         return entries.map { entry ->
             val instrument = instrumentMap[entry.code]
-            entry.toDto(name = instrument?.name, market = instrument?.market)
+            entry.toDto(instrument)
         }
     }
 
@@ -117,8 +122,9 @@ class WatchlistService(
 
         log.info("Watchlist 등록: user={} code={}", maskUserId(userId), code)
         // PR-20 — instrument 테이블 join으로 name/market 채워서 응답
+        // PR-21b — 추가 메타 필드 채움 (V5 sync 전이면 null/false graceful)
         val instrument = instrumentJpaRepository.findById(code).orElse(null)
-        return saved.toDto(name = instrument?.name, market = instrument?.market)
+        return saved.toDto(instrument)
     }
 
     /**
@@ -192,17 +198,31 @@ class WatchlistService(
 
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"
 
-    private fun WatchlistJpaEntity.toDto(
-        name: String? = null,
-        market: String? = null,
-    ): WatchlistEntryDto =
-        WatchlistEntryDto(
+    /**
+     * WatchlistJpaEntity → WatchlistEntryDto 변환.
+     * PR-21b: instrument entity의 KIS-first 신규 필드를 DTO에 채움.
+     * instrument null 또는 V5 sync 전 (market='UNKNOWN'): 신규 필드 null/false graceful.
+     */
+    private fun WatchlistJpaEntity.toDto(instrument: InstrumentJpaEntity?): WatchlistEntryDto {
+        val nameResolved = instrument?.name?.takeIf { instrument.market != "UNKNOWN" }
+        val marketResolved = instrument?.market?.takeIf { it != "UNKNOWN" }
+        return WatchlistEntryDto(
             id = id ?: 0L,
             userId = userId,
             code = code,
-            name = name,
-            market = market,
+            name = nameResolved,
+            market = marketResolved,
             priority = priority,
             createdAt = createdAt,
+            // PR-21b 신규 필드 — instrument null 또는 V5 미적용 시 graceful
+            type = instrument?.type?.takeIf { it != "UNKNOWN" },
+            securitiesGroup = instrument?.securitiesGroup,
+            marketCapPrev = instrument?.marketCapPrev,
+            tradingHalt = instrument?.tradingHalt ?: false,
+            managementStock = instrument?.managementStock ?: false,
+            industryMedium = instrument?.industryMedium,
+            isKospi200 = instrument?.isKospi200 ?: false,
+            isKosdaq150 = instrument?.isKosdaq150 ?: false,
         )
+    }
 }
