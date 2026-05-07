@@ -17,4 +17,10 @@ interface UserKisCredentialJpaRepository : JpaRepository<UserKisCredentialJpaEnt
 
     @Query("SELECT COUNT(c) > 0 FROM UserKisCredentialJpaEntity c WHERE c.id.accountType = 'MOCK'")
     fun existsMockAccount(): Boolean
+
+    /**
+     * 특정 계좌 유형의 모든 자격증명 목록 (ADR 0042 Bootstrap 활성 사용자 조회).
+     */
+    @Query("SELECT c FROM UserKisCredentialJpaEntity c WHERE c.id.accountType = :accountType")
+    fun findAllByAccountType(accountType: String): List<UserKisCredentialJpaEntity>
 }
