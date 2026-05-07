@@ -9,6 +9,9 @@ target/
 *.ear
 *.class
 
+# .claire/ — .claude/ 오타로 일부 도구가 만드는 임시 디렉토리 (PR-12·16에서 누적 확인)
+.claire/
+
 # Gradle
 .gradle/
 !gradle-wrapper.properties
