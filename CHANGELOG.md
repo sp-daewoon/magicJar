@@ -2,6 +2,7 @@
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+| 2026-05-08 | **fix(script): PR-22 task.mjs 시간 KST 정정** — `nowIso()` UTC `toISOString()` → KST(+09:00) offset 적용. 사용자 보고: task 파일 시간이 한국시간보다 9시간 빠름 정정. 향후 신규 task `startedAt`·`completedAt` KST 표기. (orchestrator) | script | PR-22 KST 시간 정정 |
 <!-- pr-21-slot-architect -->
 | 2026-05-07 | **docs(specs): PR-21 instrument 테이블 KIS-first 본격 재설계 (사용자 비판 응답 + KIS 헤더 70+ 필드 spec)** — 사용자 강한 비판 ("kis 데이터 규격 확인 안하고 막 만들어서 꾸겨넣은거잖아") 응답 사이클. KIS open-trading-api `종목마스터정보(코스피).h` 73 필드 + `종목마스터정보(코스닥).h` 67 필드 raw fetch 정독 후 `_workspace/specs/pr-21-kis-header-raw-verification.md` 검증 보고서 baseline (Python 파서 widths 1:1 정합 검증·KOSPI/KOSDAQ 차이 14건·scrt_grp_cls_code 권위 매핑 13종·byte offset 매트릭스). `_workspace/specs/pr-21-instrument-kis-first-design.md` (Tier 1·2·3·4 70 컬럼 add-only LOCK·V5 SQL LOCK·InstrumentJpaEntity 83 필드 LOCK·KisInstrumentMasterAdapter widths LOCK·detectType 폐기 → mapType KIS-first·트레이드오프 9건). `_workspace/specs/pr-21-dispatch-spec.md` (PR-21a market-data + PR-21b backend-core 분배 + KIS-first raw 출처 인용 의무 강화 + 시나리오 A 권장). `_workspace/specs/pr-21-conflict-matrix.md` (**완전 병렬 권장** — modify-shared 1건 CHANGELOG는 ADR 0050 네 번째 적용 + anchor 정합·domain Instrument enum 'DR' add-only 충돌 0). `_workspace/backlog.md` §16(fitness gap 91.7% 처리)·§17(architect SKILL KIS-first raw fetch 의무 강화) 신설. `.claude/agents/architect.md`에 KIS-first raw fetch 의무 5단계 절 추가 (재발 방지). ADR 0017·0039 정합으로 신규 ADR 0건. (architect) | docs/spec/skill/backlog | PR-21 instrument KIS-first 본격 재설계 (사용자 비판 응답) |
 <!-- pr-21-slot-market-data -->
