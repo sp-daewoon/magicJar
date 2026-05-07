@@ -3,10 +3,10 @@ id: T-20260508-0012-pr-21-instrument-jpa-expansion
 agent: backend-core
 model: sonnet
 branch: agent/backend-core/pr-21-instrument-jpa-expansion
-status: RUNNING
+status: DONE
 startedAt: 2026-05-08T00:12:37.260+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-08T00:28:14.390+09:00
+pr: #220
 parentPhase: ?
 ---
 
