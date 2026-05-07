@@ -50,3 +50,8 @@ magicjar:
   ai:
     enabled: ${MAGICJAR_AI_ENABLED:false}
     mock-mode: ${MAGICJAR_AI_MOCK_MODE:auto}
+  secret:
+    master-key: ${MAGICJAR_SECRET_MASTER_KEY:}  # AES-256-GCM KIS 키 복호화. 부재 시 부팅 거부
+  kis:
+    base-url-prod: ${MAGICJAR_KIS_BASE_URL_PROD:https://openapi.koreainvestment.com:9443}
+    base-url-vps: ${MAGICJAR_KIS_BASE_URL_VPS:https://openapivts.koreainvestment.com:29443}
