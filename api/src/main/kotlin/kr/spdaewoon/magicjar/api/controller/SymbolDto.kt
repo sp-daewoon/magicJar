@@ -1,0 +1,68 @@
+package kr.spdaewoon.magicjar.api.controller
+
+/**
+ * 종목 메타 + 현재가 응답 DTO (spec §3-2 LOCK).
+ *
+ * source: "live" (KIS WS 실시간) | "polling" (REST polling) | "closed" (장 마감)
+ * stale: true → 데이터 오래됨 (ADR 0014 fallback 3-tier 정합)
+ */
+data class SymbolDto(
+    val code: String,
+    val name: String?,
+    val market: String?,
+    val industry: String?,
+    val currentPrice: String,
+    val previousClose: String,
+    val change: String,
+    val changeRate: String,
+    val high: String?,
+    val low: String?,
+    val open: String?,
+    val volume: Long?,
+    val marketCap: String?,
+    val per: String?,
+    val pbr: String?,
+    val eps: String?,
+    val bps: String?,
+    val asOf: String,
+    val source: String,
+    val stale: Boolean,
+)
+
+/**
+ * 캔들 단건 DTO (spec §3-3).
+ * ts: ISO8601 UTC. open·high·low·close: 문자열 (소수점 정밀도 보존).
+ */
+data class CandleDto(
+    val ts: String,
+    val open: String,
+    val high: String,
+    val low: String,
+    val close: String,
+    val volume: Long,
+)
+
+/**
+ * 캔들 시계열 응답 DTO (spec §3-3).
+ * candles: ts ASC 정렬 (LWC v4 setData() 기대).
+ * hasMore: true이면 더 fetch 가능 (nextBefore cursor 사용).
+ */
+data class CandlesResponseDto(
+    val code: String,
+    val interval: String,
+    val candles: List<CandleDto>,
+    val hasMore: Boolean,
+    val nextBefore: String?,
+)
+
+/**
+ * 호가 sub/unsub 응답 DTO.
+ */
+data class OrderbookSubscribeResponse(
+    val subscribed: Boolean,
+    val slot: String, // "live" | "queued"
+)
+
+data class OrderbookUnsubscribeResponse(
+    val unsubscribed: Boolean,
+)
