@@ -3,9 +3,9 @@ id: T-20260507-0128-pr-1-adr-renumber
 agent: architect
 model: opus
 branch: agent/architect/pr-1-adr-renumber
-status: RUNNING
+status: DONE
 startedAt: 2026-05-06T16:28:21.492Z
-completedAt: null
+completedAt: 2026-05-07T13:04:58.448Z
 pr: null
 parentPhase: ?
 ---

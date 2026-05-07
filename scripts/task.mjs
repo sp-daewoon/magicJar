@@ -178,10 +178,28 @@ function cmdDone(args) {
 
 function cmdArchive(args) {
   const id = args._[0] || (() => { throw new Error('task id 인자 필요'); })();
+  const force = args.force === true || args.force === 'true';
   ensureDirs();
   const src = join(TASKS_DIR, `${id}.md`);
   const dst = join(DONE_DIR, `${id}.md`);
   if (!existsSync(src)) throw new Error(`task 파일 없음: ${src}`);
+
+  // PR-18 무결성 보강 — status=DONE 검증 (사용자 보고: RUNNING 상태로 done/ 누적)
+  const { meta, body } = parseFrontmatter(readFileSync(src, 'utf-8'));
+  if (meta.status !== 'DONE') {
+    if (!force) {
+      throw new Error(
+        `archive 거부 — task '${id}'의 status='${meta.status}' (DONE 아님). ` +
+        `'task.mjs done --pr <N>'으로 완료 마킹 후 재시도, 또는 '--force'로 우회.`,
+      );
+    }
+    // force 모드: status·completedAt 자동 보강 후 archive
+    console.warn(`⚠ force-archive: status='${meta.status}' → 'DONE' 강제 정정`);
+    meta.status = 'DONE';
+    if (!meta.completedAt || meta.completedAt === 'null' || meta.completedAt === null) meta.completedAt = nowIso();
+    writeFileSync(src, serializeFrontmatter(meta, body), 'utf-8');
+  }
+
   renameSync(src, dst);
   console.log(`✓ archive: ${id} → ${dst}`);
 }

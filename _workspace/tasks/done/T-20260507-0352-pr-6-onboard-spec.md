@@ -3,9 +3,9 @@ id: T-20260507-0352-pr-6-onboard-spec
 agent: architect
 model: opus
 branch: agent/architect/pr-6-onboard-spec
-status: RUNNING
+status: DONE
 startedAt: 2026-05-06T18:52:41.246Z
-completedAt: null
+completedAt: 2026-05-07T13:04:58.450Z
 pr: null
 parentPhase: ?
 ---

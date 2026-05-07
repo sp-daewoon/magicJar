@@ -3,9 +3,9 @@ id: T-20260507-0241-pr-4-v1v2-residue-cleanup
 agent: architect
 model: opus
 branch: agent/architect/pr-4-v1v2-residue-cleanup
-status: RUNNING
+status: DONE
 startedAt: 2026-05-06T17:41:19.488Z
-completedAt: null
+completedAt: 2026-05-07T13:04:58.449Z
 pr: null
 parentPhase: ?
 ---
