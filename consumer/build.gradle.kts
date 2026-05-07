@@ -15,6 +15,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-data-redis")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-webflux") // KIS REST/WS 클라이언트
+    implementation("org.springframework.boot:spring-boot-starter-web") // @Scheduled enablement (dispatch §K)
 
     // Kafka (KafkaListener + KIS WS 데이터 발행)
     implementation("org.springframework.kafka:spring-kafka")
