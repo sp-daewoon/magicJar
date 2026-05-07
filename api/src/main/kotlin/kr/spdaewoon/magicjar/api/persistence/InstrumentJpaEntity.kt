@@ -5,11 +5,15 @@ import jakarta.persistence.Entity
 import jakarta.persistence.Id
 import jakarta.persistence.Table
 import java.time.Instant
+import java.time.LocalDate
 
 /**
  * instrument JPA 엔티티 (ADR 0017).
  * V3 CHECK 완화로 market='UNKNOWN', type='UNKNOWN' stub row 허용.
  * T-IM1 진입 시 KIS 마스터 동기화로 정식 데이터 갱신.
+ *
+ * PR-11b 보강: name_norm·theme 컬럼 추가 (Flyway V4 대응 — PR-11a 신규).
+ * listed_at·delisted_at 컬럼 추가.
  */
 @Entity
 @Table(name = "instrument")
@@ -29,8 +33,18 @@ class InstrumentJpaEntity(
     val type: String,
     @Column(name = "sector", length = 40)
     val sector: String? = null,
+    /** 정규화된 종목명 (공백·점 제거 + lowercase) — V4 gin_trgm 인덱스 대상 (PR-11a Flyway V4 추가). */
+    @Column(name = "name_norm", length = 80)
+    val nameNorm: String? = null,
+    /** 테마 (쉼표 구분 — 예: "반도체,스마트폰,IT") — V4 추가 (PR-11a Flyway V4). */
+    @Column(name = "theme", length = 200)
+    val theme: String? = null,
+    @Column(name = "listed_at")
+    val listedAt: LocalDate? = null,
+    @Column(name = "delisted_at")
+    var delistedAt: LocalDate? = null,
     @Column(name = "active", nullable = false)
-    val active: Boolean = true,
+    var active: Boolean = true,
     @Column(name = "created_at", nullable = false, updatable = false)
     val createdAt: Instant = Instant.now(),
     @Column(name = "updated_at", nullable = false)
