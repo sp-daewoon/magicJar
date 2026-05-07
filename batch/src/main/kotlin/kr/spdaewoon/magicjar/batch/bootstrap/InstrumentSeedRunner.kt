@@ -73,15 +73,7 @@ class InstrumentSeedRunner(
             val sector = seed["sector"]?.toString()
 
             try {
-                instrumentRepo.upsert(
-                    code = code,
-                    isin = null,
-                    name = name,
-                    nameEn = null,
-                    market = market,
-                    type = type,
-                    sector = sector,
-                )
+                upsertSeed(code = code, name = name, market = market, type = type, sector = sector)
                 aliasRepo.upsert(code = code, alias = name, source = "KRX")
 
                 when {
@@ -101,6 +93,100 @@ class InstrumentSeedRunner(
             kosdaqCount,
             etfCount,
             failCount,
+        )
+    }
+
+    /**
+     * PR-25 — 시드 INSERT 헬퍼 (PR-23 Repository wrapper가 Spring Data query inference에 걸려서 Runner 내부로 이동).
+     * 시드 데이터에는 70+ 필드 정보 없음 → 모두 default(false/null)로 upsertFull 위임.
+     */
+    private fun upsertSeed(
+        code: String,
+        name: String,
+        market: String,
+        type: String,
+        sector: String?,
+    ) {
+        instrumentRepo.upsertFull(
+            code = code,
+            isin = null,
+            name = name,
+            nameEn = null,
+            market = market,
+            type = type,
+            sector = sector,
+            listedAt = null,
+            securitiesGroup = null,
+            tradingHalt = false,
+            liquidation = false,
+            managementStock = false,
+            marketAlert = null,
+            marketAlertWarning = false,
+            falseDisclosure = false,
+            backdoorListing = false,
+            shortOverheated = false,
+            abnormalRunup = false,
+            investmentCaution = false,
+            exRightsType = null,
+            faceValueChange = null,
+            capitalIncrease = null,
+            creditAble = false,
+            creditDays = null,
+            marginRate = null,
+            shortOverheatedStatus = null,
+            industryLarge = null,
+            industryMedium = null,
+            industrySmall = null,
+            kospi200Sector = null,
+            avlsScale = null,
+            isKospi100 = false,
+            isKospi50 = false,
+            isKospi200 = false,
+            isKosdaq150 = false,
+            isKrx = false,
+            isKrx100 = false,
+            isKrx300 = false,
+            krxSectorCar = false,
+            krxSectorSemicon = false,
+            krxSectorBio = false,
+            krxSectorBank = false,
+            krxSectorEnergyChem = false,
+            krxSectorSteel = false,
+            krxSectorMediaComm = false,
+            krxSectorConstruction = false,
+            krxSectorSecurities = false,
+            krxSectorShip = false,
+            krxSectorInsurance = false,
+            krxSectorTransport = false,
+            isManufacturing = false,
+            isLowLiquidity = false,
+            isGovernanceIndex = false,
+            isSpac = false,
+            isVenture = false,
+            isSriIndex = false,
+            etpProductType = null,
+            isElwPublisher = false,
+            preferredStockType = null,
+            groupCode = null,
+            basePrice = null,
+            tradingUnitNormal = null,
+            tradingUnitOvertime = null,
+            prevVolume = null,
+            faceValue = null,
+            listedShares = null,
+            capital = null,
+            settlementMonth = null,
+            publicOfferingPrice = null,
+            marketCapPrev = null,
+            salesAmount = null,
+            operatingProfit = null,
+            ordinaryProfit = null,
+            netIncome = null,
+            roe = null,
+            financialBaseDate = null,
+            creditLimitExceeded = false,
+            collateralLendable = false,
+            shortLendable = false,
         )
     }
 }
