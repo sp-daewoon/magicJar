@@ -8,6 +8,7 @@
  * - row fade-out animation (200ms — Tailwind transition)
  */
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useRemoveWatchlist } from '../../api/hooks/useWatchlist'
 import type { WatchlistEntryDto } from '../../api/watchlist'
 
@@ -29,8 +30,16 @@ function formatDate(isoString: string): string {
 export function WatchlistRow({ entry }: WatchlistRowProps) {
   const [isRemoving, setIsRemoving] = useState(false)
   const { mutate: removeWatchlist, isPending } = useRemoveWatchlist()
+  const navigate = useNavigate()
 
-  function handleRemoveClick() {
+  function handleRowClick() {
+    // ADR 0040 §2-2: Watchlist row 클릭 → /symbol/:code 이동
+    navigate(`/symbol/${entry.code}`)
+  }
+
+  function handleRemoveClick(e: React.MouseEvent) {
+    // 휴지통 버튼 클릭 시 row 클릭 이벤트 전파 차단 (spec dispatch §2 F 정합)
+    e.stopPropagation()
     if (window.confirm(`관심종목 ${entry.code}을(를) 삭제하시겠습니까?`)) {
       setIsRemoving(true)
       removeWatchlist(entry.code, {
@@ -44,10 +53,14 @@ export function WatchlistRow({ entry }: WatchlistRowProps) {
 
   return (
     <div
-      className={`flex items-center justify-between rounded-xl border border-gray-800 bg-gray-900 px-4 py-3 transition-all duration-200 ${
+      role="button"
+      tabIndex={0}
+      onClick={handleRowClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleRowClick() }}
+      className={`flex cursor-pointer items-center justify-between rounded-xl border border-gray-800 bg-gray-900 px-4 py-3 transition-all duration-200 hover:border-gray-700 hover:bg-gray-800/80 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-950 ${
         isRemoving ? 'opacity-0' : 'opacity-100'
       }`}
-      aria-label={`관심종목 ${entry.code}`}
+      aria-label={`관심종목 ${entry.code} — 클릭하면 상세 화면으로 이동`}
     >
       <div className="flex items-center gap-4">
         {/* 종목 코드 */}
