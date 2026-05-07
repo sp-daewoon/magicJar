@@ -3,9 +3,9 @@ id: T-20260508-0012-pr-21-instrument-kis-first
 agent: market-data
 model: sonnet
 branch: agent/market-data/pr-21-instrument-kis-first
-status: RUNNING
+status: DONE
 startedAt: 2026-05-08T00:12:31.236+09:00
-completedAt: null
+completedAt: 2026-05-08T01:29:10.714+09:00
 pr: null
 parentPhase: ?
 ---
