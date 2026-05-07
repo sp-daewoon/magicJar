@@ -12,6 +12,12 @@ interface UserKisCredentialRepository {
         accountType: AccountType,
     ): UserKisCredential?
 
+    /**
+     * 특정 계좌 유형의 모든 자격증명 조회 (ADR 0042 Bootstrap 활성 사용자 목록).
+     * @param accountType "REAL" 또는 "MOCK"
+     */
+    fun findAllByAccountType(accountType: AccountType): List<UserKisCredential>
+
     fun upsert(credential: UserKisCredential): UserKisCredential
 
     fun deleteByUserId(userId: String)
