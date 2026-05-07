@@ -252,11 +252,16 @@ class KisInstrumentMasterAdapter(
         return when {
             "ETN" in upper -> InstrumentType.ETN
             "ETF" in upper ||
-                upper.startsWith("KODEX") || upper.startsWith("TIGER") ||
-                upper.startsWith("KINDEX") || upper.startsWith("KOSEF") ||
-                upper.startsWith("ARIRANG") || upper.startsWith("ACE ") ||
-                upper.startsWith("HANARO") || upper.startsWith("KBSTAR") ||
-                upper.startsWith("FOCUS") || upper.startsWith("SOL ") ||
+                upper.startsWith("KODEX") ||
+                upper.startsWith("TIGER") ||
+                upper.startsWith("KINDEX") ||
+                upper.startsWith("KOSEF") ||
+                upper.startsWith("ARIRANG") ||
+                upper.startsWith("ACE ") ||
+                upper.startsWith("HANARO") ||
+                upper.startsWith("KBSTAR") ||
+                upper.startsWith("FOCUS") ||
+                upper.startsWith("SOL ") ||
                 upper.startsWith("PLUS ") -> InstrumentType.ETF
             // 우선주: 코드 5번째 자리가 5 (KRX 우선주 코드 체계 — 예: 005935)
             code.getOrNull(4) == '5' -> InstrumentType.PREFERRED

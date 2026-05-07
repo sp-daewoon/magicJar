@@ -110,6 +110,5 @@ class InstrumentMasterSyncScheduler(
      * 영업일 판단 — 1차 stub (평일/주말 구분).
      * 공휴일 처리는 T-MS1 진입 시 KRX 캘린더 연동으로 보강 예정.
      */
-    private fun isBusinessDay(date: LocalDate): Boolean =
-        date.dayOfWeek != DayOfWeek.SATURDAY && date.dayOfWeek != DayOfWeek.SUNDAY
+    private fun isBusinessDay(date: LocalDate): Boolean = date.dayOfWeek != DayOfWeek.SATURDAY && date.dayOfWeek != DayOfWeek.SUNDAY
 }
