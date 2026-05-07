@@ -3,10 +3,10 @@ id: T-20260507-0851-pr-6-onboard-frontend
 agent: frontend
 model: sonnet
 branch: agent/frontend/pr-6-onboard-frontend
-status: RUNNING
+status: DONE
 startedAt: 2026-05-06T23:51:45.353Z
-completedAt: null
-pr: null
+completedAt: 2026-05-07T00:01:58.559Z
+pr: #192
 parentPhase: ?
 ---
 
