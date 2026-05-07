@@ -367,6 +367,26 @@ SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
 
 ---
 
+## §13. ✅ 처리 완료 — 머지 후 정리 룰 흐려짐 (PR-14)
+
+### 사유 (역사 보존)
+
+사용자 보고 (PR-12 dogfooding 시점) — `_workspace/tasks/T-*` 28건 누적, `task.mjs archive` 명령 호출 안 됨. ADR 0036 §47·§57·§79와 ADR 0033 §92·§112에 명시되어 있으나 sub-agent·orchestrator 실행 단계에서 흐려짐.
+
+> "에이전트 작업 시 _workspace/tasks/T-* 생성, .claude/worktrees/agent-* 생성, local git worktree-agent-* 생성하잖아 완료되면 _workspace/tasks/done옮기기, worktrees/agent-* 자기꺼 삭제, local git 자기꺼 삭제하던거 같은데 이 adr? 룰? 을 잊은거 같은데" (사용자 명시)
+
+### 처리 (PR-14)
+
+1. **orchestrator SKILL.md에 "머지 후 정리 4단계 의무" 명시** — main pull → `task.mjs archive` → worktree remove → `git branch -d`. 사이클 시작 시 자동 점검 룰 추가.
+2. **누적 28 task 일괄 archive** (chore commit) — `_workspace/tasks/T-*.md` → `_workspace/tasks/done/`로 일괄 이동.
+3. **Dozzle 추가** (사용자 요청 — docker compose 로그 web UI 빠르게 구성).
+
+### 교훈
+
+운영 룰은 ADR에만 있어선 안 되고 **SKILL.md에 단계별 의무로 명시화** 필요. 다음 사이클 시작 시 자동 점검(`ls _workspace/tasks/T-*.md | wc -l` 0이 아니면 일괄 archive) 의무.
+
+---
+
 ## 운영 메모
 
 - **orchestrator 책임**: 사이클 시작 시 본 backlog 점검 의무 — 우선순위 ↑ 항목 first 처리
