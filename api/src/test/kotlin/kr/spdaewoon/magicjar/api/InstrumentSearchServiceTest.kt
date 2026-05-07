@@ -5,6 +5,7 @@ import kr.spdaewoon.magicjar.domain.instrument.InstrumentMarket
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentSearchResult
 import kr.spdaewoon.magicjar.domain.instrument.port.InstrumentRepository
 import kr.spdaewoon.magicjar.domain.instrument.port.InstrumentSearchIndex
+import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyOrNull
@@ -12,7 +13,6 @@ import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
-import org.assertj.core.api.Assertions.assertThat
 
 /**
  * InstrumentSearchService smoke test (T-IM1 spec §I — 룰 4 정합).

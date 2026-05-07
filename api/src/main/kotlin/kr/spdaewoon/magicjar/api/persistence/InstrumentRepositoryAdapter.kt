@@ -1,11 +1,11 @@
 package kr.spdaewoon.magicjar.api.persistence
 
+import kotlinx.datetime.toKotlinLocalDate
 import kr.spdaewoon.magicjar.domain.instrument.Instrument
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentMarket
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentSearchResult
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentType
 import kr.spdaewoon.magicjar.domain.instrument.port.InstrumentRepository
-import kotlinx.datetime.toKotlinLocalDate
 import org.slf4j.LoggerFactory
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Component
@@ -24,16 +24,14 @@ class InstrumentRepositoryAdapter(
     private val log = LoggerFactory.getLogger(InstrumentRepositoryAdapter::class.java)
 
     @Transactional(readOnly = true)
-    override fun findByCode(code: String): Instrument? =
-        instrumentJpaRepository.findById(code).orElse(null)?.toDomain()
+    override fun findByCode(code: String): Instrument? = instrumentJpaRepository.findById(code).orElse(null)?.toDomain()
 
     @Transactional(readOnly = true)
     override fun findActiveByMarket(market: InstrumentMarket): List<Instrument> =
         instrumentJpaRepository.findByActiveTrueAndMarket(market.name).map { it.toDomain() }
 
     @Transactional(readOnly = true)
-    override fun findByActiveTrue(): List<Instrument> =
-        instrumentJpaRepository.findByActiveTrue().map { it.toDomain() }
+    override fun findByActiveTrue(): List<Instrument> = instrumentJpaRepository.findByActiveTrue().map { it.toDomain() }
 
     @Transactional(readOnly = true)
     override fun findActiveByCodeIn(codes: Collection<String>): List<Instrument> =
@@ -123,8 +121,7 @@ class InstrumentRepositoryAdapter(
     // ── private helpers ─────────────────────────────────────────────────
 
     /** 종목명 정규화 — 공백·점 제거 + lowercase. design §6-5. */
-    private fun normalizeNameForIndex(name: String): String =
-        name.replace(Regex("[\\s.·()]"), "").lowercase()
+    private fun normalizeNameForIndex(name: String): String = name.replace(Regex("[\\s.·()]"), "").lowercase()
 
     private fun InstrumentJpaEntity.toDomain(): Instrument =
         Instrument(
@@ -140,6 +137,5 @@ class InstrumentRepositoryAdapter(
             active = active,
         )
 
-    private fun kotlinx.datetime.LocalDate.toJavaLocalDate(): LocalDate =
-        LocalDate.of(year, monthNumber, dayOfMonth)
+    private fun kotlinx.datetime.LocalDate.toJavaLocalDate(): LocalDate = LocalDate.of(year, monthNumber, dayOfMonth)
 }
