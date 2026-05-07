@@ -3,7 +3,7 @@
 - 상태: Accepted
 - 작성일: TBD
 - 결정자: architect
-- 관계: ADR 0004(캔들 저장 정책), ADR 0037(KIS Rate Limit), ADR 0022(관심종목 우선 UI 흐름)
+- 관계: ADR 0019(캔들 저장 정책), ADR 0037(KIS Rate Limit), ADR 0040(관심종목 우선 UI 흐름), **ADR 0048(KIS WS 41 slot + priority eviction + polling fallback — 본 ADR §2-2 풀 size 한도의 1급 권위)**
 
 ## 1. 컨텍스트
 
