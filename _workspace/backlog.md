@@ -317,6 +317,7 @@ W2·W4 진입 시 architect 사전 발행.
 |------|------|------|
 | 2026-05-07 | 본 backlog 신설 (10건 흡수 — 사용자 명시 5건 + architect 추가 5건) | PR-9 완료 후 사용자 명시 — "미뤄두는 의제들 관리해줘". architect가 5건 추가 (§6 dogfooding 결과·§7 W2 진입·§8 STOMP relay·§9 모바일 반응형·§10 AI 에이전트 영역 침범) |
 | 2026-05-07 | PR-11 진입 갱신 — §6 dogfooding 보류 명시 + §7 W1 잔여 진입(T-IM1) 정정 + §11 SymbolControllerTest mock 별도 PR 권장 명시 | 사용자 dogfooding 보류 + "다음 일정 진행" 의제 → orchestrator T-IM1 우선 결정. ADR 0017·0039 정합 spec/plan PR-11 발행 (`_workspace/specs/pr-11-im1-design.md` 외 2종) (architect) |
+| 2026-05-07 | PR-21 진입 갱신 — §16 instrument 14 컬럼 fitness gap 신설(사용자 비판 응답 진행) + §17 architect SKILL KIS-first raw fetch 의무 강화 신설 | 사용자 강한 비판 ("kis 데이터 규격 확인 안하고 막 만들어서 꾸겨넣은거잖아") → PR-21 spec 5종 발행 (KIS 헤더 raw 검증 보고서 baseline + 70 필드 add-only V5 + Entity 83 필드 + 파싱 본격 LOCK) + ADR 0051 신설 검토 (architect) |
 
 ---
 
@@ -449,6 +450,89 @@ PR-19+ 사이클 또는 사용자 명시 트리거. 메타 정리 사이클에 �
 ### 예상 처리 PR
 
 architect 단독 — 7 sub-agent SKILL 일괄 보강 + ADR 0036 §47 보강. 작은 PR 1건.
+
+---
+
+## §16. instrument 테이블 14 컬럼 fitness gap (PR-21 처리 진행 중)
+
+### 사유 (사용자 비판 응답)
+
+사용자 강한 비판 (2026-05-07):
+
+> "kis 에서 제공받는 데이터 규격 확인 안하고 그냥 막 테이블 만들어서 꾸겨넣은거잖아 ... kis openapi 최소한 규격만봐도 이렇게 데이터가 많은데 ... 이렇게 하는게 말이되냐"
+
+**위반 사실**:
+- PR-11 V4 결정 시 KIS 헤더 raw 정독 0건 → instrument 테이블 14 컬럼 자체 추론
+- KIS open-trading-api `종목마스터정보(코스피).h` 73 필드 + `종목마스터정보(코스닥).h` 67 필드 제공인데 **본 시스템 6 필드만 활용** (fitness gap 91.7%)
+- 사용자 메모리 `feedback_kis_first_policy.md`(자체 추론 금지) + `feedback_v3_skepticism_no_regression.md`(fitness gap 의무) 위반
+
+### 정정 안 (PR-21 진행)
+
+PR-21 spec 5종 발행 (architect 자율 결정 사이클):
+- `_workspace/specs/pr-21-instrument-kis-first-design.md` — 70 필드 add-only Tier 1·2·3·4 + V5 LOCK + Entity 83 필드 LOCK + KisInstrumentMasterAdapter 파싱 본격 LOCK + scrt_grp_cls_code 권위 매핑 + KOSPI/KOSDAQ 차이 14건 흡수 + 트레이드오프 9건
+- `_workspace/specs/pr-21-kis-header-raw-verification.md` — KIS 헤더 raw 검증 보고서 (KOSPI 73 필드 + KOSDAQ 67 필드 + Python 파서 widths 1:1 정합 + byte offset 매트릭스)
+- `_workspace/specs/pr-21-dispatch-spec.md` — PR-21a market-data + PR-21b backend-core 분배 + KIS-first raw fetch 의무 강화
+- `_workspace/specs/pr-21-conflict-matrix.md` — 영역 분배 LOCK + add-add 0% + modify-shared 1건(CHANGELOG)만
+- `.claude/agents/architect.md` (또는 SKILL) — KIS-first raw fetch 의무 강화 (재발 방지)
+
+### 트리거
+
+- 본 backlog 항목은 PR-21 spec PR 머지 시점에 추가
+- PR-21a + PR-21b 양쪽 머지 후 ✅ 처리 완료 마킹
+- 사용자 dogfooding 검증 — Watchlist row에 type·시총·매매가드 노출 확인
+
+### 예상 처리 PR
+
+- spec PR (architect — 본 사이클)
+- PR-21a (market-data) — V5 + 파싱 본격 + InstrumentType 'DR' enum
+- PR-21b (backend-core) — InstrumentJpaEntity 83 필드 + Repository·Service·DTO 보강
+
+### 사용자 비판 응답 ★ 재발 방지
+
+1. **본 사이클에서 fitness gap 91.7% → 13% 축소** (Tier 1·2 자동매매 본체 + Tier 3·4 후속)
+2. **architect SKILL 강화** — spec 산출 시 외부 데이터 규격 raw fetch 의무 명시 (`.claude/agents/architect.md` 또는 ADR)
+3. **재발 방지 체크리스트** — 새 KIS endpoint 사용 시 → KIS open-trading-api 레포 raw fetch 의무 (코드 inline 주석에 raw URL 명시)
+4. **자체 추론 0 정책** — sub-agent 디스패치 명세에 명시 의무 (sub-agent 코드 inline에 출처 인용)
+
+---
+
+## §17. architect SKILL — KIS-first raw fetch 의무 강화 (PR-21 처리 진행 중)
+
+### 사유
+
+§16의 재발 방지 일환. architect spec/plan PR 발행 시 외부 데이터 규격(KIS 헤더·tr_id·필드 byte offset·DSL 등) raw fetch 검증 의무를 SKILL.md 또는 ADR에 명시화. 현재 사용자 메모리 `feedback_kis_first_policy.md`만 있고 architect SKILL 자체에는 명시 부재.
+
+### 정정 안
+
+`.claude/agents/architect.md`에 다음 절 추가:
+
+```
+## KIS-first raw fetch 의무 (`feedback_kis_first_policy.md` + 사용자 비판 응답)
+
+spec/plan PR 발행 시 KIS API·외부 데이터 규격을 결정하는 경우:
+
+1. **KIS open-trading-api 레포 raw fetch 의무** — `curl -sL https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/...` 직접 다운로드 후 정독
+2. **자체 추론 0 정책** — tr_id·endpoint·필드·byte offset·DSL 자체 결정 금지. 모든 결정은 raw 출처 인용 의무
+3. **검증 보고서 산출 권장** — 새 endpoint·새 데이터 규격 결정 시 `_workspace/specs/<pr>-kis-raw-verification.md` 신설 (예: PR-21에서 `pr-21-kis-header-raw-verification.md`)
+4. **sub-agent에게 raw 출처 직접 인용 의무 전파** — dispatch §에 KIS-first 출처 인용 의무 명시 + sub-agent 코드 inline 주석에 raw URL 명시
+5. **MCP 사용 권장** — `mcp__kis-code-assistant__*` 호출 결과 spec 또는 PR 본문에 인용
+
+위반 시: 사용자 비판 risk + fitness gap 발생 risk + sub-agent 자체 추론 risk 누적.
+```
+
+또한 새 ADR 검토:
+- 후보 (a) ADR 0051 — KIS-first raw fetch 의무 (강화 ADR)
+- 후보 (b) ADR 0017 보강 (Instrument Master 1급 시민) — KIS 헤더 raw fetch 의무 추가
+
+architect 권장: **(a) ADR 0051 신설** — 명확한 별도 ADR로 sub-agent SKILL에서도 cross-ref 가능.
+
+### 트리거
+
+PR-21 사이클 일환. spec PR에 SKILL 강화 + ADR 0051 신설 포함.
+
+### 예상 처리 PR
+
+architect spec PR-21 (현재 사이클) — `architect.md` SKILL 보강 + ADR 0051 신설 옵션 (architect 자율 결정).
 
 ---
 
