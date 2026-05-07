@@ -51,10 +51,11 @@ describe('온보딩 라우팅 가드', () => {
   it('hasUserAccount=false 시 / 진입하면 /setup으로 이동한다', async () => {
     renderApp('/')
 
-    // SetupWizard 화면 요소가 나타날 때까지 대기
+    // SetupWizard 화면 요소가 나타날 때까지 대기 (복수 요소 허용 — AppLayout 추가로 중복 가능)
     await waitFor(
       () => {
-        expect(screen.getByText(/magicJar 셋업 마법사|셋업 마법사|KIS 실전 계좌 정보 입력/)).toBeInTheDocument()
+        const elements = screen.getAllByText(/magicJar 셋업 마법사|셋업 마법사|KIS 실전 계좌 정보 입력/)
+        expect(elements.length).toBeGreaterThan(0)
       },
       { timeout: 3000 },
     )
