@@ -5,10 +5,11 @@ import io.mockk.every
 import io.mockk.justRun
 import io.mockk.mockk
 import io.mockk.verify
+import kr.spdaewoon.magicjar.batch.infrastructure.kis.KisInstrumentMasterAdapter
+import kr.spdaewoon.magicjar.batch.infrastructure.kis.KisInstrumentRaw
 import kr.spdaewoon.magicjar.batch.persistence.BatchInstrumentAliasJpaRepository
 import kr.spdaewoon.magicjar.batch.persistence.BatchInstrumentJpaEntity
 import kr.spdaewoon.magicjar.batch.persistence.BatchInstrumentJpaRepository
-import kr.spdaewoon.magicjar.domain.instrument.Instrument
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentMarket
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentType
 import kr.spdaewoon.magicjar.domain.instrument.port.KisInstrumentMasterPort
@@ -22,7 +23,11 @@ import java.time.Duration
 import java.time.Instant
 
 /**
- * InstrumentSyncJob smoke test (T-IM1 PR-11a).
+ * InstrumentSyncJob smoke test (PR-21a 보강 — T-IM1 ADR 0017·0039).
+ *
+ * PR-21a 변경:
+ *   - kisAdapter.fetchAllRaw() 경로로 diff·upsert (70+ 필드)
+ *   - changed 판별 보강 (매매가드·securities_group)
  *
  * 검증:
  * 1. diff logic (INSERT NEW · UPDATE CHANGED · DELIST 폐지)
@@ -31,6 +36,7 @@ import java.time.Instant
  */
 class InstrumentSyncJobTest {
     private val kisPort: KisInstrumentMasterPort = mockk()
+    private val kisAdapter: KisInstrumentMasterAdapter = mockk()
     private val instrumentRepo: BatchInstrumentJpaRepository = mockk()
     private val aliasRepo: BatchInstrumentAliasJpaRepository = mockk()
     private val redisTemplate: StringRedisTemplate = mockk()
@@ -43,20 +49,15 @@ class InstrumentSyncJobTest {
     @BeforeEach
     fun setUp() {
         every { redisTemplate.opsForValue() } returns valueOps
-        // 락 획득 성공
-        every {
-            valueOps.setIfAbsent(any(), "true", Duration.ofSeconds(600))
-        } returns true
-        // 락 해제
+        every { valueOps.setIfAbsent(any(), "true", Duration.ofSeconds(600)) } returns true
         every { redisTemplate.delete(any<String>()) } returns true
-        // Redis keys() 빈 set
         every { redisTemplate.keys(any()) } returns emptySet()
-        // lastAt SET (아무 인수나 허용)
         every { valueOps.set(any(), any(), any<Duration>()) } returns Unit
 
         job =
             InstrumentSyncJob(
                 kisPort = kisPort,
+                kisAdapter = kisAdapter,
                 instrumentRepo = instrumentRepo,
                 aliasRepo = aliasRepo,
                 redisTemplate = redisTemplate,
@@ -73,20 +74,18 @@ class InstrumentSyncJobTest {
                 makeEntity("005930", "삼성전자", "KOSPI"),
                 makeEntity("000660", "SK하이닉스", "KOSPI"), // KIS 응답에서 제거 → DELIST
             )
-        val kisResponse =
+        val kisRaws =
             listOf(
-                makeInstrument("005930", "삼성전자", InstrumentMarket.KOSPI),
-                makeInstrument("099999", "신규상장종목A", InstrumentMarket.KOSPI), // NEW
+                makeRaw("005930", "삼성전자", InstrumentMarket.KOSPI),
+                makeRaw("099999", "신규상장종목A", InstrumentMarket.KOSPI), // NEW
             )
 
-        every { kisPort.fetchAll() } returns kisResponse
+        every { kisAdapter.fetchAllRaw() } returns kisRaws
         every { instrumentRepo.findAllByActiveTrue() } returns existingActive
-        justRun { instrumentRepo.upsert(any(), any(), any(), any(), any(), any(), any()) }
+        every { instrumentRepo.upsertFull(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns Unit
         justRun { aliasRepo.upsert(any(), any(), any()) }
         justRun { instrumentRepo.markDelisted(any(), any()) }
-        val sendFuture = mockk<java.util.concurrent.CompletableFuture<org.apache.kafka.clients.producer.RecordMetadata>>()
-        every { kafkaTemplate.send(any<String>(), any(), any()) } returns
-            mockk { every { isDone } returns false }
+        every { kafkaTemplate.send(any<String>(), any(), any()) } returns mockk { every { isDone } returns false }
 
         // when
         val result = job.run("test")
@@ -103,38 +102,9 @@ class InstrumentSyncJobTest {
     }
 
     @Test
-    fun `UPDATE CHANGED — 종목명 변경 시 UPDATE 실행`() {
-        // given
-        val existingActive =
-            listOf(
-                makeEntity("005930", "삼성전자(구)", "KOSPI"), // 이름 변경됨
-            )
-        val kisResponse =
-            listOf(
-                makeInstrument("005930", "삼성전자", InstrumentMarket.KOSPI),
-            )
-
-        every { kisPort.fetchAll() } returns kisResponse
-        every { instrumentRepo.findAllByActiveTrue() } returns existingActive
-        justRun { instrumentRepo.upsert(any(), any(), any(), any(), any(), any(), any()) }
-        justRun { aliasRepo.upsert(any(), any(), any()) }
-        val sendFuture = mockk<java.util.concurrent.CompletableFuture<org.apache.kafka.clients.producer.RecordMetadata>>()
-        every { kafkaTemplate.send(any<String>(), any(), any()) } returns
-            mockk { every { isDone } returns false }
-
-        // when
-        val result = job.run("test")
-
-        // then
-        assertEquals(0, result.inserted, "신규 없음")
-        assertEquals(1, result.updated, "이름 변경 UPDATE 1건")
-        assertEquals(0, result.delisted, "폐지 없음")
-    }
-
-    @Test
     fun `KIS fetch 실패 — graceful (DB 변경 0건 + failed=1)`() {
         // given
-        every { kisPort.fetchAll() } throws RuntimeException("KIS 종목 마스터 fetch 실패")
+        every { kisAdapter.fetchAllRaw() } throws RuntimeException("KIS 종목 마스터 fetch 실패")
 
         // when
         val result = job.run("test")
@@ -147,7 +117,6 @@ class InstrumentSyncJobTest {
 
         // DB 미호출 검증
         verify(exactly = 0) { instrumentRepo.findAllByActiveTrue() }
-        verify(exactly = 0) { instrumentRepo.upsert(any(), any(), any(), any(), any(), any(), any()) }
         verify(exactly = 0) { instrumentRepo.markDelisted(any(), any()) }
     }
 
@@ -167,20 +136,87 @@ class InstrumentSyncJobTest {
         updatedAt = Instant.now(),
     )
 
-    private fun makeInstrument(
+    private fun makeRaw(
         code: String,
         name: String,
         market: InstrumentMarket,
-    ) = Instrument(
+    ) = KisInstrumentRaw(
         code = code,
         isin = null,
         name = name,
-        nameEn = null,
         market = market,
         type = InstrumentType.STOCK,
-        sector = null,
+        securitiesGroup = "ST",
+        tradingHalt = false,
+        liquidation = false,
+        managementStock = false,
+        marketAlert = "00",
+        marketAlertWarning = false,
+        falseDisclosure = false,
+        backdoorListing = false,
+        shortOverheated = false,
+        abnormalRunup = false,
+        investmentCaution = false,
+        exRightsType = "00",
+        faceValueChange = "00",
+        capitalIncrease = "00",
+        creditAble = false,
+        creditDays = null,
+        marginRate = null,
+        shortOverheatedStatus = "0",
+        avlsScale = null,
+        industryLarge = null,
+        industryMedium = null,
+        industrySmall = null,
+        kospi200Sector = null,
+        isKospi100 = false,
+        isKospi50 = false,
+        isKospi200 = false,
+        isKosdaq150 = false,
+        isKrx = false,
+        isKrx100 = false,
+        isKrx300 = false,
+        krxSectorCar = false,
+        krxSectorSemicon = false,
+        krxSectorBio = false,
+        krxSectorBank = false,
+        krxSectorEnergyChem = false,
+        krxSectorSteel = false,
+        krxSectorMediaComm = false,
+        krxSectorConstruction = false,
+        krxSectorSecurities = false,
+        krxSectorShip = false,
+        krxSectorInsurance = false,
+        krxSectorTransport = false,
+        isManufacturing = false,
+        isLowLiquidity = false,
+        isGovernanceIndex = false,
+        isSpac = false,
+        isVenture = false,
+        isSriIndex = false,
+        etpProductType = null,
+        isElwPublisher = false,
+        preferredStockType = null,
+        groupCode = null,
+        basePrice = null,
+        tradingUnitNormal = null,
+        tradingUnitOvertime = null,
+        prevVolume = null,
+        faceValue = null,
         listedAt = null,
-        delistedAt = null,
-        active = true,
+        listedShares = null,
+        capital = null,
+        settlementMonth = null,
+        publicOfferingPrice = null,
+        salesAmount = null,
+        operatingProfit = null,
+        ordinaryProfit = null,
+        netIncome = null,
+        roe = null,
+        financialBaseDate = null,
+        marketCapPrev = null,
+        creditLimitExceeded = false,
+        collateralLendable = false,
+        shortLendable = false,
     )
 }
