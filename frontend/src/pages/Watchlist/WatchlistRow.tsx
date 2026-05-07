@@ -63,10 +63,20 @@ export function WatchlistRow({ entry }: WatchlistRowProps) {
       aria-label={`관심종목 ${entry.code} — 클릭하면 상세 화면으로 이동`}
     >
       <div className="flex items-center gap-4">
-        {/* 종목 코드 */}
-        <span className="font-mono text-base font-semibold text-white tracking-wider">
-          {entry.code}
-        </span>
+        {/* 종목명 (PR-20 — instrument 테이블 join) + 코드 */}
+        <div className="flex flex-col gap-0.5">
+          <span className="text-sm font-medium text-white">
+            {entry.name ?? entry.code}
+          </span>
+          <span className="font-mono text-xs text-gray-500 tracking-wider">
+            {entry.code}
+            {entry.market && entry.market !== 'UNKNOWN' && (
+              <span className="ml-1.5 rounded bg-gray-800 px-1 py-0.5 text-[10px] text-gray-400">
+                {entry.market}
+              </span>
+            )}
+          </span>
+        </div>
         {/* 우선순위 */}
         <span className="rounded-md bg-gray-800 px-2 py-0.5 text-xs text-gray-400">
           P{entry.priority}

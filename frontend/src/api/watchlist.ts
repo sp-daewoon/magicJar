@@ -15,6 +15,10 @@ export interface WatchlistEntryDto {
   id: number
   userId: string
   code: string
+  /** 종목명 (instrument 테이블 join — 미동기화 시 null, PR-20) */
+  name?: string | null
+  /** 시장 구분 KOSPI·KOSDAQ·UNKNOWN (PR-20) */
+  market?: string | null
   priority: number
   createdAt: string // ISO 8601
 }
