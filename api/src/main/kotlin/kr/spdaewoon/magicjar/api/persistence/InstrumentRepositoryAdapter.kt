@@ -16,6 +16,7 @@ import java.time.LocalDate
 /**
  * InstrumentRepository 도메인 포트 구현 (api 모듈).
  * PR-11b 신규: InstrumentJpaEntity ↔ Instrument 도메인 변환.
+ * PR-21b 보강: findActiveTradeable·countByMarket·findByMarketCapDesc·findByKospi200 implement.
  */
 @Component
 class InstrumentRepositoryAdapter(
@@ -72,7 +73,7 @@ class InstrumentRepositoryAdapter(
         val existing = instrumentJpaRepository.findById(instrument.code).orElse(null)
         val entity =
             if (existing != null) {
-                // UPDATE: name·market·sector·nameNorm·theme·active 갱신
+                // UPDATE: name·market·sector·nameNorm·theme·active 갱신 (70 신규 필드는 market-data sync job이 담당)
                 InstrumentJpaEntity(
                     code = instrument.code,
                     isin = instrument.isin,
@@ -87,6 +88,78 @@ class InstrumentRepositoryAdapter(
                     active = instrument.active,
                     createdAt = existing.createdAt,
                     updatedAt = Instant.now(),
+                    // 기존 Tier 2~4 필드 보존 (sync job이 갱신 — upsert는 도메인 stub 경로)
+                    tradingHalt = existing.tradingHalt,
+                    liquidation = existing.liquidation,
+                    managementStock = existing.managementStock,
+                    marketAlert = existing.marketAlert,
+                    marketAlertWarning = existing.marketAlertWarning,
+                    falseDisclosure = existing.falseDisclosure,
+                    backdoorListing = existing.backdoorListing,
+                    shortOverheated = existing.shortOverheated,
+                    abnormalRunup = existing.abnormalRunup,
+                    investmentCaution = existing.investmentCaution,
+                    exRightsType = existing.exRightsType,
+                    faceValueChange = existing.faceValueChange,
+                    capitalIncrease = existing.capitalIncrease,
+                    creditAble = existing.creditAble,
+                    creditDays = existing.creditDays,
+                    marginRate = existing.marginRate,
+                    shortOverheatedStatus = existing.shortOverheatedStatus,
+                    securitiesGroup = existing.securitiesGroup,
+                    industryLarge = existing.industryLarge,
+                    industryMedium = existing.industryMedium,
+                    industrySmall = existing.industrySmall,
+                    kospi200Sector = existing.kospi200Sector,
+                    avlsScale = existing.avlsScale,
+                    isKospi100 = existing.isKospi100,
+                    isKospi50 = existing.isKospi50,
+                    isKospi200 = existing.isKospi200,
+                    isKosdaq150 = existing.isKosdaq150,
+                    isKrx = existing.isKrx,
+                    isKrx100 = existing.isKrx100,
+                    isKrx300 = existing.isKrx300,
+                    krxSectorCar = existing.krxSectorCar,
+                    krxSectorSemicon = existing.krxSectorSemicon,
+                    krxSectorBio = existing.krxSectorBio,
+                    krxSectorBank = existing.krxSectorBank,
+                    krxSectorEnergyChem = existing.krxSectorEnergyChem,
+                    krxSectorSteel = existing.krxSectorSteel,
+                    krxSectorMediaComm = existing.krxSectorMediaComm,
+                    krxSectorConstruction = existing.krxSectorConstruction,
+                    krxSectorSecurities = existing.krxSectorSecurities,
+                    krxSectorShip = existing.krxSectorShip,
+                    krxSectorInsurance = existing.krxSectorInsurance,
+                    krxSectorTransport = existing.krxSectorTransport,
+                    isManufacturing = existing.isManufacturing,
+                    isLowLiquidity = existing.isLowLiquidity,
+                    isGovernanceIndex = existing.isGovernanceIndex,
+                    isSpac = existing.isSpac,
+                    isVenture = existing.isVenture,
+                    isSriIndex = existing.isSriIndex,
+                    etpProductType = existing.etpProductType,
+                    isElwPublisher = existing.isElwPublisher,
+                    preferredStockType = existing.preferredStockType,
+                    groupCode = existing.groupCode,
+                    basePrice = existing.basePrice,
+                    tradingUnitNormal = existing.tradingUnitNormal,
+                    tradingUnitOvertime = existing.tradingUnitOvertime,
+                    prevVolume = existing.prevVolume,
+                    faceValue = existing.faceValue,
+                    listedShares = existing.listedShares,
+                    capital = existing.capital,
+                    settlementMonth = existing.settlementMonth,
+                    publicOfferingPrice = existing.publicOfferingPrice,
+                    marketCapPrev = existing.marketCapPrev,
+                    salesAmount = existing.salesAmount,
+                    operatingProfit = existing.operatingProfit,
+                    ordinaryProfit = existing.ordinaryProfit,
+                    netIncome = existing.netIncome,
+                    roe = existing.roe,
+                    financialBaseDate = existing.financialBaseDate,
+                    creditLimitExceeded = existing.creditLimitExceeded,
+                    collateralLendable = existing.collateralLendable,
+                    shortLendable = existing.shortLendable,
                 )
             } else {
                 InstrumentJpaEntity(
@@ -117,6 +190,37 @@ class InstrumentRepositoryAdapter(
         log.debug("[instrument] upsertAll: count={}", count)
         return count
     }
+
+    // ==========================================================================
+    // PR-21b 신규 메서드 구현
+    // ==========================================================================
+
+    @Transactional(readOnly = true)
+    override fun findActiveTradeable(): List<Instrument> = instrumentJpaRepository.findActiveTradeable().map { it.toDomain() }
+
+    @Transactional(readOnly = true)
+    override fun countByMarket(): Map<String, Long> {
+        val rows = instrumentJpaRepository.countByMarket()
+        return rows.associate { row ->
+            val market = row[0] as String
+            val count =
+                when (val raw = row[1]) {
+                    is Long -> raw
+                    is Number -> raw.toLong()
+                    else -> 0L
+                }
+            market to count
+        }
+    }
+
+    @Transactional(readOnly = true)
+    override fun findByMarketCapDesc(limit: Int): List<Instrument> {
+        val pageable = PageRequest.of(0, limit)
+        return instrumentJpaRepository.findByMarketCapDescLimit(pageable).map { it.toDomain() }
+    }
+
+    @Transactional(readOnly = true)
+    override fun findByKospi200(): List<Instrument> = instrumentJpaRepository.findByActiveTrueAndIsKospi200True().map { it.toDomain() }
 
     // ── private helpers ─────────────────────────────────────────────────
 

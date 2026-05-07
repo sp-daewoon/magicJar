@@ -10,6 +10,7 @@ import java.time.LocalDate
 /**
  * instrument Spring Data JPA Repository.
  * PR-11b 보강: active 조회·markDelisted·pg_trgm fallback 검색 메서드 추가.
+ * PR-21b 보강: findActiveTradeable·findByMarketCapDescLimit·findByIsKospi200True 추가.
  */
 interface InstrumentJpaRepository : JpaRepository<InstrumentJpaEntity, String> {
     fun existsByCode(code: String): Boolean
@@ -69,4 +70,58 @@ interface InstrumentJpaRepository : JpaRepository<InstrumentJpaEntity, String> {
         @Param("market") market: String?,
         pageable: Pageable,
     ): List<InstrumentJpaEntity>
+
+    // ==========================================================================
+    // PR-21b 신규 — T-SC·T-IND screening 지원
+    // ==========================================================================
+
+    /**
+     * 매매 가능한 활성 종목 (PR-21b).
+     * active=true AND trading_halt=false AND liquidation=false.
+     * T-SC universe 1차 필터.
+     */
+    @Query(
+        """
+        SELECT i FROM InstrumentJpaEntity i
+        WHERE i.active = true
+          AND i.tradingHalt = false
+          AND i.liquidation = false
+        ORDER BY i.code ASC
+        """,
+    )
+    fun findActiveTradeable(): List<InstrumentJpaEntity>
+
+    /**
+     * market별 활성 종목 수 집계 (PR-21b).
+     * T-MS1 시장 통계용.
+     */
+    @Query(
+        """
+        SELECT i.market, COUNT(i) FROM InstrumentJpaEntity i
+        WHERE i.active = true
+        GROUP BY i.market
+        """,
+    )
+    fun countByMarket(): List<Array<Any>>
+
+    /**
+     * 시가총액 내림차순 종목 목록 (PR-21b).
+     * market_cap_prev DESC NULLS LAST.
+     * T-SC 대형주 screening.
+     */
+    @Query(
+        """
+        SELECT i FROM InstrumentJpaEntity i
+        WHERE i.active = true
+          AND i.marketCapPrev IS NOT NULL
+        ORDER BY i.marketCapPrev DESC
+        """,
+    )
+    fun findByMarketCapDescLimit(pageable: Pageable): List<InstrumentJpaEntity>
+
+    /**
+     * KOSPI200 편입 종목 목록 (PR-21b).
+     * T-SC 기준 universe.
+     */
+    fun findByActiveTrueAndIsKospi200True(): List<InstrumentJpaEntity>
 }
