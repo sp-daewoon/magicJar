@@ -21,6 +21,11 @@ export interface WatchlistEntryDto {
   market?: string | null
   priority: number
   createdAt: string // ISO 8601
+  /**
+   * 상장폐지 여부 (instrument.active=false).
+   * true 시 "상장폐지" 작은 라벨 표시 + 사용자가 직접 watchlist에서 제거 결정.
+   */
+  delisted?: boolean
 }
 
 /** POST /api/watchlists 요청 */

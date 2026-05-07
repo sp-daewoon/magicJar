@@ -24,6 +24,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import { useInstrument } from '../../api/hooks/useInstrument'
 import { useSymbol } from '../../api/hooks/useSymbol'
 import {
   symbolApi,
@@ -53,7 +54,11 @@ function isBEError(status: number | undefined): boolean {
 
 export function SymbolDetailPage() {
   const { code = '' } = useParams<{ code: string }>()
-  const { data: symbol, isLoading, isError, error } = useSymbol(code)
+  const { data: instrument, isLoading: isInstrumentLoading } = useInstrument(code)
+  const isDelisted = instrument?.active === false
+  // 상장폐지 종목은 가격 조회 의미 없음 — useSymbol 비활성으로 polling 차단
+  const { data: symbol, isLoading: isSymbolLoading, isError, error } = useSymbol(isDelisted ? '' : code)
+  const isLoading = isInstrumentLoading || (!isDelisted && isSymbolLoading)
 
   // STOMP 실시간 상태
   const [realtimeTick, setRealtimeTick] = useState<TickPayload | null>(null)
@@ -71,23 +76,26 @@ export function SymbolDetailPage() {
     return () => clearInterval(id)
   }, [])
 
-  // STOMP topic 구독 (3개 — tick·candle.minute·orderbook)
+  // STOMP topic 구독 (3개 — tick·candle.minute·orderbook).
+  // 상장폐지 종목은 실시간 데이터가 없으므로 구독 자체 차단.
+  const stompEnabled = Boolean(code) && !isDelisted
+
   useStompTopic<TickPayload>(
     `/topic/market.tick.${code}`,
     useCallback((payload) => setRealtimeTick(payload), []),
-    Boolean(code),
+    stompEnabled,
   )
 
   useStompTopic<CandleMinutePayload>(
     `/topic/market.candle.minute.${code}`,
     useCallback((payload) => setRealtimeCandle(payload), []),
-    Boolean(code),
+    stompEnabled,
   )
 
   useStompTopic<OrderbookPayload>(
     `/topic/market.orderbook.${code}`,
     useCallback((payload) => setOrderbook(payload), []),
-    Boolean(code),
+    stompEnabled,
   )
 
   // ──────────────────────────────────────────────
@@ -96,7 +104,8 @@ export function SymbolDetailPage() {
   const subscribeCalledRef = useRef(false)
 
   useEffect(() => {
-    if (!code || subscribeCalledRef.current) return
+    // 상장폐지 종목은 호가 LRU slot 점유 안 함 (실시간 데이터 없음).
+    if (!code || isDelisted || subscribeCalledRef.current) return
     subscribeCalledRef.current = true
 
     // mount → POST subscribe (200ms 딜레이 — spec §5-2 throttle 정합)
@@ -126,7 +135,7 @@ export function SymbolDetailPage() {
       }
       subscribeCalledRef.current = false
     }
-  }, [code])
+  }, [code, isDelisted])
 
   // ──────────────────────────────────────────────
   // HTTP 에러 분류
@@ -148,6 +157,19 @@ export function SymbolDetailPage() {
           <div className="h-10 w-10 animate-spin rounded-full border-4 border-gray-800 border-t-blue-500" />
           <p className="text-sm text-gray-500">종목 정보 로딩 중...</p>
         </div>
+      </div>
+    )
+  }
+
+  // 상장폐지 종목 (instrument.active=false) — 가격·차트·호가 진입 차단 + 안내
+  if (isDelisted) {
+    return (
+      <div className="min-h-screen bg-gray-950 px-4 py-8">
+        <SymbolError
+          code={code}
+          variant="delisted"
+          delistedAt={instrument?.delistedAt ?? null}
+        />
       </div>
     )
   }

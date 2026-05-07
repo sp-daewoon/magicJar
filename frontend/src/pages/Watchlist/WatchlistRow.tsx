@@ -65,8 +65,17 @@ export function WatchlistRow({ entry }: WatchlistRowProps) {
       <div className="flex items-center gap-4">
         {/* 종목명 (PR-20 — instrument 테이블 join) + 코드 */}
         <div className="flex flex-col gap-0.5">
-          <span className="text-sm font-medium text-white">
+          <span className="flex items-center gap-1.5 text-sm font-medium text-white">
             {entry.name ?? entry.code}
+            {/* 상장폐지 라벨 — backend instrument.active=false. 사용자가 직접 휴지통으로 정리. */}
+            {entry.delisted && (
+              <span
+                className="rounded bg-red-900/40 px-1.5 py-0.5 text-[10px] font-medium text-red-300"
+                title="이미 상장폐지된 종목입니다. 휴지통 버튼으로 관심종목에서 제거하세요."
+              >
+                상장폐지
+              </span>
+            )}
           </span>
           <span className="font-mono text-xs text-gray-500 tracking-wider">
             {entry.code}
