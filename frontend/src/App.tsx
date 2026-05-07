@@ -7,16 +7,23 @@
  * - hasUserAccount=true + path === '/setup' → Navigate to="/" (이미 완료된 사용자 차단)
  * - isLoading → 스플래시 표시
  *
- * 라우트 (PR-5b 구조 유지 + PR-6 확장):
- *   /        -> 대시보드 (T-W1 Watchlist 진입점 — PR-7에서 구현)
- *   /setup   -> 셋업 마법사 7단계 (T-ONBOARD)
- *   *        -> / 리다이렉트
+ * 라우트 (PR-5b 구조 유지 + PR-6 확장 + PR-7 추가):
+ *   /           -> 대시보드 placeholder
+ *   /watchlist  -> 관심종목 (T-W1 1순위 진입점 — ADR 0040)
+ *   /setup      -> 셋업 마법사 7단계 (T-ONBOARD)
+ *   *           -> / 리다이렉트
+ *
+ * AppHeader:
+ *   /setup 경로에서는 미표시 (셋업 흐름 UI 단순화)
+ *   그 외 경로는 AppHeader로 감싸기
  */
 import type { ReactNode } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useOnboardingStatus } from './api/onboarding'
+import { AppHeader } from './components/layout/AppHeader'
 import { DashboardPlaceholder } from './pages/DashboardPlaceholder'
 import { SetupWizard } from './pages/SetupWizard'
+import { WatchlistPage } from './pages/Watchlist/WatchlistPage'
 
 /** 온보딩 라우팅 가드 — status 기반 자동 분기 */
 function OnboardingGuard({ children }: { children: ReactNode }) {
@@ -55,15 +62,35 @@ function OnboardingGuard({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
+/** /setup 경로 제외 시 AppHeader 표시 레이아웃 */
+function AppLayout({ children }: { children: ReactNode }) {
+  const location = useLocation()
+  const isSetupPath = location.pathname === '/setup'
+
+  if (isSetupPath) {
+    return <>{children}</>
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-950">
+      <AppHeader />
+      <main>{children}</main>
+    </div>
+  )
+}
+
 export function App() {
   return (
     <OnboardingGuard>
-      <Routes>
-        <Route path="/" element={<DashboardPlaceholder />} />
-        <Route path="/setup" element={<SetupWizard />} />
-        {/* 미정의 경로는 / 로 리다이렉트 */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <AppLayout>
+        <Routes>
+          <Route path="/" element={<DashboardPlaceholder />} />
+          <Route path="/watchlist" element={<WatchlistPage />} />
+          <Route path="/setup" element={<SetupWizard />} />
+          {/* 미정의 경로는 / 로 리다이렉트 */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AppLayout>
     </OnboardingGuard>
   )
 }
