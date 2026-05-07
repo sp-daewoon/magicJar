@@ -187,13 +187,22 @@ dogfooding 결함 발견 시 즉시 갱신 — 사용자 명시 + orchestrator �
 |---|---|---|---|
 | TBD | TBD | TBD | TBD |
 
+### 갱신 (2026-05-07 — PR-11 사이클 진입)
+
+사용자 명시 — dogfooding 잠시 보류 + "다음 일정 진행". orchestrator가 T-IM1 우선 결정:
+- **사유 1**: 종목 검색 자동완성으로 dogfooding 가시성 ↑ (한글 검색 지원 → "삼성" 입력만으로 등록 가능)
+- **사유 2**: PR-7 옵션 C raw code 함정 자연 해소 (instrument stub `market='UNKNOWN'`이 첫 sync 후 정확 데이터로 UPDATE)
+- **사유 3**: T-IND·T-DSL·T-SC·T-BT 선행 의무 (universe 정의 부재 시 후속 모든 트랙 차단)
+
+본 PR-11 머지 후 dogfooding 재개 가능 트리거 — 사용자 의제 → 위 표 dogfooding 결과 sub-section 채움.
+
 ---
 
-## §7. 후속 트랙 진입 가이드 (W2 시작점 결정)
+## §7. 후속 트랙 진입 가이드 (W1 잔여 + W2 시작점 결정)
 
 ### 사유
 
-본 PR-10 머지 + dogfooding 통과 후 **W1 종료** — T-W1·T-W2·T-S1 모두 완료. W2 진입 첫 트랙 결정 사용자 의제.
+PR-10 머지 후 W1 ★ 3건(T-W1·T-W2·T-S1) 완료. W1 잔여 트랙(T-MS1·T-IM1·T-CA1) + W2 진입 결정 사용자 의제.
 
 ### 후보 트랙 (tracks-roadmap §1)
 
@@ -203,28 +212,32 @@ W2 — 분석 도구 (T-IND·T-PAT·T-DSL·T-SB):
 - **T-DSL** (.kis.yaml superset 파서·평가기) — L 분량 (T-IND·T-PAT 선행)
 - **T-SB** (GUI 블록 빌더) — XL 분량 (T-DSL 선행)
 
-W1 보강 후보:
+W1 잔여 후보:
 - **T-MS1** (Market Session FSM + Fallback 3-tier T3 last-day-close) — M 분량 (W1 보강이지만 후속 모든 트랙 선행)
-- **T-IM1** (Instrument Master + 종목 검색·자동완성) — M 분량 (T-CA1·T-IND 선행)
+- **T-IM1** (Instrument Master + 종목 검색·자동완성) — M 분량 (T-CA1·T-IND 선행) — **본 PR-11 진입 ★ (orchestrator 결정)**
 - **T-CA1** (Corp Action + adjusted) — M 분량 (T-BT 선행)
 
-### 정정 안
+### 정정 안 (2026-05-07 갱신 — PR-11 진입)
 
-**architect 권장 진행 순서** (사용자 결정 필요):
-- (A) T-MS1 + T-IM1 병렬 (W1 보강) → T-CA1 → W2 (안전 — 데이터 정합 우선)
-- (B) T-IND + T-PAT 병렬 (W2 직접 진입) → T-DSL → T-SB (속도 우선)
-- (C) T-MS1만 우선 (last-day-close fallback 의무 — 사용자 dogfooding 결과 정합) → W2 (균형)
+**현재 진행 — T-IM1 (PR-11)**:
+- 사용자 dogfooding 보류 중 + 다음 일정 진행 의제 → orchestrator T-IM1 우선 결정
+- 사유: 자동완성 가시성 ↑ + PR-7 옵션 C 자연 해소 + T-IND·T-DSL 선행 (`pr-11-im1-design.md` §1-3 비즈니스 가치 정합)
 
-**architect 권장 = (C)** — T-MS1만 우선 W1 마무리 + W2 진입.
+**PR-11 머지 후 다음 트랙 후보**:
+- (A) **T-MS1** (KRX 영업일 캘린더 + last-day-close fallback) — W1 잔여 마무리
+- (B) **T-IND + T-PAT 병렬** (W2 직접 진입)
+- (C) **T-CA1** (Corp Action — T-BT 선행)
+
+**architect 권장**: PR-11 머지 후 T-MS1 진입 — 휴장일 정합 + 시세 fallback 부족 보강(현재 SimpleMarketSessionResolver 시간 stub). W2 진입은 T-MS1 완료 후.
 
 ### 트리거
 
-- 본 PR-10 머지 + dogfooding 결과 + backlog §6 점검 후
+- PR-11 머지 + dogfooding 결과 + backlog §6 점검 후
 - 사용자 결정 → orchestrator 다음 사이클 첫 의제
 
 ### 예상 처리 PR
 
-PR-11 architect 디스패치 — 다음 트랙 spec/plan 발행.
+PR-12 architect 디스패치 — 다음 트랙 spec/plan 발행 (T-MS1 또는 사용자 결정).
 
 ---
 
@@ -296,6 +309,7 @@ W2·W4 진입 시 architect 사전 발행.
 | 날짜 | 변경 | 사유 |
 |------|------|------|
 | 2026-05-07 | 본 backlog 신설 (10건 흡수 — 사용자 명시 5건 + architect 추가 5건) | PR-9 완료 후 사용자 명시 — "미뤄두는 의제들 관리해줘". architect가 5건 추가 (§6 dogfooding 결과·§7 W2 진입·§8 STOMP relay·§9 모바일 반응형·§10 AI 에이전트 영역 침범) |
+| 2026-05-07 | PR-11 진입 갱신 — §6 dogfooding 보류 명시 + §7 W1 잔여 진입(T-IM1) 정정 + §11 SymbolControllerTest mock 별도 PR 권장 명시 | 사용자 dogfooding 보류 + "다음 일정 진행" 의제 → orchestrator T-IM1 우선 결정. ADR 0017·0039 정합 spec/plan PR-11 발행 (`_workspace/specs/pr-11-im1-design.md` 외 2종) (architect) |
 
 ---
 
@@ -313,11 +327,14 @@ PR-10 통합 빌드 시 `SymbolControllerTest` 3건 모두 401 응답으로 fail
 
 ### 트리거
 
-PR-11(다음 사이클) 진입 시 R3 일괄 테스트 단계와 함께 처리. 또는 향후 다른 controller 테스트 추가 시 동일 패턴 정합 필요 시 우선.
+**2026-05-07 갱신 — PR-11 사이클 진입 시 정합**:
+- PR-11b backend-core가 `InstrumentControllerTest` 신규 작성 시 동일 mock 패턴 적용 의무 (`@MockBean UserAccountJpaRepository.existsAny()=true`) — `pr-11-dispatch-spec.md` §4-2-I 명시
+- 본 PR-11 사이클에서는 SymbolControllerTest 정정 자체는 **별도 PR 권장** (영역 침범 회피 — 룰 2 단일 책임)
+- PR-11 머지 후 또는 W1 R3 일괄 테스트 사이클에서 묶음 처리
 
 ### 예상 처리
 
-소형 PR (`hotfix/symbol-test-mock`) — backend-core 또는 market-data 영역 책임 (테스트 작성한 sub-agent).
+별도 소형 PR (`hotfix/symbol-test-mock`) — backend-core 영역 (PR-10b 발행 어댑터 테스트 정정). PR-11과 묶지 않음 (단일 책임).
 
 ---
 
