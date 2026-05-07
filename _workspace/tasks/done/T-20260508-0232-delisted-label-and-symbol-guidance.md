@@ -3,9 +3,9 @@ id: T-20260508-0232-delisted-label-and-symbol-guidance
 agent: frontend
 model: sonnet
 branch: agent/frontend/delisted-label-and-symbol-guidance
-status: RUNNING
+status: DONE
 startedAt: 2026-05-08T02:32:24.492+09:00
-completedAt: null
+completedAt: 2026-05-08T02:39:02.678+09:00
 pr: null
 parentPhase: ?
 ---
