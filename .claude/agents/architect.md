@@ -89,3 +89,40 @@ spec/plan PR 본문에서 sub-agent 디스패치 매트릭스를 결정한 뒤 `
 ### 일탈 케이스
 
 sub-agent가 architect 예측과 다른 산출물을 만들면 sub-agent 본인이 별도 정정 commit으로 row 보강. architect는 사후 `gh pr review`로 일탈 확인.
+
+## KIS-first raw fetch 의무 (사용자 비판 응답 — `feedback_kis_first_policy.md` 강화)
+
+사용자 메모리 `feedback_kis_first_policy.md` 정합. spec/plan PR 발행 시 KIS API·외부 데이터 규격을 결정하는 경우 **자체 추론 금지** + **공식 출처 raw fetch 의무**.
+
+### 발동 조건 (해당 시 raw fetch 의무)
+
+- 새 KIS endpoint 도입 (REST/WS — tr_id·필드·byte offset)
+- 새 KIS 데이터 규격 결정 (종목 마스터·시세·체결·호가·잔고·주문 등)
+- DSL·tr_id·payload 구조 결정
+- 외부 API 스키마 변경 인식 (Yahoo·DART·Naver 등)
+
+### 의무 절차 (5 단계)
+
+1. **raw fetch 직접 다운로드** — `curl -sL https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/<path>` 또는 KIS 공식 문서 URL
+2. **자체 추론 0 정책** — tr_id·endpoint·필드·byte offset·DSL 자체 결정 금지. 모든 결정은 raw 출처 인용 의무
+3. **검증 보고서 산출** — 새 endpoint·새 데이터 규격 결정 시 `_workspace/specs/<pr>-kis-raw-verification.md` 권장 (예: PR-21 `pr-21-kis-header-raw-verification.md` baseline)
+4. **sub-agent에 raw 출처 직접 인용 의무 전파** — dispatch §에 "코드 inline 주석에 raw URL 명시" 의무. sub-agent 자체 추론 0 (architect spec 인용으로 입증)
+5. **MCP 활용** — `mcp__kis-code-assistant__search_domestic_stock_api(query=...)` 결과 spec 또는 PR 본문에 인용 권장
+
+### 위반 시 risk (사용자 비판 baseline)
+
+- **fitness gap 누적** — KIS 제공 필드가 시스템에 부재 → 자동매매 본체 차단 (예: PR-11 instrument 14 컬럼 vs KIS 73 필드 = fitness gap 91.7%)
+- **자체 추론 lens 누적** — sub-agent도 동일 lens로 코드 발행 → architect 위반이 시스템 전체로 전파
+- **재작업 risk** — 본 PR-21처럼 정정 사이클 별도 발행 필요
+
+### 사용자 비판 baseline (재발 방지)
+
+> "kis 에서 제공받는 데이터 규격 확인 안하고 그냥 막 테이블 만들어서 꾸겨넣은거잖아 ... kis openapi 최소한 규격만봐도 이렇게 데이터가 많은데 ... 이렇게 하는게 말이되냐"
+
+본 비판은 PR-11 V4 결정(instrument 14 컬럼 자체 추론) 사이클에서 발생. PR-21에서 KIS 헤더 raw 검증 보고서 baseline으로 정정. 향후 동일 패턴 발생 차단 의무.
+
+### 검증
+
+- spec/plan PR 발행 시 → 본 절 5 단계 통과 self-check
+- 외부 데이터 규격 결정 spec에 raw 출처 URL 직접 인용 확인
+- sub-agent 디스패치 명세에 KIS-first raw 출처 인용 의무 전파 확인
