@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@stomp/stompjs": "^7.0.0",
     "@tanstack/react-query": "^5.100.9",
     "axios": "^1.7.9",
     "lightweight-charts": "^4.2.0",
