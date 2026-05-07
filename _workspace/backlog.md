@@ -338,6 +338,35 @@ PR-10 통합 빌드 시 `SymbolControllerTest` 3건 모두 401 응답으로 fail
 
 ---
 
+## §12. ✅ 처리 완료 — env_file vs environment block 우선순위 함정 (PR-12)
+
+### 사유 (역사 보존)
+
+PR-11 머지 후 사용자 첫 dogfooding(`scripts/build-and-deploy.sh`) → `magicjar-api` 컨테이너 부팅 실패 (Connection refused at `localhost:5432`).
+
+근본 원인: `.env.example`의 `SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/magicjar`가 사용자 `.env`에 그대로 복사 → `docker-compose.yml`의 `env_file: ../.env`로 컨테이너 env 주입 → **Spring Boot relaxed binding**으로 환경변수 `SPRING_DATASOURCE_URL`이 application.yml의 `${DB_URL:fallback}` placeholder를 덮어씀 → docker-compose가 set한 `DB_URL: postgres:5432` 무시되고 `localhost:5432`로 접속 시도.
+
+### 처리 (PR-12)
+
+`docker-compose.yml`의 api·batch·consumer 3 서비스 `environment` block에 다음 4 변수 명시 override 추가 (env_file보다 후순위 우선):
+
+```yaml
+SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/magicjar
+SPRING_DATA_REDIS_HOST: redis
+SPRING_DATA_REDIS_PORT: "6379"
+SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+```
+
+`.env.example`에 운영 메모 주석 추가 — IDE bootRun(localhost) vs docker compose(서비스명) 분리.
+
+### 교훈
+
+- env_file에 `SPRING_*` 변수가 있으면 application.yml `${PLACEHOLDER}` 패턴이 **덮어써짐** — Spring Boot relaxed binding 정합.
+- docker-compose의 environment block은 env_file보다 **후순위 우선** (Compose 공식 문서).
+- 향후 신규 외부 자원 변수 추가 시 양쪽 동기화 의무 (또는 SPRING_* 1차원 변수만 사용).
+
+---
+
 ## 운영 메모
 
 - **orchestrator 책임**: 사이클 시작 시 본 backlog 점검 의무 — 우선순위 ↑ 항목 first 처리
