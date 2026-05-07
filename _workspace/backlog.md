@@ -185,7 +185,14 @@ dogfooding 결함 발견 시 즉시 갱신 — 사용자 명시 + orchestrator �
 
 | 발견 시점 | 결함 항목 | 분류 | 처리 PR |
 |---|---|---|---|
-| TBD | TBD | TBD | TBD |
+| 2026-05-07 (1차) | docker-compose `SPRING_DATASOURCE_URL` env_file이 application.yml override → magicjar-api 부팅 실패 (`localhost:5432` Connection refused) | C 블로킹 | PR-12 ✅ |
+| 2026-05-07 (2차) | nginx `/api/` 프록시 누락 → SetupWizard `POST /api/onboarding/kis/validate` 405 | C 블로킹 | PR-13 ✅ |
+| 2026-05-07 (2차) | docker-compose dozzle 중복 정의 → YAML parse error | C 블로킹 | PR-15 ✅ |
+| 2026-05-07 (3차) | audit_trail `detail_json` jsonb mismatch → 500 / batch `KisInstrumentMasterPort` bean missing / consumer `KisRestPort` 2 bean ambiguous | C 블로킹 | PR-16 ✅ |
+| 2026-05-07 (4차) | batch WebClient bean missing / DashboardPlaceholder 셋업 버튼 무한루프 / frontend healthcheck wget / build-script dozzle 누락 | C 블로킹 | PR-17 ✅ |
+| **2026-05-07 (5차 — 미처리)** | **관심종목: 종목명 조회 안 됨 (코드만 가능)** | B 정책·다중 | TBD (T-IM1 보강 또는 PR-19) |
+| **2026-05-07 (5차 — 미처리)** | **관심종목: 일부 종목 노출 안 됨 (예: 004090 한국석유)** | B 정책·다중 | TBD (T-IM1 시드/sync 보강) |
+| **2026-05-07 (5차 — 미처리)** | **관심종목 등록 후 클릭 시 "종목 정보 찾을 수 없습니다"** | C 블로킹 | TBD (긴급) |
 
 ### 갱신 (2026-05-07 — PR-11 사이클 진입)
 
@@ -384,6 +391,64 @@ SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
 ### 교훈
 
 운영 룰은 ADR에만 있어선 안 되고 **SKILL.md에 단계별 의무로 명시화** 필요. 다음 사이클 시작 시 자동 점검(`ls _workspace/tasks/T-*.md | wc -l` 0이 아니면 일괄 archive) 의무.
+
+---
+
+## §14. ✅ 처리 완료 — task 파일 데이터 무결성 흐려짐 (PR-18)
+
+### 사유 (역사 보존)
+
+사용자 보고 — `_workspace/tasks/done/T-20260507-1256-pr-9-w2-market-data.md` 등 RUNNING 상태로 done/ 디렉토리에 존재. 결과물 체크리스트 체크 0. completedAt null.
+
+> "id, agent, model, branch, 말고는 정보들이 명확히 갱신안되는거 같아 시간도 현시간들이랑 이상하고 이거 백로그에 남기더라도 꼭 해소는 하고 가야할거같아" (사용자 명시)
+
+### 근본 원인
+
+1. **PR-14 누적 28 task 일괄 archive 시 status 검증 0건** — `task.mjs archive`가 status=DONE 검증 없이 단순 mv 동작
+2. **sub-agent들이 `task.mjs check "<항목>"` 호출 누락** — 결과물 체크리스트 빈 채로 진행
+3. **sub-agent들이 `task.mjs done --pr <N>` 호출 누락** — status RUNNING 그대로 + completedAt null
+
+### 처리 (PR-18)
+
+1. **`scripts/task.mjs cmdArchive` 무결성 보강**:
+   - status=DONE 검증 강제, 아니면 archive 거부
+   - `--force` flag로 우회 가능 (옛 누적 처리용) — force 시 status·completedAt 자동 보강 후 archive
+2. **옛 done/ 30 파일 일괄 정정** (inline node script):
+   - 22개 정정 (status RUNNING/BLOCKED → DONE, completedAt null → file mtime ISO)
+   - 8개는 이미 DONE 상태 (정상)
+
+### 잔여 의제 → §15
+
+sub-agent SKILL에 `task.mjs check + done` 호출 의무 명시화 — 별도 사이클 처리.
+
+---
+
+## §15. sub-agent SKILL에 task.mjs 호출 의무 명시화
+
+### 사유
+
+PR-14·18 운영 룰 정정 결과로 **task.mjs check + done 호출 의무**를 sub-agent SKILL에 명시화 필요. 현재 sub-agent들이 task.mjs start만 호출하고 check·done 흐름이 흐려짐.
+
+### 정정 안
+
+`.claude/agents/{architect,backend-core,market-data,strategy-engine,ai-engineer,frontend,qa}.md`에 공통 절 추가:
+
+```
+## Task 파일 갱신 의무 (ADR 0036 + PR-18 §14)
+
+1. start: 작업 시작 시 `node scripts/task.mjs start --agent <a> --goal "..." --deliverables "..."`
+2. check: **각 결과물 완료 시 즉시** `node scripts/task.mjs check "<항목명>"` (deliverables 1건씩)
+3. done: PR 생성 후 `node scripts/task.mjs done --pr <N>`
+4. archive: orchestrator 영역 (머지 후 자동 호출 — sub-agent가 호출 안 함)
+```
+
+### 트리거
+
+PR-19+ 사이클 또는 사용자 명시 트리거. 메타 정리 사이클에 함께 처리.
+
+### 예상 처리 PR
+
+architect 단독 — 7 sub-agent SKILL 일괄 보강 + ADR 0036 §47 보강. 작은 PR 1건.
 
 ---
 
