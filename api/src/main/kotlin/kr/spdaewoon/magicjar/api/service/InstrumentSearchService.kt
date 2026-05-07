@@ -91,15 +91,18 @@ class InstrumentSearchService(
     /**
      * 검색 인덱스 재구성 (InstrumentSyncJob 또는 수동 trigger 후 호출).
      * 비동기 호출 권장 (검색 latency 비차단).
+     *
+     * 사용자 요청: 보통주+우선주만 노출 (KIS securities_group='ST').
+     * ETF·ETN·REIT·WARRANT·DR·외국주식·펀드는 인덱스에서 제외.
      */
     fun rebuildIndex() {
-        val instruments = instrumentRepository.findByActiveTrue()
+        val instruments = instrumentRepository.findActiveStocks()
         if (instruments.isEmpty()) {
-            log.warn("[instrument-search] rebuildIndex: active instrument 0건 — skip")
+            log.warn("[instrument-search] rebuildIndex: active ST instrument 0건 — skip")
             return
         }
         searchIndex.rebuild(instruments)
-        log.info("[instrument-search] rebuildIndex 완료: instruments={}", instruments.size)
+        log.info("[instrument-search] rebuildIndex 완료: stInstruments={}", instruments.size)
     }
 
     // ── private helpers ─────────────────────────────────────────────────

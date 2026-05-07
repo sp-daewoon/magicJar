@@ -74,4 +74,11 @@ interface InstrumentRepository {
      * T-SC universe — 기준 universe 조회.
      */
     fun findByKospi200(): List<Instrument>
+
+    /**
+     * 활성 일반/우선주 조회 (KIS scrt_grp_cls_code = 'ST').
+     * 사용자 검색 인덱스 rebuild 용도 — ETF·ETN·REIT·DR·WARRANT 제외, 보통주+우선주 포함.
+     * type=PREFERRED는 prst_cls_code 분기 결과로 securities_group은 ST로 동일.
+     */
+    fun findActiveStocks(): List<Instrument>
 }
