@@ -83,7 +83,7 @@ class WatchlistService(
             WatchlistJpaEntity(
                 userId = userId,
                 code = code,
-                priority = request.priority ?: 0,
+                priority = request.priority ?: 100,
             )
         val saved =
             try {
