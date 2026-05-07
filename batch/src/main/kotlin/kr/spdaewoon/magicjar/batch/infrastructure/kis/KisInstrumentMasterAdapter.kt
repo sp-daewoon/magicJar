@@ -202,17 +202,21 @@ class KisInstrumentMasterAdapter(
         line: String,
         market: InstrumentMarket,
     ): Instrument? {
-        if (line.isBlank() || line.length < NAME_EN_START + NAME_EN_LEN) return null
+        // PR-20 hotfix — KIS open-trading-api는 byte 오프셋 기반(EUC-KR 한글 2byte).
+        // Java/Kotlin String.substring은 char 단위라 한글 종목명("SK하이닉스" 등)이 깨짐.
+        // 라인을 EUC-KR byte 배열로 복원해 byte-level slicing 후 String으로 decode.
+        val lineBytes = line.toByteArray(EUC_KR)
+        if (line.isBlank() || lineBytes.size < NAME_EN_START + NAME_EN_LEN) return null
 
         return try {
-            val rawCode = line.substring(CODE_START, CODE_START + CODE_LEN).trim()
+            val rawCode = String(lineBytes, CODE_START, CODE_LEN, EUC_KR).trim()
             // 종목코드는 6자리 숫자 (단축코드 9자에서 우측 패딩 공백 제거 후 앞 6자리)
             val code = rawCode.take(6).padStart(6, '0').trim()
             if (code.length != 6 || !code.all { it.isDigit() }) return null
 
-            val isin = line.substring(ISIN_START, ISIN_START + ISIN_LEN).trim().ifBlank { null }
-            val name = line.substring(NAME_START, NAME_START + NAME_LEN).trim()
-            val nameEn = line.substring(NAME_EN_START, NAME_EN_START + NAME_EN_LEN).trim().ifBlank { null }
+            val isin = String(lineBytes, ISIN_START, ISIN_LEN, EUC_KR).trim().ifBlank { null }
+            val name = String(lineBytes, NAME_START, NAME_LEN, EUC_KR).trim()
+            val nameEn = String(lineBytes, NAME_EN_START, NAME_EN_LEN, EUC_KR).trim().ifBlank { null }
 
             if (name.isBlank()) return null
 

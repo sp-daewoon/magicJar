@@ -55,12 +55,22 @@ class WatchlistService(
 
     /**
      * 관심종목 목록 조회 (priority 오름차순, created_at 내림차순).
+     * PR-20 — instrument 테이블 join으로 name/market 채움 (사용자 가시성).
      */
     @Transactional(readOnly = true)
-    fun list(userId: String): List<WatchlistEntryDto> =
-        watchlistJpaRepository
-            .findByUserIdOrderByPriorityAscCreatedAtDesc(userId)
-            .map { it.toDto() }
+    fun list(userId: String): List<WatchlistEntryDto> {
+        val entries = watchlistJpaRepository.findByUserIdOrderByPriorityAscCreatedAtDesc(userId)
+        if (entries.isEmpty()) return emptyList()
+        val codes = entries.map { it.code }.toSet()
+        val instrumentMap =
+            instrumentJpaRepository
+                .findAllById(codes)
+                .associateBy { it.code }
+        return entries.map { entry ->
+            val instrument = instrumentMap[entry.code]
+            entry.toDto(name = instrument?.name, market = instrument?.market)
+        }
+    }
 
     /**
      * 관심종목 등록.
@@ -106,7 +116,9 @@ class WatchlistService(
         publishWatchlistChanged(userId, code, "ADDED")
 
         log.info("Watchlist 등록: user={} code={}", maskUserId(userId), code)
-        return saved.toDto()
+        // PR-20 — instrument 테이블 join으로 name/market 채워서 응답
+        val instrument = instrumentJpaRepository.findById(code).orElse(null)
+        return saved.toDto(name = instrument?.name, market = instrument?.market)
     }
 
     /**
@@ -180,11 +192,16 @@ class WatchlistService(
 
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"
 
-    private fun WatchlistJpaEntity.toDto(): WatchlistEntryDto =
+    private fun WatchlistJpaEntity.toDto(
+        name: String? = null,
+        market: String? = null,
+    ): WatchlistEntryDto =
         WatchlistEntryDto(
             id = id ?: 0L,
             userId = userId,
             code = code,
+            name = name,
+            market = market,
             priority = priority,
             createdAt = createdAt,
         )

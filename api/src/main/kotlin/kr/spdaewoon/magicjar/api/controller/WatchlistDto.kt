@@ -28,6 +28,10 @@ data class WatchlistEntryDto(
     val userId: String,
     @Schema(description = "KIS 종목 코드 6자리", example = "005930")
     val code: String,
+    @Schema(description = "종목명 (instrument 테이블 join — 미동기화 시 null)", example = "삼성전자", nullable = true)
+    val name: String? = null,
+    @Schema(description = "시장 구분 (KOSPI·KOSDAQ·KONEX·UNKNOWN)", example = "KOSPI", nullable = true)
+    val market: String? = null,
     @Schema(description = "우선순위 (낮은 값 = 높은 우선순위)", example = "0")
     val priority: Int,
     @Schema(description = "등록 시각 (UTC ISO-8601)", example = "2026-05-07T10:23:45.123Z")
