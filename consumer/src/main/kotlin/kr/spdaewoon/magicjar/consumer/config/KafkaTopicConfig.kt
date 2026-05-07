@@ -71,4 +71,19 @@ class KafkaTopicConfig {
             .replicas(1)
             .config("retention.ms", "3600000") // 1h
             .build()
+
+    /**
+     * 종목 마스터 sync 변경 이벤트 (InstrumentSyncJob → consumers).
+     * partition key = market (KOSPI·KOSDAQ 분리).
+     * retention: 7d (신규 consumer 재처리 가능).
+     * PR-11a T-IM1 market-data 신규.
+     */
+    @Bean
+    fun instrumentUpdatedTopic(): NewTopic =
+        TopicBuilder
+            .name("instrument.updated.v1")
+            .partitions(1)
+            .replicas(1)
+            .config("retention.ms", "604800000") // 7d
+            .build()
 }
