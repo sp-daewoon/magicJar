@@ -50,12 +50,27 @@ function ensureDirs() {
   if (!existsSync(DONE_DIR)) mkdirSync(DONE_DIR, { recursive: true });
 }
 
+// PR-26 — boolean flag 인식 보강.
+// 기존: `--force` 호출 시 다음 토큰을 value로 가져감 → boolean flag 미지원.
+// 정정: 다음 토큰이 없거나 `--`로 시작하면 boolean true로 인식.
+// 사용 예: `task.mjs archive T-id --force` → out.force = true
+//         `task.mjs start --agent architect` → out.agent = 'architect' (기존 동작 유지)
 function parseArgs(argv) {
   const out = { _: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a.startsWith('--')) { out[a.slice(2)] = argv[++i]; }
-    else { out._.push(a); }
+    if (a.startsWith('--')) {
+      const key = a.slice(2);
+      const next = argv[i + 1];
+      if (next === undefined || next.startsWith('--')) {
+        out[key] = true;
+      } else {
+        out[key] = next;
+        i++;
+      }
+    } else {
+      out._.push(a);
+    }
   }
   return out;
 }
