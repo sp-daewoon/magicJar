@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.ingestion
 
+import jakarta.annotation.PreDestroy
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaRepository
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
@@ -12,7 +13,6 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.atomic.AtomicInteger
-import jakarta.annotation.PreDestroy
 
 /**
  * Yahoo cold-start + KIS REST backfill 실행기 (ADR 0019 §5-3 정합).

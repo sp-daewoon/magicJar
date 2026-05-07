@@ -1,9 +1,9 @@
 package kr.spdaewoon.magicjar.consumer.ingestion
 
 import io.mockk.every
-import io.mockk.justRun
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.datetime.Clock
 import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisSourceTrackerAdapter
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerWatchlistRepositoryAdapter
 import kr.spdaewoon.magicjar.domain.market.port.KisWsPort
@@ -11,7 +11,6 @@ import kr.spdaewoon.magicjar.domain.market.port.SubscriptionPolicy
 import kr.spdaewoon.magicjar.domain.watchlist.WatchlistEntry
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import kotlinx.datetime.Clock
 
 /**
  * SubscriptionRouter smoke test (ADR 0048 §12-1-2 정합).

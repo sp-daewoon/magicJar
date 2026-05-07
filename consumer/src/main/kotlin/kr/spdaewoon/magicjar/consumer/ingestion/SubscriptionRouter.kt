@@ -95,41 +95,42 @@ class SubscriptionRouter(
     /**
      * 부팅 reconcile or 세션 변경 시 priority 상위 N개 일괄 결정.
      */
-    fun recompute(userId: String) = lock.withLock {
-        val watchlist = watchlistRepository.findByUserIdOrderByPriority(userId)
-        if (watchlist.isEmpty()) return@withLock
+    fun recompute(userId: String) =
+        lock.withLock {
+            val watchlist = watchlistRepository.findByUserIdOrderByPriority(userId)
+            if (watchlist.isEmpty()) return@withLock
 
-        val codes = watchlist.map { it.code }
-        val subscribed = kisWsPort.subscribedCodes().toMutableSet()
+            val codes = watchlist.map { it.code }
+            val subscribed = kisWsPort.subscribedCodes().toMutableSet()
 
-        // 현재 구독 중이지만 watchlist에 없는 코드 제거
-        val toUnsubscribe = subscribed.filter { it !in codes }
-        if (toUnsubscribe.isNotEmpty()) {
-            kisWsPort.unsubscribe(toUnsubscribe)
-            toUnsubscribe.forEach { pollingWorker.remove(it) }
+            // 현재 구독 중이지만 watchlist에 없는 코드 제거
+            val toUnsubscribe = subscribed.filter { it !in codes }
+            if (toUnsubscribe.isNotEmpty()) {
+                kisWsPort.unsubscribe(toUnsubscribe)
+                toUnsubscribe.forEach { pollingWorker.remove(it) }
+            }
+
+            // watchlist priority 상위 N개 → WS, 나머지 → polling
+            val wsCapacity = SubscriptionPolicy.PRICE_TICK_MAX
+            val toSubscribeWs = codes.take(wsCapacity)
+            val toPolling = codes.drop(wsCapacity)
+
+            val newSubscriptions = toSubscribeWs.filter { it !in kisWsPort.subscribedCodes() }
+            if (newSubscriptions.isNotEmpty()) {
+                kisWsPort.subscribe(newSubscriptions)
+                newSubscriptions.forEach { sourceTracker.set(userId, it, "live") }
+            }
+            toPolling.forEach { code ->
+                pollingWorker.add(code)
+                sourceTracker.set(userId, code, "polling")
+            }
+            log.info(
+                "recompute 완료: userId={} ws={}건 polling={}건",
+                maskUserId(userId),
+                toSubscribeWs.size,
+                toPolling.size,
+            )
         }
-
-        // watchlist priority 상위 N개 → WS, 나머지 → polling
-        val wsCapacity = SubscriptionPolicy.PRICE_TICK_MAX
-        val toSubscribeWs = codes.take(wsCapacity)
-        val toPolling = codes.drop(wsCapacity)
-
-        val newSubscriptions = toSubscribeWs.filter { it !in kisWsPort.subscribedCodes() }
-        if (newSubscriptions.isNotEmpty()) {
-            kisWsPort.subscribe(newSubscriptions)
-            newSubscriptions.forEach { sourceTracker.set(userId, it, "live") }
-        }
-        toPolling.forEach { code ->
-            pollingWorker.add(code)
-            sourceTracker.set(userId, code, "polling")
-        }
-        log.info(
-            "recompute 완료: userId={} ws={}건 polling={}건",
-            maskUserId(userId),
-            toSubscribeWs.size,
-            toPolling.size,
-        )
-    }
 
     /**
      * 세션 변경 처리 (ADR 0048 §2-5).

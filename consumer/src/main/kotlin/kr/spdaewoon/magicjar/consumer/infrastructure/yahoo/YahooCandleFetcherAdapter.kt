@@ -93,7 +93,8 @@ class YahooCandleFetcherAdapter(
                     .bodyToMono(Map::class.java)
                     .timeout(Duration.ofSeconds(15))
                     .retryWhen(
-                        Retry.fixedDelay(1, Duration.ofSeconds(60))
+                        Retry
+                            .fixedDelay(1, Duration.ofSeconds(60))
                             .filter { e ->
                                 e is WebClientResponseException &&
                                     (e.statusCode == HttpStatus.TOO_MANY_REQUESTS || e.statusCode == HttpStatus.NOT_FOUND)

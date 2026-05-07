@@ -1,5 +1,8 @@
 package kr.spdaewoon.magicjar.consumer.ingestion
 
+import jakarta.annotation.PostConstruct
+import jakarta.annotation.PreDestroy
+import kotlinx.datetime.Clock
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerWatchlistRepositoryAdapter
 import kr.spdaewoon.magicjar.domain.market.port.KisWsPort
 import kr.spdaewoon.magicjar.domain.market.session.MarketSession
@@ -7,9 +10,6 @@ import kr.spdaewoon.magicjar.domain.market.session.MarketSessionResolver
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
-import jakarta.annotation.PostConstruct
-import jakarta.annotation.PreDestroy
-import kotlinx.datetime.Clock
 
 /**
  * Watchlist Ingestion Worker — facade (ADR 0028 §2-1 정합).

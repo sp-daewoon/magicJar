@@ -1,12 +1,11 @@
 package kr.spdaewoon.magicjar.consumer.ingestion
 
 import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisQuoteCacheAdapter
-import kr.spdaewoon.magicjar.domain.market.port.KisRestPort
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.market.port.KisRestPort
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
-import java.math.BigDecimal
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -29,8 +28,8 @@ class WatchlistPollingWorker(
     private val pool: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     @Volatile
-    var running: Boolean = false
-        private set
+    private var _running: Boolean = false
+    val running: Boolean get() = _running
 
     fun add(code: String) {
         pool.add(code)
@@ -43,12 +42,12 @@ class WatchlistPollingWorker(
     }
 
     fun start() {
-        running = true
+        _running = true
         log.info("WatchlistPollingWorker 시작: poolSize={}", pool.size)
     }
 
     fun stop() {
-        running = false
+        _running = false
         log.info("WatchlistPollingWorker 중단")
     }
 
