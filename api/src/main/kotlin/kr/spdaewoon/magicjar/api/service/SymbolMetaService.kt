@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.api.service
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.controller.SymbolDto
+import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.UserAccountJpaRepository
 import kr.spdaewoon.magicjar.domain.market.PriceMetrics
 import kr.spdaewoon.magicjar.domain.market.port.KisRestPriceMetricsPort
@@ -15,7 +16,9 @@ import java.time.Duration
 /**
  * 종목 메타 + 현재가 조립 서비스 (spec §3-2).
  *
- * 데이터 우선순위:
+ * 데이터 우선순위 (PR-11b 정정 — design §11-8 정합):
+ * 0. instrument 테이블 1순위: name·market·industry(sector) → SymbolDto 직접 채움
+ *    - market='UNKNOWN' 또는 instrument 부재 시 KIS inquire-price fallback
  * 1. Redis quote:last:{code} (PR-9 가동 중 — 현재가·timestamp·source·stale)
  * 2. KIS inquire-price REST (FHKST01010100 — PER·PBR·EPS·BPS·시총·업종·종목명·시장)
  * 3. Redis meta:{code} 5분 TTL cache (KIS inquire-price 결과 캐시)
@@ -29,6 +32,7 @@ class SymbolMetaService(
     private val redisTemplate: StringRedisTemplate,
     private val priceMetricsPort: KisRestPriceMetricsPort,
     private val userAccountJpaRepository: UserAccountJpaRepository,
+    private val instrumentJpaRepository: InstrumentJpaRepository,
     private val objectMapper: ObjectMapper,
 ) {
     private val log = LoggerFactory.getLogger(SymbolMetaService::class.java)
@@ -36,6 +40,19 @@ class SymbolMetaService(
     private val metaCacheTtl: Duration = Duration.ofMinutes(5)
 
     fun getSymbol(code: String): SymbolDto {
+        // 0. instrument 테이블 1순위 (PR-11b 정정 — design §11-8)
+        // market='UNKNOWN' 또는 부재 → KIS inquire-price fallback
+        val instrumentEntity =
+            try {
+                instrumentJpaRepository.findById(code).orElse(null)
+            } catch (e: Exception) {
+                log.debug("instrument 조회 실패: code={} err={}", code, e.message)
+                null
+            }
+        val instrumentName = instrumentEntity?.name?.takeIf { instrumentEntity.market != "UNKNOWN" }
+        val instrumentMarket = instrumentEntity?.market?.takeIf { it != "UNKNOWN" }
+        val instrumentSector = instrumentEntity?.sector
+
         // 1. Redis quote:last:{code} — 현재가
         val quoteJson = redisTemplate.opsForValue().get("quote:last:$code")
         val quoteMap: Map<String, Any?> =
@@ -71,6 +88,7 @@ class SymbolMetaService(
             }
 
         // 3. KIS REST 호출 — meta cache miss 시 (PER·PBR·시총·종목명 등)
+        // instrument 테이블에 정확한 데이터가 있어도 PER·PBR 등은 KIS inquire-price 필요
         val resolvedMetrics: PriceMetrics? =
             metrics ?: run {
                 val userId = currentUserId()
@@ -129,11 +147,17 @@ class SymbolMetaService(
 
         val stale = staleFromCache || (currentPrice == null)
 
+        // name·market·industry: instrument 테이블 1순위 (design §11-8)
+        // instrument 부재 또는 market='UNKNOWN'이면 KIS inquire-price fallback
+        val resolvedName = instrumentName ?: resolvedMetrics?.name
+        val resolvedMarket = instrumentMarket ?: resolvedMetrics?.market
+        val resolvedIndustry = instrumentSector ?: resolvedMetrics?.industry
+
         return SymbolDto(
             code = code,
-            name = resolvedMetrics?.name,
-            market = resolvedMetrics?.market,
-            industry = resolvedMetrics?.industry,
+            name = resolvedName,
+            market = resolvedMarket,
+            industry = resolvedIndustry,
             currentPrice = price,
             previousClose = prevClose?.toPlainString() ?: "0",
             change = change,
