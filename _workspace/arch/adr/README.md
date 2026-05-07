@@ -1,6 +1,6 @@
 # magicJar ADR 목차
 
-아키텍처 결정 기록(Architecture Decision Record). 49건 sequential(0048 슬롯은 §12 후속 예약 — KIS WS 41건 한도). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
+아키텍처 결정 기록(Architecture Decision Record). 50건 sequential (0001~0050 발행 완료). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
 
 ## §1. 비전 (1건)
 
@@ -45,6 +45,7 @@
 | 0017 | Instrument Master 1급 시민 |
 | 0018 | Corp Action raw + adjusted |
 | 0019 | 캔들 저장 정책 (Watchlist 기반 + Yahoo 분봉 DB 영속) |
+| 0048 | KIS WebSocket 41건 구독 한도 + 우선순위 정책 (slot 1+30+10·priority eviction·polling fallback) |
 
 ## §6. 전략·신호·리스크 (5건)
 
@@ -133,13 +134,12 @@
 
 - **새 ADR 발행 시** — 본 README + master §10 + tracks-roadmap §3 동시 갱신
 - **Superseded 처리 시** — 본문 상단 헤더 + `_archive/` 이동 + 본 README §추가
-- **신규 진입 시 후속 ADR 번호** — 0051부터 sequential (0041~0047·0049·0050 발행 완료 — §10-1·§10-2·§10-3·§10-4 정합). 0048 슬롯은 PR-4에서 **KIS WS 41건 구독 한도 + 우선순위 정책**으로 prepend 예약(§12 후속 예정).
+- **신규 진입 시 후속 ADR 번호** — 0051부터 sequential (0041~0050 발행 완료 — §5·§10-1·§10-2·§10-3·§10-4 정합).
 
 ## §12. 후속 예정 (Proposed)
 
 | 후보 번호 | 제목 (예정) | 진입 트랙 | 사유 |
 |---|---|---|---|
-| 0048 | KIS WS 41건 구독 한도 + 우선순위 정책 (관심종목 41 종목 초과 시 priority eviction · stream multiplexing 검토) | T-W1·T-MS1 (W1 후반) | PR-3b architect 발굴 갭 — 41 종목 이상 동시 watchlist 시 구독 우선순위 정책 ADR 부재 |
 | 0051 | 57 캔들 패턴 표준 | T-PAT | (기존 0049 자리에서 시프트 — PR-8에서 0049/0050이 메타 ADR로 채택됨) |
 | 0052 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT | (기존 0050 자리에서 시프트) |
 | 0053 | Screener 표준 | T-SC | (기존 0051 자리에서 시프트) |

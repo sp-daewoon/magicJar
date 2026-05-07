@@ -1,7 +1,7 @@
 # 캔들 데이터 정책
 
 - 작성일: TBD
-- 본 문서는 운영 가이드. 결정 본문은 **ADR 0019 (캔들 저장 정책)** + **ADR 0028 (Watchlist Ingestion)** + **ADR 0029 (당일 진행 중 캔들 Redis 캐시)** 참조.
+- 본 문서는 운영 가이드. 결정 본문은 **ADR 0019 (캔들 저장 정책)** + **ADR 0028 (Watchlist Ingestion)** + **ADR 0029 (당일 진행 중 캔들 Redis 캐시)** + **ADR 0048 (KIS WS 41 slot + polling fallback)** 참조.
 
 ## 1. 정책 한 줄 요약
 
@@ -51,17 +51,23 @@ api POST /api/watchlists  (body: {code})
     ↓
 DB watchlist INSERT + Kafka watchlist.changed.v1
     ↓
-consumer WatchlistIngestionWorker (1~5초 polling, ADR 0028)
-    ├─ KIS WS subscribe(code) — 틱 + 당일 분봉 실시간
+consumer WatchlistIngestionWorker (5초 polling LOCK, ADR 0028+0048)
+    ├─ SubscriptionRouter.add(code, priority) — slot 1+30+10 분배 (ADR 0048)
+    │    ├─ slot 여유 → KIS WS subscribe(code) — H0STCNT0 체결가
+    │    └─ slot 가득 + priority 낮음 → WatchlistPollingWorker 진입 (5초 주기 KIS REST inquire-price)
     ├─ Yahoo backfill 1m  (7일 max)   → DB INSERT
-    ├─ Yahoo backfill 2m  (60일 max)  → DB INSERT
     ├─ Yahoo backfill 5m·15m·30m·90m (60일 max) → DB INSERT
     ├─ Yahoo backfill 1h  (730일 max) → DB INSERT
-    ├─ KIS REST 1d·1wk·1mo·1y → DB INSERT (전체 기간)
-    └─ KIS 당일 분봉 fetch → Redis & DB
+    ├─ Yahoo backfill 1d  (Max)       → DB INSERT
+    └─ KIS REST 1wk·1mo·1y → DB INSERT (전체 기간)
     ↓
 사용자 /symbol/{code} 진입 시 모든 interval 즉시 응답
 ```
+
+**WS 끊김 시 polling 자동 전환 (ADR 0048 §2-4)**:
+- 10초 heartbeat 무신호 또는 onClose → 지수 백오프 1·2·5·10·30s 재연결 시도
+- 30초 안에 재연결 못하면 모든 종목 5초 polling 활성 (KIS REST `FHKST01010100`)
+- WS 복구 시 polling 즉시 stop + 모든 stream 재구독
 
 ## 7. 당일 진행 중 캔들 흐름 (ADR 0029)
 
