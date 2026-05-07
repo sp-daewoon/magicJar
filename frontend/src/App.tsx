@@ -7,11 +7,12 @@
  * - hasUserAccount=true + path === '/setup' → Navigate to="/" (이미 완료된 사용자 차단)
  * - isLoading → 스플래시 표시
  *
- * 라우트 (PR-5b 구조 유지 + PR-6 확장 + PR-7 추가):
- *   /           -> 대시보드 placeholder
- *   /watchlist  -> 관심종목 (T-W1 1순위 진입점 — ADR 0040)
- *   /setup      -> 셋업 마법사 7단계 (T-ONBOARD)
- *   *           -> / 리다이렉트
+ * 라우트 (PR-5b 구조 유지 + PR-6 확장 + PR-7 추가 + PR-10 추가):
+ *   /                 -> 대시보드 placeholder
+ *   /watchlist        -> 관심종목 (T-W1 1순위 진입점 — ADR 0040)
+ *   /symbol/:code     -> 종목 상세 (T-S1 — ADR 0040 §2-2 진입점)
+ *   /setup            -> 셋업 마법사 7단계 (T-ONBOARD)
+ *   *                 -> / 리다이렉트
  *
  * AppHeader:
  *   /setup 경로에서는 미표시 (셋업 흐름 UI 단순화)
@@ -23,6 +24,7 @@ import { useOnboardingStatus } from './api/onboarding'
 import { AppHeader } from './components/layout/AppHeader'
 import { DashboardPlaceholder } from './pages/DashboardPlaceholder'
 import { SetupWizard } from './pages/SetupWizard'
+import { SymbolDetailPage } from './pages/Symbol/SymbolDetailPage'
 import { WatchlistPage } from './pages/Watchlist/WatchlistPage'
 
 /** 온보딩 라우팅 가드 — status 기반 자동 분기 */
@@ -86,6 +88,8 @@ export function App() {
         <Routes>
           <Route path="/" element={<DashboardPlaceholder />} />
           <Route path="/watchlist" element={<WatchlistPage />} />
+          {/* T-S1: 종목 상세 — ADR 0040 §2-2 진입점 */}
+          <Route path="/symbol/:code" element={<SymbolDetailPage />} />
           <Route path="/setup" element={<SetupWizard />} />
           {/* 미정의 경로는 / 로 리다이렉트 */}
           <Route path="*" element={<Navigate to="/" replace />} />
