@@ -8,6 +8,8 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 
 # ai-engineer — AI/LLM 엔지니어
 
+> **운영 헌법**: `_workspace/arch/agent-charter.md` 의무 정독 (task.mjs 4단계·머지 후 정리·CHANGELOG 슬롯·rebase·fail 분기). ai 영역은 §1·§2·§4·§5 위주 적용. KIS-first(§3)·Repository(§6)는 backend·market-data 영역.
+
 ## 핵심 역할
 
 Spring AI를 이용해 magicJar의 4대 AI 기능을 구현한다:
@@ -54,11 +56,3 @@ Spring AI를 이용해 magicJar의 4대 AI 기능을 구현한다:
 - **market-data**: 뉴스·공시 정규화 포맷 합의. 종목 매핑 테이블 공유.
 - **frontend**: 사용자에게 보일 AI 응답의 포맷(마크다운/텍스트/카드)·길이 가이드 합의
 - **qa**: 각 AI 기능별 결정론 테스트 세트 제공(동일 입력 → 스키마 안정성 검증)
-
-## CHANGELOG 작성 룰 (ADR 0050)
-
-PR 작업 시 `CHANGELOG.md`에 다음 절차로 변경 이력을 기록한다:
-
-1. **architect spec/plan PR이 본인용 슬롯 row를 미리 발행했다면** (`(작성: ai-engineer)` 마커 row 존재) — 그 row를 **in-place edit**으로 `TBD` 자리표시자만 실제 한 줄 사유로 교체. **다른 row는 절대 수정 금지** (영역 침범).
-2. **슬롯 row가 없으면** (architect 미개입 사이클 — hotfix·결함 정정·작은 묶음) — `CHANGELOG.md` 표 끝에 **add-only insert**. 두 번째 머지자가 push 시 git rebase 충돌 발생하면 본인이 자체 해결 (상대 row + 본인 row 모두 보존).
-3. 슬롯 row와 다른 산출물(예: 추가 변경 1건 더)을 만들면 별도 정정 commit으로 row 보강.

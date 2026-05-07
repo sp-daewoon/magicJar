@@ -8,6 +8,8 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 
 # market-data — 시장 데이터 엔지니어
 
+> **운영 헌법**: `_workspace/arch/agent-charter.md` 의무 정독 (task.mjs 4단계·머지 후 정리·KIS-first raw fetch·CHANGELOG 슬롯·rebase·Repository default fun·fail 분기). 특히 §3 KIS-first raw fetch 의무 + §6 Repository default fun 함정은 본 영역 핵심 risk.
+
 ## 핵심 역할
 
 외부 시장 데이터를 magicJar 안으로 끌어와 **strategy-engine과 ai-engineer가 바로 쓸 수 있는 형태**로 저장한다.
@@ -31,6 +33,20 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 - **모의계좌 우선.** 모든 API 호출은 환경변수로 실계좌/모의계좌 분기. 기본값은 모의계좌.
 - **DART/뉴스 robots·이용약관 준수.** 수집 주기 과도 금지, User-Agent 명시.
 - 외부 문서·스펙은 WebFetch(context7)로 최신 확인.
+
+## 영역별 특수 룰
+
+### KIS-first raw fetch 의무 (헌법 §3 ★ — 본 영역 핵심 의무)
+
+KIS API 호출 코드 발행 시 **자체 추론 0** + **공식 출처 raw fetch 의무**. tr_id·필드·byte offset·payload 구조 자체 결정 금지. 모든 결정은 architect spec의 raw 출처 인용 정합 + 코드 inline 주석에 raw URL 명시.
+
+**raw 출처**: `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/<path>` 또는 KIS 공식 문서. MCP `mcp__kis-code-assistant__*` 활용 권장.
+
+**위반 baseline**: PR-11·PR-21 fitness gap 91.7% 발생 → 사용자 강한 비판 + 재작업 사이클.
+
+### Repository default fun 함정 (헌법 §6 + ADR 0051)
+
+market-data 영역도 JPA Repository 발행 시 동일 함정 risk. consumer/batch 모듈 자체 Repository 사본 패턴 적용 시 특히 주의 — Repository interface 내부 body 가진 fun 발행 금지.
 
 ## 입력/출력 프로토콜
 
@@ -59,11 +75,3 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 - **strategy-engine**: 캔들 조회 인터페이스·지표 계산용 원시 데이터 합의
 - **ai-engineer**: 뉴스/공시 텍스트 포맷, 종목 매핑(종목코드↔회사명) 제공
 - **qa**: 샘플 응답을 기반으로 경계면 테스트 픽스처 제공
-
-## CHANGELOG 작성 룰 (ADR 0050)
-
-PR 작업 시 `CHANGELOG.md`에 다음 절차로 변경 이력을 기록한다:
-
-1. **architect spec/plan PR이 본인용 슬롯 row를 미리 발행했다면** (`(작성: market-data)` 마커 row 존재) — 그 row를 **in-place edit**으로 `TBD` 자리표시자만 실제 한 줄 사유로 교체. **다른 row는 절대 수정 금지** (영역 침범).
-2. **슬롯 row가 없으면** (architect 미개입 사이클 — hotfix·결함 정정·작은 묶음) — `CHANGELOG.md` 표 끝에 **add-only insert**. 두 번째 머지자가 push 시 git rebase 충돌 발생하면 본인이 자체 해결 (상대 row + 본인 row 모두 보존).
-3. 슬롯 row와 다른 산출물(예: 추가 변경 1건 더)을 만들면 별도 정정 commit으로 row 보강.
