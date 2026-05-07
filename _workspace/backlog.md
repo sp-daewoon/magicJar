@@ -190,9 +190,9 @@ dogfooding 결함 발견 시 즉시 갱신 — 사용자 명시 + orchestrator �
 | 2026-05-07 (2차) | docker-compose dozzle 중복 정의 → YAML parse error | C 블로킹 | PR-15 ✅ |
 | 2026-05-07 (3차) | audit_trail `detail_json` jsonb mismatch → 500 / batch `KisInstrumentMasterPort` bean missing / consumer `KisRestPort` 2 bean ambiguous | C 블로킹 | PR-16 ✅ |
 | 2026-05-07 (4차) | batch WebClient bean missing / DashboardPlaceholder 셋업 버튼 무한루프 / frontend healthcheck wget / build-script dozzle 누락 | C 블로킹 | PR-17 ✅ |
-| **2026-05-07 (5차 — 미처리)** | **관심종목: 종목명 조회 안 됨 (코드만 가능)** | B 정책·다중 | TBD (T-IM1 보강 또는 PR-19) |
-| **2026-05-07 (5차 — 미처리)** | **관심종목: 일부 종목 노출 안 됨 (예: 004090 한국석유)** | B 정책·다중 | TBD (T-IM1 시드/sync 보강) |
-| **2026-05-07 (5차 — 미처리)** | **관심종목 등록 후 클릭 시 "종목 정보 찾을 수 없습니다"** | C 블로킹 | TBD (긴급) |
+| ~~2026-05-07 (5차 — 미처리)~~ | **관심종목: 종목명 조회 안 됨 (코드만 가능)** | B 정책·다중 | PR-11b ✅ (한글 자동완성 InstrumentSearchInput) + PR-29c 회귀 검증 |
+| ~~2026-05-07 (5차 — 미처리)~~ | **관심종목: 일부 종목 노출 안 됨 (예: 004090 한국석유)** | B 정책·다중 | 7b6b904 ✅ (scrt_grp_cls_code='ST' 필터 + sentinel sanitize) + PR-29c 회귀 검증 |
+| ~~2026-05-07 (5차 — 미처리)~~ | **관심종목 등록 후 클릭 시 "종목 정보 찾을 수 없습니다"** | C 블로킹 | PR-21b ✅ (InstrumentJpaEntity 83 필드 + Repository·DTO 매핑) + 9dde856 ✅ (delisted UX) + PR-29c 회귀 검증 |
 
 ### 갱신 (2026-05-07 — PR-11 사이클 진입)
 
@@ -319,10 +319,11 @@ W2·W4 진입 시 architect 사전 발행.
 | 2026-05-07 | PR-11 진입 갱신 — §6 dogfooding 보류 명시 + §7 W1 잔여 진입(T-IM1) 정정 + §11 SymbolControllerTest mock 별도 PR 권장 명시 | 사용자 dogfooding 보류 + "다음 일정 진행" 의제 → orchestrator T-IM1 우선 결정. ADR 0017·0039 정합 spec/plan PR-11 발행 (`_workspace/specs/pr-11-im1-design.md` 외 2종) (architect) |
 | 2026-05-07 | PR-21 진입 갱신 — §16 instrument 14 컬럼 fitness gap 신설(사용자 비판 응답 진행) + §17 architect SKILL KIS-first raw fetch 의무 강화 신설 | 사용자 강한 비판 ("kis 데이터 규격 확인 안하고 막 만들어서 꾸겨넣은거잖아") → PR-21 spec 5종 발행 (KIS 헤더 raw 검증 보고서 baseline + 70 필드 add-only V5 + Entity 83 필드 + 파싱 본격 LOCK) + ADR 0051 신설 검토 (architect) |
 | 2026-05-08 | PR-26 운영 헌법 통합 — §15·§17 ✅ 처리 완료 마킹 + §18 batch test @Disabled 신설 + §19 task.mjs --force ✅ + §20 Spring Data default fun trap ✅ | `_workspace/arch/agent-charter.md` 신설 (7 § 룰 통합) + 9 sub-agent SKILL 슬림화 (1줄 헌법 참조) + ADR 0051 신설 + scripts/task.mjs --force parsing fix. 사용자 명시 "강령 만들어야 하고", "토큰 소모 없이 가게". (architect) |
+| 2026-05-08 | PR-29 W1 마감 사이클 진입 — §21 신설 (W1 마감 + v3.1.0 진입) + §6.5 dogfooding 5차 3건 처리 마킹 (PR-11b/7b6b904/PR-21b/9dde856) + §11·§18 PR-29d 처리 예정 마킹 | 옆 세션 hotfix 2건 머지 후 사용자 명시 "얼른 W1 마감하고 릴리즈 찍자" Auto Mode → architect spec 4건 발행(design + dispatch + conflict + CHANGELOG slot) + KIS-first 7 endpoint raw + DART OPENDART raw + Flyway V6/V7/V8 LOCK + 시나리오 A 적극 병렬. ADR 0013·0014·0015·0016·0018 정합 — 신규 ADR 0건. (architect) |
 
 ---
 
-## §11. SymbolControllerTest OnboardingGuardFilter mock 보강
+## §11. SymbolControllerTest OnboardingGuardFilter mock 보강 (PR-29d 처리 예정)
 
 ### 사유
 
@@ -533,7 +534,7 @@ architect spec PR-21 (현재 사이클) — `architect.md` SKILL 보강 + ADR 00
 
 ---
 
-## §18. SymbolControllerTest 미정 + batch test @Disabled 2건 (PR-23 잔재)
+## §18. SymbolControllerTest 미정 + batch test @Disabled 2건 (PR-23 잔재) (PR-29d 처리 예정)
 
 ### 사유
 
@@ -572,6 +573,72 @@ parseArgs(['archive', 'T-test', '--force'])
 - `--agent architect`: `out.agent = 'architect'` (기존 동작 유지) ✅
 - 끝에 `--force`: 다음 토큰 부재 → `true` ✅
 - 중간에 `--force` + 다음 `--xxx`: `--xxx`가 `--`로 시작 → `true` ✅
+
+---
+
+## §21. W1 마감 + v3.1.0 진입 (PR-29 사이클)
+
+### 사유
+
+PR-26(헌법 통합) + 옆 세션 hotfix 2건(7b6b904 KIS sentinel + 9dde856 delisted UX) 머지 후 W1 잔재 3 트랙(T-MS1·T-CA1·T-S1 잔재) 마무리 + v3.1.0 릴리즈 게이트 진입. 사용자 명시 — "얼른 W1 마감하고 릴리즈 찍자". Auto Mode.
+
+### 트랙 구성
+
+- **T-MS1** (Market Session FSM + Fallback 3-tier + REJECTED Audit) — backend-core 책임 (PR-29a)
+- **T-CA1** (Corporate Action + Adjusted Price) — market-data 책임 (PR-29b)
+- **T-S1 잔재** (LWC 차트·호가 STOMP·dogfooding §6.5 회귀 검증) — frontend 책임 (PR-29c)
+- **W1 R3 일괄 테스트** — backend-core 책임 (PR-29d, R3 후반)
+
+### 산출물
+
+- `_workspace/specs/pr-29-w1-close-design.md` — 통합 design (Flyway V6/V7/V8 LOCK + KIS-first 7 endpoint raw + DART OPENDART raw + 함정 8건)
+- `_workspace/specs/pr-29-dispatch-spec.md` — 4 sub PR 분배 + 영역 LOCK + add-add 0% 사전 검증
+- `_workspace/specs/pr-29-conflict-matrix.md` — 시나리오 A 적극 병렬 권장 + modify-shared 5건 모두 LOCK 분배
+- CHANGELOG.md — anchor 5건 + row 5건 사전 발행 (architect 본 PR + 4 sub-agent TBD)
+- 본 backlog §21 신설 + §6.5·§11·§18 처리 마킹
+
+### KIS-first raw fetch 출처 (헌법 §3 의무)
+
+7 endpoint raw 출처 인용 (design §3-3·§4-3 + dispatch §2-2·§3-2):
+
+1. `chk_holiday/chk_holiday.py` — `/uapi/domestic-stock/v1/quotations/chk-holiday` / `CTCA0903R`
+2. `ksdinfo_dividend/ksdinfo_dividend.py` — `/uapi/domestic-stock/v1/ksdinfo/dividend` / `HHKDB669102C0`
+3. `ksdinfo_rev_split/ksdinfo_rev_split.py` — `/uapi/domestic-stock/v1/ksdinfo/rev-split` / `HHKDB669105C0`
+4. `ksdinfo_merger_split/ksdinfo_merger_split.py` — `/uapi/domestic-stock/v1/ksdinfo/merger-split` / `HHKDB669104C0`
+5. `ksdinfo_bonus_issue/ksdinfo_bonus_issue.py` — `/uapi/domestic-stock/v1/ksdinfo/bonus-issue` / `HHKDB669101C0`
+6. `ksdinfo_paidin_capin/ksdinfo_paidin_capin.py` — `/uapi/domestic-stock/v1/ksdinfo/paidin-capin` / `HHKDB669100C0`
+7. `ksdinfo_cap_dcrs/ksdinfo_cap_dcrs.py` — `/uapi/domestic-stock/v1/ksdinfo/cap-dcrs` / `HHKDB669106C0`
+
+DART OPENDART 출처: `https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS001&apiId=2019001` (list endpoint + pblntf_ty B/D 매핑)
+
+### 릴리즈 게이트
+
+- PR-29a~d 모두 머지 후 main `./gradlew check` GREEN + `scripts/smoke.sh` 통과
+- dogfooding 1사이클 통과 (셋업 → Watchlist → SymbolDetail → 차트·호가 동작)
+- v3.1.0 태그 컷 + `release/v3.1` 베이스라인 push (ADR 0031 immutable)
+- CHANGELOG.md "## [3.1.0] - 2026-05-?? — W1 마감" 섹션 본 사이클 PR 묶음 요약
+
+### ADR 신규 발행 검토
+
+**결론: 신규 0건 권장** (design §9). 0013·0014·0015·0016·0018 모두 발행됨 — 결정 사유 정합. 본 사이클 발견 함정·결정 사유는 본 §21 또는 별도 backlog § 흡수.
+
+### 처리 시점
+
+- 본 architect spec PR-29 머지 후 → PR-29a + PR-29b + PR-29c 동시 디스패치 (시나리오 A)
+- PR-29a~c 머지 후 → PR-29d (R3 일괄 테스트) 디스패치
+- PR-29d 머지 후 → v3.1.0 태그 + release/v3.1 베이스라인
+
+### 트리거 (다음 사이클)
+
+본 §21 = 진행 중. 모든 sub PR 머지 + 릴리즈 컷 시 ✅ 처리 완료 마킹.
+
+### 예상 처리 PR
+
+- PR-29 (architect) — 본 spec PR (현재 진행)
+- PR-29a (backend-core, T-MS1)
+- PR-29b (market-data, T-CA1)
+- PR-29c (frontend, T-S1 잔재)
+- PR-29d (backend-core, R3 일괄 테스트)
 
 ---
 
