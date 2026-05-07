@@ -61,3 +61,20 @@ magicjar:
   kis:
     base-url-prod: ${MAGICJAR_KIS_BASE_URL_PROD:https://openapi.koreainvestment.com:9443}
     base-url-vps: ${MAGICJAR_KIS_BASE_URL_VPS:https://openapivts.koreainvestment.com:29443}
+    # KIS WebSocket URL (ADR 0048 — open-trading-api kis_auth.py my_url_ws 기반)
+    ws:
+      url-prod: ${MAGICJAR_KIS_WS_URL_PROD:wss://ops.koreainvestment.com:21000}
+      url-vps: ${MAGICJAR_KIS_WS_URL_VPS:wss://ops.koreainvestment.com:31000}
+      user-id: ${MAGICJAR_KIS_WS_USER_ID:}       # KIS WS approval_key 발급 사용자 ID
+      heartbeat-timeout-seconds: ${MAGICJAR_KIS_WS_HEARTBEAT_TIMEOUT:10}
+      polling-fallback-timeout-seconds: ${MAGICJAR_KIS_WS_POLLING_FALLBACK_TIMEOUT:30}
+  # Yahoo Finance cold-start 설정 (ADR 0048 §2-7 + external-api-policy.md §3)
+  yahoo:
+    base-url: ${MAGICJAR_YAHOO_BASE_URL:https://query1.finance.yahoo.com}
+    request-timeout-seconds: ${MAGICJAR_YAHOO_TIMEOUT:10}
+    retry-wait-seconds: ${MAGICJAR_YAHOO_RETRY_WAIT:60}  # 429/404 시 대기
+  # MarketSession 설정 (ADR 0048 §2-5 — 1차 시간 기반 stub)
+  session:
+    # NOTE: KIS API에 공휴일 조회 endpoint 미확인 → 1차는 평일/주말 시간 기반만
+    # T-MS1 진입 시 공휴일 출처 결정 필요
+    check-interval-seconds: ${MAGICJAR_SESSION_CHECK_INTERVAL:60}
