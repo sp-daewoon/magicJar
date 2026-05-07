@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import io.mockk.every
 import io.mockk.justRun
 import io.mockk.mockk
-import io.mockk.slot
 import io.mockk.verify
 import kr.spdaewoon.magicjar.batch.persistence.BatchInstrumentAliasJpaRepository
 import kr.spdaewoon.magicjar.batch.persistence.BatchInstrumentJpaEntity
@@ -21,7 +20,6 @@ import org.springframework.data.redis.core.ValueOperations
 import org.springframework.kafka.core.KafkaTemplate
 import java.time.Duration
 import java.time.Instant
-import java.util.concurrent.CompletableFuture
 
 /**
  * InstrumentSyncJob smoke test (T-IM1 PR-11a).
@@ -86,9 +84,9 @@ class InstrumentSyncJobTest {
         justRun { instrumentRepo.upsert(any(), any(), any(), any(), any(), any(), any()) }
         justRun { aliasRepo.upsert(any(), any(), any()) }
         justRun { instrumentRepo.markDelisted(any(), any()) }
-        every { kafkaTemplate.send(any<String>(), any(), any()) } returns mockk {
-            every { isDone } returns false
-        }
+        val sendFuture = mockk<java.util.concurrent.CompletableFuture<org.apache.kafka.clients.producer.RecordMetadata>>()
+        every { kafkaTemplate.send(any<String>(), any(), any()) } returns
+            mockk { every { isDone } returns false }
 
         // when
         val result = job.run("test")
@@ -120,9 +118,9 @@ class InstrumentSyncJobTest {
         every { instrumentRepo.findAllByActiveTrue() } returns existingActive
         justRun { instrumentRepo.upsert(any(), any(), any(), any(), any(), any(), any()) }
         justRun { aliasRepo.upsert(any(), any(), any()) }
-        every { kafkaTemplate.send(any<String>(), any(), any()) } returns mockk {
-            every { isDone } returns false
-        }
+        val sendFuture = mockk<java.util.concurrent.CompletableFuture<org.apache.kafka.clients.producer.RecordMetadata>>()
+        every { kafkaTemplate.send(any<String>(), any(), any()) } returns
+            mockk { every { isDone } returns false }
 
         // when
         val result = job.run("test")
