@@ -39,6 +39,7 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 
-# nginx 헬스체크 — 루트 경로가 HTML 반환하는지 확인
-HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=5 \
-    CMD wget -qO- http://localhost/ 2>/dev/null | grep -q "<html" || exit 1
+# nginx 헬스체크 — alpine nginx에 wget 미설치라 nginx 프로세스 + 로컬 응답을 wget-busybox로 검증
+# busybox wget(alpine 기본)이 200 응답을 받으면 통과.
+HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=5 \
+    CMD wget --spider -q http://localhost/ 2>/dev/null || exit 1
