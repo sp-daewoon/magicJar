@@ -318,6 +318,7 @@ W2·W4 진입 시 architect 사전 발행.
 | 2026-05-07 | 본 backlog 신설 (10건 흡수 — 사용자 명시 5건 + architect 추가 5건) | PR-9 완료 후 사용자 명시 — "미뤄두는 의제들 관리해줘". architect가 5건 추가 (§6 dogfooding 결과·§7 W2 진입·§8 STOMP relay·§9 모바일 반응형·§10 AI 에이전트 영역 침범) |
 | 2026-05-07 | PR-11 진입 갱신 — §6 dogfooding 보류 명시 + §7 W1 잔여 진입(T-IM1) 정정 + §11 SymbolControllerTest mock 별도 PR 권장 명시 | 사용자 dogfooding 보류 + "다음 일정 진행" 의제 → orchestrator T-IM1 우선 결정. ADR 0017·0039 정합 spec/plan PR-11 발행 (`_workspace/specs/pr-11-im1-design.md` 외 2종) (architect) |
 | 2026-05-07 | PR-21 진입 갱신 — §16 instrument 14 컬럼 fitness gap 신설(사용자 비판 응답 진행) + §17 architect SKILL KIS-first raw fetch 의무 강화 신설 | 사용자 강한 비판 ("kis 데이터 규격 확인 안하고 막 만들어서 꾸겨넣은거잖아") → PR-21 spec 5종 발행 (KIS 헤더 raw 검증 보고서 baseline + 70 필드 add-only V5 + Entity 83 필드 + 파싱 본격 LOCK) + ADR 0051 신설 검토 (architect) |
+| 2026-05-08 | PR-26 운영 헌법 통합 — §15·§17 ✅ 처리 완료 마킹 + §18 batch test @Disabled 신설 + §19 task.mjs --force ✅ + §20 Spring Data default fun trap ✅ | `_workspace/arch/agent-charter.md` 신설 (7 § 룰 통합) + 9 sub-agent SKILL 슬림화 (1줄 헌법 참조) + ADR 0051 신설 + scripts/task.mjs --force parsing fix. 사용자 명시 "강령 만들어야 하고", "토큰 소모 없이 가게". (architect) |
 
 ---
 
@@ -424,32 +425,19 @@ sub-agent SKILL에 `task.mjs check + done` 호출 의무 명시화 — 별도 �
 
 ---
 
-## §15. sub-agent SKILL에 task.mjs 호출 의무 명시화
+## §15. ✅ 처리 완료 — sub-agent SKILL에 task.mjs 호출 의무 명시화 (PR-26)
 
-### 사유
+### 사유 (역사 보존)
 
 PR-14·18 운영 룰 정정 결과로 **task.mjs check + done 호출 의무**를 sub-agent SKILL에 명시화 필요. 현재 sub-agent들이 task.mjs start만 호출하고 check·done 흐름이 흐려짐.
 
-### 정정 안
+### 처리 (PR-26)
 
-`.claude/agents/{architect,backend-core,market-data,strategy-engine,ai-engineer,frontend,qa}.md`에 공통 절 추가:
+`_workspace/arch/agent-charter.md` §1 (task.mjs 4단계 의무)로 통합 — start·check·done·archive 4단계를 운영 헌법 단일 출처에 명시. 9 sub-agent SKILL은 헌법 1줄 참조만 (중복 제거 + token 효율).
 
-```
-## Task 파일 갱신 의무 (ADR 0036 + PR-18 §14)
+### 교훈
 
-1. start: 작업 시작 시 `node scripts/task.mjs start --agent <a> --goal "..." --deliverables "..."`
-2. check: **각 결과물 완료 시 즉시** `node scripts/task.mjs check "<항목명>"` (deliverables 1건씩)
-3. done: PR 생성 후 `node scripts/task.mjs done --pr <N>`
-4. archive: orchestrator 영역 (머지 후 자동 호출 — sub-agent가 호출 안 함)
-```
-
-### 트리거
-
-PR-19+ 사이클 또는 사용자 명시 트리거. 메타 정리 사이클에 함께 처리.
-
-### 예상 처리 PR
-
-architect 단독 — 7 sub-agent SKILL 일괄 보강 + ADR 0036 §47 보강. 작은 PR 1건.
+운영 룰을 sub-agent SKILL에 분산 명시 시 매번 흐려짐. 단일 출처 헌법으로 통합 → token 절감 + 정합 보장.
 
 ---
 
@@ -496,11 +484,20 @@ PR-21 spec 5종 발행 (architect 자율 결정 사이클):
 
 ---
 
-## §17. architect SKILL — KIS-first raw fetch 의무 강화 (PR-21 처리 진행 중)
+## §17. ✅ 처리 완료 — architect SKILL — KIS-first raw fetch 의무 강화 (PR-21 → PR-26 헌법 통합)
 
-### 사유
+### 사유 (역사 보존)
 
 §16의 재발 방지 일환. architect spec/plan PR 발행 시 외부 데이터 규격(KIS 헤더·tr_id·필드 byte offset·DSL 등) raw fetch 검증 의무를 SKILL.md 또는 ADR에 명시화. 현재 사용자 메모리 `feedback_kis_first_policy.md`만 있고 architect SKILL 자체에는 명시 부재.
+
+### 처리 (PR-21 + PR-26)
+
+- PR-21에서 `.claude/agents/architect.md`에 KIS-first raw fetch 의무 5단계 절 추가
+- PR-26에서 `_workspace/arch/agent-charter.md` §3 (KIS-first raw fetch 의무)로 통합 — architect·market-data 영역 핵심 책임으로 헌법 단일 출처 명시. architect SKILL은 헌법 §3 참조 + ADR 발행 의무만 영역별 특수 룰로 유지.
+
+### 잔여 의제 — architect SKILL 본문 ADR 미발행
+
+ADR 0051 후보였던 "KIS-first raw fetch 의무 ADR" 자체는 본 PR-26 ADR 0051(Spring Data default fun trap)으로 자리 차지됨. KIS-first ADR은 별도 사이클에서 검토 (또는 헌법 §3로 충분 — sub-agent SKILL에서 cross-ref 가능).
 
 ### 정정 안
 
@@ -533,6 +530,67 @@ PR-21 사이클 일환. spec PR에 SKILL 강화 + ADR 0051 신설 포함.
 ### 예상 처리 PR
 
 architect spec PR-21 (현재 사이클) — `architect.md` SKILL 보강 + ADR 0051 신설 옵션 (architect 자율 결정).
+
+---
+
+## §18. SymbolControllerTest 미정 + batch test @Disabled 2건 (PR-23 잔재)
+
+### 사유
+
+- PR-23 통합 빌드 hotfix에서 batch test 2건 `@Disabled` 추가 (이름 미정 — 사용자 보고 시점에 정확)
+- backlog §11 SymbolControllerTest mock 보강과 동일 패턴
+
+### 트리거
+
+W1 R3 일괄 테스트 사이클 또는 사용자 명시 트리거 시.
+
+### 예상 처리 PR
+
+별도 소형 PR (`hotfix/batch-test-mock`) — backend-core 영역.
+
+---
+
+## §19. ✅ 처리 완료 — task.mjs --force flag parsing fix (PR-26)
+
+### 사유 (역사 보존)
+
+PR-18에서 `cmdArchive`에 `--force` 옵션 추가했지만 `parseArgs` 함수가 boolean flag 인식 못 함. `--force` 단독 호출 시 다음 토큰을 value로 가져가서 undefined 반환 → `args.force === true` 검증 통과 안 됨.
+
+### 처리 (PR-26)
+
+`scripts/task.mjs` `parseArgs` 함수 보강 — 다음 토큰이 없거나 `--`로 시작하면 boolean true로 인식. 기존 key=value 패턴은 호환 유지.
+
+```js
+// PR-26 정정 후 동작
+parseArgs(['archive', 'T-test', '--force'])
+// → { _: ['T-test'], force: true }  ← 정확
+```
+
+### 검증
+
+- `--force` 단독: `out.force = true` ✅
+- `--agent architect`: `out.agent = 'architect'` (기존 동작 유지) ✅
+- 끝에 `--force`: 다음 토큰 부재 → `true` ✅
+- 중간에 `--force` + 다음 `--xxx`: `--xxx`가 `--`로 시작 → `true` ✅
+
+---
+
+## §20. ✅ 처리 완료 — Spring Data Repository default fun 함정 (PR-26 ADR 0051)
+
+### 사유 (역사 보존)
+
+PR-23·PR-25에서 발견한 결함 — Repository interface 안에 body 가진 fun이 Spring Data query inference에 걸려 부팅 실패.
+
+- PR-23: `BatchInstrumentJpaRepository.upsert(7파)` wrapper 추가 → 부팅 실패 (`No property 'upsert' found`)
+- PR-25: wrapper 제거 + `InstrumentSeedRunner.upsertSeed` private fun helper로 이동 → 정정
+
+### 처리 (PR-26)
+
+ADR 0051 신설 (`_workspace/arch/adr/0051-spring-data-default-fun-trap.md`) — 회피 패턴 3종 명시 (caller helper · extension fun · abstract only). 헌법 §6에 본 ADR cross-ref + sub-agent SKILL(backend-core·market-data) 영역별 특수 룰로 강조.
+
+### 교훈
+
+Kotlin interface는 `default` 키워드 없이도 body 가진 fun이 default 동작 → Spring Data가 abstract와 구분하지 못해 query inference 시도. JVM bytecode level에서 동일하게 보임 → Repository proxy 생성 시 부팅 실패.
 
 ---
 
