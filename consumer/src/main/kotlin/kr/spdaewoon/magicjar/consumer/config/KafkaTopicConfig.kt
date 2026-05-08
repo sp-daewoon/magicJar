@@ -86,4 +86,25 @@ class KafkaTopicConfig {
             .replicas(1)
             .config("retention.ms", "604800000") // 7d
             .build()
+
+    /**
+     * 기업 행위(Corporate Action) 적용 이벤트.
+     * CorpActionSyncJob → CandleAdjustmentJob 트리거.
+     * partition key = instrumentCode (종목별 순서 보장).
+     * retention: 1d (소급 보정 완료 후 재처리 불필요).
+     * PR-29b T-CA1 market-data 신규 (dispatch-spec §6-3 KafkaTopicConfig PR-29b 단독 LOCK).
+     *
+     * KIS ksdinfo 6 endpoint 출처 (ADR 0018 §2-5):
+     *   HHKDB669100C0 paidin-capin, HHKDB669101C0 bonus-issue,
+     *   HHKDB669102C0 dividend,     HHKDB669104C0 merger-split,
+     *   HHKDB669105C0 rev-split,    HHKDB669106C0 cap-dcrs
+     */
+    @Bean
+    fun corpActionAppliedTopic(): NewTopic =
+        TopicBuilder
+            .name("corp_action.applied.v1")
+            .partitions(1)
+            .replicas(1)
+            .config("retention.ms", "86400000") // 1d
+            .build()
 }
