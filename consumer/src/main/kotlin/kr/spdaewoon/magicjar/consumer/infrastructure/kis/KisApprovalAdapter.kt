@@ -121,10 +121,14 @@ class KisApprovalAdapter(
         userId: String,
         accountType: AccountType,
     ): String {
+        // user_kis_credential 식별 규약 불일치 (v3.1.0 backlog §23):
+        //   REAL 키는 OnboardingService가 user_id=계좌번호로 저장
+        //   MOCK 키는 user_id=KIS user_id로 저장
+        // single-user 환경에서는 firstOrNull fallback으로 매칭. multi-tenant 진입(W3 T-O) 시 본격 정리.
+        val creds = credentialRepository.findAllByAccountType(accountType.name)
         val cred =
-            credentialRepository
-                .findAllByAccountType(accountType.name)
-                .firstOrNull { it.id.userId == userId }
+            creds.firstOrNull { it.id.userId == userId }
+                ?: creds.firstOrNull()
                 ?: error("KIS 자격증명 없음 — userId=$userId type=${accountType.name}")
 
         var appKey: ByteArray? = null
