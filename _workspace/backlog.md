@@ -755,3 +755,64 @@ multi-tenant 진입 시 식별 규약 통일 필요. 후보:
 - `api/src/main/kotlin/kr/spdaewoon/magicjar/api/service/OnboardingService.kt:136, 231`
 - `consumer/src/main/kotlin/kr/spdaewoon/magicjar/consumer/infrastructure/kis/KisApprovalAdapter.kt:124-130`
 - ADR 0046 — Onboarding & Credential Registration (식별 규약 명시 보강 의제)
+
+---
+
+## §24. 종목상세 화면 dogfooding 결함 묶음 (v3.2 일괄 정정)
+
+### 트리거
+
+PR-31 (PR #249·#250) 머지 후 사용자 dogfooding 결과: 6+1건 결함 1차 정정 완료. 다음 dogfooding에서 추가 3건 발견. 단일 사이클로 잡기엔 분봉 backfill 잡 재설계가 들어가서 v3.2 W2 트랙과 묶어 일괄 처리.
+
+메모리 `feedback_dev_priority_qa_batch.md` 정합 — "단일 사이클 hotfix·테스트 mock·minor 정정에 매달리지 말 것. backlog 흡수 + 다음 트랙. QA는 여러 사이클 누적 후 연관성 묶어 일괄".
+
+### 결함 7: 호가 polling fallback 부재 (frontend + market-data)
+
+- 현재: STOMP 미연결 시 호가 polling fallback 메커니즘 없음. ADR 0048 polling은 시세에만 적용, 호가에 미적용.
+- 수정 영역: frontend(SymbolOrderbook polling) + market-data(KIS REST `inquire-asking-price` 어댑터 신규).
+- v3.2 W2 트랙 적합 — KIS REST 신규 어댑터 추가 작업.
+
+### 결함 8: 분봉/15m/30m/90m 데이터 적재 부실 — market-data 영역 ★
+
+DB candle 적재가 종목별로 일관되지 않음. PR-31 진단 결과:
+
+| 종목 | 1m | 5m | 30m | 1h | 1d |
+|------|-----|-----|------|-----|-----|
+| 005930 (삼성) | 2521 | 4239 | 709 | 2895 | 317 |
+| 027710 (팜스토리) | **6** | **59** | **59** | 484 | 312 |
+| 439090 (마녀공장) | **6** | **59** | **59** | 484 | 152 |
+
+- **사용자 인지 현상**: "1분봉인데 일봉처럼 6개 캔들" / "30분봉이 어제까지 일봉 형태" — 1m 6건이 매일 1건씩, 30m 59건이 일별 1건씩 적재되어 시각적으로 일봉처럼 보임.
+- **진짜 원인 추정**: 분봉 backfill 잡이 005930 우선 종목만 적용되어 있거나, 종목별 KIS REST `FHKST03010200` (분봉 backfill) 호출이 일부만 실행. 다른 종목은 일별 1건씩(아마 장 마감 시점 1건 적재 path)만 누적.
+- **수정 영역**: market-data 영역 — 분봉 backfill 잡 재설계 + 전 watchlist 종목 적용. KIS REST rate limit 고려해 야간/주말 schedule.
+- **참조**: ADR 0019 §2-2 candle 5종 정책 + ADR 0029 candle minute 실시간 정합
+
+### 결함 9: 가격 배지 `getPriceBadge()` 로직 — frontend 영역
+
+- 위치: `frontend/src/lib/marketHours.ts:55`
+- 현재 로직:
+  ```typescript
+  if (isWithin30Seconds(asOf, now)) return 'live'  // ← 결함
+  if (source === 'closed') return 'closed'
+  if (source === 'polling' && !isKoreanMarketOpen(now)) return 'closed'
+  ...
+  ```
+- **결함**: polling이 5초마다 호출되어 `asOf`가 항상 30초 이내 → 장중/장외 무관하게 'live' 반환. SymbolPriceCard만 'live'(녹) 표시, SymbolOrderbook은 별도 `isKoreanMarketOpen()` 체크로 'closed'(회) 표시 — 두 컴포넌트 표시 불일치.
+- **올바른 로직**:
+  ```typescript
+  if (source === 'live' && isWithin30Seconds(asOf, now)) return 'live'
+  if (source === 'closed' || (source === 'polling' && !isKoreanMarketOpen(now))) return 'closed'
+  if (source === 'polling' && isKoreanMarketOpen(now)) return 'delayed'
+  return 'delayed'
+  ```
+- **수정 영역**: frontend 단독 — `marketHours.ts` 한 함수 정정 + 단위 테스트 추가.
+
+### 처리 시점
+
+v3.2 W2 트랙 진입 사이클에 묶음 처리. 결함 7+8은 market-data 작업, 결함 9는 frontend 작업.
+
+### 참조
+
+- PR #249 (frontend) · PR #250 (backend-core) — v3.1.0 1차 정정
+- `frontend/src/lib/marketHours.ts:50` — getPriceBadge()
+- `_workspace/baseline/v3.1.0/` — 1차 정정 시점 snapshot
