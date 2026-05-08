@@ -32,11 +32,11 @@ class CandleQueryService(
 ) {
     private val log = LoggerFactory.getLogger(CandleQueryService::class.java)
 
-    val supportedIntervals = setOf("1m", "5m", "30m", "1h", "1d")
+    val supportedIntervals = setOf("1m", "5m", "30m", "1h", "1d", "1wk", "1mo", "1y")
     val defaultLimit = 200
     val maxLimit = 500
 
-    // interval → DB candle interval code 매핑
+    // interval → DB candle interval code 매핑 (DB CHECK constraint 11종 중 API 노출 8종)
     private val intervalCodeMap =
         mapOf(
             "1m" to "1m",
@@ -44,6 +44,9 @@ class CandleQueryService(
             "30m" to "30m",
             "1h" to "1h",
             "1d" to "1d",
+            "1wk" to "1wk",
+            "1mo" to "1mo",
+            "1y" to "1y",
         )
 
     fun getCandles(
