@@ -63,3 +63,18 @@ magicjar:
     # true: KrxMarketSessionResolver (market_calendar DB + KIS chk-holiday)
     # false: SimpleMarketSessionResolver (시간 기반 stub — consumer fallback)
     enforce: ${MAGICJAR_MARKET_SESSION_ENFORCE:true}
+
+
+# ─────────────────────────────────────────────────
+# 로깅 레벨 — 노이즈 차단 (v3.1.0 dogfooding hotfix)
+# Hibernate SQL DEBUG / Kafka INFO 등 너무 시끄러운 로그를 WARN 또는 INFO로
+# ─────────────────────────────────────────────────
+logging:
+  level:
+    root: INFO
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.jdbc.bind: WARN
+    org.apache.kafka: WARN
+    org.apache.kafka.clients.NetworkClient: ERROR  # Kafka broker 일시 끊김 INFO 노이즈 차단
+    org.springframework.kafka: WARN
+    kr.spdaewoon.magicjar: INFO

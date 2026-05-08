@@ -482,6 +482,15 @@ class KisWebSocketBridge(
         val accountType = if (magicjarMode == "REAL") AccountType.REAL else AccountType.MOCK
         return try {
             approvalAdapter.getApprovalKey(defaultUserId, accountType)
+        } catch (e: IllegalStateException) {
+            // 자격증명 미등록 — 사용자 환경 결함 (REAL/MOCK 한쪽만 등록 등). 매 호출마다 ERROR
+            // 트레이스는 노이즈. WARN으로 강등 + 안내 메시지.
+            log.warn(
+                "KIS WS approval_key 발급 불가 — type={} 자격증명 미등록 (SetupWizard에서 등록 후 재부팅 필요): userId={}",
+                accountType,
+                defaultUserId.take(4),
+            )
+            "ERROR_APPROVAL_KEY"
         } catch (e: Exception) {
             log.error("KIS WS approval_key 발급 실패: userId={} error={}", defaultUserId.take(4), e.message)
             "ERROR_APPROVAL_KEY"

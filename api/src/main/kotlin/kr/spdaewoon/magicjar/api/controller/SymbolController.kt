@@ -195,7 +195,7 @@ class SymbolController(
                 ),
             )
         kafkaTemplate.send("symbol.detail.command.v1", code, payload)
-        log.info("symbol.detail.command 발행: action={} code={}", action, code)
+        log.debug("symbol.detail.command 발행: action={} code={}", action, code)
     }
 
     private fun validateCode(code: String) {
