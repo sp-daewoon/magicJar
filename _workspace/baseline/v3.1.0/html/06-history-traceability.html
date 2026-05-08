@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>06-history-traceability — magicJar v3.1.0 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">📁 인덱스</a><a href="01-architecture.html">01 Architecture</a><a href="02-data-flow.html">02 Data Flow</a><a href="03-use-sequences.html">03 Use Sequences</a><a href="04-feature-spec.html">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html" class="active">06 History</a><a href="07-policy-evolution.html">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.1.0 Baseline · 2026-05-08 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># 06 — PR · ADR · 기능 추적성 매트릭스
+
+> **작성자**: architect (PR-30)
+> **시점**: 2026-05-08 v3.1.0 태그 컷 직후 (main `6b83899` + `release/v3.1`)
+> **범위**: v3.0.1 (2026-05-06, main `7eef1aa` 추정) → v3.1.0 (2026-05-08, main `6b83899`) 사이 56 PR + ADR 7건 신규 + W1 트랙 7건 풀세트.
+
+본 문서는 **PR·ADR·기능 3축 추적성 매트릭스**다. raw 출처:
+- `git log v3.0.1..main --oneline` (worktree에서 직접 실행 결과 인용)
+- `gh pr list --state merged --limit 60 --json number,title,mergedAt,headRefName` 결과 인용
+- `CHANGELOG.md` 시계열 row
+- `_workspace/arch/adr/README.md` 인덱스
+- `_workspace/backlog.md` § 단위
+
+---
+
+## §1. W1 트랙별 PR 매핑
+
+`docs/architecture/tracks-roadmap.md` §2 트랙 정의 + v3.1.0 release row(CHANGELOG.md:15) 풀 정합.
+
+| 트랙 ID | ★ 등급 | 명칭 | 주요 PR | 부수 hotfix PR | 결과물 |
+|---------|-------|------|---------|----------------|--------|
+| **T-ONBOARD** | ★★ | Onboarding Setup (셋업 마법사 + AES + 3 테이블) | #191 (architect spec) → #193 (PR-6a backend) + #192 (PR-6b frontend) | — | system_config + user_account + user_kis_credential 테이블 (V2). AES-256-GCM AesGcmCipher. SetupWizard 7-step. OnboardingGuardFilter 401 인터셉터. ADR 0046 정합. |
+| **T-W1** | ★ | Watchlist CRUD + Position Bootstrap | #194 (architect spec) → #196 (PR-7a backend) + #195 (PR-7b frontend) | #208 PR-12 docker SPRING_* env override · #209 PR-13 nginx /api/+/ws/ proxy · #212 PR-16 audit jsonb + batch port + consumer ambiguous · #213 PR-17 dogfooding 2차 4건 · #215 PR-19 KIS 헤더 + sync-at-boot · #216 PR-20 EUC-KR 파싱 + watchlist join | Flyway V3. WatchlistController 3 endpoint (`/api/watchlists`). WatchlistPage UI. PositionBootstrapRunner ApplicationRunner (ADR 0042 STAGE 0-1~0-3). KisAuthAdapter Redis 분산락 (ADR 0038). |
+| **T-W2** | ★ | Ingestion Worker (KIS WS + Yahoo cold-start + 41 slot) | #198 (architect spec + ADR 0048 본문 발행) → #199 (PR-9a backend) + #200 (PR-9b market-data) | #204 PR-10 통합 빌드 hotfix (KisRestPort import + ktlint) | WatchlistChangedKafkaListener (첫 consumer). SubscriptionRouter slot 1+30+10·priority eviction (ADR 0048). KisWebSocketBridge (H0STCNT0). YahooCandleFetcherAdapter (.KS/.KQ fallback 7 interval). RedisQuoteCacheAdapter. TickToMinuteAggregator (@Scheduled 매 분 0초). KafkaTopicConfig — `market.tick.v1` 1h · `market.candle.minute.closed.v1` 1d · `watchlist.changed.v1` 7d. |
+| **T-S1** | ★ | Symbol Detail (현재가 + LWC 차트 + 호가 STOMP) | #201 (architect spec) → #202 (PR-10a frontend) + #203 (PR-10b market-data) | #229 PR-29c T-S1 잔재 검증 + 결함 정정 (호가 sendBeacon · 한글 IME · delisted UX) | SymbolDetailPage + 9 컴포넌트. SymbolController (GET symbol·candles·POST orderbook subscribe/unsubscribe). KisRestPriceMetricsAdapter (PER/PBR/거래량). KisWsOrderbookParser (H0STASP0 KIS-first 필드 인덱스). OrderbookSubscriptionRouter (LRU 10·debounce 200ms·idle 5분). WebSocketConfig (STOMP) + 3 forwarder. ADR 0019·0029·0040·0025·0014 정합. |
+| **T-MS1** | — | Market Session FSM + Fallback 3-tier + REJECTED Audit | #228 (architect spec — PR-29 W1 마감 spec 4건 통합) → #230 (PR-29a backend-core) | — | KrxMarketSessionResolver (Redis TTL 60초 + market_calendar DB + 시간 FSM ADR 0013 §2-1). Flyway V6 (`market_calendar`·`order_reject_audit`·`orders` ALTER). KisChkHolidayAdapter (CTCA0903R — raw open-trading-api `chk_holiday.py` 1:1 정합). MarketCalendarSyncJob (cron 03:00). MarketCalendarSeedRunner (@Order 2 + 2026~2027 KRX 공휴일 31건 정적 시드). DailyCloseFinalizer (@Scheduled 16:00 KST). TickFallbackEmitter (10s T2 폴백 stub). RejectReason sealed class. ADR 0013·0014·0015·0016 정합. |
+| **T-CA1** | — | Corporate Action + Adjusted Price | #228 (동일 통합 spec) → #231 (PR-29b market-data) | — | Flyway V7 (`corp_action`) + V8 (`candle.adjustment_factor`·`volume_adjusted` ALTER). KisKsdInfoAdapter (HHKDB669100C0~106C0 — 6 endpoint). DartDisclosureAdapter (`opendart.fss.or.kr/api/list.json` pblntf_ty=B+D). DartCorpCodeRepository (CORPCODE.xml in-memory). CorpActionSyncJob (cron 18:30). CandleAdjustmentJob (Kafka `corp_action.applied.v1` listener — 소급 보정). KafkaTopicConfig 보강. ADR 0018 정합. |
+| **T-IM1** | — | Instrument Master (KOSPI 70 + KOSDAQ 64 widths + 83 필드 + Redis 자동완성) | #205 (architect spec) → #206 (PR-11a market-data) + #207 (PR-11b backend) → #217 (architect re-spec 사용자 비판 응답) → #219 (PR-21a market-data 70 필드) + #220 (PR-21b backend 83 필드) | #221 PR-23 통합 빌드 hotfix (upsert wrapper + test @Disabled 2건) · #222 PR-24 ktlint 잔재 · #223 PR-25 batch 부팅 hotfix (Repository wrapper → Runner helper) · #226 hotfix(instrument) KIS sentinel sanitize + securities_group=ST 필터 · #227 frontend delisted 라벨 + 종목상세 안내 | Flyway V4 (instrument_alias·name_norm·theme·gin_trgm·code prefix index) + V5 (70 컬럼 add-only ALTER + 8 CHECK + 8 INDEX). KisInstrumentMasterAdapter (KIS open-trading-api genfile_*.py · EUC-KR byte-단위 substring · KOSPI 70 widths sum=227byte · KOSDAQ 64 widths sum=221byte · scrt_grp_cls_code 권위 매핑). InstrumentSyncJob (diff INSERT/UPDATE/DELIST + Kafka `instrument.updated.v1` + Redis invalidate + 동시 실행 락). InstrumentMasterSyncScheduler (13 cron @Scheduled KST + 영업일 게이트 + sync-at-boot 옵션). 정적 시드 KOSPI 200·KOSDAQ 100·ETF 20 JSON. InstrumentSeedRunner (@PostConstruct row=0 자동 INSERT). InstrumentJpaEntity 14 → 83 필드 (PR-21b add-only). InstrumentRepository port 4 메서드 add. WatchlistEntryDto 6 필드 graceful join. SymbolDto 6 필드 add. InstrumentSearchInput 자동완성 + IME composition. ADR 0017·0039 정합. |
+
+---
+
+## §2. PR 시계열 (#179~#235)
+
+`gh pr list --state merged --limit 60` raw 결과 + `git log v3.0.1..main --oneline` 정합.
+
+> **PR Prefix 분류**: `docs(specs)` = architect spec/plan · `docs(arch)` = architect ADR · `feat(bootstrap)` = sub-agent 트랙 본격 구현 · `feat(adr)` = architect ADR · `fix(...)` = hotfix · `chore(meta)` = orchestrator 정리 · `test(...)` = 테스트 보강.
+
+### 2-1. v3.0.1 베이스라인 컷 직전 (2026-05-06)
+
+| PR | mergedAt | head ref | 요약 |
+|----|----------|----------|------|
+| #176 | 2026-05-05 | `r3-5c-3-pr4-batch-adapters` | feat(kis-auth): R3-5c-3 PR4 — batch 3 어댑터 통합 |
+| #177 | 2026-05-05 | `r3-5c-3-pr5-consumer-prefix` | feat(kis-auth): R3-5c-3 PR5 — consumer 통합 |
+| #178 | 2026-05-05 | `ops-healthcheck-log-noise` | chore(ops): healthcheck 로그 노이즈 제거 |
+| #179 | 2026-05-05 | `v3-baseline` | **chore: v3.0.0 베이스라인** — PoC 정리 + SoT 정합 |
+
+### 2-2. v3.0.1 MD 정리 베이스라인 사이클 (2026-05-06)
+
+| PR | mergedAt | head ref | 요약 |
+|----|----------|----------|------|
+| #180 | 2026-05-06 | `pr-0-meta-policy` | chore(adr): PR-0 ADR 0033 worktree 다중 허용 + ADR 0036 3단 hierarchy |
+| #181 | 2026-05-06 | `pr-1-adr-renumber` | chore(adr): PR-1 ADR 정합 풀 정리 (헤더 7건 + squash→rebase) |
+| #182 | 2026-05-06 | `pr-1b-old-track-ids` | chore(adr): PR-1b 옛 트랙 ID T1~T17 → 신규 ID 일괄 치환 |
+| #183 | 2026-05-06 | `pr-2-sot-sync` | chore(docs): PR-2 master·tracks·rules SoT 동기화 |
+| #184 | 2026-05-06 | `pr-3a-fitness-adr` | feat(adr): PR-3a Critical fitness ADR 0041·0042·0043 |
+| #185 | 2026-05-06 | `pr-3b-fitness-adr` | feat(adr): PR-3b 운영·UX fitness ADR 0044·0045·0046 |
+| #186 | 2026-05-06 | `pr-3c-dsl-sandbox` | PR-3c: ADR 0047 DSL Evaluation Sandbox |
+| #187 | 2026-05-06 | `pr-4-v1v2-residue-cleanup` | chore: PR-4 v1/v2 잔여 정리 + v3.0.1 컷 준비 |
+
+→ **v3.0.1 태그** 컷 (CHANGELOG row 76 — "MD 정리 베이스라인 (코드 진입 직전)" — 47 ADR + master/tracks/rules SoT 정합).
+
+### 2-3. W1 코드 부트스트랩 사이클 (2026-05-06~2026-05-07)
+
+| PR | mergedAt | head ref | 트랙 | 요약 |
+|----|----------|----------|------|------|
+| #188 | 2026-05-06 | `pr-5-design-guide` | (architect) | docs(specs): PR-5 W1 모듈 부트스트랩 설계 |
+| #189 | 2026-05-06 | `pr-5a-jvm-modules` | 부트스트랩 | feat(bootstrap): PR-5a 4 JVM 모듈 + Flyway V1 baseline 11 테이블 + Docker 정합 |
+| #190 | 2026-05-06 | `pr-5b-vite-spa` | 부트스트랩 | feat(bootstrap): PR-5b frontend Vite SPA 스캐폴드 |
+| #191 | 2026-05-06 | `pr-6-onboard-spec` | T-ONBOARD | docs(specs): PR-6 T-ONBOARD 설계 + 분배 + 충돌 행렬 |
+| #192 | 2026-05-07 | `pr-6-onboard-frontend` | T-ONBOARD | feat(bootstrap): PR-6b 프론트엔드 (SetupWizard 7-step) |
+| #193 | 2026-05-07 | `pr-6-onboard-backend` | T-ONBOARD | feat(bootstrap): PR-6a 백엔드 (Flyway V2 + AES-256-GCM + 5 endpoint) |
+
+### 2-4. T-W1·T-W2·T-S1 병렬 사이클 (2026-05-07)
+
+| PR | mergedAt | head ref | 트랙 | 요약 |
+|----|----------|----------|------|------|
+| #194 | 2026-05-07 | `pr-7-w1-spec` | T-W1 | docs(specs): PR-7 T-W1 설계 |
+| #195 | 2026-05-07 | `pr-7-w1-frontend` | T-W1 | feat(bootstrap): PR-7b Watchlist CRUD UI |
+| #196 | 2026-05-07 | `pr-7-w1-backend` | T-W1 | feat(bootstrap): PR-7a (Flyway V3 + Watchlist + Position Bootstrap) |
+| #197 | 2026-05-07 | `pr-8-meta-cleanup` | (architect 메타) | chore(meta): **PR-8 GitHub Actions release 트리거 + CHANGELOG 슬롯 채번룰 + ADR 0040 정정** — ADR 0049·0050 신규 발행 |
+| #198 | 2026-05-07 | `pr-9-w2-spec` | T-W2 | docs(specs): PR-9 T-W2 설계 + **ADR 0048 본문 발행** + CHANGELOG 슬롯 첫 적용 |
+| #199 | 2026-05-07 | `pr-9-w2-backend` | T-W2 | feat(bootstrap): PR-9a (priority 100 default + 41 slot 한도 게이트 + producer 보강) |
+| #200 | 2026-05-07 | `pr-9-w2-market-data` | T-W2 | feat(bootstrap): PR-9b (KIS WS 41 slot + polling fallback + Yahoo cold-start + market session stub) |
+| #201 | 2026-05-07 | `pr-10-s1-spec` | T-S1 | docs(specs): PR-10 T-S1 설계 + **backlog md 신설(10건)** + CHANGELOG 슬롯 |
+| #202 | 2026-05-07 | `pr-10-s1-frontend` | T-S1 | feat(bootstrap): PR-10a SymbolDetailPage + LWC 차트 + 호가 + STOMP |
+| #203 | 2026-05-07 | `pr-10-s1-market-data` | T-S1 | feat(bootstrap): PR-10b Symbol REST·STOMP·H0STASP0 호가 |
+| #204 | 2026-05-07 | `pr-10-build-fix` | (hotfix) | fix: PR-10 통합 빌드 hotfix (KisRestPort import + ktlint + SymbolControllerTest disable) |
+
+### 2-5. T-IM1 + dogfooding hotfix 폭주 (2026-05-07)
+
+| PR | mergedAt | head ref | 트랙·종류 | 요약 |
+|----|----------|----------|-----------|------|
+| #205 | 2026-05-07 | `pr-11-im1-spec` | T-IM1 | docs(specs): PR-11 T-IM1 설계 |
+| #206 | 2026-05-07 | `pr-11-im1-market-data` | T-IM1 | feat(bootstrap): PR-11a (KIS 종목 마스터 sync + 13시각 Cron + 정적 시드 fallback) |
+| #207 | 2026-05-07 | `pr-11-im1-backend` | T-IM1 | feat(bootstrap): PR-11b (Instrument 검색 + Redis 인덱스 + frontend 자동완성) |
+| #208 | 2026-05-07 | `docker-env-spring-override` | hotfix | **fix(docker): PR-12 docker-compose SPRING_* env override** (부팅 실패 정정 — 사용자 첫 dogfooding) |
+| #209 | 2026-05-07 | `nginx-api-proxy` | hotfix | **fix(frontend): PR-13 nginx /api/ + /ws/ proxy** (SetupWizard 405 정정) |
+| #210 | 2026-05-07 | `pr-14-cleanup-rules-dozzle` | meta | chore(meta): **PR-14 머지 후 정리 4단계 룰 + 누적 28 task archive + Dozzle** |
+| #211 | 2026-05-07 | `hotfix/dozzle-duplicate` | hotfix | fix(docker): PR-15 dozzle 중복 정의 제거 (build-and-deploy YAML parse error 정정) |
+| #212 | 2026-05-07 | `hotfix/pr-16-bootup-bundle` | hotfix | fix: PR-16 dogfooding 부팅 hotfix 3건 (audit jsonb + batch port + consumer ambiguous) |
+| #213 | 2026-05-07 | `hotfix/pr-17-dogfooding-2` | hotfix | fix: PR-17 2차 dogfooding hotfix 4건 |
+| #214 | 2026-05-07 | `pr-18-task-integrity` | meta | chore(meta): **PR-18 task 파일 무결성 보강 + 옛 done 일괄 정정 + dogfooding 5차 흡수** |
+| #215 | 2026-05-07 | `hotfix/pr-19-kis-headers-seed-sync` | hotfix | fix: PR-19 dogfooding §6 정정 (KIS 헤더 + 종목 sync-at-boot) |
+| #216 | 2026-05-07 | `hotfix/pr-20-euckr-watchlist-name` | hotfix | fix: PR-20 EUC-KR 파싱 + watchlist 종목명 join |
+
+### 2-6. PR-21 사용자 비판 응답 (KIS-first 정책 위반 정정 / 2026-05-07~08)
+
+| PR | mergedAt | head ref | 트랙·종류 | 요약 |
+|----|----------|----------|-----------|------|
+| #217 | 2026-05-07 | `pr-21-instrument-kis-first` (architect) | T-IM1 재설계 | docs(specs): PR-21 instrument 테이블 KIS-first 본격 재설계 (사용자 비판 응답 + KIS 헤더 70+ 필드 spec) |
+| #218 | 2026-05-07 | `hotfix/pr-22-task-kst-time` | hotfix | fix(script): PR-22 task.mjs nowIso() KST 정정 (사용자 보고) |
+| #219 | 2026-05-07 | `pr-21-instrument-kis-first` (market-data) | T-IM1 | feat(batch+api+domain): PR-21a instrument KIS-first 본격 파싱 (KOSPI 70 widths + KOSDAQ 64 widths + V5 SQL 70 컬럼) |
+| #220 | 2026-05-07 | `pr-21-instrument-jpa-expansion` | T-IM1 | feat(api+domain): PR-21b Instrument 83 필드 + KIS-first mapType + Watchlist/SymbolMeta 보강 |
+| #221 | 2026-05-07 | `hotfix/pr-23-integration-build` | hotfix | fix(batch): PR-23 통합 빌드 hotfix (upsert wrapper + test @Disabled 2건) |
+| #222 | 2026-05-07 | `chore/pr-24-ktlint-format-residue` | meta | chore(format): PR-24 ktlint format 잔재 정리 |
+| #223 | 2026-05-07 | `hotfix/pr-25-upsert-wrapper-extract` | hotfix | fix(batch): PR-25 batch 부팅 hotfix (Repository wrapper → Runner helper) |
+
+### 2-7. PR-26 운영 헌법 통합 + W1 마감 사이클 (2026-05-08)
+
+| PR | mergedAt | head ref | 종류 | 요약 |
+|----|----------|----------|------|------|
+| #224 | 2026-05-07 | `pr-26-charter-integration` (architect) | architect 메타 | docs(arch): **PR-26 운영 헌법(agent-charter) 통합 + ADR 0051 + task.mjs --force fix + backlog 처리 완료** |
+| #225 | 2026-05-07 | `chore/pr-27-archive-pr21-pr26` | meta | chore(task): PR-27 task 4건 archive 정리 |
+| #226 | 2026-05-07 | `hotfix/instrument-sentinel-and-search-st-group` | hotfix | hotfix(instrument): KIS sentinel(-36100000) sanitize + securities_group=ST 검색·관심종목 필터 (`7b6b904`) |
+| #227 | 2026-05-07 | `delisted-label-and-symbol-guidance` | hotfix | feat(frontend): watchlist delisted 라벨 + 종목상세 상장폐지 안내 (`9dde856`) |
+| #228 | 2026-05-08 | `pr-29-w1-close-spec` (architect) | T-MS1+T-CA1+T-S1 통합 spec | docs(specs): **PR-29 W1 마감 spec 4건 + backlog §21 + CHANGELOG 슬롯 5 anchor** |
+| #229 | 2026-05-08 | `pr-29c-w1-close-s1` (frontend) | T-S1 잔재 | fix(frontend): PR-29c T-S1 잔재 검증 + 결함 정정 (dogfooding §6.5 회귀 검증) |
+| #230 | 2026-05-08 | `pr-29a-w1-close-ms1` (backend-core) | T-MS1 | feat(T-MS1): PR-29a KrxMarketSessionResolver + Flyway V6 + DailyCloseFinalizer + REJECTED Audit |
+| #231 | 2026-05-08 | `pr-29b-w1-close-ca1` (market-data) | T-CA1 | feat(batch+domain): PR-29b T-CA1 — CorpAction + Adjusted Price |
+| #232 | 2026-05-08 | `chore/pr-29-cleanup` | meta | chore(meta): PR-29 W1 본격 머지 후 정리 — task 4건 archive + backlog §21 V7·V8 검토 close |
+| #233 | 2026-05-08 | `pr-29d-r3-batch` (backend-core) | T-W1·T-IM1 R3 일괄 | test(api+batch): PR-29d W1 R3 일괄 테스트 — SymbolControllerTest + batch test @Disabled 2건 정정 |
+| #234 | 2026-05-08 | `chore/v3.1.0-release-cut` | release | **chore(meta): PR-29d 머지 후 정리 + v3.1.0 베이스라인 컷** — `release/v3.1` push, ADR 0031 immutable 정합 |
+| #235 | 2026-05-08 | `chore/v3.1.0-baseline-init` | meta | chore(meta): **PR-30 v3.1.0 baseline 폴더 + sub-agent 슬롯 4 anchor 발행** |
+
+→ **v3.1.0 태그** + `release/v3.1` 베이스라인 컷.
+
+---
+
+## §3. ADR 시계열
+
+`_workspace/arch/adr/README.md` §1~§10-4 + 파일 inspection. v3.0.1 시점 ADR 47건 → v3.1.0 시점 ADR 51건 (4건 신규 발행).
+
+### 3-1. v3.0.1 시점 발행 완료 ADR (47건 — 베이스라인)
+
+| ADR | 제목 | 발행 PR (v3.0.1 사이클) |
+|-----|------|------------------------|
+| 0001 | 시스템 비전 — 룰 본체 + AI 옵션 + MCP 서버 미래 | v3 베이스 |
+| 0002 | 언어·프레임워크 (Kotlin 2.0 / Spring Boot 3.3 / JDK 21 / Gradle KTS) | v3 베이스 |
+| 0003 | 증권사 API로 한국투자증권 KIS OpenAPI 선택 | v3 베이스 |
+| 0004 | MSA 모듈 재구성 (4 JVM + frontend) | v3 베이스 |
+| 0005 | 하이브리드 런타임 — api / batch / consumer 3 JVM | v3 베이스 |
+| 0006 | PostgreSQL 단일 + 스키마 분리 | v3 베이스 |
+| 0007 | Kafka 이벤트 백본 | v3 베이스 |
+| 0008 | Docker 표준 | v3 베이스 |
+| 0009 | 프론트엔드 SPA (React + TS + Vite + LWC v4) | v3 베이스 |
+| 0010 | Multi-tenant 구조 | v3 베이스 |
+| 0011 | 주문 실행기 3-mode + 안전 게이트 | v3 베이스 |
+| 0012 | 매매일지 아키텍처 | v3 베이스 |
+| 0013 | Market Session FSM (KRX 영업일·장중·장외·휴장) | v3 베이스 |
+| 0014 | 시세 데이터 Fallback 3-tier | v3 베이스 |
+| 0015 | REJECTED Audit Trail | v3 베이스 |
+| 0016 | KIS REST/WS HTTP 정밀화 | v3 베이스 |
+| 0017 | Instrument Master 1급 시민 | v3 베이스 |
+| 0018 | Corp Action raw + adjusted | v3 베이스 |
+| 0019 | 캔들 저장 정책 (Watchlist 기반 + Yahoo 분봉 DB 영속) | v3 베이스 |
+| 0020 | KIS Strategy Builder 흡수 = 명세 port | v3 베이스 |
+| 0021 | Indicator Source 추상화 | v3 베이스 |
+| 0022 | Strategy DSL = .kis.yaml 호환 superset | v3 베이스 |
+| 0023 | Signal Engine = 룰 매칭 only | v3 베이스 |
+| 0024 | Risk Guard chain 6단 | v3 베이스 |
+| 0025 | LWC 확장 + 자체 도형/주석/패턴 | v3 베이스 |
+| 0026 | AI 옵션 보조 (사용자 트리거 한정) | v3 베이스 |
+| 0027 | MCP 서버 미래 노출 | v3 베이스 |
+| 0028 | Watchlist 기반 Ingestion Worker (1~5초 polling) | v3 베이스 |
+| 0029 | 당일 진행 중 캔들 Redis 캐시 | v3 베이스 |
+| 0030 | 마스터 아키텍처 = 단일 진실원 (SoT) | v3 베이스 |
+| 0031 | 베이스라인 태그 + release/v* immutable 보존 브랜치 | v3 베이스 |
+| 0032 | Husky v9 git hooks (pre-commit author whitelist + pre-push) | v3 베이스 |
+| 0033 | 단일 worktree + 순차 작업 정책 → **PR-0(#180)에서 다중 허용으로 갱신** | v3 베이스·갱신 |
+| 0034 | 머지 흐름 단순화 (`agent/* → main` rebase) → **PR-1(#181) squash→rebase 정정** | v3 베이스·갱신 |
+| 0035 | 에이전트별 모델 차등 + 에스컬레이션 | v3 베이스 |
+| 0036 | Orchestrator Meta Rules → **PR-0(#180) §2-3 hierarchy 정정** | v3 베이스·갱신 |
+| 0037 | KIS API Rate Limit 강제 (초당 10건 + 토큰 버킷) | v3 베이스 |
+| 0038 | KIS OAuth 24h 토큰 + Redis 분산락 공통 모듈 | v3 베이스 |
+| 0039 | 종목 마스터 갱신 Cron (KIS 갱신 시각 +5분) | v3 베이스 |
+| 0040 | 관심종목 우선 UI 흐름 → **PR-8(#197) endpoint 단수→복수 정정** | v3 베이스·갱신 |
+| 0041 | Broker Reconciliation Job | **PR-3a (#184)** — Critical fitness 갭 |
+| 0042 | Position Bootstrap & Recovery | **PR-3a (#184)** — Critical fitness 갭 |
+| 0043 | KillSwitch 행동 정의 | **PR-3a (#184)** — Critical fitness 갭 |
+| 0044 | Notification System | **PR-3b (#185)** — 운영·UX 갭 |
+| 0045 | Graceful Shutdown & In-flight | **PR-3b (#185)** — 운영·UX 갭 |
+| 0046 | Onboarding & Credential Registration | **PR-3b (#185)** — 운영·UX 갭 |
+| 0047 | DSL Evaluation Sandbox | **PR-3c (#186)** — DSL 안전성 갭 |
+
+### 3-2. v3.1.0 사이클 신규 발행 ADR (4건)
+
+| ADR | 제목 | 발행 PR | 카테고리 | 사유 |
+|-----|------|---------|----------|------|
+| **0048** | KIS WebSocket 41건 구독 한도 + 우선순위 정책 (slot 1+30+10·priority eviction·polling fallback) | **PR-9 (#198)** — T-W2 진입 직전 본문 발행 | 시장 데이터 | T-W2 진입 직전 KIS 공식 한도 41건 (1 reserve + 30 watchlist + 10 detail) 정책 lock. master §10 후속 예정에서 §5로 이동. |
+| **0049** | GitHub Actions = release 트리거 한정 (일상 검증은 pre-push hook 단독) | **PR-8 (#197)** — 메타 정리 | 메타·CI/CD | `.github/workflows/ci.yml` 폐기 + `release.yml` 재구성. PR 검증은 pre-push hook 단독. |
+| **0050** | CHANGELOG 슬롯 채번룰 (architect 사전 발행 + sub-agent in-place edit) | **PR-8 (#197)** — 메타 정리 | 메타·하네스 | 병렬 sub-agent CHANGELOG 충돌 회피. PR-9에서 첫 적용, PR-10에서 HTML 주석 anchor 도입. |
+| **0051** | Spring Data Repository default fun 함정 (회피 패턴) | **PR-26 (#224)** — 운영 헌법 통합 | 메타·운영 | PR-23(#221)·PR-25(#223) 사례 정합. Repository interface body fun → query inference 부팅 실패. helper는 caller class 내부 또는 extension fun. 헌법 §6 정합. |
+
+### 3-3. ADR 누적 갱신·정합 PR (본문 직접 갱신)
+
+| PR | 갱신 대상 ADR | 종류 |
+|----|--------------|------|
+| #180 PR-0 | 0033 (단일 worktree → 다중 허용) · 0036 (architect-as-orchestrator → 3단 hierarchy) | 정책 진화 |
+| #181 PR-1 | 0034 (squash → rebase) · 헤더 7건 정정 | 헤더 정합 |
+| #182 PR-1b | ADR 본문 옛 트랙 ID T1~T17 → 신규 ID 일괄 치환 | 트랙 ID 정합 |
+| #183 PR-2 | master §10 ADR 인덱스 풀 재작성 + 0017 fitness gap | SoT 동기화 |
+| #197 PR-8 | 0040 (`/api/watchlist` → `/api/watchlists` 단수→복수 정정) + 0019·0028 정합 | endpoint 정정 |
+| #198 PR-9 | 0048 후속 예정 → 본문 발행 + master §10 인덱스 갱신 | 본문 발행 |
+| #217 PR-21 | 0017·0039 정합 — KIS 73 필드 fitness gap 91.7% spec | fitness gap 응답 |
+| #224 PR-26 | 0051 신규 + ADR 인덱스 0051·후속 0052~0055 시프트 | 정책 진화 |
+
+### 3-4. 후속 예정 (Proposed) — `_workspace/arch/adr/README.md` §12
+
+v3.1.0 시점 후보. W2~W3 진입 시 발행 예정.
+
+| 후보 번호 | 제목 (예정) | 진입 트랙 |
+|----------|-----------|----------|
+| 0052 | 57 캔들 패턴 표준 | T-PAT (W2) |
+| 0053 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT (W3) |
+| 0054 | Screener 표준 | T-SC (W3) |
+| 0055 | Performance 표준 | T-PERF (W3) |
+
+---
+
+## §4. Hotfix · Dogfooding 패턴 (어떻게 결함이 잡혔는지)
+
+v3.1.0 사이클의 hotfix 11건은 **사용자 dogfooding · 통합 빌드 · 사이클 직후 발견** 3 카테고리로 구분된다. 각 사례는 헌법 §3 KIS-first raw fetch 의무 + ADR 0050 슬롯 채번룰 + ADR 0051 default fun 함정의 baseline.
+
+### 4-1. 사용자 dogfooding hotfix (사용자 첫 사용 흐름에서 발견)
+
+| 결함 | hotfix PR | commit | 원인 | 정정 패턴 |
+|------|-----------|--------|------|----------|
+| `POST /api/onboarding/kis/validate` 405 Not Allowed | PR-13 (#209) | `da5c2bc` | nginx.conf SPA fallback만 있고 `/api/*`·`/ws/*` proxy_pass 누락 | nginx `location /api/` (proxy_pass http://api-app:8080) + `location /ws/` (Upgrade/Connection 헤더 STOMP WebSocket) 추가 |
+| api-app `Connection refused at localhost:5432` | PR-12 (#208) | `dded9ef` | env_file의 `.env`에 들어 있던 localhost 값이 environment block보다 우선 (Spring Boot relaxed binding) | docker-compose `SPRING_DATASOURCE_URL`·`SPRING_DATA_REDIS_HOST`·`SPRING_KAFKA_BOOTSTRAP_SERVERS` 명시 override 추가 (backlog §12 신설) |
+| audit_trail.detail_json jsonb 타입 mismatch (POST /api/onboarding/kis/validate 500) | PR-16 (#212) | `dd8db6d` | JPA `String` 컬럼이 PG jsonb 타입과 mismatch | AuditTrailJpaEntity `@JdbcTypeCode(SqlTypes.JSON)` |
+| batch 부팅 실패 (KisInstrumentMasterPort bean missing) | PR-16 (#212) | 동일 | KisInstrumentMasterAdapter consumer에 있었음 | `git mv consumer → batch` + package 정정 |
+| consumer 부팅 실패 (KisRestPort 2 bean ambiguous) | PR-16 (#212) | 동일 | KisRestCandleAdapter + KisRestPriceAdapter 둘 다 KisRestPort 구현 | KisRestCandleAdapter `@Primary` 추가 (근본 정정 KisRestPort 분리는 backlog §2로 미룸) |
+| batch 부팅 실패 (KisInstrumentMasterAdapter WebClient bean missing) | PR-17 (#213) | `38418ee` | batch 모듈에 WebClientConfig 부재 | `batch/.../config/WebClientConfig.kt` 신설 (consumer 사본 패턴) |
+| DashboardPlaceholder 셋업 마법사 시작 hardcoded 버튼 — 셋업 완료 후에도 표시 → 무한 새로고침 | PR-17 (#213) | 동일 | onboarding status 미반영 | "관심종목 시작하기 → /watchlist"로 정정 (ADR 0040 정합) |
+| frontend 컨테이너 unhealthy | PR-17 (#213) | 동일 | alpine nginx에 wget 미설치 추정 | HEALTHCHECK `wget -qO-` → `wget --spider` + start-period 15s |
+| build-and-deploy.sh ALL_SERVICES에 dozzle·kafka-ui 누락 | PR-17 (#213) | 동일 | 신규 컨테이너 누락 | ALL_SERVICES 보강 |
+| `POST /api/instrument/sync` 503 EGW00104 "AppSecret은 필수입니다" | PR-19 (#215) | `2e3101f` | KisRestPriceMetricsAdapter.fetchPriceMetrics에 appkey·appsecret 헤더 누락 | resolveAccessTokenAndKeys Triple 반환 + 헤더 3개 set + accountType별 cache key 분리 |
+| docker compose 부팅 시 KIS 종목 마스터 수동 sync 필요 | PR-19 (#215) | 동일 | sync-at-boot 옵션 미적용 | docker-compose batch service `MAGICJAR_INSTRUMENT_SYNC_AT_BOOT=true` 명시 override |
+| "SK하이닉스" → `하이닉스 ST1002` 깨짐 | PR-20 (#216) | `7e4e120` | KisInstrumentMasterAdapter.parseLine Java String char-단위 substring → EUC-KR 한글 2byte mismatch | byte-단위(EUC-KR offset) 정합 (KIS open-trading-api `kis_kospi_code_mst.py` raw 정합) |
+| watchlist 등록 후 종목명 미노출 | PR-20 (#216) | 동일 | WatchlistService.list/add 응답에 instrument 테이블 join 누락 | WatchlistEntryDto name/market 채움 + WatchlistRow.tsx 표시 추가 |
+| KIS 종목마스터 ROE 산정 불가 sentinel(-36100000) NUMERIC overflow | hotfix `7b6b904` (#226) | `7b6b904` | KIS sentinel 값을 숫자로 영속 시 PG NUMERIC overflow | KisInstrumentMasterAdapter sanitizeRoe + sanitizeFinancialLong (5 BIGINT 필드). `scrt_grp_cls_code='ST'` 필터 (보통주+우선주만) |
+| watchlist 상장폐지 종목 표시 부재 | PR-227 | `9dde856` | active=false 처리 부재 | WatchlistRow active=false 빨간 배지 "상장폐지" + tooltip + SymbolDetailPage useInstrument hook + price polling/STOMP/orderbook subscribe 차단 + SymbolError variant='delisted' |
+
+### 4-2. 통합 빌드 hotfix (CI 또는 architect 사후 점검에서 발견)
+
+| 결함 | hotfix PR | 원인 | 정정 패턴 |
+|------|-----------|------|----------|
+| KisRestPort import 누락 + Kafka listener Unit return + ktlint 잔재 | PR-10 build-fix (#204) | sub-agent 산출물 통합 빌드 미검증 | import 보강 + ktlint --format + SymbolControllerTest @Disabled |
+| Repository upsert wrapper → No property 'X' found 부팅 실패 | PR-23 (#221) → PR-25 (#223) | `BatchInstrumentJpaRepository.upsert(7파)` wrapper가 Spring Data query inference에 걸림 | PR-25에서 `InstrumentSeedRunner.upsertSeed` private fun helper로 이동 → **ADR 0051 신규 발행** (PR-26) |
+| ktlint format 잔재 (PR-23 후속) | PR-24 (#222) | PR-23 hotfix에서 일부 ktlint 잔재 | ktlintFormat 일괄 적용 |
+
+### 4-3. 메타·정책 진화 hotfix (사용자 룰 흐려짐 보고)
+
+| 결함 | hotfix PR | 원인 | 정정 패턴 |
+|------|-----------|------|----------|
+| dozzle 컨테이너 중복 정의 | PR-15 (#211) | PR-14에서 dozzle 추가했으나 line 86에 이미 정의 → YAML parse error | line 263~277 제거 + DOZZLE_HOST_PORT 8888 정합 |
+| 누적 28~30 task 파일 일괄 정정 + done/ RUNNING 상태 누적 + completedAt null | PR-14 (#210) → PR-18 (#214) | task.mjs 호출 의무 흐려짐 | task.mjs cmdArchive에 status=DONE 검증 강제 + `--force` flag + 옛 done/ 30 파일 일괄 정정 (22 fixed) |
+| task.mjs 시간 KST 미반영 (UTC 표기) | PR-22 (#218) | `nowIso()` UTC `toISOString()` 사용 | KST(+09:00) offset 적용 |
+| task.mjs `--force` flag parsing | PR-26 (#224) 동반 | parseArgs boolean flag 인식 누락 | parseArgs 보강 (commit `2ed00ac`) |
+
+---
+
+## §5. Backlog 처리 매트릭스
+
+`_workspace/backlog.md` § 단위 + CHANGELOG row 정합. v3.0.1 이후 신설된 §들 + 처리 결과.
+
+### 5-1. 처리 완료 (✅)
+
+| § | 제목 | 처리 PR | commit/태그 |
+|---|------|---------|-------------|
+| §12 | env_file vs environment block 우선순위 함정 | PR-12 (#208) | `dded9ef` |
+| §13 | 머지 후 정리 룰 흐려짐 | PR-14 (#210) | `8ff664d` |
+| §14 | task 파일 데이터 무결성 흐려짐 | PR-18 (#214) | `5222f6d` |
+| §15 | sub-agent SKILL에 task.mjs 호출 의무 명시화 | PR-26 (#224) | 헌법 §1 통합 |
+| §17 | architect SKILL — KIS-first raw fetch 의무 강화 | PR-21 (#217) → PR-26 (#224) | 헌법 §3 통합 |
+| §19 | task.mjs --force flag parsing fix | PR-26 (#224) | `2ed00ac` |
+| §20 | Spring Data Repository default fun 함정 | PR-26 (#224) ADR 0051 신규 발행 | `1ada3d5` |
+| §21 | W1 마감 + v3.1.0 진입 (PR-29 사이클) | PR-29a/b/c/d (#230·#231·#229·#233) → PR-29 cleanup (#232) → v3.1.0 cut (#234) | release tag |
+
+### 5-2. 진행 중 / 다음 Wave 이월
+
+| § | 제목 | 상태 | 다음 액션 |
+|---|------|------|----------|
+| §1 | ADR 0050 슬롯 채번룰 보강 (hunk 분리 + 영역 분배 강화) | PR-10에서 HTML 주석 anchor 첫 적용 → 안정화. 본문 갱신 미발행 | 사용자 명시 트리거 시 architect 단독 정합 PR |
+| §2 | KisRestPort 인터페이스 분리 (KisRestCandlePort + KisRestPricePort) | PR-10b에서 KisRestPriceMetricsPort 별도 port 신규 (분리 정책 부분 정합). 본 분리는 미실행 | T-O·T-RECON 진입 시 backend-core PR |
+| §3 | CLAUDE.md ADR 인덱스 SoT 갱신 | 미처리 | 다음 메타 정리 사이클 (architect 단독 ~5분) |
+| §4 | worktree-agent-* fallback 브랜치 정리 | 누적 미처리 | 사용자 직접 승인 후 일괄 정리 |
+| §5 | backend-core 영역 침범 패턴 (consumer 모듈에 add-add) | PR-9·PR-10에서 LOCK 강화 + ADR 0050 적용으로 사례 0건 | 사례 재발 시 architect SKILL 보강 |
+| §6 | 사용자 첫 dogfooding 결과 흡수 | PR-12~PR-20 hotfix 11건으로 §6.1·6.2·6.3·6.5 대부분 해소. §6.4 release 게이트는 v3.1.0 컷에서 통과 | 다음 dogfooding 사이클 (W2 진입 시) |
+| §7 | 후속 트랙 진입 가이드 (W1 잔여 + W2 시작점 결정) | W1 풀세트 클리어 (T-ONBOARD·T-W1·T-W2·T-S1·T-MS1·T-CA1·T-IM1) | **W2 진입 — T-IND·T-PAT·T-DSL·T-SB** |
+| §8 | STOMP relay broker 도입 (post-MVP) | 1차 in-memory broker로 충분 | post-MVP |
+| §9 | frontend 모바일 반응형 1차 미지원 | 1차 desktop 우선 | post-W3 |
+| §10 | AI 에이전트 영역 침범 ADR 누락 (장기) | PR-26 헌법 통합으로 사실상 흡수 | 사용자 명시 트리거 시 별도 ADR |
+| §11 | SymbolControllerTest OnboardingGuardFilter mock 보강 | PR-29d (#233)에서 `existsAny=true` mock + candleQueryService.getCandles anyOrNull 정합 | 처리 완료 (체크리스트만 미표시) |
+| §16 | instrument 테이블 14 컬럼 fitness gap | PR-21a (#219) + PR-21b (#220)에서 14 → 83 필드 add-only 정정 | 처리 완료 (체크리스트만 미표시) |
+| §18 | SymbolControllerTest 미정 + batch test @Disabled 2건 | PR-29d (#233)에서 3 test @Disabled 해제 | 처리 완료 |
+
+---
+
+## §6. 결론 — v3.0.1 → v3.1.0 누적 결과
+
+| 지표 | v3.0.1 (2026-05-06) | v3.1.0 (2026-05-08) | 증감 |
+|------|---------------------|---------------------|------|
+| **PR 수 (누적)** | #179 | #235 | +56 |
+| **ADR 수** | 47 | 51 | +4 (0048·0049·0050·0051) |
+| **Flyway 버전** | (미배포) | V8 | +V1~V8 풀 발행 |
+| **JVM 모듈 (코드 발행)** | 0 (스캐폴드 미발행) | 4 (domain·api·batch·consumer) | +4 |
+| **W1 ★ 트랙 풀세트** | 0 | 7건 (T-ONBOARD·T-W1·T-W2·T-S1·T-MS1·T-CA1·T-IM1) | +7 |
+| **운영 헌법 § 수** | 0 (미신설) | 7 (§1~§7) | +7 (PR-26) |
+| **CHANGELOG row 수** | 76 | 30+ row prepend | +30+ |
+| **backlog § 처리 완료** | 0 | 8건 | +8 |
+
+**v3.1.0 = 룰 본체 진입 직전 베이스라인**. W2(80지표·57패턴·DSL·Strategy Builder) 진입 시 본 추적성 매트릭스에 W2 트랙 매핑 add. → `07-policy-evolution.md` 참조 (정책 진화 어필).
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>
