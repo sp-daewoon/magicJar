@@ -58,3 +58,8 @@ magicjar:
     mock-mode: ${MAGICJAR_AI_MOCK_MODE:auto}
   secret:
     master-key: ${MAGICJAR_SECRET_MASTER_KEY:}  # 생성: openssl rand -base64 32. 부재 시 부팅 거부 (ADR 0046 §2-4)
+  market-session:
+    # KRX 영업일 캘린더 (ADR 0013 §2-2, PR-29a)
+    # true: KrxMarketSessionResolver (market_calendar DB + KIS chk-holiday)
+    # false: SimpleMarketSessionResolver (시간 기반 stub — consumer fallback)
+    enforce: ${MAGICJAR_MARKET_SESSION_ENFORCE:true}

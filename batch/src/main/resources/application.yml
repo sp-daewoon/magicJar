@@ -55,3 +55,11 @@ magicjar:
     kis-disabled: ${MAGICJAR_INSTRUMENT_KIS_DISABLED:false}
     # 시드 파일 경로 (classpath 기준)
     seed-path: ${MAGICJAR_INSTRUMENT_SEED_PATH:instrument-seed.json}
+  market-calendar:
+    # 부팅 직후 KIS chk-holiday sync 실행 (ADR 0013 §2-2, PR-29a)
+    # KIS 명시 "1일 1회 권장" — dev=false 권장 (cron 03:00 단독 실행)
+    sync-at-boot: ${MAGICJAR_MARKET_CALENDAR_SYNC_AT_BOOT:false}
+    # KIS chk-holiday 비활성 (test·CI 환경 — 정적 시드만 사용)
+    kis-disabled: ${MAGICJAR_MARKET_CALENDAR_KIS_DISABLED:false}
+    # 시드 파일 경로 (classpath 기준)
+    seed-path: ${MAGICJAR_MARKET_CALENDAR_SEED_PATH:market-calendar-seed.json}
