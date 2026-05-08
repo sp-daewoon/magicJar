@@ -73,8 +73,16 @@ magicjar:
     base-url: ${MAGICJAR_YAHOO_BASE_URL:https://query1.finance.yahoo.com}
     request-timeout-seconds: ${MAGICJAR_YAHOO_TIMEOUT:10}
     retry-wait-seconds: ${MAGICJAR_YAHOO_RETRY_WAIT:60}  # 429/404 시 대기
-  # MarketSession 설정 (ADR 0048 §2-5 — 1차 시간 기반 stub)
+  # MarketSession 설정 (ADR 0013 §2-2, PR-29a 본격 교체)
   session:
-    # NOTE: KIS API에 공휴일 조회 endpoint 미확인 → 1차는 평일/주말 시간 기반만
-    # T-MS1 진입 시 공휴일 출처 결정 필요
+    # KIS chk-holiday(CTCA0903R) + market_calendar DB 기반 (KrxMarketSessionResolver)
+    # consumer 모듈은 SimpleMarketSessionResolver(시간 기반 fallback) 사용
     check-interval-seconds: ${MAGICJAR_SESSION_CHECK_INTERVAL:60}
+  # market_calendar 동기화 (ADR 0013 §2-2, PR-29a)
+  market-calendar:
+    # 부팅 직후 KIS chk-holiday sync 실행 (dev=true 권장, prd=false)
+    sync-at-boot: ${MAGICJAR_MARKET_CALENDAR_SYNC_AT_BOOT:false}
+    # DailyCloseFinalizer: 매 거래일 16:00 KST 1d candle DB 영속
+    daily-close-cron: ${MAGICJAR_DAILY_CLOSE_CRON:0 0 16 * * *}
+    # TickFallbackEmitter: 10초 주기 T2 폴백 (ADR 0014)
+    tick-fallback-delay-ms: ${MAGICJAR_TICK_FALLBACK_DELAY_MS:10000}
