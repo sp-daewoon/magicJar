@@ -15,7 +15,6 @@ import kr.spdaewoon.magicjar.domain.instrument.InstrumentType
 import kr.spdaewoon.magicjar.domain.instrument.port.KisInstrumentMasterPort
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.data.redis.core.ValueOperations
@@ -35,7 +34,6 @@ import java.time.Instant
  * 2. delisted 처리 — markDelisted 호출 확인 (DELETE 금지 — ADR 0017 §2-2)
  * 3. KIS fetch 실패 → graceful (DB 변경 0건)
  */
-@Disabled("PR-23 hotfix: diff logic assertion 정정 backlog 의제 — dogfooding 차단 우선 일시 비활성")
 class InstrumentSyncJobTest {
     private val kisPort: KisInstrumentMasterPort = mockk()
     private val kisAdapter: KisInstrumentMasterAdapter = mockk()
@@ -177,7 +175,8 @@ class InstrumentSyncJobTest {
         // then
         assertEquals(2, result.fetched, "fetched = KIS 응답 건수")
         assertEquals(1, result.inserted, "신규 상장 1건 INSERT")
-        assertEquals(0, result.updated, "변경 없음")
+        // makeEntity securitiesGroup=null vs makeRaw securitiesGroup="ST" → changed=true → updated=1
+        assertEquals(1, result.updated, "securitiesGroup 변동(null→ST) UPDATE 1건")
         assertEquals(1, result.delisted, "폐지 종목 1건 DELIST")
         assertEquals(0, result.failed, "실패 0건")
 
