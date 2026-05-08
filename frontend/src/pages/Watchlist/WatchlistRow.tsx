@@ -76,6 +76,23 @@ export function WatchlistRow({ entry }: WatchlistRowProps) {
                 상장폐지
               </span>
             )}
+            {/* 매매가드 배지 (PR-21b WatchlistEntryDto tradingHalt·managementStock 정합) */}
+            {entry.tradingHalt && (
+              <span
+                className="rounded bg-orange-900/40 px-1.5 py-0.5 text-[10px] font-medium text-orange-300"
+                title="거래정지 종목입니다."
+              >
+                거래정지
+              </span>
+            )}
+            {entry.managementStock && !entry.tradingHalt && (
+              <span
+                className="rounded bg-yellow-900/40 px-1.5 py-0.5 text-[10px] font-medium text-yellow-300"
+                title="관리종목입니다."
+              >
+                관리종목
+              </span>
+            )}
           </span>
           <span className="font-mono text-xs text-gray-500 tracking-wider">
             {entry.code}

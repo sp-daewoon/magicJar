@@ -124,9 +124,11 @@ export function SymbolDetailPage() {
       clearTimeout(timer)
       // cleanup: POST unsubscribe
       // sendBeacon fallback (브라우저 탭 닫기 시에도 발동)
+      // Content-Type: application/json blob 전달 — 일부 서버가 text/plain을 reject하는 경우 대비
       const unsubUrl = `/api/symbols/${encodeURIComponent(code)}/orderbook/unsubscribe`
+      const beaconData = new Blob([JSON.stringify({ code })], { type: 'application/json' })
       try {
-        navigator.sendBeacon(unsubUrl)
+        navigator.sendBeacon(unsubUrl, beaconData)
       } catch {
         // sendBeacon 미지원 환경 — REST fallback
         symbolApi.unsubscribeOrderbook(code).catch(() => {
