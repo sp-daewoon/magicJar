@@ -25,6 +25,10 @@ import org.springframework.test.web.servlet.get
  * 검증 1: GET /api/symbols/005930 → 200 OK + SymbolDto 응답
  * 검증 2: GET /api/symbols/005930/candles?interval=1d → 200 OK + CandlesResponseDto
  * 검증 3: GET /api/symbols/999 → 400 (종목코드 형식 오류)
+ * 검증 4: GET /api/symbols/005930/candles?interval=1wk → 200 OK (화이트리스트 8종 확장)
+ * 검증 5: GET /api/symbols/005930/candles?interval=1mo → 200 OK
+ * 검증 6: GET /api/symbols/005930/candles?interval=1y → 200 OK
+ * 검증 7: GET /api/symbols/005930/candles?interval=INVALID → 400
  *
  * OnboardingGuardFilter mock 의무:
  *   @MockBean UserAccountJpaRepository + existsAny()=true (backlog §11 — InstrumentControllerTest 동일 패턴).
@@ -93,7 +97,7 @@ class SymbolControllerTest {
     @Test
     fun `GET candles 200 OK`() {
         whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
-        whenever(candleQueryService.supportedIntervals).thenReturn(setOf("1m", "5m", "30m", "1h", "1d"))
+        whenever(candleQueryService.supportedIntervals).thenReturn(setOf("1m", "5m", "30m", "1h", "1d", "1wk", "1mo", "1y"))
         whenever(candleQueryService.getCandles(any(), any(), anyOrNull(), any())).thenReturn(
             CandlesResponseDto(
                 code = "005930",
@@ -122,6 +126,115 @@ class SymbolControllerTest {
                 jsonPath("$.interval") { value("1d") }
                 jsonPath("$.candles.length()") { value(1) }
                 jsonPath("$.hasMore") { value(false) }
+            }
+    }
+
+    @Test
+    fun `GET candles 1wk 200 OK`() {
+        whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
+        whenever(candleQueryService.supportedIntervals).thenReturn(setOf("1m", "5m", "30m", "1h", "1d", "1wk", "1mo", "1y"))
+        whenever(candleQueryService.getCandles(any(), any(), anyOrNull(), any())).thenReturn(
+            CandlesResponseDto(
+                code = "005930",
+                interval = "1wk",
+                candles =
+                    listOf(
+                        CandleDto(
+                            ts = "2026-04-28T00:00:00Z",
+                            open = "60000",
+                            high = "61500",
+                            low = "59500",
+                            close = "60900",
+                            volume = 50000000L,
+                        ),
+                    ),
+                hasMore = false,
+                nextBefore = null,
+            ),
+        )
+
+        mockMvc
+            .get("/api/symbols/005930/candles?interval=1wk&limit=100")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$.interval") { value("1wk") }
+                jsonPath("$.candles.length()") { value(1) }
+            }
+    }
+
+    @Test
+    fun `GET candles 1mo 200 OK`() {
+        whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
+        whenever(candleQueryService.supportedIntervals).thenReturn(setOf("1m", "5m", "30m", "1h", "1d", "1wk", "1mo", "1y"))
+        whenever(candleQueryService.getCandles(any(), any(), anyOrNull(), any())).thenReturn(
+            CandlesResponseDto(
+                code = "005930",
+                interval = "1mo",
+                candles =
+                    listOf(
+                        CandleDto(
+                            ts = "2026-04-01T00:00:00Z",
+                            open = "59000",
+                            high = "62000",
+                            low = "58500",
+                            close = "60900",
+                            volume = 200000000L,
+                        ),
+                    ),
+                hasMore = false,
+                nextBefore = null,
+            ),
+        )
+
+        mockMvc
+            .get("/api/symbols/005930/candles?interval=1mo&limit=50")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$.interval") { value("1mo") }
+            }
+    }
+
+    @Test
+    fun `GET candles 1y 200 OK`() {
+        whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
+        whenever(candleQueryService.supportedIntervals).thenReturn(setOf("1m", "5m", "30m", "1h", "1d", "1wk", "1mo", "1y"))
+        whenever(candleQueryService.getCandles(any(), any(), anyOrNull(), any())).thenReturn(
+            CandlesResponseDto(
+                code = "005930",
+                interval = "1y",
+                candles =
+                    listOf(
+                        CandleDto(
+                            ts = "2025-01-01T00:00:00Z",
+                            open = "55000",
+                            high = "65000",
+                            low = "54000",
+                            close = "60900",
+                            volume = 2000000000L,
+                        ),
+                    ),
+                hasMore = false,
+                nextBefore = null,
+            ),
+        )
+
+        mockMvc
+            .get("/api/symbols/005930/candles?interval=1y&limit=20")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$.interval") { value("1y") }
+            }
+    }
+
+    @Test
+    fun `GET candles 지원하지 않는 interval 400`() {
+        whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
+        whenever(candleQueryService.supportedIntervals).thenReturn(setOf("1m", "5m", "30m", "1h", "1d", "1wk", "1mo", "1y"))
+
+        mockMvc
+            .get("/api/symbols/005930/candles?interval=INVALID")
+            .andExpect {
+                status { isBadRequest() }
             }
     }
 
