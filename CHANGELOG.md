@@ -6,7 +6,7 @@
 <!-- pr-29-slot-architect -->
 | 2026-05-?? | **TBD — PR-29a backend-core: T-MS1 + REJECTED Audit (KIS chk-holiday + Flyway V6 + KrxMarketSessionResolver + DailyCloseFinalizer)** | api/batch/consumer/domain | PR-29a T-MS1 |
 <!-- pr-29-slot-backend-core -->
-| 2026-05-?? | **TBD — PR-29b market-data: T-CA1 (KIS ksdinfo 6 endpoint + DART list + Flyway V7+V8 + CorpActionSyncJob + CandleAdjustmentJob)** | api/batch/domain | PR-29b T-CA1 |
+| 2026-05-08 | **feat(batch+domain): PR-29b market-data T-CA1 — CorpAction 도메인+port 5종 + Flyway V7(corp_action) + V8(candle adjustment_factor+volume_adjusted) + KisKsdInfoAdapter(6 endpoint HHKDB669100C0~669106C0) + DartDisclosureAdapter(OPENDART list.json pblntf_ty=B+D) + DartCorpCodeRepository(CORPCODE.xml in-memory) + CorpActionSyncJob(cron 18:30) + CandleAdjustmentJob(Kafka corp_action.applied.v1 리스너 + 소급 보정) + KafkaTopicConfig corp_action.applied.v1 추가 + smoke 2건(KisKsdInfoAdapterTest·CandleAdjustmentJobTest)** | batch/domain/consumer | PR-29b T-CA1 |
 <!-- pr-29-slot-market-data -->
 | 2026-05-?? | **TBD — PR-29c frontend: T-S1 잔재 검증 (LWC interval 토글 + 호가 STOMP + dogfooding §6.5 한글 검색 회귀 + delisted 표시 검증)** | frontend | PR-29c T-S1 잔재 |
 <!-- pr-29-slot-frontend -->

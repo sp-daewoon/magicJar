@@ -45,6 +45,9 @@ management:
 magicjar:
   mode: ${MAGICJAR_MODE:MOCK}
   allow-real: ${MAGICJAR_ALLOW_REAL:false}
+  corp-action:
+    # cron 18:30 KST (UTC+9) = 09:30 UTC (KRX 마감 + 정리 시간)
+    sync-cron: ${MAGICJAR_CORP_ACTION_SYNC_CRON:0 30 9 * * *}
   instrument:
     # 부팅 직후 즉시 sync (dev=true 권장, prd=false — cron만)
     sync-at-boot: ${MAGICJAR_INSTRUMENT_SYNC_AT_BOOT:false}
