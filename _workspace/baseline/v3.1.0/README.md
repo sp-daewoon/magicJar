@@ -1,43 +1,117 @@
 # magicJar v3.1.0 Baseline — W1 마감 시점 종합 기능 정의서
 
-> **작성 시점**: 2026-05-08 v3.1.0 태그 컷 (main `6b83899`, release/v3.1)
-> **사이클**: PR-5 ~ PR-29d (30+ 사이클, ~3주)
-> **상태**: skeleton — sub-agent 본격 작성 대기 (PR-30 사이클)
+> **태그 컷**: 2026-05-08 v3.1.0 (main `6b83899`, `release/v3.1` ADR 0031 immutable)
+> **사이클**: PR-5 ~ PR-29d (#188 ~ #233, 30+ PR · ~3주)
+> **상태**: PR-30 architect 영역 본격 작성 완료. backend-core(02·04) · market-data(03) · frontend(05) 영역은 sub-agent 별도 디스패치.
+> **권위**: 본 baseline 폴더는 v3.1.0 시점 **종합 기능 정의서**. SoT는 `docs/architecture/master-architecture.md` v2 (ADR 0030).
 
-## 목적
+---
 
-W2(80지표·57패턴·DSL·Strategy Builder) 진입 직전, **현재 시스템이 무엇을 할 수 있는지** 시각화 가능한 수준으로 종합 정리. 향후 W2~W5 진입 시 각 트랙이 본 baseline 위에 쌓이는 구조 가시화.
+## 한 장 요약
+
+magicJar는 **룰 기반 quant trading 시스템**(룰 본체 + AI 옵션 + MCP 서버 미래)으로, v3.1.0 시점 **W1 ★ 트랙 7건 풀세트 클리어**를 달성했다. v3.0.1 → v3.1.0 사이 56 PR + 4 ADR 신규 + 8 backlog § 처리 완료.
+
+**v3.1.0 시점 동작하는 핵심 흐름** (사용자 dogfooding 검증):
+
+1. **첫 부팅 → 셋업 마법사** — `T-ONBOARD` (ADR 0046) + AES-256-GCM KIS 키 보관 + 3 테이블(system_config·user_account·user_kis_credential)
+2. **종목 검색 → 관심종목 등록** — `T-IM1` KOSPI 70 widths + KOSDAQ 64 widths + 83 필드 KIS-first + Redis 자동완성 + `T-W1` Watchlist CRUD
+3. **실시간 시세 ingestion** — `T-W2` KIS WS H0STCNT0 체결가 + Yahoo cold-start 7 interval + 41 stream slot 한도(ADR 0048) + polling fallback
+4. **종목 상세 + LWC 차트 + 호가 STOMP** — `T-S1` (ADR 0040 진입점) — 9 컴포넌트 + 호가 LRU 10 + sendBeacon Blob fallback
+5. **시장 세션 인지 + 영업일 관리** — `T-MS1` KrxMarketSessionResolver + Flyway V6(market_calendar·order_reject_audit) + KIS chk-holiday CTCA0903R 시드
+6. **수정 주가** — `T-CA1` Flyway V7(corp_action) + V8(candle.adjustment_factor·volume_adjusted) + KIS ksdinfo 6 endpoint(HHKDB669100C0~106C0) + DART OPENDART pblntf_ty=B+D + retroactive 보정
+
+**v3.1.0 누적 ADR 51건** (베이스 47 + v3.1.0 사이클 신규 4건: 0048 KIS WS 41 한도 · 0049 GitHub Actions release 한정 · 0050 CHANGELOG 슬롯 · 0051 Repository default fun 함정).
+
+**MD 룰 정책 진화 13건**: 운영 헌법(`_workspace/arch/agent-charter.md`) 7 § 통합 + task.mjs 4단계 의무 + 머지 후 정리 4단계 + KIS-first raw fetch 5단계 + CHANGELOG 슬롯 + rebase + Repository default fun 함정 + sub-agent fail 분기. 사용자 명시 비판 신규 0회 발생.
+
+**다음 Wave**: W2 진입 — 80지표·57패턴·DSL·Strategy Builder UI (T-IND·T-PAT·T-DSL·T-SB).
+
+---
 
 ## 인덱스
 
-| 파일 | 작성자 | 내용 |
-|------|--------|------|
-| [01-architecture.md](01-architecture.md) | architect | Mermaid 4 모듈 + 외부 통합 + frontend 아키텍처 그림 |
-| [02-data-flow.md](02-data-flow.md) | backend-core | 모듈별 데이터 흐름 + Kafka 토픽 매트릭스 |
-| [03-use-sequences.md](03-use-sequences.md) | market-data | 사용자 유즈 시퀀스 (셋업·Watchlist·Symbol·시세 fallback·corp action) + KIS-first raw 출처 |
-| [04-feature-spec.md](04-feature-spec.md) | backend-core | W1 7 트랙 기능 명세 상세 |
-| [05-ui-inventory.md](05-ui-inventory.md) | frontend | 화면·메뉴·버튼 인벤토리 |
-| [06-history-traceability.md](06-history-traceability.md) | architect | PR·ADR·기능 매핑 추적성 매트릭스 |
-| [07-policy-evolution.md](07-policy-evolution.md) | architect | 운영 헌법 7§ + ADR 진화 어필 |
+| 파일 | 작성자 | 내용 | 상태 |
+|------|--------|------|------|
+| **[01-architecture.md](01-architecture.md)** | architect | 시스템 전경(Mermaid) + 모듈 책임 매트릭스 + 외부 통합 매트릭스 + Flyway V1~V8 + frontend 라우팅 + deployment 토폴로지 | 본격 작성 완료 (PR-30) |
+| [02-data-flow.md](02-data-flow.md) | backend-core | 모듈별 데이터 흐름 + Kafka 토픽 매트릭스 (sub-agent 디스패치) | sub-agent 디스패치 |
+| [03-use-sequences.md](03-use-sequences.md) | market-data | 사용자 유즈 시퀀스 (셋업·Watchlist·Symbol·시세 fallback·corp action) + KIS-first raw 출처 | sub-agent 디스패치 |
+| [04-feature-spec.md](04-feature-spec.md) | backend-core | W1 7 트랙 기능 명세 상세 (T-ONBOARD·T-W1·T-W2·T-S1·T-MS1·T-CA1·T-IM1) | sub-agent 디스패치 |
+| [05-ui-inventory.md](05-ui-inventory.md) | frontend | 화면·메뉴·버튼 인벤토리 (SetupWizard 7-step·WatchlistPage·SymbolDetailPage 9 컴포넌트·DashboardPlaceholder) | sub-agent 디스패치 |
+| **[06-history-traceability.md](06-history-traceability.md)** | architect | PR·ADR·기능 3축 추적성 매트릭스 (v3.0.1 → v3.1.0 56 PR + 4 ADR + 8 backlog 처리) | 본격 작성 완료 (PR-30) |
+| **[07-policy-evolution.md](07-policy-evolution.md)** | architect | 운영 헌법 7 § + ADR 0049~0051 + 정책 진화 13건 어필 | 본격 작성 완료 (PR-30) |
 
-## 한 장 요약 (TBD — architect 본격 작성)
+> **인덱스 갱신 권한**: architect 단독 책임 (충돌 회피 — 헌법 §4 정합). sub-agent는 본인 파일만 in-place edit, README 인덱스는 변경 안 함.
 
-W1 ★ 트랙 6건 풀세트 클리어:
+---
 
-- T-ONBOARD ★★ — 셋업 마법사 + AES-256-GCM + 3 테이블
-- T-W1 ★ — Watchlist CRUD + Position Bootstrap
-- T-W2 ★ — Ingestion Worker (KIS WS H0STCNT0/H0STASP0 + Yahoo + 41 stream slot)
-- T-S1 ★ — Symbol Detail + LWC 차트 + 호가 STOMP
-- T-MS1 — Market Session FSM + Fallback 3-tier + REJECTED Audit + Flyway V6
-- T-CA1 — Corporate Action + Adjusted Price + Flyway V7/V8 + KIS ksdinfo 6 endpoint + DART
-- T-IM1 — Instrument Master KOSPI 70 + KOSDAQ 64 widths + 83 필드 + Redis 자동완성
+## 어떻게 읽을지 (역할별 진입 경로)
 
-ADR 누적 47→52건. 운영 헌법(`_workspace/arch/agent-charter.md`) 7 § 룰 통합.
+### 신규 개발자 (시스템을 처음 본다)
 
-## 작성 규약
+1. **[01-architecture.md](01-architecture.md) §1 시스템 전경** — Mermaid 그림으로 4 JVM + frontend + 외부 5개 + 인프라 3개 한 눈에
+2. **[01-architecture.md](01-architecture.md) §2 모듈 책임 매트릭스** — 어떤 코드가 어디 있는지 (api·batch·consumer·frontend × 트랙)
+3. **[02-data-flow.md](02-data-flow.md)** — Kafka topic + REST + STOMP 데이터 흐름 (backend-core 영역)
+4. **[03-use-sequences.md](03-use-sequences.md)** — 셋업 → Watchlist → Symbol → 시세 fallback → corp action 사용자 유즈 시퀀스 (market-data 영역, KIS-first raw 출처)
+5. `docs/architecture/master-architecture.md` v2 정독 — SoT (19 컴포넌트 + 4 영역 + 5 Wave)
+
+### 운영자 (배포·환경 설정)
+
+1. **[01-architecture.md](01-architecture.md) §6 deployment 토폴로지** — docker-compose.yml 9 컨테이너 + 부팅 순서 + profile 분기
+2. **[01-architecture.md](01-architecture.md) §3 외부 통합 매트릭스** — KIS REST + KIS WS + DART + Yahoo URL·tr_id 정합
+3. **[01-architecture.md](01-architecture.md) §4 Flyway V1~V8** — 어떤 PR에서 어느 테이블 생겼는지
+4. `docs/operations/initial-setup.md` — 초기 셋업
+5. `docs/architecture/external-api-policy.md` — KIS 호출 빈도·토큰 정책 (ADR 0037·0038)
+6. `CLAUDE.md` "운영 함정 가드" — stale jar · docker compose env 우선순위 · default profile · 실계좌 이중 게이트
+
+### 전략 작성자 (W2 진입 후 본격 — v3.1.0 미발행)
+
+1. `docs/architecture/master-architecture.md` §B 분석·전략 영역 (5 컴포넌트 — Indicator·Pattern·DSL·Strategy Builder·Backtest)
+2. `_workspace/strategy/` 카탈로그 (KIS 80지표·57패턴 수집 — W2 진입 시)
+3. **[07-policy-evolution.md](07-policy-evolution.md) §10 다음 Wave 정책 후보** — DSL safety 룰북·Indicator Source plug-in 통과 의무
+
+### architect / orchestrator / sub-agent (운영 룰 정독 의무)
+
+1. **[07-policy-evolution.md](07-policy-evolution.md)** — 운영 헌법 7 § + ADR 0049~0051 + 정책 진화 13건
+2. `_workspace/arch/agent-charter.md` — 운영 헌법 본문 (헌법 §1~§7 정독 의무 — architect 단독 PR로만 갱신)
+3. **[06-history-traceability.md](06-history-traceability.md) §4 hotfix 패턴** — 어떻게 결함이 잡혔는지 사례 (다음 사이클 재발 방지 lens)
+4. `_workspace/arch/branching-rules.md` — 브랜치·머지·author 정책
+5. `.claude/agents/<agent>.md` SKILL — 영역별 특수 룰만
+
+---
+
+## v3.1.0 사이클 핵심 통계
+
+| 지표 | v3.0.1 | v3.1.0 | 증감 |
+|------|--------|--------|------|
+| PR # 누적 | #179 | #235 | +56 |
+| ADR 수 | 47 | 51 | +4 (0048·0049·0050·0051) |
+| Flyway 버전 | (미배포) | V8 | +V1~V8 |
+| JVM 모듈 (코드 발행) | 0 (스캐폴드) | 4 (domain·api·batch·consumer) | +4 |
+| W1 ★ 트랙 풀세트 | 0 | 7건 | +7 |
+| 운영 헌법 § 수 | 0 | 7 | +7 |
+| backlog § 처리 완료 | 0 | 8 | +8 |
+| 외부 통합 (KIS·DART·Yahoo) | 부분 | KIS REST 8 endpoint + KIS WS 2 stream + DART 2 endpoint + Yahoo 1 endpoint | 풀 정합 |
+| frontend 라우트 | 1 (SetupWizard placeholder) | 4 (`/`·`/setup`·`/watchlist`·`/symbol/:code`) | +3 |
+
+상세는 **[06-history-traceability.md](06-history-traceability.md) §6 결론**.
+
+---
+
+## 작성 규약 (sub-agent 디스패치 시 준수)
 
 - 본문은 한국어, 코드/명령은 영어 그대로
-- Mermaid 다이어그램 의무 (시각화 가능 수준)
-- raw 출처 인용 의무 (KIS API · DART · 코드 path 명시)
+- **Mermaid 다이어그램 의무** (시각화 가능 수준)
+- **raw 출처 인용 의무** — KIS API · DART · 코드 path 명시 (`api/.../KrxMarketSessionResolver.kt:42` 등)
 - 추측·관념적 서술 금지 — 코드 inspection 결과만 인용
-- TBD 표시: 미작성 영역은 명시
+- **TBD 표시**: 미작성 영역은 명시. 다른 sub-agent 영역은 cross-reference (`→ 02-data-flow.md 참조` 식)
+- `docs/architecture/master-architecture.md` §X · `_workspace/arch/adr/NNNN-*.md` 같은 SoT 출처 명시 의무
+
+---
+
+## 다음 Wave 진입 시 본 baseline 갱신
+
+W2(80지표·57패턴·DSL·Strategy Builder) 진입 시 본 폴더 별도 baseline 컷 가능 (`_workspace/baseline/v3.2.0/` 신설 권장 — ADR 0031 immutable 정합).
+
+W3(W3 자동 매매 본체 — backtest·screener·signal·risk·order·reconcile·notify·perf) 진입 시 본 baseline §1·§3·§4가 본격 확장 — Mermaid sequence diagram 신설 + Kafka topic 매트릭스 13건 → 25+건 add.
+
+W4(AI 옵션 + MCP 서버) 진입 시 mcp 컨테이너 + AI Console 박스 add.
