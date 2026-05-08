@@ -4,7 +4,6 @@ import kr.spdaewoon.magicjar.domain.instrument.InstrumentType
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 
 /**
@@ -21,7 +20,6 @@ import org.junit.jupiter.api.Test
  * 4. parseYyyymmdd() — "00000000" null 처리
  * 5. KOSPI 샘플 라인 파싱 — 매매가드·type·securitiesGroup 필드 검증
  */
-@Disabled("PR-23 hotfix: mapType assertion 정정 backlog 의제 — dogfooding 차단 우선 일시 비활성")
 class KisInstrumentMasterAdapterTest {
     /**
      * KOSPI Part2 widths 배열 — 70 항목, sum=227byte 검증.
@@ -238,7 +236,7 @@ class KisInstrumentMasterAdapterTest {
         assertEquals(InstrumentType.WARRANT, mapType("SR", null), "SR → WARRANT")
         // STOCK 변형
         assertEquals(InstrumentType.STOCK, mapType("MF", null), "MF → STOCK")
-        assertEquals(InstrumentType.STOCK, mapType("RT".replace("R", ""), null)) // BC → STOCK
+        assertEquals(InstrumentType.STOCK, mapType("BC", null), "BC → STOCK")
         assertEquals(InstrumentType.STOCK, mapType("FS", null), "FS → STOCK")
         // UNKNOWN fallback
         assertEquals(InstrumentType.UNKNOWN, mapType("XX", null), "알 수 없는 코드 → UNKNOWN")

@@ -7,9 +7,9 @@ import kr.spdaewoon.magicjar.api.controller.SymbolController
 import kr.spdaewoon.magicjar.api.controller.SymbolDto
 import kr.spdaewoon.magicjar.api.service.CandleQueryService
 import kr.spdaewoon.magicjar.api.service.SymbolMetaService
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.anyOrNull
 import org.mockito.kotlin.whenever
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest
@@ -25,11 +25,10 @@ import org.springframework.test.web.servlet.get
  * 검증 1: GET /api/symbols/005930 → 200 OK + SymbolDto 응답
  * 검증 2: GET /api/symbols/005930/candles?interval=1d → 200 OK + CandlesResponseDto
  * 검증 3: GET /api/symbols/999 → 400 (종목코드 형식 오류)
+ *
+ * OnboardingGuardFilter mock 의무:
+ *   @MockBean UserAccountJpaRepository + existsAny()=true (backlog §11 — InstrumentControllerTest 동일 패턴).
  */
-@Disabled(
-    "OnboardingGuardFilter가 셋업 미완 상태로 인식해 401 반환 — @MockBean으로 UserAccountJpaRepository 또는 " +
-        "OnboardingGuardFilter 자체를 mock해야 함. backlog 의제로 등록하고 dogfooding 진입을 우선.",
-)
 @WebMvcTest(
     controllers = [SymbolController::class],
 )
@@ -54,6 +53,7 @@ class SymbolControllerTest {
 
     @Test
     fun `GET symbol 200 OK`() {
+        whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
         whenever(symbolMetaService.getSymbol(any())).thenReturn(
             SymbolDto(
                 code = "005930",
@@ -92,8 +92,9 @@ class SymbolControllerTest {
 
     @Test
     fun `GET candles 200 OK`() {
+        whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
         whenever(candleQueryService.supportedIntervals).thenReturn(setOf("1m", "5m", "30m", "1h", "1d"))
-        whenever(candleQueryService.getCandles(any(), any(), any(), any())).thenReturn(
+        whenever(candleQueryService.getCandles(any(), any(), anyOrNull(), any())).thenReturn(
             CandlesResponseDto(
                 code = "005930",
                 interval = "1d",
@@ -126,6 +127,7 @@ class SymbolControllerTest {
 
     @Test
     fun `GET symbol 종목코드 형식 오류 400`() {
+        whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
         mockMvc
             .get("/api/symbols/999") // 3자리 — 6자리 아님
             .andExpect {
