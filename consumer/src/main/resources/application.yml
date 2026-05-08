@@ -86,3 +86,17 @@ magicjar:
     daily-close-cron: ${MAGICJAR_DAILY_CLOSE_CRON:0 0 16 * * *}
     # TickFallbackEmitter: 10초 주기 T2 폴백 (ADR 0014)
     tick-fallback-delay-ms: ${MAGICJAR_TICK_FALLBACK_DELAY_MS:10000}
+
+
+# ─────────────────────────────────────────────────
+# 로깅 레벨 — 노이즈 차단 (v3.1.0 dogfooding hotfix)
+# ─────────────────────────────────────────────────
+logging:
+  level:
+    root: INFO
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.jdbc.bind: WARN
+    org.apache.kafka: WARN
+    org.apache.kafka.clients.NetworkClient: ERROR
+    org.springframework.kafka: WARN
+    kr.spdaewoon.magicjar: INFO

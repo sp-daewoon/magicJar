@@ -66,3 +66,17 @@ magicjar:
     kis-disabled: ${MAGICJAR_MARKET_CALENDAR_KIS_DISABLED:false}
     # 시드 파일 경로 (classpath 기준)
     seed-path: ${MAGICJAR_MARKET_CALENDAR_SEED_PATH:market-calendar-seed.json}
+
+
+# ─────────────────────────────────────────────────
+# 로깅 레벨 — 노이즈 차단 (v3.1.0 dogfooding hotfix)
+# ─────────────────────────────────────────────────
+logging:
+  level:
+    root: INFO
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.jdbc.bind: WARN
+    org.apache.kafka: WARN
+    org.apache.kafka.clients.NetworkClient: ERROR
+    org.springframework.kafka: WARN
+    kr.spdaewoon.magicjar: INFO

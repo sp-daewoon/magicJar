@@ -6,7 +6,6 @@ import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
-import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
 import java.time.Instant
 import java.time.LocalDate
@@ -50,9 +49,13 @@ class DailyCloseFinalizer(
     /**
      * 매 거래일 16:00 KST 실행 (ADR 0013 §3-6).
      * 비영업일은 자동 skip (MarketSessionResolver.isBusinessDay 체크).
+     *
+     * 함정: @Transactional + @Scheduled 조합 시 Kotlin CGLIB proxy 결함으로
+     * marketSessionResolver final field가 null로 보임 (NPE). 본 finalizer는
+     * 단일 Repository INSERT만 호출하므로 트랜잭션 전체 wrap 불필요 —
+     * candleJpaRepository.insertIgnore 자체 @Transactional로 충분.
      */
     @Scheduled(cron = "0 0 16 * * *", zone = "Asia/Seoul")
-    @Transactional
     fun finalize() {
         val today = LocalDate.now(KST)
 
