@@ -44,16 +44,16 @@ GET /api/onboarding/status
 
 ```mermaid
 graph LR
-  A([브라우저 진입]) --> B{OnboardingGuard}
-  B -- hasUserAccount=false --> S[/setup - SetupWizard]
-  B -- hasUserAccount=true --> D[/ - DashboardPlaceholder]
-  B -- isLoading --> L[스플래시 스피너]
+  A("[브라우저 진입]") --> B{OnboardingGuard}
+  B -- hasUserAccount=false --> S["/setup - SetupWizard"]
+  B -- hasUserAccount=true --> D["/ - DashboardPlaceholder"]
+  B -- isLoading --> L["스플래시 스피너"]
   L --> B
 
   S -- Step5 시작하기 --> D
-  D -- 관심종목 시작하기 버튼 --> W[/watchlist - WatchlistPage]
+  D -- 관심종목 시작하기 버튼 --> W["/watchlist - WatchlistPage"]
   D -- AppHeader 관심종목 메뉴 --> W
-  W -- WatchlistRow 클릭 --> SYM[/symbol/:code - SymbolDetailPage]
+  W -- WatchlistRow 클릭 --> SYM["/symbol/:code - SymbolDetailPage"]
   SYM -- 관심종목으로 버튼 --> W
   SYM -- SymbolError 관심종목으로 버튼 --> W
 

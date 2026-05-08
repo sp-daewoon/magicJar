@@ -44,12 +44,12 @@ sequenceDiagram
     participant INSTR as InstrumentJpaRepository
     participant WL as WatchlistJpaRepository
     participant AUDIT as AuditTrailJpaRepository
-    participant KAFKA as Kafka (watchlist.changed.v1)
+    participant KAFKA as Kafka
     participant PG as Postgres
 
-    FE->>CTRL: POST /api/watchlists {code:"005930", priority:100}
+    FE->>CTRL: POST /api/watchlists {code:005930, priority:100}
     CTRL->>SVC: add(userId, request)
-    SVC->>INSTR: existsByCode("005930")
+    SVC->>INSTR: existsByCode(005930)
     alt instrument 없음
         SVC->>INSTR: save(InstrumentJpaEntity stub)
         INSTR->>PG: INSERT instrument (market=UNKNOWN, type=UNKNOWN)
@@ -58,7 +58,7 @@ sequenceDiagram
     WL->>PG: INSERT watchlist (user_id, code, priority)
     SVC->>AUDIT: save(AuditTrailJpaEntity WATCHLIST_ADDED)
     AUDIT->>PG: INSERT audit_trail
-    SVC->>KAFKA: send("watchlist.changed.v1", userId, payload)
+    SVC->>KAFKA: send(watchlist.changed.v1, userId, payload)
     SVC-->>CTRL: WatchlistEntryDto
     CTRL-->>FE: 201 Created + Location
 ```
@@ -72,13 +72,13 @@ sequenceDiagram
     participant FE as Frontend
     participant CTRL as SymbolController
     participant CQS as CandleQueryService
-    participant REDIS as Redis (candle:today, candle:current)
-    participant REPO as CandleRepository (Postgres)
+    participant REDIS as Redis
+    participant REPO as CandleRepository
 
     FE->>CTRL: GET /api/symbols/{code}/candles?interval=1d&limit=200
-    CTRL->>CQS: getCandles(code, "1d", before, 200)
+    CTRL->>CQS: getCandles(code, 1d, before, 200)
     CQS->>REDIS: GET candle:today:{code}:1d (당일 진행 중 캔들)
-    CQS->>REPO: findByCodeAndIntervalBefore(code, "1d", before, 200)
+    CQS->>REPO: findByCodeAndIntervalBefore(code, 1d, before, 200)
     REPO-->>CQS: List<Candle> (DB 영속분)
     CQS->>CQS: 합류 (DB 결과 + Redis today 병합, ASC 정렬)
     CQS-->>CTRL: CandlesResponseDto {candles, hasMore, nextBefore}
@@ -94,11 +94,11 @@ sequenceDiagram
     participant FE as Frontend
     participant CTRL as InstrumentController
     participant ISS as InstrumentSearchService
-    participant REDIS as Redis (instrument:search:prefix:*)
+    participant REDIS as Redis
     participant REPO as InstrumentJpaRepository
 
     FE->>CTRL: GET /api/instruments/search?q=삼성전&limit=10
-    CTRL->>ISS: search("삼성전", 10, null)
+    CTRL->>ISS: search(삼성전, 10, null)
     ISS->>REDIS: ZRANGEBYLEX instrument:search:prefix:* [삼성전 (삼성전\xff (50ms 미만 목표)
     alt Redis hit
         REDIS-->>ISS: List<InstrumentSearchResult>
@@ -118,17 +118,17 @@ sequenceDiagram
 sequenceDiagram
     participant FE as Frontend
     participant CTRL as SymbolController
-    participant KAFKA as Kafka (symbol.detail.command.v1)
-    participant CONSUMER as OrderbookSubscriptionRouter (consumer)
+    participant KAFKA as Kafka
+    participant CONSUMER as OrderbookSubscriptionRouter
     participant KISWS as KIS WS H0STASP0
-    participant STOMP as STOMP /topic/market.orderbook.{code}
+    participant STOMP as STOMP _topic_market.orderbook.{code}
 
     FE->>CTRL: POST /api/symbols/{code}/orderbook/subscribe
-    CTRL->>KAFKA: send("symbol.detail.command.v1", code, {action:"ENTER"})
+    CTRL->>KAFKA: send(symbol.detail.command.v1, code, {action:ENTER})
     KAFKA->>CONSUMER: SymbolDetailCommandKafkaListener.onMessage()
     CONSUMER->>KISWS: subscribeOrderbook([code]) — H0STASP0 slot 할당
     KISWS-->>CONSUMER: 호가 데이터 스트림
-    CONSUMER->>KAFKA: send("market.orderbook.v1", code, payload)
+    CONSUMER->>KAFKA: send(market.orderbook.v1, code, payload)
     KAFKA->>STOMP: 팬아웃 (frontend STOMP 구독자에게 push)
     STOMP-->>FE: 호가 스냅샷 (bids/asks)
 ```
@@ -155,19 +155,19 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A[Scheduler 06:05 KST] --> B[Redis 락 획득\ninstrument:sync:running SET NX EX 600]
+    A["Scheduler 06:05 KST"] --> B["Redis 락 획득<br/>instrument:sync:running SET NX EX 600"]
     B -->|락 실패| Z[SKIP]
-    B -->|락 성공| C[KisInstrumentMasterAdapter.fetchAllRaw\nKOSPI 70필드 + KOSDAQ 64필드]
-    C -->|KIS 실패| D[WARN 로그 + 시드 fallback 유지\n결과 반환 failed=1]
-    C -->|성공| E[DB diff\nexistingActive vs kisMap]
-    E --> F[INSERT NEW 종목]
-    E --> G[UPDATE CHANGED 종목\n매매가드·securities_group 변동 추적]
-    E --> H[DELIST 처리\nactive=false, delisted_at=today\nDELETE 금지 ADR 0017]
-    F & G & H --> I[instrument_alias upsert\nsource=KRX]
-    I --> J[Kafka instrument.updated.v1 publish\npartition key=market]
-    J --> K[Redis invalidate\ninstrument:list:* + search:* + by-code:*]
-    K --> L[Redis instrument:sync:lastAt SET\nTTL 1d]
-    L --> M[락 해제]
+    B -->|락 성공| C["KisInstrumentMasterAdapter.fetchAllRaw<br/>KOSPI 70필드 + KOSDAQ 64필드"]
+    C -->|KIS 실패| D["WARN 로그 + 시드 fallback 유지<br/>결과 반환 failed=1"]
+    C -->|성공| E["DB diff<br/>existingActive vs kisMap"]
+    E --> F["INSERT NEW 종목"]
+    E --> G["UPDATE CHANGED 종목<br/>매매가드·securities_group 변동 추적"]
+    E --> H["DELIST 처리<br/>active=false, delisted_at=today<br/>DELETE 금지 ADR 0017"]
+    F & G & H --> I["instrument_alias upsert<br/>source=KRX"]
+    I --> J["Kafka instrument.updated.v1 publish<br/>partition key=market"]
+    J --> K["Redis invalidate<br/>instrument:list:* + search:* + by-code:*"]
+    K --> L["Redis instrument:sync:lastAt SET<br/>TTL 1d"]
+    L --> M["락 해제"]
 ```
 
 소스: `batch/src/main/kotlin/kr/spdaewoon/magicjar/batch/job/instrument/InstrumentSyncJob.kt:66-236`
@@ -187,18 +187,18 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[Scheduler 18:30 KST\n0 30 9 * * * UTC] --> B[KIS ksdinfo 6 endpoint 순차 호출\n최근 30일 범위]
-    B --> B1[fetchPaidinCapin HHKDB669100C0]
-    B --> B2[fetchBonusIssue HHKDB669101C0]
-    B --> B3[fetchDividend HHKDB669102C0]
-    B --> B4[fetchMergerSplit HHKDB669104C0]
-    B --> B5[fetchRevSplit HHKDB669105C0]
-    B --> B6[fetchCapDcrs HHKDB669106C0]
-    B1 & B2 & B3 & B4 & B5 & B6 --> C[corp_action upsert\nUNIQUE instrument_code+type+ex_date+source]
-    C --> D[DART OPENDART list.json\npblntf_ty=B+D 어제~오늘]
-    D --> E[corp_action upsert\nsource=DART 별도 row 보존]
-    E --> F[pending corp_action 조회\napplied_at IS NULL]
-    F --> G[Kafka corp_action.applied.v1 publish\npartition key=instrument_code]
+    A["Scheduler 18:30 KST<br/>0 30 9 * * * UTC"] --> B["KIS ksdinfo 6 endpoint 순차 호출<br/>최근 30일 범위"]
+    B --> B1["fetchPaidinCapin HHKDB669100C0"]
+    B --> B2["fetchBonusIssue HHKDB669101C0"]
+    B --> B3["fetchDividend HHKDB669102C0"]
+    B --> B4["fetchMergerSplit HHKDB669104C0"]
+    B --> B5["fetchRevSplit HHKDB669105C0"]
+    B --> B6["fetchCapDcrs HHKDB669106C0"]
+    B1 & B2 & B3 & B4 & B5 & B6 --> C["corp_action upsert<br/>UNIQUE instrument_code+type+ex_date+source"]
+    C --> D["DART OPENDART list.json<br/>pblntf_ty=B+D 어제~오늘"]
+    D --> E["corp_action upsert<br/>source=DART 별도 row 보존"]
+    E --> F["pending corp_action 조회<br/>applied_at IS NULL"]
+    F --> G["Kafka corp_action.applied.v1 publish<br/>partition key=instrument_code"]
 ```
 
 소스: `batch/src/main/kotlin/kr/spdaewoon/magicjar/batch/job/corp_action/CorpActionSyncJob.kt:55-156`
@@ -207,18 +207,18 @@ flowchart TD
 
 ```mermaid
 sequenceDiagram
-    participant KAFKA as Kafka (corp_action.applied.v1)
+    participant KAFKA as Kafka
     participant JOB as CandleAdjustmentJob
     participant REPO as CandleAdjustmentRepository
     participant CA_REPO as CorpActionRepository
-    participant REDIS as Redis (indicator:cache:*)
-    participant PG as Postgres (candle)
+    participant REDIS as Redis
+    participant PG as Postgres
 
-    KAFKA->>JOB: @KafkaListener corp_action.applied.v1\ngroupId=candle-adjustment
-    JOB->>JOB: computeFactor(action)\nSTOCK_SPLIT=1/ratio, REVERSE_SPLIT=ratio, BONUS_ISSUE=1/(1+ratio)
+    KAFKA->>JOB: @KafkaListener corp_action.applied.v1<br/>groupId=candle-adjustment
+    JOB->>JOB: computeFactor(action)<br/>STOCK_SPLIT=1/ratio, REVERSE_SPLIT=ratio, BONUS_ISSUE=1/(1+ratio)
     alt factor != null (보정 필요)
         JOB->>REPO: adjustCandles(code, exDate, priceFactor)
-        REPO->>PG: UPDATE candle SET open_adj/high_adj/low_adj/close_adj/volume_adjusted/adjustment_factor\nWHERE code=? AND ts < ex_date
+        REPO->>PG: UPDATE candle SET open_adj/high_adj/low_adj/close_adj/volume_adjusted/adjustment_factor<br/>WHERE code=? AND ts < ex_date
         JOB->>REDIS: DEL indicator:cache:{code}:* (지표 재계산 트리거)
     end
     JOB->>CA_REPO: markApplied(id, now())
@@ -248,11 +248,11 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant KISWS as KIS WS (ops.koreainvestment.com:21000)
+    participant KISWS as KIS WS
     participant BRIDGE as KisWebSocketBridge
     participant REDIS as Redis
-    participant KAFKA as Kafka (market.tick.v1)
-    participant STOMP as STOMP /topic/market.tick.{code}
+    participant KAFKA as Kafka
+    participant STOMP as STOMP _topic_market.tick.{code}
     participant FE as Frontend
 
     KISWS->>BRIDGE: H0STCNT0 체결가 raw (AES 암호화 해제 후 | pipe 구분)
@@ -260,7 +260,7 @@ sequenceDiagram
     BRIDGE->>REDIS: SET quote:last:{code} JSON TTL 7d
     BRIDGE->>REDIS: HMSET candle:current:{code}:1m (open/high/low/close/volume) TTL 2m
     BRIDGE->>REDIS: HMSET candle:today:{code}:1d (open/high/low/close/volume) TTL 24h
-    BRIDGE->>KAFKA: send("market.tick.v1", code, payload)
+    BRIDGE->>KAFKA: send(market.tick.v1, code, payload)
     KAFKA->>STOMP: fanout
     STOMP-->>FE: 실시간 tick push
 ```
@@ -271,15 +271,15 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant KISWS as KIS WS (H0STASP0)
+    participant KISWS as KIS WS
     participant BRIDGE as KisWebSocketBridge
-    participant KAFKA as Kafka (market.orderbook.v1)
-    participant STOMP as STOMP /topic/market.orderbook.{code}
+    participant KAFKA as Kafka
+    participant STOMP as STOMP _topic_market.orderbook.{code}
     participant FE as Frontend
 
     KISWS->>BRIDGE: H0STASP0 호가 스냅샷 raw
     BRIDGE->>BRIDGE: KisWsOrderbookParser.parseH0Stasp0(rawData)
-    BRIDGE->>KAFKA: send("market.orderbook.v1", code, {bids, asks, ts})
+    BRIDGE->>KAFKA: send(market.orderbook.v1, code, {bids, asks, ts})
     KAFKA->>STOMP: fanout
     STOMP-->>FE: 호가 업데이트
 ```
@@ -290,7 +290,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant KAFKA as Kafka (watchlist.changed.v1)
+    participant KAFKA as Kafka
     participant LISTENER as WatchlistChangedKafkaListener
     participant COLD as ColdStartExecutor
     participant YAHOO as Yahoo Finance API
@@ -299,17 +299,17 @@ sequenceDiagram
     participant KISWS as KIS WS
 
     KAFKA->>LISTENER: action=ADDED code=005930
-    LISTENER->>REPO: countByCodeAndIntervalIn("005930", intervals)
+    LISTENER->>REPO: countByCodeAndIntervalIn(005930, intervals)
     alt count == 0 (캔들 없음)
-        LISTENER->>COLD: submit("005930")
+        LISTENER->>COLD: submit(005930)
         COLD->>YAHOO: fetchCandles(code, 1d, 500일)
         YAHOO-->>COLD: List<Candle>
         COLD->>REPO: batchInsert (DB 영속)
     end
-    LISTENER->>ROUTER: add(userId, "005930", priority=100)
+    LISTENER->>ROUTER: add(userId, 005930, priority=100)
     ROUTER->>ROUTER: slot 여유 확인 (H0STCNT0 30 slot 예산)
     alt slot 여유
-        ROUTER->>KISWS: subscribe(["005930"])
+        ROUTER->>KISWS: subscribe([005930])
     else slot 가득
         ROUTER->>ROUTER: eviction or polling 등록
     end
@@ -321,13 +321,13 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A[16:00 KST @Scheduled] --> B{영업일 여부\nmarketSessionResolver.isBusinessDay}
+    A["16:00 KST @Scheduled"] --> B{영업일 여부<br/>marketSessionResolver.isBusinessDay}
     B -->|비영업일| Z[SKIP]
-    B -->|영업일| C[Redis scan: candle:today:*:1d]
+    B -->|영업일| C["Redis scan: candle:today:*:1d"]
     C -->|keys 없음| Z2[SKIP]
-    C -->|keys 존재| D[key별 JSON 파싱\ncode 추출]
-    D --> E[CandleJpaRepository.insertIgnore\nON CONFLICT DO NOTHING]
-    E --> F[Postgres candle INSERT\nsource=KIS_DAILY_CLOSE]
+    C -->|keys 존재| D["key별 JSON 파싱<br/>code 추출"]
+    D --> E["CandleJpaRepository.insertIgnore<br/>ON CONFLICT DO NOTHING"]
+    E --> F["Postgres candle INSERT<br/>source=KIS_DAILY_CLOSE"]
 ```
 
 소스: `consumer/src/main/kotlin/kr/spdaewoon/magicjar/consumer/application/market/DailyCloseFinalizer.kt:54-118`

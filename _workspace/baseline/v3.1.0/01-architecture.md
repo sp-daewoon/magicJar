@@ -71,52 +71,52 @@ graph TD
     end
 
     %% Frontend → API
-    FE_SETUP -.HTTP+STOMP.-> API_REST
-    FE_WL -.HTTP+STOMP.-> API_REST
-    FE_SYM -.HTTP+STOMP.-> API_STOMP
-    FE_DASH -.HTTP.-> API_REST
+    FE_SETUP -->|"HTTP+STOMP"| API_REST
+    FE_WL -->|"HTTP+STOMP"| API_REST
+    FE_SYM -->|"HTTP+STOMP"| API_STOMP
+    FE_DASH -->|"HTTP"| API_REST
 
     %% API → External (직접)
-    API_AUTH -.OAuth2 검증.-> KISREST
+    API_AUTH -->|"OAuth2 검증"| KISREST
 
     %% Batch → External
-    B_KIS_MASTER -.GET zip.-> KISMASTER
-    B_CHK -.tr_id=CTCA0903R.-> KISREST
-    B_KSD -.6 endpoint.-> KISREST
-    B_DART -.list.json + corpCode.xml.-> DART
+    B_KIS_MASTER -->|"GET zip"| KISMASTER
+    B_CHK -->|"tr_id=CTCA0903R"| KISREST
+    B_KSD -->|"6 endpoint"| KISREST
+    B_DART -->|"list.json + corpCode.xml"| DART
 
     %% Consumer → External
-    C_KIS_WS -.WebSocket H0STCNT0/ASP0.-> KISWS
-    C_KIS_REST -.tr_id=FHKST01010100.-> KISREST
-    C_COLD -.Yahoo v8/chart.-> YAHOO
+    C_KIS_WS -->|"WebSocket H0STCNT0/ASP0"| KISWS
+    C_KIS_REST -->|"tr_id=FHKST01010100"| KISREST
+    C_COLD -->|"Yahoo v8/chart"| YAHOO
 
     %% API ↔ infra
     API_REST --> PG
     API_REST --> REDIS
-    API_REST -.producer.-> KAFKA
+    API_REST -->|"producer"| KAFKA
     API_FLY --> PG
 
     %% Batch ↔ infra
     B_INSTR --> PG
-    B_INSTR -.producer.-> KAFKA
+    B_INSTR -->|"producer"| KAFKA
     B_CASYNC --> PG
-    B_CASYNC -.producer.-> KAFKA
+    B_CASYNC -->|"producer"| KAFKA
     B_CALSEED --> PG
-    B_CADJ -.consumer.-> KAFKA
+    B_CADJ -->|"consumer"| KAFKA
 
     %% Consumer ↔ infra
-    C_WL_LISTEN -.consumer.-> KAFKA
+    C_WL_LISTEN -->|"consumer"| KAFKA
     C_INGEST --> REDIS
-    C_KIS_WS -.producer.-> KAFKA
+    C_KIS_WS -->|"producer"| KAFKA
     C_TICK_AGG --> PG
     C_DCF --> PG
     C_BOOTSTRAP --> REDIS
     C_BOOTSTRAP --> PG
 
     %% Domain (헥사고날 — 모든 모듈이 import)
-    API_REST -.implements port.-> D_PORTS
-    B_INSTR -.implements port.-> D_PORTS
-    C_KIS_WS -.implements port.-> D_PORTS
+    API_REST -->|"implements port"| D_PORTS
+    B_INSTR -->|"implements port"| D_PORTS
+    C_KIS_WS -->|"implements port"| D_PORTS
 ```
 
 **범례**:
@@ -320,14 +320,14 @@ erDiagram
 graph LR
     ROOT[App.tsx] --> GUARD["OnboardingGuard<br/>GET /api/onboarding/status"]
     GUARD --> SETUP["/setup<br/>SetupWizard 7-step"]
-    GUARD --> LAYOUT[AppLayout + AppHeader]
+    GUARD --> LAYOUT["AppLayout + AppHeader"]
     LAYOUT --> DASH["/<br/>DashboardPlaceholder"]
     LAYOUT --> WL["/watchlist<br/>WatchlistPage"]
     LAYOUT --> SYM["/symbol/:code<br/>SymbolDetailPage"]
     LAYOUT --> CATCH["* → Navigate '/'"]
 
-    GUARD -.hasUserAccount=false.-> SETUP
-    GUARD -.hasUserAccount=true && path=/setup.-> DASH
+    GUARD -->|"hasUserAccount=false"| SETUP
+    GUARD -->|"hasUserAccount=true && path=/setup"| DASH
 ```
 
 ### 5-2. 데이터 fetch 매트릭스
@@ -364,21 +364,21 @@ graph TB
     end
 
     subgraph INFRA3["인프라 3"]
-        PG[postgres:16-alpine<br/>magicjar/magicjar/magicjar<br/>locale=C UTF8 KST]
-        KAFKA[apache/kafka:3.7.0<br/>KRaft 단일노드<br/>retention 1h/200MB]
-        REDIS[redis:7-alpine<br/>KST]
+        PG["postgres:16-alpine<br/>magicjar/magicjar/magicjar<br/>locale=C UTF8 KST"]
+        KAFKA["apache/kafka:3.7.0<br/>KRaft 단일노드<br/>retention 1h/200MB"]
+        REDIS["redis:7-alpine<br/>KST"]
     end
 
     subgraph APPS4["앱 4"]
-        API[magicjar-api<br/>SPRING_PROFILES_ACTIVE=dev,real-kis<br/>Flyway 단독 적용]
-        BATCH[magicjar-batch<br/>depends_on api healthy<br/>MAGICJAR_INSTRUMENT_SYNC_AT_BOOT=true]
-        CONSUMER[magicjar-consumer<br/>depends_on api healthy<br/>KIS WS + Kafka listeners]
-        FRONTEND[magicjar-frontend<br/>nginx alpine<br/>/api/ + /ws/ proxy_pass]
+        API["magicjar-api<br/>SPRING_PROFILES_ACTIVE=dev,real-kis<br/>Flyway 단독 적용"]
+        BATCH["magicjar-batch<br/>depends_on api healthy<br/>MAGICJAR_INSTRUMENT_SYNC_AT_BOOT=true"]
+        CONSUMER["magicjar-consumer<br/>depends_on api healthy<br/>KIS WS + Kafka listeners"]
+        FRONTEND["magicjar-frontend<br/>nginx alpine<br/>/api/ + /ws/ proxy_pass"]
     end
 
     subgraph DEBUG2["디버깅 2 (운영 진입 시 제외 가능)"]
-        DOZZLE[Dozzle<br/>모든 컨테이너 stdout]
-        KAFKAUI[Kafka UI<br/>토픽·consumer lag]
+        DOZZLE["Dozzle<br/>모든 컨테이너 stdout"]
+        KAFKAUI["Kafka UI<br/>토픽·consumer lag"]
     end
 
     P5432 --> PG
@@ -400,11 +400,11 @@ graph TB
     CONSUMER --> PG
     CONSUMER --> KAFKA
     CONSUMER --> REDIS
-    FRONTEND -.proxy /api/.-> API
-    FRONTEND -.proxy /ws/.-> API
-    DOZZLE -.docker.sock ro.-> API
-    DOZZLE -.docker.sock ro.-> BATCH
-    DOZZLE -.docker.sock ro.-> CONSUMER
+    FRONTEND -->|"proxy /api/"| API
+    FRONTEND -->|"proxy /ws/"| API
+    DOZZLE -->|"docker.sock ro"| API
+    DOZZLE -->|"docker.sock ro"| BATCH
+    DOZZLE -->|"docker.sock ro"| CONSUMER
     KAFKAUI --> KAFKA
 ```
 
