@@ -630,15 +630,29 @@ DART OPENDART 출처: `https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS001
 
 ### 트리거 (다음 사이클)
 
-본 §21 = 진행 중. 모든 sub PR 머지 + 릴리즈 컷 시 ✅ 처리 완료 마킹.
+본 §21 = W1 본격 머지 완료. PR-29d(R3) + v3.1.0 태그 후 ✅ 처리 완료 마킹.
 
 ### 예상 처리 PR
 
-- PR-29 (architect) — 본 spec PR (현재 진행)
-- PR-29a (backend-core, T-MS1)
-- PR-29b (market-data, T-CA1)
-- PR-29c (frontend, T-S1 잔재)
-- PR-29d (backend-core, R3 일괄 테스트)
+- ✅ PR #228 architect spec 머지 (951d09b)
+- ✅ PR #229 frontend T-S1 잔재 머지 (15e407b)
+- ✅ PR #230 backend-core T-MS1 머지 (4d79299)
+- ✅ PR #231 market-data T-CA1 머지 (15795f4)
+- ⏳ PR-29d (backend-core, R3 일괄 테스트 — SymbolControllerTest mock + batch test @Disabled 정정)
+- ⏳ v3.1.0 태그 + release/v3.1 컷
+
+### 갱신 (2026-05-08 — W1 본격 머지 완료 + V7·V8 위치 검토 close)
+
+**main HEAD: 4eb11d4** — T-MS1 + T-CA1 + T-S1 잔재 본격 코드 풀 머지. worktree 3개·agent/* 3개·worktree-agent-* 3개 정리 완료.
+
+**V7·V8 위치 검토 결과 — spec dispatch 오류, sub-agent 정정이 옳음:**
+- spec dispatch §4-5/§6-2: V7·V8을 `batch/src/main/resources/db/migration/`에 LOCK 명시
+- 실제 머지(PR #231): V7·V8 모두 `api/src/main/resources/db/migration/`에 위치
+- 검증: `batch/src/main/resources/application.yml` line 17~18에 **`spring.flyway.enabled: false`** (ADR 0006 — api 모듈만 Flyway 실행)
+- 결론: spec이 batch 모듈로 LOCK한 게 명백한 오류 — 그대로 두면 Flyway 절대 실행 안 됨 → corp_action 테이블·candle ALTER 영구 미적용 risk. market-data sub-agent의 api 모듈 정정 판단은 **운영 정합** + 정정 불필요.
+- 교훈 (다음 architect spec/plan): Flyway 위치 결정 시 `application.yml` `flyway.enabled` 모듈별 상태 사전 검증 의무 — design §3-4·§4-5에 모듈 매트릭스 추가.
+
+**KisKsdInfoAdapter 기본 disabled 의제** — KIS 무료 키 endpoint 미호출 가능성. 운영 활성화 정책은 별도 의제(다음 사이클 또는 dogfooding 시점 사용자 결정).
 
 ---
 
