@@ -716,3 +716,42 @@ W3 T-BT (Backtest Engine) 또는 T-SC (Screener) 진입 시.
 
 - PR #231 — T-CA1 본격 구현 (DartCorpCodeRepository 도입)
 - ADR 0018 §4-1 — DART CORPCODE.xml 출처
+
+---
+
+## §23. KIS 자격증명 user_id 식별 규약 불일치 — REAL vs MOCK (W3 T-O 진입 시 본격 정리)
+
+### 사유
+
+`OnboardingService.kt`에서 KIS 키 저장 시 `user_kis_credential.user_id` 컬럼에 들어가는 값이 REAL/MOCK 다름:
+
+| 모드 | line | 저장 값 | 의미 |
+|------|------|---------|------|
+| REAL | 136 | `request.accountNumber` | 계좌번호 (예: `12345678-01`) |
+| MOCK | 231 | `request.userId` | KIS user_id (예: `thdeodns`) |
+
+반면 `KisWebSocketBridge.defaultUserId`는 application.yml에서 KIS user_id 단일 값으로 주입 → REAL 진입 시 lookup fail.
+
+### v3.1.0 hotfix (PR #246)
+
+`KisApprovalAdapter.issueApprovalKey()`에 `firstOrNull()` fallback 추가 — single-user 환경에서는 user_id 매칭 fail해도 첫 credential 사용. 작동 보장.
+
+### W3 T-O (Order) 진입 시 본격 정리 의제
+
+multi-tenant 진입 시 식별 규약 통일 필요. 후보:
+1. **REAL/MOCK 모두 user_id 통일** — `request.userId` 또는 user_account.user_id 권위
+2. **user_kis_credential.user_id 의미 명시** — DB 컬럼 주석 + ADR 보강
+3. **KisWebSocketBridge `defaultUserId` 의미 분기** — REAL 모드면 계좌번호, MOCK 모드면 user_id (현 흐름 정합)
+4. **kis_user_id 컬럼 별도 추가** — 가장 명시적, 마이그레이션 비용
+
+### 트리거
+
+- W3 T-O (Order) — 사용자별 주문 권한 격리 시점
+- 또는 multi-tenant 사용자 추가 요구 발생 시
+
+### 참조
+
+- PR #246 — v3.1.0 hotfix (firstOrNull fallback)
+- `api/src/main/kotlin/kr/spdaewoon/magicjar/api/service/OnboardingService.kt:136, 231`
+- `consumer/src/main/kotlin/kr/spdaewoon/magicjar/consumer/infrastructure/kis/KisApprovalAdapter.kt:124-130`
+- ADR 0046 — Onboarding & Credential Registration (식별 규약 명시 보강 의제)
