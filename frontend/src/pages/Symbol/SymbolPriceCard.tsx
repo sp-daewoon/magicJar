@@ -6,8 +6,14 @@
  * - source='closed' → "장 마감" 표시
  * - 상승(change>0) → 빨간색, 하락(change<0) → 파란색 (한국 주식 관례)
  * - 숫자 포맷: 천 단위 콤마 (ko-KR) + 원화 표시
+ *
+ * 결함 4 수정: getPriceBadge() 헬퍼로 장 시간 외 polling → "장 마감"(회색) 표시.
+ *   - asOf가 30초 이내 → "실시간"(녹색)
+ *   - polling + 장 중 → "지연 데이터"(노랑)
+ *   - polling/closed + 장외 → "장 마감"(회색)
  */
 import type { SymbolDto, TickPayload } from '../../api/symbol'
+import { getPriceBadge } from '../../lib/marketHours'
 
 interface SymbolPriceCardProps {
   symbol: SymbolDto
@@ -51,8 +57,11 @@ function getChangeColorClass(changeStr: string): string {
 export function SymbolPriceCard({ symbol, realtimeTick }: SymbolPriceCardProps) {
   // STOMP tick이 있으면 실시간 가격 사용, 없으면 REST 응답 사용
   const currentPrice = realtimeTick?.price ?? symbol.currentPrice
-  const isStale = realtimeTick?.stale ?? symbol.stale
   const source = realtimeTick?.source ?? symbol.source
+  const asOf = realtimeTick?.ts ?? symbol.asOf
+
+  // 결함 4: 장 시간 + asOf 기반 배지 판정
+  const badge = getPriceBadge(source, asOf)
 
   const changeColorClass = getChangeColorClass(symbol.change)
 
@@ -81,23 +90,27 @@ export function SymbolPriceCard({ symbol, realtimeTick }: SymbolPriceCardProps) 
         </div>
       </div>
 
-      {/* stale / source 배지 */}
-      {(isStale || source === 'closed') && (
-        <div className="mb-3">
-          <span className="inline-flex items-center gap-1 rounded-full bg-yellow-900/40 px-2 py-0.5 text-xs text-yellow-400">
-            <span className="h-1.5 w-1.5 rounded-full bg-yellow-400" aria-hidden="true" />
-            {source === 'closed' ? '장 마감' : '지연 데이터'}
-          </span>
-        </div>
-      )}
-      {!isStale && source === 'live' && (
-        <div className="mb-3">
+      {/* stale / source 배지 (결함 4: 장 시간 기반 분기) */}
+      <div className="mb-3">
+        {badge === 'live' && (
           <span className="inline-flex items-center gap-1 rounded-full bg-green-900/40 px-2 py-0.5 text-xs text-green-400">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" aria-hidden="true" />
             실시간
           </span>
-        </div>
-      )}
+        )}
+        {badge === 'delayed' && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-yellow-900/40 px-2 py-0.5 text-xs text-yellow-400">
+            <span className="h-1.5 w-1.5 rounded-full bg-yellow-400" aria-hidden="true" />
+            지연 데이터
+          </span>
+        )}
+        {badge === 'closed' && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-gray-800/60 px-2 py-0.5 text-xs text-gray-400">
+            <span className="h-1.5 w-1.5 rounded-full bg-gray-500" aria-hidden="true" />
+            장 마감
+          </span>
+        )}
+      </div>
 
       {/* 보조 지표: 고·저·시·거래량 */}
       <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 border-t border-gray-800 pt-3">

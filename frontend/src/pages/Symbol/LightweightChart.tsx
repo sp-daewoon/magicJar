@@ -10,8 +10,14 @@
  * - 거래량 = addHistogramSeries (priceScaleId: '')
  * - STOMP 실시간 갱신: candleSeries.update()
  *
+ * 결함 수정 (v3.1.0 dogfooding):
+ *   결함 1: ts ISO→UTCTimestamp 변환 + OHLC string→number (기존 로직 유지 확인)
+ *   결함 5: KST 시간 포맷 (tickMarkFormatter + Asia/Seoul)
+ *   결함 6: hover crosshair OHLCV·등락률 툴팁 (floating div)
+ *
  * props:
  *   candles: CandleDto[]           초기 데이터 (ASC 정렬 보장 — backend 정합)
+ *   interval: CandleInterval       현재 인터벌 (시간 포맷 분기용)
  *   realtimeCandle?: CandleDto     STOMP push 실시간 candle (optional)
  *   onScrollLeft?: () => void      좌측 스크롤 끝 콜백 (페이지네이션 트리거)
  */
@@ -23,14 +29,21 @@ import {
   type ISeriesApi,
   type SeriesType,
   type UTCTimestamp,
+  type MouseEventParams,
 } from 'lightweight-charts'
-import { useEffect, useRef } from 'react'
-import type { CandleDto } from '../../api/symbol'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import type { CandleDto, CandleInterval } from '../../api/symbol'
 
 interface LightweightChartProps {
   candles: CandleDto[]
+  interval?: CandleInterval
   realtimeCandle?: CandleDto | null
   onScrollLeft?: () => void
+}
+
+/** 인터벌이 분봉(intraday)인지 여부 */
+function isIntradayInterval(interval?: CandleInterval): boolean {
+  return interval === '1m' || interval === '5m' || interval === '30m' || interval === '1h'
 }
 
 function toUTCTimestamp(isoString: string): UTCTimestamp {
@@ -57,13 +70,110 @@ function toHistogramData(c: CandleDto): HistogramData {
   }
 }
 
-export function LightweightChart({ candles, realtimeCandle, onScrollLeft }: LightweightChartProps) {
+/**
+ * UTCTimestamp 또는 BusinessDay {year,month,day}를 밀리초로 변환
+ * LWC v4 tickMarkFormatter의 time 인자 타입에 대응.
+ */
+function lwcTimeToMs(time: UTCTimestamp | { year: number; month: number; day: number }): number {
+  if (typeof time === 'number') return time * 1000
+  return Date.UTC(time.year, time.month - 1, time.day)
+}
+
+/**
+ * KST 시간 포맷터 — 분봉이면 "2026-01-01 10:20", 일봉 이상은 "2026-01-01"
+ */
+function formatKstTime(
+  time: UTCTimestamp | { year: number; month: number; day: number },
+  isIntraday: boolean,
+): string {
+  const ms = lwcTimeToMs(time)
+  const d = new Date(ms)
+
+  if (isIntraday) {
+    // sv-SE locale: "2026-01-01 10:20" 형태 — Asia/Seoul KST
+    return new Intl.DateTimeFormat('sv-SE', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'Asia/Seoul',
+    })
+      .format(d)
+      .replace('T', ' ')
+  } else {
+    return new Intl.DateTimeFormat('sv-SE', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      timeZone: 'Asia/Seoul',
+    }).format(d)
+  }
+}
+
+/** 가격 천 단위 콤마 포맷 */
+function fmtPrice(v: number): string {
+  return v.toLocaleString('ko-KR')
+}
+
+/** 거래량 포맷 */
+function fmtVolume(v: number): string {
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}백만`
+  if (v >= 1_000) return `${(v / 1_000).toFixed(0)}천`
+  return v.toLocaleString('ko-KR')
+}
+
+interface TooltipState {
+  visible: boolean
+  x: number
+  y: number
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+  changeRate: string
+  timeLabel: string
+}
+
+export function LightweightChart({
+  candles,
+  interval,
+  realtimeCandle,
+  onScrollLeft,
+}: LightweightChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const volumeSeriesRef = useRef<ISeriesApi<SeriesType> | null>(null)
   const onScrollLeftRef = useRef(onScrollLeft)
   onScrollLeftRef.current = onScrollLeft
+
+  // interval ref — tickMarkFormatter 클로저에서 최신 값 참조
+  const intervalRef = useRef(interval)
+  intervalRef.current = interval
+
+  // 툴팁 상태
+  const [tooltip, setTooltip] = useState<TooltipState>({
+    visible: false,
+    x: 0,
+    y: 0,
+    open: 0,
+    high: 0,
+    low: 0,
+    close: 0,
+    volume: 0,
+    changeRate: '0.00',
+    timeLabel: '',
+  })
+
+  // volume lookup: ts(UTCTimestamp) → volume
+  const volumeMapRef = useRef<Map<number, number>>(new Map())
+
+  const hideTooltip = useCallback(() => {
+    setTooltip((prev) => ({ ...prev, visible: false }))
+  }, [])
 
   // 차트 생성 (마운트 1회)
   useEffect(() => {
@@ -91,6 +201,18 @@ export function LightweightChart({ candles, realtimeCandle, onScrollLeft }: Ligh
         borderColor: '#374151',
         timeVisible: true,
         secondsVisible: false,
+        tickMarkFormatter: (
+          time: UTCTimestamp | { year: number; month: number; day: number },
+        ) => {
+          return formatKstTime(time, isIntradayInterval(intervalRef.current))
+        },
+      },
+      localization: {
+        locale: 'ko-KR',
+        timeFormatter: (time: UTCTimestamp | { year: number; month: number; day: number }) => {
+          return formatKstTime(time, isIntradayInterval(intervalRef.current))
+        },
+        dateFormat: 'yyyy-MM-dd',
       },
     })
     chartRef.current = chart
@@ -123,6 +245,66 @@ export function LightweightChart({ candles, realtimeCandle, onScrollLeft }: Ligh
       }
     })
 
+    // crosshair 이동 → hover 툴팁 업데이트
+    chart.subscribeCrosshairMove((param: MouseEventParams) => {
+      if (
+        !param.time ||
+        !param.point ||
+        param.point.x < 0 ||
+        param.point.y < 0
+      ) {
+        hideTooltip()
+        return
+      }
+
+      const cs = candleSeriesRef.current
+      if (!cs) {
+        hideTooltip()
+        return
+      }
+
+      const candle = param.seriesData.get(cs) as CandlestickData | undefined
+      if (!candle) {
+        hideTooltip()
+        return
+      }
+
+      const ts =
+        typeof param.time === 'number'
+          ? (param.time as UTCTimestamp)
+          : (Math.floor(
+              Date.UTC(
+                (param.time as { year: number; month: number; day: number }).year,
+                (param.time as { year: number; month: number; day: number }).month - 1,
+                (param.time as { year: number; month: number; day: number }).day,
+              ) / 1000,
+            ) as UTCTimestamp)
+
+      const volume = volumeMapRef.current.get(ts) ?? 0
+      const changeRate = candle.open !== 0
+        ? (((candle.close - candle.open) / candle.open) * 100).toFixed(2)
+        : '0.00'
+
+      const containerRect = container.getBoundingClientRect()
+      // param.point는 차트 내부 좌표 — 컨테이너 기준 위치 사용
+      const chartEl = container.querySelector('canvas')
+      const offsetLeft = chartEl ? chartEl.getBoundingClientRect().left - containerRect.left : 0
+      const offsetTop = chartEl ? chartEl.getBoundingClientRect().top - containerRect.top : 0
+
+      setTooltip({
+        visible: true,
+        x: param.point.x + offsetLeft,
+        y: param.point.y + offsetTop,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+        volume,
+        changeRate,
+        timeLabel: formatKstTime(param.time as UTCTimestamp, isIntradayInterval(intervalRef.current)),
+      })
+    })
+
     // 반응형 리사이즈
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -138,7 +320,18 @@ export function LightweightChart({ candles, realtimeCandle, onScrollLeft }: Ligh
       candleSeriesRef.current = null
       volumeSeriesRef.current = null
     }
-  }, [])
+  }, [hideTooltip])
+
+  // interval 변경 시 timeScale 옵션 재적용 (tickMarkFormatter 갱신)
+  useEffect(() => {
+    if (!chartRef.current) return
+    chartRef.current.applyOptions({
+      timeScale: {
+        timeVisible: isIntradayInterval(interval),
+        secondsVisible: false,
+      },
+    })
+  }, [interval])
 
   // 캔들 데이터 업데이트 (interval 변경 또는 초기 로드)
   useEffect(() => {
@@ -149,12 +342,24 @@ export function LightweightChart({ candles, realtimeCandle, onScrollLeft }: Ligh
     if (candles.length === 0) {
       candleSeries.setData([])
       volumeSeries.setData([])
+      volumeMapRef.current = new Map()
       return
     }
 
     // backend가 ASC 정렬 보장 (spec §3-6 §10-6 정합)
-    candleSeries.setData(candles.map(toCandlestickData))
-    volumeSeries.setData(candles.map(toHistogramData))
+    const candleData = candles.map(toCandlestickData)
+    const volumeData = candles.map(toHistogramData)
+
+    // volume lookup 맵 갱신
+    const vMap = new Map<number, number>()
+    candles.forEach((c) => {
+      const ts = toUTCTimestamp(c.ts)
+      vMap.set(ts, c.volume)
+    })
+    volumeMapRef.current = vMap
+
+    candleSeries.setData(candleData)
+    volumeSeries.setData(volumeData)
     chartRef.current?.timeScale().fitContent()
   }, [candles])
 
@@ -166,19 +371,57 @@ export function LightweightChart({ candles, realtimeCandle, onScrollLeft }: Ligh
     if (!candleSeries || !volumeSeries) return
 
     try {
-      candleSeries.update(toCandlestickData(realtimeCandle))
-      volumeSeries.update(toHistogramData(realtimeCandle))
+      const cd = toCandlestickData(realtimeCandle)
+      const vd = toHistogramData(realtimeCandle)
+      candleSeries.update(cd)
+      volumeSeries.update(vd)
+      // volume 맵도 갱신
+      volumeMapRef.current.set(cd.time as number, realtimeCandle.volume)
     } catch {
       // LWC update 오류 (잘못된 시간 순서 등) — graceful 무시
     }
   }, [realtimeCandle])
 
+  const changeRateNum = parseFloat(tooltip.changeRate)
+  const changeRateColor =
+    changeRateNum > 0 ? 'text-red-400' : changeRateNum < 0 ? 'text-blue-400' : 'text-gray-300'
+
   return (
-    <div
-      ref={containerRef}
-      className="w-full h-96"
-      aria-label="종목 차트"
-      role="img"
-    />
+    <div className="relative w-full h-96" aria-label="종목 차트" role="img">
+      <div ref={containerRef} className="w-full h-full" />
+
+      {/* hover 툴팁 — 결함 6 */}
+      {tooltip.visible && (
+        <div
+          className="pointer-events-none absolute z-10 rounded-lg border border-gray-700 bg-gray-900/95 p-2 text-xs shadow-xl"
+          style={{
+            left: Math.min(tooltip.x + 12, (containerRef.current?.clientWidth ?? 300) - 160),
+            top: Math.max(tooltip.y - 80, 4),
+            minWidth: '148px',
+          }}
+          role="tooltip"
+          aria-label="캔들 상세 정보"
+        >
+          <div className="mb-1 text-gray-400 text-[10px]">{tooltip.timeLabel}</div>
+          <dl className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+            <dt className="text-gray-500">시가</dt>
+            <dd className="text-right tabular-nums text-gray-200">{fmtPrice(tooltip.open)}</dd>
+            <dt className="text-gray-500">고가</dt>
+            <dd className="text-right tabular-nums text-red-300">{fmtPrice(tooltip.high)}</dd>
+            <dt className="text-gray-500">저가</dt>
+            <dd className="text-right tabular-nums text-blue-300">{fmtPrice(tooltip.low)}</dd>
+            <dt className="text-gray-500">종가</dt>
+            <dd className="text-right tabular-nums text-gray-200">{fmtPrice(tooltip.close)}</dd>
+            <dt className="text-gray-500">거래량</dt>
+            <dd className="text-right tabular-nums text-gray-300">{fmtVolume(tooltip.volume)}</dd>
+            <dt className="text-gray-500">등락률</dt>
+            <dd className={`text-right tabular-nums font-semibold ${changeRateColor}`}>
+              {changeRateNum >= 0 ? '+' : ''}
+              {tooltip.changeRate}%
+            </dd>
+          </dl>
+        </div>
+      )}
+    </div>
   )
 }

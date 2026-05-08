@@ -107,6 +107,7 @@ export function SymbolChart({ code, realtimeCandle }: SymbolChartProps) {
       ) : (
         <LightweightChart
           candles={allCandles}
+          interval={interval}
           realtimeCandle={realtimeCandleDto}
           onScrollLeft={handleScrollLeft}
         />
