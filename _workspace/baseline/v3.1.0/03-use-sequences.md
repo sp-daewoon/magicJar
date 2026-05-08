@@ -33,8 +33,8 @@
 ```mermaid
 sequenceDiagram
     actor User as 사용자
-    participant FE as Frontend (React)
-    participant API as api (Spring Boot)
+    participant FE as Frontend
+    participant API as api
     participant KIS as KIS OpenAPI
     participant PG as PostgreSQL
 
@@ -78,42 +78,42 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     actor User as 사용자
-    participant FE as Frontend (React)
-    participant API as api (Spring Boot)
+    participant FE as Frontend
+    participant API as api
     participant Redis as Redis
     participant PG as PostgreSQL
     participant Kafka as Kafka
-    participant Consumer as consumer (KIS WS Worker)
+    participant Consumer as consumer
 
     User->>FE: WatchlistPage → 종목 검색창 클릭
-    User->>FE: "삼성" 입력 (IME composition 처리)
+    User->>FE: 삼성 입력 (IME composition 처리)
     FE->>API: GET /api/instruments?query=삼성
     Note over API: InstrumentSearchService.search()<br/>api/src/.../service/InstrumentSearchService.kt
 
     API->>Redis: ZRANGEBYLEX instrument:search:* [삼\xff (prefix bucket)
     alt Redis hit (자동완성 인덱스 존재)
-        Redis-->>API: [{code:"005930", name:"삼성전자"}, ...]
+        Redis-->>API: [{code:005930, name:삼성전자}, ...]
     else Redis miss
         API->>PG: JPQL searchByNameOrCode — pg_trgm + name_norm LIKE
         PG-->>API: [{code, name, market, type}, ...]
         API->>Redis: ZADD instrument:search:삼 + 1d TTL (lazy 재구성)
     end
 
-    API-->>FE: [{code:"005930", name:"삼성전자", market:"KOSPI"}, ...]
+    API-->>FE: [{code:005930, name:삼성전자, market:KOSPI}, ...]
     FE->>User: 자동완성 드롭다운 표시
 
-    User->>FE: "삼성전자" 선택 → WatchlistAddForm submit
-    FE->>API: POST /api/watchlists {code:"005930"}
+    User->>FE: 삼성전자 선택 → WatchlistAddForm submit
+    FE->>API: POST /api/watchlists {code:005930}
     API->>PG: watchlist INSERT (user_id, code, priority=100)
     Note over PG: UQ(user_id, code) — 중복 시 409 반환
-    API->>PG: instrument stub row UPSERT (code="005930" 미존재 시)
-    API->>Kafka: watchlist.changed.v1 {action:"ADDED", code:"005930", userId}
-    API-->>FE: 201 Created {code:"005930", name:"삼성전자", ...}
+    API->>PG: instrument stub row UPSERT (code=005930 미존재 시)
+    API->>Kafka: watchlist.changed.v1 {action:ADDED, code:005930, userId}
+    API-->>FE: 201 Created {code:005930, name:삼성전자, ...}
 
     Kafka->>Consumer: WatchlistChangedKafkaListener.onMessage()
     Note over Consumer: consumer/src/.../WatchlistIngestionWorker.kt
-    Consumer->>Consumer: SubscriptionRouter.addSubscription("005930")
-    Consumer->>Consumer: KisWebSocketBridge.subscribe(["005930"])
+    Consumer->>Consumer: SubscriptionRouter.addSubscription(005930)
+    Consumer->>Consumer: KisWebSocketBridge.subscribe([005930])
     Note over Consumer: H0STCNT0 체결가 구독 (ADR 0048 §2-1 slot 예산)
 ```
 
@@ -142,14 +142,14 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     actor User as 사용자
-    participant FE as Frontend (React)
-    participant API as api (Spring Boot)
+    participant FE as Frontend
+    participant API as api
     participant Consumer as consumer
     participant KIS as KIS OpenAPI
     participant Redis as Redis
-    participant STOMP as STOMP /topic/
+    participant STOMP as STOMP _topic_
 
-    User->>FE: WatchlistRow 클릭 → navigate("/symbol/005930")
+    User->>FE: WatchlistRow 클릭 → navigate(/symbol/005930)
     FE->>API: GET /api/symbols/005930/price (1회 초기 로드)
     Note over API: SymbolController.getSymbol()<br/>api/src/.../controller/SymbolController.kt
 
@@ -162,7 +162,7 @@ sequenceDiagram
         KIS-->>API: {output:{stck_prpr, acml_vol, per, pbr, ...}}
         API->>Redis: SET quote:last:005930 TTL 7d
     end
-    API-->>FE: {code:"005930", price, volume, per, pbr, ...}
+    API-->>FE: {code:005930, price, volume, per, pbr, ...}
 
     FE->>API: GET /api/symbols/005930/candles?interval=1d&count=60
     Note over API: CandleQueryService.getCandles()
@@ -191,9 +191,9 @@ sequenceDiagram
         Note over Consumer: KisWebSocketBridge.kt:415
         Consumer->>KIS: GET /uapi/domestic-stock/v1/quotations/inquire-price (FHKST01010100)
         KIS-->>Consumer: {output.stck_prpr}
-        Consumer->>Redis: SET quote:last:005930 {source:"polling", stale:false}
+        Consumer->>Redis: SET quote:last:005930 {source:polling, stale:false}
         Consumer->>STOMP: market.tick.v1 relay
-        FE->>FE: stale 배지 표시 (소스="polling")
+        FE->>FE: stale 배지 표시 (소스=polling)
     end
 
     rect rgb(255, 220, 220)
@@ -203,8 +203,8 @@ sequenceDiagram
         Note over API: market_calendar 테이블 조회 + 시간 기반 FSM<br/>api/src/.../adapter/KrxMarketSessionResolver.kt
         API->>API: session = HOLIDAY → previousBusinessDay() 계산
         API->>Redis: GET quote:last:005930 (마지막 거래일 종가)
-        API-->>FE: {price, stale:true, sessionStatus:"HOLIDAY"}
-        FE->>FE: "휴장일 - 마지막 거래가" 표시
+        API-->>FE: {price, stale:true, sessionStatus:HOLIDAY}
+        FE->>FE: 휴장일 - 마지막 거래가 표시
     end
 ```
 
@@ -244,15 +244,15 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Cron as Cron 18:30 KST
-    participant SyncJob as CorpActionSyncJob (batch)
-    participant KsdInfo as KisKsdInfoAdapter (batch)
+    participant Cron as Cron 18_30 KST
+    participant SyncJob as CorpActionSyncJob
+    participant KsdInfo as KisKsdInfoAdapter
     participant KIS as KIS OpenAPI
     participant DART as DART OPENDART
-    participant DartAdap as DartDisclosureAdapter (batch)
-    participant PG as PostgreSQL (corp_action)
+    participant DartAdap as DartDisclosureAdapter
+    participant PG as PostgreSQL
     participant Kafka as Kafka
-    participant AdjJob as CandleAdjustmentJob (consumer)
+    participant AdjJob as CandleAdjustmentJob
     participant Redis as Redis
 
     Cron->>SyncJob: run() — @Scheduled cron=0 30 9 * * * (UTC = KST 18:30)
@@ -261,17 +261,17 @@ sequenceDiagram
     SyncJob->>KsdInfo: fetchPaidinCapin(null, today-30d, today)
     KsdInfo->>KIS: GET /uapi/domestic-stock/v1/ksdinfo/paidin-capin?cts=&gb1=0&f_dt=...&t_dt=...
     Note over KIS: TR_ID: HHKDB669100C0<br/>Header: authorization Bearer, appkey, appsecret<br/>응답 output: sht_cd, paidin_capin_dt, new_stck_cnt
-    KIS-->>KsdInfo: {rt_cd:"0", output:[...], ctx_area_nk:""}
+    KIS-->>KsdInfo: {rt_cd:0, output:[...], ctx_area_nk:}
 
     SyncJob->>KsdInfo: fetchBonusIssue(null, today-30d, today)
     KsdInfo->>KIS: GET /uapi/domestic-stock/v1/ksdinfo/bonus-issue
     Note over KIS: TR_ID: HHKDB669101C0<br/>응답 output: sht_cd, grts_stck_dt, grts_rt
-    KIS-->>KsdInfo: {rt_cd:"0", output:[...]}
+    KIS-->>KsdInfo: {rt_cd:0, output:[...]}
 
     SyncJob->>KsdInfo: fetchDividend(null, today-30d, today)
     KsdInfo->>KIS: GET /uapi/domestic-stock/v1/ksdinfo/dividend
     Note over KIS: TR_ID: HHKDB669102C0<br/>응답 output: sht_cd, stck_dvdn_dt, cas_dvdn_amt, stk_dvdn_rt
-    KIS-->>KsdInfo: {rt_cd:"0", output:[...]}
+    KIS-->>KsdInfo: {rt_cd:0, output:[...]}
 
     SyncJob->>KsdInfo: fetchMergerSplit / fetchRevSplit / fetchCapDcrs
     Note over KIS: TR_ID: HHKDB669104C0 / HHKDB669105C0 / HHKDB669106C0
@@ -282,16 +282,16 @@ sequenceDiagram
     SyncJob->>DartAdap: fetchRecent(yesterday, today)
     DartAdap->>DART: GET https://opendart.fss.or.kr/api/list.json?crtfc_key=...&pblntf_ty=B&bgn_de=...
     Note over DART: pblntf_ty=B 주요사항보고서 (합병·증자·분할)<br/>응답: corp_name, stock_code, report_nm, rcept_dt
-    DART-->>DartAdap: {status:"000", list:[...]}
+    DART-->>DartAdap: {status:000, list:[...]}
     DartAdap->>DART: GET list.json?pblntf_ty=D (지분공시 배당)
-    DART-->>DartAdap: {status:"000", list:[...]}
+    DART-->>DartAdap: {status:000, list:[...]}
     SyncJob->>PG: corp_action UPSERT (DART source)
 
     SyncJob->>PG: findPendingApplied() — appliedAt IS NULL
     PG-->>SyncJob: [CorpAction(id=1, code=005930, type=STOCK_SPLIT, ratio=50), ...]
     SyncJob->>Kafka: corp_action.applied.v1 {id, instrumentCode, type, exDate, ratio}
 
-    Kafka->>AdjJob: onCorpAction(payload) — @KafkaListener groupId="candle-adjustment"
+    Kafka->>AdjJob: onCorpAction(payload) — @KafkaListener groupId=candle-adjustment
     Note over AdjJob: CandleAdjustmentJob.kt:62
     AdjJob->>AdjJob: computeFactor(STOCK_SPLIT, ratio=50) → 1/50 = 0.02
     AdjJob->>PG: UPDATE candle SET open_adj=open_raw*0.02, close_adj=close_raw*0.02
@@ -334,34 +334,34 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Cron03 as Cron 03:00 KST (batch)
-    participant CalSync as MarketCalendarSyncJob (batch)
+    participant Cron03 as Cron 03_00 KST
+    participant CalSync as MarketCalendarSyncJob
     participant KIS as KIS OpenAPI
-    participant PG as PostgreSQL (market_calendar)
+    participant PG as PostgreSQL
     participant Redis as Redis
-    participant Cron16 as Cron 16:00 KST (consumer)
-    participant DailyFin as DailyCloseFinalizer (consumer)
+    participant Cron16 as Cron 16_00 KST
+    participant DailyFin as DailyCloseFinalizer
 
     rect rgb(220, 235, 255)
         Note over Cron03,PG: 캘린더 sync (03:00 KST daily)
-        Cron03->>CalSync: syncDaily() — @Scheduled cron="0 0 3 * * *" zone="Asia/Seoul"
+        Cron03->>CalSync: syncDaily() — @Scheduled cron=0 0 3 * * * zone=Asia/Seoul
         Note over CalSync: MarketCalendarSyncJob.kt:46
 
         CalSync->>KIS: GET /uapi/domestic-stock/v1/quotations/chk-holiday?BASS_DT=20260101
         Note over KIS: TR_ID: CTCA0903R<br/>Header: authorization Bearer, appkey, appsecret, custtype=P<br/>응답 output: bass_dt, bzdy_yn, tr_day_yn, opnd_yn, sttl_day_yn<br/>연속조회: CTX_AREA_FK/NK (최대 30 페이지 ≈ 1년치)
-        KIS-->>CalSync: {output:[{bass_dt:"20260101", bzdy_yn:"N"}, ...], tr_cont:"M"}
+        KIS-->>CalSync: {output:[{bass_dt:20260101, bzdy_yn:N}, ...], tr_cont:M}
         CalSync->>KIS: GET chk-holiday?CTX_AREA_FK=... (다음 페이지)
-        KIS-->>CalSync: {output:[...], tr_cont:" "} (마지막 페이지)
+        KIS-->>CalSync: {output:[...], tr_cont: } (마지막 페이지)
 
         CalSync->>PG: market_calendar UPSERT (date, is_business_day, is_holiday)
-        Note over PG: Flyway V6 market_calendar 테이블<br/>source="KIS_CHK_HOLIDAY"
+        Note over PG: Flyway V6 market_calendar 테이블<br/>source=KIS_CHK_HOLIDAY
         PG-->>CalSync: affected rows count
-        CalSync->>CalSync: log.info("market_calendar upsertAll: total=365 affected=...")
+        CalSync->>CalSync: log.info(market_calendar upsertAll: total=365 affected=...)
     end
 
     rect rgb(255, 240, 220)
         Note over Cron16,PG: 일봉 마감 flush (16:00 KST daily)
-        Cron16->>DailyFin: @Scheduled("0 0 7 * * *" UTC = 16:00 KST)
+        Cron16->>DailyFin: @Scheduled(0 0 7 * * * UTC = 16:00 KST)
         DailyFin->>DailyFin: MarketSessionResolver.isBusinessDay(today)
         Note over DailyFin: KrxMarketSessionResolver → market_calendar DB 조회
 
@@ -371,9 +371,9 @@ sequenceDiagram
             DailyFin->>PG: candle INSERT (1d 캔들 영속)
             Note over PG: interval=1d, ts=당일 16:00 KST
             DailyFin->>Redis: DEL candle:today:*:1d (정리)
-            DailyFin->>DailyFin: log.info("DailyCloseFinalizer 완료 — N종목 flush")
+            DailyFin->>DailyFin: log.info(DailyCloseFinalizer 완료 — N종목 flush)
         else 비영업일 (휴장일·주말)
-            DailyFin->>DailyFin: skip + log.info("비영업일 skip")
+            DailyFin->>DailyFin: skip + log.info(비영업일 skip)
         end
     end
 ```
@@ -415,12 +415,12 @@ InstrumentMasterSyncScheduler가 ADR 0039 §2-1에 정의된 13 cron 시각마�
 
 ```mermaid
 sequenceDiagram
-    participant Cron13 as 13 cron 시각 (ADR 0039 §2-1)
-    participant Scheduler as InstrumentMasterSyncScheduler (batch)
-    participant SyncJob as InstrumentSyncJob (batch)
-    participant KisAdap as KisInstrumentMasterAdapter (batch)
+    participant Cron13 as 13 cron 시각
+    participant Scheduler as InstrumentMasterSyncScheduler
+    participant SyncJob as InstrumentSyncJob
+    participant KisAdap as KisInstrumentMasterAdapter
     participant DWS as KIS DWS 파일 서버
-    participant PG as PostgreSQL (instrument)
+    participant PG as PostgreSQL
     participant Redis as Redis
     participant Kafka as Kafka
 
@@ -429,7 +429,7 @@ sequenceDiagram
     Scheduler->>Scheduler: isBusinessDay(today) — 영업일 게이트
 
     alt 영업일
-        Scheduler->>SyncJob: run("06:05")
+        Scheduler->>SyncJob: run(06:05)
         SyncJob->>Redis: SETNX instrument:sync:running TTL 600s (동시 실행 락)
         SyncJob->>KisAdap: fetchAllRaw()
 
@@ -437,8 +437,8 @@ sequenceDiagram
         DWS-->>KisAdap: zip bytes (timeout 30s, backoff 3회)
         KisAdap->>KisAdap: ZipInputStream → BufferedReader EUC-KR
         Note over KisAdap: parseLineRaw() — byte 단위 고정폭 파싱<br/>Part1: code(9) + ISIN(12) + 한글명(가변)<br/>Part2: KOSPI_PART2_WIDTHS[70] sum=227byte
-        KisAdap->>KisAdap: sanitizeRoe() — sentinel "-36100000" → null (WARN)
-        Note over KisAdap: KisInstrumentMasterAdapter.kt:722<br/>securities_group="ST" 필터 (보통주+우선주만)
+        KisAdap->>KisAdap: sanitizeRoe() — sentinel -36100000 → null (WARN)
+        Note over KisAdap: KisInstrumentMasterAdapter.kt:722<br/>securities_group=ST 필터 (보통주+우선주만)
         KisAdap->>KisAdap: mapType(scrt_grp_cls_code) — scrt_grp_cls_code 권위 매핑
         Note over KisAdap: ST→STOCK/PREFERRED, EF/FE→ETF, RT→REIT, EW/SW→WARRANT...
 
@@ -452,13 +452,13 @@ sequenceDiagram
         SyncJob->>PG: upsertFull() — INSERT NEW (70+ 필드 전체)
         SyncJob->>PG: upsertFull() — UPDATE CHANGED (name·market·tradingHalt·managementStock 변동 시)
         SyncJob->>PG: markDelisted() — active=false + delisted_at (DELETE 금지 ADR 0017 §2-2)
-        SyncJob->>PG: instrument_alias UPSERT (code, alias=name, source="KRX")
+        SyncJob->>PG: instrument_alias UPSERT (code, alias=name, source=KRX)
         SyncJob->>Kafka: instrument.updated.v1 {syncedAt, changes:[{code,action,market,name}]}
         SyncJob->>Redis: DEL instrument:list:* + instrument:search:* + instrument:by-code:{code}
         SyncJob->>Redis: SET instrument:sync:lastAt
         SyncJob->>Redis: DEL instrument:sync:running (락 해제)
     else 비영업일
-        Scheduler->>Scheduler: skip + log.info("휴장일 skip")
+        Scheduler->>Scheduler: skip + log.info(휴장일 skip)
     end
 ```
 
