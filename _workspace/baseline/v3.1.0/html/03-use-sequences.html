@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>03-use-sequences — magicJar v3.1.0 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">📁 인덱스</a><a href="01-architecture.html">01 Architecture</a><a href="02-data-flow.html">02 Data Flow</a><a href="03-use-sequences.html" class="active">03 Use Sequences</a><a href="04-feature-spec.html">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html">06 History</a><a href="07-policy-evolution.html">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.1.0 Baseline · 2026-05-08 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># 03 — 사용자 유즈 시퀀스 (v3.1.0 시점)
+
+> **작성 시점**: 2026-05-08 v3.1.0 태그 (main `c2853e4`, release/v3.1)
+> **작성자**: market-data sub-agent
+> **KIS-first raw 출처 의무**: 모든 KIS 호출에 open-trading-api 레포 path 인용 (헌법 §3)
+> **코드 inspection 기반**: 추측·관념 서술 0건 — 실제 구현 코드 path 명시
+
+---
+
+## 목차
+
+- [§1 시나리오 0 — 첫 부팅 셋업 (T-ONBOARD)](#1-시나리오-0--첫-부팅-셋업-t-onboard)
+- [§2 시나리오 1 — Watchlist 등록 (T-W1)](#2-시나리오-1--watchlist-등록-t-w1)
+- [§3 시나리오 2 — Symbol Detail 진입 + 시세 fallback (T-S1·T-MS1)](#3-시나리오-2--symbol-detail-진입--시세-fallback-t-s1t-ms1)
+- [§4 시나리오 3 — Corporate Action 적용 (T-CA1)](#4-시나리오-3--corporate-action-적용-t-ca1)
+- [§5 시나리오 4 — 일봉 마감 + 캘린더 sync (T-MS1)](#5-시나리오-4--일봉-마감--캘린더-sync-t-ms1)
+- [§6 시나리오 5 — Instrument Master sync (T-IM1)](#6-시나리오-5--instrument-master-sync-t-im1)
+- [§7 부록 — KIS API 사용 인벤토리 (v3.1.0 시점)](#7-부록--kis-api-사용-인벤토리-v310-시점)
+- [§8 cross-reference](#8-cross-reference)
+
+---
+
+## §1 시나리오 0 — 첫 부팅 셋업 (T-ONBOARD)
+
+### 개요
+
+사용자가 magicJar 처음 진입 시 ⚙️ SetupWizard를 통해 KIS 앱키/시크릿을 입력하고, AES-256-GCM으로 암호화해 DB에 저장한다. 이후 토큰 발급 검증까지 완료되면 온보딩이 완료된다.
+
+> raw 출처: `https://github.com/koreainvestment/open-trading-api/blob/main/oauth2/oauth2.py` — `/oauth2/tokenP` 토큰 발급 엔드포인트 정합
+>
+> 구현 위치: `consumer/src/main/kotlin/kr/spdaewoon/magicjar/consumer/infrastructure/kis/KisAuthAdapter.kt:129` — `issueToken()` KIS `/oauth2/tokenP` POST
+
+```mermaid
+sequenceDiagram
+    actor User as 사용자
+    participant FE as Frontend (React)
+    participant API as api (Spring Boot)
+    participant KIS as KIS OpenAPI
+    participant PG as PostgreSQL
+
+    User->>FE: /setup 진입 → SetupWizard 렌더
+    Note over FE: OnboardingGuardFilter 401 응답 시 자동 redirect
+    User->>FE: KIS 앱키 / 시크릿 입력 (KisRealStep)
+    FE->>API: POST /api/onboarding/kis/validate {appKey, appSecret, accountType}
+    API->>API: AesGcmCipher.encrypt(appKey) + AesGcmCipher.encrypt(appSecret)
+    Note over API: api/src/.../adapter/kis/KisAuthValidator.kt
+
+    API->>KIS: POST /oauth2/tokenP {grant_type, appkey, appsecret}
+    Note over KIS: TR: 없음 (OAuth2 토큰 발급)<br/>실전: https://openapi.koreainvestment.com:9443<br/>모의: https://openapivts.koreainvestment.com:29443
+    KIS-->>API: {access_token, token_type, expires_in}
+
+    API->>PG: user_kis_credential UPSERT (app_key_enc, secret_key_enc, account_type)
+    Note over PG: Flyway V2 테이블 — masked_account GENERATED
+
+    API-->>FE: 200 OK {validated: true}
+    User->>FE: SystemConfigStep 완료 → /api/onboarding/complete
+    FE->>API: POST /api/onboarding/complete
+    API->>PG: system_config.onboarding_completed = true
+    API-->>FE: 200 OK
+    FE->>User: /watchlist 리다이렉트 (ADR 0040 §2-2 — 셋업 완료 진입점)
+```
+
+**에러 핸들링**:
+- KIS 401 / 403 응답 → 즉시 실패, 재시도 금지 (잘못된 앱키 신호)
+- 메모리 zero-fill: `issueToken()` 완료 후 `appKey.fill(0)` + `secretKey.fill(0)` (`KisAuthAdapter.kt:154`)
+
+---
+
+## §2 시나리오 1 — Watchlist 등록 (T-W1)
+
+### 개요
+
+사용자가 InstrumentSearchInput에서 한글로 종목명을 검색한 후, 관심종목에 등록한다. 등록 즉시 Kafka 이벤트가 발행되어 T-W2 Ingestion Worker가 해당 종목의 실시간 구독을 시작한다.
+
+> 구현 위치: `api/src/main/kotlin/kr/spdaewoon/magicjar/api/controller/WatchlistController.kt:81` — `POST /api/watchlists`
+> 구현 위치: `api/src/main/kotlin/kr/spdaewoon/magicjar/api/service/WatchlistService.kt` — Kafka `watchlist.changed.v1` publish
+
+```mermaid
+sequenceDiagram
+    actor User as 사용자
+    participant FE as Frontend (React)
+    participant API as api (Spring Boot)
+    participant Redis as Redis
+    participant PG as PostgreSQL
+    participant Kafka as Kafka
+    participant Consumer as consumer (KIS WS Worker)
+
+    User->>FE: WatchlistPage → 종목 검색창 클릭
+    User->>FE: "삼성" 입력 (IME composition 처리)
+    FE->>API: GET /api/instruments?query=삼성
+    Note over API: InstrumentSearchService.search()<br/>api/src/.../service/InstrumentSearchService.kt
+
+    API->>Redis: ZRANGEBYLEX instrument:search:* [삼\xff (prefix bucket)
+    alt Redis hit (자동완성 인덱스 존재)
+        Redis-->>API: [{code:"005930", name:"삼성전자"}, ...]
+    else Redis miss
+        API->>PG: JPQL searchByNameOrCode — pg_trgm + name_norm LIKE
+        PG-->>API: [{code, name, market, type}, ...]
+        API->>Redis: ZADD instrument:search:삼 + 1d TTL (lazy 재구성)
+    end
+
+    API-->>FE: [{code:"005930", name:"삼성전자", market:"KOSPI"}, ...]
+    FE->>User: 자동완성 드롭다운 표시
+
+    User->>FE: "삼성전자" 선택 → WatchlistAddForm submit
+    FE->>API: POST /api/watchlists {code:"005930"}
+    API->>PG: watchlist INSERT (user_id, code, priority=100)
+    Note over PG: UQ(user_id, code) — 중복 시 409 반환
+    API->>PG: instrument stub row UPSERT (code="005930" 미존재 시)
+    API->>Kafka: watchlist.changed.v1 {action:"ADDED", code:"005930", userId}
+    API-->>FE: 201 Created {code:"005930", name:"삼성전자", ...}
+
+    Kafka->>Consumer: WatchlistChangedKafkaListener.onMessage()
+    Note over Consumer: consumer/src/.../WatchlistIngestionWorker.kt
+    Consumer->>Consumer: SubscriptionRouter.addSubscription("005930")
+    Consumer->>Consumer: KisWebSocketBridge.subscribe(["005930"])
+    Note over Consumer: H0STCNT0 체결가 구독 (ADR 0048 §2-1 slot 예산)
+```
+
+**에러 핸들링**:
+- 409 WATCHLIST_DUPLICATE → FE 사용자 친화 메시지 표시
+- Kafka publish 실패 시 WARN 로그 + watchlist row는 이미 INSERT 완료 (비치명)
+
+---
+
+## §3 시나리오 2 — Symbol Detail 진입 + 시세 fallback (T-S1·T-MS1)
+
+### 개요
+
+사용자가 관심종목 row를 클릭하면 SymbolDetailPage로 진입한다. 장중 정상 시 KIS WS H0STCNT0 체결가 스트림이 Redis → STOMP를 통해 실시간 전달된다. WS 끊김 시 5초 polling fallback, 비영업일 시 마지막 거래일 종가 표시로 3단계 fallback이 동작한다.
+
+> raw 출처 (FHKST01010100): `https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_price/inquire_price.py`
+>
+> raw 출처 (FHKST01010200): `https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_asking_price/inquire_asking_price.py`
+>
+> raw 출처 (CTCA0903R): `https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/chk_holiday/chk_holiday.py`
+>
+> 구현 위치: `consumer/src/main/kotlin/kr/spdaewoon/magicjar/consumer/ws/KisWebSocketBridge.kt:246` — `handleTickData()` H0STCNT0 파이프 파싱
+>
+> 구현 위치: `consumer/src/main/kotlin/kr/spdaewoon/magicjar/consumer/infrastructure/kis/KisRestPriceAdapter.kt:61` — `fetchPrice()` FHKST01010100 polling
+
+```mermaid
+sequenceDiagram
+    actor User as 사용자
+    participant FE as Frontend (React)
+    participant API as api (Spring Boot)
+    participant Consumer as consumer
+    participant KIS as KIS OpenAPI
+    participant Redis as Redis
+    participant STOMP as STOMP /topic/
+
+    User->>FE: WatchlistRow 클릭 → navigate("/symbol/005930")
+    FE->>API: GET /api/symbols/005930/price (1회 초기 로드)
+    Note over API: SymbolController.getSymbol()<br/>api/src/.../controller/SymbolController.kt
+
+    API->>Redis: GET quote:last:005930
+    alt Redis hit
+        Redis-->>API: {price, volume, ts, source}
+    else Redis miss
+        API->>KIS: GET /uapi/domestic-stock/v1/quotations/inquire-price?fid_input_iscd=005930
+        Note over KIS: TR_ID: FHKST01010100<br/>Header: authorization Bearer, appkey, appsecret, custtype=P
+        KIS-->>API: {output:{stck_prpr, acml_vol, per, pbr, ...}}
+        API->>Redis: SET quote:last:005930 TTL 7d
+    end
+    API-->>FE: {code:"005930", price, volume, per, pbr, ...}
+
+    FE->>API: GET /api/symbols/005930/candles?interval=1d&count=60
+    Note over API: CandleQueryService.getCandles()
+    API->>Redis: HGETALL candle:today:005930:1d (당일 진행 중 캔들)
+    API-->>FE: [Candle, ...] — LWC 차트 렌더
+
+    FE->>STOMP: SUBSCRIBE /topic/symbol/005930/tick (useStompTopic hook)
+    FE->>API: POST /api/symbols/005930/orderbook/subscribe
+    Note over API: Kafka market.orderbook.subscribe.v1 publish
+
+    rect rgb(200, 255, 200)
+        Note over Consumer,KIS: 장중 정상 경로 (H0STCNT0 WS stream)
+        KIS->>Consumer: H0STCNT0 파이프 메시지 (체결가|거래량|...)
+        Consumer->>Consumer: KisWsMessageParser.parseH0Stcnt0() — 45필드 파싱
+        Consumer->>Redis: SET quote:last:005930 + HMSET candle:today:005930:1d
+        Consumer->>STOMP: Kafka market.tick.v1 → api STOMP relay /topic/symbol/005930/tick
+        STOMP-->>FE: {price, volume, ts}
+        FE->>FE: SymbolPriceCard 실시간 갱신 + LWC 차트 tick 반영
+    end
+
+    rect rgb(255, 240, 200)
+        Note over Consumer,KIS: WS 끊김 fallback (polling 5초)
+        Consumer->>Consumer: heartbeat watchdog 10초 무신호 감지
+        Consumer->>Consumer: scheduleReconnect() — 지수 백오프 0/2/5/10/30s
+        Consumer->>Consumer: 30s 초과 → pollingFallbackActive=true
+        Note over Consumer: KisWebSocketBridge.kt:415
+        Consumer->>KIS: GET /uapi/domestic-stock/v1/quotations/inquire-price (FHKST01010100)
+        KIS-->>Consumer: {output.stck_prpr}
+        Consumer->>Redis: SET quote:last:005930 {source:"polling", stale:false}
+        Consumer->>STOMP: market.tick.v1 relay
+        FE->>FE: stale 배지 표시 (소스="polling")
+    end
+
+    rect rgb(255, 220, 220)
+        Note over API,PG: 비영업일 경로 (MarketSession HOLIDAY)
+        FE->>API: GET /api/symbols/005930/price
+        API->>API: KrxMarketSessionResolver.currentSession()
+        Note over API: market_calendar 테이블 조회 + 시간 기반 FSM<br/>api/src/.../adapter/KrxMarketSessionResolver.kt
+        API->>API: session = HOLIDAY → previousBusinessDay() 계산
+        API->>Redis: GET quote:last:005930 (마지막 거래일 종가)
+        API-->>FE: {price, stale:true, sessionStatus:"HOLIDAY"}
+        FE->>FE: "휴장일 - 마지막 거래가" 표시
+    end
+```
+
+**에러 핸들링**:
+- WS 재연결 3회 이상 실패 → polling fallback 자동 활성화 (`KisWebSocketBridge.kt:415`)
+- KIS REST 인증 실패(401/403) → 즉시 에러 throw, 재시도 금지 (`KisAuthAdapter.kt` 분산락 패턴)
+
+---
+
+## §4 시나리오 3 — Corporate Action 적용 (T-CA1)
+
+### 개요
+
+매일 18:30 KST에 CorpActionSyncJob이 DART OPENDART와 KIS ksdinfo 6 endpoint를 순차 호출하여 기업행위(배당·증자·분할 등)를 수집한다. 수집된 corp_action은 Kafka를 통해 CandleAdjustmentJob에 전달되어 과거 캔들의 수정주가가 소급 보정된다.
+
+> raw 출처 (HHKDB669100C0 paidin-capin): `https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/ksdinfo_paidin_capin/ksdinfo_paidin_capin.py`
+>
+> raw 출처 (HHKDB669101C0 bonus-issue): `https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/ksdinfo_bonus_issue/ksdinfo_bonus_issue.py`
+>
+> raw 출처 (HHKDB669102C0 dividend): `https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/ksdinfo_dividend/ksdinfo_dividend.py`
+>
+> raw 출처 (HHKDB669104C0 merger-split): `https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/ksdinfo_merger_split/ksdinfo_merger_split.py`
+>
+> raw 출처 (HHKDB669105C0 rev-split): `https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/ksdinfo_rev_split/ksdinfo_rev_split.py`
+>
+> raw 출처 (HHKDB669106C0 cap-dcrs): `https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/ksdinfo_cap_dcrs/ksdinfo_cap_dcrs.py`
+>
+> raw 출처 (DART OPENDART list.json): `https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS001&apiId=2019001`
+>
+> 구현 위치: `batch/src/main/kotlin/kr/spdaewoon/magicjar/batch/job/corp_action/CorpActionSyncJob.kt:55` — `run()` cron 18:30 KST
+>
+> 구현 위치: `batch/src/main/kotlin/kr/spdaewoon/magicjar/batch/infrastructure/kis/KisKsdInfoAdapter.kt:70` — 6 endpoint 어댑터
+>
+> 구현 위치: `batch/src/main/kotlin/kr/spdaewoon/magicjar/batch/infrastructure/dart/DartDisclosureAdapter.kt:43` — DART list.json 어댑터
+>
+> 구현 위치: `batch/src/main/kotlin/kr/spdaewoon/magicjar/batch/job/corp_action/CandleAdjustmentJob.kt:49` — Kafka 리스너 + 소급 보정
+
+```mermaid
+sequenceDiagram
+    participant Cron as Cron 18:30 KST
+    participant SyncJob as CorpActionSyncJob (batch)
+    participant KsdInfo as KisKsdInfoAdapter (batch)
+    participant KIS as KIS OpenAPI
+    participant DART as DART OPENDART
+    participant DartAdap as DartDisclosureAdapter (batch)
+    participant PG as PostgreSQL (corp_action)
+    participant Kafka as Kafka
+    participant AdjJob as CandleAdjustmentJob (consumer)
+    participant Redis as Redis
+
+    Cron->>SyncJob: run() — @Scheduled cron=0 30 9 * * * (UTC = KST 18:30)
+    Note over SyncJob: CorpActionSyncJob.kt:54
+
+    SyncJob->>KsdInfo: fetchPaidinCapin(null, today-30d, today)
+    KsdInfo->>KIS: GET /uapi/domestic-stock/v1/ksdinfo/paidin-capin?cts=&gb1=0&f_dt=...&t_dt=...
+    Note over KIS: TR_ID: HHKDB669100C0<br/>Header: authorization Bearer, appkey, appsecret<br/>응답 output: sht_cd, paidin_capin_dt, new_stck_cnt
+    KIS-->>KsdInfo: {rt_cd:"0", output:[...], ctx_area_nk:""}
+
+    SyncJob->>KsdInfo: fetchBonusIssue(null, today-30d, today)
+    KsdInfo->>KIS: GET /uapi/domestic-stock/v1/ksdinfo/bonus-issue
+    Note over KIS: TR_ID: HHKDB669101C0<br/>응답 output: sht_cd, grts_stck_dt, grts_rt
+    KIS-->>KsdInfo: {rt_cd:"0", output:[...]}
+
+    SyncJob->>KsdInfo: fetchDividend(null, today-30d, today)
+    KsdInfo->>KIS: GET /uapi/domestic-stock/v1/ksdinfo/dividend
+    Note over KIS: TR_ID: HHKDB669102C0<br/>응답 output: sht_cd, stck_dvdn_dt, cas_dvdn_amt, stk_dvdn_rt
+    KIS-->>KsdInfo: {rt_cd:"0", output:[...]}
+
+    SyncJob->>KsdInfo: fetchMergerSplit / fetchRevSplit / fetchCapDcrs
+    Note over KIS: TR_ID: HHKDB669104C0 / HHKDB669105C0 / HHKDB669106C0
+
+    SyncJob->>PG: corp_action UPSERT (KIS source 6 endpoint 결과)
+    Note over PG: Flyway V7 corp_action 테이블
+
+    SyncJob->>DartAdap: fetchRecent(yesterday, today)
+    DartAdap->>DART: GET https://opendart.fss.or.kr/api/list.json?crtfc_key=...&pblntf_ty=B&bgn_de=...
+    Note over DART: pblntf_ty=B 주요사항보고서 (합병·증자·분할)<br/>응답: corp_name, stock_code, report_nm, rcept_dt
+    DART-->>DartAdap: {status:"000", list:[...]}
+    DartAdap->>DART: GET list.json?pblntf_ty=D (지분공시 배당)
+    DART-->>DartAdap: {status:"000", list:[...]}
+    SyncJob->>PG: corp_action UPSERT (DART source)
+
+    SyncJob->>PG: findPendingApplied() — appliedAt IS NULL
+    PG-->>SyncJob: [CorpAction(id=1, code=005930, type=STOCK_SPLIT, ratio=50), ...]
+    SyncJob->>Kafka: corp_action.applied.v1 {id, instrumentCode, type, exDate, ratio}
+
+    Kafka->>AdjJob: onCorpAction(payload) — @KafkaListener groupId="candle-adjustment"
+    Note over AdjJob: CandleAdjustmentJob.kt:62
+    AdjJob->>AdjJob: computeFactor(STOCK_SPLIT, ratio=50) → 1/50 = 0.02
+    AdjJob->>PG: UPDATE candle SET open_adj=open_raw*0.02, close_adj=close_raw*0.02
+    Note over PG: Flyway V8 ALTER candle ADD adjustment_factor + volume_adjusted<br/>WHERE code=005930 AND ts < ex_date
+    AdjJob->>Redis: DEL indicator:cache:005930:* (전략 지표 캐시 무효화)
+    AdjJob->>PG: corp_action SET applied_at=now()
+```
+
+**KIS ksdinfo 공통 파라미터** (raw 1:1 정합, `KisKsdInfoAdapter.kt:278`):
+- `cts`: 연속조회 키 (페이징)
+- `gb1`: 시장구분 (`0`=전체)
+- `f_dt` / `t_dt`: 조회 기간 `YYYYMMDD`
+- `sht_cd`: 종목코드 (빈값 = 전체)
+
+**보정 계수 공식** (`CandleAdjustmentJob.kt:142`):
+
+| CorpActionType | factor | 적용 |
+|---|---|---|
+| STOCK_SPLIT | `1 / ratio` | 가격↓, 거래량↑ |
+| REVERSE_SPLIT | `ratio` | 가격↑, 거래량↓ |
+| BONUS_ISSUE | `1 / (1 + ratio)` | 가격 희석 |
+| CASH_DIVIDEND | null | 보정 없음 |
+| MERGER / SPINOFF | null | post-MVP 예정 |
+
+---
+
+## §5 시나리오 4 — 일봉 마감 + 캘린더 sync (T-MS1)
+
+### 개요
+
+매일 16:00 KST DailyCloseFinalizer가 당일 1d 캔들을 Redis에서 PostgreSQL로 flush한다. MarketCalendarSyncJob은 매일 03:00 KST에 KIS chk-holiday(CTCA0903R)를 호출해 market_calendar 테이블을 갱신한다.
+
+> raw 출처 (CTCA0903R): `https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/chk_holiday/chk_holiday.py`
+>
+> 구현 위치: `batch/src/main/kotlin/kr/spdaewoon/magicjar/batch/infrastructure/kis/KisChkHolidayAdapter.kt:66` — `fetchHolidays()` CTCA0903R
+>
+> 구현 위치: `batch/src/main/kotlin/kr/spdaewoon/magicjar/batch/job/marketcalendar/MarketCalendarSyncJob.kt:46` — cron 03:00 KST
+>
+> 구현 위치: `consumer/src/main/kotlin/kr/spdaewoon/magicjar/consumer/` — `DailyCloseFinalizer` @Scheduled 16:00 KST
+
+```mermaid
+sequenceDiagram
+    participant Cron03 as Cron 03:00 KST (batch)
+    participant CalSync as MarketCalendarSyncJob (batch)
+    participant KIS as KIS OpenAPI
+    participant PG as PostgreSQL (market_calendar)
+    participant Redis as Redis
+    participant Cron16 as Cron 16:00 KST (consumer)
+    participant DailyFin as DailyCloseFinalizer (consumer)
+
+    rect rgb(220, 235, 255)
+        Note over Cron03,PG: 캘린더 sync (03:00 KST daily)
+        Cron03->>CalSync: syncDaily() — @Scheduled cron="0 0 3 * * *" zone="Asia/Seoul"
+        Note over CalSync: MarketCalendarSyncJob.kt:46
+
+        CalSync->>KIS: GET /uapi/domestic-stock/v1/quotations/chk-holiday?BASS_DT=20260101
+        Note over KIS: TR_ID: CTCA0903R<br/>Header: authorization Bearer, appkey, appsecret, custtype=P<br/>응답 output: bass_dt, bzdy_yn, tr_day_yn, opnd_yn, sttl_day_yn<br/>연속조회: CTX_AREA_FK/NK (최대 30 페이지 ≈ 1년치)
+        KIS-->>CalSync: {output:[{bass_dt:"20260101", bzdy_yn:"N"}, ...], tr_cont:"M"}
+        CalSync->>KIS: GET chk-holiday?CTX_AREA_FK=... (다음 페이지)
+        KIS-->>CalSync: {output:[...], tr_cont:" "} (마지막 페이지)
+
+        CalSync->>PG: market_calendar UPSERT (date, is_business_day, is_holiday)
+        Note over PG: Flyway V6 market_calendar 테이블<br/>source="KIS_CHK_HOLIDAY"
+        PG-->>CalSync: affected rows count
+        CalSync->>CalSync: log.info("market_calendar upsertAll: total=365 affected=...")
+    end
+
+    rect rgb(255, 240, 220)
+        Note over Cron16,PG: 일봉 마감 flush (16:00 KST daily)
+        Cron16->>DailyFin: @Scheduled("0 0 7 * * *" UTC = 16:00 KST)
+        DailyFin->>DailyFin: MarketSessionResolver.isBusinessDay(today)
+        Note over DailyFin: KrxMarketSessionResolver → market_calendar DB 조회
+
+        alt 영업일
+            DailyFin->>Redis: SCAN candle:today:*:1d (전체 관심종목)
+            Redis-->>DailyFin: {open, high, low, close, volume} per code
+            DailyFin->>PG: candle INSERT (1d 캔들 영속)
+            Note over PG: interval=1d, ts=당일 16:00 KST
+            DailyFin->>Redis: DEL candle:today:*:1d (정리)
+            DailyFin->>DailyFin: log.info("DailyCloseFinalizer 완료 — N종목 flush")
+        else 비영업일 (휴장일·주말)
+            DailyFin->>DailyFin: skip + log.info("비영업일 skip")
+        end
+    end
+```
+
+**KIS chk-holiday 파라미터** (raw 1:1 정합, `KisChkHolidayAdapter.kt:50`):
+- `BASS_DT`: 조회 기준일 `YYYYMMDD`
+- `CTX_AREA_FK` / `CTX_AREA_NK`: 연속조회 컨텍스트
+- 응답 `bzdy_yn`: 영업일여부 Y/N
+
+**호출 정책** (ADR 0013 §3-7):
+- 1일 1회 권장 (KIS 명시: "당사 원장서비스와 연관")
+- 부팅 1회(MarketCalendarSeedRunner) + cron 03:00 1회 = 최대 2회/일
+
+---
+
+## §6 시나리오 5 — Instrument Master sync (T-IM1)
+
+### 개요
+
+InstrumentMasterSyncScheduler가 ADR 0039 §2-1에 정의된 13 cron 시각마다 KIS 종목마스터 zip 파일을 다운로드해 파싱한다. KOSPI 70 widths(227byte) + KOSDAQ 64 widths(221byte) 고정폭 EUC-KR 파일을 파싱 후 instrument 테이블 upsert, Redis 자동완성 인덱스를 갱신한다.
+
+> raw 출처 (KOSPI widths): `https://github.com/koreainvestment/open-trading-api/blob/main/stocks_info/kis_kospi_code_mst.py` L54~L68 — `widths` 70필드
+>
+> raw 출처 (KOSDAQ widths): `https://github.com/koreainvestment/open-trading-api/blob/main/stocks_info/kis_kosdaq_code_mst.py` L54~L67 — `widths` 64필드
+>
+> raw 출처 (KOSPI 헤더): `https://github.com/koreainvestment/open-trading-api/blob/main/stocks_info/종목마스터정보(코스피).h` L9~L98
+>
+> raw 출처 (KOSDAQ 헤더): `https://github.com/koreainvestment/open-trading-api/blob/main/stocks_info/종목마스터정보(코스닥).h` L9~L88
+>
+> 다운로드 URL (kis_kospi_code_mst.py L17 직접 인용): `https://new.real.download.dws.co.kr/common/master/kospi_code.mst.zip`
+>
+> 다운로드 URL (kis_kosdaq_code_mst.py L17 직접 인용): `https://new.real.download.dws.co.kr/common/master/kosdaq_code.mst.zip`
+>
+> 구현 위치: `batch/src/main/kotlin/kr/spdaewoon/magicjar/batch/infrastructure/kis/KisInstrumentMasterAdapter.kt:391` — `parseLineRaw()` 고정폭 파싱
+>
+> 구현 위치: `batch/src/main/kotlin/kr/spdaewoon/magicjar/batch/job/instrument/InstrumentSyncJob.kt:66` — `run()` diff + upsert
+>
+> 구현 위치: `batch/src/main/kotlin/kr/spdaewoon/magicjar/batch/scheduler/InstrumentMasterSyncScheduler.kt:49` — 13 cron 시각
+
+```mermaid
+sequenceDiagram
+    participant Cron13 as 13 cron 시각 (ADR 0039 §2-1)
+    participant Scheduler as InstrumentMasterSyncScheduler (batch)
+    participant SyncJob as InstrumentSyncJob (batch)
+    participant KisAdap as KisInstrumentMasterAdapter (batch)
+    participant DWS as KIS DWS 파일 서버
+    participant PG as PostgreSQL (instrument)
+    participant Redis as Redis
+    participant Kafka as Kafka
+
+    Cron13->>Scheduler: syncAt0605() / syncAt0700() / ... (MON-FRI)
+    Note over Scheduler: InstrumentMasterSyncScheduler.kt:49<br/>cron 06:05·07:00·07:40·08:00·08:50·09:51·11:00<br/>17:15·17:35·18:00·18:15·18:35·19:00 (KST)
+    Scheduler->>Scheduler: isBusinessDay(today) — 영업일 게이트
+
+    alt 영업일
+        Scheduler->>SyncJob: run("06:05")
+        SyncJob->>Redis: SETNX instrument:sync:running TTL 600s (동시 실행 락)
+        SyncJob->>KisAdap: fetchAllRaw()
+
+        KisAdap->>DWS: GET https://new.real.download.dws.co.kr/common/master/kospi_code.mst.zip
+        DWS-->>KisAdap: zip bytes (timeout 30s, backoff 3회)
+        KisAdap->>KisAdap: ZipInputStream → BufferedReader EUC-KR
+        Note over KisAdap: parseLineRaw() — byte 단위 고정폭 파싱<br/>Part1: code(9) + ISIN(12) + 한글명(가변)<br/>Part2: KOSPI_PART2_WIDTHS[70] sum=227byte
+        KisAdap->>KisAdap: sanitizeRoe() — sentinel "-36100000" → null (WARN)
+        Note over KisAdap: KisInstrumentMasterAdapter.kt:722<br/>securities_group="ST" 필터 (보통주+우선주만)
+        KisAdap->>KisAdap: mapType(scrt_grp_cls_code) — scrt_grp_cls_code 권위 매핑
+        Note over KisAdap: ST→STOCK/PREFERRED, EF/FE→ETF, RT→REIT, EW/SW→WARRANT...
+
+        KisAdap->>DWS: GET kosdaq_code.mst.zip
+        DWS-->>KisAdap: zip bytes
+        Note over KisAdap: KOSDAQ_PART2_WIDTHS[64] sum=221byte<br/>KOSPI와 차이: vntr_issu(+) invt_alrm(+) ksq150_nmix(+)
+
+        KisAdap-->>SyncJob: List<KisInstrumentRaw> (KOSPI + KOSDAQ ~3577건)
+        SyncJob->>PG: findAllByActiveTrue() — 기존 DB 목록
+        SyncJob->>SyncJob: diff (newCodes·delistedCodes·existingCodes)
+        SyncJob->>PG: upsertFull() — INSERT NEW (70+ 필드 전체)
+        SyncJob->>PG: upsertFull() — UPDATE CHANGED (name·market·tradingHalt·managementStock 변동 시)
+        SyncJob->>PG: markDelisted() — active=false + delisted_at (DELETE 금지 ADR 0017 §2-2)
+        SyncJob->>PG: instrument_alias UPSERT (code, alias=name, source="KRX")
+        SyncJob->>Kafka: instrument.updated.v1 {syncedAt, changes:[{code,action,market,name}]}
+        SyncJob->>Redis: DEL instrument:list:* + instrument:search:* + instrument:by-code:{code}
+        SyncJob->>Redis: SET instrument:sync:lastAt
+        SyncJob->>Redis: DEL instrument:sync:running (락 해제)
+    else 비영업일
+        Scheduler->>Scheduler: skip + log.info("휴장일 skip")
+    end
+```
+
+**파싱 전략** (`KisInstrumentMasterAdapter.kt:382`):
+1. line → EUC-KR byte 배열 (한글 2byte/char 정합)
+2. Part1: byte[0~8]=단축코드, byte[9~20]=ISIN, byte[21~(size-part2Len-1)]=한글명 가변
+3. Part2: KOSPI/KOSDAQ widths 배열로 substring
+4. ROE sentinel(-36100000) → null (NUMERIC overflow 방지)
+5. scrt_grp_cls_code 권위 타입 매핑 (detectType 자체 추론 폐기)
+
+---
+
+## §7 부록 — KIS API 사용 인벤토리 (v3.1.0 시점)
+
+### KIS REST API
+
+| KIS endpoint | tr_id | 구현 위치 (코드 path) | 호출 빈도 | 비고 |
+|---|---|---|---|---|
+| `/uapi/domestic-stock/v1/quotations/inquire-price` | `FHKST01010100` | `consumer/src/.../KisRestPriceAdapter.kt:61` | polling 5초 (WS 끊김 시) | T-S1 시세 fallback |
+| `/uapi/domestic-stock/v1/quotations/inquire-price` | `FHKST01010100` | `consumer/src/.../KisRestPriceAdapter.kt:138` | on-demand | PER·PBR·EPS·BPS 지표 조회 |
+| `/uapi/domestic-stock/v1/quotations/chk-holiday` | `CTCA0903R` | `batch/src/.../KisChkHolidayAdapter.kt:66` | cron 03:00 + 부팅 1회 | T-MS1 market_calendar |
+| `/uapi/domestic-stock/v1/ksdinfo/paidin-capin` | `HHKDB669100C0` | `batch/src/.../KisKsdInfoAdapter.kt:189` | cron 18:30 | T-CA1 유상증자 |
+| `/uapi/domestic-stock/v1/ksdinfo/bonus-issue` | `HHKDB669101C0` | `batch/src/.../KisKsdInfoAdapter.kt:166` | cron 18:30 | T-CA1 무상증자 |
+| `/uapi/domestic-stock/v1/ksdinfo/dividend` | `HHKDB669102C0` | `batch/src/.../KisKsdInfoAdapter.kt:97` | cron 18:30 | T-CA1 배당 |
+| `/uapi/domestic-stock/v1/ksdinfo/merger-split` | `HHKDB669104C0` | `batch/src/.../KisKsdInfoAdapter.kt:143` | cron 18:30 | T-CA1 합병/분할 |
+| `/uapi/domestic-stock/v1/ksdinfo/rev-split` | `HHKDB669105C0` | `batch/src/.../KisKsdInfoAdapter.kt:120` | cron 18:30 | T-CA1 액면분할/병합 |
+| `/uapi/domestic-stock/v1/ksdinfo/cap-dcrs` | `HHKDB669106C0` | `batch/src/.../KisKsdInfoAdapter.kt:212` | cron 18:30 | T-CA1 자본감소 |
+| `/oauth2/tokenP` | — | `consumer/src/.../KisAuthAdapter.kt:129` | 최초 발급 + 23h 만료 시 | OAuth2 토큰 발급 |
+| `/oauth2/Approval` | — | `consumer/src/.../KisApprovalAdapter.kt` | WS 연결 시 1회 | WS approval_key |
+
+### KIS WebSocket (ADR 0048 §2-1 — 41 slot 예산)
+
+| TR_ID | 구독 slot 수 | 구현 위치 | 상태 |
+|---|---|---|---|
+| `H0STCNT0` | 최대 30 slot | `consumer/src/.../KisWebSocketBridge.kt:103` | 구현 완료 |
+| `H0STASP0` | 최대 10 slot (LRU) | `consumer/src/.../KisWebSocketBridge.kt:137` | 구현 완료 |
+| `H0STCNI0` | 1 slot (reserve) | `consumer/src/.../KisWebSocketBridge.kt:249` | handler 미구현 (T-O 예정) |
+
+### KIS 종목마스터 파일 서버 (인증 없음)
+
+| URL | 파일 | 구현 위치 |
+|---|---|---|
+| `https://new.real.download.dws.co.kr/common/master/kospi_code.mst.zip` | KOSPI 고정폭 EUC-KR | `batch/src/.../KisInstrumentMasterAdapter.kt:48` |
+| `https://new.real.download.dws.co.kr/common/master/kosdaq_code.mst.zip` | KOSDAQ 고정폭 EUC-KR | `batch/src/.../KisInstrumentMasterAdapter.kt:51` |
+
+### DART OPENDART
+
+| endpoint | 파라미터 | 구현 위치 | 비고 |
+|---|---|---|---|
+| `https://opendart.fss.or.kr/api/list.json` | `crtfc_key, pblntf_ty=B/D, bgn_de, end_de` | `batch/src/.../DartDisclosureAdapter.kt:55` | T-CA1 공시 목록 (list만, 본문 미fetch ADR 0018 §4-7) |
+
+### Yahoo Finance (cold-start)
+
+| 용도 | 구현 위치 | 비고 |
+|---|---|---|
+| 캔들 cold-start (1wk·1mo·3mo·6mo·1y·2y·5y) | `consumer/src/.../YahooCandleFetcherAdapter.kt` | `.KS`(KOSPI) / `.KQ`(KOSDAQ) suffix + HTTP 429 재시도 |
+
+---
+
+## §8 cross-reference
+
+| 문서 | 관련 내용 |
+|---|---|
+| `_workspace/baseline/v3.1.0/02-data-flow.md` | 모듈별 데이터 흐름 + Kafka 토픽 매트릭스 상세 |
+| `_workspace/baseline/v3.1.0/04-feature-spec.md` | W1 7 트랙 기능 명세 + API 시그니처 |
+| `_workspace/baseline/v3.1.0/05-ui-inventory.md` | 화면·컴포넌트·버튼 인벤토리 |
+| `docs/architecture/external-api-policy.md` | KIS 호출 빈도 한도·토큰 정책·레이트리밋 |
+| `docs/architecture/candle-data-policy-v2.md` | 캔들 저장 정책 + 수정주가 보정 정책 |
+| `_workspace/arch/adr/0048-kis-ws-41-subscription-limit.md` | WS 41 slot 예산·우선순위 정책 |
+| `_workspace/arch/adr/0013-market-session-resolver.md` | MarketSession FSM + chk-holiday CTCA0903R |
+| `_workspace/arch/adr/0018-corp-action-adjusted-price.md` | Corporate Action 도메인·보정 공식·DART 정책 |
+| `_workspace/arch/adr/0017-instrument-master.md` | 종목마스터 KIS-first 파싱 정책·ADR 0039 cron |
+| `_workspace/specs/pr-21-kis-header-raw-verification.md` | KOSPI 70 / KOSDAQ 64 widths raw 검증 보고서 |
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>
