@@ -4,6 +4,7 @@ import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
+import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDate
 
 /**
@@ -15,7 +16,12 @@ interface BatchMarketCalendarJpaRepository : JpaRepository<BatchMarketCalendarJp
     /**
      * upsert — date PK 충돌 시 갱신.
      * ADR 0051: body 있는 fun은 @Query native 쿼리로 격리.
+     *
+     * 함정 (v3.1.0 hotfix 사례): ApplicationRunner 등 트랜잭션 컨텍스트
+     * 부재 환경에서 호출 시 "Executing an update/delete query" 예외.
+     * @Transactional 의무 — Modifying 쿼리는 트랜잭션 안에서 실행.
      */
+    @Transactional
     @Modifying
     @Query(
         nativeQuery = true,

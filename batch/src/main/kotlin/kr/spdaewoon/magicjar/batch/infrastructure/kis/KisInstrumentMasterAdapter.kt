@@ -724,7 +724,7 @@ class KisInstrumentMasterAdapter(
     ): BigDecimal? {
         val parsed = raw.toBigDecimalOrNull() ?: return null
         if (parsed.abs() >= ROE_DB_LIMIT) {
-            log.warn(
+            log.debug(
                 "[instrument-master] ROE sentinel/overflow → null code={} raw='{}' parsed={}",
                 code,
                 raw,
