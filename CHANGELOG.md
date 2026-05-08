@@ -4,7 +4,7 @@
 |------|----------|------|------|
 | 2026-05-08 | **chore(meta): PR-30 v3.1.0 baseline 폴더 신설 + sub-agent 슬롯 4 anchor 발행** — `_workspace/baseline/v3.1.0/` 폴더 신설(README skeleton + 7 파일 인덱스). CHANGELOG sub-agent 슬롯 4 anchor 발행(architect/backend-core/market-data/frontend). 4 sub-agent 병렬 디스패치 add-only 단독 파일 LOCK(architect=01·06·07·README, backend-core=02·04, market-data=03, frontend=05). W2 진입 직전 종합 기능 정의서 — 시각화 + 추적성 + 정책 진화 어필 5축 + KIS-first raw 출처 의무. (orchestrator) | meta/baseline | PR-30 baseline 폴더 + 슬롯 발행 |
 <!-- pr-30-slot-orchestrator -->
-| 2026-05-?? | **TBD — PR-30 architect: 01-architecture + 06-history-traceability + 07-policy-evolution + README 본격 작성** | baseline/v3.1.0 | PR-30 architect 4 파일 |
+| 2026-05-08 | **docs(baseline): PR-30 architect — v3.1.0 baseline 4 파일 (01-architecture + 06-history + 07-policy + README)** — `_workspace/baseline/v3.1.0/01-architecture.md` (Mermaid 4건: 시스템 전경·ERD·frontend 라우트·deployment 토폴로지 + 모듈 책임 매트릭스 + 외부 통합 매트릭스 KIS REST 8 endpoint·KIS WS 2 stream·DART 2 endpoint·Yahoo 1 endpoint + Flyway V1~V8 시계열). `06-history-traceability.md` (W1 7 트랙 PR 매핑 + PR 시계열 #179~#235 + ADR 시계열 0001~0051 — v3.1.0 사이클 신규 4건 명시 0048·0049·0050·0051 + hotfix 패턴 3 카테고리 + backlog § 처리 매트릭스). `07-policy-evolution.md` (운영 헌법 7 § + 정책 진화 13건 — 신설 6 + 강화 3 + 폐기+신설 2 + 갱신 2 + 다음 Wave 정책 후보). `README.md` 본격 작성 (한 장 요약 + 인덱스 + 역할별 진입 경로 4건 + v3.1.0 핵심 통계). raw 출처 인용 30+ 건. (작성: architect) | baseline/v3.1.0 | PR-30 architect 4 파일 |
 <!-- pr-30-slot-architect -->
 | 2026-05-?? | **TBD — PR-30 backend-core: 02-data-flow + 04-feature-spec 작성** | baseline/v3.1.0 | PR-30 backend-core 2 파일 |
 <!-- pr-30-slot-backend-core -->

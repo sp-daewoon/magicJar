@@ -1,0 +1,442 @@
+# 01 — magicJar v3.1.0 아키텍처 (시각화)
+
+> **작성자**: architect (PR-30)
+> **시점**: 2026-05-08 v3.1.0 태그 컷 직후
+> **권위**: `docs/architecture/master-architecture.md` v2 §5·§6 + ADR 0002·0004·0005·0006·0007·0008·0009 정합 + v3.1.0 시점 코드 inspection 결과
+
+본 문서는 v3.1.0 시점 magicJar 시스템의 **시각화 가능 수준 그림**이다. SoT는 `docs/architecture/master-architecture.md`이며, 본 문서는 그 하위 구체화다 — v3.1.0 시점 실체(현재 발행된 컨테이너·테이블·KIS endpoint·Kafka topic)만 인용한다. 미발행 트랙(W2~W5)은 명시적으로 제외.
+
+---
+
+## §1. 시스템 전경
+
+```mermaid
+graph TD
+    subgraph EXTERNAL["외부 통합 (옵션 + fallback)"]
+        KISREST["KIS REST<br/>openapi.koreainvestment.com:9443<br/>openapivts...:29443"]
+        KISWS["KIS WebSocket<br/>wss://ops.koreainvestment.com:21000<br/>:31000(VPS)"]
+        KISMASTER["KIS 종목마스터 ZIP<br/>new.real.download.dws.co.kr<br/>(공개 — 인증 불필요)"]
+        DART["DART OPENDART<br/>opendart.fss.or.kr"]
+        YAHOO["Yahoo Finance<br/>query1.finance.yahoo.com<br/>(.KS/.KQ fallback)"]
+    end
+
+    subgraph FRONTEND["frontend (React 19 + Vite + LWC v4)"]
+        FE_SETUP["/setup<br/>SetupWizard 7-step"]
+        FE_WL["/watchlist<br/>WatchlistPage"]
+        FE_SYM["/symbol/:code<br/>SymbolDetailPage"]
+        FE_DASH["/<br/>DashboardPlaceholder"]
+    end
+
+    subgraph API["api (Spring Boot 3.3 / 8080)"]
+        API_REST["REST controllers<br/>onboarding · watchlist · symbol<br/>instrument · candle"]
+        API_STOMP["STOMP /ws<br/>tick · candle · orderbook"]
+        API_GUARD["OnboardingGuardFilter<br/>(401 ONBOARDING_REQUIRED)"]
+        API_AUTH["KisAuthValidator<br/>AesGcmCipher AES-256-GCM"]
+        API_FLY["Flyway V1~V8 적용기<br/>(다른 모듈은 enabled=false)"]
+    end
+
+    subgraph BATCH["batch (Spring Batch / 8081)"]
+        B_INSTR["InstrumentSyncJob<br/>(13 cron + boot sync)"]
+        B_KIS_MASTER["KisInstrumentMasterAdapter<br/>EUC-KR fixed-width<br/>KOSPI 70 / KOSDAQ 64 widths"]
+        B_CHK["KisChkHolidayAdapter<br/>tr_id=CTCA0903R"]
+        B_KSD["KisKsdInfoAdapter<br/>HHKDB669100C0~106C0 (6)"]
+        B_DART["DartDisclosureAdapter<br/>DartCorpCodeRepository"]
+        B_CALSEED["MarketCalendarSeedRunner<br/>2026~2027 31건 정적 시드"]
+        B_CASYNC["CorpActionSyncJob<br/>cron 18:30"]
+        B_CADJ["CandleAdjustmentJob<br/>(corp_action.applied.v1 listener)"]
+    end
+
+    subgraph CONSUMER["consumer (Kafka + KIS WS / 8082)"]
+        C_WL_LISTEN["WatchlistChangedKafkaListener"]
+        C_INGEST["WatchlistIngestionWorker<br/>+ SubscriptionRouter (slot 1+30+10)"]
+        C_POLL["WatchlistPollingWorker (5s)"]
+        C_COLD["ColdStartExecutor<br/>(Yahoo 7 interval × 1회)"]
+        C_KIS_WS["KisWebSocketBridge<br/>H0STCNT0 체결가 + H0STASP0 호가"]
+        C_KIS_REST["KisRestPriceAdapter<br/>FHKST01010100 (polling fallback)"]
+        C_TICK_AGG["TickToMinuteAggregator<br/>(@Scheduled 매 분 0초)"]
+        C_DCF["DailyCloseFinalizer<br/>(@Scheduled 16:00 KST)"]
+        C_BOOTSTRAP["PositionBootstrapRunner<br/>ApplicationRunner ADR 0042"]
+    end
+
+    subgraph DOMAIN["domain (Pure Kotlin — Spring·JPA 0)"]
+        D_PORTS["ports<br/>(InstrumentRepository · KisRestPort · KisWsPort ·<br/>MarketSessionResolver · CorpActionRepository · ...)"]
+    end
+
+    subgraph INFRA["인프라 3 + 디버깅 2"]
+        PG[("PostgreSQL 16<br/>Flyway V1~V8")]
+        REDIS[("Redis 7<br/>quote·session·instrument·position·kis token")]
+        KAFKA[("Kafka 3.7 KRaft<br/>retention 1h / 200MB / segment 10MB")]
+        DOZZLE["Dozzle 8888<br/>(로그 web UI)"]
+        KAFKAUI["Kafka UI 8090"]
+    end
+
+    %% Frontend → API
+    FE_SETUP -.HTTP+STOMP.-> API_REST
+    FE_WL -.HTTP+STOMP.-> API_REST
+    FE_SYM -.HTTP+STOMP.-> API_STOMP
+    FE_DASH -.HTTP.-> API_REST
+
+    %% API → External (직접)
+    API_AUTH -.OAuth2 검증.-> KISREST
+
+    %% Batch → External
+    B_KIS_MASTER -.GET zip.-> KISMASTER
+    B_CHK -.tr_id=CTCA0903R.-> KISREST
+    B_KSD -.6 endpoint.-> KISREST
+    B_DART -.list.json + corpCode.xml.-> DART
+
+    %% Consumer → External
+    C_KIS_WS -.WebSocket H0STCNT0/ASP0.-> KISWS
+    C_KIS_REST -.tr_id=FHKST01010100.-> KISREST
+    C_COLD -.Yahoo v8/chart.-> YAHOO
+
+    %% API ↔ infra
+    API_REST --> PG
+    API_REST --> REDIS
+    API_REST -.producer.-> KAFKA
+    API_FLY --> PG
+
+    %% Batch ↔ infra
+    B_INSTR --> PG
+    B_INSTR -.producer.-> KAFKA
+    B_CASYNC --> PG
+    B_CASYNC -.producer.-> KAFKA
+    B_CALSEED --> PG
+    B_CADJ -.consumer.-> KAFKA
+
+    %% Consumer ↔ infra
+    C_WL_LISTEN -.consumer.-> KAFKA
+    C_INGEST --> REDIS
+    C_KIS_WS -.producer.-> KAFKA
+    C_TICK_AGG --> PG
+    C_DCF --> PG
+    C_BOOTSTRAP --> REDIS
+    C_BOOTSTRAP --> PG
+
+    %% Domain (헥사고날 — 모든 모듈이 import)
+    API_REST -.implements port.-> D_PORTS
+    B_INSTR -.implements port.-> D_PORTS
+    C_KIS_WS -.implements port.-> D_PORTS
+```
+
+**범례**:
+- 실선 화살표 — DB·Redis·Kafka inbound/outbound
+- 점선 화살표 — 외부 HTTP/WS 호출
+- `domain`은 모든 JVM 모듈의 의존이지만 시각화 단순화를 위해 별도 박스 + port implements 점선만 표시
+
+**원칙**: 외부 5개(KIS REST·KIS WS·KIS 종목마스터 ZIP·DART·Yahoo) 중 어느 하나가 끊겨도 본체는 동작 — 영속 candle·Redis 캐시·정적 시드·last-day-close fallback (`master-architecture.md` §3-2).
+
+---
+
+## §2. 모듈 책임 매트릭스 (v3.1.0 실체)
+
+`master-architecture.md` §5-2 + `settings.gradle.kts:14~19` 기준 4 JVM 모듈 + frontend 1 SPA. v3.1.0 시점 실제 구현된 컴포넌트만 표기.
+
+| 영역 | api | batch | consumer | frontend |
+|------|-----|-------|----------|----------|
+| Onboarding (T-ONBOARD) | OnboardingController 5 endpoint · AesGcmCipher · KisAuthValidator · OnboardingGuardFilter (401 인터셉터) | — | — | SetupWizard 7-step (KisRealStep · KisValidatingStep · KisMockStep · SystemConfigStep · CompleteStep) + Zustand store + axios 401 interceptor |
+| Watchlist (T-W1) | WatchlistController 3 endpoint (`/api/watchlists` GET·POST·DELETE) · WatchlistService · `watchlist.changed.v1` producer | — | PositionBootstrapRunner (ApplicationRunner) · KisAuthAdapter · KisBalanceAdapter · RedisPositionCacheAdapter | WatchlistPage · WatchlistAddForm (자동완성 + IME + delisted 배지) · WatchlistRow (4 필드 표시) |
+| Ingestion (T-W2) | candle persistence (CandleJpaEntity · Repository · Adapter) | — | WatchlistChangedKafkaListener · SubscriptionRouter (slot 1+30+10·priority eviction) · WatchlistIngestionWorker · WatchlistPollingWorker (5s) · ColdStartExecutor (Yahoo 7 interval) · YahooCandleFetcherAdapter (.KS/.KQ fallback) · KisRestCandleAdapter (FHKST03010100) · RedisQuoteCacheAdapter · RedisSourceTrackerAdapter · KisWebSocketBridge (H0STCNT0) · TickToMinuteAggregator (@Scheduled 매 분 0초) | — |
+| Symbol Detail (T-S1) | SymbolController (GET symbol·candles·POST orderbook subscribe/unsubscribe) · SymbolMetaService · CandleQueryService · KisRestPriceMetricsAdapter · WebSocketConfig (STOMP) · 3 forwarder (market.tick · candle.minute · orderbook) | — | KisWsOrderbookParser (H0STASP0) · OrderbookSubscriptionRouter (LRU 10·debounce 200ms·idle 5분) · SymbolDetailCommandKafkaListener | SymbolDetailPage (9 컴포넌트) · SymbolHeader · SymbolPriceCard · SymbolMetaCard · SymbolChart · LightweightChart · SymbolOrderbook · SymbolError(variant=delisted) · IntervalToggle · STOMP useStompTopic 커스텀훅 |
+| Market Session (T-MS1) | KrxMarketSessionResolver (Redis TTL 60초 + market_calendar DB + 시간 FSM) · MarketCalendarJpaEntity·Repository·Adapter | KisChkHolidayAdapter (CTCA0903R) · MarketCalendarSyncJob (cron 03:00 daily) · MarketCalendarSeedRunner (@Order 2 — row=0 시 자동 시드, 2026~2027 31건 정적) | DailyCloseFinalizer (@Scheduled 16:00 KST — 1d candle Redis→DB flush) · TickFallbackEmitter (10s T2 폴백 stub) · SimpleMarketSessionResolver | (T-S1 SymbolError variant=closed로 표시 가능) |
+| Corp Action (T-CA1) | CorpActionRepositoryAdapter (port) | KisKsdInfoAdapter (HHKDB669100C0~106C0 — 6 endpoint) · DartDisclosureAdapter (`opendart.fss.or.kr/api/list.json` pblntf_ty=B+D) · DartCorpCodeRepository (CORPCODE.xml in-memory) · CorpActionSyncJob (cron 18:30) · CandleAdjustmentJob (corp_action.applied.v1 listener — 소급 adjustment_factor 보정) | CandleAdjustmentJob 동반 (consumer 측 listener — KafkaTopicConfig corp_action.applied.v1) | (차트 표시는 W2 후속) |
+| Instrument Master (T-IM1) | InstrumentController 4 endpoint (search·by-code·universe·POST sync trigger) · InstrumentSearchService (Redis 1순위 + DB pg_trgm fallback + 한글 normalize) · InstrumentSearchIndexAdapter (Redis sorted set + 2자 prefix bucket + 1일 TTL + lazy 재구성) · InstrumentJpaEntity 83 필드 · InstrumentRepository port + Adapter · WatchlistEntryDto 6 필드 graceful join · SymbolDto 6 필드 add | KisInstrumentMasterAdapter (EUC-KR byte-단위 substring · KOSPI 70 widths sum=227byte · KOSDAQ 64 widths sum=221byte · scrt_grp_cls_code 권위 매핑) · InstrumentSyncJob (diff INSERT/UPDATE/DELIST + Kafka instrument.updated.v1 publish + Redis invalidate + 동시 실행 락) · InstrumentMasterSyncScheduler (13 cron @Scheduled KST + 영업일 게이트 + sync-at-boot 옵션) · 정적 시드 KOSPI 200/KOSDAQ 100/ETF 20 JSON · InstrumentSeedRunner (@PostConstruct row=0 자동 INSERT) | InstrumentUpdatedKafkaPublisher (Kafka topic 등록) · 캐시 invalidate listener | InstrumentSearchInput (자동완성 + IME composition + 키보드 네비) · useInstrumentSearch hook · axios `/api/instrument/*` |
+| Domain (모든 모듈 import) | (Spring·JPA·Kafka 의존 0 — 순수 도메인 + port 인터페이스만) | | | |
+
+**v3.1.0 시점 미발행 영역** (master §2 19컴포넌트 중 W2~W5 — 본 baseline에는 포함 안 함):
+- Indicator Library 80지표 (T-IND·W2)
+- Candlestick Pattern 57개 (T-PAT·W2)
+- Strategy DSL + Builder UI (T-DSL·T-SB·W2)
+- Backtest·Screener·Signal·Risk·Order·Reconcile·Notify·Performance (W3)
+- AI Console·MCP Server (W4)
+- LWC 확장·Learn (W5)
+
+`docs/architecture/master-architecture.md` §2 + `tracks-roadmap.md` §1·§2 정합.
+
+---
+
+## §3. 외부 통합 매트릭스 (raw 출처 의무 — 헌법 §3 KIS-first)
+
+`master-architecture.md` §4 + 코드 inspection 결과. 모든 endpoint·tr_id는 코드 inline 주석에 raw 출처 명시 의무.
+
+### 3-1. KIS REST API (공식 https://github.com/koreainvestment/open-trading-api)
+
+| 호출 위치 | endpoint | tr_id | 인증 | 용도 | raw 출처 |
+|-----------|----------|-------|------|------|----------|
+| `api/.../KisAuthValidator.kt:31~33` | `/oauth2/tokenP` | — | appkey + appsecret | KIS 키 검증 (셋업 마법사) | https://apiportal.koreainvestment.com/apiservice |
+| `consumer/.../kis/KisRestPriceAdapter.kt` | `/uapi/domestic-stock/v1/quotations/inquire-price` | `FHKST01010100` | Bearer + appkey/appsecret | 5초 polling fallback (T-W2) | open-trading-api `inquire_price.py` |
+| `consumer/.../kis/KisRestCandleAdapter.kt` | `/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice` | `FHKST03010100` | Bearer + appkey/appsecret | 일/주/월/년봉 cold-start (T-W2) | open-trading-api `inquire_daily_itemchartprice.py` |
+| `api/.../KisRestPriceMetricsAdapter.kt` | `/uapi/domestic-stock/v1/finance/financial-ratio` + `/uapi/domestic-stock/v1/quotations/inquire-volume` | (PR-19에서 헤더 보강) | Bearer + appkey + appsecret | 종목 상세 PER/PBR/거래량 (T-S1) | KIS 공식 API portal |
+| `consumer/.../kis/KisBalanceAdapter.kt` | `/uapi/domestic-stock/v1/trading/inquire-balance` | `TTTC8434R` (실전) / `VTTC8434R` (모의) | Bearer + 계좌 | Position Bootstrap (ADR 0042) | open-trading-api `inquire_balance.py` |
+| `batch/.../kis/KisChkHolidayAdapter.kt` | `/uapi/domestic-stock/v1/quotations/chk-holiday` | `CTCA0903R` | Bearer | 영업일·공휴일 캘린더 동기 (T-MS1) | https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/chk_holiday/chk_holiday.py |
+| `batch/.../kis/KisKsdInfoAdapter.kt` | `/uapi/domestic-stock/v1/ksdinfo/{6 endpoint}` | `HHKDB669100C0` (배당) · `669101C0` (액면분할) · `669102C0` (무상증자) · `669104C0` (감자) · `669105C0` (합병) · `669106C0` (분할) | Bearer | Corporate Action 수집 (T-CA1) | open-trading-api `examples_llm/domestic_stock/ksdinfo_*` 6 디렉토리 |
+| `consumer/.../kis/KisAuthAdapter.kt` (PR-7a) | `/oauth2/Approval` (WS) + `/oauth2/tokenP` (REST) | — | Redis 분산락 23h cache | KIS OAuth 통합 (ADR 0038) | open-trading-api `kis_auth.py` |
+
+### 3-2. KIS WebSocket
+
+| 호출 위치 | URL | tr_id | 용도 |
+|-----------|-----|-------|------|
+| `consumer/.../ws/KisWebSocketBridge.kt:43~45` | `wss://ops.koreainvestment.com:21000` (실전) / `:31000` (VPS) | `H0STCNT0` (체결가) | T-W2 실시간 시세 |
+| 동일 어댑터 | 동일 URL | `H0STASP0` (호가) | T-S1 OrderbookSubscriptionRouter (LRU 10) |
+| 후속 (W3) | 동일 URL | `H0STCNI0` (체결통보) | T-O 주문 체결 — v3.1.0 미발행 |
+
+PIPE(`|`) + 캐럿(`^`) 구분자 + H0STCNT0 45필드 인덱스는 KIS-first raw fetch (open-trading-api `domestic_stock_functions_ws.py`) 정합.
+
+### 3-3. KIS 종목마스터 ZIP (인증 불필요 공개 다운로드)
+
+| 호출 위치 | URL | 용도 |
+|-----------|-----|------|
+| `batch/.../kis/KisInstrumentMasterAdapter.kt` | `https://new.real.download.dws.co.kr/.../{kospi_code|kosdaq_code}.mst.zip` | KOSPI 70 widths (sum=227byte) + KOSDAQ 64 widths (sum=221byte) EUC-KR fixed-width 파싱 |
+
+raw 출처: open-trading-api `stocks_info/kis_kospi_code_mst.py` + `kis_kosdaq_code_mst.py` + `종목마스터정보(코스피).h` + `종목마스터정보(코스닥).h`. PR-21에서 fitness gap 91.7% 해소 (14 → 83 필드 add-only).
+
+### 3-4. DART OPENDART (공시·기업코드)
+
+| 호출 위치 | URL | 용도 |
+|-----------|-----|------|
+| `batch/.../dart/DartCorpCodeRepository.kt` | `https://opendart.fss.or.kr/api/corpCode.xml?crtfc_key={key}` (ZIP) | 기업코드 in-memory (T-CA1) |
+| `batch/.../dart/DartDisclosureAdapter.kt` | `https://opendart.fss.or.kr/api/list.json` | 공시 목록 (pblntf_ty=B 발행공시 + D 지분공시) (T-CA1) |
+
+API 가이드 raw 출처: `https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS001&apiId=2019001`.
+
+### 3-5. Yahoo Finance (Cold-start fallback)
+
+| 호출 위치 | URL | 용도 |
+|-----------|-----|------|
+| `consumer/.../yahoo/YahooCandleFetcherAdapter.kt` | `https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval={...}&range={...}` | T-W2 ColdStartExecutor — 7 interval(2m·5m·15m·30m·90m·1h·1d) × 1회 cold-start. `.KS`(KOSPI) → `.KQ`(KOSDAQ) suffix fallback. HTTP 429 재시도. |
+
+`master-architecture.md` §3-1 [3] + `candle-data-policy-v2.md` §6 정합.
+
+---
+
+## §4. 영속 계층 (Flyway V1~V8 누적)
+
+`api/src/main/resources/db/migration/` 디렉토리. `api` 모듈 단독 적용 (`batch`·`consumer`는 `flyway.enabled=false` — ADR 0006 정합 + backlog §21 검증).
+
+### 4-1. 마이그레이션 시계열
+
+| Flyway | 파일 | 발행 PR | 트랙 | 핵심 변경 |
+|--------|------|---------|------|-----------|
+| V1 | `V1__baseline.sql` | PR-5a (#189) | 부트스트랩 | 11 테이블: `system_config` · `user_account` · `user_kis_credential` · `instrument` · `watchlist` · `candle` · `position` · `orders` · `kill_switch_state` · `notification_outbox` · `audit_trail`. ENUM 폐기 → VARCHAR + CHECK. TIMESTAMPTZ UTC 영속. |
+| V2 | `V2__onboarding_refinements.sql` | PR-6a (#193) | T-ONBOARD | `user_account.masked_account` GENERATED ALWAYS AS · 인덱스 · created_at/updated_at NOT NULL DEFAULT now(). |
+| V3 | `V3__watchlist_position_refinements.sql` | PR-7a (#196) | T-W1 | `instrument` market·type CHECK 완화 (Watchlist stub row 허용 — T-IM1 진입 시 정식 갱신). 인덱스 2건. |
+| V4 | `V4__instrument_master_search.sql` | PR-11a (#206) | T-IM1 | `instrument_alias` 신설 · `instrument.name_norm`·`theme`·`listedAt`·`delistedAt` 컬럼 add · `gin_trgm` 인덱스 · code prefix 인덱스. (pg_trgm extension은 PostgreSQL 16 bundled — superuser 권한 불필요) |
+| V5 | `V5__instrument_kis_first_expansion.sql` | PR-21a (#219) | T-IM1 (사용자 비판 응답) | KIS open-trading-api raw 검증 후 70 컬럼 add-only ALTER + 8 CHECK + 8 INDEX. fitness gap 91.7% 해소 (14 → 83 필드). 검증 보고서: `_workspace/specs/pr-21-kis-header-raw-verification.md`. |
+| V6 | `V6__market_calendar_and_reject_audit.sql` | PR-29a (#230) | T-MS1 | `market_calendar` 테이블 (KIS chk-holiday CTCA0903R 정합) · `order_reject_audit` 테이블 (ADR 0015) · `orders` ALTER (audit FK). |
+| V7 | `V7__corp_action.sql` | PR-29b (#231) | T-CA1 | `corp_action` 테이블 (KIS ksdinfo 6 endpoint + DART OPENDART 결과 영속). ADR 0018 §2-1 정합. |
+| V8 | `V8__candle_adjusted.sql` | PR-29b (#231) | T-CA1 | `candle` 테이블 ALTER — `adjustment_factor`·`volume_adjusted` 컬럼 add. ADR 0018 §2-2 정합 (raw + adjusted 양 컬럼). |
+
+### 4-2. 모듈별 Flyway 운영 (backlog §21 검증 결과)
+
+- `api` 모듈 — `flyway.enabled=true` (단독 책임)
+- `batch` 모듈 — `flyway.enabled=false` (ADR 0006 정합. PR-29 본격 머지 시 spec dispatch가 V7·V8을 batch로 LOCK한 게 명백한 오류였고, market-data sub-agent의 api 모듈 정정이 옳았음 — 정정 불필요로 close)
+- `consumer` 모듈 — `flyway.enabled=false`
+- 부팅 순서 — `docker-compose.yml` `depends_on: api-app: { condition: service_healthy }` (batch·consumer는 api 모듈의 Flyway 적용 완료 후 시작)
+
+**교훈**: 다음 architect spec/plan은 **모듈별 `flyway.enabled` 매트릭스 사전 검증 의무** (CHANGELOG 2026-05-08 PR-29 W1 본격 머지 후 정리 row 인용).
+
+### 4-3. v3.1.0 시점 활성 테이블 (V1~V8 적용 후)
+
+```mermaid
+erDiagram
+    system_config ||--o{ user_account : "single tenant"
+    user_account ||--|| user_kis_credential : "1:1 AES-256-GCM"
+    user_account ||--o{ watchlist : "owns"
+    instrument ||--o{ watchlist : "registered"
+    instrument ||--o{ candle : "has prices"
+    instrument ||--o{ instrument_alias : "alias"
+    instrument ||--o{ corp_action : "ex-dates"
+    user_account ||--o{ position : "holds"
+    user_account ||--o{ orders : "places"
+    orders ||--o{ order_reject_audit : "audit"
+    user_account ||--|| kill_switch_state : "1:1"
+    market_calendar }o--|| instrument : "(no FK — date 단독)"
+
+    instrument {
+        varchar code PK
+        varchar market
+        varchar type
+        varchar name
+        varchar name_norm
+        varchar theme
+        boolean active
+        timestamptz listed_at
+        timestamptz delisted_at
+        numeric_70_fields kis_first
+    }
+    watchlist {
+        bigint id PK
+        bigint user_id FK
+        varchar code FK
+        int priority
+        timestamptz created_at
+    }
+    candle {
+        bigint id PK
+        varchar code FK
+        varchar interval
+        timestamptz at
+        numeric open_raw
+        numeric high_raw
+        numeric low_raw
+        numeric close_raw
+        numeric adjustment_factor
+        numeric volume_adjusted
+    }
+    market_calendar {
+        date date PK
+        boolean is_business_day
+        varchar holiday_name
+        varchar source
+    }
+    corp_action {
+        bigint id PK
+        varchar code FK
+        varchar action_type
+        date ex_date
+        numeric factor
+        varchar source
+    }
+    order_reject_audit {
+        bigint id PK
+        bigint order_id FK
+        varchar reason_code
+        text reason_detail
+        timestamptz at
+    }
+```
+
+> Mermaid ERD는 v3.1.0 활성 테이블 핵심 관계만 표시. 전체 11+α 테이블의 컬럼 풀 명세는 V1~V8 SQL 파일을 SoT로 본다.
+
+---
+
+## §5. Frontend 라우팅 + 데이터 fetch 패턴
+
+`frontend/src/App.tsx:84~100` SoT.
+
+### 5-1. 라우트 트리
+
+```mermaid
+graph LR
+    ROOT[App.tsx] --> GUARD["OnboardingGuard<br/>GET /api/onboarding/status"]
+    GUARD --> SETUP["/setup<br/>SetupWizard 7-step"]
+    GUARD --> LAYOUT[AppLayout + AppHeader]
+    LAYOUT --> DASH["/<br/>DashboardPlaceholder"]
+    LAYOUT --> WL["/watchlist<br/>WatchlistPage"]
+    LAYOUT --> SYM["/symbol/:code<br/>SymbolDetailPage"]
+    LAYOUT --> CATCH["* → Navigate '/'"]
+
+    GUARD -.hasUserAccount=false.-> SETUP
+    GUARD -.hasUserAccount=true && path=/setup.-> DASH
+```
+
+### 5-2. 데이터 fetch 매트릭스
+
+| 화면 | REST | STOMP | hook | 정책 |
+|------|------|-------|------|------|
+| `/setup` | POST `/api/onboarding/{kis/validate,kis/mock,system-config,complete}` | — | onboarding.ts (5 hooks) | 401 ONBOARDING_REQUIRED axios interceptor. ADR 0046 §2-2·§2-5. |
+| `/watchlist` | GET·POST·DELETE `/api/watchlists` + GET `/api/instrument/search` | — | useWatchlist · useAddWatchlist · useRemoveWatchlist · useInstrumentSearch | 옵션 C raw code 저장. delisted=true → 빨간 배지. WatchlistEntryDto 6 필드 graceful join. |
+| `/symbol/:code` | GET `/api/symbol/:code` (5s polling fallback) + GET `/api/symbol/:code/candles` (InfiniteQuery before cursor) + POST `/api/symbol/:code/orderbook/{subscribe\|unsubscribe}` | `/topic/symbol/{code}/tick` · `/candle/1m` · `/orderbook` (3 forwarder) | useSymbol · useSymbolCandles · useStompTopic | 호가 mount POST subscribe + unmount sendBeacon Blob fallback. STOMP 끊김 stale 배지. delisted variant SymbolError. |
+| `/` | GET `/api/onboarding/status` | — | useOnboardingStatus | placeholder — 본격 dashboard는 W3 후 |
+
+### 5-3. STOMP 인프라
+
+`@stomp/stompjs` + `useStompTopic` 커스텀훅 + 싱글톤 재연결. 서버 측 endpoint = `api` 모듈 `WebSocketConfig` `/ws` (PR-10b).
+
+---
+
+## §6. Deployment 토폴로지 (docker-compose 7 컨테이너 + 디버깅 2)
+
+`docker/docker-compose.yml` SoT (총 9 컨테이너 — 인프라 3 + 앱 4 + 디버깅 2).
+
+```mermaid
+graph TB
+    subgraph HOSTPORTS["호스트 포트"]
+        P5432[":5432 postgres"]
+        P9092[":9092 kafka"]
+        P6379[":6379 redis"]
+        P8080[":8080 api"]
+        P8081[":8081 batch"]
+        P8082[":8082 consumer"]
+        P3000[":3000 frontend"]
+        P8888[":8888 dozzle"]
+        P8090[":8090 kafka-ui"]
+    end
+
+    subgraph INFRA3["인프라 3"]
+        PG[postgres:16-alpine<br/>magicjar/magicjar/magicjar<br/>locale=C UTF8 KST]
+        KAFKA[apache/kafka:3.7.0<br/>KRaft 단일노드<br/>retention 1h/200MB]
+        REDIS[redis:7-alpine<br/>KST]
+    end
+
+    subgraph APPS4["앱 4"]
+        API[magicjar-api<br/>SPRING_PROFILES_ACTIVE=dev,real-kis<br/>Flyway 단독 적용]
+        BATCH[magicjar-batch<br/>depends_on api healthy<br/>MAGICJAR_INSTRUMENT_SYNC_AT_BOOT=true]
+        CONSUMER[magicjar-consumer<br/>depends_on api healthy<br/>KIS WS + Kafka listeners]
+        FRONTEND[magicjar-frontend<br/>nginx alpine<br/>/api/ + /ws/ proxy_pass]
+    end
+
+    subgraph DEBUG2["디버깅 2 (운영 진입 시 제외 가능)"]
+        DOZZLE[Dozzle<br/>모든 컨테이너 stdout]
+        KAFKAUI[Kafka UI<br/>토픽·consumer lag]
+    end
+
+    P5432 --> PG
+    P9092 --> KAFKA
+    P6379 --> REDIS
+    P8080 --> API
+    P8081 --> BATCH
+    P8082 --> CONSUMER
+    P3000 --> FRONTEND
+    P8888 --> DOZZLE
+    P8090 --> KAFKAUI
+
+    API --> PG
+    API --> KAFKA
+    API --> REDIS
+    BATCH --> PG
+    BATCH --> KAFKA
+    BATCH --> REDIS
+    CONSUMER --> PG
+    CONSUMER --> KAFKA
+    CONSUMER --> REDIS
+    FRONTEND -.proxy /api/.-> API
+    FRONTEND -.proxy /ws/.-> API
+    DOZZLE -.docker.sock ro.-> API
+    DOZZLE -.docker.sock ro.-> BATCH
+    DOZZLE -.docker.sock ro.-> CONSUMER
+    KAFKAUI --> KAFKA
+```
+
+### 6-1. 부팅 순서 (`depends_on` + healthcheck)
+
+1. infra 3 (postgres·kafka·redis) — service_healthy
+2. api-app — Flyway V1~V8 적용 + healthcheck `/actuator/health` UP
+3. batch-app · consumer-app — api-app service_healthy 후 시작 (V1~V8 스키마 보장)
+4. frontend — api-app service_started 후 (proxy 대상 컨테이너만 보장)
+
+### 6-2. infra-only 모드 (IDE bootRun 개발)
+
+`docker/docker-compose.infra.yml` 별도 — postgres·kafka·redis 3개만 띄우고 호스트 IDE에서 api/batch/consumer를 bootRun. application.yml `${DB_URL:jdbc:postgresql://localhost:5432/magicjar}` placeholder + `.env` localhost 값.
+
+### 6-3. profile 분기
+
+`master-architecture.md` §7-1 매트릭스 정합. v3.1.0 시점 default `SPRING_PROFILES_ACTIVE=dev,real-kis` (ADR 0046 셋업 마법사 + dev 환경 모의 KIS — `mock` profile은 jvm test fixture 전용, 사용자 흐름 사용 금지 — `feedback_no_mock_data.md`).
+
+### 6-4. 실주문 이중 게이트 (W3 진입 시 본격 — 현재 미구현)
+
+`MAGICJAR_MODE=REAL` + `MAGICJAR_ALLOW_REAL=true` 둘 다여야 실주문 (CLAUDE.md "운영 함정 가드"). dev/staging은 항상 MOCK.
+
+---
+
+## §7. 다음 Wave 진입 시 본 문서 갱신
+
+W2 진입(80지표·57패턴·DSL·Strategy Builder) 시 본 §1·§2·§3·§4·§5에 다음 사항 add:
+- §1 — Indicator/Pattern/DSL/SB 박스 추가
+- §2 — strategy/signal/risk 컬럼 channel
+- §4 — V9~ Flyway 추가 (strategy·strategy_dsl_yaml 등)
+- §5 — Strategy Builder UI 라우트 추가
+
+W3 진입 시 backtest·screener·signal·order 흐름 §3-1 본체 자동 매매 흐름 9단계 (master §3-1)가 본격 동작 — Mermaid sequence diagram 신설.
+
+W4 진입 시 §1에 mcp 컨테이너 + AI Console 박스 추가.
