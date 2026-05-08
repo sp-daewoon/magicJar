@@ -84,6 +84,26 @@ const server = setupServer(
     return HttpResponse.json({ subscribed: true, slot: 'live' })
   }),
 
+  // instrument 마스터 (active=true 정상 종목)
+  http.get('/api/instruments/005930', () => {
+    return HttpResponse.json({
+      code: '005930', isin: 'KR7005930003', name: '삼성전자', nameEn: 'Samsung Electronics',
+      market: 'KOSPI', type: 'STOCK', sector: '전기전자', industryMedium: null, theme: null,
+      listedAt: '1975-06-11', delistedAt: null, active: true, aliases: [],
+      tradingHalt: false, managementStock: false, marketCapPrev: '4800000', isKospi200: true,
+    })
+  }),
+
+  // 상장폐지 종목 instrument (active=false)
+  http.get('/api/instruments/004530', () => {
+    return HttpResponse.json({
+      code: '004530', isin: null, name: '한국화장품', nameEn: null,
+      market: 'KOSPI', type: 'STOCK', sector: null, industryMedium: null, theme: null,
+      listedAt: null, delistedAt: '2024-03-15', active: false, aliases: [],
+      tradingHalt: null, managementStock: null, marketCapPrev: null, isKospi200: null,
+    })
+  }),
+
   // 잘못된 코드 → 404
   http.get('/api/symbols/999999', () => {
     return HttpResponse.json(
@@ -96,6 +116,13 @@ const server = setupServer(
     return HttpResponse.json(
       { error: 'DATA_UNAVAILABLE', message: '종목 데이터를 가져올 수 없습니다' },
       { status: 503 },
+    )
+  }),
+
+  http.get('/api/instruments/999999', () => {
+    return HttpResponse.json(
+      { error: 'NOT_FOUND', message: '종목을 찾을 수 없습니다' },
+      { status: 404 },
     )
   }),
 )
@@ -174,5 +201,24 @@ describe('SymbolDetailPage smoke', () => {
 
     // 종목 코드 표시
     expect(screen.getByText('999999')).toBeInTheDocument()
+  })
+
+  it('상장폐지 종목(004530) 진입 시 SymbolError variant=delisted + delistedAt 표시 (PR-29c §6.5 회귀)', async () => {
+    // PR-29c 검증: dogfooding §6.5 delisted 표시 검증 (9dde856 산출물)
+    // instrument.active=false → 가격·차트·호가 차단 + "상장폐지된 종목입니다" 표시
+    renderSymbolDetailPage('004530')
+
+    await waitFor(
+      () => {
+        expect(screen.getByText('상장폐지된 종목입니다')).toBeInTheDocument()
+      },
+      { timeout: 5000 },
+    )
+
+    // 상장폐지일 표시
+    expect(screen.getByText('2024-03-15')).toBeInTheDocument()
+
+    // "관심종목으로" 복귀 버튼 표시
+    expect(screen.getByRole('button', { name: /관심종목으로/ })).toBeInTheDocument()
   })
 })

@@ -8,7 +8,7 @@
 <!-- pr-29-slot-backend-core -->
 | 2026-05-?? | **TBD — PR-29b market-data: T-CA1 (KIS ksdinfo 6 endpoint + DART list + Flyway V7+V8 + CorpActionSyncJob + CandleAdjustmentJob)** | api/batch/domain | PR-29b T-CA1 |
 <!-- pr-29-slot-market-data -->
-| 2026-05-?? | **TBD — PR-29c frontend: T-S1 잔재 검증 (LWC interval 토글 + 호가 STOMP + dogfooding §6.5 한글 검색 회귀 + delisted 표시 검증)** | frontend | PR-29c T-S1 잔재 |
+| 2026-05-08 | **fix(frontend): PR-29c T-S1 잔재 검증 + 결함 정정** — LWC interval 토글(1m/5m/30m/1h/1d) useSymbolCandles queryKey 전파 정합 검증 PASS. 호가 STOMP sendBeacon Blob(application/json) 정정(body 없이 호출 시 서버 reject 방어). dogfooding §6.5 한글 검색 회귀: InstrumentSearchInput IME 조합 처리 + "삼성" 입력 → 자동완성 동작 검증 PASS. delisted 표시 검증(9dde856 정합): active=false → SymbolError variant=delisted + delistedAt 표시 차단 PASS. PR-21b 83 필드 정합: `InstrumentDetailDto` tradingHalt·managementStock·industryMedium·marketCapPrev·isKospi200 필드 추가, `WatchlistEntryDto` 6 필드 add-only, `WatchlistRow` 거래정지·관리종목 배지 추가. `watchlist-flow.test.tsx` 구식 raw placeholder 참조 정정 → InstrumentSearchInput 자동완성 플로우로 전환. `SymbolDetailPage.test.tsx` delisted(004530) 시나리오 추가. pnpm tsc/test(9 PASS)/build 통과. (frontend) | frontend | PR-29c T-S1 잔재 검증 + 결함 정정 |
 <!-- pr-29-slot-frontend -->
 | 2026-05-?? | **TBD — PR-29d backend-core (R3 일괄): SymbolControllerTest OnboardingGuardFilter mock + batch test @Disabled 2건 정정** | api/batch | PR-29d R3 일괄 |
 <!-- pr-29-slot-end -->

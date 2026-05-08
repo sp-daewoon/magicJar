@@ -10,7 +10,7 @@ import apiClient from '../lib/axios'
 // Response / Request 타입 정의 (spec §4-1 LOCK)
 // ──────────────────────────────────────────────
 
-/** GET /api/watchlists 응답 — 배열 요소 */
+/** GET /api/watchlists 응답 — 배열 요소 (PR-21b 6 필드 add-only 정합) */
 export interface WatchlistEntryDto {
   id: number
   userId: string
@@ -26,6 +26,19 @@ export interface WatchlistEntryDto {
    * true 시 "상장폐지" 작은 라벨 표시 + 사용자가 직접 watchlist에서 제거 결정.
    */
   delisted?: boolean
+  // ── PR-21b 추가 필드 (backend WatchlistEntryDto 6 필드 add-only 정합) ──
+  /** 종목 유형 (KIS scrt_grp_cls_code 기반: STOCK·ETF·REIT 등) */
+  type?: string | null
+  /** 시가총액 전일 (억원 단위) */
+  marketCapPrev?: string | null
+  /** 거래정지 여부 */
+  tradingHalt?: boolean | null
+  /** 관리종목 여부 */
+  managementStock?: boolean | null
+  /** 업종 중분류 */
+  industryMedium?: string | null
+  /** KOSPI200 편입 여부 */
+  isKospi200?: boolean | null
 }
 
 /** POST /api/watchlists 요청 */

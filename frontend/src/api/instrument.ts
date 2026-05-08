@@ -28,7 +28,7 @@ export interface InstrumentSearchResponseDto {
   limit: number
 }
 
-/** GET /api/instruments/{code} 응답 */
+/** GET /api/instruments/{code} 응답 (PR-21b 83 필드 정합) */
 export interface InstrumentDetailDto {
   code: string
   isin: string | null
@@ -37,11 +37,23 @@ export interface InstrumentDetailDto {
   market: string
   type: string
   sector: string | null
+  /** 업종 중분류 (KIS industry_medium_class_code 정합) */
+  industryMedium: string | null
   theme: string | null
   listedAt: string | null
   delistedAt: string | null
   active: boolean
   aliases: { alias: string; source: string }[]
+  // ── 매매가드 (PR-21b backend-core — WatchlistEntryDto 정합) ──
+  /** 거래정지 여부 (KIS trst_pbnt_yn = Y) */
+  tradingHalt: boolean | null
+  /** 관리종목 여부 (KIS admn_item_yn = Y) */
+  managementStock: boolean | null
+  // ── 시장 메타 ──
+  /** 시가총액 전일 (억원 단위, KIS stck_bstprc_pcls 정합) */
+  marketCapPrev: string | null
+  /** KOSPI200 편입 여부 */
+  isKospi200: boolean | null
 }
 
 // ──────────────────────────────────────────────
