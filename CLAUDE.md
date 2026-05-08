@@ -107,15 +107,22 @@ docker/      docker compose 통합(인프라 3 + 앱 4 = 7 컨테이너)
 
 ## 단일 진실원 (SoT)
 
+> **★ 모든 자원의 단일 진입점**: [`_workspace/INDEX.md`](_workspace/INDEX.md) — 의도별 진입 경로(현행 규약 / 결정 이력 / 진행 중 / snapshot / task)
+> **★ 현행 권위 정책 (Living Policy)**: [`docs/architecture/policies/`](docs/architecture/policies/README.md) — "지금 무엇이 권위인가"의 단일 위치 (ADR-0053)
+
 | 주제 | 위치 |
 |------|------|
+| **단일 진입점 인덱스** | [`_workspace/INDEX.md`](_workspace/INDEX.md) **★ 첫 번째 lookup** |
+| **현행 권위 정책** | [`docs/architecture/policies/`](docs/architecture/policies/README.md) (KIS credential·로그 레벨·KIS-first·task cycle·mermaid 등) |
 | 마스터 아키텍처 | `docs/architecture/master-architecture.md` (ADR 0030 SoT) |
 | 트랙 로드맵 | `docs/architecture/tracks-roadmap.md` |
 | 개발 룰북 | `docs/architecture/development-rules.md` |
 | 코드 컨벤션 | `docs/architecture/code-convention.md` |
 | 외부 API 정책(KIS 호출 빈도·토큰) | `docs/architecture/external-api-policy.md` |
 | 캔들 데이터 정책 | `docs/architecture/candle-data-policy-v2.md` |
-| ADR 인덱스 | `_workspace/arch/adr/README.md` (1~40, 파일명 = 본문 헤더 번호) |
+| ADR 인덱스 (결정 이력) | `_workspace/arch/adr/README.md` (53건, 파일명 = 본문 헤더 번호) |
+| 진행 중 의제 (backlog) | `_workspace/backlog.md` (처리 완료 §은 minor release마다 `done/v3.X.x.md`로 archive) |
+| baseline 시점 snapshot | `_workspace/baseline/<version>/` (immutable, `/baseline init <ver>` 명령) |
 | 브랜칭·머지·author 정책 | `_workspace/arch/branching-rules.md` |
 | KIS API 레퍼런스 | `docs/operations/kis-api-reference.md` |
 | 초기 셋업 | `docs/operations/initial-setup.md` |
