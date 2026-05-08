@@ -681,3 +681,38 @@ Kotlin interface는 `default` 키워드 없이도 body 가진 fun이 default 동
 - **사용자 책임**: dogfooding 결과 → §6 sub-section 추가 (또는 orchestrator에 통보)
 - **architect 책임**: ADR 발행 시 본 backlog cross-reference 의무 (예: ADR 0050 보강 시 §1 처리 + 항목 close)
 - **항목 close 정책**: 처리 완료 PR 머지 시 backlog에서 제거 OR `### §X. ✅ 처리 완료` 마킹 + 변경 이력 갱신
+
+---
+
+## §22. DART OpenDART CorpCode ZIP — handshake_failure (v3.1.0 dogfooding)
+
+### 사유
+
+batch 부팅 시 `DartCorpCodeRepository.@PostConstruct` 가 `https://opendart.fss.or.kr/api/corpCode.xml` 다운로드 시도. JDK 21 + reactor netty + opendart 서버 TLS cipher suite 호환성 문제로 `Received fatal alert: handshake_failure`.
+
+### 영향
+
+- batch 부팅 자체는 graceful degrade (try-catch — `log.error` + 빈 map 유지)
+- DartCorpCodeRepository 빈 → `CorpActionSyncJob` 의 DART 리스트 fetch 실패 (동일 origin)
+- **사용자 흐름 차단 X** — Watchlist·SymbolDetail·일봉 마감 모두 영향 없음
+- W3 백테스트 진입 시 `corp_action.adjustment_factor` 정확도 critical (특히 액면분할·증자 종목 backtest)
+
+### 분류 결정
+
+**📋 백로그** — W3 진입 직전 본격 fix. v3.1.0 시점에는 KIS ksdinfo만으로 corp_action 부분 보완 가능 (DART는 보조).
+
+### 처리 옵션 (W3 진입 시 검토)
+
+1. **JVM TLS 옵션 추가** — `-Djdk.tls.client.protocols=TLSv1.2` 또는 `-Dhttps.protocols=TLSv1.2`
+2. **reactor netty SslProvider 명시** — `HttpClient.create().secure(spec -> spec.sslContext(SslContextBuilder.forClient()...))`
+3. **WebClient 별도 빈** — DART 전용 WebClient 빈 + custom SSL context
+4. **외부 cert chain 점검** — opendart.fss.or.kr 인증서 체인 verify
+
+### 트리거
+
+W3 T-BT (Backtest Engine) 또는 T-SC (Screener) 진입 시.
+
+### 참조
+
+- PR #231 — T-CA1 본격 구현 (DartCorpCodeRepository 도입)
+- ADR 0018 §4-1 — DART CORPCODE.xml 출처
