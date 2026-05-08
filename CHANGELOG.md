@@ -6,7 +6,7 @@
 <!-- pr-30-slot-orchestrator -->
 | 2026-05-?? | **TBD — PR-30 architect: 01-architecture + 06-history-traceability + 07-policy-evolution + README 본격 작성** | baseline/v3.1.0 | PR-30 architect 4 파일 |
 <!-- pr-30-slot-architect -->
-| 2026-05-?? | **TBD — PR-30 backend-core: 02-data-flow + 04-feature-spec 작성** | baseline/v3.1.0 | PR-30 backend-core 2 파일 |
+| 2026-05-08 | **docs(baseline): PR-30 backend-core — v3.1.0 baseline 02-data-flow + 04-feature-spec 작성** — `02-data-flow.md`: 모듈별 데이터 흐름 8 §(A~D 4영역 개관·api·batch·consumer·domain·Kafka 7토픽·Redis 9키·Flyway V1~V8 누적) + Mermaid 8건(sequenceDiagram 5 + flowchart 3). `04-feature-spec.md`: W1 7트랙 기능 명세 상세(T-ONBOARD·T-W1·T-W2·T-S1·T-MS1·T-CA1·T-IM1) — REST 시그니처·도메인 entity/port·영속 테이블·외부 통합·Kafka 이벤트·frontend 진입점·현재 한계. KIS ksdinfo 6 endpoint(HHKDB669100C0~669106C0)·DART OPENDART·Yahoo Finance·KIS WS H0STCNT0/H0STASP0 raw 출처 인용. 추측 0건 — grep + 코드 직접 inspect. (backend-core) | baseline/v3.1.0 | PR-30 backend-core 2 파일 |
 <!-- pr-30-slot-backend-core -->
 | 2026-05-08 | **docs(baseline): PR-30 market-data — v3.1.0 baseline 03-use-sequences.md (KIS-first raw 출처 인용)** — `_workspace/baseline/v3.1.0/03-use-sequences.md` 신규 작성. 6 시나리오 (T-ONBOARD·T-W1·T-S1·T-CA1·T-MS1·T-IM1) + Mermaid sequenceDiagram 6개. KIS endpoint raw 출처 11건 인용 (FHKST01010100·CTCA0903R·HHKDB669100C0~669106C0·/oauth2/tokenP·종목마스터zip). DART OPENDART list.json + Yahoo cold-start 인벤토리 포함. 코드 path 30+ 건 직접 inspection 인용 (KisKsdInfoAdapter·KisChkHolidayAdapter·KisInstrumentMasterAdapter·KisWebSocketBridge·CandleAdjustmentJob·CorpActionSyncJob 등). 추측 서술 0건 — 구현 코드 1:1 정합. (market-data) | baseline/v3.1.0 | PR-30 market-data 1 파일 |
 <!-- pr-30-slot-market-data -->
