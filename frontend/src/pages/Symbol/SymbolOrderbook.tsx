@@ -7,8 +7,13 @@
  * - STOMP /topic/market.orderbook.{code} 실시간 갱신
  * - 호가 데이터 없음 (장 마감 등) → "호가 데이터 없음" 표시 (graceful)
  * - polling fallback 배지: slot='queued' 시 "폴링 fallback 중" 배지 (spec §10-1 정합)
+ *
+ * 결함 3 수정: orderbook === null 시 장 시간 여부에 따라 메시지 분기.
+ *   - 장외 시간: "장 마감 (호가는 거래시간에만 제공)"
+ *   - 장 중 null: "호가 데이터 대기 중..." (기존 유지)
  */
 import type { OrderbookPayload, OrderbookLevel } from '../../api/symbol'
+import { isKoreanMarketOpen } from '../../lib/marketHours'
 
 interface SymbolOrderbookProps {
   code: string
@@ -78,6 +83,14 @@ export function SymbolOrderbook({
   isStompConnected,
 }: SymbolOrderbookProps) {
   if (!orderbook) {
+    // 결함 3: 장 외 시간이면 "장 마감" 메시지, 장 중이면 기존 대기 메시지
+    const marketOpen = isKoreanMarketOpen()
+    const emptyMessage = !isStompConnected
+      ? '실시간 연결 재시도 중... (STOMP 끊김)'
+      : marketOpen
+        ? '호가 데이터 대기 중...'
+        : '장 마감 (호가는 거래시간에만 제공)'
+
     return (
       <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
         <div className="flex items-center justify-between mb-3">
@@ -87,13 +100,15 @@ export function SymbolOrderbook({
               연결 대기 중
             </span>
           )}
+          {!marketOpen && isStompConnected && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-gray-800/60 px-2 py-0.5 text-xs text-gray-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-gray-500" aria-hidden="true" />
+              장 마감
+            </span>
+          )}
         </div>
         <div className="flex h-40 items-center justify-center">
-          <p className="text-xs text-gray-600">
-            {isStompConnected
-              ? '호가 데이터 대기 중...'
-              : '실시간 연결 재시도 중... (STOMP 끊김)'}
-          </p>
+          <p className="text-xs text-gray-600">{emptyMessage}</p>
         </div>
       </div>
     )

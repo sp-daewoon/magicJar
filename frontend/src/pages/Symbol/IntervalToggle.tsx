@@ -1,7 +1,9 @@
 /**
  * 차트 인터벌 토글 컴포넌트
  *
- * ADR 0019 §2-2 LOCK: 1차 MVP 5종 (1m·5m·30m·1h·1d)
+ * 인터벌 8종: 1m·5m·30m·1h·1d·1wk·1mo·1y
+ * 주의: 1wk·1mo·1y는 backend-core PR(PR-31b)과 동시 활성화.
+ *       backend가 머지되기 전에는 400 응답 → "데이터 로드 실패" 표시 (회귀 허용, orchestrator 시퀀싱).
  * 활성 버튼 강조 + 키보드 접근성
  */
 import type { CandleInterval } from '../../api/symbol'
@@ -16,7 +18,10 @@ const INTERVALS: { value: CandleInterval; label: string }[] = [
   { value: '5m', label: '5분' },
   { value: '30m', label: '30분' },
   { value: '1h', label: '1시간' },
-  { value: '1d', label: '일봉' },
+  { value: '1d', label: '일' },
+  { value: '1wk', label: '주' },
+  { value: '1mo', label: '월' },
+  { value: '1y', label: '년' },
 ]
 
 export function IntervalToggle({ value, onChange }: IntervalToggleProps) {
@@ -24,7 +29,7 @@ export function IntervalToggle({ value, onChange }: IntervalToggleProps) {
     <div
       role="group"
       aria-label="차트 인터벌 선택"
-      className="flex gap-1"
+      className="flex gap-1 flex-wrap"
     >
       {INTERVALS.map((item) => {
         const isActive = item.value === value
