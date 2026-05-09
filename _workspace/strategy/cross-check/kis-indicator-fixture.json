@@ -1,0 +1,139 @@
+{
+  "meta": {
+    "description": "KIS Strategy Builder indicators.py 직접 실행 결과 — NativeIndicatorSource cross-check 기준 fixture",
+    "raw_source": "https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/strategy_builder/core/indicators.py",
+    "source_lines": 1507,
+    "generated_at": "2026-05-09",
+    "generated_by": "market-data agent (PR-33 T-IND KIS-first 정합)",
+    "candle_count": 30,
+    "drift_threshold_percent": 0.001,
+    "note": "strategy-engine NativeIndicatorSource 5종 Kotlin 구현 vs 본 fixture 비교 — drift 0.001% 미만 의무 (PR-34 R3)"
+  },
+  "input_candles": {
+    "symbol": "fixture-standard-30",
+    "note": "현실적 OHLCV 범위 — 삼성전자 스타일 일봉 30개 (실제 ticker 아님)",
+    "close":  [71800,72400,73200,72900,73500,74100,73800,74200,74800,75000,74700,74300,74600,75100,75400,75200,74900,74600,74200,73900,73600,74100,74500,75000,75300,75600,75200,74800,74400,74100],
+    "high":   [72200,73000,73800,73400,74100,74700,74400,74800,75400,75600,75200,74900,75100,75700,76000,75800,75500,75200,74800,74500,74200,74700,75100,75600,75900,76200,75800,75400,75000,74700],
+    "low":    [71200,71800,72600,72300,72900,73500,73200,73600,74200,74400,74100,73700,74000,74500,74800,74600,74300,74000,73600,73300,73000,73500,73900,74400,74700,75000,74600,74200,73800,73500],
+    "open":   [71600,72200,72800,73100,73000,73600,74200,73900,74400,74900,75100,74600,74200,74500,75000,75500,75300,74800,74500,74100,73800,73500,74000,74400,74900,75200,75700,75300,74900,74500],
+    "volume": [8500000,9200000,11000000,7800000,10500000,12300000,9800000,10100000,13500000,11200000,9500000,8900000,10200000,12800000,14500000,11800000,9200000,8600000,9800000,10500000,11200000,9800000,12100000,13500000,14200000,15800000,12300000,10800000,9500000,8800000]
+  },
+  "expected_outputs": {
+    "ma": {
+      "params": {"period": 20},
+      "kis_function": "calc_ma",
+      "kis_line": 15,
+      "output_key": "ma",
+      "first_valid_candle_index": 19,
+      "values": {
+        "19": 74130.0,
+        "20": 74220.0,
+        "21": 74305.0,
+        "22": 74370.0,
+        "23": 74475.0,
+        "24": 74565.0,
+        "25": 74640.0,
+        "26": 74710.0,
+        "27": 74740.0,
+        "28": 74720.0,
+        "29": 74675.0
+      },
+      "algorithm_note": "close rolling(period).mean()"
+    },
+    "ema": {
+      "params": {"period": 20},
+      "kis_function": "calc_ema",
+      "kis_line": 264,
+      "output_key": "ema",
+      "first_valid_candle_index": 19,
+      "values": {
+        "19": 74065.050899,
+        "20": 74020.760338,
+        "21": 74028.306972,
+        "22": 74073.230118,
+        "23": 74161.493916,
+        "24": 74269.923067,
+        "25": 74396.597060,
+        "26": 74473.111626,
+        "27": 74504.243852,
+        "28": 74494.315866,
+        "29": 74456.761974
+      },
+      "algorithm_note": "close.ewm(span=period, adjust=False).mean()"
+    },
+    "rsi": {
+      "params": {"period": 14},
+      "kis_function": "calc_rsi",
+      "kis_line": 282,
+      "output_key": "rsi",
+      "first_valid_candle_index": 14,
+      "values": {
+        "14": 77.332704,
+        "15": 71.007995,
+        "16": 62.203022,
+        "17": 54.417194,
+        "18": 45.630336,
+        "19": 40.035901,
+        "20": 35.074123,
+        "21": 47.569941,
+        "22": 55.479385,
+        "23": 63.435231,
+        "24": 67.460832,
+        "25": 71.128464,
+        "26": 60.617058,
+        "27": 51.786610,
+        "28": 44.334524,
+        "29": 39.424981
+      },
+      "algorithm_note": "delta=close.diff(); gain=delta.where(>0,0).ewm(span=period,adjust=False).mean(); loss=(-delta).where(<0,0).ewm; RSI=100-100/(1+gain/loss)"
+    },
+    "macd": {
+      "params": {"fast_period": 12, "slow_period": 26, "signal_period": 9},
+      "kis_functions": {
+        "macd_line": {"function": "calc_macd", "line": 312},
+        "signal_line": {"function": "calc_macd_signal", "line": 339},
+        "histogram": {"function": "calc_macd_histogram", "line": 365}
+      },
+      "output_keys": ["macd", "signal", "histogram"],
+      "first_valid_candle_index": 25,
+      "values": {
+        "25": {"macd": 526.379397, "signal": 525.863341, "histogram": 0.516057},
+        "26": {"macd": 527.355686, "signal": 526.161810, "histogram": 1.193876},
+        "27": {"macd": 490.202002, "signal": 518.969848, "histogram": -28.767846},
+        "28": {"macd": 423.597810, "signal": 499.895441, "histogram": -76.297630},
+        "29": {"macd": 342.656090, "signal": 468.447571, "histogram": -125.791481}
+      },
+      "algorithm_note": "macd=EMA(fast)-EMA(slow); signal=macd.ewm(span=signal); histogram=macd-signal. KIS는 3 별도 함수 — Kotlin port 시 합성 필요"
+    },
+    "bb": {
+      "params": {"period": 20, "std_dev": 2.0},
+      "kis_functions": {
+        "upper": {"function": "calc_bb_upper", "line": 406},
+        "middle": {"function": "calc_bb_middle", "line": 392},
+        "lower": {"function": "calc_bb_lower", "line": 427}
+      },
+      "output_keys": ["upper", "middle", "lower"],
+      "first_valid_candle_index": 19,
+      "values": {
+        "19": {"upper": 76058.293492, "middle": 74130.0, "lower": 72201.706508},
+        "20": {"upper": 75832.582107, "middle": 74220.0, "lower": 72607.417893},
+        "21": {"upper": 75674.556209, "middle": 74305.0, "lower": 72935.443791},
+        "22": {"upper": 75638.401398, "middle": 74370.0, "lower": 73101.598602},
+        "23": {"upper": 75566.353578, "middle": 74475.0, "lower": 73383.646422},
+        "24": {"upper": 75613.859029, "middle": 74565.0, "lower": 73516.140971},
+        "25": {"upper": 75760.901893, "middle": 74640.0, "lower": 73519.098107},
+        "26": {"upper": 75783.900907, "middle": 74710.0, "lower": 73636.099093},
+        "27": {"upper": 75787.101262, "middle": 74740.0, "lower": 73692.898738},
+        "28": {"upper": 75777.504510, "middle": 74720.0, "lower": 73662.495490},
+        "29": {"upper": 75758.609951, "middle": 74675.0, "lower": 73591.390049}
+      },
+      "algorithm_note": "middle=SMA(period); std=close.rolling(period).std(); upper=middle+std*std_dev; lower=middle-std*std_dev. KIS는 3 별도 함수 — Kotlin port 시 합성 필요"
+    }
+  },
+  "validation_rules": {
+    "drift_formula": "abs(native_value - kis_value) / abs(kis_value) * 100 <= 0.001",
+    "bigdecimal_scale": 8,
+    "rounding_mode": "HALF_EVEN",
+    "nan_handling": "candle index < first_valid_candle_index → InsufficientCandlesException"
+  }
+}

@@ -15,11 +15,17 @@
  *   결함 5: KST 시간 포맷 (tickMarkFormatter + Asia/Seoul)
  *   결함 6: hover crosshair OHLCV·등락률 툴팁 (floating div)
  *
+ * T-IND PR-33 R3 확장 (W2):
+ *   onChartReady?: (chart: IChartApi) => void  — IndicatorOverlay 연동용 chart ref 노출
+ *   onChartDestroy?: () => void                — chart destroy 시 알림
+ *
  * props:
  *   candles: CandleDto[]           초기 데이터 (ASC 정렬 보장 — backend 정합)
  *   interval: CandleInterval       현재 인터벌 (시간 포맷 분기용)
  *   realtimeCandle?: CandleDto     STOMP push 실시간 candle (optional)
  *   onScrollLeft?: () => void      좌측 스크롤 끝 콜백 (페이지네이션 트리거)
+ *   onChartReady?: (chart) => void 차트 생성 완료 콜백 (IndicatorOverlay 연동)
+ *   onChartDestroy?: () => void    차트 파괴 콜백 (IndicatorOverlay 정리)
  */
 import {
   createChart,
@@ -39,6 +45,10 @@ interface LightweightChartProps {
   interval?: CandleInterval
   realtimeCandle?: CandleDto | null
   onScrollLeft?: () => void
+  /** 차트 API 인스턴스를 부모에게 노출 (IndicatorOverlay 연동) */
+  onChartReady?: (chart: IChartApi) => void
+  /** 차트 파괴 시 알림 */
+  onChartDestroy?: () => void
 }
 
 /** 인터벌이 분봉(intraday)인지 여부 */
@@ -142,6 +152,8 @@ export function LightweightChart({
   interval,
   realtimeCandle,
   onScrollLeft,
+  onChartReady,
+  onChartDestroy,
 }: LightweightChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -149,6 +161,10 @@ export function LightweightChart({
   const volumeSeriesRef = useRef<ISeriesApi<SeriesType> | null>(null)
   const onScrollLeftRef = useRef(onScrollLeft)
   onScrollLeftRef.current = onScrollLeft
+  const onChartReadyRef = useRef(onChartReady)
+  onChartReadyRef.current = onChartReady
+  const onChartDestroyRef = useRef(onChartDestroy)
+  onChartDestroyRef.current = onChartDestroy
 
   // interval ref — tickMarkFormatter 클로저에서 최신 값 참조
   const intervalRef = useRef(interval)
@@ -216,6 +232,9 @@ export function LightweightChart({
       },
     })
     chartRef.current = chart
+
+    // IndicatorOverlay 연동 콜백
+    onChartReadyRef.current?.(chart)
 
     // 캔들스틱 시리즈
     const candleSeries = chart.addCandlestickSeries({
@@ -315,6 +334,7 @@ export function LightweightChart({
 
     return () => {
       resizeObserver.disconnect()
+      onChartDestroyRef.current?.()
       chart.remove()
       chartRef.current = null
       candleSeriesRef.current = null
