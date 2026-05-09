@@ -63,6 +63,20 @@ magicjar:
     # true: KrxMarketSessionResolver (market_calendar DB + KIS chk-holiday)
     # false: SimpleMarketSessionResolver (시간 기반 stub — consumer fallback)
     enforce: ${MAGICJAR_MARKET_SESSION_ENFORCE:true}
+  dsl:
+    # ADR 0047 §2-1 static 검증 한도 (backend-core LOCK — spec §7 정합)
+    ast-depth-limit: ${MAGICJAR_DSL_AST_DEPTH_LIMIT:32}
+    node-count-limit: ${MAGICJAR_DSL_NODE_COUNT_LIMIT:10000}
+    indicator-call-limit: ${MAGICJAR_DSL_INDICATOR_CALL_LIMIT:50}
+    # ADR 0047 §2-2 runtime sandbox timeout
+    eval:
+      timeout-ms: ${MAGICJAR_DSL_EVAL_TIMEOUT_MS:100}
+      backtest-timeout-ms: ${MAGICJAR_DSL_BACKTEST_TIMEOUT_MS:1000}
+    cpu-budget-ms: ${MAGICJAR_DSL_CPU_BUDGET_MS:50}
+    # ADR 0047 §2-3 strategy-eval-pool
+    eval-pool:
+      size: ${MAGICJAR_DSL_EVAL_POOL_SIZE:4}
+      queue: ${MAGICJAR_DSL_EVAL_POOL_QUEUE:100}
 
 
 # ─────────────────────────────────────────────────
