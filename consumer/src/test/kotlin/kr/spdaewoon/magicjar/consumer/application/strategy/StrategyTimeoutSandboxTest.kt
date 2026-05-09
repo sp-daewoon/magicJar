@@ -1,0 +1,130 @@
+package kr.spdaewoon.magicjar.consumer.application.strategy
+
+import kotlinx.datetime.Instant
+import kr.spdaewoon.magicjar.domain.indicator.IndicatorEngine
+import kr.spdaewoon.magicjar.domain.indicator.IndicatorPoint
+import kr.spdaewoon.magicjar.domain.indicator.IndicatorResult
+import kr.spdaewoon.magicjar.domain.indicator.IndicatorSpec
+import kr.spdaewoon.magicjar.domain.indicator.port.IndicatorSource
+import kr.spdaewoon.magicjar.domain.market.candle.Candle
+import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
+import kr.spdaewoon.magicjar.domain.strategy.StrategyException
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor
+import java.math.BigDecimal
+import java.util.concurrent.ThreadPoolExecutor
+
+/**
+ * Sandbox runtime — timeout 100ms · auto-disable 콜백 (ADR 0047 §2-2-A·D).
+ *
+ * spec §1-2 DoD #9·#10 정합.
+ */
+class StrategyTimeoutSandboxTest {
+    @Test
+    fun `slow indicator source triggers timeout — auto-disable callback fired`() {
+        val evalPool =
+            ThreadPoolTaskExecutor().apply {
+                corePoolSize = 1
+                maxPoolSize = 1
+                queueCapacity = 5
+                setThreadNamePrefix("strategy-eval-test-")
+                setRejectedExecutionHandler(ThreadPoolExecutor.CallerRunsPolicy())
+                initialize()
+            }
+
+        val disabledLog = mutableListOf<Pair<Long, StrategyDisabledReason>>()
+        val metricRecorder = StrategyEvalMetricRecorder()
+
+        // 매우 느린 (1000ms sleep) FakeSource
+        val slowSource =
+            object : IndicatorSource {
+                override val name: String = "slow-fake"
+                override val priority: Int = 1
+
+                override fun supports(spec: IndicatorSpec): Boolean = true
+
+                override fun calculate(
+                    spec: IndicatorSpec,
+                    candles: List<Candle>,
+                ): IndicatorResult {
+                    Thread.sleep(500) // timeout 100ms 초과
+                    return IndicatorResult(
+                        spec = spec,
+                        series =
+                            candles.map {
+                                IndicatorPoint(time = it.ts, values = mapOf(spec.name to BigDecimal("50")))
+                            },
+                        source = name,
+                    )
+                }
+            }
+        val engine = IndicatorEngine(listOf(slowSource))
+
+        val parser = KisYamlDslParser(astDepthLimit = 32, nodeCountLimit = 10000, indicatorCallLimit = 50)
+        val evaluator =
+            JvmStrategyEvaluator(
+                indicatorEngine = engine,
+                patternRecognizerStub = PatternRecognizerStub(),
+                identifierMapper = DslIdentifierMapper(),
+                evalPool = evalPool,
+                metricRecorder = metricRecorder,
+                autoDisableCallback = { id, r -> disabledLog.add(id to r) },
+                timeoutMs = 50, // 매우 짧게
+                cpuBudgetMs = 50,
+                backtestTimeoutMs = 5000,
+                cpuBudgetViolationThreshold = 5,
+            )
+
+        val ast = parser.parse("rsi(14) < 30")
+        val candles =
+            (0 until 30).map { i ->
+                Candle(
+                    code = "005930",
+                    interval = CandleInterval.ONE_DAY,
+                    ts = Instant.fromEpochSeconds(1_700_000_000L + i * 86_400L),
+                    openRaw = BigDecimal("100"),
+                    highRaw = BigDecimal("105"),
+                    lowRaw = BigDecimal("95"),
+                    closeRaw = BigDecimal("100"),
+                    openAdj = null,
+                    highAdj = null,
+                    lowAdj = null,
+                    closeAdj = null,
+                    volume = 1_000_000L,
+                    source = "test",
+                )
+            }
+
+        // 첫 evaluate 호출 → timeout 예외 + auto-disable 콜백
+        val ex =
+            assertThrows(StrategyException.StrategyTimeoutException::class.java) {
+                evaluator.evaluate(strategyId = 99L, ast = ast, candles = candles)
+            }
+        assertTrue(ex.message!!.contains("99"))
+
+        // auto-disable 콜백 1회 호출 (TIMEOUT 사유)
+        assertEquals(1, disabledLog.size)
+        assertEquals(99L, disabledLog[0].first)
+        assertEquals(StrategyDisabledReason.TIMEOUT, disabledLog[0].second)
+
+        // metric 기록 — TIMEOUT outcome
+        val metrics = metricRecorder.lastN(99L)
+        assertTrue(metrics.isNotEmpty(), "Metric should be recorded")
+        assertEquals("TIMEOUT", metrics.last().outcome)
+    }
+
+    @Test
+    fun `pool thread name prefix is strategy-eval`() {
+        val pool = StrategyEvalPoolConfig().strategyEvalPool(poolSize = 4, queueSize = 100)
+        val nameHolder = mutableListOf<String>()
+        pool.execute { nameHolder.add(Thread.currentThread().name) }
+        // wait
+        Thread.sleep(50)
+        assertEquals(1, nameHolder.size)
+        assertTrue(nameHolder[0].startsWith("strategy-eval-"))
+    }
+}
