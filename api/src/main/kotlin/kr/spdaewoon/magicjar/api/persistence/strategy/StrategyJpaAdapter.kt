@@ -62,7 +62,7 @@ class StrategyJpaAdapter(
             id = strategy.id,
             userId = strategy.userId,
             name = dsl.name,
-            nameKo = dsl.nameKo.ifBlank { null },
+            nameKo = dsl.nameKo?.takeIf { it.isNotBlank() },
             dslEntry = extractDslText(dsl.buyCondition),
             dslExit = dsl.sellCondition?.let { extractDslText(it) },
             universeMarket = strategy.definition.universe.market,

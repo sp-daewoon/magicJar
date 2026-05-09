@@ -253,7 +253,7 @@ class StrategyController(
             id = strategy.id ?: 0L,
             userId = strategy.userId,
             name = strategy.definition.dsl.name,
-            nameKo = strategy.definition.dsl.nameKo,
+            nameKo = strategy.definition.dsl.nameKo ?: "",
             universe = strategy.definition.universe.market,
             tf = strategy.definition.tf,
             complexity = toComplexityDto(strategy.complexity),
