@@ -8,6 +8,8 @@ import kr.spdaewoon.magicjar.domain.indicator.IndicatorSpec
 import kr.spdaewoon.magicjar.domain.indicator.port.IndicatorSource
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.pattern.PatternMatch
+import kr.spdaewoon.magicjar.domain.pattern.port.PatternRecognizer
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
 import kr.spdaewoon.magicjar.domain.strategy.StrategyException
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -64,11 +66,28 @@ class StrategyTimeoutSandboxTest {
             }
         val engine = IndicatorEngine(listOf(slowSource))
 
+        val noopPatternRecognizer =
+            object : PatternRecognizer {
+                override fun recognize(
+                    candles: List<Candle>,
+                    patterns: Set<String>,
+                ): List<PatternMatch> = emptyList()
+
+                override fun recognize(
+                    name: String,
+                    candles: List<Candle>,
+                ): Boolean = false
+
+                override fun consecutive(
+                    direction: String,
+                    candles: List<Candle>,
+                ): Int = 0
+            }
         val parser = KisYamlDslParser(astDepthLimit = 32, nodeCountLimit = 10000, indicatorCallLimit = 50)
         val evaluator =
             JvmStrategyEvaluator(
                 indicatorEngine = engine,
-                patternRecognizerStub = PatternRecognizerStub(),
+                patternRecognizer = noopPatternRecognizer,
                 identifierMapper = DslIdentifierMapper(),
                 evalPool = evalPool,
                 metricRecorder = metricRecorder,

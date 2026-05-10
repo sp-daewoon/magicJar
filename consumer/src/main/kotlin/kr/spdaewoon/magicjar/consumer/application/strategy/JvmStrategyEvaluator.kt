@@ -4,6 +4,7 @@ import kotlinx.datetime.Clock
 import kr.spdaewoon.magicjar.domain.indicator.IndicatorEngine
 import kr.spdaewoon.magicjar.domain.indicator.IndicatorException
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
+import kr.spdaewoon.magicjar.domain.pattern.port.PatternRecognizer
 import kr.spdaewoon.magicjar.domain.strategy.Signal
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
 import kr.spdaewoon.magicjar.domain.strategy.StrategyEvalResult
@@ -39,7 +40,7 @@ import java.util.concurrent.TimeoutException
  * 2. Condition / CompositeCondition 평가 → Signal (BUY/SELL/HOLD) + reason
  * 3. Sandbox: Future.get(timeout=100ms) + ThreadMXBean CPU 측정 + auto-disable 콜백
  * 4. 캔들 부족 시 graceful HOLD (insufficient_data)
- * 5. T-PAT 미진입 시 PatternRecognizerStub 호출 → graceful HOLD (T-PAT not yet)
+ * 5. PatternRecognizer domain port 호출 — `@Component(name="patternRecognizer")` JvmPatternRecognizer (PR-39a)
  *
  * ### Sandbox 정책 (ADR 0047 §2-2)
  * - timeout 100ms (realtime) / 1000ms (backtest, [evaluateBacktest])
@@ -52,7 +53,7 @@ import java.util.concurrent.TimeoutException
 @Component
 class JvmStrategyEvaluator(
     private val indicatorEngine: IndicatorEngine,
-    private val patternRecognizerStub: PatternRecognizerStub,
+    private val patternRecognizer: PatternRecognizer,
     private val identifierMapper: DslIdentifierMapper,
     @Qualifier("strategyEvalPool") private val evalPool: ThreadPoolTaskExecutor,
     private val metricRecorder: StrategyEvalMetricRecorder,
@@ -367,7 +368,7 @@ class JvmStrategyEvaluator(
         return when (left.name) {
             "consecutive" -> {
                 val direction = left.params.firstOrNull()?.toString() ?: "up"
-                val count = patternRecognizerStub.consecutive(direction, candles)
+                val count = patternRecognizer.consecutive(direction, candles)
                 val rhs = walk(node.right, candles)
                 val target = (rhs as? NumEval)?.value?.toInt() ?: 0
                 val triggered =
@@ -389,14 +390,13 @@ class JvmStrategyEvaluator(
                         "count" to count,
                         "operator" to node.operator.symbol,
                         "target" to target,
-                        "stubMode" to true,
                     ),
                 )
             }
             "pattern", "pattern_detected" -> {
                 // T-PAT PR-39: `pattern_detected("name")` magicJar alias — `pattern("name")` 동치 라우팅.
                 val patternName = left.params.firstOrNull()?.toString() ?: ""
-                val matched = patternRecognizerStub.recognize(patternName, candles)
+                val matched = patternRecognizer.recognize(patternName, candles)
                 BoolEval(
                     matched,
                     mapOf(
@@ -404,7 +404,6 @@ class JvmStrategyEvaluator(
                         "patternFunction" to left.name,
                         "patternName" to patternName,
                         "matched" to matched,
-                        "stubMode" to true,
                     ),
                 )
             }
@@ -511,7 +510,7 @@ class JvmStrategyEvaluator(
         // 패턴 식별자 (단독 사용은 PATTERN으로 분류되므로 여기 도달 불가지만 안전망)
         if (ref.name == "consecutive") {
             val direction = ref.params.firstOrNull()?.toString() ?: "up"
-            val count = patternRecognizerStub.consecutive(direction, candles)
+            val count = patternRecognizer.consecutive(direction, candles)
             return NumEval(BigDecimal(count), label = "consecutive($direction)")
         }
 
