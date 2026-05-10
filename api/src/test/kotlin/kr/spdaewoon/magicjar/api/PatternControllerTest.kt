@@ -1,13 +1,13 @@
 package kr.spdaewoon.magicjar.api
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import kr.spdaewoon.magicjar.api.adapter.pattern.RedisPatternCacheAdapter
 import kr.spdaewoon.magicjar.api.controller.PatternController
 import kr.spdaewoon.magicjar.api.controller.dto.PatternResponseDto
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.domain.pattern.Direction
 import kr.spdaewoon.magicjar.domain.pattern.PatternMatch
 import kr.spdaewoon.magicjar.domain.pattern.port.PatternRecognizer
+import kr.spdaewoon.magicjar.pattern.cache.RedisPatternCacheAdapter
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyOrNull
@@ -15,7 +15,6 @@ import org.mockito.kotlin.whenever
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest
 import org.springframework.boot.test.mock.mockito.MockBean
-import org.springframework.test.context.TestPropertySource
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
 import java.math.BigDecimal
@@ -32,8 +31,8 @@ import kotlinx.datetime.Instant as KotlinInstant
  * 검증 4: 캐시 hit → 200 OK + matches 반환 (PatternRecognizer 호출 0건)
  * 검증 5: 종목코드 형식 오류 → 400
  */
+// PR-43: @TestPropertySource(magicjar.pattern.enabled=true) 제거 — @ConditionalOnProperty 임시 게이트 자연 정상화
 @WebMvcTest(controllers = [PatternController::class])
-@TestPropertySource(properties = ["magicjar.pattern.enabled=true"])
 class PatternControllerTest {
     @Autowired
     lateinit var mockMvc: MockMvc
