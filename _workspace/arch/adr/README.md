@@ -1,6 +1,6 @@
 # magicJar ADR 목차
 
-아키텍처 결정 기록(Architecture Decision Record). 53건 sequential (0001~0053 발행 완료). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
+아키텍처 결정 기록(Architecture Decision Record). 54건 sequential (0001~0054 발행 완료). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
 
 ## §1. 비전 (1건)
 
@@ -8,17 +8,18 @@
 |------|------|
 | 0001 | 시스템 비전 — 룰 본체 + AI 옵션 + MCP 서버 미래 |
 
-## §2. 기술 스택 + 모듈 구조 (7건)
+## §2. 기술 스택 + 모듈 구조 (8건)
 
 | 번호 | 제목 |
 |------|------|
 | 0002 | 언어·프레임워크 (Kotlin 2.0 / Spring Boot 3.3 / JDK 21 / Gradle KTS) |
 | 0003 | 증권사 API로 한국투자증권 KIS OpenAPI 선택 |
-| 0004 | MSA 모듈 재구성 (4 JVM + frontend) |
+| 0004 | MSA 모듈 재구성 (5 JVM + frontend) — 2026-05-10 갱신: 4 → 5 (pattern-engine 추가, ADR 0054 정합) |
 | 0005 | 하이브리드 런타임 — api / batch / consumer 3 JVM |
 | 0006 | PostgreSQL 단일 + 스키마 분리 |
 | 0007 | Kafka 이벤트 백본 |
 | 0008 | Docker 표준 — 모듈별 Dockerfile + compose 통합 기동 |
+| 0054 | pattern-engine 라이브러리 모듈 분리 (domain 순수성 보존 + api·consumer 공유) |
 
 ## §3. 프론트엔드 (1건)
 
@@ -137,13 +138,13 @@
 
 - **새 ADR 발행 시** — 본 README + master §10 + tracks-roadmap §3 동시 갱신
 - **Superseded 처리 시** — 본문 상단 헤더 + `_archive/` 이동 + 본 README §추가
-- **신규 진입 시 후속 ADR 번호** — 0054부터 sequential (0041~0053 발행 완료 — §5·§10-1·§10-2·§10-3·§10-4 정합).
+- **신규 진입 시 후속 ADR 번호** — 0055부터 sequential (0041~0054 발행 완료 — §2·§5·§10-1·§10-2·§10-3·§10-4 정합).
 
 ## §12. 후속 예정 (Proposed)
 
 | 후보 번호 | 제목 (예정) | 진입 트랙 | 사유 |
 |---|---|---|---|
-| 0052 | 57 캔들 패턴 표준 | T-PAT | (기존 0051 자리에서 시프트 — PR-26에서 0051이 메타 ADR로 채택됨) |
-| 0053 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT | (기존 0052 자리에서 시프트) |
-| 0054 | Screener 표준 | T-SC | (기존 0053 자리에서 시프트) |
-| 0055 | Performance 표준 | T-PERF | (기존 0054 자리에서 시프트) |
+| 0055 | 57 캔들 패턴 표준 | T-PAT | (기존 0054 자리에서 시프트 — 2026-05-10 PR-41에서 0054가 pattern-engine 모듈 ADR로 채택됨) |
+| 0056 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT | (시프트) |
+| 0057 | Screener 표준 | T-SC | (시프트) |
+| 0058 | Performance 표준 | T-PERF | (시프트) |

@@ -1,9 +1,10 @@
-# ADR 0004: MSA 모듈 재구성 (4 JVM 모듈 + frontend)
+# ADR 0004: MSA 모듈 재구성 (5 JVM 모듈 + frontend)
 
 - 상태: Accepted
 - 작성일: 2026-04-27
+- 갱신일: 2026-05-10 (4 → 5 JVM 모듈 — pattern-engine 추가, ADR 0054 정합)
 - 결정자: architect (사용자 sp-daewoon 합의)
-- 관계: ADR 0002(Gradle 멀티모듈)를 **재배치**(supersede 아님 — 멀티모듈 정신은 유지, 분할 축만 전환)
+- 관계: ADR 0002(Gradle 멀티모듈)를 **재배치**(supersede 아님 — 멀티모듈 정신은 유지, 분할 축만 전환). ADR 0054(pattern-engine 라이브러리 모듈)가 본 ADR을 갱신.
 
 ## 맥락
 
@@ -28,25 +29,27 @@ ADR 0002의 7 모듈(`app, core, market-data, strategy, ai, order-exec, web`)은
 
 ```
 .
-├─ domain/      # Kotlin java-library, Spring Boot 미부착 — 도메인 모델·포트·DSL·지표·정책
-├─ api/         # Spring Boot 3.x — REST + @Scheduled + STOMP/WebSocket
-├─ batch/       # Spring Boot 3.x + Spring Batch — DailyCandleBackfill·EodReport·BacktestRun
-├─ consumer/    # Spring Boot 3.x + Spring Kafka — KIS WS 브리지·집계·StrategyRunner·OrderDispatcher·JournalRecorder
-└─ frontend/    # React + TS + Vite — SPA, TradingView Lightweight Charts
+├─ domain/         # Kotlin java-library, Spring Boot 미부착 — 도메인 모델·포트·DSL·지표·정책 (Spring 의존 0)
+├─ pattern-engine/ # Kotlin + Spring Context (Boot main 0) — 57 패턴 detector + Redis 캐시 (api·consumer 공유)  ★ ADR 0054
+├─ api/            # Spring Boot 3.x — REST + @Scheduled + STOMP/WebSocket
+├─ batch/          # Spring Boot 3.x + Spring Batch — DailyCandleBackfill·EodReport·BacktestRun
+├─ consumer/       # Spring Boot 3.x + Spring Kafka — KIS WS 브리지·집계·StrategyRunner·OrderDispatcher·JournalRecorder
+└─ frontend/       # React + TS + Vite — SPA, TradingView Lightweight Charts
 ```
 
 폐기 디렉토리: `app/`, `core/`, `market-data/`, `strategy/`, `ai/`, `order-exec/`, `web/` (7개 일괄 `git rm`).
 
 ### 의존 방향 (단방향)
 
-- `domain` ← `api`, `batch`, `consumer` 모두 의존. domain은 어떤 앱 모듈도 참조 안 함.
-- `api`, `batch`, `consumer`는 **서로 직접 의존하지 않는다**. 상호작용은 Kafka(ADR 0020) 또는 HTTP.
+- `domain` ← `pattern-engine`, `api`, `batch`, `consumer` 모두 의존. domain은 어떤 응용 모듈도 참조 안 함 (Spring·JPA 의존 0 정책 LOCK).
+- `pattern-engine` ← `api`, `consumer` 의존. `pattern-engine` → `domain`만 의존 (다른 응용 모듈 미의존). batch는 본 ADR 시점 미의존.
+- `api`, `batch`, `consumer`는 **서로 직접 의존하지 않는다**. 상호작용은 Kafka(ADR 0007) 또는 HTTP. (ADR 0054 정합 — pattern-engine 신설은 이 정책 보존)
 - `frontend`는 Gradle 그래프 밖. JVM 모듈과는 HTTP로만 결합.
 
 ### 패키지 루트
 
-- JVM: `com.mj.domain`, `com.mj.api`, `com.mj.batch`, `com.mj.consumer`
-- 도메인 영역: `com.mj.domain.{common, market, strategy, ai, order, journal}`
+- JVM: `kr.spdaewoon.magicjar.domain`, `kr.spdaewoon.magicjar.pattern`, `kr.spdaewoon.magicjar.api`, `kr.spdaewoon.magicjar.batch`, `kr.spdaewoon.magicjar.consumer`
+- 도메인 영역: `kr.spdaewoon.magicjar.domain.{common, market, strategy, pattern, ai, order, journal}`
 
 ### 모듈 매핑
 
@@ -74,3 +77,4 @@ ADR 0002의 7 모듈(`app, core, market-data, strategy, ai, order-exec, web`)은
 
 - master-architecture.md §5 (모듈 매트릭스), settings.gradle.kts (모듈 권위)
 - supersedes 부분: ADR 0002 (모듈 분할 축만 전환, 멀티모듈 자체는 유지)
+- 갱신 동반: ADR 0054 (pattern-engine 라이브러리 모듈) — 4 → 5 JVM 모듈, 본 ADR §의존 방향 정합 보존
