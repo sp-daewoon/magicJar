@@ -1,9 +1,9 @@
 package kr.spdaewoon.magicjar.pattern.helper
 
+import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.pattern.util.CandleMath
 import kr.spdaewoon.magicjar.pattern.util.c
 import kr.spdaewoon.magicjar.pattern.util.o
-import kr.spdaewoon.magicjar.domain.market.candle.Candle
 
 /**
  * KIS Strategy Builder candlestick.py `_simple_triple(df, direction)` Kotlin port.

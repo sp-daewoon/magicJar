@@ -1,15 +1,15 @@
 package kr.spdaewoon.magicjar.pattern
 
 import kotlinx.datetime.Instant
-import kr.spdaewoon.magicjar.pattern.detector.pair.EngulfingDetector
-import kr.spdaewoon.magicjar.pattern.detector.single.DojiDetector
-import kr.spdaewoon.magicjar.pattern.detector.single.HammerDetector
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.pattern.DetectorResult
 import kr.spdaewoon.magicjar.domain.pattern.Direction
 import kr.spdaewoon.magicjar.domain.pattern.PatternCatalog
 import kr.spdaewoon.magicjar.domain.pattern.port.PatternDetector
+import kr.spdaewoon.magicjar.pattern.detector.pair.EngulfingDetector
+import kr.spdaewoon.magicjar.pattern.detector.single.DojiDetector
+import kr.spdaewoon.magicjar.pattern.detector.single.HammerDetector
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows

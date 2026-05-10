@@ -1,11 +1,11 @@
 package kr.spdaewoon.magicjar.pattern
 
-import kr.spdaewoon.magicjar.pattern.helper.ConsecutiveDirectionCalculator
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.pattern.Direction
 import kr.spdaewoon.magicjar.domain.pattern.PatternMatch
 import kr.spdaewoon.magicjar.domain.pattern.port.PatternDetector
 import kr.spdaewoon.magicjar.domain.pattern.port.PatternRecognizer
+import kr.spdaewoon.magicjar.pattern.helper.ConsecutiveDirectionCalculator
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 
