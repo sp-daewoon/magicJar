@@ -30,8 +30,9 @@ import kotlinx.datetime.Instant as KotlinInstant
  * 검증 3: R2 stub 패턴 → 200 OK + matches=[] (NEUTRAL 미포함)
  * 검증 4: 캐시 hit → 200 OK + matches 반환 (PatternRecognizer 호출 0건)
  * 검증 5: 종목코드 형식 오류 → 400
+ *
+ * PR-43: @TestPropertySource(magicjar.pattern.enabled=true) 제거 — @ConditionalOnProperty 임시 게이트 자연 정상화.
  */
-// PR-43: @TestPropertySource(magicjar.pattern.enabled=true) 제거 — @ConditionalOnProperty 임시 게이트 자연 정상화
 @WebMvcTest(controllers = [PatternController::class])
 class PatternControllerTest {
     @Autowired

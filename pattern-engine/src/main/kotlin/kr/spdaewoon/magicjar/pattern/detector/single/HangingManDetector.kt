@@ -1,15 +1,15 @@
 package kr.spdaewoon.magicjar.pattern.detector.single
 
+import kr.spdaewoon.magicjar.domain.market.candle.Candle
+import kr.spdaewoon.magicjar.domain.pattern.DetectorResult
+import kr.spdaewoon.magicjar.domain.pattern.Direction
+import kr.spdaewoon.magicjar.domain.pattern.port.PatternDetector
 import kr.spdaewoon.magicjar.pattern.helper.ConsecutiveDirectionCalculator
 import kr.spdaewoon.magicjar.pattern.util.CandleMath
 import kr.spdaewoon.magicjar.pattern.util.c
 import kr.spdaewoon.magicjar.pattern.util.h
 import kr.spdaewoon.magicjar.pattern.util.l
 import kr.spdaewoon.magicjar.pattern.util.o
-import kr.spdaewoon.magicjar.domain.market.candle.Candle
-import kr.spdaewoon.magicjar.domain.pattern.DetectorResult
-import kr.spdaewoon.magicjar.domain.pattern.Direction
-import kr.spdaewoon.magicjar.domain.pattern.port.PatternDetector
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
 

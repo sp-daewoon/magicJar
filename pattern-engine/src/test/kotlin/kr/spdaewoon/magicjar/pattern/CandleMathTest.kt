@@ -1,11 +1,11 @@
 package kr.spdaewoon.magicjar.pattern
 
 import kotlinx.datetime.Instant
+import kr.spdaewoon.magicjar.domain.market.candle.Candle
+import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.pattern.helper.ConsecutiveDirectionCalculator
 import kr.spdaewoon.magicjar.pattern.helper.SimpleTripleHelper
 import kr.spdaewoon.magicjar.pattern.util.CandleMath
-import kr.spdaewoon.magicjar.domain.market.candle.Candle
-import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
