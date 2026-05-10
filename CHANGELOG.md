@@ -9,7 +9,7 @@
 <!-- pr-45-slot-architect -->
 | 2026-05-?? | **TBD — PR-45 backend-core: 02-data-flow + 04-feature-spec** | baseline/v3.2.0 | PR-45 backend-core 2 파일 |
 <!-- pr-45-slot-backend-core -->
-| 2026-05-?? | **TBD — PR-45 market-data: 03-use-sequences (KIS-first raw 출처)** | baseline/v3.2.0 | PR-45 market-data 1 파일 |
+| 2026-05-10 | **docs(baseline): PR-46 market-data — v3.2.0 baseline 03-use-sequences (KIS-first raw 출처 의무) (작성: market-data)** — `_workspace/baseline/v3.2.0/03-use-sequences.md` 신규 작성. 사용자 시나리오 8건 + Mermaid sequence diagram 8건. raw 출처 인덱스 R1~R10 LOCK: H0STCNT0·H0STASP0·H0STCNI0 WS tr_id(domestic_stock_functions_ws.py·kis_auth.py) + FHKST01010100·FHKST03010100 REST endpoint + 종목마스터 73필드(KOSPI) + indicators.py 1507 lines 80지표 + candlestick.py 755 lines 57패턴 + parser.py 664 lines DSL. 외부 API 정책(KIS·Yahoo·DART·Naver) 통합. KIS-first 자체 추론 0건 검증. 영역 침범 0(03파일 단독). | baseline/v3.2.0 | PR-46 market-data 1 파일 + KIS-first raw 출처 의무 |
 <!-- pr-45-slot-market-data -->
 | 2026-05-10 | **docs(baseline): PR-46 frontend — v3.2.0 baseline 05-ui-inventory 작성 (작성: frontend)** — `_workspace/baseline/v3.2.0/05-ui-inventory.md` 신규 작성. 화면 6개(DashboardPlaceholder·SetupWizard 5-step·WatchlistPage·SymbolDetailPage·StrategyBuilderPage·AppHeader) + 컴포넌트 31건 + API hook 14건 + STOMP 토픽 3건 + 테스트 파일 16건(131 GREEN) + Mermaid 화면 전이 다이어그램 1건. 라우팅 매트릭스·메뉴·버튼·상태 매트릭스·반응형·접근성 정책 + 사용자 메모리 정합 5건(feedback_no_mock_data·feedback_swagger_pattern·feedback_kis_first_policy·project_kis_key_management·feedback_honorific). ADR 0040·0055·0029·0023 인용. 추측 0건 — 코드 직접 inspect. (작성: frontend) | baseline/v3.2.0 | PR-46 frontend 1 파일 |
 <!-- pr-45-slot-frontend -->

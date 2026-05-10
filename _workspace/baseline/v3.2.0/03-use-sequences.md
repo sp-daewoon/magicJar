@@ -1,0 +1,539 @@
+# v3.2.0 사용자 유즈 시퀀스 + KIS-first raw 출처
+
+> **작성자**: market-data (bot+market-data@magicjar.local)
+> **작성일**: 2026-05-10
+> **기준 시점**: v3.2.0 — W1 + W2 전 트랙 완료 (PR-29 ~ PR-45)
+> **KIS-first 의무**: 헌법 §3 정합 — 자체 추론 0, 모든 endpoint·tr_id·필드는 raw 출처 인용 의무
+
+## raw 출처 인용 인덱스
+
+| # | 출처 | raw URL | 사용 시나리오 |
+|---|---|---|---|
+| R1 | KIS종목마스터 Python파서(KOSPI) | `https://github.com/koreainvestment/open-trading-api/blob/main/stocks_info/kis_kospi_code_mst.py` | 시나리오 2 |
+| R2 | KIS종목마스터 Python파서(KOSDAQ) | `https://github.com/koreainvestment/open-trading-api/blob/main/stocks_info/kis_kosdaq_code_mst.py` | 시나리오 2 |
+| R3 | KIS종목마스터 헤더(KOSPI) | `https://github.com/koreainvestment/open-trading-api/blob/main/stocks_info/종목마스터정보(코스피).h` | 시나리오 2 — 73필드 |
+| R4 | KIS WS auth + URL | `https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/kis_auth.py` | 시나리오 3 — WS URL |
+| R5 | KIS WS 체결가 파서 | `https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock_functions_ws.py` | 시나리오 3 — H0STCNT0 cols |
+| R6 | KIS REST 현재가 (FHKST01010100) | `https://github.com/koreainvestment/open-trading-api/blob/main/llm_example/domestic_stock/inquire-price.py` | 시나리오 4 |
+| R7 | KIS REST 일봉 (FHKST03010100) | `https://github.com/koreainvestment/open-trading-api/blob/main/llm_example/domestic_stock/inquire-daily-itemchartprice.py` | 시나리오 4 |
+| R8 | KIS Strategy Builder indicators.py | `https://github.com/koreainvestment/open-trading-api/blob/main/strategy_builder/core/indicators.py` | 시나리오 5 — 80지표 |
+| R9 | KIS Strategy Builder candlestick.py | `https://github.com/koreainvestment/open-trading-api/blob/main/strategy_builder/core/candlestick.py` | 시나리오 6 — 57패턴 |
+| R10 | KIS Strategy Builder DSL parser.py | `https://github.com/koreainvestment/open-trading-api/blob/main/strategy_builder/strategy_core/dsl/parser.py` | 시나리오 7 — DSL |
+
+**검증 보고서 3건** (헌법 §3 §3-3 의무 산출물):
+- PR-21 `_workspace/specs/pr-21-kis-header-raw-verification.md` — 종목마스터 73필드 KOSPI + 67필드 KOSDAQ
+- PR-38 `_workspace/specs/pr-38-kis-pattern-raw-verification.md` — candlestick.py 755 lines + 65 PATTERN_DETECTORS → 57 매핑
+- PR-35 `_workspace/specs/pr-35-kis-dsl-raw-verification.md` — parser.py 664 lines + TOKEN_PATTERNS LOCK
+
+---
+
+## 시나리오 1: 사용자 셋업 (Onboarding)
+
+**목적**: 최초 진입 시 KIS 앱키·시크릿 등록 → onboarding guard 통과
+
+**관련 PR/ADR**: PR-29 T-W1 R1 · ADR 0046 (KIS credential AES-GCM 암호화)
+
+```mermaid
+sequenceDiagram
+    actor User as 사용자 (최고관리자)
+    participant FE as Frontend (React 19)
+    participant API as api 모듈 (Spring Boot)
+    participant Cipher as AesGcmCipher
+    participant DB as PostgreSQL (system_config)
+
+    User->>FE: SettingsModal 열기 (앱키·시크릿 입력)
+    FE->>API: POST /api/system-config/kis-credentials
+    note over API: OnboardingGuard — system_config 테이블 빈 값 확인
+    API->>Cipher: encrypt(appKey) + encrypt(appSecret)
+    note over Cipher: AES-256-GCM · IV 12byte · tag 16byte (ADR 0046)
+    Cipher-->>API: ciphertext (Base64)
+    API->>DB: INSERT INTO system_config (key, value_enc, updated_at)
+    DB-->>API: OK
+    API-->>FE: 200 { onboarding: true }
+    FE-->>User: "설정 완료" 토스트 → 홈 화면 진입 허용
+```
+
+**주요 제약**:
+- 실계좌 이중 게이트: `MAGICJAR_MODE=REAL` + `MAGICJAR_ALLOW_REAL=true` 둘 다여야 실주문 (CLAUDE.md §4)
+- 개발 중 기본값: 모의계좌 (`MAGICJAR_MODE=MOCK`) — 사용자 메모리 `project_kis_key_management.md`
+- 앱키는 화면에서 마스킹 표시 (보안), 응답에 평문 재출력 금지
+
+---
+
+## 시나리오 2: 종목 검색 + Watchlist 등록 (T-W1)
+
+**목적**: 사용자가 종목을 검색 후 Watchlist에 추가 → KIS WS 구독 시작
+
+**관련 PR/ADR**: PR-29 T-W1 · ADR 0028 (Watchlist Ingestion Worker) · ADR 0042 (Position Bootstrap)
+
+**KIS-first raw 출처**:
+- 종목마스터: `kis_kospi_code_mst.py` (R1) — Part1 3필드 + Part2 70필드 = 73필드 (검증: PR-21)
+- 종목마스터: `kis_kosdaq_code_mst.py` (R2) — Part1 3필드 + Part2 64필드 = 67필드
+
+```mermaid
+sequenceDiagram
+    actor User as 사용자
+    participant FE as Frontend
+    participant API as api 모듈
+    participant InstrDB as InstrumentJpaRepo (PostgreSQL)
+    participant KIS_REST as KIS REST<br/>(search-stock-info CTPF1002R)
+    participant Kafka as Kafka
+    participant Consumer as consumer 모듈
+    participant KIS_WS as KIS WebSocket<br/>(H0STCNT0)
+
+    User->>FE: 검색창에 "삼성전자" 입력
+    FE->>API: GET /api/instruments/search?q=삼성전자
+    API->>InstrDB: SELECT * FROM instrument WHERE name LIKE ?
+    alt DB에 종목 존재
+        InstrDB-->>API: InstrumentDto (code=005930, name=삼성전자)
+    else DB 미존재 → KIS fallback
+        API->>KIS_REST: GET /uapi/domestic-stock/v1/quotations/search-stock-info<br/>TR_ID: CTPF1002R (ADR 0042 §2)
+        KIS_REST-->>API: { stock_prdt_name, bstp_kor_isnm, ... }
+        API->>InstrDB: INSERT INTO instrument (code, name, market, ...)
+        note over InstrDB: 73필드 KOSPI / 67필드 KOSDAQ<br/>raw출처: kis_kospi_code_mst.py (R1·R3)
+    end
+    API-->>FE: [{ code, name, market, per, pbr }]
+    User->>FE: "삼성전자" → [+ 관심종목] 클릭
+    FE->>API: POST /api/watchlist { code: "005930" }
+    API->>InstrDB: INSERT INTO watchlist (user_id, instrument_code, created_at)
+    API->>Kafka: watchlist.changed.v1 { event: ADDED, code: "005930" }
+    Kafka->>Consumer: consume watchlist.changed.v1
+    Consumer->>KIS_WS: subscribe H0STCNT0 { tr_key: "005930" }<br/>raw출처: kis_auth.py my_url_ws (R4)<br/>ADR 0048 §2-1 — 최대 30 slot
+    KIS_WS-->>Consumer: 구독 성공 응답 { tr_id: "H0STCNT0", rt_cd: "0" }
+    API-->>FE: 200 { watchlist: [...] }
+    FE-->>User: Watchlist 화면에 "삼성전자" 추가됨
+```
+
+**WS 슬롯 정책 (ADR 0048 §2-1)**:
+- H0STCNI0 체결통보: 1 slot (의무 reserve)
+- H0STCNT0 체결가: 최대 30 slot
+- H0STASP0 호가: 최대 10 slot (LRU)
+- 총합: 1 + 30 + 10 = 41 (KIS 한도 정합)
+
+**KIS WS URL (raw출처: kis_auth.py R4)**:
+- 실전: `wss://ops.koreainvestment.com:21000`
+- 모의(VTS): `wss://ops.koreainvestment.com:31000`
+
+---
+
+## 시나리오 3: 실시간 시세 구독 (T-W2)
+
+**목적**: Frontend STOMP 연결 → KIS WS 체결가·호가 수신 → Kafka → Frontend 실시간 업데이트
+
+**관련 PR/ADR**: PR-29 T-W2 · ADR 0028 · ADR 0037 (Rate Limit) · ADR 0038 (OAuth Redis 분산락) · ADR 0048 (WS 41 slot)
+
+**KIS-first raw 출처 — WS tr_id LOCK**:
+
+| tr_id | 용도 | raw 출처 | slot |
+|---|---|---|---|
+| `H0STCNT0` | 실시간 체결가 (틱) | `domestic_stock_functions_ws.py` cols 배열 (R5) | 최대 30 |
+| `H0STASP0` | 실시간 호가 10단계 | `domestic_stock_functions_ws.py` (R5) | 최대 10 (LRU) |
+| `H0STCNI0` | 체결통보 (사용자 본인 주문) | `kis_auth.py` (R4) | 1 (reserve) |
+
+**H0STCNT0 필드 인덱스 (raw출처: domestic_stock_functions_ws.py R5)**:
+- `[0]` MKSC_SHRN_ISCD — 종목코드
+- `[1]` STCK_CNTG_HOUR — 체결시각 (HHMMSS)
+- `[2]` STCK_PRPR — 현재가(체결가)
+- `[12]` CNTG_VOL — 체결거래량
+- `[13]` ACML_VOL — 누적거래량
+- `[33]` BSOP_DATE — 영업일자 (YYYYMMDD)
+- 전체 45개 필드 (인덱스 0~44)
+
+```mermaid
+sequenceDiagram
+    actor User as 사용자
+    participant FE as Frontend (STOMP client)
+    participant API as api 모듈 (STOMP broker)
+    participant Consumer as consumer 모듈
+    participant KIS_WS as KIS WebSocket
+    participant Kafka as Kafka<br/>(market.tick.v1)
+
+    User->>FE: Watchlist 화면 열기
+    FE->>API: STOMP CONNECT (WebSocket)
+    FE->>API: STOMP SUBSCRIBE /topic/quote/{code}
+
+    Note over Consumer,KIS_WS: 이미 watchlist.changed.v1 수신 후 H0STCNT0 구독 중
+    KIS_WS->>Consumer: "0|H0STCNT0|001|{45개 필드 캐럿 구분}"<br/>raw출처: domestic_stock_functions_ws.py (R5)
+    Consumer->>Consumer: KisWsMessageParser.parseRealtimeData()<br/>IDX_PRICE=[2], IDX_CNTG_VOL=[12], IDX_BSOP_DATE=[33]
+    Consumer->>Kafka: produce market.tick.v1 { code, price, volume, time }
+    Kafka->>Consumer: consume market.tick.v1 (TickToMinuteAggregator)
+    Consumer->>Consumer: 분봉 집계 (1분 OHLCV 완성)
+    Consumer->>API: publish /topic/quote/{code} (Kafka → STOMP bridge)
+    API->>FE: STOMP MESSAGE { price, volume, change }
+    FE-->>User: Watchlist 가격 실시간 업데이트
+
+    Note over KIS_WS,Consumer: PINGPONG heartbeat (ADR 0048 §2-4-A)<br/>10초 무신호 감지 → reconnect<br/>지수 백오프: 0s·2s·5s·10s·30s
+```
+
+**KIS WS subscribe 메시지 형식 (raw출처: kis_auth.py R4)**:
+```json
+{
+  "header": {
+    "approval_key": "<from /oauth2/Approval>",
+    "tr_type": "1",
+    "custtype": "P"
+  },
+  "body": {
+    "input": {
+      "tr_id": "H0STCNT0",
+      "tr_key": "005930"
+    }
+  }
+}
+```
+
+**WS 끊김 처리 (ADR 0048 §2-4)**:
+- 10초 heartbeat 무신호 → reconnect 트리거
+- 3회 실패 시: REST polling fallback (5초 주기, ADR 0014)
+- 재연결 성공 시: 전체 구독 목록 재subscribe
+
+---
+
+## 시나리오 4: 종목 상세 + 차트 (T-S1)
+
+**목적**: SymbolDetail 진입 → KIS REST 현재가·일봉 조회 → 차트 + 80지표 + 57패턴 마커 표시
+
+**관련 PR/ADR**: PR-29 T-S1 R2 · ADR 0019 (캔들 저장) · ADR 0029 (당일 Redis 캐시)
+
+**KIS-first raw 출처 — REST endpoint LOCK**:
+
+| endpoint | tr_id | 용도 | raw 출처 |
+|---|---|---|---|
+| `/uapi/domestic-stock/v1/quotations/inquire-price` | `FHKST01010100` | 현재가·PER·PBR·EPS·BPS·시총·업종 | R6 |
+| `/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice` | `FHKST03010100` | 일봉/주봉/월봉/년봉 캔들 | R7 |
+
+```mermaid
+sequenceDiagram
+    actor User as 사용자
+    participant FE as Frontend
+    participant API as api 모듈
+    participant Redis as Redis Cache
+    participant KIS_REST as KIS REST API
+    participant DB as PostgreSQL (candle)
+    participant IndEng as IndicatorEngine (consumer)
+    participant PatRec as JvmPatternRecognizer (pattern-engine)
+
+    User->>FE: 종목 "삼성전자(005930)" 클릭
+    FE->>API: GET /api/symbols/005930
+
+    API->>Redis: GET quote:last:005930 (실시간 체결가 캐시)
+    alt Redis hit (실시간 시세 존재)
+        Redis-->>API: { price, volume, change }
+    else Redis miss → KIS REST fallback
+        API->>KIS_REST: GET /uapi/domestic-stock/v1/quotations/inquire-price<br/>TR_ID: FHKST01010100 · tr_cont: "F"<br/>raw출처: inquire-price.py (R6)
+        KIS_REST-->>API: { stck_prpr, per, pbr, eps, bps, hts_avls, bstp_kor_isnm, ... }
+        API->>Redis: SET meta:005930 (5분 TTL, ADR 0029)
+    end
+    API-->>FE: SymbolMetaDto { code, name, price, per, pbr, market }
+
+    FE->>API: GET /api/candles?code=005930&interval=D1&from=2024-01-01
+    API->>DB: SELECT * FROM candle WHERE code=? AND interval=? ORDER BY time
+    alt DB에 캔들 존재 (batch backfill 완료)
+        DB-->>API: CandleEntity[]
+    else DB 미존재 → KIS REST backfill
+        API->>KIS_REST: GET /uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice<br/>TR_ID: FHKST03010100 · FID_PERIOD_DIV_CODE: "D"<br/>raw출처: inquire-daily-itemchartprice.py (R7)
+        KIS_REST-->>API: { output2[]: [{ stck_bsop_date, stck_oprc, stck_hgpr, stck_lwpr, stck_clpr, acml_vol }] }
+        API->>DB: INSERT INTO candle (code, interval, time, open, high, low, close, volume)
+        note over DB: ADR 0019 — Watchlist 기반 캔들 영속
+    end
+    API-->>FE: CandleDto[]
+
+    FE->>API: GET /api/indicators?code=005930&interval=D1&name=RSI&params=14
+    API->>IndEng: route to KisStrategyBuilderSource (priority=100)<br/>raw출처: indicators.py (R8) — 80지표 1507 lines
+    IndEng-->>API: { name: RSI, value: 42.3, time: ... }[]
+    API-->>FE: IndicatorResultDto[]
+
+    FE->>API: GET /api/patterns?code=005930&interval=D1&patterns=hammer,engulfing
+    API->>PatRec: recognize(candles, patterns=["hammer","engulfing"])<br/>raw출처: candlestick.py (R9) — 57패턴 755 lines
+    PatRec-->>API: PatternMatch[] { pattern, direction, startTime, endTime }
+    API-->>FE: PatternMatchDto[]
+    FE-->>User: 차트 + 지표 overlay + 패턴 마커 렌더링
+```
+
+**주요 코드 경로**:
+- `KisRestPriceMetricsAdapter.kt` — TR_ID `FHKST01010100` 인라인 주석에 raw URL 명시 (헌법 §3 §3-4 의무)
+- `RealKisRestAdapter.fetchCandles()` — TR_ID `FHKST03010100` · `FID_PERIOD_DIV_CODE=D`
+- SymbolDetail 진입 시 H0STASP0 LRU slot 할당 (`/api/symbols/{code}/orderbook-subscribe`)
+- SymbolDetail 이탈 시 H0STASP0 slot 회수 (`/api/symbols/{code}/orderbook-unsubscribe`)
+
+---
+
+## 시나리오 5: 80지표 조회 (T-IND)
+
+**목적**: Frontend가 지표 overlay 요청 → IndicatorEngine 디스패치 → Redis 캐시 또는 KIS Kotlin port 계산
+
+**관련 PR/ADR**: PR-32 spec + PR-33 R1+R2 · ADR 0020 (KIS Strategy Builder 흡수) · ADR 0021 (IndicatorSource 추상화)
+
+**KIS-first raw 출처**:
+- `indicators.py` 1507 lines (R8) — 80지표 함수 Kotlin 1:1 port (PR-33 검증)
+  - raw fetch URL: `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/strategy_builder/core/indicators.py`
+  - 라이선스: MIT
+
+```mermaid
+sequenceDiagram
+    actor User as 사용자
+    participant FE as Frontend
+    participant API as api 모듈
+    participant Redis as Redis<br/>(indicator:cache)
+    participant IndEng as IndicatorEngine
+    participant KisSource as KisStrategyBuilderSource<br/>(priority=100)
+    participant NativeSource as NativeIndicatorSource<br/>(priority=50, SMA·EMA·RSI·MACD·BB)
+    participant DB as PostgreSQL (candle)
+
+    User->>FE: 차트에서 "RSI(14)" 지표 추가
+    FE->>API: GET /api/indicators?code=005930&interval=D1&name=RSI&params=14&from=...&to=...
+    API->>Redis: GET indicator:cache:005930:D1:RSI:14:{paramsHash}
+    alt Redis hit (5분 TTL 분봉 / 1일 TTL 일봉)
+        Redis-->>API: cached IndicatorResult[]
+    else Redis miss
+        API->>IndEng: calculate(code, interval, name=RSI, params=[14])
+        note over IndEng: IndicatorSource 선택 — priority 우선<br/>NativeSource가 RSI 지원 → priority=50<br/>KisSource priority=100 → 우선
+        IndEng->>DB: SELECT candle WHERE code=? AND interval=?
+        DB-->>IndEng: Candle[]
+        IndEng->>KisSource: calc_rsi(candles, period=14)<br/>Source: indicators.py:282-309 (R8)<br/>KDoc inline raw URL 명시 의무 (헌법 §3)
+        note over KisSource: indicators.py RSI = Wilder's Smoothing (EWM alpha=1/period)<br/>자체 추론 0 — raw 출처 1:1 port
+        KisSource-->>IndEng: BigDecimal[]
+        IndEng->>Redis: SET indicator:cache:... (TTL 1일)
+        Redis-->>IndEng: OK
+        IndEng-->>API: IndicatorResultDto[]
+    end
+    API-->>FE: IndicatorResultDto[]
+    FE-->>User: 차트 RSI 오버레이 렌더링
+```
+
+**80지표 원천 (raw출처 R8 정합)**:
+- Native 5종 (NativeIndicatorSource priority=50): SMA·EMA·RSI·MACD·BollingerBands
+- KIS Strategy Builder 80종 (KisStrategyBuilderSource priority=100): indicators.py 전 함수 Kotlin port
+- `IndicatorEngine`이 spec 지원 여부 + priority로 단일 source 선택 (ADR 0021)
+
+---
+
+## 시나리오 6: 57패턴 인식 (T-PAT)
+
+**목적**: Frontend 차트에 캔들스틱 패턴 마커 표시 → JvmPatternRecognizer → 57패턴 인식 결과
+
+**관련 PR/ADR**: PR-38 spec + PR-39 R1+R2 + PR-40 R3 · PR-41~43 pattern-engine 모듈 분리 · ADR 0020 §3-1 (KIS 65 → magicJar 57 매핑) · ADR 0054 (pattern-engine 라이브러리 모듈)
+
+**KIS-first raw 출처**:
+- `candlestick.py` 755 lines (R9) — 65 PATTERN_DETECTORS dict (PR-38 검증)
+  - raw fetch URL: `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/strategy_builder/core/candlestick.py`
+  - KIS 65 → magicJar 57 매핑 (Lean 미지원 8 + 통합 중복 1 = 9건 제외)
+
+```mermaid
+sequenceDiagram
+    actor User as 사용자
+    participant FE as Frontend
+    participant API as api 모듈 (PatternController)
+    participant Redis as Redis<br/>(pattern:cache)
+    participant PatRec as JvmPatternRecognizer<br/>(pattern-engine 모듈)
+    participant Det57 as 57개 PatternDetector<br/>(@Component — single/double/triple)
+    participant DB as PostgreSQL (candle)
+
+    User->>FE: 차트 패턴 오버레이 활성화 (hammer·engulfing 선택)
+    FE->>API: GET /api/patterns?code=005930&interval=D1&patterns=hammer,engulfing
+    API->>Redis: GET pattern:cache:005930:D1:{patternsHash}
+    alt Redis hit (분봉 5분 TTL / 일봉 1일 TTL)
+        Redis-->>API: cached PatternMatch[]
+    else Redis miss
+        API->>DB: SELECT candle WHERE code=? AND interval=? ORDER BY time DESC LIMIT 100
+        DB-->>API: Candle[]
+        API->>PatRec: recognize(candles, patterns={"hammer","engulfing"})
+        note over PatRec: candles.size < 5 → emptyList() 즉시 반환<br/>KIS L48: if df.empty or len(df) < 5: return 0 (R9 정합)
+        PatRec->>Det57: registry["hammer"].detect(candles)<br/>Source: candlestick.py:L119 (R9)
+        note over Det57: hammer: _lower_shadow >= 2*_body<br/>+ _upper_shadow <= 0.3*_body (L119-L131)
+        Det57-->>PatRec: DetectorResult(BULL, 1.0)
+        PatRec->>Det57: registry["engulfing"].detect(candles)<br/>Source: candlestick.py:L248 (R9)
+        Det57-->>PatRec: DetectorResult(BULL, 1.0)
+        note over PatRec: try/except 정합 — KIS L57<br/>예외 발생 시 swallow + 미감지 처리
+        PatRec-->>API: PatternMatch[] { pattern, direction, startTime, endTime }
+        API->>Redis: SET pattern:cache:... (TTL 5분/1일)
+    end
+    API-->>FE: PatternMatchDto[]
+    FE-->>User: 차트 위 패턴 마커 렌더링 (불리시=녹색·베어리시=적색)
+```
+
+**패턴 모듈 경계 (ADR 0054 — PR-41~43)**:
+- `pattern-engine/` 독립 라이브러리 모듈 (ADR 0004 5모듈 정합)
+- `api` + `consumer` 모두 `implementation(project(":pattern-engine"))` 의존
+- `@Component("patternRecognizer")` bean name LOCK
+- `init { require(detectors.size == 57) }` 부팅 시점 강제
+
+---
+
+## 시나리오 7: 전략 DSL 작성 + 평가 (T-DSL + T-SB)
+
+**목적**: Strategy Builder UI에서 블록 결합 → DSL 텍스트 직렬화 → 검증·평가·저장
+
+**관련 PR/ADR**: PR-35 spec + PR-36 R1 + PR-37 R2 + PR-44 spec + PR-45 R1+R2 · ADR 0022 (DSL KIS YAML superset) · ADR 0023 (Signal Engine Rule Only) · ADR 0026 (AI 옵션 보조) · ADR 0047 · ADR 0055 (Strategy Builder UI 컴포넌트)
+
+**KIS-first raw 출처**:
+- `parser.py` 664 lines (R10) — TOKEN_PATTERNS 정규식 + 재귀 하강 파서 (PR-35 검증)
+  - raw fetch URL: `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/strategy_builder/strategy_core/dsl/parser.py`
+  - DSL 형식: `"ma(5) crosses_above ma(20)"` 텍스트 표현식 1줄 (JSON/YAML 트리 아님)
+
+```mermaid
+sequenceDiagram
+    actor User as 사용자
+    participant FE as Frontend (StrategyBuilderPage)
+    participant Ser as blockTree serializer<br/>(frontend/src/lib/dsl/)
+    participant API as api 모듈
+    participant Parser as KisYamlDslParser<br/>(consumer — parser.py Kotlin port)
+    participant IndEng as IndicatorEngine
+    participant PatRec as JvmPatternRecognizer
+    participant DB as PostgreSQL (strategy)
+
+    User->>FE: 블록 팔레트에서 "RSI < 30" 블록 + "매수" 블록 결합
+    FE->>Ser: serializeBlockTree(blockTree)<br/>화이트리스트 매트릭스: 80지표+57패턴+캔들+연산자 (ADR 0055 §6)
+    Ser-->>FE: DSL 텍스트: "rsi(14) < 30"
+    FE->>API: POST /api/strategy/validate { dsl: "rsi(14) < 30" }
+    API->>Parser: parse(dsl)<br/>Source: parser.py:L301 TOKEN_PATTERNS (R10)<br/>KIS-first 의무 — 6단 재귀 하강 정합
+    Parser-->>API: DslStrategyDefinition { buy_condition: Condition(...) }
+    API-->>FE: 200 { valid: true, complexity: LOW, ast: { nodeCount: 2, depth: 1 } }
+    FE-->>User: ComplexityCard(LOW) + AST stats 표시
+
+    User->>FE: [평가 실행] 클릭
+    FE->>API: POST /api/strategy/evaluate { dsl, code: "005930", interval: "D1", from: "...", to: "..." }
+    API->>IndEng: calculate indicators referenced in DSL (rsi=14)
+    IndEng-->>API: IndicatorResult[]
+    API->>PatRec: recognize patterns referenced in DSL (있는 경우)
+    PatRec-->>API: PatternMatch[]
+    API->>Parser: evaluate(dslAst, candles, indicators, patterns)<br/>Source: parser.py evaluate() 1:1 정합
+    Parser-->>API: EvaluationResult { signal: BUY, strength: 0.8 }
+    API-->>FE: EvaluationResultDto { signal: BUY, strength: 0.8, triggeredAt: ... }
+    FE-->>User: EvaluationResultCard (BUY 배지 + 강도 게이지)
+
+    User->>FE: [전략 저장] 클릭 → StrategySaveModal 입력
+    FE->>API: POST /api/strategy/create { name, nameKo, dsl, universe, timeframe }
+    API->>DB: INSERT INTO strategy (...) ON CONFLICT DO UPDATE
+    DB-->>API: strategy_id
+    API-->>FE: 201 { id, name, status: DISABLED }
+    FE-->>User: "전략 저장 완료" 토스트
+```
+
+**DSL 토큰 화이트리스트 (ADR 0055 §6 LOCK)**:
+- 80지표 ID: `INDICATOR_CATALOG` (T-IND R3)
+- 57패턴 ID: `PATTERN_CATALOG` (T-PAT R2)
+- 연산자: `crosses_above`, `crosses_below`, `>`, `<`, `>=`, `<=`, `==`, `!=`, `AND`, `OR`
+- 함수 파라미터: 숫자 리터럴만 (percent 표기 `%` 포함 — parser.py L218 `Value.is_percent` 정합)
+
+---
+
+## 시나리오 8: 자연어 → DSL 변환 (T-DSL AI helper, 사용자 트리거 전용)
+
+**목적**: 사용자가 자연어 입력 → Anthropic Claude → DSL 변환 응답 (매매 결정권 0)
+
+**관련 PR/ADR**: PR-36 + PR-45 · ADR 0023 §1 (Signal Engine Rule Only — AI 매매 결정 금지) · ADR 0026 (AI 옵션 보조)
+
+**중요 제약**:
+- `MAGICJAR_AI_ENABLED=false` 기본값 — 키 없으면 자동 mock (`MAGICJAR_AI_MOCK_MODE=auto`)
+- 사용자 트리거 only (버튼 클릭) — 자동 호출 절대 금지 (ADR 0023 §1)
+- AI는 DSL 텍스트 제안만, 최종 저장은 사용자 검토 후 명시적 확인 필요
+- 룰 5: W1·W2·W3 트랙 코드에 LLM provider import 발견 시 reject (CLAUDE.md §개발룰 5건)
+
+```mermaid
+sequenceDiagram
+    actor User as 사용자
+    participant FE as Frontend<br/>(NaturalLanguageInput)
+    participant API as api 모듈
+    participant AIGate as MAGICJAR_AI_ENABLED gate
+    participant Claude as Anthropic Claude<br/>(spring-ai-anthropic)
+    participant FE2 as Frontend<br/>(DslTextEditor)
+
+    User->>FE: "자연어 번역" 버튼 클릭 (명시적 트리거)
+    User->>FE: "RSI가 30 이하면 매수" 입력
+    FE->>API: POST /api/dsl/translate-from-natural { text: "RSI가 30 이하면 매수" }
+    API->>AIGate: MAGICJAR_AI_ENABLED 환경변수 확인
+    alt MAGICJAR_AI_ENABLED=false (기본값)
+        AIGate-->>API: DISABLED
+        API-->>FE: 200 { status: DISABLED, dsl: null }
+        FE-->>User: "AI 번역 기능이 비활성화 상태입니다" 안내
+    else MAGICJAR_AI_ENABLED=true + ANTHROPIC_API_KEY 존재
+        API->>Claude: chat(systemPrompt, userText)<br/>spring-ai-anthropic-spring-boot-starter
+        Claude-->>API: "rsi(14) < 30"
+        API-->>FE: 200 { status: REAL, dsl: "rsi(14) < 30" }
+        FE-->>User: DSL 텍스트 프리뷰 (readonly)
+        User->>FE2: [DSL 채택] 클릭 (사용자 명시적 확인)
+        FE2-->>User: DslTextEditor에 DSL 적용
+    else MAGICJAR_AI_MOCK_MODE=auto (키 없음)
+        API-->>FE: 200 { status: MOCK, dsl: "rsi(14) < 30" }
+        note over FE: 모의 응답 — 사용자에게 명시 표시
+    end
+```
+
+**4분기 상태 (ADR 0023 §1 + NaturalLanguageInput.tsx REAL/MOCK/UNTRANSLATABLE/DISABLED)**:
+- `REAL`: Anthropic API 키 존재 + `MAGICJAR_AI_ENABLED=true` → 실제 번역
+- `MOCK`: `MAGICJAR_AI_MOCK_MODE=auto` (키 없음) → 모의 응답 명시
+- `UNTRANSLATABLE`: AI가 DSL 변환 불가로 판단 → "번역 불가" 안내
+- `DISABLED`: `MAGICJAR_AI_ENABLED=false` (기본) → 기능 미노출
+
+---
+
+## 외부 API 통합 정책 요약
+
+### KIS OpenAPI (주 출처)
+
+| 항목 | 값 | raw 출처 |
+|---|---|---|
+| 기본 URL (실전) | `https://openapi.koreainvestment.com:9443` | ADR 0003 |
+| 기본 URL (모의) | `https://openapivts.koreainvestment.com:29443` | ADR 0003 |
+| OAuth 토큰 | `/oauth2/tokenP` — 24h 유효 (ADR 0038) | `kis_auth.py` (R4) |
+| WS approval_key | `/oauth2/Approval` (ADR 0038) | `kis_auth.py` (R4) |
+| Rate Limit | 초당 10건 (ADR 0037) | `docs/architecture/external-api-policy.md` |
+| WS URL (실전) | `wss://ops.koreainvestment.com:21000` | `kis_auth.py` my_url_ws (R4) |
+| WS URL (모의) | `wss://ops.koreainvestment.com:31000` | `kis_auth.py` my_url_ws (R4) |
+| WS 한도 | 41 stream / account (ADR 0048) | ADR 0048 §1 |
+
+### Yahoo Finance (분봉 보조)
+
+| 항목 | 값 | 정책 출처 |
+|---|---|---|
+| 목적 | 과거 분봉 backfill (ADR 0019) | ADR 0019 |
+| 사용 interval | 1m·5m·15m·30m·60m·1d·1wk·1mo | ADR 0019 §3 |
+| 1m 한도 | 최근 7일 (Yahoo API 제약) | `docs/architecture/external-api-policy.md` §3 |
+| Rate Limit | 별도 없음 (Yahoo 무제한) | `external-api-policy.md` §3 |
+| cold-start | Watchlist ADDED 이벤트 수신 시 7 interval × 1회 fetch | ADR 0048 §2-3 |
+
+### DART Open API (공시)
+
+| 항목 | 값 | 정책 출처 |
+|---|---|---|
+| 목적 | 정기보고·주요사항보고·공시 목록 수집 | ADR 0005 §외부어댑터 |
+| API 키 | `system_config.dart_api_key` (AES-GCM 암호화, ADR 0046) | ADR 0044 §저장위치 |
+| Kafka 토픽 | `dart.disclosure.v1` (ADR 0007 §토픽 매트릭스) | ADR 0007 |
+| W3 트랙 예정 | T-SIG·T-RISK 사이클에서 실 구현 | `tracks-roadmap.md` §2 W3 |
+
+### Naver 금융 뉴스
+
+| 항목 | 값 |
+|---|---|
+| 목적 | 종목 관련 뉴스 수집 |
+| 방식 | RSS 기반 수집 (robots.txt 준수) |
+| User-Agent | `magicjar-news-crawler/1.0` 명시 의무 |
+| 수집 주기 | 과도한 폴링 금지 (≥5분 간격) |
+| W3 트랙 예정 | T-AI 사이클에서 실 구현 |
+
+---
+
+## KIS-first 의무 준수 체크리스트
+
+| 항목 | 상태 | 근거 |
+|---|---|---|
+| H0STCNT0 tr_id raw 출처 인용 | LOCK | `domestic_stock_functions_ws.py` (R5) — KisWsMessageParser.kt KDoc |
+| H0STASP0 tr_id raw 출처 인용 | LOCK | `domestic_stock_functions_ws.py` (R5) — KisWsOrderbookParser.kt |
+| FHKST01010100 tr_id raw 출처 인용 | LOCK | `inquire-price.py` (R6) — KisRestPriceMetricsAdapter.kt KDoc |
+| FHKST03010100 tr_id raw 출처 인용 | LOCK | `inquire-daily-itemchartprice.py` (R7) — RealKisRestAdapter.kt |
+| 종목마스터 73필드 raw 검증 | LOCK | PR-21 검증보고서 + `kis_kospi_code_mst.py` (R1·R3) |
+| 80지표 indicators.py 1507 lines | LOCK | PR-33 구현 + KDoc inline raw URL 명시 (R8) |
+| 57패턴 candlestick.py 755 lines | LOCK | PR-38 검증보고서 + PR-39 구현 (R9) |
+| DSL parser.py 664 lines | LOCK | PR-35 검증보고서 + KisYamlDslParser.kt (R10) |
+| WS URL (실전·모의) raw 출처 | LOCK | `kis_auth.py` my_url_ws (R4) — KisWebSocketBridge.kt KDoc |
+| approval_key endpoint raw 출처 | LOCK | `kis_auth.py` auth_ws() (R4) — KisApprovalAdapter.kt KDoc |
+| 자체 추론 | 0건 | 모든 endpoint·tr_id·필드는 raw 출처 인용 의무 (헌법 §3) |
+
+---
+
+## 변경 이력
+
+| 날짜 | 변경 |
+|---|---|
+| 2026-05-10 | v3.2.0 baseline 03-use-sequences.md 초안 발행. 8 시나리오 + KIS-first raw 출처 10건 LOCK. Mermaid sequence diagram 8건. raw 출처 인덱스 R1~R10. 외부 API 통합 정책 (KIS·Yahoo·DART·Naver). WS tr_id LOCK (H0STCNT0·H0STASP0·H0STCNI0). REST endpoint LOCK (FHKST01010100·FHKST03010100). 자체 추론 0건 검증. (market-data, sonnet 4.6) |
