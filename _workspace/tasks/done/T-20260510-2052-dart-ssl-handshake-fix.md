@@ -3,9 +3,9 @@ id: T-20260510-2052-dart-ssl-handshake-fix
 agent: backend-core
 model: sonnet
 branch: agent/backend-core/dart-ssl-handshake-fix
-status: RUNNING
+status: DONE
 startedAt: 2026-05-10T20:52:40.965+09:00
-completedAt: null
+completedAt: 2026-05-11T05:58:53.595+09:00
 pr: null
 parentPhase: ?
 ---
