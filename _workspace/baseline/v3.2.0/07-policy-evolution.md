@@ -1,0 +1,355 @@
+# 07 — MD 룰 정책 진화 (v3.1.0 → v3.2.0)
+
+> **작성자**: architect (PR-46)
+> **시점**: 2026-05-10 v3.2.0 태그 컷 직후
+> **사용자 명시 의도**: "우리 md 룰 정책의 변화로 더 나아지고 있다는 점을 어필 할 수 있는 목록" (v3.1.0 baseline에서 도입 — v3.2.0에 누적 갱신)
+
+본 문서는 **v3.1.0 → v3.2.0 정책 진화**를 추적한다. 추측 0 — 모든 룰은 운영 헌법(`_workspace/arch/agent-charter.md`) 7 § + ADR 0049~0055 + backlog 처리 매트릭스로 추적 가능.
+
+각 § 본문은 **도입 전 / 도입 후 / 효과 / 사례 PR** 4단 구조다 (v3.1.0 baseline 정합).
+
+**v3.1.0 baseline 보존**: §1~§9 운영 헌법 7 § + ADR 0049~0051 정책은 v3.2.0 사이클에서 **갱신 0** (안정화). v3.2.0에서는 §1~§4 4건 신규 정책 진화 + §5 다음 Wave 정책 후보 갱신.
+
+**v3.2.0 사이클 정책 진화 4건**:
+1. ADR 0052 — Baseline Documentation Cycle (skill + slash + 스크립트 4종)
+2. ADR 0053 — Living Policy Docs (현행 권위 단일 위치 + INDEX·policies/ 분리)
+3. ADR 0054 — pattern-engine 라이브러리 모듈 분리 (모듈 경계 ADR 발행 의무 baseline)
+4. ADR 0055 — Strategy Builder UI 컴포넌트 스택 (의존 추가 0 LOCK 정책 baseline)
+
+---
+
+## §1. 운영 헌법 7 § (보존 — v3.1.0 baseline 그대로)
+
+운영 헌법 7 §는 v3.1.0 PR-26(#224)에서 통합 발행된 후 v3.2.0 사이클 동안 **본문 갱신 0**. 안정화 검증 — 본 v3.2.0 38 PR 사이클에서 다음 영역 모두 헌법 정합:
+
+| § | 제목 | v3.2.0 사이클 검증 |
+|---|------|---------------------|
+| §1 | task.mjs 4단계 의무 | 모든 sub-agent 디스패치 사이클(PR-33·36·39·40·43·45·46) start·check·done 4단계 호출 — 누적 task 0건 |
+| §2 | 머지 후 정리 4단계 | PR-33·36·39·40·43·45 머지 후 즉시 worktree 제거 + task archive (PR-257·259·262·264·270·272 7건) |
+| §3 | KIS-first raw fetch 의무 | T-IND·T-DSL·T-PAT 모두 raw verification 보고서 3건 산출(`pr-32-`·`pr-35-`·`pr-38-`) + 자체 추론 0 |
+| §4 | CHANGELOG 슬롯 채번룰 | PR-32·35·38·41·44·46 6 사이클 모두 anchor 사전 발행 + sub-agent in-place edit. modify-shared 충돌 0건 |
+| §5 | PR 생성 직전 rebase 의무 | 본 PR-46 포함 모든 사이클 적용 — 통합 빌드 fail 0건 (단, PR-42·43 동시 머지 LOCK은 베이스 분기점 누적이라 다른 사이클) |
+| §6 | JPA Repository default fun 함정 | 신규 Repository(StrategyJpaRepository·StrategyEvalMetricRepository) 2건 모두 body fun 0 — 부팅 fail 0건 |
+| §7 | sub-agent fail 분기 룰 | PR-39 strategy-engine 메인 + backend-core 통합 사이클 — 재디스패치 0건. PR-42·43 머지 동시성 — orchestrator 자율 동시 머지(헌법 §7 자율 진행 정합) |
+
+**baseline 정합**: v3.1.0 시점 통합한 헌법이 W2 4 트랙 + 모듈 분리 + UI 신설 사이클을 완주 — 갱신 의제 0건.
+
+---
+
+## §2. ADR 0052 — Baseline Documentation Cycle (skill + slash + 스크립트 4종)
+
+### 도입 전
+
+v3.1.0 baseline 컷(PR-30, 2026-05-08) 시점 architect 단독 작성 + 4 sub-agent 디스패치 + Mermaid 변환 + HTML rendering이 **수작업 + ad-hoc**. 매 baseline마다 절차 재현 risk:
+
+> "다음 baseline은 같은 절차로 재생" (사용자 명시 — PR-243 직전)
+
+PR-242에서 Mermaid 10 syntax error 일괄 정정 + PR-241에서 HTML 변환 — 각각 별도 hotfix 발행 = 절차 정형화 부재 시 재발 risk.
+
+### 도입 후
+
+ADR 0052 (PR-243 #243) — baseline 사이클 정형화 풀세트:
+
+**스크립트 4종** (`scripts/`):
+1. `baseline-init.sh` — 신규 baseline 폴더 + README skeleton + CHANGELOG 슬롯 사전 발행 (orchestrator 호출)
+2. `baseline-render-html.sh` — Mermaid 10 호환 + html/index.html 자동 생성 (변환 도구)
+3. (보조) `fix-mermaid-syntax` — 노드 라벨 `\n` → `<br/>` 자동 치환 (mermaid 10.6.1 호환)
+4. (보조) sub-agent skill 문서화 — `_workspace/baseline/<v>/README.md` 작성 규약 표준
+
+**Slash command 2종** (`.claude/commands/`):
+- `/baseline-init <version>` — orchestrator 모자로 폴더 + skeleton + 슬롯 발행
+- `/baseline-render <version>` — html 변환
+
+**sub-agent skill 문서화**: 9 sub-agent SKILL에 baseline 사이클 작성 규약 단일 출처 통합 — 실무 주문은 architect spec/dispatch에 단계별 명시.
+
+### 효과
+
+- **본 v3.2.0 baseline cycle 첫 적용**: PR-273 orchestrator init(README skeleton + 슬롯) → PR-46 architect 4 파일 → backend-core·market-data·frontend 3 sub-agent 병렬 디스패치 (예정). 절차 재현 1회 검증.
+- **Mermaid syntax 안정화**: PR-242 정정 사항이 본 v3.2.0 사이클에서 baseline-render-html.sh 자동 처리 (수작업 hotfix 0)
+- **html 폴더 자동 생성**: `_workspace/baseline/v3.1.0/html/` 8 파일 자동 — 사용자가 "한 번 보기" 가능
+- **다음 baseline 사이클**(v3.3.0) 절차 baseline — 동일 절차 재실행만으로 작성 가능
+
+### 사례 PR
+
+- **PR-241 (#241)** chore(script+docs): baseline v3.1.0 Mermaid HTML 변환
+- **PR-242 (#242)** fix(baseline+script): Mermaid 10 syntax error 일괄 정정
+- **PR-243 (#243)** feat(toolkit+adr): baseline 사이클 정형화 풀세트 + ADR 0052 발행
+- **PR-273 (#273)** chore(baseline): v3.2.0 init — 폴더 + CHANGELOG 슬롯 5 사전 발행 (첫 적용)
+- **PR-46 (현재)** docs(baseline): PR-46 architect — v3.2.0 baseline 4 파일
+
+---
+
+## §3. ADR 0053 — Living Policy Docs (현행 권위 단일 위치)
+
+### 도입 전
+
+운영 룰이 분산:
+- 마스터 아키텍처(`docs/architecture/master-architecture.md`)
+- ADR 누적(`_workspace/arch/adr/`)
+- 운영 헌법(`_workspace/arch/agent-charter.md`)
+- 사용자 메모리(`memory/feedback_*.md`)
+- backlog 의제(`_workspace/backlog.md`)
+
+**한 곳에서 "지금 무엇이 권위인가" 찾기 어려움**. 사용자 보고:
+
+> "한 곳만 보면 되는구나 하고 바로 찾아갈 수 있는 인덱싱" (사용자 명시 — PR-248 직전)
+
+KIS credential 식별·로그 레벨·KIS-first·task cycle·mermaid 등 정책이 ADR 본문 + agent-charter + 코드 inline 주석 등에 산재 — 갱신 누락 risk.
+
+### 도입 후
+
+ADR 0053 (PR-248 #248) — Living Policy Docs:
+
+**자산 6건 신설**:
+1. `_workspace/INDEX.md` — **단일 진입점 인덱스** (의도별 5축 — 현행 규약 / 결정 이력 / 진행 중 / snapshot / task)
+2. `docs/architecture/policies/README.md` — 정책 인덱스 (현행 권위 단일 위치)
+3. `policies/kis-credential-identity.md` — REAL/MOCK 식별 규약 + W3 multi-tenant 의제
+4. `policies/logging-levels.md` — 3 모듈 + nginx 통합
+5. `policies/kis-first-raw-fetch.md` — 자체 추론 금지 + open-trading-api 인용 의무 (헌법 §3 정합)
+6. `policies/task-cycle.md` — 4단계 + slug 분리 (헌법 §1·§2 정합)
+7. `policies/mermaid-conventions.md` — mermaid 10 호환 4 룰
+8. ADR 0053 본체 — 정책 진화 baseline
+
+**갱신 의무**: 정책 변경 시 4축 동시 갱신 — 본문 update + ADR 후속 + ref 갱신 + backlog close.
+
+### 효과
+
+- **단일 진입점**: 사용자·architect·sub-agent 모두 `_workspace/INDEX.md`에서 시작 가능
+- **현행 권위 명확**: ADR 본문은 결정 이력(historical) + policies/는 현행 권위(living) 분리
+- **CLAUDE.md SoT 표 갱신**: ★ 단일 진입점 + 현행 권위 정책 강조 (인지 비용 ↓)
+- **본 v3.2.0 사이클 누적 인용**: PR-241·243·248·263·269의 spec 본문에서 policies/ 인용 baseline (자체 추론 0 도구화)
+
+### 사례 PR
+
+- **PR-248 (#248)** feat(docs+adr): Living Policy Docs 도입 + 단일 진입점 인덱스 (ADR 0053)
+- **CLAUDE.md SoT 표 갱신** (동반 commit) — ★ 마커 추가
+- ADR README §10-4 0053 row 추가
+
+---
+
+## §4. ADR 0054 — pattern-engine 라이브러리 모듈 분리 (모듈 경계 ADR 발행 의무 baseline)
+
+### 도입 전
+
+W2 T-PAT PR-39b(2026-05-09 머지)에서 패턴 인식기 구현체 62파일을 `consumer/.../application/pattern/` 하위에 배치. 결과:
+
+- `JvmPatternRecognizer`(`@Component("patternRecognizer")`) bean이 `consumer` 컨테이너에서만 등록됨
+- `api/.../PatternController`는 `domain.pattern.port.PatternRecognizer`에 의존하지만, api 컨테이너 부팅 시 빈 미발견 → ApplicationContext fail
+- v3.1.2 hotfix(PR #261)에서 `@ConditionalOnProperty(name="magicjar.pattern.enabled")` 임시 게이트 + Test `@TestPropertySource` 추가로 응급 봉합
+
+사용자(최고 관리자) 인식 — PR-263 직전:
+
+> "API 모듈은 consumer를 의존하면 안 됨, MSA 정합 위배"
+
+정확한 인식 — ADR 0004 §의존 방향 명시 위반: "api/batch/consumer는 서로 직접 의존하지 않는다. 상호작용은 Kafka 또는 HTTP". 그러나 `domain` 모듈은 ADR 0004로 "Spring·JPA 의존 0" 정책 LOCK이라 `@Component` 인식 구현체 등록 자리가 아님 — 4 JVM 모듈 구조로는 모든 분배가 정책 위반.
+
+### 도입 후
+
+ADR 0054 (PR-263 #263) + ADR 0004 갱신 (4 → 5 JVM 모듈):
+
+**`pattern-engine` 라이브러리 모듈 신설**:
+- 위치: `pattern-engine/` (root 직속, domain과 동일 레벨)
+- 종류: Kotlin + Spring Context (Spring Boot main 0, 라이브러리 jar)
+- 패키지 루트: `kr.spdaewoon.magicjar.pattern.*`
+- 의존: `pattern-engine` → `domain`만. `api`·`consumer` → `pattern-engine` 의존 추가
+- 컨테이너: 0 (라이브러리 jar — api·batch·consumer 3개 유지)
+- 인터페이스 동결 LOCK: bean name `"patternRecognizer"` + 57 catalog + KDoc Source 인용 60파일 보존
+
+**A·B-2·C 거부 사유 명시** (ADR 0054 §대안):
+- A. api → consumer 의존 추가 (변경량 최소) → ADR 0004 위반 + Kafka 이중 소비 risk
+- B-2. domain에 Spring `@Component` 흡수 (모듈 추가 0) → ADR 0004 "domain Spring 0" 정책 깨짐
+- C. PatternController 영구 비활성화 (`@ConditionalOnProperty` 유지) → T-PAT 카탈로그 사용자 미노출 = 트랙 효과 0
+
+**모듈 경계 ADR 발행 의무 baseline**: 향후 모듈 분리·신설 시 ADR 발행 + master 갱신 + ADR 0004 정합 의무.
+
+### 효과
+
+- **api 컨테이너 부팅 정상**: `@ConditionalOnProperty` 임시 게이트 자연 제거 (PR-43)
+- **ADR 0004 §의존 방향 정합 보존**: api·consumer 상호 직접 의존 0
+- **Hexagonal 정석 정합**: domain port 인터페이스 → pattern-engine 구현 + api·consumer adapter 호출 구도
+- **컨테이너 수 불변**: docker-compose.yml 9 컨테이너 그대로 (사용자 운영 부하 0)
+- **인터페이스 동결 LOCK**: `@Component("patternRecognizer")` bean name 보존 → T-DSL stub `@ConditionalOnMissingBean` 자동 비활성화 매커니즘 그대로
+- **W3 진입 시 모듈 분리 의제 baseline**: 다음 트랙(T-O·T-RECON 등)에서 동일 패턴 발견 시 ADR 발행 절차 안정화
+
+### 사례 PR
+
+- **PR-261 (#261)** v3.1.2 hotfix — 임시 게이트 (응급 봉합 → ADR 0054 트리거)
+- **PR-263 (#263)** docs(arch): PR-41 — pattern-engine spec/plan + ADR-0004 갱신 + ADR-0054 신규
+- **PR-265 (#265)** PR-43 backend-core 빌드 그래프 + 게이트 제거
+- **PR-266 (#266)** PR-42 strategy-engine 62 main + 4 test git mv + 패키지 리네이밍
+- **PR-267 (#267)** post PR-42·PR-43 ktlint 자율 정정
+
+---
+
+## §5. ADR 0055 — Strategy Builder UI 컴포넌트 스택 (의존 추가 0 LOCK 정책 baseline)
+
+### 도입 전
+
+T-SB(W2 마지막 트랙) GUI 블록 빌더 1차 컴포넌트 스택 결정 의제. 후보 4개:
+- A. Reactflow / @xyflow/react 캔버스 (~150KB gzip 추가)
+- B. 트리 폼 빌더 (재귀 컴포넌트 — DSL AST 1:1 매핑)
+- C. Monaco Editor + 자동완성 (~2MB)
+- D. 하이브리드 (블록 + Monaco)
+
+frontend 스택(ADR 0009): React 19 + TS + Vite + Tailwind + LWC v4 + TanStack Query + Zustand. 의존 추가 risk 인지.
+
+### 도입 후
+
+ADR 0055 (PR-269 #269) — B+C-lite 하이브리드 채택:
+
+**B + C-lite 정의**:
+- B = 트리 폼 빌더 (재귀 컴포넌트 — DSL AST 1:1 매핑)
+- C-lite = textarea + 단순 syntax color (정규식 기반 토큰 highlight). Monaco 풀 IDE 기능 제외.
+
+**LOCK 항목**:
+- 의존 추가 0 (Reactflow·Monaco·@xyflow/react 거부)
+- 모바일 후속 자연 전환 (트리만 자연 — 768px 이하 안내 add)
+- 키보드 접근성 자연 (Tab 탐색 — A11y DoD #25)
+- AST 1:1 매핑 (backend `DslStrategyDefinition` 정합)
+- bundle 영향 0 (ADR 0009 frontend 스택 안정화 보존)
+
+**거부 사유 명시**:
+- A 거부: 그래프 모델 — AST tree와 mismatch (2D 위치 정보 잉여), canvas A11y 어려움
+- C 거부: ~2MB · DSL 학습 곡선 + 모바일 keyboard 결함
+- D 거부: ~2MB 흡수 + 트리만 자연 전환
+
+### 효과
+
+- **PR-45 27 신규 파일 + 의존 추가 0** 검증 GREEN — pnpm build 성공 + bundle 영향 0
+- **AST 1:1 매핑**: BlockNode discriminated union 8종이 backend `DslStrategyDefinition` sealed class 8 분기와 정확 일치 → serializeBlockTree → KisYamlDslParser 6단 재귀 하강 + parseDslText round-trip 7건 GREEN
+- **A11y 자연 충족**: BlockNode 키보드 Tab/Enter/Delete 접근성(DoD #25) — Reactflow 같은 canvas 기반은 매우 어려움
+- **모바일 후속 자연 전환**: 768px 이하 안내(DoD #26) — 데스크톱 우선, 트리만 모바일 자연 전환 가능
+- **frontend 의존 추가 0 LOCK 정책 baseline**: 향후 frontend 컴포넌트 신설 시 의존 추가 0 옵션 우선 검토 의제 baseline
+
+### 사례 PR
+
+- **PR-269 (#269)** spec(arch): W2 T-SB 진입 + ADR 0055
+- **PR-271 (#271)** feat(frontend): PR-45 W2 T-SB — Strategy Builder UI (B+C-lite 하이브리드, 시나리오 C 단일 PR) — 27 신규 파일 ~2900 LOC + pnpm 131 passed + 의존 추가 0 + LLM import 0
+
+---
+
+## §6. v3.1.0 → v3.2.0 정책 진화 누적
+
+| 룰 | v3.1.0 시점 | v3.2.0 시점 | 진화 종류 |
+|----|-------------|-------------|----------|
+| **운영 헌법 7 §** | PR-26 통합 | 보존 (갱신 0) | **안정화 검증** (38 PR 사이클 완주) |
+| **task.mjs 4단계** | 의무 (헌법 §1) | 보존 + 사이클별 검증 | **안정화 검증** (누적 task 0건) |
+| **CHANGELOG 슬롯** | ADR 0050 + HTML 주석 anchor | 보존 + 사이클 6건 적용 (PR-32·35·38·41·44·46) | **안정화 검증** (modify-shared 충돌 0건) |
+| **KIS-first raw fetch** | 헌법 §3 5단계 | 보존 + W2 사이클 raw verification 보고서 3건(indicators·parser·candlestick) | **강화** (자체 추론 0건 baseline) |
+| **rebase 의무** | 헌법 §5 | 보존 | **안정화** |
+| **Repository default fun** | ADR 0051 + 헌법 §6 | 보존 + 신규 Repository 2건 모두 body fun 0 | **안정화 검증** (재발 0건) |
+| **sub-agent fail 분기** | 헌법 §7 | 보존 + PR-39 단일 머지 + PR-42·43 동시 머지 LOCK 사례 | **안정화 검증** |
+| **GitHub Actions release 한정** | ADR 0049 | 보존 (release tag 트리거만) | **안정화** |
+| **머지 정책 rebase** | ADR 0034 + 헌법 §5 | 보존 | **안정화** |
+| **단일·다중 worktree 정리** | ADR 0033 다중 허용 + 정리 의무 | 보존 + 사이클별 정리 PR 7건(257·259·262·264·270·272) | **안정화 검증** |
+| **3단 hierarchy** | ADR 0036 (orchestrator → architect → 실무 sub-agents) | 보존 | **안정화** |
+| **신규 트랙 ID** | T-W1·T-W2·T-S1 등 | 보존 + W2 신규 ID(T-IND·T-DSL·T-PAT·T-SB) 적용 | **확장** |
+| **AI 호출 자제 (룰 5)** | W1·W2·W3 본체 LLM import 0 reject | 본체 0건 검증 + AI 한정 영역(`api/.../ai/dsl/` 5 파일 — 사용자 트리거 helper) baseline | **확장 + 안정화** |
+| **Mock 데이터 사용 금지** | 사용자 메모리 | T-SB EvaluationEmptyCard "데이터 없음" 명시 baseline | **강화** (메모리 → 코드) |
+| **★ Baseline 사이클 정형화 (ADR 0052)** | 미존재 | skill + slash + 스크립트 4종 | **신설** |
+| **★ Living Policy Docs (ADR 0053)** | 미존재 | 단일 진입점 INDEX + policies/ 6 자산 | **신설** |
+| **★ pattern-engine 라이브러리 모듈 (ADR 0054)** | 4 모듈 | **5 모듈 (ADR 0004 갱신)** | **신설 + 갱신** |
+| **★ Strategy Builder 의존 추가 0 LOCK (ADR 0055)** | 미존재 | B+C-lite 하이브리드 채택 + bundle 0 영향 | **신설** |
+
+**총 정책 진화 4건 (모두 신설)**. v3.1.0 시점 13건 진화에 v3.2.0 4건 누적 = **누적 17건**. 모두 architect 단독 PR + ADR 발행 + (필요 시) 헌법 § 통합 절차로 baseline.
+
+---
+
+## §7. 사용자 메모리 feedback 룰 (24건 — `memory/feedback_*.md`)
+
+`/Users/ak-song/.claude/projects/-Users-ak-song-magic-ch1/memory/` 누적 feedback 24건 + project_*·user_language. 본 v3.2.0 baseline 시점 활성:
+
+| 파일 | 한 줄 요약 | v3.2.0 사이클 정합 |
+|------|-----------|---------------------|
+| `user_language.md` | 모든 응답 한국어 | 모든 PR 본문·에이전트 응답 한국어 검증 |
+| `feedback_honorific.md` | 존댓말 의무 | sub-agent 응답 모두 존댓말 |
+| `feedback_autonomy.md` | Claude 자율 실행 + 사용자 확인은 아키텍처·외부자원·블로킹상충 3가지만 | 본 사이클 사용자 확인 의제 — pattern-engine 모듈 분리(ADR 0054 — 아키텍처 결정), Anthropic provider 사용(ADR 0023·0026 — 외부 자원), T-SB 컴포넌트 스택(ADR 0055 — 아키텍처 결정) 3건 |
+| `feedback_qa_on_demand.md` | MVP 단계 QA 게이트 강제 안 함 | 본 사이클 QA on-demand 호출 0건 |
+| `feedback_swagger_pattern.md` | Swagger 4단 어노테이션 + 한국어 + example | StrategyController 7 endpoint + IndicatorController + PatternController + DslTranslateController 모두 4단 |
+| `feedback_secret_handling.md` | 시크릿 평문 채팅 시 즉시 재발급 권고 | 본 사이클 발생 0건 |
+| `feedback_devlog_html.md` | `/devlog` 호출마다 HTML 신규 생성 + index 누적 | PR-260 chore(devlog): 2026-05-10 갱신 |
+| `feedback_kis_first_policy.md` | KIS MCP + open-trading-api 베이스. 자체 추론 금지 | T-IND·T-DSL·T-PAT 모두 raw verification 산출 |
+| `feedback_v3_skepticism_no_regression.md` | "자동매매에 필요한가? v1/v2 잔재 아닌가?" 의심 lens 의무 | T-PAT PatternRecognizerStub 5-A 삭제 LOCK(v1/v2 잔재 0) + spec 본문 fitness gap 검증 의무 baseline |
+| `feedback_3tier_hierarchy.md` | 오케스트라 → architect → 실무 sub-agents | 본 PR-46 = architect 영역 (오케스트라가 PR-273에서 init + sub-agent 4 디스패치) |
+| `feedback_orchestrator_active_parallel.md` | 적극 병렬 디스패치 룰 — "직렬 권장" 답습 금지 | T-IND·T-DSL·T-PAT 모두 시나리오 A 적극 병렬(4·3·2 sub-agent 동시 디스패치) — 23~40% 단축 |
+| `feedback_orchestrator_nickname.md` | "오케스트라" 호칭 | 본 baseline 본문 일관 |
+| `feedback_conflict_resolution_autonomy.md` | git 충돌·컴파일·ktlint·인터페이스 호환성은 사용자 의제 X. orchestrator 자율 또는 architect/sub-agent 위임 | PR-267 ktlint 자율 정정 + PR-261 hotfix 자율 진행 baseline |
+| `feedback_dev_priority_qa_batch.md` | 개발 진도 우선 + QA 일괄 | 본 사이클 hotfix·정정 전부 backlog 흡수(§22~§26) — 개발 진도 W2 마감 우선 |
+| `feedback_spec_plan_scope.md` | 신규 트랙·새 모듈·다중 ADR일 때만 spec/plan. hotfix·결함 정정·작은 묶음은 0 + 바로 코드 | T-IND·T-DSL·T-PAT·T-SB·pattern-engine 모듈 = spec/plan 발행 (PR-32·35·38·41·44). v3.1.2 hotfix·종목상세 결함은 spec 0 + 바로 코드 (PR-261·249·250) |
+| `feedback_no_mock_data.md` | mock 합성 폐기. backend 0건/에러 시 "데이터 없음" 명시 | T-SB EvaluationEmptyCard "데이터 없음" 명시 baseline |
+| `feedback_pr_rebase_sync.md` | PR 직전 rebase 의무 (헌법 §5) | 본 PR-46 포함 모든 사이클 적용 |
+| `feedback_worktree_cleanup.md` | 다중 worktree OK + 정리 의무 | PR-257·259·262·264·270·272 7건 archive |
+| `project_overview.md` | magicJar Spring AI + KIS OpenAPI 자동매매 | 본 baseline 본문 정합 |
+| `project_kis_key_management.md` | 개발 중 ⚙️ 입력 + DB AES 암호화. 운영 시 secret manager 재논의 | T-DSL `MAGICJAR_AI_*` 옵션 정합 |
+| `project_system_vision.md` | 룰 본체 + AI 옵션 + MCP 미래 | T-DSL 자연어 helper(ADR 0023·0026 — 사용자 트리거 매매 결정권 0) baseline |
+| `project_v3_baseline.md` | v3.0.1 컷 + 47 ADR | 본 v3.2.0에서 +ADR 8건(0048·0049·0050·0051·0052·0053·0054·0055) |
+| `project_v2_baseline.md` | v2.0.1 (PoC v1/v2 시점) | v1/v2 잔재 0건 검증 baseline |
+| `project_pr29_w1_close_in_progress.md` | PR-29 W1 마감 사이클 | v3.1.0 baseline 후 archive 가능 (오래된 의제) |
+
+**24 feedback + project 메모리 모두 v3.2.0 사이클 정합**. 신규 비판 0회 발생.
+
+---
+
+## §8. v3.0.1 → v3.1.0 → v3.2.0 정책 진화 누적표
+
+| 진화 종류 | v3.0.1 → v3.1.0 | v3.1.0 → v3.2.0 | 누적 |
+|----------|-----------------|------------------|------|
+| 신설 | 6 | 4 (ADR 0052·0053·0054·0055) | **10** |
+| 강화 | 3 | 1 (KIS-first raw fetch — 보고서 3건) | 4 |
+| 폐기+신설 | 2 | 0 | 2 |
+| 갱신 | 2 | 1 (ADR 0004 4 → 5 모듈) | 3 |
+| 안정화 검증 | 0 | 7 (헌법 7 §) | 7 |
+| **합계** | **13** | **13** (4 신설 + 1 강화 + 1 갱신 + 7 안정화) | **26** |
+
+v3.1.0이 정책 통합·신설 baseline이라면, **v3.2.0은 정책 안정화 검증 + 4 신규 진화의 baseline**.
+
+---
+
+## §9. 다음 Wave (W3) 정책 후보
+
+W3(Backtest · Screener · Signal · Risk · Order · Reconcile · Performance · Notification 8 트랙) 진입 시 추가 검토 정책 후보. 본 § 자체는 v3.2.0 시점 미발행 — `_workspace/backlog.md` 의제 + ADR 후속 예정(0056~0059).
+
+| 후보 | 사유 | 진입 시점 |
+|------|------|----------|
+| **§ Backtest 표준** (룩어헤드·세금·수수료·슬리피지) | T-BT 진입 시 ADR 발행 의무 (ADR 0057 후보) | T-BT (W3) |
+| **§ Screener 표준** | T-SC 진입 시 ADR 발행 의무 (ADR 0058 후보) | T-SC (W3) |
+| **§ Performance 표준** | T-PERF 진입 시 ADR 발행 의무 (ADR 0059 후보) | T-PERF (W3) |
+| **§ 57 캔들 패턴 표준 ADR 격상** | T-PAT 머지 완료 — 본문 ADR로 격상 검토 (ADR 0056 후보) | 즉시 의제 |
+| **§ KisRestPort 인터페이스 분리** | backlog §2 — 인터페이스 책임 분리 | T-O·T-RECON (W3) |
+| **§ DART OpenDART handshake_failure 정리** | backlog §22 (v3.1.0 dogfooding) | T-O 진입 시 |
+| **§ KIS 자격증명 user_id 식별 본격 정리** | backlog §23 (v3.1.0 dogfooding) | T-O 진입 시 |
+| **§ `@Component` + `@ConditionalOnMissingBean` 함정 회귀 방지 ADR** | backlog §25 — `SimpleMarketSessionResolver` 잠재 | 횡단 (즉시 의제) |
+| **§ DSL safety 룰북** (실행 sandbox·timeout·CPU budget) | ADR 0047 정합 — T-DSL 발행 후 사용 패턴 baseline 후 검토 | T-SIG (W3) — DSL 본격 사용 시 |
+| **§ Indicator Source plug-in 통과 의무** | ADR 0021 정합 — T-IND 발행 후 신규 IndicatorSource 추가 시 의무 절차 | 신규 source 추가 시 |
+| **§ STOMP relay broker 도입** | backlog §8 — post-MVP | post-MVP |
+| **§ AI 영역 침범 ADR** | backlog §10 — 헌법 통합으로 사실상 흡수, 명시 트리거 시 별도 ADR | 사용자 명시 트리거 시 |
+| **§ frontend 모바일 반응형** | backlog §9 + T-SB 768px 이하 안내 임시 | post-W3 |
+| **§ Vault·Secret Manager** | `project_kis_key_management.md` — 본격 운영 진입 시 재논의 | 실서비스 진입 |
+| **§ Multi-tenant 인증** | master §9 — 1인 사용자 단계 끝나면 | 실서비스 진입 |
+| **§ Observability** (Prometheus·Grafana) | master §9 | post-MVP |
+| **§ TimescaleDB** | master §9 — 일봉 ≥1억 행 도달 시 | post-MVP |
+
+---
+
+## §10. 결론 — "MD 룰 정책의 변화로 더 나아지고 있다" (v3.2.0)
+
+본 v3.2.0 사이클 (2026-05-08 → 2026-05-10, ~38 PR + 4 ADR) 결과:
+
+**v3.1.0 정책 7 § 안정화 검증** + **v3.2.0 4 신규 정책 진화**:
+- **헌법 7 §** 본문 갱신 0 — 38 PR 사이클 완주 (안정화 baseline)
+- **ADR 0052 baseline 사이클 정형화** — `scripts/baseline-init.sh` + `baseline-render-html.sh` + slash command 2건 + 본 v3.2.0 첫 적용
+- **ADR 0053 Living Policy Docs** — `_workspace/INDEX.md` 단일 진입점 + `policies/` 6 자산 + 4축 갱신 의무
+- **ADR 0054 pattern-engine 라이브러리 모듈** — ADR 0004 갱신(4 → 5 모듈) + 모듈 경계 ADR 발행 의무 baseline + Hexagonal 정석 정합
+- **ADR 0055 Strategy Builder UI 컴포넌트 스택** — B+C-lite 하이브리드 + 의존 추가 0 LOCK 정책 baseline
+
+**사용자 명시 비판 신규 0회 발생** (v3.1.0 사이클 동일 baseline 보존 — KIS-first 사용자 비판이 PR-21 사이클에 1회 발생했으나 같은 사이클 내 정정. v3.2.0 사이클은 비판 0회).
+
+**핵심 진보**:
+- **모듈 경계 정합**: API 모듈이 consumer를 의존하면 안 됨 (사용자 인식 정확) → ADR 0054 발행으로 baseline
+- **단일 진입점**: 사용자가 "한 곳만 보면" 권위 정책 찾기 가능 (ADR 0053)
+- **baseline 자동화**: 다음 v3.3.0·v3.4.0 사이클에서 동일 절차 재실행 (ADR 0052)
+- **W2 4 트랙 풀세트 클리어**: T-IND 80지표 + T-DSL DSL 파서·평가·자연어 helper + T-PAT 57패턴 + T-SB Strategy Builder UI
+
+**다음 Wave**: W3 진입 시 §9 후보 정책 검토 + 트랙별 spec/plan 발행 시 헌법 §3·§4 사전 검증 + ADR 0056~0059 후속 발행 + Backtest 표준·Screener 표준·Performance 표준 baseline.
+
+→ `06-history-traceability.md` §6 정합 — v3.1.0 → v3.2.0 누적 결과 표 + W2 풀세트 클리어 baseline.
