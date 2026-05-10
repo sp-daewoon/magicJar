@@ -762,7 +762,7 @@ multi-tenant 진입 시 식별 규약 통일 필요. 후보:
 
 ---
 
-## §24. 종목상세 화면 dogfooding 결함 묶음 (v3.2 일괄 정정)
+## §24. 종목상세 화면 dogfooding 결함 묶음 (v3.2 일괄 정정) — 결함 8·LG 일봉 일부 처리완료 PR-46
 
 ### 트리거
 
@@ -776,7 +776,10 @@ PR-31 (PR #249·#250) 머지 후 사용자 dogfooding 결과: 6+1건 결함 1차
 - 수정 영역: frontend(SymbolOrderbook polling) + market-data(KIS REST `inquire-asking-price` 어댑터 신규).
 - v3.2 W2 트랙 적합 — KIS REST 신규 어댑터 추가 작업.
 
-### 결함 8: 분봉/15m/30m/90m 데이터 적재 부실 — market-data 영역 ★
+### 결함 8 (일봉 fix 완료 PR-46, 분봉 미완): 분봉/15m/30m/90m 데이터 적재 부실 — market-data 영역 ★
+
+**PR-46(2026-05-10) 처리 완료 부분**: DailyCloseFinalizer Redis 타입 불일치(opsForHash vs opsForValue) + Yahoo 1d ts 비표준(KST 00:00:00 정규화). 이제 WS 구독 종목 일봉은 정상 영속됨.
+**미완 부분**: 분봉/30m/90m backfill 잡 재설계 — 아래 원문 그대로 잔류.
 
 DB candle 적재가 종목별로 일관되지 않음. PR-31 진단 결과:
 
