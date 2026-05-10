@@ -2,7 +2,6 @@ package kr.spdaewoon.magicjar.consumer.application.strategy
 
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
 import org.slf4j.LoggerFactory
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.stereotype.Component
 
 /**
@@ -14,7 +13,6 @@ import org.springframework.stereotype.Component
  * spec §6-3 LOCK.
  */
 @Component
-@ConditionalOnMissingBean(EvaluatorAutoDisableCallback::class)
 class NoopAutoDisableCallback : EvaluatorAutoDisableCallback {
     private val log = LoggerFactory.getLogger(javaClass)
 

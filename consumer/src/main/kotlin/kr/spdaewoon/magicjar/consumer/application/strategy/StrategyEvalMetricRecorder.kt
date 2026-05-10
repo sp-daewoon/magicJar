@@ -2,7 +2,6 @@ package kr.spdaewoon.magicjar.consumer.application.strategy
 
 import kr.spdaewoon.magicjar.domain.strategy.StrategyEvalResult
 import org.slf4j.LoggerFactory
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.stereotype.Component
 import java.util.concurrent.ConcurrentHashMap
 
@@ -19,7 +18,6 @@ import java.util.concurrent.ConcurrentHashMap
  * spec §6-3 LOCK.
  */
 @Component
-@ConditionalOnMissingBean(name = ["strategyEvalMetricRecorder"])
 class StrategyEvalMetricRecorder {
     private val log = LoggerFactory.getLogger(javaClass)
 

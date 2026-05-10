@@ -816,3 +816,74 @@ v3.2 W2 트랙 진입 사이클에 묶음 처리. 결함 7+8은 market-data 작�
 - PR #249 (frontend) · PR #250 (backend-core) — v3.1.0 1차 정정
 - `frontend/src/lib/marketHours.ts:50` — getPriceBadge()
 - `_workspace/baseline/v3.1.0/` — 1차 정정 시점 snapshot
+
+---
+
+## §25. `@Component` + `@ConditionalOnMissingBean` 함정 회귀 방지 (v3.1.2 hotfix 잔재)
+
+### 사유
+
+v3.1.2 hotfix 사이클(2026-05-10)에서 `@Component` 클래스 레벨에 `@ConditionalOnMissingBean(name=)` 또는 `@ConditionalOnMissingBean(class)`을 함께 붙이면 **자기 자신의 BeanDefinition까지 매칭되어 자기 등록을 자기가 차단**하는 함정 발견. 응급으로 `StrategyEvalMetricRecorder`·`NoopAutoDisableCallback` 2건 어노테이션 제거. 동일 패턴이 1건 더 잠재:
+
+- `consumer/src/main/kotlin/.../infrastructure/session/SimpleMarketSessionResolver.kt:32` — `@ConditionalOnMissingBean(name = ["krxMarketSessionResolver"])` (자기와 다른 이름이라 우연히 통과 중이지만 PR-36b 등에서 동일 이름 경합 시 회귀 가능)
+
+원래 의도는 "다른 모듈에서 같은 타입/이름의 빈이 등록되면 그 빈이 우선되는 fallback" 패턴인데, **`@Component`에 직접 붙이는 방식은 부적합**. Spring 공식 권장은 `@Configuration` + `@Bean` 메서드에 `@ConditionalOnMissingBean`을 붙이는 것.
+
+### 보강 안
+
+1. `SimpleMarketSessionResolver`도 응급 처리 4건과 동일하게 어노테이션 제거 (실제 fallback 필요 시점에 `@Configuration` + `@Bean` 패턴으로 재구성).
+2. `@ConditionalOnMissingBean`을 클래스 레벨 `@Component`와 함께 쓰는 패턴 자체를 **금지 패턴**으로 ADR 0051 또는 신규 ADR로 명문화.
+3. 가능하면 ktlint custom rule 또는 detekt 룰로 회귀 자동 차단(우선순위 ↓).
+
+### 트리거
+
+- **우선순위 ↑**: PR-36b StrategyService 합류 시 `EvaluatorAutoDisableCallback` 진짜 구현이 들어올 때 함께 정리. fallback 패턴 재정립 cycle에 흡수.
+- **우선순위 ↓**: 안 발생하면 v3.2 정리 사이클까지 대기.
+
+### 예상 처리 PR
+
+PR-36b 합류 사이클 또는 별도 architect spec PR (`docs(adr): @Component + @ConditionalOnMissingBean 금지 패턴 + fallback 재정립`).
+
+### 참조
+
+- v3.1.2 hotfix CHANGELOG row (2026-05-10)
+- `consumer/.../strategy/StrategyEvalMetricRecorder.kt`·`NoopAutoDisableCallback.kt` (응급 처리됨)
+- `consumer/.../infrastructure/session/SimpleMarketSessionResolver.kt:32` (잠재 — 처리 대기)
+
+---
+
+## §26. pattern-engine 모듈 신설 사이클 진행 중 (B-1 결정, v3.1.2 직후)
+
+### 사유
+
+W2 T-PAT PR-39b에서 `JvmPatternRecognizer`(@Component) + 62파일은 consumer 모듈에, `PatternController`는 api 모듈에 분리 배치되어 **api 컨테이너가 빈을 찾지 못해 부팅 실패**. v3.1.2 hotfix에서 PatternController에 `@ConditionalOnProperty(magicjar.pattern.enabled, default=false)` 임시 게이트 적용. 사용자(최고 관리자) 결정으로 **B-1 (`pattern-engine` 라이브러리 모듈 신설) 사이클로 정합 fix 진행**.
+
+domain은 순수 port만 유지(ADR 0004 정책 보존). pattern-engine은 domain과 동일하게 `@SpringBootApplication` 0 / 컨테이너 0 / 라이브러리 jar로만 빌드. api·consumer가 dependency로 끌어다 씀. **컨테이너 수 변동 없음**(api/batch/consumer 3개 그대로).
+
+### 작업 범위
+
+1. `settings.gradle.kts`에 `:pattern-engine` include
+2. `pattern-engine/build.gradle.kts` 신설 — kotlin·spring 플러그인 + spring-context·domain 의존
+3. `consumer/.../application/pattern/*` 62파일을 `pattern-engine/src/main/kotlin/kr/spdaewoon/magicjar/pattern/*`로 이동
+4. 패키지 리네이밍: `kr.spdaewoon.magicjar.consumer.application.pattern.*` → `kr.spdaewoon.magicjar.pattern.*`
+5. consumer의 `JvmStrategyEvaluator` 등 import 갱신
+6. `api`·`consumer` build.gradle.kts에 `implementation(project(":pattern-engine"))` 추가
+7. `PatternController` `@ConditionalOnProperty` 게이트 제거 (자연 정상화)
+8. ADR 0004 갱신 — 4모듈 → 5모듈 모듈 경계 다이어그램
+9. 신규 ADR 발급 — pattern-engine 모듈 분리 사유 + 도메인 순수성 보존 vs 라이브러리 분리 trade-off
+
+### 트리거
+
+- **즉시 진행** — v3.1.2 hotfix 머지 직후 architect spec PR 디스패치 (orchestrator 사이클 Step 3~5)
+- 사용자 결정 받은 사항이라 backlog 등록은 추적 목적, 처리는 즉시.
+
+### 예상 처리 PR
+
+PR-Na (architect spec/plan + ADR 갱신·신규) → PR-Nb (strategy-engine: 62파일 이동 + 패키지 리네이밍) + PR-Nc (backend-core: api·consumer build.gradle.kts 의존 추가 + PatternController 게이트 제거) — 시나리오 A 완전 병렬 가능 (파일 영역 분리).
+
+### 참조
+
+- v3.1.2 hotfix CHANGELOG row (2026-05-10)
+- `api/.../controller/PatternController.kt` — 임시 게이트 위치
+- `consumer/.../application/pattern/` — 이동 대상 62파일 + 4 디렉토리(detector/{single·triple·pair}, helper, cache, util)
+- `docs/architecture/master-architecture.md` §5 — 모듈 경계 (ADR 0004 SoT)

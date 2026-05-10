@@ -16,7 +16,8 @@ interface StrategyJpaRepository : JpaRepository<StrategyJpaEntity, Long> {
 
     @Modifying
     @Query(
-        "UPDATE StrategyJpaEntity s SET s.disabledReason = :reason, s.lastDisabledAt = NOW(), s.updatedAt = NOW() " +
+        "UPDATE StrategyJpaEntity s " +
+            "SET s.disabledReason = :reason, s.lastDisabledAt = CURRENT_TIMESTAMP, s.updatedAt = CURRENT_TIMESTAMP " +
             "WHERE s.id = :id",
     )
     fun updateDisabledReason(
@@ -26,7 +27,7 @@ interface StrategyJpaRepository : JpaRepository<StrategyJpaEntity, Long> {
 
     @Modifying
     @Query(
-        "UPDATE StrategyJpaEntity s SET s.disabledReason = NULL, s.lastDisabledAt = NULL, s.updatedAt = NOW() " +
+        "UPDATE StrategyJpaEntity s SET s.disabledReason = NULL, s.lastDisabledAt = NULL, s.updatedAt = CURRENT_TIMESTAMP " +
             "WHERE s.id = :id",
     )
     fun clearDisabledReason(
