@@ -9,14 +9,13 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse
 import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
 import kotlinx.datetime.toKotlinInstant
-import kr.spdaewoon.magicjar.api.adapter.pattern.RedisPatternCacheAdapter
 import kr.spdaewoon.magicjar.api.controller.dto.PatternResponseDto
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.pattern.port.PatternRecognizer
+import kr.spdaewoon.magicjar.pattern.cache.RedisPatternCacheAdapter
 import org.slf4j.LoggerFactory
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.data.domain.PageRequest
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.GetMapping
@@ -38,10 +37,11 @@ import java.time.Instant
  * - R2 stub 47건 → direction=NEUTRAL → 결과 미포함 (graceful)
  * - 캔들 부족(< 5건) → 빈 matches (KIS L48 정합)
  *
- * PatternRecognizer bean: "patternRecognizer" (strategy-engine PR-39a JvmPatternRecognizer
- * + api PatternRecognizerConfig에서 등록 — T-IND IndicatorEngineConfig 정합).
+ * PatternRecognizer bean: "patternRecognizer" (pattern-engine JvmPatternRecognizer — B-1 사이클 완료).
+ * RedisPatternCacheAdapter: pattern-engine 단일 구현 (spec §5-3 unify — api 측 삭제).
  * 룰 5 — LLM provider import 0건.
  * ADR 0051 — 신규 JPA Repository 0건 → default fun 함정 발동 0.
+ * PR-43 — @ConditionalOnProperty 임시 게이트 제거 (PR-261 hotfix 잔재 자연 정상화).
  */
 @Tag(
     name = "Patterns",
@@ -49,7 +49,6 @@ import java.time.Instant
 )
 @RestController
 @RequestMapping("/api/patterns")
-@ConditionalOnProperty(name = ["magicjar.pattern.enabled"], havingValue = "true", matchIfMissing = false)
 class PatternController(
     private val patternRecognizer: PatternRecognizer,
     private val candleJpaRepository: CandleJpaRepository,

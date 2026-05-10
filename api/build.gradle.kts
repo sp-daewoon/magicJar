@@ -8,6 +8,8 @@ plugins {
 
 dependencies {
     implementation(project(":domain"))
+    // pattern-engine 라이브러리 의존 — PatternController가 PatternRecognizer 빈 주입 (spec §4-1·§4-4 LOCK)
+    implementation(project(":pattern-engine"))
 
     // Spring Boot starters
     implementation("org.springframework.boot:spring-boot-starter-web")
