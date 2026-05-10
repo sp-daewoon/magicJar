@@ -16,6 +16,7 @@ import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.pattern.port.PatternRecognizer
 import org.slf4j.LoggerFactory
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.data.domain.PageRequest
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.GetMapping
@@ -48,6 +49,7 @@ import java.time.Instant
 )
 @RestController
 @RequestMapping("/api/patterns")
+@ConditionalOnProperty(name = ["magicjar.pattern.enabled"], havingValue = "true", matchIfMissing = false)
 class PatternController(
     private val patternRecognizer: PatternRecognizer,
     private val candleJpaRepository: CandleJpaRepository,
