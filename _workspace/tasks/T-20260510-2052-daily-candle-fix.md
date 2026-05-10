@@ -3,10 +3,10 @@ id: T-20260510-2052-daily-candle-fix
 agent: market-data
 model: sonnet
 branch: agent/market-data/daily-candle-fix
-status: RUNNING
+status: DONE
 startedAt: 2026-05-10T20:52:07.861+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-10T21:00:02.046+09:00
+pr: #279
 parentPhase: ?
 ---
 
