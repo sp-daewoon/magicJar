@@ -512,7 +512,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 
 ---
 
-## §10. 핵심 ADR 인덱스 (0001~0050 — 발행 완료)
+## §10. 핵심 ADR 인덱스 (0001~0055 — 발행 완료)
 
 상세 본문은 `_workspace/arch/adr/<NNNN>-*.md`. 분류 카테고리는 `_workspace/arch/adr/README.md` §1~§10-4 정합. 본 §10은 한 줄 요약 인덱스 — 신규 ADR 발행 시 본 표 + README 동시 갱신 (ADR 0030 SoT 운영 규약).
 
@@ -568,15 +568,20 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | 0048 | KIS WebSocket 41건 구독 한도 + 우선순위 정책 (slot 1+30+10·priority eviction·polling fallback) | 시장 데이터 | W1 (T-W2 진입 시 발행) |
 | 0049 | GitHub Actions = release 트리거 한정 (일상 검증은 pre-push hook 단독) | 메타·CI/CD | 횡단 |
 | 0050 | CHANGELOG 슬롯 채번룰 (architect 사전 발행 + sub-agent in-place edit) | 메타·하네스 | 횡단 |
+| 0051 | Spring Data Repository default fun 함정 (회피 패턴) | 메타·하네스 | 횡단 (backend-core·market-data 핵심 risk) |
+| 0052 | Baseline Documentation Cycle (skill + slash + 스크립트 4종) | 메타·하네스 | 횡단 (release 사이클·문서화) |
+| 0053 | Living Policy Docs (현행 권위 단일 위치 + INDEX·policies/ 분리) | 메타·하네스 | 횡단 (문서 정합·인지 비용·토큰 효율) |
+| 0054 | pattern-engine 라이브러리 모듈 분리 (domain 순수성 보존 + api·consumer 공유) | 기술 스택 | 베이스 (PR-41 채택) |
+| 0055 | Strategy Builder UI 컴포넌트 스택 (B+C-lite 하이브리드 — 트리 폼 빌더 + textarea DSL 토글, 의존 추가 0) | 프론트엔드 | W2 (T-SB) |
 
 ### 후속 예정 (Proposed — `_workspace/arch/adr/README.md` §12 정합)
 
 | 후보 번호 | 제목 (예정) | 진입 트랙 |
 |---|---|---|
-| 0051 | 57 캔들 패턴 표준 | T-PAT |
-| 0052 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT |
-| 0053 | Screener 표준 | T-SC |
-| 0054 | Performance 표준 | T-PERF |
+| 0056 | 57 캔들 패턴 표준 (본문 ADR로 격상 검토 — T-PAT 머지 정합) | T-PAT |
+| 0057 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT |
+| 0058 | Screener 표준 | T-SC |
+| 0059 | Performance 표준 | T-PERF |
 
 ---
 
