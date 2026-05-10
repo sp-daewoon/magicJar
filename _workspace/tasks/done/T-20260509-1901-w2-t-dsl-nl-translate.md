@@ -3,9 +3,9 @@ id: T-20260509-1901-w2-t-dsl-nl-translate
 agent: ai
 model: opus
 branch: agent/ai-engineer/w2-t-dsl-nl-translate
-status: RUNNING
+status: DONE
 startedAt: 2026-05-09T19:01:37.803+09:00
-completedAt: null
+completedAt: 2026-05-10T13:10:03.647+09:00
 pr: null
 parentPhase: ?
 ---

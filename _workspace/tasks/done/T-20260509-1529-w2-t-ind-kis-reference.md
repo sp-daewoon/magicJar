@@ -3,9 +3,9 @@ id: T-20260509-1529-w2-t-ind-kis-reference
 agent: market-data
 model: sonnet
 branch: agent/market-data/w2-t-ind-kis-reference
-status: RUNNING
+status: DONE
 startedAt: 2026-05-09T15:29:07.635+09:00
-completedAt: null
+completedAt: 2026-05-09T15:53:22.760+09:00
 pr: null
 parentPhase: ?
 ---
