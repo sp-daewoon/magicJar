@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.batch.infrastructure.dart
 
 import jakarta.annotation.PostConstruct
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
@@ -26,6 +27,7 @@ import java.util.zip.ZipInputStream
  */
 @Component
 class DartCorpCodeRepository(
+    @Qualifier("dartWebClient")
     private val webClient: WebClient,
     @Value("\${OPENDART_API_KEY:}")
     private val dartApiKey: String,

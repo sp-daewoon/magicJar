@@ -6,6 +6,7 @@ import kr.spdaewoon.magicjar.domain.instrument.corpaction.CorpAction
 import kr.spdaewoon.magicjar.domain.instrument.corpaction.CorpActionType
 import kr.spdaewoon.magicjar.domain.instrument.corpaction.port.DartDisclosureFetcher
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
@@ -41,6 +42,7 @@ import java.time.format.DateTimeFormatter
  */
 @Component
 class DartDisclosureAdapter(
+    @Qualifier("dartWebClient")
     private val webClient: WebClient,
     private val objectMapper: ObjectMapper,
     private val dartCorpCodeRepository: DartCorpCodeRepository,
