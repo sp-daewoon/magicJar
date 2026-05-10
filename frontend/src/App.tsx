@@ -26,6 +26,7 @@ import { DashboardPlaceholder } from './pages/DashboardPlaceholder'
 import { SetupWizard } from './pages/SetupWizard'
 import { SymbolDetailPage } from './pages/Symbol/SymbolDetailPage'
 import { WatchlistPage } from './pages/Watchlist/WatchlistPage'
+import { StrategyBuilderPage } from './pages/Strategy/StrategyBuilderPage'
 
 /** 온보딩 라우팅 가드 — status 기반 자동 분기 */
 function OnboardingGuard({ children }: { children: ReactNode }) {
@@ -90,6 +91,8 @@ export function App() {
           <Route path="/watchlist" element={<WatchlistPage />} />
           {/* T-S1: 종목 상세 — ADR 0040 §2-2 진입점 */}
           <Route path="/symbol/:code" element={<SymbolDetailPage />} />
+          {/* T-SB: 전략 빌더 — ADR 0040 §1 진입점 */}
+          <Route path="/strategy/builder" element={<StrategyBuilderPage />} />
           <Route path="/setup" element={<SetupWizard />} />
           {/* 미정의 경로는 / 로 리다이렉트 */}
           <Route path="*" element={<Navigate to="/" replace />} />
