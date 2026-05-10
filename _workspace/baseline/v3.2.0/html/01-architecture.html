@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>01-architecture — magicJar v3.2.0 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">📁 인덱스</a><a href="01-architecture.html" class="active">01 Architecture</a><a href="02-data-flow.html">02 Data Flow</a><a href="03-use-sequences.html">03 Use Sequences</a><a href="04-feature-spec.html">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html">06 History</a><a href="07-policy-evolution.html">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.2.0 Baseline · 2026-05-10 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># 01 — magicJar v3.2.0 아키텍처 (시각화)
+
+> **작성자**: architect (PR-46)
+> **시점**: 2026-05-10 v3.2.0 태그 컷 직후
+> **권위**: `docs/architecture/master-architecture.md` v2 §5·§6 + ADR 0002·0004(갱신, 4→5 모듈)·0005·0006·0007·0008·0009·0054·0055 정합 + v3.2.0 시점 코드 inspection 결과
+
+본 문서는 v3.2.0 시점 magicJar 시스템의 **시각화 가능 수준 그림**이다. SoT는 `docs/architecture/master-architecture.md`이며, 본 문서는 그 하위 구체화 — v3.2.0 시점 실체(현재 발행된 컨테이너·테이블·KIS endpoint·Kafka topic·Anthropic helper)만 인용한다. v1/v2 잔재 0건. 미발행 트랙(W3~W5)은 명시적으로 제외.
+
+**v3.1.0 → v3.2.0 핵심 변경**:
+- 모듈 4 → 5 (`pattern-engine` 라이브러리 jar 신설 — ADR 0054)
+- Flyway V8 → V11 (V9 strategy 기본 + V10 disabled_reason + V11 strategy_eval_metric)
+- 외부 통합 +1 (Anthropic — T-DSL 자연어→DSL helper, ADR 0023·0026 사용자 트리거 한정)
+- frontend 라우트 +1 (`/strategy/builder`)
+- `domain/indicator/*` 7 port + `domain/strategy/*` 23+ sealed class + `domain/pattern/*` 5 도메인 + 7 port
+
+---
+
+## §1. 시스템 전경 (5 JVM 모듈 + frontend + 외부 6 + 인프라 3 + 디버깅 2)
+
+```mermaid
+graph TD
+    subgraph EXTERNAL["외부 통합 (옵션 + fallback)"]
+        KISREST["KIS REST<br/>openapi.koreainvestment.com:9443<br/>openapivts...:29443"]
+        KISWS["KIS WebSocket<br/>wss://ops.koreainvestment.com:21000<br/>:31000(VPS)"]
+        KISMASTER["KIS 종목마스터 ZIP<br/>new.real.download.dws.co.kr<br/>(공개 — 인증 불필요)"]
+        DART["DART OPENDART<br/>opendart.fss.or.kr"]
+        YAHOO["Yahoo Finance<br/>query1.finance.yahoo.com<br/>(.KS/.KQ fallback)"]
+        ANTHROPIC["Anthropic Spring AI<br/>api.anthropic.com<br/>(T-DSL 자연어 helper · 사용자 트리거 한정)"]
+    end
+
+    subgraph FRONTEND["frontend (React 19 + Vite + LWC v4)"]
+        FE_SETUP["/setup<br/>SetupWizard 7-step"]
+        FE_WL["/watchlist<br/>WatchlistPage"]
+        FE_SYM["/symbol/:code<br/>SymbolDetailPage<br/>+ IndicatorPanel + PatternToggleMenu"]
+        FE_SB["/strategy/builder<br/>StrategyBuilderPage<br/>(트리 폼 빌더 + DSL 토글)"]
+        FE_DASH["/<br/>DashboardPlaceholder"]
+    end
+
+    subgraph API["api (Spring Boot 3.3 / 8080)"]
+        API_REST["REST controllers<br/>onboarding · watchlist · symbol · instrument<br/>candle · indicator · strategy · pattern · dsl-translate"]
+        API_STOMP["STOMP /ws<br/>tick · candle · orderbook"]
+        API_GUARD["OnboardingGuardFilter<br/>(401 ONBOARDING_REQUIRED)"]
+        API_AUTH["KisAuthValidator<br/>AesGcmCipher AES-256-GCM"]
+        API_FLY["Flyway V1~V11 적용기<br/>(다른 모듈은 enabled=false)"]
+        API_AI["NaturalLanguageDslTranslator<br/>(@Service · ChatClient lazy)<br/>+ MockDslHeuristic 9 패턴 fallback"]
+    end
+
+    subgraph BATCH["batch (Spring Batch / 8081)"]
+        B_INSTR["InstrumentSyncJob<br/>(13 cron + boot sync)"]
+        B_KIS_MASTER["KisInstrumentMasterAdapter<br/>EUC-KR fixed-width<br/>KOSPI 70 / KOSDAQ 64 widths"]
+        B_CHK["KisChkHolidayAdapter<br/>tr_id=CTCA0903R"]
+        B_KSD["KisKsdInfoAdapter<br/>HHKDB669100C0~106C0 (6)"]
+        B_DART["DartDisclosureAdapter<br/>DartCorpCodeRepository"]
+        B_CALSEED["MarketCalendarSeedRunner<br/>2026~2027 31건 정적 시드"]
+        B_CASYNC["CorpActionSyncJob<br/>cron 18:30"]
+        B_CADJ["CandleAdjustmentJob<br/>(corp_action.applied.v1 listener)"]
+    end
+
+    subgraph CONSUMER["consumer (Kafka + KIS WS / 8082)"]
+        C_WL_LISTEN["WatchlistChangedKafkaListener"]
+        C_INGEST["WatchlistIngestionWorker<br/>+ SubscriptionRouter (slot 1+30+10)"]
+        C_POLL["WatchlistPollingWorker (5s)"]
+        C_COLD["ColdStartExecutor<br/>(Yahoo 7 interval × 1회)"]
+        C_KIS_WS["KisWebSocketBridge<br/>H0STCNT0 체결가 + H0STASP0 호가"]
+        C_KIS_REST["KisRestPriceAdapter<br/>FHKST01010100 (polling fallback)"]
+        C_TICK_AGG["TickToMinuteAggregator<br/>(@Scheduled 매 분 0초)"]
+        C_DCF["DailyCloseFinalizer<br/>(@Scheduled 16:00 KST)"]
+        C_BOOTSTRAP["PositionBootstrapRunner<br/>ApplicationRunner ADR 0042"]
+        C_IND["KisStrategyBuilderSource (80지표)<br/>+ NativeIndicatorSource 5종<br/>+ IndicatorEngine + RedisCache"]
+        C_DSL["KisYamlDslParser (parser.py 1:1)<br/>+ JvmStrategyEvaluator<br/>+ sandbox + auto-disable"]
+    end
+
+    subgraph PATTERN_ENGINE["pattern-engine (라이브러리 jar — ADR 0054)<br/>kotlin('jvm') + Spring Context · Boot main 0"]
+        P_REG["JvmPatternRecognizer<br/>@Component('patternRecognizer')<br/>require(detectors.size == 57)"]
+        P_DETECT["57 detector<br/>single 14 + pair 16 + triple 27<br/>R1 active 10 + R2 stub 47"]
+        P_HELPER["util/CandleMath<br/>+ helper/SimpleTripleHelper<br/>+ helper/ConsecutiveDirectionCalculator"]
+        P_CACHE["RedisPatternCacheAdapter<br/>분봉 5분 / 일봉 1일 TTL"]
+    end
+
+    subgraph DOMAIN["domain (Pure Kotlin — Spring·JPA 0)"]
+        D_PORTS["ports<br/>(InstrumentRepository · KisRestPort · KisWsPort ·<br/>MarketSessionResolver · CorpActionRepository ·<br/>IndicatorEngine · IndicatorSource ·<br/>StrategyRepositoryPort · PatternRecognizer · PatternDetector)"]
+        D_DSL["domain/strategy<br/>23+ sealed/enum/data class<br/>(KIS parser.py 1:1 port + 3 rename)"]
+        D_PAT["domain/pattern<br/>5 도메인 + 7 port + PatternCatalog 57"]
+        D_IND["domain/indicator<br/>7 port + IndicatorCatalog 80 metadata"]
+    end
+
+    subgraph INFRA["인프라 3 + 디버깅 2"]
+        PG[("PostgreSQL 16<br/>Flyway V1~V11")]
+        REDIS[("Redis 7<br/>quote·session·instrument·position·kis token<br/>+ indicator:cache + pattern:cache")]
+        KAFKA[("Kafka 3.7 KRaft<br/>retention 1h / 200MB / segment 10MB")]
+        DOZZLE["Dozzle 8888<br/>(로그 web UI)"]
+        KAFKAUI["Kafka UI 8090"]
+    end
+
+    %% Frontend → API
+    FE_SETUP -->|"HTTP+STOMP"| API_REST
+    FE_WL -->|"HTTP+STOMP"| API_REST
+    FE_SYM -->|"HTTP+STOMP"| API_STOMP
+    FE_SB -->|"HTTP /api/strategy + /api/dsl/translate-from-natural"| API_REST
+    FE_DASH -->|"HTTP"| API_REST
+
+    %% API → External (직접)
+    API_AUTH -->|"OAuth2 검증"| KISREST
+    API_AI -->|"Spring AI Anthropic ChatClient"| ANTHROPIC
+
+    %% Batch → External
+    B_KIS_MASTER -->|"GET zip"| KISMASTER
+    B_CHK -->|"tr_id=CTCA0903R"| KISREST
+    B_KSD -->|"6 endpoint"| KISREST
+    B_DART -->|"list.json + corpCode.xml"| DART
+
+    %% Consumer → External
+    C_KIS_WS -->|"WebSocket H0STCNT0/ASP0"| KISWS
+    C_KIS_REST -->|"tr_id=FHKST01010100"| KISREST
+    C_COLD -->|"Yahoo v8/chart"| YAHOO
+
+    %% pattern-engine은 라이브러리 — api·consumer가 implementation
+    API_REST -.->|"implementation(:pattern-engine)"| P_REG
+    C_DSL -.->|"implementation(:pattern-engine) · DSL pattern_detected"| P_REG
+    P_REG --> P_DETECT
+    P_DETECT --> P_HELPER
+    P_REG --> P_CACHE
+
+    %% API ↔ infra
+    API_REST --> PG
+    API_REST --> REDIS
+    API_REST -->|"producer"| KAFKA
+    API_FLY --> PG
+
+    %% Batch ↔ infra
+    B_INSTR --> PG
+    B_INSTR -->|"producer"| KAFKA
+    B_CASYNC --> PG
+    B_CASYNC -->|"producer"| KAFKA
+    B_CALSEED --> PG
+    B_CADJ -->|"consumer"| KAFKA
+
+    %% Consumer ↔ infra
+    C_WL_LISTEN -->|"consumer"| KAFKA
+    C_INGEST --> REDIS
+    C_KIS_WS -->|"producer"| KAFKA
+    C_TICK_AGG --> PG
+    C_DCF --> PG
+    C_BOOTSTRAP --> REDIS
+    C_BOOTSTRAP --> PG
+    C_IND --> REDIS
+    P_CACHE --> REDIS
+
+    %% Domain (헥사고날 — 모든 모듈이 import)
+    API_REST -->|"implements port"| D_PORTS
+    B_INSTR -->|"implements port"| D_PORTS
+    C_KIS_WS -->|"implements port"| D_PORTS
+    P_REG -->|"implements PatternRecognizer port"| D_PAT
+    C_IND -->|"implements IndicatorSource port"| D_IND
+    C_DSL -->|"reads domain/strategy AST"| D_DSL
+```
+
+**범례**:
+- 실선 화살표 — DB·Redis·Kafka inbound/outbound
+- 점선 화살표 — 외부 HTTP/WS 호출 + pattern-engine library 의존(implementation)
+- `domain`은 모든 JVM 모듈의 의존이지만 시각화 단순화를 위해 별도 박스 + port implements 점선만 표시
+- `pattern-engine`은 라이브러리 jar(컨테이너 추가 0) — Spring Context는 있지만 Spring Boot main 0. api·consumer 컨테이너가 build 시 흡수.
+
+**원칙**: 외부 6개(KIS REST·KIS WS·KIS 종목마스터 ZIP·DART·Yahoo·Anthropic) 중 어느 하나가 끊겨도 본체는 동작 — 영속 candle·Redis 캐시·정적 시드·last-day-close fallback (`master-architecture.md` §3-2). Anthropic은 사용자 트리거 helper만이라 부재 시 MockDslHeuristic 9 패턴 fallback 또는 503 AI_DISABLED 응답(ADR 0023·0026·룰 5).
+
+---
+
+## §2. 모듈 책임 매트릭스 (v3.2.0 실체 — 5 모듈)
+
+`master-architecture.md` §5-1A·§5-2 + `settings.gradle.kts:14~20` 기준 5 JVM 모듈 + frontend 1 SPA. v3.2.0 시점 실제 구현된 컴포넌트만 표기.
+
+### 2-1. v3.1.0 W1 트랙 (보존 — v3.1.0 baseline 01-architecture.md §2 정합)
+
+| 영역 | api | batch | consumer | frontend |
+|------|-----|-------|----------|----------|
+| Onboarding (T-ONBOARD) | OnboardingController 5 endpoint · AesGcmCipher · KisAuthValidator · OnboardingGuardFilter | — | — | SetupWizard 7-step |
+| Watchlist (T-W1) | WatchlistController 3 endpoint · WatchlistService · `watchlist.changed.v1` producer | — | PositionBootstrapRunner · KisAuthAdapter · KisBalanceAdapter | WatchlistPage |
+| Ingestion (T-W2) | candle persistence | — | WatchlistChangedKafkaListener · SubscriptionRouter · KisWebSocketBridge · TickToMinuteAggregator | — |
+| Symbol Detail (T-S1) | SymbolController · KisRestPriceMetricsAdapter · WebSocketConfig STOMP | — | KisWsOrderbookParser · OrderbookSubscriptionRouter | SymbolDetailPage 9 컴포넌트 |
+| Market Session (T-MS1) | KrxMarketSessionResolver · MarketCalendarRepository | KisChkHolidayAdapter · MarketCalendarSyncJob · MarketCalendarSeedRunner | DailyCloseFinalizer · TickFallbackEmitter | (closed variant) |
+| Corp Action (T-CA1) | CorpActionRepositoryAdapter | KisKsdInfoAdapter (6 endpoint) · DartDisclosureAdapter · CorpActionSyncJob · CandleAdjustmentJob | CandleAdjustmentJob 동반 | (W2 후속) |
+| Instrument Master (T-IM1) | InstrumentController 4 endpoint · InstrumentSearchService · 83 필드 JpaEntity | KisInstrumentMasterAdapter · InstrumentSyncJob · InstrumentMasterSyncScheduler · InstrumentSeedRunner | InstrumentUpdatedKafkaPublisher | InstrumentSearchInput |
+
+상세는 `_workspace/baseline/v3.1.0/01-architecture.md §2`. v3.2.0에서 변경 0(pure additive).
+
+### 2-2. v3.2.0 신규 W2 트랙 (T-IND · T-DSL · T-PAT · T-SB)
+
+| 영역 | api | batch | consumer | pattern-engine | frontend |
+|------|-----|-------|----------|----------------|----------|
+| **Indicator (T-IND)** | IndicatorController REST (`GET /api/indicators?code·name·interval·params·from·to·adjusted`) · IndicatorService cache-aside · IndicatorEngineConfig (api scope `@Bean autowire List<IndicatorSource>`) · domain/indicator port 5 파일(IndicatorSpec·Result·Point·Exception·Engine — backend-core PR-33b) | — | KisStrategyBuilderSource 80지표 (priority=100, KIS `indicators.py` 1507 lines 1:1 port — 6 카테고리 파일 Trend·Momentum·Volume·Volatility·Oscillator·Other) · NativeIndicatorSource 5종(MA·EMA·RSI·MACD·BB) (priority=50) · IndicatorEngineConfig (consumer scope) · RedisIndicatorCacheAdapter (`indicator:cache:{code}:{interval}:{name}:{paramsHash}` SHA-256 16자 + 분봉 5m / 일봉 1d TTL) · domain/indicator port 7 파일 add (strategy-engine PR-33a) | — | api/indicator.ts 80 catalog · useIndicators hook (TanStack Query) · IndicatorPanel 토글(체크박스 + 카테고리 6 섹션 + 검색 + 5개 제한) · IndicatorOverlay (LWC v4 addLineSeries/addHistogramSeries · multi-output 5종 분기) · 정확성 fixture 32건 |
+| **Strategy DSL (T-DSL)** | StrategyController 7 endpoint(`POST·GET list·GET/{id}·DELETE·PUT enable·POST validate·POST evaluate`) · StrategyService(validateAndComputeComplexity + create + autoDisable + complexity 4단 LOW/MEDIUM/HIGH/CRITICAL) · StrategyJpaEntity·Repository·Adapter (body fun 0 — ADR 0051) · StrategyEvalMetricJpaEntity·Repository · StrategyExceptionHandler @RestControllerAdvice 7 예외 → 400/503 · NaturalLanguageDslTranslator(@Service · ChatClient lazy + 1회 재시도 + 안전 화이트리스트 차단 + sanitize 코드펜스/줄바꿈 + UNTRANSLATABLE 인식) · DslTranslateController(POST `/api/dsl/translate-from-natural` · Bean Validation @NotBlank @Size(max=1000) · 503 AI_DISABLED 분기) · MockDslHeuristic 9 패턴 fallback · `resources/prompts/dsl-translate.md` few-shot 10건 · Flyway V9·V10·V11 | — | KisYamlDslParser (KIS `parser.py` 664 lines 1:1 port — 21 token 정규식 + 6단 재귀 하강 `_parse_or→and→condition→arithmetic→term→factor` + AST 빌더 + static 검증 visitor depth/노드/indicator/화이트리스트 + complexity 4단) · parseYaml(.kis.yaml import — Jackson YAML) · JvmStrategyEvaluator (IndicatorEngine 단일 진입점 ADR 0021 + sandbox timeout 100ms · CPU budget 50ms · strategy-eval-pool 4 fixed + Future.cancel + auto-disable 콜백) · DslIdentifierMapper 25+ alias · StrategyEvalPoolConfig · StrategyEvalMetricRecorder (in-memory ring buffer N=100 · OK/TIMEOUT/CPU_EXCEEDED/UNKNOWN_SYMBOL/SYNTAX_ERROR) · domain/strategy 17 sealed class · enum · data class | — | api/strategy.ts 7 endpoint DTO · api/dslTranslate.ts · useStrategy hooks 7건 · useStrategyTranslate · 트리 폼 빌더 컴포넌트 8종 |
+| **Pattern (T-PAT)** | PatternController REST(`GET /api/patterns?code·interval·patterns·from·to`) · PatternResponseDto · RedisPatternCacheAdapter(api 측 — pattern-engine과 동일 키 정책) · PatternControllerTest 5 케이스 · `@TestPropertySource(magicjar.pattern.enabled=true)` 잔재(v3.1.2 hotfix 게이트, PR-43에서 본격 제거) | — | KisYamlDslParser 화이트리스트 갱신 — `pattern_detected("name")` 토큰 추가 (magicJar alias `pattern("name")` 동치 라우팅 + isPatternIndicator 보강) · JvmStrategyEvaluator evalPattern when 분기 `pattern_detected` 합류 → patternRecognizer.recognize · domain/pattern port import만 | **JvmPatternRecognizer (`@Component("patternRecognizer")` Map registry 자동 수집 + `init { require(detectors.size == 57) }` + KIS L48 5캔들 minimum + L57 try/except graceful + recognize 2 overload + consecutive helper) · 57 detector(single 14 + pair 16 + triple 27 — KIS `candlestick.py` 755 lines 1:1 port — R1 active 10 + R2 stub 47) · util/CandleMath KIS 7 helper(body·upper_shadow·lower_shadow·range·is_bullish·is_bearish·avg_body BigDecimal scale=8) · helper/SimpleTripleHelper(KIS L562 `_simple_triple` Kotlin port — bullish/bearish 3양봉/3음봉 close 단조성 검증) · helper/ConsecutiveDirectionCalculator (magicJar own — KIS 미존재 — DSL `consecutive("up"|"down")` 호환 Int 응답) · RedisPatternCacheAdapter (`patternsHash` SHA-256 16자 + 5분 분봉/1일 일봉 TTL)** | api/patterns.ts 57 PATTERN_CATALOG · usePatterns hook · PatternMarker(LWC v4 ISeriesApi.setMarkers · BULL belowBar·#26a69a·arrowUp·"▲" / BEAR aboveBar·#ef5350·arrowDown·"▼" / NEUTRAL 제외 · ASC 정렬) · PatternToggleMenu(57 catalog Single/Double/Triple 3 섹션 + R1 active 10건 체크 + R2 stub 47 dim/disabled "(준비 중)" + localStorage 자동 저장/복원 + usePatternSelection hook + 전체선택/해제) · LightweightChart `onCandleSeriesReady`/`onCandleSeriesDestroy` prop 추가 · SymbolChart 통합(패턴 토글 + 슬라이드인 패널 + overlay + 0건 안내) |
+| **Strategy Builder (T-SB)** | (REST는 T-DSL StrategyController 재사용 — 7 endpoint) | — | (T-DSL evaluate 재사용) | — | **lib/dsl/blockTree.ts(BlockNode discriminated union 8종 + BlockTree + 조작 헬퍼 — backend DslStrategyDefinition 1:1) · serializer.ts(serializeBlockTree → DSL 1줄 텍스트 — 화이트리스트 매트릭스 LOCK · 토큰 KisYamlDslParser 1:1) · parser.ts(parseDslText 재귀 하강 6단 — backend 6단 정합 · 화이트리스트 위반 throw · 최대 깊이 50) · yaml.ts(kisYamlExport/kisYamlImport — KIS .kis.yaml 호환 · 1MB 제한) · catalogIds.ts(파서 화이트리스트용 80지표+57패턴 ID Set) · BlockPalette(4탭 — 지표80·패턴57·캔들·연산자 + 검색) · BlockNode(재귀 트리 노드 8분기 + 키보드 Tab/Enter/Delete 접근성) · StrategyBuilderCanvas(entry/exit 두 탭 + DSL 미리보기 readonly + 액션버튼) · DslTextEditor(textarea DSL 직접 편집 — Monaco 없음 ADR 0055) · NaturalLanguageInput(자연어 모달 — REAL/MOCK/UNTRANSLATABLE/DISABLED 4분기 ADR 0023) · EvaluationResultCard(BUY/SELL/HOLD 배지 + 강도 게이지 + 관심종목 추가 ADR 0040 + EvaluationEmptyCard "데이터 없음" 명시 — feedback_no_mock_data.md) · ComplexityCard(LOW/MEDIUM/HIGH/CRITICAL 4단) · StrategySaveModal(name·nameKo·universe·tf 폼) · StrategyBuilderPage 통합 · /strategy/builder 라우트 · AppHeader "전략 빌더" 메뉴** |
+| **Domain (모든 모듈 import)** | Spring·JPA·Kafka 의존 0 — 순수 도메인 + port 인터페이스만. v3.2.0에서 indicator/* 7 port + strategy/* 23+ sealed class · enum · data class + pattern/* 5 도메인 + 7 port add. | | | | |
+
+### 2-3. pattern-engine 모듈 (ADR 0054 — v3.2.0 신규)
+
+| 항목 | 값 | 출처 |
+|------|----|----|
+| 위치 | `pattern-engine/` (root 직속, domain과 동일 레벨) | settings.gradle.kts L14~20 |
+| 종류 | Kotlin + Spring Context (Spring Boot main 0, 라이브러리 jar) | pattern-engine/build.gradle.kts |
+| 패키지 루트 | `kr.spdaewoon.magicjar.pattern.*` | git mv 결과 |
+| 의존 | `pattern-engine` → `domain`만. `api`·`consumer` → `pattern-engine` 의존 추가 (`implementation(project(":pattern-engine"))`) | api/build.gradle.kts · consumer/build.gradle.kts |
+| 컨테이너 | 0 (라이브러리 jar — 컨테이너 수 api·batch·consumer 3개 유지) | docker-compose.yml |
+| 파일 수 | 62 main + 4 test (5번째 PatternDslTokenTest는 KisYamlDslParser 의존성 때문에 consumer 잔류) | PR-42 git mv 결과 |
+| Bean name | `@Component("patternRecognizer")` LOCK — T-DSL stub `@ConditionalOnMissingBean` 자동 비활성화 매커니즘 보존 | JvmPatternRecognizer.kt |
+| 신설 사유 | v3.1.2 hotfix(PR #261) `@ConditionalOnProperty` 임시 게이트가 결함 봉합 — api 컨테이너 부팅 시 `PatternRecognizer` 빈 미발견 + ADR 0004 §의존 방향(api ↛ consumer) 위반 회피 | ADR 0054 §맥락·결정 |
+
+**v3.2.0 시점 미발행 영역** (master §2 19컴포넌트 중 W3~W5 — 본 baseline에는 포함 안 함):
+- Backtest · Screener · Signal · Risk · Order · Reconcile · Notify · Performance (W3)
+- AI Console · MCP Server (W4) — 단, T-DSL 자연어 helper는 v3.2.0에 발행됨 (Spring AI Anthropic, ADR 0023·0026 사용자 트리거 한정)
+- LWC 확장 · Learn (W5)
+
+`docs/architecture/master-architecture.md` §2 + `tracks-roadmap.md` §1·§2 정합.
+
+---
+
+## §3. 외부 통합 매트릭스 (raw 출처 의무 — 헌법 §3 KIS-first)
+
+`master-architecture.md` §4 + 코드 inspection 결과. 모든 endpoint·tr_id는 코드 inline 주석에 raw 출처 명시 의무. v3.1.0 보존 + v3.2.0 추가(Anthropic).
+
+### 3-1. KIS REST API (공식 https://github.com/koreainvestment/open-trading-api)
+
+| 호출 위치 | endpoint | tr_id | 인증 | 용도 | raw 출처 |
+|-----------|----------|-------|------|------|----------|
+| `api/.../KisAuthValidator.kt` | `/oauth2/tokenP` | — | appkey + appsecret | KIS 키 검증 (셋업) | apiportal.koreainvestment.com/apiservice |
+| `consumer/.../KisRestPriceAdapter.kt` | `/uapi/domestic-stock/v1/quotations/inquire-price` | `FHKST01010100` | Bearer | 5초 polling fallback (T-W2) | open-trading-api `inquire_price.py` |
+| `consumer/.../KisRestCandleAdapter.kt` | `/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice` | `FHKST03010100` | Bearer | 일/주/월/년봉 cold-start (T-W2) | open-trading-api `inquire_daily_itemchartprice.py` |
+| `api/.../KisRestPriceMetricsAdapter.kt` | financial-ratio + inquire-volume | (헤더 보강) | Bearer + appkey/appsecret | T-S1 PER/PBR/거래량 | KIS 공식 API portal |
+| `consumer/.../KisBalanceAdapter.kt` | `/uapi/domestic-stock/v1/trading/inquire-balance` | `TTTC8434R` (실전) / `VTTC8434R` (모의) | Bearer + 계좌 | Position Bootstrap | open-trading-api `inquire_balance.py` |
+| `batch/.../KisChkHolidayAdapter.kt` | `/uapi/domestic-stock/v1/quotations/chk-holiday` | `CTCA0903R` | Bearer | 영업일·공휴일 캘린더 (T-MS1) | open-trading-api `chk_holiday.py` |
+| `batch/.../KisKsdInfoAdapter.kt` | `/uapi/domestic-stock/v1/ksdinfo/{6 endpoint}` | `HHKDB669100C0` 외 5건 | Bearer | Corp Action (T-CA1) | open-trading-api `ksdinfo_*` 6 디렉토리 |
+| `consumer/.../KisAuthAdapter.kt` | `/oauth2/Approval` (WS) + `/oauth2/tokenP` (REST) | — | Redis 분산락 23h cache | KIS OAuth 통합 | open-trading-api `kis_auth.py` |
+
+**v3.2.0 신규 KIS 1:1 port** (REST endpoint 호출 0 — Python 함수 Kotlin port):
+
+| 호출 위치 | KIS raw | 함수 수 | 트랙 |
+|-----------|---------|---------|------|
+| `consumer/.../indicator/source/kis/{Trend·Momentum·Volume·Volatility·Oscillator·Other}.kt` | `examples_llm/.../indicators.py` 1507 lines | 80 calc 함수 | T-IND |
+| `consumer/.../strategy/KisYamlDslParser.kt` | `examples_llm/.../strategy_builder/parser.py` 664 lines | 21 token + 6단 재귀 하강 | T-DSL |
+| `pattern-engine/.../detector/{single,pair,triple}/*.kt` + `helper/SimpleTripleHelper.kt` + `util/CandleMath.kt` | `examples_llm/.../candlestick.py` 755 lines | 65 PATTERN_DETECTORS dict (alias 정합 후 magicJar 57 LOCK) + 7 helper + `_simple_triple` | T-PAT |
+
+**검증 보고서**:
+- `_workspace/specs/pr-21-kis-header-raw-verification.md` (T-IM1 v3.1.0)
+- `_workspace/strategy/cross-check/kis-indicator-fixture.json` (T-IND v3.2.0 — drift 0.001% 기준)
+- `_workspace/specs/pr-35-kis-dsl-raw-verification.md` (T-DSL v3.2.0)
+- `_workspace/specs/pr-38-kis-pattern-raw-verification.md` (T-PAT v3.2.0)
+
+### 3-2. KIS WebSocket
+
+| 호출 위치 | URL | tr_id | 용도 |
+|-----------|-----|-------|------|
+| `consumer/.../KisWebSocketBridge.kt` | `wss://ops.koreainvestment.com:21000` (실전) / `:31000` (VPS) | `H0STCNT0` (체결가) | T-W2 실시간 시세 |
+| 동일 어댑터 | 동일 URL | `H0STASP0` (호가) | T-S1 OrderbookSubscriptionRouter (LRU 10) |
+| 후속 (W3) | 동일 URL | `H0STCNI0` (체결통보) | T-O 주문 체결 — v3.2.0 미발행 |
+
+PIPE(`|`) + 캐럿(`^`) 구분자 + H0STCNT0 45필드 인덱스는 KIS-first raw fetch (open-trading-api `domestic_stock_functions_ws.py`) 정합.
+
+### 3-3. KIS 종목마스터 ZIP (인증 불필요 공개 다운로드)
+
+| 호출 위치 | URL | 용도 |
+|-----------|-----|------|
+| `batch/.../KisInstrumentMasterAdapter.kt` | `https://new.real.download.dws.co.kr/.../{kospi_code\|kosdaq_code}.mst.zip` | KOSPI 70 widths (sum=227byte) + KOSDAQ 64 widths (sum=221byte) EUC-KR fixed-width 파싱 |
+
+raw 출처: open-trading-api `stocks_info/kis_kospi_code_mst.py` + `kis_kosdaq_code_mst.py`. PR-21 fitness gap 91.7% 해소 (14 → 83 필드).
+
+### 3-4. DART OPENDART (공시·기업코드)
+
+| 호출 위치 | URL | 용도 |
+|-----------|-----|------|
+| `batch/.../DartCorpCodeRepository.kt` | `https://opendart.fss.or.kr/api/corpCode.xml?crtfc_key={key}` (ZIP) | 기업코드 in-memory (T-CA1) |
+| `batch/.../DartDisclosureAdapter.kt` | `https://opendart.fss.or.kr/api/list.json` | 공시 목록 (pblntf_ty=B 발행공시 + D 지분공시) (T-CA1) |
+
+API 가이드: `https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS001&apiId=2019001`. 본 v3.1.0 → v3.2.0 사이 v3.1.0 dogfooding handshake_failure(backlog §22) 인지됨 — W3 진입 시 정리 예정.
+
+### 3-5. Yahoo Finance (Cold-start fallback)
+
+| 호출 위치 | URL | 용도 |
+|-----------|-----|------|
+| `consumer/.../YahooCandleFetcherAdapter.kt` | `https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval={...}&range={...}` | T-W2 ColdStartExecutor — 7 interval(2m·5m·15m·30m·90m·1h·1d) × 1회 cold-start. `.KS`(KOSPI) → `.KQ`(KOSDAQ) suffix fallback. HTTP 429 재시도. |
+
+`master-architecture.md` §3-1 [3] + `candle-data-policy-v2.md` §6 정합.
+
+### 3-6. **(v3.2.0 신규)** Anthropic — Spring AI ChatClient (T-DSL 자연어→DSL helper)
+
+| 호출 위치 | URL | 용도 | 게이트 |
+|-----------|-----|------|--------|
+| `api/.../ai/dsl/NaturalLanguageDslTranslator.kt` | `https://api.anthropic.com/v1/messages` (Spring AI starter 통한 추상화 호출) | 자연어 → DSL 변환 1:1 helper(사용자 트리거 한정) | `MAGICJAR_AI_ENABLED=false` default + `MAGICJAR_AI_MOCK_MODE=auto` (키 없으면 자동 mock fallback) + `ANTHROPIC_API_KEY` 옵션 |
+
+**모델·파라미터**: `claude-3-5-sonnet-20241022` · temperature 0 · max-tokens 256 (PR-36 자연어 helper).
+
+**프롬프트**: `api/src/main/resources/prompts/dsl-translate.md` — 역할·출력 LOCK · DSL 카탈로그 80지표 + 캔들 직접 + 패턴 stub + few-shot 10건 KIS raw L1-L16 정합 + UNTRANSLATABLE 출력 규약.
+
+**사용자 트리거 한정 (룰 5)**:
+- W1·W2·W3 본체 코드에 LLM provider import 0건 LOCK (룰 5)
+- AI는 W4 영역 + 본 1 helper 한정 (사용자 트리거 + 매매 결정권 0 — ADR 0023·0026)
+- 본체 흐름(시그널 매칭·주문 결정·리스크 판단)에 AI 호출 0
+- `STOMP /api/dsl/translate-from-natural` POST + Bean Validation @NotBlank @Size(max=1000) + 503 AI_DISABLED 분기
+
+**fallback (Anthropic 부재 시)**:
+- `MAGICJAR_AI_MOCK_MODE=auto` + ANTHROPIC_API_KEY 없음 → MockDslHeuristic 9 패턴 fallback (RSI 과매도/과매수·골든크로스·데드크로스·신고가 돌파·백분율·BB 하단·MACD 골든크로스·거래량 동반)
+- non-anthropic provider 자동 fallback
+
+---
+
+## §4. 영속 계층 (Flyway V1~V11 누적 — V8 → V11 +3건)
+
+`api/src/main/resources/db/migration/` 디렉토리. `api` 모듈 단독 적용 (`batch`·`consumer`·`pattern-engine`은 `flyway.enabled=false` — ADR 0006 정합). pattern-engine은 영속 0(라이브러리 jar이라 Flyway 무관).
+
+### 4-1. 마이그레이션 시계열 (v3.2.0 신규 V9·V10·V11)
+
+| Flyway | 파일 | 발행 PR | 트랙 | 핵심 변경 |
+|--------|------|---------|------|-----------|
+| V1 | `V1__baseline.sql` | PR-5a (#189) | 부트스트랩 | 11 테이블 baseline (v3.1.0 보존) |
+| V2 | `V2__onboarding_refinements.sql` | PR-6a (#193) | T-ONBOARD | (v3.1.0 보존) |
+| V3 | `V3__watchlist_position_refinements.sql` | PR-7a (#196) | T-W1 | (v3.1.0 보존) |
+| V4 | `V4__instrument_master_search.sql` | PR-11a (#206) | T-IM1 | (v3.1.0 보존) |
+| V5 | `V5__instrument_kis_first_expansion.sql` | PR-21a (#219) | T-IM1 | 70 컬럼 add-only ALTER (v3.1.0 보존) |
+| V6 | `V6__market_calendar_and_reject_audit.sql` | PR-29a (#230) | T-MS1 | (v3.1.0 보존) |
+| V7 | `V7__corp_action.sql` | PR-29b (#231) | T-CA1 | (v3.1.0 보존) |
+| V8 | `V8__candle_adjusted.sql` | PR-29b (#231) | T-CA1 | candle.adjustment_factor·volume_adjusted (v3.1.0 보존) |
+| **V9** | `V9__strategy.sql` | **PR-36b (#255)** | **T-DSL** | strategy 기본 테이블(id · user_id FK · name · name_ko · universe · timeframe · dsl_text · dsl_yaml · complexity · enabled · created_at · updated_at) |
+| **V10** | `V10__strategy_disabled_reason.sql` | **PR-36b (#255)** | **T-DSL** | strategy ALTER — disabled_reason · last_disabled_at · eval_metric_summary 컬럼 add (auto-disable 정합 — ADR 0047) |
+| **V11** | `V11__strategy_eval_metric.sql` | **PR-36b (#255)** | **T-DSL** | strategy_eval_metric 신규(strategy_id FK · outcome ENUM(OK·TIMEOUT·CPU_EXCEEDED·UNKNOWN_SYMBOL·SYNTAX_ERROR) · duration_ms · captured_at) — in-memory ring buffer N=100 보완 영속 |
+
+### 4-2. 모듈별 Flyway 운영 (v3.1.0 검증 결과 보존)
+
+- `api` 모듈 — `flyway.enabled=true` (단독 책임, V1~V11 적용)
+- `batch` 모듈 — `flyway.enabled=false`
+- `consumer` 모듈 — `flyway.enabled=false`
+- `pattern-engine` 모듈 — Flyway 미적용(라이브러리 jar)
+- 부팅 순서 — `docker-compose.yml` `depends_on: api-app: { condition: service_healthy }` (batch·consumer는 api 모듈의 Flyway 적용 완료 후 시작)
+
+### 4-3. v3.2.0 시점 활성 테이블 (V1~V11 적용 후 — strategy 도메인 신규 add)
+
+```mermaid
+erDiagram
+    user_account ||--o{ strategy : "owns (W2 신규)"
+    strategy ||--o{ strategy_eval_metric : "metrics"
+    instrument ||--o{ watchlist : "registered"
+    instrument ||--o{ candle : "has prices"
+    instrument ||--o{ corp_action : "ex-dates"
+    user_account ||--o{ watchlist : "owns"
+    user_account ||--o{ position : "holds"
+    user_account ||--o{ orders : "places"
+    user_account ||--|| user_kis_credential : "1:1 AES-256-GCM"
+    user_account ||--|| kill_switch_state : "1:1"
+
+    strategy {
+        bigint id PK
+        bigint user_id FK
+        varchar name
+        varchar name_ko
+        varchar universe
+        varchar timeframe
+        text dsl_text
+        text dsl_yaml
+        varchar complexity
+        boolean enabled
+        varchar disabled_reason
+        timestamptz last_disabled_at
+        jsonb eval_metric_summary
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    strategy_eval_metric {
+        bigint id PK
+        bigint strategy_id FK
+        varchar outcome
+        bigint duration_ms
+        timestamptz captured_at
+    }
+    instrument {
+        varchar code PK
+        varchar market
+        varchar type
+        varchar name
+        varchar name_norm
+        boolean active
+        numeric_70_fields kis_first
+    }
+    watchlist {
+        bigint id PK
+        bigint user_id FK
+        varchar code FK
+        int priority
+    }
+    candle {
+        bigint id PK
+        varchar code FK
+        varchar interval
+        timestamptz at
+        numeric open_raw
+        numeric close_raw
+        numeric adjustment_factor
+        numeric volume_adjusted
+    }
+    corp_action {
+        bigint id PK
+        varchar code FK
+        varchar action_type
+        date ex_date
+        numeric factor
+    }
+```
+
+> Mermaid ERD는 v3.2.0 활성 테이블 핵심 관계만 표시. 전체 테이블 풀 명세는 V1~V11 SQL 파일을 SoT로 본다. v3.1.0 보존 테이블(system_config·user_kis_credential·orders·order_reject_audit·market_calendar·position·notification_outbox·audit_trail·instrument_alias·kill_switch_state)은 시각화 단순화를 위해 생략.
+
+---
+
+## §5. Frontend 라우팅 + 데이터 fetch 패턴 (v3.1.0 4 → v3.2.0 5 라우트)
+
+`frontend/src/App.tsx` SoT.
+
+### 5-1. 라우트 트리
+
+```mermaid
+graph LR
+    ROOT[App.tsx] --> GUARD["OnboardingGuard<br/>GET /api/onboarding/status"]
+    GUARD --> SETUP["/setup<br/>SetupWizard 7-step"]
+    GUARD --> LAYOUT["AppLayout + AppHeader"]
+    LAYOUT --> DASH["/<br/>DashboardPlaceholder"]
+    LAYOUT --> WL["/watchlist<br/>WatchlistPage"]
+    LAYOUT --> SYM["/symbol/:code<br/>SymbolDetailPage<br/>+ IndicatorPanel<br/>+ PatternToggleMenu"]
+    LAYOUT --> SB["/strategy/builder<br/>StrategyBuilderPage<br/>(W2 신규)"]
+    LAYOUT --> CATCH["* → Navigate '/'"]
+
+    GUARD -->|"hasUserAccount=false"| SETUP
+    GUARD -->|"hasUserAccount=true && path=/setup"| DASH
+```
+
+### 5-2. 데이터 fetch 매트릭스 (v3.2.0 add)
+
+| 화면 | REST | STOMP | hook | 정책 |
+|------|------|-------|------|------|
+| `/setup` (보존) | POST `/api/onboarding/{kis/validate,kis/mock,system-config,complete}` | — | onboarding.ts (5 hooks) | (v3.1.0 baseline 그대로) |
+| `/watchlist` (보존) | GET·POST·DELETE `/api/watchlists` + GET `/api/instrument/search` | — | useWatchlist · useAddWatchlist · useRemoveWatchlist · useInstrumentSearch | (v3.1.0 baseline 그대로) |
+| `/symbol/:code` (W2 확장) | GET `/api/symbol/:code` (5s polling) + GET `/api/symbol/:code/candles` (InfiniteQuery) + POST `/api/symbol/:code/orderbook/{subscribe\|unsubscribe}` + **GET `/api/indicators?code·name·interval·params·from·to·adjusted` (T-IND R3)** + **GET `/api/patterns?code·interval·patterns·from·to` (T-PAT R3)** | `/topic/symbol/{code}/tick` · `/candle/1m` · `/orderbook` (3 forwarder) | useSymbol · useSymbolCandles · useStompTopic · **useIndicators (TanStack Query — 분봉 60s/일봉 300s staleTime)** · **usePatterns (분봉 300,000ms/일봉 86,400,000ms staleTime — backend Redis TTL LOCK)** | LWC v4 IndicatorOverlay multi-output 5종(MACD·BB·SuperTrend·Stochastic·Pivot) 분기. PatternMarker setMarkers BULL/BEAR/NEUTRAL 제외. |
+| **`/strategy/builder` (W2 신규)** | POST `/api/strategy/validate` · POST `/api/strategy` · GET list/{id} · DELETE · PUT enable · POST `/api/strategy/evaluate` · **POST `/api/dsl/translate-from-natural` (사용자 트리거 only — ADR 0023)** | — | **useStrategy (7 hooks — useStrategyValidate·useStrategyEvaluate·useCreateStrategy·useStrategies·useStrategy·useDeleteStrategy·useEnableStrategy)** · **useStrategyTranslate (useMutation retry=0)** | 트리 폼 빌더 → `serializeBlockTree` → DSL 텍스트 → backend `KisYamlDslParser` 검증 → 평가 → `EvaluationResultCard` 결과 → `StrategySaveModal` 저장. KIS .kis.yaml export/import. 자연어 모달 (REAL/MOCK/UNTRANSLATABLE/DISABLED 4 분기). 768px 이하 안내(데스크톱 우선). |
+| `/` (보존) | GET `/api/onboarding/status` | — | useOnboardingStatus | placeholder — 본격 dashboard는 W3 후 |
+
+### 5-3. STOMP 인프라 (보존)
+
+`@stomp/stompjs` + `useStompTopic` 커스텀훅 + 싱글톤 재연결. 서버 측 endpoint = `api` 모듈 `WebSocketConfig` `/ws`.
+
+---
+
+## §6. Deployment 토폴로지 (docker-compose 9 컨테이너 — v3.1.0 baseline 그대로)
+
+`docker/docker-compose.yml` SoT (인프라 3 + 앱 4 + 디버깅 2 = **9 컨테이너 — 변경 0**).
+
+**중요**: pattern-engine은 라이브러리 jar이므로 컨테이너 추가 0. api·consumer 컨테이너의 build 단계에서 `implementation(":pattern-engine")`로 흡수.
+
+```mermaid
+graph TB
+    subgraph HOSTPORTS["호스트 포트"]
+        P5432[":5432 postgres"]
+        P9092[":9092 kafka"]
+        P6379[":6379 redis"]
+        P8080[":8080 api"]
+        P8081[":8081 batch"]
+        P8082[":8082 consumer"]
+        P3000[":3000 frontend"]
+        P8888[":8888 dozzle"]
+        P8090[":8090 kafka-ui"]
+    end
+
+    subgraph INFRA3["인프라 3"]
+        PG["postgres:16-alpine<br/>magicjar/magicjar/magicjar<br/>locale=C UTF8 KST<br/>Flyway V1~V11"]
+        KAFKA["apache/kafka:3.7.0<br/>KRaft 단일노드<br/>retention 1h/200MB"]
+        REDIS["redis:7-alpine<br/>KST<br/>+ indicator·pattern cache"]
+    end
+
+    subgraph APPS4["앱 4 (pattern-engine은 라이브러리 jar — 컨테이너 추가 0)"]
+        API["magicjar-api<br/>SPRING_PROFILES_ACTIVE=dev,real-kis<br/>Flyway 단독 적용<br/>+ pattern-engine library"]
+        BATCH["magicjar-batch<br/>depends_on api healthy<br/>MAGICJAR_INSTRUMENT_SYNC_AT_BOOT=true<br/>BatchAutoConfiguration exclude (v3.1.1 hotfix)"]
+        CONSUMER["magicjar-consumer<br/>depends_on api healthy<br/>KIS WS + Kafka listeners<br/>+ pattern-engine library<br/>+ KisStrategyBuilderSource 80지표<br/>+ JvmStrategyEvaluator sandbox"]
+        FRONTEND["magicjar-frontend<br/>nginx alpine<br/>/api/ + /ws/ proxy_pass<br/>HEALTHCHECK 127.0.0.1 (v3.1.2 hotfix)"]
+    end
+
+    subgraph DEBUG2["디버깅 2"]
+        DOZZLE["Dozzle<br/>모든 컨테이너 stdout"]
+        KAFKAUI["Kafka UI<br/>토픽·consumer lag"]
+    end
+
+    P5432 --> PG
+    P9092 --> KAFKA
+    P6379 --> REDIS
+    P8080 --> API
+    P8081 --> BATCH
+    P8082 --> CONSUMER
+    P3000 --> FRONTEND
+    P8888 --> DOZZLE
+    P8090 --> KAFKAUI
+
+    API --> PG
+    API --> KAFKA
+    API --> REDIS
+    BATCH --> PG
+    BATCH --> KAFKA
+    BATCH --> REDIS
+    CONSUMER --> PG
+    CONSUMER --> KAFKA
+    CONSUMER --> REDIS
+    FRONTEND -->|"proxy /api/"| API
+    FRONTEND -->|"proxy /ws/"| API
+    DOZZLE -->|"docker.sock ro"| API
+    DOZZLE -->|"docker.sock ro"| BATCH
+    DOZZLE -->|"docker.sock ro"| CONSUMER
+    KAFKAUI --> KAFKA
+```
+
+### 6-1. 부팅 순서 (`depends_on` + healthcheck — v3.1.0 baseline 그대로)
+
+1. infra 3 (postgres·kafka·redis) — service_healthy
+2. api-app — Flyway V1~V11 적용 + healthcheck `/actuator/health` UP (+ pattern-engine library 흡수)
+3. batch-app · consumer-app — api-app service_healthy 후 시작 (V1~V11 스키마 보장 + pattern-engine library 흡수)
+4. frontend — api-app service_started 후 (proxy 대상 컨테이너만 보장)
+
+### 6-2. infra-only 모드 (보존)
+
+`docker/docker-compose.infra.yml` 별도 — postgres·kafka·redis 3개만 띄우고 호스트 IDE에서 api/batch/consumer를 bootRun.
+
+### 6-3. profile 분기 (보존)
+
+`master-architecture.md` §7-1 매트릭스 정합. v3.2.0 시점 default `SPRING_PROFILES_ACTIVE=dev,real-kis` (ADR 0046 셋업 마법사 + dev 환경 모의 KIS — `mock` profile은 jvm test fixture 전용).
+
+### 6-4. 실주문 이중 게이트 (W3 진입 시 본격 — 현재 미구현)
+
+`MAGICJAR_MODE=REAL` + `MAGICJAR_ALLOW_REAL=true` 둘 다여야 실주문. dev/staging은 항상 MOCK.
+
+### 6-5. AI helper 게이트 (T-DSL v3.2.0 신규)
+
+| 변수 | default | 효과 |
+|------|---------|------|
+| `MAGICJAR_AI_ENABLED` | `false` | AI helper 비활성 — 503 AI_DISABLED 응답 |
+| `MAGICJAR_AI_MOCK_MODE` | `auto` | ANTHROPIC_API_KEY 없으면 MockDslHeuristic 9 패턴 fallback |
+| `ANTHROPIC_API_KEY` | (미설정) | Spring AI ChatClient 활성 — `claude-3-5-sonnet-20241022` 호출 |
+
+**룰 5 LOCK**: W1·W2·W3 본체(strategy·signal·order·risk) 코드에 LLM provider import 0건. AI는 `api/.../ai/dsl/` 5 파일 한정 + 사용자 트리거(POST `/api/dsl/translate-from-natural`) + 매매 결정권 0(ADR 0023·0026).
+
+---
+
+## §7. 다음 Wave 진입 시 본 문서 갱신
+
+W3 진입(Backtest · Screener · Signal · Risk · Order · Reconcile · Performance · Notification) 시 본 §1·§2·§3·§4·§5에 다음 사항 add:
+- §1 — backtest·screener·signal·order·reconcile·notify 박스 추가 + Slack webhook 외부 통합 add
+- §2 — strategy/signal/risk/order/notify 컬럼 channel
+- §3 — KIS 주문 endpoint(TTTC8001U·VTTC0801U 등) + KIS WS H0STCNI0 체결통보 + DART handshake_failure 정리(backlog §22) + Slack webhook
+- §4 — V12~ Flyway 추가(backtest_run·screener_result·signal_event·order_audit·notification_outbox·performance_summary)
+- §5 — `/backtest`·`/screener`·`/dashboard` 본격 라우트 추가
+
+W4 진입 시 §1에 mcp 컨테이너 + AI Console 박스 추가. 본 v3.2.0 Anthropic 통합(T-DSL helper)은 W4 본격 영역의 1차 baseline.
+
+W5 진입 시 §5에 LWC 확장 + Learn 라우트 추가.
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>
