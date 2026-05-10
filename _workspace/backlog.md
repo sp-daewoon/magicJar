@@ -684,7 +684,11 @@ Kotlin interface는 `default` 키워드 없이도 body 가진 fun이 default 동
 
 ---
 
-## §22. DART OpenDART CorpCode ZIP — handshake_failure (v3.1.0 dogfooding)
+## §22. ✅ 처리 완료 — DART OpenDART SSL handshake_failure (PR #260)
+
+> 옵션 3 채택: DART 전용 `dartWebClient` 빈 신설 + SslContextBuilder(TLSv1.2·JDK provider). `./gradlew check` GREEN. KIS·Yahoo·Naver 미영향.
+
+~~## §22. DART OpenDART CorpCode ZIP — handshake_failure (v3.1.0 dogfooding)~~
 
 ### 사유
 
