@@ -7,7 +7,7 @@
 <!-- pr-45-slot-orchestrator -->
 | 2026-05-?? | **TBD — PR-45 architect: 01-architecture + 06-history + 07-policy + README** | baseline/v3.2.0 | PR-45 architect 4 파일 |
 <!-- pr-45-slot-architect -->
-| 2026-05-?? | **TBD — PR-45 backend-core: 02-data-flow + 04-feature-spec** | baseline/v3.2.0 | PR-45 backend-core 2 파일 |
+| 2026-05-10 | **docs(baseline): PR-46 backend-core — v3.2.0 baseline 02-data-flow + 04-feature-spec 작성** — `02-data-flow.md`: 4 Mermaid sequenceDiagram(전략 평가·시세 조회·실시간 시세·캔들 backfill) + Kafka 7토픽 매트릭스 + Redis 5키 매트릭스(indicator/pattern/quote/position/KIS OAuth) + Flyway V1~V11 모듈별 Read/Write 매트릭스 + STOMP 3토픽 + 외부 API 7종 흐름. `04-feature-spec.md`: W1·W2 10트랙 × 9항목 표준 명세 GREEN (T-W1·T-W2·T-S1·T-MS1·T-IM1·T-CA1·T-IND·T-PAT·T-DSL·T-SB) — REST·도메인·영속·외부 통합·Kafka·UI·PR·ADR·한계 90항목 전체 채움. KIS-first raw 출처 인용. v1/v2 잔재 0건. ADR 0052 §4-2·§4-4 정합. (작성: backend-core) | baseline/v3.2.0 | PR-46 backend-core 2 파일 |
 <!-- pr-45-slot-backend-core -->
 | 2026-05-?? | **TBD — PR-45 market-data: 03-use-sequences (KIS-first raw 출처)** | baseline/v3.2.0 | PR-45 market-data 1 파일 |
 <!-- pr-45-slot-market-data -->
