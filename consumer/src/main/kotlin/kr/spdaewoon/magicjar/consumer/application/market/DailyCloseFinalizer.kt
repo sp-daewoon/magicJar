@@ -146,8 +146,8 @@ class DailyCloseFinalizer(
         hash: Map<String, String>,
         code: String,
         date: LocalDate,
-    ): CandleSnapshot? =
-        try {
+    ): CandleSnapshot? {
+        return try {
             val close = hash["close"]?.toBigDecimalOrNull()
             val open = hash["open"]?.toBigDecimalOrNull()
             val high = hash["high"]?.toBigDecimalOrNull()
@@ -176,4 +176,5 @@ class DailyCloseFinalizer(
             log.warn("DailyCloseFinalizer candle Hash 파싱 실패: code={} err={}", code, e.message)
             null
         }
+    }
 }
