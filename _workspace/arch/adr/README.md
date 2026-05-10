@@ -1,6 +1,6 @@
 # magicJar ADR 목차
 
-아키텍처 결정 기록(Architecture Decision Record). 54건 sequential (0001~0054 발행 완료). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
+아키텍처 결정 기록(Architecture Decision Record). 55건 sequential (0001~0055 발행 완료). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
 
 ## §1. 비전 (1건)
 
@@ -21,11 +21,12 @@
 | 0008 | Docker 표준 — 모듈별 Dockerfile + compose 통합 기동 |
 | 0054 | pattern-engine 라이브러리 모듈 분리 (domain 순수성 보존 + api·consumer 공유) |
 
-## §3. 프론트엔드 (1건)
+## §3. 프론트엔드 (2건)
 
 | 번호 | 제목 |
 |------|------|
 | 0009 | 프론트엔드 SPA (React + TS + Vite + LWC v4) |
+| 0055 | Strategy Builder UI 컴포넌트 스택 (B+C-lite 하이브리드 — 트리 폼 빌더 + textarea DSL 토글, Reactflow·Monaco 거부, 의존 추가 0) |
 
 ## §4. 도메인 본체 — 멀티테넌트·매매 (3건)
 
@@ -138,13 +139,13 @@
 
 - **새 ADR 발행 시** — 본 README + master §10 + tracks-roadmap §3 동시 갱신
 - **Superseded 처리 시** — 본문 상단 헤더 + `_archive/` 이동 + 본 README §추가
-- **신규 진입 시 후속 ADR 번호** — 0055부터 sequential (0041~0054 발행 완료 — §2·§5·§10-1·§10-2·§10-3·§10-4 정합).
+- **신규 진입 시 후속 ADR 번호** — 0056부터 sequential (0041~0055 발행 완료 — §2·§3·§5·§10-1·§10-2·§10-3·§10-4 정합).
 
 ## §12. 후속 예정 (Proposed)
 
 | 후보 번호 | 제목 (예정) | 진입 트랙 | 사유 |
 |---|---|---|---|
-| 0055 | 57 캔들 패턴 표준 | T-PAT | (기존 0054 자리에서 시프트 — 2026-05-10 PR-41에서 0054가 pattern-engine 모듈 ADR로 채택됨) |
-| 0056 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT | (시프트) |
-| 0057 | Screener 표준 | T-SC | (시프트) |
-| 0058 | Performance 표준 | T-PERF | (시프트) |
+| 0056 | 57 캔들 패턴 표준 | T-PAT (기 머지 — 본문 ADR로 격상 검토) | 시프트 (2026-05-10 PR-41에서 0054 = pattern-engine 모듈 ADR 채택, PR-44에서 0055 = Strategy Builder UI 컴포넌트 스택 채택) |
+| 0057 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT | (시프트) |
+| 0058 | Screener 표준 | T-SC | (시프트) |
+| 0059 | Performance 표준 | T-PERF | (시프트) |
