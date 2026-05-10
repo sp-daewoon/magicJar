@@ -3,10 +3,10 @@ id: T-20260510-1814-pr-42-pattern-engine-move
 agent: strategy
 model: opus
 branch: agent/strategy-engine/pr-42-pattern-engine-move
-status: RUNNING
+status: DONE
 startedAt: 2026-05-10T18:14:22.584+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-10T18:24:26.590+09:00
+pr: #266
 parentPhase: ?
 ---
 
