@@ -14,15 +14,15 @@ parentPhase: ?
 PR-43 pattern-engine 빌드 그래프 + api·consumer 의존 + PatternController 게이트 제거
 
 ## 결과물 체크리스트
-- [ ] settings.gradle.kts include
-- [ ] pattern-engine build.gradle.kts 신설
-- [ ] api build.gradle.kts 의존 추가
-- [ ] consumer build.gradle.kts 의존 추가
-- [ ] RedisPatternCacheAdapter api 측 삭제
-- [ ] PatternController @ConditionalOnProperty 제거
-- [ ] PatternControllerTest @TestPropertySource 제거
+- [x] settings.gradle.kts include
+- [x] pattern-engine build.gradle.kts 신설
+- [x] api build.gradle.kts 의존 추가
+- [x] consumer build.gradle.kts 의존 추가
+- [x] RedisPatternCacheAdapter api 측 삭제
+- [x] PatternController @ConditionalOnProperty 제거
+- [x] PatternControllerTest @TestPropertySource 제거
 - [ ] gradle check GREEN
-- [ ] CHANGELOG 슬롯 row 보강
+- [x] CHANGELOG 슬롯 row 보강
 
 ## 의존성
 - (필요 시 기록)
