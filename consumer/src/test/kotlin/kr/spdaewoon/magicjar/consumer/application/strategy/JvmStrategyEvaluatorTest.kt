@@ -8,6 +8,8 @@ import kr.spdaewoon.magicjar.domain.indicator.IndicatorSpec
 import kr.spdaewoon.magicjar.domain.indicator.port.IndicatorSource
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.pattern.PatternMatch
+import kr.spdaewoon.magicjar.domain.pattern.port.PatternRecognizer
 import kr.spdaewoon.magicjar.domain.strategy.Signal
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -52,12 +54,29 @@ class JvmStrategyEvaluatorTest {
         val fakeSource = FakeIndicatorSource()
         val engine = IndicatorEngine(listOf(fakeSource))
         val mapper = DslIdentifierMapper()
-        val patternStub = PatternRecognizerStub()
+        // PatternRecognizer — consecutive 항상 0 반환, recognize 항상 false (테스트용 no-op)
+        val noopPatternRecognizer =
+            object : PatternRecognizer {
+                override fun recognize(
+                    candles: List<Candle>,
+                    patterns: Set<String>,
+                ): List<PatternMatch> = emptyList()
+
+                override fun recognize(
+                    name: String,
+                    candles: List<Candle>,
+                ): Boolean = false
+
+                override fun consecutive(
+                    direction: String,
+                    candles: List<Candle>,
+                ): Int = 0
+            }
 
         evaluator =
             JvmStrategyEvaluator(
                 indicatorEngine = engine,
-                patternRecognizerStub = patternStub,
+                patternRecognizer = noopPatternRecognizer,
                 identifierMapper = mapper,
                 evalPool = evalPool,
                 metricRecorder = metricRecorder,
@@ -96,16 +115,15 @@ class JvmStrategyEvaluatorTest {
     }
 
     @Test
-    fun `pattern consecutive — graceful HOLD via stub`() {
+    fun `pattern consecutive — noopRecognizer 0 반환 HOLD`() {
         val ast = parser.parse("consecutive(up) >= 5")
         val candles = candleSeries(50, closeStart = BigDecimal("100"))
 
         val result = evaluator.evaluate(strategyId = 3L, ast = ast, candles = candles)
 
-        // PatternRecognizerStub은 0 반환 → 5 >= 5 false → HOLD
+        // noopPatternRecognizer는 0 반환 → 0 >= 5 false → HOLD
         assertEquals(Signal.HOLD, result.signal)
         assertEquals("PATTERN", result.reason["trigger"])
-        assertEquals(true, result.reason["stubMode"])
     }
 
     @Test

@@ -48,7 +48,7 @@ import java.math.BigDecimal
  * ### 화이트리스트 (ADR 0047 §2-1-A)
  * - 80지표 모두 ([IndicatorCatalog.ALL])
  * - DSL alias 8종 (`macd_signal`·`macd_hist`·`bb_upper`·`bb_lower`·`bb_middle`·`stoch_k`·`stoch_d`·`volume_ma`)
- * - 패턴 함수 2종 (`consecutive`·`pattern`) — T-PAT 미진입 시 [PatternRecognizerStub] 호출
+ * - 패턴 함수 2종 (`consecutive`·`pattern`) — PatternRecognizer domain port 경유 (T-PAT PR-39a 활성)
  * - 캔들 직접 접근 5종 (`close`·`prev_close`·`high`·`low`·`volume`)
  * - 자체 함수 4종 (`change`·`highest`·`lowest`·`returns`)
  *

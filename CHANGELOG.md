@@ -6,7 +6,7 @@
 <!-- pr-38-slot-architect -->
 | 2026-05-10 | TBD ... (작성: strategy-engine) — TBD | consumer/api | PR-39a 코드 |
 <!-- pr-38-slot-strategy-engine -->
-| 2026-05-10 | TBD ... (작성: backend-core) — TBD | domain/api/consumer | PR-39b 코드 |
+| 2026-05-10 | **feat(W2 T-PAT): domain pattern/* port + api PatternController REST + DTO + Redis 캐시 + T-DSL stub 삭제 + JvmStrategyEvaluator domain port 교체 (PR-39b)** — `domain/.../pattern/{PatternMatch,Direction,DetectorResult,PatternCatalog,PatternException}.kt` (5 도메인 + 57 catalog Spec LOCK `init{check(ALL.size==57)}`) · `port/{PatternRecognizer,PatternDetector}.kt` (T-DSL stub 시그니처 호환 — recognize/consecutive) · `api/.../controller/PatternController.kt + dto/PatternResponseDto.kt` (GET /api/patterns?code·interval·patterns·from·to — Swagger 4단 한국어 + cache-aside) · `api/.../adapter/pattern/RedisPatternCacheAdapter.kt` (T-IND 정합 — 분봉 300s / 일봉 86400s TTL + patternsHash SHA-256 16자) · `consumer/.../pattern/cache/RedisPatternCacheAdapter.kt` (consumer 모듈 동일 키 정책) · `consumer/.../strategy/PatternRecognizerStub.kt` **삭제** (5-A LOCK — v1/v2 잔재 0건) · `consumer/.../strategy/JvmStrategyEvaluator.kt` PatternRecognizerStub → PatternRecognizer domain port 교체 (DI 타입 변경) · `PatternControllerTest.kt` 5케이스 GREEN (hammer 인식·미지원 graceful·R2 stub graceful·캐시 hit·종목코드 400). ADR 0051 준수 — 신규 JPA Repository 0건. 룰 5 준수 — LLM import 0건. :domain:check + :consumer:check + :api:check GREEN. (작성: backend-core) | domain/api/consumer | PR-39b 코드 |
 <!-- pr-38-slot-backend-core -->
 | 2026-05-10 | TBD ... (작성: frontend, R3 PR-40) — TBD | frontend/consumer | PR-40 R3 |
 <!-- pr-38-slot-frontend -->
