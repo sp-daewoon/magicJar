@@ -9,7 +9,7 @@
 <!-- pr-45-slot-architect -->
 | 2026-05-?? | **TBD — PR-45 backend-core: 02-data-flow + 04-feature-spec** | baseline/v3.2.0 | PR-45 backend-core 2 파일 |
 <!-- pr-45-slot-backend-core -->
-| 2026-05-?? | **TBD — PR-45 market-data: 03-use-sequences (KIS-first raw 출처)** | baseline/v3.2.0 | PR-45 market-data 1 파일 |
+| 2026-05-10 | **docs(baseline): PR-46 market-data — v3.2.0 baseline 03-use-sequences (KIS-first raw 출처 의무) (작성: market-data)** — `_workspace/baseline/v3.2.0/03-use-sequences.md` 신규 작성. 사용자 시나리오 8건 + Mermaid sequence diagram 8건. raw 출처 인덱스 R1~R10 LOCK: H0STCNT0·H0STASP0·H0STCNI0 WS tr_id(domestic_stock_functions_ws.py·kis_auth.py) + FHKST01010100·FHKST03010100 REST endpoint + 종목마스터 73필드(KOSPI) + indicators.py 1507 lines 80지표 + candlestick.py 755 lines 57패턴 + parser.py 664 lines DSL. 외부 API 정책(KIS·Yahoo·DART·Naver) 통합. KIS-first 자체 추론 0건 검증. 영역 침범 0(03파일 단독). | baseline/v3.2.0 | PR-46 market-data 1 파일 + KIS-first raw 출처 의무 |
 <!-- pr-45-slot-market-data -->
 | 2026-05-?? | **TBD — PR-45 frontend: 05-ui-inventory** | baseline/v3.2.0 | PR-45 frontend 1 파일 |
 <!-- pr-45-slot-frontend -->
