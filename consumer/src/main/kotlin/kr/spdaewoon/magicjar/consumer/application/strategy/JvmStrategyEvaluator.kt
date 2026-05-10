@@ -393,13 +393,15 @@ class JvmStrategyEvaluator(
                     ),
                 )
             }
-            "pattern" -> {
+            "pattern", "pattern_detected" -> {
+                // T-PAT PR-39: `pattern_detected("name")` magicJar alias — `pattern("name")` 동치 라우팅.
                 val patternName = left.params.firstOrNull()?.toString() ?: ""
                 val matched = patternRecognizerStub.recognize(patternName, candles)
                 BoolEval(
                     matched,
                     mapOf(
                         "trigger" to "PATTERN",
+                        "patternFunction" to left.name,
                         "patternName" to patternName,
                         "matched" to matched,
                         "stubMode" to true,
