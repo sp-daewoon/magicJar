@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // scripts/baseline-to-html.mjs
-// _workspace/baseline/v3.1.0/*.md → html/*.html
+// _workspace/baseline/<version>/*.md → html/*.html
+// 사용: node scripts/baseline-to-html.mjs [version]
+//   version 인자 생략 시 _workspace/baseline/ 안의 가장 최신 vX.Y.Z 폴더 자동 선택
 // marked + mermaid CDN 클라이언트 사이드 렌더링 + 단일 파일 inline embed
 
 import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync } from 'fs';
@@ -9,7 +11,26 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
-const SRC = join(ROOT, '_workspace/baseline/v3.1.0');
+const BASELINE_ROOT = join(ROOT, '_workspace/baseline');
+
+function resolveVersion() {
+  const arg = process.argv[2];
+  if (arg) return arg.replace(/^v/, 'v');
+  const dirs = readdirSync(BASELINE_ROOT, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && /^v\d+\.\d+\.\d+$/.test(d.name))
+    .map((d) => d.name)
+    .sort((a, b) => {
+      const pa = a.replace(/^v/, '').split('.').map(Number);
+      const pb = b.replace(/^v/, '').split('.').map(Number);
+      for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pb[i] - pa[i];
+      return 0;
+    });
+  if (dirs.length === 0) throw new Error('baseline 폴더 없음 — _workspace/baseline/vX.Y.Z 필요');
+  return dirs[0];
+}
+
+const VERSION = resolveVersion();
+const SRC = join(BASELINE_ROOT, VERSION);
 const DEST = join(SRC, 'html');
 
 const NAV_ITEMS = [
@@ -37,7 +58,7 @@ function template(title, mdContent, activeFile) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${title} — magicJar v3.1.0 Baseline</title>
+<title>${title} — magicJar ${VERSION} Baseline</title>
 <style>
   :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
@@ -71,7 +92,7 @@ function template(title, mdContent, activeFile) {
 <body>
 ${navHtml(activeFile)}
 <main id="content">로딩 중…</main>
-<div class="footer">magicJar v3.1.0 Baseline · ${new Date().toISOString().slice(0,10)} 생성 · 더블클릭으로 열람</div>
+<div class="footer">magicJar ${VERSION} Baseline · ${new Date().toISOString().slice(0,10)} 생성 · 더블클릭으로 열람</div>
 
 <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>

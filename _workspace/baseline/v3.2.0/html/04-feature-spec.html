@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>04-feature-spec — magicJar v3.2.0 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">📁 인덱스</a><a href="01-architecture.html">01 Architecture</a><a href="02-data-flow.html">02 Data Flow</a><a href="03-use-sequences.html">03 Use Sequences</a><a href="04-feature-spec.html" class="active">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html">06 History</a><a href="07-policy-evolution.html">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.2.0 Baseline · 2026-05-10 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># magicJar v3.2.0 Baseline — 04 트랙 기능 명세
+
+> **작성자**: backend-core | **기준 시점**: 2026-05-10 v3.2.0 | **ADR 0052 §4-4 정합**
+>
+> **범위**: W1 마감 트랙 (T-W1·T-W2·T-S1·T-MS1·T-IM1·T-CA1) + W2 마감 트랙 (T-IND·T-PAT·T-DSL·T-SB)
+>
+> **9항목 표준**: REST endpoint · 도메인 모델 · 영속 · 외부 통합 · Kafka · UI 화면 · PR 인용 · ADR 인용 · 한계·todo
+
+---
+
+## T-W1 — 온보딩 + 관심종목 CRUD
+
+### 1. REST endpoint
+
+| 메서드 | path | 설명 |
+|--------|------|------|
+| GET | `/api/onboarding/status` | 온보딩 완료 여부 조회 |
+| POST | `/api/onboarding/kis/validate` | KIS 실계좌 key/secret 검증 |
+| POST | `/api/onboarding/kis/mock` | KIS 모의계좌 설정 저장 |
+| PUT | `/api/onboarding/system-config` | DART API 키·알림 webhook 저장 |
+| POST | `/api/onboarding/complete` | 온보딩 완료 마킹 |
+| GET | `/api/watchlists` | 관심종목 목록 조회 |
+| POST | `/api/watchlists` | 관심종목 등록 (Kafka ADDED 발행) |
+| DELETE | `/api/watchlists/{code}` | 관심종목 삭제 (Kafka REMOVED 발행) |
+
+Swagger 4단 어노테이션: `@Tag(name="Onboarding"·"Watchlist")` / `@Operation` / `@Parameter` / `@Schema`. OnboardingGuardFilter — 셋업 미완 시 `/api/*` 401 차단.
+
+### 2. 도메인 모델
+
+- `domain/user/UserAccount.kt` — userId, displayName, maskedAccount
+- `domain/user/UserKisCredential.kt` — accountType(REAL/MOCK), appKeyEnc, secretKeyEnc
+- `domain/user/SystemConfig.kt` — dartApiKey(BYTEA), notificationSlackWebhook(BYTEA)
+- `domain/user/UserOnboardedEvent.kt` — 온보딩 완료 이벤트 (도메인 이벤트)
+- `domain/watchlist/WatchlistEntry.kt` — id, userId, code, priority, createdAt
+- `domain/position/Position.kt` — userId, code, quantity, avgPrice
+
+### 3. 영속
+
+| Flyway | 테이블 | 주요 내용 |
+|--------|--------|---------|
+| V1 | `user_account` | PK userId, display_name, masked_account |
+| V1 | `user_kis_credential` | PK(userId, accountType), AES-GCM BYTEA |
+| V1 | `system_config` | singleton row id=1 |
+| V1 | `watchlist` | UQ(userId, code), FK user ON DELETE CASCADE |
+| V1 | `position` | UQ(userId, code) |
+| V2 | `user_account` | masked_account GENERATED + 인덱스 보강 |
+| V3 | `instrument` | CHECK constraint 완화 + 인덱스 추가 |
+
+### 4. 외부 통합
+
+- **KIS REST** `/oauth2/tokenP` — access token 발급 (AesGcmCipher 복호화 후 호출)
+- **KIS REST** `TTTC8434R` / `VTTC8434R` — 잔고 조회 (실전/모의, PositionBootstrapRunner)
+- KIS key 검증: `KisAuthValidator` — prod host (`openapi.koreainvestment.com`) + mock host (`openapivts.koreainvestment.com`)
+
+### 5. Kafka
+
+| 토픽 | 방향 | payload |
+|------|------|---------|
+| `watchlist.changed.v1` | api → consumer | `WatchlistChangedEvent(userId, code, action=ADDED/REMOVED, occurredAt)` |
+
+### 6. UI 화면
+
+- `frontend/src/pages/Setup/SetupWizard.tsx` — 7-step 온보딩 마법사
+- `frontend/src/pages/Watchlist/WatchlistPage.tsx` — 관심종목 목록·등록·삭제
+- `frontend/src/components/watchlist/WatchlistRow.tsx` — 거래정지·관리종목 배지 표시
+
+### 7. PR 인용
+
+- PR-5a (2026-05-07) — 4 JVM 모듈 골격 + Flyway V1
+- PR-6a/6b (2026-05-07) — T-ONBOARD 백엔드 + 프론트엔드
+- PR-7a/7b (2026-05-07) — T-W1 WatchlistController + Watchlist CRUD UI
+- PR-29a (2026-05-08) — T-MS1 포함 WatchlistService 등 보강
+
+### 8. ADR 인용
+
+- ADR 0028 — Watchlist 기반 Ingestion 정책
+- ADR 0040 — Watchlist-first UI 흐름 (magicJar 1순위 진입점)
+- ADR 0042 — Position Bootstrap Recovery (부팅 시 잔고 동기화)
+- ADR 0046 — Onboarding & Credential Registration
+
+### 9. 한계·todo
+
+- `masked_account` 자동 생성 — 완전한 계좌 번호 관리는 T-O 트랙 예정
+- 멀티 사용자(multi-tenant) 지원 — 현재 단일 사용자(첫 row 자동 resolve)
+- position.quantity < 0 (공매도) 처리 미지원
+
+---
+
+## T-W2 — KIS WebSocket + 실시간 시세
+
+### 1. REST endpoint
+
+- 직접 REST 없음 (KIS WS 연결은 consumer 내부 자동 시작)
+- 관련: `GET /api/watchlists` 목록 기반 자동 구독
+
+### 2. 도메인 모델
+
+- `domain/market/tick/TickEvent.kt` — code, price, volume, changeRate, ts
+- `domain/market/port/KisWsPort.kt` — subscribe(code)/unsubscribe(code)/connect/disconnect
+- `domain/market/port/QuoteCachePort.kt` — get(code)/put(code, TickEvent)
+
+### 3. 영속
+
+- Candle DB (V1 `candle`) — `TickToMinuteAggregator` → 1분봉 closing 시 INSERT/UPDATE
+- Redis `quote:{code}` (TTL 30s) — 최신 tick 스냅샷 (RedisQuoteCacheAdapter)
+
+### 4. 외부 통합
+
+- **KIS WebSocket** `wss://openapi.koreainvestment.com:9443/websocket/auth`
+  - 체결가: `H0STCNT0` (45 필드, PIPE `|` 구분)
+  - 구독 상한: 41종목 (ADR 0048)
+  - reconnect: 지수 백오프 1·2·5·10·30s
+  - polling fallback: 10초 주기 `FHKST01010100` 자동 전환 (KisRestPriceAdapter)
+
+### 5. Kafka
+
+| 토픽 | 방향 | payload | retention |
+|------|------|---------|-----------|
+| `market.tick.v1` | consumer → api | `TickEvent(code, price, volume, ts)` | 1h |
+| `market.candle.minute.closed.v1` | consumer → api | `Candle(code, interval=1m, ts, OHLCV)` | 1d |
+
+### 6. UI 화면
+
+- `frontend/src/pages/Dashboard/DashboardPage.tsx` — STOMP 구독 (`/topic/market.tick.{code}`) 실시간 시세 표시
+- LWC v4 TradingView Lightweight Charts — 1분봉 실시간 갱신
+
+### 7. PR 인용
+
+- PR-9b (2026-05-07) — KisWebSocketBridge + TickToMinuteAggregator + SimpleMarketSessionResolver
+
+### 8. ADR 인용
+
+- ADR 0048 — KIS WebSocket 41건 구독 한도 + 우선순위 정책
+
+### 9. 한계·todo
+
+- 구독 한도 41종목 초과 시 우선순위 자동 교체 정책 미완성 (ADR 0048 §3 post-MVP)
+- H0STCNI9 체결통보 (주문 체결 실시간 알림) — T-O 트랙 예정
+
+---
+
+## T-S1 — 종목 상세 + 캔들 차트 + 호가
+
+### 1. REST endpoint
+
+| 메서드 | path | 설명 |
+|--------|------|------|
+| GET | `/api/symbols/{code}` | 종목 상세 (현재가·등락률·재무 요약) |
+| GET | `/api/symbols/{code}/candles` | 캔들 시계열 (interval·from·to 파라미터) |
+| POST | `/api/symbols/{code}/orderbook/subscribe` | 호가 실시간 구독 시작 |
+| POST | `/api/symbols/{code}/orderbook/unsubscribe` | 호가 구독 해제 |
+
+### 2. 도메인 모델
+
+- `domain/market/PriceMetrics.kt` — inquire-financial-ratio·volume 등 KIS 지표
+- `domain/market/OrderbookSnapshot.kt` — bids/asks 각 10호가
+- `domain/market/port/KisRestPriceMetricsPort.kt` — fetchPriceMetrics(code)
+- `domain/market/candle/Candle.kt` — code, interval(CandleInterval sealed), ts, OHLCV_raw, OHLCV_adj
+
+### 3. 영속
+
+- `candle` 테이블 (V1) — `CandleJpaRepository`: findByCodeAndIntervalLatest / findByCodeAndIntervalAndTsBefore
+- `CandleRepositoryAdapter` — 도메인 port 구현
+
+### 4. 외부 통합
+
+- **KIS REST** `FHKST01010100` inquire-price — 현재가·등락률 조회
+- **KIS REST** `FHKST03010100` inquire-daily-price — 일봉 캔들 (CandleQueryService)
+- **KIS WebSocket** `H0STASP0` — 호가 실시간 스냅샷 (10호가 bid/ask)
+- **Yahoo Finance** `v8/finance/chart/{code}.KS` — adj close fallback (ADR 0014)
+
+### 5. Kafka
+
+| 토픽 | 방향 | payload | retention |
+|------|------|---------|-----------|
+| `market.orderbook.v1` | consumer → api | `OrderbookSnapshot(code, bids, asks, ts)` | 1h |
+| `symbol.detail.command.v1` | api → consumer | `SymbolDetailCommand(code, action=SUB/UNSUB)` | 1h |
+
+### 6. UI 화면
+
+- `frontend/src/pages/Symbol/SymbolDetailPage.tsx` — 종목 상세 (현재가·등락률·재무 요약 + LWC 차트)
+- `frontend/src/components/chart/CandleChart.tsx` — TradingView Lightweight Charts (interval 토글 1m/5m/30m/1h/1d)
+- `frontend/src/components/symbol/OrderbookTable.tsx` — 호가창 실시간 (STOMP `/topic/market.orderbook.{code}`)
+
+### 7. PR 인용
+
+- PR-10a (2026-05-07) — SymbolDetailPage + CandleChart frontend
+- PR-10b (2026-05-07) — SymbolController + KisRestPriceMetricsAdapter + STOMP forwarder
+- PR-29c (2026-05-08) — sendBeacon Blob 정정 + WatchlistEntryDto 6 필드
+
+### 8. ADR 인용
+
+- ADR 0019 — Candle Storage + Watchlist + Yahoo fallback
+- ADR 0014 — Data Fallback 3단계 (KIS WS → KIS REST → Yahoo)
+
+### 9. 한계·todo
+
+- 호가 LRU 10종목 한도 (ADR 0048 §2 상한) — 초과 시 가장 오래된 종목 자동 해제
+- 분봉 캔들 backfill — 현재 일봉만 (T-BT W3 트랙 예정)
+- `inquire-financial-ratio` 라이선스 제약 — 상업용 사용 주의 필요
+
+---
+
+## T-MS1 — 시장 세션 + 영업일 캘린더
+
+### 1. REST endpoint
+
+직접 REST 없음. `KrxMarketSessionResolver`가 내부 bean으로 소비.
+
+### 2. 도메인 모델
+
+- `domain/market/session/MarketSession.kt` — sealed class (PRE_MARKET, OPEN, BREAK, POST_MARKET, CLOSED, HOLIDAY)
+- `domain/market/session/MarketCalendarEntry.kt` — date, isBusinessDay, isHoliday, holidayName
+- `domain/market/session/BusinessDayCalendar.kt` — businessDayOf, isBusinessDay, nextBusinessDay, previousBusinessDay
+- `domain/market/session/port/MarketCalendarRepository.kt` — findByDate, findBetween
+
+### 3. 영속
+
+| Flyway | 테이블 | 주요 내용 |
+|--------|--------|---------|
+| V6 | `market_calendar` | PK date, is_business_day, source(STATIC_SEED·KIS_CHK_HOLIDAY·MANUAL) |
+
+정적 시드: 2026~2027 KRX 공휴일 31건 (MarketCalendarSeedRunner `@Order 2`)
+
+### 4. 외부 통합
+
+- **KIS REST** `CTCA0903R` chk-holiday endpoint — 영업일 검증
+  - 출처: `open-trading-api/examples_llm/domestic_stock/chk_holiday/chk_holiday.py`
+  - `KisChkHolidayAdapter` — batch MarketCalendarSyncJob cron 03:00 daily
+
+### 5. Kafka
+
+없음 (내부 DB + Redis TTL 캐시로 처리)
+
+### 6. UI 화면
+
+없음 (서비스 내부 판단 로직)
+
+### 7. PR 인용
+
+- PR-29a (2026-05-08) — KrxMarketSessionResolver + Flyway V6 + DailyCloseFinalizer + MarketCalendarSyncJob
+
+### 8. ADR 인용
+
+- ADR 0013 — Market Session FSM (영업일·시간 기반 6단계 상태)
+
+### 9. 한계·todo
+
+- 시간외 단일가(16:00~18:00) 세션 처리 미지원 (T-O 트랙 예정)
+- KRX 임시 휴장(태풍·선거 등) — 수동(MANUAL) 입력 필요 (자동화 미지원)
+
+---
+
+## T-IM1 — 종목 마스터 KIS-first 동기화
+
+### 1. REST endpoint
+
+| 메서드 | path | 설명 |
+|--------|------|------|
+| GET | `/api/instruments/search` | 종목 검색 (code prefix·한글 이름·alias) |
+| GET | `/api/instruments/{code}` | 종목 단건 조회 |
+| GET | `/api/instruments/universe` | 유니버스 목록 (market·type 필터) |
+| POST | `/api/instruments/sync` | 종목 마스터 즉시 동기화 트리거 |
+
+Swagger `@Tag(name="Instruments")`.
+
+### 2. 도메인 모델
+
+- `domain/instrument/Instrument.kt` — code(PK), isin, name, market, type(InstrumentType sealed), 70+ KIS 필드
+- `domain/instrument/InstrumentAlias.kt` — code, alias, source(KRX·NAVER·FNGUIDE)
+- `domain/instrument/InstrumentSearchResult.kt` — 검색 결과 DTO
+- `domain/instrument/port/InstrumentRepository.kt` — findByCode, findActiveTradeable, findByMarketCapDesc
+- `domain/instrument/port/InstrumentSearchIndex.kt` — search(query), invalidate(code)
+- `domain/instrument/port/KisInstrumentMasterPort.kt` — fetchAll()
+
+### 3. 영속
+
+| Flyway | 테이블 | 주요 내용 |
+|--------|--------|---------|
+| V1 | `instrument` | 14 기본 컬럼 |
+| V4 | `instrument`, `instrument_alias` | name_norm·theme·gin_trgm·code prefix 인덱스 신설 |
+| V5 | `instrument` | Tier 1~4 70 컬럼 add-only (KIS raw 검증 정합) |
+
+### 4. 외부 통합
+
+- **KIS 종목 마스터 파일** — `https://download.koreainvestment.com/testsvc/download/file.do`
+  - KOSPI: EUC-KR 고정폭(227byte 70 필드), KOSDAQ: 221byte 64 필드
+  - `KisInstrumentMasterAdapter` — batch InstrumentSyncJob (cron 13 시간대 KST)
+  - KIS-first raw 출처: `kis_kospi_code_mst.py`·`kis_kosdaq_code_mst.py` Python widths 1:1 정합
+
+### 5. Kafka
+
+| 토픽 | 방향 | payload | retention |
+|------|------|---------|-----------|
+| `instrument.updated.v1` | batch → consumer | `InstrumentUpdated(code, market, name)` | 7d |
+
+### 6. UI 화면
+
+- `frontend/src/components/instrument/InstrumentSearchInput.tsx` — 자동완성 (IME composition 처리 + 키보드 네비)
+- `frontend/src/pages/Watchlist/WatchlistAddForm.tsx` — 자동완성 전환 (raw code fallback 포함)
+- WatchlistRow 거래정지·관리종목 배지 (tradingHalt·managementStock 필드 활용)
+
+### 7. PR 인용
+
+- PR-11a (2026-05-07) — KisInstrumentMasterAdapter + InstrumentSyncJob + Flyway V4
+- PR-20 (2026-05-07) — EUC-KR 파싱 정정 (byte-단위 substring)
+- PR-21a (2026-05-07) — KIS-first 70 컬럼 + Flyway V5
+- PR-21b (2026-05-07) — InstrumentJpaEntity 83 필드 + DTO 응답 보강
+
+### 8. ADR 인용
+
+- ADR 0017 — Instrument Master (종목 마스터 관리 + alias 정책)
+- ADR 0039 — Instrument Master Sync Cron (13개 cron 트리거 + 영업일 게이트)
+
+### 9. 한계·todo
+
+- KONEX 종목 지원 미완성 (현재 KOSPI·KOSDAQ만)
+- 상장폐지 종목 `active=false` 보존 — delisted_at 자동 채움 cron 미구현
+- Redis 검색 인덱스 TTL 1일 — 동기화 즉시 갱신 보장 필요 (현재 TTL 만료 대기)
+
+---
+
+## T-CA1 — 기업 행위(Corporate Action) + 캔들 수정주가
+
+### 1. REST endpoint
+
+직접 REST 없음. `CandleQueryService.getCandles(adjusted=true)` 파라미터로 수정주가 반환.
+
+### 2. 도메인 모델
+
+- `domain/instrument/corp_action/CorpAction.kt` — instrumentCode, type(CorpActionType), exDate, ratio, cashDividend, source
+- `domain/instrument/corp_action/CorpActionType.kt` — sealed: STOCK_SPLIT·REVERSE_SPLIT·RIGHTS_OFFERING·BONUS_ISSUE·CASH_DIVIDEND·STOCK_DIVIDEND·MERGER·SPINOFF·CAPITAL_DECREASE·DELISTING_NOTICE
+- `domain/instrument/corp_action/port/CorpActionRepository.kt`
+- `domain/instrument/corp_action/port/KisKsdInfoFetcher.kt` — 6 endpoint 추상 port
+- `domain/instrument/corp_action/port/DartDisclosureFetcher.kt`
+
+### 3. 영속
+
+| Flyway | 테이블 | 주요 내용 |
+|--------|--------|---------|
+| V7 | `corp_action` | UNIQUE(instrumentCode, type, exDate, source), KIS·DART 독립 보존 |
+| V8 | `candle` | `adjustment_factor NUMERIC(15,8)` + `volume_adjusted BIGINT` add-only |
+
+### 4. 외부 통합
+
+- **KIS ksdinfo 6 endpoint** (ADR 0018 §2-5):
+  - `HHKDB669100C0` paidin-capin (유상증자)
+  - `HHKDB669101C0` bonus-issue (무상증자)
+  - `HHKDB669102C0` dividend (배당)
+  - `HHKDB669104C0` merger-split (합병·분할)
+  - `HHKDB669105C0` rev-split (감자)
+  - `HHKDB669106C0` cap-dcrs (자본감소)
+- **DART OpenDART** `list.json pblntf_ty=B·D` — 공시 수집 (DartDisclosureAdapter)
+- `DartCorpCodeRepository` — CORPCODE.xml in-memory 파싱 (종목코드↔corp_code 매핑)
+
+### 5. Kafka
+
+| 토픽 | 방향 | payload | retention |
+|------|------|---------|-----------|
+| `corp_action.applied.v1` | batch → batch | `CorpActionApplied(instrumentCode, type, exDate)` | 1d |
+
+`CorpActionSyncJob` → 토픽 발행 → `CandleAdjustmentJob` 리스너 → 소급 보정 적용
+
+### 6. UI 화면
+
+- `GET /api/symbols/{code}/candles?adjusted=true` — 수정주가 차트 (SymbolDetailPage interval 토글)
+- IndicatorController `adjusted` 파라미터 — T-IND 트랙과 연계
+
+### 7. PR 인용
+
+- PR-29b (2026-05-08) — CorpAction 도메인+port + Flyway V7+V8 + KisKsdInfoAdapter + CandleAdjustmentJob
+
+### 8. ADR 인용
+
+- ADR 0018 — Corp Action Raw and Adjusted (KIS ksdinfo 6 endpoint + DART 이중 소스)
+
+### 9. 한계·todo
+
+- 외국 주식 (ADR·DR) 기업 행위 미지원
+- 현금 배당락 역산 정확도 — KIS·DART 데이터 불일치 수동 검토 필요
+- CandleAdjustmentJob 소급 보정 범위 — 현재 전체 이력 (대량 데이터 시 성능 이슈 예상)
+
+---
+
+## T-IND — 기술적 지표 80종 REST API
+
+### 1. REST endpoint
+
+| 메서드 | path | 설명 |
+|--------|------|------|
+| GET | `/api/indicators` | 지표 시계열 계산 (code·name·interval·params·from·to·adjusted) |
+
+```
+GET /api/indicators?code=005930&name=rsi&interval=1d&params=period=14&from=2024-01-01T00:00:00Z
+```
+
+Swagger 4단: `@Tag(name="Indicators")` / `@Operation(summary="지표 시계열 계산")` / `@Parameter(description="종목코드 6자리", example="005930")` / DTO `@Schema`.
+
+### 2. 도메인 모델
+
+- `domain/indicator/IndicatorSpec.kt` — name, params(Map), paramsHash() SHA-256 16자리
+- `domain/indicator/IndicatorResult.kt` — spec, series(List\<IndicatorPoint\>), source
+- `domain/indicator/IndicatorPoint.kt` — time(Instant), values(Map\<String, BigDecimal\>)
+- `domain/indicator/IndicatorEngine.kt` — 80지표 계산 진입점 port
+- `domain/indicator/IndicatorCatalog.kt` — 80지표 ID Set (KIS strategy_builder/indicators.py 정합)
+- `domain/indicator/port/IndicatorSource.kt` — plug-in 추상 (name, priority, supports, compute)
+
+### 3. 영속
+
+DB 직접 저장 없음. Candle 테이블(V1)에서 읽기 전용. Redis 캐시 레이어만 사용.
+
+### 4. 외부 통합
+
+- **KIS Strategy Builder** `indicators.py` — 80지표 ID 정합 (ADR 0021)
+  - KisStrategyBuilderSource: Momentum·Oscillator·Trend·Volatility·Volume·Other 6 파일
+- **Native 구현** (NativeBollingerBands·NativeEma·NativeMa·NativeMacd·NativeRsi) — consumer 내장
+
+### 5. Kafka
+
+없음 (동기 REST 응답)
+
+### 6. UI 화면
+
+- `frontend/src/pages/Strategy/StrategyBuilderPage.tsx` — BlockPalette 지표 탭 (80지표 카탈로그)
+- `frontend/src/lib/dsl/catalogIds.ts` — `INDICATOR_CATALOG` 80건 ID Set
+
+### 7. PR 인용
+
+- PR-38 (2026-05-10) — T-IND R1+R2: IndicatorEngine + 80지표 KIS source + RedisIndicatorCacheAdapter + IndicatorController
+
+### 8. ADR 인용
+
+- ADR 0020 — KIS Strategy Builder 흡수 (80지표 필수 통합)
+- ADR 0021 — Indicator Source 추상화 (plug-in 아키텍처)
+
+### 9. 한계·todo
+
+- 80지표 중 KIS Strategy Builder native 구현 일부 — 계산 정확도 검증 미완 (post-MVP QA)
+- TA-Lib·KRX 공식 지표 plug-in 연결 — ADR 0021 §2-1 priority 체계 미활성화
+- `adjusted=true` 시 캔들 역산 보정 — V8 adj 컬럼 연계 (T-CA1 완성 후)
+
+---
+
+## T-PAT — 캔들스틱 패턴 57종 REST API
+
+### 1. REST endpoint
+
+| 메서드 | path | 설명 |
+|--------|------|------|
+| GET | `/api/patterns` | 패턴 인식 시계열 (code·interval·patterns·from·to) |
+
+```
+GET /api/patterns?code=005930&interval=1d&patterns=hammer,engulfing,doji
+```
+
+Swagger 4단: `@Tag(name="Patterns")` / `@Operation(summary="패턴 인식 시계열")` / `@Parameter(description="패턴 ID 콤마 구분 (예: hammer,engulfing,doji)")` / DTO `PatternResponseDto`.
+
+### 2. 도메인 모델
+
+- `domain/pattern/PatternCatalog.kt` — 57패턴 ID Set (KIS candlestick.py 정합)
+- `domain/pattern/PatternMatch.kt` — pattern, startTime, endTime, direction(Direction), confidence, params
+- `domain/pattern/DetectorResult.kt` — matched, direction, confidence, params
+- `domain/pattern/Direction.kt` — BULLISH·BEARISH·NEUTRAL
+- `domain/pattern/port/PatternRecognizer.kt` — recognize(candles, patterns): List\<PatternMatch\>
+- `domain/pattern/port/PatternDetector.kt` — detect(candles): DetectorResult (per-pattern)
+
+### 3. 영속
+
+DB 직접 저장 없음. Candle 테이블(V1) 읽기 전용. Redis 캐시 레이어만.
+
+### 4. 외부 통합
+
+- **KIS Strategy Builder** `candlestick.py` — 57패턴 ID·방향 정합
+- `pattern-engine` 라이브러리 모듈 (ADR 0054) — `JvmPatternRecognizer` 구현체
+  - 57 detectors: 10건 완전 구현 + 47건 stub (direction=NEUTRAL → 결과 미포함, graceful)
+
+### 5. Kafka
+
+없음 (동기 REST 응답). T-SIG(W3)에서 패턴 이벤트 Kafka 발행 예정.
+
+### 6. UI 화면
+
+- `frontend/src/pages/Strategy/StrategyBuilderPage.tsx` — BlockPalette 패턴 탭 (57패턴 카탈로그)
+- `frontend/src/lib/dsl/catalogIds.ts` — `PATTERN_CATALOG` 57건 ID Set
+
+### 7. PR 인용
+
+- PR-39a (2026-05-10) — JvmPatternRecognizer + 57 detector 구현 + pattern-engine 모듈 신설
+- PR-39b (2026-05-10) — PatternController REST + RedisPatternCacheAdapter + api/consumer 통합
+
+### 8. ADR 인용
+
+- ADR 0054 — pattern-engine 라이브러리 모듈 분리 (5모듈 체계 = ADR 0004 갱신)
+
+### 9. 한계·todo
+
+- 57패턴 중 47건 stub (direction=NEUTRAL) — 완전 구현 post-MVP
+- 패턴 신뢰도(confidence) 계산 — 현재 고정값. 통계 기반 신뢰도 미구현
+- `pattern_detected` DSL 키워드 — T-DSL KisYamlDslParser 연계 (PR-39c 이후)
+
+---
+
+## T-DSL — Strategy DSL CRUD + 검증 + Sandbox
+
+### 1. REST endpoint
+
+| 메서드 | path | 설명 |
+|--------|------|------|
+| POST | `/api/strategy/validate` | DSL 식 검증 (AST 복잡도 반환, DB 저장 없음) |
+| POST | `/api/strategy` | 전략 등록 (DSL parse → complexity → DB persist) |
+| GET | `/api/strategy` | 전략 목록 조회 (userId 파라미터) |
+| GET | `/api/strategy/{id}` | 전략 단건 조회 |
+| DELETE | `/api/strategy/{id}` | 전략 삭제 |
+| PUT | `/api/strategy/{id}/enable` | auto-disabled 전략 재활성화 |
+| POST | `/api/strategy/{id}/evaluate` | 전략 평가 (BUY/SELL/HOLD 시그널) |
+| POST | `/api/dsl/translate-from-natural` | 자연어 → DSL 번역 (AI 사용자 트리거 전용) |
+
+Swagger 4단: `@Tag(name="Strategy")` / `@Operation` / `@Parameter` / `CreateStrategyRequest·StrategyResponse·StrategyComplexityDto @Schema`.
+
+### 2. 도메인 모델
+
+- `domain/strategy/dsl/DslNode.kt` — sealed: IndicatorRef·LiteralValue·CompositeCondition·Condition·ArithmeticExpr
+- `domain/strategy/dsl/DslStrategyDefinition.kt` — name, nameKo, entry(DslNode), exit(DslNode?)
+- `domain/strategy/Strategy.kt` — id, userId, definition, complexity, disabledReason, enabled
+- `domain/strategy/StrategyComplexity.kt` — astDepth, nodeCount, indicatorCallCount, estimatedEvalTimeMs, complexityClass
+- `domain/strategy/ComplexityClass.kt` — LOW·MEDIUM·HIGH·CRITICAL
+- `domain/strategy/Signal.kt` — BUY·SELL·HOLD + strength(BigDecimal)
+- `domain/strategy/StrategyDisabledReason.kt` — NULL·TIMEOUT·CPU_BUDGET_EXCEEDED·MANUAL
+
+### 3. 영속
+
+| Flyway | 테이블 | 주요 내용 |
+|--------|--------|---------|
+| V9 | `strategy` | user_id, dsl_entry/exit TEXT, complexity 4 컬럼, BIGSERIAL PK |
+| V10 | `strategy` | disabled_reason, last_disabled_at, eval_metric_summary JSONB add-only |
+| V11 | `strategy_eval_metric` | strategy_id FK, eval_time_ms, outcome, ring buffer |
+
+### 4. 외부 통합
+
+- `KisYamlDslParser` (consumer) — `.kis.yaml` 파싱 + 화이트리스트 검증 (ADR 0022·0047)
+  - DSL token 화이트리스트: 80지표 + 57패턴 + 캔들 키워드 + 연산자
+- `JvmStrategyEvaluator` (consumer) — thread pool 격리 (ADR 0047 §2-3) + timeout 500ms
+- `NaturalLanguageDslTranslator` (api/ai) — 사용자 트리거 시에만 (ADR 0023 §1)
+
+### 5. Kafka
+
+- 전략 평가 완료 시 `consumer`의 `StrategyEvalMetricRecorder` → `strategy_eval_metric` DB 직접 write (Kafka 없음)
+- T-SIG(W3)에서 시그널 Kafka 토픽 예정
+
+### 6. UI 화면
+
+- `frontend/src/pages/Strategy/StrategyBuilderPage.tsx` — GUI 블록 빌더 (T-SB 트랙 동일 페이지)
+- `frontend/src/components/strategy/EvaluationResultCard.tsx` — BUY/SELL/HOLD 배지 + 강도 게이지
+- `frontend/src/components/strategy/ComplexityCard.tsx` — LOW/MEDIUM/HIGH/CRITICAL 4단 배지
+
+### 7. PR 인용
+
+- PR-36a (2026-05-10) — KisYamlDslParser + StrategyComplexity + JvmStrategyEvaluator + Flyway V9
+- PR-36b (2026-05-10) — StrategyController 7 endpoint + StrategyService + Flyway V10+V11
+
+### 8. ADR 인용
+
+- ADR 0022 — Strategy DSL (`.kis.yaml` superset 명세)
+- ADR 0047 — DSL Evaluation Sandbox (정적 검증 + timeout/CPU budget + auto-disable)
+
+### 9. 한계·todo
+
+- `POST /{id}/evaluate` — JvmStrategyEvaluator stub 연결 (strategy-engine 담당 bean 주입 후 완성)
+- KIS `.kis.yaml` import 엔드포인트 미구현 (post-MVP)
+- 전략 공유/복사 기능 미구현
+
+---
+
+## T-SB — Strategy Builder UI (GUI 블록 빌더)
+
+### 1. REST endpoint
+
+T-DSL 7 endpoint 동일 사용 + 자연어 번역 1건 추가:
+
+| 메서드 | path | 설명 |
+|--------|------|------|
+| POST | `/api/dsl/translate-from-natural` | 자연어 → DSL 번역 (AI 사용자 트리거 전용, ADR 0023 §1) |
+
+Swagger: `@Tag(name="DslTranslate")` / `@Operation(summary="자연어 DSL 번역")`.
+
+### 2. 도메인 모델
+
+T-DSL 도메인 모델 전체 재사용.
+
+- `api/ai/dsl/DslTranslateResult.kt` — REAL·MOCK·UNTRANSLATABLE·DISABLED 4분기
+- `api/ai/dsl/NaturalLanguageDslTranslator.kt` — `MAGICJAR_AI_ENABLED` 게이트 + MockDslHeuristic fallback
+
+### 3. 영속
+
+T-DSL `strategy` 테이블 (V9·V10) 동일 사용. 추가 테이블 없음.
+
+### 4. 외부 통합
+
+- (선택) **Anthropic/OpenAI** — `MAGICJAR_AI_ENABLED=true` + `MAGICJAR_AI_MOCK_MODE=false` 시에만 활성
+  - 기본값: `MAGICJAR_AI_ENABLED=false`, `MAGICJAR_AI_MOCK_MODE=auto`
+  - Mock heuristic: 키워드 기반 DSL 추천 (AI 없이도 동작)
+- LLM provider import 0건 (룰 5 — W1·W2·W3 코드에 LLM import 금지)
+
+### 5. Kafka
+
+없음 (T-SIG W3 이후 전략 시그널 발행 예정)
+
+### 6. UI 화면
+
+- `frontend/src/pages/Strategy/StrategyBuilderPage.tsx` — 팔레트+캔버스+결과 3단 레이아웃
+- `frontend/src/components/strategy/BlockPalette.tsx` — 4탭 (지표80·패턴57·캔들·연산자) + 검색
+- `frontend/src/components/strategy/BlockNode.tsx` — 재귀 트리 노드 8분기 + 키보드 접근성
+- `frontend/src/components/strategy/StrategyBuilderCanvas.tsx` — entry/exit 두 탭 + DSL 미리보기
+- `frontend/src/components/strategy/DslTextEditor.tsx` — textarea DSL 직접 편집 (Monaco 없음, ADR 0055 §3)
+- `frontend/src/components/strategy/NaturalLanguageInput.tsx` — 자연어 모달 (REAL/MOCK/UNTRANSLATABLE/DISABLED)
+- `frontend/src/lib/dsl/` — 4 파일: blockTree.ts·serializer.ts·parser.ts·yaml.ts
+- 라우팅: `/strategy/builder`
+
+### 7. PR 인용
+
+- PR-44 (2026-05-10) — T-SB spec/plan + ADR 0055 신규 + CHANGELOG 슬롯
+- PR-45 (2026-05-10) — T-SB frontend 구현 27 파일 ~2900 LOC (strategy-engine 연계 포함)
+
+### 8. ADR 인용
+
+- ADR 0055 — Strategy Builder UI 컴포넌트 스택 (B+C-lite 하이브리드 채택, Reactflow·Monaco 거부)
+- ADR 0023 — Signal Engine (AI = 사용자 트리거 옵션 분석만, 매매 결정권 0)
+
+### 9. 한계·todo
+
+- 768px 미만 모바일 — 안내 메시지만 표시 (반응형 블록 빌더 미지원)
+- KIS `.kis.yaml` export/import 완전 지원 — 직렬화 포맷 검증 후속 필요
+- 전략 백테스트 연계 — T-BT(W3) 트랙 예정
+- 57패턴 stub 47건 완성 시 BlockPalette 패턴탭 자동 활성화
+
+---
+
+## W3 트랙 (진입 예정)
+
+| 트랙 | 설명 | 상태 |
+|------|------|------|
+| T-BT | 전략 백테스트 잡 (Spring Batch) | W3 진입 예정 |
+| T-SC | 종목 스크리닝 (screening universe) | W3 진입 예정 |
+| T-SIG | 시그널 엔진 + Kafka 시그널 토픽 | W3 진입 예정 |
+| T-RISK | 리스크 관리 + KillSwitch 정책 강화 | W3 진입 예정 |
+| T-O | 주문 실행 (KIS 실주문 이중 게이트) | W3 진입 예정 |
+| T-PERF | 성과 추적 + TradeJournalEntry | W3 진입 예정 |
+| T-J | 매매 일지 UI | W3 진입 예정 |
+
+> W3 트랙 명세는 v3.3.0 baseline에서 채움.
+
+---
+
+> **채움률 검증**: W1 6트랙 × 9항목 = 54항목 GREEN | W2 4트랙 × 9항목 = 36항목 GREEN | 합계 90항목 전체 GREEN
+>
+> **fitness gap 0 확인**: v1/v2 잔재 스펙 0건. 자동매매 적합성 — 트랙별 REST·도메인·영속·Kafka 매트릭스로 권위 인용 가능. mock 합성 데이터 흐름 0.
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>
