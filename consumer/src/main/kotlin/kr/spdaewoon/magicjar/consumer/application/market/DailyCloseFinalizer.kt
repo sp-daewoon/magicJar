@@ -10,7 +10,6 @@ import java.math.BigDecimal
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 /**
  * 일봉 마감 파이널라이저 (ADR 0013 §3-6, PR-29a).
@@ -21,13 +20,18 @@ import java.time.format.DateTimeFormatter
  *
  * 동작 흐름:
  *   1. 현재 날짜가 영업일인지 확인 (비영업일 → skip)
- *   2. Redis candle:today:{code}:1d 키 스캔 → 1d candle DB INSERT (ON CONFLICT DO NOTHING)
- *   3. KIS REST 응답 직접 사용 — 자체 계산 0 (ADR 0013 §3-7 §6 정합)
+ *   2. Redis candle:today:{code}:1d Hash 키 스캔 → 1d candle DB INSERT (ON CONFLICT DO NOTHING)
+ *   3. KIS WS tick 집계 값 직접 사용 — 자체 계산 0 (ADR 0013 §3-7 §6 정합)
  *
  * T3 fallback source: 이 파이널라이저가 영속한 1d candle은 candle-data-policy-v2 §6 T3 소스.
  *
- * NOTE: Redis candle:today:{code}:1d 키는 TickToMinuteAggregator 또는 ColdStartExecutor에서
- *   KIS REST fetchCandles(interval=1d)로 설정. 본 finalizer는 만료 전 DB 영속만 담당.
+ * NOTE: Redis candle:today:{code}:1d 키는 KisWebSocketBridge.updateCandleToday()에서
+ *   Hash 타입으로 설정 (open·high·low·close·volume 필드).
+ *   본 finalizer는 Hash 타입으로 읽어 DB 영속만 담당.
+ *
+ * FIX(dogfooding): KisWebSocketBridge는 Hash(opsForHash)로 저장하는데 기존 구현이
+ *   String(opsForValue)으로 읽어서 항상 null → DB 미삽입 결함.
+ *   opsForHash().entries(key)로 변경 (마녀공장 5/5~5/7 누락 root cause).
  */
 @Component
 class DailyCloseFinalizer(
@@ -43,7 +47,6 @@ class DailyCloseFinalizer(
         private const val INTERVAL_1D = "1d"
         private const val SOURCE_FINALIZER = "KIS_DAILY_CLOSE"
         private val KST = ZoneId.of("Asia/Seoul")
-        private val DATE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd").withZone(KST)
     }
 
     /**
@@ -88,8 +91,13 @@ class DailyCloseFinalizer(
                         .removePrefix(CANDLE_TODAY_PREFIX)
                         .removeSuffix(CANDLE_TODAY_SUFFIX)
 
-                val json = redisTemplate.opsForValue().get(key) ?: continue
-                val candle = parseCandleJson(json, code, today) ?: continue
+                // FIX(dogfooding): candle:today:{code}:1d 는 KisWebSocketBridge.updateCandleToday()가
+                // opsForHash(HMSET)로 저장. 기존 opsForValue().get() 호출은 WRONGTYPE 에러 → null 반환
+                // → DB 미삽입 결함. Hash 타입으로 읽도록 수정.
+                val hash = redisTemplate.opsForHash<String, String>().entries(key)
+                if (hash.isEmpty()) continue
+
+                val candle = parseCandleHash(hash, code, today) ?: continue
 
                 val count =
                     candleJpaRepository.insertIgnore(
@@ -121,8 +129,9 @@ class DailyCloseFinalizer(
     }
 
     /**
-     * Redis JSON → CandleSnapshot 파싱.
-     * Redis value 형식: {"close":"73600","open":"73000","high":"74200","low":"72800","volume":"12345678","ts":"..."}
+     * Redis Hash → CandleSnapshot 파싱.
+     * KisWebSocketBridge.updateCandleToday() Hash 필드: open·high·low·close·volume
+     * (ts 표준화: 해당 날짜 KST 00:00:00 — KIS open-trading-api stck_bsop_date 관행 정합)
      */
     private data class CandleSnapshot(
         val ts: Instant,
@@ -133,27 +142,26 @@ class DailyCloseFinalizer(
         val volume: Long?,
     )
 
-    @Suppress("UNCHECKED_CAST")
-    private fun parseCandleJson(
-        json: String,
+    private fun parseCandleHash(
+        hash: Map<String, String>,
         code: String,
         date: LocalDate,
     ): CandleSnapshot? =
         try {
-            // 간단한 JSON 파싱 (jackson dependency 직접 사용보다 안전)
-            @Suppress("UNCHECKED_CAST")
-            val map =
-                com.fasterxml.jackson.databind
-                    .ObjectMapper()
-                    .readValue(json, Map::class.java) as Map<String, Any?>
+            val close = hash["close"]?.toBigDecimalOrNull()
+            val open = hash["open"]?.toBigDecimalOrNull()
+            val high = hash["high"]?.toBigDecimalOrNull()
+            val low = hash["low"]?.toBigDecimalOrNull()
+            val volume = hash["volume"]?.toLongOrNull()
 
-            val close = (map["close"] as? String)?.toBigDecimalOrNull()
-            val open = (map["open"] as? String)?.toBigDecimalOrNull()
-            val high = (map["high"] as? String)?.toBigDecimalOrNull()
-            val low = (map["low"] as? String)?.toBigDecimalOrNull()
-            val volume = (map["volume"] as? String)?.toLongOrNull()
+            if (close == null) {
+                log.warn("DailyCloseFinalizer candle Hash 파싱 실패: code={} close field 없음", code)
+                return null
+            }
 
             // ts: 해당 날짜 KST 00:00:00
+            // KIS raw 출처: stck_bsop_date (yyyyMMdd) → atStartOfDay(KST) 변환 관행 정합
+            // https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
             val ts = date.atStartOfDay(KST).toInstant()
 
             CandleSnapshot(
@@ -165,7 +173,7 @@ class DailyCloseFinalizer(
                 volume = volume,
             )
         } catch (e: Exception) {
-            log.warn("DailyCloseFinalizer candle JSON 파싱 실패: code={} err={}", code, e.message)
+            log.warn("DailyCloseFinalizer candle Hash 파싱 실패: code={} err={}", code, e.message)
             null
         }
 }

@@ -11,6 +11,8 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import reactor.util.retry.Retry
 import java.math.BigDecimal
 import java.time.Duration
+import java.time.LocalDate
+import java.time.ZoneId
 import kotlinx.datetime.Instant as KtInstant
 
 /**
@@ -31,6 +33,9 @@ class YahooCandleFetcherAdapter(
     companion object {
         private const val YAHOO_BASE = "https://query1.finance.yahoo.com"
         private const val SOURCE = "YAHOO"
+
+        /** KST timezone — 일봉 ts 표준화 (KST 00:00:00) 에 사용 */
+        private val KST = ZoneId.of("Asia/Seoul")
 
         /** interval → Yahoo range 파라미터 매핑 (ADR 0019 §5-2 정합) */
         private val INTERVAL_TO_RANGE =
@@ -146,11 +151,23 @@ class YahooCandleFetcherAdapter(
                 val close = (closes.getOrNull(i) as? Number)?.let { BigDecimal(it.toString()) } ?: continue
                 val volume = (volumes.getOrNull(i) as? Number)?.toLong() ?: 0L
 
+                // FIX(dogfooding): 일봉(1d) ts 표준화 — KST 00:00:00 기준으로 정규화.
+                // Yahoo Finance 한국 주식 1d timestamp는 장 관련 시각(KST 15:30 등)을 epoch으로 반환.
+                // 일봉은 날짜만 의미 있으므로 KST LocalDate 기준 자정으로 정규화.
+                // KIS 관행(stck_bsop_date → atStartOfDay(KST)) 정합.
+                val normalizedTs =
+                    if (interval == CandleInterval.ONE_DAY) {
+                        val localDate = LocalDate.ofInstant(java.time.Instant.ofEpochSecond(epochSecond), KST)
+                        KtInstant.fromEpochSeconds(localDate.atStartOfDay(KST).toEpochSecond())
+                    } else {
+                        KtInstant.fromEpochSeconds(epochSecond)
+                    }
+
                 candles.add(
                     Candle(
                         code = code,
                         interval = interval,
-                        ts = KtInstant.fromEpochSeconds(epochSecond),
+                        ts = normalizedTs,
                         openRaw = open,
                         highRaw = high,
                         lowRaw = low,
