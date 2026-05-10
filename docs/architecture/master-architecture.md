@@ -512,7 +512,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 
 ---
 
-## §10. 핵심 ADR 인덱스 (0001~0055 — 발행 완료)
+## §10. 핵심 ADR 인덱스 (0001~0056 — 발행 완료)
 
 상세 본문은 `_workspace/arch/adr/<NNNN>-*.md`. 분류 카테고리는 `_workspace/arch/adr/README.md` §1~§10-4 정합. 본 §10은 한 줄 요약 인덱스 — 신규 ADR 발행 시 본 표 + README 동시 갱신 (ADR 0030 SoT 운영 규약).
 
@@ -573,15 +573,16 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | 0053 | Living Policy Docs (현행 권위 단일 위치 + INDEX·policies/ 분리) | 메타·하네스 | 횡단 (문서 정합·인지 비용·토큰 효율) |
 | 0054 | pattern-engine 라이브러리 모듈 분리 (domain 순수성 보존 + api·consumer 공유) | 기술 스택 | 베이스 (PR-41 채택) |
 | 0055 | Strategy Builder UI 컴포넌트 스택 (B+C-lite 하이브리드 — 트리 폼 빌더 + textarea DSL 토글, 의존 추가 0) | 프론트엔드 | W2 (T-SB) |
+| 0056 | Backtest Engine Architecture (룩어헤드 slice-by-time 가드 + 세·수수료·슬리피지 모델 open extension + ADR 0047 sandbox 통합 + abort quota 50 + 1차 stateless) | 전략·신호·리스크 | W3 (T-BT) |
 
 ### 후속 예정 (Proposed — `_workspace/arch/adr/README.md` §12 정합)
 
 | 후보 번호 | 제목 (예정) | 진입 트랙 |
 |---|---|---|
-| 0056 | 57 캔들 패턴 표준 (본문 ADR로 격상 검토 — T-PAT 머지 정합) | T-PAT |
-| 0057 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT |
+| 0057 | 57 캔들 패턴 표준 (본문 ADR로 격상 검토 — T-PAT 머지 정합) | T-PAT |
 | 0058 | Screener 표준 | T-SC |
 | 0059 | Performance 표준 | T-PERF |
+| 0060 | Backtest 결과 영속 (backtest_run · backtest_trade 테이블 + GET endpoint) | T-BT 후속 (backlog §27-2) |
 
 ---
 
@@ -631,3 +632,4 @@ v1·v2 검토 시점에 누적된 결정 항목과 v3.0.0 베이스라인 컷(20
 | 2026-05-07 (PR-4) | v1/v2 잔여 grep 8회 검증 — 실질 잔재 0건(모두 의도된 historical context — 0014 T1/T2/T3 tier 표기·0004/0005/0006/0031/0032 Phase 역사적 마커·0020/0021/0027/0030 1차안 폐기 마커). §10 후속 예정에 ADR 0048 후보 prepend(KIS WS 41건 구독 한도 + 우선순위 정책 — PR-3b architect 발굴 갭) + 기존 0048~0051을 0049~0052로 시프트. v3.0.1 컷 준비 — CHANGELOG entry 추가, ADR 47건(0001~0047) + 파일명/헤더 일치 + README §12 정합 모두 GREEN. (architect) |
 | 2026-05-07 (PR-8) | 메타 정리 4건 — ADR 0049(GitHub Actions = release 트리거 한정 — 일상 검증 pre-push 단독)·ADR 0050(CHANGELOG 슬롯 채번룰 — architect 사전 발행 + sub-agent in-place edit) 신규 발행. ADR 0040 endpoint 단수→복수 정정(`/api/watchlist` → `/api/watchlists` — RESTful 관례 + PR-7 T-W1 spec lock 정합) + 정합 차원 ADR 0019·0028·candle-data-policy-v2 동시 갱신. §10 인덱스 0049·0050 추가, 후속 예정 기존 0049~0052 → 0051~0054 시프트(0048 KIS WS 41건은 그대로). agent SKILL 보강(architect 슬롯 발행 의무 + sub-agent fallback 룰 + magicjar-orchestrator 운영 절차). `.github/workflows/ci.yml` 삭제 + `release.yml` 재구성. `.husky/pre-push` 보강(frontend 변경 시 pnpm typecheck/build 조건부 실행). (architect) |
 | 2026-05-07 (PR-9) | T-W2 진입 직전 설계 산출물 — `_workspace/specs/pr-9-w2-design.md` (slot 분배 1+30+10·priority eviction·30s polling 전환·Yahoo 7 interval×1회·MarketSession 1차 stub LOCK), `pr-9-dispatch-spec.md` (PR-9a backend-core·PR-9b market-data 분배 + 인터페이스 동결 + KIS WS PIPE 메시지 KIS-first 의무), `pr-9-conflict-matrix.md` (병렬 권장 — modify-shared 3건 모두 사전 정책 해소). ADR 0048 본문 발행(`0048-kis-ws-41-subscription-limit.md`) — README §12 후속 예약 → §5 시장 데이터 카테고리 이동, master §10 인덱스 갱신(후속 예정에서 제거). ADR 0050 첫 적용 — CHANGELOG slot row 3건(architect 1·backend-core TBD·market-data TBD) 사전 발행. (architect) |
+| 2026-05-11 (PR-47) | W3 T-BT 진입 직전 설계 산출물 — `_workspace/specs/pr-47-w3-t-bt-design.md` (마스터 §B.9 정독 인용 + 도메인 모델 5건 LOCK BacktestRequest·Result·Position·Trade·Performance + REST endpoint POST /api/backtest/run LOCK + 룩어헤드 slice-by-time 가드 + 세·수수료·슬리피지 모델 인터페이스 3종 + ADR 0047 sandbox 통합 + abort quota 50 + 성과 7지표 식 + KIS-first raw 출처 인덱스), `pr-47-w3-t-bt-plan.md` (시나리오 A 단일 sub-agent backend-core 채택 + LOC ~1500 + wallclock ~5h + frontend backlog §27 합류), `pr-47-dispatch-spec.md` (PR-48 backend-core 단독 LOCK + 인터페이스 동결 + KIS-first raw 출처 KDoc 인용 의무 + fitness gap 7건 검증 의무), `pr-47-conflict-matrix.md` (modify-shared 0건 — add-only 100% + 빌드 그래프 변경 0 — 단독 머지 안전). ADR 0056 신규 발행 — Backtest Engine Architecture (단일 인터페이스 + open extension 모델 3종, 룩어헤드 slice-by-time, 세·수수료 raw 출처 의무, ADR 0047 strategy-eval-pool 공유, abort quota 50, 1차 stateless). §10 인덱스 ADR 0056 row 추가 + §12 후속 예정 시프트(기존 0056 캔들 패턴 → 0057, 0057 Backtest → 0056으로 격상 통합). ADR README §6 전략·신호·리스크 5건 → 6건. CHANGELOG slot sub-agent 1건(backend-core PR-48 TBD) 사전 발행. v1/v2 잔재 검증 — find Backtest 0건 GREEN. (architect) |

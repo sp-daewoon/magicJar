@@ -1,6 +1,6 @@
 # magicJar ADR 목차
 
-아키텍처 결정 기록(Architecture Decision Record). 55건 sequential (0001~0055 발행 완료). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
+아키텍처 결정 기록(Architecture Decision Record). 56건 sequential (0001~0056 발행 완료). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
 
 ## §1. 비전 (1건)
 
@@ -49,7 +49,7 @@
 | 0019 | 캔들 저장 정책 (Watchlist 기반 + Yahoo 분봉 DB 영속) |
 | 0048 | KIS WebSocket 41건 구독 한도 + 우선순위 정책 (slot 1+30+10·priority eviction·polling fallback) |
 
-## §6. 전략·신호·리스크 (5건)
+## §6. 전략·신호·리스크 (6건)
 
 | 번호 | 제목 |
 |------|------|
@@ -58,6 +58,7 @@
 | 0022 | Strategy DSL = .kis.yaml 호환 superset |
 | 0023 | Signal Engine = 룰 매칭 only (AI 호출 0) |
 | 0024 | Risk Guard chain 6단 |
+| 0056 | Backtest Engine Architecture (룩어헤드 slice-by-time 가드 + 세·수수료·슬리피지 모델 open extension + ADR 0047 sandbox 통합 + abort quota 50) |
 
 ## §7. 시각화·AI·MCP (3건)
 
@@ -139,13 +140,13 @@
 
 - **새 ADR 발행 시** — 본 README + master §10 + tracks-roadmap §3 동시 갱신
 - **Superseded 처리 시** — 본문 상단 헤더 + `_archive/` 이동 + 본 README §추가
-- **신규 진입 시 후속 ADR 번호** — 0056부터 sequential (0041~0055 발행 완료 — §2·§3·§5·§10-1·§10-2·§10-3·§10-4 정합).
+- **신규 진입 시 후속 ADR 번호** — 0057부터 sequential (0041~0056 발행 완료 — §2·§3·§5·§6·§10-1·§10-2·§10-3·§10-4 정합).
 
 ## §12. 후속 예정 (Proposed)
 
 | 후보 번호 | 제목 (예정) | 진입 트랙 | 사유 |
 |---|---|---|---|
-| 0056 | 57 캔들 패턴 표준 | T-PAT (기 머지 — 본문 ADR로 격상 검토) | 시프트 (2026-05-10 PR-41에서 0054 = pattern-engine 모듈 ADR 채택, PR-44에서 0055 = Strategy Builder UI 컴포넌트 스택 채택) |
-| 0057 | Backtest 표준 (룩어헤드·세금·수수료·슬리피지) | T-BT | (시프트) |
+| 0057 | 57 캔들 패턴 표준 | T-PAT (기 머지 — 본문 ADR로 격상 검토) | 시프트 (2026-05-11 PR-47에서 0056 = Backtest Engine Architecture 채택 — 기존 0057 Backtest 항목을 0056으로 격상 통합) |
 | 0058 | Screener 표준 | T-SC | (시프트) |
 | 0059 | Performance 표준 | T-PERF | (시프트) |
+| 0060 | Backtest 결과 영속 (backtest_run 테이블 + GET endpoint) | T-BT 후속 (backlog §27-2) | (예약) |
