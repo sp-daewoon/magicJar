@@ -20,6 +20,10 @@ dependencies {
     // Kafka (KafkaListener + KIS WS 데이터 발행)
     implementation("org.springframework.kafka:spring-kafka")
 
+    // YAML — KisYamlDslParser .kis.yaml import (T-DSL · spec §8-8)
+    implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+
     // PostgreSQL driver
     implementation("org.postgresql:postgresql")
 

@@ -31,6 +31,13 @@ dependencies {
     // Swagger (사용자 1차 API 문서 — memory feedback_swagger_pattern 정합)
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0")
 
+    // Spring AI Anthropic (T-DSL 자연어→DSL 변환 helper — ADR 0026 사용자 트리거 옵션 한정)
+    // 사용자 결재로 W2 진입. 매매 결정권 0 — REST endpoint에서 사용자가 명시 호출 시에만 활성화.
+    // MAGICJAR_AI_ENABLED=false 시 503, MAGICJAR_AI_MOCK_MODE=auto + key 없을 때 mock 응답.
+    implementation("org.springframework.ai:spring-ai-anthropic-spring-boot-starter") {
+        exclude(group = "org.springframework.boot", module = "spring-boot-starter-logging")
+    }
+
     // Test
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.kafka:spring-kafka-test")
