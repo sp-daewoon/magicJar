@@ -19,6 +19,10 @@
  *   onChartReady?: (chart: IChartApi) => void  — IndicatorOverlay 연동용 chart ref 노출
  *   onChartDestroy?: () => void                — chart destroy 시 알림
  *
+ * T-PAT PR-40 R3 확장 (W2):
+ *   onCandleSeriesReady?: (series: ISeriesApi<'Candlestick'>) => void — PatternMarker 연동용 series ref 노출
+ *   onCandleSeriesDestroy?: () => void                               — series destroy 시 알림
+ *
  * props:
  *   candles: CandleDto[]           초기 데이터 (ASC 정렬 보장 — backend 정합)
  *   interval: CandleInterval       현재 인터벌 (시간 포맷 분기용)
@@ -26,6 +30,8 @@
  *   onScrollLeft?: () => void      좌측 스크롤 끝 콜백 (페이지네이션 트리거)
  *   onChartReady?: (chart) => void 차트 생성 완료 콜백 (IndicatorOverlay 연동)
  *   onChartDestroy?: () => void    차트 파괴 콜백 (IndicatorOverlay 정리)
+ *   onCandleSeriesReady?: (series) => void  캔들 시리즈 노출 (PatternMarker 연동)
+ *   onCandleSeriesDestroy?: () => void      캔들 시리즈 파괴 알림
  */
 import {
   createChart,
@@ -49,6 +55,10 @@ interface LightweightChartProps {
   onChartReady?: (chart: IChartApi) => void
   /** 차트 파괴 시 알림 */
   onChartDestroy?: () => void
+  /** 캔들스틱 시리즈를 부모에게 노출 (PatternMarker 연동 — T-PAT PR-40) */
+  onCandleSeriesReady?: (series: ISeriesApi<'Candlestick'>) => void
+  /** 캔들스틱 시리즈 파괴 시 알림 */
+  onCandleSeriesDestroy?: () => void
 }
 
 /** 인터벌이 분봉(intraday)인지 여부 */
@@ -154,6 +164,8 @@ export function LightweightChart({
   onScrollLeft,
   onChartReady,
   onChartDestroy,
+  onCandleSeriesReady,
+  onCandleSeriesDestroy,
 }: LightweightChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -165,6 +177,10 @@ export function LightweightChart({
   onChartReadyRef.current = onChartReady
   const onChartDestroyRef = useRef(onChartDestroy)
   onChartDestroyRef.current = onChartDestroy
+  const onCandleSeriesReadyRef = useRef(onCandleSeriesReady)
+  onCandleSeriesReadyRef.current = onCandleSeriesReady
+  const onCandleSeriesDestroyRef = useRef(onCandleSeriesDestroy)
+  onCandleSeriesDestroyRef.current = onCandleSeriesDestroy
 
   // interval ref — tickMarkFormatter 클로저에서 최신 값 참조
   const intervalRef = useRef(interval)
@@ -246,6 +262,8 @@ export function LightweightChart({
       wickUpColor: '#26a69a',
     })
     candleSeriesRef.current = candleSeries
+    // PatternMarker 연동 콜백 (T-PAT PR-40)
+    onCandleSeriesReadyRef.current?.(candleSeries)
 
     // 거래량 히스토그램 시리즈 (optional — 가격 스케일과 독립)
     const volumeSeries = chart.addHistogramSeries({
@@ -334,6 +352,7 @@ export function LightweightChart({
 
     return () => {
       resizeObserver.disconnect()
+      onCandleSeriesDestroyRef.current?.()
       onChartDestroyRef.current?.()
       chart.remove()
       chartRef.current = null

@@ -15,11 +15,20 @@
  * - IndicatorPanel 슬라이드인 패널
  * - IndicatorOverlay — 선택된 지표 LWC overlay
  * - 지표별 오류 토스트 (개별 위젯 오류, 페이지 전체 중단 X)
+ *
+ * T-PAT PR-40 R3 확장 (W2):
+ * - 패턴 토글 버튼 (차트 헤더에 배치)
+ * - PatternToggleMenu — 57 catalog picker 슬라이드인 패널
+ * - PatternMarker — LWC 차트에 BULL/BEAR 마커 overlay
+ * - 패턴 0건 시 "패턴 데이터 없음" 명시 (feedback_no_mock_data.md 정합)
  */
 import { useMemo, useState, useCallback, useRef } from 'react'
-import type { IChartApi } from 'lightweight-charts'
+import type { IChartApi, ISeriesApi } from 'lightweight-charts'
 import { useSymbolCandles } from '../../api/hooks/useSymbolCandles'
 import type { CandleInterval, CandleDto, CandleMinutePayload } from '../../api/symbol'
+import { usePatterns } from '../../api/hooks/usePatterns'
+import { PatternMarker } from '../../components/chart/PatternMarker'
+import { PatternToggleMenu, usePatternSelection } from '../../components/chart/PatternToggleMenu'
 import { IntervalToggle } from './IntervalToggle'
 import { LightweightChart } from './LightweightChart'
 import { IndicatorPanel } from './IndicatorPanel'
@@ -46,6 +55,32 @@ export function SymbolChart({ code, realtimeCandle }: SymbolChartProps) {
   const [selectedIndicatorIds, setSelectedIndicatorIds] = useState<Set<string>>(new Set())
   const [indicatorErrors, setIndicatorErrors] = useState<Map<string, string>>(new Map())
   const chartApiRef = useRef<IChartApi | null>(null)
+
+  // 패턴 관련 상태 (T-PAT PR-40)
+  const [isPatternPanelOpen, setIsPatternPanelOpen] = useState(false)
+  const { selectedIds: selectedPatternIds, onSelectionChange: handlePatternSelectionChange } =
+    usePatternSelection()
+  const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
+
+  // 패턴 데이터 fetch
+  const {
+    data: patternData,
+    isError: isPatternError,
+    errorMessage: patternErrorMessage,
+  } = usePatterns({
+    code,
+    interval,
+    patternIds: selectedPatternIds,
+    enabled: Boolean(code) && selectedPatternIds.size > 0,
+  })
+
+  const handleCandleSeriesReady = useCallback((series: ISeriesApi<'Candlestick'>) => {
+    candleSeriesRef.current = series
+  }, [])
+
+  const handleCandleSeriesDestroy = useCallback(() => {
+    candleSeriesRef.current = null
+  }, [])
 
   // 모든 페이지 candle 합산 (ASC 정렬 유지)
   const allCandles = useMemo<CandleDto[]>(() => {
@@ -109,7 +144,7 @@ export function SymbolChart({ code, realtimeCandle }: SymbolChartProps) {
 
   return (
     <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
-      {/* 헤더: 인터벌 토글 + 지표 버튼 + 더 보기 */}
+      {/* 헤더: 인터벌 토글 + 지표·패턴 버튼 + 더 보기 */}
       <div className="flex items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-2">
           <IntervalToggle value={interval} onChange={handleIntervalChange} />
@@ -136,6 +171,29 @@ export function SymbolChart({ code, realtimeCandle }: SymbolChartProps) {
               </span>
             )}
           </button>
+
+          {/* 패턴 토글 버튼 (T-PAT PR-40) */}
+          <button
+            type="button"
+            onClick={() => setIsPatternPanelOpen((prev) => !prev)}
+            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-400 ${
+              isPatternPanelOpen || selectedPatternIds.size > 0
+                ? 'bg-emerald-700 text-white hover:bg-emerald-800'
+                : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+            }`}
+            aria-expanded={isPatternPanelOpen}
+            aria-label="패턴 선택 패널 열기"
+          >
+            <svg className="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714a2.25 2.25 0 001.5 2.1M14.25 3.104c.251.023.501.05.75.082M19.5 9.5l-1.5 1.5" />
+            </svg>
+            패턴
+            {selectedPatternIds.size > 0 && (
+              <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[10px] leading-none">
+                {selectedPatternIds.size}
+              </span>
+            )}
+          </button>
         </div>
 
         {hasNextPage && (
@@ -150,6 +208,36 @@ export function SymbolChart({ code, realtimeCandle }: SymbolChartProps) {
           </button>
         )}
       </div>
+
+      {/* 패턴 오류 알림 (T-PAT PR-40 — 위젯 수준 오류, 페이지 전체 중단 X) */}
+      {isPatternError && patternErrorMessage && (
+        <div
+          className="mb-3 flex items-center justify-between rounded-md bg-yellow-900/20 border border-yellow-800/40 px-3 py-1.5 text-xs text-yellow-400"
+          role="alert"
+          aria-live="polite"
+        >
+          <span>패턴: {patternErrorMessage}</span>
+          <button
+            type="button"
+            onClick={() => setIsPatternPanelOpen(false)}
+            className="ml-3 text-yellow-500 hover:text-yellow-300 transition-colors"
+            aria-label="패턴 오류 닫기"
+          >
+            닫기
+          </button>
+        </div>
+      )}
+
+      {/* 패턴 데이터 없음 안내 (feedback_no_mock_data.md 정합 — 0건 시 명시) */}
+      {selectedPatternIds.size > 0 && !isPatternError && patternData && patternData.matches.length === 0 && (
+        <div
+          className="mb-3 rounded-md bg-gray-800/60 border border-gray-700/40 px-3 py-1.5 text-xs text-gray-500"
+          role="status"
+          aria-live="polite"
+        >
+          선택한 패턴이 해당 기간에서 발견되지 않았습니다.
+        </div>
+      )}
 
       {/* 지표 오류 알림 (위젯 수준 오류 — 페이지 전체 중단 X) */}
       {indicatorErrors.size > 0 && (
@@ -175,8 +263,8 @@ export function SymbolChart({ code, realtimeCandle }: SymbolChartProps) {
         </div>
       )}
 
-      {/* 2열 레이아웃: 차트(좌) + 지표 패널(우) */}
-      <div className={`flex gap-4 ${isPanelOpen ? 'items-start' : ''}`}>
+      {/* 3열 레이아웃: 차트(좌) + 지표 패널(중) + 패턴 패널(우) */}
+      <div className={`flex gap-4 ${isPanelOpen || isPatternPanelOpen ? 'items-start' : ''}`}>
         {/* 차트 본체 */}
         <div className="flex-1 min-w-0">
           {isLoading ? (
@@ -211,6 +299,8 @@ export function SymbolChart({ code, realtimeCandle }: SymbolChartProps) {
               onScrollLeft={handleScrollLeft}
               onChartReady={handleChartReady}
               onChartDestroy={handleChartDestroy}
+              onCandleSeriesReady={handleCandleSeriesReady}
+              onCandleSeriesDestroy={handleCandleSeriesDestroy}
             />
           )}
 
@@ -232,6 +322,17 @@ export function SymbolChart({ code, realtimeCandle }: SymbolChartProps) {
             />
           </div>
         )}
+
+        {/* 패턴 패널 (우측 슬라이드인 — T-PAT PR-40) */}
+        {isPatternPanelOpen && (
+          <div className="w-56 shrink-0 h-[400px]">
+            <PatternToggleMenu
+              selectedIds={selectedPatternIds}
+              onSelectionChange={handlePatternSelectionChange}
+              onClose={() => setIsPatternPanelOpen(false)}
+            />
+          </div>
+        )}
       </div>
 
       {/* IndicatorOverlay — LWC 차트에 지표 series 추가 (DOM 렌더링 없음) */}
@@ -241,6 +342,12 @@ export function SymbolChart({ code, realtimeCandle }: SymbolChartProps) {
         interval={interval}
         selectedIds={selectedIndicatorIds}
         onErrorsChange={handleOverlayErrors}
+      />
+
+      {/* PatternMarker — LWC 차트에 패턴 마커 overlay (DOM 렌더링 없음 — T-PAT PR-40) */}
+      <PatternMarker
+        series={candleSeriesRef.current}
+        matches={patternData?.matches ?? []}
       />
     </div>
   )
