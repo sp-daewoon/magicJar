@@ -48,7 +48,8 @@ import java.math.BigDecimal
  * ### 화이트리스트 (ADR 0047 §2-1-A)
  * - 80지표 모두 ([IndicatorCatalog.ALL])
  * - DSL alias 8종 (`macd_signal`·`macd_hist`·`bb_upper`·`bb_lower`·`bb_middle`·`stoch_k`·`stoch_d`·`volume_ma`)
- * - 패턴 함수 2종 (`consecutive`·`pattern`) — T-PAT 미진입 시 [PatternRecognizerStub] 호출
+ * - 패턴 함수 3종 (`consecutive`·`pattern`·`pattern_detected`) — T-PAT JvmPatternRecognizer 호출
+ *   - `pattern_detected("name")` — magicJar 자체 alias (T-PAT PR-39 추가). KIS DSL `pattern("name")`과 동치 라우팅.
  * - 캔들 직접 접근 5종 (`close`·`prev_close`·`high`·`low`·`volume`)
  * - 자체 함수 4종 (`change`·`highest`·`lowest`·`returns`)
  *
@@ -445,9 +446,11 @@ class KisYamlDslParser(
     }
 
     /**
-     * `consecutive(...)` · `pattern(...)` IndicatorRef 판별 (parser.py:L378-L380 정합).
+     * `consecutive(...)` · `pattern(...)` · `pattern_detected(...)` IndicatorRef 판별
+     * (parser.py:L378-L380 정합 + T-PAT PR-39 magicJar alias 추가).
      */
-    private fun isPatternIndicator(node: DslNode): Boolean = node is IndicatorRef && (node.name == "consecutive" || node.name == "pattern")
+    private fun isPatternIndicator(node: DslNode): Boolean =
+        node is IndicatorRef && (node.name == "consecutive" || node.name == "pattern" || node.name == "pattern_detected")
 
     // =====================================================================
     // Static 검증 visitor (ADR 0047 §2-1)
@@ -565,9 +568,13 @@ class KisYamlDslParser(
                 add("highest")
                 add("lowest")
                 add("returns")
-                // 패턴 함수 2종 (T-PAT 합류 후 본격 — stub graceful)
+                // 패턴 함수 3종 (T-PAT PR-39 — JvmPatternRecognizer 활성화)
+                // - `consecutive("up"|"down")` — magicJar own (KIS 미존재)
+                // - `pattern("name")` — KIS DSL 본체 호환
+                // - `pattern_detected("name")` — magicJar alias (T-PAT PR-39 추가) — `pattern(...)` 동치 라우팅
                 add("consecutive")
                 add("pattern")
+                add("pattern_detected")
                 // KIS 자체 (raw verification §3 정합)
                 add("disparity")
                 add("volatility")
