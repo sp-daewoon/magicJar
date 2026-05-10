@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>magicJar devlog · 2026-05-10</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --c-bg: #fafaf7;
+      --c-fg: #222;
+      --c-mute: #666;
+      --c-accent: #5b3a1f;
+      --c-card: #fff8ed;
+      --c-border: #d8d4c8;
+      --c-table-head: #f0e8d8;
+      --b-ok: #2e7d32;
+      --b-warn: #ed6c02;
+      --b-pending: #1976d2;
+      --b-todo: #d63384;
+      --b-mute: #888;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Pretendard", "Apple SD Gothic Neo", sans-serif;
+      background: var(--c-bg);
+      color: var(--c-fg);
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 32px 24px 80px;
+      line-height: 1.6;
+      font-size: 14px;
+    }
+    h1 {
+      color: var(--c-accent);
+      border-bottom: 2px solid var(--c-accent);
+      padding-bottom: 10px;
+      margin-bottom: 8px;
+      font-size: 1.5rem;
+    }
+    h2 {
+      color: var(--c-accent);
+      font-size: 1.05rem;
+      margin-top: 32px;
+      margin-bottom: 12px;
+      padding-left: 6px;
+      border-left: 4px solid var(--c-accent);
+    }
+    h3 { font-size: 0.95rem; margin-top: 16px; margin-bottom: 8px; color: #444; }
+    .meta { color: var(--c-mute); font-size: 0.85rem; margin-bottom: 24px; }
+    .meta code { background: #f0e8d8; padding: 2px 6px; border-radius: 3px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      border: 1px solid var(--c-border);
+      border-radius: 6px;
+      overflow: hidden;
+      margin: 8px 0 16px;
+      font-size: 0.85rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 8px 10px;
+      border-bottom: 1px solid #eee;
+      vertical-align: top;
+    }
+    th { background: var(--c-table-head); font-weight: 600; color: #333; }
+    tr:last-child td { border-bottom: none; }
+    code, .mono { font-family: "SF Mono", Menlo, monospace; font-size: 0.82rem; background: #f5efde; padding: 1px 5px; border-radius: 3px; }
+    .badge {
+      display: inline-block;
+      padding: 1px 8px;
+      border-radius: 10px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: #fff;
+      vertical-align: middle;
+    }
+    .b-ok { background: var(--b-ok); }
+    .b-warn { background: var(--b-warn); }
+    .b-pending { background: var(--b-pending); }
+    .b-todo { background: var(--b-todo); }
+    .b-mute { background: var(--b-mute); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+    .card {
+      background: var(--c-card);
+      border: 1px solid var(--c-border);
+      border-radius: 6px;
+      padding: 14px 16px;
+    }
+    .card h3 { margin-top: 0; }
+    .num { font-size: 1.6rem; font-weight: 700; color: var(--c-accent); margin: 4px 0; }
+    .label { color: var(--c-mute); font-size: 0.78rem; }
+    ul { padding-left: 20px; }
+    ul li { margin: 4px 0; }
+    .summary-row {
+      display: flex; justify-content: space-between; gap: 20px;
+      padding: 12px 16px; background: #fff;
+      border: 1px solid var(--c-border); border-radius: 6px;
+      margin-bottom: 16px; font-size: 0.85rem;
+    }
+    .summary-row > span { color: var(--c-mute); }
+    .summary-row strong { color: var(--c-accent); margin-left: 6px; }
+    footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--c-border); color: #888; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <h1>magicJar 개발일지 · 2026-05-10 (일) #1 · 16:18 KST</h1>
+  <div class="meta">
+    세션 범위: <strong>2026-05-08 ~ 2026-05-10</strong> · v3.1.0 dogfooding 정정 → v3.1.1 hotfix → W2 진입 (T-IND · T-DSL · T-PAT R1+R2)<br/>
+    main HEAD: <code>21038b3</code> (PR #259 chore 정리 직후) · 잔재: worktree 0 · agent/* 브랜치 0 · task 잔여 0
+  </div>
+
+  <div class="summary-row">
+    <span>머지 PR <strong>11</strong></span>
+    <span>신규 Flyway <strong>V9·V10·V11</strong></span>
+    <span>sub-agent 호출 <strong>12</strong></span>
+    <span>총 LOC <strong>+19,000</strong> 추정</span>
+    <span>릴리즈 <strong>v3.1.1</strong> 태그</span>
+    <span>다음 트랙 <strong>T-PAT R3 / T-SB</strong></span>
+  </div>
+
+  <h2>1. 머지 PR 매트릭스</h2>
+  <table>
+    <thead>
+      <tr><th>PR</th><th>날짜 (KST)</th><th>제목 / 트랙</th><th>에이전트</th><th>모델</th><th>비고</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>#249</td><td>05-08</td><td>fix(frontend): 종목상세 화면 결함 5건 정정 (PR-31a)</td><td>frontend</td><td>sonnet</td><td>v3.1.1 hotfix</td></tr>
+      <tr><td>#250</td><td>05-08</td><td>fix(backend): supportedIntervals 1wk·1mo·1y 추가 (PR-31b)</td><td>backend-core</td><td>sonnet</td><td>v3.1.1 hotfix</td></tr>
+      <tr><td>#251</td><td>05-08</td><td>chore(backlog): §24 종목상세 dogfooding 결함 묶음 (v3.2 일괄)</td><td>orchestrator</td><td>—</td><td>v3.2 이월 의제</td></tr>
+      <tr><td>#252</td><td>05-09</td><td>spec(arch): W2 T-IND 진입 — 80지표 + Source 추상화</td><td>architect</td><td>opus</td><td>spec/plan</td></tr>
+      <tr><td>#253</td><td>05-09</td><td>feat(W2 T-IND): 80지표 + Native 5종 + REST + Redis + frontend overlay (PR-33 단일)</td><td>4 sub-agent</td><td>mixed</td><td>+6961/-139, 62 tests</td></tr>
+      <tr><td>#254</td><td>05-09</td><td>spec(arch): W2 T-DSL 진입 — DSL 파서 + 평가 엔진 + 자연어 변환</td><td>architect</td><td>opus</td><td>spec/plan</td></tr>
+      <tr><td>#255</td><td>05-10</td><td>feat(W2 T-DSL): KIS DSL 파서 + 평가 엔진 + sandbox + REST + Flyway + 자연어 변환 helper (PR-36 단일)</td><td>3 sub-agent</td><td>mixed</td><td>+5522/-2, 79 tests</td></tr>
+      <tr><td>#256</td><td>05-10</td><td>spec(arch): W2 T-PAT 진입 — 차트 패턴 57종 + DSL stub 1줄 교체</td><td>architect</td><td>opus</td><td>spec/plan</td></tr>
+      <tr><td>#257</td><td>05-10</td><td>chore(meta): task archive 일괄 정리 (T-IND·T-DSL·T-PAT spec)</td><td>orchestrator</td><td>—</td><td>메타</td></tr>
+      <tr><td>#258</td><td>05-10</td><td>feat(W2 T-PAT): JvmPatternRecognizer 57패턴 + R1 active 10 + DSL pattern_detected (PR-39)</td><td>2 sub-agent</td><td>mixed</td><td>+3416/-79, 64 tests</td></tr>
+      <tr><td>#259</td><td>05-10</td><td>chore(meta): task archive 정리 (T-PAT PR-39 사이클)</td><td>orchestrator</td><td>—</td><td>메타</td></tr>
+    </tbody>
+  </table>
+
+  <h2>2. PostgreSQL Flyway 변경</h2>
+  <table>
+    <thead><tr><th>버전</th><th>파일</th><th>설명</th><th>발행</th></tr></thead>
+    <tbody>
+      <tr><td>V9</td><td><code>V9__strategy.sql</code></td><td>strategy 기본 테이블 — id·user_id·name·dsl_text·complexity 등</td><td>backend-core (PR #255)</td></tr>
+      <tr><td>V10</td><td><code>V10__strategy_disabled_reason.sql</code></td><td>disabled_reason · last_disabled_at · eval_metric_summary 컬럼 추가 (auto-disable 정합)</td><td>backend-core (PR #255)</td></tr>
+      <tr><td>V11</td><td><code>V11__strategy_eval_metric.sql</code></td><td>strategy_eval_metric 신규 테이블 — 평가 통계 누적</td><td>backend-core (PR #255)</td></tr>
+    </tbody>
+  </table>
+  <p style="color: var(--c-mute); font-size: 0.8rem;">candle 테이블 변경 0건 (T-IND는 read-only). pattern 관련 테이블 0 (Redis 캐시만).</p>
+
+  <h2>3. Kafka 토픽 · 데이터 흐름 변경</h2>
+  <p style="color: var(--c-mute); font-size: 0.85rem;">신규 토픽 발행 <strong>0건</strong>. T-IND·T-DSL·T-PAT 모두 read-only 트랙 — 캔들 DB read + 지표·DSL·패턴 in-memory 계산 + REST 응답. 기존 토픽 (<code>market.tick.v1</code>·<code>market.orderbook.v1</code>·<code>market.candle.minute.closed.v1</code> 등) 변경 0.</p>
+
+  <h2>4. Redis 사용처 변경</h2>
+  <table>
+    <thead><tr><th>키 패턴</th><th>TTL</th><th>도입 PR</th><th>용도</th></tr></thead>
+    <tbody>
+      <tr><td><code>indicator:cache:{code}:{interval}:{name}:{paramsHash}</code></td><td>분봉 5분 / 일봉 1일</td><td>#253</td><td>80지표 결과 캐시 (SHA-256 16자리 paramsHash)</td></tr>
+      <tr><td><code>pattern:cache:{code}:{interval}:{patternsHash}</code></td><td>분봉 5분 / 일봉 1일</td><td>#258</td><td>57패턴 검출 결과 캐시 (T-IND 패턴 정합)</td></tr>
+    </tbody>
+  </table>
+
+  <h2>5. sub-agent 디스패치 내역</h2>
+  <table>
+    <thead><tr><th>에이전트</th><th>호출수</th><th>모델</th><th>주요 산출</th></tr></thead>
+    <tbody>
+      <tr><td>architect</td><td>3</td><td>opus</td><td>T-IND·T-DSL·T-PAT spec/plan PR (각 5 spec 파일 + CHANGELOG 슬롯 사전 발행)</td></tr>
+      <tr><td>strategy-engine</td><td>3</td><td>opus</td><td>T-IND domain 7 + KIS 80지표 + Native 5종 / T-DSL parser + evaluator / T-PAT 75 files (KIS candlestick.py 1:1 port)</td></tr>
+      <tr><td>backend-core</td><td>3</td><td>sonnet</td><td>T-IND IndicatorController / T-DSL StrategyController + Flyway / T-PAT PatternController + stub 삭제</td></tr>
+      <tr><td>market-data</td><td>1</td><td>sonnet</td><td>T-IND `_workspace/strategy/` 카탈로그 KIS-first 갱신 + cross-check fixture</td></tr>
+      <tr><td>ai-engineer</td><td>1</td><td>opus</td><td>T-DSL 자연어→DSL 변환 helper (사용자 결재 W2 포함, ADR 0026 정합)</td></tr>
+      <tr><td>frontend</td><td>1</td><td>sonnet</td><td>T-IND R3 차트 overlay + IndicatorPanel + 80지표 fixture</td></tr>
+    </tbody>
+  </table>
+  <h3>이슈/복구 내역</h3>
+  <ul>
+    <li><span class="badge b-warn">conflict</span> T-IND domain 6파일 add-add → strategy-engine 권위 채택, T-DSL domain 17파일 add-add → strategy-engine 권위, T-PAT domain 7파일 add-add → strategy-engine 권위. 모두 KIS-first 1:1 port 정합으로 메인 sub-agent 채택 일관 정책.</li>
+    <li><span class="badge b-warn">호환성</span> T-DSL backend-core가 <code>nameKo: String</code> 가정 vs strategy-engine <code>nameKo: String?</code> 정의 미스매치 → orchestrator 자율 정정 (?: "" / takeIf isNotBlank).</li>
+    <li><span class="badge b-warn">force push</span> v3.1.1 hotfix 시점 PR #249 CHANGELOG row 충돌로 force-with-lease 필요 → 시스템 정책 차단 → 사용자 직접 실행 1회.</li>
+    <li><span class="badge b-pending">빌링</span> v3.1.0·v3.1.1 release Action 모두 FAILURE — GitHub Actions 결제 한도 초과. 코드/태그 push는 정상, ghcr 이미지 + Release draft 미발행. 사용자 독립 처리 필요.</li>
+    <li><span class="badge b-ok">stub 삭제</span> T-PAT 본 사이클에서 T-DSL <code>PatternRecognizerStub @ConditionalOnMissingBean</code> 삭제 + JvmPatternRecognizer <code>@Component(name="patternRecognizer")</code> 1줄 교체로 활성화. DSL evaluator 코드 변경 0건.</li>
+  </ul>
+
+  <h2>6. sanity / dogfooding 결과</h2>
+  <h3>v3.1.0 dogfooding 결과 (PR-31 트리거)</h3>
+  <table>
+    <thead><tr><th>결함</th><th>분류</th><th>처리</th></tr></thead>
+    <tbody>
+      <tr><td>차트 캔들 미렌더 (ISO ts → UTCTimestamp 변환 누락)</td><td>frontend</td><td><span class="badge b-ok">PR #249</span></td></tr>
+      <tr><td>주봉/월봉/년봉 없음 (backend whitelist 5종)</td><td>both</td><td><span class="badge b-ok">PR #250 / #249</span></td></tr>
+      <tr><td>호가창 미표시 (장 마감)</td><td>frontend</td><td><span class="badge b-ok">PR #249</span> 메시지 분기</td></tr>
+      <tr><td>"지연 데이터" 배지 / 시간 포맷 / hover 툴팁</td><td>frontend</td><td><span class="badge b-ok">PR #249</span></td></tr>
+      <tr><td>분봉/15m/30m/90m 적재 부실 (005930 외 60건만)</td><td>market-data</td><td><span class="badge b-todo">backlog §24</span> v3.2 W2</td></tr>
+      <tr><td>getPriceBadge() 로직 (polling을 'live'로 잘못 표시)</td><td>frontend</td><td><span class="badge b-todo">backlog §24</span> v3.2</td></tr>
+      <tr><td>호가 polling fallback 부재</td><td>frontend + market-data</td><td><span class="badge b-todo">backlog §24</span> v3.2 W2</td></tr>
+    </tbody>
+  </table>
+
+  <h3>9 컨테이너 상태 (현 시점)</h3>
+  <table>
+    <thead><tr><th>서비스</th><th>상태</th><th>비고</th></tr></thead>
+    <tbody>
+      <tr><td>api-app</td><td><span class="badge b-ok">healthy</span></td><td>43h 가동</td></tr>
+      <tr><td>batch-app</td><td><span class="badge b-ok">healthy</span></td><td>46h</td></tr>
+      <tr><td>consumer-app</td><td><span class="badge b-ok">healthy</span></td><td>46h · KIS approval_key 발급 + 10종목 시세 구독 중</td></tr>
+      <tr><td>kafka / kafka-ui</td><td><span class="badge b-ok">healthy</span></td><td>—</td></tr>
+      <tr><td>postgres</td><td><span class="badge b-ok">healthy</span></td><td>—</td></tr>
+      <tr><td>redis</td><td><span class="badge b-ok">healthy</span></td><td>—</td></tr>
+      <tr><td>dozzle</td><td><span class="badge b-ok">running</span></td><td>—</td></tr>
+      <tr><td>frontend</td><td><span class="badge b-warn">unhealthy</span></td><td>nginx healthcheck 미설정 추정 (운영 영향 0)</td></tr>
+    </tbody>
+  </table>
+  <p style="color: var(--c-mute); font-size: 0.8rem;">현 컨테이너 jar는 PR #258 (T-PAT) 머지 이전 시점 — 본 세션 신규 기능 dogfooding은 <code>scripts/build-and-deploy.sh</code> 실행 후 가능.</p>
+
+  <h2>7. 다음 세션 일정</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>① T-PAT R3 frontend overlay <span class="badge b-pending">우선</span></h3>
+      <div class="num">~600 LOC</div>
+      <div class="label">PR-40 단일 PR 권장 (frontend 단독). LWC v4 setMarkers로 차트 패턴 검출 영역 시각화. T-PAT 마무리. T-SB 진입 전 완성 권장.</div>
+    </div>
+    <div class="card">
+      <h3>② T-SB Strategy Builder UI <span class="badge b-pending">예정</span></h3>
+      <div class="num">~3000 LOC</div>
+      <div class="label">T-IND·T-DSL·T-PAT 결합 UI. frontend 중심 대규모 작업. architect spec/plan + 4 sub-agent 패턴 (T-IND/T-DSL/T-PAT 정합).</div>
+    </div>
+    <div class="card">
+      <h3>③ v3.2.0 release 컷 <span class="badge b-pending">의제</span></h3>
+      <div class="num">사용자 결정</div>
+      <div class="label">T-IND·T-DSL·T-PAT 묶음 minor release 시점. baseline init v3.2.0 + 태그 push. <strong>GitHub Actions 빌링 이슈 해결 필요.</strong></div>
+    </div>
+    <div class="card">
+      <h3>④ v3.1.1 dogfooding <span class="badge b-warn">선택</span></h3>
+      <div class="num">로컬</div>
+      <div class="label"><code>scripts/build-and-deploy.sh</code> 실행 후 80지표·DSL·패턴·자연어 변환 검증. 결함 발견 시 backlog 또는 hotfix 처리.</div>
+    </div>
+    <div class="card">
+      <h3>⑤ backlog §24 v3.2 일괄 <span class="badge b-todo">이월</span></h3>
+      <div class="num">3건</div>
+      <div class="label">결함 7 호가 polling · 결함 8 분봉 backfill 부실 ★ · 결함 9 getPriceBadge() 로직. v3.2 W2 진입 시점에 묶음 처리.</div>
+    </div>
+    <div class="card">
+      <h3>⑥ GitHub Actions 빌링 <span class="badge b-warn">사용자</span></h3>
+      <div class="num">독립 처리</div>
+      <div class="label">v3.1.0·v3.1.1 release Action FAILURE. Settings → Billing & plans 한도 증액 또는 결제 갱신 후 <code>gh run rerun 25557080058</code>으로 재트리거.</div>
+    </div>
+  </div>
+
+  <h2>현 정책 SoT 요약 (다음 세션 빠른 참조)</h2>
+  <ul style="font-size: 0.85rem;">
+    <li><strong>운영 헌법</strong>: <code>_workspace/arch/agent-charter.md</code> (7 § 룰 — task.mjs 4단계·머지 후 정리·KIS-first·CHANGELOG 슬롯·rebase·Repository default fun·sub-agent fail 분기)</li>
+    <li><strong>단일 진입점</strong>: <code>_workspace/INDEX.md</code> (ADR 0053 Living Policy)</li>
+    <li><strong>현행 권위 정책</strong>: <code>docs/architecture/policies/</code> (KIS credential·로그 레벨·KIS-first·task cycle·mermaid)</li>
+    <li><strong>마스터 아키텍처</strong>: <code>docs/architecture/master-architecture.md</code> (ADR 0030 SoT)</li>
+    <li><strong>트랙 로드맵</strong>: <code>docs/architecture/tracks-roadmap.md</code> (W2 잔여 = T-PAT R3 + T-SB)</li>
+    <li><strong>backlog</strong>: <code>_workspace/backlog.md</code> (§24가 가장 최신 — v3.2 W2 일괄)</li>
+    <li><strong>spec/plan 산출물</strong>: <code>_workspace/specs/pr-32-*</code> (T-IND) · <code>pr-35-*</code> (T-DSL) · <code>pr-38-*</code> (T-PAT)</li>
+    <li><strong>ADR 인덱스</strong>: <code>_workspace/arch/adr/README.md</code> (53건 · 본 세션 신규 ADR 0건)</li>
+  </ul>
+
+  <footer>
+    devlog 작성: orchestrator (auto mode) · 2026-05-10 16:18 KST · 다음 세션 진입 시 <code>main HEAD 21038b3</code>·<code>release/v3</code> 분기점에서 시작 가능.
+  </footer>
+</body>
+</html>
