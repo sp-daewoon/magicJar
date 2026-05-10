@@ -292,7 +292,29 @@ domain/src/main/kotlin/com/mj/domain/
 └── secret/             ← 트랙1 (AES-256-GCM master key)
 ```
 
+### 5-1A. pattern-engine 라이브러리 모듈 (Spring Context — Boot main 0)
+
+ADR 0054 정합 — 2026-05-10 신설. domain port `PatternRecognizer`·`PatternDetector` 구현 빈을 보유하는 라이브러리 jar. api·consumer 두 모듈이 동일 빈을 공유하기 위한 분리.
+
+```
+pattern-engine/src/main/kotlin/kr/spdaewoon/magicjar/pattern/
+├── JvmPatternRecognizer            ← @Component("patternRecognizer") · 57 detector registry
+├── cache/RedisPatternCacheAdapter  ← Redis 캐시 (분봉 300s / 일봉 86400s TTL · api·consumer unify)
+├── util/CandleMath                 ← 캔들 수학 헬퍼 (KIS candlestick.py 정합)
+├── helper/                         ← ConsecutiveDirectionCalculator · SimpleTripleHelper
+└── detector/                       ← 57 detector
+    ├── single/                     ← 14 detector (Doji·Hammer·Marubozu·... )
+    ├── triple/                     ← 27 detector (MorningStar·EveningStar·... )
+    └── pair/                       ← 16 detector (Engulfing·Harami·... )
+```
+
+의존: `pattern-engine` → `domain`만. `api`·`consumer` → `pattern-engine`. ADR 0004 §의존 방향 정합 보존(api·consumer 직접 의존 0).
+
+빌드: `kotlin("jvm") + kotlin("plugin.spring") + spring-context + spring-data-redis`. **Spring Boot main·bootJar 0** (라이브러리 jar). 컨테이너 0.
+
 ### 5-2. 응용 레이어 분배 (api·batch·consumer·frontend)
+
+(아래 표는 응용 모듈 4개 분배 — pattern-engine 라이브러리는 §5-1A 별도)
 
 | 영역 | api | batch | consumer | frontend |
 |---|---|---|---|---|
@@ -321,6 +343,8 @@ domain/src/main/kotlin/com/mj/domain/
 ## §6. 모듈 매트릭스 (영역 × 앱)
 
 ### 6-1. 컨테이너 7 + sidecar 1 = 8 (W4 시점)
+
+(JVM 모듈은 5개 — `domain`·`pattern-engine`은 라이브러리 jar로 컨테이너 0. ADR 0054 정합)
 
 | 컨테이너 | 언어 | 책임 |
 |---|---|---|
