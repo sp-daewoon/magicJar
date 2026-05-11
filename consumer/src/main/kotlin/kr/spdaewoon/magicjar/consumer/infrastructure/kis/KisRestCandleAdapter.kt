@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.infrastructure.kis
 
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
@@ -40,6 +41,7 @@ class KisRestCandleAdapter(
     private val kisAuthAdapter: KisAuthAdapter,
     private val secretCipher: SecretCipher,
     private val credentialRepository: ConsumerUserKisCredentialJpaRepository,
+    private val instrumentRepository: ConsumerInstrumentJpaRepository,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseProd: String,
     @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
@@ -69,6 +71,32 @@ class KisRestCandleAdapter(
                 CandleInterval.ONE_YEAR -> "Y"
                 else -> throw IllegalArgumentException("KIS REST 미지원 interval: ${interval.code}")
             }
+    }
+
+    /**
+     * 종목코드 → KIS fid_cond_mrkt_div_code 결정.
+     *
+     * KIS raw spec (헌법 §3 의무 인용):
+     *   FHKST03010230: fid_cond_mrkt_div_code = "J:주식, NX:NXT, UN:통합"
+     *     raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
+     *   FHKST03010100: fid_cond_mrkt_div_code = "J:KRX, NX:NXT, UN:통합"
+     *     raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
+     *
+     * 분기 결정 (2026-05-11 결함 정정 — PR #301 UN 통합 후 KOSDAQ FAILED 분석):
+     *   - KOSDAQ 종목: "J" (KRX 주식 — KOSPI+KOSDAQ 포함. UN=통합은 NXT cover용으로 KOSDAQ 미거래 종목 빈 응답 관측)
+     *   - KOSPI 종목: "UN" (ADR 0063 NXT cover 의도 유지)
+     *   - UNKNOWN/기타: "J" (안전 기본값)
+     *
+     * ADR 0063: KOSPI는 NXT 병행 상장 종목 cover를 위해 UN 유지.
+     * KOSDAQ은 NXT에 미상장이므로 J만으로 충분 — UN 사용 시 빈 응답 발생 관측.
+     */
+    private fun resolveMrktDivCode(code: String): String {
+        val market = instrumentRepository.findById(code).map { it.market }.orElse("UNKNOWN")
+        return when (market) {
+            "KOSPI" -> "UN" // ADR 0063 NXT cover 유지
+            "KOSDAQ" -> "J" // KIS raw spec: J=KRX주식. KOSDAQ은 NXT 미거래 → UN 빈 응답 방지
+            else -> "J" // 안전 기본값
+        }
     }
 
     override fun fetchCandles(
@@ -132,6 +160,20 @@ class KisRestCandleAdapter(
             // in-memory dedup: ts epoch second 기준 — 페이지 경계 중복 방지
             val seenTs = mutableSetOf<Long>()
 
+            // market 분기 — KIS raw spec: J=KRX주식(KOSPI+KOSDAQ), UN=통합(KRX+NXT)
+            // KOSDAQ은 NXT 미거래 → UN 빈 응답 방지를 위해 J 사용
+            val mrktDivCode = resolveMrktDivCode(code)
+            log.debug(
+                "KIS 1m fetch market 분기: code={} market={} mrktDivCode={}",
+                code,
+                instrumentRepository
+                    .findById(code)
+                    .map {
+                        it.market
+                    }.orElse("UNKNOWN"),
+                mrktDivCode,
+            )
+
             // 직전 30 거래일 (주말 제외 — 약 45 달력일 커버)
             val targetDays = mutableListOf<LocalDate>()
             var d = LocalDate.now(KST_ZONE)
@@ -166,8 +208,10 @@ class KisRestCandleAdapter(
                                         .host(kisBaseProd.removePrefix("https://").substringBefore(":"))
                                         .port(kisBaseProd.substringAfterLast(":").toIntOrNull() ?: 9443)
                                         .path(ENDPOINT_1MIN)
-                                        // fid_cond_mrkt_div_code: J (주식) — FHKST03010230 spec
-                                        .queryParam("fid_cond_mrkt_div_code", "UN")
+                                        // fid_cond_mrkt_div_code: resolveMrktDivCode — market 분기
+                                        // J=KOSDAQ(KRX주식), UN=KOSPI(NXT통합cover ADR0063)
+                                        // raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
+                                        .queryParam("fid_cond_mrkt_div_code", mrktDivCode)
                                         // fid_input_iscd: 종목코드
                                         .queryParam("fid_input_iscd", code)
                                         // fid_input_hour_1: 이 시각 이전 최신 120건 반환 (페이지네이션 커서)
@@ -368,6 +412,10 @@ class KisRestCandleAdapter(
             // 충분한 과거 시작일 (count * 1.5 거래일 마진)
             val startDate = LocalDate.now(KST_ZONE).minusYears(30).format(DATE_FMT)
 
+            // market 분기 — KIS raw spec: J=KRX주식(KOSPI+KOSDAQ), UN=통합(KRX+NXT)
+            // raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
+            val mrktDivCode = resolveMrktDivCode(code)
+
             val body =
                 webClient
                     .get()
@@ -377,7 +425,7 @@ class KisRestCandleAdapter(
                             .host(kisBaseProd.removePrefix("https://").substringBefore(":"))
                             .port(kisBaseProd.substringAfterLast(":").toIntOrNull() ?: 9443)
                             .path(ENDPOINT_DAILY)
-                            .queryParam("fid_cond_mrkt_div_code", "UN")
+                            .queryParam("fid_cond_mrkt_div_code", mrktDivCode)
                             .queryParam("fid_input_iscd", code)
                             .queryParam("fid_input_date_1", startDate)
                             .queryParam("fid_input_date_2", today)

@@ -4,6 +4,7 @@ import jakarta.annotation.PreDestroy
 import kr.spdaewoon.magicjar.consumer.aggregation.AggregateBackfillRunner
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaRepository
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepository
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import kr.spdaewoon.magicjar.domain.market.port.KisRestPort
@@ -40,6 +41,7 @@ class ColdStartExecutor(
     private val candleRepository: CandleRepository,
     private val auditRepository: ConsumerAuditTrailJpaRepository,
     private val aggregateBackfillRunner: AggregateBackfillRunner,
+    private val instrumentJpaRepository: ConsumerInstrumentJpaRepository,
 ) {
     private val log = LoggerFactory.getLogger(ColdStartExecutor::class.java)
 
@@ -82,6 +84,35 @@ class ColdStartExecutor(
     }
 
     private fun runColdStart(code: String) {
+        // 거래정지·정리매매 종목 early exit — KIS API 응답 0 (외부 결함, 재시도 무의미)
+        // instrument 조회 실패(stub/UNKNOWN) 시에는 cold-start 시도 (안전 기본값)
+        val instrument = instrumentJpaRepository.findById(code).orElse(null)
+        if (instrument != null && (instrument.tradingHalt || instrument.liquidation)) {
+            log.info(
+                "KIS cold-start skip — 거래정지·정리매매: code={} halt={} liquidation={}",
+                code,
+                instrument.tradingHalt,
+                instrument.liquidation,
+            )
+            try {
+                val detail =
+                    """{"code":"$code","reason":"TRADING_HALT",""" +
+                        """"tradingHalt":${instrument.tradingHalt},"liquidation":${instrument.liquidation}}"""
+                auditRepository.save(
+                    ConsumerAuditTrailJpaEntity(
+                        actor = "system",
+                        action = "KIS_COLD_START_SKIPPED",
+                        entityType = "candle",
+                        entityId = code,
+                        detailJson = detail,
+                    ),
+                )
+            } catch (e: Exception) {
+                log.warn("cold-start skip audit 저장 실패: code={} err={}", code, e.message)
+            }
+            return
+        }
+
         log.info("KIS cold-start 시작: code={}", code)
         var successCount = 0
         var failCount = 0
