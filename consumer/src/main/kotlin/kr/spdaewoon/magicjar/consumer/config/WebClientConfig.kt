@@ -1,75 +1,50 @@
 package kr.spdaewoon.magicjar.consumer.config
 
-import io.netty.handler.ssl.SslContextBuilder
-import io.netty.handler.ssl.SslProvider
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient
 import reactor.netty.http.client.HttpClient
-import java.security.KeyStore
-import java.time.Duration
-import javax.net.ssl.TrustManagerFactory
 
 /**
  * Consumer WebClient / WebSocketClient Bean 설정.
  *
  * 빈 분리 구조:
- *  - webClient (기본) — KIS REST 등 일반 endpoint. JDK 기본 SSL context.
- *  - kisWebSocketClient (KIS WS 전용) — ops.koreainvestment.com:21000 TLS cipher suite 호환 문제 해결.
- *    JDK 21 + reactor netty 기본 설정으로는 KIS WS 서버와 SSL handshake timeout 발생
- *    (SslHandshakeTimeoutException after 10000ms). batch 모듈 PR #278 DART fix 동일 패턴 적용.
- *    SslProvider.JDK + TLSv1.2/1.3 프로토콜 명시로 cipher suite 협상 강제화.
+ *  - webClient (기본) — KIS REST 등 일반 endpoint.
+ *  - kisWebSocketClient (KIS WS 전용) — ws:// (비암호화 WebSocket) 전용 클라이언트.
  *
- * KIS WS endpoint: wss://ops.koreainvestment.com:21000 (prod) / :31000 (VTS)
- * 출처: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/websocket/
+ * KIS WS 서버는 ws:// (비암호화) 사용.
+ * KIS-first 출처: kis_devlp.yaml ops="ws://ops.koreainvestment.com:21000" (SSL 없음)
+ * https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/kis_devlp.yaml
+ *
+ * 주의: wss:// 사용 시 SSL handshake timeout 발생 (SslHandshakeTimeoutException) →
+ *       서버가 ClientHello에 응답 않고 10초 후 timeout. NotSslRecordException 후속 발생.
+ *       (이전 ws.url-prod=wss:// 기본값 결함 — 본 PR에서 ws://로 정정)
  */
 @Configuration
 class WebClientConfig {
-    /** 일반 WebClient — KIS REST 호출 (JDK 기본 SSL context) */
+    /** 일반 WebClient — KIS REST 호출 */
     @Bean
     fun webClient(): WebClient = WebClient.builder().build()
 
     /**
-     * KIS WS 전용 WebSocketClient — ops.koreainvestment.com TLS handshake timeout 대응.
+     * KIS WS 전용 WebSocketClient — ws:// 비암호화 WebSocket.
      *
-     * 문제: JDK 21 + reactor netty 기본 설정에서 KIS WS 서버와 SSL handshake 10초 timeout.
-     *       connect 직후 SslHandshakeTimeoutException → disconnect/reconnect 무한 루프.
-     * 해결:
-     *   1. SslContextBuilder로 TLSv1.2/1.3 프로토콜 + JDK 기본 TrustManager 명시 →
-     *      cipher suite negotiation 강제화. SslProvider.JDK로 JDK SSL 스택 직접 사용.
-     *   2. handshakeTimeout(30s) 명시 — 기본 10s로는 KIS WS 서버 협상 대기 부족.
-     *      KIS WS 서버가 ClientHello 수신 후 ServerHello 응답에 10s 초과 소요.
+     * KIS WS 서버(ops.koreainvestment.com:21000)는 SSL 없는 ws:// 프로토콜 사용.
+     * KIS-first 출처: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/kis_devlp.yaml
+     *   ops: "ws://ops.koreainvestment.com:21000"
+     *   vops: "ws://ops.koreainvestment.com:31000"
      *
-     * 패턴 출처: batch WebClientConfig dartWebClient (PR #278 backlog §22 fix) 기반 + timeout 보강.
-     * KIS WS endpoint 출처: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/websocket/
+     * ReactorNettyWebSocketClient 빈 분리 이유:
+     * - 향후 ws:// 전용 connection pool 또는 타임아웃 설정 분리 가능
+     * - KisWebSocketBridge @Qualifier 주입으로 SSL 미설정 HttpClient 보장
      */
     @Bean
     @Qualifier("kisWebSocketClient")
     fun kisWebSocketClient(): ReactorNettyWebSocketClient {
-        val trustManagerFactory =
-            TrustManagerFactory
-                .getInstance(TrustManagerFactory.getDefaultAlgorithm())
-                .also { it.init(null as KeyStore?) }
-
-        val sslContext =
-            SslContextBuilder
-                .forClient()
-                .sslProvider(SslProvider.JDK)
-                .trustManager(trustManagerFactory)
-                .protocols("TLSv1.2", "TLSv1.3")
-                .build()
-
-        val httpClient =
-            HttpClient
-                .create()
-                .secure { spec ->
-                    spec
-                        .sslContext(sslContext)
-                        .handshakeTimeout(Duration.ofSeconds(30))
-                }
-
+        // KIS WS는 ws:// — SSL context 없이 일반 HttpClient 사용
+        val httpClient = HttpClient.create()
         return ReactorNettyWebSocketClient(httpClient)
     }
 }
