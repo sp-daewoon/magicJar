@@ -18,6 +18,7 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import kotlinx.datetime.Instant as KtInstant
 
 /**
@@ -82,11 +83,23 @@ class KisRestCandleAdapter(
     }
 
     /**
-     * 1m 분봉 조회 (FHKST03010230).
-     * MVP: 당일 포함 직전 30 거래일 1m 분봉 fetch (최대 30 call × 120건).
-     * 페이지네이션: fid_input_date_1 + fid_input_hour_1 = "153000" (장마감 기준) 로 해당 일자 전체 조회.
+     * 1m 분봉 조회 (FHKST03010230) — 일자당 페이지네이션으로 전수 수집.
      *
-     * raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
+     * raw spec:
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
+     *
+     * 1 call = 최대 120건. 정규장 9:00~15:30 ≈ 390건 → 일자당 ~4 call 필요.
+     *
+     * 페이지네이션 알고리즘 (KIS-first raw fetch 의무 — 헌법 §3):
+     *   1. fid_input_hour_1="153000" (장마감) → 해당 시각 이전 최신 120건 반환 (내림차순)
+     *   2. 응답 목록의 마지막 row(가장 이른 시각)의 stck_cntg_hour - 1분 → 다음 fid_input_hour_1
+     *   3. 가장 이른 ts 가 09:00 KST 이전이면 해당 일자 종료
+     *   4. 응답 0건 또는 일자당 최대 MAX_PAGES_PER_DAY(=6) call 초과 시 안전 종료
+     *
+     * Rate Limit (ADR 0037): 20 req/s. 50ms 마진 유지.
+     * 11종목 × 4 call × 30일 = 1320 calls × 50ms = ~66s — 안전.
+     *
+     * in-memory dedup: (code, interval, ts epoch second) Set으로 중복 경계 row 방지.
      */
     private fun fetchOneMinCandles(code: String): List<Candle> {
         val cred =
@@ -116,6 +129,9 @@ class KisRestCandleAdapter(
             val secretKeyStr = String(secretKey)
 
             val allCandles = mutableListOf<Candle>()
+            // in-memory dedup: ts epoch second 기준 — 페이지 경계 중복 방지
+            val seenTs = mutableSetOf<Long>()
+
             // 직전 30 거래일 (주말 제외 — 약 45 달력일 커버)
             val targetDays = mutableListOf<LocalDate>()
             var d = LocalDate.now(KST_ZONE)
@@ -131,57 +147,163 @@ class KisRestCandleAdapter(
 
             for (targetDate in targetDays) {
                 val dateStr = targetDate.format(DATE_FMT)
-                try {
-                    val body =
-                        webClient
-                            .get()
-                            .uri { builder ->
-                                builder
-                                    .scheme("https")
-                                    .host(kisBaseProd.removePrefix("https://").substringBefore(":"))
-                                    .port(kisBaseProd.substringAfterLast(":").toIntOrNull() ?: 9443)
-                                    .path(ENDPOINT_1MIN)
-                                    // fid_cond_mrkt_div_code: J (주식) — FHKST03010230 spec
-                                    .queryParam("fid_cond_mrkt_div_code", "J")
-                                    // fid_input_iscd: 종목코드
-                                    .queryParam("fid_input_iscd", code)
-                                    // fid_input_hour_1: 153000 (장마감 기준 — 해당 일자 1m 전체 수신)
-                                    .queryParam("fid_input_hour_1", "153000")
-                                    // fid_input_date_1: 조회 날짜 (yyyyMMdd)
-                                    .queryParam("fid_input_date_1", dateStr)
-                                    // fid_pw_data_incu_yn: N (과거 데이터 포함 여부)
-                                    .queryParam("fid_pw_data_incu_yn", "N")
-                                    .build()
-                            }.header("authorization", "Bearer $accessToken")
-                            .header("appkey", appKeyStr)
-                            .header("appsecret", secretKeyStr)
-                            .header("tr_id", TR_ID_1MIN)
-                            .header("custtype", "P")
-                            .retrieve()
-                            .bodyToMono(Map::class.java)
-                            .timeout(Duration.ofSeconds(10))
-                            .block()
+                // 일자별 페이지네이션 시작: 장마감(153000) 기준 역순 백워크
+                // raw: FHKST03010230 fid_input_hour_1 = 이 시각 이전 120건 반환
+                var currentHour = "153000"
+                var pageCount = 0
+                // 무한루프 방지: 일자당 최대 6 pages (120건 × 6 = 720건 한도 — 정규장 390건의 약 2배)
+                val maxPagesPerDay = 6
+                var dayDone = false
 
-                    if (body != null) {
-                        val parsed = parseKis1mResponse(body, code, targetDate)
-                        allCandles.addAll(parsed)
-                        log.debug(
-                            "KIS 1m fetch 완료: code={} date={} count={}",
+                while (!dayDone && pageCount < maxPagesPerDay) {
+                    try {
+                        val body =
+                            webClient
+                                .get()
+                                .uri { builder ->
+                                    builder
+                                        .scheme("https")
+                                        .host(kisBaseProd.removePrefix("https://").substringBefore(":"))
+                                        .port(kisBaseProd.substringAfterLast(":").toIntOrNull() ?: 9443)
+                                        .path(ENDPOINT_1MIN)
+                                        // fid_cond_mrkt_div_code: J (주식) — FHKST03010230 spec
+                                        .queryParam("fid_cond_mrkt_div_code", "J")
+                                        // fid_input_iscd: 종목코드
+                                        .queryParam("fid_input_iscd", code)
+                                        // fid_input_hour_1: 이 시각 이전 최신 120건 반환 (페이지네이션 커서)
+                                        // raw spec: fid_input_hour_1 HHMMSS — 해당 시각 이전 데이터 반환
+                                        .queryParam("fid_input_hour_1", currentHour)
+                                        // fid_input_date_1: 조회 날짜 (yyyyMMdd)
+                                        .queryParam("fid_input_date_1", dateStr)
+                                        // fid_pw_data_incu_yn: N (과거 데이터 포함 여부)
+                                        .queryParam("fid_pw_data_incu_yn", "N")
+                                        .build()
+                                }.header("authorization", "Bearer $accessToken")
+                                .header("appkey", appKeyStr)
+                                .header("appsecret", secretKeyStr)
+                                .header("tr_id", TR_ID_1MIN)
+                                .header("custtype", "P")
+                                .retrieve()
+                                .bodyToMono(Map::class.java)
+                                .timeout(Duration.ofSeconds(10))
+                                .block()
+
+                        pageCount++
+
+                        if (body == null) {
+                            log.debug("KIS 1m fetch 빈 body: code={} date={} hour={}", code, dateStr, currentHour)
+                            dayDone = true
+                        } else {
+                            val parsed = parseKis1mResponse(body, code, targetDate)
+                            if (parsed.isEmpty()) {
+                                // 응답 0건 = 해당 시각 이전 데이터 없음 → 일자 완료
+                                log.debug(
+                                    "KIS 1m fetch 응답 0건 — 일자 완료: code={} date={} hour={} page={}",
+                                    code,
+                                    dateStr,
+                                    currentHour,
+                                    pageCount,
+                                )
+                                dayDone = true
+                            } else {
+                                // dedup 적용 후 추가
+                                var newCount = 0
+                                for (candle in parsed) {
+                                    val epochSec = candle.ts.epochSeconds
+                                    if (seenTs.add(epochSec)) {
+                                        allCandles.add(candle)
+                                        newCount++
+                                    }
+                                }
+                                log.debug(
+                                    "KIS 1m fetch page 완료: code={} date={} hour={} page={} fetched={} new={}",
+                                    code,
+                                    dateStr,
+                                    currentHour,
+                                    pageCount,
+                                    parsed.size,
+                                    newCount,
+                                )
+
+                                // 다음 페이지 커서: 응답 목록에서 가장 이른 stck_cntg_hour - 1분
+                                // KIS 응답은 내림차순(최신→과거) — 마지막 row가 가장 이른 시각
+                                val earliestCandle = parsed.minByOrNull { it.ts.epochSeconds }
+                                if (earliestCandle != null) {
+                                    // kotlinx.datetime.Instant → java.time 변환 (epochSeconds 경유)
+                                    val earliestLt =
+                                        java.time.Instant
+                                            .ofEpochSecond(earliestCandle.ts.epochSeconds)
+                                            .atZone(KST_ZONE)
+                                            .toLocalTime()
+
+                                    // 09:00:00 KST 이전 = 정규장 시작 전 → 해당 일자 전체 수집 완료
+                                    val marketOpen = LocalTime.of(9, 0, 0)
+                                    if (!earliestLt.isAfter(marketOpen)) {
+                                        log.debug(
+                                            "KIS 1m fetch 장시작 도달 — 일자 완료: code={} date={} earliestTime={}",
+                                            code,
+                                            dateStr,
+                                            earliestLt,
+                                        )
+                                        dayDone = true
+                                    } else {
+                                        // 1분 앞으로 백워크 (HHmmss 형식)
+                                        val nextLt = earliestLt.minus(1, ChronoUnit.MINUTES)
+                                        currentHour =
+                                            "%02d%02d%02d".format(
+                                                nextLt.hour,
+                                                nextLt.minute,
+                                                nextLt.second,
+                                            )
+                                    }
+                                } else {
+                                    dayDone = true
+                                }
+                            }
+                        }
+
+                        // KIS API rate limit 준수: ADR 0037 — 20 req/s 한도. 50ms 간격 안전 마진
+                        Thread.sleep(50)
+                    } catch (e: WebClientResponseException) {
+                        log.warn(
+                            "KIS 1m candle 실패: code={} date={} hour={} status={}",
                             code,
                             dateStr,
-                            parsed.size,
+                            currentHour,
+                            e.statusCode,
                         )
+                        dayDone = true
+                    } catch (e: Exception) {
+                        log.warn(
+                            "KIS 1m candle 오류: code={} date={} hour={} err={}",
+                            code,
+                            dateStr,
+                            currentHour,
+                            e.message,
+                        )
+                        dayDone = true
                     }
-                    // KIS API rate limit 준수: ADR 0037 — 20 req/s 한도. 50ms 간격으로 안전 마진 확보
-                    Thread.sleep(50)
-                } catch (e: WebClientResponseException) {
-                    log.warn("KIS 1m candle 실패: code={} date={} status={}", code, dateStr, e.statusCode)
-                } catch (e: Exception) {
-                    log.warn("KIS 1m candle 오류: code={} date={} err={}", code, dateStr, e.message)
                 }
+
+                if (pageCount >= maxPagesPerDay && !dayDone) {
+                    log.warn(
+                        "KIS 1m fetch MAX_PAGES 도달 안전 종료: code={} date={} pages={}",
+                        code,
+                        dateStr,
+                        pageCount,
+                    )
+                }
+
+                log.info(
+                    "KIS 1m backfill 일자 완료: code={} date={} pages={} total={}",
+                    code,
+                    dateStr,
+                    pageCount,
+                    allCandles.size,
+                )
             }
 
-            log.info("KIS 1m backfill 완료: code={} total={}", code, allCandles.size)
+            log.info("KIS 1m backfill 전체 완료: code={} total={}", code, allCandles.size)
             allCandles
         } finally {
             appKey?.fill(0)
