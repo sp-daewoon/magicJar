@@ -33,7 +33,17 @@ class WatchlistIngestionWorker(
     private var lastSession: MarketSession = MarketSession.Closed(reason = "init")
 
     /**
-     * 부팅 reconcile — watchlist 전체 조회 후 priority 분배 (ADR 0028 §4-5).
+     * 부팅 reconcile — watchlist 전체 조회 후 KIS WS 연결 + priority 분배 (ADR 0028 §4-5).
+     *
+     * 순서:
+     *   1. watchlist 조회 → 사용자 추출
+     *   2. kisWsPort.connect() — WS 연결 시작 (approval_key 발급 + 핸드셰이크)
+     *      ★ subscribe()보다 반드시 선행 — sendSink가 null이면 subscribe 메시지 폐기됨
+     *   3. SubscriptionRouter.recompute() — 종목별 subscribe() 호출
+     *   4. 세션 확인 → polling worker 상태 결정
+     *
+     * ADR 0028 §2-1: WatchlistIngestionWorker가 KIS WS 연결·구독의 단일 책임자.
+     * ADR 0048 §2-4: connect 실패 시 Bridge 내부에서 지수 백오프 재시도.
      */
     @PostConstruct
     fun onStartup() {
@@ -45,6 +55,9 @@ class WatchlistIngestionWorker(
                 log.info("watchlist 없음 — reconcile 생략")
                 return
             }
+            // KIS WS 연결 시작 — subscribe()보다 선행 의무 (sendSink null 방지)
+            kisWsPort.connect()
+            log.info("KIS WS connect() 호출 완료 — 핸드셰이크 진행 중")
             users.forEach { userId ->
                 subscriptionRouter.recompute(userId)
             }

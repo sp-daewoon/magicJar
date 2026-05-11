@@ -99,6 +99,8 @@ class OrderbookSubscriptionRouterTest {
         val orderbookUnsubscribed: MutableSet<String> = CopyOnWriteArraySet()
         var subscribeOrderbookCount = 0
 
+        override fun connect() {} // no-op stub — hotfix: KisWsPort.connect() 시그니처 추가
+
         override fun subscribe(codes: List<String>) {}
 
         override fun unsubscribe(codes: List<String>) {}

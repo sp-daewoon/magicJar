@@ -9,6 +9,22 @@ package kr.spdaewoon.magicjar.domain.market.port
  * - H0STASP0 호가: 최대 10 slot (subscribeOrderbook/unsubscribeOrderbook) — PR-10b 신규
  */
 interface KisWsPort {
+    /**
+     * WebSocket 연결 시작 + approval_key 발급 + 기존 구독 종목 재구독.
+     *
+     * 부팅 시 WatchlistIngestionWorker.onStartup()에서 watchlist 발견 후 호출 의무.
+     * 이미 연결된 상태이면 no-op (idempotent).
+     *
+     * KIS-first 출처:
+     * - approval_key endpoint: /oauth2/Approval (KisApprovalAdapter)
+     * - WebSocket URL: wss://ops.koreainvestment.com:21000 (prod) / :31000 (mock/VTS)
+     *   raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/websocket/
+     *
+     * ADR 0028 §2-1: WatchlistIngestionWorker가 구독·연결의 단일 책임자.
+     * ADR 0048 §2-4: 연결 실패 시 지수 백오프 재시도.
+     */
+    fun connect()
+
     fun subscribe(codes: List<String>)
 
     fun unsubscribe(codes: List<String>)

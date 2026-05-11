@@ -166,10 +166,16 @@ class KisWebSocketBridge(
     override fun subscribedOrderbookCodes(): Set<String> = orderbookSubscribedCodes.toSet()
 
     /**
-     * WebSocket 연결 시작.
-     * 부팅 시 PositionBootstrapRunner 또는 WatchlistIngestionWorker에서 호출.
+     * WebSocket 연결 시작 + approval_key 발급 + 기존 구독 종목 재구독.
+     * 이미 연결된 상태이면 no-op (idempotent).
+     *
+     * 부팅 시 WatchlistIngestionWorker.onStartup()에서 watchlist 발견 후 호출 (ADR 0028 §2-1).
+     *
+     * KIS-first 출처:
+     * - approval_key endpoint: /oauth2/Approval (KisApprovalAdapter)
+     * - WebSocket URL raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/websocket/
      */
-    fun connect() {
+    override fun connect() {
         if (session.connected || session.shuttingDown) return
         log.info("KIS WS 연결 시작: url={}", getWsUrl())
         scheduleConnect(delayMs = 0L)
