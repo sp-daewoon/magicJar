@@ -1224,9 +1224,21 @@ ADR 0062 §9 합산 가공이 cold-start + DailyCloseFinalizer(20:00 KST)에서�
 - STOMP fanout — frontend 실시간 차트 갱신
 - DailyCloseFinalizer는 마감 후 DB flush 의무
 
+### 진행 상태 (2026-05-12 갱신)
+
+- **ADR 0064 plan 발행 (Proposed)** — `_workspace/arch/adr/0064-realtime-aggregation-fanout.md` (architect 작성, 2026-05-12)
+- 결정 의제 3건 (사용자 검토 위임):
+  - 의제 A — Redis 키 매트릭스: A-1 5종 별도 hash 키 (architect 권장) vs A-2 통합 hash 단일 키
+  - 의제 B — boundary 마감 트리거: B-1 KIS WS H0STCNT0 in-process 검사 (architect 권장) vs B-2 별도 scheduled vs B-3 하이브리드
+  - 의제 C — STOMP fanout 토픽: C-1 5종 별도 토픽 (architect 권장) vs C-2 단일 + payload interval field
+- **architect 종합 권장**: A-1 + B-1 + C-1 (latency 최소·운영 visibility·ADR 0029 §2-1·§2-5 baseline 정합)
+- 사용자 결정 후 sub-agent 디스패치 매트릭스 (ADR 0064 §7-1):
+  - **market-data** — BoundaryDetector domain + BoundaryAggregator consumer + KisWebSocketBridge 확장 + RedisCandleCache 5종 + Kafka 토픽 신규
+  - **frontend** — useSymbolCandles STOMP 5종 subscribe + LWC v4 차트 update + dogfooding evidence
+
 ### 우선순위
 
-v3.3.0 미러스톤. 실시간 매매(W3+) 본격 시점에 필수.
+v3.3.0 미러스톤. 실시간 매매(W3+) 본격 시점에 필수. **사용자 결정 대기 (의제 A·B·C 3건)**.
 
 ---
 
