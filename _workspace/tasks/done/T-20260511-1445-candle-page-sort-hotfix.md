@@ -3,10 +3,10 @@ id: T-20260511-1445-candle-page-sort-hotfix
 agent: frontend
 model: sonnet
 branch: agent/frontend/candle-page-sort-hotfix
-status: RUNNING
+status: DONE
 startedAt: 2026-05-11T14:45:18.814+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-11T15:09:00.000+09:00
+pr: #292
 parentPhase: ?
 ---
 
