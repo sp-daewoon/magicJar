@@ -3,16 +3,19 @@
 - 작성일: TBD
 - 2026-05-11 갱신: **Yahoo Finance §3 전면 제거** — ADR 0057 (KIS OpenAPI 단일 데이터 출처) 정합. 사용자 명시 "kis에 있는 데이터만 사용하라고" (2026-05-11 dogfooding).
 - 2026-05-11 amend: 정보 수집 API는 **prod credential 단일 채널** (모의/실전 분기는 주문 라우터 한정 — 사용자 명시 정책 정정). ADR 0019 supersede 인용 제거 → "Accepted (Yahoo 의존 부분만 보류)"로 정정 — 5m~1h은 1m 합산 가공 방향 확정 (backlog §31 트랙).
+- 2026-05-12 amend (v3.2.3 doc cut — backlog §35): **§2-5 NXT 매트릭스 추가** (KIS `fid_cond_mrkt_div_code` 옵션 J/NX/UN 본문 추가) + **KOSPI→UN / KOSDAQ→J 분기 룰 명시** (PR #304 구현 결과 인용) + **§2-5-A·§2-5-B 신설** (raw 출처 인용 — `inquire_time_dailychartprice.py` + `inquire_daily_itemchartprice.py`). ADR 0062·0063 Accepted 정합 (5m~1h 백엔드 precomputed 합산 + NXT 08:00~20:00 KST cover + threshold 700).
 
 magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공식 한도와 우리 운영 정책을 정리한다.
 
 > ADR 정합:
-> - **ADR 0057** — KIS OpenAPI 단일 데이터 출처 (Yahoo·네이버 등 보조 출처 폐기) ← **최신**
+> - **ADR 0057** — KIS OpenAPI 단일 데이터 출처 (Yahoo·네이버 등 보조 출처 폐기)
+> - **ADR 0062** — 5m~1h 합산 가공 백엔드 precomputed (2026-05-11 Accepted) ← **최신**
+> - **ADR 0063** — NXT/통합거래 매트릭스 cover (2026-05-11 Accepted, fid_cond_mrkt_div_code UN/J 분기) ← **최신**
 > - **ADR 0037** — KIS API Rate Limit 강제 (초당 10건 + 토큰 버킷)
 > - **ADR 0038** — KIS OAuth 24h 토큰 + Redis 분산락
 > - **ADR 0039** — 종목 마스터 갱신 Cron (KIS 13시각 +5분)
 > - **ADR 0028** — Watchlist 기반 Ingestion (외부 호출의 진입 단위)
-> - **ADR 0019** — 캔들 저장 정책 (Accepted, Yahoo 의존 부분만 보류 — 폐기 아님)
+> - **ADR 0019** — 캔들 저장 정책 (Accepted, 2026-05-12 §2 NXT/합산 5종 재통합)
 
 ---
 
@@ -77,25 +80,55 @@ magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공
 
 모든 어댑터는 `KisRateLimiterPort` 통과 + `KisAuthCommonModule` 토큰 사용 의무.
 
-### 2-5. 캔들 데이터 KIS 단일 출처 (ADR 0057 정합)
+### 2-5. 캔들 데이터 KIS 단일 출처 (ADR 0057·0062·0063 정합)
 
 2026-05-11 ADR 0057 발효 이후 magicJar의 캔들 데이터는 **KIS OpenAPI 단일 출처**다. Yahoo Finance·네이버 금융 등 보조 출처는 폐기. **모든 호출은 prod credential 단일 채널** (사용자 명시 정책 정정 2026-05-11).
 
-| Interval | KIS endpoint | tr_id | 비고 |
-|---|---|---|---|
-| 틱 | WebSocket `H0STCNT0` | — | Redis only |
-| 1m (1분봉) | `inquire-time-itemchartprice` | `FHKST03010200` | 당일 한정 — Redis only |
-| 1d (일봉) | `inquire-daily-itemchartprice` | `FHKST03010100` (period='D') | 전체 기간 — DB 영속 |
-| 1wk (주봉) | `inquire-daily-itemchartprice` | `FHKST03010100` (period='W') | 전체 기간 — DB 영속 |
-| 1mo (월봉) | `inquire-daily-itemchartprice` | `FHKST03010100` (period='M') | 전체 기간 — DB 영속 |
-| 1y (년봉) | `inquire-daily-itemchartprice` | `FHKST03010100` (period='Y') | 전체 기간 — DB 영속 |
-| 현재가 | `inquire-price` | `FHKST01010100` | 시가·고가·저가·거래량 + 등락 |
+**2026-05-12 갱신 (ADR 0062·0063 Accepted 재통합 — v3.2.3 doc cut)**: 5m·15m·30m·90m·1h은 **백엔드 precomputed 합산** (CandleAggregator 도메인 본체 부활, PR #302 D 구현 + PR #303 AggregateBackfillRunner). 1m baseline은 NXT 통합 cover (08:00~20:00 KST, ADR 0063).
 
-**raw 출처 (헌법 §3)**: https://github.com/koreainvestment/open-trading-api (examples_user/domestic_stock 디렉토리)
+| Interval | KIS endpoint | tr_id | fid_cond_mrkt_div_code | 비고 |
+|---|---|---|---|---|
+| 틱 | WebSocket `H0STCNT0` | — | — | Redis only |
+| 1m (1분봉) — 당일 | `inquire-time-itemchartprice` | `FHKST03010200` | KOSPI=UN, KOSDAQ=J | 당일 한정 — Redis & DB (NXT cover 08:00~20:00 KST) |
+| **1m (1분봉) — 30 거래일 페이지네이션** | `inquire-time-dailychartprice` | **`FHKST03010230`** | **KOSPI=UN, KOSDAQ=J** | **NXT cover — 720 bar/일 × 30 거래일 (ADR 0062 옵션 2 채택)** |
+| **5m·15m·30m·90m·1h (백엔드 합산)** | — | — | — | **CandleAggregator 합산 (ADR 0062 §3 권장안 A-1 백엔드 precomputed). KIS REST 호출 0건** |
+| 1d (일봉) | `inquire-daily-itemchartprice` | `FHKST03010100` (period='D') | KOSPI=UN, KOSDAQ=J | 전체 기간 — DB 영속 |
+| 1wk (주봉) | `inquire-daily-itemchartprice` | `FHKST03010100` (period='W') | KOSPI=UN, KOSDAQ=J | 전체 기간 — DB 영속 |
+| 1mo (월봉) | `inquire-daily-itemchartprice` | `FHKST03010100` (period='M') | KOSPI=UN, KOSDAQ=J | 전체 기간 — DB 영속 |
+| 1y (년봉) | `inquire-daily-itemchartprice` | `FHKST03010100` (period='Y') | KOSPI=UN, KOSDAQ=J | 전체 기간 — DB 영속 |
+| 현재가 | `inquire-price` | `FHKST01010100` | KOSPI=UN, KOSDAQ=J | 시가·고가·저가·거래량 + 등락 |
 
-**5m·15m·30m·90m·1h interval**: ADR 0057 §2-2 — "1m 합산 가공 예정" 표시 (backlog §31 트랙 완료 전). **방향 확정**: 1m 합산 가공으로 처리. 위치(백엔드 vs 프론트) + source 시간 범위(당일 한정 vs `FHKST03010230` 과거 포함)는 backlog §31에서 사용자 결정.
+### 2-5-A. `fid_cond_mrkt_div_code` 매트릭스 (ADR 0063 정합)
 
-**`FHKST03010230` (KIS 1분봉 과거 데이터)**: prod credential 단일 채널 호출. backlog §31의 source 옵션 2 후보 — `docs/operations/kis-api-reference.md` §5-A 참조.
+KIS raw spec — 시장 분류 코드 옵션 3종:
+
+| 옵션 | KIS 공식 의미 | magicJar 적용 |
+|---|---|---|
+| **J** | KRX 주식 (KOSPI + KOSDAQ 포함) | **KOSDAQ 종목 — NXT 미상장 → UN 빈 응답 회피 (PR #304 분기 결과)** |
+| **NX** | NXT 단독 | 사용 안 함 (UN 통합 채택, ADR 0063 §2-D 옵션 A) |
+| **UN** | KRX + NXT 통합 | **KOSPI 종목 — NXT cover 08:00~20:00 KST (ADR 0063 §2-D 옵션 A 채택)** |
+
+**분기 룰** (ADR 0063 + PR #304 구현):
+- KOSPI 종목 → `fid_cond_mrkt_div_code="UN"` (NXT 통합 cover)
+- KOSDAQ 종목 → `fid_cond_mrkt_div_code="J"` (NXT 미상장 — UN 시 빈 응답 결함 회피)
+- `UNKNOWN/기타` → `"J"` (안전 기본값)
+
+**raw 출처 인용 (헌법 §3 KIS-first)**:
+- 1분봉 페이지네이션: `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py`
+  - spec line: `fid_cond_mrkt_div_code (str): [필수] 조건 시장 분류 코드 (ex. J:주식, NX:NXT, UN:통합)`
+- 일봉: `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py`
+  - spec line: `fid_cond_mrkt_div_code (str): [필수] 조건 시장 분류 코드 (ex. J:KRX, NX:NXT, UN:통합)`
+
+### 2-5-B. NXT 시간대 cover 매트릭스
+
+- **NXT pre-hour**: 08:00 ~ 09:00 KST
+- **NXT main-hour**: 09:00 ~ 15:30 KST (KRX 정규장과 동일)
+- **NXT after-hour**: 15:30 ~ 20:00 KST
+- 1m baseline 720 bar/일 (KRX 정규장 390 + NXT pre/after-hour 330)
+- `MIN_1M_CANDLE_THRESHOLD = 700L` (ADR 0063 §2-D 옵션 C 채택 — 720의 97% 마진)
+- 5m~1h 합산 boundary 정렬 매트릭스는 ADR 0062 §9-2 참조 (ADR 0019 §2-1·ADR 0029 §2-1 정합)
+
+**raw 출처 (헌법 §3)**: https://github.com/koreainvestment/open-trading-api (examples_user/domestic_stock + examples_llm/domestic_stock 디렉토리)
 
 ---
 
