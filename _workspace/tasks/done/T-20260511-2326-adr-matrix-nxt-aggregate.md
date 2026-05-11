@@ -3,9 +3,9 @@ id: T-20260511-2326-adr-matrix-nxt-aggregate
 agent: architect
 model: opus
 branch: agent/architect/adr-matrix-nxt-aggregate
-status: RUNNING
+status: DONE
 startedAt: 2026-05-11T23:26:45.446+09:00
-completedAt: null
+completedAt: 2026-05-11T23:54:03.552+09:00
 pr: null
 parentPhase: ?
 ---
