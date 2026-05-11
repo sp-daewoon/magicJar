@@ -2,6 +2,7 @@
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+| 2026-05-12 | **fix(consumer): KIS 500 retry 3회 exponential backoff 보강 — §33 (market-data)** — `KisRestCandleAdapter` HTTP 500 재시도 전략 강화. 기존 1회 retry(500ms backoff) → 3회 exponential backoff (500ms → 1000ms → 2000ms). `fetchOneMinCandles` (FHKST03010230) + `fetchDailyCandles` (FHKST03010100) 양쪽 적용. 503/502/기타 HTTP 오류는 즉시 실패 유지 (서비스 점검 가능성, 재시도 무의미). `RETRY_BACKOFF_MS` + `RETRY_MAX_ATTEMPTS=3` companion object 상수 발행. `:consumer:check` GREEN + ktlintCheck GREEN. 배경: dogfooding 2026-05-11 `KIS_COLD_START_PARTIAL_FAIL` (success=3~4 / fail=1~2) 패턴 지속 — 5종목(004090·064260·001040·035760·005930) 1회 retry 불충분. Rate Limit (ADR 0037): retry는 500 발생 시에만 — 20 req/s 한도 영향 미미. (market-data) | consumer | §33 dogfooding PARTIAL_FAIL 500 retry 강화 |
 
 | 2026-05-11 | **chore(meta): PR-48 v3.2.2 baseline 폴더 신설 + sub-agent 슬롯 4 anchor 발행** — `_workspace/baseline/v3.2.2/` 폴더 신설(README skeleton + 7 파일 인덱스). CHANGELOG sub-agent 슬롯 4 anchor(architect/backend-core/market-data/frontend). 4 sub-agent 병렬 디스패치 add-only LOCK. (orchestrator) | meta/baseline | PR-48 v3.2.2 baseline 슬롯 발행 |
 <!-- pr-48-slot-orchestrator -->

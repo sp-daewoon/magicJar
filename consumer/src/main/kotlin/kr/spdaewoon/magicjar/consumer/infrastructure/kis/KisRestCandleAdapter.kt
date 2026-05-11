@@ -33,6 +33,12 @@ import kotlinx.datetime.Instant as KtInstant
  *
  * Yahoo Finance 의존성 전면 제거 (2026-05-11 — KIS-only 정책 적용).
  * 룰 5 위반 금지: LLM provider import 0건.
+ *
+ * KIS 500 retry 정책 (§33 — 2026-05-12):
+ *   KIS 외부 결함 일시적 부하 통과를 위해 HTTP 500 INTERNAL_SERVER_ERROR 발생 시
+ *   최대 3회 exponential backoff (500ms → 1000ms → 2000ms) 재시도.
+ *   503/502 등 기타 HTTP 오류는 즉시 실패 (서비스 점검 가능성, 재시도 무의미).
+ *   Rate Limit (ADR 0037): retry는 500 발생 시에만 — 20 req/s 한도 영향 미미.
  */
 @Component
 @Primary
@@ -61,6 +67,14 @@ class KisRestCandleAdapter(
         private const val SOURCE = "KIS"
         private val DATE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd")
         private val KST_ZONE = ZoneId.of("Asia/Seoul")
+
+        /**
+         * KIS HTTP 500 exponential backoff 대기 시간 (ms).
+         * §33: 3회 재시도 — 500ms → 1000ms → 2000ms.
+         * Rate Limit (ADR 0037): retry는 500 발생 시에만 발동 — 20 req/s 한도 영향 미미.
+         */
+        private val RETRY_BACKOFF_MS = listOf(500L, 1000L, 2000L)
+        private const val RETRY_MAX_ATTEMPTS = 3
 
         /** CandleInterval → KIS period_div_code 매핑 (FHKST03010100) */
         private fun toPeriodDivCode(interval: CandleInterval): String =
@@ -314,16 +328,141 @@ class KisRestCandleAdapter(
                     } catch (e: WebClientResponseException) {
                         val statusCode = e.statusCode.value()
                         if (statusCode == 500) {
-                            // KIS 500 INTERNAL_SERVER_ERROR — 1회 재시도 + 500ms backoff (관찰: 5~10% 간헐적 발생)
-                            log.warn(
-                                "KIS 1m candle 500 오류 — 500ms backoff 후 1회 재시도: code={} date={} hour={}",
-                                code,
-                                dateStr,
-                                currentHour,
-                            )
-                            Thread.sleep(500)
-                            // retryOnce = true 로 다음 루프 반복 시도 (dayDone = false 유지)
-                            // pageCount는 증가하지 않았으므로 동일 hour로 재시도됨
+                            // KIS 500 INTERNAL_SERVER_ERROR — §33 exponential backoff 3회 재시도
+                            // 배경: dogfooding 2026-05-11 PARTIAL_FAIL 패턴 (1회 retry 불충분)
+                            // Rate Limit (ADR 0037): retry는 500 발생 시에만 — 20 req/s 한도 영향 미미
+                            var retriedSuccessfully = false
+                            for (attempt in 0 until RETRY_MAX_ATTEMPTS - 1) {
+                                val waitMs = RETRY_BACKOFF_MS[attempt]
+                                log.warn(
+                                    "KIS 1m candle 500 오류 — {}ms backoff 후 재시도({}/{}): code={} date={} hour={}",
+                                    waitMs,
+                                    attempt + 2,
+                                    RETRY_MAX_ATTEMPTS,
+                                    code,
+                                    dateStr,
+                                    currentHour,
+                                )
+                                Thread.sleep(waitMs)
+                                try {
+                                    val retryBody =
+                                        webClient
+                                            .get()
+                                            .uri { builder ->
+                                                builder
+                                                    .scheme("https")
+                                                    .host(
+                                                        kisBaseProd
+                                                            .removePrefix("https://")
+                                                            .substringBefore(":"),
+                                                    ).port(
+                                                        kisBaseProd
+                                                            .substringAfterLast(":")
+                                                            .toIntOrNull() ?: 9443,
+                                                    ).path(ENDPOINT_1MIN)
+                                                    .queryParam("fid_cond_mrkt_div_code", mrktDivCode)
+                                                    .queryParam("fid_input_iscd", code)
+                                                    .queryParam("fid_input_hour_1", currentHour)
+                                                    .queryParam("fid_input_date_1", dateStr)
+                                                    .queryParam("fid_pw_data_incu_yn", "N")
+                                                    .queryParam("fid_fake_tick_incu_yn", "")
+                                                    .build()
+                                            }.header("authorization", "Bearer $accessToken")
+                                            .header("appkey", appKeyStr)
+                                            .header("appsecret", secretKeyStr)
+                                            .header("tr_id", TR_ID_1MIN)
+                                            .header("custtype", "P")
+                                            .retrieve()
+                                            .bodyToMono(Map::class.java)
+                                            .timeout(Duration.ofSeconds(10))
+                                            .block()
+                                    pageCount++
+                                    if (retryBody == null) {
+                                        log.debug(
+                                            "KIS 1m retry 빈 body: code={} date={} hour={} attempt={}/{}",
+                                            code,
+                                            dateStr,
+                                            currentHour,
+                                            attempt + 2,
+                                            RETRY_MAX_ATTEMPTS,
+                                        )
+                                        dayDone = true
+                                    } else {
+                                        val parsed = parseKis1mResponse(retryBody, code, targetDate)
+                                        if (parsed.isEmpty()) {
+                                            dayDone = true
+                                        } else {
+                                            for (candle in parsed) {
+                                                if (seenTs.add(candle.ts.epochSeconds)) allCandles.add(candle)
+                                            }
+                                            log.info(
+                                                "KIS 1m candle 500 retry 성공: code={} date={} hour={} attempt={}/{} fetched={}",
+                                                code,
+                                                dateStr,
+                                                currentHour,
+                                                attempt + 2,
+                                                RETRY_MAX_ATTEMPTS,
+                                                parsed.size,
+                                            )
+                                            val earliestCandle =
+                                                parsed.minByOrNull { it.ts.epochSeconds }
+                                            if (earliestCandle != null) {
+                                                val earliestLt =
+                                                    java.time.Instant
+                                                        .ofEpochSecond(earliestCandle.ts.epochSeconds)
+                                                        .atZone(KST_ZONE)
+                                                        .toLocalTime()
+                                                if (!earliestLt.isAfter(LocalTime.of(8, 0, 0))) {
+                                                    dayDone = true
+                                                } else {
+                                                    val nextLt =
+                                                        earliestLt.minus(1, ChronoUnit.MINUTES)
+                                                    currentHour =
+                                                        "%02d%02d%02d".format(
+                                                            nextLt.hour,
+                                                            nextLt.minute,
+                                                            nextLt.second,
+                                                        )
+                                                }
+                                            } else {
+                                                dayDone = true
+                                            }
+                                        }
+                                    }
+                                    retriedSuccessfully = true
+                                    break
+                                } catch (retryEx: WebClientResponseException) {
+                                    if (retryEx.statusCode.value() == 500 &&
+                                        attempt < RETRY_MAX_ATTEMPTS - 2
+                                    ) {
+                                        continue // 재시도 횟수 남음
+                                    }
+                                    log.warn(
+                                        "KIS 1m candle 500 retry 소진({}/{}) — 일자 건너뜀: code={} date={} hour={} status={}",
+                                        attempt + 2,
+                                        RETRY_MAX_ATTEMPTS,
+                                        code,
+                                        dateStr,
+                                        currentHour,
+                                        retryEx.statusCode.value(),
+                                    )
+                                    dayDone = true
+                                    retriedSuccessfully = true
+                                    break
+                                } catch (retryEx: Exception) {
+                                    log.warn(
+                                        "KIS 1m candle retry 오류: code={} date={} hour={} err={}",
+                                        code,
+                                        dateStr,
+                                        currentHour,
+                                        retryEx.message,
+                                    )
+                                    dayDone = true
+                                    retriedSuccessfully = true
+                                    break
+                                }
+                            }
+                            if (!retriedSuccessfully) dayDone = true
                         } else {
                             log.warn(
                                 "KIS 1m candle HTTP 오류: code={} date={} hour={} status={}",
@@ -376,6 +515,8 @@ class KisRestCandleAdapter(
      * 일봉·주봉·월봉·연봉 조회 (FHKST03010100).
      *
      * raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
+     *
+     * §33: HTTP 500 발생 시 exponential backoff 3회 재시도 (500ms → 1000ms → 2000ms).
      */
     private fun fetchDailyCandles(
         code: String,
@@ -416,39 +557,92 @@ class KisRestCandleAdapter(
             // raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
             val mrktDivCode = resolveMrktDivCode(code)
 
-            val body =
-                webClient
-                    .get()
-                    .uri { builder ->
-                        builder
-                            .scheme("https")
-                            .host(kisBaseProd.removePrefix("https://").substringBefore(":"))
-                            .port(kisBaseProd.substringAfterLast(":").toIntOrNull() ?: 9443)
-                            .path(ENDPOINT_DAILY)
-                            .queryParam("fid_cond_mrkt_div_code", mrktDivCode)
-                            .queryParam("fid_input_iscd", code)
-                            .queryParam("fid_input_date_1", startDate)
-                            .queryParam("fid_input_date_2", today)
-                            .queryParam("fid_period_div_code", periodDivCode)
-                            .queryParam("fid_org_adj_prc", "0")
-                            .build()
-                    }.header("authorization", "Bearer $accessToken")
-                    .header("appkey", appKeyStr)
-                    .header("appsecret", secretKeyStr)
-                    .header("tr_id", TR_ID_DAILY)
-                    .header("custtype", "P")
-                    .retrieve()
-                    .bodyToMono(Map::class.java)
-                    .timeout(Duration.ofSeconds(10))
-                    .block()
-                    ?: return emptyList()
-
-            parseKisDailyResponse(body, code, interval)
-        } catch (e: WebClientResponseException) {
-            log.warn("KIS REST candle 실패: code={} interval={} status={}", code, interval.code, e.statusCode)
-            emptyList()
-        } catch (e: Exception) {
-            log.warn("KIS REST candle 오류: code={} interval={} err={}", code, interval.code, e.message)
+            // §33 exponential backoff retry — 500 발생 시 최대 3회
+            // Rate Limit (ADR 0037): retry는 500 발생 시에만 — 20 req/s 한도 영향 미미
+            var lastException: WebClientResponseException? = null
+            for (attempt in 0 until RETRY_MAX_ATTEMPTS) {
+                if (attempt > 0) {
+                    val waitMs = RETRY_BACKOFF_MS[attempt - 1]
+                    log.warn(
+                        "KIS daily candle 500 오류 — {}ms backoff 후 재시도({}/{}): code={} interval={}",
+                        waitMs,
+                        attempt + 1,
+                        RETRY_MAX_ATTEMPTS,
+                        code,
+                        interval.code,
+                    )
+                    Thread.sleep(waitMs)
+                }
+                try {
+                    val body =
+                        webClient
+                            .get()
+                            .uri { builder ->
+                                builder
+                                    .scheme("https")
+                                    .host(kisBaseProd.removePrefix("https://").substringBefore(":"))
+                                    .port(kisBaseProd.substringAfterLast(":").toIntOrNull() ?: 9443)
+                                    .path(ENDPOINT_DAILY)
+                                    .queryParam("fid_cond_mrkt_div_code", mrktDivCode)
+                                    .queryParam("fid_input_iscd", code)
+                                    .queryParam("fid_input_date_1", startDate)
+                                    .queryParam("fid_input_date_2", today)
+                                    .queryParam("fid_period_div_code", periodDivCode)
+                                    .queryParam("fid_org_adj_prc", "0")
+                                    .build()
+                            }.header("authorization", "Bearer $accessToken")
+                            .header("appkey", appKeyStr)
+                            .header("appsecret", secretKeyStr)
+                            .header("tr_id", TR_ID_DAILY)
+                            .header("custtype", "P")
+                            .retrieve()
+                            .bodyToMono(Map::class.java)
+                            .timeout(Duration.ofSeconds(10))
+                            .block()
+                            ?: return emptyList()
+                    if (attempt > 0) {
+                        log.info(
+                            "KIS daily candle 500 retry 성공: code={} interval={} attempt={}/{}",
+                            code,
+                            interval.code,
+                            attempt + 1,
+                            RETRY_MAX_ATTEMPTS,
+                        )
+                    }
+                    return parseKisDailyResponse(body, code, interval)
+                } catch (e: WebClientResponseException) {
+                    if (e.statusCode.value() == 500 && attempt < RETRY_MAX_ATTEMPTS - 1) {
+                        lastException = e
+                        continue // 재시도 횟수 남음 — backoff 후 재시도
+                    }
+                    log.warn(
+                        "KIS REST candle 실패: code={} interval={} status={}",
+                        code,
+                        interval.code,
+                        e.statusCode,
+                    )
+                    return emptyList()
+                } catch (e: Exception) {
+                    log.warn(
+                        "KIS REST candle 오류: code={} interval={} err={}",
+                        code,
+                        interval.code,
+                        e.message,
+                    )
+                    return emptyList()
+                }
+            }
+            // retry 소진 (500 3회 모두 실패)
+            log.warn(
+                "KIS daily candle 500 retry 소진({}/{}) — 빈 결과 반환: code={} interval={}",
+                RETRY_MAX_ATTEMPTS,
+                RETRY_MAX_ATTEMPTS,
+                code,
+                interval.code,
+            )
+            if (lastException != null) {
+                log.debug("마지막 예외: {}", lastException.message)
+            }
             emptyList()
         } finally {
             appKey?.fill(0)
