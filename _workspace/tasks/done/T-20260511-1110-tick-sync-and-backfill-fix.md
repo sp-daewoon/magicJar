@@ -3,10 +3,10 @@ id: T-20260511-1110-tick-sync-and-backfill-fix
 agent: market-data
 model: sonnet
 branch: agent/market-data/tick-sync-and-backfill-fix
-status: RUNNING
+status: DONE
 startedAt: 2026-05-11T11:10:23.763+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-11T12:13:00.000+09:00
+pr: #290
 parentPhase: ?
 ---
 

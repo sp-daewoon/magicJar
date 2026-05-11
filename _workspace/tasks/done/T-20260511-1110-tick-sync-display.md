@@ -3,10 +3,10 @@ id: T-20260511-1110-tick-sync-display
 agent: frontend
 model: sonnet
 branch: agent/frontend/tick-sync-display
-status: RUNNING
+status: DONE
 startedAt: 2026-05-11T11:10:10.757+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-11T11:23:32.221+09:00
+pr: #289
 parentPhase: ?
 ---
 
