@@ -9,6 +9,7 @@ import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient
 import reactor.netty.http.client.HttpClient
 import java.security.KeyStore
+import java.time.Duration
 import javax.net.ssl.TrustManagerFactory
 
 /**
@@ -35,10 +36,13 @@ class WebClientConfig {
      *
      * 문제: JDK 21 + reactor netty 기본 설정에서 KIS WS 서버와 SSL handshake 10초 timeout.
      *       connect 직후 SslHandshakeTimeoutException → disconnect/reconnect 무한 루프.
-     * 해결: SslContextBuilder로 TLSv1.2/1.3 프로토콜 + JDK 기본 TrustManager 명시 →
-     *       cipher suite negotiation 강제화. SslProvider.JDK로 JDK SSL 스택 직접 사용.
+     * 해결:
+     *   1. SslContextBuilder로 TLSv1.2/1.3 프로토콜 + JDK 기본 TrustManager 명시 →
+     *      cipher suite negotiation 강제화. SslProvider.JDK로 JDK SSL 스택 직접 사용.
+     *   2. handshakeTimeout(30s) 명시 — 기본 10s로는 KIS WS 서버 협상 대기 부족.
+     *      KIS WS 서버가 ClientHello 수신 후 ServerHello 응답에 10s 초과 소요.
      *
-     * 패턴 출처: batch WebClientConfig dartWebClient (PR #278 backlog §22 fix) — 1:1 정합.
+     * 패턴 출처: batch WebClientConfig dartWebClient (PR #278 backlog §22 fix) 기반 + timeout 보강.
      * KIS WS endpoint 출처: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/websocket/
      */
     @Bean
@@ -60,7 +64,11 @@ class WebClientConfig {
         val httpClient =
             HttpClient
                 .create()
-                .secure { spec -> spec.sslContext(sslContext) }
+                .secure { spec ->
+                    spec
+                        .sslContext(sslContext)
+                        .handshakeTimeout(Duration.ofSeconds(30))
+                }
 
         return ReactorNettyWebSocketClient(httpClient)
     }
