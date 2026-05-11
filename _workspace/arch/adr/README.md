@@ -1,6 +1,6 @@
 # magicJar ADR 목차
 
-아키텍처 결정 기록(Architecture Decision Record). 58건 sequential (0001~0057 발행 + 0062 plan 발행 — 0058~0061 예약). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
+아키텍처 결정 기록(Architecture Decision Record). 59건 sequential (0001~0057 Accepted + 0062·0063 Accepted 2026-05-11 — 0058~0061 예약). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
 
 ## §1. 비전 (1건)
 
@@ -36,7 +36,7 @@
 | 0011 | 주문 실행기 3-mode + 안전 게이트 |
 | 0012 | 매매일지 아키텍처 |
 
-## §5. 시장 데이터·외부 API (8건)
+## §5. 시장 데이터·외부 API (10건 — 8건 + 0062·0063 Accepted)
 
 | 번호 | 제목 |
 |------|------|
@@ -49,7 +49,8 @@
 | 0019 | 캔들 저장 정책 (Watchlist 기반 + Yahoo 분봉 DB 영속) — **Accepted (Yahoo 의존 부분만 보류, 2026-05-11 노트)** |
 | 0048 | KIS WebSocket 41건 구독 한도 + 우선순위 정책 (slot 1+30+10·priority eviction·polling fallback) |
 | 0057 | **KIS OpenAPI 단일 데이터 출처 (Yahoo Finance·네이버 등 보조 출처 폐기) — 5m~1h은 1m 합산 가공 방향 확정 (backlog §31 구현 사이클)** |
-| 0062 | **5m·15m·30m·90m·1h 합산 가공 plan — Proposed (사용자 결정 대기, 권장안 A-1 백엔드 precomputed + 옵션 2 과거 포함)** |
+| 0062 | **5m·15m·30m·90m·1h 합산 가공 plan — Accepted (2026-05-11 사용자 결정 A-1 백엔드 precomputed + 옵션 2 과거 30 거래일 + 5종 활성화)** |
+| 0063 | **NXT/통합거래 매트릭스 cover (분봉·일봉 시장 분류 코드) — Accepted (2026-05-11 사용자 결정 A UN 통합 + 1 08:00~20:00 + threshold 700)** |
 
 ## §6. 전략·신호·리스크 (6건)
 
@@ -142,7 +143,7 @@
 
 - **새 ADR 발행 시** — 본 README + master §10 + tracks-roadmap §3 동시 갱신
 - **Superseded 처리 시** — 본문 상단 헤더 + 본 README 행 supersede 표기 (`_archive/` 이동은 v3.3.0 cycle에 일괄)
-- **신규 진입 시 후속 ADR 번호** — 0063부터 sequential (0041~0057 + 0062 plan 발행 — §2·§3·§5·§6·§10-1·§10-2·§10-3·§10-4·§5 정합. 0058~0061은 예약 슬롯).
+- **신규 진입 시 후속 ADR 번호** — 0064부터 sequential (0001~0057 Accepted + 0058~0061 예약 + 0062·0063 Accepted 2026-05-11 — §2·§3·§5·§6·§10-1·§10-2·§10-3·§10-4·§5 정합).
 
 ## §12. 후속 예정 (Proposed)
 
@@ -152,4 +153,5 @@
 | 0059 | Screener 표준 | T-SC | (시프트) |
 | 0060 | Performance 표준 | T-PERF | (시프트) |
 | 0061 | Backtest 결과 영속 (backtest_run 테이블 + GET endpoint) | T-BT 후속 (backlog §27-2) | (예약) |
-| 0062 | **5m·15m·30m·90m·1h 합산 가공 plan (Proposed — 사용자 결정 대기)** | backlog §31 트랙 | 2026-05-11 plan 발행 — 권장안 A-1(백엔드 precomputed)+옵션 2(과거 포함) 명시. 사용자 결정 후 §5 매트릭스로 격상 + ADR 0019·0029·0057 정합 갱신 |
+| 0062 | **5m·15m·30m·90m·1h 합산 가공 — Accepted (2026-05-11)** | backlog §31 트랙 | 2026-05-11 사용자 결정 채택 — A-1 백엔드 precomputed + 옵션 2 과거 30 거래일 + 5종 활성화. NXT 결합 영향 §9 추가 (1m 720/일 → 합산 ~71K rows). sub-agent 디스패치 매트릭스 진행 |
+| 0063 | **NXT/통합거래 매트릭스 cover — Accepted (2026-05-11)** | backlog §32 트랙 | 2026-05-11 사용자 결정 채택 — A UN 통합 + 1 08:00~20:00 + threshold 700. sub-agent 디스패치 매트릭스 진행 |

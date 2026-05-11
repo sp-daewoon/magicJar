@@ -512,7 +512,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 
 ---
 
-## §10. 핵심 ADR 인덱스 (0001~0057 발행 + 0062 plan 발행)
+## §10. 핵심 ADR 인덱스 (0001~0057 Accepted + 0062·0063 Accepted 2026-05-11)
 
 상세 본문은 `_workspace/arch/adr/<NNNN>-*.md`. 분류 카테고리는 `_workspace/arch/adr/README.md` §1~§10-4 정합. 본 §10은 한 줄 요약 인덱스 — 신규 ADR 발행 시 본 표 + README 동시 갱신 (ADR 0030 SoT 운영 규약).
 
@@ -575,7 +575,8 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | 0055 | Strategy Builder UI 컴포넌트 스택 (B+C-lite 하이브리드 — 트리 폼 빌더 + textarea DSL 토글, 의존 추가 0) | 프론트엔드 | W2 (T-SB) |
 | 0056 | Backtest Engine Architecture (룩어헤드 slice-by-time 가드 + 세·수수료·슬리피지 모델 open extension + ADR 0047 sandbox 통합 + abort quota 50 + 1차 stateless) | 전략·신호·리스크 | W3 (T-BT) |
 | 0057 | **KIS OpenAPI 단일 데이터 출처 (Yahoo Finance·네이버 등 보조 출처 폐기) — 5m~1h은 1m 합산 가공 방향 확정 (backlog §31 트랙)** | 시장 데이터 | W1 (2026-05-11 사용자 결정) |
-| 0062 | **5m·15m·30m·90m·1h 합산 가공 plan (Proposed — 사용자 결정 대기) — 권장안 A-1 백엔드 precomputed + 옵션 2 과거 포함 (30 거래일) + IntervalToggle 5종 활성화** | 시장 데이터 | W1 (2026-05-11 plan 발행) |
+| 0062 | **5m·15m·30m·90m·1h 합산 가공 — Accepted (2026-05-11 사용자 채택 A-1 백엔드 precomputed + 옵션 2 과거 30 거래일 + 5종 활성화) — NXT 결합 §9 추가 (ADR 0063 정합, 합산 720/일 베이스 → ~71K rows)** | 시장 데이터 | W1 (2026-05-11 Accepted) |
+| 0063 | **NXT/통합거래 매트릭스 cover — Accepted (2026-05-11 사용자 채택 A UN 통합 + 1 08:00~20:00 + threshold 700)** | 시장 데이터 | W1 (2026-05-11 Accepted) |
 
 ### 후속 예정 (Proposed — `_workspace/arch/adr/README.md` §12 정합)
 
@@ -585,7 +586,8 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | 0059 | Screener 표준 | T-SC |
 | 0060 | Performance 표준 | T-PERF |
 | 0061 | Backtest 결과 영속 (backtest_run · backtest_trade 테이블 + GET endpoint) | T-BT 후속 (backlog §27-2) |
-| 0062 | **5m·15m·30m·90m·1h 합산 가공 plan (Proposed — 사용자 결정 대기)** — backlog §31 트랙 | 위 §10 본 표 0062 row 인용. 결정 후 §10에 격상 — 위치(A-1/A-2/A-3/B) + source(1/2) + UI 매트릭스 |
+| 0062 | **5m·15m·30m·90m·1h 합산 가공 — Accepted (2026-05-11)** — backlog §31 트랙 (§10 본 표 인용) | sub-agent 디스패치 매트릭스 진행 (ADR 0062 §7-1·§9) |
+| 0063 | **NXT/통합거래 매트릭스 cover — Accepted (2026-05-11)** — backlog §32 트랙 (§10 본 표 인용) | sub-agent 디스패치 매트릭스 진행 (ADR 0063 §결정 후 트리거) |
 
 ---
 
@@ -638,3 +640,4 @@ v1·v2 검토 시점에 누적된 결정 항목과 v3.0.0 베이스라인 컷(20
 | 2026-05-11 (PR-47) | W3 T-BT 진입 직전 설계 산출물 — `_workspace/specs/pr-47-w3-t-bt-design.md` (마스터 §B.9 정독 인용 + 도메인 모델 5건 LOCK BacktestRequest·Result·Position·Trade·Performance + REST endpoint POST /api/backtest/run LOCK + 룩어헤드 slice-by-time 가드 + 세·수수료·슬리피지 모델 인터페이스 3종 + ADR 0047 sandbox 통합 + abort quota 50 + 성과 7지표 식 + KIS-first raw 출처 인덱스), `pr-47-w3-t-bt-plan.md` (시나리오 A 단일 sub-agent backend-core 채택 + LOC ~1500 + wallclock ~5h + frontend backlog §27 합류), `pr-47-dispatch-spec.md` (PR-48 backend-core 단독 LOCK + 인터페이스 동결 + KIS-first raw 출처 KDoc 인용 의무 + fitness gap 7건 검증 의무), `pr-47-conflict-matrix.md` (modify-shared 0건 — add-only 100% + 빌드 그래프 변경 0 — 단독 머지 안전). ADR 0056 신규 발행 — Backtest Engine Architecture (단일 인터페이스 + open extension 모델 3종, 룩어헤드 slice-by-time, 세·수수료 raw 출처 의무, ADR 0047 strategy-eval-pool 공유, abort quota 50, 1차 stateless). §10 인덱스 ADR 0056 row 추가 + §12 후속 예정 시프트(기존 0056 캔들 패턴 → 0057, 0057 Backtest → 0056으로 격상 통합). ADR README §6 전략·신호·리스크 5건 → 6건. CHANGELOG slot sub-agent 1건(backend-core PR-48 TBD) 사전 발행. v1/v2 잔재 검증 — find Backtest 0건 GREEN. (architect) |
 | 2026-05-11 (PR #294) | **KIS-only 데이터 정책 ADR 신규 + ADR 0019 supersede + 5m~1h backlog §31 의제 등록** — 사용자 dogfooding 결함 root cause(Yahoo v8 chart endpoint가 `interval=1d&range=max` 조합에서 monthly downsample 응답 반환 → 일봉 위치에 월봉 INSERT) + 사용자 명시 결정 "야후꺼 쓰지 말라니깐" / "kis에 있는 데이터만 사용하라고". ADR 0057 발행(KIS OpenAPI 단일 데이터 출처 — 매트릭스 재정의 + cold-start KIS REST 단일 + 5m·15m·30m·90m·1h "데이터 없음" + Rollback 시나리오 + raw 출처 FHKST03010100·FHKST03010200·FHKST03010230 인용). ADR 0019 상태 → Superseded by 0057. ADR 0028 cold-start KIS REST 정합 갱신. ADR 0029 Yahoo 인용 정정. external-api-policy §3 Yahoo Finance 폐기 표기. candle-data-policy-v2 매트릭스 KIS-only 재정의(§3·§4·§5·§6·§8·§9·§10). master §2-A.2 + §6 모듈 표 + §7 컨테이너 표 + §10 ADR 0019 supersede 표기 + §10 ADR 0057 row 추가 + §12 후속 예정 시프트(기존 0057~0060 → 0058~0061, 0062 5m~1h 결정 ADR 예약). backlog §31 신규 등록(옵션 A·B·C — architect 권장 B+C 하이브리드, 사용자 결정 대기). 코드 변경 0건(market-data sub-agent 별도 PR). fitness gap 분석 + Rollback 시나리오 명시. (architect) |
 | 2026-05-11 (PR #294 amend) | **사용자 정책 정정 2건 반영** — (1) ADR 0019 supersede revoke → **Accepted (Yahoo 의존 부분만 보류)** 복원. 사용자 명시 "5m·15m·30m·90m·1h 백엔드 또는 프론트 합산으로 할거고 ADR 폐기해버리면 안될듯 1분봉만 kis에서 제공하니깐 임시로 쓰는거고 나중에 5m·15m·30m·90m·1h 봉에 대한 처리를 보류할뿐임 ... ADR 폐기는 하지말어 백로그로 남겨". ADR 0019 §2 매트릭스 결정 골격은 여전히 유효 — Yahoo 의존 부분만 보류 + 5m·15m·30m·90m·1h은 **1m 합산 가공 방향 확정** (backlog §31 트랙에서 위치·source 결정). (2) KIS 키 분기 제거 — 사용자 명시 "모의키는 사용하지 않고 실전키만 쓴다고 ... 정보 수집 API는 다 실전 키를 사용한다고했던거같은데". 정보 수집 API는 **prod credential 단일 채널** (모의/실전 분기는 주문 라우터에만 적용). 이전 권장안 "옵션 B+C 하이브리드 (실전 키 vs 모의 키 분기)"는 잘못된 가정으로 제거. backlog §31에서 옵션은 **위치(백엔드 vs 프론트) + source 시간 범위(당일 vs `FHKST03010230` 과거 포함)** 로 재정의 (KIS 키 분기 0). ADR 0019·0057·0028·0029·README·external-api-policy·candle-data-policy-v2·master-architecture·backlog §31 모두 동시 정정. CHANGELOG row 1건 amend. 코드 변경 0건. v1/v2 잔재 검증 0건. fitness gap: 사용자 명시 정정으로 회귀 risk 해소. (architect) |
+| 2026-05-11 (PR #298 amend + #299 amend) | **ADR 0062·0063 Accepted 갱신 (사용자 결정 인용 2건)** — PR #298 ADR 0062 — Status Proposed → Accepted. 사용자 결정 3건 인용("A-1 백엔드 precomputed + 옵션 2 과거 30 거래일 + 5종 활성화 — 2026-05-11 사용자 채팅 명시"). §2-4 사용자 채택 결과 절 추가. §9 NXT 결합 영향 절 신규(ADR 0063 정합) — boundary 정렬 매트릭스 확장(5m 78→144·15m 26→48·30m 13→24·90m 5→8·1h 7→12 bar/일) + DB ROW 38K→71K(1.85배) + boundary 마감 트리거 16:00→20:00 KST + sub-agent 작업 분리 권장(NXT cover 선행). PR #299 ADR 0063 — Status Proposed → Accepted. 사용자 결정 3건 인용("A UN 통합 + 시간 1 08:00~20:00 + threshold 700 — 2026-05-11 사용자 채팅 명시"). 영향 ADR/문서 매트릭스(ADR 0019·0028·0029·external-api-policy·candle-data-policy-v2)는 별도 사이클(modify-shared 회피 — add-only 100% 본문 § 추가만). README §5 카운트 8건 → 10건(0062·0063 추가) + §11 후속 ADR 번호 0064부터 시프트 + §12 후속 예정 row 갱신(Accepted 격상). master §10 0062·0063 Accepted row + §12 후속 예정 row 갱신. CHANGELOG row 2건. (architect) |
