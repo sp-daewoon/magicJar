@@ -9,7 +9,7 @@
 <!-- pr-49-slot-architect -->
 | 2026-05-?? | **TBD — PR-49 backend-core: 02-data-flow + 04-feature-spec** | baseline/v3.3.0 | PR-49 backend-core 2 파일 |
 <!-- pr-49-slot-backend-core -->
-| 2026-05-?? | **TBD — PR-49 market-data: 03-use-sequences (KIS-first raw 출처)** | baseline/v3.3.0 | PR-49 market-data 1 파일 |
+| 2026-05-12 | **docs(baseline): PR-49 market-data — v3.3.0 baseline 03-use-sequences (KIS-first raw 출처 의무 + ADR 0064 boundary fanout 시나리오 2건 신규) (작성: market-data)** — `_workspace/baseline/v3.3.0/03-use-sequences.md` 신규 작성. v3.2.2 baseline 8 시나리오 유지 + v3.3.0 신규 시나리오 2건 추가: 시나리오 9 (5m boundary 마감 → BoundaryDetector domain + BoundaryAggregator consumer + Redis 5종 키 + Kafka 5 토픽 + CandleClosedStompListener STOMP fanout + LWC series.update 실시간 갱신, latency <50ms), 시나리오 10 (KIS WS H0STCNT0 in-process boundary B-1 vs DailyCloseFinalizer 20:00 KST NXT 마감 멱등 정합 — ON CONFLICT DO NOTHING 이중 보장). KIS-first raw 출처 인덱스 R1~R11 유지 + ADR 0064 신규 인용: STCK_CNTG_HOUR cols[1] (domestic_stock_functions_ws.py ccnl_krx R5) boundary 검사 진입 필드 LOCK + PINGPONG JSON (kis_auth.py rdic["header"]["tr_id"] R4). boundary 시각 매트릭스 5종 (ADR 0064 §4-2 + ADR 0063 NXT 08:00~20:00 정합). Redis 키 매트릭스 5종 (ADR 0029 §2-1 A-1 LOCK). STOMP 토픽 매트릭스 5종 (ADR 0029 §2-5 C-1 LOCK). 멱등 가드·race condition 매트릭스 (ADR 0064 §4-6 정합). latency 예측표 <50ms. v3.2.2→v3.3.0 변경 이력 매트릭스 7건. KIS-first 자체 추론 0건 검증 (헌법 §3). 영역 침범 0 (03 파일 단독). | baseline/v3.3.0 | PR-49 market-data 1 파일 + KIS-first raw 출처 의무 |
 <!-- pr-49-slot-market-data -->
 | 2026-05-?? | **TBD — PR-49 frontend: 05-ui-inventory** | baseline/v3.3.0 | PR-49 frontend 1 파일 |
 <!-- pr-49-slot-frontend -->
