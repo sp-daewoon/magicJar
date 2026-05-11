@@ -177,6 +177,9 @@ class KisRestCandleAdapter(
                                         .queryParam("fid_input_date_1", dateStr)
                                         // fid_pw_data_incu_yn: N (과거 데이터 포함 여부)
                                         .queryParam("fid_pw_data_incu_yn", "N")
+                                        // fid_fake_tick_incu_yn: 허봉 포함 여부 (빈 문자열 = 미포함, KIS spec 6번째 파라미터 필수 전송)
+                                        // raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
+                                        .queryParam("fid_fake_tick_incu_yn", "")
                                         .build()
                                 }.header("authorization", "Bearer $accessToken")
                                 .header("appkey", appKeyStr)
@@ -265,14 +268,28 @@ class KisRestCandleAdapter(
                         // KIS API rate limit 준수: ADR 0037 — 20 req/s 한도. 50ms 간격 안전 마진
                         Thread.sleep(50)
                     } catch (e: WebClientResponseException) {
-                        log.warn(
-                            "KIS 1m candle 실패: code={} date={} hour={} status={}",
-                            code,
-                            dateStr,
-                            currentHour,
-                            e.statusCode,
-                        )
-                        dayDone = true
+                        val statusCode = e.statusCode.value()
+                        if (statusCode == 500) {
+                            // KIS 500 INTERNAL_SERVER_ERROR — 1회 재시도 + 500ms backoff (관찰: 5~10% 간헐적 발생)
+                            log.warn(
+                                "KIS 1m candle 500 오류 — 500ms backoff 후 1회 재시도: code={} date={} hour={}",
+                                code,
+                                dateStr,
+                                currentHour,
+                            )
+                            Thread.sleep(500)
+                            // retryOnce = true 로 다음 루프 반복 시도 (dayDone = false 유지)
+                            // pageCount는 증가하지 않았으므로 동일 hour로 재시도됨
+                        } else {
+                            log.warn(
+                                "KIS 1m candle HTTP 오류: code={} date={} hour={} status={}",
+                                code,
+                                dateStr,
+                                currentHour,
+                                statusCode,
+                            )
+                            dayDone = true
+                        }
                     } catch (e: Exception) {
                         log.warn(
                             "KIS 1m candle 오류: code={} date={} hour={} err={}",
