@@ -1,9 +1,10 @@
 # ADR 0062 — 5m·15m·30m·90m·1h 합산 가공 plan (1m → N분봉)
 
-- 상태: **Proposed (plan, 사용자 결정 대기)** — 권장안 = 위치 옵션 A-1(백엔드 precomputed) + source 옵션 2(과거 포함)
+- 상태: **Accepted (2026-05-11 사용자 결정)** — 채택안 = 위치 A-1(백엔드 precomputed) + source 옵션 2(과거 30 거래일) + UI 5종 활성화(5m·15m·30m·90m·1h)
 - 작성일: 2026-05-11
+- 채택일: 2026-05-11 (사용자 채팅 명시)
 - 작성자: architect
-- 결정자: 사용자(최고 관리자) + architect (옵션 채택 시) → 본 ADR `Accepted` 갱신
+- 결정자: 사용자(최고 관리자) — 본 ADR Accepted 갱신, sub-agent 디스패치 진행
 - 관계:
   - **ADR 0057 (KIS OpenAPI 단일 데이터 출처)** — §2-5에서 본 ADR 발행을 명시 위임
   - **ADR 0019 (캔들 저장 정책 — Watchlist 기반)** — §2-5 "합성 폐기" 결정 부분 revoke 후속 (본 ADR 채택 시 §2 매트릭스 재통합)
@@ -16,6 +17,12 @@
 > **사용자 명시 결정 (2026-05-11 채팅, backlog §31 인용 baseline)**:
 > "5m·15m·30m·90m·1h 백엔드 또는 프론트 합산으로 할거고" / "3번 해야지"
 > → 합산 방향은 확정. 본 ADR은 **합산 위치 + source 시간 범위** 결정.
+>
+> **사용자 채택 결정 (2026-05-11 채팅 명시)**:
+> - 의제 A 합산 위치 = **A-1 백엔드 precomputed** (cold-start 시 1m 적재 직후 5m·15m·30m·90m·1h 일괄 합산 + DB INSERT)
+> - 의제 B source 시간 범위 = **옵션 2 과거 30 거래일**
+> - 의제 C UI 매트릭스 = **5종 활성화** (5m·15m·30m·90m·1h IntervalToggle 노출)
+> → 본 ADR Status `Accepted` 갱신, sub-agent 디스패치 매트릭스(§7-1) 진행.
 
 > **KIS 키 정책 (ADR 0057 §정합)**: 본 ADR 모든 호출은 **prod credential 단일 채널** (`AccountType.REAL`). 모의/실전 분기는 주문 라우터(거래 액션)에만. 사용자 메모리 `feedback_kis_first_policy.md`·`feedback_kis_key_realonly_for_data.md` 정합.
 
@@ -71,6 +78,16 @@ magicJar는 **룰 기반 quant trading 본체 + MCP 서버 노출**. 본 ADR의 
 ### 2-3. 의제 C — frontend IntervalToggle 매트릭스 갱신
 
 현재 IntervalToggle 8종(1m·5m·30m·1h·1d·1wk·1mo·1y) → 본 ADR 채택 시 **10종 활성화** (1m·5m·15m·30m·90m·1h·1d·1wk·1mo·1y). 15m·90m 추가 의제 포함.
+
+### 2-4. 사용자 채택 결과 (2026-05-11 채팅 명시)
+
+> "A-1 백엔드 precomputed + 옵션 2 과거 30 거래일 + 5종 활성화 — 2026-05-11 사용자 채팅 명시"
+
+- 의제 A → **A-1 백엔드 precomputed** 채택
+- 의제 B → **옵션 2 과거 30 거래일** 채택
+- 의제 C → **5종 활성화** (5m·15m·30m·90m·1h) 채택
+
+본 ADR Status `Accepted` 갱신 (헤더). 후속 sub-agent 디스패치는 §7-1 매트릭스 + §9 NXT 결합 영향 반영 의무.
 
 ---
 
@@ -277,6 +294,66 @@ ADR 0019 §2-6 CHECK constraint 그대로 유지 (`'1m','2m','5m','15m','30m','9
 ### 7-4. external-api-policy 영향
 
 본 ADR 채택 시 외부 API 정책 영향 0 (KIS 단일 출처 유지, 합산은 1m 원천 기반).
+
+---
+
+## 9. NXT 결합 영향 (ADR 0063 Accepted 정합 — 2026-05-11 추가)
+
+### 9-1. 배경
+
+ADR 0063 (NXT/통합거래 매트릭스 cover) 사용자 Accepted (2026-05-11) — UN 통합 + 08:00~20:00 + threshold 700 채택. 결과로 **1m 베이스 데이터가 390 bar/일 → 720 bar/일로 확장** (KRX 정규장 6.5시간 + NXT pre/after-hour 5.5시간 = 12시간 cover, threshold 350 → 700).
+
+본 ADR(0062)의 합산 매트릭스가 NXT 시간대(08:00~20:00 KST)를 cover하도록 boundary 정렬·DB ROW 예측·트리거 시각 모두 확장 의무. sub-agent 디스패치 시 ADR 0063 cover **선행 또는 영역 분리 직렬** 진행.
+
+### 9-2. boundary 정렬 매트릭스 확장 (§4-2 갱신)
+
+| Interval | KRX 정규장만 (기존) | **NXT 통합 (08:00~20:00 KST)** |
+|---|---|---|
+| 5m | 09:00·09:05·…·15:25 (78 bar/일) | **08:00·08:05·…·19:55 (144 bar/일)** |
+| 15m | 09:00·09:15·…·15:15 (26 bar/일) | **08:00·08:15·…·19:45 (48 bar/일)** |
+| 30m | 09:00·09:30·…·15:00 (13 bar/일) | **08:00·08:30·…·19:30 (24 bar/일)** |
+| 90m | 09:00·10:30·12:00·13:30·15:00 (5 bar/일) | **08:00·09:30·11:00·12:30·14:00·15:30·17:00·18:30 (8 bar/일)** |
+| 1h | 09:00·10:00·…·15:00 (7 bar/일) | **08:00·09:00·…·19:00 (12 bar/일)** |
+
+### 9-3. DB ROW 예측 갱신 (§5 결과 정합)
+
+| Interval | KRX 정규장만 (기존) | **NXT 통합 (10종목 × 30 거래일)** |
+|---|---|---|
+| 5m | 22,800 (78×30×10) | **43,200 (144×30×10)** |
+| 15m | 7,500 (26×30×10) | **14,400 (48×30×10)** |
+| 30m | 3,900 (13×30×10) | **7,200 (24×30×10)** |
+| 90m | 1,500 (5×30×10) | **2,400 (8×30×10)** |
+| 1h | 2,100 (7×30×10) | **3,600 (12×30×10)** |
+| **합** | **~38K rows** | **~71K rows (1.85배 확장)** |
+
+DB 부담 영향 미미 (1m 베이스 720/일 × 30 × 10 = ~216K rows 대비 33% 추가).
+
+### 9-4. boundary 마감 트리거 시각 확장 (ADR 0029 정합)
+
+기존 ADR 0029 boundary 마감 트리거 = KRX 마감 16:00 KST. **NXT 채택 후 20:00 KST(NXT after-hour 마감)까지 확장 의무**.
+
+- `TickToMinuteAggregator` boundary 검증 — 08:00~20:00 cover
+- `DailyCloseFinalizer` 트리거 시각 — 16:00 → **20:00 KST**
+- Redis `candle:current:{code}:5m~1h` 키 — 08:00 시작 / 20:00 evict
+
+### 9-5. sub-agent 작업 분리 권장 (§7-1 정합)
+
+ADR 0062 + 0063 둘 다 Accepted — sub-agent 디스패치 시 영역 분리·직렬 순서 권장:
+
+| 순서 | sub-agent | 작업 | 의존 |
+|---|---|---|---|
+| 1 (선행) | **market-data** | ADR 0063 NXT cover — `KisRestCandleAdapter` UN 통합 + 08:00~20:00 + threshold 700 + 재수집 (10종목 × 30일) | — |
+| 2 (1m DB 적재 확인 후) | **strategy-engine** (또는 backend-core) | ADR 0062 `CandleAggregator.kt` 도메인 본체 + 단위 테스트 | 의존 없음 (병렬 가능) |
+| 3 (1m + Aggregator GREEN) | **market-data** | ADR 0062 `AggregateBackfillRunner` + boundary 마감 trigger + `DailyCloseFinalizer` 20:00 KST 확장 + Redis 키 + STOMP fanout + admin endpoint | 순서 1+2 GREEN |
+| 4 (병렬 가능) | **frontend** | ADR 0062 `IntervalToggle` 5종 + LWC v4 dogfooding | 순서 3 응답 GREEN |
+| 5 (선택) | **qa** | 합산 정합 sample 검증 (NXT cover 후 5m·15m·30m·90m·1h 일치성) | 순서 3 GREEN |
+
+순서 1(NXT)+2(CandleAggregator 도메인)는 영역 분리로 병렬 가능. 순서 3(market-data 합산 영속)은 1+2 GREEN 의존.
+
+### 9-6. cross-ref
+
+- ADR 0063 — NXT/통합거래 매트릭스 cover (본 ADR 결합 baseline)
+- 영향 ADR/문서 매트릭스 (§7-3) — NXT 시각 확장 동반 갱신 (별도 사이클, modify-shared 회피)
 
 ---
 
