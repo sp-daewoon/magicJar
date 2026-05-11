@@ -1,9 +1,9 @@
 # ADR 0019 — 캔들 저장 정책 (Watchlist 기반 + Yahoo 분봉 DB 영속)
 
-- 상태: Accepted
+- 상태: **Superseded by ADR 0057, 2026-05-11** — Yahoo Finance 전면 폐기 + KIS OpenAPI 단일 출처 정책으로 전환 (사용자 dogfooding 결함 root cause = Yahoo v8 chart endpoint가 `interval=1d&range=max` 조합에서 monthly downsample 응답 반환 → 일봉 위치에 월봉 INSERT). 사용자 명시 "야후꺼 쓰지 말라니깐" / "kis에 있는 데이터만 사용하라고" (2026-05-11). 본 ADR §2-1 매트릭스 + §2-3 cold-start + §2-5 합성 폐기 모두 ADR 0057로 재정의됨.
 - 작성일: TBD
 - 결정자: architect
-- 관계: ADR 0028(Watchlist Ingestion Worker), ADR 0029(당일 진행 중 캔들 Redis 캐시), ADR 0037(KIS Rate Limit)
+- 관계: **ADR 0057 (KIS OpenAPI 단일 데이터 출처) — supersede 후속** / ADR 0028(Watchlist Ingestion Worker), ADR 0029(당일 진행 중 캔들 Redis 캐시), ADR 0037(KIS Rate Limit)
 
 ## 1. 컨텍스트
 

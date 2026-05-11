@@ -2,8 +2,9 @@
 
 - 상태: Accepted
 - 작성일: TBD
+- 2026-05-11 갱신: **ADR 0057 (KIS-only data source) 정합** — §2-4 Yahoo 매트릭스 인용 정정, Yahoo Finance 캔들 fetch 폐기 명시.
 - 결정자: architect
-- 관계: ADR 0004(캔들 저장 정책), ADR 0028(Watchlist Ingestion)
+- 관계: **ADR 0057(KIS-only data source)**, ADR 0019(Superseded by 0057), ADR 0028(Watchlist Ingestion)
 
 ## 1. 컨텍스트
 
@@ -59,9 +60,10 @@ KIS WS tick 도달
 
 이전 정책의 다음 항목은 폐기:
 - **LRU 캐시 정책 (10 종목 한도)** — Watchlist 풀이 자연 universe (ADR 0028)
-- **자유 입력 분봉 (12m·45m 등)** — Yahoo 매트릭스 버튼만 (ADR 0004)
-- **백엔드 합성 (M1 → N분봉)** — Yahoo 직접 제공 매트릭스로 대체
-- **분봉 Redis ZSet 영속** — DB가 진실원 (ADR 0004)
+- **자유 입력 분봉 (12m·45m 등)** — UI 매트릭스 버튼만 (ADR 0057 §2-2)
+- **백엔드 합성 (M1 → N분봉)** — ADR 0057 정합으로 부활 검토 보류 (backlog §31)
+- **분봉 Redis ZSet 영속** — DB가 진실원 (ADR 0057)
+- **Yahoo Finance 캔들 fetch** — 전면 폐기 (ADR 0057, 2026-05-11)
 
 ### 2-5. STOMP fanout
 

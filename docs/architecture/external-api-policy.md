@@ -1,14 +1,17 @@
-# 외부 API 호출 정책 (KIS · Yahoo · DART)
+# 외부 API 호출 정책 (KIS · DART)
 
 - 작성일: TBD
+- 2026-05-11 갱신: **Yahoo Finance §3 전면 제거** — ADR 0057 (KIS OpenAPI 단일 데이터 출처) 정합. 사용자 명시 "kis에 있는 데이터만 사용하라고" (2026-05-11 dogfooding).
 
 magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공식 한도와 우리 운영 정책을 정리한다.
 
 > ADR 정합:
+> - **ADR 0057** — KIS OpenAPI 단일 데이터 출처 (Yahoo·네이버 등 보조 출처 폐기) ← **최신**
 > - **ADR 0037** — KIS API Rate Limit 강제 (초당 10건 + 토큰 버킷)
 > - **ADR 0038** — KIS OAuth 24h 토큰 + Redis 분산락
 > - **ADR 0039** — 종목 마스터 갱신 Cron (KIS 13시각 +5분)
 > - **ADR 0028** — Watchlist 기반 Ingestion (외부 호출의 진입 단위)
+> - **ADR 0019** — 캔들 저장 정책 (Superseded by ADR 0057)
 
 ---
 
@@ -71,37 +74,41 @@ magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공
 
 모든 어댑터는 `KisRateLimiterPort` 통과 + `KisAuthCommonModule` 토큰 사용 의무.
 
+### 2-5. 캔들 데이터 KIS 단일 출처 (ADR 0057 정합)
+
+2026-05-11 ADR 0057 발효 이후 magicJar의 캔들 데이터는 **KIS OpenAPI 단일 출처**다. Yahoo Finance·네이버 금융 등 보조 출처는 폐기.
+
+| Interval | KIS endpoint | tr_id | 비고 |
+|---|---|---|---|
+| 틱 | WebSocket `H0STCNT0` | — | Redis only |
+| 1m (1분봉) | `inquire-time-itemchartprice` | `FHKST03010200` | 당일 한정 — Redis only |
+| 1d (일봉) | `inquire-daily-itemchartprice` | `FHKST03010100` (period='D') | 전체 기간 — DB 영속 |
+| 1wk (주봉) | `inquire-daily-itemchartprice` | `FHKST03010100` (period='W') | 전체 기간 — DB 영속 |
+| 1mo (월봉) | `inquire-daily-itemchartprice` | `FHKST03010100` (period='M') | 전체 기간 — DB 영속 |
+| 1y (년봉) | `inquire-daily-itemchartprice` | `FHKST03010100` (period='Y') | 전체 기간 — DB 영속 |
+| 현재가 | `inquire-price` | `FHKST01010100` | 시가·고가·저가·거래량 + 등락 |
+
+**raw 출처 (헌법 §3)**: https://github.com/koreainvestment/open-trading-api (examples_user/domestic_stock 디렉토리)
+
+**5m·15m·30m·90m·1h interval**: ADR 0057 §2-2 — "데이터 없음" 표시 (cold-start 제외). 합산 가공 부활 또는 폐기는 backlog §31 의제로 사용자 결정 대기.
+
+**`FHKST03010230` (KIS 일별 분봉 — 과거)**: 모의 미지원·실전 한정. backlog §31 옵션 B 후보 — `docs/operations/kis-api-reference.md` §5-A 참조.
+
 ---
 
-## 3. Yahoo Finance
+## 3. Yahoo Finance — **폐기 (ADR 0057, 2026-05-11)**
 
-### 3-1. 공식 한도
+ADR 0019 시점에서 분봉 데이터 보조 출처로 활용했으나, 2026-05-11 사용자 dogfooding에서 다음 결함 발견 후 전면 폐기:
 
-| 항목 | 한도 | 비고 |
-|---|---|---|
-| **공식 API 없음** | — | 비공식 raw data scraping (v8 chart endpoint) |
-| REST 호출 | 명시 없음 | 보수적 초당 1~2건 권장 |
-| 차단 신호 | HTTP 429 / 404 / 빈 응답 | 약 60초 후 자동 풀림 |
+- root cause: Yahoo v8 chart endpoint(`https://query1.finance.yahoo.com/v8/finance/chart/{ticker}`)가 한국 오래된 상장종목 `interval=1d&range=max` 조합에서 **monthly downsample** 응답 반환 → 일봉 위치에 월봉이 INSERT되어 사용자 차트 결함
+- 사용자 명시 결정 (2026-05-11): "야후꺼 쓰지 말라니깐" / "kis에 있는 데이터만 사용하라고"
 
-**Interval별 최대 과거 조회 (현 시점 기준)**
+후속 처리:
+- ADR 0019 — Superseded by ADR 0057
+- 본 §3 — 폐기 표기만 보존 (rollback 사례 발생 시 §3-old 복원 참조 — ADR 0057 §4-2)
+- `consumer/.../infrastructure/yahoo/YahooCandleFetcherAdapter.kt` — `@Deprecated` 마킹 (별도 market-data sub-agent PR)
 
-| Interval | 최대 과거 | 비고 |
-|---|---|---|
-| **1m (1분봉)** | 최근 **7일** | 7일 초과 요청 시 응답 없음 |
-| **2m / 5m / 15m / 30m / 90m** | 최근 **60일** | 1시간봉 미만 분봉 |
-| **1h (60m, 1시간봉)** | 최근 **730일 (~2년)** | — |
-| **1d 이상 (일봉/주봉/월봉)** | 전체 (Max) | 상장 이후 데이터 전체 |
-
-### 3-2. 우리 정책
-
-| 영역 | 정책 |
-|---|---|
-| **호출 위치** | `api /api/backfill/yahoo` 단일 진입점. RestClient 직접 호출 |
-| **호출 단위** | Watchlist 풀 진입 시 cold-start (ADR 0028) — 종목당 interval별 1회 max 한도 fetch |
-| **빈도** | 종목당 분당 1회 backfill (in-memory dedup). 전역 초당 2건 limiter |
-| **재시도** | 429·404 → 60s 대기 + 1회. 응답 빈/오류 → graceful fallback |
-| **데이터 검증** | 응답 interval 검증 + `.KS`(코스피)·`.KQ`(코스닥) market 정합 |
-| **저장** | DB 영속 (ADR 0019 정합) — Yahoo 한도 안에서 max fetch 후 INSERT |
+**Yahoo 부활 시나리오**: ADR 0057 §4-2 Rollback 시나리오 정독 의무 (KIS rate limit 영향 측정 또는 `FHKST03010230` 도입 후 5m~1h 합산 성능 부족이 발견될 시만 검토).
 
 ---
 
@@ -129,19 +136,20 @@ magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공
 
 ### 5-1. 새 어댑터 추가 시 체크리스트
 
-1. [ ] **`KisRateLimiterPort` 통과** (KIS 어댑터인 경우, ADR 0037 강제)
-2. [ ] **`KisAuthCommonModule` 사용** (KIS OAuth 토큰, ADR 0038)
-3. [ ] Rate limiter 적용 (Yahoo=초당 2, DART=종목별 6h 캐시)
-4. [ ] 재시도 정책 헬퍼 사용
-5. [ ] `application.yml`에 base URL + key env 명시
-6. [ ] 본 정책 문서에 어댑터 매핑 한 줄 추가
+1. [ ] **캔들 데이터는 KIS 단일 출처 의무 (ADR 0057)** — Yahoo·네이버 등 보조 출처 신규 어댑터 발행 금지
+2. [ ] **`KisRateLimiterPort` 통과** (KIS 어댑터인 경우, ADR 0037 강제)
+3. [ ] **`KisAuthCommonModule` 사용** (KIS OAuth 토큰, ADR 0038)
+4. [ ] Rate limiter 적용 (DART=종목별 6h 캐시)
+5. [ ] 재시도 정책 헬퍼 사용
+6. [ ] `application.yml`에 base URL + key env 명시
+7. [ ] 본 정책 문서에 어댑터 매핑 한 줄 추가
+8. [ ] **KIS-first raw fetch 의무 (헌법 §3)** — 새 KIS endpoint 도입 시 raw URL KDoc 인용
 
 ### 5-2. 모니터링
 
 - KIS 토큰 발급 횟수: `[kis-token] 발급` INFO 로그 (기대: 24h당 1회/scope)
 - EGW00133 발생: WARN 로그 → 발생 시 분산락 path 점검
 - EGW00201 발생: WARN 로그 → Rate Limiter 큐 상태 점검
-- Yahoo Finance 429: api 로그 grep
 - DART 5xx: api WARN 로그
 - Health: `/actuator/health/kisAuth` (DEGRADED 시 Redis 점검)
 
