@@ -1190,3 +1190,62 @@ ADR 0063 사용자 Accepted 갱신 후:
 - ADR 0063 (본 트랙 plan 본문) · ADR 0019 (채택 후 §2 매트릭스 NXT 행 보강) · ADR 0028 (cold-start 흐름) · ADR 0037 (Rate Limit 영향 측정) · ADR 0057 (KIS-only 호출도 NXT 동일)
 - KIS raw fetch — `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py`
 - 사용자 메모리 `feedback_kis_first_policy.md`·`feedback_kis_key_realonly_for_data.md`·`feedback_v3_skepticism_no_regression.md`·`feedback_spec_plan_scope.md`·`feedback_3tier_hierarchy.md`·`feedback_orchestrator_active_parallel.md`
+
+---
+
+## §33. KIS API 500 retry 강화 (1회 → 3회 exponential backoff) — v3.3.0 미러스톤
+
+### 사유
+
+사용자 dogfooding 2026-05-11 — PR #297 backoff(500ms 1회 retry) 후에도 일부 종목(004090·064260·001040·035760)에서 KIS API 500 누적으로 `KIS_COLD_START_PARTIAL_FAIL` 패턴 발생. 외부 KIS 결함이지만 retry 강도 보강 시 종목별 fail 비율 감소 기대.
+
+### 결정 사항 (architect plan 발행 후 사용자 결정 대기)
+
+- 옵션 A: 3회 exponential backoff (500ms → 1s → 2s)
+- 옵션 B: HTTP status code별 분기 (500 vs 503 vs 502 vs timeout 차등)
+- 옵션 C: Dead Letter Queue 패턴 (실패 일자 별도 큐 + 백그라운드 재시도)
+
+### 우선순위
+
+v3.3.0 미러스톤. v3.2.x 라인은 backoff 1회 유지 (안정성 검증 후 격상).
+
+---
+
+## §34. Redis boundary fanout + STOMP 실시간 합산 갱신 (ADR 0029) — v3.3.0 미러스톤
+
+### 사유
+
+ADR 0062 §9 합산 가공이 cold-start + DailyCloseFinalizer(20:00 KST)에서만 갱신. 장중 5m·15m·30m·90m·1h boundary 마감(예: 09:05·09:10) 즉시 갱신이 안 됨 → 사용자 차트가 stale 5m bar 표시.
+
+### 결정 사항
+
+- Redis key 매트릭스 — `candle:current:{code}:5m` 등 boundary별 캐시
+- boundary 마감 트리거 — KIS WS 체결 수신 시 boundary 도달 검사 + Redis 갱신
+- STOMP fanout — frontend 실시간 차트 갱신
+- DailyCloseFinalizer는 마감 후 DB flush 의무
+
+### 우선순위
+
+v3.3.0 미러스톤. 실시간 매매(W3+) 본격 시점에 필수.
+
+---
+
+## §35. architect ADR 0019·0028·0029 §2 매트릭스 NXT/합산 행 보강 — v3.2.3 minor
+
+### 사유
+
+ADR 0062·0063 채택 시 본문 §9·§2-E에서 영향 ADR 매트릭스 갱신을 별도 사이클로 분리 명시(modify-shared 충돌 회피). 본 §35가 그 후속 사이클.
+
+### 결정 사항 (architect 단독 PR)
+
+- ADR 0019 §2-1 매트릭스 — NXT 시각 행 + 합산 5종 행 추가
+- ADR 0019 §2-2 — UI interval 매트릭스 갱신 (5종 활성화)
+- ADR 0028 cold-start 흐름 — KOSDAQ 분기 + halt skip 명시
+- ADR 0029 boundary 마감 트리거 시각 — 20:00 KST 확장
+- `docs/architecture/external-api-policy.md` — KIS UN/J/NX 매트릭스
+- `docs/architecture/candle-data-policy-v2.md` — 시각·합산 매트릭스 갱신
+
+### 우선순위
+
+v3.2.3 minor doc cut. .md만 변경, 코드 영향 0.
+
