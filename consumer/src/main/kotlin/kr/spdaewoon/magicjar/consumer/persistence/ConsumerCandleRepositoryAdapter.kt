@@ -10,7 +10,7 @@ import java.time.Instant
 
 /**
  * CandleRepository 도메인 포트 구현 — consumer 모듈.
- * Yahoo cold-start + KIS REST backfill 저장에 사용.
+ * KIS cold-start backfill 저장에 사용 (Yahoo Finance 2026-05-11 폐기 — KIS-only 정책).
  */
 @Component
 class ConsumerCandleRepositoryAdapter(

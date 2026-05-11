@@ -14,7 +14,7 @@ import java.time.Instant
  * candle JPA 엔티티 (ADR 0019 — V1 baseline candle 테이블).
  * UQ(code, interval, ts) — ON CONFLICT DO NOTHING idempotent INSERT.
  * raw = 수정 전 원가, adj = 수정 주가 (액면분할·배당 반영 — T-CA1).
- * source = 데이터 출처 (KIS·YAHOO·CSV 등).
+ * source = 데이터 출처 (KIS·CSV 등 — YAHOO 2026-05-11 폐기).
  */
 @Entity
 @Table(

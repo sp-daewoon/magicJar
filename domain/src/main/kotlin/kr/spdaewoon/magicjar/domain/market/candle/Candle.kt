@@ -6,7 +6,7 @@ import java.math.BigDecimal
 /**
  * 캔들 도메인 (ADR 0019).
  * raw = 수정 전 원가, adj = 수정 주가 (액면분할·배당 반영).
- * source = 데이터 출처 (KIS·Yahoo·CSV 등).
+ * source = 데이터 출처 (KIS·CSV 등 — Yahoo Finance 2026-05-11 폐기).
  */
 data class Candle(
     val id: Long? = null,

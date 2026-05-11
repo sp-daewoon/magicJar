@@ -15,16 +15,16 @@ import javax.net.ssl.TrustManagerFactory
  * Batch WebClient Bean 설정.
  *
  * 빈 분리 구조:
- *  - webClient (기본) — KIS·Yahoo·Naver 등 일반 endpoint. JDK 기본 SSL context.
+ *  - webClient (기본) — KIS·Naver 등 일반 endpoint. JDK 기본 SSL context.
  *  - dartWebClient (DART 전용) — opendart.fss.or.kr TLS cipher suite 호환 문제 해결.
  *    JDK 21 + reactor netty 기본 설정으로는 opendart.fss.or.kr와 TLS handshake 실패
  *    (handshake_failure). DART 전용 HttpClient에 TLSv1.2 + default trust manager를
  *    명시해 cipher suite 협상을 강제 (backlog §22 fix — 옵션 3 채택).
- *    다른 endpoint(KIS·Yahoo·Naver)에는 영향 없음.
+ *    다른 endpoint(KIS·Naver)에는 영향 없음.
  */
 @Configuration
 class WebClientConfig {
-    /** 일반 WebClient — KIS·Yahoo·Naver 등 (JDK 기본 SSL context) */
+    /** 일반 WebClient — KIS·Naver 등 (JDK 기본 SSL context) */
     @Bean
     fun webClient(): WebClient = WebClient.builder().build()
 
