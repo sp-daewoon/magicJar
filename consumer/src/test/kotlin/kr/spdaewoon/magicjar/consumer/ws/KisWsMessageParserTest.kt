@@ -60,6 +60,66 @@ class KisWsMessageParserTest {
     }
 
     /**
+     * H0STCNT0 등락 필드 추출 — dogfooding 결함 1 fix.
+     *
+     * KIS-first 출처: open-trading-api domestic_stock_functions_ws.py ccnl_krx() cols 배열.
+     * https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
+     *   [3] PRDY_VRSS_SIGN — 부호 코드 (1=상한/2=상승/3=보합/4=하한/5=하락)
+     *   [4] PRDY_VRSS      — 전일대비
+     *   [5] PRDY_CTRT      — 전일대비율 (%)
+     */
+    @Test
+    fun `H0STCNT0 등락 필드 PRDY_VRSS_SIGN·PRDY_VRSS·PRDY_CTRT 추출`() {
+        val fields =
+            Array(46) { i ->
+                when (i) {
+                    0 -> "005930"
+                    1 -> "100012"
+                    2 -> "61000"
+                    3 -> "2" // PRDY_VRSS_SIGN (상승)
+                    4 -> "1500" // PRDY_VRSS (전일대비 +1500)
+                    5 -> "2.52" // PRDY_CTRT (전일대비율 +2.52%)
+                    12 -> "100"
+                    33 -> "20260511"
+                    else -> "0"
+                }
+            }
+        val tick = KisWsMessageParser.parseH0Stcnt0(fields.joinToString("^"))
+
+        assertThat(tick).isNotNull
+        assertThat(tick!!.changeSign).isEqualTo("2")
+        assertThat(tick.priceChange).isEqualByComparingTo(BigDecimal("1500"))
+        assertThat(tick.changeRate).isEqualByComparingTo(BigDecimal("2.52"))
+    }
+
+    /**
+     * 등락 필드 공백·blank 시 null 반환 — polling source 호환 (등락 필드 미제공).
+     */
+    @Test
+    fun `H0STCNT0 등락 필드 blank → null`() {
+        val fields =
+            Array(46) { i ->
+                when (i) {
+                    0 -> "005930"
+                    1 -> "100012"
+                    2 -> "61000"
+                    3 -> "" // blank
+                    4 -> "" // blank
+                    5 -> "" // blank
+                    12 -> "100"
+                    33 -> "20260511"
+                    else -> "0"
+                }
+            }
+        val tick = KisWsMessageParser.parseH0Stcnt0(fields.joinToString("^"))
+
+        assertThat(tick).isNotNull
+        assertThat(tick!!.changeSign).isNull()
+        assertThat(tick.priceChange).isNull()
+        assertThat(tick.changeRate).isNull()
+    }
+
+    /**
      * 구독 성공 응답 JSON 파싱 검증.
      */
     @Test

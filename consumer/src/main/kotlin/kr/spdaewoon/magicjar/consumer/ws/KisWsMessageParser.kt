@@ -19,24 +19,35 @@ import java.math.BigDecimal
  *   - 데이터: ^(캐럿) 구분 필드열
  *
  * H0STCNT0 필드 인덱스 (open-trading-api domestic_stock_functions_ws.py cols 배열):
- *   [0]  MKSC_SHRN_ISCD  — 종목코드
- *   [1]  STCK_CNTG_HOUR  — 체결시각 (HHMMSS)
- *   [2]  STCK_PRPR       — 현재가(체결가)
- *  [12]  CNTG_VOL        — 체결거래량
- *  [13]  ACML_VOL        — 누적거래량
- *  [33]  BSOP_DATE       — 영업일자 (YYYYMMDD)
+ * KIS-first raw 출처:
+ *   https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
+ *   ccnl_krx() columns 배열 (인덱스 0~45):
+ *   [0]  MKSC_SHRN_ISCD      — 종목코드
+ *   [1]  STCK_CNTG_HOUR      — 체결시각 (HHMMSS)
+ *   [2]  STCK_PRPR           — 현재가(체결가)
+ *   [3]  PRDY_VRSS_SIGN      — 전일대비부호 (1=상한/2=상승/3=보합/4=하한/5=하락)
+ *   [4]  PRDY_VRSS           — 전일대비
+ *   [5]  PRDY_CTRT           — 전일대비율 (%)
+ *  [12]  CNTG_VOL            — 체결거래량
+ *  [13]  ACML_VOL            — 누적거래량
+ *  [33]  BSOP_DATE           — 영업일자 (YYYYMMDD)
  *
- * 전체 45개 필드 (인덱스 0~44) — 자세한 내용은 KIS open-trading-api 레포 domestic_stock_functions_ws.py 참조.
+ * 전체 46개 필드 (인덱스 0~45) — 자세한 내용은 KIS open-trading-api 레포 domestic_stock/domestic_stock_functions_ws.py 참조.
  */
 object KisWsMessageParser {
     private val log = LoggerFactory.getLogger(KisWsMessageParser::class.java)
 
     private val kst = TimeZone.of("Asia/Seoul")
 
-    // H0STCNT0 필드 인덱스 (open-trading-api domestic_stock_functions_ws.py 기반)
+    // H0STCNT0 필드 인덱스 (KIS-first raw 출처)
+    // https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
+    // ccnl_krx() columns 배열 기반
     private const val IDX_CODE = 0
     private const val IDX_TIME = 1
     private const val IDX_PRICE = 2
+    private const val IDX_PRDY_VRSS_SIGN = 3 // 전일대비부호
+    private const val IDX_PRDY_VRSS = 4 // 전일대비
+    private const val IDX_PRDY_CTRT = 5 // 전일대비율(%)
     private const val IDX_CNTG_VOL = 12
     private const val IDX_BSOP_DATE = 33
 
@@ -86,9 +97,15 @@ object KisWsMessageParser {
 
     /**
      * H0STCNT0 실시간 체결가 데이터 파싱 → TickEvent.
-     * 캐럿(^) 구분 45개 필드.
+     * 캐럿(^) 구분 46개 필드.
      *
-     * KIS-first: open-trading-api domestic_stock_functions_ws.py ccnl_krx() cols 배열 기반.
+     * KIS-first: open-trading-api domestic_stock/domestic_stock_functions_ws.py ccnl_krx() columns 배열 기반.
+     * raw URL: https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
+     *
+     * 등락률 필드 추출 (dogfooding 결함 1 — 싱크 불일치 해소):
+     *   [3] PRDY_VRSS_SIGN — 전일대비부호
+     *   [4] PRDY_VRSS      — 전일대비
+     *   [5] PRDY_CTRT      — 전일대비율(%)
      */
     fun parseH0Stcnt0(
         rawData: String,
@@ -112,6 +129,18 @@ object KisWsMessageParser {
 
             val volumeStr = fields[IDX_CNTG_VOL].trim()
             val volume = volumeStr.ifBlank { "0" }.toLongOrNull() ?: 0L
+
+            // 등락 필드 파싱 — KIS H0STCNT0 [3][4][5]
+            // KIS-first raw URL: https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
+            val changeSign = fields.getOrNull(IDX_PRDY_VRSS_SIGN)?.trim()?.ifBlank { null }
+            val priceChange =
+                fields.getOrNull(IDX_PRDY_VRSS)?.trim()?.let { s ->
+                    s.ifBlank { null }?.toBigDecimalOrNull()
+                }
+            val changeRate =
+                fields.getOrNull(IDX_PRDY_CTRT)?.trim()?.let { s ->
+                    s.ifBlank { null }?.toBigDecimalOrNull()
+                }
 
             // 시각 파싱: BSOP_DATE(YYYYMMDD) + STCK_CNTG_HOUR(HHMMSS) → KST Instant
             val dateStr = fields[IDX_BSOP_DATE].trim()
@@ -144,6 +173,9 @@ object KisWsMessageParser {
                 ts = ts,
                 source = "live",
                 stale = false,
+                priceChange = priceChange,
+                changeRate = changeRate,
+                changeSign = changeSign,
             )
         } catch (e: Exception) {
             log.error("H0STCNT0 파싱 실패: rawData={} error={}", rawData.take(100), e.message)
