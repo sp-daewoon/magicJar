@@ -14,16 +14,16 @@ parentPhase: ?
 CandleAggregator 도메인 본체 (ADR 0062 채택, A-1 백엔드 precomputed 합산)
 
 ## 결과물 체크리스트
-- [ ] CandleAggregator.kt 신규
-- [ ] boundary 계산
-- [ ] OHLCV 합산
-- [ ] IllegalArgumentException 경계
-- [ ] Unit Test
+- [x] CandleAggregator.kt 신규
+- [x] boundary 계산
+- [x] OHLCV 합산
+- [x] IllegalArgumentException 경계
+- [x] Unit Test
 
 ## 의존성
 - (필요 시 기록)
 
 ## 마지막 활동
-2026-05-11T19:21:03.719+09:00 — 작업 시작
+2026-05-11T19:27:28.513+09:00 — 구현·테스트 완료 — 17 tests PASS, :domain:check GREEN. PR 생성 예정.
 
 ## 비고
