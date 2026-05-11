@@ -1,6 +1,6 @@
 # magicJar ADR 목차
 
-아키텍처 결정 기록(Architecture Decision Record). 59건 sequential (0001~0057 Accepted + 0062·0063 Accepted 2026-05-11 — 0058~0061 예약). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
+아키텍처 결정 기록(Architecture Decision Record). 59건 sequential (0001~0057 Accepted + 0062·0063 Accepted 2026-05-11 — 0058~0061 예약). 2026-05-12 v3.2.3 doc cut — ADR 0019·0028·0029 §2 매트릭스 NXT/합산 5종 재통합 갱신 (status 정합, 결정 변동 0). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
 
 ## §1. 비전 (1건)
 
@@ -46,7 +46,7 @@
 | 0016 | KIS REST/WS HTTP 정밀화 |
 | 0017 | Instrument Master 1급 시민 |
 | 0018 | Corp Action raw + adjusted |
-| 0019 | 캔들 저장 정책 (Watchlist 기반 + Yahoo 분봉 DB 영속) — **Accepted (Yahoo 의존 부분만 보류, 2026-05-11 노트)** |
+| 0019 | 캔들 저장 정책 (Watchlist 기반) — **Accepted (2026-05-12 v3.2.3 doc cut — §2 매트릭스 NXT 시각 + 합산 5종 재통합. Yahoo 의존 부분만 보존 rollback baseline)** |
 | 0048 | KIS WebSocket 41건 구독 한도 + 우선순위 정책 (slot 1+30+10·priority eviction·polling fallback) |
 | 0057 | **KIS OpenAPI 단일 데이터 출처 (Yahoo Finance·네이버 등 보조 출처 폐기) — 5m~1h은 1m 합산 가공 방향 확정 (backlog §31 구현 사이클)** |
 | 0062 | **5m·15m·30m·90m·1h 합산 가공 plan — Accepted (2026-05-11 사용자 결정 A-1 백엔드 precomputed + 옵션 2 과거 30 거래일 + 5종 활성화)** |
