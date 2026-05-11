@@ -9,6 +9,7 @@ import kr.spdaewoon.magicjar.domain.market.port.QuoteCachePort
 import kr.spdaewoon.magicjar.domain.market.tick.TickEvent
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.kafka.core.KafkaTemplate
@@ -57,6 +58,11 @@ class KisWebSocketBridge(
     private val kafkaTemplate: KafkaTemplate<String, String>,
     private val objectMapper: ObjectMapper,
     private val quoteCachePort: QuoteCachePort,
+    /** KIS WS 전용 WebSocketClient — SslProvider.JDK + TLSv1.2/1.3 명시 (WebClientConfig 빈).
+     *  SSL handshake timeout fix (PR #278 DART 패턴 동일 적용).
+     *  출처: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/websocket/ */
+    @Qualifier("kisWebSocketClient")
+    private val wsClient: ReactorNettyWebSocketClient,
     @Value("\${magicjar.kis.ws.url-prod:wss://ops.koreainvestment.com:21000}")
     private val wsUrlProd: String,
     @Value("\${magicjar.kis.ws.url-vps:wss://ops.koreainvestment.com:31000}")
@@ -75,7 +81,6 @@ class KisWebSocketBridge(
 
     private val session = KisWebSocketSession()
     private val scheduler = Executors.newScheduledThreadPool(1)
-    private val wsClient = ReactorNettyWebSocketClient()
 
     // 호가 구독 종목코드 Set (H0STASP0 — ADR 0048 §2-1 LRU 10 slot)
     private val orderbookSubscribedCodes: MutableSet<String> = ConcurrentHashMap.newKeySet()
