@@ -1,6 +1,6 @@
 # magicJar ADR 목차
 
-아키텍처 결정 기록(Architecture Decision Record). 57건 sequential (0001~0057 발행 완료, 그 중 0019는 Superseded by 0057). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
+아키텍처 결정 기록(Architecture Decision Record). 57건 sequential (0001~0057 발행 완료). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
 
 ## §1. 비전 (1건)
 
@@ -46,9 +46,9 @@
 | 0016 | KIS REST/WS HTTP 정밀화 |
 | 0017 | Instrument Master 1급 시민 |
 | 0018 | Corp Action raw + adjusted |
-| 0019 | 캔들 저장 정책 (Watchlist 기반 + Yahoo 분봉 DB 영속) — **Superseded by 0057, 2026-05-11** |
+| 0019 | 캔들 저장 정책 (Watchlist 기반 + Yahoo 분봉 DB 영속) — **Accepted (Yahoo 의존 부분만 보류, 2026-05-11 노트)** |
 | 0048 | KIS WebSocket 41건 구독 한도 + 우선순위 정책 (slot 1+30+10·priority eviction·polling fallback) |
-| 0057 | **KIS OpenAPI 단일 데이터 출처 (Yahoo Finance·네이버 등 보조 출처 폐기) — ADR 0019 supersede + 5m~1h backlog §31 의제** |
+| 0057 | **KIS OpenAPI 단일 데이터 출처 (Yahoo Finance·네이버 등 보조 출처 폐기) — 5m~1h은 1m 합산 가공 방향 확정 (backlog §31 구현 사이클)** |
 
 ## §6. 전략·신호·리스크 (6건)
 
@@ -151,4 +151,4 @@
 | 0059 | Screener 표준 | T-SC | (시프트) |
 | 0060 | Performance 표준 | T-PERF | (시프트) |
 | 0061 | Backtest 결과 영속 (backtest_run 테이블 + GET endpoint) | T-BT 후속 (backlog §27-2) | (예약) |
-| 0062 | 5m·15m·30m·90m·1h 처리 방침 (옵션 A 합산 가공 부활 / 옵션 B `FHKST03010230` 도입 / 옵션 C 폐기) | backlog §31 결정 후 | 2026-05-11 ADR 0057 발효 + 사용자 결정 대기 |
+| 0062 | 5m·15m·30m·90m·1h 합산 가공 위치·source 결정 (백엔드 합산 vs 프론트 합산, 당일 한정 vs `FHKST03010230` 과거 포함) | backlog §31 트랙 | 2026-05-11 ADR 0057 발효 — **방향(1m 합산)은 확정**, 위치·source 시간 범위만 사용자 결정 대기 |

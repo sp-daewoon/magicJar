@@ -2,6 +2,7 @@
 
 - 작성일: TBD
 - 2026-05-11 갱신: **Yahoo Finance §3 전면 제거** — ADR 0057 (KIS OpenAPI 단일 데이터 출처) 정합. 사용자 명시 "kis에 있는 데이터만 사용하라고" (2026-05-11 dogfooding).
+- 2026-05-11 amend: 정보 수집 API는 **prod credential 단일 채널** (모의/실전 분기는 주문 라우터 한정 — 사용자 명시 정책 정정). ADR 0019 supersede 인용 제거 → "Accepted (Yahoo 의존 부분만 보류)"로 정정 — 5m~1h은 1m 합산 가공 방향 확정 (backlog §31 트랙).
 
 magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공식 한도와 우리 운영 정책을 정리한다.
 
@@ -11,7 +12,7 @@ magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공
 > - **ADR 0038** — KIS OAuth 24h 토큰 + Redis 분산락
 > - **ADR 0039** — 종목 마스터 갱신 Cron (KIS 13시각 +5분)
 > - **ADR 0028** — Watchlist 기반 Ingestion (외부 호출의 진입 단위)
-> - **ADR 0019** — 캔들 저장 정책 (Superseded by ADR 0057)
+> - **ADR 0019** — 캔들 저장 정책 (Accepted, Yahoo 의존 부분만 보류 — 폐기 아님)
 
 ---
 
@@ -32,6 +33,8 @@ magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공
 | **REST 호출** | **초당 10건 (TPS)** (계정·앱키당) | **EGW00201 또는 HTTP 429** |
 | WebSocket 동시 구독 | 41건 | 초과 거부 |
 | 모의/실전 키 분리 | 별도 발급 | base URL도 다름 (`openapivts.koreainvestment.com:29443` vs `openapi.koreainvestment.com:9443`) |
+
+**magicJar credential 정책 (사용자 명시 2026-05-11)**: 정보 수집 API(시세·캔들·호가·종목 마스터 등)는 **prod(실전) credential 단일 채널** 사용. `AccountType.REAL` 자격으로 KIS REST/WS 호출. 모의/실전 분기는 **주문 라우터(거래 액션)에만** 적용. 정보 수집에서 모의 credential 사용 0건.
 
 ### 2-2. Rate Limit 강제 (ADR 0037)
 
@@ -76,7 +79,7 @@ magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공
 
 ### 2-5. 캔들 데이터 KIS 단일 출처 (ADR 0057 정합)
 
-2026-05-11 ADR 0057 발효 이후 magicJar의 캔들 데이터는 **KIS OpenAPI 단일 출처**다. Yahoo Finance·네이버 금융 등 보조 출처는 폐기.
+2026-05-11 ADR 0057 발효 이후 magicJar의 캔들 데이터는 **KIS OpenAPI 단일 출처**다. Yahoo Finance·네이버 금융 등 보조 출처는 폐기. **모든 호출은 prod credential 단일 채널** (사용자 명시 정책 정정 2026-05-11).
 
 | Interval | KIS endpoint | tr_id | 비고 |
 |---|---|---|---|
@@ -90,9 +93,9 @@ magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공
 
 **raw 출처 (헌법 §3)**: https://github.com/koreainvestment/open-trading-api (examples_user/domestic_stock 디렉토리)
 
-**5m·15m·30m·90m·1h interval**: ADR 0057 §2-2 — "데이터 없음" 표시 (cold-start 제외). 합산 가공 부활 또는 폐기는 backlog §31 의제로 사용자 결정 대기.
+**5m·15m·30m·90m·1h interval**: ADR 0057 §2-2 — "1m 합산 가공 예정" 표시 (backlog §31 트랙 완료 전). **방향 확정**: 1m 합산 가공으로 처리. 위치(백엔드 vs 프론트) + source 시간 범위(당일 한정 vs `FHKST03010230` 과거 포함)는 backlog §31에서 사용자 결정.
 
-**`FHKST03010230` (KIS 일별 분봉 — 과거)**: 모의 미지원·실전 한정. backlog §31 옵션 B 후보 — `docs/operations/kis-api-reference.md` §5-A 참조.
+**`FHKST03010230` (KIS 1분봉 과거 데이터)**: prod credential 단일 채널 호출. backlog §31의 source 옵션 2 후보 — `docs/operations/kis-api-reference.md` §5-A 참조.
 
 ---
 
@@ -104,7 +107,7 @@ ADR 0019 시점에서 분봉 데이터 보조 출처로 활용했으나, 2026-05
 - 사용자 명시 결정 (2026-05-11): "야후꺼 쓰지 말라니깐" / "kis에 있는 데이터만 사용하라고"
 
 후속 처리:
-- ADR 0019 — Superseded by ADR 0057
+- ADR 0019 — Accepted (Yahoo 의존 부분만 보류 — 폐기 아님, 사용자 명시 "ADR 폐기는 하지말어 백로그로 남겨")
 - 본 §3 — 폐기 표기만 보존 (rollback 사례 발생 시 §3-old 복원 참조 — ADR 0057 §4-2)
 - `consumer/.../infrastructure/yahoo/YahooCandleFetcherAdapter.kt` — `@Deprecated` 마킹 (별도 market-data sub-agent PR)
 
@@ -137,13 +140,14 @@ ADR 0019 시점에서 분봉 데이터 보조 출처로 활용했으나, 2026-05
 ### 5-1. 새 어댑터 추가 시 체크리스트
 
 1. [ ] **캔들 데이터는 KIS 단일 출처 의무 (ADR 0057)** — Yahoo·네이버 등 보조 출처 신규 어댑터 발행 금지
-2. [ ] **`KisRateLimiterPort` 통과** (KIS 어댑터인 경우, ADR 0037 강제)
-3. [ ] **`KisAuthCommonModule` 사용** (KIS OAuth 토큰, ADR 0038)
-4. [ ] Rate limiter 적용 (DART=종목별 6h 캐시)
-5. [ ] 재시도 정책 헬퍼 사용
-6. [ ] `application.yml`에 base URL + key env 명시
-7. [ ] 본 정책 문서에 어댑터 매핑 한 줄 추가
-8. [ ] **KIS-first raw fetch 의무 (헌법 §3)** — 새 KIS endpoint 도입 시 raw URL KDoc 인용
+2. [ ] **정보 수집 API는 prod credential 단일 채널 의무 (사용자 명시 2026-05-11)** — `AccountType.REAL` 자격으로만 호출. 모의 credential 사용 0건. 모의/실전 분기는 주문 라우터에만 적용.
+3. [ ] **`KisRateLimiterPort` 통과** (KIS 어댑터인 경우, ADR 0037 강제)
+4. [ ] **`KisAuthCommonModule` 사용** (KIS OAuth 토큰, ADR 0038)
+5. [ ] Rate limiter 적용 (DART=종목별 6h 캐시)
+6. [ ] 재시도 정책 헬퍼 사용
+7. [ ] `application.yml`에 base URL + key env 명시
+8. [ ] 본 정책 문서에 어댑터 매핑 한 줄 추가
+9. [ ] **KIS-first raw fetch 의무 (헌법 §3)** — 새 KIS endpoint 도입 시 raw URL KDoc 인용
 
 ### 5-2. 모니터링
 

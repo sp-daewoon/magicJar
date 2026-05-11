@@ -2,9 +2,9 @@
 
 - 상태: Accepted
 - 작성일: TBD
-- 2026-05-11 갱신: **ADR 0057 (KIS-only data source) 정합** — §2-1·§2-3 Yahoo cold-start 인용을 KIS REST cold-start으로 재정의. 5m·15m·30m·90m·1h cold-start은 backlog §31 의제 처리 전까지 0.
+- 2026-05-11 갱신: **ADR 0057 (KIS-only data source) 정합** — §2-1·§2-3 Yahoo cold-start 인용을 KIS REST cold-start으로 재정의. 5m·15m·30m·90m·1h cold-start은 backlog §31 트랙(1m 합산 가공 방향 확정) 완료 전까지 0. credential 정책: 정보 수집은 prod 단일 채널 (모의/실전 분기는 주문 라우터 한정).
 - 결정자: architect
-- 관계: **ADR 0057(KIS-only data source) — cold-start KIS REST 단일 출처**, ADR 0019(Superseded by 0057), ADR 0037(KIS Rate Limit), ADR 0040(관심종목 우선 UI 흐름), **ADR 0048(KIS WS 41 slot + priority eviction + polling fallback — 본 ADR §2-2 풀 size 한도의 1급 권위)**
+- 관계: **ADR 0057(KIS-only data source) — cold-start KIS REST 단일 출처**, ADR 0019(Accepted — Yahoo 의존 부분만 보류), ADR 0037(KIS Rate Limit), ADR 0040(관심종목 우선 UI 흐름), **ADR 0048(KIS WS 41 slot + priority eviction + polling fallback — 본 ADR §2-2 풀 size 한도의 1급 권위)**
 
 ## 1. 컨텍스트
 
@@ -25,9 +25,9 @@ magicJar의 모든 외부 시세 수집은 **사용자가 등록한 관심종목
 | **polling 주기** | **1~5초** (사용자 path 우선순위에 따라 동적) |
 | **KIS WS subscribe 종목** | = Watchlist 풀 (실시간 동기) |
 | **KIS REST 호출** | `KisRateLimiter` (ADR 0037) 큐 통과 의무 |
-| **풀 변경 반영** | 추가 즉시 subscribe + **KIS REST cold-start fetch** (ADR 0057) / 삭제 즉시 unsubscribe |
-| **풀 진입 시 cold-start** | **KIS REST `FHKST03010100`** 1d·1wk·1mo·1y 전체 기간 fetch + DB INSERT (ADR 0057 §2-3). 5m·15m·30m·90m·1h은 backlog §31 의제 처리 전까지 0건 |
-| **장중 당일 분봉** | KIS REST `FHKST03010200` + KIS WS → Redis 갱신. 1m은 당일 한정 Redis only (DB INSERT 0). 일봉은 장 마감 후 DB INSERT (ADR 0029) |
+| **풀 변경 반영** | 추가 즉시 subscribe + **KIS REST cold-start fetch** (ADR 0057, prod credential) / 삭제 즉시 unsubscribe |
+| **풀 진입 시 cold-start** | **KIS REST `FHKST03010100`** 1d·1wk·1mo·1y 전체 기간 fetch + DB INSERT (ADR 0057 §2-3, prod credential 단일 채널). 5m·15m·30m·90m·1h은 backlog §31 트랙(1m 합산 가공 방향 확정) 완료 전까지 0건 |
+| **장중 당일 분봉** | KIS REST `FHKST03010200` + KIS WS → Redis 갱신 (prod credential). 1m은 당일 한정 Redis only (DB INSERT 0). 일봉은 장 마감 후 DB INSERT (ADR 0029) |
 
 ### 2-2. 풀 size 한도
 
@@ -49,13 +49,13 @@ api POST /api/watchlists  (body: {code})
 DB INSERT watchlist + Kafka publish watchlist.changed.v1
     ↓
 consumer WatchlistIngestionWorker
-    ├─ KIS WS subscribe(code)
-    ├─ KIS REST cold-start fetch (ADR 0057):
+    ├─ KIS WS subscribe(code) (prod credential)
+    ├─ KIS REST cold-start fetch (ADR 0057, prod credential 단일 채널):
     │     - 1d·1wk·1mo·1y (FHKST03010100, 전체 기간) → DB INSERT
-    │     - 5m·15m·30m·90m·1h → 0건 (backlog §31 의제 처리 전)
+    │     - 5m·15m·30m·90m·1h → 0건 (backlog §31 1m 합산 가공 트랙 완료 후 활성화)
     └─ 1m 당일분 (FHKST03010200) → Redis only (DB INSERT 0)
     ↓
-사용자 차트·시그널·screener 즉시 활성 (1d·1wk·1mo·1y 한정. 1m은 장중·Redis. 5m~1h는 "데이터 없음")
+사용자 차트·시그널·screener 즉시 활성 (1d·1wk·1mo·1y 한정. 1m은 장중·Redis. 5m~1h는 "1m 합산 가공 예정")
 ```
 
 ## 3. 결과
@@ -68,10 +68,10 @@ consumer WatchlistIngestionWorker
 ## 4. 참고
 
 - **ADR 0057 — KIS OpenAPI 단일 데이터 출처 (cold-start KIS REST 단일)** ← 본 ADR §2-1·§2-3 권위 출처
-- ADR 0019 — 캔들 저장 정책 (Superseded by 0057)
+- ADR 0019 — 캔들 저장 정책 (Accepted, Yahoo 의존 부분만 보류)
 - ADR 0029 — 당일 진행 중 캔들 Redis 캐시
 - ADR 0037 — KIS API Rate Limit 강제 (초당 10건)
 - ADR 0040 — 관심종목 우선 UI 흐름 (`docs/architecture/master-architecture.md` §B.A)
 - `domain/.../market/watchlist/` — port 정의
 - `consumer/.../ingestion/WatchlistIngestionWorker.kt` — 본 ADR 구현체
-- `_workspace/backlog.md` §31 — 5m·15m·30m·90m·1h cold-start 의제 (옵션 A·B·C 결정 대기)
+- `_workspace/backlog.md` §31 — 5m·15m·30m·90m·1h 1m 합산 가공 트랙 (방향 확정 · 위치·source 결정 대기)
