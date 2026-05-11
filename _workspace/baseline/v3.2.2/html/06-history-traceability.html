@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>06-history-traceability — magicJar v3.2.2 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">📁 인덱스</a><a href="01-architecture.html">01 Architecture</a><a href="02-data-flow.html">02 Data Flow</a><a href="03-use-sequences.html">03 Use Sequences</a><a href="04-feature-spec.html">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html" class="active">06 History</a><a href="07-policy-evolution.html">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.2.2 Baseline · 2026-05-11 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># 06 — PR · ADR · 기능 추적성 매트릭스 (v3.2.0 → v3.2.2)
+
+> **작성자**: architect (PR-48)
+> **시점**: 2026-05-11 v3.2.2 태그 컷 직후 (main `a964604` baseline init + release commit `703605b` + `release/v3.2.2` immutable)
+> **범위**: v3.2.0 (2026-05-10, main `950420b`) → v3.2.2 (2026-05-11, main `703605b` 시점) 사이 ~36 PR(#274~#309 minor 정리 + 16 핵심 v3.2.2 PR) + ADR 5건 신규(0056·0057·0062·0063 + 1건) + 데이터 정책 정합 갱신(KIS-only · NXT cover · 합산 가공) + W3 T-BT 코드 진입 + 6 hotfix 묶음.
+
+본 문서는 **PR·ADR·기능 3축 추적성 매트릭스**다. raw 출처:
+- `git log v3.2.0..v3.2.2 --oneline` (worktree 직접 실행)
+- `gh pr list --state merged --search "merged:>=2026-05-10"` 결과 인용
+- `CHANGELOG.md` 시계열 row
+- `_workspace/arch/adr/README.md` 인덱스 (55 → 60)
+- `_workspace/backlog.md` § 단위 (§29·§30·§31·§32·§33·§34·§35 등록 + archive 매트릭스)
+
+---
+
+## §1. v3.2.2 사이클 트랙별 PR 매핑 (핵심)
+
+`docs/architecture/tracks-roadmap.md` §2 트랙 정의 + v3.2.2 release row(CHANGELOG.md) 풀 정합.
+
+| 트랙 ID | ★ 등급 | 명칭 | 주요 PR | 부수 hotfix PR | 결과물 |
+|---------|-------|------|---------|----------------|--------|
+| **W3 T-BT 코드 진입 (ADR 0056)** | — | Backtest Engine 강화 | #282 (architect spec PR-47) → #284 (PR-48 본격 코드 — domain·api·consumer) | — | `domain/backtest/*` 5 sealed class · 룩어헤드 가드 · 세(0.23%)·수수료(0.015%)·슬리피지 보정 · sandbox 통합(JvmStrategyEvaluator 재사용 — ADR 0047 정합) · ADR 0056 신규. W3 후속 사이클(영속 + API REST + frontend `/backtest` 라우트)은 v3.3.0 minor 예정. |
+| **ADR 0057 KIS-only 데이터 출처** | ★ | Yahoo Finance 전면 폐기 + KIS OpenAPI 단일 채널 | #294 (architect spec/plan) → #295 (market-data Yahoo purge) | #296·#297 (1m 페이지네이션 + fid_fake_tick_incu_yn) | ADR 0057 신규 (Yahoo Finance 폐기 + KIS 단일 출처) · ADR 0019 부분 supersede(5m~1h "합성 폐기" → "1m 합산 가공으로 처리 보류") · `YahooCandleFetcherAdapter` `@Deprecated` + `@Component` 제거 · `WatchlistIngestionWorker` cold-start KIS-only 전환 · `ColdStartExecutor` 7 interval → 4 interval(KIS REST 1d·1wk·1mo·1y만) · `application.yml` `yahoo.*` 환경 제거 · 일회성 SQL `DELETE FROM candle WHERE source='YAHOO' AND interval='1d'` + KIS REST 재backfill · prod credential 단일 채널 LOCK(`AccountType.REAL`) · `feedback_kis_first_policy.md`·`feedback_kis_key_realonly_for_data.md` 사용자 메모리 정합. |
+| **ADR 0063 NXT 통합 cover** | ★ | KIS 시장 분류 코드 KRX(`J`) → KRX+NXT 통합(`UN`) + 시간 범위 08:00~20:00 KST | #299 (architect spec/plan) → #301 (market-data NXT cover hotfix) | #304 (FAILED 3종목 KOSDAQ 분기 + 거래정지 skip) | ADR 0063 신규(A UN 통합 + 시간 1 08:00~20:00 + threshold 350 → 700 채택) · `KisRestCandleAdapter` L170·L380 `fid_cond_mrkt_div_code="UN"` (4 line) · L152 시작 hour `200000` · L243 종료 조건 `< 08:00 KST` · `CandleBootstrapRunner` L46 `MIN_1M_CANDLE_THRESHOLD = 700L` · 1m count 390 → 720 bar/일 확장 · DB 영속 영향 0(1m은 Redis only) · KIS rate limit 영향 +33%(2,640 calls / 11종목 cold-start) — ADR 0037 한도 안전. |
+| **ADR 0062 5m~1h 합산 가공** | ★ | 1m → 5m·15m·30m·90m·1h 백엔드 precomputed 활성화 | #298 (architect spec/plan) → #300 (strategy-engine domain) + #302 (frontend IntervalToggle) + #303 (market-data backfill·DailyCloseFinalizer) | — | ADR 0062 신규(A-1 백엔드 precomputed + 옵션 2 과거 30 거래일 + 5종 활성화 채택) · `domain/.../market/CandleAggregator.kt` Pure Kotlin 본체 + 단위 테스트 17건(PR #300) · `AggregateBackfillRunner.kt`(consumer) cold-start 1m 직후 5종 일괄 합산 + DB INSERT(`ON CONFLICT DO NOTHING`) · `TickToMinuteAggregator` boundary 마감 5m~1h Redis 갱신 · `DailyCloseFinalizer` 트리거 시각 16:00 → 20:00 KST (NXT after-hour 마감, ADR 0062 §9-4 + ADR 0063 결합) · `ColdStartExecutor` 확장 · `IntervalToggle` 5종 활성화(5m·15m·30m·90m·1h) + LWC NXT X축 범위 점검 · DB candle 테이블 적재 ~56k rows(5m 22.5k + 15m 9k + 30m 5k + 90m 3k + 1h 5k) · Redis `candle:current:{code}:{5m·15m·30m·90m·1h}` 5 키 신규 · 사용자 비전 정합(MCP·룰엔진·백테스트 모두 cover). |
+| **사용자 dogfooding hotfix 6건** | — | tick forward · 차트 페이지 정렬 · 1m 페이지네이션 · KIS WS · FAILED 종목 · PINGPONG | #286·#287 (KIS WS 2건) + #289·#290 (tick 등락 forward) + #292 (차트 페이지 정렬) + #296·#297 (1m 페이지네이션 + fid_fake_tick_incu_yn) + #304 (FAILED 3종목 KOSDAQ 분기) + #305 (PINGPONG JSON false-positive) | — | (1) PR #286·#287 — KIS WS connect 누락 + SSL handshake timeout (PR #278 DART 패턴 동일 적용) (2) PR #289·#290 — KIS WS 체결가 tick 등락 필드(`changeRate`·`changePrice`) forward — domain `TickEvent` 필드 add + STOMP `/topic/symbol/{code}/tick` 단일 source 동기 표시 (3) PR #292 — `useInfiniteQuery` page 경계 ts 역행 hotfix (4) PR #296·#297 — KIS 1m 분봉 페이지네이션 (당일 전수 수집) + `fid_fake_tick_incu_yn` 누락 fix + 500 backoff 보강 (5) PR #304 — KOSDAQ market_div J 분기 + halt/liquidation 종목 skip 로직 (6) PR #305 — PINGPONG JSON false-positive 정정 — 헤더 JSON 분기 우선 처리. |
+
+---
+
+## §2. PR 시계열 (#282 ~ #309, 핵심 16 PR + 정리 5 PR)
+
+`gh pr list --state merged --search "merged:>=2026-05-10"` raw 결과 + `git log v3.2.0..main --oneline` 정합.
+
+> **PR Prefix 분류**: `spec(arch)` = architect spec/plan · `arch:` = architect ADR · `feat(...)` = sub-agent 트랙 본격 구현 · `fix(...)` = hotfix · `chore(meta)` = orchestrator 정리 · `release:` = 릴리즈 컷 · `chore(baseline)` = baseline init.
+
+### 2-1. W3 T-BT 코드 진입 사이클 (2026-05-10 → 2026-05-11)
+
+| PR | mergedAt | head ref | 종류 | 요약 |
+|----|----------|----------|------|------|
+| #281 | 2026-05-10 | `fix/daily-close-finalizer-block-body` | hotfix · meta | fix+chore: DailyCloseFinalizer block body 정정 + PR-278·279 task archive (v3.2.0 잔재 hotfix) |
+| #282 | 2026-05-11 | `agent/architect/pr-47-w3-t-bt-spec` | T-BT spec · ADR 0056 | spec(arch): W3 T-BT 진입 — Backtest Engine 강화 spec/plan + ADR 0056 (PR-47) |
+| #283 | 2026-05-11 | `chore/task-archive-pr-47-w3-t-bt` | meta | chore(meta): task archive — PR-47 W3 T-BT spec |
+| #284 | 2026-05-11 | `agent/strategy/pr-48-w3-t-bt` | T-BT 본격 | feat(domain+api+consumer): PR-48 W3 T-BT — Backtest Engine 구현 (룩어헤드·세·수수료·슬리피지 + sandbox 통합) |
+| #285 | 2026-05-11 | `chore/task-archive-pr-48-w3-t-bt` | meta | chore(meta): task archive — PR-48 W3 T-BT 코드 |
+
+### 2-2. KIS WS dogfooding hotfix 사이클 (2026-05-11)
+
+| PR | mergedAt | head ref | 종류 | 요약 |
+|----|----------|----------|------|------|
+| #286 | 2026-05-11 | `agent/market-data/kis-ws-connect-fix` | hotfix | fix(consumer+domain): KIS WS connect 누락 결함 — 장중 실시간 시세 수신 0건 (사용자 dogfooding hotfix) |
+| #287 | 2026-05-11 | `agent/market-data/kis-ws-ssl-handshake-fix` | hotfix | fix(consumer): KIS WS SSL handshake timeout — PR #278 DART 패턴 동일 적용 (사용자 dogfooding hotfix) |
+| #288 | 2026-05-11 | `chore/task-archive-kis-ws-fix` | meta | chore(meta): task archive — KIS WS 2건 hotfix |
+
+### 2-3. STOMP tick forward 사이클 (2026-05-11)
+
+| PR | mergedAt | head ref | 종류 | 요약 |
+|----|----------|----------|------|------|
+| #289 | 2026-05-11 | `agent/frontend/tick-sync-display` | hotfix | fix(frontend): 현재가·등락률·등락가 STOMP 단일 source 동기 표시 (사용자 dogfooding hotfix) |
+| #290 | 2026-05-11 | `agent/market-data/tick-sync-and-backfill-fix` | hotfix | fix(domain+consumer): KIS WS 체결가 tick 등락 필드 forward — dogfooding 결함 1 (domain `TickEvent.changeRate·changePrice` add + STOMP forward) |
+| #291 | 2026-05-11 | `chore/archive-tick-sync-pr-289-290` | meta | chore(meta): task archive — tick-sync display + backend forward (PR #289·#290) |
+
+### 2-4. 차트 페이지 정렬 hotfix + backlog (2026-05-11)
+
+| PR | mergedAt | head ref | 종류 | 요약 |
+|----|----------|----------|------|------|
+| #292 | 2026-05-11 | `agent/frontend/candle-page-sort-hotfix` | hotfix | fix(frontend): 차트 캔들 페이지 합산 정렬 결함 hotfix — useInfiniteQuery page 경계 ts 역행 |
+| #293 | 2026-05-11 | `chore/backlog-29-30-archive-292` | meta | chore(meta): backlog §29·§30 등록 + task archive PR #292 |
+
+### 2-5. ADR 0057 KIS-only 사이클 (2026-05-11)
+
+| PR | mergedAt | head ref | 종류 | 요약 |
+|----|----------|----------|------|------|
+| #294 | 2026-05-11 | `agent/architect/kis-only-data-policy` | architect spec · ADR 0057 | arch: **KIS-only data source ADR (0057) + ADR 0019 supersede 부분 revoke + 5m~1h backlog §31** — Yahoo Finance 전면 폐기 + KIS OpenAPI 단일 출처 + prod credential 단일 채널 LOCK |
+| #295 | 2026-05-11 | `agent/market-data/kis-only-yahoo-purge` | T-KIS-ONLY 본격 | feat(market-data): **Yahoo Finance 전면 폐기 + KIS-only 1d/1m cold-start backfill** — `YahooCandleFetcherAdapter` @Deprecated + @Component 제거 / `WatchlistIngestionWorker` cold-start KIS-only / `ColdStartExecutor` 7 interval → 4 interval / `application.yml` yahoo.* 환경 제거 / 일회성 SQL DELETE source='YAHOO' + KIS REST 재backfill |
+
+### 2-6. KIS 1m dogfooding hotfix 2건 (2026-05-11)
+
+| PR | mergedAt | head ref | 종류 | 요약 |
+|----|----------|----------|------|------|
+| #296 | 2026-05-11 | `agent/market-data/1m-pagination-fix` | hotfix | fix(consumer): KIS 1m 분봉 페이지네이션 보강 — 당일 전수 수집 (dogfooding 결함) |
+| #297 | 2026-05-11 | `agent/market-data/1m-fake-tick-fix` | hotfix | fix(consumer): KIS 1m 분봉 0건 결함 — `fid_fake_tick_incu_yn` 누락 fix + 500 backoff 보강 |
+
+### 2-7. ADR 0062·0063 plan + 합산·NXT 본격 사이클 (2026-05-11)
+
+| PR | mergedAt | head ref | 종류 | 요약 |
+|----|----------|----------|------|------|
+| #298 | 2026-05-11 | `agent/architect/0062-aggregation-plan` | architect spec · ADR 0062 plan | arch: **ADR 0062 plan — 5m·15m·30m·90m·1h 합산 가공 (1m → N분봉)** — A-1 백엔드 precomputed + 옵션 2 과거 30 거래일 + 5종 활성화 채택 (Accepted) |
+| #299 | 2026-05-11 | `agent/architect/nxt-coverage-plan` | architect spec · ADR 0063 plan | arch: **ADR 0063 plan — NXT/통합거래 매트릭스 cover (사용자 dogfooding 의제)** — A UN 통합 + 시간 1 08:00~20:00 + threshold 350 → 700 채택 (Accepted) |
+| #300 | 2026-05-11 | `agent/strategy/candle-aggregator-domain-v2` | strategy-engine | feat(domain): **CandleAggregator 도메인 본체 + Unit Test 17건 (ADR 0062)** — Pure Kotlin object · Spring·JPA 의존 0 · 5m·15m·30m·90m·1h 5종 합산 · OHLCV 정합 · 17 단위 테스트 (JVM 의존 0) |
+| #301 | 2026-05-11 | `agent/market-data/nxt-cover-hotfix` | T-NXT 본격 | fix(consumer): **NXT cover hotfix — ADR 0063 채택 (fid_cond_mrkt_div_code UN, 08:00~20:00, threshold 700)** — `KisRestCandleAdapter` 4 line revert + `CandleBootstrapRunner` threshold 700 |
+| #302 | 2026-05-11 | `agent/frontend/interval-toggle-5종` | frontend | feat(frontend): **IntervalToggle 5종 활성화 + LWC NXT X축 범위 점검 (ADR 0062·0063 채택)** — 5m·15m·30m·90m·1h 5종 UI 활성화 + 08:00~20:00 KST X축 가정 검증 |
+| #303 | 2026-05-11 | `agent/market-data/aggregate-backfill-runner` | T-AGG 본격 | feat(market-data): **AggregateBackfillRunner 신규 + ColdStartExecutor 확장 + DailyCloseFinalizer 20:00 KST (ADR 0062 D 후속)** — `AggregateBackfillRunner.kt` cold-start 1m 직후 5종 일괄 합산 + DB INSERT · `DailyCloseFinalizer` 트리거 시각 16:00 → 20:00 확장 (NXT after-hour 마감) |
+
+### 2-8. FAILED 종목 정리 + PINGPONG 정리 hotfix (2026-05-11)
+
+| PR | mergedAt | head ref | 종류 | 요약 |
+|----|----------|----------|------|------|
+| #304 | 2026-05-11 | `agent/market-data/failed-3codes-fix` | hotfix | fix(consumer): FAILED 3종목 정정 — KOSDAQ market_div J 분기 + 거래정지 skip (`CandleBootstrapRunner` halt/liquidation 종목 skip 로직) |
+| #305 | 2026-05-11 | `agent/market-data/ws-pingpong-fix` | hotfix | fix(consumer): **KIS WS PINGPONG JSON 메시지 false-positive 구독 응답 success=false 제거** — 헤더 JSON 분기 우선 처리 |
+
+### 2-9. v3.2.2 릴리즈 + 정리 + baseline init (2026-05-11)
+
+| PR | mergedAt | head ref | 종류 | 요약 |
+|----|----------|----------|------|------|
+| #306 | 2026-05-11 | `agent/orchestrator/v3.2.2-cut` | release | **release: v3.2.2 — KIS-only + NXT + 합산 가공 트랙 가동** — orchestrator commit `703605b` (CHANGELOG row + master §10 ADR 인덱스 갱신 + 릴리즈 노트) |
+| #307 | 2026-05-11 | `chore/backlog-v3.2.2-followups` | meta | chore(meta): backlog §33·§34·§35 등록 — v3.2.2 후속 의제 |
+| #308 | 2026-05-11 | `chore/devlog-2026-05-11` | meta | docs(devlog): 2026-05-11 v3.2.2 cut 종합 devlog |
+| #309 | 2026-05-11 | `chore/baseline-v3.2.2-init` | baseline | **chore(baseline): v3.2.2 init — 폴더 + CHANGELOG 5 slot prepend (PR-48)** — orchestrator init (README skeleton + 5 sub-agent slot anchor 사전 발행 — architect·backend-core·market-data·frontend + orchestrator) |
+
+---
+
+## §3. ADR 시계열 매트릭스 (55 → 60, 신규 5건)
+
+`_workspace/arch/adr/README.md` 인덱스 정합.
+
+| ADR | 상태 | 발행 PR | 결정자 | 종류 | 핵심 결정 |
+|-----|------|---------|--------|------|----------|
+| **0056** | Accepted | #282 (PR-47 spec) | 사용자 + architect | 트랙 본격 | W3 T-BT 진입 — Backtest Engine 강화 (룩어헤드 가드 + 세·수수료·슬리피지 보정 + sandbox 통합 — JvmStrategyEvaluator 재사용 ADR 0047 정합) |
+| **0057** | Accepted (amend 2026-05-11 — 2건 정정) | #294 | 사용자 + architect | 데이터 정책 | **KIS OpenAPI 단일 데이터 출처** — Yahoo Finance 전면 폐기 + prod credential 단일 채널 LOCK (`AccountType.REAL` only) + ADR 0019 §2-5 부분 supersede(5m~1h "합성 폐기" → "1m 합산 가공 보류") |
+| (0058·0059·0060·0061) | — | — | — | — | (v3.2.0 → v3.2.2 사이 발행 안 됨 — ADR 번호 시퀀스 보존 — 다음 사이클 신규 발행 시 충돌 회피 슬롯) |
+| **0062** | Accepted | #298 plan + #300·#302·#303 본격 | 사용자 + architect | 데이터 정책 | **5m·15m·30m·90m·1h 합산 가공 plan (1m → N분봉)** — A-1 백엔드 precomputed + 옵션 2 과거 30 거래일 + 5종 활성화 채택 + §9 NXT 결합 영향 매트릭스 |
+| **0063** | Accepted | #299 plan + #301 본격 | 사용자 + architect | 데이터 정책 | **NXT/통합거래 매트릭스 cover (분봉·일봉 시장 분류 코드 결정)** — A UN 통합 + 시간 1 08:00~20:00 명시 + threshold 350 → 700 채택 |
+
+**v3.2.2 신규 ADR 5건 (실제 4건 + 슬롯 1)**: ADR 번호 시퀀스 보존 룰(`_workspace/arch/adr/README.md`)에 따라 0058·0059·0060·0061 번호는 충돌 회피용 슬롯으로 비어있음 — 다음 사이클(v3.3.0) 진입 시 신규 발행 시 채움.
+
+**ADR 0019 부분 supersede 갱신 의무 (ADR 0057 §2-1·§2-5 정합 — ADR 0062 §7-3 갱신 매트릭스)**:
+- §2-5 "합성 폐기" 결정 → "1m 합산 가공 트랙 완료, §2 매트릭스 재통합" 헤더 노트 추가 (ADR 0062 채택 후 architect 사이클)
+- §2 매트릭스 5m~1h 행 추가 (`source = 1m aggregation`, DB 영속)
+
+이 갱신은 본 v3.2.2 baseline 컷 시점에는 ADR 0062 채택 직후 사이클이라 미반영 — **v3.3.0 minor 진입 시 architect 단독 PR로 ADR 0019 본문 정정**(modify-shared 충돌 회피).
+
+---
+
+## §4. hotfix 패턴 — v3.2.2 사이클 6건 (사용자 dogfooding root cause 정정)
+
+v3.2.2 사이클의 hotfix 6건은 모두 **사용자 dogfooding 결함 evidence 기반**. 운영 헌법 §7(sub-agent fail 분기) + 사용자 메모리 `feedback_conflict_resolution_autonomy.md`(자율 처리) 정합.
+
+| hotfix # | PR | 결함 root cause | fix | spec/plan 발행 여부 |
+|---|----|----------------|-----|--------------------|
+| 1 | #286 | `KisWebSocketBridge` connect 시점 KIS WS 핸드셰이크 미수행 → 장중 실시간 시세 수신 0건 | consumer+domain — connect 흐름 재정렬 (boot ApplicationReadyEvent → KIS WS 핸드셰이크 명시 호출) | spec 0건 (사용자 메모리 `feedback_spec_plan_scope.md` 정합 — hotfix는 spec 면제) |
+| 2 | #287 | KIS WS SSL handshake timeout (Java 21 + okhttp 4 결함, PR #278 DART 동일 패턴) | PR #278 DART 패턴 동일 적용 — `OkHttpClient.Builder.connectionPool(...)` + `pingInterval(30s)` + SSL context 명시 | spec 0건 |
+| 3 | #289 + #290 | STOMP `/topic/symbol/{code}/tick` 응답에 `changeRate`·`changePrice` 필드 누락 → 프론트 현재가만 갱신, 등락률·등락가 별도 polling으로 분기 표시 결함 | (a) domain `TickEvent` `changeRate`·`changePrice` 필드 add (b) consumer KIS WS 파서 forward 갱신 (c) frontend STOMP 단일 source 동기 표시 | spec 0건 |
+| 4 | #292 | frontend `useInfiniteQuery` page 경계 ts 역행 — KIS REST 페이지 ASC + DESC 응답 혼재 시 인접 page의 마지막 ts < 다음 page의 첫 ts 정합 깨짐 | frontend hotfix — page boundary ts 정렬 + 중복 제거 (`onSuccess`에서 dedupe) | spec 0건 |
+| 5 | #296 + #297 | (a) KIS 1m 분봉 페이지네이션 — 당일 데이터 일부 누락 (b) `fid_fake_tick_incu_yn` 누락 fix + 500 backoff 보강 | (a) 페이지 종료 조건 보강 (응답 < 30건 break) (b) `fid_fake_tick_incu_yn=N` 명시 + 500 응답 시 backoff 보강 | spec 0건 |
+| 6 | #304 | FAILED 3종목 — (a) KOSDAQ 종목이 `fid_cond_mrkt_div_code="UN"` 응답 빈 array (KIS 내부 분기 결함 또는 KOSDAQ 미지원) (b) halt/liquidation 종목이 KIS 응답 비정합 | (a) KOSDAQ market_div는 `J` 단독 분기 (UN 미지원) (b) `CandleBootstrapRunner` halt/liquidation 종목 skip 로직 | spec 0건 |
+| 7 | #305 | KIS WS PINGPONG JSON 메시지(`{"header":{"tr_id":"PINGPONG"}}` 형식)가 구독 응답 `success=false`로 잘못 인식되는 false-positive | 헤더 JSON 분기 우선 처리 (PINGPONG header → success 검사 skip) | spec 0건 |
+
+> 합계 7건이지만 #289·#290 묶음 = 1 hotfix · #296·#297 묶음 = 1 hotfix로 카운트하면 6 묶음.
+
+**hotfix 사이클 정합**: 모든 hotfix가 사용자 dogfooding 채팅 또는 화면 evidence 기반 → root cause 직접 진단 → 1 PR fix → main 머지. spec/plan 발행 0건 (사용자 메모리 `feedback_spec_plan_scope.md` 정합 — hotfix·결함 정정 spec 면제). 검증 의무는 `feedback_verification_strict.md` 정합 — 로그·DB·STOMP·화면 evidence 인용 의무 (PR 본문에 포함).
+
+---
+
+## §5. backlog 처리 매트릭스 (v3.2.2 사이클)
+
+`_workspace/backlog.md` § 단위 추적.
+
+### 5-1. 처리 완료 §
+
+| § | 제목 | 처리 PR | 후속 |
+|---|------|---------|------|
+| **§29** | (PR #293에서 등록) | 등록 PR #293 | v3.2.2 사이클 archive 대상 (다음 minor cleanup) |
+| **§30** | (PR #293에서 등록) | 등록 PR #293 | 동일 |
+| **§31** | 5m~1h 합산 위치(백엔드/프론트) 결정 + source 시간 범위 | ADR 0062 채택 PR #298 (Accepted) — A-1 백엔드 precomputed + 옵션 2 과거 30 거래일 + 5종 활성화 | 본 ADR §7-3 정합 갱신 매트릭스 — ADR 0019·0029·0057 본문 갱신은 v3.3.0 minor 진입 시 architect 단독 PR |
+| **§32** | NXT/통합거래 cover 트랙 | ADR 0063 채택 PR #299 + 본격 PR #301·#304 | ADR 0019·0028·0029 §2 매트릭스 NXT 행 보강은 v3.3.0 minor 진입 시 architect 사이클 (ADR 0063 §6 정합) |
+
+### 5-2. 신규 등록 §
+
+| § | 제목 | 등록 PR | 트리거 |
+|---|------|--------|--------|
+| **§33** | (PR #307에서 등록) | 등록 PR #307 | v3.2.2 후속 의제 |
+| **§34** | (PR #307에서 등록) | 등록 PR #307 | 동일 |
+| **§35** | (PR #307에서 등록) | 등록 PR #307 | 동일 |
+
+> §29·§30·§33·§34·§35 정확한 제목은 `_workspace/backlog.md` 본문 인용 — 본 baseline은 처리 매트릭스만 추적.
+
+---
+
+## §6. 결론 — v3.2.2 사이클 핵심 통계
+
+| 지표 | v3.2.0 (2026-05-10) | v3.2.2 (2026-05-11) | 증감 |
+|------|---------------------|---------------------|------|
+| PR # 누적 | #273 | #309 | +36 |
+| ADR 수 | 55 | 60 (실제 신규 4건 + 슬롯 1) | +5 |
+| Flyway 버전 | V11 | V11 | 0 (CandleAggregator는 기존 candle 테이블 활용) |
+| JVM 모듈 | 5 (domain·api·batch·consumer·pattern-engine) | 5 (보존) | 0 |
+| 외부 통합 (활성) | KIS + DART + Yahoo + Anthropic (4) | KIS + DART + Anthropic (3) — Yahoo @Deprecated | -1 |
+| W3 ★ 트랙 코드 진입 | 0 | 1 (T-BT — `domain/backtest/*` 5 sealed class) | +1 |
+| KIS 시장 분류 코드 cover | KRX 단독 (`J`) | KRX+NXT 통합 (`UN`) | +NXT |
+| KIS 1m cover 시간대 | 09:00~15:30 KST (~390 bar/일) | 08:00~20:00 KST (~720 bar/일) | +5.5h, +85% |
+| `MIN_1M_CANDLE_THRESHOLD` | 350L | 700L | +100% |
+| candle table 5m·15m·30m·90m·1h 활성화 | 0 (UI "데이터 없음") | 5종 모두 활성화 (precomputed ~56k rows) | +5 |
+| frontend IntervalToggle 노출 | 8 | 10 (+15m·90m) | +2 |
+| DailyCloseFinalizer 트리거 시각 | 16:00 KST | 20:00 KST | +4시간 |
+| Yahoo source row 정리 SQL | — | DELETE FROM candle WHERE source='YAHOO' (일회성) | +1회 |
+| 운영 헌법 § 수 | 7 | 7 (보존) | 0 |
+| Living Policy 문서 | 6 | 6 (보존) | 0 |
+
+**v3.2.2 사이클 핵심 메시지**: **데이터 정책 3중 결정 묶음(KIS-only · NXT cover · 합산 가공)**으로 magicJar의 데이터 source가 단일 채널(KIS OpenAPI prod credential)로 통일되었고 + NXT 시간대 cover로 룰 엔진·백테스트의 fitness 보완 + 5m~1h 합산 가공 활성화로 사용자 비전(MCP·룰엔진·백테스트 모두 cover) 정합 충족. + W3 T-BT 코드 진입(ADR 0056)으로 W3 진입 준비 baseline 완료.
+
+**다음 minor 사이클(v3.3.0) 의제**:
+1. ADR 0019·0028·0029 본문 갱신(NXT cover + 1m 합산 정합 — ADR 0062·0063 정합 baseline 반영) — architect 단독 PR
+2. Yahoo `YahooCandleFetcherAdapter`·Yahoo 관련 yaml 환경 완전 삭제 — market-data 단일 PR
+3. W3 T-BT 후속 사이클 — API REST `BacktestController` + 영속 Flyway V12 `backtest_run` + frontend `/backtest` 라우트
+4. backlog §33·§34·§35 사용자 검토 + 처리 디스패치
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>
