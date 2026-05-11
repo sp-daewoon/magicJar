@@ -11,6 +11,11 @@
  *   - asOf가 30초 이내 → "실시간"(녹색)
  *   - polling + 장 중 → "지연 데이터"(노랑)
  *   - polling/closed + 장외 → "장 마감"(회색)
+ *
+ * dogfooding hotfix: STOMP TickPayload의 changeRate·priceChange·changeSign 신규 필드 우선 사용.
+ *   - STOMP tick changeRate/priceChange가 non-null이면 현재가와 동일 source로 동기 표시.
+ *   - null이면 REST SymbolDto.changeRate / SymbolDto.change fallback.
+ *   - changeSign 코드로 방향 부호 렌더링 (한국식 색상·부호 정합).
  */
 import type { SymbolDto, TickPayload } from '../../api/symbol'
 import { getPriceBadge } from '../../lib/marketHours'
@@ -47,7 +52,45 @@ function formatChange(value: string): string {
   return `${sign}${num.toLocaleString('ko-KR')}`
 }
 
-/** 가격 변동에 따른 색상 클래스 (한국: 상승=빨강, 하락=파랑) */
+/**
+ * changeSign 코드 → 방향 부호 문자열 (한국 주식 KIS PRDY_VRSS_SIGN 정합)
+ * "1"=상한·"2"=상승·"3"=보합·"4"=하한·"5"=하락
+ */
+export function changeSignToArrow(sign: string | null | undefined): string {
+  switch (sign) {
+    case '1':
+    case '2':
+      return '▲'
+    case '3':
+      return '·'
+    case '4':
+    case '5':
+      return '▼'
+    default:
+      return ''
+  }
+}
+
+/**
+ * changeSign 코드 → 한국식 색상 클래스
+ * 상승(1·2)=빨강, 보합(3)=회색, 하락(4·5)=파랑
+ */
+export function changeSignToColorClass(sign: string | null | undefined): string {
+  switch (sign) {
+    case '1':
+    case '2':
+      return 'text-red-400'
+    case '3':
+      return 'text-gray-300'
+    case '4':
+    case '5':
+      return 'text-blue-400'
+    default:
+      return 'text-gray-300'
+  }
+}
+
+/** 가격 변동에 따른 색상 클래스 (한국: 상승=빨강, 하락=파랑) — changeSign 없을 때 fallback */
 function getChangeColorClass(changeStr: string): string {
   const change = parseFloat(changeStr)
   if (isNaN(change) || change === 0) return 'text-gray-300'
@@ -60,10 +103,20 @@ export function SymbolPriceCard({ symbol, realtimeTick }: SymbolPriceCardProps) 
   const source = realtimeTick?.source ?? symbol.source
   const asOf = realtimeTick?.ts ?? symbol.asOf
 
+  // dogfooding hotfix: STOMP changeRate·priceChange·changeSign 우선 사용 (단일 source 동기화)
+  // - STOMP tick의 값이 non-null이면 현재가와 동일 tick에서 온 값 → 싱크 보장
+  // - null이면 REST SymbolDto의 초기 조회값으로 fallback
+  const displayChange = realtimeTick?.priceChange ?? symbol.change
+  const displayChangeRate = realtimeTick?.changeRate ?? symbol.changeRate
+  const displayChangeSign = realtimeTick?.changeSign ?? null
+
+  // 색상 결정: changeSign 코드 우선 → 없으면 change 숫자값 기반 fallback
+  const changeColorClass = displayChangeSign
+    ? changeSignToColorClass(displayChangeSign)
+    : getChangeColorClass(displayChange)
+
   // 결함 4: 장 시간 + asOf 기반 배지 판정
   const badge = getPriceBadge(source, asOf)
-
-  const changeColorClass = getChangeColorClass(symbol.change)
 
   return (
     <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
@@ -79,13 +132,18 @@ export function SymbolPriceCard({ symbol, realtimeTick }: SymbolPriceCardProps) 
           </div>
         </div>
 
-        {/* 등락 정보 */}
+        {/* 등락 정보 — STOMP source 우선, null 시 REST fallback */}
         <div className={`text-right ${changeColorClass}`}>
           <div className="text-base font-semibold tabular-nums">
-            {formatChange(symbol.change)}
+            {displayChangeSign && (
+              <span className="mr-0.5 text-sm" aria-hidden="true">
+                {changeSignToArrow(displayChangeSign)}
+              </span>
+            )}
+            {formatChange(displayChange)}
           </div>
           <div className="text-sm tabular-nums">
-            {formatChangeRate(symbol.changeRate)}
+            {formatChangeRate(displayChangeRate)}
           </div>
         </div>
       </div>

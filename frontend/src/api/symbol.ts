@@ -89,6 +89,15 @@ export interface OrderbookUnsubscribeResponseDto {
 export interface TickPayload {
   code: string
   price: string
+  /** 전일대비 (신규 — KIS PRDY_VRSS, null 가능: polling source) */
+  priceChange: string | null
+  /** 등락률 % (신규 — KIS PRDY_CTRT, null 가능: polling source) */
+  changeRate: string | null
+  /**
+   * 부호 코드 (신규 — KIS PRDY_VRSS_SIGN, null 가능: polling source)
+   * "1"=상한·"2"=상승·"3"=보합·"4"=하한·"5"=하락
+   */
+  changeSign: string | null
   volume: number
   ts: string
   source: 'live' | 'polling' | 'closed'
