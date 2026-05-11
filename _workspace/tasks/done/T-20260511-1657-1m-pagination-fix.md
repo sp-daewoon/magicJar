@@ -3,9 +3,9 @@ id: T-20260511-1657-1m-pagination-fix
 agent: market-data
 model: sonnet
 branch: agent/market-data/1m-pagination-fix
-status: RUNNING
+status: DONE
 startedAt: 2026-05-11T16:57:06.462+09:00
-completedAt: null
+completedAt: 2026-05-11T17:03:51.866+09:00
 pr: null
 parentPhase: ?
 ---
