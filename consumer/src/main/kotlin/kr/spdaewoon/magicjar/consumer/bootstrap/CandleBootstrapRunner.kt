@@ -43,7 +43,7 @@ class CandleBootstrapRunner(
          * 정규장 1일 ≈ 390건 기준, 350건 미만이면 당일 분봉 미수집 판단 → 재트리거.
          * (KIS FHKST03010230 페이지네이션 보강 후 전수 수집 보장 — 2026-05-11 dogfooding 결함 수정)
          */
-        private const val MIN_1M_CANDLE_THRESHOLD = 350L
+        private const val MIN_1M_CANDLE_THRESHOLD = 700L
     }
 
     override fun run(args: ApplicationArguments) {

@@ -149,10 +149,10 @@ class KisRestCandleAdapter(
                 val dateStr = targetDate.format(DATE_FMT)
                 // 일자별 페이지네이션 시작: 장마감(153000) 기준 역순 백워크
                 // raw: FHKST03010230 fid_input_hour_1 = 이 시각 이전 120건 반환
-                var currentHour = "153000"
+                var currentHour = "200000"
                 var pageCount = 0
                 // 무한루프 방지: 일자당 최대 6 pages (120건 × 6 = 720건 한도 — 정규장 390건의 약 2배)
-                val maxPagesPerDay = 6
+                val maxPagesPerDay = 8
                 var dayDone = false
 
                 while (!dayDone && pageCount < maxPagesPerDay) {
@@ -167,7 +167,7 @@ class KisRestCandleAdapter(
                                         .port(kisBaseProd.substringAfterLast(":").toIntOrNull() ?: 9443)
                                         .path(ENDPOINT_1MIN)
                                         // fid_cond_mrkt_div_code: J (주식) — FHKST03010230 spec
-                                        .queryParam("fid_cond_mrkt_div_code", "J")
+                                        .queryParam("fid_cond_mrkt_div_code", "UN")
                                         // fid_input_iscd: 종목코드
                                         .queryParam("fid_input_iscd", code)
                                         // fid_input_hour_1: 이 시각 이전 최신 120건 반환 (페이지네이션 커서)
@@ -240,7 +240,7 @@ class KisRestCandleAdapter(
                                             .toLocalTime()
 
                                     // 09:00:00 KST 이전 = 정규장 시작 전 → 해당 일자 전체 수집 완료
-                                    val marketOpen = LocalTime.of(9, 0, 0)
+                                    val marketOpen = LocalTime.of(8, 0, 0)
                                     if (!earliestLt.isAfter(marketOpen)) {
                                         log.debug(
                                             "KIS 1m fetch 장시작 도달 — 일자 완료: code={} date={} earliestTime={}",
@@ -377,7 +377,7 @@ class KisRestCandleAdapter(
                             .host(kisBaseProd.removePrefix("https://").substringBefore(":"))
                             .port(kisBaseProd.substringAfterLast(":").toIntOrNull() ?: 9443)
                             .path(ENDPOINT_DAILY)
-                            .queryParam("fid_cond_mrkt_div_code", "J")
+                            .queryParam("fid_cond_mrkt_div_code", "UN")
                             .queryParam("fid_input_iscd", code)
                             .queryParam("fid_input_date_1", startDate)
                             .queryParam("fid_input_date_2", today)
