@@ -512,7 +512,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 
 ---
 
-## §10. 핵심 ADR 인덱스 (0001~0057 — 발행 완료)
+## §10. 핵심 ADR 인덱스 (0001~0057 발행 + 0062 plan 발행)
 
 상세 본문은 `_workspace/arch/adr/<NNNN>-*.md`. 분류 카테고리는 `_workspace/arch/adr/README.md` §1~§10-4 정합. 본 §10은 한 줄 요약 인덱스 — 신규 ADR 발행 시 본 표 + README 동시 갱신 (ADR 0030 SoT 운영 규약).
 
@@ -575,6 +575,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | 0055 | Strategy Builder UI 컴포넌트 스택 (B+C-lite 하이브리드 — 트리 폼 빌더 + textarea DSL 토글, 의존 추가 0) | 프론트엔드 | W2 (T-SB) |
 | 0056 | Backtest Engine Architecture (룩어헤드 slice-by-time 가드 + 세·수수료·슬리피지 모델 open extension + ADR 0047 sandbox 통합 + abort quota 50 + 1차 stateless) | 전략·신호·리스크 | W3 (T-BT) |
 | 0057 | **KIS OpenAPI 단일 데이터 출처 (Yahoo Finance·네이버 등 보조 출처 폐기) — 5m~1h은 1m 합산 가공 방향 확정 (backlog §31 트랙)** | 시장 데이터 | W1 (2026-05-11 사용자 결정) |
+| 0062 | **5m·15m·30m·90m·1h 합산 가공 plan (Proposed — 사용자 결정 대기) — 권장안 A-1 백엔드 precomputed + 옵션 2 과거 포함 (30 거래일) + IntervalToggle 5종 활성화** | 시장 데이터 | W1 (2026-05-11 plan 발행) |
 
 ### 후속 예정 (Proposed — `_workspace/arch/adr/README.md` §12 정합)
 
@@ -584,7 +585,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | 0059 | Screener 표준 | T-SC |
 | 0060 | Performance 표준 | T-PERF |
 | 0061 | Backtest 결과 영속 (backtest_run · backtest_trade 테이블 + GET endpoint) | T-BT 후속 (backlog §27-2) |
-| 0062 | 5m·15m·30m·90m·1h 처리 방침 (옵션 A 합산 가공 부활 / 옵션 B `FHKST03010230` 도입 / 옵션 C 폐기) | backlog §31 결정 후 발행 |
+| 0062 | **5m·15m·30m·90m·1h 합산 가공 plan (Proposed — 사용자 결정 대기)** — backlog §31 트랙 | 위 §10 본 표 0062 row 인용. 결정 후 §10에 격상 — 위치(A-1/A-2/A-3/B) + source(1/2) + UI 매트릭스 |
 
 ---
 
