@@ -1,6 +1,8 @@
 package kr.spdaewoon.magicjar.consumer.application.market
 
+import kr.spdaewoon.magicjar.consumer.aggregation.AggregateBackfillRunner
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerCandleJpaRepository
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerWatchlistJpaRepository
 import kr.spdaewoon.magicjar.domain.market.session.MarketSessionResolver
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
@@ -14,14 +16,16 @@ import java.time.ZoneId
 /**
  * 일봉 마감 파이널라이저 (ADR 0013 §3-6, PR-29a).
  *
- * 실행 시점: 매 거래일 16:00 KST (@Scheduled cron, ADR 0013 §3-7 §6)
- *   - KRX 정규장 마감 15:30 + 시간외 단일가 15:40~16:00 마감 후 여유 포함
- *   - PostMarket 종료 직후 최종 일봉 영속
+ * 실행 시점: 매 거래일 20:00 KST (@Scheduled cron)
+ *   - ADR 0063 NXT 마감 시각 정합: NXT(야간 거래) 19:50 마감 + 여유 10분 = 20:00
+ *   - (구: 16:00 KST KRX 마감 기준 — 2026-05-11 ADR 0063 채택으로 갱신)
  *
  * 동작 흐름:
  *   1. 현재 날짜가 영업일인지 확인 (비영업일 → skip)
  *   2. Redis candle:today:{code}:1d Hash 키 스캔 → 1d candle DB INSERT (ON CONFLICT DO NOTHING)
  *   3. KIS WS tick 집계 값 직접 사용 — 자체 계산 0 (ADR 0013 §3-7 §6 정합)
+ *   4. ADR 0062 §9 NXT cover — watchlist 전 종목 당일 1m → 5m·15m·30m·90m·1h 합산 갱신
+ *      (cold-start 합산 이후 당일 1m 추가 수집분이 있어 갱신 필요)
  *
  * T3 fallback source: 이 파이널라이저가 영속한 1d candle은 candle-data-policy-v2 §6 T3 소스.
  *
@@ -38,6 +42,8 @@ class DailyCloseFinalizer(
     private val marketSessionResolver: MarketSessionResolver,
     private val candleJpaRepository: ConsumerCandleJpaRepository,
     private val redisTemplate: StringRedisTemplate,
+    private val watchlistJpaRepository: ConsumerWatchlistJpaRepository,
+    private val aggregateBackfillRunner: AggregateBackfillRunner,
 ) {
     private val log = LoggerFactory.getLogger(DailyCloseFinalizer::class.java)
 
@@ -50,7 +56,7 @@ class DailyCloseFinalizer(
     }
 
     /**
-     * 매 거래일 16:00 KST 실행 (ADR 0013 §3-6).
+     * 매 거래일 20:00 KST 실행 (ADR 0063 NXT 마감 시각 정합).
      * 비영업일은 자동 skip (MarketSessionResolver.isBusinessDay 체크).
      *
      * 함정: @Transactional + @Scheduled 조합 시 Kotlin CGLIB proxy 결함으로
@@ -58,7 +64,7 @@ class DailyCloseFinalizer(
      * 단일 Repository INSERT만 호출하므로 트랜잭션 전체 wrap 불필요 —
      * candleJpaRepository.insertIgnore 자체 @Transactional로 충분.
      */
-    @Scheduled(cron = "0 0 16 * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 20 * * *", zone = "Asia/Seoul")
     fun finalize() {
         val today = LocalDate.now(KST)
 
@@ -118,13 +124,71 @@ class DailyCloseFinalizer(
             }
         }
 
-        val elapsed = Instant.now().epochSecond - startTs.epochSecond
+        val elapsed1d = Instant.now().epochSecond - startTs.epochSecond
         log.info(
-            "DailyCloseFinalizer 완료: date={} flushed={}건 failed={}건 elapsed={}s",
+            "DailyCloseFinalizer 1d 완료: date={} flushed={}건 failed={}건 elapsed={}s",
             today,
             flushed,
             failed,
+            elapsed1d,
+        )
+
+        // ADR 0062 §9 NXT cover — 당일 1m 전량 → 5m·15m·30m·90m·1h 합산 갱신.
+        // cold-start 이후 당일 1m 추가 수집분(장중 누적) 이 있어 20:00 재합산 의무.
+        // 실패 시 warn 기록 후 계속 진행 (일봉 영속 결과에 영향 없음).
+        flushAggregations()
+
+        val elapsed = Instant.now().epochSecond - startTs.epochSecond
+        log.info(
+            "DailyCloseFinalizer 전체 완료: date={} totalElapsed={}s",
+            today,
             elapsed,
+        )
+    }
+
+    /**
+     * watchlist 전 종목 당일 1m → 5m·15m·30m·90m·1h 합산 갱신.
+     * ADR 0062 §9 NXT cover 정합 — 20:00 KST 마감 후 당일 분봉 전량 합산.
+     */
+    private fun flushAggregations() {
+        val watchlistEntries =
+            try {
+                watchlistJpaRepository.findAllByOrderByPriorityAscCreatedAtDesc()
+            } catch (e: Exception) {
+                log.warn("DailyCloseFinalizer watchlist 조회 실패: err={}", e.message)
+                return
+            }
+
+        if (watchlistEntries.isEmpty()) {
+            log.debug("DailyCloseFinalizer aggregation: watchlist 종목 없음")
+            return
+        }
+
+        log.info("DailyCloseFinalizer aggregation 시작: {} 종목", watchlistEntries.size)
+        var aggregateSuccess = 0
+        var aggregateFail = 0
+
+        for (entry in watchlistEntries) {
+            val code = entry.code
+            try {
+                val result = aggregateBackfillRunner.backfill(code)
+                val totalInserted = result.values.filter { it >= 0 }.sum()
+                log.debug(
+                    "DailyCloseFinalizer aggregation: code={} inserted={}",
+                    code,
+                    totalInserted,
+                )
+                aggregateSuccess++
+            } catch (e: Exception) {
+                log.warn("DailyCloseFinalizer aggregation 실패: code={} err={}", code, e.message)
+                aggregateFail++
+            }
+        }
+
+        log.info(
+            "DailyCloseFinalizer aggregation 완료: success={}건 fail={}건",
+            aggregateSuccess,
+            aggregateFail,
         )
     }
 

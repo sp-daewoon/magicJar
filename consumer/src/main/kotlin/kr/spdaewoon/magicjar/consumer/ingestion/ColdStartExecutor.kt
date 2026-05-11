@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.ingestion
 
 import jakarta.annotation.PreDestroy
+import kr.spdaewoon.magicjar.consumer.aggregation.AggregateBackfillRunner
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaRepository
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
@@ -38,6 +39,7 @@ class ColdStartExecutor(
     private val kisRestPort: KisRestPort,
     private val candleRepository: CandleRepository,
     private val auditRepository: ConsumerAuditTrailJpaRepository,
+    private val aggregateBackfillRunner: AggregateBackfillRunner,
 ) {
     private val log = LoggerFactory.getLogger(ColdStartExecutor::class.java)
 
@@ -107,6 +109,18 @@ class ColdStartExecutor(
             }
         }
 
+        // ADR 0062 §9 — 1m 적재 직후 5m·15m·30m·90m·1h 합산 일괄 INSERT.
+        // 실패는 warn 기록 후 계속 진행 (cold-start 전체를 막지 않음).
+        var aggregateResult: Map<String, Int> = emptyMap()
+        try {
+            aggregateResult = aggregateBackfillRunner.backfill(code)
+            log.info("AggregateBackfill 완료: code={} result={}", code, aggregateResult)
+        } catch (e: Exception) {
+            log.warn("AggregateBackfill 실패: code={} err={}", code, e.message)
+        }
+
+        val aggregateTotalInserted = aggregateResult.values.filter { it >= 0 }.sum()
+
         val auditAction =
             when {
                 failCount == 0 -> "KIS_COLD_START_DONE"
@@ -120,7 +134,8 @@ class ColdStartExecutor(
                     action = auditAction,
                     entityType = "candle",
                     entityId = code,
-                    detailJson = """{"code":"$code","success":$successCount,"fail":$failCount}""",
+                    detailJson =
+                        """{"code":"$code","success":$successCount,"fail":$failCount,"aggregateInserted":$aggregateTotalInserted}""",
                 ),
             )
         } catch (e: Exception) {
@@ -128,11 +143,12 @@ class ColdStartExecutor(
         }
 
         log.info(
-            "KIS cold-start 완료: code={} action={} success={} fail={}",
+            "KIS cold-start 완료: code={} action={} success={} fail={} aggregateInserted={}",
             code,
             auditAction,
             successCount,
             failCount,
+            aggregateTotalInserted,
         )
     }
 

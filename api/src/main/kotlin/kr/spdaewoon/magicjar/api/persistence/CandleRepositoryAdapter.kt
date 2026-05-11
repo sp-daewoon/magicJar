@@ -6,7 +6,9 @@ import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
+import java.math.BigDecimal
 import java.time.Instant
+import kotlinx.datetime.Instant as KtInstant
 
 /**
  * CandleRepository 도메인 포트 구현 (api 모듈).
@@ -54,4 +56,36 @@ class CandleRepositoryAdapter(
         code: String,
         intervals: List<CandleInterval>,
     ): Long = candleJpaRepository.countByCodeAndIntervalIn(code, intervals.map { it.code })
+
+    /**
+     * 종목·interval 전체 candle 반환 (ts ASC).
+     * JPA entity → domain Candle 변환 (adj 필드 null 허용).
+     * ADR 0062 §9 AggregateBackfillRunner 1m 전량 fetch 용.
+     */
+    @Transactional(readOnly = true)
+    override fun findByCodeAndInterval(
+        code: String,
+        interval: CandleInterval,
+    ): List<Candle> =
+        candleJpaRepository
+            .findByCodeAndIntervalOrderByTsAsc(code, interval.code)
+            .map { it.toDomain(interval) }
+
+    private fun CandleJpaEntity.toDomain(interval: CandleInterval): Candle =
+        Candle(
+            id = id,
+            code = code,
+            interval = interval,
+            ts = KtInstant.fromEpochSeconds(ts.epochSecond),
+            openRaw = openRaw ?: BigDecimal.ZERO,
+            highRaw = highRaw ?: BigDecimal.ZERO,
+            lowRaw = lowRaw ?: BigDecimal.ZERO,
+            closeRaw = closeRaw ?: BigDecimal.ZERO,
+            openAdj = openAdj,
+            highAdj = highAdj,
+            lowAdj = lowAdj,
+            closeAdj = closeAdj,
+            volume = volume ?: 0L,
+            source = source,
+        )
 }

@@ -76,6 +76,16 @@ interface CandleJpaRepository : JpaRepository<CandleJpaEntity, Long> {
     ): List<CandleJpaEntity>
 
     /**
+     * 종목·interval 전체 candle 조회 (ts ASC).
+     * Spring Data query inference — body 없음 (헌법 §6 JPA default fun 함정 회피).
+     * ADR 0062 §9 AggregateBackfillRunner 1m 전량 fetch 용.
+     */
+    fun findByCodeAndIntervalOrderByTsAsc(
+        code: String,
+        interval: String,
+    ): List<CandleJpaEntity>
+
+    /**
      * 단건 idempotent INSERT (ON CONFLICT DO NOTHING).
      * batch INSERT가 필요하면 saveAll + flush 패턴 사용.
      */
