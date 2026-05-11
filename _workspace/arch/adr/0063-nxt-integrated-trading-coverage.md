@@ -1,8 +1,9 @@
 # ADR 0063 — NXT/통합거래 매트릭스 cover (분봉·일봉 시장 분류 코드 결정)
 
-- 상태: **Proposed** (사용자 결정 대기 — 채택 후 Accepted 갱신)
+- 상태: **Accepted (2026-05-11 사용자 결정)** — 채택안 = A UN 통합 + 시간 1 08:00~20:00 명시 + threshold 350 → 700
 - 작성일: 2026-05-11
-- 결정자: architect (사용자 dogfooding 의제 발의 — 2026-05-11)
+- 채택일: 2026-05-11 (사용자 채팅 명시)
+- 결정자: 사용자(최고 관리자) — 본 ADR Accepted 갱신, sub-agent 디스패치 진행 (architect dogfooding 의제 발의 2026-05-11)
 - 관계: ADR 0019 (캔들 저장 정책) · ADR 0028 (Watchlist Ingestion) · ADR 0029 (당일 진행 중 캔들 Redis) · ADR 0037 (KIS Rate Limit) · ADR 0057 (KIS-only 데이터 출처) · backlog §32 (본 트랙 후속)
 
 > 본 ADR은 **plan 단계 (Proposed)** — 결정 의제 3건을 사용자에게 제시하고 채택안 확정 후 후속 사이클에서 sub-agent 디스패치. **add-only 신규 파일**로 발행하며, ADR 0019 §2 매트릭스 본문 갱신은 채택 후 별도 사이클로 분리 (PR #298 / ADR 0062 합산 트랙과의 modify-shared 충돌 회피).
@@ -107,6 +108,22 @@ fid_cond_mrkt_div_code (str): [필수] 조건 시장 분류 코드 (ex. J:KRX, N
 **architect 권장 = 700 (옵션 1과 정합)**. 사유:
 - 옵션 A·1 채택 시 1m count 자연 증가 → threshold 동반 상향 의무
 - 700 < 720 마진 — pre-hour·after-hour 거래 비활성 시간(예: 19:30~20:00 거래량 0) 대비
+
+### 2-D. 사용자 채택 결과 (2026-05-11 채팅 명시)
+
+> "A UN 통합 + 시간 1 08:00~20:00 + threshold 700 — 2026-05-11 사용자 채팅 명시"
+
+- 의제 A → **A UN 통합** 채택 (`fid_cond_mrkt_div_code="UN"`)
+- 의제 B → **옵션 1 08:00~20:00 명시** 채택 (`fid_input_hour_1="200000"` 시작, 종료 `< 08:00 KST`)
+- 의제 C → **threshold 350 → 700** 채택 (`MIN_1M_CANDLE_THRESHOLD = 700L`)
+
+본 ADR Status `Proposed` → **`Accepted`** 갱신 (헤더). 후속 sub-agent 디스패치는 §6 영향 ADR/문서 매트릭스 별도 사이클 + ADR 0062 §9 NXT 결합 영향 정합 (PR #298 amend cross-ref).
+
+### 2-E. cross-ref — ADR 0062 합산 매트릭스 결합
+
+ADR 0062 (5m·15m·30m·90m·1h 합산 가공) 사용자 Accepted (2026-05-11) — A-1 백엔드 precomputed + 옵션 2 과거 30 거래일 + 5종 활성화. 본 ADR 0063 채택 결과로 1m 베이스가 390 → 720 bar/일로 확장 → ADR 0062 합산 매트릭스도 NXT cover로 확장 의무.
+
+상세 영향 매트릭스(boundary 정렬 5종 + DB ROW 38K → 71K + 20:00 KST 트리거 + sub-agent 영역 분리·직렬 권장)은 **ADR 0062 §9 NXT 결합 영향** 본문 참조 (PR #298 amend 2026-05-11). sub-agent 디스패치 시 NXT cover(본 ADR) 선행 → CandleAggregator(ADR 0062 도메인) 병렬 가능 → market-data 합산 영속(ADR 0062 영속·boundary)은 직렬 의존.
 
 ## 3. fitness gap 분석 (`feedback_v3_skepticism_no_regression.md` lens)
 
