@@ -9,7 +9,7 @@
 <!-- pr-48-slot-architect -->
 | 2026-05-?? | **TBD — PR-48 backend-core: 02-data-flow + 04-feature-spec** | baseline/v3.2.2 | PR-48 backend-core 2 파일 |
 <!-- pr-48-slot-backend-core -->
-| 2026-05-?? | **TBD — PR-48 market-data: 03-use-sequences (KIS-first raw 출처)** | baseline/v3.2.2 | PR-48 market-data 1 파일 |
+| 2026-05-11 | **docs(baseline): PR-48 market-data — v3.2.2 baseline 03-use-sequences (KIS-first raw 출처 의무 11건 LOCK) (작성: market-data)** — `_workspace/baseline/v3.2.2/03-use-sequences.md` 신규 작성. 사용자 시나리오 8건 + Mermaid sequence diagram 8건. raw 출처 인덱스 R1~R11 LOCK: H0STCNT0 44 cols(ccnl_krx·domestic_stock_functions_ws.py) + H0STASP0 54 cols(asking_price_krx) + H0STCNI0(kis_auth.py) + FHKST03010230(inquire_time_dailychartprice.py) + FHKST03010100(inquire_daily_itemchartprice.py) + FHKST01010100(inquire_price.py) + PINGPONG JSON 분기(kis_auth.py rdic["header"]["tr_id"]) + 종목마스터 73·67필드 + indicators.py 80지표 + candlestick.py 57패턴 + parser.py DSL. v3.2.2 신규 ADR 정합: ADR 0057(Yahoo 폐기·KIS-only) · ADR 0062(A-1 백엔드 precomputed 5m~1h 합산·NXT boundary 매트릭스 5종) · ADR 0063(UN 통합·08:00~20:00·threshold=700). v3.2.0 대비 변경점 매트릭스 8건. KIS-first 자체 추론 0건 검증. 영역 침범 0(03 파일 단독). | baseline/v3.2.2 | PR-48 market-data 1 파일 + KIS-first raw 출처 의무 |
 <!-- pr-48-slot-market-data -->
 | 2026-05-?? | **TBD — PR-48 frontend: 05-ui-inventory** | baseline/v3.2.2 | PR-48 frontend 1 파일 |
 <!-- pr-48-slot-frontend -->
