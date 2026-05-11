@@ -1117,3 +1117,76 @@ SELECT min(ts), max(ts), count(*) FROM candle WHERE code='000660' AND interval='
 - `docs/operations/kis-api-reference.md` §5-A (FHKST03010230 후속 검토 — source 옵션 2 후보)
 - `_workspace/strategy/` (DSL 카탈로그 — 5m·15m·30m·1h 시그널 표현)
 - 사용자 메모리 `feedback_v3_skepticism_no_regression.md` (fitness gap lens) · `feedback_kis_first_policy.md` (KIS-only) · `feedback_kis_key_realonly_for_data.md` (정보 수집 prod credential 단일 채널 — 정책 정정 2) · `feedback_dev_priority_qa_batch.md` (누적 후 일괄)
+
+---
+
+## §32. NXT/통합거래 매트릭스 cover 트랙 (ADR 0063 plan 발행 — 사용자 결정 대기)
+
+### 사유
+
+2026-05-11 사용자(최고 관리자) dogfooding 의제 발의 — 명시 인용:
+
+> "삼성전자나 sk하이닉스 같은경우는 정상장 시간보다 빨리시작하고 늦게까지 장이 열리잖아? NXT 8시작 하고 밤에 끝나는거 그런건 감안 안되있는거같은데?"
+
+→ NXT(Next-Trading Korea Exchange, 2025년 출범) 시간대(08:00~20:00 KST) 분봉·일봉 cover 결함. orchestrator 검증 결과:
+- `KisRestCandleAdapter` L170·L380 `fid_cond_mrkt_div_code="J"` (KRX 고정)
+- 페이지네이션 시작 `153000` + 종료 조건 `< 09:00 KST` → NXT pre-hour·after-hour 누락
+- DB 실측 000660·005930 → 1m count 381건 (KRX 정규장 09:00~15:30만)
+- ADR·정책 문서에 NXT 인용 0건
+
+### 방향 (ADR 0063 plan 발행 — Proposed)
+
+**ADR 0063** 신규 발행 (`_workspace/arch/adr/0063-nxt-integrated-trading-coverage.md`):
+- 컨텍스트 + 결함 evidence + KIS raw fetch 인용 (`fid_cond_mrkt_div_code = J:KRX / NX:NXT / UN:통합`)
+- 결정 의제 3건:
+  - **A. 시장 분류 cover**: (A) UN 통합 권장 · (B) NX 분기 + instrument 컬럼 신설 · (C) KRX 단일 유지(현행)
+  - **B. 시간 범위 cover**: (1) 08:00~20:00 명시 권장 · (2) KIS 응답에 맡김
+  - **C. threshold 갱신**: 350 → 700 권장 · 350 유지
+- fitness gap 분석 (자동매매 필요·v1/v2 잔재 아님·AI 매매 결정 0·KIS-first 정합·prod credential 단일)
+- 운영 영향 (KIS 호출 +33%·Redis +5MB·cold-start +33%·ADR 0037 한도 안전)
+- rollback (single-line revert)
+- 영향 ADR/문서 매트릭스 (채택 후 별도 사이클 갱신 — modify-shared 충돌 회피)
+
+### architect 권장안 (사용자 검토 대기)
+
+**옵션 A + 1 + 700 (UN 통합 + 08:00~20:00 명시 + threshold 700)**
+
+사유:
+- 자동매매 fitness — NXT 거래 종목 시그널·룰엔진·백테스트 필수 cover
+- 단순함 — 종목별 시장 분기·instrument 마이그레이션 회피
+- KIS-first 정합 — KIS 공식 통합 모드 활용
+- Rate Limit 한도 안전 (+33% 영향 측정 후 운영)
+
+### 결정 후 트리거
+
+ADR 0063 사용자 Accepted 갱신 후:
+
+1. **market-data sub-agent**: `KisRestCandleAdapter` 4 line 변경 (`fid_cond_mrkt_div_code` UN + `currentHour="200000"` + 종료 조건 `< 08:00 KST` + `MIN_1M_CANDLE_THRESHOLD=700`) + 재수집 + DB·Redis evidence 보고 + CHANGELOG slot
+2. **architect sub-agent**: ADR 0019 §2-1·§2-2 매트릭스 NXT 행 보강 + ADR 0028 §X cold-start 흐름 + `external-api-policy.md` §2-5 NXT/통합 매트릭스 추가 + `candle-data-policy-v2.md` 시각 매트릭스 갱신 + ADR 0063 status `Accepted` 갱신
+3. **frontend sub-agent** (선택): `IntervalToggle` NXT 시각 표기 + LWC X축 범위 점검 (현재 9:00~15:30 가정 UI)
+4. **qa sub-agent** (선택): NXT 시각 분봉 sample 검증 + 시그널 엔진 NXT 시간대 backtest 검증
+
+### 트리거 조건
+
+- 사용자 ADR 0063 결정 회신 (의제 A·B·C 옵션 채택)
+- 또는 NXT 거래 종목 본격 운영 시점 도래
+
+### 처리 PR
+
+- **본 사이클**: PR-50 (예상) architect ADR 0063 plan 발행 (본 §32 + ADR 0063 + README + master + CHANGELOG)
+- **후속 사이클** (결정 후): market-data + architect + (선택) frontend·qa 병렬 디스패치 — 단, PR #298(ADR 0062 합산 트랙)와의 modify-shared 회피 위해 PR #298 머지 후 진입
+
+### 병렬 작업 영역 분리
+
+- **PR #298 (ADR 0062 합산 트랙, OPEN, 사용자 결정 대기)** — 영역 충돌 0
+  - 0062 = 합산 가공 (5m·15m·30m·90m·1h 위치·source 결정)
+  - 0063 = fetch 매트릭스 (NXT/통합 시장 분류·시간 cover)
+  - 두 ADR 모두 ADR 0019 §2 매트릭스 본문 갱신을 의제로 보유 → **본 NXT plan은 ADR 0019 본문 갱신 금지** (채택 후 별도 사이클로 분리). modify-shared 회피
+- 본 PR은 **add-only 신규 파일** (ADR 0063 + backlog §32) + README 인덱스 + master §10 row + CHANGELOG row 만
+
+### 참조
+
+- **권위**: 사용자 dogfooding 의제 2026-05-11 (인용 위)
+- ADR 0063 (본 트랙 plan 본문) · ADR 0019 (채택 후 §2 매트릭스 NXT 행 보강) · ADR 0028 (cold-start 흐름) · ADR 0037 (Rate Limit 영향 측정) · ADR 0057 (KIS-only 호출도 NXT 동일)
+- KIS raw fetch — `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py`
+- 사용자 메모리 `feedback_kis_first_policy.md`·`feedback_kis_key_realonly_for_data.md`·`feedback_v3_skepticism_no_regression.md`·`feedback_spec_plan_scope.md`·`feedback_3tier_hierarchy.md`·`feedback_orchestrator_active_parallel.md`
