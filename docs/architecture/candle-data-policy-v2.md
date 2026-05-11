@@ -3,6 +3,7 @@
 - 작성일: TBD
 - 2026-05-11 갱신: **ADR 0057 KIS-only data source 정합** — Yahoo Finance 전면 폐기. 본 문서 §3·§4·§5·§6 매트릭스 KIS-only로 재정의.
 - 2026-05-11 amend: ADR 0019 supersede 인용 제거 → **Accepted (Yahoo 의존 부분만 보류)**. 5m~1h은 **1m 합산 가공 방향 확정** (backlog §31 트랙 — 위치·source 결정 대기). credential 정책: 정보 수집은 prod 단일 채널 (모의/실전 분기는 주문 라우터 한정).
+- 2026-05-11 amend: **ADR 0062 plan 발행** — 5m·15m·30m·90m·1h 합산 가공 위치(권장안 A-1 백엔드 precomputed) + source 시간 범위(권장안 옵션 2 과거 포함 30 거래일) + IntervalToggle 5종 활성화(15m·90m 추가) plan 발행. 사용자 결정 후 본 문서 매트릭스 5m~1h 행을 "1m 합산 가공 예정" → "1m 합산 가공 (백엔드 precomputed)" 갱신 예정.
 - 본 문서는 운영 가이드. 결정 본문은 **ADR 0057 (KIS OpenAPI 단일 데이터 출처)** + **ADR 0019 (Accepted, Yahoo 의존 부분만 보류)** + **ADR 0028 (Watchlist Ingestion)** + **ADR 0029 (당일 진행 중 캔들 Redis 캐시)** + **ADR 0048 (KIS WS 41 slot + polling fallback)** 참조.
 
 ## 1. 정책 한 줄 요약

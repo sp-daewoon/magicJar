@@ -1041,7 +1041,7 @@ SELECT min(ts), max(ts), count(*) FROM candle WHERE code='000660' AND interval='
 
 ---
 
-## §31. 5m·15m·30m·90m·1h 1m 합산 가공 트랙 (방향 확정 — 위치·source 시간 범위만 결정 대기)
+## §31. 5m·15m·30m·90m·1h 1m 합산 가공 트랙 (ADR 0062 plan 발행 — 사용자 결정 대기)
 
 ### 사유
 
@@ -1050,14 +1050,25 @@ SELECT min(ts), max(ts), count(*) FROM candle WHERE code='000660' AND interval='
 **사용자 명시 결정 (2026-05-11 채팅)**:
 
 > "5m·15m·30m·90m·1h 백엔드 또는 프론트 합산으로 할거고 ADR 폐기해버리면 안될듯 1분봉만 kis에서 제공하니깐 임시로 쓰는거고 나중에 5m·15m·30m·90m·1h 봉에 대한 처리를 보류할뿐임 이거 없다고 생각하면 안되니깐 ADR 폐기는 하지말어 백로그로 남겨"
+> "3번 해야지" (= 본 §31 트랙 진행 결정, 2026-05-11)
 
-→ **5m·15m·30m·90m·1h은 1m 합산 가공으로 처리 — 방향 확정**. ADR 0019 보류 + ADR 0057 §2-5에 방향 명시. 본 §31에서는 **합산 위치(백엔드 vs 프론트)** + **합산 source 시간 범위** 만 결정 대기.
+→ **5m·15m·30m·90m·1h은 1m 합산 가공으로 처리 — 방향 확정**. ADR 0019 보류 + ADR 0057 §2-5에 방향 명시. **2026-05-11 ADR 0062 plan 발행 완료** — 합산 위치·source 시간 범위·IntervalToggle 매트릭스 사용자 결정 대기.
+
+### 진행 상황 (2026-05-11)
+
+- ✅ ADR 0057 §2-5 — 방향 확정(1m 합산 가공) 명시
+- ✅ ADR 0062 plan 발행 — 권장안(A-1 백엔드 precomputed + 옵션 2 과거 포함) + fitness gap 분석 + 매트릭스 + sub-agent 디스패치 plan (본 §31 발행 PR)
+- ⏳ **사용자 결정 대기** — 본 ADR 0062 §2 결정 의제 (위치·source·UI 매트릭스)
+- ⏳ 사용자 결정 후 ADR 0062 `Accepted` 갱신 + sub-agent 병렬 디스패치 (strategy-engine·market-data·frontend·qa)
+- ⏳ 트랙 완료 시 본 §31 처리완료 archive
 
 ### 결정 사항 (방향 확정)
 
 - 5m·15m·30m·90m·1h = **1m 합산 가공으로 처리** (interval 폐기 0건 · 보조 출처 부활 0건 · KIS-only 정합 유지)
 
-### 잔여 결정 (사용자 결정 대기 — ADR 0062 발행 예정)
+### 잔여 결정 (ADR 0062 plan 발행 — 사용자 결정 대기)
+
+> ADR 0062 plan 본문(`_workspace/arch/adr/0062-aggregation-plan.md`) §2 의제 인용. 권장안: A-1(백엔드 precomputed) + 옵션 2(과거 포함, 30 거래일) + IntervalToggle 5종(5m·15m·30m·90m·1h) 활성화.
 
 **A. 합산 위치**
 - **위치 옵션 A: 백엔드 합산** (`CandleAggregator` 컴포넌트 — api 또는 consumer 모듈에 신설)
@@ -1088,14 +1099,16 @@ SELECT min(ts), max(ts), count(*) FROM candle WHERE code='000660' AND interval='
 - 또는 archive 충돌 발생 (`feedback_dev_priority_qa_batch.md` 정합 — 누적 후 일괄 결정 권장)
 - 또는 KIS rate limit 모니터링 결과 측정 후 source 옵션 결정
 
-### 처리 PR (예정)
+### 처리 PR
 
-- architect 발의 PR — 위치·source 옵션 채택 + ADR 0062 발행
-- 채택안 구현:
-  - 위치 옵션 A(백엔드) + source 옵션 1(당일) → backend-core/market-data sub-agent — `CandleAggregator` 컴포넌트 신설
-  - 위치 옵션 A(백엔드) + source 옵션 2(과거 포함) → market-data sub-agent — `KisHistoricalMinuteAdapter` 신설(FHKST03010230 prod credential) + `CandleAggregator` 컴포넌트 + 1m 장기 영속 DDL migration
-  - 위치 옵션 B(프론트) + source 옵션 1·2 — frontend sub-agent — `candleAggregator.ts` 신설
-- frontend sub-agent PR — UI 매트릭스 정합 갱신 + ADR 0019 §2 매트릭스 + ADR 0057 §2-1 매트릭스 재통합
+- ✅ **architect — ADR 0062 plan 발행 (본 PR, 2026-05-11)** — 권장안 A-1+옵션 2 + fitness gap + 매트릭스 + sub-agent 디스패치 plan
+- ⏳ 사용자 결정 대기 — ADR 0062 §2 의제(위치·source·UI 매트릭스)
+- ⏳ 채택 후 sub-agent 병렬 디스패치 매트릭스:
+  - **strategy-engine** (또는 backend-core) — `domain/.../market/CandleAggregator.kt` 본체 (Pure Kotlin, Spring 의존 0)
+  - **market-data** — `AggregateBackfillRunner` + `TickToMinuteAggregator` boundary 마감 합산 + `DailyCloseFinalizer` 확장 + Redis 키 매트릭스 + STOMP fanout + 일회성 backfill admin endpoint
+  - **frontend** — `IntervalToggle.tsx` 15m·90m 추가(5종 활성화) + `useSymbolCandles.ts` 정합 + LWC v4 dogfooding evidence
+  - (선택) **qa** — 합산 결과 검증 (5m = 1m 5건 합산 정합)
+- 정합 갱신 — ADR 0019 §2 매트릭스 재통합 + ADR 0057 §2-1·§2-2·§2-3·§2-5 갱신 + ADR 0029 §2-1 Redis 키 매트릭스 확장 + master-architecture §10 ADR 인덱스 + candle-data-policy-v2.md 매트릭스 갱신
 
 ### 참조
 
