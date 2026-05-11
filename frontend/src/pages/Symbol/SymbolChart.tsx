@@ -9,6 +9,9 @@
  *
  * ADR 0019 §2-3 cold-start: 0건이면 "데이터 수집 중 — 잠시 후 새로고침"
  * ADR 0029 §2-3: 1m interval STOMP candle.minute 실시간 갱신
+ * ADR 0062 채택 (2026-05-11): 5m·15m·30m·90m·1h 합산 5종 활성화
+ *   - AggregateBackfillRunner 작동 전까지 빈 배열 → 합산별 전용 안내 표시
+ *   - feedback_no_mock_data.md 정합 — mock 합성 절대 금지
  *
  * T-IND PR-33 R3 확장 (W2):
  * - 지표 패널 버튼 (우측 상단)
@@ -33,6 +36,15 @@ import { IntervalToggle } from './IntervalToggle'
 import { LightweightChart } from './LightweightChart'
 import { IndicatorPanel } from './IndicatorPanel'
 import { IndicatorOverlay } from './IndicatorOverlay'
+
+/** ADR 0062: 합산(precomputed) 인터벌 여부 — 빈 응답 시 전용 안내 메시지 구분 */
+const AGGREGATED_INTERVALS: ReadonlySet<CandleInterval> = new Set<CandleInterval>([
+  '5m',
+  '15m',
+  '30m',
+  '90m',
+  '1h',
+])
 
 interface SymbolChartProps {
   code: string
@@ -282,16 +294,32 @@ export function SymbolChart({ code, realtimeCandle }: SymbolChartProps) {
               <p className="text-sm text-red-400">차트 데이터를 불러올 수 없습니다.</p>
             </div>
           ) : allCandles.length === 0 ? (
-            /* ADR 0019 §2-3 cold-start 미완 graceful */
+            /* ADR 0019 §2-3 cold-start 미완 graceful
+               ADR 0062: 합산 인터벌은 AggregateBackfillRunner 완료 전 빈 배열 → 전용 안내 */
             <div className="flex h-96 items-center justify-center">
-              <div className="flex flex-col items-center gap-3 text-center">
+              <div className="flex flex-col items-center gap-3 text-center max-w-xs">
                 <div className="h-8 w-8 animate-pulse rounded-full bg-yellow-900/60" />
-                <p className="text-sm text-yellow-400">캔들 데이터 수집 중</p>
-                <p className="text-xs text-gray-500">
-                  종목 추가 후 처음 데이터를 수집하고 있습니다.
-                  <br />
-                  잠시 후 새로고침해 주세요.
-                </p>
+                {AGGREGATED_INTERVALS.has(interval) ? (
+                  <>
+                    <p className="text-sm text-yellow-400">{interval} 합산 데이터 준비 중</p>
+                    <p className="text-xs text-gray-500">
+                      1분봉 tick 데이터를 {interval}봉으로 집계하고 있습니다.
+                      <br />
+                      AggregateBackfillRunner 실행 후 데이터가 표시됩니다.
+                      <br />
+                      잠시 후 새로고침해 주세요.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-yellow-400">캔들 데이터 수집 중</p>
+                    <p className="text-xs text-gray-500">
+                      종목 추가 후 처음 데이터를 수집하고 있습니다.
+                      <br />
+                      잠시 후 새로고침해 주세요.
+                    </p>
+                  </>
+                )}
               </div>
             </div>
           ) : (
