@@ -1,6 +1,6 @@
 # ADR 0064 — Redis boundary fanout + STOMP 실시간 합산 갱신 (5m·15m·30m·90m·1h)
 
-- 상태: **Proposed (2026-05-12 — 사용자 결정 대기)** — plan PR — 채택 후 별도 사이클 sub-agent 디스패치
+- 상태: **Accepted (2026-05-12 — 사용자 결정 A-1·B-1·C-1 채택)**
 - 작성일: 2026-05-12
 - 작성자: architect
 - 결정자: 사용자(최고 관리자) — 결정 의제 3건 검토 위임
