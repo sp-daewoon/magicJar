@@ -61,9 +61,22 @@ interface LightweightChartProps {
   onCandleSeriesDestroy?: () => void
 }
 
-/** 인터벌이 분봉(intraday)인지 여부 */
+/**
+ * 인터벌이 분봉(intraday)인지 여부
+ * ADR 0062 채택: 5m·15m·30m·90m·1h 합산 5종 포함 — KST 시·분 표시 활성
+ * ADR 0063 채택: NXT 시장 08:00~20:00 KST 범위 — LWC v4 ts ASC input 시 X축 자동 확장 정합
+ *   LWC v4 timeScale은 전달된 UTCTimestamp 범위 기반으로 X축을 자동 결정하므로
+ *   08:00~20:00 KST 범위 ts가 입력되면 X축이 자동 확장됨 (별도 range 설정 불필요).
+ */
 function isIntradayInterval(interval?: CandleInterval): boolean {
-  return interval === '1m' || interval === '5m' || interval === '30m' || interval === '1h'
+  return (
+    interval === '1m' ||
+    interval === '5m' ||
+    interval === '15m' ||
+    interval === '30m' ||
+    interval === '90m' ||
+    interval === '1h'
+  )
 }
 
 function toUTCTimestamp(isoString: string): UTCTimestamp {

@@ -13,12 +13,14 @@
 import apiClient from '../lib/axios'
 
 // ──────────────────────────────────────────────
-// 인터벌 타입 (ADR 0019 §2-2 — 8종: 1m·5m·30m·1h·1d·1wk·1mo·1y)
+// 인터벌 타입 (ADR 0062 채택 2026-05-11 — 10종)
+//   KIS 직접 제공 5종: 1m·1d·1wk·1mo·1y
+//   합산(precomputed) 5종: 5m·15m·30m·90m·1h  ← ADR 0062 활성화
 // 주의: 1wk·1mo·1y는 backend-core PR(PR-31b)과 동시 활성화.
-//       backend가 400 응답할 때 "데이터 로드 실패" 안내 표시 (frontend는 준비 완료).
+//       합산 5종은 AggregateBackfillRunner 작동 전 빈 배열 반환 → graceful 표시.
 // ──────────────────────────────────────────────
 
-export type CandleInterval = '1m' | '5m' | '30m' | '1h' | '1d' | '1wk' | '1mo' | '1y'
+export type CandleInterval = '1m' | '5m' | '15m' | '30m' | '90m' | '1h' | '1d' | '1wk' | '1mo' | '1y'
 
 // ──────────────────────────────────────────────
 // DTO 정의 (spec §3-2 LOCK)
@@ -148,7 +150,7 @@ export const symbolApi = {
    * 차트 series — DB candle + Redis current·today 합류
    *
    * @param code - 종목 코드
-   * @param interval - 인터벌 (8종: 1m·5m·30m·1h·1d·1wk·1mo·1y)
+   * @param interval - 인터벌 (10종: 1m·5m·15m·30m·90m·1h·1d·1wk·1mo·1y)
    * @param before - 페이지네이션 cursor (ISO 8601, 미지정 시 최신)
    * @param limit - 최대 캔들 수 (default 200, max 500)
    */
