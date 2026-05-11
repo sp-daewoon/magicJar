@@ -6,7 +6,6 @@ import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaRepositor
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import kr.spdaewoon.magicjar.domain.market.port.KisRestPort
-import kr.spdaewoon.magicjar.domain.market.port.YahooCandleFetcher
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.util.concurrent.ExecutorService
@@ -15,17 +14,27 @@ import java.util.concurrent.ThreadFactory
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Yahoo cold-start + KIS REST backfill 실행기 (ADR 0019 §5-3 정합).
+ * KIS-only cold-start 실행기 (2026-05-11 Yahoo 전면 폐기 — KIS-only 정책 적용).
  *
- * - Yahoo 7 interval 직렬 fetch → DB INSERT
- * - KIS REST 1wk·1mo·1y backfill 직렬 fetch → DB INSERT
- * - 총 ≤ 30s 기대
- * - audit row INSERT (YAHOO_COLD_START_DONE / PARTIAL_FAIL / FAILED)
- * - 별도 thread pool size=2 (cold-start-N)
+ * Yahoo Finance 의존성 완전 제거. KIS OpenAPI 단일 출처.
+ *
+ * cold-start 5 interval:
+ *   - 1m  : FHKST03010230 — 직전 30 거래일 1m 분봉 (KisRestCandleAdapter 내부 페이지네이션)
+ *   - 1d  : FHKST03010100 — 일봉 200건
+ *   - 1wk : FHKST03010100 — 주봉 200건
+ *   - 1mo : FHKST03010100 — 월봉 120건
+ *   - 1y  : FHKST03010100 — 연봉 10건
+ *
+ * KIS 미제공 interval (5m·15m·30m·90m·1h)은 cold-start 제외.
+ * 해당 interval은 candle 요청 시 빈 결과 반환 (mock 합성 금지 — feedback_no_mock_data).
+ *
+ * audit action: KIS_COLD_START_DONE / KIS_COLD_START_PARTIAL_FAIL / KIS_COLD_START_FAILED
+ * (구: YAHOO_COLD_START_* — 2026-05-11 deprecated, DB 기존 row는 그대로 유지)
+ *
+ * 별도 thread pool size=2 (cold-start-N).
  */
 @Component
 class ColdStartExecutor(
-    private val yahooCandleFetcher: YahooCandleFetcher,
     private val kisRestPort: KisRestPort,
     private val candleRepository: CandleRepository,
     private val auditRepository: ConsumerAuditTrailJpaRepository,
@@ -33,21 +42,17 @@ class ColdStartExecutor(
     private val log = LoggerFactory.getLogger(ColdStartExecutor::class.java)
 
     companion object {
-        /** Yahoo cold-start 7 interval 정의 (ADR 0019 §5-2) */
-        val YAHOO_INTERVALS =
+        /**
+         * KIS cold-start interval 정의.
+         * (interval, count) — count는 fetchCandles 에 전달되는 상한 힌트.
+         * 1m은 KisRestCandleAdapter 내부에서 30 거래일 페이지네이션으로 처리 (count 무시).
+         *
+         * KIS 미제공(5m·15m·30m·90m·1h)은 제외 — backlog 의제 결정 전까지 enum 값은 domain에 보존.
+         */
+        val KIS_COLD_START_INTERVALS =
             listOf(
-                CandleInterval.ONE_MIN to 7,
-                CandleInterval.FIVE_MIN to 60,
-                CandleInterval.FIFTEEN_MIN to 60,
-                CandleInterval.THIRTY_MIN to 60,
-                CandleInterval.NINETY_MIN to 60,
-                CandleInterval.ONE_HOUR to 730,
-                CandleInterval.ONE_DAY to 3650,
-            )
-
-        /** KIS REST backfill intervals */
-        val KIS_REST_INTERVALS =
-            listOf(
+                CandleInterval.ONE_MIN to 1, // KisRestCandleAdapter 내부 30일치 페이지네이션
+                CandleInterval.ONE_DAY to 200,
                 CandleInterval.ONE_WEEK to 200,
                 CandleInterval.ONE_MONTH to 120,
                 CandleInterval.ONE_YEAR to 10,
@@ -66,7 +71,7 @@ class ColdStartExecutor(
         )
 
     /**
-     * cold-start 비동기 제출 (별도 thread — 즉시 반환).
+     * KIS cold-start 비동기 제출 (별도 thread — 즉시 반환).
      */
     fun submit(code: String) {
         executor.submit {
@@ -75,18 +80,17 @@ class ColdStartExecutor(
     }
 
     private fun runColdStart(code: String) {
-        log.info("Yahoo cold-start 시작: code={}", code)
+        log.info("KIS cold-start 시작: code={}", code)
         var successCount = 0
         var failCount = 0
 
-        // 1. Yahoo 7 interval 직렬 fetch
-        for ((interval, rangeDays) in YAHOO_INTERVALS) {
+        for ((interval, count) in KIS_COLD_START_INTERVALS) {
             try {
-                val candles = yahooCandleFetcher.fetch(code, interval, rangeDays)
+                val candles = kisRestPort.fetchCandles(code, interval, count)
                 if (candles.isNotEmpty()) {
                     val inserted = candleRepository.saveAll(candles)
                     log.debug(
-                        "Yahoo fetch 완료: code={} interval={} total={} inserted={}",
+                        "KIS cold-start fetch 완료: code={} interval={} total={} inserted={}",
                         code,
                         interval.code,
                         candles.size,
@@ -94,41 +98,20 @@ class ColdStartExecutor(
                     )
                     successCount++
                 } else {
-                    log.warn("Yahoo fetch 빈 응답: code={} interval={}", code, interval.code)
+                    log.warn("KIS cold-start 빈 응답: code={} interval={}", code, interval.code)
                     failCount++
                 }
             } catch (e: Exception) {
-                log.warn("Yahoo fetch 실패: code={} interval={} err={}", code, interval.code, e.message)
+                log.warn("KIS cold-start 실패: code={} interval={} err={}", code, interval.code, e.message)
                 failCount++
             }
         }
 
-        // 2. KIS REST 1wk·1mo·1y backfill
-        for ((interval, count) in KIS_REST_INTERVALS) {
-            try {
-                val candles = kisRestPort.fetchCandles(code, interval, count)
-                if (candles.isNotEmpty()) {
-                    val inserted = candleRepository.saveAll(candles)
-                    log.debug(
-                        "KIS REST backfill 완료: code={} interval={} total={} inserted={}",
-                        code,
-                        interval.code,
-                        candles.size,
-                        inserted,
-                    )
-                    successCount++
-                }
-            } catch (e: Exception) {
-                log.warn("KIS REST backfill 실패: code={} interval={} err={}", code, interval.code, e.message)
-            }
-        }
-
-        // 3. audit row INSERT
         val auditAction =
             when {
-                failCount == 0 -> "YAHOO_COLD_START_DONE"
-                successCount == 0 -> "YAHOO_COLD_START_FAILED"
-                else -> "YAHOO_COLD_START_PARTIAL_FAIL"
+                failCount == 0 -> "KIS_COLD_START_DONE"
+                successCount == 0 -> "KIS_COLD_START_FAILED"
+                else -> "KIS_COLD_START_PARTIAL_FAIL"
             }
         try {
             auditRepository.save(
@@ -145,7 +128,7 @@ class ColdStartExecutor(
         }
 
         log.info(
-            "Yahoo cold-start 완료: code={} action={} success={} fail={}",
+            "KIS cold-start 완료: code={} action={} success={} fail={}",
             code,
             auditAction,
             successCount,

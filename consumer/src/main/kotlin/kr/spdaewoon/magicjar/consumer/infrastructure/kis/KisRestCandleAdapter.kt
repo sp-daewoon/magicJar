@@ -1,6 +1,5 @@
 package kr.spdaewoon.magicjar.consumer.infrastructure.kis
 
-import kotlinx.datetime.TimeZone
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
@@ -16,16 +15,21 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import java.math.BigDecimal
 import java.time.Duration
 import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlinx.datetime.Instant as KtInstant
 
 /**
  * KIS REST 캔들 조회 어댑터 (ADR 0019 §7-4 — KIS-first 정책 정합).
- * - TR_ID: FHKST03010100 (inquire-daily-itemchartprice)
- * - endpoint: /uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice
- * - 지원 interval: 1d·1wk·1mo·1y (period_div_code 매핑)
- * - 출처: KIS open-trading-api examples_llm/.../inquire_daily_itemchartprice.py
  *
+ * 지원 interval:
+ *   - 1d·1wk·1mo·1y: FHKST03010100 (inquire-daily-itemchartprice)
+ *     raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
+ *   - 1m: FHKST03010230 (inquire-time-dailychartprice) — 최대 120건/call, 1일치 분봉
+ *     raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
+ *
+ * Yahoo Finance 의존성 전면 제거 (2026-05-11 — KIS-only 정책 적용).
  * 룰 5 위반 금지: LLM provider import 0건.
  */
 @Component
@@ -43,13 +47,19 @@ class KisRestCandleAdapter(
     private val log = LoggerFactory.getLogger(KisRestCandleAdapter::class.java)
 
     companion object {
-        private const val TR_ID = "FHKST03010100"
-        private const val ENDPOINT = "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice"
+        // raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
+        private const val TR_ID_DAILY = "FHKST03010100"
+        private const val ENDPOINT_DAILY = "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice"
+
+        // raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
+        private const val TR_ID_1MIN = "FHKST03010230"
+        private const val ENDPOINT_1MIN = "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice"
+
         private const val SOURCE = "KIS"
         private val DATE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd")
-        private val KST = TimeZone.of("Asia/Seoul")
+        private val KST_ZONE = ZoneId.of("Asia/Seoul")
 
-        /** CandleInterval → KIS period_div_code 매핑 */
+        /** CandleInterval → KIS period_div_code 매핑 (FHKST03010100) */
         private fun toPeriodDivCode(interval: CandleInterval): String =
             when (interval) {
                 CandleInterval.ONE_DAY -> "D"
@@ -65,7 +75,129 @@ class KisRestCandleAdapter(
         interval: CandleInterval,
         count: Int,
     ): List<Candle> {
-        // single-tenant 1차: 첫 번째 REAL credential 사용
+        if (interval == CandleInterval.ONE_MIN) {
+            return fetchOneMinCandles(code)
+        }
+        return fetchDailyCandles(code, interval)
+    }
+
+    /**
+     * 1m 분봉 조회 (FHKST03010230).
+     * MVP: 당일 포함 직전 30 거래일 1m 분봉 fetch (최대 30 call × 120건).
+     * 페이지네이션: fid_input_date_1 + fid_input_hour_1 = "153000" (장마감 기준) 로 해당 일자 전체 조회.
+     *
+     * raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
+     */
+    private fun fetchOneMinCandles(code: String): List<Candle> {
+        val cred =
+            credentialRepository
+                .findAllByAccountType(AccountType.REAL.name)
+                .firstOrNull()
+                ?: run {
+                    log.warn("KIS REST 1m candle: REAL credential 없음 — code={}", code)
+                    return emptyList()
+                }
+
+        val userId = cred.id.userId
+        val accessToken =
+            try {
+                kisAuthAdapter.getAccessToken(userId, AccountType.REAL)
+            } catch (e: Exception) {
+                log.warn("KIS REST 1m candle: 토큰 발급 실패 — code={}: {}", code, e.message)
+                return emptyList()
+            }
+
+        var appKey: ByteArray? = null
+        var secretKey: ByteArray? = null
+        return try {
+            appKey = secretCipher.decrypt(cred.appKeyEnc)
+            secretKey = secretCipher.decrypt(cred.secretKeyEnc)
+            val appKeyStr = String(appKey)
+            val secretKeyStr = String(secretKey)
+
+            val allCandles = mutableListOf<Candle>()
+            // 직전 30 거래일 (주말 제외 — 약 45 달력일 커버)
+            val targetDays = mutableListOf<LocalDate>()
+            var d = LocalDate.now(KST_ZONE)
+            var checked = 0
+            while (targetDays.size < 30 && checked < 60) {
+                val dow = d.dayOfWeek
+                if (dow != java.time.DayOfWeek.SATURDAY && dow != java.time.DayOfWeek.SUNDAY) {
+                    targetDays.add(d)
+                }
+                d = d.minusDays(1)
+                checked++
+            }
+
+            for (targetDate in targetDays) {
+                val dateStr = targetDate.format(DATE_FMT)
+                try {
+                    val body =
+                        webClient
+                            .get()
+                            .uri { builder ->
+                                builder
+                                    .scheme("https")
+                                    .host(kisBaseProd.removePrefix("https://").substringBefore(":"))
+                                    .port(kisBaseProd.substringAfterLast(":").toIntOrNull() ?: 9443)
+                                    .path(ENDPOINT_1MIN)
+                                    // fid_cond_mrkt_div_code: J (주식) — FHKST03010230 spec
+                                    .queryParam("fid_cond_mrkt_div_code", "J")
+                                    // fid_input_iscd: 종목코드
+                                    .queryParam("fid_input_iscd", code)
+                                    // fid_input_hour_1: 153000 (장마감 기준 — 해당 일자 1m 전체 수신)
+                                    .queryParam("fid_input_hour_1", "153000")
+                                    // fid_input_date_1: 조회 날짜 (yyyyMMdd)
+                                    .queryParam("fid_input_date_1", dateStr)
+                                    // fid_pw_data_incu_yn: N (과거 데이터 포함 여부)
+                                    .queryParam("fid_pw_data_incu_yn", "N")
+                                    .build()
+                            }.header("authorization", "Bearer $accessToken")
+                            .header("appkey", appKeyStr)
+                            .header("appsecret", secretKeyStr)
+                            .header("tr_id", TR_ID_1MIN)
+                            .header("custtype", "P")
+                            .retrieve()
+                            .bodyToMono(Map::class.java)
+                            .timeout(Duration.ofSeconds(10))
+                            .block()
+
+                    if (body != null) {
+                        val parsed = parseKis1mResponse(body, code, targetDate)
+                        allCandles.addAll(parsed)
+                        log.debug(
+                            "KIS 1m fetch 완료: code={} date={} count={}",
+                            code,
+                            dateStr,
+                            parsed.size,
+                        )
+                    }
+                    // KIS API rate limit 준수: ADR 0037 — 20 req/s 한도. 50ms 간격으로 안전 마진 확보
+                    Thread.sleep(50)
+                } catch (e: WebClientResponseException) {
+                    log.warn("KIS 1m candle 실패: code={} date={} status={}", code, dateStr, e.statusCode)
+                } catch (e: Exception) {
+                    log.warn("KIS 1m candle 오류: code={} date={} err={}", code, dateStr, e.message)
+                }
+            }
+
+            log.info("KIS 1m backfill 완료: code={} total={}", code, allCandles.size)
+            allCandles
+        } finally {
+            appKey?.fill(0)
+            secretKey?.fill(0)
+        }
+    }
+
+    /**
+     * 일봉·주봉·월봉·연봉 조회 (FHKST03010100).
+     *
+     * raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
+     */
+    private fun fetchDailyCandles(
+        code: String,
+        interval: CandleInterval,
+    ): List<Candle> {
         val cred =
             credentialRepository
                 .findAllByAccountType(AccountType.REAL.name)
@@ -93,9 +225,9 @@ class KisRestCandleAdapter(
             val secretKeyStr = String(secretKey)
 
             val periodDivCode = toPeriodDivCode(interval)
-            val today = LocalDate.now().format(DATE_FMT)
+            val today = LocalDate.now(KST_ZONE).format(DATE_FMT)
             // 충분한 과거 시작일 (count * 1.5 거래일 마진)
-            val startDate = LocalDate.now().minusYears(30).format(DATE_FMT)
+            val startDate = LocalDate.now(KST_ZONE).minusYears(30).format(DATE_FMT)
 
             val body =
                 webClient
@@ -105,7 +237,7 @@ class KisRestCandleAdapter(
                             .scheme("https")
                             .host(kisBaseProd.removePrefix("https://").substringBefore(":"))
                             .port(kisBaseProd.substringAfterLast(":").toIntOrNull() ?: 9443)
-                            .path(ENDPOINT)
+                            .path(ENDPOINT_DAILY)
                             .queryParam("fid_cond_mrkt_div_code", "J")
                             .queryParam("fid_input_iscd", code)
                             .queryParam("fid_input_date_1", startDate)
@@ -116,7 +248,7 @@ class KisRestCandleAdapter(
                     }.header("authorization", "Bearer $accessToken")
                     .header("appkey", appKeyStr)
                     .header("appsecret", secretKeyStr)
-                    .header("tr_id", TR_ID)
+                    .header("tr_id", TR_ID_DAILY)
                     .header("custtype", "P")
                     .retrieve()
                     .bodyToMono(Map::class.java)
@@ -124,7 +256,7 @@ class KisRestCandleAdapter(
                     .block()
                     ?: return emptyList()
 
-            parseKisResponse(body, code, interval)
+            parseKisDailyResponse(body, code, interval)
         } catch (e: WebClientResponseException) {
             log.warn("KIS REST candle 실패: code={} interval={} status={}", code, interval.code, e.statusCode)
             emptyList()
@@ -137,8 +269,91 @@ class KisRestCandleAdapter(
         }
     }
 
+    /**
+     * FHKST03010230 1m 응답 파싱.
+     * output2[]: stck_bsop_date (yyyyMMdd) + stck_cntg_hour (HHmmss) → KST timestamp
+     * stck_oprc·stck_hgpr·stck_lwpr·stck_prpr(현재가=종가)·acml_vol
+     *
+     * raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
+     */
     @Suppress("UNCHECKED_CAST")
-    private fun parseKisResponse(
+    private fun parseKis1mResponse(
+        body: Map<*, *>,
+        code: String,
+        targetDate: LocalDate,
+    ): List<Candle> {
+        val rtCd = body["rt_cd"]?.toString()
+        if (rtCd != "0") {
+            log.debug(
+                "KIS 1m rt_cd != 0: code={} date={} rt_cd={} msg={}",
+                code,
+                targetDate,
+                rtCd,
+                body["msg1"],
+            )
+            return emptyList()
+        }
+        val output2 = body["output2"] as? List<*> ?: return emptyList()
+        val candles = mutableListOf<Candle>()
+        for (row in output2) {
+            val item = row as? Map<*, *> ?: continue
+            // stck_bsop_date: yyyyMMdd, stck_cntg_hour: HHmmss
+            val dateStr = item["stck_bsop_date"]?.toString()?.trim() ?: continue
+            val hourStr = item["stck_cntg_hour"]?.toString()?.trim() ?: continue
+            val close = item["stck_prpr"]?.toString()?.trim()?.toBigDecimalOrNull() ?: continue
+            val open = item["stck_oprc"]?.toString()?.trim()?.toBigDecimalOrNull() ?: BigDecimal.ZERO
+            val high = item["stck_hgpr"]?.toString()?.trim()?.toBigDecimalOrNull() ?: BigDecimal.ZERO
+            val low = item["stck_lwpr"]?.toString()?.trim()?.toBigDecimalOrNull() ?: BigDecimal.ZERO
+            val volume = item["acml_vol"]?.toString()?.trim()?.toLongOrNull() ?: 0L
+
+            val ts =
+                runCatching {
+                    val ld =
+                        if (dateStr.length == 8) {
+                            LocalDate.parse(dateStr, DATE_FMT)
+                        } else {
+                            targetDate
+                        }
+                    // HHmmss → LocalTime 파싱
+                    val lt =
+                        LocalTime.of(
+                            hourStr.substring(0, 2).toInt(),
+                            hourStr.substring(2, 4).toInt(),
+                            hourStr.substring(4, 6).toInt(),
+                        )
+                    val epochSecond = ld.atTime(lt).atZone(KST_ZONE).toEpochSecond()
+                    KtInstant.fromEpochSeconds(epochSecond)
+                }.getOrNull() ?: continue
+
+            candles.add(
+                Candle(
+                    code = code,
+                    interval = CandleInterval.ONE_MIN,
+                    ts = ts,
+                    openRaw = open,
+                    highRaw = high,
+                    lowRaw = low,
+                    closeRaw = close,
+                    openAdj = null,
+                    highAdj = null,
+                    lowAdj = null,
+                    closeAdj = null,
+                    volume = volume,
+                    source = SOURCE,
+                ),
+            )
+        }
+        return candles
+    }
+
+    /**
+     * FHKST03010100 일봉/주봉/월봉/연봉 응답 파싱.
+     * output2[]: stck_bsop_date (yyyyMMdd) → KST 00:00:00 ts
+     *
+     * raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun parseKisDailyResponse(
         body: Map<*, *>,
         code: String,
         interval: CandleInterval,
@@ -163,7 +378,7 @@ class KisRestCandleAdapter(
             val ts =
                 runCatching {
                     val ld = LocalDate.parse(dateStr, DATE_FMT)
-                    val epochSecond = ld.atStartOfDay(java.time.ZoneId.of("Asia/Seoul")).toEpochSecond()
+                    val epochSecond = ld.atStartOfDay(KST_ZONE).toEpochSecond()
                     KtInstant.fromEpochSeconds(epochSecond)
                 }.getOrNull() ?: continue
 

@@ -40,15 +40,18 @@ class WatchlistChangedKafkaListener(
     private val log = LoggerFactory.getLogger(WatchlistChangedKafkaListener::class.java)
 
     companion object {
+        /**
+         * cold-start 존재 여부 판단용 interval 목록.
+         * KIS 미제공 interval(5m·15m·30m·90m·1h)은 제외 (2026-05-11 Yahoo 폐기 — KIS-only 정책).
+         * KIS 제공: 1m·1d·1wk·1mo·1y
+         */
         private val COLD_START_INTERVALS =
             listOf(
                 CandleInterval.ONE_MIN,
-                CandleInterval.FIVE_MIN,
-                CandleInterval.FIFTEEN_MIN,
-                CandleInterval.THIRTY_MIN,
-                CandleInterval.NINETY_MIN,
-                CandleInterval.ONE_HOUR,
                 CandleInterval.ONE_DAY,
+                CandleInterval.ONE_WEEK,
+                CandleInterval.ONE_MONTH,
+                CandleInterval.ONE_YEAR,
             )
     }
 
@@ -101,7 +104,7 @@ class WatchlistChangedKafkaListener(
         val code = event.code
         val userId = event.userId
 
-        // 1. DB candle 부재 검증 → Yahoo cold-start (idempotent)
+        // 1. DB candle 부재 검증 → KIS cold-start (idempotent)
         val needsColdStart =
             candleRepository.countByCodeAndIntervalIn(code, COLD_START_INTERVALS) == 0L
         if (needsColdStart) {
