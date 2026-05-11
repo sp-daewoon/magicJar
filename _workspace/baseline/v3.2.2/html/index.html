@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>인덱스 — magicJar v3.2.2 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html" class="active">📁 인덱스</a><a href="01-architecture.html">01 Architecture</a><a href="02-data-flow.html">02 Data Flow</a><a href="03-use-sequences.html">03 Use Sequences</a><a href="04-feature-spec.html">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html">06 History</a><a href="07-policy-evolution.html">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.2.2 Baseline · 2026-05-11 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># magicJar v3.2.2 Baseline — KIS-only + NXT cover + 합산 가공 트랙 가동 시점 종합 기능 정의서
+
+> **태그 컷**: 2026-05-11 v3.2.2 (main `a964604` 시점 baseline init, release commit `703605b`, `release/v3.2.2` 이미지 immutable)
+> **사이클**: PR-?? (#294 ~ #309, 16 PR · 약 1일 단축 사이클)
+> **상태**: PR-48 architect 영역(README + 01 + 06 + 07) 본격 작성. backend-core(02·04) · market-data(03) · frontend(05) 영역은 sub-agent 별도 디스패치.
+> **권위**: 본 baseline 폴더는 v3.2.2 시점 **종합 기능 정의서**. SoT는 `docs/architecture/master-architecture.md` v2 (ADR 0030).
+
+---
+
+## 한 장 요약
+
+magicJar v3.2.2는 **데이터 출처를 KIS OpenAPI 단일 채널로 통일**(ADR 0057) + **NXT 통합 거래 시간대(08:00~20:00 KST) cover**(ADR 0063) + **1m 합산 가공 트랙(5m·15m·30m·90m·1h 5종 precomputed)** 본격 가동(ADR 0062) — 세 정책 결정의 묶음 minor 릴리즈다. v3.2.0 W2 마감(2026-05-10) → v3.2.1 → v3.2.2 사이 ~16 PR + ADR 3건 신규(0056·0057·0062·0063 — 0056은 W3 T-BT 코드 PR-47 사이클) + Flyway 영향 0 + JVM 모듈 5 보존(`pattern-engine` v3.2.0 base 그대로) + 사용자 dogfooding 결함 root cause 정정 6건.
+
+**v3.2.2 시점 동작하는 핵심 흐름** (v3.2.0 W1·W2 풀세트 + v3.2.2 데이터 정책 정합 갱신):
+
+1. **W1 풀세트 + W2 4 트랙 (v3.2.0 baseline 그대로 보존)** — T-ONBOARD·T-W1·T-W2·T-S1·T-MS1·T-CA1·T-IM1·T-IND·T-DSL·T-PAT·T-SB 11 트랙. v3.2.2에서 본격 변경 0 (데이터 정책 정합만 갱신 — UI·도메인 추가는 5종 합산 활성화로 자연 흡수).
+2. **W3 T-BT 코드 진입 (PR-47 #282 spec + #284 본격)** — `domain/backtest/*` 5 sealed class + 룩어헤드 가드 + 세금·수수료·슬리피지 보정 + sandbox 통합(JvmStrategyEvaluator 재사용, ADR 0047 정합) + Flyway 영향 0(W3 backtest_run 테이블은 후속 사이클). ADR 0056 신규.
+3. **ADR 0057 — KIS OpenAPI 단일 데이터 출처 (PR #294)** — 사용자 dogfooding "일봉 위치에 월봉 노출" root cause(Yahoo `interval=1d&range=max` monthly downsample) → Yahoo Finance 전면 폐기 + KIS OpenAPI 단일 출처 정책 확립. ADR 0019(캔들 저장 정책) 부분 revoke(5m~1h "합성 폐기" 결정 → "1m 합산 가공으로 처리 보류"). 정보 수집 API = **prod credential 단일 채널**(`AccountType.REAL` only) — 모의/실전 분기는 주문 라우터에만 적용(사용자 메모리 `feedback_kis_key_realonly_for_data.md` 정합).
+4. **ADR 0063 — NXT/통합거래 매트릭스 cover (PR #299 plan / #301 본격)** — 사용자 dogfooding "삼성전자·SK하이닉스 08:00 시작 20:00 마감" 의제 → A UN 통합 + 시간 1 08:00~20:00 명시 + threshold 350 → 700 채택. `KisRestCandleAdapter` 4 line revert(`fid_cond_mrkt_div_code="UN"` + 시작 hour `200000` + 종료 조건 `< 08:00 KST`) + `CandleBootstrapRunner` threshold 700 + 1m 720 bar/일 cover(KRX 정규장 390 → KRX+NXT 통합 720).
+5. **ADR 0062 — 5m·15m·30m·90m·1h 합산 가공 plan (PR #298 plan / #300·#302·#303 본격 묶음)** — A-1 백엔드 precomputed + 옵션 2 과거 30 거래일 + 5종 활성화 채택. `domain/.../market/CandleAggregator.kt` 도메인 본체(Pure Kotlin, Spring·JPA 의존 0) + `consumer/.../market/AggregateBackfillRunner.kt` cold-start 시 1m 적재 직후 5m~1h 일괄 합산 + `ColdStartExecutor` 확장 + `DailyCloseFinalizer` 트리거 시각 16:00 → 20:00 KST 확장(NXT after-hour 마감) + frontend `IntervalToggle` 5종 활성화. DB candle 테이블 v3.2.2 적재 결과: **1m ~147k / 5m·15m·30m·90m·1h 합산 ~56k rows / 1d·1wk·1mo·1y ~4k rows**.
+6. **6 hotfix 묶음 (사용자 dogfooding root cause 정정)**:
+   - **PR #289·#290 (KIS WS 체결가 tick 등락 필드 forward)** — STOMP `/topic/symbol/{code}/tick` 단일 source 동기 표시 결함 정정(domain + consumer 1건)
+   - **PR #292 (frontend 차트 캔들 페이지 합산 정렬 결함)** — `useInfiniteQuery` page 경계 ts 역행 hotfix
+   - **PR #296·#297 (KIS 1m 분봉 결함 2건)** — (1) 페이지네이션 미흡 — 당일 전수 수집 보강 (2) `fid_fake_tick_incu_yn` 누락 fix + 500 backoff 보강
+   - **PR #304 (FAILED 3 종목 정정)** — KOSDAQ market_div J 분기 + 거래정지/상장폐지 종목 skip 로직 추가
+   - **PR #305 (KIS WS PINGPONG JSON false-positive)** — 구독 응답 success=false 로그 노이즈 정정
+
+**v3.2.2 누적 ADR 60건** (v3.2.0 베이스 55건 + W3 T-BT 1건 0056 + 데이터 정책 3건 0057·0062·0063 + 1건 (자세한 인덱스는 `_workspace/arch/adr/README.md`). ADR 0019 supersede revoke(부분 — Yahoo 의존 부분만 보류·1m 합산 가공 트랙 완료 시 §2 재통합).
+
+**MD 룰 정책 진화 추가 2건**: 사용자 메모리 보강 2건(`feedback_kis_first_policy.md`·`feedback_kis_key_realonly_for_data.md`) + KIS-first 정책 raw fetch 의무 강화 (모든 `fid_cond_mrkt_div_code`·threshold·시각 상수 결정 시 KIS open-trading-api raw URL 인용 의무).
+
+**다음 Wave**: W3 본격 진입 — Backtest(T-BT 본격 데이터 적재 + 백테스트 실행 + 결과 영속) · Screener(T-SC) · Signal Engine(T-SIG) · Risk Guard(T-RISK) · Order Executor(T-O) · Reconciliation · Performance · Notification.
+
+---
+
+## 인덱스
+
+| 파일 | 작성자 | 내용 | 상태 |
+|------|--------|------|------|
+| **[01-architecture.md](01-architecture.md)** | architect | 시스템 전경(Mermaid) + 모듈 책임 매트릭스(5 모듈 보존 + 합산 트랙 add) + 외부 통합 매트릭스(KIS 단일 — Yahoo 폐기) + Flyway V1~V11(v3.2.0 보존) + frontend 라우팅(v3.2.0 5 라우트 보존) + deployment 토폴로지(v3.2.0 보존) + **신규 컴포넌트(CandleAggregator·AggregateBackfillRunner·CandleBootstrapRunner)** | 본격 작성 완료 (PR-48) |
+| [02-data-flow.md](02-data-flow.md) | backend-core | 모듈별 데이터 흐름(REST·Kafka 토픽 매트릭스·STOMP·Redis 캐시) — 1m 합산 가공 흐름 add (boundary 마감 트리거 + Redis 5m~1h 키 매트릭스 확장 + DailyCloseFinalizer 20:00 KST) | sub-agent 디스패치 |
+| [03-use-sequences.md](03-use-sequences.md) | market-data | 사용자 유즈 시퀀스 (보존) + NXT 통합 거래 시간대 시퀀스 add(`fid_cond_mrkt_div_code="UN"` 호출 + 08:00~20:00 KST cover) + 1m 합산 가공 시퀀스 add + KIS-first raw 출처(open-trading-api `inquire_time_dailychartprice.py`·`inquire_daily_itemchartprice.py`) | sub-agent 디스패치 |
+| [04-feature-spec.md](04-feature-spec.md) | backend-core | W1·W2 트랙 기능 명세(보존) + **W3 T-BT(Backtest Engine — PR-47 #282·#284)** 기능 명세 add + 데이터 정책 변경 명세(KIS-only·NXT cover·합산 가공) add | sub-agent 디스패치 |
+| [05-ui-inventory.md](05-ui-inventory.md) | frontend | 화면·메뉴·버튼 인벤토리(보존) + **IntervalToggle 5종 활성화(5m·15m·30m·90m·1h)** add + LWC NXT X축 범위 점검(08:00~20:00 KST) | sub-agent 디스패치 |
+| **[06-history-traceability.md](06-history-traceability.md)** | architect | PR·ADR·기능 3축 추적성 매트릭스 (v3.2.0 → v3.2.2 16 PR + ADR 4건 신규 + 데이터 정책 3건 + W3 T-BT 코드 진입 + 6 hotfix) | 본격 작성 완료 (PR-48) |
+| **[07-policy-evolution.md](07-policy-evolution.md)** | architect | 운영 헌법 7 § (보존) + ADR 0057·0062·0063 발행 + 정책 진화 추가 2건(KIS-first 정책 raw fetch 의무 강화 + 사용자 메모리 보강 2건) | 본격 작성 완료 (PR-48) |
+
+> **인덱스 갱신 권한**: architect 단독 책임 (충돌 회피 — 헌법 §4 정합). sub-agent는 본인 파일만 in-place edit, README 인덱스는 변경 안 함.
+
+---
+
+## 베이스라인 정합 ADR (v3.2.2 시점 권위)
+
+본 v3.2.2 시점 데이터 흐름·정책 결정의 baseline ADR 목록:
+
+| ADR | 제목 | 위치·연결 |
+|-----|------|----------|
+| **0019** | 캔들 저장 정책 — Watchlist 기반 | Accepted (부분 revoke) — Yahoo 의존 부분 보류·1m 합산 가공 트랙 완료 시 §2 재통합 (ADR 0062 §7-3 정합 갱신 대기) |
+| **0028** | Watchlist Ingestion Worker (5초 polling LOCK) | Accepted — cold-start 흐름 ADR 0057 §2-3 정합 갱신 + ADR 0062 §4-3 합산 트리거 통합 |
+| **0029** | 당일 진행 중 캔들 Redis 캐시 | Accepted — Redis 키 매트릭스 §2-1 확장 (ADR 0062 §4-4 5m~1h boundary 캐시 5 행 add 대기) |
+| **0052** | Baseline Documentation Cycle | Accepted — 본 baseline 발행이 두 번째 적용 사례 (v3.2.0에 이어 v3.2.2) |
+| **0056** | Backtest Engine Architecture (W3 T-BT) | Accepted (PR-47 #282 spec / #284 본격) — domain/backtest 5 sealed class + 룩어헤드·세·수수료·슬리피지 + sandbox 통합 |
+| **0057** | KIS OpenAPI 단일 데이터 출처 (Yahoo Finance 폐기) | Accepted (PR #294) — prod credential 단일 채널 + ADR 0019 부분 revoke |
+| **0062** | 5m·15m·30m·90m·1h 합산 가공 plan (1m → N분봉) | Accepted (PR #298 plan / #300·#302·#303 본격 묶음) — A-1 백엔드 precomputed + 옵션 2 과거 30 거래일 + 5종 활성화 |
+| **0063** | NXT/통합거래 매트릭스 cover (분봉·일봉 시장 분류 코드 결정) | Accepted (PR #299 plan / #301 본격) — A UN 통합 + 시간 1 08:00~20:00 + threshold 350 → 700 |
+
+---
+
+## 어떻게 읽을지 (역할별 진입 경로)
+
+### 신규 개발자 (시스템을 처음 본다)
+
+1. **[01-architecture.md](01-architecture.md) §1 시스템 전경** — Mermaid 그림으로 5 JVM 모듈 + frontend + 외부 5개(Yahoo 폐기 — KIS·KIS WS·KIS 종목마스터·DART·Anthropic) + 인프라 3개 한 눈에 (v3.2.0 베이스에 합산 트랙 컴포넌트 3건 add)
+2. **[01-architecture.md](01-architecture.md) §2 모듈 책임 매트릭스** — 어떤 코드가 어디 있는지 (api·batch·consumer·pattern-engine·domain·frontend × 트랙 12건)
+3. **[01-architecture.md](01-architecture.md) §7 v3.2.2 신규 컴포넌트 매트릭스** — `CandleAggregator`(domain) · `AggregateBackfillRunner`(consumer) · `CandleBootstrapRunner`(consumer) — 1m 합산 가공 트랙 핵심
+4. **[02-data-flow.md](02-data-flow.md)** — REST + Kafka topic + STOMP + Redis 캐시 흐름 + boundary 마감 트리거 신규 (backend-core 영역)
+5. **[03-use-sequences.md](03-use-sequences.md)** — 셋업 → Watchlist → Symbol(NXT cover) → 5m~1h 합산 흐름 (market-data 영역, KIS-first raw 출처)
+6. `docs/architecture/master-architecture.md` v2 정독 — SoT (19 컴포넌트 + 4 영역 + 5 Wave)
+7. `_workspace/INDEX.md` — 단일 진입점 인덱스 (의도별 진입 경로 5축, ADR 0053)
+
+### 운영자 (배포·환경 설정)
+
+1. **[01-architecture.md](01-architecture.md) §6 deployment 토폴로지** — `docker-compose.yml` 9 컨테이너 (v3.2.0 보존 — 컨테이너 추가 0)
+2. **[01-architecture.md](01-architecture.md) §3 외부 통합 매트릭스** — KIS REST/WS · DART · Anthropic URL·tr_id 정합 (**Yahoo 폐기 — `@Deprecated` 마킹 + v3.3.0 일괄 삭제 예정**)
+3. **[01-architecture.md](01-architecture.md) §4 Flyway V1~V11** — v3.2.0 보존 (v3.2.2에서 신규 마이그레이션 0건 — `CandleAggregator` 영속은 기존 candle 테이블 활용)
+4. **[01-architecture.md](01-architecture.md) §7 신규 컴포넌트 매트릭스** — `CandleAggregator` 도메인 본체 · `AggregateBackfillRunner` cold-start 트리거 · `DailyCloseFinalizer` 20:00 KST 확장
+5. `docs/operations/initial-setup.md` — 초기 셋업
+6. `docs/architecture/external-api-policy.md` — KIS 호출 빈도·토큰 정책 + Yahoo §3 제거 의무
+7. `docs/architecture/candle-data-policy-v2.md` — 매트릭스 §3·§4·§5·§6 갱신 (ADR 0057·0062·0063 정합)
+8. `docs/architecture/policies/` — Living Policy 6건(KIS credential · 로그 레벨 · KIS-first · task cycle · mermaid · ...) — ADR 0053 §1
+9. `CLAUDE.md` "운영 함정 가드" — stale jar · docker compose env 우선순위 · default profile · 실계좌 이중 게이트
+
+### 전략 작성자 (W2 마감 후 본격 사용 가능 + W3 T-BT 코드 진입)
+
+1. `docs/architecture/master-architecture.md` §B 분석·전략 영역 (5 컴포넌트 — Indicator·Pattern·DSL·Strategy Builder·Backtest)
+2. **[03-use-sequences.md](03-use-sequences.md) Strategy Builder 시퀀스** — `/strategy/builder` 라우트에서 트리 폼 빌더로 룰 작성 → DSL 직렬화 → backend `KisYamlDslParser` 검증 → `JvmStrategyEvaluator` 평가 → 결과 카드 → Watchlist 추가
+3. **[03-use-sequences.md](03-use-sequences.md) NXT cover 시퀀스** — 삼성전자·SK하이닉스 등 NXT 거래 대형주 08:00~20:00 KST 분봉 cover 진입
+4. **[04-feature-spec.md](04-feature-spec.md) W3 T-BT 기능 명세** — Backtest Engine 룩어헤드·세·수수료·슬리피지 + sandbox 통합 + W3 후속 데이터 적재 트리거
+5. `_workspace/strategy/` 카탈로그 (KIS 80지표 · 57패턴 cross-check fixture)
+6. `frontend/src/api/strategy.ts` 7 endpoint + `frontend/src/components/strategy/` 8 컴포넌트 (PR-45 v3.2.0)
+7. **[07-policy-evolution.md](07-policy-evolution.md) §6 다음 Wave 정책 후보** — W3 본격 진입 시 backtest_run·screener_result·signal_event·order_audit Flyway 발행 + DailyCloseFinalizer 백테스트 hot-loop 검증 ADR
+
+### architect / orchestrator / sub-agent (운영 룰 정독 의무)
+
+1. **[07-policy-evolution.md](07-policy-evolution.md)** — 운영 헌법 7 § 인용(보존) + ADR 0057·0062·0063 발행 + 정책 진화 추가 2건
+2. `_workspace/arch/agent-charter.md` — 운영 헌법 본문 (헌법 §1~§7 정독 의무 — architect 단독 PR로만 갱신)
+3. **[06-history-traceability.md](06-history-traceability.md) §4 hotfix 패턴** — v3.2.2 사이클 6 hotfix 사례 (KIS WS tick forward + 차트 페이지 정렬 + KIS 1m 페이지네이션 + FAILED 3종목 + PINGPONG JSON)
+4. `_workspace/arch/branching-rules.md` — 브랜치·머지·author 정책
+5. `.claude/agents/<agent>.md` SKILL — 영역별 특수 룰만
+6. `docs/architecture/policies/` — Living Policy 6건 (ADR 0053 — 현행 권위 단일 위치)
+
+---
+
+## v3.2.0 → v3.2.2 사이클 핵심 통계
+
+| 지표 | v3.2.0 (2026-05-10) | v3.2.2 (2026-05-11) | 증감 |
+|------|---------------------|---------------------|------|
+| PR # 누적 | #273 | #309 | +36 (#274~#293 minor hotfix + 디스패치 + v3.2.1 사이클 포함 / #294~#309 v3.2.2 16 PR) |
+| ADR 수 | 55 | 60 | +5 (0056 W3 T-BT + 0057 KIS-only + 0062 합산 가공 + 0063 NXT + 1건) |
+| Flyway 버전 | V11 | V11 (보존 — `CandleAggregator` 영속은 기존 candle 테이블 활용) | 0 |
+| JVM 모듈 | 5 (v3.2.0 base — domain·api·batch·consumer·pattern-engine) | 5 (보존) | 0 |
+| W3 ★ 트랙 코드 진입 | 0 | 1 (T-BT — `domain/backtest/*` 5 sealed class + sandbox 통합) | +1 |
+| 데이터 출처 (총) | KIS + DART + Yahoo + Anthropic (4) | **KIS + DART + Anthropic (3) — Yahoo @Deprecated 마킹 v3.3.0 일괄 삭제 예정** | -1 |
+| KIS 시장 분류 코드 cover | KRX 단독 (`fid_cond_mrkt_div_code="J"`) | **KRX+NXT 통합 (`fid_cond_mrkt_div_code="UN"`)** | +NXT 통합 |
+| KIS 1m cover 시간대 | 09:00~15:30 KST (KRX 정규장 ~390 bar/일) | **08:00~20:00 KST (KRX+NXT 통합 ~720 bar/일)** | +5.5시간 |
+| `MIN_1M_CANDLE_THRESHOLD` | 350L | 700L | +100% |
+| candle table 5m·15m·30m·90m·1h 활성화 | 0 (UI "데이터 없음") | **5종 모두 활성화 (precomputed ~56k rows)** | +5 interval |
+| frontend IntervalToggle 노출 | 8 (1m·5m·30m·1h·1d·1wk·1mo·1y) | **10 (+15m·90m)** | +2 |
+| DailyCloseFinalizer 트리거 시각 | 16:00 KST (KRX 마감 후) | **20:00 KST (NXT after-hour 마감 후)** | +4시간 |
+| 운영 헌법 § 수 | 7 | 7 (보존) | 0 |
+| Living Policy 문서 | 6 | 6 (보존) | 0 |
+
+상세는 **[06-history-traceability.md](06-history-traceability.md) §6 결론**.
+
+---
+
+## v3.2.0 → v3.2.2 사이클 머지된 주요 PR (요약)
+
+PR 본문 인용 — 시계열 전체는 [06-history-traceability.md](06-history-traceability.md) §2.
+
+| PR | mergedAt | 트랙 / 종류 | 한 줄 요약 |
+|----|----------|------------|------------|
+| #282 | 2026-05-11 | W3 T-BT spec · ADR 0056 | spec(arch): W3 T-BT 진입 — Backtest Engine 강화 spec/plan + ADR 0056 (PR-47) |
+| #284 | 2026-05-11 | W3 T-BT 본격 | feat(domain+api+consumer): PR-48 W3 T-BT — Backtest Engine 구현 (룩어헤드·세·수수료·슬리피지 + sandbox 통합) |
+| #286 | 2026-05-11 | hotfix | fix(consumer+domain): KIS WS connect 누락 결함 — 장중 실시간 시세 수신 0건 (dogfooding) |
+| #287 | 2026-05-11 | hotfix | fix(consumer): KIS WS SSL handshake timeout — PR #278 DART 패턴 동일 적용 |
+| #289·#290 | 2026-05-11 | hotfix | fix(frontend+domain+consumer): KIS WS 체결가 tick 등락 필드 forward — STOMP 단일 source 동기 표시 결함 정정 |
+| #292 | 2026-05-11 | hotfix | fix(frontend): 차트 캔들 페이지 합산 정렬 결함 — useInfiniteQuery page 경계 ts 역행 hotfix |
+| #294 | 2026-05-11 | architect · ADR 0057 | arch: KIS-only data source ADR (0057) + ADR 0019 supersede 부분 revoke + 5m~1h backlog §31 |
+| #295 | 2026-05-11 | market-data | feat(market-data): Yahoo Finance 전면 폐기 + KIS-only 1d/1m cold-start backfill |
+| #296·#297 | 2026-05-11 | hotfix | fix(consumer): KIS 1m 분봉 결함 2건 — 페이지네이션 보강 + fid_fake_tick_incu_yn 누락 fix + 500 backoff 보강 |
+| #298 | 2026-05-11 | architect · ADR 0062 plan | arch: ADR 0062 plan — 5m·15m·30m·90m·1h 합산 가공 (1m → N분봉) |
+| #299 | 2026-05-11 | architect · ADR 0063 plan | arch: ADR 0063 plan — NXT/통합거래 매트릭스 cover (사용자 dogfooding 의제) |
+| #300 | 2026-05-11 | strategy-engine | feat(domain): CandleAggregator 도메인 본체 + Unit Test 17건 (ADR 0062) |
+| #301 | 2026-05-11 | market-data | fix(consumer): NXT cover hotfix — ADR 0063 채택 (fid_cond_mrkt_div_code UN, 08:00~20:00, threshold 700) |
+| #302 | 2026-05-11 | frontend | feat(frontend): IntervalToggle 5종 활성화 + LWC NXT X축 범위 점검 (ADR 0062·0063 채택) |
+| #303 | 2026-05-11 | market-data | feat(market-data): AggregateBackfillRunner 신규 + ColdStartExecutor 확장 + DailyCloseFinalizer 20:00 KST (ADR 0062 D 후속) |
+| #304 | 2026-05-11 | hotfix | fix(consumer): FAILED 3종목 정정 — KOSDAQ market_div J 분기 + 거래정지 skip |
+| #305 | 2026-05-11 | hotfix | fix(consumer): KIS WS PINGPONG JSON 메시지 false-positive 제거 |
+| #306 | 2026-05-11 | release | release: v3.2.2 — KIS-only + NXT + 합산 가공 트랙 가동 |
+| #307 | 2026-05-11 | meta | chore(meta): backlog §33·§34·§35 등록 — v3.2.2 후속 의제 |
+| #308 | 2026-05-11 | meta | docs(devlog): 2026-05-11 v3.2.2 cut 종합 |
+| #309 | 2026-05-11 | baseline init | chore(baseline): v3.2.2 init — 폴더 + CHANGELOG 5 slot prepend (PR-48) |
+
+---
+
+## 작성 규약 (sub-agent 디스패치 시 준수)
+
+- 본문은 한국어, 코드/명령은 영어 그대로
+- **Mermaid 다이어그램 의무** (시각화 가능 수준) — `_workspace/baseline/v3.2.2/html/` 변환 시 `scripts/baseline-render-html.sh` (ADR 0052)
+- **raw 출처 인용 의무** — KIS API · DART · 코드 path 명시 (`consumer/.../KisRestCandleAdapter.kt:L170` 등)
+- 추측·관념적 서술 금지 — 코드 inspection 결과만 인용
+- **TBD 표시**: 미작성 영역은 명시. 다른 sub-agent 영역은 cross-reference (`→ 02-data-flow.md 참조` 식)
+- `docs/architecture/master-architecture.md` §X · `_workspace/arch/adr/NNNN-*.md` 같은 SoT 출처 명시 의무
+- v3.2.0 baseline 보존 영역은 **변경 0** — 추가 분만 v3.2.2 add (예: 01-architecture.md §1 Mermaid는 v3.2.0 베이스에 `CandleAggregator`·`AggregateBackfillRunner` 박스만 추가, Yahoo 박스는 점선 dim 처리)
+
+---
+
+## 다음 Wave 진입 시 본 baseline 갱신
+
+W3 본격 진입(Backtest 데이터 적재·실행·결과 영속 + Screener · Signal Engine · Risk Guard · Order Executor · Reconciliation · Performance · Notification) 시 본 폴더는 immutable(ADR 0031). v3.3.0 신규 baseline 컷 권장(`_workspace/baseline/v3.3.0/`).
+
+W3 본격 진입 시 본 §1·§3·§4가 본격 확장:
+- **§1 Mermaid** — backtest_run 영속·screener·signal·order·reconcile·notify 박스 add (master §C 영역)
+- **§3 외부 통합** — KIS 주문 endpoint(TTTC·VTTC) + KIS WS H0STCNI0 체결통보 + Notification(Slack webhook) add + **Yahoo 박스 완전 제거** (v3.3.0 일괄 삭제)
+- **§4 Flyway** — V12~ backtest_run·screener_result·signal_event·order_audit 테이블 add
+- **§5 frontend 라우트** — `/backtest`·`/screener`·`/dashboard` 본격 add
+
+W4(AI 옵션 + MCP 서버) 진입 시 mcp 컨테이너 + AI Console 박스 add. **본 v3.2.2 시점 Anthropic 통합은 T-DSL 자연어→DSL helper 한정 (사용자 트리거 + 매매 결정권 0)** — ADR 0023·0026 정합.
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>
