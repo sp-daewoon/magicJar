@@ -61,10 +61,13 @@ magicjar:
   kis:
     base-url-prod: ${MAGICJAR_KIS_BASE_URL_PROD:https://openapi.koreainvestment.com:9443}
     base-url-vps: ${MAGICJAR_KIS_BASE_URL_VPS:https://openapivts.koreainvestment.com:29443}
-    # KIS WebSocket URL (ADR 0048 — open-trading-api kis_auth.py my_url_ws 기반)
+    # KIS WebSocket URL — ws:// (비암호화 WebSocket)
+    # KIS-first 출처: kis_devlp.yaml ops="ws://ops.koreainvestment.com:21000" (SSL 없음)
+    # https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/kis_devlp.yaml
+    # 주의: KIS WS 서버는 ws:// 사용. wss:// 연결 시 SSL handshake timeout 발생.
     ws:
-      url-prod: ${MAGICJAR_KIS_WS_URL_PROD:wss://ops.koreainvestment.com:21000}
-      url-vps: ${MAGICJAR_KIS_WS_URL_VPS:wss://ops.koreainvestment.com:31000}
+      url-prod: ${MAGICJAR_KIS_WS_URL_PROD:ws://ops.koreainvestment.com:21000}
+      url-vps: ${MAGICJAR_KIS_WS_URL_VPS:ws://ops.koreainvestment.com:31000}
       user-id: ${MAGICJAR_KIS_WS_USER_ID:}       # KIS WS approval_key 발급 사용자 ID
       heartbeat-timeout-seconds: ${MAGICJAR_KIS_WS_HEARTBEAT_TIMEOUT:10}
       polling-fallback-timeout-seconds: ${MAGICJAR_KIS_WS_POLLING_FALLBACK_TIMEOUT:30}
