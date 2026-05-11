@@ -310,17 +310,27 @@ class KisWebSocketBridge(
         publishTickEvent(tick)
     }
 
+    /**
+     * Redis quote:last:{code} 갱신.
+     * dogfooding 결함 1 fix: priceChange·changeRate·changeSign 필드 포함 (등락률 싱크).
+     * KIS-first: PRDY_VRSS[4]·PRDY_CTRT[5]·PRDY_VRSS_SIGN[3] 출처
+     *   https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
+     */
     private fun writeToRedis(tick: TickEvent) {
         try {
-            val json =
-                objectMapper.writeValueAsString(
-                    mapOf(
-                        "price" to tick.price.toPlainString(),
-                        "volume" to tick.volume,
-                        "ts" to tick.ts.toString(),
-                        "source" to tick.source,
-                    ),
+            val data =
+                mutableMapOf<String, Any?>(
+                    "price" to tick.price.toPlainString(),
+                    "volume" to tick.volume,
+                    "ts" to tick.ts.toString(),
+                    "source" to tick.source,
                 )
+            // 등락 필드 — null 이면 키 자체를 포함하지 않음 (polling source 호환)
+            tick.priceChange?.let { data["priceChange"] = it.toPlainString() }
+            tick.changeRate?.let { data["changeRate"] = it.toPlainString() }
+            tick.changeSign?.let { data["changeSign"] = it }
+
+            val json = objectMapper.writeValueAsString(data)
             redisTemplate
                 .opsForValue()
                 .set(
@@ -393,19 +403,28 @@ class KisWebSocketBridge(
         }
     }
 
+    /**
+     * Kafka market.tick.v1 publish.
+     * dogfooding 결함 1 fix: priceChange·changeRate·changeSign 필드 포함.
+     * STOMP forwarder(MarketTickStompForwarder)가 payload를 그대로 forward하므로
+     * 이 payload에 등락 필드를 넣으면 /topic/market.tick.{code} 에도 자동 전파됨.
+     */
     private fun publishTickEvent(tick: TickEvent) {
         try {
-            val payload =
-                objectMapper.writeValueAsString(
-                    mapOf(
-                        "code" to tick.code,
-                        "price" to tick.price.toPlainString(),
-                        "volume" to tick.volume,
-                        "ts" to tick.ts.toString(),
-                        "source" to tick.source,
-                        "stale" to tick.stale,
-                    ),
+            val data =
+                mutableMapOf<String, Any?>(
+                    "code" to tick.code,
+                    "price" to tick.price.toPlainString(),
+                    "volume" to tick.volume,
+                    "ts" to tick.ts.toString(),
+                    "source" to tick.source,
+                    "stale" to tick.stale,
                 )
+            tick.priceChange?.let { data["priceChange"] = it.toPlainString() }
+            tick.changeRate?.let { data["changeRate"] = it.toPlainString() }
+            tick.changeSign?.let { data["changeSign"] = it }
+
+            val payload = objectMapper.writeValueAsString(data)
             kafkaTemplate.send("market.tick.v1", tick.code, payload)
         } catch (e: Exception) {
             log.error("KIS WS Kafka publish 실패: code={} error={}", tick.code, e.message)
