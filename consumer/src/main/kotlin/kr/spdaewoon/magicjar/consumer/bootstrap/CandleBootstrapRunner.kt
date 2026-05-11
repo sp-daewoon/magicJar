@@ -2,6 +2,9 @@ package kr.spdaewoon.magicjar.consumer.bootstrap
 
 import kr.spdaewoon.magicjar.consumer.aggregation.AggregateBackfillRunner
 import kr.spdaewoon.magicjar.consumer.ingestion.ColdStartExecutor
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaEntity
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaRepository
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerWatchlistJpaRepository
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
@@ -40,6 +43,8 @@ class CandleBootstrapRunner(
     private val candleRepository: CandleRepository,
     private val coldStartExecutor: ColdStartExecutor,
     private val aggregateBackfillRunner: AggregateBackfillRunner,
+    private val instrumentJpaRepository: ConsumerInstrumentJpaRepository,
+    private val auditTrailJpaRepository: ConsumerAuditTrailJpaRepository,
 ) : ApplicationRunner {
     private val log = LoggerFactory.getLogger(CandleBootstrapRunner::class.java)
 
@@ -62,9 +67,41 @@ class CandleBootstrapRunner(
 
         var coldStartCount = 0
         var aggregateOnlyCount = 0
+        var skippedCount = 0
 
         for (entry in watchlistEntries) {
             val code = entry.code
+
+            // 거래정지·정리매매 종목 skip (KIS API 응답 0 — 외부 결함, 시스템 보강 불가)
+            // instrument 조회 실패(stub/UNKNOWN) 시에는 skip 하지 않고 cold-start 시도
+            val instrument = instrumentJpaRepository.findById(code).orElse(null)
+            if (instrument != null && (instrument.tradingHalt || instrument.liquidation)) {
+                log.info(
+                    "CandleBootstrapRunner — 거래정지·정리매매 종목 skip: code={} halt={} liquidation={}",
+                    code,
+                    instrument.tradingHalt,
+                    instrument.liquidation,
+                )
+                try {
+                    val detail =
+                        """{"code":"$code","reason":"TRADING_HALT",""" +
+                            """"tradingHalt":${instrument.tradingHalt},"liquidation":${instrument.liquidation}}"""
+                    auditTrailJpaRepository.save(
+                        ConsumerAuditTrailJpaEntity(
+                            actor = "system",
+                            action = "KIS_COLD_START_SKIPPED",
+                            entityType = "candle",
+                            entityId = code,
+                            detailJson = detail,
+                        ),
+                    )
+                } catch (e: Exception) {
+                    log.warn("CandleBootstrapRunner skip audit 저장 실패: code={} err={}", code, e.message)
+                }
+                skippedCount++
+                continue
+            }
+
             val count1d = candleRepository.countByCodeAndInterval(code, CandleInterval.ONE_DAY)
             val count1m = candleRepository.countByCodeAndInterval(code, CandleInterval.ONE_MIN)
 
@@ -121,9 +158,10 @@ class CandleBootstrapRunner(
             }
         }
         log.info(
-            "CandleBootstrapRunner 완료 — cold-start 트리거 {}건 / aggregate-only {}건 (total watchlist={}건)",
+            "CandleBootstrapRunner 완료 — cold-start 트리거 {}건 / aggregate-only {}건 / skip {}건 (total watchlist={}건)",
             coldStartCount,
             aggregateOnlyCount,
+            skippedCount,
             watchlistEntries.size,
         )
     }
