@@ -3,9 +3,9 @@ id: T-20260511-2139-ws-pingpong-fix
 agent: market-data
 model: sonnet
 branch: agent/market-data/ws-pingpong-fix
-status: RUNNING
+status: DONE
 startedAt: 2026-05-11T21:39:25.460+09:00
-completedAt: null
+completedAt: 2026-05-11T21:44:33.625+09:00
 pr: null
 parentPhase: ?
 ---
