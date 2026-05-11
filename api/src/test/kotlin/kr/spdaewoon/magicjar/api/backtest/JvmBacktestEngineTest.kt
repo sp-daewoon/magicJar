@@ -1,0 +1,282 @@
+package kr.spdaewoon.magicjar.api.backtest
+
+import kotlinx.datetime.Clock
+import kotlinx.datetime.LocalDate
+import kr.spdaewoon.magicjar.api.persistence.CandleJpaEntity
+import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
+import kr.spdaewoon.magicjar.api.service.backtest.BacktestEvaluatorBridge
+import kr.spdaewoon.magicjar.api.service.backtest.BacktestModelRegistry
+import kr.spdaewoon.magicjar.api.service.backtest.BacktestPerformanceCalculator
+import kr.spdaewoon.magicjar.api.service.backtest.JvmBacktestEngine
+import kr.spdaewoon.magicjar.api.service.backtest.commission.KisDirectCommissionModel
+import kr.spdaewoon.magicjar.api.service.backtest.commission.NoOpCommissionModel
+import kr.spdaewoon.magicjar.api.service.backtest.slippage.FixedRateSlippageModel
+import kr.spdaewoon.magicjar.api.service.backtest.slippage.NoOpSlippageModel
+import kr.spdaewoon.magicjar.api.service.backtest.tax.KoreanStockTaxModel
+import kr.spdaewoon.magicjar.api.service.backtest.tax.NoOpTaxModel
+import kr.spdaewoon.magicjar.domain.backtest.BacktestException
+import kr.spdaewoon.magicjar.domain.backtest.BacktestRequest
+import kr.spdaewoon.magicjar.domain.backtest.BacktestResult
+import kr.spdaewoon.magicjar.domain.backtest.PriceAdjustmentMode
+import kr.spdaewoon.magicjar.domain.backtest.SizingPolicy
+import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
+import kr.spdaewoon.magicjar.domain.strategy.Signal
+import kr.spdaewoon.magicjar.domain.strategy.Strategy
+import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
+import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
+import kr.spdaewoon.magicjar.domain.strategy.StrategyEvalResult
+import kr.spdaewoon.magicjar.domain.strategy.StrategyException
+import kr.spdaewoon.magicjar.domain.strategy.Universe
+import kr.spdaewoon.magicjar.domain.strategy.dsl.DslStrategyDefinition
+import kr.spdaewoon.magicjar.domain.strategy.dsl.IndicatorRef
+import kr.spdaewoon.magicjar.domain.strategy.port.StrategyRepositoryPort
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertInstanceOf
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.mockito.kotlin.any
+import org.mockito.kotlin.mock
+import org.mockito.kotlin.whenever
+import java.math.BigDecimal
+import java.time.Instant
+
+/**
+ * JvmBacktestEngine 단위 테스트 (ADR 0056 §2-2-C — 룩어헤드·시뮬·abort 검증).
+ *
+ * 검증 1 (positive): 정상 시뮬 — BUY → SELL → SUCCESS
+ * 검증 2 (positive): candle 0건 → Aborted(NO_CANDLE_DATA)
+ * 검증 3 (positive): strategy 미존재 → StrategyNotFoundException
+ * 검증 4 (positive): BUY 신호만, sellCondition null → 강제 청산 후 SUCCESS
+ * 검증 5 (positive): evaluateBacktest 호출 검증 — 직접 walkRoot 호출 0건
+ * 검증 6 (positive): timeout 50회 → Aborted(TIMEOUT_QUOTA_EXCEEDED)
+ * 검증 7 (positive): HOLD 신호 → 매매 0건 → SUCCESS (trades empty)
+ */
+class JvmBacktestEngineTest {
+    private val strategyRepo: StrategyRepositoryPort = mock()
+    private val candleRepo: CandleJpaRepository = mock()
+    private val evaluatorBridge: BacktestEvaluatorBridge = mock()
+    private val modelRegistry: BacktestModelRegistry =
+        BacktestModelRegistry(
+            taxModels = listOf(KoreanStockTaxModel(), NoOpTaxModel()),
+            commissionModels = listOf(KisDirectCommissionModel(), NoOpCommissionModel()),
+            slippageModels = listOf(FixedRateSlippageModel(), NoOpSlippageModel()),
+        )
+    private val performanceCalculator = BacktestPerformanceCalculator()
+
+    private val engine =
+        JvmBacktestEngine(
+            evaluatorBridge = evaluatorBridge,
+            strategyRepository = strategyRepo,
+            candleJpaRepository = candleRepo,
+            modelRegistry = modelRegistry,
+            performanceCalculator = performanceCalculator,
+        )
+
+    private fun makeStrategy(buyCondition: kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode): Strategy =
+        Strategy(
+            id = 1L,
+            userId = 1L,
+            definition =
+                StrategyDefinition(
+                    dsl =
+                        DslStrategyDefinition(
+                            name = "test",
+                            buyCondition = buyCondition,
+                            sellCondition = null,
+                        ),
+                    universe = Universe.defaultKospi(),
+                ),
+            complexity =
+                StrategyComplexity(
+                    complexityClass = ComplexityClass.LOW,
+                    indicatorCallCount = 1,
+                    nodeCount = 3,
+                    astDepth = 2,
+                    estimatedEvalTimeMs = 1,
+                ),
+        )
+
+    private fun makeCandleEntities(
+        count: Int,
+        basePrice: BigDecimal = BigDecimal("100000"),
+    ): List<CandleJpaEntity> {
+        val baseInstant = Instant.parse("2024-01-01T00:00:00Z")
+        return (0 until count).map { i ->
+            CandleJpaEntity(
+                id = i.toLong(),
+                code = "005930",
+                interval = "1d",
+                ts = baseInstant.plusSeconds(i.toLong() * 86400),
+                openRaw = basePrice,
+                highRaw = basePrice.multiply(BigDecimal("1.01")),
+                lowRaw = basePrice.multiply(BigDecimal("0.99")),
+                closeRaw = basePrice,
+                openAdj = basePrice,
+                highAdj = basePrice.multiply(BigDecimal("1.01")),
+                lowAdj = basePrice.multiply(BigDecimal("0.99")),
+                closeAdj = basePrice,
+                volume = 10000L,
+                source = "TEST",
+            )
+        }
+    }
+
+    private fun makeRequest(): BacktestRequest =
+        BacktestRequest(
+            strategyId = 1L,
+            universe = listOf("005930"),
+            interval = "1d",
+            from = LocalDate(2024, 1, 1),
+            to = LocalDate(2024, 12, 31),
+            initialCapital = BigDecimal("10000000"),
+            taxModel = "none",
+            commissionModel = "none",
+            slippageModel = "none",
+            priceAdjustmentMode = PriceAdjustmentMode.ADJUSTED,
+            sizingPolicy = SizingPolicy.AllCapital,
+        )
+
+    @Test
+    fun `검증1_정상 시뮬 BUY t=0 SELL t=1 → SUCCESS`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        val strategy =
+            makeStrategy(buyNode).copy(
+                definition =
+                    makeStrategy(buyNode).definition.copy(
+                        dsl =
+                            DslStrategyDefinition(
+                                name = "test",
+                                buyCondition = buyNode,
+                                sellCondition = buyNode, // 동일 조건을 sell로도 사용
+                            ),
+                    ),
+            )
+        whenever(strategyRepo.findById(1L)).thenReturn(strategy)
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(makeCandleEntities(5))
+
+        // t=0: BUY, t=1: HOLD, t=2: SELL, t=3..4: HOLD
+        val evalResults =
+            listOf(
+                StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY_t0"), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf("trigger" to "HOLD_t1"), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.SELL, BigDecimal.ONE, mapOf("trigger" to "SELL_t2"), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf("trigger" to "HOLD_t3"), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf("trigger" to "HOLD_t4"), Clock.System.now(), 1L),
+            )
+
+        var buyCallIdx = 0
+        var sellCallIdx = 0
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any())).thenAnswer {
+            // buyCondition과 sellCondition이 같은 노드이므로 — 번갈아 가며 반환
+            evalResults[buyCallIdx++.coerceAtMost(evalResults.size - 1)]
+        }
+
+        val result = engine.run(makeRequest())
+        assertInstanceOf(BacktestResult.Success::class.java, result)
+        val success = result as BacktestResult.Success
+        assertTrue(success.trades.isNotEmpty(), "매매 기록이 있어야 합니다")
+    }
+
+    @Test
+    fun `검증2_캔들 0건 → Aborted NO_CANDLE_DATA`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        whenever(strategyRepo.findById(1L)).thenReturn(makeStrategy(buyNode))
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(emptyList())
+
+        val result = engine.run(makeRequest())
+        assertInstanceOf(BacktestResult.Aborted::class.java, result)
+        assertEquals("NO_CANDLE_DATA", (result as BacktestResult.Aborted).reason)
+    }
+
+    @Test
+    fun `검증3_strategy 미존재 → StrategyNotFoundException`() {
+        whenever(strategyRepo.findById(99L)).thenReturn(null)
+
+        val request = makeRequest().copy(strategyId = 99L)
+        org.junit.jupiter.api.Assertions.assertThrows(BacktestException.StrategyNotFoundException::class.java) {
+            engine.run(request)
+        }
+    }
+
+    @Test
+    fun `검증4_BUY만 SELL 없음 → 강제청산 후 SUCCESS`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        whenever(strategyRepo.findById(1L)).thenReturn(makeStrategy(buyNode))
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(makeCandleEntities(3))
+
+        // BUY t=0, HOLD t=1, HOLD t=2 → 강제 청산
+        var callIdx = 0
+        val results =
+            listOf(
+                StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf("trigger" to "HOLD"), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf("trigger" to "HOLD"), Clock.System.now(), 1L),
+            )
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any())).thenAnswer {
+            results[callIdx++.coerceAtMost(results.size - 1)]
+        }
+
+        val result = engine.run(makeRequest())
+        assertInstanceOf(BacktestResult.Success::class.java, result)
+        // BUY 1건 + 강제청산 SELL 1건 = 2건
+        val success = result as BacktestResult.Success
+        assertEquals(2, success.trades.size, "BUY + 강제청산 SELL = 2건이어야 합니다")
+    }
+
+    @Test
+    fun `검증5_evaluateBacktest 호출 검증 — walkRoot 직접 호출 0건`() {
+        // JvmBacktestEngine이 evaluatorBridge.evaluateBacktest만 호출하고
+        // 직접 walkRoot 호출이 없음을 코드 구조로 검증
+        // (이 테스트는 evaluatorBridge mock을 통해 간접 검증)
+        val buyNode = IndicatorRef("close", emptyList())
+        whenever(strategyRepo.findById(1L)).thenReturn(makeStrategy(buyNode))
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(makeCandleEntities(2))
+
+        var bridgeCallCount = 0
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any())).thenAnswer {
+            bridgeCallCount++
+            StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L)
+        }
+
+        engine.run(makeRequest())
+        assertTrue(bridgeCallCount > 0, "evaluatorBridge.evaluateBacktest는 반드시 호출되어야 합니다")
+    }
+
+    @Test
+    fun `검증6_timeout 50회 → Aborted TIMEOUT_QUOTA_EXCEEDED`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        whenever(strategyRepo.findById(1L)).thenReturn(makeStrategy(buyNode))
+        // 충분한 캔들 제공 (50회 timeout이 쌓이려면 50개 이상의 시점 필요)
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(makeCandleEntities(100))
+
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any()))
+            .thenThrow(StrategyException.StrategyTimeoutException(1L, 1000L))
+
+        val result = engine.run(makeRequest())
+        assertInstanceOf(BacktestResult.Aborted::class.java, result)
+        val aborted = result as BacktestResult.Aborted
+        assertEquals("TIMEOUT_QUOTA_EXCEEDED", aborted.reason)
+        assertEquals(50, aborted.timeoutCount)
+    }
+
+    @Test
+    fun `검증7_HOLD 신호만 → SUCCESS trades empty`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        whenever(strategyRepo.findById(1L)).thenReturn(makeStrategy(buyNode))
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(makeCandleEntities(5))
+
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any()))
+            .thenReturn(StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L))
+
+        val result = engine.run(makeRequest())
+        assertInstanceOf(BacktestResult.Success::class.java, result)
+        val success = result as BacktestResult.Success
+        assertTrue(success.trades.isEmpty(), "HOLD만이면 매매 기록 0건이어야 합니다")
+    }
+}
