@@ -894,3 +894,35 @@ PR-Na (architect spec/plan + ADR 갱신·신규) → PR-Nb (strategy-engine: 62�
 - `api/.../controller/PatternController.kt` — 임시 게이트 위치
 - `consumer/.../application/pattern/` — 이동 대상 62파일 + 4 디렉토리(detector/{single·triple·pair}, helper, cache, util)
 - `docs/architecture/master-architecture.md` §5 — 모듈 경계 (ADR 0004 SoT)
+
+---
+
+## §27. ✅ 처리 완료 — KIS WS connect() 누락 결함 (사용자 dogfooding 2026-05-11)
+
+### 사유
+
+2026-05-11 10:27 KST 장중 사용자 dogfooding: 종목상세 화면에서 실시간 가격 변동 전혀 없음 보고.
+진단 결과 `KisWebSocketBridge.connect()` 메서드가 public으로 존재하나 `KisWsPort` 인터페이스에 미선언,
+`WatchlistIngestionWorker.onStartup()`에서 호출 0건 → `sendSink` null 상태에서 `subscribe()` 메시지 폐기
+→ WS 핸드셰이크 0건 → 실시간 데이터 수신 0건 (critical — 룰 기반 quant trading 시그널 입력 차단).
+
+### 처리 내용 (PR-N — hotfix)
+
+- `KisWsPort` 인터페이스에 `fun connect()` 추가 (KDoc: ADR 0028 §2-1 + ADR 0048 §2-4 인용)
+- `KisWebSocketBridge.connect()`에 `override` 키워드 추가
+- `WatchlistIngestionWorker.onStartup()`에 `kisWsPort.connect()` 호출 추가 (subscribe보다 선행)
+- `WatchlistIngestionWorkerTest` 신규 작성 (4 케이스 — connect 호출, 순서 보장, 빈 watchlist, 세션 분기)
+- `OrderbookSubscriptionRouterTest.TestKisWsPort`에 `connect()` no-op 구현 추가
+- `:domain:check` + `:consumer:check` + 전체 `check` GREEN
+
+### 변경 파일
+
+- `domain/.../port/KisWsPort.kt` (+23 LOC)
+- `consumer/.../ws/KisWebSocketBridge.kt` (+10 LOC)
+- `consumer/.../ingestion/WatchlistIngestionWorker.kt` (+11 LOC)
+- `consumer/.../ingestion/WatchlistIngestionWorkerTest.kt` (신규 +98 LOC)
+- `consumer/.../ingestion/OrderbookSubscriptionRouterTest.kt` (+2 LOC)
+
+### 처리 완료 마킹
+
+2026-05-11 hotfix PR — market-data 단독 (ADR 0004 모듈 경계 정합). v1/v2 잔재 0건. fitness gap: 실시간 시세 = 시그널·주문 1차 입력 — critical 결함 수정.
