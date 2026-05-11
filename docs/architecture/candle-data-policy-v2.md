@@ -2,19 +2,21 @@
 
 - 작성일: TBD
 - 2026-05-11 갱신: **ADR 0057 KIS-only data source 정합** — Yahoo Finance 전면 폐기. 본 문서 §3·§4·§5·§6 매트릭스 KIS-only로 재정의.
-- 본 문서는 운영 가이드. 결정 본문은 **ADR 0057 (KIS OpenAPI 단일 데이터 출처)** + **ADR 0019 (Superseded by 0057)** + **ADR 0028 (Watchlist Ingestion)** + **ADR 0029 (당일 진행 중 캔들 Redis 캐시)** + **ADR 0048 (KIS WS 41 slot + polling fallback)** 참조.
+- 2026-05-11 amend: ADR 0019 supersede 인용 제거 → **Accepted (Yahoo 의존 부분만 보류)**. 5m~1h은 **1m 합산 가공 방향 확정** (backlog §31 트랙 — 위치·source 결정 대기). credential 정책: 정보 수집은 prod 단일 채널 (모의/실전 분기는 주문 라우터 한정).
+- 본 문서는 운영 가이드. 결정 본문은 **ADR 0057 (KIS OpenAPI 단일 데이터 출처)** + **ADR 0019 (Accepted, Yahoo 의존 부분만 보류)** + **ADR 0028 (Watchlist Ingestion)** + **ADR 0029 (당일 진행 중 캔들 Redis 캐시)** + **ADR 0048 (KIS WS 41 slot + polling fallback)** 참조.
 
 ## 1. 정책 한 줄 요약
 
-> **KIS OpenAPI 단일 출처. DB 영속 = Watchlist 풀 내 종목의 1d·1wk·1mo·1y (KIS REST). 1m은 당일 한정 Redis only. 5m·15m·30m·90m·1h은 데이터 없음 (backlog §31 의제). 합성·LRU·자유 입력 모두 폐기. Yahoo Finance 폐기.**
+> **KIS OpenAPI 단일 출처 (prod credential 단일 채널). DB 영속 = Watchlist 풀 내 종목의 1d·1wk·1mo·1y (KIS REST). 1m은 당일 한정 Redis only. 5m·15m·30m·90m·1h은 1m 합산 가공으로 처리 (방향 확정, 위치·source는 backlog §31). Yahoo Finance 폐기.**
 
 ## 2. 핵심 원칙
 
 1. **KIS OpenAPI 단일 출처** — Yahoo Finance·네이버 금융 등 보조 출처 폐기 (ADR 0057, 사용자 결정 2026-05-11)
-2. **Watchlist 기반 universe** — Watchlist 풀 외 종목은 수집·저장 안 함 (ADR 0028)
-3. **DB가 진실원** — 1d·1wk·1mo·1y 영속. Redis는 1m 당일 + 당일 진행 중 1d만
-4. **LRU 폐기** — 풀 size가 자연 universe 한도
-5. **5m·15m·30m·90m·1h interval gap** — "데이터 없음" 표시 (backlog §31 의제 처리 전까지)
+2. **정보 수집 = prod credential 단일 채널** — 모의/실전 분기는 주문 라우터 한정 (사용자 명시 정책 정정 2026-05-11)
+3. **Watchlist 기반 universe** — Watchlist 풀 외 종목은 수집·저장 안 함 (ADR 0028)
+4. **DB가 진실원** — 1d·1wk·1mo·1y 영속. Redis는 1m 당일 + 당일 진행 중 1d만
+5. **LRU 폐기** — 풀 size가 자연 universe 한도
+6. **5m·15m·30m·90m·1h = 1m 합산 가공 (방향 확정)** — 합산 위치(백엔드 vs 프론트) + source 시간 범위는 backlog §31 트랙에서 결정. 트랙 완료 전까지 "1m 합산 가공 예정" 표시
 
 ## 3. 데이터 매트릭스 (ADR 0057 정합)
 
@@ -22,7 +24,7 @@
 |---|---|---|---|---|
 | **틱** | KIS WS `H0STCNT0` | Redis (휘발) | X | retention 1h |
 | **1m (1분봉)** | KIS REST `FHKST03010200` (당일 한정) | Redis (당일) | X (당일 한정) | Redis: 다음날 00:00 evict |
-| **5m / 15m / 30m / 90m / 1h** | **데이터 없음 (backlog §31 의제)** | — | — | — |
+| **5m / 15m / 30m / 90m / 1h** | **1m 합산 가공 (방향 확정 — backlog §31 트랙)** | — (위치 결정 대기) | — | — |
 | **1d (일봉)** | KIS REST `FHKST03010100` (period='D') | Redis cache (옵션) | **DB 영속** | — |
 | **1wk (주봉)** | KIS REST `FHKST03010100` (period='W') | Redis cache (옵션) | **DB 영속** | — |
 | **1mo (월봉)** | KIS REST `FHKST03010100` (period='M') | Redis cache (옵션) | **DB 영속** | — |
@@ -33,11 +35,11 @@
 
 ```
 분봉: [1m]                              ← KIS REST 당일 한정 (장중 한정 노출, 장외 시 "데이터 없음")
-중간봉: [5m] [15m] [30m] [90m] [1h]    ← "데이터 없음 (backlog §31 의제)"
+중간봉: [5m] [15m] [30m] [90m] [1h]    ← "1m 합산 가공 예정 (backlog §31 트랙)"
 일봉: [1d] [1wk] [1mo] [1y]            ← KIS REST 전체 기간
 ```
 
-자유 입력 input 폐기. 각 interval은 KIS가 직접 제공 → **백엔드/프론트 합성 0** (ADR 0057 §2-2). 5m·15m·30m·90m·1h 합산 가공 부활 또는 폐기는 backlog §31 의제 처리 후 결정.
+자유 입력 input 폐기. 1d·1wk·1mo·1y·1m은 KIS가 직접 제공 → **합성 0**. 5m·15m·30m·90m·1h은 **1m 합산 가공으로 처리 결정** (방향 확정 — backlog §31 트랙에서 위치(백엔드 vs 프론트) + source 시간 범위 결정).
 
 ## 5. KIS REST 한도 (ADR 0037 + 0057 정합)
 
@@ -49,7 +51,7 @@
 
 **Rate Limit (ADR 0037)**: 초당 10건 토큰 버킷 + 우선순위 큐 (사용자 path > Watchlist Ingestion > backfill).
 
-**`FHKST03010230` (KIS 일별 분봉 — 과거)**: 모의 미지원·실전 한정. backlog §31 옵션 B 후보 — 본 ADR 발효 시점에는 미사용.
+**`FHKST03010230` (KIS 1분봉 과거 데이터)**: prod credential 단일 채널 호출. backlog §31의 source 옵션 2 후보 — 본 ADR 발효 시점에는 미사용. 채택 시 1m 장기 영속 + 5m·15m·30m·90m·1h 합산 source로 활용.
 
 ## 6. cold-start 흐름 (ADR 0057 §2-3 정합)
 
@@ -68,13 +70,13 @@ consumer WatchlistIngestionWorker (5초 polling LOCK, ADR 0028+0048)
     ├─ KIS REST 1wk (FHKST03010100 period='W', 전체 기간) → DB INSERT
     ├─ KIS REST 1mo (FHKST03010100 period='M', 전체 기간) → DB INSERT
     ├─ KIS REST 1y  (FHKST03010100 period='Y', 전체 기간) → DB INSERT
-    └─ 1m 분봉 — 장중일 때만 KIS REST FHKST03010200 당일분 fetch + Redis only
-        (5m~1h backfill 0 — backlog §31 의제 처리 후 결정)
+    └─ 1m 분봉 — 장중일 때만 KIS REST FHKST03010200 당일분 fetch + Redis only (prod credential)
+        (5m~1h backfill 0 — backlog §31 트랙 완료 시 1m 합산 source로 활성화)
     ↓
 사용자 /symbol/{code} 진입 시:
   - 1d·1wk·1mo·1y → 즉시 응답 (DB)
   - 1m → 장중일 때 Redis only / 장외일 때 "데이터 없음"
-  - 5m·15m·30m·90m·1h → "데이터 없음 (backlog §31)"
+  - 5m·15m·30m·90m·1h → "1m 합산 가공 예정 (backlog §31 트랙)"
 ```
 
 **WS 끊김 시 polling 자동 전환 (ADR 0048 §2-4)**:
@@ -127,8 +129,8 @@ KIS WS tick 도달
 
 - ❌ Yahoo Finance 캔들 fetch 일체 (ADR 0057 — 2026-05-11 사용자 결정)
 - ❌ `YahooCandleFetcherAdapter` (별도 PR에서 `@Deprecated`)
-- ❌ `CandleAggregator` (백엔드 M1 → N분봉 합성) — backlog §31 의제 처리 후 옵션 A 채택 시 부활 검토
-- ❌ `candleAggregator.ts` (frontend M1 → N분봉 합성) — 동일
+- ⏳ `CandleAggregator` (백엔드 M1 → N분봉 합성) — **부활 방향 확정** (backlog §31 트랙 — 위치 옵션 A 채택 시 backend 신설)
+- ⏳ `candleAggregator.ts` (frontend M1 → N분봉 합성) — **부활 방향 확정** (backlog §31 트랙 — 위치 옵션 B 채택 시 frontend 신설)
 - ❌ 자유 입력 input (12m·45m 등)
 - ❌ 분봉 LRU 1년 정책
 - ❌ 사용자 차트 LRU 10 종목 정책
@@ -143,6 +145,6 @@ KIS WS tick 도달
 | 100 종목 | 0 | ~ 100 MB | **≤ 150 MB** |
 | 500 종목 (post-MVP) | 0 | ~ 500 MB | **≤ 750 MB** |
 
-ADR 0019 시점 대비 약 **4배 디스크 감소** (Yahoo 1m 7일 + 5m·15m·30m·90m·1h 60~730일 영속이 제거됨). 8GB host 한도 안에서 universe 1000 종목 이상 가능.
+ADR 0019 §2 매트릭스의 Yahoo 의존 부분이 보류된 현시점 대비 약 **4배 디스크 감소** (Yahoo 1m 7일 + 5m·15m·30m·90m·1h 60~730일 영속이 제거됨). 8GB host 한도 안에서 universe 1000 종목 이상 가능.
 
-**backlog §31 결정 후 변동**: 옵션 A·B 채택 시 5m~1h 합산 또는 KIS `FHKST03010230` 영속이 추가되어 디스크 일부 증가 예상.
+**backlog §31 결정 후 변동**: 합산 위치(백엔드 vs 프론트) + source 시간 범위(당일 한정 vs `FHKST03010230` 과거 포함) 채택안에 따라 디스크 영향 차이 — 백엔드 합산 + `FHKST03010230` 도입 시 1m 장기 영속이 추가되어 디스크 증가, 프론트 합산 + 당일 한정 시 현재 수준 유지.

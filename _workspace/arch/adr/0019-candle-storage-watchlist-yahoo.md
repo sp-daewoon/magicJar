@@ -1,9 +1,11 @@
 # ADR 0019 — 캔들 저장 정책 (Watchlist 기반 + Yahoo 분봉 DB 영속)
 
-- 상태: **Superseded by ADR 0057, 2026-05-11** — Yahoo Finance 전면 폐기 + KIS OpenAPI 단일 출처 정책으로 전환 (사용자 dogfooding 결함 root cause = Yahoo v8 chart endpoint가 `interval=1d&range=max` 조합에서 monthly downsample 응답 반환 → 일봉 위치에 월봉 INSERT). 사용자 명시 "야후꺼 쓰지 말라니깐" / "kis에 있는 데이터만 사용하라고" (2026-05-11). 본 ADR §2-1 매트릭스 + §2-3 cold-start + §2-5 합성 폐기 모두 ADR 0057로 재정의됨.
+- 상태: **Accepted** (Yahoo 의존 부분만 보류 — ADR 0057 정합)
 - 작성일: TBD
 - 결정자: architect
-- 관계: **ADR 0057 (KIS OpenAPI 단일 데이터 출처) — supersede 후속** / ADR 0028(Watchlist Ingestion Worker), ADR 0029(당일 진행 중 캔들 Redis 캐시), ADR 0037(KIS Rate Limit)
+- 관계: ADR 0057 (KIS OpenAPI 단일 데이터 출처 — 이번 사이클 운용 매트릭스 권위) · ADR 0028(Watchlist Ingestion Worker) · ADR 0029(당일 진행 중 캔들 Redis 캐시) · ADR 0037(KIS Rate Limit)
+
+> **2026-05-11 노트 (사용자 명시 정책 정정)**: §2 매트릭스의 Yahoo 의존 부분은 보류 상태 — 이번 사이클은 `1m·1d·1wk·1mo·1y`만 KIS-only로 운용(ADR 0057). 5m·15m·30m·90m·1h 인터벌은 **1m 합산 가공으로 처리 결정** (백엔드 또는 프론트 합산, 구현 사이클은 별도 backlog §31). 본 ADR 본문의 결정 골격(Watchlist 풀 기반·DB 영속·합성 폐기 원칙·LRU 폐기·CHECK constraint)은 **여전히 유효**하며, 5m~1h 합산 가공 트랙이 완료되면 §2 매트릭스에 재통합 예정. **폐기 아님 — 사용자 명시 "ADR 폐기는 하지말어 백로그로 남겨"**.
 
 ## 1. 컨텍스트
 

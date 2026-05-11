@@ -24,6 +24,9 @@ KIS-only 데이터 정책 ADR + ADR 0019 supersede + 5m~1h backlog 의제
 - [x] backlog 5m~1h 의제 § 등록
 - [x] ADR README 인덱스 갱신
 - [x] CHANGELOG row 추가
+- [x] amend: ADR 0019 supersede revoke (사용자 정책 정정)
+- [x] amend: 1m 합산 가공 방향 확정 명시 (5m~1h)
+- [x] amend: KIS 키 분기 제거 (정보 수집 prod credential 단일)
 
 ## 의존성
 - (필요 시 기록)

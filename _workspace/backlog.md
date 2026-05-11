@@ -1041,59 +1041,66 @@ SELECT min(ts), max(ts), count(*) FROM candle WHERE code='000660' AND interval='
 
 ---
 
-## §31. 5m·15m·30m·90m·1h interval 처리 방침 결정 (ADR 0057 발효 후 의제 — 사용자 결정 대기)
+## §31. 5m·15m·30m·90m·1h 1m 합산 가공 트랙 (방향 확정 — 위치·source 시간 범위만 결정 대기)
 
 ### 사유
 
-2026-05-11 사용자 결정 — Yahoo Finance 전면 폐기 + KIS OpenAPI 단일 출처 정책(ADR 0057) 채택. ADR 0019 §2-5 "합성 폐기" 결정이 본 KIS-only 전환으로 깨짐 — 5m·15m·30m·90m·1h interval 처리 방침을 다시 결정해야 함.
+2026-05-11 사용자 결정 — Yahoo Finance 전면 폐기 + KIS OpenAPI 단일 출처 정책(ADR 0057) 채택. ADR 0019 §2-5 "합성 폐기" 결정 중 5m·15m·30m·90m·1h 인터벌 부분은 본 KIS-only 전환으로 **부분 revoke**.
 
-본 KIS-only 전환에서 5m·15m·30m·90m·1h은 KIS REST가 직접 제공하지 않음 (KIS는 1m·1d·1wk·1mo·1y만). 이번 사이클은 **결정 보류** + "데이터 없음" 표시(ADR 0057 §2-2)로 운용. 사용자 결정 후 ADR 0062로 격상.
+**사용자 명시 결정 (2026-05-11 채팅)**:
 
-### 옵션 분석 (architect 권장 = B+C 하이브리드)
+> "5m·15m·30m·90m·1h 백엔드 또는 프론트 합산으로 할거고 ADR 폐기해버리면 안될듯 1분봉만 kis에서 제공하니깐 임시로 쓰는거고 나중에 5m·15m·30m·90m·1h 봉에 대한 처리를 보류할뿐임 이거 없다고 생각하면 안되니깐 ADR 폐기는 하지말어 백로그로 남겨"
 
-**옵션 A: 1m → 5m·15m·30m·90m·1h 합산 가공 부활** (CandleAggregator 백엔드 재도입)
-- Pro: magicJar UI/DSL interval 매트릭스 그대로 유지. 합산 로직 단순 (M1 OHLCV → N분봉 누적).
-- Con: ADR 0019 §2-5 revoke. 1m 자체가 KIS REST `FHKST03010200` **당일 한정**이라 5m~1h 합산도 당일 한정 → 장기 차트 불가. 자동매매 룰 엔진의 5m·15m·30m·90m·1h 백테스트 본질 불가.
-- fitness: 자동매매 본체 룰 엔진 + DSL은 5m·15m·30m·1h 봉 일반적(quant trading 표준) → 당일 한정은 본체 정합 부족.
+→ **5m·15m·30m·90m·1h은 1m 합산 가공으로 처리 — 방향 확정**. ADR 0019 보류 + ADR 0057 §2-5에 방향 명시. 본 §31에서는 **합산 위치(백엔드 vs 프론트)** + **합산 source 시간 범위** 만 결정 대기.
 
-**옵션 B: `FHKST03010230` (KIS 일별 분봉 — 과거) 도입 + 5m·15m·30m·90m·1h 합산**
-- raw 출처: `docs/operations/kis-api-reference.md` §5-A 후속 검토 endpoint
-- `FHKST03010230`은 KIS가 1분봉 **과거 데이터** 제공 → 본 endpoint 도입 시 1m 장기 영속이 가능해짐 + 5m·15m·30m·90m·1h은 1m에서 합산
-- Pro: 장기 분봉 차트 가능 + KIS 단일 출처 100% 정합 + 자동매매 본체 룰 엔진 적합
-- Con: **모의 미지원·실전 한정** — 모의 키 사용자는 5m~1h 못 봄. KIS rate limit 영향 큼 (1m 영속 → 종목당 backfill 호출량 증가, ADR 0037 모니터링 의무). DB 사이즈 증가 (1m 장기 영속).
+### 결정 사항 (방향 확정)
 
-**옵션 C: 5m·15m·30m·90m·1h interval 전면 폐기**
-- `CandleInterval` enum 5종 제거 + DSL·UI 매트릭스 정리 (DDL migration 의무)
-- Pro: 단순 + KIS 단일 출처 100% 정합 + DB 사이즈 최소
-- Con: 사용자 차트 인터벌 선택지 축소 + DSL의 5m·15m·30m·1h 시그널 표현 불가. 자동매매 룰 엔진의 quant trading 표준 정합 risk.
+- 5m·15m·30m·90m·1h = **1m 합산 가공으로 처리** (interval 폐기 0건 · 보조 출처 부활 0건 · KIS-only 정합 유지)
 
-**architect 권장 = B+C 하이브리드**:
-- **실전 키 사용자** → 옵션 B (FHKST03010230 도입, 5m~1h cold-start + 1m 장기 영속)
-- **모의 키 사용자** → 옵션 C ("데이터 없음" 표시, 5m·15m·30m·90m·1h 비활성)
-- `MAGICJAR_MODE` 환경변수(`REAL` vs `MOCK`)로 분기 — application.yml `kis.minute-backfill.enabled` 토글
-- 사용자 결정 후 ADR 0062 발행 — 본 사이클 결정 사항 정형화
+### 잔여 결정 (사용자 결정 대기 — ADR 0062 발행 예정)
+
+**A. 합산 위치**
+- **위치 옵션 A: 백엔드 합산** (`CandleAggregator` 컴포넌트 — api 또는 consumer 모듈에 신설)
+  - Pro: 모든 클라이언트(SPA·MCP·후속 모바일)가 동일 합산 결과 공유 · 캐시 효과 큼 · 자동매매 룰 엔진·백테스트가 동일 합산 source 참조 가능
+  - Con: 백엔드 부하 + DB 또는 cache 추가 영속 검토 필요
+- **위치 옵션 B: 프론트 합산** (frontend `candleAggregator.ts` 부활)
+  - Pro: 백엔드 변경 0 · 사용자 클라이언트에서 자유롭게 interval 변경 가능 · LWC 차트 단일 source 호환 자연
+  - Con: 클라이언트마다 합산 중복 + MCP·후속 모바일에서도 합산 재구현 의무 + 룰 엔진·백테스트(백엔드 본체)는 별도 합산 또는 backend 합산 추가 의무
+
+**B. 합산 source 시간 범위**
+- **source 옵션 1: 당일 한정** — KIS REST `FHKST03010200` (1m 당일분, prod credential 단일 채널)
+  - Pro: 추가 endpoint 도입 0 · KIS rate limit 영향 최소
+  - Con: 5m~1h 장기 차트 불가 · 자동매매 룰 엔진·백테스트의 5m·15m·30m·1h 봉 backtest 본질 불가
+- **source 옵션 2: 과거 포함** — KIS REST `FHKST03010230` (1m 과거 데이터, prod credential 단일 채널) 도입 + 1m 장기 영속
+  - Pro: 5m~1h 장기 차트 + 자동매매 룰 엔진·백테스트 정합
+  - Con: KIS rate limit 영향 큼 (종목당 backfill 호출량 증가, ADR 0037 모니터링 의무) · DB 사이즈 증가 (1m 장기 영속) · raw 출처 `docs/operations/kis-api-reference.md` §5-A 검토 필요
+
+**credential 정책 (방향 확정 — 사용자 명시 정책 정정 2, 2026-05-11)**: 위치·source 옵션 어느 것이든 정보 수집 호출은 **prod credential 단일 채널**. 모의/실전 분기는 주문 라우터(거래 액션)에만 적용. 모의 credential 사용 0건. 본 트랙에서 "모의 키 사용자 vs 실전 키 사용자" 분기는 적용하지 않음.
 
 ### fitness gap 분석 (사용자 메모리 `feedback_v3_skepticism_no_regression.md` lens)
 
-- "자동매매에 필요한가?" — 5m·15m·30m·1h 봉은 quant trading 표준 (`_workspace/strategy/` DSL 카탈로그 정합) → **필요**
-- "v1/v2 잔재 아닌가?" — `CandleInterval` 5종 enum은 v1/v2 시점부터 정의 — 옵션 C 채택 시 enum 제거가 v1/v2 잔재 정리이지만, 자동매매 본체 룰 엔진 적합성에서 보면 enum 보존 가치 있음
+- "자동매매에 필요한가?" — 5m·15m·30m·1h 봉은 quant trading 표준 (`_workspace/strategy/` DSL 카탈로그 정합) → **필요**. 1m 합산 가공으로 처리 결정은 자동매매 본체 정합.
+- "v1/v2 잔재 아닌가?" — `CandleInterval` 5종 enum은 v1/v2 시점부터 정의이지만 자동매매 본체 룰 엔진 적합성에서 enum 보존 가치 있음. 본 트랙으로 enum 활용도 부활.
 
 ### 트리거 조건
 
-- 사용자가 5m~1h 차트 노출 명시 요청 (옵션 B 또는 A 채택)
+- 사용자가 5m~1h 차트 노출 명시 요청 시 위치·source 결정 사이클 진입
 - 또는 archive 충돌 발생 (`feedback_dev_priority_qa_batch.md` 정합 — 누적 후 일괄 결정 권장)
-- 또는 KIS rate limit 모니터링 결과 (옵션 B의 1m 장기 영속 비용 측정)
+- 또는 KIS rate limit 모니터링 결과 측정 후 source 옵션 결정
 
 ### 처리 PR (예정)
 
-- architect 발의 PR — 옵션 채택 + ADR 0062 발행
-- market-data sub-agent PR — 채택 옵션 구현 (옵션 A 시 CandleAggregator 부활 / 옵션 B 시 KisHistoricalMinuteAdapter 신설 / 옵션 C 시 enum 제거 + DDL migration)
-- frontend sub-agent PR — UI 매트릭스 정합 갱신
+- architect 발의 PR — 위치·source 옵션 채택 + ADR 0062 발행
+- 채택안 구현:
+  - 위치 옵션 A(백엔드) + source 옵션 1(당일) → backend-core/market-data sub-agent — `CandleAggregator` 컴포넌트 신설
+  - 위치 옵션 A(백엔드) + source 옵션 2(과거 포함) → market-data sub-agent — `KisHistoricalMinuteAdapter` 신설(FHKST03010230 prod credential) + `CandleAggregator` 컴포넌트 + 1m 장기 영속 DDL migration
+  - 위치 옵션 B(프론트) + source 옵션 1·2 — frontend sub-agent — `candleAggregator.ts` 신설
+- frontend sub-agent PR — UI 매트릭스 정합 갱신 + ADR 0019 §2 매트릭스 + ADR 0057 §2-1 매트릭스 재통합
 
 ### 참조
 
-- ADR 0057 §2-5·§5-3 (본 의제 등록 권위)
-- ADR 0019 §2-5 (Superseded by 0057 — 합성 폐기 결정의 historical context)
-- `docs/operations/kis-api-reference.md` §5-A (FHKST03010230 후속 검토)
+- **방향 확정 권위**: 사용자 채팅 2026-05-11 (인용 위)
+- ADR 0057 §2-5 (1m 합산 가공 방향 확정 명시) · ADR 0019 §2 매트릭스 (보류 부분 — 본 트랙 완료 시 재통합)
+- `docs/operations/kis-api-reference.md` §5-A (FHKST03010230 후속 검토 — source 옵션 2 후보)
 - `_workspace/strategy/` (DSL 카탈로그 — 5m·15m·30m·1h 시그널 표현)
-- 사용자 메모리 `feedback_v3_skepticism_no_regression.md` (fitness gap lens) · `feedback_kis_first_policy.md` (KIS-only) · `feedback_dev_priority_qa_batch.md` (누적 후 일괄)
+- 사용자 메모리 `feedback_v3_skepticism_no_regression.md` (fitness gap lens) · `feedback_kis_first_policy.md` (KIS-only) · `feedback_kis_key_realonly_for_data.md` (정보 수집 prod credential 단일 채널 — 정책 정정 2) · `feedback_dev_priority_qa_batch.md` (누적 후 일괄)
