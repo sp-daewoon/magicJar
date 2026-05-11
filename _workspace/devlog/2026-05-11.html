@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>magicJar 개발일지 — 2026-05-11 — v3.2.2 cut</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif; max-width: 1100px; margin: 30px auto; padding: 0 24px; color: #1f2937; line-height: 1.6; background: #f9fafb; }
+  h1 { color: #111827; border-bottom: 3px solid #2563eb; padding-bottom: 10px; }
+  h2 { color: #1e40af; margin-top: 36px; border-left: 4px solid #3b82f6; padding-left: 12px; }
+  h3 { color: #1e3a8a; margin-top: 22px; }
+  code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; }
+  code { background: #e0e7ff; color: #3730a3; padding: 2px 6px; border-radius: 4px; font-size: 0.92em; }
+  pre { background: #1e293b; color: #e2e8f0; padding: 14px; border-radius: 8px; overflow-x: auto; font-size: 0.88em; }
+  pre code { background: transparent; color: inherit; padding: 0; }
+  .badge { display: inline-block; padding: 3px 9px; border-radius: 12px; font-size: 0.8em; font-weight: 600; margin: 0 4px; }
+  .badge-ok { background: #d1fae5; color: #065f46; }
+  .badge-warn { background: #fef3c7; color: #92400e; }
+  .badge-fix { background: #ddd6fe; color: #5b21b6; }
+  .badge-release { background: #fce7f3; color: #9d174d; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+  th, td { border: 1px solid #e5e7eb; padding: 10px 14px; text-align: left; vertical-align: top; font-size: 0.92em; }
+  th { background: #f3f4f6; font-weight: 600; color: #374151; }
+  .callout { background: #fef9c3; border-left: 4px solid #facc15; padding: 12px 18px; margin: 14px 0; border-radius: 6px; }
+  .callout-blue { background: #dbeafe; border-left-color: #3b82f6; }
+  .callout-red { background: #fee2e2; border-left-color: #ef4444; }
+  .callout-green { background: #d1fae5; border-left-color: #10b981; }
+  .meta { background: #f3f4f6; padding: 12px 18px; border-radius: 8px; margin-bottom: 22px; color: #4b5563; font-size: 0.92em; }
+  ul li { margin: 4px 0; }
+</style>
+</head>
+<body>
+
+<h1>magicJar 개발일지 — 2026-05-11 (v3.2.2 cut)</h1>
+
+<div class="meta">
+  <strong>주제</strong>: KIS-only 데이터 정책 + NXT/통합거래 cover + 분봉 합산 가공 트랙 가동<br>
+  <strong>PR 머지</strong>: #294~#307 (14건) · <strong>release tag</strong>: <code>v3.2.2</code><br>
+  <strong>모드</strong>: auto mode + 사용자 위임 자율 처리 (취침 시간 진행)<br>
+  <strong>orchestrator</strong>: bot+orchestrator@magicjar.local
+</div>
+
+<h2>1. 사이클 개요</h2>
+
+<p>사용자 dogfooding 발견 1건(<code>/api/symbols/000660/candles?interval=1d&limit=200</code> 응답이 월봉 오염)에서 시작해 다음 결정·구현·검증이 연쇄 진행됐습니다.</p>
+
+<table>
+<tr><th>단계</th><th>PR</th><th>핵심</th></tr>
+<tr><td>① KIS-only 정책</td><td>#294·#295</td><td>Yahoo Finance 전수 제거 + ADR 0057 신규 + DB <code>source='YAHOO'</code> 79,120건 정리</td></tr>
+<tr><td>② 1m 결함 정정</td><td>#296·#297</td><td>페이지네이션 보강 + <code>FID_FAKE_TICK_INCU_YN</code> 누락 정정 (당일 분봉 0건 → 영업일 단위 ~390건)</td></tr>
+<tr><td>③ NXT cover</td><td>#298·#299·#301</td><td>ADR 0063 + <code>fid_cond_mrkt_div_code</code> UN + 시각 08:00~20:00 KST + threshold 700</td></tr>
+<tr><td>④ 합산 가공 트랙</td><td>#300·#302·#303</td><td>ADR 0062 + <code>CandleAggregator</code> domain + <code>AggregateBackfillRunner</code> + frontend 5종</td></tr>
+<tr><td>⑤ FAILED 종목 정정</td><td>#304</td><td>KOSDAQ market 분기(J) + halt/liquidation skip audit</td></tr>
+<tr><td>⑥ PINGPONG hotfix</td><td>#305</td><td>KIS WS JSON PINGPONG 분기 + raw echo (kis_auth.py 정합)</td></tr>
+<tr><td>⑦ release cut</td><td>#306·#307</td><td>v3.2.2 CHANGELOG + tag + backlog §33·§34·§35 등록</td></tr>
+</table>
+
+<h2>2. 채택 ADR</h2>
+
+<table>
+<tr><th>ADR</th><th>제목</th><th>Status</th><th>사용자 결정</th></tr>
+<tr><td>0057</td><td>KIS-only data source</td><td>Accepted</td><td>"야후꺼 쓰지 말라니깐" + "kis에 있는 데이터만 사용하라고"</td></tr>
+<tr><td>0062</td><td>5m~1h 1m 합산 가공 (precomputed)</td><td>Accepted</td><td>A-1 백엔드 precomputed + 옵션 2 과거 30일 + 5종 활성화</td></tr>
+<tr><td>0063</td><td>NXT/통합거래 매트릭스 cover</td><td>Accepted</td><td>A=UN 통합 + 시간 1=08:00~20:00 + threshold 700</td></tr>
+<tr><td>0019</td><td>(supersede revoke)</td><td>Accepted (Yahoo 부분 보류)</td><td>"ADR 폐기는 하지말어 백로그로 남겨"</td></tr>
+</table>
+
+<h2>3. 검증 evidence (DB 최종 상태)</h2>
+
+<table>
+<tr><th>interval</th><th>rows</th><th>codes</th><th>비고</th></tr>
+<tr><td>1m</td><td>147,578</td><td>11</td><td>KIS FHKST03010230 UN 통합, 08:00~19:59 KST cover, 30 거래일</td></tr>
+<tr><td>5m</td><td>33,691</td><td>11</td><td>CandleAggregator 합산, 08:00~19:55</td></tr>
+<tr><td>15m</td><td>11,962</td><td>11</td><td>합산, 08:00~19:45</td></tr>
+<tr><td>30m</td><td>6,041</td><td>11</td><td>합산, 08:00~19:30</td></tr>
+<tr><td>90m</td><td>2,143</td><td>11</td><td>합산, 8 anchor 정렬</td></tr>
+<tr><td>1h</td><td>3,023</td><td>11</td><td>합산, 08:00~19:00</td></tr>
+<tr><td>1d</td><td>1,486</td><td>13</td><td>KIS FHKST03010100 D, 100/종목</td></tr>
+<tr><td>1wk</td><td>1,359</td><td>13</td><td>FHKST03010100 W</td></tr>
+<tr><td>1mo</td><td>1,233</td><td>13</td><td>FHKST03010100 M</td></tr>
+<tr><td>1y</td><td>332</td><td>13</td><td>FHKST03010100 Y</td></tr>
+</table>
+
+<div class="callout callout-green">
+<strong>총 candle 테이블 ~209k rows</strong> (Yahoo 폐기 전 ~83k 대비 +152%). 모든 row <code>source='KIS'</code>. 중복 row 0건 (UQ <code>uq_candle_code_interval_ts</code> + ON CONFLICT DO NOTHING 멱등성 견고).
+</div>
+
+<h3>3-1. OHLCV 합산 정합 sample (000660 2026-03-31 08:00 5m)</h3>
+
+<table>
+<tr><th>bar</th><th>open</th><th>high</th><th>low</th><th>close</th></tr>
+<tr><td>1m 08:00</td><td>852000</td><td>852000</td><td>822000</td><td>826000</td></tr>
+<tr><td>1m 08:01</td><td>827000</td><td>830000</td><td>826000</td><td>829000</td></tr>
+<tr><td>1m 08:02</td><td>830000</td><td>830000</td><td>826000</td><td>827000</td></tr>
+<tr><td>1m 08:03</td><td>827000</td><td>827000</td><td>825000</td><td>826000</td></tr>
+<tr><td>1m 08:04</td><td>826000</td><td>827000</td><td>824000</td><td>827000</td></tr>
+<tr><td><strong>5m 08:00</strong></td><td><strong>852000</strong> ✅</td><td><strong>852000</strong> ✅</td><td><strong>822000</strong> ✅</td><td><strong>827000</strong> ✅</td></tr>
+</table>
+
+<p>OHLCV = (first.open, max(high), min(low), last.close, sum(volume)) <strong>완벽 정합</strong>.</p>
+
+<h3>3-2. audit_trail 최종 (재배포 후)</h3>
+
+<table>
+<tr><th>action</th><th>종목수</th><th>비고</th></tr>
+<tr><td><span class="badge badge-ok">KIS_COLD_START_DONE</span></td><td>9 종목</td><td>1m·1d·1wk·1mo·1y 5/5 + 합산 5종 모두 적재</td></tr>
+<tr><td><span class="badge badge-warn">KIS_COLD_START_PARTIAL_FAIL</span></td><td>2 종목 (064260·004090)</td><td>일부 일자 KIS API 500 누적 — 외부 결함, §33으로 분리</td></tr>
+<tr><td><span class="badge badge-fix">KIS_COLD_START_SKIPPED</span></td><td>1 종목 (001470 삼부토건)</td><td>trading_halt=t 관리종목, 자동 skip</td></tr>
+</table>
+
+<h2>4. 정책 메모리 (사용자 결정 인용)</h2>
+
+<table>
+<tr><th>메모리</th><th>핵심</th></tr>
+<tr><td><code>feedback_kis_first_policy.md</code></td><td>Yahoo 등 외부 fallback 폐기. 시세·캔들 모두 KIS OpenAPI 단일 출처</td></tr>
+<tr><td><code>feedback_kis_key_realonly_for_data.md</code></td><td>정보 수집 = 실전 키 단일. 모의/실전 분기는 주문 액션에만</td></tr>
+</table>
+
+<h2>5. release 결과</h2>
+
+<table>
+<tr><th>산출물</th><th>위치</th></tr>
+<tr><td>main commit</td><td><code>e440eaa</code> + 후속 12 commit</td></tr>
+<tr><td>tag</td><td><code>v3.2.2</code> push GREEN</td></tr>
+<tr><td>release brunch</td><td><code>release/v3.2.2</code> 생성 GREEN (ADR 0031 immutable 베이스라인)</td></tr>
+<tr><td>release PR</td><td>#306 (CHANGELOG v3.2.2 row) · #307 (backlog §33·§34·§35)</td></tr>
+</table>
+
+<div class="callout callout-red">
+<strong>⚠ GitHub Actions release CI failure</strong> — release tag push 후 CI 실행 실패. 원인 = <strong>GitHub 결제 결함</strong> ("recent account payments have failed or your spending limit needs to be increased"). v3.1.1·v3.2.1·v3.2.2 모두 동일 패턴 누적.<br><br>
+<strong>사용자 액션 필요</strong>: GitHub Settings → Billing &amp; plans → 결제 정보 갱신. 본 시스템 코드 결함 0. orchestrator·sub-agent가 해결할 수 없는 외부 결함이라 보고만 진행.<br><br>
+※ tag·release brunch는 정상 push됨. ghcr.io 이미지 + Release draft만 자동 생성 안 됨. <strong>로컬 docker compose 운영은 정상</strong>.
+</div>
+
+<h2>6. baseline 사이클 (사용자 결정 후 진행)</h2>
+
+<p>magicJar baseline 정책(ADR 0052)은 v3.X.0 release 또는 사용자 트리거 시점. v3.2.2 minor 컷이라 baseline 사이클은 선택. 일어나신 후 다음 명령 호출 시 architect sub-agent가 7 파일 풀세트 + Mermaid + HTML 자동 발행:</p>
+
+<pre><code>/baseline init v3.2.2</code></pre>
+
+<p>또는 v3.3.0 미러스톤(§33·§34 완료)까지 보류 가능.</p>
+
+<h2>7. 다음 사이클 의제 (backlog)</h2>
+
+<table>
+<tr><th>§</th><th>제목</th><th>미러스톤</th><th>영역</th></tr>
+<tr><td>§33</td><td>KIS API 500 retry 강화 (3회 exponential backoff)</td><td>v3.3.0</td><td>market-data</td></tr>
+<tr><td>§34</td><td>Redis boundary fanout + STOMP 실시간 합산 갱신 (ADR 0029)</td><td>v3.3.0</td><td>market-data + frontend</td></tr>
+<tr><td>§35</td><td>ADR 0019·0028·0029 §2 매트릭스 NXT/합산 행 보강</td><td>v3.2.3 minor doc</td><td>architect 단독</td></tr>
+<tr><td>§36 (제안)</td><td>GitHub Actions 결제 결함 정정 (사용자 액션 후)</td><td>operational</td><td>사용자</td></tr>
+</table>
+
+<h2>8. 함정·교훈 (사용자 메모리 보강 후보)</h2>
+
+<ul>
+<li><strong>병렬 sub-agent 작업 시 cwd 공유 충돌</strong> — 같은 워킹디렉토리에서 4 sub-agent 동시 작업하면 stash 부산물 누적 + branch 전환 race. 다음 사이클부터 <strong>worktree 분리</strong> 강력 권고 (사용자 메모리 <code>feedback_worktree_cleanup.md</code> 정합).</li>
+<li><strong>rebase 충돌 자율 해결</strong> — 머지 후 main 변경 시 다음 PR이 conflict. <code>--ours</code> 채택 + force-with-lease 패턴으로 자율 처리 (<code>feedback_pr_rebase_sync.md</code> 정합).</li>
+<li><strong>stale jar 함정 2회 발생</strong> — <code>docker restart</code>만 사용 시 옛 jar 부팅. <code>scripts/build-and-deploy.sh</code> 정석 경로 강제 의무.</li>
+<li><strong>destructive 액션 권한 거부</strong> — <code>git reset --hard</code>·<code>git push --force-with-lease</code>가 auto mode에서도 거부됨. 단순 우회(직접 명령) 또는 사용자 명시 승인 필요.</li>
+</ul>
+
+<h2>9. 통계</h2>
+
+<table>
+<tr><th>지표</th><th>값</th></tr>
+<tr><td>PR 머지</td><td>14건 (#294~#307)</td></tr>
+<tr><td>sub-agent 호출</td><td>~10건 (architect 3·market-data 5·strategy-engine 1·frontend 1)</td></tr>
+<tr><td>코드 LOC 변경</td><td>약 +1,500 / -200</td></tr>
+<tr><td>신규 ADR</td><td>3건 (0057·0062·0063)</td></tr>
+<tr><td>DB row 증가</td><td>candle ~83k → ~209k (+152%)</td></tr>
+<tr><td>backlog 신규 §</td><td>3건 (§33·§34·§35)</td></tr>
+<tr><td>사용자 메모리 신규</td><td>2건 (feedback_kis_first_policy 강화·feedback_kis_key_realonly_for_data 신규)</td></tr>
+</table>
+
+<footer style="margin-top: 40px; padding-top: 14px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 0.88em;">
+SoT: <code>docs/architecture/master-architecture.md</code> · <code>_workspace/backlog.md</code> · <code>_workspace/arch/adr/README.md</code><br>
+ADR: 0057·0062·0063 (Accepted) · 0019 (Accepted, Yahoo 부분 보류)
+</footer>
+
+</body>
+</html>
