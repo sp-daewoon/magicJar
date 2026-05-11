@@ -3,9 +3,9 @@ id: T-20260511-1549-kis-only-yahoo-purge
 agent: market-data
 model: sonnet
 branch: agent/market-data/kis-only-yahoo-purge
-status: RUNNING
+status: DONE
 startedAt: 2026-05-11T15:49:18.903+09:00
-completedAt: null
+completedAt: 2026-05-11T16:48:54.115+09:00
 pr: null
 parentPhase: ?
 ---
