@@ -3,9 +3,9 @@ id: T-20260511-1041-kis-ws-ssl-handshake-fix
 agent: market-data
 model: sonnet
 branch: agent/market-data/kis-ws-ssl-handshake-fix
-status: RUNNING
+status: DONE
 startedAt: 2026-05-11T10:41:48.017+09:00
-completedAt: null
+completedAt: 2026-05-11T10:55:46.946+09:00
 pr: null
 parentPhase: ?
 ---
