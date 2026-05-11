@@ -1,5 +1,5 @@
 /**
- * useSymbolCandles — 차트 series 무한 스크롤 TanStack Query hook
+ * useSymbolCandles — 차트 series 무한 스크롤 TanStack Query hook + boundary STOMP subscribe
  *
  * spec §6-3 LOCK:
  * - queryKey: ['symbolCandles', code, interval]
@@ -8,11 +8,40 @@
  *
  * ADR 0019 §2-2: interval 5종 한정 (1m·5m·30m·1h·1d)
  * ADR 0029 §2-1: 1m = DB + Redis candle:current 합류, 1d = DB + Redis candle:today 합류
+ *
+ * ADR 0064 §2-C: 합산 5종(5m·15m·30m·90m·1h) — boundary 마감 시점 STOMP 실시간 갱신
+ *   interval이 BOUNDARY_INTERVALS 중 하나일 때 /topic/market.candle.{interval}.{code} 구독
+ *   interval 변경 시 기존 구독 해제 → 새 interval 구독
+ *   boundary candle 수신 시 onBoundaryCandle 콜백 호출
  */
 import { useInfiniteQuery } from '@tanstack/react-query'
-import { symbolApi, type CandleInterval } from '../symbol'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useStompTopic } from '../../lib/stomp'
+import {
+  symbolApi,
+  type CandleClosedPayload,
+  type CandleInterval,
+  isBoundaryInterval,
+} from '../symbol'
 
-export function useSymbolCandles(code: string, interval: CandleInterval) {
+// ──────────────────────────────────────────────
+// useSymbolCandles — REST + STOMP boundary 통합 hook
+// ──────────────────────────────────────────────
+
+export interface UseSymbolCandlesResult {
+  /** TanStack useInfiniteQuery 결과 (REST fetch) */
+  data: ReturnType<typeof useInfiniteQueryForCandles>['data']
+  isLoading: ReturnType<typeof useInfiniteQueryForCandles>['isLoading']
+  isFetchingNextPage: ReturnType<typeof useInfiniteQueryForCandles>['isFetchingNextPage']
+  fetchNextPage: ReturnType<typeof useInfiniteQueryForCandles>['fetchNextPage']
+  hasNextPage: ReturnType<typeof useInfiniteQueryForCandles>['hasNextPage']
+  isError: ReturnType<typeof useInfiniteQueryForCandles>['isError']
+  /** ADR 0064 §2-C: 가장 최근에 수신한 boundary closed candle (합산 5종 전용) */
+  latestBoundaryCandle: CandleClosedPayload | null
+}
+
+/** 타입 추론 전용 내부 헬퍼 — export 0 */
+function useInfiniteQueryForCandles(code: string, interval: CandleInterval) {
   return useInfiniteQuery({
     queryKey: ['symbolCandles', code, interval] as const,
     queryFn: ({ pageParam }) =>
@@ -20,8 +49,53 @@ export function useSymbolCandles(code: string, interval: CandleInterval) {
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.nextBefore : undefined),
     enabled: Boolean(code),
-    staleTime: 30_000, // 30초 — 캔들은 상대적으로 안정적
-    gcTime: 60_000,    // 1분 캐시 유지
+    staleTime: 30_000,
+    gcTime: 60_000,
     retry: 1,
   })
+}
+
+export function useSymbolCandles(code: string, interval: CandleInterval): UseSymbolCandlesResult {
+  // REST 무한 스크롤 query
+  const infiniteQuery = useInfiniteQueryForCandles(code, interval)
+
+  // boundary closed candle 상태 (ADR 0064 §2-C)
+  const [latestBoundaryCandle, setLatestBoundaryCandle] = useState<CandleClosedPayload | null>(null)
+
+  // interval 변경 시 이전 boundary candle 초기화 (stale 방지)
+  const prevIntervalRef = useRef(interval)
+  useEffect(() => {
+    if (prevIntervalRef.current !== interval) {
+      setLatestBoundaryCandle(null)
+      prevIntervalRef.current = interval
+    }
+  }, [interval])
+
+  // boundary closed candle 수신 콜백 (useCallback으로 안정화)
+  const handleBoundaryCandle = useCallback((payload: CandleClosedPayload) => {
+    // eslint-disable-next-line no-console
+    console.debug(
+      `[useSymbolCandles] boundary closed 수신: code=${payload.code} interval=${payload.interval} ts=${payload.ts} close=${payload.close}`,
+    )
+    setLatestBoundaryCandle(payload)
+  }, [])
+
+  // ADR 0064 §2-C: 합산 5종 boundary STOMP 구독
+  // isBoundaryInterval 검사 — 1m·1d·1wk·1mo·1y 는 구독 0
+  const boundaryTopic = isBoundaryInterval(interval)
+    ? `/topic/market.candle.${interval}.${code}`
+    : ''
+  const boundaryEnabled = Boolean(code) && isBoundaryInterval(interval)
+
+  useStompTopic<CandleClosedPayload>(boundaryTopic, handleBoundaryCandle, boundaryEnabled)
+
+  return {
+    data: infiniteQuery.data,
+    isLoading: infiniteQuery.isLoading,
+    isFetchingNextPage: infiniteQuery.isFetchingNextPage,
+    fetchNextPage: infiniteQuery.fetchNextPage,
+    hasNextPage: infiniteQuery.hasNextPage,
+    isError: infiniteQuery.isError,
+    latestBoundaryCandle,
+  }
 }

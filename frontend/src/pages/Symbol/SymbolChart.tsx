@@ -60,6 +60,7 @@ export function SymbolChart({ code, realtimeCandle }: SymbolChartProps) {
     fetchNextPage,
     hasNextPage,
     isError,
+    latestBoundaryCandle,
   } = useSymbolCandles(code, interval)
 
   // 지표 관련 상태
@@ -103,8 +104,21 @@ export function SymbolChart({ code, realtimeCandle }: SymbolChartProps) {
     return [...data.pages].reverse().flatMap((page) => page.candles)
   }, [data])
 
-  // STOMP 1m 실시간 캔들을 CandleDto로 변환
+  // STOMP 실시간 캔들을 CandleDto로 변환
+  // 우선순위: boundary closed candle(합산 5종) > 1m minute candle
   const realtimeCandleDto = useMemo<CandleDto | null>(() => {
+    // ADR 0064 §2-C: 합산 5종 boundary closed candle
+    if (latestBoundaryCandle) {
+      return {
+        ts: latestBoundaryCandle.ts,
+        open: latestBoundaryCandle.open,
+        high: latestBoundaryCandle.high,
+        low: latestBoundaryCandle.low,
+        close: latestBoundaryCandle.close,
+        volume: latestBoundaryCandle.volume,
+      } satisfies CandleDto
+    }
+    // ADR 0029 §2-3: 1m 분봉 실시간 candle (기존 동작 유지)
     if (!realtimeCandle || interval !== '1m') return null
     return {
       ts: realtimeCandle.ts,
@@ -113,8 +127,8 @@ export function SymbolChart({ code, realtimeCandle }: SymbolChartProps) {
       low: realtimeCandle.low,
       close: realtimeCandle.close,
       volume: realtimeCandle.volume,
-    }
-  }, [realtimeCandle, interval])
+    } satisfies CandleDto
+  }, [latestBoundaryCandle, realtimeCandle, interval])
 
   const handleIntervalChange = useCallback((newInterval: CandleInterval) => {
     setInterval(newInterval)
@@ -293,46 +307,60 @@ export function SymbolChart({ code, realtimeCandle }: SymbolChartProps) {
             <div className="flex h-96 items-center justify-center">
               <p className="text-sm text-red-400">차트 데이터를 불러올 수 없습니다.</p>
             </div>
-          ) : allCandles.length === 0 ? (
-            /* ADR 0019 §2-3 cold-start 미완 graceful
-               ADR 0062: 합산 인터벌은 AggregateBackfillRunner 완료 전 빈 배열 → 전용 안내 */
-            <div className="flex h-96 items-center justify-center">
-              <div className="flex flex-col items-center gap-3 text-center max-w-xs">
-                <div className="h-8 w-8 animate-pulse rounded-full bg-yellow-900/60" />
-                {AGGREGATED_INTERVALS.has(interval) ? (
-                  <>
-                    <p className="text-sm text-yellow-400">{interval} 합산 데이터 준비 중</p>
-                    <p className="text-xs text-gray-500">
-                      1분봉 tick 데이터를 {interval}봉으로 집계하고 있습니다.
-                      <br />
-                      AggregateBackfillRunner 실행 후 데이터가 표시됩니다.
-                      <br />
-                      잠시 후 새로고침해 주세요.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-sm text-yellow-400">캔들 데이터 수집 중</p>
-                    <p className="text-xs text-gray-500">
-                      종목 추가 후 처음 데이터를 수집하고 있습니다.
-                      <br />
-                      잠시 후 새로고침해 주세요.
-                    </p>
-                  </>
-                )}
-              </div>
-            </div>
           ) : (
-            <LightweightChart
-              candles={allCandles}
-              interval={interval}
-              realtimeCandle={realtimeCandleDto}
-              onScrollLeft={handleScrollLeft}
-              onChartReady={handleChartReady}
-              onChartDestroy={handleChartDestroy}
-              onCandleSeriesReady={handleCandleSeriesReady}
-              onCandleSeriesDestroy={handleCandleSeriesDestroy}
-            />
+            /* ADR 0064 §2-C: 합산 인터벌은 빈 배열이어도 LWC 차트를 렌더링 — boundary closed STOMP
+               수신 시 series.update()로 실시간 갱신. 빈 배열 안내는 오버레이로 표시.
+               ADR 0062: AggregateBackfillRunner 미완 시 빈 배열 → "데이터 준비 중" 오버레이.
+               ADR 0019 §2-3 cold-start graceful 유지. */
+            <div className="relative">
+              {allCandles.length === 0 && (
+                <div
+                  className="absolute inset-0 z-10 flex items-center justify-center bg-gray-900/80 rounded-lg"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <div className="flex flex-col items-center gap-3 text-center max-w-xs">
+                    <div className="h-8 w-8 animate-pulse rounded-full bg-yellow-900/60" />
+                    {AGGREGATED_INTERVALS.has(interval) ? (
+                      <>
+                        <p className="text-sm text-yellow-400">{interval} 합산 데이터 준비 중</p>
+                        <p className="text-xs text-gray-500">
+                          1분봉 tick 데이터를 {interval}봉으로 집계하고 있습니다.
+                          <br />
+                          boundary 마감 시점에 자동 갱신됩니다.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-sm text-yellow-400">캔들 데이터 수집 중</p>
+                        <p className="text-xs text-gray-500">
+                          종목 추가 후 처음 데이터를 수집하고 있습니다.
+                          <br />
+                          잠시 후 새로고침해 주세요.
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+              {/* ADR 0064 §2-C: STOMP 실시간 갱신 배지 (합산 인터벌 + 데이터 있음) */}
+              {AGGREGATED_INTERVALS.has(interval) && allCandles.length > 0 && (
+                <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5 rounded-md bg-emerald-900/60 border border-emerald-700/50 px-2 py-1 text-xs text-emerald-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
+                  실시간 갱신 중
+                </div>
+              )}
+              <LightweightChart
+                candles={allCandles}
+                interval={interval}
+                realtimeCandle={realtimeCandleDto}
+                onScrollLeft={handleScrollLeft}
+                onChartReady={handleChartReady}
+                onChartDestroy={handleChartDestroy}
+                onCandleSeriesReady={handleCandleSeriesReady}
+                onCandleSeriesDestroy={handleCandleSeriesDestroy}
+              />
+            </div>
           )}
 
           {/* 하단: 더 불러오기 로딩 인디케이터 */}
