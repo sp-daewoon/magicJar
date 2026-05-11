@@ -249,8 +249,10 @@ class KisWebSocketBridge(
 
         when (val parsed = KisWsMessageParser.parse(raw)) {
             is KisWsMessageParser.ParsedMessage.Pingpong -> {
-                sendSink?.tryEmitNext("PINGPONG")
-                log.debug("KIS WS PINGPONG 응답")
+                // KIS-first: kis_auth.py "await ws.pong(raw)" — 수신 raw 그대로 echo 의무
+                // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+                sendSink?.tryEmitNext(parsed.rawMessage)
+                log.trace("KIS WS PINGPONG keep-alive echo 전송")
             }
 
             is KisWsMessageParser.ParsedMessage.RealtimeData -> {

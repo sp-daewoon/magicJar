@@ -59,7 +59,15 @@ object KisWsMessageParser {
      * - UNKNOWN: 알 수 없음
      */
     sealed class ParsedMessage {
-        object Pingpong : ParsedMessage()
+        /**
+         * KIS WS heartbeat.
+         * @param rawMessage echo 시 그대로 전송할 원본 메시지
+         *   KIS-first: kis_auth.py "await ws.pong(raw)" — raw 그대로 echo 의무
+         *   raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+         */
+        data class Pingpong(
+            val rawMessage: String,
+        ) : ParsedMessage()
 
         data class RealtimeData(
             val trId: String,
@@ -77,7 +85,15 @@ object KisWsMessageParser {
     }
 
     fun parse(raw: String): ParsedMessage {
-        if (raw.trim() == "PINGPONG") return ParsedMessage.Pingpong
+        // KIS-first 출처: kis_auth.py __subscriber()
+        // PINGPONG 분기: raw 텍스트가 "PINGPONG" 이거나,
+        //   JSON header.tr_id == "PINGPONG" 인 경우 모두 heartbeat로 처리.
+        // KIS 공식 예제: rdic = json.loads(data); tr_id = rdic["header"]["tr_id"]; isPingPong = True if tr_id == "PINGPONG" else False
+        // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+        if (raw.trim() == "PINGPONG") return ParsedMessage.Pingpong(rawMessage = raw.trim())
+        if (raw.trimStart().startsWith("{") && raw.contains("\"tr_id\":\"PINGPONG\"")) {
+            return ParsedMessage.Pingpong(rawMessage = raw)
+        }
 
         val parts = raw.split("|")
         if (parts.size < 4) {
