@@ -955,3 +955,86 @@ batch 모듈 PR #278(backlog §22)에서 DART(`opendart.fss.or.kr`)에 동일 �
 - PR #278 (batch §22 DART fix) — 패턴 출처
 - PR #286 (KIS WS connect() 호출 fix) — 본 결함의 선행 fix (connect 호출 누락 별도 결함)
 - ADR 0048 §3-1 — KisWebSocketBridge 설계
+
+---
+
+## §29. 소켓 데이터 처리 메모리 점검 — bounded growth 5건 (확신 낮음 / 증상 미확정)
+
+### 사유
+
+2026-05-11 사용자 dogfooding 중 macOS "메모리 없음" 시스템 경고 → orchestrator 소켓 처리부 일괄 grep 진단. 5건의 unbounded map / sink 패턴 식별했으나 재계산 결과 **bounded growth + 상한 매우 작음** (모두 KB 단위)로 확인. JVM heap 누수 아니며 OS 메모리 부족은 재부팅으로 회수됨. **확신 낮음 + 실제 영향 미확정** 상태로 백로그 등록.
+
+### 식별된 패턴 (재부팅 후 증상 재현 시 hotfix 검토)
+
+| # | 위치 | 패턴 | 실측 상한 |
+|---|------|------|----------|
+| 1 | `api/.../MarketTickStompForwarder.kt:26` | `lastEmitMs: ConcurrentHashMap<String, Long>` cleanup 0건 | watchlist 50 종목 × 80 byte = ~4 KB |
+| 2 | `api/.../MarketOrderbookStompForwarder.kt:26` | 동일 패턴 (200ms throttle) | 동일 ~4 KB |
+| 3 | `consumer/.../OrderbookSubscriptionRouter.kt:36` | `pendingDebounce: MutableMap<String, Long>` expired entry 영구 잔존 | 50 종목 × ~24 byte = ~1.2 KB |
+| 4 | `consumer/.../KisWebSocketBridge.kt:199` | `Sinks.many().unicast().onBackpressureBuffer<String>()` size unbounded | 정상 시 ~6 KB. reconnect 폭주 시 risk |
+| 5 | `consumer/.../KisWebSocketBridge.kt:347~404` | `handleTickData` 매 tick `entries()` 2회 호출 → 새 HashMap 할당 | 분당 ~3.6 MB young-gen allocation (GC 무난) |
+
+### 트리거 조건
+
+다음 중 하나가 발생하면 본 의제 다시 진단:
+- consumer 또는 api 컨테이너 heap 사용량 모니터링 결과 시간에 비례한 누적 패턴 관찰
+- `OutOfMemoryError` / `GC overhead limit exceeded` log
+- JVM heap dump에서 `lastEmitMs` / `pendingDebounce` map size가 종목 수 × 시간 비례 증가 확인
+
+### 보강 안 (실제 결함 확인 시)
+
+- #1·#2: `LinkedHashMap` accessOrder + 상한 1000 또는 `@Scheduled` 5분 마다 stale entry(lastEmit < now - 1h) 제거
+- #3: `pendingDebounce.entries.removeIf { now > it.value }` 진입 시 자동 정리
+- #4: `Sinks.many().unicast().onBackpressureBuffer(bufferSize=1024)` 명시 + overflow drop 정책
+- #5: KIS-first 정합 유지하면서 Redis Lua script로 `entries() + putAll()` 2 RPC → 1 RPC
+
+### 참조
+
+- 2026-05-11 사용자 메시지: "코드내에 메모리 관련 이슈가 있어 소켓데이터 처리 부분을 처리해야할듯해" → orchestrator 진단 → 사용자 재평가 "백로그로 명확한 확신이 없어"
+
+---
+
+## §30. 차트 캔들 API 초기 로드 시 잘못된 `before` 파라미터 의심 (사용자 dogfooding 2026-05-11)
+
+### 사유
+
+사용자 dogfooding 중 호출:
+```
+GET /api/symbols/000660/candles?interval=1d&limit=200&before=2009-10-31T15:00:00Z
+```
+응답 첫 항목 `ts=2000-01-31T15:00:00Z` — 매우 오래된 데이터로 시작. 사용자 "현재 기준으로 가져오고 반대로 해야할듯?" 표현.
+
+### root cause 가설 (재부팅 후 검증 대상)
+
+API 자체 동작은 `findByCodeAndIntervalAndTsBefore` JPQL `WHERE ts < :before ORDER BY ts DESC LIMIT 200` 후 service에서 ASC 변환 — 정상. 즉 `before` 이전 200개의 **최신** candle을 반환하는 의도된 동작.
+
+문제 가능성:
+1. **Frontend default `before` 파라미터가 hardcoded 또는 잘못 계산된 옛 ts** — 차트 초기 로드 시 `before` 전달하면 안 되는데 전달 중
+2. **차트 페이징 콜백(onVisibleRangeChange) 초기 호출이 차트 leftmost ts를 잘못 계산** — 빈 차트 상태에서 0 또는 epoch start ts 전달
+3. **DB에 000660 1d candle이 200개 미만** — `WHERE ts < 2009-10-31` 조건에 해당하는 candle을 전부 반환 (그러면 결함 아니나 frontend가 왜 그런 호출을 했는지가 별개 결함)
+
+### 확인 명령
+
+```sql
+-- DB 데이터 양 확인
+SELECT count(*) FROM candle WHERE code='000660' AND interval='1d' AND ts < '2009-10-31'::timestamp;
+SELECT min(ts), max(ts), count(*) FROM candle WHERE code='000660' AND interval='1d';
+```
+
+```javascript
+// Frontend 호출 stack 확인 (Network 탭)
+// useCandles hook에서 어떤 before 값 전달하는지
+```
+
+### 보강 안 (실제 결함 확인 시)
+
+- Frontend 초기 로드는 `before` 파라미터 안 보냄 → API가 `findByCodeAndIntervalLatest`로 최신 200개 반환 (이미 backend는 정상 동작)
+- 차트 페이징 시에만 `before=<현재 차트 leftmost ts>` 전달
+- 응답 `hasMore=false` 시 더 이상 페이징 요청 안 함
+
+### 참조
+
+- `api/.../controller/SymbolController.kt:113`
+- `api/.../service/CandleQueryService.kt:52~153`
+- `api/.../persistence/CandleJpaRepository.kt:35~45`
+- 2026-05-11 사용자 dogfooding 메시지
