@@ -118,6 +118,31 @@ export interface CandleMinutePayload {
   volume: number
 }
 
+/**
+ * /topic/market.candle.{interval}.{code} — boundary closed 실시간 캔들
+ * ADR 0064 §2-C: 5m·15m·30m·90m·1h 합산 boundary 마감 시점에 fanout
+ * BoundaryAggregator → Kafka market.candle.{interval}.closed.v1 → StompCandleForwarder → fanout
+ */
+export interface CandleClosedPayload {
+  code: string
+  interval: string
+  ts: string
+  open: string
+  high: string
+  low: string
+  close: string
+  volume: number
+}
+
+/** boundary closed STOMP 구독 대상 인터벌 (ADR 0064 §2-C 5종) */
+export const BOUNDARY_INTERVALS = ['5m', '15m', '30m', '90m', '1h'] as const
+export type BoundaryInterval = (typeof BOUNDARY_INTERVALS)[number]
+
+/** CandleInterval이 boundary closed STOMP 구독 대상인지 확인 */
+export function isBoundaryInterval(interval: string): interval is BoundaryInterval {
+  return (BOUNDARY_INTERVALS as readonly string[]).includes(interval)
+}
+
 /** /topic/market.orderbook.{code} */
 export interface OrderbookLevel {
   price: string
