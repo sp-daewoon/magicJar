@@ -7,7 +7,7 @@
 <!-- pr-49-slot-orchestrator -->
 | 2026-05-?? | **TBD — PR-49 architect: 01-architecture + 06-history + 07-policy + README** | baseline/v3.3.0 | PR-49 architect 4 파일 |
 <!-- pr-49-slot-architect -->
-| 2026-05-?? | **TBD — PR-49 backend-core: 02-data-flow + 04-feature-spec** | baseline/v3.3.0 | PR-49 backend-core 2 파일 |
+| 2026-05-12 | **chore(baseline): PR-49 backend-core — v3.3.0 baseline 02-data-flow + 04-feature-spec (backend-core)** — `_workspace/baseline/v3.3.0/02-data-flow.md` (v3.2.2 이월 + v3.3.0 boundary fanout 추가: Kafka 5 boundary closed 토픽·Redis 5 키·STOMP 5 토픽·BoundaryAggregator 흐름·멱등 가드·boundary 시각 매트릭스·Mermaid 데이터 흐름·ADR 0064 정합) + `_workspace/baseline/v3.3.0/04-feature-spec.md` (v3.2.2 트랙 9 항목 이월 + T-FANOUT 신규 §: BoundaryDetector domain·BoundaryAggregator consumer·RedisCandleCache 5 키·CandleClosedStompListener api·Kafka 5 토픽·STOMP 5 토픽 C-1·frontend useSymbolCandles/LWC series.update·PR #318~#321·ADR 0064 의존 + ADR 의존 요약 갱신 0064 row). ADR 0064 A-1·B-1·C-1 정합. | baseline/v3.3.0 | PR-49 backend-core 2 파일 |
 <!-- pr-49-slot-backend-core -->
 | 2026-05-?? | **TBD — PR-49 market-data: 03-use-sequences (KIS-first raw 출처)** | baseline/v3.3.0 | PR-49 market-data 1 파일 |
 <!-- pr-49-slot-market-data -->
