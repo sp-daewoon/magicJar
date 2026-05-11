@@ -926,3 +926,32 @@ PR-Na (architect spec/plan + ADR 갱신·신규) → PR-Nb (strategy-engine: 62�
 ### 처리 완료 마킹
 
 2026-05-11 hotfix PR — market-data 단독 (ADR 0004 모듈 경계 정합). v1/v2 잔재 0건. fitness gap: 실시간 시세 = 시그널·주문 1차 입력 — critical 결함 수정.
+
+---
+
+## §28. ✅ 처리 완료 — KIS WS SSL handshake timeout (사용자 dogfooding 2026-05-11, PR #278 DART 패턴 적용)
+
+### 사유
+
+PR #286(KIS WS connect() 호출 fix) 머지 + consumer 재기동 후 추가 결함 발견:
+`io.netty.handler.ssl.SslHandshakeTimeoutException: handshake timed out after 10000ms` (ops.koreainvestment.com:21000).
+connect 직후 10초 타임아웃 → disconnect/reconnect 무한 루프. 실시간 시세 수신 0건 지속.
+
+### 근본 원인
+
+JDK 21 + reactor netty 기본 SSL stack과 KIS WS 서버 TLS cipher suite 호환성 결함.
+batch 모듈 PR #278(backlog §22)에서 DART(`opendart.fss.or.kr`)에 동일 패턴 적용 선례 존재.
+
+### 처리 내용 (PR 본 항목)
+
+- `consumer/config/WebClientConfig.kt` — `kisWebSocketClient(): ReactorNettyWebSocketClient` 빈 신설
+  - SslProvider.JDK + TrustManagerFactory + protocols("TLSv1.2", "TLSv1.3") — batch dartWebClient 패턴 1:1 정합
+  - `@Qualifier("kisWebSocketClient")` 발행
+- `consumer/ws/KisWebSocketBridge.kt` — 생성자 주입으로 변경 (`private val wsClient = ReactorNettyWebSocketClient()` 제거)
+  - `@Qualifier("kisWebSocketClient") private val wsClient: ReactorNettyWebSocketClient` 주입
+
+### 참조
+
+- PR #278 (batch §22 DART fix) — 패턴 출처
+- PR #286 (KIS WS connect() 호출 fix) — 본 결함의 선행 fix (connect 호출 누락 별도 결함)
+- ADR 0048 §3-1 — KisWebSocketBridge 설계
