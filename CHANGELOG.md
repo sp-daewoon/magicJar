@@ -7,7 +7,7 @@
 <!-- pr-48-slot-orchestrator -->
 | 2026-05-?? | **TBD — PR-48 architect: 01-architecture + 06-history + 07-policy + README** | baseline/v3.2.2 | PR-48 architect 4 파일 |
 <!-- pr-48-slot-architect -->
-| 2026-05-?? | **TBD — PR-48 backend-core: 02-data-flow + 04-feature-spec** | baseline/v3.2.2 | PR-48 backend-core 2 파일 |
+| 2026-05-11 | **chore(baseline): PR-48 backend-core — v3.2.2 baseline 02-data-flow + 04-feature-spec** — `_workspace/baseline/v3.2.2/02-data-flow.md` (모듈 의존성 매트릭스·api/consumer/batch 흐름·Kafka 7 토픽·Redis 키 12종·Mermaid 데이터 흐름·ADR 정합 8건) + `_workspace/baseline/v3.2.2/04-feature-spec.md` (트랙별 9 항목 표준 명세: T-W1·T-S1·T-IND·T-DSL·T-PAT·T-BT·CandleAggregator·AggregateBackfillRunner + 공통 보안·설정). NXT cover(ADR 0063) + 합산 가공(ADR 0062) 영향 명시. (backend-core) | baseline/v3.2.2 | PR-48 backend-core 2 파일 |
 <!-- pr-48-slot-backend-core -->
 | 2026-05-?? | **TBD — PR-48 market-data: 03-use-sequences (KIS-first raw 출처)** | baseline/v3.2.2 | PR-48 market-data 1 파일 |
 <!-- pr-48-slot-market-data -->
