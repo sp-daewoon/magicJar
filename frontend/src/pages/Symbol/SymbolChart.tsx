@@ -82,10 +82,13 @@ export function SymbolChart({ code, realtimeCandle }: SymbolChartProps) {
     candleSeriesRef.current = null
   }, [])
 
-  // 모든 페이지 candle 합산 (ASC 정렬 유지)
+  // 모든 페이지 candle 합산 (ASC 정렬 유지).
+  // useInfiniteQuery pages 순서: [0]=최신 200개, [1]=그 이전 200개, ...
+  // 각 page.candles는 ASC지만 page 경계에서 ts 역행 → reverse 후 flatMap.
+  // (dogfooding 결함 — page 합산 후 LWC v4 setData strict ASC 위반 → 차트 미렌더)
   const allCandles = useMemo<CandleDto[]>(() => {
     if (!data) return []
-    return data.pages.flatMap((page) => page.candles)
+    return [...data.pages].reverse().flatMap((page) => page.candles)
   }, [data])
 
   // STOMP 1m 실시간 캔들을 CandleDto로 변환
