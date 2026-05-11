@@ -59,6 +59,23 @@ interface CandleJpaRepository : JpaRepository<CandleJpaEntity, Long> {
     ): List<CandleJpaEntity>
 
     /**
+     * 백테스트 범위 조회 — fromTs 이상 toTs 이하, ASC 정렬 (BacktestService 용).
+     * ADR 0051 준수 — body 없는 @Query abstract fun.
+     */
+    @Query(
+        "SELECT c FROM CandleJpaEntity c " +
+            "WHERE c.code = :code AND c.interval = :interval " +
+            "AND c.ts >= :fromTs AND c.ts <= :toTs " +
+            "ORDER BY c.ts ASC",
+    )
+    fun findByCodeAndIntervalAndTsBetween(
+        @Param("code") code: String,
+        @Param("interval") interval: String,
+        @Param("fromTs") fromTs: Instant,
+        @Param("toTs") toTs: Instant,
+    ): List<CandleJpaEntity>
+
+    /**
      * 단건 idempotent INSERT (ON CONFLICT DO NOTHING).
      * batch INSERT가 필요하면 saveAll + flush 패턴 사용.
      */
