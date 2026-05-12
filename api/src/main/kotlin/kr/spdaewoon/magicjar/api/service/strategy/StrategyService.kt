@@ -1,5 +1,7 @@
 package kr.spdaewoon.magicjar.api.service.strategy
 
+import kr.spdaewoon.magicjar.api.cache.RedisStrategyCache
+import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyJpaRepository
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
 import kr.spdaewoon.magicjar.domain.strategy.Signal
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
@@ -7,6 +9,7 @@ import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
 import kr.spdaewoon.magicjar.domain.strategy.StrategyException
+import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.Universe
 import kr.spdaewoon.magicjar.domain.strategy.dsl.CompositeCondition
 import kr.spdaewoon.magicjar.domain.strategy.dsl.Condition
@@ -16,21 +19,34 @@ import kr.spdaewoon.magicjar.domain.strategy.dsl.IndicatorRef
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyRepositoryPort
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.data.domain.Page
+import org.springframework.data.domain.PageRequest
+import org.springframework.data.domain.Sort
+import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
+import org.springframework.web.server.ResponseStatusException
 
 /**
- * 전략 서비스 — 등록·검증·조회·auto-disable.
+ * 전략 서비스 — 등록·검증·조회·status 전환·auto-disable.
  *
  * - 등록 시: DSL 파싱 → static 검증 → complexity 계산 → DB persist
+ * - status 전환: toggleStatus (ACTIVE↔PAUSED, DISABLED→ACTIVE reactivate, ANY→DELETED)
  * - auto-disable: StrategyJpaAdapter.autoDisable() 위임
+ * - Redis cache invalidate: status 변경 시 [RedisStrategyCache.invalidateAll] 호출
  *
  * spec §6-1 호출 시퀀스 LOCK.
  * ADR 0047 §2-1-B complexity 계산 + §2-2-D auto-disable 정합.
+ * ADR 0066 §2-6 F-1 status 4단 전환 정합.
  * 룰 5 위반 금지: LLM provider import 0건.
+ *
+ * // AI 호출 0 — T-SIG 트랙 정책
  */
 @Service
 class StrategyService(
     private val strategyRepositoryPort: StrategyRepositoryPort,
+    private val strategyJpaRepository: StrategyJpaRepository,
+    private val redisStrategyCache: RedisStrategyCache,
     @Value("\${magicjar.dsl.ast-depth-limit:32}") private val astDepthLimit: Int,
     @Value("\${magicjar.dsl.node-count-limit:10000}") private val nodeCountLimit: Int,
     @Value("\${magicjar.dsl.indicator-call-limit:50}") private val indicatorCallLimit: Int,
@@ -113,9 +129,70 @@ class StrategyService(
 
     fun findAllByUserId(userId: Long): List<Strategy> = strategyRepositoryPort.findAllByUserId(userId)
 
+    /**
+     * 전략 목록 페이징 조회 (DELETED 제외).
+     */
+    @Transactional(readOnly = true)
+    fun listByUserId(
+        userId: Long,
+        page: Int,
+        size: Int,
+    ): Page<Strategy> {
+        val pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"))
+        return strategyJpaRepository
+            .findAllByUserIdAndStatusNot(userId, StrategyStatus.DELETED.name, pageable)
+            .map { entity ->
+                strategyRepositoryPort.findById(entity.id!!) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
+            }
+    }
+
     fun deleteById(id: Long) {
         strategyRepositoryPort.deleteById(id)
+        redisStrategyCache.invalidateAll()
         log.info("전략 삭제: id={}", id)
+    }
+
+    /**
+     * soft delete — status=DELETED (audit 보존).
+     * ADR 0066 §2-6 F-1 ANY → DELETED.
+     */
+    @Transactional
+    fun softDelete(id: Long) {
+        val updated = strategyJpaRepository.updateStatus(id, StrategyStatus.DELETED.name)
+        if (updated == 0) throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
+        redisStrategyCache.invalidateAll()
+        log.info("전략 soft delete: id={}", id)
+    }
+
+    /**
+     * 전략 상태 전환 (ADR 0066 §2-6 F-1 transition 매트릭스).
+     *
+     * 허용 전환:
+     * - ACTIVE → PAUSED (사용자 토글)
+     * - PAUSED → ACTIVE (사용자 토글)
+     * - DISABLED → ACTIVE (사용자 명시 reactivate)
+     * - ANY → DELETED (soft delete)
+     *
+     * 시스템 액션 (ACTIVE→DISABLED) 은 [autoDisable] 사용.
+     */
+    @Transactional
+    fun toggleStatus(
+        id: Long,
+        newStatus: StrategyStatus,
+    ): Strategy {
+        val entity =
+            strategyJpaRepository.findByIdAndStatusNot(id, StrategyStatus.DELETED.name)
+                ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
+
+        val currentStatus = runCatching { StrategyStatus.valueOf(entity.status) }.getOrDefault(StrategyStatus.ACTIVE)
+        validateTransition(id, currentStatus, newStatus)
+
+        strategyJpaRepository.updateStatus(id, newStatus.name)
+        redisStrategyCache.invalidateAll()
+        log.info("전략 status 전환: id={} {} → {}", id, currentStatus, newStatus)
+
+        return strategyRepositoryPort.findById(id)
+            ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
     }
 
     /**
@@ -127,18 +204,44 @@ class StrategyService(
         reason: StrategyDisabledReason,
     ) {
         strategyRepositoryPort.autoDisable(strategyId, reason)
+        redisStrategyCache.invalidateAll()
         log.warn("전략 auto-disable: id={} reason={}", strategyId, reason)
     }
 
     /**
-     * 전략 재활성화 — 사용자 명시 활성화.
+     * 전략 재활성화 — 사용자 명시 활성화 (DISABLED → ACTIVE).
      */
     fun enable(strategyId: Long) {
         strategyRepositoryPort.enable(strategyId)
+        redisStrategyCache.invalidateAll()
         log.info("전략 재활성화: id={}", strategyId)
     }
 
     // --- private helper ---
+
+    private fun validateTransition(
+        id: Long,
+        current: StrategyStatus,
+        next: StrategyStatus,
+    ) {
+        val allowed =
+            when (next) {
+                StrategyStatus.ACTIVE -> current == StrategyStatus.PAUSED || current == StrategyStatus.DISABLED
+                StrategyStatus.PAUSED -> current == StrategyStatus.ACTIVE
+                StrategyStatus.DELETED -> true
+                StrategyStatus.DISABLED ->
+                    throw ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "DISABLED 전환은 시스템 auto-disable 전용 — /enable API 사용",
+                    )
+            }
+        if (!allowed) {
+            throw ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "전략 상태 전환 불가: id=$id $current → $next",
+            )
+        }
+    }
 
     private data class AstStats(
         val maxDepth: Int,

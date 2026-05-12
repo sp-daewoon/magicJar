@@ -7,16 +7,22 @@ import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
+import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.Universe
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslStrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyRepositoryPort
+import org.springframework.data.domain.PageRequest
+import org.springframework.data.domain.Sort
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 
 /**
  * 전략 JPA 어댑터 — StrategyRepositoryPort 구현.
  *
- * ADR 0051 준수: 헬퍼 메서드는 interface 0건, 이 클래스 private fun 위치.
+ * 헌법 §6 (ADR 0051) 준수: 헬퍼 메서드는 interface 0건, 이 클래스 private fun 위치.
+ * V14 확장: status 4단 + codes/intervals JSONB (ADR 0066 §2-6 F-1).
+ *
+ * // AI 호출 0 — T-SIG 트랙 정책
  */
 @Component
 class StrategyJpaAdapter(
@@ -31,10 +37,21 @@ class StrategyJpaAdapter(
     }
 
     @Transactional(readOnly = true)
-    override fun findById(id: Long): Strategy? = strategyJpaRepository.findById(id).map { toDomain(it) }.orElse(null)
+    override fun findById(id: Long): Strategy? =
+        strategyJpaRepository
+            .findByIdAndStatusNot(id, StrategyStatus.DELETED.name)
+            ?.let { toDomain(it) }
 
     @Transactional(readOnly = true)
-    override fun findAllByUserId(userId: Long): List<Strategy> = strategyJpaRepository.findAllByUserId(userId).map { toDomain(it) }
+    override fun findAllByUserId(userId: Long): List<Strategy> {
+        val page =
+            strategyJpaRepository.findAllByUserIdAndStatusNot(
+                userId,
+                StrategyStatus.DELETED.name,
+                PageRequest.of(0, 10000, Sort.by(Sort.Direction.DESC, "createdAt")),
+            )
+        return page.content.map { toDomain(it) }
+    }
 
     @Transactional
     override fun deleteById(id: Long) {
@@ -47,17 +64,20 @@ class StrategyJpaAdapter(
         reason: StrategyDisabledReason,
     ) {
         strategyJpaRepository.updateDisabledReason(strategyId, reason.name)
+        strategyJpaRepository.updateStatus(strategyId, StrategyStatus.DISABLED.name)
     }
 
     @Transactional
     override fun enable(strategyId: Long) {
         strategyJpaRepository.clearDisabledReason(strategyId)
+        strategyJpaRepository.updateStatus(strategyId, StrategyStatus.ACTIVE.name)
     }
 
     // --- private helper ---
 
     private fun toEntity(strategy: Strategy): StrategyJpaEntity {
         val dsl = strategy.definition.dsl
+        val statusStr = StrategyStatus.ACTIVE.name // 신규 등록은 항상 ACTIVE
         return StrategyJpaEntity(
             id = strategy.id,
             userId = strategy.userId,
@@ -75,6 +95,7 @@ class StrategyJpaAdapter(
             disabledReason = if (strategy.disabledReason == StrategyDisabledReason.NULL) null else strategy.disabledReason.name,
             lastDisabledAt = strategy.lastDisabledAt,
             evalMetricSummary = strategy.evalMetricSummary?.let { objectMapper.writeValueAsString(it) },
+            status = statusStr,
             createdAt = strategy.createdAt,
             updatedAt = strategy.updatedAt,
         )

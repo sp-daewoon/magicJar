@@ -11,10 +11,13 @@ import org.hibernate.type.SqlTypes
 import java.time.Instant
 
 /**
- * 전략 JPA 엔티티 — Flyway V9 + V26(disabled_reason·last_disabled_at·eval_metric_summary 추가).
+ * 전략 JPA 엔티티 — Flyway V9 + V10(disabled_reason) + V14(status·codes·intervals·*_at 컬럼 추가).
  *
  * ADR 0051 주의: no-arg constructor 필요 — kotlin-jpa 플러그인(api 모듈 적용) 의존.
  * ADR 0047 §2-6 정합 — disabled_reason·last_disabled_at·eval_metric_summary 컬럼.
+ * ADR 0066 §2-6 F-1 정합 — status 4단 + codes/intervals JSONB.
+ *
+ * 헌법 §6: body 가진 fun 0건.
  */
 @Entity
 @Table(name = "strategy")
@@ -47,7 +50,7 @@ class StrategyJpaEntity(
     val estimatedEvalTimeMs: Int = 0,
     @Column(name = "complexity_class", length = 20, nullable = false)
     val complexityClass: String = "LOW",
-    // V26 추가 컬럼 — ADR 0047 §2-2-D
+    // V10 추가 컬럼 — ADR 0047 §2-2-D
     @Column(name = "disabled_reason", length = 32)
     val disabledReason: String? = null,
     @Column(name = "last_disabled_at")
@@ -55,6 +58,21 @@ class StrategyJpaEntity(
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "eval_metric_summary", columnDefinition = "jsonb")
     val evalMetricSummary: String? = null,
+    // V14 추가 컬럼 — ADR 0066 §2-6 F-1 status 4단
+    @Column(name = "status", nullable = false, length = 10)
+    val status: String = "ACTIVE",
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "codes", columnDefinition = "jsonb")
+    val codes: String? = null,
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "intervals", columnDefinition = "jsonb")
+    val intervals: String? = null,
+    @Column(name = "paused_at")
+    val pausedAt: Instant? = null,
+    @Column(name = "disabled_at")
+    val disabledAt: Instant? = null,
+    @Column(name = "deleted_at")
+    val deletedAt: Instant? = null,
     @Column(name = "created_at", nullable = false, updatable = false)
     val createdAt: Instant = Instant.now(),
     @Column(name = "updated_at", nullable = false)
