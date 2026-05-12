@@ -1,6 +1,6 @@
 # ADR 0067 — T-RISK 리스크 관리 (Signal → Risk Gateway → Order 의무 게이트 + 영속 + 사용자 알림)
 
-- 상태: **Proposed (2026-05-12 — architect plan 발행, 사용자 결정 대기)**
+- 상태: **Accepted (2026-05-12 — 사용자 결정 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1 모두 채택)**
 - 작성일: 2026-05-12
 - 작성자: architect
 - 결정자: 사용자(최고 관리자) — 결정 의제 8건 검토 위임
