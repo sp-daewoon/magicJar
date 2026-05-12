@@ -325,3 +325,10 @@ else
     release_one "$tag" "$DRY_RUN" "$EDIT"
   done
 fi
+
+# README "Releases & Baseline 진화" 매트릭스 자동 갱신 (ADR 0052 §X 정합)
+if [[ "$DRY_RUN" != "true" ]] && [[ -f scripts/sync-readme-releases.mjs ]]; then
+  echo ""
+  echo "▶ README 매트릭스 자동 갱신 …"
+  node scripts/sync-readme-releases.mjs 2>&1 | tail -2 || echo "  (sync-readme-releases.mjs fail — skip)"
+fi

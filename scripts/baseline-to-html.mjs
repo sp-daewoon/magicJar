@@ -6,6 +6,7 @@
 // marked + mermaid CDN 클라이언트 사이드 렌더링 + 단일 파일 inline embed
 
 import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync } from 'fs';
+import { execSync } from 'child_process';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -152,3 +153,15 @@ for (const file of mdFiles) {
 
 console.log(`\n✓ 변환 완료: ${mdFiles.length} 파일`);
 console.log(`  열람: open ${DEST}/index.html`);
+
+// README "Releases & Baseline 진화" 매트릭스 자동 갱신 (ADR 0052 §X 정합)
+const SYNC_SCRIPT = join(ROOT, 'scripts/sync-readme-releases.mjs');
+if (existsSync(SYNC_SCRIPT)) {
+  try {
+    console.log('\n▶ README 매트릭스 자동 갱신 …');
+    const out = execSync(`node ${SYNC_SCRIPT}`, { encoding: 'utf8', cwd: ROOT });
+    console.log(out.split('\n').filter(l => l).slice(-1).join('\n'));
+  } catch (e) {
+    console.log('  (sync-readme-releases.mjs fail — skip)');
+  }
+}

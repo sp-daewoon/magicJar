@@ -360,19 +360,30 @@ node scripts/task.mjs done --pr <N>
 
 ## 📦 Releases & Baseline 진화
 
-GitHub 방문자가 한 번에 진입할 수 있도록 release notes(📋) + baseline html(📊) 2 컬럼 매트릭스:
+GitHub 방문자가 한 번에 진입할 수 있도록 release notes(📋) + baseline html(📊) 2 컬럼 매트릭스. 매 release/baseline 발행 시 `scripts/sync-readme-releases.mjs`가 자동 갱신 (ADR 0052 §X 정합).
+
+<!-- releases-table:start -->
 
 | 버전 | 날짜 | 미러스톤 | Release | Baseline |
 |------|------|----------|---------|----------|
-| **v3.5.0** | 2026-05-12 | T-RISK W3 마감 (리스크 게이트) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.5.0) | [📊](_workspace/baseline/v3.5.0/html/index.html) |
-| **v3.4.0** | 2026-05-12 | T-SIG W3 마감 (실시간 시그널 엔진) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.4.0) | [📊](_workspace/baseline/v3.4.0/html/index.html) |
-| **v3.3.1** | 2026-05-12 | T-BT W3 마감 (백테스트 영속+UI) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.3.1) | — |
-| **v3.3.0** | 2026-05-12 | 실시간 boundary fanout (Redis+STOMP+합산 가공) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.3.0) | [📊](_workspace/baseline/v3.3.0/html/index.html) |
-| **v3.2.3** | 2026-05-12 | ADR 매트릭스 NXT·합산 보강 + KIS retry 3회 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.2.3) | — |
-| **v3.2.2** | 2026-05-11 | KIS-only + NXT cover + 합산 가공 트랙 가동 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.2.2) | [📊](_workspace/baseline/v3.2.2/html/index.html) |
-| **v3.2.1** | 2026-05-10 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.2.1) | — |
-| **v3.1.1** | 2026-05-10 | v3.1 hotfix → W2 진입 (T-IND·T-DSL·T-PAT R1+R2) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.1.1) | — |
-| **v3.1.0** | 2026-05-08 | W1 마감 + 첫 baseline 사이클 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.1.0) | [📊](_workspace/baseline/v3.1.0/html/index.html) |
+| **v3.5.0** | 2026-05-12 | T-RISK W3 세 번째 트랙 마감 미러스톤 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.5.0) | [📊](_workspace/baseline/v3.5.0/html/index.html) |
+| **v3.4.0** | 2026-05-12 | T-SIG W3 두 번째 트랙 마감 미러스톤 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.4.0) | [📊](_workspace/baseline/v3.4.0/html/index.html) |
+| **v3.3.1** | 2026-05-12 | T-BT W3 트랙 마감 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.3.1) | [📊](_workspace/baseline/v3.3.0/html/index.html) |
+| **v3.3.0** | 2026-05-12 | 실시간 boundary fanout 미러스톤 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.3.0) | [📊](_workspace/baseline/v3.3.0/html/index.html) |
+| **v3.2.3** | 2026-05-11 | ADR 0019·0028·0029 §2 매트릭스 NXT/합산 5종 보강 + KIS 500 retry 3회 exponential backoff | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.2.3) | [📊](_workspace/baseline/v3.2.0/html/index.html) |
+| **v3.2.2** | 2026-05-11 | KIS-only 데이터 정책 + NXT/통합거래 cover + 분봉 합산 가공 트랙 가동 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.2.2) | [📊](_workspace/baseline/v3.2.0/html/index.html) |
+| **v3.2.1** | 2026-05-11 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.2.1) | [📊](_workspace/baseline/v3.2.0/html/index.html) |
+| **v3.1.1** | 2026-05-08 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.1.1) | [📊](_workspace/baseline/v3.1.0/html/index.html) |
+| **v3.1.0** | 2026-05-08 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.1.0) | [📊](_workspace/baseline/v3.1.0/html/index.html) |
+| **v3.0.1** | 2026-05-07 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.0.1) | — |
+| **v3.0.0** | 2026-05-06 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.0.0) | — |
+| **v2.9.9** | 2026-05-06 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v2.9.9) | — |
+| **v2.0.1** | 2026-05-05 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v2.0.1) | — |
+| **v2.0.0** | 2026-05-04 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v2.0.0) | — |
+| **v1.0.1** | 2026-05-01 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v1.0.1) | — |
+| **v0.1.0** | 2026-04-29 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v0.1.0) | — |
+
+<!-- releases-table:end -->
 
 - **📋 Release**: 풍부한 release notes (Hero · PR 시계열 · 신규 ADR · 운영 영향 · baseline 링크 · dogfooding 가이드 — ADR 0052 §X)
 - **📊 Baseline**: 7 파일 풀세트 (README + 01 architecture + 02 data-flow + 03 use-sequences + 04 feature-spec + 05 ui-inventory + 06 history + 07 policy) + Mermaid 시각화 HTML
