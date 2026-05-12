@@ -1666,3 +1666,87 @@ architect spec PR(본 사이클 PR-52) — 결정 의제 5건 + Mermaid 3건 out
 - 신규 ADR 0068 검토 (옵션 — 사용자 채택 시)
 - 사용자 메모리 `feedback_spec_plan_scope.md`(README 단일 파일 → spec만 발행) · `feedback_v3_skepticism_no_regression.md`(fitness gap lens) · `project_system_vision.md`(3 비전 표기 의무) · `feedback_devlog_html.md`(devlog 매트릭스) · `feedback_3tier_hierarchy.md`(3단 hierarchy Mermaid)
 
+
+
+---
+
+## §43. T-O 주문 실행 (W3 네 번째 트랙 — ADR 0068 plan 발행, 사용자 결정 대기)
+
+### 컨텍스트
+
+W3 자동매매 본체 트랙의 종착 실행 노드. T-RISK ALLOWED 게이트 통과 후 실제 KIS REST 매수/매도 주문 발행. 사용자 자본 실 변동 첫 점. 사전 자산 main:
+- ADR 0067 T-RISK Accepted (v3.5.0 마감, PR #351·#353·#354·#355·#356·#357)
+- Kafka `order.intent.v1` topic (T-RISK ALLOWED 시 publish — 본 트랙 진입점 LOCK)
+- ADR 0024 Risk Guard chain 6단 (KillSwitch 재검증 baseline)
+- ADR 0042 Position Bootstrap (KIS 잔고 워밍 + 체결 후 position 갱신 합류점)
+- ADR 0043 KillSwitch 행동 정의
+- ADR 0044 Notification System (order.requested·filled·rejected·cancelled.v1 Slack 합류)
+- ADR 0046 Onboarding REAL/MOCK credential 2종 row baseline
+- ADR 0048 KIS WS 41건 구독 한도 (H0STCNI0 추가 영향 검증)
+- ADR 0057 KIS-only (정보 수집은 REAL 키 단일, 본 트랙 주문 액션만 MAGICJAR_MODE 분기 — 사용자 메모리 정합)
+- STOMP 인프라 (`/topic/signal.user.{userId}`·`/topic/risk.user.{userId}` 패턴 baseline)
+
+T-O가 그 자산의 W3 종착 노드 — Signal → Risk → Order 흐름 완성.
+
+architect spec PR(본 사이클 — ADR 0068 plan 발행) — 결정 의제 8건 + REST API + 도메인 모델 + Flyway V20·V21·V22·V23 + 실행 엔진 + sub-agent 디스패치 매트릭스 발행, 사용자 결정 대기.
+
+### 결정 의제 (architect 권장안 — ADR 0068 §2)
+
+| 의제 | 권장안 | 핵심 사유 |
+|---|---|---|
+| A. 모의/실전 분기 | **A-1** env × 2 + 사용자 동의 토글 (3중) | CLAUDE.md 함정 4번 + 사용자 명시 동의 |
+| B. KIS endpoint | **B-1** 단일 port + adapter 내부 mode 분기 | KIS-first raw 인용 + 흐름 일원화 |
+| C. 주문 가격 | **C-1** 시장가/지정가 (ORD_DVSN 00·01) | MVP 적정 + 슬리피지 후속 |
+| D. 체결 추적 | **D-1** KIS WS H0STCNI0 실시간 | 실시간 + Rate Limit 영향 0 |
+| E. 정정/취소 | **E-1** 사용자 수동 only (1차 MVP) | 사용자 통제 + 비전 정합 |
+| F. 영속 | **F-1** 3 테이블 분리 (request+execution+audit) | ADR 0061·0067 패턴 + 1:N cover |
+| G. 알림 | **G-1** 단일 STOMP + 4 event discriminator | UX + ADR 0067 패턴 일관 |
+| H. 멱등성 | **H-1** Redis SETNX 60s + DB UQ 이중 | 자본 보호 본질 + ADR 0066 패턴 |
+
+### KIS-first raw 인용 (헌법 §3)
+
+자체 추론 0. raw 출처 `https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/`:
+
+| 액션 | env | tr_id | 출처 line |
+|---|---|---|---|
+| 매수 | REAL | `TTTC0012U` | `domestic_stock_functions.py` L10097~10213 |
+| 매수 | MOCK | `VTTC0012U` | 위와 동일 |
+| 매도 | REAL | `TTTC0011U` | 위와 동일 |
+| 매도 | MOCK | `VTTC0011U` | 위와 동일 |
+| 정정/취소 | REAL | `TTTC0013U` | `domestic_stock_functions.py` L10771~10884 (`def order_rvsecncl`) |
+| 정정/취소 | MOCK | `VTTC0013U` | 위와 동일 |
+| 체결통보 WS | REAL | `H0STCNI0` | `domestic_stock_functions_ws.py` L389~446 (`def ccnl_notice`, 26 컬럼) |
+| 체결통보 WS | MOCK | `H0STCNI9` | 위와 동일 |
+
+### 트리거
+
+- 사용자 결정 8건 명시 수신 (의제 A·B·C·D·E·F·G·H)
+- 채택 후 ADR 0068 status Proposed → Accepted 갱신 + sub-agent 직렬 디스패치(Phase 1 strategy-engine → Phase 2 backend-core → Phase 3 frontend)
+- 사용자가 일부 의제 다른 선택 시 본 § 보강 + ADR 본문 갱신
+
+### 예상 PR 매트릭스 (채택 후)
+
+- **Phase 1 strategy-engine**: consumer + domain — OrderRouterKafkaListener + OrderIdempotencyGuard + TradingModeGate + KisOrderHttpAdapter (REST + raw KDoc 의무) + KisExecutionWsListener (H0STCNI0) + 4 Kafka producer (order.requested·filled·rejected·cancelled.v1) + 도메인 14 + port 7 + 단위 테스트 ~15건. AI 호출 0 grep 검증 의무.
+- **Phase 2 backend-core**: api — Flyway V20·V21·V22·V23 + JPA 3쌍 + REST 4 endpoint(GET orders list·single·POST cancel + PUT real-trading-consent) + Swagger 4단 + StompOrderNotifier(4 event discriminator) + 단위 테스트 ~8건.
+- **Phase 3 frontend**: `/orders` + `/orders/:id` 페이지 + OrderCard + ExecutionTable + AuditEventTimeline + OrderStatusBadge + OrderCancelButton + SettingsModal "실거래 모드 동의" 토글 + useStompOrder hook(4 event 색상 토스트) + REST client `order.ts`·`account.ts` + AppHeader 메뉴 1 + 라우팅.
+- **Phase 4 qa (선택)**: 모의 주문 dogfooding (signal → risk → order → KIS VPS → H0STCNI9 → STOMP FILLED full chain).
+
+### 연관
+
+- 본 ADR 0068 (`_workspace/arch/adr/0068-t-o-order-execution.md`) — 본 § 권위
+- ADR 0067 (T-RISK Accepted — 사전 자산 권위)
+- ADR 0066 (T-SIG — Signal → Risk → Order 흐름 baseline)
+- ADR 0024·0043 (Risk Guard + KillSwitch — 재검증 baseline)
+- ADR 0042 (Position Bootstrap — 체결 후 갱신 합류점)
+- ADR 0041 (Broker Reconciliation — T-RECON 후행)
+- ADR 0044 (Notification System — order.filled.v1 합류 — T-NOTIFY 후행)
+- ADR 0046 (Onboarding REAL/MOCK credential — `user_kis_credential` baseline)
+- ADR 0048 (KIS WS 41건 한도 — H0STCNI0 영향 검증)
+- ADR 0010 (Multi-tenant userId 격리)
+- ADR 0023 (AI 호출 0 정책 계승)
+- ADR 0037 (KIS Rate Limit — 주문 burst 영향)
+- ADR 0051 (Repository default fun 함정 — 헌법 §6 의무)
+- ADR 0057 (KIS-only — 본 트랙은 정보 수집 vs 주문 분기 권위)
+- tracks-roadmap §2 T-O row (본 § 권위 인용)
+- master §10 ADR 0068 row + §C.12 (T-O 진입 표기)
+- 사용자 메모리 `project_system_vision.md`(룰 본체) · `feedback_v3_skepticism_no_regression.md`(fitness gap lens) · `feedback_3tier_hierarchy.md`(architect plan → sub-agent 직렬) · `feedback_kis_first_policy.md`(KIS-first raw 인용) · `feedback_kis_key_realonly_for_data.md`(정보 수집 REAL 키 단일, MAGICJAR_MODE 분기는 주문 액션만)
