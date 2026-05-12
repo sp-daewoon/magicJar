@@ -1,6 +1,6 @@
 # magicJar ADR 목차
 
-아키텍처 결정 기록(Architecture Decision Record). 61건 sequential (0001~0057 Accepted + 0061 Accepted 2026-05-12 + 0062·0063 Accepted 2026-05-11 + 0064 Proposed 2026-05-12 — 0058~0060 예약). 2026-05-12 v3.2.3 doc cut — ADR 0019·0028·0029 §2 매트릭스 NXT/합산 5종 재통합 갱신 (status 정합, 결정 변동 0). 2026-05-12 v3.3.0 §34 plan — ADR 0064 신규 (Redis boundary fanout + STOMP 실시간 합산 갱신, 사용자 결정 의제 3건 대기). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
+아키텍처 결정 기록(Architecture Decision Record). 62건 sequential (0001~0057 Accepted + 0061·0062·0063 Accepted + 0064 Proposed 2026-05-12 + 0066 Proposed 2026-05-12 — 0058~0060·0065 예약). 2026-05-12 v3.2.3 doc cut — ADR 0019·0028·0029 §2 매트릭스 NXT/합산 5종 재통합 갱신 (status 정합, 결정 변동 0). 2026-05-12 v3.3.0 §34 plan — ADR 0064 신규 (Redis boundary fanout + STOMP 실시간 합산 갱신). 2026-05-12 v3.4.0 진입 — ADR 0066 신규 (T-SIG 실시간 시그널 엔진 — W3 두 번째 트랙, 결정 의제 6건 대기). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
 
 ## §1. 비전 (1건)
 
@@ -53,7 +53,7 @@
 | 0063 | **NXT/통합거래 매트릭스 cover (분봉·일봉 시장 분류 코드) — Accepted (2026-05-11 사용자 결정 A UN 통합 + 1 08:00~20:00 + threshold 700)** |
 | 0064 | **Redis boundary fanout + STOMP 실시간 합산 갱신 plan — Proposed (2026-05-12 사용자 결정 대기 — 의제 A·B·C / architect 권장 A-1+B-1+C-1)** |
 
-## §6. 전략·신호·리스크 (6건)
+## §6. 전략·신호·리스크 (7건)
 
 | 번호 | 제목 |
 |------|------|
@@ -63,6 +63,7 @@
 | 0023 | Signal Engine = 룰 매칭 only (AI 호출 0) |
 | 0024 | Risk Guard chain 6단 |
 | 0056 | Backtest Engine Architecture (룩어헤드 slice-by-time 가드 + 세·수수료·슬리피지 모델 open extension + ADR 0047 sandbox 통합 + abort quota 50) |
+| 0066 | **T-SIG 실시간 시그널 엔진 (룰 매칭 + Kafka boundary listen + 영속 + STOMP fanout) — Proposed (2026-05-12 결정 의제 6건 대기 — architect 권장 A-1·B-1·C-1·D-1·E-1·F-1)** |
 
 ## §7. 시각화·AI·MCP (3건)
 
@@ -144,7 +145,7 @@
 
 - **새 ADR 발행 시** — 본 README + master §10 + tracks-roadmap §3 동시 갱신
 - **Superseded 처리 시** — 본문 상단 헤더 + 본 README 행 supersede 표기 (`_archive/` 이동은 v3.3.0 cycle에 일괄)
-- **신규 진입 시 후속 ADR 번호** — 0065부터 sequential (0001~0057 Accepted + 0058~0061 예약 + 0062·0063 Accepted 2026-05-11 + 0064 Proposed 2026-05-12 — §2·§3·§5·§6·§10-1·§10-2·§10-3·§10-4·§5 정합).
+- **신규 진입 시 후속 ADR 번호** — 0067부터 sequential (0001~0057 Accepted + 0058~0060·0065 예약 + 0061·0062·0063 Accepted + 0064 Proposed + 0066 Proposed 2026-05-12 — §2·§3·§5·§6·§10-1·§10-2·§10-3·§10-4·§5·§6 정합).
 
 ## §12. 후속 예정 (Proposed)
 
@@ -157,3 +158,4 @@
 | 0062 | **5m·15m·30m·90m·1h 합산 가공 — Accepted (2026-05-11)** | backlog §31 트랙 | 2026-05-11 사용자 결정 채택 — A-1 백엔드 precomputed + 옵션 2 과거 30 거래일 + 5종 활성화. NXT 결합 영향 §9 추가 (1m 720/일 → 합산 ~71K rows). sub-agent 디스패치 매트릭스 진행 |
 | 0063 | **NXT/통합거래 매트릭스 cover — Accepted (2026-05-11)** | backlog §32 트랙 | 2026-05-11 사용자 결정 채택 — A UN 통합 + 1 08:00~20:00 + threshold 700. sub-agent 디스패치 매트릭스 진행 |
 | 0064 | **Redis boundary fanout + STOMP 실시간 합산 갱신 — Proposed (2026-05-12)** | backlog §34 트랙 (v3.3.0) | 2026-05-12 architect plan 발행. 결정 의제 3건 사용자 검토 위임 — A Redis 키 5종 vs 통합 / B boundary 트리거 in-process vs scheduled / C STOMP 5종 vs 단일. architect 권장 A-1 + B-1 + C-1. 채택 시 market-data + frontend 디스패치 |
+| 0066 | **T-SIG 실시간 시그널 엔진 — Proposed (2026-05-12)** | T-SIG 트랙 (W3 두 번째 트랙, v3.4.0 후보, backlog §40) | 2026-05-12 architect plan 발행. 결정 의제 6건 사용자 검토 위임 — A 트리거(Kafka boundary listen vs scheduled vs Redis pub-sub) / B 룰 source(영속 DB vs inline vs 하이브리드) / C 시그널 영속(신규 테이블 vs metric 확장 vs Redis stream) / D 알림 채널(STOMP 1차 vs Slack vs 멀티) / E 멱등(DB UQ + Redis SETNX vs application map vs Kafka idempotent) / F 룰 상태(status enum 4단 vs 단순 boolean vs soft delete). architect 권장 A-1·B-1·C-1·D-1·E-1·F-1. 채택 시 strategy-engine(Phase 1) + backend-core(Phase 2) + frontend(Phase 3) 직렬 디스패치 |
