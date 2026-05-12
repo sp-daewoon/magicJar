@@ -12,12 +12,13 @@ import java.math.BigDecimal
 import java.time.Instant
 
 /**
- * 시그널 JPA 엔티티 — Flyway V15 정합 (ADR 0066 §5-2 + §2-5 E-1).
+ * 시그널 JPA 엔티티 — Flyway V15 + V19 정합 (ADR 0066 §5-2 + §2-5 E-1 + ADR 0067 §5-5 F-1).
  *
  * ADR 0051 주의: no-arg constructor 필요 — kotlin-jpa 플러그인(api 모듈 적용) 의존.
  * 헌법 §6: body 가진 fun 0건.
  *
  * UQ (strategy_id, code, interval, ts) — DB constraint V15 정합 → 멱등성 보장.
+ * V19: risk_status 컬럼 추가 — PENDING·ALLOWED·BLOCKED (ADR 0067 §5-5 F-1).
  *
  * // AI 호출 0 — T-SIG 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8)
  */
@@ -53,4 +54,11 @@ class SignalJpaEntity(
     val contextJson: String? = null,
     @Column(name = "created_at", nullable = false, updatable = false)
     val createdAt: Instant = Instant.now(),
+    /**
+     * Risk 평가 상태 — Flyway V19 추가 컬럼 (ADR 0067 §5-5 F-1).
+     * PENDING(미평가)·ALLOWED(통과)·BLOCKED(위반).
+     * SignalRiskStatusJpaAdapter가 갱신.
+     */
+    @Column(name = "risk_status", nullable = false, length = 20)
+    val riskStatus: String = "PENDING",
 )
