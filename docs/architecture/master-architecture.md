@@ -97,7 +97,7 @@ magicJar는 미래에 **MCP 서버를 외부에 노출**해 Claude/Cursor 등 AI
 |---|---|---|---|---|
 | C.10 | **Screener (종목 발굴)** | universe × DSL 조건식 → 후보 + 랭킹. 5분 캐시. 일별 batch + 분봉 실시간 두 모드. | 가능 (영속 candle + 룰만) | T-SC |
 | C.11 | **Signal Engine (시그널)** | 실시간 watch list × 활성 전략 → BUY/SELL/HOLD + 강도 + reason. **DSL 평가만, AI 호출 0**. | 가능 (in-process 룰) | T-SIG |
-| C.12 | **Auto Order Execution (주문 실행)** | 시그널 → 위험 가드 → KisOrderSender → KIS API → 체결 → audit. mock/dev/prd profile 분기. | 가능 (mock profile은 즉시 FILLED) | T-O (트랙1 완료 + 트랙2 통합) |
+| C.12 | **Auto Order Execution (주문 실행)** | 시그널 → 위험 가드(ADR 0067 ALLOWED) → KisOrderHttpAdapter(TTTC0012U·TTTC0011U) → KIS API → KisExecutionWsListener(H0STCNI0 체결통보) → audit. MAGICJAR_MODE × MAGICJAR_ALLOW_REAL × user_account.real_trading_consent_at 3중 게이트 (실계좌). 분할 체결 1:N + 사용자 수동 취소(TTTC0013U). | 가능 (MOCK 환경 — KIS VPS endpoint + H0STCNI9) | T-O (ADR 0068 plan 발행 2026-05-12, 사용자 결정 대기) |
 | C.13 | **Risk & Position Guard (위험 관리)** | Guard chain 6단 (KillSwitch·Session·DailyLimit·PositionLimit·DrawdownStop·PriceSanity). 사이징(Kelly·Fixed Fractional). | 가능 (in-process 정책) | T-RISK |
 | C.14 | **Performance Loop (성과 통계)** | 일별/주별 P&L·MDD·Sharpe·승률. **오프라인 통계만** (AI 복기는 W4 옵션). | 가능 (영속 데이터만) | T-PERF |
 
@@ -512,7 +512,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 
 ---
 
-## §10. 핵심 ADR 인덱스 (0001~0057 Accepted + 0061·0062·0063·0066 Accepted + 0064·0067 Proposed 2026-05-12)
+## §10. 핵심 ADR 인덱스 (0001~0057 Accepted + 0061·0062·0063·0066·0067 Accepted + 0064·0068 Proposed 2026-05-12)
 
 상세 본문은 `_workspace/arch/adr/<NNNN>-*.md`. 분류 카테고리는 `_workspace/arch/adr/README.md` §1~§10-4 정합. 본 §10은 한 줄 요약 인덱스 — 신규 ADR 발행 시 본 표 + README 동시 갱신 (ADR 0030 SoT 운영 규약).
 
@@ -579,7 +579,8 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | 0063 | **NXT/통합거래 매트릭스 cover — Accepted (2026-05-11 사용자 채택 A UN 통합 + 1 08:00~20:00 + threshold 700)** | 시장 데이터 | W1 (2026-05-11 Accepted) |
 | 0064 | **Redis boundary fanout + STOMP 실시간 합산 갱신 plan — Proposed (2026-05-12 사용자 결정 대기 — 의제 A·B·C / architect 권장 A-1 5종 별도 Redis + B-1 KIS WS in-process trigger + C-1 5종 별도 토픽)** | 시장 데이터 | v3.3.0 미러스톤 (backlog §34) |
 | 0066 | **T-SIG 실시간 시그널 엔진 (룰 매칭 + Kafka boundary listen + 영속 + STOMP fanout) — Accepted (2026-05-12 사용자 채택 A-1·B-1·C-1·D-1·E-1·F-1)** | 전략·신호·리스크 | W3 v3.4.0 마감 (backlog §40 DONE) |
-| 0067 | **T-RISK 리스크 관리 plan (Signal → Risk Gateway consumer → Order intent 의무 게이트 + risk_config·risk_event·position·signal.risk_status 4 도메인 영속 + STOMP 알림 + auto-PAUSE 반복 BLOCKED 10회) — Proposed (2026-05-12 사용자 결정 대기 — 의제 A·B·C·D·E·F·G·H 8건 / architect 권장 A-1 절대+% min + B-1 전역+택1+자정 reset + C-1 default 5 + D-1 분당+일별 dual + E-1 Kafka consumer + F-1 4단 처리 + G-1 4 도메인 분리 + H-1 사용자별+default seed)** | 전략·신호·리스크 | W3 v3.5.0 후보 (backlog §41) |
+| 0067 | **T-RISK 리스크 관리 (Signal → Risk Gateway consumer → Order intent 의무 게이트 + risk_config·risk_event·position·signal.risk_status 4 도메인 영속 + STOMP 알림 + auto-PAUSE 반복 BLOCKED 10회) — Accepted (2026-05-12 사용자 채택 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1)** | 전략·신호·리스크 | W3 v3.5.0 마감 (backlog §41 DONE) |
+| 0068 | **T-O 주문 실행 plan (Risk ALLOWED → KIS REST 매수·매도 + WS H0STCNI0 체결 추적 + 사용자 수동 정정/취소 + 3 테이블 영속 + STOMP 4 event + 멱등성 Redis SETNX + 실계좌 3중 게이트) — Proposed (2026-05-12 사용자 결정 대기 — 의제 A·B·C·D·E·F·G·H 8건 / architect 권장 A-1 env × 2 + 사용자 동의 토글 + B-1 단일 port + adapter 내부 mode 분기 + C-1 시장가/지정가 + D-1 KIS WS H0STCNI0 실시간 + E-1 사용자 수동 only + F-1 3 테이블 분리 + G-1 단일 토픽 4 event discriminator + H-1 Redis SETNX 60s + DB UQ — KIS-first raw 4건 TTTC0012U·TTTC0011U·TTTC0013U·H0STCNI0)** | 전략·신호·리스크 | W3 v3.6.0 후보 (backlog §43) |
 
 ### 후속 예정 (Proposed — `_workspace/arch/adr/README.md` §12 정합)
 
@@ -593,7 +594,8 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | 0063 | **NXT/통합거래 매트릭스 cover — Accepted (2026-05-11)** — backlog §32 트랙 (§10 본 표 인용) | sub-agent 디스패치 매트릭스 진행 (ADR 0063 §결정 후 트리거) |
 | 0064 | **Redis boundary fanout + STOMP 실시간 합산 갱신 — Proposed (2026-05-12)** — backlog §34 트랙 (§10 본 표 인용) | 사용자 결정 대기 → 채택 후 market-data + frontend 디스패치 |
 | 0066 | **T-SIG 실시간 시그널 엔진 — Accepted (2026-05-12)** — backlog §40 DONE. W3 두 번째 트랙. 사용자 채택 A-1·B-1·C-1·D-1·E-1·F-1. strategy-engine(Phase 1) + backend-core(Phase 2) + frontend(Phase 3) 3 PR 직렬 디스패치 완료 | v3.4.0 마감 |
-| 0067 | **T-RISK 리스크 관리 — Proposed (2026-05-12)** — backlog §41 트랙 (§10 본 표 인용). W3 세 번째 트랙. 결정 의제 8건 사용자 검토 위임. architect 권장 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1. 채택 시 strategy-engine(Phase 1) + backend-core(Phase 2) + frontend(Phase 3) 직렬 디스패치 | 사용자 결정 대기 |
+| 0067 | **T-RISK 리스크 관리 — Accepted (2026-05-12)** — backlog §41 DONE. W3 세 번째 트랙. 사용자 채택 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1. strategy-engine(Phase 1) + backend-core(Phase 2) + frontend(Phase 3) 3 PR 직렬 디스패치 완료. PR #351·#353·#354·#355·#356·#357 머지 | v3.5.0 마감 |
+| 0068 | **T-O 주문 실행 — Proposed (2026-05-12)** — backlog §43 트랙 (§10 본 표 인용). W3 네 번째 트랙. 결정 의제 8건 사용자 검토 위임. architect 권장 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1. KIS-first raw 인용 4건(TTTC0012U·TTTC0011U·TTTC0013U·H0STCNI0). 실계좌 3중 게이트. 채택 시 strategy-engine(Phase 1 consumer+domain) + backend-core(Phase 2 api+Flyway V20~V23) + frontend(Phase 3 /orders + SettingsModal 동의 토글) 직렬 디스패치 | 사용자 결정 대기 |
 
 ---
 

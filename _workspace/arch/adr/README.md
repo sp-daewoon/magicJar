@@ -1,6 +1,6 @@
 # magicJar ADR 목차
 
-아키텍처 결정 기록(Architecture Decision Record). 63건 sequential (0001~0057 Accepted + 0061·0062·0063·0066 Accepted + 0064 Proposed 2026-05-12 + 0067 Proposed 2026-05-12 — 0058~0060·0065 예약). 2026-05-12 v3.2.3 doc cut — ADR 0019·0028·0029 §2 매트릭스 NXT/합산 5종 재통합 갱신 (status 정합, 결정 변동 0). 2026-05-12 v3.3.0 §34 plan — ADR 0064 신규 (Redis boundary fanout + STOMP 실시간 합산 갱신). 2026-05-12 v3.4.0 cut — ADR 0066 Accepted (T-SIG 실시간 시그널 엔진). 2026-05-12 v3.5.0 진입 — ADR 0067 신규 (T-RISK 리스크 관리 — W3 세 번째 트랙, 결정 의제 8건 대기). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
+아키텍처 결정 기록(Architecture Decision Record). 64건 sequential (0001~0057 Accepted + 0061·0062·0063·0066·0067 Accepted + 0064 Proposed 2026-05-12 + 0068 Proposed 2026-05-12 — 0058~0060·0065 예약). 2026-05-12 v3.2.3 doc cut — ADR 0019·0028·0029 §2 매트릭스 NXT/합산 5종 재통합 갱신 (status 정합, 결정 변동 0). 2026-05-12 v3.3.0 §34 plan — ADR 0064 신규 (Redis boundary fanout + STOMP 실시간 합산 갱신). 2026-05-12 v3.4.0 cut — ADR 0066 Accepted (T-SIG 실시간 시그널 엔진). 2026-05-12 v3.5.0 cut — ADR 0067 Accepted (T-RISK 리스크 관리). 2026-05-12 v3.6.0 진입 — ADR 0068 신규 (T-O 주문 실행 — W3 네 번째 트랙, 결정 의제 8건 대기). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
 
 ## §1. 비전 (1건)
 
@@ -53,7 +53,7 @@
 | 0063 | **NXT/통합거래 매트릭스 cover (분봉·일봉 시장 분류 코드) — Accepted (2026-05-11 사용자 결정 A UN 통합 + 1 08:00~20:00 + threshold 700)** |
 | 0064 | **Redis boundary fanout + STOMP 실시간 합산 갱신 plan — Proposed (2026-05-12 사용자 결정 대기 — 의제 A·B·C / architect 권장 A-1+B-1+C-1)** |
 
-## §6. 전략·신호·리스크 (8건)
+## §6. 전략·신호·리스크 (9건)
 
 | 번호 | 제목 |
 |------|------|
@@ -64,7 +64,8 @@
 | 0024 | Risk Guard chain 6단 |
 | 0056 | Backtest Engine Architecture (룩어헤드 slice-by-time 가드 + 세·수수료·슬리피지 모델 open extension + ADR 0047 sandbox 통합 + abort quota 50) |
 | 0066 | **T-SIG 실시간 시그널 엔진 (룰 매칭 + Kafka boundary listen + 영속 + STOMP fanout) — Accepted (2026-05-12 사용자 결정 A-1·B-1·C-1·D-1·E-1·F-1 채택)** |
-| 0067 | **T-RISK 리스크 관리 (Signal → Risk Gateway consumer → Order intent 의무 게이트 + 4 도메인 영속 + STOMP 알림 + auto-PAUSE) — Proposed (2026-05-12 결정 의제 8건 대기 — architect 권장 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1)** |
+| 0067 | **T-RISK 리스크 관리 (Signal → Risk Gateway consumer → Order intent 의무 게이트 + 4 도메인 영속 + STOMP 알림 + auto-PAUSE) — Accepted (2026-05-12 사용자 결정 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1 채택)** |
+| 0068 | **T-O 주문 실행 (Risk ALLOWED → KIS REST 매수·매도 + WS H0STCNI0 체결 추적 + 사용자 수동 정정/취소 + 3 테이블 영속 + STOMP 4 event + 멱등성 Redis SETNX + 실계좌 3중 게이트) — Proposed (2026-05-12 결정 의제 8건 대기 — architect 권장 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1)** |
 
 ## §7. 시각화·AI·MCP (3건)
 
@@ -146,7 +147,7 @@
 
 - **새 ADR 발행 시** — 본 README + master §10 + tracks-roadmap §3 동시 갱신
 - **Superseded 처리 시** — 본문 상단 헤더 + 본 README 행 supersede 표기 (`_archive/` 이동은 v3.3.0 cycle에 일괄)
-- **신규 진입 시 후속 ADR 번호** — 0068부터 sequential (0001~0057 Accepted + 0058~0060·0065 예약 + 0061·0062·0063·0066 Accepted + 0064·0067 Proposed 2026-05-12 — §2·§3·§5·§6·§10-1·§10-2·§10-3·§10-4·§5·§6 정합).
+- **신규 진입 시 후속 ADR 번호** — 0069부터 sequential (0001~0057 Accepted + 0058~0060·0065 예약 + 0061·0062·0063·0066·0067 Accepted + 0064·0068 Proposed 2026-05-12 — §2·§3·§5·§6·§10-1·§10-2·§10-3·§10-4·§5·§6 정합).
 
 ## §12. 후속 예정 (Proposed)
 
@@ -160,4 +161,5 @@
 | 0063 | **NXT/통합거래 매트릭스 cover — Accepted (2026-05-11)** | backlog §32 트랙 | 2026-05-11 사용자 결정 채택 — A UN 통합 + 1 08:00~20:00 + threshold 700. sub-agent 디스패치 매트릭스 진행 |
 | 0064 | **Redis boundary fanout + STOMP 실시간 합산 갱신 — Proposed (2026-05-12)** | backlog §34 트랙 (v3.3.0) | 2026-05-12 architect plan 발행. 결정 의제 3건 사용자 검토 위임 — A Redis 키 5종 vs 통합 / B boundary 트리거 in-process vs scheduled / C STOMP 5종 vs 단일. architect 권장 A-1 + B-1 + C-1. 채택 시 market-data + frontend 디스패치 |
 | 0066 | **T-SIG 실시간 시그널 엔진 — Accepted (2026-05-12)** | T-SIG 트랙 (W3 두 번째 트랙, v3.4.0 마감, backlog §40 DONE) | 2026-05-12 architect plan 발행 → 사용자 결정 A-1·B-1·C-1·D-1·E-1·F-1 채택. strategy-engine(Phase 1) + backend-core(Phase 2) + frontend(Phase 3) 3 PR 직렬 디스패치 완료 |
-| 0067 | **T-RISK 리스크 관리 — Proposed (2026-05-12)** | T-RISK 트랙 (W3 세 번째 트랙, v3.5.0 후보, backlog §41) | 2026-05-12 architect plan 발행. 결정 의제 8건 사용자 검토 위임 — A 포지션 한도(절대+% min vs 단일) / B 일일 손실 한도(전역+택1+자정 reset vs strategy별) / C 동시 종목 한도(사용자 설정 default 5 vs 고정) / D 거래 빈도(strategy당 분당+일별 dual vs 전역 vs 비활성) / E 게이트 위치(Kafka consumer vs T-SIG 내부 vs T-O 직전) / F 위반 처리(4단 column+event+STOMP+auto-PAUSE vs silent vs hard DISABLED) / G 영속 매트릭스(4 테이블/컬럼 dedicated vs 2 테이블 vs JSONB blob) / H 설정 source(사용자별+default seed vs strategy inline vs 전역 only). architect 권장 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1. 채택 시 strategy-engine(Phase 1) + backend-core(Phase 2) + frontend(Phase 3) 직렬 디스패치 |
+| 0067 | **T-RISK 리스크 관리 — Accepted (2026-05-12)** | T-RISK 트랙 (W3 세 번째 트랙, v3.5.0 마감, backlog §41 DONE) | 2026-05-12 사용자 결정 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1 채택. strategy-engine(Phase 1) + backend-core(Phase 2) + frontend(Phase 3) 3 PR 직렬 디스패치 완료. PR #351·#353·#354·#355·#356·#357 머지 |
+| 0068 | **T-O 주문 실행 — Proposed (2026-05-12)** | T-O 트랙 (W3 네 번째 트랙, v3.6.0 후보, backlog §43) | 2026-05-12 architect plan 발행. 결정 의제 8건 사용자 검토 위임 — A 모의/실전 분기(env × 2 + 사용자 동의 3중 게이트 vs env 이중만 vs 단일) / B KIS endpoint(단일 port + adapter 내부 mode 분기 vs Spring profile vs lookup) / C 주문 가격(시장가/지정가 vs 슬리피지 % vs 지정가 only) / D 체결 추적(KIS WS H0STCNI0 실시간 vs REST polling 1분 vs dual) / E 정정/취소(사용자 수동 only vs 자동 + 수동 vs 자동만) / F 영속(3 테이블 request+execution+audit vs 2 테이블 vs JSONB blob) / G 알림(단일 STOMP + 4 event discriminator vs 단일 type vs 4 토픽) / H 멱등성(Redis SETNX 60s + DB UQ vs DB UQ만 vs 0). architect 권장 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1. KIS-first raw 인용 4건(TTTC0012U·TTTC0011U·TTTC0013U·H0STCNI0). 실계좌 3중 게이트 + AI 호출 0 검증 의무. 채택 시 strategy-engine(Phase 1) + backend-core(Phase 2) + frontend(Phase 3) 직렬 디스패치 |
