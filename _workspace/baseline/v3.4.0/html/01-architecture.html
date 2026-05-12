@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>01-architecture — magicJar v3.4.0 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">📁 인덱스</a><a href="01-architecture.html" class="active">01 Architecture</a><a href="02-data-flow.html">02 Data Flow</a><a href="03-use-sequences.html">03 Use Sequences</a><a href="04-feature-spec.html">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html">06 History</a><a href="07-policy-evolution.html">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.4.0 Baseline · 2026-05-12 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># 01 — magicJar v3.4.0 아키텍처 (시각화)
+
+> **작성자**: architect (PR-51)
+> **시점**: 2026-05-12 v3.4.0 태그 컷 직후 (release commit `8b3b456`)
+> **권위**: `docs/architecture/master-architecture.md` v2 §5·§6 + ADR 0002·0004(5 모듈 보존)·0005·0006·0007·0008·0009·0019(부분 revoke 유지)·0023(Signal Engine 룰 매칭 only)·0028·0029·0044·0045·0047·0048·0054·0055·0056·0057·0061·0062·0063·0064·**0066** 정합 + ~~0049(Superseded)~~ + v3.4.0 시점 코드 inspection 결과
+
+본 문서는 v3.4.0 시점 magicJar 시스템의 **시각화 가능 수준 그림**이다. SoT는 `docs/architecture/master-architecture.md`이며, 본 문서는 그 하위 구체화 — v3.4.0 시점 실체(현재 발행된 컨테이너·테이블·KIS endpoint·Kafka topic·STOMP 토픽·v3.4.0 신규 컴포넌트 12건)만 인용한다. v1/v2 잔재 0건. 미발행 트랙(W3 잔여·W4·W5)은 명시적으로 제외.
+
+**v3.3.0 → v3.4.0 핵심 변경**:
+- **Flyway +4건**: V12·V13(T-BT 영속 3 테이블) + V14·V15(T-SIG strategy·signal)
+- **Kafka 토픽 +1종**: `signal.generated.v1` 신규 — T-SIG 시그널 발행 audit 토픽 (T-O·T-RISK 후행 트랙 진입점, ADR 0066 §9-2)
+- **STOMP 토픽 +1종**: `/topic/signal.user.{userId}` (D-1 채택, ADR 0066 §4-D)
+- **Redis namespace +2종**: `strategy:active:by_code:{code}:{interval}` cache + `signal:dedupe:{strategyId}:{code}:{interval}:{ts}` SETNX 30s
+- **REST endpoint +13건**: T-BT 5건(POST·GET list·GET detail·GET result·DELETE) + T-SIG Strategy 6건(POST·GET list·GET detail·PUT toggle·PUT reactivate·DELETE) + T-SIG Signal 2건(GET list·GET detail)
+- **frontend 라우트 +2건**: `/strategy/list`·`/strategy/backtest`
+- **v3.4.0 신규 컴포넌트 12건**:
+  - **T-BT R2 영속 (ADR 0061)**: `BacktestPersister`·`BacktestQueryService`·`BacktestController` (api)
+  - **T-SIG (ADR 0066)**: domain `Signal`+`SignalSide`+`SignalContext`+`SignalGenerator` port + `Strategy` 확장 + `RealtimeSignalGenerator`·`BoundaryClosingKafkaListener` 5건·`SignalDedupeGuard`·`SignalKafkaProducer` (consumer) + `RedisStrategyCache`·`StompSignalDispatcher`·`StrategyController`·`SignalController` (api)
+- **GHA 폐기**: `.github/workflows/release.yml` 삭제 (PR #340) + ADR 0049 Superseded (PR #341, 사용자 메모리 `feedback_no_github_actions.md` 정합)
+- JVM 모듈 5 보존 (v3.2.0 base — domain·api·batch·consumer·pattern-engine)
+
+---
+
+## §1. 시스템 전경 (5 JVM 모듈 + frontend + 외부 4 + 인프라 3 + 디버깅 2 + T-SIG 시그널 흐름 + T-BT 영속)
+
+```mermaid
+graph TD
+    subgraph EXTERNAL["외부 통합 (옵션 + fallback)"]
+        KISREST["KIS REST<br/>openapi.koreainvestment.com:9443<br/>prod credential 단일 채널"]
+        KISWS["KIS WebSocket<br/>wss://ops.koreainvestment.com:21000<br/>prod credential 단일 채널<br/>H0STCNT0 체결가 + H0STASP0 호가"]
+        KISMASTER["KIS 종목마스터 ZIP<br/>new.real.download.dws.co.kr"]
+        DART["DART OPENDART<br/>opendart.fss.or.kr"]
+        ANTHROPIC["Anthropic Spring AI<br/>api.anthropic.com<br/>(T-DSL 자연어 helper · 사용자 트리거 한정)"]
+        YAHOO_DEP["~~Yahoo Finance~~<br/>YahooCandleFetcherAdapter @Deprecated<br/>v3.5.x 일괄 삭제 예정"]
+    end
+
+    subgraph FRONTEND["frontend (React 19 + Vite + LWC v4)"]
+        FE_SETUP["/setup<br/>SetupWizard 7-step"]
+        FE_WL["/watchlist<br/>WatchlistPage"]
+        FE_SYM["/symbol/:code<br/>SymbolDetailPage<br/>+ STOMP 5종 boundary subscribe<br/>+ LWC series.update() 실시간 갱신 (v3.3.0)"]
+        FE_SB["/strategy/builder<br/>StrategyBuilderPage<br/>(트리 폼 빌더 + DSL 토글)"]
+        FE_SL["/strategy/list (v3.4.0 신규)<br/>StrategyListPage<br/>+ StrategyCard 5 컴포넌트<br/>+ STOMP /topic/signal.user.{userId} 토스트<br/>+ status 토글·재활성화·삭제"]
+        FE_BT["/strategy/backtest (v3.3.1 신규)<br/>BacktestPage<br/>+ BacktestRunForm·BacktestRunList<br/>+ BacktestDetailModal · KpiCards 12종<br/>+ LWC equity curve · trade marker"]
+        FE_DASH["/<br/>DashboardPlaceholder"]
+    end
+
+    subgraph API["api (Spring Boot 3.3 / 8080)"]
+        API_REST["REST controllers<br/>onboarding · watchlist · symbol · instrument<br/>candle · indicator · strategy · pattern · dsl-translate"]
+        API_STOMP["STOMP /ws<br/>tick · candle/1m · orderbook<br/>+ candle/5m·15m·30m·90m·1h (v3.3.0)<br/>+ signal.user.{userId} (v3.4.0 T-SIG)"]
+        API_GUARD["OnboardingGuardFilter<br/>(401 ONBOARDING_REQUIRED)"]
+        API_AUTH["KisAuthValidator<br/>AesGcmCipher AES-256-GCM"]
+        API_FLY["Flyway V1~V15 적용기<br/>(v3.4.0: V12·V13 T-BT + V14·V15 T-SIG)"]
+        API_AI["NaturalLanguageDslTranslator<br/>(@Service · ChatClient lazy)<br/>+ MockDslHeuristic 9 패턴 fallback"]
+        API_BT["BacktestEngine<br/>+ BacktestPersister (v3.3.1 신규 ADR 0061)<br/>+ BacktestQueryService 5 endpoint<br/>+ JvmStrategyEvaluator sandbox 재사용"]
+        API_STOMP_FANOUT["CandleClosedStompListener<br/>5 KafkaListener → STOMP fanout (v3.3.0)"]
+        API_STRATEGY["StrategyController (v3.4.0 신규 T-SIG)<br/>6 endpoint (POST·GET list·GET detail·PUT toggle·PUT reactivate·DELETE)<br/>+ StrategyService (complexity 계산)"]
+        API_SIGNAL["SignalController (v3.4.0 신규 T-SIG)<br/>2 endpoint (GET list·GET detail)<br/>+ SignalJpaAdapter (DUPLICATE_KEY skip)"]
+        API_REDIS_CACHE["RedisStrategyCache (v3.4.0 신규)<br/>strategy:active:by_code:{code}:{interval}<br/>+ evict on register/toggle/delete"]
+        API_STOMP_SIGNAL["StompSignalDispatcher (v3.4.0 신규)<br/>Kafka signal.generated.v1 consumer<br/>→ STOMP /topic/signal.user.{userId} fanout"]
+    end
+
+    subgraph BATCH["batch (Spring Batch / 8081)"]
+        B_INSTR["InstrumentSyncJob<br/>(13 cron + boot sync)"]
+        B_KIS_MASTER["KisInstrumentMasterAdapter<br/>EUC-KR fixed-width"]
+        B_CHK["KisChkHolidayAdapter<br/>tr_id=CTCA0903R"]
+        B_KSD["KisKsdInfoAdapter<br/>HHKDB669100C0~106C0 (6)"]
+        B_DART["DartDisclosureAdapter<br/>DartCorpCodeRepository"]
+        B_CALSEED["MarketCalendarSeedRunner<br/>2026~2027 31건 정적 시드"]
+        B_CASYNC["CorpActionSyncJob<br/>cron 18:30"]
+        B_CADJ["CandleAdjustmentJob<br/>(corp_action.applied.v1 listener)"]
+    end
+
+    subgraph CONSUMER["consumer (Kafka + KIS WS / 8082)"]
+        C_WL_LISTEN["WatchlistChangedKafkaListener"]
+        C_INGEST["WatchlistIngestionWorker<br/>+ SubscriptionRouter (slot 1+30+10)"]
+        C_POLL["WatchlistPollingWorker (5s)"]
+        C_BOOTSTRAP_1M["CandleBootstrapRunner<br/>(fid_cond_mrkt_div_code=UN<br/>+ KIS 500 retry 3회)"]
+        C_KIS_WS["KisWebSocketBridge<br/>H0STCNT0 체결가 + H0STASP0 호가"]
+        C_KIS_REST["KisRestCandleAdapter<br/>FHKST03010100/200/230<br/>+ 500 retry 3회 exponential backoff"]
+        C_TICK_AGG["TickToMinuteAggregator<br/>(@Scheduled 매 분 0초)<br/>+ 1m closing → boundaryAggregator.onTickClosed"]
+        C_AGG_BACKFILL["AggregateBackfillRunner<br/>cold-start 1m 적재 직후<br/>5m·15m·30m·90m·1h 일괄 합산"]
+        C_BD["BoundaryAggregator (v3.3.0)<br/>@Component<br/>onTickClosed(code, closingTs)<br/>5 interval 순차 처리 + 멱등 가드"]
+        C_RCC["RedisCandleCache (v3.3.0)<br/>candle:current:{code}:5m~1h<br/>TTL 25h"]
+        C_DCF["DailyCloseFinalizer<br/>(@Scheduled 20:00 KST)<br/>+ flushAggregations()"]
+        C_COLD["ColdStartExecutor<br/>(KIS REST 4 interval)"]
+        C_POS_BOOTSTRAP["PositionBootstrapRunner<br/>ApplicationRunner ADR 0042"]
+        C_IND["KisStrategyBuilderSource (80지표)<br/>+ NativeIndicatorSource 5종<br/>+ IndicatorEngine + RedisCache"]
+        C_DSL["KisYamlDslParser (parser.py 1:1)<br/>+ JvmStrategyEvaluator<br/>+ sandbox + strategy-eval-pool 4 fixed<br/>+ ADR 0047 timeout 100ms"]
+        C_RSG["RealtimeSignalGenerator (v3.4.0 신규 T-SIG)<br/>@Component<br/>onBoundaryClosed(payload) → evaluate"]
+        C_BCKL["BoundaryClosingKafkaListener 5건 (v3.4.0)<br/>@KafkaListener market.candle.{5m·15m·30m·90m·1h}.closed.v1<br/>partition by code"]
+        C_SDG["SignalDedupeGuard (v3.4.0 신규)<br/>Redis SETNX signal:dedupe:... 30s TTL"]
+        C_SKP["SignalKafkaProducer (v3.4.0 신규)<br/>signal.generated.v1 publish<br/>partition by userId"]
+    end
+
+    subgraph PATTERN_ENGINE["pattern-engine (라이브러리 jar — ADR 0054 보존)"]
+        P_REG["JvmPatternRecognizer<br/>@Component('patternRecognizer')<br/>require(detectors.size == 57)"]
+        P_DETECT["57 detector<br/>R1 active 10 + R2 stub 47"]
+        P_CACHE["RedisPatternCacheAdapter<br/>분봉 5분 / 일봉 1일 TTL"]
+    end
+
+    subgraph DOMAIN["domain (Pure Kotlin — Spring·JPA 0)"]
+        D_PORTS["ports<br/>(InstrumentRepository · KisRestPort · KisWsPort ·<br/>MarketSessionResolver · CorpActionRepository ·<br/>IndicatorEngine · IndicatorSource ·<br/>StrategyRepositoryPort · PatternRecognizer · PatternDetector)"]
+        D_DSL["domain/strategy<br/>23+ sealed/enum/data class<br/>(KIS parser.py 1:1 port)"]
+        D_PAT["domain/pattern<br/>5 도메인 + 7 port + PatternCatalog 57"]
+        D_IND["domain/indicator<br/>7 port + IndicatorCatalog 80 metadata"]
+        D_AGG["domain/market/CandleAggregator<br/>Pure Kotlin OHLCV"]
+        D_BD["domain/candle/BoundaryDetector (v3.3.0)<br/>Pure Kotlin object · 44 unit test GREEN"]
+        D_BT["domain/backtest 5 sealed class (ADR 0056)<br/>+ 룩어헤드 가드 + 보정 로직"]
+        D_SIG["domain/signal (v3.4.0 신규 T-SIG)<br/>Signal · SignalSide (BUY·SELL·HOLD)<br/>+ SignalContext · SignalGenerator port<br/>+ SignalRepository · SignalDispatcher port"]
+        D_STR_EXT["domain/strategy (v3.4.0 확장)<br/>Strategy + StrategyStatus enum 4단<br/>(ACTIVE·PAUSED·DISABLED·DELETED)<br/>+ StrategyDisabledReason<br/>+ StrategyRepository port"]
+    end
+
+    subgraph INFRA["인프라 3 + 디버깅 2"]
+        PG[("PostgreSQL 16<br/>Flyway V1~V15<br/>candle table 5m~1h ~56k + 1m ~147k<br/>+ backtest_run·backtest_trade·backtest_position (V12·V13)<br/>+ strategy·signal (V14·V15) UQ (strategy_id, code, interval, ts)")]
+        REDIS[("Redis 7<br/>quote·session·instrument·position·kis token<br/>+ candle:current:{code}:1m·5m·15m·30m·90m·1h<br/>+ strategy:active:by_code:{code}:{interval} cache (v3.4.0)<br/>+ signal:dedupe:... SETNX 30s (v3.4.0)")]
+        KAFKA[("Kafka 3.7 KRaft<br/>retention 1h / 200MB / segment 10MB<br/>+ market.candle.{5m·15m·30m·90m·1h}.closed.v1<br/>+ signal.generated.v1 (v3.4.0 T-SIG) retention 7d")]
+        DOZZLE["Dozzle 8888<br/>(로그 web UI)"]
+        KAFKAUI["Kafka UI 8090"]
+    end
+
+    %% Frontend → API
+    FE_SETUP -->|"HTTP+STOMP"| API_REST
+    FE_WL -->|"HTTP+STOMP"| API_REST
+    FE_SYM -->|"HTTP+STOMP"| API_STOMP
+    FE_SB -->|"HTTP /api/strategy + /api/dsl/translate-from-natural"| API_REST
+    FE_SL -->|"HTTP /api/strategies + /api/signals<br/>+ STOMP /topic/signal.user.{userId}"| API_STRATEGY
+    FE_SL -.->|"STOMP subscribe"| API_STOMP
+    FE_BT -->|"HTTP /api/backtests"| API_BT
+    FE_DASH -->|"HTTP"| API_REST
+
+    %% API → External
+    API_AUTH -->|"OAuth2 검증 (prod credential)"| KISREST
+    API_AI -->|"Spring AI Anthropic ChatClient"| ANTHROPIC
+
+    %% Batch → External
+    B_KIS_MASTER -->|"GET zip"| KISMASTER
+    B_CHK -->|"tr_id=CTCA0903R"| KISREST
+    B_KSD -->|"6 endpoint"| KISREST
+    B_DART -->|"list.json + corpCode.xml"| DART
+
+    %% Consumer → External
+    C_KIS_WS -->|"WebSocket H0STCNT0/ASP0"| KISWS
+    C_KIS_REST -->|"500 retry 3회"| KISREST
+    C_BOOTSTRAP_1M -->|"FHKST03010230 (1m 과거 30 거래일)"| KISREST
+    C_COLD -.->|"~~Yahoo~~ 제거"| YAHOO_DEP
+
+    %% pattern-engine은 라이브러리
+    API_REST -.->|"implementation(:pattern-engine)"| P_REG
+    C_DSL -.->|"implementation(:pattern-engine)"| P_REG
+    P_REG --> P_DETECT
+    P_REG --> P_CACHE
+
+    %% API ↔ infra
+    API_REST --> PG
+    API_REST --> REDIS
+    API_REST -->|"producer"| KAFKA
+    API_FLY --> PG
+    API_BT --> PG
+    API_BT -->|"sandbox · domain/backtest"| D_BT
+    API_STOMP_FANOUT -->|"consumer market.candle.*.closed.v1"| KAFKA
+    API_STOMP_FANOUT -->|"/topic/market.candle.{interval}.{code}"| API_STOMP
+    API_STRATEGY --> PG
+    API_STRATEGY --> API_REDIS_CACHE
+    API_REDIS_CACHE --> REDIS
+    API_SIGNAL --> PG
+    API_STOMP_SIGNAL -->|"consumer signal.generated.v1"| KAFKA
+    API_STOMP_SIGNAL -->|"/topic/signal.user.{userId}"| API_STOMP
+
+    %% Batch ↔ infra
+    B_INSTR --> PG
+    B_INSTR -->|"producer"| KAFKA
+    B_CASYNC --> PG
+    B_CASYNC -->|"producer"| KAFKA
+    B_CALSEED --> PG
+    B_CADJ -->|"consumer"| KAFKA
+
+    %% Consumer ↔ infra
+    C_WL_LISTEN -->|"consumer"| KAFKA
+    C_INGEST --> REDIS
+    C_BOOTSTRAP_1M --> PG
+    C_BOOTSTRAP_1M -->|"trigger"| C_AGG_BACKFILL
+    C_AGG_BACKFILL -->|"5m~1h 합산 INSERT"| PG
+    C_AGG_BACKFILL -.->|"uses"| D_AGG
+    C_KIS_WS -->|"producer"| KAFKA
+    C_KIS_WS -->|"1m closing trigger"| C_TICK_AGG
+    C_TICK_AGG --> PG
+    C_TICK_AGG --> REDIS
+    C_TICK_AGG -->|"onTickClosed"| C_BD
+    C_BD -.->|"detectBoundary"| D_BD
+    C_BD --> PG
+    C_BD -.->|"aggregate via CandleAggregator"| D_AGG
+    C_BD -->|"putBoundary 5 hash"| C_RCC
+    C_RCC --> REDIS
+    C_BD -->|"insertIgnore"| PG
+    C_BD -->|"producer market.candle.{interval}.closed.v1"| KAFKA
+    C_DCF -->|"20:00 KST · 5m~1h flush"| PG
+    C_DCF --> REDIS
+    C_POS_BOOTSTRAP --> REDIS
+    C_POS_BOOTSTRAP --> PG
+    C_IND --> REDIS
+    P_CACHE --> REDIS
+
+    %% v3.4.0 T-SIG 실시간 시그널 흐름 (Hot path)
+    C_BCKL -->|"consumer market.candle.*.closed.v1<br/>5 listener (partition by code)"| KAFKA
+    C_BCKL -->|"onBoundaryClosed(payload)"| C_RSG
+    C_RSG -.->|"findActiveByCode(code, interval)"| API_REDIS_CACHE
+    C_RSG -->|"strategy SELECT (cache miss)"| PG
+    C_RSG -.->|"SETNX dedupe 30s"| C_SDG
+    C_SDG --> REDIS
+    C_RSG -.->|"JvmStrategyEvaluator sandbox<br/>timeout 100ms<br/>strategy-eval-pool 4 fixed"| C_DSL
+    C_RSG -.->|"Signal? generate"| D_SIG
+    C_RSG -->|"save signal (DB UQ + DUPLICATE_KEY skip)"| PG
+    C_RSG -->|"publish signal.generated.v1"| C_SKP
+    C_SKP -->|"producer (partition by userId)"| KAFKA
+    C_RSG -.->|"strategy auto-disable on TIMEOUT"| D_STR_EXT
+    C_RSG -.->|"strategy_eval_metric INSERT"| PG
+
+    %% Domain (헥사고날 — 모든 모듈이 import)
+    API_REST -->|"implements port"| D_PORTS
+    B_INSTR -->|"implements port"| D_PORTS
+    C_KIS_WS -->|"implements port"| D_PORTS
+    P_REG -->|"implements PatternRecognizer port"| D_PAT
+    C_IND -->|"implements IndicatorSource port"| D_IND
+    C_DSL -->|"reads domain/strategy AST"| D_DSL
+    API_SIGNAL -->|"implements SignalRepository"| D_SIG
+    API_STRATEGY -->|"implements StrategyRepository"| D_STR_EXT
+    API_STOMP_SIGNAL -->|"implements SignalDispatcher"| D_SIG
+```
+
+**범례**:
+- 실선 화살표 — DB·Redis·Kafka inbound/outbound
+- 점선 화살표 — 외부 HTTP/WS 호출 + pattern-engine library 의존(implementation) + domain port implements + 폐기된 Yahoo 더미 박스 + Redis cache lookup
+- `domain`은 모든 JVM 모듈의 의존이지만 시각화 단순화를 위해 별도 박스 + port implements 점선만 표시
+- `pattern-engine`은 라이브러리 jar(컨테이너 추가 0) — v3.4.0에서 변경 0
+- **v3.4.0 T-SIG 실시간 시그널 흐름 (Hot path)**: KIS WS H0STCNT0 → TickToMinuteAggregator 1m closing → BoundaryAggregator → Kafka `market.candle.{interval}.closed.v1` publish → `BoundaryClosingKafkaListener` 5건(consumer) → `RealtimeSignalGenerator` → `RedisStrategyCache` lookup → `SignalDedupeGuard` SETNX → `JvmStrategyEvaluator` sandbox(strategy-eval-pool 4) → `SignalRepository.save` (DB UQ) → `SignalKafkaProducer.publish(signal.generated.v1)` → `StompSignalDispatcher` → STOMP `/topic/signal.user.{userId}` → frontend `useStompSignal` 토스트
+- **end-to-end latency 예측 (ADR 0066 §7-3)**: boundary closing → 사용자 토스트 도달 <100ms (boundary publish 20ms + listener 5ms + cache·sandbox·persist·publish·fanout 합 ~75ms)
+
+**원칙**: 외부 4개 중 어느 하나가 끊겨도 본체는 동작. **Yahoo는 v3.2.2부터 의존 0** — `@Deprecated` 마킹만 잔존, v3.5.x minor 일괄 삭제 예정. Anthropic은 사용자 트리거 helper만이라 부재 시 MockDslHeuristic 9 패턴 fallback. **T-SIG는 KIS REST/WS 직접 호출 0건** — Kafka 내부 토픽만 listen (ADR 0066 §1 정합).
+
+---
+
+## §2. 모듈 책임 매트릭스 (v3.4.0 실체 — 5 모듈 보존)
+
+`master-architecture.md` §5-1A·§5-2 + `settings.gradle.kts:14~20` 기준 5 JVM 모듈 + frontend 1 SPA. v3.4.0 시점 실제 구현된 컴포넌트만 표기.
+
+### 2-1. v3.3.0 W1·W2 + boundary fanout 트랙 (보존)
+
+| 영역 | api | batch | consumer | pattern-engine | domain | frontend |
+|------|-----|-------|----------|----------------|--------|----------|
+| Onboarding·Watchlist·Ingestion·Symbol·MarketSession·CorpAction·Instrument (W1 7 트랙) | (v3.3.0 보존) | (v3.3.0 보존) | (v3.3.0 보존) | — | (v3.3.0 보존) | (v3.3.0 보존) |
+| Indicator·DSL·Pattern·Strategy Builder (W2 4 트랙) | (v3.3.0 보존) | — | (v3.3.0 보존) | (v3.3.0 보존) | (v3.3.0 보존) | (v3.3.0 보존) |
+| 실시간 boundary fanout (ADR 0064) | `CandleClosedStompListener` (v3.3.0 보존) | — | `BoundaryAggregator`·`RedisCandleCache`·`TickToMinuteAggregator` 확장 (v3.3.0 보존) | — | `BoundaryDetector` (v3.3.0 보존) | `useSymbolCandles` STOMP 5종 dynamic subscribe (v3.3.0 보존) |
+| W3 T-BT 코드 진입 (ADR 0056, v3.2.2) | `BacktestController` REST run · `BacktestService` · `BacktestEngine` (v3.2.2 보존) | — | (cold-start 영향 0) | — | `domain/backtest/*` 5 sealed class (v3.2.2 보존) | (v3.2.2 시점 페이지 없음) |
+
+상세는 `_workspace/baseline/v3.3.0/01-architecture.md §2`. v3.4.0에서 변경 0 (T-BT R2/R3 + T-SIG W3 트랙만 §2-2 add).
+
+### 2-2. v3.3.1 T-BT R2 영속 + R3 frontend (ADR 0061)
+
+| 영역 | api | batch | consumer | domain | frontend |
+|------|-----|-------|----------|--------|----------|
+| **백테스트 결과 영속 (ADR 0061 §2-1·§2-2)** | **`api/.../persistence/backtest/BacktestRunJpaEntity.kt`·`BacktestTradeJpaEntity.kt`·`BacktestPositionJpaEntity.kt` + `BacktestPersister.kt` (POST run 시점 영속)** | — | — | — | — |
+| **백테스트 조회 (ADR 0061 §2-3)** | **`BacktestQueryService.kt` + `BacktestController` REST 5 endpoint(POST run + GET list + GET detail + GET result + DELETE) — CASCADE DELETE 정합** | — | — | — | — |
+| **frontend `/strategy/backtest` 페이지 (ADR 0061 §2 D-1)** | — | — | — | — | **`pages/strategy/Backtest.tsx` + `components/backtest/` 6 컴포넌트(`BacktestRunForm`·`BacktestRunList`·`BacktestDetailModal`·`BacktestKpiCards`·`BacktestEquityCurve` LWC line·`BacktestTradeMarker` LWC marker) + `api/backtest.ts` REST client** |
+
+### 2-3. v3.4.0 T-SIG W3 두 번째 트랙 (ADR 0066)
+
+| 영역 | api | batch | consumer | domain | frontend |
+|------|-----|-------|----------|--------|----------|
+| **domain Signal 본체 (ADR 0066 §5-2)** | — | — | — | **`domain/.../signal/Signal.kt` data class + `SignalSide` enum(BUY·SELL·HOLD) + `SignalContext` data class + `SignalGenerator` port + `SignalRepository` port + `SignalDispatcher` port (Pure Kotlin · Spring·JPA 0)** | — |
+| **domain Strategy 확장 (ADR 0066 §5-1)** | — | — | — | **`domain/.../strategy/Strategy.kt` 확장 + `StrategyStatus` enum 4단(ACTIVE·PAUSED·DISABLED·DELETED) + `StrategyDisabledReason` enum(TIMEOUT·CPU_BUDGET_EXCEEDED·MANUAL) + `StrategyComplexity`(ADR 0047 §2-1-B) + `EvalMetricSummary` + `StrategyRepository` port** | — |
+| **Realtime Signal Generator (ADR 0066 §7-1·§7-2)** | — | — | **`consumer/.../signal/RealtimeSignalGenerator.kt` @Component — boundary payload 수신 → strategy SELECT(cache 우선) → dedupe → sandbox 평가 → Signal save → STOMP fanout 전 publish (§7-2 1:1 매핑)** | — | — |
+| **Boundary Kafka Listener 5건 (ADR 0066 §7-1 A-1)** | — | — | **`consumer/.../signal/kafka/BoundaryClosingKafkaListener.kt` — @KafkaListener `market.candle.{5m·15m·30m·90m·1h}.closed.v1` 5건 + partition key=code 단일 thread 보장** | — | — |
+| **Signal Dedupe Guard (ADR 0066 §7-1 E-1 보조)** | — | — | **`consumer/.../signal/SignalDedupeGuard.kt` — Redis SETNX `signal:dedupe:{strategyId}:{code}:{interval}:{ts}` TTL 30s** | — | — |
+| **Signal Kafka Producer (ADR 0066 §7-1)** | — | — | **`consumer/.../signal/kafka/SignalKafkaProducer.kt` — `signal.generated.v1` publish (partition by userId · T-O·T-RISK 후행 진입점)** | — | — |
+| **Strategy CRUD + 토글 (ADR 0066 §4-1)** | **`api/.../persistence/strategy/StrategyJpaEntity.kt`·`StrategyJpaAdapter.kt` (ADR 0051 default fun 회피) + `api/.../application/strategy/StrategyService.kt`(complexity 계산) + `api/.../controller/StrategyController.kt` 6 endpoint(POST·GET list·GET detail·PUT toggle·PUT reactivate·DELETE)** | — | — | — | — |
+| **Signal 조회 (ADR 0066 §4-2)** | **`api/.../persistence/signal/SignalJpaEntity.kt`·`SignalJpaAdapter.kt` (DUPLICATE_KEY skip handling) + `api/.../controller/SignalController.kt` 2 endpoint(GET list 페이징 + GET detail)** | — | — | — | — |
+| **Redis Strategy Cache (ADR 0066 §7-1 B-1 I/O 완화)** | **`api/.../infrastructure/cache/RedisStrategyCache.kt` — `strategy:active:by_code:{code}:{interval}` Redis hash + register/toggle/delete 시 evict** | — | — | — | — |
+| **STOMP Signal Dispatcher (ADR 0066 §4-D D-1)** | **`api/.../stomp/StompSignalDispatcher.kt` — Kafka `signal.generated.v1` consumer → STOMP `/topic/signal.user.{userId}` fanout (multi-tenant · userId 단위 격리)** | — | — | — | — |
+| **frontend `/strategy/list` 페이지 (ADR 0066 Phase 3)** | — | — | — | — | **`pages/strategy/StrategyListPage.tsx` + `components/strategy/StrategyCard.tsx`·`SignalListPanel.tsx`·`StrategyStatusBadge.tsx`·`StrategyToggleButton.tsx`·`StrategyDetailModal.tsx` 5 컴포넌트 + `hooks/useStompSignal.ts` STOMP 토스트 + `hooks/useStrategies.ts`·`useSignals.ts` REST hook + routing 확장** |
+
+### 2-4. 데이터 출처 매트릭스 (v3.3.0 보존)
+
+> **운용 범위 (v3.4.0 발효 후)**: v3.3.0 데이터 출처 매트릭스(1m·1d·1wk·1mo·1y + 5m·15m·30m·90m·1h 합산 가공) 그대로. T-SIG는 KIS REST/WS 직접 호출 0건 — Kafka 내부 토픽만 listen.
+
+상세는 `_workspace/baseline/v3.3.0/01-architecture.md §2-3`. v3.4.0에서 변경 0.
+
+**v3.4.0 시점 미발행 영역** (master §2 19컴포넌트 중 W3 잔여~W5 — 본 baseline에는 포함 안 함):
+- Screener · Risk · Order · Reconcile · Notify · Performance (W3 본격 잔여 사이클)
+- AI Console · MCP Server (W4) — 단, T-DSL 자연어 helper는 v3.2.0에 발행됨 + **T-SIG signal/strategy REST API가 MCP 외부 client baseline LOCK**
+- LWC 확장 · Learn (W5)
+
+`docs/architecture/master-architecture.md` §2 + `tracks-roadmap.md` §1·§2 정합.
+
+---
+
+## §3. 외부 통합 매트릭스 (raw 출처 의무 — 헌법 §3 KIS-first)
+
+v3.3.0 보존 — v3.4.0에서 외부 통합 변경 0. T-SIG는 KIS REST/WS 직접 호출 0건이라 외부 통합 매트릭스 영향 없음 + `BoundaryClosingKafkaListener` 5건은 Kafka 내부 토픽 listen이라 ADR 0048 41 한도 영향 0.
+
+### 3-1. KIS REST API
+
+v3.3.0 보존 — `_workspace/baseline/v3.3.0/01-architecture.md §3-1` 그대로. v3.4.0에서 새 endpoint 호출 0건.
+
+### 3-2. KIS WebSocket
+
+v3.3.0 보존 — `_workspace/baseline/v3.3.0/01-architecture.md §3-2` 그대로. H0STCNT0 체결가 + H0STASP0 호가 stream 그대로. T-SIG는 KIS WS 직접 호출 0건.
+
+### 3-3. KIS 종목마스터 ZIP
+
+v3.3.0 보존 — 변경 0.
+
+### 3-4. DART OPENDART
+
+v3.3.0 보존 — 변경 0.
+
+### 3-5. ~~Yahoo Finance~~ (v3.2.2 폐기 — ADR 0057)
+
+v3.3.0 보존 — `@Deprecated` 마킹 잔존. **실제 파일 삭제는 v3.5.x minor 일괄** (사용자 메모리 `feedback_kis_first_policy.md` 정합).
+
+### 3-6. Anthropic — Spring AI ChatClient (T-DSL 자연어→DSL helper)
+
+v3.3.0 보존 — 사용자 트리거 한정 (ADR 0023·0026 룰 5 LOCK). **T-SIG 영역은 Anthropic 호출 0건** — AI 호출 0 grep 검증 의무 (ADR 0023 §2-4 + ADR 0066 §8 정합):
+
+- T-SIG 영역 코드 import 패턴 검증: `import org.springframework.ai.*` · `import com.anthropic.*` · `import com.openai.*` · `import com.google.cloud.aiplatform.*` 모두 0건
+- `RealtimeSignalGenerator`·`BoundaryClosingKafkaListener`·`SignalDedupeGuard`·`SignalKafkaProducer`·`StrategyController`·`SignalController`·`RedisStrategyCache`·`StompSignalDispatcher` 모두 LLM import 0
+- inline 주석 의무: `// AI 호출 0 — T-SIG 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8)`
+
+---
+
+## §4. 영속 계층 (Flyway V1~V15 누적 — v3.4.0 신규 4건)
+
+`api/src/main/resources/db/migration/` 디렉토리. `api` 모듈 단독 적용 (`flyway.enabled=false` 다른 모듈, ADR 0006 정합).
+
+### 4-1. 마이그레이션 시계열
+
+**v3.3.0 보존**: V1~V11 (`_workspace/baseline/v3.3.0/01-architecture.md §4-1` 참조).
+
+**v3.4.0 신규 4건** (ADR 0061 + ADR 0066):
+
+| 버전 | 발행 PR | 트랙 | 테이블 |
+|---|---|---|---|
+| V12 | #331 | T-BT R2 (ADR 0061) | `backtest_run` — 메타 + KPI 12 컬럼(total_return·win_rate·mdd·sharpe·sortino·trade_count·position_count·status·started_at·completed_at·detail_json) + user_id·code·interval·range_from·range_to·rule_dsl·detail_json JSONB |
+| V13 | #331 | T-BT R2 (ADR 0061) | `backtest_trade` + `backtest_position` — 시계열, run_id FK CASCADE DELETE. `idx_backtest_trade_run_ts` |
+| V14 | #337 | T-SIG (ADR 0066 §6-1) | `strategy` — user_id·name·rule_dsl·codes·intervals·status enum 4단(ACTIVE·PAUSED·DISABLED·DELETED)·disabled_reason·complexity_json JSONB·eval_metric_summary JSONB. `idx_strategy_user_status` + partial idx `idx_strategy_active_lookup ON strategy(status) WHERE status='ACTIVE'` |
+| V15 | #337 | T-SIG (ADR 0066 §6-2) | `signal` — strategy_id FK CASCADE·user_id denormalized·code·interval·ts·side(BUY·SELL·HOLD)·strength(0~100)·reason TEXT·price_at_signal NUMERIC(15,4)·context_json JSONB. **UNIQUE (strategy_id, code, interval, ts)** — 의제 E-1 멱등 보장 + `idx_signal_user_ts` · `idx_signal_strategy_ts` · `idx_signal_code_ts` |
+
+> **참고 (ADR 0066 §6-3)**: ADR 0047 §2-6 V26·V27이 본 ADR 채택으로 V14·V15·V16으로 재할당 예상되었으나 실제 머지 시점에 strategy_eval_metric V16은 본 사이클 발행 없이 보류 (ADR 0047 baseline 매트릭스 후속 갱신). 본 v3.4.0 baseline 시점 V15까지 적용 (V16 strategy_eval_metric은 별도 사이클).
+
+### 4-2. 모듈별 Flyway 운영 (보존)
+
+- `api` 모듈 — `flyway.enabled=true` (단독 책임, V1~V15 적용)
+- `batch`·`consumer`·`pattern-engine` — `flyway.enabled=false`
+- 부팅 순서 — `docker-compose.yml` `depends_on: api-app: { condition: service_healthy }` 보존
+
+### 4-3. v3.4.0 시점 candle + 신규 테이블 적재량
+
+```
+테이블           | row count   | 변동 (v3.3.0 대비)
+----------------+-------------+-------------------
+candle (1m~1y)  | ~213,000    | v3.3.0 보존 (boundary fanout ON CONFLICT DO NOTHING 멱등)
+backtest_run    | 본 사이클 0~소량 | T-BT R2 신규 영속 (사용자 실행 시 INSERT)
+backtest_trade  | 본 사이클 0~소량 | run당 N건 (매매 시계열)
+backtest_position | 본 사이클 0~소량 | run당 N건 (포지션)
+strategy        | 본 사이클 0~소량 | 사용자 등록 시 INSERT (1명 × 10 strategy 가정)
+signal          | 본 사이클 0~소량 | 5m·15m·30m·90m·1h boundary 마감 시점마다 INSERT (ADR 0066 §9-1 사용자 1명 × 10 strategy × 10 종목 × 5 interval × 2/day = ~1,000 row/day 예측)
+strategy_eval_metric | 0 (V16 미발행) | 별도 사이클
+```
+
+> **v3.4.0 영속 부담 (ADR 0066 §9-1·§9-4)**: signal 1년 ~365K row (5MB) — partition 불필요. 5명 사용자 + 5년 도달 시(~9M row) monthly partition 후속 ADR (가칭 0085+).
+
+### 4-4. ERD (v3.4.0 신규 테이블 5개)
+
+```
+[backtest_run] 1 ─── N [backtest_trade] (CASCADE)
+       │
+       └─── N [backtest_position] (CASCADE)
+
+[strategy] 1 ─── N [signal] (CASCADE)
+       │            UNIQUE (strategy_id, code, interval, ts)  ← 멱등 강제
+       │            index: user_ts · strategy_ts · code_ts
+       └─── (V16 후속 별도 사이클) [strategy_eval_metric]
+```
+
+---
+
+## §5. Frontend 라우팅 + 데이터 fetch 패턴 (v3.4.0 라우트 +2건)
+
+`frontend/src/App.tsx` SoT. v3.3.0 보존 5 라우트 + v3.3.1 `/strategy/backtest` + v3.4.0 `/strategy/list` = **7 라우트**.
+
+### 5-1. 라우트 트리 (v3.4.0 시점)
+
+```
+/setup            (v3.2.0)
+/                 (v3.2.0 — DashboardPlaceholder)
+/watchlist        (v3.2.0)
+/symbol/:code     (v3.2.0 + v3.3.0 STOMP 5종 dynamic subscribe + LWC series.update)
+/strategy/builder (v3.2.0 — 트리 폼 빌더 + DSL 토글)
+/strategy/backtest (v3.3.1 신규 — ADR 0061 D-1 단일 페이지)
+/strategy/list    (v3.4.0 신규 — ADR 0066 Phase 3)
+```
+
+### 5-2. 데이터 fetch 매트릭스 (v3.4.0 신규 2 라우트)
+
+| 화면 | REST | STOMP | hook | 신규/보존 |
+|------|------|-------|------|-----------|
+| `/setup` | (v3.2.0 동일) | — | onboarding.ts | 보존 |
+| `/watchlist` | (v3.2.0 동일) | — | useWatchlist | 보존 |
+| `/symbol/:code` | (v3.2.0 동일) | `/topic/symbol/{code}/tick`·`/candle/1m` + boundary 5종 | useSymbolCandles | 보존 (v3.3.0) |
+| `/strategy/builder` | (v3.2.0 동일) | — | useStrategy 7 hooks | 보존 |
+| **`/strategy/backtest`** (v3.3.1 신규) | `POST/GET /api/backtests` + `GET /api/backtests/{id}` + `GET /api/backtests/{id}/result` + `DELETE /api/backtests/{id}` | — | `useBacktestRuns` · `useBacktestDetail` · `useBacktestResult` | **신규 (PR #332)** |
+| **`/strategy/list`** (v3.4.0 신규) | `GET /api/strategies` + `PUT /api/strategies/{id}/toggle` + `PUT /api/strategies/{id}/reactivate` + `DELETE /api/strategies/{id}` + `GET /api/signals` | `/topic/signal.user.{userId}` | `useStrategies` · `useSignals` · **`useStompSignal` (토스트)** | **신규 (PR #338)** |
+| `/` | GET `/api/onboarding/status` | — | useOnboardingStatus | 보존 |
+
+### 5-3. STOMP 인프라 (보존 + v3.4.0 1종 토픽 add)
+
+`@stomp/stompjs` + `useStompTopic` 커스텀훅 + 싱글톤 재연결. 서버 측 endpoint = `api` 모듈 `WebSocketConfig` `/ws`. **v3.4.0 STOMP 토픽 add 1건** (ADR 0066 §4-D D-1):
+
+```
+/topic/signal.user.{userId}    - 시그널 발행 시 사용자 단위 fanout
+                                  (multi-tenant 격리 — userId A 시그널이 userId B에게 누설 0)
+                                  payload: Signal data class JSON
+                                  (id·strategyId·code·interval·ts·side·strength·reason·priceAtSignal·createdAt)
+                                  msg/day ~1,000 = 0.012 msg/s (가벼움)
+```
+
+**T-SIG STOMP fanout 흐름 (ADR 0066 §7-2 정합)**:
+```
+Kafka signal.generated.v1 (partition by userId)
+   ↓
+StompSignalDispatcher.@KafkaListener
+   ↓ payload = Signal JSON
+   └─ SimpleBrokerMessageHandler.send(/topic/signal.user.{userId}, Signal JSON)
+       ↓
+frontend useStompSignal.subscribe(/topic/signal.user.${userId})
+   ↓
+useToast(`${signal.code} ${signal.side} 시그널 — 강도 ${signal.strength}, ${signal.reason}`)
+```
+
+---
+
+## §6. Deployment 토폴로지 (docker-compose 9 컨테이너 — v3.3.0 보존)
+
+`docker/docker-compose.yml` SoT (인프라 3 + 앱 4 + 디버깅 2 = **9 컨테이너 — 변경 0**).
+
+**중요**: v3.4.0 신규 컴포넌트 12건(T-BT R2 영속 3 + T-SIG 9)은 모두 **기존 모듈 내부에 흡수** — 컨테이너 추가 0. `RealtimeSignalGenerator`·`BoundaryClosingKafkaListener` 5건·`SignalDedupeGuard`·`SignalKafkaProducer`는 consumer 컨테이너 내부에 빈 등록(`@Component`). `StrategyController`·`SignalController`·`RedisStrategyCache`·`StompSignalDispatcher`·`BacktestPersister`·`BacktestQueryService`는 api 컨테이너 내부.
+
+v3.3.0 baseline 01-architecture.md §6 Mermaid 그대로. v3.4.0 변경 사항만:
+- `consumer-app` 컨테이너 신규 빈: `RealtimeSignalGenerator`·`BoundaryClosingKafkaListener` 5건·`SignalDedupeGuard`·`SignalKafkaProducer`
+- `api-app` 컨테이너 신규 빈: `StrategyController`·`SignalController`·`RedisStrategyCache`·`StompSignalDispatcher`·`BacktestPersister`·`BacktestQueryService`
+- `KafkaTopicConfig` 1 토픽 신규 빈: `signal.generated.v1` (retention 7d, partition by userId) — 자동 생성
+
+### 6-1. 부팅 순서 (v3.2.0 보존)
+
+v3.2.0 보존. infra → postgres healthy → api(Flyway V1~V15 적용) → batch·consumer.
+
+### 6-2. infra-only 모드 (보존)
+
+v3.2.0 보존.
+
+### 6-3. profile 분기 (보존)
+
+v3.2.0 보존. default `SPRING_PROFILES_ACTIVE=dev,real-kis` (ADR 0046).
+
+### 6-4. 실주문 이중 게이트 (W3 잔여 — T-O 진입 시 본격)
+
+v3.2.0 보존. `MAGICJAR_MODE=REAL` + `MAGICJAR_ALLOW_REAL=true` 둘 다여야 실주문. **v3.4.0 시점 T-SIG는 시그널 발행까지만** — 자동 주문 토글은 W3 T-O 진입 시 발효 (ADR 0023 §2-5 자동 주문 토글 baseline).
+
+### 6-5. AI helper 게이트 (v3.2.0 T-DSL 보존)
+
+v3.2.0 보존. `MAGICJAR_AI_ENABLED` · `MAGICJAR_AI_MOCK_MODE` · `ANTHROPIC_API_KEY`. **T-SIG 영역은 AI 호출 0건** (ADR 0023 §2-4 + ADR 0066 §8 grep 검증 의무).
+
+### 6-6. ~~GHA release workflow~~ (v3.4.0 폐기)
+
+`.github/workflows/release.yml` 삭제 (PR #340). ADR 0049 Superseded (PR #341). 사용자 결정 "GitHub Actions 결제 안 함" — 메모리 `feedback_no_github_actions.md` 정합. release 자동화는 로컬 `scripts/build-and-deploy.sh` + docker compose 단독. **release immutable tag 매커니즘은 그대로 유지** (ADR 0031 정합).
+
+---
+
+## §7. v3.4.0 신규 컴포넌트 매트릭스 (T-BT R2 영속 + T-SIG W3 본체)
+
+본 §7은 v3.4.0에서 신규 발행된 12 컴포넌트 상세. v3.3.0 baseline에는 부재.
+
+### 7-1. T-BT R2 영속 (ADR 0061)
+
+#### 7-1-1. `BacktestPersister` (api — @Component · ADR 0061 §2-1·§2-2)
+
+| 항목 | 값 | 출처 |
+|------|----|----|
+| 위치 | `api/src/main/kotlin/kr/spdaewoon/magicjar/api/application/backtest/BacktestPersister.kt` | PR #331 |
+| 종류 | `@Component` (Spring) | ADR 0061 §2-2 |
+| 핵심 API | `persist(run: BacktestRun, trades: List<BacktestTrade>, positions: List<BacktestPosition>): Long` | ADR 0061 §2-2 |
+| 트랜잭션 | `@Transactional` — run + trades + positions 단일 트랜잭션 | ADR 0061 §2-2 |
+| 호출 진입점 | `BacktestController.runBacktest()` POST `/api/backtests` 본문 | ADR 0061 §2-3 |
+
+#### 7-1-2. `BacktestQueryService` (api — @Service · ADR 0061 §2-3)
+
+| 항목 | 값 |
+|------|----|
+| 위치 | `api/.../application/backtest/BacktestQueryService.kt` |
+| API | `listByUser(userId, pageable)` · `findById(id)` · `findResult(id, pageable)` · `delete(id, userId)` (CASCADE DELETE) |
+| 권한 | userId 본인 검증 + 위반 시 403 (ADR 0010 multi-tenant) |
+
+#### 7-1-3. `BacktestController` REST 5 endpoint (api — ADR 0061 §2-3)
+
+| 메서드 | 경로 | 기능 |
+|---|---|---|
+| `POST` | `/api/backtests` | 실행 + 즉시 영속 (PENDING→RUNNING→SUCCEEDED/FAILED) |
+| `GET` | `/api/backtests?page=&size=` | 사용자 목록 페이징 |
+| `GET` | `/api/backtests/{id}` | 단건 메타 + KPI |
+| `GET` | `/api/backtests/{id}/result` | 거래·포지션 시계열 페이징 |
+| `DELETE` | `/api/backtests/{id}` | 삭제 (CASCADE) |
+
+기존 `POST /api/backtest/run` (ADR 0056 §5-1, stateless run)은 별도 보존 (ADR 0061 §2-3 정합).
+
+### 7-2. T-SIG W3 본체 (ADR 0066)
+
+#### 7-2-1. `RealtimeSignalGenerator` (consumer — @Component · ADR 0066 §7-1·§7-2)
+
+| 항목 | 값 | 출처 |
+|------|----|----|
+| 위치 | `consumer/src/main/kotlin/kr/spdaewoon/magicjar/consumer/signal/RealtimeSignalGenerator.kt` | PR #336 |
+| 종류 | `@Component` (Spring) | ADR 0066 §7-1 |
+| 트리거 진입점 | `onBoundaryClosed(BoundaryClosedEvent payload)` — `BoundaryClosingKafkaListener` 위임 | ADR 0066 §7-2 |
+| 처리 흐름 (§7-2 1:1) | (1) `StrategyRepository.findActiveByCode(code, interval)` Redis cache 우선 → (2) FOR strategy: `SignalDedupeGuard.tryAcquire` → (3) candles fetch (recent N) → (4) `JvmStrategyEvaluator.evaluate` sandbox(timeout 100ms · strategy-eval-pool 4 fixed) → (5) Signal? 발행 (BUY·SELL·HOLD) · null skip → (6) `SignalPersister.save` (DUPLICATE_KEY skip) → (7) `SignalKafkaProducer.publish` → (8) StrategyEvalMetric INSERT | ADR 0066 §7-2 |
+| AI 호출 검증 | LLM provider import 0건 — inline 주석 `// AI 호출 0 — T-SIG 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8)` | ADR 0066 §8 |
+| auto-disable | sandbox TIMEOUT · CPU_BUDGET_EXCEEDED 발생 시 `strategy.status=DISABLED` + `risk.violation.v1` publish (ADR 0044 정합) | ADR 0066 §7-2 |
+
+#### 7-2-2. `BoundaryClosingKafkaListener` 5건 (consumer — @KafkaListener · ADR 0066 §7-1 A-1)
+
+| 항목 | 값 |
+|------|----|
+| 위치 | `consumer/.../signal/kafka/BoundaryClosingKafkaListener.kt` |
+| 종류 | `@KafkaListener` × 5 (5m·15m·30m·90m·1h 각 메서드) |
+| 토픽 매트릭스 | `market.candle.{5m·15m·30m·90m·1h}.closed.v1` 5종 (ADR 0064 §4-5 publish 토픽 그대로 consumer) |
+| partition key | code (종목코드) — 같은 종목의 5m·15m boundary가 동일 partition → 순차 처리 → race 0 (ADR 0066 §7-4) |
+| latency 예측 | boundary publish → listener: <5ms (ADR 0066 §7-3) |
+
+#### 7-2-3. `SignalDedupeGuard` (consumer — @Component · ADR 0066 §7-1 E-1 보조)
+
+| 항목 | 값 |
+|------|----|
+| 위치 | `consumer/.../signal/SignalDedupeGuard.kt` |
+| 종류 | `@Component` (Spring + `StringRedisTemplate`) |
+| API | `tryAcquire(strategyId, code, interval, ts): Boolean` — Redis SETNX `signal:dedupe:{strategyId}:{code}:{interval}:{ts}` TTL 30s |
+| 정합 | DB UQ(§6-2)와 결합한 이중 보장 — fast-path skip 후 DUPLICATE_KEY 발생 시 log.debug skip |
+
+#### 7-2-4. `SignalKafkaProducer` (consumer — @Component · ADR 0066 §7-1)
+
+| 항목 | 값 |
+|------|----|
+| 위치 | `consumer/.../signal/kafka/SignalKafkaProducer.kt` |
+| 토픽 | `signal.generated.v1` retention 7d |
+| partition key | userId (사용자 단위 순차 처리) |
+| 운영 부하 | ~1,000 msg/day = 0.012 msg/s (ADR 0066 §9-2) |
+| 후행 합류 | T-O(주문)·T-RISK(리스크 가드) 후행 트랙 진입점 — `signal.generated.v1` consume |
+
+#### 7-2-5. `StrategyController` REST 6 endpoint (api — ADR 0066 §4-1)
+
+| 메서드 | 경로 | 기능 |
+|---|---|---|
+| `POST` | `/api/strategies` | 룰 등록 + ADR 0047 §2-1 static 검증 + complexity 계산 |
+| `GET` | `/api/strategies` | 사용자 룰 목록 |
+| `GET` | `/api/strategies/{id}` | 단건 + metric summary |
+| `PUT` | `/api/strategies/{id}/toggle?status=PAUSED` | status 토글 (ACTIVE↔PAUSED) |
+| `PUT` | `/api/strategies/{id}/reactivate` | DISABLED → ACTIVE (사용자 명시 [다시 활성화]) |
+| `DELETE` | `/api/strategies/{id}` | soft delete (status=DELETED) |
+
+#### 7-2-6. `SignalController` REST 2 endpoint (api — ADR 0066 §4-2)
+
+| 메서드 | 경로 | 기능 |
+|---|---|---|
+| `GET` | `/api/signals?userId&strategyId&code&from&to&page&size` | 시계열 페이징 |
+| `GET` | `/api/signals/{id}` | 단건 (룰·종목·ts·side·price·reason·context) |
+
+#### 7-2-7. `RedisStrategyCache` (api — @Component · ADR 0066 §7-1 B-1 I/O 완화)
+
+| 항목 | 값 |
+|------|----|
+| 위치 | `api/.../infrastructure/cache/RedisStrategyCache.kt` |
+| 키 | `strategy:active:by_code:{code}:{interval}` Redis hash |
+| invalidation | register · toggle · delete · reactivate 시 evict |
+| 메모리 | ~750 KB (종목 30 × interval 5 × strategy 10 × ~500 bytes — ADR 0066 §9-4) |
+
+#### 7-2-8. `StompSignalDispatcher` (api — @Component · ADR 0066 §4-D D-1)
+
+| 항목 | 값 |
+|------|----|
+| 위치 | `api/.../stomp/StompSignalDispatcher.kt` |
+| 종류 | `@KafkaListener` + `SimpMessagingTemplate` |
+| Kafka 토픽 (consumer) | `signal.generated.v1` |
+| STOMP fanout | `/topic/signal.user.{userId}` (multi-tenant 격리) |
+| latency | Kafka publish → STOMP fanout: <20ms (ADR 0066 §7-3) |
+
+### 7-3. end-to-end latency 매트릭스 (ADR 0066 §7-3 예측값)
+
+| 단계 | latency 예측 |
+|------|---------|
+| boundary publish (ADR 0064) → Kafka deliver | <20ms |
+| `BoundaryClosingKafkaListener` → `RealtimeSignalGenerator` | <5ms |
+| `StrategyRepository.findActiveByCode` (Redis cache hit) | <2ms |
+| Candle fetch (recent N, Redis hot path) | <5ms |
+| `JvmStrategyEvaluator` (sandbox 100ms timeout, 일반 식 <30ms) | <30ms |
+| `SignalPersister` + Kafka publish + STOMP fanout | <20ms |
+| **총 end-to-end (boundary closing → 사용자 토스트)** | **<100ms** |
+
+### 7-4. Kafka 토픽 매트릭스 추가 (ADR 0066 §9-2)
+
+`consumer/.../config/KafkaTopicConfig.kt` 1 토픽 신규 빈:
+
+```
+signal.generated.v1     - retention 7d, partition by userId (사용자 단위 순차 처리)
+                          msg/day ~1,000 = 0.012 msg/s
+                          후행 T-O · T-RISK 진입점
+```
+
+`kafka-topics --list` 시 12 기존 토픽 + 1 신규 = **13 토픽**.
+
+### 7-5. AI 호출 0 검증 매트릭스 (ADR 0023 §2-4 + ADR 0066 §8)
+
+T-SIG 영역 전체 코드에 LLM provider import 0건. architect 1회 grep 검증 의무:
+
+```bash
+grep -rE "import (org\.springframework\.ai|com\.anthropic|com\.openai|com\.google\.cloud\.aiplatform)" \
+  consumer/src/main/kotlin/kr/spdaewoon/magicjar/consumer/signal/ \
+  api/src/main/kotlin/kr/spdaewoon/magicjar/api/controller/Strategy* \
+  api/src/main/kotlin/kr/spdaewoon/magicjar/api/controller/Signal* \
+  domain/src/main/kotlin/kr/spdaewoon/magicjar/domain/signal/ \
+  → 결과 0건 (PR-51 본 baseline 작성 시점 inspection)
+```
+
+inline 주석 정책 (ADR 0066 §8 정합): `// AI 호출 0 — T-SIG 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8)` — 모든 핵심 컴포넌트 클래스 docs comment 또는 파일 헤더에 명시.
+
+---
+
+## §8. 다음 Wave 진입 시 본 문서 갱신
+
+W3 잔여 진입(Screener · Risk · Order · Reconcile · Performance · Notification) 시 본 §1·§2·§3·§4·§5·§7에 다음 사항 add:
+- **§1** — screener·risk·order·reconcile·notify 박스 추가 + Slack webhook 외부 통합 add + **Yahoo 점선 박스 완전 제거**(v3.5.x minor) + **`signal.generated.v1` Kafka 토픽이 T-O · T-RISK 후행 트랙 진입점으로 명시**
+- **§2** — strategy/risk/order/notify 컬럼 채움
+- **§3** — KIS 주문 endpoint(TTTC8001U·VTTC0801U 등) + KIS WS H0STCNI0 체결통보 + Slack webhook + Yahoo §3-5 row 완전 제거
+- **§4** — V16~ screener_result·order_audit·notification_outbox·performance_summary Flyway 추가
+- **§5** — `/screener`·`/orders`·`/dashboard` 본격 라우트 추가
+- **§7** — T-SIG 안정화 후 v3.X 사이클에서 fitness gap 검증 — backlog §X 정합
+
+W4 진입 시 §1에 mcp 컨테이너 + AI Console 박스 추가. **본 v3.4.0 Anthropic 통합(T-DSL helper)은 W4 본격 영역의 1차 baseline**. **T-SIG signal/strategy REST API(`GET /api/signals`·`/api/strategies`)가 MCP 외부 client baseline LOCK** — ADR 0027 MCP 서버 진입 시 본 v3.4.0 REST API 노출 정합.
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>

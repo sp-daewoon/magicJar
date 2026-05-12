@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>인덱스 — magicJar v3.4.0 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html" class="active">📁 인덱스</a><a href="01-architecture.html">01 Architecture</a><a href="02-data-flow.html">02 Data Flow</a><a href="03-use-sequences.html">03 Use Sequences</a><a href="04-feature-spec.html">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html">06 History</a><a href="07-policy-evolution.html">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.4.0 Baseline · 2026-05-12 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># magicJar v3.4.0 Baseline — T-SIG W3 두 번째 트랙 마감 (실시간 시그널 엔진) 종합 기능 정의서
+
+> **태그 컷**: 2026-05-12 v3.4.0 (release commit `8b3b456`, `release/v3.4.0` 이미지 immutable)
+> **사이클**: PR-50 + PR-51 (#324 ~ #341, 18 PR · 약 0.5일 단축 사이클 — v3.3.0 baseline 디스패치 마무리 + v3.3.1 T-BT R2/R3 마감 + v3.4.0 T-SIG W3 두 번째 트랙 마감 + GHA 폐기)
+> **상태**: PR-51 architect 영역(README + 01 + 06 + 07) 본격 작성. backend-core(02·04) · market-data(03) · frontend(05) 영역은 sub-agent 별도 디스패치.
+> **권위**: 본 baseline 폴더는 v3.4.0 시점 **종합 기능 정의서**. SoT는 `docs/architecture/master-architecture.md` v2 (ADR 0030).
+
+---
+
+## 한 장 요약
+
+magicJar v3.4.0은 **T-SIG W3 두 번째 트랙 마감 — 실시간 시그널 엔진 가동** 미러스톤이다. v3.3.0(boundary fanout) → v3.3.1(T-BT R2 영속 + R3 frontend) → v3.4.0(T-SIG W3 두 번째 트랙 + GHA 폐기)으로 1일 내 3 minor 진행. ADR 신규 2건(0061 Accepted T-BT 영속 + 0066 Accepted T-SIG) + ADR Superseded 1건(0049 GHA 폐기) + 사용자 dogfooding 결함 0건. **자동매매 본체의 매매 결정 노드(T-SIG)가 가동 진입** — boundary 마감 시점에 룰 기반 BUY/SELL/HOLD 시그널이 실시간 발행되어 STOMP 토스트로 사용자에게 도달.
+
+**v3.4.0 시점 동작하는 핵심 흐름** (v3.3.0 W1·W2 풀세트 + W3 T-BT·T-SIG 마감):
+
+1. **W1 풀세트 + W2 4 트랙 + v3.3.0 boundary fanout (v3.3.0 baseline 그대로 보존)** — T-ONBOARD·T-W1·T-W2·T-S1·T-MS1·T-CA1·T-IM1·T-IND·T-DSL·T-PAT·T-SB·실시간 boundary fanout 12 트랙. v3.4.0에서 본격 변경 0 (T-BT + T-SIG 트랙만 add).
+2. **v3.3.1 — T-BT W3 트랙 마감 (PR #330·#331·#332·#333)** — ADR 0061 채택(A-1·B-1·C-1·D-1·E-1·F-1) + Flyway V12·V13(`backtest_run` · `backtest_trade` · `backtest_position` 3 테이블 분리) + REST 5 endpoint(POST run·GET list·GET detail·GET result·DELETE) + frontend `/strategy/backtest` 페이지(6 컴포넌트 + LWC equity curve + 매매 마커). T-BT 룩어헤드 가드 + 세·수수료·슬리피지 모델 default 3종 보존.
+3. **v3.4.0 미러스톤 — T-SIG 실시간 시그널 엔진 가동 (PR #334·#335·#336·#337·#338·#339)** — ADR 0066 채택(A-1·B-1·C-1·D-1·E-1·F-1) Phase 1·2·3 직렬 디스패치 완성:
+   - **Phase 1 — strategy-engine** (PR #336): domain `Signal` · `SignalSide` · `SignalContext` · `SignalGenerator` port + `Strategy` 확장 · `StrategyStatus` enum 4단(ACTIVE·PAUSED·DISABLED·DELETED) + `RealtimeSignalGenerator` (consumer) + `BoundaryClosingKafkaListener` 5건(5m·15m·30m·90m·1h) + `SignalDedupeGuard` (Redis SETNX 30s) + `SignalKafkaProducer` (`signal.generated.v1`)
+   - **Phase 2 — backend-core** (PR #337): Flyway V14(`strategy`) · V15(`signal` UQ `(strategy_id, code, interval, ts)`) + JPA 어댑터 + REST 8 endpoint(Strategy 6 + Signal 2) + `RedisStrategyCache` (`strategy:active:by_code:{code}:{interval}`) + `StompSignalDispatcher` (`/topic/signal.user.{userId}`)
+   - **Phase 3 — frontend** (PR #338): `/strategy/list` 페이지 + StrategyCard · SignalListPanel · StrategyStatusBadge · ToggleButton · StrategyDetailModal 5 컴포넌트 + `useStompSignal` STOMP 토스트 + `useStrategies` · `useSignals` REST hook + routing 확장
+4. **GHA 폐기 (PR #340·#341)** — 사용자 결정 "GitHub Actions 결제 안 함" → `.github/workflows/release.yml` 삭제 + ADR 0049 Superseded 갱신 + 사용자 메모리 `feedback_no_github_actions.md` 정합 + backlog §36 A DONE. 로컬 `scripts/build-and-deploy.sh` + docker compose 단독 운영. release 자동화 폐기, immutable tag 매커니즘(ADR 0031)은 그대로 유지.
+5. **v3.4.0 신규 컴포넌트 12건** (모두 add-only · 기존 모듈 흡수):
+   - **T-BT R2 (영속 — ADR 0061)**: `BacktestRunJpaEntity` · `BacktestTradeJpaEntity` · `BacktestPositionJpaEntity` + `BacktestPersister` + `BacktestQueryService` (api)
+   - **T-SIG Phase 1 (strategy-engine)**: `domain/.../signal/Signal.kt` + `SignalSide` + `SignalContext` + `SignalGenerator` port + `domain/.../strategy/Strategy` 확장(`StrategyStatus` · `StrategyDisabledReason`) + `consumer/.../signal/RealtimeSignalGenerator` + `consumer/.../signal/SignalDedupeGuard` + `consumer/.../signal/kafka/BoundaryClosingKafkaListener` 5건 + `consumer/.../signal/kafka/SignalKafkaProducer`
+   - **T-SIG Phase 2 (backend-core)**: `StrategyJpaEntity` · `SignalJpaEntity` + `StrategyController` 6 endpoint · `SignalController` 2 endpoint + `RedisStrategyCache` + `StompSignalDispatcher`
+
+**v3.4.0 누적 ADR 63건** (v3.3.0 베이스 61건 + 0061 Accepted 1건 + 0066 Accepted 1건 · ADR 0049 Superseded 1건 자세한 인덱스는 `_workspace/arch/adr/README.md`). ADR 0019 supersede 부분 revoke 유지(boundary fanout 트랙 완료 + T-SIG 트랙 진입 → v3.5.x minor에서 §2 본문 재통합 architect 단독 PR 예정).
+
+**v3.4.0 시점 자동매매 본체 정합 핵심 충족**:
+- **T-SIG (Signal Engine) 가동 완성** — 5m·15m·30m·90m·1h boundary 마감 시점 실시간 룰 평가 + BUY/SELL/HOLD 시그널 발행 latency <100ms (boundary closing → STOMP 토스트)
+- **T-BT (Backtest Engine) UI 완성** — 사용자가 `/strategy/backtest` 페이지에서 룰 시뮬 → 결과 확인 → 활성화 결정 워크플로우 가동
+- **AI 호출 0 보존** — T-SIG 영역 LLM provider import 0건 grep 검증(ADR 0023 §2-4 정합)
+- **자동매매 본체 다음 노드 진입점 LOCK** — `signal.generated.v1` Kafka 토픽이 T-O(주문)·T-RISK(리스크 가드) 후행 트랙의 진입점
+
+**다음 Wave**: W3 잔여 진입 — Screener(T-SC) · Risk Guard(T-RISK, ADR 0024 chain 6단) · Order Executor(T-O, KIS TTTC/VTTC 분기) · Reconciliation · Performance · Notification(T-NOTIFY Slack webhook · `signal.generated.v1` 합류).
+
+---
+
+## 인덱스
+
+| 파일 | 작성자 | 내용 | 상태 |
+|------|--------|------|------|
+| **[01-architecture.md](01-architecture.md)** | architect | 시스템 전경(Mermaid 5 모듈 + T-SIG 흐름 + T-BT 영속 add) + 모듈 책임 매트릭스 + 외부 통합 매트릭스(KIS·DART·Anthropic — Yahoo 보존) + Flyway V1~V15(V12·V13·V14·V15 신규 4건) + frontend 라우팅(`/strategy/list`·`/strategy/backtest` 신규 2건) + deployment 토폴로지 + **v3.4.0 신규 컴포넌트 12건** + Kafka 6 토픽 매트릭스(`signal.generated.v1` 신규 1건) | 본격 작성 완료 (PR-51) |
+| [02-data-flow.md](02-data-flow.md) | backend-core | 모듈별 데이터 흐름(REST·Kafka 토픽 매트릭스·STOMP·Redis 캐시) — **T-SIG 시그널 흐름 add** (Kafka boundary listen → RealtimeSignalGenerator → JvmStrategyEvaluator sandbox → SignalPersister → STOMP fanout) + **T-BT 영속 흐름 add** (POST `/api/backtests` → BacktestPersister 3 테이블 → KPI 12종 + 매매·포지션 시계열) | sub-agent 디스패치 |
+| [03-use-sequences.md](03-use-sequences.md) | market-data | 사용자 유즈 시퀀스 (v3.3.0 보존) + **시그널 발행 시퀀스 add**(09:05 boundary 도달 → Kafka `market.candle.5m.closed.v1` → BoundaryClosingKafkaListener → RealtimeSignalGenerator → JvmStrategyEvaluator → Signal save → STOMP `/topic/signal.user.{userId}` → 사용자 토스트) + KIS-first raw 출처(v3.3.0 보존) | sub-agent 디스패치 |
+| [04-feature-spec.md](04-feature-spec.md) | backend-core | W1·W2·W3 T-BT·T-SIG 트랙 기능 명세(v3.3.0 보존 + T-BT R2/R3 영속 + T-SIG 6 의제 ABCDEF) + **T-SIG 영속 매트릭스 add**(Flyway V14·V15 + UQ (strategy_id, code, interval, ts) + status enum 4단 + DUPLICATE_KEY skip + Redis dedupe SETNX 30s + Redis cache strategy:active:by_code) + **T-BT 영속 매트릭스 add**(Flyway V12·V13 + KPI 12종 + CASCADE DELETE + REST 5 endpoint) | sub-agent 디스패치 |
+| [05-ui-inventory.md](05-ui-inventory.md) | frontend | 화면·메뉴·버튼 인벤토리(v3.3.0 보존) + **`/strategy/list` 페이지 add**(StrategyCard 5 컴포넌트 + status 배지 + 토글 + STOMP 토스트) + **`/strategy/backtest` 페이지 add**(BacktestRunForm + BacktestRunList + BacktestDetailModal 6 컴포넌트 + LWC equity curve + 매매 마커) + useStompSignal 토스트 dogfooding evidence | sub-agent 디스패치 |
+| **[06-history-traceability.md](06-history-traceability.md)** | architect | PR·ADR·기능 3축 추적성 매트릭스 (v3.3.0 → v3.4.0 18 PR + ADR 2건 신규 + ADR 1건 Superseded + v3.3.1 T-BT R2/R3 + v3.4.0 T-SIG W3 두 번째 트랙 + GHA 폐기) | 본격 작성 완료 (PR-51) |
+| **[07-policy-evolution.md](07-policy-evolution.md)** | architect | 운영 헌법 7 § (보존) + ADR 0061·0066 발행 + ADR 0049 Superseded + 정책 진화 추가 3건(T-BT 영속 baseline · T-SIG 가동 baseline · GHA 폐기 결정) + 사용자 메모리 신규 2건(`feedback_no_github_actions` · `feedback_kis_key_realonly_for_data`) | 본격 작성 완료 (PR-51) |
+
+> **인덱스 갱신 권한**: architect 단독 책임 (충돌 회피 — 헌법 §4 정합). sub-agent는 본인 파일만 in-place edit, README 인덱스는 변경 안 함.
+
+---
+
+## 베이스라인 정합 ADR (v3.4.0 시점 권위)
+
+본 v3.4.0 시점 데이터 흐름·정책 결정의 baseline ADR 목록:
+
+| ADR | 제목 | 위치·연결 |
+|-----|------|----------|
+| **0019** | 캔들 저장 정책 — Watchlist 기반 | Accepted (부분 revoke 유지) — boundary fanout 트랙 완료 + T-SIG 트랙 진입 → v3.5.x minor §2 재통합 architect 단독 PR 예정 |
+| **0028** | Watchlist Ingestion Worker (5초 polling LOCK) | Accepted — v3.2.3 doc cut에서 §2-1·§2-3 cold-start 흐름 정합 갱신 보존 (v3.4.0 변경 0) |
+| **0029** | 당일 진행 중 캔들 Redis 캐시 | Accepted — boundary fanout 트랙 완료(ADR 0064 권위) + T-SIG가 Redis cache 별도 키 space 사용 |
+| **0048** | KIS WebSocket 41건 구독 한도 | Accepted — H0STCNT0 stream baseline. ADR 0064 boundary trigger 진입점 보존 (v3.4.0 변경 0) |
+| **0049** | ~~GitHub Actions = release 트리거 한정~~ | **Superseded (2026-05-12 — GHA 결제 폐기 사용자 결정, `feedback_no_github_actions.md` 정합)** — `.github/workflows/release.yml` 삭제 (PR #340·#341) |
+| **0052** | Baseline Documentation Cycle | Accepted — 본 baseline 발행이 5번째 적용 사례 (v3.1.0·v3.2.0·v3.2.2·v3.3.0에 이어 v3.4.0) |
+| **0057** | KIS OpenAPI 단일 데이터 출처 | Accepted — prod credential 단일 채널 보존 (T-SIG는 KIS REST/WS 직접 호출 0건 — Kafka 내부 토픽만 listen) |
+| **0061** | **Backtest 결과 영속 (3 테이블 분리 + REST 5 endpoint + KPI 계산)** | **Accepted (2026-05-12 — 사용자 결정 A-1·B-1·C-1·D-1·E-1·F-1 채택) — v3.3.1 T-BT R2/R3 마감 본 ADR 권위** |
+| **0064** | Redis boundary fanout + STOMP 실시간 합산 갱신 | Accepted — v3.3.0 미러스톤. T-SIG `BoundaryClosingKafkaListener` 5건이 본 ADR `market.candle.{interval}.closed.v1` 5 토픽의 consumer |
+| **0066** | **T-SIG 실시간 시그널 엔진 (룰 매칭 + Kafka boundary listen + 영속 + STOMP fanout)** | **Accepted (2026-05-12 — 사용자 결정 A-1·B-1·C-1·D-1·E-1·F-1 채택) — v3.4.0 W3 두 번째 트랙 본 ADR 권위** |
+
+---
+
+## 어떻게 읽을지 (역할별 진입 경로)
+
+### 신규 개발자 (시스템을 처음 본다)
+
+1. **[01-architecture.md](01-architecture.md) §1 시스템 전경** — Mermaid 그림으로 5 JVM 모듈 + frontend + 외부 4 + 인프라 3 + 디버깅 2 + **T-SIG 흐름**(Kafka boundary listen → RealtimeSignalGenerator → JvmStrategyEvaluator → SignalPersister → STOMP fanout) 한 눈에
+2. **[01-architecture.md](01-architecture.md) §2 모듈 책임 매트릭스** — 어떤 코드가 어디 있는지 (api·batch·consumer·pattern-engine·domain·frontend × 트랙 14건 — T-SIG·T-BT R2/R3 add)
+3. **[01-architecture.md](01-architecture.md) §7 v3.4.0 신규 컴포넌트 매트릭스** — `RealtimeSignalGenerator`·`BoundaryClosingKafkaListener` 5건·`SignalDedupeGuard`·`SignalKafkaProducer`·`StompSignalDispatcher`·`RedisStrategyCache`·`StrategyController`·`SignalController` + T-BT 영속(`BacktestPersister`·`BacktestQueryService`)
+4. **[02-data-flow.md](02-data-flow.md)** — REST + Kafka topic + STOMP + Redis 캐시 흐름 + **T-SIG 시그널 흐름 add** + **T-BT 영속 흐름 add** (backend-core 영역)
+5. **[03-use-sequences.md](03-use-sequences.md)** — 셋업 → Watchlist → Symbol(NXT cover) → 5m~1h 합산 → 실시간 fanout → **시그널 발행 시퀀스 add** (market-data 영역, KIS-first raw 출처)
+6. `docs/architecture/master-architecture.md` v2 정독 — SoT (19 컴포넌트 + 4 영역 + 5 Wave)
+7. `_workspace/INDEX.md` — 단일 진입점 인덱스 (의도별 진입 경로 5축, ADR 0053)
+
+### 운영자 (배포·환경 설정)
+
+1. **[01-architecture.md](01-architecture.md) §6 deployment 토폴로지** — `docker-compose.yml` 9 컨테이너 (v3.3.0 보존 — 컨테이너 추가 0)
+2. **[01-architecture.md](01-architecture.md) §3 외부 통합 매트릭스** — KIS REST/WS · DART · Anthropic URL·tr_id 정합 (Yahoo `@Deprecated` 보존 — v3.5.x minor 일괄 삭제 예정) — **T-SIG는 KIS REST/WS 직접 호출 0건**
+3. **[01-architecture.md](01-architecture.md) §4 Flyway V1~V15** — v3.4.0 신규 마이그레이션 4건(V12·V13 T-BT 3 테이블 + V14 strategy + V15 signal UQ)
+4. **[01-architecture.md](01-architecture.md) §7 신규 컴포넌트 매트릭스** — T-SIG 9 컴포넌트 + T-BT R2 영속 3 컴포넌트
+5. **GHA 폐기 사실** — `.github/workflows/release.yml` 삭제(PR #340). 로컬 `scripts/build-and-deploy.sh` + docker compose 단독 운영. release immutable tag 매커니즘은 그대로 (ADR 0031)
+6. `docs/operations/initial-setup.md` — 초기 셋업
+7. `docs/architecture/external-api-policy.md` — KIS 호출 빈도·토큰 정책 (v3.2.3 doc cut으로 §3·§2-5 NXT/합산 매트릭스 정합 갱신 완료)
+8. `docs/architecture/candle-data-policy-v2.md` — 매트릭스 §3·§4·§5·§6 갱신 (v3.2.3 doc cut에서 ADR 0057·0062·0063 정합)
+9. `docs/architecture/policies/` — Living Policy 6건 (ADR 0053 §1 — 갱신 0)
+10. `CLAUDE.md` "운영 함정 가드" — stale jar · docker compose env 우선순위 · default profile · 실계좌 이중 게이트
+
+### 전략 작성자 (W2 마감 후 본격 사용 + W3 T-BT/T-SIG 가동)
+
+1. `docs/architecture/master-architecture.md` §B 분석·전략 영역 (5 컴포넌트 — Indicator·Pattern·DSL·Strategy Builder·Backtest)
+2. **[03-use-sequences.md](03-use-sequences.md) Strategy Builder 시퀀스** — `/strategy/builder` 트리 폼 빌더로 룰 작성 → DSL 직렬화 → 백테스트 → **활성화 토글(`PUT /api/strategies/{id}/toggle`) → T-SIG가 5m·15m·30m·90m·1h boundary 마감 시점 실시간 평가**
+3. **[03-use-sequences.md](03-use-sequences.md) 시그널 발행 시퀀스 add** — boundary 마감 → BUY/SELL 시그널 발행 → STOMP `/topic/signal.user.{userId}` → 토스트 알림
+4. **[04-feature-spec.md](04-feature-spec.md) W3 T-SIG 기능 명세** — 6 의제 ABCDEF · domain Signal·SignalSide·SignalContext · Strategy status enum 4단 · DB UQ + Redis dedupe SETNX 30s + DUPLICATE_KEY skip · STOMP fanout · auto-disable
+5. **[04-feature-spec.md](04-feature-spec.md) W3 T-BT 기능 명세** — Backtest 영속(3 테이블 + KPI 12종 + CASCADE DELETE) + REST 5 endpoint + frontend `/strategy/backtest` 페이지
+6. `_workspace/strategy/` 카탈로그 (KIS 80지표 · 57패턴 cross-check fixture)
+7. `frontend/src/api/strategy.ts` + `frontend/src/api/backtest.ts` + `frontend/src/api/signal.ts` (T-SIG Phase 2 신규)
+8. **[07-policy-evolution.md](07-policy-evolution.md) §6 다음 Wave 정책 후보** — W3 잔여 진입 시 T-SC(스크리너)·T-RISK(리스크 가드 6단)·T-O(주문 TTTC/VTTC)·T-NOTIFY(Slack webhook + `signal.generated.v1` 합류)
+
+### architect / orchestrator / sub-agent (운영 룰 정독 의무)
+
+1. **[07-policy-evolution.md](07-policy-evolution.md)** — 운영 헌법 7 § 인용(보존) + ADR 0061·0066 발행 + ADR 0049 Superseded + 정책 진화 추가 3건
+2. `_workspace/arch/agent-charter.md` — 운영 헌법 본문 (헌법 §1~§7 정독 의무 — architect 단독 PR로만 갱신)
+3. **[06-history-traceability.md](06-history-traceability.md) §4 hotfix 패턴** — v3.4.0 사이클 hotfix **0건** (T-BT·T-SIG 본격 트랙 진입 + 결함 0 머지)
+4. `_workspace/arch/branching-rules.md` — 브랜치·머지·author 정책
+5. `.claude/agents/<agent>.md` SKILL — 영역별 특수 룰만
+6. `docs/architecture/policies/` — Living Policy 6건 (ADR 0053 — 현행 권위 단일 위치)
+7. **사용자 메모리 신규**: `feedback_no_github_actions.md` (GHA 폐기) · `feedback_kis_key_realonly_for_data.md` (시장 데이터 prod 단일 채널 LOCK)
+
+---
+
+## v3.3.0 → v3.4.0 사이클 핵심 통계
+
+| 지표 | v3.3.0 (2026-05-12 03:46 KST) | v3.4.0 (2026-05-12 16:50 KST) | 증감 |
+|------|---------------------|---------------------|------|
+| PR # 누적 | #323 | #341 | +18 (#324~#329 v3.3.0 baseline 마감 + #330·#331·#332·#333 v3.3.1 T-BT R2/R3 + #334·#335·#336·#337·#338·#339 v3.4.0 T-SIG W3 + #340·#341 GHA 폐기) |
+| ADR 수 | 61 (실제 신규 5건 + 슬롯 4건 0058~0061) | 63 (0061 Accepted + 0066 Accepted) | +2 |
+| ADR Superseded | 0 | 1 (0049 GHA 폐기) | +1 |
+| Flyway 버전 | V11 | V15 (V12·V13 T-BT + V14·V15 T-SIG) | +4 |
+| JVM 모듈 | 5 (domain·api·batch·consumer·pattern-engine) | 5 (보존) | 0 |
+| W3 ★ 트랙 마감 | 1 (T-BT 코드 진입) | 2 (T-BT 영속·UI 완성 + T-SIG W3 두 번째 트랙 마감) | +1 |
+| 외부 통합 (활성) | KIS + DART + Anthropic (3) | KIS + DART + Anthropic (3) | 0 |
+| Kafka 토픽 (활성) | 12 (7 기존 + 5 boundary fanout) | 13 (12 보존 + 1 `signal.generated.v1`) | +1 |
+| Redis 키 (활성) | quote·session·instrument·position·kis token + indicator/pattern cache + candle:current 5종 hash | + **strategy:active:by_code:{code}:{interval} cache + signal:dedupe SETNX** | +2 namespace |
+| STOMP 토픽 (활성) | tick · candle/1m + boundary 5종 | + **/topic/signal.user.{userId}** | +1 |
+| REST endpoint 누적 | 약 35건 (W1·W2·W3 T-BT 코드 진입) | 약 48건 (+ T-BT 5 endpoint + T-SIG Strategy 6 endpoint + Signal 2 endpoint) | +13 |
+| frontend 라우트 | 5 (`/setup`·`/`·`/watchlist`·`/symbol/:code`·`/strategy/builder`) | 7 (+ `/strategy/list` + `/strategy/backtest`) | +2 |
+| T-SIG signal 영속 | 0 (트랙 미진입) | UQ (strategy_id, code, interval, ts) 멱등 + DB row ~1,000/day 예측 | 신규 가동 |
+| GitHub Actions workflow | release.yml 1건 | 0건 (삭제) | -1 |
+| `BoundaryClosingKafkaListener` | 0 | **5건 (5m·15m·30m·90m·1h)** | +5 |
+| AI 호출 (T-SIG 영역) | — | **0건 (ADR 0023 §2-4 grep 검증 보존)** | LOCK |
+| end-to-end latency (boundary closing → STOMP 토스트) | 5m: <50ms (boundary fanout) | + 시그널 평가 → 토스트: <100ms total (boundary→listener→evaluator→persister→STOMP) | 신규 측정 |
+| 운영 헌법 § 수 | 7 | 7 (보존) | 0 |
+| Living Policy 문서 | 6 | 6 (보존) | 0 |
+
+상세는 **[06-history-traceability.md](06-history-traceability.md) §6 결론**.
+
+---
+
+## v3.3.0 → v3.4.0 사이클 머지된 주요 PR (요약)
+
+PR 본문 인용 — 시계열 전체는 [06-history-traceability.md](06-history-traceability.md) §2.
+
+| PR | mergedAt | 트랙 / 종류 | 한 줄 요약 |
+|----|----------|------------|------------|
+| #324 | 2026-05-12 | frontend · v3.3.0 baseline | docs(baseline): PR-49 frontend — v3.3.0 05-ui-inventory |
+| #325 | 2026-05-12 | market-data · v3.3.0 baseline | docs(baseline): PR-49 market-data — v3.3.0 03-use-sequences (ADR 0064 시나리오 2건) |
+| #326 | 2026-05-12 | backend-core · v3.3.0 baseline | chore(baseline): PR-49 backend-core — v3.3.0 02-data-flow + 04-feature-spec |
+| #327 | 2026-05-12 | architect · v3.3.0 baseline | docs(baseline): PR-49 architect — v3.3.0 baseline 4 파일 |
+| #328 | 2026-05-12 | meta · v3.3.0 baseline | chore(baseline): v3.3.0 html 변환 + task archive 4건 |
+| #329 | 2026-05-12 | meta · 후속 정리 | chore(meta): v3.3.0 후속 정리 — task archive 14건 + backlog §36 등록 |
+| #330 | 2026-05-12 | architect · PR-50 plan | docs(architect): PR-50 — W3 T-BT R2/R3 잔여 plan (결과 영속 + frontend + 모델 확장 매트릭스) |
+| #331 | 2026-05-12 | backend-core · T-BT R2 | feat(api): T-BT R2 — 백테스트 결과 영속 + REST 5 endpoint + ADR 0061 |
+| #332 | 2026-05-12 | frontend · T-BT R3 | feat(frontend): T-BT R3 — /strategy/backtest 페이지 + 6 컴포넌트 + LWC equity curve |
+| #333 | 2026-05-12 | release | release: v3.3.1 — T-BT W3 트랙 마감 (영속 R2 + frontend R3) |
+| #334 | 2026-05-12 | architect · ADR 0066 plan | docs(architect): ADR 0066 plan — T-SIG 실시간 시그널 엔진 (W3 두 번째 트랙) |
+| #335 | 2026-05-12 | architect · ADR 0066 Accepted | chore(adr): ADR 0066 Proposed → Accepted (사용자 A-1·B-1·C-1·D-1·E-1·F-1 채택) |
+| #336 | 2026-05-12 | strategy-engine · T-SIG Phase 1 | feat(consumer+domain): T-SIG Phase 1 — domain Signal + RealtimeSignalGenerator + Kafka listener 5 (ADR 0066) |
+| #337 | 2026-05-12 | backend-core · T-SIG Phase 2 | feat(api): T-SIG Phase 2 — Flyway V14·V15 + JPA + REST 8 endpoint + RedisStrategyCache + StompSignalDispatcher |
+| #338 | 2026-05-12 | frontend · T-SIG Phase 3 | feat(frontend): T-SIG Phase 3 — /strategy/list + 5 컴포넌트 + STOMP 토스트 (ADR 0066) |
+| #339 | 2026-05-12 | release | release: v3.4.0 — T-SIG W3 두 번째 트랙 마감 (실시간 시그널 엔진) |
+| #340 | 2026-05-12 | meta · GHA 폐기 | chore(ci): GHA release workflow 폐기 — 사용자 결제 안 함 결정 |
+| #341 | 2026-05-12 | meta · ADR 0049 Superseded | chore(meta): ADR 0049 Superseded + backlog §36 A DONE (GHA 폐기 후속) |
+
+---
+
+## 작성 규약 (sub-agent 디스패치 시 준수)
+
+- 본문은 한국어, 코드/명령은 영어 그대로
+- **Mermaid 다이어그램 의무** (시각화 가능 수준) — `_workspace/baseline/v3.4.0/html/` 변환 시 `scripts/baseline-render-html.sh` (ADR 0052)
+- **raw 출처 인용 의무** — KIS API · DART · 코드 path 명시 (`consumer/.../RealtimeSignalGenerator.kt:Lxx` 등)
+- 추측·관념적 서술 금지 — 코드 inspection 결과만 인용
+- **TBD 표시**: 미작성 영역은 명시. 다른 sub-agent 영역은 cross-reference (`→ 02-data-flow.md 참조` 식)
+- `docs/architecture/master-architecture.md` §X · `_workspace/arch/adr/NNNN-*.md` 같은 SoT 출처 명시 의무
+- v3.3.0 baseline 보존 영역은 **변경 0** — 추가 분만 v3.4.0 add (예: 01-architecture.md §1 Mermaid는 v3.3.0 베이스에 T-SIG 9 박스 + T-BT 영속 3 박스 + 화살표 add)
+
+---
+
+## 다음 Wave 진입 시 본 baseline 갱신
+
+W3 잔여 진입(Screener · Risk Guard · Order Executor · Reconciliation · Performance · Notification) 시 본 폴더는 immutable(ADR 0031). v3.5.x 또는 v3.6.0 신규 baseline 컷 권장(`_workspace/baseline/v3.X.X/`).
+
+W3 잔여 진입 시 본 §1·§3·§4가 본격 확장:
+- **§1 Mermaid** — screener·risk·order·reconcile·notify 박스 add + **`signal.generated.v1` Kafka 토픽이 T-O·T-RISK 후행 트랙 진입점으로 명시** + **Yahoo 박스 완전 제거** (v3.5.x minor)
+- **§3 외부 통합** — KIS 주문 endpoint(TTTC8001U·VTTC0801U) + KIS WS H0STCNI0 체결통보 + Slack webhook(T-NOTIFY) add
+- **§4 Flyway** — V16~ screener_result·order_audit·notification_outbox·performance_summary 테이블 add (signal/strategy/strategy_eval_metric은 V14·V15·V16에 이미 본 v3.4.0에 발행)
+- **§5 frontend 라우트** — `/screener`·`/dashboard`·`/orders` 본격 add
+
+W4(AI 옵션 + MCP 서버) 진입 시 mcp 컨테이너 + AI Console 박스 add. **본 v3.4.0 시점 Anthropic 통합은 T-DSL 자연어→DSL helper 한정 (사용자 트리거 + 매매 결정권 0)** — ADR 0023·0026 정합. **T-SIG signal 시계열 endpoint(`GET /api/signals`)가 MCP 외부 client baseline LOCK** — ADR 0027 MCP 서버 진입 시 본 v3.4.0 signal/strategy REST API 노출 정합.
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>
