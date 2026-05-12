@@ -3,9 +3,9 @@ id: T-20260512-2255-readme-rewrite
 agent: architect
 model: opus
 branch: agent/architect/readme-rewrite
-status: RUNNING
+status: DONE
 startedAt: 2026-05-12T22:55:42.986+09:00
-completedAt: null
+completedAt: 2026-05-12T23:16:56.509+09:00
 pr: null
 parentPhase: ?
 ---
