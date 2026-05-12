@@ -11,6 +11,7 @@
  *   /                 -> 대시보드 placeholder
  *   /watchlist        -> 관심종목 (T-W1 1순위 진입점 — ADR 0040)
  *   /symbol/:code     -> 종목 상세 (T-S1 — ADR 0040 §2-2 진입점)
+ *   /strategy/backtest -> 백테스트 (T-BT R3 — ADR 0061 §4 D-1)
  *   /setup            -> 셋업 마법사 7단계 (T-ONBOARD)
  *   *                 -> / 리다이렉트
  *
@@ -27,6 +28,7 @@ import { SetupWizard } from './pages/SetupWizard'
 import { SymbolDetailPage } from './pages/Symbol/SymbolDetailPage'
 import { WatchlistPage } from './pages/Watchlist/WatchlistPage'
 import { StrategyBuilderPage } from './pages/Strategy/StrategyBuilderPage'
+import { BacktestPage } from './pages/Strategy/BacktestPage'
 
 /** 온보딩 라우팅 가드 — status 기반 자동 분기 */
 function OnboardingGuard({ children }: { children: ReactNode }) {
@@ -93,6 +95,8 @@ export function App() {
           <Route path="/symbol/:code" element={<SymbolDetailPage />} />
           {/* T-SB: 전략 빌더 — ADR 0040 §1 진입점 */}
           <Route path="/strategy/builder" element={<StrategyBuilderPage />} />
+          {/* T-BT R3: 백테스트 — ADR 0061 §4 D-1 결정 */}
+          <Route path="/strategy/backtest" element={<BacktestPage />} />
           <Route path="/setup" element={<SetupWizard />} />
           {/* 미정의 경로는 / 로 리다이렉트 */}
           <Route path="*" element={<Navigate to="/" replace />} />

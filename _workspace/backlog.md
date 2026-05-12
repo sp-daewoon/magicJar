@@ -1354,7 +1354,7 @@ backtest_position — V13 (포지션 + run_id FK CASCADE)
 
 ---
 
-## §38. T-BT R3 frontend `/strategy/backtest` 페이지 트랙 — §37 R2 머지 후 디스패치 의무 (본 PR 머지 후 frontend sub-agent 발동)
+## §38. T-BT R3 frontend `/strategy/backtest` 페이지 트랙 ✅ DONE — PR agent/frontend/t-bt-r3-page (2026-05-12)
 
 ### 컨텍스트
 
