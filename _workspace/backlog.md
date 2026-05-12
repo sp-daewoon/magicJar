@@ -1264,7 +1264,10 @@ v3.2.3 minor doc cut. .md만 변경, 코드 영향 0.
 
 ---
 
-## §36. 운영 부채 정리 — GitHub Actions 결제 + local branch 잔재 — operational
+## §36. 운영 부채 정리 — GitHub Actions 결제 (A DONE) + local branch 잔재 — operational
+
+**2026-05-12 A 처리 완료**: 사용자 결정 "GHA 결제 안 함" → release workflow 폐기(ADR 0049 Superseded) + 메모리 `feedback_no_github_actions.md` 정합. B(local branch 잔재)는 cosmetic으로 유지 — 다음 사이클 사용자 명시 권한 위임 시 force 삭제.
+
 
 ### 사유
 
