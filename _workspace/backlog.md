@@ -1460,3 +1460,69 @@ architect 권장 (PR-50 §2 의제 E-1): **본 사이클 모델 확장 0건**. �
 - PR-50 plan §2 의제 E-1·§11-3
 - 트랙 ID T-BT 후속 (별도 트랙 ID 부여 검토 — `T-BT-EXT` 또는 본 § 재발동)
 
+---
+
+## §40. T-SIG 실시간 시그널 엔진 (W3 두 번째 트랙 — ADR 0066 plan 발행, 사용자 결정 대기)
+
+### 컨텍스트
+
+v3.3.1 cut (T-BT W3 트랙 마감) 직후 진입. T-SIG는 자동매매 본체의 매매 결정 노드 — magicJar 비전(`project_system_vision.md`) 룰 기반 quant trading 본체의 W3 핵심.
+
+사전 자산 (이미 main, v3.3.1):
+- ADR 0064 boundary fanout — Kafka `market.candle.{interval}.closed.v1` 5종 baseline (시그널 트리거 진입점)
+- ADR 0047 DSL Sandbox — strategy-eval-pool · timeout 100ms · auto-disable baseline
+- ADR 0023 Signal Engine = 룰 매칭 only (AI 호출 0) 권위
+- T-DSL·T-IND·T-PAT (W2 완료) + T-BT (v3.3.1 마감)
+
+architect spec/plan PR(본 사이클) — ADR 0066 발행 + 결정 의제 6건 사용자 검토 위임.
+
+### 결정 의제 (architect 권장안 — ADR 0066 §2)
+
+| 의제 | 권장안 | 핵심 사유 |
+|---|---|---|
+| **A. 트리거 시점** | **A-1** Kafka boundary listen 5 listener | ADR 0064 baseline · latency <50ms · partition by code race 0 |
+| **B. 룰 source** | **B-1** strategy 영속 DB | ADR 0047 §2-6 baseline · 사용자 UX 필수 · Redis cache 완화 |
+| **C. 시그널 영속** | **C-1** 신규 signal 테이블 (Flyway V15) | T-J·MCP·dogfooding 필수 · ADR 0061 패턴 정합 |
+| **D. 사용자 알림** | **D-1** STOMP fanout 1차 | MVP 단순 · ADR 0064 STOMP 인프라 100% 활용 · D-2 옵션 후속 |
+| **E. 중복 시그널** | **E-1** DB UQ + Redis SETNX 30s 보조 | deterministic boundary ts · race 0 · DB level 강제 |
+| **F. 비활성 룰** | **F-1** status enum 4단 (ACTIVE·PAUSED·DISABLED·DELETED) | ADR 0047 V26 baseline · transition 명확 |
+
+### 채택 시 sub-agent 디스패치 (직렬 권장)
+
+- **Phase 1 — strategy-engine** (R1): domain Signal·Strategy 확장 + RealtimeSignalGenerator + BoundaryClosingKafkaListener 5건 + JvmStrategyEvaluator sandbox 통합 + SignalDedupeGuard + SignalKafkaProducer
+- **Phase 2 — backend-core** (R2): REST 8 endpoint(Strategy 6 + Signal 2) + JpaAdapter + Flyway V14·V15·V16 + RedisStrategyCache + StompSignalDispatcher
+- **Phase 3 — frontend** (R3): `/strategy/list` 페이지 + StrategyCard · SignalListPanel · useStompSignal 토스트 + REST hook + routing 확장
+
+병렬 가능 case: Phase 1·2 add-only 충돌 0 시 architect 검토 후 결정.
+
+### 운영 영향
+
+- DB ROW: signal 1년 ~365K row (5MB) — partition 불필요. 5명 사용자 + 5년 도달(~9M) 시 monthly partition 후속 ADR
+- Kafka: `signal.generated.v1` 신규 1 topic ~1,000 msg/day (0.012 msg/s)
+- STOMP: `/topic/signal.user.{userId}` ~1,000 msg/day (사용자 단위)
+- Redis: strategy active cache ~750KB + dedupe ~1MB peak (30s window)
+- KIS API 영향 0 (Kafka 내부 listen만)
+- strategy-eval-pool burst 평균 wall-clock ~750ms (5m boundary 시점, 4 thread 분산)
+
+### 우선순위
+
+**1순위** — v3.4.0 미러스톤 후보 트랙. 사용자 결정 6건 채택 후 즉시 Phase 1 strategy-engine 디스패치.
+
+### 트리거
+
+- 사용자 결정 6건 명시 수신 (의제 A·B·C·D·E·F)
+- 채택 후 Phase 1 → 2 → 3 직렬 디스패치 또는 architect 충돌 행렬 검토 후 부분 병렬화
+
+### 연관
+
+- ADR 0066 (T-SIG 실시간 시그널 엔진 plan — 본 § 권위)
+- ADR 0023 (Signal Engine 룰 매칭 only — baseline)
+- ADR 0047 (DSL Sandbox — strategy-eval-pool 통합)
+- ADR 0064 (boundary fanout — Kafka listen 진입점)
+- ADR 0022·0021 (DSL·Indicator Source)
+- ADR 0061 (Backtest 영속 — REST 패턴 baseline)
+- ADR 0044 (Notification — risk.violation.v1 payload 확장)
+- tracks-roadmap §2 T-SIG row (본 § 권위 인용)
+- master §10 ADR 0066 row
+- 사용자 메모리 `project_system_vision.md`(룰 본체) · `feedback_v3_skepticism_no_regression.md`(fitness gap lens) · `feedback_3tier_hierarchy.md`(architect plan → sub-agent 병렬)
+
