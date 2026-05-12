@@ -5,6 +5,7 @@
  * - "magicJar" 로고 + "대시보드" + "관심종목" 메뉴
  * - <NavLink> — 활성 메뉴 highlight (aria-current 기반)
  * - SetupWizard(/setup)에서는 미표시 (App.tsx에서 제어)
+ * - T-SIG Phase 3 (ADR 0066): "전략 목록" 메뉴 추가
  */
 import { NavLink } from 'react-router-dom'
 
@@ -76,6 +77,20 @@ export function AppHeader() {
             }
           >
             백테스트
+          </NavLink>
+          {/* T-SIG Phase 3: 전략 목록 메뉴 — ADR 0066 */}
+          <NavLink
+            to="/strategy/list"
+            className={({ isActive }) =>
+              [
+                'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-950',
+                isActive
+                  ? 'bg-gray-800 text-white'
+                  : 'text-gray-400 hover:bg-gray-800/60 hover:text-gray-200',
+              ].join(' ')
+            }
+          >
+            전략 목록
           </NavLink>
         </nav>
       </div>

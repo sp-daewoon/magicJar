@@ -10,6 +10,14 @@
  *   DELETE /api/strategy/{id}
  *   PUT    /api/strategy/{id}/enable
  *
+ * T-SIG Phase 3 — ADR 0066 신규 8 endpoint:
+ *   POST   /api/strategies               신규
+ *   GET    /api/strategies?page=&size=   목록
+ *   GET    /api/strategies/{id}          단건
+ *   PUT    /api/strategies/{id}          수정
+ *   DELETE /api/strategies/{id}          soft 삭제 (status=DELETED)
+ *   PUT    /api/strategies/{id}/status   ACTIVE/PAUSED/DISABLED 토글
+ *
  * spec §3-3 모듈 인터페이스 동결 — backend 변경 0건
  * 룰 5: LLM provider import 0건
  */
@@ -147,5 +155,117 @@ export const strategyApi = {
    */
   enable: async (id: string): Promise<void> => {
     await apiClient.put(`/strategy/${id}/enable`)
+  },
+}
+
+// ──────────────────────────────────────────────
+// T-SIG Phase 3 — ADR 0066 신규 타입 & API
+// ──────────────────────────────────────────────
+
+/** 전략 상태 4단 (ADR 0066 §3-A) */
+export type StrategyStatus = 'ACTIVE' | 'PAUSED' | 'DISABLED' | 'DELETED'
+
+/** ADR 0066 전략 상세 DTO (signal tracking 포함) */
+export interface SigStrategyDto {
+  id: string
+  userId: string
+  name: string
+  /** 감시 종목 코드 배열 (JSONB) */
+  codes: string[]
+  /** 감시 인터벌 배열 (JSONB) */
+  intervals: string[]
+  /** buy_condition DSL */
+  buyCondition?: string
+  /** sell_condition DSL */
+  sellCondition?: string
+  status: StrategyStatus
+  /** 최근 7일 시그널 카운트 */
+  recentSignalCount?: number
+  createdAt: string
+  updatedAt?: string
+}
+
+/** ADR 0066 전략 목록 페이지 */
+export interface SigStrategyPage {
+  content: SigStrategyDto[]
+  page: number
+  size: number
+  totalElements: number
+  totalPages: number
+  last: boolean
+}
+
+/** POST /api/strategies 요청 */
+export interface CreateSigStrategyRequest {
+  name: string
+  codes: string[]
+  intervals: string[]
+  buyCondition?: string
+  sellCondition?: string
+}
+
+/** PUT /api/strategies/{id} 요청 */
+export interface UpdateSigStrategyRequest {
+  name?: string
+  codes?: string[]
+  intervals?: string[]
+  buyCondition?: string
+  sellCondition?: string
+}
+
+export const sigStrategyApi = {
+  /**
+   * GET /api/strategies?page=&size=
+   * 전략 목록 (페이징)
+   */
+  list: async (page = 0, size = 20): Promise<SigStrategyPage> => {
+    const res = await apiClient.get<SigStrategyPage>(
+      `/strategies?page=${page}&size=${size}`,
+    )
+    return res.data
+  },
+
+  /**
+   * GET /api/strategies/{id}
+   * 전략 단건 조회
+   */
+  get: async (id: string): Promise<SigStrategyDto> => {
+    const res = await apiClient.get<SigStrategyDto>(`/strategies/${id}`)
+    return res.data
+  },
+
+  /**
+   * POST /api/strategies
+   * 신규 전략 생성
+   */
+  create: async (req: CreateSigStrategyRequest): Promise<SigStrategyDto> => {
+    const res = await apiClient.post<SigStrategyDto>('/strategies', req)
+    return res.data
+  },
+
+  /**
+   * PUT /api/strategies/{id}
+   * 전략 수정
+   */
+  update: async (id: string, req: UpdateSigStrategyRequest): Promise<SigStrategyDto> => {
+    const res = await apiClient.put<SigStrategyDto>(`/strategies/${id}`, req)
+    return res.data
+  },
+
+  /**
+   * DELETE /api/strategies/{id}
+   * soft 삭제 (status → DELETED)
+   */
+  delete: async (id: string): Promise<void> => {
+    await apiClient.delete(`/strategies/${id}`)
+  },
+
+  /**
+   * PUT /api/strategies/{id}/status
+   * 상태 토글 (ACTIVE·PAUSED·DISABLED)
+   */
+  toggleStatus: async (id: string, status: StrategyStatus): Promise<SigStrategyDto> => {
+    const res = await apiClient.put<SigStrategyDto>(`/strategies/${id}/status`, { status })
+    return res.data
   },
 }
