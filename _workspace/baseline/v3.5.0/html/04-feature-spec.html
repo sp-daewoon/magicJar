@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>04-feature-spec — magicJar v3.5.0 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">📁 인덱스</a><a href="01-architecture.html">01 Architecture</a><a href="02-data-flow.html">02 Data Flow</a><a href="03-use-sequences.html">03 Use Sequences</a><a href="04-feature-spec.html" class="active">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html">06 History</a><a href="07-policy-evolution.html">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.5.0 Baseline · 2026-05-12 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># v3.5.0 기능 명세 (트랙별 표준 9 항목)
+
+- baseline: v3.5.0
+- 작성일: 2026-05-12
+- 작성자: backend-core (bot+backend-core@magicjar.local)
+- SoT: `docs/architecture/master-architecture.md` + ADR INDEX (`_workspace/arch/adr/README.md`)
+- 기준: v3.4.0 04-feature-spec.md 전체 이월 + v3.5.0 T-RISK 트랙 추가 (ADR 0067 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1 채택)
+
+---
+
+## 표준 항목 구조
+
+각 트랙은 아래 9 항목으로 기술합니다.
+
+1. **REST** — 노출 엔드포인트
+2. **도메인** — 핵심 domain 클래스 + 포트 인터페이스
+3. **영속** — JPA 엔티티 + Flyway 마이그레이션
+4. **Kafka** — 발행/소비 토픽
+5. **UI** — 프론트엔드 페이지/컴포넌트
+6. **PR** — 관련 PR 목록
+7. **ADR** — 의존 ADR
+8. **한계** — 미구현·보류 사항
+9. **NXT 영향** — ADR 0063 결합 영향 (해당 트랙만)
+
+---
+
+## T-W1 — Watchlist (관심종목 CRUD)
+
+### 1. REST
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `GET` | `/api/watchlists` | 목록 (priority ASC + created_at DESC) |
+| `POST` | `/api/watchlists` | 등록 — UQ(user_id, code) 위반 시 409 |
+| `DELETE` | `/api/watchlists/{code}` | 삭제 — 미등록 시 404 |
+
+OnboardingGuardFilter 통과 의무 (셋업 미완 시 401 ONBOARDING_REQUIRED).
+
+### 2. 도메인
+
+- `domain/watchlist/WatchlistEntry.kt` — `data class WatchlistEntry(code, userId, priority, createdAt)`
+- `domain/watchlist/port/WatchlistRepository.kt` — 포트 인터페이스 (JPA 의존 0)
+
+### 3. 영속
+
+- `api/persistence/WatchlistJpaEntity.kt` — JPA 엔티티
+- `api/persistence/WatchlistJpaRepository.kt` — Spring Data JPA (abstract fun body 0 — ADR 0051)
+- Flyway: `V*__create_watchlist_entry.sql` — `watchlist_entry(id, user_id, code, priority, created_at)` UQ(user_id, code)
+
+### 4. Kafka
+
+| 토픽 | action | 발행자 | 소비자 |
+|------|--------|-------|-------|
+| `watchlist.changed.v1` | ADDED / REMOVED | `WatchlistService` (api) | `WatchlistChangedKafkaListener` (consumer) |
+
+### 5. UI
+
+- `frontend/src/pages/Watchlist/WatchlistPage.tsx` — 관심종목 목록 화면
+- `frontend/src/pages/Watchlist/WatchlistAddModal.tsx` — 종목 등록 모달
+
+### 6. PR
+
+- PR #202 (T-W1 R1 도메인+REST scaffold)
+- PR #207 (T-W1 R2 JPA + Kafka 발행 통합)
+
+### 7. ADR
+
+- ADR 0040 — Watchlist-first UI 흐름
+- ADR 0028 — Watchlist 기반 Ingestion Worker
+- ADR 0007 — Kafka 이벤트 backbone
+
+### 8. 한계
+
+- priority 수정 API 미구현 (backlog §20)
+- 다중 사용자 multi-tenant 미지원 (단일 user_id — ADR 0010 §2 1차 MVP)
+- watchlist 100종목 초과 시 UI 페이지네이션 미구현
+
+---
+
+## T-S1 — Symbol Detail (종목 상세)
+
+### 1. REST
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `GET` | `/api/symbols/{code}` | 현재가·PER·PBR·시총·업종 |
+| `GET` | `/api/symbols/{code}/candles` | 캔들 시계열 (DB + Redis current 병합) |
+| `POST` | `/api/symbols/{code}/orderbook/subscribe` | 호가 구독 시작 |
+| `POST` | `/api/symbols/{code}/orderbook/unsubscribe` | 호가 구독 해제 |
+
+### 2. 도메인
+
+- `domain/market/candle/Candle.kt` — `data class Candle(code, interval, ts, openRaw, highRaw, lowRaw, closeRaw, openAdj, highAdj, lowAdj, closeAdj, volume, source)`
+- `domain/market/candle/CandleInterval.kt` — enum 11종
+- `domain/market/port/CandleRepository.kt` — `saveAll`·`countByCodeAndInterval`·`findByCodeAndInterval`
+- `domain/market/port/QuoteCachePort.kt` — `getLatestPrice`·`putLatestPrice`
+- `domain/market/port/KisRestPort.kt` — `fetchCandles`·`fetchPrice`·`fetchPriceMetrics`
+
+### 3. 영속
+
+- `api/persistence/CandleJpaEntity.kt` + `CandleJpaRepository.kt`
+- `consumer/persistence/ConsumerCandleJpaEntity.kt` + `ConsumerCandleJpaRepository.kt`
+- Flyway: V1 `candle(id, code, interval, ts, ...)` UQ(code, interval, ts)
+
+### 4. Kafka
+
+| 토픽 | 방향 | 설명 |
+|------|------|------|
+| `symbol.detail.command.v1` | api→consumer | ENTER/EXIT 호가 구독 명령 |
+| `market.tick.v1` | consumer→api | 실시간 체결가 |
+| `market.candle.minute.closed.v1` | consumer→api | 1분봉 closing |
+| `market.orderbook.v1` | consumer→api | 호가 스냅샷 |
+
+STOMP 토픽: `/topic/market.tick.{code}` · `/topic/market.candle.minute.{code}` · `/topic/market.orderbook.{code}`
+
+### 5. UI
+
+- `frontend/src/pages/Symbol/SymbolPage.tsx` — 종목 상세 페이지
+- `frontend/src/pages/Symbol/SymbolPriceCard.tsx` — 현재가·등락 (STOMP 단일 source)
+- `frontend/src/pages/Symbol/SymbolChart.tsx` + `LightweightChart.tsx` — LWC v4 차트
+- `frontend/src/pages/Symbol/IntervalToggle.tsx` — 10종 인터벌
+
+### 6. PR
+
+- PR #210 (T-S1 R1) · PR #215 (T-S1 R2) · PR #289 (tick sync fix) · PR #291 (STOMP hotfix)
+
+### 7. ADR
+
+- ADR 0029·0048·0057·0062·0063·0064
+
+### 8. 한계
+
+- 호가 UI 분리 팝업 미구현 · 차트 그리기 도구 미구현 · interval 2m 비활성
+
+### 9. NXT 영향 (ADR 0063)
+
+- `isIntradayInterval()` NXT 08:00~20:00 확장 · AGGREGATED_INTERVALS 5종 활성화 · LWC series.update()
+
+---
+
+## T-IND — Indicator (기술적 지표 80종)
+
+### 1. REST
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `GET` | `/api/indicators` | 80지표 계산 |
+
+### 2. 도메인
+
+- `domain/indicator/IndicatorEngine.kt` · `IndicatorCatalog.kt` · `IndicatorSpec.kt` · `IndicatorResult.kt` · `IndicatorPoint.kt`
+
+### 3. 영속
+
+- DB 직접 영속 없음 — Redis 캐시 (`indicator:cache:{code}:{interval}:{name}:{paramsHash}`)
+
+### 4. Kafka
+
+없음.
+
+### 5. UI
+
+- `frontend/src/pages/Symbol/IndicatorPanel.tsx`
+
+### 6. PR
+
+- PR #230·#240
+
+### 7. ADR
+
+- ADR 0021·0019
+
+### 8. 한계
+
+- 실시간 tick 기반 지표 미구현 · adjusted=true 경로 fallback
+
+---
+
+## T-DSL — Strategy DSL
+
+### 1. REST
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `POST` | `/api/strategy` | 전략 등록 |
+| `GET` | `/api/strategy` | 전략 목록 |
+| `GET` | `/api/strategy/{id}` | 단건 조회 |
+| `DELETE` | `/api/strategy/{id}` | 삭제 |
+| `POST` | `/api/strategy/validate` | DSL 검증 |
+| `PUT` | `/api/strategy/{id}/enable` | 재활성화 |
+| `POST` | `/api/strategy/{id}/evaluate` | 평가 (stub) |
+| `POST` | `/api/ai/dsl/translate` | 자연어 → DSL |
+
+> v3.4.0 이후: T-SIG `StrategiesController` `/api/strategies`가 strategy 관리의 주 경로. `/api/strategy`는 T-DSL R1·R2 레거시 경로 보존.
+
+### 2. 도메인
+
+- `domain/strategy/Strategy.kt` · `DslStrategyDefinition.kt` · `StrategyComplexity.kt` · `Signal.kt` enum · `port/StrategyRepositoryPort.kt`
+- `domain/backtest/*`
+
+### 3. 영속
+
+- `api/persistence/StrategyJpaEntity.kt` + `StrategyJpaRepository.kt`
+- Flyway V9 + V14(v3.4.0 status·codes·intervals 확장)
+
+### 4. Kafka
+
+- `JvmStrategyEvaluator` — T-SIG에서 실시간 평가 sandbox (ADR 0047)
+
+### 5. UI
+
+- `frontend/src/pages/Strategy/StrategyBuilderPage.tsx` · `DslEditor.tsx`
+
+### 6. PR
+
+- PR #220·#225
+
+### 7. ADR
+
+- ADR 0022·0023·0047·0055
+
+### 8. 한계
+
+- `/api/strategy/{id}/evaluate` stub · 전략 import UI 미구현 · 공유·클론 미구현
+
+---
+
+## T-PAT — Pattern Recognition (57종)
+
+### 1. REST
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `GET` | `/api/patterns` | 57종 패턴 인식 |
+
+### 2. 도메인
+
+- `domain/pattern/port/PatternRecognizer.kt` · `PatternMatch.kt` · `pattern-engine/JvmPatternRecognizer.kt` (Pure Kotlin — ADR 0054)
+
+### 3. 영속
+
+- DB 직접 영속 없음 — Redis 캐시
+
+### 4. Kafka
+
+없음.
+
+### 5. UI
+
+- `frontend/src/pages/Symbol/PatternOverlay.tsx`
+
+### 6. PR
+
+- PR #241·#261
+
+### 7. ADR
+
+- ADR 0054·0019
+
+### 8. 한계
+
+- 57종 중 R2 stub 47건 → direction=NEUTRAL · 실시간 패턴 감지 미구현 · 마커 클릭 팝업 미구현
+
+---
+
+## T-BT — Backtest Engine (ADR 0056 + ADR 0061 — v3.3.1 마감)
+
+### 1. REST
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `POST` | `/api/backtest/run` | stateless (ADR 0056 §5-1 보존) |
+| `POST` | `/api/backtests` | 실행 + 영속 |
+| `GET` | `/api/backtests` | 사용자 목록 (페이징) |
+| `GET` | `/api/backtests/{id}` | 단건 메타 + KPI |
+| `GET` | `/api/backtests/{id}/result` | 거래·포지션 시계열 |
+| `DELETE` | `/api/backtests/{id}` | 삭제 (CASCADE) |
+
+### 2. 도메인
+
+- `domain/backtest/BacktestRequest.kt` · `BacktestResult.kt` (sealed Success·Aborted) · `BacktestTrade.kt` · `BacktestPosition.kt` · `BacktestPerformance.kt` · `LookaheadGuard.kt`
+- port: `BacktestEngine.kt` · `BacktestCommissionModel.kt` · `BacktestSlippageModel.kt` · `BacktestTaxModel.kt` · `StrategyEvaluatorPort.kt`
+
+### 3. 영속
+
+- Flyway V12(backtest_run) · V13(backtest_trade·backtest_position)
+- `BacktestPersister.kt` @Transactional · `BacktestQueryService.kt`
+
+### 4. Kafka
+
+없음.
+
+### 5. UI
+
+- `BacktestPage.tsx` · `BacktestForm.tsx` · `BacktestList.tsx` · `BacktestDetail.tsx` · `BacktestKpiPanel.tsx` · `EquityCurveChart.tsx` (LWC v4) · `TradeTable.tsx`
+
+### 6. PR
+
+- PR #251·#260·#331·#332
+
+### 7. ADR
+
+- ADR 0056·0061·0047·0023
+
+### 8. 한계
+
+- 다중 전략 동시 백테스트 미구현 · 백테스트 vs actual 시그널 비교 뷰 미구현 (T-J) · 통과 → 활성화 게이트 미구현
+
+---
+
+## T-FANOUT — 실시간 boundary fanout (v3.3.0 — ADR 0064)
+
+### 1. REST
+
+별도 없음 (admin trigger: `POST /admin/aggregate/{code}` port 8082).
+
+### 2. 도메인
+
+- `domain/market/candle/BoundaryDetector.kt` — Pure Kotlin object (ADR 0064 §4-1)
+  - KIS-first raw 출처: H0STCNT0 `ccnl_krx()` `[1]` STCK_CNTG_HOUR
+
+### 3. 영속
+
+- `candle` 테이블 동일 스키마 (ON CONFLICT DO NOTHING) · `RedisCandleCache.kt`
+
+### 4. Kafka
+
+5종 `market.candle.{interval}.closed.v1` — 소비자: `CandleClosedStompListener`(api) + `BoundaryClosingKafkaListener`(consumer)
+
+### 5. UI
+
+- `useSymbolCandles.ts` · `LightweightChart.tsx` series.update() · `SymbolChart.tsx`
+
+### 6. PR
+
+- PR #318·#319·#320·#321
+
+### 7. ADR
+
+- ADR 0064·0029·0062·0063·0023·0019·0051
+
+### 8. 한계
+
+- tick 0건 종목 boundary 누락 risk · in-process map 재기동 시 손실 (ON CONFLICT DO NOTHING 멱등) · 합산 결과 staleness
+
+### 9. NXT 영향 (ADR 0063)
+
+- boundary 정렬: 08:00~20:00 KST · DailyCloseFinalizer 20:00 flush
+
+---
+
+## T-SIG — 실시간 시그널 엔진 (v3.4.0 — ADR 0066)
+
+> **AI 호출 0 의무** — ADR 0023 §2-4 + ADR 0066 §1 LOCK
+
+### 1. REST
+
+#### Strategy CRUD (6 endpoint)
+
+| 메서드 | 경로 | 기능 |
+|--------|------|------|
+| `POST` | `/api/strategies` | 룰 등록 + ADR 0047 §2-1 static 검증 |
+| `GET` | `/api/strategies` | 목록 (페이징) |
+| `GET` | `/api/strategies/{id}` | 단건 + metric summary |
+| `PUT` | `/api/strategies/{id}` | 수정 |
+| `DELETE` | `/api/strategies/{id}` | soft delete |
+| `PUT` | `/api/strategies/{id}/toggle` | status 토글 |
+
+#### Signal 조회 (2 endpoint)
+
+| 메서드 | 경로 | 기능 |
+|--------|------|------|
+| `GET` | `/api/signals` | 시계열 페이징 |
+| `GET` | `/api/signals/{id}` | 단건 |
+
+### 2. 도메인
+
+```kotlin
+data class Signal(
+    val id: Long, val strategyId: Long, val userId: String,
+    val code: String, val interval: CandleInterval, val ts: Instant,
+    val side: SignalSide, val strength: Int, val reason: String,
+    val priceAtSignal: BigDecimal, val contextJson: String, val createdAt: Instant,
+)
+enum class SignalSide { BUY, SELL, HOLD }
+enum class StrategyStatus { ACTIVE, PAUSED, DISABLED, DELETED }
+```
+
+포트: `SignalRepository.kt` · `StrategyLookupPort.kt` · `SignalDispatcher.kt` · `SignalGenerator.kt` · `SignalContext.kt`
+
+### 3. 영속
+
+Flyway V14(strategy 확장) · V15(signal 신규 — UQ strategy_id+code+interval+ts)
+
+JPA: `SignalJpaEntity/Repository/Adapter` · `StrategyJpaEntity` 확장 · `StrategyLookupJpaAdapter` · `RedisStrategyCache` (TTL 5분)
+
+### 4. Kafka
+
+| 토픽 | 방향 | 발행자 | 소비자 |
+|------|------|-------|-------|
+| `market.candle.{interval}.closed.v1` (5종) | consumer→consumer | BoundaryAggregator | BoundaryClosingKafkaListener |
+| `signal.generated.v1` | consumer→api+consumer | SignalKafkaProducer | StompSignalDispatcher(api) + SignalJpaAdapter(api) + **SignalGeneratedKafkaListener(consumer, v3.5.0 추가)** |
+
+STOMP: `/topic/signal.user.{userId}` — userId 단위 격리
+
+### 5. UI
+
+- `StrategyListPage.tsx` · `StrategyCard.tsx` · `SignalListPanel.tsx` · `useStompSignal.ts` · `useStrategies.ts` · `useSignals.ts`
+
+### 6. PR
+
+- PR #335·#336·#337·#338
+
+### 7. ADR
+
+- ADR 0066·0023·0047·0064·0022·0061·0021·0007·0029·0010·0051·0045
+
+### 8. 한계
+
+- HOLD 시그널 영속 0건 · 시그널 → 주문 intent 연결은 T-RISK 통과 후 v3.5.0에서 완비
+- signal row ≥ 5M 시 monthly partition 미구현 · D-2 다채널 알림 미구현 (T-NOTIFY)
+
+### 9. NXT 영향 (ADR 0063)
+
+- 시그널 평가 boundary 08:00~20:00 KST · DailyCloseFinalizer 20:00 → strategy cache invalidateAll
+
+---
+
+## T-RISK — 리스크 관리 게이트 (v3.5.0 신규 — ADR 0067)
+
+> **AI 호출 0 의무** — 본 트랙 모든 컴포넌트 LLM provider import 0건 (ADR 0023 §2-4 + ADR 0067 §8 inline 주석 정책 LOCK). risk verdict는 **deterministic 룰만**.
+
+### 1. REST
+
+#### RiskConfig (사용자 risk 설정 — 3 endpoint, ADR 0067 §4-1)
+
+| 메서드 | 경로 | 기능 |
+|--------|------|------|
+| `GET` | `/api/risk-config` | 사용자 risk 설정 조회 (부재 시 default seed 반환 — H-1) |
+| `PUT` | `/api/risk-config` | 설정 갱신 (upsert) |
+| `POST` | `/api/risk-config/reset` | default 값으로 reset |
+
+#### RiskEvent (위반 이력 — 2 endpoint, ADR 0067 §4-2)
+
+| 메서드 | 경로 | 기능 |
+|--------|------|------|
+| `GET` | `/api/risk-events` | 시계열 페이징 (`?userId&strategyId&rule&verdict&from&to&page&size`) |
+| `GET` | `/api/risk-events/{id}` | 단건 (rule·verdict·reason·signalId·contextJson) |
+
+#### Position 조회 (2 endpoint, ADR 0067 §4-3)
+
+| 메서드 | 경로 | 기능 |
+|--------|------|------|
+| `GET` | `/api/positions/current` | 현재 보유 포지션 목록 |
+| `GET` | `/api/positions/history` | 청산 이력 페이징 (`?from&to&page&size`) |
+
+**총 7 endpoint** — 모든 endpoint Swagger 4단 어노테이션 + 한국어 설명 적용 (feedback_swagger_pattern.md 정합).
+
+인증: userId는 JWT/session 기반 (ADR 0046). 다른 사용자 데이터 조회 차단 (404 — 존재 여부 노출 금지, ADR 0061 §2-7 패턴).
+
+### 2. 도메인
+
+#### RiskConfig (의제 A·B·C·D·F·H)
+
+```kotlin
+// domain/.../risk/RiskConfig.kt
+data class RiskConfig(
+    val userId: String,
+    val maxPositionAmount: BigDecimal,         // A-1: 절대 포지션 한도
+    val maxPositionPercent: BigDecimal,        // A-1: 자본 비율 % (min() 적용)
+    val dailyLossLimitAmount: BigDecimal?,     // B-1: 일일 손실 한도 절대 (XOR)
+    val dailyLossLimitPercent: BigDecimal?,    // B-1: 일일 손실 한도 % (XOR)
+    val maxConcurrentPositions: Int,           // C-1: default 5
+    val maxTradesPerMinute: Int,               // D-1: strategy당 분당, default 3
+    val maxTradesPerDay: Int,                  // D-1: strategy당 일별, default 50
+    val autoPauseThreshold: Int,               // F-1: 연속 BLOCKED N회, default 10
+    val createdAt: Instant,
+    val updatedAt: Instant,
+)
+// companion: defaultFor(userId, now) — H-1 전역 default seed
+```
+
+#### RiskEvent (의제 F·G)
+
+```kotlin
+data class RiskEvent(
+    val id: Long,
+    val userId: String,
+    val signalId: Long?,
+    val strategyId: Long?,
+    val rule: RiskRule,
+    val verdict: RiskVerdict,
+    val reason: String,
+    val contextJson: String,
+    val createdAt: Instant,
+)
+
+enum class RiskRule {
+    POSITION_LIMIT,              // A-1
+    DAILY_LOSS_LIMIT,            // B-1
+    MAX_CONCURRENT_POSITIONS,    // C-1
+    TRADE_FREQUENCY_MINUTE,      // D-1
+    TRADE_FREQUENCY_DAY,         // D-1
+    KILL_SWITCH_ON,              // ADR 0043
+    USER_DISABLED,               // strategy.status=DISABLED
+}
+
+enum class RiskVerdict { ALLOWED, BLOCKED }
+```
+
+#### RiskGatewayResult sealed (의제 E-1)
+
+```kotlin
+sealed class RiskGatewayResult {
+    data class Allowed(val signalId: Long) : RiskGatewayResult()
+    data class Blocked(val signalId: Long, val rule: RiskRule, val reason: String, val context: Map<String, Any>) : RiskGatewayResult()
+}
+```
+
+#### Position (의제 G-1 — ADR 0042 Bootstrap 연계)
+
+```kotlin
+data class Position(
+    val id: Long, val userId: String, val code: String,
+    val quantity: Int, val avgPrice: BigDecimal,
+    val currentPrice: BigDecimal?,
+    val realizedPnl: BigDecimal,
+    val unrealizedPnl: BigDecimal?,
+    val openedAt: Instant, val closedAt: Instant?,
+    val mode: TradingMode,     // MOCK · REAL (ADR 0011)
+    val updatedAt: Instant,
+)
+enum class TradingMode { MOCK, REAL }
+```
+
+#### RiskContext
+
+```kotlin
+data class RiskContext(
+    val userId: String,
+    val config: RiskConfig,
+    val currentCapital: BigDecimal,        // ADR 0042 cache
+    val currentPositions: List<Position>,
+    val dailyRealizedPnl: BigDecimal,
+    val recentTradesMinute: Int,
+    val recentTradesDay: Int,
+    val killSwitchOn: Boolean,
+    val nowKst: Instant,
+)
+```
+
+#### 포트 인터페이스 (헥사고날 — ADR 0051 body 0 의무)
+
+- `domain/.../risk/port/RiskConfigRepository.kt` — `findByUserId(userId): RiskConfig?` · `save(config): RiskConfig`
+- `domain/.../risk/port/RiskEventRepository.kt` — `save` · `findByUser` · `findById` · `countRecentBlockedByStrategy`
+- `domain/.../position/port/PositionRepository.kt` — `findCurrentByUser` · `findByUserAndCode` · `findHistoryByUser` · `save` · `countCurrentByUser` · `sumDailyRealizedPnl`
+- `domain/.../risk/port/RiskGateway.kt` — `evaluate(signal, context): RiskGatewayResult`
+- `domain/.../risk/port/RiskNotifier.kt` — `notifyViolation(userId, event)` · `notifyAutoPaused(userId, strategyId, reason)`
+- `domain/.../signal/port/SignalRiskStatusUpdater.kt` — `markAllowed(signalId)` · `markBlocked(signalId, rule, reason)`
+- `domain/.../strategy/StrategyDisabledReason.kt` — `RISK_VIOLATION` 신규 row 추가
+
+### 3. 영속
+
+#### Flyway V16 — risk_config (ADR 0067 §6-1 H-1)
+
+```sql
+CREATE TABLE risk_config (
+    user_id                   VARCHAR(40) PRIMARY KEY,
+    max_position_amount       NUMERIC(15,2) NOT NULL,
+    max_position_percent      NUMERIC(7,4) NOT NULL,
+    daily_loss_limit_amount   NUMERIC(15,2),
+    daily_loss_limit_percent  NUMERIC(7,4),
+    max_concurrent_positions  INT NOT NULL DEFAULT 5,
+    max_trades_per_minute     INT NOT NULL DEFAULT 3,
+    max_trades_per_day        INT NOT NULL DEFAULT 50,
+    auto_pause_threshold      INT NOT NULL DEFAULT 10,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (max_position_amount > 0),
+    CHECK (max_position_percent BETWEEN 0.01 AND 100.00),
+    CHECK (max_concurrent_positions BETWEEN 1 AND 50),
+    CHECK (max_trades_per_minute BETWEEN 1 AND 60),
+    CHECK (max_trades_per_day BETWEEN 1 AND 1000),
+    CHECK (auto_pause_threshold BETWEEN 1 AND 100),
+    CHECK (
+        (daily_loss_limit_amount IS NULL AND daily_loss_limit_percent IS NULL)
+        OR (daily_loss_limit_amount IS NOT NULL AND daily_loss_limit_percent IS NULL)
+        OR (daily_loss_limit_amount IS NULL AND daily_loss_limit_percent IS NOT NULL)
+    )
+);
+```
+
+#### Flyway V17 — risk_event (ADR 0067 §6-2 G-1)
+
+```sql
+CREATE TABLE risk_event (
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     VARCHAR(40) NOT NULL,
+    signal_id   BIGINT REFERENCES signal(id) ON DELETE SET NULL,
+    strategy_id BIGINT REFERENCES strategy(id) ON DELETE SET NULL,
+    rule        VARCHAR(32) NOT NULL,
+    verdict     VARCHAR(8) NOT NULL,
+    reason      TEXT NOT NULL,
+    context_json JSONB,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_risk_event_user_ts ON risk_event (user_id, created_at DESC);
+CREATE INDEX idx_risk_event_strategy_blocked_recent
+    ON risk_event (strategy_id, created_at DESC) WHERE verdict = 'BLOCKED';
+CREATE INDEX idx_risk_event_signal ON risk_event (signal_id);
+```
+
+#### Flyway V18 — position ALTER (ADR 0067 §6-3 G-1 + ADR 0042 정합)
+
+```sql
+-- V1에서 CREATE된 position 테이블에 컬럼 추가 (baseline 보존 정합)
+ALTER TABLE position
+    ADD COLUMN realized_pnl   NUMERIC(15,4) NOT NULL DEFAULT 0,
+    ADD COLUMN unrealized_pnl NUMERIC(15,4),
+    ADD COLUMN mode           VARCHAR(8) NOT NULL DEFAULT 'MOCK',
+    ADD COLUMN updated_at     TIMESTAMPTZ NOT NULL DEFAULT now();
+CREATE INDEX idx_position_user_current ON position (user_id) WHERE closed_at IS NULL;
+CREATE INDEX idx_position_user_code_open ON position (user_id, code) WHERE closed_at IS NULL;
+CREATE INDEX idx_position_user_closed_ts ON position (user_id, closed_at DESC) WHERE closed_at IS NOT NULL;
+```
+
+#### Flyway V19 — signal.risk_status ADD COLUMN (ADR 0067 §6-4 F-1)
+
+```sql
+ALTER TABLE signal
+    ADD COLUMN risk_status VARCHAR(16) NOT NULL DEFAULT 'PENDING';
+CREATE INDEX idx_signal_user_risk_ts ON signal (user_id, risk_status, ts DESC);
+```
+
+#### JPA 어댑터 (ADR 0051 헌법 §6 — Repository body fun 0건 의무)
+
+- `api/persistence/risk/RiskConfigJpaEntity.kt` + `RiskConfigJpaRepository.kt` + `RiskConfigJpaAdapter.kt`
+  - abstract fun body 0 — upsert는 `RiskConfigService` 내부 private helper로 (§6 허용 패턴)
+- `api/persistence/risk/RiskEventJpaEntity.kt` + `RiskEventJpaRepository.kt` + `RiskEventJpaAdapter.kt`
+  - `findByUserId` · `findByStrategyIdAndVerdictAndCreatedAtAfter` — abstract fun (body 0)
+- `api/persistence/position/PositionJpaEntity.kt` + `PositionJpaRepository.kt` + `PositionJpaAdapter.kt`
+  - `findByUserIdAndClosedAtIsNull()` · `sumRealizedPnlByUserIdAndOpenedAtAfter()` — abstract fun (body 0)
+- `api/persistence/signal/SignalRiskStatusJpaAdapter.kt` — `@Modifying @Query` JPQL UPDATE (body 가진 fun은 Repository가 아닌 Adapter class에 — §6 허용 패턴)
+
+### 4. Kafka
+
+| 토픽 | 방향 | 발행자 | 소비자 |
+|------|------|-------|-------|
+| `signal.generated.v1` | consumer→consumer | `SignalKafkaProducer` | **`SignalGeneratedKafkaListener`** (v3.5.0 T-RISK 신규 — groupId: `magicjar-consumer-risk-gateway`) |
+| `risk.violation.v1` | consumer→api | `RiskViolationKafkaProducer` | `StompRiskNotifier`(api) — STOMP fanout. ADR 0044 Notification 후행 진입 |
+| `order.intent.v1` | consumer→(T-O) | `OrderIntentKafkaProducer` | T-O 후행 consumer (v3.6.0+ 미구현) |
+
+partition key = userId. retention 7d.
+
+STOMP (ADR 0067 F-1): `/topic/risk.user.{userId}` — 2 event type:
+- `BLOCKED`: 개별 시그널 위반 (빨강 토스트)
+- `AUTO_PAUSED`: strategy 연속 N회 BLOCKED → 자동 PAUSED (warning 토스트)
+
+#### 6 룰 평가 흐름 (consumer — ADR 0067 §7-2)
+
+```
+SignalGeneratedKafkaListener → RiskGatewayEvaluator
+    1. RiskContext 빌드 (RiskConfig·Capital·Positions·DailyPnl·TradeFreq·KillSwitch)
+    2. 6 룰 순차 short-circuit:
+       a. KILL_SWITCH_ON  b. DAILY_LOSS_LIMIT  c. MAX_CONCURRENT_POSITIONS
+       d. TRADE_FREQUENCY_MINUTE  e. TRADE_FREQUENCY_DAY  f. POSITION_LIMIT
+    3. Allowed → markAllowed + TradeFreq.consume() + order.intent.v1 publish
+    4. Blocked → risk_event INSERT + markBlocked + STOMP notify + risk.violation.v1 publish
+              → AutoPauseGuard: countRecentBlocked >= threshold → strategy.status=PAUSED
+```
+
+#### TradeFrequencyRedisGuard (D-1 Redis ZSET sliding window)
+
+```kotlin
+// trades:freq:{strategyId}:{userId}:minute  ZSET — 60s 창
+// trades:freq:{strategyId}:{userId}:day     ZSET — 86400s 창
+// tryConsume(strategyId, userId, signalId, ts): Boolean
+//   → ZADD + ZREMRANGEBYSCORE(score < ts-window) + ZCARD → count < limit 시 true
+```
+
+### 5. UI
+
+#### 리스크 설정 (`/risk-config`)
+
+- `frontend/src/pages/risk/RiskConfigPage.tsx` — 8 입력 필드 + safe default + 변경 사항 미리보기
+- `frontend/src/components/risk/RiskConfigForm.tsx` — 의제 A·B 입력 (절대/% 택1 토글) + slider C·D + F threshold
+
+#### 위반 이력 (`/risk-events`)
+
+- `frontend/src/pages/risk/RiskEventListPage.tsx` — 시계열 테이블 + rule 필터 + verdict 필터 + 페이징
+- `frontend/src/components/risk/RiskEventBadge.tsx` — BLOCKED 빨강·ALLOWED 녹색 배지 + rule 아이콘
+
+#### 포지션 (`/positions`)
+
+- `frontend/src/pages/position/PositionPage.tsx` — 현재 보유 + 청산 이력 탭
+- `frontend/src/components/position/PositionCard.tsx` — 종목·수량·평균가·현재가·P&L
+- `frontend/src/components/position/PnlBadge.tsx` — 수익 녹색·손실 빨강
+
+#### 실시간 알림 (STOMP)
+
+- `frontend/src/hooks/useStompRisk.ts` — `/topic/risk.user.{userId}` STOMP subscribe
+  - BLOCKED type → 빨강 토스트 (rule + reason)
+  - AUTO_PAUSED type → warning 토스트 (strategyId + PAUSED 안내)
+- `frontend/src/hooks/useRiskConfig.ts` · `useRiskEvents.ts` · `usePositions.ts` — REST hook (TanStack Query)
+
+routing 확장: `/risk-config` · `/risk-events` · `/positions` + AppHeader 메뉴 3건 추가.
+
+feedback_no_mock_data.md 정합 — 위반 이력 0건·position 0건 각각 명시 안내.
+
+### 6. PR
+
+- PR #351 (architect plan — ADR 0067 Proposed → Accepted)
+- PR #353 (strategy-engine — Phase 1: domain 5 + port 8 + RiskGatewayEvaluator 6 룰 + SignalGeneratedKafkaListener + TradeFrequencyRedisGuard + DailyPnlCalculator + AutoPauseGuard + RiskViolationKafkaProducer + OrderIntentKafkaProducer + 단위 테스트 12건)
+- PR #354 (backend-core — Phase 2: Flyway V16~V19 + JPA 3쌍 + SignalRiskStatusJpaAdapter + RiskConfigService + RiskEventQueryService + PositionQueryService + REST 7 endpoint + StompRiskNotifier + StrategyDisabledReason.RISK_VIOLATION)
+- PR #355 (V18 hotfix — position CREATE→ALTER, ADR 0042 baseline 정합)
+- PR #356 (frontend — Phase 3: 3 페이지 + 5 컴포넌트 + useStompRisk 토스트)
+- PR #357 (v3.5.0 release 태그)
+
+### 7. ADR
+
+- ADR 0067 — T-RISK 리스크 관리 (A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1 채택 2026-05-12 — v3.5.0 신규 권위)
+- ADR 0023 — Signal Engine 룰 온리 (AI 호출 0 — 본 ADR 동일 정책 계승)
+- ADR 0024 — Risk Guard chain 6단 골격 (본 ADR W3 구현 권위)
+- ADR 0042 — Position Bootstrap (balance:user:{userId} cache 활용 + PositionBootstrapRunner)
+- ADR 0043 — KillSwitch (KILL_SWITCH_ON 룰 정합)
+- ADR 0044 — Notification System (risk.violation.v1 → Slack 후행 진입점)
+- ADR 0045 — Graceful Shutdown (SignalGeneratedKafkaListener container SmartLifecycle)
+- ADR 0051 — Spring Data Repository default fun 함정 (RiskConfigJpaRepository·RiskEventJpaRepository·PositionJpaRepository body 0)
+- ADR 0057 — KIS-only (T-RISK KIS REST/WS 직접 호출 0건)
+- ADR 0061 — Backtest 결과 영속 패턴 (3 테이블 + REST endpoint 패턴 baseline)
+- ADR 0066 — T-SIG (signal.generated.v1 → T-RISK listen + signal.risk_status 연동)
+- ADR 0007 — Kafka 이벤트 backbone (risk.violation.v1·order.intent.v1 신규)
+- ADR 0010 — multi-tenant (userId 격리 의무 — risk_config·risk_event·position·STOMP)
+- ADR 0047 — DSL Sandbox (risk-eval-pool 불필요 — deterministic 룰 <20ms)
+
+### 8. 한계
+
+- `order.intent.v1` 소비자 미구현 — T-O 트랙 진입 후 주문 dispatch (v3.6.0+ 후행)
+- position 진입/청산 T-O 연동 0 — 현재는 ADR 0042 Bootstrap 기준 초기 동기 + mock 데이터만 보유
+- unrealizedPnl 계산 — currentPrice 갱신 주기는 KIS WS tick 기반 (T-O 완비 후 정확)
+- risk_config UI A·B 입력 상호 XOR 검증 — 현재 client-side only (server-side CHECK 정합 의무)
+- auto-PAUSE threshold 사용자 설정 가능하나 UI에서 별도 입력 필드로 제공 예정 (v3.5.0은 default 10만)
+- ALLOWED verdict는 risk_event 영속 0 (BLOCKED only — §9-1 권장). 향후 audit 강화 시 ALLOWED도 영속 옵션
+
+### 9. NXT 영향 (ADR 0063)
+
+- T-RISK는 KIS REST/WS 직접 호출 0건 → NXT 통합 거래시간 직접 영향 없음
+- DailyCloseFinalizer 20:00 KST → `daily_pnl:{userId}:{date}` Redis evict 연동 (B-1 일일 P&L 자정 reset 보조)
+- position bootstrap/sync는 ADR 0042 영역 (KIS REST 잔고 조회) — NXT 08:00~20:00 내 활동
+
+---
+
+## CandleAggregator — 합산 가공 도메인 (ADR 0062 — v3.3.0 이월)
+
+### 1. REST
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `POST` | `/admin/aggregate/{code}` (port 8082) | 특정 종목 수동 합산 트리거 |
+| `POST` | `/admin/aggregate/all` (port 8082) | 전 watchlist 합산 트리거 |
+
+### 2. 도메인
+
+- `domain/market/candle/CandleAggregator.kt` — Pure Kotlin 합산 엔진
+  - 공식: `OHLCV = (first.open, max(highs), min(lows), last.close, sum(volumes))`
+  - KIS raw 출처: FHKST03010230 `stck_oprc·stck_hgpr·stck_lwpr·stck_prpr·cntg_vol`
+
+### 3. 영속
+
+- `candle` 테이블 (ON CONFLICT DO NOTHING)
+
+### 4. Kafka
+
+- `BoundaryAggregator.onTickClosed` → `market.candle.{interval}.closed.v1` 5종 발행
+
+### 5. UI
+
+- IntervalToggle 5종 활성화 · STOMP 5종 topic subscribe → LWC series.update()
+
+### 6. PR
+
+- PR #298·#302·#320
+
+### 7. ADR
+
+- ADR 0062·0063·0064·0019
+
+### 8. 한계
+
+- backfill 진행 중 중복 실행 방지 분산 lock 미구현 · 합산 staleness
+
+---
+
+## AggregateBackfillRunner — cold-start 합산 후속 (ADR 0062 §4-5)
+
+### 1. REST
+
+없음.
+
+### 2. 도메인
+
+- `consumer/aggregation/AggregateBackfillRunner.kt` — 1m 전량 → CandleAggregator → 5m~1h INSERT
+
+### 3. 영속
+
+- `CandleRepository.findByCodeAndInterval()` → `saveAll()` (ON CONFLICT DO NOTHING)
+
+### 4. Kafka
+
+없음.
+
+### 5. UI
+
+없음 (admin endpoint).
+
+### 6. PR
+
+- PR #298
+
+### 7. ADR
+
+- ADR 0062 §4-5 · ADR 0051
+
+### 8. 한계
+
+- backfill 중 중복 실행 방지 분산 lock 미구현 · thread pool 2개 한계 (backlog §28)
+
+---
+
+## 공통 보안·설정 피처
+
+### KIS 키 관리
+
+- `POST /api/onboarding` — KIS appKey·appSecret + AES-256-GCM 암호화 (DB 저장)
+- `domain/user/UserKisCredential.kt` · `api/secret/AesGcmCipher.kt` · `consumer/config/SecretConfig.kt`
+
+### 온보딩 가드
+
+- `api/config/OnboardingGuardFilter.kt` — KIS 키 미등록 시 401 ONBOARDING_REQUIRED
+- `POST /api/onboarding/validate` — KIS 키 유효성 검증 (ADR 0046)
+
+### KIS Rate Limit
+
+- ADR 0037 — 초당 최대 10 TPS, 50ms 마진 강제
+- `KisRestCandleAdapter.kt` — 50ms delay + 3회 exponential backoff
+- `KisAuthAdapter.kt` — Redis 분산 lock (`kis:oauth:lock`)
+
+---
+
+## ADR 의존 요약 (트랙 전체 — v3.5.0 갱신)
+
+| ADR | 영향 트랙 |
+|-----|---------|
+| ADR 0004 | 모든 트랙 (모듈 경계) |
+| ADR 0007 | T-W1·T-S1·T-FANOUT·T-SIG·**T-RISK** (risk.violation.v1·order.intent.v1 신규) |
+| ADR 0010 | T-SIG·**T-RISK** (userId 격리 — risk_config·risk_event·position·STOMP) |
+| ADR 0019 | T-S1·T-IND·T-PAT·T-BT·CandleAggregator·T-FANOUT |
+| ADR 0021 | T-IND·T-SIG |
+| ADR 0022 | T-DSL·T-SIG |
+| ADR 0023 | T-DSL·T-BT·T-FANOUT·T-SIG·**T-RISK** (룰 온리 + AI 호출 0 — 모두 계승) |
+| ADR 0024 | **T-RISK** (Risk Guard chain 6단 골격 — W3 구현 권위) |
+| ADR 0028 | T-W1·T-S1 |
+| ADR 0029 | T-S1·CandleAggregator·T-FANOUT·T-SIG |
+| ADR 0037 | T-S1·CandleAggregator (T-RISK KIS REST 0건) |
+| ADR 0040 | T-W1 |
+| ADR 0042 | **T-RISK** (balance:user:{userId} cache · PositionBootstrapRunner 정합) |
+| ADR 0043 | **T-RISK** (KILL_SWITCH_ON 룰) |
+| ADR 0044 | **T-RISK** (risk.violation.v1 → Notification 후행 진입점) |
+| ADR 0045 | T-SIG·**T-RISK** (Graceful Shutdown — SignalGeneratedKafkaListener SmartLifecycle) |
+| ADR 0046 | 보안 (온보딩 키 등록) |
+| ADR 0047 | T-DSL·T-BT·T-SIG (T-RISK risk-eval-pool 불필요) |
+| ADR 0048 | T-S1·T-FANOUT |
+| ADR 0051 | 모든 JPA Repository (default fun 함정 — T-RISK도 의무 적용) |
+| ADR 0054 | T-PAT |
+| ADR 0055 | T-DSL |
+| ADR 0056 | T-BT |
+| ADR 0057 | T-S1·CandleAggregator·T-SIG·**T-RISK** (KIS REST/WS 직접 호출 0건) |
+| ADR 0061 | T-BT·**T-RISK** (3 테이블 + REST endpoint 패턴 baseline) |
+| ADR 0062 | CandleAggregator·T-FANOUT·T-SIG (boundary trigger → 시그널 → T-RISK 체인) |
+| ADR 0063 | T-S1·CandleAggregator·T-FANOUT·T-SIG (T-RISK NXT 직접 영향 없음) |
+| ADR 0064 | T-FANOUT·T-SIG (boundary fanout → 시그널 → T-RISK 체인) |
+| ADR 0066 | T-SIG·**T-RISK** (signal.generated.v1 → T-RISK listen + signal.risk_status 연동) |
+| ADR 0067 | **T-RISK** (리스크 관리 게이트 — A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1 채택 — v3.5.0 신규 권위) |
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>
