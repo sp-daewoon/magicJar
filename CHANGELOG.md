@@ -7,7 +7,7 @@
 <!-- pr-51-slot-orchestrator -->
 | 2026-05-?? | **TBD — PR-51 architect: 01-architecture + 06-history + 07-policy + README** | baseline/v3.4.0 | PR-51 architect 4 파일 |
 <!-- pr-51-slot-architect -->
-| 2026-05-?? | **TBD — PR-51 backend-core: 02-data-flow + 04-feature-spec** | baseline/v3.4.0 | PR-51 backend-core 2 파일 |
+| 2026-05-12 | **chore(baseline): PR-51 backend-core — v3.4.0 baseline 02-data-flow + 04-feature-spec (backend-core)** — `_workspace/baseline/v3.4.0/02-data-flow.md` (v3.3.0 이월 + v3.4.0 추가: DB 테이블 매트릭스 V12~V15·Flyway 누적·signal 테이블 + strategy 확장·Kafka signal.generated.v1 신규·Redis strategy:active:by_code+sigdedupe 2종 신규·STOMP /topic/signal.user.{userId} 신규·T-SIG 평가 흐름 Mermaid·ADR 0066 정합) + `_workspace/baseline/v3.4.0/04-feature-spec.md` (v3.3.0 전체 이월 + v3.3.1 T-BT 영속 §: Flyway V12·V13·JPA 3쌍·REST 5 endpoint·BacktestPersister·frontend 6 컴포넌트·PR #331·#332·ADR 0061 + v3.4.0 T-SIG §: REST 8 endpoint·domain Signal·SignalSide·SignalContext·SignalRepository·StrategyStatus·StrategyLookupPort·영속 V14·V15·Kafka signal.generated.v1·UI StrategyListPage+StrategyCard+SignalListPanel+useStompSignal·PR #335~#338·ADR 0066 의존). ADR 0066 A-1·B-1·C-1·D-1·E-1·F-1 정합. ADR 0051 헌법 §6 Repository body 0 의무 전 항목 명시. (backend-core) | baseline/v3.4.0 | PR-51 backend-core 2 파일 |
 <!-- pr-51-slot-backend-core -->
 | 2026-05-?? | **TBD — PR-51 market-data: 03-use-sequences (KIS-first raw 출처)** | baseline/v3.4.0 | PR-51 market-data 1 파일 |
 <!-- pr-51-slot-market-data -->
