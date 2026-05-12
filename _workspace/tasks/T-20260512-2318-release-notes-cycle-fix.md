@@ -15,9 +15,9 @@ release 절차 ADR 0052 보강 + release.sh 풍부도 + 8 backfill 재발행 (�
 
 ## 결과물 체크리스트
 - [x] ADR 0052 §X 신규
-- [ ] scripts/release.sh 보강
-- [ ] 8 release backfill 재발행
-- [ ] CHANGELOG row
+- [x] scripts/release.sh 보강
+- [x] 8 release backfill 재발행
+- [x] CHANGELOG row
 
 ## 의존성
 - (필요 시 기록)
