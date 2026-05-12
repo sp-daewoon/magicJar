@@ -1,8 +1,8 @@
 # KIS-first Raw Fetch 의무 — 현행 권위
 
-> **권위**: 본 문서.
-> **결정 이력**: 운영 헌법 §6 (`_workspace/arch/agent-charter.md`), 사용자 메모리 "KIS-first 정책"
-> **마지막 갱신**: 2026-05-08 (Living Policy 분리)
+> **권위**: 본 문서 (charter §3은 ref 슬롯만 보유, 본문 단일 출처는 본 policy).
+> **결정 이력**: 운영 헌법 §3 (`_workspace/arch/agent-charter.md`), ADR-0053 (Living Policy 도입), 사용자 메모리 "KIS-first 정책"
+> **마지막 갱신**: 2026-05-12 (charter §3 본문→ref 축소 + §3 인용 오타 정정)
 
 ---
 

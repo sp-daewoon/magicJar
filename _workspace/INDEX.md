@@ -68,8 +68,18 @@ PR 머지마다 row 추가. anchor 기반 슬롯 (ADR 0050).
 - **캔들 데이터 정책**: [docs/architecture/candle-data-policy-v2.md](../docs/architecture/candle-data-policy-v2.md)
 
 ### 운영
+
+메타 룰 3종 책임 분리 (정합 단일 출처):
+
+| 위치 | 책임 | 양식 |
+|------|------|------|
+| [policies/](../docs/architecture/policies/README.md) | **시스템·도메인 사실 권위** (KIS credential·로그·KIS-first·task cycle·mermaid 등) | 표준 4섹션 |
+| [agent-charter.md](arch/agent-charter.md) | **에이전트 행동 강령** (task.mjs 4단계·머지 후 정리·CHANGELOG 슬롯·rebase·Repository default fun·fail 분기) | 7 § 헌법 |
+| [branching-rules.md](arch/branching-rules.md) | **실전 운영 가이드** (브랜치 흐름·네이밍·모델 차등·git author 화이트리스트) | 다이어그램·표 |
+
+기타 운영 문서:
+
 - **초기 셋업**: [docs/operations/initial-setup.md](../docs/operations/initial-setup.md)
-- **브랜칭·머지·author**: [_workspace/arch/branching-rules.md](arch/branching-rules.md)
 
 ### 카탈로그 (전략·AI)
 - **전략·지표·패턴**: [_workspace/strategy/](strategy/)
