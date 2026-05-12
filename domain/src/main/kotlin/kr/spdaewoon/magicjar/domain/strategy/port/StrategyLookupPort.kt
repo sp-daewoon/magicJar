@@ -1,0 +1,39 @@
+package kr.spdaewoon.magicjar.domain.strategy.port
+
+import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.strategy.Strategy
+
+/**
+ * 실시간 시그널 평가용 전략 조회 port (ADR 0066 §5-3 채택).
+ *
+ * RealtimeSignalGenerator가 boundary 마감 payload 수신 시
+ * `findActiveByCodeAndInterval(code, interval)` 호출로 활성(status=ACTIVE) 전략 목록 조회.
+ *
+ * ### 기존 [StrategyRepositoryPort]와 분리
+ * 기존 port는 사용자 CRUD 본체 (save · findById · findAllByUserId · deleteById · autoDisable · enable).
+ * 본 port는 실시간 시그널 평가 hot path 전용 — Phase 2 backend-core가 Redis cache 적용 구현.
+ *
+ * ### 헌법 §6 정합
+ * abstract fun 만 — body 가진 default fun 0건.
+ *
+ * ### Phase 2 영속
+ * Phase 2 backend-core sub-agent가 `api/.../persistence/strategy/StrategyLookupJpaAdapter`로 구현.
+ * Phase 1은 stub bean 또는 구현 0건 (RealtimeSignalGenerator 의존 인터페이스만 노출).
+ *
+ * spec 인용: ADR 0066 §5-3 + §7-2 단계 1.
+ *
+ * // AI 호출 0 — T-SIG 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8)
+ */
+interface StrategyLookupPort {
+    /**
+     * 실시간 시그널 평가 — 종목·인터벌 매칭 + status=ACTIVE 전략 목록 조회.
+     *
+     * @param code 종목 코드 (KIS 6자리)
+     * @param interval 평가 인터벌 (5m·15m·30m·90m·1h)
+     * @return 활성 전략 목록 (status=ACTIVE만)
+     */
+    fun findActiveByCodeAndInterval(
+        code: String,
+        interval: CandleInterval,
+    ): List<Strategy>
+}
