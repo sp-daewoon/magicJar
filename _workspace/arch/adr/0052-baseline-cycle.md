@@ -103,6 +103,7 @@ magicJar baseline 사이클을 다음 3 자산 + 1 슬래시 명령으로 정형
 | 2 | baseline 8 PR 머지 완료 | orchestrator | `git tag vX.Y.Z` + `release/vX.Y.Z` 브랜치 push (ADR 0031 immutable) |
 | 3 | tag push 후 | orchestrator | `scripts/release.sh vX.Y.Z` — release notes **풍부 합성** + `gh release create` |
 | 4 | (patch 컷 `vX.Y.Z+`) | orchestrator | baseline 사이클 skip(LOCK 보존) — `scripts/release.sh vX.Y.Z` 단독 호출, release notes 풍부 합성 (PR 시계열·ADR·운영 영향 자동) |
+| 5 | release.sh·baseline-to-html.mjs 후속 | 자동 | `scripts/sync-readme-releases.mjs` 자동 호출 — README "📦 Releases & Baseline 진화" 매트릭스 idempotent 재생성 (anchor `<!-- releases-table:start --><!-- releases-table:end -->` 사이) |
 
 ### Release notes 본문 풍부 매트릭스 (LOCK 7 §)
 
