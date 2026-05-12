@@ -1,6 +1,9 @@
 # ADR 0049 — GitHub Actions = release 트리거 한정 (일상 검증은 pre-push hook 단독)
 
-- 상태: Accepted
+- 상태: **Superseded (2026-05-12 — GHA 결제 폐기 사용자 결정, feedback_no_github_actions.md 정합)**
+
+> **2026-05-12 폐기 노트** — 사용자(최고 관리자) 결정 "GitHub Actions 결제 안 함" 명시. `.github/workflows/release.yml` 삭제 + GHA 자동화 trigger 폐기. release tag + brunch 매커니즘은 그대로 유지 (ADR 0031 정합). 로컬 `scripts/build-and-deploy.sh` 단독 운영. 사용자 메모리 `feedback_no_github_actions.md` 정합. 향후 다중 환경 운영 진입 시점에 alternative CI 도입 재검토 ADR 신규 발행 의무.
+
 - 작성일: 2026-05-07
 - 결정자: 사용자(최고 관리자) · architect 정합 발행
 - 관계: ADR 0008(Docker 표준) · ADR 0031(베이스라인 + release/v* immutable) · ADR 0032(Husky git hooks) · ADR 0034(머지 흐름 단순화)
