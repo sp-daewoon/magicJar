@@ -162,6 +162,32 @@ class KafkaTopicConfig {
             .config("retention.ms", "86400000") // 1d
             .build()
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // ADR 0066 §11-1 Phase 1 (6) — T-SIG 시그널 생성 토픽 (W3 두 번째 트랙)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * 시그널 발생 이벤트 (ADR 0066 §7-1 SignalKafkaProducer + §9-2 운영 영향).
+     *
+     * Phase 1 strategy-engine sub-agent publish — Phase 2 backend-core가
+     * STOMP `/topic/signal.user.{userId}` fanout consumer 구현.
+     *
+     * partition key = userId — 사용자별 ordering 보장.
+     * retention: 7d (audit · MCP 후속 정합 — ADR 0066 §9-2)
+     *
+     * 부하 예측 (ADR 0066 §9-2): 1,000 msg/day = 0.012 msg/s — 매우 가벼움.
+     *
+     * // AI 호출 0 — T-SIG 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8)
+     */
+    @Bean
+    fun signalGeneratedTopic(): NewTopic =
+        TopicBuilder
+            .name("signal.generated.v1")
+            .partitions(1)
+            .replicas(1)
+            .config("retention.ms", "604800000") // 7d
+            .build()
+
     /**
      * 기업 행위(Corporate Action) 적용 이벤트.
      * CorpActionSyncJob → CandleAdjustmentJob 트리거.
