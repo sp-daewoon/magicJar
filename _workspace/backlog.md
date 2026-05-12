@@ -1261,3 +1261,30 @@ ADR 0062·0063 채택 시 본문 §9·§2-E에서 영향 ADR 매트릭스 갱신
 
 v3.2.3 minor doc cut. .md만 변경, 코드 영향 0.
 
+
+---
+
+## §36. 운영 부채 정리 — GitHub Actions 결제 + local branch 잔재 — operational
+
+### 사유
+
+**A. GitHub Actions release CI failure 누적** — v3.2.2·v3.2.3·v3.3.0 모두 release tag push 후 CI 실행 실패. 원인 = GitHub 계정 결제 결함 ("recent account payments have failed or your spending limit needs to be increased"). 본 시스템 코드 결함 0. ghcr.io 이미지 + Release draft만 자동 생성 안 됨. **로컬 docker compose 운영은 정상**.
+
+**B. local agent/* branch 잔재** — `gh pr merge --rebase --delete-branch`로 origin 정합 정리되지만 local branch는 not-fully-merged 상태(rebase 머지 후 sha 분기)로 `-d` 안전 모드 거부. `-D` force 거부 패턴 (orchestrator destructive 권한).
+
+### 결정 사항 (사용자 액션 필요)
+
+**A 처리**:
+- GitHub Settings → Billing & plans → 결제 정보 갱신
+- 또는 GHA spending limit 상향
+- 또는 alternative CI 도입 검토 (Cloud Build 등)
+
+**B 처리**:
+- 사용자 직접 `git branch -D <agent/*>` 일괄 실행
+- 또는 orchestrator 명시 권한 위임 시 자동 처리
+
+### 우선순위
+
+- A: 사용자 결정 — 빠를수록 좋음(release 자동화 영향)
+- B: cosmetic — 차후 일괄 정리 OK
+
