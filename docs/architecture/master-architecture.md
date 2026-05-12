@@ -512,7 +512,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 
 ---
 
-## §10. 핵심 ADR 인덱스 (0001~0057 Accepted + 0061·0062·0063 Accepted + 0064·0066 Proposed 2026-05-12)
+## §10. 핵심 ADR 인덱스 (0001~0057 Accepted + 0061·0062·0063·0066 Accepted + 0064·0067 Proposed 2026-05-12)
 
 상세 본문은 `_workspace/arch/adr/<NNNN>-*.md`. 분류 카테고리는 `_workspace/arch/adr/README.md` §1~§10-4 정합. 본 §10은 한 줄 요약 인덱스 — 신규 ADR 발행 시 본 표 + README 동시 갱신 (ADR 0030 SoT 운영 규약).
 
@@ -578,7 +578,8 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | 0062 | **5m·15m·30m·90m·1h 합산 가공 — Accepted (2026-05-11 사용자 채택 A-1 백엔드 precomputed + 옵션 2 과거 30 거래일 + 5종 활성화) — NXT 결합 §9 추가 (ADR 0063 정합, 합산 720/일 베이스 → ~71K rows)** | 시장 데이터 | W1 (2026-05-11 Accepted) |
 | 0063 | **NXT/통합거래 매트릭스 cover — Accepted (2026-05-11 사용자 채택 A UN 통합 + 1 08:00~20:00 + threshold 700)** | 시장 데이터 | W1 (2026-05-11 Accepted) |
 | 0064 | **Redis boundary fanout + STOMP 실시간 합산 갱신 plan — Proposed (2026-05-12 사용자 결정 대기 — 의제 A·B·C / architect 권장 A-1 5종 별도 Redis + B-1 KIS WS in-process trigger + C-1 5종 별도 토픽)** | 시장 데이터 | v3.3.0 미러스톤 (backlog §34) |
-| 0066 | **T-SIG 실시간 시그널 엔진 plan (룰 매칭 + Kafka boundary listen + 영속 + STOMP fanout) — Proposed (2026-05-12 사용자 결정 대기 — 의제 A·B·C·D·E·F 6건 / architect 권장 A-1 Kafka boundary listen + B-1 strategy 영속 DB + C-1 신규 signal 테이블 + D-1 STOMP fanout 1차 + E-1 DB UQ + Redis SETNX + F-1 status enum 4단)** | 전략·신호·리스크 | W3 v3.4.0 후보 (backlog §40) |
+| 0066 | **T-SIG 실시간 시그널 엔진 (룰 매칭 + Kafka boundary listen + 영속 + STOMP fanout) — Accepted (2026-05-12 사용자 채택 A-1·B-1·C-1·D-1·E-1·F-1)** | 전략·신호·리스크 | W3 v3.4.0 마감 (backlog §40 DONE) |
+| 0067 | **T-RISK 리스크 관리 plan (Signal → Risk Gateway consumer → Order intent 의무 게이트 + risk_config·risk_event·position·signal.risk_status 4 도메인 영속 + STOMP 알림 + auto-PAUSE 반복 BLOCKED 10회) — Proposed (2026-05-12 사용자 결정 대기 — 의제 A·B·C·D·E·F·G·H 8건 / architect 권장 A-1 절대+% min + B-1 전역+택1+자정 reset + C-1 default 5 + D-1 분당+일별 dual + E-1 Kafka consumer + F-1 4단 처리 + G-1 4 도메인 분리 + H-1 사용자별+default seed)** | 전략·신호·리스크 | W3 v3.5.0 후보 (backlog §41) |
 
 ### 후속 예정 (Proposed — `_workspace/arch/adr/README.md` §12 정합)
 
@@ -591,7 +592,8 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | 0062 | **5m·15m·30m·90m·1h 합산 가공 — Accepted (2026-05-11)** — backlog §31 트랙 (§10 본 표 인용) | sub-agent 디스패치 매트릭스 진행 (ADR 0062 §7-1·§9) |
 | 0063 | **NXT/통합거래 매트릭스 cover — Accepted (2026-05-11)** — backlog §32 트랙 (§10 본 표 인용) | sub-agent 디스패치 매트릭스 진행 (ADR 0063 §결정 후 트리거) |
 | 0064 | **Redis boundary fanout + STOMP 실시간 합산 갱신 — Proposed (2026-05-12)** — backlog §34 트랙 (§10 본 표 인용) | 사용자 결정 대기 → 채택 후 market-data + frontend 디스패치 |
-| 0066 | **T-SIG 실시간 시그널 엔진 — Proposed (2026-05-12)** — backlog §40 트랙 (§10 본 표 인용). W3 두 번째 트랙. 결정 의제 6건 사용자 검토 위임. architect 권장 A-1·B-1·C-1·D-1·E-1·F-1. 채택 시 strategy-engine(Phase 1) + backend-core(Phase 2) + frontend(Phase 3) 직렬 디스패치 | 사용자 결정 대기 |
+| 0066 | **T-SIG 실시간 시그널 엔진 — Accepted (2026-05-12)** — backlog §40 DONE. W3 두 번째 트랙. 사용자 채택 A-1·B-1·C-1·D-1·E-1·F-1. strategy-engine(Phase 1) + backend-core(Phase 2) + frontend(Phase 3) 3 PR 직렬 디스패치 완료 | v3.4.0 마감 |
+| 0067 | **T-RISK 리스크 관리 — Proposed (2026-05-12)** — backlog §41 트랙 (§10 본 표 인용). W3 세 번째 트랙. 결정 의제 8건 사용자 검토 위임. architect 권장 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1. 채택 시 strategy-engine(Phase 1) + backend-core(Phase 2) + frontend(Phase 3) 직렬 디스패치 | 사용자 결정 대기 |
 
 ---
 
