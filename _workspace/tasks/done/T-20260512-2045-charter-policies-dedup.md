@@ -3,10 +3,10 @@ id: T-20260512-2045-charter-policies-dedup
 agent: architect
 model: opus
 branch: agent/architect/charter-policies-dedup
-status: RUNNING
+status: DONE
 startedAt: 2026-05-12T20:45:46.777+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-12T20:48:15.948+09:00
+pr: #349
 parentPhase: ?
 ---
 
