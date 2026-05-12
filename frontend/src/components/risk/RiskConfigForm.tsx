@@ -1,0 +1,427 @@
+/**
+ * RiskConfigForm — 리스크 설정 폼 (T-RISK Phase 3 — ADR 0067)
+ *
+ * 섹션:
+ *   A 포지션 한도 (절대 + % 둘 다, min() 적용)
+ *   B DLL (전역 + 사용자 택1: 절대 OR %, 토글)
+ *   C 동시 보유 종목 한도 slider (1~20, default 5)
+ *   D 거래 빈도 dual slider (분당 default 3, 일별 default 50)
+ *   reset 버튼 (default seed)
+ *
+ * 사용자 메모리 정합: no-mock-data → 빈 config 시 default seed 유도
+ */
+import { useEffect, useState } from 'react'
+import {
+  useRiskConfig,
+  useUpdateRiskConfig,
+  useResetRiskConfig,
+} from '../../api/hooks/useRiskConfig'
+import type { DllMode, RiskConfigUpdateRequest } from '../../api/risk'
+import { useToast } from '../ui/ToastProvider'
+
+// ──────────────────────────────────────────────
+// 유틸
+// ──────────────────────────────────────────────
+
+function parseKrw(str: string): number {
+  const n = Number(str.replace(/[^0-9.]/g, ''))
+  return isNaN(n) ? 0 : n
+}
+
+// ──────────────────────────────────────────────
+// 로컬 폼 상태 타입
+// ──────────────────────────────────────────────
+
+interface FormState {
+  posAbsoluteLimit: number
+  posPercentLimit: number
+  globalDll: number
+  dllMode: DllMode
+  absoluteDll: number
+  percentDll: number
+  maxHoldingCount: number
+  maxTradesPerMinute: number
+  maxTradesPerDay: number
+}
+
+// ──────────────────────────────────────────────
+// NumberInput — 천 단위 포맷 입력 필드
+// ──────────────────────────────────────────────
+
+interface NumberInputProps {
+  label: string
+  value: number
+  onChange: (v: number) => void
+  min?: number
+  max?: number
+  suffix?: string
+  hint?: string
+  disabled?: boolean
+}
+
+function NumberInput({
+  label,
+  value,
+  onChange,
+  min,
+  max,
+  suffix = '',
+  hint,
+  disabled,
+}: NumberInputProps) {
+  const [raw, setRaw] = useState(String(value))
+
+  useEffect(() => {
+    setRaw(value.toLocaleString('ko-KR'))
+  }, [value])
+
+  return (
+    <div>
+      <label className="block text-xs text-gray-500">{label}</label>
+      <div className="mt-1 flex items-center gap-1">
+        <input
+          type="text"
+          value={raw}
+          disabled={disabled}
+          onChange={(e) => {
+            const v = e.target.value
+            setRaw(v)
+            const n = parseKrw(v)
+            if (!isNaN(n)) {
+              const clamped = min !== undefined && n < min ? min : max !== undefined && n > max ? max : n
+              onChange(clamped)
+            }
+          }}
+          onBlur={() => {
+            setRaw(value.toLocaleString('ko-KR'))
+          }}
+          className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:border-blue-500 focus:outline-none disabled:opacity-50"
+        />
+        {suffix && <span className="shrink-0 text-xs text-gray-500">{suffix}</span>}
+      </div>
+      {hint && <p className="mt-1 text-xs text-gray-600">{hint}</p>}
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────
+// SliderInput
+// ──────────────────────────────────────────────
+
+interface SliderInputProps {
+  label: string
+  value: number
+  onChange: (v: number) => void
+  min: number
+  max: number
+  step?: number
+  unit?: string
+  hint?: string
+}
+
+function SliderInput({ label, value, onChange, min, max, step = 1, unit = '', hint }: SliderInputProps) {
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <label className="text-xs text-gray-500">{label}</label>
+        <span className="text-sm font-semibold text-white tabular-nums">
+          {value.toLocaleString('ko-KR')}
+          {unit}
+        </span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="mt-2 w-full accent-blue-500"
+        aria-label={label}
+      />
+      <div className="flex justify-between text-xs text-gray-600 mt-1">
+        <span>{min}{unit}</span>
+        <span>{max}{unit}</span>
+      </div>
+      {hint && <p className="mt-1 text-xs text-gray-600">{hint}</p>}
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────
+// 섹션 헤더
+// ──────────────────────────────────────────────
+
+function SectionHeader({ label, desc }: { label: string; desc?: string }) {
+  return (
+    <div className="mb-3">
+      <h3 className="text-sm font-semibold text-gray-200">{label}</h3>
+      {desc && <p className="mt-0.5 text-xs text-gray-500">{desc}</p>}
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────
+// RiskConfigForm 본체
+// ──────────────────────────────────────────────
+
+export function RiskConfigForm() {
+  const { data, isLoading, isError } = useRiskConfig()
+  const updateMutation = useUpdateRiskConfig()
+  const resetMutation = useResetRiskConfig()
+  const { showToast } = useToast()
+
+  const [form, setForm] = useState<FormState | null>(null)
+  const [isDirty, setIsDirty] = useState(false)
+
+  // 서버 데이터 → 폼 초기화
+  useEffect(() => {
+    if (!data) return
+    setForm({
+      posAbsoluteLimit: data.positionLimit.absoluteLimit,
+      posPercentLimit: Math.round(data.positionLimit.percentLimit * 100),
+      globalDll: data.dll.globalDll,
+      dllMode: data.dll.mode,
+      absoluteDll: data.dll.absoluteDll,
+      percentDll: Math.round(data.dll.percentDll * 100),
+      maxHoldingCount: data.maxHolding.maxHoldingCount,
+      maxTradesPerMinute: data.tradeFrequency.maxTradesPerMinute,
+      maxTradesPerDay: data.tradeFrequency.maxTradesPerDay,
+    })
+    setIsDirty(false)
+  }, [data])
+
+  function patch(partial: Partial<FormState>) {
+    setForm((prev) => (prev ? { ...prev, ...partial } : prev))
+    setIsDirty(true)
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!form) return
+
+    const req: RiskConfigUpdateRequest = {
+      positionLimit: {
+        absoluteLimit: form.posAbsoluteLimit,
+        percentLimit: form.posPercentLimit / 100,
+      },
+      dll: {
+        globalDll: form.globalDll,
+        mode: form.dllMode,
+        absoluteDll: form.absoluteDll,
+        percentDll: form.percentDll / 100,
+      },
+      maxHolding: { maxHoldingCount: form.maxHoldingCount },
+      tradeFrequency: {
+        maxTradesPerMinute: form.maxTradesPerMinute,
+        maxTradesPerDay: form.maxTradesPerDay,
+      },
+    }
+
+    try {
+      await updateMutation.mutateAsync(req)
+      showToast('리스크 설정이 저장되었습니다.', 'success')
+      setIsDirty(false)
+    } catch {
+      showToast('리스크 설정 저장에 실패했습니다. 다시 시도해 주세요.', 'error')
+    }
+  }
+
+  async function handleReset() {
+    if (!window.confirm('기본값으로 초기화합니다. 계속하시겠습니까?')) return
+    try {
+      await resetMutation.mutateAsync()
+      showToast('기본값으로 초기화되었습니다.', 'info')
+    } catch {
+      showToast('초기화에 실패했습니다. 다시 시도해 주세요.', 'error')
+    }
+  }
+
+  // 로딩
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-24 animate-pulse rounded-xl bg-gray-800" />
+        ))}
+      </div>
+    )
+  }
+
+  // 오류
+  if (isError) {
+    return (
+      <div className="rounded-xl border border-red-800 bg-red-900/20 p-6 text-center text-sm text-red-400">
+        리스크 설정을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
+      </div>
+    )
+  }
+
+  if (!form) return null
+
+  const isPending = updateMutation.isPending || resetMutation.isPending
+
+  return (
+    <form onSubmit={(e) => void handleSubmit(e)} className="space-y-6">
+
+      {/* A 포지션 한도 */}
+      <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-5">
+        <SectionHeader
+          label="A. 포지션 한도"
+          desc="종목당 최대 투자금액. 절대 한도와 비율 한도 중 작은 값이 적용됩니다."
+        />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <NumberInput
+            label="절대 한도 (원)"
+            value={form.posAbsoluteLimit}
+            onChange={(v) => patch({ posAbsoluteLimit: v })}
+            min={0}
+            suffix="원"
+            hint="0 = 무제한"
+          />
+          <div>
+            <SliderInput
+              label="비율 한도 (%)"
+              value={form.posPercentLimit}
+              onChange={(v) => patch({ posPercentLimit: v })}
+              min={1}
+              max={100}
+              unit="%"
+              hint="총 자산 대비 비율 (1~100%)"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* B DLL */}
+      <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-5">
+        <SectionHeader
+          label="B. 일일 손실 한도 (DLL)"
+          desc="하루 최대 허용 손실. 초과 시 전략이 자동 정지됩니다."
+        />
+        <div className="space-y-4">
+          <NumberInput
+            label="전역 DLL (원)"
+            value={form.globalDll}
+            onChange={(v) => patch({ globalDll: v })}
+            min={0}
+            suffix="원"
+            hint="0 = 무제한"
+          />
+
+          {/* 모드 토글 */}
+          <div>
+            <label className="block text-xs text-gray-500">사용자 DLL 모드</label>
+            <div className="mt-2 flex gap-2">
+              {(['ABSOLUTE', 'PERCENT'] as DllMode[]).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => patch({ dllMode: mode })}
+                  className={[
+                    'rounded-lg px-4 py-1.5 text-sm font-medium transition-colors',
+                    form.dllMode === mode
+                      ? 'bg-blue-600 text-white'
+                      : 'border border-gray-700 text-gray-400 hover:bg-gray-800',
+                  ].join(' ')}
+                >
+                  {mode === 'ABSOLUTE' ? '절대 (원)' : '비율 (%)'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {form.dllMode === 'ABSOLUTE' ? (
+            <NumberInput
+              label="절대 DLL (원)"
+              value={form.absoluteDll}
+              onChange={(v) => patch({ absoluteDll: v })}
+              min={0}
+              suffix="원"
+            />
+          ) : (
+            <SliderInput
+              label="비율 DLL"
+              value={form.percentDll}
+              onChange={(v) => patch({ percentDll: v })}
+              min={1}
+              max={100}
+              unit="%"
+              hint="총 자산 대비 최대 손실 비율"
+            />
+          )}
+        </div>
+      </div>
+
+      {/* C 동시 보유 종목 한도 */}
+      <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-5">
+        <SectionHeader
+          label="C. 동시 보유 종목 한도"
+          desc="한 번에 보유할 수 있는 최대 종목 수입니다."
+        />
+        <SliderInput
+          label="최대 보유 종목 수"
+          value={form.maxHoldingCount}
+          onChange={(v) => patch({ maxHoldingCount: v })}
+          min={1}
+          max={20}
+          unit="종목"
+          hint="default: 5종목"
+        />
+      </div>
+
+      {/* D 거래 빈도 */}
+      <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-5">
+        <SectionHeader
+          label="D. 거래 빈도 한도"
+          desc="분당·일별 최대 주문 횟수를 제한합니다."
+        />
+        <div className="space-y-5">
+          <SliderInput
+            label="분당 최대 거래"
+            value={form.maxTradesPerMinute}
+            onChange={(v) => patch({ maxTradesPerMinute: v })}
+            min={1}
+            max={30}
+            unit="회/분"
+            hint="default: 3회/분"
+          />
+          <SliderInput
+            label="일별 최대 거래"
+            value={form.maxTradesPerDay}
+            onChange={(v) => patch({ maxTradesPerDay: v })}
+            min={1}
+            max={200}
+            unit="회/일"
+            hint="default: 50회/일"
+          />
+        </div>
+      </div>
+
+      {/* 버튼 영역 */}
+      <div className="flex items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => void handleReset()}
+          disabled={isPending}
+          className="rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-400 hover:bg-gray-800 hover:text-gray-200 disabled:opacity-50 transition-colors"
+        >
+          기본값으로 초기화
+        </button>
+
+        <div className="flex items-center gap-3">
+          {isDirty && (
+            <span className="text-xs text-amber-400">저장되지 않은 변경이 있습니다.</span>
+          )}
+          <button
+            type="submit"
+            disabled={isPending || !isDirty}
+            className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
+          >
+            {updateMutation.isPending ? '저장 중...' : '설정 저장'}
+          </button>
+        </div>
+      </div>
+    </form>
+  )
+}
