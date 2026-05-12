@@ -1602,3 +1602,67 @@ architect spec/plan PR(본 사이클) — ADR 0067 발행 + 결정 의제 8건 �
 - master §10 ADR 0067 row
 - 사용자 메모리 `project_system_vision.md`(룰 본체) · `feedback_v3_skepticism_no_regression.md`(fitness gap lens) · `feedback_3tier_hierarchy.md`(architect plan → sub-agent 병렬)
 
+---
+
+## §42. README 굴직 비전 트랙 (프로젝트의 꽃 — PR-52 plan 발행, 사용자 결정 대기)
+
+### 컨텍스트
+
+사용자 명시 의제 2026-05-12 인용:
+> "프로젝트 README.md 에 엄청 간결하고 명확하고 깔끔하게 모든 내용이 들어갈 수 있게끔 되어야해 굴찍하게!!! 우리 깃헙 들어와서 readme만 보고 아 이거 이걸로 만들었고 이렇게 되는 프로그램이구나 에이전트는 어떻게 진행되었고 md 관리는 어떻구나까지 딱 한번에 눈에 들일 수 있도록. 이게 우리 완성된 프로젝트의 꽃이여야해"
+
+현재 `README.md` 117 lines — v3.0.0 시점 기초 정보만, v3.4.0 진화(ADR 0066 T-SIG 가동 본체 등) 반영 0. GitHub 방문자가 README 한 번 정독에 5건 핵심을 즉시 인지해야:
+1. 이걸로 만들었다 (기술 스택)
+2. 이렇게 되는 프로그램 (E2E 흐름)
+3. 에이전트 진행 (7 sub-agent + orchestrator + 헌법)
+4. md 관리 (ADR 63건 + baseline 5세대 + devlog + memory)
+5. 굴직·간결·명확·깔끔 (한 번에 눈에)
+
+architect spec PR(본 사이클 PR-52) — 결정 의제 5건 + Mermaid 3건 outline + README 본문 sketch 발행, 사용자 결정 대기.
+
+### 결정 의제 (architect 권장안 — PR-52 §2)
+
+| 의제 | 권장안 | 핵심 사유 |
+|---|---|---|
+| **A. README 구조** | **A-1** 굴직 Hero + 5 section (Hero · Quick Start · Architecture · Agents · Documentation) | 사용자 비전 "한 번에 눈에 들어와야" 직접 충족 |
+| **B. 비주얼 자원** | **B-2** Mermaid 다이어그램 3건 embed (GitHub 자동 render) | 외부 이미지 의존 0 + git diff 친화 |
+| **C. 가이드 진입 경로** | **C-3** master-architecture + baseline html 둘 다 명시 | SoT 정합 + 진화 추적 동시 |
+| **D. 에이전트 시스템 표기** | **D-3** 7 sub-agent 표 + orchestrator 일대기 + 헌법 7§ + ADR 63건 | 사용자 비전 "에이전트는 어떻게 진행되었고" 직접 충족 |
+| **E. md 관리 표기** | **E-1** ADR/baseline/devlog/memory 4 매트릭스 표 | 사용자 비전 "md 관리는 어떻구나" 직접 충족 |
+
+### 채택 시 sub-agent 디스패치 (1 Phase)
+
+- **Phase 1 — architect** (단독 PR): README 본문 작성 (5 섹션 ~350~400 lines) + Mermaid 3건 + 4 매트릭스 표 + 운영 헌법 7§ 인용 + ADR 63건 인용
+- Phase 2 옵션 (frontend): 사용자가 B-3 채택 시 screenshot.gif·banner.png 비주얼 자원 추가 (현 권장 B-2는 Mermaid only → Phase 2 불필요)
+
+### 운영 영향
+
+- `README.md` 117 → ~350~400 lines (굴직, readable)
+- Mermaid embed 3건 (~70 lines)
+- 코드 변경 0건 (.md only)
+- 도구 영향 0 (CI/CD·husky·gradle 무관)
+- badges 포함: version (v3.4.0) · Kotlin 2.0 · Spring Boot 3.3 · License
+- badges 제외: GitHub Actions build (ADR 0049 Superseded GHA 폐기) · code coverage (qa on-demand)
+
+### 우선순위
+
+**1순위** — META 트랙. 자동매매 본체 fitness 직접 충족(GitHub first-impression). 사용자 결정 5건 채택 후 즉시 architect Phase 1 디스패치 (1 PR로 마감 가능).
+
+### 트리거
+
+- 사용자 결정 5건 명시 수신 (의제 A·B·C·D·E)
+- 채택 후 architect 단독 README 본문 재작성 PR
+- 사용자가 "다른 방향" 결정 시 본 § 보강 또는 폐기
+
+### 연관
+
+- 본 PR-52 plan (`_workspace/specs/pr-52-readme-flagship-vision-plan.md`) — 본 § 권위
+- ADR 0001 (시스템 비전 — 룰 본체 + AI 옵션 + MCP 서버 미래 3 비전 README 명시 의무)
+- ADR 0030 (SoT 마스터 아키텍처 — README 인용 정합)
+- ADR 0036 (3단 hierarchy — README agent system 표기 권위)
+- ADR 0051 (Repository 컨벤션 — 헌법 §6 README 인용)
+- ADR 0066 (T-SIG 가동 본체 — README hero v3.4.0 미러스톤 표기)
+- ADR 0049 Superseded (GHA 폐기 — badges 제외 권위)
+- 신규 ADR 0068 검토 (옵션 — 사용자 채택 시)
+- 사용자 메모리 `feedback_spec_plan_scope.md`(README 단일 파일 → spec만 발행) · `feedback_v3_skepticism_no_regression.md`(fitness gap lens) · `project_system_vision.md`(3 비전 표기 의무) · `feedback_devlog_html.md`(devlog 매트릭스) · `feedback_3tier_hierarchy.md`(3단 hierarchy Mermaid)
+
