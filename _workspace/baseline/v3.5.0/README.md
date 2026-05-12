@@ -1,28 +1,108 @@
-# magicJar v3.5.0 Baseline — (사이클 명) 시점 종합 기능 정의서
+# magicJar v3.5.0 Baseline — T-RISK W3 세 번째 트랙 마감 (리스크 관리 게이트) + README 굴직 재작성 + release.sh 종합 기능 정의서
 
-> **작성 시점**: 2026-05-12 v3.5.0 태그 컷 (main `<TBD-commit>`, release/<TBD-branch>)
-> **사이클**: PR-? ~ PR-? (? 사이클)
-> **상태**: skeleton — sub-agent 본격 작성 대기
+> **태그 컷**: 2026-05-12 v3.5.0 (release commit `53e5113`, `release/v3.5.0` 이미지 immutable)
+> **사이클**: PR-52 + PR-53 (#342 ~ #360, 19 PR · 약 0.5일 단축 사이클 — v3.4.0 baseline 디스패치 마무리 + ADR 0067 T-RISK 신규 + Phase 1·2·3 직렬 + V18 hotfix + release.sh + README 굴직 재작성 + v3.5.0 cut + baseline init)
+> **상태**: PR-53 architect 영역(README + 01 + 06 + 07) 본격 작성. backend-core(02·04) · market-data(03) · frontend(05) 영역은 sub-agent 별도 디스패치.
+> **권위**: 본 baseline 폴더는 v3.5.0 시점 **종합 기능 정의서**. SoT는 `docs/architecture/master-architecture.md` v2 (ADR 0030).
 
-## 목적
+---
 
-(이번 Wave 진입 직전 / release 시점에 시스템이 무엇을 할 수 있는지 시각화 가능한 수준으로 종합 정리.)
+## 한 장 요약
+
+magicJar v3.5.0은 **T-RISK W3 세 번째 트랙 마감 — 리스크 관리 게이트 가동** 미러스톤이다. v3.4.0(T-SIG 실시간 시그널 엔진) → v3.5.0(T-RISK 6 룰 게이트 + auto-PAUSE) 진행. ADR 신규 1건(0067 Accepted T-RISK) + README 굴직 재작성(PR #359 373 lines 사용자 비전 정합) + `release.sh` 신규(GHA 없이 GitHub Release 자동 승격) + 사용자 dogfooding 결함 1건(V18 position CREATE→ALTER 정합 hotfix). **자동매매 본체의 자본 보호 안전망 노드(T-RISK)가 가동 진입** — T-SIG 시그널이 무방비로 T-O에 진입하지 못하도록 RiskGateway가 6 룰 평가(POSITION_LIMIT·DAILY_LOSS_LIMIT·MAX_CONCURRENT_POSITIONS·TRADE_FREQUENCY_MINUTE·TRADE_FREQUENCY_DAY·KILL_SWITCH_ON) → ALLOWED 시 `order.intent.v1` publish, BLOCKED 시 `risk.violation.v1` + STOMP 알림 + 반복 BLOCKED 시 strategy auto-PAUSE.
+
+**v3.5.0 시점 동작하는 핵심 흐름** (v3.4.0 W1·W2 + W3 T-BT·T-SIG + W3 T-RISK 마감):
+
+1. **W1 풀세트 + W2 4 트랙 + v3.3.0 boundary fanout + v3.4.0 T-SIG (v3.4.0 baseline 그대로 보존)** — T-ONBOARD·T-W1·T-W2·T-S1·T-MS1·T-CA1·T-IM1·T-IND·T-DSL·T-PAT·T-SB·실시간 boundary fanout + T-BT(R1·R2·R3) + T-SIG(Phase 1·2·3) 14 트랙. v3.5.0에서 본격 변경 0 (T-RISK 트랙만 add).
+2. **v3.5.0 미러스톤 — T-RISK 리스크 관리 게이트 가동 (PR #348·#351·#353·#354·#355·#356)** — ADR 0067 채택(A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1) Phase 1·2·3 직렬 디스패치 완성:
+   - **Phase 1 — strategy-engine** (PR #353): domain `RiskConfig` · `RiskEvent` · `RiskRule` enum 7단(POSITION_LIMIT·DAILY_LOSS_LIMIT·MAX_CONCURRENT_POSITIONS·TRADE_FREQUENCY_MINUTE·TRADE_FREQUENCY_DAY·KILL_SWITCH_ON·USER_DISABLED) · `RiskVerdict` enum · `RiskGatewayResult` sealed · `RiskContext` · `Position` · `TradingMode` enum + port 8건(RiskConfigRepository · RiskEventRepository · RiskGateway · RiskNotifier · SignalRiskStatusUpdater · PositionRepository · KillSwitchRepository 인용 + ADR 0066 정합 port 확장). `consumer` 본체 6 컴포넌트: `RiskGatewayEvaluator`(6 룰 short-circuit 평가) · `SignalGeneratedKafkaListener` · `TradeFrequencyRedisGuard`(Redis sliding window ZSET) · `DailyPnlCalculator` · `AutoPauseGuard`(연속 BLOCKED 10회 시 PAUSED) · `RiskViolationKafkaProducer`(`risk.violation.v1`) + `OrderIntentKafkaProducer`(`order.intent.v1`). 단위 테스트 6 룰 each.
+   - **Phase 2 — backend-core** (PR #354): Flyway V16(`risk_config`) · V17(`risk_event`) · V18(`position`) · V19(`signal.risk_status` ALTER) + JPA 3쌍(RiskConfig · RiskEvent · Position) + `SignalRiskStatusJpaAdapter` + REST 7 endpoint(RiskConfig 3 GET·PUT·POST reset + RiskEvent 2 GET list·GET detail + Position 2 GET current·GET history) + `StompRiskNotifier`(`/topic/risk.user.{userId}` STOMP fanout BLOCKED + AUTO_PAUSED 2 event type).
+   - **V18 hotfix** (PR #355): `position` CREATE → ALTER 정정 — ADR 0042 Position Bootstrap baseline에서 V?? 시점 `position` 테이블이 이미 존재. V18은 CREATE 시도가 충돌 → ALTER로 정정(컬럼 추가만). 사용자 dogfooding evidence 인용 흡수.
+   - **Phase 3 — frontend** (PR #356): `/risk-config` + `/risk-events` + `/positions` 3 페이지 + 5 컴포넌트(`RiskConfigForm` 8 필드 + 의제 B 택1 UI + slider C·D · `RiskEventBadge` BLOCKED 색상 + rule 아이콘 · `PositionCard` + `PnlBadge` 수익 녹색/손실 빨강 · STOMP 토스트) + `useStompRisk`(BLOCKED + AUTO_PAUSED 분기 토스트) + 3 REST hook + AppHeader 메뉴 3건 추가 + frontend test 7건.
+3. **README 굴직 재작성 (PR #352 plan + PR #359 본격 — 373 lines)** — 사용자 메모리 "프로젝트의 꽃" 의도 정합. A-1·B-2·C-3·D-3·E-1 5건 권장안 채택. 핵심 가치 + Quick Start(5분 안에 첫 차트) + 시스템 전경 Mermaid + 3단 hierarchy + 7 sub-agent 매트릭스 + 진화 5 baseline + md 4 매트릭스 + SoT + 결정 이력 진입 경로 + 핵심 명령. 옛 README 잔재(v2 PoC·구식 Quick Start) 0건.
+4. **release.sh 신규 (PR #358)** — GHA 폐기(ADR 0049 Superseded, v3.4.0) 결정 정합. `scripts/release.sh` 단독 로컬 헬퍼: tag 검증 → 4 모듈 bootJar → docker build → ghcr.io push → gh release create draft 자동 생성. CI 의존 0 + 사용자 결정 명시 정합.
+5. **v3.5.0 신규 컴포넌트 14건** (모두 add-only · 기존 모듈 흡수):
+   - **T-RISK Phase 1 (consumer + domain)**: `domain/.../risk/RiskConfig.kt` · `RiskEvent.kt` · `RiskRule` · `RiskVerdict` · `RiskGatewayResult` sealed · `RiskContext` · `domain/.../position/Position.kt` · `TradingMode` enum + 8 port. `consumer/.../risk/RiskGatewayEvaluator` · `SignalGeneratedKafkaListener` · `TradeFrequencyRedisGuard` · `DailyPnlCalculator` · `AutoPauseGuard` · `RiskViolationKafkaProducer` · `OrderIntentKafkaProducer`.
+   - **T-RISK Phase 2 (api)**: `RiskConfigJpaEntity·Adapter` · `RiskEventJpaEntity·Adapter` · `PositionJpaEntity·Adapter` · `SignalRiskStatusJpaAdapter` + `RiskConfigController` 3 endpoint · `RiskEventController` 2 endpoint · `PositionController` 2 endpoint + `StompRiskNotifier`.
+
+**v3.5.0 누적 ADR 64건** (v3.4.0 베이스 63건 + 0067 Accepted 1건 — 자세한 인덱스는 `_workspace/arch/adr/README.md`). ADR 0019 supersede 부분 revoke 지속(boundary fanout + T-SIG + T-RISK 트랙 완료 → v3.6.x minor에서 §2 본문 재통합 architect 단독 PR 예정).
+
+**v3.5.0 시점 자동매매 본체 정합 핵심 충족**:
+
+1. **사용자 자본 보호 안전망 가동** — T-SIG 시그널이 무방비로 T-O 주문에 진입하지 못하도록 6 룰 deterministic 게이트가 의무 통과 의무
+2. **AI 호출 0 검증 LOCK 지속** — T-RISK 영역 grep 0건 + inline 주석(`// AI 호출 0 — T-RISK 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8)`)
+3. **사용자 비전 정합** — 사용자=최고 관리자/설계자 risk_config 사용자별 영속 + REST CRUD UI · 룰 기반 deterministic verdict (AI 호출 0) · MCP 외부 client query 정합 후속
+4. **회귀 0** — v3.4.0 T-SIG signal 영속·STOMP fanout·DB UQ baseline 그대로 + `signal.risk_status` 컬럼 ALTER add-only · KIS API 호출 0건 추가
+5. **end-to-end latency** — T-SIG signal pipeline <100ms + T-RISK risk pipeline <75ms = **<175ms 총합** (boundary 마감 → 사용자 알림 + order intent)
+
+---
 
 ## 인덱스
 
 | 파일 | 작성자 | 내용 |
 |------|--------|------|
-| [01-architecture.md](01-architecture.md) | architect | Mermaid 4 모듈 + 외부 통합 + frontend 아키텍처 |
-| [02-data-flow.md](02-data-flow.md) | backend-core | 모듈별 데이터 흐름 + Kafka 토픽 매트릭스 |
-| [03-use-sequences.md](03-use-sequences.md) | market-data | 사용자 유즈 시퀀스 + KIS-first raw 출처 |
-| [04-feature-spec.md](04-feature-spec.md) | backend-core | 트랙 기능 명세 상세 |
-| [05-ui-inventory.md](05-ui-inventory.md) | frontend | 화면·메뉴·버튼 인벤토리 |
-| [06-history-traceability.md](06-history-traceability.md) | architect | PR·ADR·기능 매핑 |
-| [07-policy-evolution.md](07-policy-evolution.md) | architect | 운영 헌법 + ADR 진화 |
+| [01-architecture.md](01-architecture.md) | architect | Mermaid 5 모듈 + 외부 통합 + frontend 아키텍처 + T-RISK 흐름 (Signal → Risk → Order intent) |
+| [02-data-flow.md](02-data-flow.md) | backend-core | 모듈별 데이터 흐름 + Kafka 토픽 매트릭스 + T-RISK risk_event/position 흐름 |
+| [03-use-sequences.md](03-use-sequences.md) | market-data | 사용자 유즈 시퀀스 + KIS-first raw 출처 + T-RISK 시나리오 |
+| [04-feature-spec.md](04-feature-spec.md) | backend-core | 트랙 기능 명세 상세 + T-RISK REST 7 endpoint |
+| [05-ui-inventory.md](05-ui-inventory.md) | frontend | 화면·메뉴·버튼 인벤토리 + `/risk-config`·`/risk-events`·`/positions` 3 페이지 |
+| [06-history-traceability.md](06-history-traceability.md) | architect | PR·ADR·기능 매핑 (PR #342~#360 + ADR 0067) |
+| [07-policy-evolution.md](07-policy-evolution.md) | architect | 운영 헌법 + ADR 진화 (T-RISK 가동 + README 굴직 재작성 + release.sh) |
 
-## 한 장 요약 (TBD)
+---
 
-(architect가 본격 작성)
+## v3.4.0 → v3.5.0 통계 매트릭스 (PR #342 ~ #358 본체, PR #359·#360 baseline init)
+
+| 지표 | v3.4.0 (2026-05-12 16:50 KST) | v3.5.0 (2026-05-12 22:42 KST) | 증감 |
+|------|---------------------|---------------------|------|
+| PR # 누적 | #341 | #360 | +19 |
+| ADR 수 | 63 (실제 신규 7건 + 슬롯 4건 + Superseded 1건) | 64 (0067 Accepted) | +1 (실제 신규 1건) |
+| Flyway 버전 | V15 | V19 (V16 risk_config + V17 risk_event + V18 position ALTER + V19 signal.risk_status) | +4 |
+| JVM 모듈 | 5 (domain·api·batch·consumer·pattern-engine) | 5 (보존) | 0 |
+| 외부 통합 (활성) | KIS + DART + Anthropic (3) — Yahoo @Deprecated | KIS + DART + Anthropic (3) — Yahoo @Deprecated 보존 (v3.6.x 일괄 삭제 예정) | 0 |
+| **W3 ★ 트랙 마감** | **2 (T-BT 영속·UI 완성 + T-SIG W3 두 번째 트랙 마감)** | **3 (T-RISK W3 세 번째 트랙 마감)** | **+1** |
+| 외부 통합 추가 호출 | — | **0 (T-RISK 영역 KIS REST/WS 직접 호출 0건 — Kafka 내부 토픽만 listen)** | LOCK |
+| Kafka 토픽 (활성) | 13 (12 기존 + `signal.generated.v1`) | 15 (13 보존 + `risk.violation.v1` + `order.intent.v1`) | +2 |
+| Redis 키 (활성) | + `strategy:active:by_code` + `signal:dedupe:...` | + `risk_config:{userId}` + `trades:freq:{strategyId}:{userId}:minute|day` ZSET + `daily_pnl:{userId}:{date}` | +5 namespace |
+| STOMP 토픽 (활성) | + `/topic/signal.user.{userId}` | + **`/topic/risk.user.{userId}` (BLOCKED + AUTO_PAUSED 2 event type)** | +1 |
+| REST endpoint 누적 | 약 48건 | 약 55건 (+ RiskConfig 3 + RiskEvent 2 + Position 2) | +7 |
+| frontend 라우트 | 7 (+ `/strategy/list` + `/strategy/backtest`) | 10 (+ `/risk-config` + `/risk-events` + `/positions`) | +3 |
+| T-RISK 영속 | 0 (트랙 미진입) | risk_config(사용자별 1 row) + risk_event(~70K row/year BLOCKED only) + position(~600/year per user) + signal.risk_status (PENDING·ALLOWED·BLOCKED) | 신규 가동 |
+| domain port 누적 | + Signal·SignalRepository·SignalDispatcher·SignalGenerator + StrategyRepository | + RiskConfigRepository · RiskEventRepository · RiskGateway · RiskNotifier · SignalRiskStatusUpdater · PositionRepository (총 8건) | +6 port |
+| `RiskGatewayEvaluator` 룰 | 0 | **6 룰 short-circuit (POSITION_LIMIT · DAILY_LOSS_LIMIT · MAX_CONCURRENT_POSITIONS · TRADE_FREQUENCY_MINUTE · TRADE_FREQUENCY_DAY · KILL_SWITCH_ON)** | +6 룰 |
+| AI 호출 (T-RISK 영역) | — | **0건 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 grep 검증 + inline 주석 의무)** | LOCK |
+| end-to-end latency (boundary closing → STOMP 토스트 + order intent) | 시그널 평가 토스트: <100ms total | + risk verdict + order intent: **<175ms total** (boundary 20ms + signal 75ms + risk 75ms + STOMP fanout 5ms) | 신규 측정 |
+| dogfooding hotfix 건수 | 0 | **1 (V18 position CREATE→ALTER ADR 0042 충돌 정합 fix)** | +1 |
+| GitHub Actions workflow | 0건 (v3.4.0 GHA 폐기) | 0건 보존 + **`scripts/release.sh` 단독 헬퍼 신규** | 0 (helper 신규) |
+| README 굴직 본문 | (v3.4.0까지 미정정 누적) | **373 lines 굴직 재작성 (PR #359) — 사용자 비전 정합** | 신규 굴직 |
+| 운영 헌법 § 수 | 7 | 7 (보존) | 0 |
+| Living Policy 문서 | 6 | 6 (보존) | 0 |
+
+---
+
+## 베이스라인 정합 ADR 11건 (v3.5.0 시점)
+
+v3.5.0 baseline은 다음 ADR로 권위 추적 가능:
+
+| ADR | 상태 | 본 v3.5.0 정합 |
+|---|---|---|
+| **0019** | 부분 supersede revoke 지속 | §2 매트릭스 T-SIG·T-RISK 합류 정합 갱신 v3.6.x minor에서 architect 단독 PR 예정 (signal.generated.v1 + risk.violation.v1 + order.intent.v1 본체 다음 노드 진입점 명시) |
+| **0028** | Accepted | Watchlist 기반 Ingestion (v3.4.0 보존, v3.5.0 변경 0) |
+| **0029** | Accepted | 당일 진행 중 캔들 Redis 캐시 (v3.3.0 boundary fanout 합류 보존) |
+| **0048** | Accepted | Redis namespace 41 한도 — v3.5.0 신규 namespace 5종(`risk_config:{userId}` · `trades:freq:{...}:minute|day` ZSET · `daily_pnl:{...}` · `balance:user:{userId}`) 합류 매트릭스 정합 (별도 namespace로 41 한도 무관) |
+| ~~0049~~ | **Superseded (v3.4.0 사용자 결정 GHA 결제 폐기)** | v3.5.0 보존. `scripts/release.sh`(PR #358)는 본 Superseded 후속 대안 — 사용자 메모리 `feedback_no_github_actions.md` 정합 |
+| **0052** | Accepted | Baseline 사이클 정형화 (`_workspace/baseline/v3.5.0/` immutable LOCK 진입) |
+| **0057** | Accepted | KIS-only 보존. T-RISK는 KIS REST/WS 직접 호출 0건 — Kafka 내부 토픽만 |
+| **0061** | Accepted | T-BT 영속 baseline. 본 ADR 3 테이블 분리 + REST 5 endpoint 패턴이 T-RISK 4 테이블 + REST 7 endpoint의 baseline |
+| **0062** | Accepted | 합산 가공 plan (T-RISK 영향 0 — 보존) |
+| **0063** | Accepted | NXT/통합거래 cover (T-RISK 영향 0 — 보존) |
+| **0064** | Accepted | Boundary fanout — T-RISK `SignalGeneratedKafkaListener` 진입점은 ADR 0064 baseline 100% 활용 (Kafka `signal.generated.v1` partition by userId) |
+| **0066** | Accepted | T-SIG 실시간 시그널 엔진. 본 ADR `signal.generated.v1` Kafka topic이 T-RISK RiskGateway consumer의 진입점 + `signal` 테이블 `risk_status` 컬럼 추가 정합 (ADR 0066 §6-2 row 갱신 후속 v3.6.x minor) |
+| **0067** | **Accepted (2026-05-12 — 사용자 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1 8건 모두 채택)** | **본 v3.5.0 미러스톤 권위** — T-RISK 6 룰 Risk Gateway + 4 테이블/컬럼 영속 + STOMP 알림 + auto-PAUSE + AI 호출 0 LOCK |
+
+> **ADR 0030 master-architecture §10 갱신 의무 (v3.6.x minor 후속)**: 본 v3.5.0 baseline 시점 ADR 0030 §10 인덱스에 0067 row 추가 정합은 PR #357 release 시점에 부분 갱신 완료. 단 §C.13 Risk·Position 본문 본 ADR 권위 인용 + §2 흐름 매트릭스 T-RISK 합류는 v3.6.x minor architect 단독 PR (modify-shared 충돌 회피).
+
+---
 
 ## 작성 규약
 
@@ -31,3 +111,9 @@
 - raw 출처 인용 의무 (KIS API · DART · 코드 path)
 - 추측·관념적 서술 금지
 - TBD 표시 — 미작성 영역
+
+---
+
+## v3.5.0 사이클 핵심 메시지
+
+**T-RISK 리스크 관리 게이트 가동(ADR 0067) — 자동매매 본체 자본 보호 안전망 노드 진입** — T-SIG 시그널이 무방비로 T-O 주문에 진입하지 못하도록 6 룰 deterministic 게이트가 의무 통과. magicJar 비전 "룰 기반 quant trading 본체"의 W3 안전망 노드 완성 + 사용자 risk_config 사용자별 영속 + UI CRUD + 시계열 audit + 폭주 strategy auto-PAUSE. + README 굴직 재작성으로 사용자 비전 정합 + release.sh로 GHA 없이 release 자동 승격 + V18 hotfix로 ADR 0042 baseline 정합 보존. AI 호출 0 grep 검증 지속(ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8) — magicJar = 룰 기반 본체, AI는 옵션 보조 분리 보존. W3 잔여(T-SC·T-O·T-NOTIFY·T-PERF·T-RECON) 진입의 baseline이 본 ADR 0066·0067로 LOCK.
