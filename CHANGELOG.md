@@ -2,6 +2,17 @@
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+
+| 2026-05-12 | **chore(meta): PR-53 v3.5.0 baseline 폴더 신설 + sub-agent 슬롯 4 anchor 발행** — `_workspace/baseline/v3.5.0/` 폴더 신설(README skeleton + 7 파일 인덱스). CHANGELOG sub-agent 슬롯 4 anchor(architect/backend-core/market-data/frontend). 4 sub-agent 병렬 디스패치 add-only LOCK. (orchestrator) | meta/baseline | PR-53 v3.5.0 baseline 슬롯 발행 |
+<!-- pr-53-slot-orchestrator -->
+| 2026-05-?? | **TBD — PR-53 architect: 01-architecture + 06-history + 07-policy + README** | baseline/v3.5.0 | PR-53 architect 4 파일 |
+<!-- pr-53-slot-architect -->
+| 2026-05-?? | **TBD — PR-53 backend-core: 02-data-flow + 04-feature-spec** | baseline/v3.5.0 | PR-53 backend-core 2 파일 |
+<!-- pr-53-slot-backend-core -->
+| 2026-05-?? | **TBD — PR-53 market-data: 03-use-sequences (KIS-first raw 출처)** | baseline/v3.5.0 | PR-53 market-data 1 파일 |
+<!-- pr-53-slot-market-data -->
+| 2026-05-?? | **TBD — PR-53 frontend: 05-ui-inventory** | baseline/v3.5.0 | PR-53 frontend 1 파일 |
+<!-- pr-53-slot-frontend -->
 | 2026-05-12 | **docs(architect): README 굴직 본문 재작성 — 프로젝트의 꽃 (사용자 결정 5건 채택 A-1·B-2·C-3·D-3·E-1)** — `README.md` 117 → 373 lines 재작성. 사용자 명시 의제 2026-05-12 "굴직하게 readme만 보고 이걸로 만들었고 이렇게 되는 프로그램이구나 에이전트는 어떻게 진행되었고 md 관리는 어떻구나까지 딱 한번에 눈에 들일 수 있도록. 완성된 프로젝트의 꽃" 직접 충족. spec PR #352 (`_workspace/specs/pr-52-readme-flagship-vision-plan.md`) 권장안 풀 채택. **5 섹션 구조**: ① Hero (badges 6 + 핵심 가치 3 + 사용자=최고 관리자 인용) + ② Quick Start (사전 요구사항 + 3 명령 + URL 표 5 + 첫 dogfooding 4 step + 개발 모드) + ③ Architecture (Mermaid 1 시스템 전경 4 JVM + 외부 4 통합 + 인프라 3 + Mermaid 2 E2E 데이터 흐름 KIS WS→consumer→Kafka→Risk→STOMP autonumber sequence + 기술 스택 7행 매트릭스 + 운영 정책 4 한 줄) + ④ Agents & Workflow (Mermaid 3 3단 hierarchy 사용자→orchestrator→architect→6 sub-agent + 7 sub-agent 표 모델/책임/트랙 + orchestrator 일대기 한 단락 + 헌법 7§ 표 + 5 baseline 진화 매트릭스 v3.1.0→v3.5.0) + ⑤ Documentation (md 관리 4 매트릭스 ADR 63건/baseline 5세대/devlog 4 HTML/메모리 27건 + SoT 10 진입점 + 5 질문 진입 매트릭스 + 핵심 명령 + CI/CD + 디렉토리 구조). **Mermaid 3 다이어그램 inline** (GitHub 자동 render, 외부 이미지 의존 0). **사용자 비전 5건 충족 검증**: ① 이걸로 만들었다(기술 스택 매트릭스) ② 이렇게 되는 프로그램(E2E sequence) ③ 에이전트 진행(3단 hierarchy + 7 sub-agent + 헌법 7§ + orchestrator 일대기) ④ md 관리(4 매트릭스 표) ⑤ 굴직·간결·명확(373 lines, 한 페이지 풀세트). fitness gap 통과: v3.5.0 시점 풀 반영(v3.0.0 잔재 검열 통과, T-RISK 마감 ADR 0067 인용). 코드 변경 0건(.md only). 헌법 정합: §1 task.mjs 4단계 + §2 머지 후 정리 + §3 KIS-first 영향 0 + §4 architect 단독 (sub-agent slot 0, `feedback_spec_plan_scope` 정합) + §5 rebase 머지 + §6·§7 .md only 영향 0. 사용자 메모리 정합: `feedback_spec_plan_scope`(spec만 채택)·`project_system_vision`(룰 본체+AI 옵션+MCP)·`feedback_3tier_hierarchy`(3단 hierarchy Mermaid)·`feedback_v3_skepticism_no_regression`(v3 잔재 검열 통과)·`feedback_devlog_html`(devlog 매트릭스 §)·`feedback_honorific`(존댓말). (architect) | docs/README | PR-52 채택 - README 굴직 재작성 |
 | 2026-05-12 | **release: v3.5.0 — T-RISK W3 세 번째 트랙 마감 미러스톤 (리스크 관리 게이트) (orchestrator)** — ADR 0067 채택(A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1) + 6 PR(#351·#353·#354·#355·#356): Accepted + Phase 1 strategy-engine(domain Risk·Position 14 + RiskGatewayEvaluator 6 룰 + Kafka listener·producer + 12 Unit Test) + Phase 2 backend-core(Flyway V16~V19 + JPA 3쌍 + REST 7 endpoint + StompRiskNotifier + StrategyDisabledReason.RISK_VIOLATION) + V18 hotfix(position CREATE→ALTER, ADR 0042 baseline 정합) + Phase 3 frontend(3 페이지 + 5 컴포넌트 + useStompRisk 토스트). Signal→Risk→Order intent E2E 흐름 완성. v3.4.0 → v3.5.0 minor 미러스톤. | release | v3.5.0 minor 미러스톤 |
 
