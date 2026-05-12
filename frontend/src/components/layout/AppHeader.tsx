@@ -63,6 +63,20 @@ export function AppHeader() {
           >
             전략 빌더
           </NavLink>
+          {/* T-BT R3: 백테스트 메뉴 — ADR 0061 §4 D-1 */}
+          <NavLink
+            to="/strategy/backtest"
+            className={({ isActive }) =>
+              [
+                'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-950',
+                isActive
+                  ? 'bg-gray-800 text-white'
+                  : 'text-gray-400 hover:bg-gray-800/60 hover:text-gray-200',
+              ].join(' ')
+            }
+          >
+            백테스트
+          </NavLink>
         </nav>
       </div>
     </header>
