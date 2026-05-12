@@ -42,21 +42,15 @@ PR 머지 직후 즉시 4단계. 누락 시 운영 부채 누적(worktree 잔재
 
 ---
 
-## §3. KIS-first raw fetch 의무 (PR-21 사용자 비판 응답 + 사용자 메모리 `feedback_kis_first_policy.md`)
+## §3. KIS-first raw fetch 의무
 
-KIS API·외부 데이터 규격 결정 시 자체 추론 0 정책. 위반 시 fitness gap(PR-11 instrument 14 컬럼 vs KIS 73 필드 = 91.7% 갭) 발생.
+**단일 권위**: [`docs/architecture/policies/kis-first-raw-fetch.md`](../../docs/architecture/policies/kis-first-raw-fetch.md) — Living Policy(ADR-0053)로 이관됨.
 
-**발동 조건**: 새 KIS endpoint 도입 (REST/WS — tr_id·필드·byte offset) · 새 KIS 데이터 규격 결정 (종목 마스터·시세·체결·호가·잔고·주문) · DSL·tr_id·payload 구조 결정 · 외부 API 스키마 변경 인식 (Yahoo·DART·Naver).
+본 §은 charter 내 ref 슬롯만 보유 — 의무 절차 5단계·발동 조건·위반 baseline 본문은 위 policy 문서가 단독 권위. 갱신은 policy 본문만 update + ADR 후속 발행 (본 § 본문은 갱신 대상 아님).
 
-**의무 절차 5단계**:
+**영역별 적용**: architect(spec 발행 시 raw 출처 인용 의무 전파) · market-data(KIS 어댑터·DSL·DART/Naver 모두 본 정책 적용) · backend-core(KIS 데이터 영속 시 raw 필드 보존 의무).
 
-1. **raw fetch 직접 다운로드** — `curl -sL https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/<path>` 또는 KIS 공식 문서 URL
-2. **자체 추론 0 정책** — tr_id·endpoint·필드·byte offset·DSL 자체 결정 금지. 모든 결정은 raw 출처 인용 의무
-3. **검증 보고서 산출 권장** — 새 endpoint·새 데이터 규격 결정 시 `_workspace/specs/<pr>-kis-raw-verification.md` 권장 (예: PR-21 `pr-21-kis-header-raw-verification.md` baseline)
-4. **sub-agent에 raw 출처 인용 의무 전파** — dispatch §에 "코드 inline 주석에 raw URL 명시" 의무. sub-agent 자체 추론 0 (architect spec 인용으로 입증)
-5. **MCP 활용** — `mcp__kis-code-assistant__search_domestic_stock_api(query=...)` 결과 spec 또는 PR 본문에 인용 권장
-
-**위반 baseline**: 사용자 강한 비판 — "kis 데이터 규격 확인 안하고 막 만들어서 꾸겨넣은거잖아" (PR-11 V4). PR-21에서 70 필드 add-only로 정정.
+**역사 baseline**: PR-11 instrument 14 컬럼 vs KIS 73 필드 = 91.7% 갭 → PR-21에서 70 필드 add-only로 정정 (사용자 강한 비판 응답).
 
 ---
 
