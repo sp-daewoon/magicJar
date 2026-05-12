@@ -358,6 +358,29 @@ node scripts/task.mjs done --pr <N>
 
 ---
 
+## 📦 Releases & Baseline 진화
+
+GitHub 방문자가 한 번에 진입할 수 있도록 release notes(📋) + baseline html(📊) 2 컬럼 매트릭스:
+
+| 버전 | 날짜 | 미러스톤 | Release | Baseline |
+|------|------|----------|---------|----------|
+| **v3.5.0** | 2026-05-12 | T-RISK W3 마감 (리스크 게이트) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.5.0) | [📊](_workspace/baseline/v3.5.0/html/index.html) |
+| **v3.4.0** | 2026-05-12 | T-SIG W3 마감 (실시간 시그널 엔진) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.4.0) | [📊](_workspace/baseline/v3.4.0/html/index.html) |
+| **v3.3.1** | 2026-05-12 | T-BT W3 마감 (백테스트 영속+UI) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.3.1) | — |
+| **v3.3.0** | 2026-05-12 | 실시간 boundary fanout (Redis+STOMP+합산 가공) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.3.0) | [📊](_workspace/baseline/v3.3.0/html/index.html) |
+| **v3.2.3** | 2026-05-12 | ADR 매트릭스 NXT·합산 보강 + KIS retry 3회 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.2.3) | — |
+| **v3.2.2** | 2026-05-11 | KIS-only + NXT cover + 합산 가공 트랙 가동 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.2.2) | [📊](_workspace/baseline/v3.2.2/html/index.html) |
+| **v3.2.1** | 2026-05-10 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.2.1) | — |
+| **v3.1.1** | 2026-05-10 | v3.1 hotfix → W2 진입 (T-IND·T-DSL·T-PAT R1+R2) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.1.1) | — |
+| **v3.1.0** | 2026-05-08 | W1 마감 + 첫 baseline 사이클 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.1.0) | [📊](_workspace/baseline/v3.1.0/html/index.html) |
+
+- **📋 Release**: 풍부한 release notes (Hero · PR 시계열 · 신규 ADR · 운영 영향 · baseline 링크 · dogfooding 가이드 — ADR 0052 §X)
+- **📊 Baseline**: 7 파일 풀세트 (README + 01 architecture + 02 data-flow + 03 use-sequences + 04 feature-spec + 05 ui-inventory + 06 history + 07 policy) + Mermaid 시각화 HTML
+
+전체 변경 이력은 [CHANGELOG.md](CHANGELOG.md) · 결정 이력은 [ADR 인덱스](_workspace/arch/adr/) 참조.
+
+---
+
 ## License
 
 TBD (Private) — `sp-daewoon/magicJar` repository
@@ -368,6 +391,6 @@ TBD (Private) — `sp-daewoon/magicJar` repository
 
 **magicJar** — 룰이 본체, AI가 보조, 사용자가 최고 관리자.
 
-[CHANGELOG](CHANGELOG.md) · [ADR 인덱스](_workspace/arch/adr/) · [마스터 아키텍처](docs/architecture/master-architecture.md) · [v3.4.0 baseline](_workspace/baseline/v3.4.0/)
+[CHANGELOG](CHANGELOG.md) · [ADR 인덱스](_workspace/arch/adr/) · [마스터 아키텍처](docs/architecture/master-architecture.md) · [v3.5.0 baseline](_workspace/baseline/v3.5.0/html/index.html)
 
 </div>
