@@ -586,7 +586,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | 0058 | 57 캔들 패턴 표준 (본문 ADR로 격상 검토 — T-PAT 머지 정합) | T-PAT |
 | 0059 | Screener 표준 | T-SC |
 | 0060 | Performance 표준 | T-PERF |
-| 0061 | Backtest 결과 영속 (backtest_run · backtest_trade · backtest_position 3 테이블 + 5 GET/DELETE endpoint) — **PR-50 plan 발행 (2026-05-12) — 사용자 결정 대기 (A-1+B-1+C-1+D-1+E-1+F-1 권장)** | T-BT R2 (backlog §37 — ADR 0056 §3-4 supersede §1) |
+| 0061 | **Backtest 결과 영속 — Accepted (2026-05-12)** — 3 테이블(backtest_run·backtest_trade·backtest_position) + 5 endpoint + BacktestPersister·BacktestQueryService. ADR 0056 §2-6 supersede. | T-BT R2 (backlog §37 DONE) |
 | 0062 | **5m·15m·30m·90m·1h 합산 가공 — Accepted (2026-05-11)** — backlog §31 트랙 (§10 본 표 인용) | sub-agent 디스패치 매트릭스 진행 (ADR 0062 §7-1·§9) |
 | 0063 | **NXT/통합거래 매트릭스 cover — Accepted (2026-05-11)** — backlog §32 트랙 (§10 본 표 인용) | sub-agent 디스패치 매트릭스 진행 (ADR 0063 §결정 후 트리거) |
 | 0064 | **Redis boundary fanout + STOMP 실시간 합산 갱신 — Proposed (2026-05-12)** — backlog §34 트랙 (§10 본 표 인용) | 사용자 결정 대기 → 채택 후 market-data + frontend 디스패치 |

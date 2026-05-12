@@ -1291,7 +1291,7 @@ v3.2.3 minor doc cut. .md만 변경, 코드 영향 0.
 
 ---
 
-## §37. T-BT R2 결과 영속 + GET/DELETE endpoint 트랙 (PR-50 plan 발행 — 사용자 결정 대기)
+## §37. T-BT R2 결과 영속 + GET/DELETE endpoint 트랙 ✅ DONE — PR agent/backend-core/t-bt-r2-persistence (2026-05-12)
 
 ### 컨텍스트
 
@@ -1354,7 +1354,7 @@ backtest_position — V13 (포지션 + run_id FK CASCADE)
 
 ---
 
-## §38. T-BT R3 frontend `/strategy/backtest` 페이지 트랙 (PR-50 plan 발행 — §37 R2 머지 후 진입)
+## §38. T-BT R3 frontend `/strategy/backtest` 페이지 트랙 — §37 R2 머지 후 디스패치 의무 (본 PR 머지 후 frontend sub-agent 발동)
 
 ### 컨텍스트
 
