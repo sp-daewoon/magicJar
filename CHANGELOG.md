@@ -7,7 +7,7 @@
 <!-- pr-53-slot-orchestrator -->
 | 2026-05-?? | **TBD — PR-53 architect: 01-architecture + 06-history + 07-policy + README** | baseline/v3.5.0 | PR-53 architect 4 파일 |
 <!-- pr-53-slot-architect -->
-| 2026-05-?? | **TBD — PR-53 backend-core: 02-data-flow + 04-feature-spec** | baseline/v3.5.0 | PR-53 backend-core 2 파일 |
+| 2026-05-12 | **chore(baseline): PR-53 backend-core — v3.5.0 baseline 02-data-flow + 04-feature-spec (backend-core)** — `_workspace/baseline/v3.5.0/02-data-flow.md` (v3.4.0 이월 + v3.5.0 T-RISK 추가: DB 테이블 매트릭스 risk_config·risk_event·position·signal.risk_status V16~V19·Flyway 누적·position 확장·Kafka risk.violation.v1·order.intent.v1 신규 2종·Redis trades:freq ZSET·daily_pnl·balance 3 신규 키·STOMP /topic/risk.user.{userId} 신규·Signal→6룰 short-circuit Mermaid·ADR 0067 정합) + `_workspace/baseline/v3.5.0/04-feature-spec.md` (v3.4.0 전체 이월 + T-RISK 신규 §: REST 7 endpoint·domain 14(RiskConfig·RiskEvent·RiskRule 7·RiskVerdict·RiskGatewayResult·RiskContext·Position·TradingMode + port 6)·영속 V16~V19·Kafka risk.violation.v1·order.intent.v1·UI 3 페이지+5 컴포넌트+useStompRisk·PR #351~#357·ADR 0067·한계 6건·NXT 영향 + ADR 의존 요약 갱신 0067 row). ADR 0067 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1 정합. ADR 0051 헌법 §6 Repository body 0 의무 전 항목 명시. (backend-core) | baseline/v3.5.0 | PR-53 backend-core 2 파일 |
 <!-- pr-53-slot-backend-core -->
 | 2026-05-?? | **TBD — PR-53 market-data: 03-use-sequences (KIS-first raw 출처)** | baseline/v3.5.0 | PR-53 market-data 1 파일 |
 <!-- pr-53-slot-market-data -->
