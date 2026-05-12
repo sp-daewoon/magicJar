@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>07-policy-evolution — magicJar v3.3.0 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">📁 인덱스</a><a href="01-architecture.html">01 Architecture</a><a href="02-data-flow.html">02 Data Flow</a><a href="03-use-sequences.html">03 Use Sequences</a><a href="04-feature-spec.html">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html">06 History</a><a href="07-policy-evolution.html" class="active">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.3.0 Baseline · 2026-05-12 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># 07 — MD 룰 정책 진화 (v3.2.2 → v3.3.0)
+
+> **작성자**: architect (PR-49)
+> **시점**: 2026-05-12 v3.3.0 태그 컷 직후
+> **사용자 명시 의도**: "우리 md 룰 정책의 변화로 더 나아지고 있다는 점을 어필 할 수 있는 목록" (v3.1.0 baseline에서 도입 — v3.3.0까지 누적 갱신)
+
+본 문서는 **v3.2.2 → v3.3.0 정책 진화**를 추적한다. 추측 0 — 모든 룰은 운영 헌법(`_workspace/arch/agent-charter.md`) 7 § + ADR 0049~0064 + backlog 처리 매트릭스로 추적 가능.
+
+각 § 본문은 **도입 전 / 도입 후 / 효과 / 사례 PR** 4단 구조다 (v3.1.0·v3.2.0·v3.2.2 baseline 정합).
+
+**v3.2.2 baseline 보존**: §1~§5 정책 진화 5건(ADR 0056·0057·0062·0063 + 사용자 메모리 보강 2건) + §6~§7 다음 Wave + 누적 매트릭스는 v3.3.0 사이클에서 **갱신 0** (안정화 + 보존). 본 v3.3.0에서는 §1·§2 2건 신규 정책 진화 + §6 다음 Wave 정책 후보 갱신.
+
+**v3.3.0 사이클 정책 진화 2건**:
+1. ADR 0064 — Redis boundary fanout + STOMP 실시간 합산 갱신 (5m·15m·30m·90m·1h 장중 boundary 마감 시점 실시간 갱신 baseline — 자동매매 본체 정합 결정적 결함 해소)
+2. v3.2.3 minor doc cut — ADR 0019·0028·0029 §2 매트릭스 NXT/합산 5종 보강 + KIS 500 retry 3회 exponential backoff (운영 자료 정합 정착 + dogfooding PARTIAL_FAIL 패턴 해소)
+
+---
+
+## §0. 운영 헌법 7 § (보존 — v3.1.0·v3.2.0·v3.2.2 baseline 그대로)
+
+운영 헌법 7 §는 v3.1.0 PR-26(#224)에서 통합 발행된 후 v3.2.0·v3.2.2 사이클에서 보존 + v3.3.0 사이클 동안 **본문 갱신 0**. 안정화 검증 — 본 v3.3.0 14 PR 사이클에서 다음 영역 모두 헌법 정합:
+
+| § | 제목 | v3.3.0 사이클 검증 |
+|---|------|---------------------|
+| §1 | task.mjs 4단계 의무 | 모든 sub-agent 디스패치 사이클(PR #315·#316·#318·#319·#320·#321·#49) start·check·done 4단계 호출 — 누적 task archive PR #314 등 정합 |
+| §2 | 머지 후 정리 4단계 | PR #315·#316·#318·#319·#320·#321 머지 후 즉시 worktree 제거 + task archive (orchestrator가 v3.3.0 cut PR #322 동시에 chore archive 묶음 처리 — 헌법 §2 정합) |
+| §3 | KIS-first raw fetch 의무 | **본 v3.3.0 사이클이 헌법 §3을 또 한번 강하게 검증한 사례** — ADR 0064 §1-4에 H0STCNT0 ccnl_krx 44 cols raw URL(`https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions_ws.py`) 직접 인용 + cols[1]=STCK_CNTG_HOUR 시각 필드 명시 + `_workspace/baseline/v3.2.2/03-use-sequences.md §시나리오 3 R5` cross-reference. `BoundaryDetector.parseHhmmssToInstant` 함수 inline 주석에 KIS-first raw URL 인용 (PR #320). 자체 추론 0건. |
+| §4 | CHANGELOG 슬롯 채번룰 | PR #318·#319·#320·#321·#322·#323 모두 anchor 사전 발행 + sub-agent in-place edit. modify-shared 충돌 0건. **본 PR-49 baseline 사이클도 anchor 4건(`<!-- pr-49-slot-architect/backend-core/market-data/frontend -->`) 사전 발행 정합** (`orchestrator` slot 1건 포함하여 총 5 anchor) |
+| §5 | PR 생성 직전 rebase 의무 | 본 PR-49 포함 모든 사이클 적용 — 통합 빌드 fail 0건 |
+| §6 | JPA Repository default fun 함정 | ADR 0064 §6 헌법 §6 정합 확인 — `BoundaryAggregator`의 `insertIgnore @Query` 사용 (abstract body 없음) 명시 |
+| §7 | sub-agent fail 분기 룰 | PR #315·#316·#320·#321 4 본격 사이클 — 재디스패치 0건. orchestrator 자율 진행(헌법 §7 자율 진행 정합) |
+
+**baseline 정합**: v3.2.0 시점 통합한 헌법이 v3.2.2 데이터 정책 3중 결정 묶음 + v3.3.0 실시간 fanout 미러스톤 사이클까지 완주 — 갱신 의제 0건.
+
+---
+
+## §1. ADR 0064 — Redis boundary fanout + STOMP 실시간 합산 갱신 (5m·15m·30m·90m·1h)
+
+### 도입 전
+
+v3.2.2 baseline 시점 5m·15m·30m·90m·1h 합산 가공(ADR 0062 채택)은 두 가지 트리거에서만 갱신:
+- **cold-start 시점** — `AggregateBackfillRunner.backfill(code)` 호출 시 1m 전량 → 5m·15m·30m·90m·1h DB INSERT (ON CONFLICT DO NOTHING 멱등)
+- **장 마감 20:00 KST** — `DailyCloseFinalizer.flushAggregations()` watchlist 전 종목 당일 누적분 합산 갱신
+
+**장중 boundary 마감 시점(예: 09:05·09:10·09:15·09:30) 실시간 갱신 — 미구현 (현재 결함)**:
+- KIS WS H0STCNT0 체결 수신 핸들러(`KisWebSocketBridge`)가 1m closing은 처리하지만 5m·15m·30m·90m·1h boundary 도달 시점 합산 갱신 0건
+- 사용자가 SymbolDetail 페이지에서 5m 차트 진입 시 09:00~09:04:59에는 `candle:current:{code}:5m` 키 부재 → 5m 차트 마지막 bar는 어제 종가 마감 bar
+- 09:05 boundary 도달 — KIS WS H0STCNT0 체결 수신 + 1m boundary closing은 처리되나 5m 합산 갱신 0건 → 5m 차트 stale
+- 20:00 DailyCloseFinalizer 마감 후 첫 다음 영업일에야 5m bar 정합
+
+자동매매 본체 정합 영향:
+- **T-SIG (Signal Engine, ADR 0023)** — 5m·15m 인터벌 룰 평가 시 stale data → 시그널 latency 5분~수 시간 (boundary 마감 ~ 20:00 flush)
+- **T-DSL (Strategy DSL, ADR 0022)** — 5m·30m 인터벌 조건식 평가 시 동일 결함
+- **MCP 외부 client (ADR 0027)** — 외부 client가 장중 5m 데이터 요청 시 stale 응답
+
+ADR 0029 §2-5 (v3.2.3 doc cut 갱신):
+> "**v3.3.0 §34 작업 가이드 — boundary fanout 토픽 5종 추가 (별도 사이클)**: `/topic/market.candle.5m.{code}` 등 5종 토픽 신규."
+
+ADR 0062 §4-3 (Accepted 본문):
+> "5m·15m·30m·90m·1h boundary closing → 직전 1m N건 fetch → CandleAggregator.aggregate(1m, target) → Redis candle:current:{code}:{target} 갱신 → candle table INSERT → Redis publish market.candle.{target}.closed.v1 → STOMP fanout."
+
+→ 두 ADR이 v3.3.0 §34 사이클에서 boundary 마감 코드 trigger + STOMP fanout 구현이 LOCK 필요한 baseline을 가리킨다.
+
+### 도입 후
+
+ADR 0064 (PR #318 plan + PR #319 Accepted + PR #320 본격 + PR #321 frontend) — A-1 5종 별도 Redis hash 키 + B-1 KIS WS in-process boundary 검사 + C-1 5종 별도 STOMP 토픽 채택:
+
+**의제 A Redis 키 매트릭스**: A-1 5종 별도 hash 키 채택 — `candle:current:{code}:5m` · `:15m` · `:30m` · `:90m` · `:1h` 각각 hash. ADR 0029 §2-1 매트릭스 baseline 정합 + invalidation 단순 + DEBUG visibility(`redis-cli HGETALL candle:current:005930:5m` 직관) + 메모리 부담 미미(11 KB).
+
+**의제 B boundary 마감 트리거**: B-1 KIS WS H0STCNT0 체결 핸들러 in-process 검사 채택 — `TickToMinuteAggregator` 1m closing 완료 직후 `boundaryAggregator.onTickClosed(code, closingTs)` 호출 (trigger 진입점). latency 최소(<50ms 측정) + 추가 컴포넌트 0 + 멱등 가드 이중(in-process `ConcurrentHashMap<Pair<code, interval>, LocalDate>` `lastProcessedBoundaryMin` + DB ON CONFLICT DO NOTHING).
+
+**의제 C STOMP fanout 토픽**: C-1 5종 별도 토픽 채택 — `/topic/market.candle.5m.{code}` · `.15m.` · `.30m.` · `.90m.` · `.1h.`. frontend network 효율(사용자가 5m 차트 보면 5m 토픽만 subscribe) + ADR 0029 §2-5 baseline 정합 + 운영 visibility + 5종 boundary 시각 매트릭스 명확(5m=144/일 · 15m=48 · 30m=24 · 90m=8 · 1h=12).
+
+**`BoundaryDetector` 도메인 본체** (`domain/.../candle/BoundaryDetector.kt`, PR #320):
+- Pure Kotlin object · Spring·JPA 의존 0
+- 핵심 API `isBoundaryClosed(ts: Instant, target: CandleInterval): Boolean`
+- 부가 API `boundaryStartTs(ts, target)` + `parseHhmmssToInstant(hhmmss, midnight)` (KIS-first raw 출처 H0STCNT0 ccnl_krx cols[1])
+- 단위 테스트 **44건 GREEN** (5m 마감/비마감 · 15m · 30m · 90m 8 anchor 전부 · 1h · NXT 범위 밖 · parseHhmmssToInstant · boundaryStartTs cover)
+
+**`BoundaryAggregator`** (`consumer/.../aggregation/BoundaryAggregator.kt`, PR #320):
+- `@Component` (Spring)
+- 트리거 진입점 `onTickClosed(code, closingTs)` (B-1)
+- 5 interval 순차 처리 (race 회피 + 동일 boundary ts 도달 시 1m fetch 1회 압축)
+- 멱등 가드 이중 (in-process map + DB ON CONFLICT DO NOTHING)
+- KIS REST 추가 호출 0건 (직전 1m N건은 Redis/DB local fetch)
+
+**`RedisCandleCache`** (`consumer/.../cache/RedisCandleCache.kt`, PR #320):
+- `@Component` (Spring + `StringRedisTemplate`)
+- 5종 별도 hash 키 + TTL 25h
+- `putBoundaryCandle/getBoundaryCandle/evictBoundaryCandle` API
+
+**`CandleClosedStompListener`** (`api/.../messaging/CandleClosedStompListener.kt`, PR #320):
+- `@Component` (Spring) — 5 `@KafkaListener`
+- Kafka `market.candle.{interval}.closed.v1` 5종 → STOMP `/topic/market.candle.{interval}.{code}` fanout
+
+**Kafka 5 토픽** (`consumer/.../config/KafkaTopicConfig.kt`, PR #320):
+- `market.candle.{5m·15m·30m·90m·1h}.closed.v1` retention 1d
+
+**frontend STOMP 5종 dynamic subscribe** (PR #321):
+- `useSymbolCandles.ts` IntervalToggle 선택값 정합 dynamic subscribe/unsubscribe
+- LWC v4 `series.update()` boundary 메시지 수신 시 마지막 bar 실시간 갱신
+- dogfooding evidence E2E 검증(09:05 boundary 도달 → KIS WS tick → BoundaryAggregator → STOMP fanout → LWC update latency <50ms 측정)
+
+**fitness gap 분석 (ADR 0064 §3)**:
+- **자동매매에 필요한가? — 필요** — 5m·15m 실시간 시그널 엔진(T-SIG) 본질 입력 결정적
+- **v1/v2 잔재 아닌가? — 잔재 아님** — ADR 0029 §2-5는 v3.x baseline · ADR 0062 §4-3는 2026-05-11 채택. 본 ADR이 그 신규 baseline의 boundary 마감 코드 trigger를 LOCK
+- **회귀 risk 검증** — 1m closing 흐름 변경 0 · DailyCloseFinalizer flush와 orthogonal · cold-start AggregateBackfillRunner와 멱등 결합 (ON CONFLICT DO NOTHING)
+- **사용자 비전 정합** — magicJar = 룰 기반 quant trading 본체 (5m·15m 실시간 시그널이 매매 결정 근거) · AI는 옵션 보조 (룰 5 정합 — 본 ADR LLM provider import 0건) · MCP 서버 노출 (외부 client 장중 fresh 응답)
+
+### 효과
+
+- **장중 5m·15m·30m·90m·1h boundary 마감 시 실시간 차트 갱신** — 사용자 dogfooding 결함 해소
+- **T-SIG (Signal Engine) 실시간 시그널 본질 충족** — 5m·15m 룰 평가 latency <50ms
+- **T-DSL 인터벌 조건식 정합** — 30m·90m DSL 평가 stale 0
+- **MCP 외부 client 정합** — 장중 5m~1h interval 요청 fresh 응답 가능 baseline
+- **KIS REST 추가 호출 0건** — Rate Limit 영향 0
+- **Redis 메모리 +11 KB** — 미미
+- **STOMP 메시지 부하 +33% (0.06 msg/s 추가)** — 매우 가벼움 (1m closing 7,920/일 대비)
+- **DailyCloseFinalizer 20:00 flush는 safety net 역할 유지** — boundary 누락 시 fallback
+- **end-to-end latency <50ms 측정** — 사용자 체감 1초 이내
+
+### 사례 PR
+
+- **PR #318** (architect plan) — ADR 0064 plan 발행 (Status `Proposed`, 사용자 결정 의제 3건 대기)
+- **PR #319** (architect Accepted) — ADR 0064 Proposed → Accepted (사용자 A-1·B-1·C-1 채택)
+- **PR #320** (market-data 본격) — domain BoundaryDetector + consumer BoundaryAggregator·RedisCandleCache·TickToMinuteAggregator 확장·KafkaTopicConfig 5 토픽 + api CandleClosedStompListener
+- **PR #321** (frontend 본격) — useSymbolCandles STOMP 5종 dynamic subscribe + LWC series.update 실시간 갱신 + dogfooding evidence E2E 검증
+
+---
+
+## §2. v3.2.3 minor doc cut — ADR 0019·0028·0029 §2 매트릭스 NXT/합산 5종 보강 + KIS 500 retry 3회
+
+### 도입 전
+
+v3.2.2 baseline 시점 운영 자료 정합 두 가지 결함:
+
+**(a) ADR 본문 매트릭스 갱신 보류**:
+- ADR 0019 §2-1 매트릭스 — NXT 시각 행 + 5m~1h 합산 행 row 미반영 (v3.2.2 시점 ADR 0062·0063 채택 직후 architect 사이클 보류 — v3.2.2 baseline 06-history-traceability.md §3 정합)
+- ADR 0028 §2-1·§2-3 cold-start 흐름 — `KOSPI=UN·KOSDAQ=J` 분기 + `AggregateBackfillRunner.backfill(code)` 호출 트리거 + halt/liquidation `KIS_COLD_START_SKIPPED` audit 명시 미반영
+- ADR 0029 §2-1 Redis 키 매트릭스 — 5m·15m·30m·90m·1h boundary 캐시 키 5건 row 미추가 (v3.3.0 §34 미러스톤 baseline 부재)
+- `external-api-policy.md` §2-5 — KIS 단일 출처 매트릭스 + NXT 매트릭스 부재
+- `candle-data-policy-v2.md` — §1·§3 매트릭스 5m~1h 백엔드 precomputed + §6·§7 cold-start NXT 통합 + §8 신규 컴포넌트 6건 미반영
+
+→ 운영 자료가 ADR 0057·0062·0063 채택 후 baseline 변경을 따라가지 못함. v3.3.0 §34 미러스톤 진입 전에 baseline 매트릭스 정합 갱신 의제 발생.
+
+**(b) KIS API HTTP 500 PARTIAL_FAIL 결함**:
+- dogfooding 2026-05-11 `KIS_COLD_START_PARTIAL_FAIL` (success=3~4 / fail=1~2) 5종목 패턴 지속(004090·064260·001040·035760·005930)
+- `KisRestCandleAdapter` 기존 1회 retry(500ms backoff) 불충분 — 5종목 HTTP 500 응답 누적 PARTIAL_FAIL
+- Rate Limit (ADR 0037): 20 req/s 한도 내 500 응답이 retry 한도 부족으로 cold-start 자료 누락 결함
+
+### 도입 후
+
+v3.2.3 minor doc cut (PR #316 architect doc cut + PR #315 market-data hotfix + PR #317 release):
+
+**(a) ADR 매트릭스 본문 갱신 (PR #316 architect 단독 — 5 .md 파일)**:
+- ADR 0019 §2-1 매트릭스 — NXT 시각 행(08:00~20:00 KST cover) + 합산 5종 row(5m·15m·30m·90m·1h, 백엔드 precomputed) 추가 + §2-2 UI 매트릭스 5종 활성화 + §2-3 cold-start 흐름 KOSPI=UN·KOSDAQ=J 분기·halt/liquidation skip·AggregateBackfillRunner 호출 명시 + §2-5 "합성 폐기" revoke 정정 (ADR 0062 §3 권장안 채택)
+- ADR 0028 §2-1·§2-3 cold-start 흐름 — `ColdStartExecutor.KIS_COLD_START_INTERVALS` 5종(1m·1d·1wk·1mo·1y) 정합 + `AggregateBackfillRunner.backfill(code)` 호출 트리거 + KOSPI=UN/KOSDAQ=J 분기 + halt/liquidation `KIS_COLD_START_SKIPPED` audit 명시 (PR #303·#304 구현 인용)
+- ADR 0029 §2-1 Redis 키 매트릭스 — 5m·15m·30m·90m·1h boundary 캐시 키 5건 추가 (v3.3.0 §34 sub-agent 작업 가이드) + §2-2·§2-3 `DailyCloseFinalizer` 20:00 KST 확장 (NXT 마감 — 16:00 → 20:00, PR #303) + `flushAggregations()` 호출 추가
+- `external-api-policy.md` §2-5 KIS 단일 출처 매트릭스 갱신 (`fid_cond_mrkt_div_code` 옵션 J/NX/UN 본문 + KOSPI→UN/KOSDAQ→J 분기 룰 + raw URL 인용 `inquire_time_dailychartprice.py` + `inquire_daily_itemchartprice.py`) + §2-5-A·§2-5-B NXT 매트릭스 신설
+- `candle-data-policy-v2.md` §1 정책 한 줄 요약 갱신 + §2 핵심 원칙 8건(NXT cover·mock 합성 금지 추가) + §3 매트릭스 5m~1h 백엔드 precomputed + §3-A 합산 5종 source 매트릭스(30 거래일 cover) + §4 IntervalToggle 5종 활성화 + §6·§7 cold-start·당일 진행 중 흐름 NXT 통합 + AggregateBackfillRunner·flushAggregations 인용 + §8 신규 컴포넌트 6건 추가
+- 코드 변경 0건 (.md 5 파일만) · modify-shared 0 (market-data §33 KIS 500 retry sibling 작업과 영역 분리)
+
+**(b) KIS 500 retry 3회 exponential backoff (PR #315 market-data)**:
+- `KisRestCandleAdapter` HTTP 500 재시도 전략 강화
+- 기존 1회 retry(500ms backoff) → **3회 exponential backoff (500ms→1s→2s)**
+- `fetchOneMinCandles` (FHKST03010230) + `fetchDailyCandles` (FHKST03010100) 양쪽 적용
+- 503/502/기타 HTTP 오류는 즉시 실패 유지 (서비스 점검 가능성, 재시도 무의미)
+- `RETRY_BACKOFF_MS` + `RETRY_MAX_ATTEMPTS=3` companion object 상수 발행
+- `:consumer:check` GREEN + ktlintCheck GREEN
+- Rate Limit (ADR 0037): retry는 500 발생 시에만 — 20 req/s 한도 영향 미미
+
+### 효과
+
+- 운영 자료 정합 정착 — ADR 0019·0028·0029 §2 매트릭스가 v3.2.2 baseline 변경(ADR 0057·0062·0063 채택) 정합 — sub-agent 디스패치 시 baseline reference 모호성 0
+- v3.3.0 §34 미러스톤 진입 baseline 확보 — ADR 0029 §2-1 Redis 키 매트릭스 5건 row가 ADR 0064 채택 시 본문 LOCK 후속 갱신 정합
+- dogfooding `KIS_COLD_START_PARTIAL_FAIL` 5종목 패턴 해소 — retry 3회 exponential로 500 응답 cover
+- 사용자 메모리 정합 (`feedback_kis_first_policy`·`feedback_kis_key_realonly_for_data`·`feedback_no_mock_data`·`feedback_v3_skepticism_no_regression`·`feedback_spec_plan_scope`·`feedback_3tier_hierarchy` 모두 정합)
+- backlog §33·§35 처리 완료 (다음 minor cleanup archive 대상)
+
+### 사례 PR
+
+- **PR #315** (market-data hotfix) — KIS HTTP 500 retry 3회 exponential backoff 보강 (backlog §33)
+- **PR #316** (architect doc cut) — ADR 0019·0028·0029 §2 매트릭스 NXT/합산 5종 보강 + external-api-policy + candle-data-policy-v2 정합 (backlog §35)
+- **PR #317** (release) — v3.2.3 minor release
+
+---
+
+## §3. ~~ADR 0057 — KIS-only~~ (v3.2.2 baseline 보존 — 본 v3.3.0에서 갱신 0)
+
+v3.2.2 baseline 07-policy-evolution.md §2 참조. v3.3.0 사이클에서 본 정책은 보존 — prod credential 단일 채널 LOCK 유지 + Yahoo `@Deprecated` 보존(v3.4.x minor 일괄 삭제 예정).
+
+ADR 0064 boundary fanout 트랙도 KIS WS 체결 수신을 prod credential 단일 채널 사용 — `feedback_kis_first_policy.md`·`feedback_kis_key_realonly_for_data.md` 사용자 메모리 정합 보존.
+
+---
+
+## §4. ~~ADR 0062 — 합산 가공 plan~~ (v3.2.2 baseline 보존 + v3.3.0 §4-3 boundary 흐름 LOCK 후속)
+
+v3.2.2 baseline 07-policy-evolution.md §3 참조. v3.3.0 사이클에서 본 정책은 보존 + ADR 0064 채택으로 §4-3 트리거 흐름 본문이 ADR 0064 권위로 위임 (별도 사이클 architect 단독 PR로 본문 정합 갱신).
+
+---
+
+## §5. ~~ADR 0063 — NXT/통합거래 cover~~ (v3.2.2 baseline 보존)
+
+v3.2.2 baseline 07-policy-evolution.md §4 참조. v3.3.0 사이클에서 본 정책은 보존 + ADR 0064 §4-2 boundary 시각 매트릭스 08:00~20:00 KST cover에 baseline 인용.
+
+---
+
+## §6. 다음 Wave 정책 후보 (W3 본격 진입 시 발행 예정 — v3.2.2 baseline §6 보존 + v3.3.0 §34 후속 갱신)
+
+W3 본격 진입(Backtest 데이터 적재·실행·결과 영속 + Screener · Signal Engine[ADR 0064 baseline 활용] · Risk Guard · Order Executor · Reconciliation · Performance · Notification) 시 발행 예정 ADR/정책:
+
+### 6-1. ADR 후보
+
+| ADR 후보 | 주제 | 트리거 |
+|---------|------|--------|
+| ADR (1건) | ADR 0019·0028·0029·0048·0062 본문 갱신 통합 (boundary fanout 후속 정합 — ADR 0064 권위 본문 LOCK + 매트릭스 NXT/합산/fanout) | v3.4.x minor 진입 시 architect 단독 PR |
+| ADR 0065 | Screener 표준 (universe 분류·매트릭스 응답) | W3 T-SC 본격 사이클 시 |
+| ADR 0066 | **Signal Engine 표준 (signal_event 영속·STOMP fanout) — ADR 0064 boundary fanout baseline 활용** | W3 T-SIG 본격 사이클 시 — 5m·15m boundary 마감 시점 실시간 시그널 evaluation trigger 진입점은 본 ADR 0064 §4-3 trigger 흐름 정합 |
+| ADR 0067 | Risk Guard 표준 (kill-switch·MDD·일일 한도) | W3 T-RISK 본격 사이클 시 |
+| ADR 0068 | Order Executor 표준 (TTTC·VTTC 분기·idempotency·재시도) | W3 T-O 본격 사이클 시 |
+| ADR 0069 | Notification 표준 (Slack webhook·outbox 패턴) | W3 T-J 본격 사이클 시 |
+| ADR 0070 | Performance 표준 (Sharpe·MDD·Calmar 계산 baseline) | W3 T-PERF 본격 사이클 시 |
+
+### 6-2. 정책 진화 후보
+
+| 정책 후보 | 주제 |
+|----------|------|
+| Yahoo Finance 완전 삭제 (v3.4.x minor 일괄) | `YahooCandleFetcherAdapter.kt` · `YahooFinanceClient.kt` · `application.yml` yahoo.* · 일회성 SQL · 테스트 mock 케이스 모두 삭제 |
+| KIS 1m 과거 데이터 cover 확장 (현재 30 거래일 → 60·90·180 거래일) | 백테스트 long-period 정합 + KIS Rate Limit 영향 측정 |
+| 합산 가공 source 시간 범위 확장 (당일·30 거래일 → 추가 옵션) | 사용자 결정 + ADR 후속 |
+| frontend `/backtest`·`/screener`·`/dashboard` 라우트 발행 | W3 본격 사이클 |
+| **W3 T-SIG (Signal Engine) 본격 — ADR 0064 boundary fanout baseline 활용** | 5m·15m 실시간 시그널 evaluation + signal_event 영속 + STOMP fanout (현재 ADR 0064 매트릭스 그대로 활용) |
+| MCP 서버 노출 (Spring AI MCP starter 활용) | W4 본격 사이클 — ADR 0064 boundary fanout이 외부 client 장중 5m~1h 정합 baseline |
+| Risk Guard kill-switch 활성화 (ADR 0042 정합) | W3 T-RISK 진입 시 |
+
+### 6-3. v3.3.0 baseline 보존 정합 의무
+
+W3 본격 진입 시점에 본 v3.3.0 baseline은 `_workspace/baseline/v3.3.0/` immutable(ADR 0031). v3.4.x 또는 v3.5.0 신규 baseline 컷(`_workspace/baseline/v3.X.X/`) 시 본 §1·§2 정책 진화 2건은 신규 baseline 07-policy-evolution.md에 **누적 인용** — `_workspace/baseline/v3.3.0/07-policy-evolution.md §X` 직접 참조 + 신규 정책만 add.
+
+---
+
+## §7. v3.0.1 → v3.3.0 누적 정책 진화 요약 (4 baseline cumulative)
+
+본 baseline 시점까지 누적된 MD 룰 정책 진화는 **v3.1.0 (4건)** + **v3.2.0 (4건)** + **v3.2.2 (5건)** + **v3.3.0 (2건)** = **15건**. 모두 ADR로 추적 가능:
+
+| baseline | 사이클 | 정책 진화 | ADR 신규 |
+|---------|--------|-----------|----------|
+| v3.1.0 | PR-26~PR-29 | 운영 헌법 7 § 통합 + ADR 0049 baseline + ADR 0050 슬롯 채번룰 + ADR 0051 Repository default fun | 0049·0050·0051 |
+| v3.2.0 | PR-31~PR-45 | ADR 0052 baseline 사이클 정형화 + ADR 0053 Living Policy Docs + ADR 0054 pattern-engine 모듈 분리 + ADR 0055 Strategy Builder UI 컴포넌트 스택 | 0052·0053·0054·0055 |
+| v3.2.2 | PR-47~PR-48 | ADR 0056 W3 T-BT + ADR 0057 KIS-only + ADR 0062 합산 가공 + ADR 0063 NXT cover + 사용자 메모리 보강 2건 | 0056·0057·0062·0063 |
+| **v3.3.0** | **PR-49** | **ADR 0064 boundary fanout + v3.2.3 minor doc cut (ADR 0019·0028·0029 §2 매트릭스 NXT/합산 5종 보강 + KIS 500 retry 3회)** | **0064** |
+
+**누적 ADR 61건** (v3.1.0 베이스 51건 → v3.2.0 55건 → v3.2.2 60건 → v3.3.0 61건, 실제 신규 5건 + 슬롯 4건). ADR 0019 부분 supersede revoke 지속(1m 합산 가공 트랙 완료 + boundary fanout 트랙 진입 → v3.4.x minor §2 본문 재통합 architect 단독 PR 예정).
+
+**baseline cumulative 정합**: v3.1.0 baseline `07-policy-evolution.md` (4건) + v3.2.0 baseline (4건) + v3.2.2 baseline (5건) + 본 v3.3.0 baseline (2건) = **15건 모두 누적 보존** + ADR/메모리/헌법 추적 가능. 사용자 명시 의도 "md 룰 정책의 변화로 더 나아지고 있다는 점을 어필 할 수 있는 목록" 정합.
+
+**v3.3.0 사이클 핵심 메시지**: **장중 boundary 마감 시점 실시간 합산 fanout (ADR 0064 채택)** 으로 자동매매 본체 정합의 결정적 결함 해소 + v3.2.3 minor doc cut으로 운영 자료 정합 정착. 추가 1건 hotfix(§33 KIS 500 retry 3회)로 dogfooding PARTIAL_FAIL 패턴 해소. W3 T-SIG 본격 진입의 baseline이 본 ADR 0064로 LOCK.
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>

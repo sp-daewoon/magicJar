@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>02-data-flow — magicJar v3.3.0 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">📁 인덱스</a><a href="01-architecture.html">01 Architecture</a><a href="02-data-flow.html" class="active">02 Data Flow</a><a href="03-use-sequences.html">03 Use Sequences</a><a href="04-feature-spec.html">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html">06 History</a><a href="07-policy-evolution.html">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.3.0 Baseline · 2026-05-12 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># v3.3.0 데이터 흐름 매트릭스
+
+- baseline: v3.3.0
+- 작성일: 2026-05-12
+- 작성자: backend-core (bot+backend-core@magicjar.local)
+- SoT: `docs/architecture/master-architecture.md` §2 + `settings.gradle.kts` + ADR 0004
+- 기준: v3.2.2 02-data-flow.md + v3.3.0 boundary fanout 추가 (ADR 0064 A-1·B-1·C-1 채택)
+
+---
+
+## 1. 모듈 의존성 매트릭스
+
+### 1-1. JVM 5 모듈 구성
+
+```
+settings.gradle.kts include:
+  domain
+  pattern-engine
+  api
+  batch
+  consumer
+```
+
+| 모듈 | Spring 의존 | JPA 의존 | 역할 |
+|------|------------|---------|------|
+| `domain` | 0 | 0 | 순수 도메인 + 포트 인터페이스 (Spring·JPA 0 — 헥사고날 내부 링) |
+| `pattern-engine` | 0 | 0 | 캔들스틱 패턴 57종 인식 (Pure Kotlin — ADR 0054) |
+| `api` | Spring Boot 3.3 | JPA (Hibernate 6) | REST/STOMP + KIS REST 어댑터 + Kafka producer |
+| `batch` | Spring Boot 3.3 + Spring Batch | JPA | 종목 마스터 sync + 기업 행위 처리 잡 |
+| `consumer` | Spring Boot 3.3 | JPA | Kafka 소비 + KIS WS 브릿지 + 시그널·주문 dispatch |
+
+### 1-2. 모듈 간 의존 방향
+
+```
+domain ←── api
+domain ←── consumer
+domain ←── batch
+pattern-engine ←── api
+(domain ← pattern-engine : PatternRecognizer port 참조)
+```
+
+- `domain`은 어떤 모듈에도 의존하지 않음 (Spring·JPA import 0건 강제)
+- `api`/`consumer`/`batch`는 `domain` 포트 인터페이스를 구현하는 어댑터 배치
+- `pattern-engine`은 `domain`의 `PatternRecognizer` 포트 구현체 (`JvmPatternRecognizer`)
+
+### 1-3. v3.3.0 신규 컴포넌트 위치
+
+| 컴포넌트 | 모듈 | 패키지 경로 | ADR 근거 |
+|---------|------|-----------|---------|
+| `BoundaryDetector` | `domain` | `domain/.../market/BoundaryDetector.kt` | ADR 0064 §4-1 — Pure Kotlin object, Spring 의존 0 |
+| `BoundaryAggregator` | `consumer` | `consumer/.../aggregation/BoundaryAggregator.kt` | ADR 0064 §4-1 — @Component, B-1 in-process trigger |
+| `RedisCandleCache` | `consumer` | `consumer/.../cache/RedisCandleCache.kt` | ADR 0064 A-1 — 5종 별도 Redis hash 키 |
+| `StompCandleForwarder` / `CandleClosedStompListener` | `api` | `api/.../messaging/CandleClosedStompListener.kt` | ADR 0064 C-1 — 5종 별도 STOMP 토픽 fanout |
+
+---
+
+## 2. api 모듈 데이터 흐름
+
+### 2-1. REST 엔드포인트 매트릭스
+
+| 경로 | 컨트롤러 | 역할 | Kafka 발행 |
+|------|---------|------|-----------|
+| `GET /api/watchlists` | `WatchlistController` | 관심종목 목록 (priority ASC) | — |
+| `POST /api/watchlists` | `WatchlistController` | 관심종목 등록 | `watchlist.changed.v1` ADDED |
+| `DELETE /api/watchlists/{code}` | `WatchlistController` | 관심종목 삭제 | `watchlist.changed.v1` REMOVED |
+| `GET /api/symbols/{code}` | `SymbolController` | 현재가·PER·PBR·시총·업종 | — |
+| `GET /api/symbols/{code}/candles` | `SymbolController` | 캔들 시계열 (DB + Redis merge) | — |
+| `POST /api/symbols/{code}/orderbook/subscribe` | `SymbolController` | 호가 구독 시작 | `symbol.detail.command.v1` ENTER |
+| `POST /api/symbols/{code}/orderbook/unsubscribe` | `SymbolController` | 호가 구독 해제 | `symbol.detail.command.v1` EXIT |
+| `GET /api/patterns` | `PatternController` | 57종 패턴 인식 | — |
+| `GET /api/indicators` | `IndicatorController` | 80종 기술적 지표 | — |
+| `GET /api/instruments` | `InstrumentController` | 종목 검색 (Redis 인덱스) | — |
+| `POST /api/backtest/run` | `BacktestController` | DSL 전략 백테스트 | — |
+| `GET /api/strategies` | `StrategyController` | 전략 CRUD | — |
+| `POST /api/onboarding` | `OnboardingController` | KIS 키 등록 + AES 암호화 | — |
+| `POST /api/ai/dsl/translate` | `DslTranslateController` | 자연어 → DSL 변환 (AI 보조) | — |
+
+### 2-2. STOMP 구독 토픽 (api Kafka Consumer → 브라우저 fanout)
+
+#### 기존 3종 (v3.2.2 이월)
+
+| Kafka 토픽 (소비) | STOMP 토픽 (발행) | 포워더 클래스 | 설명 |
+|-----------------|----------------|-------------|------|
+| `market.tick.v1` | `/topic/market.tick.{code}` | `MarketTickStompForwarder` | 실시간 체결가 (1초 throttle) |
+| `market.candle.minute.closed.v1` | `/topic/market.candle.minute.{code}` | `MarketCandleStompForwarder` | 1분봉 closing (throttle 없음) |
+| `market.orderbook.v1` | `/topic/market.orderbook.{code}` | `MarketOrderbookStompForwarder` | 호가 스냅샷 |
+
+#### 신규 5종 (v3.3.0 — ADR 0064 C-1 채택)
+
+| Kafka 토픽 (소비) | STOMP 토픽 (발행) | 리스너 클래스 | 설명 |
+|-----------------|----------------|------------|------|
+| `market.candle.5m.closed.v1` | `/topic/market.candle.5m.{code}` | `CandleClosedStompListener` | 5분봉 boundary closing (NXT 144건/일) |
+| `market.candle.15m.closed.v1` | `/topic/market.candle.15m.{code}` | `CandleClosedStompListener` | 15분봉 boundary closing (NXT 48건/일) |
+| `market.candle.30m.closed.v1` | `/topic/market.candle.30m.{code}` | `CandleClosedStompListener` | 30분봉 boundary closing (NXT 24건/일) |
+| `market.candle.90m.closed.v1` | `/topic/market.candle.90m.{code}` | `CandleClosedStompListener` | 90분봉 boundary closing (NXT 8건/일) |
+| `market.candle.1h.closed.v1` | `/topic/market.candle.1h.{code}` | `CandleClosedStompListener` | 60분봉 boundary closing (NXT 12건/일) |
+
+### 2-3. api 모듈 내부 서비스 레이어
+
+```
+Controller → Service → JPA Repository (persistence 패키지)
+                     → Redis (InstrumentSearchIndexAdapter 등)
+                     → KIS REST 어댑터 (KisRestPriceMetricsAdapter)
+CandleClosedStompListener ← Kafka (5m~1h closed.v1) → SimpMessagingTemplate → STOMP
+```
+
+---
+
+## 3. consumer 모듈 데이터 흐름
+
+### 3-1. Kafka 토픽 소비 매트릭스
+
+| 토픽 | 리스너 클래스 | groupId | 처리 내용 |
+|------|------------|---------|----------|
+| `watchlist.changed.v1` | `WatchlistChangedKafkaListener` | `magicjar-consumer-watchlist-ingestion` | ADDED: cold-start 트리거 + WS/polling 구독 / REMOVED: 구독 해제 + Redis evict |
+| `symbol.detail.command.v1` | `SymbolDetailCommandKafkaListener` | `magicjar-consumer-orderbook-cmd` | ENTER: H0STASP0 구독 slot 할당 / EXIT: slot 회수 |
+
+### 3-2. KIS WS 브릿지 흐름
+
+```
+KIS WebSocket (wss://ops.koreainvestment.com:21000)
+    ↓  H0STCNT0 (체결가 tick)
+KisWebSocketBridge
+    ├── writeToRedis(quote:last:{code}, 등락 필드 포함)   ← ADR 0029
+    ├── publishTickEvent → Kafka market.tick.v1
+    └── [v3.3.0 신규] STCK_CNTG_HOUR 추출 → BoundaryAggregator.onTick(code, hhmmss)
+           ↓  (ADR 0064 B-1 in-process 검사 — §4-3)
+    BoundaryDetector.detectBoundary(hhmmss) → List<CandleInterval>
+
+    KIS WebSocket
+    ↓  H0STASP0 (호가 스냅샷)
+KisWebSocketBridge
+    └── publishOrderbook → Kafka market.orderbook.v1
+
+    KIS WebSocket
+    ↓  PINGPONG JSON {"header":{"tr_id":"PINGPONG",...}}
+KisWebSocketBridge
+    └── echo (원본 raw 그대로 — KIS raw 정합)
+```
+
+KIS-first raw 출처 (ADR 0064 §1-4 의무 인용):
+- H0STCNT0 `ccnl_krx()` 44 cols — `[1]` STCK_CNTG_HOUR (체결시각 HHMMSS): `examples_user/domestic_stock/domestic_stock_functions_ws.py`
+- v3.2.2 baseline `_workspace/baseline/v3.2.2/03-use-sequences.md` §시나리오 3 R5 인용
+
+### 3-3. TickToMinuteAggregator 흐름
+
+```
+Kafka market.tick.v1
+    ↓
+TickToMinuteAggregator
+    ├── 1분 boundary 마감 시 → CandleRepository.saveAll (interval=1m)
+    ├── Kafka market.candle.minute.closed.v1 발행
+    └── [v3.3.0 신규] 1m closing 완료 직후 → BoundaryAggregator.onTickClosed(code, closingTs)
+              ↓  (ADR 0064 B-1 trigger — TickToMinuteAggregator 확장)
+         BoundaryAggregator → 5m·15m·30m·90m·1h 경계 검사 → 합산 갱신
+```
+
+### 3-4. BoundaryAggregator 흐름 (v3.3.0 신규 — ADR 0064 §4-3)
+
+```
+BoundaryAggregator.onTickClosed(code, tickTs)
+    ↓
+BoundaryDetector.detectBoundary(hhmmss) → List<CandleInterval>
+    ↓
+boundary 도달 시 (예: 09:05:00 → [5m]) interval별 순차 처리:
+    FOR target IN detected:
+        1. in-process 중복 가드 (lastProcessedBoundaryMin ConcurrentHashMap)
+           → 같은 (code, interval, date) 1회만 처리
+        2. DB에서 직전 N건 1m 캔들 fetch
+           - 5m  → 직전 5건 1m
+           - 15m → 직전 15건 1m
+           - 30m → 직전 30건 1m
+           - 90m → 직전 90건 1m
+           - 1h  → 직전 60건 1m
+        3. CandleAggregator.aggregate(rows, target) → Candle (Pure Kotlin, domain)
+        4. RedisCandleCache.putBoundaryCandle(code, target, candle)
+           → Redis candle:current:{code}:{target} (hash, TTL 25h)
+        5. DB candle table INSERT (ON CONFLICT DO NOTHING — 멱등)
+        6. Kafka publish market.candle.{target}.closed.v1
+           → CandleClosedStompListener (api) → /topic/market.candle.{target}.{code}
+```
+
+멱등 가드 이중 보장:
+- in-process: `lastProcessedBoundaryMin: ConcurrentHashMap<Pair<String, CandleInterval>, LocalDate>` — 같은 분 boundary 재진입 차단
+- DB: `ON CONFLICT DO NOTHING` (Flyway UNIQUE constraint code+interval+ts — ADR 0019 정합)
+
+### 3-5. cold-start 흐름 (ColdStartExecutor)
+
+```
+WatchlistChangedKafkaListener (ADDED)
+    ↓  DB count 0이면 cold-start submit
+ColdStartExecutor (thread pool=2, cold-start-N)
+    ├── KIS REST FHKST03010230 → 1m (30 거래일, prod credential)
+    ├── KIS REST FHKST03010100 → 1d (200건)
+    ├── KIS REST FHKST03010100 → 1wk (200건)
+    ├── KIS REST FHKST03010100 → 1mo (120건)
+    └── KIS REST FHKST03010100 → 1y (10건)
+         ↓  1m 적재 완료 직후
+    AggregateBackfillRunner.backfill(code)
+         ├── CandleRepository.findByCodeAndInterval(1m) → 전체 1m 조회
+         ├── CandleAggregator.aggregate(5m·15m·30m·90m·1h)
+         └── CandleRepository.saveAll (ON CONFLICT DO NOTHING)
+    audit: KIS_COLD_START_DONE / KIS_COLD_START_PARTIAL_FAIL / KIS_COLD_START_FAILED
+```
+
+### 3-6. consumer 부팅 시 bootstrap 흐름
+
+```
+CandleBootstrapRunner (@ApplicationReadyEvent)
+    ↓  watchlist 전 종목 순회
+    ├── count(1m) < 700 (MIN_1M_CANDLE_THRESHOLD — ADR 0063 NXT 720건/일 기준)
+    │       → ColdStartExecutor.submit(code) (1m + 합산 backfill)
+    └── count(5m) == 0 && count(1m) >= 700
+            → AggregateBackfillRunner.backfill(code) (합산만)
+
+PositionBootstrapRunner (@ApplicationReadyEvent)
+    └── KIS REST balance → Position DB 동기화
+```
+
+### 3-7. DailyCloseFinalizer (스케줄)
+
+```
+20:00 KST (NXT after-hour 마감 — ADR 0063 정합, 구 16:00 KST에서 변경)
+    ↓
+DailyCloseFinalizer
+    ├── watchlist 전 종목 순회
+    ├── AggregateBackfillRunner.backfill(code) — 당일 합산 갱신 (safety net)
+    └── Redis candle:current:{code}:5m·15m·30m·90m·1h evict
+        (BoundaryAggregator가 boundary마다 갱신 → 20:00 flush는 fallback 역할)
+```
+
+---
+
+## 4. batch 모듈 데이터 흐름
+
+### 4-1. Spring Batch 잡 매트릭스
+
+| 잡 클래스 | 스케줄 | 역할 | KIS 엔드포인트 |
+|----------|-------|------|--------------|
+| `InstrumentSyncJob` | `InstrumentMasterSyncScheduler` | 종목 마스터 전체 sync (KOSPI·KOSDAQ) | `CTPF1002R` (종목 마스터) |
+| `MarketCalendarSyncJob` | — | 영업일 캘린더 sync | `CTCA0903R` (휴장일 조회) |
+| `CorpActionSyncJob` | — | 기업 행위(분할·배당 등) sync | HHKDB669100C0~HHKDB669106C0 (6종) |
+| `CandleAdjustmentJob` | `CorpActionSyncJob` 후속 | 수정 주가 소급 조정 | — (DB 내부 연산) |
+
+### 4-2. batch 모듈 Kafka 발행
+
+| 잡 | 발행 토픽 | 파티션 키 | 내용 |
+|----|---------|---------|------|
+| `InstrumentSyncJob` | `instrument.updated.v1` | market (KOSPI·KOSDAQ) | 종목 마스터 변경 이벤트 |
+| `CorpActionSyncJob` | `corp_action.applied.v1` | instrumentCode | 기업 행위 적용 이벤트 |
+
+---
+
+## 5. Redis 키 매트릭스 (ADR 0029 + ADR 0064 A-1 정합)
+
+### 5-1. 기존 키 (v3.2.2 이월)
+
+| Redis 키 패턴 | 데이터 | 갱신 | TTL |
+|--------------|-------|------|-----|
+| `quote:last:{code}` | `{price, volume, ts, source, priceChange, changeRate, changeSign}` JSON | KIS WS tick (H0STCNT0) | 7일 |
+| `candle:current:{code}:1m` | 당일 진행 중 1분봉 | KIS WS tick / 1분 closing 시 evict | 1분 closing 시 evict |
+| `candle:today:{code}:1d` | 당일 일봉 진행 중 | DailyCloseFinalizer | 당일 마감 evict |
+| `indicator:cache:{code}:{interval}:{name}:{paramsHash}` | 기술적 지표 결과 JSON | IndicatorService 계산 후 | 분봉: 300s / 일봉+: 86400s |
+| `pattern:cache:{code}:{interval}:{...}` | 패턴 인식 결과 JSON | PatternController 조회 후 | 분봉: 300s / 일봉+: 86400s |
+| `watchlist:source:{userId}` | 종목별 data source (WS·polling) 매트릭스 | SubscriptionRouter | — |
+| `instrument:search:idx` | 종목 검색 인덱스 (Sorted Set) | InstrumentSyncJob | — |
+
+### 5-2. v3.3.0 신규 키 (ADR 0064 A-1 채택 — 5종 별도 Redis hash 키)
+
+| Redis 키 패턴 | 데이터 | 갱신 주기 | TTL/evict |
+|--------------|-------|---------|---------|
+| `candle:current:{code}:5m` | 당일 진행 중 5m bar (NXT 144 bar/일) | 5m boundary 마감 시 1m 5건 합산 | 5분 closing 시 evict + 20:00 flush (TTL 25h) |
+| `candle:current:{code}:15m` | 당일 진행 중 15m bar (NXT 48 bar/일) | 15m boundary 마감 시 1m 15건 합산 | 15분 closing 시 evict + 20:00 flush (TTL 25h) |
+| `candle:current:{code}:30m` | 당일 진행 중 30m bar (NXT 24 bar/일) | 30m boundary 마감 시 1m 30건 합산 | 30분 closing 시 evict + 20:00 flush (TTL 25h) |
+| `candle:current:{code}:90m` | 당일 진행 중 90m bar (NXT 8 bar/일) | 90m boundary 마감 시 1m 90건 합산 | 90분 closing 시 evict + 20:00 flush (TTL 25h) |
+| `candle:current:{code}:1h` | 당일 진행 중 1h bar (NXT 12 bar/일) | 60m boundary 마감 시 1m 60건 합산 | 1시간 closing 시 evict + 20:00 flush (TTL 25h) |
+
+ADR 0029 §2-1 LOCK (ADR 0064 채택 — "v3.3.0 §34 작업 가이드" → 본 baseline 권위).
+
+---
+
+## 6. Kafka 토픽 전체 매트릭스
+
+### 6-1. 기존 7종 (v3.2.2 이월)
+
+| 토픽 | 파티션 | retention | 발행자 | 소비자 |
+|------|--------|----------|-------|-------|
+| `market.tick.v1` | 1 | 1h | `KisWebSocketBridge` (consumer) | `MarketTickStompForwarder` (api) |
+| `market.candle.minute.closed.v1` | 1 | 1d | `TickToMinuteAggregator` (consumer) | `MarketCandleStompForwarder` (api) |
+| `market.orderbook.v1` | 1 | 1h | `KisWebSocketBridge` (consumer) | `MarketOrderbookStompForwarder` (api) |
+| `symbol.detail.command.v1` | 1 | 1h | `SymbolController` (api) | `SymbolDetailCommandKafkaListener` (consumer) |
+| `watchlist.changed.v1` | 1 | 7d | `WatchlistService` (api) | `WatchlistChangedKafkaListener` (consumer) |
+| `instrument.updated.v1` | 1 | 7d | `InstrumentSyncJob` (batch) | `InstrumentUpdatedKafkaPublisher` (consumer) |
+| `corp_action.applied.v1` | 1 | 1d | `CorpActionSyncJob` (batch) | `CandleAdjustmentJob` (batch 내부) |
+
+### 6-2. v3.3.0 신규 5종 (ADR 0064 — boundary closed 토픽)
+
+| 토픽 | 파티션 | retention | 발행자 | 소비자 |
+|------|--------|----------|-------|-------|
+| `market.candle.5m.closed.v1` | 1 | 1d | `BoundaryAggregator` (consumer) | `CandleClosedStompListener` (api) |
+| `market.candle.15m.closed.v1` | 1 | 1d | `BoundaryAggregator` (consumer) | `CandleClosedStompListener` (api) |
+| `market.candle.30m.closed.v1` | 1 | 1d | `BoundaryAggregator` (consumer) | `CandleClosedStompListener` (api) |
+| `market.candle.90m.closed.v1` | 1 | 1d | `BoundaryAggregator` (consumer) | `CandleClosedStompListener` (api) |
+| `market.candle.1h.closed.v1` | 1 | 1d | `BoundaryAggregator` (consumer) | `CandleClosedStompListener` (api) |
+
+payload schema (ADR 0064 §4-5):
+```json
+{
+  "code": "005930",
+  "interval": "5m",
+  "ts": 1747022100,
+  "open": 78000.0,
+  "high": 78500.0,
+  "low": 77800.0,
+  "close": 78200.0,
+  "volume": 152300,
+  "source": "boundary",
+  "publishedAt": "2026-05-12T09:05:00.123+09:00"
+}
+```
+
+---
+
+## 7. Mermaid 데이터 흐름 (KIS WS → TickToMinuteAggregator → BoundaryAggregator → Redis·DB·Kafka·STOMP)
+
+```mermaid
+flowchart TD
+    KIS_WS["KIS WebSocket\nwss://ops.koreainvestment.com:21000"]
+    BRIDGE["KisWebSocketBridge\n(consumer)\nH0STCNT0 체결 tick"]
+    REDIS_QUOTE["Redis\nquote:last:{code}"]
+    KAFKA_TICK["Kafka\nmarket.tick.v1"]
+    T2M["TickToMinuteAggregator\n(consumer)"]
+    KAFKA_1M["Kafka\nmarket.candle.minute.closed.v1"]
+    BA["BoundaryAggregator\n(consumer)\nv3.3.0 신규"]
+    BD["BoundaryDetector\n(domain)\nPure Kotlin\nv3.3.0 신규"]
+    REDIS_NM["Redis\ncandle:current:{code}:{5m~1h}\n5종 별도 hash 키\n(ADR 0064 A-1)"]
+    DB_CANDLE["PostgreSQL\ncandle table\n(1m·5m·15m·30m·90m·1h·1d...)"]
+    KAFKA_BND["Kafka\nmarket.candle.{interval}.closed.v1\n5종 신규\n(ADR 0064)"]
+    API_TICK["MarketTickStompForwarder\n(api)"]
+    API_1M["MarketCandleStompForwarder\n(api)"]
+    API_BND["CandleClosedStompListener\n(api)\nv3.3.0 신규"]
+    STOMP_TICK["STOMP\n/topic/market.tick.{code}"]
+    STOMP_1M["STOMP\n/topic/market.candle.minute.{code}"]
+    STOMP_BND["STOMP\n/topic/market.candle.{interval}.{code}\n5종 신규\n(ADR 0064 C-1)"]
+    RCC["RedisCandleCache\n(consumer)\nv3.3.0 신규"]
+    DFC["DailyCloseFinalizer\n(consumer)\n20:00 KST flush"]
+
+    KIS_WS -->|"H0STCNT0 체결 tick\nSTCK_CNTG_HOUR [1] raw"| BRIDGE
+    BRIDGE -->|put| REDIS_QUOTE
+    BRIDGE -->|publish| KAFKA_TICK
+    BRIDGE -->|"hhmmss → onTick(code, hhmmss)\nADR 0064 B-1"| BA
+    KAFKA_TICK --> T2M
+    KAFKA_TICK --> API_TICK
+    T2M -->|"1m closing\nADR 0064 B-1 trigger\nonTickClosed(code, ts)"| BA
+    T2M -->|1m closing Kafka| KAFKA_1M
+    T2M -->|"INSERT 1m"| DB_CANDLE
+    BA --> BD
+    BD -->|"detectBoundary(hhmmss)\n→ List<CandleInterval>"| BA
+    BA -->|putBoundaryCandle| RCC
+    RCC -->|HSET| REDIS_NM
+    BA -->|"INSERT 5m~1h\nON CONFLICT DO NOTHING"| DB_CANDLE
+    BA -->|publish 5종| KAFKA_BND
+    KAFKA_1M --> API_1M
+    KAFKA_BND --> API_BND
+    API_TICK --> STOMP_TICK
+    API_1M --> STOMP_1M
+    API_BND --> STOMP_BND
+    DFC -->|"20:00 KST evict\nsafety net"| REDIS_NM
+```
+
+---
+
+## 8. boundary 시각 매트릭스 (ADR 0062 §9 + ADR 0063 NXT 08:00~20:00 KST)
+
+| Interval | boundary 시각 (KST) | bar/일 | Redis 키 TTL |
+|----------|-------------------|-------|------------|
+| 5m | 08:05·08:10·08:15·…·19:55·20:00 | 144 | 25h (closing 시 code별 evict) |
+| 15m | 08:15·08:30·08:45·…·19:45·20:00 | 48 | 25h |
+| 30m | 08:30·09:00·09:30·…·19:30·20:00 | 24 | 25h |
+| 90m | 09:30·11:00·12:30·14:00·15:30·17:00·18:30·20:00 | 8 | 25h |
+| 1h | 09:00·10:00·11:00·…·19:00·20:00 | 12 | 25h |
+
+STOMP 메시지 부하 (ADR 0064 §5-2): 종목 11개 기준 2,596 msg/일 ≈ 0.06 msg/s (매우 가벼움).
+
+---
+
+## 9. ADR 정합 참조
+
+| ADR | 관련 흐름 |
+|-----|---------|
+| ADR 0004 | 모듈 경계 결정 (domain·api·batch·consumer + pattern-engine) |
+| ADR 0007 | Kafka 이벤트 backbone — 12 토픽 매트릭스 (v3.3.0 신규 5종 포함) |
+| ADR 0019 | 캔들 저장 정책 (UQ code+interval+ts, CHECK 11종 interval, boundary INSERT) |
+| ADR 0028 | Watchlist 기반 Ingestion Worker (cold-start + WS/polling 분배) |
+| ADR 0029 | 당일 진행 중 캔들 Redis 캐시 (§2-1 키 매트릭스 — ADR 0064 A-1 LOCK) |
+| ADR 0037 | KIS Rate Limit (50ms 마진, prod credential) |
+| ADR 0048 | KIS WS 41 slot 한도 (OrderbookSubscriptionRouter LRU) |
+| ADR 0051 | Spring Data Repository default fun 함정 금지 |
+| ADR 0057 | KIS-only 데이터 출처 (Yahoo Finance 폐기 2026-05-11) |
+| ADR 0062 | 5m·15m·30m·90m·1h 합산 가공 (백엔드 precomputed, 30 거래일) |
+| ADR 0063 | NXT 통합 거래시간 cover (UN 코드, 08:00~20:00 KST, threshold 700) |
+| ADR 0064 | Redis boundary fanout + STOMP 실시간 합산 갱신 (A-1·B-1·C-1 채택 — v3.3.0 신규) |
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>
