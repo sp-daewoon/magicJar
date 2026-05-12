@@ -5,7 +5,7 @@ model: opus
 branch: agent/strategy/candle-aggregator-domain-v2
 status: DONE
 startedAt: 2026-05-11T19:21:03.713+09:00
-completedAt: 2026-05-11T20:53:23.030+09:00
+completedAt: 2026-05-12T13:37:25.289+09:00
 pr: null
 parentPhase: ?
 ---

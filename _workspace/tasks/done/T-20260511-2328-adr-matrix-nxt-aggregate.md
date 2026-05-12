@@ -3,9 +3,9 @@ id: T-20260511-2328-adr-matrix-nxt-aggregate
 agent: market-data
 model: sonnet
 branch: agent/market-data/kis-500-retry-3x
-status: RUNNING
+status: DONE
 startedAt: 2026-05-11T23:28:33.382+09:00
-completedAt: null
+completedAt: 2026-05-12T13:37:25.553+09:00
 pr: null
 parentPhase: ?
 ---

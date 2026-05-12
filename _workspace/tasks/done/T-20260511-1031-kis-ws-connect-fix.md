@@ -5,7 +5,7 @@ model: sonnet
 branch: agent/market-data/kis-ws-connect-fix
 status: DONE
 startedAt: 2026-05-11T10:31:31.406+09:00
-completedAt: 2026-05-11T10:38:48.216+09:00
+completedAt: 2026-05-12T13:37:25.112+09:00
 pr: null
 parentPhase: ?
 ---
