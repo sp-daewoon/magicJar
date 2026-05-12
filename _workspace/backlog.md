@@ -1529,3 +1529,76 @@ architect spec/plan PR(본 사이클) — ADR 0066 발행 + 결정 의제 6건 �
 - master §10 ADR 0066 row
 - 사용자 메모리 `project_system_vision.md`(룰 본체) · `feedback_v3_skepticism_no_regression.md`(fitness gap lens) · `feedback_3tier_hierarchy.md`(architect plan → sub-agent 병렬)
 
+---
+
+## §41. T-RISK 리스크 관리 (W3 세 번째 트랙 — ADR 0067 plan 발행, 사용자 결정 대기)
+
+### 컨텍스트
+
+v3.4.0 cut (T-SIG W3 두 번째 트랙 마감) 직후 진입. T-RISK는 자동매매 본체의 **자본 보호 안전망 노드** — T-SIG 시그널이 무방비로 T-O 주문에 진입하면 사용자 자본 손실 risk 직접 노출.
+
+사전 자산 (이미 main, v3.4.0):
+- ADR 0066 T-SIG 시그널 엔진 + `signal.generated.v1` Kafka topic + signal 테이블 영속
+- ADR 0061 T-BT 백테스트 영속 (3 테이블 + REST 5 endpoint 패턴 baseline)
+- ADR 0024 Risk Guard chain 6단 baseline 골격
+- ADR 0042 Position Bootstrap (부팅 시 KIS 잔고 워밍 baseline)
+- ADR 0043 KillSwitch 행동 정의
+- ADR 0044 Notification System (`risk.violation.v1` payload 확장 baseline)
+- Strategy 영속 (strategy 테이블, status 4단 + Redis cache)
+- Kafka 백본 + STOMP 인프라
+
+architect spec/plan PR(본 사이클) — ADR 0067 발행 + 결정 의제 8건 사용자 검토 위임.
+
+### 결정 의제 (architect 권장안 — ADR 0067 §2)
+
+| 의제 | 권장안 | 핵심 사유 |
+|---|---|---|
+| **A. 포지션 한도** | **A-1** 절대 + % 둘 다 min() 적용 | 자본 변동 대응 + 신규 사용자 안전 + 보수적 |
+| **B. 일일 손실 한도** | **B-1** 전역 + 사용자 택1(절대 OR %) + 자정 reset | 자본 일일 보호 본질 + UX 단순 + safe default |
+| **C. 동시 종목 한도** | **C-1** 사용자 설정 + default 5 | 자본 분산 + UI 슬라이더 + safe default |
+| **D. 거래 빈도 한도** | **D-1** strategy당 분당 + 일별 dual + Redis sliding window | strategy 격리 + burst·누적 cover · O(1) |
+| **E. 게이트 위치** | **E-1** Kafka `signal.generated.v1` consumer (Signal → Risk → Order intent) | strategy 패턴 일관 + audit trail + T-O decoupled |
+| **F. 위반 처리** | **F-1** 4단(signal.risk_status + risk_event + STOMP + auto-PAUSE 10회) | audit + 사용자 인지 + 폭주 격리 |
+| **G. 영속 매트릭스** | **G-1** 4 테이블/컬럼 dedicated (risk_config + risk_event + signal.risk_status + position) | 도메인 분리 + ADR 0061 baseline 일관 |
+| **H. 설정 source** | **H-1** 사용자별 risk_config + 전역 default seed | multi-tenant + safe default + 신규 사용자 안전 |
+
+### 채택 시 sub-agent 디스패치 (직렬 권장)
+
+- **Phase 1 — strategy-engine** (R1): domain RiskConfig·RiskEvent·Position·RiskGatewayResult sealed + 6 port + RiskGatewayEvaluator + TradeFrequencyRedisGuard + DailyPnlCalculator + CapitalSnapshotProvider + AutoPauseGuard + SignalGeneratedKafkaListener + RiskViolationKafkaProducer + OrderIntentKafkaProducer + 단위 테스트 6 룰
+- **Phase 2 — backend-core** (R2): REST 7 endpoint(RiskConfig 3 + RiskEvent 2 + Position 2) + JpaAdapter 3쌍 + signal.risk_status 컬럼 추가 + Flyway V16·V17·V18·V19 + RiskConfigService + StompRiskNotifier
+- **Phase 3 — frontend** (R3): `/risk-config` · `/risk-events` · `/positions` 3 페이지 + RiskConfigForm · RiskEventBadge · PositionCard · PnlBadge + useStompRisk 토스트(BLOCKED + AUTO_PAUSED) + REST hook 3건 + routing + AppHeader 3 메뉴
+
+병렬 가능 case: Phase 1·2 add-only 충돌 0 시 architect 검토 후 결정 (단 signal entity 컬럼 추가는 Phase 2 단독).
+
+### 운영 영향
+
+- DB ROW: risk_event 1년 ~70K row (BLOCKED only, 5MB) · risk_config 사용자 수 · position 사용자당 600/year. partition 불필요
+- Kafka: `risk.violation.v1` ~200 msg/day(0.0023 msg/s) + `order.intent.v1` ~800 msg/day(0.0093 msg/s)
+- STOMP: `/topic/risk.user.{userId}` ~200 msg/day(0.0023 msg/s)
+- Redis: <650KB (risk_config cache + 2 sliding window ZSET + daily_pnl cache)
+- KIS API 영향 0 (Kafka 내부 listen만)
+- end-to-end latency: signal.generated → risk verdict → order.intent <75ms (signal pipeline 100ms 포함 시 <175ms)
+
+### 우선순위
+
+**1순위** — v3.5.0 미러스톤 후보 트랙. 사용자 결정 8건 채택 후 즉시 Phase 1 strategy-engine 디스패치.
+
+### 트리거
+
+- 사용자 결정 8건 명시 수신 (의제 A·B·C·D·E·F·G·H)
+- 채택 후 Phase 1 → 2 → 3 직렬 디스패치 또는 architect 충돌 행렬 검토 후 부분 병렬화
+
+### 연관
+
+- ADR 0067 (T-RISK 리스크 관리 plan — 본 § 권위)
+- ADR 0024 (Risk Guard chain 6단 — baseline 골격)
+- ADR 0066 (T-SIG Signal Engine — `signal.generated.v1` 진입점)
+- ADR 0042 (Position Bootstrap — Position 도메인 합류)
+- ADR 0043 (KillSwitch 행동 — RISK_RULE.KILL_SWITCH_ON 정합)
+- ADR 0044 (Notification — `risk.violation.v1` payload 확장)
+- ADR 0061 (Backtest 영속 — 4 테이블 분리 패턴 baseline)
+- ADR 0023 (Signal Engine 룰 매칭 only — AI 호출 0 정책 계승)
+- tracks-roadmap §2 T-RISK row (본 § 권위 인용)
+- master §10 ADR 0067 row
+- 사용자 메모리 `project_system_vision.md`(룰 본체) · `feedback_v3_skepticism_no_regression.md`(fitness gap lens) · `feedback_3tier_hierarchy.md`(architect plan → sub-agent 병렬)
+
