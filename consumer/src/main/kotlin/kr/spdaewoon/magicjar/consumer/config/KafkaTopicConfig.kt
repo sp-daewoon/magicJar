@@ -188,6 +188,54 @@ class KafkaTopicConfig {
             .config("retention.ms", "604800000") // 7d
             .build()
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // ADR 0067 §7-1 — T-RISK 리스크 게이트 토픽 2건 (W3 세 번째 트랙)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Risk 위반 이벤트 (ADR 0067 §7-1 RiskViolationKafkaProducer + F-1 정합).
+     *
+     * Phase 1 strategy-engine SignalGeneratedKafkaListener BLOCKED 분기에서 publish —
+     * ADR 0044 Notification System 진입점 + Phase 2 backend-core STOMP `/topic/risk.user.{userId}` fanout 연계.
+     *
+     * partition key = userId — 사용자별 ordering 보장.
+     * retention: 7d (audit · MCP 후속 정합)
+     *
+     * 부하 예측 (ADR 0067 §9-2): ~200 msg/day = 0.0023 msg/s — 매우 가벼움.
+     *
+     * // AI 호출 0 — T-RISK 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8)
+     */
+    @Bean
+    fun riskViolationTopic(): NewTopic =
+        TopicBuilder
+            .name("risk.violation.v1")
+            .partitions(1)
+            .replicas(1)
+            .config("retention.ms", "604800000") // 7d
+            .build()
+
+    /**
+     * 주문 의도(Order Intent) — Risk Gateway ALLOWED 시그널 publish (ADR 0067 §7-1 + E-1 정합).
+     *
+     * Phase 1 strategy-engine SignalGeneratedKafkaListener ALLOWED 분기 publish —
+     * T-O 트랙 후행 consumer 진입점 (decoupled chain).
+     *
+     * partition key = userId.
+     * retention: 7d (audit · 주문 재처리 보조)
+     *
+     * 부하 예측 (ADR 0067 §9-2): ~800 msg/day = 0.0093 msg/s — 매우 가벼움.
+     *
+     * // AI 호출 0 — T-RISK 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8)
+     */
+    @Bean
+    fun orderIntentTopic(): NewTopic =
+        TopicBuilder
+            .name("order.intent.v1")
+            .partitions(1)
+            .replicas(1)
+            .config("retention.ms", "604800000") // 7d
+            .build()
+
     /**
      * 기업 행위(Corporate Action) 적용 이벤트.
      * CorpActionSyncJob → CandleAdjustmentJob 트리거.
