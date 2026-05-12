@@ -153,7 +153,7 @@
 | 0058 | 57 캔들 패턴 표준 | T-PAT (기 머지 — 본문 ADR로 격상 검토) | 시프트 (2026-05-11 ADR 0057 KIS-only 채택으로 후속 0058+로 재시프트) |
 | 0059 | Screener 표준 | T-SC | (시프트) |
 | 0060 | Performance 표준 | T-PERF | (시프트) |
-| 0061 | Backtest 결과 영속 (backtest_run 테이블 + GET endpoint) | T-BT 후속 (backlog §27-2) | (예약) |
+| 0061 | Backtest 결과 영속 (backtest_run · backtest_trade · backtest_position 3 테이블 + 5 GET/DELETE endpoint) | T-BT R2 (backlog §37) | **PR-50 plan 발행 (2026-05-12) — 사용자 결정 대기 (의제 A-1+B-1+C-1+D-1+E-1+F-1 권장 A-1 영속·B-1 3 테이블·C-1 5 endpoint·D-1 단일 페이지·E-1 모델 확장 0·F-1 R2→R3 직렬). 채택 시 ADR 0056 §3-4 supersede §1** |
 | 0062 | **5m·15m·30m·90m·1h 합산 가공 — Accepted (2026-05-11)** | backlog §31 트랙 | 2026-05-11 사용자 결정 채택 — A-1 백엔드 precomputed + 옵션 2 과거 30 거래일 + 5종 활성화. NXT 결합 영향 §9 추가 (1m 720/일 → 합산 ~71K rows). sub-agent 디스패치 매트릭스 진행 |
 | 0063 | **NXT/통합거래 매트릭스 cover — Accepted (2026-05-11)** | backlog §32 트랙 | 2026-05-11 사용자 결정 채택 — A UN 통합 + 1 08:00~20:00 + threshold 700. sub-agent 디스패치 매트릭스 진행 |
 | 0064 | **Redis boundary fanout + STOMP 실시간 합산 갱신 — Proposed (2026-05-12)** | backlog §34 트랙 (v3.3.0) | 2026-05-12 architect plan 발행. 결정 의제 3건 사용자 검토 위임 — A Redis 키 5종 vs 통합 / B boundary 트리거 in-process vs scheduled / C STOMP 5종 vs 단일. architect 권장 A-1 + B-1 + C-1. 채택 시 market-data + frontend 디스패치 |

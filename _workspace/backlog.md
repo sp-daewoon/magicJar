@@ -1288,3 +1288,175 @@ v3.2.3 minor doc cut. .md만 변경, 코드 영향 0.
 - A: 사용자 결정 — 빠를수록 좋음(release 자동화 영향)
 - B: cosmetic — 차후 일괄 정리 OK
 
+
+---
+
+## §37. T-BT R2 결과 영속 + GET/DELETE endpoint 트랙 (PR-50 plan 발행 — 사용자 결정 대기)
+
+### 컨텍스트
+
+T-BT R1(ADR 0056) 머지 완료 — **stateless POST /api/backtest/run** LOCK. 즉시 결과 반환 + DB 영속 0 + frontend 페이지 0. ADR 0056 §3-7은 "**0080+ 후보** Backtest 결과 영속 + 조회 endpoint (backlog §27-2 발동 시)"로 후속 의제 예약 — 본 § 신규 등록.
+
+W3 후속 트랙(T-SIG·T-RISK·T-PERF) 진입 시 strategy 활성화 사전 게이트로 "최근 N일 내 백테스트 SUCCESS" 검증 필요 — DB 영속 의무.
+
+### 결정 사항 (architect 권장 + 사용자 결정 위임 — PR-50 §2 정합)
+
+**의제 A**: 영속 시점 — **A-1 본 사이클** vs A-2 post-MVP vs A-3 Redis cache 한정
+**의제 B**: 영속 매트릭스 — **B-1 3 테이블 분리** vs B-2 단일+JSONB vs B-3 blob
+**의제 C**: REST endpoint 매트릭스 — **C-1 5 endpoint** vs C-2 단일 vs C-3 중간 2건
+
+architect 권장: **A-1 + B-1 + C-1** (PR-50 §3 정합).
+
+### 영속 Sketch (B-1 채택 가정)
+
+```
+backtest_run    — V12 (메타 + KPI 12 컬럼 + status + abort_reason + universe TEXT[])
+backtest_trade  — V13 (매매 시계열 + run_id FK CASCADE)
+backtest_position — V13 (포지션 + run_id FK CASCADE)
+```
+
+권장 인덱스:
+- `idx_backtest_run_user_executed (user_id, executed_at DESC)`
+- `idx_backtest_run_strategy_executed (strategy_id, executed_at DESC)`
+- `idx_backtest_trade_run_ts (backtest_run_id, executed_at)`
+
+### REST API Sketch (C-1 채택 가정)
+
+| HTTP | endpoint | 책임 |
+|---|---|---|
+| POST | `/api/backtest/run` (기존) | 실행 + 영속 동시 호출 (`BacktestRunPersister.persist` wire-up) |
+| GET | `/api/backtest?strategyId=&page=&size=` | 본인 백테스트 목록 페이징 |
+| GET | `/api/backtest/{id}` | 메타 + KPI 12종 |
+| GET | `/api/backtest/{id}/trades?page=&size=` | 매매 시계열 페이징 |
+| GET | `/api/backtest/{id}/positions` | 포지션 전체 |
+| DELETE | `/api/backtest/{id}` | 본인 삭제 (CASCADE) |
+
+권한: 모든 endpoint `userId` 본인 검증 + 위반 시 403 (ADR 0010 multi-tenant 정합).
+
+### 디스패치 매트릭스 (채택 후)
+
+- **sub-agent**: backend-core (sonnet 4.5 1M)
+- **branch**: `agent/backend-core/t-bt-r2-persistence`
+- **PR**: PR-51
+- **deliverables**: Flyway V12·V13 + JPA 3쌍 + Persister·QueryService + Controller 5 endpoint + DTO 보강
+- **ADR**: 0061 신규 발행 (Backtest 결과 영속 — ADR 0056 §3-4 supersede §1)
+
+### 우선순위
+
+**1순위** — T-SIG 진입 전 의무 (strategy 활성화 게이트 사전 의무). 본 § 처리 미완 시 T-SIG 진입 시 게이트 부재 회귀.
+
+### 연관
+
+- PR-50 plan: `_workspace/specs/pr-50-w3-t-bt-rounds-plan.md` §4·§5
+- ADR 0056 §3-7 — 후속 0080+ 예약 → 본 § + ADR 0061 격상
+- 트랙 ID T-BT R2
+
+
+---
+
+## §38. T-BT R3 frontend `/strategy/backtest` 페이지 트랙 (PR-50 plan 발행 — §37 R2 머지 후 진입)
+
+### 컨텍스트
+
+T-BT R1 머지 — backend API만 존재 (Swagger 호출로만 접근 가능). 사용자 워크플로우 흐름:
+
+1. `/strategy/builder` (T-SB W2 완료) — DSL 작성·저장
+2. **`/strategy/backtest` (본 § 신규)** — 작성한 전략을 과거 데이터로 시뮬 → 결과 확인 → 활성화 결정
+3. (W3 후속) — 활성 전략 → T-SIG 시그널 생성
+
+`/strategy/backtest` 페이지 부재 시 사용자가 Swagger 직접 호출 의존 — UI 가치 미달.
+
+### 결정 사항 (architect 권장)
+
+**의제 D**: 페이지 구조 — **D-1 단일 페이지 (왼쪽 폼 + 오른쪽 목록 + 상세 모달)** vs D-2 2 페이지 분리 vs D-3 EvaluationResultCard 확장
+
+architect 권장: **D-1**. ADR 0040 (관심종목 우선 UI 흐름) 정합 — Strategy Builder 내부 자식 routing 자연스러움.
+
+### 페이지 Sketch (D-1)
+
+```
+/strategy/backtest
+┌──────────────────┬──────────────────────┐
+│ BacktestRunForm  │ BacktestRunList      │
+│ (실행 폼)        │ (목록 페이징)         │
+│                  │ 행 클릭 → DetailModal│
+└──────────────────┴──────────────────────┘
+DetailModal:
+  - KpiCards 12종
+  - EquityCurve (LWC line)
+  - TradeMarker (LWC chart + 매매 마커)
+  - TradeTable (페이징)
+  - PositionTable
+```
+
+### 신규 컴포넌트 (D-1)
+
+- `frontend/src/pages/Strategy/Backtest.tsx`
+- `frontend/src/components/backtest/BacktestRunForm.tsx`
+- `frontend/src/components/backtest/BacktestRunList.tsx`
+- `frontend/src/components/backtest/BacktestDetailModal.tsx`
+- `frontend/src/components/backtest/BacktestKpiCards.tsx`
+- `frontend/src/components/backtest/BacktestEquityCurve.tsx` (LWC line series)
+- `frontend/src/components/backtest/BacktestTradeMarker.tsx` (LWC + 매매 마커)
+- `frontend/src/api/backtest.ts` REST client
+
+### 사용자 메모리 정합
+
+- `feedback_no_mock_data.md` — candle 부족 503 시 "데이터 없음" 표시. mock 합성 절대 금지
+- `feedback_honorific.md` — 모든 UI 문구 한국어 존댓말
+- `feedback_swagger_pattern.md` — backend Swagger 4단 그대로 유지 (frontend가 그 응답 소비)
+
+### 디스패치 매트릭스 (§37 R2 머지 후)
+
+- **sub-agent**: frontend (sonnet 4.5 1M)
+- **branch**: `agent/frontend/t-bt-r3-page`
+- **PR**: PR-52
+- **deliverables**: 1 페이지 + 6 컴포넌트 + REST client + 라우팅 추가
+- **검증**: 사용자 dogfooding — 실행·목록·상세·삭제 e2e
+
+### 우선순위
+
+**2순위** — §37 R2 머지 후 진입. R2 API 확정 전 진행 시 mock spec drift risk (PR-50 §2 의제 F-1 직렬 권장).
+
+### 연관
+
+- PR-50 plan: `_workspace/specs/pr-50-w3-t-bt-rounds-plan.md` §7
+- 트랙 ID T-BT R3
+
+
+---
+
+## §39. T-BT 모델 확장 매트릭스 우선순위 등록 (PR-50 plan — 본 사이클 진행 0, 추후 사이클 발동 의제)
+
+### 컨텍스트
+
+ADR 0056 §3-7은 후속 ADR 0080+ 5건 예약. 본 § 신규 등록으로 우선순위 매트릭스만 정리 — **본 사이클 진행 0**. 사용자 실제 백테스트 사용 후 "현실 차이 발생" 확인 시점에 별도 사이클 발동.
+
+architect 권장 (PR-50 §2 의제 E-1): **본 사이클 모델 확장 0건**. 사유:
+- ADR 0056 default 모델 3종(KoreanStockTaxModel·KisDirectCommissionModel·FixedRateSlippageModel)으로 1차 사용자 흐름 충분
+- 가설 우선 구현 회피 — 사용자 실제 검증 후 발동
+
+### 우선순위 매트릭스 (사용자 실제 사용 후 재검토)
+
+| ADR 후보 | 확장 | 발동 트리거 | 사이즈 |
+|---|---|---|---|
+| 0081+ | 거래량 기반 동적 슬리피지 | "큰 매수 시 슬리피지 큼" 확인 + KIS 거래량 데이터 가용 | M |
+| 0082+ | 대주주 양도세 분기 | 사용자 보유 누적 ≥ 시총 50억 또는 지분 1% 도달 | L |
+| 0083+ | 자동 batch job (매주 활성 strategy 시뮬 + 리포트) | 활성 strategy ≥ 5건 + 사용자 weekly 리뷰 욕구 확인 | M |
+| 0084+ | backtest-eval-pool 분리 (strategy-eval-pool과 별도) | 동시 백테스트 ≥ 5건 도달 | S |
+| 0085+ | Monte Carlo simulation | 사용자 통계 신뢰도 요건 발생 | L |
+
+### 결정 사항
+
+**본 § 신규 등록 = 우선순위 매트릭스만 보존**. 채택 시점은 사용자 실제 사용 후 발동.
+
+### 우선순위
+
+**3순위** — §37·§38 R2/R3 머지 + 사용자 dogfooding 누적 후 재검토.
+
+### 연관
+
+- ADR 0056 §3-7 후속 0080+ 5건 예약
+- PR-50 plan §2 의제 E-1·§11-3
+- 트랙 ID T-BT 후속 (별도 트랙 ID 부여 검토 — `T-BT-EXT` 또는 본 § 재발동)
+
