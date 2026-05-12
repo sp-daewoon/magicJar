@@ -1,0 +1,706 @@
+# magicJar v3.4.0 Baseline — 05. UI 화면 인벤토리
+
+> **작성 시점**: 2026-05-12 v3.4.0 baseline
+> **작성 에이전트**: frontend
+> **커버 PR 범위**: PR-5b ~ PR-51 (v3.3.0 전체 + v3.4.0 T-BT R3 + T-SIG Phase 3)
+>   - PR #332: T-BT R3 — `/strategy/backtest` 단일 페이지 + 6 컴포넌트 + LWC equity curve
+>   - PR #338: T-SIG Phase 3 — `/strategy/list` + StrategyCard/List/FilterBar + SignalCard/ListPanel + useStompSignal 토스트
+> **코드 기준**: `frontend/src/` 직접 inspect — 추측 0건
+> **v3.3.0 대비 변경**:
+>   - `/strategy/backtest` 신규 라우트 + BacktestForm·List·Detail·KpiPanel·EquityCurveChart·TradeTable 6 컴포넌트
+>   - `/strategy/list` 신규 라우트 + StrategyCard·List·FilterBar·SignalCard·SignalListPanel 5 컴포넌트
+>   - `useStompSignal` hook — `/topic/signal.user.{userId}` 실시간 시그널 STOMP 구독 + ToastProvider 자체 구현
+>   - REST client: `backtest.ts`·`signal.ts`·`strategy.ts`(sigStrategyApi 확장) 신규
+>   - AppHeader: 백테스트·전략 목록 메뉴 추가
+
+---
+
+## 1. 라우팅 매트릭스
+
+| URL 패턴 | 페이지 컴포넌트 | 진입 가드 | 트랙 ID | ADR |
+|---------|--------------|---------|--------|-----|
+| `/` | `DashboardPlaceholder` | OnboardingGuard | T-W1 | ADR 0040 |
+| `/watchlist` | `WatchlistPage` | OnboardingGuard | T-W1 | ADR 0040 |
+| `/symbol/:code` | `SymbolDetailPage` | OnboardingGuard | T-S1 | ADR 0040 §2-2 |
+| `/strategy/builder` | `StrategyBuilderPage` | OnboardingGuard | T-SB | ADR 0040 §1, ADR 0055 |
+| `/strategy/backtest` | `BacktestPage` | OnboardingGuard | T-BT | ADR 0061 §4 D-1 |
+| `/strategy/list` | `StrategyListPage` | OnboardingGuard | T-SIG | ADR 0066 |
+| `/setup` | `SetupWizard` | OnboardingGuard (역방향) | T-ONBOARD | ADR 0040 |
+| `*` | `Navigate to="/"` | — | — | — |
+
+**OnboardingGuard 로직** (`frontend/src/App.tsx`):
+- `GET /api/onboarding/status` — `hasUserAccount=false` + path `/setup` 이외 → `/setup` redirect
+- `hasUserAccount=true` + path `/setup` → `/` redirect (중복 진입 차단)
+- isLoading → 스플래시(animate-spin) 표시
+
+---
+
+## 2. 화면 전이 다이어그램
+
+```mermaid
+flowchart TD
+    A["앱 진입 (OnboardingGuard)"] --> B{"hasUserAccount?"}
+    B -->|"false"| C["/setup SetupWizard"]
+    B -->|"true"| D["/ DashboardPlaceholder"]
+    C --> E["Step1 KIS 실전 키 입력"]
+    E --> F["Step2 검증 중"]
+    F -->|"성공"| G["Step3 모의계좌 선택 (선택)"]
+    F -->|"실패"| E
+    G --> H["Step4 시스템 설정 DART+Slack (선택)"]
+    H --> I["Step5 완료"]
+    I --> D
+    D --> J["/watchlist WatchlistPage"]
+    D --> K["/strategy/builder StrategyBuilderPage"]
+    D --> L["/strategy/backtest BacktestPage"]
+    D --> M["/strategy/list StrategyListPage"]
+    J --> N["/symbol/:code SymbolDetailPage"]
+    K --> O["EvaluationResultCard 평가 결과"]
+    O --> P["관심종목 추가 POST /api/watchlist"]
+    P --> J
+    N -->|"뒤로(브라우저)"| J
+    L --> Q["신규 실행 탭 (BacktestForm)"]
+    L --> R["실행 이력 탭 (BacktestList → BacktestDetail)"]
+    M --> S["전략 목록 (StrategyList + StrategyFilterBar)"]
+    M --> T["시그널 내역 (SignalListPanel)"]
+    T -->|"종목 클릭"| N
+```
+
+---
+
+## 3. 글로벌 내비게이션 (AppHeader)
+
+**파일**: `frontend/src/components/layout/AppHeader.tsx`
+
+| 메뉴 항목 | 링크 | 활성 조건 | 참조 ADR |
+|---------|------|---------|------|
+| magicJar (로고) | `/` | — | — |
+| 대시보드 | `/` (end) | exact match | ADR 0040 |
+| 관심종목 | `/watchlist` | prefix match | ADR 0040 |
+| 전략 빌더 | `/strategy/builder` | prefix match | ADR 0055 |
+| 백테스트 | `/strategy/backtest` | prefix match | ADR 0061 §4 D-1 |
+| 전략 목록 | `/strategy/list` | prefix match | ADR 0066 |
+
+- `/setup` 경로에서는 AppHeader 미표시 (App.tsx AppLayout 분기)
+- `sticky top-0 z-50` + `backdrop-blur` — 스크롤 시 상단 고정
+- 키보드 포커스링: `focus:ring-2 focus:ring-blue-400`
+
+---
+
+## 4. 화면별 컴포넌트 인벤토리
+
+### 4-1. DashboardPlaceholder (`/`)
+
+**파일**: `frontend/src/pages/DashboardPlaceholder.tsx`
+
+| 항목 | 내용 |
+|------|------|
+| 현황 | placeholder (T-W1 사이클에서 Watchlist 분리, 실질적 진입점은 `/watchlist`) |
+| 역할 | `/watchlist` 이동 링크 + 상태 안내 |
+
+---
+
+### 4-2. SetupWizard (`/setup`)
+
+**파일**: `frontend/src/pages/SetupWizard.tsx`
+**step 컴포넌트**: `frontend/src/pages/setup/steps/` 5개
+
+| Step | 컴포넌트 | 내용 |
+|------|---------|------|
+| 1 | `KisRealStep` | KIS 실전 AppKey·AppSecret·계좌번호 입력 |
+| 2 | `KisValidatingStep` | 백엔드 검증 진행 (애니메이션) |
+| 3 | `KisMockStep` | 모의계좌 AppKey·AppSecret 입력 (선택) |
+| 4 | `SystemConfigStep` | DART API 키 + Slack Webhook (선택) |
+| 5 | `CompleteStep` | 셋업 완료 요약 + 시작 버튼 |
+
+**상태**: Zustand `useOnboardingStore` (`frontend/src/stores/onboarding.ts`)
+
+**진행률 표시**: `(currentStep - 1) / 5 * 100%` — 상단 progress bar
+
+**연결 REST**:
+- `POST /api/onboarding/validate-kis` — KisValidatingStep (Step 2)
+- `POST /api/onboarding/complete` — CompleteStep (Step 5)
+- `GET /api/onboarding/status` — App.tsx OnboardingGuard
+
+---
+
+### 4-3. WatchlistPage (`/watchlist`)
+
+**파일**: `frontend/src/pages/Watchlist/WatchlistPage.tsx`
+
+| 컴포넌트 | 파일 | 역할 |
+|---------|------|------|
+| `WatchlistPage` | `WatchlistPage.tsx` | 페이지 루트 + 로딩·에러·빈 상태 분기 |
+| `WatchlistAddForm` | `WatchlistAddForm.tsx` | 종목 코드 입력 + `POST /api/watchlists` |
+| `WatchlistEmpty` | `WatchlistEmpty.tsx` | 0건 안내 + CTA 버튼 (입력창 포커스) |
+| `WatchlistRow` | `WatchlistRow.tsx` | 1 row: 종목명·코드·시장·상태 배지·우선순위·등록일·삭제 버튼 |
+| `WatchlistSkeleton` (inline) | — | 로딩 중 3행 pulse 스켈레톤 |
+
+**연결 REST**:
+- `GET /api/watchlists` — useWatchlist hook
+- `POST /api/watchlists` — WatchlistAddForm (useAddWatchlist)
+- `DELETE /api/watchlists/{code}` — WatchlistRow (useRemoveWatchlist)
+
+---
+
+### 4-4. SymbolDetailPage (`/symbol/:code`)
+
+**파일**: `frontend/src/pages/Symbol/SymbolDetailPage.tsx`
+
+#### 하위 컴포넌트 매트릭스
+
+| 컴포넌트 | 파일 | 역할 |
+|---------|------|------|
+| `SymbolHeader` | `SymbolHeader.tsx` | 종목명·코드·시장·산업 + 뒤로 이동 버튼 |
+| `SymbolPriceCard` | `SymbolPriceCard.tsx` | 현재가·등락·등락률 + 고·저·시·전일종가·거래량 + stale 배지 |
+| `SymbolMetaCard` | `SymbolMetaCard.tsx` | PER·PBR·EPS·BPS·시가총액 |
+| `SymbolChart` | `SymbolChart.tsx` | IntervalToggle + LWC 차트 + 지표·패턴 패널 |
+| `SymbolOrderbook` | `SymbolOrderbook.tsx` | 매수·매도 10단계 호가표 |
+| `SymbolError` | `SymbolError.tsx` | 에러 분기 표시 (404·503·상장폐지) |
+
+**STOMP 토픽 구독** (stompEnabled = `Boolean(code) && !isDelisted`):
+
+| 토픽 | 용도 |
+|-----|------|
+| `/topic/market.tick.{code}` | 현재가·등락·등락률 실시간 갱신 |
+| `/topic/market.candle.minute.{code}` | 1m 차트 실시간 append |
+| `/topic/market.orderbook.{code}` | 호가 10단계 실시간 갱신 |
+
+---
+
+### 4-5. SymbolChart (SymbolDetailPage 내부)
+
+**파일**: `frontend/src/pages/Symbol/SymbolChart.tsx`
+
+상세 구조는 v3.3.0 baseline 05 §4-5와 동일. v3.4.0에서 변경 없음.
+
+**IntervalToggle** (`IntervalToggle.tsx`): 10종 (1m·5m·15m·30m·90m·1h·1d·1wk·1mo·1y)
+
+**LightweightChart** (`LightweightChart.tsx`): LWC v4 (ADR 0025) + 실시간 boundary fanout (ADR 0064)
+
+**STOMP 합산 5종 dynamic subscribe** (useSymbolCandles):
+- `/topic/market.candle.5m.{code}` · `15m` · `30m` · `90m` · `1h`
+
+---
+
+### 4-6. StrategyBuilderPage (`/strategy/builder`)
+
+**파일**: `frontend/src/pages/Strategy/StrategyBuilderPage.tsx`
+
+v3.3.0 baseline 05 §4-6와 동일. v3.4.0에서 변경 없음.
+
+---
+
+### 4-7. BacktestPage (`/strategy/backtest`) — v3.4.0 신규
+
+**파일**: `frontend/src/pages/Strategy/BacktestPage.tsx`
+
+**트랙**: T-BT R3 (ADR 0061 §4 D-1)
+
+#### 레이아웃 구조
+
+```
+┌─ AppHeader ───────────────────────────────────────────────────┐
+├─ 페이지 헤더 (제목·설명·전략 빌더 링크) ─────────────────────────┤
+├─ 탭 네비게이션: [신규 실행] [실행 이력] ─────────────────────────┤
+│  신규 실행 탭                                                    │
+│  ├── BacktestForm                                              │
+│  └── 마지막 실행 결과 요약 (lastResult non-null 시)              │
+│  실행 이력 탭                                                    │
+│  ├── BacktestList (runId 미선택 시)                             │
+│  └── BacktestDetail (runId 선택 시)                             │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**userId 미등록**: 셋업 안내 + `/setup` 링크 표시 (feedback_no_mock_data.md 정합)
+
+#### 하위 컴포넌트 매트릭스
+
+| 컴포넌트 | 파일 | 역할 |
+|---------|------|------|
+| `BacktestForm` | `components/backtest/BacktestForm.tsx` | 전략 선택·종목·인터벌·기간·초기자본 폼 + POST `/api/backtests` |
+| `BacktestList` | `components/backtest/BacktestList.tsx` | 목록 페이징·삭제·클릭→상세 |
+| `BacktestDetail` | `components/backtest/BacktestDetail.tsx` | 단건 메타+KPI + PENDING/RUNNING 3초 폴링 + SUCCEEDED→차트+테이블 + FAILED 안내 |
+| `BacktestKpiPanel` | `components/backtest/BacktestKpiPanel.tsx` | 총수익률·승률·MDD·Sharpe·거래수 5 KPI 카드 |
+| `EquityCurveChart` | `components/backtest/EquityCurveChart.tsx` | LWC v4 line series — 포지션 누적 PnL 곡선 (ADR 0025 LOCK) |
+| `TradeTable` | `components/backtest/TradeTable.tsx` | 거래 기록 페이징 테이블 (ts·side·price·quantity·fee·ruleSignal) |
+
+#### BacktestForm 입력 항목
+
+| 항목 | 기본값 | 설명 |
+|-----|-------|------|
+| 전략 선택 | — | `GET /api/strategy` 목록 → strategyId |
+| 종목코드 | 005930 | 쉼표 구분 복수 입력 |
+| 캔들 인터벌 | 1d | 6종 (1d·1h·30m·15m·5m·1m) |
+| 시작일 | 오늘 -130일 | yyyy-MM-dd |
+| 종료일 | 오늘 | yyyy-MM-dd |
+| 초기자본 (원) | 10,000,000 | 천 단위 콤마 입력, BigDecimal 전송 |
+
+**고정 파라미터**: taxModel=`korean_default`, commissionModel=`kis_direct`, slippageModel=`fixed_0.05`, priceAdjustmentMode=`ADJUSTED`
+
+#### BacktestDetail 상태별 UI
+
+| 상태 | 표시 |
+|------|------|
+| PENDING / RUNNING | 스피너 + "3초마다 자동 갱신" 안내 + refetchInterval=3000 |
+| SUCCEEDED | BacktestKpiPanel (5 카드) + EquityCurveChart + TradeTable |
+| FAILED | 빨간 에러 박스 + "캔들 데이터 부족·재시도" 안내 |
+
+#### EquityCurveChart 구현 요약
+
+| 항목 | 내용 |
+|------|------|
+| 라이브러리 | `lightweight-charts` v4 (ADR 0025 §2-1 LOCK, TradingView Advanced import 0건) |
+| 데이터 | `BacktestPositionResultDto[]` — closeTs + pnl 기반 누적합 |
+| 시간 표기 | KST `Asia/Seoul` tickMarkFormatter |
+| 기준선 | 첫 포지션 openTs 시점 value=0 포인트 추가 |
+| 0건 처리 | "종료 포지션 데이터가 없습니다" 명시 |
+| ResizeObserver | chart.applyOptions({ width }) 반응형 갱신 |
+
+#### 연결 REST
+
+| 엔드포인트 | 용도 | backtestApi 함수 |
+|-----------|------|-----------------|
+| `POST /api/backtests?userId=` | 실행 + 영속 (HTTP 201) | `backtestApi.create` |
+| `GET /api/backtests?userId=&page=&size=` | 목록 (페이징) | `backtestApi.list` |
+| `GET /api/backtests/{id}?userId=` | 단건 메타 + KPI | `backtestApi.getDetail` |
+| `GET /api/backtests/{id}/result?userId=&tradePage=&tradeSize=&posPage=&posSize=` | 거래·포지션 시계열 | `backtestApi.getResult` |
+| `DELETE /api/backtests/{id}?userId=` | 삭제 (HTTP 204) | `backtestApi.delete` |
+
+---
+
+### 4-8. StrategyListPage (`/strategy/list`) — v3.4.0 신규
+
+**파일**: `frontend/src/pages/Strategy/StrategyListPage.tsx`
+
+**트랙**: T-SIG Phase 3 (ADR 0066)
+
+#### 레이아웃 구조
+
+```
+┌─ AppHeader ───────────────────────────────────────────────────┐
+├─ 페이지 헤더 (제목·설명·"새 전략 만들기" 버튼) ───────────────────┤
+├─ 전략 목록 섹션 (section aria-labelledby) ──────────────────────┤
+│  ├── StrategyFilterBar (ALL·활성·일시정지·비활성 탭)             │
+│  └── StrategyList (카드 그리드 3열 + Intersection Observer 무한) │
+├─ 구분선 <hr> ──────────────────────────────────────────────────┤
+└─ SignalListPanel (시그널 시계열 + 필터 + 무한 스크롤) ──────────────┘
+```
+
+**userId 미등록**: 아이콘 + "KIS 계좌 등록 완료 후 이용" 안내 + `/setup` 링크
+
+**useStompSignal 통합**: `signalQueue` → `SignalListPanel.prependSignals` prop 전달
+
+#### 하위 컴포넌트 매트릭스
+
+| 컴포넌트 | 파일 | 역할 |
+|---------|------|------|
+| `StrategyFilterBar` | `components/strategy/StrategyFilterBar.tsx` | status 4단 필터 탭 (ALL·ACTIVE·PAUSED·DISABLED) + 키보드 ArrowLeft/ArrowRight |
+| `StrategyList` | `components/strategy/StrategyList.tsx` | 전략 카드 그리드 + Intersection Observer 무한 스크롤 + 필터 적용 |
+| `StrategyCard` | `components/strategy/StrategyCard.tsx` | 전략 단건 카드 (이름·codes 배지·intervals·DSL 미리보기·시그널 카운트·상태 토글/삭제 버튼) |
+| `SignalListPanel` | `components/strategy/SignalListPanel.tsx` | 시그널 시계열 패널 + 필터(code·interval·side) + 무한 스크롤 + 실시간 prepend |
+| `SignalCard` | `components/strategy/SignalCard.tsx` | 시그널 단건 카드 (ts·code·interval·side 배지·price·rule·strategyName 링크) |
+
+#### StrategyCard 상태 배지
+
+| 상태 | 색상 |
+|------|------|
+| ACTIVE (활성) | `bg-emerald-900/80 text-emerald-300 border-emerald-700` |
+| PAUSED (일시정지) | `bg-amber-900/80 text-amber-300 border-amber-700` |
+| DISABLED (비활성) | `bg-gray-700/80 text-gray-400 border-gray-600` |
+| DELETED (삭제됨) | `bg-red-900/80 text-red-400 border-red-800` |
+
+**상태 전이**: ACTIVE ↔ PAUSED 토글 버튼 표시. DELETED 상태는 토글 버튼 미표시.
+
+**삭제 확인**: 1차 클릭 → "정말 삭제하시겠습니까?" 버튼으로 교체 → 2차 클릭 → soft delete (blur 시 초기화)
+
+#### SignalCard 매수/매도/홀드 배지
+
+| side | 색상 |
+|------|------|
+| BUY (매수) | `bg-emerald-900/80 text-emerald-300 border-emerald-700` |
+| SELL (매도) | `bg-red-900/80 text-red-300 border-red-700` |
+| HOLD (홀드) | `bg-gray-700/80 text-gray-300 border-gray-600` |
+
+**새 시그널 하이라이트**: `isNew=true` → `border-blue-700 bg-blue-950/30` + 3초 후 해제
+
+#### SignalListPanel 필터
+
+| 필터 | 컴포넌트 | 동작 |
+|-----|---------|------|
+| 종목 코드 | input[text] maxLength=6 | 대문자 자동 변환 |
+| 인터벌 | select (전체·1m·5m·15m·30m·1h·1d) | 선택 즉시 쿼리 파라미터 갱신 |
+| 매매 방향 | role="tablist" (전체·매수·매도·홀드) | aria-selected |
+
+#### 연결 REST
+
+| 엔드포인트 | 용도 | hook |
+|-----------|------|------|
+| `GET /api/strategies?page=&size=` | 전략 목록 (페이징) | `useSigStrategies` |
+| `GET /api/strategies/{id}` | 전략 단건 | `useSigStrategy` |
+| `POST /api/strategies` | 전략 생성 | `useCreateSigStrategy` |
+| `PUT /api/strategies/{id}` | 전략 수정 | `useUpdateSigStrategy` |
+| `DELETE /api/strategies/{id}` | soft 삭제 | `useDeleteSigStrategy` |
+| `PUT /api/strategies/{id}/status` | 상태 토글 | `useToggleSigStrategyStatus` |
+| `GET /api/signals?userId=&code=&interval=&side=&from=&to=&page=&size=` | 시그널 목록 | `useSignals` |
+| `GET /api/signals/{id}` | 시그널 단건 | `useSignal` |
+
+---
+
+## 5. T-SIG 실시간 토스트 흐름 (v3.4.0 신규)
+
+### useStompSignal hook
+
+**파일**: `frontend/src/api/hooks/useStompSignal.ts`
+
+**STOMP 토픽**: `/topic/signal.user.{userId}` (ADR 0066 §4-D StompSignalDispatcher)
+
+**반환 인터페이스**:
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `latestSignal` | `SignalDto \| null` | 가장 최근 수신 시그널 |
+| `signalQueue` | `SignalDto[]` | 최근 20건 수신 스택 (prepend용) |
+| `clearQueue` | `() => void` | 큐 초기화 함수 |
+
+**토스트 메시지 포맷**: `[매수] 000660 SK하이닉스 5m 1,898,000원 — RSI(14) < 30`
+
+**토스트 타입 매핑**:
+- BUY → `success` (emerald)
+- SELL → `error` (red)
+- HOLD → `info` (blue)
+
+```mermaid
+sequenceDiagram
+    participant STOMP as STOMP /topic/signal.user.{userId}
+    participant Hook as useStompSignal
+    participant Toast as ToastProvider (useToast)
+    participant Panel as SignalListPanel
+    participant Card as SignalCard
+
+    STOMP->>Hook: SignalDto 수신
+    Hook->>Hook: setLatestSignal(signal)
+    Hook->>Hook: setSignalQueue([signal, ...prev].slice(0, 20))
+    Hook->>Toast: showToast(buildToastMessage(signal), toastType)
+    Toast->>Toast: 4초 후 자동 소멸 (MAX 5개 동시)
+    Note over Toast: 하단 우측 고정 (fixed bottom-6 right-6 z-50)
+    Hook-->>Panel: signalQueue prop (StrategyListPage 경유)
+    Panel->>Panel: prepend 중복 제거 (restIds 체크)
+    Panel->>Card: SignalCard isNew=true 3초 하이라이트
+```
+
+### ToastProvider 구현
+
+**파일**: `frontend/src/components/ui/ToastProvider.tsx`
+
+- react-hot-toast 미사용 — 오프라인 번들 우선 정책
+- Context + useToast hook 자체 구현
+- 4초 자동 소멸 + ESC 키 전체 닫기
+- MAX 5개 동시 표시 (하단 우측 고정 스택)
+- slide-in/out CSS transition (translate-x + opacity)
+- `role="alert"` + `aria-live="assertive"` 접근성
+
+---
+
+## 6. API Hook 매트릭스 (v3.4.0 전체)
+
+| Hook | 파일 | 대상 엔드포인트 | 용도 |
+|------|------|----------------|------|
+| `useOnboardingStatus` | `api/onboarding.ts` | `GET /api/onboarding/status` | OnboardingGuard |
+| `useWatchlist` | `api/hooks/useWatchlist.ts` | `GET /api/watchlists` | WatchlistPage 목록 |
+| `useAddWatchlist` | `api/hooks/useWatchlist.ts` | `POST /api/watchlists` | WatchlistAddForm |
+| `useRemoveWatchlist` | `api/hooks/useWatchlist.ts` | `DELETE /api/watchlists/{code}` | WatchlistRow |
+| `useSymbol` | `api/hooks/useSymbol.ts` | `GET /api/symbols/{code}` | SymbolDetailPage 5s polling |
+| `useSymbolCandles` | `api/hooks/useSymbolCandles.ts` | `GET /api/symbols/{code}/candles` + STOMP 5종 boundary | SymbolChart 무한 스크롤 + 실시간 갱신 |
+| `useInstrument` | `api/hooks/useInstrument.ts` | `GET /api/instruments/{code}` | SymbolDetailPage 메타 |
+| `useInstrumentSearch` | `api/hooks/useInstrumentSearch.ts` | `GET /api/instruments/search?q=` | InstrumentSearchInput |
+| `useIndicators` | `api/hooks/useIndicators.ts` | `GET /api/indicators/{id}` | IndicatorOverlay |
+| `usePatterns` | `api/hooks/usePatterns.ts` | `GET /api/symbols/{code}/patterns` | PatternMarker |
+| `useStrategyValidate` | `api/hooks/useStrategy.ts` | `POST /api/strategy/validate` | StrategyBuilderPage |
+| `useStrategyEvaluate` | `api/hooks/useStrategy.ts` | `POST /api/strategy/{id}/evaluate` | StrategyBuilderPage |
+| `useCreateStrategy` | `api/hooks/useStrategy.ts` | `POST /api/strategy` | StrategySaveModal |
+| `useStrategyTranslate` | `api/hooks/useStrategyTranslate.ts` | `POST /api/dsl/translate-from-natural` | NaturalLanguageInput |
+| `useSigStrategies` | `api/hooks/useSigStrategy.ts` | `GET /api/strategies?page=&size=` | StrategyList 무한 스크롤 |
+| `useSigStrategy` | `api/hooks/useSigStrategy.ts` | `GET /api/strategies/{id}` | 단건 조회 |
+| `useCreateSigStrategy` | `api/hooks/useSigStrategy.ts` | `POST /api/strategies` | 전략 생성 |
+| `useUpdateSigStrategy` | `api/hooks/useSigStrategy.ts` | `PUT /api/strategies/{id}` | 전략 수정 |
+| `useDeleteSigStrategy` | `api/hooks/useSigStrategy.ts` | `DELETE /api/strategies/{id}` | StrategyCard 삭제 |
+| `useToggleSigStrategyStatus` | `api/hooks/useSigStrategy.ts` | `PUT /api/strategies/{id}/status` | StrategyCard 상태 토글 |
+| `useSignals` | `api/hooks/useSignal.ts` | `GET /api/signals?userId=...` | SignalListPanel 무한 스크롤 |
+| `useSignal` | `api/hooks/useSignal.ts` | `GET /api/signals/{id}` | 단건 조회 |
+| `useStompSignal` | `api/hooks/useStompSignal.ts` | STOMP `/topic/signal.user.{userId}` | StrategyListPage 실시간 토스트 + prepend |
+
+---
+
+## 7. STOMP 토픽 매트릭스 (v3.4.0 전체)
+
+| 토픽 | 구독 위치 | payload 타입 | 용도 |
+|-----|---------|------------|------|
+| `/topic/market.tick.{code}` | `SymbolDetailPage` | `TickPayload` | 현재가·등락·등락률 실시간 |
+| `/topic/market.candle.minute.{code}` | `SymbolDetailPage` | `CandleMinutePayload` | 1m 차트 실시간 append |
+| `/topic/market.orderbook.{code}` | `SymbolDetailPage` | `OrderbookPayload` | 호가 10단계 실시간 |
+| `/topic/market.candle.5m.{code}` | `useSymbolCandles` (interval=5m 시) | `CandleClosedPayload` | 5m boundary 마감 실시간 갱신 |
+| `/topic/market.candle.15m.{code}` | `useSymbolCandles` (interval=15m 시) | `CandleClosedPayload` | 15m boundary 마감 실시간 갱신 |
+| `/topic/market.candle.30m.{code}` | `useSymbolCandles` (interval=30m 시) | `CandleClosedPayload` | 30m boundary 마감 실시간 갱신 |
+| `/topic/market.candle.90m.{code}` | `useSymbolCandles` (interval=90m 시) | `CandleClosedPayload` | 90m boundary 마감 실시간 갱신 |
+| `/topic/market.candle.1h.{code}` | `useSymbolCandles` (interval=1h 시) | `CandleClosedPayload` | 1h boundary 마감 실시간 갱신 |
+| `/topic/signal.user.{userId}` | `useStompSignal` (StrategyListPage) | `SignalDto` | 실시간 시그널 토스트 + SignalListPanel prepend |
+
+**STOMP 설정** (`frontend/src/lib/stomp.ts`):
+- `@stomp/stompjs` Client 싱글톤
+- `brokerURL`: `ws://{host}/ws` (Vite dev proxy → `ws://localhost:8080/ws`)
+- `reconnectDelay`: 5000ms
+- 연결 끊김 → 노랑 배지 + 5s polling fallback 자동 전환
+
+---
+
+## 8. REST Client 매트릭스 (v3.4.0 전체)
+
+| 파일 | API 객체 | 용도 | 엔드포인트 수 |
+|------|---------|------|------------|
+| `api/onboarding.ts` | `useOnboardingStatus`, `validateKis`, `completeOnboarding` | 온보딩 흐름 | 3 |
+| `api/watchlist.ts` | `watchlistApi` | 관심종목 CRUD | 3 |
+| `api/symbol.ts` | `symbolApi` + TickPayload·CandleMinutePayload·CandleClosedPayload·OrderbookPayload 타입 | 시세·캔들·호가 | 4 |
+| `api/instrument.ts` | `instrumentApi` | 종목 마스터 검색 | 2 |
+| `api/indicator.ts` | `indicatorApi` | 80지표 데이터 | 1 |
+| `api/patterns.ts` | `patternsApi` | 57패턴 감지 | 1 |
+| `api/strategy.ts` | `strategyApi` (T-DSL) + `sigStrategyApi` (ADR 0066 신규) | DSL 전략·ADR 0066 전략 | 7 + 6 |
+| `api/backtest.ts` | `backtestApi` | 백테스트 CRUD + 결과 조회 | 5 |
+| `api/signal.ts` | `signalApi` | 시그널 목록·단건 | 2 |
+| `api/dslTranslate.ts` | `dslTranslateApi` | AI 자연어 DSL 변환 | 1 |
+
+---
+
+## 9. TickPayload 등락 필드 (v3.2.2 dogfooding hotfix)
+
+`frontend/src/api/symbol.ts` `TickPayload` 인터페이스:
+
+| 필드 | KIS raw 필드 | 타입 | 설명 |
+|------|------------|------|------|
+| `priceChange` | `PRDY_VRSS` | `string \| null` | 전일 대비 금액 |
+| `changeRate` | `PRDY_CTRT` | `string \| null` | 등락률 % |
+| `changeSign` | `PRDY_VRSS_SIGN` | `string \| null` | 부호 코드 (1=상한·2=상승·3=보합·4=하한·5=하락) |
+
+---
+
+## 10. CandleClosedPayload 타입 (v3.3.0 신규)
+
+`frontend/src/api/symbol.ts` `CandleClosedPayload` 인터페이스:
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `code` | `string` | 종목 코드 |
+| `interval` | `string` | 인터벌 (5m·15m·30m·90m·1h) |
+| `ts` | `string` | boundary 시작 ISO 8601 timestamp |
+| `open` | `string` | boundary 시가 |
+| `high` | `string` | boundary 고가 |
+| `low` | `string` | boundary 저가 |
+| `close` | `string` | boundary 종가 |
+| `volume` | `number` | boundary 거래량 합산 |
+
+---
+
+## 11. SignalDto 타입 (v3.4.0 신규)
+
+`frontend/src/api/signal.ts` `SignalDto` 인터페이스:
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `id` | `string` | 시그널 ID |
+| `strategyId` | `string` | 전략 ID |
+| `strategyName` | `string \| undefined` | 전략명 (optional) |
+| `userId` | `string` | 사용자 ID |
+| `code` | `string` | 종목 코드 |
+| `codeName` | `string \| undefined` | 종목명 (backend enrichment optional) |
+| `interval` | `string` | 발생 인터벌 |
+| `side` | `SignalSide` | BUY \| SELL \| HOLD |
+| `price` | `string` | 발생 가격 (문자열 원화) |
+| `rule` | `string \| undefined` | 발생 규칙 텍스트 ("RSI(14) < 30") |
+| `ts` | `string` | 발생 시각 (ISO 8601 KST) |
+
+---
+
+## 12. 컴포넌트 의존도 분기 다이어그램 (v3.4.0)
+
+```mermaid
+flowchart LR
+    App --> OnboardingGuard
+    App --> AppLayout
+    AppLayout --> AppHeader
+    AppHeader --> D["/대시보드"]
+    AppHeader --> W["/watchlist"]
+    AppHeader --> SB["/strategy/builder"]
+    AppHeader --> BT["/strategy/backtest"]
+    AppHeader --> SL["/strategy/list"]
+    App --> DashboardPlaceholder
+    App --> WatchlistPage
+    App --> SymbolDetailPage
+    App --> StrategyBuilderPage
+    App --> BacktestPage
+    App --> StrategyListPage
+    App --> SetupWizard
+
+    WatchlistPage --> WatchlistAddForm
+    WatchlistPage --> WatchlistRow
+    WatchlistRow -->|"navigate"| SymbolDetailPage
+
+    SymbolDetailPage --> SymbolPriceCard
+    SymbolDetailPage --> SymbolMetaCard
+    SymbolDetailPage --> SymbolChart
+    SymbolDetailPage --> SymbolOrderbook
+    SymbolChart --> IntervalToggle
+    SymbolChart --> LightweightChart
+    SymbolChart --> IndicatorPanel
+    SymbolChart --> IndicatorOverlay
+    SymbolChart --> PatternToggleMenu
+    SymbolChart --> PatternMarker
+    SymbolChart -->|"useSymbolCandles"| StompBoundary5종["STOMP /topic/market.candle.{interval}.{code}"]
+
+    StrategyBuilderPage --> BlockPalette
+    StrategyBuilderPage --> StrategyBuilderCanvas
+    StrategyBuilderPage --> ComplexityCard
+    StrategyBuilderPage --> EvaluationResultCard
+    StrategyBuilderPage --> StrategySaveModal
+    StrategyBuilderPage --> NaturalLanguageInput
+    StrategyBuilderPage --> DslTextEditor
+
+    BacktestPage --> BacktestForm
+    BacktestPage --> BacktestList
+    BacktestPage --> BacktestDetail
+    BacktestDetail --> BacktestKpiPanel
+    BacktestDetail --> EquityCurveChart
+    BacktestDetail --> TradeTable
+
+    StrategyListPage --> StrategyFilterBar
+    StrategyListPage --> StrategyList
+    StrategyList --> StrategyCard
+    StrategyListPage --> SignalListPanel
+    SignalListPanel --> SignalCard
+    SignalCard -->|"종목 링크"| SymbolDetailPage
+    StrategyListPage -->|"useStompSignal"| StompSignal["/topic/signal.user.{userId}"]
+    StompSignal --> ToastProvider
+```
+
+---
+
+## 13. 접근성 정책 요약 (v3.4.0 추가 항목)
+
+| 항목 | 구현 방식 |
+|------|---------|
+| StrategyFilterBar | `role="tablist"` + `role="tab"` + `aria-selected` + ArrowLeft/ArrowRight 키보드 |
+| SignalListPanel 방향 필터 | `role="tablist"` + `role="tab"` + `aria-selected` |
+| BacktestList 행 | `role="button"` + `tabIndex={0}` + Enter 키 핸들러 |
+| ToastProvider | `role="alert"` + `aria-live="assertive"` (success: "▲", error: "▼", info: "●") |
+| SignalCard 시각 | `<time dateTime={signal.ts}>` + `<article>` 시멘틱 |
+| StrategyCard | `<article>` 시멘틱 + 삭제 버튼 `focus:ring-2 focus:ring-red-400` |
+
+v3.3.0 이전 항목(WatchlistRow·IntervalToggle·BlockNode·차트·툴팁 등)은 v3.3.0 baseline 05 §11 동일 유지.
+
+---
+
+## 14. 숫자·날짜 포맷 정책
+
+v3.3.0 이전과 동일 + v3.4.0 신규 항목:
+
+| 포맷 유형 | 구현 | 예시 |
+|---------|------|-----|
+| 백테스트 수익률 | `(n * 100).toFixed(2)%` + 부호 | `+15.23%` / `-3.45%` |
+| 백테스트 Sharpe | `n.toFixed(4)` | `1.2345` |
+| 거래 기록 시각 (KST) | `sv-SE` + `timeZone: 'Asia/Seoul'` + `.replace('T', ' ')` | `2026-05-12 09:32` |
+| 시그널 발생 시각 (KST) | `toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', ... })` | `2026. 05. 12. 오전 9:32` |
+| 시그널 가격 | `toLocaleString('ko-KR')` + "원" suffix | `1,898,000원` |
+
+---
+
+## 15. 에러 처리 정책
+
+| 상황 | 처리 |
+|------|------|
+| REST 실패 | 해당 위젯만 오류 표시 — 페이지 전체 중단 금지 |
+| WebSocket 끊김 | 자동 재연결(5s) + 연결 상태 인디케이터 배지 |
+| AI 응답 지연 | 스켈레톤 로딩 (NaturalLanguageInput 모달 내) |
+| candle 0건 | "데이터 없음" 명시 — mock 합성 절대 0 |
+| 패턴 0건 | "패턴이 발견되지 않았습니다." 명시 |
+| 백테스트 FAILED | 에러 박스 + "캔들 데이터 부족·재시도" 안내 |
+| 백테스트 0건 | "아직 실행된 백테스트가 없습니다" 명시 |
+| EquityCurveChart positions 0건 | "종료 포지션 데이터가 없습니다" 명시 |
+| TradeTable 0건 | "거래 기록이 없습니다" 명시 |
+| StrategyList 0건 | "등록된 전략이 없습니다" + 전략 빌더 링크 |
+| SignalListPanel 0건 | "활성 전략 시그널이 아직 발생하지 않았습니다" 명시 |
+| StrategyList 에러 | 섹션 내 빨간 박스 — 페이지 전체 중단 없음 |
+| userId 미등록 (BacktestPage·StrategyListPage) | 각 페이지 단독 셋업 안내 — 기능 접근 차단 |
+
+---
+
+## 16. 테스트 파일 매트릭스 (v3.4.0 기준)
+
+v3.3.0 기준 151건 유지 + v3.4.0 신규 추가 없음 (T-BT R3·T-SIG Phase 3 테스트는 R3 사이클에서 일괄 예정).
+
+| 테스트 파일 | 케이스 수 | 커버 대상 |
+|-----------|---------|---------|
+| `__tests__/onboarding-routing.test.tsx` | — | OnboardingGuard 라우팅 분기 |
+| `__tests__/watchlist-flow.test.tsx` | — | WatchlistPage 추가·삭제·종목 이동 |
+| `__tests__/tick-sync-display.test.tsx` | 20 | `changeSignToArrow`·`changeSignToColorClass`·STOMP source 우선·null fallback |
+| `__tests__/indicators/indicator-catalog.test.ts` | — | 80지표 ID 정합 |
+| `__tests__/patterns/pattern-catalog.test.ts` | — | 57패턴 ID 정합 |
+| `__tests__/patterns/pattern-marker.test.ts` | — | PatternMarker LWC series 마커 |
+| `__tests__/patterns/symbol-detail-pattern.test.tsx` | — | SymbolDetailPage 패턴 흐름 |
+| `__tests__/patterns/use-patterns.test.ts` | — | usePatterns hook |
+| `components/__tests__/InstrumentSearchInput.test.tsx` | — | 검색 인풋 |
+| `components/strategy/__tests__/BlockNode.test.tsx` | 10 | BlockNode 트리 조작·키보드 |
+| `components/strategy/__tests__/EvaluationResultCard.test.tsx` | 7 | BUY/SELL/HOLD 배지 |
+| `components/strategy/__tests__/StrategyBuilderCanvas.test.tsx` | 7 | 캔버스 entry/exit 탭 |
+| `lib/dsl/__tests__/parser.test.ts` | 9 | parseDslText 6단 재귀 |
+| `lib/dsl/__tests__/serializer.test.ts` | 7 | serializeBlockTree round-trip |
+| `lib/dsl/__tests__/yaml.test.ts` | 5 | kisYamlExport/Import |
+| `pages/Strategy/__tests__/StrategyBuilderPage.test.tsx` | 5 | StrategyBuilderPage 통합 |
+| `pages/Symbol/__tests__/SymbolDetailPage.test.tsx` | — | SymbolDetailPage 통합 |
+
+---
+
+## 17. v3.4.0 신규 변경 요약 (v3.3.0 대비)
+
+| 항목 | 변경 내용 | ADR/PR |
+|------|---------|--------|
+| `BacktestPage.tsx` | `/strategy/backtest` 라우트 신규 — 탭 네비·신규 실행·이력 뷰 | ADR 0061 §4 D-1, PR #332 |
+| `BacktestForm.tsx` | 전략 선택·종목·인터벌·기간·초기자본 폼 + `POST /api/backtests` | ADR 0061, PR #332 |
+| `BacktestList.tsx` | 목록 페이징·삭제·클릭→상세 전환 | ADR 0061, PR #332 |
+| `BacktestDetail.tsx` | 단건 메타+KPI + PENDING/RUNNING 3초 폴링 + SUCCEEDED→차트+테이블 + FAILED 안내 | ADR 0061, PR #332 |
+| `BacktestKpiPanel.tsx` | 총수익률·승률·MDD·Sharpe·거래수 5 KPI 카드 | ADR 0061, PR #332 |
+| `EquityCurveChart.tsx` | LWC v4 line series — 포지션 누적 PnL 곡선 + KST tickMarkFormatter (ADR 0025 LOCK) | ADR 0025·0061, PR #332 |
+| `TradeTable.tsx` | 거래 기록 페이징 테이블 — ts·side·price·quantity·fee·ruleSignal | ADR 0061, PR #332 |
+| `api/backtest.ts` | REST client 5 endpoint + 7 DTO 타입 신규 | ADR 0061, PR #332 |
+| `AppHeader.tsx` | 백테스트·전략 목록 메뉴 추가 (5 → 6 항목) | ADR 0061·0066, PR #332·#338 |
+| `StrategyListPage.tsx` | `/strategy/list` 라우트 신규 — StrategyList + SignalListPanel + useStompSignal 통합 | ADR 0066, PR #338 |
+| `StrategyCard.tsx` | 전략 단건 카드 — 상태 배지·토글·soft 삭제 | ADR 0066, PR #338 |
+| `StrategyList.tsx` | 전략 카드 그리드 + Intersection Observer 무한 스크롤 + 필터 적용 | ADR 0066, PR #338 |
+| `StrategyFilterBar.tsx` | status 4단 필터 탭 + ArrowLeft/ArrowRight 키보드 | ADR 0066, PR #338 |
+| `SignalCard.tsx` | 시그널 단건 카드 — side 배지·종목 링크·rule·ts·isNew 하이라이트 | ADR 0066, PR #338 |
+| `SignalListPanel.tsx` | 시그널 시계열 패널 + code/interval/side 필터 + 무한 스크롤 + 실시간 prepend | ADR 0066, PR #338 |
+| `useStompSignal.ts` | `/topic/signal.user.{userId}` STOMP 구독 + signalQueue(최근 20건) + ToastProvider 연동 | ADR 0066, PR #338 |
+| `ToastProvider.tsx` | 자체 Toast 시스템 (react-hot-toast 미사용 — 오프라인 번들 우선) — 4초 자동 소멸, ESC 키, MAX 5개, slide-in CSS | PR #338 |
+| `api/signal.ts` | REST client 2 endpoint + SignalDto·SignalPage·SignalListParams 타입 신규 | ADR 0066, PR #338 |
+| `api/strategy.ts` | `sigStrategyApi` 확장 (ADR 0066 `/api/strategies` 6 endpoint) + SigStrategyDto·SigStrategyPage·StrategyStatus 타입 신규 | ADR 0066, PR #338 |
+| `api/hooks/useSigStrategy.ts` | TanStack Query 6 hook 신규 (useSigStrategies·useSigStrategy·useCreateSigStrategy·useUpdateSigStrategy·useDeleteSigStrategy·useToggleSigStrategyStatus) | ADR 0066, PR #338 |
+| `api/hooks/useSignal.ts` | TanStack Query 2 hook 신규 (useSignals·useSignal) | ADR 0066, PR #338 |
+| Screenshot 검증 기록 | `_workspace/frontend/screenshot-desc/2026-05-12-stomp-boundary-subscribe.md` 기존 유지 (v3.3.0 검증 기록) | PR #321 |
+
+---
+
+## 18. ADR 인용 인덱스
+
+| ADR | 제목 | 관련 UI 항목 |
+|-----|------|------------|
+| ADR 0009 | frontend SPA + LWC v4 | 전체 프론트엔드 아키텍처 |
+| ADR 0014 | 실시간 시세 fallback tier | stale 배지 (live/delayed/closed) |
+| ADR 0019 | 캔들 인터벌 정책 | CandleInterval 타입, IntervalToggle |
+| ADR 0023 | AI 자연어 DSL 변환 | NaturalLanguageInput (사용자 트리거 only), LLM provider import 0건 |
+| ADR 0025 | LWC v4 차트 | LightweightChart, EquityCurveChart |
+| ADR 0029 | STOMP 실시간 캔들 | SymbolDetailPage STOMP 구독 |
+| ADR 0040 | 라우팅 + Watchlist 진입점 | App.tsx 라우트, WatchlistRow 이동 |
+| ADR 0048 | 호가 LRU 10 slot | SymbolOrderbook subscribe/unsubscribe |
+| ADR 0055 | Strategy Builder UI 스택 | StrategyBuilderPage (Monaco 없음) |
+| ADR 0061 | 백테스트 결과 영속 | BacktestPage + 6 컴포넌트 + backtestApi |
+| ADR 0062 | 5m~1h 합산 인터벌 활성화 | IntervalToggle 10종, AGGREGATED_INTERVALS |
+| ADR 0063 | NXT X축 커버 (08:00~20:00) | LightweightChart isIntradayInterval |
+| ADR 0064 | Redis boundary fanout + STOMP 실시간 합산 갱신 | useSymbolCandles STOMP 5종 + LightweightChart series.update + SymbolChart latestBoundaryCandle |
+| ADR 0066 | T-SIG 실시간 시그널 엔진 | StrategyListPage + StrategyCard/List/FilterBar + SignalCard/ListPanel + useStompSignal + ToastProvider + sigStrategyApi + signalApi |
