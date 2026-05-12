@@ -6,6 +6,7 @@
  * - <NavLink> — 활성 메뉴 highlight (aria-current 기반)
  * - SetupWizard(/setup)에서는 미표시 (App.tsx에서 제어)
  * - T-SIG Phase 3 (ADR 0066): "전략 목록" 메뉴 추가
+ * - T-RISK Phase 3 (ADR 0067): "리스크 설정"·"위반 이력"·"포지션" 메뉴 추가
  */
 import { NavLink } from 'react-router-dom'
 
@@ -91,6 +92,48 @@ export function AppHeader() {
             }
           >
             전략 목록
+          </NavLink>
+          {/* T-RISK Phase 3: 리스크 설정 메뉴 — ADR 0067 */}
+          <NavLink
+            to="/risk-config"
+            className={({ isActive }) =>
+              [
+                'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-950',
+                isActive
+                  ? 'bg-gray-800 text-white'
+                  : 'text-gray-400 hover:bg-gray-800/60 hover:text-gray-200',
+              ].join(' ')
+            }
+          >
+            리스크 설정
+          </NavLink>
+          {/* T-RISK Phase 3: 위반 이력 메뉴 — ADR 0067 */}
+          <NavLink
+            to="/risk-events"
+            className={({ isActive }) =>
+              [
+                'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-950',
+                isActive
+                  ? 'bg-gray-800 text-white'
+                  : 'text-gray-400 hover:bg-gray-800/60 hover:text-gray-200',
+              ].join(' ')
+            }
+          >
+            위반 이력
+          </NavLink>
+          {/* T-RISK Phase 3: 포지션 메뉴 — ADR 0067 */}
+          <NavLink
+            to="/positions"
+            className={({ isActive }) =>
+              [
+                'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-950',
+                isActive
+                  ? 'bg-gray-800 text-white'
+                  : 'text-gray-400 hover:bg-gray-800/60 hover:text-gray-200',
+              ].join(' ')
+            }
+          >
+            포지션
           </NavLink>
         </nav>
       </div>
