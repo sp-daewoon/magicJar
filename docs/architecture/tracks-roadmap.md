@@ -296,7 +296,7 @@
 - **선행/후행**: - / T-W1
 - **오프라인 동작**: 부분 (KIS REST `/oauth2/tokenP` 검증 의존 — 인터넷 끊기면 셋업 불가, 단 셋업 후 운영은 캐시·fallback으로 정상)
 - **KIS 흡수**: OAuth 토큰 발급(`/oauth2/tokenP`) — `kis_devlp.yaml` 정합 (실전 host `openapi.koreainvestment.com:9443` / 모의 host `openapivts.koreainvestment.com:29443`)
-- **ADR**: **0046 (Onboarding & Credential Registration)** + ADR 0010 (Multi-tenant 정합) + ADR 0044 (system_config Slack webhook 통합) + ADR 0038 (OAuth 토큰 캐시)
+- **ADR**: **0046 (Onboarding & Credential Registration)** + **0069 (SettingsModal vs SetupWizard 책임 분리 + 공통 컴포넌트 추출 + 미래 확장 5 step 표준 절차 — 2026-05-13 dogfooding 결함 응답)** + ADR 0010 (Multi-tenant 정합) + ADR 0044 (system_config Slack webhook 통합) + ADR 0038 (OAuth 토큰 캐시) + ADR 0068 §16-4 (RealTradingConsentToggle 이중 confirm UI)
 - **데이터**: `system_config`·`user_account`·`user_kis_credential` 신규 (V25) · `user_id`=KIS 실전계좌 8자리 · `account_type` 복합키 (REAL/MOCK)
 - **산출물**:
   - `domain/.../account/UserAccount.kt` · `UserKisCredential.kt` · `SystemConfig.kt`
@@ -305,11 +305,12 @@
   - `api/.../infrastructure/kis/KisAuthAdapter.kt` (검증용 — `/oauth2/tokenP` 호출)
   - `consumer/.../infrastructure/kis/KisAuthAdapter.kt` (운영용 — 토큰 캐시 + 분산락 ADR 0038 정합)
   - `domain/.../security/AesGcmCipher.kt` (AES-256-GCM 구현)
-  - `frontend/src/pages/Onboarding/OnboardingWizard.tsx` (Step 1~6 화면)
-  - `frontend/src/pages/Settings/SettingsModal.tsx` (system_config UI 통합)
+  - `frontend/src/pages/SetupWizard.tsx` (Step 1~5 화면 — 첫 셋업 베이스, ADR 0069 §1 책임 분리)
+  - `frontend/src/components/settings/SettingsModal.tsx` (운영 변경 모달, ADR 0069 §3 1차 scope — RealTradingConsentSection + KisCredentialSection + SystemConfigSection 3 section)
+  - `frontend/src/components/settings/forms/` (ADR 0069 §2 공통 입력 컴포넌트 6종 — KisCredentialForm·SecretKeyInput·SettingsSection·ConfirmDangerToggle·SystemConfigForm — SetupWizard·SettingsModal 양쪽 재사용)
   - Flyway `V25__onboarding_tables.sql` (3 테이블 + masked_account GENERATED 컬럼)
   - `.env.example` 갱신 — `MAGICJAR_SECRET_MASTER_KEY` 1개만 + KIS·DART 평문 deprecated 처리
-- **비범위**: 외부 secret manager 통합 (post-MVP — 0090 후보), 마스터 키 자동 회전 (post-MVP — 0091 후보), 사용자별 권한 분리 (post-MVP — 0092 후보)
+- **비범위**: 외부 secret manager 통합 (post-MVP — 0090 후보), 마스터 키 자동 회전 (post-MVP — 0091 후보 + ADR 0069 backlog §C 정합), 사용자별 권한 분리 (post-MVP — 0092 후보), OpenAI/Anthropic/Naver 키 section (ADR 0069 §7 §E·§F 후속 — T-AI 진입 시), KIS MOCK 키 DELETE (ADR 0069 §7 §A 2차 PR)
 
 ### T-NOTIFY — Notification System (ADR 0044 운영·UX fitness 갭 1번)
 
@@ -549,6 +550,7 @@ W4는 W3 완료 후 진입. W5는 옵션 (T-LWC는 W3와 병렬 가능).
 
 | 날짜 | 변경 |
 |---|---|
+| 2026-05-13 (ADR 0069) | **SettingsModal vs SetupWizard 책임 분리 ADR 0069 발행 정합** — §3 T-ONBOARD outline ADR 갱신 (0046 → 0046 + 0069 + 0068 §16-4 cross-ref 추가) + 산출물 매트릭스 보강 (SetupWizard.tsx 책임 분리 명시 + SettingsModal.tsx 1차 scope 3 section 명시 + forms/ 6 공통 컴포넌트 prepend — KisCredentialForm·SecretKeyInput·SettingsSection·ConfirmDangerToggle·SystemConfigForm) + 비범위 보강 (ADR 0069 backlog §A·§C·§E·§F 후속 명시 — KIS MOCK DELETE·마스터 키 회전·OpenAI/Naver 키). dogfooding 결함 응답 (RealTradingConsentToggle UI 접근 가능 path 확보 → T-O 자본 보호 검증 케이스 1·2·3 unblock). 트랙 신설 0건, T-ONBOARD outline 보강만. (architect, opus 4.7 1M) |
 | 2026-05-03 (v1) | 13 트랙 + 5 Wave (architect, opus 4.7 1M) — "AI Decision Layer T-RISK" 가정. 사용자 비전 정정으로 폐기. |
 | 2026-05-03 (v2) | **풀 재작성** — 14 트랙 + 5 Wave. AI 트랙(W4 T-AI·T-MCP) 분리. T-LWC LWC 확장(TradingView Advanced 폐기). T-LEARN 사용자 학습 신설. (architect, opus 4.7 1M) |
 | 2026-05-07 (PR-2) | §3 outline ADR 매핑 정합 — 옛 0032·0033·0034·0035·0036·0037·0038·0039·0040·0041·0042·0044·0045·0046 → 현행 0013·0014·0015·0016·0017·0018·0020·0021·0022·0023·0024·0025·0026·0027 재매핑. T-PAT/T-BT/T-SC/T-PERF 후속 후보 0048~0051 → 0041~0044 (README §12 정합). (architect) |

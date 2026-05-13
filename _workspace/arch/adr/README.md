@@ -1,6 +1,6 @@
 # magicJar ADR 목차
 
-아키텍처 결정 기록(Architecture Decision Record). 64건 sequential (0001~0057 Accepted + 0061·0062·0063·0066·0067 Accepted + 0064 Proposed 2026-05-12 + 0068 Proposed 2026-05-12 — 0058~0060·0065 예약). 2026-05-12 v3.2.3 doc cut — ADR 0019·0028·0029 §2 매트릭스 NXT/합산 5종 재통합 갱신 (status 정합, 결정 변동 0). 2026-05-12 v3.3.0 §34 plan — ADR 0064 신규 (Redis boundary fanout + STOMP 실시간 합산 갱신). 2026-05-12 v3.4.0 cut — ADR 0066 Accepted (T-SIG 실시간 시그널 엔진). 2026-05-12 v3.5.0 cut — ADR 0067 Accepted (T-RISK 리스크 관리). 2026-05-12 v3.6.0 진입 — ADR 0068 신규 (T-O 주문 실행 — W3 네 번째 트랙, 결정 의제 8건 대기). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
+아키텍처 결정 기록(Architecture Decision Record). 65건 sequential (0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069 Accepted + 0064 Proposed — 0058~0060·0065 예약). 2026-05-12 v3.2.3 doc cut — ADR 0019·0028·0029 §2 매트릭스 NXT/합산 5종 재통합 갱신 (status 정합, 결정 변동 0). 2026-05-12 v3.3.0 §34 plan — ADR 0064 신규 (Redis boundary fanout + STOMP 실시간 합산 갱신). 2026-05-12 v3.4.0 cut — ADR 0066 Accepted (T-SIG 실시간 시그널 엔진). 2026-05-12 v3.5.0 cut — ADR 0067 Accepted (T-RISK 리스크 관리). 2026-05-13 v3.6.0 cut — ADR 0068 Accepted (T-O 주문 실행, 채택 A-1~H-1). 2026-05-13 v3.6.1 dogfooding 결함 응답 — ADR 0069 Accepted (SettingsModal vs SetupWizard 책임 분리 + 공통 입력 컴포넌트 추출 + 미래 확장 5 step 표준 절차). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
 
 ## §1. 비전 (1건)
 
@@ -113,15 +113,16 @@
 | 0042 | Position Bootstrap & Recovery (앱 시작·WS 재연결 시 잔고 복구) | W1 |
 | 0043 | KillSwitch 행동 정의 (ON 시 신호·주문·통지·재시작 정책) | W3 |
 
-## §10-2. 운영·UX Fitness 갭 (3건)
+## §10-2. 운영·UX Fitness 갭 (4건)
 
-자동매매 본체 운영 안정성 + 첫 사용자 경험 — 2026-05-07 PR-3b 발굴.
+자동매매 본체 운영 안정성 + 첫 사용자 경험 — 2026-05-07 PR-3b 발굴 + 2026-05-13 dogfooding 결함 발굴(0069).
 
 | 번호 | 제목 | 영향 Wave |
 |------|------|------|
 | 0044 | Notification System (Slack webhook 1차 + Kafka 트리거 + outbox fallback) | W3 (T-NOTIFY 신설 후보) |
 | 0045 | Graceful Shutdown & In-flight 처리 (SIGTERM · Kafka manual commit · idempotency) | W1 (횡단 — 모든 트랙 의무) |
 | 0046 | Onboarding & Credential Registration (테이블 3종 분리 · 마스터 키 단일 예외) | W1 ★ (T-ONBOARD 신설 후보 — T-W1보다 먼저) |
+| 0069 | **SettingsModal vs SetupWizard 책임 분리 + 공통 입력 컴포넌트 추출 + 미래 확장 구조 (1차 PR scope: RealTradingConsentSection + KisCredentialSection + SystemConfigSection)** | W3 T-O 보강 (dogfooding 자본 보호 검증 unblock) |
 
 ## §10-3. DSL 안전성 (1건)
 
@@ -147,7 +148,7 @@
 
 - **새 ADR 발행 시** — 본 README + master §10 + tracks-roadmap §3 동시 갱신
 - **Superseded 처리 시** — 본문 상단 헤더 + 본 README 행 supersede 표기 (`_archive/` 이동은 v3.3.0 cycle에 일괄)
-- **신규 진입 시 후속 ADR 번호** — 0069부터 sequential (0001~0057 Accepted + 0058~0060·0065 예약 + 0061·0062·0063·0066·0067 Accepted + 0064·0068 Proposed 2026-05-12 — §2·§3·§5·§6·§10-1·§10-2·§10-3·§10-4·§5·§6 정합).
+- **신규 진입 시 후속 ADR 번호** — 0070부터 sequential (0001~0057 Accepted + 0058~0060·0065 예약 + 0061·0062·0063·0066·0067·0068·0069 Accepted + 0064 Proposed 2026-05-12 — §2·§3·§5·§6·§10-1·§10-2·§10-3·§10-4·§5·§6 정합).
 
 ## §12. 후속 예정 (Proposed)
 
