@@ -1750,3 +1750,55 @@ architect spec PR(본 사이클 — ADR 0068 plan 발행) — 결정 의제 8건
 - tracks-roadmap §2 T-O row (본 § 권위 인용)
 - master §10 ADR 0068 row + §C.12 (T-O 진입 표기)
 - 사용자 메모리 `project_system_vision.md`(룰 본체) · `feedback_v3_skepticism_no_regression.md`(fitness gap lens) · `feedback_3tier_hierarchy.md`(architect plan → sub-agent 직렬) · `feedback_kis_first_policy.md`(KIS-first raw 인용) · `feedback_kis_key_realonly_for_data.md`(정보 수집 REAL 키 단일, MAGICJAR_MODE 분기는 주문 액션만)
+
+---
+
+## §44. SettingsModal 후속 — KIS 키 변경 활성화 + 마스킹된 현재 키 표시 + active session 처리
+
+### 사유
+
+PR #389 SettingsModal 1차 구현은 ADR 0069 §3 1차 scope LOCK 정합으로 KIS 키 변경 submit을 **Option A (frontend stub/disabled)** 채택했음. 후속 PR에서 다음 3건 풀세트로 활성화 의제:
+
+1. **PUT endpoint 활성화** — 현재 SetupWizard `POST /api/onboarding/kis/{accountType}`는 첫 셋업 전용. 변경은 별도 endpoint `PUT /api/onboarding/kis/{accountType}` 분리 + AES 재암호화 + user_kis_credential 갱신
+2. **마스킹된 현재 키 표시** — 사용자가 "변경" 클릭 시 현재 등록된 키가 마스킹 형식으로 표시(예: `PSxx****xxx9`)되어 어떤 키인지 식별 후 변경 가능. 평문 절대 응답 금지. `MaskedKisCredentialResponseDto` 신규
+3. **active session invalidate** — KIS 키 변경 시 KisAuthAdapter Redis cache(`kis:approval:{userId}`·`kis:token:{accountType}:{userId}`) 즉시 invalidate + WS 재연결 트리거 + 5초 잠금(double-submit 방지)
+
+### 트리거
+
+- v3.6.x patch 사이클에서 우선순위 보고
+- 또는 사용자가 dogfooding 중 "키 변경 못 함" 보고 시 즉시
+
+### 보강 안 (예상 PR 매트릭스)
+
+- **PR-A backend-core**: `PUT /api/onboarding/kis/{accountType}` + `MaskedKisCredentialResponseDto` + `GET /api/onboarding/kis/credentials` (마스킹 응답) + KisAuthAdapter Redis invalidate 메서드 + 5초 잠금 + Swagger 4단
+- **PR-B frontend**: `KisCredentialSection` submit 활성화 + GET 마스킹 응답 표시 + 변경 후 토스트 + WS 재연결 안내
+
+### 연관
+
+- ADR 0069 §3 (1차 PR scope LOCK — 후속 의제 §I 명시)
+- ADR 0046 (Onboarding Setup + AES 암호화 baseline)
+- PR #389 (SettingsModal 1차 구현 — KIS 키 변경 submit disabled)
+- 사용자 메모리 `project_kis_key_management.md`(운영 중 ⚙️ 입력)·`feedback_kis_key_realonly_for_data.md`(REAL 키 단일)·`feedback_secret_handling.md`(키 평문 응답 금지)
+
+---
+
+## §45. SettingsModal future API 키 카테고리 — OpenAI·Anthropic·Naver·KillSwitch·account_prdt_cd
+
+### 사유
+
+ADR 0069 §3 1차 scope는 KIS 키 + System Config(DART·Slack) 2건. ADR §7 backlog 의제 10건 중 미래 확장 카테고리 의제:
+
+- **§E OpenAI / Anthropic 키** — T-AI 진입 시 LLM provider 키 (env에서 옮길지 검토)
+- **§F Naver 뉴스 API 키** — 뉴스 감성 분석 트랙 진입 시
+- **§G KillSwitch 토글** — T-RECON·T-NOTIFY 마감 후 사용자 수동 KillSwitch UX
+- **§H account_prdt_cd 변경** — 종합매매 vs CMA 등 계좌상품코드 변경 UX
+- **§I display_name 변경** — user_account.display_name UX
+- **§J `/settings` route 보존** — 모달 vs 페이지 분기 검토 (모바일 진입 시점)
+
+### 트리거
+
+- 각 카테고리 의제 진입 시점 (예: §E는 T-AI 진입 시, §G는 T-RECON·T-NOTIFY 마감 후)
+
+### 연관
+
+- ADR 0069 §3 + §7 backlog (10건 매트릭스)
