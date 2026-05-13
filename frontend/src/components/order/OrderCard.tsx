@@ -1,0 +1,82 @@
+/**
+ * OrderCard — 주문 단건 카드 (T-O Phase 3 — ADR 0068 §16)
+ *
+ * 표시: status badge · side · code · qty · price · createdAt · mode(MOCK/REAL)
+ * 클릭 시 /orders/:id 상세 이동
+ */
+import { useNavigate } from 'react-router-dom'
+import type { OrderListItemDto } from '../../api/order'
+import { OrderStatusBadge } from './OrderStatusBadge'
+
+interface OrderCardProps {
+  order: OrderListItemDto
+}
+
+function formatDate(iso: string): string {
+  const d = new Date(iso)
+  return d.toLocaleString('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+}
+
+function formatPrice(price: number | null | undefined): string {
+  if (price === null || price === undefined) return '시장가'
+  return price.toLocaleString('ko-KR') + '원'
+}
+
+export function OrderCard({ order }: OrderCardProps) {
+  const navigate = useNavigate()
+
+  const sideLabel = order.side === 'BUY' ? '매수' : '매도'
+  const sideColor = order.side === 'BUY' ? 'text-red-400' : 'text-blue-400'
+
+  return (
+    <button
+      type="button"
+      onClick={() => navigate(`/orders/${order.id}`)}
+      className="w-full rounded-xl border border-gray-800 bg-gray-900 p-4 text-left transition-colors hover:border-gray-700 hover:bg-gray-800/70 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-950"
+    >
+      <div className="flex items-start justify-between gap-2">
+        {/* 왼쪽: 종목 + 방향 + 모드 */}
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <span className="text-base font-semibold text-white">{order.code}</span>
+            <span className={`text-sm font-medium ${sideColor}`}>{sideLabel}</span>
+            {order.mode === 'REAL' && (
+              <span className="rounded bg-red-900/50 px-1.5 py-0.5 text-xs font-bold text-red-400">
+                REAL
+              </span>
+            )}
+            {order.mode === 'MOCK' && (
+              <span className="rounded bg-gray-700 px-1.5 py-0.5 text-xs text-gray-400">
+                MOCK
+              </span>
+            )}
+          </div>
+          <div className="text-sm text-gray-400">
+            {order.quantity.toLocaleString('ko-KR')}주 &middot; {formatPrice(order.limitPrice)} &middot;{' '}
+            {order.priceType === 'MARKET' ? '시장가' : '지정가'}
+          </div>
+          {order.rejectReason && (
+            <div className="mt-0.5 text-xs text-red-400">거절 사유: {order.rejectReason}</div>
+          )}
+        </div>
+
+        {/* 오른쪽: 상태 + 시각 */}
+        <div className="flex flex-col items-end gap-1">
+          <OrderStatusBadge status={order.status} />
+          <span className="text-xs text-gray-500">{formatDate(order.requestedAt)}</span>
+          {order.completedAt && (
+            <span className="text-xs text-gray-600">완료: {formatDate(order.completedAt)}</span>
+          )}
+        </div>
+      </div>
+    </button>
+  )
+}
