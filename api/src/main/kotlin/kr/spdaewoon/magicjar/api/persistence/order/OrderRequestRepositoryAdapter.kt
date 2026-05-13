@@ -1,0 +1,150 @@
+package kr.spdaewoon.magicjar.api.persistence.order
+
+import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
+import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
+import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
+import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
+import org.springframework.data.domain.PageRequest
+import org.springframework.data.domain.Sort
+import org.springframework.stereotype.Component
+import org.springframework.transaction.annotation.Transactional
+import java.time.Instant
+
+/**
+ * OrderRequestRepository port JPA 어댑터 — Flyway V20 정합 (ADR 0068 §15-2 LOCK).
+ *
+ * 헌법 §6 (ADR 0051) 준수: 헬퍼 메서드는 interface 0건, 이 클래스 private fun 위치.
+ *
+ * // AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8)
+ */
+@Component
+class OrderRequestRepositoryAdapter(
+    private val jpa: OrderRequestJpaRepository,
+) : OrderRequestRepository {
+    @Transactional
+    override fun save(request: OrderRequest): OrderRequest = toDomain(jpa.save(toEntity(request)))
+
+    @Transactional(readOnly = true)
+    override fun findById(id: Long): OrderRequest? = jpa.findById(id).map { toDomain(it) }.orElse(null)
+
+    @Transactional(readOnly = true)
+    override fun findByKisOrderNo(kisOrderNo: String): OrderRequest? = jpa.findByKisOrderNo(kisOrderNo)?.let { toDomain(it) }
+
+    @Transactional(readOnly = true)
+    override fun findByIdempotencyKey(idempotencyKey: String): OrderRequest? =
+        jpa.findByIdempotencyKey(idempotencyKey)?.let { toDomain(it) }
+
+    @Transactional(readOnly = true)
+    override fun findOpenByUserId(userId: String): List<OrderRequest> = jpa.findOpenByUserId(userId).map { toDomain(it) }
+
+    @Transactional
+    override fun updateStatus(
+        id: Long,
+        status: OrderStatus,
+        rejectReason: String?,
+    ): OrderRequest? {
+        val entity = jpa.findById(id).orElse(null) ?: return null
+        entity.status = status
+        entity.rejectReason = rejectReason
+        return toDomain(jpa.save(entity))
+    }
+
+    @Transactional
+    override fun updateKisAck(
+        id: Long,
+        kisOrderNo: String,
+        kisFwdgOrgno: String,
+        acknowledgedAt: Instant,
+    ): OrderRequest? {
+        val entity = jpa.findById(id).orElse(null) ?: return null
+        entity.kisOrderNo = kisOrderNo
+        entity.kisFwdgOrgno = kisFwdgOrgno
+        entity.acknowledgedAt = acknowledgedAt
+        entity.status = OrderStatus.ACK
+        return toDomain(jpa.save(entity))
+    }
+
+    @Transactional
+    override fun markCompleted(
+        id: Long,
+        completedAt: Instant,
+        finalStatus: OrderStatus,
+    ): OrderRequest? {
+        val entity = jpa.findById(id).orElse(null) ?: return null
+        entity.status = finalStatus
+        entity.completedAt = completedAt
+        return toDomain(jpa.save(entity))
+    }
+
+    /**
+     * 사용자 시계열 주문 페이징 — OrderQueryService에서 직접 호출.
+     */
+    @Transactional(readOnly = true)
+    fun findByUserAndRange(
+        userId: String,
+        from: Instant?,
+        to: Instant?,
+        statuses: List<OrderStatus>?,
+        page: Int,
+        size: Int,
+    ): org.springframework.data.domain.Page<OrderRequest> {
+        val pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "requestedAt"))
+        val fromTs = from ?: Instant.EPOCH
+        val toTs = to ?: Instant.now().plusSeconds(86400)
+        return if (statuses.isNullOrEmpty()) {
+            jpa.findByUserIdAndRequestedAtBetween(userId, fromTs, toTs, pageable).map { toDomain(it) }
+        } else {
+            jpa
+                .findByUserIdAndStatusInAndRequestedAtBetween(userId, statuses, fromTs, toTs, pageable)
+                .map { toDomain(it) }
+        }
+    }
+
+    // --- private helper ---
+
+    private fun toEntity(domain: OrderRequest): OrderRequestJpaEntity =
+        OrderRequestJpaEntity(
+            id = domain.id,
+            signalId = domain.signalId,
+            userId = domain.userId,
+            code = domain.code,
+            side = domain.side,
+            qty = domain.quantity.toBigDecimal(),
+            priceType = domain.priceType,
+            limitPrice = domain.limitPrice,
+            status = domain.status,
+            mode = domain.mode,
+            idempotencyKey = domain.idempotencyKey,
+            kisOrderNo = domain.kisOrderNo,
+            rejectReason = domain.rejectReason,
+            requestedAt = domain.requestedAt,
+            acknowledgedAt = domain.acknowledgedAt,
+            completedAt = domain.completedAt,
+        )
+
+    private fun toDomain(entity: OrderRequestJpaEntity): OrderRequest =
+        OrderRequest(
+            id = entity.id,
+            signalId = entity.signalId,
+            userId = entity.userId,
+            strategyId = 0L,
+            code = entity.code,
+            side = safeEnum<OrderSide>(entity.side.name) ?: OrderSide.BUY,
+            priceType = safeEnum<OrderPriceType>(entity.priceType.name) ?: OrderPriceType.MARKET,
+            quantity = entity.qty.toInt(),
+            limitPrice = entity.limitPrice,
+            status = safeEnum<OrderStatus>(entity.status.name) ?: OrderStatus.REQUESTED,
+            mode = safeEnum<TradingMode>(entity.mode.name) ?: TradingMode.MOCK,
+            idempotencyKey = entity.idempotencyKey,
+            kisOrderNo = entity.kisOrderNo,
+            kisFwdgOrgno = entity.kisFwdgOrgno,
+            rejectReason = entity.rejectReason,
+            requestedAt = entity.requestedAt,
+            acknowledgedAt = entity.acknowledgedAt,
+            completedAt = entity.completedAt,
+        )
+
+    private inline fun <reified T : Enum<T>> safeEnum(value: String): T? = runCatching { enumValueOf<T>(value) }.getOrNull()
+}
