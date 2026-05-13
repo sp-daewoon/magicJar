@@ -6,11 +6,12 @@ import kr.spdaewoon.magicjar.domain.instrument.corpaction.CorpAction
 import kr.spdaewoon.magicjar.domain.instrument.corpaction.CorpActionType
 import kr.spdaewoon.magicjar.domain.instrument.corpaction.port.DartDisclosureFetcher
 import org.slf4j.LoggerFactory
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
-import org.springframework.web.reactive.function.client.WebClient
-import org.springframework.web.reactive.function.client.WebClientResponseException
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
 import java.time.Duration
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -38,12 +39,14 @@ import java.time.format.DateTimeFormatter
  * corp_code ↔ stock_code 매핑: DartCorpCodeRepository (in-memory).
  * 본문 상세(document.xml) fetch: 비범위 (ADR 0018 §4-7 — list만).
  *
+ * [SSL fix — hotfix/dart-ssl-handshake]
+ * Reactor Netty + SslProvider.JDK 조합에서 opendart.fss.or.kr SSL handshake_failure 발생.
+ * Fix (H3): java.net.http.HttpClient 전환 — JDK 21 TLS 스택 직접 사용.
+ *
  * OPENDART_API_KEY 미발급 시: WARN 로그 + empty 반환 (graceful degrade — ADR 0018 §4-8).
  */
 @Component
 class DartDisclosureAdapter(
-    @Qualifier("dartWebClient")
-    private val webClient: WebClient,
     private val objectMapper: ObjectMapper,
     private val dartCorpCodeRepository: DartCorpCodeRepository,
     @Value("\${OPENDART_API_KEY:}")
@@ -51,6 +54,16 @@ class DartDisclosureAdapter(
 ) : DartDisclosureFetcher {
     private val log = LoggerFactory.getLogger(DartDisclosureAdapter::class.java)
     private val dtf = DateTimeFormatter.ofPattern("yyyyMMdd")
+
+    /**
+     * java.net.http.HttpClient — JDK 21 TLS 스택 직접 사용.
+     * Reactor Netty SslContextBuilder 우회 (cipher list 제한 문제 해결).
+     */
+    private val httpClient: HttpClient =
+        HttpClient
+            .newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .build()
 
     // DART OPENDART list.json endpoint
     // 출처: https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS001&apiId=2019001
@@ -110,6 +123,8 @@ class DartDisclosureAdapter(
      *
      * endpoint: https://opendart.fss.or.kr/api/list.json
      * 출처: https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS001&apiId=2019001
+     *
+     * java.net.http.HttpClient 사용 — JDK 21 TLS 직접 (Reactor Netty cipher 제한 우회).
      */
     private fun fetchPage(
         corpCode: String?,
@@ -128,17 +143,22 @@ class DartDisclosureAdapter(
             }
 
         return try {
-            val body =
-                webClient
-                    .get()
-                    .uri("$dartListUrl$params")
-                    .header("content-type", "application/json; charset=UTF-8")
-                    .retrieve()
-                    .bodyToMono(String::class.java)
+            val request =
+                HttpRequest
+                    .newBuilder()
+                    .uri(URI.create("$dartListUrl$params"))
                     .timeout(Duration.ofSeconds(15))
-                    .block() ?: return emptyList()
+                    .header("Accept", "application/json; charset=UTF-8")
+                    .GET()
+                    .build()
 
-            val root = objectMapper.readTree(body)
+            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(Charsets.UTF_8))
+            if (response.statusCode() != 200) {
+                log.error("[DART] HTTP 에러 status=${response.statusCode()} body=${response.body().take(200)}")
+                return emptyList()
+            }
+
+            val root = objectMapper.readTree(response.body())
             val status = root.path("status").asText("")
             if (status != "000") {
                 log.warn("[DART] list.json 에러 status=$status message=${root.path("message").asText()}")
@@ -147,9 +167,6 @@ class DartDisclosureAdapter(
             val list = root.path("list")
             if (!list.isArray) return emptyList()
             parseDisclosureList(list, pblntfTy)
-        } catch (e: WebClientResponseException) {
-            log.error("[DART] HTTP 에러 status=${e.statusCode} body=${e.responseBodyAsString.take(200)}")
-            emptyList()
         } catch (e: Exception) {
             log.error("[DART] 조회 실패 ${e.message}")
             emptyList()
