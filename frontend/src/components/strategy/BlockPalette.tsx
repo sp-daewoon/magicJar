@@ -20,6 +20,8 @@ type PaletteTab = 'indicator' | 'pattern' | 'candle' | 'operator'
 interface BlockPaletteProps {
   /** 블록 선택 시 콜백 — 선택된 BlockNode 반환 */
   onSelect: (block: BlockNode) => void
+  /** 패널 폭(px) — usePaletteResize hook에서 주입. 미전달 시 224px(w-56) 기본값 */
+  width?: number
 }
 
 /** 카테고리 한국어 매핑 */
@@ -123,7 +125,7 @@ const NAV_LINK_INACTIVE = 'text-gray-400 hover:bg-gray-800/60 hover:text-gray-20
 const ITEM_BTN =
   'w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-gray-800 transition-colors focus:outline-none focus:ring-1 focus:ring-blue-400 flex items-center justify-between gap-2'
 
-export function BlockPalette({ onSelect }: BlockPaletteProps) {
+export function BlockPalette({ onSelect, width = 224 }: BlockPaletteProps) {
   const [tab, setTab] = useState<PaletteTab>('indicator')
   const [query, setQuery] = useState('')
 
@@ -186,7 +188,8 @@ export function BlockPalette({ onSelect }: BlockPaletteProps) {
 
   return (
     <aside
-      className="flex h-full w-56 flex-shrink-0 flex-col border-r border-gray-800 bg-gray-950"
+      className="flex h-full flex-shrink-0 flex-col border-r border-gray-800 bg-gray-950 overflow-hidden"
+      style={{ width: `${width}px`, minWidth: '200px', maxWidth: '480px' }}
       aria-label="블록 팔레트"
     >
       {/* 탭 */}

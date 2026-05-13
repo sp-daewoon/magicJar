@@ -18,6 +18,7 @@
  * 룰 5: LLM provider import 0건
  */
 import { useState } from 'react'
+import { usePaletteResize } from '../../hooks/usePaletteResize'
 import { BlockPalette } from '../../components/strategy/BlockPalette'
 import { StrategyBuilderCanvas } from '../../components/strategy/StrategyBuilderCanvas'
 import { ComplexityCard } from '../../components/strategy/ComplexityCard'
@@ -56,6 +57,7 @@ export function StrategyBuilderPage() {
 
   const { mutate: validateMutate, isPending: isValidating } = useStrategyValidate()
   const { mutate: evaluateMutate, isPending: isEvaluating } = useStrategyEvaluate()
+  const { width: paletteWidth, handleMouseDown: handlePaletteResizeDown, isDragging: isPaletteResizing } = usePaletteResize()
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast(msg)
@@ -196,8 +198,30 @@ export function StrategyBuilderPage() {
 
       {/* 데스크톱 레이아웃 */}
       <div className="hidden min-h-0 flex-1 lg:flex">
-        {/* 좌: 팔레트 */}
-        <BlockPalette onSelect={handlePaletteSelect} />
+        {/* 좌: 팔레트 + 드래그 리사이즈 핸들 */}
+        <BlockPalette onSelect={handlePaletteSelect} width={paletteWidth} />
+        {/* ResizeHandle — col-resize 핸들 */}
+        <div
+          role="separator"
+          aria-label="팔레트 폭 조절"
+          aria-orientation="vertical"
+          className={[
+            'relative z-10 flex w-1.5 flex-shrink-0 cursor-col-resize select-none items-center justify-center',
+            'hover:bg-blue-500/40 active:bg-blue-500/60',
+            isPaletteResizing ? 'bg-blue-500/60' : 'bg-transparent',
+            'transition-colors duration-100',
+          ].join(' ')}
+          onMouseDown={handlePaletteResizeDown}
+          title="드래그하여 패널 폭 조절"
+        >
+          {/* 핸들 점선 비주얼 */}
+          <div
+            className={[
+              'h-12 w-0.5 rounded-full',
+              isPaletteResizing ? 'bg-blue-400' : 'bg-gray-700 group-hover:bg-blue-500',
+            ].join(' ')}
+          />
+        </div>
 
         {/* 중: 캔버스 */}
         <StrategyBuilderCanvas
