@@ -1,0 +1,559 @@
+# 07 — MD 룰 정책 진화 (v3.5.0 → v3.6.0)
+
+> **작성자**: architect (PR-54)
+> **시점**: 2026-05-13 v3.6.0 태그 컷 직후
+> **사용자 명시 의도**: "우리 md 룰 정책의 변화로 더 나아지고 있다는 점을 어필 할 수 있는 목록" (v3.1.0 baseline에서 도입 — v3.6.0까지 누적 갱신)
+
+본 문서는 **v3.5.0 → v3.6.0 정책 진화**를 추적한다. 추측 0 — 모든 룰은 운영 헌법(`_workspace/arch/agent-charter.md`) 7 § + Living Policy(`docs/architecture/policies/`) + ADR 0049(Superseded)~0068 + backlog 처리 매트릭스로 추적 가능.
+
+각 § 본문은 **도입 전 / 도입 후 / 효과 / 사례 PR** 4단 구조다 (v3.1.0·v3.2.0·v3.2.2·v3.3.0·v3.4.0·v3.5.0 baseline 정합).
+
+**v3.5.0 baseline 보존**: §1~§5 정책 진화 (v3.5.0 3건 + 누적 v3.1.0~v3.5.0 21건) + §6~§7 다음 Wave + 누적 매트릭스는 v3.6.0 사이클에서 **갱신 0** (안정화 + 보존). 본 v3.6.0에서는 §1·§2·§3·§4 4건 신규 정책 진화 + §6 다음 Wave 정책 후보 갱신 + §7 누적 매트릭스 갱신.
+
+**v3.6.0 사이클 정책 진화 4건**:
+1. **ADR 0068 — T-O 주문 실행 (Risk ALLOWED → KIS REST 매수·매도 + WS H0STCNI0 체결 추적 + 사용자 수동 정정/취소 + 3 테이블 영속 + STOMP 4 event + 멱등성 Redis SETNX + 실계좌 3중 게이트 자본 보호 LOCK)** — 자동매매 본체 종착 실행 노드 가동 baseline (W3 네 번째 트랙)
+2. **3중 게이트 자본 보호 LOCK 신규 (의제 A-1 채택)** — `MAGICJAR_MODE=REAL` env × `MAGICJAR_ALLOW_REAL=true` env × `user_account.real_trading_consent_at IS NOT NULL` 사용자 동의 토글 — 모두 충족 시에만 KIS prod endpoint 호출. CLAUDE.md 함정 4번(이중 게이트) baseline 위에 1 layer 추가 강화. 사용자 메모리 `feedback_kis_key_realonly_for_data.md` 정합(데이터 출처 분기 0 + 주문 액션만 mode 분기)
+3. **KIS-first raw KDoc 의무 (헌법 §3 + ADR 0068 §7-5)** — TTTC0012U·VTTC0012U·TTTC0011U·VTTC0011U·TTTC0013U·VTTC0013U 6 tr_id + H0STCNI0/H0STCNI9 26 컬럼 모두 `examples_user/domestic_stock/domestic_stock_functions.py` L10097~L10884 + `domestic_stock_functions_ws.py` L389~L446 raw 인용 의무. KisOrderHttpAdapter·KisExecutionWsListener 코드 KDoc inline 인용 LOCK
+4. **release 절차 보강 + ADR 0052 §X 신규 (사용자 점검 흡수 정합)** — `scripts/release.sh --backfill` 풍부 합성 + ADR 0052 §X "release notes 작성 절차" 5 단계(plan → baseline 생성 → html → Hero 본문 추출 → release.sh --backfill 자동 합성) + 7 GitHub Release 풍부 재발행 + `scripts/sync-readme-releases.mjs` 자동 갱신 헬퍼. 사용자 점검 evidence("릴리즈 노트가 v3.3.1~v3.5.0 성의없고 알 수 없는 축약어만") 즉시 흡수
+
+추가로 **정밀 명세서 패턴 LOCK (ADR 0068 §14·§15·§16·§17)** — Phase 별 sub-agent 디스패치 사전 정밀 명세서 의무 패턴 정착. 사용자 명시 "확실히 오류 없이 잘 낼 수 있게 설계하라" 정합. v3.7.x 이후 W3 잔여 트랙 진입 시점에도 동일 패턴 적용 baseline LOCK.
+
+---
+
+## §0. 운영 헌법 7 § (보존 — v3.1.0~v3.5.0 baseline 그대로)
+
+운영 헌법 7 §는 v3.1.0 PR-26(#224)에서 통합 발행된 후 v3.2.0·v3.2.2·v3.3.0·v3.4.0·v3.5.0 사이클에서 보존 + v3.5.0 사이클에서 §3 KIS-first raw fetch 본문 간략화(charter는 간단 인용 + Living Policy `docs/architecture/policies/kis-first-raw-fetch.md`가 권위 본문 LOCK — PR #349 정합) + v3.6.0 사이클에서 본문 갱신 0(보존). 안정화 검증 — 본 v3.6.0 10 PR 사이클에서 다음 영역 모두 헌법 정합:
+
+| § | 제목 | v3.6.0 사이클 검증 |
+|---|------|---------------------|
+| §1 | task.mjs 4단계 의무 | 모든 sub-agent 디스패치 사이클(PR #370·#371·#372·#373·#374·#375·#376) start·check·done 4단계 호출 — 누적 task archive 정합 |
+| §2 | 머지 후 정리 4단계 | PR #370~#375 머지 후 즉시 worktree 제거 + task archive (orchestrator가 v3.6.0 cut PR + baseline init PR #376 동시에 chore archive 묶음 처리 — 헌법 §2 정합) |
+| §3 | KIS-first raw fetch 의무 | **v3.6.0 사이클 핵심 강화 영역** — T-O는 KIS 주문 endpoint 6 tr_id + WS H0STCNI0/H0STCNI9 26 컬럼 신규 결정 + raw KDoc 인용 의무 LOCK(KisOrderHttpAdapter·KisExecutionWsListener). 사용자 메모리 `feedback_kis_first_policy.md` 정합. Living Policy `docs/architecture/policies/kis-first-raw-fetch.md` 5단계 의무 절차 정합 + 본 ADR 0068 §7-5 인용 인벤토리 표 추가 |
+| §4 | CHANGELOG 슬롯 채번룰 | PR #370~#376 모두 anchor 사전 발행 + sub-agent in-place edit. modify-shared 충돌 0건. **본 PR-54 baseline 사이클도 anchor 4건(`<!-- pr-54-slot-architect/backend-core/market-data/frontend -->`) 사전 발행 정합** (`orchestrator` slot 1건 포함하여 총 5 anchor) |
+| §5 | PR 생성 직전 rebase 의무 | 본 PR-54 포함 모든 사이클 적용 — 통합 빌드 fail 0건 |
+| §6 | JPA Repository default fun 함정 | ADR 0068 §11-1 sub-agent 디스패치 매트릭스에서 `OrderRequestJpaAdapter` · `OrderExecutionJpaAdapter` · `OrderAuditEventJpaAdapter` (ADR 0051 default fun 함정 회피 — abstract만) 정합 명시. PR #374 본격 구현에 inline 주석 검증 |
+| §7 | sub-agent fail 분기 룰 | PR #370·#371·#372·#373·#374·#375·#376 모든 본격 사이클 — 재디스패치 0건. **hotfix 0건 (정밀 명세 §14·§15·§16 LOCK 효과)**. modify-shared 충돌 0건 + sub-agent fail 분기 0건. 사용자 메모리 `feedback_conflict_resolution_autonomy.md` 정합 |
+
+**baseline 정합**: v3.2.0 시점 통합한 헌법이 v3.2.2·v3.3.0(실시간 fanout) + v3.4.0(T-SIG + GHA 폐기) + v3.5.0(T-RISK + README 굴직 + release.sh) + v3.6.0(T-O + 3중 게이트 + 정밀 명세 패턴 + release 절차 보강) 사이클까지 완주 — 갱신 의제 0건.
+
+---
+
+## §1. ADR 0068 — T-O 주문 실행 (자동매매 본체 종착 실행 노드 가동)
+
+### 도입 전
+
+v3.5.0 baseline 시점 자동매매 본체 종착 실행 노드 **부재**:
+- ADR 0067(T-RISK) ALLOWED 시그널이 Kafka `order.intent.v1` publish — 단 consumer 0 (메시지 누적만)
+- ADR 0011(Order Executor 3 modes)·ADR 0024(Risk Guard) 골격 권위만 발행 — 실제 가동 0
+- ADR 0042(Position Bootstrap) 부팅 시 KIS 잔고 워밍만 — 체결 후 position 갱신 0
+- ADR 0044(Notification System) 사전 자산만 — order.*.v1 진입점 0
+- ADR 0046(Onboarding & Credential) `user_kis_credential.account_type` REAL/MOCK 2종 row baseline만 — 실제 주문 액션에서 fetch 0
+- ADR 0048(KIS WS 41 한도)에 H0STCNI0/H0STCNI9 체결통보 매트릭스 row 0
+
+**자동매매 본체 종착 노드 결함**:
+- **T-RISK ALLOWED → 실제 주문 미발행** — 자동매매 본체 0
+- **사용자 수동으로 KIS HTS·MTS 주문 입력 의무** — magicJar 가치 0
+- **audit trail 부재** — 시그널·리스크·주문 cross-ref 추적 불가
+- **실계좌 자본 보호 부재** — env 이중 게이트만(CLAUDE.md 함정 4번 baseline)이지만 사용자 명시 동의 부재 risk
+- **체결 추적 부재** — 주문 발행 후 체결 확인 부재 → position 갱신 0 → P&L 계산 불가
+- **KIS-first raw 인용 부재** — 주문 endpoint·tr_id 자체 추론 risk (헌법 §3 위반 risk)
+
+### 도입 후
+
+ADR 0068 (PR #370 plan + PR #371 Accepted + PR #372 정밀 명세 §14·§15·§16·§17 보강 + PR #373 Phase 1 + PR #374 Phase 2 + PR #375 Phase 3) — 사용자 결정 의제 8건 권장안 채택:
+
+**의제 A 모의/실전 분기**: A-1 환경변수 이중 게이트 + 사용자 동의 토글 (3중 게이트) 채택 — (a) `MAGICJAR_MODE=MOCK|REAL` env (b) `MAGICJAR_ALLOW_REAL=true` env (c) `user_account.real_trading_consent_at` 사용자 동의 토글 — 3개 모두 충족 시에만 REAL 주문 KIS endpoint 호출. CLAUDE.md 함정 4번 baseline 위에 1 layer 추가.
+
+**의제 B KIS endpoint**: B-1 단일 `OrderRouterPort` + `KisOrderAdapter`(mode 분기 내부) 채택 — port 단일 + adapter 내부 `TradingModeGate.resolveMode` 후 tr_id 선택 + KIS REST 호출 단일 path.
+
+**의제 C 주문 가격**: C-1 ORD_DVSN 매트릭스 시장가(01) + 지정가(00) 채택 — signal.contextJson에서 priceType·limitPrice 읽음. C-2 슬리피지 후속 backlog §43+.
+
+**의제 D 체결 추적**: D-1 KIS WS H0STCNI0 체결통보 실시간 listen 채택 — OrderRouter 호출 후 KIS WS `ccnl_notice` subscribe → 체결통보 수신 시 order_execution INSERT + order.filled.v1 publish + STOMP FILLED. ADR 0048 41건 baseline에서 사용자별 1 구독 추가(margin 30건 OK).
+
+**의제 E 정정/취소**: E-1 사용자 수동 (REST `POST /api/orders/{id}/cancel`) — 1차 MVP 채택. UI 주문 카드 [취소] 버튼 → `order-rvsecncl` 호출(RVSE_CNCL_DVSN_CD="02"). 사용자=최고 관리자 비전 정합. E-2 자동 취소 worker 후속 backlog §44+. E-3 정정 후속 backlog §46+.
+
+**의제 F 영속**: F-1 3 테이블 분리 (`order_request` + `order_execution` + `order_audit_event`) 채택 — 도메인 분리 명확 · ADR 0061·0067 패턴 일관 · 분할 체결 1:N cover · audit trail 풍부.
+
+**의제 G 알림**: G-1 STOMP `/topic/order.user.{userId}` 4 event type discriminator (REQUESTED·FILLED·REJECTED·CANCELLED) 채택 — ADR 0044 Slack 후속 합류점.
+
+**의제 H 멱등성**: H-1 Redis SETNX 60s + DB UQ 이중 채택 — T-SIG signal 1건 = order 최대 1건 LOCK + Kafka consumer 재시작 시 중복 처리 회피 + KIS API 중복 호출 0(자본 손실 risk 회피).
+
+**`domain/.../order` 본체** (PR #373):
+- `OrderIntent` data class(Kafka payload 도메인)
+- `OrderRequest` data class(영속 도메인 — status·mode·kisOrderNo?·kisFwdgOrgno?·rejectReason?·requestedAt·acknowledgedAt?·completedAt? 추가)
+- `OrderExecution` data class(분할 체결 1건)
+- `OrderAuditEvent` data class(audit row, payload JSONB)
+- `OrderSide` enum(BUY·SELL)
+- `OrderPriceType` enum(MARKET=ORD_DVSN "01"·LIMIT=ORD_DVSN "00")
+- `OrderStatus` enum 7단(REQUESTED·ACK·FILLED·PARTIALLY_FILLED·REJECTED·CANCELLED·EXPIRED)
+- `OrderAuditEventType` enum 12단(REAL_GATE_DENIED·IDEMPOTENCY_SKIPPED·KILLSWITCH_DENIED·KIS_ACK·KIS_REJECT·KIS_EXCEPTION·FILL_RECEIVED·PARTIAL_FILL·FULL_FILL·KIS_CANCEL_ACK·KIS_CANCEL_REJECT·EXECUTION_TIMEOUT·EXECUTION_OVERFLOW)
+- `DenyReason` sealed class(RealGateDenied·IdempotencyDuplicate·KillSwitchOn·KisRejected)
+- `KisOrderAck` data class
+- 9 port(OrderRequestRepository · OrderExecutionRepository · OrderAuditEventRepository · KisOrderPort · TradingModeGate · OrderIdempotencyGuard · OrderNotifier · PositionUpdatePort · KillSwitchPort) Pure Kotlin
+
+**`OrderRouterKafkaListener` 12 step LOCK** (PR #373 — ADR 0068 §14-2):
+```
+1. payload deserialize → OrderIntent
+2. OrderIdempotencyGuard.acquire ("idem:order:${key}", 60s SETNX)
+   ├─ false → audit `IDEMPOTENCY_SKIPPED` + STOMP X + Kafka commit + return
+3. TradingModeGate.resolveMode(intent.userId) — 3중 게이트
+   ├─ Left(RealGateDenied(cond)) → order_request INSERT(status=REJECTED, reject_reason=cond, mode) + audit `REAL_GATE_DENIED` + STOMP REJECTED + Kafka order.rejected.v1 publish + return
+   └─ Right(mode) → 진행
+4. KillSwitch 재검증 (ADR 0024·0043)
+   ├─ ON → order_request INSERT(status=REJECTED, reject_reason="KILLSWITCH_ON", mode) + audit `KILLSWITCH_DENIED` + STOMP REJECTED + Kafka order.rejected publish + return
+5. order_request INSERT(status=REQUESTED, mode, idempotency_key=intent.idempotencyKey)
+6. STOMP notifyRequested + Kafka order.requested.v1 publish (병렬)
+7. KisOrderHttpAdapter.submit(intent, mode)
+   ├─ KIS REST 5xx → catch → 1회 retry (500ms backoff)
+   │   ├─ 2회 fail → audit `KIS_EXCEPTION` + order_request UPDATE(status=REJECTED, reject_reason="KIS_5XX") + STOMP REJECTED + Kafka order.rejected publish + return
+   ├─ KIS REST 200 rt_cd != "0" → audit `KIS_REJECT` + order_request UPDATE(status=REJECTED, reject_reason="${rt_cd}:${msg}") + STOMP REJECTED + Kafka order.rejected publish + return
+   └─ KIS REST 200 rt_cd == "0" → 진행
+8. order_request UPDATE(status=ACK, kis_order_no=output.ODNO, kis_fwdg_orgno=output.KRX_FWDG_ORD_ORGNO, acknowledged_at=NOW())
+9. audit `KIS_ACK` (payload={ODNO, KRX_FWDG_ORD_ORGNO})
+10. (FILLED 통보는 별도 KisExecutionWsListener — 본 listener는 ACK 까지만)
+11. Kafka commit (수동 ack — KafkaListenerContainerFactory.ackMode=MANUAL_IMMEDIATE)
+12. Micrometer counter `magicjar_order_processed_total{result=ACK|REJECTED|SKIPPED}` 증가
+```
+
+**Kafka consumer 설정 LOCK** (자본 보호):
+- `enable.auto.commit=false`
+- `ack-mode=MANUAL_IMMEDIATE` (step 11 시점만 commit)
+- `max.poll.records=1` (분당 burst 회피)
+- `concurrency=1` per partition (멀티스레드 race 회피 — 자본 path)
+- `isolation.level=read_committed`
+
+**`KisOrderHttpAdapter`·`KisExecutionWsListener`·`TradingModeGateImpl`·`OrderIdempotencyGuardImpl`·`PositionUpdateAdapter` + 4 Kafka Producer** (PR #373·#374):
+- KisOrderHttpAdapter — KIS REST `order-cash` + `order-rvsecncl` 6 tr_id 분기 + raw KDoc 의무
+- KisExecutionWsListener — H0STCNI0/H0STCNI9 26 컬럼 매핑 LOCK + CNTG_YN 분기(1=접수/2=체결) + 분할 체결 1:N cover
+- TradingModeGateImpl 4 case 분기
+- OrderIdempotencyGuardImpl Redis SETNX 60s
+- PositionUpdateAdapter ADR 0042·0067 정합
+- 4 Kafka Producer retention 30d partition by userId
+
+**Flyway V20~V24** (PR #374):
+- V20 `order_request` — BIGSERIAL + idempotency_key UQ + kis_order_no UQ + CHECK 6건 + partial idx WHERE status IN open · `IF NOT EXISTS`
+- V21 `order_execution` — order_id FK ON DELETE CASCADE + 분할 체결 1:N + idx_order_user_time · `IF NOT EXISTS`
+- V22 `order_audit_event` — JSONB + event_type 12단 + order_id FK CASCADE + 1 idx · `IF NOT EXISTS`
+- V23 `user_account.real_trading_consent_at` ALTER `ADD COLUMN IF NOT EXISTS` + COMMENT 부착 자본 보호 명시
+- V24 spare reserved
+
+**V18 ADR 0042 충돌 패턴 재발 회피 LOCK** (사용자 메모리 정합) — 모든 신규 테이블 IF NOT EXISTS + 기존 테이블 확장 ADD COLUMN IF NOT EXISTS 의무. v3.5.0 V18 hotfix 패턴 정합.
+
+**REST 4 endpoint** (PR #374):
+- `GET /api/orders` 페이징(?status·side·code·from·to·page·size)
+- `GET /api/orders/{id}` 단건(request + executions[] + auditEvents[])
+- `POST /api/orders/{id}/cancel` 사용자 수동 취소
+- `PUT /api/user-account/real-trading-consent` 동의 토글
+
+**frontend `/orders`·`/orders/:id` 2 페이지 + 6 컴포넌트** (PR #375):
+- OrdersPage 무한스크롤 + OrderFilterBar
+- OrderDetailPage with executions[] + audit_events[] + CancelOrderButton
+- 6 컴포넌트: OrderCard · OrderStatusBadge 7 status 색상 매트릭스 LOCK · ExecutionTable 분할 체결 시계열 + footer sum · OrderAuditTimeline · CancelOrderButton(확인 모달 의무) · **RealTradingConsentToggle SettingsModal 이중 confirm UX LOCK**
+- 5 hook: useOrders · useOrder · useCancelOrder · useUpdateRealTradingConsent · useStompOrder(4 event 토스트 매트릭스)
+
+**fitness gap 분석 (ADR 0068 §1-3)**:
+- **자동매매에 필수** — magicJar 비전 정의 "룰 기반 quant trading 본체"의 **종착 실행 노드**. 부재 시 T-SIG·T-RISK ALLOWED 게이트 통과해도 실제 주문 미발행
+- **v1/v2 잔재 아님** — ADR 0011·0024(2026-05-03)는 골격만 정의. v1/v2 시점 실제 주문 코드 0건(PoC 코드 v3.0.0 전체 정리). 본 ADR이 그 자산의 W3 실제 구현 권위
+- **사용자 비전 정합** — 사용자=최고 관리자/설계자 + 사용자 수동 cancel only(자동 X — 통제 비전 정합) + 이중 confirm UX + MCP 외부 client query 후속
+
+### 효과
+
+- **자동매매 본체 종착 실행 노드 가동** — T-SIG 시그널 → T-RISK ALLOWED → **T-O 실제 KIS 주문 발행** → 체결 추적 → position 갱신 → 사용자 알림 chain 완성
+- **ADR 0011·0024 권위 W3 구현** — Order Executor 3 modes + Risk Guard 골격 → 본 ADR이 실제 가동 + AI 호출 0 검증 의무 grep
+- **ADR 0042 Position Bootstrap PositionUpdateAdapter 합류** — 부팅 워밍 + 체결 후 position 갱신 chain 완성
+- **ADR 0067 T-RISK `order.intent.v1` 진입점 활용** — Kafka 1 hop으로 decoupled + audit trail 7d retention
+- **사용자 UX 완성** — `/orders` + `/orders/:id` + RealTradingConsentToggle 이중 confirm + 실시간 STOMP 4 event 토스트 + 시계열 audit + status badge 7단
+- **T-RECON·T-NOTIFY·T-PERF·T-J 후행 의존 자산 LOCK** — `order.filled.v1` Kafka topic이 T-RECON 진입점(KIS H0STCNI0 vs internal drift) + `order.*.v1` 4 topic이 T-NOTIFY 진입점(ADR 0044) + order_execution이 T-PERF baseline(Sharpe·MDD) + order_audit_event이 T-J Journal 베이스
+- **MCP 외부 client 정합 후속** — order_request/order_execution/order_audit_event REST API(`GET /api/orders`·`/api/orders/{id}`)를 후행 ADR 0027(MCP)에서 외부 client 노출 가능
+- **운영 영향** — DB ~140K row/year per user · Kafka 4 토픽 신규 retention 30d · STOMP 0.0017 msg/s · Redis idem:order TTL 60s · KIS REST 추가 호출 ~50/일 per user · KIS WS 구독 +1 (사용자당 ~11건 margin 30 OK) · KIS prod endpoint 호출 0건 LOCK(3중 게이트 미충족 시)
+- **end-to-end latency** — T-SIG 100ms + T-RISK 75ms + T-O 235ms = <405ms 총합 (boundary 마감 → 사용자 STOMP REQUESTED 토스트 + KIS ACK)
+- **체결 통보 latency** — KIS WS H0STCNI0 → STOMP FILLED <50ms
+
+### 사례 PR
+
+- **PR #370** (architect plan) — ADR 0068 plan 발행 (Status `Proposed`, 사용자 결정 의제 8건 대기)
+- **PR #371** (architect Accepted) — ADR 0068 Proposed → Accepted (사용자 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1 채택)
+- **PR #372** (architect 정밀 명세 보강) — ADR 0068 §14·§15·§16·§17 정밀 명세서 4 § 추가 (사용자 "확실히 오류 없이" 정합)
+- **PR #373** (strategy-engine Phase 1 본격) — domain Order 12 + 9 port + consumer 10 컴포넌트 + 4 Kafka producer + 26 Unit Test
+- **PR #374** (backend-core Phase 2 본격) — Flyway V20~V24 + JPA 3쌍 + REST 4 endpoint + StompOrderNotifier + 통합 테스트
+- **PR #375** (frontend Phase 3 본격) — `/orders`·`/orders/:id` 2 페이지 + 6 컴포넌트 + RealTradingConsentToggle 이중 confirm + 5 hook + useStompOrder 4 event 토스트 매트릭스
+- **(v3.6.0 release)** — v3.6.0 minor release T-O W3 네 번째 트랙 마감
+
+---
+
+## §2. 3중 게이트 자본 보호 LOCK 신규 (의제 A-1 채택)
+
+### 도입 전
+
+v3.5.0 baseline 시점 실주문 게이트 상태(CLAUDE.md 함정 4번):
+- env `MAGICJAR_MODE=REAL` + env `MAGICJAR_ALLOW_REAL=true` 이중 게이트 baseline (CLAUDE.md 명시)
+- 사용자 명시 동의 부재 — env만으로 실 자본 변동 risk
+- dev/staging은 항상 `MAGICJAR_MODE=MOCK` default — 자동 KIS VPS endpoint
+- 단, T-O 진입 시점부터 실 자본 변동 노드라 1 layer 더 강화가 안전 ROI 압도적
+
+**자본 보호 결함**:
+- env 실수 시 실 주문 risk — `.env` 편집 실수로 ALLOW_REAL=true 들어가면 다음 시그널 즉시 실주문
+- 사용자 명시 동의 부재 — 시스템이 "실 자본 변동 모드 들어갑니다, 동의하세요"라고 묻지 않음
+- 동일 결제 라인 위반 risk — 단순 환경변수가 자본 손실 risk 보호의 유일 layer
+
+### 도입 후
+
+ADR 0068 의제 A-1 채택 (PR #371) — **3중 게이트** 도입:
+
+**조건 1: env `MAGICJAR_MODE`**
+- default = "MOCK" (안전 default)
+- "REAL" 시 조건 2 검사 진입
+- 그 외 모든 값 → `TradingMode.MOCK` fallback (Either.Right)
+
+**조건 2: env `MAGICJAR_ALLOW_REAL`**
+- default = "false" (CLAUDE.md 함정 4번 baseline 정합)
+- "true" 시 조건 3 검사 진입
+- 그 외 → `Either.Left(RealGateDenied("MAGICJAR_ALLOW_REAL=false"))`
+
+**조건 3: `user_account.real_trading_consent_at IS NOT NULL`** (v3.6.0 신규)
+- default = NULL (실 자본 변동 거부)
+- 사용자가 SettingsModal RealTradingConsentToggle ON + 이중 confirm 통과 시 NOW() UPDATE
+- NULL 시 → `Either.Left(RealGateDenied("CONSENT_NOT_GIVEN"))`
+- user not found → `Either.Left(RealGateDenied("USER_NOT_FOUND"))`
+
+**3개 모두 통과 시** → `Either.Right(TradingMode.REAL)` — KIS prod endpoint(`openapi.koreainvestment.com:9443`) 호출 가능.
+
+**`TradingModeGateImpl` 정밀 (ADR 0068 §14-3)** — `consumer/.../order/TradingModeGateImpl.kt`:
+```kotlin
+override fun resolveMode(userId: String): Either<DenyReason.RealGateDenied, TradingMode> {
+    val envMode = System.getenv("MAGICJAR_MODE") ?: "MOCK"
+    val allowReal = System.getenv("MAGICJAR_ALLOW_REAL") == "true"
+
+    if (envMode != "REAL") return Either.Right(TradingMode.MOCK)
+    if (!allowReal) return Either.Left(DenyReason.RealGateDenied("MAGICJAR_ALLOW_REAL=false"))
+
+    val user = userAccountRepository.findById(userId)
+        ?: return Either.Left(DenyReason.RealGateDenied("USER_NOT_FOUND"))
+    if (user.realTradingConsentAt == null) return Either.Left(
+        DenyReason.RealGateDenied("CONSENT_NOT_GIVEN")
+    )
+
+    return Either.Right(TradingMode.REAL)
+}
+```
+
+**위반 시 즉시 처리** (OrderRouterKafkaListener step 3 분기):
+- `order_request` INSERT(status=REJECTED, reject_reason=condition, mode=정해진 mode)
+- `order_audit_event` INSERT(event_type=`REAL_GATE_DENIED`, payload={condition})
+- `StompOrderNotifier.notifyRejected` → STOMP REJECTED 토스트
+- `OrderRejectedKafkaProducer.publish(order.rejected.v1)` → ADR 0044 Notification 진입
+- **KIS prod endpoint 호출 0건 LOCK** — application 로그 grep 검증 "openapi.koreainvestment.com:9443" 0건
+
+**`RealTradingConsentToggle` SettingsModal UI** (PR #375 — ADR 0068 §16-4 이중 confirm UX):
+```
+Toggle ON 시:
+1차 confirm: "실거래 모드를 활성화합니다. 실제 자본이 사용됩니다. 동의하십니까?"
+   사용자 [확인]
+2차 confirm: "재확인: 자본 손실 risk를 이해하고 동의합니다."
+   사용자 [확인]
+   ↓
+PUT /api/user-account/real-trading-consent body={consent: true}
+   ↓
+user_account.real_trading_consent_at = NOW() UPDATE
+   ↓
+UI에 동의 시각 빨강 표시
+```
+
+Toggle OFF 시 → `consent: false` → `real_trading_consent_at = NULL` UPDATE.
+
+**dogfooding 케이스 2 검증** (ADR 0068 §16-5):
+```
+사전 조건: MAGICJAR_MODE=REAL + MAGICJAR_ALLOW_REAL=false (또는 토글 OFF)
+검증 절차:
+1. signal manual 발행 → T-RISK ALLOWED → order.intent.v1 publish
+2. OrderRouterKafkaListener → TradingModeGate.resolveMode → Left(RealGateDenied("MAGICJAR_ALLOW_REAL=false"))
+3. /orders 페이지 → REJECTED 토스트 (빨강) 표시
+4. DB: order_request 1 row (status=REJECTED, reject_reason="MAGICJAR_ALLOW_REAL=false")
+5. DB: order_audit_event 1 row (event_type=REAL_GATE_DENIED)
+6. KIS prod endpoint 호출 0건 (자본 보호 LOCK)
+   - application 로그 grep "openapi.koreainvestment.com:9443" 0건
+```
+
+### 효과
+
+- **사용자 자본 실 변동 노드의 안전 의무 충족** — env 실수 단일 layer가 아닌 3 layer 다중 보호
+- **사용자 명시 동의 LOCK** — 시스템이 사용자에게 명시적으로 묻고 동의 시각 영속 (`user_account.real_trading_consent_at`)
+- **CLAUDE.md 함정 4번 baseline 강화** — env 이중 게이트 위에 1 layer 추가가 안전 ROI 압도적
+- **dev/staging 자동 MOCK** — `MAGICJAR_MODE` default = MOCK (기존 baseline 그대로). 본 ADR에서 default 변경 0
+- **dogfooding 검증 의무** — 케이스 2(3중 게이트 BLOCKED → KIS prod 호출 0건 log evidence) 사용자 검증 1회 의무
+- **사용자 메모리 정합** — `feedback_kis_key_realonly_for_data.md`(데이터 출처 분기 0 + 주문 액션만 mode 분기) + `project_kis_key_management.md`(SettingsModal 입력 baseline 이미 있음) + `feedback_verification_strict.md`(KIS prod 호출 0건 log evidence 의무)
+
+### 사례 PR
+
+- **PR #371** (architect Accepted) — ADR 0068 의제 A-1 채택 → 3중 게이트 baseline LOCK
+- **PR #372** (architect 정밀 명세 §14-3) — TradingModeGateImpl 4 case 정밀 코드 LOCK
+- **PR #373** (strategy-engine Phase 1) — `consumer/.../order/TradingModeGateImpl.kt` 본격 구현 + TradingModeGateImplTest 4 케이스
+- **PR #374** (backend-core Phase 2) — `RealTradingConsentService` + Flyway V23 `user_account.real_trading_consent_at` ALTER + REST PUT consent endpoint
+- **PR #375** (frontend Phase 3) — `RealTradingConsentToggle` SettingsModal 이중 confirm UX LOCK + dogfooding 케이스 2 검증
+
+---
+
+## §3. KIS-first raw KDoc 의무 (헌법 §3 + ADR 0068 §7-5)
+
+### 도입 전
+
+v3.5.0 baseline 시점 KIS-first raw fetch 정책 상태:
+- 헌법 §3 baseline 발효 (charter 본문 + Living Policy 5단계 절차 + 사용자 메모리 `feedback_kis_first_policy.md`)
+- T-RISK는 KIS REST/WS 직접 호출 0건 — Kafka 내부 토픽만 listen이라 §3 면제
+- 단, T-O 진입 시 신규 KIS 주문 endpoint 호출 → §3 의무 영역 진입 의무
+- 자체 추론 risk — tr_id·endpoint·body·response 매트릭스 자체 추론 시 v1/v2 잔재 회귀 risk + 실 자본 손실 risk 직결
+
+### 도입 후
+
+ADR 0068 §7-5 + Living Policy `docs/architecture/policies/kis-first-raw-fetch.md` 정합 — **KIS-first raw KDoc 의무 LOCK**:
+
+**raw 출처 인벤토리 (ADR 0068 §7-5)**:
+
+| 컴포넌트 | raw 출처 | line | tr_id |
+|---|---|---|---|
+| KisOrderHttpAdapter.submit (BUY) | `examples_user/domestic_stock/domestic_stock_functions.py` | L10097~L10213 | TTTC0012U / VTTC0012U |
+| KisOrderHttpAdapter.submit (SELL) | 위와 동일 | 위와 동일 | TTTC0011U / VTTC0011U |
+| KisOrderHttpAdapter.cancel | 위와 동일 (`def order_rvsecncl`) | L10771~L10884 | TTTC0013U / VTTC0013U |
+| KisExecutionWsListener | `examples_user/domestic_stock/domestic_stock_functions_ws.py` (`def ccnl_notice`) | L389~L446 | H0STCNI0 / H0STCNI9 |
+
+**`KisOrderHttpAdapter` KDoc LOCK** (ADR 0068 §14-5 + PR #373):
+```kotlin
+package kr.spdaewoon.magicjar.consumer.order
+
+/**
+ * KIS REST 주식 현금 매수/매도 어댑터 (T-O ADR 0068 §14)
+ *
+ * raw 출처: https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions.py
+ * line 10097~10213 (def order_cash)
+ *
+ * tr_id 매트릭스:
+ * - TTTC0012U: 실전 주식 현금 매수
+ * - VTTC0012U: 모의 주식 현금 매수
+ * - TTTC0011U: 실전 주식 현금 매도
+ * - VTTC0011U: 모의 주식 현금 매도
+ *
+ * endpoint: POST /uapi/domestic-stock/v1/trading/order-cash
+ *
+ * AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8)
+ */
+@Component
+class KisOrderHttpAdapter(...) : KisOrderPort { ... }
+```
+
+**`KisExecutionWsListener` 26 컬럼 매핑 LOCK** (ADR 0068 §14-6) — 26 컬럼 매핑 표(idx 0~25)가 코드 KDoc 또는 별도 파일에 명시 의무:
+
+| idx | KIS 필드 | magicJar 도메인 |
+|---|---|---|
+| 0~5 | CUST_ID·ACNT_NO·**ODER_NO**·OODER_NO·SELN_BYOV_CLS·RCTF_CLS | userId·계좌·**kis_order_no**·정정 기준·매도매수·정정구분 |
+| 6~11 | ODER_KIND·ODER_COND·STCK_SHRN_ISCD·**CNTG_QTY**·**CNTG_UNPR**·**STCK_CNTG_HOUR** | OrderPriceType·주문조건·종목·**executed_quantity**·**executed_price**·executed_at |
+| 12~14 | **RFUS_YN**·**CNTG_YN**·**ACPT_YN** | 거부·체결·접수 분기 |
+| 15~25 | BRNC_NO·ODER_QTY·ACNT_NAME·CNTG_ISNM·CRDT_CLS·CRDT_LOAN_DATE·CNTG_ISNM40·ODER_PRC + reserved | audit payload |
+
+**body 매트릭스 KDoc LOCK** (KIS-first raw 인용):
+- `order-cash` body: CANO · ACNT_PRDT_CD · PDNO · **ORD_DVSN**(00=지정가, 01=시장가) · **ORD_QTY** String · **ORD_UNPR**(시장가는 "0") · EXCG_ID_DVSN_CD="KRX" · **SLL_TYPE**(매도시 "01") · CNDT_PRIC
+- `order-rvsecncl` body: CANO · ACNT_PRDT_CD · **KRX_FWDG_ORD_ORGNO**(원주문) · **ORGN_ODNO** · ORD_DVSN · **RVSE_CNCL_DVSN_CD**(01=정정, 02=취소) · ORD_QTY · ORD_UNPR · **QTY_ALL_ORD_YN**(Y=전량) · EXCG_ID_DVSN_CD="KRX"
+
+**response 매트릭스 KDoc LOCK**:
+- output.**ODNO** — KIS 주문번호 (`order_request.kis_order_no` cross-ref)
+- output.**KRX_FWDG_ORD_ORGNO** — 한국거래소전송주문조직번호 (정정/취소 시 의무 동반)
+- output.**ORD_TMD** — 주문시각 HHMMSS
+
+**검증 의무 (sub-agent PR 본문 evidence)**:
+- KIS-first raw 인용 inline KDoc 의무 (KisOrderHttpAdapter·KisExecutionWsListener) — PR #373 evidence 첨부
+- 자체 추론 0건 — KIS open-trading-api 레포 directory L 번호 인용 의무
+- 5단계 의무 절차 정합 (Living Policy `docs/architecture/policies/kis-first-raw-fetch.md`)
+
+### 효과
+
+- **자체 추론 0건 LOCK** — tr_id·endpoint·body·response 매트릭스 모두 raw 출처 인용. 자체 추론 시 baseline 흡수 PR 발행 의무(Living Policy 정합)
+- **v1/v2 잔재 회귀 risk 0** — KIS open-trading-api 레포 baseline. v3 시점 신규 인용
+- **실 자본 손실 risk 직결 회피** — 잘못된 tr_id로 KIS 호출 시 사용자 자본 변동 직접 → raw 인용 의무로 회피
+- **헌법 §3 5단계 절차 정합 강화** — 본 ADR 0068이 §3 강조 영역(주문 endpoint·체결통보 WS) 첫 본격 적용 사례
+- **sub-agent 디스패치 시 architect 검증 의무** — PR #373 본문에 raw 출처 + line 번호 evidence 첨부 의무
+
+### 사례 PR
+
+- **PR #370·#372** (architect plan + 정밀 명세) — ADR 0068 §7-5 raw 인용 인벤토리 + §14-5·§14-6 KDoc 코드 LOCK
+- **PR #373** (strategy-engine Phase 1) — `KisOrderHttpAdapter`·`KisExecutionWsListener` 본격 구현 + raw KDoc 인용 inline + PR 본문 evidence 첨부
+
+---
+
+## §4. release 절차 보강 + ADR 0052 §X 신규 (사용자 점검 흡수 정합)
+
+### 도입 전
+
+v3.5.0 baseline 시점 release 절차 상태:
+- ADR 0049 Superseded(v3.4.0 사용자 결정 GHA 결제 폐기) + `scripts/release.sh` 신규(v3.5.0 PR #358) — GHA 없이 GitHub Release 자동 승격
+- 단 `release.sh --backfill`이 CHANGELOG row 한 줄만 추출 → release notes 풍부도 0
+- v3.3.0까지는 사용자 직접 발행한 baseline-level 본문(Hero + 시퀀스 + ADR 인용 + dogfooding) vs v3.3.1·v3.4.0·v3.5.0 등 8건은 축약어만
+- ADR 0052·`magicjar-baseline` skill 본문에 release notes 작성 절차 자체가 명시 X
+- README "Releases & Baseline 진화 매트릭스" 부재 — GitHub 방문자 진입 경로 부재
+- baseline 발행 시 README 매트릭스 자동 갱신 헬퍼 부재
+
+**사용자 점검 evidence (2026-05-12)**:
+> "릴리즈는 /baseline 으로 md html 생성하고 나서 릴리즈 하고 해당 데이터를 기반한걸 릴리즈 노트에 명시 했던거 같은데? 아닌가?"
+> "v3.3.0 까지는 릴리즈 노트가 상당히 상세했는데 v3.3.1부터~v3.5.0까지는 왜 이렇게 성의없고 알 수 없는 축약어만 늘어놓은거야?"
+
+architect 점검 결과 사용자 인식 정확.
+
+### 도입 후
+
+PR #367·#368·#369 정합 정리 (3 PR 묶음):
+
+**PR #367 `release.sh` 풍부 합성 + ADR 0052 §X 보강 + 7 release 재발행** — `docs(arch+scripts): release 절차 ADR 0052 §X 보강 + release.sh 풍부 합성 + 7 GitHub Release 재발행`:
+
+(a) `scripts/release.sh --backfill` 본문 풍부 합성 보강:
+- baseline html Hero 본문 추출 자동
+- ADR 인용 자동 합성 (release 시점 신규 ADR row)
+- dogfooding evidence row 추가
+- 사용자 직접 작성 본문 fallback 옵션
+
+(b) ADR 0052 §X "release notes 작성 절차" 5 단계 신규 추가:
+1. **plan**: plan PR(spec/plan)에서 release 사이클 의제 명시
+2. **baseline 생성**: `_workspace/baseline/v{X.Y.Z}/` 폴더 신설 + 7 파일 본격 작성(architect README+01+06+07, backend-core 02+04, market-data 03, frontend 05)
+3. **html**: baseline 7 md → html 변환 (`scripts/baseline-html.sh` 또는 사용자 직접)
+4. **Hero 본문 추출**: html `<header>` Hero section + 통계 매트릭스 + 핵심 ADR 인용 자동 추출
+5. **release.sh --backfill 자동 합성**: 위 4 단계 결과를 release.sh가 `gh release create --notes` body로 자동 합성
+
+(c) 7 GitHub Release 풍부 재발행:
+- v3.1.0·v3.1.1·v3.2.1·v3.2.2·v3.2.3·v3.3.1·v3.4.0·v3.5.0 (8 release)
+- 각 release body가 v3.3.0 수준의 baseline-level 본문으로 재발행 evidence
+- 사용자 검증 1회 후속
+
+**PR #368 README "Releases & Baseline 진화 매트릭스" 추가** — `docs(readme): Releases & Baseline 진화 매트릭스 추가`:
+
+README 신규 § "Releases & Baseline 진화":
+- v3.0.1·v3.1.0~v3.6.0 시계열 row
+- 각 row: 미러스톤·baseline 폴더 링크·release 노트 링크·핵심 ADR 인용·핵심 PR
+- 사용자 비전 "프로젝트의 꽃" README 확장 정합
+- GitHub 방문자 진입 경로 명시 (외부 자원이 magicJar 누적 진화도 한눈에)
+
+**PR #369 `sync-readme-releases.mjs` 자동 갱신 헬퍼** — `feat(scripts): sync-readme-releases.mjs — README 매트릭스 자동 갱신`:
+
+`scripts/sync-readme-releases.mjs` 신규:
+- release tag `git tag --list "v*"` + baseline 폴더 `ls _workspace/baseline/` 매트릭스 추출
+- README "Releases & Baseline 진화" § 시계열 row 자동 prepend
+- release.sh 후행 step에 자동 호출 합성 (ADR 0052 §X 단계 5 정합)
+- 사용자 결정 α 정합 (release/baseline 발행 시 README 매트릭스 자동 갱신)
+
+### 효과
+
+- **사용자 점검 evidence 즉시 흡수** — "릴리즈 노트 성의없다" 명시 → 본 사이클 3 PR로 해소
+- **release notes 풍부도 회복** — v3.3.0 수준 baseline-level 본문 8 release 재발행
+- **release 절차 SoT 명시** — ADR 0052 §X로 5 단계 절차 LOCK + magicjar-baseline skill 본문 정합 후속
+- **README 외부 자원 진입 경로 확장** — Releases & Baseline 매트릭스로 GitHub 방문자 자율 탐색 가능
+- **자동 갱신 헬퍼** — release tag + baseline 폴더 → README 시계열 자동 갱신 (`sync-readme-releases.mjs`)
+- **사용자 메모리 정합** — 사용자 점검 흡수 + "프로젝트의 꽃" README 정합 + `feedback_no_github_actions.md` LOCK 보존(GHA 없이 alternative 강화)
+
+### 사례 PR
+
+- **PR #367** (architect+scripts) — `release.sh` 풍부 합성 + ADR 0052 §X 보강 + 7 release 풍부 재발행
+- **PR #368** (docs · README 매트릭스) — Releases & Baseline 진화 매트릭스 추가
+- **PR #369** (scripts · 자동 갱신 헬퍼) — `sync-readme-releases.mjs` 신규 + release.sh 후행 step 자동 호출 합성
+
+---
+
+## §5. ~~ADR 0049 GHA 폐기~~ · ~~ADR 0057 KIS-only~~ · ~~ADR 0062·0063·0064~~ · ~~ADR 0061·0066·0067~~ (v3.4.0~v3.5.0 baseline 보존 — v3.6.0 갱신 0)
+
+v3.4.0·v3.5.0 baseline 07-policy-evolution.md §3·§4·§5 보존. v3.6.0 사이클에서 본 정책은 모두 보존:
+- ADR 0049 Superseded → `scripts/release.sh` + `sync-readme-releases.mjs` alternative 강화 (§4 위)
+- ADR 0057 KIS-only — T-O는 KIS REST 주문 + WS 체결통보 추가(prod credential 단일 채널 + account_type REAL/MOCK 분기 — 데이터 출처 분기 0, 사용자 메모리 정합)
+- ADR 0062 합산 가공 plan — T-O 영향 0 보존
+- ADR 0063 NXT/통합거래 cover — T-O `EXCG_ID_DVSN_CD="KRX"` default (NXT 후속 backlog)
+- ADR 0064 boundary fanout — T-O 영향 0 (signal.generated.v1 진입점 이미 v3.4.0)
+- ADR 0061 T-BT 영속 baseline — T-O 3 테이블 분리 패턴이 본 ADR 3 테이블 + REST 5 endpoint 패턴 정합
+- ADR 0066 T-SIG signal 영속 — T-O signal cross-ref 정합 + `signal.generated.v1` Kafka 진입점 정합
+- ADR 0067 T-RISK Risk Gateway — **T-O `order.intent.v1` Kafka topic이 본 ADR baseline 진입점 LOCK** (signal → risk → order chain)
+
+**v3.7.x minor 진입 시 architect 단독 PR 의제** (ADR 0019·0023·0024·0029·0041·0042·0043·0044·0046·0047·0048·0056·0062·0064·0066·0067 본문 갱신 + T-O 합류 정합 LOCK):
+- ADR 0023 §2-1·§2-2 본문 — Order Execution 종착 노드 + 3중 게이트 + signal → risk → order chain deterministic LOCK
+- ADR 0024 §2 골격 본문 — KillSwitch 재검증 단계(OrderRouter step 4) + RealGate denied 분기
+- ADR 0041 §결정 본문 — `order.filled.v1` T-RECON 진입점 baseline + KIS H0STCNI0 vs internal drift 검출
+- ADR 0042 §결정 본문 — PositionUpdateAdapter 합류점 + V20~V23 IF NOT EXISTS 패턴 evidence
+- ADR 0043 §결정 본문 — OrderRouter step 4 재검증 단계
+- ADR 0044 §결정 본문 — 4 order.* topic 진입점 + priority 매트릭스
+- ADR 0046 §결정 본문 — account_type REAL/MOCK 분기 의무 명시
+- ADR 0047 §2-6 V26·V27 → V14~V24 baseline 재할당
+- ADR 0048 §결정 본문 — H0STCNI0 사용자별 1 구독 row
+- ADR 0066 §11-4 본 ADR 0068 row
+- ADR 0067 §11-4 + §결정 본문 본 ADR 0068 row + `order.intent.v1` T-O 진입점 LOCK
+- ADR 0019 §2-1 본체 종착 노드 + 자본 보호 LOCK 명시
+
+---
+
+## §6. 다음 Wave 정책 후보 (W3 잔여 진입 시 발행 예정)
+
+W3 잔여 진입(Screener · Reconciliation · Performance · Notification · Trading Journal) 시 발행 예정 ADR/정책:
+
+### 6-1. ADR 후보
+
+| ADR 후보 | 주제 | 트리거 |
+|---------|------|--------|
+| ADR (1건) | ADR 0019·0023·0024·0029·0041·0042·0043·0044·0046·0047·0048·0056·0062·0064·0066·0067 본문 갱신 통합 (T-O 합류 후속 정합 + V14~V24 baseline 재할당) | v3.7.x minor 진입 시 architect 단독 PR |
+| **ADR 0065** | **Screener 표준 (universe 분류·매트릭스 응답)** | W3 T-SC 본격 사이클 시 (slot 보존) |
+| **ADR 0069** | **Notification 표준 (Slack webhook·outbox 패턴·`order.*` + `risk.violation.v1` + `signal.generated.v1` 합류 ADR 0044) — T-SIG·T-RISK·T-O 후속 다채널 확장(이메일·Web Push) baseline** | W3 T-NOTIFY 본격 사이클 시 |
+| ADR 0070 | Performance 표준 (Sharpe·MDD·Calmar·Sortino 계산 baseline — ADR 0056·0067·0068 합류) | W3 T-PERF 본격 사이클 시 |
+| **ADR 0071** | **Reconciliation 표준 (체결 정합·KIS H0STCNI0 vs internal order_execution 비교 + position 동기 + drift 검출) — T-O `order.filled.v1` 진입점 baseline LOCK** | W3 T-RECON 본격 사이클 시 |
+| ADR 0072 | Trading Journal 표준 (order_audit_event 시계열 + 사용자 회고 + 라이브 P&L) — T-O audit trail baseline | W3 T-J 본격 사이클 시 |
+| ADR (slot) | order monthly partition (order_audit_event row ≥ 5M 도달 시 발동 — ADR 0068 §9-1 후속) | 사용자 dogfooding 5년 누적 후 |
+| ADR (slot) | token bucket queue 도입 (T-O 단일 사용자 동시 10+ 시그널 burst 시 — ADR 0068 §9-3 후속) | 사용자 dogfooding 누적 후 |
+| ADR (slot) | risk-eval-pool 별도 도입 (T-RISK 평가 wall-clock > 50ms 도달 시 — ADR 0067 §7-4 후속) | 사용자 dogfooding 누적 후 |
+| ADR (slot) | D-2 polling fallback 도입 (H0STCNI0 미수신 누적 — ADR 0068 §10-1 매트릭스 #4 후속) | 사용자 dogfooding 미체결 사례 누적 후 |
+| ADR (slot) | E-2 자동 취소 worker (지정가 N분 미체결 시 — ADR 0068 의제 E-2 후속) | 사용자 dogfooding 결과 누적 후 |
+
+### 6-2. 정책 진화 후보
+
+| 정책 후보 | 주제 |
+|----------|------|
+| Yahoo Finance 완전 삭제 (v3.7.x minor 일괄) | `YahooCandleFetcherAdapter.kt` · `YahooFinanceClient.kt` · `application.yml` yahoo.* · 일회성 SQL · 테스트 mock 케이스 모두 삭제 |
+| strategy_eval_metric V25+ 발행 (ADR 0047 §2-6 V27 재할당) | backend-core 단일 PR — V20~V24 후속 (V24 spare 후속 사이클) |
+| frontend `/screener`·`/dashboard`·`/reconcile`·`/journal` 라우트 발행 | W3 잔여 본격 사이클 |
+| **W3 T-RECON (Reconciliation) 본격 — ADR 0068 `order.filled.v1` baseline 활용** | T-RECON이 `order.filled.v1` consume → KIS H0STCNI0 vs internal order_execution drift 검출 + position 동기 |
+| **W3 T-NOTIFY (Slack webhook + `order.*` · `risk.violation.v1` · `signal.generated.v1` 합류) — ADR 0044 정합 + T-SIG·T-RISK·T-O 후속** | signal/risk/order 멀티채널 알림 |
+| **W3 T-J (Trading Journal — order_audit_event 시계열 + 사용자 회고)** | 사용자 dogfooding 회고 baseline + 사용자 비전 정합 |
+| MCP 서버 노출 (Spring AI MCP starter 활용) — ADR 0027 | W4 본격 사이클 — **ADR 0066 signal/strategy + ADR 0067 risk_event/position + ADR 0068 order_request/order_execution/order_audit_event REST API가 MCP 외부 client baseline LOCK** |
+| KIS 1m 과거 데이터 cover 확장 (현재 30 거래일 → 60·90·180 거래일) | 백테스트 long-period 정합 + KIS Rate Limit 영향 측정 |
+| alternative CI 도입 재검토 (ADR 0049 Superseded 후속) | 다중 환경 운영 진입 시점 — Cloud Build·CircleCI·Jenkins 등 후보 평가 |
+| T-O 후속 sample 주문 시나리오 dogfooding 검증 | qa 트랙 또는 사용자 dogfooding 사이클 (6 tr_id each 주문 evidence + 분할 체결 + RealGate denied evidence + KIS prod 호출 0건 검증) |
+| **정밀 명세서 패턴 LOCK 확산** (ADR 0068 §14·§15·§16·§17 패턴) | W3 잔여 트랙 진입 시점에도 동일 패턴 적용 baseline LOCK — 사용자 "확실히 오류 없이 잘 낼 수 있게 설계하라" 정합 |
+
+### 6-3. v3.6.0 baseline 보존 정합 의무
+
+W3 잔여 진입 시점에 본 v3.6.0 baseline은 `_workspace/baseline/v3.6.0/` immutable(ADR 0031). v3.7.x 또는 v3.8.0 신규 baseline 컷(`_workspace/baseline/v3.X.X/`) 시 본 §1·§2·§3·§4 정책 진화 4건은 신규 baseline 07-policy-evolution.md에 **누적 인용** — `_workspace/baseline/v3.6.0/07-policy-evolution.md §X` 직접 참조 + 신규 정책만 add.
+
+---
+
+## §7. v3.0.1 → v3.6.0 누적 정책 진화 요약 (7 baseline cumulative)
+
+본 baseline 시점까지 누적된 MD 룰 정책 진화는 **v3.1.0 (4건)** + **v3.2.0 (4건)** + **v3.2.2 (5건)** + **v3.3.0 (2건)** + **v3.4.0 (3건)** + **v3.5.0 (3건)** + **v3.6.0 (4건)** = **25건**. 모두 ADR·Living Policy·사용자 메모리로 추적 가능:
+
+| baseline | 사이클 | 정책 진화 | ADR 신규 |
+|---------|--------|-----------|----------|
+| v3.1.0 | PR-26~PR-29 | 운영 헌법 7 § 통합 + ADR 0049 baseline + ADR 0050 슬롯 채번룰 + ADR 0051 Repository default fun | 0049·0050·0051 |
+| v3.2.0 | PR-31~PR-45 | ADR 0052 baseline 사이클 정형화 + ADR 0053 Living Policy Docs + ADR 0054 pattern-engine 모듈 분리 + ADR 0055 Strategy Builder UI 컴포넌트 스택 | 0052·0053·0054·0055 |
+| v3.2.2 | PR-47~PR-48 | ADR 0056 W3 T-BT + ADR 0057 KIS-only + ADR 0062 합산 가공 + ADR 0063 NXT cover + 사용자 메모리 보강 2건 | 0056·0057·0062·0063 |
+| v3.3.0 | PR-49 | ADR 0064 boundary fanout + v3.2.3 minor doc cut | 0064 |
+| v3.4.0 | PR-50 + PR-51 | ADR 0061 T-BT 영속 baseline + ADR 0066 T-SIG W3 두 번째 트랙 가동 baseline + ADR 0049 Superseded GHA 폐기 | 0061·0066 (실제 신규 2건) + 0049 Superseded |
+| v3.5.0 | PR-52 + PR-53 | ADR 0067 T-RISK W3 세 번째 트랙 가동 baseline + README 굴직 재작성 + `scripts/release.sh` 신규 + Living Policy `kis-first-raw-fetch.md` 본문 5단계 의무 절차 보강 + charter §3 중복 정리 | 0067 (실제 신규 1건) |
+| **v3.6.0** | **PR-54** | **ADR 0068 T-O W3 네 번째 트랙 가동 baseline + 3중 게이트 자본 보호 LOCK(env × env × 사용자 동의 토글) + KIS-first raw KDoc 의무 강화(헌법 §3 + ADR 0068 §7-5) + release 절차 보강(ADR 0052 §X 5 단계 + 7 release 풍부 재발행 + README "Releases & Baseline 진화" 매트릭스 + `sync-readme-releases.mjs` 자동 갱신 헬퍼) + 정밀 명세서 패턴 LOCK(ADR 0068 §14·§15·§16·§17 — Phase 별 sub-agent 디스패치 사전 정밀 명세 + 오류 risk 매트릭스 사전 정의 + 자체 추론 0)** | **0068 (실제 신규 1건)** |
+
+**누적 ADR 65건** (v3.1.0 베이스 51건 → v3.2.0 55건 → v3.2.2 60건 → v3.3.0 61건 → v3.4.0 63건 → v3.5.0 64건 → **v3.6.0 65건**, 실제 신규 9건 + 슬롯 4건 + Superseded 1건). ADR 0019 부분 supersede revoke 지속(boundary fanout + T-SIG + T-RISK + T-O 트랙 완료 → v3.7.x minor §2 본문 재통합 architect 단독 PR 예정).
+
+**baseline cumulative 정합**: v3.1.0 baseline `07-policy-evolution.md` (4건) + v3.2.0 (4건) + v3.2.2 (5건) + v3.3.0 (2건) + v3.4.0 (3건) + v3.5.0 (3건) + 본 v3.6.0 (4건) = **25건 모두 누적 보존** + ADR/Living Policy/메모리/헌법 추적 가능. 사용자 명시 의도 "md 룰 정책의 변화로 더 나아지고 있다는 점을 어필 할 수 있는 목록" 정합.
+
+**v3.6.0 사이클 핵심 메시지**: **T-O 주문 실행 가동(ADR 0068) — 자동매매 본체 종착 실행 노드 진입** + **3중 게이트 자본 보호 LOCK(의제 A-1 — env × env × 사용자 동의 토글)** + **KIS-first raw KDoc 의무 강화(헌법 §3 + ADR 0068 §7-5 인용 인벤토리 4건)** + **release 절차 보강(ADR 0052 §X 5 단계 + 7 release 풍부 재발행 + README 매트릭스 + 자동 갱신 헬퍼)** + **정밀 명세서 패턴 LOCK(§14·§15·§16·§17 Phase 별 사전 정밀 명세 + 오류 risk 매트릭스 사전 정의 → hotfix 0건 효과)** — magicJar 비전 "룰 기반 quant trading 본체 + AI 옵션 보조 + MCP 외부 client" 정합 풀세트. AI 호출 0 grep 검증 지속(ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8). W3 잔여(T-SC·T-RECON·T-NOTIFY·T-PERF·T-J) 진입의 baseline이 본 ADR 0066·0067·0068 3건으로 LOCK (T-RECON 진입점 = `order.filled.v1` Kafka topic + KIS H0STCNI0 vs internal order_execution drift 검출 + T-J = order_audit_event 시계열).
+
+**v3.6.0 사이클 사용자 메모리 정합 매트릭스**:
+- 새 신규 메모리 0건 (v3.4.0 `feedback_no_github_actions.md` + `feedback_kis_key_realonly_for_data.md` 보존)
+- `feedback_v3_skepticism_no_regression.md` — ADR 0068 fitness gap 분석 보고 의무 정합 (자동매매 종착 노드 필수·v1/v2 잔재 0·회귀 risk 0·사용자 비전 정합 모두 통과)
+- `feedback_kis_first_policy.md` — ADR 0068 §7-5 raw 인용 인벤토리 4건 + KisOrderHttpAdapter·KisExecutionWsListener KDoc 의무 LOCK 정합
+- `feedback_kis_key_realonly_for_data.md` — ADR 0068 의제 A-1 3중 게이트 + 데이터 출처 분기 0(정보 수집 REAL 키 단일) + 주문 액션만 mode 분기 정합
+- `project_kis_key_management.md` — RealTradingConsentToggle SettingsModal 입력 baseline 이미 있어 추가 토글 작은 부담 정합
+- `feedback_3tier_hierarchy.md` — architect plan PR(ADR 0068) + 정밀 명세 PR(#372) → 사용자 결정 → sub-agent 직렬 디스패치(Phase 1·2·3 직렬 + 자본 위험 트랙 병렬 금지) 정합
+- `feedback_spec_plan_scope.md` — T-O W3 신규 트랙 spec/plan 발행 의무 충족 + 정밀 명세 보강 PR도 spec scope 정합
+- `feedback_conflict_resolution_autonomy.md` — modify-shared 충돌 0건 + sub-agent fail 분기 0건 + hotfix 0건(정밀 명세 LOCK 효과) 정합
+- `feedback_dev_priority_qa_batch.md` — 본 사이클 hotfix 0건 + 단일 사이클 6 PR 본격 진행 (개발 진도 우선 정합)
+- `feedback_verification_strict.md` — PR #373·#374·#375 모두 `:domain:check`·`:consumer:check`·`:api:check`·`pnpm typecheck && pnpm build` GREEN 인용 + dogfooding 3 케이스 검증 의무(케이스 2 KIS prod 호출 0건 log evidence 자본 보호 LOCK) 정합
+- `feedback_no_github_actions.md` — `scripts/release.sh` 풍부 합성 + `sync-readme-releases.mjs` alternative 강화 + GHA 폐기 보존 정합
+- `feedback_no_mock_data.md` — frontend Phase 3(PR #375) 0건 시 "데이터 없음" 표시 정합
+- `feedback_honorific.md`·`feedback_swagger_pattern.md` — Phase 2·3 backend Swagger 4단 + 한국어 존댓말 정합
