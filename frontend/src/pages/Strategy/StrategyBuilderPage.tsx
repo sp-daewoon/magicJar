@@ -185,7 +185,7 @@ export function StrategyBuilderPage() {
   const { entry: entryDsl, exit: exitDsl } = serializeBlockTree(tree)
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-950">
+    <div className="flex flex-col overflow-hidden bg-gray-950" style={{ height: 'calc(100vh - 60px)' }}>
       {/* 모바일 안내 (DoD #26 — 768px 이하) */}
       <div className="flex flex-col items-center justify-center p-6 text-center lg:hidden">
         <p className="text-sm text-gray-400">
@@ -195,7 +195,7 @@ export function StrategyBuilderPage() {
       </div>
 
       {/* 데스크톱 레이아웃 */}
-      <div className="hidden flex-1 lg:flex" style={{ height: 'calc(100vh - 60px)' }}>
+      <div className="hidden min-h-0 flex-1 lg:flex">
         {/* 좌: 팔레트 */}
         <BlockPalette onSelect={handlePaletteSelect} />
 
