@@ -1,0 +1,759 @@
+# v3.6.0 데이터 흐름 매트릭스
+
+- baseline: v3.6.0
+- 작성일: 2026-05-13
+- 작성자: backend-core (bot+backend-core@magicjar.local)
+- SoT: `docs/architecture/master-architecture.md` §2 + `settings.gradle.kts` + ADR 0004
+- 기준: v3.5.0 02-data-flow.md 전체 이월 + v3.6.0 T-O 추가 (ADR 0068 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1 채택)
+
+---
+
+## 1. 모듈 의존성 매트릭스
+
+### 1-1. JVM 5 모듈 구성
+
+```
+settings.gradle.kts include:
+  domain
+  pattern-engine
+  api
+  batch
+  consumer
+```
+
+| 모듈 | Spring 의존 | JPA 의존 | 역할 |
+|------|------------|---------|------|
+| `domain` | 0 | 0 | 순수 도메인 + 포트 인터페이스 (Spring·JPA 0 — 헥사고날 내부 링) |
+| `pattern-engine` | 0 | 0 | 캔들스틱 패턴 57종 인식 (Pure Kotlin — ADR 0054) |
+| `api` | Spring Boot 3.3 | JPA (Hibernate 6) | REST/STOMP + KIS REST 어댑터 + Kafka producer |
+| `batch` | Spring Boot 3.3 + Spring Batch | JPA | 종목 마스터 sync + 기업 행위 처리 잡 |
+| `consumer` | Spring Boot 3.3 | JPA | Kafka 소비 + KIS WS 브릿지 + 시그널·리스크·주문 dispatch |
+
+### 1-2. 모듈 간 의존 방향
+
+```
+domain ←── api
+domain ←── consumer
+domain ←── batch
+pattern-engine ←── api
+(domain ← pattern-engine : PatternRecognizer port 참조)
+```
+
+- `domain`은 어떤 모듈에도 의존하지 않음 (Spring·JPA import 0건 강제)
+- `api`/`consumer`/`batch`는 `domain` 포트 인터페이스를 구현하는 어댑터 배치
+- `pattern-engine`은 `domain`의 `PatternRecognizer` 포트 구현체 (`JvmPatternRecognizer`)
+
+### 1-3. v3.6.0 신규 컴포넌트 위치
+
+| 컴포넌트 | 모듈 | 패키지 경로 | ADR 근거 |
+|---------|------|-----------|---------|
+| `OrderIntent` | `domain` | `domain/.../order/execution/OrderIntent.kt` | ADR 0068 §5-1 — Kafka payload 도메인 모델 |
+| `OrderRequest` | `domain` | `domain/.../order/execution/OrderRequest.kt` | ADR 0068 §5-1 — 영속 도메인 (status 7단) |
+| `OrderExecution` | `domain` | `domain/.../order/execution/OrderExecution.kt` | ADR 0068 §5-2 — 분할 체결 1건 |
+| `OrderAuditEvent` | `domain` | `domain/.../order/execution/OrderAuditEvent.kt` | ADR 0068 §5-3 — 감사 row |
+| `OrderSide` enum | `domain` | `domain/.../order/execution/OrderSide.kt` | ADR 0068 §5-1 — BUY·SELL |
+| `OrderPriceType` enum | `domain` | `domain/.../order/execution/OrderPriceType.kt` | ADR 0068 §5-1·C-1 — MARKET·LIMIT |
+| `OrderStatus` enum | `domain` | `domain/.../order/execution/OrderStatus.kt` | ADR 0068 §5-1 — REQUESTED·ACK·FILLED·PARTIALLY_FILLED·REJECTED·CANCELLED·EXPIRED |
+| `OrderAuditEventType` enum | `domain` | `domain/.../order/execution/OrderAuditEventType.kt` | ADR 0068 §5-3 — 12 event type |
+| `TradingMode` enum | `domain` | `domain/.../order/execution/TradingMode.kt` | ADR 0068 §5-1·A-1 — MOCK·REAL |
+| `DenyReason` sealed | `domain` | `domain/.../order/execution/DenyReason.kt` | ADR 0068 §14-1 — RealGateDenied·IdempotencyDuplicate·KillSwitchOn·KisRejected |
+| `KisOrderAck` | `domain` | `domain/.../order/execution/KisOrderAck.kt` | ADR 0068 §5-4 — KIS REST 응답 도메인 |
+| Port: `OrderRequestRepository` | `domain` | `domain/.../order/execution/port/OrderRequestRepository.kt` | ADR 0068 §5-4·0051 — abstract fun body 0 |
+| Port: `OrderExecutionRepository` | `domain` | `domain/.../order/execution/port/OrderExecutionRepository.kt` | ADR 0068 §5-4·0051 — abstract fun body 0 |
+| Port: `OrderAuditEventRepository` | `domain` | `domain/.../order/execution/port/OrderAuditEventRepository.kt` | ADR 0068 §5-4·0051 — abstract fun body 0 |
+| Port: `KisOrderPort` | `domain` | `domain/.../order/execution/port/KisOrderPort.kt` | ADR 0068 §5-4·B-1 — submit/cancel Either 반환 |
+| Port: `TradingModeGate` | `domain` | `domain/.../order/execution/port/TradingModeGate.kt` | ADR 0068 §5-4·A-1 — 3중 게이트 |
+| Port: `OrderIdempotencyGuard` | `domain` | `domain/.../order/execution/port/OrderIdempotencyGuard.kt` | ADR 0068 §5-4·H-1 — Redis SETNX |
+| Port: `OrderNotifier` | `domain` | `domain/.../order/execution/port/OrderNotifier.kt` | ADR 0068 §5-4·G-1 — STOMP 4 event |
+| Port: `RealTradingConsentPort` | `domain` | `domain/.../order/execution/port/RealTradingConsentPort.kt` | ADR 0068 §5-4·A-1 — consent 조회/갱신 |
+| Port: `KillSwitchQueryPort` | `domain` | `domain/.../order/execution/port/KillSwitchQueryPort.kt` | ADR 0068 §7-1 step 4·ADR 0043 재검증 |
+| `OrderRouterKafkaListener` | `consumer` | `consumer/.../order/OrderRouterKafkaListener.kt` | ADR 0068 §7-1·§14-2 — order.intent.v1 listen 12 step |
+| `OrderIdempotencyGuardImpl` | `consumer` | `consumer/.../order/OrderIdempotencyGuardImpl.kt` | ADR 0068 §14-1·H-1 — Redis SETNX 60s |
+| `TradingModeGateImpl` | `consumer` | `consumer/.../order/TradingModeGateImpl.kt` | ADR 0068 §14-3 — 3중 게이트 구현 |
+| `KisOrderHttpAdapter` | `consumer` | `consumer/.../order/KisOrderHttpAdapter.kt` | ADR 0068 §14-5·B-1 — KIS REST 매수/매도/취소 |
+| `KisExecutionWsListener` | `consumer` | `consumer/.../order/KisExecutionWsListener.kt` | ADR 0068 §14-6·D-1 — H0STCNI0 26컬럼 |
+| `OrderRequestedKafkaProducer` | `consumer` | `consumer/.../order/OrderRequestedKafkaProducer.kt` | ADR 0068 §9-2 — order.requested.v1 |
+| `OrderFilledKafkaProducer` | `consumer` | `consumer/.../order/OrderFilledKafkaProducer.kt` | ADR 0068 §9-2 — order.filled.v1 |
+| `OrderRejectedKafkaProducer` | `consumer` | `consumer/.../order/OrderRejectedKafkaProducer.kt` | ADR 0068 §9-2 — order.rejected.v1 |
+| `OrderCancelledKafkaProducer` | `consumer` | `consumer/.../order/OrderCancelledKafkaProducer.kt` | ADR 0068 §9-2 — order.cancelled.v1 |
+| `OrderTopicConfig` | `consumer` | `consumer/.../config/OrderTopicConfig.kt` | ADR 0068 §9-2 — 4 topic NewTopic 30d retention |
+| `OrderRequestJpaEntity/Repository/Adapter` | `api` | `api/.../persistence/order/OrderRequest*` | ADR 0068 §6-1·V20·0051 — body fun 0 |
+| `OrderExecutionJpaEntity/Repository/Adapter` | `api` | `api/.../persistence/order/OrderExecution*` | ADR 0068 §6-2·V21·0051 |
+| `OrderAuditEventJpaEntity/Repository/Adapter` | `api` | `api/.../persistence/order/OrderAuditEvent*` | ADR 0068 §6-3·V22·0051 |
+| `RealTradingConsentJpaAdapter` | `api` | `api/.../persistence/order/RealTradingConsentJpaAdapter.kt` | ADR 0068 §6-4·V23·A-1 |
+| `KillSwitchQueryAdapter` | `api` | `api/.../persistence/order/KillSwitchQueryAdapter.kt` | ADR 0043·0068 §7-1 step 4 재검증 |
+| `OrderQueryService` | `api` | `api/.../service/order/OrderQueryService.kt` | ADR 0068 §15-3 — GET list·single |
+| `OrderCancelService` | `api` | `api/.../service/order/OrderCancelService.kt` | ADR 0068 §7-4·E-1 — 사용자 수동 취소 |
+| `RealTradingConsentService` | `api` | `api/.../service/order/RealTradingConsentService.kt` | ADR 0068 §4-3·A-1 — 동의 토글 |
+| `OrderQueryController` | `api` | `api/.../controller/order/OrderQueryController.kt` | ADR 0068 §4-1 — GET 2 endpoint |
+| `OrderCancelController` | `api` | `api/.../controller/order/OrderCancelController.kt` | ADR 0068 §4-1·E-1 — POST cancel |
+| `RealTradingConsentController` | `api` | `api/.../controller/order/RealTradingConsentController.kt` | ADR 0068 §4-3·A-1 — PUT/GET consent |
+| `StompOrderNotifier` | `api` | `api/.../messaging/StompOrderNotifier.kt` | ADR 0068 §7-1·G-1 — /topic/order.user.{userId} 4 event |
+
+---
+
+## 2. api 모듈 데이터 흐름
+
+### 2-1. REST 엔드포인트 매트릭스
+
+#### 기존 (v3.4.0 이월)
+
+| 경로 | 컨트롤러 | 역할 | Kafka 발행 |
+|------|---------|------|-----------|
+| `GET /api/watchlists` | `WatchlistController` | 관심종목 목록 (priority ASC) | — |
+| `POST /api/watchlists` | `WatchlistController` | 관심종목 등록 | `watchlist.changed.v1` ADDED |
+| `DELETE /api/watchlists/{code}` | `WatchlistController` | 관심종목 삭제 | `watchlist.changed.v1` REMOVED |
+| `GET /api/symbols/{code}` | `SymbolController` | 현재가·PER·PBR·시총·업종 | — |
+| `GET /api/symbols/{code}/candles` | `SymbolController` | 캔들 시계열 (DB + Redis merge) | — |
+| `POST /api/symbols/{code}/orderbook/subscribe` | `SymbolController` | 호가 구독 시작 | `symbol.detail.command.v1` ENTER |
+| `POST /api/symbols/{code}/orderbook/unsubscribe` | `SymbolController` | 호가 구독 해제 | `symbol.detail.command.v1` EXIT |
+| `GET /api/patterns` | `PatternController` | 57종 패턴 인식 | — |
+| `GET /api/indicators` | `IndicatorController` | 80종 기술적 지표 | — |
+| `GET /api/instruments` | `InstrumentController` | 종목 검색 (Redis 인덱스) | — |
+| `POST /api/backtest/run` | `BacktestController` | DSL 전략 백테스트 (stateless, ADR 0056) | — |
+| `POST /api/onboarding` | `OnboardingController` | KIS 키 등록 + AES 암호화 | — |
+| `POST /api/ai/dsl/translate` | `DslTranslateController` | 자연어 → DSL 변환 (AI 보조) | — |
+
+#### v3.3.1 T-BT 결과 영속 (ADR 0061 이월)
+
+| 경로 | 컨트롤러 | 역할 |
+|------|---------|------|
+| `POST /api/backtests` | `BacktestsController` | 백테스트 실행 + 영속 |
+| `GET /api/backtests` | `BacktestsController` | 사용자 목록 (페이징) |
+| `GET /api/backtests/{id}` | `BacktestsController` | 단건 메타 + KPI |
+| `GET /api/backtests/{id}/result` | `BacktestsController` | 거래·포지션 시계열 (페이징) |
+| `DELETE /api/backtests/{id}` | `BacktestsController` | 삭제 (CASCADE) |
+
+#### v3.4.0 T-SIG Strategy + Signal (ADR 0066 이월)
+
+| 경로 | 컨트롤러 | 역할 |
+|------|---------|------|
+| `POST /api/strategies` | `StrategiesController` | 룰 등록 |
+| `GET /api/strategies` | `StrategiesController` | 사용자 룰 목록 (페이징) |
+| `GET /api/strategies/{id}` | `StrategiesController` | 단건 + metric summary |
+| `PUT /api/strategies/{id}` | `StrategiesController` | 전략 수정 |
+| `DELETE /api/strategies/{id}` | `StrategiesController` | soft delete |
+| `PUT /api/strategies/{id}/toggle` | `StrategiesController` | status 토글 |
+| `GET /api/signals` | `SignalController` | 시그널 시계열 (페이징) |
+| `GET /api/signals/{id}` | `SignalController` | 단건 |
+
+#### v3.5.0 T-RISK Risk + Position (ADR 0067 이월)
+
+| 경로 | 컨트롤러 | 역할 |
+|------|---------|------|
+| `GET /api/risk-config` | `RiskConfigController` | 사용자 risk 설정 조회 (부재 시 default seed 반환 — H-1) |
+| `PUT /api/risk-config` | `RiskConfigController` | 사용자 risk 설정 갱신 (upsert) |
+| `POST /api/risk-config/reset` | `RiskConfigController` | default 값으로 reset |
+| `GET /api/risk-events` | `RiskEventController` | 위반 이력 시계열 페이징 |
+| `GET /api/risk-events/{id}` | `RiskEventController` | 위반 이력 단건 |
+| `GET /api/positions/current` | `PositionController` | 현재 보유 포지션 목록 |
+| `GET /api/positions/history` | `PositionController` | 청산 이력 페이징 |
+
+#### v3.6.0 T-O Order (ADR 0068 신규 — Phase 2)
+
+| 경로 | 컨트롤러 | 역할 | 비고 |
+|------|---------|------|------|
+| `GET /api/orders` | `OrderQueryController` | 주문 의도 시계열 페이징 (`?userId&status&from&to&page&size`) | userId 격리 — ADR 0010 |
+| `GET /api/orders/{id}` | `OrderQueryController` | 단건 (request + executions + auditEvents) | 404 격리 (ADR 0061 §2-7 패턴) |
+| `POST /api/orders/{id}/cancel` | `OrderCancelController` | 사용자 수동 취소 (의제 E-1) | 취소 가능: REQUESTED·ACK·PARTIALLY_FILLED |
+| `PUT /api/user-account/real-trading-consent` | `RealTradingConsentController` | 실거래 동의 토글 (의제 A-1) | consented=true → consent_at=NOW() |
+| `GET /api/user-account/real-trading-consent` | `RealTradingConsentController` | 동의 상태 조회 | — |
+
+총 5 endpoint (조회 2 + 취소 1 + 동의 2) — ADR 0068 §4 전체 정합.
+
+### 2-2. STOMP 구독 토픽 (api Kafka Consumer → 브라우저 fanout)
+
+#### 기존 3종 (v3.2.2 이월)
+
+| Kafka 토픽 (소비) | STOMP 토픽 (발행) | 포워더 클래스 | 설명 |
+|-----------------|----------------|-------------|------|
+| `market.tick.v1` | `/topic/market.tick.{code}` | `MarketTickStompForwarder` | 실시간 체결가 (1초 throttle) |
+| `market.candle.minute.closed.v1` | `/topic/market.candle.minute.{code}` | `MarketCandleStompForwarder` | 1분봉 closing |
+| `market.orderbook.v1` | `/topic/market.orderbook.{code}` | `MarketOrderbookStompForwarder` | 호가 스냅샷 |
+
+#### boundary 5종 (v3.3.0 — ADR 0064 C-1)
+
+| Kafka 토픽 (소비) | STOMP 토픽 (발행) | 리스너 클래스 | 설명 |
+|-----------------|----------------|------------|------|
+| `market.candle.5m.closed.v1` | `/topic/market.candle.5m.{code}` | `CandleClosedStompListener` | 5분봉 boundary closing |
+| `market.candle.15m.closed.v1` | `/topic/market.candle.15m.{code}` | `CandleClosedStompListener` | 15분봉 boundary closing |
+| `market.candle.30m.closed.v1` | `/topic/market.candle.30m.{code}` | `CandleClosedStompListener` | 30분봉 boundary closing |
+| `market.candle.90m.closed.v1` | `/topic/market.candle.90m.{code}` | `CandleClosedStompListener` | 90분봉 boundary closing |
+| `market.candle.1h.closed.v1` | `/topic/market.candle.1h.{code}` | `CandleClosedStompListener` | 60분봉 boundary closing |
+
+#### v3.4.0 신규 1종 (ADR 0066 D-1)
+
+| Kafka 토픽 (소비) | STOMP 토픽 (발행) | 리스너 클래스 | 설명 |
+|-----------------|----------------|------------|------|
+| `signal.generated.v1` | `/topic/signal.user.{userId}` | `StompSignalDispatcher` | 시그널 발행 → userId별 토스트 알림 |
+
+#### v3.5.0 신규 1종 (ADR 0067 F-1 — T-RISK STOMP fanout)
+
+| Kafka 토픽 (소비) | STOMP 토픽 (발행) | 리스너 클래스 | 설명 |
+|-----------------|----------------|------------|------|
+| `risk.violation.v1` | `/topic/risk.user.{userId}` | `StompRiskNotifier` | 리스크 위반 BLOCKED·AUTO_PAUSED → userId별 토스트 |
+
+#### v3.6.0 신규 1종 (ADR 0068 G-1 — T-O 주문 STOMP fanout)
+
+| Kafka 토픽 (소비) | STOMP 토픽 (발행) | 리스너 클래스 | 설명 |
+|-----------------|----------------|------------|------|
+| `order.requested.v1` `order.filled.v1` `order.rejected.v1` `order.cancelled.v1` | `/topic/order.user.{userId}` | `StompOrderNotifier` | 주문 상태 변화 4 event → userId별 토스트 |
+
+단일 STOMP 토픽 + 4 event discriminator (ADR 0067 패턴 일관):
+- `REQUESTED` — 주문 접수 통보 (파란 토스트)
+- `FILLED` — 체결 완료 (녹색 토스트, 분할 시 PARTIALLY_FILLED)
+- `REJECTED` — 주문 거절 (빨간 토스트, 사유 포함)
+- `CANCELLED` — 취소 완료 (회색 토스트)
+
+userId 단위 격리 — 주문 이벤트가 다른 사용자에게 누설 0 (ADR 0010 multi-tenant).
+
+### 2-3. api 모듈 내부 서비스 레이어 (v3.6.0 T-O 추가)
+
+```
+OrderQueryController    → OrderQueryService        → OrderRequestRepositoryAdapter  → order_request table
+                                                   → OrderExecutionRepositoryAdapter → order_execution table
+                                                   → OrderAuditEventRepositoryAdapter → order_audit_event table
+OrderCancelController   → OrderCancelService        → OrderRequestRepositoryAdapter  (status UPDATE)
+                                                   → KisOrderPort.cancel()           → KIS REST order-rvsecncl
+                                                   → OrderAuditEventRepositoryAdapter (KIS_CANCEL_ACK)
+                                                   → StompOrderNotifier              → /topic/order.user.{userId} CANCELLED
+RealTradingConsentController → RealTradingConsentService → RealTradingConsentJpaAdapter → user_account table
+StompOrderNotifier       ← Kafka (4 토픽) → SimpMessagingTemplate → STOMP (userId)
+```
+
+---
+
+## 3. consumer 모듈 데이터 흐름
+
+### 3-1. Kafka 토픽 소비 매트릭스
+
+#### 기존 (v3.3.0 이월)
+
+| 토픽 | 리스너 클래스 | groupId | 처리 내용 |
+|------|------------|---------|----------|
+| `watchlist.changed.v1` | `WatchlistChangedKafkaListener` | `magicjar-consumer-watchlist-ingestion` | ADDED: cold-start 트리거 + WS/polling 구독 / REMOVED: 구독 해제 + Redis evict |
+| `symbol.detail.command.v1` | `SymbolDetailCommandKafkaListener` | `magicjar-consumer-orderbook-cmd` | ENTER: H0STASP0 구독 slot 할당 / EXIT: slot 회수 |
+
+#### v3.4.0 신규 5종 (ADR 0066 A-1 — boundary 시그널 평가)
+
+| 토픽 | 리스너 클래스 | groupId | 처리 내용 |
+|------|------------|---------|----------|
+| `market.candle.5m.closed.v1` | `BoundaryClosingKafkaListener` | `magicjar-consumer-signal-5m` | 5m boundary → 활성 strategy 평가 → 시그널 발행 |
+| `market.candle.15m.closed.v1` | `BoundaryClosingKafkaListener` | `magicjar-consumer-signal-15m` | 15m boundary → 평가 → 발행 |
+| `market.candle.30m.closed.v1` | `BoundaryClosingKafkaListener` | `magicjar-consumer-signal-30m` | 30m boundary → 평가 → 발행 |
+| `market.candle.90m.closed.v1` | `BoundaryClosingKafkaListener` | `magicjar-consumer-signal-90m` | 90m boundary → 평가 → 발행 |
+| `market.candle.1h.closed.v1` | `BoundaryClosingKafkaListener` | `magicjar-consumer-signal-1h` | 1h boundary → 평가 → 발행 |
+
+#### v3.5.0 신규 1종 (ADR 0067 E-1 — Risk Gateway)
+
+| 토픽 | 리스너 클래스 | groupId | 처리 내용 |
+|------|------------|---------|----------|
+| `signal.generated.v1` | `SignalGeneratedKafkaListener` | `magicjar-consumer-risk-gateway` | signal → RiskGatewayEvaluator 6 룰 평가 → ALLOWED: order.intent.v1 publish / BLOCKED: risk.violation.v1 publish + signal.risk_status UPDATE |
+
+#### v3.6.0 신규 1종 (ADR 0068 §7-1 — Order Router)
+
+| 토픽 | 리스너 클래스 | groupId | 처리 내용 |
+|------|------------|---------|----------|
+| `order.intent.v1` | `OrderRouterKafkaListener` | `magicjar-consumer-order` | T-RISK ALLOWED 진입 → 멱등성 검사 → 3중 게이트 → KillSwitch 재검증 → order_request INSERT → KIS REST 주문 → ACK/REJECT |
+
+partition key = userId. `enable.auto.commit=false`, `max.poll.records=1`, `concurrency=1` (자본 보호 — ADR 0068 §14-2).
+
+### 3-2. KIS WS 브릿지 흐름 (v3.3.0 이월 + v3.6.0 H0STCNI0 추가)
+
+```
+KIS WebSocket (wss://ops.koreainvestment.com:21000)
+    ↓  H0STCNT0 (체결가 tick)
+KisWebSocketBridge
+    ├── writeToRedis(quote:last:{code}, 등락 필드 포함)   ← ADR 0029
+    ├── publishTickEvent → Kafka market.tick.v1
+    └── STCK_CNTG_HOUR 추출 → BoundaryAggregator.onTick(code, hhmmss)
+
+    KIS WebSocket
+    ↓  H0STASP0 (호가 스냅샷)
+KisWebSocketBridge
+    └── publishOrderbook → Kafka market.orderbook.v1
+
+    KIS WebSocket (v3.6.0 신규 — ADR 0068 D-1)
+    ↓  H0STCNI0 (체결통보 — real) / H0STCNI9 (모의)
+KisExecutionWsListener (consumer)
+    ├── CNTG_YN="2" 체결 통보:
+    │     OrderRequestRepositoryAdapter.findByKisOrderNo(ODNO)
+    │     → order_execution INSERT (executedQty=CNTG_QTY, executedPrice=CNTG_UNPR)
+    │     → sumExecutedQuantity(orderId) vs orderRequest.quantity
+    │         FILLED: status=FILLED + completed_at + STOMP FILLED + order.filled.v1 publish
+    │         PARTIAL: status=PARTIALLY_FILLED + STOMP FILLED(partial)
+    │     → PositionUpdateAdapter.applyExecution() (ADR 0042·0067 position 갱신)
+    ├── RFUS_YN="Y" 거부 통보:
+    │     order_request.status=REJECTED + STOMP REJECTED + order.rejected.v1 publish
+    └── ACPT_YN="3" 취소 접수:
+          order_request.status=CANCELLED + STOMP CANCELLED + order.cancelled.v1 publish
+```
+
+raw 출처: `examples_user/domestic_stock/domestic_stock_functions_ws.py` L389~L446 (`def ccnl_notice`) — 26 컬럼 (ADR 0068 §14-6 LOCK).
+
+### 3-3. Signal → Risk Gateway 흐름 (v3.5.0 신규 — ADR 0067 E-1, 이월)
+
+```
+Kafka signal.generated.v1 (partition by userId)
+    ↓
+SignalGeneratedKafkaListener → RiskGatewayEvaluator
+    1. RiskContext 빌드 (RiskConfig·Capital·Positions·DailyPnl·TradeFreq·KillSwitch)
+    2. 6 룰 순차 short-circuit:
+       KILL_SWITCH_ON → DAILY_LOSS_LIMIT → MAX_CONCURRENT_POSITIONS
+       → TRADE_FREQUENCY_MINUTE → TRADE_FREQUENCY_DAY → POSITION_LIMIT
+    3. Allowed → signal.risk_status=ALLOWED + TradeFreq.consume() + order.intent.v1 publish (T-O 진입)
+    4. Blocked → risk_event INSERT + signal.risk_status=BLOCKED + STOMP BLOCKED + risk.violation.v1 publish
+              → AutoPauseGuard: countRecentBlocked >= threshold → strategy.status=PAUSED
+```
+
+### 3-4. order.intent.v1 → T-O OrderRouter 흐름 (v3.6.0 신규 — ADR 0068 §14-2)
+
+```
+Kafka order.intent.v1 (partition by userId)
+    ↓
+OrderRouterKafkaListener (groupId: magicjar-consumer-order)
+    Step 1. OrderIntentEvent deserialize → OrderIntent
+        └─ 실패 → log.error + Kafka offset commit (poison pill 회피) + return
+    Step 2. OrderIdempotencyGuard.acquire("order:${idempotencyKey}", 60s)
+        └─ false → audit IDEMPOTENCY_SKIPPED + return (중복 주문 방지 — H-1)
+    Step 3. TradingModeGate.resolveMode(userId)
+        ├─ Left(RealGateDenied) → order_request INSERT(REJECTED) + audit REAL_GATE_DENIED + STOMP REJECTED + order.rejected publish + return
+        └─ Right(mode) → 진행
+    Step 4. KillSwitch 재검증 (ADR 0024·0043)
+        └─ ON → order_request INSERT(REJECTED) + audit KILLSWITCH_DENIED + STOMP REJECTED + order.rejected publish + return
+    Step 5. order_request INSERT(status=REQUESTED, mode, idempotencyKey)
+    Step 6. STOMP notifyRequested + order.requested.v1 publish (병렬)
+    Step 7. KisOrderHttpAdapter.submit(intent, mode)
+        ├─ 5xx 1회 retry (500ms backoff)
+        │   ├─ 2회 fail → audit KIS_EXCEPTION + order_request UPDATE(REJECTED) + STOMP REJECTED + return
+        ├─ 200 rt_cd != "0" → audit KIS_REJECT + UPDATE(REJECTED) + STOMP REJECTED + return
+        └─ 200 rt_cd == "0" → 진행
+    Step 8. order_request UPDATE(status=ACK, kis_order_no=ODNO, kis_fwdg_orgno=KRX_FWDG_ORD_ORGNO, acknowledged_at=NOW())
+    Step 9. audit KIS_ACK (payload={ODNO, KRX_FWDG_ORD_ORGNO})
+    Step 10. (체결 통보는 KisExecutionWsListener — H0STCNI0 비동기 수신)
+    Step 11. Kafka MANUAL_IMMEDIATE commit
+    Step 12. Micrometer counter magicjar_order_processed_total{result=ACK|REJECTED|SKIPPED}
+```
+
+KIS-first raw tr_id 매트릭스 (ADR 0068 §14-5):
+- `TTTC0012U` — 실전 매수 / `VTTC0012U` — 모의 매수
+- `TTTC0011U` — 실전 매도 / `VTTC0011U` — 모의 매도
+- `TTTC0013U` — 실전 정정/취소 / `VTTC0013U` — 모의 정정/취소
+
+### 3-5. BoundaryAggregator → SignalEngine 연결 흐름 (v3.4.0 이월)
+
+```
+BoundaryAggregator.onTickClosed(code, tickTs) → boundary 5종 Kafka 발행
+    ↓
+BoundaryClosingKafkaListener → RealtimeSignalGenerator.evaluate(code, interval, candle)
+    ├── BUY/SELL → SignalDedupeGuard → SignalKafkaProducer → signal.generated.v1
+    │                                     ↓
+    │                         SignalJpaAdapter (api) → signal table INSERT
+    │                         StompSignalDispatcher (api) → /topic/signal.user.{userId}
+    │                         SignalGeneratedKafkaListener (consumer) → RiskGatewayEvaluator (v3.5.0)
+    │                             → ALLOWED → OrderIntentKafkaProducer → order.intent.v1
+    │                                              ↓
+    │                                    OrderRouterKafkaListener (consumer v3.6.0)
+    └── HOLD → skip
+```
+
+### 3-6. BoundaryAggregator 흐름 (v3.3.0 이월)
+
+```
+BoundaryAggregator.onTickClosed(code, tickTs)
+    ↓ BoundaryDetector.detectBoundary → List<CandleInterval>
+    FOR target IN detected:
+        1. in-process 중복 가드 (lastProcessedBoundaryMin ConcurrentHashMap)
+        2. DB 직전 N건 1m 캔들 fetch
+        3. CandleAggregator.aggregate(rows, target) → Candle
+        4. RedisCandleCache.putBoundaryCandle(code, target, candle)
+        5. DB candle table INSERT (ON CONFLICT DO NOTHING)
+        6. Kafka publish market.candle.{target}.closed.v1
+```
+
+### 3-7. cold-start 흐름 (v3.3.0 이월)
+
+```
+WatchlistChangedKafkaListener (ADDED)
+    ↓ DB count 0이면 cold-start submit
+ColdStartExecutor (thread pool=2)
+    ├── KIS REST FHKST03010230 → 1m (30 거래일)
+    ├── KIS REST FHKST03010100 → 1d·1wk·1mo·1y
+    └── AggregateBackfillRunner.backfill(code)
+```
+
+### 3-8. consumer 부팅 bootstrap (v3.3.0 이월)
+
+```
+CandleBootstrapRunner (@ApplicationReadyEvent)
+    ├── count(1m) < 700 → ColdStartExecutor.submit(code)
+    └── count(5m) == 0 && count(1m) >= 700 → AggregateBackfillRunner.backfill(code)
+
+PositionBootstrapRunner (@ApplicationReadyEvent)
+    └── KIS REST balance → Position DB 동기화 (ADR 0042)
+```
+
+### 3-9. DailyCloseFinalizer (v3.3.0 이월)
+
+```
+20:00 KST (NXT after-hour 마감 — ADR 0063)
+    ↓
+DailyCloseFinalizer
+    ├── watchlist 전 종목 AggregateBackfillRunner.backfill(code) — safety net
+    ├── Redis candle:current:{code}:5m~1h evict
+    └── Redis daily_pnl:{userId}:{date} evict + strategy cache invalidateAll
+```
+
+---
+
+## 4. batch 모듈 데이터 흐름 (v3.3.0 이월)
+
+### 4-1. Spring Batch 잡 매트릭스
+
+| 잡 클래스 | 스케줄 | 역할 | KIS 엔드포인트 |
+|----------|-------|------|--------------|
+| `InstrumentSyncJob` | `InstrumentMasterSyncScheduler` | 종목 마스터 전체 sync (KOSPI·KOSDAQ) | `CTPF1002R` |
+| `MarketCalendarSyncJob` | — | 영업일 캘린더 sync | `CTCA0903R` |
+| `CorpActionSyncJob` | — | 기업 행위(분할·배당) sync | HHKDB669100C0~HHKDB669106C0 (6종) |
+| `CandleAdjustmentJob` | `CorpActionSyncJob` 후속 | 수정 주가 소급 조정 | — |
+
+### 4-2. batch 모듈 Kafka 발행
+
+| 잡 | 발행 토픽 | 파티션 키 | 내용 |
+|----|---------|---------|------|
+| `InstrumentSyncJob` | `instrument.updated.v1` | market | 종목 마스터 변경 이벤트 |
+| `CorpActionSyncJob` | `corp_action.applied.v1` | instrumentCode | 기업 행위 적용 이벤트 |
+
+---
+
+## 5. DB 테이블 매트릭스 (Flyway — v3.6.0 누적)
+
+| 테이블 | Flyway | 신규 시점 | 역할 |
+|-------|--------|---------|------|
+| `user_kis_credential` | V1 | v3.0 | KIS 키 AES 암호화 영속 |
+| `watchlist_entry` | V1 | v3.0 | 관심종목 (UQ user_id, code) |
+| `position` (v3.0 기존) | V1 | v3.0 | 보유 포지션 (V18에서 T-RISK 확장 + V24에서 created_at 추가) |
+| `candle` | V1 | v3.0 | 캔들 시계열 (UQ code+interval+ts) |
+| `instrument` | V4 | v3.0 | 종목 마스터 (KOSPI·KOSDAQ) |
+| `market_calendar` | V6 | v3.0 | 영업일 캘린더 |
+| `corp_action` | V7 | v3.0 | 기업 행위 이력 |
+| `strategy` | V9 | v3.1 | DSL 전략 (V14에서 status·codes·intervals 확장) |
+| `strategy_eval_metric` | V11 | v3.2 | sandbox 평가 metric ring buffer |
+| `backtest_run` | V12 | v3.3.1 | 백테스트 실행 메타 + KPI (ADR 0061) |
+| `backtest_trade` | V13 | v3.3.1 | 백테스트 매매 기록 시계열 |
+| `backtest_position` | V13 | v3.3.1 | 백테스트 포지션 기록 |
+| `strategy` (확장) | V14 | v3.4.0 | status 4단·codes·intervals JSONB + paused_at·disabled_at·deleted_at |
+| `signal` | V15 | v3.4.0 | T-SIG 시그널 영속 (UQ strategy_id+code+interval+ts) |
+| `risk_config` | V16 | v3.5.0 | 사용자별 risk 설정 (ADR 0067 §6-1 H-1) |
+| `risk_event` | V17 | v3.5.0 | 리스크 위반 이력 (ADR 0067 §6-2 G-1) |
+| `position` (V18 ALTER) | V18 | v3.5.0 | realized_pnl·unrealized_pnl·mode·updated_at 추가 |
+| `signal` (V19 ALTER) | V19 | v3.5.0 | `risk_status` 컬럼 추가 (PENDING·ALLOWED·BLOCKED) |
+| `order_request` | V20 | **v3.6.0** | T-O 주문 의도 (ADR 0068 §6-1·F-1) |
+| `order_execution` | V21 | **v3.6.0** | T-O 분할 체결 1:N (ADR 0068 §6-2·F-1) |
+| `order_audit_event` | V22 | **v3.6.0** | T-O 주문 감사 시계열 (ADR 0068 §6-3·F-1) |
+| `user_account` (V23 ALTER) | V23 | **v3.6.0** | `real_trading_consent_at` 컬럼 추가 (ADR 0068 §6-4·A-1) |
+| `position` (V24 ALTER) | V24 | **v3.6.0** | `created_at` 컬럼 추가 (JPA validate 정합 — ADR 0051 hotfix) |
+
+### 5-1. order_request 컬럼 요약 (ADR 0068 §6-1 V20 — v3.6.0)
+
+```sql
+-- Flyway V20
+id                BIGSERIAL PRIMARY KEY,
+signal_id         BIGINT NOT NULL REFERENCES signal(id) ON DELETE RESTRICT,
+user_id           VARCHAR(40) NOT NULL,
+code              VARCHAR(8) NOT NULL,
+side              VARCHAR(4) NOT NULL,       -- BUY · SELL
+qty               NUMERIC(15,4) NOT NULL,
+price_type        VARCHAR(10) NOT NULL,      -- MARKET · LIMIT
+limit_price       NUMERIC(19,4),
+status            VARCHAR(20) NOT NULL DEFAULT 'REQUESTED',
+                                             -- REQUESTED·ACK·FILLED·PARTIALLY_FILLED·REJECTED·CANCELLED·EXPIRED
+kis_order_no      VARCHAR(20),               -- KIS ODNO (ACK 후 LOCK)
+kis_fwdg_orgno    VARCHAR(20),              -- KIS KRX_FWDG_ORD_ORGNO (정정/취소 의무 동반)
+mode              VARCHAR(4) NOT NULL,       -- MOCK · REAL (3중 게이트 결과 LOCK)
+idempotency_key   VARCHAR(64) NOT NULL,     -- Redis SETNX 60s + DB UQ 이중 (H-1)
+reject_reason     VARCHAR(255),
+requested_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+acknowledged_at   TIMESTAMPTZ,
+completed_at      TIMESTAMPTZ,
+CONSTRAINT uq_order_signal_user UNIQUE (signal_id, user_id),  -- T-SIG 1 signal = 1 order
+CONSTRAINT uq_order_idempotency UNIQUE (idempotency_key)      -- 자본 중복 주문 방지 LOCK
+```
+
+index: `idx_order_user_ts (user_id, requested_at DESC)` · `idx_order_kis_no (kis_order_no)` · `idx_order_status_open (user_id, status) WHERE status IN ('REQUESTED','ACK','PARTIALLY_FILLED')`
+
+### 5-2. order_execution 컬럼 요약 (ADR 0068 §6-2 V21 — v3.6.0)
+
+```sql
+-- Flyway V21
+id               BIGSERIAL PRIMARY KEY,
+order_id         BIGINT NOT NULL REFERENCES order_request(id) ON DELETE CASCADE,
+executed_qty     NUMERIC(15,4) NOT NULL,
+executed_price   NUMERIC(19,4) NOT NULL,
+executed_at      TIMESTAMPTZ NOT NULL,
+fee              NUMERIC(19,4) NOT NULL DEFAULT 0,
+tax              NUMERIC(19,4) NOT NULL DEFAULT 0,
+kis_execution_no VARCHAR(20),               -- KIS 일부 환경 미발급 — UQ 미사용 (§14-4 risk 매트릭스)
+created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+```
+
+index: `idx_execution_order (order_id)` — 분할 체결 N건 조회 최적화
+
+### 5-3. order_audit_event 컬럼 요약 (ADR 0068 §6-3 V22 — v3.6.0)
+
+```sql
+-- Flyway V22
+id          BIGSERIAL PRIMARY KEY,
+order_id    BIGINT REFERENCES order_request(id) ON DELETE CASCADE,  -- NULL 허용 (IDEMPOTENCY_SKIPPED 시)
+user_id     VARCHAR(40) NOT NULL,
+action      VARCHAR(40) NOT NULL,      -- OrderAuditEventType 12 enum값
+detail_json JSONB,
+ts          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+```
+
+index: `idx_order_audit_user_ts (user_id, ts DESC)` · `idx_order_audit_action (action)`
+
+OrderAuditEventType 매트릭스: `REAL_GATE_DENIED` · `IDEMPOTENCY_SKIPPED` · `KILLSWITCH_DENIED` · `KIS_ACK` · `KIS_REJECT` · `KIS_EXCEPTION` · `FILL_RECEIVED` · `PARTIAL_FILL` · `FULL_FILL` · `KIS_CANCEL_ACK` · `KIS_CANCEL_REJECT` · `EXECUTION_TIMEOUT`
+
+### 5-4. user_account.real_trading_consent_at 컬럼 (ADR 0068 §6-4 V23 ALTER — v3.6.0)
+
+```sql
+-- Flyway V23
+ALTER TABLE user_account
+    ADD COLUMN IF NOT EXISTS real_trading_consent_at TIMESTAMPTZ;
+-- NULL = 미동의 → REAL 주문 BLOCKED (3중 게이트 조건 3 — ADR 0068 §14-3)
+```
+
+### 5-5. position.created_at 컬럼 (V24 ALTER hotfix — v3.6.0)
+
+```sql
+-- Flyway V24
+ALTER TABLE position
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+-- PositionJpaEntity.createdAt 필드 JPA validate 정합 (ADR 0051)
+```
+
+---
+
+## 6. Redis 키 매트릭스 (v3.6.0 누적)
+
+### 6-1. 기존 키 (v3.2.2 이월)
+
+| Redis 키 패턴 | 데이터 | 갱신 | TTL |
+|--------------|-------|------|-----|
+| `quote:last:{code}` | 현재가·등락 JSON | KIS WS tick | 7일 |
+| `candle:current:{code}:1m` | 당일 진행 중 1분봉 | KIS WS tick | 1분 closing 시 evict |
+| `candle:today:{code}:1d` | 당일 일봉 진행 중 | DailyCloseFinalizer | 당일 마감 evict |
+| `indicator:cache:{code}:{interval}:{name}:{paramsHash}` | 기술적 지표 결과 | IndicatorService | 분봉 300s / 일봉+ 86400s |
+| `pattern:cache:{code}:{interval}:{...}` | 패턴 인식 결과 | PatternController | 분봉 300s / 일봉+ 86400s |
+| `watchlist:source:{userId}` | data source 매트릭스 | SubscriptionRouter | — |
+| `instrument:search:idx` | 종목 검색 인덱스 | InstrumentSyncJob | — |
+
+### 6-2. v3.3.0 boundary 캐시 5종 (ADR 0064 A-1)
+
+| Redis 키 패턴 | 데이터 | TTL |
+|--------------|-------|-----|
+| `candle:current:{code}:5m` | 당일 5m bar | 25h |
+| `candle:current:{code}:15m` | 당일 15m bar | 25h |
+| `candle:current:{code}:30m` | 당일 30m bar | 25h |
+| `candle:current:{code}:90m` | 당일 90m bar | 25h |
+| `candle:current:{code}:1h` | 당일 1h bar | 25h |
+
+### 6-3. v3.4.0 신규 키 (ADR 0066 §2-5 — T-SIG)
+
+| Redis 키 패턴 | 데이터 | TTL |
+|--------------|-------|-----|
+| `strategy:active:by_code:{code}:{interval}` | ACTIVE 전략 목록 JSON | 5분 |
+| `sigdedupe:{strategyId}:{code}:{interval}:{ts}` | 중복 시그널 SETNX 가드 | 30s |
+
+### 6-4. v3.5.0 신규 키 (ADR 0067 §9-4 — T-RISK)
+
+| Redis 키 패턴 | 자료구조 | 데이터 | TTL |
+|--------------|---------|-------|-----|
+| `trades:freq:{strategyId}:{userId}:minute` | ZSET (sliding window) | 최근 1분 내 trade signalId + ts | 60s window |
+| `trades:freq:{strategyId}:{userId}:day` | ZSET (sliding window) | 당일 trade signalId + ts | 86400s window |
+| `daily_pnl:{userId}:{date}` | STRING | KST 자정~현재 누적 realized P&L | KST 자정까지 TTL |
+| `balance:user:{userId}` | STRING | 사용자 잔고 | 1h |
+
+### 6-5. v3.6.0 신규 키 (ADR 0068 H-1 — T-O 멱등성)
+
+| Redis 키 패턴 | 자료구조 | 데이터 | 갱신 | TTL |
+|--------------|---------|-------|------|-----|
+| `order:idem:{idempotencyKey}` (또는 `idem:order:{key}`) | STRING | "1" (점유 마커) | OrderIdempotencyGuardImpl.acquire() SETNX | 60s |
+
+자본 보호 LOCK (ADR 0068 H-1): Redis SETNX 60s + DB UQ 이중. Redis 장애 시 즉시 REJECTED (가용성보다 자본 보호 우선 — §14-4 risk 매트릭스 정합).
+
+---
+
+## 7. Kafka 토픽 전체 매트릭스
+
+### 7-1. 기존 7종 (v3.2.2 이월)
+
+| 토픽 | 파티션 | retention | 발행자 | 소비자 |
+|------|--------|----------|-------|-------|
+| `market.tick.v1` | 1 | 1h | `KisWebSocketBridge` (consumer) | `MarketTickStompForwarder` (api) |
+| `market.candle.minute.closed.v1` | 1 | 1d | `TickToMinuteAggregator` (consumer) | `MarketCandleStompForwarder` (api) |
+| `market.orderbook.v1` | 1 | 1h | `KisWebSocketBridge` (consumer) | `MarketOrderbookStompForwarder` (api) |
+| `symbol.detail.command.v1` | 1 | 1h | `SymbolController` (api) | `SymbolDetailCommandKafkaListener` (consumer) |
+| `watchlist.changed.v1` | 1 | 7d | `WatchlistService` (api) | `WatchlistChangedKafkaListener` (consumer) |
+| `instrument.updated.v1` | 1 | 7d | `InstrumentSyncJob` (batch) | `InstrumentUpdatedKafkaPublisher` (consumer) |
+| `corp_action.applied.v1` | 1 | 1d | `CorpActionSyncJob` (batch) | `CandleAdjustmentJob` (batch 내부) |
+
+### 7-2. v3.3.0 신규 5종 (ADR 0064 — boundary closed)
+
+| 토픽 | 파티션 | retention | 발행자 | 소비자 |
+|------|--------|----------|-------|-------|
+| `market.candle.5m.closed.v1` | 1 | 1d | `BoundaryAggregator` (consumer) | `CandleClosedStompListener` (api) + `BoundaryClosingKafkaListener` (consumer) |
+| `market.candle.15m.closed.v1` | 1 | 1d | `BoundaryAggregator` (consumer) | 동상 |
+| `market.candle.30m.closed.v1` | 1 | 1d | `BoundaryAggregator` (consumer) | 동상 |
+| `market.candle.90m.closed.v1` | 1 | 1d | `BoundaryAggregator` (consumer) | 동상 |
+| `market.candle.1h.closed.v1` | 1 | 1d | `BoundaryAggregator` (consumer) | 동상 |
+
+### 7-3. v3.4.0 신규 1종 (ADR 0066 — signal 발행)
+
+| 토픽 | 파티션 | retention | 발행자 | 소비자 |
+|------|--------|----------|-------|-------|
+| `signal.generated.v1` | 1 | 7d | `SignalKafkaProducer` (consumer) | `StompSignalDispatcher` (api) + `SignalJpaAdapter` (api) + `SignalGeneratedKafkaListener` (consumer) |
+
+### 7-4. v3.5.0 신규 2종 (ADR 0067 — Risk Gateway)
+
+| 토픽 | 파티션 | retention | 발행자 | 소비자 |
+|------|--------|----------|-------|-------|
+| `risk.violation.v1` | 1 | 7d | `RiskViolationKafkaProducer` (consumer) | `StompRiskNotifier` (api) |
+| `order.intent.v1` | 1 | 7d | `OrderIntentKafkaProducer` (consumer) | `OrderRouterKafkaListener` (consumer, v3.6.0 구현) |
+
+### 7-5. v3.6.0 신규 4종 (ADR 0068 §9-2 — T-O 주문 audit)
+
+| 토픽 | 파티션 | retention | 발행자 | 소비자 |
+|------|--------|----------|-------|-------|
+| `order.requested.v1` | 1 | **30d** | `OrderRequestedKafkaProducer` (consumer) | `StompOrderNotifier` (api) + ADR 0044 NotificationDispatcher (후행) |
+| `order.filled.v1` | 1 | **30d** | `OrderFilledKafkaProducer` (consumer) | `StompOrderNotifier` (api) + T-RECON 합류점 (후행) |
+| `order.rejected.v1` | 1 | **30d** | `OrderRejectedKafkaProducer` (consumer) | `StompOrderNotifier` (api) + ADR 0044 (후행) |
+| `order.cancelled.v1` | 1 | **30d** | `OrderCancelledKafkaProducer` (consumer) | `StompOrderNotifier` (api) + ADR 0044 (후행) |
+
+retention 30d — 주문 audit trail (risk.violation.v1 7d 대비 확장 — 실 자본 변동 audit 기간 강화).
+partition key = userId.
+msg/s 예상 ~0.001 (50건/일/사용자 / 86400s) — Kafka 영향 0.
+
+`order.requested.v1` payload schema:
+```json
+{
+  "orderId": 1,
+  "userId": "user001",
+  "signalId": 12345,
+  "code": "005930",
+  "side": "BUY",
+  "qty": 10,
+  "priceType": "MARKET",
+  "mode": "MOCK",
+  "requestedAt": "2026-05-13T09:00:00.000+09:00"
+}
+```
+
+`order.filled.v1` payload schema:
+```json
+{
+  "orderId": 1,
+  "userId": "user001",
+  "executionId": 1,
+  "kisOrderNo": "0000123456",
+  "executedQty": 10,
+  "executedPrice": 73000,
+  "executedAt": "2026-05-13T09:00:01.000+09:00",
+  "partial": false
+}
+```
+
+---
+
+## 8. Mermaid 데이터 흐름 (T-O — order.intent.v1 → 12 step → 3중 게이트 → KIS REST → H0STCNI0 → 4 Kafka → STOMP 4 event)
+
+```mermaid
+flowchart TD
+    KAFKA_OI["Kafka\norder.intent.v1\npartition=userId\n(T-RISK ALLOWED 출처)"]
+    ORKL["OrderRouterKafkaListener\n(consumer)\nADR 0068 §14-2\ngroupId: magicjar-consumer-order\nmax.poll.records=1 · concurrency=1"]
+    IDEM["OrderIdempotencyGuard\n(consumer)\nRedis SETNX 60s\nidem:order:{key}\n의제 H-1"]
+    TMGI["TradingModeGateImpl\n(consumer)\n3중 게이트 A-1\n(1) MAGICJAR_MODE\n(2) MAGICJAR_ALLOW_REAL\n(3) real_trading_consent_at"]
+    KSR["KillSwitchQueryAdapter\n(api)\nADR 0024·0043 재검증\n(T-RISK ALLOWED 이후에도 토글 가능)"]
+    DB_OR["PostgreSQL\norder_request table\nV20 idempotency_key UQ"]
+    KIS_REST["KIS REST\nPOST /uapi/domestic-stock/\nv1/trading/order-cash\n(TTTC0012U/VTTC0012U BUY\nTTTC0011U/VTTC0011U SELL)"]
+    KIS_WS["KIS WebSocket\nH0STCNI0 (real)\nH0STCNI9 (mock)\n체결통보 26 컬럼"]
+    KEWL["KisExecutionWsListener\n(consumer)\nADR 0068 §14-6\nCNTG_YN=2 → INSERT\nRFUS_YN=Y → REJECTED\nACPT_YN=3 → CANCELLED"]
+    DB_OE["PostgreSQL\norder_execution table\nV21 (분할 체결 1:N)"]
+    DB_AUD["PostgreSQL\norder_audit_event table\nV22 (12 event type)"]
+    STOMP_O["StompOrderNotifier\n(api)\n/topic/order.user.{userId}\n4 event discriminator"]
+    KAFKA_R["order.requested.v1\n30d retention"]
+    KAFKA_F["order.filled.v1\n30d retention\n(T-RECON 후행 합류)"]
+    KAFKA_REJ["order.rejected.v1\n30d retention"]
+    KAFKA_C["order.cancelled.v1\n30d retention"]
+    FE_ORDER["frontend\nuseStompOrder hook\nREQUESTED 파란 토스트\nFILLED 녹색 토스트\nREJECTED 빨간 토스트\nCANCELLED 회색 토스트"]
+    POS_UP["PositionUpdateAdapter\n(consumer)\nADR 0042·0067 position 갱신\nposition table UPDATE"]
+
+    KAFKA_OI --> ORKL
+    ORKL -->|"acquire(idem)"| IDEM
+    IDEM -->|"false → SKIPPED audit"| DB_AUD
+    IDEM -->|"true"| TMGI
+    TMGI -->|"Left(REAL_GATE_DENIED)"| DB_OR
+    TMGI -->|"Right(mode)"| KSR
+    KSR -->|"ON → KILLSWITCH_DENIED"| DB_OR
+    KSR -->|"OFF"| DB_OR
+    DB_OR -->|"status=REQUESTED INSERT"| STOMP_O
+    DB_OR -->|"step 6 병렬"| KAFKA_R
+    DB_OR -->|"KIS POST"| KIS_REST
+    KIS_REST -->|"rt_cd=0 ACK"| DB_OR
+    KIS_REST -->|"rt_cd!=0 REJECT"| DB_OR
+    DB_OR -->|"ACK UPDATE"| DB_AUD
+    KIS_WS --> KEWL
+    KEWL -->|"CNTG_YN=2"| DB_OE
+    DB_OE -->|"sumExecutedQty vs qty"| DB_OR
+    KEWL -->|"FILLED/PARTIAL"| KAFKA_F
+    KEWL -->|"RFUS_YN=Y"| KAFKA_REJ
+    KEWL -->|"ACPT_YN=3"| KAFKA_C
+    KEWL --> POS_UP
+    KAFKA_R --> STOMP_O
+    KAFKA_F --> STOMP_O
+    KAFKA_REJ --> STOMP_O
+    KAFKA_C --> STOMP_O
+    STOMP_O --> FE_ORDER
+    DB_OR -->|"status=REJECTED/CANCELLED"| KAFKA_REJ
+```
+
+---
+
+## 9. boundary 시각 매트릭스 (v3.3.0 이월 — ADR 0062·0063)
+
+| Interval | boundary 시각 (KST) | bar/일 | Redis 키 TTL |
+|----------|-------------------|-------|------------|
+| 5m | 08:05·08:10·…·19:55·20:00 | 144 | 25h |
+| 15m | 08:15·08:30·…·19:45·20:00 | 48 | 25h |
+| 30m | 08:30·09:00·…·19:30·20:00 | 24 | 25h |
+| 90m | 09:30·11:00·12:30·14:00·15:30·17:00·18:30·20:00 | 8 | 25h |
+| 1h | 09:00·10:00·…·19:00·20:00 | 12 | 25h |
+
+T-O 부하 예측 (ADR 0068 §9-1): order_request ~50건/일/사용자 → 18K row/year. order_execution 평균 1.5배 → 27K row/year. order_audit_event 평균 5 event/주문 → 91K row/year. 누적 ~140K row/year — 영향 0.
+
+---
+
+## 10. ADR 정합 참조
+
+| ADR | 관련 흐름 |
+|-----|---------|
+| ADR 0004 | 모듈 경계 결정 (domain·api·batch·consumer + pattern-engine) |
+| ADR 0007 | Kafka 이벤트 backbone — order.requested/filled/rejected/cancelled 4 신규 |
+| ADR 0010 | Multi-tenant — userId 격리 (order_request·order_execution·order_audit_event·/topic/order.user.{userId}) |
+| ADR 0023 | Signal Engine 룰 온리 (AI 호출 0 — T-O 동일 정책 계승) |
+| ADR 0024 | Risk Guard chain 6단 (KillSwitch 재검증 — ADR 0043 정합) |
+| ADR 0037 | KIS Rate Limit (주문 burst 5건 × 200ms = 1s — 20 req/s 영향 0) |
+| ADR 0041 | Broker Reconciliation (order.filled.v1 → T-RECON 후행 합류점) |
+| ADR 0042 | Position Bootstrap (PositionUpdateAdapter 합류점) |
+| ADR 0043 | KillSwitch (OrderRouterKafkaListener step 4 재검증 의무) |
+| ADR 0044 | Notification System (order.requested/filled/rejected/cancelled → ADR 0044 후행) |
+| ADR 0045 | Graceful Shutdown (OrderRouterKafkaListener + KisExecutionWsListener SmartLifecycle) |
+| ADR 0046 | Onboarding (UserKisCredential REAL/MOCK 2종 fetch — KisOrderHttpAdapter) |
+| ADR 0048 | KIS WS 구독 한도 (H0STCNI0 사용자별 1 구독 추가 — 현재 11건, margin 30건 OK) |
+| ADR 0051 | Repository default fun 함정 (OrderRequest/Execution/AuditEventJpaRepository body 0) |
+| ADR 0057 | KIS-only (KisOrderHttpAdapter raw 인용 의무 — tr_id·endpoint·필드명 자체 추론 0) |
+| ADR 0061 | Backtest 결과 영속 패턴 (3 테이블 분리 baseline — T-O F-1 동일 패턴) |
+| ADR 0066 | T-SIG (signal.generated.v1 → risk → order 체인 종착) |
+| ADR 0067 | T-RISK (order.intent.v1 publish → 본 ADR 진입점 LOCK) |
+| ADR 0068 | **T-O 주문 실행 (A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1 채택 — v3.6.0 신규 권위)** |
