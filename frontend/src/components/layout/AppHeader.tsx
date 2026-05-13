@@ -8,11 +8,19 @@
  * - T-SIG Phase 3 (ADR 0066): "전략 목록" 메뉴 추가
  * - T-RISK Phase 3 (ADR 0067): "리스크 설정"·"위반 이력"·"포지션" 메뉴 추가
  * - T-O Phase 3 (ADR 0068): "주문" 메뉴 추가
+ * - ADR 0069 §6: ⚙️ SettingsModal 진입점 추가
  */
+import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
+import { SettingsIcon } from '../icons/SettingsIcon'
+import { SettingsModal } from '../settings/SettingsModal'
 
 export function AppHeader() {
+  // ADR 0069 §6 — SettingsModal 열림 상태 (로컬 hook)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+
   return (
+    <>
     <header className="sticky top-0 z-50 border-b border-gray-800 bg-gray-950/95 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
         {/* 로고 */}
@@ -150,8 +158,24 @@ export function AppHeader() {
           >
             주문
           </NavLink>
+
+          {/* SettingsModal 진입점 — ADR 0069 §6 */}
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="설정"
+            className="ml-2 rounded-lg px-2.5 py-1.5 text-gray-400 hover:bg-gray-800/60 hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-950"
+          >
+            <SettingsIcon className="h-4 w-4" />
+          </button>
         </nav>
       </div>
     </header>
+
+    {/* SettingsModal — conditional render (unmount 시 form state 자연 reset) */}
+    {settingsOpen && (
+      <SettingsModal onClose={() => setSettingsOpen(false)} />
+    )}
+    </>
   )
 }
