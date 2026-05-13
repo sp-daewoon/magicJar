@@ -35,11 +35,11 @@ export function useSignals(params: Omit<SignalListParams, 'page'> = {}, size = 2
 /**
  * 시그널 단건 조회
  */
-export function useSignal(id: string | undefined) {
+export function useSignal(id: string | undefined, userId: string | null | undefined) {
   return useQuery<SignalDto>({
     queryKey: SIGNAL_KEY(id ?? ''),
-    queryFn: () => signalApi.get(id!),
-    enabled: !!id,
+    queryFn: () => signalApi.get(id!, userId!),
+    enabled: !!id && !!userId,
     staleTime: 60 * 1000,
   })
 }

@@ -39,6 +39,7 @@ export interface PositionDto {
 }
 
 export interface PositionListParams {
+  userId?: string
   source?: PositionSource
 }
 
@@ -53,6 +54,7 @@ export const positionApi = {
    */
   list: async (params: PositionListParams = {}): Promise<PositionDto[]> => {
     const searchParams = new URLSearchParams()
+    if (params.userId) searchParams.set('userId', params.userId)
     if (params.source) searchParams.set('source', params.source)
     const qs = searchParams.toString()
     const res = await apiClient.get<PositionDto[]>(`/positions${qs ? `?${qs}` : ''}`)
@@ -63,8 +65,10 @@ export const positionApi = {
    * GET /api/positions/{id}
    * 포지션 단건 조회
    */
-  get: async (id: string): Promise<PositionDto> => {
-    const res = await apiClient.get<PositionDto>(`/positions/${id}`)
+  get: async (id: string, userId: string): Promise<PositionDto> => {
+    const res = await apiClient.get<PositionDto>(
+      `/positions/${id}?userId=${encodeURIComponent(userId)}`,
+    )
     return res.data
   },
 }

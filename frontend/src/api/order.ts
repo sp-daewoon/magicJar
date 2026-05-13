@@ -131,6 +131,7 @@ export interface OrderListPage {
 
 /** 목록 조회 파라미터 */
 export interface OrderListParams {
+  userId?: string
   status?: OrderStatus | OrderStatus[]
   side?: OrderSide
   code?: string
@@ -151,6 +152,7 @@ export const orderApi = {
    */
   list: async (params: OrderListParams = {}): Promise<OrderListPage> => {
     const searchParams = new URLSearchParams()
+    if (params.userId) searchParams.set('userId', params.userId)
     if (params.status) {
       if (Array.isArray(params.status)) {
         params.status.forEach((s) => searchParams.append('status', s))
@@ -174,8 +176,10 @@ export const orderApi = {
    * GET /api/orders/{id}
    * 주문 단건 (request + executions N건 + audit_events 시계열)
    */
-  get: async (id: number): Promise<OrderDetailDto> => {
-    const res = await apiClient.get<OrderDetailDto>(`/orders/${id}`)
+  get: async (id: number, userId: string): Promise<OrderDetailDto> => {
+    const res = await apiClient.get<OrderDetailDto>(
+      `/orders/${id}?userId=${encodeURIComponent(userId)}`,
+    )
     return res.data
   },
 
@@ -183,10 +187,11 @@ export const orderApi = {
    * POST /api/orders/{id}/cancel
    * 사용자 수동 취소 (ADR 0068 의제 E-1)
    */
-  cancel: async (id: number, reason?: string): Promise<CancelOrderResponseDto> => {
-    const res = await apiClient.post<CancelOrderResponseDto>(`/orders/${id}/cancel`, {
-      reason: reason ?? null,
-    })
+  cancel: async (id: number, userId: string, reason?: string): Promise<CancelOrderResponseDto> => {
+    const res = await apiClient.post<CancelOrderResponseDto>(
+      `/orders/${id}/cancel?userId=${encodeURIComponent(userId)}`,
+      { reason: reason ?? null },
+    )
     return res.data
   },
 }

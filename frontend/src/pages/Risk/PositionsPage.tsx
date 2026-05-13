@@ -8,6 +8,8 @@
  * - 오류 시 위젯별 오류 표시 (페이지 전체 중단 금지)
  */
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import { useOnboardingStore } from '../../stores/onboarding'
 import type { PositionSource } from '../../api/position'
 import { usePositions } from '../../api/hooks/usePositions'
 import { PositionCard } from '../../components/risk/PositionCard'
@@ -19,12 +21,29 @@ const SOURCE_OPTIONS: { value: PositionSource | ''; label: string }[] = [
 ]
 
 export function PositionsPage() {
+  const userId = useOnboardingStore((s) => s.registeredUserId)
   const [sourceFilter, setSourceFilter] = useState<PositionSource | ''>('')
   const { data, isLoading, isError, refetch } = usePositions(
-    sourceFilter ? { source: sourceFilter } : {},
+    sourceFilter ? { userId: userId ?? undefined, source: sourceFilter } : { userId: userId ?? undefined },
   )
 
   const positions = data ?? []
+
+  // userId 미등록 시 셋업 안내
+  if (!userId) {
+    return (
+      <div className="mx-auto flex max-w-2xl flex-col items-center gap-6 px-4 py-24 text-center">
+        <h1 className="text-2xl font-bold text-white">보유 포지션</h1>
+        <p className="text-sm text-gray-400">KIS 계좌 등록을 완료하면 보유 포지션을 확인할 수 있습니다.</p>
+        <Link
+          to="/setup"
+          className="rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 focus:ring-offset-gray-950"
+        >
+          계좌 등록하러 가기
+        </Link>
+      </div>
+    )
+  }
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">

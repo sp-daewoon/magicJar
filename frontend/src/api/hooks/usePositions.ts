@@ -17,11 +17,13 @@ const POSITION_KEY = (id: string) => ['positions', id] as const
 /**
  * 보유 포지션 목록 hook
  * staleTime=15s — 실시간성 반영
+ * userId 없으면 쿼리 비활성 (feedback_no_mock_data 정합)
  */
 export function usePositions(params: PositionListParams = {}) {
   return useQuery<PositionDto[]>({
     queryKey: POSITIONS_KEY(params),
     queryFn: () => positionApi.list(params),
+    enabled: !!params.userId,
     staleTime: 15 * 1000,
   })
 }
@@ -29,11 +31,11 @@ export function usePositions(params: PositionListParams = {}) {
 /**
  * 포지션 단건 조회
  */
-export function usePosition(id: string | undefined) {
+export function usePosition(id: string | undefined, userId: string | undefined) {
   return useQuery<PositionDto>({
     queryKey: POSITION_KEY(id ?? ''),
-    queryFn: () => positionApi.get(id!),
-    enabled: !!id,
+    queryFn: () => positionApi.get(id!, userId!),
+    enabled: !!id && !!userId,
     staleTime: 30 * 1000,
   })
 }

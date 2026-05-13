@@ -88,7 +88,7 @@ export function StrategyListPage() {
           </h2>
           <StrategyFilterBar value={filterOption} onChange={setFilterOption} />
         </div>
-        <StrategyList filter={filterOption} />
+        <StrategyList userId={userId} filter={filterOption} />
       </section>
 
       {/* 구분선 */}

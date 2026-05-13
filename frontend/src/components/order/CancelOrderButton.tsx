@@ -16,6 +16,7 @@ import { useToast } from '../ui/ToastProvider'
 
 interface CancelOrderButtonProps {
   orderId: number
+  userId: string
   status: OrderStatus
   code: string
   side: OrderSide
@@ -30,6 +31,7 @@ function sideLabel(side: OrderSide): string {
 
 export function CancelOrderButton({
   orderId,
+  userId,
   status,
   code,
   side,
@@ -43,7 +45,7 @@ export function CancelOrderButton({
 
   function handleCancelConfirm() {
     mutate(
-      { id: orderId },
+      { id: orderId, userId },
       {
         onSuccess: () => {
           showToast(`주문 취소 완료 — ${code} ${sideLabel(side)} ${quantity}주`, 'success')

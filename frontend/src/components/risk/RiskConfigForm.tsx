@@ -165,10 +165,14 @@ function SectionHeader({ label, desc }: { label: string; desc?: string }) {
 // RiskConfigForm 본체
 // ──────────────────────────────────────────────
 
-export function RiskConfigForm() {
-  const { data, isLoading, isError } = useRiskConfig()
-  const updateMutation = useUpdateRiskConfig()
-  const resetMutation = useResetRiskConfig()
+interface RiskConfigFormProps {
+  userId: string
+}
+
+export function RiskConfigForm({ userId }: RiskConfigFormProps) {
+  const { data, isLoading, isError } = useRiskConfig(userId)
+  const updateMutation = useUpdateRiskConfig(userId)
+  const resetMutation = useResetRiskConfig(userId)
   const { showToast } = useToast()
 
   const [form, setForm] = useState<FormState | null>(null)

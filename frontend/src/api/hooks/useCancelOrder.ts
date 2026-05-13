@@ -9,6 +9,7 @@ import { orderApi, type CancelOrderResponseDto } from '../order'
 
 interface CancelOrderVariables {
   id: number
+  userId: string
   reason?: string
 }
 
@@ -16,7 +17,7 @@ export function useCancelOrder() {
   const queryClient = useQueryClient()
 
   return useMutation<CancelOrderResponseDto, Error, CancelOrderVariables>({
-    mutationFn: ({ id, reason }) => orderApi.cancel(id, reason),
+    mutationFn: ({ id, userId, reason }) => orderApi.cancel(id, userId, reason),
     onSuccess: (_data, variables) => {
       // 목록 + 단건 모두 무효화
       void queryClient.invalidateQueries({ queryKey: ['orders'] })

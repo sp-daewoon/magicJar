@@ -2,8 +2,8 @@
  * RiskEvent TanStack Query hooks (T-RISK Phase 3 — ADR 0067)
  *
  * hooks:
- *   useRiskEvents(params)  — useInfiniteQuery (무한 스크롤)
- *   useRiskEvent(id)       — useQuery (단건)
+ *   useRiskEvents(userId, params)  — useInfiniteQuery (무한 스크롤)
+ *   useRiskEvent(id, userId)       — useQuery (단건)
  *
  * ADR 0009 TanStack Query 패턴 정합 (useSignal 패턴 준용)
  * 룰 5: LLM provider import 0건
@@ -18,16 +18,21 @@ const RISK_EVENT_KEY = (id: string) => ['risk-events', id] as const
 
 /**
  * 리스크 이벤트 목록 (무한 스크롤)
- * page=0 → page=1 → ... 자동 누적
+ * userId 없으면 쿼리 비활성 (feedback_no_mock_data 정합)
  */
-export function useRiskEvents(params: Omit<RiskEventListParams, 'page'> = {}, size = 20) {
+export function useRiskEvents(
+  userId: string | null | undefined,
+  params: Omit<RiskEventListParams, 'page' | 'userId'> = {},
+  size = 20,
+) {
   return useInfiniteQuery<RiskEventPage, Error>({
-    queryKey: RISK_EVENT_LIST_KEY({ ...params, size }),
+    queryKey: RISK_EVENT_LIST_KEY({ ...params, userId: userId ?? '', size }),
     queryFn: ({ pageParam }) =>
-      riskApi.listEvents({ ...params, size, page: pageParam as number }),
+      riskApi.listEvents({ ...params, userId: userId!, size, page: pageParam as number }),
     initialPageParam: 0 as number,
     getNextPageParam: (lastPage) =>
       lastPage.last ? undefined : lastPage.page + 1,
+    enabled: !!userId,
     staleTime: 15 * 1000,
   })
 }
@@ -35,11 +40,11 @@ export function useRiskEvents(params: Omit<RiskEventListParams, 'page'> = {}, si
 /**
  * 리스크 이벤트 단건 조회
  */
-export function useRiskEvent(id: string | undefined) {
+export function useRiskEvent(id: string | undefined, userId: string | null | undefined) {
   return useQuery<RiskEventDto>({
     queryKey: RISK_EVENT_KEY(id ?? ''),
-    queryFn: () => riskApi.getEvent(id!),
-    enabled: !!id,
+    queryFn: () => riskApi.getEvent(id!, userId!),
+    enabled: !!id && !!userId,
     staleTime: 60 * 1000,
   })
 }

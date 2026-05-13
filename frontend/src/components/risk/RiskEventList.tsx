@@ -28,12 +28,13 @@ function formatKst(iso: string): string {
 }
 
 interface RiskEventListProps {
+  userId: string
   verdictFilter?: RiskVerdict
 }
 
-export function RiskEventList({ verdictFilter }: RiskEventListProps) {
+export function RiskEventList({ userId, verdictFilter }: RiskEventListProps) {
   const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } =
-    useRiskEvents({ verdict: verdictFilter }, 20)
+    useRiskEvents(userId, { verdict: verdictFilter }, 20)
 
   const events = data?.pages.flatMap((p) => p.content) ?? []
 

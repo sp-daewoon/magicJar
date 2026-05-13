@@ -215,12 +215,12 @@ export interface UpdateSigStrategyRequest {
 
 export const sigStrategyApi = {
   /**
-   * GET /api/strategies?page=&size=
-   * 전략 목록 (페이징)
+   * GET /api/strategies?userId=&page=&size=
+   * 전략 목록 (페이징) — userId: Long (StrategiesController 정합)
    */
-  list: async (page = 0, size = 20): Promise<SigStrategyPage> => {
+  list: async (userId: string, page = 0, size = 20): Promise<SigStrategyPage> => {
     const res = await apiClient.get<SigStrategyPage>(
-      `/strategies?page=${page}&size=${size}`,
+      `/strategies?userId=${encodeURIComponent(userId)}&page=${page}&size=${size}`,
     )
     return res.data
   },
