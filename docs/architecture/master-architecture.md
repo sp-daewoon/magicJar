@@ -162,7 +162,7 @@ magicJar는 미래에 **MCP 서버를 외부에 노출**해 Claude/Cursor 등 AI
 - **KillSwitch ON 행동 (ADR 0043)** — ON 시 시그널 emit 정지 + pending cancel(`order-rvsecncl` TTTC0803U) + STOMP push + 신규 주문 422 + 체결통보는 정상 수신
 - **Notification 통지 (ADR 0044)** — consumer NotificationDispatcher가 7 Kafka topic 구독 → Slack webhook POST + outbox fallback. 사용자 부재(취침·자리비움) 중 사고 즉시 모바일 push
 - **Graceful Shutdown (ADR 0045)** — SIGTERM 수신 시 api(HTTP draining 30s)·consumer(Kafka manual commit + KIS WS close)·batch(JobOperator.stop) 순차 종료. 미체결 주문은 PENDING 보존 → 재기동 시 ADR 0042+0041로 진위 판정. order.intent.v1 idempotency 키 `{user}:{strategy}:{ymd}:{tickSeq}` + Redis SETNX 24h
-- **Onboarding Setup (ADR 0046)** — 첫 부팅 시 활성 user 0명 idle. localhost:3000 진입 → 셋업 마법사 7-step → KIS REST `/oauth2/tokenP` 검증 → AES-256-GCM 암호화 → user_account + user_kis_credential 영속 → UserOnboardedEvent → WatchlistIngestionWorker polling 시작
+- **Onboarding Setup (ADR 0046 + 0069)** — 첫 부팅 시 활성 user 0명 idle. localhost:3000 진입 → 셋업 마법사 7-step → KIS REST `/oauth2/tokenP` 검증 → AES-256-GCM 암호화 → user_account + user_kis_credential 영속 → UserOnboardedEvent → WatchlistIngestionWorker polling 시작. 운영 진입 후 키 변경·DART/Slack 추가·실거래 동의 토글은 **SettingsModal** (AppHeader ⚙️ 진입점, ADR 0069 §1 책임 분리 + §3 1차 scope 3 section + §4 신규 API 키 추가 5 step 표준 절차)
 - **DSL Sandbox (ADR 0047)** — Strategy 등록 시 static 검증(AST depth ≤ 32·노드 ≤ 10000·indicator ≤ 50·키워드 화이트리스트). SignalGenerator 평가 시 strategy-eval-pool(fixed 4) 경유 → realtime timeout 100ms / backtest 1000ms · CPU budget 50ms. Timeout 1회 시 strategy auto-disable + `risk.violation.v1`(type=STRATEGY_TIMEOUT) → ADR 0044 통지
 
 ### 3-2. 장외 시세 fallback 흐름 (오프라인 정합)
@@ -512,7 +512,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 
 ---
 
-## §10. 핵심 ADR 인덱스 (0001~0057 Accepted + 0061·0062·0063·0066·0067 Accepted + 0064·0068 Proposed 2026-05-12)
+## §10. 핵심 ADR 인덱스 (0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069 Accepted + 0064 Proposed)
 
 상세 본문은 `_workspace/arch/adr/<NNNN>-*.md`. 분류 카테고리는 `_workspace/arch/adr/README.md` §1~§10-4 정합. 본 §10은 한 줄 요약 인덱스 — 신규 ADR 발행 시 본 표 + README 동시 갱신 (ADR 0030 SoT 운영 규약).
 
@@ -581,6 +581,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | 0066 | **T-SIG 실시간 시그널 엔진 (룰 매칭 + Kafka boundary listen + 영속 + STOMP fanout) — Accepted (2026-05-12 사용자 채택 A-1·B-1·C-1·D-1·E-1·F-1)** | 전략·신호·리스크 | W3 v3.4.0 마감 (backlog §40 DONE) |
 | 0067 | **T-RISK 리스크 관리 (Signal → Risk Gateway consumer → Order intent 의무 게이트 + risk_config·risk_event·position·signal.risk_status 4 도메인 영속 + STOMP 알림 + auto-PAUSE 반복 BLOCKED 10회) — Accepted (2026-05-12 사용자 채택 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1)** | 전략·신호·리스크 | W3 v3.5.0 마감 (backlog §41 DONE) |
 | 0068 | **T-O 주문 실행 plan (Risk ALLOWED → KIS REST 매수·매도 + WS H0STCNI0 체결 추적 + 사용자 수동 정정/취소 + 3 테이블 영속 + STOMP 4 event + 멱등성 Redis SETNX + 실계좌 3중 게이트) — Proposed (2026-05-12 사용자 결정 대기 — 의제 A·B·C·D·E·F·G·H 8건 / architect 권장 A-1 env × 2 + 사용자 동의 토글 + B-1 단일 port + adapter 내부 mode 분기 + C-1 시장가/지정가 + D-1 KIS WS H0STCNI0 실시간 + E-1 사용자 수동 only + F-1 3 테이블 분리 + G-1 단일 토픽 4 event discriminator + H-1 Redis SETNX 60s + DB UQ — KIS-first raw 4건 TTTC0012U·TTTC0011U·TTTC0013U·H0STCNI0)** | 전략·신호·리스크 | W3 v3.6.0 후보 (backlog §43) |
+| 0069 | **SettingsModal vs SetupWizard 책임 분리 + 공통 입력 컴포넌트 6종 추출 + 미래 신규 API 키 추가 5 step 표준 절차 + 1차 PR scope LOCK (RealTradingConsentSection + KisCredentialSection + SystemConfigSection 3 section) + backlog 의제 10건 — Accepted (2026-05-13 사용자 명시 정책 — dogfooding 결함 발견 응답)** | 운영·UX fitness | W3 T-O 보강 (자본 보호 검증 unblock) |
 
 ### 후속 예정 (Proposed — `_workspace/arch/adr/README.md` §12 정합)
 
@@ -636,6 +637,7 @@ v1·v2 검토 시점에 누적된 결정 항목과 v3.0.0 베이스라인 컷(20
 
 | 날짜 | 변경 |
 |---|---|
+| 2026-05-13 (ADR 0069) | **SettingsModal vs SetupWizard 책임 분리 ADR 0069 신규 발행 정합** — §10 인덱스 0069 row 추가 + §10 헤더 카운트 갱신(`0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069 Accepted + 0064 Proposed`) + §3-1 부수 흐름 Onboarding Setup row에 SettingsModal 통합 명시(`ADR 0046 + 0069`) + tracks-roadmap T-ONBOARD outline에 ADR 0069 산출물 매트릭스 prepend(SetupWizard·SettingsModal·forms 6 공통 컴포넌트). README §10-2 운영·UX Fitness 갭 3→4건 + README §11 후속 ADR 번호 0070으로 시프트. dogfooding 결함 응답 — RealTradingConsentToggle UI 접근 가능 path 확보 → T-O 자본 보호 검증 케이스 1·2·3 unblock. ADR 0046 supersede X — reuse + 보강. KIS-first raw 인용 0건(UI 책임 분리 영역). (architect) |
 | 2026-05-03 (v1) | 1차안 (architect, opus 4.7 1M) — "AI quant trading platform" 가정. 사용자 비전 정정으로 폐기. |
 | 2026-05-03 (v2) | **풀 재작성** — 룰 기반 본체 + AI 옵션 + MCP 서버 미래. 18 컴포넌트 4 영역. 새 ADR 0031~0047 17건. (architect, opus 4.7 1M) |
 | 2026-05-07 (PR-2) | SoT 동기화 — §10 ADR 인덱스 0001~0040 풀 재작성, §2 헤더 19 컴포넌트 정정, §6 Kafka `watchlist.changed.v1` topic 추가, §12 사용자 결정 누적 카드 정리, AI 변수명 `MAGICJAR_AI_OPTION_ENABLED` → `MAGICJAR_AI_ENABLED` 통일. (architect) |
