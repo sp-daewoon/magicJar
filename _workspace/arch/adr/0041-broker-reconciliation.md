@@ -154,3 +154,4 @@ drift 검출 → **자동 KillSwitch ON**. 행동 명세는 ADR 0043 정합. 사
 | 날짜 | 변경 |
 |---|---|
 | 2026-05-07 | ADR 0041 신규 발행 — Critical fitness 갭 1번. Q2=A 사용자 결정 정합. (architect) |
+| 2026-05-13 | **ADR 0070 묶음 spec 정밀화** — Phase 분리 LOCK (T-RECON Phase 1 strategy-engine → Phase 2 backend-core 직렬 디스패치), sub-agent 디스패치 정밀 명세 권위는 ADR 0070 §2-2·§2-3 + spec `_workspace/specs/pr-392-recon-notify-spec.md` §2-2·§2-3로 이관. Kafka 토픽 명명 갱신 — 본 ADR §2-4의 `position.drift.v1` → **`reconcile.drift.v1`** (semantic이 reconcile job 산출 결과이며 position 자체 변동 `order.filled.v1`과 구분 명확화). 신규 publish 2건 추가 LOCK — `reconcile.run.v1` (7d retention audit) + `killswitch.engaged.v1` (30d, KillSwitchAutoToggler가 publish). KIS-first raw 인용 4건 LOCK (TTTC8434R·VTTC8434R inquire-balance + CTRP6548R inquire-account-balance 보조 + H0STCNI0 cross-ref). Flyway 슬롯 V22 → V25·V26 시프트 (T-O가 V20~V24 사용 — ADR 0068 §15-1 LOCK). 본 ADR §1~§4 결정 권위 보존 (supersede 0 — reuse + 정밀화). (architect) |

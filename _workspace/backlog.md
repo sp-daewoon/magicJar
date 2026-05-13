@@ -1802,3 +1802,152 @@ ADR 0069 §3 1차 scope는 KIS 키 + System Config(DART·Slack) 2건. ADR §7 ba
 ### 연관
 
 - ADR 0069 §3 + §7 backlog (10건 매트릭스)
+
+---
+
+## §46. Risk 페이지 reconcile timeline UI + KillSwitch 토글 UX 보강 (T-RECON Phase 2 마감 후 frontend 단발 디스패치)
+
+### 사유
+
+ADR 0070 T-RECON + T-NOTIFY 묶음 spec은 frontend 0 LOCK 채택. 자본 보호 핵심 흐름(drift → KillSwitch ON → Slack P0 → STOMP)은 backend 단독 완성 가능 + SettingsModal·KillSwitch baseline reuse로 1차 사이클 cost ↓. 그러나 운영 편의 보강 의제로 다음 3건 frontend 단발 디스패치:
+
+1. **Risk 페이지 reconcile_run timeline** — `/risk` 페이지에 reconcile_run 시계열 표 + drift_count 그래프 + 마지막 cycle 시각 + 다음 cycle 예정 시각
+2. **STOMP `/topic/recon.user.{userId}` 실시간 listen** — useStompReconcile hook + 4 event 토스트(reconcile.run.started·completed·drift.detected·killswitch.auto.engaged)
+3. **KillSwitch 사용자 수동 토글 UX** — Risk 페이지 또는 SettingsModal에 KillSwitch ON/OFF 토글 + ON 시 사유 표시 + OFF 시 이중 confirm + 60초 cooldown 안내(ADR 0043 baseline 정합)
+
+### 트리거
+
+- T-RECON Phase 2 마감 후 (PR-392 backend-core-recon 머지 후)
+- 또는 사용자가 dogfooding 중 "reconcile 결과 어디서 봐?" 보고 시 즉시
+
+### 보강 안 (예상 PR 매트릭스)
+
+- **PR-A frontend**: `RiskPage.tsx` reconcile timeline 추가 + `useReconcileRuns` hook + `ReconcileRunTimeline.tsx` 컴포넌트 + `useStompReconcile` hook + 4 event 토스트 + KillSwitchToggle.tsx 컴포넌트
+
+### 연관
+
+- ADR 0070 §2-8 frontend 0 LOCK (본 §46이 후속 의제 명시)
+- ADR 0041 §2 (reconcile_run baseline)
+- ADR 0043 (KillSwitch 행동)
+- spec `_workspace/specs/pr-392-recon-notify-spec.md` §9 (UI 변경 매트릭스)
+
+---
+
+## §47. drift 임계치 사용자 설정화 (수량 1주·평균단가 0.5% 고정 → 사용자 토글)
+
+### 사유
+
+ADR 0070 §2-10 drift 검출 임계치는 baseline 고정값(수량 ≥ 1주, 평균단가 ≥ 0.5%). 본격 운영 시 사용자가 자기 매매 패턴에 따라 임계치 조정 의제 발견 시 — 예를 들어 1주 단위 매매 비중 높은 사용자는 임계치 5주로 상향 + KillSwitch toggle 줄이기 등.
+
+### 트리거
+
+- 본격 운영 사용자 의제 발견 시
+- 또는 drift_count 누적이 1시간 ≥ 3회 false positive 패턴 발견 시
+
+### 보강 안 (예상 ADR 0071+ 후보)
+
+- system_config 또는 user_config 테이블에 `reconcile_qty_threshold`(default 1) + `reconcile_price_diff_threshold`(default 0.005 = 0.5%) 컬럼 ALTER
+- SettingsModal Risk 섹션에 토글 추가 (ADR 0069 §3 SystemConfigSection pattern)
+- BalanceReconciler에서 threshold 주입 (도메인 port + 조회 어댑터)
+
+### 연관
+
+- ADR 0041 §2-2 (임계치 고정값 baseline)
+- ADR 0070 §2-10 (본 §47 후속 명시)
+- ADR 0069 §7 (SettingsModal 미래 카테고리 §G KillSwitch 관련)
+
+---
+
+## §48. MarketSessionFsm cron skip 통합 (시장 휴장 시 reconcile cron skip)
+
+### 사유
+
+ADR 0070 §2-9 cron 시각은 `@Scheduled` cron expression 단순 LOCK (`0 */5 9-15 * * MON-FRI`). 그러나 KRX 공휴일·임시 휴장 시 cron이 fire되어도 KIS API 호출 의미 0 (오히려 RateLimiter 소모). ADR 0013 MarketSessionFsm 의존을 본격 통합하여 시장 휴장 시 cron skip.
+
+### 트리거
+
+- T-RECON Phase 1 1차 마감 후 운영 의제 발견 시
+- 또는 휴장일 reconcile_run row가 N개 누적 (예: 5건/일) 발견 시
+
+### 보강 안
+
+- BalanceReconcileJob에 MarketSessionPort 주입 → fire 직전 `if (!session.isMarketOpenOrAdjacent()) return`
+- ADR 0013 MarketSessionFsm 본격 구현 (현재 1차 stub LOCK — ADR 0048 §결정 6 정합)
+
+### 연관
+
+- ADR 0013 (MarketSessionFsm)
+- ADR 0048 (KIS WS 41건 + MarketSession 1차 stub)
+- ADR 0070 §2-9
+
+---
+
+## §49. user별 Slack webhook 분리 (multi-user 본격화 시)
+
+### 사유
+
+ADR 0044 §2-1·ADR 0070 §2-3 채택: Slack webhook은 single-tenant 가정으로 `system_config.notification_slack_webhook` 단일 row + 사용자 식별은 메시지 본문 `user_id(masked)` 필드. multi-user 본격화 시 user별 webhook 분리 의제 진입.
+
+### 트리거
+
+- 사용자 본인 외 추가 사용자 합류 시
+- 또는 다중 워크스페이스 사용자 의제 발견 시
+
+### 보강 안 (예상 ADR 0072 후보)
+
+- user_account 또는 user_notification_config 테이블 신규 + per-user webhook 컬럼
+- NotificationDispatcher routing — payload.userId 기준 user webhook lookup + fallback global system_config
+
+### 연관
+
+- ADR 0044 §4 (user별 webhook 후속 0070+ 후보)
+- ADR 0070 §3-6 (트레이드오프 (f) Discord webhook 후속)
+
+---
+
+## §50. Discord·이메일·SMS 보조 채널 (Slack 보완)
+
+### 사유
+
+ADR 0044 §2-1·ADR 0070 §3-6 채택: 1차 Slack only. Slack 자체 장애·해외 사용자 등 보조 채널 필요 시점.
+
+### 트리거
+
+- post-MVP — Slack 장애 빈도가 사용자 운영 부담 누적 시
+- 또는 Discord 사용자 의제 발견 시
+
+### 보강 안 (예상 ADR 0073 후보)
+
+- SlackWebhookPort에 일반화 NotificationChannelPort 추출 + DiscordWebhookPort·EmailSenderPort 신규
+- notification_outbox.channel ENUM 확장 (SLACK · DISCORD · EMAIL · SMS · PUSH)
+- system_config 컬럼 multi-channel 추가
+
+### 연관
+
+- ADR 0044 §4 후속 0072 후보
+- ADR 0070 §3-6 트레이드오프 (f)
+
+---
+
+## §51. ADR 0045 system.startup.v1·system.shutdown.v1 publish 본격 합류 (Graceful Shutdown 트랙)
+
+### 사유
+
+ADR 0044 §2-2 7 트리거 중 system.startup.v1·system.shutdown.v1·notification.sent.v1은 ADR 0070 §2-4 채택으로 본 사이클 선택 publish. 본격 publish 합류는 ADR 0045 Graceful Shutdown 트랙 진입 시.
+
+### 트리거
+
+- ADR 0045 Graceful Shutdown 트랙 진입 시 (T-RECON·T-NOTIFY 마감 후 횡단 트랙)
+- 또는 컨테이너 비정상 재시작 누적 인지 의제 발견 시
+
+### 보강 안
+
+- api·batch·consumer 각 ApplicationReadyEvent + SmartLifecycle.stop hook → Kafka publish
+- NotificationDispatcher P2 listen (이미 토픽 정의됨)
+- MAGICJAR_NOTIFICATION_SYSTEM_EVENTS toggle (dev profile false 권장)
+
+### 연관
+
+- ADR 0044 §2-2 (트리거 7 중 3 선택 publish)
+- ADR 0045 (Graceful Shutdown)
+- ADR 0070 §2-4 (본 사이클 선택 publish 정합)
