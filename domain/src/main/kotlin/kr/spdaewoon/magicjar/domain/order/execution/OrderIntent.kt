@@ -1,0 +1,39 @@
+package kr.spdaewoon.magicjar.domain.order.execution
+
+import java.math.BigDecimal
+import java.time.Instant
+
+/**
+ * 주문 의도 — `order.intent.v1` Kafka payload 도메인 모델 (ADR 0068 §14-1 LOCK).
+ *
+ * T-RISK ALLOWED 분기 publish → OrderRouterKafkaListener consume (§14-2 step 1).
+ * 본 모델은 영속 X (영속은 [OrderRequest] §14-1 정합).
+ *
+ * 필드 정합:
+ *   id              — signal_intent_id (T-RISK ALLOWED publish 시 채번)
+ *   userId          — KIS credential identity (ADR 0049 §kis-credential-identity)
+ *   signalId        — T-SIG cross-ref + 멱등 키 source (의제 H-1)
+ *   strategyId      — strategy_id cross-ref (T-J 진입점)
+ *   code            — 종목코드 6자리
+ *   side            — BUY/SELL ([OrderSide])
+ *   priceType       — MARKET/LIMIT ([OrderPriceType])
+ *   quantity        — 주문 수량 (양수 LOCK — 검증 책임은 publisher)
+ *   limitPrice      — LIMIT 시 not null, MARKET 시 null
+ *   idempotencyKey  — "{signalId}:{userId}" 형식 (의제 H-1, 의제 D §14-2 step 2 정합)
+ *   requestedAt     — T-RISK publish 시각 (Kafka producer 채번)
+ *
+ * AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8)
+ */
+data class OrderIntent(
+    val id: Long,
+    val userId: String,
+    val signalId: Long,
+    val strategyId: Long,
+    val code: String,
+    val side: OrderSide,
+    val priceType: OrderPriceType,
+    val quantity: Int,
+    val limitPrice: BigDecimal?,
+    val idempotencyKey: String,
+    val requestedAt: Instant,
+)
