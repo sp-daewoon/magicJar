@@ -1,6 +1,6 @@
 ---
 name: magicjar-baseline
-description: magicJar baseline 문서화 사이클(7 파일 풀세트 + Mermaid 시각화 + HTML 변환). v3.X.0 release 시점 또는 사용자 트리거 시 4 sub-agent 병렬 디스패치로 종합 기능 정의서 발행. /baseline init|update|render|diff slash command + scripts/baseline-*.mjs 헬퍼와 함께 사용. ADR 0052 정합.
+description: magicJar baseline 문서화 사이클(7 파일 풀세트 + Mermaid 시각화 + HTML 변환). v3.X.Y release **직전** 의무 단계(ADR 0052 §X 정합 — baseline → tag → release.sh 순서 LOCK) 또는 사용자 트리거 시 4 sub-agent 병렬 디스패치로 종합 기능 정의서 발행. /baseline init|update|render|diff slash command + scripts/baseline-*.mjs 헬퍼와 함께 사용. ADR 0052 정합.
 ---
 
 # magicjar-baseline — Baseline 문서화 사이클

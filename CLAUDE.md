@@ -150,9 +150,11 @@ docker/      docker compose 통합(인프라 3 + 앱 4 = 7 컨테이너)
 
 ## CI/CD
 
-- PR 검증: JVM 4 모듈 matrix `:check` + `:bootJar` (domain은 bootJar 제외) + frontend `pnpm test/build`.
-- main push: 4 서비스(api·batch·consumer·frontend) ghcr.io 자동 발행.
-- release: `v*.*.*` 태그 → semver 이미지 + GitHub Release draft.
+- PR 검증: `.husky/pre-push`가 `./gradlew check` + frontend `pnpm typecheck/build` 단독 책임. GitHub Actions 폐기(`feedback_no_github_actions.md`).
+- release 절차 (ADR 0052 §X 정합, 순서 LOCK):
+  1. `/baseline init vX.Y.0` — 4 sub-agent 병렬 → 7 md + 8 html 풀세트
+  2. baseline 8 PR 머지 완료 후 → `git tag vX.Y.Z` + `release/vX.Y.Z` brunch push (ADR 0031 immutable)
+  3. `scripts/release.sh vX.Y.Z` — release notes 풍부 합성(baseline html 인용) + `gh release create` + `sync-readme-releases.mjs` 자동 갱신
 
 ## 변경 이력
 
