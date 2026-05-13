@@ -9,7 +9,7 @@
 <!-- pr-54-slot-architect -->
 | 2026-05-?? | **TBD — PR-54 backend-core: 02-data-flow + 04-feature-spec** | baseline/v3.6.0 | PR-54 backend-core 2 파일 |
 <!-- pr-54-slot-backend-core -->
-| 2026-05-?? | **TBD — PR-54 market-data: 03-use-sequences (KIS-first raw 출처)** | baseline/v3.6.0 | PR-54 market-data 1 파일 |
+| 2026-05-13 | **docs(market-data): PR-54 v3.6.0 baseline 03-use-sequences — T-O 시나리오 15·16·17 신규 (ADR 0068 §16 케이스 1·2·3 + KIS-first raw 출처 R12·R13·R14 LOCK)** — `_workspace/baseline/v3.6.0/03-use-sequences.md` 신규. v3.5.0 시나리오 1~14 완전 유지 + 시나리오 15(모의 주문 정상 흐름: order.intent.v1→3중 게이트 MOCK→KisOrderHttpAdapter VTTC0012U→KIS VPS→H0STCNI9 체결통보→FILLED 녹색 토스트) + 시나리오 16(3중 게이트 BLOCKED: REAL 조건 미충족→REJECTED+REAL_GATE_DENIED audit+KIS prod 호출 0건 자본 보호 LOCK) + 시나리오 17(분할 체결 1:N: H0STCNI9 3회→order_execution 3 row→누적 5+3+2=10→FILLED 단일 토스트 spam 방지). KIS-first raw 출처 R12·R13·R14 신규 등록(TTTC0012U·VTTC0012U·TTTC0011U·VTTC0011U·TTTC0013U·VTTC0013U·H0STCNI0·H0STCNI9 26 컬럼 매핑 표 inline LOCK). 헌법 §3 의무: 자체 추론 0 + raw URL inline 주석 경로 명시. (market-data) | baseline/v3.6.0 | PR-54 market-data 1 파일 |
 <!-- pr-54-slot-market-data -->
 | 2026-05-?? | **TBD — PR-54 frontend: 05-ui-inventory** | baseline/v3.6.0 | PR-54 frontend 1 파일 |
 <!-- pr-54-slot-frontend -->
