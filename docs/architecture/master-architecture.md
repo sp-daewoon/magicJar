@@ -412,9 +412,10 @@ pattern-engine/src/main/kotlin/kr/spdaewoon/magicjar/pattern/
 | `order.rejected.v1` | consumer | api (STOMP) | 30d | T-MS1 |
 | `journal.recorded.v1` | consumer | api (STOMP fanout) | 30d | T-J |
 | `risk.event.v1` | consumer | api (STOMP), consumer (KillSwitch trigger) | 30d | T-RISK |
-| `position.reconciled.v1` (ADR 0041) | batch | (audit) | 7d | T-RECON·T-O |
-| `position.drift.v1` (ADR 0041) | batch | consumer(KillSwitchAutoToggler·NotificationDispatcher), api(STOMP) | 30d | T-RECON·T-O |
-| `risk.killswitch.v1` (ADR 0043) | api·batch·consumer | api(STOMP fanout)·consumer(NotificationDispatcher) | 30d | T-RISK·T-O |
+| `reconcile.run.v1` (ADR 0041·0070) | consumer (BalanceReconcileJob `@Scheduled`) | api(StompReconcileNotifier audit) · consumer(NotificationDispatcher 옵션 P2) | 7d | T-RECON |
+| `reconcile.drift.v1` (ADR 0041·0070 — 기존 `position.drift.v1` 명명 갱신) | consumer (BalanceReconcileJob) | consumer(KillSwitchAutoToggler·NotificationDispatcher), api(StompReconcileNotifier STOMP fanout) | 30d | T-RECON·T-O |
+| `killswitch.engaged.v1` (ADR 0043·0070) | consumer (KillSwitchAutoToggler) · api·batch (manual toggle 경로) | consumer(NotificationDispatcher) · api(STOMP fanout) | 30d | T-RECON·T-RISK·T-O |
+| `risk.killswitch.v1` (ADR 0043 — 기존, killswitch.engaged.v1과 정합 검토 의제) | api·batch·consumer | api(STOMP fanout)·consumer(NotificationDispatcher) | 30d | T-RISK·T-O |
 | `risk.violation.v1` (ADR 0044) | consumer (Guard chain) | consumer(NotificationDispatcher), api(STOMP) | 30d | T-RISK·T-NOTIFY |
 | `kis.token.expired.v1` (ADR 0044) | api·consumer (KisOAuthAdapter) | consumer(NotificationDispatcher) | 30d | T-W2·T-NOTIFY |
 | `system.startup.v1` (ADR 0045) | api·batch·consumer (ApplicationReadyEvent) | consumer(NotificationDispatcher) | 7d | 횡단·T-NOTIFY |
@@ -512,7 +513,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 
 ---
 
-## §10. 핵심 ADR 인덱스 (0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069 Accepted + 0064 Proposed)
+## §10. 핵심 ADR 인덱스 (0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069·0070 Accepted + 0064 Proposed)
 
 상세 본문은 `_workspace/arch/adr/<NNNN>-*.md`. 분류 카테고리는 `_workspace/arch/adr/README.md` §1~§10-4 정합. 본 §10은 한 줄 요약 인덱스 — 신규 ADR 발행 시 본 표 + README 동시 갱신 (ADR 0030 SoT 운영 규약).
 
@@ -582,6 +583,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | 0067 | **T-RISK 리스크 관리 (Signal → Risk Gateway consumer → Order intent 의무 게이트 + risk_config·risk_event·position·signal.risk_status 4 도메인 영속 + STOMP 알림 + auto-PAUSE 반복 BLOCKED 10회) — Accepted (2026-05-12 사용자 채택 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1)** | 전략·신호·리스크 | W3 v3.5.0 마감 (backlog §41 DONE) |
 | 0068 | **T-O 주문 실행 plan (Risk ALLOWED → KIS REST 매수·매도 + WS H0STCNI0 체결 추적 + 사용자 수동 정정/취소 + 3 테이블 영속 + STOMP 4 event + 멱등성 Redis SETNX + 실계좌 3중 게이트) — Proposed (2026-05-12 사용자 결정 대기 — 의제 A·B·C·D·E·F·G·H 8건 / architect 권장 A-1 env × 2 + 사용자 동의 토글 + B-1 단일 port + adapter 내부 mode 분기 + C-1 시장가/지정가 + D-1 KIS WS H0STCNI0 실시간 + E-1 사용자 수동 only + F-1 3 테이블 분리 + G-1 단일 토픽 4 event discriminator + H-1 Redis SETNX 60s + DB UQ — KIS-first raw 4건 TTTC0012U·TTTC0011U·TTTC0013U·H0STCNI0)** | 전략·신호·리스크 | W3 v3.6.0 후보 (backlog §43) |
 | 0069 | **SettingsModal vs SetupWizard 책임 분리 + 공통 입력 컴포넌트 6종 추출 + 미래 신규 API 키 추가 5 step 표준 절차 + 1차 PR scope LOCK (RealTradingConsentSection + KisCredentialSection + SystemConfigSection 3 section) + backlog 의제 10건 — Accepted (2026-05-13 사용자 명시 정책 — dogfooding 결함 발견 응답)** | 운영·UX fitness | W3 T-O 보강 (자본 보호 검증 unblock) |
+| 0070 | **T-RECON + T-NOTIFY 묶음 spec/plan — Accepted (2026-05-13 architect 자율 결정 · 사용자 위임 "W3 진행해서 마무리까지하자 W4 진입까지 자율")** — ADR 0041(T-RECON baseline) + ADR 0044(T-NOTIFY baseline) reuse + 정밀 명세 §1~§15 LOCK + Phase 분리 LOCK(T-RECON Phase 1 strategy-engine → Phase 2 backend-core → T-NOTIFY Phase 1 backend-core 직렬). KIS-first raw 4건(TTTC8434R·VTTC8434R + CTRP6548R + H0STCNI0 cross-ref). Flyway V25(reconcile_run) + V26(domain enum) + V27(notification_outbox + system_config.notification_slack_webhook). Kafka 신규 2(reconcile.drift.v1·reconcile.run.v1) + killswitch.engaged.v1 + listen 7. REST 3 endpoint. frontend 0 LOCK. 자본 보호 흐름 LOCK(drift → KillSwitch ON → Slack P0 → STOMP). spec 본문: `_workspace/specs/pr-392-recon-notify-spec.md`. | 자동매매 fitness + 운영·UX fitness | W3 v3.6.2 patch (T-RECON·T-NOTIFY 묶음) |
 
 ### 후속 예정 (Proposed — `_workspace/arch/adr/README.md` §12 정합)
 
@@ -597,6 +599,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | 0066 | **T-SIG 실시간 시그널 엔진 — Accepted (2026-05-12)** — backlog §40 DONE. W3 두 번째 트랙. 사용자 채택 A-1·B-1·C-1·D-1·E-1·F-1. strategy-engine(Phase 1) + backend-core(Phase 2) + frontend(Phase 3) 3 PR 직렬 디스패치 완료 | v3.4.0 마감 |
 | 0067 | **T-RISK 리스크 관리 — Accepted (2026-05-12)** — backlog §41 DONE. W3 세 번째 트랙. 사용자 채택 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1. strategy-engine(Phase 1) + backend-core(Phase 2) + frontend(Phase 3) 3 PR 직렬 디스패치 완료. PR #351·#353·#354·#355·#356·#357 머지 | v3.5.0 마감 |
 | 0068 | **T-O 주문 실행 — Proposed (2026-05-12)** — backlog §43 트랙 (§10 본 표 인용). W3 네 번째 트랙. 결정 의제 8건 사용자 검토 위임. architect 권장 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1. KIS-first raw 인용 4건(TTTC0012U·TTTC0011U·TTTC0013U·H0STCNI0). 실계좌 3중 게이트. 채택 시 strategy-engine(Phase 1 consumer+domain) + backend-core(Phase 2 api+Flyway V20~V23) + frontend(Phase 3 /orders + SettingsModal 동의 토글) 직렬 디스패치 | 사용자 결정 대기 |
+| 0070 | **T-RECON + T-NOTIFY 묶음 spec/plan — Accepted (2026-05-13)** — backlog §46~§51 트랙 (§10 본 표 인용). W3 마무리 prereq. architect 자율 결정 (사용자 위임). ADR 0041·0044 baseline reuse + 정밀 명세 §1~§15. Phase 분리 LOCK 3 PR 직렬(strategy-engine → backend-core RECON → backend-core NOTIFY). KIS-first raw 4건. Flyway V25·V26·V27. Kafka 신규 2 + listen 7. REST 3 endpoint. frontend 0 LOCK. spec: `_workspace/specs/pr-392-recon-notify-spec.md` | v3.6.2 patch 진행 중 |
 
 ---
 
@@ -637,6 +640,7 @@ v1·v2 검토 시점에 누적된 결정 항목과 v3.0.0 베이스라인 컷(20
 
 | 날짜 | 변경 |
 |---|---|
+| 2026-05-13 (ADR 0070) | **ADR 0070 T-RECON + T-NOTIFY 묶음 spec/plan 신규 발행 정합** — §10 인덱스 0070 row 추가 + §10 헤더 카운트 갱신(`0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069·0070 Accepted + 0064 Proposed`) + §10 후속 예정에 0070 row 추가 + §6 Kafka topic 매트릭스 갱신(`position.drift.v1` → **`reconcile.drift.v1`** 명명 갱신 + **`reconcile.run.v1`** 신규 publish 7d + **`killswitch.engaged.v1`** 신규 publish 30d + `position.reconciled.v1` row deprecated). ADR 0041·0044 baseline reuse + 정밀 명세 §1~§15. Phase 분리 LOCK 3 PR 직렬(T-RECON Phase 1 strategy-engine → Phase 2 backend-core → T-NOTIFY Phase 1 backend-core). KIS-first raw 4건(TTTC8434R·VTTC8434R + CTRP6548R + H0STCNI0 cross-ref). Flyway V25·V26·V27. REST 3 endpoint. frontend 0 LOCK. 자본 보호 흐름 LOCK(drift → KillSwitch ON → Slack P0 → STOMP). spec 본문: `_workspace/specs/pr-392-recon-notify-spec.md`. ADR README §10-1·§10-2 row에 "ADR 0070 묶음 spec 정밀화" 표기 + §11 후속 ADR 번호 0071로 시프트. tracks-roadmap T-RECON·T-NOTIFY outline에 ADR 0070 산출물 매트릭스 prepend + §8 변경 이력 row. backlog §46~§51 신규 등록 (Risk timeline UI + drift 임계치 사용자 설정화 + MarketSessionFsm cron skip + user별 webhook 분리 + Discord/Email/SMS 보조 채널 + ADR 0045 startup/shutdown publish 합류). 사용자 자율 최종권한 위임 정합 (2026-05-13 "W3 진행해서 마무리까지하자 W4 진입까지 자율"). v3.6.0 T-O 마감 후 자본 보호 prereq 단일 사이클 v3.6.2 patch. (architect) |
 | 2026-05-13 (ADR 0069) | **SettingsModal vs SetupWizard 책임 분리 ADR 0069 신규 발행 정합** — §10 인덱스 0069 row 추가 + §10 헤더 카운트 갱신(`0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069 Accepted + 0064 Proposed`) + §3-1 부수 흐름 Onboarding Setup row에 SettingsModal 통합 명시(`ADR 0046 + 0069`) + tracks-roadmap T-ONBOARD outline에 ADR 0069 산출물 매트릭스 prepend(SetupWizard·SettingsModal·forms 6 공통 컴포넌트). README §10-2 운영·UX Fitness 갭 3→4건 + README §11 후속 ADR 번호 0070으로 시프트. dogfooding 결함 응답 — RealTradingConsentToggle UI 접근 가능 path 확보 → T-O 자본 보호 검증 케이스 1·2·3 unblock. ADR 0046 supersede X — reuse + 보강. KIS-first raw 인용 0건(UI 책임 분리 영역). (architect) |
 | 2026-05-03 (v1) | 1차안 (architect, opus 4.7 1M) — "AI quant trading platform" 가정. 사용자 비전 정정으로 폐기. |
 | 2026-05-03 (v2) | **풀 재작성** — 룰 기반 본체 + AI 옵션 + MCP 서버 미래. 18 컴포넌트 4 영역. 새 ADR 0031~0047 17건. (architect, opus 4.7 1M) |

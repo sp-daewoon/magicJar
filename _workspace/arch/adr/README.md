@@ -1,6 +1,6 @@
 # magicJar ADR 목차
 
-아키텍처 결정 기록(Architecture Decision Record). 65건 sequential (0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069 Accepted + 0064 Proposed — 0058~0060·0065 예약). 2026-05-12 v3.2.3 doc cut — ADR 0019·0028·0029 §2 매트릭스 NXT/합산 5종 재통합 갱신 (status 정합, 결정 변동 0). 2026-05-12 v3.3.0 §34 plan — ADR 0064 신규 (Redis boundary fanout + STOMP 실시간 합산 갱신). 2026-05-12 v3.4.0 cut — ADR 0066 Accepted (T-SIG 실시간 시그널 엔진). 2026-05-12 v3.5.0 cut — ADR 0067 Accepted (T-RISK 리스크 관리). 2026-05-13 v3.6.0 cut — ADR 0068 Accepted (T-O 주문 실행, 채택 A-1~H-1). 2026-05-13 v3.6.1 dogfooding 결함 응답 — ADR 0069 Accepted (SettingsModal vs SetupWizard 책임 분리 + 공통 입력 컴포넌트 추출 + 미래 확장 5 step 표준 절차). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
+아키텍처 결정 기록(Architecture Decision Record). 66건 sequential (0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069·0070 Accepted + 0064 Proposed — 0058~0060·0065 예약). 2026-05-12 v3.2.3 doc cut — ADR 0019·0028·0029 §2 매트릭스 NXT/합산 5종 재통합 갱신 (status 정합, 결정 변동 0). 2026-05-12 v3.3.0 §34 plan — ADR 0064 신규 (Redis boundary fanout + STOMP 실시간 합산 갱신). 2026-05-12 v3.4.0 cut — ADR 0066 Accepted (T-SIG 실시간 시그널 엔진). 2026-05-12 v3.5.0 cut — ADR 0067 Accepted (T-RISK 리스크 관리). 2026-05-13 v3.6.0 cut — ADR 0068 Accepted (T-O 주문 실행, 채택 A-1~H-1). 2026-05-13 v3.6.1 dogfooding 결함 응답 — ADR 0069 Accepted (SettingsModal vs SetupWizard 책임 분리 + 공통 입력 컴포넌트 추출 + 미래 확장 5 step 표준 절차). 2026-05-13 v3.6.2 patch — ADR 0070 Accepted (T-RECON + T-NOTIFY 묶음 spec/plan — W3 자본 보호 prereq, ADR 0041·0044 baseline reuse + Phase 분리 LOCK). 본 README는 **목차 전용** — 결정 본문은 각 ADR 파일에서 읽는다.
 
 ## §1. 비전 (1건)
 
@@ -109,7 +109,7 @@
 
 | 번호 | 제목 | 영향 Wave |
 |------|------|------|
-| 0041 | Broker Reconciliation Job (KIS 잔고 ↔ 내부 position 정합) | W1·W3 |
+| 0041 | Broker Reconciliation Job (KIS 잔고 ↔ 내부 position 정합) — **ADR 0070 묶음 spec 정밀화 (2026-05-13)** | W1·W3 |
 | 0042 | Position Bootstrap & Recovery (앱 시작·WS 재연결 시 잔고 복구) | W1 |
 | 0043 | KillSwitch 행동 정의 (ON 시 신호·주문·통지·재시작 정책) | W3 |
 
@@ -119,7 +119,7 @@
 
 | 번호 | 제목 | 영향 Wave |
 |------|------|------|
-| 0044 | Notification System (Slack webhook 1차 + Kafka 트리거 + outbox fallback) | W3 (T-NOTIFY 신설 후보) |
+| 0044 | Notification System (Slack webhook 1차 + Kafka 트리거 + outbox fallback) — **ADR 0070 묶음 spec 정밀화 (2026-05-13)** | W3 (T-NOTIFY) |
 | 0045 | Graceful Shutdown & In-flight 처리 (SIGTERM · Kafka manual commit · idempotency) | W1 (횡단 — 모든 트랙 의무) |
 | 0046 | Onboarding & Credential Registration (테이블 3종 분리 · 마스터 키 단일 예외) | W1 ★ (T-ONBOARD 신설 후보 — T-W1보다 먼저) |
 | 0069 | **SettingsModal vs SetupWizard 책임 분리 + 공통 입력 컴포넌트 추출 + 미래 확장 구조 (1차 PR scope: RealTradingConsentSection + KisCredentialSection + SystemConfigSection)** | W3 T-O 보강 (dogfooding 자본 보호 검증 unblock) |
@@ -148,7 +148,7 @@
 
 - **새 ADR 발행 시** — 본 README + master §10 + tracks-roadmap §3 동시 갱신
 - **Superseded 처리 시** — 본문 상단 헤더 + 본 README 행 supersede 표기 (`_archive/` 이동은 v3.3.0 cycle에 일괄)
-- **신규 진입 시 후속 ADR 번호** — 0070부터 sequential (0001~0057 Accepted + 0058~0060·0065 예약 + 0061·0062·0063·0066·0067·0068·0069 Accepted + 0064 Proposed 2026-05-12 — §2·§3·§5·§6·§10-1·§10-2·§10-3·§10-4·§5·§6 정합).
+- **신규 진입 시 후속 ADR 번호** — 0071부터 sequential (0001~0057 Accepted + 0058~0060·0065 예약 + 0061·0062·0063·0066·0067·0068·0069·0070 Accepted + 0064 Proposed 2026-05-12 — §2·§3·§5·§6·§10-1·§10-2·§10-3·§10-4·§5·§6 정합).
 
 ## §12. 후속 예정 (Proposed)
 
@@ -164,3 +164,4 @@
 | 0066 | **T-SIG 실시간 시그널 엔진 — Accepted (2026-05-12)** | T-SIG 트랙 (W3 두 번째 트랙, v3.4.0 마감, backlog §40 DONE) | 2026-05-12 architect plan 발행 → 사용자 결정 A-1·B-1·C-1·D-1·E-1·F-1 채택. strategy-engine(Phase 1) + backend-core(Phase 2) + frontend(Phase 3) 3 PR 직렬 디스패치 완료 |
 | 0067 | **T-RISK 리스크 관리 — Accepted (2026-05-12)** | T-RISK 트랙 (W3 세 번째 트랙, v3.5.0 마감, backlog §41 DONE) | 2026-05-12 사용자 결정 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1 채택. strategy-engine(Phase 1) + backend-core(Phase 2) + frontend(Phase 3) 3 PR 직렬 디스패치 완료. PR #351·#353·#354·#355·#356·#357 머지 |
 | 0068 | **T-O 주문 실행 — Proposed (2026-05-12)** | T-O 트랙 (W3 네 번째 트랙, v3.6.0 후보, backlog §43) | 2026-05-12 architect plan 발행. 결정 의제 8건 사용자 검토 위임 — A 모의/실전 분기(env × 2 + 사용자 동의 3중 게이트 vs env 이중만 vs 단일) / B KIS endpoint(단일 port + adapter 내부 mode 분기 vs Spring profile vs lookup) / C 주문 가격(시장가/지정가 vs 슬리피지 % vs 지정가 only) / D 체결 추적(KIS WS H0STCNI0 실시간 vs REST polling 1분 vs dual) / E 정정/취소(사용자 수동 only vs 자동 + 수동 vs 자동만) / F 영속(3 테이블 request+execution+audit vs 2 테이블 vs JSONB blob) / G 알림(단일 STOMP + 4 event discriminator vs 단일 type vs 4 토픽) / H 멱등성(Redis SETNX 60s + DB UQ vs DB UQ만 vs 0). architect 권장 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1. KIS-first raw 인용 4건(TTTC0012U·TTTC0011U·TTTC0013U·H0STCNI0). 실계좌 3중 게이트 + AI 호출 0 검증 의무. 채택 시 strategy-engine(Phase 1) + backend-core(Phase 2) + frontend(Phase 3) 직렬 디스패치 |
+| 0070 | **T-RECON + T-NOTIFY 묶음 spec/plan — Accepted (2026-05-13)** | T-RECON·T-NOTIFY 트랙 (W3 마무리 prereq, v3.6.2 patch, backlog §46~§51) | 2026-05-13 architect 자율 결정 (사용자 위임 "W3 진행해서 마무리까지하자 W4 진입까지 자율 최종권한"). ADR 0041(T-RECON baseline) + ADR 0044(T-NOTIFY baseline) reuse + 정밀 명세 §1~§15 LOCK. Phase 분리 LOCK (T-RECON Phase 1 strategy-engine → Phase 2 backend-core → T-NOTIFY Phase 1 backend-core 직렬). KIS-first raw 4건(TTTC8434R·VTTC8434R 잔고 + CTRP6548R 계좌자산 + H0STCNI0 cross-ref). Flyway V25(reconcile_run) + V26(domain enum) + V27(notification_outbox + system_config.notification_slack_webhook ALTER). Kafka 신규 2(reconcile.drift.v1·reconcile.run.v1) + killswitch.engaged.v1 publish + listen 7. REST 3 endpoint(manual trigger + runs list + run detail) Swagger 4단. frontend 변경 0 LOCK (SettingsModal·KillSwitch baseline reuse, Risk 페이지 timeline UI는 후속 backlog §46). 자본 보호 흐름 LOCK(drift → KillSwitch ON → Slack P0 → STOMP). AI 호출 0 grep 검증 의무. spec 본문: `_workspace/specs/pr-392-recon-notify-spec.md`. CHANGELOG slot 4 anchor(architect + strategy-engine + backend-core-recon + backend-core-notify). |

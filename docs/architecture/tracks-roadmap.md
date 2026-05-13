@@ -41,8 +41,8 @@
 | T-SIG ★ | **Signal Engine (룰 매칭 only, AI 호출 0) + sandbox (ADR 0047) + boundary listen (ADR 0064) + 영속 + STOMP fanout — ADR 0066 plan 발행 (2026-05-12, 사용자 결정 대기)** | §C.11 | Watchlist × 활성 전략 → BUY/SELL/HOLD + 강도 + strategy-eval-pool 격리 + timeout 100ms·CPU budget 50ms·auto-disable + Kafka `market.candle.{interval}.closed.v1` 5 listener + signal 테이블 영속 + STOMP `/topic/signal.user.{userId}` | T-MS1·T-IND·T-PAT·T-DSL·T-BT·ADR 0064 | T-RISK·T-O·T-PERF | **W3 ★ (두 번째 트랙)** | L (Phase 1 strategy-engine + Phase 2 backend-core + Phase 3 frontend 직렬) | strategy-engine + backend-core + frontend |
 | T-RISK ★ | **Risk & Position (Guard chain 6단) + Signal → Risk Gateway consumer → Order intent 의무 게이트 + risk_config·risk_event·position·signal.risk_status 4 도메인 영속 + auto-PAUSE 10회 + STOMP 알림 + risk.violation.v1 publish — ADR 0067 plan 발행 (2026-05-12, 사용자 결정 대기)** | §C.13 | 6 룰(POSITION_LIMIT·DAILY_LOSS_LIMIT·MAX_CONCURRENT_POSITIONS·TRADE_FREQUENCY_MINUTE·TRADE_FREQUENCY_DAY·KILL_SWITCH_ON) deterministic 평가 short-circuit + Kafka `signal.generated.v1` listen → `order.intent.v1` publish 또는 `risk.violation.v1` publish + Redis sliding window ZSET + signal.risk_status 컬럼 verdict 갱신 + auto-PAUSE strategy.status=PAUSED 연속 BLOCKED 10회 + STOMP `/topic/risk.user.{userId}` BLOCKED + AUTO_PAUSED 2 event type + REST 7 endpoint(RiskConfig 3 + RiskEvent 2 + Position 2) | T-MS1·T-SIG·ADR 0066·ADR 0042·ADR 0043 | T-O·T-PERF·T-NOTIFY | **W3 ★ (세 번째 트랙)** | L (Phase 1 strategy-engine + Phase 2 backend-core + Phase 3 frontend 직렬) | strategy-engine + backend-core + frontend |
 | T-O ★ | **Order Execution (Risk ALLOWED → KIS REST 매수·매도 + WS H0STCNI0 체결 추적 + 사용자 수동 정정/취소 + 3 테이블 영속 + STOMP 4 event + 멱등성 Redis SETNX + 실계좌 3중 게이트) + KillSwitch 재검증 (ADR 0024·0043) + idempotency (ADR 0045) — ADR 0068 plan 발행 (2026-05-12, 사용자 결정 대기)** | §C.12 | OrderRouterKafkaListener(order.intent.v1 listen) → OrderIdempotencyGuard(Redis SETNX 60s) → TradingModeGate(env × 2 + 사용자 동의 토글 3중) → KillSwitch 재검증 → order_request INSERT → KisOrderHttpAdapter(TTTC0012U/VTTC0012U 매수 · TTTC0011U/VTTC0011U 매도) → KIS 응답 ACK or REJECT → KisExecutionWsListener(H0STCNI0/H0STCNI9 체결통보) → order_execution INSERT(분할 체결 1:N) → PositionUpdatePort 적용 → STOMP `/topic/order.user.{userId}` 4 event(REQUESTED·FILLED·REJECTED·CANCELLED) + order_audit_event 시계열 + REST 4 endpoint(GET orders list·single·POST cancel + PUT consent) + SettingsModal 동의 토글 + KIS-first raw 인용 4건(TTTC0012U·TTTC0011U·TTTC0013U·H0STCNI0) | **T-RISK (ADR 0067 Accepted)** · T-W2 · T-SIG | T-RECON · T-NOTIFY · T-J · T-PERF | **W3 ★ (네 번째 트랙)** | L (Phase 1 strategy-engine consumer+domain + Phase 2 backend-core api+Flyway V20~V23 + Phase 3 frontend `/orders` 직렬) | strategy-engine + backend-core + frontend |
-| **T-RECON** | **Broker Reconciliation (ADR 0041)** | §C.12·§3-1 부수 | KIS 잔고 cron 폴링 + drift 검출 + KillSwitch auto-ON | T-O | T-PERF·T-NOTIFY | **W3** | M | backend-core+market-data |
-| **T-NOTIFY** | **Notification System (ADR 0044 — Slack webhook + Kafka 7 트리거 + outbox)** | §3-1 부수 | NotificationDispatcher (consumer) + SlackWebhookSender + notification_outbox + 5분 retry worker + system_config.notification_slack_webhook | T-RISK·T-O·T-RECON | - | **W3** | M | backend-core |
+| **T-RECON** ★ | **Broker Reconciliation (ADR 0041 + 0070 묶음 spec) — v3.6.2 patch 사이클 (Accepted 2026-05-13)** | §C.12·§3-1 부수 | KIS 잔고 cron 폴링(시장 OPEN 5분 + CLOSED 1시간 + manual) + 페이징 흡수(50건/요청 실전·20건 모의) + diff 검출(수량 ≥ 1주·평균단가 ≥ 0.5%·종목 누락) + DB position upsert + Redis position:current SET + Kafka reconcile.drift.v1 + KillSwitchAutoToggler → kill_switch_state.enabled=true + killswitch.engaged.v1 publish + STOMP /topic/recon.user.{userId} 4 event + REST 3 endpoint(manual trigger + runs list + run detail) Swagger 4단 + KIS-first raw 4건(TTTC8434R·VTTC8434R + CTRP6548R + H0STCNI0 cross-ref) | T-O (ADR 0068 Accepted) | T-NOTIFY | **W3 ★ (다섯 번째 트랙, v3.6.2 patch)** | M (Phase 1 strategy-engine + Phase 2 backend-core 직렬) | strategy-engine + backend-core |
+| **T-NOTIFY** ★ | **Notification System (ADR 0044 + 0070 묶음 spec) — v3.6.2 patch 사이클 (Accepted 2026-05-13)** | §3-1 부수 | NotificationDispatcher (consumer 7 @KafkaListener — order.filled/rejected/cancelled.v1 + risk.violation.v1 + reconcile.drift.v1 + killswitch.engaged.v1 + kis.ws.disconnected.v1 graceful skip) + SlackWebhookSender(JDK HttpClient + Resilience4j retry 3회 1s·2s·4s) + NotificationFormatter(한국어 5필드) + NotificationRateLimiter(Redis ZSET 60분 P1 슬라이딩 윈도) + NotificationOutboxRetryWorker(@Scheduled 5분 PENDING 재시도) + Flyway V27(notification_outbox + system_config.notification_slack_webhook BYTEA ALTER) + REST 0 LOCK + frontend 0 LOCK | T-RISK·T-O·T-RECON Phase 2 머지 후 | - | **W3 ★ (여섯 번째 트랙, v3.6.2 patch)** | M (Phase 1 backend-core 단독) | backend-core |
 | T-J | Trading Journal | §D.16 | 모든 주문·체결·시그널·차트 스냅샷 영속 + 사용자 메모 | T-O | T-PERF | W3 | M | backend-core+frontend |
 | T-PERF | Performance Loop (오프라인 통계) | §C.14 | 일/주 P&L·MDD·승률 | T-J·T-SIG·T-RISK | W4 | W3 | M | backend-core |
 | T-LWC | LWC 확장 + 자체 도형/주석/패턴 | §D.17 | TradingView Advanced 의존 0 + 자체 overlay layer | T-PAT·T-SIG | - | W5 | M | frontend |
@@ -271,23 +271,20 @@
   - `frontend/src/pages/{Positions,Risk}/index.tsx`
 - **비범위**: VaR·CVaR 정밀 (post-MVP)
 
-### T-RECON — Broker Reconciliation (ADR 0041 자동매매 fitness 갭 1번)
+### T-RECON — Broker Reconciliation (ADR 0041 자동매매 fitness 갭 1번 + ADR 0070 묶음 spec)
 
 - **마스터 §위치**: §C.12·§3-1 부수 흐름
 - **목표**: KIS 잔고 cron 폴링(시장 OPEN 5분/CLOSED 1시간) + 내부 position diff → drift 시 DB upsert + Redis 갱신 + KillSwitch auto-ON + Kafka publish
 - **선행/후행**: T-O / T-PERF·T-NOTIFY
 - **오프라인 동작**: 부분 (KIS REST 의존 — 끊겨도 본체 매매 영향 0, drift 검출만 잠시 부재)
-- **KIS 흡수**: `inquire_balance.py` 정합 (TR_ID `TTTC8434R`/`VTTC8434R`)
-- **ADR**: **0041 (Broker Reconciliation Job)** + ADR 0037 (Rate Limit) + ADR 0038 (OAuth 분산락)
-- **데이터**: `reconcile_run` 신규(V22) · `risk_event.type=POSITION_DRIFT` · Kafka `position.reconciled.v1` / `position.drift.v1`
-- **산출물**:
-  - `domain/.../position/port/KisBalancePort.kt` (interface)
-  - `domain/.../position/BalanceReconciler.kt` (도메인 diff 로직)
-  - `consumer/.../infrastructure/kis/KisBalanceAdapter.kt` (REST adapter)
-  - `batch/.../job/reconcile/BalanceReconcileJob.kt` (`@Scheduled`)
-  - `consumer/.../messaging/listener/KillSwitchAutoToggler.kt` (drift sub)
-  - `api/.../controller/RiskController.kt`에 `POST /api/risk/reconcile/{userId}` 추가
-- **비범위**: 글로벌 reconcile (1차는 user별만), drift 임계치 사용자 설정화 (post-MVP — 0047 후보)
+- **KIS 흡수**: `inquire_balance.py` 정합 (TR_ID `TTTC8434R`/`VTTC8434R`) + `inquire_account_balance.py` 보조 (TR_ID `CTRP6548R` — 계좌 단위 fast check)
+- **ADR**: **0041 (Broker Reconciliation Job) + 0070 (묶음 spec/plan 정밀화)** + ADR 0037 (Rate Limit) + ADR 0038 (OAuth 분산락) + ADR 0043 (KillSwitch 행동)
+- **데이터 (ADR 0070 §2-3 정밀화)**: `reconcile_run` 신규(**V25**) · `risk_event` 도메인 enum 보강(V26) · Kafka `reconcile.run.v1` (7d audit) / `reconcile.drift.v1` (30d, ADR 0041 `position.drift.v1` 명명 갱신) / `killswitch.engaged.v1` (30d 신규 publish)
+- **산출물 (ADR 0070 §2-2·§2-3 LOCK)**:
+  - **Phase 1 strategy-engine** — `domain/.../reconcile/{ReconcileRun,ReconcileResult,HoldingDiff,ReconcileStatus,BalanceReconciler}.kt` + port `{KisBalancePort,ReconcileRunRepository,PositionUpsertPort,KillSwitchTogglePort,ReconcileEventPublisher}.kt` (헌법 §6 abstract LOCK) + `consumer/.../reconcile/{BalanceReconcileJob,KisBalanceAdapter,KisHolding,KillSwitchAutoToggler,ReconcileEventKafkaPublisher}.kt` + `consumer/.../config/ReconcileTopicConfig.kt` + 단위 테스트 ~15건
+  - **Phase 2 backend-core** — `api/db/migration/V25__reconcile_run.sql` (IF NOT EXISTS) + `V26__risk_event_position_drift_type.sql` (DDL 변경 0 placeholder) + JPA 1쌍(ReconcileRun) + KillSwitch·Position 어댑터 + `api/.../service/reconcile/{ReconcileQueryService,ReconcileManualTriggerService}.kt` + `api/.../controller/reconcile/ReconcileController.kt` (REST 3 endpoint Swagger 4단 — POST manual + GET runs list + GET runs/{id}) + `api/.../messaging/StompReconcileNotifier.kt` (3 Kafka listen → STOMP `/topic/recon.user.{userId}` 단일 토픽 4 event discriminator) + 단위 테스트 ~10건
+- **KIS-first raw 인용 4건 (헌법 §3 의무 — ADR 0070 §8 inline KDoc LOCK)**: TTTC8434R (실전 잔고) + VTTC8434R (모의) + CTRP6548R (계좌 자산 — `inquire-account-balance` 보조 fast check) + H0STCNI0/9 cross-ref (T-O baseline)
+- **비범위**: 글로벌 reconcile (1차는 user별만 — backlog §47), drift 임계치 사용자 설정화 (backlog §47), MarketSessionFsm cron skip 통합 (backlog §48), Risk 페이지 reconcile timeline UI (backlog §46 — T-RECON Phase 2 마감 후 frontend 단발 디스패치)
 
 ### T-ONBOARD — Onboarding Setup (ADR 0046 운영·UX fitness 갭 3번 — W1 ★★ 최우선)
 
@@ -312,24 +309,24 @@
   - `.env.example` 갱신 — `MAGICJAR_SECRET_MASTER_KEY` 1개만 + KIS·DART 평문 deprecated 처리
 - **비범위**: 외부 secret manager 통합 (post-MVP — 0090 후보), 마스터 키 자동 회전 (post-MVP — 0091 후보 + ADR 0069 backlog §C 정합), 사용자별 권한 분리 (post-MVP — 0092 후보), OpenAI/Anthropic/Naver 키 section (ADR 0069 §7 §E·§F 후속 — T-AI 진입 시), KIS MOCK 키 DELETE (ADR 0069 §7 §A 2차 PR)
 
-### T-NOTIFY — Notification System (ADR 0044 운영·UX fitness 갭 1번)
+### T-NOTIFY — Notification System (ADR 0044 운영·UX fitness 갭 1번 + ADR 0070 묶음 spec)
 
 - **마스터 §위치**: §3-1 부수 흐름 (Notification 통지)
-- **목표**: NotificationDispatcher (consumer) + SlackWebhookSender + notification_outbox 패턴 + 5분 retry worker + 7 Kafka topic 구독 (risk.killswitch·risk.violation·kis.token.expired·order.rejected·position.drift·system.startup·system.shutdown)
+- **목표**: NotificationDispatcher (consumer) + SlackWebhookSender + notification_outbox 패턴 + 5분 retry worker + 7 Kafka topic 구독
 - **선행/후행**: T-RISK·T-O·T-RECON / -
 - **오프라인 동작**: 부분 (Slack 외부 의존 — Slack 끊겨도 outbox 보존 + 5분 retry. 본체 매매 영향 0)
 - **KIS 흡수**: 없음 (Slack webhook은 KIS 무관)
-- **ADR**: **0044 (Notification System)** + ADR 0046 (system_config.notification_slack_webhook 정합)
-- **데이터**: `notification_outbox` 신규(V24) · `system_config.notification_slack_webhook` (V25 ADR 0046 통합) · Kafka 5 topic 신규 (`risk.violation.v1`·`kis.token.expired.v1`·`system.startup.v1`·`system.shutdown.v1`·`notification.sent.v1`)
-- **산출물**:
-  - `domain/.../notification/NotificationPort.kt` · `NotificationPayload.kt` · `NotificationPriority.kt` (P0/P1/P2 enum)
-  - `consumer/.../infrastructure/notification/NotificationDispatcher.kt` (7 @KafkaListener)
-  - `consumer/.../infrastructure/notification/SlackWebhookSender.kt` (HTTP + Resilience4j retry)
-  - `consumer/.../infrastructure/notification/NotificationFormatter.kt` (한국어 메시지 + 5필드)
-  - `consumer/.../infrastructure/notification/NotificationRateLimiter.kt` (Redis sliding window — P1 누적)
-  - `consumer/.../infrastructure/notification/NotificationOutboxRetryWorker.kt` (`@Scheduled 5분`)
-  - Flyway `V24__notification_outbox.sql`
-- **비범위**: 이메일·SMS·푸시 채널 (post-MVP — 0072 후보), user별 webhook 분리 (post-MVP — 0070 후보), 통지 정책 사용자 설정화 (post-MVP — 0071 후보)
+- **ADR**: **0044 (Notification System) + 0070 (묶음 spec/plan 정밀화)** + ADR 0046 (system_config.notification_slack_webhook AES-256-GCM 정합)
+- **데이터 (ADR 0070 §2-3·§2-4 정밀화)**: `notification_outbox` 신규(**V27**) + `system_config.notification_slack_webhook BYTEA` ALTER(V27 통합) · Kafka listen 7 토픽(`order.filled.v1`·`order.rejected.v1`·`order.cancelled.v1`·`risk.violation.v1`·`reconcile.drift.v1`·`killswitch.engaged.v1` + 선택 `kis.ws.disconnected.v1`)
+- **산출물 (ADR 0070 §2-4 LOCK — backend-core Phase 1 단독)**:
+  - **domain** — `NotificationPayload·NotificationPriority(P0/P1/P2 enum)·NotificationStatus(PENDING·SENT·FAILED)` + port `{NotificationPort,NotificationOutboxRepository,NotificationRateLimiterPort,SlackWebhookPort,SystemConfigSlackPort}.kt` (헌법 §6 abstract LOCK)
+  - **consumer** — `NotificationDispatcher.kt` (7 @KafkaListener · `kis.ws.disconnected.v1` ObjectProvider graceful skip) + `SlackWebhookSender.kt` (JDK HttpClient + Resilience4j retry 3회 1s·2s·4s) + `NotificationFormatter.kt` (한국어 메시지 5필드 — 시각 KST + 이벤트 + 사용자 마스킹 + 사유 + 즉시 액션) + `NotificationRateLimiter.kt` (Redis ZSET 60분 sliding window — P1 누적) + `NotificationOutboxRetryWorker.kt` (`@Scheduled(fixedDelay=300000)` 5분 PENDING 재시도 + 24h 누적 `system.notification.failed.v1` publish)
+  - **persistence** — `NotificationOutboxJpaEntity + Repository + Adapter` + `SystemConfigSlackAdapter` (AES-256-GCM decryption — ADR 0046 마스터 키 정합)
+  - **Flyway** — `V27__notification_outbox.sql` (IF NOT EXISTS — notification_outbox 테이블 + UNIQUE(event_id, channel) + INDEX(status, created_at) + `ALTER TABLE system_config ADD COLUMN IF NOT EXISTS notification_slack_webhook BYTEA`)
+  - **REST 0 LOCK** — Slack outbound only · system_config webhook 갱신은 SettingsModal SystemConfigSection (ADR 0069 §3) baseline reuse + 기존 `PUT /api/system-config` (ADR 0046 baseline)
+  - **frontend 0 LOCK** — SettingsModal·KillSwitch baseline reuse
+  - **단위 테스트** — ~18건 (Dispatcher 7 + Slack 5 + Formatter 7 + Retry 3 일부 중복 제외)
+- **비범위**: 이메일·SMS·푸시 채널 (post-MVP — backlog §50), user별 webhook 분리 (post-MVP — backlog §49 + 후속 ADR 0072), 통지 정책 사용자 설정화 (post-MVP — 후속 ADR 0073), ADR 0045 system.startup.v1·system.shutdown.v1 본격 publish (backlog §51 — Graceful Shutdown 트랙 진입 시)
 
 ### T-PERF — Performance Loop (오프라인 통계 + Journal Auto-screenshot)
 
@@ -550,6 +547,7 @@ W4는 W3 완료 후 진입. W5는 옵션 (T-LWC는 W3와 병렬 가능).
 
 | 날짜 | 변경 |
 |---|---|
+| 2026-05-13 (ADR 0070) | **ADR 0070 T-RECON + T-NOTIFY 묶음 spec/plan 발행 정합** — §3 T-RECON outline 갱신 (ADR 0041 → 0041 + 0070 cross-ref · Flyway V22 → V25·V26 시프트 · 산출물 매트릭스 Phase 1 strategy-engine + Phase 2 backend-core 분리 LOCK · KIS-first raw 4건 명시 TTTC8434R·VTTC8434R + CTRP6548R + H0STCNI0 cross-ref). §3 T-NOTIFY outline 갱신 (ADR 0044 → 0044 + 0070 cross-ref · Flyway V24 → V27 시프트 + system_config.notification_slack_webhook BYTEA ALTER 통합 · 산출물 매트릭스 Phase 1 backend-core 단독 · domain 5 port·consumer 5 component·persistence 2 + REST 0 LOCK · frontend 0 LOCK · 단위 테스트 ~18건). 트랙 신설 0건 (기존 T-RECON·T-NOTIFY 정밀 명세 보강만). v3.6.2 patch 사이클 (W3 마무리 prereq). 사용자 자율 최종권한 위임 정합 (2026-05-13 "W3 진행해서 마무리까지하자 W4 진입까지 자율"). (architect, opus 4.7 1M) |
 | 2026-05-13 (ADR 0069) | **SettingsModal vs SetupWizard 책임 분리 ADR 0069 발행 정합** — §3 T-ONBOARD outline ADR 갱신 (0046 → 0046 + 0069 + 0068 §16-4 cross-ref 추가) + 산출물 매트릭스 보강 (SetupWizard.tsx 책임 분리 명시 + SettingsModal.tsx 1차 scope 3 section 명시 + forms/ 6 공통 컴포넌트 prepend — KisCredentialForm·SecretKeyInput·SettingsSection·ConfirmDangerToggle·SystemConfigForm) + 비범위 보강 (ADR 0069 backlog §A·§C·§E·§F 후속 명시 — KIS MOCK DELETE·마스터 키 회전·OpenAI/Naver 키). dogfooding 결함 응답 (RealTradingConsentToggle UI 접근 가능 path 확보 → T-O 자본 보호 검증 케이스 1·2·3 unblock). 트랙 신설 0건, T-ONBOARD outline 보강만. (architect, opus 4.7 1M) |
 | 2026-05-03 (v1) | 13 트랙 + 5 Wave (architect, opus 4.7 1M) — "AI Decision Layer T-RISK" 가정. 사용자 비전 정정으로 폐기. |
 | 2026-05-03 (v2) | **풀 재작성** — 14 트랙 + 5 Wave. AI 트랙(W4 T-AI·T-MCP) 분리. T-LWC LWC 확장(TradingView Advanced 폐기). T-LEARN 사용자 학습 신설. (architect, opus 4.7 1M) |
