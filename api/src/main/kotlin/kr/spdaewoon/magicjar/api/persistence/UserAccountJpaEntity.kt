@@ -25,6 +25,11 @@ class UserAccountJpaEntity(
     val createdAt: Instant = Instant.now(),
     @Column(name = "last_login_at")
     var lastLoginAt: Instant? = null,
+    /**
+     * T-O 실계좌 주문 동의 토글 — NULL이면 모의만 가능 (3중 게이트 3번째 조건, ADR 0068 §14-3 + V23).
+     */
+    @Column(name = "real_trading_consent_at")
+    var realTradingConsentAt: Instant? = null,
 ) {
     // no-arg constructor for JPA
     protected constructor() : this(userId = "")
