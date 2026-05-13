@@ -2,6 +2,7 @@
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+| 2026-05-13 | **release: v3.6.0 — T-O W3 네 번째 트랙 마감 미러스톤 (KIS 주문 실행 + 3중 게이트 자본 보호) (orchestrator)** — ADR 0068 채택(A-1~H-1) + 5 PR(#371·#372·#373·#374·#375): Accepted + 정밀 명세 §10~§17 + Phase 1 strategy-engine(domain 12 + port 9 + consumer 10 + 4 Kafka producer + 26 Unit Test + KIS raw KDoc 6 tr_id + H0STCNI0/9 26컬럼) + Phase 2 backend-core(Flyway V20~V24 + JPA 3쌍 + REST 4 + StompOrderNotifier 4 event + V24 hotfix) + Phase 3 frontend(2 페이지 + 6 컴포넌트 + RealTradingConsentToggle 이중 confirm + useStompOrder). 3중 게이트(MAGICJAR_MODE·MAGICJAR_ALLOW_REAL·real_trading_consent_at) 자본 보호 LOCK. baseline 사이클(#378·#379·#380·#381·#382) → tag/release.sh 순서 LOCK (ADR 0052 §X 정합 — 사용자 점검 2026-05-13 잘못된 인덱스 3건 정정 PR #377 후 첫 정합 사이클). v3.5.0 → v3.6.0 minor 미러스톤. | release | v3.6.0 minor 미러스톤 |
 
 | 2026-05-13 | **chore(meta): PR-54 v3.6.0 baseline 폴더 신설 + sub-agent 슬롯 4 anchor 발행** — `_workspace/baseline/v3.6.0/` 폴더 신설(README skeleton + 7 파일 인덱스). CHANGELOG sub-agent 슬롯 4 anchor(architect/backend-core/market-data/frontend). 4 sub-agent 병렬 디스패치 add-only LOCK. (orchestrator) | meta/baseline | PR-54 v3.6.0 baseline 슬롯 발행 |
 <!-- pr-54-slot-orchestrator -->

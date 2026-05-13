@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>인덱스 — magicJar v3.6.0 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html" class="active">📁 인덱스</a><a href="01-architecture.html">01 Architecture</a><a href="02-data-flow.html">02 Data Flow</a><a href="03-use-sequences.html">03 Use Sequences</a><a href="04-feature-spec.html">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html">06 History</a><a href="07-policy-evolution.html">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.6.0 Baseline · 2026-05-13 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># magicJar v3.6.0 Baseline — T-O W3 네 번째 트랙 마감 (자동매매 본체 종착 노드 가동) + 자본 보호 LOCK
+
+> **태그 컷**: 2026-05-13 v3.6.0 (release commit `<TBD-release-commit>`, `release/v3.6.0` 이미지 immutable)
+> **사이클**: PR-54 (#367 ~ #376, 10 PR — v3.5.0 release 후속 정리 PR #367·#368·#369 + ADR 0068 plan·Accepted·정밀 명세 #370·#371·#372 + Phase 1·2·3 직렬 #373·#374·#375 + v3.6.0 cut + baseline init #376)
+> **상태**: PR-54 architect 영역(README + 01 + 06 + 07) 본격 작성. backend-core(02·04) · market-data(03) · frontend(05) 영역은 sub-agent 별도 디스패치.
+> **권위**: 본 baseline 폴더는 v3.6.0 시점 **종합 기능 정의서**. SoT는 `docs/architecture/master-architecture.md` v2 (ADR 0030).
+
+---
+
+## 한 장 요약
+
+magicJar v3.6.0은 **T-O W3 네 번째 트랙 마감 — 자동매매 본체 종착 실행 노드 가동 + 3중 게이트 자본 보호 LOCK** 미러스톤이다. v3.5.0(T-RISK 6 룰 게이트) → v3.6.0(T-O 주문 실행 + KIS REST + WS 체결 추적 + 3 영속 + STOMP 4 event + 멱등성 + 3중 게이트). ADR 신규 1건(0068 Accepted) + ADR 0068 정밀 명세 §14·§15·§16·§17 4 § 추가 보강(PR #372 사용자 "확실히 오류 없이 잘 낼 수 있게 설계하라" 명시 정합) + Phase 1·2·3 직렬 디스패치 완성. **자동매매 본체의 종착 실행 노드(T-O)가 가동 진입** — T-RISK ALLOWED 시그널이 Kafka `order.intent.v1` → OrderRouterKafkaListener 12 step 게이트 chain(idempotency Redis SETNX 60s → TradingModeGate 3중 게이트 → KillSwitch 재검증 → order_request INSERT → KIS REST `order-cash` 호출 TTTC0012U/VTTC0012U/TTTC0011U/VTTC0011U → ACK → KIS WS H0STCNI0 체결통보 listen → order_execution N row INSERT 분할 체결 cover → status FILLED + position 갱신 + STOMP 4 event 토스트) 통과.
+
+**v3.6.0 시점 동작하는 핵심 흐름** (v3.5.0 W1·W2 + W3 T-BT·T-SIG·T-RISK + W3 T-O 마감):
+
+1. **W1 풀세트 + W2 4 트랙 + v3.3.0 boundary fanout + v3.4.0 T-SIG + v3.5.0 T-RISK (v3.5.0 baseline 그대로 보존)** — T-ONBOARD·T-W1·T-W2·T-S1·T-MS1·T-CA1·T-IM1·T-IND·T-DSL·T-PAT·T-SB·실시간 boundary fanout + T-BT(R1·R2·R3) + T-SIG(Phase 1·2·3) + T-RISK(Phase 1·2·3) 15 트랙. v3.6.0에서 본격 변경 0 (T-O 트랙만 add).
+2. **v3.6.0 미러스톤 — T-O 주문 실행 가동 (PR #370·#371·#372·#373·#374·#375)** — ADR 0068 채택(A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1) + 정밀 명세 §14·§15·§16·§17 4 § 추가 + Phase 1·2·3 직렬 디스패치 완성:
+   - **ADR 0068 plan + Accepted + 정밀 명세** (PR #370·#371·#372): plan 8 의제 발행 → 사용자 채택 A-1~H-1 → 정밀 명세 §14(Phase 1 strategy-engine 16 파일 + 12 step 흐름 + 오류 risk 매트릭스 10건) + §15(Phase 2 backend-core Flyway V20~V23 + JPA 3쌍 + REST 4 + STOMP 4 event) + §16(Phase 3 frontend 16 파일 + 색상 매트릭스 + 이중 confirm UX + dogfooding 3 케이스) + §17(orchestrator 통합 검증 매트릭스 19 항목). 사용자 "확실히 오류 없이 잘 낼 수 있게 설계하라" 명시 정합.
+   - **Phase 1 — strategy-engine** (PR #373): domain 12건(`OrderIntent`·`OrderRequest`·`OrderExecution`·`OrderAuditEvent`·`OrderSide`·`OrderPriceType`·`OrderStatus` 7단·`OrderAuditEventType` 12단·`TradingMode`·`DenyReason` sealed·`KisOrderAck`·`OrderQueryFilter`) + 9 port(`OrderRequestRepository`·`OrderExecutionRepository`·`OrderAuditEventRepository`·`KisOrderPort`·`TradingModeGate`·`OrderIdempotencyGuard`·`OrderNotifier`·`PositionUpdatePort`·`KillSwitchPort`). consumer 10 컴포넌트: `OrderRouterKafkaListener`(12 step 흐름 LOCK) · `OrderIdempotencyGuardImpl`(Redis SETNX 60s) · `TradingModeGateImpl`(3중 게이트 4 case) · `KisOrderHttpAdapter`(KIS REST 6 tr_id LOCK + raw KDoc 인용) · `KisExecutionWsListener`(H0STCNI0/H0STCNI9 26 컬럼 매핑 LOCK) · `OrderRequestedKafkaProducer` · `OrderFilledKafkaProducer` · `OrderRejectedKafkaProducer` · `OrderCancelledKafkaProducer` · `PositionUpdateAdapter`. `OrderTopicConfig` 4 topic 등록(retention 30d). 26 Unit Test GREEN.
+   - **Phase 2 — backend-core** (PR #374): Flyway V20(`order_request`) · V21(`order_execution`) · V22(`order_audit_event`) · V23(`user_account.real_trading_consent_at` ALTER) · V24(spare reserved) + JPA 3쌍(OrderRequest · OrderExecution · OrderAuditEvent) + REST 4 endpoint(GET list · GET detail · POST cancel · PUT consent) + `StompOrderNotifier`(`/topic/order.user.{userId}` 4 event discriminator) + Swagger 4단 한국어.
+   - **Phase 3 — frontend** (PR #375): `/orders` + `/orders/:id` 2 페이지 + 6 컴포넌트(`OrderCard` · `OrderStatusBadge` 7 status 색상 매트릭스 · `ExecutionTable` 분할 체결 1:N · `OrderAuditTimeline` 시계열 · `CancelOrderButton` 확인 모달 · `RealTradingConsentToggle` SettingsModal 이중 confirm) + 4 API hook + `useStompOrder`(4 event 토스트 매트릭스 — REQUESTED blue·FILLED green·PARTIAL yellow·REJECTED red·CANCELLED gray).
+3. **release 절차 보강 + README 매트릭스 자동 갱신** (PR #367·#368·#369): release.sh 풍부 합성(기존 7 release 노트 재발행) + ADR 0052 §X 보강 + README "Releases & Baseline 진화 매트릭스" 추가 + `scripts/sync-readme-releases.mjs` 자동 갱신 헬퍼.
+4. **v3.6.0 신규 컴포넌트 15건** (모두 add-only · 기존 모듈 흡수):
+   - **T-O Phase 1 (consumer + domain)**: `domain/.../order/OrderIntent.kt` · `OrderRequest.kt` · `OrderExecution.kt` · `OrderAuditEvent.kt` + 7 enum/sealed + 9 port. `consumer/.../order/OrderRouterKafkaListener` · `TradingModeGateImpl` · `OrderIdempotencyGuardImpl` · `KisOrderHttpAdapter` · `KisExecutionWsListener` · `PositionUpdateAdapter` + 4 Kafka producer.
+   - **T-O Phase 2 (api)**: `OrderRequestJpaEntity·Adapter` · `OrderExecutionJpaEntity·Adapter` · `OrderAuditEventJpaEntity·Adapter` + `OrderQueryController` 2 endpoint + `OrderCancelController` 1 endpoint + `RealTradingConsentController` 1 endpoint + `StompOrderNotifier`.
+
+**v3.6.0 누적 ADR 65건** (v3.5.0 베이스 64건 + 0068 Accepted 1건 — 자세한 인덱스는 `_workspace/arch/adr/README.md`). ADR 0019 supersede 부분 revoke 지속(boundary fanout + T-SIG + T-RISK + T-O 트랙 완료 → v3.7.x minor에서 §2 본문 재통합 architect 단독 PR 예정).
+
+**v3.6.0 시점 자동매매 본체 정합 핵심 충족**:
+
+1. **자동매매 본체 종착 노드 가동** — T-SIG 시그널 → T-RISK ALLOWED → T-O 실제 KIS 주문 발행 → 체결 추적 → position 갱신 → 사용자 알림 완성 chain
+2. **3중 게이트 자본 보호 LOCK** — `MAGICJAR_MODE=REAL` env × `MAGICJAR_ALLOW_REAL=true` env × `user_account.real_trading_consent_at` 사용자 동의 토글 — 모두 충족 시에만 KIS prod endpoint 호출
+3. **KIS-first raw KDoc 의무** — TTTC0012U·VTTC0012U·TTTC0011U·VTTC0011U·TTTC0013U·VTTC0013U 6 tr_id + H0STCNI0/H0STCNI9 26 컬럼 모두 `examples_user/domestic_stock/domestic_stock_functions.py` L10097~L10884 + `domestic_stock_functions_ws.py` L389~L446 raw 인용
+4. **AI 호출 0 검증 LOCK 지속** — T-O 영역 grep 0건 + inline 주석(`// AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8)`)
+5. **사용자 비전 정합** — 사용자=최고 관리자/설계자 + 사용자 수동 취소 only(자동 취소 1차 미도입 — 사용자 통제 비전 정합) + 이중 confirm UX + MCP 외부 client query 후속
+6. **회귀 0** — v3.5.0 T-RISK risk_event/risk_config/position/signal.risk_status baseline 그대로 + KIS WS H0STCNI0 사용자별 1 구독 추가(ADR 0048 41 한도 margin 30건 OK)
+7. **end-to-end latency** — T-SIG <100ms + T-RISK <75ms + T-O ACK <230ms = **<405ms 총합** (boundary 마감 → 사용자 STOMP REQUESTED 토스트 + KIS ACK)
+
+---
+
+## 인덱스
+
+| 파일 | 작성자 | 내용 |
+|------|--------|------|
+| [01-architecture.md](01-architecture.md) | architect | Mermaid 5 모듈 + 외부 통합 + frontend 아키텍처 + T-O 흐름 (Signal → Risk → Order intent → 3중 게이트 → KIS REST → H0STCNI0 체결 → STOMP) |
+| [02-data-flow.md](02-data-flow.md) | backend-core | 모듈별 데이터 흐름 + Kafka 토픽 매트릭스 + T-O order_request/execution/audit_event 흐름 |
+| [03-use-sequences.md](03-use-sequences.md) | market-data | 사용자 유즈 시퀀스 + KIS-first raw 출처 + T-O 시나리오 (모의 주문 정상 · 3중 게이트 BLOCKED · 분할 체결) |
+| [04-feature-spec.md](04-feature-spec.md) | backend-core | 트랙 기능 명세 상세 + T-O REST 4 endpoint |
+| [05-ui-inventory.md](05-ui-inventory.md) | frontend | 화면·메뉴·버튼 인벤토리 + `/orders`·`/orders/:id` 2 페이지 + RealTradingConsentToggle |
+| [06-history-traceability.md](06-history-traceability.md) | architect | PR·ADR·기능 매핑 (PR #367~#376 + ADR 0068) |
+| [07-policy-evolution.md](07-policy-evolution.md) | architect | 운영 헌법 + ADR 진화 (T-O 가동 + 3중 게이트 LOCK + KIS-first raw KDoc 의무 + RealTradingConsentToggle 이중 confirm UX) |
+
+---
+
+## v3.5.0 → v3.6.0 통계 매트릭스 (PR #367 ~ #375 본체, PR #376 baseline init)
+
+| 지표 | v3.5.0 (2026-05-12 22:42 KST) | v3.6.0 (2026-05-13 <TBD> KST) | 증감 |
+|------|---------------------|---------------------|------|
+| PR # 누적 | #360 | #376 | +16 (release 후속 정리 3 + ADR 0068 본격 6 + 기타 7) |
+| ADR 수 | 64 (0067 Accepted) | 65 (0068 Accepted) | +1 (실제 신규 1건) |
+| Flyway 버전 | V19 (signal.risk_status) | V24 (V20 order_request + V21 order_execution + V22 order_audit_event + V23 user_account.real_trading_consent_at ALTER + V24 spare) | +5 |
+| JVM 모듈 | 5 (domain·api·batch·consumer·pattern-engine) | 5 (보존) | 0 |
+| 외부 통합 (활성) | KIS + DART + Anthropic (3) — Yahoo @Deprecated | 그대로 보존 (v3.7.x 일괄 삭제 예정) | 0 |
+| **W3 ★ 트랙 마감** | **3 (T-BT·T-SIG·T-RISK)** | **4 (T-O W3 네 번째 트랙 마감)** | **+1** |
+| 외부 통합 추가 호출 (T-O 영역) | — | **신규 4 KIS 호출 매트릭스: TTTC/VTTC 0012U·0011U·0013U (6 tr_id 분기) + H0STCNI0/H0STCNI9 WS (사용자별 1 구독)** | 신규 가동 |
+| KIS WS 구독 한도 영향 (ADR 0048 — 41건) | + H0STCNT0 + H0STASP0 시세 (사용자당 ~10건) | **+ H0STCNI0/H0STCNI9 체결통보 1 구독 추가 — 사용자당 ~11건 (margin 30건 OK)** | +1 구독/user |
+| Kafka 토픽 (활성) | 15 (+ `risk.violation.v1` + `order.intent.v1`) | 19 (+ `order.requested.v1` + `order.filled.v1` + `order.rejected.v1` + `order.cancelled.v1`) | +4 |
+| Redis 키 (활성) | + `risk_config:{userId}` + `trades:freq:...` ZSET + `daily_pnl:...` | + `idem:order:{idempotencyKey}` TTL 60s (SETNX 멱등성) | +1 namespace |
+| STOMP 토픽 (활성) | + `/topic/risk.user.{userId}` | + **`/topic/order.user.{userId}` (REQUESTED·FILLED·REJECTED·CANCELLED 4 event discriminator · multi-tenant 격리)** | +1 |
+| REST endpoint 누적 | 약 55건 | 약 59건 (+ Order 3 + RealTradingConsent 1) | +4 |
+| frontend 라우트 | 10 (+ `/risk-config` + `/risk-events` + `/positions`) | 12 (+ `/orders` + `/orders/:id`) | +2 |
+| T-O 영속 | 0 (트랙 미진입) | order_request(~18K row/year per user) + order_execution(~27K row/year per user · 1:N) + order_audit_event(~91K row/year per user) + user_account.real_trading_consent_at | 신규 가동 |
+| domain port 누적 | 18 (RiskConfigRepository · RiskGateway · RiskNotifier · SignalRiskStatusUpdater · PositionRepository 등) | 27 (+ OrderRequestRepository · OrderExecutionRepository · OrderAuditEventRepository · KisOrderPort · TradingModeGate · OrderIdempotencyGuard · OrderNotifier · PositionUpdatePort · KillSwitchPort) | +9 port |
+| `OrderRouterKafkaListener` 흐름 | 0 | **12 step LOCK (deserialize → idempotency SETNX → 3중 게이트 → KillSwitch → order_request INSERT → STOMP REQUESTED → KIS REST submit (5xx retry 1회) → ACK 분기 OR REJECT 분기 → Kafka commit MANUAL_IMMEDIATE)** | 신규 baseline |
+| KIS tr_id 매트릭스 | KIS REST candle (FHKST03010100/200/230) + WS H0STCNT0/H0STASP0 | + **TTTC0012U (실전 BUY) · VTTC0012U (모의 BUY) · TTTC0011U (실전 SELL) · VTTC0011U (모의 SELL) · TTTC0013U (실전 정정/취소) · VTTC0013U (모의 정정/취소) · H0STCNI0 (실전 체결) · H0STCNI9 (모의 체결) — KIS-first raw KDoc 의무** | +8 tr_id |
+| **3중 게이트 자본 보호 LOCK** | — | **env MAGICJAR_MODE=REAL × env MAGICJAR_ALLOW_REAL=true × user_account.real_trading_consent_at IS NOT NULL — 모두 충족 시에만 KIS prod endpoint 호출** | 신규 LOCK |
+| AI 호출 (T-O 영역) | — | **0건 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8 grep 검증 + inline 주석 의무)** | LOCK |
+| end-to-end latency (boundary 마감 → 사용자 STOMP REQUESTED 토스트 + KIS ACK) | <175ms total (boundary 20 + signal 75 + risk 75 + STOMP 5) | **<405ms total** (boundary 20 + signal 75 + risk 75 + order intent publish 10 + OrderRouter 20 + KIS REST 200 + STOMP 5) | +230ms (order intent → KIS ACK 단계) |
+| dogfooding hotfix 건수 | 1 (V18 ADR 0042 충돌) | **0 (정밀 명세 §14·§15·§16 LOCK 적용으로 ALTER + IF NOT EXISTS 패턴 회피)** | -1 |
+| GitHub Actions workflow | 0건 (v3.4.0 GHA 폐기) + `scripts/release.sh` | 0건 보존 + `release.sh` 풍부 합성(PR #367) + `scripts/sync-readme-releases.mjs` 신규(PR #369 — README 매트릭스 자동 갱신) | +1 헬퍼 |
+| README 본문 | 굴직 재작성 373 lines (PR #359) | + Releases & Baseline 진화 매트릭스 추가(PR #368) + 자동 갱신 헬퍼 정합 | 매트릭스 add |
+| 운영 헌법 § 수 | 7 | 7 (보존) | 0 |
+| Living Policy 문서 | 6 (kis-first-raw-fetch 5단계 절차 보강) | 6 (보존) | 0 |
+
+---
+
+## 베이스라인 정합 ADR 12건 (v3.6.0 시점)
+
+v3.6.0 baseline은 다음 ADR로 권위 추적 가능:
+
+| ADR | 상태 | 본 v3.6.0 정합 |
+|---|---|---|
+| **0019** | 부분 supersede revoke 지속 | §2 매트릭스 T-SIG·T-RISK·T-O 합류 정합 갱신 v3.7.x minor에서 architect 단독 PR 예정 (signal.generated.v1 + risk.violation.v1 + order.intent.v1 + order.requested/filled/rejected/cancelled.v1 본체 다음 노드 진입점 명시) |
+| **0028** | Accepted | Watchlist 기반 Ingestion (v3.5.0 보존, v3.6.0 변경 0) |
+| **0029** | Accepted | 당일 진행 중 캔들 Redis 캐시 (보존) |
+| **0048** | Accepted | KIS WS 41 구독 한도 — v3.6.0 신규 H0STCNI0/H0STCNI9 체결통보 1 구독 추가(사용자당 ~11건, margin 30건 OK). ADR 0068 §9-4 정합 매트릭스 |
+| ~~0049~~ | **Superseded (v3.4.0 사용자 결정 GHA 결제 폐기)** | v3.6.0 보존. `scripts/release.sh` + `scripts/sync-readme-releases.mjs`(PR #369) 후속 alternative 강화 |
+| **0052** | Accepted | Baseline 사이클 정형화 + PR #367에서 §X 보강 (release 절차 풍부 합성 + 기존 7 release 노트 재발행). `_workspace/baseline/v3.6.0/` immutable LOCK 진입 |
+| **0057** | Accepted | KIS-only 보존. T-O는 KIS REST 주문 + WS 체결통보 추가(prod credential 단일 채널 + `account_type` REAL/MOCK 분기 — 데이터 출처 분기 0, 사용자 메모리 `feedback_kis_key_realonly_for_data.md` 정합) |
+| **0061** | Accepted | T-BT 영속 baseline. 본 ADR 3 테이블 분리 패턴이 T-O 3 테이블(order_request + order_execution + order_audit_event) baseline |
+| **0062** | Accepted | 합산 가공 plan (T-O 영향 0 — 보존) |
+| **0063** | Accepted | NXT/통합거래 cover. T-O `EXCG_ID_DVSN_CD="KRX"` default (NXT 후속 backlog) |
+| **0064** | Accepted | Boundary fanout — T-O 영향 0 (signal.generated.v1 진입점 이미 v3.4.0 baseline) |
+| **0066** | Accepted | T-SIG 실시간 시그널 엔진. signal → order chain의 진입점 |
+| **0067** | Accepted | T-RISK 리스크 관리 게이트. **본 ADR 0068이 그 결정의 후속 — Kafka `order.intent.v1` topic을 T-RISK ALLOWED 시 publish → 본 ADR consumer가 listen 진입점 LOCK** |
+| **0068** | **Accepted (2026-05-13 — 사용자 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1 8건 모두 채택)** | **본 v3.6.0 미러스톤 권위** — T-O 자동매매 본체 종착 노드 + 3중 게이트 자본 보호 LOCK + KIS-first raw KDoc 의무 + 3 영속 + STOMP 4 event + 멱등성 Redis SETNX + 정밀 명세 §14·§15·§16·§17 4 § 보강(PR #372) |
+
+> **ADR 0030 master-architecture §10 갱신 의무 (v3.7.x minor 후속)**: 본 v3.6.0 baseline 시점 ADR 0030 §10 인덱스에 0068 row 추가 정합은 PR #371 Accepted 시점에 부분 갱신 완료. 단 §C.12 Order 본문 본 ADR 권위 인용 + §2 흐름 매트릭스 T-O 합류는 v3.7.x minor architect 단독 PR (modify-shared 충돌 회피).
+
+---
+
+## 작성 규약
+
+- 본문 한국어, 코드/명령은 영어 그대로
+- Mermaid 다이어그램 의무
+- raw 출처 인용 의무 (KIS API · DART · 코드 path)
+- 추측·관념적 서술 금지
+- TBD 표시 — 미작성 영역
+
+---
+
+## v3.6.0 사이클 핵심 메시지
+
+**T-O 주문 실행 가동 (ADR 0068 Accepted) — 자동매매 본체 종착 실행 노드 진입** — T-SIG 시그널 → T-RISK ALLOWED → **T-O 실제 KIS 주문 발행** → 체결 추적 → position 갱신 → 사용자 알림 chain 완성. magicJar 비전 "룰 기반 quant trading 본체"의 W3 종착 노드 + 3중 게이트 자본 보호 LOCK(env × env × 사용자 동의 토글) + KIS-first raw KDoc 의무(TTTC/VTTC 6 tr_id + H0STCNI0/H0STCNI9 26 컬럼) + 분할 체결 1:N cover + 멱등성 Redis SETNX 60s + DB UQ 이중 + 이중 confirm UX(SettingsModal). 정밀 명세 §14·§15·§16·§17 4 § 추가(PR #372)로 sub-agent 자체 추론 0 + 12 step LOCK + 오류 risk 매트릭스 10건 + dogfooding 3 케이스 + orchestrator 통합 검증 매트릭스 19 항목 명시. AI 호출 0 grep 검증 지속(ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8) — magicJar = 룰 기반 본체, AI는 옵션 보조 분리 보존. W3 잔여(T-SC·T-NOTIFY·T-PERF·T-RECON·T-J) 진입의 baseline이 본 ADR 0066·0067·0068 3건으로 LOCK (T-RECON 진입점 = `order.filled.v1` Kafka topic + KIS H0STCNI0 vs internal order_execution drift 검출).
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>
