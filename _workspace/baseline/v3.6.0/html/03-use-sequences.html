@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>03-use-sequences — magicJar v3.6.0 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">📁 인덱스</a><a href="01-architecture.html">01 Architecture</a><a href="02-data-flow.html">02 Data Flow</a><a href="03-use-sequences.html" class="active">03 Use Sequences</a><a href="04-feature-spec.html">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html">06 History</a><a href="07-policy-evolution.html">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.6.0 Baseline · 2026-05-13 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># v3.6.0 사용자 유즈 시퀀스 + KIS-first raw 출처
+
+> **작성자**: market-data (bot+market-data@magicjar.local)
+> **작성일**: 2026-05-13
+> **기준 시점**: v3.6.0 — T-O 주문 실행 미러스톤 (ADR 0068 채택 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1) + v3.5.0 T-RISK 누적
+> **KIS-first 의무**: 헌법 §3 정합 — 자체 추론 0, 모든 endpoint·tr_id·필드는 raw 출처 인용 의무
+> **v3.5.0 대비 변경**: T-O Order Execution 흐름 신규 (ADR 0068 §16 케이스 1·2·3) — 시나리오 15·16·17 신규 추가. 시나리오 1~14는 v3.5.0 baseline 03 내용 완전 유지.
+
+---
+
+## raw 출처 인용 인덱스
+
+| # | 출처 | raw URL | 사용 시나리오 |
+|---|---|---|---|
+| R1 | KIS 종목마스터 Python 파서(KOSPI) | `https://github.com/koreainvestment/open-trading-api/blob/main/stocks_info/kis_kospi_code_mst.py` | 시나리오 2 — 73필드 |
+| R2 | KIS 종목마스터 Python 파서(KOSDAQ) | `https://github.com/koreainvestment/open-trading-api/blob/main/stocks_info/kis_kosdaq_code_mst.py` | 시나리오 2 — 67필드 |
+| R3 | KIS 종목마스터 헤더(KOSPI) | `https://github.com/koreainvestment/open-trading-api/blob/main/stocks_info/종목마스터정보(코스피).h` | 시나리오 2 — 73필드 바이트 레이아웃 |
+| R4 | KIS WS auth + URL | `https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/kis_auth.py` | 시나리오 3·9·10 — WS URL · PINGPONG 처리 |
+| R5 | KIS WS 체결가 파서 (ccnl_krx) | `https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions_ws.py` | 시나리오 3·9·10·11·13 — H0STCNT0 44 cols · STCK_CNTG_HOUR[1] boundary 검사 |
+| R6 | KIS REST 현재가 (FHKST01010100) | `https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_price/inquire_price.py` | 시나리오 4 |
+| R7 | KIS REST 일봉 (FHKST03010100) | `https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py` | 시나리오 4·6 |
+| R8 | KIS REST 1m 분봉 (FHKST03010230) | `https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py` | 시나리오 5·6 — UN 통합 + NXT cover |
+| R9 | KIS Strategy Builder indicators.py | `https://github.com/koreainvestment/open-trading-api/blob/main/strategy_builder/core/indicators.py` | 시나리오 7·11·13 — 80지표 |
+| R10 | KIS Strategy Builder candlestick.py | `https://github.com/koreainvestment/open-trading-api/blob/main/strategy_builder/core/candlestick.py` | 시나리오 7·11·13 — 57패턴 |
+| R11 | KIS Strategy Builder DSL parser.py | `https://github.com/koreainvestment/open-trading-api/blob/main/strategy_builder/strategy_core/dsl/parser.py` | 시나리오 7·11·12·13 — DSL TOKEN_PATTERNS |
+| R12 | KIS REST 주문 (order_cash) | `https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions.py` L10097~L10213 | 시나리오 15·16·17 — TTTC0012U·VTTC0012U·TTTC0011U·VTTC0011U·ORD_DVSN |
+| R13 | KIS REST 정정/취소 (order_rvsecncl) | `https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions.py` L10771~L10884 | 시나리오 15·16·17 — TTTC0013U·VTTC0013U |
+| R14 | KIS WS 체결통보 (ccnl_notice) | `https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions_ws.py` L389~L446 | 시나리오 15·16·17 — H0STCNI0·H0STCNI9 26 컬럼 |
+
+**검증 보고서** (헌법 §3 §3-3 의무 산출물):
+- PR-21 `_workspace/specs/pr-21-kis-header-raw-verification.md` — 종목마스터 73필드 KOSPI + 67필드 KOSDAQ
+- PR-38 `_workspace/specs/pr-38-kis-pattern-raw-verification.md` — candlestick.py 755 lines + 57 매핑
+- PR-35 `_workspace/specs/pr-35-kis-dsl-raw-verification.md` — parser.py 664 lines + TOKEN_PATTERNS LOCK
+
+**v3.6.0 KIS-first 의무 (ADR 0068 §7-5 정합)**:
+- 시나리오 15·16·17 — T-O Order Execution 흐름: KIS REST 주문 endpoint (R12·R13) + KIS WS 체결통보 (R14) raw 인용 LOCK
+- TTTC0012U·VTTC0012U·TTTC0011U·VTTC0011U·TTTC0013U·VTTC0013U: raw L10097~L10213·L10771~L10884 (R12·R13) inline KDoc 의무
+- H0STCNI0·H0STCNI9 26 컬럼: raw L389~L446 `ccnl_notice()` (R14) inline 주석 의무
+
+---
+
+## 시나리오 1~14 (v3.5.0 baseline 완전 유지)
+
+> 시나리오 1~14는 v3.5.0 `03-use-sequences.md` 내용 완전 인용 — 본 v3.6.0 baseline은 v3.5.0 위에 시나리오 15·16·17만 add-only 추가.
+> 참조: `_workspace/baseline/v3.5.0/03-use-sequences.md`
+
+---
+
+## 시나리오 15: T-O 모의 주문 정상 흐름 (v3.6.0 신규 — ADR 0068 §16 케이스 1)
+
+**목적**: `order.intent.v1` Kafka 수신 → 3중 게이트 통과(MOCK 모드) → KIS VPS(모의) REST 매수 → KIS_ORDER_NO 획득 → H0STCNI9 체결통보 수신 → order_execution INSERT → STOMP FILLED 녹색 토스트
+
+**관련 PR/ADR**: ADR 0068 (A-1·B-1·D-1·F-1·G-1·H-1 채택) · ADR 0067 (order.intent.v1 publish — T-RISK ALLOWED 결과) · ADR 0046 (user_kis_credential REAL/MOCK 2종) · ADR 0044 (order.filled.v1 Notification 진입)
+
+**ADR 0068 채택 의사결정 요약 (시나리오 15 관련)**:
+
+| 의제 | 채택 | 설명 |
+|---|---|---|
+| A. 모의/실전 분기 | A-1 3중 게이트 | env MAGICJAR_MODE + MAGICJAR_ALLOW_REAL + 사용자 동의 토글 — MOCK 모드 시 MOCK 자동 fallback |
+| B. KIS endpoint | B-1 단일 port + adapter 내부 mode 분기 | TradingModeGate.resolveMode → tr_id 선택 |
+| D. 체결 추적 | D-1 KIS WS H0STCNI9 (모의) | 실시간 체결통보 26 컬럼 listen |
+| F. 영속 | F-1 3 테이블 분리 | order_request + order_execution + order_audit_event |
+| G. 알림 | G-1 단일 STOMP + 4 event | /topic/order.user.{userId} |
+| H. 멱등성 | H-1 Redis SETNX 60s + DB UQ | 자본 보호 — 중복 주문 0 |
+
+**KIS-first raw 출처 (헌법 §3 의무 — 시나리오 15 LOCK)**:
+
+| tr_id | 환경 | endpoint | raw 출처 |
+|---|---|---|---|
+| `VTTC0012U` | MOCK 매수 | `POST /uapi/domestic-stock/v1/trading/order-cash` | R12 `domestic_stock_functions.py` L10097~L10213 |
+| `VTTC0011U` | MOCK 매도 | `POST /uapi/domestic-stock/v1/trading/order-cash` | R12 동일 |
+| `VTTC0013U` | MOCK 정정/취소 | `POST /uapi/domestic-stock/v1/trading/order-rvsecncl` | R13 L10771~L10884 |
+| `H0STCNI9` | MOCK 체결통보 WS | WS subscribe | R14 L389~L446 `ccnl_notice()` |
+
+**H0STCNI9 26 컬럼 매핑 (raw 출처: R14 `ccnl_notice()` L389~L446 — LOCK)**:
+
+| 인덱스 | 필드명 | 용도 |
+|---|---|---|
+| `[0]` | `CUST_ID` | 고객ID |
+| `[1]` | `ACNT_NO` | 계좌번호 |
+| `[2]` | `ODER_NO` | 주문번호 (= KIS_ORDER_NO cross-ref) |
+| `[3]` | `OODER_NO` | 원주문번호 (정정/취소 시) |
+| `[4]` | `SELN_BYOV_CLS` | 매도매수구분 |
+| `[5]` | `RCTF_CLS` | 접수구분 |
+| `[6]` | `ODER_KIND` | 주문종류 |
+| `[7]` | `ODER_COND` | 주문조건 |
+| `[8]` | `STCK_SHRN_ISCD` | 종목코드 |
+| `[9]` | `CNTG_QTY` | **체결수량** (분할 체결 누적 분 — 시나리오 17 핵심) |
+| `[10]` | `CNTG_UNPR` | **체결단가** |
+| `[11]` | `STCK_CNTG_HOUR` | 체결시각 HHMMSS |
+| `[12]` | `RFUS_YN` | **거부여부** ("Y"=거부 → REJECTED) |
+| `[13]` | `CNTG_YN` | **체결여부** ("1"=접수통보, "2"=체결통보 — "2"만 OrderExecution INSERT) |
+| `[14]` | `ACPT_YN` | 접수여부 |
+| `[15]` | `BRNC_NO` | 지점번호 |
+| `[16]` | `ODER_QTY` | 주문수량 |
+| `[17]` | `ACNT_NAME` | 계좌명 |
+| `[18]` | `ORD_COND_PRC` | 주문조건가격 |
+| `[19]` | `ORD_EXG_GB` | 주문거래소구분 |
+| `[20]` | `POPUP_YN` | 팝업여부 |
+| `[21]` | `FILLER` | 예비 |
+| `[22]` | `CRDT_CLS` | 신용구분 |
+| `[23]` | `CRDT_LOAN_DATE` | 신용대출일자 |
+| `[24]` | `CNTG_ISNM40` | 체결종목명 40자 |
+| `[25]` | `ODER_PRC` | 주문가격 |
+
+```mermaid
+sequenceDiagram
+    participant RiskGateway as RiskGatewayEvaluator<br/>(시나리오 13 ALLOWED 분기)
+    participant IntentKafka as Kafka<br/>(order.intent.v1)
+    participant Listener as OrderRouterKafkaListener<br/>(consumer — groupId: magicjar-consumer-order)
+    participant IdemGuard as OrderIdempotencyGuard<br/>(Redis SETNX 60s — 의제 H-1)
+    participant ModeGate as TradingModeGateImpl<br/>(3중 게이트 — 의제 A-1)
+    participant KillSw as KillSwitchQueryPort<br/>(ADR 0024·0043)
+    participant OrderRepo as OrderRequestRepository<br/>(Flyway V20 order_request)
+    participant KisAdapter as KisOrderHttpAdapter<br/>(consumer — 의제 B-1)
+    participant KIS_VPS as KIS VPS<br/>(openapivts.koreainvestment.com:29443)
+    participant WsBridge as KisWebSocketBridge<br/>(H0STCNI9 MOCK 구독)
+    participant WsListener as KisExecutionWsListener<br/>(consumer — 의제 D-1)
+    participant ExecRepo as OrderExecutionRepository<br/>(Flyway V21 order_execution)
+    participant AuditRepo as OrderAuditEventRepository<br/>(Flyway V22 order_audit_event)
+    participant FilledKafka as Kafka<br/>(order.filled.v1)
+    participant StompNotifier as StompOrderNotifier<br/>(api — groupId: magicjar-api-stomp-order)
+    participant FE as Frontend (useStompOrder)
+
+    Note over RiskGateway,IntentKafka: 시나리오 13 T-RISK ALLOWED 분기 결과 (ADR 0067 §5)
+    RiskGateway->>IntentKafka: publish order.intent.v1<br/>{ signalId=42, userId, code="005930", side="BUY",<br/>priceType="MARKET", quantity=10, idempotencyKey }
+
+    IntentKafka->>Listener: @KafkaListener("order.intent.v1")<br/>groupId: magicjar-consumer-order<br/>concurrency=1 (자본 보호 — race 0)
+
+    Listener->>IdemGuard: acquire(idempotencyKey)<br/>Redis SETNX "order:idem:{key}" TTL 60s
+    alt 첫 번째 처리 (SETNX 성공)
+        IdemGuard-->>Listener: true (진행)
+
+        Listener->>ModeGate: resolveMode(userId)
+        note over ModeGate: env MAGICJAR_MODE = "MOCK" → MOCK fallback<br/>3중 게이트 검사 순서 (의제 A-1 ADR 0068 §14-3)<br/>1. MAGICJAR_MODE != "REAL" → TradingMode.MOCK (안전 default)<br/>raw 출처: TradingModeGateImpl — inline KDoc 의무
+        ModeGate-->>Listener: AllowedMode(TradingMode.MOCK)
+
+        Listener->>KillSw: isKillSwitchOn(userId)
+        note over KillSw: ADR 0024·0043 KillSwitch 재검증 (ALLOWED 이후에도 부팅 후 토글 가능)
+        KillSw-->>Listener: false (KillSwitch OFF — 통과)
+
+        Listener->>OrderRepo: save(OrderIntent(status=REQUESTED, mode=MOCK, ...))
+        note over OrderRepo: Flyway V20 order_request INSERT<br/>idempotency_key UQ (의제 H-1)
+        OrderRepo-->>Listener: OrderIntent { id=77, status=REQUESTED }
+
+        Listener->>AuditRepo: save(OrderAuditEvent(type=REQUESTED, ...))
+        Listener->>IntentKafka: publish order.requested.v1 { orderId=77, ... }
+
+        Listener->>KisAdapter: submit(OrderIntent{ mode=MOCK, side=BUY })
+        note over KisAdapter: raw 출처: domestic_stock_functions.py L10097~L10213 (R12)<br/>tr_id = VTTC0012U (MOCK BUY)<br/>endpoint: POST /uapi/domestic-stock/v1/trading/order-cash<br/>body: CANO·ACNT_PRDT_CD="01"·PDNO="005930"<br/>ORD_DVSN="01" (시장가 C-1 의제)·ORD_QTY="10"·ORD_UNPR="0"<br/>EXCG_ID_DVSN_CD="KRX"<br/>credential: user_kis_credential(account_type=MOCK) (ADR 0046)
+
+        KisAdapter->>KIS_VPS: POST /uapi/domestic-stock/v1/trading/order-cash<br/>Authorization: Bearer {MOCK token}<br/>tr_id: VTTC0012U
+        KIS_VPS-->>KisAdapter: 200 { rt_cd="0",<br/>output.ODNO="0000123456",<br/>output.KRX_FWDG_ORD_ORGNO="91012345",<br/>output.ORD_TMD="091523" }
+
+        KisAdapter-->>Listener: KisOrderAck { kisOrderNo="0000123456",<br/>kisFwdgOrgno="91012345" }
+
+        Listener->>OrderRepo: updateKisRefs(id=77, kisOrderNo, kisFwdgOrgno)
+        Listener->>AuditRepo: save(OrderAuditEvent(type=KIS_ACK, payload=rawResponse))
+
+    else SETNX 실패 (중복 — 60s window 내 재처리)
+        IdemGuard-->>Listener: false
+        Listener->>AuditRepo: save(OrderAuditEvent(type=IDEMPOTENCY_SKIPPED))
+        note over Listener: KIS REST 호출 0건 — 자본 보호 LOCK (의제 H-1)
+    end
+
+    Note over WsBridge,WsListener: KIS VPS H0STCNI9 체결통보 listen (MOCK 환경)
+    KIS_VPS->>WsBridge: "0|H0STCNI9|001|{26 cols 캐럿 구분}"
+    note over WsBridge: raw: domestic_stock_functions_ws.py ccnl_notice() L389~L446 (R14)<br/>tr_id: H0STCNI9 (MOCK) / H0STCNI0 (REAL) — 동일 26 컬럼
+
+    WsBridge->>WsListener: onExecutionNotice(cols[])
+    WsListener->>WsListener: CNTG_YN=[13] 분기<br/>"1" → 접수 통보 → AuditEvent만 INSERT (KIS_ACK)<br/>"2" → 실제 체결 통보 → OrderExecution INSERT
+
+    alt CNTG_YN="2" (실제 체결)
+        WsListener->>WsListener: RFUS_YN=[12] 검사<br/>"N" → 정상 체결 (계속)
+        WsListener->>OrderRepo: findByKisOrderNo(ODER_NO=[2])
+        OrderRepo-->>WsListener: OrderIntent { id=77, quantity=10 }
+
+        WsListener->>ExecRepo: save(OrderExecution { orderId=77,<br/>executedQuantity=CNTG_QTY=[9]=10,<br/>executedPrice=CNTG_UNPR=[10],<br/>executedAt=STCK_CNTG_HOUR=[11] + today })
+        note over ExecRepo: Flyway V21 order_execution INSERT<br/>분할 체결 1:N — 시나리오 17에서 3 row
+
+        WsListener->>ExecRepo: sumExecutedQuantity(orderId=77)
+        ExecRepo-->>WsListener: 10 (== orderIntent.quantity=10 → FILLED)
+
+        WsListener->>OrderRepo: updateStatus(id=77, status=FILLED, completedAt=now())
+        WsListener->>AuditRepo: save(OrderAuditEvent(type=FILLED, ...))
+        WsListener->>FilledKafka: publish order.filled.v1 { orderId=77, userId, code, executedPrice }
+        note over FilledKafka: ADR 0044 NotificationDispatcher 진입 (30d retention)
+
+        WsListener->>WsListener: PositionUpdatePort.applyExecution(execution, intent)<br/>ADR 0042·0067 position 갱신 (holdings 증가)
+    end
+
+    FilledKafka->>StompNotifier: @KafkaListener("order.filled.v1")<br/>groupId: magicjar-api-stomp-order
+    StompNotifier->>FE: STOMP /topic/order.user.{userId}<br/>{ event="FILLED", orderId=77, code="005930",<br/>side="BUY", quantity=10, executedPrice=..., partial=false }
+
+    FE->>FE: useStompOrder() handler<br/>→ 토스트: "체결 완료 — 005930 BUY 10주 @ {price}원" (녹색)
+    FE->>FE: queryClient.invalidateQueries(['orders'])<br/>→ /orders 목록 자동 새로고침
+```
+
+**order_request status 전이 매트릭스 (ADR 0068 F-1)**:
+
+| 상태 | 진입 조건 | 다음 상태 |
+|---|---|---|
+| `REQUESTED` | OrderRouterKafkaListener 진입 후 INSERT | ACK · REJECTED |
+| `ACK` | KIS REST 응답 성공 (kisOrderNo 수신) | FILLED · PARTIALLY_FILLED · REJECTED · CANCELLED |
+| `FILLED` | sumExecutedQuantity == orderIntent.quantity | (종료) |
+| `PARTIALLY_FILLED` | sumExecutedQuantity < orderIntent.quantity | FILLED · CANCELLED |
+| `REJECTED` | KIS REST 응답 실패 OR RFUS_YN=Y OR 3중 게이트 BLOCKED | (종료) |
+| `CANCELLED` | 사용자 수동 취소 REST + KIS order-rvsecncl 성공 | (종료) |
+
+**STOMP 이벤트 토스트 색상 매트릭스 (ADR 0068 G-1 + ADR 0029 §2-5 정합)**:
+
+| event | 색상 | 토스트 메시지 |
+|---|---|---|
+| `REQUESTED` | 파랑 (info) | "주문 접수 — {code} {side} {qty}주" |
+| `FILLED` (전체) | 녹색 (success) | "체결 완료 — {qty}주 @ {price}원" |
+| `FILLED` (부분) | 노랑 (warning) | "부분 체결 — {exec}/{qty}주 @ {price}원" |
+| `REJECTED` | 빨강 (error) | "주문 거절 — {reason}" |
+| `CANCELLED` | 회색 (info) | "주문 취소 — {qty}주" |
+
+```
+STOMP 토픽: /topic/order.user.{userId}   — 단일 토픽 + 4 event discriminator (ADR 0068 G-1)
+```
+
+**멱등성 매트릭스 (ADR 0068 H-1)**:
+
+| 케이스 | 1차 가드 | 2차 가드 |
+|---|---|---|
+| Kafka consumer 재시작 중 동일 intent 재처리 | Redis SETNX 60s (fast-path skip + IDEMPOTENCY_SKIPPED audit) | DB UQ(idempotency_key) INSERT 실패 |
+| Redis 소실 후 재처리 | SETNX 없음 → DB INSERT 시도 | DB UQ 최종 보장 |
+| KIS 중복 호출 가능 window | Redis 60s window — 주문 평균 latency 300ms 대비 안전 margin | |
+
+**dogfooding 검증 evidence (ADR 0068 §16-5 케이스 1 — 사용자 메모리 `feedback_verification_strict.md` 정합)**:
+- DB: `order_request` 1 row (status=FILLED, mode=MOCK, kis_order_no NOT NULL)
+- DB: `order_execution` N row (분할 체결 수) + `order_audit_event` ≥4 row
+- Redis: `order:idem:{key}` TTL 60s 후 자동 소멸
+- STOMP: REQUESTED 파랑 → FILLED 녹색 순 토스트 수신 확인
+- KIS VPS: `openapivts.koreainvestment.com:29443` 호출 — KIS prod 호출 0건 (log grep 검증)
+
+**latency 예측 (ADR 0068 §9-5 정합)**:
+
+| 단계 | 예상 latency |
+|---|---|
+| signal.generated → risk evaluate (시나리오 13) | <75ms |
+| order.intent.v1 publish | <5ms |
+| OrderRouterKafkaListener 게이트 chain | <20ms |
+| KisOrderHttpAdapter REST (KIS VPS) | ~200ms |
+| KIS ACK → order_request UPDATE | <5ms |
+| KIS WS H0STCNI9 → ExecutionWsListener → STOMP FILLED | ~50ms |
+| **총 end-to-end (signal→STOMP FILLED)** | **~355ms** |
+
+---
+
+## 시나리오 16: T-O 3중 게이트 BLOCKED — 자본 보호 (v3.6.0 신규 — ADR 0068 §16 케이스 2)
+
+**목적**: `order.intent.v1` Kafka 수신 → TradingModeGateImpl 3중 게이트 중 조건 미충족 → `DenyReason` BLOCKED → `order_request.status=REJECTED` + `order_audit_event(REAL_GATE_DENIED)` + STOMP REJECTED 빨강 토스트 — **KIS prod endpoint 호출 0건 (자본 보호 LOCK)**
+
+**관련 PR/ADR**: ADR 0068 (A-1 3중 게이트 채택) · CLAUDE.md 함정 4번 (실계좌 이중 게이트) · ADR 0043 (KillSwitch 행동) · ADR 0046 (사용자 동의 토글 `user_account.real_trading_consent_at`)
+
+**3중 게이트 조건 매트릭스 (ADR 0068 §14-3 LOCK)**:
+
+| 게이트 | 조건 | 위반 시 DenyReason | 비고 |
+|---|---|---|---|
+| 게이트 1 | `MAGICJAR_MODE != "REAL"` | (MOCK fallback — BLOCKED 아님) | MOCK 안전 default |
+| 게이트 2 | `MAGICJAR_ALLOW_REAL != "true"` | `DENIED("MAGICJAR_ALLOW_REAL=false")` | env 변수 미설정 |
+| 게이트 3 | `user_account.real_trading_consent_at IS NULL` | `DENIED("CONSENT_NOT_GIVEN")` | 사용자 동의 토글 OFF |
+
+**시나리오 16 환경**: `MAGICJAR_MODE=REAL` + (`MAGICJAR_ALLOW_REAL=false` 또는 사용자 동의 토글 OFF)
+
+**KIS-first raw 출처 (헌법 §3 — 시나리오 16 선언)**:
+- 시나리오 16은 KIS REST/WS **직접 호출 0건** (ADR 0068 A-1 — 3중 게이트 진입 전 차단)
+- KIS prod endpoint(`openapi.koreainvestment.com:9443`) 호출 0건 — 자본 보호 LOCK
+- raw 출처 인용: 시나리오 15 R12·R14 (주문 pipeline baseline) — 16은 게이트 차단으로 미진입
+
+```mermaid
+sequenceDiagram
+    participant IntentKafka as Kafka<br/>(order.intent.v1)
+    participant Listener as OrderRouterKafkaListener<br/>(consumer)
+    participant IdemGuard as OrderIdempotencyGuard<br/>(Redis SETNX 60s)
+    participant ModeGate as TradingModeGateImpl<br/>(3중 게이트 — A-1)
+    participant OrderRepo as OrderRequestRepository<br/>(Flyway V20)
+    participant AuditRepo as OrderAuditEventRepository<br/>(Flyway V22)
+    participant RejectKafka as Kafka<br/>(order.rejected.v1)
+    participant StompNotifier as StompOrderNotifier<br/>(api)
+    participant FE as Frontend (useStompOrder)
+
+    IntentKafka->>Listener: order.intent.v1 (userId, code, side="BUY", ...)
+
+    Listener->>IdemGuard: acquire(idempotencyKey) → true (첫 처리)
+
+    Listener->>ModeGate: resolveMode(userId)
+    note over ModeGate: 3중 게이트 순서 평가 (ADR 0068 §14-3 TradingModeGateImpl LOCK)<br/>① MAGICJAR_MODE: "REAL" → 게이트 1 통과<br/>② MAGICJAR_ALLOW_REAL: "false" → 게이트 2 실패!<br/>   DenyReason.MAGICJAR_ALLOW_REAL_FALSE
+
+    ModeGate-->>Listener: Left(DenyReason("MAGICJAR_ALLOW_REAL=false"))
+
+    Listener->>OrderRepo: save(OrderIntent(status=REJECTED,<br/>rejectReason="MAGICJAR_ALLOW_REAL=false", mode=REAL))
+    note over OrderRepo: REJECTED INSERT — signal cross-ref 보존<br/>감사 trail 완전성 유지 (ADR 0068 F-1)
+
+    Listener->>AuditRepo: save(OrderAuditEvent(<br/>type=REAL_GATE_DENIED,<br/>payload={"condition":"MAGICJAR_ALLOW_REAL=false"}))
+
+    Listener->>RejectKafka: publish order.rejected.v1<br/>{ orderId, userId, code, rejectReason="MAGICJAR_ALLOW_REAL=false" }
+
+    note over Listener: ★ KIS prod endpoint(openapi.koreainvestment.com:9443) 호출 0건<br/>KisOrderHttpAdapter.submit() 미진입 — 자본 보호 LOCK
+
+    RejectKafka->>StompNotifier: @KafkaListener("order.rejected.v1")
+    StompNotifier->>FE: STOMP /topic/order.user.{userId}<br/>{ event="REJECTED", reason="MAGICJAR_ALLOW_REAL=false",<br/>code="005930", side="BUY" }
+
+    FE->>FE: useStompOrder() handler<br/>→ 토스트: "주문 거절 — 005930: MAGICJAR_ALLOW_REAL=false" (빨강)
+    FE->>FE: queryClient.invalidateQueries(['orders'])
+```
+
+**3중 게이트 분기 케이스 상세 (ADR 0068 §14-3 정합)**:
+
+| 케이스 | 조건 | 결과 |
+|---|---|---|
+| (a) MOCK 안전 | `MAGICJAR_MODE=MOCK` | TradingMode.MOCK → KIS VPS 진입 (시나리오 15) |
+| (b) REAL 정상 | `MAGICJAR_MODE=REAL` + `ALLOW_REAL=true` + `consentAt != null` | TradingMode.REAL → KIS prod 진입 |
+| (c) 게이트 2 실패 | `MAGICJAR_MODE=REAL` + `ALLOW_REAL=false` | DenyReason("MAGICJAR_ALLOW_REAL=false") → **시나리오 16** |
+| (d) 게이트 3 실패 | `MAGICJAR_MODE=REAL` + `ALLOW_REAL=true` + `consentAt=null` | DenyReason("CONSENT_NOT_GIVEN") → **시나리오 16** |
+
+**도메인 모델 (ADR 0068 §5-3 정합)**:
+```kotlin
+// domain/.../order/execution/DenyReason.kt
+// raw 출처: ADR 0068 §14-3 TradingModeGateImpl — KIS-first self (주문 로직 자체 추론 0)
+sealed class OrderResult<out T> {
+    data class Success<T>(val value: T) : OrderResult<T>()
+    data class Denied(val reason: String) : OrderResult<Nothing>()
+    data class KisError(val httpStatus: Int, val rtCd: String, val msg1: String) : OrderResult<Nothing>()
+}
+```
+
+**dogfooding 검증 evidence (ADR 0068 §16-5 케이스 2 LOCK)**:
+- DB: `order_request` 1 row (status=REJECTED, reject_reason="MAGICJAR_ALLOW_REAL=false")
+- DB: `order_audit_event` 1 row (event_type=REAL_GATE_DENIED, payload.condition="MAGICJAR_ALLOW_REAL=false")
+- **KIS prod endpoint 호출 0건** — application 로그 grep 검증:
+  ```
+  grep "openapi.koreainvestment.com:9443" application.log → 0 lines
+  ```
+- STOMP: REJECTED 빨강 토스트 수신 확인 (화면 캡처 의무)
+- 추가: `ALLOW_REAL=true` + `consent=null` → reject_reason="CONSENT_NOT_GIVEN" 재검증
+
+**AI 호출 0 검증 (ADR 0023 §2-4 + ADR 0068 §8)**:
+- `TradingModeGateImpl` — deterministic 3중 조건 평가, LLM provider import 0건
+- inline 주석 의무: `// AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8)`
+
+---
+
+## 시나리오 17: T-O 분할 체결 — 1주문 → N체결 (v3.6.0 신규 — ADR 0068 §16 케이스 3)
+
+**목적**: 모의 주문 10주 → KIS VPS H0STCNI9 3회 수신 (5주 + 3주 + 2주) → `order_execution` 3 row INSERT → 누적 qty 검사 (5+3+2=10) → `order_request.status=FILLED` + STOMP FILLED 단일 토스트 (spam 방지)
+
+**관련 PR/ADR**: ADR 0068 (D-1·F-1·H-1 채택) · ADR 0068 §2-4 (분할 체결 1:N cover — raw D-1 CNTG_QTY·CNTG_UNPR 인용) · ADR 0068 §9-1 (order_execution 27K row/year 예상)
+
+**KIS-first raw 출처 (헌법 §3 — 시나리오 17 LOCK)**:
+- H0STCNI9 체결통보 26 컬럼 — raw: `domestic_stock_functions_ws.py` `ccnl_notice()` L389~L446 (R14)
+- `CNTG_QTY` = 인덱스 [9] — 체결수량 (분할 체결 누적 분)
+- `CNTG_UNPR` = 인덱스 [10] — 체결단가
+- `CNTG_YN` = 인덱스 [13] — "2"만 체결 처리 (raw L443 정합)
+- raw 출처 확인: `ccnl_notice()` 함수 정의 부분 — `data = adr.split('^')` → `cols[9]=CNTG_QTY`, `cols[10]=CNTG_UNPR`
+
+```mermaid
+sequenceDiagram
+    participant KIS_VPS as KIS VPS<br/>(H0STCNI9 MOCK 체결통보)
+    participant WsBridge as KisWebSocketBridge
+    participant WsListener as KisExecutionWsListener<br/>(consumer)
+    participant ExecRepo as OrderExecutionRepository<br/>(Flyway V21)
+    participant OrderRepo as OrderRequestRepository<br/>(Flyway V20)
+    participant AuditRepo as OrderAuditEventRepository<br/>(Flyway V22)
+    participant PosUpdate as PositionUpdatePort<br/>(ADR 0042·0067 정합)
+    participant FilledKafka as Kafka<br/>(order.filled.v1 / order.requested.v1)
+    participant StompNotifier as StompOrderNotifier<br/>(api)
+    participant FE as Frontend (useStompOrder)
+
+    Note over KIS_VPS,WsListener: 모의 주문 10주 — KIS VPS 분할 체결 3회 (raw: R14 ccnl_notice CNTG_QTY [9])
+
+    Note over FilledKafka,FE: 1차 체결: 5주 (PARTIALLY_FILLED)
+    KIS_VPS->>WsBridge: "0|H0STCNI9|001|{ODER_NO=77, CNTG_QTY=5, CNTG_UNPR=70000, CNTG_YN=2, RFUS_YN=N, ...}"
+    WsBridge->>WsListener: onExecutionNotice(cols[])
+
+    WsListener->>WsListener: CNTG_YN=[13]="2" (체결) + RFUS_YN=[12]="N"
+    WsListener->>OrderRepo: findByKisOrderNo(ODER_NO=[2]="77")
+    OrderRepo-->>WsListener: OrderIntent { id=77, quantity=10, status=ACK }
+
+    WsListener->>ExecRepo: save(OrderExecution { orderId=77,<br/>executedQuantity=5, executedPrice=70000, ... })
+    ExecRepo-->>WsListener: OrderExecution { id=1 }
+
+    WsListener->>ExecRepo: sumExecutedQuantity(orderId=77)
+    ExecRepo-->>WsListener: 5 (< 10 → PARTIALLY_FILLED)
+
+    WsListener->>OrderRepo: updateStatus(id=77, status=PARTIALLY_FILLED)
+    WsListener->>AuditRepo: save(OrderAuditEvent(type=PARTIAL_FILL, executedQty=5))
+    WsListener->>FilledKafka: publish order.filled.v1 { partial=true, executedQty=5, totalQty=10 }
+
+    FilledKafka->>StompNotifier: order.filled.v1 (partial=true)
+    StompNotifier->>FE: STOMP { event="FILLED", partial=true, executedQty=5, quantity=10 }
+    FE->>FE: 토스트: "부분 체결 — 005930 5/10주 @ 70000원" (노랑)
+
+    Note over FilledKafka,FE: 2차 체결: 3주 (PARTIALLY_FILLED — 누적 8주)
+    KIS_VPS->>WsBridge: "0|H0STCNI9|001|{ODER_NO=77, CNTG_QTY=3, CNTG_UNPR=70100, CNTG_YN=2, ...}"
+    WsBridge->>WsListener: onExecutionNotice(cols[])
+
+    WsListener->>ExecRepo: save(OrderExecution { executedQuantity=3, executedPrice=70100 })
+    WsListener->>ExecRepo: sumExecutedQuantity(orderId=77)
+    ExecRepo-->>WsListener: 8 (< 10 → PARTIALLY_FILLED 유지)
+
+    WsListener->>FilledKafka: publish order.filled.v1 { partial=true, executedQty=3 }
+    StompNotifier->>FE: STOMP { partial=true, executedQty=3 }
+    FE->>FE: 토스트: "부분 체결 — 005930 8/10주 @ 70100원" (노랑)
+    note over FE: spam 방지: 동일 orderId PARTIALLY_FILLED 2번째→ silent invalidate 처리<br/>(ADR 0068 §16-6 STOMP race 방지)
+
+    Note over FilledKafka,FE: 3차 체결: 2주 (FILLED — 누적 10주 == 주문 수량)
+    KIS_VPS->>WsBridge: "0|H0STCNI9|001|{ODER_NO=77, CNTG_QTY=2, CNTG_UNPR=70050, CNTG_YN=2, ...}"
+    WsBridge->>WsListener: onExecutionNotice(cols[])
+
+    WsListener->>ExecRepo: save(OrderExecution { executedQuantity=2, executedPrice=70050 })
+    WsListener->>ExecRepo: sumExecutedQuantity(orderId=77)
+    ExecRepo-->>WsListener: 10 (== 10 → FILLED!)
+
+    WsListener->>OrderRepo: updateStatus(id=77, status=FILLED, completedAt=now())
+    WsListener->>AuditRepo: save(OrderAuditEvent(type=FILLED))
+    WsListener->>PosUpdate: applyExecution(execution, intent)
+    note over PosUpdate: position 갱신 — 10주 holdings 증가 (ADR 0042·0067 정합)
+
+    WsListener->>FilledKafka: publish order.filled.v1 { partial=false, totalQty=10 }
+
+    FilledKafka->>StompNotifier: order.filled.v1 (partial=false)
+    StompNotifier->>FE: STOMP { event="FILLED", partial=false, quantity=10, executedPrice=70050 }
+    FE->>FE: 토스트: "체결 완료 — 005930 10주 @ 70050원" (녹색, 단일 FILLED 토스트)
+    FE->>FE: queryClient.invalidateQueries(['orders'])
+    FE->>FE: /orders/{id} 진입 → ExecutionTable 3 row 표시
+    note over FE: ExecutionTable footer: 5 + 3 + 2 = 10주 (누적 합계 정합)
+```
+
+**분할 체결 멱등성 매트릭스 (ADR 0068 F-1 + §7-3 정합)**:
+
+| 케이스 | 처리 |
+|---|---|
+| 동일 H0STCNI9 메시지 재수신 (WS reconnect) | OrderExecution INSERT 전 `kisOrderNo + executedAt` 중복 방지 (CONFLICT SKIP) |
+| sumExecutedQuantity 가 quantity를 초과 | 방어 로직 — log.warn "EXECUTION_OVERFLOW" + STOMP 알림 없음 (KisExecutionWsListenerTest case e) |
+| RFUS_YN="Y" (거부) 메시지 | `order_request.status=REJECTED` + STOMP REJECTED + OrderExecution INSERT 0 |
+| CNTG_YN="1" (접수 통보) | AuditEvent INSERT만 (KIS_ACK 중복 허용) — OrderExecution INSERT 0 |
+
+**분할 체결 UI 표현 (ADR 0068 §16-5 케이스 3 — ExecutionTable 정합)**:
+
+```
+/orders/77 상세 페이지 ExecutionTable:
+
+| # | 체결시각 | 체결수량 | 체결단가 |
+|---|----------|----------|----------|
+| 1 | 09:15:23 | 5주       | 70,000원 |
+| 2 | 09:15:45 | 3주       | 70,100원 |
+| 3 | 09:15:58 | 2주       | 70,050원 |
+|   | footer합계 | **10주** | (가중평균가) |
+```
+
+**dogfooding 검증 evidence (ADR 0068 §16-5 케이스 3 LOCK)**:
+- DB: `order_request` 1 row (status=FILLED, completed_at NOT NULL)
+- DB: `order_execution` 3 row (executed_qty 합=10, 각 체결단가 상이)
+- DB: `order_audit_event` — PARTIAL_FILL 2건 + FILLED 1건 + REQUESTED·KIS_ACK 포함 ≥5건
+- STOMP: 노랑 토스트 2건 + 녹색 FILLED 1건 (spam 방지 정합)
+- ExecutionTable footer sum = 10 (누적 합 정합)
+
+---
+
+## v3.6.0 KIS-first 의무 준수 체크리스트
+
+| 항목 | 상태 | 코드 경로 + raw 출처 |
+|---|---|---|
+| H0STCNT0 tr_id (44 cols) | LOCK | `KisWsMessageParser.kt:42` — `domestic_stock_functions_ws.py` ccnl_krx() (R5) |
+| H0STCNT0 STCK_CNTG_HOUR[1] boundary 검사 진입 | LOCK | `BoundaryAggregator.kt` — R5 cols[1] inline 주석 raw URL 의무 (ADR 0064 §1-4) |
+| H0STCNT0 PRDY_VRSS_SIGN[3]·PRDY_VRSS[4]·PRDY_CTRT[5] | LOCK | `KisWsMessageParser.kt:149~156` — R5 인덱스 정합 (PR #289) |
+| H0STASP0 tr_id (54 cols) | LOCK | `KisWsMessageParser.kt` — `domestic_stock_functions_ws.py` asking_price_krx() (R5) |
+| FHKST03010230 TR_ID + endpoint | LOCK | `KisRestCandleAdapter.kt:57~58` — raw URL R8 inline 주석 의무 |
+| FHKST03010230 fid_cond_mrkt_div_code="UN" | LOCK | `KisRestCandleAdapter.kt:80~83` — ADR 0063 채택 (J→UN) raw: R8 |
+| FHKST03010230 fid_input_hour_1="200000" | LOCK | `KisRestCandleAdapter.kt:152` — ADR 0063 채택 (153000→200000) |
+| FHKST03010230 종료조건 08:00 KST | LOCK | `KisRestCandleAdapter.kt:225` — ADR 0063 채택 (09:00→08:00) |
+| FHKST03010100 TR_ID + endpoint | LOCK | `KisRestCandleAdapter.kt:53~54` — raw URL R7 inline 주석 의무 |
+| FHKST03010100 fid_cond_mrkt_div_code="UN" | LOCK | `KisRestCandleAdapter.kt:82` — ADR 0063 채택 (J→UN) raw: R7 |
+| FHKST03010100 FID_PERIOD_DIV_CODE 옵션(D/W/M/Y) | LOCK | `KisRestCandleAdapter.kt:65` — raw R7 fid_period_div_code D·W·M·Y |
+| PINGPONG JSON 분기 | LOCK | `KisWsMessageParser.kt:90~94` — `kis_auth.py` rdic["header"]["tr_id"] (R4) |
+| WS URL 실전 | LOCK | `KisWebSocketBridge.kt` — `kis_auth.py` my_url_ws (R4) |
+| WS approval_key endpoint | LOCK | `/oauth2/Approval` — `kis_auth.py` auth_ws() (R4) |
+| 종목마스터 73필드 raw 검증 | LOCK | PR-21 검증보고서 + `kis_kospi_code_mst.py` (R1·R3) |
+| 80지표 indicators.py 1507 lines | LOCK | PR-33 구현 + KDoc inline raw URL 명시 (R9) |
+| 57패턴 candlestick.py 755 lines | LOCK | PR-38 검증보고서 + PR-39 구현 (R10) |
+| DSL parser.py 664 lines | LOCK | PR-35 검증보고서 + KisYamlDslParser.kt (R11) |
+| BoundaryDetector boundary 시각 매트릭스 | LOCK | `domain/.../candle/BoundaryDetector.kt` — ADR 0064 §4-2 + ADR 0063 NXT 08:00~20:00 정합 |
+| RedisCandleCache 5종 키 | LOCK | `consumer/.../cache/RedisCandleCache.kt` — ADR 0029 §2-1 A-1 정합 |
+| CandleClosedStompListener 5종 토픽 | LOCK | `api/.../messaging/CandleClosedStompListener.kt` — ADR 0029 §2-5 C-1 정합 |
+| **TTTC0012U·VTTC0012U (매수)** | **LOCK** | `KisOrderHttpAdapter.kt` KDoc — raw `domestic_stock_functions.py` L10097~L10213 (R12) |
+| **TTTC0011U·VTTC0011U (매도)** | **LOCK** | `KisOrderHttpAdapter.kt` KDoc — raw R12 동일 함수 |
+| **TTTC0013U·VTTC0013U (정정/취소)** | **LOCK** | `KisOrderHttpAdapter.kt` KDoc — raw R13 L10771~L10884 |
+| **H0STCNI0·H0STCNI9 26 컬럼** | **LOCK** | `KisExecutionWsListener.kt` KDoc — raw `domestic_stock_functions_ws.py` ccnl_notice() L389~L446 (R14) |
+| **H0STCNI9 CNTG_QTY[9]·CNTG_UNPR[10]·CNTG_YN[13]·RFUS_YN[12]** | **LOCK** | `KisExecutionWsListener.kt:idx 상수` — R14 인덱스 정합 |
+| T-SIG KIS API 호출 | **0건** | ADR 0066 §3-4 — Kafka listen만, 시나리오 11 자체 추론 0 |
+| T-BT KIS API 호출 | **0건** | ADR 0061 §2-4 — candle DB SELECT, 시나리오 12 자체 추론 0 |
+| T-RISK KIS API 호출 | **0건** | ADR 0067 §8 — 내부 pipeline 평가만, 시나리오 13·14 자체 추론 0 |
+| **T-O 3중 게이트 BLOCKED 시 KIS prod 호출** | **0건** | ADR 0068 A-1 — TradingModeGateImpl 차단, 시나리오 16 자체 추론 0 |
+| 자체 추론 | **0건** | 모든 endpoint·tr_id·필드·byte offset은 raw 출처 인용 의무 (헌법 §3) |
+
+---
+
+## 외부 API 통합 정책 요약 (v3.6.0)
+
+### KIS OpenAPI (유일한 데이터 출처 — ADR 0057)
+
+| 항목 | 값 | raw 출처 |
+|---|---|---|
+| 기본 URL (실전) | `https://openapi.koreainvestment.com:9443` | ADR 0003 |
+| 기본 URL (모의) | `https://openapivts.koreainvestment.com:29443` | ADR 0068 §9-6 |
+| OAuth 토큰 | `/oauth2/tokenP` — 24h 유효 (ADR 0038) | `kis_auth.py` (R4) |
+| WS approval_key | `/oauth2/Approval` | `kis_auth.py` (R4) |
+| WS URL (실전) | `wss://ops.koreainvestment.com:21000` | `kis_auth.py` my_url_ws (R4) |
+| WS URL (모의) | `wss://ops.koreainvestment.com:31000` | `kis_auth.py` my_url_ws (R4) |
+| WS 한도 | 41 stream / account (ADR 0048) | ADR 0048 §1 |
+| Rate Limit | 초당 20건 (50ms sleep 마진, ADR 0037) | `docs/architecture/external-api-policy.md` |
+| credential | prod(실전) 단일 채널 — 정보 수집 전 API | ADR 0057 + 사용자 메모리 |
+| NXT cover | `fid_cond_mrkt_div_code="UN"` + 08:00~20:00 KST | ADR 0063 채택 |
+| KIS 500 retry | 3회 exponential backoff (500ms→1s→2s) | PR #315 §33 market-data hotfix |
+| **주문 매수 (REAL/MOCK)** | `TTTC0012U`/`VTTC0012U` — `order-cash` | R12 L10097~L10213 |
+| **주문 매도 (REAL/MOCK)** | `TTTC0011U`/`VTTC0011U` — `order-cash` | R12 동일 |
+| **정정/취소 (REAL/MOCK)** | `TTTC0013U`/`VTTC0013U` — `order-rvsecncl` | R13 L10771~L10884 |
+| **체결통보 WS (REAL/MOCK)** | `H0STCNI0`/`H0STCNI9` — 26 컬럼 | R14 L389~L446 |
+| **실계좌 3중 게이트** | `MAGICJAR_MODE=REAL` + `MAGICJAR_ALLOW_REAL=true` + `consent NOT NULL` | ADR 0068 A-1 |
+
+### Yahoo Finance
+
+**v3.2.2에서 전면 폐기 (ADR 0057 — 2026-05-11 사용자 결정 "yahoo꺼 쓰지 말라니깐")**
+- `YahooCandleFetcherAdapter.kt` — `@Deprecated` 마킹 (v3.2.2 이후 실 코드 호출 0)
+
+### DART Open API (공시)
+
+| 항목 | 값 |
+|---|---|
+| 목적 | 정기보고·주요사항보고·공시 목록 수집 |
+| Kafka 토픽 | `dart.disclosure.v1` (ADR 0007) |
+| W3 트랙 예정 | T-SIG·T-RISK·T-O 사이클 이후 |
+
+### Naver 금융 뉴스
+
+| 항목 | 값 |
+|---|---|
+| 방식 | RSS 기반 (robots.txt 준수) |
+| User-Agent | `magicjar-news-crawler/1.0` |
+| W3 트랙 예정 | T-AI 사이클 |
+
+---
+
+## v3.6.0 변경 이력 (v3.5.0 대비)
+
+| 항목 | v3.5.0 | v3.6.0 |
+|---|---|---|
+| order.intent.v1 수신 → KIS REST 주문 | 없음 | OrderRouterKafkaListener → TradingModeGate 3중 게이트 → KisOrderHttpAdapter (ADR 0068 A-1·B-1) |
+| 3중 게이트 | 없음 | MAGICJAR_MODE + MAGICJAR_ALLOW_REAL + consent 토글 3개 ALL 충족 시만 REAL 주문 (ADR 0068 A-1) |
+| order_request | 없음 | Flyway V20 신규 (signal_id·idempotency_key·kis_order_no·status 7단 — ADR 0068 F-1) |
+| order_execution | 없음 | Flyway V21 신규 (분할 체결 1:N — ADR 0068 F-1) |
+| order_audit_event | 없음 | Flyway V22 신규 (REQUESTED·KIS_ACK·KIS_REJECT·REAL_GATE_DENIED 등 감사 시계열 — ADR 0068 F-1) |
+| user_account.real_trading_consent_at | 없음 | Flyway V23 ALTER (사용자 동의 토글 — ADR 0068 A-1) |
+| OrderIdempotencyGuard | 없음 | Redis SETNX 60s + DB UQ(idempotency_key) 이중 (ADR 0068 H-1) |
+| KIS WS 체결통보 | 없음 | H0STCNI0(REAL) / H0STCNI9(MOCK) 26 컬럼 listen (ADR 0068 D-1 — R14) |
+| STOMP 주문 토픽 | 없음 | /topic/order.user.{userId} 단일 토픽 + 4 event (REQUESTED·FILLED·REJECTED·CANCELLED — ADR 0068 G-1) |
+| Kafka 주문 토픽 | 없음 | order.requested·filled·rejected·cancelled.v1 4 토픽 신규 30d retention (ADR 0068 §9-2) |
+| REST endpoint | 22건 (v3.5.0) | +4건 (orders 3 + consent 1 — ADR 0068 §4-1) |
+| KIS-first raw 인용 신규 | R1~R11 (v3.5.0) | + R12·R13·R14 — TTTC·VTTC 6 tr_id + H0STCNI0/H0STCNI9 26 컬럼 LOCK |
+| 시나리오 수 | 14건 | **17건** (시나리오 15·16·17 신규 추가 — T-O 주문 흐름) |
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>
