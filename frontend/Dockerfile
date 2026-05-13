@@ -41,5 +41,7 @@ EXPOSE 80
 
 # nginx 헬스체크 — alpine nginx에 wget 미설치라 nginx 프로세스 + 로컬 응답을 wget-busybox로 검증
 # busybox wget(alpine 기본)이 200 응답을 받으면 통과.
-HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=5 \
-    CMD wget --spider -q http://127.0.0.1/ 2>/dev/null || exit 1
+# /healthz 전용 endpoint — nginx.conf에서 access_log off 설정 (access log 노이즈 제거).
+# interval 10s → 30s 완화 (사용자 의제 정합).
+HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=5 \
+    CMD wget --spider -q http://127.0.0.1/healthz 2>/dev/null || exit 1
