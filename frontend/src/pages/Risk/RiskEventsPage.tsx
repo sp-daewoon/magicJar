@@ -5,8 +5,11 @@
  * - 날짜 범위 필터 + verdict 필터
  * - RiskEventList (무한 스크롤 테이블)
  * - 빈 상태 안내: "리스크 위반 이력 없음"
+ * - userId 없으면 셋업 안내 (StrategyListPage 패턴 정합)
  */
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import { useOnboardingStore } from '../../stores/onboarding'
 import type { RiskVerdict } from '../../api/risk'
 import { RiskEventList } from '../../components/risk/RiskEventList'
 
@@ -18,7 +21,23 @@ const VERDICT_OPTIONS: { value: RiskVerdict | ''; label: string }[] = [
 ]
 
 export function RiskEventsPage() {
+  const userId = useOnboardingStore((s) => s.registeredUserId)
   const [verdictFilter, setVerdictFilter] = useState<RiskVerdict | ''>('')
+
+  if (!userId) {
+    return (
+      <div className="mx-auto flex max-w-2xl flex-col items-center gap-6 px-4 py-24 text-center">
+        <h1 className="text-2xl font-bold text-white">리스크 위반 이력</h1>
+        <p className="text-sm text-gray-400">KIS 계좌 등록을 완료하면 리스크 위반 이력을 확인할 수 있습니다.</p>
+        <Link
+          to="/setup"
+          className="rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 focus:ring-offset-gray-950"
+        >
+          계좌 등록하러 가기
+        </Link>
+      </div>
+    )
+  }
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
@@ -52,7 +71,7 @@ export function RiskEventsPage() {
       </div>
 
       {/* 이벤트 목록 */}
-      <RiskEventList verdictFilter={verdictFilter || undefined} />
+      <RiskEventList userId={userId} verdictFilter={verdictFilter || undefined} />
     </div>
   )
 }

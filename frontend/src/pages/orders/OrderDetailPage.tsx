@@ -10,6 +10,7 @@
  * 빈 데이터 graceful (feedback_no_mock_data 정합)
  */
 import { useParams, useNavigate } from 'react-router-dom'
+import { useOnboardingStore } from '../../stores/onboarding'
 import { useOrder } from '../../api/hooks/useOrder'
 import { OrderStatusBadge } from '../../components/order/OrderStatusBadge'
 import { ExecutionTable } from '../../components/order/ExecutionTable'
@@ -37,9 +38,10 @@ function formatPrice(price: number | null | undefined): string {
 export function OrderDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const userId = useOnboardingStore((s) => s.registeredUserId)
   const orderId = id ? parseInt(id, 10) : null
 
-  const { data: order, isLoading, isError, error } = useOrder(orderId)
+  const { data: order, isLoading, isError, error } = useOrder(orderId, userId)
 
   // 로딩
   if (isLoading) {
@@ -112,6 +114,7 @@ export function OrderDetailPage() {
             <OrderStatusBadge status={order.status} />
             <CancelOrderButton
               orderId={order.id}
+              userId={userId!}
               status={order.status}
               code={order.code}
               side={order.side}

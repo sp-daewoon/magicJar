@@ -94,6 +94,7 @@ export interface RiskEventPage {
 }
 
 export interface RiskEventListParams {
+  userId?: string
   from?: string
   to?: string
   page?: number
@@ -107,38 +108,46 @@ export interface RiskEventListParams {
 
 export const riskApi = {
   /**
-   * GET /api/risk-config
+   * GET /api/risk-config?userId=
    * 현재 리스크 설정 조회 (default seed 포함)
    */
-  getConfig: async (): Promise<RiskConfigDto> => {
-    const res = await apiClient.get<RiskConfigDto>('/risk-config')
+  getConfig: async (userId: string): Promise<RiskConfigDto> => {
+    const res = await apiClient.get<RiskConfigDto>(
+      `/risk-config?userId=${encodeURIComponent(userId)}`,
+    )
     return res.data
   },
 
   /**
-   * PUT /api/risk-config
+   * PUT /api/risk-config?userId=
    * 리스크 설정 갱신
    */
-  updateConfig: async (req: RiskConfigUpdateRequest): Promise<RiskConfigDto> => {
-    const res = await apiClient.put<RiskConfigDto>('/risk-config', req)
+  updateConfig: async (userId: string, req: RiskConfigUpdateRequest): Promise<RiskConfigDto> => {
+    const res = await apiClient.put<RiskConfigDto>(
+      `/risk-config?userId=${encodeURIComponent(userId)}`,
+      req,
+    )
     return res.data
   },
 
   /**
-   * POST /api/risk-config/reset
+   * POST /api/risk-config/reset?userId=
    * default seed로 초기화
    */
-  resetConfig: async (): Promise<RiskConfigDto> => {
-    const res = await apiClient.post<RiskConfigDto>('/risk-config/reset')
+  resetConfig: async (userId: string): Promise<RiskConfigDto> => {
+    const res = await apiClient.post<RiskConfigDto>(
+      `/risk-config/reset?userId=${encodeURIComponent(userId)}`,
+    )
     return res.data
   },
 
   /**
-   * GET /api/risk-events
+   * GET /api/risk-events?userId=
    * 리스크 이벤트 시계열 (페이징)
    */
   listEvents: async (params: RiskEventListParams = {}): Promise<RiskEventPage> => {
     const searchParams = new URLSearchParams()
+    if (params.userId) searchParams.set('userId', params.userId)
     if (params.from) searchParams.set('from', params.from)
     if (params.to) searchParams.set('to', params.to)
     if (params.page !== undefined) searchParams.set('page', String(params.page))
@@ -151,11 +160,13 @@ export const riskApi = {
   },
 
   /**
-   * GET /api/risk-events/{id}
+   * GET /api/risk-events/{id}?userId=
    * 리스크 이벤트 단건
    */
-  getEvent: async (id: string): Promise<RiskEventDto> => {
-    const res = await apiClient.get<RiskEventDto>(`/risk-events/${id}`)
+  getEvent: async (id: string, userId: string): Promise<RiskEventDto> => {
+    const res = await apiClient.get<RiskEventDto>(
+      `/risk-events/${id}?userId=${encodeURIComponent(userId)}`,
+    )
     return res.data
   },
 }

@@ -28,15 +28,17 @@ const SIG_STRATEGY_KEY = (id: string) => ['sig-strategies', id] as const
 
 /**
  * 전략 목록 (무한 스크롤)
+ * userId 없으면 쿼리 비활성 (feedback_no_mock_data 정합)
  */
-export function useSigStrategies(size = 20) {
+export function useSigStrategies(userId: string | null | undefined, size = 20) {
   return useInfiniteQuery<SigStrategyPage, Error>({
-    queryKey: SIG_STRATEGY_LIST_KEY,
+    queryKey: [...SIG_STRATEGY_LIST_KEY, userId],
     queryFn: ({ pageParam }) =>
-      sigStrategyApi.list(pageParam as number, size),
+      sigStrategyApi.list(userId!, pageParam as number, size),
     initialPageParam: 0 as number,
     getNextPageParam: (lastPage) =>
       lastPage.last ? undefined : lastPage.page + 1,
+    enabled: !!userId,
     staleTime: 30 * 1000,
   })
 }

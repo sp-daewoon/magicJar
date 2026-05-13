@@ -12,6 +12,7 @@
  *
  * SettingsModal에 통합하여 사용.
  */
+import { useOnboardingStore } from '../../stores/onboarding'
 import { useRealTradingConsent, useUpdateRealTradingConsent } from '../../api/hooks/useUpdateRealTradingConsent'
 import { useToast } from '../ui/ToastProvider'
 
@@ -28,8 +29,9 @@ function formatDate(iso: string): string {
 }
 
 export function RealTradingConsentToggle() {
-  const { data: consent, isLoading } = useRealTradingConsent()
-  const { mutate, isPending } = useUpdateRealTradingConsent()
+  const userId = useOnboardingStore((s) => s.registeredUserId)
+  const { data: consent, isLoading } = useRealTradingConsent(userId)
+  const { mutate, isPending } = useUpdateRealTradingConsent(userId)
   const { showToast } = useToast()
 
   const isOn = !!(consent?.realTradingConsentAt)

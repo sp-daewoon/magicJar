@@ -85,11 +85,13 @@ export const signalApi = {
   },
 
   /**
-   * GET /api/signals/{id}
+   * GET /api/signals/{id}?userId=
    * 시그널 단건 조회
    */
-  get: async (id: string): Promise<SignalDto> => {
-    const res = await apiClient.get<SignalDto>(`/signals/${id}`)
+  get: async (id: string, userId: string): Promise<SignalDto> => {
+    const res = await apiClient.get<SignalDto>(
+      `/signals/${id}?userId=${encodeURIComponent(userId)}`,
+    )
     return res.data
   },
 }

@@ -13,10 +13,11 @@ import { type StrategyFilterOption } from './StrategyFilterBar'
 import { StrategyCard } from './StrategyCard'
 
 interface StrategyListProps {
+  userId: string
   filter: StrategyFilterOption
 }
 
-export function StrategyList({ filter }: StrategyListProps) {
+export function StrategyList({ userId, filter }: StrategyListProps) {
   const {
     data,
     isLoading,
@@ -24,7 +25,7 @@ export function StrategyList({ filter }: StrategyListProps) {
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-  } = useSigStrategies(20)
+  } = useSigStrategies(userId, 20)
 
   // Intersection Observer — 뷰포트 끝 도달 시 다음 페이지 로드
   const sentinelRef = useRef<HTMLDivElement>(null)

@@ -13,19 +13,20 @@ import {
   type ConsentToggleResponseDto,
 } from '../account'
 
-export function useRealTradingConsent() {
+export function useRealTradingConsent(userId: string | null | undefined) {
   return useQuery<ConsentToggleResponseDto, Error>({
-    queryKey: ['realTradingConsent'],
-    queryFn: () => accountApi.getRealTradingConsent(),
+    queryKey: ['realTradingConsent', userId],
+    queryFn: () => accountApi.getRealTradingConsent(userId!),
+    enabled: !!userId,
     staleTime: 60_000,
   })
 }
 
-export function useUpdateRealTradingConsent() {
+export function useUpdateRealTradingConsent(userId: string | null | undefined) {
   const queryClient = useQueryClient()
 
   return useMutation<ConsentToggleResponseDto, Error, ConsentToggleRequestDto>({
-    mutationFn: (req) => accountApi.updateRealTradingConsent(req),
+    mutationFn: (req) => accountApi.updateRealTradingConsent(userId!, req),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['realTradingConsent'] })
     },

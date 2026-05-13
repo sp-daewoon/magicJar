@@ -36,21 +36,24 @@ export const accountApi = {
    * consented=false → real_trading_consent_at = NULL
    */
   updateRealTradingConsent: async (
+    userId: string,
     req: ConsentToggleRequestDto,
   ): Promise<ConsentToggleResponseDto> => {
     const res = await apiClient.put<ConsentToggleResponseDto>(
-      '/user-account/real-trading-consent',
+      `/user-account/real-trading-consent?userId=${encodeURIComponent(userId)}`,
       req,
     )
     return res.data
   },
 
   /**
-   * GET /api/user-account/real-trading-consent
+   * GET /api/user-account/real-trading-consent?userId=
    * 현재 동의 상태 조회
    */
-  getRealTradingConsent: async (): Promise<ConsentToggleResponseDto> => {
-    const res = await apiClient.get<ConsentToggleResponseDto>('/user-account/real-trading-consent')
+  getRealTradingConsent: async (userId: string): Promise<ConsentToggleResponseDto> => {
+    const res = await apiClient.get<ConsentToggleResponseDto>(
+      `/user-account/real-trading-consent?userId=${encodeURIComponent(userId)}`,
+    )
     return res.data
   },
 }
