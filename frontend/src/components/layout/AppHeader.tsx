@@ -8,6 +8,8 @@
  * - T-SIG Phase 3 (ADR 0066): "전략 목록" 메뉴 추가
  * - T-RISK Phase 3 (ADR 0067): "리스크 설정"·"위반 이력"·"포지션" 메뉴 추가
  * - T-O Phase 3 (ADR 0068): "주문" 메뉴 추가
+ * - T-J Phase 3 (ADR 0072): "매매일지" 메뉴 추가
+ * - T-PERF Phase 3 (ADR 0072): "성과" 메뉴 추가
  * - ADR 0069 §6: ⚙️ SettingsModal 진입점 추가
  */
 import { useState } from 'react'
@@ -157,6 +159,34 @@ export function AppHeader() {
             }
           >
             주문
+          </NavLink>
+          {/* T-J Phase 3: 매매일지 메뉴 — ADR 0072 */}
+          <NavLink
+            to="/journal"
+            className={({ isActive }) =>
+              [
+                'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-950',
+                isActive
+                  ? 'bg-gray-800 text-white'
+                  : 'text-gray-400 hover:bg-gray-800/60 hover:text-gray-200',
+              ].join(' ')
+            }
+          >
+            매매일지
+          </NavLink>
+          {/* T-PERF Phase 3: 성과 대시보드 메뉴 — ADR 0072 */}
+          <NavLink
+            to="/performance"
+            className={({ isActive }) =>
+              [
+                'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-950',
+                isActive
+                  ? 'bg-gray-800 text-white'
+                  : 'text-gray-400 hover:bg-gray-800/60 hover:text-gray-200',
+              ].join(' ')
+            }
+          >
+            성과
           </NavLink>
 
           {/* SettingsModal 진입점 — ADR 0069 §6 */}

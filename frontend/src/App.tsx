@@ -7,7 +7,7 @@
  * - hasUserAccount=true + path === '/setup' → Navigate to="/" (이미 완료된 사용자 차단)
  * - isLoading → 스플래시 표시
  *
- * 라우트 (PR-5b 구조 유지 + PR-6 확장 + PR-7 추가 + PR-10 추가 + PR-RISK Phase 3 + T-O Phase 3):
+ * 라우트 (PR-5b 구조 유지 + PR-6 확장 + PR-7 추가 + PR-10 추가 + PR-RISK Phase 3 + T-O Phase 3 + T-J·T-PERF Phase 3):
  *   /                 -> 대시보드 placeholder
  *   /watchlist        -> 관심종목 (T-W1 1순위 진입점 — ADR 0040)
  *   /symbol/:code     -> 종목 상세 (T-S1 — ADR 0040 §2-2 진입점)
@@ -18,6 +18,8 @@
  *   /positions        -> 보유 포지션 (T-RISK Phase 3 — ADR 0067)
  *   /orders           -> 주문 내역 (T-O Phase 3 — ADR 0068)
  *   /orders/:id       -> 주문 상세 (T-O Phase 3 — ADR 0068)
+ *   /journal          -> 매매일지 시계열 (T-J Phase 3 — ADR 0072)
+ *   /performance      -> 성과 대시보드 (T-PERF Phase 3 — ADR 0072)
  *   /setup            -> 셋업 마법사 7단계 (T-ONBOARD)
  *   *                 -> / 리다이렉트
  *
@@ -41,6 +43,8 @@ import { RiskEventsPage } from './pages/Risk/RiskEventsPage'
 import { PositionsPage } from './pages/Risk/PositionsPage'
 import { OrdersPage } from './pages/orders/OrdersPage'
 import { OrderDetailPage } from './pages/orders/OrderDetailPage'
+import { TradingJournalPage } from './pages/TradingJournalPage'
+import { PerformanceDashboardPage } from './pages/PerformanceDashboardPage'
 
 /** 온보딩 라우팅 가드 — status 기반 자동 분기 */
 function OnboardingGuard({ children }: { children: ReactNode }) {
@@ -118,6 +122,10 @@ export function App() {
           {/* T-O Phase 3: 주문 내역·상세 — ADR 0068 */}
           <Route path="/orders" element={<OrdersPage />} />
           <Route path="/orders/:id" element={<OrderDetailPage />} />
+          {/* T-J Phase 3: 매매일지 — ADR 0072 */}
+          <Route path="/journal" element={<TradingJournalPage />} />
+          {/* T-PERF Phase 3: 성과 대시보드 — ADR 0072 */}
+          <Route path="/performance" element={<PerformanceDashboardPage />} />
           <Route path="/setup" element={<SetupWizard />} />
           {/* 미정의 경로는 / 로 리다이렉트 */}
           <Route path="*" element={<Navigate to="/" replace />} />
