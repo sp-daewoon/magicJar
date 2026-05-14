@@ -476,6 +476,53 @@ class KisWebSocketBridge(
     }
 
     /**
+     * KIS 키 변경 시 graceful reconnect (ADR 0074 §2-2-3 + ADR 0048 §3 정합).
+     *
+     * 흐름:
+     * 1. 기존 WS 연결 종료 (dispose + shuttingDown 플래그는 false 유지 — shutdown 아님)
+     * 2. 500ms 대기 (connection close propagation 보장)
+     * 3. 신규 연결 시작 (doConnect — approval_key 재발급 + 활성 구독 종목 재구독)
+     *
+     * userId 파라미터: 로깅 식별용. 현재 단일 사용자 환경(헌법 §1)에서 실제 분기 없음.
+     * approval_key 재발급: KisApprovalAdapter 내부 Redis cache가 Phase 1에서 DEL 완료 상태이므로
+     *   doConnect → getApprovalKey 호출 시 자동으로 재발급됨 (idempotent 안전).
+     *
+     * AI 호출 0 — T-O 트랙 룰 5 정합.
+     */
+    fun reconnectGracefully(userId: String) {
+        if (session.shuttingDown) {
+            log.warn("[KisKeyChanged] WS shutdown 중 — reconnect 취소: userId={}", maskUserId(userId))
+            return
+        }
+        log.info("[KisKeyChanged] WS graceful reconnect 시작 — userId={}", maskUserId(userId))
+
+        // 1. 기존 연결 종료 (shuttingDown은 false 유지)
+        stopHeartbeatWatchdog()
+        wsDisposable?.dispose()
+        sendSink?.tryEmitComplete()
+        session.onDisconnected()
+
+        // 2. 500ms 대기 — connection close propagation
+        try {
+            Thread.sleep(500L)
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+
+        // 3. 신규 연결 (기존 subscribedCodes 유지 → doConnect에서 재구독)
+        session.reconnectCount.set(0)
+        doConnect()
+
+        log.info(
+            "[KisKeyChanged] WS reconnect 완료 — userId={} subscribedCodes={}",
+            maskUserId(userId),
+            session.subscribedCodes.size,
+        )
+    }
+
+    private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"
+
+    /**
      * Graceful shutdown (ADR 0045 — SIGTERM 시 ≤ 5s).
      */
     @PreDestroy
