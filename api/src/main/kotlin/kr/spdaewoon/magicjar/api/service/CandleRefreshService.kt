@@ -12,7 +12,6 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.WebClientResponseException
 import org.springframework.web.server.ResponseStatusException
@@ -444,8 +443,9 @@ class CandleRefreshService(
     /**
      * KisDailyRow 목록을 ON CONFLICT DO NOTHING upsert.
      * CandleJpaRepository.insertIgnore 재사용 (ADR 0051 compliance).
+     * 트랜잭션은 Repository.insertIgnore(@Transactional) 레벨에서 보장.
+     * (hotfix: private fun @Transactional은 Spring AOP 프록시를 우회하므로 무효 → 제거)
      */
-    @Transactional
     private fun upsertCandles(
         rows: List<KisDailyRow>,
         intervalCode: String,
@@ -471,8 +471,9 @@ class CandleRefreshService(
     /**
      * 1m raw rows (Map<String, Any>) → DB upsert.
      * stck_bsop_date + stck_cntg_hour → ts epoch second.
+     * 트랜잭션은 Repository.insertIgnore(@Transactional) 레벨에서 보장.
+     * (hotfix: private fun @Transactional은 Spring AOP 프록시를 우회하므로 무효 → 제거)
      */
-    @Transactional
     private fun upsertOneMinRows(
         rows: List<Map<String, Any>>,
         code: String,
