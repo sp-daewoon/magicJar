@@ -3,10 +3,10 @@ id: T-20260514-2124-settings-kis-change-v2
 agent: architect
 model: opus
 branch: agent/architect/settings-kis-change-v2
-status: RUNNING
+status: DONE
 startedAt: 2026-05-14T21:24:03.615+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-14T21:35:44.571+09:00
+pr: #416
 parentPhase: ?
 ---
 
