@@ -15,6 +15,7 @@ import kr.spdaewoon.magicjar.api.persistence.AuditTrailJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.SystemConfigJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.UserAccountJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.UserAccountJpaRepository
+import org.springframework.data.domain.PageRequest
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialId
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaRepository
@@ -60,15 +61,26 @@ class OnboardingService(
 
     /**
      * 온보딩 상태 조회 (spec §4-1-1).
+     * 단일 사용자 시스템: hasUserAccount=true 시 첫 등록 row userId 포함.
+     * frontend store auto-sync — 새 탭/브라우저/localStorage 클리어 후에도 즉시 복원.
      */
     @Transactional(readOnly = true)
-    fun getStatus(): OnboardingStatus =
-        OnboardingStatus(
-            hasUserAccount = userAccountJpaRepository.existsAny(),
+    fun getStatus(): OnboardingStatus {
+        val hasUserAccount = userAccountJpaRepository.existsAny()
+        val userId =
+            if (hasUserAccount) {
+                userAccountJpaRepository.findFirstUserIds(PageRequest.of(0, 1)).firstOrNull()
+            } else {
+                null
+            }
+        return OnboardingStatus(
+            hasUserAccount = hasUserAccount,
             hasMockAccount = userKisCredentialJpaRepository.existsMockAccount(),
             hasDartKey = systemConfigJpaRepository.hasDartApiKey(),
             hasSlackWebhook = systemConfigJpaRepository.hasSlackWebhook(),
+            userId = userId,
         )
+    }
 
     /**
      * KIS 실전 키 검증 + 영속 (spec §4-1-2).

@@ -36,6 +36,9 @@ data class ErrorResponse(
 
 /**
  * 온보딩 상태 응답 (spec §4-1-1).
+ * userId: 단일 사용자 시스템 전용 — KIS 실전 계좌번호 8자리.
+ *   hasUserAccount=true 시 첫 등록 row의 userId, false 시 null.
+ *   frontend store auto-sync 용도. app_key/secret은 절대 포함 금지.
  */
 @Schema(description = "온보딩 셋업 상태")
 data class OnboardingStatus(
@@ -47,6 +50,12 @@ data class OnboardingStatus(
     val hasDartKey: Boolean,
     @Schema(description = "Slack webhook 등록 여부", example = "false")
     val hasSlackWebhook: Boolean,
+    @Schema(
+        description = "KIS 실전 계좌번호 (userId) — 단일 사용자 시스템. hasUserAccount=false 시 null",
+        example = "74683223",
+        nullable = true,
+    )
+    val userId: String? = null,
 )
 
 // ─── POST /api/onboarding/kis/validate ───────────────────────────────────────
