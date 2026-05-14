@@ -1951,3 +1951,70 @@ ADR 0044 §2-2 7 트리거 중 system.startup.v1·system.shutdown.v1·notificati
 - ADR 0044 §2-2 (트리거 7 중 3 선택 publish)
 - ADR 0045 (Graceful Shutdown)
 - ADR 0070 §2-4 (본 사이클 선택 publish 정합)
+
+---
+
+## §52. T-NEWS 뉴스·공시 실시간 인입 트랙 (ADR 0073 feasibility 분석 발행 — 사용자 결정 대기)
+
+### 사유
+
+2026-05-14 사용자 의제 응답 "뉴스 스크래핑, 공시 정보 실시간 속보 등 주요 뉴스는 시작해?". architect 자체 발행 ADR 0073 — analysis only. 옵션 A·B·C·D 매트릭스 + 사용자 결정 의제 8건 위임. architect 권장 옵션 A (T-NEWS 별도 트랙 신설 — W3.5 또는 W4 prereq).
+
+### 트리거
+
+- 사용자 옵션 1~8 결정 (ADR 0073 §6)
+- 또는 W3 v3.6.4 T-J·T-PERF 마감 후 사용자 의제 재발화
+
+### 옵션 (ADR 0073 §3 매트릭스)
+
+| 옵션 | architect 권장 | 의미 |
+|---|---|---|
+| **A — T-NEWS 별도 트랙 신설** | ★★★ | DART 실시간 강화 + Naver 뉴스 어댑터 + frontend panel. ADR 0074 신규 발행 + 4 PR (Phase 1 market-data + Phase 2 backend-core + Phase 3 frontend + Phase 4 RSS 옵션). 1~1.5주 |
+| B — T-AI 흡수 | ★★ | T-AI 진입 시 묶음 spec. 자본 보호 의제 지연 risk |
+| C — DART 폴링 강화만 | ★ | 단발 PR. Naver 뉴스 비범위 LOCK |
+| D — KIS-first 극단 확장 | 비권장 | 뉴스 영역 전체 비범위. 사용자 비전 (T-AI) 후퇴 |
+
+### 사용자 결정 의제 8건 (ADR 0073 §6)
+
+1. 트랙 신설 옵션 (A·B·C·D) — architect 권장 **A**
+2. DART 실시간 폴링 빈도 (1분·5분·30초) — architect 권장 **1분**
+3. Naver Open API 키 등록 시점 (Phase 2 진입 시 .env vs SettingsModal NaverApiSection 1차 PR) — architect 권장 **Phase 2 진입 시**
+4. KillSwitch auto-ON 트리거 (정정공시 + 보유 종목 매칭 시) (자동 vs Slack 알림만 vs 비활성) — architect 권장 **Slack 알림만**
+5. 뉴스 감성 분석 분리 vs T-AI 흡수 — architect 권장 **T-AI 흡수**
+6. 뉴스 panel UI 위치 (sidebar vs /news 페이지 vs Dashboard 위젯) — architect 권장 **sidebar**
+7. Kafka 신규 토픽 매트릭스 (2 토픽 분리 vs 단일 + discriminator) — architect 권장 **2 토픽 분리**
+8. 진입 시점 (W3 마감 직후 v3.7.0 vs W4 T-AI 직전 묶음 vs 자율) — architect 권장 **W3 마감 직후 v3.7.0**
+
+### 자체 추론 risk (채택 시 보강)
+
+- Naver Open API 한도 25K/일 — 자체 추론 (공식 raw fetch 미수행). 채택 시 ADR 0074 풀 spec 발행 단계 raw fetch 의무 LOCK
+- Naver Client ID/Secret 헤더명 (X-Naver-Client-Id / X-Naver-Client-Secret) — 자체 추론. 채택 시 raw fetch 의무
+
+### 채택 시 산출물 매트릭스 (옵션 A — architect 권장)
+
+- ADR 0074 신규 발행 (T-NEWS 풀 spec/plan — Phase 분리 LOCK + DDL + Kafka 토픽 + REST endpoint + UI + 검증 시나리오)
+- raw fetch 4건 (DART list.json + corpCode.xml + Naver search/news.json + RSS 옵션)
+- Phase 1 market-data + backend-core (DartDisclosureAdapter cron 1분 + Kafka disclosure.new.v1)
+- Phase 2 backend-core (NaverNewsAdapter + Flyway V31 news 테이블 + Kafka news.collected.v1)
+- Phase 3 frontend (NewsPanel + DisclosurePanel + STOMP 옵션)
+- Phase 4 backend-core (RSS 보조 — Naver API 한도 보완)
+
+### 비범위 (ADR 0073 §7)
+
+- 자동 매매 결정 0 LOCK (뉴스 = 룰 매매 트리거 사용 0)
+- 뉴스 본문 풀 텍스트 영속 0 (제목 + summary만)
+- 영어 뉴스 (Bloomberg·Reuters) post-MVP
+- 외국인·기관 수급 정밀 post-MVP
+- AI 감성 분석 본격 → T-AI 흡수 backlog §62 후속
+- 뉴스 알림 Slack/이메일 push → T-NOTIFY 합류 (ADR 0044 baseline)
+
+### 연관
+
+- ADR 0073 (본 ADR — analysis only · feasibility 분석)
+- ADR 0010 §5 (멀티테넌트 news·news_sentiment 테이블 명시)
+- ADR 0018 (Corp Action raw — DART 폴링 baseline)
+- ADR 0026 §38 (T-AI prompt 컨텍스트 뉴스 명시)
+- ADR 0057 (KIS-only — 시세 한정, 뉴스는 보조 OK)
+- ADR 0069 §F (SettingsModal NaverApiSection 후보)
+- master-architecture §A.4·§B-3·§C.13 (뉴스·공시 영역 baseline)
+- backlog §62 (T-AI 감성 분석 흡수 후속)
