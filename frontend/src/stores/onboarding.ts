@@ -3,8 +3,19 @@
  *
  * spec §5-9 정합 — 마법사 step 추적용 클라이언트 상태
  * TanStack Query는 server state, Zustand는 wizard step 추적용으로 분리
+ *
+ * Hotfix 2026-05-14: persist middleware 추가 (localStorage 영속화).
+ * 기존에 registeredUserId가 페이지 새로고침 시 즉시 null로 초기화되어 SetupWizard 완료
+ * 후에도 모든 페이지(/strategy/list, /risk-config, /orders, /journal 등)가 셋업 안내
+ * 모드로 진입하는 결함 발생. PR #386 userId 매트릭스 fix가 16+ 페이지에 userId null
+ * 가드를 추가하면서 결함이 표면화됨.
+ *
+ * 진짜 single source는 server 응답이지만 OnboardingStatus DTO에 userId 없음 →
+ * 그건 별도 마이그레이션(backlog §N — server-side single source)이고, 즉시 fix는
+ * localStorage 영속화로 대응.
  */
 import { create } from 'zustand'
+import { persist, createJSONStorage } from 'zustand/middleware'
 
 type WizardStep = 1 | 2 | 3 | 4 | 5 | 6 | 7
 
@@ -37,22 +48,35 @@ const initialState = {
   validationError: null,
 }
 
-export const useOnboardingStore = create<OnboardingState>((set) => ({
-  ...initialState,
+export const useOnboardingStore = create<OnboardingState>()(
+  persist(
+    (set) => ({
+      ...initialState,
 
-  setStep: (step) => set({ currentStep: step }),
+      setStep: (step) => set({ currentStep: step }),
 
-  setRegistered: (userId) =>
-    set({
-      registeredUserId: userId,
-      validationError: null,
+      setRegistered: (userId) =>
+        set({
+          registeredUserId: userId,
+          validationError: null,
+        }),
+
+      setMockRegistered: () => set({ hasMockRegistered: true }),
+
+      setSystemConfig: () => set({ hasSystemConfig: true }),
+
+      setValidationError: (message) => set({ validationError: message }),
+
+      reset: () => set(initialState),
     }),
-
-  setMockRegistered: () => set({ hasMockRegistered: true }),
-
-  setSystemConfig: () => set({ hasSystemConfig: true }),
-
-  setValidationError: (message) => set({ validationError: message }),
-
-  reset: () => set(initialState),
-}))
+    {
+      name: 'magicjar-onboarding',
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        registeredUserId: state.registeredUserId,
+        hasMockRegistered: state.hasMockRegistered,
+        hasSystemConfig: state.hasSystemConfig,
+      }),
+    },
+  ),
+)
