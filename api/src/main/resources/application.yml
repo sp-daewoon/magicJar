@@ -36,6 +36,13 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
+  # ADR 0074 §2-2-3 Kafka 이벤트 설정
+  # system.kis-key-changed.v1: KIS 키 변경 신호 (consumer WS graceful reconnect trigger)
+  # killswitch.engaged.v1: KillSwitch 토글 (schema 확장 — engaged:boolean)
+  kafka-topics:
+    kis-key-changed: system.kis-key-changed.v1
+    killswitch-engaged: killswitch.engaged.v1
+
   ai:
     # Spring AI Anthropic — T-DSL 자연어 변환 helper (ADR 0026 사용자 트리거)
     # api-key 미설정 + MAGICJAR_AI_MOCK_MODE=auto 시 MockDslHeuristic 룰 fallback (LLM 호출 0)
