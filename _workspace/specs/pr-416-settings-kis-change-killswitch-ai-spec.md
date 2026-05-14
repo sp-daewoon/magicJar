@@ -1,10 +1,10 @@
-# PR-N (재발행) spec — SettingsModal 풀세트 (KIS 키 변경 + KillSwitch + AI 키 사전 정합)
+# PR-416 (재발행) spec — SettingsModal 풀세트 (KIS 키 변경 + KillSwitch + AI 키 사전 정합)
 
 > **권위 ADR**: [ADR 0074](../arch/adr/0074-settings-kis-change-killswitch-ai-credentials.md) — 결정 본문 ·§1~§12 LOCK
 > **상위 의제**: backlog §44 (KIS 키 변경 풀세트) + §45 (KillSwitch + AI 키 카테고리 일부 흡수)
 > **사이클**: v3.6.5 patch
 > **작성**: 2026-05-14 architect (사용자 자율 위임 — "§44~§45부터 하자")
-> **재발행 이력**: 본 spec은 close된 PR #415(`agent/architect/settings-kis-change-spec` branch 보존)의 v1 spec과 동일 내용. ADR 번호 충돌(T-NEWS 0073 vs 본 ADR 0073)로 PR #415 close → 본 사이클은 **ADR 0074로 재발행**. 모든 ADR cross-ref·파일 슬러그·CHANGELOG anchor 0073 → 0074 갱신. **PR 번호 N은 본 PR 생성 후 확정** — sub-agent 디스패치 직전 architect가 PR 번호 grep replace 의무.
+> **재발행 이력**: 본 spec은 close된 PR #415(`agent/architect/settings-kis-change-spec` branch 보존)의 v1 spec과 동일 내용. ADR 번호 충돌(T-NEWS 0073 vs 본 ADR 0073)로 PR #415 close → 본 사이클은 **ADR 0074로 재발행**. 모든 ADR cross-ref·파일 슬러그·CHANGELOG anchor 0073 → 0074 갱신. **PR 번호 416 LOCK** — sub-agent 디스패치 직전 architect가 PR 번호 grep replace 의무.
 
 ---
 
@@ -40,7 +40,7 @@ Phase 3 (consumer) ────────┘
 
 **sub-agent**: backend-core
 **영역**: `api` 모듈 (controller + service + adapter + DTO)
-**branch**: `agent/backend-core/pr-N-settings-kis-change-v2-backend`
+**branch**: `agent/backend-core/pr-416-settings-kis-change-v2-backend`
 **author**: `bot+backend-core@magicjar.local`
 **PR title**: `feat(backend-core): KIS 키 변경 endpoint 활성화 + KillSwitch 토글 endpoint + Kafka publish (ADR 0074 Phase 1)`
 
@@ -136,7 +136,7 @@ ADR 0074 §2 KIS 키 변경 풀세트 + §3 KillSwitch 수동 토글 backend 실
 
 **sub-agent**: backend-core (consumer 영역 산출 가능 — sub-agent 등록 패턴 정합 ADR 0070 정합)
 **영역**: `consumer` 모듈
-**branch**: `agent/backend-core/pr-N-settings-kis-change-v2-consumer`
+**branch**: `agent/backend-core/pr-416-settings-kis-change-v2-consumer`
 **author**: `bot+backend-core@magicjar.local`
 **PR title**: `feat(consumer): system.kis-key-changed.v1 listener + WS graceful reconnect (ADR 0074 Phase 3)`
 
@@ -175,7 +175,7 @@ ADR 0074 §2 KIS 키 변경 풀세트 + §3 KillSwitch 수동 토글 backend 실
 | `consumer/src/main/kotlin/.../KisWebSocketBridge.kt` | ❌ | ✅ (메서드 추가) | 0 |
 | `consumer/src/main/resources/application.yml` | ❌ | ✅ (Kafka consumer config 추가) | 0 |
 | `api/src/main/resources/application.yml` | ✅ (Kafka producer config) | ❌ | 0 |
-| `_workspace/CHANGELOG.md` | ✅ (slot anchor `<!-- pr-N-slot-backend-core -->`) | ✅ (slot anchor `<!-- pr-N-slot-consumer -->`) | **HTML anchor 분리 LOCK** (ADR 0050 정합) |
+| `_workspace/CHANGELOG.md` | ✅ (slot anchor `<!-- pr-416-slot-backend-core -->`) | ✅ (slot anchor `<!-- pr-416-slot-consumer -->`) | **HTML anchor 분리 LOCK** (ADR 0050 정합) |
 
 → Phase 1·Phase 3 병렬 디스패치 가능 (`feedback_orchestrator_active_parallel.md` 정합).
 
@@ -187,7 +187,7 @@ ADR 0074 §2 KIS 키 변경 풀세트 + §3 KillSwitch 수동 토글 backend 실
 
 **sub-agent**: frontend
 **영역**: `frontend` SPA
-**branch**: `agent/frontend/pr-N-settings-kis-change-v2-ui`
+**branch**: `agent/frontend/pr-416-settings-kis-change-v2-ui`
 **author**: `bot+frontend@magicjar.local`
 **PR title**: `feat(frontend): SettingsModal KIS 키 변경 활성화 + KillSwitch 토글 section + ConfirmDangerToggle 실구현 (ADR 0074 Phase 2)`
 
@@ -247,13 +247,13 @@ ADR 0074 §2 KIS 키 변경 풀세트 + §3 KillSwitch 수동 토글 backend 실
 ADR 0050 정합 — slot row + HTML anchor 사전 prepend 의무:
 
 ```markdown
-<!-- pr-N-slot-architect -->
+<!-- pr-416-slot-architect -->
 | 2026-05-14 | architect | docs/adr | ADR 0074 신규 발행 (settings KIS 키 변경 + KillSwitch + AI 키 사전 정합) + spec markdown + backlog §44·§45 흡수 마킹 + README 인덱스 갱신 |
-<!-- pr-N-slot-backend-core -->
+<!-- pr-416-slot-backend-core -->
 | TBD | backend-core | api | Phase 1 — REST 5 endpoint + Kafka producer + Redis invalidate + Swagger 4단 (ADR 0074 §6) |
-<!-- pr-N-slot-consumer -->
+<!-- pr-416-slot-consumer -->
 | TBD | backend-core | consumer | Phase 3 — system.kis-key-changed.v1 @KafkaListener + WS graceful reconnect (ADR 0074 §2-2-3) |
-<!-- pr-N-slot-frontend -->
+<!-- pr-416-slot-frontend -->
 | TBD | frontend | frontend | Phase 2 — KisCredentialSection submit 활성화 + KillSwitchSection 신설 + ConfirmDangerToggle 실구현 + 5 hook (ADR 0074 §8) |
 ```
 
@@ -268,7 +268,7 @@ ADR 0050 정합 — slot row + HTML anchor 사전 prepend 의무:
 | # | 파일 | 변경 |
 |---|---|---|
 | 1 | `_workspace/arch/adr/0074-settings-kis-change-killswitch-ai-credentials.md` | 신규 발행 (12 §) |
-| 2 | `_workspace/specs/pr-N-settings-kis-change-killswitch-ai-spec.md` | 본 문서 신규 (PR 번호 생성 후 N → 실제 번호로 rename 또는 grep replace) |
+| 2 | `_workspace/specs/pr-416-settings-kis-change-killswitch-ai-spec.md` | 본 문서 신규 (PR 번호 생성 후 N → 실제 번호로 rename 또는 grep replace) |
 | 3 | `_workspace/arch/adr/README.md` | ADR 0074 row 추가 + count 갱신 (68→69) + intro paragraph 갱신 |
 | 4 | `_workspace/backlog.md` | §44 본문에 "본 ADR 0074 1차 흡수 완료 — 풀세트 3건" 마킹 + §45 본문에 "본 ADR 0074 §G·§A·§D 흡수 — §E 사전 정합 + §F·§H·§I·§J 잔류" 마킹 |
 | 5 | `docs/architecture/master-architecture.md` | §10 ADR 인덱스 갱신 (ADR 0074 추가) + T-ONBOARD section SettingsModal 풀세트 outline 갱신 |
