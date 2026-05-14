@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.consumer.application.screener
+package kr.spdaewoon.magicjar.api.application.screener
 
 import kr.spdaewoon.magicjar.domain.screener.ScreenerMatch
 import kr.spdaewoon.magicjar.domain.screener.ScreenerScoreBreakdown

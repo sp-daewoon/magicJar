@@ -1,7 +1,8 @@
-package kr.spdaewoon.magicjar.consumer.application.screener
+package kr.spdaewoon.magicjar.api.application.screener
 
 import kotlinx.datetime.Clock
 import kotlinx.datetime.LocalDate
+import kr.spdaewoon.magicjar.domain.backtest.port.StrategyEvaluatorPort
 import kr.spdaewoon.magicjar.domain.instrument.Instrument
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentMarket
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentType
@@ -17,6 +18,7 @@ import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
 import kr.spdaewoon.magicjar.domain.strategy.StrategyEvalResult
+import kr.spdaewoon.magicjar.domain.strategy.StrategyException
 import kr.spdaewoon.magicjar.domain.strategy.dsl.Condition
 import kr.spdaewoon.magicjar.domain.strategy.dsl.ConditionType
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
@@ -49,7 +51,7 @@ import java.math.BigDecimal
  */
 class ScreenerEngineImplTest {
     private lateinit var ranker: MultiCriteriaRanker
-    private lateinit var fakeAdapter: FakeStrategyEvalAdapter
+    private lateinit var fakeEvaluator: FakeStrategyEvaluatorPort
     private lateinit var strategyRepo: InMemoryStrategyRepository
     private lateinit var instrumentLookup: InMemoryInstrumentLookup
     private lateinit var candleRepo: InMemoryCandleRepository
@@ -57,7 +59,7 @@ class ScreenerEngineImplTest {
     @BeforeEach
     fun setup() {
         ranker = MultiCriteriaRanker()
-        fakeAdapter = FakeStrategyEvalAdapter()
+        fakeEvaluator = FakeStrategyEvaluatorPort()
         strategyRepo = InMemoryStrategyRepository()
         instrumentLookup = InMemoryInstrumentLookup()
         candleRepo = InMemoryCandleRepository()
@@ -76,8 +78,8 @@ class ScreenerEngineImplTest {
         candleRepo.put("005930", buildCandles("005930", 30))
         candleRepo.put("035720", buildCandles("035720", 30))
 
-        fakeAdapter.signal = Signal.BUY
-        fakeAdapter.strength = BigDecimal("0.85")
+        fakeEvaluator.signal = Signal.BUY
+        fakeEvaluator.strength = BigDecimal("0.85")
 
         val engine = newEngine()
 
@@ -170,7 +172,7 @@ class ScreenerEngineImplTest {
         candleRepo.put("005930", buildCandles("005930", 30))
         // 099999 candle 미수집
 
-        fakeAdapter.signal = Signal.BUY
+        fakeEvaluator.signal = Signal.BUY
 
         val engine = newEngine()
         val result = engine.screen(criteria(userId, strategyId))
@@ -208,7 +210,7 @@ class ScreenerEngineImplTest {
         instrumentLookup.put(instrument("005930", "삼성전자"))
         candleRepo.put("005930", buildCandles("005930", 30))
 
-        fakeAdapter.forceTimeout = true
+        fakeEvaluator.forceTimeout = true
 
         val engine = newEngine()
         val result = engine.screen(criteria(userId, strategyId))
@@ -228,7 +230,7 @@ class ScreenerEngineImplTest {
         instrumentLookup.put(instrument("005930", "삼성전자"))
         candleRepo.put("005930", buildCandles("005930", 30))
 
-        fakeAdapter.forceError = "ATR(14) undefined"
+        fakeEvaluator.forceError = "ATR(14) undefined"
 
         val engine = newEngine()
         val result = engine.screen(criteria(userId, strategyId))
@@ -248,7 +250,7 @@ class ScreenerEngineImplTest {
                 strategyLookupProvider = providerOf(strategyRepo),
                 instrumentLookupProvider = emptyProvider(),
                 candleRepositoryProvider = emptyProvider(),
-                strategyEvalAdapter = fakeAdapter,
+                strategyEvaluatorPort = fakeEvaluator,
                 ranker = ranker,
                 candleLookbackDays = 90,
                 minCandles = 20,
@@ -268,7 +270,7 @@ class ScreenerEngineImplTest {
         instrumentLookup.put(instrument("005930", "삼성전자"))
         candleRepo.put("005930", buildCandles("005930", 30))
 
-        fakeAdapter.signal = Signal.HOLD
+        fakeEvaluator.signal = Signal.HOLD
 
         val engine = newEngine()
         val result = engine.screen(criteria(userId, strategyId))
@@ -287,7 +289,8 @@ class ScreenerEngineImplTest {
             buildStrategy(strategyId, userId).copy(
                 definition =
                     StrategyDefinition(
-                        dsl = DslStrategyDefinition(name = "no-buy", buyCondition = null),
+                        dsl =
+                            DslStrategyDefinition(name = "no-buy", buyCondition = null),
                     ),
             )
         strategyRepo.put(strategy)
@@ -310,7 +313,7 @@ class ScreenerEngineImplTest {
             strategyLookupProvider = providerOf(strategyRepo),
             instrumentLookupProvider = providerOf(instrumentLookup),
             candleRepositoryProvider = providerOf(candleRepo),
-            strategyEvalAdapter = fakeAdapter,
+            strategyEvaluatorPort = fakeEvaluator,
             ranker = ranker,
             candleLookbackDays = 90,
             minCandles = 20,
@@ -429,33 +432,36 @@ class ScreenerEngineImplTest {
     // ────────────────────────────────────────────────────────────────────────
 
     /**
-     * StrategyEvalAdapter 테스트용 fake — JvmStrategyEvaluator 의존 우회.
+     * StrategyEvaluatorPort 테스트용 fake — JvmStrategyEvaluator 의존 우회.
+     * timeout/error는 예외로 표현 (ScreenerEngineImpl이 try-catch로 처리).
      */
-    private class FakeStrategyEvalAdapter : StrategyEvalAdapter {
+    private class FakeStrategyEvaluatorPort : StrategyEvaluatorPort {
         var signal: Signal = Signal.HOLD
         var strength: BigDecimal = BigDecimal.ZERO
         var forceTimeout: Boolean = false
         var forceError: String? = null
 
+        override fun evaluateBacktest(
+            strategyId: Long,
+            ast: DslNode,
+            slice: List<Candle>,
+        ): StrategyEvalResult = evaluate(strategyId, ast, slice)
+
         override fun evaluate(
             strategyId: Long,
             ast: DslNode,
             candles: List<Candle>,
-        ): EvalOutcome {
-            if (forceTimeout) return EvalOutcome.Timeout
-            forceError?.let { return EvalOutcome.Error(it) }
-            return EvalOutcome.Success(
-                StrategyEvalResult(
-                    signal = signal,
-                    strength = strength,
-                    reason = mapOf("trigger" to "TEST", "signal" to signal.name),
-                    evaluatedAt = Clock.System.now(),
-                    evalTimeMs = 10,
-                ),
+        ): StrategyEvalResult {
+            if (forceTimeout) throw StrategyException.StrategyTimeoutException(strategyId, 500L)
+            forceError?.let { throw StrategyException.DslSyntaxException(it) }
+            return StrategyEvalResult(
+                signal = signal,
+                strength = strength,
+                reason = mapOf("trigger" to "TEST", "signal" to signal.name),
+                evaluatedAt = Clock.System.now(),
+                evalTimeMs = 10,
             )
         }
-
-        override fun timeoutMs(): Long = 500L
     }
 
     private class InMemoryStrategyRepository : StrategyRepositoryPort {
