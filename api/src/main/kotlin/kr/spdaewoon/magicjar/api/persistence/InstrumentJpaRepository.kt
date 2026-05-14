@@ -134,4 +134,42 @@ interface InstrumentJpaRepository : JpaRepository<InstrumentJpaEntity, String> {
      * 사용자 검색 인덱스 rebuild — ETF·ETN·REIT·DR·WARRANT 제외, 보통주+우선주 포함.
      */
     fun findByActiveTrueAndSecuritiesGroup(securitiesGroup: String): List<InstrumentJpaEntity>
+
+    // ==========================================================================
+    // T-SC Phase 2 — InstrumentLookupAdapter 용 필터 쿼리
+    // 헌법 §6: body 가진 fun 금지 — @Query abstract fun 단독 사용
+    // ==========================================================================
+
+    /**
+     * T-SC Screener universe 필터 쿼리 (ADR 0071 §2-2 B-1 + spec §10).
+     *
+     * 필터 매트릭스:
+     * - active=true + delistedAt IS NULL LOCK (생존자 편향 cover)
+     * - market IN :markets
+     * - type IN :types
+     * - marketCapPrev >= :marketCapMin (null=미적용)
+     * - prevVolume >= :avgVolumeMin (null=미적용, prevVolume을 5일 평균 근사값으로 사용)
+     *
+     * KIS endpoint 호출 0 LOCK — instrument 테이블 영속 데이터 단일 출처.
+     */
+    @Query(
+        """
+        SELECT i FROM InstrumentJpaEntity i
+        WHERE i.active = true
+          AND i.delistedAt IS NULL
+          AND i.tradingHalt = false
+          AND i.liquidation = false
+          AND i.market IN :markets
+          AND i.type IN :types
+          AND (:marketCapMin IS NULL OR (i.marketCapPrev IS NOT NULL AND i.marketCapPrev >= :marketCapMin))
+          AND (:avgVolumeMin IS NULL OR (i.prevVolume IS NOT NULL AND i.prevVolume >= :avgVolumeMin))
+        ORDER BY i.code ASC
+        """,
+    )
+    fun findForScreener(
+        @Param("markets") markets: List<String>,
+        @Param("types") types: List<String>,
+        @Param("marketCapMin") marketCapMin: Long?,
+        @Param("avgVolumeMin") avgVolumeMin: Long?,
+    ): List<InstrumentJpaEntity>
 }

@@ -88,6 +88,12 @@ magicjar:
     eval-pool:
       size: ${MAGICJAR_DSL_EVAL_POOL_SIZE:4}
       queue: ${MAGICJAR_DSL_EVAL_POOL_QUEUE:100}
+  # T-SC Screener 설정 (ADR 0071 §2-4 D-2)
+  screener:
+    # 옵션 영속 — true 시 screening_run + screening_match INSERT (default false = Redis cache-only)
+    persist: ${MAGICJAR_SCREENER_PERSIST:false}
+    # universe screening 전용 DSL eval timeout (ADR 0071 §2-3 C-1 LOCK)
+    eval-timeout-ms: ${MAGICJAR_SCREENER_EVAL_TIMEOUT_MS:500}
 
 
 # ─────────────────────────────────────────────────

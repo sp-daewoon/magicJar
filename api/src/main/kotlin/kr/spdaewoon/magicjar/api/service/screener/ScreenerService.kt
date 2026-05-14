@@ -1,0 +1,220 @@
+package kr.spdaewoon.magicjar.api.service.screener
+
+import kr.spdaewoon.magicjar.api.controller.screener.ScreenerEvaluateRequest
+import kr.spdaewoon.magicjar.api.controller.screener.ScreenerMatchDto
+import kr.spdaewoon.magicjar.api.controller.screener.ScreenerResultDto
+import kr.spdaewoon.magicjar.api.controller.screener.ScreeningRunDetailDto
+import kr.spdaewoon.magicjar.api.controller.screener.ScreeningRunDto
+import kr.spdaewoon.magicjar.api.persistence.screener.ScreeningRunRepositoryAdapter
+import kr.spdaewoon.magicjar.domain.instrument.InstrumentMarket
+import kr.spdaewoon.magicjar.domain.instrument.InstrumentType
+import kr.spdaewoon.magicjar.domain.screener.ScreenerCriteria
+import kr.spdaewoon.magicjar.domain.screener.ScreenerFilter
+import kr.spdaewoon.magicjar.domain.screener.ScreenerMatch
+import kr.spdaewoon.magicjar.domain.screener.ScreenerRunResult
+import kr.spdaewoon.magicjar.domain.screener.port.ScreenerCachePort
+import kr.spdaewoon.magicjar.domain.screener.port.ScreenerEngine
+import org.slf4j.LoggerFactory
+import org.springframework.data.domain.Page
+import org.springframework.http.HttpStatus
+import org.springframework.stereotype.Service
+import org.springframework.web.server.ResponseStatusException
+import java.security.MessageDigest
+
+/**
+ * Screener 서비스 (ADR 0071 §2-4 D-1 + §5 + spec §2-3).
+ *
+ * 분산락 + 캐시 lookup + ScreenerEngine 호출 + 옵션 영속 (D-2).
+ *
+ * 흐름:
+ * 1. 캐시 키 조립 (dslHash + universeFilterHash)
+ * 2. 분산락 SETNX — 동시 호출 방지
+ * 3. 캐시 HIT 시 즉시 반환 (sub-second)
+ * 4. MISS → ScreenerEngine.screen(criteria)
+ * 5. 결과 Redis 캐시 PUT (TTL 30m)
+ * 6. 옵션 영속 ON 시 screening_run + screening_match INSERT
+ * 7. finally 분산락 해제
+ *
+ * userId 격리 (ADR 0010 multi-tenant 정합).
+ *
+ * AI 호출 0 LOCK (ADR 0071 §2-9 + 개발 룰 5).
+ * KIS endpoint 호출 0 LOCK.
+ */
+@Service
+class ScreenerService(
+    private val screenerEngine: ScreenerEngine,
+    private val screenerCachePort: ScreenerCachePort,
+    private val screeningRunRepositoryAdapter: ScreeningRunRepositoryAdapter,
+) {
+    private val log = LoggerFactory.getLogger(ScreenerService::class.java)
+
+    /**
+     * screening 평가 실행.
+     *
+     * @param request 평가 요청 DTO
+     * @return 결과 DTO (캐시 HIT 시 cacheHit=true)
+     * @throws ResponseStatusException 409 — 분산락 충돌 + 캐시 부재 동시 호출
+     * @throws ResponseStatusException 500 — DSL 평가 엔진 오류
+     */
+    fun evaluate(request: ScreenerEvaluateRequest): ScreenerResultDto {
+        val filter = buildFilter(request)
+        val dslHash = sha256Short("strategy:${request.strategyId}")
+        val filterHash = buildFilterHash(filter)
+        val cacheKey = "screener:cache:$dslHash:$filterHash"
+
+        // 1. 분산락 SETNX
+        val locked = screenerCachePort.tryLock(request.userId, request.strategyId)
+        if (!locked) {
+            // 동시 호출 — 직전 캐시 fetch 시도
+            val cached = screenerCachePort.get(cacheKey)
+            if (cached != null) {
+                log.info("[screener] 분산락 충돌 + 캐시 HIT: userId={} strategyId={}", request.userId, request.strategyId)
+                return toDto(cached)
+            }
+            log.warn("[screener] 분산락 충돌 + 캐시 MISS: userId={} strategyId={}", request.userId, request.strategyId)
+            throw ResponseStatusException(HttpStatus.CONFLICT, "동시 평가 중 — 잠시 후 재시도")
+        }
+
+        try {
+            // 2. 캐시 HIT 확인
+            val cached = screenerCachePort.get(cacheKey)
+            if (cached != null) {
+                log.debug("[screener] cache HIT: key={}", cacheKey)
+                return toDto(cached)
+            }
+
+            // 3. ScreenerEngine inline 평가
+            log.info("[screener] evaluate START: userId={} strategyId={} limit={}", request.userId, request.strategyId, request.limit)
+            val criteria =
+                ScreenerCriteria(
+                    userId = request.userId,
+                    strategyId = request.strategyId,
+                    filter = filter,
+                    limit = request.limit,
+                )
+            val result =
+                runCatching { screenerEngine.screen(criteria) }.getOrElse { ex ->
+                    log.error(
+                        "[screener] ScreenerEngine 오류: userId={} strategyId={} err={}",
+                        request.userId,
+                        request.strategyId,
+                        ex.message,
+                    )
+                    throw ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "DSL 평가 엔진 오류: ${ex.message}")
+                }
+
+            // 4. 캐시 PUT (TTL 30m)
+            val resultWithKey = result.copy(cacheKey = cacheKey, cacheHit = false)
+            screenerCachePort.put(cacheKey, resultWithKey)
+
+            // 5. 옵션 영속
+            persistIfEnabled(resultWithKey, request, filterHash, dslHash)
+
+            log.info(
+                "[screener] evaluate DONE: userId={} strategyId={} universeSize={} matchedCount={} elapsedMs={}",
+                request.userId,
+                request.strategyId,
+                result.universeSize,
+                result.matchedCount,
+                result.elapsedMs,
+            )
+            return toDto(resultWithKey)
+        } finally {
+            screenerCachePort.releaseLock(request.userId, request.strategyId)
+        }
+    }
+
+    /**
+     * screening 실행 이력 조회 (옵션 영속 ON 시).
+     * persistEnabled=false 시 empty page.
+     */
+    fun listRuns(
+        userId: Long,
+        page: Int,
+        size: Int,
+    ): Page<ScreeningRunDto> = screeningRunRepositoryAdapter.listRuns(userId, page, size)
+
+    /**
+     * screening 단건 상세 조회 (옵션 영속 ON 시).
+     * persistEnabled=false 또는 userId mismatch 시 null.
+     */
+    fun findDetail(
+        id: Long,
+        userId: Long,
+    ): ScreeningRunDetailDto? = screeningRunRepositoryAdapter.findDetail(id, userId)
+
+    // ── private helpers ──────────────────────────────────────────────────
+
+    private fun buildFilter(request: ScreenerEvaluateRequest): ScreenerFilter {
+        val dto = request.filters ?: return ScreenerFilter.DEFAULT
+        val markets =
+            dto.markets
+                ?.mapNotNull { runCatching { InstrumentMarket.valueOf(it) }.getOrNull() }
+                ?.takeIf { it.isNotEmpty() }
+                ?: ScreenerFilter.DEFAULT_MARKETS
+
+        val types =
+            dto.types
+                ?.mapNotNull { runCatching { InstrumentType.valueOf(it) }.getOrNull() }
+                ?.takeIf { it.isNotEmpty() }
+                ?: ScreenerFilter.DEFAULT_TYPES
+
+        return ScreenerFilter(
+            markets = markets,
+            types = types,
+            marketCapMin = dto.marketCapMin,
+            avgVolumeMin = dto.avgVolumeMin,
+        )
+    }
+
+    private fun buildFilterHash(filter: ScreenerFilter): String {
+        val raw = "${filter.markets.sorted()}:${filter.types.sorted()}:${filter.marketCapMin}:${filter.avgVolumeMin}"
+        return sha256Short(raw)
+    }
+
+    private fun sha256Short(input: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256").digest(input.toByteArray())
+        return bytes.joinToString("") { "%02x".format(it) }.take(16)
+    }
+
+    private fun persistIfEnabled(
+        result: ScreenerRunResult,
+        request: ScreenerEvaluateRequest,
+        filterHash: String,
+        dslHash: String,
+    ) {
+        runCatching {
+            screeningRunRepositoryAdapter.persist(
+                result = result,
+                userId = request.userId,
+                strategyId = request.strategyId,
+                universeFilterHash = filterHash,
+                dslHash = dslHash,
+            )
+        }.onFailure { ex ->
+            log.warn("[screener] 영속 저장 실패 (무시 — cache-only 계속): err={}", ex.message)
+        }
+    }
+
+    private fun toDto(result: ScreenerRunResult): ScreenerResultDto =
+        ScreenerResultDto(
+            cacheKey = result.cacheKey,
+            universeSize = result.universeSize,
+            evaluatedCount = result.evaluatedCount,
+            matchedCount = result.matchedCount,
+            skippedReasons = result.skippedReasons,
+            matches = result.matches.map { toMatchDto(it) },
+            elapsedMs = result.elapsedMs,
+            cacheHit = result.cacheHit,
+        )
+
+    private fun toMatchDto(match: ScreenerMatch): ScreenerMatchDto =
+        ScreenerMatchDto(
+            rank = match.rank,
+            instrumentCode = match.instrumentCode,
+            instrumentName = match.instrumentName,
+            score = match.score,
+            scoreComponents = match.breakdown.toComponentMap(),
+            reason = match.reason,
+        )
+}
