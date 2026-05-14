@@ -28,8 +28,10 @@
 import { useMemo, useState, useCallback, useRef } from 'react'
 import type { IChartApi, ISeriesApi } from 'lightweight-charts'
 import { useSymbolCandles } from '../../api/hooks/useSymbolCandles'
+import { useCandleRefresh } from '../../api/hooks/useCandleRefresh'
 import type { CandleInterval, CandleDto, CandleMinutePayload } from '../../api/symbol'
 import { usePatterns } from '../../api/hooks/usePatterns'
+import { useToast } from '../../components/ui/ToastProvider'
 import { PatternMarker } from '../../components/chart/PatternMarker'
 import { PatternToggleMenu, usePatternSelection } from '../../components/chart/PatternToggleMenu'
 import { IntervalToggle } from './IntervalToggle'
@@ -62,6 +64,27 @@ export function SymbolChart({ code, realtimeCandle }: SymbolChartProps) {
     isError,
     latestBoundaryCandle,
   } = useSymbolCandles(code, interval)
+
+  // 토스트
+  const { showToast } = useToast()
+
+  // 캔들 갱신 mutation
+  const { refresh: refreshCandles, isPending: isRefreshing } = useCandleRefresh({
+    code,
+    // 기본 일/주/월/년봉 갱신 (분봉은 별도 STOMP로 실시간 처리)
+    intervals: ['1d', '1wk', '1mo', '1y'],
+    onSuccess: (added) => {
+      showToast(
+        added > 0
+          ? `최신 캔들 ${added.toLocaleString('ko-KR')}건 추가됨`
+          : '최신 캔들로 갱신 완료',
+        'success',
+      )
+    },
+    onError: (msg) => {
+      showToast(`캔들 갱신 실패: ${msg}`, 'error')
+    },
+  })
 
   // 지표 관련 상태
   const [isPanelOpen, setIsPanelOpen] = useState(false)
@@ -225,17 +248,57 @@ export function SymbolChart({ code, realtimeCandle }: SymbolChartProps) {
           </button>
         </div>
 
-        {hasNextPage && (
+        <div className="flex items-center gap-2">
+          {/* 캔들 갱신 버튼 — KIS에서 최신 일/주/월/년봉 재수집 */}
           <button
             type="button"
-            onClick={() => void fetchNextPage()}
-            disabled={isFetchingNextPage}
-            className="rounded-md bg-gray-800 px-2.5 py-1 text-xs text-gray-400 hover:bg-gray-700 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400"
-            aria-label="이전 캔들 데이터 더 불러오기"
+            onClick={() => refreshCandles()}
+            disabled={isRefreshing || isLoading}
+            className="flex items-center gap-1.5 rounded-md bg-gray-800 px-2.5 py-1 text-xs text-gray-400 hover:bg-gray-700 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400"
+            aria-label="최신 캔들 데이터 갱신"
+            title="KIS에서 최신 일/주/월/년봉을 재수집합니다"
           >
-            {isFetchingNextPage ? '로딩 중...' : '더 보기'}
+            {isRefreshing ? (
+              <>
+                <span
+                  className="h-3 w-3 animate-spin rounded-full border-2 border-gray-600 border-t-blue-400 shrink-0"
+                  aria-hidden="true"
+                />
+                갱신 중...
+              </>
+            ) : (
+              <>
+                <svg
+                  className="h-3.5 w-3.5 shrink-0"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+                갱신
+              </>
+            )}
           </button>
-        )}
+
+          {hasNextPage && (
+            <button
+              type="button"
+              onClick={() => void fetchNextPage()}
+              disabled={isFetchingNextPage}
+              className="rounded-md bg-gray-800 px-2.5 py-1 text-xs text-gray-400 hover:bg-gray-700 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400"
+              aria-label="이전 캔들 데이터 더 불러오기"
+            >
+              {isFetchingNextPage ? '로딩 중...' : '더 보기'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* 패턴 오류 알림 (T-PAT PR-40 — 위젯 수준 오류, 페이지 전체 중단 X) */}
