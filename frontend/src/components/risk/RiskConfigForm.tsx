@@ -2,12 +2,13 @@
  * RiskConfigForm — 리스크 설정 폼 (T-RISK Phase 3 — ADR 0067)
  *
  * 섹션:
- *   A 포지션 한도 (절대 + % 둘 다, min() 적용)
- *   B DLL (전역 + 사용자 택1: 절대 OR %, 토글)
+ *   A 포지션 한도 (절대 한도 + 비율 한도)
+ *   B DLL (활성 토글 + 절대값 OR 비율, autoPauseThreshold)
  *   C 동시 보유 종목 한도 slider (1~20, default 5)
  *   D 거래 빈도 dual slider (분당 default 3, 일별 default 50)
  *   reset 버튼 (default seed)
  *
+ * [hotfix] backend flat DTO 정합 — nested 가정(positionLimit·dll·maxHolding·tradeFrequency) 제거.
  * 사용자 메모리 정합: no-mock-data → 빈 config 시 default seed 유도
  */
 import { useEffect, useState } from 'react'
@@ -16,7 +17,7 @@ import {
   useUpdateRiskConfig,
   useResetRiskConfig,
 } from '../../api/hooks/useRiskConfig'
-import type { DllMode, RiskConfigUpdateRequest } from '../../api/risk'
+import type { RiskConfigUpdateRequest } from '../../api/risk'
 import { useToast } from '../ui/ToastProvider'
 
 // ──────────────────────────────────────────────
@@ -29,19 +30,19 @@ function parseKrw(str: string): number {
 }
 
 // ──────────────────────────────────────────────
-// 로컬 폼 상태 타입
+// 로컬 폼 상태 — backend flat 키와 1:1 대응
 // ──────────────────────────────────────────────
 
 interface FormState {
-  posAbsoluteLimit: number
-  posPercentLimit: number
-  globalDll: number
-  dllMode: DllMode
-  absoluteDll: number
-  percentDll: number
-  maxHoldingCount: number
+  maxPositionAmount: number
+  maxPositionPercent: number       // 퍼센트 단위 (10 = 10%)
+  dllAbs: number                   // UI에서 null 대신 0으로 표현 (0 = 미설정)
+  dllPct: number                   // 퍼센트 단위 (3 = 3%)
+  isDailyLossLimitActive: boolean
+  maxConcurrentPositions: number
   maxTradesPerMinute: number
   maxTradesPerDay: number
+  autoPauseThreshold: number
 }
 
 // ──────────────────────────────────────────────
@@ -88,7 +89,8 @@ function NumberInput({
             setRaw(v)
             const n = parseKrw(v)
             if (!isNaN(n)) {
-              const clamped = min !== undefined && n < min ? min : max !== undefined && n > max ? max : n
+              const clamped =
+                min !== undefined && n < min ? min : max !== undefined && n > max ? max : n
               onChange(clamped)
             }
           }}
@@ -117,9 +119,20 @@ interface SliderInputProps {
   step?: number
   unit?: string
   hint?: string
+  disabled?: boolean
 }
 
-function SliderInput({ label, value, onChange, min, max, step = 1, unit = '', hint }: SliderInputProps) {
+function SliderInput({
+  label,
+  value,
+  onChange,
+  min,
+  max,
+  step = 1,
+  unit = '',
+  hint,
+  disabled,
+}: SliderInputProps) {
   return (
     <div>
       <div className="flex items-center justify-between">
@@ -135,13 +148,20 @@ function SliderInput({ label, value, onChange, min, max, step = 1, unit = '', hi
         max={max}
         step={step}
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="mt-2 w-full accent-blue-500"
+        className="mt-2 w-full accent-blue-500 disabled:opacity-50"
         aria-label={label}
       />
       <div className="flex justify-between text-xs text-gray-600 mt-1">
-        <span>{min}{unit}</span>
-        <span>{max}{unit}</span>
+        <span>
+          {min}
+          {unit}
+        </span>
+        <span>
+          {max}
+          {unit}
+        </span>
       </div>
       {hint && <p className="mt-1 text-xs text-gray-600">{hint}</p>}
     </div>
@@ -178,19 +198,19 @@ export function RiskConfigForm({ userId }: RiskConfigFormProps) {
   const [form, setForm] = useState<FormState | null>(null)
   const [isDirty, setIsDirty] = useState(false)
 
-  // 서버 데이터 → 폼 초기화
+  // 서버 데이터 → 폼 초기화 (flat 키 직접 매핑)
   useEffect(() => {
     if (!data) return
     setForm({
-      posAbsoluteLimit: data.positionLimit.absoluteLimit,
-      posPercentLimit: Math.round(data.positionLimit.percentLimit * 100),
-      globalDll: data.dll.globalDll,
-      dllMode: data.dll.mode,
-      absoluteDll: data.dll.absoluteDll,
-      percentDll: Math.round(data.dll.percentDll * 100),
-      maxHoldingCount: data.maxHolding.maxHoldingCount,
-      maxTradesPerMinute: data.tradeFrequency.maxTradesPerMinute,
-      maxTradesPerDay: data.tradeFrequency.maxTradesPerDay,
+      maxPositionAmount: data.maxPositionAmount,
+      maxPositionPercent: data.maxPositionPercent,      // backend가 이미 퍼센트 단위
+      dllAbs: data.dllAbs ?? 0,                         // null → 0 (0 = 미설정)
+      dllPct: data.dllPct,                              // backend가 이미 퍼센트 단위
+      isDailyLossLimitActive: data.isDailyLossLimitActive,
+      maxConcurrentPositions: data.maxConcurrentPositions,
+      maxTradesPerMinute: data.maxTradesPerMinute,
+      maxTradesPerDay: data.maxTradesPerDay,
+      autoPauseThreshold: data.autoPauseThreshold,
     })
     setIsDirty(false)
   }, [data])
@@ -205,21 +225,15 @@ export function RiskConfigForm({ userId }: RiskConfigFormProps) {
     if (!form) return
 
     const req: RiskConfigUpdateRequest = {
-      positionLimit: {
-        absoluteLimit: form.posAbsoluteLimit,
-        percentLimit: form.posPercentLimit / 100,
-      },
-      dll: {
-        globalDll: form.globalDll,
-        mode: form.dllMode,
-        absoluteDll: form.absoluteDll,
-        percentDll: form.percentDll / 100,
-      },
-      maxHolding: { maxHoldingCount: form.maxHoldingCount },
-      tradeFrequency: {
-        maxTradesPerMinute: form.maxTradesPerMinute,
-        maxTradesPerDay: form.maxTradesPerDay,
-      },
+      maxPositionAmount: form.maxPositionAmount,
+      maxPositionPercent: form.maxPositionPercent,
+      dllAbs: form.dllAbs === 0 ? null : form.dllAbs,  // 0 → null 역변환
+      dllPct: form.dllPct,
+      isDailyLossLimitActive: form.isDailyLossLimitActive,
+      maxConcurrentPositions: form.maxConcurrentPositions,
+      maxTradesPerMinute: form.maxTradesPerMinute,
+      maxTradesPerDay: form.maxTradesPerDay,
+      autoPauseThreshold: form.autoPauseThreshold,
     }
 
     try {
@@ -267,7 +281,6 @@ export function RiskConfigForm({ userId }: RiskConfigFormProps) {
 
   return (
     <form onSubmit={(e) => void handleSubmit(e)} className="space-y-6">
-
       {/* A 포지션 한도 */}
       <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-5">
         <SectionHeader
@@ -277,83 +290,83 @@ export function RiskConfigForm({ userId }: RiskConfigFormProps) {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <NumberInput
             label="절대 한도 (원)"
-            value={form.posAbsoluteLimit}
-            onChange={(v) => patch({ posAbsoluteLimit: v })}
+            value={form.maxPositionAmount}
+            onChange={(v) => patch({ maxPositionAmount: v })}
             min={0}
             suffix="원"
             hint="0 = 무제한"
           />
-          <div>
-            <SliderInput
-              label="비율 한도 (%)"
-              value={form.posPercentLimit}
-              onChange={(v) => patch({ posPercentLimit: v })}
-              min={1}
-              max={100}
-              unit="%"
-              hint="총 자산 대비 비율 (1~100%)"
-            />
-          </div>
+          <SliderInput
+            label="비율 한도 (%)"
+            value={form.maxPositionPercent}
+            onChange={(v) => patch({ maxPositionPercent: v })}
+            min={1}
+            max={100}
+            unit="%"
+            hint="총 자산 대비 비율 (1~100%)"
+          />
         </div>
       </div>
 
-      {/* B DLL */}
+      {/* B 일일 손실 한도 (DLL) */}
       <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-5">
         <SectionHeader
           label="B. 일일 손실 한도 (DLL)"
           desc="하루 최대 허용 손실. 초과 시 전략이 자동 정지됩니다."
         />
         <div className="space-y-4">
-          <NumberInput
-            label="전역 DLL (원)"
-            value={form.globalDll}
-            onChange={(v) => patch({ globalDll: v })}
-            min={0}
-            suffix="원"
-            hint="0 = 무제한"
-          />
-
-          {/* 모드 토글 */}
-          <div>
-            <label className="block text-xs text-gray-500">사용자 DLL 모드</label>
-            <div className="mt-2 flex gap-2">
-              {(['ABSOLUTE', 'PERCENT'] as DllMode[]).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => patch({ dllMode: mode })}
-                  className={[
-                    'rounded-lg px-4 py-1.5 text-sm font-medium transition-colors',
-                    form.dllMode === mode
-                      ? 'bg-blue-600 text-white'
-                      : 'border border-gray-700 text-gray-400 hover:bg-gray-800',
-                  ].join(' ')}
-                >
-                  {mode === 'ABSOLUTE' ? '절대 (원)' : '비율 (%)'}
-                </button>
-              ))}
-            </div>
+          {/* DLL 활성 토글 */}
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-gray-500">DLL 활성화</span>
+            <button
+              type="button"
+              onClick={() => patch({ isDailyLossLimitActive: !form.isDailyLossLimitActive })}
+              className={[
+                'relative inline-flex h-5 w-9 items-center rounded-full transition-colors',
+                form.isDailyLossLimitActive ? 'bg-blue-600' : 'bg-gray-700',
+              ].join(' ')}
+              aria-checked={form.isDailyLossLimitActive}
+              role="switch"
+            >
+              <span
+                className={[
+                  'inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform',
+                  form.isDailyLossLimitActive ? 'translate-x-4' : 'translate-x-1',
+                ].join(' ')}
+              />
+            </button>
           </div>
 
-          {form.dllMode === 'ABSOLUTE' ? (
-            <NumberInput
-              label="절대 DLL (원)"
-              value={form.absoluteDll}
-              onChange={(v) => patch({ absoluteDll: v })}
-              min={0}
-              suffix="원"
-            />
-          ) : (
-            <SliderInput
-              label="비율 DLL"
-              value={form.percentDll}
-              onChange={(v) => patch({ percentDll: v })}
-              min={1}
-              max={100}
-              unit="%"
-              hint="총 자산 대비 최대 손실 비율"
-            />
-          )}
+          <NumberInput
+            label="절대 DLL (원)"
+            value={form.dllAbs}
+            onChange={(v) => patch({ dllAbs: v })}
+            min={0}
+            suffix="원"
+            hint="0 = 미설정"
+            disabled={!form.isDailyLossLimitActive}
+          />
+
+          <SliderInput
+            label="비율 DLL (%)"
+            value={form.dllPct}
+            onChange={(v) => patch({ dllPct: v })}
+            min={1}
+            max={100}
+            unit="%"
+            hint="총 자산 대비 최대 손실 비율"
+            disabled={!form.isDailyLossLimitActive}
+          />
+
+          <SliderInput
+            label="자동 정지 임계치 (연속 BLOCKED)"
+            value={form.autoPauseThreshold}
+            onChange={(v) => patch({ autoPauseThreshold: v })}
+            min={1}
+            max={50}
+            unit="회"
+            hint="연속으로 BLOCKED 신호가 이 횟수에 도달하면 전략 자동 정지 (default: 10)"
+          />
         </div>
       </div>
 
@@ -365,8 +378,8 @@ export function RiskConfigForm({ userId }: RiskConfigFormProps) {
         />
         <SliderInput
           label="최대 보유 종목 수"
-          value={form.maxHoldingCount}
-          onChange={(v) => patch({ maxHoldingCount: v })}
+          value={form.maxConcurrentPositions}
+          onChange={(v) => patch({ maxConcurrentPositions: v })}
           min={1}
           max={20}
           unit="종목"

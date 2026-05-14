@@ -8,6 +8,9 @@
  * GET    /api/risk-events/{id}         → RiskEventDto
  *
  * 룰 5: LLM provider import 0건
+ *
+ * [hotfix] backend flat 구조 정합 — 이전 nested(positionLimit·dll·maxHolding·tradeFrequency)
+ * 가정 제거, backend 실제 응답 키와 1:1 매핑.
  */
 import apiClient from '../lib/axios'
 
@@ -17,56 +20,43 @@ import apiClient from '../lib/axios'
 
 export type RiskVerdict = 'ALLOWED' | 'BLOCKED' | 'AUTO_PAUSED'
 
-export type DllMode = 'ABSOLUTE' | 'PERCENT'
-
 // ──────────────────────────────────────────────
-// RiskConfig DTO
+// RiskConfig DTO — backend flat 구조 정합
 // ──────────────────────────────────────────────
 
-/** A: 포지션 한도 설정 */
-export interface PositionLimitConfig {
-  /** 절대 한도 (원) */
-  absoluteLimit: number
-  /** 비율 한도 (0~1, 예: 0.2 = 20%) */
-  percentLimit: number
-}
-
-/** B: 일일 손실 한도 (DLL) 설정 */
-export interface DllConfig {
-  /** 전역 일일 손실 한도 (원) */
-  globalDll: number
-  /** 사용자 선택 모드: 절대 or % */
-  mode: DllMode
-  /** 절대 DLL (원) */
-  absoluteDll: number
-  /** % DLL (0~1) */
-  percentDll: number
-}
-
-/** C: 동시 보유 종목 한도 */
-export interface MaxHoldingConfig {
-  maxHoldingCount: number
-}
-
-/** D: 거래 빈도 한도 */
-export interface TradeFrequencyConfig {
-  maxTradesPerMinute: number
-  maxTradesPerDay: number
-}
-
-/** Risk Config DTO (전체) */
+/**
+ * GET/PUT /api/risk-config 응답 구조 (flat).
+ * backend 실제 응답 키와 1:1 일치.
+ *
+ * 단위 주의:
+ *   maxPositionPercent: 퍼센트 단위 (10 = 10%)  — backend가 percent 단위 저장
+ *   dllPct:             퍼센트 단위 (3 = 3%)
+ */
 export interface RiskConfigDto {
-  id: string
   userId: string
-  positionLimit: PositionLimitConfig
-  dll: DllConfig
-  maxHolding: MaxHoldingConfig
-  tradeFrequency: TradeFrequencyConfig
+  /** 포지션 절대 한도 (원) */
+  maxPositionAmount: number
+  /** 포지션 비율 한도 (퍼센트, 예: 10 = 10%) */
+  maxPositionPercent: number
+  /** 일일 손실 한도 절대값 (원). null = 미설정 */
+  dllAbs: number | null
+  /** 일일 손실 한도 비율 (퍼센트, 예: 3 = 3%) */
+  dllPct: number
+  /** DLL 활성 여부 */
+  isDailyLossLimitActive: boolean
+  /** 동시 보유 가능 최대 종목 수 */
+  maxConcurrentPositions: number
+  /** 분당 최대 거래 횟수 */
+  maxTradesPerMinute: number
+  /** 일별 최대 거래 횟수 */
+  maxTradesPerDay: number
+  /** 연속 BLOCKED → 자동 정지 임계치 (default 10) */
+  autoPauseThreshold: number
   updatedAt: string
 }
 
 /** PUT /api/risk-config 요청 바디 */
-export type RiskConfigUpdateRequest = Omit<RiskConfigDto, 'id' | 'userId' | 'updatedAt'>
+export type RiskConfigUpdateRequest = Omit<RiskConfigDto, 'userId' | 'updatedAt'>
 
 // ──────────────────────────────────────────────
 // RiskEvent DTO
