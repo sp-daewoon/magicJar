@@ -95,7 +95,7 @@ magicJar는 미래에 **MCP 서버를 외부에 노출**해 Claude/Cursor 등 AI
 
 | # | 영역 | 책임 | **오프라인 동작** | 트랙 |
 |---|---|---|---|---|
-| C.10 | **Screener (종목 발굴)** | universe × DSL 조건식 → 후보 + 랭킹. 5분 캐시. 일별 batch + 분봉 실시간 두 모드. | 가능 (영속 candle + 룰만) | T-SC |
+| C.10 | **Screener (종목 발굴)** | universe(instrument 영속) × DSL 조건식 → 후보 + 랭킹(4 기준 multi-criteria fixed weights). **Redis cache 30m + 옵션 영속 V28(env toggle)**. **1차 inline 동기 평가 모드** (universe ~3000 inline ~5s) + 일별 batch cron은 post-MVP backlog §55. **KIS endpoint 호출 0 LOCK** (영속 candle + instrument reuse). Strategy Builder "전략으로 종목 찾기" 버튼 + ScreenerResultModal 합류. ADR 0071 정밀 명세 정합. | 가능 (영속 candle + 룰만) | T-SC (ADR 0071 Accepted 2026-05-14) |
 | C.11 | **Signal Engine (시그널)** | 실시간 watch list × 활성 전략 → BUY/SELL/HOLD + 강도 + reason. **DSL 평가만, AI 호출 0**. | 가능 (in-process 룰) | T-SIG |
 | C.12 | **Auto Order Execution (주문 실행)** | 시그널 → 위험 가드(ADR 0067 ALLOWED) → KisOrderHttpAdapter(TTTC0012U·TTTC0011U) → KIS API → KisExecutionWsListener(H0STCNI0 체결통보) → audit. MAGICJAR_MODE × MAGICJAR_ALLOW_REAL × user_account.real_trading_consent_at 3중 게이트 (실계좌). 분할 체결 1:N + 사용자 수동 취소(TTTC0013U). | 가능 (MOCK 환경 — KIS VPS endpoint + H0STCNI9) | T-O (ADR 0068 plan 발행 2026-05-12, 사용자 결정 대기) |
 | C.13 | **Risk & Position Guard (위험 관리)** | Guard chain 6단 (KillSwitch·Session·DailyLimit·PositionLimit·DrawdownStop·PriceSanity). 사이징(Kelly·Fixed Fractional). | 가능 (in-process 정책) | T-RISK |
@@ -139,7 +139,7 @@ magicJar는 미래에 **MCP 서버를 외부에 노출**해 Claude/Cursor 등 AI
 [2] DailyCandleBackfillJob (cron 18:00) → candle 테이블 영속
        + CorpActionSyncJob (cron 18:30) → corp_action 적용 + adjusted 재계산
        ↓
-[3] DailyScreenerJob (cron 다음 영업일 09:00) — universe × DSL → 후보 종목
+[3] **Screener (T-SC ADR 0071)** — 1차 inline 동기 평가 (사용자 트리거 "전략으로 종목 찾기" → POST /api/screener/evaluate → universe(instrument 영속) × DSL → 후보 + 4 기준 multi-criteria 랭킹 + Redis cache 30m). DailyScreenerJob cron 다음 영업일 09:00은 post-MVP backlog §55 (비동기 모드 합류).
        ↓
 [4] SignalEngine (실시간) — KIS WS tick → 분봉 합성 → DSL 평가 → BUY/SELL/HOLD
        ↓
@@ -405,7 +405,7 @@ pattern-engine/src/main/kotlin/kr/spdaewoon/magicjar/pattern/
 | `instrument.updated.v1` | batch | consumer (캐시 invalidate) | 7d | T-IM1 |
 | `corp_action.applied.v1` | batch | consumer (candle 재조정) | 30d | T-CA1 |
 | `news.crawled.v1` | api | consumer | 7d | post-MVP |
-| `screener.result.v1` | consumer/batch | consumer (시그널), api (STOMP) | 1d | T-SC |
+| `screener.result.v1` (post-MVP — ADR 0071 v3.6.3는 동기 inline 채택, 비동기 모드는 backlog §52) | consumer/batch | consumer (시그널), api (STOMP) | 1d | T-SC (post-MVP) |
 | `signal.generated.v1` | consumer | consumer (order intent), api (STOMP) | 7d | T-SIG |
 | `order.intent.v1` | consumer (signal), api (수동) | consumer (KisOrderSender) | 7d | 트랙1 |
 | `order.executed.v1` | consumer | api (STOMP), consumer (journal) | 30d | 트랙1 |
@@ -513,7 +513,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 
 ---
 
-## §10. 핵심 ADR 인덱스 (0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069·0070 Accepted + 0064 Proposed)
+## §10. 핵심 ADR 인덱스 (0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069·0070·0071 Accepted + 0064 Proposed)
 
 상세 본문은 `_workspace/arch/adr/<NNNN>-*.md`. 분류 카테고리는 `_workspace/arch/adr/README.md` §1~§10-4 정합. 본 §10은 한 줄 요약 인덱스 — 신규 ADR 발행 시 본 표 + README 동시 갱신 (ADR 0030 SoT 운영 규약).
 
@@ -584,13 +584,14 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | 0068 | **T-O 주문 실행 plan (Risk ALLOWED → KIS REST 매수·매도 + WS H0STCNI0 체결 추적 + 사용자 수동 정정/취소 + 3 테이블 영속 + STOMP 4 event + 멱등성 Redis SETNX + 실계좌 3중 게이트) — Proposed (2026-05-12 사용자 결정 대기 — 의제 A·B·C·D·E·F·G·H 8건 / architect 권장 A-1 env × 2 + 사용자 동의 토글 + B-1 단일 port + adapter 내부 mode 분기 + C-1 시장가/지정가 + D-1 KIS WS H0STCNI0 실시간 + E-1 사용자 수동 only + F-1 3 테이블 분리 + G-1 단일 토픽 4 event discriminator + H-1 Redis SETNX 60s + DB UQ — KIS-first raw 4건 TTTC0012U·TTTC0011U·TTTC0013U·H0STCNI0)** | 전략·신호·리스크 | W3 v3.6.0 후보 (backlog §43) |
 | 0069 | **SettingsModal vs SetupWizard 책임 분리 + 공통 입력 컴포넌트 6종 추출 + 미래 신규 API 키 추가 5 step 표준 절차 + 1차 PR scope LOCK (RealTradingConsentSection + KisCredentialSection + SystemConfigSection 3 section) + backlog 의제 10건 — Accepted (2026-05-13 사용자 명시 정책 — dogfooding 결함 발견 응답)** | 운영·UX fitness | W3 T-O 보강 (자본 보호 검증 unblock) |
 | 0070 | **T-RECON + T-NOTIFY 묶음 spec/plan — Accepted (2026-05-13 architect 자율 결정 · 사용자 위임 "W3 진행해서 마무리까지하자 W4 진입까지 자율")** — ADR 0041(T-RECON baseline) + ADR 0044(T-NOTIFY baseline) reuse + 정밀 명세 §1~§15 LOCK + Phase 분리 LOCK(T-RECON Phase 1 strategy-engine → Phase 2 backend-core → T-NOTIFY Phase 1 backend-core 직렬). KIS-first raw 4건(TTTC8434R·VTTC8434R + CTRP6548R + H0STCNI0 cross-ref). Flyway V25(reconcile_run) + V26(domain enum) + V27(notification_outbox + system_config.notification_slack_webhook). Kafka 신규 2(reconcile.drift.v1·reconcile.run.v1) + killswitch.engaged.v1 + listen 7. REST 3 endpoint. frontend 0 LOCK. 자본 보호 흐름 LOCK(drift → KillSwitch ON → Slack P0 → STOMP). spec 본문: `_workspace/specs/pr-392-recon-notify-spec.md`. | 자동매매 fitness + 운영·UX fitness | W3 v3.6.2 patch (T-RECON·T-NOTIFY 묶음) |
+| 0071 | **T-SC Screener spec/plan — Accepted (2026-05-14 architect 자율 결정 · 사용자 위임 동일)** — A-1~H-1 8 의제 LOCK (A-1 동기 inline + Redis cache 30m · B-1 instrument 영속 + 필터 매트릭스 · C-1 strategy-eval-pool reuse + universe screening timeout 500ms · D-1 cache-only + D-2 옵션 영속 env toggle · E-1 multi-criteria 4기준 fixed weights signal 0.40+volume 0.30+atr 0.20+cap 0.10 · F-1 REST 3 endpoint Swagger 4단 · G-1 candle 결손 graceful skip + skippedReasons 매트릭스 · H-1 Strategy Builder 합류 + ScreenerResultModal). Phase 분리 LOCK (Phase 1 strategy-engine domain+consumer → Phase 2 backend-core api+Redis+옵션 Flyway V28 → Phase 3 frontend 직렬). universe=instrument 영속 reuse + candle=영속 reuse → **KIS endpoint 호출 0 LOCK** + AI 호출 0 grep 검증 + mock 합성 0. Flyway V28(screening_run + screening_match, env toggle MAGICJAR_SCREENER_PERSIST=true). Kafka 신규 0. STOMP 신규 0. 사용자 비전 정합 = Strategy Builder "전략으로 종목 찾기" 흐름 단절 회복 + Watchlist 일괄 등록 합류. spec 본문: `_workspace/specs/pr-393-t-sc-spec.md`. | 전략·신호·리스크 | W3 v3.6.3 patch (T-SC 다섯 번째 트랙) |
 
 ### 후속 예정 (Proposed — `_workspace/arch/adr/README.md` §12 정합)
 
 | 후보 번호 | 제목 (예정) | 진입 트랙 |
 |---|---|---|
 | 0058 | 57 캔들 패턴 표준 (본문 ADR로 격상 검토 — T-PAT 머지 정합) | T-PAT |
-| 0059 | Screener 표준 | T-SC |
+| ~~0059~~ | ~~Screener 표준~~ → **ADR 0071 흡수 완료** (2026-05-14) | T-SC (closed) |
 | 0060 | Performance 표준 | T-PERF |
 | 0061 | **Backtest 결과 영속 — Accepted (2026-05-12)** — 3 테이블(backtest_run·backtest_trade·backtest_position) + 5 endpoint + BacktestPersister·BacktestQueryService. ADR 0056 §2-6 supersede. | T-BT R2 (backlog §37 DONE) |
 | 0062 | **5m·15m·30m·90m·1h 합산 가공 — Accepted (2026-05-11)** — backlog §31 트랙 (§10 본 표 인용) | sub-agent 디스패치 매트릭스 진행 (ADR 0062 §7-1·§9) |
@@ -600,6 +601,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | 0067 | **T-RISK 리스크 관리 — Accepted (2026-05-12)** — backlog §41 DONE. W3 세 번째 트랙. 사용자 채택 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1. strategy-engine(Phase 1) + backend-core(Phase 2) + frontend(Phase 3) 3 PR 직렬 디스패치 완료. PR #351·#353·#354·#355·#356·#357 머지 | v3.5.0 마감 |
 | 0068 | **T-O 주문 실행 — Proposed (2026-05-12)** — backlog §43 트랙 (§10 본 표 인용). W3 네 번째 트랙. 결정 의제 8건 사용자 검토 위임. architect 권장 A-1·B-1·C-1·D-1·E-1·F-1·G-1·H-1. KIS-first raw 인용 4건(TTTC0012U·TTTC0011U·TTTC0013U·H0STCNI0). 실계좌 3중 게이트. 채택 시 strategy-engine(Phase 1 consumer+domain) + backend-core(Phase 2 api+Flyway V20~V23) + frontend(Phase 3 /orders + SettingsModal 동의 토글) 직렬 디스패치 | 사용자 결정 대기 |
 | 0070 | **T-RECON + T-NOTIFY 묶음 spec/plan — Accepted (2026-05-13)** — backlog §46~§51 트랙 (§10 본 표 인용). W3 마무리 prereq. architect 자율 결정 (사용자 위임). ADR 0041·0044 baseline reuse + 정밀 명세 §1~§15. Phase 분리 LOCK 3 PR 직렬(strategy-engine → backend-core RECON → backend-core NOTIFY). KIS-first raw 4건. Flyway V25·V26·V27. Kafka 신규 2 + listen 7. REST 3 endpoint. frontend 0 LOCK. spec: `_workspace/specs/pr-392-recon-notify-spec.md` | v3.6.2 patch 진행 중 |
+| 0071 | **T-SC Screener spec/plan — Accepted (2026-05-14)** — backlog §52~§58 예정 트랙 (§10 본 표 인용). W3 다섯 번째 트랙. architect 자율 결정 (사용자 위임 동일). 8 의제 LOCK A-1~H-1. Phase 분리 LOCK 3 PR 직렬(strategy-engine Phase 1 → backend-core Phase 2 → frontend Phase 3). universe=영속 reuse + candle=영속 reuse → KIS endpoint 호출 0 LOCK + AI 호출 0 grep + mock 합성 0. Flyway V28(screening_run + screening_match, env toggle). Kafka 신규 0. STOMP 신규 0. REST 3 endpoint Swagger 4단. 사용자 비전 정합 = Strategy Builder "전략으로 종목 찾기" 흐름 합류 + Watchlist 일괄 등록. spec: `_workspace/specs/pr-393-t-sc-spec.md` | v3.6.3 patch 진행 중 |
 
 ---
 
@@ -640,6 +642,7 @@ v1·v2 검토 시점에 누적된 결정 항목과 v3.0.0 베이스라인 컷(20
 
 | 날짜 | 변경 |
 |---|---|
+| 2026-05-14 (ADR 0071) | **ADR 0071 T-SC Screener spec/plan 신규 발행 정합** — §10 인덱스 0071 row 추가 + §10 헤더 카운트 갱신(`0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069·0070·0071 Accepted + 0064 Proposed`) + §10 후속 예정에 0071 row 추가 + §C.10 T-SC 본문 보강(ADR 0071 정밀 명세 정합 + Redis cache 30m + 옵션 영속 V28 + KIS endpoint 호출 0 LOCK + Strategy Builder 합류) + §3-1 [3] DailyScreenerJob row 갱신(1차 inline 동기 평가 모드 + cron은 post-MVP backlog §55) + §6 Kafka `screener.result.v1` row deprecated 표기(v3.6.3 동기 inline 채택, 비동기 모드 backlog §52) + §12 후속 예정 0059 Screener 표준 → ADR 0071 흡수 closed. 8 의제 LOCK A-1~H-1 — A-1 동기 inline + Redis cache · B-1 instrument 영속 + 필터 매트릭스 · C-1 strategy-eval-pool reuse + universe screening timeout 500ms · D-1 cache-only + D-2 옵션 영속 env toggle · E-1 multi-criteria 4기준 fixed weights · F-1 REST 3 endpoint Swagger 4단 · G-1 candle 결손 graceful skip + skippedReasons · H-1 Strategy Builder 합류 + ScreenerResultModal. Phase 분리 LOCK 3 PR 직렬(strategy-engine Phase 1 domain+consumer → backend-core Phase 2 api+Redis+옵션 Flyway V28 → frontend Phase 3 Strategy Builder 합류). universe=instrument 영속 reuse + candle=영속 reuse → **KIS endpoint 호출 0 LOCK** + AI 호출 0 grep 검증 + mock 합성 0. Flyway V28(screening_run + screening_match, env toggle MAGICJAR_SCREENER_PERSIST=true). Kafka 신규 0. STOMP 신규 0. REST 3 endpoint Swagger 4단(POST evaluate + GET runs list + GET runs detail). 사용자 비전 정합 = Strategy Builder "전략으로 종목 찾기" 흐름 단절 회복 + Watchlist 일괄 등록 합류. spec 본문: `_workspace/specs/pr-393-t-sc-spec.md`. ADR README §6 9→10건 + §12 후속 예정 0059 closed + §11 후속 ADR 번호 0072로 시프트. tracks-roadmap §2 T-SC row 갱신(ADR 0071 Accepted + 산출물 매트릭스 prepend) + §3 T-SC outline §15 변경 이력 row 추가. backlog §52~§58 예정 신규 등록(Screener 비동기 모드 + `/screener` 단독 페이지 + 사용자 custom 랭킹 가중치 + DailyScreenerJob cron + Watchlist bulk POST endpoint + Screener AI 해석 + screening_match retention). 사용자 자율 최종권한 위임 정합 (2026-05-13 "W3 진행해서 마무리까지하자 W4 진입까지 자율"). v3.6.0 T-O + v3.6.2 T-RECON·T-NOTIFY 마감 후 종목 발굴 자동화 단일 사이클 v3.6.3 patch. CHANGELOG slot 3 anchor(architect + strategy-engine + backend-core + frontend — Phase별 in-place edit). (architect) |
 | 2026-05-13 (ADR 0070) | **ADR 0070 T-RECON + T-NOTIFY 묶음 spec/plan 신규 발행 정합** — §10 인덱스 0070 row 추가 + §10 헤더 카운트 갱신(`0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069·0070 Accepted + 0064 Proposed`) + §10 후속 예정에 0070 row 추가 + §6 Kafka topic 매트릭스 갱신(`position.drift.v1` → **`reconcile.drift.v1`** 명명 갱신 + **`reconcile.run.v1`** 신규 publish 7d + **`killswitch.engaged.v1`** 신규 publish 30d + `position.reconciled.v1` row deprecated). ADR 0041·0044 baseline reuse + 정밀 명세 §1~§15. Phase 분리 LOCK 3 PR 직렬(T-RECON Phase 1 strategy-engine → Phase 2 backend-core → T-NOTIFY Phase 1 backend-core). KIS-first raw 4건(TTTC8434R·VTTC8434R + CTRP6548R + H0STCNI0 cross-ref). Flyway V25·V26·V27. REST 3 endpoint. frontend 0 LOCK. 자본 보호 흐름 LOCK(drift → KillSwitch ON → Slack P0 → STOMP). spec 본문: `_workspace/specs/pr-392-recon-notify-spec.md`. ADR README §10-1·§10-2 row에 "ADR 0070 묶음 spec 정밀화" 표기 + §11 후속 ADR 번호 0071로 시프트. tracks-roadmap T-RECON·T-NOTIFY outline에 ADR 0070 산출물 매트릭스 prepend + §8 변경 이력 row. backlog §46~§51 신규 등록 (Risk timeline UI + drift 임계치 사용자 설정화 + MarketSessionFsm cron skip + user별 webhook 분리 + Discord/Email/SMS 보조 채널 + ADR 0045 startup/shutdown publish 합류). 사용자 자율 최종권한 위임 정합 (2026-05-13 "W3 진행해서 마무리까지하자 W4 진입까지 자율"). v3.6.0 T-O 마감 후 자본 보호 prereq 단일 사이클 v3.6.2 patch. (architect) |
 | 2026-05-13 (ADR 0069) | **SettingsModal vs SetupWizard 책임 분리 ADR 0069 신규 발행 정합** — §10 인덱스 0069 row 추가 + §10 헤더 카운트 갱신(`0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069 Accepted + 0064 Proposed`) + §3-1 부수 흐름 Onboarding Setup row에 SettingsModal 통합 명시(`ADR 0046 + 0069`) + tracks-roadmap T-ONBOARD outline에 ADR 0069 산출물 매트릭스 prepend(SetupWizard·SettingsModal·forms 6 공통 컴포넌트). README §10-2 운영·UX Fitness 갭 3→4건 + README §11 후속 ADR 번호 0070으로 시프트. dogfooding 결함 응답 — RealTradingConsentToggle UI 접근 가능 path 확보 → T-O 자본 보호 검증 케이스 1·2·3 unblock. ADR 0046 supersede X — reuse + 보강. KIS-first raw 인용 0건(UI 책임 분리 영역). (architect) |
 | 2026-05-03 (v1) | 1차안 (architect, opus 4.7 1M) — "AI quant trading platform" 가정. 사용자 비전 정정으로 폐기. |
