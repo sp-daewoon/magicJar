@@ -16,7 +16,8 @@ import org.springframework.test.web.servlet.get
  * OnboardingController 슬라이스 테스트 (spec §8-1 smoke 1건, 룰 4 정합).
  * DB 없이 @MockBean으로 검증.
  *
- * 검증: 빈 DB 상태 → GET /api/onboarding/status → hasUserAccount=false
+ * 검증 1: 빈 DB 상태 → GET /api/onboarding/status → hasUserAccount=false, userId=null
+ * 검증 2: 계좌 등록 상태 → GET /api/onboarding/status → hasUserAccount=true, userId="74683223"
  */
 @WebMvcTest(
     controllers = [kr.spdaewoon.magicjar.api.controller.OnboardingController::class],
@@ -36,7 +37,7 @@ class OnboardingControllerTest {
     lateinit var userAccountJpaRepository: UserAccountJpaRepository
 
     @Test
-    fun `GET status should return hasUserAccount=false when no account registered`() {
+    fun `GET status should return hasUserAccount=false and userId=null when no account registered`() {
         // given: 빈 DB 상태
         whenever(userAccountJpaRepository.existsAny()).thenReturn(false)
         whenever(onboardingService.getStatus()).thenReturn(
@@ -45,6 +46,7 @@ class OnboardingControllerTest {
                 hasMockAccount = false,
                 hasDartKey = false,
                 hasSlackWebhook = false,
+                userId = null,
             ),
         )
 
@@ -57,6 +59,31 @@ class OnboardingControllerTest {
                 jsonPath("$.hasMockAccount") { value(false) }
                 jsonPath("$.hasDartKey") { value(false) }
                 jsonPath("$.hasSlackWebhook") { value(false) }
+                jsonPath("$.userId") { value(null as String?) }
+            }
+    }
+
+    @Test
+    fun `GET status should return userId when account registered`() {
+        // given: 계좌 등록 상태
+        whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
+        whenever(onboardingService.getStatus()).thenReturn(
+            OnboardingStatus(
+                hasUserAccount = true,
+                hasMockAccount = false,
+                hasDartKey = false,
+                hasSlackWebhook = false,
+                userId = "74683223",
+            ),
+        )
+
+        // when & then
+        mockMvc
+            .get("/api/onboarding/status")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$.hasUserAccount") { value(true) }
+                jsonPath("$.userId") { value("74683223") }
             }
     }
 }
