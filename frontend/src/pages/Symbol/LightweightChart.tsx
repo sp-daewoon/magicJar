@@ -220,10 +220,15 @@ export function LightweightChart({
     setTooltip((prev) => ({ ...prev, visible: false }))
   }, [])
 
+  // dispose 플래그 — cleanup 후 async callback에서 stale 참조 방지
+  const isDisposedRef = useRef(false)
+
   // 차트 생성 (마운트 1회)
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
+
+    isDisposedRef.current = false
 
     const chart = createChart(container, {
       width: container.clientWidth,
@@ -297,6 +302,9 @@ export function LightweightChart({
 
     // crosshair 이동 → hover 툴팁 업데이트
     chart.subscribeCrosshairMove((param: MouseEventParams) => {
+      // chart가 dispose된 후 실행되는 async callback 방지
+      if (isDisposedRef.current) return
+
       if (
         !param.time ||
         !param.point ||
@@ -357,20 +365,35 @@ export function LightweightChart({
 
     // 반응형 리사이즈
     const resizeObserver = new ResizeObserver((entries) => {
+      if (isDisposedRef.current) return
       for (const entry of entries) {
-        chart.applyOptions({ width: entry.contentRect.width })
+        try {
+          chart.applyOptions({ width: entry.contentRect.width })
+        } catch {
+          // 이미 dispose된 경우 무시
+        }
       }
     })
     resizeObserver.observe(container)
 
     return () => {
+      // dispose 플래그를 먼저 세워 async callback(crosshair/scroll)이 stale 인스턴스에 접근 차단
+      isDisposedRef.current = true
       resizeObserver.disconnect()
-      onCandleSeriesDestroyRef.current?.()
-      onChartDestroyRef.current?.()
-      chart.remove()
-      chartRef.current = null
+      // series ref를 먼저 null 처리 — IndicatorOverlay cleanup이 removeSeries 호출 전에
+      // chartRef.current가 유효하더라도 이미 dispose 예정임을 알 수 있도록 순서 보장
       candleSeriesRef.current = null
       volumeSeriesRef.current = null
+      // 콜백 알림 (IndicatorOverlay·PatternMarker가 ref 정리 가능하도록)
+      onCandleSeriesDestroyRef.current?.()
+      onChartDestroyRef.current?.()
+      // chart.remove() — try/catch: 이미 dispose된 경우 graceful 무시
+      try {
+        chart.remove()
+      } catch {
+        // 이미 dispose된 경우 무시
+      }
+      chartRef.current = null
     }
   }, [hideTooltip])
 

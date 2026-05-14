@@ -157,6 +157,23 @@ export interface OrderbookPayload {
 }
 
 // ──────────────────────────────────────────────
+// 캔들 갱신 API 응답 DTO
+// ──────────────────────────────────────────────
+
+/**
+ * POST /api/symbols/{code}/candles/refresh 응답
+ * market-data sub-agent 발행 endpoint (병렬 개발 중)
+ */
+export interface CandleRefreshResponseDto {
+  code: string
+  intervals: string[]
+  /** 새로 추가된 캔들 수 (합산) */
+  added: number
+  /** 갱신 완료 시각 (ISO 8601) */
+  refreshedAt: string
+}
+
+// ──────────────────────────────────────────────
 // axios API 함수
 // ──────────────────────────────────────────────
 
@@ -214,6 +231,25 @@ export const symbolApi = {
     const res = await apiClient.post<OrderbookUnsubscribeResponseDto>(
       `/symbols/${encodeURIComponent(code)}/orderbook/unsubscribe`,
     )
+    return res.data
+  },
+
+  /**
+   * POST /api/symbols/{code}/candles/refresh?intervals=1d,1wk,1mo,1y
+   * KIS에서 최신 캔들을 재수집 후 DB에 적재.
+   * intervals 미지정 시 backend default (1d·1wk·1mo·1y).
+   */
+  refreshCandles: async (
+    code: string,
+    intervals?: string[],
+  ): Promise<CandleRefreshResponseDto> => {
+    const params = intervals?.length
+      ? new URLSearchParams({ intervals: intervals.join(',') })
+      : undefined
+    const url = params
+      ? `/symbols/${encodeURIComponent(code)}/candles/refresh?${params.toString()}`
+      : `/symbols/${encodeURIComponent(code)}/candles/refresh`
+    const res = await apiClient.post<CandleRefreshResponseDto>(url)
     return res.data
   },
 }
