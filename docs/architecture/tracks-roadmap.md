@@ -43,8 +43,8 @@
 | T-O ★ | **Order Execution (Risk ALLOWED → KIS REST 매수·매도 + WS H0STCNI0 체결 추적 + 사용자 수동 정정/취소 + 3 테이블 영속 + STOMP 4 event + 멱등성 Redis SETNX + 실계좌 3중 게이트) + KillSwitch 재검증 (ADR 0024·0043) + idempotency (ADR 0045) — ADR 0068 plan 발행 (2026-05-12, 사용자 결정 대기)** | §C.12 | OrderRouterKafkaListener(order.intent.v1 listen) → OrderIdempotencyGuard(Redis SETNX 60s) → TradingModeGate(env × 2 + 사용자 동의 토글 3중) → KillSwitch 재검증 → order_request INSERT → KisOrderHttpAdapter(TTTC0012U/VTTC0012U 매수 · TTTC0011U/VTTC0011U 매도) → KIS 응답 ACK or REJECT → KisExecutionWsListener(H0STCNI0/H0STCNI9 체결통보) → order_execution INSERT(분할 체결 1:N) → PositionUpdatePort 적용 → STOMP `/topic/order.user.{userId}` 4 event(REQUESTED·FILLED·REJECTED·CANCELLED) + order_audit_event 시계열 + REST 4 endpoint(GET orders list·single·POST cancel + PUT consent) + SettingsModal 동의 토글 + KIS-first raw 인용 4건(TTTC0012U·TTTC0011U·TTTC0013U·H0STCNI0) | **T-RISK (ADR 0067 Accepted)** · T-W2 · T-SIG | T-RECON · T-NOTIFY · T-J · T-PERF | **W3 ★ (네 번째 트랙)** | L (Phase 1 strategy-engine consumer+domain + Phase 2 backend-core api+Flyway V20~V23 + Phase 3 frontend `/orders` 직렬) | strategy-engine + backend-core + frontend |
 | **T-RECON** ★ | **Broker Reconciliation (ADR 0041 + 0070 묶음 spec) — v3.6.2 patch 사이클 (Accepted 2026-05-13)** | §C.12·§3-1 부수 | KIS 잔고 cron 폴링(시장 OPEN 5분 + CLOSED 1시간 + manual) + 페이징 흡수(50건/요청 실전·20건 모의) + diff 검출(수량 ≥ 1주·평균단가 ≥ 0.5%·종목 누락) + DB position upsert + Redis position:current SET + Kafka reconcile.drift.v1 + KillSwitchAutoToggler → kill_switch_state.enabled=true + killswitch.engaged.v1 publish + STOMP /topic/recon.user.{userId} 4 event + REST 3 endpoint(manual trigger + runs list + run detail) Swagger 4단 + KIS-first raw 4건(TTTC8434R·VTTC8434R + CTRP6548R + H0STCNI0 cross-ref) | T-O (ADR 0068 Accepted) | T-NOTIFY | **W3 ★ (다섯 번째 트랙, v3.6.2 patch)** | M (Phase 1 strategy-engine + Phase 2 backend-core 직렬) | strategy-engine + backend-core |
 | **T-NOTIFY** ★ | **Notification System (ADR 0044 + 0070 묶음 spec) — v3.6.2 patch 사이클 (Accepted 2026-05-13)** | §3-1 부수 | NotificationDispatcher (consumer 7 @KafkaListener — order.filled/rejected/cancelled.v1 + risk.violation.v1 + reconcile.drift.v1 + killswitch.engaged.v1 + kis.ws.disconnected.v1 graceful skip) + SlackWebhookSender(JDK HttpClient + Resilience4j retry 3회 1s·2s·4s) + NotificationFormatter(한국어 5필드) + NotificationRateLimiter(Redis ZSET 60분 P1 슬라이딩 윈도) + NotificationOutboxRetryWorker(@Scheduled 5분 PENDING 재시도) + Flyway V27(notification_outbox + system_config.notification_slack_webhook BYTEA ALTER) + REST 0 LOCK + frontend 0 LOCK | T-RISK·T-O·T-RECON Phase 2 머지 후 | - | **W3 ★ (여섯 번째 트랙, v3.6.2 patch)** | M (Phase 1 backend-core 단독) | backend-core |
-| T-J | Trading Journal | §D.16 | 모든 주문·체결·시그널·차트 스냅샷 영속 + 사용자 메모 | T-O | T-PERF | W3 | M | backend-core+frontend |
-| T-PERF | Performance Loop (오프라인 통계) | §C.14 | 일/주 P&L·MDD·승률 | T-J·T-SIG·T-RISK | W4 | W3 | M | backend-core |
+| **T-J** ★ | **Trading Journal (ADR 0072 묶음 spec — W3 마지막 사이클, Accepted 2026-05-14)** | §D.16 | trading_journal 영속 (Flyway V29 IF NOT EXISTS + 멱등성 UQ source_table+source_id+event_type) + journal_note 1:N (사용자 메모) + JournalEventConsumer 5 Kafka listen 자동 INSERT (order.filled.v1+signal.generated.v1+risk.violation.v1+reconcile.drift.v1+position.updated.v1) + JournalSummaryComposer 한국어 합성 + REST 3 endpoint Swagger 4단(GET /journal/entries 페이징+필터 · GET /journal/entries/{id} · POST /journal/notes) + KIS endpoint 호출 0 LOCK + AI 호출 0 + mock 합성 0 | T-SIG·T-RISK·T-O·T-RECON (모두 영속 baseline) | T-PERF · W4 AI 합류 | **W3 ★ (마지막 사이클, v3.6.4 patch)** | M (Phase 1 backend-core 직렬) | backend-core+frontend |
+| **T-PERF** ★ | **Performance Loop (ADR 0072 묶음 spec — W3 마지막 사이클, Accepted 2026-05-14)** | §C.14 | 5 지표 fixed(총 P&L · 일별 P&L · MDD · 승률 · 평균 손익비) + Flyway V30(performance_summary + pnl_daily IF NOT EXISTS) + batch DailyPerformanceJob 매일 00:30 KST cron (T-2 영업일 일괄 집계 + 5 period UPSERT DAY·WEEK·MONTH·YEAR·ALL) + inline aggregate fallback (today period 한정) + Redis cache TTL 1h(perf:summary·perf:equity) + PerformanceCalculator pure math MDD 알고리즘 NUMERIC(8,4) + REST 2 endpoint Swagger 4단(GET /performance/summary · GET /performance/equity-curve) + Sharpe·Sortino·CAGR backlog §61(post-MVP) + AI 호출 0 LOCK | T-J·T-SIG·T-RISK·T-O (모두 영속 baseline) | W4 AI 합류 | **W3 ★ (마지막 사이클, v3.6.4 patch)** | M (Phase 2 backend-core 직렬) | backend-core+frontend |
 | T-LWC | LWC 확장 + 자체 도형/주석/패턴 | §D.17 | TradingView Advanced 의존 0 + 자체 overlay layer | T-PAT·T-SIG | - | W5 | M | frontend |
 | T-AI | AI Option Console (W4) | §D.18 | 사용자 트리거 LLM 호출 — 종목 코멘트·기업 분석·차트 해석·지표 의미 | W3 완료 | T-MCP | W4 | L | ai-engineer+frontend |
 | T-MCP | MCP Server expose (W4) | §D.19 | magicJar MCP server + tool 5종 | T-AI | - | W4 | M | architect+backend-core |
@@ -338,20 +338,50 @@
   - **단위 테스트** — ~18건 (Dispatcher 7 + Slack 5 + Formatter 7 + Retry 3 일부 중복 제외)
 - **비범위**: 이메일·SMS·푸시 채널 (post-MVP — backlog §50), user별 webhook 분리 (post-MVP — backlog §49 + 후속 ADR 0072), 통지 정책 사용자 설정화 (post-MVP — 후속 ADR 0073), ADR 0045 system.startup.v1·system.shutdown.v1 본격 publish (backlog §51 — Graceful Shutdown 트랙 진입 시)
 
-### T-PERF — Performance Loop (오프라인 통계 + Journal Auto-screenshot)
+### T-J — Trading Journal (W3 마지막 사이클 — ADR 0072 Accepted 2026-05-14, v3.6.4 patch)
 
-- **마스터 §위치**: §C.14·§D.15
-- **목표**: 일/주 단위 P&L·MDD·승률 통계 + 매매일지 자동 차트 스냅샷. **AI 복기는 W4 옵션 분리**
-- **선행/후행**: T-SIG·T-RISK / W4
-- **오프라인 동작**: 필수 (영속 데이터만)
-- **KIS 흡수**: 없음
-- **ADR**: T-PERF 진입 시 발행 (0051 후보 — Performance 표준, README §12 정합)
-- **데이터**: `pnl_daily` (V18) · `chart_snapshot` 영속 강화. Kafka `journal.recorded.v1`
-- **산출물**:
-  - `batch/.../job/perf/DailyPerformanceJob.kt` (오프라인 통계만)
-  - `consumer/.../messaging/listener/JournalScreenshotTriggerListener.kt`
-  - `frontend/src/pages/Journal/index.tsx` (성과 + 자동 스냅샷)
-- **비범위**: AI 복기·튠 제안 (W4 트랙 T-AI에서)
+- **마스터 §위치**: §D.16 (ADR 0072 정밀 명세 정합)
+- **목표**: order·signal·risk·reconcile·position 5 Kafka 이벤트 통합 시계열 영속 + 사용자 메모 합류 + REST 3 endpoint Swagger 4단
+- **선행/후행**: T-SIG·T-RISK·T-O·T-RECON (모두 영속 baseline) / T-PERF · W4 AI 합류
+- **오프라인 동작**: 필수 (영속 only, **KIS endpoint 호출 0 LOCK**, AI 호출 0 + mock 합성 0)
+- **KIS 흡수**: 없음 — 모든 데이터 영속 reuse(order_request·order_execution·signal·risk_event·reconcile_run·position 5 baseline)
+- **ADR**: **0072 Accepted 2026-05-14** (8 의제 A-1~H-1 LOCK) + 0012(매매일지 baseline) + 0066·0067·0068·0070(영속 reuse)
+- **데이터**:
+  - DB — Flyway V29 (`trading_journal` + `journal_note` IF NOT EXISTS + 멱등성 UQ `ux_trading_journal_source(source_table+source_id+event_type)`)
+  - Kafka — listen 5 (order.filled.v1·signal.generated.v1·risk.violation.v1·reconcile.drift.v1·position.updated.v1) — publish 0 LOCK
+  - Redis — 옵션 분산락 `journal:lock:{userId}:{eventKey}` (backend-core 자율, DB UQ로 충분 시 생략)
+  - STOMP — 신규 0 LOCK (polling)
+- **산출물 핵심** (ADR 0072 §9-2 Phase 1 LOCK — `_workspace/specs/pr-402-t-j-perf-spec.md`):
+  - **Phase 1 backend-core (api 영역 단일)**: `domain/.../journal/{TradingJournalEntry,JournalNote,JournalEventType}.kt` + port 1(`TradingJournalRepository` 헌법 §6 abstract LOCK) + `api/db/migration/V29__trading_journal_and_note.sql` + JPA 어댑터 5건 + `api/.../messaging/JournalEventConsumer.kt`(5 @KafkaListener) + `JournalSummaryComposer.kt`(한국어 합성) + `TradingJournalService.kt` + `TradingJournalController.kt`(REST 3 endpoint Swagger 4단 한국어 + example) + DTO 3건 + 단위 테스트 ~15건
+- **비범위** (post-MVP backlog로 미룸):
+  - chart_snapshot 자동 영속 (LWC v4 export to image, backlog §60)
+  - journal.recorded.v1 STOMP push (post-MVP, backlog §59)
+  - AI 회고 코멘트 ("이 매매 복기해줘" — W4 AiCommentProvider, backlog §62)
+  - journal entry soft delete 정책 (backlog §63)
+  - 종목별 회고 view `/journal/{code}` (backlog §64)
+  - 전략별 회고 view `/journal/strategy/{id}` (backlog §65)
+
+### T-PERF — Performance Loop (W3 마지막 사이클 — ADR 0072 Accepted 2026-05-14, v3.6.4 patch)
+
+- **마스터 §위치**: §C.14 (ADR 0072 정밀 명세 정합)
+- **목표**: 5 지표 fixed(총 P&L · 일별 P&L · MDD · 승률 · 평균 손익비) + batch DailyPerformanceJob 매일 00:30 KST cron + inline aggregate fallback + Redis cache TTL 1h + REST 2 endpoint Swagger 4단. **AI 복기는 W4 옵션 분리 (backlog §62)**
+- **선행/후행**: T-J·T-SIG·T-RISK·T-O (모두 영속 baseline) / W4 AI 합류
+- **오프라인 동작**: 필수 (영속 데이터만, KIS endpoint 호출 0 LOCK, AI 호출 0)
+- **KIS 흡수**: 없음 — pnl_daily aggregate + performance_summary pure math
+- **ADR**: **0072 Accepted 2026-05-14** + 0012 baseline cross-ref
+- **데이터**:
+  - DB — Flyway V30 (`performance_summary` + `pnl_daily` IF NOT EXISTS + UQ user_id·trade_date)
+  - Redis — `perf:summary:{userId}:{period}:{periodStart}:{periodEnd}` TTL 1h + `perf:equity:{userId}:{from}:{to}` TTL 1h + invalidation pattern (pnl_daily INSERT 시 SCAN+DEL)
+  - Kafka — 신규 0 LOCK (publish + listen 모두 0)
+  - STOMP — 신규 0 LOCK (polling)
+- **산출물 핵심** (ADR 0072 §9-3 Phase 2 LOCK):
+  - **Phase 2 backend-core (api + batch 영역)**: `domain/.../performance/{PerformanceSummary,EquityPoint,PnlDaily}.kt` + port 2(`PerformanceRepository`·`PerformanceCalculator` 헌법 §6 abstract LOCK) + `api/db/migration/V30__performance_summary_and_pnl_daily.sql` + JPA 어댑터 5건 + `RedisPerformanceCacheAdapter.kt`(TTL 1h + invalidation) + `PerformanceService.kt`(분산락 분리 0 + 캐시 lookup + inline fallback + 5 period default) + `PerformanceCalculatorImpl.kt`(pure math MDD 알고리즘 NUMERIC(8,4)) + `PerformanceController.kt`(REST 2 endpoint Swagger 4단) + DTO 3건 + `batch/.../job/performance/DailyPerformanceJob.kt`(매일 00:30 KST cron + T-2 영업일 일괄) + 단위 테스트 ~22건
+  - **Phase 3 frontend**: `/performance` 페이지 + 5 카드 컴포넌트 + LWC v4 equity curve + daily P&L bar chart (T-J Phase 3와 동일 PR 동반 — frontend 단일 PR)
+- **비범위** (post-MVP backlog로 미룸):
+  - Sharpe·Sortino·CAGR·Calmar 정밀 지표 (backlog §61)
+  - performance_summary 시계열 mini-chart (backlog §66)
+  - RFR(Risk-Free Rate) 정책 결정 (Sharpe·Sortino 합산 prereq, backlog §67)
+  - AI 복기·튠 제안 (W4 T-AI 옵션 — backlog §62)
 
 ### T-LWC — LWC 확장 + 자체 도형/주석/패턴 시각화 (TradingView Advanced 폐기)
 
@@ -557,6 +587,7 @@ W4는 W3 완료 후 진입. W5는 옵션 (T-LWC는 W3와 병렬 가능).
 
 | 날짜 | 변경 |
 |---|---|
+| 2026-05-14 (ADR 0072) | **ADR 0072 T-J + T-PERF 묶음 spec/plan 발행 정합 (W3 마지막 사이클 — v3.6.4 patch)** — §2 T-J·T-PERF row 격상 (id ★ 마킹 + 목표 한 줄 정밀화 + 선행/후행 + Wave/사이즈/담당). §3 T-J outline 신설 (마스터 §D.16 ADR 0072 정합 + Flyway V29 trading_journal+journal_note + 멱등성 UQ + JournalEventConsumer 5 Kafka listen + JournalSummaryComposer 한국어 + REST 3 endpoint Swagger 4단 + KIS endpoint 호출 0 LOCK + AI 호출 0 + mock 합성 0). §3 T-PERF outline 풀 보강 (마스터 §C.14 ADR 0072 정합 + 5 지표 fixed + Flyway V30 performance_summary+pnl_daily + batch DailyPerformanceJob 매일 00:30 KST cron + inline aggregate fallback + Redis cache TTL 1h + PerformanceCalculator pure math MDD 알고리즘 NUMERIC(8,4) + REST 2 endpoint Swagger 4단 + Sharpe·Sortino·CAGR backlog §61). Phase 분리 LOCK 3 PR 직렬(backend-core T-J Phase 1: domain+Flyway V29+JournalEventConsumer 5 Kafka listen+REST 3 + 단위 테스트 ~15건 → backend-core T-PERF Phase 2: domain+Flyway V30+batch DailyPerformanceJob+REST 2+Redis cache+PerformanceCalculator + 단위 테스트 ~22건 → frontend Phase 3: `/journal`+`/performance` 2 페이지+AppHeader 메뉴 2 추가+LWC v4 equity curve+daily P&L bar chart + 단위 테스트 ~8건). 비범위 9건 backlog §59~§67 명시(STOMP push·chart_snapshot 영속 강화·Sharpe·Sortino·CAGR 풀세트·W4 AI 회고 코멘트·soft delete·종목별 view·전략별 view·summary 시계열 mini-chart·RFR 정책). 트랙 신설 0건 (기존 T-J·T-PERF 정밀 명세 보강만). v3.6.4 patch 사이클 (W3 마지막 사이클). 사용자 자율 최종권한 위임 정합 (2026-05-13 "W3 진행해서 마무리까지하자 W4 진입까지 자율"). (architect, opus 4.7 1M) |
 | 2026-05-14 (ADR 0071) | **ADR 0071 T-SC Screener spec/plan 발행 정합** — §2 T-SC row 갱신 (id ★ 마킹 + 목표 한 줄 정밀화 + 선행/후행 + Wave/사이즈/담당). §3 T-SC outline 풀 보강 (마스터 §C.10 ADR 0071 정합 + Redis cache 30m + 옵션 영속 Flyway V28(env toggle) + multi-criteria 4 기준 fixed weights + skip 매트릭스 + Strategy Builder 합류 + KIS endpoint 호출 0 LOCK + AI 호출 0 + mock 합성 0). Phase 분리 LOCK 3 PR 직렬(strategy-engine Phase 1 domain+consumer 단위 테스트 ~12건 + backend-core Phase 2 api+Redis+옵션 Flyway V28 + DTO 6건 + REST 3 endpoint Swagger 4단 + 단위 테스트 ~12건 + frontend Phase 3 Strategy Builder 합류 + 모달 + 단위 테스트 ~7건). 비범위 7건 backlog §52~§58 명시(비동기 모드·단독 페이지·사용자 custom 랭킹·DailyScreenerJob cron·AI 해석·Watchlist bulk endpoint·screening_match retention). 트랙 신설 0건 (기존 T-SC 정밀 명세 보강만). v3.6.3 patch 사이클 (W3 다섯 번째 트랙). 사용자 자율 최종권한 위임 정합 (2026-05-13 "W3 진행해서 마무리까지하자 W4 진입까지 자율"). (architect, opus 4.7 1M) |
 | 2026-05-13 (ADR 0070) | **ADR 0070 T-RECON + T-NOTIFY 묶음 spec/plan 발행 정합** — §3 T-RECON outline 갱신 (ADR 0041 → 0041 + 0070 cross-ref · Flyway V22 → V25·V26 시프트 · 산출물 매트릭스 Phase 1 strategy-engine + Phase 2 backend-core 분리 LOCK · KIS-first raw 4건 명시 TTTC8434R·VTTC8434R + CTRP6548R + H0STCNI0 cross-ref). §3 T-NOTIFY outline 갱신 (ADR 0044 → 0044 + 0070 cross-ref · Flyway V24 → V27 시프트 + system_config.notification_slack_webhook BYTEA ALTER 통합 · 산출물 매트릭스 Phase 1 backend-core 단독 · domain 5 port·consumer 5 component·persistence 2 + REST 0 LOCK · frontend 0 LOCK · 단위 테스트 ~18건). 트랙 신설 0건 (기존 T-RECON·T-NOTIFY 정밀 명세 보강만). v3.6.2 patch 사이클 (W3 마무리 prereq). 사용자 자율 최종권한 위임 정합 (2026-05-13 "W3 진행해서 마무리까지하자 W4 진입까지 자율"). (architect, opus 4.7 1M) |
 | 2026-05-13 (ADR 0069) | **SettingsModal vs SetupWizard 책임 분리 ADR 0069 발행 정합** — §3 T-ONBOARD outline ADR 갱신 (0046 → 0046 + 0069 + 0068 §16-4 cross-ref 추가) + 산출물 매트릭스 보강 (SetupWizard.tsx 책임 분리 명시 + SettingsModal.tsx 1차 scope 3 section 명시 + forms/ 6 공통 컴포넌트 prepend — KisCredentialForm·SecretKeyInput·SettingsSection·ConfirmDangerToggle·SystemConfigForm) + 비범위 보강 (ADR 0069 backlog §A·§C·§E·§F 후속 명시 — KIS MOCK DELETE·마스터 키 회전·OpenAI/Naver 키). dogfooding 결함 응답 (RealTradingConsentToggle UI 접근 가능 path 확보 → T-O 자본 보호 검증 케이스 1·2·3 unblock). 트랙 신설 0건, T-ONBOARD outline 보강만. (architect, opus 4.7 1M) |
