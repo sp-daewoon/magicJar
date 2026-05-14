@@ -6,6 +6,7 @@
  * - 팔레트에서 블록 선택 → DSL 미리보기 갱신
  * - 검증 버튼 흐름 (MSW mock)
  * - 모바일 안내 메시지 (768px)
+ * - T-SC Phase 3: "이 전략으로 종목 찾기" 버튼 — strategyId 없을 때 미표시
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, fireEvent } from '@testing-library/react'
@@ -86,5 +87,11 @@ describe('StrategyBuilderPage', () => {
     render(<StrategyBuilderPage />, { wrapper: Wrapper })
     const saveBtn = screen.getByText('저장')
     expect(saveBtn).toBeDisabled()
+  })
+
+  it('T-SC Phase 3 — 전략 미저장 상태에서 "이 전략으로 종목 찾기" 버튼 미표시', () => {
+    render(<StrategyBuilderPage />, { wrapper: Wrapper })
+    // strategyId가 없으면 버튼이 렌더되지 않아야 함 (ADR 0071 §8 H-1)
+    expect(screen.queryByText('이 전략으로 종목 찾기')).not.toBeInTheDocument()
   })
 })

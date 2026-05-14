@@ -12,6 +12,7 @@
  *   3. "저장" → StrategySaveModal → POST /api/strategy → strategyId 획득
  *   4. "평가" → POST /api/strategy/{id}/evaluate → EvaluationResultCard 표시
  *   5. "관심종목 추가" → POST /api/watchlist
+ *   6. "이 전략으로 종목 찾기" → ScreenerResultModal → T-SC Phase 3 (ADR 0071 §8 H-1)
  *
  * ADR 0040 §1 라우팅 /strategy/builder 진입점
  * DoD #26 반응형 — 768px 이하 안내 메시지 (mobile 후속 PR)
@@ -32,6 +33,8 @@ import { kisYamlExport, kisYamlImport } from '../../lib/dsl/yaml'
 import { useStrategyValidate, useStrategyEvaluate } from '../../api/hooks/useStrategy'
 import type { StrategyComplexityDto, EvaluateResponse } from '../../api/strategy'
 import { parseDslText } from '../../lib/dsl/parser'
+import { ScreenerResultModal } from '../../features/screener/components/ScreenerResultModal'
+import { useOnboardingStore } from '../../stores/onboarding'
 
 // 평가 폼 상태
 interface EvaluateForm {
@@ -54,6 +57,11 @@ export function StrategyBuilderPage() {
   const [showDslEditor, setShowDslEditor] = useState(false)
   const [dslEditorTab, setDslEditorTab] = useState<'entry' | 'exit'>('entry')
   const [validateError, setValidateError] = useState<string | null>(null)
+  // T-SC Phase 3 — 종목 찾기 모달 (ADR 0071 §8 H-1)
+  const [showScreener, setShowScreener] = useState(false)
+
+  // userId: onboarding store (feedback_no_mock_data 정합)
+  const registeredUserId = useOnboardingStore((s) => s.registeredUserId)
 
   const { mutate: validateMutate, isPending: isValidating } = useStrategyValidate()
   const { mutate: evaluateMutate, isPending: isEvaluating } = useStrategyEvaluate()
@@ -295,6 +303,18 @@ export function StrategyBuilderPage() {
             <EvaluationEmptyCard />
           ) : null}
 
+          {/* T-SC Phase 3 — 이 전략으로 종목 찾기 (ADR 0071 §8 H-1) */}
+          {strategyId && (
+            <button
+              type="button"
+              onClick={() => setShowScreener(true)}
+              className="w-full rounded-xl bg-indigo-700 py-2.5 text-sm font-semibold text-white hover:bg-indigo-600 active:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-50"
+              aria-label="이 전략으로 종목 찾기"
+            >
+              이 전략으로 종목 찾기
+            </button>
+          )}
+
           {/* 저장된 전략 정보 */}
           {strategyId && (
             <div className="rounded-lg bg-gray-900 p-3 text-xs text-gray-500">
@@ -341,6 +361,15 @@ export function StrategyBuilderPage() {
             />
           </div>
         </div>
+      )}
+
+      {/* T-SC Phase 3 — 종목 찾기 모달 (ADR 0071 §8) */}
+      {showScreener && strategyId && (
+        <ScreenerResultModal
+          strategyId={parseInt(strategyId, 10)}
+          userId={registeredUserId !== null ? parseInt(registeredUserId, 10) : null}
+          onClose={() => setShowScreener(false)}
+        />
       )}
 
       {/* 토스트 알림 */}
