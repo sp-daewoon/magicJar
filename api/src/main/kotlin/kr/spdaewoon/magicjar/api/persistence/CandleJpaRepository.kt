@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
+import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
 
 /**
@@ -88,8 +89,11 @@ interface CandleJpaRepository : JpaRepository<CandleJpaEntity, Long> {
     /**
      * 단건 idempotent INSERT (ON CONFLICT DO NOTHING).
      * batch INSERT가 필요하면 saveAll + flush 패턴 사용.
+     * @Transactional 필수 — @Modifying native query는 활성 트랜잭션 없이 실행 불가
+     * ("Executing an update/delete query" 결함 방지, hotfix).
      */
-    @Modifying
+    @Transactional
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(
         nativeQuery = true,
         value = """
