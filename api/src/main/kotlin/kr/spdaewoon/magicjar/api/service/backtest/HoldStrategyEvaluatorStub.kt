@@ -38,4 +38,19 @@ class HoldStrategyEvaluatorStub : StrategyEvaluatorPort {
             evalTimeMs = 0L,
         )
     }
+
+    override fun evaluate(
+        strategyId: Long,
+        ast: DslNode,
+        candles: List<Candle>,
+    ): StrategyEvalResult {
+        log.debug("HoldStrategyEvaluatorStub.evaluate — strategyId={}, candleSize={}", strategyId, candles.size)
+        return StrategyEvalResult(
+            signal = Signal.HOLD,
+            strength = BigDecimal.ZERO,
+            reason = mapOf("trigger" to "STUB_HOLD", "note" to "consumer 모듈 없음 — api 단독 테스트 환경"),
+            evaluatedAt = Clock.System.now(),
+            evalTimeMs = 0L,
+        )
+    }
 }

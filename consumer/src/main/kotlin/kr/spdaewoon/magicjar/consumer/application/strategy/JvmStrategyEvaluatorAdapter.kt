@@ -32,4 +32,15 @@ class JvmStrategyEvaluatorAdapter(
         ast: DslNode,
         slice: List<Candle>,
     ): StrategyEvalResult = evaluator.evaluateBacktest(strategyId, ast, slice)
+
+    /**
+     * 실시간 평가를 JvmStrategyEvaluator.evaluate에 위임한다.
+     *
+     * timeout 100ms sandbox + auto-disable 정책은 JvmStrategyEvaluator 내부 책임.
+     */
+    override fun evaluate(
+        strategyId: Long,
+        ast: DslNode,
+        candles: List<Candle>,
+    ): StrategyEvalResult = evaluator.evaluate(strategyId, ast, candles)
 }

@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.consumer.application.screener
+package kr.spdaewoon.magicjar.api.application.screener
 
 import kr.spdaewoon.magicjar.domain.screener.ScreenerMatch
 import kr.spdaewoon.magicjar.domain.screener.ScreenerScoreBreakdown
@@ -9,6 +9,8 @@ import java.math.RoundingMode
 
 /**
  * Multi-criteria 랭킹 — fixed weights 4 기준 (ADR 0071 §2-5 E-1 + spec §2-2).
+ *
+ * api 모듈에 위치 — ADR 0004 모듈 경계 정합.
  *
  * fixed weights (LOCK):
  * - signal 0.40 — DSL evalResult.strength

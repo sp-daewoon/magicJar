@@ -1,5 +1,6 @@
-package kr.spdaewoon.magicjar.consumer.application.screener
+package kr.spdaewoon.magicjar.api.application.screener
 
+import kr.spdaewoon.magicjar.domain.backtest.port.StrategyEvaluatorPort
 import kr.spdaewoon.magicjar.domain.instrument.Instrument
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
@@ -13,6 +14,7 @@ import kr.spdaewoon.magicjar.domain.screener.port.ScreenerEngine
 import kr.spdaewoon.magicjar.domain.screener.port.ScreenerRankerPort
 import kr.spdaewoon.magicjar.domain.strategy.Signal
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
+import kr.spdaewoon.magicjar.domain.strategy.StrategyException
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyRepositoryPort
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
@@ -23,6 +25,13 @@ import java.math.RoundingMode
 
 /**
  * Screener engine 구현체 (ADR 0071 §2-1 A-1 + spec §2-2).
+ *
+ * api 모듈에 위치 — ADR 0004 모듈 경계 정합.
+ * ScreenerController·ScreenerService → ScreenerEngine port → 본 구현체 (api JVM 내 동기 inline 평가).
+ *
+ * ### 의존성 역전 (ADR 0004 헥사고날 정합)
+ * - DSL 평가: StrategyEvaluatorPort.evaluate() 경유 (consumer JvmStrategyEvaluatorAdapter 구현체)
+ * - api 단독 환경: HoldStrategyEvaluatorStub (HOLD 반환 — @ConditionalOnMissingBean)
  *
  * Phase 1 책임:
  * 1. Strategy 조회 (StrategyRepositoryPort.findById)
@@ -46,7 +55,7 @@ class ScreenerEngineImpl(
     private val strategyLookupProvider: ObjectProvider<StrategyRepositoryPort>,
     private val instrumentLookupProvider: ObjectProvider<InstrumentLookupPort>,
     private val candleRepositoryProvider: ObjectProvider<CandleRepository>,
-    private val strategyEvalAdapter: StrategyEvalAdapter,
+    private val strategyEvaluatorPort: StrategyEvaluatorPort,
     private val ranker: ScreenerRankerPort,
     @Value("\${magicjar.screener.candle-lookback-days:90}") private val candleLookbackDays: Int,
     @Value("\${magicjar.screener.min-candles:20}") private val minCandles: Int,
@@ -143,24 +152,32 @@ class ScreenerEngineImpl(
             // step 3b: candle lookback window 적용 (마지막 N일)
             val slice = candles.takeLast(candleLookbackDays)
 
-            // step 3c: DSL 평가 (timeout 500ms — strategyEvalAdapter)
-            val outcome = strategyEvalAdapter.evaluate(strategy.id ?: 0L, ast, slice)
+            // step 3c: DSL 평가 (StrategyEvaluatorPort.evaluate — ADR 0004 domain port 경유)
+            val strategyId = strategy.id ?: 0L
             evaluatedCount++
 
-            when (outcome) {
-                is EvalOutcome.Timeout -> {
+            val evalResult =
+                try {
+                    strategyEvaluatorPort.evaluate(strategyId, ast, slice)
+                } catch (e: StrategyException.StrategyTimeoutException) {
+                    log.debug("Screener DSL eval timeout: strategyId={} err={}", strategyId, e.message)
                     incrementSkip(skipCounts, SkipReason.EvalTimeout.label)
+                    continue
+                } catch (e: StrategyException) {
+                    log.debug("Screener DSL eval error: strategyId={} err={}", strategyId, e.message)
+                    incrementSkip(skipCounts, SkipReason.EvalError(e.message ?: e.javaClass.simpleName).label)
+                    continue
+                } catch (e: Exception) {
+                    log.warn("Screener DSL eval unexpected error: strategyId={} err={}", strategyId, e.message)
+                    incrementSkip(skipCounts, SkipReason.EvalError(e.message ?: e.javaClass.simpleName).label)
+                    continue
                 }
-                is EvalOutcome.Error -> {
-                    incrementSkip(skipCounts, SkipReason.EvalError(outcome.message).label)
-                }
-                is EvalOutcome.Success -> {
-                    // BUY 시그널만 매칭 — HOLD/SELL은 매칭 미발생 (universe screening = 매수 후보 발굴)
-                    if (outcome.result.signal == Signal.BUY) {
-                        val match = buildMatch(strategy, instrument, slice, outcome.result.strength, outcome.result.reason)
-                        rawMatches.add(match)
-                    }
-                }
+
+            // BUY 시그널만 매칭 — HOLD/SELL은 매칭 미발생 (universe screening = 매수 후보 발굴)
+            if (evalResult.signal == Signal.BUY) {
+                val match =
+                    buildMatch(strategy, instrument, slice, evalResult.strength, evalResult.reason)
+                rawMatches.add(match)
             }
         }
 
