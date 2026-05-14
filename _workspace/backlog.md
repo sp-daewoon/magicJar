@@ -1755,6 +1755,8 @@ architect spec PR(본 사이클 — ADR 0068 plan 발행) — 결정 의제 8건
 
 ## §44. SettingsModal 후속 — KIS 키 변경 활성화 + 마스킹된 현재 키 표시 + active session 처리
 
+> **★ 상태 (2026-05-14 v3.6.5 patch 재발행)**: **ADR 0074 1차 흡수 완료 — 풀세트 3건** (PUT/GET/DELETE 활성화 + 마스킹 표시 + active session invalidate 5초 잠금 + WS 재연결 graceful). spec 본문 `_workspace/specs/pr-N-settings-kis-change-killswitch-ai-spec.md` (PR 번호 N은 본 사이클 PR 생성 후 확정). **재발행 사유**: 직전 architect dispatch 시 ADR 번호 충돌 — T-NEWS(ADR 0073 점유)와 본 사이클 둘 다 ADR 0073 발행 → PR #415 close → 본 ADR 0074로 재발행 + 결정 내용 변동 0(번호만 갱신).
+
 ### 사유
 
 PR #389 SettingsModal 1차 구현은 ADR 0069 §3 1차 scope LOCK 정합으로 KIS 키 변경 submit을 **Option A (frontend stub/disabled)** 채택했음. 후속 PR에서 다음 3건 풀세트로 활성화 의제:
@@ -1783,6 +1785,8 @@ PR #389 SettingsModal 1차 구현은 ADR 0069 §3 1차 scope LOCK 정합으로 K
 ---
 
 ## §45. SettingsModal future API 키 카테고리 — OpenAI·Anthropic·Naver·KillSwitch·account_prdt_cd
+
+> **★ 상태 (2026-05-14 v3.6.5 patch 재발행)**: **ADR 0074 부분 흡수** — §G KillSwitchSection 1차 흡수(SettingsModal Section 4 신설 + GET·PUT + ConfirmDangerToggle + 60초 cooldown + killswitch.engaged.v1 schema 확장 engaged:boolean) + §E OpenAI/Anthropic 키 카테고리 사전 정합(env 유지 + Section 5 UI 0건 1차, T-AI 사이클 실구현 분리). 잔류 4건: §F Naver 뉴스 API 키(T-NEWS 트랙 진입 시), §H account_prdt_cd 변경(사용자 선물옵션 필요 시), §I display_name 변경(multi-user 진입 시), §J `/settings` route 보존(모바일 진입 시 모달 vs 페이지 재논의). **재발행 사유**: 직전 architect dispatch 시 ADR 번호 충돌 → 본 ADR 0074로 재발행.
 
 ### 사유
 
