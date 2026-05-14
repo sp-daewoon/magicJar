@@ -1753,7 +1753,9 @@ architect spec PR(본 사이클 — ADR 0068 plan 발행) — 결정 의제 8건
 
 ---
 
-## §44. SettingsModal 후속 — KIS 키 변경 활성화 + 마스킹된 현재 키 표시 + active session 처리
+## §44. SettingsModal 후속 — KIS 키 변경 활성화 + 마스킹된 현재 키 표시 + active session 처리 ✅ ADR 0073 흡수 (2026-05-14)
+
+> **흡수 ADR**: [ADR 0073](arch/adr/0073-settings-kis-change-killswitch-ai-credentials.md) — §2 KIS 키 변경 풀세트(3건) + §3 KillSwitch 수동 토글 + §4 AI 키 사전 정합. spec: `_workspace/specs/pr-413-settings-kis-change-killswitch-ai-spec.md`. v3.6.5 patch 사이클.
 
 ### 사유
 
@@ -1782,26 +1784,29 @@ PR #389 SettingsModal 1차 구현은 ADR 0069 §3 1차 scope LOCK 정합으로 K
 
 ---
 
-## §45. SettingsModal future API 키 카테고리 — OpenAI·Anthropic·Naver·KillSwitch·account_prdt_cd
+## §45. SettingsModal future API 키 카테고리 — OpenAI·Anthropic·Naver·KillSwitch·account_prdt_cd (일부 ADR 0073 흡수, 2026-05-14)
+
+> **흡수 ADR**: [ADR 0073](arch/adr/0073-settings-kis-change-killswitch-ai-credentials.md) — §3 KillSwitch 수동 토글(§G 흡수) + §4 OpenAI/Anthropic 사전 정합(§E 사전 정합 — 실구현은 T-AI 사이클로 분리). §F·§H·§I·§J 본 §45 잔류. v3.6.5 patch 사이클.
 
 ### 사유
 
 ADR 0069 §3 1차 scope는 KIS 키 + System Config(DART·Slack) 2건. ADR §7 backlog 의제 10건 중 미래 확장 카테고리 의제:
 
-- **§E OpenAI / Anthropic 키** — T-AI 진입 시 LLM provider 키 (env에서 옮길지 검토)
-- **§F Naver 뉴스 API 키** — 뉴스 감성 분석 트랙 진입 시
-- **§G KillSwitch 토글** — T-RECON·T-NOTIFY 마감 후 사용자 수동 KillSwitch UX
-- **§H account_prdt_cd 변경** — 종합매매 vs CMA 등 계좌상품코드 변경 UX
-- **§I display_name 변경** — user_account.display_name UX
-- **§J `/settings` route 보존** — 모달 vs 페이지 분기 검토 (모바일 진입 시점)
+- **§E OpenAI / Anthropic 키** — ✅ **ADR 0073 §4 사전 정합 완료** — env 유지 + Section 5 UI 0건 + T-AI 사이클 진입 시 ADR 0069 §4 5 step 단순 적용
+- **§F Naver 뉴스 API 키** — 잔류 (뉴스 감성 분석 트랙 진입 시)
+- **§G KillSwitch 토글** — ✅ **ADR 0073 §3 흡수 완료** — SettingsModal Section 4 신설 + GET·PUT endpoint + ConfirmDangerToggle 사유 입력 + 60초 cooldown
+- **§H account_prdt_cd 변경** — 잔류 (종합매매 vs CMA 등 계좌상품코드 변경 UX, 사용자 선물옵션 필요 시)
+- **§I display_name 변경** — 잔류 (user_account.display_name UX, multi-user 진입 시)
+- **§J `/settings` route 보존** — 잔류 (모달 vs 페이지 분기 검토, 모바일 진입 시점)
 
 ### 트리거
 
-- 각 카테고리 의제 진입 시점 (예: §E는 T-AI 진입 시, §G는 T-RECON·T-NOTIFY 마감 후)
+- 각 카테고리 의제 진입 시점 (예: §E는 T-AI 진입 시 실구현, §F는 T-NEWS 진입 시, §H는 사용자 선물옵션 필요 시)
 
 ### 연관
 
 - ADR 0069 §3 + §7 backlog (10건 매트릭스)
+- ADR 0073 §4 (§E 사전 정합) + §3 (§G 흡수) + §11 (§F·§H·§I·§J 잔류 명시)
 
 ---
 
