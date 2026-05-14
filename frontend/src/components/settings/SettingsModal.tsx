@@ -1,21 +1,25 @@
 /**
- * SettingsModal — 운영 변경 화면 modal (ADR 0069 §3 1차 scope)
+ * SettingsModal — 운영 변경 화면 modal (ADR 0074 §8 풀세트)
  *
  * 진입점: AppHeader ⚙️ 버튼 클릭
  * 닫기: 우상단 X 버튼 / Esc 키 / overlay click
  *
- * 3 section:
+ * 4 section:
  *   Section 1: RealTradingConsentSection (실거래 동의 — 이중 confirm UX)
- *   Section 2: KisCredentialSection (KIS 키 — 1차 layout + disabled submit)
+ *   Section 2: KisCredentialSection (KIS 키 변경 풀세트 — ADR 0074 §2 submit 활성화)
  *   Section 3: SystemConfigSection (DART + Slack — fully functional)
+ *   Section 4: KillSwitchSection (자본 보호 — ADR 0074 §3 신규)
+ *
+ * Section 5 (AiCredentialSection): T-AI 사이클 진입 시 합류 — 본 PR scope 외
  *
  * overlay z-index: z-[60] — AppHeader(z-50) 위
  * panel: max-w-2xl + max-h-[85vh] overflow-y-auto
  *
- * ADR 0069 §6 UX 룰 정합.
+ * ADR 0069 §6 UX 룰 + ADR 0074 §8 UX 매트릭스 정합.
  */
 import { useEffect } from 'react'
 import { KisCredentialSection } from './sections/KisCredentialSection'
+import { KillSwitchSection } from './sections/KillSwitchSection'
 import { RealTradingConsentSection } from './sections/RealTradingConsentSection'
 import { SystemConfigSection } from './sections/SystemConfigSection'
 
@@ -101,6 +105,9 @@ export function SettingsModal({ onClose }: Props) {
 
           {/* Section 3: 시스템 설정 */}
           <SystemConfigSection />
+
+          {/* Section 4: 자본 보호 (KillSwitch) — ADR 0074 §3 신규 */}
+          <KillSwitchSection />
         </div>
       </div>
     </div>
