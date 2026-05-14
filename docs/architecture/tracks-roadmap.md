@@ -37,7 +37,7 @@
 | T-DSL | Strategy DSL + sandbox (ADR 0047) | §B.7 | `.kis.yaml` 호환 superset 파서·평가기 + static 검증(AST depth/노드/indicator 호출/화이트리스트) | T-IND·T-PAT | T-SB·T-BT·T-SIG | W2 | L | architect+backend-core |
 | T-SB | Strategy Builder UI (GUI 블록 빌더) | §B.8 | GUI 블록 빌더 + 발굴 결과 → Watchlist 등록 | T-W1·T-DSL | T-BT | W2 | XL | frontend |
 | T-BT | Backtest Engine 강화 + DSL sandbox (ADR 0047·0056) — R1 stateless run 머지 / **R2 영속 + R3 frontend 잔여 (PR-50 plan 발행 — 사용자 결정 대기)** | §B.9 | 룩어헤드·세금·수수료·슬리피지 모델 + 성과 카드 + 백테스트 timeout 1000ms·abort 정책 + R2 영속 5 endpoint + R3 `/strategy/backtest` 페이지 | T-CA1·T-DSL | T-SIG·T-PERF | W3 | L (R1 머지 · R2 M · R3 M) | backend-core (R2) + frontend (R3) |
-| T-SC | Screener | §C.10 | universe × DSL → 후보+랭킹 + 캐시 | T-IM1·T-CA1·T-DSL | T-SIG | W3 | M | backend-core |
+| **T-SC** ★ | **Screener (universe × DSL → 후보 + 랭킹 + Redis cache 30m + 옵션 영속 V28 + Strategy Builder 합류) — ADR 0071 Accepted (2026-05-14, architect 자율 결정 · 사용자 위임 동일)** | §C.10 | inline 동기 평가 mode 1차(POST /api/screener/evaluate → universe ~3000 × DSL eval 500ms timeout = ~5s inline) + Redis cache `screener:cache:{dslHash}:{filterHash}` TTL 30m + multi-criteria 4 기준 fixed weights(signal 0.40 + volume 0.30 + atr 0.20 + cap 0.10) + skip 매트릭스(candle 미수집·부족·timeout·error) + 옵션 영속 Flyway V28(screening_run + screening_match, env toggle MAGICJAR_SCREENER_PERSIST=true) + REST 3 endpoint Swagger 4단(POST evaluate + GET runs list + GET runs detail) + Strategy Builder `/strategy` 페이지 "이 전략으로 종목 찾기" 버튼 + ScreenerResultModal + Watchlist 일괄 등록 + universe·candle 영속 reuse → **KIS endpoint 호출 0 LOCK** + AI 호출 0 grep 검증 + mock 합성 0 | T-IM1·T-CA1·T-DSL·T-IND·T-PAT·T-BT·ADR 0047 sandbox | T-SIG·T-O·T-RECON·T-NOTIFY (모두 마감 후) | **W3 ★ (다섯 번째 트랙, v3.6.3 patch)** | M (Phase 1 strategy-engine domain+consumer + Phase 2 backend-core api+Redis+옵션 Flyway V28 + Phase 3 frontend 직렬) | strategy-engine + backend-core + frontend |
 | T-SIG ★ | **Signal Engine (룰 매칭 only, AI 호출 0) + sandbox (ADR 0047) + boundary listen (ADR 0064) + 영속 + STOMP fanout — ADR 0066 plan 발행 (2026-05-12, 사용자 결정 대기)** | §C.11 | Watchlist × 활성 전략 → BUY/SELL/HOLD + 강도 + strategy-eval-pool 격리 + timeout 100ms·CPU budget 50ms·auto-disable + Kafka `market.candle.{interval}.closed.v1` 5 listener + signal 테이블 영속 + STOMP `/topic/signal.user.{userId}` | T-MS1·T-IND·T-PAT·T-DSL·T-BT·ADR 0064 | T-RISK·T-O·T-PERF | **W3 ★ (두 번째 트랙)** | L (Phase 1 strategy-engine + Phase 2 backend-core + Phase 3 frontend 직렬) | strategy-engine + backend-core + frontend |
 | T-RISK ★ | **Risk & Position (Guard chain 6단) + Signal → Risk Gateway consumer → Order intent 의무 게이트 + risk_config·risk_event·position·signal.risk_status 4 도메인 영속 + auto-PAUSE 10회 + STOMP 알림 + risk.violation.v1 publish — ADR 0067 plan 발행 (2026-05-12, 사용자 결정 대기)** | §C.13 | 6 룰(POSITION_LIMIT·DAILY_LOSS_LIMIT·MAX_CONCURRENT_POSITIONS·TRADE_FREQUENCY_MINUTE·TRADE_FREQUENCY_DAY·KILL_SWITCH_ON) deterministic 평가 short-circuit + Kafka `signal.generated.v1` listen → `order.intent.v1` publish 또는 `risk.violation.v1` publish + Redis sliding window ZSET + signal.risk_status 컬럼 verdict 갱신 + auto-PAUSE strategy.status=PAUSED 연속 BLOCKED 10회 + STOMP `/topic/risk.user.{userId}` BLOCKED + AUTO_PAUSED 2 event type + REST 7 endpoint(RiskConfig 3 + RiskEvent 2 + Position 2) | T-MS1·T-SIG·ADR 0066·ADR 0042·ADR 0043 | T-O·T-PERF·T-NOTIFY | **W3 ★ (세 번째 트랙)** | L (Phase 1 strategy-engine + Phase 2 backend-core + Phase 3 frontend 직렬) | strategy-engine + backend-core + frontend |
 | T-O ★ | **Order Execution (Risk ALLOWED → KIS REST 매수·매도 + WS H0STCNI0 체결 추적 + 사용자 수동 정정/취소 + 3 테이블 영속 + STOMP 4 event + 멱등성 Redis SETNX + 실계좌 3중 게이트) + KillSwitch 재검증 (ADR 0024·0043) + idempotency (ADR 0045) — ADR 0068 plan 발행 (2026-05-12, 사용자 결정 대기)** | §C.12 | OrderRouterKafkaListener(order.intent.v1 listen) → OrderIdempotencyGuard(Redis SETNX 60s) → TradingModeGate(env × 2 + 사용자 동의 토글 3중) → KillSwitch 재검증 → order_request INSERT → KisOrderHttpAdapter(TTTC0012U/VTTC0012U 매수 · TTTC0011U/VTTC0011U 매도) → KIS 응답 ACK or REJECT → KisExecutionWsListener(H0STCNI0/H0STCNI9 체결통보) → order_execution INSERT(분할 체결 1:N) → PositionUpdatePort 적용 → STOMP `/topic/order.user.{userId}` 4 event(REQUESTED·FILLED·REJECTED·CANCELLED) + order_audit_event 시계열 + REST 4 endpoint(GET orders list·single·POST cancel + PUT consent) + SettingsModal 동의 토글 + KIS-first raw 인용 4건(TTTC0012U·TTTC0011U·TTTC0013U·H0STCNI0) | **T-RISK (ADR 0067 Accepted)** · T-W2 · T-SIG | T-RECON · T-NOTIFY · T-J · T-PERF | **W3 ★ (네 번째 트랙)** | L (Phase 1 strategy-engine consumer+domain + Phase 2 backend-core api+Flyway V20~V23 + Phase 3 frontend `/orders` 직렬) | strategy-engine + backend-core + frontend |
@@ -215,22 +215,32 @@
   - `frontend/src/pages/Backtest/index.tsx` 차트 + 통계 + abort 사유 표시
 - **비범위**: monte carlo simulation (post-MVP)
 
-### T-SC — Screener
+### T-SC — Screener (W3 다섯 번째 트랙 — ADR 0071 Accepted 2026-05-14, v3.6.3 patch)
 
-- **마스터 §위치**: §C.10
-- **목표**: universe × DSL 조건식 → 후보 + 랭킹. 5분 캐시. 일별 batch + 분봉 실시간 두 모드
-- **선행/후행**: T-IM1·T-CA1·T-DSL / T-SIG
-- **오프라인 동작**: 필수 (영속 candle + 룰만)
-- **KIS 흡수**: 자체 — KIS는 screener 부재
-- **ADR**: T-SC 진입 시 발행 (0050 후보 — Screener 표준, README §12 정합)
-- **데이터**: `screener_query`·`screener_result` (V16). Redis `screener:result:{queryHash}` TTL 5분. Kafka `screener.result.v1`
-- **산출물**:
-  - `domain/.../screener/` 도메인
-  - `consumer/.../application/screener/JvmScreenerEngine.kt` (분봉 실시간)
-  - `batch/.../job/screener/DailyScreenerJob.kt` (일별 batch)
-  - `api/.../controller/ScreenerController.kt`
-  - `frontend/src/pages/Screener/index.tsx`
-- **비범위**: 사용자 정의 universe (1차는 KOSPI·KOSDAQ·KOSPI200)
+- **마스터 §위치**: §C.10 (ADR 0071 정밀 명세 정합)
+- **목표**: universe(instrument 영속) × DSL 조건식 → 후보 + multi-criteria 4 기준 랭킹 fixed weights(signal 0.40 + volume 0.30 + atr 0.20 + cap 0.10) + Redis cache 30m + 옵션 영속 Flyway V28(env toggle) + Strategy Builder "전략으로 종목 찾기" 합류
+- **선행/후행**: T-IM1·T-CA1·T-DSL·T-IND·T-PAT·T-BT·ADR 0047 sandbox / T-SIG·T-O·T-RECON·T-NOTIFY (모두 마감 후) — 본 사이클이 W3 마지막 발굴 자동화
+- **오프라인 동작**: 필수 (영속 candle + instrument + 룰만, **KIS endpoint 호출 0 LOCK** + AI 호출 0)
+- **KIS 흡수**: 자체 — KIS는 screener endpoint 부재 + universe·candle 영속 reuse로 KIS endpoint 호출 0 LOCK
+- **ADR**: **0071 Accepted 2026-05-14** (8 의제 A-1~H-1 LOCK) + 0047(DSL Sandbox strategy-eval-pool reuse) + 0017(Instrument Master) + 0019(Watchlist 캔들) + 0022(Strategy DSL) + 0055(Strategy Builder UI 합류점) + 0056(Backtest Engine — DSL eval 패턴 reuse)
+- **데이터**:
+  - DB — Flyway V28 옵션(`screening_run` + `screening_match` IF NOT EXISTS, env toggle `MAGICJAR_SCREENER_PERSIST=true` 시 ON)
+  - Redis — `screener:cache:{dslHash}:{filterHash}` TTL 30m · `screener:universe:{filterHash}` TTL 24h · `screener:lock:{userId}:{strategyId}` TTL 1m (분산락)
+  - Kafka — **신규 0 LOCK** (1차 동기 inline 평가, 비동기 모드 `screener.result.v1`은 post-MVP backlog §52)
+  - STOMP — **신규 0 LOCK** (REST body 즉시 반환)
+- **산출물 핵심** (ADR 0071 §9 Phase 분리 LOCK 정합 — `_workspace/specs/pr-393-t-sc-spec.md`):
+  - **Phase 1 strategy-engine (domain + consumer)**: `domain/.../screener/{ScreenerQuery,ScreenerResult,ScreenerMatch,ScreenerFilter,ScreenerStatus,SkipReason,Universe}.kt` + port 4건(`ScreenerEngine`·`InstrumentLookupPort`·`ScreenerCachePort`·`ScreenerRankerPort`) + `consumer/.../screener/{ScreenerEngineImpl,ScreenerRankerImpl,ScreenerStrategyEvalAdapter}.kt` + 단위 테스트 ~12건
+  - **Phase 2 backend-core (api + Redis + 옵션 V28)**: `api/.../infrastructure/cache/RedisScreenerCacheAdapter.kt` + `api/db/migration/V28__screening_run.sql` (옵션) + JPA Entity·Adapter (옵션 toggle) + `api/.../service/screener/ScreenerService.kt` + `api/.../controller/screener/ScreenerController.kt` (REST 3 endpoint Swagger 4단) + DTO 6건 + 단위 테스트 ~12건
+  - **Phase 3 frontend**: `frontend/src/pages/StrategyBuilderPage.tsx` 수정 + `frontend/src/features/screener/{components/{ScreenerResultModal,ScreenerMatchTable,ScreenerScoreBreakdown,ScreenerSkipReasonsBadge},hooks/{useScreenerEvaluate,useBulkAddWatchlist},api/screenerApi}.tsx` + 단위 테스트 ~7건
+- **비범위** (post-MVP backlog로 미룸):
+  - universe 5000+ 비동기 모드 (`screener.completed.v1` Kafka publish + STOMP fanout — backlog §52)
+  - `/screener` 단독 페이지 (전략 비선택 진입, backlog §53)
+  - 사용자 custom 랭킹 가중치 (DSL meta 또는 env override, backlog §54)
+  - DailyScreenerJob cron (다음 영업일 09:00 + 후보 Slack push, backlog §55)
+  - Screener 결과 AI 해석 (W4 AiCommentProvider 합류, backlog §56)
+  - Watchlist bulk POST endpoint 정합 (단건 multi 호출 → bulk, backlog §57)
+  - screening_match retention 정책 (영속 ON 시 30일 cron 정리, backlog §58)
+  - 사용자 정의 universe (1차는 KOSPI+KOSDAQ active STOCK+ETF default, 사용자 토글은 marketCap·avgVolume 2 필터만 1차 LOCK)
 
 ### T-SIG — Signal Engine (룰 매칭 only, AI 호출 0)
 
@@ -547,6 +557,7 @@ W4는 W3 완료 후 진입. W5는 옵션 (T-LWC는 W3와 병렬 가능).
 
 | 날짜 | 변경 |
 |---|---|
+| 2026-05-14 (ADR 0071) | **ADR 0071 T-SC Screener spec/plan 발행 정합** — §2 T-SC row 갱신 (id ★ 마킹 + 목표 한 줄 정밀화 + 선행/후행 + Wave/사이즈/담당). §3 T-SC outline 풀 보강 (마스터 §C.10 ADR 0071 정합 + Redis cache 30m + 옵션 영속 Flyway V28(env toggle) + multi-criteria 4 기준 fixed weights + skip 매트릭스 + Strategy Builder 합류 + KIS endpoint 호출 0 LOCK + AI 호출 0 + mock 합성 0). Phase 분리 LOCK 3 PR 직렬(strategy-engine Phase 1 domain+consumer 단위 테스트 ~12건 + backend-core Phase 2 api+Redis+옵션 Flyway V28 + DTO 6건 + REST 3 endpoint Swagger 4단 + 단위 테스트 ~12건 + frontend Phase 3 Strategy Builder 합류 + 모달 + 단위 테스트 ~7건). 비범위 7건 backlog §52~§58 명시(비동기 모드·단독 페이지·사용자 custom 랭킹·DailyScreenerJob cron·AI 해석·Watchlist bulk endpoint·screening_match retention). 트랙 신설 0건 (기존 T-SC 정밀 명세 보강만). v3.6.3 patch 사이클 (W3 다섯 번째 트랙). 사용자 자율 최종권한 위임 정합 (2026-05-13 "W3 진행해서 마무리까지하자 W4 진입까지 자율"). (architect, opus 4.7 1M) |
 | 2026-05-13 (ADR 0070) | **ADR 0070 T-RECON + T-NOTIFY 묶음 spec/plan 발행 정합** — §3 T-RECON outline 갱신 (ADR 0041 → 0041 + 0070 cross-ref · Flyway V22 → V25·V26 시프트 · 산출물 매트릭스 Phase 1 strategy-engine + Phase 2 backend-core 분리 LOCK · KIS-first raw 4건 명시 TTTC8434R·VTTC8434R + CTRP6548R + H0STCNI0 cross-ref). §3 T-NOTIFY outline 갱신 (ADR 0044 → 0044 + 0070 cross-ref · Flyway V24 → V27 시프트 + system_config.notification_slack_webhook BYTEA ALTER 통합 · 산출물 매트릭스 Phase 1 backend-core 단독 · domain 5 port·consumer 5 component·persistence 2 + REST 0 LOCK · frontend 0 LOCK · 단위 테스트 ~18건). 트랙 신설 0건 (기존 T-RECON·T-NOTIFY 정밀 명세 보강만). v3.6.2 patch 사이클 (W3 마무리 prereq). 사용자 자율 최종권한 위임 정합 (2026-05-13 "W3 진행해서 마무리까지하자 W4 진입까지 자율"). (architect, opus 4.7 1M) |
 | 2026-05-13 (ADR 0069) | **SettingsModal vs SetupWizard 책임 분리 ADR 0069 발행 정합** — §3 T-ONBOARD outline ADR 갱신 (0046 → 0046 + 0069 + 0068 §16-4 cross-ref 추가) + 산출물 매트릭스 보강 (SetupWizard.tsx 책임 분리 명시 + SettingsModal.tsx 1차 scope 3 section 명시 + forms/ 6 공통 컴포넌트 prepend — KisCredentialForm·SecretKeyInput·SettingsSection·ConfirmDangerToggle·SystemConfigForm) + 비범위 보강 (ADR 0069 backlog §A·§C·§E·§F 후속 명시 — KIS MOCK DELETE·마스터 키 회전·OpenAI/Naver 키). dogfooding 결함 응답 (RealTradingConsentToggle UI 접근 가능 path 확보 → T-O 자본 보호 검증 케이스 1·2·3 unblock). 트랙 신설 0건, T-ONBOARD outline 보강만. (architect, opus 4.7 1M) |
 | 2026-05-03 (v1) | 13 트랙 + 5 Wave (architect, opus 4.7 1M) — "AI Decision Layer T-RISK" 가정. 사용자 비전 정정으로 폐기. |
