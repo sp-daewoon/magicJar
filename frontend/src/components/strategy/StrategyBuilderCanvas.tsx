@@ -19,6 +19,11 @@ type TreeTab = 'entry' | 'exit'
 interface StrategyBuilderCanvasProps {
   tree: BlockTree
   onTreeChange: (updated: BlockTree) => void
+  /** 현재 탭 (entry/exit) — Page에서 lift up (BlockPalette 클릭 흐름 정합 hotfix 2026-05-14).
+   *  미전달 시 내부 state fallback (test 호환). */
+  tab?: TreeTab
+  /** 탭 변경 콜백 — 미전달 시 내부 state */
+  onTabChange?: (tab: TreeTab) => void
   /** DSL 편집 토글 버튼 클릭 시 */
   onEditDsl?: () => void
   /** 자연어 입력 버튼 */
@@ -44,6 +49,8 @@ interface StrategyBuilderCanvasProps {
 export function StrategyBuilderCanvas({
   tree,
   onTreeChange,
+  tab: tabProp,
+  onTabChange,
   onEditDsl,
   onNaturalLanguage,
   onYamlExport,
@@ -55,7 +62,10 @@ export function StrategyBuilderCanvas({
   isValidating,
   isSaving,
 }: StrategyBuilderCanvasProps) {
-  const [tab, setTab] = useState<TreeTab>('entry')
+  // controlled (props) vs uncontrolled (internal state) fallback
+  const [internalTab, setInternalTab] = useState<TreeTab>('entry')
+  const tab = tabProp ?? internalTab
+  const setTab = onTabChange ?? setInternalTab
 
   // DSL 미리보기 (실시간 갱신)
   const { entry: entryDsl, exit: exitDsl } = useMemo(() => serializeBlockTree(tree), [tree])

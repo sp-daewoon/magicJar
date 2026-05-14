@@ -59,6 +59,8 @@ export function StrategyBuilderPage() {
   const [validateError, setValidateError] = useState<string | null>(null)
   // T-SC Phase 3 — 종목 찾기 모달 (ADR 0071 §8 H-1)
   const [showScreener, setShowScreener] = useState(false)
+  // Canvas 탭 state — BlockPalette 클릭 흐름 정합 (hotfix 2026-05-14)
+  const [canvasTab, setCanvasTab] = useState<'entry' | 'exit'>('entry')
 
   // userId: onboarding store (feedback_no_mock_data 정합)
   const registeredUserId = useOnboardingStore((s) => s.registeredUserId)
@@ -74,11 +76,13 @@ export function StrategyBuilderPage() {
   }
 
   // 팔레트에서 블록 선택 → 캔버스 현재 탭 루트에 추가
+  // hotfix 2026-05-14: canvasTab 인식 — 매수/매도 탭에 따라 분기 (이전 결함: 항상 entry 에만 추가)
   const handlePaletteSelect = (block: BlockNode) => {
-    setTree((prev) => ({
-      ...prev,
-      entry: prev.entry ?? block,
-    }))
+    setTree((prev) =>
+      canvasTab === 'entry'
+        ? { ...prev, entry: prev.entry ?? block }
+        : { ...prev, exit: prev.exit ?? block },
+    )
   }
 
   // 검증
@@ -235,6 +239,8 @@ export function StrategyBuilderPage() {
         <StrategyBuilderCanvas
           tree={tree}
           onTreeChange={setTree}
+          tab={canvasTab}
+          onTabChange={setCanvasTab}
           onEditDsl={handleEditDsl}
           onNaturalLanguage={() => setShowNaturalLang(true)}
           onYamlExport={handleYamlExport}
