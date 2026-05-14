@@ -33,6 +33,9 @@ spring:
     listener:
       ack-mode: MANUAL_IMMEDIATE
       concurrency: 1
+    # system.kis-key-changed.v1 consumer group (ADR 0074 Phase 3)
+    # groupId: magicjar-consumer-system (SystemKisKeyChangedListener @KafkaListener 설정)
+    # 기본 kafkaListenerContainerFactory 재사용 — 별도 factory 신규 0
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer

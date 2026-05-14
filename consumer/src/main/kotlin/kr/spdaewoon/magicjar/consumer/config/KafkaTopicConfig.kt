@@ -256,4 +256,25 @@ class KafkaTopicConfig {
             .replicas(1)
             .config("retention.ms", "86400000") // 1d
             .build()
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ADR 0074 Phase 3 — KIS 키 변경 이벤트 (system.kis-key-changed.v1)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * KIS 키 변경 이벤트 — api OnboardingService publish → consumer KisWebSocketBridge reconnect.
+     * retention: 7d (운영 감사 + 1주 추적 — ADR 0074 §2-2-3 정합)
+     * publisher: api OnboardingService (Phase 1 backend-core)
+     * consumer: SystemKisKeyChangedListener (Phase 3 consumer — 본 파일)
+     *
+     * AI 호출 0 — 룰 5 + ADR 0074 §11-2 정합.
+     */
+    @Bean
+    fun systemKisKeyChangedTopic(): NewTopic =
+        TopicBuilder
+            .name("system.kis-key-changed.v1")
+            .partitions(1)
+            .replicas(1)
+            .config("retention.ms", "604800000") // 7d
+            .build()
 }
