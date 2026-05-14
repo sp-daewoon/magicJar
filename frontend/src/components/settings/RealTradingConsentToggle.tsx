@@ -37,6 +37,12 @@ export function RealTradingConsentToggle() {
   const isOn = !!(consent?.realTradingConsentAt)
 
   function handleToggle(next: boolean) {
+    // userId null 가드 — store sync 이전 엣지 케이스 방어 (dogfooding qa #2 fix)
+    if (!userId) {
+      showToast('사용자 인증 정보를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.', 'error')
+      return
+    }
+
     if (next) {
       // 1차 confirm
       const first = window.confirm(

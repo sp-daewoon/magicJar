@@ -4,9 +4,11 @@
  * spec §4-1 REST 시그니처 LOCK 1:1 정합
  * 5 endpoint: status / kis/validate / kis/mock / system-config / complete
  */
+import { useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import apiClient from '../lib/axios'
+import { useOnboardingStore } from '../stores/onboarding'
 
 // ──────────────────────────────────────────────
 // Response / Request 타입 정의 (spec §4-1 LOCK)
@@ -18,6 +20,8 @@ export interface OnboardingStatus {
   hasMockAccount: boolean
   hasDartKey: boolean
   hasSlackWebhook: boolean
+  /** KIS 실전 계좌번호 (8자리) — 단일 사용자 시스템. hasUserAccount=false 시 null. store auto-sync 용. */
+  userId: string | null
 }
 
 /** POST /api/onboarding/kis/validate — 요청 */
@@ -100,11 +104,19 @@ export function extractErrorMessage(err: unknown, fallback: string): string {
 // ──────────────────────────────────────────────
 
 /**
- * 온보딩 상태 조회
- * 라우팅 가드에서 사용 — staleTime=0 으로 마법사 완료 후 즉시 재조회
+ * 온보딩 상태 조회 + store auto-sync
+ *
+ * staleTime=0: 마법사 완료 후 즉시 재조회
+ *
+ * store sync 흐름:
+ *   server 응답 userId → useOnboardingStore.registeredUserId 자동 주입.
+ *   새 브라우저/시크릿 모드/localStorage 클리어 후에도 즉시 복원 (dogfooding qa #2·#3 fix).
  */
 export function useOnboardingStatus() {
-  return useQuery<OnboardingStatus>({
+  const storeUserId = useOnboardingStore((s) => s.registeredUserId)
+  const setRegistered = useOnboardingStore((s) => s.setRegistered)
+
+  const query = useQuery<OnboardingStatus>({
     queryKey: ['onboarding', 'status'],
     queryFn: async () => {
       const res = await apiClient.get<OnboardingStatus>('/onboarding/status')
@@ -113,6 +125,15 @@ export function useOnboardingStatus() {
     retry: 1,
     staleTime: 0,
   })
+
+  useEffect(() => {
+    const serverUserId = query.data?.userId
+    if (serverUserId && serverUserId !== storeUserId) {
+      setRegistered(serverUserId)
+    }
+  }, [query.data?.userId, storeUserId, setRegistered])
+
+  return query
 }
 
 /**
