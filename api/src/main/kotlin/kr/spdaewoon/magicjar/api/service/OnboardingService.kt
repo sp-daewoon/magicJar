@@ -15,7 +15,6 @@ import kr.spdaewoon.magicjar.api.persistence.AuditTrailJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.SystemConfigJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.UserAccountJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.UserAccountJpaRepository
-import org.springframework.data.domain.PageRequest
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialId
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaRepository
@@ -24,6 +23,7 @@ import kr.spdaewoon.magicjar.domain.user.AccountType
 import kr.spdaewoon.magicjar.domain.user.UserOnboardedEvent
 import org.slf4j.LoggerFactory
 import org.springframework.context.ApplicationEventPublisher
+import org.springframework.data.domain.PageRequest
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional

@@ -10,7 +10,9 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
 import kr.spdaewoon.magicjar.api.persistence.UserAccountJpaRepository
 import kr.spdaewoon.magicjar.api.service.CandleQueryService
+import kr.spdaewoon.magicjar.api.service.CandleRefreshService
 import kr.spdaewoon.magicjar.api.service.SymbolMetaService
+import kr.spdaewoon.magicjar.api.service.dto.CandleRefreshResponse
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.kafka.core.KafkaTemplate
@@ -35,12 +37,13 @@ import java.time.Instant
  * Swagger 4단 어노테이션 (사용자 메모리 feedback_swagger_pattern 정합).
  * 룰 5 위반 금지: LLM provider import 0건.
  */
-@Tag(name = "Symbol", description = "종목 상세 REST — 현재가·캔들·호가 (T-S1)")
+@Tag(name = "Symbol", description = "종목 상세 REST — 현재가·캔들·호가·캔들 갱신 (T-S1)")
 @RestController
 @RequestMapping("/api/symbols")
 class SymbolController(
     private val symbolMetaService: SymbolMetaService,
     private val candleQueryService: CandleQueryService,
+    private val candleRefreshService: CandleRefreshService,
     private val kafkaTemplate: KafkaTemplate<String, String>,
     private val userAccountJpaRepository: UserAccountJpaRepository,
     private val objectMapper: ObjectMapper,
@@ -129,6 +132,61 @@ class SymbolController(
             )
         }
         return candleQueryService.getCandles(code, interval, before, limit)
+    }
+
+    @Operation(
+        summary = "캔들 수동 갱신",
+        description =
+            "지정 종목의 캔들 데이터를 KIS OpenAPI에서 즉시 fetch하여 DB에 upsert합니다 (dogfooding qa #5). " +
+                "intervals 파라미터로 갱신 대상 인터벌 지정 (기본값: 1d,1wk,1mo,1y). " +
+                "분봉(1m) 포함 시 직전 30 거래일 분봉 전수 수집. " +
+                "KIS-first: FHKST03010100(일/주/월/연봉), FHKST03010230(1m) 직접 호출. " +
+                "KIS raw: open-trading-api/examples_llm/domestic_stock/inquire_daily_itemchartprice " +
+                "응답: refreshedIntervals 배열 (interval, fetchedCount, insertedCount, latestTs, status).",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "200", description = "갱신 성공 (일부 interval 실패 시에도 200 — status 필드로 구분)"),
+        ApiResponse(
+            responseCode = "404",
+            description = "종목 없음",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+        ApiResponse(
+            responseCode = "429",
+            description = "KIS Rate Limit 초과",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+        ApiResponse(
+            responseCode = "500",
+            description = "KIS 인증 실패 또는 내부 오류",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+    )
+    @PostMapping("/{code}/candles/refresh")
+    fun refreshCandles(
+        @Parameter(description = "KIS 종목코드 6자리", example = "006110")
+        @PathVariable code: String,
+        @Parameter(
+            description = "갱신 대상 interval CSV (기본값: 1d,1wk,1mo,1y). 지원: 1m,1d,1wk,1mo,1y",
+            example = "1d,1wk,1mo,1y",
+        )
+        @RequestParam(defaultValue = "") intervals: String,
+    ): CandleRefreshResponse {
+        validateCode(code)
+        val intervalList =
+            if (intervals.isBlank()) {
+                emptyList()
+            } else {
+                intervals.split(",").map { it.trim() }.filter { it.isNotBlank() }
+            }
+        return try {
+            candleRefreshService.refresh(code, intervalList)
+        } catch (e: ResponseStatusException) {
+            throw e
+        } catch (e: Exception) {
+            log.error("refreshCandles 오류: code={} err={}", code, e.message)
+            throw ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "캔들 갱신 중 오류가 발생했습니다")
+        }
     }
 
     @Operation(
