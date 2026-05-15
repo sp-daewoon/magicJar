@@ -271,11 +271,22 @@ class NaverNewsAdapter(
     }
 
     /**
-     * <b> 태그 제거 (ADR 0075 spec §2-2 결정 4 — 검색어 강조 태그 strip).
+     * <b> 태그 제거 + HTML entity decode (ADR 0075 spec §2-2 결정 4).
      *
      * 예: "<b>삼성전자</b> 반도체" → "삼성전자 반도체"
+     * hotfix 2026-05-15: Naver 응답 title·description 에 HTML entity 잔존 (&quot; &amp; &lt; &gt; &#39;).
+     * frontend 가 raw 표시 시 entity 그대로 노출되어 사용자 본대로 깨짐 — backend 영속 전 decode 의무.
      */
-    fun stripBTag(input: String): String = input.replace(B_TAG_REGEX, "")
+    fun stripBTag(input: String): String =
+        input
+            .replace(B_TAG_REGEX, "")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&#39;", "'")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&nbsp;", " ")
+            .replace("&amp;", "&") // &amp; 는 마지막 (다른 entity 가 &amp; 로 시작하지 않음)
 
     /**
      * pubDate RFC 822 파싱 → Instant (ADR 0075 spec §2-2 결정 4).
