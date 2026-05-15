@@ -1958,11 +1958,28 @@ ADR 0044 §2-2 7 트리거 중 system.startup.v1·system.shutdown.v1·notificati
 
 ---
 
-## §52. T-NEWS 뉴스·공시 실시간 인입 트랙 (ADR 0073 feasibility 분석 발행 — 사용자 결정 대기)
+## §52. T-NEWS 뉴스·공시 실시간 인입 트랙 (ADR 0075 흡수 완료 2026-05-15 — v3.6.7 patch)
 
-### 사유
+> **★ 상태 (2026-05-15)**: **ADR 0075 Accepted — 사용자 결정 8 의제 채택 + 정밀 spec 발행 완료**. 본 §52는 ADR 0075로 흡수 마킹 + Phase 4 RSS 한경·구글은 §53 신규로 분리 잔류. spec 본문 `_workspace/specs/pr-434-t-news-spec.md`. 본 ADR 0075 머지 후 sub-agent 디스패치 3 Phase 직렬(market-data Phase 1 DART → backend-core Phase 2 Naver → frontend Phase 3 sidebar polling).
+
+### 사유 (원본 보존)
 
 2026-05-14 사용자 의제 응답 "뉴스 스크래핑, 공시 정보 실시간 속보 등 주요 뉴스는 시작해?". architect 자체 발행 ADR 0073 — analysis only. 옵션 A·B·C·D 매트릭스 + 사용자 결정 의제 8건 위임. architect 권장 옵션 A (T-NEWS 별도 트랙 신설 — W3.5 또는 W4 prereq).
+
+### 2026-05-15 진행 (사용자 결정 — ADR 0075로 흡수)
+
+- 사용자 자율 결정 ("ADR 0073 T-NEWS 트랙 진입 진행해") — architect 권장 8 의제 안 **모두 채택**
+- ADR 0073 supersede (analysis only → 결정 채택 + 정밀 spec 위임)
+- ADR 0075 발행 — T-NEWS 트랙 진입 spec/plan
+- v3.6.7 patch 사이클 진입 (사용자 메모리 `feedback_release_policy_patch_first.md` 정합 — v3.7.0=W4 LOCK · v3.8.0=W5 LOCK · minor 인플레이션 회피)
+- Phase 분리 LOCK 3 PR 직렬 (market-data Phase 1 → backend-core Phase 2 → frontend Phase 3 + Phase 4 RSS 옵션은 backlog §53 분리)
+- Flyway V32 disclosure + V33 news_article (멱등성 UQ + IF NOT EXISTS)
+- Kafka 2 토픽 신규 (disclosure.new.v1 + news.collected.v1 retention 7d)
+- REST 2 endpoint 신규 (GET /api/symbols/{code}/news + /disclosures Swagger 4단)
+- STOMP 0 LOCK (polling 60s 채택)
+- DART list.json + Naver search/news.json 풀 raw fetch 인용 (헌법 §3 5단계 절차)
+- KIS endpoint 호출 0 LOCK + AI 호출 0 + mock 합성 0
+- ~25 산출 파일 매트릭스
 
 ### 트리거
 
@@ -2014,11 +2031,53 @@ ADR 0044 §2-2 7 트리거 중 system.startup.v1·system.shutdown.v1·notificati
 
 ### 연관
 
-- ADR 0073 (본 ADR — analysis only · feasibility 분석)
+- ADR 0073 (analysis only · feasibility 분석 · Superseded by 0075)
+- **ADR 0075 (T-NEWS 트랙 진입 spec/plan · Accepted 2026-05-15)**
 - ADR 0010 §5 (멀티테넌트 news·news_sentiment 테이블 명시)
 - ADR 0018 (Corp Action raw — DART 폴링 baseline)
 - ADR 0026 §38 (T-AI prompt 컨텍스트 뉴스 명시)
 - ADR 0057 (KIS-only — 시세 한정, 뉴스는 보조 OK)
-- ADR 0069 §F (SettingsModal NaverApiSection 후보)
+- ADR 0069 §F (SettingsModal NaverApiSection 후보 — T-AI 사이클 흡수 ADR 0094+ 잔류)
 - master-architecture §A.4·§B-3·§C.13 (뉴스·공시 영역 baseline)
+- backlog §53 (T-NEWS Phase 4 RSS 한경·구글 잔류)
 - backlog §62 (T-AI 감성 분석 흡수 후속)
+
+---
+
+## §53. T-NEWS Phase 4 RSS 한경·구글 어댑터 (ADR 0075 잔류 의제 — Naver 한도 보완)
+
+### 사유
+
+ADR 0075 §11 비범위 — Phase 4 RSS 한경·구글 어댑터는 본 ADR 1차 PR scope 외 잔류. Naver Open API 25K건/일 hard limit 도달 시(Watchlist 종목 ↑ + 분당 17건 한도 ↓) 보완 path 필요.
+
+### 트리거
+
+- Watchlist 종목 50건 이상 진입 시 (분당 17건 ÷ 50 종목 = 1 종목당 ~20분 polling 주기 → 사용자 인지 지연 한계)
+- 또는 Naver API 일일 도달 ~80% 누적 (25K건의 80% = 20K건/일 임계)
+- 또는 사용자 트리거 ("뉴스 더 다양하게")
+
+### 옵션 매트릭스 (ADR 0075 §11 prepend)
+
+| 옵션 | trade-off |
+|---|---|
+| A — 한경 RSS 어댑터 신규 | `https://www.hankyung.com/feed/all-news` (rate limit 미명시 + scrape 허용) — 분당 폴링 + 종목 매핑 (제목/본문 contains) |
+| B — 구글 뉴스 RSS 어댑터 신규 | `https://news.google.com/rss/search?q=...` (rate limit 미명시 + 종목명 query) — 다국어 가능성 risk |
+| C — 한경 + 구글 동시 | 다중 source 통합 + `source` 컬럼 분기 (news_article 영속 reuse) |
+
+architect 권장: **A 단독 1차** (한경 한국어 + 종목 매핑 자연 + 구글 다국어 risk 회피).
+
+### 비범위 (Phase 4 진입 시 별도 ADR)
+
+- Phase 4 진입 시 신규 ADR (가칭 ADR 0095+) — RSS 어댑터 spec/plan
+- raw fetch 의무 (한경 RSS feed schema · 구글 뉴스 RSS schema · TOS 검토)
+- news_article 영속 reuse (Phase 2 baseline) + source 컬럼 분기 ("RSS_HANKYUNG" · "RSS_GOOGLE")
+- Naver와 동일한 `<b>` strip 0(RSS는 HTML escape) + pubDate 파싱 (RSS는 RFC 822 동일 호환)
+
+### 진입 시점
+
+T-NEWS Phase 3 sub-agent 디스패치 완료 + dogfooding 1주 + Naver API 한도 도달 임계 검증 시. 사용자 의제 또는 운영 metrics 자동 감지.
+
+### 연관
+
+- ADR 0075 §11 비범위
+- backlog §52 (본 ADR T-NEWS 흡수 완료 baseline)
