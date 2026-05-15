@@ -264,4 +264,28 @@ object KisWsMessageParser {
         } catch (e: Exception) {
             false
         }
+
+    /**
+     * 구독 해제(unsubscribe) ACK 감지.
+     *
+     * ADR 0076 E-1: destroy() unsubscribe ACK 2s 대기 시 수신 확인용.
+     *
+     * KIS-first 출처:
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+     *   isUnSub = True if tr_msg[:5] == "UNSUB" else False
+     *   — body.msg1 앞 5글자가 "UNSUB"이면 구독 해제 응답.
+     *
+     * 보완: msg_cd "OPSP0002" (UNSUBSCRIBE SUCCESS) 추가 감지
+     *   — ADR 0076 E-1 명세 정합.
+     */
+    fun isUnsubscribeAck(rawJson: String): Boolean =
+        try {
+            // KIS-first 1차: msg_cd "OPSP0002" (ADR 0076 E-1 명세)
+            rawJson.contains("OPSP0002") ||
+                // KIS-first 2차: msg1 앞 5글자 "UNSUB" 판별 (kis_auth.py 표준)
+                // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+                Regex(""""msg1"\s*:\s*"UNSUB""").containsMatchIn(rawJson)
+        } catch (e: Exception) {
+            false
+        }
 }
