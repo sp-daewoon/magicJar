@@ -12,12 +12,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { newsApi, type SymbolNewsParams } from '../api/newsApi'
 
-/** 7일 전 ISO 8601 문자열 계산 */
+/** 7일 전 YYYY-MM-DD 문자열 계산 (backend LocalDate 정합 — PR #440) */
 function sevenDaysAgo(): string {
   const d = new Date()
   d.setDate(d.getDate() - 7)
-  d.setHours(0, 0, 0, 0)
-  return d.toISOString()
+  return d.toISOString().slice(0, 10)
 }
 
 export function useSymbolNews(code: string, params: SymbolNewsParams = {}) {
