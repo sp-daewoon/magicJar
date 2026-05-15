@@ -30,6 +30,7 @@ import type { IChartApi, ISeriesApi } from 'lightweight-charts'
 import { useSymbolCandles } from '../../api/hooks/useSymbolCandles'
 import { useCandleRefresh } from '../../api/hooks/useCandleRefresh'
 import type { CandleInterval, CandleDto, CandleMinutePayload } from '../../api/symbol'
+import type { LiveTick } from './LightweightChart'
 import { usePatterns } from '../../api/hooks/usePatterns'
 import { useToast } from '../../components/ui/ToastProvider'
 import { PatternMarker } from '../../components/chart/PatternMarker'
@@ -51,9 +52,14 @@ const AGGREGATED_INTERVALS: ReadonlySet<CandleInterval> = new Set<CandleInterval
 interface SymbolChartProps {
   code: string
   realtimeCandle?: CandleMinutePayload | null
+  /**
+   * STOMP tick — 마지막 bar close·high·low 실시간 update
+   * SymbolDetailPage에서 /topic/market.tick.{code} 수신 후 전달
+   */
+  liveTick?: LiveTick | null
 }
 
-export function SymbolChart({ code, realtimeCandle }: SymbolChartProps) {
+export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps) {
   const [interval, setInterval] = useState<CandleInterval>('1d')
   const {
     data,
@@ -417,6 +423,7 @@ export function SymbolChart({ code, realtimeCandle }: SymbolChartProps) {
                 candles={allCandles}
                 interval={interval}
                 realtimeCandle={realtimeCandleDto}
+                liveTick={liveTick}
                 onScrollLeft={handleScrollLeft}
                 onChartReady={handleChartReady}
                 onChartDestroy={handleChartDestroy}

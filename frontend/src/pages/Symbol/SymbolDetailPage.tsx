@@ -224,7 +224,11 @@ export function SymbolDetailPage() {
 
           {/* 우측: 차트 (2열) */}
           <div className="lg:col-span-2">
-            <SymbolChart code={code} realtimeCandle={realtimeCandle} />
+            <SymbolChart
+              code={code}
+              realtimeCandle={realtimeCandle}
+              liveTick={realtimeTick ? { price: realtimeTick.price, ts: realtimeTick.ts } : null}
+            />
           </div>
         </div>
 
