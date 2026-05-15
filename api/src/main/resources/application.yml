@@ -102,6 +102,16 @@ magicjar:
     # universe screening 전용 DSL eval timeout (ADR 0071 §2-3 C-1 LOCK)
     eval-timeout-ms: ${MAGICJAR_SCREENER_EVAL_TIMEOUT_MS:500}
 
+# ─────────────────────────────────────────────────
+# Naver Open API (T-NEWS Phase 2 — ADR 0075 §7-5 + §7-6)
+# 미설정 시 graceful skip + log INFO (feedback_no_mock_data.md 정합)
+# 발급: https://developers.naver.com → 검색 API 권한 체크 의무
+# ─────────────────────────────────────────────────
+naver:
+  open-api:
+    client-id: ${NAVER_OPEN_API_CLIENT_ID:}       # 미설정 시 NaverNewsAdapter graceful skip
+    client-secret: ${NAVER_OPEN_API_CLIENT_SECRET:} # secretKey log 금지 (MaskingPatternLayout — ADR 0046 §2-5)
+
 
 # ─────────────────────────────────────────────────
 # 로깅 레벨 — 노이즈 차단 (v3.1.0 dogfooding hotfix)

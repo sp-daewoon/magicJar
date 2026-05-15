@@ -305,4 +305,32 @@ class KafkaTopicConfig {
             .replicas(1)
             .config("retention.ms", "604800000") // 7d
             .build()
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ADR 0075 T-NEWS Phase 2 — Naver 뉴스 수집 이벤트
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Naver 뉴스 수집 이벤트 (ADR 0075 §3-1 LOCK — T-NEWS Phase 2 backend-core).
+     *
+     * publisher : api WatchlistNewsScheduler (1분 cron) + NewsKafkaProducer
+     * consumer  : Phase 5 잔류 (T-AI prompt input reuse · 1차는 publish only)
+     *
+     * partition key = stock_code (종목별 — 최신순 ordering 가능성 고려).
+     * retention: 7d (T-AI prompt input 재처리 + 사용자 검색 추적 — ADR 0075 §3-1)
+     *
+     * 이벤트 스키마 v1 (ADR 0075 §3-3 LOCK):
+     *   eventId, source, stockCode, title, bodySummary, url, urlHash,
+     *   publishedAt, occurredAt, schemaVersion=1
+     *
+     * // AI 호출 0 건 (ADR 0075 §11-2 정합)
+     */
+    @Bean
+    fun newsCollectedTopic(): NewTopic =
+        TopicBuilder
+            .name("news.collected.v1")
+            .partitions(3)
+            .replicas(1)
+            .config("retention.ms", "604800000") // 7d
+            .build()
 }
