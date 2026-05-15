@@ -87,6 +87,18 @@ interface CandleJpaRepository : JpaRepository<CandleJpaEntity, Long> {
     ): List<CandleJpaEntity>
 
     /**
+     * 종목·interval 의 마지막 ts (Instant) — row 0 건이면 null.
+     * hotfix 2026-05-15: CandleBootstrapRunner stale 검출 용.
+     */
+    @Query(
+        "SELECT MAX(c.ts) FROM CandleJpaEntity c WHERE c.code = :code AND c.interval = :interval",
+    )
+    fun findMaxTsByCodeAndInterval(
+        @Param("code") code: String,
+        @Param("interval") interval: String,
+    ): java.time.Instant?
+
+    /**
      * 단건 idempotent INSERT (ON CONFLICT DO NOTHING).
      * batch INSERT가 필요하면 saveAll + flush 패턴 사용.
      * @Transactional 필수 — @Modifying native query는 활성 트랜잭션 없이 실행 불가

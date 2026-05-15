@@ -30,6 +30,18 @@ interface ConsumerCandleJpaRepository : JpaRepository<ConsumerCandleJpaEntity, L
     ): List<ConsumerCandleJpaEntity>
 
     /**
+     * 종목·interval 의 마지막 ts (Instant) — row 0 건이면 null.
+     * hotfix 2026-05-15: CandleBootstrapRunner stale 검출 용.
+     */
+    @Query(
+        "SELECT MAX(c.ts) FROM ConsumerCandleJpaEntity c WHERE c.code = :code AND c.interval = :interval",
+    )
+    fun findMaxTsByCodeAndInterval(
+        @Param("code") code: String,
+        @Param("interval") interval: String,
+    ): java.time.Instant?
+
+    /**
      * 단건 idempotent INSERT (ON CONFLICT DO NOTHING).
      */
     @Modifying

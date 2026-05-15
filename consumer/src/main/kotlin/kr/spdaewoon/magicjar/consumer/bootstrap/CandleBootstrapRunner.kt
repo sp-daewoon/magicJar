@@ -55,6 +55,14 @@ class CandleBootstrapRunner(
          * 700건 미만이면 30 거래일치 1m 미완료 판단 → cold-start 재트리거.
          */
         private const val MIN_1M_CANDLE_THRESHOLD = 700L
+
+        /**
+         * hotfix 2026-05-15: stale ts 검사 임계치 (며칠 down 후 부분 gap 헷징).
+         * 1d candle: 2 거래일 (주말 가드) 이상 stale → 재트리거.
+         * 1m candle: 1일 (오늘 09:00 KST 이전) 이상 stale → 재트리거.
+         */
+        private const val STALE_1D_DAYS = 2L
+        private const val STALE_1M_DAYS = 1L
     }
 
     override fun run(args: ApplicationArguments) {
@@ -105,6 +113,14 @@ class CandleBootstrapRunner(
             val count1d = candleRepository.countByCodeAndInterval(code, CandleInterval.ONE_DAY)
             val count1m = candleRepository.countByCodeAndInterval(code, CandleInterval.ONE_MIN)
 
+            // hotfix 2026-05-15: stale ts 검사 — 며칠 down 후 부분 gap 헷징
+            // 마지막 ts가 N일 stale 이면 count 충분해도 cold-start 재트리거
+            val maxTs1d = candleRepository.findMaxTsByCodeAndInterval(code, CandleInterval.ONE_DAY)
+            val maxTs1m = candleRepository.findMaxTsByCodeAndInterval(code, CandleInterval.ONE_MIN)
+            val nowKst = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul"))
+            val stale1dThreshold = nowKst.minusDays(STALE_1D_DAYS).atStartOfDay(java.time.ZoneId.of("Asia/Seoul")).toInstant()
+            val stale1mThreshold = nowKst.minusDays(STALE_1M_DAYS).atStartOfDay(java.time.ZoneId.of("Asia/Seoul")).toInstant()
+
             val needsColdStart =
                 when {
                     count1d == 0L -> {
@@ -116,6 +132,24 @@ class CandleBootstrapRunner(
                             "CandleBootstrapRunner — 1m candle 부족 (count={} < threshold={}), cold-start 트리거: code={}",
                             count1m,
                             MIN_1M_CANDLE_THRESHOLD,
+                            code,
+                        )
+                        true
+                    }
+                    maxTs1d != null && maxTs1d.isBefore(stale1dThreshold) -> {
+                        log.info(
+                            "CandleBootstrapRunner — 1d candle stale (maxTs={} < threshold={}), cold-start 트리거: code={}",
+                            maxTs1d,
+                            stale1dThreshold,
+                            code,
+                        )
+                        true
+                    }
+                    maxTs1m != null && maxTs1m.isBefore(stale1mThreshold) -> {
+                        log.info(
+                            "CandleBootstrapRunner — 1m candle stale (maxTs={} < threshold={}), cold-start 트리거: code={}",
+                            maxTs1m,
+                            stale1mThreshold,
                             code,
                         )
                         true
