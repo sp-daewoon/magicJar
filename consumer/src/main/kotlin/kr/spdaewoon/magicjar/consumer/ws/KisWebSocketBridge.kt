@@ -21,11 +21,14 @@ import reactor.core.publisher.Sinks
 import java.math.BigDecimal
 import java.net.URI
 import java.time.Duration
+import java.time.LocalTime
+import java.time.ZoneId
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * KIS WebSocket 브릿지 — domain port KisWsPort 구현 (ADR 0048 §3-1).
@@ -55,7 +58,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 재연결 지수 백오프 (ADR 0048 §2-4-B):
  * 1차: 즉시, 2차: 2s, 3차: 5s, 4차: 10s, 5차+: 30s
  *
- * 10초 heartbeat 무신호 감지 → reconnect 트리거 (ADR 0048 §2-4-A).
+ * heartbeat 무신호 감지 → reconnect 트리거 (ADR 0048 §2-4-A + ADR 0076 D-1):
+ *   - 정규장(09:00~15:30 KST): 30s timeout
+ *   - 정규장 외(15:30~09:00 + 주말): 60s timeout (NXT/시간외 거래량 적어 자연 무신호 정합)
  *
  * @PreDestroy graceful shutdown ≤ 5s (ADR 0045).
  */
@@ -84,8 +89,20 @@ class KisWebSocketBridge(
 
     // 재연결 지수 백오프 딜레이 (ms) — ADR 0048 §2-4-B
     private val reconnectDelaysMs = longArrayOf(0L, 2000L, 5000L, 10000L, 30000L)
-    private val heartbeatTimeoutSeconds = 10L
+
+    // D-1: heartbeat watchdog timeout 동적 분기 (ADR 0076 D-1)
+    // 정규장(09:00~15:30 KST): 30s / 정규장 외: 60s
+    // KST 기준 분기 — LocalTime 기반 (ZoneId.of("Asia/Seoul"))
+    private val heartbeatTimeoutRegularSeconds = 30L // 정규장 09:00~15:30
+    private val heartbeatTimeoutOffHoursSeconds = 60L // 정규장 외 (시간외/주말)
+    private val kstZone = ZoneId.of("Asia/Seoul")
+
     private val pollingFallbackTimeoutSeconds = 30L
+
+    // E-1: unsubscribe ACK 대기용 latch (destroy 시 2s 대기)
+    // ADR 0076 E-1 — unsubscribe 메시지 send 후 ACK 수신 or 2s timeout 후 close
+    // destroy() 진입 시 새 CountDownLatch(1)로 교체, handleMessage에서 isUnsubscribeAck 시 countDown
+    private val pendingUnsubAckLatch = AtomicReference<java.util.concurrent.CountDownLatch?>(null)
 
     private val session = KisWebSocketSession()
     private val scheduler = Executors.newScheduledThreadPool(1)
@@ -348,6 +365,13 @@ class KisWebSocketBridge(
                     // ADR 0076 §3 F-1: 1회 retry (1초 대기) → 2회 fail 시 ERROR + skip.
                     // OPSP8996은 일시적 세션 중복 상태 — 대기 후 동일 subscribe 재전송으로 대부분 해소.
                     handleOpsp8996(parsed.rawJson)
+                } else if (KisWsMessageParser.isUnsubscribeAck(parsed.rawJson)) {
+                    // E-1: unsubscribe ACK 수신 — destroy() 대기 latch 해제
+                    // ADR 0076 E-1: destroy() 시 unsubscribe 후 ACK 2s 대기
+                    // KIS-first: kis_auth.py isUnSub 판별 + msg_cd OPSP0002
+                    // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+                    log.info("KIS WS unsubscribe ACK 수신 — destroy 대기 해제")
+                    pendingUnsubAckLatch.get()?.countDown()
                 } else {
                     log.info("KIS WS 구독 응답: success={} json={}", success, parsed.rawJson.take(200))
                 }
@@ -570,10 +594,33 @@ class KisWebSocketBridge(
     }
 
     /**
-     * Heartbeat watchdog — 10초 무신호 시 reconnect 트리거 (ADR 0048 §2-4-A).
+     * 현재 시각 기준 heartbeat watchdog timeout 반환 (ADR 0076 D-1).
      *
+     * - 정규장(09:00~15:30 KST): 30s — 체결 빈도 높아 30s 무신호 = 실제 연결 끊김 가능성 높음.
+     * - 정규장 외(15:30~09:00 + 주말): 60s — NXT/시간외 거래량 적어 자연 무신호 허용 확대.
+     *
+     * LocalTime 기반 분기 (KST ZoneId.of("Asia/Seoul")).
+     * 주말/공휴일 구분 없이 시간 기반으로만 판별 (stub 수준 — SimpleMarketSessionResolver 패턴 동일).
+     */
+    internal fun currentHeartbeatTimeoutSeconds(): Long {
+        val nowKst = LocalTime.now(kstZone)
+        val marketOpen = LocalTime.of(9, 0)
+        val marketClose = LocalTime.of(15, 30)
+        return if (!nowKst.isBefore(marketOpen) && nowKst.isBefore(marketClose)) {
+            heartbeatTimeoutRegularSeconds // 정규장: 30s
+        } else {
+            heartbeatTimeoutOffHoursSeconds // 정규장 외: 60s
+        }
+    }
+
+    /**
+     * Heartbeat watchdog — 무신호 시 reconnect 트리거 (ADR 0048 §2-4-A + ADR 0076 D-1).
+     *
+     * D-1: 정규장 30s / 정규장 외 60s 동적 timeout (이전 10s 고정 → 거짓 재연결 해소).
      * reconnecting guard: CAS(false→true) 성공한 단 1회만 dispose 호출.
      * doFinally에서 reconnecting.set(false) 해제 → 다음 연결 후 watchdog 재작동 가능.
+     *
+     * watchdog 주기: 10s 고정 (체크 빈도) — timeout은 currentHeartbeatTimeoutSeconds()로 동적.
      */
     private fun startHeartbeatWatchdog() {
         stopHeartbeatWatchdog()
@@ -582,16 +629,22 @@ class KisWebSocketBridge(
                 if (!session.connected || session.shuttingDown) return@scheduleAtFixedRate
                 val lastMsg = session.lastMessageAt.get() ?: return@scheduleAtFixedRate
                 val elapsed = Clock.System.now().epochSeconds - lastMsg.epochSeconds
-                if (elapsed > heartbeatTimeoutSeconds && session.subscribedCodes.isNotEmpty()) {
+                // D-1: 동적 timeout — 정규장 30s / 정규장 외 60s
+                val timeoutSec = currentHeartbeatTimeoutSeconds()
+                if (elapsed > timeoutSec && session.subscribedCodes.isNotEmpty()) {
                     // reconnecting CAS: 이미 재연결 중이면 중복 dispose 차단.
                     if (reconnecting.compareAndSet(false, true)) {
-                        log.warn("KIS WS heartbeat 무신호 {}s — 재연결 트리거 (dispose 호출)", elapsed)
+                        log.warn(
+                            "KIS WS heartbeat 무신호 {}s (timeout={}s) — 재연결 트리거 (dispose 호출)",
+                            elapsed,
+                            timeoutSec,
+                        )
                         wsDisposable?.dispose()
                     } else {
                         log.debug("KIS WS heartbeat 무신호 {}s — 재연결 이미 진행 중, skip", elapsed)
                     }
                 }
-            }, heartbeatTimeoutSeconds, heartbeatTimeoutSeconds, TimeUnit.SECONDS)
+            }, 10L, 10L, TimeUnit.SECONDS) // 체크 주기 10s 고정 (timeout은 동적)
     }
 
     private fun stopHeartbeatWatchdog() {
@@ -700,6 +753,15 @@ class KisWebSocketBridge(
 
     /**
      * Graceful shutdown (ADR 0045 — SIGTERM 시 ≤ 5s).
+     *
+     * E-1: unsubscribe 메시지 send 후 ACK 2s 대기 (ADR 0076 E-1).
+     * - unsubscribe 메시지 전송 → ACK(msg_cd "OPSP0002" or msg1 "UNSUB…") 수신 확인 후 close.
+     * - 2s 내 ACK 미수신 시 강제 close (graceful + timeout 보장).
+     * - KIS 서버에서 ACK 도착 전 연결 종료 시 다음 connect에서 ALREADY IN USE risk 방지.
+     *
+     * KIS-first 출처 (isUnsubscribeAck 판별 기준):
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+     *   isUnSub = True if tr_msg[:5] == "UNSUB" else False
      */
     @PreDestroy
     fun destroy() {
@@ -713,25 +775,43 @@ class KisWebSocketBridge(
         if (codes.isNotEmpty() || nxtCodes.isNotEmpty()) {
             try {
                 val approvalKey = getApprovalKey()
+
+                // E-1: ACK 대기 latch 설정 — unsubscribe 전송 직전에 활성화
+                // 1건 이상 ACK 수신 시 latch.countDown() → awaitAck 해제
+                val ackLatch = java.util.concurrent.CountDownLatch(1)
+                pendingUnsubAckLatch.set(ackLatch)
+
                 codes.forEach { code ->
                     val msg = buildSubscribeMessage(approvalKey, code, trType = "2")
                     sendSink?.tryEmitNext(msg)
+                    log.debug("KIS WS shutdown unsubscribe 전송: code={} trId=H0STCNT0", code)
                 }
                 // H0NXCNT0 unsubscribe
                 nxtCodes.forEach { code ->
                     val nxtMsg = buildSubscribeMessage(approvalKey, code, trType = "2", trId = "H0NXCNT0")
                     sendSink?.tryEmitNext(nxtMsg)
+                    log.debug("KIS WS shutdown unsubscribe 전송: code={} trId=H0NXCNT0", code)
                 }
-                Thread.sleep(1000) // unsubscribe 송신 대기
+
+                // E-1: ACK 2s 대기 — KIS 서버에서 ACK 도착 전 연결 종료 방지
+                // ADR 0076 E-1: 2초 대기 후 ACK 미수신 시에도 강제 close (graceful + timeout)
+                val ackReceived = ackLatch.await(2, TimeUnit.SECONDS)
+                if (ackReceived) {
+                    log.info("KIS WS unsubscribe ACK 수신 — 정상 종료")
+                } else {
+                    log.warn("KIS WS unsubscribe ACK 2s timeout — 강제 close (ACK 미수신)")
+                }
+                pendingUnsubAckLatch.set(null)
             } catch (e: Exception) {
                 log.warn("KIS WS shutdown 시 unsubscribe 실패: {}", e.message)
+                pendingUnsubAckLatch.set(null)
             }
         }
 
         wsDisposable?.dispose()
         sendSink?.tryEmitComplete()
         scheduler.shutdown()
-        scheduler.awaitTermination(4, TimeUnit.SECONDS)
+        scheduler.awaitTermination(3, TimeUnit.SECONDS) // 5s 한도 내 유지 (2s ACK 대기 + 3s)
         log.info("KIS WS graceful shutdown 완료")
     }
 

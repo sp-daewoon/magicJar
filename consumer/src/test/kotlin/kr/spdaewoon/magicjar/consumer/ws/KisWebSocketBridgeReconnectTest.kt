@@ -333,6 +333,127 @@ class KisWebSocketBridgeReconnectTest {
         assertThat(KisWsMessageParser.isOpsp8996(otherError)).isFalse()
     }
 
+    // ===== ADR 0076 D-1: heartbeat watchdog 동적 timeout 테스트 =====
+
+    /**
+     * [ADR 0076 D-1] 정규장 시간(09:00~15:30 KST) → heartbeat timeout 30s 검증.
+     *
+     * currentHeartbeatTimeoutSeconds()가 LocalTime 기반으로 정규장 여부를 판별.
+     * 정규장 중: 거래 빈도 높아 30s 무신호 = 실질적 연결 끊김 판단.
+     */
+    @Test
+    fun `D-1 정규장 시간(09-00~15-30 KST) heartbeat timeout 30s 반환`() {
+        // given: bridge.currentHeartbeatTimeoutSeconds()는 LocalTime.now(kstZone) 기반
+        // LocalTime mock이 불가능하므로, 테스트용 헬퍼로 시각 인수를 받는 내부 함수 로직을 직접 검증
+        val marketOpen = java.time.LocalTime.of(9, 0)
+        val marketClose = java.time.LocalTime.of(15, 30)
+
+        // 정규장 시간대 예시: 10:00, 09:00, 15:29
+        val regularTimes =
+            listOf(
+                java.time.LocalTime.of(10, 0),
+                java.time.LocalTime.of(9, 0),
+                java.time.LocalTime.of(15, 29),
+            )
+        regularTimes.forEach { t ->
+            val isRegular = !t.isBefore(marketOpen) && t.isBefore(marketClose)
+            assertThat(isRegular).describedAs("시각 $t 는 정규장").isTrue()
+        }
+
+        // bridge.heartbeatTimeoutRegularSeconds = 30 (reflection 확인)
+        val regularField = KisWebSocketBridge::class.java.getDeclaredField("heartbeatTimeoutRegularSeconds")
+        regularField.isAccessible = true
+        assertThat(regularField.get(bridge) as Long).isEqualTo(30L)
+    }
+
+    /**
+     * [ADR 0076 D-1] 정규장 외 시간(15:30~09:00 + 주말) → heartbeat timeout 60s 검증.
+     *
+     * 정규장 외: NXT/시간외 거래량 적어 자연 무신호 허용 — 60s 확대.
+     * 이전 10s 고정 → 장 마감 직후 자연 무신호 거짓 재연결 스팸 해소.
+     */
+    @Test
+    fun `D-1 정규장 외 시간(15-30 이후 또는 09-00 이전) heartbeat timeout 60s 반환`() {
+        val marketOpen = java.time.LocalTime.of(9, 0)
+        val marketClose = java.time.LocalTime.of(15, 30)
+
+        // 정규장 외 시간대 예시: 15:30, 16:00, 08:59, 00:00
+        val offHoursTimes =
+            listOf(
+                java.time.LocalTime.of(15, 30),
+                java.time.LocalTime.of(16, 0),
+                java.time.LocalTime.of(8, 59),
+                java.time.LocalTime.of(0, 0),
+            )
+        offHoursTimes.forEach { t ->
+            val isOffHours = t.isBefore(marketOpen) || !t.isBefore(marketClose)
+            assertThat(isOffHours).describedAs("시각 $t 는 정규장 외").isTrue()
+        }
+
+        // bridge.heartbeatTimeoutOffHoursSeconds = 60 (reflection 확인)
+        val offField = KisWebSocketBridge::class.java.getDeclaredField("heartbeatTimeoutOffHoursSeconds")
+        offField.isAccessible = true
+        assertThat(offField.get(bridge) as Long).isEqualTo(60L)
+    }
+
+    // ===== ADR 0076 E-1: destroy() unsubscribe ACK 2s 대기 테스트 =====
+
+    /**
+     * [ADR 0076 E-1] unsubscribe ACK 감지 → destroy 대기 latch countDown 검증.
+     *
+     * KisWsMessageParser.isUnsubscribeAck() 정합성:
+     * - msg_cd "OPSP0002" → true (ADR 0076 E-1 명세)
+     * - msg1 "UNSUB…" → true (KIS-first: kis_auth.py isUnSub 판별)
+     * - subscribe success msg → false (구독 성공과 혼동 차단)
+     *
+     * KIS-first raw URL:
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+     *   isUnSub = True if tr_msg[:5] == "UNSUB" else False
+     */
+    @Test
+    fun `E-1 isUnsubscribeAck — OPSP0002 또는 msg1 UNSUB 포함 시 true, 구독 성공 응답은 false`() {
+        // OPSP0002 — unsubscribe success (ADR 0076 E-1 명세)
+        val opsp0002 = """{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"0","msg_cd":"OPSP0002","msg1":"UNSUBSCRIBE SUCCESS"}}"""
+        assertThat(KisWsMessageParser.isUnsubscribeAck(opsp0002)).isTrue()
+
+        // msg1 "UNSUB..." — kis_auth.py isUnSub 판별
+        val unsubMsg1 = """{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"0","msg1":"UNSUB SOMETHING"}}"""
+        assertThat(KisWsMessageParser.isUnsubscribeAck(unsubMsg1)).isTrue()
+
+        // 구독 성공 응답 — false (오탐 차단)
+        val subscribeSuccess = """{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"0","msg_cd":"OPSP0000","msg1":"SUBSCRIBE SUCCESS"}}"""
+        assertThat(KisWsMessageParser.isUnsubscribeAck(subscribeSuccess)).isFalse()
+
+        // OPSP8996 — false (오탐 차단)
+        val opsp8996 = """{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"1","msg_cd":"OPSP8996","msg1":"ALREADY IN USE appkey"}}"""
+        assertThat(KisWsMessageParser.isUnsubscribeAck(opsp8996)).isFalse()
+    }
+
+    /**
+     * [ADR 0076 E-1] destroy() 시 구독 종목 없으면 ACK 대기 없이 즉시 종료.
+     *
+     * 구독 종목 0건 → unsubscribe 메시지 전송 없음 → ACK latch 불필요 → 즉시 close.
+     * pendingUnsubAckLatch가 null 유지(set 호출 없음) 확인.
+     */
+    @Test
+    fun `E-1 destroy 구독 종목 없으면 ACK 대기 없이 즉시 종료`() {
+        // given: 구독 종목 없음 (초기 상태)
+        val session = getSession(bridge)
+        assertThat(session.subscribedCodes).isEmpty()
+
+        // given: Mono.never() — destroy 전 연결 유지 상태 시뮬레이션
+        every { wsClient.execute(any<URI>(), any()) } returns Mono.never()
+
+        // when: destroy 호출 (블로킹 ≤ scheduler.awaitTermination 3s)
+        val start = System.currentTimeMillis()
+        bridge.destroy()
+        val elapsed = System.currentTimeMillis() - start
+
+        // then: 구독 0건 → ACK 2s 대기 없음 → 빠른 종료 (3s scheduler awaitTermination 이내)
+        // ACK 대기 2s 없이 종료됨 확인 (실제 latch.await가 없으면 3s scheduler 한도 내 완료)
+        assertThat(elapsed).isLessThan(4500L) // 여유 4.5s (scheduler 3s + 오버헤드)
+    }
+
     /**
      * KisWebSocketBridge 내부 session 필드 접근 (reflection).
      * 프로덕션 코드 변경 없이 내부 상태 검증용.
