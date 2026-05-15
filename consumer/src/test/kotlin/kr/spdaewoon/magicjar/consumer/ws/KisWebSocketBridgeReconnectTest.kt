@@ -25,6 +25,8 @@ import java.net.URI
  * 2. reconnectGracefully 호출 시 reconnectCount 리셋 (지수 백오프 초기화)
  * 3. shuttingDown=true 시 reconnect 스킵
  * 4. subscribe(codes) 시 H0STCNT0 + H0NXCNT0 둘 다 구독 메시지 송신 검증 (NXT 장외 sync hotfix)
+ * 5. connect() / reconnectGracefully() 호출 시 KisApprovalAdapter.invalidate() 호출 검증
+ *    (OPSP8996 "ALREADY IN USE appkey" hotfix — doConnect() 진입 시 approval_key cache DEL)
  *
  * 주의: doConnect()는 Reactor WS 연결(비동기)이라 실제 연결 검증은 통합 테스트에서.
  * 본 테스트는 session 상태 변경 + reconnectCount 초기화 + NXT 구독 메시지에 집중.
@@ -120,6 +122,50 @@ class KisWebSocketBridgeReconnectTest {
         // then: H0NXCNT0 구독 — nxtSubscribedCodes 확인 (reflection)
         val nxtCodes = getNxtSubscribedCodes(bridge)
         assertThat(nxtCodes).containsExactlyInAnyOrder("005930", "000660")
+    }
+
+    /**
+     * connect() 호출 시 doConnect() 내부에서 KisApprovalAdapter.invalidate() 호출 검증.
+     *
+     * OPSP8996 "ALREADY IN USE appkey" root cause:
+     *   consumer 재시작 시 Redis에 잔류한 approval_key로 subscribe → KIS 기존 session 활성 판단 → OPSP8996.
+     *
+     * Fix: doConnect() 진입 시 approval_key cache DEL (invalidate) → KIS 신규 approval_key 발급
+     *   → 새 session이 기존 session 대체 (appkey별 1 session KIS 정책 자동 준수).
+     *
+     * KIS-first raw 출처:
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+     *   auth_ws() — 매 WS 연결 시 approval_key 신규 발급 패턴 (cache 재사용 없음).
+     */
+    @Test
+    fun `connect 호출 시 doConnect 내부에서 approvalAdapter invalidate 호출 — OPSP8996 해소`() {
+        // given: 초기 상태 (connected=false)
+        // when
+        bridge.connect()
+
+        // then: approvalAdapter.invalidate() 호출 확인 — approval_key cache DEL 보장
+        verify(atLeast = 1) { approvalAdapter.invalidate(any(), any()) }
+        // wsClient.execute 호출 — 신규 연결 시도
+        verify(atLeast = 1) { wsClient.execute(any<URI>(), any()) }
+    }
+
+    /**
+     * reconnectGracefully() 호출 시 doConnect() 경로로 invalidate 호출 검증.
+     *
+     * reconnectGracefully() → doConnect() → invalidate() 경로.
+     * 재연결 시마다 approval_key fresh 발급 보장 → OPSP8996 방지.
+     */
+    @Test
+    fun `reconnectGracefully 호출 시 doConnect 경로로 approvalAdapter invalidate 호출`() {
+        // given: session을 connected 상태로 강제 설정
+        val session = getSession(bridge)
+        session.onConnected()
+
+        // when
+        bridge.reconnectGracefully("user001")
+
+        // then: invalidate 호출 확인 (doConnect 경로)
+        verify(atLeast = 1) { approvalAdapter.invalidate(any(), any()) }
     }
 
     /**

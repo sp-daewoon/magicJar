@@ -232,6 +232,23 @@ class KisWebSocketBridge(
     }
 
     private fun doConnect() {
+        // OPSP8996 "ALREADY IN USE appkey" 해소 — 재연결 직전 approval_key cache 무효화.
+        //
+        // KIS 정책: 동일 appkey의 활성 WS session 1개 단독 허용.
+        // 이전 실행 or 재연결 시 Redis에 잔류한 approval_key로 subscribe하면
+        // KIS가 기존 session 활성 상태로 판단 → OPSP8996 반환 → 14종목 H0NXCNT0 subscribe 0건.
+        //
+        // 해결 패턴: doConnect() 진입 시 approval_key cache DEL → 신규 approval_key 발급.
+        // KIS approval_key 정책상 새 key 발급 = 기존 session invalidate (appkey별 1 session 보장).
+        //
+        // KIS-first raw 출처:
+        //   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+        //   auth_ws() — 매 WS 연결 시 approval_key 신규 발급 (cache 재사용 없음).
+        if (defaultUserId.isNotBlank()) {
+            val accountType = if (magicjarMode == "REAL") AccountType.REAL else AccountType.MOCK
+            approvalAdapter.invalidate(defaultUserId, accountType)
+        }
+
         val sink = Sinks.many().unicast().onBackpressureBuffer<String>()
         sendSink = sink
 
