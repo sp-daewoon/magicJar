@@ -109,6 +109,13 @@ class KisWebSocketBridge(
     // 재연결 중복 방지 guard — watchdog 트리거 후 doFinally 완료 전 중복 dispose 차단.
     private val reconnecting = AtomicBoolean(false)
 
+    // F-1: OPSP8996 self-heal retry 카운터 (subscribe 응답 메시지 단위).
+    // ADR 0076 §3 F-1 — 1회 retry(1초 대기) 후 2회 fail 시 ERROR + skip.
+    // 연결 수립 시(onConnected) 0 초기화 — 새 연결마다 카운터 리셋.
+    private val opsp8996RetryCount =
+        java.util.concurrent.atomic
+            .AtomicInteger(0)
+
     // polling fallback 콜백 (backend-core WatchlistPollingWorker와 연동)
     @Volatile
     var onPollingFallbackStart: (() -> Unit)? = null
@@ -235,22 +242,20 @@ class KisWebSocketBridge(
     }
 
     private fun doConnect() {
-        // OPSP8996 "ALREADY IN USE appkey" 해소 — 재연결 직전 approval_key cache 무효화.
+        // ADR 0076 A-1 복원: approval_key invalidate 제거 — 24h TTL Redis cache reuse 의무.
         //
-        // KIS 정책: 동일 appkey의 활성 WS session 1개 단독 허용.
-        // 이전 실행 or 재연결 시 Redis에 잔류한 approval_key로 subscribe하면
-        // KIS가 기존 session 활성 상태로 판단 → OPSP8996 반환 → 14종목 H0NXCNT0 subscribe 0건.
+        // [취소된 이전 접근] PR #444 에서 doConnect() 진입마다 invalidate() 호출하여
+        // KIS 표준 24h reuse 위반 → OPSP8996 다발 → watchdog 재연결 → 또 invalidate → 무한 루프.
         //
-        // 해결 패턴: doConnect() 진입 시 approval_key cache DEL → 신규 approval_key 발급.
-        // KIS approval_key 정책상 새 key 발급 = 기존 session invalidate (appkey별 1 session 보장).
-        //
-        // KIS-first raw 출처:
+        // [KIS 표준 패턴] KIS-first raw 출처:
         //   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
-        //   auth_ws() — 매 WS 연결 시 approval_key 신규 발급 (cache 재사용 없음).
-        if (defaultUserId.isNotBlank()) {
-            val accountType = if (magicjarMode == "REAL") AccountType.REAL else AccountType.MOCK
-            approvalAdapter.invalidate(defaultUserId, accountType)
-        }
+        //   kis_auth.py auth_ws() — approval_key 1회 발급 + 86,400초(24h) reuse.
+        //   KIS 공식 예제에서 매 연결마다 재발급하지 않음.
+        //
+        // [OPSP8996 해소 대책] F-1 self-heal: subscribe 응답 msg_cd="OPSP8996" 감지 시
+        //   1초 대기 후 1회 retry → 2회 fail 시 ERROR + skip (handleMessage 내 처리).
+        //   invalidate + 재발급보다 안정적: 24h 내 동일 key 재사용이 KIS 표준이며
+        //   OPSP8996은 일시적 세션 중복 상태로, 잠깐 대기 후 retry로 대부분 해소됨.
 
         val sink = Sinks.many().unicast().onBackpressureBuffer<String>()
         sendSink = sink
@@ -264,6 +269,7 @@ class KisWebSocketBridge(
                     // 실제 WebSocket handshake 성공 시점 — 핸들러 람다 진입 = 연결 수립 확인.
                     // (doOnSubscribe는 subscribe() 직후 동기 호출이라 handshake 완료 전임)
                     session.onConnected()
+                    opsp8996RetryCount.set(0) // F-1: 새 연결마다 OPSP8996 retry 카운터 초기화
                     pollingFallbackActive.set(false)
                     onPollingFallbackStop?.invoke()
                     log.info("KIS WS 연결 성공 — approval_key 발급 완료")
@@ -337,7 +343,14 @@ class KisWebSocketBridge(
 
             is KisWsMessageParser.ParsedMessage.SubscriptionResponse -> {
                 val success = KisWsMessageParser.isSubscriptionSuccess(parsed.rawJson)
-                log.info("KIS WS 구독 응답: success={} json={}", success, parsed.rawJson.take(200))
+                if (!success && KisWsMessageParser.isOpsp8996(parsed.rawJson)) {
+                    // F-1: OPSP8996 "ALREADY IN USE appkey" self-heal retry
+                    // ADR 0076 §3 F-1: 1회 retry (1초 대기) → 2회 fail 시 ERROR + skip.
+                    // OPSP8996은 일시적 세션 중복 상태 — 대기 후 동일 subscribe 재전송으로 대부분 해소.
+                    handleOpsp8996(parsed.rawJson)
+                } else {
+                    log.info("KIS WS 구독 응답: success={} json={}", success, parsed.rawJson.take(200))
+                }
             }
 
             is KisWsMessageParser.ParsedMessage.Unknown -> {
@@ -630,6 +643,57 @@ class KisWebSocketBridge(
             maskUserId(userId),
             session.subscribedCodes.size,
         )
+    }
+
+    /**
+     * F-1: OPSP8996 "ALREADY IN USE appkey" self-heal handler.
+     *
+     * ADR 0076 §3 F-1 정합:
+     * - 1회 retry: 1초 대기 후 동일 subscribe 메시지 재전송 요청 (재구독 트리거).
+     * - 2회 fail 시: ERROR 로그 + skip (다음 watchdog cycle 재연결 대기).
+     *
+     * 재전송 전략: sendSink에 현재 구독 목록(H0STCNT0 + H0NXCNT0) 재전송.
+     * OPSP8996은 일시적 appkey 세션 중복 — KIS 서버가 이전 session을 정리한 후
+     * 동일 approval_key로 재subscribe하면 대부분 해소됨.
+     *
+     * KIS-first 근거: approval_key 24h 유효 — 재발급 없이 동일 key 재시도가 KIS 표준 패턴.
+     */
+    private fun handleOpsp8996(rawJson: String) {
+        val attempt = opsp8996RetryCount.incrementAndGet()
+        if (attempt > 1) {
+            // 2회 이상 실패 — ERROR + skip (다음 watchdog cycle에 위임)
+            log.error(
+                "KIS WS OPSP8996 2회 fail — skip (다음 watchdog cycle 대기): attempt={} json={}",
+                attempt,
+                rawJson.take(200),
+            )
+            return
+        }
+        // 1회: 1초 대기 후 재구독 시도
+        log.warn(
+            "KIS WS OPSP8996 감지 — 1초 대기 후 retry (attempt={}): json={}",
+            attempt,
+            rawJson.take(200),
+        )
+        try {
+            Thread.sleep(1000L)
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+        // 현재 활성 구독 목록으로 재구독 메시지 재전송
+        val approvalKey = getApprovalKey()
+        val resubscribeCodes = session.subscribedCodes.toList()
+        if (resubscribeCodes.isNotEmpty()) {
+            resubscribeCodes.forEach { code ->
+                val msg = buildSubscribeMessage(approvalKey, code, trType = "1")
+                sendSink?.tryEmitNext(msg)
+                val nxtMsg = buildSubscribeMessage(approvalKey, code, trType = "1", trId = "H0NXCNT0")
+                sendSink?.tryEmitNext(nxtMsg)
+            }
+            log.info("KIS WS OPSP8996 retry 재구독 전송: {}건", resubscribeCodes.size)
+        } else {
+            log.warn("KIS WS OPSP8996 retry — 재구독 목록 없음, skip")
+        }
     }
 
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"

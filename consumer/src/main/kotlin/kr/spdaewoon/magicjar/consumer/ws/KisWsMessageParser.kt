@@ -248,4 +248,20 @@ object KisWsMessageParser {
             false
         }
     }
+
+    /**
+     * 구독 응답에서 OPSP8996 "ALREADY IN USE appkey" 에러 감지.
+     *
+     * ADR 0076 §3 F-1: OPSP8996 self-heal 진입 판단.
+     * KIS 응답 예시:
+     *   {"header":{"tr_id":"H0STCNT0","datetime":"..."},"body":{"rt_cd":"1","msg_cd":"OPSP8996","msg1":"ALREADY IN USE appkey",...}}
+     *
+     * msg_cd 필드 기반 감지 (rt_cd "1" + msg_cd "OPSP8996" 동시 조건).
+     */
+    fun isOpsp8996(rawJson: String): Boolean =
+        try {
+            rawJson.contains("OPSP8996")
+        } catch (e: Exception) {
+            false
+        }
 }
