@@ -9,6 +9,13 @@
  *   - 빈 상태: "최근 7일간 공시가 없습니다" (feedback_no_mock_data 정합)
  *   - AI provider import 0 (§11-2)
  *   - DART URL 새 탭 open (target="_blank" rel="noopener noreferrer")
+ *
+ * dogfooding hotfix: useInfiniteQuery 기반 누적 append + 스크롤.
+ *   - "더 보기" → fetchNextPage() — 기존 items 보존
+ *   - 외곽 컨테이너 max-h-[600px] overflow-y-auto 스크롤
+ *   - hasNextPage=false 시 "더 보기" 버튼 숨김
+ *   - isFetchingNextPage 시 로딩 표시
+ *   - onlyCorrection 필터 토글 시 query 재시작 (queryKey 변경)
  */
 import { useState } from 'react'
 import { useSymbolDisclosures } from '../hooks/useSymbolDisclosures'
@@ -19,22 +26,20 @@ interface Props {
 }
 
 export function DisclosurePanel({ code }: Props) {
-  const [page, setPage] = useState(0)
   const [onlyCorrection, setOnlyCorrection] = useState(false)
 
-  const { data, isLoading, isError } = useSymbolDisclosures(code, {
-    page,
-    size: 20,
-    onlyCorrection,
-  })
+  const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } =
+    useSymbolDisclosures(code, {
+      size: 20,
+      onlyCorrection,
+    })
 
-  // onlyCorrection 필터 토글 시 페이지 초기화
+  // onlyCorrection 필터 토글 — queryKey 변경으로 useInfiniteQuery가 자동 재시작
   function handleToggleOnlyCorrection() {
     setOnlyCorrection((prev) => !prev)
-    setPage(0)
   }
 
-  // ── 로딩 스켈레톤
+  // ── 로딩 스켈레톤 (최초 로드)
   if (isLoading) {
     return (
       <section aria-label="공시" className="rounded-lg border border-gray-800 bg-gray-900 p-4">
@@ -61,9 +66,9 @@ export function DisclosurePanel({ code }: Props) {
     )
   }
 
-  const items = data?.items ?? []
-  const totalPages = data?.totalPages ?? 0
-  const hasMore = page < totalPages - 1
+  // 전체 pages 누적 flat
+  const items = data?.pages.flatMap((p) => p.items) ?? []
+  const totalElements = data?.pages[0]?.totalElements ?? 0
 
   return (
     <section aria-label="공시" className="rounded-lg border border-gray-800 bg-gray-900 p-4">
@@ -71,8 +76,8 @@ export function DisclosurePanel({ code }: Props) {
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-semibold text-gray-300">공시</h3>
-          {data && data.totalElements > 0 && (
-            <span className="text-xs text-gray-500">{data.totalElements}건</span>
+          {totalElements > 0 && (
+            <span className="text-xs text-gray-500">{totalElements}건</span>
           )}
         </div>
 
@@ -98,31 +103,30 @@ export function DisclosurePanel({ code }: Props) {
         </p>
       ) : (
         <>
-          <ul>
-            {items.map((item) => (
-              <DisclosureItemRow key={item.id} item={item} />
-            ))}
-          </ul>
+          {/* 누적 목록 — 스크롤 컨테이너 */}
+          <div className="max-h-[600px] overflow-y-auto pr-1">
+            <ul>
+              {items.map((item) => (
+                <DisclosureItemRow key={item.id} item={item} />
+              ))}
+            </ul>
 
-          {/* 더 보기 */}
-          {hasMore && (
+            {/* 다음 페이지 로딩 중 스피너 */}
+            {isFetchingNextPage && (
+              <div className="py-3 text-center">
+                <span className="text-xs text-gray-500">불러오는 중...</span>
+              </div>
+            )}
+          </div>
+
+          {/* 더 보기 — hasNextPage 있을 때만 표시 */}
+          {hasNextPage && !isFetchingNextPage && (
             <button
               type="button"
-              onClick={() => setPage((p) => p + 1)}
+              onClick={() => fetchNextPage()}
               className="mt-3 w-full rounded border border-gray-700 py-1.5 text-xs text-gray-400 hover:border-gray-500 hover:text-gray-200 transition-colors"
             >
               더 보기
-            </button>
-          )}
-
-          {/* 처음으로 */}
-          {page > 0 && (
-            <button
-              type="button"
-              onClick={() => setPage(0)}
-              className="mt-2 w-full text-xs text-gray-600 hover:text-gray-400 transition-colors"
-            >
-              처음으로
             </button>
           )}
         </>
