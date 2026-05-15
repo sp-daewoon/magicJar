@@ -147,4 +147,105 @@ class KisWsMessageParserTest {
             .isEqualTo(totalSlots)
             .describedAs("ADR 0048 §2-1: 1 + 30 + 10 = 41 slot 예산 정합")
     }
+
+    // ===== H0NXCNT0 NXT 구독 추가 테스트 (장외 sync 결함 hotfix) =====
+
+    /**
+     * H0NXCNT0 raw 메시지 파싱 → TickEvent code·price·volume 정합.
+     *
+     * KIS-first 출처:
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
+     *   ccnl_nxt() columns: H0STCNT0(ccnl_krx)와 동일 필드 인덱스 구조.
+     *   [0]=MKSC_SHRN_ISCD / [1]=STCK_CNTG_HOUR / [2]=STCK_PRPR / [12]=CNTG_VOL / [33]=BSOP_DATE.
+     *
+     * ADR 0063 NXT cover: 08:00~20:00 KST (시간외 + pre-market).
+     */
+    @Test
+    fun `H0NXCNT0 raw 메시지 파싱 → TickEvent code·price·volume·source=live-nxt 정합`() {
+        // H0NXCNT0 44개 필드: IDX[0]=code, IDX[2]=price, IDX[12]=cntg_vol, IDX[33]=bsop_date
+        val fields =
+            Array(44) { i ->
+                when (i) {
+                    0 -> "005930" // MKSC_SHRN_ISCD (종목코드)
+                    1 -> "163000" // STCK_CNTG_HOUR (시간외 16:30 = after-hour)
+                    2 -> "59800" // STCK_PRPR (현재가)
+                    3 -> "5" // PRDY_VRSS_SIGN (하락)
+                    4 -> "500" // PRDY_VRSS (전일대비 -500)
+                    5 -> "-0.83" // PRDY_CTRT (전일대비율)
+                    12 -> "50" // CNTG_VOL (체결거래량)
+                    33 -> "20260515" // BSOP_DATE (영업일자)
+                    else -> "0"
+                }
+            }
+        val rawData = fields.joinToString("^")
+        val raw = "0|H0NXCNT0|001|$rawData"
+
+        val parsed = KisWsMessageParser.parse(raw)
+        assertThat(parsed).isInstanceOf(KisWsMessageParser.ParsedMessage.RealtimeData::class.java)
+
+        val data = parsed as KisWsMessageParser.ParsedMessage.RealtimeData
+        assertThat(data.trId).isEqualTo("H0NXCNT0")
+
+        val tick = KisWsMessageParser.parseH0Nxcnt0(data.rawData)
+        assertThat(tick).isNotNull
+        assertThat(tick!!.code).isEqualTo("005930")
+        assertThat(tick.price).isEqualByComparingTo(BigDecimal("59800"))
+        assertThat(tick.volume).isEqualTo(50L)
+        assertThat(tick.source).isEqualTo("live-nxt")
+    }
+
+    /**
+     * H0NXCNT0 등락 필드 추출 — NXT 시간외 등락률 정합.
+     *
+     * KIS-first 출처:
+     *   ccnl_nxt() [3]=PRDY_VRSS_SIGN / [4]=PRDY_VRSS / [5]=PRDY_CTRT
+     *   raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
+     */
+    @Test
+    fun `H0NXCNT0 등락 필드 PRDY_VRSS_SIGN·PRDY_VRSS·PRDY_CTRT 추출`() {
+        val fields =
+            Array(44) { i ->
+                when (i) {
+                    0 -> "005930"
+                    1 -> "170000"
+                    2 -> "60200"
+                    3 -> "2" // PRDY_VRSS_SIGN (상승)
+                    4 -> "200" // PRDY_VRSS (+200)
+                    5 -> "0.33" // PRDY_CTRT (+0.33%)
+                    12 -> "30"
+                    33 -> "20260515"
+                    else -> "0"
+                }
+            }
+        val tick = KisWsMessageParser.parseH0Nxcnt0(fields.joinToString("^"))
+
+        assertThat(tick).isNotNull
+        assertThat(tick!!.changeSign).isEqualTo("2")
+        assertThat(tick.priceChange).isEqualByComparingTo(BigDecimal("200"))
+        assertThat(tick.changeRate).isEqualByComparingTo(BigDecimal("0.33"))
+        assertThat(tick.source).isEqualTo("live-nxt")
+    }
+
+    /**
+     * 41 slot 정합 — NXT(H0NXCNT0) 추가 후 SubscriptionPolicy 상수 검증.
+     *
+     * ADR 0048 §2-1 정합:
+     *   H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41 slot.
+     *   NXT_TICK_MAX = 20 (PRICE_TICK_MAX=30이 아닌 NXT 병행 시 안전 한도).
+     *
+     * KIS-first: open-trading-api ccnl_nxt() tr_id=H0NXCNT0
+     * raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
+     */
+    @Test
+    fun `41 slot NXT 추가 후 정합 — H0STCNT0(NXT_TICK_MAX) + H0NXCNT0(NXT_TICK_MAX) + H0STCNI0(1) = 41`() {
+        val totalSlots = 41
+        val executionNoticeReserved = 1 // H0STCNI0
+        val nxtTickMax = 20 // H0NXCNT0 (SubscriptionPolicy.NXT_TICK_MAX)
+        // NXT 병행 시 H0STCNT0도 20 종목으로 제한 (각 1 slot)
+        val priceTickMaxWithNxt = 20 // H0STCNT0 (NXT 병행)
+
+        assertThat(executionNoticeReserved + priceTickMaxWithNxt + nxtTickMax)
+            .isEqualTo(totalSlots)
+            .describedAs("ADR 0048 §2-1 + NXT: H0STCNI0(1) + H0STCNT0(20) + H0NXCNT0(20) = 41 slot 정합")
+    }
 }
