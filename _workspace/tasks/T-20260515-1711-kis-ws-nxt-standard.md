@@ -3,10 +3,10 @@ id: T-20260515-1711-kis-ws-nxt-standard
 agent: architect
 model: opus
 branch: agent/architect/kis-ws-nxt-standard
-status: RUNNING
+status: DONE
 startedAt: 2026-05-15T17:11:00.404+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-15T17:23:24.352+09:00
+pr: #447
 parentPhase: ?
 ---
 
