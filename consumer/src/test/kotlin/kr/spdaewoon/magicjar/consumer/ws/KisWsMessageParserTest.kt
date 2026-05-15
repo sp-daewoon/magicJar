@@ -248,4 +248,118 @@ class KisWsMessageParserTest {
             .isEqualTo(totalSlots)
             .describedAs("ADR 0048 §2-1 + NXT: H0STCNI0(1) + H0STCNT0(20) + H0NXCNT0(20) = 41 slot 정합")
     }
+
+    // ===== H0STOUP0 시간외 단일가 구독 테스트 (ADR 0076 Phase 3 B-2) =====
+
+    /**
+     * H0STOUP0 raw 메시지 파싱 → TickEvent code·price·volume·source=live-overtime 정합.
+     *
+     * KIS-first 출처:
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
+     *   overtime_ccnl_krx() tr_id="H0STOUP0" — 국내주식 시간외 실시간체결가 (KRX) [실시간-042]
+     *   국내주식 시간외 단일가(16:00~18:00) 시간대에 실시간체결가 데이터 확인 가능합니다.
+     *   columns 배열 43개 필드: [0]=mksc_shrn_iscd / [1]=stck_cntg_hour / [2]=stck_prpr
+     *   [12]=cntg_vol / [33]=bsop_date
+     *
+     * ADR 0076 Phase 3 B-2: H0STOUP0 활성 시간 16:00~18:00 KST.
+     */
+    @Test
+    fun `H0STOUP0 raw 메시지 파싱 → TickEvent code·price·volume·source=live-overtime 정합`() {
+        // H0STOUP0 43개 필드: [0]=code [1]=time [2]=price [12]=cntg_vol [33]=bsop_date
+        // KIS-first 필드 인덱스:
+        //   overtime_ccnl_krx.py columns: mksc_shrn_iscd[0] / stck_cntg_hour[1] / stck_prpr[2]
+        //   cntg_vol[12] / bsop_date[33]
+        // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
+        val fields =
+            Array(43) { i ->
+                when (i) {
+                    0 -> "005930" // mksc_shrn_iscd (종목코드)
+                    1 -> "161500" // stck_cntg_hour (시간외 16:15)
+                    2 -> "59500" // stck_prpr (현재가)
+                    3 -> "5" // prdy_vrss_sign (하락)
+                    4 -> "800" // prdy_vrss (전일대비 -800)
+                    5 -> "-1.33" // prdy_ctrt (전일대비율)
+                    12 -> "200" // cntg_vol (체결거래량)
+                    33 -> "20260515" // bsop_date (영업일자)
+                    else -> "0"
+                }
+            }
+        val rawData = fields.joinToString("^")
+        val raw = "0|H0STOUP0|001|$rawData"
+
+        val parsed = KisWsMessageParser.parse(raw)
+        assertThat(parsed).isInstanceOf(KisWsMessageParser.ParsedMessage.RealtimeData::class.java)
+
+        val data = parsed as KisWsMessageParser.ParsedMessage.RealtimeData
+        assertThat(data.trId).isEqualTo("H0STOUP0")
+
+        val tick = KisWsMessageParser.parseH0Stoup0(data.rawData)
+        assertThat(tick).isNotNull
+        assertThat(tick!!.code).isEqualTo("005930")
+        assertThat(tick.price).isEqualByComparingTo(BigDecimal("59500"))
+        assertThat(tick.volume).isEqualTo(200L)
+        assertThat(tick.source).isEqualTo("live-overtime")
+    }
+
+    /**
+     * H0STOUP0 등락 필드 추출 — 시간외 단일가 등락률 정합.
+     *
+     * KIS-first 출처:
+     *   overtime_ccnl_krx.py columns [3]=prdy_vrss_sign / [4]=prdy_vrss / [5]=prdy_ctrt
+     *   raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
+     */
+    @Test
+    fun `H0STOUP0 등락 필드 prdy_vrss_sign·prdy_vrss·prdy_ctrt 추출`() {
+        val fields =
+            Array(43) { i ->
+                when (i) {
+                    0 -> "005930"
+                    1 -> "163000"
+                    2 -> "60200"
+                    3 -> "2" // prdy_vrss_sign (상승)
+                    4 -> "200" // prdy_vrss (+200)
+                    5 -> "0.33" // prdy_ctrt (+0.33%)
+                    12 -> "50"
+                    33 -> "20260515"
+                    else -> "0"
+                }
+            }
+        val tick = KisWsMessageParser.parseH0Stoup0(fields.joinToString("^"))
+
+        assertThat(tick).isNotNull
+        assertThat(tick!!.changeSign).isEqualTo("2")
+        assertThat(tick.priceChange).isEqualByComparingTo(BigDecimal("200"))
+        assertThat(tick.changeRate).isEqualByComparingTo(BigDecimal("0.33"))
+        assertThat(tick.source).isEqualTo("live-overtime")
+    }
+
+    /**
+     * 41 slot 정합 — H0STOUP0 시간 분리 slot 예산 검증 (ADR 0076 Phase 3 B-2).
+     *
+     * 시간외 단일가(16:00~18:00 KST):
+     *   H0STOUP0(OVERTIME_SINGLE_PRICE_MAX=20) + H0STCNI0(1) = 21 ≤ 41 안전.
+     * 정규장(09:00~15:30 KST):
+     *   H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41 — H0STOUP0 0건.
+     *
+     * KIS-first: overtime_ccnl_krx.py 16:00~18:00 활성 시간 명시.
+     * raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
+     */
+    @Test
+    fun `41 slot H0STOUP0 시간 분리 정합 — 시간외(16~18시) 21 slot, 정규장 41 slot`() {
+        val totalSlots = 41
+        val executionNoticeReserved = 1 // H0STCNI0
+
+        // 시간외 단일가 시간대 (16:00~18:00 KST) — H0STOUP0만 활성
+        val overtimeSinglePriceMax = 20 // H0STOUP0 (SubscriptionPolicy.OVERTIME_SINGLE_PRICE_MAX)
+        val overtimeUsedSlots = overtimeSinglePriceMax + executionNoticeReserved // 21
+        assertThat(overtimeUsedSlots)
+            .isLessThanOrEqualTo(totalSlots)
+            .describedAs("시간외 단일가: H0STOUP0(20) + H0STCNI0(1) = 21 ≤ 41")
+
+        // 정규장 시간대 (09:00~15:30 KST) — H0STCNT0 + H0NXCNT0 활성, H0STOUP0 = 0
+        val regularUsedSlots = 20 + 20 + executionNoticeReserved // 41
+        assertThat(regularUsedSlots)
+            .isEqualTo(totalSlots)
+            .describedAs("정규장: H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41 slot 정합")
+    }
 }

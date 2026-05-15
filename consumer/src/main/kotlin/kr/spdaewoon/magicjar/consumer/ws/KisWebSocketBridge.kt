@@ -47,12 +47,21 @@ import java.util.concurrent.atomic.AtomicReference
  * - KIS-first 출처: open-trading-api ccnl_nxt() tr_id=H0NXCNT0
  *   raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
  *
- * 41 slot 예산 (ADR 0048 §2-1 + NXT 추가 후):
+ * H0STOUP0 시간외 단일가 체결가 구독 (ADR 0076 Phase 3 B-2 — 16:00~18:00 KST):
+ * - subscribeOvertimeSinglePrice(codes) / unsubscribeOvertimeSinglePrice(codes)
+ * - 16:00~18:00 KST 한정 활성 — OvertimeSinglePriceSubscriber가 Scheduled로 관리.
+ * - KIS-first 출처: open-trading-api examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
+ *   tr_id = "H0STOUP0" — 국내주식 시간외 실시간체결가 (KRX) [실시간-042]
+ *   raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
+ *
+ * 41 slot 예산 (ADR 0048 §2-1 + NXT 추가 후 + H0STOUP0 시간 분리):
  * - H0STCNI0 체결통보: 1 slot (reserve — 실제 subscribe는 T-O)
  * - H0STCNT0 체결가: 최대 20 slot (NXT 병행 구독 시 slot 2배 소모)
  * - H0NXCNT0 NXT 체결가: 최대 20 slot (H0STCNT0와 동일 종목 세트)
  * - H0STASP0 호가: 최대 0 slot (NXT 추가로 slot 포화 — LRU 호가는 SubscriptionPolicy.ORDERBOOK_MAX=0 적용 검토, backlog §53)
- * - 현행: H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41 정합.
+ * - 현행 정규장(09:00~15:30): H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41 정합.
+ *   시간외 단일가(16:00~18:00): H0STOUP0(20) + H0STCNI0(1) = 21 ≤ 41 안전.
+ *   H0STOUP0는 H0STCNT0·H0NXCNT0 비활성 시간대에만 활성 → 동시 slot 초과 0.
  *   Watchlist ≤ 20 MVP 환경에서 안전. 풀 > 20 시 SubscriptionRouter priority 재조정 필요 (backlog §53).
  *
  * 재연결 지수 백오프 (ADR 0048 §2-4-B):
@@ -114,6 +123,12 @@ class KisWebSocketBridge(
     // KIS-first 출처: open-trading-api ccnl_nxt() tr_id=H0NXCNT0
     // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
     private val nxtSubscribedCodes: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    // 시간외 단일가 구독 종목코드 Set (H0STOUP0 — ADR 0076 Phase 3 B-2 — 16:00~18:00 KST)
+    // KIS-first 출처: open-trading-api examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
+    // tr_id = "H0STOUP0" — 국내주식 시간외 실시간체결가 (KRX) [실시간-042]
+    // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
+    private val overtimeSinglePriceCodes: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     // Sink: 메시지 전송용 (subscribe/unsubscribe 메시지를 WS에 보냄)
     private var sendSink: Sinks.Many<String>? = null
@@ -232,6 +247,57 @@ class KisWebSocketBridge(
     }
 
     override fun subscribedOrderbookCodes(): Set<String> = orderbookSubscribedCodes.toSet()
+
+    /**
+     * KIS WS 시간외 단일가 구독 (H0STOUP0 — ADR 0076 Phase 3 B-2).
+     *
+     * 활성 시간: 16:00~18:00 KST. OvertimeSinglePriceSubscriber가 Scheduled cron으로 호출.
+     * slot 여유 확인은 OvertimeSinglePriceSubscriber 책임(OVERTIME_SINGLE_PRICE_MAX=20 기준).
+     *
+     * KIS-first 출처:
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
+     *   overtime_ccnl_krx() tr_id="H0STOUP0" — 국내주식 시간외 실시간체결가 (KRX) [실시간-042]
+     *   tr_type "1" = 구독 등록 / tr_key = 종목코드
+     */
+    fun subscribeOvertimeSinglePrice(codes: List<String>) {
+        if (codes.isEmpty()) return
+        val approvalKey = getApprovalKey()
+        codes.forEach { code ->
+            if (!overtimeSinglePriceCodes.contains(code)) {
+                val msg = buildSubscribeMessage(approvalKey, code, trType = "1", trId = "H0STOUP0")
+                sendSink?.tryEmitNext(msg)
+                overtimeSinglePriceCodes.add(code)
+                log.info("KIS WS subscribe: code={} trId=H0STOUP0", code)
+            }
+        }
+    }
+
+    /**
+     * KIS WS 시간외 단일가 구독 해제 (H0STOUP0).
+     *
+     * 18:00 KST 진입 시 OvertimeSinglePriceSubscriber가 Scheduled cron으로 호출.
+     *
+     * KIS-first 출처:
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
+     *   tr_type "0" = 구독 해제
+     */
+    fun unsubscribeOvertimeSinglePrice(codes: List<String>) {
+        if (codes.isEmpty()) return
+        val approvalKey = getApprovalKey()
+        codes.forEach { code ->
+            if (overtimeSinglePriceCodes.contains(code)) {
+                val msg = buildSubscribeMessage(approvalKey, code, trType = "0", trId = "H0STOUP0")
+                sendSink?.tryEmitNext(msg)
+                overtimeSinglePriceCodes.remove(code)
+                log.info("KIS WS unsubscribe: code={} trId=H0STOUP0", code)
+            }
+        }
+    }
+
+    /**
+     * 현재 시간외 단일가 구독 종목 Set 반환 (OvertimeSinglePriceSubscriber 조회용).
+     */
+    fun subscribedOvertimeSinglePriceCodes(): Set<String> = overtimeSinglePriceCodes.toSet()
 
     /**
      * WebSocket 연결 시작 + approval_key 발급 + 기존 구독 종목 재구독.
@@ -354,6 +420,10 @@ class KisWebSocketBridge(
                     "H0NXCNT0" -> handleNxtTickData(parsed.rawData)
                     "H0STASP0" -> handleOrderbookData(parsed.rawData)
                     "H0STCNI0" -> log.info("KIS WS 체결통보 수신: trId=H0STCNI0 (handler 미구현 — T-O)")
+                    // H0STOUP0 시간외 단일가 체결가 — ADR 0076 Phase 3 B-2 — 16:00~18:00 KST
+                    // KIS-first: overtime_ccnl_krx.py tr_id="H0STOUP0" — 국내주식 시간외 실시간체결가 (KRX) [실시간-042]
+                    // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
+                    "H0STOUP0" -> handleOvertimeSinglePriceTickData(parsed.rawData)
                     else -> log.debug("KIS WS 알 수 없는 TR_ID: trId={}", parsed.trId)
                 }
             }
@@ -435,6 +505,33 @@ class KisWebSocketBridge(
         val tick = KisWsMessageParser.parseH0Nxcnt0(rawData) ?: return
         log.debug("KIS WS NXT tick: code={} price={} vol={} source={}", tick.code, tick.price, tick.volume, tick.source)
 
+        // 동일 처리 흐름 — Redis update + candle 갱신 + Kafka publish
+        writeToRedis(tick)
+        updateCandleCurrent(tick)
+        updateCandleToday(tick)
+        publishTickEvent(tick)
+    }
+
+    /**
+     * H0STOUP0 시간외 단일가 체결가 tick 처리.
+     *
+     * 활성 시간: ADR 0076 Phase 3 B-2 — 16:00~18:00 KST.
+     * TickEvent.source = "live-overtime" 로 H0STCNT0·H0NXCNT0와 구분.
+     *
+     * KIS-first 출처:
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
+     *   overtime_ccnl_krx() tr_id="H0STOUP0" — 국내주식 시간외 실시간체결가 (KRX) [실시간-042]
+     *   필드 인덱스: H0STCNT0(ccnl_krx)와 동일 위치 매핑 — [0]=종목코드 [2]=현재가 [12]=체결거래량 [33]=영업일자
+     */
+    private fun handleOvertimeSinglePriceTickData(rawData: String) {
+        val tick = KisWsMessageParser.parseH0Stoup0(rawData) ?: return
+        log.debug(
+            "KIS WS overtime tick: code={} price={} vol={} source={}",
+            tick.code,
+            tick.price,
+            tick.volume,
+            tick.source,
+        )
         // 동일 처리 흐름 — Redis update + candle 갱신 + Kafka publish
         writeToRedis(tick)
         updateCandleCurrent(tick)
@@ -769,10 +866,11 @@ class KisWebSocketBridge(
         session.shuttingDown = true
         stopHeartbeatWatchdog()
 
-        // 모든 종목 unsubscribe (H0STCNT0 + H0NXCNT0)
+        // 모든 종목 unsubscribe (H0STCNT0 + H0NXCNT0 + H0STOUP0)
         val codes = session.subscribedCodes.toList()
         val nxtCodes = nxtSubscribedCodes.toList()
-        if (codes.isNotEmpty() || nxtCodes.isNotEmpty()) {
+        val overtimeCodes = overtimeSinglePriceCodes.toList()
+        if (codes.isNotEmpty() || nxtCodes.isNotEmpty() || overtimeCodes.isNotEmpty()) {
             try {
                 val approvalKey = getApprovalKey()
 
@@ -791,6 +889,14 @@ class KisWebSocketBridge(
                     val nxtMsg = buildSubscribeMessage(approvalKey, code, trType = "2", trId = "H0NXCNT0")
                     sendSink?.tryEmitNext(nxtMsg)
                     log.debug("KIS WS shutdown unsubscribe 전송: code={} trId=H0NXCNT0", code)
+                }
+                // H0STOUP0 시간외 단일가 unsubscribe — ADR 0076 Phase 3 B-2
+                // KIS-first: overtime_ccnl_krx.py tr_type "0" = 구독 해제
+                // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
+                overtimeCodes.forEach { code ->
+                    val overtimeMsg = buildSubscribeMessage(approvalKey, code, trType = "0", trId = "H0STOUP0")
+                    sendSink?.tryEmitNext(overtimeMsg)
+                    log.debug("KIS WS shutdown unsubscribe 전송: code={} trId=H0STOUP0", code)
                 }
 
                 // E-1: ACK 2s 대기 — KIS 서버에서 ACK 도착 전 연결 종료 방지
