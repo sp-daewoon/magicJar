@@ -15,6 +15,10 @@
  *   결함 5: KST 시간 포맷 (tickMarkFormatter + Asia/Seoul)
  *   결함 6: hover crosshair OHLCV·등락률 툴팁 (floating div)
  *
+ * hotfix: chart-realtime-tick-update
+ *   STOMP tick(price·ts) → interval boundary 계산 → 마지막 bar close·high·low 실시간 update
+ *   liveTick prop 추가 — SymbolDetailPage → SymbolChart → LightweightChart 전달
+ *
  * T-IND PR-33 R3 확장 (W2):
  *   onChartReady?: (chart: IChartApi) => void  — IndicatorOverlay 연동용 chart ref 노출
  *   onChartDestroy?: () => void                — chart destroy 시 알림
@@ -27,6 +31,7 @@
  *   candles: CandleDto[]           초기 데이터 (ASC 정렬 보장 — backend 정합)
  *   interval: CandleInterval       현재 인터벌 (시간 포맷 분기용)
  *   realtimeCandle?: CandleDto     STOMP push 실시간 candle (optional)
+ *   liveTick?: { price: string; ts: string } | null  STOMP tick — 마지막 bar 실시간 update
  *   onScrollLeft?: () => void      좌측 스크롤 끝 콜백 (페이지네이션 트리거)
  *   onChartReady?: (chart) => void 차트 생성 완료 콜백 (IndicatorOverlay 연동)
  *   onChartDestroy?: () => void    차트 파괴 콜백 (IndicatorOverlay 정리)
@@ -46,10 +51,21 @@ import {
 import { useEffect, useRef, useState, useCallback } from 'react'
 import type { CandleDto, CandleInterval } from '../../api/symbol'
 
+/** STOMP tick에서 추출한 실시간 가격·시각 */
+export interface LiveTick {
+  price: string
+  ts: string
+}
+
 interface LightweightChartProps {
   candles: CandleDto[]
   interval?: CandleInterval
   realtimeCandle?: CandleDto | null
+  /**
+   * STOMP tick — 마지막 bar close·high·low 실시간 update (자본 보호 critical sync hotfix)
+   * SymbolDetailPage가 /topic/market.tick.{code} 구독 후 price·ts 전달
+   */
+  liveTick?: LiveTick | null
   onScrollLeft?: () => void
   /** 차트 API 인스턴스를 부모에게 노출 (IndicatorOverlay 연동) */
   onChartReady?: (chart: IChartApi) => void
@@ -77,6 +93,87 @@ function isIntradayInterval(interval?: CandleInterval): boolean {
     interval === '90m' ||
     interval === '1h'
   )
+}
+
+/**
+ * tick 도착 시각(isoString)을 기준으로 interval의 bar time boundary를 UTCTimestamp로 반환.
+ * KST(Asia/Seoul, UTC+9)를 기준으로 boundary를 계산하고 UTC로 변환.
+ *
+ * LWC v4 time은 UTCTimestamp(초) 사용 — bar의 time과 동일한 boundary를 사용해야
+ * series.update()가 새 bar 생성 없이 기존 마지막 bar를 덮어쓴다.
+ */
+function barBoundaryTimestamp(isoString: string, interval: CandleInterval | undefined): UTCTimestamp {
+  const ms = new Date(isoString).getTime()
+  // KST = UTC+9
+  const KST_OFFSET_MS = 9 * 60 * 60 * 1000
+  const kstMs = ms + KST_OFFSET_MS
+
+  let boundaryKstMs: number
+
+  switch (interval) {
+    case '1m': {
+      // 현재 분 floor (초·밀리초 제거)
+      boundaryKstMs = Math.floor(kstMs / (60 * 1000)) * (60 * 1000)
+      break
+    }
+    case '5m': {
+      boundaryKstMs = Math.floor(kstMs / (5 * 60 * 1000)) * (5 * 60 * 1000)
+      break
+    }
+    case '15m': {
+      boundaryKstMs = Math.floor(kstMs / (15 * 60 * 1000)) * (15 * 60 * 1000)
+      break
+    }
+    case '30m': {
+      boundaryKstMs = Math.floor(kstMs / (30 * 60 * 1000)) * (30 * 60 * 1000)
+      break
+    }
+    case '90m': {
+      boundaryKstMs = Math.floor(kstMs / (90 * 60 * 1000)) * (90 * 60 * 1000)
+      break
+    }
+    case '1h': {
+      boundaryKstMs = Math.floor(kstMs / (60 * 60 * 1000)) * (60 * 60 * 1000)
+      break
+    }
+    case '1wk': {
+      // 이번 주 월요일 KST 00:00
+      // KST Date 생성 후 요일 추출
+      const kstDate = new Date(kstMs)
+      // getUTCDay()로 요일 계산 (kstMs는 이미 KST shifted)
+      const dayOfWeek = kstDate.getUTCDay() // 0=일, 1=월 ... 6=토
+      const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+      const kstDayStartMs = Math.floor(kstMs / (24 * 60 * 60 * 1000)) * (24 * 60 * 60 * 1000)
+      boundaryKstMs = kstDayStartMs - daysSinceMonday * 24 * 60 * 60 * 1000
+      break
+    }
+    case '1mo': {
+      // 이번 달 1일 KST 00:00
+      const kstDate = new Date(kstMs)
+      const year = kstDate.getUTCFullYear()
+      const month = kstDate.getUTCMonth()
+      boundaryKstMs = Date.UTC(year, month, 1)
+      break
+    }
+    case '1y': {
+      // 올해 1월 1일 KST 00:00
+      const kstDate = new Date(kstMs)
+      const year = kstDate.getUTCFullYear()
+      boundaryKstMs = Date.UTC(year, 0, 1)
+      break
+    }
+    case '1d':
+    default: {
+      // 오늘 KST 00:00
+      const kstDayStartMs = Math.floor(kstMs / (24 * 60 * 60 * 1000)) * (24 * 60 * 60 * 1000)
+      boundaryKstMs = kstDayStartMs
+      break
+    }
+  }
+
+  // KST boundary → UTC seconds
+  const boundaryUtcMs = boundaryKstMs - KST_OFFSET_MS
+  return Math.floor(boundaryUtcMs / 1000) as UTCTimestamp
 }
 
 function toUTCTimestamp(isoString: string): UTCTimestamp {
@@ -174,6 +271,7 @@ export function LightweightChart({
   candles,
   interval,
   realtimeCandle,
+  liveTick,
   onScrollLeft,
   onChartReady,
   onChartDestroy,
@@ -215,6 +313,12 @@ export function LightweightChart({
 
   // volume lookup: ts(UTCTimestamp) → volume
   const volumeMapRef = useRef<Map<number, number>>(new Map())
+
+  /**
+   * 마지막 bar OHLC 추적 ref — liveTick update 시 open·low·high 유지용.
+   * candles setData 또는 realtimeCandle update 시 갱신됨.
+   */
+  const lastBarRef = useRef<{ time: UTCTimestamp; open: number; high: number; low: number; close: number } | null>(null)
 
   const hideTooltip = useCallback(() => {
     setTooltip((prev) => ({ ...prev, visible: false }))
@@ -418,6 +522,7 @@ export function LightweightChart({
       candleSeries.setData([])
       volumeSeries.setData([])
       volumeMapRef.current = new Map()
+      lastBarRef.current = null
       return
     }
 
@@ -436,6 +541,18 @@ export function LightweightChart({
     candleSeries.setData(candleData)
     volumeSeries.setData(volumeData)
     chartRef.current?.timeScale().fitContent()
+
+    // 마지막 bar 추적 — liveTick update 시 open·low·high 유지용
+    const last = candleData[candleData.length - 1]
+    if (last) {
+      lastBarRef.current = {
+        time: last.time as UTCTimestamp,
+        open: last.open,
+        high: last.high,
+        low: last.low,
+        close: last.close,
+      }
+    }
   }, [candles])
 
   // STOMP 실시간 candle 갱신
@@ -452,10 +569,60 @@ export function LightweightChart({
       volumeSeries.update(vd)
       // volume 맵도 갱신
       volumeMapRef.current.set(cd.time as number, realtimeCandle.volume)
+      // 마지막 bar 추적 갱신
+      lastBarRef.current = {
+        time: cd.time as UTCTimestamp,
+        open: cd.open,
+        high: cd.high,
+        low: cd.low,
+        close: cd.close,
+      }
     } catch {
       // LWC update 오류 (잘못된 시간 순서 등) — graceful 무시
     }
   }, [realtimeCandle])
+
+  /**
+   * STOMP tick → 마지막 bar 실시간 update (자본 보호 critical sync hotfix)
+   *
+   * tick.price를 close로 설정, high/low는 기존 값과 비교해 확장.
+   * bar time은 interval boundary로 계산 (새 bar 생성 방지).
+   * isDisposedRef 가드 + try-catch — lifecycle 안전.
+   */
+  useEffect(() => {
+    if (!liveTick) return
+    if (isDisposedRef.current) return
+
+    const candleSeries = candleSeriesRef.current
+    if (!candleSeries) return
+
+    const price = parseFloat(liveTick.price)
+    if (isNaN(price) || price <= 0) return
+
+    try {
+      const barTime = barBoundaryTimestamp(liveTick.ts, intervalRef.current)
+      const prev = lastBarRef.current
+
+      // prev가 없으면 시리즈 데이터가 아직 없는 상태 — open=close=price로 새 bar 생성
+      const open = prev && prev.time === barTime ? prev.open : price
+      const high = prev && prev.time === barTime ? Math.max(prev.high, price) : price
+      const low  = prev && prev.time === barTime ? Math.min(prev.low,  price) : price
+
+      const updated = {
+        time: barTime,
+        open,
+        high,
+        low,
+        close: price,
+      }
+      candleSeries.update(updated)
+
+      // lastBarRef 갱신
+      lastBarRef.current = updated
+    } catch {
+      // LWC update 오류 — graceful 무시 (dispose 후 stale ref 접근 등)
+    }
+  }, [liveTick])
 
   const changeRateNum = parseFloat(tooltip.changeRate)
   const changeRateColor =
