@@ -2146,3 +2146,80 @@ B-2 채택 시 시간 trigger H0STOUP0 추가로 41 slot 한도 매트릭스 재
 - ADR 0013 Market Session FSM (B-2 KisMarketSessionFsm 합류 후보)
 - 누적 hotfix PR #443·#444·#445
 - spec `_workspace/specs/pr-447-kis-ws-nxt-standard-spec.md`
+
+---
+
+## §55. KIS WS OPSP8996 잔존 결함 deep 분석 — ADR 0077 §8 비범위 + §10 Phase 매트릭스 잔류 (Proposed 2026-05-15)
+
+### 사유
+
+ADR 0077 Proposed (2026-05-15) — ADR 0076 Phase 1·2·3 PR #448·#449·#450 머지 후에도 사용자 dogfooding 19:21 KST OPSP8996 103건 재발생 + 005930 15:14 stop 보고 trigger. 누적 PR 영향 매트릭스 6건 + 상호 작용 충돌 6 row + 가설 H 신규(runtime 재연결 graceful close 0 + 0ms 재연결 + onConnected/F-1 race). architect 풀 권장 = H-1-A + H-2-A + H-3-A + H-6 — 채택 시 sub-agent 디스패치는 별도 사이클로 분리. 본 backlog §55는 ADR 0077 채택 후 잔류 의제 등록 + §54와 분리(§54 ADR 0076 잔류 + §55 ADR 0077 잔류).
+
+### 잔류 의제
+
+#### 의제 1: ADR 0077 §5 H-1-A runtime 재연결 graceful close 정합
+
+KisWebSocketBridge watchdog dispose 경로(L739 `wsDisposable?.dispose()`) + reconnectGracefully 경로(L776) 두 곳에 **unsubscribe send + 1s 대기 + dispose** 패턴 적용. E-1 패턴(destroy 한정 ACK 2s 대기)을 통상 재연결 경로에 확장. KIS server side stale session 잔존 0 보장. 후속 PR: market-data — `agent/market-data/kis-ws-runtime-graceful-close`.
+
+#### 의제 2: ADR 0077 §5 H-2-A 재연결 1차 0ms → 1s 대기
+
+`reconnectDelaysMs[0] = 0L` → `1000L` (1 라인 변경). KIS 표준 raw 패턴 정합(`__runner()` `await asyncio.sleep(1)`). H-1과 묶음 PR 가능.
+
+#### 의제 3: ADR 0077 §5 H-3-A F-1 self-heal grace period
+
+`handleOpsp8996()` 진입 전 onConnected 완료 후 1초 grace period 추가 — onConnected 재구독 메시지가 KIS 응답 받기 전 F-1 발화 차단. race window 0 보장. H-1·H-2와 묶음 PR 가능 (단일 사이클).
+
+#### 의제 4: ADR 0077 §5 H-4-A H0NXCNT0 일시 비활성화 dogfooding (실험적)
+
+H-1·H-2·H-3 채택 후 OPSP8996 잔존 시 fallback — PR #443 부분 revert (H0NXCNT0 subscribe 일시 비활성화 24~48h dogfooding window) + OPSP8996 발생 빈도 비교. evidence 수집 후 KIS 측 다중 tr_id 인식 매트릭스 root cause 확정. ADR 0063 NXT cover 부분 sunset 의제 발의 가능.
+
+#### 의제 5: ADR 0077 §5 H-5-A 누적 PR 단계별 revert (최후 수단)
+
+H-1·H-2·H-3·H-4 채택 후에도 OPSP8996 잔존 시 최후 fallback. 영향도 낮은 순으로 단계별 revert — PR #450 H0STOUP0 → #449 D-1+E-1 → #448 A-1+F-1 → #443 H0NXCNT0. 각 revert 후 24h dogfooding evidence 수집 의무.
+
+#### 의제 6: KIS server side session timeout·cleanup 정책 raw 가이드 문의
+
+ADR 0077 §3-2·§4-3 매트릭스 — KIS 공식 API 가이드에서 (1) 비정상 disconnect 후 session cleanup 시간, (2) 정규장 종료 후 server side disconnect 정책, (3) appkey별 active session 한도 + timeout 정책, (4) 강제 disconnect 관리자 endpoint 가용성 raw 검증 의무. KIS-code-assistant MCP 도구 활용 + KIS 측 답변 대기. backlog §54 의제 4와 cross-ref (중복 의제 통합 검토).
+
+#### 의제 7: KIS HTS·MTS·MCP 다른 클라이언트 동시 로그인 매트릭스 detect
+
+사용자 dogfooding 환경에서 magicJar consumer + KIS HTS(영웅문) + KIS MTS(모바일) + 다른 third-party 클라이언트 동시 가동 매트릭스. 동일 appkey 사용 시 충돌 가능성 — `lsof -i :21000 | grep magicJar` 또는 docker process 동시 가동 점검 자동화 권장. backend 측 detect 0 가능 → 사용자 직접 점검 의무.
+
+#### 의제 8: consumer 부팅 후 5분 stabilization window 강제
+
+ADR 0077 §6-1 가설 H 정합 — 부팅 직후 재연결 cycle 누적 차단. consumer 부팅 후 5분 동안은 scheduleReconnect cycle suppressed (지수 백오프 매우 길게 또는 disabled) + 이후 정상 모드 전환. KIS server side cleanup 시간 보장. 후속 PR market-data — `agent/market-data/kis-ws-startup-stabilization`.
+
+#### 의제 9: ADR 0076 §3 가설 D 검증 (정규장 외 KIS server side disconnect 정책)
+
+ADR 0076 §3-D 가설 — 15:30 이후 KIS server side에서 H0STCNT0 stream 자동 종료 여부 검증. backlog §54 의제 4와 cross-ref. ADR 0077 §3-2 매트릭스에 동일 의제 포함. KIS 측 답변 수신 시 ADR 0076·0077 본문 갱신.
+
+#### 의제 10: ADR 0077 권장안 채택 후 안정화 evidence 수집
+
+H-1·H-2·H-3 채택 + 24h dogfooding evidence 수집 매트릭스 — OPSP8996 발생 빈도 변화·재연결 cycle 변화·tick 빈도 변화·15:14 stop 재현 여부. evidence 수집 후 H-4·H-5 fallback trigger 결정.
+
+### 트리거
+
+- **우선순위 ↑**: ADR 0077 §9 architect 풀 권장안(H-1-A+H-2-A+H-3-A+H-6) 사용자 채택 결정 후 — Phase 1 market-data sub-agent 디스패치 시작
+- **우선순위 ↓**: H-1·H-2·H-3 채택 후 안정화 dogfooding 검증 evidence 누적 후
+
+### 예상 처리 PR
+
+- **Phase 1 PR**: market-data — `agent/market-data/kis-ws-opsp8996-runtime-fix` (H-1-A + H-2-A + H-3-A 묶음 — KisWebSocketBridge ~30 라인 modify)
+- **Phase 2 PR**: architect 단독 docs — `agent/architect/adr-0076-supersede-docs` (ADR 0076 §3 가설 H row + status "Accepted (Partial — superseded by ADR 0077)" 갱신)
+- **Phase 3 PR** (선택, dogfooding 잔존 시): market-data — `agent/market-data/h0nxcnt0-experimental-revert` (H-4-A PR #443 부분 revert 24~48h evidence)
+- **Phase 4 PR** (최후 수단): market-data — 단계별 PR revert (H-5-A)
+- **Phase 5 PR** (별도): market-data — `agent/market-data/kis-ws-startup-stabilization` (의제 8 부팅 5분 stabilization)
+
+후속 ADR — 의제 4·6 채택 시 ADR 0078·0079 후보 (KIS 측 답변 기반 정밀 명세).
+
+### 연관
+
+- ADR 0077 §5 권장 fix 매트릭스
+- ADR 0077 §10 sub-agent 디스패치 매트릭스
+- ADR 0076 §3 가설 매트릭스 (재평가 + 가설 H 신규)
+- ADR 0048 §2-1 slot 한도 (H-4-A H0NXCNT0 revert 시 매트릭스 갱신 의무)
+- ADR 0063 NXT 08:00~20:00 cover (H-4-A 채택 시 부분 sunset 의제)
+- ADR 0013 Market Session FSM (의제 8 부팅 stabilization 합류 후보)
+- 누적 PR #443·#444·#445·#448·#449·#450
+- backlog §54 (ADR 0076 잔류 의제 — 본 §55와 분리, 의제 4·6 cross-ref)
+- spec `_workspace/specs/pr-451-kis-ws-opsp8996-deep-analysis-spec.md`
