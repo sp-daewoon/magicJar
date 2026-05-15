@@ -47,6 +47,22 @@ import java.math.BigDecimal
  *
  * NXT 대체거래소 cover 시간: ADR 0063 정합 — 08:00~20:00 KST.
  * 전체 46개 필드 (인덱스 0~45) — 자세한 내용은 KIS open-trading-api 레포 domestic_stock/domestic_stock_functions_ws.py 참조.
+ *
+ * H0STOUP0 필드 인덱스 (open-trading-api examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py columns 배열):
+ * KIS-first raw 출처:
+ *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
+ *   overtime_ccnl_krx() tr_id="H0STOUP0" — 국내주식 시간외 실시간체결가 (KRX) [실시간-042]
+ *   활성 시간: 16:00~18:00 KST (시간외 단일가 세션)
+ *   columns 배열 43개 필드 (인덱스 0~42):
+ *   [0]  mksc_shrn_iscd          — 종목코드
+ *   [1]  stck_cntg_hour          — 체결시각 (HHMMSS)
+ *   [2]  stck_prpr               — 현재가(체결가)
+ *   [3]  prdy_vrss_sign          — 전일대비부호 (1=상한/2=상승/3=보합/4=하한/5=하락)
+ *   [4]  prdy_vrss               — 전일대비
+ *   [5]  prdy_ctrt               — 전일대비율 (%)
+ *  [12]  cntg_vol                — 체결거래량
+ *  [13]  acml_vol                — 누적거래량
+ *  [33]  bsop_date               — 영업일자 (YYYYMMDD)
  */
 object KisWsMessageParser {
     private val log = LoggerFactory.getLogger(KisWsMessageParser::class.java)
@@ -234,6 +250,40 @@ object KisWsMessageParser {
         // source 필드만 "live-nxt"로 오버라이드.
         val base = parseH0Stcnt0(rawData, expectedCode) ?: return null
         return base.copy(source = "live-nxt")
+    }
+
+    /**
+     * H0STOUP0 시간외 단일가 실시간 체결가 데이터 파싱 → TickEvent.
+     *
+     * 활성 시간: 16:00~18:00 KST (시간외 단일가 세션 — OvertimeSinglePriceSubscriber 관리).
+     *
+     * KIS-first raw 출처:
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
+     *   overtime_ccnl_krx() tr_id="H0STOUP0" — 국내주식 시간외 실시간체결가 (KRX) [실시간-042]
+     *
+     * 필드 인덱스 (43개 columns 배열 기반):
+     *   [0]  mksc_shrn_iscd      — 종목코드
+     *   [1]  stck_cntg_hour      — 체결시각 (HHMMSS)
+     *   [2]  stck_prpr           — 현재가(체결가)
+     *   [3]  prdy_vrss_sign      — 전일대비부호
+     *   [4]  prdy_vrss           — 전일대비
+     *   [5]  prdy_ctrt           — 전일대비율 (%)
+     *  [12]  cntg_vol            — 체결거래량
+     *  [33]  bsop_date           — 영업일자 (YYYYMMDD)
+     *
+     * TickEvent.source = "live-overtime" 로 구분 (H0STCNT0 "live", H0NXCNT0 "live-nxt"와 분리).
+     *
+     * 필드 인덱스가 H0STCNT0(ccnl_krx)와 동일 위치 매핑이므로 동일 파싱 로직 재사용.
+     */
+    fun parseH0Stoup0(
+        rawData: String,
+        expectedCode: String? = null,
+    ): TickEvent? {
+        // H0STOUP0 필드 인덱스 구조가 H0STCNT0(ccnl_krx)와 동일 위치 매핑.
+        // KIS-first: overtime_ccnl_krx.py columns 배열 [0][1][2][3][4][5][12][33] 인덱스 정합.
+        // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
+        val base = parseH0Stcnt0(rawData, expectedCode) ?: return null
+        return base.copy(source = "live-overtime")
     }
 
     /**
