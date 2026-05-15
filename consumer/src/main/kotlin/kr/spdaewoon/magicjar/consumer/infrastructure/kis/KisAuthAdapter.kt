@@ -10,11 +10,17 @@ import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.WebClientResponseException
 import java.time.Duration
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 /**
- * KIS OAuth 운영용 토큰 어댑터 (ADR 0038 — Redis cache + 분산락).
+ * KIS OAuth 운영용 토큰 어댑터 (ADR 0038 — Redis cache + 분산락 + in-process mutex).
  * - Redis cache `kis:token:{userId}:{accountType}` TTL 23h
- * - 분산락 `kis:token:lock:{userId}:{accountType}` TTL 30s (SETNX)
+ * - in-process ReentrantLock (per userId:accountType) — JVM 내 동시 thread 직렬화
+ *   cold-start 시 2+ thread가 동시에 Redis miss 판정 후 KIS tokenP 동시 호출하는 문제 차단
+ *   (EGW00133: KIS tokenP 1분 1회 제한 위반 방지)
+ * - Redis SETNX 분산락 `kis:token:lock:{userId}:{accountType}` TTL 30s — 다중 JVM 확장 대비
  * - 분산락 미획득 시 30s spinWait 후 cache 재조회 (Bootstrap fallback)
  * - PR-6 KisAuthValidator(단발 검증용)와 별개 — 운영용 신규 클래스
  *
@@ -41,11 +47,29 @@ class KisAuthAdapter(
     }
 
     /**
-     * KIS 액세스 토큰 반환 (ADR 0038 분산락 + cache).
-     * 1) Redis hit → 반환
-     * 2) miss → 분산락 획득 시도 (SETNX 30s)
-     *    - 획득 성공: KIS /oauth2/tokenP → cache 저장 → unlock
-     *    - 획득 실패: spinWait 후 cache 재조회
+     * in-process 락 맵 — userId:accountType 쌍별 ReentrantLock.
+     * ConcurrentHashMap.computeIfAbsent 로 lazy 생성 + thread-safe.
+     * JVM 내 동시 thread 수에 비례하여 최대 N개(userId × accountType 조합) 생성.
+     * 단일 JVM 단일 consumer 환경(magicJar baseline)에서 완전 충분.
+     * 다중 JVM 확장 시 Redis SETNX 분산락이 2차 방어선.
+     */
+    private val inProcessLocks = ConcurrentHashMap<String, ReentrantLock>()
+
+    /**
+     * KIS 액세스 토큰 반환 (in-process mutex + ADR 0038 Redis 분산락 + cache).
+     *
+     * 직렬화 흐름 (double-check locking 2단):
+     * 1) Redis cache hit → 즉시 반환 (락 없이)
+     * 2) cache miss → in-process ReentrantLock 획득 (JVM 내 동시 thread 직렬화)
+     *    2a) lock 내부 Redis double-check → hit 시 즉시 반환
+     *    2b) Redis SETNX 분산락 획득
+     *        - 획득 성공: KIS /oauth2/tokenP → cache 저장 → unlock
+     *        - 획득 실패: spinWait 후 cache 재조회
+     *
+     * cold-start 16 thread 동시 진입 시:
+     *   - 1개 thread만 KIS tokenP 호출 (in-process lock + double-check 보장)
+     *   - 나머지 15개는 lock 대기 후 Redis cache hit → 즉시 반환
+     *   → EGW00133 (1분 1회 제한) 완전 차단
      */
     fun getAccessToken(
         userId: String,
@@ -54,46 +78,53 @@ class KisAuthAdapter(
         val cacheKey = "kis:token:$userId:${accountType.name}"
         val lockKey = "kis:token:lock:$userId:${accountType.name}"
 
-        // 1. Redis cache hit
+        // 1. Redis cache hit — 락 없이 fast path
         redisTemplate.opsForValue().get(cacheKey)?.let { return it }
 
-        // 2. 분산락 획득 시도 (SETNX)
-        val lockAcquired =
-            redisTemplate
-                .opsForValue()
-                .setIfAbsent(lockKey, "1", Duration.ofSeconds(LOCK_TTL_SECONDS)) == true
+        // 2. in-process ReentrantLock 획득 — JVM 내 동시 thread 직렬화
+        val inProcessLock = inProcessLocks.computeIfAbsent("$userId:${accountType.name}") { ReentrantLock() }
+        return inProcessLock.withLock {
+            // 2a. Double-check: lock 대기 중 다른 thread가 이미 발급+캐시?
+            redisTemplate.opsForValue().get(cacheKey)?.let { return@withLock it }
 
-        return if (lockAcquired) {
-            try {
-                // Double-check: 다른 JVM이 이미 발급?
-                redisTemplate.opsForValue().get(cacheKey)?.let { return it }
-
-                val token = issueToken(userId, accountType)
+            // 2b. Redis SETNX 분산락 획득 시도 (다중 JVM 확장 대비)
+            val lockAcquired =
                 redisTemplate
                     .opsForValue()
-                    .set(cacheKey, token, Duration.ofHours(TOKEN_TTL_HOURS))
-                log.info(
-                    "KIS 토큰 발급 완료: user={} type={}",
-                    maskUserId(userId),
-                    accountType.name,
-                )
-                token
-            } finally {
-                redisTemplate.delete(lockKey)
-            }
-        } else {
-            // 락 미획득 — spinWait 후 cache 재조회
-            log.debug("KIS 토큰 발급 락 대기: user={} type={}", maskUserId(userId), accountType.name)
-            for (i in 0 until LOCK_MAX_RETRIES) {
-                Thread.sleep(LOCK_WAIT_MS)
-                redisTemplate.opsForValue().get(cacheKey)?.let { return it }
-            }
-            // 30s 대기 후에도 없으면 직접 발급 (단일 JVM fallback)
-            log.warn("KIS 토큰 분산락 30s 타임아웃 — 직접 발급 (단일 JVM fallback)")
-            issueToken(userId, accountType).also { token ->
-                redisTemplate
-                    .opsForValue()
-                    .set(cacheKey, token, Duration.ofHours(TOKEN_TTL_HOURS))
+                    .setIfAbsent(lockKey, "1", Duration.ofSeconds(LOCK_TTL_SECONDS)) == true
+
+            if (lockAcquired) {
+                try {
+                    // Triple-check: 다른 JVM이 이미 발급? (in-process lock 이후이므로 실질적 방어)
+                    redisTemplate.opsForValue().get(cacheKey)?.let { return@withLock it }
+
+                    val token = issueToken(userId, accountType)
+                    redisTemplate
+                        .opsForValue()
+                        .set(cacheKey, token, Duration.ofHours(TOKEN_TTL_HOURS))
+                    log.info(
+                        "KIS 토큰 발급 완료: user={} type={}",
+                        maskUserId(userId),
+                        accountType.name,
+                    )
+                    token
+                } finally {
+                    redisTemplate.delete(lockKey)
+                }
+            } else {
+                // 분산락 미획득 — spinWait 후 cache 재조회 (in-process lock 안에서 실행)
+                log.debug("KIS 토큰 발급 분산락 대기: user={} type={}", maskUserId(userId), accountType.name)
+                for (i in 0 until LOCK_MAX_RETRIES) {
+                    Thread.sleep(LOCK_WAIT_MS)
+                    redisTemplate.opsForValue().get(cacheKey)?.let { return@withLock it }
+                }
+                // 30s 대기 후에도 없으면 직접 발급 (단일 JVM fallback — in-process lock 보호 하에 안전)
+                log.warn("KIS 토큰 분산락 30s 타임아웃 — 직접 발급 (단일 JVM fallback)")
+                issueToken(userId, accountType).also { token ->
+                    redisTemplate
+                        .opsForValue()
+                        .set(cacheKey, token, Duration.ofHours(TOKEN_TTL_HOURS))
+                }
             }
         }
     }

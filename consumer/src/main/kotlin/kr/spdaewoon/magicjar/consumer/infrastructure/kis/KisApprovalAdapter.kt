@@ -10,9 +10,12 @@ import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.WebClientResponseException
 import java.time.Duration
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 /**
- * KIS WebSocket approval_key 발급 어댑터 (ADR 0038 정합 — Redis cache + 분산락).
+ * KIS WebSocket approval_key 발급 어댑터 (ADR 0038 정합 — Redis cache + 분산락 + in-process mutex).
  *
  * KIS-first 출처: open-trading-api examples_user/kis_auth.py
  * - endpoint: POST /oauth2/Approval (access_token /oauth2/tokenP 와 별도)
@@ -22,6 +25,10 @@ import java.time.Duration
  * Redis:
  * - cache key: `kis:approval:{userId}:{accountType}` TTL 23h
  * - 분산락: `kis:approval:lock:{userId}:{accountType}` SETNX TTL 30s
+ *
+ * in-process ReentrantLock (per userId:accountType):
+ * - cold-start 시 동시 thread가 KIS /oauth2/Approval 중복 호출하는 문제 차단
+ * - EGW00133 (1분 1회 제한) 위반 방지 — KisAuthAdapter와 동일 패턴
  */
 @Component
 class KisApprovalAdapter(
@@ -44,12 +51,21 @@ class KisApprovalAdapter(
     }
 
     /**
-     * KIS WebSocket approval_key 반환 (Redis cache + 분산락).
+     * in-process 락 맵 — userId:accountType 쌍별 ReentrantLock.
+     * KisAuthAdapter와 동일 패턴 — approval_key 전용 독립 맵.
+     */
+    private val inProcessLocks = ConcurrentHashMap<String, ReentrantLock>()
+
+    /**
+     * KIS WebSocket approval_key 반환 (in-process mutex + Redis cache + 분산락).
      *
-     * 1) Redis hit → 반환
-     * 2) miss → 분산락 획득 시도 (SETNX 30s)
-     *    - 획득 성공: POST /oauth2/Approval → cache 저장 → unlock
-     *    - 획득 실패: spinWait 후 cache 재조회 → 없으면 직접 발급
+     * 직렬화 흐름 (double-check locking 2단):
+     * 1) Redis cache hit → 즉시 반환 (락 없이)
+     * 2) cache miss → in-process ReentrantLock 획득 (JVM 내 동시 thread 직렬화)
+     *    2a) lock 내부 Redis double-check → hit 시 즉시 반환
+     *    2b) Redis SETNX 분산락 획득
+     *        - 획득 성공: POST /oauth2/Approval → cache 저장 → unlock
+     *        - 획득 실패: spinWait 후 cache 재조회 → 없으면 직접 발급
      *
      * KIS-first: endpoint는 /oauth2/Approval (tokenP가 아님).
      * open-trading-api kis_auth.py auth_ws() 함수 기반.
@@ -61,49 +77,56 @@ class KisApprovalAdapter(
         val cacheKey = "kis:approval:$userId:${accountType.name}"
         val lockKey = "kis:approval:lock:$userId:${accountType.name}"
 
-        // 1. Redis cache hit
+        // 1. Redis cache hit — 락 없이 fast path
         redisTemplate.opsForValue().get(cacheKey)?.let { return it }
 
-        // 2. 분산락 획득 시도 (SETNX)
-        val lockAcquired =
-            redisTemplate
-                .opsForValue()
-                .setIfAbsent(lockKey, "1", Duration.ofSeconds(LOCK_TTL_SECONDS)) == true
+        // 2. in-process ReentrantLock 획득 — JVM 내 동시 thread 직렬화
+        val inProcessLock = inProcessLocks.computeIfAbsent("$userId:${accountType.name}") { ReentrantLock() }
+        return inProcessLock.withLock {
+            // 2a. Double-check: lock 대기 중 다른 thread가 이미 발급+캐시?
+            redisTemplate.opsForValue().get(cacheKey)?.let { return@withLock it }
 
-        return if (lockAcquired) {
-            try {
-                // Double-check: 다른 JVM이 이미 발급?
-                redisTemplate.opsForValue().get(cacheKey)?.let { return it }
-
-                val key = issueApprovalKey(userId, accountType)
+            // 2b. Redis SETNX 분산락 획득 시도 (다중 JVM 확장 대비)
+            val lockAcquired =
                 redisTemplate
                     .opsForValue()
-                    .set(cacheKey, key, Duration.ofHours(APPROVAL_TTL_HOURS))
-                log.info(
-                    "KIS approval_key 발급 완료: user={} type={}",
+                    .setIfAbsent(lockKey, "1", Duration.ofSeconds(LOCK_TTL_SECONDS)) == true
+
+            if (lockAcquired) {
+                try {
+                    // Triple-check: 다른 JVM이 이미 발급?
+                    redisTemplate.opsForValue().get(cacheKey)?.let { return@withLock it }
+
+                    val key = issueApprovalKey(userId, accountType)
+                    redisTemplate
+                        .opsForValue()
+                        .set(cacheKey, key, Duration.ofHours(APPROVAL_TTL_HOURS))
+                    log.info(
+                        "KIS approval_key 발급 완료: user={} type={}",
+                        maskUserId(userId),
+                        accountType.name,
+                    )
+                    key
+                } finally {
+                    redisTemplate.delete(lockKey)
+                }
+            } else {
+                log.debug(
+                    "KIS approval_key 분산락 대기: user={} type={}",
                     maskUserId(userId),
                     accountType.name,
                 )
-                key
-            } finally {
-                redisTemplate.delete(lockKey)
-            }
-        } else {
-            log.debug(
-                "KIS approval_key 분산락 대기: user={} type={}",
-                maskUserId(userId),
-                accountType.name,
-            )
-            for (i in 0 until LOCK_MAX_RETRIES) {
-                Thread.sleep(LOCK_WAIT_MS)
-                redisTemplate.opsForValue().get(cacheKey)?.let { return it }
-            }
-            // 30s 대기 후에도 없으면 직접 발급 (단일 JVM fallback)
-            log.warn("KIS approval_key 분산락 30s 타임아웃 — 직접 발급")
-            issueApprovalKey(userId, accountType).also { key ->
-                redisTemplate
-                    .opsForValue()
-                    .set(cacheKey, key, Duration.ofHours(APPROVAL_TTL_HOURS))
+                for (i in 0 until LOCK_MAX_RETRIES) {
+                    Thread.sleep(LOCK_WAIT_MS)
+                    redisTemplate.opsForValue().get(cacheKey)?.let { return@withLock it }
+                }
+                // 30s 대기 후에도 없으면 직접 발급 (단일 JVM fallback — in-process lock 보호 하에 안전)
+                log.warn("KIS approval_key 분산락 30s 타임아웃 — 직접 발급")
+                issueApprovalKey(userId, accountType).also { key ->
+                    redisTemplate
+                        .opsForValue()
+                        .set(cacheKey, key, Duration.ofHours(APPROVAL_TTL_HOURS))
+                }
             }
         }
     }
