@@ -32,6 +32,8 @@ import {
   type OrderbookPayload,
   type TickPayload,
 } from '../../api/symbol'
+import { DisclosurePanel } from '../../features/disclosure/components/DisclosurePanel'
+import { NewsPanel } from '../../features/news/components/NewsPanel'
 import { isStompConnected, useStompTopic } from '../../lib/stomp'
 import { SymbolChart } from './SymbolChart'
 import { SymbolError } from './SymbolError'
@@ -239,6 +241,12 @@ export function SymbolDetailPage() {
           orderbookSlot={orderbookSlot}
           isStompConnected={stompConnected}
         />
+
+        {/* ── 뉴스·공시 sidebar (ADR 0075 Phase 3 — 60s polling STOMP 0 LOCK) ── */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <NewsPanel code={code} />
+          <DisclosurePanel code={code} />
+        </div>
       </div>
     </div>
   )
