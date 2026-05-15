@@ -15,7 +15,9 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.server.ResponseStatusException
+import java.time.LocalDate
 import java.time.OffsetDateTime
+import java.time.ZoneId
 
 /**
  * 종목별 DART 공시 REST 컨트롤러 (T-NEWS Phase 1 — ADR 0075 §5).
@@ -64,10 +66,10 @@ class SymbolDisclosureController(
     fun getDisclosures(
         @Parameter(description = "KIS 종목코드 6자리", example = "005930")
         @PathVariable code: String,
-        @Parameter(description = "조회 시작일 (YYYY-MM-DD 또는 ISO8601, 미지정 시 T-7일)", example = "2026-05-08T00:00:00+09:00")
-        @RequestParam(required = false) from: OffsetDateTime?,
-        @Parameter(description = "조회 종료일 (YYYY-MM-DD 또는 ISO8601, 미지정 시 now)", example = "2026-05-15T23:59:59+09:00")
-        @RequestParam(required = false) to: OffsetDateTime?,
+        @Parameter(description = "조회 시작일 (YYYY-MM-DD, KST 자정 기준, 미지정 시 T-7일)", example = "2026-05-08")
+        @RequestParam(required = false) from: LocalDate?,
+        @Parameter(description = "조회 종료일 (YYYY-MM-DD, KST 23:59:59, 미지정 시 today)", example = "2026-05-15")
+        @RequestParam(required = false) to: LocalDate?,
         @Parameter(description = "정정공시만 반환 여부 (default false)", example = "false")
         @RequestParam(defaultValue = "false") onlyCorrection: Boolean,
         @Parameter(description = "페이지 번호 (0-based, default 0)", example = "0")
@@ -78,11 +80,16 @@ class SymbolDisclosureController(
         validateCode(code)
         validatePaging(page, size)
 
+        // hotfix 2026-05-15: frontend LocalDate(YYYY-MM-DD) 전송 → KST OffsetDateTime 변환
+        val kst = ZoneId.of("Asia/Seoul")
+        val fromOdt: OffsetDateTime? = from?.atStartOfDay(kst)?.toOffsetDateTime()
+        val toOdt: OffsetDateTime? = to?.atTime(23, 59, 59)?.atZone(kst)?.toOffsetDateTime()
+
         return try {
             symbolDisclosureService.getDisclosures(
                 stockCode = code,
-                from = from,
-                to = to,
+                from = fromOdt,
+                to = toOdt,
                 onlyCorrection = onlyCorrection,
                 page = page,
                 size = size,
