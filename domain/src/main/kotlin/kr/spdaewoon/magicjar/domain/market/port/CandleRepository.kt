@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.domain.market.port
 
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import java.time.Instant
 
 /**
  * 캔들 영속 포트 (ADR 0019 — UQ candle.code+interval+ts).
@@ -34,4 +35,15 @@ interface CandleRepository {
         code: String,
         interval: CandleInterval,
     ): List<Candle>
+
+    /**
+     * 특정 종목·interval 의 마지막 candle ts.
+     *
+     * hotfix 2026-05-15: CandleBootstrapRunner 가 부팅 시 N일 stale 검출하여 cold-start 재트리거.
+     * row 0건이면 null 반환.
+     */
+    fun findMaxTsByCodeAndInterval(
+        code: String,
+        interval: CandleInterval,
+    ): Instant?
 }

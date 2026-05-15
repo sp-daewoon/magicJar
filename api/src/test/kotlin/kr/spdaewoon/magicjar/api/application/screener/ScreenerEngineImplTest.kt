@@ -540,5 +540,10 @@ class ScreenerEngineImplTest {
             code: String,
             interval: CandleInterval,
         ): List<Candle> = store[code to interval] ?: emptyList()
+
+        override fun findMaxTsByCodeAndInterval(
+            code: String,
+            interval: CandleInterval,
+        ): java.time.Instant? = null
     }
 }

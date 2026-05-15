@@ -71,6 +71,12 @@ class CandleRepositoryAdapter(
             .findByCodeAndIntervalOrderByTsAsc(code, interval.code)
             .map { it.toDomain(interval) }
 
+    @Transactional(readOnly = true)
+    override fun findMaxTsByCodeAndInterval(
+        code: String,
+        interval: CandleInterval,
+    ): java.time.Instant? = candleJpaRepository.findMaxTsByCodeAndInterval(code, interval.code)
+
     private fun CandleJpaEntity.toDomain(interval: CandleInterval): Candle =
         Candle(
             id = id,
