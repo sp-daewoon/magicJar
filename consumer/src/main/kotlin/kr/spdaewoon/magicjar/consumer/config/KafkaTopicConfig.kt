@@ -277,4 +277,32 @@ class KafkaTopicConfig {
             .replicas(1)
             .config("retention.ms", "604800000") // 7d
             .build()
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ADR 0075 T-NEWS Phase 1 — DART 공시 신규 이벤트
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * DART 공시 신규 이벤트 (ADR 0075 §3-1 LOCK — T-NEWS Phase 1 market-data).
+     *
+     * publisher : api DartDisclosurePollingScheduler (1분 cron) + DisclosureKafkaProducer
+     * consumer  : Phase 4 잔류 (T-NOTIFY Slack dispatcher + 사용자 트리거 시)
+     *
+     * partition key = corp_code (기업별 — rcept_no 멱등성으로 ordering 중요도 낮음).
+     * retention: 7d (운영 추적 + 정정공시 P0 알림 ADR 0044 reuse 준비)
+     *
+     * 이벤트 스키마 v1 (ADR 0075 §3-3 LOCK):
+     *   eventId, rceptNo, corpCode, stockCode, rceptDt, corpName, reportNm,
+     *   isCorrection, url, occurredAt, schemaVersion=1
+     *
+     * // AI 호출 0 건 (ADR 0075 §11-2 정합)
+     */
+    @Bean
+    fun disclosureNewTopic(): NewTopic =
+        TopicBuilder
+            .name("disclosure.new.v1")
+            .partitions(3)
+            .replicas(1)
+            .config("retention.ms", "604800000") // 7d
+            .build()
 }
