@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.consumer.ingestion
 
 import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisQuoteCacheAdapter
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import kr.spdaewoon.magicjar.domain.market.port.KisRestPort
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
@@ -16,11 +17,15 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * PR-9b KisRestPriceAdapter 미구현 시: KisRestPort.fetchCandles 1건 호출로 임시 대체.
  * market-data PR-9b 머지 후 fetchPrice로 교체 예정.
+ *
+ * hotfix: tick 시 Redis quote cache 갱신 외 DB candle upsert 추가 (ON CONFLICT DO NOTHING — 멱등성).
+ * KIS WS 끊김 시 REST fallback 경로도 candle 영속을 보장.
  */
 @Component
 class WatchlistPollingWorker(
     private val redisQuoteCacheAdapter: RedisQuoteCacheAdapter,
     private val kisRestPort: KisRestPort,
+    private val candleRepository: CandleRepository,
 ) {
     private val log = LoggerFactory.getLogger(WatchlistPollingWorker::class.java)
 
@@ -71,12 +76,17 @@ class WatchlistPollingWorker(
                 val candles = kisRestPort.fetchCandles(code, CandleInterval.ONE_DAY, 1)
                 if (candles.isNotEmpty()) {
                     val latest = candles.maxByOrNull { it.ts.epochSeconds }!!
+                    // Redis quote cache 갱신 (실시간 시세 공급)
                     redisQuoteCacheAdapter.putQuote(
                         code = code,
                         price = latest.closeRaw,
                         volume = latest.volume,
                         source = "polling",
                     )
+                    // DB candle upsert — ON CONFLICT DO NOTHING (멱등성 보장, hotfix)
+                    // candleRepository.saveAll → ConsumerCandleRepositoryAdapter.saveAll → insertIgnore
+                    val inserted = candleRepository.saveAll(candles)
+                    log.debug("polling DB upsert: code={} fetched={} inserted={}", code, candles.size, inserted)
                 }
                 // Rate Limit 마진 (ADR 0037 대비 — 1차 MVP: 100ms sleep)
                 Thread.sleep(100)
