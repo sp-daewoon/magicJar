@@ -388,6 +388,15 @@ class KisWebSocketBridge(
                 existing["low"]?.let { l -> minOf(l.toBigDecimalOrNull() ?: tick.price, tick.price).toPlainString() } ?: priceStr
             val volume = (existing["volume"]?.toLongOrNull() ?: 0L) + tick.volume
 
+            // hotfix 2026-05-15: ts 키 필수 추가 (CandleQueryService line 109 합류 조건 정합)
+            // 오늘 00:00 KST 기준 ts — 1d 캔들 ts 표준 (KST midnight)
+            val todayKstMidnightUtc =
+                java.time.LocalDate
+                    .now(java.time.ZoneId.of("Asia/Seoul"))
+                    .atStartOfDay(java.time.ZoneId.of("Asia/Seoul"))
+                    .toInstant()
+            val tsKey = existing["ts"] ?: todayKstMidnightUtc.toString()
+
             redisTemplate.opsForHash<String, String>().putAll(
                 key,
                 mapOf(
@@ -396,6 +405,7 @@ class KisWebSocketBridge(
                     "low" to currentLow,
                     "close" to priceStr,
                     "volume" to volume.toString(),
+                    "ts" to tsKey,
                 ),
             )
             // TTL: 장 마감 + 30분 (16:00 + 30m = 16:30 KST) — 단순화: 24h TTL
