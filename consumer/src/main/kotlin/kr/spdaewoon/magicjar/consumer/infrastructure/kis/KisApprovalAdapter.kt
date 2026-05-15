@@ -201,5 +201,32 @@ class KisApprovalAdapter(
         }
     }
 
+    /**
+     * approval_key Redis cache 무효화 — doConnect() 진입 시 호출 (OPSP8996 해소).
+     *
+     * KIS는 동일 appkey의 활성 WS session을 1개만 허용 (OPSP8996 "ALREADY IN USE appkey").
+     * consumer 재시작 또는 재연결 시 이전 session의 approval_key가 Redis에 잔류하면
+     * 동일 approval_key로 subscribe 시 KIS가 기존 session 활성 상태로 판단 → OPSP8996 반환.
+     *
+     * 해결: 재연결 직전 cache DEL → getApprovalKey() 호출 시 KIS에서 새 approval_key 발급
+     * → 새 session이 KIS 측에서 기존 session을 대체 (appkey별 1 session 정책 자동 처리됨).
+     *
+     * KIS-first 출처: open-trading-api kis_auth.py auth_ws() — 매 연결 시 approval_key 신규 발급 패턴.
+     * raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+     */
+    fun invalidate(
+        userId: String,
+        accountType: AccountType,
+    ) {
+        val cacheKey = "kis:approval:$userId:${accountType.name}"
+        val deleted = redisTemplate.delete(cacheKey)
+        log.info(
+            "KIS approval_key cache 무효화 (재연결 전): user={} type={} deleted={}",
+            maskUserId(userId),
+            accountType.name,
+            deleted,
+        )
+    }
+
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"
 }
