@@ -1,0 +1,38 @@
+/**
+ * useSymbolNews — 종목별 뉴스 TanStack Query hook
+ *
+ * ADR 0075 §6-2 polling interval LOCK:
+ *   refetchInterval: 60_000 (60초)
+ *
+ * STOMP 0 LOCK (§6 사용자 결정 6-1): STOMP client import 0.
+ * 종목 상세 페이지 unmount 시 polling 자동 stop (queryClient cleanup).
+ *
+ * 기본 조회 기간: 최근 7일 (from = T-7일 ISO 8601)
+ */
+import { useQuery } from '@tanstack/react-query'
+import { newsApi, type SymbolNewsParams } from '../api/newsApi'
+
+/** 7일 전 ISO 8601 문자열 계산 */
+function sevenDaysAgo(): string {
+  const d = new Date()
+  d.setDate(d.getDate() - 7)
+  d.setHours(0, 0, 0, 0)
+  return d.toISOString()
+}
+
+export function useSymbolNews(code: string, params: SymbolNewsParams = {}) {
+  return useQuery({
+    queryKey: ['symbolNews', code, params] as const,
+    queryFn: () =>
+      newsApi.getNews(code, {
+        from: params.from ?? sevenDaysAgo(),
+        ...params,
+      }),
+    // ADR 0075 §6-2 LOCK: 60s polling
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+    enabled: Boolean(code),
+    retry: 1,
+    retryDelay: 3000,
+  })
+}
