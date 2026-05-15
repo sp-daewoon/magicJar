@@ -2081,3 +2081,68 @@ T-NEWS Phase 3 sub-agent 디스패치 완료 + dogfooding 1주 + Naver API 한�
 
 - ADR 0075 §11 비범위
 - backlog §52 (본 ADR T-NEWS 흡수 완료 baseline)
+
+---
+
+## §54. KIS WS NXT/시간외 시세 sync 표준 정합 — ADR 0076 §9 비범위 + §7 잔류 의제 (Proposed 2026-05-15)
+
+### 사유
+
+ADR 0076 Proposed (2026-05-15) — 누적 hotfix #443·#444·#445 root cause 분석 + KIS open-trading-api raw fetch 100% 인용. architect 권장안 A-1+B-2+C-1+D-1+E-1+F-1+G-1 채택 시 sub-agent 디스패치는 별도 사이클로 분리. 본 backlog §54는 ADR 0076 채택 후 잔류 의제 등록.
+
+### 잔류 의제
+
+#### 의제 1: ADR 0076 §7-B-1 (H0STOUP0 풀세트 41 slot 한도 위반 시 풀 축소 검토)
+
+ADR 0076 §7-B 의제 B-1(H0STOUP0 풀세트 20 slot 고정) 채택 시 — H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) + H0STOUP0(20) = 61 slot으로 ADR 0048 §2-1 한도 41 위반. 풀 ≤ 13 강제 시 watchlist 사이즈 측정 + SubscriptionRouter priority 재조정. ADR 0076 §10 권장안은 B-2 dynamic subscribe로 한도 회피이나, 시간외 시각대 풀 사이즈 ≥ 20일 때 B-1로 전환 검토.
+
+#### 의제 2: ADR 0076 §7-C (호가 NXT/시간외 cover — C-2 풀세트 또는 C-3 H0UNASP0 통합)
+
+- C-2: H0STASP0 + H0NXASP0 + H0STOAA0 풀세트 — slot 추가 30+ 소모
+- C-3: H0UNASP0 통합 호가 단일 구독 — KIS examples_user/asking_price_total 정합. raw 응답 sample 검증 의무
+
+채택 시 ADR 0076 §7-C-1 (H0STASP0만 유지) 위에 add-only ADR(0077+ 추정)로 분리.
+
+#### 의제 3: ADR 0076 §7-A-3 (specific 조건 invalidate — OPSP8996 응답 수신 시만)
+
+ADR 0076 권장안 A-1(invalidate 호출 제거) + F-1(SubscriptionResponse self-heal)이 결합되어 자동 fallback 가능. but A-1만 단독 채택 시 OPSP8996 재발 risk — A-3 specific 조건 invalidate (OPSP8996 응답 수신 시 invalidate + 1회 retry) 검토 잔류.
+
+#### 의제 4: KIS WS server side disconnect 정책 raw 가이드 문의
+
+ADR 0076 §3-D 가설 — 15:30 이후 KIS server side에서 H0STCNT0 stream 자동 종료 여부. KIS 가이드 raw 명시 없음 — KIS 측 답변 대기 의제. 답변 수신 시 ADR 0076 본문 갱신 + magicJar 측 reconnect 전략 정밀화.
+
+#### 의제 5: KIS PINGPONG 주기 실측 + magicJar 측 timeout fine-tune
+
+ADR 0076 §4 — KIS 표준 PINGPONG 주기 raw 명시 없음 (30s 또는 60s 통상 추정). dogfooding evidence 수집 후 magicJar 측 heartbeat watchdog timeout 30s/60s fine-tune. ADR 0076 §7-D-1 채택 후 추가 데이터 축적 + 후속 조정.
+
+#### 의제 6: 시간외 단일가 시각대 backtest 룰 검증
+
+ADR 0076 §7-G G-1 채택 시 시그널·룰엔진은 시간외 tick도 동등 처리. but BacktestEngine(ADR 0056)이 시간외 단일가 시각대 가격 변동을 정확히 반영하는지 검증 의무. W4 사이클 또는 별도 backtest QA 사이클 사후 검증.
+
+#### 의제 7: ADR 0048 §2-1 slot 한도 41건 매트릭스 갱신
+
+B-2 채택 시 시간 trigger H0STOUP0 추가로 41 slot 한도 매트릭스 재계산. ADR 0048 §2-1 본문 갱신 의무 (modify-shared 회피 — add-only § 추가만).
+
+### 트리거
+
+- **우선순위 ↑**: ADR 0076 §7 의제 사용자 채택 결정 후 — Phase 1·2·3·4 sub-agent 디스패치 시작
+- **우선순위 ↓**: ADR 0076 채택 후 안정화 dogfooding 검증 evidence 누적 후
+
+### 예상 처리 PR
+
+- **Phase 1 PR**: market-data — `agent/market-data/kis-ws-approval-reuse-self-heal` (A-1 + F-1 의제)
+- **Phase 2 PR**: market-data — `agent/market-data/kis-ws-heartbeat-graceful-close` (D-1 + E-1 의제)
+- **Phase 3 PR**: market-data — `agent/market-data/kis-ws-overtime-single-price` (B-2 H0STOUP0)
+- **Phase 4 PR** (선택, 별도 사이클): strategy-engine — `agent/strategy-engine/risk-time-gate` (G-1)
+
+후속 ADR — 의제 1·2 채택 시 ADR 0077·0078 후보 (slot 한도 매트릭스 + 호가 cover 확장).
+
+### 연관
+
+- ADR 0076 §7 의제 매트릭스
+- ADR 0076 §11 sub-agent 디스패치 매트릭스
+- ADR 0048 §2-1 slot 한도 (B-2 채택 후 매트릭스 갱신 의무)
+- ADR 0063 NXT 08:00~20:00 cover (cross-ref H0NXCNT0)
+- ADR 0013 Market Session FSM (B-2 KisMarketSessionFsm 합류 후보)
+- 누적 hotfix PR #443·#444·#445
+- spec `_workspace/specs/pr-447-kis-ws-nxt-standard-spec.md`
