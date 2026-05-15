@@ -124,17 +124,22 @@ class CandleQueryService(
                                 null
                             }
                         }
-                    if (lastDbTs == null || redisInstant > lastDbTs) {
-                        candleDtos.add(
-                            CandleDto(
-                                ts = redisTs,
-                                open = redisCandle["open"] ?: "0",
-                                high = redisCandle["high"] ?: "0",
-                                low = redisCandle["low"] ?: "0",
-                                close = redisCandle["close"] ?: "0",
-                                volume = redisCandle["volume"]?.toLongOrNull() ?: 0L,
-                            ),
+                    // hotfix 2026-05-15: same ts 일 때 replace 패턴 (자본 보호 critical sync).
+                    // DB 마지막 row 와 Redis ts 가 같으면 (오늘 진행 중 1d 또는 1m) Redis 값으로 덮어쓰기.
+                    // 이전 > 만 add → same ts 시 skip → 차트 + 자동매매 stale DB close 사용 risk.
+                    val redisCandleDto =
+                        CandleDto(
+                            ts = redisTs,
+                            open = redisCandle["open"] ?: "0",
+                            high = redisCandle["high"] ?: "0",
+                            low = redisCandle["low"] ?: "0",
+                            close = redisCandle["close"] ?: "0",
+                            volume = redisCandle["volume"]?.toLongOrNull() ?: 0L,
                         )
+                    if (lastDbTs == null || redisInstant > lastDbTs) {
+                        candleDtos.add(redisCandleDto)
+                    } else if (redisInstant == lastDbTs && candleDtos.isNotEmpty()) {
+                        candleDtos[candleDtos.size - 1] = redisCandleDto
                     }
                 }
             }
