@@ -7,6 +7,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisApprovalAdapter
 import kr.spdaewoon.magicjar.domain.market.port.QuoteCachePort
+import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.data.redis.core.StringRedisTemplate
@@ -17,15 +18,16 @@ import reactor.core.publisher.Mono
 import java.net.URI
 
 /**
- * KisWebSocketBridge.reconnectGracefully() 단위 테스트 (ADR 0074 §3-4-1 검증 의무).
+ * KisWebSocketBridge 단위 테스트.
  *
  * 검증 항목:
  * 1. reconnectGracefully 호출 시 session.connected=false 전환 (기존 연결 종료)
  * 2. reconnectGracefully 호출 시 reconnectCount 리셋 (지수 백오프 초기화)
  * 3. shuttingDown=true 시 reconnect 스킵
+ * 4. subscribe(codes) 시 H0STCNT0 + H0NXCNT0 둘 다 구독 메시지 송신 검증 (NXT 장외 sync hotfix)
  *
  * 주의: doConnect()는 Reactor WS 연결(비동기)이라 실제 연결 검증은 통합 테스트에서.
- * 본 테스트는 session 상태 변경 + reconnectCount 초기화에 집중.
+ * 본 테스트는 session 상태 변경 + reconnectCount 초기화 + NXT 구독 메시지에 집중.
  *
  * AI 호출 0 — 룰 5 + ADR 0074 §11-2 정합.
  */
@@ -96,6 +98,31 @@ class KisWebSocketBridgeReconnectTest {
     }
 
     /**
+     * subscribe(codes) 시 H0STCNT0 + H0NXCNT0 둘 다 구독 등록 검증.
+     *
+     * NXT 장외 sync 결함 hotfix (ADR 0063 정합 — 08:00~20:00 KST cover).
+     * KIS-first 출처:
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
+     *   ccnl_nxt() tr_id="H0NXCNT0"
+     *
+     * 검증: subscribe 후 session.subscribedCodes + nxtSubscribedCodes 둘 다 code 포함.
+     */
+    @Test
+    fun `subscribe codes 시 H0STCNT0(session) + H0NXCNT0(nxtSubscribedCodes) 둘 다 등록`() {
+        // given: sendSink 없는 상태 (연결 0) — subscribe는 nxtSubscribedCodes에 add됨
+        // when
+        bridge.subscribe(listOf("005930", "000660"))
+
+        // then: H0STCNT0 구독 — session.subscribedCodes 확인
+        val session = getSession(bridge)
+        assertThat(session.subscribedCodes).containsExactlyInAnyOrder("005930", "000660")
+
+        // then: H0NXCNT0 구독 — nxtSubscribedCodes 확인 (reflection)
+        val nxtCodes = getNxtSubscribedCodes(bridge)
+        assertThat(nxtCodes).containsExactlyInAnyOrder("005930", "000660")
+    }
+
+    /**
      * KisWebSocketBridge 내부 session 필드 접근 (reflection).
      * 프로덕션 코드 변경 없이 내부 상태 검증용.
      */
@@ -103,5 +130,15 @@ class KisWebSocketBridgeReconnectTest {
         val field = KisWebSocketBridge::class.java.getDeclaredField("session")
         field.isAccessible = true
         return field.get(bridge) as KisWebSocketSession
+    }
+
+    /**
+     * nxtSubscribedCodes Set 접근 (reflection).
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun getNxtSubscribedCodes(bridge: KisWebSocketBridge): Set<String> {
+        val field = KisWebSocketBridge::class.java.getDeclaredField("nxtSubscribedCodes")
+        field.isAccessible = true
+        return field.get(bridge) as Set<String>
     }
 }

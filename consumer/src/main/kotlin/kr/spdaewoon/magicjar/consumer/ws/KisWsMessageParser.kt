@@ -14,7 +14,7 @@ import java.math.BigDecimal
  * 수신 raw 메시지 형식:
  *   {타입}|{TR_ID}|{N}|{데이터}
  *   - 타입: "0" = 실시간 데이터, "1" = 구독 응답, "PINGPONG" = heartbeat
- *   - TR_ID: H0STCNT0(체결가), H0STASP0(호가), H0STCNI0(체결통보)
+ *   - TR_ID: H0STCNT0(체결가), H0NXCNT0(NXT 체결가), H0STASP0(호가), H0STCNI0(체결통보)
  *   - N: 데이터 건수
  *   - 데이터: ^(캐럿) 구분 필드열
  *
@@ -32,6 +32,20 @@ import java.math.BigDecimal
  *  [13]  ACML_VOL            — 누적거래량
  *  [33]  BSOP_DATE           — 영업일자 (YYYYMMDD)
  *
+ * H0NXCNT0 필드 인덱스 (open-trading-api domestic_stock_functions_ws.py ccnl_nxt() cols 배열):
+ * KIS-first raw 출처:
+ *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
+ *   ccnl_nxt() columns 배열: H0STCNT0와 동일 위치에 동일 필드명 매핑 (44개 필드).
+ *   [0]  MKSC_SHRN_ISCD      — 종목코드
+ *   [1]  STCK_CNTG_HOUR      — 체결시각 (HHMMSS)
+ *   [2]  STCK_PRPR           — 현재가
+ *   [3]  PRDY_VRSS_SIGN      — 전일대비부호
+ *   [4]  PRDY_VRSS           — 전일대비
+ *   [5]  PRDY_CTRT           — 전일대비율 (%)
+ *  [12]  CNTG_VOL            — 체결거래량
+ *  [33]  BSOP_DATE           — 영업일자 (YYYYMMDD)
+ *
+ * NXT 대체거래소 cover 시간: ADR 0063 정합 — 08:00~20:00 KST.
  * 전체 46개 필드 (인덱스 0~45) — 자세한 내용은 KIS open-trading-api 레포 domestic_stock/domestic_stock_functions_ws.py 참조.
  */
 object KisWsMessageParser {
@@ -197,6 +211,29 @@ object KisWsMessageParser {
             log.error("H0STCNT0 파싱 실패: rawData={} error={}", rawData.take(100), e.message)
             null
         }
+    }
+
+    /**
+     * H0NXCNT0 NXT 대체거래소 실시간 체결가 데이터 파싱 → TickEvent.
+     *
+     * KIS-first raw 출처:
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
+     *   ccnl_nxt() columns 배열 — H0STCNT0(ccnl_krx)와 동일 필드 인덱스 구조 (44개 필드).
+     *   [0] MKSC_SHRN_ISCD / [1] STCK_CNTG_HOUR / [2] STCK_PRPR
+     *   [3] PRDY_VRSS_SIGN / [4] PRDY_VRSS / [5] PRDY_CTRT
+     *   [12] CNTG_VOL / [33] BSOP_DATE
+     *
+     * NXT cover 시간: ADR 0063 — 08:00~20:00 KST.
+     * TickEvent.source = "live-nxt" 로 구분 (H0STCNT0 source="live"와 분리).
+     */
+    fun parseH0Nxcnt0(
+        rawData: String,
+        expectedCode: String? = null,
+    ): TickEvent? {
+        // H0NXCNT0와 H0STCNT0의 필드 인덱스 구조가 동일하므로 동일 파싱 로직 재사용.
+        // source 필드만 "live-nxt"로 오버라이드.
+        val base = parseH0Stcnt0(rawData, expectedCode) ?: return null
+        return base.copy(source = "live-nxt")
     }
 
     /**
