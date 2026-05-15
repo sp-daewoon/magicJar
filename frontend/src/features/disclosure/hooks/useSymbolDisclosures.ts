@@ -8,8 +8,10 @@
  * 종목 상세 페이지 unmount 시 polling 자동 stop (queryClient cleanup).
  *
  * 기본 조회 기간: 최근 7일 (from = T-7일 YYYY-MM-DD)
+ *
+ * dogfooding hotfix: useInfiniteQuery로 변경 — "더 보기" 시 기존 items 보존 누적 append.
  */
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery } from '@tanstack/react-query'
 import { disclosureApi, type SymbolDisclosureParams } from '../api/disclosureApi'
 
 /** 7일 전 YYYY-MM-DD 문자열 계산 */
@@ -20,13 +22,17 @@ function sevenDaysAgoDate(): string {
 }
 
 export function useSymbolDisclosures(code: string, params: SymbolDisclosureParams = {}) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ['symbolDisclosures', code, params] as const,
-    queryFn: () =>
+    queryFn: ({ pageParam }) =>
       disclosureApi.getDisclosures(code, {
         from: params.from ?? sevenDaysAgoDate(),
         ...params,
+        page: pageParam,
       }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) =>
+      lastPage.page + 1 < lastPage.totalPages ? lastPage.page + 1 : undefined,
     // ADR 0075 §6-2 LOCK: 60s polling
     refetchInterval: 60_000,
     staleTime: 30_000,
