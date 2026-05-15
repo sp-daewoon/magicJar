@@ -106,6 +106,9 @@ class KisWebSocketBridge(
     @Volatile
     private var pollingFallbackActive = AtomicBoolean(false)
 
+    // 재연결 중복 방지 guard — watchdog 트리거 후 doFinally 완료 전 중복 dispose 차단.
+    private val reconnecting = AtomicBoolean(false)
+
     // polling fallback 콜백 (backend-core WatchlistPollingWorker와 연동)
     @Volatile
     var onPollingFallbackStart: (() -> Unit)? = null
@@ -258,21 +261,8 @@ class KisWebSocketBridge(
         wsDisposable =
             wsClient
                 .execute(URI(wsUrl)) { wsSession ->
-                    val sendFlux =
-                        sink
-                            .asFlux()
-                            .map { text -> wsSession.textMessage(text) }
-
-                    val receiveFlux =
-                        wsSession
-                            .receive()
-                            .map(WebSocketMessage::getPayloadAsText)
-                            .doOnNext { raw -> handleMessage(raw) }
-                            .doOnError { err -> log.error("KIS WS 수신 오류: {}", err.message) }
-                            .then()
-
-                    wsSession.send(sendFlux).mergeWith(receiveFlux).then()
-                }.doOnSubscribe {
+                    // 실제 WebSocket handshake 성공 시점 — 핸들러 람다 진입 = 연결 수립 확인.
+                    // (doOnSubscribe는 subscribe() 직후 동기 호출이라 handshake 완료 전임)
                     session.onConnected()
                     pollingFallbackActive.set(false)
                     onPollingFallbackStop?.invoke()
@@ -292,10 +282,29 @@ class KisWebSocketBridge(
                         }
                         log.info("KIS WS 재구독 완료: 종목 {}건 (H0STCNT0 + H0NXCNT0 각각)", existingCodes.size)
                     }
-                }.doOnTerminate {
+
+                    val sendFlux =
+                        sink
+                            .asFlux()
+                            .map { text -> wsSession.textMessage(text) }
+
+                    val receiveFlux =
+                        wsSession
+                            .receive()
+                            .map(WebSocketMessage::getPayloadAsText)
+                            .doOnNext { raw -> handleMessage(raw) }
+                            .doOnError { err -> log.error("KIS WS 수신 오류: {}", err.message) }
+                            .then()
+
+                    wsSession.send(sendFlux).mergeWith(receiveFlux).then()
+                }.doFinally { signal ->
+                    // doFinally: onComplete·onError·cancel(dispose) 모두 처리.
+                    // 이전 doOnTerminate는 cancel(dispose) 시 미호출 → watchdog dispose 후
+                    // scheduleReconnect() 0건 결함 원인 (PR #444 후속 hotfix).
+                    reconnecting.set(false) // 재연결 중복 방지 guard 해제
                     session.onDisconnected()
                     stopHeartbeatWatchdog()
-                    log.warn("KIS WS 연결 종료")
+                    log.warn("KIS WS 연결 종료: signal={}", signal)
                     if (!session.shuttingDown) {
                         scheduleReconnect()
                     }
@@ -549,6 +558,9 @@ class KisWebSocketBridge(
 
     /**
      * Heartbeat watchdog — 10초 무신호 시 reconnect 트리거 (ADR 0048 §2-4-A).
+     *
+     * reconnecting guard: CAS(false→true) 성공한 단 1회만 dispose 호출.
+     * doFinally에서 reconnecting.set(false) 해제 → 다음 연결 후 watchdog 재작동 가능.
      */
     private fun startHeartbeatWatchdog() {
         stopHeartbeatWatchdog()
@@ -558,8 +570,13 @@ class KisWebSocketBridge(
                 val lastMsg = session.lastMessageAt.get() ?: return@scheduleAtFixedRate
                 val elapsed = Clock.System.now().epochSeconds - lastMsg.epochSeconds
                 if (elapsed > heartbeatTimeoutSeconds && session.subscribedCodes.isNotEmpty()) {
-                    log.warn("KIS WS heartbeat 무신호 {}s — 재연결 트리거", elapsed)
-                    wsDisposable?.dispose()
+                    // reconnecting CAS: 이미 재연결 중이면 중복 dispose 차단.
+                    if (reconnecting.compareAndSet(false, true)) {
+                        log.warn("KIS WS heartbeat 무신호 {}s — 재연결 트리거 (dispose 호출)", elapsed)
+                        wsDisposable?.dispose()
+                    } else {
+                        log.debug("KIS WS heartbeat 무신호 {}s — 재연결 이미 진행 중, skip", elapsed)
+                    }
                 }
             }, heartbeatTimeoutSeconds, heartbeatTimeoutSeconds, TimeUnit.SECONDS)
     }
@@ -591,6 +608,7 @@ class KisWebSocketBridge(
         log.info("[KisKeyChanged] WS graceful reconnect 시작 — userId={}", maskUserId(userId))
 
         // 1. 기존 연결 종료 (shuttingDown은 false 유지)
+        reconnecting.set(false) // graceful reconnect는 독립 경로 — watchdog guard 초기화
         stopHeartbeatWatchdog()
         wsDisposable?.dispose()
         sendSink?.tryEmitComplete()
