@@ -30,7 +30,8 @@ magicJar는 W1~W5 트랙 진행 중인 한국 주식 자동매매 시스템이�
 | **Alt 1**: 외부 도구 도입 (caveman·graphify 등) | 즉시 사용 가능 | 기존 SoT 체계와 marginal 가치 또는 충돌. 사용자 진짜 목표(재사용 가능 룰셋)와 방향 정반대. 2026-05-16 검증 결과 reject |
 | **Alt 2**: 추출 안 함, magicJar 단독 운영 | 작업 0 | 사용자 명시 목표("새 프로젝트에도 공통 룰처럼 가지고 갈 것")와 어긋남. 룰셋 재사용 기회 상실 |
 | **Alt 3**: 즉시 추출 시작 (현재 사이클 내) | 빠른 부트스트랩 키트 확보 | W4·W5 우선순위 침해. 현재 트랙 마감 지연 |
-| **Alt 4 (채택)**: 추출 트랙 등록 + 시동 시점 사용자 트리거 위임 | 현재 사이클 영향 0, 시동 유연성 100%, 트래킹 가능 | 시동 시점 모호성 — 사용자 호출 누락 risk (backlog 추적으로 보완) |
+| **Alt 4 (채택)**: 추출 트랙 등록 + 시동 시점 사용자 트리거 위임 + **Plugin Independence 제약** | 현재 사이클 영향 0, 시동 유연성 100%, 트래킹 가능, plugin 비종속으로 도입 장벽 0 | 시동 시점 모호성 — 사용자 호출 누락 risk (backlog 추적으로 보완) |
+| **Alt 5**: harness 플러그인 그대로 의존 (배포물에 `/plugin install harness@harness` 의무화) | 추출 작업 시간 단축 (harness 산출물 그대로 재사용) | **부트스트랩 마찰 증가** (사용 측이 plugin install 의무) + 외부 plugin repo 의존성 + Claude Code 본체 메커니즘으로 충분한데 불필요한 의존 — 사용자 명시 거절 ("플러그인을 깔지 않았지만 의도한 방향대로 간다는거") |
 
 ---
 
@@ -61,13 +62,15 @@ magicJar의 검증된 운영 자산을 별도 **재사용 가능한 프로젝트
 
 ### 3.2 패키징 형태 (잠정 추천)
 
-| 옵션 | 형태 | 부트스트랩 명령 | 자동화 |
-|---|---|---|---|
-| A. GitHub Template Repository | template repo + placeholder | "Use this template" 클릭 | 중 |
-| B. Cookiecutter Template (Python) | cookiecutter 패키지 | `cookiecutter <repo>` | 상 |
-| C. Monolithic Documentation Repo | docs-only repo | `git clone` 또는 submodule | 하 |
+| 옵션 | 형태 | 부트스트랩 명령 | 자동화 | Plugin 비종속 |
+|---|---|---|---|---|
+| A. GitHub Template Repository | template repo + placeholder | "Use this template" 클릭 | 중 | ✅ `.claude/` 풀세트 포함 |
+| B. Cookiecutter Template (Python) | cookiecutter 패키지 | `cookiecutter <repo>` | 상 | ✅ 가능 (Python 의존만) |
+| C. Monolithic Documentation Repo | docs-only repo | `git clone` 또는 submodule | 하 | ✅ 가능 |
 
-**잠정 추천: A + C 결합** — 코드·스크립트는 GitHub template, 문서·룰북은 별도 docs repo로 분리해 magicJar living policy 변경 시 동기화 가능. **시동 시점에 최종 결정**.
+**잠정 추천: A + C 결합** — 코드·스크립트는 GitHub template (`.claude/agents/`·`.claude/skills/`·`.claude/commands/`·`.claude/hooks/`·`.claude/settings.json` 풀세트 포함), 문서·룰북은 별도 docs repo로 분리해 magicJar living policy 변경 시 동기화 가능. **시동 시점에 최종 결정**.
+
+**모든 옵션의 공통 의무**: §3.5 Plugin Independence 제약 준수 — `harness:harness` 등 plugin 의존 코드 0.
 
 ### 3.3 MCP화와의 분리
 
@@ -82,6 +85,45 @@ magicJar의 검증된 운영 자산을 별도 **재사용 가능한 프로젝트
 ### 3.4 시동 트리거 조건
 
 **사용자 명시적 트리거 단일 조건**. 자동 시동 트리거 없음 — 사용자가 남은 사이클 또는 backlog 모니터링 중 호출 시점에 시동.
+
+### 3.5 Plugin Independence — 핵심 설계 제약 (★★★ 최우선)
+
+**추출된 템플릿은 harness 플러그인(`revfactory/harness`)에 종속되지 않아야 한다.**
+
+#### 배경
+
+magicJar의 현재 운영 자산(`magicjar-orchestrator`·`magicjar-adr`·`magicjar-kis-openapi`·`magicjar-backtest-engine`·`magicjar-baseline` 스킬 + 7 전문 에이전트 정의)은 harness 플러그인의 메타 스킬(`harness:harness`)이 생성한 산출물이다. 즉 magicJar 자체는 harness 플러그인에 의존한다.
+
+그러나 **추출되는 부트스트랩 템플릿의 사용자는 plugin install 의무화 없이 곧바로 사용 가능해야 한다**. 사용자 본인의 표현:
+
+> "플러그인을 깔지 않았지만 의도한 방향대로 간다는거. 서브에이전트들을 잘 사용하고 싶었던거지."
+
+#### 제약 상세
+
+추출 결과물은 **Claude Code 본체 메커니즘만으로 동작**해야 한다:
+
+| 메커니즘 | 위치 | 용도 |
+|---|---|---|
+| 에이전트 정의 | `.claude/agents/*.md` | sub-agent dispatch 대상 specialized agents |
+| 도메인 스킬 | `.claude/skills/<name>/SKILL.md` | invoke 가능한 도메인 지식·절차 |
+| 슬래시 명령 | `.claude/commands/*.md` | 사용자 트리거 명령 (예: `/baseline init`) |
+| Hook | `.claude/hooks/*` | 자동화 트리거 (pre-commit·post-tool 등) |
+| 권한·환경 설정 | `.claude/settings.json` + `.claude/settings.local.json` | 권한 화이트리스트, env vars |
+| Memory 시스템 | `~/.claude/projects/<slug>/memory/*.md` + `MEMORY.md` | 세션 간 지식 persistence |
+
+위 6개는 모두 **Claude Code 본체 기능**이며 plugin 의존성 0. 사용자가 새 프로젝트에서 `.claude/` 디렉토리를 그대로 복사하거나 GitHub Template으로 부트스트랩하면 그 즉시 동작.
+
+#### Sub-agent 활용 핵심
+
+- Claude Code의 `Agent` tool은 본체 기능이라 plugin 없이도 sub-agent dispatch 가능
+- `.claude/agents/*.md`에 specialized agent (architect·backend-core·frontend·qa 등) 정의 → 메인 세션의 Claude가 `Agent(subagent_type="<name>", ...)` 호출로 위임
+- 3단 hierarchy (사용자 → 메인 → sub-agent)는 plugin 없이도 성립
+
+#### harness 플러그인과의 관계
+
+- harness 플러그인은 **magicJar 내부 유지·진화** 용도로는 계속 사용 가능 (magicjar-* 스킬 갱신 등)
+- 그러나 **추출 결과물 자체**는 harness 산출물을 일단 추출한 뒤 plugin 의존 코드(예: `harness:harness` 스킬 invoke 등) 0으로 정제해서 패키징
+- 추출 결과물 사용자는 harness 플러그인 설치 의무 없음. 본인이 원하면 별도 메타 스킬 도입 가능하지만 강제 X.
 
 ---
 
