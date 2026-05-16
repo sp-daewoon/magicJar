@@ -2165,6 +2165,10 @@ magicJar의 검증된 운영 자산(SoT 5층 · harness · Task cycle · 룰북 
 
 **A + C 결합** — 코드 · 스크립트는 GitHub Template Repository ("Use this template" 클릭), 문서 · 룰북은 별도 docs repo로 분리해 magicJar living policy 변경 시 동기화 가능. 시동 시점에 최종 결정.
 
+### Plugin Independence — 핵심 제약 (★★★)
+
+**추출 결과물은 `revfactory/harness` 플러그인 종속성 0이어야 한다.** Claude Code 본체 메커니즘(`.claude/agents/`·`.claude/skills/`·`.claude/commands/`·`.claude/hooks/`·`.claude/settings.json`)만으로 동작. 사용자 의도: "플러그인을 깔지 않았지만 의도한 방향대로 가도록 + sub-agent 잘 활용". 새 프로젝트 사용자에게 plugin install 의무 부여 X.
+
 ### MCP화와의 분리
 
 룰셋의 MCP화는 부적합 (MCP = 함수 호출 인터페이스, 룰셋 = 코드/문서 패턴). magicJar 본체의 MCP 노출은 별건 — v4.0 비전 또는 별도 ADR.
