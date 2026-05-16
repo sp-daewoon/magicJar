@@ -2146,3 +2146,44 @@ B-2 채택 시 시간 trigger H0STOUP0 추가로 41 slot 한도 매트릭스 재
 - ADR 0013 Market Session FSM (B-2 KisMarketSessionFsm 합류 후보)
 - 누적 hotfix PR #443·#444·#445
 - spec `_workspace/specs/pr-447-kis-ws-nxt-standard-spec.md`
+
+---
+
+## §55. 내부 자산 추출 트랙 — 재사용 가능한 프로젝트 부트스트랩 템플릿 (ADR 0078)
+
+### 사유
+
+magicJar의 검증된 운영 자산(SoT 5층 · harness · Task cycle · 룰북 · Release LOCK · 운영 가드 · Memory 시스템)을 별도 재사용 가능한 프로젝트 부트스트랩 템플릿으로 추출. 2026-05-16 사이클에서 caveman · graphify 외부 도구 도입 검토 후, 사용자가 "새 프로젝트에도 공통 룰처럼 가지고 갈 것"이 진짜 목표임을 명시 — **외부 도구 도입 방향 ➜ 내부 자산 추출 방향으로 트랙 전환**.
+
+### 추출 자산 우선순위
+
+- **Phase 1 (★★★)**: SoT 5층 + harness 패턴 + Task cycle (도메인 비종속)
+- **Phase 2 (★★)**: 개발 룰북 5건 + Release minor LOCK + 운영 함정 가드 + Memory 4 타입 + branching · 머지 정책
+- **Phase 3 (★)**: CHANGELOG 한 줄 정책 + devlog HTML 자동화 + 시크릿 처리 정책
+
+### 패키징 잠정 추천
+
+**A + C 결합** — 코드 · 스크립트는 GitHub Template Repository ("Use this template" 클릭), 문서 · 룰북은 별도 docs repo로 분리해 magicJar living policy 변경 시 동기화 가능. 시동 시점에 최종 결정.
+
+### MCP화와의 분리
+
+룰셋의 MCP화는 부적합 (MCP = 함수 호출 인터페이스, 룰셋 = 코드/문서 패턴). magicJar 본체의 MCP 노출은 별건 — v4.0 비전 또는 별도 ADR.
+
+### 트리거
+
+- **사용자 명시적 호출 단일 조건** — 자동 시동 트리거 없음
+- 남은 사이클 또는 backlog 모니터링 중 사용자가 호출하는 시점
+
+### 예상 처리
+
+시동 시점에 별도 spec/plan 작성 후 Phase 1부터 순차 진행 (~1주 추정).
+
+### 연관
+
+- ADR 0078 본문 (`_workspace/arch/adr/0078-internal-asset-extraction-strategy.md`)
+- ADR 0030 (Master architecture SoT)
+- ADR 0035 (Agent model tiering)
+- ADR 0036 (Author whitelist + Task cycle)
+- ADR 0052 (Baseline release lock)
+- ADR 0053 (Living policies SoT)
+- `docs/architecture/development-rules.md` — 개발 룰북 5건
