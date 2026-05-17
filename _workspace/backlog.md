@@ -2191,3 +2191,65 @@ magicJar의 검증된 운영 자산(SoT 5층 · harness · Task cycle · 룰북 
 - ADR 0052 (Baseline release lock)
 - ADR 0053 (Living policies SoT)
 - `docs/architecture/development-rules.md` — 개발 룰북 5건
+
+## §56. KIS WS OPSP8996 ERROR 재발 — v3.6.11 hotfix 후보 (Proposed 2026-05-17)
+
+### 사유
+
+v3.6.10 release cut 직전 docker logs 검사에서 consumer `KisWebSocketBridge` OPSP8996 ERROR 5회 연속 발생 (11:00 시점 attempt 64→68). ADR 0076 Phase 1·2·3 머지 + v3.6.9 cut 이후에도 재발 — 즉 ADR 0076이 fix 완전치 못함. "ALREADY IN USE appkey" 누적 = 자동매매 본체 시세 sync 영향 가능.
+
+### 발견 evidence
+
+```
+2026-05-17T11:00:05.161+09:00 ERROR ... KIS WS OPSP8996 2회 fail — skip: attempt=64 ...
+2026-05-17T11:00:15.743+09:00 ERROR ... attempt=65 ...
+2026-05-17T11:00:15.744+09:00 ERROR ... attempt=66 ...
+2026-05-17T11:00:15.744+09:00 ERROR ... attempt=67 ...
+2026-05-17T11:00:15.751+09:00 ERROR ... attempt=68 ...
+```
+
+### 처리 방향
+
+- 사용자 결정: v3.6.10 cut 진행 + 본 issue는 v3.6.11 hotfix 분리
+- ADR 0076 Phase 1·2·3 결과물 vs 실 KIS 서버 응답 비교 분석 필요 (architect 자율 또는 사용자 검증 위임)
+- architect deep dive 후 hotfix PR 분리 (market-data 영역)
+
+### 연관
+
+- ADR 0076 §3 OPSP8996 root cause 가설 6건 (A-F) — 추가 가설 또는 Phase 1 invalidate revert 회귀 검증 필요
+- ADR 0077 (예약 슬롯) — OPSP8996 deep dive 후속 ADR 발행 가능
+- v3.6.9 cut 머지 (ADR 0076 Phase 3 B-2 — PR #449)
+
+## §57. Naver Open API 429 Rate limit 17건 동시 — fitness gap (Proposed 2026-05-17)
+
+### 사유
+
+v3.6.10 release cut 직전 docker logs 검사에서 api `NaverNewsAdapter` HTTP 429 17건 stockCode 동시 발생 (11:57 시점 1초 내 17개 모두 429). ADR 0075 §4 sliding window ZSET 17건/분 hard limit 사양 정합 의도였으나 실제로 17 stockCode가 동시에 429 — 정합 결함 가능성.
+
+### 발견 evidence
+
+```
+11:57:23.610 WARN NaverNewsAdapter HTTP 429 — stockCode=027740 ... Rate limit exceeded ...
+11:57:23.623 WARN NaverNewsAdapter HTTP 429 — stockCode=195500 ...
+11:57:23.636 WARN NaverNewsAdapter HTTP 429 — stockCode=006110 ...
+11:57:23.650 WARN NaverNewsAdapter HTTP 429 — stockCode=004710 ...
+11:57:23.662 WARN NaverNewsAdapter HTTP 429 — stockCode=066570 ...
+... (17건)
+```
+
+### 처리 방향
+
+- WARN level (ERROR 아님) → release cut block 사유 아님
+- 가설: (a) `NaverNewsRateLimiter.acquireSlot()` ZSET cleanup 흐름 race condition (b) Naver 키 quota 자체 17건/분보다 더 작음 (c) `WatchlistNewsScheduler` fixedRate 60_000 + 활성 watchlist > 17건 → 동시 polling burst
+
+### 처리 방향
+
+- backend-core 영역 — ZSET sliding window 분석 + Naver 키 quota 실제 한도 검증 + 사용자에게 Naver Open API 키 quota 사양 확인 필요
+- backlog로만 등재 — 우선순위 낮음 (W4 진입 전 prereq 아님, T-NEWS 보조 흐름이라 시세 본체 영향 0)
+
+### 연관
+
+- ADR 0075 §4 Naver sliding window 17건/분 hard limit
+- ADR 0075 §11 비범위 — Phase 4 RSS 한경·구글 어댑터 (backlog §53)
+- `kr.spdaewoon.magicjar.api.infrastructure.naver.NaverNewsRateLimiter`
+- `kr.spdaewoon.magicjar.api.infrastructure.naver.NaverNewsAdapter`
