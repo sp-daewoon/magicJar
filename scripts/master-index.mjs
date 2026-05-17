@@ -787,7 +787,13 @@ function selfCheck(html) {
   }
 }
 
-main().catch((e) => {
-  console.error('[master-index] 치명 실패:', e);
-  process.exit(1);
-});
+// test에서 사용
+export { firstH2, firstParagraph, parseAdrFile, parseBacklogSections, fileMeta };
+
+// CLI 직접 실행 시에만 main 호출
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((e) => {
+    console.error('[master-index] 치명 실패:', e);
+    process.exit(1);
+  });
+}
