@@ -3,10 +3,12 @@ package kr.spdaewoon.magicjar.consumer.ingestion
 import jakarta.annotation.PostConstruct
 import jakarta.annotation.PreDestroy
 import kotlinx.datetime.Clock
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerWatchlistRepositoryAdapter
 import kr.spdaewoon.magicjar.domain.market.port.KisWsPort
 import kr.spdaewoon.magicjar.domain.market.session.MarketSession
 import kr.spdaewoon.magicjar.domain.market.session.MarketSessionResolver
+import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
@@ -26,6 +28,8 @@ class WatchlistIngestionWorker(
     private val kisWsPort: KisWsPort,
     private val watchlistRepository: ConsumerWatchlistRepositoryAdapter,
     private val marketSessionResolver: MarketSessionResolver,
+    /** J-1: 부팅 사전 검증 — REAL 자격증명 존재 확인 후 KIS WS connect 진입 (ADR 0077 J-1). */
+    private val credentialRepository: ConsumerUserKisCredentialJpaRepository,
 ) {
     private val log = LoggerFactory.getLogger(WatchlistIngestionWorker::class.java)
 
@@ -55,6 +59,23 @@ class WatchlistIngestionWorker(
                 log.info("watchlist 없음 — reconcile 생략")
                 return
             }
+
+            // J-1: 자격증명 사전 검증 — REAL KIS 키 미등록 시 connect skip + WARN 안내.
+            // ADR 0077 J-1: onStartup 진입 시 REAL 자격증명 존재 확인 후 connect.
+            // 미등록 시 KIS WS connect 자체를 차단 → ERROR_APPROVAL_KEY → OPSP8996 무한 루프 방지.
+            // 사용자 메모리 [feedback_kis_key_realonly_for_data]: "정보 수집=실전 키".
+            val realCredentials = credentialRepository.findAllByAccountType(AccountType.REAL.name)
+            if (realCredentials.isEmpty()) {
+                log.warn(
+                    "WatchlistIngestionWorker: REAL KIS 자격증명 미등록 — KIS WS connect skip. " +
+                        "SetupWizard(⚙️ SettingsModal)에서 REAL KIS 앱키·시크릿 등록 후 재부팅 필요. " +
+                        "watchlist={}건 users={}",
+                    allEntries.size,
+                    users,
+                )
+                return
+            }
+
             // KIS WS 연결 시작 — subscribe()보다 선행 의무 (sendSink null 방지)
             kisWsPort.connect()
             log.info("KIS WS connect() 호출 완료 — 핸드셰이크 진행 중")

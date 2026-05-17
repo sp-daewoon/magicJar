@@ -168,7 +168,12 @@ class KisWebSocketBridge(
      */
     override fun subscribe(codes: List<String>) {
         if (codes.isEmpty()) return
-        val approvalKey = getApprovalKey()
+        // G-1: approval_key null 시 subscribe skip — invalid key로 KIS에 발사 차단.
+        val approvalKey =
+            getApprovalKey() ?: run {
+                log.warn("KIS WS subscribe skip — approval_key 발급 불가 (REAL 자격증명 미등록): codes={}", codes)
+                return
+            }
         codes.forEach { code ->
             if (!session.subscribedCodes.contains(code)) {
                 val msg = buildSubscribeMessage(approvalKey, code, trType = "1")
@@ -193,7 +198,16 @@ class KisWebSocketBridge(
      */
     override fun unsubscribe(codes: List<String>) {
         if (codes.isEmpty()) return
-        val approvalKey = getApprovalKey()
+        // G-1: approval_key null 시 unsubscribe skip — set 상태만 정리.
+        val approvalKey =
+            getApprovalKey() ?: run {
+                log.warn("KIS WS unsubscribe — approval_key 발급 불가, local state만 정리: codes={}", codes)
+                codes.forEach { code ->
+                    session.subscribedCodes.remove(code)
+                    nxtSubscribedCodes.remove(code)
+                }
+                return
+            }
         codes.forEach { code ->
             if (session.subscribedCodes.contains(code)) {
                 val msg = buildSubscribeMessage(approvalKey, code, trType = "2")
@@ -219,7 +233,11 @@ class KisWebSocketBridge(
      */
     override fun subscribeOrderbook(codes: List<String>) {
         if (codes.isEmpty()) return
-        val approvalKey = getApprovalKey()
+        val approvalKey =
+            getApprovalKey() ?: run {
+                log.warn("KIS WS orderbook subscribe skip — approval_key 발급 불가: codes={}", codes)
+                return
+            }
         codes.forEach { code ->
             if (!orderbookSubscribedCodes.contains(code)) {
                 val msg = buildSubscribeMessage(approvalKey, code, trType = "1", trId = "H0STASP0")
@@ -235,7 +253,12 @@ class KisWebSocketBridge(
      */
     override fun unsubscribeOrderbook(codes: List<String>) {
         if (codes.isEmpty()) return
-        val approvalKey = getApprovalKey()
+        val approvalKey =
+            getApprovalKey() ?: run {
+                log.warn("KIS WS orderbook unsubscribe — approval_key 발급 불가, local state만 정리: codes={}", codes)
+                codes.forEach { code -> orderbookSubscribedCodes.remove(code) }
+                return
+            }
         codes.forEach { code ->
             if (orderbookSubscribedCodes.contains(code)) {
                 val msg = buildSubscribeMessage(approvalKey, code, trType = "2", trId = "H0STASP0")
@@ -261,7 +284,11 @@ class KisWebSocketBridge(
      */
     fun subscribeOvertimeSinglePrice(codes: List<String>) {
         if (codes.isEmpty()) return
-        val approvalKey = getApprovalKey()
+        val approvalKey =
+            getApprovalKey() ?: run {
+                log.warn("KIS WS overtime subscribe skip — approval_key 발급 불가: codes={}", codes)
+                return
+            }
         codes.forEach { code ->
             if (!overtimeSinglePriceCodes.contains(code)) {
                 val msg = buildSubscribeMessage(approvalKey, code, trType = "1", trId = "H0STOUP0")
@@ -283,7 +310,12 @@ class KisWebSocketBridge(
      */
     fun unsubscribeOvertimeSinglePrice(codes: List<String>) {
         if (codes.isEmpty()) return
-        val approvalKey = getApprovalKey()
+        val approvalKey =
+            getApprovalKey() ?: run {
+                log.warn("KIS WS overtime unsubscribe — approval_key 발급 불가, local state만 정리: codes={}", codes)
+                codes.forEach { code -> overtimeSinglePriceCodes.remove(code) }
+                return
+            }
         codes.forEach { code ->
             if (overtimeSinglePriceCodes.contains(code)) {
                 val msg = buildSubscribeMessage(approvalKey, code, trType = "0", trId = "H0STOUP0")
@@ -340,10 +372,25 @@ class KisWebSocketBridge(
         //   invalidate + 재발급보다 안정적: 24h 내 동일 key 재사용이 KIS 표준이며
         //   OPSP8996은 일시적 세션 중복 상태로, 잠깐 대기 후 retry로 대부분 해소됨.
 
+        // G-1: 자격증명 사전 검증 — null 시 connect skip (KIS auth_ws() None 반환 패턴 정합).
+        // KIS-first raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+        // auth_ws() 실패 시 호출자가 None 체크 후 연결하지 않는 것이 KIS 표준.
+        // "ERROR_APPROVAL_KEY" 문자열로 KIS에 subscribe 발사하는 silent path 차단 (ADR 0077 §2-1 결함 #1·#3).
+        val approvalKey = getApprovalKey()
+        if (approvalKey == null) {
+            log.warn(
+                "KIS WS connect 취소 — approval_key 발급 불가 (REAL 자격증명 미등록). " +
+                    "scheduleReconnect 차단. SetupWizard에서 KIS REAL 키 등록 후 재부팅 필요.",
+            )
+            // 자격증명 미등록 시 scheduleReconnect를 통한 무한 retry 차단:
+            // doConnect()는 return하고 doFinally(→scheduleReconnect)를 거치지 않으므로
+            // 자격증명 등록 전까지 재시도 없이 WARN 1회로 종료. (J-1 보완 역할)
+            return
+        }
+
         val sink = Sinks.many().unicast().onBackpressureBuffer<String>()
         sendSink = sink
 
-        val approvalKey = getApprovalKey()
         val wsUrl = getWsUrl()
 
         wsDisposable =
@@ -431,10 +478,18 @@ class KisWebSocketBridge(
             is KisWsMessageParser.ParsedMessage.SubscriptionResponse -> {
                 val success = KisWsMessageParser.isSubscriptionSuccess(parsed.rawJson)
                 if (!success && KisWsMessageParser.isOpsp8996(parsed.rawJson)) {
-                    // F-1: OPSP8996 "ALREADY IN USE appkey" self-heal retry
-                    // ADR 0076 §3 F-1: 1회 retry (1초 대기) → 2회 fail 시 ERROR + skip.
-                    // OPSP8996은 일시적 세션 중복 상태 — 대기 후 동일 subscribe 재전송으로 대부분 해소.
+                    // F-1 + I-1: OPSP8996 "ALREADY IN USE appkey" self-heal retry
+                    // ADR 0076 §3 F-1 + ADR 0077 I-1: 1회 retry (1초 대기) → 2회 fail 시 ERROR + reset + skip.
+                    // cap 3 초과 시 connection dispose. OPSP8996은 일시적 세션 중복 상태.
                     handleOpsp8996(parsed.rawJson)
+                } else if (success) {
+                    // I-1: subscribe 성공 시 OPSP8996 retry counter reset — 동일 connection 내 사이클 분리.
+                    // ADR 0077 §4-3 결함 #2: counter reset 0 누락으로 attempt 무한 누적되던 결함 fix.
+                    if (opsp8996RetryCount.get() != 0) {
+                        opsp8996RetryCount.set(0)
+                        log.debug("KIS WS subscribe 성공 — OPSP8996 retry counter reset")
+                    }
+                    log.info("KIS WS 구독 응답: success=true json={}", parsed.rawJson.take(200))
                 } else if (KisWsMessageParser.isUnsubscribeAck(parsed.rawJson)) {
                     // E-1: unsubscribe ACK 수신 — destroy() 대기 latch 해제
                     // ADR 0076 E-1: destroy() 시 unsubscribe 후 ACK 2s 대기
@@ -796,11 +851,20 @@ class KisWebSocketBridge(
     }
 
     /**
-     * F-1: OPSP8996 "ALREADY IN USE appkey" self-heal handler.
+     * F-1 + I-1: OPSP8996 "ALREADY IN USE appkey" self-heal handler.
      *
-     * ADR 0076 §3 F-1 정합:
+     * ADR 0076 §3 F-1 + ADR 0077 I-1 정합:
      * - 1회 retry: 1초 대기 후 동일 subscribe 메시지 재전송 요청 (재구독 트리거).
-     * - 2회 fail 시: ERROR 로그 + skip (다음 watchdog cycle 재연결 대기).
+     * - 2회 fail 시: ERROR + counter reset 0 + skip (다음 watchdog cycle 재연결 대기).
+     *
+     * I-1: retry cap 3회 — KIS 표준 KISWebSocket max_retries=3 정합.
+     * - KIS-first 출처: open-trading-api examples_user/kis_auth.py KISWebSocket.__init__(max_retries=3)
+     * - raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+     * - attempt > 3: connection dispose + WARN (cap 3 LOCK — ADR 0077 §3-3 정합).
+     *
+     * I-1: subscribe 성공 시 counter reset — 동일 connection 내 OPSP8996 사이클 분리.
+     * - attempt > 1 분기에서 reset(0) 추가 — evidence attempt=69~85 누적 재발 차단.
+     * - ADR 0077 §4-3 결함 #2 fix.
      *
      * 재전송 전략: sendSink에 현재 구독 목록(H0STCNT0 + H0NXCNT0) 재전송.
      * OPSP8996은 일시적 appkey 세션 중복 — KIS 서버가 이전 session을 정리한 후
@@ -810,10 +874,28 @@ class KisWebSocketBridge(
      */
     private fun handleOpsp8996(rawJson: String) {
         val attempt = opsp8996RetryCount.incrementAndGet()
+
+        // I-1: cap 3 — KIS 표준 KISWebSocket max_retries=3 정합.
+        // KIS-first raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+        // KISWebSocket.__init__(max_retries: int = 3) + retry_count < max_retries 조건.
+        if (attempt > 3) {
+            log.warn(
+                "KIS WS OPSP8996 cap 3 초과 (attempt={}) — connection dispose + scheduleReconnect 위임 " +
+                    "(KIS 표준 max_retries=3 정합, ADR 0077 I-1): json={}",
+                attempt,
+                rawJson.take(200),
+            )
+            opsp8996RetryCount.set(0) // I-1: reset — 다음 connection 사이클 정합
+            wsDisposable?.dispose() // watchdog doFinally → scheduleReconnect 트리거
+            return
+        }
+
         if (attempt > 1) {
-            // 2회 이상 실패 — ERROR + skip (다음 watchdog cycle에 위임)
+            // 2회 이상 실패 — ERROR + counter reset 0 + skip (다음 watchdog cycle에 위임).
+            // I-1: reset(0) 추가 — attempt 무한 누적 결함 fix (ADR 0077 §4-3 결함 #2).
+            opsp8996RetryCount.set(0)
             log.error(
-                "KIS WS OPSP8996 2회 fail — skip (다음 watchdog cycle 대기): attempt={} json={}",
+                "KIS WS OPSP8996 2회 fail — counter reset + skip (다음 watchdog cycle 대기): attempt={} json={}",
                 attempt,
                 rawJson.take(200),
             )
@@ -832,6 +914,11 @@ class KisWebSocketBridge(
         }
         // 현재 활성 구독 목록으로 재구독 메시지 재전송
         val approvalKey = getApprovalKey()
+        if (approvalKey == null) {
+            log.warn("KIS WS OPSP8996 retry — approval_key 발급 불가, skip")
+            opsp8996RetryCount.set(0) // I-1: 발급 불가 시에도 reset — 무한 누적 방지
+            return
+        }
         val resubscribeCodes = session.subscribedCodes.toList()
         if (resubscribeCodes.isNotEmpty()) {
             resubscribeCodes.forEach { code ->
@@ -843,6 +930,7 @@ class KisWebSocketBridge(
             log.info("KIS WS OPSP8996 retry 재구독 전송: {}건", resubscribeCodes.size)
         } else {
             log.warn("KIS WS OPSP8996 retry — 재구독 목록 없음, skip")
+            opsp8996RetryCount.set(0) // I-1: 재구독 없음 시에도 reset
         }
     }
 
@@ -873,6 +961,16 @@ class KisWebSocketBridge(
         if (codes.isNotEmpty() || nxtCodes.isNotEmpty() || overtimeCodes.isNotEmpty()) {
             try {
                 val approvalKey = getApprovalKey()
+                // G-1: approval_key null 시 unsubscribe 메시지 전송 불가 — WS session 강제 종료로 대체.
+                if (approvalKey == null) {
+                    log.warn("KIS WS shutdown — approval_key 발급 불가, unsubscribe 메시지 전송 생략 (WS 연결 강제 종료)")
+                    wsDisposable?.dispose()
+                    sendSink?.tryEmitComplete()
+                    scheduler.shutdown()
+                    scheduler.awaitTermination(3, TimeUnit.SECONDS)
+                    log.info("KIS WS graceful shutdown 완료 (approval_key 없음 — 강제 종료)")
+                    return
+                }
 
                 // E-1: ACK 대기 latch 설정 — unsubscribe 전송 직전에 활성화
                 // 1건 이상 ACK 수신 시 latch.countDown() → awaitAck 해제
@@ -921,26 +1019,53 @@ class KisWebSocketBridge(
         log.info("KIS WS graceful shutdown 완료")
     }
 
-    private fun getApprovalKey(): String {
+    /**
+     * KIS WebSocket approval_key 반환.
+     *
+     * H-1: 시세 WS는 정보 수집 영역 → AccountType.REAL 고정 (magicjarMode 분기 제거).
+     * - KIS-first 출처: open-trading-api examples_user/kis_auth.py — 예제 코드는 모두 REAL 환경 기준.
+     * - 사용자 메모리 [feedback_kis_key_realonly_for_data]: "시세·캔들·호가 등 정보 수집은 모두 실전 키.
+     *   모의/실전 분기는 주문 액션에만."
+     * - raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+     *
+     * G-1: 자격증명 미등록 시 null 반환 (KIS 표준 패턴 정합).
+     * - KIS-first 출처 kis_auth.py auth_ws():
+     *   "Get Approval token fail!\nYou have to restart your app!!!" + return (None 반환)
+     *   → 호출자가 null 체크 후 connect skip하는 것이 KIS 표준.
+     * - "ERROR_APPROVAL_KEY" 문자열 fallback 폐기 — silent path 차단.
+     * - raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+     *
+     * @return approval_key 문자열. 자격증명 미등록·user-id 미설정 시 null 반환.
+     */
+    private fun getApprovalKey(): String? {
         if (defaultUserId.isBlank()) {
-            log.warn("KIS WS user-id 미설정 — approval_key 발급 불가. defaultUserId 확인 필요")
-            return "NO_USER_ID"
+            log.warn(
+                "KIS WS user-id 미설정 — approval_key 발급 불가 (magicjar.kis.ws.user-id 확인 필요). " +
+                    "SetupWizard에서 REAL 자격증명 등록 후 재부팅하세요.",
+            )
+            return null
         }
-        val accountType = if (magicjarMode == "REAL") AccountType.REAL else AccountType.MOCK
+        // H-1: 시세 WS는 REAL 고정 — magicjarMode 분기 제거.
+        // KIS-first raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+        // KIS 예제는 모두 REAL 환경 기준. 정보 수집 = REAL 자격증명 단일 출처.
+        val accountType = AccountType.REAL
         return try {
             approvalAdapter.getApprovalKey(defaultUserId, accountType)
         } catch (e: IllegalStateException) {
-            // 자격증명 미등록 — 사용자 환경 결함 (REAL/MOCK 한쪽만 등록 등). 매 호출마다 ERROR
-            // 트레이스는 노이즈. WARN으로 강등 + 안내 메시지.
+            // G-1: 자격증명 미등록 → null 반환 (KIS auth_ws() None 반환 패턴 정합).
+            // KIS-first raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+            // auth_ws() 실패 시 print("You have to restart your app!!!") + return (None).
+            // 호출자(doConnect/subscribe)가 null 체크 후 connect/subscribe skip.
             log.warn(
-                "KIS WS approval_key 발급 불가 — type={} 자격증명 미등록 (SetupWizard에서 등록 후 재부팅 필요): userId={}",
-                accountType,
+                "KIS WS approval_key 발급 불가 — REAL 자격증명 미등록 " +
+                    "(SetupWizard에서 REAL KIS 키 등록 후 재부팅 필요 — KIS 표준: You have to restart your app!!!): " +
+                    "userId={}",
                 defaultUserId.take(4),
             )
-            "ERROR_APPROVAL_KEY"
+            null
         } catch (e: Exception) {
             log.error("KIS WS approval_key 발급 실패: userId={} error={}", defaultUserId.take(4), e.message)
-            "ERROR_APPROVAL_KEY"
+            null
         }
     }
 
