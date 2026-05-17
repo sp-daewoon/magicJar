@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>magicJar 백로그 · W4 · W5 종합 분석 (2026-05-18)</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-2: #161b22;
+    --bg-3: #21262d;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-dim: #8b949e;
+    --green: #56d364;
+    --amber: #e3b341;
+    --red: #f85149;
+    --blue: #58a6ff;
+    --purple: #bc8cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard", "Noto Sans KR", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    margin: 0;
+    padding: 32px 24px;
+    line-height: 1.6;
+  }
+  .container { max-width: 1100px; margin: 0 auto; }
+  header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 20px;
+    margin-bottom: 28px;
+  }
+  h1 {
+    margin: 0 0 8px 0;
+    font-size: 28px;
+    color: var(--green);
+  }
+  .meta {
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+  .meta span { margin-right: 14px; }
+  .banner {
+    background: linear-gradient(135deg, #1a2a1f 0%, #1c2333 100%);
+    border: 1px solid var(--green);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin: 20px 0 32px;
+  }
+  .banner .label {
+    color: var(--amber);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+  }
+  .banner .body {
+    font-size: 16px;
+    color: var(--text);
+  }
+  .banner .body strong { color: var(--green); }
+  h2 {
+    color: var(--green);
+    font-size: 22px;
+    margin: 36px 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    color: var(--amber);
+    font-size: 17px;
+    margin: 24px 0 10px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0;
+    font-size: 14px;
+    background: var(--bg-2);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  th {
+    background: var(--bg-3);
+    color: var(--amber);
+    text-align: left;
+    padding: 10px 12px;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--bg-3); }
+  .pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+  .must  { background: rgba(248,81,73,0.15);  color: var(--red);   border: 1px solid rgba(248,81,73,0.4); }
+  .should{ background: rgba(227,179,65,0.15); color: var(--amber); border: 1px solid rgba(227,179,65,0.4); }
+  .could { background: rgba(88,166,255,0.15); color: var(--blue);  border: 1px solid rgba(88,166,255,0.4); }
+  .opt   { background: rgba(188,140,255,0.15);color: var(--purple);border: 1px solid rgba(188,140,255,0.4); }
+  .rank-star { color: var(--green); font-weight: 700; }
+  .quote {
+    background: var(--bg-2);
+    border-left: 3px solid var(--amber);
+    padding: 10px 16px;
+    margin: 12px 0;
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+  code {
+    background: var(--bg-3);
+    color: var(--blue);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-family: "SF Mono", "Menlo", "Monaco", monospace;
+    font-size: 12px;
+  }
+  .conclusion {
+    background: var(--bg-2);
+    border: 1px solid var(--green);
+    border-left: 4px solid var(--green);
+    border-radius: 6px;
+    padding: 18px 22px;
+    margin-top: 28px;
+  }
+  .conclusion h3 { color: var(--green); margin-top: 0; }
+  ul li { margin-bottom: 4px; }
+  footer {
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  footer code { font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>magicJar 백로그 · W4 · W5 종합 분석 보고서</h1>
+  <div class="meta">
+    <span>📅 2026-05-18</span>
+    <span>📝 작성: architect (orchestrator 위임)</span>
+    <span>🎯 사용자(최고 관리자) 질문 응답</span>
+  </div>
+</header>
+
+<div class="banner">
+  <div class="label">★ 핵심 결론 (1줄)</div>
+  <div class="body">
+    <strong>W4(AI·MCP)는 옵션입니다.</strong> 다만 T-MCP는 사용자 명시 미래 비전이라 "옵션이지만 진행 의미 있는 트랙". W5도 마무리 트랙.
+    <strong>다음 1순위는 W4가 아니라 W3 잔여(§40 T-SIG, §43 T-O) 마감</strong>입니다.
+  </div>
+</div>
+
+<h2>파트 1 — 백로그 진행 중 § 정리 (총 28건)</h2>
+
+<h3>1-A. W3 자동매매 본체 — <span class="pill must">MUST</span> 실서비스 진입 차단요인</h3>
+<table>
+  <thead>
+    <tr><th style="width:80px;">§</th><th>내용</th><th>시스템 영향</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>§40 <code>T-SIG</code></td>
+      <td>실시간 시그널 엔진(룰 매칭) ADR 0066 plan 대기</td>
+      <td>strategy + backend + api/consumer/domain/frontend 전영역. 3 Phase 직렬. Flyway V14~V16. Kafka 1 신규</td>
+    </tr>
+    <tr>
+      <td>§41 <code>T-RISK</code></td>
+      <td>위험 가드 6단 + auto-PAUSE (ADR 0067 Accepted, 잔여 §41 상태 재확인)</td>
+      <td>동일 4 모듈. Flyway V16~V19. Kafka 2 신규(risk.violation·order.intent)</td>
+    </tr>
+    <tr>
+      <td>§43 <code>T-O</code></td>
+      <td>주문 실행 — 실제 자본 변동 첫 점 ADR 0068 plan 대기</td>
+      <td>동일 4 모듈. Flyway V20~V23. KIS WS H0STCNI0 합류. 실계좌 3중 게이트</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>1-B. 운영 · UX 보강 — <span class="pill should">SHOULD</span> 품질·운영 안정성 향상 (9건)</h3>
+<table>
+  <thead>
+    <tr><th style="width:120px;">§</th><th>요약</th><th>영향</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>§31 1분봉 합산</td><td>5m·15m·30m·90m·1h 차트 노출 (ADR 0062)</td><td>strategy/domain + market-data/consumer + frontend</td></tr>
+    <tr><td>§32 NXT 통합거래</td><td>08:00~20:00 시간외 cover (ADR 0063)</td><td>market-data 4 line + 정책 .md 4건</td></tr>
+    <tr><td>§33 KIS 500 retry</td><td>1회 → 3회 exponential backoff</td><td>market-data 단일 변경</td></tr>
+    <tr><td>§34 Redis fanout STOMP</td><td>5m·15m 실시간 갱신 (ADR 0064 잔여)</td><td>market-data + frontend STOMP</td></tr>
+    <tr><td>§44 SettingsModal KIS 키</td><td>PUT/GET/DELETE + 마스킹</td><td>backend-core + frontend</td></tr>
+    <tr><td>§46 Risk reconcile UI</td><td>T-RECON 후속 timeline</td><td>frontend 단발</td></tr>
+    <tr><td>§47 drift 임계치 사용자 설정</td><td>수동 토글</td><td>backend-core + frontend</td></tr>
+    <tr><td>§48 MarketSession skip 통합</td><td>휴장일 cron skip</td><td>backend-core 단발</td></tr>
+    <tr><td>§57 Naver 429 race</td><td>17건 동시 sliding window</td><td>backend-core ZSET 분석</td></tr>
+  </tbody>
+</table>
+
+<h3>1-C. 미래 확장 · 옵션 — <span class="pill could">COULD</span> (16건)</h3>
+<table>
+  <thead>
+    <tr><th>구간</th><th>§ 목록 (요약)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>인프라</td><td>§8 STOMP relay broker · §9 frontend 모바일 반응형</td></tr>
+    <tr><td>문서·메타</td><td>§35 ADR 매트릭스 NXT/합산 행 보강 · §42 README 비전 · §55 내부 자산 추출</td></tr>
+    <tr><td>설정 확장</td><td>§45 SettingsModal 미래 카테고리(OpenAI/Naver/account_prdt_cd) · §58 K-1 SetupWizard 게이트 가이드</td></tr>
+    <tr><td>알림 채널</td><td>§49 user별 Slack webhook · §50 Discord/이메일/SMS 보조 · §51 system.startup/shutdown publish</td></tr>
+    <tr><td>데이터 보강</td><td>§39 T-BT 모델 확장 매트릭스 · §53 T-NEWS RSS 한경/구글 · §54 KIS WS NXT 잔여 7건</td></tr>
+  </tbody>
+</table>
+
+<h3>1-D. 메타·운영 부채 (11건, 대부분 trivial)</h3>
+<div class="quote">§1 ADR 0050 슬롯 채번 · §2 KisRestPort 분리 · §3 CLAUDE.md ADR 인덱스 · §4 worktree-* 정리 · §6 dogfooding 흡수 · §10 AI 영역 침범 ADR · §11·§18 SymbolControllerTest mock · §29 socket 메모리 · §30 차트 before 검증 · §36 GHA/branch 정리</div>
+
+<h2>파트 2 — W4 (T-AI + T-MCP) 분석</h2>
+
+<h3>2-1. 옵션 여부 — <span class="pill opt">옵션</span></h3>
+<table>
+  <thead><tr><th style="width:280px;">출처</th><th>인용</th></tr></thead>
+  <tbody>
+    <tr><td><code>CLAUDE.md</code></td><td>"AI는 사용자 트리거 옵션 분석 보조 (매매 결정권 0)"</td></tr>
+    <tr><td><code>project_system_vision</code> (메모리)</td><td>"AI가 메인이 되면 안됨"</td></tr>
+    <tr><td><code>master-architecture §1-5</code></td><td>"MCP 서버 제공이 미래 목표"</td></tr>
+    <tr><td><code>tracks-roadmap §1</code></td><td>"W4·W5는 옵션·마무리"</td></tr>
+  </tbody>
+</table>
+<ul>
+  <li><strong>T-AI</strong> = 순수 옵션. AI 끊겨도 본체 동작 영향 0</li>
+  <li><strong>T-MCP</strong> = 옵션이지만 사용자 명시한 미래 비전 (magicJar = MCP server, Claude/Cursor = client)</li>
+</ul>
+
+<h3>2-2. T-AI 진입 시 코드 영향</h3>
+<table>
+  <thead><tr><th style="width:130px;">모듈</th><th>추가 / 변경</th></tr></thead>
+  <tbody>
+    <tr><td><code>domain/</code></td><td><code>ai/AiCommentRequest·Response</code> + <code>port/AiCommentProvider</code> 신규 (Spring 의존 0)</td></tr>
+    <tr><td><code>consumer/</code></td><td>Anthropic · Gemini · OpenAI Adapter + <code>AiCommentDispatcher</code> + <code>PromptBuilder</code> 신규</td></tr>
+    <tr><td><code>api/</code></td><td><code>POST /api/ai/explain</code> + STOMP fanout</td></tr>
+    <tr><td><code>frontend/</code></td><td><code>AiCard.tsx</code> + <code>SymbolDetail</code>에 [AI 분석 요청] 버튼 1개</td></tr>
+    <tr><td>영속</td><td>Flyway V20 — <code>ai_comment_log</code> + <code>prompt_template</code></td></tr>
+    <tr><td>Kafka</td><td><code>ai.comment.requested.v1</code> + <code>ai.comment.responded.v1</code></td></tr>
+    <tr><td>Redis</td><td><code>ai:prompt:cache:{hash}</code> TTL 5분</td></tr>
+    <tr><td>.env</td><td><code>MAGICJAR_AI_ENABLED</code> + Anthropic/OpenAI/Gemini 키 (이미 사전 정합)</td></tr>
+  </tbody>
+</table>
+<div class="quote">
+  <strong>prereq:</strong> W3 종착 필수 — PromptBuilder가 시그널·룰엔진 결과·매매일지 컨텍스트 의존<br/>
+  <strong>예상 사이즈:</strong> L (2~3주, 3 Phase 직렬 4~5 PR)
+</div>
+
+<h3>2-3. T-MCP 진입 시 코드 영향</h3>
+<table>
+  <thead><tr><th style="width:130px;">모듈</th><th>추가 / 변경</th></tr></thead>
+  <tbody>
+    <tr><td><code>domain/</code></td><td><code>mcp/McpToolSpec</code> + <code>port/McpToolHandler</code></td></tr>
+    <tr><td><code>api/</code> 또는 sidecar</td><td>tool 5종 (<code>get_candles</code>·<code>run_screener</code>·<code>get_journal</code>·<code>explain_indicator</code>·<code>backtest_strategy</code>)</td></tr>
+    <tr><td>영속</td><td>Flyway V21 — <code>mcp_audit</code></td></tr>
+    <tr><td>인증</td><td>API key (1차 localhost only)</td></tr>
+  </tbody>
+</table>
+<div class="quote">
+  <strong>prereq:</strong> T-AI 완료 (LLM provider 인프라 reuse). <strong>read 전용 — write tool은 post-MVP</strong>.<br/>
+  <strong>예상 사이즈:</strong> M (1.5~2주, PR 2~3개)
+</div>
+
+<h2>파트 3 — W5 (T-LWC + T-LEARN) 분석</h2>
+<table>
+  <thead>
+    <tr><th>트랙</th><th>옵션?</th><th>선행</th><th>W4 전제?</th><th>모듈 영향</th><th>사이즈</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>T-LWC</strong><br/><span class="meta">자체 도형·주석·패턴 overlay</span></td>
+      <td>마무리</td>
+      <td>T-PAT · T-SIG</td>
+      <td><strong>불필요</strong> (W4 병렬 가능)</td>
+      <td><code>frontend/</code> 단독, backend 0</td>
+      <td>M (~1.5주)</td>
+    </tr>
+    <tr>
+      <td><strong>T-LEARN</strong><br/><span class="meta">사용자 학습·데이터 검증</span></td>
+      <td>최종 마무리</td>
+      <td>W4 완료</td>
+      <td>전제</td>
+      <td>frontend 일부 + .md 위주</td>
+      <td>M (~1.5주)</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>파트 4 — 다음 1순위 권장</h2>
+<table>
+  <thead><tr><th style="width:90px;">순위</th><th>후보</th><th>사유</th></tr></thead>
+  <tbody>
+    <tr><td><span class="rank-star">★ 1순위</span></td><td><strong>§40 T-SIG (ADR 0066) → §43 T-O (ADR 0068)</strong></td><td>W3 자동매매 본체 종착. 이 둘 없으면 룰 본체 미완성 = W4 의미 약함</td></tr>
+    <tr><td>2순위</td><td>§41 T-RISK 잔여 재확인</td><td>자본 보호 안전망 (ADR 0067 Accepted, §41 상태 점검)</td></tr>
+    <tr><td>3순위</td><td>W4 T-AI 진입</td><td>단, W3 미완성이면 prereq 위반</td></tr>
+    <tr><td>4순위</td><td>§31 합산 + §32 NXT</td><td>사용자 차트 UX 정합</td></tr>
+    <tr><td>5순위</td><td>W5 T-LWC</td><td>frontend 단독, W3·W4와 병렬 가능</td></tr>
+    <tr><td>후순위</td><td>§44~§58 운영 보강</td><td>dogfooding 누적 후 일괄</td></tr>
+  </tbody>
+</table>
+
+<h3>W4 직행 시 prereq 위반 risk</h3>
+<div class="quote">
+  T-AI의 <code>PromptBuilder</code>가 "시그널·룰엔진 결과·매매일지" 컨텍스트를 의존하는데, T-SIG·T-O 미완성이면
+  <strong>컨텍스트 데이터 0</strong> → AI 분석이 빈 그릇이 됩니다. ADR 0026 §38 "T-AI prompt 컨텍스트 뉴스 명시" 정합도 T-NEWS 영속만으로는 부족합니다.
+</div>
+
+<div class="conclusion">
+  <h3>최고 관리자님께 — 요약</h3>
+  <ul>
+    <li><strong>W4는 옵션입니다.</strong> T-MCP만 "옵션이지만 미래 비전"으로 진행 의미가 있습니다</li>
+    <li><strong>W5도 마무리 트랙</strong>이며, 그 중 T-LWC는 frontend 단독이라 W4와 병렬 가능합니다</li>
+    <li><strong>코드 영향이 큰 모듈</strong>: W4 → <code>consumer/</code>(LLM adapter 3종) + <code>frontend/</code>(AiCard) / W5 → <code>frontend/</code> 단독</li>
+    <li><strong>백로그 28건 중</strong>: MUST 3 / SHOULD 9 / COULD 16</li>
+    <li><strong>1순위 권장</strong>: W4 직행보다 <strong>§40 T-SIG + §43 T-O 사용자 결정</strong>으로 W3 본체 종착부터</li>
+  </ul>
+</div>
+
+<footer>
+  <strong>참고 SoT:</strong>
+  <ul>
+    <li><code>_workspace/backlog.md</code> — 진행 중 §</li>
+    <li><code>docs/architecture/tracks-roadmap.md</code> — W1~W5 트랙 정의</li>
+    <li><code>docs/architecture/master-architecture.md</code> §1·§2·§5</li>
+    <li><code>CLAUDE.md</code> — 프로젝트 비전</li>
+    <li><code>_workspace/arch/adr/README.md</code> — ADR 인덱스 (최신 0077·0078·0079)</li>
+  </ul>
+  <p>작성: architect via magicjar-orchestrator · 2026-05-18 · magicJar v3.6.11</p>
+</footer>
+
+</div>
+</body>
+</html>
