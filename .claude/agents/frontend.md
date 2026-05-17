@@ -1,7 +1,7 @@
 ---
 name: frontend
 description: magicJar 대시보드(Watchlist·실시간 시세·차트·백테스트 결과·AI 인사이트)를 담당하는 프론트엔드 엔지니어. React 19 + TS + Vite + Tailwind + LWC v4 (TradingView Lightweight Charts) SPA (ADR 0009).
-model: sonnet
+model: opus
 git-author: magicjar-frontend <bot+frontend@magicjar.local>
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 ---

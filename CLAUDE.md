@@ -12,7 +12,7 @@ Spring Boot 3.3 + Spring AI + 한국투자증권 KIS OpenAPI 기반 **개인 맞
 
 **트리거:** magicJar 관련 모든 비트리비얼 작업은 `magicjar-orchestrator` 스킬 사용. 단순 질문(설명·조회) 또는 단일 파일 소소한 편집은 직접 응답 가능. **모듈 추가·전략 추가·AI 기능·화면 추가·부분 재실행은 반드시 오케스트레이터.**
 
-**위치:** `.claude/agents/*.md`, `.claude/skills/magicjar-*/SKILL.md`. 모델 차등(opus: architect/strategy/ai, sonnet: 그 외)은 ADR 0035.
+**위치:** `.claude/agents/*.md`, `.claude/skills/magicjar-*/SKILL.md`. **전체 에이전트 opus 4.7 통일** (ADR 0080, 2026-05-18 — ADR 0035 supersede). 사유: W3 종착 + W4 진입 직전 단계에서 코드 한 줄 수정도 룰 본체·자본 흐름 결합으로 진화하므로 sonnet 패턴화 추론 risk 회피.
 
 ## 핵심 명령
 

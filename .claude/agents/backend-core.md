@@ -1,7 +1,7 @@
 ---
 name: backend-core
 description: magicJar의 Spring Boot 뼈대·도메인 모델·설정·보안·공용 인프라(REST/WebSocket/스케줄러)를 담당하는 백엔드 코어 엔지니어.
-model: sonnet
+model: opus
 git-author: magicjar-backend-core <bot+backend-core@magicjar.local>
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 ---

@@ -18,14 +18,14 @@ description: magicJar의 에이전트 통솔자. 사용자(최고 관리자) 위
 | 에이전트 | 모델 | 담당 |
 |---------|------|------|
 | architect | opus | 시스템 설계·ADR·모듈 경계 |
-| backend-core | sonnet | Spring Boot 뼈대·도메인 모델·공용 인프라 |
-| market-data | sonnet | KIS API·시세·뉴스·공시 수집 |
+| backend-core | opus | Spring Boot 뼈대·도메인 모델·공용 인프라 |
+| market-data | opus | KIS API·시세·뉴스·공시 수집 |
 | strategy-engine | opus | 지표·DSL·백테스트·주문 로직·매매일지 |
 | ai-engineer | opus | Spring AI·프롬프트·AI 옵션 보조 (사용자 트리거만) |
-| frontend | sonnet | UI·차트·Strategy Builder·매매일지 |
-| qa | sonnet | 경계면 교차 검증 (on-demand) |
+| frontend | opus | UI·차트·Strategy Builder·매매일지 |
+| qa | opus | 경계면 교차 검증 (on-demand) |
 
-세부 모델 차등·에스컬레이션은 ADR 0035.
+전체 opus 4.7 통일은 ADR 0080 (2026-05-18, ADR 0035 supersede). 에스컬레이션 규칙 폐기 — 부족 시 작업 분할 또는 사용자 의사결정 요청.
 
 ## 운영 SoT
 
