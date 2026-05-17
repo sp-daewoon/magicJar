@@ -81,3 +81,4 @@ coverage/
 # 실 운영(prd) docker-compose는 사용자별·환경별 발급 후 별도 보관
 docker/docker-compose.prd.yml
 
+.superpowers/
