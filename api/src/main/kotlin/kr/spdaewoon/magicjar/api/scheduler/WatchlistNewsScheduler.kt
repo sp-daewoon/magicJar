@@ -22,14 +22,21 @@ import org.springframework.stereotype.Component
  *   4. NaverNewsAdapter.fetchAndSave(code, name) → news_article INSERT (멱등성)
  *   5. NewsKafkaProducer.publish(entity) → news.collected.v1 publish
  *   6. 슬롯 초과 시 남은 종목 skip + log WARN → 다음 cron 1분 후 재시도
+ *   7. **종목 호출 사이 [INTER_CALL_DELAY_MS]ms staggering** (backlog §57 정정) —
+ *      Naver 서버 측 burst 보호로 17건이 동시 1초 내 발사되면 429 반환되므로 종목 간 지연 의무.
  *
  * Watchlist 30 종목 가정:
  *   분당 17건 한도 → 1회전 30종목 / 17건 = 최대 2분 주기 (17건 + 13건 다음 분)
  *   display=20 (종목당 최대 20건) → 종목 1회 = 1 rate limit slot 소모
  *
+ * burst 회피 산식 (backlog §57 — v3.6.10 17건 1초 내 동시 429 evidence):
+ *   60,000ms / 17건 = 3,529ms ≈ 3,500ms staggering → 종목 간 균등 분포로 Naver 서버 burst 회피.
+ *   RateLimiter sliding window 17건/분 한도는 그대로 2차 방어선으로 유지.
+ *
  * graceful:
  *   Naver API 키 미설정 → NaverNewsAdapter 내부에서 graceful skip + log INFO
  *   rate limit 초과 → 해당 cron 회차 남은 종목 skip + 다음 분 재시도
+ *   InterruptedException → 컨테이너 shutdown 신호로 간주 → 폴링 즉시 중단
  *
  * // AI 호출 0 건 (ADR 0075 §11-2 정합)
  */
@@ -42,6 +49,17 @@ class WatchlistNewsScheduler(
     private val newsKafkaProducer: NewsKafkaProducer,
 ) {
     private val log = LoggerFactory.getLogger(WatchlistNewsScheduler::class.java)
+
+    companion object {
+        /**
+         * 종목 호출 사이 지연 (ms) — Naver 서버 burst 보호 회피 (backlog §57).
+         *
+         * 산식: 60,000ms / 17건 = 3,529ms → 3,500ms 채택.
+         * 1분 균등 분포로 동시 burst 발사 없이 슬롯 한도와 동기화.
+         * v3.6.10 evidence: 17건 1초 내 동시 발사 → 모두 429 → 본 지연으로 회피.
+         */
+        const val INTER_CALL_DELAY_MS = 3_500L
+    }
 
     /**
      * 1분 주기 Naver 뉴스 폴링 (ADR 0075 §8 spec §2-2 결정 8 — Watchlist 우선).
@@ -63,8 +81,23 @@ class WatchlistNewsScheduler(
         var fetched = 0
         var skippedByRateLimit = 0
 
-        for (code in distinctCodes) {
-            // Rate limit 슬롯 획득 시도
+        for ((index, code) in distinctCodes.withIndex()) {
+            // 종목 간 staggering — 첫 종목 제외 (backlog §57 — Naver 서버 burst 회피)
+            if (index > 0) {
+                try {
+                    Thread.sleep(INTER_CALL_DELAY_MS)
+                } catch (ex: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    log.warn(
+                        "[WatchlistNewsScheduler] 스케줄러 interrupt — 폴링 중단 (처리={}건 잔여={}건)",
+                        fetched + skippedByRateLimit,
+                        distinctCodes.size - index,
+                    )
+                    return
+                }
+            }
+
+            // Rate limit 슬롯 획득 시도 (2차 방어선)
             if (!naverNewsRateLimiter.acquireSlot()) {
                 skippedByRateLimit++
                 log.warn(
