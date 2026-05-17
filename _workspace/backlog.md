@@ -2192,9 +2192,17 @@ magicJar의 검증된 운영 자산(SoT 5층 · harness · Task cycle · 룰북 
 - ADR 0053 (Living policies SoT)
 - `docs/architecture/development-rules.md` — 개발 룰북 5건
 
-## §56. KIS WS OPSP8996 ERROR 재발 — v3.6.11 hotfix 후보 (Proposed 2026-05-17)
+## §56. ✅ 처리 완료 — KIS WS OPSP8996 ERROR 재발 (v3.6.11 hotfix 마감 2026-05-17)
 
-### 사유
+### 처리 결과
+
+- ADR 0077 deep dive 발행 (PR #465) → root cause 3건 발굴 (silent fallback + counter reset 누락 + MOCK 분기 정합 위반)
+- v3.6.11 hotfix market-data 단일 PR (#467) — G-1 + H-1 + I-1 + J-1 + L-1 4 fix 적용
+- evidence: docker logs 1시간 86건 → 0건 (재배포 후 1분 모니터링 — KIS WS 연결 성공 + approval_key type=REAL 작동)
+- unit test 5건 GREEN
+- v3.6.11 cut + master HTML 첫 자동 갱신 evidence
+
+### 사유 (history 보존)
 
 v3.6.10 release cut 직전 docker logs 검사에서 consumer `KisWebSocketBridge` OPSP8996 ERROR 5회 연속 발생 (11:00 시점 attempt 64→68). ADR 0076 Phase 1·2·3 머지 + v3.6.9 cut 이후에도 재발 — 즉 ADR 0076이 fix 완전치 못함. "ALREADY IN USE appkey" 누적 = 자동매매 본체 시세 sync 영향 가능.
 
@@ -2253,3 +2261,22 @@ v3.6.10 release cut 직전 docker logs 검사에서 api `NaverNewsAdapter` HTTP 
 - ADR 0075 §11 비범위 — Phase 4 RSS 한경·구글 어댑터 (backlog §53)
 - `kr.spdaewoon.magicjar.api.infrastructure.naver.NaverNewsRateLimiter`
 - `kr.spdaewoon.magicjar.api.infrastructure.naver.NaverNewsAdapter`
+
+## §58. K-1 사용자 알림 UI — SetupWizard 게이트 가이드 (Proposed 2026-05-17)
+
+### 사유
+
+ADR 0077 의제 K (사용자 알림 UI)가 hotfix 범위 lock으로 backlog 등재됨. v3.6.11 hotfix에서 J-1 사전 검증 + WARN 로그까지만 적용되었고 사용자 알림은 미구현.
+
+### 처리 방향
+
+- SetupWizard 또는 SettingsModal에 "REAL 자격증명 미등록 시 시세 WS 작동 불가" 명확 게이트 + 등록 유도 UI
+- frontend 영역 (architect spec → frontend dispatch)
+- 우선순위 낮음 (현재는 WARN 로그만으로도 운영 안정성 회복 — 자동매매 본체 영향 0)
+
+### 연관
+
+- ADR 0077 §의제 K-1 (배제)
+- `KisWebSocketBridge.kt` J-1 사전 검증 (PR #467 적용)
+- `WatchlistIngestionWorker.onStartup()` WARN 로그
+- SetupWizard 흐름 ([[project_kis_key_management]] 정합)
