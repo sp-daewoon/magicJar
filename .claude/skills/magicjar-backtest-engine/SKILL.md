@@ -5,6 +5,8 @@ description: magicJar의 기술적 지표 라이브러리, 차트 조건식 DSL,
 
 # magicjar-backtest-engine — 전략·백테스트 엔진
 
+> **★ 워크트리 진입 의무 (헌법 §1-A)**: 본 skill은 strategy-engine 영역. worktree 진입 즉시 `git config user.email "bot+strategy@magicjar.local"` + `git config user.name "magicjar-strategy"`. task 파일 commit 의무는 헌법 §1-C 정합.
+
 ## 3대 구성요소
 
 1. **지표(Indicators)** — 순수 함수. 입력은 `List<Candle>`, 출력은 `List<Double>` 또는 `Indicator<T>`.

@@ -6,6 +6,8 @@ description: magicJar의 에이전트 통솔자. 사용자(최고 관리자) 위
 # magicjar-orchestrator — 에이전트 통솔자
 
 > **운영 헌법**: `_workspace/arch/agent-charter.md` 의무 정독 (task.mjs 4단계·머지 후 정리·KIS-first·CHANGELOG 슬롯·rebase·Repository default fun·sub-agent fail 분기 7개 룰). orchestrator는 헌법의 모든 § 적용 — 특히 §2(머지 후 정리)·§4(CHANGELOG 슬롯)·§7(fail 분기)는 본 영역 핵심 책임.
+>
+> **★ sub-agent 디스패치 시 author + task commit 의무 전달 (헌법 §1-A·§1-C)**: orchestrator는 sub-agent 디스패치 프롬프트에 (1) "worktree 진입 즉시 `git config user.email \"bot+<agent>@magicjar.local\"`" 명시, (2) "`task.mjs start` 직후 `git add _workspace/tasks/T-<id>-*.md`" 명시 의무. 누락 시 PR 머지 후 author 오 attribution + task 파일 main 흔적 부재 발생 → orchestrator 책임 부채.
 
 ## 정체성
 

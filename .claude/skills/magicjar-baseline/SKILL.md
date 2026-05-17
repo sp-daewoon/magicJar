@@ -6,6 +6,8 @@ description: magicJar baseline 문서화 사이클(7 파일 풀세트 + Mermaid 
 # magicjar-baseline — Baseline 문서화 사이클
 
 > **운영 헌법**: `_workspace/arch/agent-charter.md` + ADR 0050(CHANGELOG 슬롯) + ADR 0052(본 사이클 정책). orchestrator 통솔 의무, 머지 후 정리 4단계, KIS-first raw 출처 인용 모두 정합.
+>
+> **★ 4 worktree 발행 시 sub-agent별 author 의무 (헌법 §1-A)**: 본 skill은 4 worktree 병렬 디스패치 — orchestrator는 각 worktree에 대해 sub-agent 디스패치 프롬프트에 `git config user.email "bot+<agent>@magicjar.local"` 명시 의무. baseline cycle은 add-only 단독 파일이라 author 결함이 누적되기 쉬움 (worktree default가 frontend로 떨어지면 4명 모두 frontend attribution).
 
 ## 트리거
 
