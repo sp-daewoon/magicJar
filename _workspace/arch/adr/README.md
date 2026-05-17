@@ -87,7 +87,7 @@
 | 0028 | Watchlist 기반 Ingestion Worker (1~5초 polling) |
 | 0029 | 당일 진행 중 캔들 Redis 캐시 |
 
-## §9. 메타·운영·하네스 (7건)
+## §9. 메타·운영·하네스 (8건)
 
 | 번호 | 제목 |
 |------|------|
@@ -99,6 +99,7 @@
 | 0035 | 에이전트별 모델 차등 + 에스컬레이션 |
 | 0036 | Orchestrator Meta Rules (git-author + task-file-system + architect-as-orchestrator) |
 | 0078 | 내부 자산 추출 전략 — Proposed (재사용 가능한 프로젝트 부트스트랩 템플릿 + Plugin Independence 제약) |
+| 0079 | **마스터 시각화 HTML 표준화 (`scripts/master-index.mjs` + `/master-index` slash + release.sh 통합) — Accepted (2026-05-17)** |
 
 ## §10. 외부 API 강제 정책 + UI 흐름 (4건)
 
@@ -187,6 +188,7 @@
 
 | 일자 | 사이클 | 변경 |
 |------|--------|------|
+| 2026-05-17 | v3.6.10 후속 | **ADR 0079 Accepted** — 마스터 시각화 HTML 표준화 (`_workspace/master.html` + `scripts/master-index.mjs` + `/master-index` slash + `scripts/release.sh` 통합 + 12 카테고리 두 축 + banner + ADR/spec/backlog 추출 자동화). Phase 1·2·3 PR #461·#462·본 사이클 직렬 머지. brainstorming 흐름 사용자 결정 8회 종합 (orchestrator). |
 | 2026-05-17 | v3.6.10 patch | **본 README 큰 정리** — 도입부 슬림화 + §12 분리(예약 슬롯 / 후속 Proposed) + §12 행 paragraph 슬림화 + 0073 중복 §5 단일화 + 0058·0065·0077 placeholder 사유 명시 |
 | 2026-05-16 | v3.6.9 후속 | ADR 0078 Proposed — 내부 자산 추출 전략 (§3.5 Plugin Independence 제약 사용자 명시) |
 | 2026-05-15 | v3.6.9 patch | ADR 0076 Proposed — KIS WS NXT/시간외 시세 sync 표준 정합 (Phase 1·2·3 채택 완료) |

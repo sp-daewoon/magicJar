@@ -332,3 +332,10 @@ if [[ "$DRY_RUN" != "true" ]] && [[ -f scripts/sync-readme-releases.mjs ]]; then
   echo "▶ README 매트릭스 자동 갱신 …"
   node scripts/sync-readme-releases.mjs 2>&1 | tail -2 || echo "  (sync-readme-releases.mjs fail — skip)"
 fi
+
+# magicJar 마스터 HTML 갱신 (ADR 0079)
+if [[ "$DRY_RUN" != "true" ]] && [[ -f scripts/master-index.mjs ]]; then
+  echo ""
+  echo "▶ master.html 갱신 …"
+  node scripts/master-index.mjs 2>&1 | tail -2 || echo "  (master-index.mjs fail — skip)"
+fi
