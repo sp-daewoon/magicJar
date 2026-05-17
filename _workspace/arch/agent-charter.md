@@ -10,18 +10,52 @@
 
 ---
 
-## §1. task.mjs 4단계 의무 (ADR 0036 + PR-18·PR-22)
+## §1. task.mjs 4단계 의무 (ADR 0036 + PR-18·PR-22 + 안정성 Cycle 2)
 
 agent/* 브랜치 작업 시 `scripts/task.mjs` CLI 4단계 호출 의무. 누락 시 task 데이터 무결성 깨짐 → done/ 누적·체크리스트 미반영·completedAt null 같은 사용자 보고 발생.
 
+### 1-A. worktree 진입 의무 (안정성 Cycle 2 신설 — 2026-05-18)
+
+sub-agent는 worktree 진입 시점에 **워크트리 로컬 git config**를 본인 author로 강제 설정. global·인근 worktree default(예: `bot+frontend@magicjar.local`)를 그대로 둔 채 작업하면 commit author가 **다른 에이전트로 attribution**되어 git blame·CHANGELOG 작성자 표기·운영 audit가 깨짐.
+
+```bash
+git config user.email "bot+<agent>@magicjar.local"
+git config user.name "magicjar-<agent>"
+```
+
+- `<agent>` ∈ {architect, backend-core, market-data, strategy, ai, frontend, qa, orchestrator}
+- `.claude/agents/<agent>.md` frontmatter `git-author:` 는 **선언 수준**일 뿐 강제력 0 — 본 절차로만 보장됨
+- 검증: 첫 commit 직전 `git config user.email` 출력으로 본인 email 확인 의무
+- **위반 시 sub-agent는 작업 진행 거부 + 즉시 orchestrator/사용자 보고** (commit 후 rewrite하면 force-push 발생 risk)
+
+**역사 evidence** (안정성 Cycle 1 — 2026-05-18): PR #473(backend-core 영역) + PR #475(market-data 영역) commit author 모두 `magicjar-frontend` attribution. 본 결함 누적 시 운영 audit·CHANGELOG `(작성: <agent>)` 마커 부정확 → 사용자 신뢰 손실.
+
+### 1-B. task.mjs 4단계 본체
+
 1. **start** — 작업 시작 즉시 `node scripts/task.mjs start --agent <a> --goal "..." --deliverables "..., ..."` (deliverables는 쉼표/세미콜론/줄바꿈 분리)
 2. **check** — **각 결과물 완료 시 즉시** `node scripts/task.mjs check "<항목명>"` (deliverables 1건씩, 부분 문자열 매칭). 작업 종료 직전 일괄 호출 금지.
-3. **done** — PR 생성 후 `node scripts/task.mjs done --pr <N>` (status=DONE + completedAt 자동 + pr 번호 기록).
+3. **done** — PR 생성 후 `node scripts/task.mjs done --pr <N>` (status=DONE + completedAt 자동 + pr 번호 기록). **`done` 호출 시 task 파일 자동 `git add` 수행됨** (안정성 Cycle 2 — 본 commit이 아닌 차기 commit에 자연 stage). add 실패해도 done 자체는 성공(graceful).
 4. **archive** — orchestrator 영역. 머지 직후 `node scripts/task.mjs archive T-<id>` (status=DONE 검증 강제 — DONE 아니면 거부, `--force` 우회). sub-agent는 호출 금지.
 
-**시간 표기**: `nowIso()`는 KST(+09:00) ISO 8601. UTC 표기 금지(PR-22 정정).
+### 1-C. task 파일 commit 의무 (안정성 Cycle 2 신설 — 2026-05-18)
 
-**위반 시 risk**: PR-14·PR-18에서 누적 28~30 done 파일 일괄 정정 발생. sub-agent SKILL 호출 의무 흐려짐 → 사용자 보고 ("시간도 현시간들이랑 이상하고", "정보들이 명확히 갱신안되는거 같아").
+`node scripts/task.mjs start` 직후 생성된 `_workspace/tasks/T-<id>-*.md` 는 **반드시 머지 대상 PR에 포함**되어야 한다. worktree 로컬에만 존재하고 commit 누락 시 → main 흔적 0 → orchestrator가 머지 후 `task.mjs archive` 호출 시 파일 없음 → `--force` 우회 또는 archive 누락 → 운영 부채 누적.
+
+**처리 방법** (택1, sub-agent 자율):
+- **권장**: `task.mjs start` 직후 즉시 `git add _workspace/tasks/T-<id>-*.md` 수행 → 첫 코드 commit에 자연 stage
+- 또는 `task.mjs done --pr <N>` 호출이 자동 `git add` 수행하므로 done 직후 commit이 있으면 자연 stage
+
+**역사 evidence** (안정성 Cycle 1 — 2026-05-18): PR #473·#474·#476 task 파일 commit 0건. PR #475만 task 파일이 main 흔적 보유. orchestrator archive 시 절반은 파일 부재로 누락.
+
+### 1-D. 시간 표기
+
+`nowIso()`는 KST(+09:00) ISO 8601. UTC 표기 금지(PR-22 정정).
+
+### 1-E. 위반 시 risk
+
+- PR-14·PR-18에서 누적 28~30 done 파일 일괄 정정 발생.
+- sub-agent SKILL 호출 의무 흐려짐 → 사용자 보고 ("시간도 현시간들이랑 이상하고", "정보들이 명확히 갱신안되는거 같아").
+- 안정성 Cycle 1 (2026-05-18) — author 결함 4 PR + task 파일 commit 누락 3 PR.
 
 ---
 
@@ -139,6 +173,7 @@ sub-agent가 0 tool uses 종료, 환경 결함(Bash 실패), 또는 명세 위�
 
 | 날짜 | 변경 | 사유 |
 |------|------|------|
+| 2026-05-18 | §1 강화 — 1-A worktree 진입 author 의무 + 1-C task 파일 commit 의무 신설 (안정성 Cycle 2 — backlog §59) | 안정성 Cycle 1 evidence — PR #473·#475 author=magicjar-frontend attribution + PR #473·#474·#476 task 파일 commit 0건. worktree default frontend가 다른 sub-agent에 전파되어 운영 audit 깨짐. (architect) |
 | 2026-05-08 | 본 헌법 신설 — 7 § 룰 통합 | PR-26 사용자 명시 "강령 만들어야 하고", "토큰 소모 없이 가게". sub-agent SKILL 산재 룰을 단일 출처로 통합 + 9 SKILL.md 슬림화 동반. (architect) |
 
 ---

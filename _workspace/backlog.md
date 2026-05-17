@@ -2280,3 +2280,52 @@ ADR 0077 의제 K (사용자 알림 UI)가 hotfix 범위 lock으로 backlog 등�
 - `KisWebSocketBridge.kt` J-1 사전 검증 (PR #467 적용)
 - `WatchlistIngestionWorker.onStartup()` WARN 로그
 - SetupWizard 흐름 ([[project_kis_key_management]] 정합)
+
+## §59. ✅ 처리 완료 — worktree git author + task 파일 commit 의무 강화 (안정성 Cycle 2 마감 2026-05-18)
+
+### 사유 (안정성 Cycle 1 evidence)
+
+안정성 Cycle 1(PR #473·#474·#475·#476) 머지 후 2건 운영 부채 발견:
+
+**부채 1: worktree git author 결함**
+- Agent tool `isolation:"worktree"` 생성 worktree들이 모두 `bot+frontend@magicjar.local` author로 default 설정됨
+- PR #473(backend-core 영역), PR #475(market-data 영역) commit author 모두 `magicjar-frontend`로 attribution (pre-commit 화이트리스트는 통과하나 git blame·CHANGELOG `(작성: <agent>)` 마커 부정확)
+- evidence: `gh pr view 473 --json commits` → `authorEmail: "bot+frontend@magicjar.local", authorName: "magicjar-frontend"` (실제 작업은 backend-core 영역 `api/scheduler·api/messaging`)
+- root cause = `.claude/agents/<agent>.md` frontmatter `git-author:` 는 선언 수준일 뿐 worktree 로컬 git config 강제 부재. sub-agent SKILL에 「작업 시작 시 워크트리 로컬 author 갱신 의무」가 일관되게 명시되지 않음
+
+**부채 2: task 파일 untracked**
+- PR #473·#474·#476 sub-agent가 task 파일을 commit하지 않음 (worktree 로컬에만 존재)
+- PR #475(market-data)만 task 파일이 main에 흔적 남음 (`_workspace/tasks/T-...-worktree-agent-...md`)
+- 결과: orchestrator가 머지 후 archive 시 task 파일 찾을 수 없음 → `--force` 우회 또는 archive 누락
+- root cause = 헌법 §1 task.mjs 4단계가 「start → check → done → archive」이나 commit 의무 명시 부재
+
+### 처리 결과
+
+본 §59는 안정성 Cycle 2 단일 PR(`agent/architect/stability-cycle2-worktree-author-task-commit`)로 마감됨:
+
+**A. 헌법 §1 강화** (`_workspace/arch/agent-charter.md`)
+- §1-A worktree 진입 의무 신설 — worktree 진입 즉시 `git config user.email "bot+<agent>@magicjar.local"` + `git config user.name "magicjar-<agent>"` 강제. 위반 시 sub-agent 작업 진행 거부.
+- §1-C task 파일 commit 의무 신설 — `task.mjs start` 직후 `git add _workspace/tasks/T-<id>-*.md` (또는 `done` 자동 add 의존). 머지 PR에 task 파일 포함 의무.
+- §8 변경 이력 row 추가.
+
+**B. sub-agent SKILL/agent.md 갱신**
+- 6 agent.md (architect·backend-core·market-data·frontend·strategy-engine·ai-engineer) 본문 헤더 직후 헌법 §1-A·§1-C 인용 1줄 강조.
+- 5 SKILL.md (magicjar-adr·magicjar-baseline·magicjar-backtest-engine·magicjar-kis-openapi·magicjar-orchestrator) 본문 헤더 직후 헌법 §1-A·§1-C 인용 1줄 강조.
+- 본문 중복 금지 헌법 원칙 정합 — SKILL/agent.md는 ref만, 본문은 헌법에만.
+
+**C. scripts/task.mjs `done` 자동화**
+- `cmdDone()` 끝에 `execSync('git add <task path>')` 추가 (graceful — repo 아니거나 add 실패해도 done 성공).
+- commit은 수행하지 않음 — 다음 코드 commit에 자연 stage. 무관 코드 stage risk 회피.
+- 별도 `--commit` flag 미신설 — 자동 commit은 sub-agent context 손실 risk(어떤 메시지·author로 commit할지).
+
+**D. backlog §59 신설** — 본 §.
+
+**E. CHANGELOG row 추가** — add-only 1줄.
+
+### 연관
+
+- 헌법 `_workspace/arch/agent-charter.md` §1-A·§1-C·§8
+- 6 `.claude/agents/*.md` + 5 `.claude/skills/magicjar-*/SKILL.md`
+- `scripts/task.mjs` cmdDone
+- ADR 0036 §2-3 (memory `feedback_3tier_hierarchy.md` "정정 예정" — 본 cycle에서는 ADR 0036 본문 미수정, 헌법 §1 단독 강화)
+- evidence: PR #473·#474·#475·#476 (안정성 Cycle 1)

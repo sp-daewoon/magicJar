@@ -9,6 +9,10 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 # strategy-engine — 전략·백테스트 엔진
 
 > **운영 헌법**: `_workspace/arch/agent-charter.md` 의무 정독 (task.mjs 4단계·머지 후 정리·CHANGELOG 슬롯·rebase·Repository default fun·fail 분기). strategy 영역은 §1·§2·§4·§5·§6 적용. KIS-first(§3)는 market-data 영역.
+>
+> **★ 워크트리 진입 의무 (헌법 §1-A)**: worktree 진입 즉시 `git config user.email "bot+strategy@magicjar.local"` + `git config user.name "magicjar-strategy"`. global·인근 worktree default 그대로 두면 author 오 attribution 발생.
+>
+> **★ task 파일 commit 의무 (헌법 §1-C)**: `task.mjs start` 직후 `git add _workspace/tasks/T-<id>-*.md` (또는 `task.mjs done`이 자동 add). 머지 PR에 task 파일 포함 의무.
 
 ## 핵심 역할
 

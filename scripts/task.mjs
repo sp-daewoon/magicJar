@@ -195,6 +195,17 @@ function cmdDone(args) {
   if (pr) meta.pr = `#${String(pr).replace(/^#/, '')}`;
   writeFileSync(found.path, serializeFrontmatter(meta, body), 'utf-8');
   console.log(`✓ done${pr ? ` (PR ${meta.pr})` : ''}: ${meta.id}`);
+
+  // 안정성 Cycle 2 (2026-05-18) — task 파일 자동 git add (헌법 §1-C 정합).
+  // sub-agent가 task 파일 commit 누락 시 main 흔적 부재 → orchestrator archive 부담.
+  // 본 add는 graceful — git repo 아니거나 add 실패해도 done 자체는 성공.
+  // commit은 수행하지 않음(다음 코드 commit에 자연 stage). 무관 코드 stage risk 회피.
+  try {
+    execSync(`git add ${found.path}`, { stdio: ['ignore', 'pipe', 'pipe'] });
+    console.log(`  ↳ git add: ${found.path} (다음 commit에 stage)`);
+  } catch (e) {
+    console.warn(`  ⚠ git add 실패 (graceful skip): ${e.message?.slice(0, 80) || ''}`);
+  }
 }
 
 function cmdArchive(args) {

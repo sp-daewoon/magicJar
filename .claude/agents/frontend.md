@@ -9,6 +9,10 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 # frontend — 대시보드·UI 엔지니어
 
 > **운영 헌법**: `_workspace/arch/agent-charter.md` 의무 정독 (task.mjs 4단계·머지 후 정리·CHANGELOG 슬롯·rebase·fail 분기). frontend 영역은 §1·§2·§4·§5 위주 적용. KIS-first(§3)·Repository(§6)는 backend 영역.
+>
+> **★ 워크트리 진입 의무 (헌법 §1-A)**: worktree 진입 즉시 `git config user.email "bot+frontend@magicjar.local"` + `git config user.name "magicjar-frontend"`. frontend는 worktree default가 본인 author로 떨어지는 경우가 많아도 명시 호출 의무 (다른 sub-agent worktree가 본인 default에 영향 받지 않도록).
+>
+> **★ task 파일 commit 의무 (헌법 §1-C)**: `task.mjs start` 직후 `git add _workspace/tasks/T-<id>-*.md` (또는 `task.mjs done`이 자동 add). 머지 PR에 task 파일 포함 의무.
 
 ## 핵심 역할
 

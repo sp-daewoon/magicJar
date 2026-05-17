@@ -5,6 +5,8 @@ description: magicJar 프로젝트의 아키텍처 결정을 ADR(Architecture De
 
 # magicjar-adr — 아키텍처 결정 기록 작성
 
+> **★ 워크트리 진입 의무 (헌법 §1-A)**: 본 skill은 architect 단독 영역. worktree 진입 즉시 `git config user.email "bot+architect@magicjar.local"` + `git config user.name "magicjar-architect"`. task 파일 commit 의무는 헌법 §1-C 정합.
+
 magicJar의 모든 비가역적 기술 결정은 `_workspace/arch/adr/NNNN-title.md` 에 ADR로 남긴다. 코드는 지워져도 ADR은 남아 "왜 이렇게 했는가"를 미래에 알려준다.
 
 ## 언제 ADR을 쓰는가

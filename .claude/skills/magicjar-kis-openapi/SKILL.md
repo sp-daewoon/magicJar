@@ -5,6 +5,8 @@ description: 한국투자증권 KIS OpenAPI(REST + WebSocket) 클라이언트를
 
 # magicjar-kis-openapi — KIS OpenAPI 통합
 
+> **★ 워크트리 진입 의무 (헌법 §1-A)**: 본 skill은 market-data 영역. worktree 진입 즉시 `git config user.email "bot+market-data@magicjar.local"` + `git config user.name "magicjar-market-data"`. task 파일 commit 의무는 헌법 §1-C 정합.
+
 한국투자증권 KIS OpenAPI는 magicJar가 **유일하게 의존하는 증권사 외부 시스템**이다. 실패하면 전체 서비스가 멈추므로, 인증·레이트리밋·재시도를 철저히 감싼다.
 
 ## 필수 설정
