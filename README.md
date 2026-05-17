@@ -16,6 +16,21 @@ _룰 기반 quant trading 본체 + AI 옵션 보조 + MCP 서버 미래 노출_
 
 ---
 
+## 🪄 magicJar Master Index
+
+> **한눈에 모든 문서·정책·결정·진행 상태**를 진입하는 마스터 시각화 HTML (ADR 0079 권위).
+
+| 진입 방법 | 명령/URL |
+|---|---|
+| **로컬 (권장)** | `open _workspace/master.html` (브라우저 자동 실행) |
+| **온라인 preview** | [htmlpreview.github.io](https://htmlpreview.github.io/?https://github.com/sp-daewoon/magicJar/blob/main/_workspace/master.html) (외부 service, 의존성 약함) |
+| **수동 갱신** | `/master-index` slash command 또는 `node scripts/master-index.mjs` |
+| **자동 갱신** | 매 release cut 시 `scripts/release.sh`가 자동 호출 (sync-readme-releases 직후) |
+
+12 카테고리 두 축 (📐 권위 = 가이드·정책·ADR·spec·카탈로그·하네스 / 🕐 시계열 = baseline·devlog·release·backlog·task·dashboard) + 상단 banner (현재 release · 사이클 단계 · 다음 마일스톤 · 이번 작업 timeline).
+
+---
+
 ## 핵심 가치
 
 > **사용자 = 최고 관리자.** 7 AI 에이전트가 architect 설계 → 실무 sub-agent 병렬 실행 디스패치로 운영되는 magicJar 본체.
