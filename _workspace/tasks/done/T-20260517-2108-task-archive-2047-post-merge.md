@@ -3,9 +3,9 @@ id: T-20260517-2108-task-archive-2047-post-merge
 agent: market-data
 model: sonnet
 branch: agent/market-data/opsp8996-fix-v3-6-11
-status: RUNNING
+status: DONE
 startedAt: 2026-05-17T21:08:06.881+09:00
-completedAt: null
+completedAt: 2026-05-17T21:20:22.000+09:00
 pr: null
 parentPhase: ?
 ---
