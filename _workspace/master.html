@@ -1,0 +1,1199 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>magicJar Master Index</title>
+<style>
+  body { background: #0f1419; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; padding: 16px; font-size: 13px; line-height: 1.5; }
+  h1 { margin: 0 0 12px 0; font-size: 20px; color: #fff; }
+  h3 { color: #ccc; font-size: 14px; margin: 16px 0 8px; }
+  .banner { background: linear-gradient(135deg, #1a1a2e, #16213e); padding: 14px; border-radius: 6px; margin-bottom: 16px; }
+  .banner-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 10px; }
+  .banner-card { background: #0f3460; padding: 10px; border-radius: 4px; }
+  .banner-card.release { border-left: 3px solid #4caf50; }
+  .banner-card.cycle { border-left: 3px solid #ff9800; }
+  .banner-card.next { border-left: 3px solid #9c27b0; }
+  .banner-card .label { color: #888; font-size: 10px; text-transform: uppercase; }
+  .banner-card .value { font-weight: bold; font-size: 15px; margin: 2px 0; color: #fff; }
+  .banner-card .sub { color: #aaa; font-size: 11px; }
+  .banner-timeline { background: #0f1a2e; padding: 10px; border-radius: 4px; border: 1px solid #333; font-size: 11px; }
+  .banner-timeline .label { color: #888; font-size: 10px; text-transform: uppercase; margin-bottom: 4px; }
+  .group-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+  .group-tab { background: #1a1a1a; padding: 8px 16px; border-radius: 4px 4px 0 0; cursor: pointer; font-weight: bold; color: #888; }
+  .group-tab.active[data-group="권위"] { background: #2a4d3a; color: #fff; }
+  .group-tab.active[data-group="시계열"] { background: #4d3a2a; color: #fff; }
+  .sub-tabs { display: flex; gap: 2px; margin-bottom: 12px; background: #1a1a1a; padding: 6px; border-radius: 0 4px 4px 4px; flex-wrap: wrap; }
+  .sub-tab { padding: 6px 12px; cursor: pointer; border-radius: 3px; font-size: 12px; color: #aaa; }
+  .sub-tab.active[data-group="권위"] { background: #2a4d3a; color: #fff; }
+  .sub-tab.active[data-group="시계열"] { background: #4d3a2a; color: #fff; }
+  .cat-content { background: #1a1a1a; padding: 16px; border-radius: 4px; min-height: 400px; }
+  .cat-content[data-active="false"] { display: none; }
+  .cat-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .card { background: #2a2a2a; padding: 12px; border-radius: 3px; }
+  .card-title { font-weight: bold; margin-bottom: 4px; }
+  .card-sub { color: #aaa; font-size: 11px; }
+  .card-meta { color: #888; font-size: 10px; margin-top: 4px; }
+  .card-files a { font-size: 10px; color: #4fc3f7; }
+  .empty { color: #666; text-align: center; padding: 40px; }
+  .cat-search { width: 100%; background: #0f0f0f; border: 1px solid #333; color: #fff; padding: 6px 10px; margin: 8px 0; border-radius: 3px; box-sizing: border-box; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  th, td { padding: 6px; text-align: left; border-bottom: 1px solid #333; }
+  th { background: #0f0f0f; cursor: pointer; }
+  th:hover { background: #1a1a1a; }
+  a { color: #4fc3f7; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .adr-recent { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 14px; }
+  .adr-card { background: #1f3a2c; padding: 8px; border-radius: 3px; }
+  .adr-number { font-weight: bold; font-size: 14px; }
+  .adr-title { color: #aaa; font-size: 10px; margin: 4px 0; }
+  .adr-meta { color: #666; font-size: 9px; }
+  .backlog-filters { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+  .backlog-filters button { background: #2a2a2a; border: 1px solid #444; color: #ccc; padding: 6px 12px; border-radius: 3px; cursor: pointer; font-size: 11px; }
+  .backlog-filters button.active { background: #4d3a2a; border-color: #ff9800; }
+  .backlog-list { max-height: 600px; overflow-y: auto; }
+  .backlog-item { background: #3a2c1f; padding: 10px; border-radius: 3px; margin-bottom: 6px; }
+  .backlog-item[data-hidden="true"] { display: none; }
+  .backlog-title { font-weight: bold; font-size: 12px; }
+  .backlog-meta { color: #aaa; font-size: 10px; margin-top: 2px; }
+  .badge-new { background: #f44336; padding: 2px 6px; border-radius: 3px; font-size: 9px; }
+  .badge { background: #ff9800; padding: 2px 6px; border-radius: 3px; font-size: 9px; color: #000; }
+  .devlog-latest { background: #3a2c1f; padding: 14px; border-radius: 3px; border-left: 4px solid #ff9800; margin-bottom: 8px; }
+  .devlog-rest { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+  .card-mini { background: #3a2c1f; padding: 8px; border-radius: 3px; font-size: 11px; text-align: center; color: #ccc; }
+  .baseline-card .card-files { margin-top: 6px; line-height: 1.8; }
+</style>
+</head>
+<body>
+<h1>🪄 magicJar Master Index</h1>
+<div class="banner">
+  <div class="banner-cards">
+    <div class="banner-card release">
+      <div class="label">현재 Release</div>
+      <div class="value">TBD</div>
+      <div class="sub"></div>
+    </div>
+    <div class="banner-card cycle">
+      <div class="label">현재 사이클 단계</div>
+      <div class="value">TBD</div>
+      <div class="sub"></div>
+    </div>
+    <div class="banner-card next">
+      <div class="label">다음 마일스톤</div>
+      <div class="value">TBD</div>
+      <div class="sub"></div>
+    </div>
+  </div>
+  <div class="banner-timeline">
+    <div class="label">📍 이번 작업 사이클 timeline</div>
+    <div></div>
+  </div>
+</div>
+
+<div class="group-tabs">
+  <div class="group-tab active" data-group="권위" data-tab="group-권위">📐 권위</div><div class="group-tab " data-group="시계열" data-tab="group-시계열">🕐 시계열</div>
+</div>
+
+
+  <div class="sub-tabs" data-group-content="권위" >
+    <div class="sub-tab active" data-group="권위" data-cat="A" data-tab="cat-A">A 운영 가이드</div><div class="sub-tab " data-group="권위" data-cat="C" data-tab="cat-C">C ADR</div><div class="sub-tab " data-group="권위" data-cat="B" data-tab="cat-B">B 정책 Living</div>
+  </div>
+
+  <div class="sub-tabs" data-group-content="시계열" style="display:none">
+    <div class="sub-tab active" data-group="시계열" data-cat="H" data-tab="cat-H">H backlog</div><div class="sub-tab " data-group="시계열" data-cat="E" data-tab="cat-E">E baseline</div><div class="sub-tab " data-group="시계열" data-cat="F" data-tab="cat-F">F devlog</div>
+  </div>
+
+
+
+  <div class="cat-content" data-cat="A" data-group-content-cat="권위" data-active="true">
+    
+  <div class="cat-cards">
+    
+      <div class="card">
+        <div class="card-title">📄 README.md</div>
+        <div class="card-sub">핵심 가치</div>
+        <div class="card-meta">419 lines · 갱신 2026-05-17</div>
+      </div>
+    
+      <div class="card">
+        <div class="card-title">📄 CLAUDE.md</div>
+        <div class="card-sub">프로젝트: magicJar (마법의항아리)</div>
+        <div class="card-meta">162 lines · 갱신 2026-05-13</div>
+      </div>
+    
+      <div class="card">
+        <div class="card-title">📄 _workspace/INDEX.md</div>
+        <div class="card-sub">🧭 의도별 진입 경로</div>
+        <div class="card-meta">126 lines · 갱신 2026-05-12</div>
+      </div>
+    
+      <div class="card">
+        <div class="card-title">📄 docs/architecture/master-architecture.md</div>
+        <div class="card-sub">§1. 시스템 비전 (사용자 정정 2026-05-02 반영)</div>
+        <div class="card-meta">674 lines · 갱신 2026-05-15</div>
+      </div>
+    
+  </div>
+
+  </div>
+
+  <div class="cat-content" data-cat="C" data-group-content-cat="권위" data-active="false">
+    
+    <h3>최근 ADR 5건</h3>
+    <div class="adr-recent">
+      
+        <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0078</div>
+          <div class="adr-title">내부 자산 추출 전략 — 재사용 가능한 프로젝트 부트스트랩 템플릿</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0076</div>
+          <div class="adr-title">KIS WS NXT/시간외 시세 sync 표준 정합 (누적 hotfix #443·#444·#445 root cause 분석)</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0075</div>
+          <div class="adr-title">T-NEWS 뉴스·공시 실시간 인입 트랙 진입 spec/plan (사용자 결정 8 의제 채택)</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0074</div>
+          <div class="adr-title">SettingsModal 풀세트 — KIS 키 변경 + KillSwitch 수동 토글 + OpenAI/Anthropic 키 카테고리</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0073</div>
+          <div class="adr-title">T-NEWS 뉴스·공시 실시간 인입 트랙 feasibility 분석</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
+      
+    </div>
+    <h3>전체 73건 (검색·정렬 가능)</h3>
+    <input class="cat-search" data-cat="C" placeholder="ADR 검색…" />
+    <table class="adr-table" data-sortable>
+      <thead>
+        <tr><th data-sort="number">번호</th><th data-sort="title">제목</th><th data-sort="status">status</th><th data-sort="date">날짜</th></tr>
+      </thead>
+      <tbody>
+        
+          <tr data-search="78 내부 자산 추출 전략 — 재사용 가능한 프로젝트 부트스트랩 템플릿 accepted">
+            <td>0078</td>
+            <td><a href="_workspace/arch/adr/0078-internal-asset-extraction-strategy.md">내부 자산 추출 전략 — 재사용 가능한 프로젝트 부트스트랩 템플릿</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="76 kis ws nxt/시간외 시세 sync 표준 정합 (누적 hotfix #443·#444·#445 root cause 분석) accepted">
+            <td>0076</td>
+            <td><a href="_workspace/arch/adr/0076-kis-ws-nxt-overtime-standard.md">KIS WS NXT/시간외 시세 sync 표준 정합 (누적 hotfix #443·#444·#445 root cause 분석)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="75 t-news 뉴스·공시 실시간 인입 트랙 진입 spec/plan (사용자 결정 8 의제 채택) accepted">
+            <td>0075</td>
+            <td><a href="_workspace/arch/adr/0075-t-news-track-spec.md">T-NEWS 뉴스·공시 실시간 인입 트랙 진입 spec/plan (사용자 결정 8 의제 채택)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="74 settingsmodal 풀세트 — kis 키 변경 + killswitch 수동 토글 + openai/anthropic 키 카테고리 accepted">
+            <td>0074</td>
+            <td><a href="_workspace/arch/adr/0074-settings-kis-change-killswitch-ai-credentials.md">SettingsModal 풀세트 — KIS 키 변경 + KillSwitch 수동 토글 + OpenAI/Anthropic 키 카테고리</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="73 t-news 뉴스·공시 실시간 인입 트랙 feasibility 분석 accepted">
+            <td>0073</td>
+            <td><a href="_workspace/arch/adr/0073-t-news-feasibility.md">T-NEWS 뉴스·공시 실시간 인입 트랙 feasibility 분석</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="72 t-j + t-perf 묶음 spec/plan (w3 마지막 사이클 — trading journal 영속 + performance loop 통계) accepted">
+            <td>0072</td>
+            <td><a href="_workspace/arch/adr/0072-t-j-perf-bundle-spec.md">T-J + T-PERF 묶음 spec/plan (W3 마지막 사이클 — Trading Journal 영속 + Performance Loop 통계)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="71 t-sc screener spec/plan (w3 다섯 번째 트랙 — universe × dsl → 후보 + 랭킹 + 캐시) accepted">
+            <td>0071</td>
+            <td><a href="_workspace/arch/adr/0071-t-sc-screener-spec.md">T-SC Screener spec/plan (W3 다섯 번째 트랙 — universe × DSL → 후보 + 랭킹 + 캐시)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="70 t-recon + t-notify 묶음 spec/plan (w3 자본 보호 prereq) accepted">
+            <td>0070</td>
+            <td><a href="_workspace/arch/adr/0070-t-recon-notify-bundled-spec.md">T-RECON + T-NOTIFY 묶음 spec/plan (W3 자본 보호 prereq)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="69 settingsmodal vs setupwizard 책임 분리 + 공통 입력 컴포넌트 추출 + 미래 확장 구조 accepted">
+            <td>0069</td>
+            <td><a href="_workspace/arch/adr/0069-settings-modal-vs-setup-wizard.md">SettingsModal vs SetupWizard 책임 분리 + 공통 입력 컴포넌트 추출 + 미래 확장 구조</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="68 t-o 주문 실행 (order execution — risk allowed → kis rest 주문 → 체결 추적 → 정정/취소 + stomp 알림) accepted">
+            <td>0068</td>
+            <td><a href="_workspace/arch/adr/0068-t-o-order-execution.md">T-O 주문 실행 (Order Execution — Risk ALLOWED → KIS REST 주문 → 체결 추적 → 정정/취소 + STOMP 알림)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="67 t-risk 리스크 관리 (signal → risk gateway → order 의무 게이트 + 영속 + 사용자 알림) accepted">
+            <td>0067</td>
+            <td><a href="_workspace/arch/adr/0067-t-risk-management.md">T-RISK 리스크 관리 (Signal → Risk Gateway → Order 의무 게이트 + 영속 + 사용자 알림)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="66 t-sig 실시간 시그널 엔진 (룰 매칭 + kafka boundary listen + 영속 + stomp fanout) accepted">
+            <td>0066</td>
+            <td><a href="_workspace/arch/adr/0066-t-sig-realtime-signal-engine.md">T-SIG 실시간 시그널 엔진 (룰 매칭 + Kafka boundary listen + 영속 + STOMP fanout)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="64 redis boundary fanout + stomp 실시간 합산 갱신 (5m·15m·30m·90m·1h) accepted">
+            <td>0064</td>
+            <td><a href="_workspace/arch/adr/0064-realtime-aggregation-fanout.md">Redis boundary fanout + STOMP 실시간 합산 갱신 (5m·15m·30m·90m·1h)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="63 nxt/통합거래 매트릭스 cover (분봉·일봉 시장 분류 코드 결정) accepted">
+            <td>0063</td>
+            <td><a href="_workspace/arch/adr/0063-nxt-integrated-trading-coverage.md">NXT/통합거래 매트릭스 cover (분봉·일봉 시장 분류 코드 결정)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="62 5m·15m·30m·90m·1h 합산 가공 plan (1m → n분봉) accepted">
+            <td>0062</td>
+            <td><a href="_workspace/arch/adr/0062-aggregation-plan.md">5m·15m·30m·90m·1h 합산 가공 plan (1m → N분봉)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="61 backtest 결과 영속 (3 테이블 분리 + rest 5 endpoint + kpi 계산 룰) accepted">
+            <td>0061</td>
+            <td><a href="_workspace/arch/adr/0061-backtest-result-persistence.md">Backtest 결과 영속 (3 테이블 분리 + REST 5 endpoint + KPI 계산 룰)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="57 kis openapi 단일 데이터 출처 (yahoo finance · 네이버 금융 등 보조 출처 폐기) accepted">
+            <td>0057</td>
+            <td><a href="_workspace/arch/adr/0057-kis-only-data-source.md">KIS OpenAPI 단일 데이터 출처 (Yahoo Finance · 네이버 금융 등 보조 출처 폐기)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="56 backtest engine architecture (룩어헤드 가드 + 세·수수료·슬리피지 모델 + adr 0047 sandbox 통합 + abort quota) accepted">
+            <td>0056</td>
+            <td><a href="_workspace/arch/adr/0056-backtest-engine-architecture.md">Backtest Engine Architecture (룩어헤드 가드 + 세·수수료·슬리피지 모델 + ADR 0047 sandbox 통합 + abort quota)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="55 strategy builder ui 컴포넌트 스택 결정 (b+c-lite 하이브리드) accepted">
+            <td>0055</td>
+            <td><a href="_workspace/arch/adr/0055-strategy-builder-component-stack.md">Strategy Builder UI 컴포넌트 스택 결정 (B+C-lite 하이브리드)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="54 pattern-engine 라이브러리 모듈 분리 — 도메인 순수성 보존 + api·consumer 공유 accepted">
+            <td>0054</td>
+            <td><a href="_workspace/arch/adr/0054-pattern-engine-module.md">pattern-engine 라이브러리 모듈 분리 — 도메인 순수성 보존 + api·consumer 공유</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="53 living policy docs (현행 권위 분리) accepted">
+            <td>0053</td>
+            <td><a href="_workspace/arch/adr/0053-living-policy-docs.md">Living Policy Docs (현행 권위 분리)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="52 baseline documentation cycle accepted">
+            <td>0052</td>
+            <td><a href="_workspace/arch/adr/0052-baseline-cycle.md">Baseline Documentation Cycle</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="51 spring data repository default fun 함정 (회피 패턴) accepted">
+            <td>0051</td>
+            <td><a href="_workspace/arch/adr/0051-spring-data-default-fun-trap.md">Spring Data Repository default fun 함정 (회피 패턴)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="50 changelog 슬롯 채번룰 (architect 사전 발행 + sub-agent in-place edit) accepted">
+            <td>0050</td>
+            <td><a href="_workspace/arch/adr/0050-changelog-slot-numbering.md">CHANGELOG 슬롯 채번룰 (architect 사전 발행 + sub-agent in-place edit)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="49 github actions = release 트리거 한정 (일상 검증은 pre-push hook 단독) accepted">
+            <td>0049</td>
+            <td><a href="_workspace/arch/adr/0049-github-actions-release-only.md">GitHub Actions = release 트리거 한정 (일상 검증은 pre-push hook 단독)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="48 kis websocket 41건 구독 한도 + 우선순위 정책 accepted">
+            <td>0048</td>
+            <td><a href="_workspace/arch/adr/0048-kis-ws-41-subscription-limit.md">KIS WebSocket 41건 구독 한도 + 우선순위 정책</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="47 dsl evaluation sandbox (정적 검증 + 런타임 timeout/cpu budget + thread pool 격리 + auto-disable) accepted">
+            <td>0047</td>
+            <td><a href="_workspace/arch/adr/0047-dsl-evaluation-sandbox.md">DSL Evaluation Sandbox (정적 검증 + 런타임 timeout/CPU budget + thread pool 격리 + auto-disable)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="46 onboarding & credential registration (테이블 3종 분리 · 마스터 키 단일 예외) accepted">
+            <td>0046</td>
+            <td><a href="_workspace/arch/adr/0046-onboarding-credential-registration.md">Onboarding & Credential Registration (테이블 3종 분리 · 마스터 키 단일 예외)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="45 graceful shutdown & in-flight 처리 (sigterm · kafka commit fence · idempotency) accepted">
+            <td>0045</td>
+            <td><a href="_workspace/arch/adr/0045-graceful-shutdown.md">Graceful Shutdown & In-flight 처리 (SIGTERM · Kafka commit fence · Idempotency)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="44 notification system (slack webhook 1차 + kafka 트리거 + outbox fallback) accepted">
+            <td>0044</td>
+            <td><a href="_workspace/arch/adr/0044-notification-system.md">Notification System (Slack webhook 1차 + Kafka 트리거 + outbox fallback)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="43 killswitch 행동 정의 (on 시 신호·주문·통지·재시작 정책) accepted">
+            <td>0043</td>
+            <td><a href="_workspace/arch/adr/0043-killswitch-behavior.md">KillSwitch 행동 정의 (ON 시 신호·주문·통지·재시작 정책)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="42 position bootstrap & recovery (앱 시작·ws 재연결 시 잔고 복구) accepted">
+            <td>0042</td>
+            <td><a href="_workspace/arch/adr/0042-position-bootstrap-recovery.md">Position Bootstrap & Recovery (앱 시작·WS 재연결 시 잔고 복구)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="41 broker reconciliation job (kis 잔고 ↔ 내부 position 정합) accepted">
+            <td>0041</td>
+            <td><a href="_workspace/arch/adr/0041-broker-reconciliation.md">Broker Reconciliation Job (KIS 잔고 ↔ 내부 position 정합)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="40 관심종목 우선 ui 흐름 (strategy builder → 발굴 → watchlist → 상세) accepted">
+            <td>0040</td>
+            <td><a href="_workspace/arch/adr/0040-watchlist-first-ui-flow.md">관심종목 우선 UI 흐름 (Strategy Builder → 발굴 → Watchlist → 상세)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="39 종목 마스터 갱신 cron (kis 갱신 시각 +5분) accepted">
+            <td>0039</td>
+            <td><a href="_workspace/arch/adr/0039-instrument-master-sync-cron.md">종목 마스터 갱신 Cron (KIS 갱신 시각 +5분)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="38 kis oauth 24h 토큰 + redis 분산락 공통 모듈 accepted">
+            <td>0038</td>
+            <td><a href="_workspace/arch/adr/0038-kis-oauth-redis-distributed-lock.md">KIS OAuth 24h 토큰 + Redis 분산락 공통 모듈</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="37 kis api rate limit 강제 (초당 10건 + 토큰 버킷) accepted">
+            <td>0037</td>
+            <td><a href="_workspace/arch/adr/0037-kis-rate-limit-enforcement.md">KIS API Rate Limit 강제 (초당 10건 + 토큰 버킷)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="36 orchestrator meta rules (3단 hierarchy + git-author + task-file-system) accepted">
+            <td>0036</td>
+            <td><a href="_workspace/arch/adr/0036-orchestrator-meta-rules.md">Orchestrator Meta Rules (3단 hierarchy + git-author + task-file-system)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="35 에이전트별 모델 차등 + 에스컬레이션 accepted">
+            <td>0035</td>
+            <td><a href="_workspace/arch/adr/0035-model-tiering-and-escalation.md">에이전트별 모델 차등 + 에스컬레이션</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="34 머지 흐름 단순화 (`agent/* → main` 직행) accepted">
+            <td>0034</td>
+            <td><a href="_workspace/arch/adr/0034-merge-flow-simplification.md">머지 흐름 단순화 (`agent/* → main` 직행)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="33 worktree 정책 — 병렬 디스패치 허용 + 머지 후 정리 의무 accepted">
+            <td>0033</td>
+            <td><a href="_workspace/arch/adr/0033-single-worktree-policy.md">Worktree 정책 — 병렬 디스패치 허용 + 머지 후 정리 의무</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="32 git 훅 관리 — husky accepted">
+            <td>0032</td>
+            <td><a href="_workspace/arch/adr/0032-git-hooks-husky.md">Git 훅 관리 — Husky</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="31 v0 베이스라인 태그 + release/v0 immutable 보존 브랜치 accepted">
+            <td>0031</td>
+            <td><a href="_workspace/arch/adr/0031-baseline-tag-and-release-branch.md">v0 베이스라인 태그 + release/v0 immutable 보존 브랜치</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="30 새 v2 마스터 = 단일 진실원 (source of truth) accepted">
+            <td>0030</td>
+            <td><a href="_workspace/arch/adr/0030-master-architecture-v2-sot.md">새 v2 마스터 = 단일 진실원 (Source of Truth)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="29 당일 진행 중 캔들 redis 캐시 accepted">
+            <td>0029</td>
+            <td><a href="_workspace/arch/adr/0029-current-day-redis-cache.md">당일 진행 중 캔들 Redis 캐시</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="28 watchlist 기반 ingestion worker accepted">
+            <td>0028</td>
+            <td><a href="_workspace/arch/adr/0028-watchlist-based-ingestion-worker.md">Watchlist 기반 Ingestion Worker</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="27 mcp 서버 미래 노출 (w4) accepted">
+            <td>0027</td>
+            <td><a href="_workspace/arch/adr/0027-mcp-server-future.md">MCP 서버 미래 노출 (W4)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="26 ai 옵션 보조 (사용자 트리거 한정) accepted">
+            <td>0026</td>
+            <td><a href="_workspace/arch/adr/0026-ai-option-assist.md">AI 옵션 보조 (사용자 트리거 한정)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="25 lwc 확장 + 자체 도형/주석/패턴 시각화 (tradingview advanced 폐기) accepted">
+            <td>0025</td>
+            <td><a href="_workspace/arch/adr/0025-lwc-extension-no-tradingview-advanced.md">LWC 확장 + 자체 도형/주석/패턴 시각화 (TradingView Advanced 폐기)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="24 risk guard chain 6단 accepted">
+            <td>0024</td>
+            <td><a href="_workspace/arch/adr/0024-risk-guard-chain-six-stages.md">Risk Guard chain 6단</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="23 signal engine = 룰 매칭 only (ai 호출 0) accepted">
+            <td>0023</td>
+            <td><a href="_workspace/arch/adr/0023-signal-engine-rule-only.md">Signal Engine = 룰 매칭 only (AI 호출 0)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="22 strategy dsl = `.kis.yaml` 호환 superset accepted">
+            <td>0022</td>
+            <td><a href="_workspace/arch/adr/0022-strategy-dsl-kis-yaml-superset.md">Strategy DSL = `.kis.yaml` 호환 superset</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="21 indicator source 추상화 (`indicatorsource` plug-in) accepted">
+            <td>0021</td>
+            <td><a href="_workspace/arch/adr/0021-indicator-source-abstraction.md">Indicator Source 추상화 (`IndicatorSource` plug-in)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="20 kis strategy builder 흡수 (v2 — 명세 port + ai hook 제거) accepted">
+            <td>0020</td>
+            <td><a href="_workspace/arch/adr/0020-kis-strategy-builder-integration.md">KIS Strategy Builder 흡수 (v2 — 명세 port + AI hook 제거)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="19 캔들 저장 정책 (watchlist 기반 + yahoo 분봉 db 영속) accepted">
+            <td>0019</td>
+            <td><a href="_workspace/arch/adr/0019-candle-storage-watchlist-yahoo.md">캔들 저장 정책 (Watchlist 기반 + Yahoo 분봉 DB 영속)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="18 corp action raw + adjusted (룩어헤드 차단의 전제) accepted">
+            <td>0018</td>
+            <td><a href="_workspace/arch/adr/0018-corp-action-raw-and-adjusted.md">Corp Action raw + adjusted (룩어헤드 차단의 전제)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="17 instrument master 1급 시민 (kospi·kosdaq·konex·etf·etn·우선주) accepted">
+            <td>0017</td>
+            <td><a href="_workspace/arch/adr/0017-instrument-master.md">Instrument Master 1급 시민 (KOSPI·KOSDAQ·KONEX·ETF·ETN·우선주)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="16 kis rest/ws http 정밀화 (egw00202 hotfix + hashkey 표준) accepted">
+            <td>0016</td>
+            <td><a href="_workspace/arch/adr/0016-kis-http-precision.md">KIS REST/WS HTTP 정밀화 (EGW00202 hotfix + hashkey 표준)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="15 rejected audit trail (guard reject·kisapiexception 모두 orders insert) accepted">
+            <td>0015</td>
+            <td><a href="_workspace/arch/adr/0015-rejected-audit-trail.md">REJECTED Audit Trail (Guard reject·KisApiException 모두 orders INSERT)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="14 시세 데이터 fallback (3-tier: live → cache → last-day-close) accepted">
+            <td>0014</td>
+            <td><a href="_workspace/arch/adr/0014-data-fallback-three-tier.md">시세 데이터 Fallback (3-tier: live → cache → last-day-close)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="13 market session fsm (krx 영업일·장중·장외·휴장) accepted">
+            <td>0013</td>
+            <td><a href="_workspace/arch/adr/0013-market-session-fsm.md">Market Session FSM (KRX 영업일·장중·장외·휴장)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="12 매매일지(trading journal) 아키텍처 accepted">
+            <td>0012</td>
+            <td><a href="_workspace/arch/adr/0012-trading-journal-architecture.md">매매일지(Trading Journal) 아키텍처</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="11 주문 실행기 3-mode 구조와 안전 게이트 accepted">
+            <td>0011</td>
+            <td><a href="_workspace/arch/adr/0011-order-executor-three-modes.md">주문 실행기 3-mode 구조와 안전 게이트</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="10 multi-tenant 구조 (트랙1 완료 흡수) accepted">
+            <td>0010</td>
+            <td><a href="_workspace/arch/adr/0010-multi-tenant-structure.md">Multi-tenant 구조 (트랙1 완료 흡수)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="9 프론트엔드 spa 전환 — react + ts + vite + tradingview lightweight charts accepted">
+            <td>0009</td>
+            <td><a href="_workspace/arch/adr/0009-frontend-spa-react-lwc.md">프론트엔드 SPA 전환 — React + TS + Vite + TradingView Lightweight Charts</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="8 docker 표준: 모듈별 dockerfile + compose 통합 기동 accepted">
+            <td>0008</td>
+            <td><a href="_workspace/arch/adr/0008-docker-msa-standard.md">Docker 표준: 모듈별 Dockerfile + compose 통합 기동</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="7 kafka 이벤트 백본 (spring kafka, json 스키마) accepted">
+            <td>0007</td>
+            <td><a href="_workspace/arch/adr/0007-kafka-event-backbone.md">Kafka 이벤트 백본 (Spring Kafka, JSON 스키마)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="6 데이터 저장소 — postgresql 단일 인스턴스 + 스키마 분리 accepted">
+            <td>0006</td>
+            <td><a href="_workspace/arch/adr/0006-database-shared-postgres-schema.md">데이터 저장소 — PostgreSQL 단일 인스턴스 + 스키마 분리</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="5 하이브리드 런타임 — api / batch / consumer 3 jvm 앱 accepted">
+            <td>0005</td>
+            <td><a href="_workspace/arch/adr/0005-hybrid-runtime-three-apps.md">하이브리드 런타임 — api / batch / consumer 3 JVM 앱</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="4 msa 모듈 재구성 (5 jvm 모듈 + frontend) accepted">
+            <td>0004</td>
+            <td><a href="_workspace/arch/adr/0004-msa-module-restructure.md">MSA 모듈 재구성 (5 JVM 모듈 + frontend)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="3 증권사 api로 한국투자증권 kis openapi 선택 accepted">
+            <td>0003</td>
+            <td><a href="_workspace/arch/adr/0003-broker-api-kis-openapi.md">증권사 API로 한국투자증권 KIS OpenAPI 선택</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="2 언어·프레임워크·빌드 시스템 선택 accepted">
+            <td>0002</td>
+            <td><a href="_workspace/arch/adr/0002-language-and-framework.md">언어·프레임워크·빌드 시스템 선택</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="1 시스템 비전 v2 — 룰 기반 본체 + ai 옵션 + mcp 서버 미래 accepted">
+            <td>0001</td>
+            <td><a href="_workspace/arch/adr/0001-system-vision-v2.md">시스템 비전 v2 — 룰 기반 본체 + AI 옵션 + MCP 서버 미래</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+      </tbody>
+    </table>
+  
+  </div>
+
+  <div class="cat-content" data-cat="B" data-group-content-cat="권위" data-active="false">
+    
+    <div class="cat-cards">
+      
+        <div class="card">
+          <div class="card-title">📍 kis-credential-identity</div>
+          <div class="card-sub">> **권위**: 본 문서. 변경 시 직접 갱신. > **결정 이력**: ADR-0046 (Onboarding 도입), backlog §23 (REAL/MOCK 불일치 의제), PR #246 (firstOrNull …</div>
+          <div class="card-meta">📄 docs/architecture/policies/kis-credential-identity.md · 갱신 2026-05-08</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">📍 kis-first-raw-fetch</div>
+          <div class="card-sub">> **권위**: 본 문서 (charter §3은 ref 슬롯만 보유, 본문 단일 출처는 본 policy). > **결정 이력**: 운영 헌법 §3 (`_workspace/arch/agent-charter.md`),…</div>
+          <div class="card-meta">📄 docs/architecture/policies/kis-first-raw-fetch.md · 갱신 2026-05-12</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">📍 logging-levels</div>
+          <div class="card-sub">> **권위**: 본 문서 + `application.yml` `logging.level` section. > **결정 이력**: PR #245 (3 모듈 일괄 추가), PR #244 (nginx access_log…</div>
+          <div class="card-meta">📄 docs/architecture/policies/logging-levels.md · 갱신 2026-05-08</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">📍 mermaid-conventions</div>
+          <div class="card-sub">> **권위**: 본 문서 + `scripts/fix-mermaid-syntax.mjs` 자동 변환 룰. > **결정 이력**: PR #242 (syntax fix 도입), ADR-0052 (baseline cycl…</div>
+          <div class="card-meta">📄 docs/architecture/policies/mermaid-conventions.md · 갱신 2026-05-08</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">📍 task-cycle</div>
+          <div class="card-sub">> **권위**: 본 문서 + `scripts/task.mjs` 동작. > **결정 이력**: ADR-0036 §1 (사이클 정의), 운영 헌법 §1·§2, ADR-0051 (default fun trap 영향) >…</div>
+          <div class="card-meta">📄 docs/architecture/policies/task-cycle.md · 갱신 2026-05-08</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">📍 development-rules</div>
+          <div class="card-sub">> **상태**: DRAFT — 사용자 검토 대기 > **작성일**: 2026-05-03 > **작성자**: architect (opus 4.7 1M) > **선행**: master-architecture.md v2…</div>
+          <div class="card-meta">📄 docs/architecture/development-rules.md · 갱신 2026-05-06</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">📍 code-convention</div>
+          <div class="card-sub">> **Status**: ACTIVE — 마스터 아키텍처 정합 > **참조**: `docs/architecture/master-architecture.md` · `docs/architecture/development…</div>
+          <div class="card-meta">📄 docs/architecture/code-convention.md · 갱신 2026-05-05</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">📍 candle-data-policy-v2</div>
+          <div class="card-sub">- 작성일: TBD - 2026-05-11 갱신: **ADR 0057 KIS-only data source 정합** — Yahoo Finance 전면 폐기. 본 문서 §3·§4·§5·§6 매트릭스 KIS-only로 …</div>
+          <div class="card-meta">📄 docs/architecture/candle-data-policy-v2.md · 갱신 2026-05-11</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">📍 external-api-policy</div>
+          <div class="card-sub">- 작성일: TBD - 2026-05-11 갱신: **Yahoo Finance §3 전면 제거** — ADR 0057 (KIS OpenAPI 단일 데이터 출처) 정합. 사용자 명시 "kis에 있는 데이터만 사용하라고…</div>
+          <div class="card-meta">📄 docs/architecture/external-api-policy.md · 갱신 2026-05-11</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">📍 tracks-roadmap</div>
+          <div class="card-sub">> **선행**: `docs/architecture/master-architecture.md` > **작성일**: TBD</div>
+          <div class="card-meta">📄 docs/architecture/tracks-roadmap.md · 갱신 2026-05-15</div>
+        </div>
+      
+    </div>
+  
+  </div>
+
+  <div class="cat-content" data-cat="H" data-group-content-cat="시계열" data-active="false">
+    
+    <div class="backlog-filters">
+      <button data-filter="all">전체 58</button>
+      <button data-filter="proposed">Proposed 44</button>
+      <button data-filter="recent">최근 3건</button>
+      <button data-filter="done">완료 14 (toggle)</button>
+    </div>
+    <input class="cat-search" data-cat="H" placeholder="backlog 검색…" />
+    <div class="backlog-list">
+      
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="1 adr 0050 슬롯 채번룰 보강 (hunk 분리 + 영역 분배 강화)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§1. ADR 0050 슬롯 채번룰 보강 (hunk 분리 + 영역 분배 강화)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="2 kisrestport 인터페이스 분리 (kisrestcandleport + kisrestpriceport)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§2. KisRestPort 인터페이스 분리 (KisRestCandlePort + KisRestPricePort)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="3 claude.md adr 인덱스 sot 갱신" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§3. CLAUDE.md ADR 인덱스 SoT 갱신</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="4 worktree-agent-* fallback 브랜치 정리" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§4. worktree-agent-* fallback 브랜치 정리</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="5 backend-core 영역 침범 패턴 (consumer 모듈에 add-add)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§5. backend-core 영역 침범 패턴 (consumer 모듈에 add-add)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="6 사용자 첫 dogfooding 결과 흡수 (pr-10 머지 후)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§6. 사용자 첫 dogfooding 결과 흡수 (PR-10 머지 후)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="7 후속 트랙 진입 가이드 (w1 잔여 + w2 시작점 결정)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§7. 후속 트랙 진입 가이드 (W1 잔여 + W2 시작점 결정)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="8 stomp relay broker 도입 (post-mvp)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§8. STOMP relay broker 도입 (post-MVP)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="9 frontend 모바일 반응형 1차 미지원" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§9. frontend 모바일 반응형 1차 미지원</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="10 ai 에이전트 영역 침범 adr 누락 (장기)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§10. AI 에이전트 영역 침범 ADR 누락 (장기)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="11 변경 이력" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§11. 변경 이력</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="11 symbolcontrollertest onboardingguardfilter mock 보강 (pr-29d 처리 예정)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§11. SymbolControllerTest OnboardingGuardFilter mock 보강 (PR-29d 처리 예정)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Done" data-recent="false" data-search="12 env_file vs environment block 우선순위 함정 (pr-12)" style="border-left:4px solid #666">
+            <div class="backlog-title">§12. env_file vs environment block 우선순위 함정 (PR-12)</div>
+            <div class="backlog-meta">Done</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Done" data-recent="false" data-search="13 머지 후 정리 룰 흐려짐 (pr-14)" style="border-left:4px solid #666">
+            <div class="backlog-title">§13. 머지 후 정리 룰 흐려짐 (PR-14)</div>
+            <div class="backlog-meta">Done</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Done" data-recent="false" data-search="14 task 파일 데이터 무결성 흐려짐 (pr-18)" style="border-left:4px solid #666">
+            <div class="backlog-title">§14. task 파일 데이터 무결성 흐려짐 (PR-18)</div>
+            <div class="backlog-meta">Done</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Done" data-recent="false" data-search="15 sub-agent skill에 task.mjs 호출 의무 명시화 (pr-26)" style="border-left:4px solid #666">
+            <div class="backlog-title">§15. sub-agent SKILL에 task.mjs 호출 의무 명시화 (PR-26)</div>
+            <div class="backlog-meta">Done</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="16 instrument 테이블 14 컬럼 fitness gap (pr-21 처리 진행 중)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§16. instrument 테이블 14 컬럼 fitness gap (PR-21 처리 진행 중)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Done" data-recent="false" data-search="17 architect skill — kis-first raw fetch 의무 강화 (pr-21 → pr-26 헌법 통합)" style="border-left:4px solid #666">
+            <div class="backlog-title">§17. architect SKILL — KIS-first raw fetch 의무 강화 (PR-21 → PR-26 헌법 통합)</div>
+            <div class="backlog-meta">Done</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="18 symbolcontrollertest 미정 + batch test @disabled 2건 (pr-23 잔재) (pr-29d 처리 예정)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§18. SymbolControllerTest 미정 + batch test @Disabled 2건 (PR-23 잔재) (PR-29d 처리 예정)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Done" data-recent="false" data-search="19 task.mjs --force flag parsing fix (pr-26)" style="border-left:4px solid #666">
+            <div class="backlog-title">§19. task.mjs --force flag parsing fix (PR-26)</div>
+            <div class="backlog-meta">Done</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="21 w1 마감 + v3.1.0 진입 (pr-29 사이클)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§21. W1 마감 + v3.1.0 진입 (PR-29 사이클)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Done" data-recent="false" data-search="20 spring data repository default fun 함정 (pr-26 adr 0051)" style="border-left:4px solid #666">
+            <div class="backlog-title">§20. Spring Data Repository default fun 함정 (PR-26 ADR 0051)</div>
+            <div class="backlog-meta">Done</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Done" data-recent="false" data-search="22 dart opendart ssl handshake_failure (pr #260)" style="border-left:4px solid #666">
+            <div class="backlog-title">§22. DART OpenDART SSL handshake_failure (PR #260)</div>
+            <div class="backlog-meta">Done</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="23 kis 자격증명 user_id 식별 규약 불일치 — real vs mock (w3 t-o 진입 시 본격 정리)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§23. KIS 자격증명 user_id 식별 규약 불일치 — REAL vs MOCK (W3 T-O 진입 시 본격 정리)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Done" data-recent="false" data-search="24 종목상세 화면 dogfooding 결함 묶음 (v3.2 일괄 정정) — 결함 8·lg 일봉 일부 처리완료 pr-46" style="border-left:4px solid #666">
+            <div class="backlog-title">§24. 종목상세 화면 dogfooding 결함 묶음 (v3.2 일괄 정정) — 결함 8·LG 일봉 일부 처리완료 PR-46</div>
+            <div class="backlog-meta">Done</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="25 `@component` + `@conditionalonmissingbean` 함정 회귀 방지 (v3.1.2 hotfix 잔재)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§25. `@Component` + `@ConditionalOnMissingBean` 함정 회귀 방지 (v3.1.2 hotfix 잔재)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="26 pattern-engine 모듈 신설 사이클 진행 중 (b-1 결정, v3.1.2 직후)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§26. pattern-engine 모듈 신설 사이클 진행 중 (B-1 결정, v3.1.2 직후)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Done" data-recent="false" data-search="27 kis ws connect() 누락 결함 (사용자 dogfooding 2026-05-11)" style="border-left:4px solid #666">
+            <div class="backlog-title">§27. KIS WS connect() 누락 결함 (사용자 dogfooding 2026-05-11)</div>
+            <div class="backlog-meta">Done</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Done" data-recent="false" data-search="28 kis ws ssl handshake timeout (사용자 dogfooding 2026-05-11, pr #278 dart 패턴 적용)" style="border-left:4px solid #666">
+            <div class="backlog-title">§28. KIS WS SSL handshake timeout (사용자 dogfooding 2026-05-11, PR #278 DART 패턴 적용)</div>
+            <div class="backlog-meta">Done</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="29 소켓 데이터 처리 메모리 점검 — bounded growth 5건 (확신 낮음 / 증상 미확정)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§29. 소켓 데이터 처리 메모리 점검 — bounded growth 5건 (확신 낮음 / 증상 미확정)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="30 차트 캔들 api 초기 로드 시 잘못된 `before` 파라미터 의심 (사용자 dogfooding 2026-05-11)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§30. 차트 캔들 API 초기 로드 시 잘못된 `before` 파라미터 의심 (사용자 dogfooding 2026-05-11)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="31 5m·15m·30m·90m·1h 1m 합산 가공 트랙 (adr 0062 plan 발행 — 사용자 결정 대기)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§31. 5m·15m·30m·90m·1h 1m 합산 가공 트랙 (ADR 0062 plan 발행 — 사용자 결정 대기)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="32 nxt/통합거래 매트릭스 cover 트랙 (adr 0063 plan 발행 — 사용자 결정 대기)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§32. NXT/통합거래 매트릭스 cover 트랙 (ADR 0063 plan 발행 — 사용자 결정 대기)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="33 kis api 500 retry 강화 (1회 → 3회 exponential backoff) — v3.3.0 미러스톤" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§33. KIS API 500 retry 강화 (1회 → 3회 exponential backoff) — v3.3.0 미러스톤</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="34 redis boundary fanout + stomp 실시간 합산 갱신 (adr 0029) — v3.3.0 미러스톤" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§34. Redis boundary fanout + STOMP 실시간 합산 갱신 (ADR 0029) — v3.3.0 미러스톤</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="35 architect adr 0019·0028·0029 §2 매트릭스 nxt/합산 행 보강 — v3.2.3 minor" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§35. architect ADR 0019·0028·0029 §2 매트릭스 NXT/합산 행 보강 — v3.2.3 minor</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="36 운영 부채 정리 — github actions 결제 (a done) + local branch 잔재 — operational" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§36. 운영 부채 정리 — GitHub Actions 결제 (A DONE) + local branch 잔재 — operational</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Done" data-recent="false" data-search="37 t-bt r2 결과 영속 + get/delete endpoint 트랙 ✅ done — pr agent/backend-core/t-bt-r2-persistence (2026-05-12)" style="border-left:4px solid #666">
+            <div class="backlog-title">§37. T-BT R2 결과 영속 + GET/DELETE endpoint 트랙 ✅ DONE — PR agent/backend-core/t-bt-r2-persistence (2026-05-12)</div>
+            <div class="backlog-meta">Done</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Done" data-recent="false" data-search="38 t-bt r3 frontend `/strategy/backtest` 페이지 트랙 ✅ done — pr agent/frontend/t-bt-r3-page (2026-05-12)" style="border-left:4px solid #666">
+            <div class="backlog-title">§38. T-BT R3 frontend `/strategy/backtest` 페이지 트랙 ✅ DONE — PR agent/frontend/t-bt-r3-page (2026-05-12)</div>
+            <div class="backlog-meta">Done</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="39 t-bt 모델 확장 매트릭스 우선순위 등록 (pr-50 plan — 본 사이클 진행 0, 추후 사이클 발동 의제)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§39. T-BT 모델 확장 매트릭스 우선순위 등록 (PR-50 plan — 본 사이클 진행 0, 추후 사이클 발동 의제)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="40 t-sig 실시간 시그널 엔진 (w3 두 번째 트랙 — adr 0066 plan 발행, 사용자 결정 대기)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§40. T-SIG 실시간 시그널 엔진 (W3 두 번째 트랙 — ADR 0066 plan 발행, 사용자 결정 대기)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="41 t-risk 리스크 관리 (w3 세 번째 트랙 — adr 0067 plan 발행, 사용자 결정 대기)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§41. T-RISK 리스크 관리 (W3 세 번째 트랙 — ADR 0067 plan 발행, 사용자 결정 대기)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="42 readme 굴직 비전 트랙 (프로젝트의 꽃 — pr-52 plan 발행, 사용자 결정 대기)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§42. README 굴직 비전 트랙 (프로젝트의 꽃 — PR-52 plan 발행, 사용자 결정 대기)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="43 t-o 주문 실행 (w3 네 번째 트랙 — adr 0068 plan 발행, 사용자 결정 대기)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§43. T-O 주문 실행 (W3 네 번째 트랙 — ADR 0068 plan 발행, 사용자 결정 대기)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="44 settingsmodal 후속 — kis 키 변경 활성화 + 마스킹된 현재 키 표시 + active session 처리" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§44. SettingsModal 후속 — KIS 키 변경 활성화 + 마스킹된 현재 키 표시 + active session 처리</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="45 settingsmodal future api 키 카테고리 — openai·anthropic·naver·killswitch·account_prdt_cd" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§45. SettingsModal future API 키 카테고리 — OpenAI·Anthropic·Naver·KillSwitch·account_prdt_cd</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="46 risk 페이지 reconcile timeline ui + killswitch 토글 ux 보강 (t-recon phase 2 마감 후 frontend 단발 디스패치)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§46. Risk 페이지 reconcile timeline UI + KillSwitch 토글 UX 보강 (T-RECON Phase 2 마감 후 frontend 단발 디스패치)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="47 drift 임계치 사용자 설정화 (수량 1주·평균단가 0.5% 고정 → 사용자 토글)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§47. drift 임계치 사용자 설정화 (수량 1주·평균단가 0.5% 고정 → 사용자 토글)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="48 marketsessionfsm cron skip 통합 (시장 휴장 시 reconcile cron skip)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§48. MarketSessionFsm cron skip 통합 (시장 휴장 시 reconcile cron skip)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="49 user별 slack webhook 분리 (multi-user 본격화 시)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§49. user별 Slack webhook 분리 (multi-user 본격화 시)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="50 discord·이메일·sms 보조 채널 (slack 보완)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§50. Discord·이메일·SMS 보조 채널 (Slack 보완)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="51 adr 0045 system.startup.v1·system.shutdown.v1 publish 본격 합류 (graceful shutdown 트랙)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§51. ADR 0045 system.startup.v1·system.shutdown.v1 publish 본격 합류 (Graceful Shutdown 트랙)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Done" data-recent="false" data-search="52 t-news 뉴스·공시 실시간 인입 트랙 (adr 0075 흡수 완료 2026-05-15 — v3.6.7 patch)" style="border-left:4px solid #666">
+            <div class="backlog-title">§52. T-NEWS 뉴스·공시 실시간 인입 트랙 (ADR 0075 흡수 완료 2026-05-15 — v3.6.7 patch)</div>
+            <div class="backlog-meta">Done</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="53 t-news phase 4 rss 한경·구글 어댑터 (adr 0075 잔류 의제 — naver 한도 보완)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§53. T-NEWS Phase 4 RSS 한경·구글 어댑터 (ADR 0075 잔류 의제 — Naver 한도 보완)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="54 kis ws nxt/시간외 시세 sync 표준 정합 — adr 0076 §9 비범위 + §7 잔류 의제 (proposed 2026-05-15)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§54. KIS WS NXT/시간외 시세 sync 표준 정합 — ADR 0076 §9 비범위 + §7 잔류 의제 (Proposed 2026-05-15)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="55 내부 자산 추출 트랙 — 재사용 가능한 프로젝트 부트스트랩 템플릿 (adr 0078)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§55. 내부 자산 추출 트랙 — 재사용 가능한 프로젝트 부트스트랩 템플릿 (ADR 0078)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="56 kis ws opsp8996 error 재발 — v3.6.11 hotfix 후보 (proposed 2026-05-17)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§56. KIS WS OPSP8996 ERROR 재발 — v3.6.11 hotfix 후보 (Proposed 2026-05-17)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="57 naver open api 429 rate limit 17건 동시 — fitness gap (proposed 2026-05-17)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§57. Naver Open API 429 Rate limit 17건 동시 — fitness gap (Proposed 2026-05-17)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+    </div>
+  
+  </div>
+
+  <div class="cat-content" data-cat="E" data-group-content-cat="시계열" data-active="false">
+    
+    <div class="cat-cards">
+      
+        <div class="card baseline-card">
+          <div class="card-title">📊 v3.6.0</div>
+          <div class="card-files">
+            <a href="_workspace/baseline/v3.6.0/html/01-architecture.html">01-architecture</a> · <a href="_workspace/baseline/v3.6.0/html/02-data-flow.html">02-data-flow</a> · <a href="_workspace/baseline/v3.6.0/html/03-use-sequences.html">03-use-sequences</a> · <a href="_workspace/baseline/v3.6.0/html/04-feature-spec.html">04-feature-spec</a> · <a href="_workspace/baseline/v3.6.0/html/05-ui-inventory.html">05-ui-inventory</a> · <a href="_workspace/baseline/v3.6.0/html/06-history-traceability.html">06-history-traceability</a> · <a href="_workspace/baseline/v3.6.0/html/07-policy-evolution.html">07-policy-evolution</a> · <a href="_workspace/baseline/v3.6.0/html/index.html">index</a>
+          </div>
+        </div>
+      
+        <div class="card baseline-card">
+          <div class="card-title">📊 v3.5.0</div>
+          <div class="card-files">
+            <a href="_workspace/baseline/v3.5.0/html/01-architecture.html">01-architecture</a> · <a href="_workspace/baseline/v3.5.0/html/02-data-flow.html">02-data-flow</a> · <a href="_workspace/baseline/v3.5.0/html/03-use-sequences.html">03-use-sequences</a> · <a href="_workspace/baseline/v3.5.0/html/04-feature-spec.html">04-feature-spec</a> · <a href="_workspace/baseline/v3.5.0/html/05-ui-inventory.html">05-ui-inventory</a> · <a href="_workspace/baseline/v3.5.0/html/06-history-traceability.html">06-history-traceability</a> · <a href="_workspace/baseline/v3.5.0/html/07-policy-evolution.html">07-policy-evolution</a> · <a href="_workspace/baseline/v3.5.0/html/index.html">index</a>
+          </div>
+        </div>
+      
+        <div class="card baseline-card">
+          <div class="card-title">📊 v3.4.0</div>
+          <div class="card-files">
+            <a href="_workspace/baseline/v3.4.0/html/01-architecture.html">01-architecture</a> · <a href="_workspace/baseline/v3.4.0/html/02-data-flow.html">02-data-flow</a> · <a href="_workspace/baseline/v3.4.0/html/03-use-sequences.html">03-use-sequences</a> · <a href="_workspace/baseline/v3.4.0/html/04-feature-spec.html">04-feature-spec</a> · <a href="_workspace/baseline/v3.4.0/html/05-ui-inventory.html">05-ui-inventory</a> · <a href="_workspace/baseline/v3.4.0/html/06-history-traceability.html">06-history-traceability</a> · <a href="_workspace/baseline/v3.4.0/html/07-policy-evolution.html">07-policy-evolution</a> · <a href="_workspace/baseline/v3.4.0/html/index.html">index</a>
+          </div>
+        </div>
+      
+        <div class="card baseline-card">
+          <div class="card-title">📊 v3.3.0</div>
+          <div class="card-files">
+            <a href="_workspace/baseline/v3.3.0/html/01-architecture.html">01-architecture</a> · <a href="_workspace/baseline/v3.3.0/html/02-data-flow.html">02-data-flow</a> · <a href="_workspace/baseline/v3.3.0/html/03-use-sequences.html">03-use-sequences</a> · <a href="_workspace/baseline/v3.3.0/html/04-feature-spec.html">04-feature-spec</a> · <a href="_workspace/baseline/v3.3.0/html/05-ui-inventory.html">05-ui-inventory</a> · <a href="_workspace/baseline/v3.3.0/html/06-history-traceability.html">06-history-traceability</a> · <a href="_workspace/baseline/v3.3.0/html/07-policy-evolution.html">07-policy-evolution</a> · <a href="_workspace/baseline/v3.3.0/html/index.html">index</a>
+          </div>
+        </div>
+      
+        <div class="card baseline-card">
+          <div class="card-title">📊 v3.2.2</div>
+          <div class="card-files">
+            <a href="_workspace/baseline/v3.2.2/html/01-architecture.html">01-architecture</a> · <a href="_workspace/baseline/v3.2.2/html/02-data-flow.html">02-data-flow</a> · <a href="_workspace/baseline/v3.2.2/html/03-use-sequences.html">03-use-sequences</a> · <a href="_workspace/baseline/v3.2.2/html/04-feature-spec.html">04-feature-spec</a> · <a href="_workspace/baseline/v3.2.2/html/05-ui-inventory.html">05-ui-inventory</a> · <a href="_workspace/baseline/v3.2.2/html/06-history-traceability.html">06-history-traceability</a> · <a href="_workspace/baseline/v3.2.2/html/07-policy-evolution.html">07-policy-evolution</a> · <a href="_workspace/baseline/v3.2.2/html/index.html">index</a>
+          </div>
+        </div>
+      
+        <div class="card baseline-card">
+          <div class="card-title">📊 v3.2.0</div>
+          <div class="card-files">
+            <a href="_workspace/baseline/v3.2.0/html/01-architecture.html">01-architecture</a> · <a href="_workspace/baseline/v3.2.0/html/02-data-flow.html">02-data-flow</a> · <a href="_workspace/baseline/v3.2.0/html/03-use-sequences.html">03-use-sequences</a> · <a href="_workspace/baseline/v3.2.0/html/04-feature-spec.html">04-feature-spec</a> · <a href="_workspace/baseline/v3.2.0/html/05-ui-inventory.html">05-ui-inventory</a> · <a href="_workspace/baseline/v3.2.0/html/06-history-traceability.html">06-history-traceability</a> · <a href="_workspace/baseline/v3.2.0/html/07-policy-evolution.html">07-policy-evolution</a> · <a href="_workspace/baseline/v3.2.0/html/index.html">index</a>
+          </div>
+        </div>
+      
+        <div class="card baseline-card">
+          <div class="card-title">📊 v3.1.0</div>
+          <div class="card-files">
+            <a href="_workspace/baseline/v3.1.0/html/01-architecture.html">01-architecture</a> · <a href="_workspace/baseline/v3.1.0/html/02-data-flow.html">02-data-flow</a> · <a href="_workspace/baseline/v3.1.0/html/03-use-sequences.html">03-use-sequences</a> · <a href="_workspace/baseline/v3.1.0/html/04-feature-spec.html">04-feature-spec</a> · <a href="_workspace/baseline/v3.1.0/html/05-ui-inventory.html">05-ui-inventory</a> · <a href="_workspace/baseline/v3.1.0/html/06-history-traceability.html">06-history-traceability</a> · <a href="_workspace/baseline/v3.1.0/html/07-policy-evolution.html">07-policy-evolution</a> · <a href="_workspace/baseline/v3.1.0/html/index.html">index</a>
+          </div>
+        </div>
+      
+    </div>
+  
+  </div>
+
+  <div class="cat-content" data-cat="F" data-group-content-cat="시계열" data-active="false">
+    
+    <div class="devlog-latest">
+      <a href="_workspace/devlog/2026-05-11.html">
+        <div class="card-title">📔 2026-05-11.html <span class="badge">최신</span></div>
+      </a>
+    </div>
+    <div class="devlog-rest">
+      <a href="_workspace/devlog/2026-05-10.html" class="card-mini">📔 2026-05-10</a><a href="_workspace/devlog/2026-05-08.html" class="card-mini">📔 2026-05-08</a>
+      <a href="_workspace/devlog/index.html" class="card-mini">📚 전체 index</a>
+    </div>
+  
+  </div>
+
+
+<script>
+// 그룹탭 전환
+document.querySelectorAll('.group-tab').forEach((t) => {
+  t.addEventListener('click', () => {
+    const g = t.dataset.group;
+    document.querySelectorAll('.group-tab').forEach((x) => x.classList.toggle('active', x === t));
+    document.querySelectorAll('[data-group-content]').forEach((c) => {
+      c.style.display = c.dataset.groupContent === g ? '' : 'none';
+    });
+    // 그룹 내 첫 카테고리 활성화
+    const firstCat = document.querySelector(`.sub-tab[data-group="${g}"]`);
+    if (firstCat) firstCat.click();
+    location.hash = '#' + g;
+  });
+});
+
+// 하위탭 전환
+document.querySelectorAll('.sub-tab').forEach((t) => {
+  t.addEventListener('click', () => {
+    const g = t.dataset.group;
+    document.querySelectorAll(`.sub-tab[data-group="${g}"]`).forEach((x) => x.classList.toggle('active', x === t));
+    document.querySelectorAll('.cat-content').forEach((c) => {
+      c.dataset.active = c.dataset.cat === t.dataset.cat ? 'true' : 'false';
+    });
+    location.hash = '#' + g + '/' + t.dataset.cat;
+  });
+});
+
+// URL hash 복원
+if (location.hash) {
+  const [g, cat] = location.hash.substring(1).split('/');
+  const gt = document.querySelector(`.group-tab[data-group="${g}"]`);
+  if (gt) gt.click();
+  if (cat) {
+    setTimeout(() => {
+      const st = document.querySelector(`.sub-tab[data-cat="${cat}"]`);
+      if (st) st.click();
+    }, 0);
+  }
+}
+
+// 검색
+document.querySelectorAll('.cat-search').forEach((input) => {
+  input.addEventListener('input', (e) => {
+    const q = e.target.value.toLowerCase();
+    const cat = e.target.dataset.cat;
+    const items = document.querySelectorAll(`.cat-content[data-cat="${cat}"] [data-search]`);
+    items.forEach((it) => {
+      it.style.display = it.dataset.search.includes(q) ? '' : 'none';
+    });
+  });
+});
+</script>
+</body>
+</html>
