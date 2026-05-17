@@ -18,6 +18,7 @@ import org.springframework.web.reactive.socket.WebSocketMessage
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient
 import reactor.core.Disposable
 import reactor.core.publisher.Sinks
+import reactor.util.concurrent.Queues
 import java.math.BigDecimal
 import java.net.URI
 import java.time.Duration
@@ -94,6 +95,13 @@ class KisWebSocketBridge(
     @Value("\${magicjar.kis.ws.user-id:}")
     private val defaultUserId: String,
 ) : KisWsPort {
+    companion object {
+        // backlog §29 #4 — Sinks unicast bounded buffer 사이즈 (reconnect 폭주 hardcap).
+        // 정상 시 send queue ~6 KB(50 종목 × ~120 byte) 대비 충분한 여유.
+        // overflow 시 tryEmitNext가 FAIL_OVERFLOW 반환 → silent drop (backpressure 정책).
+        private const val BACKPRESSURE_BUFFER_SIZE = 1024
+    }
+
     private val log = LoggerFactory.getLogger(KisWebSocketBridge::class.java)
 
     // 재연결 지수 백오프 딜레이 (ms) — ADR 0048 §2-4-B
@@ -388,7 +396,19 @@ class KisWebSocketBridge(
             return
         }
 
-        val sink = Sinks.many().unicast().onBackpressureBuffer<String>()
+        // backlog §29 #4 — Sinks bufferSize 명시 (reconnect 폭주 시 unbounded growth 차단).
+        // Reactor 공식 API: Sinks.UnicastSpec.onBackpressureBuffer는 bufferSize 직접 overload 없음.
+        // 대신 Queue 인자 overload로 bounded queue 주입 — Queues.get(1024) = SPSC bounded supplier.
+        // 출처: https://projectreactor.io/docs/core/release/api/reactor/util/concurrent/Queues.html
+        //       Queues.get(int batchSize) → "an unbounded or bounded Queue Supplier"
+        // 1024는 정상 시 ~6 KB 대비 충분한 여유 + reconnect 폭주 상한 hardcap.
+        // overflow 시 EmissionResult FAIL_OVERFLOW 반환 → tryEmitNext 호출자가 drop 자동 수행
+        // (sendSink?.tryEmitNext는 boolean/EmissionResult 반환 — 별도 drop 정책 없이 silent drop).
+        val sink =
+            Sinks
+                .many()
+                .unicast()
+                .onBackpressureBuffer<String>(Queues.get<String>(BACKPRESSURE_BUFFER_SIZE).get())
         sendSink = sink
 
         val wsUrl = getWsUrl()
