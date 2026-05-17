@@ -92,6 +92,68 @@ class OrderbookSubscriptionRouterTest {
     }
 
     /**
+     * backlog §29 #3 — pendingDebounce expired entry 자동 cleanup 검증.
+     *
+     * 시나리오: 종목 1회 진입 후 재진입 없는 stale entry는 다음 진입 시 자동 정리.
+     * 검증: 진입 → 200ms 대기 → 다른 종목 진입 시 stale entry 제거 확인.
+     * pendingDebounce는 private이라 reflection으로 size 검증.
+     */
+    @Test
+    fun `pendingDebounce expired entry는 다음 진입 시 자동 정리`() {
+        router.onSymbolDetailEntered("000001") // entry 1 — pendingUntil = now + 200
+        Thread.sleep(250) // 200ms debounce 만료 대기
+        router.onSymbolDetailEntered("000002") // entry 2 — cleanup 트리거
+
+        val debounceMap = readPendingDebounce(router)
+        // entry 1은 expired로 cleanup, entry 2만 남아야 함
+        assertFalse(debounceMap.containsKey("000001"), "expired entry 000001은 cleanup되어야 함")
+        assertTrue(debounceMap.containsKey("000002"), "신규 entry 000002는 보존")
+        assertEquals(1, debounceMap.size, "stale 미정리 시 size=2가 됨")
+    }
+
+    /**
+     * backlog §29 #3 — unsubscribe 흐름(exit·LRU evict·idle timeout) 시
+     * pendingDebounce 동기 정리 검증 — exit 경로.
+     */
+    @Test
+    fun `onSymbolDetailExited 시 pendingDebounce 동기 정리`() {
+        router.onSymbolDetailEntered("005930")
+        assertTrue(readPendingDebounce(router).containsKey("005930"))
+
+        router.onSymbolDetailExited("005930")
+
+        assertFalse(readPendingDebounce(router).containsKey("005930"))
+    }
+
+    /**
+     * backlog §29 #3 — LRU evict 시 evicted 종목 pendingDebounce 동기 정리.
+     */
+    @Test
+    fun `LRU evict 시 pendingDebounce 동기 정리`() {
+        val firstCode = "code00"
+        router.onSymbolDetailEntered(firstCode)
+        Thread.sleep(250) // debounce 만료 + 시간차 보장
+        for (i in 1 until 10) {
+            router.onSymbolDetailEntered("code%02d".format(i))
+            Thread.sleep(5)
+        }
+
+        // 11번째 — firstCode가 LRU evict 됨
+        router.onSymbolDetailEntered("code10")
+
+        assertFalse(router.current().contains(firstCode), "LRU evict 검증")
+        // pendingDebounce에서도 정리되어야 함 (또는 expired cleanup으로 정리)
+        assertFalse(readPendingDebounce(router).containsKey(firstCode), "evicted 종목의 pendingDebounce 잔존 금지")
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun readPendingDebounce(router: OrderbookSubscriptionRouter): Map<String, Long> {
+        val field = OrderbookSubscriptionRouter::class.java.getDeclaredField("pendingDebounce")
+        field.isAccessible = true
+        return field.get(router) as Map<String, Long>
+    }
+
+    /**
      * 테스트용 KisWsPort mock (Mockito 대신 직접 구현 — 단순 추적)
      */
     class TestKisWsPort : KisWsPort {

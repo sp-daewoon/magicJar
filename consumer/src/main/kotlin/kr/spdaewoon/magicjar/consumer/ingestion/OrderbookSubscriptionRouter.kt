@@ -49,6 +49,11 @@ class OrderbookSubscriptionRouter(
         lock.withLock {
             val now = System.currentTimeMillis()
 
+            // backlog §29 #3 — bounded growth cleanup:
+            // pendingDebounce는 진입할 때마다 갱신되지만, 한 번 진입 후 재진입 없는 종목은
+            // expired entry가 영구 잔존(현 종목 수 × 24 byte). 진입 시 자동 정리로 stale entry 제거.
+            pendingDebounce.entries.removeIf { (_, until) -> now > until }
+
             // 200ms debounce 체크 — 동일 종목 200ms 내 재진입이면 무시
             val pendingUntil = pendingDebounce[code]
             if (pendingUntil != null && now < pendingUntil) {
@@ -69,6 +74,8 @@ class OrderbookSubscriptionRouter(
                 val eldest = lruMap.entries.minByOrNull { it.value }
                 if (eldest != null) {
                     lruMap.remove(eldest.key)
+                    // backlog §29 #3 — evicted 종목 pendingDebounce 동기 정리
+                    pendingDebounce.remove(eldest.key)
                     kisWsPort.unsubscribeOrderbook(listOf(eldest.key))
                     log.info("orderbook LRU evict: evicted={} new={} slot={}/{}", eldest.key, code, lruMap.size, maxSlots)
                 }
@@ -88,6 +95,8 @@ class OrderbookSubscriptionRouter(
         lock.withLock {
             if (lruMap.containsKey(code)) {
                 lruMap.remove(code)
+                // backlog §29 #3 — pendingDebounce 동기 정리 (unsubscribe된 종목 stale entry 잔존 차단)
+                pendingDebounce.remove(code)
                 kisWsPort.unsubscribeOrderbook(listOf(code))
                 log.info("orderbook unsubscribe: code={} slot={}/{}", code, lruMap.size, maxSlots)
             }
@@ -115,6 +124,8 @@ class OrderbookSubscriptionRouter(
             if (idleCodes.isNotEmpty()) {
                 idleCodes.forEach { code ->
                     lruMap.remove(code)
+                    // backlog §29 #3 — pendingDebounce 동기 정리
+                    pendingDebounce.remove(code)
                     kisWsPort.unsubscribeOrderbook(listOf(code))
                     log.info("orderbook idle timeout unsub: code={} idle>5min", code)
                 }
