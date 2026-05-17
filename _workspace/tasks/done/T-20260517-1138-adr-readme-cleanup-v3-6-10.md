@@ -3,9 +3,9 @@ id: T-20260517-1138-adr-readme-cleanup-v3-6-10
 agent: architect
 model: opus
 branch: agent/architect/adr-readme-cleanup-v3-6-10
-status: RUNNING
+status: DONE
 startedAt: 2026-05-17T11:38:20.793+09:00
-completedAt: null
+completedAt: 2026-05-17T11:55:57.003+09:00
 pr: null
 parentPhase: ?
 ---
