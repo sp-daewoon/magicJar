@@ -11,11 +11,13 @@
  * - T-J Phase 3 (ADR 0072): "매매일지" 메뉴 추가
  * - T-PERF Phase 3 (ADR 0072): "성과" 메뉴 추가
  * - ADR 0069 §6: ⚙️ SettingsModal 진입점 추가
+ * - backlog §58 / ADR 0077 K-1: KisRealCredentialBanner — REAL 미등록 시 안내
  */
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { SettingsIcon } from '../icons/SettingsIcon'
 import { SettingsModal } from '../settings/SettingsModal'
+import { KisRealCredentialBanner } from './KisRealCredentialBanner'
 
 export function AppHeader() {
   // ADR 0069 §6 — SettingsModal 열림 상태 (로컬 hook)
@@ -24,6 +26,9 @@ export function AppHeader() {
   return (
     <>
     <header className="sticky top-0 z-50 border-b border-gray-800 bg-gray-950/95 backdrop-blur">
+      {/* KIS 실전 자격증명 미등록 경고 배너 — backlog §58 / ADR 0077 K-1 */}
+      <KisRealCredentialBanner onOpenSettings={() => setSettingsOpen(true)} />
+
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
         {/* 로고 */}
         <NavLink
