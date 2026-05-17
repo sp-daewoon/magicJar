@@ -320,6 +320,25 @@ export function LightweightChart({
    */
   const lastBarRef = useRef<{ time: UTCTimestamp; open: number; high: number; low: number; close: number } | null>(null)
 
+  /**
+   * backlog §30 fix — 차트 좌측 스크롤 자동 페이지네이션 false trigger 가드
+   *
+   * 문제: LWC v4 setData + fitContent 직후 timeScale이 visibleLogicalRange 콜백을
+   *      자동 발화. fitContent는 우측 패딩을 두기 위해 range.from 값을 음수로
+   *      설정(예: -10 ~ -50)하므로 사용자가 좌측 스크롤하지 않았음에도 onScrollLeft
+   *      자동 호출 → fetchNextPage(before=oldest_ts) → 옛 candle 200개 즉시 요청.
+   *      사용자 dogfooding(2026-05-11): 차트 첫 진입 시 `before=2009-10-31T15:00:00Z`
+   *      자동 호출 + 응답 `ts=2000-01-31T15:00:00Z` 확인 — 의도되지 않은 초기 페이지네이션.
+   *
+   * 가드 정책 (2단):
+   *   1. **첫 setData 후 1초 cooldown** — 초기 setData·fitContent 직후 자동 콜백 무시.
+   *   2. **range.from 단조감소(좌측 pan) 검증** — 직전 range.from보다 더 작아진 경우만
+   *      onScrollLeft 호출(사용자가 실제 좌측 pan했음 신호). 우측 zoom·resize 같은
+   *      false positive 차단.
+   */
+  const setDataReceivedAtRef = useRef<number>(0)
+  const lastVisibleRangeFromRef = useRef<number | null>(null)
+
   const hideTooltip = useCallback(() => {
     setTooltip((prev) => ({ ...prev, visible: false }))
   }, [])
@@ -397,9 +416,33 @@ export function LightweightChart({
     })
     volumeSeriesRef.current = volumeSeries
 
-    // 차트 좌측 스크롤 끝 도달 감지 (페이지네이션 트리거)
+    // 차트 좌측 스크롤 끝 도달 감지 (페이지네이션 트리거 — backlog §30 fix)
+    //
+    // 가드 1) setData 후 1초 cooldown — fitContent 자동 발화 무시.
+    // 가드 2) range.from 단조감소 — 좌측 pan 신호일 때만 트리거.
+    //         (이전 from > 현재 from = 좌측 이동, zoom·resize·우측 pan은 무시)
     chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-      if (range && range.from < 1 && onScrollLeftRef.current) {
+      if (!range || !onScrollLeftRef.current) return
+
+      // 가드 1: setData 직후 1초간은 자동 콜백(fitContent)이므로 무시
+      const elapsedMs = Date.now() - setDataReceivedAtRef.current
+      if (setDataReceivedAtRef.current === 0 || elapsedMs < 1000) {
+        // 초기 from 값만 기록 — 가드 2 비교 기준 확립
+        lastVisibleRangeFromRef.current = range.from
+        return
+      }
+
+      // 가드 2: 이전 from 대비 단조감소(좌측 pan)일 때만 트리거
+      const prevFrom = lastVisibleRangeFromRef.current
+      lastVisibleRangeFromRef.current = range.from
+
+      if (prevFrom === null || range.from >= prevFrom) {
+        // 변화 없음·우측 pan·zoom — 무시
+        return
+      }
+
+      // 좌측 끝 도달 (range.from < 1: 차트 좌측 경계 근접) + 단조감소(실제 좌측 pan)
+      if (range.from < 1) {
         onScrollLeftRef.current()
       }
     })
@@ -541,6 +584,11 @@ export function LightweightChart({
     candleSeries.setData(candleData)
     volumeSeries.setData(volumeData)
     chartRef.current?.timeScale().fitContent()
+
+    // backlog §30 fix — setData 시각 기록 (visibleLogicalRange cooldown 가드용)
+    setDataReceivedAtRef.current = Date.now()
+    // 추가 페이지 append 시 prevFrom 단조감소 비교 baseline 재설정
+    lastVisibleRangeFromRef.current = null
 
     // 마지막 bar 추적 — liveTick update 시 open·low·high 유지용
     const last = candleData[candleData.length - 1]
