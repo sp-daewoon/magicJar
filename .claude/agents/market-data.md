@@ -1,7 +1,7 @@
 ---
 name: market-data
 description: KIS OpenAPI 연동과 국내 주식 시세·뉴스·공시 수집 파이프라인을 책임지는 데이터 엔지니어. 실시간 WebSocket 체결/호가, 일봉·분봉 적재, DART 공시·네이버 뉴스 크롤링.
-model: sonnet
+model: opus
 git-author: magicjar-market-data <bot+market-data@magicjar.local>
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 ---

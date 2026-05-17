@@ -88,7 +88,7 @@
 | 0028 | Watchlist 기반 Ingestion Worker (1~5초 polling) |
 | 0029 | 당일 진행 중 캔들 Redis 캐시 |
 
-## §9. 메타·운영·하네스 (8건)
+## §9. 메타·운영·하네스 (9건)
 
 | 번호 | 제목 |
 |------|------|
@@ -97,10 +97,11 @@
 | 0032 | Husky v9 git hooks (pre-commit author whitelist + pre-push) |
 | 0033 | 단일 worktree + 순차 작업 정책 |
 | 0034 | 머지 흐름 단순화 (`agent/* → main`) |
-| 0035 | 에이전트별 모델 차등 + 에스컬레이션 |
+| 0035 | ~~에이전트별 모델 차등 + 에스컬레이션~~ — **Superseded by 0080 (2026-05-18)** |
 | 0036 | Orchestrator Meta Rules (git-author + task-file-system + architect-as-orchestrator) |
 | 0078 | 내부 자산 추출 전략 — Proposed (재사용 가능한 프로젝트 부트스트랩 템플릿 + Plugin Independence 제약) |
 | 0079 | **마스터 시각화 HTML 표준화 (`scripts/master-index.mjs` + `/master-index` slash + release.sh 통합) — Accepted (2026-05-17)** |
+| 0080 | **전체 에이전트 Opus 4.7 통일 (ADR 0035 supersede) — Accepted (2026-05-18)** |
 
 ## §10. 외부 API 강제 정책 + UI 흐름 (4건)
 
@@ -190,6 +191,7 @@
 
 | 일자 | 사이클 | 변경 |
 |------|--------|------|
+| 2026-05-18 | v3.6.11 후속 | **ADR 0080 Accepted** — 전체 에이전트 Opus 4.7 통일 (ADR 0035 supersede). 사유: W3 종착 + W4 진입 직전 단계에서 sub-agent 코드 한 줄 수정도 룰 본체·자본 흐름 결합으로 진화 — sonnet 패턴화 추론 risk 회피. backend-core·market-data·frontend·qa 4명 sonnet → opus. 토큰 비용 약 2배 증가 사용자 명시 수용. ADR 0035 status Superseded 표기. |
 | 2026-05-17 | v3.6.11 hotfix | **ADR 0077 Proposed** — OPSP8996 ERROR 재발 deep dive (v3.6.10 cut 후 86건/1시간 재발). ADR 0076 6 가설 미발동 시나리오 — 자격증명 미등록 + MOCK type 시세 connect 정합 결함 + retry counter logic 결함. 신규 가설 G·H·I·J + 의제 6건(G·H·I·J·K·L) architect 권장 단일 PR. §12 reserved 슬롯 0077 발동 완료 표기 정합. |
 | 2026-05-17 | v3.6.10 후속 | **ADR 0079 Accepted** — 마스터 시각화 HTML 표준화 (`_workspace/master.html` + `scripts/master-index.mjs` + `/master-index` slash + `scripts/release.sh` 통합 + 12 카테고리 두 축 + banner + ADR/spec/backlog 추출 자동화). Phase 1·2·3 PR #461·#462·본 사이클 직렬 머지. brainstorming 흐름 사용자 결정 8회 종합 (orchestrator). |
 | 2026-05-17 | v3.6.10 patch | **본 README 큰 정리** — 도입부 슬림화 + §12 분리(예약 슬롯 / 후속 Proposed) + §12 행 paragraph 슬림화 + 0073 중복 §5 단일화 + 0058·0065·0077 placeholder 사유 명시 |

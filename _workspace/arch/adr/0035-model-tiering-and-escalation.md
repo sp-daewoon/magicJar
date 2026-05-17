@@ -1,6 +1,6 @@
 # ADR 0035: 에이전트별 모델 차등 + 에스컬레이션
 
-- 상태: Accepted
+- 상태: **Superseded by [ADR 0080](0080-all-agents-opus-unification.md)** (2026-05-18 — 전체 opus 4.7 통일)
 - 작성일: TBD
 - 결정자: architect
 
