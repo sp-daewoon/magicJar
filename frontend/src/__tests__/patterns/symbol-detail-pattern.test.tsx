@@ -20,6 +20,7 @@ import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { SymbolDetailPage } from '../../pages/Symbol/SymbolDetailPage'
+import { ToastProvider } from '../../components/ui/ToastProvider'
 
 // ──────────────────────────────────────────────
 // LWC canvas + STOMP mock
@@ -123,12 +124,14 @@ function renderSymbolDetailPage(code = '005930') {
   })
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[`/symbol/${code}`]}>
-        <Routes>
-          <Route path="/symbol/:code" element={<SymbolDetailPage />} />
-          <Route path="/watchlist" element={<div>관심종목 페이지</div>} />
-        </Routes>
-      </MemoryRouter>
+      <ToastProvider>
+        <MemoryRouter initialEntries={[`/symbol/${code}`]}>
+          <Routes>
+            <Route path="/symbol/:code" element={<SymbolDetailPage />} />
+            <Route path="/watchlist" element={<div>관심종목 페이지</div>} />
+          </Routes>
+        </MemoryRouter>
+      </ToastProvider>
     </QueryClientProvider>,
   )
 }
