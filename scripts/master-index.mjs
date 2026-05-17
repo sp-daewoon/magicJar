@@ -282,6 +282,181 @@ registerCategory('E', '시계열', 'baseline', async () => {
   `;
 });
 
+registerCategory('D', '권위', 'spec/plan', async () => {
+  const dir = join(ROOT, '_workspace/specs');
+  if (!existsSync(dir)) return { error: '데이터 없음' };
+  const files = readdirSync(dir).filter((f) => f.endsWith('.md'));
+  const specs = files.map((f) => {
+    const content = readFileSync(join(dir, f), 'utf-8');
+    const titleMatch = content.match(/^#\s+(.+)$/m);
+    const prMatch = f.match(/pr-(\d+)/);
+    const dateMatch = f.match(/^(\d{4}-\d{2}-\d{2})/);
+    return {
+      filename: f,
+      title: titleMatch ? titleMatch[1].trim() : f,
+      pr: prMatch ? parseInt(prMatch[1], 10) : null,
+      date: dateMatch ? dateMatch[1] : null,
+    };
+  });
+  specs.sort((a, b) => (b.pr || 0) - (a.pr || 0) || (b.date || '').localeCompare(a.date || ''));
+  return { recent: specs.slice(0, 10), all: specs, total: specs.length };
+}, (data) => {
+  if (data.error) return `<div class="empty">${data.error}</div>`;
+  return `
+    <h3>최근 spec 10건 / 전체 ${data.total}건</h3>
+    <input class="cat-search" data-cat="D" placeholder="spec 검색…" />
+    <div class="spec-list">
+      ${data.all.map((s) => `
+        <div class="card" data-search="${(s.filename + ' ' + s.title).toLowerCase()}">
+          <div class="card-title">${s.pr ? 'PR #' + s.pr : '📄'} ${s.title}</div>
+          <div class="card-meta">📄 _workspace/specs/${s.filename} ${s.date ? '· ' + s.date : ''}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+});
+
+registerCategory('J', '권위', '카탈로그', async () => {
+  const items = [
+    { name: 'indicator-catalog', path: '_workspace/strategy/indicator-catalog.md' },
+    { name: 'pattern-catalog', path: '_workspace/strategy/pattern-catalog.md' },
+    { name: 'prompt-catalog', path: '_workspace/ai/prompt-catalog.md' },
+  ];
+  return items.map((i) => {
+    const meta = fileMeta(join(ROOT, i.path));
+    return meta
+      ? { ...i, title: firstH2(meta.content) || i.name, lines: meta.lines, mtime: meta.mtime }
+      : { ...i, error: '데이터 없음' };
+  });
+}, (data) => `
+  <div class="cat-cards">
+    ${data.map((c) => `
+      <div class="card">
+        <div class="card-title">📚 ${c.name}</div>
+        <div class="card-sub">${c.title || c.error || ''}</div>
+        <div class="card-meta">${c.lines || '-'} lines · 갱신 ${c.mtime || '-'}</div>
+      </div>
+    `).join('')}
+  </div>
+`);
+
+registerCategory('K', '권위', '하네스', async () => {
+  const agentsDir = join(ROOT, '.claude/agents');
+  const skillsDir = join(ROOT, '.claude/skills');
+  const commandsDir = join(ROOT, '.claude/commands');
+  const agents = existsSync(agentsDir) ? readdirSync(agentsDir).filter((f) => f.endsWith('.md')).map((f) => ({ name: f.replace('.md', ''), path: `.claude/agents/${f}` })) : [];
+  const skills = existsSync(skillsDir) ? readdirSync(skillsDir).filter((d) => statSync(join(skillsDir, d)).isDirectory()).map((d) => ({ name: d, path: `.claude/skills/${d}/SKILL.md` })) : [];
+  const commands = existsSync(commandsDir) ? readdirSync(commandsDir).filter((f) => f.endsWith('.md')).map((f) => ({ name: f.replace('.md', ''), path: `.claude/commands/${f}` })) : [];
+  return { agents, skills, commands };
+}, (data) => `
+  <h3>에이전트 ${data.agents.length}명</h3>
+  <div class="cat-cards">
+    ${data.agents.map((a) => `<div class="card"><div class="card-title">🤖 ${a.name}</div><div class="card-meta">📄 ${a.path}</div></div>`).join('')}
+  </div>
+  <h3>SKILL ${data.skills.length}개</h3>
+  <div class="cat-cards">
+    ${data.skills.map((s) => `<div class="card"><div class="card-title">🛠 ${s.name}</div><div class="card-meta">📄 ${s.path}</div></div>`).join('')}
+  </div>
+  <h3>Slash Commands ${data.commands.length}개</h3>
+  <div class="cat-cards">
+    ${data.commands.map((c) => `<div class="card"><div class="card-title">/ ${c.name}</div><div class="card-meta">📄 ${c.path}</div></div>`).join('')}
+  </div>
+  <p><a href="_workspace/arch/agent-charter.md">📋 운영 헌법 (agent-charter.md)</a></p>
+`);
+
+registerCategory('G', '시계열', 'release', async () => {
+  // gh CLI 시도
+  let releases = [];
+  try {
+    const output = execSync('gh release list --limit 30 --json tagName,publishedAt,name', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+    releases = JSON.parse(output).map((r) => ({
+      tag: r.tagName,
+      date: r.publishedAt ? r.publishedAt.substring(0, 10) : '-',
+      title: r.name || r.tagName,
+      url: `https://github.com/sp-daewoon/magicJar/releases/tag/${r.tagName}`,
+    }));
+  } catch (e) {
+    // fallback: git tag
+    const tags = execSync('git tag -l "v*" --sort=-version:refname', { encoding: 'utf-8' }).trim().split('\n').slice(0, 30);
+    releases = tags.map((t) => ({ tag: t, date: '-', title: t, url: null }));
+  }
+  return { recent: releases.slice(0, 5), all: releases, total: releases.length };
+}, (data) => {
+  if (data.error) return `<div class="empty">${data.error}</div>`;
+  return `
+    <h3>최근 5건 highlight</h3>
+    <div class="adr-recent">
+      ${data.recent.map((r) => `
+        <div class="adr-card" style="border-left:3px solid #ff9800">
+          <div class="adr-number">${r.tag}</div>
+          <div class="adr-title">${r.title}</div>
+          <div class="adr-meta">${r.date}</div>
+        </div>
+      `).join('')}
+    </div>
+    <h3>전체 ${data.total}건</h3>
+    <table>
+      <thead><tr><th>tag</th><th>날짜</th><th>title</th></tr></thead>
+      <tbody>
+        ${data.all.map((r) => `
+          <tr><td>${r.url ? `<a href="${r.url}">${r.tag}</a>` : r.tag}</td><td>${r.date}</td><td>${r.title}</td></tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+});
+
+registerCategory('I', '시계열', 'task', async () => {
+  const dir = join(ROOT, '_workspace/tasks/done');
+  if (!existsSync(dir)) return { error: '데이터 없음' };
+  const files = readdirSync(dir).filter((f) => f.match(/^T-\d{8}-\d{4}-.*\.md$/));
+  const tasks = files.map((f) => {
+    const content = readFileSync(join(dir, f), 'utf-8');
+    const statusM = content.match(/^status:\s*(\w+)/m);
+    const agentM = content.match(/^agent:\s*([\w-]+)/m);
+    const prM = content.match(/^pr:\s*#?(\d+)/m);
+    return { filename: f, status: statusM ? statusM[1] : 'Unknown', agent: agentM ? agentM[1] : '-', pr: prM ? prM[1] : null };
+  });
+  const byStatus = tasks.reduce((acc, t) => ((acc[t.status] ||= []).push(t), acc), {});
+  return { total: tasks.length, byStatus, recent: tasks.sort((a, b) => b.filename.localeCompare(a.filename)).slice(0, 10) };
+}, (data) => {
+  if (data.error) return `<div class="empty">${data.error}</div>`;
+  return `
+    <h3>전체 ${data.total}건 · status별 분포</h3>
+    <div class="cat-cards">
+      ${Object.entries(data.byStatus).map(([s, ts]) => `
+        <div class="card"><div class="card-title">${s}</div><div class="card-sub">${ts.length}건</div></div>
+      `).join('')}
+    </div>
+    <h3>최근 10건</h3>
+    <div class="spec-list">
+      ${data.recent.map((t) => `
+        <div class="card">
+          <div class="card-title">${t.filename}</div>
+          <div class="card-meta">${t.status} · ${t.agent} ${t.pr ? '· PR #' + t.pr : ''}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+});
+
+registerCategory('L', '시계열', 'dashboard', async () => {
+  const path = join(ROOT, '_workspace/dashboard.html');
+  if (!existsSync(path)) return { error: '데이터 없음' };
+  const st = statSync(path);
+  return { exists: true, mtime: st.mtime.toISOString().substring(0, 10), size: (st.size / 1024).toFixed(1) };
+}, (data) => {
+  if (data.error) return `<div class="empty">${data.error}</div>`;
+  return `
+    <div class="card" style="text-align:center;padding:30px">
+      <div class="card-title" style="font-size:18px">📊 운영 상태 Dashboard v2</div>
+      <div class="card-sub">Phase · Task · PR · commit · QA · 에이전트 실시간 운영 상태</div>
+      <div style="margin:16px 0"><a href="_workspace/dashboard.html" style="background:#0f3460;padding:10px 20px;border-radius:4px;color:#fff;display:inline-block">→ Dashboard 열기</a></div>
+      <div class="card-meta">${data.size} KB · 마지막 갱신 ${data.mtime}</div>
+    </div>
+  `;
+});
+
 registerCategory('F', '시계열', 'devlog', async () => {
   const dir = join(ROOT, '_workspace/devlog');
   if (!existsSync(dir)) return { error: '데이터 없음' };
@@ -337,9 +512,50 @@ async function main() {
   selfCheck(html);
 }
 
-// Phase 2에서 구현 — 일단 stub
 async function extractBanner() {
-  return { release: 'TBD', cycle: 'TBD', next: 'TBD', timeline: [] };
+  // 1. 사용자 override 파일 우선
+  const overridePath = join(ROOT, '_workspace/master-banner.json');
+  let override = {};
+  if (existsSync(overridePath)) {
+    try { override = JSON.parse(readFileSync(overridePath, 'utf-8')); } catch (e) { console.warn('[banner] override 파싱 실패'); }
+  }
+
+  // 2. 자동 추출 — 현재 release
+  let release = override.release, releaseDate = override.releaseDate;
+  try {
+    if (!release) {
+      const tag = execSync('git tag -l "v*" --sort=-version:refname', { encoding: 'utf-8' }).trim().split('\n')[0];
+      release = tag;
+      const dateStr = execSync(`git log -1 --format=%cI ${tag}`, { encoding: 'utf-8' }).trim();
+      releaseDate = dateStr.substring(0, 10);
+    }
+  } catch (e) { release = release || 'unknown'; }
+
+  // 3. 사이클 단계 — backlog 마지막 Proposed § 기준
+  let cycle = override.cycle, cycleSub = override.cycleSub;
+  if (!cycle) {
+    const backlogPath = join(ROOT, '_workspace/backlog.md');
+    const sections = existsSync(backlogPath) ? parseBacklogSections(readFileSync(backlogPath, 'utf-8')) : [];
+    const recentProposed = sections.filter((s) => s.status === 'Proposed' && s.date).sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0];
+    cycle = recentProposed ? `진행: §${recentProposed.number} ${recentProposed.title.substring(0, 30)}…` : '대기 중';
+    cycleSub = recentProposed?.date ? `최근 §추가 ${recentProposed.date}` : '';
+  }
+
+  // 4. 다음 마일스톤
+  let next = override.next || 'W4 진입 (T-AI + T-MCP) 또는 hotfix';
+  let nextSub = override.nextSub || 'tracks-roadmap §1 + backlog Proposed 기반 추정';
+
+  // 5. 이번 작업 timeline
+  let timeline = override.timeline;
+  if (!timeline) {
+    try {
+      const since = execSync(`git log -1 --format=%cI ${release}`, { encoding: 'utf-8' }).trim();
+      const log = execSync(`git log --since="${since}" --format="%s" --reverse`, { encoding: 'utf-8' }).trim();
+      timeline = log ? log.split('\n').slice(0, 6).map((s) => s.substring(0, 50)) : [`${release} cut 이후 변경 없음`];
+    } catch (e) { timeline = ['timeline 추출 실패']; }
+  }
+
+  return { release, releaseDate, cycle, cycleSub, next, nextSub, timeline };
 }
 
 function renderShell(banner, cats) {
@@ -508,6 +724,45 @@ document.querySelectorAll('.cat-search').forEach((input) => {
     });
   });
 });
+
+// 표 정렬 (data-sortable)
+document.querySelectorAll('table[data-sortable] th[data-sort]').forEach((th) => {
+  th.addEventListener('click', () => {
+    const table = th.closest('table');
+    const tbody = table.querySelector('tbody');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const idx = Array.from(th.parentNode.children).indexOf(th);
+    const asc = th.dataset.order !== 'asc';
+    rows.sort((a, b) => {
+      const va = a.children[idx].textContent.trim();
+      const vb = b.children[idx].textContent.trim();
+      const na = parseFloat(va), nb = parseFloat(vb);
+      if (!isNaN(na) && !isNaN(nb)) return asc ? na - nb : nb - na;
+      return asc ? va.localeCompare(vb) : vb.localeCompare(va);
+    });
+    rows.forEach((r) => tbody.appendChild(r));
+    th.dataset.order = asc ? 'asc' : 'desc';
+  });
+});
+
+// backlog filter
+document.querySelectorAll('.backlog-filters button').forEach((b) => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.backlog-filters button').forEach((x) => x.classList.toggle('active', x === b));
+    const f = b.dataset.filter;
+    document.querySelectorAll('.backlog-item').forEach((it) => {
+      let show = true;
+      if (f === 'proposed') show = it.dataset.status === 'Proposed';
+      else if (f === 'recent') show = it.dataset.recent === 'true';
+      else if (f === 'done') show = it.dataset.status === 'Done';
+      it.dataset.hidden = show ? 'false' : 'true';
+    });
+  });
+});
+
+// 초기 backlog filter = proposed (사용자가 가장 자주 볼 화면)
+const proposedBtn = document.querySelector('.backlog-filters button[data-filter="proposed"]');
+if (proposedBtn) proposedBtn.click();
 </script>
 </body>
 </html>`;
@@ -517,8 +772,12 @@ function selfCheck(html) {
   const checks = [
     [html.includes('<title>magicJar Master Index'), 'title 누락'],
     [html.length < 1024 * 1024, `파일 크기 ${(html.length / 1024).toFixed(0)} KB > 1MB`],
-    // 12 카테고리 + 2 그룹 = 14 탭 data-tab 존재 (Phase 1은 6 + 2 = 8, 임계 완화 후 Phase 2에서 강화)
-    [(html.match(/data-tab=/g) || []).length >= 8, `data-tab 8개 미만`],
+    // 12 카테고리 + 2 그룹 = 14 data-tab (Phase 2 강화)
+    [(html.match(/data-tab=/g) || []).length >= 14, `data-tab 14개 미만 (실제 ${(html.match(/data-tab=/g) || []).length})`],
+    // banner 3 카드
+    [html.includes('banner-card release') && html.includes('banner-card cycle') && html.includes('banner-card next'), 'banner 3 카드 누락'],
+    // 각 카테고리 콘텐츠 div 존재
+    ...['A','B','C','D','E','F','G','H','I','J','K','L'].map((c) => [(html.includes(`data-cat="${c}"`)), `카테고리 ${c} 누락`]),
   ];
   const failed = checks.filter(([ok]) => !ok);
   if (failed.length > 0) {
