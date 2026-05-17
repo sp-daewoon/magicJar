@@ -55,6 +55,7 @@
 | 0073 | T-NEWS 뉴스·공시 실시간 인입 트랙 feasibility 분석 — **Superseded by ADR 0075** |
 | 0075 | T-NEWS 트랙 진입 spec/plan — Accepted (DART + Naver Open API + Flyway V32·V33 + Kafka 2 토픽 + Redis dedup/rate limit) |
 | 0076 | KIS WS NXT/시간외 시세 sync 표준 정합 — Proposed (v3.6.9 Phase 1·2·3 채택 완료) |
+| 0077 | **OPSP8996 ERROR 재발 deep dive (v3.6.11 hotfix) — 자격증명 미등록 시나리오 + MOCK type 시세 connect 정합 결함 + retry counter logic 결함 — Proposed (2026-05-17)** |
 
 ## §6. 전략·신호·리스크 (10건)
 
@@ -169,7 +170,7 @@
 | 0059 | _Closed_ — Screener 표준 후보였으나 ADR 0071에 흡수 완료 (2026-05-14) |
 | 0060 | _Closed_ — Performance 표준 후보였으나 ADR 0072에 흡수 완료 (2026-05-14, T-J + T-PERF 묶음) |
 | 0065 | Reserved — 신규 트랙·횡단 정책 진입 시 우선 사용 (의도적 갭) |
-| 0077 | Reserved — ADR 0076에 분석 내용 흡수됨, 후속 OPSP8996 deep dive 필요 시 재사용 |
+| ~~0077~~ | _Closed_ — 2026-05-17 v3.6.10 cut 후 OPSP8996 재발 deep dive 발행으로 reserved 슬롯 발동 완료 |
 
 ## §13. 후속 예정 (Proposed)
 
@@ -180,6 +181,7 @@
 | 0064 | Redis boundary fanout + STOMP 실시간 합산 갱신 | 사용자 결정 의제 3건 위임 (A·B·C) — architect 권장 A-1+B-1+C-1 |
 | 0068 | T-O 주문 실행 | 사용자 결정 의제 8건 위임 (A~H) — architect 권장 A-1~H-1, 실계좌 3중 게이트 의무 |
 | 0076 | KIS WS NXT/시간외 시세 sync 표준 정합 | v3.6.9 Phase 1·2·3 채택 완료 — Proposed 상태 유지 (분석 사이클, 후속 코드 변경은 별 트랙) |
+| 0077 | OPSP8996 ERROR 재발 deep dive (v3.6.11 hotfix) | 사용자 결정 의제 매트릭스 6건 위임 (G·H·I·J·K·L) — architect 권장 G-1 + H-1 + I-1 + J-1 + K-1 backlog + L-1 단일 PR. market-data 단일 디스패치 대기. |
 | 0078 | 내부 자산 추출 전략 | 사용자 명시적 호출 단일 조건 시 시동 — Phase 1~3 분리, Plugin Independence 제약 LOCK |
 
 ## §14. 변경 이력
@@ -188,6 +190,7 @@
 
 | 일자 | 사이클 | 변경 |
 |------|--------|------|
+| 2026-05-17 | v3.6.11 hotfix | **ADR 0077 Proposed** — OPSP8996 ERROR 재발 deep dive (v3.6.10 cut 후 86건/1시간 재발). ADR 0076 6 가설 미발동 시나리오 — 자격증명 미등록 + MOCK type 시세 connect 정합 결함 + retry counter logic 결함. 신규 가설 G·H·I·J + 의제 6건(G·H·I·J·K·L) architect 권장 단일 PR. §12 reserved 슬롯 0077 발동 완료 표기 정합. |
 | 2026-05-17 | v3.6.10 후속 | **ADR 0079 Accepted** — 마스터 시각화 HTML 표준화 (`_workspace/master.html` + `scripts/master-index.mjs` + `/master-index` slash + `scripts/release.sh` 통합 + 12 카테고리 두 축 + banner + ADR/spec/backlog 추출 자동화). Phase 1·2·3 PR #461·#462·본 사이클 직렬 머지. brainstorming 흐름 사용자 결정 8회 종합 (orchestrator). |
 | 2026-05-17 | v3.6.10 patch | **본 README 큰 정리** — 도입부 슬림화 + §12 분리(예약 슬롯 / 후속 Proposed) + §12 행 paragraph 슬림화 + 0073 중복 §5 단일화 + 0058·0065·0077 placeholder 사유 명시 |
 | 2026-05-16 | v3.6.9 후속 | ADR 0078 Proposed — 내부 자산 추출 전략 (§3.5 Plugin Independence 제약 사용자 명시) |
