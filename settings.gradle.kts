@@ -14,6 +14,7 @@ rootProject.name = "magicjar"
 include(
     "domain",
     "pattern-engine",
+    "indicator-impl",
     "api",
     "batch",
     "consumer",

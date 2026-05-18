@@ -10,6 +10,8 @@ dependencies {
     implementation(project(":domain"))
     // pattern-engine 라이브러리 의존 — JvmStrategyEvaluator가 patternRecognizer 빈 주입 (spec §4-1 LOCK)
     implementation(project(":pattern-engine"))
+    // indicator-impl 라이브러리 의존 — IndicatorEngineConfig가 NativeIndicatorSource·KisStrategyBuilderSource 자동 collect (ADR 0083 + spec §4-5 LOCK)
+    implementation(project(":indicator-impl"))
 
     // Spring Boot starters
     implementation("org.springframework.boot:spring-boot-starter")
