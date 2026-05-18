@@ -2648,3 +2648,85 @@ api 모듈 `IndicatorEngineConfig`는 `LiveCandleMergingSource` decorator wrap �
 - ADR 0021 (IndicatorSource 추상화) — source 구현 위치 변동
 - ADR 0054 (pattern-engine 모듈) — 1:1 정합 패턴
 - 사용자 dogfooding 2026-05-18 KST
+
+---
+
+## §65. T-MAN 신규 트랙 — 사용자 수동 주문 발행 UI + endpoint (사용자 결함 진단 2026-05-18)
+
+### 사유
+
+사용자 (최고 관리자) dogfooding 2026-05-18 KST:
+> "주문을 하는 화면이 없어 --;; 잔액조회도"
+> "C가 권위적이긴 하지만 실제로 자동매매 하는거 결국엔 호가, 가격, 수량, 포지션을 넘겨서 주문을 성사 할테니 확장형으로 별도 페이지 있어도될거같은데?"
+> "하려는 이유는 가상계좌 잔고 등 통합테스트 하려면 이게 있어야해"
+
+architect 진단:
+- `OrderRouterKafkaListener` 자동 path 12 step LOCK 존재 + **수동 entry point 0건**
+- `KisOrderHttpAdapter`·`TradingModeGateImpl`·`OrderQueryController`·`OrderCancelController` 재사용 가능
+- `OrdersPage` read-only — **[신규 주문] button 0건**
+- `OrderIntent`·`OrderRequest` 도메인 signalId·strategyId NOT NULL → 수동 주문 sentinel 의제
+- 사용자 의제 핵심 = **가상계좌(MOCK) 통합테스트 dogfooding** (signal seed SQL 부담 해소)
+- 사용자 메모리 `feedback_v3_skepticism_no_regression` lens — 자동매매 fitness gap 신규(v1/v2 잔재 아님)
+- 사용자 메모리 `project_system_vision` — 사용자=최고 관리자 비전 정합(룰이 못 잡는 종목 수동 주문 권한)
+
+### 결정
+
+**신규 트랙 T-MAN** 발행 — W3 보강 fitness gap 해소 + 가상계좌 통합테스트 dogfooding.
+
+- spec: `_workspace/specs/2026-05-18-t-man-manual-order-issue-spec.md`
+- ADR: 0082 Proposed (Manual Order Issuance Track — T-MAN)
+- 1 endpoint: `POST /api/orders/manual`
+- 신규 페이지: `/orders/new`
+- 컴포넌트: `NewOrderPage`·`OrderPreviewModal`·`useManualOrderMutation` hook
+- 자본 path 단일 LOCK: `OrderRouterKafkaListener` 12 step 100% 재사용 (자동·수동 동일)
+- 3중 게이트 동일 적용: env MAGICJAR_MODE × env MAGICJAR_ALLOW_REAL × user_account.real_trading_consent_at
+- T-RISK Guard chain 우회 + KillSwitch만 재검증 (사용자=최고 관리자 비전 정합)
+- sentinel signalId=0L · strategyId=0L · Kafka payload `source="MANUAL"` 필드 add-only
+- UI 8 layer 안전망 (종목 6자리·수량≥1·LIMIT 가격>0·3중 게이트 표시·KillSwitch LOCK·미리보기 confirm·60s cooldown·REAL 강조)
+- KIS endpoint 신규 호출 0 (ADR 0068 §14-5 cross-ref만)
+- AI 호출 0 LOCK (룰 5)
+- mock 합성 0 LOCK (`feedback_no_mock_data` — 시장가 "체결 후 확정")
+- 모듈 경계 정합 (ADR 0004): api 신규 4 파일 + consumer 1 파일 add-only + frontend 신규 3 + 수정 add-only 3 + Flyway V31 micro(옵션)
+
+### sub-agent dispatch plan
+
+| Phase | sub-agent | 영역 | LOC | 우선순위 | 병렬 |
+|---|---|---|---|---|---|
+| 1 | backend-core | api/controller/order + api/service/order + api/messaging/order + api/dto + Flyway V31(옵션) | ~250 | HIGH | Phase 2 병렬 |
+| 2 | frontend | pages/orders/NewOrderPage + components/order/OrderPreviewModal + api/order + hooks + routes | ~350 | HIGH | Phase 1 병렬 |
+| 3 | backend-core | consumer/order/OrderRouterKafkaListener source 필드 add-only | ~30 | MED | Phase 1·2 직후 |
+
+병렬 dispatch 사유: 영역 add-only · DTO 명세 spec §3 LOCK · modify-shared risk 0.
+
+### dogfooding 케이스
+
+- 케이스 9 (수동 MOCK 주문 발행 — 가상계좌 통합테스트 핵심)
+- 케이스 10 (3중 게이트 차단 검증)
+- T-O Phase 4 plan §4.2 케이스 6·7·8 강화 통합 (signal seed SQL 부담 해소)
+
+### release
+
+**v3.6.15 patch cut** 권장 — 사용자 메모리 `feedback_release_policy_patch_first` 정합 (v3.7=W4 LOCK, T-MAN은 W3 보강).
+
+T-ACCT v3.6.14와 묶음 cut 안 함 사유: 영역 분리 (T-MAN=주문 액션 / T-ACCT=잔고 조회) + 사용자 메모리 `feedback_dev_priority_qa_batch` 정합.
+
+### 처리 상태
+
+⏳ spec 발행 단계 (PR agent/architect/t-man-manual-order-issue-spec) — sub-agent dispatch 대기.
+
+### 연관
+
+- `_workspace/specs/2026-05-18-t-man-manual-order-issue-spec.md`
+- `_workspace/arch/adr/0082-t-man-manual-order-issuance.md`
+- ADR 0068 (T-O — `OrderRouterKafkaListener` 12 step 재사용 cross-ref only)
+- ADR 0067 (T-RISK — Guard chain 우회 cross-ref)
+- ADR 0024 (KillSwitch — step 4 재검증)
+- ADR 0081 (T-ACCT — DashboardPage 잔고 변화 evidence path cross-ref)
+- 사용자 dogfooding 2026-05-18 KST
+
+### 후속 backlog §66 (T-MAN 1차 MVP 후속)
+
+T-ACCT Phase 4 + T-MAN Phase 1·2·3 머지 후 후속 의제:
+- frontend position 사전 검증 (T-ACCT API 의존 — `useAccountPositions` hook 호출 → 매도 form에서 보유 수량 검증)
+- 호가·현재가 표시 (KIS `inquire-price` REST 1회 호출 + manual refresh 버튼)
+- 60초 cooldown UI 우회 차단 강화 (현재는 LocalStorage 만 — backend OrderIdempotencyGuard Redis 권위로 차단되지만 UX 향상)
