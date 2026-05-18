@@ -25,6 +25,9 @@ class OrderExecutionRepositoryAdapter(
     @Transactional(readOnly = true)
     override fun sumExecutedQuantityByOrder(orderId: Long): Int = jpa.sumExecutedQtyByOrderId(orderId).toInt()
 
+    @Transactional(readOnly = true)
+    override fun existsByEventId(eventId: String): Boolean = jpa.existsByEventId(eventId)
+
     // --- private helper ---
 
     private fun toEntity(domain: OrderExecution): OrderExecutionJpaEntity =
@@ -36,6 +39,7 @@ class OrderExecutionRepositoryAdapter(
             executedAt = domain.executedAt,
             fee = domain.fee ?: java.math.BigDecimal.ZERO,
             tax = domain.tax ?: java.math.BigDecimal.ZERO,
+            eventId = domain.eventId,
             createdAt = domain.createdAt,
         )
 
@@ -50,6 +54,7 @@ class OrderExecutionRepositoryAdapter(
             executedAt = entity.executedAt,
             fee = entity.fee,
             tax = entity.tax,
+            eventId = entity.eventId,
             createdAt = entity.createdAt,
         )
 }

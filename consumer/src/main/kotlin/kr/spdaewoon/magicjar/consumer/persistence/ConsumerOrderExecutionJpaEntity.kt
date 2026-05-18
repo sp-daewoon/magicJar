@@ -48,6 +48,13 @@ class ConsumerOrderExecutionJpaEntity(
     val tax: BigDecimal = BigDecimal.ZERO,
     @Column(name = "kis_execution_no", length = 20)
     val kisExecutionNo: String? = null,
+    /**
+     * ADR 0084 P0-3 — WS + REST backfill 멱등 키.
+     * Flyway V35 — `order_execution.event_id VARCHAR(64) UNIQUE` partial index (NULL 허용).
+     * 합성 규칙: `{kisOrderNo}:{stckCntgHour}:{cntgQty}` (KisExecutionWsListener·KisOrderInquireCcldHttpAdapter 양 경로 동일).
+     */
+    @Column(name = "event_id", length = 64)
+    val eventId: String? = null,
     @Column(name = "created_at", nullable = false, updatable = false)
     val createdAt: Instant = Instant.now(),
 ) {

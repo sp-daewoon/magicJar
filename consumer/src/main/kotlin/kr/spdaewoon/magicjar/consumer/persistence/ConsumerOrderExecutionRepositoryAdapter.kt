@@ -41,6 +41,9 @@ class ConsumerOrderExecutionRepositoryAdapter(
     @Transactional(readOnly = true)
     override fun sumExecutedQuantityByOrder(orderId: Long): Int = jpa.sumExecutedQtyByOrderId(orderId).toInt()
 
+    @Transactional(readOnly = true)
+    override fun existsByEventId(eventId: String): Boolean = jpa.existsByEventId(eventId)
+
     // --- private helper ---
 
     private fun toEntity(domain: OrderExecution): ConsumerOrderExecutionJpaEntity =
@@ -53,6 +56,7 @@ class ConsumerOrderExecutionRepositoryAdapter(
             fee = domain.fee ?: BigDecimal.ZERO,
             tax = domain.tax ?: BigDecimal.ZERO,
             kisExecutionNo = domain.kisOrderNo.ifBlank { null },
+            eventId = domain.eventId,
             createdAt = domain.createdAt,
         )
 
@@ -67,6 +71,7 @@ class ConsumerOrderExecutionRepositoryAdapter(
             executedAt = entity.executedAt,
             fee = entity.fee,
             tax = entity.tax,
+            eventId = entity.eventId,
             createdAt = entity.createdAt,
         )
 }
