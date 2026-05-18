@@ -450,6 +450,14 @@ class KisWebSocketBridge(
                         log.info("KIS WS 재구독 완료: 종목 {}건 (H0STCNT0 + H0NXCNT0 각각)", existingCodes.size)
                     }
 
+                    // 체결통보 자동 subscribe (H0STCNI0 REAL / H0STCNI9 MOCK) — ADR 0068 §14-6 + §7-3 LOCK
+                    // 사용자별 1 구독 (ADR 0048 §2-1 의무 reserve — 41 slot 한도 정합)
+                    // KIS-first: kws.subscribe(request=ccnl_notice, data=[trenv.my_htsid])
+                    //   raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/ccnl_notice/chk_ccnl_notice.py
+                    //   tr_key = HTS 사용자 ID (defaultUserId 정합 — magicjar.kis.ws.user-id)
+                    // reconnect 시 본 블록 재진입으로 자동 재구독 정합 (별도 상태 set 불필요 — KIS WS 세션 단위 구독).
+                    subscribeExecutionNoticeIfPossible(approvalKey, sink)
+
                     val sendFlux =
                         sink
                             .asFlux()
@@ -629,6 +637,86 @@ class KisWebSocketBridge(
         updateCandleCurrent(tick)
         updateCandleToday(tick)
         publishTickEvent(tick)
+    }
+
+    /**
+     * 체결통보 tr_id 분기 — REAL → H0STCNI0 / MOCK → H0STCNI9.
+     *
+     * KIS-first 출처:
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/ccnl_notice/ccnl_notice.py
+     *   env_dv="real" → H0STCNI0 / env_dv="demo" → H0STCNI9
+     *
+     * magicjar.mode 정합:
+     *   MOCK → H0STCNI9 (모의 체결통보)
+     *   REAL → H0STCNI0 (실전 체결통보)
+     *   기본값 MOCK (dev/staging 안전 default).
+     */
+    private fun executionNoticeTrId(): String = if (magicjarMode == "REAL") "H0STCNI0" else "H0STCNI9"
+
+    /**
+     * 체결통보 자동 subscribe — 사용자 본인 HTS 사용자 ID(defaultUserId) 1 구독.
+     *
+     * 사용자 메모리 정합 (project_kis_key_realonly_for_data):
+     *   "시세·캔들·호가 등 정보 수집은 모두 실전 키. 모의/실전 분기는 주문 액션에만."
+     *   → 단, 체결통보 WS는 자본 영향 이벤트 알림 (주문 액션 결과 통보)이므로 magicjarMode 분기 의무.
+     *   MOCK 모드에서 H0STCNI0를 사용하면 모의 주문의 체결통보가 수신되지 않음.
+     *
+     * KIS-first 출처:
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/ccnl_notice/chk_ccnl_notice.py
+     *   kws.subscribe(request=ccnl_notice, data=[trenv.my_htsid])
+     *   - tr_key = HTS 사용자 ID (defaultUserId — magicjar.kis.ws.user-id 설정값)
+     *   - tr_type "1" = 구독 등록 / "0" = 해제
+     *   - header: approval_key + tr_type + custtype="P"
+     *
+     * ADR 0048 §2-1 정합:
+     *   H0STCNI0/H0STCNI9 = 사용자별 1 slot (의무 reserve).
+     *   41 slot 한도 분배: 1(체결통보) + 30(H0STCNT0+H0NXCNT0) + 10(H0STASP0) = 41.
+     *   본 메서드 1 구독 추가는 ADR 0048 한도 정합.
+     *
+     * defaultUserId 비어있으면 skip — magicjar.kis.ws.user-id 미설정 환경(qa fixture 등) 보호.
+     */
+    private fun subscribeExecutionNoticeIfPossible(
+        approvalKey: String,
+        sink: Sinks.Many<String>,
+    ) {
+        if (defaultUserId.isBlank()) {
+            log.warn(
+                "KIS WS 체결통보 subscribe skip — magicjar.kis.ws.user-id 미설정 " +
+                    "(SetupWizard에서 HTS 사용자 ID 등록 후 재부팅 필요).",
+            )
+            return
+        }
+        val trId = executionNoticeTrId()
+        // tr_key = HTS 사용자 ID (KIS-first: trenv.my_htsid)
+        // buildSubscribeMessage(code = defaultUserId) — code 파라미터 자리에 사용자 ID 주입 (KIS payload tr_key 의미)
+        val msg = buildSubscribeMessage(approvalKey, defaultUserId, trType = "1", trId = trId)
+        val emitted = sink.tryEmitNext(msg)
+        log.info(
+            "KIS WS 체결통보 subscribe: trId={} userId={} mode={} emit={}",
+            trId,
+            maskUserId(defaultUserId),
+            magicjarMode,
+            emitted,
+        )
+    }
+
+    /**
+     * 체결통보 unsubscribe — graceful shutdown (destroy) 시 발사.
+     *
+     * KIS-first 출처: ccnl_notice.py tr_type "0" = 구독 해제
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/ccnl_notice/ccnl_notice.py
+     */
+    private fun unsubscribeExecutionNoticeIfPossible(approvalKey: String) {
+        if (defaultUserId.isBlank()) return
+        val trId = executionNoticeTrId()
+        // tr_type "0" = 구독 해제 (KIS-first 정합 — 기존 H0STOUP0와 동일 패턴)
+        val msg = buildSubscribeMessage(approvalKey, defaultUserId, trType = "0", trId = trId)
+        sendSink?.tryEmitNext(msg)
+        log.info(
+            "KIS WS 체결통보 unsubscribe: trId={} userId={}",
+            trId,
+            maskUserId(defaultUserId),
+        )
     }
 
     /**
@@ -1074,6 +1162,11 @@ class KisWebSocketBridge(
                     sendSink?.tryEmitNext(overtimeMsg)
                     log.debug("KIS WS shutdown unsubscribe 전송: code={} trId=H0STOUP0", code)
                 }
+
+                // H0STCNI0/H0STCNI9 체결통보 unsubscribe — ADR 0068 §14-6 LOCK
+                // KIS-first: ccnl_notice.py tr_type "0" = 구독 해제
+                // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/ccnl_notice/ccnl_notice.py
+                unsubscribeExecutionNoticeIfPossible(approvalKey)
 
                 // E-1: ACK 2s 대기 — KIS 서버에서 ACK 도착 전 연결 종료 방지
                 // ADR 0076 E-1: 2초 대기 후 ACK 미수신 시에도 강제 close (graceful + timeout)
