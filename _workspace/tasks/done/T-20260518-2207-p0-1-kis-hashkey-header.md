@@ -3,9 +3,9 @@ id: T-20260518-2207-p0-1-kis-hashkey-header
 agent: market-data
 model: opus
 branch: agent/market-data/p0-1-kis-hashkey-header
-status: RUNNING
+status: DONE
 startedAt: 2026-05-18T22:07:18.155+09:00
-completedAt: null
+completedAt: 2026-05-18T22:15:58.466+09:00
 pr: null
 parentPhase: ?
 ---

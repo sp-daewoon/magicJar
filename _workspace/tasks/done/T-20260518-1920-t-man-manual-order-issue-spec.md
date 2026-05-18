@@ -3,9 +3,9 @@ id: T-20260518-1920-t-man-manual-order-issue-spec
 agent: architect
 model: opus
 branch: agent/architect/t-man-manual-order-issue-spec
-status: RUNNING
+status: DONE
 startedAt: 2026-05-18T19:20:40.316+09:00
-completedAt: null
+completedAt: 2026-05-18T21:07:26.802+09:00
 pr: null
 parentPhase: ?
 ---
