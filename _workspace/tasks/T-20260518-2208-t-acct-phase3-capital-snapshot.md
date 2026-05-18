@@ -14,8 +14,8 @@ parentPhase: ?
 T-ACCT Phase 3 — consumer/risk CapitalSnapshotProvider 실제 어댑터 교체 (POSITION_LIMIT 활성화)
 
 ## 결과물 체크리스트
-- [ ] KisCapitalSnapshotProviderAdapter 신규
-- [ ] default 어댑터 supersede @ConditionalOnMissingBean 유지
+- [x] KisCapitalSnapshotProviderAdapter 신규
+- [x] default 어댑터 supersede @ConditionalOnMissingBean 유지
 - [ ] 단위 테스트 (cache hit·miss·exception)
 - [ ] gradle :consumer:check GREEN
 - [ ] CHANGELOG row add-only
