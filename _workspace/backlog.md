@@ -1670,7 +1670,7 @@ architect spec PR(본 사이클 PR-52) — 결정 의제 5건 + Mermaid 3건 out
 
 ---
 
-## §43. T-O 주문 실행 (W3 네 번째 트랙 — ADR 0068 plan 발행, 사용자 결정 대기)
+## §43. ✅ 처리 완료 — T-O 주문 실행 (W3 네 번째 트랙, Phase 1·2·3 합류 마감 2026-05-18 — ADR 0068 Accepted 격상)
 
 ### 컨텍스트
 
@@ -1757,6 +1757,45 @@ architect spec PR(본 사이클 — ADR 0068 plan 발행) — 결정 의제 8건
 - tracks-roadmap §2 T-O row (본 § 권위 인용)
 - master §10 ADR 0068 row + §C.12 (T-O 진입 표기)
 - 사용자 메모리 `project_system_vision.md`(룰 본체) · `feedback_v3_skepticism_no_regression.md`(fitness gap lens) · `feedback_3tier_hierarchy.md`(architect plan → sub-agent 직렬) · `feedback_kis_first_policy.md`(KIS-first raw 인용) · `feedback_kis_key_realonly_for_data.md`(정보 수집 REAL 키 단일, MAGICJAR_MODE 분기는 주문 액션만)
+
+### 처리 결과 (2026-05-18 architect — Phase 1·2·3 합류 마감 + dogfooding 케이스 5 GREEN + 통합 빌드 evidence 종합)
+
+본 §43은 T-O 본 트랙 마감 PR 사이클로 종결됨 — ADR 0068 status는 plan 단계 Accepted(2026-05-13)에서 **Phase 1·2·3 합류 마감 Accepted**(2026-05-18)로 격상.
+
+**Phase 1·2·3 합류 PR 매트릭스** (orchestrator 직렬 dispatch 종결):
+
+| Phase | sub-agent | PR | 머지 시각 (KST) | 비고 |
+|---|---|---|---|---|
+| Phase 2 (Repository 합류) | architect 자율 | [PR #481](https://github.com/sp-daewoon/magicJar/pull/481) | 2026-05-18 12:32 | dogfooding 케이스 5 prereq — Consumer 측 OrderRequest/OrderAuditEvent Adapter 합류 |
+| Phase 1 B-2 (OrderExecution Adapter) | backend-core | [PR #485](https://github.com/sp-daewoon/magicJar/pull/485) | 2026-05-18 14:35 | `KisExecutionWsListener.handleExecution()` 분할 체결 영속 path 활성화 |
+| Phase 1 B-1 (KIS WS wiring) | market-data | [PR #486](https://github.com/sp-daewoon/magicJar/pull/486) | 2026-05-18 14:37 | `KisWebSocketBridge:489` H0STCNI0/H0STCNI9 → `KisExecutionWsListener.onWebSocketMessage()` wiring + 자동 subscribe/unsubscribe |
+
+**Phase 2·Phase 3 본문**(OrderQuery/Cancel Service · RealTradingConsent · Flyway V20~V23 · JPA 3쌍 · REST 4 endpoint · StompOrderNotifier · OrdersPage·OrderDetailPage·8 컴포넌트·hooks·라우팅)은 prereq spec(PR #479) 발행 시점 이전에 직렬 dispatch 완료 (PR #484 §1.2·§1.3 실측 매트릭스 GREEN evidence).
+
+**dogfooding 케이스 5 GREEN evidence** (자본 안전 게이트 LOCK):
+
+```
+2026-05-18 KST — Kafka publish order.intent.v1 { signalId=2, userId=74683223 }
+  → consumer OrderRouterKafkaListener Step 1~6 GREEN
+  → TradingModeGate.resolveMode → MOCK (envMode!="REAL")
+  → KisAuthAdapter.resolveCredential(MOCK) → row 부재 → REAL_GATE_DENIED:CREDENTIAL_NOT_FOUND
+  → order_request row { id=2, status=REJECTED, reject_reason="REAL_GATE_DENIED:CREDENTIAL_NOT_FOUND", mode=MOCK }
+  → Kafka publish order.rejected.v1 + STOMP /topic/order.user.74683223 (REJECTED)
+```
+
+**통합 빌드 evidence** — KIS WS H0STCNI9 MOCK subscribe (체결통보 본격 가동):
+
+```
+2026-05-18T14:38:59.xxx+09:00 INFO  KisWebSocketBridge: KIS WS 체결통보 subscribe: trId=H0STCNI9 userId=thde**** mode=MOCK emit=OK
+```
+
+**연관 산출물**:
+- ADR 0068 §18 "Accepted 마감 evidence" 신규 § 추가 + §19 변경 이력 shift + 본문 status 격상
+- `_workspace/arch/adr/README.md` §13 후속 예정에서 0068 제거 + §14 변경 이력 row 추가
+- `docs/architecture/tracks-roadmap.md` §2 T-O row "Accepted 2026-05-18" mark
+- `CHANGELOG.md` 2026-05-18 row prepend
+
+**dogfooding 잔여** (orchestrator 별 사이클): prereq 케이스 1·2·3·4(OPTIONAL) + 본 spec 케이스 6(체결 통보 풀체인)·7(OrdersPage STOMP)·8(OrdersPage 취소) → 7 MUST GREEN 후 v3.6.13 patch release cut (사용자 메모리 `feedback_release_policy_patch_first` — T-O는 W3 트랙 minor 종착 아님 → patch).
 
 ---
 
