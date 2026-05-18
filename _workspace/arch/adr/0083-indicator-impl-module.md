@@ -1,7 +1,8 @@
 # ADR 0083: indicator-impl 라이브러리 모듈 신설 — IndicatorSource 모듈 경계 결함 fix
 
-- 상태: Proposed
+- 상태: Accepted (2026-05-19 격상 — indicator-impl 결함 3 P0 마감 evidence + v3.6.15 cut)
 - 작성일: 2026-05-18
+- Accepted일: 2026-05-19
 - 결정자: 사용자 sp-daewoon (최고 관리자, 옵션 B 명시) + architect 합의
 - 관계: ADR 0004(MSA 모듈 재구성)를 **갱신**(supersede 아님 — 5 모듈 → 6 모듈, 의존 방향·도메인 순수성 정책 보존). ADR 0054(pattern-engine 모듈) 패턴 1:1 정합. ADR 0021(IndicatorSource 추상화) source 구현 위치만 변동.
 
@@ -130,3 +131,10 @@ cycle 검증: domain(0) → indicator-impl(domain) → api/consumer(domain + ind
 - 사용자 메모리 `feedback_release_policy_patch_first` — v3.6.14 patch 권장
 - 사용자 dogfooding evidence — `GET /api/indicators?code=066570&name=ema&interval=1d&params=period=20&adjusted=false` → 400 (2026-05-18 KST)
 - spec 본문: `_workspace/specs/2026-05-18-indicator-impl-module-spec.md`
+
+## 변경 이력
+
+| 날짜 | 변경 | 사유 | actor |
+|------|------|------|------|
+| 2026-05-18 | 본 ADR 발행 (Proposed) | 사용자 dogfooding evidence "ema 400" + 옵션 B 명시 + 결함 3 fix `indicator-impl/` 라이브러리 모듈 신설 결정 | architect |
+| 2026-05-19 | Proposed → Accepted | indicator-impl 결함 3 P0 마감 evidence (v3.6.15 cut) — backend-core 단일 PR 머지 완료 + api·consumer 양쪽 의존 라이브러리 jar 구동 + 81지표 사용자 노출 200 응답 dogfooding evidence 확보 | architect |

@@ -1,7 +1,8 @@
 # ADR 0084 — 주문 path 안정성 종합 fitness gap fix (P0·P1·P2 트랙)
 
-> **Status**: Proposed
+> **Status**: Accepted (2026-05-19 격상 — P0 4건 마감 evidence · v3.6.16 cut). P1·P2는 후속 트랙 잔류.
 > **Date**: 2026-05-18 (KST)
+> **Accepted Date**: 2026-05-19 (KST)
 > **Author**: architect (수석 설계자)
 > **PR**: TBD (본 ADR + spec `2026-05-18-order-path-stability-spec.md` 동시 발행)
 > **Supersedes**: 없음 (모두 superset add-only)
@@ -191,3 +192,4 @@ architect spec/plan 발행 시 KIS API 결정 의제는 자체 추론 0 + 공식
 | 날짜 | 변경 | actor |
 |---|---|---|
 | 2026-05-18 | 본 ADR 발행 (Proposed) — 외부 코드 리뷰 13 코멘트 흡수 + P0·P1·P2 분류 + spec 1:1 매핑 | architect |
+| 2026-05-19 | Proposed → Accepted (P0 4건 baseline 마감) — P0-1 hashkey + P0-2 PENDING_RECONCILE + P0-3 WS race·backfill + P0-4 DLQ 4 PR 머지 완료 + v3.6.16 cut. P1(outbox·STOMP 영속·MDC) + P2(정정·MarketSession) 후속 잔류 (별도 사이클 dispatch 예정 — backlog §78 잔류). | architect |
