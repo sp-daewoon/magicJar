@@ -112,6 +112,7 @@ class OrderQueryController(
             status = req.status.name,
             mode = req.mode.name,
             kisOrderNo = req.kisOrderNo,
+            rejectReason = req.rejectReason,
             requestedAt = req.requestedAt.toString(),
             completedAt = req.completedAt?.toString(),
         )
@@ -168,6 +169,8 @@ data class OrderListItemDto(
     val mode: String,
     @field:Schema(description = "KIS 주문번호", example = "0000123456")
     val kisOrderNo: String?,
+    @field:Schema(description = "거절 사유 (REJECTED 상태 시)", example = "REAL_GATE_DENIED:CREDENTIAL_NOT_FOUND")
+    val rejectReason: String?,
     @field:Schema(description = "주문 접수 시각 (ISO-8601 UTC)", example = "2026-05-13T09:00:00Z")
     val requestedAt: String,
     @field:Schema(description = "주문 종료 시각 (ISO-8601 UTC)", example = "2026-05-13T09:00:01Z")
