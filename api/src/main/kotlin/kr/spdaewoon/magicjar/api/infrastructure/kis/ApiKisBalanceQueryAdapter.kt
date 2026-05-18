@@ -1,0 +1,306 @@
+package kr.spdaewoon.magicjar.api.infrastructure.kis
+
+import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaEntity
+import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.domain.account.AccountBalance
+import kr.spdaewoon.magicjar.domain.account.AccountHolding
+import kr.spdaewoon.magicjar.domain.account.KisAccountBalance
+import kr.spdaewoon.magicjar.domain.account.port.KisBalanceQueryPort
+import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
+import kr.spdaewoon.magicjar.domain.user.AccountType
+import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
+import org.springframework.data.redis.core.StringRedisTemplate
+import org.springframework.stereotype.Component
+import org.springframework.web.reactive.function.client.WebClient
+import org.springframework.web.reactive.function.client.WebClientResponseException
+import java.math.BigDecimal
+import java.time.Duration
+import java.time.Instant
+
+/**
+ * KIS `inquire-balance` REST 어댑터 — api 모듈 직접 호출 (T-ACCT Phase 1B, ADR 0081 §2-2).
+ *
+ * ### 책임 분리 (ADR 0042 / ADR 0070 / ADR 0081)
+ * - consumer [kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisBalanceAdapter] (Bootstrap 영속, output1 only) — 0 touch
+ * - consumer KisReconcileBalanceAdapter (T-RECON 페이징, holdings 비교) — 0 touch
+ * - **본 어댑터** (T-ACCT 사용자 노출, output1 + output2 동시 흡수, Redis cache)
+ *
+ * ### KIS-first raw fetch 인용 (헌법 §3 LOCK · spec §3-1 + ADR 0081 §2-6)
+ * - `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_balance/inquire_balance.py`
+ *   (query parameter mapping: CANO·ACNT_PRDT_CD·AFHR_FLPR_YN·OFL_YN·INQR_DVSN·UNPR_DVSN·FUND_STTL_ICLD_YN·FNCG_AMT_AUTO_RDPT_YN·PRCS_DVSN·CTX_AREA_FK100·CTX_AREA_NK100)
+ * - `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_balance/chk_inquire_balance.py`
+ *   (COLUMN_MAPPING 45 필드 영문 → 한글 정합)
+ *
+ * ### TR_ID 분기 (ADR 0042 §2-2 + KIS 공식)
+ * - REAL `TTTC8434R` (host: openapi.koreainvestment.com:9443)
+ * - MOCK `VTTC8434R` (host: openapivts.koreainvestment.com:29443)
+ *
+ * ### output2 11 필드 LOCK (한글 의미 매트릭스)
+ * | 영문 key             | 한글 의미                  | AccountBalance 필드        |
+ * |---------------------|--------------------------|----------------------------|
+ * | dnca_tot_amt        | 예수금 총금액              | cashBalance                |
+ * | nxdy_excc_amt       | 익일정산금액 (D+1 예수금)   | cashD1                     |
+ * | prvs_rcdl_excc_amt  | 가수도정산금액 (D+2 실가용) | cashD2                     |
+ * | tot_evlu_amt        | 총평가금액                 | totalEvaluation            |
+ * | nass_amt            | 순자산금액                 | netAssetValue              |
+ * | pchs_amt_smtl_amt   | 매입금액합계금액           | totalPurchaseAmount        |
+ * | evlu_amt_smtl_amt   | 평가금액합계금액           | totalHoldingEvaluation     |
+ * | evlu_pfls_smtl_amt  | 평가손익합계금액           | totalProfitLoss            |
+ * | asst_icdc_amt       | 자산증감액 (전일 대비)     | assetIncreaseDecrease      |
+ * | asst_icdc_erng_rt   | 자산증감수익률 %           | assetIncreaseDecreaseRate  |
+ *
+ * ### output1 8 컬럼 LOCK
+ * - pdno · prdt_name · hldg_qty · pchs_avg_pric · prpr · evlu_amt · evlu_pfls_amt · evlu_pfls_rt
+ *
+ * ### 메모리 zero-fill 의무 (ADR 0038 §5-3)
+ * - APP_KEY · SECRET_KEY 사용 후 즉시 ByteArray.fill(0)
+ *
+ * ### Redis token cache 공유
+ * - 키 `kis:token:{userId}:{accountType}` consumer KisAuthAdapter와 공유 (cross-module Redis OK — ADR 0081 §4 모듈 경계 정합)
+ * - cache miss 시 본 어댑터가 직접 KIS `/oauth2/tokenP` 발급 (단순 발급 — 분산락 미사용, 사용자 요청 빈도 TPS 충분 낮음)
+ * - 토큰 TTL 23h (KIS 24h 만료 - 1h 안전여유)
+ */
+@Component
+class ApiKisBalanceQueryAdapter(
+    private val webClient: WebClient,
+    private val secretCipher: SecretCipher,
+    private val credentialRepository: UserKisCredentialJpaRepository,
+    private val redisTemplate: StringRedisTemplate,
+    @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
+    private val kisBaseProd: String,
+    @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
+    private val kisBaseVps: String,
+) : KisBalanceQueryPort {
+    private val log = LoggerFactory.getLogger(ApiKisBalanceQueryAdapter::class.java)
+
+    companion object {
+        private val TIMEOUT = Duration.ofSeconds(5)
+        private val TOKEN_TTL = Duration.ofHours(23)
+        private const val INQUIRE_BALANCE_PATH = "/uapi/domestic-stock/v1/trading/inquire-balance"
+    }
+
+    override fun fetchFullBalance(
+        userId: String,
+        accountType: AccountType,
+    ): KisAccountBalance {
+        val cred = loadCredential(userId, accountType)
+        val accessToken = getAccessToken(userId, accountType, cred)
+        val trId = if (accountType == AccountType.REAL) "TTTC8434R" else "VTTC8434R"
+        val baseUrl = if (accountType == AccountType.REAL) kisBaseProd else kisBaseVps
+
+        var appKey: ByteArray? = null
+        var secretKey: ByteArray? = null
+        return try {
+            appKey = secretCipher.decrypt(cred.appKeyEnc)
+            secretKey = secretCipher.decrypt(cred.secretKeyEnc)
+            val appKeyStr = String(appKey)
+            val secretKeyStr = String(secretKey)
+
+            @Suppress("UNCHECKED_CAST")
+            val response =
+                webClient
+                    .get()
+                    .uri { builder ->
+                        builder
+                            .scheme("https")
+                            .host(parseHost(baseUrl))
+                            .port(parsePort(baseUrl))
+                            .path(INQUIRE_BALANCE_PATH)
+                            .queryParam("CANO", cred.accountNumber)
+                            .queryParam("ACNT_PRDT_CD", cred.accountPrdtCd)
+                            .queryParam("AFHR_FLPR_YN", "N")
+                            .queryParam("OFL_YN", "")
+                            .queryParam("INQR_DVSN", "02")
+                            .queryParam("UNPR_DVSN", "01")
+                            .queryParam("FUND_STTL_ICLD_YN", "N")
+                            .queryParam("FNCG_AMT_AUTO_RDPT_YN", "N")
+                            .queryParam("PRCS_DVSN", "00")
+                            .queryParam("CTX_AREA_FK100", "")
+                            .queryParam("CTX_AREA_NK100", "")
+                            .build()
+                    }.header("authorization", "Bearer $accessToken")
+                    .header("appkey", appKeyStr)
+                    .header("appsecret", secretKeyStr)
+                    .header("tr_id", trId)
+                    .header("custtype", "P")
+                    .retrieve()
+                    .bodyToMono(Map::class.java)
+                    .timeout(TIMEOUT)
+                    .block() as? Map<String, Any>
+                    ?: error("KIS 잔고조회 응답 없음 — userId=$userId")
+
+            val holdings = parseOutput1(response)
+            val balance = parseOutput2(response)
+            val now = Instant.now()
+            KisAccountBalance(
+                userId = userId,
+                accountType = accountType,
+                balance = balance,
+                holdings = holdings,
+                fetchedAt = now,
+            )
+        } finally {
+            appKey?.fill(0)
+            secretKey?.fill(0)
+        }
+    }
+
+    // ── private — credential / token ──────────────────────────────────────────
+
+    private fun loadCredential(
+        userId: String,
+        accountType: AccountType,
+    ): UserKisCredentialJpaEntity =
+        credentialRepository
+            .findAllByAccountType(accountType.name)
+            .firstOrNull { it.id.userId == userId }
+            ?: throw IllegalStateException(
+                "KIS 자격증명 없음 — userId=$userId type=${accountType.name}",
+            )
+
+    /**
+     * KIS access token 조회 — Redis cache 공유 + cache miss 시 발급.
+     *
+     * cache 키 `kis:token:{userId}:{accountType}` TTL 23h는 consumer KisAuthAdapter와 공유.
+     * 사용자 요청 트리거 (TPS 매우 낮음) → 분산락·in-process mutex 미사용 (consumer KisAuthAdapter는 cold-start 16 thread 동시 대비 의무 — api는 사용자 요청 단발).
+     */
+    private fun getAccessToken(
+        userId: String,
+        accountType: AccountType,
+        cred: UserKisCredentialJpaEntity,
+    ): String {
+        val cacheKey = "kis:token:$userId:${accountType.name}"
+        redisTemplate.opsForValue().get(cacheKey)?.let { return it }
+
+        // cache miss → KIS /oauth2/tokenP 직접 발급
+        val token = issueToken(accountType, cred)
+        runCatching { redisTemplate.opsForValue().set(cacheKey, token, TOKEN_TTL) }
+            .onFailure { ex ->
+                log.warn("KIS token cache write 실패 (graceful): userId={} err={}", maskUserId(userId), ex.message)
+            }
+        log.info("KIS 토큰 발급 완료 (api): userId={} type={}", maskUserId(userId), accountType.name)
+        return token
+    }
+
+    private fun issueToken(
+        accountType: AccountType,
+        cred: UserKisCredentialJpaEntity,
+    ): String {
+        val baseUrl = if (accountType == AccountType.REAL) kisBaseProd else kisBaseVps
+        var appKey: ByteArray? = null
+        var secretKey: ByteArray? = null
+        return try {
+            appKey = secretCipher.decrypt(cred.appKeyEnc)
+            secretKey = secretCipher.decrypt(cred.secretKeyEnc)
+            val appKeyStr = String(appKey)
+            val secretKeyStr = String(secretKey)
+
+            val response =
+                webClient
+                    .post()
+                    .uri("$baseUrl/oauth2/tokenP")
+                    .header("Content-Type", "application/json; charset=utf-8")
+                    .bodyValue(
+                        mapOf(
+                            "grant_type" to "client_credentials",
+                            "appkey" to appKeyStr,
+                            "appsecret" to secretKeyStr,
+                        ),
+                    ).retrieve()
+                    .bodyToMono(Map::class.java)
+                    .timeout(TIMEOUT)
+                    .block() ?: error("KIS tokenP 응답 없음")
+
+            response["access_token"]?.toString()
+                ?: error("KIS tokenP 응답에 access_token 없음")
+        } catch (ex: WebClientResponseException) {
+            log.error(
+                "KIS tokenP 실패 (api): status={} body={}",
+                ex.statusCode,
+                ex.responseBodyAsString.take(200),
+            )
+            throw ex
+        } finally {
+            appKey?.fill(0)
+            secretKey?.fill(0)
+        }
+    }
+
+    // ── private — response parsing ────────────────────────────────────────────
+
+    /**
+     * output1 보유 종목 파싱 — qty 0 항목 필터 (Bootstrap 어댑터와 동일 규칙).
+     *
+     * `internal` 가시성 — 단위 테스트에서 파싱 정합 검증 목적 (헌법 §6 함정 무관 · Repository 외부).
+     */
+    @Suppress("UNCHECKED_CAST")
+    internal fun parseOutput1(response: Map<String, Any>): List<AccountHolding> {
+        val output1 = response["output1"] as? List<Map<String, Any>> ?: return emptyList()
+        return output1.mapNotNull { item ->
+            val code = item["pdno"]?.toString() ?: return@mapNotNull null
+            val qty = item["hldg_qty"]?.toString()?.toIntOrNull() ?: 0
+            if (qty <= 0) return@mapNotNull null
+            AccountHolding(
+                code = code,
+                name = item["prdt_name"]?.toString().orEmpty(),
+                quantity = qty,
+                avgPrice = bd(item["pchs_avg_pric"]),
+                currentPrice = bd(item["prpr"]),
+                evaluationAmount = bd(item["evlu_amt"]),
+                profitLoss = bd(item["evlu_pfls_amt"]),
+                profitLossRate = bd(item["evlu_pfls_rt"]),
+            )
+        }
+    }
+
+    /**
+     * output2 잔고 합계 파싱 — 11 필드 (LOCK · KIS-first raw fetch 정합).
+     *
+     * mock 합성 0 LOCK (feedback_no_mock_data):
+     * - output2 응답이 null·empty면 IllegalStateException 발행 → controller가 502 변환
+     * - 0 값 합성으로 frontend에 정상 응답 보이기 reject
+     *
+     * `internal` 가시성 — 단위 테스트에서 11 필드 매핑 검증 목적.
+     */
+    @Suppress("UNCHECKED_CAST")
+    internal fun parseOutput2(response: Map<String, Any>): AccountBalance {
+        val raw = response["output2"]
+        val first =
+            when (raw) {
+                is List<*> -> (raw.firstOrNull() as? Map<String, Any>)
+                is Map<*, *> -> raw as Map<String, Any>
+                else -> null
+            } ?: throw IllegalStateException("KIS inquire-balance output2 응답 부재 — mock 합성 0 LOCK")
+
+        return AccountBalance(
+            cashBalance = bd(first["dnca_tot_amt"]),
+            cashD1 = bd(first["nxdy_excc_amt"]),
+            cashD2 = bd(first["prvs_rcdl_excc_amt"]),
+            totalEvaluation = bd(first["tot_evlu_amt"]),
+            netAssetValue = bd(first["nass_amt"]),
+            totalPurchaseAmount = bd(first["pchs_amt_smtl_amt"]),
+            totalHoldingEvaluation = bd(first["evlu_amt_smtl_amt"]),
+            totalProfitLoss = bd(first["evlu_pfls_smtl_amt"]),
+            assetIncreaseDecrease = bdOrNull(first["asst_icdc_amt"]),
+            assetIncreaseDecreaseRate = bdOrNull(first["asst_icdc_erng_rt"]),
+            fetchedAt = Instant.now(),
+        )
+    }
+
+    // ── private — util ────────────────────────────────────────────────────────
+
+    private fun bd(v: Any?): BigDecimal = v?.toString()?.toBigDecimalOrNull() ?: BigDecimal.ZERO
+
+    private fun bdOrNull(v: Any?): BigDecimal? = v?.toString()?.toBigDecimalOrNull()
+
+    private fun parseHost(baseUrl: String): String = baseUrl.removePrefix("https://").substringBefore(":")
+
+    private fun parsePort(baseUrl: String): Int =
+        baseUrl
+            .removePrefix("https://")
+            .substringAfter(":", "")
+            .toIntOrNull() ?: 443
+
+    private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"
+}
