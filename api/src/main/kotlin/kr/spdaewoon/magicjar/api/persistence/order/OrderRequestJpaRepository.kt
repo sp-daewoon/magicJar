@@ -48,4 +48,20 @@ interface OrderRequestJpaRepository : JpaRepository<OrderRequestJpaEntity, Long>
         to: Instant,
         pageable: Pageable,
     ): Page<OrderRequestJpaEntity>
+
+    /**
+     * ADR 0084 P0-2 — PENDING_RECONCILE 검증 worker lookup (consumer/api 모듈 공통).
+     *
+     * V36 partial index `idx_order_request_pending_reconcile` 활용.
+     */
+    @Query(
+        "SELECT e FROM OrderRequestJpaEntity e " +
+            "WHERE e.status = :status AND e.requestedAt < :cutoff " +
+            "ORDER BY e.requestedAt ASC",
+    )
+    fun findByStatusAndRequestedAtBefore(
+        @Param("status") status: OrderStatus,
+        @Param("cutoff") cutoff: Instant,
+        pageable: Pageable,
+    ): List<OrderRequestJpaEntity>
 }

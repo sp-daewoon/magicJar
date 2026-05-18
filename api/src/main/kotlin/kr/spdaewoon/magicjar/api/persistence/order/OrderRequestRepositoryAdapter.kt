@@ -39,6 +39,23 @@ class OrderRequestRepositoryAdapter(
     @Transactional(readOnly = true)
     override fun findOpenByUserId(userId: String): List<OrderRequest> = jpa.findOpenByUserId(userId).map { toDomain(it) }
 
+    /**
+     * ADR 0084 P0-2 — OrderReconciliationWorker cron 1분 lookup (api 모듈 공통 구현).
+     *
+     * 본 어댑터는 OrderQueryService (api) + admin 화면 등 다른 caller도 활용 가능.
+     * 자본 path worker는 consumer 모듈 [kr.spdaewoon.magicjar.consumer.persistence.ConsumerOrderRequestRepositoryAdapter]
+     * 가 사용 (api 미의존이므로 자체 어댑터 합류).
+     */
+    @Transactional(readOnly = true)
+    override fun findByStatusAndRequestedAtBefore(
+        status: OrderStatus,
+        cutoff: Instant,
+        limit: Int,
+    ): List<OrderRequest> =
+        jpa
+            .findByStatusAndRequestedAtBefore(status, cutoff, PageRequest.of(0, limit))
+            .map { toDomain(it) }
+
     @Transactional
     override fun updateStatus(
         id: Long,
