@@ -6,6 +6,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
+import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -47,6 +48,21 @@ class ConsumerOrderRequestRepositoryAdapter(
 
     @Transactional(readOnly = true)
     override fun findOpenByUserId(userId: String): List<OrderRequest> = jpa.findOpenByUserId(userId).map { toDomain(it) }
+
+    /**
+     * ADR 0084 P0-2 — OrderReconciliationWorker cron 1분 lookup.
+     *
+     * V36 partial index `idx_order_request_pending_reconcile` 활용.
+     */
+    @Transactional(readOnly = true)
+    override fun findByStatusAndRequestedAtBefore(
+        status: OrderStatus,
+        cutoff: Instant,
+        limit: Int,
+    ): List<OrderRequest> =
+        jpa
+            .findByStatusAndRequestedAtBefore(status, cutoff, PageRequest.of(0, limit))
+            .map { toDomain(it) }
 
     @Transactional
     override fun updateStatus(

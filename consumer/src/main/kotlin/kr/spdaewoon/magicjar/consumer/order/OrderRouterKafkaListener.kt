@@ -193,26 +193,46 @@ class OrderRouterKafkaListener(
                     when (deny) {
                         is DenyReason.KisRejected -> "${deny.rtCd}:${deny.msg}"
                         is DenyReason.KisException -> "KIS_EXCEPTION:${deny.cause}"
+                        is DenyReason.KisTimeoutPendingReconcile -> "KIS_RECONCILE_PENDING:${deny.cause}"
                         is DenyReason.RealGateDenied -> "REAL_GATE_DENIED:${deny.condition}"
                         DenyReason.IdempotencyDuplicate -> "IDEMPOTENCY_DUPLICATE"
                         DenyReason.KillSwitchOn -> "KILLSWITCH_ON"
                     }
+
+                // ADR 0084 P0-2 — KisTimeoutPendingReconcile은 REJECTED 대신 PENDING_RECONCILE 분기.
+                // KIS는 주문을 실제 접수했을 수 있어 ambiguous → OrderReconciliationWorker가 검증.
+                val isPendingReconcile = deny is DenyReason.KisTimeoutPendingReconcile
+                val targetStatus = if (isPendingReconcile) OrderStatus.PENDING_RECONCILE else OrderStatus.REJECTED
                 val now = Instant.now()
-                val rejected =
+
+                val transitioned =
                     try {
-                        orderRequestRepositoryProvider
-                            .getIfAvailable()
-                            ?.updateStatus(saved.id!!, OrderStatus.REJECTED, rejectReason)
-                            ?: saved.copy(status = OrderStatus.REJECTED, rejectReason = rejectReason, completedAt = now)
+                        if (isPendingReconcile) {
+                            // PENDING_RECONCILE 상태로만 마킹 — completedAt 미설정 (worker 결정 후 설정).
+                            orderRequestRepositoryProvider
+                                .getIfAvailable()
+                                ?.updateStatus(saved.id!!, OrderStatus.PENDING_RECONCILE, rejectReason)
+                                ?: saved.copy(status = OrderStatus.PENDING_RECONCILE, rejectReason = rejectReason)
+                        } else {
+                            orderRequestRepositoryProvider
+                                .getIfAvailable()
+                                ?.updateStatus(saved.id!!, OrderStatus.REJECTED, rejectReason)
+                                ?: saved.copy(status = OrderStatus.REJECTED, rejectReason = rejectReason, completedAt = now)
+                        }
                     } catch (e: Exception) {
-                        log.error("updateStatus REJECTED 실패: orderId={} err={}", saved.id, e.message)
-                        saved.copy(status = OrderStatus.REJECTED, rejectReason = rejectReason, completedAt = now)
+                        log.error("updateStatus $targetStatus 실패: orderId={} err={}", saved.id, e.message)
+                        saved.copy(
+                            status = targetStatus,
+                            rejectReason = rejectReason,
+                            completedAt = if (isPendingReconcile) null else now,
+                        )
                     }
 
                 val auditType =
                     when (deny) {
                         is DenyReason.KisRejected -> OrderAuditEventType.KIS_REJECT
                         is DenyReason.KisException -> OrderAuditEventType.KIS_EXCEPTION
+                        is DenyReason.KisTimeoutPendingReconcile -> OrderAuditEventType.KIS_RECONCILE_PENDING
                         else -> OrderAuditEventType.KIS_REJECT
                     }
                 writeAudit(
@@ -221,7 +241,20 @@ class OrderRouterKafkaListener(
                     eventType = auditType,
                     payload = mapOf("reason" to rejectReason),
                 )
-                orderRejectedKafkaProducer.publish(rejected, rejectReason)
+
+                if (isPendingReconcile) {
+                    // PENDING_RECONCILE은 Kafka order.rejected.v1 미발행 — REJECTED 확정 전.
+                    // 운영자 가시성 보강을 위한 STOMP 별도 알림은 P1 (외부 코드 리뷰 의제 #8 STOMP 영속) 영역.
+                    log.warn(
+                        "OrderRouterKafkaListener PENDING_RECONCILE 보류 (자본 audit 보호): userId={} signalId={} reason={} orderId={}",
+                        intent.userId,
+                        intent.signalId,
+                        rejectReason,
+                        saved.id,
+                    )
+                } else {
+                    orderRejectedKafkaProducer.publish(transitioned, rejectReason)
+                }
                 ack.acknowledge()
                 return
             }
@@ -369,7 +402,16 @@ class OrderRouterKafkaListener(
     }
 
     /**
-     * Step 7 — KIS REST submit + 5xx 1회 retry (§14-2 step 7 + §14-4 risk 매트릭스).
+     * Step 7 — KIS REST submit + 5xx 1회 retry (§14-2 step 7 + §14-4 risk 매트릭스 + ADR 0084 P0-2).
+     *
+     * ### ADR 0084 P0-2 — PENDING_RECONCILE 분기 (외부 코드 리뷰 결함 #3 fix)
+     * - 5xx 재시도 후 최종 실패: 기존 `DenyReason.KisException("KIS_5XX:...")` → `KisTimeoutPendingReconcile` 분기 갱신
+     * - socket timeout: `WebClientRequestException` 또는 `java.util.concurrent.TimeoutException` chain
+     *   → `KisTimeoutPendingReconcile` 분기
+     * - 기타 일반 Exception(parse 실패·NPE 등): 기존 `KisException` 유지 (KIS 응답 못 받았으므로 REJECTED 확정)
+     *
+     * caller(`onOrderIntent`)는 `KisTimeoutPendingReconcile` 시 REJECTED 대신 PENDING_RECONCILE 마킹 + audit.
+     * OrderReconciliationWorker가 1분 cron으로 KIS inquire-daily-ccld 검증 후 실제 상태로 전이.
      */
     private fun submitWithRetry(
         intent: OrderIntent,
@@ -392,13 +434,47 @@ class OrderRouterKafkaListener(
                     continue
                 }
                 log.error(
-                    "KIS REST 5xx 재시도 후 실패: userId={} signalId={} status={}",
+                    "KIS REST 5xx 재시도 후 실패 → PENDING_RECONCILE (ADR 0084 P0-2): userId={} signalId={} status={}",
                     intent.userId,
                     intent.signalId,
                     e.statusCode,
                 )
-                return OrderResult.Left(DenyReason.KisException("KIS_5XX:${e.statusCode.value()}"))
+                // ADR 0084 P0-2 — 5xx 재시도 후 실패는 KIS 측 ambiguous 상태 (실제 접수됐을 수 있음).
+                return OrderResult.Left(
+                    DenyReason.KisTimeoutPendingReconcile("KIS_5XX:${e.statusCode.value()}"),
+                )
+            } catch (e: java.util.concurrent.TimeoutException) {
+                // ADR 0084 P0-2 — socket timeout: 클라이언트 ACK 미수신 but KIS 접수 가능.
+                log.error(
+                    "KIS REST timeout → PENDING_RECONCILE (ADR 0084 P0-2): userId={} signalId={} err={}",
+                    intent.userId,
+                    intent.signalId,
+                    e.message,
+                )
+                return OrderResult.Left(
+                    DenyReason.KisTimeoutPendingReconcile("KIS_TIMEOUT:${e.message ?: "TimeoutException"}"),
+                )
             } catch (e: Exception) {
+                // ADR 0084 P0-2 — reactor/netty wraps timeout via cause chain (ReadTimeoutException ·
+                // TimeoutException). cause chain 검사 + message 검사로 timeout 시그널 감지.
+                val isTimeout =
+                    e.message?.contains("timeout", ignoreCase = true) == true ||
+                        generateSequence(e.cause) { it.cause }
+                            .any { c ->
+                                c is java.util.concurrent.TimeoutException ||
+                                    c.javaClass.simpleName.contains("Timeout", ignoreCase = true)
+                            }
+                if (isTimeout) {
+                    log.error(
+                        "KIS REST timeout(wrapped) → PENDING_RECONCILE (ADR 0084 P0-2): userId={} signalId={} err={}",
+                        intent.userId,
+                        intent.signalId,
+                        e.message,
+                    )
+                    return OrderResult.Left(
+                        DenyReason.KisTimeoutPendingReconcile("KIS_TIMEOUT_WRAPPED:${e.message ?: "unknown"}"),
+                    )
+                }
                 log.error("KIS REST submit 예외: userId={} signalId={} err={}", intent.userId, intent.signalId, e.message)
                 return OrderResult.Left(DenyReason.KisException(e.message ?: "UNKNOWN"))
             }
