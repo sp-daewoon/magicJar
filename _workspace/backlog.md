@@ -2529,3 +2529,59 @@ orchestrator는 minimal strategy + signal seed row를 DB 직접 insert로 우회
 - `_workspace/specs/2026-05-18-to-prereq-mock-prd-verify.md` §4.2
 - `signal` 테이블 (V8?) + `strategy` 테이블 FK 의존
 - dogfooding evidence 2026-05-18 (orchestrator)
+
+## §64. T-ACCT 신규 트랙 — 잔액·예수금·계좌 잔고 사용자 노출 endpoint + UI (사용자 결함 진단 2026-05-18)
+
+### 사유
+
+사용자 (최고 관리자) dogfooding 2026-05-18 14:50 KST:
+> "지금 잔액조회 예수금 조회 이런게 아예 없는데?"
+
+orchestrator + architect 진단:
+- ADR 0042 Bootstrap용 `KisBalanceAdapter`·`KisReconcileBalanceAdapter` 존재하나 **사용자 노출 endpoint 0건**
+- output1(보유 종목)만 파싱 — **output2(예수금·평가금·평가손익) 완전 누락**
+- frontend Dashboard·AppHeader 잔고 UI 0건
+- ADR 0067 §7-1 CapitalSnapshotProvider Phase 2 미합류 → `getCapital(userId) → 0` → POSITION_LIMIT 룰 무력
+- 사용자 메모리 `feedback_v3_skepticism_no_regression` lens — 자동매매 fitness gap 신규(v1/v2 잔재 아님)
+
+### 결정
+
+**신규 트랙 T-ACCT** 발행 — W3 보강 fitness gap 해소.
+
+- spec: `_workspace/specs/2026-05-18-account-balance-positions-spec.md`
+- ADR: 0081 Proposed (Account Balance & Positions User-Facing Exposure)
+- 3 endpoint: `GET /api/account/balance·positions·summary`
+- 신규 port: `domain/account/port/KisBalanceQueryPort`
+- 신규 adapter: `api/infrastructure/kis/ApiKisBalanceQueryAdapter` (api 직접 KIS REST 호출 + output1·output2 파싱)
+- Redis cache: `account:balance:{userId}` TTL 30s
+- frontend Dashboard 격상: `DashboardPlaceholder → DashboardPage` + `AccountSummaryCard` + `HoldingsTable`
+- CapitalSnapshotProvider 실제 어댑터 교체 (`@ConditionalOnMissingBean` 정합 — revert 시 default no-op 자동 fallback)
+- 모듈 경계 정합 (ADR 0004): consumer KisBalanceAdapter 0 touch (관심사 분리)
+- KIS-first raw fetch 의무 (헌법 §3): output2 11 필드 LOCK · raw URL 4건 inline KDoc LOCK
+- mock 합성 0 LOCK (`feedback_no_mock_data`)
+- AI 호출 0 LOCK (룰 5)
+
+### sub-agent dispatch plan
+
+| Phase | sub-agent | 영역 | 우선순위 |
+|---|---|---|---|
+| 1·2 (단일 PR 묶음) | backend-core | domain/account + api/{controller,service,infrastructure/kis} | HIGH |
+| 3 | backend-core | consumer/risk (CapitalSnapshotProvider 교체) | MED |
+| 4 | frontend | frontend/src/{api,pages/Dashboard} | HIGH |
+| 5 (옵션) | frontend | AppHeader 배지 + PositionsPage BalanceCard | MED |
+
+### release
+
+**v3.6.14 patch cut** 권장 — 사용자 메모리 `feedback_release_policy_patch_first` 정합 (v3.7=W4 LOCK, T-ACCT는 W3 보강).
+
+### 처리 상태
+
+⏳ spec 발행 단계 (PR agent/architect/spec-account-balance-positions-track) — sub-agent dispatch 대기.
+
+### 연관
+
+- `_workspace/specs/2026-05-18-account-balance-positions-spec.md`
+- `_workspace/arch/adr/0081-account-balance-user-facing-exposure.md`
+- ADR 0042 (Bootstrap · consumer 0 touch)
+- ADR 0067 §7-1 (CapitalSnapshotProvider cross-ref add-only)
+- 사용자 dogfooding 2026-05-18 14:50 KST
