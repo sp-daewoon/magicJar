@@ -153,12 +153,13 @@ class OrderRouterKafkaListenerTest {
     }
 
     @Test
-    fun `(e) KIS 5xx 1회 retry 후 fail → KIS_EXCEPTION audit + Kafka rejected publish`() {
+    fun `(e) KIS 5xx 1회 retry 후 fail → PENDING_RECONCILE 분기 (ADR 0084 P0-2)`() {
         every { idempotencyGuard.acquire(any(), any()) } returns true
         every { tradingModeGate.resolveMode("12345678") } returns OrderResult.Right(TradingMode.MOCK)
         every { killSwitchPort.isOn("12345678") } returns false
         every { orderRepo.save(any()) } answers { firstArg<OrderRequest>().copy(id = 99L) }
-        every { orderRepo.updateStatus(99L, OrderStatus.REJECTED, any()) } returns null
+        // ADR 0084 P0-2 — 5xx fail은 REJECTED 대신 PENDING_RECONCILE 분기.
+        every { orderRepo.updateStatus(99L, OrderStatus.PENDING_RECONCILE, any()) } returns null
         // 5xx 2회 throw — 1회 retry 후도 실패
         every { kisOrderPort.submit(any(), TradingMode.MOCK) } throws
             WebClientResponseException.create(
@@ -176,8 +177,12 @@ class OrderRouterKafkaListenerTest {
         verify(exactly = 2) { kisOrderPort.submit(any(), TradingMode.MOCK) }
         val auditSlot = mutableListOf<OrderAuditEvent>()
         verify(atLeast = 1) { auditRepo.save(capture(auditSlot)) }
-        assertThat(auditSlot.map { it.eventType }).contains(OrderAuditEventType.KIS_EXCEPTION)
-        verify(exactly = 1) { rejectedProducer.publish(any(), match { it.startsWith("KIS_EXCEPTION") }) }
+        // ADR 0084 P0-2 — audit는 KIS_RECONCILE_PENDING (REJECTED 확정 전 보류 상태).
+        assertThat(auditSlot.map { it.eventType }).contains(OrderAuditEventType.KIS_RECONCILE_PENDING)
+        // ADR 0084 P0-2 — order.rejected.v1 Kafka publish 0건 (PENDING_RECONCILE 보류 — REJECTED 확정 전).
+        verify(exactly = 0) { rejectedProducer.publish(any(), any()) }
+        // PENDING_RECONCILE 상태로 updateStatus 1회 호출 정합.
+        verify(exactly = 1) { orderRepo.updateStatus(99L, OrderStatus.PENDING_RECONCILE, any()) }
         verify(exactly = 1) { ack.acknowledge() }
     }
 
