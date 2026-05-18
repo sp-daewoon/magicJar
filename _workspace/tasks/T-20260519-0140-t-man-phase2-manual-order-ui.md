@@ -3,10 +3,10 @@ id: T-20260519-0140-t-man-phase2-manual-order-ui
 agent: frontend
 model: opus
 branch: agent/frontend/t-man-phase2-manual-order-ui
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T01:40:20.852+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T01:51:01.362+09:00
+pr: #515
 parentPhase: ?
 ---
 
