@@ -6,10 +6,12 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisApprovalAdapter
+import kr.spdaewoon.magicjar.consumer.order.KisExecutionWsListener
 import kr.spdaewoon.magicjar.domain.market.port.QuoteCachePort
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.data.redis.core.ValueOperations
 import org.springframework.kafka.core.KafkaTemplate
@@ -200,8 +202,12 @@ class KisWebSocketBridgeOpsp8996FixTest {
     private fun buildBridge(
         defaultUserId: String = "user001",
         magicjarMode: String = "REAL",
-    ): KisWebSocketBridge =
-        KisWebSocketBridge(
+    ): KisWebSocketBridge {
+        // T-O Phase 1 B-1: executionListenerProvider 추가 — 본 테스트는 체결통보 wiring 영역 외이므로 null 반환 stub.
+        // ADR 0068 §14-6 정합 — 미합류 시 graceful skip(log.warn) 패턴.
+        val executionListenerProvider = mockk<ObjectProvider<KisExecutionWsListener>>(relaxed = true)
+        every { executionListenerProvider.getIfAvailable() } returns null
+        return KisWebSocketBridge(
             approvalAdapter = approvalAdapter,
             redisTemplate = redisTemplate,
             kafkaTemplate = kafkaTemplate,
@@ -212,5 +218,7 @@ class KisWebSocketBridgeOpsp8996FixTest {
             wsUrlVps = "ws://localhost:31000",
             magicjarMode = magicjarMode,
             defaultUserId = defaultUserId,
+            executionListenerProvider = executionListenerProvider,
         )
+    }
 }
