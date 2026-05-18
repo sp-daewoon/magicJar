@@ -14,7 +14,7 @@ parentPhase: ?
 ADR 0084 P0-2 — PENDING_RECONCILE 상태 + KIS 주문조회 reconciliation worker
 
 ## 결과물 체크리스트
-- [ ] OrderStatus enum 확장 | Flyway V36 | KisOrderInquireDailyCcldHttpAdapter | OrderReconciliationWorker cron 1분 | KisOrderHttpAdapter 보강 | KIS-first raw KDoc | 단위 테스트 | gradle check GREEN
+- [x] OrderStatus enum 확장 | Flyway V36 | KisOrderInquireDailyCcldHttpAdapter | OrderReconciliationWorker cron 1분 | KisOrderHttpAdapter 보강 | KIS-first raw KDoc | 단위 테스트 | gradle check GREEN
 
 ## 의존성
 - (필요 시 기록)
