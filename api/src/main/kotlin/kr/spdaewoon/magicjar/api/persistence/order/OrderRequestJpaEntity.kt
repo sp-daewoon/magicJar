@@ -10,6 +10,7 @@ import jakarta.persistence.Id
 import jakarta.persistence.Table
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import java.math.BigDecimal
@@ -66,4 +67,7 @@ class OrderRequestJpaEntity(
     var acknowledgedAt: Instant? = null,
     @Column(name = "completed_at")
     var completedAt: Instant? = null,
+    @Enumerated(EnumType.STRING)
+    @Column(name = "source", nullable = false, updatable = false, length = 20)
+    val source: OrderSource = OrderSource.AUTO,
 )

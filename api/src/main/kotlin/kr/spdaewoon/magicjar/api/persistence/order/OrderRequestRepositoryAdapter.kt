@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.api.persistence.order
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
@@ -139,6 +140,7 @@ class OrderRequestRepositoryAdapter(
             requestedAt = domain.requestedAt,
             acknowledgedAt = domain.acknowledgedAt,
             completedAt = domain.completedAt,
+            source = domain.source,
         )
 
     private fun toDomain(entity: OrderRequestJpaEntity): OrderRequest =
@@ -161,6 +163,7 @@ class OrderRequestRepositoryAdapter(
             requestedAt = entity.requestedAt,
             acknowledgedAt = entity.acknowledgedAt,
             completedAt = entity.completedAt,
+            source = safeEnum<OrderSource>(entity.source.name) ?: OrderSource.AUTO,
         )
 
     private inline fun <reified T : Enum<T>> safeEnum(value: String): T? = runCatching { enumValueOf<T>(value) }.getOrNull()

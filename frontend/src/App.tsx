@@ -7,8 +7,8 @@
  * - hasUserAccount=true + path === '/setup' → Navigate to="/" (이미 완료된 사용자 차단)
  * - isLoading → 스플래시 표시
  *
- * 라우트 (PR-5b 구조 유지 + PR-6 확장 + PR-7 추가 + PR-10 추가 + PR-RISK Phase 3 + T-O Phase 3 + T-J·T-PERF Phase 3):
- *   /                 -> 대시보드 placeholder
+ * 라우트 (PR-5b 구조 유지 + PR-6 확장 + PR-7 추가 + PR-10 추가 + PR-RISK Phase 3 + T-O Phase 3 + T-J·T-PERF Phase 3 + T-ACCT Phase 4):
+ *   /                 -> 대시보드 (T-ACCT Phase 4 — AccountSummary + Holdings + Balance, ADR 0081)
  *   /watchlist        -> 관심종목 (T-W1 1순위 진입점 — ADR 0040)
  *   /symbol/:code     -> 종목 상세 (T-S1 — ADR 0040 §2-2 진입점)
  *   /strategy/backtest -> 백테스트 (T-BT R3 — ADR 0061 §4 D-1)
@@ -31,7 +31,7 @@ import type { ReactNode } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useOnboardingStatus } from './api/onboarding'
 import { AppHeader } from './components/layout/AppHeader'
-import { DashboardPlaceholder } from './pages/DashboardPlaceholder'
+import { DashboardPage } from './pages/Dashboard/DashboardPage'
 import { SetupWizard } from './pages/SetupWizard'
 import { SymbolDetailPage } from './pages/Symbol/SymbolDetailPage'
 import { WatchlistPage } from './pages/Watchlist/WatchlistPage'
@@ -105,7 +105,8 @@ export function App() {
     <OnboardingGuard>
       <AppLayout>
         <Routes>
-          <Route path="/" element={<DashboardPlaceholder />} />
+          {/* T-ACCT Phase 4: 대시보드 격상 — AccountSummary + HoldingsTable + BalanceCard (ADR 0081) */}
+          <Route path="/" element={<DashboardPage />} />
           <Route path="/watchlist" element={<WatchlistPage />} />
           {/* T-S1: 종목 상세 — ADR 0040 §2-2 진입점 */}
           <Route path="/symbol/:code" element={<SymbolDetailPage />} />

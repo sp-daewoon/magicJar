@@ -4,16 +4,16 @@ import java.math.BigDecimal
 import java.time.Instant
 
 /**
- * 주문 영속 도메인 (ADR 0068 §14-1 LOCK · §6-1 order_request 테이블 정합).
+ * 주문 영속 도메인 (ADR 0068 §14-1 LOCK · §6-1 order_request 테이블 정합 · ADR 0082 T-MAN B-2-extended).
  *
  * OrderRouterKafkaListener step 5에서 INSERT, step 8에서 UPDATE(ACK), KisExecutionWsListener에서 종료 UPDATE.
  * Phase 2 backend-core JPA 어댑터가 본 도메인을 영속(§15-2).
  *
- * 필드 LOCK (§14-1 17 컬럼 매트릭스):
+ * 필드 LOCK (§14-1 17 컬럼 매트릭스 + source 1 컬럼 add-only):
  *   id                — bigserial PK
  *   userId            — KIS credential identity
- *   signalId          — T-SIG cross-ref
- *   strategyId        — strategy cross-ref
+ *   signalId          — T-SIG cross-ref · MANUAL 시 0L sentinel
+ *   strategyId        — strategy cross-ref · MANUAL 시 0L sentinel
  *   code              — 종목코드
  *   side              — BUY/SELL
  *   priceType         — MARKET/LIMIT
@@ -28,8 +28,9 @@ import java.time.Instant
  *   requestedAt       — listener 진입 시각
  *   acknowledgedAt    — KIS ACK 응답 시각
  *   completedAt       — FILLED/REJECTED/CANCELLED 종료 시각
+ *   source            — AUTO(자동 path, default) / MANUAL(POST /api/orders/manual) — ADR 0082 B-2-extended LOCK
  *
- * AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8)
+ * AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8 + ADR 0082)
  */
 data class OrderRequest(
     val id: Long? = null,
@@ -50,4 +51,5 @@ data class OrderRequest(
     val requestedAt: Instant,
     val acknowledgedAt: Instant? = null,
     val completedAt: Instant? = null,
+    val source: OrderSource = OrderSource.AUTO,
 )

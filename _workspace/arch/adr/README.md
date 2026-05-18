@@ -20,7 +20,7 @@
 | 0007 | Kafka 이벤트 백본 |
 | 0008 | Docker 표준 — 모듈별 Dockerfile + compose 통합 기동 |
 | 0054 | pattern-engine 라이브러리 모듈 분리 (domain 순수성 보존 + api·consumer 공유) |
-| 0083 | indicator-impl 라이브러리 모듈 분리 (IndicatorSource 모듈 경계 결함 fix — domain 순수성 + api·consumer 공유, ADR 0054 패턴 1:1) |
+| 0083 | indicator-impl 라이브러리 모듈 분리 (IndicatorSource 모듈 경계 결함 fix — domain 순수성 + api·consumer 공유, ADR 0054 패턴 1:1) — **Accepted (2026-05-19, v3.6.15 cut)** |
 
 ## §3. 프론트엔드 (2건)
 
@@ -189,8 +189,7 @@
 | 0078 | 내부 자산 추출 전략 | 사용자 명시적 호출 단일 조건 시 시동 — Phase 1~3 분리, Plugin Independence 제약 LOCK |
 | 0081 | T-ACCT 계좌 잔고·예수금 사용자 노출 | 3 endpoint(balance·positions·summary) + Dashboard UI + CapitalSnapshotProvider 실제 어댑터(ADR 0067 §7-1 cross-ref) + KIS inquire-balance output2 11 필드 LOCK. spec 발행 단계 — Phase 1·2 backend 머지 후 Accepted 격상 |
 | 0082 | T-MAN 사용자 수동 주문 발행 트랙 | `POST /api/orders/manual` + `/orders/new` 페이지 + OrderPreviewModal 이중 confirm + 60s cooldown + 3중 게이트 동일 적용 + ADR 0068 `OrderRouterKafkaListener` 12 step 재사용(자본 path 단일 LOCK) + T-RISK Guard chain 우회(KillSwitch만 재검증) + sentinel signalId=0L · source="MANUAL". v3.6.15 patch cut 후보 — Phase 1(backend-core api/controller) + Phase 2(frontend) 병렬 dispatch 가능 → 머지 후 Accepted 격상 |
-| 0083 | indicator-impl 모듈 신설 (결함 3 fix) | 사용자 dogfooding evidence "ema 400" + 옵션 B 명시. `indicator-impl/` 라이브러리 모듈(root 직속, Spring Context only, Boot main 0) + api·consumer 양쪽 의존 + 15 파일 git mv. ADR 0054 패턴 1:1. backend-core 단일 PR 권장. v3.6.14 patch cut 합류. backend-core dispatch + 사용자 dogfooding curl 200 검증 후 Accepted 격상 예정. |
-| 0084 | 주문 path 안정성 종합 (P0·P1·P2 트랙) | 외부 코드 리뷰 13 코멘트 흡수. P0(hashkey·PENDING_RECONCILE·WS race·DLQ) v3.6.16 + P1(outbox·STOMP 영속·MDC) v3.6.17 + P2(정정·MarketSession) v3.6.18 또는 W4 묶음. Flyway V35·V36·V37·V38 + Kafka 4 DLT. sub-agent 10~14 PR. 사용자 결재 의제 4건. |
+| 0084 (P1·P2 잔류) | 주문 path 안정성 P1·P2 후속 트랙 | **P0 4건은 2026-05-19 Accepted 격상 마감 (v3.6.16 cut · §14 변경 이력)**. 잔류 P1(outbox·STOMP 영속·MDC) v3.6.17 + P2(정정·MarketSession) v3.6.18 또는 W4 묶음. Flyway V37·V38 + Kafka 1 추가 토픽(order.modify.intent.v1 옵션). sub-agent 6~10 PR. 사용자 결재 의제 잔류. |
 | 0085 | chart-curator 신규 에이전트 영입 (8번째 sub-agent) | 사용자 dogfooding evidence(한국석유 일봉 5개월 stale) + 3 영역(market-data·strategy-engine·frontend) 교차 점유 단일 owner 부재. TradingView LWC v4 차트 + 캔들 데이터 SLA·정합성 단일 owner. 본 ADR 머지 후 즉시 첫 발화(한국석유 일봉 backfill + `last_candle_at` 모니터링 워커) + T-CC 트랙 backlog 신설 + 점진적 코드 이관(별도 사이클). |
 
 ## §14. 변경 이력
@@ -200,6 +199,7 @@
 | 일자 | 사이클 | 변경 |
 |------|--------|------|
 | 2026-05-19 | chart-curator 신규 에이전트 영입 (8번째 sub-agent) | **ADR 0085 Proposed** — 사용자 dogfooding evidence(한국석유 004090 일봉 last=2025-12-24 ≈5개월 stale vs 1분봉 last=2026-05-18 15:19 정상) + 3 영역(market-data·strategy-engine·frontend) 교차 점유로 인한 결함 책임 분기 → 8번째 sub-agent chart-curator 영입. TradingView LWC v4 차트 컴포넌트(`frontend/src/components/chart/*`) + 캔들 layer(적재 워커·갭 검출·자동 backfill·MTF 정합성·corporate action adjustment) 단일 owner. agent-charter.md §0·§1-A·§8 갱신 + magicjar-orchestrator SKILL 8 actor + .claude/agents/chart-curator.md + magicjar-chart-curator SKILL + market-data.md·frontend.md 이관 표기 + CLAUDE.md 갱신. 운영 코드 0 touch (agent infra·docs only). 본 ADR 머지 후 즉시 chart-curator 첫 발화(한국석유 일봉 backfill + last_candle_at 모니터링 워커) + T-CC 트랙 backlog 신설. (architect) |
+| 2026-05-19 | ADR 0083·0084 Accepted 격상 (P0 4건 + indicator-impl 3 결함 마감 evidence) | **ADR 0083 Proposed → Accepted** — indicator-impl 결함 3 P0 마감 evidence (v3.6.15 cut) — backend-core 단일 PR 머지 + api·consumer 양쪽 라이브러리 jar 의존 구동 + 81지표 사용자 노출 200 dogfooding evidence 확보. **ADR 0084 Proposed → Accepted (P0 baseline)** — P0 4건(P0-1 hashkey + P0-2 PENDING_RECONCILE + P0-3 WS race·backfill + P0-4 DLQ) 4 PR 머지 완료 + v3.6.16 cut. P1·P2 후속 잔류(별도 사이클 dispatch · backlog §78 잔류). §13 후속 예정 표에서 0083 row 제거 + 0084 row를 P1·P2 잔류 row로 갱신. (architect) |
 | 2026-05-18 | T-MAN 신규 트랙 발행 (v3.6.15 patch prep) | **ADR 0082 Proposed** — 사용자 결함 진단 (최고 관리자 2026-05-18 KST) "주문을 하는 화면이 없어 --;; 잔액조회도" 정합. T-MAN 신규 W3 보강 트랙 — 자동 path(T-O `OrderRouterKafkaListener` 12 step) **0 touch** + 수동 entry point만 추가(`POST /api/orders/manual` + `/orders/new` 페이지). spec `_workspace/specs/2026-05-18-t-man-manual-order-issue-spec.md`. v3.6.15 patch cut 권장. (architect) |
 | 2026-05-18 | 결함 3 indicator-impl 모듈 신설 (v3.6.14 patch prep) | **ADR 0083 Proposed** — 사용자 dogfooding evidence "GET /api/indicators?code=066570&name=ema → 400" + 옵션 B 명시. `indicator-impl/` 라이브러리 모듈 신설 + api·consumer 양쪽 의존 + 15 파일 git mv. ADR 0054 패턴 1:1. backend-core 단일 PR 권장. v3.6.14 patch cut 합류. (architect) |
 | 2026-05-18 | 주문 path 안정성 종합 (v3.6.16+ patch prep) | **ADR 0084 Proposed** — 외부 코드 리뷰 13 코멘트(중복 제거 11 의제) 흡수. ✅ 2건 충족 + 🟡 5건 부분 + ❌ 4건 미충족. P0(hashkey·PENDING_RECONCILE·WS race·DLQ) v3.6.16 + P1(outbox·STOMP 영속·MDC) v3.6.17 + P2(정정·MarketSession) v3.6.18 또는 W4 묶음. spec `_workspace/specs/2026-05-18-order-path-stability-spec.md`. 운영 코드 0 touch. (architect) |
