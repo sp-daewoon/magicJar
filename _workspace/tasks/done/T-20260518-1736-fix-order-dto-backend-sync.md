@@ -3,9 +3,9 @@ id: T-20260518-1736-fix-order-dto-backend-sync
 agent: frontend
 model: opus
 branch: agent/frontend/fix-order-dto-backend-sync
-status: RUNNING
+status: DONE
 startedAt: 2026-05-18T17:36:28.719+09:00
-completedAt: null
+completedAt: 2026-05-18T23:57:50.280+09:00
 pr: null
 parentPhase: ?
 ---
