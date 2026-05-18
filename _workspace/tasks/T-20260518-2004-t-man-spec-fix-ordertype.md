@@ -3,10 +3,10 @@ id: T-20260518-2004-t-man-spec-fix-ordertype
 agent: architect
 model: opus
 branch: agent/architect/t-man-spec-fix-ordertype
-status: RUNNING
+status: DONE
 startedAt: 2026-05-18T20:04:08.376+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-18T20:16:03.487+09:00
+pr: #496
 parentPhase: ?
 ---
 
