@@ -14,10 +14,10 @@ parentPhase: ?
 결함 3 indicator-impl 모듈 신설 (Gradle + 15 git mv + 패키지 rename)
 
 ## 결과물 체크리스트
-- [ ] Gradle 4 파일
-- [ ] 15 파일 git mv
-- [ ] 패키지 rename
-- [ ] consumer 잔류 3건 import 갱신
+- [x] Gradle 4 파일
+- [x] 15 파일 git mv
+- [x] 패키지 rename
+- [x] consumer 잔류 3건 import 갱신
 - [ ] gradle check GREEN
 - [ ] 부팅 evidence
 - [ ] curl 200 evidence

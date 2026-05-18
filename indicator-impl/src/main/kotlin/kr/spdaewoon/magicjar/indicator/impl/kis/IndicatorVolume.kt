@@ -1,11 +1,11 @@
 package kr.spdaewoon.magicjar.indicator.impl.kis
 
-import kr.spdaewoon.magicjar.indicator.impl.kis.KisIndicatorMath.norm
 import kr.spdaewoon.magicjar.domain.indicator.IndicatorException
 import kr.spdaewoon.magicjar.domain.indicator.IndicatorPoint
 import kr.spdaewoon.magicjar.domain.indicator.IndicatorResult
 import kr.spdaewoon.magicjar.domain.indicator.IndicatorSpec
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
+import kr.spdaewoon.magicjar.indicator.impl.kis.KisIndicatorMath.norm
 import java.math.BigDecimal
 
 /**

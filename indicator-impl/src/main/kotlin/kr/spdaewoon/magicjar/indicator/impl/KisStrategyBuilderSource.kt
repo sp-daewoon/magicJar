@@ -1,17 +1,17 @@
 package kr.spdaewoon.magicjar.indicator.impl
 
-import kr.spdaewoon.magicjar.indicator.impl.kis.IndicatorMomentum
-import kr.spdaewoon.magicjar.indicator.impl.kis.IndicatorOscillator
-import kr.spdaewoon.magicjar.indicator.impl.kis.IndicatorOther
-import kr.spdaewoon.magicjar.indicator.impl.kis.IndicatorTrend
-import kr.spdaewoon.magicjar.indicator.impl.kis.IndicatorVolatility
-import kr.spdaewoon.magicjar.indicator.impl.kis.IndicatorVolume
 import kr.spdaewoon.magicjar.domain.indicator.IndicatorCatalog
 import kr.spdaewoon.magicjar.domain.indicator.IndicatorException
 import kr.spdaewoon.magicjar.domain.indicator.IndicatorResult
 import kr.spdaewoon.magicjar.domain.indicator.IndicatorSpec
 import kr.spdaewoon.magicjar.domain.indicator.port.IndicatorSource
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
+import kr.spdaewoon.magicjar.indicator.impl.kis.IndicatorMomentum
+import kr.spdaewoon.magicjar.indicator.impl.kis.IndicatorOscillator
+import kr.spdaewoon.magicjar.indicator.impl.kis.IndicatorOther
+import kr.spdaewoon.magicjar.indicator.impl.kis.IndicatorTrend
+import kr.spdaewoon.magicjar.indicator.impl.kis.IndicatorVolatility
+import kr.spdaewoon.magicjar.indicator.impl.kis.IndicatorVolume
 import org.springframework.stereotype.Component
 
 /**
