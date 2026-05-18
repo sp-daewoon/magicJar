@@ -2730,3 +2730,85 @@ T-ACCT Phase 4 + T-MAN Phase 1·2·3 머지 후 후속 의제:
 - frontend position 사전 검증 (T-ACCT API 의존 — `useAccountPositions` hook 호출 → 매도 form에서 보유 수량 검증)
 - 호가·현재가 표시 (KIS `inquire-price` REST 1회 호출 + manual refresh 버튼)
 - 60초 cooldown UI 우회 차단 강화 (현재는 LocalStorage 만 — backend OrderIdempotencyGuard Redis 권위로 차단되지만 UX 향상)
+## §78. 외부 코드 리뷰 13 코멘트 흡수 종합 트랙 (주문 path 안정성 P0·P1·P2 · 2026-05-18)
+
+### 컨텍스트
+
+사용자(최고 관리자, 2026-05-18 KST) 외부 코드 리뷰 2건 수신 → 13 코멘트(중복 제거 11 의제) → magicJar 현 시스템 grep·코드 정독 검증 → ✅ 2건 충족 + 🟡 5건 부분 + ❌ 4건 미충족 매트릭스 도출.
+
+사용자 명시 결정: **P0·P1·P2 단계적 트랙 발행 + sub-agent dispatch**. spec 발행 사이클 (architect 2026-05-18).
+
+### 11 의제 매트릭스
+
+| § | 의제 | 현재 상태 | gap evidence | priority |
+|---|---|---|---|---|
+| §78-1 | #1 idempotency_key UNIQUE | ✅ 충족 — close | `order_request.uq_order_idempotency` (Flyway V20) + Redis SETNX 60s | close |
+| §78-2 | #2 DB↔Kafka Transactional Outbox | 🟡 부분 | NotificationOutbox는 Slack only — order 4 producer 직접 Kafka publish | P1 |
+| §78-3 | #3 KIS REST 타임아웃 → PENDING_RECONCILE | 🟡 부분 | 5xx 1회 retry — PENDING_RECONCILE 상태 grep 0건 + KIS 주문조회 reconciliation 0 | **P0** |
+| §78-4 | #4 WS 체결 race + 재연결 backfill | ❌ 미충족 | `inquire-ccnl` grep 0건 — race·재연결 backfill 0 | **P0** |
+| §78-5 | #5 부분체결 SUM 가드 | ✅ 충족 — close | `sumExecutedQuantityByOrder` + §14-6 LOCK 분기 | close |
+| §78-6 | #6 주문 정정 흐름 | 🟡 부분 | `OrderCancelController` 합류(취소만) — RVSE_CNCL_DVSN_CD="01" 정정 0건 | P2 |
+| §78-7 | #7 DLQ / Kafka 재시도 정책 | ❌ 미충족 | `DefaultErrorHandler·RetryableTopic·DeadLetterPublishing` grep 0건 → 무한 재시도 risk | **P0** |
+| §78-8 | #8 STOMP 알림 영속 (재접속 push) | 🟡 부분 | NotificationOutbox SLACK 한정 — 재접속 unread fetch 0건 | P1 |
+| §78-9 | #9 분산 추적 traceId/MDC | ❌ 미충족 | `MDC·traceId` grep 0건 — 사고 추적 cost ↑ | P1 |
+| §78-10 | #10 시간 컨텍스트 (장 휴장·토큰 mutex) | 🟡 부분 | MarketSessionFsm 1차 stub + KisAuthAdapter token mutex 재검증 필요 | P2 |
+| §78-11 | #11 KIS hashkey 헤더 | ❌ 미충족 | `hashkey` grep 0건 — KIS POST 주문 hashkey 의무 확인 + 구현 | **P0** |
+
+### v3.x cut 시점 매트릭스
+
+`feedback_release_policy_patch_first` + `feedback_docker_log_verify_before_cut` 정합:
+
+| 마감 시점 | 버전 | 트리거 의제 |
+|---|---|---|
+| P0 완료 | v3.6.16 | #11·#3·#4·#7 — 자본 잠재 risk 해소 (REAL 진입 필수) |
+| P1 완료 | v3.6.17 | #2·#8·#9 — 정합성·관측성 보강 |
+| P2 완료 | v3.6.18 또는 W4 직전 묶음 | #6·#10 — UX·운영 편의 |
+
+각 사이클 tag cut 직전 `scripts/build-and-deploy.sh` 재배포 + 4 모듈 docker logs 에러 검사 → 0건 확인 후 cut.
+
+### sub-agent dispatch plan
+
+| Phase | sub-agent | 점유 영역 | PR 수 |
+|---|---|---|---|
+| P0 | market-data | consumer/order(KisHashKeyAdapter·KisOrderInquireDailyCcldHttpAdapter·KisOrderInquireCcnlHttpAdapter) + consumer/ws(WS race fix·backfill hook) + OrderReconciliationWorker | 4~5 |
+| P0 | backend-core | consumer Kafka config(DefaultErrorHandler + DeadLetterPublishingRecoverer) + DLT listener + Flyway V35·V36 + domain `OrderStatus.PENDING_RECONCILE` enum | 1~2 |
+| P1 | backend-core | api/messaging(OrderEventOutbox + worker·NotificationOutbox STOMP_USER 채널 + Flyway V37·V38) + MDC TraceIdServletFilter + Kafka header propagation + logback pattern | 3~4 |
+| P1 | frontend | WebSocket onConnect unread fetch + toast/모달 큐잉 | 1 |
+| P2 | backend-core | OrderModifyController + KisOrderHttpAdapter.modify(RVSE_CNCL_DVSN_CD="01") + MarketSessionFsmGate AOP | 1~2 |
+| P2 | market-data | KisAuthAdapter token mutex 재검증(변경 없을 수도 있음) | 0~1 |
+
+**총 PR 수 추정**: 10~14건 · 사이클 3건 (v3.6.16·v3.6.17·v3.6.18)
+
+### KIS-first raw 인용 (헌법 §3)
+
+| 의제 | raw URL |
+|---|---|
+| #4 WS backfill | https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_ccnl/inquire_ccnl.py |
+| #3 PENDING_RECONCILE | https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_ccld/inquire_daily_ccld.py |
+| #11 hashkey | https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/auth/auth.py (getHashKey) + examples_user/domestic_stock/domestic_stock_functions.py L10097~L10213 |
+| #6 정정 | https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions.py L10771~L10884 (def order_rvsecncl, RVSE_CNCL_DVSN_CD="01") |
+
+### 사용자 결재 의제 (architect 권장 매트릭스)
+
+1. **P2 격상 여부** (#6·#10) — 권장 = P2 유지 (UX·운영 편의, 자본 영향 X)
+2. **WS race fix 패턴 (#4)** — pre-insert(kisOrderNo NULL 허용 + DB UNIQUE) vs Redis pending buffer → 권장 = **pre-insert** (DB single source of truth + 의존성 최소)
+3. **DLT 알림 priority (#7)** — P0 즉시 vs P1 audit only → 권장 = **P0** (자본 lock 의제)
+4. **v3.6.18 cut 시점** (P2) — 단독 cut vs W4 진입 직전 묶음 → 권장 = **W4 묶음** (의제 #6·#10 cost 낮음 + cycle 절약)
+
+### 상태
+
+⏳ spec 발행 단계 (PR `agent/architect/spec-order-path-stability-p0-p1-p2`) — 사용자 결재 후 P0 sub-agent dispatch 발사.
+
+### 연관
+
+- `_workspace/specs/2026-05-18-order-path-stability-spec.md`
+- `_workspace/arch/adr/0084-order-path-stability-p0-p1-p2.md`
+- ADR 0068 (T-O) §14-2·§14-5·§14-6 superset
+- ADR 0070 (T-RECON+NOTIFY) outbox + reconcile 매트릭스 superset
+- ADR 0077 (OPSP8996) WS 재연결 backfill 결합
+- ADR 0044 (notification) DLT P0 + STOMP_USER 채널
+- ADR 0013 (MarketSessionFsm) Gate 통합
+- ADR 0038 (KIS OAuth) token mutex 재검증
+- ADR 0041 (broker reconciliation) order reconciliation 패턴 정합
+- ADR 0007 (Kafka backbone) outbox + DLT
+- ADR 0008 (docker MSA) MDC 분산 추적
