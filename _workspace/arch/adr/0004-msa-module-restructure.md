@@ -1,10 +1,10 @@
-# ADR 0004: MSA 모듈 재구성 (5 JVM 모듈 + frontend)
+# ADR 0004: MSA 모듈 재구성 (6 JVM 모듈 + frontend)
 
 - 상태: Accepted
 - 작성일: 2026-04-27
-- 갱신일: 2026-05-10 (4 → 5 JVM 모듈 — pattern-engine 추가, ADR 0054 정합)
+- 갱신일: 2026-05-18 (5 → 6 JVM 모듈 — indicator-impl 추가, ADR 0083 정합). 2026-05-10 (4 → 5 JVM 모듈 — pattern-engine 추가, ADR 0054 정합).
 - 결정자: architect (사용자 sp-daewoon 합의)
-- 관계: ADR 0002(Gradle 멀티모듈)를 **재배치**(supersede 아님 — 멀티모듈 정신은 유지, 분할 축만 전환). ADR 0054(pattern-engine 라이브러리 모듈)가 본 ADR을 갱신.
+- 관계: ADR 0002(Gradle 멀티모듈)를 **재배치**(supersede 아님 — 멀티모듈 정신은 유지, 분할 축만 전환). ADR 0054(pattern-engine 라이브러리 모듈) + ADR 0083(indicator-impl 라이브러리 모듈)이 본 ADR을 갱신.
 
 ## 맥락
 

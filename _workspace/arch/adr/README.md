@@ -14,12 +14,13 @@
 |------|------|
 | 0002 | 언어·프레임워크 (Kotlin 2.0 / Spring Boot 3.3 / JDK 21 / Gradle KTS) |
 | 0003 | 증권사 API로 한국투자증권 KIS OpenAPI 선택 |
-| 0004 | MSA 모듈 재구성 (5 JVM + frontend) — 2026-05-10 갱신: 4 → 5 (pattern-engine 추가, ADR 0054 정합) |
+| 0004 | MSA 모듈 재구성 (6 JVM + frontend) — 2026-05-18 갱신: 5 → 6 (indicator-impl 추가, ADR 0083 정합) |
 | 0005 | 하이브리드 런타임 — api / batch / consumer 3 JVM |
 | 0006 | PostgreSQL 단일 + 스키마 분리 |
 | 0007 | Kafka 이벤트 백본 |
 | 0008 | Docker 표준 — 모듈별 Dockerfile + compose 통합 기동 |
 | 0054 | pattern-engine 라이브러리 모듈 분리 (domain 순수성 보존 + api·consumer 공유) |
+| 0083 | indicator-impl 라이브러리 모듈 분리 (IndicatorSource 모듈 경계 결함 fix — domain 순수성 + api·consumer 공유, ADR 0054 패턴 1:1) |
 
 ## §3. 프론트엔드 (2건)
 
@@ -159,7 +160,7 @@
 
 - **새 ADR 발행 시** — 본 README + `master-architecture.md` §10 + `tracks-roadmap.md` §3 동시 갱신.
 - **Superseded 처리 시** — 본문 상단 헤더 + 본 README 행 supersede 표기. `_archive/` 이동은 v3.3.0 cycle에 일괄.
-- **신규 진입 시 후속 ADR 번호** — **0082부터 sequential**. 예약 슬롯은 §12 참조.
+- **신규 진입 시 후속 ADR 번호** — **0084부터 sequential**. 0082는 T-MAN architect 워크트리(`agent/architect/t-man-manual-order-issue-spec`) 동시 작업 점유 예상. 예약 슬롯은 §12 참조.
 - **변경 이력 기록 의무** — 의미 있는 ADR 발행·재발행·supersede·예약 해제 시 §14에 한 줄 추가.
 
 ## §12. 예약 슬롯 (Reserved)
@@ -185,6 +186,7 @@
 | 0077 | OPSP8996 ERROR 재발 deep dive (v3.6.11 hotfix) | 사용자 결정 의제 매트릭스 6건 위임 (G·H·I·J·K·L) — architect 권장 G-1 + H-1 + I-1 + J-1 + K-1 backlog + L-1 단일 PR. market-data 단일 디스패치 대기. |
 | 0078 | 내부 자산 추출 전략 | 사용자 명시적 호출 단일 조건 시 시동 — Phase 1~3 분리, Plugin Independence 제약 LOCK |
 | 0081 | T-ACCT 계좌 잔고·예수금 사용자 노출 | 3 endpoint(balance·positions·summary) + Dashboard UI + CapitalSnapshotProvider 실제 어댑터(ADR 0067 §7-1 cross-ref) + KIS inquire-balance output2 11 필드 LOCK. spec 발행 단계 — Phase 1·2 backend 머지 후 Accepted 격상 |
+| 0083 | indicator-impl 모듈 신설 (결함 3 fix) | 사용자 dogfooding evidence "ema 400" + 옵션 B 명시. `indicator-impl/` 라이브러리 모듈(root 직속, Spring Context only, Boot main 0) + api·consumer 양쪽 의존 + 15 파일 git mv. ADR 0054 패턴 1:1. backend-core 단일 PR 권장. v3.6.14 patch cut 합류. backend-core dispatch + 사용자 dogfooding curl 200 검증 후 Accepted 격상 예정. |
 
 ## §14. 변경 이력
 
@@ -192,6 +194,7 @@
 
 | 일자 | 사이클 | 변경 |
 |------|--------|------|
+| 2026-05-18 | 결함 3 indicator-impl 모듈 신설 (v3.6.14 patch prep) | **ADR 0083 Proposed** — 사용자 dogfooding evidence (최고 관리자 2026-05-18 KST) "GET /api/indicators?code=066570&name=ema&interval=1d&params=period=20&adjusted=false → 400" + 사용자 옵션 B 명시 결정. root cause: api 모듈 `IndicatorEngineConfig`가 Spring autowire `List<IndicatorSource>` 수집하나 `NativeIndicatorSource`·`KisStrategyBuilderSource`(모두 `@Component`)는 consumer 단독 거주 + api는 consumer 의존 0 LOCK(ADR 0004 §의존 방향 — KafkaListener·KIS WS 격리) → api ApplicationContext sources=emptyList() → 81지표 전부 400 (ADR 0021 §2-3 5 native + 80 KIS Strategy Builder 전체 무력). 신규 결정: `indicator-impl/` 라이브러리 모듈 신설(root 직속, `kotlin("jvm")+kotlin("plugin.spring")+spring-context`, Spring Boot main 0) + 패키지 루트 `kr.spdaewoon.magicjar.indicator.impl.*` + api·consumer 양쪽 `implementation(project(":indicator-impl"))` 의존 + 15 파일 git mv(consumer→indicator-impl, ~3,433 line, 패키지 rename `consumer.application.indicator.source(.{native,kis})` → `indicator.impl(.{native,kis})`). 잔류 3건(consumer): `LiveCandleMerger`·`LiveCandleMergingSource`·consumer 측 `IndicatorEngineConfig`(자본 보호 hotfix 2026-05-15 Redis key `candle:today:{code}:1d` 정합 보존 — KisWebSocketBridge.updateCandleToday 정합). 모듈 매트릭스 5→6 갱신 (ADR 0004 헤더 갱신 + master §5·§6 갱신). ADR 0054 pattern-engine 패턴 1:1 정합 재사용(운영 인지 비용 0) + ADR 0054 §후속 "indicator-engine 동일 패턴 적용 검토 — backlog 추가" 완수. sub-agent dispatch plan: backend-core 단일 PR(Gradle 4 파일 + 15 파일 git mv + 패키지 rename + 외부 import 갱신). 검증 의무: `./gradlew :indicator-impl:check` + `./gradlew check` GREEN + 부팅 로그 `IndicatorEngine registered sources: [native (priority=50), kis-strategy-builder (priority=100)]` + dogfooding curl 200 응답 + source=native + 시계열 데이터 포함. **결함 3-B (api 측 LiveCandleMerger wiring 부재 — read-only cache-aside endpoint 한정 사용이라 자본 영향 risk 낮음)** 별도 backlog §66 후속 검토. v3.6.14 patch cut 합류 권장(T-ACCT + T-MAN과 함께). ADR 번호 0082는 T-MAN architect 워크트리 점유 가능성 고려, 0083 채택. ADR 신규 0083 + ADR 0021 §3 References 1줄 + ADR 0054 §Links 1줄 + master §5·§6·§10 갱신 + backlog §66 신규 + CHANGELOG row + tasks/T-20260518-1927-*. fitness gap 정합(`feedback_v3_skepticism_no_regression` — 자동매매 필수 81지표 사용자 노출 + W2 T-IND 트랙 결함 정정 · v1/v2 잔재 아닌 모듈 경계 결함). 운영 코드 0 touch (spec 사이클). 코드 이동은 backend-core 후속 PR 영역. (architect) |
 | 2026-05-18 | T-ACCT 신규 트랙 발행 (v3.6.14 patch prep) | **ADR 0081 Proposed** — 사용자 결함 진단 "지금 잔액조회 예수금 조회 이런게 아예 없는데?" (14:50 KST) 정합. KIS `inquire-balance` output2 11 필드(예수금·평가금·평가손익·자산증감) 사용자 노출 endpoint 3건(`GET /api/account/balance·positions·summary`) + Dashboard UI 격상(`DashboardPlaceholder → DashboardPage` + AccountSummaryCard + HoldingsTable) + CapitalSnapshotProvider 실제 어댑터 교체(ADR 0067 §7-1 cross-ref · POSITION_LIMIT 룰 활성화) + Redis cache `account:balance:{userId}` TTL 30s + api 직접 KIS 호출(consumer 0 touch · 관심사 분리) + 모듈 경계 정합(domain 신규 port `KisBalanceQueryPort` + api 신규 adapter `ApiKisBalanceQueryAdapter`). spec `_workspace/specs/2026-05-18-account-balance-positions-spec.md`. sub-agent dispatch 3 PR(backend-core 2 + frontend 1 + 옵션 1). v3.6.14 patch cut 권장(W3 보강 트랙 — `feedback_release_policy_patch_first` 정합). |
 | 2026-05-18 | T-O 본 트랙 마감 (v3.6.13 patch prep) | **ADR 0068 Accepted 격상 (plan 단계 Accepted → 본 트랙 마감 Accepted)** — Phase 2 PR #481(Repository 합류) + Phase 1 B-2 PR #485(OrderExecution Adapter) + Phase 1 B-1 PR #486(KIS WS H0STCNI0/H0STCNI9 wiring) 직렬 머지 종결. dogfooding 케이스 5(CREDENTIAL_NOT_FOUND) GREEN evidence(orderId=2 status=REJECTED reject_reason=REAL_GATE_DENIED:CREDENTIAL_NOT_FOUND) + 통합 빌드 evidence(KIS WS 체결통보 subscribe trId=H0STCNI9 mode=MOCK emit=OK). ADR 0068 §18 신규 § "Accepted 마감 evidence" + §19 변경 이력 shift + 본문 status row 격상. §13 후속 예정 표에서 0068 row 제거. backlog §43 ✅ 처리 완료 마킹 + tracks-roadmap §2 T-O row Accepted mark + CHANGELOG row 동반. 운영 코드 0 touch (문서 only). (architect) |
 | 2026-05-18 | v3.6.11 후속 | **ADR 0080 Accepted** — 전체 에이전트 Opus 4.7 통일 (ADR 0035 supersede). 사유: W3 종착 + W4 진입 직전 단계에서 sub-agent 코드 한 줄 수정도 룰 본체·자본 흐름 결합으로 진화 — sonnet 패턴화 추론 risk 회피. backend-core·market-data·frontend·qa 4명 sonnet → opus. 토큰 비용 약 2배 증가 사용자 명시 수용. ADR 0035 status Superseded 표기. |

@@ -95,6 +95,7 @@ W2 T-PAT PR-39b(2026-05-09 머지)에서 패턴 인식기 구현체 62파일을 
 - ADR 0004 (MSA 모듈 재구성) — 본 ADR이 갱신 대상
 - ADR 0030 (master-architecture SoT) — §5·§6 갱신 정합
 - ADR 0050 (CHANGELOG 슬롯 채번) — PR-41 슬롯 3건 발행 정합
+- ADR 0083 (indicator-impl 모듈 신설 — 본 ADR §후속 "indicator-engine 동일 패턴 적용 검토" 완수, 2026-05-18)
 - `_workspace/specs/pr-41-pattern-engine-design.md` (본 결정의 sub-agent 디스패치 spec)
 - `_workspace/specs/pr-41-pattern-engine-plan.md` (분할 plan)
 - `_workspace/specs/pr-41-conflict-matrix.md` (충돌 행렬)

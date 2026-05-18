@@ -121,5 +121,6 @@ cache key에 source 식별자 포함하지 않음 — 사용자 토글 시점에
 - master-architecture.md §B.5, §7-3
 - ADR 0020 (KIS Strategy Builder 흡수)
 - ADR 0001 (오프라인 1순위)
+- ADR 0083 (indicator-impl 모듈 신설 — 본 ADR §2-3 source 구현 거주 모듈, consumer → indicator-impl, 2026-05-18)
 - KIS `strategy_builder/core/indicators.py` (80개 함수 명세)
 - TA-Lib https://ta-lib.org/
