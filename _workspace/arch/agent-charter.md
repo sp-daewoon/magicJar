@@ -173,6 +173,7 @@ sub-agent가 0 tool uses 종료, 환경 결함(Bash 실패), 또는 명세 위�
 
 | 날짜 | 변경 | 사유 |
 |------|------|------|
+| 2026-05-19 | §1-A chart-curator author 추가 hotfix — `.husky/pre-commit` ALLOWED_AUTHOR regex + CLAUDE.md Git hook 본문 정합 흡수 | PR #514 evidence — chart-curator sub-agent commit이 frontend author로 attribution. PR #511 ADR 0085 영입 시 agent-charter §1-A allowed values는 갱신했으나 `.husky/pre-commit` 강제 regex + CLAUDE.md SoT 본문 갱신 누락. pre-commit hook이 chart-curator 거부 안 함 → sub-agent fallback으로 다른 author 사용 → git blame·CHANGELOG `(작성: chart-curator)` 마커 깨짐. (architect) |
 | 2026-05-19 | §0(서문) 8 → 9 actor + §1-A `<agent>` 허용 값에 `chart-curator` 추가 (ADR 0085 영입 정합) | 사용자 dogfooding evidence(한국석유 일봉 5개월 stale) + 3 영역 교차 점유 단일 owner 부재 → 8번째 sub-agent chart-curator 영입. agent-charter.md SoT에 영입 정합 흡수. (architect) |
 | 2026-05-18 | §1 강화 — 1-A worktree 진입 author 의무 + 1-C task 파일 commit 의무 신설 (안정성 Cycle 2 — backlog §59) | 안정성 Cycle 1 evidence — PR #473·#475 author=magicjar-frontend attribution + PR #473·#474·#476 task 파일 commit 0건. worktree default frontend가 다른 sub-agent에 전파되어 운영 audit 깨짐. (architect) |
 | 2026-05-08 | 본 헌법 신설 — 7 § 룰 통합 | PR-26 사용자 명시 "강령 만들어야 하고", "토큰 소모 없이 가게". sub-agent SKILL 산재 룰을 단일 출처로 통합 + 9 SKILL.md 슬림화 동반. (architect) |

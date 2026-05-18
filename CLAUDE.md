@@ -67,7 +67,7 @@ node scripts/task.mjs done --pr <N>         # PR 생성 후
 ### pre-commit (ADR 0036)
 - **author email 화이트리스트 강제**. 다음 외에는 커밋 거부:
   - `sp-daewoon@gmail.com`, `seonjupark94@gmail.com` (사용자 본인)
-  - `bot+<agent>@magicjar.local` — `<agent>` ∈ {architect, backend-core, market-data, strategy, ai, frontend, qa, orchestrator}
+  - `bot+<agent>@magicjar.local` — `<agent>` ∈ {architect, backend-core, market-data, strategy, ai, frontend, qa, orchestrator, chart-curator}
 - 따라서 에이전트 모자를 쓸 때는 매 커밋에 `git -c user.name="magicjar-<agent>" -c user.email="bot+<agent>@magicjar.local" commit ...` 또는 작업 시작 시 `git config user.email` 갱신.
 - 시크릿 추정 파일(`.env`, `application-local.*`, `*.p12`, `*.pem` 등) staged 시 차단.
 - 변경된 `.kt`/`.kts` 있으면 `ktlintCheck` 자동 실행.
