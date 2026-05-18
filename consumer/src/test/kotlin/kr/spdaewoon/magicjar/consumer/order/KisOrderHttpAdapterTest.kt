@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.consumer.order
 
 import io.mockk.mockk
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisAuthAdapter
+import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisHashKeyAdapter
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialId
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
@@ -33,6 +34,7 @@ class KisOrderHttpAdapterTest {
     private val webClient = mockk<WebClient>(relaxed = true)
     private val secretCipher = mockk<SecretCipher>(relaxed = true)
     private val kisAuthAdapter = mockk<KisAuthAdapter>(relaxed = true)
+    private val kisHashKeyAdapter = mockk<KisHashKeyAdapter>(relaxed = true)
     private val credentialRepository = mockk<ConsumerUserKisCredentialJpaRepository>(relaxed = true)
 
     private val adapter =
@@ -40,6 +42,7 @@ class KisOrderHttpAdapterTest {
             webClient = webClient,
             secretCipher = secretCipher,
             kisAuthAdapter = kisAuthAdapter,
+            kisHashKeyAdapter = kisHashKeyAdapter,
             credentialRepository = credentialRepository,
             kisBaseProd = "https://openapi.koreainvestment.com:9443",
             kisBaseVps = "https://openapivts.koreainvestment.com:29443",

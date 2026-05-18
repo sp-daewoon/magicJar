@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.consumer.order
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisAuthAdapter
+import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisHashKeyAdapter
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.order.execution.DenyReason
@@ -24,11 +25,12 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import java.time.Duration
 
 /**
- * KIS REST 주식 현금 매수/매도 어댑터 (ADR 0068 §14-5 LOCK).
+ * KIS REST 주식 현금 매수/매도 어댑터 (ADR 0068 §14-5 LOCK + ADR 0084 P0-1 hashkey 합류).
  *
  * ### raw 출처 (헌법 §3 KIS-first)
  * - 매수/매도: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions.py L10097~L10213 (def order_cash)
  * - 정정/취소: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions.py L10771~L10884 (def order_rvsecncl)
+ * - hashkey 사용 (ADR 0084 P0-1): https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py (def set_order_hash_key) + https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/order_cash/order_cash.py
  *
  * ### tr_id 매트릭스
  * - TTTC0012U: 실전 주식 현금 매수
@@ -60,6 +62,7 @@ class KisOrderHttpAdapter(
     private val webClient: WebClient,
     private val secretCipher: SecretCipher,
     private val kisAuthAdapter: KisAuthAdapter,
+    private val kisHashKeyAdapter: KisHashKeyAdapter,
     private val credentialRepository: ConsumerUserKisCredentialJpaRepository,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseProd: String,
@@ -111,6 +114,29 @@ class KisOrderHttpAdapter(
 
             val body = buildOrderCashBody(cred, intent)
 
+            // ADR 0084 P0-1 — hashkey 헤더 합류 (REAL 진입 prereq).
+            // raw: examples_user/kis_auth.py def set_order_hash_key (POST /uapi/hashkey → response.HASH → headers["hashkey"]).
+            val hashKey =
+                try {
+                    kisHashKeyAdapter.issueHashKey(
+                        body = body,
+                        accessToken = accessToken,
+                        appKey = appKeyStr,
+                        appSecret = secretKeyStr,
+                        accountType = accountType,
+                    )
+                } catch (e: IllegalStateException) {
+                    // 4xx 또는 response 구조 결함 — 재시도 무의미, 즉시 REJECT
+                    log.warn(
+                        "KIS hashkey 발급 4xx/구조 결함: trId={} userId={} err={}",
+                        trId,
+                        maskUserId(intent.userId),
+                        e.message,
+                    )
+                    return OrderResult.Left(DenyReason.KisException("HASHKEY_FAILED:${e.message}"))
+                }
+            // 5xx WebClientResponseException은 caller submitWithRetry가 재시도 — re-throw 자연 흐름
+
             val response =
                 webClient
                     .post()
@@ -120,6 +146,7 @@ class KisOrderHttpAdapter(
                     .header("appsecret", secretKeyStr)
                     .header("tr_id", trId)
                     .header("custtype", "P")
+                    .header("hashkey", hashKey)
                     .bodyValue(body)
                     .retrieve()
                     .bodyToMono(KisOrderResponse::class.java)
@@ -241,6 +268,27 @@ class KisOrderHttpAdapter(
                     "QTY_ALL_ORD_YN" to "Y",
                 )
 
+            // ADR 0084 P0-1 — hashkey 헤더 합류 (정정/취소도 동일 적용).
+            // raw: examples_user/kis_auth.py def set_order_hash_key — POST/정정/취소 모두 hashkey 발급 후 헤더 set.
+            val hashKey =
+                try {
+                    kisHashKeyAdapter.issueHashKey(
+                        body = body,
+                        accessToken = accessToken,
+                        appKey = appKeyStr,
+                        appSecret = secretKeyStr,
+                        accountType = accountType,
+                    )
+                } catch (e: IllegalStateException) {
+                    log.warn(
+                        "KIS 주문 취소 hashkey 발급 4xx/구조 결함: trId={} userId={} err={}",
+                        trId,
+                        maskUserId(request.userId),
+                        e.message,
+                    )
+                    return OrderResult.Left(DenyReason.KisException("HASHKEY_FAILED:${e.message}"))
+                }
+
             val response =
                 webClient
                     .post()
@@ -250,6 +298,7 @@ class KisOrderHttpAdapter(
                     .header("appsecret", secretKeyStr)
                     .header("tr_id", trId)
                     .header("custtype", "P")
+                    .header("hashkey", hashKey)
                     .bodyValue(body)
                     .retrieve()
                     .bodyToMono(KisOrderResponse::class.java)
