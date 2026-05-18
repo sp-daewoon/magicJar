@@ -3,10 +3,10 @@ id: T-20260519-0139-t-man-phase1c-consumer-source
 agent: backend-core
 model: opus
 branch: agent/backend-core/t-man-phase1c-consumer-source
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T01:39:54.644+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T01:49:43.409+09:00
+pr: #513
 parentPhase: ?
 ---
 
