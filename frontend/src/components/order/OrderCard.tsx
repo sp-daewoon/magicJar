@@ -1,8 +1,10 @@
 /**
- * OrderCard — 주문 단건 카드 (T-O Phase 3 — ADR 0068 §16)
+ * OrderCard — 주문 단건 카드 (T-O Phase 3 — ADR 0068 §16 · T-MAN Phase 2 — ADR 0082)
  *
- * 표시: status badge · side · code · qty · price · createdAt · mode(MOCK/REAL)
+ * 표시: status badge · source badge(자동/수동) · side · code · qty · price · createdAt · mode(MOCK/REAL)
  * 클릭 시 /orders/:id 상세 이동
+ *
+ * T-MAN B-2-extended: source 필드는 backend 합류 전까지 optional — undefined 시 AUTO default 가정.
  */
 import { useNavigate } from 'react-router-dom'
 import type { OrderListItemDto } from '../../api/order'
@@ -49,7 +51,7 @@ export function OrderCard({ order }: OrderCardProps) {
       className="w-full rounded-xl border border-gray-800 bg-gray-900 p-4 text-left transition-colors hover:border-gray-700 hover:bg-gray-800/70 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-950"
     >
       <div className="flex items-start justify-between gap-2">
-        {/* 왼쪽: 종목 + 방향 + 모드 */}
+        {/* 왼쪽: 종목 + 방향 + 모드 + 출처(자동/수동) */}
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
             <span className="text-base font-semibold text-white">{order.code}</span>
@@ -62,6 +64,24 @@ export function OrderCard({ order }: OrderCardProps) {
             {order.mode === 'MOCK' && (
               <span className="rounded bg-gray-700 px-1.5 py-0.5 text-xs text-gray-400">
                 MOCK
+              </span>
+            )}
+            {/* T-MAN B-2-extended source badge (자동 vs 수동) — undefined 시 AUTO default 가정 */}
+            {order.source === 'MANUAL' ? (
+              <span
+                className="rounded bg-amber-900/50 px-1.5 py-0.5 text-xs font-bold text-amber-300"
+                aria-label="수동 주문"
+                title="사용자 수동 주문 (POST /api/orders/manual)"
+              >
+                수동
+              </span>
+            ) : (
+              <span
+                className="rounded bg-cyan-950/60 px-1.5 py-0.5 text-xs text-cyan-300"
+                aria-label="자동매매 주문"
+                title="자동매매 시그널 path 주문"
+              >
+                자동
               </span>
             )}
           </div>
