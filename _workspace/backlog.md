@@ -2585,3 +2585,66 @@ orchestrator + architect 진단:
 - ADR 0042 (Bootstrap · consumer 0 touch)
 - ADR 0067 §7-1 (CapitalSnapshotProvider cross-ref add-only)
 - 사용자 dogfooding 2026-05-18 14:50 KST
+
+---
+
+## §66. 결함 3 — indicator-impl 모듈 신설 (IndicatorSource 모듈 경계 fix · 2026-05-18)
+
+### 컨텍스트
+
+사용자 dogfooding evidence (최고 관리자, 2026-05-18 KST):
+
+```
+GET http://localhost:8080/api/indicators?code=066570&name=ema&interval=1d&params=period=20&adjusted=false
+→ HTTP/1.1 400 Bad Request
+```
+
+ADR 0021 (2026-05-03 Accepted) 5 native + 80 KIS Strategy Builder 합계 81지표 전부 400. 사용자 차트 overlay·DSL 평가 핵심 자원 무력.
+
+### root cause
+
+- `api/.../api/config/IndicatorEngineConfig`: Spring autowire `List<IndicatorSource>` 수집.
+- `NativeIndicatorSource`(priority=50, 5종)·`KisStrategyBuilderSource`(priority=100, 80지표) 모두 `@Component` + **consumer 단독 거주** (`consumer/src/main/kotlin/.../consumer/application/indicator/source/`).
+- api → consumer 의존 **0** LOCK (ADR 0004 §의존 방향 — KafkaListener·KIS WS 격리).
+- 결과: api ApplicationContext `sources=emptyList()` → 모든 호출 `IllegalArgumentException` → `IndicatorService` catch → 400.
+- ADR 0054 §후속에 "indicator-engine 동일 패턴 적용 검토 — backlog 추가" 명시(2026-05-10)가 운영 부채로 누적된 결과.
+
+### 결정 (사용자 옵션 B 명시 2026-05-18)
+
+**`indicator-impl` 라이브러리 모듈 신설** — pattern-engine 패턴 1:1 정합.
+
+- `indicator-impl/` root 직속 (domain·pattern-engine 동일 레벨)
+- Kotlin + Spring Context (Spring Boot main 0)
+- 패키지 루트: `kr.spdaewoon.magicjar.indicator.impl.*`
+- 의존: indicator-impl → domain만. api·consumer → indicator-impl 신규 의존
+- 15 파일 git mv (consumer→indicator-impl, ~3,433 line, 패키지 rename)
+- 잔류 3건 (consumer): `LiveCandleMerger`·`LiveCandleMergingSource`·consumer 측 `IndicatorEngineConfig` (자본 보호 hotfix 2026-05-15 Redis key `candle:today:{code}:1d` 정합 보존)
+- 모듈 매트릭스 5→6 갱신 (ADR 0004 헤더 갱신 + master §5·§6 갱신)
+
+### 결함 3-B 분리 (별도 후속)
+
+api 모듈 `IndicatorEngineConfig`는 `LiveCandleMergingSource` decorator wrap 부재 → 자본 보호 critical hotfix(2026-05-15)가 **api 측 누락**. 단, api 경로는 `IndicatorService` cache-aside read-only endpoint 한정 사용(시그널 생성 진입 0) → 자본 영향 risk 낮음. 본 §66 처리 후 별도 검토.
+
+### sub-agent dispatch plan
+
+| Phase | sub-agent | 영역 | 우선순위 |
+|---|---|---|---|
+| 1·2 (단일 PR) | backend-core | settings.gradle.kts + indicator-impl/build.gradle.kts + api·consumer build.gradle.kts + 15 파일 git mv + 패키지 rename | HIGH |
+| 3 (검증) | orchestrator | dogfooding curl `/api/indicators?code=066570&name=ema&interval=1d&params=period=20` → 200 GREEN | HIGH |
+
+### release
+
+**v3.6.14 patch cut** 합류 권장 — T-ACCT(§64) + T-MAN(별도) + 본 §66 3건 합류 patch row 1건. 사용자 메모리 `feedback_release_policy_patch_first` 정합.
+
+### 처리 상태
+
+⏳ spec 발행 단계 (PR `agent/architect/spec-indicator-impl-module-fix-3`) — sub-agent dispatch 대기.
+
+### 연관
+
+- `_workspace/specs/2026-05-18-indicator-impl-module-spec.md`
+- `_workspace/arch/adr/0083-indicator-impl-module.md`
+- ADR 0004 (MSA 모듈 재구성) — 6 모듈 갱신
+- ADR 0021 (IndicatorSource 추상화) — source 구현 위치 변동
+- ADR 0054 (pattern-engine 모듈) — 1:1 정합 패턴
+- 사용자 dogfooding 2026-05-18 KST
