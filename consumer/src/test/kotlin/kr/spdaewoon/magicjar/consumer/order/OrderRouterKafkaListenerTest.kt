@@ -182,6 +182,62 @@ class OrderRouterKafkaListenerTest {
     }
 
     @Test
+    fun `(g §62) Repository 미합류 (NotWired) → listener 진행 중단 + 후속 publish·KIS submit 0`() {
+        every { idempotencyGuard.acquire(any(), any()) } returns true
+        every { tradingModeGate.resolveMode("12345678") } returns OrderResult.Right(TradingMode.MOCK)
+        every { killSwitchPort.isOn("12345678") } returns false
+
+        // OrderRequestRepository provider가 null 반환 — 미합류 시뮬레이션
+        val notWiredOrderRepoProvider =
+            mockk<ObjectProvider<OrderRequestRepository>>().also {
+                every { it.getIfAvailable() } returns null
+            }
+        val notWiredListener =
+            OrderRouterKafkaListener(
+                orderRequestRepositoryProvider = notWiredOrderRepoProvider,
+                orderAuditEventRepositoryProvider = auditRepoProvider,
+                killSwitchQueryPortProvider = killSwitchProvider,
+                tradingModeGate = tradingModeGate,
+                orderIdempotencyGuard = idempotencyGuard,
+                kisOrderPort = kisOrderPort,
+                orderRequestedKafkaProducer = requestedProducer,
+                orderRejectedKafkaProducer = rejectedProducer,
+                objectMapper = objectMapper,
+            )
+
+        val ack = mockk<Acknowledgment>(relaxed = true)
+        notWiredListener.onOrderIntent(buildRecord(stubPayload()), ack)
+
+        // listener 진행 중단 — KIS submit + Kafka publish 모두 0
+        verify(exactly = 0) { kisOrderPort.submit(any(), any()) }
+        verify(exactly = 0) { requestedProducer.publish(any()) }
+        verify(exactly = 0) { rejectedProducer.publish(any(), any()) }
+        verify(exactly = 1) { ack.acknowledge() }
+    }
+
+    @Test
+    fun `(h §62) Repository save Exception (SaveFailed) → listener 진행 중단 + NotWired와 구분된 로그 + 후속 0`() {
+        every { idempotencyGuard.acquire(any(), any()) } returns true
+        every { tradingModeGate.resolveMode("12345678") } returns OrderResult.Right(TradingMode.MOCK)
+        every { killSwitchPort.isOn("12345678") } returns false
+        // save 자체가 Exception — FK violation 시뮬레이션
+        every { orderRepo.save(any()) } throws
+            org.springframework.dao.DataIntegrityViolationException(
+                "order_request violates foreign key constraint \"order_request_signal_id_fkey\"",
+            )
+
+        val ack = mockk<Acknowledgment>(relaxed = true)
+        listener.onOrderIntent(buildRecord(stubPayload()), ack)
+
+        // save 1회 시도 (Exception) — 후속 KIS submit + Kafka publish 모두 0
+        verify(exactly = 1) { orderRepo.save(any()) }
+        verify(exactly = 0) { kisOrderPort.submit(any(), any()) }
+        verify(exactly = 0) { requestedProducer.publish(any()) }
+        verify(exactly = 0) { rejectedProducer.publish(any(), any()) }
+        verify(exactly = 1) { ack.acknowledge() }
+    }
+
+    @Test
     fun `(f) KIS rt_cd not 0 → KIS_REJECT audit + Kafka rejected publish`() {
         every { idempotencyGuard.acquire(any(), any()) } returns true
         every { tradingModeGate.resolveMode("12345678") } returns OrderResult.Right(TradingMode.MOCK)
