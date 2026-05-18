@@ -1731,6 +1731,13 @@ architect spec PR(본 사이클 — ADR 0068 plan 발행) — 결정 의제 8건
 - **Phase 3 frontend**: `/orders` + `/orders/:id` 페이지 + OrderCard + ExecutionTable + AuditEventTimeline + OrderStatusBadge + OrderCancelButton + SettingsModal "실거래 모드 동의" 토글 + useStompOrder hook(4 event 색상 토스트) + REST client `order.ts`·`account.ts` + AppHeader 메뉴 1 + 라우팅.
 - **Phase 4 qa (선택)**: 모의 주문 dogfooding (signal → risk → order → KIS VPS → H0STCNI9 → STOMP FILLED full chain).
 
+### 진행 현황 (2026-05-18 architect — spec `2026-05-18-to-main-track-entry-plan.md` 실측 매트릭스)
+
+- **Phase 2 완료** (100%) — Flyway V20~V23 + OrderQuery/Cancel/RealTradingConsent Service + StompOrderNotifier + JPA 3쌍 + REST 4 endpoint 모두 합류
+- **Phase 3 완료** (100%) — OrdersPage·OrderDetailPage·OrderCard·ExecutionTable·AuditEventTimeline·OrderStatusBadge·CancelOrderButton·RealTradingConsentToggle·useOrders·useStompOrder·order.ts·AppHeader 메뉴·라우팅 모두 합류
+- **Phase 1 잔여 2건** — (B-1) `KisWebSocketBridge:489` H0STCNI0/H0STCNI9 wiring stub + (B-2) `ConsumerOrderExecutionRepositoryAdapter` 합류 (PR #481 동일 패턴). 영역 add-only 병렬 가능.
+- **Phase 4 dogfooding** — prereq 4 MUST + 본 spec 3 신규(케이스 6·7·8) = 7 MUST GREEN → v3.6.13 patch cut
+
 ### 연관
 
 - 본 ADR 0068 (`_workspace/arch/adr/0068-t-o-order-execution.md`) — 본 § 권위
@@ -2463,7 +2470,7 @@ T-O Phase 2 합류 fix(PR #481) 후 dogfooding 케이스 5(CREDENTIAL_NOT_FOUND)
 - PR #481 (Phase 2 Repository 합류 fix)
 - dogfooding evidence 2026-05-18 (orchestrator)
 
-## §63. dogfooding signal seed data 부재 (spec §4.2 gap)
+## §63. dogfooding signal seed data 부재 (spec §4.2 gap) — ✅ 본 spec `2026-05-18-to-main-track-entry-plan.md` §4.1 Step 4 흡수
 
 ### 사유
 
