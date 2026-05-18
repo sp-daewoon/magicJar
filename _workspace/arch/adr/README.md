@@ -69,7 +69,7 @@
 | 0056 | Backtest Engine Architecture (룩어헤드 slice-by-time 가드 + 세·수수료·슬리피지 모델 + ADR 0047 sandbox + abort quota 50) |
 | 0066 | T-SIG 실시간 시그널 엔진 — Accepted (룰 매칭 + Kafka boundary listen + 영속 + STOMP fanout) |
 | 0067 | T-RISK 리스크 관리 — Accepted (Signal → Risk Gateway consumer → Order intent 의무 게이트 + 4 도메인 영속 + auto-PAUSE) |
-| 0068 | T-O 주문 실행 — Proposed (Risk ALLOWED → KIS REST + WS H0STCNI0 체결 추적 + 3 테이블 영속 + 실계좌 3중 게이트) |
+| 0068 | T-O 주문 실행 — **Accepted (2026-05-18 본 트랙 마감 — Phase 1·2·3 합류 종결 + dogfooding 케이스 5 GREEN + KIS WS H0STCNI9 MOCK subscribe emit=OK)** (Risk ALLOWED → KIS REST + WS H0STCNI0/H0STCNI9 체결 추적 + 3 테이블 영속 + 실계좌 3중 게이트) |
 | 0071 | T-SC Screener — Accepted (universe × DSL → 후보 + 랭킹 + Redis cache 30m + 옵션 영속 V28) |
 | 0072 | T-J + T-PERF 묶음 — Accepted (Trading Journal 영속 + Performance 통계 + Flyway V29·V30 + batch DailyPerformanceJob) |
 
@@ -180,7 +180,6 @@
 | 번호 | 제목 | 대기 사유 |
 |------|------|---------|
 | 0064 | Redis boundary fanout + STOMP 실시간 합산 갱신 | 사용자 결정 의제 3건 위임 (A·B·C) — architect 권장 A-1+B-1+C-1 |
-| 0068 | T-O 주문 실행 | 사용자 결정 의제 8건 위임 (A~H) — architect 권장 A-1~H-1, 실계좌 3중 게이트 의무 |
 | 0076 | KIS WS NXT/시간외 시세 sync 표준 정합 | v3.6.9 Phase 1·2·3 채택 완료 — Proposed 상태 유지 (분석 사이클, 후속 코드 변경은 별 트랙) |
 | 0077 | OPSP8996 ERROR 재발 deep dive (v3.6.11 hotfix) | 사용자 결정 의제 매트릭스 6건 위임 (G·H·I·J·K·L) — architect 권장 G-1 + H-1 + I-1 + J-1 + K-1 backlog + L-1 단일 PR. market-data 단일 디스패치 대기. |
 | 0078 | 내부 자산 추출 전략 | 사용자 명시적 호출 단일 조건 시 시동 — Phase 1~3 분리, Plugin Independence 제약 LOCK |
@@ -191,6 +190,7 @@
 
 | 일자 | 사이클 | 변경 |
 |------|--------|------|
+| 2026-05-18 | T-O 본 트랙 마감 (v3.6.13 patch prep) | **ADR 0068 Accepted 격상 (plan 단계 Accepted → 본 트랙 마감 Accepted)** — Phase 2 PR #481(Repository 합류) + Phase 1 B-2 PR #485(OrderExecution Adapter) + Phase 1 B-1 PR #486(KIS WS H0STCNI0/H0STCNI9 wiring) 직렬 머지 종결. dogfooding 케이스 5(CREDENTIAL_NOT_FOUND) GREEN evidence(orderId=2 status=REJECTED reject_reason=REAL_GATE_DENIED:CREDENTIAL_NOT_FOUND) + 통합 빌드 evidence(KIS WS 체결통보 subscribe trId=H0STCNI9 mode=MOCK emit=OK). ADR 0068 §18 신규 § "Accepted 마감 evidence" + §19 변경 이력 shift + 본문 status row 격상. §13 후속 예정 표에서 0068 row 제거. backlog §43 ✅ 처리 완료 마킹 + tracks-roadmap §2 T-O row Accepted mark + CHANGELOG row 동반. 운영 코드 0 touch (문서 only). (architect) |
 | 2026-05-18 | v3.6.11 후속 | **ADR 0080 Accepted** — 전체 에이전트 Opus 4.7 통일 (ADR 0035 supersede). 사유: W3 종착 + W4 진입 직전 단계에서 sub-agent 코드 한 줄 수정도 룰 본체·자본 흐름 결합으로 진화 — sonnet 패턴화 추론 risk 회피. backend-core·market-data·frontend·qa 4명 sonnet → opus. 토큰 비용 약 2배 증가 사용자 명시 수용. ADR 0035 status Superseded 표기. |
 | 2026-05-17 | v3.6.11 hotfix | **ADR 0077 Proposed** — OPSP8996 ERROR 재발 deep dive (v3.6.10 cut 후 86건/1시간 재발). ADR 0076 6 가설 미발동 시나리오 — 자격증명 미등록 + MOCK type 시세 connect 정합 결함 + retry counter logic 결함. 신규 가설 G·H·I·J + 의제 6건(G·H·I·J·K·L) architect 권장 단일 PR. §12 reserved 슬롯 0077 발동 완료 표기 정합. |
 | 2026-05-17 | v3.6.10 후속 | **ADR 0079 Accepted** — 마스터 시각화 HTML 표준화 (`_workspace/master.html` + `scripts/master-index.mjs` + `/master-index` slash + `scripts/release.sh` 통합 + 12 카테고리 두 축 + banner + ADR/spec/backlog 추출 자동화). Phase 1·2·3 PR #461·#462·본 사이클 직렬 머지. brainstorming 흐름 사용자 결정 8회 종합 (orchestrator). |
