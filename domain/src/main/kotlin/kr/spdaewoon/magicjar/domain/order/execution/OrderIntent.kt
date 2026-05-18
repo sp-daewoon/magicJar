@@ -4,7 +4,7 @@ import java.math.BigDecimal
 import java.time.Instant
 
 /**
- * 주문 의도 — `order.intent.v1` Kafka payload 도메인 모델 (ADR 0068 §14-1 LOCK).
+ * 주문 의도 — `order.intent.v1` Kafka payload 도메인 모델 (ADR 0068 §14-1 LOCK · ADR 0082 T-MAN B-2-extended).
  *
  * T-RISK ALLOWED 분기 publish → OrderRouterKafkaListener consume (§14-2 step 1).
  * 본 모델은 영속 X (영속은 [OrderRequest] §14-1 정합).
@@ -12,17 +12,18 @@ import java.time.Instant
  * 필드 정합:
  *   id              — signal_intent_id (T-RISK ALLOWED publish 시 채번)
  *   userId          — KIS credential identity (ADR 0049 §kis-credential-identity)
- *   signalId        — T-SIG cross-ref + 멱등 키 source (의제 H-1)
- *   strategyId      — strategy_id cross-ref (T-J 진입점)
+ *   signalId        — T-SIG cross-ref + 멱등 키 source (의제 H-1) · MANUAL 시 0L sentinel
+ *   strategyId      — strategy_id cross-ref (T-J 진입점) · MANUAL 시 0L sentinel
  *   code            — 종목코드 6자리
  *   side            — BUY/SELL ([OrderSide])
  *   priceType       — MARKET/LIMIT ([OrderPriceType])
  *   quantity        — 주문 수량 (양수 LOCK — 검증 책임은 publisher)
  *   limitPrice      — LIMIT 시 not null, MARKET 시 null
- *   idempotencyKey  — "{signalId}:{userId}" 형식 (의제 H-1, 의제 D §14-2 step 2 정합)
+ *   idempotencyKey  — AUTO: "{signalId}:{userId}" / MANUAL: "manual:{userId}:{epochSeconds}"
  *   requestedAt     — T-RISK publish 시각 (Kafka producer 채번)
+ *   source          — AUTO(자동 path, default) / MANUAL(POST /api/orders/manual 진입) — ADR 0082 B-2-extended LOCK
  *
- * AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8)
+ * AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8 + ADR 0082)
  */
 data class OrderIntent(
     val id: Long,
@@ -36,4 +37,5 @@ data class OrderIntent(
     val limitPrice: BigDecimal?,
     val idempotencyKey: String,
     val requestedAt: Instant,
+    val source: OrderSource = OrderSource.AUTO,
 )
