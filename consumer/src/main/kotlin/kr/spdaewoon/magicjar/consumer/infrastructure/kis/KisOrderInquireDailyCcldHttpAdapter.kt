@@ -167,7 +167,7 @@ class KisOrderInquireDailyCcldHttpAdapter(
                     .header("tr_id", trId)
                     .header("custtype", "P")
                     .retrieve()
-                    .bodyToMono(KisInquireDailyCcldResponse::class.java)
+                    .bodyToMono(KisOdnoInquireResponse::class.java)
                     .timeout(Duration.ofSeconds(TIMEOUT_SEC))
                     .block()
                     ?: return OrderInquireResult.Failed("RESPONSE_NULL")
@@ -240,23 +240,32 @@ class KisOrderInquireDailyCcldHttpAdapter(
 }
 
 /**
- * KIS inquire-daily-ccld 응답 DTO (raw output1 list + output2 pagination metadata).
+ * KIS inquire-daily-ccld ODNO 단건 검증용 응답 DTO (P0-2 reconciliation 경로 전용).
  *
- * raw 본문에 output1·output2 필드 이름 직접 명시 0건 — KIS 공식 문서 + grep 패턴 정합으로 도출.
- * 본 baseline은 ODNO 단건 검색이므로 output1 첫 매칭 row만 사용.
+ * ### P0-3 [KisInquireDailyCcldResponse]와 분리 사유
+ * - P0-3 (a7ea63e — main) baseline은 backfill 체결 list 한정(CCLD_DVSN=01) — 필드 매트릭스 limited
+ * - P0-2 (본 어댑터)는 ODNO 단건 검증(CCLD_DVSN=00, 체결+미체결 모두) — 추가 필드 필요
+ *   - `ord_gno_brno` (KIS 정정/취소 의무 동반 헤더)
+ *   - `ccld_dvsn_name` (체결구분명 — ACK/FILLED 분기 metadata)
+ *   - `cncl_yn` (취소 여부)
+ *   - `sll_buy_dvsn_cd_name`·`prdt_name`·`ord_dvsn_name` (운영 audit 가시성)
+ * - 동일 endpoint(inquire-daily-ccld) 호출이나 caller 요구 필드 매트릭스가 다르므로 DTO 분리.
+ *
+ * raw 본문에 output1 필드 이름 명시: examples_llm/domestic_stock/inquire_daily_ccld/inquire_daily_ccld.py
+ * + examples_user 정합 (def inquire_daily_ccld) — 본 baseline은 ODNO 단건 검색이므로 output1 첫 매칭 row만 사용.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-internal data class KisInquireDailyCcldResponse(
+internal data class KisOdnoInquireResponse(
     @JsonProperty("rt_cd") val rtCd: String? = null,
     @JsonProperty("msg_cd") val msgCd: String? = null,
     @JsonProperty("msg1") val msg1: String? = null,
-    @JsonProperty("output1") val output1: List<KisInquireDailyCcldOutput1>? = null,
+    @JsonProperty("output1") val output1: List<KisOdnoInquireOutput1>? = null,
     @JsonProperty("ctx_area_fk100") val ctxAreaFk100: String? = null,
     @JsonProperty("ctx_area_nk100") val ctxAreaNk100: String? = null,
 )
 
 @JsonIgnoreProperties(ignoreUnknown = true)
-internal data class KisInquireDailyCcldOutput1(
+internal data class KisOdnoInquireOutput1(
     @JsonProperty("ord_dt") val ordDt: String? = null,
     @JsonProperty("ord_gno_brno") val ordGnoBrno: String? = null,
     @JsonProperty("odno") val odno: String = "",
