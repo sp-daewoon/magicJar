@@ -6,10 +6,12 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisApprovalAdapter
+import kr.spdaewoon.magicjar.consumer.order.KisExecutionWsListener
 import kr.spdaewoon.magicjar.domain.market.port.QuoteCachePort
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.data.redis.core.ValueOperations
 import org.springframework.kafka.core.KafkaTemplate
@@ -62,6 +64,11 @@ class KisWebSocketBridgeReconnectTest {
         // approvalAdapter: approval_key 발급 mock
         every { approvalAdapter.getApprovalKey(any(), any()) } returns "mock-approval-key"
 
+        // T-O Phase 1 B-1: executionListenerProvider 추가 — 본 테스트는 reconnect/시세 영역이므로 null 반환 stub.
+        // ADR 0068 §14-6 정합 — graceful skip (log.warn) 패턴.
+        val executionListenerProvider = mockk<ObjectProvider<KisExecutionWsListener>>(relaxed = true)
+        every { executionListenerProvider.getIfAvailable() } returns null
+
         bridge =
             KisWebSocketBridge(
                 approvalAdapter = approvalAdapter,
@@ -74,6 +81,7 @@ class KisWebSocketBridgeReconnectTest {
                 wsUrlVps = "ws://localhost:31000",
                 magicjarMode = "REAL",
                 defaultUserId = "user001",
+                executionListenerProvider = executionListenerProvider,
             )
     }
 
