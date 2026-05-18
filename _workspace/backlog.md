@@ -2362,7 +2362,7 @@ v3.6.12 cut 직전 docker logs 검증(2026-05-18 09:24~09:31, 7분 모니터링)
 - `domain/.../market/CandleJpaEntity.kt` (uq_candle_code_interval_ts)
 - v3.6.12 cut docker logs evidence (orchestrator 2026-05-18)
 
-## §61. T-O Phase 2 미완 — OrderRouterKafkaListener Repository 미합류 (dogfooding 발견 2026-05-18)
+## §61. T-O Phase 2 미완 — OrderRouterKafkaListener Repository 미합류 (dogfooding 발견 2026-05-18) ✅ 처리 완료 (2026-05-18 architect)
 
 ### 사유
 
@@ -2392,3 +2392,42 @@ spec §6.3은 "Phase 2 LOCK 코드 — OrderQueryService ✓ 완료, OrderCancel
 - ADR 0068 (T-O plan)
 - `consumer/.../order/OrderRouterKafkaListener.kt`
 - domain `OrderRequestRepository` port
+
+### 처리 결과 (2026-05-18 architect)
+
+본 §61는 단일 PR(`agent/architect/to-phase2-repository-wire`)로 마감됨:
+
+**root cause 확정** (가설 b — 모듈 경계 합류 누락):
+- port `OrderRequestRepository`·`OrderAuditEventRepository`는 domain 모듈에 위치 (OK).
+- JPA Adapter(`api/persistence/order/OrderRequestRepositoryAdapter`·`OrderAuditEventRepositoryAdapter`)는 **api 모듈 단독** 거주.
+- consumer는 `domain` + `pattern-engine`만 의존 (`consumer/build.gradle.kts` line 10·12 검증) — api 모듈 미의존이 ADR 0004 모듈 경계 정합.
+- 따라서 consumer JVM의 Spring scan(`scanBasePackages = ["kr.spdaewoon.magicjar"]`)이 api 모듈 bean을 발견 불가 → `ObjectProvider.getIfAvailable()` 항상 null → 모든 주문 dispatch 실패.
+
+**fix 안** (ConsumerCandle·KillSwitch 패턴 동일 — 모듈 경계 LOCK 유지):
+- 신설 4 파일 (consumer/persistence/):
+  - `ConsumerOrderRequestJpaEntity.kt` — `@Table("order_request")` 동일 테이블 사본 entity (Flyway V20 정합)
+  - `ConsumerOrderRequestJpaRepository.kt` — abstract fun만 (헌법 §6)
+  - `ConsumerOrderRequestRepositoryAdapter.kt` — port 구현 (`@Component`, 7 fun)
+  - `ConsumerOrderAuditEventJpaEntity.kt` — `@Table("order_audit_event")` 동일 테이블 사본 entity (Flyway V22 정합)
+  - `ConsumerOrderAuditEventJpaRepository.kt` — abstract fun만
+  - `ConsumerOrderAuditEventRepositoryAdapter.kt` — port 구현 (`@Component`, 2 fun)
+
+**모듈 경계 정합 (ADR 0004)**:
+- consumer 모듈 의존성 변경 0건 (api 미의존 유지).
+- 동일 테이블 entity 사본 패턴은 ConsumerCandleJpaEntity·ConsumerInstrumentJpaEntity·KillSwitchJpaEntity baseline (모듈 분리 정합).
+- Flyway 마이그레이션은 api 모듈 단독 관리 유지 (ADR 0068 §15-1 LOCK 정합).
+
+**ADR 0068 정합**:
+- §14-2 12 step 흐름 — Step 5(persistRequested) + Step 8(updateKisAck) + Step 9(writeAudit) 모두 Repository 합류 활성화로 정상 작동.
+- §14-3 3중 게이트는 Repository 합류 무관 (TradingModeGate.resolveMode 자체는 Repository 미사용) → backlog §61는 ADR 0068 §14-3 본문 변경 0건.
+
+**단위 테스트** (consumer/src/test/.../persistence/):
+- `ConsumerOrderRequestRepositoryAdapterTest.kt` — 4 케이스: (1) save 변환 + (2) updateKisAck ACK 전이 + (3) updateStatus REJECTED + (4) findById null 분기.
+
+**연관 file**:
+- 신규 6 파일 (consumer/persistence/Consumer*Order*)
+- backlog `_workspace/backlog.md` §61 head + 처리 결과
+- CHANGELOG.md row 추가
+- task `_workspace/tasks/T-20260518-1222-to-phase2-repository-wire.md`
+
+**dogfooding 재시도** = orchestrator 영역 (머지 후) — Kafka publish `order.intent.v1` 케이스 5 → ERROR 0건 + `reject_reason="CREDENTIAL_NOT_FOUND"` order_request row 영속 확인 의무.
