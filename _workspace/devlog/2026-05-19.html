@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>magicJar devlog — 2026-05-19</title>
+<style>
+  :root{
+    --bg:#0b0d11; --card:#111418; --line:#1d2128; --muted:#8a93a3;
+    --fg:#e7eaf0; --accent:#5cf2a6; --warn:#f5c842; --info:#5cb4f2;
+    --todo:#ff7ab6; --mute:#6b7280;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:32px 24px;background:var(--bg);color:var(--fg);font-family:'Pretendard','SF Pro',-apple-system,sans-serif;line-height:1.55;font-size:14px}
+  .wrap{max-width:1280px;margin:0 auto}
+  h1{font-size:28px;margin:0 0 4px;letter-spacing:-0.5px}
+  h2{font-size:18px;margin:32px 0 12px;color:var(--accent);border-bottom:1px solid var(--line);padding-bottom:8px}
+  h3{font-size:15px;margin:18px 0 8px;color:var(--info)}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:24px}
+  .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;margin-left:4px}
+  .b-ok{background:#0e3a26;color:var(--accent)}
+  .b-warn{background:#3d2f0b;color:var(--warn)}
+  .b-pending{background:#0c2d4a;color:var(--info)}
+  .b-todo{background:#3a1129;color:var(--todo)}
+  .b-mute{background:#1f2329;color:var(--mute)}
+  table{width:100%;border-collapse:collapse;margin:8px 0;background:var(--card);border-radius:8px;overflow:hidden;font-size:13px}
+  th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:#161a20;color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.4px}
+  tr:last-child td{border-bottom:0}
+  tr:hover td{background:#15191f}
+  code{background:#1a1e25;padding:1px 6px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#cde}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin:8px 0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px}
+  .card h4{margin:0 0 8px;font-size:14px;color:var(--accent)}
+  .card p{margin:4px 0;font-size:13px;color:var(--fg)}
+  ul{margin:8px 0;padding-left:20px}
+  li{margin:4px 0}
+  .meta{display:flex;gap:24px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:16px}
+  .meta span{display:inline-flex;gap:6px;align-items:center}
+  .meta strong{color:var(--fg)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>magicJar devlog — 2026-05-19 #1</h1>
+<div class="sub">발행: 2026-05-19 00:01 KST · 2026-05-18 통합 세션 (KST 17~24시간) 정리</div>
+
+<div class="meta">
+  <span><strong>cut 4회</strong> v3.6.13·v3.6.14·v3.6.15·v3.6.16</span>
+  <span><strong>머지 PR</strong> 24건</span>
+  <span><strong>신규 ADR</strong> 4건 (0081·0082·0083·0084)</span>
+  <span><strong>신규 Flyway</strong> V35·V36</span>
+  <span><strong>worktree leak</strong> 0건 (세션 종료 시점)</span>
+  <span><strong>force-push</strong> 7~8회 (사용자 직접 의제 → 차회부터 자율)</span>
+</div>
+
+<h2>1. 머지 PR 매트릭스 (2026-05-18 KST 기준)</h2>
+<table>
+  <thead><tr><th>PR</th><th>제목 요약</th><th>트랙·에이전트</th><th>cut</th></tr></thead>
+  <tbody>
+    <tr><td>#482</td><td>T-O prereq 케이스 5 GREEN evidence + backlog §62·§63</td><td>orchestrator</td><td rowspan="6">v3.6.13</td></tr>
+    <tr><td>#483</td><td>§62 OrderRouterKafkaListener catch 메시지 분리</td><td>architect</td></tr>
+    <tr><td>#484</td><td>T-O 본 트랙 진입 spec — Phase 매트릭스 + dispatch plan</td><td>architect</td></tr>
+    <tr><td>#485·#486</td><td>T-O Phase 1 B-2·B-1 (ConsumerOrderExecutionRepositoryAdapter + KisWebSocketBridge wiring)</td><td>backend-core·market-data</td></tr>
+    <tr><td>#487</td><td>ADR 0068 Accepted — T-O 본 트랙 마감 evidence 종합</td><td>architect</td></tr>
+    <tr><td>#488</td><td>v3.6.13 cut 후속 sync (master HTML 3번째 dogfooding)</td><td>orchestrator</td></tr>
+    <tr><td>#489·#490</td><td>결함 1 backend rejectReason + frontend DTO 정합 (직렬)</td><td>backend-core·frontend</td><td rowspan="3">v3.6.14 spec</td></tr>
+    <tr><td>#491·#492</td><td>T-ACCT spec + Phase 1·2 backend (ADR 0081 Proposed)</td><td>architect·backend-core</td></tr>
+    <tr><td>#493·#494</td><td>README mermaid 시퀀스 + 결함 3 indicator-impl spec (ADR 0083)</td><td>orchestrator·architect</td></tr>
+    <tr><td>#495·#496</td><td>T-MAN spec + B-2-extended 정정 (ADR 0082)</td><td>architect</td><td rowspan="2">v3.6.15 spec</td></tr>
+    <tr><td>#497</td><td>주문 path 안정성 종합 spec (ADR 0084 P0·P1·P2)</td><td>architect</td></tr>
+    <tr><td>#498</td><td>ADR 0084 P0-1 hashkey 합류 (REAL prereq)</td><td>market-data</td><td rowspan="9"><strong>v3.6.16</strong></td></tr>
+    <tr><td>#499</td><td>T-ACCT Phase 3 CapitalSnapshotProvider (POSITION_LIMIT 활성화)</td><td>backend-core</td></tr>
+    <tr><td>#500</td><td><strong>결함 3 indicator-impl 모듈 신설</strong> + dogfooding GREEN (066570 ema 200)</td><td>backend-core</td></tr>
+    <tr><td>#501</td><td>ADR 0084 P0-4 DLQ (DefaultErrorHandler + 4 DLT)</td><td>backend-core</td></tr>
+    <tr><td>#502</td><td>ADR 0084 P0-3 WS race + 재연결 backfill (pre-insert + V35)</td><td>market-data</td></tr>
+    <tr><td>#503</td><td>ADR 0084 P0-2 PENDING_RECONCILE + reconciliation worker (V36)</td><td>market-data</td></tr>
+    <tr><td>#504</td><td><strong>hotfix</strong> P0-4 KafkaErrorHandlerConfig ConsumerFactory DI 결함 (cut 차단 해소)</td><td>backend-core</td></tr>
+    <tr><td>#505</td><td>v3.6.16 cut 후속 sync (master.html 4번째 dogfooding)</td><td>orchestrator</td></tr>
+    <tr><td>#506</td><td>세션 종료 정리 — settings.json force-push 권한 + task archive</td><td>orchestrator</td></tr>
+  </tbody>
+</table>
+
+<h2>2. PostgreSQL Flyway 변경</h2>
+<table>
+  <thead><tr><th>버전</th><th>본문</th><th>PR</th></tr></thead>
+  <tbody>
+    <tr><td><code>V35__order_execution_event_id.sql</code></td><td><code>order_execution</code> 에 <code>event_id UNIQUE</code> 컬럼 (KIS WS 이벤트 멱등성)</td><td>#502 P0-3</td></tr>
+    <tr><td><code>V36__order_request_pending_reconcile.sql</code></td><td><code>order_request.status</code> CHECK constraint 확장: <code>+ PENDING_RECONCILE</code> + partial index</td><td>#503 P0-2</td></tr>
+  </tbody>
+</table>
+
+<h2>3. Kafka 토픽·데이터 흐름 변경</h2>
+<div class="grid">
+  <div class="card">
+    <h4>DLT 토픽 4건 신규 <span class="badge b-ok">retention 7d</span></h4>
+    <ul>
+      <li><code>order.intent.v1.DLT</code> — 자본 ★★★</li>
+      <li><code>order.requested.v1.DLT</code> — 알림 ★★</li>
+      <li><code>order.rejected.v1.DLT</code> — 알림 ★★</li>
+      <li><code>order.filled.v1.DLT</code> — 자본 잠재 ★★★</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>DefaultErrorHandler 정책</h4>
+    <p><code>FixedBackOff(1000ms, 3L)</code> — 1초 간격 3회 재시도 후 DLT</p>
+    <p>Non-retryable: <code>DeserializationException</code>·<code>SerializationException</code>·<code>IllegalArgumentException</code> 즉시 DLT</p>
+  </div>
+  <div class="card">
+    <h4>OrderDltMonitorListener <span class="badge b-pending">신규</span></h4>
+    <p>4 DLT 토픽 listen → <code>NotificationOutbox</code> INSERT (priority=P0, eventType=DLT_RECEIVED) → 즉시 Slack 발송</p>
+  </div>
+</div>
+
+<h2>4. Redis 사용처 변경</h2>
+<table>
+  <thead><tr><th>key 패턴</th><th>TTL</th><th>사용처</th></tr></thead>
+  <tbody>
+    <tr><td><code>account:balance:{userId}</code></td><td>30s</td><td>api <code>AccountQueryService</code> 쓰기 + consumer <code>KisCapitalSnapshotProviderAdapter</code> 읽기 (POSITION_LIMIT 룰 활성화)</td></tr>
+  </tbody>
+</table>
+
+<h2>5. sub-agent 디스패치 내역</h2>
+<table>
+  <thead><tr><th>유형</th><th>건수</th><th>비고</th></tr></thead>
+  <tbody>
+    <tr><td>architect dispatch</td><td>9건</td><td>T-O prereq · T-O 본트랙 · ADR 0068 Accepted · §62 · T-ACCT · T-MAN · T-MAN 정정 · indicator-impl · ADR 0084 종합</td></tr>
+    <tr><td>backend-core dispatch</td><td>7건</td><td>결함 1·T-ACCT Phase 1·2·indicator-impl·T-ACCT Phase 3·P0-4 DLQ·P0-4 hotfix</td></tr>
+    <tr><td>market-data dispatch</td><td>5건</td><td>T-O B-1·P0-1 hashkey·P0-3 WS race·P0-2 (1차 stall fail)·P0-2 재 dispatch</td></tr>
+    <tr><td>frontend dispatch</td><td>1건</td><td>결함 1 frontend DTO 정합</td></tr>
+    <tr><td><strong>총 dispatch</strong></td><td><strong>22건</strong></td><td>1건 stall fail (P0-2 a6e0de6670081bdd1 600s) — 재 dispatch로 회복</td></tr>
+  </tbody>
+</table>
+<p style="color:var(--muted);font-size:12px">⚠ <strong>운영 부채</strong>: worktree git author 결함 다수 — <code>extensions.worktreeConfig</code> 미활성 race. PR #492에서 backend-core author로 architect attribution됨. 차회 검토 의제.</p>
+<p style="color:var(--muted);font-size:12px">⚠ <strong>운영 부채</strong>: sub-agent root 작업 결함 다수 — architect dispatch 다수에서 cwd LOCK 위반. 사용자 직접 root 정리 1회.</p>
+
+<h2>6. sanity / dogfooding 결과</h2>
+<div class="grid">
+  <div class="card">
+    <h4>v3.6.16 cut docker logs evidence <span class="badge b-ok">ALL GREEN</span></h4>
+    <ul>
+      <li>4 모듈 (api·batch·consumer·frontend) ERROR <strong>0건</strong></li>
+      <li>Naver 429 burst 0건 · OPSP8996 0건 · APPLICATION FAILED 0건</li>
+      <li>9 컨테이너 모두 healthy (infra 5 + app 4)</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>결함 3 dogfooding curl 200 <span class="badge b-ok">GREEN</span></h4>
+    <p><code>GET /api/indicators?code=066570&amp;name=ema&amp;interval=1d&amp;params=period=20</code> → <strong>HTTP 200 + source=native + 100+ row</strong></p>
+    <p>이전 400 Bad Request 회복 — IndicatorEngine sources 2건 등록 (native + kis-strategy-builder)</p>
+  </div>
+  <div class="card">
+    <h4>T-O dogfooding 케이스 5 <span class="badge b-ok">GREEN</span></h4>
+    <p><code>order_request</code>: id=2 · mode=MOCK · status=REJECTED · <code>reject_reason="REAL_GATE_DENIED:CREDENTIAL_NOT_FOUND"</code></p>
+    <p>3중 게이트 + Kafka publish + STOMP push 풀체인 정합</p>
+  </div>
+  <div class="card">
+    <h4>KIS WS H0STCNI9 subscribe <span class="badge b-ok">emit=OK</span></h4>
+    <p><code>trId=H0STCNI9 userId=thde**** mode=MOCK</code> — 체결통보 자동 subscribe 실 evidence</p>
+  </div>
+</div>
+
+<h2>7. 다음 세션 일정 (즉시 진입 가능)</h2>
+<table>
+  <thead><tr><th>우선순위</th><th>트랙</th><th>의제</th><th>cut 후보</th></tr></thead>
+  <tbody>
+    <tr><td><span class="badge b-todo">HIGH</span></td><td>T-ACCT Phase 4</td><td>frontend Dashboard 격상 (AccountSummaryCard + HoldingsTable) — backend 1·2·3 합류 완료</td><td>v3.6.17</td></tr>
+    <tr><td><span class="badge b-todo">HIGH</span></td><td>T-MAN Phase 1·2·3</td><td>orderType B-2-extended (1a domain → 1b api·1c consumer 병렬 → 2 frontend)</td><td>v3.6.17</td></tr>
+    <tr><td><span class="badge b-pending">MED</span></td><td>ADR Accepted 격상</td><td>ADR 0083 indicator-impl + 0084 P0 마감 evidence 종합 → Accepted</td><td>독립</td></tr>
+    <tr><td><span class="badge b-pending">MED</span></td><td>ADR 0084 P1 3건</td><td>order_event_outbox · STOMP 영속 · MDC traceId</td><td>v3.6.17</td></tr>
+    <tr><td><span class="badge b-mute">LOW</span></td><td>ADR 0084 P2 2건</td><td>주문 정정 + MarketSessionFsmGate + token mutex</td><td>W4 묶음</td></tr>
+  </tbody>
+</table>
+
+<p style="margin-top:24px;color:var(--muted);font-size:12px">
+권장 1순위 (사용자 결정 시 즉시 dispatch): <strong>T-ACCT Phase 4 + T-MAN Phase 1 병렬</strong> (영역 분리 frontend vs domain/api).
+인프라 변경: <code>.claude/settings.json</code> force-push 권한 4건 화이트리스트 — 차회 세션부터 자율 적용. 메모리: <code>project_next_session_dispatch_matrix.md</code>.
+</p>
+
+</div>
+</body>
+</html>
