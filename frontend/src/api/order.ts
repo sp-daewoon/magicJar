@@ -55,35 +55,57 @@ export type OrderAuditEventType =
 // DTO
 // ──────────────────────────────────────────────
 
-/** 체결 단건 DTO (분할 체결 1:N) */
+/**
+ * 체결 단건 DTO (분할 체결 1:N)
+ *
+ * backend 권위 (`OrderQueryController.kt` OrderExecutionDto) 정합:
+ *  - executedQty: Int (executedQuantity 아님)
+ *  - executedPrice/fee/tax: String (소수점 정밀도 보존 — BigDecimal toString)
+ *  - kisOrderNo: backend 응답에 없음
+ */
 export interface OrderExecutionDto {
   id: number
   orderId: number
-  kisOrderNo: string
-  executedQuantity: number
-  executedPrice: number
+  executedQty: number
+  executedPrice: string
   executedAt: string
-  fee: number | null
-  tax: number | null
+  fee: string
+  tax: string
 }
 
-/** audit 이벤트 단건 DTO */
+/**
+ * audit 이벤트 단건 DTO
+ *
+ * backend 권위 (`OrderQueryController.kt` OrderAuditEventDto) 정합:
+ *  - payloadJson: String (non-null — payload 아님)
+ *  - ts: String (createdAt 아님)
+ *  - orderId: nullable (IDEMPOTENCY_SKIPPED 시 null)
+ */
 export interface OrderAuditEventDto {
   id: number
-  orderId: number
+  orderId: number | null
   eventType: OrderAuditEventType
-  payload: string | null
-  createdAt: string
+  payloadJson: string
+  ts: string
 }
 
-/** 목록 카드 DTO */
+/**
+ * 목록 카드 DTO
+ *
+ * backend 권위 (`OrderQueryController.kt` OrderListItemDto) 정합:
+ *  - qty: Int (quantity 아님)
+ *  - limitPrice: String? (소수점 정밀도 보존)
+ *  - rejectReason: String? (PR #489 신규 — REAL_GATE_DENIED 등 노출)
+ *  - userId: String (백엔드는 항상 반환)
+ */
 export interface OrderListItemDto {
   id: number
+  userId: string
   code: string
   side: OrderSide
   priceType: OrderPriceType
-  quantity: number
-  limitPrice: number | null
+  qty: number
+  limitPrice: string | null
   status: OrderStatus
   mode: TradingMode
   kisOrderNo: string | null
@@ -92,22 +114,16 @@ export interface OrderListItemDto {
   completedAt: string | null
 }
 
-/** 단건 상세 DTO (request + executions + audit) */
+/**
+ * 단건 상세 DTO (request + executions + audit)
+ *
+ * backend 권위 (`OrderQueryController.kt` OrderDetailResponse) 정합:
+ *  - request: OrderListItemDto (nest 구조 — 기존 평면 구조 폐기)
+ *  - executions: 분할 체결 1:N
+ *  - auditEvents: 감사 이벤트 시계열
+ */
 export interface OrderDetailDto {
-  id: number
-  code: string
-  side: OrderSide
-  priceType: OrderPriceType
-  quantity: number
-  limitPrice: number | null
-  status: OrderStatus
-  mode: TradingMode
-  kisOrderNo: string | null
-  kisFwdgOrgno: string | null
-  rejectReason: string | null
-  requestedAt: string
-  acknowledgedAt: string | null
-  completedAt: string | null
+  request: OrderListItemDto
   executions: OrderExecutionDto[]
   auditEvents: OrderAuditEventDto[]
 }

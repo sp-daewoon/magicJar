@@ -25,9 +25,15 @@ function formatDate(iso: string): string {
   })
 }
 
-function formatPrice(price: number | null | undefined): string {
+/**
+ * 가격 표시 — backend가 String(BigDecimal toString)으로 직렬화함 (정밀도 보존).
+ * parseFloat 후 toLocaleString. 한국 주식 정수 가격이라 정밀도 risk 작음.
+ */
+function formatPrice(price: string | null | undefined): string {
   if (price === null || price === undefined) return '시장가'
-  return price.toLocaleString('ko-KR') + '원'
+  const n = parseFloat(price)
+  if (Number.isNaN(n)) return '시장가'
+  return n.toLocaleString('ko-KR') + '원'
 }
 
 export function OrderCard({ order }: OrderCardProps) {
@@ -60,7 +66,7 @@ export function OrderCard({ order }: OrderCardProps) {
             )}
           </div>
           <div className="text-sm text-gray-400">
-            {order.quantity.toLocaleString('ko-KR')}주 &middot; {formatPrice(order.limitPrice)} &middot;{' '}
+            {order.qty.toLocaleString('ko-KR')}주 &middot; {formatPrice(order.limitPrice)} &middot;{' '}
             {order.priceType === 'MARKET' ? '시장가' : '지정가'}
           </div>
           {order.rejectReason && (

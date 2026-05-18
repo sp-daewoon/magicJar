@@ -30,9 +30,15 @@ function formatDate(iso: string): string {
   })
 }
 
-function formatPrice(price: number | null | undefined): string {
+/**
+ * 가격 표시 — backend가 String(BigDecimal toString)으로 직렬화함 (정밀도 보존).
+ * parseFloat 후 toLocaleString. 한국 주식 정수 가격이라 정밀도 risk 작음.
+ */
+function formatPrice(price: string | null | undefined): string {
   if (price === null || price === undefined) return '시장가'
-  return price.toLocaleString('ko-KR') + '원'
+  const n = parseFloat(price)
+  if (Number.isNaN(n)) return '시장가'
+  return n.toLocaleString('ko-KR') + '원'
 }
 
 export function OrderDetailPage() {
@@ -41,7 +47,10 @@ export function OrderDetailPage() {
   const userId = useOnboardingStore((s) => s.registeredUserId)
   const orderId = id ? parseInt(id, 10) : null
 
-  const { data: order, isLoading, isError, error } = useOrder(orderId, userId)
+  const { data: detail, isLoading, isError, error } = useOrder(orderId, userId)
+  // backend OrderDetailResponse 정합: { request, executions, auditEvents }
+  // request 안에 평면 필드(code, side, qty, ...) 위치
+  const order = detail?.request
 
   // 로딩
   if (isLoading) {
@@ -58,7 +67,7 @@ export function OrderDetailPage() {
   }
 
   // 오류
-  if (isError || !order) {
+  if (isError || !detail || !order) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-6">
         <button
@@ -118,7 +127,7 @@ export function OrderDetailPage() {
               status={order.status}
               code={order.code}
               side={order.side}
-              quantity={order.quantity}
+              quantity={order.qty}
             />
           </div>
         </div>
@@ -127,7 +136,7 @@ export function OrderDetailPage() {
         <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-2 border-t border-gray-800 pt-4 text-sm md:grid-cols-3">
           <div>
             <p className="text-xs text-gray-500">수량</p>
-            <p className="font-medium text-white">{order.quantity.toLocaleString('ko-KR')}주</p>
+            <p className="font-medium text-white">{order.qty.toLocaleString('ko-KR')}주</p>
           </div>
           <div>
             <p className="text-xs text-gray-500">가격 유형</p>
@@ -143,12 +152,6 @@ export function OrderDetailPage() {
             <p className="text-xs text-gray-500">접수 시각</p>
             <p className="text-gray-300">{formatDate(order.requestedAt)}</p>
           </div>
-          {order.acknowledgedAt && (
-            <div>
-              <p className="text-xs text-gray-500">KIS 접수 시각</p>
-              <p className="text-gray-300">{formatDate(order.acknowledgedAt)}</p>
-            </div>
-          )}
           {order.completedAt && (
             <div>
               <p className="text-xs text-gray-500">완료 시각</p>
@@ -173,18 +176,18 @@ export function OrderDetailPage() {
       {/* 체결 내역 */}
       <div className="mt-5">
         <h2 className="mb-2 text-sm font-semibold text-gray-300">
-          체결 내역 ({order.executions.length}건)
+          체결 내역 ({detail.executions.length}건)
         </h2>
-        <ExecutionTable executions={order.executions} orderQuantity={order.quantity} />
+        <ExecutionTable executions={detail.executions} orderQuantity={order.qty} />
       </div>
 
       {/* 감사 이벤트 시계열 */}
       <div className="mt-5">
         <h2 className="mb-3 text-sm font-semibold text-gray-300">
-          감사 이벤트 ({order.auditEvents.length}건)
+          감사 이벤트 ({detail.auditEvents.length}건)
         </h2>
         <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
-          <OrderAuditTimeline events={order.auditEvents} />
+          <OrderAuditTimeline events={detail.auditEvents} />
         </div>
       </div>
     </div>

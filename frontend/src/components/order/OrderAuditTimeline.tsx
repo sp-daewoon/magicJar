@@ -52,16 +52,16 @@ function formatDateTime(iso: string): string {
   })
 }
 
-function summarizePayload(payload: string | null): string | null {
-  if (!payload) return null
+function summarizePayload(payloadJson: string | null): string | null {
+  if (!payloadJson) return null
   try {
-    const parsed = JSON.parse(payload) as Record<string, unknown>
+    const parsed = JSON.parse(payloadJson) as Record<string, unknown>
     const entries = Object.entries(parsed)
       .slice(0, 3)
       .map(([k, v]) => `${k}: ${String(v)}`)
     return entries.join(' · ')
   } catch {
-    return payload.length > 80 ? payload.slice(0, 80) + '...' : payload
+    return payloadJson.length > 80 ? payloadJson.slice(0, 80) + '...' : payloadJson
   }
 }
 
@@ -78,7 +78,7 @@ export function OrderAuditTimeline({ events }: OrderAuditTimelineProps) {
     <div className="space-y-0">
       {events.map((event, idx) => {
         const style = getEventStyle(event.eventType)
-        const summary = summarizePayload(event.payload)
+        const summary = summarizePayload(event.payloadJson)
         const isLast = idx === events.length - 1
 
         return (
@@ -93,7 +93,7 @@ export function OrderAuditTimeline({ events }: OrderAuditTimelineProps) {
             <div className={`pb-4 ${isLast ? 'pb-0' : ''}`}>
               <div className="flex items-baseline gap-2">
                 <span className="text-sm font-medium text-gray-200">{style.label}</span>
-                <span className="text-xs text-gray-500">{formatDateTime(event.createdAt)}</span>
+                <span className="text-xs text-gray-500">{formatDateTime(event.ts)}</span>
               </div>
               {summary && (
                 <p className="mt-0.5 text-xs text-gray-500">{summary}</p>
