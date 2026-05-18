@@ -1,0 +1,136 @@
+package kr.spdaewoon.magicjar.consumer.persistence
+
+import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
+import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
+import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
+import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
+import org.springframework.stereotype.Component
+import org.springframework.transaction.annotation.Transactional
+import java.time.Instant
+
+/**
+ * OrderRequestRepository port JPA 어댑터 — consumer 모듈.
+ *
+ * ### backlog §61 fix (2026-05-18)
+ * - Phase 2 spec(`_workspace/specs/2026-05-18-to-prereq-mock-prd-verify.md`)는 api 모듈 Adapter만 LOCK했으나
+ *   `OrderRouterKafkaListener`가 거주하는 consumer 모듈은 api 모듈 미의존(`consumer/build.gradle.kts` 검증)
+ *   → consumer JVM bean scan 범위 외 → ObjectProvider.getIfAvailable() = null 항상 → 모든 주문 dispatch 실패.
+ * - root cause: 가설 (b) — port는 domain에 있고 JPA Adapter는 api 모듈 단독, consumer scan 범위 외 (모듈 경계 정합 위반 아님 — 단지 합류 누락).
+ * - fix: ConsumerCandle·KillSwitch 패턴 동일 — consumer 모듈에 자체 JPA Adapter 신설 + 동일 테이블 `order_request` 합류.
+ *
+ * ### 모듈 경계 정합 (ADR 0004)
+ * consumer는 `domain` + `pattern-engine`만 의존 (ADR 0004 모듈 경계 LOCK 유지). api 모듈 의존 도입 0건.
+ * 동일 테이블 entity 사본은 consumer/ConsumerCandle·ConsumerInstrument·KillSwitch 패턴 baseline (모듈 분리 정합).
+ *
+ * ### 헌법 §6 (ADR 0051) 준수: 헬퍼 메서드는 interface 0건, 이 클래스 private fun 위치.
+ *
+ * AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8)
+ */
+@Component
+class ConsumerOrderRequestRepositoryAdapter(
+    private val jpa: ConsumerOrderRequestJpaRepository,
+) : OrderRequestRepository {
+    @Transactional
+    override fun save(request: OrderRequest): OrderRequest = toDomain(jpa.save(toEntity(request)))
+
+    @Transactional(readOnly = true)
+    override fun findById(id: Long): OrderRequest? = jpa.findById(id).map { toDomain(it) }.orElse(null)
+
+    @Transactional(readOnly = true)
+    override fun findByKisOrderNo(kisOrderNo: String): OrderRequest? = jpa.findByKisOrderNo(kisOrderNo)?.let { toDomain(it) }
+
+    @Transactional(readOnly = true)
+    override fun findByIdempotencyKey(idempotencyKey: String): OrderRequest? =
+        jpa.findByIdempotencyKey(idempotencyKey)?.let { toDomain(it) }
+
+    @Transactional(readOnly = true)
+    override fun findOpenByUserId(userId: String): List<OrderRequest> = jpa.findOpenByUserId(userId).map { toDomain(it) }
+
+    @Transactional
+    override fun updateStatus(
+        id: Long,
+        status: OrderStatus,
+        rejectReason: String?,
+    ): OrderRequest? {
+        val entity = jpa.findById(id).orElse(null) ?: return null
+        entity.status = status
+        entity.rejectReason = rejectReason
+        return toDomain(jpa.save(entity))
+    }
+
+    @Transactional
+    override fun updateKisAck(
+        id: Long,
+        kisOrderNo: String,
+        kisFwdgOrgno: String,
+        acknowledgedAt: Instant,
+    ): OrderRequest? {
+        val entity = jpa.findById(id).orElse(null) ?: return null
+        entity.kisOrderNo = kisOrderNo
+        entity.kisFwdgOrgno = kisFwdgOrgno
+        entity.acknowledgedAt = acknowledgedAt
+        entity.status = OrderStatus.ACK
+        return toDomain(jpa.save(entity))
+    }
+
+    @Transactional
+    override fun markCompleted(
+        id: Long,
+        completedAt: Instant,
+        finalStatus: OrderStatus,
+    ): OrderRequest? {
+        val entity = jpa.findById(id).orElse(null) ?: return null
+        entity.status = finalStatus
+        entity.completedAt = completedAt
+        return toDomain(jpa.save(entity))
+    }
+
+    // --- private helper ---
+
+    private fun toEntity(domain: OrderRequest): ConsumerOrderRequestJpaEntity =
+        ConsumerOrderRequestJpaEntity(
+            id = domain.id,
+            signalId = domain.signalId,
+            userId = domain.userId,
+            code = domain.code,
+            side = domain.side,
+            qty = domain.quantity.toBigDecimal(),
+            priceType = domain.priceType,
+            limitPrice = domain.limitPrice,
+            status = domain.status,
+            mode = domain.mode,
+            idempotencyKey = domain.idempotencyKey,
+            kisOrderNo = domain.kisOrderNo,
+            kisFwdgOrgno = domain.kisFwdgOrgno,
+            rejectReason = domain.rejectReason,
+            requestedAt = domain.requestedAt,
+            acknowledgedAt = domain.acknowledgedAt,
+            completedAt = domain.completedAt,
+        )
+
+    private fun toDomain(entity: ConsumerOrderRequestJpaEntity): OrderRequest =
+        OrderRequest(
+            id = entity.id,
+            signalId = entity.signalId,
+            userId = entity.userId,
+            strategyId = 0L,
+            code = entity.code,
+            side = safeEnum<OrderSide>(entity.side.name) ?: OrderSide.BUY,
+            priceType = safeEnum<OrderPriceType>(entity.priceType.name) ?: OrderPriceType.MARKET,
+            quantity = entity.qty.toInt(),
+            limitPrice = entity.limitPrice,
+            status = safeEnum<OrderStatus>(entity.status.name) ?: OrderStatus.REQUESTED,
+            mode = safeEnum<TradingMode>(entity.mode.name) ?: TradingMode.MOCK,
+            idempotencyKey = entity.idempotencyKey,
+            kisOrderNo = entity.kisOrderNo,
+            kisFwdgOrgno = entity.kisFwdgOrgno,
+            rejectReason = entity.rejectReason,
+            requestedAt = entity.requestedAt,
+            acknowledgedAt = entity.acknowledgedAt,
+            completedAt = entity.completedAt,
+        )
+
+    private inline fun <reified T : Enum<T>> safeEnum(value: String): T? = runCatching { enumValueOf<T>(value) }.getOrNull()
+}
