@@ -43,6 +43,7 @@ import { RiskEventsPage } from './pages/Risk/RiskEventsPage'
 import { PositionsPage } from './pages/Risk/PositionsPage'
 import { OrdersPage } from './pages/orders/OrdersPage'
 import { OrderDetailPage } from './pages/orders/OrderDetailPage'
+import { NewOrderPage } from './pages/orders/NewOrderPage'
 import { TradingJournalPage } from './pages/TradingJournalPage'
 import { PerformanceDashboardPage } from './pages/PerformanceDashboardPage'
 
@@ -122,6 +123,8 @@ export function App() {
           <Route path="/positions" element={<PositionsPage />} />
           {/* T-O Phase 3: 주문 내역·상세 — ADR 0068 */}
           <Route path="/orders" element={<OrdersPage />} />
+          {/* T-MAN Phase 2: 수동 주문 발행 — ADR 0082 (반드시 /orders/:id 보다 먼저 등록) */}
+          <Route path="/orders/new" element={<NewOrderPage />} />
           <Route path="/orders/:id" element={<OrderDetailPage />} />
           {/* T-J Phase 3: 매매일지 — ADR 0072 */}
           <Route path="/journal" element={<TradingJournalPage />} />

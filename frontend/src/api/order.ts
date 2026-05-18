@@ -1,9 +1,10 @@
 /**
- * Order REST API 클라이언트 (T-O Phase 3 — ADR 0068 §16)
+ * Order REST API 클라이언트 (T-O Phase 3 — ADR 0068 §16 · T-MAN Phase 2 — ADR 0082)
  *
  * GET    /api/orders                          → OrderListPage
  * GET    /api/orders/{id}                     → OrderDetailDto
  * POST   /api/orders/{id}/cancel              → CancelOrderResponseDto
+ * POST   /api/orders/manual                   → ManualOrderResponseDto    (T-MAN Phase 2)
  *
  * 룰 5: LLM provider import 0건
  */
@@ -31,6 +32,16 @@ export type OrderPriceType = 'MARKET' | 'LIMIT'
 
 /** 거래 모드 */
 export type TradingMode = 'MOCK' | 'REAL'
+
+/**
+ * 주문 출처 (T-MAN B-2-extended LOCK — ADR 0082)
+ *
+ * 사용자 결정 정합: "데이터 상에선 사용자 주문이랑 자동매매주문의 타입이 구분되어야하는거 필수"
+ *
+ *  - AUTO   : 자동매매 path — signal.generated.v1 → T-RISK ALLOWED → order.intent.v1 (ADR 0068 §14-2)
+ *  - MANUAL : 사용자 수동 주문 — POST /api/orders/manual → order.intent.v1 (ADR 0082 T-MAN)
+ */
+export type OrderSource = 'AUTO' | 'MANUAL'
 
 /** audit event 유형 (ADR 0068 §5-3 OrderAuditEventType 정합) */
 export type OrderAuditEventType =
@@ -97,6 +108,11 @@ export interface OrderAuditEventDto {
  *  - limitPrice: String? (소수점 정밀도 보존)
  *  - rejectReason: String? (PR #489 신규 — REAL_GATE_DENIED 등 노출)
  *  - userId: String (백엔드는 항상 반환)
+ *  - source: OrderSource? (T-MAN B-2-extended 신규 — backend 필드 add 흡수 전까지 optional)
+ *
+ * T-MAN B-2-extended LOCK (ADR 0082):
+ *   `source` 필드는 backend `OrderListItemDto.source` 컬럼 add 후 항상 'AUTO'|'MANUAL' 도래.
+ *   현재는 backend Phase 1b 흡수 의존 (optional 안전망).
  */
 export interface OrderListItemDto {
   id: number
@@ -112,6 +128,8 @@ export interface OrderListItemDto {
   rejectReason: string | null
   requestedAt: string
   completedAt: string | null
+  /** T-MAN B-2-extended — backend 필드 합류 전까지 optional. 미수신 시 'AUTO' default 가정. */
+  source?: OrderSource
 }
 
 /**
@@ -151,10 +169,52 @@ export interface OrderListParams {
   status?: OrderStatus | OrderStatus[]
   side?: OrderSide
   code?: string
+  /** T-MAN B-2-extended — source filter (AUTO·MANUAL). 미지정 시 전체. */
+  source?: OrderSource
   from?: string
   to?: string
   page?: number
   size?: number
+}
+
+// ──────────────────────────────────────────────
+// T-MAN — 수동 주문 DTO (ADR 0082 T-MAN B-2-extended)
+// ──────────────────────────────────────────────
+
+/**
+ * 수동 주문 요청 DTO (POST /api/orders/manual).
+ *
+ * backend 권위 (`api/.../dto/ManualOrderRequestDto.kt`) 정합:
+ *  - userId: KIS credential identity (path 아닌 body field) — NotBlank
+ *  - code: 6자리 숫자 LOCK (`^\d{6}$`)
+ *  - side: 'BUY' | 'SELL'
+ *  - priceType: 'MARKET' | 'LIMIT'
+ *  - quantity: 양수 LOCK (Min(1))
+ *  - limitPrice: LIMIT 시 not null (string — BigDecimal 정밀도)
+ */
+export interface ManualOrderRequest {
+  userId: string
+  code: string
+  side: OrderSide
+  priceType: OrderPriceType
+  quantity: number
+  limitPrice?: string | null
+}
+
+/**
+ * 수동 주문 응답 DTO (202 Accepted).
+ *
+ * backend 권위 (`api/.../dto/ManualOrderResponseDto.kt`) 정합:
+ *  - orderId: null (consumer step 5 INSERT 시점 채번)
+ *  - status: 'ACCEPTED' (endpoint 응답 마커 — OrderRequest.status 아님)
+ *  - idempotencyKey: "manual:{userId}:{epochSeconds}"
+ *  - message: 한국어 안내문
+ */
+export interface ManualOrderResponse {
+  orderId: number | null
+  status: string
+  idempotencyKey: string
+  message: string
 }
 
 // ──────────────────────────────────────────────
@@ -178,6 +238,7 @@ export const orderApi = {
     }
     if (params.side) searchParams.set('side', params.side)
     if (params.code) searchParams.set('code', params.code)
+    if (params.source) searchParams.set('source', params.source)
     if (params.from) searchParams.set('from', params.from)
     if (params.to) searchParams.set('to', params.to)
     if (params.page !== undefined) searchParams.set('page', String(params.page))
@@ -208,6 +269,19 @@ export const orderApi = {
       `/orders/${id}/cancel?userId=${encodeURIComponent(userId)}`,
       { reason: reason ?? null },
     )
+    return res.data
+  },
+
+  /**
+   * POST /api/orders/manual
+   * 사용자 수동 주문 발행 (T-MAN B-2-extended — ADR 0082).
+   *
+   * 202 Accepted + ManualOrderResponse (orderId=null — consumer step 5 INSERT 시점 채번).
+   * 3중 게이트(MAGICJAR_MODE·MAGICJAR_ALLOW_REAL·real_trading_consent_at) precheck + KillSwitch precheck는
+   * backend fast precheck + consumer step 3·4 권위 재검증.
+   */
+  manualIssue: async (request: ManualOrderRequest): Promise<ManualOrderResponse> => {
+    const res = await apiClient.post<ManualOrderResponse>('/orders/manual', request)
     return res.data
   },
 }

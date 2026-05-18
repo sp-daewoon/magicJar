@@ -1,5 +1,5 @@
 /**
- * OrdersPage — /orders 주문 목록 페이지 (T-O Phase 3 — ADR 0068 §16)
+ * OrdersPage — /orders 주문 목록 페이지 (T-O Phase 3 — ADR 0068 §16 · T-MAN Phase 2 — ADR 0082)
  *
  * 기능:
  * - 주문 시계열 목록 (GET /api/orders?userId=, 페이징)
@@ -7,6 +7,7 @@
  * - 빈 목록 graceful 안내 (feedback_no_mock_data 정합)
  * - useStompOrder 구독 (4 event 토스트 + 목록 자동 갱신)
  * - userId 없으면 셋업 안내 (StrategyListPage 패턴 정합)
+ * - T-MAN Phase 2: source filter chip (전체·자동·수동) + "신규 주문" 버튼 (/orders/new)
  */
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -15,7 +16,7 @@ import { useOrders } from '../../api/hooks/useOrders'
 import { useStompOrder } from '../../api/hooks/useStompOrder'
 import { useRealTradingConsent } from '../../api/hooks/useUpdateRealTradingConsent'
 import { OrderCard } from '../../components/order/OrderCard'
-import type { OrderStatus } from '../../api/order'
+import type { OrderStatus, OrderSource } from '../../api/order'
 
 const STATUS_FILTER_OPTIONS: { value: OrderStatus | ''; label: string }[] = [
   { value: '', label: '전체' },
@@ -27,14 +28,23 @@ const STATUS_FILTER_OPTIONS: { value: OrderStatus | ''; label: string }[] = [
   { value: 'CANCELLED', label: '취소' },
 ]
 
+/** T-MAN B-2-extended — source filter chip 매트릭스 (전체·자동·수동) */
+const SOURCE_FILTER_OPTIONS: { value: OrderSource | ''; label: string }[] = [
+  { value: '', label: '전체' },
+  { value: 'AUTO', label: '자동' },
+  { value: 'MANUAL', label: '수동' },
+]
+
 export function OrdersPage() {
   const userId = useOnboardingStore((s) => s.registeredUserId)
   const [statusFilter, setStatusFilter] = useState<OrderStatus | ''>('')
+  const [sourceFilter, setSourceFilter] = useState<OrderSource | ''>('')
   const [page, setPage] = useState(0)
 
   const { data, isLoading, isError, error } = useOrders({
     userId: userId ?? undefined,
     status: statusFilter || undefined,
+    source: sourceFilter || undefined,
     page,
     size: 20,
   })
@@ -79,27 +89,37 @@ export function OrdersPage() {
   return (
     <div className="mx-auto max-w-4xl px-4 py-6">
       {/* 헤더 */}
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">주문 내역</h1>
           <p className="mt-1 text-sm text-gray-400">
-            자동매매 주문 의도·체결·감사 이벤트 시계열 (ADR 0068 T-O)
+            자동매매 주문 의도·체결·감사 이벤트 시계열 (ADR 0068 T-O · ADR 0082 T-MAN)
           </p>
         </div>
-        {/* 거래 모드 배지 */}
-        {isRealMode ? (
-          <span className="rounded-lg border border-red-800 bg-red-950/50 px-3 py-1.5 text-xs font-bold text-red-400">
-            REAL 거래 모드
-          </span>
-        ) : (
-          <span className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-1.5 text-xs text-gray-500">
-            MOCK 모드
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {/* T-MAN Phase 2: 신규 주문 버튼 — /orders/new */}
+          <Link
+            to="/orders/new"
+            className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-950"
+          >
+            + 신규 주문
+          </Link>
+          {/* 거래 모드 배지 */}
+          {isRealMode ? (
+            <span className="rounded-lg border border-red-800 bg-red-950/50 px-3 py-1.5 text-xs font-bold text-red-400">
+              REAL 거래 모드
+            </span>
+          ) : (
+            <span className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-1.5 text-xs text-gray-500">
+              MOCK 모드
+            </span>
+          )}
+        </div>
       </div>
 
       {/* 상태 필터 */}
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="mb-2 flex flex-wrap gap-2">
+        <span className="self-center text-xs text-gray-500">상태:</span>
         {STATUS_FILTER_OPTIONS.map((opt) => (
           <button
             key={opt.value}
@@ -121,6 +141,34 @@ export function OrdersPage() {
                 ({data?.totalElements ?? 0})
               </span>
             )}
+          </button>
+        ))}
+      </div>
+
+      {/* T-MAN Phase 2 — source filter chip (전체·자동·수동) */}
+      <div className="mb-4 flex flex-wrap gap-2">
+        <span className="self-center text-xs text-gray-500">출처:</span>
+        {SOURCE_FILTER_OPTIONS.map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => {
+              setSourceFilter(opt.value)
+              setPage(0)
+            }}
+            className={[
+              'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400',
+              sourceFilter === opt.value
+                ? opt.value === 'MANUAL'
+                  ? 'bg-amber-600 text-white'
+                  : opt.value === 'AUTO'
+                    ? 'bg-cyan-700 text-white'
+                    : 'bg-blue-600 text-white'
+                : 'border border-gray-700 bg-gray-900 text-gray-400 hover:bg-gray-800',
+            ].join(' ')}
+            aria-pressed={sourceFilter === opt.value}
+          >
+            {opt.label}
           </button>
         ))}
       </div>
