@@ -3,10 +3,10 @@ id: T-20260519-0010-t-acct-phase4-dashboard
 agent: frontend
 model: opus
 branch: agent/frontend/t-acct-phase4-dashboard
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T00:10:29.413+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T00:17:12.552+09:00
+pr: #509
 parentPhase: ?
 ---
 
