@@ -3,10 +3,10 @@ id: T-20260518-2241-p0-2-pending-reconcile
 agent: market-data
 model: opus
 branch: agent/market-data/p0-2-pending-reconcile
-status: RUNNING
+status: DONE
 startedAt: 2026-05-18T22:41:24.830+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-18T23:24:54.509+09:00
+pr: #503
 parentPhase: ?
 ---
 
