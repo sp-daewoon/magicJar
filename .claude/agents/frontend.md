@@ -16,12 +16,14 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 
 ## 핵심 역할
 
+> **★ 영역 경계 변경 (2026-05-19 ADR 0085)**: TradingView LWC v4 차트 컴포넌트(`frontend/src/components/chart/*` 전체)는 **chart-curator로 이관**. frontend는 차트 외 UI(Dashboard·Watchlist·매매일지·Strategy Builder·AI Console·일반 페이지)만 잔류. 차트 컴포넌트 import·인터랙션 인터페이스는 chart-curator와 합의 의무.
+
 - **화면 1순위 — Watchlist** (`/watchlist`) — UI 진입 default, 등록·관리·이동 (T-W1, master §D.15 / ADR 0040).
-- **차트 (LWC 확장)** — TradingView Lightweight Charts v4 + 자체 도형/주석/패턴 overlay (T-LWC, ADR 0025). TradingView Advanced 의존 0.
+- ~~**차트 (LWC 확장)**~~ — ❌ **chart-curator 이관** (ADR 0085). frontend는 차트 컴포넌트 import + 외부 인터랙션(예: Watchlist 클릭 → 차트 종목 변경)만 책임. 차트 자체 구현은 chart-curator.
 - **실시간 업데이트** — api 모듈이 제공하는 STOMP 토픽 구독(`/topic/quotes/{code}`, `/topic/signals`, `/topic/orders`).
 - **Strategy Builder (GUI 블록 빌더)** — 지표·연산자·논리 조합 + yaml export/import 동시 (T-SB, master §B.8).
 - **AI Option Console (W4)** — 사용자 클릭 시 LLM 호출, 종목 코멘트·기업 분석·차트 해석·지표 의미 카드 렌더링 (T-AI, ADR 0026). 매매 트리거 0.
-- **매매일지** (`/journal`) — 모든 주문·체결·시그널·차트 스냅샷 표시 (T-J, master §D.16).
+- **매매일지** (`/journal`) — 모든 주문·체결·시그널·차트 스냅샷 표시 (T-J, master §D.16). 차트 스냅샷 렌더링은 chart-curator 컴포넌트 import.
 
 ## 작업 원칙
 

@@ -105,6 +105,7 @@
 | 0080 | **전체 에이전트 Opus 4.7 통일 (ADR 0035 supersede) — Accepted (2026-05-18)** |
 | 0081 | **계좌 잔고·예수금 사용자 노출 endpoint + UI (T-ACCT 신규 트랙) — Proposed (2026-05-18 · spec 발행 단계)** |
 | 0082 | **사용자 수동 주문 발행 트랙 (T-MAN — 가상계좌 통합테스트 dogfooding + 사용자 최고 관리자 통제) — Proposed (2026-05-18 · spec 발행 단계)** |
+| 0085 | **chart-curator 신규 에이전트 영입 (8번째 sub-agent) — TradingView LWC v4 차트 + 캔들 데이터 SLA·정합성 단일 owner — Proposed (2026-05-19 · 사용자 dogfooding evidence 한국석유 일봉 5개월 stale 정합)** |
 
 ## §10. 외부 API 강제 정책 + UI 흐름 (4건)
 
@@ -161,7 +162,7 @@
 
 - **새 ADR 발행 시** — 본 README + `master-architecture.md` §10 + `tracks-roadmap.md` §3 동시 갱신.
 - **Superseded 처리 시** — 본문 상단 헤더 + 본 README 행 supersede 표기. `_archive/` 이동은 v3.3.0 cycle에 일괄.
-- **신규 진입 시 후속 ADR 번호** — **0085부터 sequential**. 0082(T-MAN)·0083(indicator-impl)·0084(주문 path 안정성) 점유 완료. 예약 슬롯은 §12 참조.
+- **신규 진입 시 후속 ADR 번호** — **0086부터 sequential**. 0082(T-MAN)·0083(indicator-impl)·0084(주문 path 안정성)·0085(chart-curator 영입) 점유 완료. 예약 슬롯은 §12 참조.
 - **변경 이력 기록 의무** — 의미 있는 ADR 발행·재발행·supersede·예약 해제 시 §14에 한 줄 추가.
 
 ## §12. 예약 슬롯 (Reserved)
@@ -190,6 +191,7 @@
 | 0082 | T-MAN 사용자 수동 주문 발행 트랙 | `POST /api/orders/manual` + `/orders/new` 페이지 + OrderPreviewModal 이중 confirm + 60s cooldown + 3중 게이트 동일 적용 + ADR 0068 `OrderRouterKafkaListener` 12 step 재사용(자본 path 단일 LOCK) + T-RISK Guard chain 우회(KillSwitch만 재검증) + sentinel signalId=0L · source="MANUAL". v3.6.15 patch cut 후보 — Phase 1(backend-core api/controller) + Phase 2(frontend) 병렬 dispatch 가능 → 머지 후 Accepted 격상 |
 | 0083 | indicator-impl 모듈 신설 (결함 3 fix) | 사용자 dogfooding evidence "ema 400" + 옵션 B 명시. `indicator-impl/` 라이브러리 모듈(root 직속, Spring Context only, Boot main 0) + api·consumer 양쪽 의존 + 15 파일 git mv. ADR 0054 패턴 1:1. backend-core 단일 PR 권장. v3.6.14 patch cut 합류. backend-core dispatch + 사용자 dogfooding curl 200 검증 후 Accepted 격상 예정. |
 | 0084 | 주문 path 안정성 종합 (P0·P1·P2 트랙) | 외부 코드 리뷰 13 코멘트 흡수. P0(hashkey·PENDING_RECONCILE·WS race·DLQ) v3.6.16 + P1(outbox·STOMP 영속·MDC) v3.6.17 + P2(정정·MarketSession) v3.6.18 또는 W4 묶음. Flyway V35·V36·V37·V38 + Kafka 4 DLT. sub-agent 10~14 PR. 사용자 결재 의제 4건. |
+| 0085 | chart-curator 신규 에이전트 영입 (8번째 sub-agent) | 사용자 dogfooding evidence(한국석유 일봉 5개월 stale) + 3 영역(market-data·strategy-engine·frontend) 교차 점유 단일 owner 부재. TradingView LWC v4 차트 + 캔들 데이터 SLA·정합성 단일 owner. 본 ADR 머지 후 즉시 첫 발화(한국석유 일봉 backfill + `last_candle_at` 모니터링 워커) + T-CC 트랙 backlog 신설 + 점진적 코드 이관(별도 사이클). |
 
 ## §14. 변경 이력
 
@@ -197,6 +199,7 @@
 
 | 일자 | 사이클 | 변경 |
 |------|--------|------|
+| 2026-05-19 | chart-curator 신규 에이전트 영입 (8번째 sub-agent) | **ADR 0085 Proposed** — 사용자 dogfooding evidence(한국석유 004090 일봉 last=2025-12-24 ≈5개월 stale vs 1분봉 last=2026-05-18 15:19 정상) + 3 영역(market-data·strategy-engine·frontend) 교차 점유로 인한 결함 책임 분기 → 8번째 sub-agent chart-curator 영입. TradingView LWC v4 차트 컴포넌트(`frontend/src/components/chart/*`) + 캔들 layer(적재 워커·갭 검출·자동 backfill·MTF 정합성·corporate action adjustment) 단일 owner. agent-charter.md §0·§1-A·§8 갱신 + magicjar-orchestrator SKILL 8 actor + .claude/agents/chart-curator.md + magicjar-chart-curator SKILL + market-data.md·frontend.md 이관 표기 + CLAUDE.md 갱신. 운영 코드 0 touch (agent infra·docs only). 본 ADR 머지 후 즉시 chart-curator 첫 발화(한국석유 일봉 backfill + last_candle_at 모니터링 워커) + T-CC 트랙 backlog 신설. (architect) |
 | 2026-05-18 | T-MAN 신규 트랙 발행 (v3.6.15 patch prep) | **ADR 0082 Proposed** — 사용자 결함 진단 (최고 관리자 2026-05-18 KST) "주문을 하는 화면이 없어 --;; 잔액조회도" 정합. T-MAN 신규 W3 보강 트랙 — 자동 path(T-O `OrderRouterKafkaListener` 12 step) **0 touch** + 수동 entry point만 추가(`POST /api/orders/manual` + `/orders/new` 페이지). spec `_workspace/specs/2026-05-18-t-man-manual-order-issue-spec.md`. v3.6.15 patch cut 권장. (architect) |
 | 2026-05-18 | 결함 3 indicator-impl 모듈 신설 (v3.6.14 patch prep) | **ADR 0083 Proposed** — 사용자 dogfooding evidence "GET /api/indicators?code=066570&name=ema → 400" + 옵션 B 명시. `indicator-impl/` 라이브러리 모듈 신설 + api·consumer 양쪽 의존 + 15 파일 git mv. ADR 0054 패턴 1:1. backend-core 단일 PR 권장. v3.6.14 patch cut 합류. (architect) |
 | 2026-05-18 | 주문 path 안정성 종합 (v3.6.16+ patch prep) | **ADR 0084 Proposed** — 외부 코드 리뷰 13 코멘트(중복 제거 11 의제) 흡수. ✅ 2건 충족 + 🟡 5건 부분 + ❌ 4건 미충족. P0(hashkey·PENDING_RECONCILE·WS race·DLQ) v3.6.16 + P1(outbox·STOMP 영속·MDC) v3.6.17 + P2(정정·MarketSession) v3.6.18 또는 W4 묶음. spec `_workspace/specs/2026-05-18-order-path-stability-spec.md`. 운영 코드 0 touch. (architect) |
