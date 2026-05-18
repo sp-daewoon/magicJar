@@ -70,7 +70,7 @@
   <div class="banner-cards">
     <div class="banner-card release">
       <div class="label">현재 Release</div>
-      <div class="value">v3.6.13</div>
+      <div class="value">v3.6.16</div>
       <div class="sub">2026-05-18</div>
     </div>
     <div class="banner-card cycle">
@@ -86,7 +86,7 @@
   </div>
   <div class="banner-timeline">
     <div class="label">📍 이번 작업 사이클 timeline</div>
-    <div>adr(0068): Accepted 격상 — T-O 본 트랙 마감 evidence 종합 (</div>
+    <div>chore(tasks): T-20260518-2333 — hotfix P0-4 Kafka  → hotfix(consumer): PR #501 P0-4 KafkaErrorHandlerCo → chore(tasks): T-20260518-2333 — hotfix P0-4 부팅 evi → chore(tasks): T-20260518-2333-hotfix-p0-4-kafka-co</div>
   </div>
 </div>
 
@@ -112,7 +112,7 @@
       <div class="card">
         <div class="card-title">📄 README.md</div>
         <div class="card-sub">🪄 magicJar Master Index</div>
-        <div class="card-meta">437 lines · 갱신 2026-05-18</div>
+        <div class="card-meta">490 lines · 갱신 2026-05-18</div>
       </div>
     
       <div class="card">
@@ -130,7 +130,7 @@
       <div class="card">
         <div class="card-title">📄 docs/architecture/master-architecture.md</div>
         <div class="card-sub">§1. 시스템 비전 (사용자 정정 2026-05-02 반영)</div>
-        <div class="card-meta">677 lines · 갱신 2026-05-17</div>
+        <div class="card-meta">701 lines · 갱신 2026-05-18</div>
       </div>
     
   </div>
@@ -142,44 +142,72 @@
     <h3>최근 ADR 5건</h3>
     <div class="adr-recent">
       
+        <div class="adr-card" style="border-left:3px solid #ff9800">
+          <div class="adr-number">0084</div>
+          <div class="adr-title">주문 path 안정성 종합 fitness gap fix (P0·P1·P2 트랙)</div>
+          <div class="adr-meta">Proposed · -</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0083</div>
+          <div class="adr-title">indicator-impl 라이브러리 모듈 신설 — IndicatorSource 모듈 경계 결함 fix</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0082</div>
+          <div class="adr-title">T-MAN 사용자 수동 주문 발행 트랙 (Manual Order Issuance — 가상계좌 통합테스트 dogfooding + 사용자 최고 관리자 통제)</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0081</div>
+          <div class="adr-title">Account Balance & Positions User-Facing Exposure</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
+      
         <div class="adr-card" style="border-left:3px solid #4caf50">
           <div class="adr-number">0080</div>
           <div class="adr-title">전체 에이전트 Opus 4.7 통일 (ADR 0035 supersede)</div>
           <div class="adr-meta">Accepted · -</div>
         </div>
       
-        <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0079</div>
-          <div class="adr-title">마스터 시각화 HTML 표준화</div>
-          <div class="adr-meta">Accepted · -</div>
-        </div>
-      
-        <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0078</div>
-          <div class="adr-title">내부 자산 추출 전략 — 재사용 가능한 프로젝트 부트스트랩 템플릿</div>
-          <div class="adr-meta">Accepted · -</div>
-        </div>
-      
-        <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0077</div>
-          <div class="adr-title">OPSP8996 ERROR 재발 deep dive 분석 (v3.6.11 hotfix — ADR 0076 6 가설 미발동 시나리오 신규 발굴)</div>
-          <div class="adr-meta">Accepted · -</div>
-        </div>
-      
-        <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0076</div>
-          <div class="adr-title">KIS WS NXT/시간외 시세 sync 표준 정합 (누적 hotfix #443·#444·#445 root cause 분석)</div>
-          <div class="adr-meta">Accepted · -</div>
-        </div>
-      
     </div>
-    <h3>전체 76건 (검색·정렬 가능)</h3>
+    <h3>전체 80건 (검색·정렬 가능)</h3>
     <input class="cat-search" data-cat="C" placeholder="ADR 검색…" />
     <table class="adr-table" data-sortable>
       <thead>
         <tr><th data-sort="number">번호</th><th data-sort="title">제목</th><th data-sort="status">status</th><th data-sort="date">날짜</th></tr>
       </thead>
       <tbody>
+        
+          <tr data-search="84 주문 path 안정성 종합 fitness gap fix (p0·p1·p2 트랙) proposed">
+            <td>0084</td>
+            <td><a href="_workspace/arch/adr/0084-order-path-stability-p0-p1-p2.md">주문 path 안정성 종합 fitness gap fix (P0·P1·P2 트랙)</a></td>
+            <td><span style="color:#ff9800">Proposed</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="83 indicator-impl 라이브러리 모듈 신설 — indicatorsource 모듈 경계 결함 fix accepted">
+            <td>0083</td>
+            <td><a href="_workspace/arch/adr/0083-indicator-impl-module.md">indicator-impl 라이브러리 모듈 신설 — IndicatorSource 모듈 경계 결함 fix</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="82 t-man 사용자 수동 주문 발행 트랙 (manual order issuance — 가상계좌 통합테스트 dogfooding + 사용자 최고 관리자 통제) accepted">
+            <td>0082</td>
+            <td><a href="_workspace/arch/adr/0082-t-man-manual-order-issuance.md">T-MAN 사용자 수동 주문 발행 트랙 (Manual Order Issuance — 가상계좌 통합테스트 dogfooding + 사용자 최고 관리자 통제)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="81 account balance & positions user-facing exposure accepted">
+            <td>0081</td>
+            <td><a href="_workspace/arch/adr/0081-account-balance-user-facing-exposure.md">Account Balance & Positions User-Facing Exposure</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
         
           <tr data-search="80 전체 에이전트 opus 4.7 통일 (adr 0035 supersede) accepted">
             <td>0080</td>
@@ -685,9 +713,9 @@
             <td>-</td>
           </tr>
         
-          <tr data-search="4 msa 모듈 재구성 (5 jvm 모듈 + frontend) accepted">
+          <tr data-search="4 msa 모듈 재구성 (6 jvm 모듈 + frontend) accepted">
             <td>0004</td>
-            <td><a href="_workspace/arch/adr/0004-msa-module-restructure.md">MSA 모듈 재구성 (5 JVM 모듈 + frontend)</a></td>
+            <td><a href="_workspace/arch/adr/0004-msa-module-restructure.md">MSA 모듈 재구성 (6 JVM 모듈 + frontend)</a></td>
             <td><span style="color:#4caf50">Accepted</span></td>
             <td>-</td>
           </tr>
@@ -789,8 +817,8 @@
   <div class="cat-content" data-cat="H" data-group-content-cat="시계열" data-active="false">
     
     <div class="backlog-filters">
-      <button data-filter="all">전체 64</button>
-      <button data-filter="proposed">Proposed 44</button>
+      <button data-filter="all">전체 68</button>
+      <button data-filter="proposed">Proposed 48</button>
       <button data-filter="recent">최근 3건</button>
       <button data-filter="done">완료 20 (toggle)</button>
     </div>
@@ -1117,6 +1145,26 @@
             <div class="backlog-meta">Done</div>
           </div>
         
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="64 t-acct 신규 트랙 — 잔액·예수금·계좌 잔고 사용자 노출 endpoint + ui (사용자 결함 진단 2026-05-18)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§64. T-ACCT 신규 트랙 — 잔액·예수금·계좌 잔고 사용자 노출 endpoint + UI (사용자 결함 진단 2026-05-18)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="66 결함 3 — indicator-impl 모듈 신설 (indicatorsource 모듈 경계 fix · 2026-05-18)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§66. 결함 3 — indicator-impl 모듈 신설 (IndicatorSource 모듈 경계 fix · 2026-05-18)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="65 t-man 신규 트랙 — 사용자 수동 주문 발행 ui + endpoint (사용자 결함 진단 2026-05-18)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§65. T-MAN 신규 트랙 — 사용자 수동 주문 발행 UI + endpoint (사용자 결함 진단 2026-05-18)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="78 외부 코드 리뷰 13 코멘트 흡수 종합 트랙 (주문 path 안정성 p0·p1·p2 · 2026-05-18)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§78. 외부 코드 리뷰 13 코멘트 흡수 종합 트랙 (주문 path 안정성 P0·P1·P2 · 2026-05-18)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
     </div>
   
   </div>
@@ -1180,7 +1228,7 @@
 
   <div class="cat-content" data-cat="D" data-group-content-cat="권위" data-active="false">
     
-    <h3>최근 spec 10건 / 전체 63건</h3>
+    <h3>최근 spec 10건 / 전체 67건</h3>
     <input class="cat-search" data-cat="D" placeholder="spec 검색…" />
     <div class="spec-list">
       
@@ -1479,6 +1527,26 @@
           <div class="card-meta">📄 _workspace/specs/pr-5-w1-bootstrap-design.md </div>
         </div>
       
+        <div class="card" data-search="2026-05-18-account-balance-positions-spec.md spec — 잔액·예수금·계좌 잔고 사용자 노출 endpoint + ui 트랙 (t-acct)">
+          <div class="card-title">📄 spec — 잔액·예수금·계좌 잔고 사용자 노출 endpoint + UI 트랙 (T-ACCT)</div>
+          <div class="card-meta">📄 _workspace/specs/2026-05-18-account-balance-positions-spec.md · 2026-05-18</div>
+        </div>
+      
+        <div class="card" data-search="2026-05-18-indicator-impl-module-spec.md spec: indicator-impl 모듈 신설 — indicatorsource 모듈 경계 결함 fix (결함 3)">
+          <div class="card-title">📄 spec: indicator-impl 모듈 신설 — IndicatorSource 모듈 경계 결함 fix (결함 3)</div>
+          <div class="card-meta">📄 _workspace/specs/2026-05-18-indicator-impl-module-spec.md · 2026-05-18</div>
+        </div>
+      
+        <div class="card" data-search="2026-05-18-order-path-stability-spec.md 주문 path 안정성 종합 spec — 외부 코드 리뷰 13 코멘트 흡수 + p0·p1·p2 트랙">
+          <div class="card-title">📄 주문 path 안정성 종합 spec — 외부 코드 리뷰 13 코멘트 흡수 + P0·P1·P2 트랙</div>
+          <div class="card-meta">📄 _workspace/specs/2026-05-18-order-path-stability-spec.md · 2026-05-18</div>
+        </div>
+      
+        <div class="card" data-search="2026-05-18-t-man-manual-order-issue-spec.md spec — 사용자 수동 주문 발행 ui + endpoint 신규 트랙 (t-man)">
+          <div class="card-title">📄 spec — 사용자 수동 주문 발행 UI + endpoint 신규 트랙 (T-MAN)</div>
+          <div class="card-meta">📄 _workspace/specs/2026-05-18-t-man-manual-order-issue-spec.md · 2026-05-18</div>
+        </div>
+      
         <div class="card" data-search="2026-05-18-to-main-track-entry-plan.md t-o 본 트랙 진입 — phase 매트릭스 + sub-agent dispatch 계획 spec">
           <div class="card-title">📄 T-O 본 트랙 진입 — Phase 매트릭스 + sub-agent dispatch 계획 spec</div>
           <div class="card-meta">📄 _workspace/specs/2026-05-18-to-main-track-entry-plan.md · 2026-05-18</div>
@@ -1553,6 +1621,12 @@
     <div class="adr-recent">
       
         <div class="adr-card" style="border-left:3px solid #ff9800">
+          <div class="adr-number">v3.6.16</div>
+          <div class="adr-title">v3.6.16 — v3.6.16 릴리즈</div>
+          <div class="adr-meta">2026-05-18</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #ff9800">
           <div class="adr-number">v3.6.13</div>
           <div class="adr-title">v3.6.13 — v3.6.13 릴리즈</div>
           <div class="adr-meta">2026-05-18</div>
@@ -1576,17 +1650,13 @@
           <div class="adr-meta">2026-05-17</div>
         </div>
       
-        <div class="adr-card" style="border-left:3px solid #ff9800">
-          <div class="adr-number">v3.6.9</div>
-          <div class="adr-title">v3.6.9 — v3.6.9 릴리즈</div>
-          <div class="adr-meta">2026-05-15</div>
-        </div>
-      
     </div>
     <h3>전체 30건</h3>
     <table>
       <thead><tr><th>tag</th><th>날짜</th><th>title</th></tr></thead>
       <tbody>
+        
+          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.16">v3.6.16</a></td><td>2026-05-18</td><td>v3.6.16 — v3.6.16 릴리즈</td></tr>
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.13">v3.6.13</a></td><td>2026-05-18</td><td>v3.6.13 — v3.6.13 릴리즈</td></tr>
         
@@ -1646,8 +1716,6 @@
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v1.0.1">v1.0.1</a></td><td>0001-01-01</td><td>v1.0.1</td></tr>
         
-          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v0.1.0">v0.1.0</a></td><td>0001-01-01</td><td>v0.1.0</td></tr>
-        
       </tbody>
     </table>
   
@@ -1655,63 +1723,63 @@
 
   <div class="cat-content" data-cat="I" data-group-content-cat="시계열" data-active="false">
     
-    <h3>전체 191건 · status별 분포</h3>
+    <h3>전체 203건 · status별 분포</h3>
     <div class="cat-cards">
       
-        <div class="card"><div class="card-title">DONE</div><div class="card-sub">191건</div></div>
+        <div class="card"><div class="card-title">DONE</div><div class="card-sub">203건</div></div>
       
     </div>
     <h3>최근 10건</h3>
     <div class="spec-list">
       
         <div class="card">
-          <div class="card-title">T-20260518-1443-adr-0068-accepted-to-main-track-done.md</div>
-          <div class="card-meta">DONE · architect </div>
+          <div class="card-title">T-20260518-2333-hotfix-p0-4-kafka-consumer-factory.md</div>
+          <div class="card-meta">DONE · backend-core · PR #504</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260518-1349-to-phase1-b1-kis-ws-bridge-execution-wir.md</div>
-          <div class="card-meta">DONE · market-data · PR #486</div>
-        </div>
-      
-        <div class="card">
-          <div class="card-title">T-20260518-1347-to-phase1-b2-consumer-order-execution-ad.md</div>
+          <div class="card-title">T-20260518-2241-p0-4-kafka-dlq.md</div>
           <div class="card-meta">DONE · backend-core </div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260518-1310-worktree-agent-af61b6c54e726dae0.md</div>
-          <div class="card-meta">DONE · architect </div>
+          <div class="card-title">T-20260518-2241-p0-2-pending-reconcile.md</div>
+          <div class="card-meta">DONE · market-data · PR #503</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260518-1307-sec62-orderlistener-log-fix.md</div>
-          <div class="card-meta">DONE · architect </div>
+          <div class="card-title">T-20260518-2208-t-acct-phase3-capital-snapshot.md</div>
+          <div class="card-meta">DONE · backend-core · PR #499</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260518-1222-to-phase2-repository-wire.md</div>
-          <div class="card-meta">DONE · architect · PR #481</div>
-        </div>
-      
-        <div class="card">
-          <div class="card-title">T-20260518-1104-worktree-agent-ae01e55803221cb74.md</div>
-          <div class="card-meta">DONE · architect · PR #479</div>
-        </div>
-      
-        <div class="card">
-          <div class="card-title">T-20260518-0245-stability-cycle2-worktree-author-task-co.md</div>
-          <div class="card-meta">DONE · architect · PR #477</div>
-        </div>
-      
-        <div class="card">
-          <div class="card-title">T-20260518-0223-worktree-agent-ab08837e534f9c909.md</div>
-          <div class="card-meta">DONE · frontend </div>
-        </div>
-      
-        <div class="card">
-          <div class="card-title">T-20260518-0127-worktree-agent-acc453fac3af6096d.md</div>
+          <div class="card-title">T-20260518-2207-p0-1-kis-hashkey-header.md</div>
           <div class="card-meta">DONE · market-data </div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">T-20260518-2207-indicator-impl-module-impl.md</div>
+          <div class="card-meta">DONE · backend-core · PR #500</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">T-20260518-2005-main.md</div>
+          <div class="card-meta">DONE · architect · PR #497</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">T-20260518-2004-t-man-spec-fix-ordertype.md</div>
+          <div class="card-meta">DONE · architect · PR #496</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">T-20260518-1927-worktree-agent-ae27aa8d8e67ca690.md</div>
+          <div class="card-meta">DONE · architect </div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">T-20260518-1920-t-man-manual-order-issue-spec.md</div>
+          <div class="card-meta">DONE · architect </div>
         </div>
       
     </div>
