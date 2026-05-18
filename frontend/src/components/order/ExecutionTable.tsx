@@ -24,12 +24,20 @@ function formatDateTime(iso: string): string {
   })
 }
 
-function formatPrice(n: number): string {
+/**
+ * 가격 표시 — backend가 String(BigDecimal toString)으로 직렬화함 (정밀도 보존).
+ * parseFloat 후 toLocaleString. 한국 주식 정수 가격이라 정밀도 risk 작음.
+ */
+function formatPrice(s: string): string {
+  const n = parseFloat(s)
+  if (Number.isNaN(n)) return '—'
   return n.toLocaleString('ko-KR') + '원'
 }
 
-function formatOptional(n: number | null | undefined): string {
-  if (n === null || n === undefined) return '—'
+function formatOptional(s: string | null | undefined): string {
+  if (s === null || s === undefined) return '—'
+  const n = parseFloat(s)
+  if (Number.isNaN(n)) return '—'
   return n.toLocaleString('ko-KR') + '원'
 }
 
@@ -43,7 +51,7 @@ export function ExecutionTable({ executions, orderQuantity }: ExecutionTableProp
     )
   }
 
-  const totalExecuted = executions.reduce((sum, e) => sum + e.executedQuantity, 0)
+  const totalExecuted = executions.reduce((sum, e) => sum + e.executedQty, 0)
   const isFullyFilled = totalExecuted >= orderQuantity
 
   return (
@@ -63,7 +71,7 @@ export function ExecutionTable({ executions, orderQuantity }: ExecutionTableProp
             <tr key={exec.id} className="hover:bg-gray-900/50">
               <td className="px-3 py-2 text-gray-300">{formatDateTime(exec.executedAt)}</td>
               <td className="px-3 py-2 text-right text-white">
-                {exec.executedQuantity.toLocaleString('ko-KR')}주
+                {exec.executedQty.toLocaleString('ko-KR')}주
               </td>
               <td className="px-3 py-2 text-right text-white">
                 {formatPrice(exec.executedPrice)}
