@@ -1,12 +1,15 @@
 # spec — 사용자 수동 주문 발행 UI + endpoint 신규 트랙 (T-MAN)
 
 - 발행: 2026-05-18 architect
+- 정정: 2026-05-18 architect (사용자 결정 정합 — B-1 → **B-2-extended** 채택 / orderType 데이터 구분 의무)
 - 사용자 의제 (최고 관리자, 2026-05-18):
   > "주문을 하는 화면이 없어 --;; 잔액조회도"
   > "C가 권위적이긴 하지만 실제로 자동매매 하는거 결국엔 호가, 가격, 수량, 포지션을 넘겨서 주문을 성사 할테니 확장형으로 별도 페이지 있어도될거같은데?"
   > "하려는 이유는 가상계좌 잔고 등 통합테스트 하려면 이게 있어야해"
-- 사용자 결정: 자동매매 본체 비전 유지 + **수동 주문 UI 확장형 별도 페이지** 신설(옵션 A)
-- 동기: 가상계좌(MOCK) 잔고 통합테스트 — MOCK 주문 발행 → KIS API 호출 → 잔고 변화 dogfooding
+- 사용자 추가 결정 (2026-05-18 PR #495 정독 후):
+  > "옵션 1으로 가자 그런데 우리 데이터 상에선 사용자 주문이랑 자동매매주문의 타입이 구분되어야하는거 필수!"
+- 사용자 결정: 자동매매 본체 비전 유지 + **수동 주문 UI 확장형 별도 페이지** 신설(옵션 A) + **데이터 상 사용자 주문 vs 자동매매 주문 타입 구분 필수** (B-2-extended)
+- 동기: 가상계좌(MOCK) 잔고 통합테스트 — MOCK 주문 발행 → KIS API 호출 → 잔고 변화 dogfooding + 사용자 주문/자동 주문 데이터 분리 audit·집계·UI 노출
 - 트랙 ID: **T-MAN** (Manual Order Issuance — W3 보강 트랙)
 - 발행 PR: `agent/architect/t-man-manual-order-issue-spec` (운영 코드 0 touch · 문서·spec only)
 - 신설 ADR: **0082 — Manual Order Issuance Track (T-MAN)**
@@ -90,24 +93,33 @@
 4. **A-2 폐기** — 자본 path 분기 발생 시 audit·멱등성·KillSwitch 검증 누락 risk. magicJar 비전 위배(자본 path 단일).
 5. **A-3 폐기** — 옵션 분기 만들면 검증 매트릭스 두 배, 사용자 의제 단순.
 
-#### B. signalId·strategyId 처리 (OrderIntent NOT NULL)
+#### B. signalId·strategyId 처리 + orderType 데이터 구분 (OrderIntent NOT NULL)
 
 현재 `OrderIntent.signalId: Long`·`strategyId: Long` 모두 NOT NULL. 수동 주문은 signal·strategy 부재.
 
+**사용자 추가 결정 (2026-05-18)**: "데이터 상에선 사용자 주문이랑 자동매매주문의 타입이 구분되어야하는거 필수" — Kafka payload 필드만으로는 부족. **도메인·DB·DTO·UI 일관 구분 의무**.
+
 | 옵션 | 설명 | Pro | Con |
 |---|---|---|---|
-| **B-1 sentinel value (`signalId = 0L`·`strategyId = 0L`)** ⭐ | 수동 주문 sentinel = 0L. `OrderRouterKafkaListener.deserialize` 분기 + `manual.user.<userId>.<epoch>` idempotency key | OrderIntent·OrderRequest 도메인 변경 0 · 자동 path 영향 0 · UI 표시는 controller에서 `signalId==0L` 시 "수동 주문" 한국어 label | 0L FK 부재 검증 의무 (signal 테이블에 id=0 row 없음 LOCK · strategy 동일) · DB FK 제약 의제(§4-3) |
-| B-2 nullable 컬럼 + 도메인 변경 | `OrderIntent.signalId: Long?`·`OrderRequest.signalId: Long?` + Flyway V31(`ALTER COLUMN signal_id DROP NOT NULL`) | 의미적 명확 | OrderIntent·OrderRequest 도메인 변경 + 6+ 호출 사이트 수정 + Flyway migration · 자동 path 영향 매트릭스 부담 ↑ |
-| B-3 signal seed auto-INSERT (manual orderlistener 진입 시 minimal signal row INSERT) | 수동 주문 시 manual signal row 자동 채번 | FK 정합 깨짐 0건 | dogfooding signal seed가 영구 잔재 · signal 테이블 오염 · audit 잔재 |
+| B-1 sentinel + Kafka payload field only | sentinel 0L + Kafka `source="MANUAL"` 필드만 add-only · DB·도메인·DTO·UI 변경 0 | 변경 최소 | **사용자 결정 위반** — DB 직접 쿼리 0건 · audit_event.payloadJson JSON 마커만 → 인덱스/집계 cost ↑ · 사용자 주문/자동 주문 데이터 명시 구분 부재 |
+| B-2 nullable 컬럼 (signalId null 허용 + Flyway V31 DROP NOT NULL) | `OrderIntent.signalId: Long?`·`OrderRequest.signalId: Long?` | 의미적 명확 | source 구분 의무 미해소 — manual vs signal 분기를 signalId NULL 여부로 추론하는 우회 결합 |
+| **B-2-extended sentinel + `source: OrderSource` 도메인 enum 1급 필드 (DB 컬럼 + DTO 필드 + UI badge·filter 일관)** ⭐ | sentinel 0L (기존 sentinel 정합 유지) + **신규 `OrderSource` enum** + `OrderIntent.source: OrderSource`·`OrderRequest.source: OrderSource` 1급 필드 + DB `order_request.source VARCHAR(20) NOT NULL DEFAULT 'AUTO'` 컬럼 + 인덱스 `idx_order_request_source` + DTO `source: 'AUTO'\|'MANUAL'` + frontend badge·filter | **사용자 결정 정합** — DB 직접 쿼리 가능 · 도메인 1급 시민 · audit·집계·UI 표시 일관 · OrderRouterKafkaListener step 5 INSERT 시 source persist · `signalId==0L && source==MANUAL` 이중 검증 가능 · 인덱스로 manual 주문만 빠른 lookup | 도메인 +1 enum · OrderRequest 필드 +1 · OrderIntent 필드 +1 · Flyway V34 ADD COLUMN +1 · DTO 필드 +1 · 호출 사이트 default `AUTO` add-only로 자동 path 영향 0 |
+| B-3 signal seed auto-INSERT | 수동 주문 시 manual signal row 자동 채번 | FK 정합 깨짐 0건 | dogfooding signal seed가 영구 잔재 · signal 테이블 오염 · audit 잔재 |
 
-**architect 권장 = B-1 sentinel 0L**. 사유:
-1. **도메인 변경 최소** — `OrderIntent.signalId: Long` 그대로. 자동 path 영향 0.
-2. **OrderRequest 영향 0** — `signal_id` 컬럼 그대로 (FK 제약은 §4-3 결정).
-3. **manual.user 멱등성 key** — `idempotencyKey = "manual:${userId}:${epochSec}"` 형식 → 동일 사용자 1초 내 중복 주문 차단(`OrderIdempotencyGuard` Redis SETNX 60s 재사용).
-4. **B-2 폐기** — Flyway V31 + 6+ 호출 사이트 수정은 spec 범위 과다 + 자동 path risk.
-5. **B-3 폐기** — signal 테이블 오염은 audit 신뢰성 훼손.
+**architect 결정 = B-2-extended (사용자 결정 정합 LOCK)**. 사유:
+1. **사용자 명시 결정 정합** — "데이터 상에선 사용자 주문이랑 자동매매주문의 타입이 구분되어야하는거 필수" — Kafka payload만으로는 audit_event JSON 마커에 의존 → 인덱스·DB 직접 쿼리·UI 노출 어려움. 도메인·DB·DTO·UI 1급 시민 구분 의무.
+2. **`source: OrderSource` enum 1급 도메인** — `enum class OrderSource { AUTO, MANUAL }` → 도메인 의미 명시 + Kotlin sealed type 보장 + 향후 확장(MCP·CLI 등) baseline.
+3. **DB 컬럼 + 인덱스** — `order_request.source VARCHAR(20) NOT NULL DEFAULT 'AUTO'` + `CREATE INDEX idx_order_request_source ON order_request(source)` → manual 주문만 빠른 lookup · 집계 가능 · audit trail 명시.
+4. **OrderRouterKafkaListener step 5 INSERT 시 source persist** — Kafka payload `source` 필드 deserialize → OrderRequest.source 채번 → INSERT 시 컬럼 채움. 자동 path는 default `AUTO` 흡수(add-only — 자동 path 영향 0).
+5. **DTO·UI 일관** — `OrderListItemDto.source: String` + frontend `'AUTO'|'MANUAL'` 리터럴 union + OrderCard badge ("자동" / "수동") + OrdersPage filter toggle.
+6. **sentinel 0L 유지** — `signalId=0L`·`strategyId=0L` sentinel은 그대로 LOCK (FK 제약 §4-3 처리 의제 유지). `source==MANUAL` 시 sentinel 정합 의무 (`signalId==0L && source==MANUAL` 이중 검증).
+7. **B-1 폐기** — 사용자 결정 위반. Kafka payload + audit_event JSON 마커만으로는 DB 직접 쿼리·집계·UI 일관 부재.
+8. **B-2 폐기** — signalId null 분기는 source 의미를 우회 결합. 도메인 의미 흐림.
+9. **B-3 폐기** — signal 테이블 오염 + audit 신뢰성 훼손.
 
-**검증 의무**: §4-3에서 DB FK 제약 매트릭스 확인. 현재 `order_request` 테이블이 `signal_id`·`strategy_id`에 FK 보유 시 sentinel 0 INSERT 불가 — Flyway V31 micro `ALTER TABLE order_request DROP CONSTRAINT fk_order_request_signal · fk_order_request_strategy` 의제 발생.
+**Flyway V34 의무**: 본 결정으로 V34__order_request_add_source.sql 신규 발행 의무 (V31~V33은 이미 점유 — V31 realized_pnl, V32 disclosure, V33 article). V34는 ADD COLUMN + CREATE INDEX add-only로 자동 path 영향 0.
+
+**검증 의무**: §4-3에서 DB FK 제약 매트릭스 확인. 현재 `order_request` 테이블이 `signal_id`·`strategy_id`에 FK 보유 시 sentinel 0 INSERT 불가 — V34 본문에 `ALTER TABLE order_request DROP CONSTRAINT IF EXISTS fk_order_request_signal · fk_order_request_strategy` 묶음 의제 (또는 별도 V35 micro 분리 — backend-core 결정).
 
 #### C. 수동 주문 path가 T-RISK Guard chain을 통과해야 하는가?
 
@@ -181,7 +193,7 @@
 | 의제 | 권장안 | 결정 |
 |---|---|---|
 | A. 동기 vs 비동기 | **A-1 Kafka 비동기 (자동 path 동일)** | LOCK |
-| B. signalId 처리 | **B-1 sentinel 0L + `source="MANUAL"` 필드 add-only** | LOCK |
+| B. signalId 처리 + orderType 데이터 구분 | **B-2-extended sentinel 0L + `OrderSource` enum 1급 도메인 + DB 컬럼 + DTO 필드 + UI badge·filter (사용자 결정 정합)** | **LOCK (2026-05-18 정정 — B-1 폐기)** |
 | C. T-RISK Guard 우회 | **C-1 T-RISK 우회 + KillSwitch만 재검증** | LOCK |
 | D. position 검증 | **D-1 1차 MVP KIS 흡수 + D-2 후속 backlog** | LOCK + 후속 backlog §66 |
 | E. 호가·현재가 표시 | **E-1 1차 MVP 0건 + E-3 후속 backlog** | LOCK + 후속 backlog §66 |
@@ -233,21 +245,23 @@ Response 503 Service Unavailable: Kafka publish 실패 (재시도 권장)
 ```
 api/src/main/kotlin/kr/spdaewoon/magicjar/api/controller/order/
 ├─ ManualOrderController.kt              [신규] POST /api/orders/manual
-└─ (기존 OrderQueryController·OrderCancelController·RealTradingConsentController 0 touch)
+├─ OrderQueryController.kt               [수정 add-only] — toListItem() 매핑에 source = req.source.name 추가
+└─ (기존 OrderCancelController·RealTradingConsentController 0 touch)
 
 api/src/main/kotlin/kr/spdaewoon/magicjar/api/service/order/
 └─ ManualOrderService.kt                 [신규]
    - validate(request)                   — Bean Validation + DB FK 체크(userId 존재)
    - resolveMode(userId)                 — TradingModeGate.resolveMode 위임(api → consumer 직접 의존 불가 → api 측 fast precheck만)
    - precheckKillSwitch(userId)          — KillSwitchQueryPort 호출 (api 측 ObjectProvider graceful)
-   - publish(intent)                     — ManualOrderIntentKafkaProducer 위임
+   - publish(intent)                     — ManualOrderIntentKafkaProducer 위임 (intent.source = OrderSource.MANUAL LOCK)
 
 api/src/main/kotlin/kr/spdaewoon/magicjar/api/messaging/order/
-└─ ManualOrderIntentKafkaProducer.kt     [신규] — order.intent.v1 publish (consumer/risk/OrderIntentKafkaProducer 패턴 동일 + source="MANUAL")
+└─ ManualOrderIntentKafkaProducer.kt     [신규] — order.intent.v1 publish (consumer/risk/OrderIntentKafkaProducer 패턴 동일 + payload "source"="MANUAL" 필드 LOCK)
 
 api/src/main/kotlin/kr/spdaewoon/magicjar/api/controller/order/dto/
 ├─ ManualOrderRequest.kt                 [신규] @Schema 매트릭스 (Bean Validation 의무)
-└─ ManualOrderResponse.kt                [신규] @Schema
+├─ ManualOrderResponse.kt                [신규] @Schema
+└─ OrderListItemDto.kt                   [수정 add-only] — `source: String` 필드 추가 ('AUTO'|'MANUAL')
 ```
 
 **3중 게이트 fast precheck (API 측 UX 가속용)**:
@@ -256,46 +270,156 @@ api/src/main/kotlin/kr/spdaewoon/magicjar/api/controller/order/dto/
 - API 측 precheck에서 REAL_GATE_DENIED 검출 시 즉시 403 반환 + STOMP·audit 0 (consumer 진입 전이므로 자본 path 미발동)
 - API 측 precheck PASS 후 → consumer가 다시 검증(권위 가정) → consumer는 OrderRouter 12 step 동일
 
-### 3-3. consumer 측 변경 (최소)
+### 3-3. consumer 측 변경 (B-2-extended LOCK)
 
 ```
 consumer/src/main/kotlin/kr/spdaewoon/magicjar/consumer/order/
 └─ OrderRouterKafkaListener.kt   [수정 add-only]
-   - deserialize() 본문에 source 필드 add — default "SIGNAL"
-     val source = payload["source"]?.toString() ?: "SIGNAL"  // (add-only)
-   - source="MANUAL" 시 signalId=0L·strategyId=0L sentinel 흡수
-   - 12 step 본체 흐름 0 touch (step 3 게이트 / step 4 KillSwitch / step 5 INSERT / step 7 KIS submit / step 8 ACK / step 11 commit 모두 동일)
-   - audit_event payload에 source="MANUAL" 또는 "SIGNAL" 추가(audit trail 명시)
+   - deserialize() 본문에 source 필드 add — default "AUTO" (B-2-extended LOCK)
+     val sourceStr = payload["source"]?.toString() ?: "AUTO"
+     val source = OrderSource.valueOf(sourceStr)   // 비정상 값 시 IllegalArgumentException → REJECTED audit
+   - OrderIntent 생성 시 source = source (1급 필드)
+   - source==MANUAL 시 signalId=0L·strategyId=0L sentinel 검증 (이중 검증 — audit 정합)
+   - 12 step 본체 흐름 0 touch (step 3 게이트 / step 4 KillSwitch / step 7 KIS submit / step 8 ACK / step 11 commit 모두 동일)
+   - **step 5 INSERT 변경 add-only** — OrderRequest INSERT 시 source 컬럼 채움 (`OrderRequest.source = intent.source`)
+   - audit_event payload에 source 필드 명시 (DB 컬럼 + JSON 마커 이중 — 정합 검증 path)
 ```
 
-**중요**: consumer는 controller·service 0 touch. Kafka payload 1 필드 add-only만.
+**중요**: consumer는 controller·service 0 touch. OrderIntent·OrderRequest 도메인 신규 필드 + step 5 INSERT add-only.
 
-### 3-4. domain 측 변경 (0건)
+### 3-4. domain 측 변경 (B-2-extended LOCK)
 
-`OrderIntent` 도메인은 변경 0 — `source`는 Kafka payload field로만 (도메인 영속에는 audit_event JSON에 보존).
+**신규 enum**:
+```kotlin
+// domain/src/main/kotlin/kr/spdaewoon/magicjar/domain/order/execution/OrderSource.kt
+package kr.spdaewoon.magicjar.domain.order.execution
 
-### 3-5. Flyway migration 매트릭스
-
+/**
+ * 주문 출처 — 사용자 수동 주문(MANUAL) vs 자동매매 시그널 주문(AUTO) 구분.
+ *
+ * 사용자 결정 정합 (2026-05-18 최고 관리자): "데이터 상에선 사용자 주문이랑 자동매매주문의 타입이 구분되어야하는거 필수"
+ *
+ * - AUTO    : 자동매매 path — signal.generated.v1 → T-RISK ALLOWED → order.intent.v1 (ADR 0068 §14-2)
+ * - MANUAL  : 사용자 수동 주문 — POST /api/orders/manual → order.intent.v1 (ADR 0082 T-MAN)
+ *
+ * 향후 확장 baseline: MCP·CLI·외부 API client 등 (T-MCP — ADR 0027).
+ *
+ * AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8)
+ */
+enum class OrderSource {
+    AUTO,
+    MANUAL,
+}
 ```
-V31__order_request_signal_strategy_fk_relax.sql   [신규]
--- 수동 주문 sentinel 0L 흡수 — FK NULL 허용 OR drop
+
+**OrderIntent 필드 add (default AUTO 안전)**:
+```kotlin
+// domain/.../OrderIntent.kt
+data class OrderIntent(
+    val id: Long,
+    val userId: String,
+    val signalId: Long,        // MANUAL 시 0L sentinel
+    val strategyId: Long,      // MANUAL 시 0L sentinel
+    val code: String,
+    val side: OrderSide,
+    val priceType: OrderPriceType,
+    val quantity: Int,
+    val limitPrice: BigDecimal?,
+    val idempotencyKey: String,
+    val requestedAt: Instant,
+    val source: OrderSource = OrderSource.AUTO,   // ★ B-2-extended 신규 — default AUTO (자동 path 호출 사이트 수정 0)
+)
+```
+
+**OrderRequest 필드 add (default AUTO 안전)**:
+```kotlin
+// domain/.../OrderRequest.kt
+data class OrderRequest(
+    val id: Long? = null,
+    val userId: String,
+    val signalId: Long,
+    val strategyId: Long,
+    val code: String,
+    val side: OrderSide,
+    val priceType: OrderPriceType,
+    val quantity: Int,
+    val limitPrice: BigDecimal?,
+    val status: OrderStatus,
+    val mode: TradingMode,
+    val kisOrderNo: String? = null,
+    val kisFwdgOrgno: String? = null,
+    val idempotencyKey: String,
+    val rejectReason: String? = null,
+    val requestedAt: Instant,
+    val acknowledgedAt: Instant? = null,
+    val completedAt: Instant? = null,
+    val source: OrderSource = OrderSource.AUTO,   // ★ B-2-extended 신규 — default AUTO (자동 path 호출 사이트 수정 0)
+)
+```
+
+**default `OrderSource.AUTO` 의무**: 기존 자동 path 호출 사이트는 모두 source 인자 0개로 호출 가능 → 호출 사이트 수정 0건 + 자동 path 영향 0.
+
+### 3-5. Flyway migration 매트릭스 (B-2-extended LOCK)
+
+**V31~V33 점유 확인 (2026-05-18 main 기준)**:
+- V31__order_execution_realized_pnl.sql (T-PERF)
+- V32__t_news_disclosure_table.sql (T-NEWS)
+- V33__t_news_article_table.sql (T-NEWS)
+
+**T-MAN은 V34부터 사용**:
+
+```sql
+-- api/src/main/resources/db/migration/V34__order_request_add_source.sql   [신규]
+--
+-- T-MAN B-2-extended LOCK — 사용자 주문/자동 주문 데이터 구분 필수 (사용자 결정 2026-05-18)
+-- ADD COLUMN add-only + DEFAULT 'AUTO' → 기존 row는 자동 attribution + 자동 path 영향 0
+-- CREATE INDEX add-only → manual 주문만 빠른 lookup + 집계
+-- AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8 + ADR 0082)
+
+ALTER TABLE order_request
+    ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'AUTO'
+    CHECK (source IN ('AUTO','MANUAL'));
+
+CREATE INDEX IF NOT EXISTS idx_order_request_source ON order_request (source);
+
+COMMENT ON COLUMN order_request.source IS 'T-MAN B-2-extended — AUTO(자동매매 signal path) vs MANUAL(사용자 수동 주문 POST /api/orders/manual). 사용자 결정 정합 (ADR 0082).';
+```
+
+**FK 제약 처리 (sentinel 0L INSERT 의제)**:
+
+V20 본문 확인 (2026-05-18): `order_request.signal_id BIGINT NOT NULL REFERENCES signal(id) ON DELETE RESTRICT` — FK 존재. sentinel 0L INSERT 시 FK 위반 발생.
+
+**옵션 — backend-core 결정**:
+1. **옵션-X (V34에 묶음)** — V34 본문에 `DROP CONSTRAINT IF EXISTS ...` 동반 (단일 migration). 단점: ADD COLUMN과 DROP CONSTRAINT가 1 파일에 묶임 (gradle migration 의미 흐림).
+2. **옵션-Y (V35 micro 분리)** — V34는 source 컬럼만, V35__order_request_fk_relax.sql 별도. 단점: migration 2 파일 (관리 cost ↑).
+3. **옵션-Z (signal 테이블에 id=0 sentinel row INSERT)** — Flyway에 `INSERT INTO signal (id, ...) VALUES (0, ...)` + strategy 동일. 단점: signal 테이블 sentinel row 영구 잔재 (audit 잡음).
+
+**architect 권장 = 옵션-Y (V35 micro 분리)**. 사유: migration 의미 명시(source 추가 vs FK relax 분리) + 향후 migration history 가독성. backend-core가 V20 본문 재검증 후 자율 결정 가능(옵션-X도 허용).
+
+```sql
+-- api/src/main/resources/db/migration/V35__order_request_fk_relax.sql   [신규 — 옵션-Y]
+--
+-- T-MAN sentinel 0L INSERT 허용 — manual 주문은 signal·strategy 부재이므로 FK drop
+-- B-2-extended source 필드가 manual 분기 권위 (FK 의존 0)
+-- audit trail은 source 컬럼 + signalId=0L sentinel 이중 검증 (consumer step 5)
+
 ALTER TABLE order_request DROP CONSTRAINT IF EXISTS fk_order_request_signal;
 ALTER TABLE order_request DROP CONSTRAINT IF EXISTS fk_order_request_strategy;
--- (FK 자체 제거 — sentinel 0L INSERT 가능 + audit_event.payloadJson.source="MANUAL" 마커가 추적 책임 흡수)
--- 자동 path 영향 0 (FK 없어도 signal·strategy 테이블 row는 그대로 존재 + 멤버십 검증은 application layer 책임)
+
+-- 또는 PG 자동 채번 CONSTRAINT 이름 확인 후 정확한 이름으로 DROP
+-- (backend-core가 `\d order_request` 출력 검증 후 정확한 constraint name 인용 의무)
 ```
 
-**검증 의무**: 현재 `order_request` 테이블에 FK 제약 존재 여부 backend-core가 Flyway V20~V23 본문 확인 후 결정. **부재 시 V31 발행 불요**.
+**기존 V20 본문 의제**: V20 line 10에 `REFERENCES signal(id) ON DELETE RESTRICT` 명시 — FK 이름 PG 자동 채번 → backend-core가 `\d order_request` 또는 `SELECT conname FROM pg_constraint WHERE conrelid='order_request'::regclass` 검증 후 정확한 constraint name 사용 의무.
 
-대안: FK가 존재한다면 Flyway V31 발행 (위 SQL). FK 부재면 V31 없이 진행.
-
-### 3-6. frontend 매트릭스
+### 3-6. frontend 매트릭스 (B-2-extended LOCK)
 
 ```
 frontend/src/pages/orders/
 ├─ OrdersPage.tsx                  [수정 add-only]
 │  - 상단 헤더에 "신규 주문" 버튼 추가 (NavLink to "/orders/new")
 │  - mode badge 옆에 배치
+│  - ★ source filter toggle 추가 — [전체] [자동] [수동] (useOrders hook source query param)
 └─ NewOrderPage.tsx                [신규] /orders/new
    - 1단: 종목 검색 (InstrumentSearchInput 재사용) + 선택 종목 표시
    - 2단: 매수/매도 토글 (BUY/SELL — 시각 색상 명확)
@@ -307,29 +431,48 @@ frontend/src/pages/orders/
    - 8단: 발행 → POST /api/orders/manual → /orders 자동 navigate + 토스트
 
 frontend/src/components/order/
-└─ OrderPreviewModal.tsx            [신규]
-   - 종목명·코드·side(BUY=빨강·SELL=파랑)·priceType·quantity·총액(추정) 명시
-   - "룰 안전망 우회 — 사용자 책임" warning (REAL 모드 시 강조)
-   - 60초 cooldown 카운터 (동일 종목 직전 주문 시 표시)
-   - [취소] [발행] 두 버튼 (발행은 disable until checkbox 확인)
+├─ OrderPreviewModal.tsx            [신규]
+│  - 종목명·코드·side(BUY=빨강·SELL=파랑)·priceType·quantity·총액(추정) 명시
+│  - "룰 안전망 우회 — 사용자 책임" warning (REAL 모드 시 강조)
+│  - 60초 cooldown 카운터 (동일 종목 직전 주문 시 표시)
+│  - [취소] [발행] 두 버튼 (발행은 disable until checkbox 확인)
+└─ OrderCard.tsx                    [수정 add-only]
+   - ★ source badge 표시 — AUTO(🤖 자동) vs MANUAL(👤 수동) — 시각 구분 색상
+   - 기존 status·mode badge 옆 배치
 
 frontend/src/api/order.ts            [수정 add-only]
 └─ orderApi.manualIssue(request: ManualOrderRequest): Promise<ManualOrderResponse>
 
-frontend/src/api/hooks/
-└─ useManualOrderMutation.ts        [신규]
-   - TanStack Query useMutation
-   - onSuccess: invalidate useOrders + navigate('/orders') + toast "수동 주문 접수됨"
-   - onError 403 REAL_GATE_DENIED: toast "실거래 모드 미허용 — 설정에서 동의 토글 확인"
-   - onError 403 KILLSWITCH_ON: toast "킬스위치 ON — 모든 주문 차단"
-   - onError 409 IDEMPOTENCY: toast "1초 내 중복 — 잠시 후 재시도"
+frontend/src/api/types/
+└─ OrderListItemDto.ts               [수정 add-only]
+   - ★ `source: 'AUTO' | 'MANUAL'` 리터럴 union 필드 추가 (backend DTO 정합)
 
-frontend/src/api/order.ts            [수정 add-only]
-└─ type ManualOrderSource = 'MANUAL' | 'SIGNAL'   — DTO 명시 (audit 표시 용)
+frontend/src/api/hooks/
+├─ useManualOrderMutation.ts        [신규]
+│  - TanStack Query useMutation
+│  - onSuccess: invalidate useOrders + navigate('/orders') + toast "수동 주문 접수됨"
+│  - onError 403 REAL_GATE_DENIED: toast "실거래 모드 미허용 — 설정에서 동의 토글 확인"
+│  - onError 403 KILLSWITCH_ON: toast "킬스위치 ON — 모든 주문 차단"
+│  - onError 409 IDEMPOTENCY: toast "1초 내 중복 — 잠시 후 재시도"
+└─ useOrders.ts                     [수정 add-only]
+   - ★ `source?: 'AUTO' | 'MANUAL'` query param 추가 (OrdersPage filter toggle 연동)
+   - GET /api/orders?source=MANUAL 형식 (backend OrderQueryController 정합 — backend-core가 source filter 흡수 의무)
 
 frontend/src/routes/                  [수정 add-only]
 └─ /orders/new → NewOrderPage  (RouterProvider config 1줄 add)
 ```
+
+**OrderListItemDto 변경 매트릭스 (backend·frontend 동시 정합 의무)**:
+
+| 측 | 파일 | 변경 |
+|---|---|---|
+| backend | `api/.../controller/order/dto/OrderListItemDto.kt` | `source: String` 필드 add (Kotlin) — `@Schema(description="주문 출처", example="MANUAL", allowableValues=["AUTO","MANUAL"])` |
+| backend | `api/.../controller/order/OrderQueryController.kt#toListItem()` | `source = req.source.name` 매핑 add (1줄) |
+| backend | `api/.../controller/order/OrderQueryController.kt#list()` | `source: String?` query param add + filter 흡수 (optional) |
+| frontend | `frontend/src/api/types/OrderListItemDto.ts` (또는 inline type) | `source: 'AUTO' \| 'MANUAL'` 필드 add (TypeScript) |
+| frontend | `frontend/src/components/order/OrderCard.tsx` | source badge 표시 add |
+| frontend | `frontend/src/pages/orders/OrdersPage.tsx` | filter toggle UI add |
+| frontend | `frontend/src/api/hooks/useOrders.ts` | source query param 인자 add |
 
 ### 3-7. UI 안전 layer 매트릭스
 
@@ -410,13 +553,15 @@ frontend는 `useStompOrder` hook이 이미 구독 — 추가 작업 0.
 **Step 8**: T-ACCT 머지 후 → DashboardPage에서 잔고 변화 evidence(예수금 감소·보유 종목 추가)
 
 **evidence 의무** (사용자 메모리 `feedback_verification_strict`):
-- 브라우저 screenshot (NewOrderPage·OrderPreviewModal·OrdersPage)
+- 브라우저 screenshot (NewOrderPage·OrderPreviewModal·OrdersPage — source badge "👤 수동" 노출 확인)
 - backend log (ManualOrderController·ManualOrderIntentKafkaProducer·OrderRouterKafkaListener 12 step)
-- DB `order_request` row (source 흔적 — audit_event.payloadJson.source="MANUAL")
-- DB `order_audit_event` row (KIS_REQUEST + KIS_ACK)
-- STOMP DevTools (REQUESTED·ACK event payload)
+- DB `SELECT id, source, signal_id, strategy_id FROM order_request WHERE source='MANUAL' ORDER BY id DESC LIMIT 5` → source 컬럼 'MANUAL' 명시 + signal_id=0·strategy_id=0 sentinel 정합 (B-2-extended 이중 검증)
+- DB `EXPLAIN SELECT * FROM order_request WHERE source='MANUAL'` → `idx_order_request_source` 인덱스 사용 확인
+- DB `order_audit_event` row (KIS_REQUEST + KIS_ACK + payloadJson.source="MANUAL" 마커 — DB 컬럼 + JSON 마커 이중 정합)
+- STOMP DevTools (REQUESTED·ACK event payload — source 필드 노출 확인)
+- frontend GET /api/orders?source=MANUAL 호출 → manual 주문만 응답 확인
 
-**기대**: UI → backend → Kafka → consumer → KIS → DB → STOMP 풀체인 GREEN. **signal seed SQL 부담 0**.
+**기대**: UI → backend → Kafka → consumer → KIS → DB → STOMP 풀체인 GREEN. **signal seed SQL 부담 0** + **source 데이터 구분 정합** (사용자 결정 정합 evidence).
 
 **복구**: MOCK 주문 + 자본 영향 0. 단 케이스 9 누적 잔재 DB row는 케이스 6·7·8 cleanup SQL과 동일 처리.
 
@@ -434,8 +579,11 @@ frontend는 `useStompOrder` hook이 이미 구독 — 추가 작업 0.
 
 | Risk | 영향 | 완화 |
 |---|---|---|
-| sentinel 0L FK 위반 | DB INSERT 실패 | §3-5 Flyway V31 micro `DROP CONSTRAINT` (FK 존재 시) · backend-core가 V20·V21·V22·V23 본문 확인 의무 |
+| sentinel 0L FK 위반 (V20 본문 FK 존재 — `signal_id REFERENCES signal(id) ON DELETE RESTRICT`) | DB INSERT 실패 | §3-5 Flyway V35 micro `DROP CONSTRAINT` 의무(옵션-Y 권장) · backend-core가 V20 본문 확인 + `\d order_request` 정확한 constraint name 인용 의무 |
 | signal·strategy 테이블에 id=0 row 존재 | sentinel 충돌 | DB query 검증 — backend-core가 dispatch 시 `SELECT * FROM signal WHERE id=0` 검증 + 0 row LOCK |
+| ★ source 컬럼 default 'AUTO' migration 시 기존 row 분류 결함 | T-MAN V34 이전 row 모두 'AUTO' attribution | 기존 row는 T-O 본 트랙 (signal_id != 0) → 'AUTO' default 의미적 정확 (정정 불요). V34 DEFAULT 'AUTO' LOCK + signal_id != 0 row는 자동 path 영향 0 |
+| ★ source 필드 비정상 값 (Kafka payload 정상 deserialize 실패) | OrderSource.valueOf IllegalArgumentException → consumer step 5 INSERT 0 | OrderRouterKafkaListener step 2 deserialize 직후 `try {} catch(IllegalArgumentException)` → REJECTED audit + Kafka commit (poison message 회피) |
+| ★ source DB 컬럼 vs Kafka payload vs audit_event JSON 마커 불일치 | audit trail 정합 깨짐 | consumer step 5에서 source 1회 결정 후 (a) OrderRequest.source 컬럼 INSERT + (b) audit_event.payloadJson.source JSON 마커 동시 채움. 단일 source of truth = consumer step 5 |
 | T-RISK 우회로 POSITION_LIMIT 룰 무력 | REAL 시 자본 risk | UI 명시 warning + 60s cooldown + 이중 confirm + KillSwitch 적용 4 layer 안전망으로 보상 |
 | 60초 cooldown 우회 (다른 브라우저·다른 디바이스) | 동일 사용자 burst 주문 | OrderIdempotencyGuard Redis SETNX 60s가 backend 측 권위 — UI 우회해도 backend 차단 |
 | 사용자 의제 외 unauthenticated 호출 | API 노출 risk | 현재 magicJar는 onboarding userId가 user identity baseline — 추가 인증 layer는 후속(T-AUTH backlog) |
@@ -446,44 +594,63 @@ frontend는 `useStompOrder` hook이 이미 구독 — 추가 작업 0.
 
 ## 5. sub-agent dispatch plan
 
-### 5-1. Phase 매트릭스
+### 5-1. Phase 매트릭스 (B-2-extended LOCK)
 
 | Phase | sub-agent | 영역 | 라인 수 estimate | 우선순위 | 병렬 가능 여부 |
 |---|---|---|---|---|---|
-| **1** | backend-core | api/controller/order + api/service/order + api/messaging/order + api/dto + Flyway V31(옵션) | ~250 LOC | HIGH | Phase 2와 병렬 가능 (영역 분리: api vs frontend) |
-| **2** | frontend | pages/orders/NewOrderPage + components/order/OrderPreviewModal + api/order + hooks/useManualOrderMutation + routes | ~350 LOC | HIGH | Phase 1과 병렬 가능 (backend DTO spec 인용 의무) |
-| **3** (옵션) | backend-core | consumer/order/OrderRouterKafkaListener.kt source 필드 add-only | ~30 LOC | MED | Phase 1·2 직후 |
+| **1a** | backend-core | **domain** — OrderSource enum 신설 + OrderIntent·OrderRequest source 필드 add (default AUTO) | ~30 LOC | HIGH | Phase 1b·2 의존 baseline (먼저 머지 의무) |
+| **1b** | backend-core | **api** — ManualOrderController + ManualOrderService + ManualOrderIntentKafkaProducer + DTO (ManualOrderRequest·ManualOrderResponse·OrderListItemDto source 필드 add) + OrderQueryController toListItem 매핑 + Flyway V34·V35 | ~280 LOC | HIGH | Phase 2와 병렬 (영역 분리: api vs frontend, DTO LOCK) |
+| **1c** | backend-core | **consumer** — OrderRouterKafkaListener deserialize source 필드 add + OrderIntent source 채번 + step 5 INSERT source 영속 + audit_event.payloadJson source 마커 | ~50 LOC | HIGH | Phase 1a 머지 후 직렬 (domain enum 의존) · Phase 1b·2 병렬 가능 |
+| **2** | frontend | pages/orders/NewOrderPage + components/order/OrderPreviewModal·OrderCard(badge add) + api/order + hooks/useManualOrderMutation·useOrders(source param add) + types/OrderListItemDto + routes + OrdersPage filter toggle | ~400 LOC | HIGH | Phase 1a·1b 머지 후 (DTO 정합 의무) |
 
-**병렬 dispatch 사유**:
-- Phase 1 = api 모듈 단독 (api/controller·api/service·api/messaging·api/dto)
-- Phase 2 = frontend 단독 (frontend/src)
-- 영역 add-only, modify-shared 충돌 risk 0
-- DTO 명세는 spec §3-1·§3-6에 LOCK되어 frontend가 backend wait 0건
+**Phase 의존 그래프** (B-2-extended LOCK):
 
-**Phase 3 직렬 사유**:
-- consumer 측 source 필드 add-only는 Phase 1·2 머지 후 진입(테스트 회귀 risk)
+```
+Phase 1a (domain OrderSource + 필드 add)  ─┬─→  Phase 1b (api + Flyway V34·V35)  ──┐
+                                            │                                       ├─→  Phase 2 (frontend)
+                                            └─→  Phase 1c (consumer source 영속)  ──┘
+```
+
+- Phase 1a 먼저 머지 의무 (domain enum baseline — 모든 후속이 의존)
+- Phase 1b·1c는 1a 머지 후 병렬 가능 (영역 분리: api vs consumer)
+- Phase 2는 1a·1b 머지 후 진입 (DTO 정합 의무)
+
+**directs 변경 (B-1 → B-2-extended)**:
+
+| 항목 | B-1 (이전) | B-2-extended (현재) |
+|---|---|---|
+| Phase 수 | 3 (api·frontend·consumer) | 4 (domain·api·consumer·frontend) |
+| 도메인 변경 | 0 | OrderSource enum + OrderIntent·OrderRequest 필드 +1 (default AUTO) |
+| Flyway | V31 옵션(FK relax) | V34 LOCK(source 컬럼·인덱스) + V35 옵션(FK relax) |
+| 병렬 | Phase 1·2 단순 병렬 | Phase 1a baseline → 1b·1c·2 후속 (Phase 1a LOCK) |
+| LOC est. | 630 | 760 (+130 — domain 신규 + DB column 영속 + UI badge·filter) |
 
 ### 5-2. CHANGELOG 슬롯 사전 발행 (헌법 §4)
 
-본 spec PR이 sub-agent 디스패치 만들므로 CHANGELOG row prepend 의무:
+본 spec PR이 sub-agent 디스패치 만들므로 CHANGELOG row prepend 의무. **B-2-extended 정정으로 슬롯 4건 (1a·1b·1c·2) 의무**:
 
 ```
 <!-- anchor-spec-t-man-manual-order-issuance -->
 | 2026-05-18 | **spec(arch): T-MAN 신규 트랙 — 사용자 수동 주문 발행 UI spec/plan 발행 + ADR 0082 Proposed** — ... | _workspace/specs/2026-05-18-t-man-manual-order-issue-spec.md · _workspace/arch/adr/0082-*.md · ... | 사용자 결함 진단 (최고 관리자 2026-05-18 KST) — 가상계좌 통합테스트 dogfooding 의제 |
-<!-- pr-N-slot-backend-core -->
-| 2026-05-18 | **feat(api): T-MAN Phase 1 — ManualOrderController + ManualOrderService + ManualOrderIntentKafkaProducer** — TBD (작성: backend-core) | ... | T-MAN spec §3-2·§3-5 LOCK 정합 |
+<!-- pr-N-slot-backend-core-1a -->
+| 2026-05-18 | **feat(domain): T-MAN Phase 1a — OrderSource enum 신설 + OrderIntent·OrderRequest source 필드 add (default AUTO)** — TBD (작성: backend-core) | domain/.../order/execution/OrderSource.kt · domain/.../OrderIntent.kt · domain/.../OrderRequest.kt | T-MAN spec §3-4 LOCK (B-2-extended) — Phase 1a domain baseline (~30 LOC) |
+<!-- pr-N-slot-backend-core-1b -->
+| 2026-05-18 | **feat(api): T-MAN Phase 1b — ManualOrderController + ManualOrderService + ManualOrderIntentKafkaProducer + DTO + OrderListItemDto source 필드 + Flyway V34·V35** — TBD (작성: backend-core) | api/controller/order/ManualOrder* · api/service/order/ManualOrderService.kt · api/messaging/order/ManualOrderIntentKafkaProducer.kt · api/controller/order/dto/*.kt · api/.../db/migration/V34__order_request_add_source.sql · V35__order_request_fk_relax.sql | T-MAN spec §3-2·§3-5 LOCK (B-2-extended) — Phase 1b api (~280 LOC) |
+<!-- pr-N-slot-backend-core-1c -->
+| 2026-05-18 | **feat(consumer): T-MAN Phase 1c — OrderRouterKafkaListener source deserialize + OrderIntent source 채번 + step 5 INSERT source 영속** — TBD (작성: backend-core) | consumer/order/OrderRouterKafkaListener.kt · consumer/.../OrderRequestJpaRepository (source 컬럼 매핑) | T-MAN spec §3-3 LOCK (B-2-extended) — Phase 1c consumer (~50 LOC) |
 <!-- pr-N-slot-frontend -->
-| 2026-05-18 | **feat(frontend): T-MAN Phase 2 — NewOrderPage + OrderPreviewModal + useManualOrderMutation** — TBD (작성: frontend) | ... | T-MAN spec §3-6 LOCK 정합 |
+| 2026-05-18 | **feat(frontend): T-MAN Phase 2 — NewOrderPage + OrderPreviewModal + OrderCard source badge + OrdersPage source filter + useManualOrderMutation + useOrders source param + OrderListItemDto source 필드** — TBD (작성: frontend) | frontend/src/pages/orders/* · frontend/src/components/order/* · frontend/src/api/* · frontend/src/api/hooks/* · frontend/src/api/types/* · frontend/src/routes/* | T-MAN spec §3-6 LOCK (B-2-extended) — Phase 2 frontend (~400 LOC) |
 <!-- pr-N-slot-end -->
 ```
 
-### 5-3. dispatch 절차
+### 5-3. dispatch 절차 (B-2-extended)
 
-1. orchestrator가 Phase 1·2 **병렬 background dispatch** (사용자 메모리 `feedback_orchestrator_active_parallel`)
-2. 각 sub-agent는 본 spec §3 매트릭스 LOCK 인용 의무
-3. Phase 1·2 머지 후 orchestrator가 Phase 3 직렬 dispatch (consumer source 필드)
-4. Phase 3 머지 후 dogfooding 케이스 9·10 GREEN evidence 수집
-5. ADR 0082 status Proposed → Accepted 격상 (별도 architect PR)
+1. **Phase 1a 단독 dispatch (orchestrator → backend-core)** — domain OrderSource enum + 필드 add (default AUTO). **머지 후 baseline LOCK**.
+2. Phase 1a 머지 확인 후 orchestrator가 **Phase 1b·1c 병렬 background dispatch** (사용자 메모리 `feedback_orchestrator_active_parallel`)
+3. Phase 1b·1c 머지 후 orchestrator가 **Phase 2 dispatch (frontend)** — DTO 정합 의무
+4. 각 sub-agent는 본 spec §3 매트릭스 LOCK 인용 의무
+5. Phase 2 머지 후 dogfooding 케이스 9·10 GREEN evidence 수집
+6. ADR 0082 status Proposed → Accepted 격상 (별도 architect PR)
 
 ---
 
@@ -552,15 +719,18 @@ ADR 0082 핵심 § 매트릭스:
 
 자본 영향 0. 운영 코드 0 touch.
 
-### 9-2. Phase 1·2·3 머지 후 rollback (운영 코드)
+### 9-2. Phase 1a·1b·1c·2 머지 후 rollback (운영 코드 — B-2-extended)
 
 | Phase | rollback | 회귀 risk |
 |---|---|---|
-| Phase 1 (backend) | api 모듈 신규 4 파일 revert + Flyway V31 down 의제 (없으면 0) | 자동 path 영향 0 (api 모듈 add-only) |
-| Phase 2 (frontend) | frontend 신규 3 파일 revert + 라우팅 1줄 revert | UI 회귀 — /orders/new 404 fallback |
-| Phase 3 (consumer) | source 필드 default "SIGNAL" fallback 흡수 — revert 시 manual 주문은 신호 주문으로 attribution 미스 (audit 흔적만) | 자본 영향 0 (12 step 본체 0 touch) |
+| Phase 1a (domain) | OrderSource enum 삭제 + OrderIntent·OrderRequest source 필드 삭제 | default AUTO이므로 호출 사이트 영향 0 · 단 Phase 1b·1c·2 모두 revert 동반 의무 (의존 chain) |
+| Phase 1b (api + Flyway V34·V35) | api 신규 4 파일 + DTO 수정 + Flyway V34·V35 down 의무 (`ALTER TABLE order_request DROP COLUMN IF EXISTS source; DROP INDEX IF EXISTS idx_order_request_source`) + FK relax 복원 (V35 revert 시 signal·strategy FK 재발행 V36 의제) | 자동 path 영향 0 (api add-only) · DB source 컬럼 데이터 손실 |
+| Phase 1c (consumer) | OrderRouterKafkaListener source deserialize/persist revert + audit_event JSON 마커 revert | default "AUTO" fallback 흡수 — revert 시 manual 주문이 자동 attribution (audit 흔적만, 자본 영향 0) |
+| Phase 2 (frontend) | frontend 신규 4 파일 + 수정 6 파일 revert | UI 회귀 — /orders/new 404 fallback · source badge·filter 0 |
 
-3 Phase 모두 add-only로 자본 path 영향 0. revert는 single PR으로 가능.
+**revert 순서 LOCK** (의존 역순): Phase 2 → 1c → 1b → 1a. 단일 revert PR 불가능 (Phase 1a 변경이 1b·1c·2 baseline). architect가 4 PR 묶음 revert 의무.
+
+4 Phase 모두 add-only로 자본 path 영향 0. revert 시 source 컬럼 데이터 손실만 발생 (audit trail 의미적 손실).
 
 ---
 
@@ -587,6 +757,7 @@ ADR 0082 핵심 § 매트릭스:
 
 | 날짜 | 변경 | 사유 |
 |------|------|------|
+| 2026-05-18 | **정정 — B-1 폐기 → B-2-extended 채택 (사용자 결정 정합)** + 도메인 OrderSource enum 신설 + OrderIntent·OrderRequest source 필드 add + Flyway V34·V35 + DTO·UI source 필드·badge·filter 일관 + Phase 1a baseline 신설 (1a → 1b·1c 병렬 → 2) | 사용자 추가 결정 (최고 관리자 2026-05-18 PR #495 정독 후): "옵션 1으로 가자 그런데 우리 데이터 상에선 사용자 주문이랑 자동매매주문의 타입이 구분되어야하는거 필수!". B-1 sentinel + Kafka payload만으로는 DB 직접 쿼리·집계·UI 일관 부재 — 사용자 결정 위반. B-2-extended로 domain·DB·DTO·UI 1급 시민 구분. (architect) |
 | 2026-05-18 | 본 spec 신규 발행 + ADR 0082 Proposed 동반 | 사용자 결함 진단 (최고 관리자) "주문을 하는 화면이 없어 --;; 잔액조회도" · "확장형으로 별도 페이지 있어도될거같은데?" · "가상계좌 잔고 등 통합테스트 하려면 이게 있어야해" 정합 (architect) |
 
 ---
@@ -609,8 +780,10 @@ ADR 0082 핵심 § 매트릭스:
 - KIS-first raw 인용 ADR 0068 §14-5 cross-ref LOCK
 - AI 호출 0 LOCK (LLM provider import 0 — 본 spec 자체에 import 0)
 
-**dispatch 준비**:
-- orchestrator가 Phase 1(backend-core) + Phase 2(frontend) 병렬 background dispatch
+**dispatch 준비 (B-2-extended LOCK)**:
+- orchestrator가 **Phase 1a (backend-core domain) 단독 dispatch 의무** (baseline LOCK)
+- Phase 1a 머지 후 **Phase 1b (api) + Phase 1c (consumer) 병렬 background dispatch**
+- Phase 1b·1c 머지 후 **Phase 2 (frontend) dispatch**
 - 각 sub-agent는 본 spec §3 매트릭스 인용 의무
 
 이상.
