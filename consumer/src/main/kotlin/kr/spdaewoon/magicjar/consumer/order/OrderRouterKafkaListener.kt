@@ -9,6 +9,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderResult
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.order.execution.port.KillSwitchQueryPort
@@ -59,7 +60,14 @@ import java.time.Instant
  * OrderRequestRepository / OrderAuditEventRepository / KillSwitchQueryPort 미합류 시 ObjectProvider로
  * graceful skip + log.warn — 자본 변동 path이므로 미합류 시점 명확히 알림.
  *
- * AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8)
+ * ### ADR 0082 T-MAN B-2-extended — source 필드 처리 (Phase 1c)
+ * - Step 1 deserialize: payload `source` 필드 추출 → `OrderSource.valueOf()` (default `AUTO`, backward compat)
+ * - Step 5 INSERT: `OrderRequest.source = intent.source` 영속 (Flyway V37 컬럼)
+ * - audit_event payloadJson: `"source"="AUTO"|"MANUAL"` 마커 (DB 컬럼 + JSON 이중 정합)
+ * - 로깅: AUTO/MANUAL 분기를 log.info 명시 — 운영자 audit (Step 1 직후·ACK·REJECTED 모두)
+ * - 비정상 `source` 값(예: `"FOO"`)은 `valueOf` IllegalArgumentException → outer try/catch → poison pill skip
+ *
+ * AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8 + ADR 0082 §8)
  */
 @Component
 class OrderRouterKafkaListener(
@@ -107,6 +115,17 @@ class OrderRouterKafkaListener(
                 return
             }
 
+            // AUTO/MANUAL 분기 로깅 (ADR 0082 T-MAN B-2-extended — 운영자 audit)
+            log.info(
+                "OrderRouterKafkaListener OrderIntent source={} userId={} signalId={} strategyId={} code={} side={}",
+                intent.source,
+                intent.userId,
+                intent.signalId,
+                intent.strategyId,
+                intent.code,
+                intent.side,
+            )
+
             // Step 2: 멱등성 가드
             val idemKey = "idem:order:${intent.idempotencyKey}"
             if (!orderIdempotencyGuard.acquire(idemKey, 60)) {
@@ -114,7 +133,13 @@ class OrderRouterKafkaListener(
                     orderId = null,
                     userId = intent.userId,
                     eventType = OrderAuditEventType.IDEMPOTENCY_SKIPPED,
-                    payload = mapOf("idempotencyKey" to intent.idempotencyKey, "signalId" to intent.signalId),
+                    // ADR 0082 T-MAN B-2-extended — DB 컬럼 + JSON 마커 이중 정합 (audit trail)
+                    payload =
+                        mapOf(
+                            "idempotencyKey" to intent.idempotencyKey,
+                            "signalId" to intent.signalId,
+                            "source" to intent.source.name,
+                        ),
                 )
                 log.warn(
                     "OrderRouterKafkaListener IDEMPOTENCY_SKIPPED: userId={} signalId={} key={}",
@@ -239,7 +264,8 @@ class OrderRouterKafkaListener(
                     orderId = saved.id,
                     userId = saved.userId,
                     eventType = auditType,
-                    payload = mapOf("reason" to rejectReason),
+                    // ADR 0082 T-MAN B-2-extended — DB 컬럼 + JSON 마커 이중 정합
+                    payload = mapOf("reason" to rejectReason, "source" to intent.source.name),
                 )
 
                 if (isPendingReconcile) {
@@ -274,13 +300,20 @@ class OrderRouterKafkaListener(
                 orderId = saved.id,
                 userId = saved.userId,
                 eventType = OrderAuditEventType.KIS_ACK,
-                payload = mapOf("ODNO" to ackData.kisOrderNo, "KRX_FWDG_ORD_ORGNO" to ackData.kisFwdgOrgno),
+                // ADR 0082 T-MAN B-2-extended — DB 컬럼 + JSON 마커 이중 정합
+                payload =
+                    mapOf(
+                        "ODNO" to ackData.kisOrderNo,
+                        "KRX_FWDG_ORD_ORGNO" to ackData.kisFwdgOrgno,
+                        "source" to intent.source.name,
+                    ),
             )
 
             log.info(
-                "OrderRouterKafkaListener ACK: userId={} signalId={} code={} side={} ODNO={}",
+                "OrderRouterKafkaListener ACK: userId={} signalId={} source={} code={} side={} ODNO={}",
                 intent.userId,
                 intent.signalId,
+                intent.source,
                 intent.code,
                 intent.side,
                 ackData.kisOrderNo,
@@ -328,6 +361,8 @@ class OrderRouterKafkaListener(
                 mode = mode,
                 idempotencyKey = intent.idempotencyKey,
                 requestedAt = Instant.now(),
+                // ADR 0082 T-MAN B-2-extended — Kafka payload source 그대로 DB 영속 (AUTO/MANUAL 1급 시민)
+                source = intent.source,
             )
         return try {
             PersistResult.Ok(repo.save(request))
@@ -381,6 +416,8 @@ class OrderRouterKafkaListener(
                 rejectReason = reason,
                 requestedAt = now,
                 completedAt = now,
+                // ADR 0082 T-MAN B-2-extended — 게이트 REJECTED도 source 보존 (manual 주문 차단 audit 가능)
+                source = intent.source,
             )
 
         val saved =
@@ -391,12 +428,19 @@ class OrderRouterKafkaListener(
                 rejected
             }
 
-        writeAudit(saved.id, saved.userId, auditType, mapOf("reason" to reason))
+        // ADR 0082 T-MAN B-2-extended — DB 컬럼 + JSON 마커 이중 정합 (audit trail)
+        writeAudit(
+            saved.id,
+            saved.userId,
+            auditType,
+            mapOf("reason" to reason, "source" to intent.source.name),
+        )
         orderRejectedKafkaProducer.publish(saved, reason)
         log.warn(
-            "OrderRouterKafkaListener REJECTED: userId={} signalId={} reason={}",
+            "OrderRouterKafkaListener REJECTED: userId={} signalId={} source={} reason={}",
             intent.userId,
             intent.signalId,
+            intent.source,
             reason,
         )
     }
@@ -550,6 +594,10 @@ class OrderRouterKafkaListener(
                     is String -> raw.toLongOrNull() ?: Instant.now().epochSecond
                     else -> Instant.now().epochSecond
                 }
+            // ADR 0082 T-MAN B-2-extended — source 필드 매핑 (default AUTO, backward compat)
+            // 비정상 값(예: "FOO")은 IllegalArgumentException → outer catch에서 poison pill skip.
+            val sourceStr = payload["source"]?.toString() ?: "AUTO"
+            val source = OrderSource.valueOf(sourceStr)
             OrderIntent(
                 id = signalId,
                 userId = userId,
@@ -562,6 +610,7 @@ class OrderRouterKafkaListener(
                 limitPrice = limitPrice,
                 idempotencyKey = idempotencyKey,
                 requestedAt = Instant.ofEpochSecond(emittedAtSec),
+                source = source,
             )
         } catch (e: Exception) {
             log.error("OrderRouterKafkaListener.deserialize 실패: err={}", e.message)

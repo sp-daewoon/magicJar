@@ -11,6 +11,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEvent
 import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEventType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderResult
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.order.execution.port.KillSwitchQueryPort
@@ -264,6 +265,86 @@ class OrderRouterKafkaListenerTest {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // T-MAN Phase 1c — ADR 0082 B-2-extended source 필드 분기 (z1·z2·z3)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `(z1) deserialize source=AUTO 매핑 정합 + step 5 INSERT source=AUTO 영속`() {
+        every { idempotencyGuard.acquire(any(), any()) } returns true
+        every { tradingModeGate.resolveMode("12345678") } returns OrderResult.Right(TradingMode.MOCK)
+        every { killSwitchPort.isOn("12345678") } returns false
+        val savedSlot = slot<OrderRequest>()
+        every { orderRepo.save(capture(savedSlot)) } answers { firstArg<OrderRequest>().copy(id = 99L) }
+        every { kisOrderPort.submit(any(), TradingMode.MOCK) } returns
+            OrderResult.Right(
+                KisOrderAck(kisOrderNo = "ODNO123", kisFwdgOrgno = "ORG001", rtCd = "0", msg = "OK"),
+            )
+
+        val ack = mockk<Acknowledgment>(relaxed = true)
+        listener.onOrderIntent(buildRecord(payloadWithSource("AUTO")), ack)
+
+        // 자동 path 회귀 0 — step 5 INSERT source=AUTO
+        assertThat(savedSlot.captured.source).isEqualTo(OrderSource.AUTO)
+        // audit payload JSON 마커 정합 — DB 컬럼 + JSON 이중 정합 (KIS_ACK)
+        val auditSlot = mutableListOf<OrderAuditEvent>()
+        verify(atLeast = 1) { auditRepo.save(capture(auditSlot)) }
+        val ackAudit = auditSlot.firstOrNull { it.eventType == OrderAuditEventType.KIS_ACK }
+        assertThat(ackAudit).isNotNull
+        assertThat(ackAudit!!.payloadJson).contains("\"source\":\"AUTO\"")
+        verify(exactly = 1) { ack.acknowledge() }
+    }
+
+    @Test
+    fun `(z2) deserialize source=MANUAL 매핑 정합 + step 5 INSERT source=MANUAL 영속 + audit JSON 마커`() {
+        every { idempotencyGuard.acquire(any(), any()) } returns true
+        every { tradingModeGate.resolveMode("12345678") } returns OrderResult.Right(TradingMode.MOCK)
+        every { killSwitchPort.isOn("12345678") } returns false
+        val savedSlot = slot<OrderRequest>()
+        every { orderRepo.save(capture(savedSlot)) } answers { firstArg<OrderRequest>().copy(id = 99L) }
+        every { kisOrderPort.submit(any(), TradingMode.MOCK) } returns
+            OrderResult.Right(
+                KisOrderAck(kisOrderNo = "ODNO456", kisFwdgOrgno = "ORG002", rtCd = "0", msg = "OK"),
+            )
+
+        val ack = mockk<Acknowledgment>(relaxed = true)
+        listener.onOrderIntent(buildRecord(manualPayload()), ack)
+
+        // 수동 path — step 5 INSERT source=MANUAL 영속
+        assertThat(savedSlot.captured.source).isEqualTo(OrderSource.MANUAL)
+        // KIS_ACK audit payload JSON 마커에 "source"="MANUAL" — DB 컬럼 + JSON 이중 정합
+        val auditSlot = mutableListOf<OrderAuditEvent>()
+        verify(atLeast = 1) { auditRepo.save(capture(auditSlot)) }
+        val ackAudit = auditSlot.firstOrNull { it.eventType == OrderAuditEventType.KIS_ACK }
+        assertThat(ackAudit).isNotNull
+        assertThat(ackAudit!!.payloadJson).contains("\"source\":\"MANUAL\"")
+        // 자동 path 영향 0 — Kafka publish·KIS submit 정상 흐름
+        verify(exactly = 1) { requestedProducer.publish(any()) }
+        verify(exactly = 1) { kisOrderPort.submit(any(), TradingMode.MOCK) }
+        verify(exactly = 1) { ack.acknowledge() }
+    }
+
+    @Test
+    fun `(z3) deserialize source 필드 부재 → AUTO default fallback (backward compat 회귀 0)`() {
+        every { idempotencyGuard.acquire(any(), any()) } returns true
+        every { tradingModeGate.resolveMode("12345678") } returns OrderResult.Right(TradingMode.MOCK)
+        every { killSwitchPort.isOn("12345678") } returns false
+        val savedSlot = slot<OrderRequest>()
+        every { orderRepo.save(capture(savedSlot)) } answers { firstArg<OrderRequest>().copy(id = 99L) }
+        every { kisOrderPort.submit(any(), TradingMode.MOCK) } returns
+            OrderResult.Right(
+                KisOrderAck(kisOrderNo = "ODNO789", kisFwdgOrgno = "ORG003", rtCd = "0", msg = "OK"),
+            )
+
+        val ack = mockk<Acknowledgment>(relaxed = true)
+        // stubPayload — 기존 형식 (source 필드 없음, T-RISK ADR 0067 publisher 정합)
+        listener.onOrderIntent(buildRecord(stubPayload()), ack)
+
+        // backward compat — source 필드 부재 시 AUTO default
+        assertThat(savedSlot.captured.source).isEqualTo(OrderSource.AUTO)
+        verify(exactly = 1) { ack.acknowledge() }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // helpers
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -281,6 +362,46 @@ class OrderRouterKafkaListenerTest {
                 "priceAtSignal" to "78000",
                 "riskVerdict" to "ALLOWED",
                 "emittedAt" to 1747094405L,
+            ),
+        )
+
+    /**
+     * source 필드 명시 payload (z1 AUTO·z2 MANUAL 검증).
+     */
+    private fun payloadWithSource(source: String): String =
+        objectMapper.writeValueAsString(
+            mapOf(
+                "signalId" to 42,
+                "strategyId" to 100,
+                "userId" to "12345678",
+                "code" to "005930",
+                "interval" to "M5",
+                "ts" to 1747094400L,
+                "side" to "BUY",
+                "strength" to 80,
+                "priceAtSignal" to "78000",
+                "riskVerdict" to "ALLOWED",
+                "emittedAt" to 1747094405L,
+                "source" to source,
+            ),
+        )
+
+    /**
+     * MANUAL 주문 payload — ADR 0082 T-MAN B-2-extended (signalId=0L·strategyId=0L sentinel + source=MANUAL).
+     */
+    private fun manualPayload(): String =
+        objectMapper.writeValueAsString(
+            mapOf(
+                "signalId" to 0,
+                "strategyId" to 0,
+                "userId" to "12345678",
+                "code" to "005930",
+                "side" to "BUY",
+                "priceType" to "MARKET",
+                "quantity" to 1,
+                "idempotencyKey" to "manual:12345678:1747094405",
+                "emittedAt" to 1747094405L,
+                "source" to "MANUAL",
             ),
         )
 
