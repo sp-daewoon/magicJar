@@ -3,10 +3,10 @@ id: T-20260518-1919-t-acct-phase1-2-backend
 agent: backend-core
 model: opus
 branch: agent/backend-core/t-acct-phase1-2-backend
-status: RUNNING
+status: DONE
 startedAt: 2026-05-18T19:19:13.170+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-18T19:30:50.178+09:00
+pr: #492
 parentPhase: ?
 ---
 
