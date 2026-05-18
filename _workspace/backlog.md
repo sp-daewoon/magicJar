@@ -2329,3 +2329,35 @@ ADR 0077 의제 K (사용자 알림 UI)가 hotfix 범위 lock으로 backlog 등�
 - `scripts/task.mjs` cmdDone
 - ADR 0036 §2-3 (memory `feedback_3tier_hierarchy.md` "정정 예정" — 본 cycle에서는 ADR 0036 본문 미수정, 헌법 §1 단독 강화)
 - evidence: PR #473·#474·#475·#476 (안정성 Cycle 1)
+
+## §60. consumer candle UNIQUE constraint violation race condition (v3.6.12 cut docker logs 1건 발견)
+
+### 사유
+
+v3.6.12 cut 직전 docker logs 검증(2026-05-18 09:24~09:31, 7분 모니터링)에서 consumer 1건 ERROR 발견:
+
+```
+2026-05-18T09:26:00.127+09:00 ERROR ... duplicate key value violates unique constraint "uq_candle_code_interval_ts"
+  Detail: Key (code, "interval", ts)=(001040, 1m, 2026-05-18 09:25:00+09) already exists.
+```
+
+본 사이클(C1·C2) 도입 X — 기존 KIS WS tick 처리 path race condition. UNIQUE constraint가 데이터 정합성 정상 보호 작동 → 데이터 손실 0. cut blocker 아님.
+
+### 가설
+
+- (a) KIS WS 1m boundary tick 도착 시점에 BoundaryAggregator/KisWebSocketBridge 양쪽이 동시 insert race
+- (b) backfill scheduler와 실시간 tick processing 시점 중첩 (1m boundary `09:25:00` 시점)
+- (c) Kafka consumer at-least-once 의미상 동일 메시지 2회 처리
+
+### 처리 방향
+
+- backend-core 또는 market-data 영역 — race condition 진단 후 INSERT ... ON CONFLICT (code, interval, ts) DO NOTHING 적용 또는 분기 정리
+- backlog로만 등재 — 우선순위 낮음 (WARN→ERROR 1회/7분, 데이터 영향 0)
+- W3 종착 또는 W4 진입 전 안정성 Cycle 3로 묶음 처리 가능
+
+### 연관
+
+- `consumer/.../aggregation/BoundaryAggregator.kt`
+- `consumer/.../ws/KisWebSocketBridge.kt` (handleTickData)
+- `domain/.../market/CandleJpaEntity.kt` (uq_candle_code_interval_ts)
+- v3.6.12 cut docker logs evidence (orchestrator 2026-05-18)
