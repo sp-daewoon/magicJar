@@ -3,10 +3,10 @@ id: T-20260519-0033-chart-curator-agent-introduction
 agent: architect
 model: opus
 branch: agent/architect/chart-curator-agent-introduction
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T00:33:56.082+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T00:46:27.913+09:00
+pr: #511
 parentPhase: ?
 ---
 
