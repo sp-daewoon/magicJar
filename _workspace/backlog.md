@@ -2431,3 +2431,51 @@ spec §6.3은 "Phase 2 LOCK 코드 — OrderQueryService ✓ 완료, OrderCancel
 - task `_workspace/tasks/T-20260518-1222-to-phase2-repository-wire.md`
 
 **dogfooding 재시도** = orchestrator 영역 (머지 후) — Kafka publish `order.intent.v1` 케이스 5 → ERROR 0건 + `reject_reason="CREDENTIAL_NOT_FOUND"` order_request row 영속 확인 의무.
+
+## §62. OrderRouterKafkaListener — persistRequested catch 블럭 log 메시지 misleading (dogfooding 발견 2026-05-18)
+
+### 사유
+
+T-O Phase 2 합류 fix(PR #481) 후 dogfooding 케이스 5(CREDENTIAL_NOT_FOUND) 재시도 시 첫 결함 진단:
+
+```
+2026-05-18T12:34:14.743 ERROR ... order_request violates foreign key constraint "order_request_signal_id_fkey"
+2026-05-18T12:34:14.750 ERROR OrderRequestRepository.save 실패: userId=74683223 signalId=99002 err=...
+2026-05-18T12:34:14.750 ERROR OrderRouterKafkaListener — OrderRequestRepository 미합류 (Phase 2 미완): userId=74683223 signalId=99002
+```
+
+**진단**: `persistRequested()` (L260~286)이 모든 save 실패를 catch → null 반환 → caller(L159)에서 null → "Repository 미합류" 출력. 실제로는 FK violation으로 save 실패 — 메시지 misleading.
+
+### 처리 방향
+
+- `persistRequested()` catch 블럭 강화 — 실패 사유 별 message 분기 또는 caller에서 distinct 로깅
+- 또는 caller(L159~L167) "미합류" 분기를 "save 실패" 분기와 분리 (Provider null vs save Exception)
+- consumer 영역 (architect 또는 backend-core)
+- 작은 hotfix 1-2 line — 별도 PR 또는 다음 사이클 묶음
+
+### 연관
+
+- `consumer/.../order/OrderRouterKafkaListener.kt` L159·L260·L282
+- PR #481 (Phase 2 Repository 합류 fix)
+- dogfooding evidence 2026-05-18 (orchestrator)
+
+## §63. dogfooding signal seed data 부재 (spec §4.2 gap)
+
+### 사유
+
+spec `2026-05-18-to-prereq-mock-prd-verify.md` §4.2 케이스 1·5는 `signalId` 임의 값으로 dogfooding 시도 명시. 실측 — `order_request.signal_id` 컬럼이 `signal` 테이블 FK 제약 — signal table 비어있으면 모든 dogfooding이 FK violation으로 실패.
+
+orchestrator는 minimal strategy + signal seed row를 DB 직접 insert로 우회 — 케이스 5 GREEN 달성.
+
+### 처리 방향
+
+- spec gap — 추후 dogfooding 사이클을 위한 admin seed endpoint 신설 검토
+- 또는 backend-core가 `_workspace/scripts/dogfood-seed.sql` 또는 Flyway development seed migration 발행
+- 또는 spec 본문에 seed 단계 추가 (architect)
+- 우선순위 낮음 (인프라 의제)
+
+### 연관
+
+- `_workspace/specs/2026-05-18-to-prereq-mock-prd-verify.md` §4.2
+- `signal` 테이블 (V8?) + `strategy` 테이블 FK 의존
+- dogfooding evidence 2026-05-18 (orchestrator)
