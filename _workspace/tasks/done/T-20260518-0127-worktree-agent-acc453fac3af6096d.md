@@ -3,9 +3,9 @@ id: T-20260518-0127-worktree-agent-acc453fac3af6096d
 agent: market-data
 model: opus
 branch: agent/market-data/stability-ws-orderbook-cleanup
-status: RUNNING
+status: DONE
 startedAt: 2026-05-18T01:27:20.923+09:00
-completedAt: null
+completedAt: 2026-05-18T01:58:53.422+09:00
 pr: null
 parentPhase: ?
 ---
