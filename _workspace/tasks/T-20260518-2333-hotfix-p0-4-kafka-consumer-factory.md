@@ -3,10 +3,10 @@ id: T-20260518-2333-hotfix-p0-4-kafka-consumer-factory
 agent: backend-core
 model: opus
 branch: agent/backend-core/hotfix-p0-4-kafka-consumer-factory
-status: RUNNING
+status: DONE
 startedAt: 2026-05-18T23:33:05.669+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-18T23:42:34.365+09:00
+pr: #504
 parentPhase: ?
 ---
 
