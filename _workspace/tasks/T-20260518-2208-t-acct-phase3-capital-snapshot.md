@@ -3,10 +3,10 @@ id: T-20260518-2208-t-acct-phase3-capital-snapshot
 agent: backend-core
 model: opus
 branch: agent/backend-core/t-acct-phase3-capital-snapshot
-status: RUNNING
+status: DONE
 startedAt: 2026-05-18T22:08:11.933+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-18T22:15:54.397+09:00
+pr: #499
 parentPhase: ?
 ---
 
@@ -18,7 +18,7 @@ T-ACCT Phase 3 — consumer/risk CapitalSnapshotProvider 실제 어댑터 교체
 - [x] default 어댑터 supersede @ConditionalOnMissingBean 유지
 - [x] 단위 테스트 (cache hit·miss·exception)
 - [x] gradle :consumer:check GREEN
-- [ ] CHANGELOG row add-only
+- [x] CHANGELOG row add-only
 
 ## 의존성
 - (필요 시 기록)
