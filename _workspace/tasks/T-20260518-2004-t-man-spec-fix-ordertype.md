@@ -14,11 +14,11 @@ parentPhase: ?
 T-MAN spec 정정 — orderType 데이터 구분 (B-2-extended 채택)
 
 ## 결과물 체크리스트
-- [ ] spec §3 결정 매트릭스 갱신
-- [ ] 도메인·DB·DTO·UI 변경 명세
-- [ ] sub-agent dispatch plan 갱신
-- [ ] ADR 0082 갱신
-- [ ] PR #495 처리 결정
+- [x] spec §3 결정 매트릭스 갱신
+- [x] 도메인·DB·DTO·UI 변경 명세
+- [x] sub-agent dispatch plan 갱신
+- [x] ADR 0082 갱신
+- [x] PR #495 처리 결정
 
 ## 의존성
 - (필요 시 기록)
