@@ -9,6 +9,11 @@ import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.errors.SerializationException
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.ObjectProvider
+import org.springframework.boot.autoconfigure.kafka.ConcurrentKafkaListenerContainerFactoryConfigurer
+import org.springframework.boot.autoconfigure.kafka.KafkaProperties
+import org.springframework.boot.ssl.SslBundles
+import org.springframework.kafka.core.ConsumerFactory
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.kafka.listener.DefaultErrorHandler
 import org.springframework.kafka.support.SendResult
@@ -25,6 +30,9 @@ import java.util.concurrent.CompletableFuture
  *  (d) DeserializationException은 재시도 불가 (즉시 DLT)
  *  (e) SerializationException은 재시도 불가
  *  (f) 일반 RuntimeException은 재시도 가능
+ *  (g) kafkaListenerContainerFactory ObjectProvider pattern (hotfix 2026-05-18):
+ *      - ConsumerFactory 존재 시 그대로 사용
+ *      - ConsumerFactory 부재 시 KafkaProperties fallback default 생성 (Spring Boot pattern 정합)
  *
  * AI 호출 0 — T-O 트랙 정책 (ADR 0084 §2-8).
  */
@@ -115,5 +123,79 @@ class KafkaErrorHandlerConfigTest {
         }
 
         verify(exactly = 3) { kafkaTemplate.send(any<ProducerRecord<String, String>>()) }
+    }
+
+    /**
+     * hotfix 2026-05-18 — PR #501 P0-4 DI 결함 회귀 가드.
+     *
+     * Spring Boot KafkaAutoConfiguration의 `@ConditionalOnMissingBean(ConsumerFactory.class)` 룰로
+     * WatchlistChangedKafkaConfig 등이 named ConsumerFactory<String,String> bean 발행 시
+     * default ConsumerFactory<*,*>가 미등록 → ObjectProvider.getIfAvailable() = null.
+     *
+     * 검증: ObjectProvider absent 시 KafkaProperties.buildConsumerProperties() fallback로
+     * DefaultKafkaConsumerFactory 직접 생성하여 Spring 부팅 graceful 진행.
+     */
+    @Test
+    fun `kafkaListenerContainerFactory는 ConsumerFactory 부재 시 KafkaProperties fallback로 default 생성한다`() {
+        val configurer = mockk<ConcurrentKafkaListenerContainerFactoryConfigurer>(relaxed = true)
+        val errorHandler = mockk<DefaultErrorHandler>(relaxed = true)
+        val kafkaProperties =
+            KafkaProperties().apply {
+                bootstrapServers = listOf("localhost:9092")
+                consumer.keyDeserializer = org.apache.kafka.common.serialization.StringDeserializer::class.java
+                consumer.valueDeserializer = org.apache.kafka.common.serialization.StringDeserializer::class.java
+                consumer.groupId = "magicjar-consumer-test"
+            }
+
+        // ConsumerFactory ObjectProvider — absent (P0-4 결함 시나리오 재현)
+        val consumerFactoryProvider = mockk<ObjectProvider<ConsumerFactory<Any, Any>>>(relaxed = true)
+        every { consumerFactoryProvider.getIfAvailable(any()) } answers {
+            val supplier = firstArg<java.util.function.Supplier<ConsumerFactory<Any, Any>>>()
+            supplier.get()
+        }
+
+        // SslBundles ObjectProvider — absent (TLS 미사용)
+        val sslBundlesProvider = mockk<ObjectProvider<SslBundles>>(relaxed = true)
+        every { sslBundlesProvider.ifAvailable } returns null
+
+        val factory =
+            config.kafkaListenerContainerFactory(
+                configurer = configurer,
+                consumerFactoryProvider = consumerFactoryProvider,
+                sslBundlesProvider = sslBundlesProvider,
+                kafkaProperties = kafkaProperties,
+                errorHandler = errorHandler,
+            )
+
+        // factory 정상 발행 — Spring 부팅 graceful 진행 증명
+        assertThat(factory).isNotNull()
+        verify { configurer.configure(any(), any()) }
+    }
+
+    @Test
+    fun `kafkaListenerContainerFactory는 ConsumerFactory 존재 시 그대로 사용한다`() {
+        val configurer = mockk<ConcurrentKafkaListenerContainerFactoryConfigurer>(relaxed = true)
+        val errorHandler = mockk<DefaultErrorHandler>(relaxed = true)
+        val kafkaProperties = KafkaProperties()
+        val customConsumerFactory = mockk<ConsumerFactory<Any, Any>>(relaxed = true)
+
+        val consumerFactoryProvider = mockk<ObjectProvider<ConsumerFactory<Any, Any>>>(relaxed = true)
+        every { consumerFactoryProvider.getIfAvailable(any()) } returns customConsumerFactory
+
+        val sslBundlesProvider = mockk<ObjectProvider<SslBundles>>(relaxed = true)
+        every { sslBundlesProvider.ifAvailable } returns null
+
+        val factory =
+            config.kafkaListenerContainerFactory(
+                configurer = configurer,
+                consumerFactoryProvider = consumerFactoryProvider,
+                sslBundlesProvider = sslBundlesProvider,
+                kafkaProperties = kafkaProperties,
+                errorHandler = errorHandler,
+            )
+
+        // configurer에 custom factory 전달 검증 — fallback path 미진입
+        verify { configurer.configure(any(), customConsumerFactory) }
+        assertThat(factory).isNotNull()
     }
 }

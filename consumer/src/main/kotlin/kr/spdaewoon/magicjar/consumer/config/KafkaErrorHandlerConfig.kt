@@ -3,12 +3,16 @@ package kr.spdaewoon.magicjar.consumer.config
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.SerializationException
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.kafka.ConcurrentKafkaListenerContainerFactoryConfigurer
+import org.springframework.boot.autoconfigure.kafka.KafkaProperties
+import org.springframework.boot.ssl.SslBundles
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Primary
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory
 import org.springframework.kafka.core.ConsumerFactory
+import org.springframework.kafka.core.DefaultKafkaConsumerFactory
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer
 import org.springframework.kafka.listener.DefaultErrorHandler
@@ -40,6 +44,17 @@ import org.springframework.util.backoff.FixedBackOff
  * ### partition·key 보존
  * DeadLetterPublishingRecoverer는 원본 record key/value/headers를 그대로 DLT로 forward.
  * → DLT 모니터링이 원본 partition key(userId) 추적 가능.
+ *
+ * ### ConsumerFactory inject 정책 (hotfix 2026-05-18 — v3.6.16 차단 해소)
+ * **이슈**: WatchlistChangedKafkaConfig가 `ConsumerFactory<String, String>` (named bean) 발행 시
+ * Spring Boot `KafkaAutoConfiguration.kafkaConsumerFactory` 의 `@ConditionalOnMissingBean(ConsumerFactory.class)`
+ * 조건이 false → default `ConsumerFactory<*, *>` 미등록 → `kafkaListenerContainerFactory` autowire fail.
+ *
+ * **fix**: Spring Boot `KafkaAnnotationDrivenConfiguration.kafkaListenerContainerFactory` 본인이 사용하는
+ * `ObjectProvider<ConsumerFactory<Object, Object>>` pattern 모방.
+ *   1. ObjectProvider로 graceful inject (absent OK)
+ *   2. 부재 시 `KafkaProperties.buildConsumerProperties()`로 fallback default 생성 — Spring Boot autoconfig 동일 path
+ *   3. 결과: WatchlistChangedKafkaConfig 등 named ConsumerFactory가 등록되어도 default 보장
  *
  * AI 호출 0 — T-O 트랙 정책 (ADR 0084 §2-8).
  */
@@ -120,15 +135,31 @@ class KafkaErrorHandlerConfig {
      *
      * 예외: WatchlistChangedKafkaConfig는 별도 named factory (`watchlistChangedKafkaListenerContainerFactory`) 보유 →
      * @KafkaListener(containerFactory = "watchlistChangedKafkaListenerContainerFactory")로 명시 시 본 default 우회.
+     *
+     * ### ConsumerFactory inject — ObjectProvider pattern (hotfix 2026-05-18)
+     * Spring Boot `KafkaAnnotationDrivenConfiguration` 본인이 사용하는 pattern 모방.
+     * WatchlistChangedKafkaConfig 등이 named `ConsumerFactory<String, String>` bean 발행 시
+     * Spring Boot `KafkaAutoConfiguration.kafkaConsumerFactory@ConditionalOnMissingBean(ConsumerFactory.class)`
+     * 조건이 false → default ConsumerFactory 미등록 → 본 메서드 hard inject fail.
+     * 해결: ObjectProvider로 graceful inject + 부재 시 `KafkaProperties.buildConsumerProperties()` fallback.
      */
     @Bean
     @Primary
     fun kafkaListenerContainerFactory(
         configurer: ConcurrentKafkaListenerContainerFactoryConfigurer,
-        consumerFactory: ConsumerFactory<Any, Any>,
+        consumerFactoryProvider: ObjectProvider<ConsumerFactory<Any, Any>>,
+        sslBundlesProvider: ObjectProvider<SslBundles>,
+        kafkaProperties: KafkaProperties,
         errorHandler: DefaultErrorHandler,
     ): ConcurrentKafkaListenerContainerFactory<Any, Any> {
         val factory = ConcurrentKafkaListenerContainerFactory<Any, Any>()
+        // Spring Boot KafkaAnnotationDrivenConfiguration.kafkaListenerContainerFactory pattern 정합
+        val consumerFactory: ConsumerFactory<Any, Any> =
+            consumerFactoryProvider.getIfAvailable {
+                DefaultKafkaConsumerFactory(
+                    kafkaProperties.buildConsumerProperties(sslBundlesProvider.ifAvailable),
+                )
+            }
         configurer.configure(factory, consumerFactory)
         factory.setCommonErrorHandler(errorHandler)
         return factory

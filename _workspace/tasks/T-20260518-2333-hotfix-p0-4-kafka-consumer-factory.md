@@ -14,7 +14,7 @@ parentPhase: ?
 긴급 hotfix — PR #501 P0-4 KafkaErrorHandlerConfig ConsumerFactory DI 결함
 
 ## 결과물 체크리스트
-- [ ] root cause 분석 | fix 옵션 선택 (Spring Boot KafkaAutoConfiguration ObjectProvider pattern 모방) | KafkaErrorHandlerConfig 정정 | 단위 테스트 갱신 | gradle check GREEN | dogfooding consumer 부팅 evidence
+- [x] root cause 분석 | fix 옵션 선택 (Spring Boot KafkaAutoConfiguration ObjectProvider pattern 모방) | KafkaErrorHandlerConfig 정정 | 단위 테스트 갱신 | gradle check GREEN | dogfooding consumer 부팅 evidence
 
 ## 의존성
 - (필요 시 기록)
