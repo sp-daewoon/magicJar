@@ -102,6 +102,7 @@
 | 0078 | 내부 자산 추출 전략 — Proposed (재사용 가능한 프로젝트 부트스트랩 템플릿 + Plugin Independence 제약) |
 | 0079 | **마스터 시각화 HTML 표준화 (`scripts/master-index.mjs` + `/master-index` slash + release.sh 통합) — Accepted (2026-05-17)** |
 | 0080 | **전체 에이전트 Opus 4.7 통일 (ADR 0035 supersede) — Accepted (2026-05-18)** |
+| 0081 | **계좌 잔고·예수금 사용자 노출 endpoint + UI (T-ACCT 신규 트랙) — Proposed (2026-05-18 · spec 발행 단계)** |
 
 ## §10. 외부 API 강제 정책 + UI 흐름 (4건)
 
@@ -158,7 +159,7 @@
 
 - **새 ADR 발행 시** — 본 README + `master-architecture.md` §10 + `tracks-roadmap.md` §3 동시 갱신.
 - **Superseded 처리 시** — 본문 상단 헤더 + 본 README 행 supersede 표기. `_archive/` 이동은 v3.3.0 cycle에 일괄.
-- **신규 진입 시 후속 ADR 번호** — **0079부터 sequential**. 예약 슬롯은 §12 참조.
+- **신규 진입 시 후속 ADR 번호** — **0082부터 sequential**. 예약 슬롯은 §12 참조.
 - **변경 이력 기록 의무** — 의미 있는 ADR 발행·재발행·supersede·예약 해제 시 §14에 한 줄 추가.
 
 ## §12. 예약 슬롯 (Reserved)
@@ -183,6 +184,7 @@
 | 0076 | KIS WS NXT/시간외 시세 sync 표준 정합 | v3.6.9 Phase 1·2·3 채택 완료 — Proposed 상태 유지 (분석 사이클, 후속 코드 변경은 별 트랙) |
 | 0077 | OPSP8996 ERROR 재발 deep dive (v3.6.11 hotfix) | 사용자 결정 의제 매트릭스 6건 위임 (G·H·I·J·K·L) — architect 권장 G-1 + H-1 + I-1 + J-1 + K-1 backlog + L-1 단일 PR. market-data 단일 디스패치 대기. |
 | 0078 | 내부 자산 추출 전략 | 사용자 명시적 호출 단일 조건 시 시동 — Phase 1~3 분리, Plugin Independence 제약 LOCK |
+| 0081 | T-ACCT 계좌 잔고·예수금 사용자 노출 | 3 endpoint(balance·positions·summary) + Dashboard UI + CapitalSnapshotProvider 실제 어댑터(ADR 0067 §7-1 cross-ref) + KIS inquire-balance output2 11 필드 LOCK. spec 발행 단계 — Phase 1·2 backend 머지 후 Accepted 격상 |
 
 ## §14. 변경 이력
 
@@ -190,6 +192,7 @@
 
 | 일자 | 사이클 | 변경 |
 |------|--------|------|
+| 2026-05-18 | T-ACCT 신규 트랙 발행 (v3.6.14 patch prep) | **ADR 0081 Proposed** — 사용자 결함 진단 "지금 잔액조회 예수금 조회 이런게 아예 없는데?" (14:50 KST) 정합. KIS `inquire-balance` output2 11 필드(예수금·평가금·평가손익·자산증감) 사용자 노출 endpoint 3건(`GET /api/account/balance·positions·summary`) + Dashboard UI 격상(`DashboardPlaceholder → DashboardPage` + AccountSummaryCard + HoldingsTable) + CapitalSnapshotProvider 실제 어댑터 교체(ADR 0067 §7-1 cross-ref · POSITION_LIMIT 룰 활성화) + Redis cache `account:balance:{userId}` TTL 30s + api 직접 KIS 호출(consumer 0 touch · 관심사 분리) + 모듈 경계 정합(domain 신규 port `KisBalanceQueryPort` + api 신규 adapter `ApiKisBalanceQueryAdapter`). spec `_workspace/specs/2026-05-18-account-balance-positions-spec.md`. sub-agent dispatch 3 PR(backend-core 2 + frontend 1 + 옵션 1). v3.6.14 patch cut 권장(W3 보강 트랙 — `feedback_release_policy_patch_first` 정합). |
 | 2026-05-18 | T-O 본 트랙 마감 (v3.6.13 patch prep) | **ADR 0068 Accepted 격상 (plan 단계 Accepted → 본 트랙 마감 Accepted)** — Phase 2 PR #481(Repository 합류) + Phase 1 B-2 PR #485(OrderExecution Adapter) + Phase 1 B-1 PR #486(KIS WS H0STCNI0/H0STCNI9 wiring) 직렬 머지 종결. dogfooding 케이스 5(CREDENTIAL_NOT_FOUND) GREEN evidence(orderId=2 status=REJECTED reject_reason=REAL_GATE_DENIED:CREDENTIAL_NOT_FOUND) + 통합 빌드 evidence(KIS WS 체결통보 subscribe trId=H0STCNI9 mode=MOCK emit=OK). ADR 0068 §18 신규 § "Accepted 마감 evidence" + §19 변경 이력 shift + 본문 status row 격상. §13 후속 예정 표에서 0068 row 제거. backlog §43 ✅ 처리 완료 마킹 + tracks-roadmap §2 T-O row Accepted mark + CHANGELOG row 동반. 운영 코드 0 touch (문서 only). (architect) |
 | 2026-05-18 | v3.6.11 후속 | **ADR 0080 Accepted** — 전체 에이전트 Opus 4.7 통일 (ADR 0035 supersede). 사유: W3 종착 + W4 진입 직전 단계에서 sub-agent 코드 한 줄 수정도 룰 본체·자본 흐름 결합으로 진화 — sonnet 패턴화 추론 risk 회피. backend-core·market-data·frontend·qa 4명 sonnet → opus. 토큰 비용 약 2배 증가 사용자 명시 수용. ADR 0035 status Superseded 표기. |
 | 2026-05-17 | v3.6.11 hotfix | **ADR 0077 Proposed** — OPSP8996 ERROR 재발 deep dive (v3.6.10 cut 후 86건/1시간 재발). ADR 0076 6 가설 미발동 시나리오 — 자격증명 미등록 + MOCK type 시세 connect 정합 결함 + retry counter logic 결함. 신규 가설 G·H·I·J + 의제 6건(G·H·I·J·K·L) architect 권장 단일 PR. §12 reserved 슬롯 0077 발동 완료 표기 정합. |
