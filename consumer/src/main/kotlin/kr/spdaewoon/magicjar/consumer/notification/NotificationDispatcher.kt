@@ -262,6 +262,10 @@ class NotificationDispatcher(
                 "KillSwitch 발동: reason=${raw["reason"]} triggeredBy=${raw["triggeredBy"]}"
             NotificationEventType.RECONCILE_RUN ->
                 "잔고 점검 완료: status=${raw["status"]} driftCount=${raw["driftCount"]}"
+            NotificationEventType.DLT_RECEIVED ->
+                // 본 dispatcher가 직접 produce 안 함 — OrderDltMonitorListener 영역.
+                // exhaustive when 정합용 분기 (실제 호출 path 0건).
+                "Kafka DLT 수신: dltTopic=${raw["dltTopic"]} srcOffset=${raw["srcOffset"]}"
         }
 
     private fun buildMeta(

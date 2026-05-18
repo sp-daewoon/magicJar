@@ -53,6 +53,7 @@ object NotificationFormatter {
             NotificationEventType.RECONCILE_DRIFT -> ":rotating_light:" to "포지션 불일치"
             NotificationEventType.KILLSWITCH_ENGAGED -> ":red_circle:" to "KillSwitch 자동 발동"
             NotificationEventType.RECONCILE_RUN -> ":mag:" to "잔고 점검"
+            NotificationEventType.DLT_RECEIVED -> ":boom:" to "Kafka DLT 수신 (P0 자본 path risk)"
         }
 
     private fun immediateAction(eventType: NotificationEventType): String =
@@ -60,6 +61,8 @@ object NotificationFormatter {
             NotificationEventType.RECONCILE_DRIFT -> "KIS HTS 직접 확인 후 수동 KillSwitch OFF 토글 필요"
             NotificationEventType.KILLSWITCH_ENGAGED -> "자동매매 일시 중단됨. KIS 잔고 확인 후 수동 재활성화 필요"
             NotificationEventType.RISK_VIOLATION -> "리스크 한도 점검 후 필요 시 전략 비활성화"
+            NotificationEventType.DLT_RECEIVED ->
+                "DLT 토픽 record 검토 후 수동 replay 또는 운영 결함 fix. KIS 주문 영향 시 HTS 직접 확인."
             else -> ""
         }
 }

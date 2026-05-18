@@ -1,7 +1,7 @@
 package kr.spdaewoon.magicjar.domain.notification
 
 /**
- * 알림 이벤트 유형 enum (ADR 0044 + ADR 0070 §2-4 LOCK).
+ * 알림 이벤트 유형 enum (ADR 0044 + ADR 0070 §2-4 LOCK + ADR 0084 P0-4 superset).
  *
  * Kafka 7 listener 매트릭스 정합:
  * - ORDER_FILLED       → order.filled.v1       (P1)
@@ -11,6 +11,7 @@ package kr.spdaewoon.magicjar.domain.notification
  * - RECONCILE_DRIFT    → reconcile.drift.v1    (P0)
  * - KILLSWITCH_ENGAGED → killswitch.engaged.v1 (P0)
  * - RECONCILE_RUN      → reconcile.run.v1      (P2 — audit only)
+ * - DLT_RECEIVED       → order.*.v1.DLT 4건    (P0 — ADR 0084 P0-4)
  *
  * // AI 호출 0 — T-NOTIFY 트랙 정책 (ADR 0023 §2-4 + ADR 0070 §1-2)
  */
@@ -24,4 +25,13 @@ enum class NotificationEventType(
     RECONCILE_DRIFT(NotificationPriority.P0),
     KILLSWITCH_ENGAGED(NotificationPriority.P0),
     RECONCILE_RUN(NotificationPriority.P2),
+
+    /**
+     * DLT(Dead Letter Topic) 수신 알림 (ADR 0084 P0-4).
+     *
+     * Kafka listener 무한 재시도 fix — 1초 간격 3회 재시도 후 DLT 발사.
+     * order.*.v1.DLT 4건 (order.intent / order.requested / order.rejected / order.filled) 수신 시
+     * OrderDltMonitorListener가 P0 알림 즉시 발사 (자본 path 잠재 risk).
+     */
+    DLT_RECEIVED(NotificationPriority.P0),
 }
