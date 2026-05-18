@@ -18,9 +18,9 @@ parentPhase: ?
 - [x] 15 파일 git mv
 - [x] 패키지 rename
 - [x] consumer 잔류 3건 import 갱신
-- [ ] gradle check GREEN
-- [ ] 부팅 evidence
-- [ ] curl 200 evidence
+- [x] gradle check GREEN
+- [x] 부팅 evidence
+- [x] curl 200 evidence
 
 ## 의존성
 - (필요 시 기록)
