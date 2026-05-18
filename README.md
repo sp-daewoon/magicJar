@@ -41,6 +41,58 @@ _룰 기반 quant trading 본체 + AI 옵션 보조 + MCP 서버 미래 노출_
 
 ---
 
+## 🔄 자동매매 흐름 (시그널 → 주문 → 체결)
+
+> **룰/시그널 발행 → 3중 안전 게이트 → KIS REST 주문 → KIS WS 체결 통보 → 사용자 STOMP push**. ADR 0068(T-O) §14 LOCK. 자동매매(AUTO) + 사용자 수동 주문(MANUAL, T-MAN)도 동일 path 재사용 — 차이는 OrderIntent 발생 위치만(SignalConsumer vs POST /api/orders/manual).
+
+```mermaid
+sequenceDiagram
+    participant Rule as 룰/시그널 엔진
+    participant Kafka as Kafka order.intent.v1
+    participant Listener as OrderRouterKafkaListener<br/>(consumer)
+    participant Gate as TradingModeGate<br/>(3중 게이트)
+    participant Adapter as KisOrderHttpAdapter
+    participant KIS as KIS REST<br/>(VPS 또는 PROD)
+    participant DB as order_request DB
+    participant Stomp as STOMP /topic/order.user
+    participant WS as KIS WS H0STCNI0/9
+    participant ExecListener as KisExecutionWsListener
+
+    Rule->>Kafka: publish OrderIntent
+    Kafka->>Listener: consume
+    Listener->>DB: INSERT(status=REQUESTED)
+    Listener->>Gate: check(envMode + ALLOW_REAL + consent + credential)
+    alt Gate denied
+        Gate-->>Listener: REAL_GATE_DENIED:<reason>
+        Listener->>DB: UPDATE(status=REJECTED, reject_reason)
+        Listener->>Kafka: publish order.rejected.v1
+        Kafka->>Stomp: forward → 사용자 토스트
+    else Gate ok
+        Gate-->>Listener: ok(mode, accountType)
+        Listener->>Adapter: submit(OrderIntent, mode)
+        Adapter->>KIS: POST /uapi/.../order-cash
+        KIS-->>Adapter: 200 ODNO + 응답
+        Adapter-->>Listener: KisAck(ODNO)
+        Listener->>DB: UPDATE(status=ACK, kis_order_no=ODNO)
+        Listener->>Kafka: publish order.requested.v1
+        Kafka->>Stomp: forward → 사용자 토스트
+        WS->>ExecListener: H0STCNI0/9 체결 통보 (cntgYn=2)
+        ExecListener->>DB: INSERT order_execution
+        ExecListener->>DB: UPDATE order_request(status=FILLED|PARTIALLY_FILLED)
+        ExecListener->>Kafka: publish order.filled.v1
+        Kafka->>Stomp: forward → 사용자 토스트
+    end
+```
+
+**3중 안전 게이트** (자본 흐름 진입 직전 LOCK):
+- `MAGICJAR_MODE` env (MOCK·REAL — 시스템 운영 mode)
+- `MAGICJAR_ALLOW_REAL` env (REAL 진입 이중 게이트)
+- `user_account.real_trading_consent_at` (사용자 명시 동의 시각)
+
+→ 3 조건 모두 통과 시만 KIS PROD endpoint 호출. dev/staging은 항상 MOCK + VPS endpoint. 하나라도 미통과 시 `REAL_GATE_DENIED:<reason>` reject + audit 영속.
+
+---
+
 ## Quick Start (5분 안에 첫 차트)
 
 ### 사전 요구사항
