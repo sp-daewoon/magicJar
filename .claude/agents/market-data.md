@@ -18,16 +18,19 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 
 외부 시장 데이터를 magicJar 안으로 끌어와 **strategy-engine과 ai-engineer가 바로 쓸 수 있는 형태**로 저장한다.
 
+> **★ 영역 경계 변경 (2026-05-19 ADR 0085)**: 캔들 데이터 layer(적재 워커·갭 검출·자동 backfill·MTF 정합성·corporate action adjustment)는 **chart-curator로 이관**. market-data는 KIS REST/WS HTTP 인프라 + raw 응답 변환 + 뉴스·공시·시세 스냅샷·호가·잔고만 잔류. 캔들 endpoint 자체는 market-data 어댑터 인터페이스로 발행, chart-curator가 소비.
+
 - **한국투자증권 KIS OpenAPI** 클라이언트 구현 (REST + WebSocket)
   - OAuth 2.0 토큰 발급/갱신, 해시키, 앱키/시크릿 로딩
-  - 시세 조회(일봉·분봉·체결), 종목정보, 호가, 잔고
+  - 시세 조회(시세 스냅샷·체결), 종목정보, 호가, 잔고
+  - **캔들 endpoint 어댑터 인터페이스 발행** (`KisCandleQueryPort` — chart-curator 소비, market-data는 raw 응답 변환만)
   - WebSocket 실시간 체결·호가 구독
 - **뉴스/공시 수집**
   - DART(전자공시) Open API — 정기보고·주요사항보고·공시 목록
   - 네이버 금융 뉴스 크롤링(robots.txt 준수) 또는 RSS 기반 수집
 - **저장 전략**
-  - 캔들 데이터: JPA 엔티티 + TimescaleDB 하이퍼테이블(선택) 또는 PostgreSQL 파티션
-  - 실시간 시세: Redis Stream/Pub-Sub 캐시 + 영속 저장소 비동기 반영
+  - 캔들 데이터 영속·정합성·MTF 합산: ❌ **chart-curator 이관** (ADR 0085)
+  - 실시간 시세 스냅샷: Redis Stream/Pub-Sub 캐시 + 영속 저장소 비동기 반영
   - 뉴스/공시: PostgreSQL + 전문검색(pg_trgm) 인덱스
 
 ## 작업 원칙

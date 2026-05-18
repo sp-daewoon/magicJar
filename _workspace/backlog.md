@@ -2812,3 +2812,88 @@ T-ACCT Phase 4 + T-MAN Phase 1·2·3 머지 후 후속 의제:
 - ADR 0041 (broker reconciliation) order reconciliation 패턴 정합
 - ADR 0007 (Kafka backbone) outbox + DLT
 - ADR 0008 (docker MSA) MDC 분산 추적
+
+---
+
+## §79. T-CC 신규 트랙 — 캔들 정합성 (chart-curator 발화 트랙 · 2026-05-19)
+
+### 트리거
+
+사용자 dogfooding evidence (최고 관리자 2026-05-19 KST):
+- **한국석유(004090)** 일봉 last=2025-12-24 ≈5개월 stale vs 1분봉 last=2026-05-18 15:19 정상
+- 단일 종목 내 timeframe 간 SLA 분기 발생
+- 3 영역(market-data·strategy-engine·frontend) 교차 점유 단일 owner 부재 → ADR 0085 chart-curator 영입
+
+### 트랙 정의
+
+**T-CC** (Candle Curation) — 캔들 데이터 SLA·정합성 + 차트 시각화 트랙. chart-curator 단독 owner (ADR 0085).
+
+### Phase 매트릭스
+
+#### Phase 1 — dogfooding fix 즉시 (chart-curator 첫 발화)
+
+1. **한국석유 일봉 backfill** — KIS `/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice` (tr_id: FHKST03010100) 호출 + 2025-12-25 ~ 2026-05-18 (≈5개월) 페이지네이션
+2. **`last_candle_at` 모니터링 워커 신설** — daily watchdog 잡 + 모든 watchlist 종목 stale 임계치 검증
+3. **stale 임계치 정책** — 일봉=3 영업일 / 주봉=2주 / 월봉=1~2개월 / 분봉=2분 (chart-curator SKILL.md 매트릭스 정합)
+4. **검증** — dogfooding 사이클: `curl /api/candles?code=004090&interval=1d` last_candle_at=2026-05-18(직전 거래일) 회복
+
+#### Phase 2 — 자동 backfill 워커 + 갭 검출 (신규 책임)
+
+1. **갭 검출 알고리즘** — 종목별 timeframe별 last_candle_at + 영업일 캘린더 매트릭스(ADR 0013) 정합
+2. **자동 backfill 트리거** — stale 임계치 위반 시 KIS endpoint 재호출 + 갭 메우기
+3. **재시도 정책** — 3회 backoff + KillSwitch 트리거 (ADR 0043 정합)
+4. **사용자 보고** — Slack outbox + 매매일지 timeline 기록
+
+#### Phase 3 — MTF 정합성 검증 (신규 책임 · 자동매매 룰 본체 결합)
+
+1. **1분봉 → 5m·15m·30m·1h 합산 정합성 검증** — ADR 0062 합산 가공 5종 정합
+2. **1분봉 → 일봉 집계 정합성 검증** — KIS 직접 조회 vs 1m 합산 결과 일치 검증
+3. **daily watchdog 잡 신설** — 모든 watchlist 종목 MTF 정합성 검증 + 불일치 시 자동 backfill + 보고
+4. **검증 매트릭스 문서** — `_workspace/chart-curator/mtf-integrity.md`
+
+#### Phase 4 — Corporate Action candle adjustment (ADR 0018 cross-ref)
+
+1. **액면분할·배당락·합병 시점 검출** — KIS corp action endpoint(market-data 어댑터 인터페이스)
+2. **adjusted candle 발행** — raw 데이터 보존 + retroactive 정정 결과 별도 영속
+3. **UI 토글** — raw/adjusted 표시 토글 (frontend 협업)
+
+#### Phase 5 — TradingView LWC v4 확장 (W5 T-LWC 진입 시)
+
+1. **multipane MTF 시각화** — 1m / 5m / 15m / 1h / 일봉 별도 chart 인스턴스 + crosshair sync
+2. **plugin 확장** — 자체 도형·주석·57 candle pattern overlay (ADR 0025 정합)
+3. **인터랙션 매트릭스** — zoom·crosshair·툴팁·drag 표준화
+
+### KIS 캔들 endpoint 매트릭스 (KIS-first raw fetch 의무)
+
+| endpoint | tr_id | timeframe | 우선순위 |
+|---------|-------|----------|---------|
+| inquire-daily-itemchartprice | FHKST03010100 | 일/주/월 | Phase 1 ★ |
+| inquire-time-itemchartprice | FHKST03010200 | 분봉 (1·3·5·10·30분) | Phase 2 |
+| inquire-time-conclusion | (tick) | tick | Phase 2 |
+| inquire-daily-overtimeprice | FHPST02320000 | 시간외 (ADR 0076) | Phase 4 |
+
+raw 출처: `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/` + MCP `mcp__kis-code-assistant__*` 검증 의무.
+
+### 사용자 결재 의제 (chart-curator 첫 발화 dispatch)
+
+1. **dogfooding fix 즉시 dispatch 여부** — 권장: ADR 0085 머지 직후 즉시 chart-curator Phase 1 dispatch (한국석유 backfill)
+2. **last_candle_at 모니터링 워커 배치 모듈 위치** — `batch` 모듈 vs `consumer` 모듈 → 권장: **batch 모듈** (daily watchdog 잡 정합)
+3. **MTF 정합성 검증 cron 빈도** — daily 1회 vs hourly → 권장: **daily 1회** (KIS rate limit 보호)
+4. **Phase 1·2·3 사이클 분리** — 단독 cut vs 묶음 → 권장: **Phase 1 즉시 hotfix patch (v3.6.17 또는 v3.6.18)** + Phase 2~3 별도 사이클
+
+### 상태
+
+⏳ ADR 0085 머지 대기 → 머지 후 chart-curator 첫 발화 dispatch.
+
+### 연관
+
+- ADR 0085 (chart-curator 영입)
+- ADR 0019 · 0028 · 0029 (캔들 저장 정책 / Ingestion Worker / Redis 캐시)
+- ADR 0025 (LWC 확장)
+- ADR 0048 (KIS WS 41건 구독 한도)
+- ADR 0057 (KIS-only 데이터 출처)
+- ADR 0062 (합산 가공 5종)
+- ADR 0063 (NXT/통합거래 매트릭스)
+- ADR 0018 (Corporate Action raw + adjusted)
+- ADR 0037 (KIS API Rate Limit)
+- ADR 0043 (KillSwitch 행동 정의)

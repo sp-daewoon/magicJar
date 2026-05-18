@@ -2,8 +2,8 @@
 
 > **위치**: `_workspace/arch/agent-charter.md`
 > **신설일**: 2026-05-08 (PR-26 — 사용자 명시 "강령 만들어야 하고", "토큰 소모 없이 가게")
-> **권위**: 본 헌법은 9 sub-agent SKILL + orchestrator SKILL + 메타 ADR(0033·0036·0046·0049·0050)에서 산재된 운영 룰을 단일 출처로 통합한 **참조 가능한 헌법**이다.
-> **의무 정독 대상**: architect · backend-core · market-data · strategy-engine · ai-engineer · frontend · qa · orchestrator (8 actor 모두)
+> **권위**: 본 헌법은 9 sub-agent SKILL + orchestrator SKILL + 메타 ADR(0033·0036·0046·0049·0050·0085)에서 산재된 운영 룰을 단일 출처로 통합한 **참조 가능한 헌법**이다.
+> **의무 정독 대상**: architect · backend-core · market-data · strategy-engine · ai-engineer · frontend · qa · chart-curator · orchestrator (9 actor 모두 — chart-curator 영입 2026-05-19 ADR 0085)
 > **변경 정책**: 본 헌법은 architect 단독 PR로만 갱신. sub-agent SKILL은 본 헌법을 참조만 하고 룰 본문 중복 금지.
 
 본 헌법은 **운영 룰의 단일 출처**다. 본문에 명시된 7개 § 룰을 위반하면 운영 부채(hotfix·재작업·사용자 비판) 누적 risk. 각 § 본문은 30~40줄 max — 헌법은 실행 매뉴얼이 아닌 참조 룰북.
@@ -23,7 +23,7 @@ git config user.email "bot+<agent>@magicjar.local"
 git config user.name "magicjar-<agent>"
 ```
 
-- `<agent>` ∈ {architect, backend-core, market-data, strategy, ai, frontend, qa, orchestrator}
+- `<agent>` ∈ {architect, backend-core, market-data, strategy, ai, frontend, qa, chart-curator, orchestrator}
 - `.claude/agents/<agent>.md` frontmatter `git-author:` 는 **선언 수준**일 뿐 강제력 0 — 본 절차로만 보장됨
 - 검증: 첫 commit 직전 `git config user.email` 출력으로 본인 email 확인 의무
 - **위반 시 sub-agent는 작업 진행 거부 + 즉시 orchestrator/사용자 보고** (commit 후 rewrite하면 force-push 발생 risk)
@@ -173,6 +173,7 @@ sub-agent가 0 tool uses 종료, 환경 결함(Bash 실패), 또는 명세 위�
 
 | 날짜 | 변경 | 사유 |
 |------|------|------|
+| 2026-05-19 | §0(서문) 8 → 9 actor + §1-A `<agent>` 허용 값에 `chart-curator` 추가 (ADR 0085 영입 정합) | 사용자 dogfooding evidence(한국석유 일봉 5개월 stale) + 3 영역 교차 점유 단일 owner 부재 → 8번째 sub-agent chart-curator 영입. agent-charter.md SoT에 영입 정합 흡수. (architect) |
 | 2026-05-18 | §1 강화 — 1-A worktree 진입 author 의무 + 1-C task 파일 commit 의무 신설 (안정성 Cycle 2 — backlog §59) | 안정성 Cycle 1 evidence — PR #473·#475 author=magicjar-frontend attribution + PR #473·#474·#476 task 파일 commit 0건. worktree default frontend가 다른 sub-agent에 전파되어 운영 audit 깨짐. (architect) |
 | 2026-05-08 | 본 헌법 신설 — 7 § 룰 통합 | PR-26 사용자 명시 "강령 만들어야 하고", "토큰 소모 없이 가게". sub-agent SKILL 산재 룰을 단일 출처로 통합 + 9 SKILL.md 슬림화 동반. (architect) |
 
