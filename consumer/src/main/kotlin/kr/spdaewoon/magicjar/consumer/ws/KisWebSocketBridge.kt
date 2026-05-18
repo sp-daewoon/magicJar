@@ -4,11 +4,13 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import jakarta.annotation.PreDestroy
 import kotlinx.datetime.Clock
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisApprovalAdapter
+import kr.spdaewoon.magicjar.consumer.order.KisExecutionWsListener
 import kr.spdaewoon.magicjar.domain.market.port.KisWsPort
 import kr.spdaewoon.magicjar.domain.market.port.QuoteCachePort
 import kr.spdaewoon.magicjar.domain.market.tick.TickEvent
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.redis.core.StringRedisTemplate
@@ -94,6 +96,15 @@ class KisWebSocketBridge(
     private val magicjarMode: String,
     @Value("\${magicjar.kis.ws.user-id:}")
     private val defaultUserId: String,
+    /**
+     * KIS WS 체결통보(H0STCNI0/H0STCNI9) 수신 시 위임 listener (ADR 0068 §14-6 LOCK).
+     *
+     * ObjectProvider 사용 사유 (graceful 합류):
+     * - KisExecutionWsListener는 T-O Phase 1 잔여 컴포넌트 — 컨테이너 빈 부재 환경(qa fixture 등)에서도 KisWebSocketBridge 부팅 보장.
+     * - 정상 운영 시 always present — null 분기는 fallback 안전망.
+     * - 헌법 §6 + ADR 0066 ObjectProvider 패턴 정합 (KisExecutionWsListener 본체와 동일 패턴).
+     */
+    private val executionListenerProvider: ObjectProvider<KisExecutionWsListener>,
 ) : KisWsPort {
     companion object {
         // backlog §29 #4 — Sinks unicast bounded buffer 사이즈 (reconnect 폭주 hardcap).
@@ -486,7 +497,13 @@ class KisWebSocketBridge(
                     // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
                     "H0NXCNT0" -> handleNxtTickData(parsed.rawData)
                     "H0STASP0" -> handleOrderbookData(parsed.rawData)
-                    "H0STCNI0" -> log.info("KIS WS 체결통보 수신: trId=H0STCNI0 (handler 미구현 — T-O)")
+                    // H0STCNI0(REAL) / H0STCNI9(MOCK) 체결통보 — ADR 0068 §14-6 LOCK
+                    // KIS-first 출처: examples_user/domestic_stock/domestic_stock_functions_ws.py L389~L446 (def ccnl_notice)
+                    //   raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
+                    //   - H0STCNI0 = 실전 체결통보 / H0STCNI9 = 모의 체결통보 (env_dv real/demo 분기)
+                    //   - body는 caret(^) delimiter — KisExecutionWsListener.onWebSocketMessage()가 KisExecutionMessage.parseFromCaretDelimited() 위임
+                    //   - 흐름 분기는 cntgYn/acptYn/rfusYn 기준 (tr_id 분기 불필요 — listener 내부 §14-6 LOCK)
+                    "H0STCNI0", "H0STCNI9" -> handleExecutionNotice(parsed.trId, parsed.rawData)
                     // H0STOUP0 시간외 단일가 체결가 — ADR 0076 Phase 3 B-2 — 16:00~18:00 KST
                     // KIS-first: overtime_ccnl_krx.py tr_id="H0STOUP0" — 국내주식 시간외 실시간체결가 (KRX) [실시간-042]
                     // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
@@ -612,6 +629,47 @@ class KisWebSocketBridge(
         updateCandleCurrent(tick)
         updateCandleToday(tick)
         publishTickEvent(tick)
+    }
+
+    /**
+     * KIS WS H0STCNI0/H0STCNI9 체결통보 처리 — KisExecutionWsListener 위임 (ADR 0068 §14-6 LOCK).
+     *
+     * KIS-first 출처:
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
+     *   def ccnl_notice() L389~L446 — 국내주식 실시간체결통보
+     *   - tr_id H0STCNI0 = 실전 / H0STCNI9 = 모의 (env_dv real/demo 분기)
+     *   - body는 caret(^) delimiter — 26 컬럼 매핑 LOCK (ADR 0068 §14-6 표 정합)
+     *   - 흐름 분기는 KisExecutionWsListener.processMessage() 내부 cntgYn/acptYn/rfusYn 기준 — tr_id 분기 불필요
+     *
+     * graceful fallback:
+     *   - executionListenerProvider 미합류 시(qa fixture 등) log.warn 후 skip.
+     *   - 정상 운영 시 always present — null 분기는 안전망 (헌법 §6 + ADR 0066 ObjectProvider 패턴).
+     *
+     * AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8)
+     */
+    private fun handleExecutionNotice(
+        trId: String,
+        rawData: String,
+    ) {
+        val listener = executionListenerProvider.getIfAvailable()
+        if (listener == null) {
+            log.warn(
+                "KIS WS 체결통보 수신 — KisExecutionWsListener 미합류 (Phase 1 미완): trId={} bodyLen={}",
+                trId,
+                rawData.length,
+            )
+            return
+        }
+        try {
+            listener.onWebSocketMessage(rawData)
+        } catch (e: Exception) {
+            log.error(
+                "KIS WS 체결통보 listener dispatch 실패: trId={} err={}",
+                trId,
+                e.message,
+                e,
+            )
+        }
     }
 
     /**
