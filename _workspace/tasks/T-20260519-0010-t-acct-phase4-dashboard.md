@@ -14,12 +14,12 @@ parentPhase: ?
 T-ACCT Phase 4 — Dashboard 격상 (AccountSummaryCard + HoldingsTable + BalanceCard + TanStack Query 30s)
 
 ## 결과물 체크리스트
-- [ ] DashboardPage.tsx 격상
-- [ ] AccountSummaryCard 신규
-- [ ] HoldingsTable 신규
-- [ ] BalanceCard 신규
-- [ ] TanStack Query 30s auto-refresh
-- [ ] 라우팅 정합
+- [x] DashboardPage.tsx 격상
+- [x] AccountSummaryCard 신규
+- [x] HoldingsTable 신규
+- [x] BalanceCard 신규
+- [x] TanStack Query 30s auto-refresh
+- [x] 라우팅 정합
 
 ## 의존성
 - (필요 시 기록)
