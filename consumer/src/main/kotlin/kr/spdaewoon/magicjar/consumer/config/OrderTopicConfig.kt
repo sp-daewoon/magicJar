@@ -23,6 +23,7 @@ import org.springframework.kafka.config.TopicBuilder
 class OrderTopicConfig {
     companion object {
         private const val RETENTION_30D_MS = "2592000000" // 30d
+        private const val RETENTION_7D_MS = "604800000" // 7d (DLT replay 검토 충분)
     }
 
     /**
@@ -82,5 +83,70 @@ class OrderTopicConfig {
             .partitions(1)
             .replicas(1)
             .config("retention.ms", RETENTION_30D_MS)
+            .build()
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ADR 0084 P0-4 — Kafka DLQ + 재시도 정책 + DLT 모니터링 (spec §2-4)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * order.intent.v1 DLT — DefaultErrorHandler + DeadLetterPublishingRecoverer 합류점.
+     *
+     * 외부 코드 리뷰 #7 흡수 — 무한 재시도 risk fix.
+     * - 재시도 정책: FixedBackOff(1000ms, 3회) — 1초 간격 3회 재시도 후 DLT 발사
+     * - 재시도 불가 예외 (DeserializationException 등): 즉시 DLT (재시도 0회 skip)
+     * - DLT 수신 시 P0 알림 (OrderDltMonitorListener — 자본 path)
+     *
+     * partition key = userId (원본 record key 그대로 forward).
+     * retention: 7d (운영 audit + DLT replay 검토)
+     *
+     * AI 호출 0 — T-O 트랙 정책 (ADR 0084 §2-8)
+     */
+    @Bean
+    fun orderIntentDltTopic(): NewTopic =
+        TopicBuilder
+            .name("order.intent.v1.DLT")
+            .partitions(1)
+            .replicas(1)
+            .config("retention.ms", RETENTION_7D_MS)
+            .build()
+
+    /**
+     * order.requested.v1 DLT — STOMP REQUESTED fanout consumer 또는 NotificationDispatcher 실패 시 격리.
+     * 자본 path 직접 영향은 낮음(이미 INSERT 완료)이나 사용자 알림 누락 risk → DLT 모니터링 의무.
+     */
+    @Bean
+    fun orderRequestedDltTopic(): NewTopic =
+        TopicBuilder
+            .name("order.requested.v1.DLT")
+            .partitions(1)
+            .replicas(1)
+            .config("retention.ms", RETENTION_7D_MS)
+            .build()
+
+    /**
+     * order.rejected.v1 DLT — NotificationDispatcher 또는 STOMP REJECTED fanout 실패 시 격리.
+     * 자본 audit 깨짐 가능성 (사용자가 거절 사실 미인지) → DLT 모니터링 의무.
+     */
+    @Bean
+    fun orderRejectedDltTopic(): NewTopic =
+        TopicBuilder
+            .name("order.rejected.v1.DLT")
+            .partitions(1)
+            .replicas(1)
+            .config("retention.ms", RETENTION_7D_MS)
+            .build()
+
+    /**
+     * order.filled.v1 DLT — NotificationDispatcher 또는 STOMP FILLED fanout 실패 시 격리.
+     * 자본 잠재 risk (사용자가 체결 사실 미인지) → DLT 모니터링 의무 + P0 알림.
+     */
+    @Bean
+    fun orderFilledDltTopic(): NewTopic =
+        TopicBuilder
+            .name("order.filled.v1.DLT")
+            .partitions(1)
+            .replicas(1)
+            .config("retention.ms", RETENTION_7D_MS)
             .build()
 }
