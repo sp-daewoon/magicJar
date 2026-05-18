@@ -155,17 +155,31 @@ class OrderRouterKafkaListener(
             }
 
             // Step 5: order_request INSERT(status=REQUESTED)
-            val saved = persistRequested(intent, mode)
-            if (saved == null) {
-                // Repository 미합류 — Phase 2 미완. 자본 path이므로 listener 진행 중단 + log.error.
-                log.error(
-                    "OrderRouterKafkaListener — OrderRequestRepository 미합류 (Phase 2 미완): userId={} signalId={}",
-                    intent.userId,
-                    intent.signalId,
-                )
-                ack.acknowledge()
-                return
-            }
+            val saved =
+                when (val result = persistRequested(intent, mode)) {
+                    is PersistResult.NotWired -> {
+                        // Repository 미합류 — Phase 2 미완. 자본 path이므로 listener 진행 중단 + log.error.
+                        log.error(
+                            "OrderRouterKafkaListener — OrderRequestRepository 미합류 (Phase 2 미완): userId={} signalId={}",
+                            intent.userId,
+                            intent.signalId,
+                        )
+                        ack.acknowledge()
+                        return
+                    }
+                    is PersistResult.SaveFailed -> {
+                        // save 자체는 시도됐으나 DB 단에서 실패 (FK violation·연결 끊김 등). root cause 명시.
+                        log.error(
+                            "OrderRouterKafkaListener — OrderRequestRepository.save 실패 (listener 진행 중단): userId={} signalId={} reason={}",
+                            intent.userId,
+                            intent.signalId,
+                            result.reason,
+                        )
+                        ack.acknowledge()
+                        return
+                    }
+                    is PersistResult.Ok -> result.saved
+                }
 
             // Step 6: Kafka order.requested.v1 publish (STOMP notify는 Phase 2 backend-core가 listen)
             orderRequestedKafkaProducer.publish(saved)
@@ -255,13 +269,18 @@ class OrderRouterKafkaListener(
     }
 
     /**
-     * Step 5 — REQUESTED 상태 영속 (Phase 2 Repository 미합류 시 null 반환).
+     * Step 5 — REQUESTED 상태 영속.
+     *
+     * **반환 분기 (§62 hotfix — caller 로그 misleading 정정)**:
+     * - [PersistResult.NotWired] — Repository bean 미합류 (Phase 2 미완)
+     * - [PersistResult.SaveFailed] — Repository.save 자체가 Exception 발생 (FK violation·연결 끊김 등)
+     * - [PersistResult.Ok] — 정상 영속 + saved row 반환
      */
     private fun persistRequested(
         intent: OrderIntent,
         mode: TradingMode,
-    ): OrderRequest? {
-        val repo = orderRequestRepositoryProvider.getIfAvailable() ?: return null
+    ): PersistResult {
+        val repo = orderRequestRepositoryProvider.getIfAvailable() ?: return PersistResult.NotWired
         val request =
             OrderRequest(
                 userId = intent.userId,
@@ -278,11 +297,29 @@ class OrderRouterKafkaListener(
                 requestedAt = Instant.now(),
             )
         return try {
-            repo.save(request)
+            PersistResult.Ok(repo.save(request))
         } catch (e: Exception) {
             log.error("OrderRequestRepository.save 실패: userId={} signalId={} err={}", intent.userId, intent.signalId, e.message)
-            null
+            PersistResult.SaveFailed(e.message ?: "unknown")
         }
+    }
+
+    /**
+     * [persistRequested] 결과 분기 — caller 로그 메시지 분리용 (§62 hotfix).
+     */
+    internal sealed class PersistResult {
+        /** Repository ObjectProvider가 bean을 찾지 못함 — Phase 2 미완 상태. */
+        object NotWired : PersistResult()
+
+        /** Repository.save() 호출 자체가 Exception 발생 — DB 단 결함 (FK violation·연결 끊김 등). */
+        data class SaveFailed(
+            val reason: String,
+        ) : PersistResult()
+
+        /** 정상 영속 — saved row 반환. */
+        data class Ok(
+            val saved: OrderRequest,
+        ) : PersistResult()
     }
 
     /**

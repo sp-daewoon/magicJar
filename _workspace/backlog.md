@@ -2432,7 +2432,7 @@ spec §6.3은 "Phase 2 LOCK 코드 — OrderQueryService ✓ 완료, OrderCancel
 
 **dogfooding 재시도** = orchestrator 영역 (머지 후) — Kafka publish `order.intent.v1` 케이스 5 → ERROR 0건 + `reject_reason="CREDENTIAL_NOT_FOUND"` order_request row 영속 확인 의무.
 
-## §62. OrderRouterKafkaListener — persistRequested catch 블럭 log 메시지 misleading (dogfooding 발견 2026-05-18)
+## §62. ✅ OrderRouterKafkaListener — persistRequested catch 블럭 log 메시지 misleading (dogfooding 발견 2026-05-18 · 처리 완료 2026-05-18)
 
 ### 사유
 
@@ -2446,16 +2446,20 @@ T-O Phase 2 합류 fix(PR #481) 후 dogfooding 케이스 5(CREDENTIAL_NOT_FOUND)
 
 **진단**: `persistRequested()` (L260~286)이 모든 save 실패를 catch → null 반환 → caller(L159)에서 null → "Repository 미합류" 출력. 실제로는 FK violation으로 save 실패 — 메시지 misleading.
 
-### 처리 방향
+### 처리 결과 (2026-05-18 — architect)
 
-- `persistRequested()` catch 블럭 강화 — 실패 사유 별 message 분기 또는 caller에서 distinct 로깅
-- 또는 caller(L159~L167) "미합류" 분기를 "save 실패" 분기와 분리 (Provider null vs save Exception)
-- consumer 영역 (architect 또는 backend-core)
-- 작은 hotfix 1-2 line — 별도 PR 또는 다음 사이클 묶음
+- `persistRequested()` 반환 타입 `OrderRequest? → PersistResult` sealed class로 변경 (`NotWired` / `SaveFailed(reason)` / `Ok(saved)` 3 분기).
+- caller(`onOrderIntent` Step 5) `when` 분기로 두 결함 케이스 별도 log.error 메시지 출력:
+  - `NotWired` → "OrderRequestRepository 미합류 (Phase 2 미완)" (기존 메시지 유지)
+  - `SaveFailed` → "OrderRequestRepository.save 실패 (listener 진행 중단): reason=<exception message>" (root cause 명시)
+- 단위 테스트 2건 추가 (`OrderRouterKafkaListenerTest`): (g §62) NotWired → 후속 0 / (h §62) SaveFailed → NotWired와 구분된 로그 + 후속 0.
+- `./gradlew :consumer:test --tests "...OrderRouterKafkaListenerTest"` GREEN + `:consumer:ktlintCheck` GREEN.
+- ADR 신규 0건 (sealed class 도입은 내부 helper 분기 — 외부 계약 변경 0).
 
 ### 연관
 
-- `consumer/.../order/OrderRouterKafkaListener.kt` L159·L260·L282
+- `consumer/.../order/OrderRouterKafkaListener.kt` (sealed class PersistResult 도입)
+- `consumer/.../order/OrderRouterKafkaListenerTest.kt` (g·h 케이스 추가)
 - PR #481 (Phase 2 Repository 합류 fix)
 - dogfooding evidence 2026-05-18 (orchestrator)
 
