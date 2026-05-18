@@ -2361,3 +2361,34 @@ v3.6.12 cut 직전 docker logs 검증(2026-05-18 09:24~09:31, 7분 모니터링)
 - `consumer/.../ws/KisWebSocketBridge.kt` (handleTickData)
 - `domain/.../market/CandleJpaEntity.kt` (uq_candle_code_interval_ts)
 - v3.6.12 cut docker logs evidence (orchestrator 2026-05-18)
+
+## §61. T-O Phase 2 미완 — OrderRouterKafkaListener Repository 미합류 (dogfooding 발견 2026-05-18)
+
+### 사유
+
+T-O 진입 prereq spec (PR #479, `_workspace/specs/2026-05-18-to-prereq-mock-prd-verify.md`) 채택 후 dogfooding 케이스 5(CREDENTIAL_NOT_FOUND) 실행 시 ERROR 발견:
+
+```
+2026-05-18T12:02:55.912+09:00 ERROR 1 --- [magicjar-consumer] [ntainer#0-0-C-1] k.s.m.c.order.OrderRouterKafkaListener   : OrderRouterKafkaListener — OrderRequestRepository 미합류 (Phase 2 미완): userId=74683223 signalId=99001
+```
+
+spec §6.3은 "Phase 2 LOCK 코드 — OrderQueryService ✓ 완료, OrderCancelService ✓ 완료, RealTradingConsentController ✓ 완료" 라고 진술했으나 **실측 — consumer 모듈에 OrderRequestRepository bean 합류 부재** → order.intent.v1 메시지 dispatch 실패 → **모든 주문 dispatch 작동 불가** (자본 흐름 차단 = 의도치 않은 안전이긴 하나, T-O 본 트랙 진입 사실상 불가).
+
+### 영향
+
+- 케이스 5 dogfooding fail (Repository 미합류 ERROR로 즉시 fall-through)
+- 케이스 2·3 dogfooding은 같은 ERROR로 안전망 검증 자체 불가 (TradingModeGate까지 도달 못 함)
+- 케이스 1(MOCK 정상)도 작동 불가 (MOCK credential 등록 무관)
+
+### 처리 방향
+
+- backend-core 또는 strategy-engine 영역 — OrderRouterKafkaListener의 OrderRequestRepository bean 합류 (Repository wiring + 영속 path)
+- ADR 0068 정합 — §14-3 3중 게이트가 작동하려면 Repository 합류 의무
+- architect spec/plan 발행 의제 — 본 backlog 진입 사이클
+
+### 연관
+
+- spec `_workspace/specs/2026-05-18-to-prereq-mock-prd-verify.md` (PR #479)
+- ADR 0068 (T-O plan)
+- `consumer/.../order/OrderRouterKafkaListener.kt`
+- domain `OrderRequestRepository` port
