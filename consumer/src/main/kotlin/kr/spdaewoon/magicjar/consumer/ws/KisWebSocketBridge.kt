@@ -175,6 +175,27 @@ class KisWebSocketBridge(
     var onPollingFallbackStop: (() -> Unit)? = null
 
     /**
+     * ADR 0084 P0-3 — WS 재연결 직후 발사 hook (외부 코드 리뷰 결함 #4 fix).
+     *
+     * 발사 시점: 새 wsSession handshake 성공(`session.onConnected()`) 직후 + 재구독 메시지 발사 직전.
+     * **첫 연결**과 **재연결 양쪽 모두 발사** — 첫 연결 시점에도 직전 사용자 disconnect 동안 발생한 체결이 있을 수 있음.
+     *
+     * 등록자: [KisExecutionBackfillService] — KisOrderInquireCcldHttpAdapter 호출로 누락 체결 backfill.
+     * 미등록 상태도 graceful (null check) — 본 hook 부재 시 backfill 0건 + WARN log (운영 audit).
+     *
+     * 호출 횟수 / 빈도:
+     * - 첫 연결 시점 — 1회
+     * - watchdog reconnect (30s/60s timeout 후) — 매 재연결 1회
+     * - graceful reconnect (KIS 키 변경) — 1회
+     *
+     * Rate Limit 영향 (ADR 0037):
+     * - 본 hook은 1회 KIS REST inquire-daily-ccld 호출 trigger → backfill worker가 내부 처리
+     * - WS 폭주 시 재연결 잦음 → backfill 호출 빈도 ↑ → KIS rate limit hit 가능 risk → backlog §62 측정 후 throttle 검토
+     */
+    @Volatile
+    var onReconnect: (() -> Unit)? = null
+
+    /**
      * KIS WS에 종목 구독 (H0STCNT0 + H0NXCNT0 동시 구독).
      * slot 여유 확인은 SubscriptionRouter 책임 — 여기서는 단순 subscribe 메시지 송신.
      *
@@ -435,6 +456,19 @@ class KisWebSocketBridge(
                     onPollingFallbackStop?.invoke()
                     log.info("KIS WS 연결 성공 — approval_key 발급 완료")
                     startHeartbeatWatchdog()
+
+                    // ADR 0084 P0-3 — WS 재연결 backfill hook (외부 코드 리뷰 결함 #4 fix).
+                    // 재구독 메시지 발사 직전 호출 — disconnect 동안 발생한 체결 통보를 KIS REST inquire-daily-ccld로 보강.
+                    // hook 미등록 시 graceful — null check 후 skip.
+                    try {
+                        onReconnect?.invoke()
+                    } catch (e: Exception) {
+                        log.error(
+                            "KIS WS onReconnect hook 실패 — backfill 건너뜀 (자본 audit risk): err={}",
+                            e.message,
+                            e,
+                        )
+                    }
                     // 기존 구독 종목 재구독 (H0STCNT0 + H0NXCNT0)
                     val existingCodes = session.subscribedCodes.toList()
                     if (existingCodes.isNotEmpty()) {

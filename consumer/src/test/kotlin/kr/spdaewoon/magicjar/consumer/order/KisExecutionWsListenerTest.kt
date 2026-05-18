@@ -70,6 +70,7 @@ class KisExecutionWsListenerTest {
     fun `(a) CNTG_YN=2 부분 체결 sum lt qty → PARTIALLY_FILLED + PARTIAL_FILL audit + Kafka filled partial=true`() {
         val request = stubRequest(quantity = 10)
         every { orderRepo.findByKisOrderNo("ODNO123") } returns request
+        every { execRepo.existsByEventId(any()) } returns false
         every { execRepo.save(any()) } answers { firstArg<OrderExecution>().copy(id = 1L) }
         every { execRepo.sumExecutedQuantityByOrder(99L) } returns 4
         every { orderRepo.updateStatus(99L, OrderStatus.PARTIALLY_FILLED, null) } returns
@@ -91,6 +92,7 @@ class KisExecutionWsListenerTest {
     fun `(b) CNTG_YN=2 sum eq qty → FILLED + FULL_FILL + Kafka filled partial=false`() {
         val request = stubRequest(quantity = 10)
         every { orderRepo.findByKisOrderNo("ODNO123") } returns request
+        every { execRepo.existsByEventId(any()) } returns false
         every { execRepo.save(any()) } answers { firstArg<OrderExecution>().copy(id = 2L) }
         every { execRepo.sumExecutedQuantityByOrder(99L) } returns 10
         every { orderRepo.markCompleted(99L, any(), OrderStatus.FILLED) } returns
@@ -136,6 +138,7 @@ class KisExecutionWsListenerTest {
     fun `(e) CNTG_YN=2 sum gt qty → EXECUTION_OVERFLOW audit + skip Kafka filled publish`() {
         val request = stubRequest(quantity = 5)
         every { orderRepo.findByKisOrderNo("ODNO123") } returns request
+        every { execRepo.existsByEventId(any()) } returns false
         every { execRepo.save(any()) } answers { firstArg<OrderExecution>().copy(id = 3L) }
         every { execRepo.sumExecutedQuantityByOrder(99L) } returns 8
 
@@ -151,6 +154,125 @@ class KisExecutionWsListenerTest {
         verify(atLeast = 2) { auditRepo.save(capture(auditList)) }
         assertThat(auditList.map { it.eventType })
             .contains(OrderAuditEventType.FILL_RECEIVED, OrderAuditEventType.EXECUTION_OVERFLOW)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ADR 0084 P0-3 — race condition + pre-insert 패턴 + event_id dedup 케이스
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `(P0-3 f) race retry hit — findByKisOrderNo 첫 1회 null 후 2번째 hit → 정상 처리`() {
+        val request = stubRequest(quantity = 10)
+        // 첫 호출 null, 두 번째 호출 hit (race window 흡수 evidence)
+        every { orderRepo.findByKisOrderNo("ODNO_RACE") } returnsMany listOf(null, request)
+        every { execRepo.existsByEventId(any()) } returns false
+        every { execRepo.save(any()) } answers { firstArg<OrderExecution>().copy(id = 11L) }
+        every { execRepo.sumExecutedQuantityByOrder(99L) } returns 10
+        every { orderRepo.markCompleted(99L, any(), OrderStatus.FILLED) } returns
+            request.copy(status = OrderStatus.FILLED)
+
+        val msg = stubExecMessage(odno = "ODNO_RACE", cntgYn = "2", cntgQty = 10)
+        listener.processMessage(msg)
+
+        // race retry로 결국 정상 처리됨 — execRepo.save 1회 + FILLED 전환
+        verify(exactly = 2) { orderRepo.findByKisOrderNo("ODNO_RACE") }
+        verify(exactly = 1) { execRepo.save(any()) }
+        verify(exactly = 1) { orderRepo.markCompleted(99L, any(), OrderStatus.FILLED) }
+        verify(exactly = 0) { orderRepo.save(any()) } // pre-insert 불필요
+    }
+
+    @Test
+    fun `(P0-3 g) race retry 모두 null → pre-insert sentinel row 합류 + 정상 dispatch`() {
+        // 모든 retry에서 null — pre-insert 진입 evidence
+        every { orderRepo.findByKisOrderNo("ODNO_LOST") } returns null
+        every { orderRepo.findByIdempotencyKey("WS_PREINSERT:ODNO_LOST") } returns null
+
+        val sentinelRow = stubRequest(quantity = 10).copy(id = 777L, kisOrderNo = "ODNO_LOST")
+        every { orderRepo.save(any()) } returns sentinelRow
+
+        every { execRepo.existsByEventId(any()) } returns false
+        every { execRepo.save(any()) } answers { firstArg<OrderExecution>().copy(id = 12L) }
+        every { execRepo.sumExecutedQuantityByOrder(777L) } returns 10
+        every { orderRepo.markCompleted(777L, any(), OrderStatus.FILLED) } returns
+            sentinelRow.copy(status = OrderStatus.FILLED)
+
+        val msg = stubExecMessage(odno = "ODNO_LOST", cntgYn = "2", cntgQty = 10)
+        listener.processMessage(msg)
+
+        // pre-insert + 후속 execution 정상 dispatch evidence
+        verify(exactly = 1) { orderRepo.save(any()) } // pre-insert
+        verify(exactly = 1) { execRepo.save(any()) }
+        verify(exactly = 1) { orderRepo.markCompleted(777L, any(), OrderStatus.FILLED) }
+
+        // pre-insert audit 마커 검증 (source=WS_PREINSERT)
+        val auditList = mutableListOf<OrderAuditEvent>()
+        verify(atLeast = 1) { auditRepo.save(capture(auditList)) }
+        val preInsertAudit = auditList.find { it.payloadJson.contains("WS_PREINSERT") }
+        assertThat(preInsertAudit).isNotNull
+        assertThat(preInsertAudit!!.eventType).isEqualTo(OrderAuditEventType.KIS_ACK)
+    }
+
+    @Test
+    fun `(P0-3 h) pre-insert 재진입 멱등 — 동일 idempotencyKey 발견 시 새 save 호출 안 함`() {
+        every { orderRepo.findByKisOrderNo("ODNO_PRE") } returns null
+
+        val existingSentinel = stubRequest(quantity = 10).copy(id = 888L, kisOrderNo = "ODNO_PRE")
+        every { orderRepo.findByIdempotencyKey("WS_PREINSERT:ODNO_PRE") } returns existingSentinel
+
+        every { execRepo.existsByEventId(any()) } returns false
+        every { execRepo.save(any()) } answers { firstArg<OrderExecution>().copy(id = 13L) }
+        every { execRepo.sumExecutedQuantityByOrder(888L) } returns 10
+        every { orderRepo.markCompleted(888L, any(), OrderStatus.FILLED) } returns
+            existingSentinel.copy(status = OrderStatus.FILLED)
+
+        val msg = stubExecMessage(odno = "ODNO_PRE", cntgYn = "2", cntgQty = 10)
+        listener.processMessage(msg)
+
+        // 기존 sentinel row 재사용 — save 호출 0건 (idempotent)
+        verify(exactly = 0) { orderRepo.save(any()) }
+        verify(exactly = 1) { execRepo.save(any()) }
+    }
+
+    @Test
+    fun `(P0-3 i) event_id dedup — 동일 eventId 이미 합류 시 INSERT skip`() {
+        val request = stubRequest(quantity = 10)
+        every { orderRepo.findByKisOrderNo("ODNO_DUP") } returns request
+        // existsByEventId true — 이미 합류한 체결
+        every { execRepo.existsByEventId(any()) } returns true
+
+        val msg = stubExecMessage(odno = "ODNO_DUP", cntgYn = "2", cntgQty = 5)
+        listener.processMessage(msg)
+
+        // dedup → save 호출 0건 + Kafka publish 0건
+        verify(exactly = 0) { execRepo.save(any()) }
+        verify(exactly = 0) { filledProducer.publish(any(), any(), any()) }
+        verify(exactly = 0) { orderRepo.updateStatus(any(), any(), any()) }
+        verify(exactly = 0) { orderRepo.markCompleted(any(), any(), any()) }
+    }
+
+    @Test
+    fun `(P0-3 j) buildEventId 합성 규칙 정합 — odno+stckCntgHour+cntgQty`() {
+        val eventId = KisExecutionWsListener.buildEventId("ODNO123", "093015", 10)
+        assertThat(eventId).isEqualTo("ODNO123:093015:10")
+    }
+
+    @Test
+    fun `(P0-3 k) 거부 통보(CNTG_YN=1 RFUS_YN=Y)도 race retry path 적용 — null 시 pre-insert 합류`() {
+        every { orderRepo.findByKisOrderNo("ODNO_RJ") } returns null
+        every { orderRepo.findByIdempotencyKey("WS_PREINSERT:ODNO_RJ") } returns null
+
+        val sentinelRow = stubRequest(quantity = 10).copy(id = 999L, kisOrderNo = "ODNO_RJ")
+        every { orderRepo.save(any()) } returns sentinelRow
+        every { orderRepo.markCompleted(999L, any(), OrderStatus.REJECTED) } returns
+            sentinelRow.copy(status = OrderStatus.REJECTED)
+
+        val msg = stubExecMessage(odno = "ODNO_RJ", cntgYn = "1", rfusYn = "Y")
+        listener.processMessage(msg)
+
+        // 거부도 pre-insert path 진입 — sentinel row 합류 + REJECTED 정상 dispatch
+        verify(exactly = 1) { orderRepo.save(any()) }
+        verify(exactly = 1) { orderRepo.markCompleted(999L, any(), OrderStatus.REJECTED) }
+        verify(exactly = 1) { rejectedProducer.publish(any(), any()) }
     }
 
     @Test

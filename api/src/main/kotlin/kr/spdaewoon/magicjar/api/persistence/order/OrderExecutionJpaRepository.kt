@@ -21,4 +21,10 @@ interface OrderExecutionJpaRepository : JpaRepository<OrderExecutionJpaEntity, L
     fun sumExecutedQtyByOrderId(
         @Param("orderId") orderId: Long,
     ): java.math.BigDecimal
+
+    /**
+     * ADR 0084 P0-3 — event_id 기준 멱등 가드 (body 0건 — 헌법 §6 정합).
+     * Flyway V35 `uq_execution_event_id` partial index 백업.
+     */
+    fun existsByEventId(eventId: String): Boolean
 }
