@@ -16,8 +16,8 @@ T-ACCT Phase 3 — consumer/risk CapitalSnapshotProvider 실제 어댑터 교체
 ## 결과물 체크리스트
 - [x] KisCapitalSnapshotProviderAdapter 신규
 - [x] default 어댑터 supersede @ConditionalOnMissingBean 유지
-- [ ] 단위 테스트 (cache hit·miss·exception)
-- [ ] gradle :consumer:check GREEN
+- [x] 단위 테스트 (cache hit·miss·exception)
+- [x] gradle :consumer:check GREEN
 - [ ] CHANGELOG row add-only
 
 ## 의존성
