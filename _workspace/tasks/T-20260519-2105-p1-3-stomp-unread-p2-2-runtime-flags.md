@@ -3,10 +3,10 @@ id: T-20260519-2105-p1-3-stomp-unread-p2-2-runtime-flags
 agent: backend-core
 model: opus
 branch: agent/backend-core/p1-3-stomp-unread-p2-2-runtime-flags
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T21:05:30.154+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T21:15:26.466+09:00
+pr: #573
 parentPhase: ?
 ---
 
