@@ -43,7 +43,8 @@ vi.mock('../api/hooks/useInstrumentSearch', () => ({
 
 let watchlistItems: Array<{
   id: number
-  userId: string
+  /** ADR 0089 Phase 2 — userId number */
+  userId: number
   code: string
   priority: number
   createdAt: string
@@ -60,7 +61,7 @@ const server = setupServer(
     const body = (await request.json()) as { code: string; priority?: number }
     const newEntry = {
       id: watchlistItems.length + 1,
-      userId: '74683223',
+      userId: 74683223,
       code: body.code,
       priority: body.priority ?? 0,
       createdAt: new Date().toISOString(),
@@ -157,8 +158,8 @@ describe('Watchlist 등록 flow', () => {
   it('총 N종목 카운트가 올바르게 표시된다', async () => {
     // 사전에 목록에 2건 추가
     watchlistItems = [
-      { id: 1, userId: '74683223', code: '005930', priority: 0, createdAt: new Date().toISOString() },
-      { id: 2, userId: '74683223', code: '035720', priority: 1, createdAt: new Date().toISOString() },
+      { id: 1, userId: 74683223, code: '005930', priority: 0, createdAt: new Date().toISOString() },
+      { id: 2, userId: 74683223, code: '035720', priority: 1, createdAt: new Date().toISOString() },
     ]
 
     renderWatchlistPage()

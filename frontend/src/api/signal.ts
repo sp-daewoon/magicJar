@@ -23,7 +23,8 @@ export interface SignalDto {
   id: string
   strategyId: string
   strategyName?: string
-  userId: string
+  /** ADR 0089 Phase 2 — userId number (backend Long) */
+  userId: number
   code: string
   /** 종목명 (optional — backend enrichment) */
   codeName?: string
@@ -49,7 +50,7 @@ export interface SignalPage {
 
 /** GET /api/signals 필터 파라미터 */
 export interface SignalListParams {
-  userId?: string
+  userId?: number
   code?: string
   interval?: string
   side?: SignalSide
@@ -70,7 +71,7 @@ export const signalApi = {
    */
   list: async (params: SignalListParams = {}): Promise<SignalPage> => {
     const searchParams = new URLSearchParams()
-    if (params.userId) searchParams.set('userId', params.userId)
+    if (params.userId !== undefined) searchParams.set('userId', String(params.userId))
     if (params.code) searchParams.set('code', params.code)
     if (params.interval) searchParams.set('interval', params.interval)
     if (params.side) searchParams.set('side', params.side)
@@ -88,10 +89,8 @@ export const signalApi = {
    * GET /api/signals/{id}?userId=
    * 시그널 단건 조회
    */
-  get: async (id: string, userId: string): Promise<SignalDto> => {
-    const res = await apiClient.get<SignalDto>(
-      `/signals/${id}?userId=${encodeURIComponent(userId)}`,
-    )
+  get: async (id: string, userId: number): Promise<SignalDto> => {
+    const res = await apiClient.get<SignalDto>(`/signals/${id}?userId=${userId}`)
     return res.data
   },
 }

@@ -15,7 +15,8 @@ import {
 } from '../account'
 
 interface UseAccountBalanceOptions {
-  userId: string | null | undefined
+  /** ADR 0089 Phase 2 — userId number */
+  userId: number | null | undefined
   accountType?: AccountType
   refetchInterval?: number
   enabled?: boolean
@@ -30,7 +31,7 @@ export function useAccountBalance({
   return useQuery<AccountBalanceDto, Error>({
     queryKey: ['account', 'balance', userId, accountType],
     queryFn: () => accountApi.getBalance(userId!, accountType),
-    enabled: enabled && !!userId,
+    enabled: enabled && userId !== null && userId !== undefined,
     staleTime: 25_000,
     refetchInterval,
     refetchOnWindowFocus: true,

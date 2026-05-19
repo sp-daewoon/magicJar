@@ -23,19 +23,19 @@ export function usePositions(params: PositionListParams = {}) {
   return useQuery<PositionDto[]>({
     queryKey: POSITIONS_KEY(params),
     queryFn: () => positionApi.list(params),
-    enabled: !!params.userId,
+    enabled: params.userId !== undefined && params.userId !== null,
     staleTime: 15 * 1000,
   })
 }
 
 /**
- * 포지션 단건 조회
+ * 포지션 단건 조회 (ADR 0089 Phase 2 — userId number)
  */
-export function usePosition(id: string | undefined, userId: string | undefined) {
+export function usePosition(id: string | undefined, userId: number | undefined) {
   return useQuery<PositionDto>({
     queryKey: POSITION_KEY(id ?? ''),
     queryFn: () => positionApi.get(id!, userId!),
-    enabled: !!id && !!userId,
+    enabled: !!id && userId !== undefined && userId !== null,
     staleTime: 30 * 1000,
   })
 }

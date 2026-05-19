@@ -123,7 +123,7 @@ export function SetupWizard() {
           />
         )}
 
-        {internalStep === 3 && registeredUserId && (
+        {internalStep === 3 && registeredUserId !== null && (
           <KisMockStep userId={registeredUserId} onNext={handleMockNext} />
         )}
 

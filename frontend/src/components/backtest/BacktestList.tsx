@@ -14,7 +14,8 @@ import { backtestApi } from '../../api/backtest'
 import type { BacktestRunSummaryDto } from '../../api/backtest'
 
 interface BacktestListProps {
-  userId: string
+  /** ADR 0089 Phase 2 — userId number */
+  userId: number
   onSelect: (runId: number) => void
 }
 

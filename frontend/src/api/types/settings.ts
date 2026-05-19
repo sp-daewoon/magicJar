@@ -33,9 +33,10 @@ export interface MaskedKisCredentialItem {
 
 /**
  * GET /api/onboarding/kis/credentials 응답 (최상위)
+ * ADR 0089 Phase 2 — userId number (backend Long)
  */
 export interface MaskedKisCredentialResponse {
-  userId: string
+  userId: number
   credentials: MaskedKisCredentialItem[]
 }
 

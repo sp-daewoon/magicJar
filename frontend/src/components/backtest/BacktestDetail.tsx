@@ -19,7 +19,8 @@ import { TradeTable } from './TradeTable'
 
 interface BacktestDetailProps {
   runId: number
-  userId: string
+  /** ADR 0089 Phase 2 — userId number */
+  userId: number
   onBack: () => void
 }
 

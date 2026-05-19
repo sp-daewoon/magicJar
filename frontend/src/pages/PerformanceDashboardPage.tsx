@@ -20,8 +20,8 @@ import { useEquityCurve } from '../features/performance/hooks/useEquityCurve'
 import type { PerformancePeriod } from '../features/performance/api/performanceApi'
 
 export function PerformanceDashboardPage() {
-  const registeredUserId = useOnboardingStore((s) => s.registeredUserId)
-  const userId = registeredUserId ? Number(registeredUserId) : null
+  // ADR 0089 Phase 2 — registeredUserId now number, no conversion needed
+  const userId = useOnboardingStore((s) => s.registeredUserId)
 
   const [period, setPeriod] = useState<PerformancePeriod>('MONTH')
 

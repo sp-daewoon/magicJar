@@ -12,12 +12,14 @@
  * - T-PERF Phase 3 (ADR 0072): "성과" 메뉴 추가
  * - ADR 0069 §6: ⚙️ SettingsModal 진입점 추가
  * - backlog §58 / ADR 0077 K-1: KisRealCredentialBanner — REAL 미등록 시 안내
+ * - P2-2 frontend: RuntimeFlagsIndicator — 로고 옆 dot LED + 모드 라벨 (MOCK/REAL/Stop)
  */
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { SettingsIcon } from '../icons/SettingsIcon'
 import { SettingsModal } from '../settings/SettingsModal'
 import { KisRealCredentialBanner } from './KisRealCredentialBanner'
+import { RuntimeFlagsIndicator } from './RuntimeFlagsIndicator'
 
 export function AppHeader() {
   // ADR 0069 §6 — SettingsModal 열림 상태 (로컬 hook)
@@ -30,13 +32,16 @@ export function AppHeader() {
       <KisRealCredentialBanner onOpenSettings={() => setSettingsOpen(true)} />
 
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-        {/* 로고 */}
-        <NavLink
-          to="/"
-          className="text-xl font-bold tracking-tight text-white hover:text-gray-200"
-        >
-          magic<span className="text-blue-400">Jar</span>
-        </NavLink>
+        {/* 로고 + RuntimeFlags indicator (P2-2 frontend) */}
+        <div className="flex items-center gap-3">
+          <NavLink
+            to="/"
+            className="text-xl font-bold tracking-tight text-white hover:text-gray-200"
+          >
+            magic<span className="text-blue-400">Jar</span>
+          </NavLink>
+          <RuntimeFlagsIndicator />
+        </div>
 
         {/* 네비게이션 메뉴 */}
         <nav className="flex items-center gap-1" aria-label="메인 메뉴">

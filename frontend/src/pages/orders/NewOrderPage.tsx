@@ -44,12 +44,13 @@ import type { InstrumentSearchResultDto } from '../../api/instrument'
 
 const COOLDOWN_SECONDS = 60
 
-function cooldownKey(userId: string, code: string): string {
+// ADR 0089 Phase 2 — userId number (cooldown key 직렬화는 toString 자연 변환)
+function cooldownKey(userId: number, code: string): string {
   return `manual_order_cooldown:${userId}:${code}`
 }
 
-function getCooldownRemainSec(userId: string, code: string): number {
-  if (!userId || !code) return 0
+function getCooldownRemainSec(userId: number, code: string): number {
+  if (!code) return 0
   try {
     const raw = sessionStorage.getItem(cooldownKey(userId, code))
     if (!raw) return 0
@@ -62,8 +63,8 @@ function getCooldownRemainSec(userId: string, code: string): number {
   }
 }
 
-function setCooldown(userId: string, code: string): void {
-  if (!userId || !code) return
+function setCooldown(userId: number, code: string): void {
+  if (!code) return
   try {
     const expiry = Math.floor(Date.now() / 1000) + COOLDOWN_SECONDS
     sessionStorage.setItem(cooldownKey(userId, code), String(expiry))

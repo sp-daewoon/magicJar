@@ -56,9 +56,9 @@ export interface EvaluateResponse {
   evalTimeMs: number
 }
 
-/** POST /api/strategy 요청 — CreateStrategyRequest */
+/** POST /api/strategy 요청 — CreateStrategyRequest (ADR 0089 — userId number) */
 export interface CreateStrategyRequest {
-  userId?: string
+  userId?: number
   name: string
   nameKo?: string
   /** DSL entry 표현식 (buy_condition) */
@@ -75,10 +75,10 @@ export interface CreateStrategyResponse {
   complexity: StrategyComplexityDto
 }
 
-/** 전략 단건 DTO */
+/** 전략 단건 DTO (ADR 0089 — userId number) */
 export interface StrategyDto {
   id: string
-  userId: string
+  userId: number
   name: string
   nameKo?: string
   entry: string
@@ -126,8 +126,8 @@ export const strategyApi = {
    * GET /api/strategy?userId=
    * 사용자별 전략 목록
    */
-  list: async (userId?: string): Promise<StrategyDto[]> => {
-    const params = userId ? `?userId=${encodeURIComponent(userId)}` : ''
+  list: async (userId?: number): Promise<StrategyDto[]> => {
+    const params = userId !== undefined ? `?userId=${userId}` : ''
     const res = await apiClient.get<StrategyDto[]>(`/strategy${params}`)
     return res.data
   },
@@ -165,10 +165,10 @@ export const strategyApi = {
 /** 전략 상태 4단 (ADR 0066 §3-A) */
 export type StrategyStatus = 'ACTIVE' | 'PAUSED' | 'DISABLED' | 'DELETED'
 
-/** ADR 0066 전략 상세 DTO (signal tracking 포함) */
+/** ADR 0066 전략 상세 DTO (signal tracking 포함, ADR 0089 — userId number) */
 export interface SigStrategyDto {
   id: string
-  userId: string
+  userId: number
   name: string
   /** 감시 종목 코드 배열 (JSONB) */
   codes: string[]
@@ -218,9 +218,9 @@ export const sigStrategyApi = {
    * GET /api/strategies?userId=&page=&size=
    * 전략 목록 (페이징) — userId: Long (StrategiesController 정합)
    */
-  list: async (userId: string, page = 0, size = 20): Promise<SigStrategyPage> => {
+  list: async (userId: number, page = 0, size = 20): Promise<SigStrategyPage> => {
     const res = await apiClient.get<SigStrategyPage>(
-      `/strategies?userId=${encodeURIComponent(userId)}&page=${page}&size=${size}`,
+      `/strategies?userId=${userId}&page=${page}&size=${size}`,
     )
     return res.data
   },

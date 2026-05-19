@@ -24,9 +24,10 @@ export function StrategyListPage() {
   const userId = useOnboardingStore((s) => s.registeredUserId)
 
   // 실시간 시그널 구독 (userId 있을 때만)
+  // ADR 0089 Phase 2 — userId number; 0은 sentinel (disabled 상태에서만 통과)
   const { signalQueue } = useStompSignal({
-    userId: userId ?? '',
-    enabled: !!userId,
+    userId: userId ?? 0,
+    enabled: userId !== null,
   })
 
   // ── userId 미등록 (온보딩 미완료) ──

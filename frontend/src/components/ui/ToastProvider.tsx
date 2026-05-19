@@ -49,6 +49,17 @@ export function useToast(): ToastContextValue {
   return ctx
 }
 
+/**
+ * Provider 외부에서도 안전한 useToast 변형 — provider 미존재 시 no-op showToast 반환.
+ *
+ * 용도: smoke 라우팅 테스트 등 ToastProvider 미장착 환경에서 hook 사용 시 graceful no-op.
+ *   사용자 화면 흐름(main.tsx 진입)에는 항상 Provider가 있으므로 영향 0.
+ */
+export function useOptionalToast(): ToastContextValue {
+  const ctx = useContext(ToastContext)
+  return ctx ?? { showToast: () => undefined }
+}
+
 // ──────────────────────────────────────────────
 // 단건 Toast 컴포넌트
 // ──────────────────────────────────────────────

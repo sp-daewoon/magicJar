@@ -186,7 +186,8 @@ function SectionHeader({ label, desc }: { label: string; desc?: string }) {
 // ──────────────────────────────────────────────
 
 interface RiskConfigFormProps {
-  userId: string
+  /** ADR 0089 Phase 2 — userId number */
+  userId: number
 }
 
 export function RiskConfigForm({ userId }: RiskConfigFormProps) {

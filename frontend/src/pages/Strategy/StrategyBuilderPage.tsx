@@ -373,7 +373,7 @@ export function StrategyBuilderPage() {
       {showScreener && strategyId && (
         <ScreenerResultModal
           strategyId={parseInt(strategyId, 10)}
-          userId={registeredUserId !== null ? parseInt(registeredUserId, 10) : null}
+          userId={registeredUserId}
           onClose={() => setShowScreener(false)}
         />
       )}

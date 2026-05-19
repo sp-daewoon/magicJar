@@ -30,8 +30,8 @@ const DEFAULT_FILTER: FilterState = {
 }
 
 export function TradingJournalPage() {
-  const registeredUserId = useOnboardingStore((s) => s.registeredUserId)
-  const userId = registeredUserId ? Number(registeredUserId) : null
+  // ADR 0089 Phase 2 — registeredUserId now number, no conversion needed
+  const userId = useOnboardingStore((s) => s.registeredUserId)
 
   const [filter, setFilter] = useState<FilterState>(DEFAULT_FILTER)
   const [page, setPage] = useState(0)

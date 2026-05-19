@@ -7,11 +7,12 @@
 import { useQuery } from '@tanstack/react-query'
 import { orderApi, type OrderDetailDto } from '../order'
 
-export function useOrder(id: number | null | undefined, userId: string | null | undefined) {
+/** ADR 0089 Phase 2 — userId number */
+export function useOrder(id: number | null | undefined, userId: number | null | undefined) {
   return useQuery<OrderDetailDto, Error>({
     queryKey: ['orders', id, userId],
     queryFn: () => orderApi.get(id!, userId!),
-    enabled: id != null && id > 0 && !!userId,
+    enabled: id != null && id > 0 && userId !== null && userId !== undefined,
     staleTime: 30_000,
   })
 }
