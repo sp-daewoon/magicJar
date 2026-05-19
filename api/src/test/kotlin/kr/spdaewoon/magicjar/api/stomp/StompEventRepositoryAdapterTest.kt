@@ -4,10 +4,10 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
-import kr.spdaewoon.magicjar.api.persistence.stomp.StompEventJpaEntity
-import kr.spdaewoon.magicjar.api.persistence.stomp.StompEventJpaRepository
-import kr.spdaewoon.magicjar.api.persistence.stomp.StompEventRepositoryAdapter
 import kr.spdaewoon.magicjar.domain.stomp.StompEvent
+import kr.spdaewoon.magicjar.persistence.shared.stomp.StompEventJpaEntity
+import kr.spdaewoon.magicjar.persistence.shared.stomp.StompEventJpaRepository
+import kr.spdaewoon.magicjar.persistence.shared.stomp.StompEventRepositoryAdapter
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.data.domain.Pageable

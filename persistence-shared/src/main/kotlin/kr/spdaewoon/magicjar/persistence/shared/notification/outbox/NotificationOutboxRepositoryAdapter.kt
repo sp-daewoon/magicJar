@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.api.persistence.notification
+package kr.spdaewoon.magicjar.persistence.shared.notification.outbox
 
 import kr.spdaewoon.magicjar.domain.notification.NotificationChannel
 import kr.spdaewoon.magicjar.domain.notification.NotificationOutbox

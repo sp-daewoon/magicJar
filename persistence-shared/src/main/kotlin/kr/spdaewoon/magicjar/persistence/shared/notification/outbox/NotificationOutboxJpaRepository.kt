@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.api.persistence.notification
+package kr.spdaewoon.magicjar.persistence.shared.notification.outbox
 
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository

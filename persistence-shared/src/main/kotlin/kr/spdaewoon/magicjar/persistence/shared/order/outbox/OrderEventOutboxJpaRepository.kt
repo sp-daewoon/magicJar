@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.api.persistence.order
+package kr.spdaewoon.magicjar.persistence.shared.order.outbox
 
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository

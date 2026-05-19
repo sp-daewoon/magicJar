@@ -4,13 +4,13 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
-import kr.spdaewoon.magicjar.api.persistence.notification.NotificationOutboxJpaEntity
-import kr.spdaewoon.magicjar.api.persistence.notification.NotificationOutboxJpaRepository
-import kr.spdaewoon.magicjar.api.persistence.notification.NotificationOutboxRepositoryAdapter
 import kr.spdaewoon.magicjar.domain.notification.NotificationChannel
 import kr.spdaewoon.magicjar.domain.notification.NotificationOutbox
 import kr.spdaewoon.magicjar.domain.notification.NotificationPriority
 import kr.spdaewoon.magicjar.domain.notification.NotificationStatus
+import kr.spdaewoon.magicjar.persistence.shared.notification.outbox.NotificationOutboxJpaEntity
+import kr.spdaewoon.magicjar.persistence.shared.notification.outbox.NotificationOutboxJpaRepository
+import kr.spdaewoon.magicjar.persistence.shared.notification.outbox.NotificationOutboxRepositoryAdapter
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.data.domain.Pageable
