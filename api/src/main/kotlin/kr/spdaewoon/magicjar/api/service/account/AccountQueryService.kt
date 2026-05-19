@@ -21,14 +21,15 @@ import java.time.format.DateTimeFormatter
  * 계좌 잔고 쿼리 서비스 — T-ACCT Phase 2 (ADR 0081 §2-1 + spec §4-1 LOCK).
  *
  * ### 책임
- * - Redis `account:balance:{userId}` cache lookup (TTL 30s)
+ * - Redis `account:balance:{userId}` cache lookup (TTL 5s — C-2 자본 시각화 정합, 2026-05-20)
  * - cache miss → [KisBalanceQueryPort] 1회 호출 (output1 + output2 동시 흡수)
  * - 응답 cache write + 3 endpoint별 응답 매핑
  *
  * ### KIS 호출 빈도 (ADR 0037 정합)
  * - cache hit = KIS 0 호출
  * - cache miss = KIS 1 호출 (`inquire-balance` 1건만 — 추가 endpoint 0)
- * - frontend auto-refresh 30s = KIS 최대 1회 / 30s
+ * - frontend auto-refresh 30s = KIS 최대 1회 / 5s (사용자 trigger 시 즉시성)
+ * - 자본 시각화 즉시성 우선 — 30s → 5s 단축 (frontend 30s 자동 갱신 vs Dashboard 토글·새로고침 시 신선도 차이 해소)
  *
  * ### mock 합성 0 LOCK (feedback_no_mock_data)
  * - KIS upstream 실패 → [KisBalanceQueryPort]가 IllegalStateException 또는 WebClientResponseException 발행
@@ -53,7 +54,14 @@ class AccountQueryService(
 
     companion object {
         const val CACHE_KEY_PREFIX = "account:balance"
-        val CACHE_TTL: Duration = Duration.ofSeconds(30)
+
+        /**
+         * Account 잔고 cache TTL — C-2 자본 시각화 정합 (2026-05-20, 30s → 5s 단축).
+         *
+         * 단축 사유: Dashboard 토글·신규 새로고침 시 캐시된 30s 구식 데이터로 시각화 → 자본 흐름 즉시성 손상.
+         * 5s 는 frontend 30s 자동 갱신과 충분히 분리되면서 사용자 trigger 시 KIS 1 호출만 추가.
+         */
+        val CACHE_TTL: Duration = Duration.ofSeconds(5)
     }
 
     /**

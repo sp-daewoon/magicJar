@@ -1,17 +1,16 @@
 package kr.spdaewoon.magicjar.api.service
 
+import kr.spdaewoon.magicjar.api.infrastructure.kis.KisTokenCacheHelper
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
-import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaRepository
-import kr.spdaewoon.magicjar.api.secret.AesGcmCipher
 import kr.spdaewoon.magicjar.api.service.dto.CandleRefreshResponse
 import kr.spdaewoon.magicjar.api.service.dto.IntervalRefreshResult
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
+import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.web.reactive.function.client.WebClient
@@ -52,10 +51,8 @@ import java.time.temporal.ChronoUnit
 class CandleRefreshService(
     private val webClient: WebClient,
     private val instrumentJpaRepository: InstrumentJpaRepository,
-    private val credentialJpaRepository: UserKisCredentialJpaRepository,
     private val candleJpaRepository: CandleJpaRepository,
-    private val aesGcmCipher: AesGcmCipher,
-    private val redisTemplate: StringRedisTemplate,
+    private val tokenHelper: KisTokenCacheHelper,
     private val kisRateLimiterPort: KisRateLimiterPort,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseProd: String,
@@ -662,85 +659,30 @@ class CandleRefreshService(
         }
 
     /**
-     * KIS access_token + appKey + secretKey 해결.
-     * api 모듈 KisRestPriceMetricsAdapter.resolveAccessTokenAndKeys 패턴 정합.
+     * KIS access_token + appKey + secretKey 해결 — T-4 통합 helper 위임.
      *
-     * 1. REAL 자격증명 우선 조회 (KIS-only 정보 수집 정책 — feedback_kis_key_realonly_for_data)
-     * 2. Redis access_token:{userId}:REAL 캐시 확인
-     * 3. cache miss → KIS /oauth2/tokenP 발급 + Redis TTL=23h 캐시
+     * 기존 inline 구현 (access_token:{userId}:REAL 결함 prefix + hardcode TTL 23h) 폐기.
+     * 신규 [KisTokenCacheHelper]:
+     *   - 단일 `kis:token:{userId}:{accountType}` prefix LOCK (T-1)
+     *   - ADR 0038 분산락 정합 — EGW00133 1분 1회 위반 차단 (T-4)
+     *   - KIS `expires_in` 응답 × 0.95 동적 TTL (T-3)
+     *
+     * KIS-only 정보 수집 정책 (feedback_kis_key_realonly_for_data): REAL 자격증명 우선.
+     * helper 가 REAL 부재 시 MOCK fallback 처리. 부재 시 IllegalStateException → 502 변환.
      */
-    private fun resolveAccessTokenAndKeys(): Triple<String, String, String> {
-        val credential =
-            credentialJpaRepository.findAllByAccountType("REAL").firstOrNull()
-                ?: credentialJpaRepository.findAllByAccountType("MOCK").firstOrNull()
-                ?: throw ResponseStatusException(
-                    HttpStatus.INTERNAL_SERVER_ERROR,
-                    "KIS 자격증명이 등록되지 않았습니다. 온보딩에서 KIS API 키를 등록해 주세요.",
-                )
-
-        val appKey =
-            try {
-                String(aesGcmCipher.decrypt(credential.appKeyEnc))
-            } catch (e: Exception) {
-                throw ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "KIS 자격증명 복호화 실패")
-            }
-        val secretKey =
-            try {
-                String(aesGcmCipher.decrypt(credential.secretKeyEnc))
-            } catch (e: Exception) {
-                throw ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "KIS 자격증명 복호화 실패")
-            }
-
-        val userId = credential.id.userId
-        val accountType = credential.id.accountType
-        val cacheKey = "access_token:$userId:$accountType"
-
-        val cachedToken =
-            try {
-                redisTemplate.opsForValue().get(cacheKey)
-            } catch (e: Exception) {
-                null
-            }
-        if (!cachedToken.isNullOrBlank()) {
-            return Triple(cachedToken, appKey, secretKey)
-        }
-
-        // token miss → KIS /oauth2/tokenP 발급
-        return try {
-            @Suppress("UNCHECKED_CAST")
-            val tokenResponse =
-                webClient
-                    .post()
-                    .uri("$kisBaseProd/oauth2/tokenP")
-                    .header("Content-Type", "application/json; charset=utf-8")
-                    .bodyValue(
-                        mapOf(
-                            "grant_type" to "client_credentials",
-                            "appkey" to appKey,
-                            "appsecret" to secretKey,
-                        ),
-                    ).retrieve()
-                    .bodyToMono(Map::class.java)
-                    .timeout(Duration.ofSeconds(5))
-                    .block() as? Map<String, Any>
-                    ?: throw ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "KIS tokenP 응답 없음")
-
-            val accessToken =
-                tokenResponse["access_token"]?.toString()
-                    ?: throw ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "KIS access_token 없음")
-
-            try {
-                redisTemplate.opsForValue().set(cacheKey, accessToken, Duration.ofHours(23))
-            } catch (e: Exception) {
-                log.warn("Redis access_token 캐시 실패 (무시): {}", e.message)
-            }
-
-            Triple(accessToken, appKey, secretKey)
+    private fun resolveAccessTokenAndKeys(): Triple<String, String, String> =
+        try {
+            // userId 빈 문자열 → helper 가 REAL 우선 → 1순위 자격증명 fallback
+            tokenHelper.resolveTokenAndKeys(userId = "", accountType = AccountType.REAL)
+        } catch (e: IllegalStateException) {
+            throw ResponseStatusException(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "KIS 자격증명이 등록되지 않았습니다. 온보딩에서 KIS API 키를 등록해 주세요.",
+            )
         } catch (e: ResponseStatusException) {
             throw e
         } catch (e: Exception) {
             log.error("KIS access_token 발급 실패: {}", e.message)
             throw ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "KIS 인증 실패: ${e.message}")
         }
-    }
 }

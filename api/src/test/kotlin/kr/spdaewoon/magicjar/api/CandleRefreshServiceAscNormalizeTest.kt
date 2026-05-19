@@ -1,15 +1,13 @@
 package kr.spdaewoon.magicjar.api
 
+import kr.spdaewoon.magicjar.api.infrastructure.kis.KisTokenCacheHelper
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
-import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaRepository
-import kr.spdaewoon.magicjar.api.secret.AesGcmCipher
 import kr.spdaewoon.magicjar.api.service.CandleRefreshService
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.mock
-import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.web.reactive.function.client.WebClient
 
 /**
@@ -49,13 +47,12 @@ import org.springframework.web.reactive.function.client.WebClient
 class CandleRefreshServiceAscNormalizeTest {
     private fun buildService(): CandleRefreshService {
         // ASC 정규화는 외부 의존성 0이므로 모든 dependency mock 가능.
+        // T-4 통합 (2026-05-20) — credential·cipher·redis 는 KisTokenCacheHelper 위임으로 이전.
         return CandleRefreshService(
             webClient = mock<WebClient>(),
             instrumentJpaRepository = mock<InstrumentJpaRepository>(),
-            credentialJpaRepository = mock<UserKisCredentialJpaRepository>(),
             candleJpaRepository = mock<CandleJpaRepository>(),
-            aesGcmCipher = mock<AesGcmCipher>(),
-            redisTemplate = mock<StringRedisTemplate>(),
+            tokenHelper = mock<KisTokenCacheHelper>(),
             kisRateLimiterPort = mock<KisRateLimiterPort>(),
             kisBaseProd = "https://openapi.koreainvestment.com:9443",
         )
