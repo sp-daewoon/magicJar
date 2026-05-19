@@ -3,7 +3,6 @@ package kr.spdaewoon.magicjar.api.service.strategy
 import kr.spdaewoon.magicjar.api.cache.RedisStrategyCache
 import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyJpaRepository
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
-import kr.spdaewoon.magicjar.domain.strategy.Signal
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
@@ -315,8 +314,4 @@ class StrategyService(
             complexityClass = complexityClass,
         )
     }
-
-    /** 미사용 이지만 컴파일 참조 제거 방지 */
-    @Suppress("unused")
-    private val signalRef = Signal.HOLD
 }
