@@ -113,6 +113,74 @@ class StompEventBackfillController(
         )
     }
 
+    @Operation(
+        summary = "STOMP 미수신 이벤트 count + bounds 조회 (invalidate-query)",
+        description =
+            "frontend STOMP 클라이언트 onConnect 시 호출 — lastSeenAt 이후 누락 이벤트 수와 시간 범위를 반환합니다. " +
+                "count > 0 이면 frontend가 /api/stomp/events 본 backfill을 추가 호출하여 페이로드를 받아오는 2단계 패턴. " +
+                "1단계(count)에서 0이면 backfill 자체를 생략 — DB·네트워크 부하 절감. " +
+                "ADR 0084 P1-3 정합 (frontend PR #549 hook 의존).",
+    )
+    @ApiResponses(
+        ApiResponse(
+            responseCode = "200",
+            description = "미수신 count + bounds (count=0 시 firstTs·lastTs null)",
+            content = [Content(schema = Schema(implementation = UnreadStompEventCountResponse::class))],
+        ),
+        ApiResponse(
+            responseCode = "400",
+            description = "since 파라미터 형식 오류 (ISO-8601 필수)",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+    )
+    @GetMapping("/events/unread")
+    fun countUnread(
+        @Parameter(description = "사용자 ID (multi-tenant 격리)", example = "12345678", required = true)
+        @RequestParam userId: Long,
+        @Parameter(
+            description = "조회 시작 시각 (ISO-8601 UTC, inclusive) — frontend lastSeenAt",
+            example = "2026-05-19T01:00:00Z",
+            required = true,
+        )
+        @RequestParam since: String,
+        @Parameter(
+            description = "STOMP topic 그룹 필터 (선택 — order · signal · risk · recon 등)",
+            example = "order",
+        )
+        @RequestParam(required = false) channel: String?,
+    ): UnreadStompEventCountResponse {
+        val sinceInstant =
+            try {
+                Instant.parse(since)
+            } catch (e: DateTimeParseException) {
+                throw ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "since 파라미터 형식 오류 (ISO-8601 필수): $since",
+                    e,
+                )
+            }
+        log.debug(
+            "GET /api/stomp/events/unread — userId={} since={} channel={}",
+            userId,
+            sinceInstant,
+            channel,
+        )
+        val count = stompEventRepository.countUnreadSince(userId, sinceInstant, channel)
+        val bounds =
+            if (count > 0L) {
+                stompEventRepository.findUnreadBoundsSince(userId, sinceInstant, channel)
+            } else {
+                null
+            }
+        return UnreadStompEventCountResponse(
+            count = count,
+            firstTs = bounds?.firstTs,
+            lastTs = bounds?.lastTs,
+            since = since,
+            channel = channel,
+        )
+    }
+
     // --- private helper ---
 
     private fun toDto(event: StompEvent): StompEventDto =
@@ -135,6 +203,32 @@ data class StompEventBackfillResponse(
     val content: List<StompEventDto>,
     @field:Schema(description = "반환 row 수", example = "12")
     val count: Int,
+    @field:Schema(description = "조회 시작 시각 (요청 echo)", example = "2026-05-19T01:00:00Z")
+    val since: String,
+    @field:Schema(description = "channel 필터 (요청 echo, null 가능)", example = "order")
+    val channel: String?,
+)
+
+/**
+ * STOMP 미수신 이벤트 count + bounds 응답 — frontend invalidate-query 1단계 (ADR 0084 P1-3).
+ *
+ * count == 0 이면 firstTs·lastTs 둘 다 null — frontend는 backfill 본 API 호출을 생략합니다.
+ * count > 0 이면 firstTs·lastTs 메타로 사용자에게 "N건 누락 (가장 오래된 / 가장 최근)" 안내 가능.
+ */
+@Schema(description = "STOMP 미수신 이벤트 count + bounds (P1-3 invalidate-query)")
+data class UnreadStompEventCountResponse(
+    @field:Schema(description = "since 이후 미수신 이벤트 수", example = "7")
+    val count: Long,
+    @field:Schema(
+        description = "가장 오래된 미수신 이벤트 시각 (count=0 시 null)",
+        example = "2026-05-19T01:00:01Z",
+    )
+    val firstTs: Instant?,
+    @field:Schema(
+        description = "가장 최근 미수신 이벤트 시각 (count=0 시 null)",
+        example = "2026-05-19T01:23:45Z",
+    )
+    val lastTs: Instant?,
     @field:Schema(description = "조회 시작 시각 (요청 echo)", example = "2026-05-19T01:00:00Z")
     val since: String,
     @field:Schema(description = "channel 필터 (요청 echo, null 가능)", example = "order")
