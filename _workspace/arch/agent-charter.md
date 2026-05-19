@@ -66,9 +66,30 @@ PR 머지 직후 즉시 4단계. 누락 시 운영 부채 누적(worktree 잔재
 1. **main pull (root worktree 동기화)** — `cd <repo-root> && git pull --ff-only origin main`
 2. **task 파일 archive** — `node scripts/task.mjs archive T-<id>` (§1 4단계 정합)
 3. **worktree 제거** — `git worktree unlock <path> 2>/dev/null && git -C <path> restore _workspace/tasks/ 2>/dev/null && git worktree remove <path>` (force 없이 시도)
+3-extended. **빈 wrapper 디렉토리 정리** — `git worktree remove`는 git 추적 파일만 제거하므로 `.gradle/`·`.idea/`·`node_modules/` 같은 build/IDE 캐시가 빈 디렉토리로 남음. 다음 명령 동반:
+   ```bash
+   rmdir <path>/.gradle 2>/dev/null
+   rmdir <path>/.idea 2>/dev/null
+   rmdir <path>/node_modules 2>/dev/null
+   rmdir <path> 2>/dev/null   # 빈 경우만 (rm -rf 위험 회피)
+   ```
+   비어 있지 않으면 사용자에게 보고 (`ls <path>` 결과 인용).
 4. **agent/* 로컬 브랜치 삭제** — `git branch -d agent/<agent>/<task>` (`-d` 안전 모드 — origin 머지 인식 시 허용)
+4-extended. **worktree-agent-* 임시 브랜치 삭제** — Agent isolation 도구가 사용자 명시 `agent/<agent>/<task>` 외에 `worktree-agent-<id>` ref를 별도 생성. 동반 정리:
+   ```bash
+   git branch -D worktree-agent-<id>   # `-D` force (Agent isolation은 isolation 정합으로 force OK)
+   ```
+   누락 시 git branch 잔재 누적 → 사용자가 진행 중 작업으로 오인할 risk.
 
-**자동 점검 (사이클 시작 시)**: `ls _workspace/tasks/T-*.md 2>/dev/null | wc -l` 누적 5건 이상이면 일괄 archive 의무. `git worktree list` main 외 잔재 검증.
+**자동 점검 (사이클 시작 시)** — 4 항목 모두 검증 의무:
+1. `ls _workspace/tasks/T-*.md 2>/dev/null | wc -l` 5건 이상이면 일괄 archive
+2. `git worktree list` main 외 잔재 검증
+3. `ls .claude/worktrees/agent-*/ 2>/dev/null | wc -l = 0` 검증 (빈 wrapper 디렉토리 잔재)
+4. `git branch | grep -c worktree-agent- = 0` 검증 (Agent isolation 임시 브랜치)
+
+위반 시 사용자에게 즉시 보고 + 일괄 정리 권장.
+
+**역사 evidence** (2026-05-19): worktree 잔재 9 디렉토리 + worktree-agent-* 23 브랜치 누적 → 사용자 명시 비판("작업이 다 끝났다고 하면서 남아있으면 내가 오해하잖아"). 본 §2 갱신 hotfix.
 
 **worktree-agent-* 누적 정리**: Agent 도구 isolation worktree 부산물은 누적 15+ 시 사용자 직접 승인 후 일괄 정리(backlog §4).
 
@@ -173,6 +194,7 @@ sub-agent가 0 tool uses 종료, 환경 결함(Bash 실패), 또는 명세 위�
 
 | 날짜 | 변경 | 사유 |
 |------|------|------|
+| 2026-05-19 | §2-3·§2-4·§2-5 강화 — worktree 디렉토리·worktree-agent-* 잔재 누적 root cause fix | 사용자 명시 비판 (2026-05-19 KST) — 헌법 §2 4단계가 git 명령만 다루고 빈 wrapper 디렉토리·Agent isolation 임시 브랜치 검증 누락 → worktree 잔재 9 디렉토리 + worktree-agent-* 23 브랜치 누적. §2-3 빈 wrapper rmdir 명시 + §2-4 worktree-agent-* force delete 명시 + §2-5 사이클 시작 자동 점검 4 항목 신설(task 파일·worktree list·빈 wrapper·임시 브랜치). orchestrator SKILL.md 정합 갱신 동반. (architect) |
 | 2026-05-19 | §1-A chart-curator author 추가 hotfix — `.husky/pre-commit` ALLOWED_AUTHOR regex + CLAUDE.md Git hook 본문 정합 흡수 | PR #514 evidence — chart-curator sub-agent commit이 frontend author로 attribution. PR #511 ADR 0085 영입 시 agent-charter §1-A allowed values는 갱신했으나 `.husky/pre-commit` 강제 regex + CLAUDE.md SoT 본문 갱신 누락. pre-commit hook이 chart-curator 거부 안 함 → sub-agent fallback으로 다른 author 사용 → git blame·CHANGELOG `(작성: chart-curator)` 마커 깨짐. (architect) |
 | 2026-05-19 | §0(서문) 8 → 9 actor + §1-A `<agent>` 허용 값에 `chart-curator` 추가 (ADR 0085 영입 정합) | 사용자 dogfooding evidence(한국석유 일봉 5개월 stale) + 3 영역 교차 점유 단일 owner 부재 → 8번째 sub-agent chart-curator 영입. agent-charter.md SoT에 영입 정합 흡수. (architect) |
 | 2026-05-18 | §1 강화 — 1-A worktree 진입 author 의무 + 1-C task 파일 commit 의무 신설 (안정성 Cycle 2 — backlog §59) | 안정성 Cycle 1 evidence — PR #473·#475 author=magicjar-frontend attribution + PR #473·#474·#476 task 파일 commit 0건. worktree default frontend가 다른 sub-agent에 전파되어 운영 audit 깨짐. (architect) |

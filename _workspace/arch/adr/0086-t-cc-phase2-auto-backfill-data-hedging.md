@@ -1,6 +1,6 @@
 # ADR 0086: T-CC Phase 2 — 자동 backfill 워커 + 갭 검출 + 데이터 햇징 룰 매트릭스 10건 (chart-curator 신입 보호)
 
-- 상태: **Proposed**
+- 상태: **Accepted (2026-05-19 격상 — Phase 2-A 머지 evidence · v3.6.17 release 포함)**
 - 작성일: 2026-05-19
 - 결정자: architect (opus 4.7 1M) — 사용자 위임 명시 "신입한테 위 내용 잘 상기시켜서 진행해"
 - 영역: 캔들 정합성 + 메타·운영·하네스 (chart-curator skill SoT 정합)
@@ -149,3 +149,4 @@ T-CC Phase 2 의제를 ADR 0085(chart-curator 영입)에 add-only § 추가로 �
 | 일자 | 상태 | 사유 |
 |------|------|------|
 | 2026-05-19 | Proposed | T-CC Phase 2 spec 정합 신규 발행 — 자동 backfill 워커 + 갭 검출 + 데이터 햇징 룰 매트릭스 10건 LOCK + chart-curator 신입 보호. 사용자 명시 "신입한테 위 내용 잘 상기시켜서 진행해" 정합. spec 본문: `_workspace/specs/2026-05-19-t-cc-phase2-auto-backfill-gap-detection-spec.md`. (architect, opus 4.7 1M) |
+| 2026-05-19 | Proposed → Accepted | Phase 2-A 햇징 룰 10건 모두 구현 + 27 단위 테스트 ALL GREEN (PR #525) · `CandleGapDetectorPort/Adapter` + `CandleBackfillWorker` + `CandleBackfillAdminController` + Flyway V39 `candle.backfill_batch_id` add-only + Phase 1 `LastCandleAtMonitor.checkAllCodes()` 1 line edit 통합 · 한국석유 dogfooding cycle 검증 path 확보 · v3.6.17 release 포함. (architect, opus 4.7 1M) |
