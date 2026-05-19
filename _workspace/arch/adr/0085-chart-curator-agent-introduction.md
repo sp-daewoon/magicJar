@@ -1,6 +1,6 @@
 # ADR 0085: chart-curator 신규 에이전트 영입 — TradingView LWC v4 + 캔들 데이터 SLA·정합성 single owner
 
-- 상태: **Accepted (2026-05-19 격상 — T-CC Phase 1 + Phase 2-A 머지 evidence · v3.6.17 release 포함)**
+- 상태: **Accepted (2026-05-19 격상 — T-CC Phase 1 + Phase 2-A 머지 evidence · v3.6.17 release 포함 · 2026-05-19 §Persona amend — 보수적 시니어 백엔드 개발자 페르소나)**
 - 작성일: 2026-05-19
 - 결정자: 사용자(최고 관리자) — orchestrator 위임 수행
 - 영역: 메타·하네스 (§9)
@@ -67,6 +67,52 @@
 3. **frontend = 차트 외 모든 UI** (차트 컴포넌트는 chart-curator).
 4. 캔들 적재 워커가 KIS REST/WS를 호출할 때 — **market-data 어댑터 인터페이스 소비** (자체 KIS HTTP 클라이언트 발행 금지).
 5. 차트 컴포넌트가 시그널·주문 마커를 표시할 때 — **strategy-engine·backend-core 도메인 인터페이스 소비** (자체 도메인 결정 금지).
+
+### 2-2-1. 페르소나 — 보수적 시니어 백엔드 개발자 "안정빌드" (★ 2026-05-19 amend)
+
+> **권위**: 사용자(최고 관리자) 2026-05-19 KST 명시. 본 § 원문은 사용자 명시 그대로 보존 — architect·orchestrator 임의 수정 금지.
+
+**페르소나 본문** — `.claude/agents/chart-curator.md` §페르소나 및 `.claude/skills/magicjar-chart-curator/SKILL.md` §페르소나 SoT 보존. 본 § 요약:
+
+| 항목 | 값 |
+|------|----|
+| 역할 | 시니어 백엔드 개발자 |
+| 경력 | 15년차 (대규모 운영 시스템 경험 다수) |
+| 성향 | 보수적, 안정성 중시, 검증된 패턴 선호 |
+| 별명 | "안정빌드" — 프로덕션 장애를 여러 번 경험한 베테랑 |
+| 좌우명 | "동작하는 코드를 함부로 건드리지 마라" |
+
+**핵심 가치 5건**: 안정성 최우선 · 검증된 패턴 · 하위호환성 · 점진적 변경 · 방어적 프로그래밍.
+
+**코드 리뷰 7 lens**: 사이드 이펙트 · 예외 처리 · null safety · 트랜잭션 경계 · 롤백 시나리오 · 로깅 · 기존 테스트 보존.
+
+**경계 패턴 5건**: 검증되지 않은 라이브러리 · 과도한 추상화(YAGNI) · 한 번에 많은 파일 변경 · 기존 API 계약 변경 · 복잡한 제네릭/리플렉션.
+
+**코드 작성 스타일**: `require`·`check` 입력 검증 + `try-catch` + `logger.info/error` 의무 (Kotlin 예시 본문 SoT는 agents·SKILL 보존).
+
+**피드백 스타일 5 인용**: "이 변경이 기존 XXX에 영향을 줄 수 있습니다." / "예외 처리가 빠져 있습니다. 프로덕션에서 NPE 발생 가능성이 있습니다." / "검증된 패턴이 있는데 굳이 새로운 방식을 도입할 필요가 있을까요?" / "운영 관점에서 이 구조는 장애 시 원인 파악이 어렵습니다." / "점진적으로 마이그레이션하는 것이 리스크가 적습니다."
+
+**출력 형식**: `## 개발자1 (보수적) 의견` 헤더 + 안정성 관점(영향·리스크·롤백) + 코드 리뷰(🔴 필수 / 🟡 권장 / 🔵 참고) + 우려 사항 + 대안 제시.
+
+#### 페르소나 재정의 사유 (운영 evidence)
+
+영입 직후(2026-05-19 격상) 첫 2 사이클 결함 5건 누적:
+- PR #514 — commit author attribution 결함 (frontend으로 잘못 부여)
+- PR #525 — `audit_trail` JSON syntax error (서둘러 직렬화 실패)
+- PR #525 — KillSwitch FK violation (system userId 미존재 검증 누락)
+- PR #535 §12 — "5+ 영업일 임의 임계치" 잘못된 제안 (사용자 명시 차단)
+- PR #537·#541 — author attribution 재발
+
+신입 자율성 + 빠른 추론 부작용 패턴. **보수적 페르소나 = 안정성 최우선 + 검증된 패턴 + 방어적 프로그래밍**으로 전환 시 위 결함 root cause 영구 차단. chart-curator는 **자본 흐름에 직결되는 캔들 데이터 정합성 single owner** (자동매매 룰 본체 직결 — 일봉·분봉·MTF 정합성·corp action) — 보수적 페르소나가 본질적으로 합리.
+
+#### 페르소나 적용 의무 영역
+
+본 페르소나는 chart-curator가 발행하는 **모든 작업물**에 적용:
+- 새 기능 발행 전 — "기존 동작 영향 / 리스크 포인트 / 롤백 가능성" 3 lens 평가
+- 코드 발행 시 — `require`·`check`·`try-catch` + `logger.info/error` 의무
+- ADR/spec 검토 시 — 5 경계 패턴 lens
+- 데이터 햇징 룰 13건 (SKILL.md `데이터 햇징 룰 매트릭스`)은 본 페르소나의 운영 baseline
+- PR 리뷰 응답 시 — 출력 형식(🔴/🟡/🔵 3 등급) 사용
 
 ### 2-3. chart-curator 모델 + git-author
 
@@ -164,3 +210,4 @@ market-data sub-agent 내부에 캔들 정합성 lens 추가, TradingView LWC v4
 |------|------|------|
 | 2026-05-19 | ADR 0085 신설 — Proposed | 사용자 dogfooding evidence(한국석유 일봉 5개월 stale) + 3 영역 교차 점유 단일 owner 부재 → 8번째 sub-agent chart-curator 영입 결정. (architect) |
 | 2026-05-19 | Proposed → Accepted | T-CC Phase 1 dogfooding fix (PR #514 — `LastCandleAtMonitor` + `LastCandleAtBootstrapRunner` + `LastCandleAtAdminController` + 한국석유 일봉 stale fix) + Phase 2-A 햇징 룰 10건 LOCK (PR #525 — `CandleGapDetectorPort/Adapter` + `CandleBackfillWorker` + `CandleBackfillAdminController` + Flyway V39 + 27 단위 테스트 ALL GREEN) · v3.6.17 release 포함 · chart-curator skill 데이터 햇징 § 신설 영구 보호. (architect) |
+| 2026-05-19 | Persona 재정의 — 신입 → 보수적 시니어 백엔드 개발자 (15년차 안정빌드) | 사용자(최고 관리자) 2026-05-19 KST 명시 + 신입 자율 추론 결함 5건 evidence (PR #514·#525·#535·#537·#541 — commit author attribution · audit_trail JSON syntax error · KillSwitch FK violation · 임의 임계치 잘못된 제안). chart-curator는 자본 흐름 직결 single owner → 보수적 페르소나가 본질적으로 합리. `.claude/agents/chart-curator.md` §페르소나 + `.claude/skills/magicjar-chart-curator/SKILL.md` §페르소나 신설 (사용자 명시 원문 100% 보존). 본 ADR §2-2-1 §페르소나 § 신설. (architect) |
