@@ -7,8 +7,11 @@
  * ⚠ 주의: 기존 `usePositions` (../api/hooks/usePositions)는 DB `position` 테이블 조회.
  *   본 hook은 KIS 실시간 응답 — 두 데이터 출처가 다름. (spec §2-3 evidence)
  *
- * - 30s auto-refresh (Redis TTL 30s 정합)
+ * - 5s auto-refresh (C-3 자본 시각화 즉시성 — backend Redis cache TTL 5s 정합)
  * - userId 없으면 쿼리 비활성
+ *
+ * C-3 (2026-05-20): refetchInterval 30s → 5s, staleTime 25s → 3s.
+ *   "돈 관련된건 실시간 정보를 가져와야지" (사용자 dogfooding).
  */
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -28,14 +31,14 @@ interface UseAccountPositionsOptions {
 export function useAccountPositions({
   userId,
   accountType = 'REAL',
-  refetchInterval = 30_000,
+  refetchInterval = 5_000,
   enabled = true,
 }: UseAccountPositionsOptions) {
   return useQuery<AccountHoldingDto[], Error>({
     queryKey: ['account', 'positions', userId, accountType],
     queryFn: () => accountApi.getPositions(userId!, accountType),
     enabled: enabled && userId !== null && userId !== undefined,
-    staleTime: 25_000,
+    staleTime: 3_000,
     refetchInterval,
     refetchOnWindowFocus: true,
   })
