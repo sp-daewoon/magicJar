@@ -3031,3 +3031,42 @@ raw 출처: `https://raw.githubusercontent.com/koreainvestment/open-trading-api/
 - ADR 0018 (Corporate Action raw + adjusted)
 - ADR 0037 (KIS API Rate Limit)
 - ADR 0043 (KillSwitch 행동 정의 · Phase 2 KillSwitch 트리거)
+
+---
+
+## §80. `docs/architecture/policies/ai-trigger-gate.md` 발행 의제 (ai-engineer 후속 · 2026-05-19)
+
+### 사유
+
+PR #552 cross-validation evidence — `NaturalLanguageDslTranslator.kt:102` 부재 path `docs/architecture/policies/ai-options.md` 인용 발견. 정정 PR(본 PR)에서 인용은 실 존재 SoT(`_workspace/ai/prompt-catalog.md`)로 교체했으나, **현행 권위 정책 SoT(`docs/architecture/policies/`)에 AI 옵션 트리거 게이트 단일 정책 페이지 부재** → architect SKILL §6 정책 위치 LOCK 정합 gap.
+
+### 발행 안
+
+`docs/architecture/policies/ai-trigger-gate.md` (architect 영역 발행 — ADR-0053 living policy 체계 §6 정합):
+
+- §1. AI 옵션 게이트 4단 (endpoint 503 · `MAGICJAR_AI_ENABLED` · `mock-mode` auto/mock/real · 화이트리스트 regex)
+- §2. provider LOCK (anthropic 단독, OpenAI 도입 시 별도 ADR)
+- §3. 사용자 트리거 endpoint 카탈로그 (`POST /api/ai/dsl/translate` 현행 + W4 baseline 분석 5종 발행 예정)
+- §4. 비용 통제 (`ai_analysis_log` V17 + Spring AI raw metadata 처리 한계)
+- §5. 룰 5 (W1·W2·W3 LLM provider import 자제) 예외 패키지 매트릭스 (`api/ai/dsl/` 1건)
+
+권위 출처: ADR 0026·0023 + spec PR-35 §5-1 + `prompt-catalog.md` §1.
+
+### 트리거
+
+- **우선순위 ↑**: W4 T-AI baseline 진입 직전 1회 발행 의무 (분석 5종 endpoint 카탈로그 합류 시점)
+- **우선순위 ↓**: 사용자 명시 트리거 또는 dogfooding에서 ai-trigger-gate 정책 부재 결함 재발견 시 즉시
+- 발생하지 않으면 W4 진입 첫 PR(architect)에 합류
+
+### 예상 처리 PR
+
+architect 단독 PR — `docs(policies): AI 옵션 트리거 게이트 단일 정책 페이지 신설 (ai-trigger-gate.md)`. 본 PR(ai-engineer P2-3 정리)은 인용만 정정 + 발행 backlog 등록까지가 영역 LOCK.
+
+### 연관
+
+- ADR 0026 (AI 옵션 — 사용자 트리거 한정 매매 결정권 0)
+- ADR 0023 (AI 사용자 트리거 helper 정책)
+- ADR-0053 (현행 권위 정책 living policy 체계)
+- PR-35 spec §5-1 (KIS 텍스트 1줄 표현식 LOCK)
+- `_workspace/ai/prompt-catalog.md` §1·§3 (광고-실재 매트릭스)
+- `feedback_release_policy_patch_first` (v3.7=W4 마감 정합)
