@@ -125,36 +125,46 @@ class SymbolMetaService(
                 }
             }
 
-        // 현재가: Redis quote 우선, 없으면 metrics의 previousClose fallback
+        // 현재가 fallback 순서 (SK하이닉스 1,840,000 결함 hotfix):
+        //  1. Redis quote:last (KIS WS 체결 tick / TickFallbackEmitter polling)
+        //  2. KIS inquire-price stck_prpr (현재가) — quote:last 부재 시
+        //  3. KIS inquire-price stck_sdpr (전일종가) — KIS 전체 fail 시만
+        //  과거 결함: 2단계 누락 → quote:last 비면 stck_sdpr이 currentPrice로 잘못 표시.
         val price =
             currentPrice
+                ?: resolvedMetrics?.currentPrice?.toPlainString()
                 ?: resolvedMetrics?.previousClose?.toPlainString()
                 ?: throw org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
                     "종목 데이터를 가져올 수 없습니다",
                 )
 
-        // 전일대비 계산
+        // 전일대비 — KIS 응답값 우선(정확한 부호·반올림), 없으면 직접 계산
         val prevClose = resolvedMetrics?.previousClose
         val priceDecimal = price.toBigDecimalOrNull()
         val change =
-            if (priceDecimal != null && prevClose != null) {
-                (priceDecimal - prevClose).toPlainString()
-            } else {
-                "0"
-            }
+            resolvedMetrics?.priceChange?.toPlainString()
+                ?: if (priceDecimal != null && prevClose != null) {
+                    (priceDecimal - prevClose).toPlainString()
+                } else {
+                    "0"
+                }
         val changeRate =
-            if (priceDecimal != null && prevClose != null && prevClose != BigDecimal.ZERO) {
-                (priceDecimal - prevClose)
-                    .divide(prevClose, 4, RoundingMode.HALF_UP)
-                    .multiply(BigDecimal("100"))
-                    .setScale(2, RoundingMode.HALF_UP)
-                    .toPlainString()
-            } else {
-                "0.00"
-            }
+            resolvedMetrics?.changeRate?.setScale(2, RoundingMode.HALF_UP)?.toPlainString()
+                ?: if (priceDecimal != null && prevClose != null && prevClose != BigDecimal.ZERO) {
+                    (priceDecimal - prevClose)
+                        .divide(prevClose, 4, RoundingMode.HALF_UP)
+                        .multiply(BigDecimal("100"))
+                        .setScale(2, RoundingMode.HALF_UP)
+                        .toPlainString()
+                } else {
+                    "0.00"
+                }
 
-        val stale = staleFromCache || (currentPrice == null)
+        // stale 판정: quote:last 부재 + KIS stck_prpr fallback 사용은 stale=false (실시간 시점 데이터).
+        // quote:last 부재 + KIS도 fail → previousClose fallback 사용 시만 stale=true.
+        val usedPreviousCloseFallback = currentPrice == null && resolvedMetrics?.currentPrice == null
+        val stale = staleFromCache || usedPreviousCloseFallback
 
         // name·market·industry: instrument 테이블 1순위 (design §11-8)
         // instrument 부재 또는 market='UNKNOWN'이면 KIS inquire-price fallback
