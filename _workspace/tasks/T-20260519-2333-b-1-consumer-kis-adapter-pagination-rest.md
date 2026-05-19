@@ -3,10 +3,10 @@ id: T-20260519-2333-b-1-consumer-kis-adapter-pagination-rest
 agent: chart-curator
 model: opus
 branch: agent/chart-curator/b-1-consumer-kis-adapter-pagination-restore
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T23:33:20.346+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T23:42:24.928+09:00
+pr: #590
 parentPhase: ?
 ---
 
