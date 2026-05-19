@@ -3,10 +3,10 @@ id: T-20260519-1754-api-parsekisdailyoutput2-asc-normalize
 agent: backend-core
 model: opus
 branch: hotfix/api-parsekisdailyoutput2-asc-normalize
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T17:54:01.123+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T17:58:54.855+09:00
+pr: #558
 parentPhase: ?
 ---
 
