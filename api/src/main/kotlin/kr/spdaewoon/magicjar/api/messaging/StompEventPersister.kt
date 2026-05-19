@@ -48,8 +48,23 @@ class StompEventPersister(
         payload: Any,
     ) {
         if (!enabled) return
+        // 직렬화는 별도 try-catch로 분리 — 실패 시에도 audit row는 "{}" fallback으로 발행하여 backfill 추적성 보장.
+        // PR #530 CandleBackfillWorker.persistAudit() 동일 패턴 정합.
+        val payloadJson =
+            try {
+                objectMapper.writeValueAsString(payload)
+            } catch (e: Exception) {
+                log.warn(
+                    "stomp_event payload 직렬화 실패 → '{}' fallback: userId={} channel={} eventType={} err={}",
+                    "{}",
+                    userId,
+                    channel,
+                    eventType,
+                    e.message,
+                )
+                "{}"
+            }
         try {
-            val payloadJson = objectMapper.writeValueAsString(payload)
             val event =
                 StompEvent(
                     userId = userId,
