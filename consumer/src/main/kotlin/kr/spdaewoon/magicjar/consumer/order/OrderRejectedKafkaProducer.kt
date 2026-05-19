@@ -1,8 +1,12 @@
 package kr.spdaewoon.magicjar.consumer.order
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.order.event.OrderEventOutbox
+import kr.spdaewoon.magicjar.domain.order.event.OrderOutboxEventType
+import kr.spdaewoon.magicjar.domain.order.event.port.OrderEventOutboxRepository
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Component
 
@@ -14,12 +18,19 @@ import org.springframework.stereotype.Component
  *
  * partition key = userId.
  *
- * AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8)
+ * ### Transactional Outbox 패턴 (ADR 0084 P1-1 + spec §2-5 LOCK)
+ *
+ * 1. payload 직렬화 → outbox row INSERT (PENDING)
+ * 2. Kafka send → outbox markPublished
+ * 3. Kafka send 실패 시 outbox row 잔존 → OrderOutboxPublisherWorker가 비동기 retry
+ *
+ * AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8 + ADR 0084 §1-2)
  */
 @Component
 class OrderRejectedKafkaProducer(
     private val kafkaTemplate: KafkaTemplate<String, String>,
     private val objectMapper: ObjectMapper,
+    private val outboxRepositoryProvider: ObjectProvider<OrderEventOutboxRepository>,
 ) {
     private val log = LoggerFactory.getLogger(OrderRejectedKafkaProducer::class.java)
 
@@ -31,8 +42,8 @@ class OrderRejectedKafkaProducer(
         request: OrderRequest,
         reason: String,
     ) {
-        try {
-            val payload =
+        val payload =
+            try {
                 objectMapper.writeValueAsString(
                     mapOf(
                         "orderId" to request.id,
@@ -46,7 +57,51 @@ class OrderRejectedKafkaProducer(
                         "rejectedAt" to (request.completedAt?.epochSecond ?: request.requestedAt.epochSecond),
                     ),
                 )
+            } catch (e: Exception) {
+                log.error(
+                    "OrderRejectedKafkaProducer payload 직렬화 실패: userId={} orderId={} err={}",
+                    request.userId,
+                    request.id,
+                    e.message,
+                )
+                return
+            }
+
+        val outboxRepository = outboxRepositoryProvider.getIfAvailable()
+        val outboxId =
+            outboxRepository?.let {
+                runCatching {
+                    it
+                        .save(
+                            OrderEventOutbox(
+                                eventType = OrderOutboxEventType.ORDER_REJECTED,
+                                topic = TOPIC,
+                                partitionKey = request.userId,
+                                payloadJson = payload,
+                            ),
+                        ).id
+                }.onFailure { e ->
+                    log.error(
+                        "OrderRejectedKafkaProducer outbox INSERT 실패 — direct publish fallback: userId={} orderId={} err={}",
+                        request.userId,
+                        request.id,
+                        e.message,
+                    )
+                }.getOrNull()
+            }
+
+        try {
             kafkaTemplate.send(TOPIC, request.userId, payload)
+            if (outboxId != null) {
+                runCatching { outboxRepository?.markPublished(outboxId) }
+                    .onFailure { e ->
+                        log.warn(
+                            "OrderRejectedKafkaProducer outbox markPublished 실패 (publish는 성공): outboxId={} err={}",
+                            outboxId,
+                            e.message,
+                        )
+                    }
+            }
             log.warn(
                 "OrderRejectedKafkaProducer publish: topic={} userId={} orderId={} reason={}",
                 TOPIC,
@@ -55,10 +110,16 @@ class OrderRejectedKafkaProducer(
                 reason,
             )
         } catch (e: Exception) {
+            if (outboxId != null) {
+                runCatching {
+                    outboxRepository?.recordAttemptFailure(outboxId, "publish: ${e.message?.take(200) ?: "unknown"}")
+                }
+            }
             log.error(
-                "OrderRejectedKafkaProducer publish 실패: userId={} orderId={} err={}",
+                "OrderRejectedKafkaProducer publish 실패 (outbox retry 예약): userId={} orderId={} outboxId={} err={}",
                 request.userId,
                 request.id,
+                outboxId,
                 e.message,
             )
         }
