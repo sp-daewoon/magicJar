@@ -29,7 +29,8 @@ const WS_BROKER_URL =
 let sharedClient: Client | null = null
 let connectPromise: Promise<void> | null = null
 
-function getStompClient(): Client {
+/** STOMP 싱글톤 client getter — useStompReconnect.ts에서 onConnect chain 후킹용 export */
+export function getStompClient(): Client {
   if (!sharedClient) {
     sharedClient = new Client({
       brokerURL: WS_BROKER_URL,

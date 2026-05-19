@@ -13,7 +13,8 @@ import { type StrategyFilterOption } from './StrategyFilterBar'
 import { StrategyCard } from './StrategyCard'
 
 interface StrategyListProps {
-  userId: string
+  /** ADR 0089 Phase 2 — userId number */
+  userId: number
   filter: StrategyFilterOption
 }
 

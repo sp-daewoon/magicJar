@@ -31,7 +31,8 @@ function pnlColor(value: number): string {
 }
 
 interface BalanceCardProps {
-  userId: string
+  /** ADR 0089 Phase 2 — userId number */
+  userId: number
 }
 
 /** 잔고 라인 한 줄 */

@@ -43,7 +43,8 @@ export interface OrderStompPayload {
 }
 
 export interface UseStompOrderOptions {
-  userId: string
+  /** ADR 0089 Phase 2 — userId number */
+  userId: number
   enabled?: boolean
   onOrderEventReceived?: (event: OrderStompPayload) => void
 }
@@ -127,7 +128,7 @@ export function useStompOrder({
   const { showToast } = useToast()
   const queryClient = useQueryClient()
 
-  const topic = userId ? `/topic/order.user.${userId}` : ''
+  const topic = userId !== null && userId !== undefined ? `/topic/order.user.${userId}` : ''
 
   const handleOrderEvent = useCallback(
     (event: OrderStompPayload) => {
@@ -170,7 +171,11 @@ export function useStompOrder({
     [showToast, queryClient],
   )
 
-  useStompTopic<OrderStompPayload>(topic, handleOrderEvent, enabled && !!userId)
+  useStompTopic<OrderStompPayload>(
+    topic,
+    handleOrderEvent,
+    enabled && userId !== null && userId !== undefined,
+  )
 
   const clearQueue = useCallback(() => {
     setOrderEventQueue([])

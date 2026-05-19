@@ -10,10 +10,10 @@ import apiClient from '../lib/axios'
 // Response / Request 타입 정의 (spec §4-1 LOCK)
 // ──────────────────────────────────────────────
 
-/** GET /api/watchlists 응답 — 배열 요소 (PR-21b 6 필드 add-only 정합) */
+/** GET /api/watchlists 응답 — 배열 요소 (PR-21b 6 필드 add-only 정합, ADR 0089 userId number) */
 export interface WatchlistEntryDto {
   id: number
-  userId: string
+  userId: number
   code: string
   /** 종목명 (instrument 테이블 join — 미동기화 시 null, PR-20) */
   name?: string | null

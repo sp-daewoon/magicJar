@@ -14,44 +14,44 @@ import { useOnboardingStore } from '../stores/onboarding'
 // Response / Request 타입 정의 (spec §4-1 LOCK)
 // ──────────────────────────────────────────────
 
-/** GET /api/onboarding/status */
+/** GET /api/onboarding/status (ADR 0089 Phase 2 — userId number 통일) */
 export interface OnboardingStatus {
   hasUserAccount: boolean
   hasMockAccount: boolean
   hasDartKey: boolean
   hasSlackWebhook: boolean
-  /** KIS 실전 계좌번호 (8자리) — 단일 사용자 시스템. hasUserAccount=false 시 null. store auto-sync 용. */
-  userId: string | null
+  /** KIS 실전 계좌번호 (8자리 number) — 단일 사용자 시스템. hasUserAccount=false 시 null. store auto-sync 용. */
+  userId: number | null
 }
 
 /** POST /api/onboarding/kis/validate — 요청 */
 export interface KisValidateRequest {
-  accountNumber: string // 8자리 KIS 실전 계좌번호
+  accountNumber: string // 8자리 KIS 실전 계좌번호 (input — 사용자 타이핑 형식 보존)
   displayName?: string // UI 닉네임 (선택, 최대 100자)
   appKey: string // KIS 콘솔 발급
   secretKey: string
 }
 
-/** POST /api/onboarding/kis/validate — 응답 (200) */
+/** POST /api/onboarding/kis/validate — 응답 (200) (ADR 0089 — Long → JS number) */
 export interface KisValidateResponse {
-  userId: string // 8자리
+  userId: number // 8자리 (Long)
   maskedAccount: string // "7468****"
   displayName?: string
   status: 'VALIDATED'
   validatedAt: string // ISO 8601
 }
 
-/** POST /api/onboarding/kis/mock — 요청 */
+/** POST /api/onboarding/kis/mock — 요청 (ADR 0089) */
 export interface KisMockRequest {
-  userId: string // 실전 계좌번호 (이미 등록되어 있어야 함)
-  mockAccountNumber: string // KIS 모의 발급 계좌번호 (8자리)
+  userId: number // 실전 계좌번호 (이미 등록되어 있어야 함)
+  mockAccountNumber: string // KIS 모의 발급 계좌번호 (8자리, input format string)
   appKey: string
   secretKey: string
 }
 
-/** POST /api/onboarding/kis/mock — 응답 (200) */
+/** POST /api/onboarding/kis/mock — 응답 (200) (ADR 0089) */
 export interface KisMockResponse {
-  userId: string
+  userId: number
   mockAccountNumber: string
   status: 'VALIDATED'
 }
@@ -69,14 +69,14 @@ export interface SystemConfigResponse {
   updatedAt: string // ISO 8601
 }
 
-/** POST /api/onboarding/complete — 요청 */
+/** POST /api/onboarding/complete — 요청 (ADR 0089) */
 export interface OnboardingCompleteRequest {
-  userId: string
+  userId: number
 }
 
-/** POST /api/onboarding/complete — 응답 (200) */
+/** POST /api/onboarding/complete — 응답 (200) (ADR 0089) */
 export interface OnboardingCompleteResponse {
-  userId: string
+  userId: number
   maskedAccount: string
   redirectTo: string // "/"
 }

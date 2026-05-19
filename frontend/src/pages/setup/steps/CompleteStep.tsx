@@ -24,7 +24,7 @@ export function CompleteStep() {
   const { mutate, isPending } = useCompleteOnboarding()
 
   function handleStart() {
-    if (!registeredUserId) return
+    if (registeredUserId === null) return
     setServerError(null)
 
     const req: OnboardingCompleteRequest = { userId: registeredUserId }
@@ -41,12 +41,14 @@ export function CompleteStep() {
     })
   }
 
-  const maskedAccount = registeredUserId
-    ? `${registeredUserId.substring(0, 4)}****`
-    : '--------'
+  // ADR 0089 Phase 2 — registeredUserId now number; convert to padded 8-digit string for masking
+  const maskedAccount =
+    registeredUserId !== null
+      ? `${String(registeredUserId).padStart(8, '0').substring(0, 4)}****`
+      : '--------'
 
   const items = [
-    { label: '실전 계좌', value: maskedAccount, done: !!registeredUserId },
+    { label: '실전 계좌', value: maskedAccount, done: registeredUserId !== null },
     { label: '모의 계좌', value: hasMockRegistered ? '등록됨' : '미등록', done: hasMockRegistered },
     { label: 'DART API', value: hasSystemConfig ? '설정됨' : '미설정', done: hasSystemConfig },
     { label: 'Slack 알림', value: hasSystemConfig ? '설정됨' : '미설정', done: hasSystemConfig },
@@ -110,7 +112,7 @@ export function CompleteStep() {
       <button
         type="button"
         onClick={handleStart}
-        disabled={isPending || !registeredUserId}
+        disabled={isPending || registeredUserId === null}
         className="w-full rounded-lg bg-green-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50"
       >
         {isPending ? '처리 중...' : 'magicJar 시작하기 →'}

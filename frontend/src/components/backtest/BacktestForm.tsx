@@ -20,7 +20,8 @@ import { backtestApi } from '../../api/backtest'
 import type { BacktestRunPersistResponse } from '../../api/backtest'
 
 interface BacktestFormProps {
-  userId: string
+  /** ADR 0089 Phase 2 — userId number */
+  userId: number
   onSuccess: (response: BacktestRunPersistResponse) => void
 }
 

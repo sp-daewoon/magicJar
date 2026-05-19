@@ -50,7 +50,8 @@ export function OrdersPage() {
   })
 
   // STOMP 구독 — 새 주문 이벤트 발생 시 토스트 + 목록 자동 갱신 (userId 있을 때만)
-  useStompOrder({ userId: userId ?? '', enabled: !!userId })
+  // ADR 0089 Phase 2 — userId number; 0은 sentinel (disabled 상태에서만 통과)
+  useStompOrder({ userId: userId ?? 0, enabled: userId !== null })
 
   // 실거래 동의 상태 배지용
   const { data: consent } = useRealTradingConsent(userId)

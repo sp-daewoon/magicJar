@@ -24,9 +24,9 @@ export interface ConsentToggleRequestDto {
   consented: boolean
 }
 
-/** 실거래 동의 토글 응답 */
+/** 실거래 동의 토글 응답 (ADR 0089 Phase 2 — userId number 통일) */
 export interface ConsentToggleResponseDto {
-  userId: string
+  userId: number
   /** 동의 시각 (ISO 8601). null = 동의 해제 상태 */
   realTradingConsentAt: string | null
 }
@@ -118,11 +118,11 @@ export const accountApi = {
    * consented=false → real_trading_consent_at = NULL
    */
   updateRealTradingConsent: async (
-    userId: string,
+    userId: number,
     req: ConsentToggleRequestDto,
   ): Promise<ConsentToggleResponseDto> => {
     const res = await apiClient.put<ConsentToggleResponseDto>(
-      `/user-account/real-trading-consent?userId=${encodeURIComponent(userId)}`,
+      `/user-account/real-trading-consent?userId=${userId}`,
       req,
     )
     return res.data
@@ -132,9 +132,9 @@ export const accountApi = {
    * GET /api/user-account/real-trading-consent?userId=
    * 현재 동의 상태 조회
    */
-  getRealTradingConsent: async (userId: string): Promise<ConsentToggleResponseDto> => {
+  getRealTradingConsent: async (userId: number): Promise<ConsentToggleResponseDto> => {
     const res = await apiClient.get<ConsentToggleResponseDto>(
-      `/user-account/real-trading-consent?userId=${encodeURIComponent(userId)}`,
+      `/user-account/real-trading-consent?userId=${userId}`,
     )
     return res.data
   },
@@ -148,11 +148,11 @@ export const accountApi = {
    * mock 합성 0 LOCK — 실패 시 412(자격증명 부재) 또는 502(KIS upstream).
    */
   getBalance: async (
-    userId: string,
+    userId: number,
     accountType: AccountType = 'REAL',
   ): Promise<AccountBalanceDto> => {
     const res = await apiClient.get<AccountBalanceDto>(
-      `/account/balance?userId=${encodeURIComponent(userId)}&accountType=${accountType}`,
+      `/account/balance?userId=${userId}&accountType=${accountType}`,
     )
     return res.data
   },
@@ -165,11 +165,11 @@ export const accountApi = {
    * 동일 Redis cache 재사용 (KIS 호출 0 추가).
    */
   getPositions: async (
-    userId: string,
+    userId: number,
     accountType: AccountType = 'REAL',
   ): Promise<AccountHoldingDto[]> => {
     const res = await apiClient.get<AccountHoldingDto[]>(
-      `/account/positions?userId=${encodeURIComponent(userId)}&accountType=${accountType}`,
+      `/account/positions?userId=${userId}&accountType=${accountType}`,
     )
     return res.data
   },
@@ -180,11 +180,11 @@ export const accountApi = {
    * 30s polling 으로 사용.
    */
   getSummary: async (
-    userId: string,
+    userId: number,
     accountType: AccountType = 'REAL',
   ): Promise<AccountSummaryDto> => {
     const res = await apiClient.get<AccountSummaryDto>(
-      `/account/summary?userId=${encodeURIComponent(userId)}&accountType=${accountType}`,
+      `/account/summary?userId=${userId}&accountType=${accountType}`,
     )
     return res.data
   },

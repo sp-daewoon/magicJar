@@ -16,7 +16,8 @@ import {
 } from '../account'
 
 interface UseAccountSummaryOptions {
-  userId: string | null | undefined
+  /** ADR 0089 Phase 2 — userId number (backend Long) */
+  userId: number | null | undefined
   accountType?: AccountType
   /** 자동 갱신 주기 ms — 기본 30s (Redis TTL 정합) */
   refetchInterval?: number
@@ -32,7 +33,7 @@ export function useAccountSummary({
   return useQuery<AccountSummaryDto, Error>({
     queryKey: ['account', 'summary', userId, accountType],
     queryFn: () => accountApi.getSummary(userId!, accountType),
-    enabled: enabled && !!userId,
+    enabled: enabled && userId !== null && userId !== undefined,
     staleTime: 25_000, // 25s — 30s refetch 직전까지 fresh
     refetchInterval,
     refetchOnWindowFocus: true,

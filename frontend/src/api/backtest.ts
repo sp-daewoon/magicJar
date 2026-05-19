@@ -168,9 +168,9 @@ export const backtestApi = {
    * POST /api/backtests?userId=
    * 백테스트 실행 + 영속 → runId + KPI
    */
-  create: async (userId: string, req: BacktestRunRequest): Promise<BacktestRunPersistResponse> => {
+  create: async (userId: number, req: BacktestRunRequest): Promise<BacktestRunPersistResponse> => {
     const res = await apiClient.post<BacktestRunPersistResponse>(
-      `/backtests?userId=${encodeURIComponent(userId)}`,
+      `/backtests?userId=${userId}`,
       req,
     )
     return res.data
@@ -181,12 +181,12 @@ export const backtestApi = {
    * 사용자 백테스트 목록 (페이징)
    */
   list: async (
-    userId: string,
+    userId: number,
     page = 0,
     size = 20,
   ): Promise<BacktestListResponse> => {
     const res = await apiClient.get<BacktestListResponse>(
-      `/backtests?userId=${encodeURIComponent(userId)}&page=${page}&size=${size}`,
+      `/backtests?userId=${userId}&page=${page}&size=${size}`,
     )
     return res.data
   },
@@ -195,9 +195,9 @@ export const backtestApi = {
    * GET /api/backtests/{id}?userId=
    * 단건 메타 + KPI 조회
    */
-  getDetail: async (id: number, userId: string): Promise<BacktestRunDetailDto> => {
+  getDetail: async (id: number, userId: number): Promise<BacktestRunDetailDto> => {
     const res = await apiClient.get<BacktestRunDetailDto>(
-      `/backtests/${id}?userId=${encodeURIComponent(userId)}`,
+      `/backtests/${id}?userId=${userId}`,
     )
     return res.data
   },
@@ -208,14 +208,14 @@ export const backtestApi = {
    */
   getResult: async (
     id: number,
-    userId: string,
+    userId: number,
     tradePage = 0,
     tradeSize = 100,
     posPage = 0,
     posSize = 50,
   ): Promise<BacktestResultPageDto> => {
     const res = await apiClient.get<BacktestResultPageDto>(
-      `/backtests/${id}/result?userId=${encodeURIComponent(userId)}&tradePage=${tradePage}&tradeSize=${tradeSize}&posPage=${posPage}&posSize=${posSize}`,
+      `/backtests/${id}/result?userId=${userId}&tradePage=${tradePage}&tradeSize=${tradeSize}&posPage=${posPage}&posSize=${posSize}`,
     )
     return res.data
   },
@@ -224,7 +224,7 @@ export const backtestApi = {
    * DELETE /api/backtests/{id}?userId=
    * 백테스트 삭제 (CASCADE) → HTTP 204
    */
-  delete: async (id: number, userId: string): Promise<void> => {
-    await apiClient.delete(`/backtests/${id}?userId=${encodeURIComponent(userId)}`)
+  delete: async (id: number, userId: number): Promise<void> => {
+    await apiClient.delete(`/backtests/${id}?userId=${userId}`)
   },
 }

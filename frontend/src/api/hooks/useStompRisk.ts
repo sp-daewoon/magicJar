@@ -20,7 +20,8 @@ import type { RiskEventDto, RiskVerdict } from '../risk'
 import { useToast } from '../../components/ui/ToastProvider'
 
 export interface UseStompRiskOptions {
-  userId: string
+  /** ADR 0089 Phase 2 — userId number (backend Long) */
+  userId: number
   enabled?: boolean
   onRiskEventReceived?: (event: RiskEventDto) => void
 }
@@ -68,7 +69,7 @@ export function useStompRisk({
 
   const { showToast } = useToast()
 
-  const topic = userId ? `/topic/risk.user.${userId}` : ''
+  const topic = userId !== null && userId !== undefined ? `/topic/risk.user.${userId}` : ''
 
   const handleRiskEvent = useCallback(
     (event: RiskEventDto) => {
@@ -87,7 +88,11 @@ export function useStompRisk({
     [showToast],
   )
 
-  useStompTopic<RiskEventDto>(topic, handleRiskEvent, enabled && !!userId)
+  useStompTopic<RiskEventDto>(
+    topic,
+    handleRiskEvent,
+    enabled && userId !== null && userId !== undefined,
+  )
 
   const clearQueue = useCallback(() => {
     setRiskEventQueue([])

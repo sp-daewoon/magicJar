@@ -38,7 +38,8 @@ export function RealTradingConsentToggle() {
 
   function handleToggle(next: boolean) {
     // userId null 가드 — store sync 이전 엣지 케이스 방어 (dogfooding qa #2 fix)
-    if (!userId) {
+    // ADR 0089 Phase 2 — userId number, null check 명시적
+    if (userId === null) {
       showToast('사용자 인증 정보를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.', 'error')
       return
     }

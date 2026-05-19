@@ -20,7 +20,8 @@ export type PositionSource = 'MOCK' | 'REAL'
 
 export interface PositionDto {
   id: string
-  userId: string
+  /** ADR 0089 Phase 2 — userId number (backend Long) */
+  userId: number
   code: string
   /** 종목명 */
   codeName?: string
@@ -39,7 +40,7 @@ export interface PositionDto {
 }
 
 export interface PositionListParams {
-  userId?: string
+  userId?: number
   source?: PositionSource
 }
 
@@ -54,7 +55,7 @@ export const positionApi = {
    */
   list: async (params: PositionListParams = {}): Promise<PositionDto[]> => {
     const searchParams = new URLSearchParams()
-    if (params.userId) searchParams.set('userId', params.userId)
+    if (params.userId !== undefined) searchParams.set('userId', String(params.userId))
     if (params.source) searchParams.set('source', params.source)
     const qs = searchParams.toString()
     const res = await apiClient.get<PositionDto[]>(`/positions${qs ? `?${qs}` : ''}`)
@@ -65,10 +66,8 @@ export const positionApi = {
    * GET /api/positions/{id}
    * 포지션 단건 조회
    */
-  get: async (id: string, userId: string): Promise<PositionDto> => {
-    const res = await apiClient.get<PositionDto>(
-      `/positions/${id}?userId=${encodeURIComponent(userId)}`,
-    )
+  get: async (id: string, userId: number): Promise<PositionDto> => {
+    const res = await apiClient.get<PositionDto>(`/positions/${id}?userId=${userId}`)
     return res.data
   },
 }

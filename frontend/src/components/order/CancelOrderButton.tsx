@@ -16,7 +16,8 @@ import { useToast } from '../ui/ToastProvider'
 
 interface CancelOrderButtonProps {
   orderId: number
-  userId: string
+  /** ADR 0089 Phase 2 — userId number */
+  userId: number
   status: OrderStatus
   code: string
   side: OrderSide

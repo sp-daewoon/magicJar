@@ -46,7 +46,7 @@ describe('KisRealCredentialBanner — backlog §58 / ADR 0077 K-1', () => {
     server.use(
       http.get('/api/onboarding/kis/credentials', () => {
         return HttpResponse.json({
-          userId: 'thdetest',
+          userId: 74683223,
           credentials: [
             {
               accountType: 'REAL',
@@ -78,7 +78,7 @@ describe('KisRealCredentialBanner — backlog §58 / ADR 0077 K-1', () => {
     server.use(
       http.get('/api/onboarding/kis/credentials', () => {
         return HttpResponse.json({
-          userId: 'thdetest',
+          userId: 74683223,
           credentials: [
             {
               accountType: 'REAL',
@@ -107,7 +107,7 @@ describe('KisRealCredentialBanner — backlog §58 / ADR 0077 K-1', () => {
     server.use(
       http.get('/api/onboarding/kis/credentials', () => {
         return HttpResponse.json({
-          userId: 'thdetest',
+          userId: 74683223,
           credentials: [], // 빈 배열 — 신규 사용자
         })
       }),
@@ -125,7 +125,7 @@ describe('KisRealCredentialBanner — backlog §58 / ADR 0077 K-1', () => {
     server.use(
       http.get('/api/onboarding/kis/credentials', () => {
         return HttpResponse.json({
-          userId: 'thdetest',
+          userId: 74683223,
           credentials: [
             {
               accountType: 'REAL',

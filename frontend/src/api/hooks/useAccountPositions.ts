@@ -18,7 +18,8 @@ import {
 } from '../account'
 
 interface UseAccountPositionsOptions {
-  userId: string | null | undefined
+  /** ADR 0089 Phase 2 — userId number */
+  userId: number | null | undefined
   accountType?: AccountType
   refetchInterval?: number
   enabled?: boolean
@@ -33,7 +34,7 @@ export function useAccountPositions({
   return useQuery<AccountHoldingDto[], Error>({
     queryKey: ['account', 'positions', userId, accountType],
     queryFn: () => accountApi.getPositions(userId!, accountType),
-    enabled: enabled && !!userId,
+    enabled: enabled && userId !== null && userId !== undefined,
     staleTime: 25_000,
     refetchInterval,
     refetchOnWindowFocus: true,

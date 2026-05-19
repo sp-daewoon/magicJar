@@ -28,7 +28,8 @@ function formatKst(iso: string): string {
 }
 
 interface RiskEventListProps {
-  userId: string
+  /** ADR 0089 Phase 2 — userId number */
+  userId: number
   verdictFilter?: RiskVerdict
 }
 

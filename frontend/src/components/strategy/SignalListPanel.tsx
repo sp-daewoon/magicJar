@@ -36,7 +36,8 @@ const INTERVAL_OPTIONS = ['', '1m', '5m', '15m', '30m', '1h', '1d']
 // ──────────────────────────────────────────────
 
 interface SignalListPanelProps {
-  userId: string
+  /** ADR 0089 Phase 2 — userId number */
+  userId: number
   /** 실시간 prepend — useStompSignal signalQueue */
   prependSignals?: SignalDto[]
 }

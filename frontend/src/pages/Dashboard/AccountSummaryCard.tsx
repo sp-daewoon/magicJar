@@ -39,7 +39,8 @@ function formatKstTime(iso: string): string {
 }
 
 interface AccountSummaryCardProps {
-  userId: string
+  /** ADR 0089 Phase 2 — userId number */
+  userId: number
 }
 
 export function AccountSummaryCard({ userId }: AccountSummaryCardProps) {

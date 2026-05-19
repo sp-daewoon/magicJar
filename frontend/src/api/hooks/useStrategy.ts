@@ -25,14 +25,14 @@ import {
   type ValidateRequest,
 } from '../strategy'
 
-const STRATEGY_LIST_KEY = (userId?: string) => ['strategy', 'list', userId] as const
+const STRATEGY_LIST_KEY = (userId?: number) => ['strategy', 'list', userId] as const
 const STRATEGY_KEY = (id: string) => ['strategy', id] as const
 
 /**
  * 사용자별 전략 목록 조회
- * staleTime 30s
+ * staleTime 30s — ADR 0089 Phase 2 userId number
  */
-export function useStrategies(userId?: string) {
+export function useStrategies(userId?: number) {
   return useQuery<StrategyDto[]>({
     queryKey: STRATEGY_LIST_KEY(userId),
     queryFn: () => strategyApi.list(userId),
@@ -81,7 +81,7 @@ export function useStrategyEvaluate() {
  * 전략 저장 mutation
  * POST /api/strategy → invalidate strategy list
  */
-export function useCreateStrategy(userId?: string) {
+export function useCreateStrategy(userId?: number) {
   const queryClient = useQueryClient()
   return useMutation<CreateStrategyResponse, Error, CreateStrategyRequest>({
     mutationFn: (req) => strategyApi.create(req),
@@ -107,7 +107,7 @@ export function useEnableStrategy() {
 /**
  * 전략 삭제 mutation
  */
-export function useDeleteStrategy(userId?: string) {
+export function useDeleteStrategy(userId?: number) {
   const queryClient = useQueryClient()
   return useMutation<void, Error, string>({
     mutationFn: (id) => strategyApi.delete(id),

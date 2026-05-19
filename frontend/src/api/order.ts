@@ -107,7 +107,7 @@ export interface OrderAuditEventDto {
  *  - qty: Int (quantity 아님)
  *  - limitPrice: String? (소수점 정밀도 보존)
  *  - rejectReason: String? (PR #489 신규 — REAL_GATE_DENIED 등 노출)
- *  - userId: String (백엔드는 항상 반환)
+ *  - userId: number (ADR 0089 Phase 2 — backend Long → JS number 정합)
  *  - source: OrderSource? (T-MAN B-2-extended 신규 — backend 필드 add 흡수 전까지 optional)
  *
  * T-MAN B-2-extended LOCK (ADR 0082):
@@ -116,7 +116,7 @@ export interface OrderAuditEventDto {
  */
 export interface OrderListItemDto {
   id: number
-  userId: string
+  userId: number
   code: string
   side: OrderSide
   priceType: OrderPriceType
@@ -163,9 +163,9 @@ export interface OrderListPage {
   last: boolean
 }
 
-/** 목록 조회 파라미터 */
+/** 목록 조회 파라미터 (ADR 0089 — userId number) */
 export interface OrderListParams {
-  userId?: string
+  userId?: number
   status?: OrderStatus | OrderStatus[]
   side?: OrderSide
   code?: string
@@ -185,7 +185,7 @@ export interface OrderListParams {
  * 수동 주문 요청 DTO (POST /api/orders/manual).
  *
  * backend 권위 (`api/.../dto/ManualOrderRequestDto.kt`) 정합:
- *  - userId: KIS credential identity (path 아닌 body field) — NotBlank
+ *  - userId: KIS credential identity (path 아닌 body field) — number (ADR 0089 Phase 2)
  *  - code: 6자리 숫자 LOCK (`^\d{6}$`)
  *  - side: 'BUY' | 'SELL'
  *  - priceType: 'MARKET' | 'LIMIT'
@@ -193,7 +193,7 @@ export interface OrderListParams {
  *  - limitPrice: LIMIT 시 not null (string — BigDecimal 정밀도)
  */
 export interface ManualOrderRequest {
-  userId: string
+  userId: number
   code: string
   side: OrderSide
   priceType: OrderPriceType
@@ -228,7 +228,7 @@ export const orderApi = {
    */
   list: async (params: OrderListParams = {}): Promise<OrderListPage> => {
     const searchParams = new URLSearchParams()
-    if (params.userId) searchParams.set('userId', params.userId)
+    if (params.userId !== undefined) searchParams.set('userId', String(params.userId))
     if (params.status) {
       if (Array.isArray(params.status)) {
         params.status.forEach((s) => searchParams.append('status', s))
@@ -253,9 +253,9 @@ export const orderApi = {
    * GET /api/orders/{id}
    * 주문 단건 (request + executions N건 + audit_events 시계열)
    */
-  get: async (id: number, userId: string): Promise<OrderDetailDto> => {
+  get: async (id: number, userId: number): Promise<OrderDetailDto> => {
     const res = await apiClient.get<OrderDetailDto>(
-      `/orders/${id}?userId=${encodeURIComponent(userId)}`,
+      `/orders/${id}?userId=${userId}`,
     )
     return res.data
   },
@@ -264,9 +264,9 @@ export const orderApi = {
    * POST /api/orders/{id}/cancel
    * 사용자 수동 취소 (ADR 0068 의제 E-1)
    */
-  cancel: async (id: number, userId: string, reason?: string): Promise<CancelOrderResponseDto> => {
+  cancel: async (id: number, userId: number, reason?: string): Promise<CancelOrderResponseDto> => {
     const res = await apiClient.post<CancelOrderResponseDto>(
-      `/orders/${id}/cancel?userId=${encodeURIComponent(userId)}`,
+      `/orders/${id}/cancel?userId=${userId}`,
       { reason: reason ?? null },
     )
     return res.data

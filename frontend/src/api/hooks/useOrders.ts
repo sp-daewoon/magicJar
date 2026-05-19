@@ -22,8 +22,9 @@ export function useOrders(params: UseOrdersOptions = {}) {
   return useQuery<OrderListPage, Error>({
     queryKey: ['orders', queryParams],
     queryFn: () => orderApi.list(queryParams),
-    // userId 없으면 쿼리 비활성 → WARN 0건
-    enabled: enabled && !!queryParams.userId,
+    // userId 없으면 쿼리 비활성 → WARN 0건 (ADR 0089 — userId number)
+    enabled:
+      enabled && queryParams.userId !== undefined && queryParams.userId !== null,
     staleTime: 30_000,
   })
 }

@@ -19,20 +19,21 @@ const RISK_EVENT_KEY = (id: string) => ['risk-events', id] as const
 /**
  * 리스크 이벤트 목록 (무한 스크롤)
  * userId 없으면 쿼리 비활성 (feedback_no_mock_data 정합)
+ * ADR 0089 Phase 2 — userId number
  */
 export function useRiskEvents(
-  userId: string | null | undefined,
+  userId: number | null | undefined,
   params: Omit<RiskEventListParams, 'page' | 'userId'> = {},
   size = 20,
 ) {
   return useInfiniteQuery<RiskEventPage, Error>({
-    queryKey: RISK_EVENT_LIST_KEY({ ...params, userId: userId ?? '', size }),
+    queryKey: RISK_EVENT_LIST_KEY({ ...params, userId: userId ?? undefined, size }),
     queryFn: ({ pageParam }) =>
       riskApi.listEvents({ ...params, userId: userId!, size, page: pageParam as number }),
     initialPageParam: 0 as number,
     getNextPageParam: (lastPage) =>
       lastPage.last ? undefined : lastPage.page + 1,
-    enabled: !!userId,
+    enabled: userId !== null && userId !== undefined,
     staleTime: 15 * 1000,
   })
 }
@@ -40,11 +41,11 @@ export function useRiskEvents(
 /**
  * 리스크 이벤트 단건 조회
  */
-export function useRiskEvent(id: string | undefined, userId: string | null | undefined) {
+export function useRiskEvent(id: string | undefined, userId: number | null | undefined) {
   return useQuery<RiskEventDto>({
     queryKey: RISK_EVENT_KEY(id ?? ''),
     queryFn: () => riskApi.getEvent(id!, userId!),
-    enabled: !!id && !!userId,
+    enabled: !!id && userId !== null && userId !== undefined,
     staleTime: 60 * 1000,
   })
 }

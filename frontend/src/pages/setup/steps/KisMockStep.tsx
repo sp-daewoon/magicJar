@@ -14,7 +14,8 @@ import type { KisCredentialFormValues } from '../../../components/settings/forms
 import { KisCredentialForm } from '../../../components/settings/forms/KisCredentialForm'
 
 interface Props {
-  userId: string
+  /** ADR 0089 Phase 2 — userId number (backend Long) */
+  userId: number
   onNext: () => void
 }
 

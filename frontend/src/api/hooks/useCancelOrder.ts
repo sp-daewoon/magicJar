@@ -9,7 +9,8 @@ import { orderApi, type CancelOrderResponseDto } from '../order'
 
 interface CancelOrderVariables {
   id: number
-  userId: string
+  /** ADR 0089 Phase 2 — userId number */
+  userId: number
   reason?: string
 }
 

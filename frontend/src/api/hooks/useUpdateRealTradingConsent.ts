@@ -13,16 +13,17 @@ import {
   type ConsentToggleResponseDto,
 } from '../account'
 
-export function useRealTradingConsent(userId: string | null | undefined) {
+/** ADR 0089 Phase 2 — userId number */
+export function useRealTradingConsent(userId: number | null | undefined) {
   return useQuery<ConsentToggleResponseDto, Error>({
     queryKey: ['realTradingConsent', userId],
     queryFn: () => accountApi.getRealTradingConsent(userId!),
-    enabled: !!userId,
+    enabled: userId !== null && userId !== undefined,
     staleTime: 60_000,
   })
 }
 
-export function useUpdateRealTradingConsent(userId: string | null | undefined) {
+export function useUpdateRealTradingConsent(userId: number | null | undefined) {
   const queryClient = useQueryClient()
 
   return useMutation<ConsentToggleResponseDto, Error, ConsentToggleRequestDto>({

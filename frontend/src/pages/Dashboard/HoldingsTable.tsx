@@ -30,7 +30,8 @@ function pnlColor(value: number): string {
 }
 
 interface HoldingsTableProps {
-  userId: string
+  /** ADR 0089 Phase 2 — userId number */
+  userId: number
 }
 
 export function HoldingsTable({ userId }: HoldingsTableProps) {

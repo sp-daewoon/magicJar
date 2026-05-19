@@ -46,6 +46,8 @@ import { OrderDetailPage } from './pages/orders/OrderDetailPage'
 import { NewOrderPage } from './pages/orders/NewOrderPage'
 import { TradingJournalPage } from './pages/TradingJournalPage'
 import { PerformanceDashboardPage } from './pages/PerformanceDashboardPage'
+import { useStompReconnect } from './api/hooks/useStompReconnect'
+import { useOnboardingStore } from './stores/onboarding'
 
 /** 온보딩 라우팅 가드 — status 기반 자동 분기 */
 function OnboardingGuard({ children }: { children: ReactNode }) {
@@ -88,6 +90,10 @@ function OnboardingGuard({ children }: { children: ReactNode }) {
 function AppLayout({ children }: { children: ReactNode }) {
   const location = useLocation()
   const isSetupPath = location.pathname === '/setup'
+
+  // P1-3 frontend — STOMP 재연결 시 backfill (userId 있을 때만, /setup 외부에서)
+  const userId = useOnboardingStore((s) => s.registeredUserId)
+  useStompReconnect({ userId, enabled: !isSetupPath })
 
   if (isSetupPath) {
     return <>{children}</>

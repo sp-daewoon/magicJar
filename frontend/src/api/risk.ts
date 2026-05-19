@@ -33,7 +33,8 @@ export type RiskVerdict = 'ALLOWED' | 'BLOCKED' | 'AUTO_PAUSED'
  *   dllPct:             퍼센트 단위 (3 = 3%)
  */
 export interface RiskConfigDto {
-  userId: string
+  /** ADR 0089 Phase 2 — userId number (backend Long) */
+  userId: number
   /** 포지션 절대 한도 (원) */
   maxPositionAmount: number
   /** 포지션 비율 한도 (퍼센트, 예: 10 = 10%) */
@@ -64,7 +65,8 @@ export type RiskConfigUpdateRequest = Omit<RiskConfigDto, 'userId' | 'updatedAt'
 
 export interface RiskEventDto {
   id: string
-  userId: string
+  /** ADR 0089 Phase 2 — userId number */
+  userId: number
   verdict: RiskVerdict
   rule: string
   reason: string
@@ -84,7 +86,7 @@ export interface RiskEventPage {
 }
 
 export interface RiskEventListParams {
-  userId?: string
+  userId?: number
   from?: string
   to?: string
   page?: number
@@ -101,10 +103,8 @@ export const riskApi = {
    * GET /api/risk-config?userId=
    * 현재 리스크 설정 조회 (default seed 포함)
    */
-  getConfig: async (userId: string): Promise<RiskConfigDto> => {
-    const res = await apiClient.get<RiskConfigDto>(
-      `/risk-config?userId=${encodeURIComponent(userId)}`,
-    )
+  getConfig: async (userId: number): Promise<RiskConfigDto> => {
+    const res = await apiClient.get<RiskConfigDto>(`/risk-config?userId=${userId}`)
     return res.data
   },
 
@@ -112,11 +112,8 @@ export const riskApi = {
    * PUT /api/risk-config?userId=
    * 리스크 설정 갱신
    */
-  updateConfig: async (userId: string, req: RiskConfigUpdateRequest): Promise<RiskConfigDto> => {
-    const res = await apiClient.put<RiskConfigDto>(
-      `/risk-config?userId=${encodeURIComponent(userId)}`,
-      req,
-    )
+  updateConfig: async (userId: number, req: RiskConfigUpdateRequest): Promise<RiskConfigDto> => {
+    const res = await apiClient.put<RiskConfigDto>(`/risk-config?userId=${userId}`, req)
     return res.data
   },
 
@@ -124,10 +121,8 @@ export const riskApi = {
    * POST /api/risk-config/reset?userId=
    * default seed로 초기화
    */
-  resetConfig: async (userId: string): Promise<RiskConfigDto> => {
-    const res = await apiClient.post<RiskConfigDto>(
-      `/risk-config/reset?userId=${encodeURIComponent(userId)}`,
-    )
+  resetConfig: async (userId: number): Promise<RiskConfigDto> => {
+    const res = await apiClient.post<RiskConfigDto>(`/risk-config/reset?userId=${userId}`)
     return res.data
   },
 
@@ -137,7 +132,7 @@ export const riskApi = {
    */
   listEvents: async (params: RiskEventListParams = {}): Promise<RiskEventPage> => {
     const searchParams = new URLSearchParams()
-    if (params.userId) searchParams.set('userId', params.userId)
+    if (params.userId !== undefined) searchParams.set('userId', String(params.userId))
     if (params.from) searchParams.set('from', params.from)
     if (params.to) searchParams.set('to', params.to)
     if (params.page !== undefined) searchParams.set('page', String(params.page))
@@ -153,10 +148,8 @@ export const riskApi = {
    * GET /api/risk-events/{id}?userId=
    * 리스크 이벤트 단건
    */
-  getEvent: async (id: string, userId: string): Promise<RiskEventDto> => {
-    const res = await apiClient.get<RiskEventDto>(
-      `/risk-events/${id}?userId=${encodeURIComponent(userId)}`,
-    )
+  getEvent: async (id: string, userId: number): Promise<RiskEventDto> => {
+    const res = await apiClient.get<RiskEventDto>(`/risk-events/${id}?userId=${userId}`)
     return res.data
   },
 }

@@ -19,7 +19,8 @@ import { type SignalDto } from '../signal'
 import { useToast } from '../../components/ui/ToastProvider'
 
 export interface UseStompSignalOptions {
-  userId: string
+  /** ADR 0089 Phase 2 — userId number */
+  userId: number
   enabled?: boolean
   onSignalReceived?: (signal: SignalDto) => void
 }
@@ -63,7 +64,7 @@ export function useStompSignal({
 
   const { showToast } = useToast()
 
-  const topic = userId ? `/topic/signal.user.${userId}` : ''
+  const topic = userId !== null && userId !== undefined ? `/topic/signal.user.${userId}` : ''
 
   const handleSignal = useCallback(
     (signal: SignalDto) => {
@@ -81,7 +82,11 @@ export function useStompSignal({
     [showToast],
   )
 
-  useStompTopic<SignalDto>(topic, handleSignal, enabled && !!userId)
+  useStompTopic<SignalDto>(
+    topic,
+    handleSignal,
+    enabled && userId !== null && userId !== undefined,
+  )
 
   const clearQueue = useCallback(() => {
     setSignalQueue([])
