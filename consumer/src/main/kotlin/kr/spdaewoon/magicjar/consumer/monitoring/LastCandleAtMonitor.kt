@@ -44,6 +44,22 @@ import java.time.temporal.ChronoUnit
  * 자본 영향 0 — 본 워커는 데이터 정합 보강만 수행하며 주문 발행하지 않음.
  *
  * 룰 5 위반 금지: LLM provider import 0건.
+ *
+ * ## 임계치 의미 매트릭스 (ADR 0086 §11·§12·§13 정합 — P1-5)
+ *
+ * 본 monitor는 **사전 SLA watchdog** 역할 — 5 거래일·1 거래일 임계치는
+ * "이 임계치 위반 = stale로 간주" 기준 (passive 검출 + 자동 backfill 트리거).
+ *
+ * **혼동 금지**: ADR 0086 §12 "active gap detection"의 "임의 임계치 영구 폐기" 룰은
+ * 본 watchdog 임계치와 다른 의제. §12는 "5+ 영업일 연속 누락 시 skip" 같은
+ * 임의 임계치 기반 escalation 룰을 폐기 — market_calendar + trading_halt +
+ * liquidation + listed_at 4축 교차 검증으로 대체 (§13 참조).
+ *
+ * 본 monitor 임계치(5 거래일·1 거래일)는 **chart-curator SKILL §SLA 매트릭스**
+ * 기반의 정합한 SLA watchdog 임계치 — §12 폐기 대상이 아님.
+ *
+ * 신규 개발자 주의: 사용자(최고 관리자) "5+ 영업일 임의 임계치 영구 폐기" 권위
+ * 발화는 §12 active gap detection 의제에 한정. 본 monitor SLA watchdog는 보존.
  */
 @Component
 class LastCandleAtMonitor(
