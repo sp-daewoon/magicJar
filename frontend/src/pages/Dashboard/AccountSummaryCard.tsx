@@ -12,6 +12,8 @@
  * mock 합성 0 LOCK — 실패 시 "데이터 없음" 한국어 (feedback_no_mock_data).
  */
 import { useAccountSummary } from '../../api/hooks/useAccountSummary'
+import type { AccountType } from '../../api/account'
+import { extractStatus } from './errorStatus'
 
 /** 원화 포맷 — 천 단위 콤마 + "원" 접미 */
 function formatKrw(value: number): string {
@@ -41,12 +43,22 @@ function formatKstTime(iso: string): string {
 interface AccountSummaryCardProps {
   /** ADR 0089 Phase 2 — userId number */
   userId: number
+  /** B-1 (2026-05-20): 실전/모의 계좌 선택. queryKey 분리로 캐시 양쪽 보존. */
+  accountType?: AccountType
 }
 
-export function AccountSummaryCard({ userId }: AccountSummaryCardProps) {
-  const { data, isLoading, isError, refetch, isFetching } = useAccountSummary({
+export function AccountSummaryCard({
+  userId,
+  accountType = 'REAL',
+}: AccountSummaryCardProps) {
+  const { data, isLoading, isError, error, refetch, isFetching } = useAccountSummary({
     userId,
+    accountType,
   })
+
+  // B-1: 412 PRECONDITION_FAILED — MOCK 키 미등록 등 자격증명 부재
+  // axios error.response.status === 412 일 때 graceful 메시지
+  const isCredentialMissing = extractStatus(error) === 412
 
   return (
     <section
@@ -56,7 +68,19 @@ export function AccountSummaryCard({ userId }: AccountSummaryCardProps) {
       {/* 헤더: 제목 + 새로고침 */}
       <div className="mb-4 flex items-start justify-between">
         <div>
-          <h2 className="text-base font-semibold text-white">계좌 요약</h2>
+          <h2 className="text-base font-semibold text-white">
+            계좌 요약
+            <span
+              className={[
+                'ml-2 rounded px-1.5 py-0.5 text-[10px] font-bold',
+                accountType === 'REAL'
+                  ? 'bg-blue-900/60 text-blue-300'
+                  : 'bg-purple-900/60 text-purple-300',
+              ].join(' ')}
+            >
+              {accountType === 'REAL' ? '실전' : '모의'}
+            </span>
+          </h2>
           <p className="mt-0.5 text-xs text-gray-500">
             KIS 실시간 · 30초마다 자동 갱신
             {data && (
@@ -83,6 +107,14 @@ export function AccountSummaryCard({ userId }: AccountSummaryCardProps) {
             <div key={i} className="h-20 animate-pulse rounded-xl bg-gray-800/60" />
           ))}
         </div>
+      ) : isError && isCredentialMissing ? (
+        // 412: KIS 자격증명 부재 — MOCK/REAL 키 미등록 시
+        <div className="rounded-xl border border-yellow-800 bg-yellow-900/20 p-4 text-center text-sm text-yellow-300">
+          {accountType === 'MOCK' ? '모의' : '실전'}계좌 KIS 키가 등록되지 않았습니다.
+          <p className="mt-1 text-xs text-yellow-500">
+            우측 상단 설정(⚙️)에서 {accountType === 'MOCK' ? '모의(VPS)' : '실전(PROD)'} 키를 등록한 뒤 다시 시도해 주세요.
+          </p>
+        </div>
       ) : isError ? (
         <div className="rounded-xl border border-red-800 bg-red-900/20 p-4 text-center text-sm text-red-400">
           계좌 요약을 불러오지 못했습니다.
@@ -93,7 +125,7 @@ export function AccountSummaryCard({ userId }: AccountSummaryCardProps) {
             다시 시도
           </button>
           <p className="mt-1 text-xs text-red-500">
-            KIS 자격증명·네트워크 상태를 확인해 주세요.
+            KIS upstream·네트워크 상태를 확인해 주세요.
           </p>
         </div>
       ) : !data ? (
