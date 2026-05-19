@@ -67,6 +67,45 @@ magicJar 표준 (ADR 0085 §2-1):
 - 한국 거래시간: 09:00~15:30 KST + 동시호가 + NXT/시간외 (ADR 0063 매트릭스)
 - 휴장일: `time` 갭 발생 — `timeScale.applyOptions({ rightOffset, barSpacing })`로 시각적 보정
 
+## 데이터 햇징 룰 매트릭스 (CRITICAL — 모든 캔들 작업 적용 · ADR 0086)
+
+> **★ 신입 chart-curator 영구 보호 룰**: 본 § 10 룰은 캔들 데이터를 적재·변경·갱신·삭제할 때 **반드시** 적용. 위반 시 잘못된 캔들 적재 → 백테스트 결과 왜곡 → 실거래 시그널 오작동 → **자본 손실** risk + 단일 owner 책임 귀속(ADR 0085 정합).
+>
+> **권위**: ADR 0086 Proposed (2026-05-19, architect 자율 결정 · 사용자 명시 "신입한테 위 내용 잘 상기시켜서 진행해"). spec: `_workspace/specs/2026-05-19-t-cc-phase2-auto-backfill-gap-detection-spec.md`.
+
+| # | 룰 | 본문 |
+|---|-----|------|
+| 1 | **이중 검증 (Double Verification)** | KIS raw fetch 응답 적재 전 sanity check — 가격 range(`0 < open·high·low·close ≤ 1_000_000_000`) · 거래량 비음수(`volume >= 0`) · time monotonic (응답 list 내 ts 오름차순) · OHLC 정합성 (`high >= max(open, close)` ∧ `low <= min(open, close)` ∧ `low <= high`). 위반 시 적재 0 + warn log + audit. |
+| 2 | **Dry-run 모드** | `magicjar.chart-curator.backfill.dry-run=true` toggle 시 KIS fetch만 + DB 적재 0 + log·response 출력. admin endpoint `?dry-run=true` 우선 적용 (property override). 운영자 사전 검증 path. |
+| 3 | **Rollback 안전망** | backfill 시작 직전 `audit_trail.CANDLE_BACKFILL_START` row 발행 + `backfill_batch_id` (`"candle-backfill:${code}:${interval.code}:${epochMs}-${UUID}"` 형식) 추적 + 결함 검출 시 `DELETE FROM candle WHERE backfill_batch_id=?` 가능 (Flyway V39 micro `candle.backfill_batch_id VARCHAR(96) NULL` add-only). |
+| 4 | **Idempotency LOCK** | UPSERT `ON CONFLICT DO NOTHING` (`CandleRepository.saveAll()` 기존 동작 100% 재사용 — UQ `candle.code+interval+ts` ADR 0019 정합). 기존 정상 historic candle을 KIS retry 응답으로 덮어쓰기 금지. |
+| 5 | **Source-of-truth 룰** | KIS raw 응답이 권위 + 합성·계산·가공된 데이터 적재 금지. 5m·15m·30m·90m·1h 합산 가공은 `AggregateBackfillRunner` 위임(ADR 0062) — Phase 2 직접 touch 0. |
+| 6 | **갭 검출 false positive 가드** | 거래정지·정리매매 종목 (`instrumentJpaRepository.findById(code)` skip — `KIS_COLD_START_SKIPPED` 패턴) + 휴장일 (`BusinessDayCalendar.isBusinessDay()` 의무 호출 — ADR 0013) + 시간외(NXT — ADR 0063 정합) + 신규 종목 상장일 이전 ts 제외. |
+| 7 | **갭 검출 false negative 가드** | `last_candle_at` null 시 `Long.MAX_VALUE` (Phase 1 `LastCandleAtMonitor.detectStale()` 패턴 100% 재사용) + watchlist 신규 진입 종목 즉시 cold-start (`WatchlistChangedKafkaListener.onAdd()` 기존 동작). |
+| 8 | **재시도 backoff + KillSwitch** | 1회(즉시) + 2회(1s backoff) + 3회(5s backoff). 3회 실패 시 KillSwitch on (ADR 0043 정합) + Slack P0 alert + `CANDLE_BACKFILL_FAIL` audit. 전체 backfill failure 시 자동매매 중지(자본 보호 우선) / 부분 failure 시 warn log + Slack notice(운영자 수동 확인 권고). 임계치 chart-curator dogfooding 자율 fine-tune. |
+| 9 | **audit_trail 의무** | 5 path 모두 row 1건 — `CANDLE_BACKFILL_START` (시작 + `detailJson.backfillBatchId·gapCount·dryRun`) · `CANDLE_BACKFILL_SUCCESS` (완료 + `insertedCount·durationMs`) · `CANDLE_BACKFILL_FAIL` (3회 retry 실패 + `failedGaps·err`) · `CANDLE_BACKFILL_SKIPPED` (거래정지·휴장 + `reason`) · `CANDLE_BACKFILL_ROLLBACK` (운영자 수동 rollback + `deletedCount`). |
+| 10 | **운영자 우회 path** | admin endpoint `POST /admin/candle-curator/backfill?code={code}&interval={1d|1m}&dry-run={true|false}` 신설 (`CandleBackfillAdminController`). 응답에 `gapCount·gapsSample·backfillBatchId` 노출 → 운영자 수동 검증 path + admin rollback (1차 MVP SQL 수동 가능). |
+
+### 햇징 룰 적용 의무 영역
+
+본 10 룰은 다음 작업에서 **반드시** 적용:
+
+1. `CandleBackfillWorker` 본체 (T-CC Phase 2 — ADR 0086)
+2. 향후 chart-curator가 발행하는 모든 캔들 적재·변경 코드
+3. corp action retroactive 정정(Phase 4) — `Source-of-truth` + `Rollback 안전망` 룰 강조
+4. MTF 정합성 검증(Phase 3) — `Idempotency LOCK` + `Source-of-truth` 룰 강조
+5. LWC v4 확장(Phase 5) — `이중 검증` 룰 강조 (frontend client에서도 OHLC sanity check 권장)
+
+### 함정 가드 cross-ref
+
+본 § 룰은 본 SKILL 하단 §함정 가드의 운영 baseline:
+- 룰 #1 ↔ 함정 #1 (time 타입) + #2 (series 정렬)
+- 룰 #5 ↔ 함정 #6 (corp action retroactive)
+- 룰 #6 ↔ 함정 #5 (MTF 합산 timezone)
+- 룰 #8 ↔ 함정 #4 (KIS 페이지네이션)
+
+---
+
 ## 캔들 데이터 SLA 매트릭스
 
 ### timeframe별 SLA 정책 (ADR 0085 §2-1 정합)

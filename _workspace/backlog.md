@@ -2837,12 +2837,22 @@ T-ACCT Phase 4 + T-MAN Phase 1·2·3 머지 후 후속 의제:
 3. **stale 임계치 정책** — 일봉=3 영업일 / 주봉=2주 / 월봉=1~2개월 / 분봉=2분 (chart-curator SKILL.md 매트릭스 정합)
 4. **검증** — dogfooding 사이클: `curl /api/candles?code=004090&interval=1d` last_candle_at=2026-05-18(직전 거래일) 회복
 
-#### Phase 2 — 자동 backfill 워커 + 갭 검출 (신규 책임)
+#### Phase 2 — 자동 backfill 워커 + 갭 검출 (신규 책임) · 🚧 진행 중 (chart-curator dispatch 대기 · spec 발행 2026-05-19)
 
-1. **갭 검출 알고리즘** — 종목별 timeframe별 last_candle_at + 영업일 캘린더 매트릭스(ADR 0013) 정합
-2. **자동 backfill 트리거** — stale 임계치 위반 시 KIS endpoint 재호출 + 갭 메우기
-3. **재시도 정책** — 3회 backoff + KillSwitch 트리거 (ADR 0043 정합)
-4. **사용자 보고** — Slack outbox + 매매일지 timeline 기록
+> **spec**: `_workspace/specs/2026-05-19-t-cc-phase2-auto-backfill-gap-detection-spec.md`
+> **ADR**: 0086 Proposed (데이터 햇징 룰 매트릭스 10건 LOCK · 신입 chart-curator 보호)
+
+1. **갭 검출 알고리즘** — 종목별 timeframe별 영업일 캘린더(ADR 0013) `isBusinessDay()` 기반 expected sequence + DB actual sequence diff (윈도우 30 거래일 LOCK) · `CandleGapDetectorPort`(domain) + `CandleGapDetectorAdapter`(consumer) 신설
+2. **자동 backfill 트리거** — 갭만 정밀 backfill (KIS REST 부분 호출 — 전체 재수집 대비 90%+ 효율) · `CandleBackfillWorker` 신설 + Phase 1 `LastCandleAtMonitor.checkAllCodes()` 1 line edit
+3. **재시도 정책** — 3회 backoff (즉시 + 1s + 5s) + KillSwitch 트리거 (ADR 0043 정합) · 전체 failure 시 자동매매 중지 / 부분 failure 시 warn + Slack notice
+4. **사용자 보고** — Slack outbox + audit_trail 5 path (`CANDLE_BACKFILL_START/SUCCESS/FAIL/SKIPPED/ROLLBACK`) + `backfill_batch_id` 추적
+5. **★ 데이터 햇징 룰 매트릭스 10건 LOCK (신입 chart-curator 보호)** — 이중 검증·dry-run·rollback·idempotency·source-of-truth·갭 false positive/negative·재시도+KillSwitch·audit_trail·운영자 우회 (ADR 0086 §2-1 + chart-curator SKILL.md §데이터 햇징 룰 매트릭스)
+6. **운영자 admin endpoint** — `POST /admin/candle-curator/backfill?code=...&interval=1d|1m&dry-run=true|false` · `CandleBackfillAdminController` 신설
+7. **Flyway V39 micro** — `candle.backfill_batch_id VARCHAR(96) NULL` add-only (인덱스 0)
+
+**dispatch**: chart-curator 단일 PR (~835 LOC) — domain port + consumer 어댑터 + 워커 + admin endpoint + Flyway V39 + Phase 1 1 line edit + unit test (햇징 룰 10건 검증).
+
+**release**: v3.6.18 patch 권장 (ADR 0084 P1-3 묶음 가능 — 영역 분리 병렬).
 
 #### Phase 3 — MTF 정합성 검증 (신규 책임 · 자동매매 룰 본체 결합)
 
@@ -2883,11 +2893,15 @@ raw 출처: `https://raw.githubusercontent.com/koreainvestment/open-trading-api/
 
 ### 상태
 
-⏳ ADR 0085 머지 대기 → 머지 후 chart-curator 첫 발화 dispatch.
+- Phase 1: ✅ 마감 (PR #514 머지, 2026-05-19)
+- Phase 2: 🚧 진행 중 (spec 발행 2026-05-19 + ADR 0086 Proposed · chart-curator dispatch 대기)
+- Phase 3·4·5: ⏳ 후속 사이클
 
 ### 연관
 
+- ADR 0013 (영업일 캘린더 — Phase 2 갭 검출)
 - ADR 0085 (chart-curator 영입)
+- ADR 0086 (T-CC Phase 2 — 자동 backfill + 데이터 햇징 룰 매트릭스 10건 · Proposed 2026-05-19)
 - ADR 0019 · 0028 · 0029 (캔들 저장 정책 / Ingestion Worker / Redis 캐시)
 - ADR 0025 (LWC 확장)
 - ADR 0048 (KIS WS 41건 구독 한도)
@@ -2896,4 +2910,4 @@ raw 출처: `https://raw.githubusercontent.com/koreainvestment/open-trading-api/
 - ADR 0063 (NXT/통합거래 매트릭스)
 - ADR 0018 (Corporate Action raw + adjusted)
 - ADR 0037 (KIS API Rate Limit)
-- ADR 0043 (KillSwitch 행동 정의)
+- ADR 0043 (KillSwitch 행동 정의 · Phase 2 KillSwitch 트리거)
