@@ -1,6 +1,6 @@
 # ADR 0081 — Account Balance & Positions User-Facing Exposure
 
-- 상태: Proposed (spec 발행 단계 — Phase 1·2 머지 후 Accepted 격상)
+- 상태: **Accepted (2026-05-19 격상 — Phase 1·2·3·4 머지 evidence · v3.6.17 release 포함)**
 - 작성일: 2026-05-18
 - 결정자: architect (사용자 결함 진단 위임 — "지금 잔액조회 예수금 조회 이런게 아예 없는데?" 2026-05-18 14:50 KST)
 - 관계:
@@ -199,3 +199,4 @@ ADR 0004 모듈 경계 LOCK 정합.
 | 날짜 | 변경 | PR |
 |---|---|---|
 | 2026-05-18 | 본 ADR 신설 (Proposed) — 사용자 결함 진단 spec 발행 PR | (agent/architect/spec-account-balance-positions-track) |
+| 2026-05-19 | Proposed → Accepted — Phase 1·2·3·4 마감 evidence (PR #492 backend `AccountQueryService` + KIS 어댑터 Phase 1·2 + PR #499 `KisCapitalSnapshotProviderAdapter` Phase 3 + PR #509 frontend Dashboard 격상 DashboardPage + AccountSummaryCard + HoldingsTable + BalanceCard Phase 4 · v3.6.17 release 포함). architect | PR #492 + #499 + #509 |

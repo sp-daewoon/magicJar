@@ -64,9 +64,29 @@ PR 머지 직후 4단계 즉시 수행:
 1. **main pull** — `cd <repo-root> && git pull --ff-only origin main`
 2. **task archive** — `node scripts/task.mjs archive T-<id>` (status=DONE 검증 강제)
 3. **worktree 제거** — `git worktree unlock <path> 2>/dev/null && git -C <path> restore _workspace/tasks/ 2>/dev/null && git worktree remove <path>`
+3-extended. **빈 wrapper 디렉토리 정리** — `git worktree remove`는 git 추적 파일만 제거하므로 `.gradle/`·`.idea/`·`node_modules/` build/IDE 캐시가 빈 디렉토리로 남음. 다음 명령 동반:
+   ```bash
+   rmdir <path>/.gradle 2>/dev/null
+   rmdir <path>/.idea 2>/dev/null
+   rmdir <path>/node_modules 2>/dev/null
+   rmdir <path> 2>/dev/null   # 빈 경우만 (rm -rf 위험 회피)
+   ```
 4. **agent/* 로컬 브랜치 삭제** — `git branch -d agent/<agent>/<task>`
+4-extended. **worktree-agent-* 임시 브랜치 force delete** — Agent isolation 도구가 사용자 명시 `agent/<agent>/<task>` 외에 `worktree-agent-<id>` ref를 별도 생성. 동반 정리:
+   ```bash
+   git branch -D worktree-agent-<id>   # `-D` force (Agent isolation 정합)
+   ```
+   누락 시 git branch 잔재 누적 → 사용자가 진행 중 작업으로 오인할 risk.
 
-**자동 점검 (사이클 시작 시)**: `ls _workspace/tasks/T-*.md | wc -l` 5건 이상이면 일괄 archive. `git worktree list` 잔재 검증.
+**자동 점검 (사이클 시작 시)** — 4 항목 모두 검증 의무:
+1. `ls _workspace/tasks/T-*.md 2>/dev/null | wc -l` 5건 이상이면 일괄 archive
+2. `git worktree list` main 외 잔재 검증
+3. `ls .claude/worktrees/agent-*/ 2>/dev/null | wc -l = 0` 검증 (빈 wrapper 디렉토리)
+4. `git branch | grep -c worktree-agent- = 0` 검증 (Agent isolation 임시 브랜치)
+
+위반 시 사용자에게 즉시 보고 + 일괄 정리 권장.
+
+**역사 evidence** (2026-05-19): worktree 잔재 9 디렉토리 + worktree-agent-* 23 브랜치 누적 → 사용자 명시 비판("작업이 다 끝났다고 하면서 남아있으면 내가 오해하잖아"). 헌법 §2 갱신 hotfix.
 
 ## sub-agent fail 시 분기 룰 (헌법 §7 정합 ★)
 

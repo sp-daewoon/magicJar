@@ -1,6 +1,6 @@
 # ADR 0085: chart-curator 신규 에이전트 영입 — TradingView LWC v4 + 캔들 데이터 SLA·정합성 single owner
 
-- 상태: Proposed
+- 상태: **Accepted (2026-05-19 격상 — T-CC Phase 1 + Phase 2-A 머지 evidence · v3.6.17 release 포함)**
 - 작성일: 2026-05-19
 - 결정자: 사용자(최고 관리자) — orchestrator 위임 수행
 - 영역: 메타·하네스 (§9)
@@ -163,3 +163,4 @@ market-data sub-agent 내부에 캔들 정합성 lens 추가, TradingView LWC v4
 | 일자 | 변경 | 사유 |
 |------|------|------|
 | 2026-05-19 | ADR 0085 신설 — Proposed | 사용자 dogfooding evidence(한국석유 일봉 5개월 stale) + 3 영역 교차 점유 단일 owner 부재 → 8번째 sub-agent chart-curator 영입 결정. (architect) |
+| 2026-05-19 | Proposed → Accepted | T-CC Phase 1 dogfooding fix (PR #514 — `LastCandleAtMonitor` + `LastCandleAtBootstrapRunner` + `LastCandleAtAdminController` + 한국석유 일봉 stale fix) + Phase 2-A 햇징 룰 10건 LOCK (PR #525 — `CandleGapDetectorPort/Adapter` + `CandleBackfillWorker` + `CandleBackfillAdminController` + Flyway V39 + 27 단위 테스트 ALL GREEN) · v3.6.17 release 포함 · chart-curator skill 데이터 햇징 § 신설 영구 보호. (architect) |
