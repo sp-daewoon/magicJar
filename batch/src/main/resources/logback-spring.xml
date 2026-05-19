@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <springProperty scope="context" name="springAppName" source="spring.application.name" defaultValue="magicjar-batch"/>
+
+    <!--
+        ADR 0084 P1-3 — MDC traceId 분산 추적 패턴.
+        batch는 Kafka consumer · HTTP entrypoint 미보유 (Spring Batch job 기반)이나
+        같은 logback 패턴을 유지하여 운영 검색·grep 정합성 보존.
+        향후 job 진입점에 traceId 부착 helper 추가 시 자동 출력.
+    -->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+            <pattern>%d{HH:mm:ss.SSS} [%X{traceId:--}] [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="STDOUT"/>
+    </root>
+
+    <springProfile name="dev">
+        <logger name="kr.spdaewoon.magicjar" level="DEBUG"/>
+        <logger name="org.flywaydb" level="INFO"/>
+    </springProfile>
+
+    <springProfile name="prd">
+        <root level="WARN">
+            <appender-ref ref="STDOUT"/>
+        </root>
+    </springProfile>
+</configuration>

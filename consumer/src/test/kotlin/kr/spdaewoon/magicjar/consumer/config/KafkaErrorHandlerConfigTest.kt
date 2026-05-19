@@ -4,6 +4,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import kr.spdaewoon.magicjar.consumer.infrastructure.observability.TraceIdKafkaRecordInterceptor
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.errors.SerializationException
@@ -165,6 +166,7 @@ class KafkaErrorHandlerConfigTest {
                 sslBundlesProvider = sslBundlesProvider,
                 kafkaProperties = kafkaProperties,
                 errorHandler = errorHandler,
+                traceIdRecordInterceptor = TraceIdKafkaRecordInterceptor(),
             )
 
         // factory 정상 발행 — Spring 부팅 graceful 진행 증명
@@ -192,6 +194,7 @@ class KafkaErrorHandlerConfigTest {
                 sslBundlesProvider = sslBundlesProvider,
                 kafkaProperties = kafkaProperties,
                 errorHandler = errorHandler,
+                traceIdRecordInterceptor = TraceIdKafkaRecordInterceptor(),
             )
 
         // configurer에 custom factory 전달 검증 — fallback path 미진입
