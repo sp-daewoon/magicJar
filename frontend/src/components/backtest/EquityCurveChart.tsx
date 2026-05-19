@@ -12,6 +12,11 @@
  *   positions 0건 또는 pnl 있는 포지션 0건 → "결과 데이터 없음" 안내
  *
  * 룰 5: LLM provider import 0건
+ *
+ * §13 LWC dispose race 가드 (ADR 0086 §2-8 amend, 2026-05-19):
+ *   - chart 자체는 자식 컴포넌트로 prop 전달하지 않으므로 §13 본문 ref→state lift 미적용.
+ *   - 다만 ResizeObserver async 콜백이 cleanup 후 도달할 race risk → isDisposedRef + try/catch 강화.
+ *   - chart.remove() 호출 시 try/catch graceful — StrictMode 이중 mount 시에도 race 차단.
  */
 import { createChart, type IChartApi, type UTCTimestamp } from 'lightweight-charts'
 import { useEffect, useRef } from 'react'
@@ -39,6 +44,9 @@ function formatKstDate(ms: number): string {
 export function EquityCurveChart({ positions }: EquityCurveChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
+  // §13 dispose race 가드 (ADR 0086 §2-8) — ResizeObserver async 콜백이 cleanup 이후 발화해도
+  // chart.applyOptions가 disposed instance에 도달하는 것을 차단.
+  const isDisposedRef = useRef(false)
 
   // 포지션 중 closeTs + pnl 있는 항목 필터 + 시간순 정렬
   const closedPositions = positions
@@ -47,6 +55,7 @@ export function EquityCurveChart({ positions }: EquityCurveChartProps) {
 
   useEffect(() => {
     if (!containerRef.current) return
+    isDisposedRef.current = false
 
     const chart = createChart(containerRef.current, {
       layout: {
@@ -118,17 +127,27 @@ export function EquityCurveChart({ positions }: EquityCurveChartProps) {
       chart.timeScale().fitContent()
     }
 
-    // ResizeObserver
+    // ResizeObserver — §13 dispose race 가드 (isDisposedRef + try/catch)
     const ro = new ResizeObserver(() => {
-      if (containerRef.current) {
+      if (isDisposedRef.current) return
+      if (!containerRef.current) return
+      try {
         chart.applyOptions({ width: containerRef.current.clientWidth })
+      } catch {
+        // 이미 dispose된 경우 graceful (StrictMode 이중 mount race 대응)
       }
     })
     if (containerRef.current) ro.observe(containerRef.current)
 
     return () => {
+      // §13 dispose 순서 LOCK: flag → disconnect → remove(try/catch) → ref null
+      isDisposedRef.current = true
       ro.disconnect()
-      chart.remove()
+      try {
+        chart.remove()
+      } catch {
+        // 이미 dispose된 경우 graceful 무시
+      }
       chartRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
