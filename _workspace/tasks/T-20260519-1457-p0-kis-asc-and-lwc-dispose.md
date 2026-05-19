@@ -3,10 +3,10 @@ id: T-20260519-1457-p0-kis-asc-and-lwc-dispose
 agent: chart-curator
 model: opus
 branch: agent/chart-curator/p0-kis-asc-and-lwc-dispose
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T14:57:16.476+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T15:07:06.236+09:00
+pr: #537
 parentPhase: ?
 ---
 
