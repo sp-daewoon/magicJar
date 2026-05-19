@@ -3,10 +3,10 @@ id: T-20260520-0100-b-1-dashboard-account-type-toggle
 agent: frontend
 model: opus
 branch: agent/frontend/b-1-dashboard-account-type-toggle
-status: RUNNING
+status: DONE
 startedAt: 2026-05-20T01:00:49.014+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-20T01:06:43.803+09:00
+pr: #592
 parentPhase: ?
 ---
 
