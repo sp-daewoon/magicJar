@@ -3,9 +3,9 @@ id: T-20260519-1858-p2-1-userid-p2-5-instrument-status-workt
 agent: architect
 model: opus
 branch: agent/architect/p2-1-userid-p2-5-instrument-status-worktree-config-bundle
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T18:58:51.510+09:00
-completedAt: null
+completedAt: 2026-05-19T19:41:47.126+09:00
 pr: null
 parentPhase: ?
 ---
