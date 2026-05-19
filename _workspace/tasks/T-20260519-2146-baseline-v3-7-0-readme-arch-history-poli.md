@@ -3,10 +3,10 @@ id: T-20260519-2146-baseline-v3-7-0-readme-arch-history-poli
 agent: architect
 model: opus
 branch: agent/architect/baseline-v3-7-0-readme-arch-history-policy
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T21:46:06.603+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T22:06:22.927+09:00
+pr: #580
 parentPhase: ?
 ---
 
