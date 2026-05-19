@@ -36,6 +36,7 @@ import org.springframework.stereotype.Component
 class StompOrderNotifier(
     private val messagingTemplate: SimpMessagingTemplate,
     private val objectMapper: ObjectMapper,
+    private val stompEventPersister: StompEventPersister,
 ) {
     private val log = LoggerFactory.getLogger(StompOrderNotifier::class.java)
 
@@ -70,6 +71,13 @@ class StompOrderNotifier(
 
             val payload = toStompPayload(rawMap, eventType)
             val destination = "/topic/order.user.$userId"
+            // ADR 0084 P1-2: publish 직전 stomp_event 영속 (best-effort)
+            stompEventPersister.persist(
+                userId = userId,
+                channel = "order",
+                eventType = eventType,
+                payload = payload,
+            )
             messagingTemplate.convertAndSend(destination, payload)
 
             log.debug(
