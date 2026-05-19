@@ -14,13 +14,13 @@ parentPhase: ?
 캔들 12-30 stale 재발 root cause 진단
 
 ## 결과물 체크리스트
-- [ ] DB evidence 매트릭스
-- [ ] KIS API 직접 호출 검증
-- [ ] consumer log 분석
-- [ ] instrument 마스터 검증
-- [ ] KIS adapter 코드 정독
-- [ ] root cause 확정 + 처리 방안 매트릭스
-- [ ] 보고서 발행
+- [x] DB evidence 매트릭스
+- [x] KIS API 직접 호출 검증
+- [x] consumer log 분석
+- [x] instrument 마스터 검증
+- [x] KIS adapter 코드 정독
+- [x] root cause 확정 + 처리 방안 매트릭스
+- [x] 보고서 발행
 
 ## 의존성
 - (필요 시 기록)
