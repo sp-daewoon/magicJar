@@ -1,6 +1,6 @@
 # ADR 0085: chart-curator 신규 에이전트 영입 — TradingView LWC v4 + 캔들 데이터 SLA·정합성 single owner
 
-- 상태: **Accepted (2026-05-19 격상 — T-CC Phase 1 + Phase 2-A 머지 evidence · v3.6.17 release 포함 · 2026-05-19 §Persona amend — 보수적 시니어 백엔드 개발자 페르소나)**
+- 상태: **Accepted (2026-05-19 격상 — T-CC Phase 1 + Phase 2-A 머지 evidence · v3.6.17 release 포함 · 2026-05-19 §Persona amend — 보수적 시니어 백엔드 개발자 페르소나 · 2026-05-19 §2-1-extended amend — 책임 영역 명확화 chart-curator vs frontend 매트릭스 LOCK)**
 - 작성일: 2026-05-19
 - 결정자: 사용자(최고 관리자) — orchestrator 위임 수행
 - 영역: 메타·하네스 (§9)
@@ -67,6 +67,41 @@
 3. **frontend = 차트 외 모든 UI** (차트 컴포넌트는 chart-curator).
 4. 캔들 적재 워커가 KIS REST/WS를 호출할 때 — **market-data 어댑터 인터페이스 소비** (자체 KIS HTTP 클라이언트 발행 금지).
 5. 차트 컴포넌트가 시그널·주문 마커를 표시할 때 — **strategy-engine·backend-core 도메인 인터페이스 소비** (자체 도메인 결정 금지).
+
+### 2-1-extended. chart-curator vs frontend 책임 영역 명확화 매트릭스 (★ 2026-05-19 amend — chart-curator PR #554 P2-2 evidence)
+
+> **권위**: chart-curator PR #554 P2-2 보고("ADR 0085 §책임 영역 본문 명확화 결함") + orchestrator 2026-05-19 KST dispatch 의제. 본 § amend는 chart-curator·frontend 영역 분기 ambiguous path 영구 차단.
+
+**LOCK 매트릭스 — 파일 경로별 단일 owner**:
+
+| 파일 경로 패턴 | owner | evidence |
+|----------------|-------|----------|
+| `frontend/src/components/chart/*` | ✅ **chart-curator** | TradingView LWC v4 series·overlay·marker·priceLine·crossSign·panes·multipane MTF 본체 |
+| `frontend/src/pages/Symbol/SymbolChart.tsx` | ✅ **chart-curator** | 종목 상세 차트 메인 컴포넌트 (LWC v4 instance state lift §13 정합) |
+| `frontend/src/pages/Symbol/LightweightChart.tsx` | ✅ **chart-curator** | LWC v4 wrapping 컴포넌트 (dispose race 가드 §13) |
+| `frontend/src/pages/Symbol/IndicatorOverlay.tsx` | ✅ **chart-curator** | 지표 overlay (LWC v4 series add) |
+| `frontend/src/pages/Symbol/PatternMarker.tsx` | ✅ **chart-curator** | 57 캔들 패턴 marker (LWC marker series) |
+| `frontend/src/components/backtest/EquityCurveChart.tsx` | ✅ **chart-curator** | 백테스트 equity curve LWC v4 (dispose race 가드 §13) |
+| `frontend/src/features/performance/components/*Chart*.tsx` | ✅ **chart-curator** | T-PERF 일별 P&L bar chart·equity curve 등 LWC v4 |
+| `frontend/src/components/DashboardCard.tsx` | ❌ frontend | 대시보드 카드 (LWC 0건 — 일반 UI) |
+| `frontend/src/components/WatchlistTable.tsx` | ❌ frontend | 관심종목 테이블 (LWC 0건) |
+| `frontend/src/pages/Journal/*` | ❌ frontend | 매매일지 (LWC 0건 — text/table UI) |
+| `frontend/src/pages/Onboarding/*` | ❌ frontend | 온보딩 wizard (LWC 0건) |
+| `frontend/src/features/account/components/HoldingsTable.tsx` | ❌ frontend | 보유 종목 테이블 (LWC 0건) |
+| `frontend/src/features/account/components/BalanceCard.tsx` | ❌ frontend | 잔고 카드 (LWC 0건) |
+| `frontend/src/components/SettingsModal*` | ❌ frontend | 설정 모달 (LWC 0건) |
+| `frontend/src/components/AppHeader*` | ❌ frontend | 헤더 메뉴 (LWC 0건) |
+
+**판정 원칙**:
+1. **LWC v4 instance를 직접 다루는 파일 → chart-curator** (TradingView Lightweight Charts API import 또는 chart.addSeries/remove/dispose 호출 포함)
+2. **차트 외 모든 UI (테이블·카드·모달·페이지 wrapper) → frontend** (일반 React 컴포넌트)
+3. **모호한 경우** (예: 차트 컨테이너 페이지에 일반 UI도 섞여 있는 경우) — 본 매트릭스의 파일 경로별 단일 owner 우선 + 한 컴포넌트가 LWC + 일반 UI 혼합 시 분리 의제(별도 ADR 또는 architect 결정)
+4. **cross-review** — 자본 path 직결(차트 마커가 시그널·주문·체결 표시 시 → chart-curator 1차 lens) / 인프라 일반(props 타입·hook 패턴 → backend-core/frontend 1차 lens) (ADR 0085·0087 페르소나 매트릭스 정합)
+
+**Phase 1·2·3 미래 분기**:
+- 본 ADR 0085 영입 직후(2026-05-19) — 점진적 코드 이관 (별도 사이클, code git mv 0, 책임만 이관)
+- 점진적 이관 후 — 본 §2-1-extended 매트릭스가 단일 권위 LOCK
+- 신규 차트 컴포넌트 추가 시 — chart-curator 영역으로 자동 귀속 (frontend가 발행 시 PR 리뷰에서 chart-curator로 owner 이관 요청)
 
 ### 2-2-1. 페르소나 — 보수적 시니어 백엔드 개발자 "안정빌드" (★ 2026-05-19 amend)
 
@@ -211,3 +246,4 @@ market-data sub-agent 내부에 캔들 정합성 lens 추가, TradingView LWC v4
 | 2026-05-19 | ADR 0085 신설 — Proposed | 사용자 dogfooding evidence(한국석유 일봉 5개월 stale) + 3 영역 교차 점유 단일 owner 부재 → 8번째 sub-agent chart-curator 영입 결정. (architect) |
 | 2026-05-19 | Proposed → Accepted | T-CC Phase 1 dogfooding fix (PR #514 — `LastCandleAtMonitor` + `LastCandleAtBootstrapRunner` + `LastCandleAtAdminController` + 한국석유 일봉 stale fix) + Phase 2-A 햇징 룰 10건 LOCK (PR #525 — `CandleGapDetectorPort/Adapter` + `CandleBackfillWorker` + `CandleBackfillAdminController` + Flyway V39 + 27 단위 테스트 ALL GREEN) · v3.6.17 release 포함 · chart-curator skill 데이터 햇징 § 신설 영구 보호. (architect) |
 | 2026-05-19 | Persona 재정의 — 신입 → 보수적 시니어 백엔드 개발자 (15년차 안정빌드) | 사용자(최고 관리자) 2026-05-19 KST 명시 + 신입 자율 추론 결함 5건 evidence (PR #514·#525·#535·#537·#541 — commit author attribution · audit_trail JSON syntax error · KillSwitch FK violation · 임의 임계치 잘못된 제안). chart-curator는 자본 흐름 직결 single owner → 보수적 페르소나가 본질적으로 합리. `.claude/agents/chart-curator.md` §페르소나 + `.claude/skills/magicjar-chart-curator/SKILL.md` §페르소나 신설 (사용자 명시 원문 100% 보존). 본 ADR §2-2-1 §페르소나 § 신설. (architect) |
+| 2026-05-19 | §2-1-extended amend — chart-curator vs frontend 책임 영역 명확화 매트릭스 LOCK | chart-curator PR #554 P2-2 evidence ("ADR 0085 §책임 영역 본문 명확화 결함") + orchestrator 2026-05-19 KST dispatch 의제 정합. §2-1-extended 신설 — 파일 경로별 단일 owner 매트릭스 LOCK: chart-curator 영역(`frontend/src/components/chart/*` + `frontend/src/pages/Symbol/SymbolChart·LightweightChart·IndicatorOverlay·PatternMarker` + `frontend/src/components/backtest/EquityCurveChart` + `frontend/src/features/performance/components/*Chart*`) ↔ frontend 영역(차트 외 일반 UI — DashboardCard·WatchlistTable·Journal·Onboarding·HoldingsTable·BalanceCard·SettingsModal·AppHeader). 판정 원칙 4건(LWC v4 instance 직접 다루는 파일 → chart-curator / 일반 React 컴포넌트 → frontend / 모호 시 본 매트릭스 우선 + architect 결정 / cross-review 자본 path lens 직결 chart-curator + 인프라 일반 backend-core·frontend 페르소나 매트릭스 정합). 미래 점진적 이관 후 본 §2-1-extended 매트릭스가 단일 권위 LOCK. (architect) |

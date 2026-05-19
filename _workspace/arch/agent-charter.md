@@ -45,7 +45,7 @@ git config user.name "magicjar-<agent>"
 git config extensions.worktreeConfig true
 ```
 
-또는 헬퍼 스크립트 호출:
+또는 헬퍼 스크립트 호출 (★ 라운드 3 보강 — 기존 worktree config.worktree 일괄 발행 포함):
 
 ```bash
 scripts/setup-worktree-config.sh
@@ -57,17 +57,29 @@ scripts/setup-worktree-config.sh
 - §1-A의 `git config user.email` 호출이 본 worktree에 한정 적용됨 (격리 GREEN).
 - sub-agent author 정합 LOCK.
 
-**검증 방법**:
+**필수 worktree-local 발행 의무** (★ 2026-05-19 라운드 3 evidence — extensions.worktreeConfig=true 단독으로는 부족):
+
+각 sub-agent는 worktree 진입 즉시 다음 4 명령 모두 실행 의무:
 
 ```bash
-git config extensions.worktreeConfig             # = true 확인
-git config --worktree user.email                 # worktree-local 적용 가능 (옵션 활성 시만 동작)
+git config user.email "bot+<agent>@magicjar.local"
+git config user.name "magicjar-<agent>"
+git config --worktree user.email "bot+<agent>@magicjar.local"
+git config --worktree user.name "magicjar-<agent>"
+```
+
+`--worktree` 옵션 사용 시 `.git/worktrees/<name>/config.worktree` 파일이 자동 생성되어 본 worktree만의 author LOCK. main `.git/config` 흡수 회피.
+
+검증 (첫 commit 직전 의무):
+```bash
+git config --get --worktree user.email   # 활성 worktree author
 ```
 
 **역사 evidence**:
 - 안정성 Cycle 1 (2026-05-18) — PR #473·#475 author `magicjar-frontend` attribution. §1-A 본문 신설로 1차 대응.
 - 안정성 Cycle 2 (2026-05-18) — §1-A 의무 강제 시도. PR #514·#525·#535·#537·#541·#546·#551·#552·#553·#555 동일 결함 재발. 헌법 §1-A 매트릭스 갱신만으로는 root cause 차단 안 됨 (config 활성화가 본질).
-- 안정성 Cycle 3 (2026-05-19) — 8 sub-agent system audit 5 evidence(architect·frontend·backend-core·ai-engineer·market-data) 동일 root cause 진단. 본 §1-A-extended 신설로 영구 차단.
+- 안정성 Cycle 3 (2026-05-19 라운드 1) — 8 sub-agent system audit 5 evidence(architect·frontend·backend-core·ai-engineer·market-data) 동일 root cause 진단. 본 §1-A-extended 신설로 1차 대응.
+- 안정성 Cycle 4 (2026-05-19 라운드 3) — `extensions.worktreeConfig=true` 활성 상태에서도 PR #562(ai-engineer)·#564(architect)·#565(backend-core) 라운드 2 dispatch 모두 author 결함 재발 evidence. root cause: 옵션 활성만으로는 각 worktree에 `config.worktree` 파일이 자동 발행되지 않음 → `git config --worktree`가 fallback path 모호함. 헬퍼 스크립트 보강 (`scripts/setup-worktree-config.sh` Step 2 신설 — 기존 모든 worktree에 config.worktree 일괄 발행 idempotent) + 본 §1-A-extended 필수 worktree-local 발행 의무 추가(`git config --worktree user.email/name` 명시 호출 LOCK)로 영구 차단.
 
 **위반 시 risk**: §1-A 의무 호출 후에도 worktree 간 author config 휘발성 전파 재발 → CHANGELOG `(작성: <agent>)` 마커 부정확 + git blame audit 실패 + 사용자 신뢰 손실 누적.
 
@@ -235,6 +247,7 @@ sub-agent가 0 tool uses 종료, 환경 결함(Bash 실패), 또는 명세 위�
 
 | 날짜 | 변경 | 사유 |
 |------|------|------|
+| 2026-05-19 | §1-A-extended 보강 — 필수 worktree-local 발행 의무 + 라운드 3 evidence + 헬퍼 스크립트 Step 2 보강 | 라운드 3 evidence — `extensions.worktreeConfig=true` 활성 상태에서도 PR #562(ai-engineer)·#564(architect)·#565(backend-core) 라운드 2 dispatch 모두 author 결함 재발. root cause: 옵션 활성만으로는 각 worktree에 `config.worktree` 파일이 자동 발행되지 않음. `scripts/setup-worktree-config.sh` Step 2 신설(기존 모든 worktree에 config.worktree 일괄 발행 idempotent) + 본 §1-A-extended 필수 worktree-local 발행 의무 추가(`git config --worktree user.email/name` 4 명령 LOCK)로 영구 차단. (architect) |
 | 2026-05-19 | §2-3·§2-4·§2-5 강화 — worktree 디렉토리·worktree-agent-* 잔재 누적 root cause fix | 사용자 명시 비판 (2026-05-19 KST) — 헌법 §2 4단계가 git 명령만 다루고 빈 wrapper 디렉토리·Agent isolation 임시 브랜치 검증 누락 → worktree 잔재 9 디렉토리 + worktree-agent-* 23 브랜치 누적. §2-3 빈 wrapper rmdir 명시 + §2-4 worktree-agent-* force delete 명시 + §2-5 사이클 시작 자동 점검 4 항목 신설(task 파일·worktree list·빈 wrapper·임시 브랜치). orchestrator SKILL.md 정합 갱신 동반. (architect) |
 | 2026-05-19 | §1-A chart-curator author 추가 hotfix — `.husky/pre-commit` ALLOWED_AUTHOR regex + CLAUDE.md Git hook 본문 정합 흡수 | PR #514 evidence — chart-curator sub-agent commit이 frontend author로 attribution. PR #511 ADR 0085 영입 시 agent-charter §1-A allowed values는 갱신했으나 `.husky/pre-commit` 강제 regex + CLAUDE.md SoT 본문 갱신 누락. pre-commit hook이 chart-curator 거부 안 함 → sub-agent fallback으로 다른 author 사용 → git blame·CHANGELOG `(작성: chart-curator)` 마커 깨짐. (architect) |
 | 2026-05-19 | §0(서문) 8 → 9 actor + §1-A `<agent>` 허용 값에 `chart-curator` 추가 (ADR 0085 영입 정합) | 사용자 dogfooding evidence(한국석유 일봉 5개월 stale) + 3 영역 교차 점유 단일 owner 부재 → 8번째 sub-agent chart-curator 영입. agent-charter.md SoT에 영입 정합 흡수. (architect) |
