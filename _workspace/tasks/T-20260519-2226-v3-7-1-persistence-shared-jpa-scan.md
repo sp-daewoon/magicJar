@@ -3,10 +3,10 @@ id: T-20260519-2226-v3-7-1-persistence-shared-jpa-scan
 agent: backend-core
 model: opus
 branch: hotfix/v3-7-1-persistence-shared-jpa-scan
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T22:26:39.463+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T22:34:51.375+09:00
+pr: #583
 parentPhase: ?
 ---
 
