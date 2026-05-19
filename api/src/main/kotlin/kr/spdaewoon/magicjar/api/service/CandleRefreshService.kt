@@ -403,6 +403,22 @@ class CandleRefreshService(
     /**
      * FHKST03010100 output2[] 파싱 → (code, interval, ts, ohlcv) 튜플 목록.
      * stck_bsop_date: yyyyMMdd → KST 00:00:00 epoch second.
+     *
+     * ⚠ 함정 가드: KIS DESC 응답 → ASC 정규화 (P0-B fix, 2026-05-19 — market-data PR #555 evidence + ADR 0086 §11 정합):
+     *   KIS `inquire-daily-itemchartprice`는 응답 output2[]를 **최신→과거 DESC 순서**로 반환 (4 PERIOD_DIV_CODE 공통).
+     *   햇징 룰 §1 (이중 검증) monotonic이 ASC 강제이므로 정규화 누락 시 idx 1+ 전부 reject → insertedCount=0.
+     *   한국석유(004090) PR #535·#537 evidence — 5개월 일봉 갭 누적의 root cause.
+     *
+     * raw evidence:
+     *   - consumer KisRestCandleAdapter.parseKisDailyResponse (PR #537) 동일 패턴 적용 완료
+     *   - market-data PR #540 batch CandleRefreshJob 동일 패턴 적용 완료
+     *   - 본 api CandleRefreshService는 별도 path drift로 누락된 채 잔존 → 본 fix로 정합 회복
+     *
+     * ASC 정규화 적용 범위 — 본 함수 단일 LOCK으로 4 timeframe 전부 cover (FHKST03010100 endpoint 4 PERIOD_DIV_CODE 공통 schema):
+     *   - 일봉(D): 한국석유 evidence — 정규화 필수
+     *   - 주봉(W)·월봉(M)·연봉(Y): 동일 endpoint·동일 schema·동일 DESC risk — 정규화 의무
+     *
+     * raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
      */
     @Suppress("UNCHECKED_CAST")
     private fun parseKisDailyOutput2(
@@ -425,7 +441,9 @@ class CandleRefreshService(
                 }.getOrNull() ?: continue
             result.add(KisDailyRow(code, intervalCode, epochSec, open, high, low, close, volume))
         }
-        return result
+        // KIS DESC → ASC 정규화 (P0-B fix 2026-05-19 backend-core, PR #555 evidence + ADR 0086 §11).
+        // 햇징 룰 §1 monotonic이 ASC 강제이므로 adapter layer가 source-of-truth로 정규화.
+        return result.sortedBy { it.epochSec }
     }
 
     /** upsert 결과 집계를 위한 내부 레코드 */
