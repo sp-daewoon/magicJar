@@ -3,10 +3,10 @@ id: T-20260519-1413-kor-petroleum-investigation
 agent: chart-curator
 model: opus
 branch: agent/chart-curator/kor-petroleum-investigation
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T14:13:57.972+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T14:24:04.489+09:00
+pr: #535
 parentPhase: ?
 ---
 
