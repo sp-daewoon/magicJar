@@ -3,9 +3,9 @@ id: T-20260519-1318-t-cc-phase2a-audit-json-killswitch-fix
 agent: chart-curator
 model: opus
 branch: hotfix/t-cc-phase2a-audit-json-killswitch-fix
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T13:18:09.848+09:00
-completedAt: null
+completedAt: 2026-05-19T13:36:28.104+09:00
 pr: null
 parentPhase: ?
 ---
