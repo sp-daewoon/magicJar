@@ -5,6 +5,7 @@ import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.aggregation.AggregateBackfillRunner
+import kr.spdaewoon.magicjar.consumer.aggregation.CandleBackfillWorker
 import kr.spdaewoon.magicjar.consumer.ingestion.ColdStartExecutor
 import kr.spdaewoon.magicjar.consumer.notification.SlackWebhookSender
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaEntity
@@ -45,6 +46,7 @@ class LastCandleAtMonitorTest {
     private val auditRepository = mockk<ConsumerAuditTrailJpaRepository>(relaxed = true)
     private val slackSender = mockk<SlackWebhookSender>(relaxed = true)
     private val slackSenderProvider = mockk<ObjectProvider<SlackWebhookSender>>()
+    private val candleBackfillWorker = mockk<CandleBackfillWorker>(relaxed = true)
 
     private val kst = ZoneId.of("Asia/Seoul")
 
@@ -58,6 +60,7 @@ class LastCandleAtMonitorTest {
             instrumentJpaRepository = instrumentJpaRepository,
             auditRepository = auditRepository,
             slackSenderProvider = slackSenderProvider,
+            candleBackfillWorker = candleBackfillWorker,
         )
     }
 
@@ -251,6 +254,7 @@ class LastCandleAtMonitorTest {
                 instrumentJpaRepository = instrumentJpaRepository,
                 auditRepository = auditRepository,
                 slackSenderProvider = slackSenderProvider,
+                candleBackfillWorker = candleBackfillWorker,
             )
 
         val stale = monitor.runMonitor("test")

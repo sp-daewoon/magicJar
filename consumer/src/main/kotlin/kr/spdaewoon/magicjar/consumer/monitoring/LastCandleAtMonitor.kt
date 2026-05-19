@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.monitoring
 
 import kr.spdaewoon.magicjar.consumer.aggregation.AggregateBackfillRunner
+import kr.spdaewoon.magicjar.consumer.aggregation.CandleBackfillWorker
 import kr.spdaewoon.magicjar.consumer.ingestion.ColdStartExecutor
 import kr.spdaewoon.magicjar.consumer.notification.SlackWebhookSender
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaEntity
@@ -53,6 +54,8 @@ class LastCandleAtMonitor(
     private val instrumentJpaRepository: ConsumerInstrumentJpaRepository,
     private val auditRepository: ConsumerAuditTrailJpaRepository,
     private val slackSenderProvider: ObjectProvider<SlackWebhookSender>,
+    // ADR 0086 T-CC Phase 2-A — 정밀 backfill 워커 추가 호출 (cold-start 병행, Phase 1 회귀 risk 0).
+    private val candleBackfillWorker: CandleBackfillWorker,
 ) {
     private val log = LoggerFactory.getLogger(LastCandleAtMonitor::class.java)
 
@@ -212,6 +215,10 @@ class LastCandleAtMonitor(
                             minuteStale?.let { "minute-${it.staleBusinessDays}d" },
                         ).joinToString(","),
                     )
+                    // ADR 0086 Phase 2-A — 정밀 backfill 추가 호출 (cold-start 일괄 재수집 + gap detect 정밀 보강).
+                    // stale interval에 한해서만 호출 (1d만 stale이면 1d만, 둘 다면 둘 다).
+                    dailyStale?.let { candleBackfillWorker.submit(code, CandleInterval.ONE_DAY, "monitor-daily") }
+                    minuteStale?.let { candleBackfillWorker.submit(code, CandleInterval.ONE_MIN, "monitor-minute") }
                 } catch (e: Exception) {
                     log.warn("LastCandleAtMonitor cold-start submit 실패: code={} err={}", code, e.message)
                 }

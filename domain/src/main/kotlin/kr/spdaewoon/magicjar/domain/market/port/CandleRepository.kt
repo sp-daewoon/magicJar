@@ -46,4 +46,23 @@ interface CandleRepository {
         code: String,
         interval: CandleInterval,
     ): Instant?
+
+    /**
+     * 특정 종목·interval 의 범위 내 모든 ts 조회 (ts ASC) — ADR 0086 §2-2 add-only.
+     *
+     * T-CC Phase 2-A: CandleGapDetector 가 expected sequence diff 산출 시 사용.
+     * 전체 fetch(findByCodeAndInterval) 대비 효율 — 30 거래일 윈도우 LOCK + Instant 만 반환.
+     *
+     * @param code 종목 코드
+     * @param interval 캔들 인터벌
+     * @param from 시작 (inclusive)
+     * @param to 종료 (inclusive)
+     * @return 범위 내 모든 ts (ASC). row 0건이면 empty list.
+     */
+    fun findAllTsByCodeAndIntervalBetween(
+        code: String,
+        interval: CandleInterval,
+        from: Instant,
+        to: Instant,
+    ): List<Instant>
 }
