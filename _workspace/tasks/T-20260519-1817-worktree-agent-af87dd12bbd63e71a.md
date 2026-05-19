@@ -3,10 +3,10 @@ id: T-20260519-1817-worktree-agent-af87dd12bbd63e71a
 agent: backend-core
 model: opus
 branch: agent/backend-core/p0-a-persistence-shared-module
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T18:17:08.889+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T18:27:43.331+09:00
+pr: #565
 parentPhase: ?
 ---
 
@@ -19,7 +19,7 @@ P0-A persistence-shared 모듈 구현 — Outbox wiring 결함 영구 차단 (AD
 - [x] 테스트 3 파일 import 갱신
 - [x] ./gradlew check GREEN
 - [x] ktlintCheck GREEN
-- [ ] dogfooding 검증 path 보고
+- [x] dogfooding 검증 path 보고
 
 ## 의존성
 - (필요 시 기록)
