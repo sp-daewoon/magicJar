@@ -6,7 +6,7 @@ branch: agent/architect/p1-4-bucket4j-spec-amend
 status: DONE
 startedAt: 2026-05-19T18:15:54.434+09:00
 completedAt: 2026-05-19T18:45:00.000+09:00
-pr: TBD
+pr: 563
 parentPhase: P1-4 ADR 0037 amend
 ---
 
