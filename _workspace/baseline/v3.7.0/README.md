@@ -1,0 +1,170 @@
+# magicJar v3.7.0 Baseline — 시스템 점검 + Phase 보강 + 운영 헌법 진화 baseline (W4 진입 0)
+
+> **태그 컷**: 2026-05-19 v3.7.0 (release commit `<TBD-release-commit>`, `release/v3.7.0` 이미지 immutable)
+> **사이클**: v3.6.19 → v3.7.0 minor (시스템 점검 8 sub-agent audit + hotfix 26+ 의제 도출 + 라운드 1·2·3·4·5 누적 12+ PR 머지 + ADR 신규 6건 + ADR amend 2건)
+> **상태**: PR-36 architect 영역(README + 01 + 06 + 07) 본격 작성. backend-core(02·04) · market-data(03) · frontend(05) 영역은 sub-agent 별도 디스패치(orchestrator 통합).
+> **권위**: 본 baseline 폴더는 v3.7.0 시점 **종합 기능 정의서**. SoT는 `docs/architecture/master-architecture.md` v2 (ADR 0030).
+
+---
+
+## 한 장 요약
+
+magicJar v3.7.0은 **시스템 점검 + Phase 보강 + 운영 헌법 진화 baseline (W4 진입 0)** 미러스톤이다. v3.6.0 (T-O 종착 노드 가동) → v3.6.x 19 patch 누적 → v3.7.0 (시스템 점검 + 누적 hotfix·spec drift fix + 8번째 sub-agent chart-curator 영입 + 페르소나 매트릭스 + persistence-shared 모듈 + userId 정합 + instrument_status_history). **W4(T-AI) 진입은 본 baseline 사이클에서 0** — 사용자 명시 "W4 진입 안 함" 정합. v3.7.0은 W3 자동매매 본체 안정화 + chart-curator 영입 + 운영 헌법 §1-A-extended·§2 4단계 진화 종합 LOCK 사이클이다.
+
+**v3.7.0 시점 동작하는 핵심 흐름** (v3.6.0 W1·W2·W3 T-O baseline + v3.6.x patch 누적 + 시스템 점검 + Phase 보강):
+
+1. **W3 자동매매 본체 종착 노드 가동 LOCK 유지** — boundary 마감 → 시그널 → risk verdict → order intent → KIS REST → ACK → H0STCNI0 체결 → STOMP 4 event 토스트 chain 보존 (ADR 0066·0067·0068 baseline). 3중 게이트(env × env × `user_account.real_trading_consent_at`) 자본 보호 LOCK 보존. end-to-end latency <405ms total.
+
+2. **v3.7.0 미러스톤 — 시스템 점검 + Phase 보강** (PR #548 ~ #575 본체 28+ PR + ADR 6건 신규):
+   - **시스템 점검 8 sub-agent audit** (PR #548·#549·#550·#551·#552·#553·#554·#555): architect·frontend·qa·backend-core·ai-engineer·strategy-engine·market-data·chart-curator 8 sub-agent가 각 영역에서 spec drift + 모듈 경계 결함 + 운영 흐름 작동률 매트릭스 + hotfix 의제를 일괄 도출. 총 26+ 의제 backlog 누적. backend-core 진보 페르소나 첫 dogfooding(`refactor` proactive) + chart-curator 보수 페르소나 첫 dogfooding(보수 lens).
+   - **P0 4건 마감** (PR #558·#559·#565·#561·#564·#562·hotfix #557): persistence-shared 모듈 신설(ADR 0088 — Outbox Repository wiring 결함 fix · 자본 흐름 작동률 0% → 100% 회복) + extensions.worktreeConfig + setup-worktree-config.sh + api 모듈 ASC 정규화 hotfix.
+   - **P1 4건 마감** (PR #568·#570·#571·#573): Bucket4j-Redis KisRateLimiterPort 실 구현 + LastCandleAtMonitor KDoc 보강 + STOMP unread/resync endpoint + MDC traceId.
+   - **P2 5건 마감** (PR #570·#574·#575): ADR 0089 userId 통일 + ADR 0090 instrument_status_history Phase 1·2 + prompt-catalog cleanup + DRY refactor + RuntimeFlags display.
+
+3. **ADR 발행 — v3.7.0 누적 8건 신규 (0085~0090) + amend 2건**:
+   - **0085 chart-curator 영입** (Accepted) — 8번째 sub-agent · 보수적 시니어 백엔드 개발자 "안정빌드" 페르소나
+   - **0086 T-CC Phase 2 햇징 룰 13건** (Accepted) — `CandleGapDetector` + `CandleBackfillWorker` + 4축 active gap detection(§12) + KIS raw ASC 정규화(§11) + LWC dispose race fix(§13) + 27 단위 테스트 GREEN
+   - **0087 짝 페르소나 매트릭스** (Proposed) — chart-curator(보수) ↔ backend-core(진보) 짝 시스템 · Phase 1 dogfooding evidence 누적 후 Accepted 격상 권장
+   - **0088 persistence-shared 모듈** (Proposed → Phase 1 합류 마감) — Outbox Repository wiring 결함 fix · 7 모듈 매트릭스 · 어댑터 9 파일 git mv · 운영 흐름 작동률 0% → 100% 회복
+   - **0089 userId 타입 통일** (Proposed → Phase 2 frontend 머지 마감) — backend·frontend 모두 `number`(Long → JS number) 통일 · MAX_SAFE_INTEGER 안전권 · MCP future spec int64 baseline
+   - **0090 instrument_status_history** (Proposed → Phase 1 market-data + Phase 2 chart-curator 합류 마감) — 거래정지·정리매매·상장폐지 history 추적 · ADR 0086 §12 4축 axis 2·3 시점 정밀도 향상
+
+4. **운영 헌법 진화** (`_workspace/arch/agent-charter.md`):
+   - **§1-A-extended 신설** — worktreeConfig=true 의무 + 필수 worktree-local 발행 의무 + `scripts/setup-worktree-config.sh` Step 2 헬퍼 + 8 sub-agent author 정합 영구 LOCK
+   - **§2 4단계 갱신** — §2-3 빈 wrapper rmdir 명시 + §2-4 worktree-agent-* force delete 명시 + §2-5 사이클 시작 자동 점검 4 항목(task 파일·worktree list·빈 wrapper·임시 브랜치)
+   - **§2-3·§2-4·§2-5 신설** — 사용자 명시 비판(2026-05-19 KST "지금 또 헌법 무시한거발견했다 !!!") 정합
+
+5. **페르소나 dogfooding evidence**:
+   - **backend-core 진보 "리팩토링맨" 4 사이클** (PR #551 audit · #568 Bucket4j · #570 DRY refactor · #573 STOMP unread/resync) — 💡/🔄/✨ 출력 형식 + Kotlin 함수형 스타일 + sealed class · 운영 evidence 누적
+   - **chart-curator 보수 "안정빌드" 3 사이클** (PR #554 audit · #561 KDoc 보강 · #574 ADR 0090 Phase 2) — 🔴/🟡/🔵 출력 형식 + require/check 방어 패턴 · 데이터 햇징 룰 LOCK
+
+**v3.7.0 누적 ADR 90건** (v3.6.0 베이스 65건 + v3.6.x 14건 추가 + v3.7.0 6건 신규 0085·0086·0087·0088·0089·0090 + amend 0085·0086 — 자세한 인덱스는 `_workspace/arch/adr/README.md`).
+
+**v3.7.0 시점 자동매매 본체 정합 핵심 충족**:
+
+1. **자동매매 본체 종착 노드 가동 LOCK 유지** — T-SIG → T-RISK → T-O chain 보존 + 3중 게이트 자본 보호 LOCK + Phase 안정화로 운영 흐름 작동률 100% 회복(P0-A persistence-shared 모듈로 outbox 흐름 차단 영구 해소).
+2. **chart-curator 영입 + 데이터 햇징 룰 13건 LOCK** — `CandleGapDetector` 4축 active gap detection + KIS raw 사전 ASC 정규화 + LWC chart instance state lift + `instrument_status_history` 시점 정밀도. 한국석유 dogfooding evidence 첨부.
+3. **운영 헌법 §1-A-extended 진화** — extensions.worktreeConfig=true 의무 LOCK + worktree-local config 의무 + 헬퍼 스크립트 Step 2 — 8 sub-agent author 정합 영구 LOCK.
+4. **8 sub-agent hierarchy** — architect · backend-core · market-data · strategy-engine · ai-engineer · frontend · qa · chart-curator (ADR 0080 4.7 1M 통일 + ADR 0085 영입 + ADR 0087 페르소나 매트릭스).
+5. **모듈 매트릭스 5 → 7** — domain · pattern-engine · indicator-impl · **persistence-shared (신설 v3.7.0)** · api · batch · consumer (ADR 0004·0054·0083·0088 정합).
+6. **회귀 0** — v3.6.0 W3 baseline 그대로 + v3.6.x 19 patch 누적 모두 보존 + v3.7.0 hotfix·refactor가 add-only 또는 1:1 정합 변환(예: persistence-shared 어댑터 9 파일 git mv는 패키지 rename + Flyway 권위 api 단독 유지 LOCK).
+7. **W4 진입 0 LOCK** — 사용자 명시 "W4 진입 안 함" 정합. T-AI·T-MCP 트랙은 v3.7.0 baseline 직후 별도 cycle.
+
+---
+
+## 인덱스
+
+| 파일 | 작성자 | 내용 |
+|------|--------|------|
+| [01-architecture.md](01-architecture.md) | architect | Mermaid 7 모듈 시스템 전경 + 8 sub-agent hierarchy + persistence-shared 신설 + chart-curator 컴포넌트 매트릭스 + ADR 0085·0086·0088·0090 흐름 + 운영 헌법 §1-A-extended 도식 |
+| [02-data-flow.md](02-data-flow.md) | backend-core | 모듈별 데이터 흐름 + Outbox/STOMP 영속 합류 + persistence-shared 어댑터 매트릭스 + STOMP unread/resync endpoint |
+| [03-use-sequences.md](03-use-sequences.md) | market-data | 사용자 유즈 시퀀스 + KIS-first raw 출처 갱신 + Bucket4j-Redis Rate Limit 합류 + Phase 2 history snapshot 시나리오 |
+| [04-feature-spec.md](04-feature-spec.md) | backend-core | 트랙 기능 명세 + Bucket4j KisRateLimiterPort + RuntimeFlags endpoint + Outbox/STOMP 영속 + MDC traceId |
+| [05-ui-inventory.md](05-ui-inventory.md) | frontend | 화면·메뉴·버튼 인벤토리 + RuntimeFlagsIndicator + useStompReconnect backfill hook + userId number 마이그레이션 evidence |
+| [06-history-traceability.md](06-history-traceability.md) | architect | PR·ADR·기능 매핑 (v3.6.0 → v3.7.0 시계열 + 시스템 점검 8 sub-agent audit + 라운드 1·2·3·4·5 PR 매트릭스) |
+| [07-policy-evolution.md](07-policy-evolution.md) | architect | 운영 헌법 §1·§2·§3·§4·§5·§6·§7 + §1-A-extended 진화 매트릭스 + 페르소나 cross-review 룰 + AI 트리거 게이트(W4 prereq) |
+
+---
+
+## v3.6.0 → v3.7.0 통계 매트릭스 (시스템 점검 + Phase 보강 + 운영 헌법 진화)
+
+| 지표 | v3.6.0 (2026-05-13 KST) | v3.7.0 (2026-05-19 KST) | 증감 |
+|------|---------------------|---------------------|------|
+| PR # 누적 | #376 | #575+ (cut 시점) | +199+ |
+| Patch 누적 | 0 | 19 (v3.6.1~v3.6.19) | +19 |
+| ADR 수 | 65 (0068 Accepted) | 90 (신규 22건 + 0085~0090 신규 6건 + 0035·0073 Superseded) | +25 |
+| JVM 모듈 | 5 (domain·api·batch·consumer·pattern-engine) | 7 (+ indicator-impl ADR 0083 · **+ persistence-shared ADR 0088**) | +2 |
+| sub-agent 수 | 7 (architect·backend-core·market-data·strategy-engine·ai-engineer·frontend·qa) | **8 (+ chart-curator ADR 0085 영입)** | +1 |
+| sub-agent 페르소나 | 0 | **2 (chart-curator 보수 ADR 0085 amend + backend-core 진보 ADR 0087)** | +2 |
+| Flyway 버전 | V24 (T-O) | V42+ (T-SC V28 · T-J V29 · T-PERF V30 · T-NEWS V32·V33 · T-MAN 등 · V39 candle.backfill_batch_id · **V42 instrument_status_history**) | +18+ |
+| 외부 통합 (활성) | KIS + DART + Anthropic (3) — Yahoo @Deprecated | + Naver Open API (T-NEWS) | +1 |
+| **W3 ★ 트랙 마감** | **4 (T-BT·T-SIG·T-RISK·T-O)** | **9 (+ T-RECON·T-NOTIFY·T-SC·T-J·T-PERF · v3.6.2·v3.6.3·v3.6.4 patch + T-NEWS·T-MAN·T-ACCT v3.6.7·v3.6.13·v3.6.14·v3.6.17 patch + T-CC Phase 1·2-A·2-B v3.6.17·v3.6.18 patch)** | **+5+** |
+| Kafka 토픽 (활성) | 19 (+ order.requested/filled/rejected/cancelled.v1) | 23+ (+ reconcile.drift.v1 · reconcile.run.v1 · killswitch.engaged.v1 · news.disclosure.v1 · news.article.v1 등) | +4+ |
+| Redis 키 namespace | + idem:order:{key} TTL 60s | + screener:result · journal:summary · performance:summary · news:dedup · **rate-limit:kis (Bucket4j-Redis)** · **stomp:lastSeenAt:{userId}** | +5+ |
+| REST endpoint 누적 | 약 59건 (+ Order 3 + RealTradingConsent 1) | 약 80+건 (+ Screener 3 + Journal 3 + Performance 2 + News 4 + ManualOrder 1 + Account 3 + Admin/Backfill 1 + Runtime 1 + StompBackfill 2 등) | +20+ |
+| frontend 라우트 | 12 (+ /orders·/orders/:id) | 16+ (+ /screener · /journal · /performance · /news · /orders/new · /admin) | +4+ |
+| domain port 누적 | 27 (+ Order 9) | 35+ (+ ScreenerPort · JournalPort · PerformancePort · NewsPort · **KisRateLimiterPort** · **KisBalanceQueryPort** · **CandleGapDetectorPort** · **InstrumentStatusHistoryPort**) | +8+ |
+| **운영 헌법 §** | 7 | **7 + §1-A-extended 신설** | +1 § |
+| **운영 헌법 §2** | 4단계 | **6단계 (§2-3 빈 wrapper rmdir · §2-4 worktree-agent-* delete · §2-5 사이클 시작 자동 점검 추가)** | +2 |
+| Living Policy 문서 | 6 | 6 (보존) | 0 |
+| GitHub Actions workflow | 0건 (v3.4.0 GHA 폐기) + `scripts/release.sh` | 0건 보존 + master-index.mjs (ADR 0079 v3.6.10) + setup-worktree-config.sh (v3.7.0 §1-A-extended) | +2 헬퍼 |
+| AI 호출 (자동매매 본체) | 0건 LOCK | **0건 LOCK 유지** (W4 진입 0 — 사용자 명시 정합) | 0 |
+| **dogfooding 페르소나 cycle** | 0 | **7 cycle (backend-core 진보 4 + chart-curator 보수 3)** | +7 |
+| **운영 흐름 작동률 (P0-A 회복)** | 100% (T-O 마감) | **0% → 100% 회복** (persistence-shared 모듈 신설 — Outbox wiring 결함 영구 차단) | LOCK |
+| KIS endpoint 신규 호출 | T-O 6 tr_id (TTTC/VTTC 0012U·0011U·0013U) + H0STCNI0/H0STCNI9 | T-RECON 3건(TTTC8434R·VTTC8434R·CTRP6548R) + T-ACCT inquire-balance + Bucket4j 단일 bucket LOCK (전체 호출 budget) | +3+ tr_id |
+| 외부 코드 리뷰 흡수 | — | 13 코멘트(중복 제거 11 의제) → ADR 0084 P0·P1·P2 분리 + P0 4건 v3.6.16 마감 | LOCK |
+
+---
+
+## 베이스라인 정합 ADR 22건 (v3.7.0 시점 핵심)
+
+v3.7.0 baseline은 다음 ADR로 권위 추적 가능 (v3.6.0 12건 + v3.6.x 신규 + v3.7.0 신규 6건):
+
+| ADR | 상태 | 본 v3.7.0 정합 |
+|---|---|---|
+| **0019** | 부분 supersede revoke 지속 | §2 매트릭스 W3·v3.6.x patch 트랙(T-RECON·T-NOTIFY·T-SC·T-J·T-PERF·T-NEWS·T-MAN·T-ACCT·T-CC) 합류 정합 갱신 v3.8.x minor에서 architect 단독 PR 예정 |
+| **0030** | Accepted | **마스터 아키텍처 SoT** — 본 v3.7.0 baseline 사이클 §10 ADR 인덱스 갱신 + 본문 §6 모듈 매트릭스 6 → 7 갱신(persistence-shared 추가) + §13 변경 이력 row |
+| **0031** | Accepted | release/v3.7.0 immutable LOCK 진입 |
+| **0048** | Accepted | KIS WS 41 구독 한도 baseline 보존. v3.7.0 신규 구독 추가 0(T-CC는 KIS REST FHKST03010100 baseline 100% 재사용) |
+| **0052** | Accepted | Baseline 사이클 정형화 + §X release 절차 (release.sh 풍부 합성 + sync-readme-releases.mjs). v3.7.0 baseline 본 사이클 적용 |
+| **0067** | Accepted | T-RISK 리스크 관리. v3.7.0 변경 0 (보존) |
+| **0068** | Accepted (v3.6.13 마감 격상) | T-O 주문 실행. 본 트랙 마감 v3.6.13 cut. v3.7.0 변경 0 (보존). dogfooding 케이스 5(CREDENTIAL_NOT_FOUND) GREEN evidence |
+| **0070** | Accepted | T-RECON + T-NOTIFY 묶음 spec(v3.6.2 patch) |
+| **0071** | Accepted | T-SC Screener (v3.6.3 patch) |
+| **0072** | Accepted | T-J + T-PERF 묶음 (v3.6.4 patch) |
+| **0074** | Accepted | SettingsModal 풀세트 (v3.6.5 patch) |
+| **0075** | Accepted | T-NEWS 트랙 진입 (v3.6.7 patch). ADR 0073 supersede |
+| **0079** | Accepted | 마스터 시각화 HTML 표준화 (v3.6.10 patch) |
+| **0080** | Accepted | 전체 에이전트 Opus 4.7 통일. ADR 0035 supersede |
+| **0081** | Accepted (v3.6.17 격상) | T-ACCT 계좌 잔고·예수금 endpoint + UI |
+| **0082** | Proposed | T-MAN 사용자 수동 주문 발행 트랙 (v3.6.15 patch — Phase 1·2 dispatch 대기) |
+| **0083** | Accepted (v3.6.15 격상) | indicator-impl 라이브러리 모듈 분리. ADR 0054 패턴 1:1 |
+| **0084** | Accepted (v3.6.16 P0 baseline) | 주문 path 안정성 P0 4건 마감 (hashkey + PENDING_RECONCILE + WS race · backfill + DLQ). P1·P2 잔류 — v3.7.0 사이클에서 P1·P2 추가 마감(Bucket4j + STOMP unread/resync + MDC + outbox) |
+| **0085** | **Accepted (v3.6.17 격상 + 2026-05-19 §Persona amend)** | **chart-curator 영입 (8번째 sub-agent) — TradingView LWC v4 차트 + 캔들 데이터 SLA·정합성 단일 owner · 보수적 시니어 백엔드 개발자 "안정빌드" 페르소나** |
+| **0086** | **Accepted (v3.6.17 격상 + v3.6.18 §11·§12·§13 amend)** | **T-CC Phase 2 — 자동 backfill 워커 + 갭 검출 + 데이터 햇징 룰 매트릭스 13건. Phase 2-A 10건 + Phase 2-B §11(KIS raw 사전 ASC 정규화) + §12(4축 active gap detection) + §13(LWC dispose race fix). 27 단위 테스트 ALL GREEN. 한국석유 dogfooding evidence** |
+| **0087** | **Proposed (Phase 1 dogfooding evidence 누적 후 Accepted 격상 권장)** | **짝 페르소나 매트릭스 — chart-curator(보수, 🔴/🟡/🔵) ↔ backend-core(진보, 💡/🔄/✨). cross-review 운영 룰 — 자본 path 직결 chart-curator 1차 lens / 인프라 일반 backend-core 1차 lens. 다른 6 sub-agent 페르소나 부여 보류(사용자 결정 의제)** |
+| **0088** | **Proposed → Phase 1 backend-core 머지 합류 마감** | **persistence-shared 라이브러리 모듈 신설 — Outbox Repository wiring 결함 fix (consumer ObjectProvider<OrderEventOutboxRepository> always empty → 운영 흐름 작동률 0% root cause). 7 모듈 매트릭스 · 어댑터 9 파일 git mv + 패키지 rename · Gradle 4 파일 · 운영 흐름 작동률 0% → 100% 회복. ADR 0054·0083 패턴 1:1 재사용** |
+| **0089** | **Proposed → Phase 2 frontend 머지 합류 마감** | **userId 타입 정합 — backend·frontend 모두 `number`(Long → JS number) 통일. DB BIGINT 자연 정합 + MAX_SAFE_INTEGER 안전권 + MCP future spec int64 baseline. zustand persist v1→v2 migrate · 5+ API 모듈 · 12+ TanStack Query hook · 7 컴포넌트 props 정합 + MSW handler/테스트 mock 정합** |
+| **0090** | **Proposed → Phase 1 market-data + Phase 2 chart-curator 머지 합류 마감** | **`instrument_status_history` 테이블 신설 — Flyway V42 + chart-curator §12 4축 active gap detection axis 2·3 시점 정밀도 향상. 거래정지·정리매매·상장폐지 history 추적. Phase 1 market-data 어댑터 + cron 보강. Phase 2 chart-curator `passesActiveGapAxes()` history at ts lens 통합** |
+
+> **ADR 0030 master-architecture §10 갱신**: 본 v3.7.0 baseline 시점 ADR 0030 §10 인덱스에 0085~0090 row + amend 마커 정합 완료(개별 ADR 발행 PR이 동반 갱신). 본 baseline PR은 §10 + §13 변경 이력 row 추가 + §6 모듈 매트릭스 7 갱신.
+
+---
+
+## v3.6.0 → v3.7.0 사이 19 patch 사이클 인덱스 (요약)
+
+| 버전 | 일자 | 미러스톤 | 관련 ADR |
+|------|------|----------|----------|
+| v3.6.1 | 2026-05-13 | SettingsModal vs SetupWizard 책임 분리 | 0069 |
+| v3.6.2 | 2026-05-13 | T-RECON + T-NOTIFY 묶음 spec | 0070 |
+| v3.6.3 | 2026-05-14 | T-SC Screener spec/plan | 0071 |
+| v3.6.4 | 2026-05-14 | T-J + T-PERF 묶음 spec/plan | 0072 |
+| v3.6.5 | 2026-05-14 | SettingsModal 풀세트 | 0074 |
+| v3.6.7 | 2026-05-15 | T-NEWS 트랙 진입 spec/plan | 0075 |
+| v3.6.9 | 2026-05-15·16 | KIS WS NXT/시간외 시세 sync + 내부 자산 추출 spec | 0076·0078 |
+| v3.6.10 | 2026-05-17 | 마스터 시각화 HTML 표준화 | 0079 |
+| v3.6.11 | 2026-05-17 | OPSP8996 hotfix | 0077 |
+| v3.6.12·13 | 2026-05-17·18 | T-O 본 트랙 마감 격상 + dogfooding 케이스 5 GREEN | 0068 격상 |
+| v3.6.14 | 2026-05-18 | T-ACCT 신규 트랙 발행 + indicator-impl 결함 3 fix | 0081·0083 |
+| v3.6.15 | 2026-05-18 | T-MAN 신규 트랙 발행 + indicator-impl Accepted 격상 | 0082·0083 Accepted |
+| v3.6.16 | 2026-05-18 | 외부 코드 리뷰 13 코멘트 흡수 + 주문 path P0 4건 마감 | 0084 P0 |
+| v3.6.17 | 2026-05-19 | T-ACCT Phase 4 + chart-curator 영입 + T-CC Phase 1 + Phase 2-A 햇징 룰 10건 | 0081·0085·0086 Accepted |
+| v3.6.18 | 2026-05-19 | T-CC Phase 2-B + StompEventPersister jsonb cast + Outbox audit + 햇징 룰 §11·§12·§13 amend | 0086 amend |
+| v3.6.19 | 2026-05-19 | chart-curator 페르소나 amend + backend-core 페르소나 부여 | 0085·0087 |
+| **v3.7.0** | **2026-05-19** | **시스템 점검 + Phase 보강 + 운영 헌법 진화 baseline (W4 진입 0)** | **0088·0089·0090 + §1-A-extended + §2 4단계 → 6단계** |
+
+---
+
+## 작성 규약
+
+- 본문 한국어, 코드/명령은 영어 그대로
+- Mermaid 다이어그램 의무
+- raw 출처 인용 의무 (KIS API · DART · 코드 path)
+- 추측·관념적 서술 금지
+- TBD 표시 — 미작성 영역
+
+---
+
+## v3.7.0 사이클 핵심 메시지
+
+**시스템 점검 + Phase 보강 + 운영 헌법 진화 baseline (W4 진입 0)** — v3.6.0 W3 자동매매 본체 종착 노드 가동 → v3.6.x 19 patch 누적(T-RECON·T-NOTIFY·T-SC·T-J·T-PERF·T-NEWS·T-MAN·T-ACCT·T-CC·indicator-impl 결함 fix·OPSP8996 hotfix·외부 코드 리뷰 흡수 + master HTML 표준화 + 페르소나 영입) → v3.7.0 (시스템 점검 8 sub-agent audit + persistence-shared 모듈 + userId 정합 + instrument_status_history + 운영 헌법 §1-A-extended·§2 4단계 → 6단계). **W4(T-AI) 진입은 0** — 사용자 명시 정합("W4 진입 안 함"). v3.7.0 = W3 자동매매 본체 안정화 LOCK + 8 sub-agent hierarchy + 7 모듈 매트릭스 + 페르소나 짝 시스템 + 운영 헌법 진화 종합 LOCK 사이클. **다음 v3.8.0 minor 후보** = W4(T-AI·T-MCP) 진입 마감 또는 v3.7.x patch 누적 후 W5(T-LWC·T-LEARN) 진입. AI 호출 0 LOCK 지속(ADR 0023·0066·0067·0068·0080 baseline).
