@@ -14,9 +14,9 @@ parentPhase: ?
 P0-B api CandleRefreshService parseKisDailyOutput2 ASC 정규화
 
 ## 결과물 체크리스트
-- [ ] parseKisDailyOutput2 sortedBy 추가
-- [ ] KDoc 함정 가드 inline
-- [ ] 단위 테스트 회귀 가드
+- [x] parseKisDailyOutput2 sortedBy 추가
+- [x] KDoc 함정 가드 inline
+- [x] 단위 테스트 회귀 가드
 
 ## 의존성
 - (필요 시 기록)
