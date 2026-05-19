@@ -7,9 +7,9 @@ import io.mockk.slot
 import io.mockk.verify
 import jakarta.persistence.Column
 import kr.spdaewoon.magicjar.api.messaging.StompEventPersister
-import kr.spdaewoon.magicjar.api.persistence.stomp.StompEventJpaEntity
 import kr.spdaewoon.magicjar.domain.stomp.StompEvent
 import kr.spdaewoon.magicjar.domain.stomp.port.StompEventRepository
+import kr.spdaewoon.magicjar.persistence.shared.stomp.StompEventJpaEntity
 import org.assertj.core.api.Assertions.assertThat
 import org.hibernate.annotations.JdbcTypeCode
 import org.hibernate.type.SqlTypes

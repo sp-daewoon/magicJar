@@ -12,6 +12,8 @@ dependencies {
     implementation(project(":pattern-engine"))
     // indicator-impl 라이브러리 의존 — IndicatorEngineConfig가 NativeIndicatorSource·KisStrategyBuilderSource 자동 collect (ADR 0083 + spec §4-5 LOCK)
     implementation(project(":indicator-impl"))
+    // persistence-shared 라이브러리 의존 — Outbox/Stomp 어댑터를 api·consumer 양쪽 ApplicationContext에 노출 (ADR 0088 + spec §3 LOCK)
+    implementation(project(":persistence-shared"))
 
     // Spring Boot starters
     implementation("org.springframework.boot:spring-boot-starter")

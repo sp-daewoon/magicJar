@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.api.persistence.order
+package kr.spdaewoon.magicjar.persistence.shared.order.outbox
 
 import kr.spdaewoon.magicjar.domain.order.event.OrderEventOutbox
 import kr.spdaewoon.magicjar.domain.order.event.OrderOutboxEventType

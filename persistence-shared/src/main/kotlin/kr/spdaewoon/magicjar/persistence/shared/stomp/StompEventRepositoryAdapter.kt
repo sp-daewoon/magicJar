@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.api.persistence.stomp
+package kr.spdaewoon.magicjar.persistence.shared.stomp
 
 import kr.spdaewoon.magicjar.domain.stomp.StompEvent
 import kr.spdaewoon.magicjar.domain.stomp.port.StompEventRepository

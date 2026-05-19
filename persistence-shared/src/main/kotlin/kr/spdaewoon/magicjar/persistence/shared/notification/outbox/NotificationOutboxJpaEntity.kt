@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.api.persistence.notification
+package kr.spdaewoon.magicjar.persistence.shared.notification.outbox
 
 import jakarta.persistence.Column
 import jakarta.persistence.Entity

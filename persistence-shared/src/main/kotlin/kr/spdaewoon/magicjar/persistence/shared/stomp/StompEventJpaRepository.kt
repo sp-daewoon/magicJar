@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.api.persistence.stomp
+package kr.spdaewoon.magicjar.persistence.shared.stomp
 
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
