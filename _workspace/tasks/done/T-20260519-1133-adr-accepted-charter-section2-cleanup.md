@@ -3,9 +3,9 @@ id: T-20260519-1133-adr-accepted-charter-section2-cleanup
 agent: architect
 model: opus
 branch: hotfix/adr-accepted-charter-section2-cleanup
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T11:33:37.282+09:00
-completedAt: null
+completedAt: 2026-05-19T13:05:04.211+09:00
 pr: null
 parentPhase: ?
 ---
