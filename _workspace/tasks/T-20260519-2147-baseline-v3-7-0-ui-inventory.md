@@ -3,10 +3,10 @@ id: T-20260519-2147-baseline-v3-7-0-ui-inventory
 agent: frontend
 model: opus
 branch: agent/frontend/baseline-v3-7-0-ui-inventory
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T21:47:07.560+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T21:56:30.749+09:00
+pr: #577
 parentPhase: ?
 ---
 
