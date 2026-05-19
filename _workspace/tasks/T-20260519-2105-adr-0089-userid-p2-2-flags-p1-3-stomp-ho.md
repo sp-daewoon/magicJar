@@ -3,10 +3,10 @@ id: T-20260519-2105-adr-0089-userid-p2-2-flags-p1-3-stomp-ho
 agent: frontend
 model: opus
 branch: agent/frontend/adr-0089-userid-p2-2-flags-p1-3-stomp-hook
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T21:05:44.633+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T21:31:03.861+09:00
+pr: #575
 parentPhase: ?
 ---
 
