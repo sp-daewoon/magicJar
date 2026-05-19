@@ -12,7 +12,7 @@ import org.springframework.web.reactive.function.client.WebClient
 import java.time.LocalDate
 
 /**
- * KisRestCandleAdapter — KIS DESC 응답 ASC 정규화 회귀 가드 (P0 fix 2026-05-19 chart-curator).
+ * KisRestCandleAdapter — KIS DESC 응답 ASC 정규화 회귀 가드 (P0 fix 2026-05-19 chart-curator + ADR 0086 §11).
  *
  * 결함 evidence (한국석유 004090, 2026-05-19):
  *   KIS `inquire-daily-itemchartprice` (FHKST03010100) 응답 output2[]는 **최신→과거 DESC 순서**.
@@ -27,11 +27,19 @@ import java.time.LocalDate
  *   - inquire-daily-itemchartprice: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
  *   - inquire-time-dailychartprice: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
  *
- * 테스트 매트릭스:
- *   (asc-normalize-daily) KIS DESC 응답 → parseKisDailyResponse 반환 ASC 검증
- *   (asc-normalize-minute) KIS DESC 1m 응답 → parseKis1mResponse 반환 ASC 검증
+ * 테스트 매트릭스 (ADR 0086 §11 cover 5 timeframe 전수):
+ *   (asc-normalize-daily) KIS DESC 일봉(D) → parseKisDailyResponse ASC 검증 — PR #537 baseline
+ *   (asc-normalize-weekly) KIS DESC 주봉(W) → parseKisDailyResponse ASC 검증 — PR #N 확장
+ *   (asc-normalize-monthly) KIS DESC 월봉(M) → parseKisDailyResponse ASC 검증 — PR #N 확장
+ *   (asc-normalize-yearly) KIS DESC 연봉(Y) → parseKisDailyResponse ASC 검증 — PR #N 확장
+ *   (asc-normalize-daily-idempotent) ASC 정렬 입력 → ASC 유지 (sortedBy idempotent)
+ *   (asc-normalize-minute) KIS DESC 1m → parseKis1mResponse ASC 검증 — PR #537 baseline
  *   (rt-cd-fail) rt_cd != "0" → emptyList 반환 (기존 동작 회귀 가드)
  *   (empty-output) output2 = empty → emptyList 반환
+ *
+ * 매트릭스 LOCK: 본 KIS endpoint(FHKST03010100)는 4 PERIOD_DIV_CODE 공통 schema이므로
+ * 단일 parse 함수가 4 timeframe 전부 cover. 각 PERIOD_DIV_CODE variant 회귀 가드는 미래
+ * 함수 분리(예: 주봉 별도 endpoint 추가)·schema 변경 시 결함 즉시 검출 목적.
  */
 class KisRestCandleAdapterAscNormalizeTest {
     private fun buildAdapter(): KisRestCandleAdapter {
@@ -203,6 +211,160 @@ class KisRestCandleAdapterAscNormalizeTest {
         assertThat(candles.map { it.ts.epochSeconds }).isSorted
         assertThat(candles.first().closeRaw.toLong()).isEqualTo(14080L)
         assertThat(candles.last().closeRaw.toLong()).isEqualTo(13920L)
+    }
+
+    @Test
+    fun `asc-normalize-weekly KIS DESC 주봉 응답 → ASC 변환 검증 (FHKST03010100 PERIOD_DIV_CODE=W)`() {
+        // given — KIS 주봉 응답이 DESC 순서 (최신→과거).
+        // FHKST03010100 endpoint는 4 PERIOD_DIV_CODE(D/W/M/Y) 공통 schema 사용.
+        // raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
+        // stck_bsop_date = 주봉 종료일(금요일 통상) — 2025-12-26, 2025-12-19, 2025-12-12 3주.
+        val body =
+            mapOf(
+                "rt_cd" to "0",
+                "msg1" to "OK",
+                "output2" to
+                    listOf(
+                        mapOf(
+                            "stck_bsop_date" to "20251226",
+                            "stck_oprc" to "14000",
+                            "stck_hgpr" to "14500",
+                            "stck_lwpr" to "13800",
+                            "stck_clpr" to "13920",
+                            "acml_vol" to "550000",
+                        ),
+                        mapOf(
+                            "stck_bsop_date" to "20251219",
+                            "stck_oprc" to "13800",
+                            "stck_hgpr" to "14200",
+                            "stck_lwpr" to "13700",
+                            "stck_clpr" to "14000",
+                            "acml_vol" to "480000",
+                        ),
+                        mapOf(
+                            "stck_bsop_date" to "20251212",
+                            "stck_oprc" to "13500",
+                            "stck_hgpr" to "13900",
+                            "stck_lwpr" to "13400",
+                            "stck_clpr" to "13800",
+                            "acml_vol" to "420000",
+                        ),
+                    ),
+            )
+
+        // when — interval = ONE_WEEK 전달 (실제 KIS 호출 시 fid_period_div_code=W 분기 시그널)
+        val candles = invokeParseDaily(buildAdapter(), body, "004090", CandleInterval.ONE_WEEK)
+
+        // then — ASC monotonic 검증 (epochSeconds 오름차순).
+        assertThat(candles).hasSize(3)
+        assertThat(candles.map { it.ts.epochSeconds }).isSorted
+        // 첫 row가 가장 과거(2025-12-12), 마지막 row가 가장 최신(2025-12-26) — DESC 입력 → ASC 출력.
+        assertThat(candles.first().closeRaw.toLong()).isEqualTo(13800L) // 2025-12-12 주봉 close
+        assertThat(candles.last().closeRaw.toLong()).isEqualTo(13920L) // 2025-12-26 주봉 close
+        // interval 정합 — 모든 row가 ONE_WEEK
+        assertThat(candles).allSatisfy { c ->
+            assertThat(c.interval).isEqualTo(CandleInterval.ONE_WEEK)
+            assertThat(c.code).isEqualTo("004090")
+            assertThat(c.source).isEqualTo("KIS")
+        }
+    }
+
+    @Test
+    fun `asc-normalize-monthly KIS DESC 월봉 응답 → ASC 변환 검증 (FHKST03010100 PERIOD_DIV_CODE=M)`() {
+        // given — KIS 월봉 응답 DESC. 2025-12, 2025-11, 2025-10 3개월.
+        // stck_bsop_date = 월 마지막 거래일.
+        val body =
+            mapOf(
+                "rt_cd" to "0",
+                "output2" to
+                    listOf(
+                        mapOf(
+                            "stck_bsop_date" to "20251230",
+                            "stck_oprc" to "14200",
+                            "stck_hgpr" to "14800",
+                            "stck_lwpr" to "13700",
+                            "stck_clpr" to "13950",
+                            "acml_vol" to "2300000",
+                        ),
+                        mapOf(
+                            "stck_bsop_date" to "20251128",
+                            "stck_oprc" to "13900",
+                            "stck_hgpr" to "14400",
+                            "stck_lwpr" to "13500",
+                            "stck_clpr" to "14150",
+                            "acml_vol" to "2100000",
+                        ),
+                        mapOf(
+                            "stck_bsop_date" to "20251031",
+                            "stck_oprc" to "13400",
+                            "stck_hgpr" to "14000",
+                            "stck_lwpr" to "13200",
+                            "stck_clpr" to "13880",
+                            "acml_vol" to "1900000",
+                        ),
+                    ),
+            )
+
+        // when
+        val candles = invokeParseDaily(buildAdapter(), body, "004090", CandleInterval.ONE_MONTH)
+
+        // then — ASC monotonic.
+        assertThat(candles).hasSize(3)
+        assertThat(candles.map { it.ts.epochSeconds }).isSorted
+        assertThat(candles.first().closeRaw.toLong()).isEqualTo(13880L) // 2025-10 close
+        assertThat(candles.last().closeRaw.toLong()).isEqualTo(13950L) // 2025-12 close
+        assertThat(candles).allSatisfy { c ->
+            assertThat(c.interval).isEqualTo(CandleInterval.ONE_MONTH)
+        }
+    }
+
+    @Test
+    fun `asc-normalize-yearly KIS DESC 연봉 응답 → ASC 변환 검증 (FHKST03010100 PERIOD_DIV_CODE=Y)`() {
+        // given — KIS 연봉 응답 DESC. 2025, 2024, 2023 3년.
+        // stck_bsop_date = 연 마지막 거래일.
+        val body =
+            mapOf(
+                "rt_cd" to "0",
+                "output2" to
+                    listOf(
+                        mapOf(
+                            "stck_bsop_date" to "20251230",
+                            "stck_oprc" to "12000",
+                            "stck_hgpr" to "16000",
+                            "stck_lwpr" to "11000",
+                            "stck_clpr" to "13950",
+                            "acml_vol" to "28000000",
+                        ),
+                        mapOf(
+                            "stck_bsop_date" to "20241230",
+                            "stck_oprc" to "10000",
+                            "stck_hgpr" to "13000",
+                            "stck_lwpr" to "9500",
+                            "stck_clpr" to "11900",
+                            "acml_vol" to "25000000",
+                        ),
+                        mapOf(
+                            "stck_bsop_date" to "20231229",
+                            "stck_oprc" to "9000",
+                            "stck_hgpr" to "11000",
+                            "stck_lwpr" to "8500",
+                            "stck_clpr" to "9900",
+                            "acml_vol" to "22000000",
+                        ),
+                    ),
+            )
+
+        // when
+        val candles = invokeParseDaily(buildAdapter(), body, "004090", CandleInterval.ONE_YEAR)
+
+        // then — ASC monotonic.
+        assertThat(candles).hasSize(3)
+        assertThat(candles.map { it.ts.epochSeconds }).isSorted
+        assertThat(candles.first().closeRaw.toLong()).isEqualTo(9900L) // 2023 close
+        assertThat(candles.last().closeRaw.toLong()).isEqualTo(13950L) // 2025 close
+        assertThat(candles).allSatisfy { c ->
+            assertThat(c.interval).isEqualTo(CandleInterval.ONE_YEAR)
+        }
     }
 
     @Test

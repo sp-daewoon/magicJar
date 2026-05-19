@@ -26,7 +26,7 @@ import kotlinx.datetime.Instant as KtInstant
  * KIS REST 캔들 조회 어댑터 (ADR 0019 §7-4 — KIS-first 정책 정합).
  *
  * 지원 interval:
- *   - 1d·1wk·1mo·1y: FHKST03010100 (inquire-daily-itemchartprice)
+ *   - 1d·1wk·1mo·1y: FHKST03010100 (inquire-daily-itemchartprice) — 4 PERIOD_DIV_CODE 공통 endpoint
  *     raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
  *   - 1m: FHKST03010230 (inquire-time-dailychartprice) — 최대 120건/call, 1일치 분봉
  *     raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
@@ -39,6 +39,20 @@ import kotlinx.datetime.Instant as KtInstant
  *   최대 3회 exponential backoff (500ms → 1000ms → 2000ms) 재시도.
  *   503/502 등 기타 HTTP 오류는 즉시 실패 (서비스 점검 가능성, 재시도 무의미).
  *   Rate Limit (ADR 0037): retry는 500 발생 시에만 — 20 req/s 한도 영향 미미.
+ *
+ * ⚠ KIS raw 사전 ASC 정규화 매트릭스 (ADR 0086 §11 LOCK — chart-curator skill §5 source-of-truth 정합):
+ *   KIS 응답 sort order는 timeframe·endpoint별로 일관되지 않음. adapter layer가 raw 정규화 단일 책임.
+ *
+ *   | parse 함수 | tr_id | cover timeframe | sort 패턴 | ASC fix |
+ *   |-----------|-------|----------------|-----------|---------|
+ *   | parseKisDailyResponse | FHKST03010100 | 일봉(D)·주봉(W)·월봉(M)·연봉(Y) 4 PERIOD_DIV_CODE | DESC | PR #537 |
+ *   | parseKis1mResponse | FHKST03010230 | 1분봉 (1일치 페이지네이션) | DESC 가능 | PR #537 |
+ *
+ *   매트릭스 LOCK: 4 timeframe(daily) + 1 timeframe(1m) = **본 어댑터 cover 5 timeframe 전부**가
+ *   2 parse 함수 단일 LOCK으로 ASC 정규화 cover. 향후 추가 timeframe(예: 시간외 FHPST02320000)은
+ *   별도 parse 함수 추가 + ADR 0086 §11 매트릭스 행 추가 + 본 KDoc 갱신 의무.
+ *
+ *   evidence: 한국석유(004090) PR #535·#537·#N — KIS DESC 응답 + sanity check reject → 5개월 갭 누적.
  */
 @Component
 @Primary
@@ -651,12 +665,18 @@ class KisRestCandleAdapter(
     }
 
     /**
-     * FHKST03010230 1m 응답 파싱.
+     * FHKST03010230 1m 응답 파싱 — 1분봉 단일 timeframe.
+     *
      * output2[]: stck_bsop_date (yyyyMMdd) + stck_cntg_hour (HHmmss) → KST timestamp
      * stck_oprc·stck_hgpr·stck_lwpr·stck_prpr(현재가=종가)·acml_vol
      *
-     * ⚠ KIS 응답 정렬 함정 (P0 fix, 2026-05-19 — chart-curator):
-     *   1m 응답도 DESC 가능성. parseKisDailyResponse와 동일한 햇징 룰 §1 monotonic risk → ASC 정규화 의무.
+     * KIS raw spec:
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
+     *
+     * ⚠ KIS 응답 정렬 함정 (P0 fix, 2026-05-19 — chart-curator + ADR 0086 §11 정합):
+     *   `inquire-time-dailychartprice`는 페이지네이션 커서(fid_input_hour_1) 역방향 백워크로
+     *   페이지별 DESC 가능. parseKisDailyResponse와 동일한 햇징 룰 §1 monotonic risk → ASC 정규화 의무.
+     *   본 함수 단일 LOCK으로 1m timeframe ASC 정규화 cover.
      *
      * raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
      */
@@ -732,15 +752,33 @@ class KisRestCandleAdapter(
     }
 
     /**
-     * FHKST03010100 일봉/주봉/월봉/연봉 응답 파싱.
-     * output2[]: stck_bsop_date (yyyyMMdd) → KST 00:00:00 ts
+     * FHKST03010100 일봉/주봉/월봉/연봉 응답 파싱 — **4 PERIOD_DIV_CODE 공통 처리**.
      *
-     * ⚠ KIS 응답 정렬 함정 (P0 fix, 2026-05-19 — chart-curator):
-     *   KIS `inquire-daily-itemchartprice`는 응답 output2[]를 **최신→과거 DESC 순서**로 반환.
+     * 본 함수는 `inquire-daily-itemchartprice` (FHKST03010100)이 fid_period_div_code 분기로
+     * 4 timeframe을 단일 endpoint·단일 응답 schema로 처리하는 KIS 공식 매트릭스 정합:
+     *
+     * | PERIOD_DIV_CODE | timeframe | CandleInterval | 호출 경로 |
+     * |-----------------|-----------|----------------|----------|
+     * | D | 일봉 | ONE_DAY | fetchDailyCandles → toPeriodDivCode |
+     * | W | 주봉 | ONE_WEEK | fetchDailyCandles → toPeriodDivCode |
+     * | M | 월봉 | ONE_MONTH | fetchDailyCandles → toPeriodDivCode |
+     * | Y | 연봉 | ONE_YEAR | fetchDailyCandles → toPeriodDivCode |
+     *
+     * KIS raw spec — 4 timeframe 응답 schema 동일(output2[] · stck_bsop_date · OHLCV):
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
+     *
+     * ⚠ KIS 응답 정렬 함정 (P0 fix, 2026-05-19 — chart-curator + ADR 0086 §11 정합):
+     *   KIS `inquire-daily-itemchartprice`는 응답 output2[]를 **최신→과거 DESC 순서**로 반환 (4 PERIOD_DIV_CODE 공통).
      *   햇징 룰 §1 (이중 검증) monotonic이 ASC 강제이므로,
      *   정규화 누락 시 idx 1+ 전부 reject → insertedCount=0 → 한국석유 evidence 5개월 갭 누적.
-     *   따라서 본 파서가 `sortedBy { it.ts.epochSeconds }` ASC 정규화 책임 (chart-curator skill §5 source-of-truth + §11 KIS raw 사전 정규화).
+     *   따라서 본 파서가 `sortedBy { it.ts.epochSeconds }` ASC 정규화 책임 (chart-curator skill §5 source-of-truth + ADR 0086 §11 KIS raw 사전 정규화).
      *   KIS 공식 example도 `sort_values('stck_bsop_date', ascending=True)` 패턴 적용 (KIS-first 정합).
+     *
+     * ASC 정규화 적용 범위 — 본 함수 단일 LOCK으로 4 timeframe 전부 cover:
+     *   - 일봉(D): 한국석유 PR #535·#537 evidence — 정규화 필수
+     *   - 주봉(W): 동일 endpoint·동일 schema·동일 DESC risk — 정규화 의무
+     *   - 월봉(M): 동일 endpoint·동일 schema·동일 DESC risk — 정규화 의무
+     *   - 연봉(Y): 동일 endpoint·동일 schema·동일 DESC risk — 정규화 의무
      *
      * raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
      */
