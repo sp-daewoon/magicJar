@@ -33,6 +33,7 @@ import java.math.BigDecimal
 class StompSignalDispatcher(
     private val brokerMessagingTemplate: SimpMessagingTemplate,
     private val objectMapper: ObjectMapper,
+    private val stompEventPersister: StompEventPersister,
 ) {
     private val log = LoggerFactory.getLogger(StompSignalDispatcher::class.java)
 
@@ -52,6 +53,13 @@ class StompSignalDispatcher(
 
             val payload = toSignalResponse(rawMap)
             val topic = "/topic/signal.user.$userId"
+            // ADR 0084 P1-2: publish 직전 stomp_event 영속 (best-effort)
+            stompEventPersister.persist(
+                userId = userId,
+                channel = "signal",
+                eventType = payload.side, // BUY · SELL · HOLD 등 side를 eventType으로 활용
+                payload = payload,
+            )
             brokerMessagingTemplate.convertAndSend(topic, payload)
             log.debug(
                 "STOMP {} 발행: strategyId={} code={} side={}",

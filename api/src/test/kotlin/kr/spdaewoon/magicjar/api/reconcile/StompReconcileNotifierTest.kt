@@ -2,7 +2,9 @@ package kr.spdaewoon.magicjar.api.reconcile
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.messaging.ReconcileStompPayload
+import kr.spdaewoon.magicjar.api.messaging.StompEventPersister
 import kr.spdaewoon.magicjar.api.messaging.StompReconcileNotifier
+import kr.spdaewoon.magicjar.domain.stomp.port.StompEventRepository
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -25,7 +27,11 @@ import org.springframework.messaging.simp.SimpMessagingTemplate
 class StompReconcileNotifierTest {
     private val messagingTemplate: SimpMessagingTemplate = mock(SimpMessagingTemplate::class.java)
     private val objectMapper = ObjectMapper()
-    private val sut = StompReconcileNotifier(messagingTemplate, objectMapper)
+
+    // ADR 0084 P1-2: StompEventPersister inject — repository mock + enabled=true
+    private val stompEventRepository: StompEventRepository = mock(StompEventRepository::class.java)
+    private val stompEventPersister = StompEventPersister(stompEventRepository, objectMapper, enabled = true)
+    private val sut = StompReconcileNotifier(messagingTemplate, objectMapper, stompEventPersister)
 
     private fun makeRecord(
         topic: String,

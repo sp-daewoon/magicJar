@@ -1,7 +1,9 @@
 package kr.spdaewoon.magicjar.api.order
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.api.messaging.StompEventPersister
 import kr.spdaewoon.magicjar.api.messaging.StompOrderNotifier
+import kr.spdaewoon.magicjar.domain.stomp.port.StompEventRepository
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito
@@ -20,7 +22,11 @@ import org.springframework.messaging.simp.SimpMessagingTemplate
 class StompOrderNotifierTest {
     private val messagingTemplate: SimpMessagingTemplate = Mockito.mock(SimpMessagingTemplate::class.java)
     private val objectMapper = ObjectMapper()
-    private val sut = StompOrderNotifier(messagingTemplate, objectMapper)
+
+    // ADR 0084 P1-2: StompEventPersister inject — repository mock + enabled=true (테스트 본의는 publish 검증)
+    private val stompEventRepository: StompEventRepository = Mockito.mock(StompEventRepository::class.java)
+    private val stompEventPersister = StompEventPersister(stompEventRepository, objectMapper, enabled = true)
+    private val sut = StompOrderNotifier(messagingTemplate, objectMapper, stompEventPersister)
 
     private fun makeRecord(
         topic: String,

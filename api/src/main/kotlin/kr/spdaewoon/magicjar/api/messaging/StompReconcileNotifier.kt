@@ -38,6 +38,7 @@ import org.springframework.stereotype.Component
 class StompReconcileNotifier(
     private val messagingTemplate: SimpMessagingTemplate,
     private val objectMapper: ObjectMapper,
+    private val stompEventPersister: StompEventPersister,
 ) {
     private val log = LoggerFactory.getLogger(StompReconcileNotifier::class.java)
 
@@ -60,6 +61,13 @@ class StompReconcileNotifier(
 
             val payload = toStompPayload(rawMap, topic)
             val destination = "/topic/recon.user.$userId"
+            // ADR 0084 P1-2: publish 직전 stomp_event 영속 (best-effort)
+            stompEventPersister.persist(
+                userId = userId,
+                channel = "recon",
+                eventType = payload.eventType,
+                payload = payload,
+            )
             messagingTemplate.convertAndSend(destination, payload)
 
             log.debug(

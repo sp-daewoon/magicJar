@@ -35,6 +35,7 @@ import org.springframework.stereotype.Component
 class StompRiskNotifier(
     private val brokerMessagingTemplate: SimpMessagingTemplate,
     private val objectMapper: ObjectMapper,
+    private val stompEventPersister: StompEventPersister,
 ) {
     private val log = LoggerFactory.getLogger(StompRiskNotifier::class.java)
 
@@ -54,6 +55,13 @@ class StompRiskNotifier(
 
             val payload = toRiskEventDto(rawMap)
             val topic = "/topic/risk.user.$userId"
+            // ADR 0084 P1-2: publish 직전 stomp_event 영속 (best-effort)
+            stompEventPersister.persist(
+                userId = userId,
+                channel = "risk",
+                eventType = payload.type, // BLOCKED · AUTO_PAUSED
+                payload = payload,
+            )
             brokerMessagingTemplate.convertAndSend(topic, payload)
             log.debug(
                 "STOMP {} 발행: rule={} verdict={} type={}",
