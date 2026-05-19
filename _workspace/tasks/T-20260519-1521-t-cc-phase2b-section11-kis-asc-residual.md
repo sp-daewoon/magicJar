@@ -3,10 +3,10 @@ id: T-20260519-1521-t-cc-phase2b-section11-kis-asc-residual
 agent: market-data
 model: opus
 branch: agent/market-data/t-cc-phase2b-section11-kis-asc-residual
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T15:21:40.351+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T15:28:02.107+09:00
+pr: #540
 parentPhase: ?
 ---
 
