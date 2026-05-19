@@ -3,10 +3,10 @@ id: T-20260520-0131-worktree-agent-a9671ae4d34efc0ed
 agent: frontend
 model: opus
 branch: agent/frontend/c-3-5s-polling-c-5-immediate-refetch
-status: RUNNING
+status: DONE
 startedAt: 2026-05-20T01:31:56.638+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-20T01:37:11.851+09:00
+pr: #593
 parentPhase: ?
 ---
 
