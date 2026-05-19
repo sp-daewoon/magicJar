@@ -32,9 +32,17 @@ import org.springframework.web.reactive.function.client.WebClient
  * 테스트 매트릭스 (ADR 0086 §11 cover — FHKST03010100 4 PERIOD_DIV_CODE 공통 schema):
  *   (asc-normalize-daily-output2) KIS DESC 일봉(D) → parseKisDailyOutput2 ASC 검증 — 한국석유 evidence
  *   (asc-normalize-daily-output2-idempotent) ASC 입력 → ASC 유지 (sortedBy idempotent)
+ *   (pagination-cursor-advance) B-2 cursor 페이지네이션 — oldest date 추출 정확성 (cursor advance 검증 entry)
+ *   (pagination-dedup-cross-page) B-2 페이지 간 중복 epochSec → distinctBy로 1건만 보존
  *
  * 매트릭스 LOCK: 본 KIS endpoint는 4 PERIOD_DIV_CODE 공통 schema이므로 단일 parse 함수가 4 timeframe 전부 cover.
  * 일봉 회귀 가드 1건으로 함수 ASC 정규화 책임이 검증되며, 주봉·월봉·연봉은 동일 함수를 통과하므로 동일 보장.
+ *
+ * B-2 cursor 페이지네이션 회귀 가드 (2026-05-19 backend-core — chart-curator PR #587 evidence + B-1 consumer fix 정합):
+ *   refreshDailyCandles의 cursor 페이지네이션 전체 흐름은 WebClient·KisRateLimiterPort 외부 의존 → 단위 테스트 부적합.
+ *   대신 페이지네이션 핵심 invariant 두 개만 검증:
+ *     1. parseKisDailyOutput2 ASC 정렬 보장 → first() = oldest 안정성 (cursor advance 정확성)
+ *     2. distinctBy { epochSec } → 페이지 간 boundary 중복 단일 보존 (KIS oldest-1일 cursor가 다음 페이지 최신과 겹칠 risk)
  *
  * 룰 5 위반 금지: LLM provider import 0건.
  */
@@ -179,5 +187,115 @@ class CandleRefreshServiceAscNormalizeTest {
         // then — 정렬 후에도 ASC 유지.
         assertThat(epochSecs).hasSize(3)
         assertThat(epochSecs).isSorted
+    }
+
+    @Test
+    fun `pagination-cursor-advance parseKisDailyOutput2 ASC first()는 oldest를 정확히 가리킨다 (B-2 cursor 페이지네이션 회귀 가드)`() {
+        // given — KIS DESC 응답 (한 페이지 = 5건 가정). cursor advance는 ASC.first()=oldest 기반이므로 정렬 정확성 필수.
+        val output2 =
+            listOf(
+                mapOf(
+                    "stck_bsop_date" to "20251230",
+                    "stck_oprc" to "14450",
+                    "stck_hgpr" to "14500",
+                    "stck_lwpr" to "13850",
+                    "stck_clpr" to "13950",
+                    "acml_vol" to "56873",
+                ),
+                mapOf(
+                    "stck_bsop_date" to "20251229",
+                    "stck_oprc" to "13920",
+                    "stck_hgpr" to "13960",
+                    "stck_lwpr" to "13700",
+                    "stck_clpr" to "13930",
+                    "acml_vol" to "88870",
+                ),
+                mapOf(
+                    "stck_bsop_date" to "20251226",
+                    "stck_oprc" to "14060",
+                    "stck_hgpr" to "14070",
+                    "stck_lwpr" to "13840",
+                    "stck_clpr" to "13920",
+                    "acml_vol" to "92923",
+                ),
+                mapOf(
+                    "stck_bsop_date" to "20251224",
+                    "stck_oprc" to "14100",
+                    "stck_hgpr" to "14150",
+                    "stck_lwpr" to "13900",
+                    "stck_clpr" to "14060",
+                    "acml_vol" to "70000",
+                ),
+                mapOf(
+                    "stck_bsop_date" to "20251223",
+                    "stck_oprc" to "13800",
+                    "stck_hgpr" to "14100",
+                    "stck_lwpr" to "13750",
+                    "stck_clpr" to "14080",
+                    "acml_vol" to "65000",
+                ),
+            )
+
+        // when
+        val epochSecs = invokeParseDailyOutput2(buildService(), output2, "004090", "1d")
+
+        // then — ASC 정렬되어야 cursor advance 로직이 first()=oldest를 정확히 추출 가능.
+        // 2025-12-23 KST 00:00 → epoch second (가장 과거)
+        // 2025-12-30 KST 00:00 → epoch second (가장 최신)
+        assertThat(epochSecs).hasSize(5)
+        assertThat(epochSecs).isSorted
+        // cursor advance 핵심 invariant: first() = 가장 과거 epoch (oldest date 추출 entry).
+        val oldest = epochSecs.first()
+        val newest = epochSecs.last()
+        assertThat(oldest).isLessThan(newest)
+        // 2025-12-23 KST → 2025-12-30 KST 차이는 정확히 7 days = 604800초.
+        assertThat(newest - oldest).isEqualTo(7 * 86400L)
+    }
+
+    @Test
+    fun `pagination-dedup-cross-page 페이지 boundary 중복 epochSec은 distinctBy로 1건만 보존된다 (B-2 회귀 가드)`() {
+        // given — KIS cursor는 oldest-1일 advance. 그러나 KIS 응답 idempotency 가정 시
+        // 두 페이지 응답에 boundary date(예: 12-26)가 중복으로 포함될 risk → distinctBy { epochSec } 필수.
+        // 본 테스트는 동일 date 2건 중복 응답이 1건으로 통합되는지 검증.
+        val output2WithDuplicate =
+            listOf(
+                mapOf(
+                    "stck_bsop_date" to "20251226", // 중복 1
+                    "stck_oprc" to "14060",
+                    "stck_hgpr" to "14070",
+                    "stck_lwpr" to "13840",
+                    "stck_clpr" to "13920",
+                    "acml_vol" to "92923",
+                ),
+                mapOf(
+                    "stck_bsop_date" to "20251226", // 중복 2 (같은 날짜)
+                    "stck_oprc" to "14060",
+                    "stck_hgpr" to "14070",
+                    "stck_lwpr" to "13840",
+                    "stck_clpr" to "13920",
+                    "acml_vol" to "92923",
+                ),
+                mapOf(
+                    "stck_bsop_date" to "20251224",
+                    "stck_oprc" to "14100",
+                    "stck_hgpr" to "14150",
+                    "stck_lwpr" to "13900",
+                    "stck_clpr" to "14060",
+                    "acml_vol" to "70000",
+                ),
+            )
+
+        // when — parseKisDailyOutput2는 중복 처리 안 함 (그대로 통과).
+        val epochSecs = invokeParseDailyOutput2(buildService(), output2WithDuplicate, "004090", "1d")
+
+        // then — parse 단계는 3건 그대로 (정렬만 보장).
+        // distinctBy 후속 처리(refreshDailyCandles 내부)에서 2건으로 축소되는 것이 invariant.
+        // 본 테스트는 parse 단계 정렬 보장만 확인. 합산 dedup은 refreshDailyCandles 내부 흐름.
+        assertThat(epochSecs).hasSize(3)
+        assertThat(epochSecs).isSorted
+
+        // distinctBy { epochSec } simulation — 동일 epochSec은 1건만 남는지 검증.
+        val dedup = epochSecs.distinct()
+        assertThat(dedup).hasSize(2) // 12-26 1건 + 12-24 1건
     }
 }

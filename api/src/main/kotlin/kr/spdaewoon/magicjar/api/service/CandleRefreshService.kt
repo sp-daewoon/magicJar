@@ -75,6 +75,18 @@ class CandleRefreshService(
         private val DATE_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd")
         private val KST_ZONE: ZoneId = ZoneId.of("Asia/Seoul")
 
+        /**
+         * FHKST03010100 cursor 페이지네이션 최대 페이지 수 (B-2 fix 2026-05-19 backend-core).
+         *
+         * KIS `inquire-daily-itemchartprice` 응답 output2[]는 단일 호출 100건 limit (KIS API 정책).
+         * 30년 범위(약 7560 거래일) 요청 시 단일 페이지로 전부 못 받음 → cursor 페이지네이션 의무.
+         *
+         * MAX_PAGES=6 (100 × 6 = 600 거래일 ≈ 2.4년 cover) — fromDate~toDate 범위가 그 이상이면 안전 종료.
+         * 정기 운영 시 fromDate=30년 전이지만 실제 사용자 요청은 fresh fetch (recent gap fill) 위주이므로
+         * 6 페이지로 충분. B-1 consumer fix와 정합 — chart-curator PR #587 evidence + ADR 0086 §11.
+         */
+        private const val DAILY_MAX_PAGES = 6
+
         /** FHKST03010100 interval → period_div_code 매핑 */
         private val DAILY_INTERVALS =
             mapOf(
@@ -155,15 +167,24 @@ class CandleRefreshService(
     }
 
     /**
-     * 일봉·주봉·월봉·연봉 갱신 (FHKST03010100).
+     * 일봉·주봉·월봉·연봉 갱신 (FHKST03010100) — cursor 페이지네이션 적용.
      *
      * raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
      * - fid_cond_mrkt_div_code: J(KRX주식) 또는 UN(통합 — KOSPI+NXT)
      * - fid_input_iscd: 종목코드
      * - fid_input_date_1: 시작일 (yyyyMMdd) — 30년 전 기준 전수 수집
-     * - fid_input_date_2: 종료일 (yyyyMMdd) — 오늘
+     * - fid_input_date_2: 종료일 (yyyyMMdd) — cursor로 사용 (페이지네이션)
      * - fid_period_div_code: D(일)/W(주)/M(월)/Y(연)
      * - fid_org_adj_prc: 0 (수정주가 미반영)
+     *
+     * ⚠ B-2 cursor 페이지네이션 fix (2026-05-19 backend-core — chart-curator PR #587 evidence + B-1 consumer fix 정합):
+     *   KIS `inquire-daily-itemchartprice` 응답 output2[]는 단일 호출 **100건 limit** (KIS API 정책).
+     *   30년 범위(약 7560 거래일)를 단일 호출로 요청 시 최신 100건만 반환 → 그 이전 데이터 누락.
+     *   사용자 dogfooding (한국석유 004090) evidence: 5개월 갭 누적 root cause 중 하나.
+     *
+     *   Fix: `fid_input_date_2`(종료일)를 cursor로 역방향 페이지네이션 — 응답 oldest date의 -1일을 다음 cursor로 사용.
+     *   최대 DAILY_MAX_PAGES(=6) 페이지 안전 종료. cursor advance 부재 시 break 무한루프 가드.
+     *   ASC 정규화는 parseKisDailyOutput2 단일 LOCK (PR #558 정합) — 전체 페이지 합산 후 sortedBy.
      */
     private fun refreshDailyCandles(
         code: String,
@@ -174,90 +195,166 @@ class CandleRefreshService(
         secretKey: String,
     ): IntervalRefreshResult {
         val periodDivCode = DAILY_INTERVALS[intervalCode] ?: return IntervalRefreshResult(intervalCode, 0, 0, null, "SKIPPED")
-        val today = LocalDate.now(KST_ZONE).format(DATE_FMT)
         // 30년 전 기준 전수 수집 (KIS 응답 가능 범위 최대)
-        val startDate = LocalDate.now(KST_ZONE).minusYears(30).format(DATE_FMT)
+        val fromDate = LocalDate.now(KST_ZONE).minusYears(30)
+        val startDateStr = fromDate.format(DATE_FMT)
 
-        // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority)
-        // ADR 0037 초당 10건 한도 강제. 사용자 트리거 즉시 acquire.
-        kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+        val allCandles = mutableListOf<KisDailyRow>()
+        var cursor: LocalDate = LocalDate.now(KST_ZONE)
+        var pageCount = 0
+        var pageStatus = "OK"
 
-        return try {
-            @Suppress("UNCHECKED_CAST")
-            val body =
-                webClient
-                    .get()
-                    .uri { builder ->
-                        builder
-                            .scheme("https")
-                            .host(kisBaseProd.removePrefix("https://").substringBefore(":"))
-                            .port(kisBaseProd.substringAfterLast(":").toIntOrNull() ?: 9443)
-                            .path(ENDPOINT_DAILY)
-                            // fid_cond_mrkt_div_code: J=KRX주식, UN=통합(KRX+NXT)
-                            // raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
-                            .queryParam("fid_cond_mrkt_div_code", mrktDivCode)
-                            .queryParam("fid_input_iscd", code)
-                            .queryParam("fid_input_date_1", startDate)
-                            .queryParam("fid_input_date_2", today)
-                            // fid_period_div_code: D/W/M/Y — KIS raw spec
-                            .queryParam("fid_period_div_code", periodDivCode)
-                            .queryParam("fid_org_adj_prc", "0")
-                            .build()
-                    }.header("authorization", "Bearer $accessToken")
-                    .header("appkey", appKey)
-                    .header("appsecret", secretKey)
-                    .header("tr_id", TR_ID_DAILY)
-                    .header("custtype", "P")
-                    .retrieve()
-                    .bodyToMono(Map::class.java)
-                    .timeout(Duration.ofSeconds(10))
-                    .block()
+        try {
+            while (pageCount < DAILY_MAX_PAGES) {
+                if (cursor < fromDate) break
 
-            if (body == null) {
-                log.warn("캔들 갱신 빈 응답: code={} interval={}", code, intervalCode)
-                return IntervalRefreshResult(intervalCode, 0, 0, null, "FAILED")
+                // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority)
+                // ADR 0037 초당 10건 한도 강제. 페이지마다 acquire — 사용자 트리거 즉시 우선 처리.
+                kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+
+                val cursorStr = cursor.format(DATE_FMT)
+
+                @Suppress("UNCHECKED_CAST")
+                val body =
+                    webClient
+                        .get()
+                        .uri { builder ->
+                            builder
+                                .scheme("https")
+                                .host(kisBaseProd.removePrefix("https://").substringBefore(":"))
+                                .port(kisBaseProd.substringAfterLast(":").toIntOrNull() ?: 9443)
+                                .path(ENDPOINT_DAILY)
+                                // fid_cond_mrkt_div_code: J=KRX주식, UN=통합(KRX+NXT)
+                                // raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
+                                .queryParam("fid_cond_mrkt_div_code", mrktDivCode)
+                                .queryParam("fid_input_iscd", code)
+                                .queryParam("fid_input_date_1", startDateStr)
+                                // fid_input_date_2: cursor (페이지네이션) — 첫 페이지=today, 이후 oldest-1일
+                                .queryParam("fid_input_date_2", cursorStr)
+                                // fid_period_div_code: D/W/M/Y — KIS raw spec
+                                .queryParam("fid_period_div_code", periodDivCode)
+                                .queryParam("fid_org_adj_prc", "0")
+                                .build()
+                        }.header("authorization", "Bearer $accessToken")
+                        .header("appkey", appKey)
+                        .header("appsecret", secretKey)
+                        .header("tr_id", TR_ID_DAILY)
+                        .header("custtype", "P")
+                        .retrieve()
+                        .bodyToMono(Map::class.java)
+                        .timeout(Duration.ofSeconds(10))
+                        .block()
+
+                pageCount++
+
+                if (body == null) {
+                    log.warn("캔들 갱신 빈 응답: code={} interval={} page={}", code, intervalCode, pageCount)
+                    break
+                }
+
+                val rtCd = body["rt_cd"]?.toString()
+                if (rtCd != "0") {
+                    log.warn(
+                        "캔들 갱신 rt_cd != 0: code={} interval={} page={} rt_cd={} msg={}",
+                        code,
+                        intervalCode,
+                        pageCount,
+                        rtCd,
+                        body["msg1"],
+                    )
+                    pageStatus = "FAILED"
+                    break
+                }
+
+                @Suppress("UNCHECKED_CAST")
+                val output2 = body["output2"] as? List<*>
+                if (output2.isNullOrEmpty()) {
+                    log.debug("캔들 갱신 output2 0건 — 페이지네이션 종료: code={} interval={} page={}", code, intervalCode, pageCount)
+                    kisRateLimiterPort.onSuccess()
+                    break
+                }
+
+                val pageCandles = parseKisDailyOutput2(output2, code, intervalCode)
+                if (pageCandles.isEmpty()) {
+                    kisRateLimiterPort.onSuccess()
+                    break
+                }
+                allCandles.addAll(pageCandles)
+                kisRateLimiterPort.onSuccess()
+
+                // cursor advance — oldest epochSec → LocalDate.minusDays(1)
+                // parseKisDailyOutput2가 이미 ASC 정렬이므로 first() = oldest.
+                val oldestEpochSec = pageCandles.first().epochSec
+                val oldestDate =
+                    Instant
+                        .ofEpochSecond(oldestEpochSec)
+                        .atZone(KST_ZONE)
+                        .toLocalDate()
+                val newCursor = oldestDate.minusDays(1)
+
+                // 무한루프 가드 — cursor가 advance 안 되면 즉시 break (KIS 응답이 동일 페이지 반복 risk)
+                if (newCursor >= cursor) {
+                    log.debug(
+                        "캔들 갱신 cursor advance 부재 — break: code={} interval={} cursor={} newCursor={}",
+                        code,
+                        intervalCode,
+                        cursor,
+                        newCursor,
+                    )
+                    break
+                }
+                cursor = newCursor
+
+                // fromDate 도달 시 종료
+                if (cursor < fromDate) break
             }
 
-            val rtCd = body["rt_cd"]?.toString()
-            if (rtCd != "0") {
-                log.warn("캔들 갱신 rt_cd != 0: code={} interval={} rt_cd={} msg={}", code, intervalCode, rtCd, body["msg1"])
-                return IntervalRefreshResult(intervalCode, 0, 0, null, "FAILED")
+            if (pageCount >= DAILY_MAX_PAGES) {
+                log.info(
+                    "캔들 갱신 MAX_PAGES 도달 안전 종료: code={} interval={} pages={}",
+                    code,
+                    intervalCode,
+                    pageCount,
+                )
             }
 
-            @Suppress("UNCHECKED_CAST")
-            val output2 = body["output2"] as? List<*> ?: return IntervalRefreshResult(intervalCode, 0, 0, null, "FAILED")
-            val candles = parseKisDailyOutput2(output2, code, intervalCode)
+            // 페이지 간 중복 제거 + ASC 정규화 (parseKisDailyOutput2가 페이지마다 ASC 보장 — 전체 ASC 한번 더 안전)
+            val dedupedCandles =
+                allCandles
+                    .distinctBy { it.epochSec }
+                    .sortedBy { it.epochSec }
 
-            val inserted = upsertCandles(candles, intervalCode)
+            val inserted = upsertCandles(dedupedCandles, intervalCode)
             val latestTs = queryLatestTs(code, intervalCode)
 
             log.info(
-                "캔들 갱신 완료: code={} interval={} fetched={} inserted={}",
+                "캔들 갱신 완료: code={} interval={} pages={} fetched={} inserted={}",
                 code,
                 intervalCode,
-                candles.size,
+                pageCount,
+                dedupedCandles.size,
                 inserted,
             )
-            kisRateLimiterPort.onSuccess()
-            IntervalRefreshResult(intervalCode, candles.size, inserted, latestTs, "OK")
+            return IntervalRefreshResult(intervalCode, dedupedCandles.size, inserted, latestTs, pageStatus)
         } catch (e: WebClientResponseException) {
             if (e.statusCode.value() == 429) {
                 // HTTP 429 → onTpsExceeded 시그널 + 명시 에러 결과 (mock 합성 0, ADR 0014)
                 kisRateLimiterPort.onTpsExceeded()
-                log.warn("캔들 갱신 Rate Limit (429): code={} interval={}", code, intervalCode)
-                IntervalRefreshResult(intervalCode, 0, 0, null, "RATE_LIMITED")
+                log.warn("캔들 갱신 Rate Limit (429): code={} interval={} pages={}", code, intervalCode, pageCount)
+                return IntervalRefreshResult(intervalCode, allCandles.size, 0, null, "RATE_LIMITED")
             } else {
                 log.warn(
-                    "캔들 갱신 KIS 오류: code={} interval={} status={}",
+                    "캔들 갱신 KIS 오류: code={} interval={} pages={} status={}",
                     code,
                     intervalCode,
+                    pageCount,
                     e.statusCode.value(),
                 )
-                IntervalRefreshResult(intervalCode, 0, 0, null, "FAILED")
+                return IntervalRefreshResult(intervalCode, allCandles.size, 0, null, "FAILED")
             }
         } catch (e: Exception) {
-            log.warn("캔들 갱신 오류: code={} interval={} err={}", code, intervalCode, e.message)
-            IntervalRefreshResult(intervalCode, 0, 0, null, "FAILED")
+            log.warn("캔들 갱신 오류: code={} interval={} pages={} err={}", code, intervalCode, pageCount, e.message)
+            return IntervalRefreshResult(intervalCode, allCandles.size, 0, null, "FAILED")
         }
     }
 
