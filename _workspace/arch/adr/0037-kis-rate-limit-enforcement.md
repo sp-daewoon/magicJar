@@ -1,9 +1,10 @@
 # ADR 0037 — KIS API Rate Limit 강제 (초당 10건 + 토큰 버킷)
 
-- 상태: Accepted
+- 상태: **Accepted (2026-05-19 amend — Bucket4j-Redis 단일 bucket + KisRateLimiterPort domain port + EGW00201/HTTP 429 backoff 매트릭스 LOCK · Phase 1 backend-core 후 운영 코드 통합)**
 - 작성일: TBD
 - 결정자: architect
-- 관계: ADR 0003(KIS OpenAPI), ADR 0028(Watchlist Ingestion), ADR 0036(KIS OAuth 분산락)
+- 관계: ADR 0003(KIS OpenAPI), ADR 0028(Watchlist Ingestion), ADR 0036(KIS OAuth 분산락), ADR 0038(KIS Token store), ADR 0044(Notification), ADR 0083(indicator-impl 모듈 패턴), ADR 0085·0087(cross-review 페르소나), ADR 0088(persistence-shared 패턴 — 본 ADR 어댑터 모듈 위치 옵션 b 1:1 재사용)
+- 참조 spec: `_workspace/specs/2026-05-19-p1-4-bucket4j-kis-rate-limiter-spec.md`
 
 ## 1. 컨텍스트
 
@@ -16,26 +17,44 @@ Rate Limit 위반은 단발 에러가 아니라 **계정·앱키 차단**으로 
 
 magicJar는 multi-JVM(api·batch·consumer)에서 KIS REST를 동시 호출하므로 단순 어댑터별 제어로는 부족. **공통 RateLimiter 통과 의무**가 강제되어야 한다.
 
+### 1-1. spec drift evidence (2026-05-19 amend · PR #555 market-data system audit)
+
+market-data sub-agent 2026-05-19 시스템 점검 결과:
+- ADR 0037 §1 LOCK "**REST 호출 초당 10건**" vs 코드 주석 **15+ 위치 "20 req/s"** 불일치 (실제 KIS 한도 절반 수준의 잘못된 mental model)
+- `Thread.sleep(50ms)` 마진 = 20 req/s 가정 → KIS 한도(10 req/s) 대비 2배 가속 → 동시 다중 어댑터 burst 시 EGW00201 risk
+- Bucket4j stub 상태 — `KisRateLimiterPort` 도메인 포트 0 + Bucket4j dependency 0 + adapter 직접 webClient 호출 + EGW00201 명시 backoff path 1곳 (`KisReconcileBalanceAdapter`) + HTTP 429 명시 path 1곳 (`CandleRefreshService:235`) + Circuit Breaker 0건 + ArchUnit 게이트 0건
+
+→ 본 amend로 LOCK 재확정 + 메커니즘·port spec·backoff 매트릭스 정밀화 + Phase 분리.
+
+**본 §1·§2 "초당 10건" LOCK** — 코드 주석 "20 req/s" 표기는 spec drift로 분류. spec/2026-05-19-p1-4-bucket4j-kis-rate-limiter-spec.md §3 정정 매트릭스 정합 의무.
+
 ## 2. 결정
 
-### 2-1. 코드 레벨 강제
+### 2-1. 코드 레벨 강제 (2026-05-19 amend — Bucket4j-Redis 단일 bucket LOCK)
 
 | 항목 | 정책 |
 |---|---|
-| **한도** | **초당 10건** (KIS 공식). 마진 없이 정확히 10건 — 우선순위 큐로 사용자 path 보장 |
-| **메커니즘** | **토큰 버킷 (Bucket4j)** 또는 **Resilience4j RateLimiter** 채택. 분산 모드는 Bucket4j Redis backend |
-| **공통 진입점** | `domain/.../market/ratelimit/KisRateLimiterPort` + `api/batch/consumer` 각각 어댑터. 모든 KIS REST 호출 직전 `acquire()` 통과 의무 |
-| **우회 금지** | 어댑터별 직접 RestClient 호출 금지 — 빌드 게이트(ArchUnit 또는 ktlint custom rule)로 강제 |
-| **큐 우선순위** | 사용자 path(현재가·차트·주문) > Watchlist Ingestion > backfill·corp action |
-| **leaky bucket** | 큐 가득 시 oldest backfill 요청 drop (사용자 path는 drop 0) |
+| **한도** | **초당 10건** (KIS 공식 LOCK). 마진 없이 정확히 10건 — 우선순위 큐로 사용자 path 보장 |
+| **메커니즘 (옵션 A 채택)** | **Bucket4j 8.x + Redis backend 단일 bucket** — 모든 JVM share. share 분할(api 5/batch 3/consumer 2) 거부 (사용자 burst 흡수 0 risk) |
+| **공통 진입점** | `domain/.../market/ratelimit/KisRateLimiterPort` — 모든 KIS REST adapter 호출 직전 `acquire(priority)` 통과 의무 |
+| **adapter 모듈 위치** | **persistence-shared 패턴 1:1 재사용 권장 (ADR 0088 패턴)** 또는 신규 `kis-shared` 모듈 — multi-JVM 공유 Bean. 옵션 a (api 단독 발행) vs 옵션 b (shared 모듈 신설) Phase 1 backend-core 1차 결정 |
+| **우회 금지** | 어댑터별 직접 RestClient/WebClient KIS endpoint 호출 금지 — ArchUnit + ktlint custom rule (Phase 3 별도) |
+| **큐 우선순위** | `KisCallPriority` enum: `USER_PATH`(현재가·차트·주문) > `INGESTION`(Watchlist) > `BACKFILL`(corp action·reconcile). Phase 1은 모두 동일 LOCK + Phase 2 합류 시 priority queue 활성화 |
+| **leaky bucket** | 큐 가득 시 oldest BACKFILL 요청 drop (사용자 path는 drop 0). Phase 2 별도 |
 
-### 2-2. 위반 시 처리
+**Resilience4j 거부 사유**: 분산 모드 미지원 — multi-JVM share 0 → share 분할(5/10·3/10·2/10) 필요. 사용자 burst 흡수 시 api 5 token 부족 risk. Bucket4j-Redis 단일 bucket이 본질.
 
-| 응답 | 처리 |
-|---|---|
-| `EGW00201` (TPS 초과) | 1초 대기 + 1회 재시도 → 그래도 실패 시 사용자에 명시 에러 (mock 합성 0, ADR 0014 정합) |
-| HTTP 429 | EGW00201과 동일 |
-| 연속 5분 50% 이상 EGW00201 | **Circuit Breaker 5분 차단** + Slack alert. backfill 큐 자동 pause |
+### 2-2. EGW00201 / HTTP 429 backoff 매트릭스 (2026-05-19 amend — 정밀화)
+
+| 응답 시그널 | 1차 처리 | 2차 처리 | 3차 처리 |
+|---|---|---|---|
+| `rt_cd != "0"` + `msg_cd == "EGW00201"` (TPS 초과) | 1초 fixed backoff + 1회 재시도 | 재시도 후도 EGW00201 → `KisRateLimiterPort.onTpsExceeded()` 호출 + 명시 에러 throw (mock 합성 0, ADR 0014 정합) | — |
+| HTTP 429 | EGW00201과 동일 path | 동일 | — |
+| 연속 5분 50% 이상 EGW00201/429 | `KisRateLimiterPort` Circuit Breaker **OPEN 5분** | Slack alert P1 (ADR 0044 `notification_outbox` reuse) | backfill 큐 자동 pause |
+| Circuit Breaker OPEN 상태 | 모든 `acquire()` 즉시 throw `KisCircuitOpenException` | 사용자 path도 차단 — 명시 에러 응답 (mock 합성 0) | 5분 후 HALF_OPEN 자동 전환 (Bucket4j Listener 또는 Resilience4j Circuit Breaker 합류) |
+| `acquire(timeoutMillis=1000)` timeout | throw `KisRateLimitTimeoutException` | caller가 priority 기반 retry 또는 사용자 에러 — adapter 별 결정 | — |
+
+**backoff 알고리즘 채택 사유**: exponential backoff(1s·2s·4s) 옵션은 KIS TPS 한도가 hard limit이므로 과다 — fixed 1초 + 1회 재시도로 충분. Circuit Breaker가 누적 fail 대응.
 
 ### 2-3. 멀티 JVM 정합
 
@@ -63,8 +82,54 @@ share 합계 = 10 (KIS 한도 정확). 동적 조정은 Redis pub/sub으로 가�
 
 ## 4. 참고
 
-- KIS 공식 문서 — REST TPS 한도
+- KIS 공식 문서 — REST TPS 한도 (https://apiportal.koreainvestment.com/intro)
 - ADR 0028 — Watchlist Ingestion (rate limit 큐 통과)
 - ADR 0036 — KIS OAuth 분산락 (rate limit과 짝)
+- ADR 0038 — KIS Token store Redis (Bucket4j Redis backend reuse)
+- ADR 0044 — Notification System (Circuit Breaker alert path)
+- ADR 0088 — persistence-shared 패턴 (adapter 모듈 위치 1:1 재사용 권장)
 - `external-api-policy.md` §2 — 운영 매트릭스
-- `domain/.../market/ratelimit/KisRateLimiterPort.kt` — 본 ADR 구현 진입점
+- `domain/.../market/ratelimit/KisRateLimiterPort.kt` — 본 ADR 구현 진입점 (Phase 1 backend-core dispatch 후 신설)
+- spec 본문: `_workspace/specs/2026-05-19-p1-4-bucket4j-kis-rate-limiter-spec.md`
+
+## 5. 잔여 의제 (2026-05-19 amend — Phase 분리 LOCK)
+
+### Phase 1 — backend-core 단일 PR (사용자 결재 후 dispatch)
+
+| 의제 | 범위 |
+|---|---|
+| domain port 신설 | `KisRateLimiterPort` + `KisCallPriority` enum + `KisRateLimitTimeoutException` + `KisCircuitOpenException` |
+| adapter 모듈 위치 1차 결정 | 옵션 a (api 단독) vs 옵션 b (persistence-shared 패턴 1:1 — ADR 0088 정합 / 신규 `kis-shared`) — backend-core 결정 |
+| Bucket4j-Redis adapter 신설 | `RedisKisRateLimiterAdapter` — 10 token/sec capacity + refill 1s + Bean 발행 |
+| Gradle dependency | `com.bucket4j:bucket4j-core:8.10.1` + `com.bucket4j:bucket4j-redis:8.10.1` |
+| application.yml | Bucket4j capacity·refill 설정 + Redis 좌표 reuse (ADR 0038) |
+| 단위 테스트 4건 | 초당 10건 정확 강제 + 11번째 throw + EGW00201 backoff + Circuit Breaker OPEN |
+| 예상 LOC | ~300 |
+| cross-review | 자본 path 직결 → chart-curator 1차(보수) + 모듈 경계 → backend-core 1차(진보) (ADR 0085·0087 정합) |
+
+### Phase 2 — market-data 어댑터 통합 (Phase 1 머지 후 dispatch)
+
+| 의제 | 범위 |
+|---|---|
+| 모든 KIS REST 어댑터에 `kisRateLimiterPort.acquire(priority)` 합류 | `KisRestCandleAdapter`·`CandleRefreshService`·`KisReconcileBalanceAdapter`·`KisOrderHttpAdapter`·`KisInquireBalanceHttpAdapter`·`KisChartCandleAdapter` 외 ~15 어댑터 |
+| EGW00201 / HTTP 429 응답 처리 | `onTpsExceeded()` 호출 + 1초 backoff + 1회 재시도 + `onSuccess()` 호출 |
+| spec drift 정정 | `20 req/s` → `초당 10건` replace_all + `Thread.sleep(50)` → acquire 도입으로 제거 (또는 sleep(100ms) 정합) |
+| 예상 LOC | ~400 |
+
+### Phase 3 — Circuit Breaker + 빌드 게이트 (별도 사이클)
+
+| 의제 | 범위 |
+|---|---|
+| Circuit Breaker 통계 5분/50% 임계 구현 | Resilience4j 또는 Bucket4j Listener |
+| Slack alert P1 | `notification_outbox` reuse (ADR 0044) |
+| ArchUnit 빌드 게이트 | KIS adapter 외 RestClient/WebClient 직접 호출 detection |
+| ktlint custom rule | KIS endpoint URL 직접 사용 detection |
+| 예상 LOC | ~300 |
+| dispatch agent | backend-core + qa |
+
+## 6. 변경 이력
+
+| 일자 | 변경 | 작성 |
+|---|---|---|
+| TBD (베이스라인) | ADR 0037 신설 — KIS API Rate Limit 강제 (초당 10건 + Bucket4j 또는 Resilience4j) | architect |
+| 2026-05-19 | **amend — Bucket4j-Redis 단일 bucket LOCK (옵션 A 채택) + KisRateLimiterPort domain port spec + EGW00201/HTTP 429 backoff 매트릭스 정밀화 + Circuit Breaker OPEN 5분/50% 정합 + Phase 1·2·3 분리 LOCK + spec drift evidence(코드 주석 "20 req/s" 15+ 위치 vs ADR §1 "초당 10건" 권위 정합 의무) + adapter 모듈 위치 옵션 b(persistence-shared 패턴 1:1 재사용 ADR 0088 정합) 권장 + spec 본문 `_workspace/specs/2026-05-19-p1-4-bucket4j-kis-rate-limiter-spec.md` 동시 발행** — market-data PR #555 system audit P1-1·P1-2·P2-1 통합. Resilience4j 거부 사유 명시(분산 미지원 — share 분할 risk). cross-review chart-curator(보수) + backend-core(진보) 페르소나 매트릭스 정합. 운영 코드 0 touch (Kotlin/TS/SQL 0 변경 — ADR amend + spec + ADR README + master + backlog + CHANGELOG only). 자본 영향 0 + KIS endpoint 호출 0 + AI 호출 0 + mock 합성 0. Phase 1 backend-core dispatch 위임 (architect는 spec 발행까지). | architect (opus 4.7 1M) |
