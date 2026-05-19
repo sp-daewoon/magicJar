@@ -33,12 +33,20 @@ dependencies {
     // PostgreSQL driver
     implementation("org.postgresql:postgresql")
 
+    // Bucket4j Rate Limiter — KIS REST 초당 10건 강제 (ADR 0037 + spec PR #564 §2-1 옵션 A LOCK)
+    // multi-JVM 단일 bucket share — Lettuce Redis backend 직접 발행 (Spring Data Redis와 별도 client)
+    // spec §2-3 옵션 a 정합 — api 모듈 Bean과 동일 bucket key 사용 (Redis-level share)
+    implementation("com.bucket4j:bucket4j-core:8.10.1")
+    implementation("com.bucket4j:bucket4j-redis:8.10.1")
+
     // Flyway 미포함 (api 모듈만 마이그레이션)
     // LLM provider 의존 0건 (W4 트랙 한정 — CLAUDE.md 개발 룰 §5)
 
     // Test
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.kafka:spring-kafka-test")
+    // mockito-kotlin — ConsumerRedisKisRateLimiterAdapterTest 사용 (api 모듈 패턴 1:1 정합)
+    testImplementation("org.mockito.kotlin:mockito-kotlin:5.4.0")
 }
 
 tasks.named<org.springframework.boot.gradle.tasks.bundling.BootJar>("bootJar") {

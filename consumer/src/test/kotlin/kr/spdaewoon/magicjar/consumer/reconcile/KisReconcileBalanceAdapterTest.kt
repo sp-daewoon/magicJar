@@ -1,5 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.reconcile
 
+import io.mockk.mockk
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.web.reactive.function.client.WebClient
@@ -24,6 +26,7 @@ class KisReconcileBalanceAdapterTest {
             secretCipher = SecretCipherStub(),
             kisAuthAdapter = stubKisAuthAdapter(),
             credentialRepository = stubCredRepo(),
+            kisRateLimiterPort = mockk<KisRateLimiterPort>(relaxed = true),
             kisBaseProd = "https://openapi.koreainvestment.com:9443",
             kisBaseVps = "https://openapivts.koreainvestment.com:29443",
         )

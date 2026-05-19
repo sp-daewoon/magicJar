@@ -1,0 +1,57 @@
+package kr.spdaewoon.magicjar.consumer.infrastructure.kis.ratelimit
+
+import org.springframework.boot.context.properties.ConfigurationProperties
+
+/**
+ * KIS Rate Limit 설정 (consumer 모듈 Bean — spec PR #564 §2-3 옵션 a 정합).
+ *
+ * 기본값 LOCK (ADR 0037 §1 KIS 공식 한도 — 초당 10건):
+ *   - bucketCapacity=10
+ *   - bucketRefillTokens=10
+ *   - bucketRefillPeriodSeconds=1
+ *   - bucketKey="kis-rate-limit:global" (★ api 모듈 KisRateLimitProperties와 동일 LOCK — Redis-level share)
+ *
+ * Phase 2 옵션 a 정합 (spec §2-3):
+ *   - api 모듈 [KisRateLimitProperties] + consumer 모듈 본 Properties 동일 prefix·동일 bucketKey LOCK
+ *   - multi-JVM 단일 bucket share = Bucket4j Lettuce backend Redis 단일 ZSET 키 share (api·consumer ApplicationContext 분리 정합)
+ *   - 단일 source-of-truth = `magicjar.kis.rate-limiter.*` env keys (api·consumer 동일 application.yml prefix 강제)
+ *
+ * env override (rollback path — spec §7 정합):
+ *   - MAGICJAR_KIS_RATE_LIMIT_BURST=15 → bucketCapacity=15 (KIS 차단 risk 동반 — 사용자 알림 의무)
+ */
+@ConfigurationProperties(prefix = "magicjar.kis.rate-limiter")
+data class ConsumerKisRateLimitProperties(
+    /**
+     * 어댑터 활성화 스위치 (default true — 활성).
+     * false 시 NoOp 패턴 fallback — 본 dispatch는 baseline true LOCK.
+     */
+    val enabled: Boolean = true,
+    /**
+     * 단일 bucket 토큰 capacity (KIS 공식 한도 = 10).
+     * 11번째 호출은 1초 윈도 내 timeout.
+     */
+    val bucketCapacity: Long = 10L,
+    /**
+     * refill 1회 토큰 수 (= capacity → 매 refill 윈도 100% 회복).
+     */
+    val bucketRefillTokens: Long = 10L,
+    /**
+     * refill 윈도 초 (KIS 한도 = 1초).
+     */
+    val bucketRefillPeriodSeconds: Long = 1L,
+    /**
+     * Redis ZSET 키 (★ api 모듈 KisRateLimitProperties와 동일 LOCK — multi-JVM 단일 bucket share).
+     */
+    val bucketKey: String = "kis-rate-limit:global",
+    /**
+     * Bucket4j Redis backend TTL (refill 윈도의 10배 — 안전 마진).
+     */
+    val bucketTtlSeconds: Long = 10L,
+    /**
+     * acquire() polling 간격 (token 부족 시 재시도 sleep).
+     *
+     * Phase 1 단순화: BucketProxy는 `tryConsume` non-blocking 위주 → timeout 내 short sleep polling.
+     * 50ms = KIS 한도 0.5 token 회복 기다림 (정확한 ceiling 도달 시 즉시 진입).
+     */
+    val acquirePollIntervalMillis: Long = 50L,
+)

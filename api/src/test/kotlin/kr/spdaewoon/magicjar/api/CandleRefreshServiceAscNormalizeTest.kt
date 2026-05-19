@@ -5,6 +5,7 @@ import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.api.secret.AesGcmCipher
 import kr.spdaewoon.magicjar.api.service.CandleRefreshService
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.mock
@@ -47,6 +48,7 @@ class CandleRefreshServiceAscNormalizeTest {
             candleJpaRepository = mock<CandleJpaRepository>(),
             aesGcmCipher = mock<AesGcmCipher>(),
             redisTemplate = mock<StringRedisTemplate>(),
+            kisRateLimiterPort = mock<KisRateLimiterPort>(),
             kisBaseProd = "https://openapi.koreainvestment.com:9443",
         )
     }

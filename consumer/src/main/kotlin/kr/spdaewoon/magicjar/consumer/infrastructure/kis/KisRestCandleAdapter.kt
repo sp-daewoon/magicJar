@@ -5,6 +5,8 @@ import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRe
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.KisRestPort
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
@@ -38,7 +40,7 @@ import kotlinx.datetime.Instant as KtInstant
  *   KIS 외부 결함 일시적 부하 통과를 위해 HTTP 500 INTERNAL_SERVER_ERROR 발생 시
  *   최대 3회 exponential backoff (500ms → 1000ms → 2000ms) 재시도.
  *   503/502 등 기타 HTTP 오류는 즉시 실패 (서비스 점검 가능성, 재시도 무의미).
- *   Rate Limit (ADR 0037): retry는 500 발생 시에만 — 20 req/s 한도 영향 미미.
+ *   Rate Limit (ADR 0037): retry는 500 발생 시에만 — 초당 10건 한도 영향 미미.
  *
  * ⚠ KIS raw 사전 ASC 정규화 매트릭스 (ADR 0086 §11 LOCK — chart-curator skill §5 source-of-truth 정합):
  *   KIS 응답 sort order는 timeframe·endpoint별로 일관되지 않음. adapter layer가 raw 정규화 단일 책임.
@@ -62,6 +64,7 @@ class KisRestCandleAdapter(
     private val secretCipher: SecretCipher,
     private val credentialRepository: ConsumerUserKisCredentialJpaRepository,
     private val instrumentRepository: ConsumerInstrumentJpaRepository,
+    private val kisRateLimiterPort: KisRateLimiterPort,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseProd: String,
     @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
@@ -85,7 +88,7 @@ class KisRestCandleAdapter(
         /**
          * KIS HTTP 500 exponential backoff 대기 시간 (ms).
          * §33: 3회 재시도 — 500ms → 1000ms → 2000ms.
-         * Rate Limit (ADR 0037): retry는 500 발생 시에만 발동 — 20 req/s 한도 영향 미미.
+         * Rate Limit (ADR 0037): retry는 500 발생 시에만 발동 — 초당 10건 한도 영향 미미.
          */
         private val RETRY_BACKOFF_MS = listOf(500L, 1000L, 2000L)
         private const val RETRY_MAX_ATTEMPTS = 3
@@ -152,7 +155,7 @@ class KisRestCandleAdapter(
      *   3. 가장 이른 ts 가 09:00 KST 이전이면 해당 일자 종료
      *   4. 응답 0건 또는 일자당 최대 MAX_PAGES_PER_DAY(=6) call 초과 시 안전 종료
      *
-     * Rate Limit (ADR 0037): 20 req/s. 50ms 마진 유지.
+     * Rate Limit (ADR 0037): 초당 10건. 50ms 마진 유지.
      * 11종목 × 4 call × 30일 = 1320 calls × 50ms = ~66s — 안전.
      *
      * in-memory dedup: (code, interval, ts epoch second) Set으로 중복 경계 row 방지.
@@ -227,6 +230,10 @@ class KisRestCandleAdapter(
 
                 while (!dayDone && pageCount < maxPagesPerDay) {
                     try {
+                        // Rate Limit acquire (spec PR #564 §2-2 LOCK — BACKFILL priority)
+                        // ADR 0037 초당 10건 한도. 1m 페이지네이션 backfill path → BACKFILL 우선순위
+                        kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 1000L)
+
                         val body =
                             webClient
                                 .get()
@@ -337,14 +344,26 @@ class KisRestCandleAdapter(
                             }
                         }
 
-                        // KIS API rate limit 준수: ADR 0037 — 20 req/s 한도. 50ms 간격 안전 마진
-                        Thread.sleep(50)
+                        // KIS API rate limit 준수: ADR 0037 — 초당 10건 한도 (KisRateLimiterPort.acquire 합류 — spec PR #564 §2-2)
+                        // sleep 마진 제거 — Bucket4j blocking polling이 적시 진입 보장
+                        kisRateLimiterPort.onSuccess()
                     } catch (e: WebClientResponseException) {
                         val statusCode = e.statusCode.value()
-                        if (statusCode == 500) {
+                        if (statusCode == 429) {
+                            // HTTP 429 → onTpsExceeded + 1초 backoff (spec PR #564 §2-2 LOCK)
+                            kisRateLimiterPort.onTpsExceeded()
+                            log.warn(
+                                "KIS 1m candle HTTP 429 — 1초 backoff, 일자 건너뜀: code={} date={} hour={}",
+                                code,
+                                dateStr,
+                                currentHour,
+                            )
+                            Thread.sleep(1000L)
+                            dayDone = true
+                        } else if (statusCode == 500) {
                             // KIS 500 INTERNAL_SERVER_ERROR — §33 exponential backoff 3회 재시도
                             // 배경: dogfooding 2026-05-11 PARTIAL_FAIL 패턴 (1회 retry 불충분)
-                            // Rate Limit (ADR 0037): retry는 500 발생 시에만 — 20 req/s 한도 영향 미미
+                            // Rate Limit (ADR 0037): retry는 500 발생 시에만 — 초당 10건 한도 영향 미미
                             var retriedSuccessfully = false
                             for (attempt in 0 until RETRY_MAX_ATTEMPTS - 1) {
                                 val waitMs = RETRY_BACKOFF_MS[attempt]
@@ -359,6 +378,8 @@ class KisRestCandleAdapter(
                                 )
                                 Thread.sleep(waitMs)
                                 try {
+                                    // Rate Limit acquire 재진입 (spec PR #564 §2-2 — retry path BACKFILL)
+                                    kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 1000L)
                                     val retryBody =
                                         webClient
                                             .get()
@@ -572,7 +593,7 @@ class KisRestCandleAdapter(
             val mrktDivCode = resolveMrktDivCode(code)
 
             // §33 exponential backoff retry — 500 발생 시 최대 3회
-            // Rate Limit (ADR 0037): retry는 500 발생 시에만 — 20 req/s 한도 영향 미미
+            // Rate Limit (ADR 0037): retry는 500 발생 시에만 — 초당 10건 한도 영향 미미
             var lastException: WebClientResponseException? = null
             for (attempt in 0 until RETRY_MAX_ATTEMPTS) {
                 if (attempt > 0) {
@@ -588,6 +609,10 @@ class KisRestCandleAdapter(
                     Thread.sleep(waitMs)
                 }
                 try {
+                    // Rate Limit acquire (spec PR #564 §2-2 LOCK — INGESTION priority)
+                    // ADR 0037 초당 10건 한도. 일봉/주봉/월봉/연봉 정기 갱신 path → INGESTION 우선순위
+                    kisRateLimiterPort.acquire(KisCallPriority.INGESTION, timeoutMillis = 1000L)
+
                     val body =
                         webClient
                             .get()
@@ -623,8 +648,20 @@ class KisRestCandleAdapter(
                             RETRY_MAX_ATTEMPTS,
                         )
                     }
+                    kisRateLimiterPort.onSuccess()
                     return parseKisDailyResponse(body, code, interval)
                 } catch (e: WebClientResponseException) {
+                    if (e.statusCode.value() == 429) {
+                        // HTTP 429 → onTpsExceeded + 1초 backoff (spec PR #564 §2-2 LOCK)
+                        kisRateLimiterPort.onTpsExceeded()
+                        log.warn(
+                            "KIS REST candle HTTP 429 — 1초 backoff 후 빈 결과: code={} interval={}",
+                            code,
+                            interval.code,
+                        )
+                        Thread.sleep(1000L)
+                        return emptyList()
+                    }
                     if (e.statusCode.value() == 500 && attempt < RETRY_MAX_ATTEMPTS - 1) {
                         lastException = e
                         continue // 재시도 횟수 남음 — backoff 후 재시도

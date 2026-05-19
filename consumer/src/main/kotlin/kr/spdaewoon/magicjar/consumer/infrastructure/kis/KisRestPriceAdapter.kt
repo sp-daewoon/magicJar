@@ -6,6 +6,8 @@ import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.KisRestPort
 import kr.spdaewoon.magicjar.domain.market.port.KisRestPriceMetricsPort
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.market.tick.TickEvent
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
@@ -38,6 +40,7 @@ import java.time.Duration
 class KisRestPriceAdapter(
     private val webClient: WebClient,
     private val kisAuthAdapter: KisAuthAdapter,
+    private val kisRateLimiterPort: KisRateLimiterPort,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseProd: String,
     @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
@@ -63,6 +66,10 @@ class KisRestPriceAdapter(
         val baseUrl = kisBaseProd
         val token = kisAuthAdapter.getAccessToken(userId, accountType)
 
+        // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority)
+        // 현재가 polling은 사용자 path 즉시 응답 path
+        kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+
         return try {
             @Suppress("UNCHECKED_CAST")
             val response =
@@ -87,6 +94,7 @@ class KisRestPriceAdapter(
             val priceStr = output["stck_prpr"]?.toString() ?: "0"
             val volumeStr = output["acml_vol"]?.toString() ?: "0"
 
+            kisRateLimiterPort.onSuccess()
             TickEvent(
                 code = code,
                 price = BigDecimal(priceStr.ifBlank { "0" }),
@@ -96,6 +104,10 @@ class KisRestPriceAdapter(
                 stale = false,
             )
         } catch (e: WebClientResponseException) {
+            if (e.statusCode.value() == 429) {
+                kisRateLimiterPort.onTpsExceeded()
+                log.warn("KIS inquire-price HTTP 429 — onTpsExceeded 시그널: code={}", code)
+            }
             log.error(
                 "KIS inquire-price 실패: code={} status={} body={}",
                 code,
@@ -143,6 +155,9 @@ class KisRestPriceAdapter(
         val baseUrl = kisBaseProd
         val token = kisAuthAdapter.getAccessToken(userId, accountType)
 
+        // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority — metrics path)
+        kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+
         return try {
             @Suppress("UNCHECKED_CAST")
             val response =
@@ -164,6 +179,7 @@ class KisRestPriceAdapter(
                 response["output"] as? Map<String, Any>
                     ?: error("KIS inquire-price (metrics) output 없음 — code=$code")
 
+            kisRateLimiterPort.onSuccess()
             PriceMetrics(
                 per = output["per"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
                 pbr = output["pbr"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
@@ -180,6 +196,10 @@ class KisRestPriceAdapter(
                 volume = output["acml_vol"]?.toString()?.ifBlank { null }?.toLongOrNull(),
             )
         } catch (e: WebClientResponseException) {
+            if (e.statusCode.value() == 429) {
+                kisRateLimiterPort.onTpsExceeded()
+                log.warn("KIS inquire-price (metrics) HTTP 429 — onTpsExceeded 시그널: code={}", code)
+            }
             log.error(
                 "KIS inquire-price (metrics) 실패: code={} status={} body={}",
                 code,

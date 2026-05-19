@@ -2,9 +2,12 @@ package kr.spdaewoon.magicjar.consumer.infrastructure.kis
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
@@ -54,6 +57,7 @@ import java.time.Duration
 @Component
 class KisHashKeyAdapter(
     private val webClient: WebClient,
+    private val kisRateLimiterPort: KisRateLimiterPort,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseProd: String,
     @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
@@ -91,6 +95,10 @@ class KisHashKeyAdapter(
     ): String {
         val baseUrl = if (accountType == AccountType.REAL) kisBaseProd else kisBaseVps
 
+        // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority, 주문 직전 경로)
+        // ADR 0037 초당 10건 한도 강제. timeout 1초 초과 시 KisRateLimitTimeoutException throw.
+        kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+
         return try {
             val response =
                 webClient
@@ -107,9 +115,17 @@ class KisHashKeyAdapter(
                     .block()
                     ?: throw IllegalStateException("HASHKEY_RESPONSE_NULL")
 
+            kisRateLimiterPort.onSuccess()
             response.hash?.takeIf { it.isNotBlank() }
                 ?: throw IllegalStateException("HASHKEY_HASH_FIELD_NULL")
         } catch (e: WebClientResponseException) {
+            // EGW00201 / HTTP 429 backoff (spec PR #564 §2-2 — 1초 + 1회 재시도)
+            if (e.statusCode == HttpStatus.TOO_MANY_REQUESTS) {
+                kisRateLimiterPort.onTpsExceeded()
+                log.warn("KIS hashkey HTTP 429 — 1초 backoff 후 1회 재시도: accountType={}", accountType.name)
+                Thread.sleep(1000L)
+                return retryHashKey(body, baseUrl, accessToken, appKey, appSecret, accountType)
+            }
             // 5xx는 caller submitWithRetry가 재시도 (KisOrderHttpAdapter.submit과 동일 정책)
             // 4xx는 caller에서 IllegalStateException catch → DenyReason.KisException 변환
             log.warn(
@@ -123,6 +139,47 @@ class KisHashKeyAdapter(
             }
             // 4xx → IllegalStateException 변환 throw
             throw IllegalStateException("HASHKEY_HTTP_${e.statusCode.value()}", e)
+        }
+    }
+
+    /**
+     * HTTP 429 1회 재시도 path (spec PR #564 §2-2 LOCK).
+     * 재시도도 429 시 onTpsExceeded() + 명시 에러 throw (mock 합성 0 — ADR 0014 정합).
+     */
+    private fun retryHashKey(
+        body: Map<String, String>,
+        baseUrl: String,
+        accessToken: String,
+        appKey: String,
+        appSecret: String,
+        accountType: AccountType,
+    ): String {
+        // 재시도 전 다시 acquire — 1초 sleep 후이므로 token refill 보장
+        kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+        return try {
+            val response =
+                webClient
+                    .post()
+                    .uri("$baseUrl$HASHKEY_PATH")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .header("authorization", "Bearer $accessToken")
+                    .header("appkey", appKey)
+                    .header("appsecret", appSecret)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(KisHashKeyResponse::class.java)
+                    .timeout(Duration.ofSeconds(TIMEOUT_SEC))
+                    .block()
+                    ?: throw IllegalStateException("HASHKEY_RESPONSE_NULL")
+            kisRateLimiterPort.onSuccess()
+            response.hash?.takeIf { it.isNotBlank() }
+                ?: throw IllegalStateException("HASHKEY_HASH_FIELD_NULL")
+        } catch (e: WebClientResponseException) {
+            if (e.statusCode == HttpStatus.TOO_MANY_REQUESTS) {
+                kisRateLimiterPort.onTpsExceeded()
+                throw IllegalStateException("HASHKEY_HTTP_429_RETRY_EXHAUSTED", e)
+            }
+            throw IllegalStateException("HASHKEY_HTTP_${e.statusCode.value()}_RETRY", e)
         }
     }
 }

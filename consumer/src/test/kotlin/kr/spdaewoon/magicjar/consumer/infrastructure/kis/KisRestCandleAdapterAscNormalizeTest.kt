@@ -5,6 +5,7 @@ import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepositor
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -50,6 +51,7 @@ class KisRestCandleAdapterAscNormalizeTest {
             secretCipher = mockk<SecretCipher>(relaxed = true),
             credentialRepository = mockk<ConsumerUserKisCredentialJpaRepository>(relaxed = true),
             instrumentRepository = mockk<ConsumerInstrumentJpaRepository>(relaxed = true),
+            kisRateLimiterPort = mockk<KisRateLimiterPort>(relaxed = true),
             kisBaseProd = "https://openapi.koreainvestment.com:9443",
             kisBaseVps = "https://openapivts.koreainvestment.com:29443",
         )
