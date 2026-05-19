@@ -25,7 +25,7 @@
  * - PatternMarker — LWC 차트에 BULL/BEAR 마커 overlay
  * - 패턴 0건 시 "패턴 데이터 없음" 명시 (feedback_no_mock_data.md 정합)
  */
-import { useMemo, useState, useCallback, useRef } from 'react'
+import { useMemo, useState, useCallback } from 'react'
 import type { IChartApi, ISeriesApi } from 'lightweight-charts'
 import { useSymbolCandles } from '../../api/hooks/useSymbolCandles'
 import { useCandleRefresh } from '../../api/hooks/useCandleRefresh'
@@ -96,13 +96,21 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
   const [isPanelOpen, setIsPanelOpen] = useState(false)
   const [selectedIndicatorIds, setSelectedIndicatorIds] = useState<Set<string>>(new Set())
   const [indicatorErrors, setIndicatorErrors] = useState<Map<string, string>>(new Map())
-  const chartApiRef = useRef<IChartApi | null>(null)
+  // chart instance를 useState로 lift (P0 fix 2026-05-19 chart-curator):
+  //   useRef는 mutation 시 re-render trigger 안 함 → IndicatorOverlay·PatternMarker가
+  //   chart 교체(StrictMode 이중 mount 또는 SymbolDetailPage 재진입)를 감지 못해
+  //   disposed instance에 removeSeries() 호출 → LWC v4 "Object is disposed" throw.
+  //   useState로 lift하면 setChartApi(null) → re-render trigger → child useEffect cleanup이
+  //   chart=null로 진입해 series remove 시도 skip → race 원천 차단.
+  //   chart-curator skill §함정 가드 (LWC dispose lifecycle 검증) 정합.
+  const [chartApi, setChartApi] = useState<IChartApi | null>(null)
 
   // 패턴 관련 상태 (T-PAT PR-40)
   const [isPatternPanelOpen, setIsPatternPanelOpen] = useState(false)
   const { selectedIds: selectedPatternIds, onSelectionChange: handlePatternSelectionChange } =
     usePatternSelection()
-  const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
+  // candleSeries도 동일 사유로 useState lift (chartApi와 동일 dispose race risk).
+  const [candleSeries, setCandleSeries] = useState<ISeriesApi<'Candlestick'> | null>(null)
 
   // 패턴 데이터 fetch
   const {
@@ -117,11 +125,11 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
   })
 
   const handleCandleSeriesReady = useCallback((series: ISeriesApi<'Candlestick'>) => {
-    candleSeriesRef.current = series
+    setCandleSeries(series)
   }, [])
 
   const handleCandleSeriesDestroy = useCallback(() => {
-    candleSeriesRef.current = null
+    setCandleSeries(null)
   }, [])
 
   // 모든 페이지 candle 합산 (ASC 정렬 유지).
@@ -189,11 +197,11 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
   }, [])
 
   const handleChartReady = useCallback((chart: IChartApi) => {
-    chartApiRef.current = chart
+    setChartApi(chart)
   }, [])
 
   const handleChartDestroy = useCallback(() => {
-    chartApiRef.current = null
+    setChartApi(null)
   }, [])
 
   const handleOverlayErrors = useCallback((errors: Map<string, string>) => {
@@ -466,7 +474,7 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
 
       {/* IndicatorOverlay — LWC 차트에 지표 series 추가 (DOM 렌더링 없음) */}
       <IndicatorOverlay
-        chart={chartApiRef.current}
+        chart={chartApi}
         code={code}
         interval={interval}
         selectedIds={selectedIndicatorIds}
@@ -475,7 +483,7 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
 
       {/* PatternMarker — LWC 차트에 패턴 마커 overlay (DOM 렌더링 없음 — T-PAT PR-40) */}
       <PatternMarker
-        series={candleSeriesRef.current}
+        series={candleSeries}
         matches={patternData?.matches ?? []}
       />
     </div>
