@@ -155,13 +155,25 @@ export function useValidateKisReal() {
 
 /**
  * KIS 모의계좌 추가 mutation
- * Step 3에서 사용 (선택)
+ *
+ * Step 3 (SetupWizard) + SettingsModal MOCK 신규 등록 양쪽에서 사용.
+ * SettingsModal에서는 hasKey=false 분기에서 호출 (T-20260519-2301 hotfix —
+ * 기존엔 무조건 PUT /kis/{accountType} → 404 발생).
+ *
+ * onSuccess 시 settings.kisCredentials 쿼리도 invalidate 하여 SettingsModal
+ * KIS 키 관리 섹션이 즉시 refresh 되도록 함.
  */
 export function useAddMockAccount() {
+  const queryClient = useQueryClient()
   return useMutation<KisMockResponse, unknown, KisMockRequest>({
     mutationFn: async (req) => {
       const res = await apiClient.post<KisMockResponse>('/onboarding/kis/mock', req)
       return res.data
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['onboarding', 'status'] })
+      // SettingsModal KisCredentialSection의 useKisCredentials와 동일 키
+      void queryClient.invalidateQueries({ queryKey: ['settings', 'kisCredentials'] })
     },
   })
 }

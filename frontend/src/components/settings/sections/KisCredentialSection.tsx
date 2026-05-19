@@ -19,6 +19,12 @@
  * - hasKey=false → "등록된 KIS 키 없음" 표시 (placeholder mask 금지)
  *
  * AI 호출 0 (개발 룰 5 + ADR 0074 §11-2 정합)
+ *
+ * MOCK 신규 등록 분기 (T-20260519-2301 hotfix):
+ * - hasMock=false 시 PUT /onboarding/kis/MOCK → 404 root cause (등록된 키 없음)
+ * - 신규 등록은 POST /onboarding/kis/mock (OnboardingController)
+ * - 변경은 PUT /onboarding/kis/{accountType} (KisCredentialChangeController)
+ * - REAL은 SetupWizard에서 사전 등록 강제 → 항상 PUT
  */
 import axios from 'axios'
 import { useState } from 'react'
@@ -29,6 +35,7 @@ import { ConfirmDangerToggle } from '../forms/ConfirmDangerToggle'
 import { useKisCredentials } from '../../../api/queries/useKisCredentials'
 import { useUpdateKisCredential } from '../../../api/queries/useUpdateKisCredential'
 import { useDeleteKisCredential } from '../../../api/queries/useDeleteKisCredential'
+import { useAddMockAccount } from '../../../api/onboarding'
 import { useToast } from '../../ui/ToastProvider'
 import type { KisCredentialFormValues } from '../forms/KisCredentialForm'
 
@@ -58,6 +65,7 @@ function extractErrorMessage(err: unknown, fallback: string): string {
 export function KisCredentialSection() {
   const { data: credData, isLoading, isError } = useKisCredentials()
   const { mutate: updateCred, isPending: isUpdating } = useUpdateKisCredential()
+  const { mutate: addMockAccount, isPending: isAddingMock } = useAddMockAccount()
   const { mutate: deleteCred, isPending: isDeleting } = useDeleteKisCredential()
   const { showToast } = useToast()
 
@@ -72,6 +80,10 @@ export function KisCredentialSection() {
   const mockCred = credentials.find((c) => c.accountType === 'MOCK')
   const hasReal = realCred?.hasKey ?? false
   const hasMock = mockCred?.hasKey ?? false
+  const userId = credData?.userId ?? null
+
+  // MOCK 신규 등록 시에도 spinner/disable 통합
+  const isSubmitting = isUpdating || isAddingMock
 
   function handleSubmit(accountType: 'REAL' | 'MOCK') {
     return (values: KisCredentialFormValues) => {
@@ -79,6 +91,50 @@ export function KisCredentialSection() {
       setSectionError(null)
       setServerError(null)
 
+      // MOCK 신규 등록 분기 — hasMock=false 시 POST /onboarding/kis/mock
+      // (KisCredentialChangeController PUT은 등록된 키 없으면 404 반환)
+      if (accountType === 'MOCK' && !hasMock) {
+        if (!userId) {
+          const message = '실전 계좌가 등록되지 않아 모의 키를 등록할 수 없습니다. SetupWizard에서 실전 계좌를 먼저 등록해 주세요.'
+          setSectionStatus('error')
+          setSectionError(message)
+          setServerError(message)
+          return
+        }
+        if (!/^\d{8}$/.test(values.accountNumber)) {
+          const message = '모의 계좌번호는 숫자 8자리여야 합니다.'
+          setSectionStatus('error')
+          setSectionError(message)
+          setServerError(message)
+          return
+        }
+
+        addMockAccount(
+          {
+            userId,
+            mockAccountNumber: values.accountNumber,
+            appKey: values.appKey,
+            secretKey: values.secretKey,
+          },
+          {
+            onSuccess: () => {
+              setSectionStatus('saved')
+              setActiveForm(null)
+              showToast('모의계좌 KIS 키가 등록되었습니다', 'success')
+              setTimeout(() => setSectionStatus('idle'), 3000)
+            },
+            onError: (err) => {
+              const message = extractErrorMessage(err, 'KIS 모의 키 등록에 실패했습니다.')
+              setSectionStatus('error')
+              setSectionError(message)
+              setServerError(message)
+            },
+          },
+        )
+        return
+      }
+
+      // 기존 키 변경 (REAL 항상 / MOCK hasKey=true) — PUT /onboarding/kis/{accountType}
       updateCred(
         {
           accountType,
@@ -197,11 +253,13 @@ export function KisCredentialSection() {
                   미등록
                 </span>
               )}
-              {/* REAL은 변경만 가능 — 삭제 불가 (ADR 0074 §2-2-1 LOCK) */}
+              {/* REAL은 변경만 가능 — 삭제 불가 (ADR 0074 §2-2-1 LOCK)
+                  REAL 신규 등록은 SetupWizard 흐름에서만 가능. */}
               <button
                 type="button"
                 onClick={() => setActiveForm((prev) => (prev === 'REAL' ? null : 'REAL'))}
-                disabled={isUpdating}
+                disabled={isSubmitting || !hasReal}
+                title={!hasReal ? '실전 키는 SetupWizard에서 먼저 등록해 주세요' : undefined}
                 className="rounded-lg border border-gray-700 px-3 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:opacity-50"
               >
                 {activeForm === 'REAL' ? '접기' : '변경'}
@@ -262,7 +320,7 @@ export function KisCredentialSection() {
               <button
                 type="button"
                 onClick={() => setActiveForm((prev) => (prev === 'MOCK' ? null : 'MOCK'))}
-                disabled={isUpdating}
+                disabled={isSubmitting}
                 className="rounded-lg border border-gray-700 px-3 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:opacity-50"
               >
                 {activeForm === 'MOCK' ? '접기' : hasMock ? '변경' : '추가'}
@@ -336,8 +394,12 @@ export function KisCredentialSection() {
             initialAccountNumber={mockCred?.accountNumber ?? ''}
             accountNumberReadOnly={hasMock}
             onSubmit={handleSubmit('MOCK')}
-            isSubmitting={isUpdating}
-            submitLabel={isUpdating ? '저장 중...' : hasMock ? '변경 저장' : '등록'}
+            isSubmitting={isSubmitting}
+            submitLabel={
+              isSubmitting
+                ? hasMock ? '저장 중...' : '등록 중...'
+                : hasMock ? '변경 저장' : '등록'
+            }
           />
         </div>
       )}
