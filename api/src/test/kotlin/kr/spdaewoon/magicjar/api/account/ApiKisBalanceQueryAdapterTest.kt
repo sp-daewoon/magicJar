@@ -1,13 +1,13 @@
 package kr.spdaewoon.magicjar.api.account
 
 import kr.spdaewoon.magicjar.api.infrastructure.kis.ApiKisBalanceQueryAdapter
+import kr.spdaewoon.magicjar.api.infrastructure.kis.KisTokenCacheHelper
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.mock
-import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.web.reactive.function.client.WebClient
 import java.math.BigDecimal
 
@@ -30,14 +30,14 @@ class ApiKisBalanceQueryAdapterTest {
     private val webClient: WebClient = mock()
     private val secretCipher: SecretCipher = mock()
     private val credentialRepository: UserKisCredentialJpaRepository = mock()
-    private val redis: StringRedisTemplate = mock()
+    private val tokenHelper: KisTokenCacheHelper = mock()
 
     private val sut =
         ApiKisBalanceQueryAdapter(
             webClient = webClient,
             secretCipher = secretCipher,
             credentialRepository = credentialRepository,
-            redisTemplate = redis,
+            tokenHelper = tokenHelper,
             kisBaseProd = "https://openapi.koreainvestment.com:9443",
             kisBaseVps = "https://openapivts.koreainvestment.com:29443",
         )

@@ -26,8 +26,9 @@ import java.time.Instant
 /**
  * AccountQueryService 단위 테스트 — T-ACCT Phase 2 (ADR 0081 + spec §13).
  *
+
  * 시나리오:
- * 1. cache miss → KIS 호출 + cache write TTL 30s
+ * 1. cache miss → KIS 호출 + cache write TTL 5s (C-2 2026-05-20 자본 시각화 정합 — 30s에서 단축)
  * 2. cache hit → KIS 호출 0
  * 3. summary 응답 수익률 계산 (totalProfitLoss / totalPurchaseAmount × 100)
  * 4. positions 응답 매핑 (output1 향상판)
@@ -94,7 +95,7 @@ class AccountQueryServiceTest {
         )
 
     @Test
-    fun `cache miss — KIS 호출 1회 + cache SETEX TTL 30s`() {
+    fun `cache miss — KIS 호출 1회 + cache SETEX TTL 5s (C-2 자본 시각화 정합)`() {
         whenever(redis.opsForValue()).thenReturn(valueOps)
         whenever(valueOps.get(eq(cacheKey))).thenReturn(null)
         whenever(kisPort.fetchFullBalance(userId, accountType)).thenReturn(fixtureSnapshot())
@@ -106,14 +107,19 @@ class AccountQueryServiceTest {
         assertThat(response.totalProfitLoss).isEqualByComparingTo("100000.00")
         assertThat(response.fetchedAt).isEqualTo("2026-05-18T05:30:00Z")
 
-        // cache write TTL 30s 검증
+        // C-2 — cache write TTL 5s 검증 (2026-05-20 30s → 5s 단축)
         val keyCap = argumentCaptor<String>()
         val ttlCap = argumentCaptor<Duration>()
         verify(valueOps).set(keyCap.capture(), any<String>(), ttlCap.capture())
         assertThat(keyCap.firstValue).isEqualTo(cacheKey)
-        assertThat(ttlCap.firstValue).isEqualTo(Duration.ofSeconds(30))
+        assertThat(ttlCap.firstValue).isEqualTo(Duration.ofSeconds(5))
 
         verify(kisPort).fetchFullBalance(userId, accountType)
+    }
+
+    @Test
+    fun `C-2 — CACHE_TTL companion 상수 5s LOCK (자본 시각화 즉시성)`() {
+        assertThat(AccountQueryService.CACHE_TTL).isEqualTo(Duration.ofSeconds(5))
     }
 
     @Test

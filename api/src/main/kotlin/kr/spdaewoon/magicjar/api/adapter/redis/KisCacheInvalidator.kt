@@ -9,13 +9,15 @@ import java.time.Duration
  * KIS 관련 Redis 캐시 무효화 헬퍼 (ADR 0074 §7 정합).
  *
  * KIS 키 변경(PUT) 성공 직후 호출:
- *   1. access_token:{userId}:{accountType}   DEL — KIS OAuth tokenP cache
- *   2. kis:approval:{userId}                 DEL — WS approval_key cache (REAL 시)
- *   3. kis:key-changed-lock:{userId}:{accountType}  SET TTL 5s — T-O 주문 발행 잠금
+ *   1. `kis:token:{userId}:{accountType}`        DEL — KIS OAuth tokenP cache (T-1 단일 prefix LOCK)
+ *      + `access_token:{userId}:{accountType}`   DEL — 전환기 안전망 (T-2, 기존 운영 환경 잔존 키 흡수)
+ *   2. `kis:approval:{userId}`                   DEL — WS approval_key cache (REAL 시)
+ *   3. `kis:key-changed-lock:{userId}:{accountType}` SET TTL 5s — T-O 주문 발행 잠금
  *
- * Redis 키 prefix 정책:
- *   - 기존 access_token:* 는 prefix kis: 누락 — 호환성 유지 (ADR 0074 §7-1 정합)
- *   - 신규 kis:key-changed-lock:* 는 prefix kis: 포함
+ * ### Redis 키 prefix 정책 (T-1·T-2 통합 — 2026-05-20)
+ * - 신규 표준: `kis:token:*` (consumer `KisAuthAdapter` + api `KisTokenCacheHelper` 공통)
+ * - 결함 prefix `access_token:*` 폐기 — 본 invalidator 만 전환기 안전망으로 동시 DEL
+ * - `kis:approval:*` · `kis:key-changed-lock:*` 는 기존 유지
  *
  * // AI 호출 0 건 (ADR 0074 §11-2 정합)
  */
@@ -26,27 +28,37 @@ class KisCacheInvalidator(
     private val log = LoggerFactory.getLogger(KisCacheInvalidator::class.java)
 
     companion object {
-        private const val TOKEN_KEY_PREFIX = "access_token"
+        /** T-1 신규 표준 prefix — consumer KisAuthAdapter + api KisTokenCacheHelper 공통. */
+        const val TOKEN_KEY_PREFIX = "kis:token"
+
+        /** T-2 전환기 안전망 — 기존 운영 환경에 남아 있을 수 있는 결함 prefix. */
+        const val LEGACY_TOKEN_KEY_PREFIX = "access_token"
+
         private const val APPROVAL_KEY_PREFIX = "kis:approval"
         private const val KEY_CHANGED_LOCK_PREFIX = "kis:key-changed-lock"
         private val KEY_CHANGED_LOCK_TTL = Duration.ofSeconds(5)
     }
 
     /**
-     * access_token:{userId}:{accountType} 삭제.
-     * KIS OAuth tokenP 캐시 무효화.
+     * KIS OAuth tokenP cache 무효화 — 두 prefix 모두 DEL (T-1·T-2).
+     *
+     * 신규 표준 `kis:token:` + 결함 `access_token:` 동시 삭제로 운영 환경 마이그레이션 안전.
+     * 결함 prefix DEL 결과는 0건이면 자연 sunset (다음 minor에서 LEGACY 제거 후보).
      */
     fun deleteAccessToken(
         userId: String,
         accountType: String,
     ) {
-        val key = "$TOKEN_KEY_PREFIX:$userId:$accountType"
-        val deleted = redisTemplate.delete(key)
+        val primaryKey = "$TOKEN_KEY_PREFIX:$userId:$accountType"
+        val legacyKey = "$LEGACY_TOKEN_KEY_PREFIX:$userId:$accountType"
+        val primaryDeleted = redisTemplate.delete(primaryKey)
+        val legacyDeleted = redisTemplate.delete(legacyKey)
         log.info(
-            "Redis access_token DEL — userId={}**** accountType={} deleted={}",
+            "Redis KIS token DEL — userId={}**** accountType={} primary={} legacy={}",
             userId.take(4),
             accountType,
-            deleted,
+            primaryDeleted,
+            legacyDeleted,
         )
     }
 

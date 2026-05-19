@@ -8,12 +8,9 @@ import kr.spdaewoon.magicjar.domain.account.KisAccountBalance
 import kr.spdaewoon.magicjar.domain.account.port.KisBalanceQueryPort
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
 import kr.spdaewoon.magicjar.domain.user.AccountType
-import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
-import org.springframework.web.reactive.function.client.WebClientResponseException
 import java.math.BigDecimal
 import java.time.Duration
 import java.time.Instant
@@ -56,27 +53,26 @@ import java.time.Instant
  * ### 메모리 zero-fill 의무 (ADR 0038 §5-3)
  * - APP_KEY · SECRET_KEY 사용 후 즉시 ByteArray.fill(0)
  *
- * ### Redis token cache 공유
+ * ### Redis token cache 공유 (T-1·2·3·4 통합 — 2026-05-20)
  * - 키 `kis:token:{userId}:{accountType}` consumer KisAuthAdapter와 공유 (cross-module Redis OK — ADR 0081 §4 모듈 경계 정합)
- * - cache miss 시 본 어댑터가 직접 KIS `/oauth2/tokenP` 발급 (단순 발급 — 분산락 미사용, 사용자 요청 빈도 TPS 충분 낮음)
- * - 토큰 TTL 23h (KIS 24h 만료 - 1h 안전여유)
+ * - 토큰 lookup·발급은 [KisTokenCacheHelper] 위임 (T-4):
+ *   - 분산락 정합 (ADR 0038): in-process ReentrantLock + Redis SETNX (다중 JVM 안전)
+ *   - 동적 TTL (T-3): KIS `expires_in` 응답 × 0.95 (hardcode 23h 제거)
+ *   - 단일 prefix LOCK (T-1): `access_token:` 결함 prefix 폐기
  */
 @Component
 class ApiKisBalanceQueryAdapter(
     private val webClient: WebClient,
     private val secretCipher: SecretCipher,
     private val credentialRepository: UserKisCredentialJpaRepository,
-    private val redisTemplate: StringRedisTemplate,
+    private val tokenHelper: KisTokenCacheHelper,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseProd: String,
     @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
     private val kisBaseVps: String,
 ) : KisBalanceQueryPort {
-    private val log = LoggerFactory.getLogger(ApiKisBalanceQueryAdapter::class.java)
-
     companion object {
         private val TIMEOUT = Duration.ofSeconds(5)
-        private val TOKEN_TTL = Duration.ofHours(23)
         private const val INQUIRE_BALANCE_PATH = "/uapi/domestic-stock/v1/trading/inquire-balance"
     }
 
@@ -85,7 +81,8 @@ class ApiKisBalanceQueryAdapter(
         accountType: AccountType,
     ): KisAccountBalance {
         val cred = loadCredential(userId, accountType)
-        val accessToken = getAccessToken(userId, accountType, cred)
+        // T-4 — KisTokenCacheHelper 위임 (분산락 + 동적 TTL + 단일 prefix)
+        val accessToken = tokenHelper.getAccessToken(userId, accountType)
         val trId = if (accountType == AccountType.REAL) "TTTC8434R" else "VTTC8434R"
         val baseUrl = if (accountType == AccountType.REAL) kisBaseProd else kisBaseVps
 
@@ -158,74 +155,6 @@ class ApiKisBalanceQueryAdapter(
             ?: throw IllegalStateException(
                 "KIS 자격증명 없음 — userId=$userId type=${accountType.name}",
             )
-
-    /**
-     * KIS access token 조회 — Redis cache 공유 + cache miss 시 발급.
-     *
-     * cache 키 `kis:token:{userId}:{accountType}` TTL 23h는 consumer KisAuthAdapter와 공유.
-     * 사용자 요청 트리거 (TPS 매우 낮음) → 분산락·in-process mutex 미사용 (consumer KisAuthAdapter는 cold-start 16 thread 동시 대비 의무 — api는 사용자 요청 단발).
-     */
-    private fun getAccessToken(
-        userId: String,
-        accountType: AccountType,
-        cred: UserKisCredentialJpaEntity,
-    ): String {
-        val cacheKey = "kis:token:$userId:${accountType.name}"
-        redisTemplate.opsForValue().get(cacheKey)?.let { return it }
-
-        // cache miss → KIS /oauth2/tokenP 직접 발급
-        val token = issueToken(accountType, cred)
-        runCatching { redisTemplate.opsForValue().set(cacheKey, token, TOKEN_TTL) }
-            .onFailure { ex ->
-                log.warn("KIS token cache write 실패 (graceful): userId={} err={}", maskUserId(userId), ex.message)
-            }
-        log.info("KIS 토큰 발급 완료 (api): userId={} type={}", maskUserId(userId), accountType.name)
-        return token
-    }
-
-    private fun issueToken(
-        accountType: AccountType,
-        cred: UserKisCredentialJpaEntity,
-    ): String {
-        val baseUrl = if (accountType == AccountType.REAL) kisBaseProd else kisBaseVps
-        var appKey: ByteArray? = null
-        var secretKey: ByteArray? = null
-        return try {
-            appKey = secretCipher.decrypt(cred.appKeyEnc)
-            secretKey = secretCipher.decrypt(cred.secretKeyEnc)
-            val appKeyStr = String(appKey)
-            val secretKeyStr = String(secretKey)
-
-            val response =
-                webClient
-                    .post()
-                    .uri("$baseUrl/oauth2/tokenP")
-                    .header("Content-Type", "application/json; charset=utf-8")
-                    .bodyValue(
-                        mapOf(
-                            "grant_type" to "client_credentials",
-                            "appkey" to appKeyStr,
-                            "appsecret" to secretKeyStr,
-                        ),
-                    ).retrieve()
-                    .bodyToMono(Map::class.java)
-                    .timeout(TIMEOUT)
-                    .block() ?: error("KIS tokenP 응답 없음")
-
-            response["access_token"]?.toString()
-                ?: error("KIS tokenP 응답에 access_token 없음")
-        } catch (ex: WebClientResponseException) {
-            log.error(
-                "KIS tokenP 실패 (api): status={} body={}",
-                ex.statusCode,
-                ex.responseBodyAsString.take(200),
-            )
-            throw ex
-        } finally {
-            appKey?.fill(0)
-            secretKey?.fill(0)
-        }
-    }
 
     // ── private — response parsing ────────────────────────────────────────────
 
@@ -301,6 +230,4 @@ class ApiKisBalanceQueryAdapter(
             .removePrefix("https://")
             .substringAfter(":", "")
             .toIntOrNull() ?: 443
-
-    private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"
 }
