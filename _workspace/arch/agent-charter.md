@@ -30,6 +30,47 @@ git config user.name "magicjar-<agent>"
 
 **역사 evidence** (안정성 Cycle 1 — 2026-05-18): PR #473(backend-core 영역) + PR #475(market-data 영역) commit author 모두 `magicjar-frontend` attribution. 본 결함 누적 시 운영 audit·CHANGELOG `(작성: <agent>)` 마커 부정확 → 사용자 신뢰 손실.
 
+### 1-A-extended. `extensions.worktreeConfig=true` 의무 (안정성 Cycle 3 신설 — 2026-05-19, 8 sub-agent system audit evidence)
+
+**root cause** (5 sub-agent 동일 evidence: architect·frontend·backend-core·ai-engineer·market-data 2026-05-19 cross-validation 보고서):
+
+- git default 상태에서 `extensions.worktreeConfig=false` → worktree의 `.git/config` 는 **main repository의 `.git/config` 와 공유**됨.
+- 따라서 한 worktree에서 `git config --local user.email "bot+<X>@magicjar.local"` 설정 시 **main `.git/config` 가 덮어쓰여** 다른 worktree·sub-agent 작업에 휘발성 전파.
+- §1-A의 `git config user.email "bot+<agent>@magicjar.local"` 호출만으로는 정합 보장 불가 — **본 옵션 활성화가 root cause 차단의 본질**.
+- 결과: 본 author 결함 10+ PR 누적 (PR #514·#525·#535·#537·#541·#546·#551·#552·#553·#555). 안정성 Cycle 1(PR #473·#475) + Cycle 2(2026-05-18 §1-A 신설) 두 사이클 대응 후에도 결함 재발.
+
+**필수 적용** (사용자 또는 orchestrator가 main repo에 1회):
+
+```bash
+git config extensions.worktreeConfig true
+```
+
+또는 헬퍼 스크립트 호출:
+
+```bash
+scripts/setup-worktree-config.sh
+```
+
+본 옵션 활성 후:
+- 각 worktree의 `.git/worktrees/<name>/config.worktree` 파일이 활성화됨.
+- worktree-local config가 main `.git/config` 와 격리됨 → 다른 worktree·sub-agent에 전파 0.
+- §1-A의 `git config user.email` 호출이 본 worktree에 한정 적용됨 (격리 GREEN).
+- sub-agent author 정합 LOCK.
+
+**검증 방법**:
+
+```bash
+git config extensions.worktreeConfig             # = true 확인
+git config --worktree user.email                 # worktree-local 적용 가능 (옵션 활성 시만 동작)
+```
+
+**역사 evidence**:
+- 안정성 Cycle 1 (2026-05-18) — PR #473·#475 author `magicjar-frontend` attribution. §1-A 본문 신설로 1차 대응.
+- 안정성 Cycle 2 (2026-05-18) — §1-A 의무 강제 시도. PR #514·#525·#535·#537·#541·#546·#551·#552·#553·#555 동일 결함 재발. 헌법 §1-A 매트릭스 갱신만으로는 root cause 차단 안 됨 (config 활성화가 본질).
+- 안정성 Cycle 3 (2026-05-19) — 8 sub-agent system audit 5 evidence(architect·frontend·backend-core·ai-engineer·market-data) 동일 root cause 진단. 본 §1-A-extended 신설로 영구 차단.
+
+**위반 시 risk**: §1-A 의무 호출 후에도 worktree 간 author config 휘발성 전파 재발 → CHANGELOG `(작성: <agent>)` 마커 부정확 + git blame audit 실패 + 사용자 신뢰 손실 누적.
+
 ### 1-B. task.mjs 4단계 본체
 
 1. **start** — 작업 시작 즉시 `node scripts/task.mjs start --agent <a> --goal "..." --deliverables "..., ..."` (deliverables는 쉼표/세미콜론/줄바꿈 분리)

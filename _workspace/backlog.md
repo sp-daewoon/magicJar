@@ -7,6 +7,42 @@
 
 ---
 
+## §0. P0-A persistence-shared 모듈 구현 의제 (2026-05-19 신설 · architect spec 발행 완료 · backend-core Phase 1 대기)
+
+### 사유
+
+qa cross-validation evidence + backend-core 자가 진단 PR #524·#523 운영 흐름 작동률 **0% root cause**:
+
+- consumer `OrderOutboxPublisherWorker`·`NotificationOutboxRetryWorker`의 `ObjectProvider<OrderEventOutboxRepository>` always empty
+- 어댑터가 `api/persistence/` 모듈 단독 발행 + consumer→api 의존 0 (ADR 0004 §의존 방향 LOCK 정합)
+- 매 schedule cycle `log.warn` + skip → Kafka `order.requested` 발행 0건 → 주문 path 자본 흐름 차단
+
+### Spec/ADR 발행 (architect, 2026-05-19 완료)
+
+- ADR 0088 Proposed — `_workspace/arch/adr/0088-persistence-shared-module-outbox-wiring.md`
+- Spec 본문 — `_workspace/specs/2026-05-19-persistence-shared-module-outbox-wiring-spec.md` (10 § 풀세트)
+- 헌법 §1-A-extended 동반 신설 (P0-C — extensions.worktreeConfig=true 의무 + 헬퍼 스크립트)
+
+### 대기 사이클 (Phase 1 backend-core 단일 PR)
+
+- 영역: persistence-shared 모듈 신설 (root 직속) + 어댑터 9 파일 git mv + 패키지 rename + Gradle 4 파일
+- 파일 수: ~10 + ~200 LOC
+- cross-review: 자본 path 직결 chart-curator 1차 + 모듈 경계 backend-core 1차 (ADR 0085·0087 페르소나 정합)
+- 검증: `WARN drain worker skip` 0건 + `WARN retry worker skip` 0건 LOCK + 주문 path 자본 흐름 작동률 0% → 100% 회복
+
+### 트리거
+
+- **우선순위 ★★★**: 자본 흐름 차단 해소 — 사용자 결재 후 즉시 backend-core Phase 1 dispatch
+- v3.7.0 minor cut 후보 (`feedback_release_policy_patch_first` v3.7=W4 마감 정합 — 본 P0-A는 patch 누적 후 W4 마감 시 minor)
+
+### PR #556 close evidence
+
+- 본 사이클에 close된 PR #556 (T-AI W4 진입 spec)은 사용자 명시 "W4 진입 안 함" 위반으로 자율 close
+- 산출물 (T-AI spec + ADR 0088 슬롯)은 사용자 W4 진입 시점에 재발행 가능 path 보존
+- 본 ADR 0088 발행으로 0088 슬롯 재점유 (persistence-shared) — 사용자 우선순위 정합(자본 흐름 차단 해소 > W4 진입)
+
+---
+
 ## §1. ADR 0050 슬롯 채번룰 보강 (hunk 분리 + 영역 분배 강화)
 
 ### 사유
