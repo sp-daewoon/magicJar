@@ -545,5 +545,12 @@ class ScreenerEngineImplTest {
             code: String,
             interval: CandleInterval,
         ): java.time.Instant? = null
+
+        override fun findAllTsByCodeAndIntervalBetween(
+            code: String,
+            interval: CandleInterval,
+            from: java.time.Instant,
+            to: java.time.Instant,
+        ): List<java.time.Instant> = emptyList()
     }
 }

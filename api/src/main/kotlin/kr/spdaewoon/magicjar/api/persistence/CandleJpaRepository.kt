@@ -99,6 +99,24 @@ interface CandleJpaRepository : JpaRepository<CandleJpaEntity, Long> {
     ): java.time.Instant?
 
     /**
+     * 종목·interval·범위 내 ts 만 ASC 조회 — ADR 0086 §2-2 add-only.
+     * T-CC Phase 2-A CandleGapDetector 가 actual sequence diff 산출 시 사용.
+     * Entity 전체(findByCodeAndIntervalAndTsBetween) 대비 효율.
+     */
+    @Query(
+        "SELECT c.ts FROM CandleJpaEntity c " +
+            "WHERE c.code = :code AND c.interval = :interval " +
+            "AND c.ts >= :fromTs AND c.ts <= :toTs " +
+            "ORDER BY c.ts ASC",
+    )
+    fun findTsByCodeAndIntervalAndTsBetween(
+        @Param("code") code: String,
+        @Param("interval") interval: String,
+        @Param("fromTs") fromTs: Instant,
+        @Param("toTs") toTs: Instant,
+    ): List<Instant>
+
+    /**
      * 단건 idempotent INSERT (ON CONFLICT DO NOTHING).
      * batch INSERT가 필요하면 saveAll + flush 패턴 사용.
      * @Transactional 필수 — @Modifying native query는 활성 트랜잭션 없이 실행 불가

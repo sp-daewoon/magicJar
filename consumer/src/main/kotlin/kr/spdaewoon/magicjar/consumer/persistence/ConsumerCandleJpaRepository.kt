@@ -42,6 +42,23 @@ interface ConsumerCandleJpaRepository : JpaRepository<ConsumerCandleJpaEntity, L
     ): java.time.Instant?
 
     /**
+     * 종목·interval·범위 내 ts 만 ASC 조회 — ADR 0086 §2-2 add-only.
+     * T-CC Phase 2-A CandleGapDetector actual sequence diff 산출 용.
+     */
+    @Query(
+        "SELECT c.ts FROM ConsumerCandleJpaEntity c " +
+            "WHERE c.code = :code AND c.interval = :interval " +
+            "AND c.ts >= :fromTs AND c.ts <= :toTs " +
+            "ORDER BY c.ts ASC",
+    )
+    fun findTsByCodeAndIntervalAndTsBetween(
+        @Param("code") code: String,
+        @Param("interval") interval: String,
+        @Param("fromTs") fromTs: java.time.Instant,
+        @Param("toTs") toTs: java.time.Instant,
+    ): List<java.time.Instant>
+
+    /**
      * 단건 idempotent INSERT (ON CONFLICT DO NOTHING).
      */
     @Modifying

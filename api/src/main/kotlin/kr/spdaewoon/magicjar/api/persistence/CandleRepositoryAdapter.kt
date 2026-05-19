@@ -77,6 +77,23 @@ class CandleRepositoryAdapter(
         interval: CandleInterval,
     ): java.time.Instant? = candleJpaRepository.findMaxTsByCodeAndInterval(code, interval.code)
 
+    /**
+     * 범위 내 ts ASC 조회 — ADR 0086 §2-2 (T-CC Phase 2-A CandleGapDetector 사용).
+     */
+    @Transactional(readOnly = true)
+    override fun findAllTsByCodeAndIntervalBetween(
+        code: String,
+        interval: CandleInterval,
+        from: java.time.Instant,
+        to: java.time.Instant,
+    ): List<java.time.Instant> =
+        candleJpaRepository.findTsByCodeAndIntervalAndTsBetween(
+            code = code,
+            interval = interval.code,
+            fromTs = from,
+            toTs = to,
+        )
+
     private fun CandleJpaEntity.toDomain(interval: CandleInterval): Candle =
         Candle(
             id = id,
