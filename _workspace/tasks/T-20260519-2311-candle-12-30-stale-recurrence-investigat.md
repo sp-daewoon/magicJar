@@ -3,10 +3,10 @@ id: T-20260519-2311-candle-12-30-stale-recurrence-investigat
 agent: chart-curator
 model: opus
 branch: agent/chart-curator/candle-12-30-stale-recurrence-investigation
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T23:11:35.810+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T23:26:54.665+09:00
+pr: #587
 parentPhase: ?
 ---
 
