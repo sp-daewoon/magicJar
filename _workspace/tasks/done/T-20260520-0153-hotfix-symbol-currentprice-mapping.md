@@ -3,9 +3,9 @@ id: T-20260520-0153-hotfix-symbol-currentprice-mapping
 agent: backend-core
 model: opus
 branch: agent/backend-core/hotfix-symbol-currentprice-mapping
-status: RUNNING
+status: DONE
 startedAt: 2026-05-20T01:53:29.326+09:00
-completedAt: null
+completedAt: 2026-05-20T02:01:05.879+09:00
 pr: null
 parentPhase: ?
 ---
