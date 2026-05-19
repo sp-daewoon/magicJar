@@ -3,13 +3,7 @@ package kr.spdaewoon.magicjar.api.persistence.strategy
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.cache.RedisStrategyCache
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
-import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
-import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
-import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
-import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
-import kr.spdaewoon.magicjar.domain.strategy.Universe
-import kr.spdaewoon.magicjar.domain.strategy.dsl.DslStrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyLookupPort
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
@@ -24,6 +18,10 @@ import org.springframework.transaction.annotation.Transactional
  *
  * ### 헌법 §6 (ADR 0051) 준수
  * 헬퍼 메서드는 interface 0건, 이 클래스 private fun 위치.
+ *
+ * ### P2-4 진보 페르소나 refactor (ADR 0087, 2026-05-19)
+ * - `toDomain`·`safeComplexityClass`·`safeDisabledReason` → [StrategyEntityMapper] 추출
+ * - StrategyJpaAdapter와 약 42줄 중복 코드 해소 — schema drift 회귀 risk 영구 차단
  *
  * // AI 호출 0 — T-SIG 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8)
  */
@@ -59,68 +57,15 @@ class StrategyLookupJpaAdapter(
         redisStrategyCache.putActive(code, intervalCode, ids)
         log.debug("cache miss → DB: strategy:active:by_code:{}:{} → {} strategies", code, intervalCode, entities.size)
 
-        return entities.map { toDomain(it) }
+        return entities.map { StrategyEntityMapper.toDomain(it, objectMapper) }
     }
 
     // --- private helper ---
 
     private fun fetchByIds(ids: List<Long>): List<Strategy> {
         if (ids.isEmpty()) return emptyList()
-        return strategyJpaRepository.findAllById(ids).map { toDomain(it) }
+        return strategyJpaRepository.findAllById(ids).map { StrategyEntityMapper.toDomain(it, objectMapper) }
     }
 
     private fun buildJsonArray(value: String): String = objectMapper.writeValueAsString(listOf(value))
-
-    private fun toDomain(entity: StrategyJpaEntity): Strategy {
-        val dsl =
-            DslStrategyDefinition(
-                name = entity.name,
-                nameKo = entity.nameKo ?: "",
-                buyCondition = null,
-                sellCondition = null,
-            )
-        val definition =
-            StrategyDefinition(
-                dsl = dsl,
-                universe = Universe(market = entity.universeMarket),
-                tf = entity.tf,
-            )
-        val complexity =
-            StrategyComplexity(
-                astDepth = entity.astDepth,
-                nodeCount = entity.nodeCount,
-                indicatorCallCount = entity.indicatorCallCount,
-                estimatedEvalTimeMs = entity.estimatedEvalTimeMs,
-                complexityClass = safeComplexityClass(entity.complexityClass),
-            )
-        val disabledReason = safeDisabledReason(entity.disabledReason)
-
-        @Suppress("UNCHECKED_CAST")
-        val evalMetricSummary: Map<String, Any>? =
-            entity.evalMetricSummary?.let {
-                runCatching { objectMapper.readValue(it, Map::class.java) as Map<String, Any> }.getOrNull()
-            }
-
-        return Strategy(
-            id = entity.id,
-            userId = entity.userId,
-            definition = definition,
-            complexity = complexity,
-            disabledReason = disabledReason,
-            lastDisabledAt = entity.lastDisabledAt,
-            evalMetricSummary = evalMetricSummary,
-            createdAt = entity.createdAt,
-            updatedAt = entity.updatedAt,
-        )
-    }
-
-    private fun safeComplexityClass(value: String): ComplexityClass =
-        runCatching { ComplexityClass.valueOf(value) }.getOrDefault(ComplexityClass.LOW)
-
-    private fun safeDisabledReason(value: String?): StrategyDisabledReason =
-        if (value == null) {
-            StrategyDisabledReason.NULL
-        } else {
-            runCatching { StrategyDisabledReason.valueOf(value) }.getOrDefault(StrategyDisabledReason.NULL)
-        }
 }

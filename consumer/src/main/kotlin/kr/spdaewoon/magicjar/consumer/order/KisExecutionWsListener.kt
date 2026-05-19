@@ -328,6 +328,26 @@ class KisExecutionWsListener(
 
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"
 
+    /**
+     * P2-4-3 진보 페르소나 가드 (ADR 0087, 2026-05-19).
+     *
+     * 영속된 [OrderRequest.id]는 invariant상 non-null. null이면:
+     *  - JPA save 후 generated key 미설정 (영속성 결함)
+     *  - pre-insert path stub row 생성 실패 후 in-memory copy 누락
+     *  - 또는 caller가 잘못된 (영속 안 된) request 전달
+     *
+     * 어느 경로든 자본 path 실행 불가 — 명시 [requireNotNull] throw + handler 이름 메시지로
+     * 운영자 audit 시 즉시 root cause 매칭 가능 (vs raw `!!` KotlinNullPointerException).
+     */
+    private fun requireOrderId(
+        request: OrderRequest,
+        handlerName: String,
+    ): Long =
+        requireNotNull(request.id) {
+            "KisExecutionWsListener.$handlerName — request.id null (자본 path invariant 위반): " +
+                "kisOrderNo=${request.kisOrderNo} userId=${maskUserId(request.userId)}"
+        }
+
     private fun handleRejected(
         msg: KisExecutionMessage,
         request: OrderRequest,
@@ -337,18 +357,22 @@ class KisExecutionWsListener(
         val now = Instant.now(clock)
         val reason = "WS_REJECTED:${msg.acptYn}"
 
+        // P2-4-3 진보 페르소나 (ADR 0087) — `!!` 가드: 영속된 request.id는 invariant상 non-null.
+        // null이면 OrderRequest persistence 또는 pre-insert 로직 결함 — 명시 throw로 운영자 즉시 매칭.
+        val requestId = requireOrderId(request, "handleRejected")
+
         val updated =
             try {
-                orderRepo.markCompleted(request.id!!, now, OrderStatus.REJECTED)
+                orderRepo.markCompleted(requestId, now, OrderStatus.REJECTED)
             } catch (e: Exception) {
-                log.error("KisExecutionWsListener markCompleted REJECTED 실패: orderId={} err={}", request.id, e.message)
+                log.error("KisExecutionWsListener markCompleted REJECTED 실패: orderId={} err={}", requestId, e.message)
                 request.copy(status = OrderStatus.REJECTED, rejectReason = reason, completedAt = now)
             } ?: request.copy(status = OrderStatus.REJECTED, rejectReason = reason, completedAt = now)
 
         auditRepo?.runCatching {
             save(
                 OrderAuditEvent(
-                    orderId = request.id,
+                    orderId = requestId,
                     userId = request.userId,
                     eventType = OrderAuditEventType.KIS_REJECT,
                     payloadJson = jsonOf(msg),
@@ -358,7 +382,7 @@ class KisExecutionWsListener(
         }
 
         orderRejectedKafkaProducer.publish(updated, reason)
-        log.warn("KisExecutionWsListener REJECTED: orderId={} odno={}", request.id, msg.odno)
+        log.warn("KisExecutionWsListener REJECTED: orderId={} odno={}", requestId, msg.odno)
     }
 
     private fun handleAckBackup(
@@ -390,18 +414,21 @@ class KisExecutionWsListener(
         val auditRepo = orderAuditEventRepositoryProvider.getIfAvailable()
         val now = Instant.now(clock)
 
+        // P2-4-3 진보 페르소나 (ADR 0087) — `!!` 가드 (handleRejected 정합)
+        val requestId = requireOrderId(request, "handleCancelled")
+
         val updated =
             try {
-                orderRepo.markCompleted(request.id!!, now, OrderStatus.CANCELLED)
+                orderRepo.markCompleted(requestId, now, OrderStatus.CANCELLED)
             } catch (e: Exception) {
-                log.error("KisExecutionWsListener markCompleted CANCELLED 실패: orderId={} err={}", request.id, e.message)
+                log.error("KisExecutionWsListener markCompleted CANCELLED 실패: orderId={} err={}", requestId, e.message)
                 request.copy(status = OrderStatus.CANCELLED, completedAt = now)
             } ?: request.copy(status = OrderStatus.CANCELLED, completedAt = now)
 
         auditRepo?.runCatching {
             save(
                 OrderAuditEvent(
-                    orderId = request.id,
+                    orderId = requestId,
                     userId = request.userId,
                     eventType = OrderAuditEventType.KIS_CANCEL_ACK,
                     payloadJson = jsonOf(msg),
@@ -410,7 +437,7 @@ class KisExecutionWsListener(
             )
         }
         orderCancelledKafkaProducer.publish(updated)
-        log.info("KisExecutionWsListener CANCELLED: orderId={} odno={}", request.id, msg.odno)
+        log.info("KisExecutionWsListener CANCELLED: orderId={} odno={}", requestId, msg.odno)
     }
 
     private fun handleExecution(
@@ -423,10 +450,14 @@ class KisExecutionWsListener(
         val now = Instant.now(clock)
         val executedAt = parseExecutedAt(msg.stckCntgHour)
 
+        // P2-4-3 진보 페르소나 (ADR 0087) — `!!` 가드 (handleRejected·handleCancelled 정합)
+        // handleExecution 4 site (line 458·494·504·533 기존) 일괄 흡수.
+        val requestId = requireOrderId(request, "handleExecution")
+
         if (execRepo == null) {
             log.warn(
                 "KisExecutionWsListener — OrderExecutionRepository 미합류: orderId={} odno={}",
-                request.id,
+                requestId,
                 msg.odno,
             )
             return
@@ -444,7 +475,7 @@ class KisExecutionWsListener(
         if (alreadyPersisted) {
             log.info(
                 "KisExecutionWsListener — 중복 체결 skip (event_id dedup): orderId={} eventId={}",
-                request.id,
+                requestId,
                 eventId,
             )
             return
@@ -455,7 +486,7 @@ class KisExecutionWsListener(
             try {
                 execRepo.save(
                     OrderExecution(
-                        orderId = request.id!!,
+                        orderId = requestId,
                         userId = request.userId,
                         kisOrderNo = msg.odno,
                         executedQuantity = msg.cntgQty,
@@ -468,7 +499,7 @@ class KisExecutionWsListener(
             } catch (e: Exception) {
                 log.error(
                     "KisExecutionWsListener orderExecution save 실패: orderId={} eventId={} err={}",
-                    request.id,
+                    requestId,
                     eventId,
                     e.message,
                 )
@@ -479,7 +510,7 @@ class KisExecutionWsListener(
         auditRepo?.runCatching {
             save(
                 OrderAuditEvent(
-                    orderId = request.id,
+                    orderId = requestId,
                     userId = request.userId,
                     eventType = OrderAuditEventType.FILL_RECEIVED,
                     payloadJson = jsonOf(msg),
@@ -491,9 +522,9 @@ class KisExecutionWsListener(
         // 3. 누적 합 평가 → PARTIALLY_FILLED / FILLED / OVERFLOW
         val sum =
             try {
-                execRepo.sumExecutedQuantityByOrder(request.id!!)
+                execRepo.sumExecutedQuantityByOrder(requestId)
             } catch (e: Exception) {
-                log.error("KisExecutionWsListener sumExecutedQuantityByOrder 실패: orderId={} err={}", request.id, e.message)
+                log.error("KisExecutionWsListener sumExecutedQuantityByOrder 실패: orderId={} err={}", requestId, e.message)
                 msg.cntgQty
             }
 
@@ -501,16 +532,16 @@ class KisExecutionWsListener(
             sum < request.quantity -> {
                 val partial =
                     try {
-                        orderRepo.updateStatus(request.id!!, OrderStatus.PARTIALLY_FILLED, null)
+                        orderRepo.updateStatus(requestId, OrderStatus.PARTIALLY_FILLED, null)
                     } catch (e: Exception) {
-                        log.error("updateStatus PARTIALLY_FILLED 실패: orderId={} err={}", request.id, e.message)
+                        log.error("updateStatus PARTIALLY_FILLED 실패: orderId={} err={}", requestId, e.message)
                         request.copy(status = OrderStatus.PARTIALLY_FILLED)
                     } ?: request.copy(status = OrderStatus.PARTIALLY_FILLED)
 
                 auditRepo?.runCatching {
                     save(
                         OrderAuditEvent(
-                            orderId = request.id,
+                            orderId = requestId,
                             userId = request.userId,
                             eventType = OrderAuditEventType.PARTIAL_FILL,
                             payloadJson = jsonOf(msg, extra = mapOf("sum" to sum, "qty" to request.quantity)),
@@ -521,7 +552,7 @@ class KisExecutionWsListener(
                 orderFilledKafkaProducer.publish(partial, execution, partial = true)
                 log.info(
                     "KisExecutionWsListener PARTIALLY_FILLED: orderId={} sum={}/{}",
-                    request.id,
+                    requestId,
                     sum,
                     request.quantity,
                 )
@@ -530,16 +561,16 @@ class KisExecutionWsListener(
             sum == request.quantity -> {
                 val filled =
                     try {
-                        orderRepo.markCompleted(request.id!!, now, OrderStatus.FILLED)
+                        orderRepo.markCompleted(requestId, now, OrderStatus.FILLED)
                     } catch (e: Exception) {
-                        log.error("markCompleted FILLED 실패: orderId={} err={}", request.id, e.message)
+                        log.error("markCompleted FILLED 실패: orderId={} err={}", requestId, e.message)
                         request.copy(status = OrderStatus.FILLED, completedAt = now)
                     } ?: request.copy(status = OrderStatus.FILLED, completedAt = now)
 
                 auditRepo?.runCatching {
                     save(
                         OrderAuditEvent(
-                            orderId = request.id,
+                            orderId = requestId,
                             userId = request.userId,
                             eventType = OrderAuditEventType.FULL_FILL,
                             payloadJson = jsonOf(msg, extra = mapOf("sum" to sum, "qty" to request.quantity)),
@@ -548,7 +579,7 @@ class KisExecutionWsListener(
                     )
                 }
                 orderFilledKafkaProducer.publish(filled, execution, partial = false)
-                log.info("KisExecutionWsListener FILLED: orderId={} qty={}", request.id, sum)
+                log.info("KisExecutionWsListener FILLED: orderId={} qty={}", requestId, sum)
             }
 
             else -> {
@@ -556,7 +587,7 @@ class KisExecutionWsListener(
                 auditRepo?.runCatching {
                     save(
                         OrderAuditEvent(
-                            orderId = request.id,
+                            orderId = requestId,
                             userId = request.userId,
                             eventType = OrderAuditEventType.EXECUTION_OVERFLOW,
                             payloadJson = jsonOf(msg, extra = mapOf("sum" to sum, "qty" to request.quantity)),
@@ -566,7 +597,7 @@ class KisExecutionWsListener(
                 }
                 log.error(
                     "KisExecutionWsListener EXECUTION_OVERFLOW: orderId={} sum={} > qty={}",
-                    request.id,
+                    requestId,
                     sum,
                     request.quantity,
                 )
