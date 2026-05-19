@@ -1,8 +1,8 @@
-# ADR 0086: T-CC Phase 2 — 자동 backfill 워커 + 갭 검출 + 데이터 햇징 룰 매트릭스 10건 (chart-curator 신입 보호)
+# ADR 0086: T-CC Phase 2 — 자동 backfill 워커 + 갭 검출 + 데이터 햇징 룰 매트릭스 13건 (chart-curator 신입 보호)
 
-- 상태: **Accepted (2026-05-19 격상 — Phase 2-A 머지 evidence · v3.6.17 release 포함)**
+- 상태: **Accepted (2026-05-19 amend — 햇징 룰 §11·§12·§13 추가 · 한국석유 dogfooding evidence + 사용자 명시 active gap detection 정합)**
 - 작성일: 2026-05-19
-- 결정자: architect (opus 4.7 1M) — 사용자 위임 명시 "신입한테 위 내용 잘 상기시켜서 진행해"
+- 결정자: architect (opus 4.7 1M) — 사용자 위임 명시 "신입한테 위 내용 잘 상기시켜서 진행해" + amend "갭 5+ 영업일 연속 누락 시 backfill skip + 운영자 escalation 이거 뭐야? 우리 정책이 있었어???"
 - 영역: 캔들 정합성 + 메타·운영·하네스 (chart-curator skill SoT 정합)
 - 관련: ADR 0013(영업일 캘린더) · ADR 0019(캔들 저장 정책) · ADR 0028(Watchlist Ingestion) · ADR 0037(KIS API Rate Limit) · ADR 0043(KillSwitch 행동 정의) · ADR 0057(KIS-only) · ADR 0062(합산 가공 5종) · ADR 0063(NXT 매트릭스) · ADR 0085(chart-curator 영입)
 
@@ -40,9 +40,9 @@ chart-curator는 ADR 0085(2026-05-19, PR #511 머지) 영입 신입. **자동 ba
 
 ## 2. Decision
 
-### 2-1. 10 데이터 햇징 룰 LOCK
+### 2-1. 13 데이터 햇징 룰 LOCK
 
-chart-curator가 캔들 데이터를 적재·변경·갱신·삭제할 때 **반드시** 다음 10 룰 적용 (spec §5 본문 정합).
+chart-curator가 캔들 데이터를 적재·변경·갱신·삭제할 때 **반드시** 다음 13 룰 적용 (spec §5 본문 정합 + 2026-05-19 amend §11·§12·§13 추가).
 
 | # | 룰 | 위반 시 risk |
 |---|-----|-------------|
@@ -51,11 +51,14 @@ chart-curator가 캔들 데이터를 적재·변경·갱신·삭제할 때 **반
 | 3 | **Rollback 안전망** — backfill_batch_id로 변경 추적 + `audit_trail.CANDLE_BACKFILL_START` row + 결함 검출 시 `DELETE FROM candle WHERE backfill_batch_id=?` 가능 | 결함 검출 후 정정 path 부재 → 운영 부채 누적 |
 | 4 | **Idempotency LOCK** — UPSERT `ON CONFLICT DO NOTHING` (historic 보존) | 기존 정상 historic candle을 KIS retry 응답으로 덮어써서 회귀 |
 | 5 | **Source-of-truth 룰** — KIS raw 응답 권위 + 합성·계산·가공 적재 금지 | 백테스트 vs 실거래 시그널 분기 → 자본 손실 |
-| 6 | **갭 검출 false positive 가드** — 거래정지·정리매매·휴장일·시간외 제외 (`KIS_COLD_START_SKIPPED` 패턴 + `BusinessDayCalendar.isBusinessDay()` 의무 호출) | 정상 휴장 갭을 결함으로 오인 → KIS 무의미 호출 + alert spam |
+| 6 | **갭 검출 false positive 가드 (passive)** — 거래정지·정리매매·휴장일·시간외 제외 (`KIS_COLD_START_SKIPPED` 패턴 + `BusinessDayCalendar.isBusinessDay()` 의무 호출). **"이 조건이면 skip해도 OK"** | 정상 휴장 갭을 결함으로 오인 → KIS 무의미 호출 + alert spam |
 | 7 | **갭 검출 false negative 가드** — `last_candle_at` null 시 `Long.MAX_VALUE` (Phase 1 패턴 100% 재사용) + watchlist 신규 진입 종목 즉시 cold-start | 미검출 갭 누적 → 자동매매 시그널 무력화 |
 | 8 | **재시도 backoff + KillSwitch** — 3회 (즉시 + 1s + 5s) 후 stop + Slack P0 alert + ADR 0043 정합 KillSwitch on | 무한 retry → KIS rate limit burn + 자동매매 무력화 |
 | 9 | **audit_trail 의무** — 시작·성공·실패·skip·rollback 5 path 모두 row 1건 (`CANDLE_BACKFILL_START/SUCCESS/FAIL/SKIPPED/ROLLBACK`) | 운영 audit 불가 → 결함 root cause 추적 불가 |
 | 10 | **운영자 우회 path** — admin endpoint `POST /admin/candle-curator/backfill?code=...&interval=...&dry-run=true` 신설 | 운영 자율성 부재 → 결함 발생 시 수동 정정 불가 |
+| 11 | **KIS raw 사전 ASC 정규화 (신설 amend)** — adapter layer가 raw 응답 반환 직전 `.sortedBy { it.ts.epochSeconds }` 의무. `KisRestCandleAdapter.parseKisDailyResponse`·`parseKisMinuteResponse` 등 모든 parse 함수. 이중 LOCK: `CandleBackfillWorker.sanityCheck` ASC monotonic 가드는 마지막 안전망 | KIS DESC 응답 + sanity check reject → insertedCount=0 → 갭 누적 (한국석유 PR #535 root cause) |
+| 12 | **Active gap detection (4축 교차 검증, 신설 amend)** — 4축 모두 TRUE인데 candle row 부재 시 **명확한 결함 → 자동 backfill 의무**: (1) `market_calendar.is_business_day=TRUE` (ADR 0013) (2) `instrument.trading_halt=FALSE` 또는 거래정지 history 부재 (3) `instrument.liquidation=FALSE` (4) `instrument.listed_at <= ts`. **§6 passive와 대비 — §12는 active "이 조건인데 없으면 결함"** | 단순 임계치(예: "5+ 영업일 연속 skip")는 임의 + 정합성 검증 부재 → 결함 누락 risk |
+| 13 | **LWC chart instance state lift (신설 amend)** — TradingView LWC v4 chart instance는 반드시 `useState`로 lift. `useRef` 직접 props 전달 금지. React 18 StrictMode 이중 mount + ref mutation re-render 미발생 → 자식 useEffect cleanup이 disposed chart에 도달 race → `Uncaught Error: Object is disposed` | LWC v4 console.error spam + 차트 컴포넌트 안정성 회귀 (한국석유 PR #535 결함 #1) |
 
 **위반 시 risk 종합**: 잘못된 캔들 적재 → 백테스트 결과 왜곡 → 실거래 시그널 오작동 → **자본 손실**. chart-curator는 단일 owner이므로 본 룰 위반은 운영 부채 전체 책임 단일 귀속.
 
@@ -90,16 +93,131 @@ gaps = expected.filterNot { it in actualSet }
 - `feedback_release_policy_patch_first` 정합 — v3.7.0=W4 LOCK
 - T-CC Phase 2(chart-curator) + ADR 0084 P1-3(backend-core/market-data) 영역 분리 → 병렬 dispatch 가능
 
+### 2-6. 룰 §11 KIS raw 사전 ASC 정규화 (신설 amend · 한국석유 PR #535 evidence)
+
+KIS API 응답이 timeframe별 sort order가 일관되지 않음:
+- `inquire-daily-itemchartprice` (FHKST03010100) — **DESC 응답** (최신 ts부터 역순)
+- `inquire-time-itemchartprice` (FHKST03010200) — ASC 또는 DESC (페이지 분기)
+
+**룰 본문**: adapter layer가 raw 정규화 책임. KIS 응답 변환 직후 반환 직전 `.sortedBy { it.ts.epochSeconds }` 의무. 모든 parse 함수가 단일 정렬 LOCK:
+- `KisRestCandleAdapter.parseKisDailyResponse`
+- `KisRestCandleAdapter.parseKisMinuteResponse`
+- 향후 추가될 모든 KIS 캔들 응답 parse 함수
+
+**이중 LOCK**: `CandleBackfillWorker.sanityCheck`의 time monotonic 가드(룰 #1)는 마지막 안전망. 정상 path는 adapter 정규화가 우선이고, sanity check은 회귀·결함 검출용.
+
+**사유 (evidence)**: 한국석유(004090) PR #535 root cause:
+- KIS DESC 응답(2025-12-30 → 2025-10-28 역순) 그대로 변환
+- `CandleBackfillWorker.sanityCheck` ASC monotonic 가드가 idx 1~99 reject
+- valid=1 → gaps[].matched=0 → insertedCount=0
+- 5개월 갭 누적 (`2025-12-31 ~ 2026-05-18`)
+
+consumer log evidence:
+```
+13:37:52.194 monotonic violation 감지 (KIS 응답 정렬 결함 의심): total=100 valid=1
+```
+
+**구현 의제 (market-data 별도 사이클)**: `KisRestCandleAdapter` 본문 5 parse 함수 각각 반환 직전 1줄 add-only.
+
+### 2-7. 룰 §12 Active gap detection (4축 교차 검증) ★ 사용자 명시 정합 룰
+
+**기존 §6 (passive false positive 가드)의 active 정합 버전**. 사용자(최고 관리자) 2026-05-19 KST 명시 인용:
+
+> "갭 5+ 영업일 연속 누락 시 backfill skip + 운영자 escalation 이거 뭐야? 우리 정책이 있었어??? 이런거? 영업일 연속을 기준으로 하면 안되는거고. 실제 장이 열렸던 날과 아니였던 날을 관리하고, 그 장중이였는데 거래중지는 특별한 이력이없는데 데이터가 없는걸 찾아내는 검증 룰이 있어야지 않아?"
+
+**4축 권위 source 교차 검증**:
+
+| 축 | 권위 source | 검증 의미 |
+|----|------------|----------|
+| 1 | `market_calendar.is_business_day = TRUE` (ADR 0013) | KRX 영업일 + 임시휴장 반영 (DB 권위) |
+| 2 | 종목 거래정지 이력 부재 | `instrument.trading_halt = FALSE` 또는 거래정지 history 부재 |
+| 3 | 종목 정리매매 이력 부재 | `instrument.liquidation = FALSE` |
+| 4 | 종목 상장일 이후 | `instrument.listed_at <= ts` |
+
+**룰 본문**: 위 4 조건 **모두 TRUE** (장 개장 + 거래 가능 + 상장 이후)인데 candle row 부재 = **명확한 결함** → 자동 backfill 의무 + `audit_trail.CANDLE_GAP_DETECTED` row 발행.
+
+**§6 (passive) vs §12 (active) 대비**:
+
+| 측면 | §6 (passive) | §12 (active) |
+|------|-------------|--------------|
+| 의미 | "이 조건이면 skip해도 OK" | "이 조건인데 없으면 결함" |
+| 결과 | KIS 호출 회피 + alert 회피 | KIS 호출 + backfill 의무 + audit |
+| 적용 시점 | gap 검출 후 false positive 제거 | gap 검출 알고리즘 본체 |
+
+**구현 의제 (chart-curator 별도 사이클)**:
+1. `CandleGapDetectorAdapter.detectGaps()` 본문에 4축 검증 강화
+2. expected ts list 생성 시 `market_calendar.is_business_day = TRUE` 의무 (현재 `BusinessDayCalendar.isBusinessDay()` LOCK이 1차 권위)
+3. 각 ts마다 instrument status snapshot 조회 → 거래정지·정리매매·상장이전 ts skip
+4. 위 가드 통과 ts에서 candle absence = gap 결과 리스트
+5. `audit_trail.CANDLE_GAP_DETECTED` row 발행 (4축 통과 evidence inline)
+
+**chart-curator(신입) §12 잘못된 제안 영구 차단**:
+
+> ~~"갭 5+ 영업일 연속 누락 시 backfill skip + 운영자 escalation"~~
+
+위 임의 임계치는 **폐기**. 사유:
+- "5+"는 임의 숫자 — 어떤 권위 source도 정합되지 않음
+- "연속"은 의미 부재 — 거래정지 종목·휴장 연휴 등 정합한 사유로 인한 갭과 데이터 결함을 구분 불가
+- 정합한 §12는 4축 권위 source 교차 검증
+
+**evidence**: chart-curator 한국석유 보고서 (`_workspace/reports/2026-05-19-kor-petroleum-investigation-report.md`)의 옵션 G "갭 5+ 영업일 escalation" 제안이 사용자 비판 trigger.
+
+### 2-8. 룰 §13 LWC chart instance state lift (신설 amend · 한국석유 PR #535 결함 #1 evidence)
+
+TradingView LWC v4 chart instance를 React `useRef`로 보관 + props로 직접 전달 시 dispose race 발생:
+
+**race 시퀀스**:
+1. React 18 StrictMode mount A → `chart_A` 생성 → `chartApiRef.current = chart_A`
+2. StrictMode unmount A → `chart_A.remove()` (dispose) → 자식 cleanup useEffect는 아직 `chartApiRef.current = chart_A` 인식
+3. StrictMode mount B → `chart_B` 생성 → `chartApiRef.current = chart_B`
+4. ref mutation은 **re-render trigger 없음** → 자식 컴포넌트(IndicatorOverlay·PatternMarker)는 mount A에서 받은 prop 그대로 → cleanup이 disposed `chart_A`에 도달 → `Uncaught Error: Object is disposed`
+
+**룰 본문**: chart instance는 반드시 `useState`로 lift. `useRef` 직접 props 전달 금지.
+
+```tsx
+// 잘못된 패턴 (race 발생)
+const chartApiRef = useRef<IChartApi | null>(null)
+useEffect(() => {
+  chartApiRef.current = createChart(container, options)
+  return () => { chartApiRef.current?.remove(); chartApiRef.current = null }
+}, [])
+return <IndicatorOverlay chart={chartApiRef.current} ... />
+
+// 정합 패턴 (state lift)
+const [chartApi, setChartApi] = useState<IChartApi | null>(null)
+useEffect(() => {
+  const chart = createChart(container, options)
+  setChartApi(chart)
+  return () => { chart.remove(); setChartApi(null) }
+}, [])
+return <IndicatorOverlay chart={chartApi} ... />
+```
+
+**구현 의제 (chart-curator 별도 사이클 — frontend SymbolChart 영역)**:
+- chart instance setter pattern: `const [chartApi, setChartApi] = useState<IChartApi | null>(null)`
+- candle series도 동일 패턴: `const [candleSeries, setCandleSeries] = useState<ISeriesApi<'Candlestick'> | null>(null)`
+- cleanup 시 `setChartApi(null)` + `setCandleSeries(null)` → 자식 useEffect는 null 인식하면 진입 skip
+- 자식 컴포넌트 props 타입 명시: `chart: IChartApi | null` + `series: ISeriesApi<'Candlestick'> | null`
+- 자식 useEffect 진입 가드: `if (!chart || !series) return`
+
+**evidence**: chart-curator 한국석유 보고서 §결함 #1 (`_workspace/reports/2026-05-19-kor-petroleum-investigation-report.md`):
+- `SymbolChart.tsx` line 99·105 `chartApiRef`/`candleSeriesRef`를 `useRef`로 보관
+- line 469·478에서 ref.current를 props로 전달
+- console.error 추적 결과: React 18 StrictMode 이중 mount + ref mutation re-render 미발생 race
+
 ---
 
 ## 3. Consequences
 
 ### 3-1. 긍정 결과
 
-- chart-curator skill SoT § 신설 — 신입 에이전트 영구 보호 룰 LOCK
+- chart-curator skill SoT § 신설 — 신입 에이전트 영구 보호 룰 LOCK (10 → 13 룰 확장)
 - 갭 검출 정밀화 → 자동 backfill 호출 cost 감소 (전체 재수집 대비 90%+ 효율)
 - audit_trail 5 path → 운영 audit 가능 → 결함 root cause 추적 가능
 - KillSwitch 자동 연동 → 자동매매 자본 보호
+- **§11 (amend)** — KIS DESC 응답 root cause 영구 차단 (한국석유 PR #535 dogfooding evidence)
+- **§12 (amend)** — 사용자 명시 active gap detection 4축 권위 source 교차 검증 정합 (임의 임계치 영구 폐기)
+- **§13 (amend)** — LWC v4 React 18 StrictMode dispose race 영구 차단 (한국석유 PR #535 결함 #1)
 
 ### 3-2. 부정 결과
 
@@ -150,3 +268,4 @@ T-CC Phase 2 의제를 ADR 0085(chart-curator 영입)에 add-only § 추가로 �
 |------|------|------|
 | 2026-05-19 | Proposed | T-CC Phase 2 spec 정합 신규 발행 — 자동 backfill 워커 + 갭 검출 + 데이터 햇징 룰 매트릭스 10건 LOCK + chart-curator 신입 보호. 사용자 명시 "신입한테 위 내용 잘 상기시켜서 진행해" 정합. spec 본문: `_workspace/specs/2026-05-19-t-cc-phase2-auto-backfill-gap-detection-spec.md`. (architect, opus 4.7 1M) |
 | 2026-05-19 | Proposed → Accepted | Phase 2-A 햇징 룰 10건 모두 구현 + 27 단위 테스트 ALL GREEN (PR #525) · `CandleGapDetectorPort/Adapter` + `CandleBackfillWorker` + `CandleBackfillAdminController` + Flyway V39 `candle.backfill_batch_id` add-only + Phase 1 `LastCandleAtMonitor.checkAllCodes()` 1 line edit 통합 · 한국석유 dogfooding cycle 검증 path 확보 · v3.6.17 release 포함. (architect, opus 4.7 1M) |
+| 2026-05-19 | Accepted (amend) | **햇징 룰 §11·§12·§13 추가 (10 → 13 룰 확장)** · §11 KIS raw 사전 ASC 정규화 (한국석유 PR #535 evidence — KIS DESC 응답 + sanity check reject 99건) · §12 Active gap detection 4축 교차 검증 (사용자 명시 정합 룰 · market_calendar + 거래정지 + 정리매매 + 상장일 권위 source · chart-curator 신입 잘못된 "5+ 영업일 임의 임계치" 영구 차단) · §13 LWC chart instance state lift (`useRef` → `useState` LOCK · 한국석유 PR #535 결함 #1 React 18 StrictMode dispose race) · chart-curator SKILL.md 매트릭스 13 룰로 갱신 · 운영 코드 0 touch (ADR + skill 본문만). (architect, opus 4.7 1M) |

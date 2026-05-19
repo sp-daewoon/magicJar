@@ -2837,10 +2837,10 @@ T-ACCT Phase 4 + T-MAN Phase 1·2·3 머지 후 후속 의제:
 3. **stale 임계치 정책** — 일봉=3 영업일 / 주봉=2주 / 월봉=1~2개월 / 분봉=2분 (chart-curator SKILL.md 매트릭스 정합)
 4. **검증** — dogfooding 사이클: `curl /api/candles?code=004090&interval=1d` last_candle_at=2026-05-18(직전 거래일) 회복
 
-#### Phase 2 — 자동 backfill 워커 + 갭 검출 (신규 책임) · 🚧 진행 중 (chart-curator dispatch 대기 · spec 발행 2026-05-19)
+#### Phase 2-A — 자동 backfill 워커 + 갭 검출 (신규 책임) · ✅ 마감 (PR #525 머지 · v3.6.17 release 포함)
 
 > **spec**: `_workspace/specs/2026-05-19-t-cc-phase2-auto-backfill-gap-detection-spec.md`
-> **ADR**: 0086 Proposed (데이터 햇징 룰 매트릭스 10건 LOCK · 신입 chart-curator 보호)
+> **ADR**: 0086 Accepted (데이터 햇징 룰 매트릭스 13건 LOCK · amend 2026-05-19 §11·§12·§13 추가)
 
 1. **갭 검출 알고리즘** — 종목별 timeframe별 영업일 캘린더(ADR 0013) `isBusinessDay()` 기반 expected sequence + DB actual sequence diff (윈도우 30 거래일 LOCK) · `CandleGapDetectorPort`(domain) + `CandleGapDetectorAdapter`(consumer) 신설
 2. **자동 backfill 트리거** — 갭만 정밀 backfill (KIS REST 부분 호출 — 전체 재수집 대비 90%+ 효율) · `CandleBackfillWorker` 신설 + Phase 1 `LastCandleAtMonitor.checkAllCodes()` 1 line edit
@@ -2850,9 +2850,38 @@ T-ACCT Phase 4 + T-MAN Phase 1·2·3 머지 후 후속 의제:
 6. **운영자 admin endpoint** — `POST /admin/candle-curator/backfill?code=...&interval=1d|1m&dry-run=true|false` · `CandleBackfillAdminController` 신설
 7. **Flyway V39 micro** — `candle.backfill_batch_id VARCHAR(96) NULL` add-only (인덱스 0)
 
-**dispatch**: chart-curator 단일 PR (~835 LOC) — domain port + consumer 어댑터 + 워커 + admin endpoint + Flyway V39 + Phase 1 1 line edit + unit test (햇징 룰 10건 검증).
+#### Phase 2-B — 햇징 룰 §11·§12·§13 구현 (chart-curator dispatch 대기 · 한국석유 PR #535 dogfooding evidence)
 
-**release**: v3.6.18 patch 권장 (ADR 0084 P1-3 묶음 가능 — 영역 분리 병렬).
+> **트리거**: ADR 0086 amend (2026-05-19) — 한국석유(004090) PR #535 dogfooding evidence + 사용자 명시 active gap detection 정합 룰 추가. ADR 본문: `_workspace/arch/adr/0086-t-cc-phase2-auto-backfill-data-hedging.md` §2-6·§2-7·§2-8.
+
+**§11 구현 의제 (market-data 영역 — chart-curator 협업)**:
+1. `KisRestCandleAdapter.parseKisDailyResponse` 반환 직전 `.sortedBy { it.ts.epochSeconds }` 1줄 add-only
+2. `KisRestCandleAdapter.parseKisMinuteResponse` 동일 패턴 add-only
+3. 향후 추가될 모든 KIS 캔들 응답 parse 함수 동일 LOCK
+4. 단위 테스트 — DESC 응답 mock 입력 + ASC 정렬 결과 검증
+5. evidence: 한국석유 PR #535 root cause — KIS DESC + sanity check reject 99건 → insertedCount=0
+
+**§12 구현 의제 (chart-curator 영역)**:
+1. `CandleGapDetectorAdapter.detectGaps()` 본문에 4축 검증 강화
+2. expected ts list 생성 시 `market_calendar.is_business_day = TRUE` 의무 (현재 `BusinessDayCalendar.isBusinessDay()` LOCK이 1차 권위)
+3. 각 ts마다 instrument status snapshot 조회 → 거래정지·정리매매·상장이전 ts skip
+4. 위 가드 통과 ts에서 candle absence = gap 결과 리스트
+5. `audit_trail.CANDLE_GAP_DETECTED` row 발행 (4축 통과 evidence inline)
+6. 단위 테스트 — 4축 매트릭스 (각 축 FALSE일 때 skip 검증 + 모두 TRUE인데 candle 부재일 때 gap 검출)
+7. **신입 chart-curator 잘못된 "5+ 영업일 임의 임계치" 제안 영구 차단** — 사용자 비판 인용
+
+**§13 구현 의제 (chart-curator 영역 — frontend SymbolChart)**:
+1. `SymbolChart.tsx` line 99·105 `chartApiRef`/`candleSeriesRef` → `useState`로 lift
+2. cleanup 시 `setChartApi(null)` + `setCandleSeries(null)` → 자식 useEffect는 null 인식하면 진입 skip
+3. 자식 컴포넌트(IndicatorOverlay·PatternMarker) props 타입 명시: `chart: IChartApi | null` + `series: ISeriesApi<'Candlestick'> | null`
+4. 자식 useEffect 진입 가드: `if (!chart || !series) return`
+5. evidence: 한국석유 PR #535 결함 #1 — React 18 StrictMode 이중 mount + ref mutation re-render 미발생 race
+
+**dispatch**: chart-curator(§12 + §13) + market-data(§11) 영역 분리 병렬 가능. release v3.6.19 patch 또는 W4 묶음 흡수 후보.
+
+**dispatch (Phase 2-A 마감 evidence)**: chart-curator 단일 PR (#525 머지) — domain port + consumer 어댑터 + 워커 + admin endpoint + Flyway V39 + Phase 1 1 line edit + unit test (햇징 룰 10건 검증 27개 ALL GREEN).
+
+**release**: v3.6.17 (Phase 2-A 마감 · v3.6.17 release 포함) + Phase 2-B는 후속 patch 또는 W4 묶음.
 
 #### Phase 3 — MTF 정합성 검증 (신규 책임 · 자동매매 룰 본체 결합)
 
@@ -2894,14 +2923,15 @@ raw 출처: `https://raw.githubusercontent.com/koreainvestment/open-trading-api/
 ### 상태
 
 - Phase 1: ✅ 마감 (PR #514 머지, 2026-05-19)
-- Phase 2: 🚧 진행 중 (spec 발행 2026-05-19 + ADR 0086 Proposed · chart-curator dispatch 대기)
+- Phase 2-A: ✅ 마감 (PR #525 머지 · v3.6.17 release 포함 · 햇징 룰 10건 LOCK + 27 단위 테스트 GREEN)
+- Phase 2-B: 🚧 진행 중 (ADR 0086 amend 2026-05-19 — 햇징 룰 §11·§12·§13 추가 · chart-curator + market-data 영역 분리 병렬 dispatch 대기)
 - Phase 3·4·5: ⏳ 후속 사이클
 
 ### 연관
 
 - ADR 0013 (영업일 캘린더 — Phase 2 갭 검출)
 - ADR 0085 (chart-curator 영입)
-- ADR 0086 (T-CC Phase 2 — 자동 backfill + 데이터 햇징 룰 매트릭스 10건 · Proposed 2026-05-19)
+- ADR 0086 (T-CC Phase 2 — 자동 backfill + 데이터 햇징 룰 매트릭스 13건 · Accepted 2026-05-19 · amend §11·§12·§13 추가)
 - ADR 0019 · 0028 · 0029 (캔들 저장 정책 / Ingestion Worker / Redis 캐시)
 - ADR 0025 (LWC 확장)
 - ADR 0048 (KIS WS 41건 구독 한도)
