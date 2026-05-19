@@ -3,10 +3,10 @@ id: T-20260519-1034-adr-0084-p1-2-stomp-event-persistence
 agent: backend-core
 model: opus
 branch: agent/backend-core/adr-0084-p1-2-stomp-event-persistence
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T10:34:48.274+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T10:44:47.319+09:00
+pr: #523
 parentPhase: ?
 ---
 
