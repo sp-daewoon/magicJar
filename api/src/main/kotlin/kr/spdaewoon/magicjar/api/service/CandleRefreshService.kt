@@ -130,15 +130,9 @@ class CandleRefreshService(
         // 3. KIS 인증 (api 모듈 패턴 — KisRestPriceMetricsAdapter 정합)
         val (accessToken, appKey, secretKey) = resolveAccessTokenAndKeys()
 
-        // 4. market 분기 — KIS raw spec: J=KRX주식(KOSDAQ), UN=통합(KOSPI+NXT cover ADR0063)
+        // 4. market division 후보 — ADR 0091: market 단위 KOSPI=UN 금지, 종목 단위 후보만 UN 우선 + J fallback.
         // raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
-        val instrument = instrumentJpaRepository.findById(code).orElse(null)
-        val mrktDivCode =
-            when (instrument?.market) {
-                "KOSPI" -> "UN" // ADR 0063 NXT cover 유지
-                "KOSDAQ" -> "J" // KOSDAQ은 NXT 미거래 → UN 빈 응답 방지
-                else -> "J" // 안전 기본값
-            }
+        val mrktDivCodes = resolveMrktDivCodeCandidates(code)
 
         // 5. interval 별 순차 갱신 (Rate Limit ADR 0037 초당 10건 + spec PR #564 §2-2 LOCK)
         // sleep 마진 제거 — KisRateLimiterPort.acquire가 USER_PATH 우선순위로 적시 진입
@@ -146,8 +140,9 @@ class CandleRefreshService(
         for (intervalCode in effectiveIntervals) {
             val result =
                 when (intervalCode) {
-                    "1m" -> refreshOneMinCandles(code, mrktDivCode, accessToken, appKey, secretKey)
-                    in DAILY_INTERVALS -> refreshDailyCandles(code, intervalCode, mrktDivCode, accessToken, appKey, secretKey)
+                    "1m" -> refreshOneMinCandlesWithFallback(code, mrktDivCodes, accessToken, appKey, secretKey)
+                    in DAILY_INTERVALS ->
+                        refreshDailyCandlesWithFallback(code, intervalCode, mrktDivCodes, accessToken, appKey, secretKey)
                     else -> IntervalRefreshResult(intervalCode, 0, 0, null, "SKIPPED")
                 }
             results.add(result)
@@ -164,10 +159,84 @@ class CandleRefreshService(
     }
 
     /**
+     * 종목코드 → KIS fid_cond_mrkt_div_code 후보 결정.
+     *
+     * KIS raw spec:
+     *   - FHKST03010230: J:주식, NX:NXT, UN:통합
+     *   - FHKST03010100: J:KRX, NX:NXT, UN:통합
+     *
+     * ADR 0091:
+     *   - market=KOSPI 전체를 UN으로 보내는 단순화 금지.
+     *   - NXT 거래 가능 여부는 종목 단위로 변하며, NXT 공식 화면도 KOSPI/KOSDAQ 상품군을 함께 표시한다.
+     *   - dedicated nxt_tradable 컬럼 도입 전까지 is_kospi200/is_kosdaq150을 보수적 allow-list로 사용한다.
+     *   - UN 후보가 빈 응답이면 J(KRX)로 fallback 한다.
+     */
+    private fun resolveMrktDivCode(code: String): String = resolveMrktDivCodeCandidates(code).first()
+
+    private fun resolveMrktDivCodeCandidates(code: String): List<String> {
+        val instrument = instrumentJpaRepository.findById(code).orElse(null)
+        val isNxtIntegratedCandidate =
+            when (instrument?.market) {
+                "KOSPI" -> instrument.isKospi200
+                "KOSDAQ" -> instrument.isKosdaq150
+                else -> false
+            }
+        return if (isNxtIntegratedCandidate) {
+            listOf("UN", "J")
+        } else {
+            listOf("J")
+        }
+    }
+
+    private fun refreshDailyCandlesWithFallback(
+        code: String,
+        intervalCode: String,
+        mrktDivCodes: List<String>,
+        accessToken: String,
+        appKey: String,
+        secretKey: String,
+    ): IntervalRefreshResult {
+        for ((index, mrktDivCode) in mrktDivCodes.withIndex()) {
+            val result = refreshDailyCandles(code, intervalCode, mrktDivCode, accessToken, appKey, secretKey)
+            if (result.fetchedCount > 0 || result.status != "OK" || index == mrktDivCodes.lastIndex) {
+                return result
+            }
+            log.warn(
+                "캔들 갱신 UN 응답 0건 — J fallback 재시도: code={} interval={} mrktDivCode={}",
+                code,
+                intervalCode,
+                mrktDivCode,
+            )
+        }
+        return IntervalRefreshResult(intervalCode, 0, 0, null, "FAILED")
+    }
+
+    private fun refreshOneMinCandlesWithFallback(
+        code: String,
+        mrktDivCodes: List<String>,
+        accessToken: String,
+        appKey: String,
+        secretKey: String,
+    ): IntervalRefreshResult {
+        for ((index, mrktDivCode) in mrktDivCodes.withIndex()) {
+            val result = refreshOneMinCandles(code, mrktDivCode, accessToken, appKey, secretKey)
+            if (result.fetchedCount > 0 || result.status != "OK" || index == mrktDivCodes.lastIndex) {
+                return result
+            }
+            log.warn(
+                "1m 캔들 갱신 UN 응답 0건 — J fallback 재시도: code={} mrktDivCode={}",
+                code,
+                mrktDivCode,
+            )
+        }
+        return IntervalRefreshResult("1m", 0, 0, null, "FAILED")
+    }
+
+    /**
      * 일봉·주봉·월봉·연봉 갱신 (FHKST03010100) — cursor 페이지네이션 적용.
      *
      * raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
-     * - fid_cond_mrkt_div_code: J(KRX주식) 또는 UN(통합 — KOSPI+NXT)
+     * - fid_cond_mrkt_div_code: J(KRX주식) 또는 UN(통합 — ADR 0091 종목 단위 후보만)
      * - fid_input_iscd: 종목코드
      * - fid_input_date_1: 시작일 (yyyyMMdd) — 30년 전 기준 전수 수집
      * - fid_input_date_2: 종료일 (yyyyMMdd) — cursor로 사용 (페이지네이션)
@@ -359,7 +428,7 @@ class CandleRefreshService(
      * 1m 분봉 갱신 (FHKST03010230) — 직전 30 거래일 역방향 페이지네이션.
      *
      * raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
-     * - fid_cond_mrkt_div_code: J(KRX주식) 또는 UN(통합)
+     * - fid_cond_mrkt_div_code: J(KRX주식) 또는 UN(통합 — ADR 0091 종목 단위 후보만)
      * - fid_input_iscd: 종목코드
      * - fid_input_hour_1: 조회 기준 시각 (HHmmss) — 이 시각 이전 최신 120건 반환
      * - fid_input_date_1: 조회 날짜 (yyyyMMdd)
@@ -414,7 +483,7 @@ class CandleRefreshService(
                                     .host(kisBaseProd.removePrefix("https://").substringBefore(":"))
                                     .port(kisBaseProd.substringAfterLast(":").toIntOrNull() ?: 9443)
                                     .path(ENDPOINT_1MIN)
-                                    // fid_cond_mrkt_div_code: J(KOSDAQ) 또는 UN(KOSPI+NXT)
+                                    // fid_cond_mrkt_div_code: ADR 0091 resolver — 종목 단위 UN allow-list + J fallback.
                                     // raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
                                     .queryParam("fid_cond_mrkt_div_code", mrktDivCode)
                                     .queryParam("fid_input_iscd", code)

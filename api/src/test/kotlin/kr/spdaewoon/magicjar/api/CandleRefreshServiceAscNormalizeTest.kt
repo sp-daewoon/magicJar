@@ -2,13 +2,16 @@ package kr.spdaewoon.magicjar.api
 
 import kr.spdaewoon.magicjar.api.infrastructure.kis.KisTokenCacheHelper
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
+import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.service.CandleRefreshService
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.whenever
 import org.springframework.web.reactive.function.client.WebClient
+import java.util.Optional
 
 /**
  * CandleRefreshService.parseKisDailyOutput2 — KIS DESC 응답 ASC 정규화 회귀 가드 (P0-B hotfix 2026-05-19 backend-core + ADR 0086 §11).
@@ -45,12 +48,12 @@ import org.springframework.web.reactive.function.client.WebClient
  * 룰 5 위반 금지: LLM provider import 0건.
  */
 class CandleRefreshServiceAscNormalizeTest {
-    private fun buildService(): CandleRefreshService {
+    private fun buildService(instrumentJpaRepository: InstrumentJpaRepository = mock<InstrumentJpaRepository>()): CandleRefreshService {
         // ASC 정규화는 외부 의존성 0이므로 모든 dependency mock 가능.
         // T-4 통합 (2026-05-20) — credential·cipher·redis 는 KisTokenCacheHelper 위임으로 이전.
         return CandleRefreshService(
             webClient = mock<WebClient>(),
-            instrumentJpaRepository = mock<InstrumentJpaRepository>(),
+            instrumentJpaRepository = instrumentJpaRepository,
             candleJpaRepository = mock<CandleJpaRepository>(),
             tokenHelper = mock<KisTokenCacheHelper>(),
             kisRateLimiterPort = mock<KisRateLimiterPort>(),
@@ -86,6 +89,48 @@ class CandleRefreshServiceAscNormalizeTest {
             field.getLong(row)
         }
     }
+
+    private fun invokeResolveMrktDivCode(
+        service: CandleRefreshService,
+        code: String,
+    ): String {
+        val method =
+            CandleRefreshService::class.java.getDeclaredMethod(
+                "resolveMrktDivCode",
+                String::class.java,
+            )
+        method.isAccessible = true
+        return method.invoke(service, code) as String
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun invokeResolveMrktDivCodeCandidates(
+        service: CandleRefreshService,
+        code: String,
+    ): List<String> {
+        val method =
+            CandleRefreshService::class.java.getDeclaredMethod(
+                "resolveMrktDivCodeCandidates",
+                String::class.java,
+            )
+        method.isAccessible = true
+        return method.invoke(service, code) as List<String>
+    }
+
+    private fun instrument(
+        code: String,
+        market: String,
+        isKospi200: Boolean = false,
+        isKosdaq150: Boolean = false,
+    ): InstrumentJpaEntity =
+        InstrumentJpaEntity(
+            code = code,
+            name = code,
+            market = market,
+            type = "STOCK",
+            isKospi200 = isKospi200,
+            isKosdaq150 = isKosdaq150,
+        )
 
     @Test
     fun `asc-normalize-daily-output2 KIS DESC 일봉 응답 → ASC 변환 검증 (한국석유 결함 회귀 가드)`() {
@@ -145,6 +190,37 @@ class CandleRefreshServiceAscNormalizeTest {
         // 2025-12-23 KST 00:00 → epoch second 1766415600
         // 2025-12-30 KST 00:00 → epoch second 1767020400
         assertThat(epochSecs.first()).isLessThan(epochSecs.last())
+    }
+
+    @Test
+    fun `market-div-resolver KOSPI 전체 UN 금지 — KOSPI200만 UN 후보 후 J fallback`() {
+        val instrumentJpaRepository = mock<InstrumentJpaRepository>()
+        whenever(instrumentJpaRepository.findById("005930"))
+            .thenReturn(Optional.of(instrument("005930", market = "KOSPI", isKospi200 = true)))
+        whenever(instrumentJpaRepository.findById("000001"))
+            .thenReturn(Optional.of(instrument("000001", market = "KOSPI", isKospi200 = false)))
+        val service = buildService(instrumentJpaRepository)
+
+        assertThat(invokeResolveMrktDivCode(service, "005930")).isEqualTo("UN")
+        assertThat(invokeResolveMrktDivCodeCandidates(service, "005930")).containsExactly("UN", "J")
+        assertThat(invokeResolveMrktDivCode(service, "000001")).isEqualTo("J")
+        assertThat(invokeResolveMrktDivCodeCandidates(service, "000001")).containsExactly("J")
+    }
+
+    @Test
+    fun `market-div-resolver KOSDAQ 전체 J 고정 금지 — KOSDAQ150은 UN 후보 후 J fallback`() {
+        val instrumentJpaRepository = mock<InstrumentJpaRepository>()
+        whenever(instrumentJpaRepository.findById("091990"))
+            .thenReturn(Optional.of(instrument("091990", market = "KOSDAQ", isKosdaq150 = true)))
+        whenever(instrumentJpaRepository.findById("123456"))
+            .thenReturn(Optional.of(instrument("123456", market = "KOSDAQ", isKosdaq150 = false)))
+        whenever(instrumentJpaRepository.findById("999999")).thenReturn(Optional.empty())
+        val service = buildService(instrumentJpaRepository)
+
+        assertThat(invokeResolveMrktDivCode(service, "091990")).isEqualTo("UN")
+        assertThat(invokeResolveMrktDivCodeCandidates(service, "091990")).containsExactly("UN", "J")
+        assertThat(invokeResolveMrktDivCode(service, "123456")).isEqualTo("J")
+        assertThat(invokeResolveMrktDivCode(service, "999999")).isEqualTo("J")
     }
 
     @Test

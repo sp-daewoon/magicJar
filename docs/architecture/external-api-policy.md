@@ -4,13 +4,15 @@
 - 2026-05-11 갱신: **Yahoo Finance §3 전면 제거** — ADR 0057 (KIS OpenAPI 단일 데이터 출처) 정합. 사용자 명시 "kis에 있는 데이터만 사용하라고" (2026-05-11 dogfooding).
 - 2026-05-11 amend: 정보 수집 API는 **prod credential 단일 채널** (모의/실전 분기는 주문 라우터 한정 — 사용자 명시 정책 정정). ADR 0019 supersede 인용 제거 → "Accepted (Yahoo 의존 부분만 보류)"로 정정 — 5m~1h은 1m 합산 가공 방향 확정 (backlog §31 트랙).
 - 2026-05-12 amend (v3.2.3 doc cut — backlog §35): **§2-5 NXT 매트릭스 추가** (KIS `fid_cond_mrkt_div_code` 옵션 J/NX/UN 본문 추가) + **KOSPI→UN / KOSDAQ→J 분기 룰 명시** (PR #304 구현 결과 인용) + **§2-5-A·§2-5-B 신설** (raw 출처 인용 — `inquire_time_dailychartprice.py` + `inquire_daily_itemchartprice.py`). ADR 0062·0063 Accepted 정합 (5m~1h 백엔드 precomputed 합산 + NXT 08:00~20:00 KST cover + threshold 700).
+- 2026-05-20 amend (ADR 0091): **KOSPI→UN / KOSDAQ→J market-level 분기 폐기**. `UN`은 종목 단위 NXT 후보(`is_kospi200` 또는 `is_kosdaq150`)에만 우선 적용하고, 응답 0건이면 `J`로 fallback한다.
 
 magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공식 한도와 우리 운영 정책을 정리한다.
 
 > ADR 정합:
 > - **ADR 0057** — KIS OpenAPI 단일 데이터 출처 (Yahoo·네이버 등 보조 출처 폐기)
-> - **ADR 0062** — 5m~1h 합산 가공 백엔드 precomputed (2026-05-11 Accepted) ← **최신**
-> - **ADR 0063** — NXT/통합거래 매트릭스 cover (2026-05-11 Accepted, fid_cond_mrkt_div_code UN/J 분기) ← **최신**
+> - **ADR 0062** — 5m~1h 합산 가공 백엔드 precomputed (2026-05-11 Accepted)
+> - **ADR 0063** — NXT/통합거래 매트릭스 cover (2026-05-11 Accepted)
+> - **ADR 0091** — NXT 통합 시장코드 종목 단위 resolver (2026-05-20 Accepted, `UN` 후보 + `J` fallback) ← **최신**
 > - **ADR 0037** — KIS API Rate Limit 강제 (초당 10건 + 토큰 버킷)
 > - **ADR 0038** — KIS OAuth 24h 토큰 + Redis 분산락
 > - **ADR 0039** — 종목 마스터 갱신 Cron (KIS 13시각 +5분)
@@ -86,32 +88,34 @@ magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공
 
 **2026-05-12 갱신 (ADR 0062·0063 Accepted 재통합 — v3.2.3 doc cut)**: 5m·15m·30m·90m·1h은 **백엔드 precomputed 합산** (CandleAggregator 도메인 본체 부활, PR #302 D 구현 + PR #303 AggregateBackfillRunner). 1m baseline은 NXT 통합 cover (08:00~20:00 KST, ADR 0063).
 
+**2026-05-20 갱신 (ADR 0091)**: `KOSPI=UN/KOSDAQ=J` market-level 분기는 폐기. `UN`은 종목 단위 NXT 후보에만 우선 적용하고, 빈 응답이면 `J`로 fallback한다.
+
 | Interval | KIS endpoint | tr_id | fid_cond_mrkt_div_code | 비고 |
 |---|---|---|---|---|
 | 틱 | WebSocket `H0STCNT0` | — | — | Redis only |
-| 1m (1분봉) — 당일 | `inquire-time-itemchartprice` | `FHKST03010200` | KOSPI=UN, KOSDAQ=J | 당일 한정 — Redis & DB (NXT cover 08:00~20:00 KST) |
-| **1m (1분봉) — 30 거래일 페이지네이션** | `inquire-time-dailychartprice` | **`FHKST03010230`** | **KOSPI=UN, KOSDAQ=J** | **NXT cover — 720 bar/일 × 30 거래일 (ADR 0062 옵션 2 채택)** |
+| 1m (1분봉) — 당일 | `inquire-time-itemchartprice` | `FHKST03010200` | NXT 후보=`UN`→`J`, 그 외=`J` | 당일 한정 — Redis & DB (NXT cover 08:00~20:00 KST) |
+| **1m (1분봉) — 30 거래일 페이지네이션** | `inquire-time-dailychartprice` | **`FHKST03010230`** | **NXT 후보=`UN`→`J`, 그 외=`J`** | **NXT cover — 720 bar/일 × 30 거래일 (ADR 0062 옵션 2 채택)** |
 | **5m·15m·30m·90m·1h (백엔드 합산)** | — | — | — | **CandleAggregator 합산 (ADR 0062 §3 권장안 A-1 백엔드 precomputed). KIS REST 호출 0건** |
-| 1d (일봉) | `inquire-daily-itemchartprice` | `FHKST03010100` (period='D') | KOSPI=UN, KOSDAQ=J | 전체 기간 — DB 영속 |
-| 1wk (주봉) | `inquire-daily-itemchartprice` | `FHKST03010100` (period='W') | KOSPI=UN, KOSDAQ=J | 전체 기간 — DB 영속 |
-| 1mo (월봉) | `inquire-daily-itemchartprice` | `FHKST03010100` (period='M') | KOSPI=UN, KOSDAQ=J | 전체 기간 — DB 영속 |
-| 1y (년봉) | `inquire-daily-itemchartprice` | `FHKST03010100` (period='Y') | KOSPI=UN, KOSDAQ=J | 전체 기간 — DB 영속 |
-| 현재가 | `inquire-price` | `FHKST01010100` | KOSPI=UN, KOSDAQ=J | 시가·고가·저가·거래량 + 등락 |
+| 1d (일봉) | `inquire-daily-itemchartprice` | `FHKST03010100` (period='D') | NXT 후보=`UN`→`J`, 그 외=`J` | 전체 기간 — DB 영속 |
+| 1wk (주봉) | `inquire-daily-itemchartprice` | `FHKST03010100` (period='W') | NXT 후보=`UN`→`J`, 그 외=`J` | 전체 기간 — DB 영속 |
+| 1mo (월봉) | `inquire-daily-itemchartprice` | `FHKST03010100` (period='M') | NXT 후보=`UN`→`J`, 그 외=`J` | 전체 기간 — DB 영속 |
+| 1y (년봉) | `inquire-daily-itemchartprice` | `FHKST03010100` (period='Y') | NXT 후보=`UN`→`J`, 그 외=`J` | 전체 기간 — DB 영속 |
+| 현재가 | `inquire-price` | `FHKST01010100` | `J` | 시가·고가·저가·거래량 + 등락 |
 
-### 2-5-A. `fid_cond_mrkt_div_code` 매트릭스 (ADR 0063 정합)
+### 2-5-A. `fid_cond_mrkt_div_code` 매트릭스 (ADR 0063·0091 정합)
 
 KIS raw spec — 시장 분류 코드 옵션 3종:
 
 | 옵션 | KIS 공식 의미 | magicJar 적용 |
 |---|---|---|
-| **J** | KRX 주식 (KOSPI + KOSDAQ 포함) | **KOSDAQ 종목 — NXT 미상장 → UN 빈 응답 회피 (PR #304 분기 결과)** |
-| **NX** | NXT 단독 | 사용 안 함 (UN 통합 채택, ADR 0063 §2-D 옵션 A) |
-| **UN** | KRX + NXT 통합 | **KOSPI 종목 — NXT cover 08:00~20:00 KST (ADR 0063 §2-D 옵션 A 채택)** |
+| **J** | KRX 주식 (KOSPI + KOSDAQ 포함) | 기본값. `UN` 후보가 빈 응답이면 fallback |
+| **NX** | NXT 단독 | 1차 MVP 사용 안 함 (통합 캔들 우선) |
+| **UN** | KRX + NXT 통합 | `is_kospi200=true` 또는 `is_kosdaq150=true`인 NXT 후보 종목 우선 시도 |
 
-**분기 룰** (ADR 0063 + PR #304 구현):
-- KOSPI 종목 → `fid_cond_mrkt_div_code="UN"` (NXT 통합 cover)
-- KOSDAQ 종목 → `fid_cond_mrkt_div_code="J"` (NXT 미상장 — UN 시 빈 응답 결함 회피)
-- `UNKNOWN/기타` → `"J"` (안전 기본값)
+**분기 룰** (ADR 0091):
+- `instrument.is_kospi200=true` 또는 `instrument.is_kosdaq150=true` → `UN` 우선, 응답 0건이면 `J` fallback
+- 그 외 종목, `UNKNOWN/기타` → `J` (안전 기본값)
+- KOSPI/KOSDAQ market 이름만으로 `UN`을 선택하지 않는다.
 
 **raw 출처 인용 (헌법 §3 KIS-first)**:
 - 1분봉 페이지네이션: `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py`

@@ -5,11 +5,12 @@
 - 2026-05-11 amend: ADR 0019 supersede 인용 제거 → **Accepted (Yahoo 의존 부분만 보류)**. 5m~1h은 **1m 합산 가공 방향 확정** (backlog §31 트랙 — 위치·source 결정 대기). credential 정책: 정보 수집은 prod 단일 채널 (모의/실전 분기는 주문 라우터 한정).
 - 2026-05-11 amend: **ADR 0062 plan 발행** — 5m·15m·30m·90m·1h 합산 가공 위치(권장안 A-1 백엔드 precomputed) + source 시간 범위(권장안 옵션 2 과거 포함 30 거래일) + IntervalToggle 5종 활성화(15m·90m 추가) plan 발행. 사용자 결정 후 본 문서 매트릭스 5m~1h 행을 "1m 합산 가공 예정" → "1m 합산 가공 (백엔드 precomputed)" 갱신 예정.
 - 2026-05-12 갱신 (v3.2.3 doc cut — backlog §35): **§3 매트릭스 5m~1h 행 "1m 합산 가공 (백엔드 precomputed)" 갱신** (ADR 0062 Accepted 2026-05-11) + **§3·§6 매트릭스에 NXT 통합 시각 cover 08:00~20:00 KST 통합** (ADR 0063 Accepted) + **§4 IntervalToggle 5종 활성화 갱신** + **§6 cold-start 흐름 AggregateBackfillRunner 호출 인용** (PR #303) + **§7 당일 진행 중 캔들 흐름 20:00 KST DailyCloseFinalizer 갱신** (PR #303) + **mock 합성 금지 정합** (`feedback_no_mock_data.md` 인용).
+- 2026-05-20 갱신 (ADR 0091): **KOSPI=UN/KOSDAQ=J market-level 분기 폐기**. NXT 후보 종목(`is_kospi200` 또는 `is_kosdaq150`)은 `UN` 우선 + `J` fallback, 그 외는 `J` 기본값.
 - 본 문서는 운영 가이드. 결정 본문은 **ADR 0057 (KIS OpenAPI 단일 데이터 출처)** + **ADR 0062 (5m~1h 합산 가공 백엔드 precomputed)** + **ADR 0063 (NXT/통합거래 cover)** + **ADR 0019 (Accepted, 2026-05-12 §2 재통합)** + **ADR 0028 (Watchlist Ingestion)** + **ADR 0029 (당일 진행 중 캔들 Redis 캐시)** + **ADR 0048 (KIS WS 41 slot + polling fallback)** 참조.
 
 ## 1. 정책 한 줄 요약
 
-> **KIS OpenAPI 단일 출처 (prod credential 단일 채널). NXT 통합 cover 08:00~20:00 KST (KOSPI=UN/KOSDAQ=J 분기). DB 영속 = Watchlist 풀 내 종목의 1m(30 거래일) + 5m·15m·30m·90m·1h(백엔드 precomputed 합산) + 1d·1wk·1mo·1y. Yahoo Finance 폐기. Mock 합성 금지 (`feedback_no_mock_data.md`).**
+> **KIS OpenAPI 단일 출처 (prod credential 단일 채널). NXT 통합 cover 08:00~20:00 KST (`UN`은 종목 단위 후보만, `J` fallback). DB 영속 = Watchlist 풀 내 종목의 1m(30 거래일) + 5m·15m·30m·90m·1h(백엔드 precomputed 합산) + 1d·1wk·1mo·1y. Yahoo Finance 폐기. Mock 합성 금지 (`feedback_no_mock_data.md`).**
 
 ## 2. 핵심 원칙
 
@@ -19,7 +20,7 @@
 4. **DB가 진실원** — 1m(30 거래일) + 5m·15m·30m·90m·1h(백엔드 precomputed) + 1d·1wk·1mo·1y 영속. Redis는 당일 진행 중 OHLCV만
 5. **LRU 폐기** — 풀 size가 자연 universe 한도
 6. **5m·15m·30m·90m·1h = 백엔드 precomputed 합산 (ADR 0062 §3 권장안 A-1 채택)** — `CandleAggregator` 도메인 본체(Pure Kotlin, PR #302 D) + `AggregateBackfillRunner` cold-start trigger(PR #303). MCP·룰엔진·백테스트 동일 source 정합
-7. **NXT 통합 cover 08:00~20:00 KST (ADR 0063)** — `fid_cond_mrkt_div_code` 분기 (KOSPI=UN / KOSDAQ=J, PR #304). 1m 베이스 720 bar/일 (NXT pre/after-hour 포함). `MIN_1M_CANDLE_THRESHOLD = 700L`
+7. **NXT 통합 cover 08:00~20:00 KST (ADR 0063·0091)** — `fid_cond_mrkt_div_code` 분기 (`is_kospi200`/`is_kosdaq150` 후보는 `UN` 우선 + `J` fallback, 그 외 `J`). 1m 베이스 720 bar/일 (NXT pre/after-hour 포함). `MIN_1M_CANDLE_THRESHOLD = 700L`
 8. **Mock 합성 금지** — backend 0건/에러 시 "데이터 없음" 명시 표시 (사용자 메모리 `feedback_no_mock_data.md` — 2026-05-11 dogfooding 사용자 결정)
 
 ## 3. 데이터 매트릭스 (ADR 0057·0062·0063 정합)
@@ -29,13 +30,13 @@
 | Interval | Source (KIS tr_id) | Cache | DB 영속 | 시각 cover | TTL/만료 |
 |---|---|---|---|---|---|
 | **틱** | KIS WS `H0STCNT0` | Redis (휘발) | X | NXT 통합 08:00~20:00 KST | retention 1h |
-| **1m (1분봉) — 당일** | KIS REST `FHKST03010200` (KOSPI=UN, KOSDAQ=J) | Redis (당일) | DB INSERT (분 단위 closing) | NXT 통합 08:00~20:00 KST (720 bar/일) | Redis: 다음날 00:00 evict |
-| **1m (1분봉) — 30 거래일 페이지네이션** | KIS REST `FHKST03010230` (KOSPI=UN, KOSDAQ=J — ADR 0062 옵션 2) | Redis (당일) | **DB 영속 (30 거래일)** | NXT 통합 08:00~20:00 KST | — |
+| **1m (1분봉) — 당일** | KIS REST `FHKST03010200` (NXT 후보=`UN`→`J`, 그 외=`J`) | Redis (당일) | DB INSERT (분 단위 closing) | NXT 통합 08:00~20:00 KST (720 bar/일) | Redis: 다음날 00:00 evict |
+| **1m (1분봉) — 30 거래일 페이지네이션** | KIS REST `FHKST03010230` (NXT 후보=`UN`→`J`, 그 외=`J` — ADR 0091) | Redis (당일) | **DB 영속 (30 거래일)** | NXT 통합 08:00~20:00 KST | — |
 | **5m·15m·30m·90m·1h** | **백엔드 precomputed 합산 (ADR 0062 §3 권장안 A-1)** — `CandleAggregator` 도메인 본체 + `AggregateBackfillRunner` cold-start trigger | Redis (당일 진행 중 boundary 마감 시 — v3.3.0 §34 sub-agent 작업) | **DB 영속 (30 거래일, 종목당 ~6.4K rows)** | NXT 통합 08:00~20:00 KST (boundary 정렬) | Redis: 마감 시 evict + DB INSERT |
-| **1d (일봉)** | KIS REST `FHKST03010100` (period='D', KOSPI=UN/KOSDAQ=J) | Redis cache (옵션) | **DB 영속** | NXT 종가 통합 (20:00 KST 마감 기준) | — |
-| **1wk (주봉)** | KIS REST `FHKST03010100` (period='W', KOSPI=UN/KOSDAQ=J) | Redis cache (옵션) | **DB 영속** | — | — |
-| **1mo (월봉)** | KIS REST `FHKST03010100` (period='M', KOSPI=UN/KOSDAQ=J) | Redis cache (옵션) | **DB 영속** | — | — |
-| **1y (년봉)** | KIS REST `FHKST03010100` (period='Y', KOSPI=UN/KOSDAQ=J) | Redis cache (옵션) | **DB 영속** | — | — |
+| **1d (일봉)** | KIS REST `FHKST03010100` (period='D', NXT 후보=`UN`→`J`, 그 외=`J`) | Redis cache (옵션) | **DB 영속** | NXT 종가 통합 (20:00 KST 마감 기준) | — |
+| **1wk (주봉)** | KIS REST `FHKST03010100` (period='W', NXT 후보=`UN`→`J`, 그 외=`J`) | Redis cache (옵션) | **DB 영속** | — | — |
+| **1mo (월봉)** | KIS REST `FHKST03010100` (period='M', NXT 후보=`UN`→`J`, 그 외=`J`) | Redis cache (옵션) | **DB 영속** | — | — |
+| **1y (년봉)** | KIS REST `FHKST03010100` (period='Y', NXT 후보=`UN`→`J`, 그 외=`J`) | Redis cache (옵션) | **DB 영속** | — | — |
 | **당일 진행 중 일봉** | KIS REST + KIS WS tick 누적 | Redis only (휘발, 장 마감까지) | **20:00 KST 후 DB INSERT (`DailyCloseFinalizer` PR #303)** | NXT 마감 20:00 KST | Redis: 장 마감(20:00) + 30분 |
 
 ### 3-A. 합산 5종 source 매트릭스 (CandleAggregator precomputed 30 거래일)
@@ -89,9 +90,9 @@ DB watchlist INSERT + Kafka watchlist.changed.v1
 consumer WatchlistChangedKafkaListener → ColdStartExecutor.submit(code) (PR #303·#304 분기)
     ├─ instrument halt/liquidation 검사 (PR #304):
     │    └─ tradingHalt=true 또는 liquidation=true → KIS_COLD_START_SKIPPED audit + return
-    ├─ market 분기 → fid_cond_mrkt_div_code 결정 (PR #304):
-    │    ├─ KOSPI → "UN" (NXT 통합 08:00~20:00 KST, ADR 0063)
-    │    └─ KOSDAQ → "J" (NXT 미상장 → UN 빈 응답 회피)
+    ├─ 종목 단위 NXT 후보 분기 → fid_cond_mrkt_div_code 결정 (ADR 0091):
+    │    ├─ is_kospi200=true 또는 is_kosdaq150=true → "UN" 우선, 0건이면 "J" fallback
+    │    └─ 그 외 / UNKNOWN → "J" (market 이름만으로 UN 선택 금지)
     ├─ SubscriptionRouter.add(code, priority) — slot 1+30+10 분배 (ADR 0048)
     │    ├─ slot 여유 → KIS WS subscribe(code) — H0STCNT0 체결가
     │    └─ slot 가득 + priority 낮음 → WatchlistPollingWorker 진입 (5초 주기 KIS REST inquire-price)
@@ -168,7 +169,7 @@ KIS WS tick 도달 (08:00~20:00 KST NXT cover)
 | `consumer/.../market/TickToMinuteAggregator.kt` | tick → 1m closing | Redis 갱신 + closing 시 evict + DB INSERT (v3.3.0 §34에서 5m~1h boundary 확장 작업 가이드) |
 | `consumer/.../application/market/DailyCloseFinalizer.kt` | **20:00 KST 일봉 확정 + flushAggregations** (PR #303 — 16:00 → 20:00 갱신) | Redis 당일 D1 → DB INSERT + watchlist 전 종목 5m~1h 합산 갱신 |
 | `consumer/.../bootstrap/CandleBootstrapRunner.kt` | 부팅 시 watchlist 1m·5m 검사 (PR #303 옵션 c) | count1m >= 700 && count5m == 0 시 AggregateBackfillRunner 자동 호출 |
-| `consumer/.../infrastructure/kis/KisRestCandleAdapter.kt` | KIS REST 캔들 fetch (KOSPI=UN/KOSDAQ=J 분기 — PR #304) | 1d·1wk·1mo·1y 전체 기간 backfill + 1m 30 거래일 페이지네이션 (FHKST03010230) + 1m 당일분 (FHKST03010200) |
+| `consumer/.../infrastructure/kis/KisRestCandleAdapter.kt` | KIS REST 캔들 fetch (종목 단위 NXT 후보 `UN` 우선 + `J` fallback — ADR 0091) | 1d·1wk·1mo·1y 전체 기간 backfill + 1m 30 거래일 페이지네이션 (FHKST03010230) + 1m 당일분 (FHKST03010200) |
 | `domain/.../market/CandleAggregator.kt` | **5m~1h 합산 도메인 본체 (PR #302 D, ADR 0019 §2-5 revoke)** Pure Kotlin, Spring/JPA 의존 0 | OHLCV 합산 + boundary 정렬 |
 | `api/.../infrastructure/cache/RedisCandleCache.kt` | Redis 어댑터 | 당일 진행 중 캔들 read/write |
 | `api/.../controller/WatchlistController.kt` | Watchlist REST | 등록·조회·삭제 |

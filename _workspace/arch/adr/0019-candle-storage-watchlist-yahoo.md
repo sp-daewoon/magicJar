@@ -3,7 +3,7 @@
 - 상태: **Accepted** (Yahoo 의존 부분만 보류 — ADR 0057 정합. ADR 0062 합산 5종 + ADR 0063 NXT cover 재통합 — 2026-05-12 §2 매트릭스 갱신)
 - 작성일: TBD
 - 결정자: architect
-- 관계: ADR 0057 (KIS OpenAPI 단일 데이터 출처) · **ADR 0062 (5m~1h 합산 가공 백엔드 precomputed — 2026-05-11 Accepted)** · **ADR 0063 (NXT/통합거래 매트릭스 cover — 2026-05-11 Accepted)** · ADR 0028(Watchlist Ingestion Worker) · ADR 0029(당일 진행 중 캔들 Redis 캐시) · ADR 0037(KIS Rate Limit)
+- 관계: ADR 0057 (KIS OpenAPI 단일 데이터 출처) · **ADR 0062 (5m~1h 합산 가공 백엔드 precomputed — 2026-05-11 Accepted)** · **ADR 0063 (NXT/통합거래 매트릭스 cover — 2026-05-11 Accepted)** · **ADR 0091 (NXT 통합 시장코드 종목 단위 resolver — 2026-05-20 Accepted)** · ADR 0028(Watchlist Ingestion Worker) · ADR 0029(당일 진행 중 캔들 Redis 캐시) · ADR 0037(KIS Rate Limit)
 
 > **2026-05-11 노트 (사용자 명시 정책 정정)**: §2 매트릭스의 Yahoo 의존 부분은 보류 상태 — 이번 사이클은 `1m·1d·1wk·1mo·1y`만 KIS-only로 운용(ADR 0057). 5m·15m·30m·90m·1h 인터벌은 **1m 합산 가공으로 처리 결정** (백엔드 또는 프론트 합산, 구현 사이클은 별도 backlog §31). 본 ADR 본문의 결정 골격(Watchlist 풀 기반·DB 영속·합성 폐기 원칙·LRU 폐기·CHECK constraint)은 **여전히 유효**하며, 5m~1h 합산 가공 트랙이 완료되면 §2 매트릭스에 재통합 예정. **폐기 아님 — 사용자 명시 "ADR 폐기는 하지말어 백로그로 남겨"**.
 >
@@ -33,14 +33,14 @@ KIS REST는 일봉/주봉/월봉/년봉 backfill 가능. 분봉은 당일분만 
 |---|---|---|---|---|---|
 | **틱** | KIS WS `H0STCNT0` | — | Redis (휘발, retention 1h) | X | NXT 통합 08:00~20:00 KST (ADR 0063) |
 | ~~1m / 2m / 5m / 15m / 30m / 90m / 1h~~ | ~~Yahoo (Watchlist 진입 시 max 한도 fetch)~~ | ~~—~~ | ~~—~~ | ~~DB 영속~~ | **폐기 (ADR 0057 — Yahoo 전면 폐기, 2026-05-11)** |
-| **1m (1분봉, NXT cover 720 bar/일)** | KIS REST | `FHKST03010230` (30 거래일 페이지네이션, prod credential) | Redis (당일) | **DB 영속 (30 거래일, KOSPI=UN/KOSDAQ=J 분기 — ADR 0063·PR #304)** | **NXT 통합 08:00~20:00 KST** |
+| **1m (1분봉, NXT cover 720 bar/일)** | KIS REST | `FHKST03010230` (30 거래일 페이지네이션, prod credential) | Redis (당일) | **DB 영속 (30 거래일, NXT 후보=`UN`→`J`, 그 외=`J` — ADR 0091)** | **NXT 통합 08:00~20:00 KST** |
 | **5m (5분봉, NXT cover 144 bar/일)** | **1m 합산 (백엔드 precomputed — CandleAggregator)** | — | Redis (당일 진행 중 boundary 마감 시) | **DB 영속 (30 거래일, 종목당 ~4.3K rows)** | **NXT 통합 08:00~19:55 KST (boundary 5분 단위)** |
 | **15m (15분봉, NXT cover 48 bar/일)** | **1m 합산 (백엔드 precomputed)** | — | Redis (당일 진행 중 boundary 마감 시) | **DB 영속 (30 거래일, 종목당 ~1.4K rows)** | **NXT 통합 08:00~19:45 KST** |
 | **30m (30분봉, NXT cover 24 bar/일)** | **1m 합산 (백엔드 precomputed)** | — | Redis (당일 진행 중 boundary 마감 시) | **DB 영속 (30 거래일, 종목당 ~720 rows)** | **NXT 통합 08:00~19:30 KST** |
 | **90m (90분봉, NXT cover 8 bar/일)** | **1m 합산 (백엔드 precomputed)** | — | Redis (당일 진행 중 boundary 마감 시) | **DB 영속 (30 거래일, 종목당 ~240 rows)** | **NXT 통합 08:00·09:30·11:00·12:30·14:00·15:30·17:00·18:30 KST** |
 | **1h (60분봉, NXT cover 12 bar/일)** | **1m 합산 (백엔드 precomputed)** | — | Redis (당일 진행 중 boundary 마감 시) | **DB 영속 (30 거래일, 종목당 ~360 rows)** | **NXT 통합 08:00~19:00 KST** |
 | **당일 진행 중 분봉** | KIS REST·WS | `FHKST03010200` + WS tick | Redis & DB | DB INSERT (분 단위 closing 시) | NXT 통합 08:00~20:00 KST |
-| **1d / 1wk / 1mo / 1y** | KIS REST | `FHKST03010100` (period='D/W/M/Y', KOSPI=UN/KOSDAQ=J 분기) | Redis cache (옵션) | **DB 영속** | 일봉 기준 (NXT 종가 통합) |
+| **1d / 1wk / 1mo / 1y** | KIS REST | `FHKST03010100` (period='D/W/M/Y', NXT 후보=`UN`→`J`, 그 외=`J`) | Redis cache (옵션) | **DB 영속** | 일봉 기준 (NXT 종가 통합) |
 | **당일 진행 중 일봉** | KIS REST·WS tick | — | Redis only (휘발, 장 마감까지) | **20:00 KST 후 DB INSERT (`DailyCloseFinalizer`)** | NXT 마감 20:00 KST |
 
 **합산 5종 행 (5m·15m·30m·90m·1h) 산출 근거**:
@@ -50,7 +50,7 @@ KIS REST는 일봉/주봉/월봉/년봉 backfill 가능. 분봉은 당일분만 
 
 **NXT 시각 행 (08:00~20:00 KST) 산출 근거**:
 - KRX 정규장 6.5시간 + NXT pre-hour 1시간 + NXT after-hour 4.5시간 = 12시간 cover
-- `fid_cond_mrkt_div_code` 분기 — KOSPI=UN(NXT 통합), KOSDAQ=J(NXT 미상장 → UN 빈 응답 회피, PR #304)
+- `fid_cond_mrkt_div_code` 분기 — `is_kospi200` 또는 `is_kosdaq150` 후보는 `UN` 우선 + `J` fallback, 그 외는 `J` (ADR 0091)
 - raw URL 인용: `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py` (헌법 §3 KIS-first)
 
 ### 2-2. UI 노출 interval (ADR 0057 + 0062 정합)
@@ -73,7 +73,7 @@ KIS REST는 일봉/주봉/월봉/년봉 backfill 가능. 분봉은 당일분만 
 
 ### 2-3. cold-start 흐름
 
-> **2026-05-12 갱신 (ADR 0062·0063 Accepted)**: Yahoo backfill 흐름 폐기 + KIS REST cold-start 흐름 정합 (ADR 0028 §2-3 권위 인용). 1m 적재 직후 `AggregateBackfillRunner.backfill(code)` 호출 — 5m·15m·30m·90m·1h 일괄 합산 INSERT (PR #303 구현). KOSPI=UN/KOSDAQ=J 분기 (ADR 0063·PR #304). halt/liquidation 종목 skip + `KIS_COLD_START_SKIPPED` audit (PR #304 구현).
+> **2026-05-12 갱신 (ADR 0062·0063 Accepted)**: Yahoo backfill 흐름 폐기 + KIS REST cold-start 흐름 정합 (ADR 0028 §2-3 권위 인용). 1m 적재 직후 `AggregateBackfillRunner.backfill(code)` 호출 — 5m·15m·30m·90m·1h 일괄 합산 INSERT (PR #303 구현). 2026-05-20 ADR 0091부터 market-level `KOSPI=UN/KOSDAQ=J` 분기는 종목 단위 NXT 후보 + `J` fallback으로 보강. halt/liquidation 종목 skip + `KIS_COLD_START_SKIPPED` audit (PR #304 구현).
 
 사용자가 Watchlist에 종목 등록 시 (ADR 0028 — `WatchlistChangedKafkaListener` + `ColdStartExecutor`):
 
@@ -85,9 +85,9 @@ KIS REST는 일봉/주봉/월봉/년봉 backfill 가능. 분봉은 당일분만 
         ├─ instrument halt/liquidation 검사
         │   └─ true → KIS_COLD_START_SKIPPED audit + return (PR #304)
         ├─ KIS WS subscribe(code) (틱 + 당일 분봉, prod credential)
-        ├─ market 분기 → fid_cond_mrkt_div_code 결정 (PR #304)
-        │   ├─ KOSPI → "UN" (NXT cover 08:00~20:00 KST, ADR 0063)
-        │   └─ KOSDAQ → "J" (NXT 미거래 → UN 빈 응답 회피)
+        ├─ 종목 단위 NXT 후보 분기 → fid_cond_mrkt_div_code 결정 (ADR 0091)
+        │   ├─ is_kospi200=true 또는 is_kosdaq150=true → "UN" 우선, 0건이면 "J" fallback
+        │   └─ 그 외 / UNKNOWN → "J" (market 이름만으로 UN 선택 금지)
         ├─ ColdStartExecutor.KIS_COLD_START_INTERVALS 5종 fetch:
         │   ├─ 1m  : FHKST03010230 — 30 거래일 페이지네이션 → DB INSERT
         │   ├─ 1d  : FHKST03010100 (period='D') — 200건 → DB INSERT
@@ -142,6 +142,7 @@ ALTER TABLE candle ADD CONSTRAINT candle_interval_chk
 - **ADR 0057** — KIS OpenAPI 단일 데이터 출처 (본 ADR Yahoo 의존 폐기 baseline)
 - **ADR 0062** — 5m~1h 합산 가공 (백엔드 precomputed 부활 + 옵션 2 과거 30 거래일 + 5종 활성화 — 2026-05-11 Accepted)
 - **ADR 0063** — NXT/통합거래 매트릭스 cover (UN 통합 + 08:00~20:00 + threshold 700 — 2026-05-11 Accepted)
+- **ADR 0091** — NXT 통합 시장코드 종목 단위 resolver (UN 후보 + J fallback — 2026-05-20 Accepted)
 - ADR 0028 — Watchlist 기반 Ingestion Worker (본 정책의 trigger, cold-start 흐름 권위 인용)
 - ADR 0029 — 당일 진행 중 캔들 Redis 캐시 (5m~1h boundary 키 매트릭스)
 - ADR 0037 — KIS API Rate Limit 강제

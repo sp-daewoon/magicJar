@@ -34,6 +34,12 @@ class ConsumerInstrumentJpaEntity(
     val type: String = "UNKNOWN",
     @Column(name = "active", nullable = false)
     val active: Boolean = true,
+    /** KOSPI200 여부. NXT 통합 캔들 조회 allow-list 1차 근거로 사용. */
+    @Column(name = "is_kospi200", nullable = false)
+    val isKospi200: Boolean = false,
+    /** KOSDAQ150 여부. NXT 통합 캔들 조회 allow-list 1차 근거로 사용. */
+    @Column(name = "is_kosdaq150", nullable = false)
+    val isKosdaq150: Boolean = false,
     /** 거래정지 여부 (trht_yn). cold-start skip 판단에 사용. */
     @Column(name = "trading_halt", nullable = false)
     val tradingHalt: Boolean = false,
