@@ -3,10 +3,10 @@ id: T-20260519-2237-v3-7-1-jpa-scan-application-class
 agent: backend-core
 model: opus
 branch: hotfix/v3-7-1-jpa-scan-application-class
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T22:37:39.847+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T22:49:09.685+09:00
+pr: #584
 parentPhase: ?
 ---
 
