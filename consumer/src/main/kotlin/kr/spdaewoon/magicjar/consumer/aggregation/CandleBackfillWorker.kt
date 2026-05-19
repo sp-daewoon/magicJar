@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.aggregation
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import jakarta.annotation.PreDestroy
 import kr.spdaewoon.magicjar.consumer.notification.SlackWebhookSender
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaEntity
@@ -57,6 +58,7 @@ class CandleBackfillWorker(
     private val auditRepository: ConsumerAuditTrailJpaRepository,
     private val slackSenderProvider: ObjectProvider<SlackWebhookSender>,
     private val killSwitchJpaRepositoryProvider: ObjectProvider<KillSwitchJpaRepository>,
+    private val objectMapper: ObjectMapper,
     @Value("\${magicjar.chart-curator.backfill.dry-run:false}")
     private val dryRunPropertyDefault: Boolean,
     @Value("\${magicjar.chart-curator.backfill.window-days:30}")
@@ -177,8 +179,13 @@ class CandleBackfillWorker(
                 action = "CANDLE_BACKFILL_SKIPPED",
                 entityId = code,
                 detail =
-                    """{"code":"$code","interval":"${interval.code}","reason":"TRADING_HALT",""" +
-                        """"tradingHalt":${instrument.tradingHalt},"liquidation":${instrument.liquidation}}""",
+                    mapOf(
+                        "code" to code,
+                        "interval" to interval.code,
+                        "reason" to "TRADING_HALT",
+                        "tradingHalt" to instrument.tradingHalt,
+                        "liquidation" to instrument.liquidation,
+                    ),
             )
             return BackfillResult(
                 code = code,
@@ -213,15 +220,26 @@ class CandleBackfillWorker(
             action = "CANDLE_BACKFILL_START",
             entityId = code,
             detail =
-                """{"code":"$code","interval":"${interval.code}","backfillBatchId":"$backfillBatchId",""" +
-                    """"gapCount":${gaps.size},"dryRun":$dryRun,"reason":"$reason"}""",
+                mapOf(
+                    "code" to code,
+                    "interval" to interval.code,
+                    "backfillBatchId" to backfillBatchId,
+                    "gapCount" to gaps.size,
+                    "dryRun" to dryRun,
+                    "reason" to reason,
+                ),
         )
 
         if (gaps.isEmpty()) {
             persistAudit(
                 action = "CANDLE_BACKFILL_SKIPPED",
                 entityId = code,
-                detail = """{"code":"$code","reason":"NO_GAPS","backfillBatchId":"$backfillBatchId"}""",
+                detail =
+                    mapOf(
+                        "code" to code,
+                        "reason" to "NO_GAPS",
+                        "backfillBatchId" to backfillBatchId,
+                    ),
             )
             return BackfillResult(
                 code = code,
@@ -252,8 +270,14 @@ class CandleBackfillWorker(
                 action = "CANDLE_BACKFILL_SUCCESS",
                 entityId = code,
                 detail =
-                    """{"code":"$code","backfillBatchId":"$backfillBatchId","insertedCount":0,""" +
-                        """"dryRun":true,"gapCount":${gaps.size},"durationMs":${System.currentTimeMillis() - startMs}}""",
+                    mapOf(
+                        "code" to code,
+                        "backfillBatchId" to backfillBatchId,
+                        "insertedCount" to 0,
+                        "dryRun" to true,
+                        "gapCount" to gaps.size,
+                        "durationMs" to (System.currentTimeMillis() - startMs),
+                    ),
             )
             return BackfillResult(
                 code = code,
@@ -386,8 +410,12 @@ class CandleBackfillWorker(
                     action = "CANDLE_BACKFILL_SUCCESS",
                     entityId = code,
                     detail =
-                        """{"code":"$code","backfillBatchId":"$backfillBatchId","insertedCount":$insertedTotal,""" +
-                            """"durationMs":$durationMs}""",
+                        mapOf(
+                            "code" to code,
+                            "backfillBatchId" to backfillBatchId,
+                            "insertedCount" to insertedTotal,
+                            "durationMs" to durationMs,
+                        ),
                 )
             BackfillStatus.PARTIAL_FAIL ->
                 handleFailure(
@@ -607,11 +635,17 @@ class CandleBackfillWorker(
         durationMs: Long,
         fatal: Boolean,
     ) {
-        val sampleStr = failedGapsSample.take(5).joinToString(",") { it.toString() }
         val detail =
-            """{"code":"$code","interval":"${interval.code}","backfillBatchId":"$backfillBatchId",""" +
-                """"gapsTotal":$gapsTotal,"failedGapsCount":$failedGapsCount,"failedGapsSample":[$sampleStr],""" +
-                """"durationMs":$durationMs,"fatal":$fatal}"""
+            mapOf(
+                "code" to code,
+                "interval" to interval.code,
+                "backfillBatchId" to backfillBatchId,
+                "gapsTotal" to gapsTotal,
+                "failedGapsCount" to failedGapsCount,
+                "failedGapsSample" to failedGapsSample.take(5).map { it.toString() },
+                "durationMs" to durationMs,
+                "fatal" to fatal,
+            )
         persistAudit(action = "CANDLE_BACKFILL_FAIL", entityId = code, detail = detail)
 
         // Slack notice
@@ -628,41 +662,130 @@ class CandleBackfillWorker(
         }
 
         // KillSwitch — 전체 실패(fatal=true)만 발동 (자본 보호 우선)
+        // 햇징 룰 §8 hotfix (2026-05-19): user_account 존재 검증 의무 — system userId가 user_account에 없으면
+        //   FK 위반 회피 + audit_trail SKIPPED 분기 + Slack notice만 발화 (자본 단위 KillSwitch는 자본 path 영역 T-RISK·T-O).
         if (fatal) {
             val ksRepo = killSwitchJpaRepositoryProvider.getIfAvailable()
             if (ksRepo != null) {
+                triggerKillSwitchSafely(
+                    ksRepo = ksRepo,
+                    userId = SYSTEM_USER_ID,
+                    reasonStr = "CANDLE_BACKFILL_FAIL:$code:${interval.code}",
+                    backfillBatchId = backfillBatchId,
+                    sender = sender,
+                )
+            }
+        }
+    }
+
+    /**
+     * 햇징 룰 §8 hotfix — KillSwitch enable 안전망.
+     *
+     * 사유: `kill_switch_state.user_id`는 `user_account(user_id)` FK (V1__baseline.sql §9 ON DELETE CASCADE).
+     * system userId("system")가 user_account에 없으면 INSERT 시 FK 위반 → audit_trail FAIL + 운영 부채.
+     *
+     * 처리:
+     *   1. existsUserAccount() 사전 검증 → 없으면 KillSwitch INSERT skip + warn + Slack
+     *   2. audit_trail에 `CANDLE_BACKFILL_KILLSWITCH_SKIPPED` 발행 (운영자 인지 path)
+     *   3. 실 enable 호출 시도 + 예외 발생 시 graceful (예: FK 외 다른 결함)
+     *
+     * 자본 영향 0: 캔들 정합성 KillSwitch는 user 단위 자본 path와 분리 — Slack notice + audit만으로 운영자 인지.
+     */
+    private fun triggerKillSwitchSafely(
+        ksRepo: KillSwitchJpaRepository,
+        userId: String,
+        reasonStr: String,
+        backfillBatchId: String,
+        sender: SlackWebhookSender?,
+    ) {
+        val userExists =
+            try {
+                ksRepo.existsUserAccount(userId)
+            } catch (e: Exception) {
+                log.warn(
+                    "CandleBackfillWorker existsUserAccount 검증 실패 → skip 분기: userId={} err={} batchId={}",
+                    userId,
+                    e.message,
+                    backfillBatchId,
+                )
+                false
+            }
+        if (!userExists) {
+            log.warn(
+                "CandleBackfillWorker — KillSwitch SKIPPED (user_account 부재): userId={} reason={} batchId={}",
+                userId,
+                reasonStr,
+                backfillBatchId,
+            )
+            persistAudit(
+                action = "CANDLE_BACKFILL_KILLSWITCH_SKIPPED",
+                entityId = userId,
+                detail =
+                    mapOf(
+                        "userId" to userId,
+                        "reason" to reasonStr,
+                        "backfillBatchId" to backfillBatchId,
+                        "skipReason" to "USER_ACCOUNT_NOT_FOUND",
+                    ),
+            )
+            // 운영자 인지용 Slack notice
+            if (sender != null) {
                 try {
-                    ksRepo.enableKillSwitch(
-                        userId = SYSTEM_USER_ID,
-                        reason = "CANDLE_BACKFILL_FAIL:$code:${interval.code}",
-                        updatedBy = "chart-curator",
-                    )
-                    log.warn(
-                        "CandleBackfillWorker — KillSwitch ON: userId={} reason={} batchId={}",
-                        SYSTEM_USER_ID,
-                        "CANDLE_BACKFILL_FAIL:$code:${interval.code}",
-                        backfillBatchId,
+                    sender.sendDirect(
+                        "[magicJar] CandleBackfill KillSwitch SKIPPED — user_account 부재(userId=$userId). " +
+                            "캔들 정합성 KillSwitch는 자본 path T-RISK·T-O 영역이며 chart-curator는 audit·Slack notice만 발행. " +
+                            "reason=$reasonStr batchId=$backfillBatchId",
                     )
                 } catch (e: Exception) {
-                    log.warn(
-                        "CandleBackfillWorker KillSwitch enable 실패: err={} batchId={}",
-                        e.message,
-                        backfillBatchId,
-                    )
+                    log.warn("CandleBackfillWorker KillSwitch SKIPPED Slack 발화 실패: err={}", e.message)
                 }
             }
+            return
+        }
+        try {
+            ksRepo.enableKillSwitch(
+                userId = userId,
+                reason = reasonStr,
+                updatedBy = "chart-curator",
+            )
+            log.warn(
+                "CandleBackfillWorker — KillSwitch ON: userId={} reason={} batchId={}",
+                userId,
+                reasonStr,
+                backfillBatchId,
+            )
+        } catch (e: Exception) {
+            log.warn(
+                "CandleBackfillWorker KillSwitch enable 실패: err={} batchId={}",
+                e.message,
+                backfillBatchId,
+            )
         }
     }
 
     /**
      * 햇징 룰 #9 — audit_trail row 1건 발행.
      * action: CANDLE_BACKFILL_START / SUCCESS / FAIL / SKIPPED / ROLLBACK 5 path
+     *         + KILLSWITCH_SKIPPED (햇징 룰 §8 hotfix — user_account 부재 분기)
+     *
+     * detail Map은 ObjectMapper.writeValueAsString()로 valid JSON 변환 후 영속 (audit_trail.detail_json JSONB 정합).
+     * 사유: `@JdbcTypeCode(SqlTypes.JSON)` + Hibernate 6은 Kotlin String을 raw 전달 시
+     * PostgreSQL JSONB validation 통과 못 함 (v3.6.17 dogfooding evidence —
+     *   `ERROR: invalid input syntax for type json`). Map 직렬화로 안전 보장.
      */
     private fun persistAudit(
         action: String,
         entityId: String,
-        detail: String,
+        detail: Map<String, Any?>,
     ) {
+        val detailJson =
+            try {
+                objectMapper.writeValueAsString(detail)
+            } catch (e: Exception) {
+                log.warn("CandleBackfillWorker audit JSON 직렬화 실패: action={} err={}", action, e.message)
+                // 빈 JSON object로 graceful fallback — audit row 자체는 발행
+                "{}"
+            }
         try {
             auditRepository.save(
                 ConsumerAuditTrailJpaEntity(
@@ -670,7 +793,7 @@ class CandleBackfillWorker(
                     action = action,
                     entityType = "candle",
                     entityId = entityId,
-                    detailJson = detail,
+                    detailJson = detailJson,
                 ),
             )
         } catch (e: Exception) {
@@ -691,7 +814,11 @@ class CandleBackfillWorker(
             action = "CANDLE_BACKFILL_ROLLBACK",
             entityId = backfillBatchId,
             detail =
-                """{"backfillBatchId":"$backfillBatchId","deletedCount":$deletedCount,"reason":"$reason"}""",
+                mapOf(
+                    "backfillBatchId" to backfillBatchId,
+                    "deletedCount" to deletedCount,
+                    "reason" to reason,
+                ),
         )
     }
 

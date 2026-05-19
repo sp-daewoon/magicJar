@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.aggregation
 
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
@@ -59,6 +60,8 @@ class CandleBackfillWorkerTest {
             every { it.getIfAvailable() } returns killSwitchRepo
         }
 
+    private val objectMapper = jacksonObjectMapper()
+
     private fun newWorker(dryRun: Boolean = false): CandleBackfillWorker =
         CandleBackfillWorker(
             candleGapDetector = candleGapDetector,
@@ -68,6 +71,7 @@ class CandleBackfillWorkerTest {
             auditRepository = auditRepository,
             slackSenderProvider = slackProvider,
             killSwitchJpaRepositoryProvider = ksProvider,
+            objectMapper = objectMapper,
             dryRunPropertyDefault = dryRun,
             windowDaysDefault = 30,
         )
@@ -305,7 +309,7 @@ class CandleBackfillWorkerTest {
     // ---------- 룰 #8 Retry + KillSwitch ----------
 
     @Test
-    fun `룰 #8 retry — KIS 3회 모두 실패 시 KillSwitch ON + audit FAIL`() {
+    fun `룰 #8 retry — KIS 3회 모두 실패 시 KillSwitch ON + audit FAIL (user_account 존재 path)`() {
         val worker = newWorker()
         setupNoInstrument()
         setupAuditCapture()
@@ -314,6 +318,8 @@ class CandleBackfillWorkerTest {
         // KIS 3회 모두 빈 응답 (또는 throw)
         every { kisRestPort.fetchCandles("004090", CandleInterval.ONE_DAY, 200) } returns emptyList()
         every { slackSender.sendDirect(any()) } returns true
+        // 햇징 룰 §8 hotfix — user_account 존재 path: existsUserAccount true → enableKillSwitch 호출
+        every { killSwitchRepo.existsUserAccount(CandleBackfillWorker.SYSTEM_USER_ID) } returns true
         every {
             killSwitchRepo.enableKillSwitch(
                 userId = CandleBackfillWorker.SYSTEM_USER_ID,
@@ -327,6 +333,8 @@ class CandleBackfillWorkerTest {
         assertThat(result.status).isEqualTo(CandleBackfillWorker.BackfillStatus.FAILED_KILLSWITCH)
         // 3회 retry 호출 (즉시·1s·5s)
         verify(exactly = 3) { kisRestPort.fetchCandles("004090", CandleInterval.ONE_DAY, 200) }
+        // existsUserAccount 사전 검증
+        verify(exactly = 1) { killSwitchRepo.existsUserAccount(CandleBackfillWorker.SYSTEM_USER_ID) }
         // KillSwitch ON
         verify(exactly = 1) {
             killSwitchRepo.enableKillSwitch(
@@ -337,6 +345,71 @@ class CandleBackfillWorkerTest {
         }
         // Slack notice
         verify { slackSender.sendDirect(match { it.contains("CandleBackfill 실패") }) }
+    }
+
+    // ---------- 룰 #8 hotfix 회귀 가드 — user_account 부재 KillSwitch SKIP ----------
+
+    @Test
+    fun `(killswitch-fix) §8 hotfix — user_account 부재 시 KillSwitch INSERT 0 + Slack alert + KILLSWITCH_SKIPPED audit`() {
+        val worker = newWorker()
+        setupNoInstrument()
+        val captured = mutableListOf<ConsumerAuditTrailJpaEntity>()
+        every { auditRepository.save(capture(captured)) } answers { firstArg<ConsumerAuditTrailJpaEntity>() }
+        every { candleGapDetector.detectGaps("004090", CandleInterval.ONE_DAY, 30) } returns
+            listOf(Instant.ofEpochSecond(1_700_000_000L))
+        // KIS 3회 모두 실패 → fatal path 진입
+        every { kisRestPort.fetchCandles("004090", CandleInterval.ONE_DAY, 200) } returns emptyList()
+        every { slackSender.sendDirect(any()) } returns true
+        // user_account 부재 — kill_switch_state FK violation 사전 차단
+        every { killSwitchRepo.existsUserAccount(CandleBackfillWorker.SYSTEM_USER_ID) } returns false
+
+        val result = worker.runBackfill("004090", CandleInterval.ONE_DAY, dryRun = false)
+
+        assertThat(result.status).isEqualTo(CandleBackfillWorker.BackfillStatus.FAILED_KILLSWITCH)
+        // existsUserAccount 사전 검증 호출
+        verify(exactly = 1) { killSwitchRepo.existsUserAccount(CandleBackfillWorker.SYSTEM_USER_ID) }
+        // KillSwitch enable INSERT 0건 — FK violation 회피
+        verify(exactly = 0) { killSwitchRepo.enableKillSwitch(any(), any(), any()) }
+        // audit_trail에 CANDLE_BACKFILL_KILLSWITCH_SKIPPED 발행
+        val skipAudit = captured.firstOrNull { it.action == "CANDLE_BACKFILL_KILLSWITCH_SKIPPED" }
+        assertThat(skipAudit).isNotNull
+        assertThat(skipAudit!!.detailJson).contains("USER_ACCOUNT_NOT_FOUND")
+        // Slack notice 2건 — 실패 alert + KillSwitch SKIPPED alert
+        verify(atLeast = 1) { slackSender.sendDirect(match { it.contains("KillSwitch SKIPPED") }) }
+    }
+
+    // ---------- audit JSON hotfix 회귀 가드 ----------
+
+    @Test
+    fun `(audit-json-fix) §9 hotfix — audit detail_json은 valid JSON으로 직렬화 (ObjectMapper)`() {
+        val worker = newWorker()
+        setupNoInstrument()
+        val captured = mutableListOf<ConsumerAuditTrailJpaEntity>()
+        every { auditRepository.save(capture(captured)) } answers { firstArg<ConsumerAuditTrailJpaEntity>() }
+        every { candleGapDetector.detectGaps("004090", CandleInterval.ONE_DAY, 30) } returns
+            listOf(Instant.ofEpochSecond(1_700_000_000L))
+        every { kisRestPort.fetchCandles("004090", CandleInterval.ONE_DAY, 200) } returns
+            listOf(candle(tsEpochSec = 1_700_000_000L))
+        every { candleRepository.saveAll(any()) } returns 1
+
+        worker.runBackfill("004090", CandleInterval.ONE_DAY, dryRun = false)
+
+        // 모든 발행 audit detail_json이 valid JSON object여야 함
+        assertThat(captured).isNotEmpty
+        captured.forEach { row ->
+            val parsed = objectMapper.readTree(row.detailJson)
+            assertThat(parsed.isObject)
+                .overridingErrorMessage(
+                    "audit_trail.detail_json은 JSON object여야 함 (action=${row.action}, json=${row.detailJson})",
+                ).isTrue
+        }
+        // START detail은 필수 key 보유
+        val startAudit = captured.first { it.action == "CANDLE_BACKFILL_START" }
+        val startNode = objectMapper.readTree(startAudit.detailJson)
+        assertThat(startNode.get("backfillBatchId").asText())
+            .matches("candle-backfill:004090:1d:\\d+-[0-9a-f-]+")
+        assertThat(startNode.get("gapCount").asInt()).isEqualTo(1)
+        assertThat(startNode.get("dryRun").asBoolean()).isFalse
     }
 
     @Test
