@@ -1,0 +1,783 @@
+# v3.7.0 기능 명세 (트랙별 표준 9 항목)
+
+- baseline: v3.7.0
+- 작성일: 2026-05-19
+- 작성자: backend-core (bot+backend-core@magicjar.local)
+- SoT: `docs/architecture/master-architecture.md` + ADR INDEX (`_workspace/arch/adr/README.md`)
+- 기준: v3.6.0 04-feature-spec.md 전체 이월 + v3.6.1~v3.6.19 patch 누적(T-RECON·T-NOTIFY·T-SC·T-J·T-PERF·T-NEWS·T-ACCT·T-MAN·T-CC) + v3.7.0 W3 마감(ADR 0084 P0+P1 자본 path 안정성·ADR 0088 persistence-shared·ADR 0089 userId number·ADR 0090 instrument_status_history)
+
+---
+
+## 🔄 v3.6.0 → v3.7.0 기능 매트릭스 진화 요약 (리팩토링맨 lens)
+
+| 트랙 | v3.6.0 | v3.7.0 변경 |
+|------|--------|------------|
+| T-O 주문 실행 | 5 endpoint + 12 step + 3중 게이트 | **+ source=AUTO/MANUAL 분기(V37·V38) + PENDING_RECONCILE(V36) + event_id 멱등(V35) + Outbox publish(V40)** |
+| T-RECON | (계획만 — ADR 0070) | **v3.6.2 본격 구현** (V25·V26 + reconcile_run + risk_event POSITION_DRIFT) |
+| T-NOTIFY | (계획만 — ADR 0070) | **v3.6.2 본격 구현** (V27 notification_outbox + 4 Slack 채널) |
+| T-SC Screener | (계획만 — ADR 0071) | **v3.6.3 본격 구현** (V28 + 동기 inline + Redis cache 30m) |
+| T-J 매매일지 | (계획만 — ADR 0072) | **v3.6.4 본격 구현** (V29 + 5 Kafka listen 자동 INSERT) |
+| T-PERF 성과 | (계획만 — ADR 0072) | **v3.6.4 본격 구현** (V30 + DailyPerformanceJob 매일 00:30 KST) |
+| T-NEWS | (계획 없음) | **v3.6.x 신규 구현** (V32·V33 + DART + Naver) — ADR 0073·0075 |
+| **T-ACCT 계좌** | (계획 없음) | **v3.6.17 신규 구현 — Dashboard Phase 4** (KIS TTTC8434R/VTTC8434R + V31 realized_pnl) — ADR 0081 |
+| **T-MAN 수동 주문** | (계획 없음) | **v3.6.17 신규 구현 — Phase 1·2·3** (V37 source + V38 FK relax + cooldown guard) — ADR 0082 |
+| **T-CC 캔들 정합** | (계획 없음) | **v3.6.18·v3.6.19 신규 구현 — Phase 1·2** (V39 backfill_batch_id + 갭 검출 + 햇징 13 룰) — ADR 0086 |
+| **자본 path 안정성** | baseline | **ADR 0084 P0+P1**: event_id 멱등 + PENDING_RECONCILE + Outbox 4 producer + STOMP unread/resync |
+| **인프라 무결성** | baseline | **ADR 0088 persistence-shared 모듈** + **ADR 0089 userId number** + **ADR 0090 instrument_status_history** |
+
+✨ **트랙 수**: v3.6.0 9 트랙 → v3.7.0 **14 트랙** (T-RECON·T-NOTIFY·T-SC·T-J·T-PERF·T-NEWS·T-ACCT·T-MAN·T-CC 합류).
+
+---
+
+## 표준 항목 구조
+
+각 트랙은 아래 9 항목으로 기술합니다.
+
+1. **REST** — 노출 엔드포인트
+2. **도메인** — 핵심 domain 클래스 + 포트 인터페이스
+3. **영속** — JPA 엔티티 + Flyway 마이그레이션
+4. **Kafka** — 발행/소비 토픽
+5. **UI** — 프론트엔드 페이지/컴포넌트
+6. **PR** — 관련 PR 목록
+7. **ADR** — 의존 ADR
+8. **한계** — 미구현·보류 사항
+9. **NXT 영향** — ADR 0063 결합 영향 (해당 트랙만)
+
+---
+
+## T-W1 / T-S1 / T-IND / T-DSL / T-PAT / T-BT / T-FANOUT / T-SIG / T-RISK / T-O (v3.6.0 이월)
+
+v3.6.0 04-feature-spec.md 전체 LOCK 이월. v3.7.0 trace 변경은 아래 트랙별 §에 한정.
+
+### T-O 주문 실행 — v3.7.0 변경 매트릭스
+
+#### 영속 (Flyway 추가)
+
+| Flyway | 변경 | ADR | 시점 |
+|--------|------|-----|------|
+| **V31** | `order_execution.realized_pnl NUMERIC(19,4)` 추가 (T-ACCT positions 정합) | ADR 0081 | v3.6.17 |
+| **V35** | `order_execution.event_id UUID UNIQUE` 추가 (분할 체결 멱등) | ADR 0084 P0-1 | v3.6.16 |
+| **V36** | `order_request.status='PENDING_RECONCILE'` 추가 (Kafka publish 실패 boundary) | ADR 0084 P0-2 | v3.6.16 |
+| **V37** | `order_request.source VARCHAR(16)` 추가 ('AUTO'·'MANUAL') | ADR 0082 | v3.6.17 |
+| **V38** | `order_request.signal_id` FK NULLABLE relax (T-MAN MANUAL 수동 시) | ADR 0082 | v3.6.17 |
+| **V40** | `order_event_outbox` 신설 (자본 path Outbox publish + retry) | ADR 0084 P1-1 | v3.7.0 |
+
+#### Kafka (publish path 변경)
+
+자본 path 4 producer publish가 직접 `KafkaTemplate.send()` → **`order_event_outbox` INSERT + @TransactionalEventListener(AFTER_COMMIT)** 으로 진화. Kafka 토픽 자체 추가 0건 (자본 보호 강화만).
+
+#### 도메인 (OrderStatus enum 확장)
+
+```kotlin
+enum class OrderStatus {
+    REQUESTED, ACK, FILLED, PARTIALLY_FILLED, REJECTED, CANCELLED, EXPIRED,
+    PENDING_RECONCILE,   // ✨ v3.7.0 — ADR 0084 P0-2: Kafka publish 실패 boundary
+}
+
+enum class OrderSource {
+    AUTO,    // T-SIG → T-RISK ALLOWED → order.intent.v1 (default)
+    MANUAL,  // ✨ v3.7.0 T-MAN — 사용자 수동 발행 (signal_id NULL 허용 V38)
+}
+```
+
+---
+
+## T-RECON — 포지션 재조정 + 자본 보호 (v3.6.2 신규 — ADR 0070)
+
+### 1. REST
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `GET` | `/api/reconcile/runs` | 재조정 실행 이력 (페이징) |
+| `GET` | `/api/reconcile/runs/{id}` | 단건 + drift 상세 |
+| `POST` | `/api/reconcile/runs/manual` | 운영자 수동 재조정 trigger |
+
+### 2. 도메인
+
+- `domain/reconcile/ReconcileRun.kt` · `PositionDrift.kt` · `DriftType.kt` enum · port `ReconcileRunRepository`·`PositionDriftRepository`·`KisBalancePort`
+
+### 3. 영속
+
+- Flyway V25 `reconcile_run` + V26 `risk_event.verdict='POSITION_DRIFT'` 추가
+- JPA: `ReconcileRunJpaEntity/Repository/Adapter` + `PositionDriftJpaAdapter`
+
+### 4. Kafka
+
+| 토픽 | 방향 | 발행자 | 소비자 |
+|------|------|-------|-------|
+| `reconcile.run.v1` | strategy-engine→api | `ReconcileRunPublisher` | (audit 로그) |
+| `reconcile.drift.detected.v1` | strategy-engine→api | `PositionDriftKafkaProducer` | `StompReconNotifier` (api) |
+| `killswitch.engaged.v1` | strategy-engine→api | `KillSwitchEngagedPublisher` | `StompKillSwitchNotifier` (api) |
+
+STOMP: `/topic/recon.user.{userId}` — drift·killswitch 4 event discriminator
+
+### 5. UI
+
+- v3.6.2 baseline은 backend·STOMP만 — Risk 페이지 timeline UI는 backlog §46
+
+### 6. PR
+
+- PR #389·#390·#391 (T-RECON Phase 1·2)
+
+### 7. ADR
+
+- ADR 0041 (T-RECON baseline) · ADR 0070 (정밀 묶음 spec) · ADR 0024 (KillSwitch chain)
+
+### 8. 한계
+
+- drift 임계치 사용자 설정화 미구현 (backlog §47)
+- MarketSessionFsm cron skip 미구현 (backlog §48)
+
+---
+
+## T-NOTIFY — 알림 (v3.6.2 신규 — ADR 0070)
+
+### 1. REST
+
+별도 endpoint 없음 (Outbox + Slack publisher background).
+
+### 2. 도메인
+
+- `domain/notification/NotificationOutbox.kt` · `NotificationChannel.kt` enum (`SLACK`·`DISCORD`·`EMAIL`·`SMS`)
+
+### 3. 영속
+
+- **Flyway V27** `notification_outbox` — v3.7.0에서 **persistence-shared 모듈로 이관** (ADR 0088)
+
+### 4. Kafka
+
+- 소비: `order.filled.v1`·`order.rejected.v1`·`risk.violation.v1`·`reconcile.drift.detected.v1`·`killswitch.engaged.v1` 5 토픽
+
+### 5. UI
+
+- SettingsModal "알림 채널" § (Slack webhook URL 입력) — v3.6.2 baseline
+
+### 6. PR
+
+- PR #390 (T-NOTIFY Phase 1)
+
+### 7. ADR
+
+- ADR 0044 (T-NOTIFY baseline) · ADR 0070 · ADR 0088 (persistence-shared 이관)
+
+### 8. 한계
+
+- Discord·Email·SMS 보조 채널 미구현 (backlog §50)
+- user별 Slack webhook 분리 미구현 (backlog §49)
+
+---
+
+## T-SC — Screener (v3.6.3 신규 — ADR 0071)
+
+### 1. REST
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `POST` | `/api/screener/run` | 동기 inline screening 실행 |
+| `GET` | `/api/screener/runs` | 실행 이력 페이징 |
+| `GET` | `/api/screener/runs/{id}/matches` | 매치 종목 시계열 |
+
+### 2. 도메인
+
+- `domain/screener/ScreeningRun.kt` · `ScreeningMatch.kt` · port `ScreenerEngine`·`UniverseProvider`
+
+### 3. 영속
+
+- Flyway V28 `screening_run` + `screening_match` — 옵션 영속 (`magicjar.screener.persist=true` toggle, default false)
+
+### 4. Kafka
+
+- `screener.result.v1` (deprecated — 비동기 모드 backlog §52)
+
+### 5. UI
+
+- `frontend/src/pages/Strategy/StrategyBuilderPage.tsx`에 합류 — `ScreenerResultModal.tsx`
+
+### 6. PR
+
+- PR #393·#394·#395
+
+### 7. ADR
+
+- ADR 0071 (T-SC 정밀 spec) · ADR 0066 (T-SIG sandbox reuse)
+
+### 8. 한계
+
+- 비동기 cron 모드 미구현 (backlog §52)
+- DailyScreenerJob cron 미구현 (backlog §55)
+
+---
+
+## T-J — Trading Journal (v3.6.4 신규 — ADR 0072)
+
+### 1. REST
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `GET` | `/api/journal` | 매매일지 시계열 페이징 |
+| `GET` | `/api/journal/{id}` | 단건 + notes |
+| `POST` | `/api/journal/{id}/notes` | 사용자 메모 추가 |
+
+### 2. 도메인
+
+- `domain/journal/TradingJournalEntry.kt` · `JournalNote.kt` · `JournalEventType.kt` enum · port `TradingJournalRepository`·`JournalNoteRepository`
+
+### 3. 영속
+
+- Flyway V29 `trading_journal` + `journal_note` — 멱등성 UQ `ux_trading_journal_source (source_table, source_id, event_type)`
+- JPA: `TradingJournalJpaEntity/Repository/Adapter` + `JournalNoteJpaAdapter`
+
+### 4. Kafka
+
+- 소비: `order.filled.v1`·`signal.generated.v1`·`risk.violation.v1`·`reconcile.drift.detected.v1`·`position.updated.v1` 5 토픽 listen → 자동 INSERT (JournalEventConsumer)
+
+### 5. UI
+
+- `frontend/src/pages/journal/TradingJournalPage.tsx` — 시계열 카드 + notes 입력 + LWC v4 차트 스냅샷 (backlog §60)
+
+### 6. PR
+
+- PR #402·#403·#404 (T-J Phase 1·2)
+
+### 7. ADR
+
+- ADR 0072 (T-J·T-PERF 묶음) · ADR 0044 (Notification baseline)
+
+### 8. 한계
+
+- 차트 스냅샷 자동 영속 미구현 (backlog §60)
+
+---
+
+## T-PERF — Performance Dashboard (v3.6.4 신규 — ADR 0072)
+
+### 1. REST
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `GET` | `/api/performance/summary` | 5 지표 통합 (총 P&L · 일별 P&L · MDD · 승률 · 평균 손익비) |
+| `GET` | `/api/performance/pnl-daily?from=&to=` | 일별 P&L 시계열 |
+
+### 2. 도메인
+
+- `domain/performance/PerformanceSummary.kt` · `PnlDaily.kt` · `MddCalculator.kt` Pure Kotlin NUMERIC(8,4)
+
+### 3. 영속
+
+- Flyway V30 `performance_summary` + `pnl_daily`
+- `PerformanceCalculator` Pure Kotlin (drawdown 알고리즘)
+- batch `DailyPerformanceJob` cron 매일 00:30 KST + inline aggregate fallback
+
+### 4. Kafka
+
+없음 (배치 + REST query)
+
+### 5. UI
+
+- `frontend/src/pages/performance/PerformanceDashboardPage.tsx` — 5 KPI 카드 + LWC v4 equity curve + daily P&L bar chart
+
+### 6. PR
+
+- PR #405·#406 (T-PERF Phase 2·3)
+
+### 7. ADR
+
+- ADR 0072 · ADR 0061 (KPI 패턴 baseline)
+
+### 8. 한계
+
+- Sharpe·Sortino·CAGR 추가 지표 (backlog §61)
+
+---
+
+## T-NEWS — 뉴스·공시 수집 (v3.6.x 신규 — ADR 0073·0075)
+
+### 1. REST
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `GET` | `/api/news/articles` | Naver 뉴스 시계열 (페이징) |
+| `GET` | `/api/news/disclosures` | DART 공시 시계열 (페이징) |
+
+### 2. 도메인
+
+- `domain/news/NewsArticle.kt` · `Disclosure.kt` · port `NewsRepository`·`DisclosureRepository`·`NaverNewsPort`·`DartDisclosurePort`
+
+### 3. 영속
+
+- Flyway V32 `disclosure` + V33 `news_article`
+
+### 4. Kafka
+
+없음 (REST + polling cron — 1분 1회)
+
+### 5. UI
+
+- SymbolPage에 NewsPanel · DisclosurePanel 합류
+
+### 6. PR
+
+- PR #420·#421 (T-NEWS)
+
+### 7. ADR
+
+- ADR 0073 (T-NEWS feasibility) · ADR 0075 (T-NEWS track spec)
+
+### 8. 한계
+
+- Naver Rate Limit 분당 17건 (Redis ZSET 슬라이딩 윈도)
+- DART OpenAPI 응답 JSON path 변동 risk
+
+---
+
+## ✨ T-ACCT — 계좌 Dashboard (v3.6.17 신규 — ADR 0081)
+
+### 1. REST
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `GET` | `/api/account/summary` | KIS 잔고 통합 응답 (예수금·평가금액·매수가능액·총평가손익) |
+| `GET` | `/api/account/positions` | 보유 종목 + 평가손익 (KIS TTTC8434R/VTTC8434R) |
+| `GET` | `/api/account/balance` | 일별 잔고 시계열 (backlog §68 옵션 영속) |
+
+Swagger 4단 어노테이션 한국어 + example LOCK.
+
+응답 DTO:
+- `AccountSummaryResponse` — depositCash·estimatedValue·purchasableCash·totalUnrealizedPnl·totalRealizedPnl·refreshedAt
+- `AccountPositionsResponse` — `List<HoldingItemDto>` (code·name·quantity·avgPrice·currentPrice·unrealizedPnl·realizedPnl)
+
+### 2. 도메인
+
+- `domain/account/AccountSummary.kt` · `Holding.kt` · port `KisBalancePort`·`AccountSummaryService`
+- 4 의제 LOCK (ADR 0081):
+  - A-1 — KIS TTTC8434R(real) · VTTC8434R(mock) 통합 어댑터 raw KDoc 의무
+  - B-1 — userId number 통일 (ADR 0089 정합)
+  - C-1 — realized_pnl 컬럼 신설 (V31 ALTER order_execution)
+  - D-1 — Redis cache TTL 30s + 강제 refresh endpoint (backlog §69)
+
+### 3. 영속
+
+- Flyway V31 `order_execution.realized_pnl NUMERIC(19,4)` ALTER — 매도 시 realized P&L 영속
+- 즉시 영속 본 트랙 0건 (KIS REST 응답 inline)
+
+### 4. Kafka
+
+- 소비 0건 (REST query)
+
+### 5. UI
+
+- `frontend/src/pages/account/AccountDashboardPage.tsx` — 종합 카드 + 보유 종목 테이블
+- 컴포넌트: `AccountSummaryCard.tsx`·`HoldingsTable.tsx`·`BalanceCard.tsx`
+- API hook: `useAccountSummary`·`useAccountPositions`·`useAccountBalance` (TanStack Query)
+
+### 6. PR
+
+- PR #463 (T-ACCT Phase 1·2 — domain + KIS adapter)
+- PR #464·#465 (Phase 3 frontend + Phase 4 Dashboard)
+
+### 7. ADR
+
+- ADR 0081 (T-ACCT 사용자 노출) · ADR 0046 (UserKisCredential REAL/MOCK fetch) · ADR 0057 (KIS-first raw KDoc)
+
+### 8. 한계
+
+- 일별 잔고 history 영속 미구현 (backlog §68)
+- realized_pnl 계산은 단순 sum(매도 - 매수 avg) — 세금·수수료 차감 backlog §70
+
+---
+
+## ✨ T-MAN — 수동 주문 (v3.6.17 신규 — ADR 0082)
+
+### 1. REST
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `POST` | `/api/orders/manual` | 수동 주문 발행 (source='MANUAL') |
+| `GET` | `/api/orders/cooldown/{code}` | 종목별 cooldown 잔여 시간 (Redis) |
+
+Swagger 4단 한국어 + example LOCK. 인증 jwt userId 격리(ADR 0010).
+
+응답 DTO:
+- `ManualOrderRequestDto` — code·side·qty·priceType·limitPrice?
+- `ManualOrderResponseDto` — orderId·status·source='MANUAL'·rejectReason?
+- `CooldownStatusDto` — code·remainingSeconds (0 = 발행 가능)
+
+### 2. 도메인
+
+- `OrderRequest.source: OrderSource` 추가 (AUTO·MANUAL) — 도메인 enum (v3.7.0 확장)
+- `domain/order/manual/ManualOrderService.kt` — cooldown guard + idempotency + signal_id NULL allowed
+- 4 의제 LOCK (ADR 0082):
+  - A-1 — signal_id FK relax (V38) — MANUAL 시 NULL
+  - B-1 — source='MANUAL' 컬럼 (V37) — audit·query 분기
+  - C-1 — 종목별 cooldown 60s Redis SETNX (자본 burst 방지)
+  - D-1 — RuntimeFlags REST 정합 (REAL+!allowReal+!consent 차단)
+
+### 3. 영속
+
+- Flyway V37 `order_request.source VARCHAR(16) NOT NULL DEFAULT 'AUTO'` 추가
+- Flyway V38 `order_request.signal_id` FK NULLABLE relax
+
+### 4. Kafka
+
+- 발행: `order.intent.v1` (T-RISK 우회 — source='MANUAL' partition_key=userId)
+- Outbox 보장 (ADR 0084 P1-1 — V40 정합)
+
+### 5. UI
+
+- `frontend/src/pages/orders/NewOrderPage.tsx` — 종목 선택 + side·qty·priceType·limitPrice + cooldown 표시
+- 컴포넌트: `NewOrderForm.tsx`·`SymbolPicker.tsx`·`CooldownBadge.tsx`
+- API hook: `useManualOrder`·`useCooldown`
+
+### 6. PR
+
+- PR #466·#467 (T-MAN Phase 1 backend + Phase 2 frontend)
+
+### 7. ADR
+
+- ADR 0082 (T-MAN) · ADR 0068 (T-O baseline) · ADR 0084 (자본 path 안정성)
+
+### 8. 한계
+
+- cooldown 60s fixed (사용자 설정화 backlog §72)
+- bulk order 미지원
+
+---
+
+## ✨ T-CC — 캔들 정합성 (v3.6.18·v3.6.19 신규 — ADR 0086)
+
+### 1. REST
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `POST` | `/admin/candle-curator/backfill?code=&interval=&dry-run=` | 운영자 우회 backfill (dry-run 우선) |
+| `GET` | `/admin/candle-curator/gaps?code=&interval=` | 갭 현황 조회 |
+
+### 2. 도메인
+
+- `domain/market/candle/CandleGapDetectorPort.kt` — `detectGaps(code, interval, windowDays=30): List<Instant>`
+- `domain/market/candle/BackfillBatchAudit.kt` — backfill_batch_id 추적
+
+### 3. 영속
+
+- Flyway V39 `candle.backfill_batch_id VARCHAR(96) NULL` 추가 (rollback 안전망)
+- `CandleGapDetectorAdapter` (consumer) — 영업일 expected sequence + HashSet diff O(1)
+- `CandleBackfillWorker` (consumer) — 갭만 정밀 backfill + 13 햇징 룰
+
+### 4. Kafka
+
+없음 (consumer 모듈 worker 내부 + admin REST)
+
+### 5. UI
+
+- 운영자 admin 전용 (사용자 흐름 X)
+- chart-curator 신입 사용 (`feedback_no_mock_data` 정합)
+
+### 6. PR
+
+- PR #514 (T-CC Phase 1 — LastCandleAtMonitor + cold-start integration)
+- PR #X (T-CC Phase 2 — chart-curator dispatch, ADR 0086)
+
+### 7. ADR
+
+- ADR 0086 (T-CC Phase 2 햇징 13 룰) · ADR 0085 (chart-curator 영입)
+
+### 8. 한계
+
+- Source-of-truth LOCK — 합성·계산·가공 적재 0건 (KIS raw 권위만)
+- 거래정지·정리매매 false positive는 instrument_status_history (ADR 0090) 결합 후 차감
+
+---
+
+## ✨ ADR 0084 자본 path 안정성 P0+P1 통합 § (v3.7.0 권위)
+
+자본 path 4 producer 안정성 보강을 정밀 명세하는 별도 §. T-O 트랙의 v3.7.0 차분 모음.
+
+### P0-1 — event_id 분할 체결 멱등 (V35)
+
+```sql
+ALTER TABLE order_execution
+    ADD COLUMN event_id UUID NOT NULL DEFAULT gen_random_uuid();
+ALTER TABLE order_execution
+    ADD CONSTRAINT uq_order_execution_event_id UNIQUE (event_id);
+```
+
+KisExecutionWsListener H0STCNI0 수신 시 event_id로 분할 체결 중복 INSERT 차단 (KIS WS 중복 통보 risk 가드).
+
+### P0-2 — PENDING_RECONCILE boundary state (V36)
+
+```sql
+-- order_request.status CHECK 갱신
+ALTER TABLE order_request DROP CONSTRAINT IF EXISTS order_request_status_check;
+ALTER TABLE order_request ADD CONSTRAINT order_request_status_check
+    CHECK (status IN (
+        'REQUESTED','ACK','FILLED','PARTIALLY_FILLED',
+        'REJECTED','CANCELLED','EXPIRED',
+        'PENDING_RECONCILE'  -- ✨ 신규
+    ));
+```
+
+Kafka publish 실패 시 DB row만 INSERT된 상태 = `PENDING_RECONCILE`. reconcile 워커가 후속 흡수 — KIS 재조회 후 status 확정 또는 fallback.
+
+### P1-1 — order_event_outbox Transactional Outbox (V40)
+
+(02-data-flow.md §5-3 정합 매트릭스)
+
+자본 path 4 producer 모두:
+1. `@Transactional` 내부: `order_event_outbox` row INSERT(status='PENDING')
+2. `@TransactionalEventListener(phase=AFTER_COMMIT)`: KafkaTemplate.send()
+3. success → status='PUBLISHED'+published_at=NOW()
+4. failure → row 유지 + `OutboxRetryWorker` @Scheduled 30s 흡수
+5. 5회 fail → status='FAILED' + Slack P0
+
+### P1-2 — stomp_event 영속 + unread/resync REST (V41)
+
+(02-data-flow.md §5-4 정합 매트릭스)
+
+`StompEventPersister.persist(userId, channel, eventType, payloadJson)` → INSERT → `SimpMessagingTemplate.convertAndSendToUser()` publish. frontend 재접속 시 `GET /api/stomp/events?since={ts}` backfill.
+
+### P1-3 — frontend useStompReconnect (v3.7.0)
+
+`frontend/src/hooks/useStompReconnect.ts` — disconnect 시점 추적 + 재접속 시 backfill REST 호출 + 로컬 store replay.
+
+### P1-4 — RuntimeFlags REST + dot LED (P2-2)
+
+`GET /api/runtime/flags` 단일 endpoint:
+```json
+{
+  "mode": "MOCK | REAL",
+  "allowReal": true | false,
+  "killSwitchEnabled": true | false,
+  "killSwitchReason": "string?",
+  "userConsented": true | false,
+  "fetchedAt": "2026-05-19T..."
+}
+```
+
+frontend `RuntimeFlagsIndicator` dot LED 5 색상 매트릭스:
+- 회색 "정지" — killSwitchEnabled
+- 노랑 "실전·차단" — REAL + !allowReal
+- 노랑 "실전·동의대기" — REAL + !userConsented
+- 빨강 "실전" — REAL + all OK
+- 녹색 "모의" — MOCK
+
+---
+
+## ✨ ADR 0088 persistence-shared 모듈 § (v3.7.0 신규 권위)
+
+### 모듈 신설
+
+```kotlin
+// settings.gradle.kts
+include("persistence-shared")  // 4 번째 위치 (alphabetical: indicator-impl 직후)
+```
+
+```kotlin
+// persistence-shared/build.gradle.kts
+plugins {
+    kotlin("jvm")
+    kotlin("plugin.spring")
+    kotlin("plugin.jpa")
+}
+dependencies {
+    implementation(project(":domain"))
+    implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+    runtimeOnly("org.postgresql:postgresql")
+}
+// Spring Boot plugin 미적용 — library jar (ADR 0083 indicator-impl 패턴 1:1)
+```
+
+```kotlin
+// api/build.gradle.kts + consumer/build.gradle.kts
+dependencies {
+    implementation(project(":persistence-shared"))  // 양방향 의존
+}
+```
+
+### 9 어댑터 git mv 매트릭스
+
+| 영역 | v3.6.x 위치 | v3.7.0 위치 |
+|------|------------|------------|
+| OrderEventOutbox 3 | `api/persistence/order/` | `persistence-shared/.../order/outbox/` |
+| NotificationOutbox 3 | `api/persistence/notification/` | `persistence-shared/.../notification/outbox/` |
+| StompEvent 3 | `api/persistence/stomp/` | `persistence-shared/.../stomp/` |
+
+### 패키지 rename
+
+| v3.6.x | v3.7.0 |
+|--------|--------|
+| `kr.spdaewoon.magicjar.api.persistence.order` | `kr.spdaewoon.magicjar.persistence.shared.order.outbox` |
+| `kr.spdaewoon.magicjar.api.persistence.notification` | `kr.spdaewoon.magicjar.persistence.shared.notification.outbox` |
+| `kr.spdaewoon.magicjar.api.persistence.stomp` | `kr.spdaewoon.magicjar.persistence.shared.stomp` |
+
+### 잔류 LOCK (api 단독 유지)
+
+- `SystemConfigSlackAdapter` — Settings 모달 종속
+- `StompEventPersister` — `@MessageMapping` 정합 (api WebSocket annotation 의존)
+- `StompEventBackfillController` — REST endpoint (api 단독)
+
+### Wiring 효과
+
+✨ PR #524·#523·#565 일관 — qa cross-validation 권위:
+- api·consumer 양방향에서 동일 어댑터 사용 가능
+- Outbox 자본 path Kafka publish stale 영구 차단
+- 패키지 명시로 모듈 경계 정합 (ArchUnit 게이트 후속)
+
+---
+
+## ✨ ADR 0089 userId number 통일 § (v3.7.0 권위)
+
+### 통일 매트릭스
+
+| 영역 | v3.6.x | v3.7.0 |
+|------|--------|--------|
+| 도메인 클래스 | `userId: String` | **`userId: Long` (Number 통일)** |
+| API DTO (frontend·backend) | `userId: string` | **`userId: number` (TypeScript Long range 안전)** |
+| STOMP 메시지 | `userId` 필드 string | **number 통일** |
+| 테스트 mock (frontend·jvm) | `'74683223'` 등 string | **`74683223` number** |
+| zustand persist | v1 `string\|null` | **v2 `number\|null` + migrate 콜백** |
+| DB schema | VARCHAR(40) | **(baseline 유지 — 옛 row 보존)** |
+
+### Migrate 콜백 (frontend zustand)
+
+```typescript
+useOnboardingStore.persist({
+  name: 'magicjar-onboarding',
+  version: 2,
+  migrate: (persistedState: any, version: number) => {
+    if (version === 1 && typeof persistedState?.registeredUserId === 'string') {
+      const n = Number(persistedState.registeredUserId)
+      return {
+        ...persistedState,
+        registeredUserId: Number.isFinite(n) ? n : null
+      }
+    }
+    return persistedState
+  }
+})
+```
+
+### 영향 PR 매트릭스
+
+- PR #567 — backend domain·DTO·STOMP·테스트 mock 정합
+- PR #575 — frontend 5+ API 모듈 + 12+ TanStack Query hook + 7 컴포넌트 props + MSW handler + zustand migrate
+
+✨ multi-tenant join 무결성 + type-safety 동시 보강. JavaScript Number.MAX_SAFE_INTEGER(2^53-1) 범위 내 userId LOCK (현 Long range 충분).
+
+---
+
+## ✨ ADR 0090 instrument_status_history § (v3.7.0 권위)
+
+### Phase 1 (V42 — 테이블 신설)
+
+```sql
+CREATE TABLE instrument_status_history (
+    id                BIGSERIAL PRIMARY KEY,
+    instrument_code   VARCHAR(12) NOT NULL,
+    status            VARCHAR(32) NOT NULL CHECK (status IN ('NORMAL','TRADING_HALT','LIQUIDATION','DELISTED')),
+    effective_from    TIMESTAMPTZ NOT NULL,
+    effective_until   TIMESTAMPTZ NULL,
+    reason            TEXT NULL,
+    recorded_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_instrument_status_history_code_from
+    ON instrument_status_history (instrument_code, effective_from DESC);
+CREATE INDEX idx_instrument_status_history_active
+    ON instrument_status_history (instrument_code) WHERE effective_until IS NULL;
+```
+
+### Phase 2 (InstrumentSyncJob diff INSERT)
+
+```kotlin
+// batch/.../instrument/InstrumentStatusDiffPersister.kt
+class InstrumentStatusDiffPersister(
+    private val historyAdapter: InstrumentStatusHistoryRepositoryAdapter,
+) {
+    fun applyDiff(code: String, newStatus: InstrumentStatus, reason: String?) {
+        val currentActive = historyAdapter.findActiveByCode(code)
+        if (currentActive?.status == newStatus) return  // no-op
+        // 1. 기존 active row의 effective_until = NOW()
+        currentActive?.let {
+            historyAdapter.closeActive(it.id, Instant.now())
+        }
+        // 2. 신규 row INSERT (effective_until=NULL)
+        historyAdapter.insert(
+            InstrumentStatusHistory(
+                instrumentCode = code,
+                status = newStatus,
+                effectiveFrom = Instant.now(),
+                effectiveUntil = null,
+                reason = reason,
+            )
+        )
+    }
+}
+```
+
+### chart-curator §12 합류 (axis 2·3 정밀도 향상)
+
+| Axis | v3.6.x | v3.7.0 |
+|------|--------|--------|
+| 1. business_day_calendar | ADR 0013 | (변경 없음) |
+| 2. instrument status (정합) | instrument.status 단일 값 | **history 시점별 lookup** — effective_from·effective_until 범위 내 ts 검증 |
+| 3. TRADING_HALT skip | (별도 audit) | **history 결합** — passesActiveGapAxes() 자동 차감 |
+| 4. (chart-curator) | 단일 axis | (변경 없음) |
+
+✨ active gap detection false positive 감소 — 거래정지·정리매매 시점 캔들 자동 제외.
+
+---
+
+## ADR 의존 요약 (v3.7.0 갱신)
+
+| ADR | 영향 트랙 |
+|-----|---------|
+| ADR 0004 | 모든 트랙 (모듈 경계 7건) |
+| ADR 0007 | 모든 Kafka 트랙 (Outbox publish path 정합) |
+| ADR 0010 | 모든 user-isolated 트랙 (userId number 통일 정합) |
+| ADR 0023 | T-DSL·T-BT·T-SIG·T-RISK·T-O·T-MAN (룰 온리 + AI 호출 0 모든 트랙 계승) |
+| ADR 0037 | **모든 KIS REST 어댑터 (Bucket4j-Redis amend)** |
+| ADR 0051 | 모든 JPA Repository (body 0 의무 — persistence-shared 9 Repository 포함) |
+| ADR 0057 | KIS REST 호출 모든 트랙 (raw KDoc inline) |
+| ADR 0068 | T-O baseline + v3.7.0 source·PENDING_RECONCILE·event_id 확장 |
+| ADR 0070 | T-RECON·T-NOTIFY (v3.6.2 본격 구현) |
+| ADR 0071 | T-SC (v3.6.3 본격 구현) |
+| ADR 0072 | T-J·T-PERF (v3.6.4 본격 구현) |
+| ADR 0073·0075 | T-NEWS |
+| ADR 0081 | T-ACCT (v3.6.17 신규) |
+| ADR 0082 | T-MAN (v3.6.17 신규) |
+| ADR 0083 | indicator-impl 모듈 (ADR 0088 패턴 baseline) |
+| ADR 0084 | **자본 path 안정성 P0+P1 (V35·V36·V40·V41 + RuntimeFlags + useStompReconnect)** |
+| ADR 0085 | chart-curator 영입 (8 에이전트) |
+| ADR 0086 | T-CC Phase 2 (V39 + 햇징 13 룰) |
+| ADR 0087 | Sub-agent 페르소나 매트릭스 (보수·진보) |
+| ADR 0088 | **persistence-shared 모듈 (9 어댑터 git mv + 패키지 rename)** |
+| ADR 0089 | **userId number 통일 (5+ API + 12+ hook + 7 컴포넌트)** |
+| ADR 0090 | **instrument_status_history Phase 1·2 (chart-curator §12 axis 2·3)** |
+
+---
+
+## 💡 v3.7.0 리팩토링맨 lens 진보 평가 (트랙 매트릭스)
+
+| 트랙 | v3.6.0 상태 | v3.7.0 상태 | 진보도 |
+|------|-----------|-----------|-------|
+| T-O 주문 실행 | baseline 종착 | 자본 path 안정성 + source + outbox + event_id | ★★★★★ |
+| T-RECON·T-NOTIFY | 계획만 | 본격 가동 + NotificationOutbox persistence-shared 이관 | ★★★★ |
+| T-SC·T-J·T-PERF·T-NEWS | 계획만 | 모두 본격 가동 | ★★★★ |
+| **T-ACCT** | 미존재 | 신규 구현 — Dashboard Phase 4 | ★★★★★ |
+| **T-MAN** | 미존재 | 신규 구현 — Phase 1·2·3 (수동 주문) | ★★★★★ |
+| **T-CC** | 미존재 | Phase 1·2 (캔들 정합성 자동) | ★★★★★ |
+| 인프라 (모듈) | 5 모듈 | 7 모듈 (indicator-impl + persistence-shared) | ★★★★ |
+| 자본 path | baseline | ADR 0084 P0+P1 풀세트 보강 | ★★★★★ |
+| 데이터 무결성 | 단편 | userId number + instrument_status_history | ★★★★ |
+
+✨ **W3 마감 종합**: 9 트랙 → 14 트랙 + 자본 path 안정성 4 ADR 채택. **W4 진입 베이스라인 완성** — T-AI·T-MCP 통합 시 자본 path·데이터 무결성·운영 회고 인프라 풀세트 보장.
+
+🔄 **backlog 매트릭스** (v3.7.0 → v3.8.0 우선순위 후보):
+- ADR 0037 ArchUnit 게이트 (KIS REST 호출 strict gate)
+- AccountReconcile cron skip (MarketSessionFsm 결합)
+- drift 임계치 사용자 설정화
+- user별 Slack webhook 분리 + Discord/Email/SMS 보조 채널
+- T-J 차트 스냅샷 자동 영속
+- T-PERF Sharpe·Sortino·CAGR 지표 확장
+- 일별 잔고 history 영속 (T-ACCT backlog §68)
+- realized_pnl 세금·수수료 차감 (T-ACCT backlog §70)
+- cooldown 60s 사용자 설정화 (T-MAN backlog §72)
