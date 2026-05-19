@@ -3,10 +3,10 @@ id: T-20260519-1457-hedging-rules-section11-12-13-amend
 agent: architect
 model: opus
 branch: agent/architect/hedging-rules-section11-12-13-amend
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T14:57:54.270+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T15:07:51.026+09:00
+pr: #538
 parentPhase: ?
 ---
 
