@@ -7,6 +7,60 @@
 
 ---
 
+## §0-A. P1-4 KIS Rate Limit Bucket4j 실 구현 의제 (2026-05-19 신설 · architect ADR 0037 amend + spec 발행 완료 · Phase 1 backend-core 대기)
+
+### 사유
+
+market-data PR #555 system audit evidence — **Rate Limit 가드 DEGRADED**:
+
+- ADR 0037 §1 LOCK "초당 10건" vs 코드 주석 **"20 req/s" 15+ 위치** spec drift (실제 KIS 한도 절반 수준의 잘못된 mental model)
+- `KisRateLimiterPort` 도메인 포트 0건 + Bucket4j dependency 0 + 모든 KIS adapter 직접 `webClient.get()/post()` (sleep(50ms) 마진만 적용 → 20 req/s 가정)
+- EGW00201 / HTTP 429 명시 backoff path 각 1곳만 부분 구현
+- Circuit Breaker 5분 차단 (ADR 0037 §2-2) 0건 + ArchUnit 빌드 게이트 0건
+
+→ 사용자 트리거 burst(16종목 × 5 timeframe = 80건/burst) 또는 batch backfill 폭주 시 KIS 한도 침범 risk → 계정·앱키 차단 → 본체 자동매매 전체 중단 catastrophic.
+
+### Spec/ADR 발행 (architect, 2026-05-19 완료)
+
+- ADR 0037 Accepted (amend) — `_workspace/arch/adr/0037-kis-rate-limit-enforcement.md` (§1-1·§2-1·§2-2·§5·§6 amend)
+- Spec 본문 — `_workspace/specs/2026-05-19-p1-4-bucket4j-kis-rate-limiter-spec.md` (9 § 풀세트)
+
+### 대기 사이클 (Phase 1 backend-core 단일 PR)
+
+- 영역: domain port `KisRateLimiterPort` + `KisCallPriority` enum + 2 Exception + Bucket4j-Redis adapter 신설 + Bean wiring + Gradle dep + application.yml + 단위 테스트 4건
+- 파일 수: ~10 + ~300 LOC
+- adapter 모듈 위치 1차 결정 (backend-core 위임): 옵션 a (api 단독 Bean — batch·consumer 별도 Bean 발행 필요) vs 옵션 b (persistence-shared 패턴 1:1 재사용 ★ 권장 — ADR 0088 정합) vs 옵션 c (신규 kis-shared 모듈)
+- Gradle dep: `com.bucket4j:bucket4j-core:8.10.1` + `com.bucket4j:bucket4j-redis:8.10.1`
+- 단위 테스트: (1) 초당 10건 정확 강제 + 11번째 throw `KisRateLimitTimeoutException` (2) EGW00201 mock 응답 → 1초 backoff + 1회 재시도 + 재시도도 fail 시 명시 에러 throw (3) HTTP 429 동일 path (4) Circuit Breaker OPEN 5분 + `KisCircuitOpenException` throw
+- cross-review: 자본 path 직결 chart-curator 1차(보수 🔴/🟡/🔵) + 모듈 경계 backend-core 1차(진보 💡/🔄/✨) (ADR 0085·0087 정합)
+
+### Phase 2 대기 (Phase 1 머지 후 market-data dispatch)
+
+- 모든 KIS REST 어댑터에 `kisRateLimiterPort.acquire(priority=...)` 합류 (~20 어댑터)
+- EGW00201 / HTTP 429 → `onTpsExceeded()` 호출 + 1초 backoff + 1회 재시도
+- spec drift 정정: `20 req/s` → `초당 10건` replace_all + `Thread.sleep(50)` → acquire 도입(또는 sleep(100ms) 정합)
+- 예상 LOC ~400
+
+### Phase 3 대기 (별도 사이클 · backend-core + qa)
+
+- Circuit Breaker 통계 5분/50% 임계 구현 (Resilience4j 또는 Bucket4j Listener)
+- Slack alert P1 (`notification_outbox` reuse — ADR 0044)
+- ArchUnit 빌드 게이트 (`RestClient`/`WebClient` 직접 KIS 호출 detection)
+- ktlint custom rule
+- 예상 LOC ~300
+
+### 트리거
+
+- **우선순위 ★★**: 자본 흐름 차단 risk(계정 차단) — 사용자 결재 후 Phase 1 backend-core dispatch
+- v3.6.x patch 후보(`feedback_release_policy_patch_first` v3.7=W4 마감 정합 — 본 P1-4는 patch 누적)
+
+### 의존성
+
+- Phase 1은 ADR 0088(persistence-shared) Phase 1 머지 후 dispatch 권장 (adapter 모듈 위치 옵션 b 채택 시 — 모듈 신설 1회 운영 흡수 + 본 ADR 0037 adapter 합류)
+- Phase 2는 Phase 1 머지 후 market-data 영역 단일 dispatch (~20 어댑터 일괄)
+
+---
+
 ## §0. P0-A persistence-shared 모듈 구현 의제 (2026-05-19 신설 · architect spec 발행 완료 · backend-core Phase 1 대기)
 
 ### 사유
@@ -2977,3 +3031,42 @@ raw 출처: `https://raw.githubusercontent.com/koreainvestment/open-trading-api/
 - ADR 0018 (Corporate Action raw + adjusted)
 - ADR 0037 (KIS API Rate Limit)
 - ADR 0043 (KillSwitch 행동 정의 · Phase 2 KillSwitch 트리거)
+
+---
+
+## §80. `docs/architecture/policies/ai-trigger-gate.md` 발행 의제 (ai-engineer 후속 · 2026-05-19)
+
+### 사유
+
+PR #552 cross-validation evidence — `NaturalLanguageDslTranslator.kt:102` 부재 path `docs/architecture/policies/ai-options.md` 인용 발견. 정정 PR(본 PR)에서 인용은 실 존재 SoT(`_workspace/ai/prompt-catalog.md`)로 교체했으나, **현행 권위 정책 SoT(`docs/architecture/policies/`)에 AI 옵션 트리거 게이트 단일 정책 페이지 부재** → architect SKILL §6 정책 위치 LOCK 정합 gap.
+
+### 발행 안
+
+`docs/architecture/policies/ai-trigger-gate.md` (architect 영역 발행 — ADR-0053 living policy 체계 §6 정합):
+
+- §1. AI 옵션 게이트 4단 (endpoint 503 · `MAGICJAR_AI_ENABLED` · `mock-mode` auto/mock/real · 화이트리스트 regex)
+- §2. provider LOCK (anthropic 단독, OpenAI 도입 시 별도 ADR)
+- §3. 사용자 트리거 endpoint 카탈로그 (`POST /api/ai/dsl/translate` 현행 + W4 baseline 분석 5종 발행 예정)
+- §4. 비용 통제 (`ai_analysis_log` V17 + Spring AI raw metadata 처리 한계)
+- §5. 룰 5 (W1·W2·W3 LLM provider import 자제) 예외 패키지 매트릭스 (`api/ai/dsl/` 1건)
+
+권위 출처: ADR 0026·0023 + spec PR-35 §5-1 + `prompt-catalog.md` §1.
+
+### 트리거
+
+- **우선순위 ↑**: W4 T-AI baseline 진입 직전 1회 발행 의무 (분석 5종 endpoint 카탈로그 합류 시점)
+- **우선순위 ↓**: 사용자 명시 트리거 또는 dogfooding에서 ai-trigger-gate 정책 부재 결함 재발견 시 즉시
+- 발생하지 않으면 W4 진입 첫 PR(architect)에 합류
+
+### 예상 처리 PR
+
+architect 단독 PR — `docs(policies): AI 옵션 트리거 게이트 단일 정책 페이지 신설 (ai-trigger-gate.md)`. 본 PR(ai-engineer P2-3 정리)은 인용만 정정 + 발행 backlog 등록까지가 영역 LOCK.
+
+### 연관
+
+- ADR 0026 (AI 옵션 — 사용자 트리거 한정 매매 결정권 0)
+- ADR 0023 (AI 사용자 트리거 helper 정책)
+- ADR-0053 (현행 권위 정책 living policy 체계)
+- PR-35 spec §5-1 (KIS 텍스트 1줄 표현식 LOCK)
+- `_workspace/ai/prompt-catalog.md` §1·§3 (광고-실재 매트릭스)
+- `feedback_release_policy_patch_first` (v3.7=W4 마감 정합)

@@ -97,9 +97,12 @@ class NaturalLanguageDslTranslator(
     private fun mockTranslate(naturalLanguage: String): DslTranslateResult {
         val dsl = MockDslHeuristic.translate(naturalLanguage)
         return if (dsl == null) {
+            // 카탈로그·운영 게이트 SoT: `_workspace/ai/prompt-catalog.md` §1-3 (현행 dsl-translate).
+            //   `docs/architecture/policies/ai-trigger-gate.md` 발행 예정(backlog §80 — ai-engineer 후속 PR).
+            //   당분간 ADR 0026·0023 + spec PR-35 §5-1 본문 권위 LOCK.
             DslTranslateResult.untranslatable(
                 mode = DslTranslateResult.TranslateMode.MOCK,
-                reasoning = "Mock 룰 매칭 실패 — Anthropic key 설정 후 재시도하거나 자연어를 단순화하세요. 카탈로그: docs/architecture/policies/ai-options.md",
+                reasoning = "Mock 룰 매칭 실패 — Anthropic key 설정 후 재시도하거나 자연어를 단순화하세요. 카탈로그: _workspace/ai/prompt-catalog.md",
             )
         } else {
             DslTranslateResult.success(

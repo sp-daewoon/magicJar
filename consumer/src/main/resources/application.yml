@@ -56,9 +56,9 @@ management:
 magicjar:
   mode: ${MAGICJAR_MODE:MOCK}
   allow-real: ${MAGICJAR_ALLOW_REAL:false}
-  ai:
-    enabled: ${MAGICJAR_AI_ENABLED:false}
-    mock-mode: ${MAGICJAR_AI_MOCK_MODE:auto}
+  # NOTE: magicjar.ai.* 는 consumer 모듈에서 미사용 (W4 미진입).
+  #   T-DSL helper(`NaturalLanguageDslTranslator`)는 api 모듈 한정 — `api/.../application.yml` 단일 위치 LOCK.
+  #   W4 진입 시 ai-engineer가 단일 모듈(api)에만 binding 발행 — consumer 합류 시점은 ADR 0026 후속에서 별도 결정.
   secret:
     master-key: ${MAGICJAR_SECRET_MASTER_KEY:}  # AES-256-GCM KIS 키 복호화. 부재 시 부팅 거부
   kis:

@@ -235,7 +235,6 @@ services:
       DB_PASSWORD: magicjar
       KAFKA_BOOTSTRAP: kafka:9092
       REDIS_HOST: redis
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       # 1번 트랙 (T2~T3) — KIS 키 암호화 master key + 시드 사용자 등록 데이터.
       # mock profile에선 master key 검증 skip. dev/prd에선 fail-fast.
       MAGICJAR_SECRET_MASTER_KEY: ${MAGICJAR_SECRET_MASTER_KEY:-}
