@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>01-architecture — magicJar v3.7.0 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">📁 인덱스</a><a href="01-architecture.html" class="active">01 Architecture</a><a href="02-data-flow.html">02 Data Flow</a><a href="03-use-sequences.html">03 Use Sequences</a><a href="04-feature-spec.html">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html">06 History</a><a href="07-policy-evolution.html">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.7.0 Baseline · 2026-05-19 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># 01 — magicJar v3.7.0 아키텍처 (시각화)
+
+> **작성자**: architect (PR-36 baseline v3.7.0)
+> **시점**: 2026-05-19 v3.7.0 태그 컷 직후 (release commit `<TBD>`)
+> **권위**: `docs/architecture/master-architecture.md` v2 §5·§6 + ADR 0002·0004(7 모듈 매트릭스 v3.7.0 갱신)·0005·0006·0007·0008·0009·0023·0024·0028·0029·0030·0041·0042·0043·0044·0046·0047·0048·0054·0066·0067·0068·0070·0071·0072·0080·0081·0083·0084·**0085·0086·0087·0088·0089·0090** + v3.7.0 시점 코드 inspection 결과
+
+본 문서는 v3.7.0 시점 magicJar 시스템의 **시각화 가능 수준 그림**이다. SoT는 `docs/architecture/master-architecture.md`이며, 본 문서는 그 하위 구체화 — v3.7.0 시점 실체(현재 발행된 컨테이너·테이블·KIS endpoint·Kafka topic·STOMP 토픽·sub-agent 8 hierarchy·페르소나 매트릭스·운영 헌법 §1-A-extended)만 인용한다. v1/v2 잔재 0건. 미발행 트랙(W4 T-AI·T-MCP · W5 T-LWC·T-LEARN)은 명시적으로 제외.
+
+**v3.6.0 → v3.7.0 핵심 변경 (시스템 점검 + Phase 보강 baseline)**:
+
+- **JVM 모듈 매트릭스 5 → 7**: + `indicator-impl` (ADR 0083 v3.6.15) + **`persistence-shared` (ADR 0088 v3.7.0 신설)**. 양쪽 모두 라이브러리 jar(컨테이너 0) + Boot main 0 + ADR 0054 pattern-engine 패턴 1:1 재사용. 운영 인지 비용 0.
+- **sub-agent 매트릭스 7 → 8**: + `chart-curator` (ADR 0085 v3.6.17 영입). TradingView LWC v4 차트 + 캔들 데이터 SLA·정합성 단일 owner.
+- **페르소나 매트릭스 0 → 2**: chart-curator 보수("안정빌드" · 🔴/🟡/🔵) ↔ backend-core 진보("리팩토링맨" · 💡/🔄/✨). ADR 0085 §Persona amend + ADR 0087 짝 시스템.
+- **Flyway 18+ 누적 추가**: V25·V26·V27(T-RECON·T-NOTIFY) · V28(T-SC) · V29·V30(T-J·T-PERF) · V32·V33(T-NEWS) · V37·V38(주문 path 안정성 outbox·STOMP 영속) · V39(candle.backfill_batch_id) · **V42(instrument_status_history ADR 0090)** + Phase 1 합류 V40·V41.
+- **Kafka 토픽 +4+ 종**: `reconcile.drift.v1` + `reconcile.run.v1` + `killswitch.engaged.v1` + `news.disclosure.v1` + `news.article.v1`.
+- **STOMP 토픽 +2 종**: `/topic/news.user.{userId}` + 기존 토픽 4 event discriminator 확장.
+- **Redis namespace +5+ 종**: + `screener:result` + `journal:summary` + `performance:summary` + `news:dedup` + **`rate-limit:kis` (Bucket4j-Redis ADR 0037)** + **`stomp:lastSeenAt:{userId}` (P1-3 STOMP unread/resync)**.
+- **REST endpoint +20+ 건**: + Screener 3 + Journal 3 + Performance 2 + News 4 + ManualOrder 1 + Account 3 + Admin/CandleBackfill 1 + **Runtime 1 (`GET /api/runtime/flags`)** + **StompBackfill 2 (`GET /api/stomp/events/unread` · `GET /api/stomp/events`)**.
+- **frontend 라우트 +4+ 건**: + `/screener` + `/journal` + `/performance` + `/news` + `/orders/new` + `/admin`.
+- **운영 헌법 §1-A-extended 신설**: extensions.worktreeConfig=true 의무 + worktree-local config 발행 의무 + `scripts/setup-worktree-config.sh` 헬퍼 Step 2. 8 sub-agent author 정합 영구 LOCK.
+- **운영 헌법 §2 4단계 → 6단계**: §2-3 빈 wrapper rmdir + §2-4 worktree-agent-* force delete + §2-5 사이클 시작 자동 점검 4 항목.
+- **AI 호출 0 LOCK 유지**: W4 진입 0 — 사용자 명시 정합.
+
+---
+
+## §1. 시스템 전경 (7 JVM 모듈 + frontend + 외부 5 + 인프라 3 + 디버깅 2 + 8 sub-agent + W3 종착 노드 가동)
+
+```mermaid
+graph TD
+    subgraph EXTERNAL["외부 통합 (옵션 + fallback)"]
+        KISREST["KIS REST<br/>openapi.koreainvestment.com:9443 (real)<br/>openapivts.koreainvestment.com:29443 (vps)<br/>order-cash · order-rvsecncl · inquire-balance · inquire-daily-itemchartprice<br/>+ Bucket4j-Redis 단일 bucket LOCK (ADR 0037 amend)"]
+        KISWS["KIS WebSocket<br/>wss://ops.koreainvestment.com:21000<br/>H0STCNT0 체결가 + H0STASP0 호가<br/>+ H0STCNI0/H0STCNI9 체결통보 (T-O)"]
+        KISMASTER["KIS 종목마스터 ZIP<br/>new.real.download.dws.co.kr"]
+        DART["DART OPENDART<br/>opendart.fss.or.kr<br/>+ T-NEWS 실시간 인입 cron 1분"]
+        NAVER["Naver Open API<br/>openapi.naver.com<br/>+ T-NEWS news.json 25K/일 한도"]
+        ANTHROPIC["Anthropic Spring AI<br/>api.anthropic.com<br/>(T-DSL 자연어 helper 한정<br/>W4 T-AI 진입 0 LOCK — 사용자 명시 정합)"]
+        YAHOO_DEP["~~Yahoo Finance~~<br/>YahooCandleFetcherAdapter @Deprecated<br/>v3.8.x 일괄 삭제 예정"]
+    end
+
+    subgraph FRONTEND["frontend (React 19 + Vite + LWC v4)"]
+        FE_SETUP["/setup<br/>SetupWizard 7-step"]
+        FE_DASH["/<br/>DashboardPage (v3.6.17 격상)<br/>+ AccountSummaryCard + HoldingsTable + BalanceCard"]
+        FE_WL["/watchlist"]
+        FE_SYM["/symbol/:code<br/>+ STOMP 5 boundary<br/>+ LWC chart state lift LOCK (§13 ADR 0086 amend)"]
+        FE_SB["/strategy/builder<br/>+ ScreenerResultModal 합류 (T-SC)"]
+        FE_BT["/strategy/backtest"]
+        FE_RC["/risk-config"]
+        FE_RE["/risk-events"]
+        FE_POS["/positions"]
+        FE_ORD["/orders<br/>+ STOMP /topic/order.user.{userId}<br/>+ useStompReconnect backfill hook (P1-3)"]
+        FE_ORD_DTL["/orders/:id"]
+        FE_ORD_NEW["/orders/new (T-MAN v3.6.15)<br/>+ OrderPreviewModal 이중 confirm<br/>+ 60s cooldown"]
+        FE_JNL["/journal (T-J v3.6.4)"]
+        FE_PERF["/performance (T-PERF v3.6.4)<br/>+ LWC equity curve + daily P&L bar"]
+        FE_NEWS["/news (T-NEWS v3.6.7)"]
+        FE_SCREEN["/screener (T-SC v3.6.3 — Builder 합류)"]
+        FE_ADMIN["/admin<br/>+ CandleBackfillAdminController (T-CC Phase 2)"]
+        FE_SET["SettingsModal v3.6.5 풀세트<br/>+ KIS 키 변경 + KillSwitch 토글 + AI 키<br/>+ RealTradingConsentToggle 이중 confirm"]
+        FE_HDR["AppHeader<br/>+ RuntimeFlagsIndicator (P2-2 dot LED + 라벨)<br/>+ 메뉴 12+ (주문·매매일지·성과·뉴스·스크리너·관리자)"]
+    end
+
+    subgraph API["api (Spring Boot 3.3 / 8080)"]
+        API_REST["REST controllers<br/>+ Account 3 + Order 4 + Screener 3 + Journal 3 + Performance 2 + News 4 + ManualOrder 1<br/>+ Runtime 1 + StompBackfill 2"]
+        API_STOMP["STOMP /ws<br/>tick · candle/1m·5m·15m·30m·90m·1h · orderbook<br/>+ signal.user · risk.user · order.user<br/>+ news.user (T-NEWS)"]
+        API_FLY["Flyway V1~V42 적용기<br/>(v3.7.0: V40·V41·V42 + 잔여 history)"]
+        API_BT["BacktestEngine + Persister + QueryService"]
+        API_AI["NaturalLanguageDslTranslator<br/>(@Service · ChatClient lazy)<br/>+ MockDslHeuristic fallback"]
+        API_KIS_BAL["ApiKisBalanceQueryAdapter (T-ACCT v3.6.14)<br/>+ KIS inquire-balance TTTC8434R/VTTC8434R<br/>+ Redis cache TTL 30s"]
+        API_KIS_RATE["KisRateLimiterPort impl (P1-4 v3.7.0)<br/>+ Bucket4j-Redis 단일 bucket LOCK<br/>+ EGW00201/429 backoff 매트릭스"]
+        API_RUNTIME["RuntimeFlagsController (P2-2 v3.7.0)<br/>+ GET /api/runtime/flags<br/>+ KillSwitch·mode·allowReal·consent state"]
+        API_STOMP_BACKFILL["StompEventPersister + Backfill (P1-3 v3.7.0)<br/>+ GET /api/stomp/events/unread<br/>+ GET /api/stomp/events?since={ts}"]
+        API_RECON["ReconcileService (T-RECON v3.6.2)<br/>+ KisBalanceQueryPort + drift 검출"]
+        API_NOTIF["NotificationOutbox + SlackAdapter (T-NOTIFY v3.6.2)"]
+        API_JOURNAL["JournalQueryService + JournalSummaryComposer (T-J v3.6.4)"]
+        API_PERF["PerformanceQueryService + Calculator (T-PERF v3.6.4)"]
+        API_NEWS["NewsQueryService + NewsStompAdapter (T-NEWS v3.6.7)"]
+        API_MANUAL["ManualOrderController (T-MAN v3.6.15)<br/>+ POST /api/orders/manual<br/>+ 12 step LOCK 재사용 (자본 path 단일 LOCK)"]
+    end
+
+    subgraph BATCH["batch (Spring Batch / 8081)"]
+        B_INSTR["InstrumentSyncJob<br/>+ InstrumentMasterRefreshJob (ADR 0090 Phase 1)<br/>+ InstrumentStatusHistoryPort INSERT/UPDATE<br/>+ audit_trail INSTRUMENT_STATUS_CHANGED"]
+        B_CHK["KisChkHolidayAdapter tr_id=CTCA0903R"]
+        B_KSD["KisKsdInfoAdapter"]
+        B_DART["DartDisclosureAdapter<br/>+ T-NEWS 1분 cron 실시간 인입 (v3.6.7)"]
+        B_NAVER["NaverArticleAdapter<br/>+ T-NEWS Open API news.json"]
+        B_PERF["DailyPerformanceJob 00:30 KST (T-PERF v3.6.4)"]
+        B_SC["DailyScreenerJob (T-SC v3.6.3 — inline 동기 1차)"]
+    end
+
+    subgraph CONSUMER["consumer (Kafka + KIS WS / 8082)"]
+        C_KIS_WS["KisWebSocketBridge<br/>H0STCNT0 + H0STASP0 + H0STCNI0/H0STCNI9 (T-O)"]
+        C_KIS_REST["KisRestCandleAdapter (FHKST03010100/200/230)<br/>+ KisRateLimiterPort.acquire() 합류 (Phase 2 P1-4)"]
+        C_TICK_AGG["TickToMinuteAggregator"]
+        C_BD["BoundaryAggregator (v3.3.0)"]
+        C_DCF["DailyCloseFinalizer 20:00 KST"]
+        C_POS_BOOTSTRAP["PositionBootstrapRunner ADR 0042"]
+        C_RSG["RealtimeSignalGenerator (v3.4.0 T-SIG)"]
+        C_RGE["RiskGatewayEvaluator (v3.5.0 T-RISK)"]
+        C_ORKL["OrderRouterKafkaListener (v3.6.0 T-O · 12 step LOCK)<br/>+ MDC traceId injection (P1-5 v3.7.0)<br/>+ 자본 path 단일 LOCK (T-MAN 재사용)"]
+        C_KOA["KisOrderHttpAdapter (T-O 6 tr_id raw KDoc)"]
+        C_KEWL["KisExecutionWsListener (T-O · 26 컬럼 LOCK)"]
+        C_RECON["ReconcileWorker (T-RECON v3.6.2)<br/>+ drift 검출 + reconcile.drift.v1 publish"]
+        C_GAP["CandleGapDetectorAdapter (T-CC Phase 2 v3.6.17)<br/>+ 4축 active gap detection (§12 ADR 0086 amend)<br/>+ passesActiveGapAxes() history at ts (Phase 2 ADR 0090)"]
+        C_BACKFILL["CandleBackfillWorker (T-CC Phase 2-A)<br/>+ 햇징 룰 13건 LOCK<br/>+ KIS raw 사전 ASC 정규화 (§11)<br/>+ Dry-run + rollback + idempotency UPSERT"]
+        C_LCAM["LastCandleAtMonitor (T-CC Phase 1)<br/>+ KDoc 보강 §11·§12·§13 cross-ref (P1-5 v3.7.0)"]
+    end
+
+    subgraph PATTERN_ENGINE["pattern-engine (라이브러리 jar)"]
+        P_REG["JvmPatternRecognizer 57 detector"]
+    end
+
+    subgraph INDICATOR_IMPL["indicator-impl (라이브러리 jar v3.6.15 ADR 0083)"]
+        I_NATIVE["NativeIndicatorSource"]
+        I_KIS["KisStrategyBuilderSource (80지표)"]
+    end
+
+    subgraph PERSISTENCE_SHARED["persistence-shared (라이브러리 jar v3.7.0 ADR 0088)<br/>★ 자본 흐름 작동률 0% → 100% 회복"]
+        PS_ORDER["OrderEventOutboxRepositoryAdapter<br/>+ JpaRepository + JpaEntity"]
+        PS_NOTIF["NotificationOutboxRepositoryAdapter<br/>+ JpaRepository + JpaEntity"]
+        PS_STOMP["StompEventRepositoryAdapter<br/>+ JpaRepository + JpaEntity"]
+    end
+
+    subgraph DOMAIN["domain (Pure Kotlin — Spring·JPA 0)"]
+        D_PORTS["ports (확장)<br/>+ Order 9 + Risk 5 + Position 1<br/>+ Screener · Journal · Performance · News<br/>+ KisRateLimiterPort (P1-4)<br/>+ KisBalanceQueryPort (T-ACCT)<br/>+ CandleGapDetectorPort (T-CC)<br/>+ InstrumentStatusHistoryPort (ADR 0090)"]
+        D_RISK["domain/risk (v3.5.0)"]
+        D_ORD["domain/order (v3.6.0 T-O)"]
+        D_POS["domain/position"]
+        D_SCREEN["domain/screener (T-SC v3.6.3)"]
+        D_JNL["domain/journal (T-J v3.6.4)"]
+        D_PERF["domain/performance (T-PERF v3.6.4)"]
+        D_NEWS["domain/news (T-NEWS v3.6.7)"]
+    end
+
+    subgraph INFRA["인프라 3 + 디버깅 2"]
+        PG[("PostgreSQL 16<br/>Flyway V1~V42<br/>candle ~213K + risk_config·risk_event·position<br/>+ order_request·order_execution·order_audit_event<br/>+ reconcile_run·reconcile_drift (V25·V26)<br/>+ notification_outbox (V27)<br/>+ screener_history (V28)<br/>+ trading_journal·journal_note (V29)<br/>+ performance_summary·pnl_daily (V30)<br/>+ news_disclosure·news_article (V32·V33)<br/>+ order_event_outbox·stomp_event (V37·V38)<br/>+ candle.backfill_batch_id (V39)<br/>+ instrument_status_history (V42 ADR 0090)")]
+        REDIS[("Redis 7<br/>quote·session·instrument·position·kis token<br/>+ candle:current · strategy:active · signal:dedupe<br/>+ risk_config · trades:freq · daily_pnl<br/>+ idem:order:{key} TTL 60s<br/>+ screener:result · journal:summary · performance:summary<br/>+ news:dedup · account:balance:{userId} TTL 30s<br/>+ rate-limit:kis (Bucket4j-Redis P1-4)<br/>+ stomp:lastSeenAt:{userId} (P1-3)")]
+        KAFKA[("Kafka 3.7 KRaft<br/>+ market.candle.{5m·15m·30m·90m·1h}.closed.v1<br/>+ signal.generated.v1<br/>+ risk.violation.v1 + order.intent.v1<br/>+ order.requested/filled/rejected/cancelled.v1<br/>+ reconcile.drift.v1 + reconcile.run.v1<br/>+ killswitch.engaged.v1<br/>+ news.disclosure.v1 + news.article.v1")]
+        DOZZLE["Dozzle 8888"]
+        KAFKAUI["Kafka UI 8090"]
+    end
+
+    %% Frontend
+    FE_HDR -->|"GET /api/runtime/flags 60s refetch"| API_RUNTIME
+    FE_ORD -.->|"useStompReconnect backfill"| API_STOMP_BACKFILL
+    FE_DASH -->|"HTTP /api/account/balance·positions·summary"| API_KIS_BAL
+    FE_ORD_NEW -->|"HTTP POST /api/orders/manual"| API_MANUAL
+    FE_JNL -->|"HTTP /api/journal"| API_JOURNAL
+    FE_PERF -->|"HTTP /api/performance"| API_PERF
+    FE_NEWS -->|"HTTP /api/news + STOMP /topic/news.user.{userId}"| API_NEWS
+    FE_SCREEN -->|"HTTP /api/screener"| API_REST
+    FE_ADMIN -->|"HTTP POST /admin/candle-curator/backfill"| C_BACKFILL
+
+    %% API
+    API_KIS_BAL -->|"inquire-balance TTTC8434R/VTTC8434R"| KISREST
+    API_KIS_RATE -->|"Bucket4j-Redis bucket consume"| REDIS
+    API_RECON -->|"KisBalanceQueryPort + drift"| API_KIS_BAL
+    API_NOTIF -->|"NotificationOutboxRepositoryAdapter"| PS_NOTIF
+    API_STOMP_BACKFILL -->|"StompEventRepositoryAdapter"| PS_STOMP
+    API_MANUAL -.->|"OrderIntent → OrderRouter 12 step 재사용"| C_ORKL
+
+    %% Batch
+    B_INSTR -->|"InstrumentStatusHistoryPort INSERT/UPDATE"| PG
+    B_DART -->|"DartDisclosureAdapter 1분 cron"| DART
+    B_NAVER -->|"news.json 25K/일"| NAVER
+    B_PERF -->|"performance_summary·pnl_daily 00:30 KST"| PG
+
+    %% Consumer
+    C_KIS_REST -->|"KisRateLimiterPort.acquire()"| API_KIS_RATE
+    C_ORKL -->|"OrderEventOutbox publish (PS)"| PS_ORDER
+    C_GAP -->|"passesActiveGapAxes() history at ts"| PG
+    C_BACKFILL -->|"갭만 정밀 backfill + 햇징 룰 13건"| KISREST
+    C_BACKFILL -.->|"audit_trail 5 path 의무"| PG
+    C_RECON -->|"drift publish"| KAFKA
+
+    %% pattern-engine + indicator-impl
+    API_REST -.->|"implementation(:pattern-engine)"| P_REG
+    C_RSG -.->|"implementation(:pattern-engine)"| P_REG
+    API_REST -.->|"implementation(:indicator-impl)"| I_NATIVE
+    C_RSG -.->|"implementation(:indicator-impl)"| I_KIS
+
+    %% persistence-shared (★ 자본 흐름 작동률 회복)
+    API_REST -.->|"implementation(:persistence-shared)"| PS_ORDER
+    C_ORKL -.->|"implementation(:persistence-shared)<br/>ObjectProvider 결함 영구 차단"| PS_ORDER
+    API_NOTIF -.->|"implementation(:persistence-shared)"| PS_NOTIF
+    C_ORKL -.->|"NotificationOutbox publish"| PS_NOTIF
+
+    %% Infra
+    API_REST --> PG
+    API_REST --> REDIS
+    API_REST -->|"producer"| KAFKA
+    C_ORKL -->|"consumer order.intent.v1"| KAFKA
+    PS_ORDER --> PG
+    PS_NOTIF --> PG
+    PS_STOMP --> PG
+
+    %% Domain (헥사고날)
+    API_REST -->|"implements port"| D_PORTS
+    C_KIS_WS -->|"implements port"| D_PORTS
+    C_ORKL -->|"reads/writes via port"| D_ORD
+    API_KIS_RATE -->|"implements KisRateLimiterPort"| D_PORTS
+    API_KIS_BAL -->|"implements KisBalanceQueryPort"| D_PORTS
+    C_GAP -->|"implements CandleGapDetectorPort"| D_PORTS
+    B_INSTR -->|"implements InstrumentStatusHistoryPort"| D_PORTS
+```
+
+**범례**:
+- 실선 화살표 — DB·Redis·Kafka inbound/outbound + KIS REST/WS 외부 호출
+- 점선 화살표 — port implements + cache lookup + 게이트 chain step + 동기 위임
+- `domain`은 모든 JVM 모듈의 의존이지만 시각화 단순화를 위해 별도 박스 + port implements 점선만 표시
+- **★ persistence-shared (ADR 0088 v3.7.0)** — 자본 흐름 작동률 0% → 100% 회복의 baseline. consumer ObjectProvider<OrderEventOutboxRepository>·<NotificationOutboxRepository> always empty 결함 영구 차단(ADR 0004 §의존 방향 LOCK 정합 보존 + ADR 0054·0083 패턴 1:1 재사용).
+- **indicator-impl (ADR 0083 v3.6.15)** — 81 지표 사용자 노출 200 dogfooding evidence. api·consumer 양쪽 라이브러리 jar 의존 구동.
+- **chart-curator 단일 owner 영역** — `frontend/src/components/chart/*` + `SymbolChart`·`LightweightChart`·`IndicatorOverlay`·`PatternMarker` + `EquityCurveChart` + `*Chart*` performance + `CandleGapDetector` + `CandleBackfillWorker` + `LastCandleAtMonitor` + `InstrumentStatusHistory` Phase 2 lens.
+- **자본 path 단일 LOCK** — `OrderRouterKafkaListener` 12 step LOCK이 T-O(자동) + T-MAN(수동 v3.6.15) 양쪽 진입점의 단일 chain. 3중 게이트 + KillSwitch + 멱등성 SETNX 60s + KIS REST + H0STCNI0/H0STCNI9 모두 단일 경로.
+- **AI 호출 0 LOCK 유지** — W4 진입 0(사용자 명시 정합). MockDslHeuristic fallback 보존.
+
+---
+
+## §2. 7 JVM 모듈 매트릭스 (v3.6.0 5 → v3.7.0 7)
+
+ADR 0004(MSA 모듈 재구성) v3.7.0 갱신.
+
+| 모듈 | 종류 | 컨테이너 | Boot main | Gradle plugin | 책임 | v3.7.0 변경 |
+|------|------|----------|-----------|----------------|------|-------------|
+| `domain` | 라이브러리 jar | 0 | 0 | `kotlin("jvm")` only | 순수 도메인 + port. Spring·JPA 의존 0 | port +8 (KisRateLimiterPort·KisBalanceQueryPort·CandleGapDetectorPort·InstrumentStatusHistoryPort·Screener·Journal·Performance·News) |
+| `pattern-engine` | 라이브러리 jar | 0 | 0 | `kotlin("jvm")+kotlin("plugin.spring")+spring-context` | 57 캔들 패턴 detector | 변경 0 |
+| `indicator-impl` | 라이브러리 jar | 0 | 0 | `kotlin("jvm")+kotlin("plugin.spring")+spring-context` | 80 지표 IndicatorSource 구현 (NativeIndicatorSource + KisStrategyBuilderSource) | ADR 0083 v3.6.15 신설 — 결함 3 fix(api·consumer 모듈 경계 결함 해소) |
+| **`persistence-shared`** | **라이브러리 jar 신설** | **0** | **0** | **`kotlin("jvm")+kotlin("plugin.spring")+spring-data-jpa+jpa+spring-context`** | **Outbox·STOMP 영속 Repository Adapter (Order·Notification·Stomp)** | **ADR 0088 v3.7.0 신설 — Outbox Repository wiring 결함 영구 차단 + 자본 흐름 작동률 0% → 100% 회복** |
+| `api` | bootJar | 컨테이너 1 | 1 | `spring-boot+org.springframework.boot.run` | REST/STOMP + Flyway 권위 + 외부 어댑터(KIS·Yahoo·DART·Naver) + Kafka producer | + RuntimeFlagsController(P2-2) + StompBackfillController(P1-3) + KisRateLimiterPort impl(P1-4 Bucket4j-Redis) + ApiKisBalanceQueryAdapter(T-ACCT) + ReconcileService + NotificationOutbox + JournalQueryService + PerformanceQueryService + NewsQueryService + ManualOrderController(T-MAN) — persistence-shared 어댑터 9 파일 git mv outbound |
+| `batch` | bootJar | 컨테이너 1 | 1 | `spring-boot+org.springframework.boot.run` | Spring Batch — 일봉 backfill·전략 백테스트 잡·종목 마스터 cron·T-NEWS DART 1분 cron·T-PERF DailyPerformanceJob | + InstrumentMasterRefreshJob 보강(ADR 0090 Phase 1) + DartDisclosureAdapter 1분 cron + NaverArticleAdapter + DailyPerformanceJob 00:30 KST |
+| `consumer` | bootJar | 컨테이너 1 | 1 | `spring-boot+org.springframework.boot.run` | Kafka 소비 + KIS WS + 시그널·주문 dispatch + 체결 추적 + Reconcile · CandleBackfill · GapDetector | + ReconcileWorker(T-RECON) + CandleGapDetectorAdapter(T-CC Phase 2 §12 4축 + Phase 2 ADR 0090 history at ts) + CandleBackfillWorker(햇징 룰 13건) + LastCandleAtMonitor(T-CC Phase 1) + OrderRouterKafkaListener MDC traceId(P1-5) |
+
+**컨테이너 매트릭스**: 3 (api·batch·consumer) — 라이브러리 jar 4건(domain·pattern-engine·indicator-impl·persistence-shared) 모두 컨테이너 0. ADR 0008(Docker 표준) baseline 정합.
+
+**모듈 의존 방향 LOCK (ADR 0004 §의존 방향)**:
+
+```mermaid
+graph LR
+    DOM[domain] --> NONE[Spring·JPA 0]
+    PE[pattern-engine] --> DOM
+    II[indicator-impl] --> DOM
+    PS[persistence-shared] --> DOM
+    API[api] --> DOM
+    API --> PE
+    API --> II
+    API --> PS
+    BATCH[batch] --> DOM
+    BATCH --> PE
+    BATCH --> II
+    CONS[consumer] --> DOM
+    CONS --> PE
+    CONS --> II
+    CONS --> PS
+    CONS -.->|"의존 0 LOCK<br/>(ADR 0004)"| API
+```
+
+**의존 방향 위반 0 LOCK**: consumer → api 의존 0건 (ADR 0004 §의존 방향) 보존. ADR 0088 persistence-shared 모듈이 양쪽 모듈에서 공유되는 어댑터를 별도 라이브러리 jar로 분리하여 의존 위반 회피 + ObjectProvider always empty 결함 영구 차단.
+
+---
+
+## §3. 8 sub-agent hierarchy + 페르소나 매트릭스 (ADR 0085·0087)
+
+```mermaid
+graph TD
+    USER["👤 사용자 (최고 관리자)<br/>비전·결정·우선순위·정책"]
+    ORCH["🎼 magicjar-orchestrator<br/>(skill, 최고 지휘자)<br/>병렬 디스패치·통합 검증"]
+
+    USER --> ORCH
+
+    subgraph ARCHITECT["1. architect (수석 설계자)<br/>설계 본문·ADR·헌법"]
+        A[architect<br/>opus 4.7 1M]
+    end
+
+    subgraph IMPL["7 실무 sub-agent (병렬 dispatch)"]
+        BC["2. backend-core<br/>💡 진보적 시니어<br/>(15년차 '리팩토링맨')<br/>좌우명: 레거시는 빚이다<br/>출력: 💡 개선 / 🔄 리팩토링 / ✨ 모던 패턴<br/>(ADR 0087 v3.7.0)"]
+        MD["3. market-data<br/>KIS·DART·Naver 어댑터"]
+        SE["4. strategy-engine<br/>DSL·indicator·pattern·backtest<br/>+ T-SIG·T-RISK·T-O domain"]
+        AI["5. ai-engineer<br/>Spring AI · MockDslHeuristic<br/>(W4 진입 0 LOCK — 사용자 명시)"]
+        FE["6. frontend<br/>React 19 + TS + Vite + Tailwind"]
+        QA["7. qa<br/>on-demand 0 default<br/>(ADR 0035 → 0080 정합)"]
+        CC["8. chart-curator (v3.6.17 영입 ADR 0085)<br/>🔴 보수적 시니어<br/>(15년차 '안정빌드')<br/>좌우명: 동작하는 코드를 함부로 건드리지 마라<br/>출력: 🔴 critical / 🟡 caution / 🔵 info<br/>(ADR 0085 §Persona amend v3.6.19)<br/>★ TradingView LWC v4 + 캔들 SLA 단일 owner"]
+    end
+
+    ORCH --> A
+    ORCH --> BC
+    ORCH --> MD
+    ORCH --> SE
+    ORCH --> AI
+    ORCH --> FE
+    ORCH --> QA
+    ORCH --> CC
+
+    A -.->|"spec/ADR/헌법 작성"| BC
+    A -.-> MD
+    A -.-> SE
+    A -.-> AI
+    A -.-> FE
+    A -.-> CC
+
+    BC <-->|"cross-review<br/>(ADR 0087 짝 페르소나)<br/>자본 path 직결 → CC 1차<br/>인프라 일반 → BC 1차"| CC
+```
+
+**페르소나 cross-review 운영 룰** (ADR 0087):
+- **자본 path 직결 영역** (캔들·주문·시그널·KIS 어댑터 · `OrderRouterKafkaListener`·`KisOrderHttpAdapter`·`CandleGapDetector`·`CandleBackfillWorker`) → **chart-curator 1차 lens** (보수, 🔴/🟡/🔵, require/check 방어 패턴)
+- **인프라 일반** (Spring·controller·port·Flyway·DTO·일반 endpoint) → **backend-core 1차 lens** (진보, 💡/🔄/✨, `?.let`·`?.takeIf`·sealed class·DRY·함수형 체이닝)
+- **운영 evidence 누적 (Phase 1)**:
+  - backend-core 진보 페르소나: 4 cycle GREEN (PR #551 audit · #568 Bucket4j 실 구현 · #570 DRY refactor · #573 STOMP unread/resync 신설)
+  - chart-curator 보수 페르소나: 3 cycle GREEN (PR #554 audit · #561 LastCandleAtMonitor KDoc 보강 · #574 ADR 0090 Phase 2 history at ts)
+- 다른 6 sub-agent(architect·market-data·strategy-engine·ai-engineer·frontend·qa) 페르소나 부여 보류 — 사용자 결정 의제(ADR 0087 §13 후속 예정).
+
+---
+
+## §4. v3.7.0 신규 컴포넌트 매트릭스 (시스템 점검 + Phase 보강)
+
+### 4-1. P0-A persistence-shared 모듈 (ADR 0088)
+
+신규 라이브러리 jar — 자본 흐름 작동률 0% → 100% 회복의 baseline.
+
+**어댑터 9 파일 매트릭스** (git mv from `api/persistence/{order,notification,stomp}` → `persistence-shared/src/main/kotlin/kr/spdaewoon/magicjar/persistence/shared/{order/outbox,notification/outbox,stomp}/`):
+
+| 영역 | 어댑터 | JPA Repository | JPA Entity | 패키지 (신규) |
+|------|--------|----------------|------------|---------------|
+| Order | `OrderEventOutboxRepositoryAdapter` | `OrderEventOutboxJpaRepository` | `OrderEventOutboxJpaEntity` | `kr.spdaewoon.magicjar.persistence.shared.order.outbox` |
+| Notification | `NotificationOutboxRepositoryAdapter` | `NotificationOutboxJpaRepository` | `NotificationOutboxJpaEntity` | `kr.spdaewoon.magicjar.persistence.shared.notification.outbox` |
+| STOMP | `StompEventRepositoryAdapter` | `StompEventJpaRepository` | `StompEventJpaEntity` | `kr.spdaewoon.magicjar.persistence.shared.stomp` |
+
+**잔류 api 단독 LOCK**: `SystemConfigSlackAdapter`(Settings 모달 종속) + `StompEventPersister`(@MessageMapping 정합) + `StompEventBackfillController`(REST endpoint).
+
+**Flyway 권위 api 단독 LOCK**: V37·V38(주문 path 안정성 outbox·STOMP 영속) 권위 보존(ADR 0006 §마이그레이션 정합 + V 시퀀스 충돌 차단).
+
+### 4-2. P1-3 STOMP unread/resync endpoint (P1)
+
+신규 REST 2 + frontend 1 hook:
+
+- `GET /api/stomp/events/unread?userId={userId}&since={ts}` — count 응답
+- `GET /api/stomp/events?userId={userId}&since={ts}&limit={n}` — Pageable list
+- frontend `useStompReconnect` hook — STOMP client.onConnect chain 후킹 + `localStorage stomp:lastSeenAt:${userId}` anchor + 24h fallback + count>0 시 backfill + ORDER/SIGNAL/RISK 분기 토스트("[누락]" prefix) + lastSeenAt 갱신 + 100건 초과 경고 토스트 + in-flight flag 중복 회피
+
+### 4-3. P1-4 Bucket4j-Redis KisRateLimiterPort (ADR 0037 amend)
+
+- `domain/.../external/KisRateLimiterPort` — `acquire(priority: KisCallPriority): Result`
+- `domain/.../external/KisCallPriority` enum — USER_PATH > INGESTION > BACKFILL
+- `domain/.../external/KisRateLimitTimeoutException` + `KisCircuitOpenException`
+- `api/.../external/Bucket4jRedisKisRateLimiter` — Bucket4j 8.10.1 + bucket4j-redis 8.10.1 + Redis backend 단일 bucket LOCK
+- EGW00201/HTTP 429 1초 fixed backoff + 1회 재시도 → 재시도 fail 시 `onTpsExceeded()` + 명시 에러 throw(mock 0)
+- 연속 5분 50%+ fail → Circuit Breaker OPEN 5분 + Slack alert P1 + backfill 자동 pause
+- Phase 1 PR #568 — Phase 2 market-data 어댑터 통합(~20 어댑터에 `acquire()` 합류 + EGW00201/429 처리 + spec drift 정정 "20 req/s" → "초당 10건")
+
+### 4-4. P1-5 MDC traceId injection + LastCandleAtMonitor KDoc 보강
+
+- `OrderRouterKafkaListener` MDC traceId injection — Kafka header `X-Trace-Id` → MDC `traceId` 12 step LOCK 전체 흐름 추적
+- `LastCandleAtMonitor` KDoc 보강 — §11 KIS raw ASC 정규화 cross-ref + §12 4축 active gap detection cross-ref + §13 폐기 룰 vs SLA watchdog 임계치 혼동 차단(보수 페르소나 lens)
+
+### 4-5. P2-2 RuntimeFlags display (P2)
+
+신규 REST 1 + frontend 1 hook + 1 컴포넌트:
+
+- `GET /api/runtime/flags` — `RuntimeFlagsDto`(mode·allowReal·killSwitchEnabled·killSwitchReason·userConsented·fetchedAt)
+- frontend `useRuntimeFlags` hook (60s refetchInterval + 30s staleTime)
+- `RuntimeFlagsIndicator` 컴포넌트 — AppHeader 로고 옆 dot LED + 라벨:
+  - KillSwitch ON 회색 "정지"
+  - REAL·!allowReal 노랑 "실전·차단" + 경고
+  - REAL·!consent 노랑 "실전·동의대기" + 경고
+  - REAL·all OK 빨강 "실전"
+  - MOCK 녹색 "모의"
+  - isLoading·isError 회색 "--" placeholder
+- `decideDisplayState` 우선순위 매트릭스 LOCK
+
+### 4-6. P2-1 ADR 0089 userId 통일
+
+- backend Kotlin Long 유지 (Jackson default 라운드트립 GREEN — 기존 baseline 보존)
+- frontend 5+ API 모듈 + 12+ TanStack Query hook + 7 컴포넌트 props + MSW handler/테스트 mock 정합:
+  - `useOnboardingStore.registeredUserId: string|null → number|null` + zustand persist v1→v2 migrate(`Number()` 변환 + NaN fallback null)
+  - `account.ts`·`order.ts`·`watchlist.ts`·`risk.ts`·`position.ts`·`signal.ts`·`strategy.ts`·`backtest.ts`·`onboarding.ts`·`types/settings.ts` DTO `userId: string → number`
+  - DB BIGINT(`user_account.id`) → JS number 자연 정합 + `Number.MAX_SAFE_INTEGER` 2^53-1 안전권 + MCP future spec(ADR 0027) JSON schema int64 baseline
+
+### 4-7. P2-5 ADR 0090 instrument_status_history
+
+- Flyway V42 — `instrument_status_history(instrument_code, status, effective_from, effective_until, reason, recorded_at)` + 인덱스 2(`(code, from DESC)` + 활성 partial) + CHECK constraint(`NORMAL/TRADING_HALT/LIQUIDATION/DELISTED`)
+- 추가만 LOCK(history immutability)
+- Phase 1 market-data — `InstrumentStatusHistoryPort` + adapter + `InstrumentMasterRefreshJob` cron 보강 + backfill 1회 + audit_trail `INSTRUMENT_STATUS_CHANGED`
+- Phase 2 chart-curator — `CandleGapDetectorAdapter.passesActiveGapAxes()` history at ts lens 통합 + 한국석유 dogfooding cycle cross-ref(잠재 false positive risk 영구 차단)
+
+### 4-8. P2-4 backend-core 진보 페르소나 dogfooding (DRY refactor)
+
+- `StrategyJpaAdapter` DRY 추출 — 중복 매핑 함수형 체이닝 합성
+- `Signal.HOLD` 죽은 ref 정리 — sealed class 컴파일 타임 안전성
+- `!!` 9 자본 path 가드 — `?.takeIf` 함수형 변환 + require/check 보수 lens 혼합
+
+---
+
+## §5. 운영 헌법 §1-A-extended + §2 6단계 (v3.7.0 진화)
+
+### 5-1. §1-A-extended (worktreeConfig=true 의무) — v3.7.0 신설
+
+**root cause**: git default `extensions.worktreeConfig=false` 상태에서 worktree `.git/config`가 main과 공유 → 한 worktree `git config user.email` 호출이 main 흡수 → 다른 worktree·sub-agent 휘발성 전파 → author 결함 PR 10+건 누적(PR #514·#525·#535·#537·#541·#546·#551·#552·#553·#555).
+
+**LOCK 절차**:
+1. main `.git/config` `extensions.worktreeConfig=true` 적용 (`scripts/setup-worktree-config.sh` Step 2 헬퍼)
+2. worktree 진입 즉시 4 명령 LOCK:
+   ```bash
+   git config user.email "bot+<agent>@magicjar.local"
+   git config user.name "magicjar-<agent>"
+   git config --worktree user.email "bot+<agent>@magicjar.local"
+   git config --worktree user.name "magicjar-<agent>"
+   ```
+3. 헬퍼 `scripts/setup-worktree-config.sh` — 기존 모든 worktree에 config.worktree 일괄 발행 idempotent (`git rev-parse --git-common-dir` main `.git/config` 추적 + 검증 GREEN/FAIL 출력)
+
+### 5-2. §2 4단계 → 6단계 (v3.7.0 진화)
+
+**root cause** (사용자 명시 2026-05-19 KST 비판 정합): `git worktree remove`는 git 추적 파일만 제거 → `.gradle/`·`.idea/`·`node_modules/` 캐시는 빈 wrapper 디렉토리로 남음 / Agent isolation 도구가 `worktree-agent-<id>` ref 별도 생성 → 헌법 §2 4단계 "agent/* 로컬 브랜치 삭제"에서 빠짐.
+
+**6단계 LOCK**:
+1. (기존) PR 머지 직후 `git worktree remove --force <path>`
+2. (기존) `git branch -D agent/<agent>/<task>` 로컬 정리
+3. **(신설) §2-3** — 빈 wrapper 디렉토리 `rmdir .claude/worktrees/agent-*/` (cache 잔재 회수)
+4. **(신설) §2-4** — `worktree-agent-*` ref 별도 force delete (`git update-ref -d refs/heads/worktree-agent-<id>`)
+5. **(신설) §2-5** — 사이클 시작 자동 점검 4 항목:
+   - task 파일 존재 (`_workspace/tasks/T-<id>-*.md`)
+   - `git worktree list` 잔재 0건
+   - 빈 wrapper 디렉토리 0건
+   - 임시 브랜치(agent/*·chore/*·docs/*·hotfix/* 미 PR) 0건
+6. (기존) `node scripts/task.mjs done --pr <N>` + task archive
+
+---
+
+## §6. 외부 통합 + 디버깅 (v3.6.0 baseline 보존 + v3.7.0 Bucket4j 합류)
+
+| 외부 통합 | 종류 | v3.7.0 변경 |
+|-----------|------|-------------|
+| KIS REST | 시세·주문·잔고·종목마스터 | + Bucket4j-Redis 단일 bucket LOCK(P1-4 ADR 0037 amend) + EGW00201/429 backoff 매트릭스 정밀화 + Circuit Breaker 5분 OPEN |
+| KIS WS | 체결가·호가·체결통보 | 보존(ADR 0048 41 한도) |
+| DART | 공시 RSS·OPENDART | + T-NEWS 1분 cron 실시간 인입(v3.6.7) |
+| Naver Open API | 뉴스 news.json | + T-NEWS Phase 2 25K/일 한도 |
+| Anthropic Spring AI | LLM helper | 보존(T-DSL 자연어 helper 한정 — W4 진입 0 LOCK) |
+| Yahoo Finance | (@Deprecated) | v3.8.x 일괄 삭제 예정 보존 |
+
+**디버깅**: Dozzle 8888 + Kafka UI 8090 보존.
+
+---
+
+## §7. v3.7.0 시점 컴포넌트 매트릭스 요약
+
+| 컴포넌트 카테고리 | v3.6.0 | v3.7.0 | 증감 |
+|-------------------|--------|--------|------|
+| JVM 모듈 | 5 | **7** | +2 (indicator-impl + persistence-shared) |
+| 컨테이너 | 3 | 3 | 0 |
+| sub-agent | 7 | **8** | +1 (chart-curator) |
+| 페르소나 | 0 | **2** | +2 (보수+진보 짝) |
+| Domain port | 27 | 35+ | +8 (KisRateLimiterPort 등) |
+| REST endpoint | 약 59 | 약 80+ | +20+ |
+| Kafka 토픽 | 19 | 23+ | +4+ |
+| STOMP 토픽 | 6+ | 8+ | +2 |
+| Redis namespace | + idem:order | + rate-limit:kis · stomp:lastSeenAt 등 | +5+ |
+| Flyway 버전 | V24 | V42+ | +18+ |
+| Frontend 라우트 | 12 | 16+ | +4+ |
+| 외부 통합 | 5 (KIS + DART + Anthropic + Yahoo dep + KIS WS) | **6 (+ Naver)** | +1 |
+| 운영 헌법 § | 7 | **7 + §1-A-extended** | +1 § |
+| 운영 헌법 §2 단계 | 4 | **6** | +2 |
+| ADR | 65 | **90** | +25 (신규 22 + v3.7.0 신규 6 + amend 2 + supersede 2) |
+| AI 호출 (자동매매 본체) | 0 | **0 (LOCK 유지)** | 0 |
+
+---
+
+## §8. Mermaid — 운영 흐름 작동률 0% → 100% 회복 (ADR 0088)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as 사용자
+    participant API as api 모듈
+    participant CONS as consumer 모듈
+    participant PS as persistence-shared (v3.7.0 ADR 0088)
+    participant DB as PostgreSQL
+    participant K as Kafka
+
+    Note over API,CONS: v3.6.x baseline 결함 (ADR 0088 §root cause)
+    API->>DB: order_event_outbox INSERT (api 단독 어댑터)
+    CONS->>CONS: ObjectProvider<OrderEventOutboxRepository> empty<br/>(consumer ComponentScan에 api 패키지 부재)
+    Note over CONS: drain·retry worker 매 schedule cycle log.warn + skip<br/>→ Kafka publish 0건<br/>→ 운영 흐름 작동률 0%
+
+    Note over API,PS: v3.7.0 ADR 0088 fix
+    API->>PS: OrderEventOutboxRepositoryAdapter (persistence-shared)
+    PS->>DB: INSERT (실제 영속)
+    CONS->>PS: OrderEventOutboxRepositoryAdapter (persistence-shared)<br/>+ implementation(project(":persistence-shared"))
+    PS->>DB: SELECT pending → drain
+    PS->>K: producer order.requested.v1 publish
+    K->>K: 운영 흐름 작동률 0% → 100% 회복
+    PS->>DB: UPDATE status=SENT
+    Note over U: 사용자 STOMP REQUESTED 토스트 정상 도달
+```
+
+---
+
+## §9. 자본 path 단일 LOCK (T-O 자동 + T-MAN 수동 v3.6.15 통합)
+
+```mermaid
+graph TD
+    Auto["T-SIG 시그널 → T-RISK ALLOWED<br/>(자동 path)"]
+    Manual["사용자 수동 주문 발행 UI<br/>POST /api/orders/manual<br/>(T-MAN v3.6.15)"]
+
+    Auto -->|"order.intent.v1 publish<br/>signalId=실제"| OIK["order.intent.v1 Kafka topic"]
+    Manual -->|"order.intent.v1 publish<br/>signalId=0L sentinel · source='MANUAL'"| OIK
+
+    OIK --> OR["OrderRouterKafkaListener (consumer)<br/>12 step LOCK<br/>+ MDC traceId injection (P1-5 v3.7.0)<br/>+ 자본 path 단일 LOCK"]
+
+    OR --> S1["1. payload deserialize"]
+    S1 --> S2["2. OrderIdempotencyGuard.acquire (Redis SETNX 60s)"]
+    S2 --> S3["3. TradingModeGate.resolveMode (3중 게이트)"]
+    S3 --> S4["4. KillSwitch 재검증 (ADR 0024·0043)"]
+    S4 --> S5["5. order_request INSERT (status=REQUESTED)"]
+    S5 --> S6["6. STOMP REQUESTED + order.requested.v1 publish"]
+    S6 --> S7["7. KisOrderHttpAdapter.submit (KIS REST 6 tr_id · raw KDoc)<br/>+ Bucket4j-Redis acquire (P1-4 v3.7.0)"]
+    S7 --> S8["8-9. ACK 분기 → order_request UPDATE + audit KIS_ACK"]
+    S8 --> S10["10. (FILLED 통보는 별도 KisExecutionWsListener)<br/>+ 26 컬럼 매핑 LOCK"]
+    S10 --> S11["11. Kafka commit MANUAL_IMMEDIATE"]
+    S11 --> S12["12. Micrometer counter + Outbox publish (persistence-shared)"]
+```
+
+**LOCK 메시지**: T-MAN(수동) + T-O(자동) 양쪽 모두 동일한 `OrderRouterKafkaListener` 12 step LOCK 경로로 흐른다 — 3중 게이트 + KillSwitch + 멱등성 SETNX + KIS REST + H0STCNI0/H0STCNI9 + Outbox/STOMP 영속 모두 단일 LOCK. 자본 path 분기 0 LOCK 유지.
+
+---
+
+## §10. 결론 — v3.7.0 시스템 점검 baseline LOCK
+
+v3.7.0은 W3 자동매매 본체 종착 노드 가동(v3.6.0) → v3.6.x 19 patch 누적 → 시스템 점검 8 sub-agent audit + Phase 보강 + 운영 헌법 §1-A-extended·§2 6단계 진화의 종합 LOCK 사이클이다. **W4 진입은 0** (사용자 명시 정합). v3.8.0 minor 후보 = W4(T-AI·T-MCP) 진입 또는 v3.7.x patch 누적 + W5 진입. 다음 사이클은 v3.7.0 baseline 직후 일반 발달 흐름(patch 또는 사용자 명시 진입 결정 후 minor).
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>
