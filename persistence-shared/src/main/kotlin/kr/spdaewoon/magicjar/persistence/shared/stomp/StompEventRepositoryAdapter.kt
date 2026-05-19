@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.persistence.shared.stomp
 
 import kr.spdaewoon.magicjar.domain.stomp.StompEvent
 import kr.spdaewoon.magicjar.domain.stomp.port.StompEventRepository
+import kr.spdaewoon.magicjar.domain.stomp.port.UnreadBounds
 import org.slf4j.LoggerFactory
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Component
@@ -59,6 +60,36 @@ class StompEventRepositoryAdapter(
                 )
             }
         return rows.map { toDomain(it) }
+    }
+
+    @Transactional(readOnly = true)
+    override fun countUnreadSince(
+        userId: Long,
+        since: Instant,
+        channel: String?,
+    ): Long =
+        if (channel.isNullOrBlank()) {
+            jpaRepository.countByUserIdAndCreatedAtGreaterThanEqual(userId, since)
+        } else {
+            jpaRepository.countByUserIdAndChannelAndCreatedAtGreaterThanEqual(userId, channel, since)
+        }
+
+    @Transactional(readOnly = true)
+    override fun findUnreadBoundsSince(
+        userId: Long,
+        since: Instant,
+        channel: String?,
+    ): UnreadBounds? {
+        val (minTs, maxTs) =
+            if (channel.isNullOrBlank()) {
+                jpaRepository.findMinCreatedAtSince(userId, since) to
+                    jpaRepository.findMaxCreatedAtSince(userId, since)
+            } else {
+                jpaRepository.findMinCreatedAtSinceWithChannel(userId, channel, since) to
+                    jpaRepository.findMaxCreatedAtSinceWithChannel(userId, channel, since)
+            }
+        if (minTs == null || maxTs == null) return null
+        return UnreadBounds(firstTs = minTs, lastTs = maxTs)
     }
 
     @Transactional
