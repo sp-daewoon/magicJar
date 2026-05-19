@@ -3,6 +3,8 @@ package kr.spdaewoon.magicjar.consumer.infrastructure.kis
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
@@ -98,6 +100,7 @@ class KisOrderInquireCcldHttpAdapter(
     private val secretCipher: SecretCipher,
     private val kisAuthAdapter: KisAuthAdapter,
     private val credentialRepository: ConsumerUserKisCredentialJpaRepository,
+    private val kisRateLimiterPort: KisRateLimiterPort,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseProd: String,
     @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
@@ -198,6 +201,9 @@ class KisOrderInquireCcldHttpAdapter(
                     append("&CTX_AREA_NK100=")
                     append("&EXCG_ID_DVSN_CD=KRX")
                 }
+
+            // Rate Limit acquire (spec PR #564 §2-2 LOCK — BACKFILL priority — reconcile cron ccld 조회)
+            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 1000L)
 
             val response =
                 webClient

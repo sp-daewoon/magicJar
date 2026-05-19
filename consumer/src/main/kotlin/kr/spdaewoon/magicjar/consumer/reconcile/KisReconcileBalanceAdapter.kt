@@ -2,6 +2,8 @@ package kr.spdaewoon.magicjar.consumer.reconcile
 
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisAuthAdapter
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.reconcile.ReconcileHolding
 import kr.spdaewoon.magicjar.domain.reconcile.port.ReconcileKisBalancePort
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
@@ -41,9 +43,11 @@ import java.time.Duration
  * - tr_cont 헤더 "F" or "D" → 마지막 페이지 (loop 종료)
  * - 실전 50건/요청 · 모의 20건/요청 한도
  *
- * ### Rate Limit (ADR 0037 정합)
+ * ### Rate Limit (ADR 0037 + spec PR #564 §2-2 LOCK)
  * - 페이지 단위로 1회 호출 — 100주 보유 시 실전 2 페이지 = 2 호출
- * - EGW00201 (TPS 초과) → 1초 backoff + 1회 재시도 (本 baseline은 호출 caller `KisRateLimiterPort` 추후 합류)
+ * - 매 페이지 호출 직전 [KisRateLimiterPort.acquire] BACKFILL priority (cron 재 정합 reconcile path)
+ * - EGW00201 (TPS 초과) → onTpsExceeded() + 1초 backoff + 1회 재시도 (Phase 1 baseline)
+ * - HTTP 429 → 동일 backoff path
  *
  * ### AI 호출 0 (ADR 0023 §2-4 + 룰 5)
  * 룰/cron 기반 — AI provider import 0.
@@ -60,6 +64,7 @@ class KisReconcileBalanceAdapter(
     private val secretCipher: SecretCipher,
     private val kisAuthAdapter: KisAuthAdapter,
     private val credentialRepository: ConsumerUserKisCredentialJpaRepository,
+    private val kisRateLimiterPort: KisRateLimiterPort,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseProd: String,
     @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
@@ -173,6 +178,8 @@ class KisReconcileBalanceAdapter(
         nk100: String,
         retried: Boolean = false,
     ): BalancePage {
+        // Rate Limit acquire (spec PR #564 §2-2 LOCK — BACKFILL priority — cron reconcile path)
+        kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 1000L)
         try {
             @Suppress("UNCHECKED_CAST")
             val response =
@@ -221,9 +228,10 @@ class KisReconcileBalanceAdapter(
             val rtCd = body["rt_cd"]?.toString()
             val msgCd = body["msg_cd"]?.toString()
 
-            // EGW00201 backoff + 1회 재시도
+            // EGW00201 backoff + 1회 재시도 (spec PR #564 §2-2 LOCK — onTpsExceeded 시그널)
             if (msgCd == EGW_TPS_EXCEEDED && !retried) {
-                log.warn("KIS EGW00201 TPS 초과 — 1s backoff + 1회 retry")
+                kisRateLimiterPort.onTpsExceeded()
+                log.warn("KIS EGW00201 TPS 초과 — onTpsExceeded + 1s backoff + 1회 retry")
                 Thread.sleep(EGW_BACKOFF_MS)
                 return fetchBalancePage(
                     baseUrl = baseUrl,
@@ -248,6 +256,7 @@ class KisReconcileBalanceAdapter(
             val holdings = parseHoldings(output1)
             val nextFk100 = body["ctx_area_fk100"]?.toString()?.trim() ?: ""
             val nextNk100 = body["ctx_area_nk100"]?.toString()?.trim() ?: ""
+            kisRateLimiterPort.onSuccess()
             return BalancePage(
                 holdings = holdings,
                 trCont = response.first.trim(),
@@ -255,6 +264,24 @@ class KisReconcileBalanceAdapter(
                 ctxAreaNk100 = nextNk100,
             )
         } catch (e: WebClientResponseException) {
+            if (e.statusCode.value() == 429 && !retried) {
+                // HTTP 429 → onTpsExceeded + 1초 backoff + 1회 재시도 (spec PR #564 §2-2 LOCK)
+                kisRateLimiterPort.onTpsExceeded()
+                log.warn("KIS 잔고조회 HTTP 429 — 1초 backoff 후 1회 retry")
+                Thread.sleep(EGW_BACKOFF_MS)
+                return fetchBalancePage(
+                    baseUrl = baseUrl,
+                    trId = trId,
+                    accessToken = accessToken,
+                    appKey = appKey,
+                    secretKey = secretKey,
+                    cano = cano,
+                    acntPrdtCd = acntPrdtCd,
+                    fk100 = fk100,
+                    nk100 = nk100,
+                    retried = true,
+                )
+            }
             log.error("KIS 잔고조회 HTTP 실패: status={} body={}", e.statusCode, e.responseBodyAsString.take(200))
             throw e
         }

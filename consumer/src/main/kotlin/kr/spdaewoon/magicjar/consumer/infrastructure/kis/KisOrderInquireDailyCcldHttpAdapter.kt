@@ -3,6 +3,8 @@ package kr.spdaewoon.magicjar.consumer.infrastructure.kis
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.order.execution.port.KisOrderInquireDailyCcldPort
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderInquireResult
@@ -74,6 +76,7 @@ class KisOrderInquireDailyCcldHttpAdapter(
     private val secretCipher: SecretCipher,
     private val kisAuthAdapter: KisAuthAdapter,
     private val credentialRepository: ConsumerUserKisCredentialJpaRepository,
+    private val kisRateLimiterPort: KisRateLimiterPort,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseProd: String,
     @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
@@ -135,6 +138,9 @@ class KisOrderInquireDailyCcldHttpAdapter(
             secretKey = secretCipher.decrypt(cred.secretKeyEnc)
             val appKeyStr = String(appKey)
             val secretKeyStr = String(secretKey)
+
+            // Rate Limit acquire (spec PR #564 §2-2 LOCK — BACKFILL priority — daily ccld reconcile)
+            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 1000L)
 
             // raw L141~L155 verbatim — params 매트릭스
             val response =

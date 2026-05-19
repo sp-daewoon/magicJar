@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.consumer.infrastructure.kis
 
 import io.mockk.every
 import io.mockk.mockk
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -66,6 +67,7 @@ class KisHashKeyAdapterTest {
 
         return KisHashKeyAdapter(
             webClient = webClient,
+            kisRateLimiterPort = mockk<KisRateLimiterPort>(relaxed = true),
             kisBaseProd = "https://openapi.koreainvestment.com:9443",
             kisBaseVps = "https://openapivts.koreainvestment.com:29443",
         )

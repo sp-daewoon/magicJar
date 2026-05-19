@@ -6,6 +6,8 @@ import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisAuthAdapter
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisHashKeyAdapter
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.order.execution.DenyReason
 import kr.spdaewoon.magicjar.domain.order.execution.KisOrderAck
 import kr.spdaewoon.magicjar.domain.order.execution.OrderIntent
@@ -64,6 +66,7 @@ class KisOrderHttpAdapter(
     private val kisAuthAdapter: KisAuthAdapter,
     private val kisHashKeyAdapter: KisHashKeyAdapter,
     private val credentialRepository: ConsumerUserKisCredentialJpaRepository,
+    private val kisRateLimiterPort: KisRateLimiterPort,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseProd: String,
     @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
@@ -136,6 +139,10 @@ class KisOrderHttpAdapter(
                     return OrderResult.Left(DenyReason.KisException("HASHKEY_FAILED:${e.message}"))
                 }
             // 5xx WebClientResponseException은 caller submitWithRetry가 재시도 — re-throw 자연 흐름
+
+            // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH 최우선 priority)
+            // 주문 path는 자본 직결 — 즉시 acquire 강제 (사용자 path)
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
 
             val response =
                 webClient
@@ -288,6 +295,9 @@ class KisOrderHttpAdapter(
                     )
                     return OrderResult.Left(DenyReason.KisException("HASHKEY_FAILED:${e.message}"))
                 }
+
+            // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority — 주문 취소 path)
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
 
             val response =
                 webClient

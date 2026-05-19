@@ -1,6 +1,8 @@
 package kr.spdaewoon.magicjar.consumer.infrastructure.kis
 
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.position.port.KisBalance
 import kr.spdaewoon.magicjar.domain.position.port.KisBalancePort
 import kr.spdaewoon.magicjar.domain.position.port.KisHolding
@@ -30,6 +32,7 @@ class KisBalanceAdapter(
     private val secretCipher: SecretCipher,
     private val kisAuthAdapter: KisAuthAdapter,
     private val credentialRepository: ConsumerUserKisCredentialJpaRepository,
+    private val kisRateLimiterPort: KisRateLimiterPort,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseProd: String,
     @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
@@ -58,6 +61,9 @@ class KisBalanceAdapter(
             secretKey = secretCipher.decrypt(cred.secretKeyEnc)
             val appKeyStr = String(appKey)
             val secretKeyStr = String(secretKey)
+
+            // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority — 잔고 조회 사용자 path)
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
 
             @Suppress("UNCHECKED_CAST")
             val response =
@@ -107,6 +113,7 @@ class KisBalanceAdapter(
                     KisHolding(code = code, quantity = qty, avgPrice = avgPrice)
                 }
 
+            kisRateLimiterPort.onSuccess()
             log.info(
                 "KIS 잔고조회 성공: user={} type={} holdings={}건",
                 maskUserId(userId),
@@ -120,6 +127,10 @@ class KisBalanceAdapter(
                 fetchedAt = Instant.now(),
             )
         } catch (e: WebClientResponseException) {
+            if (e.statusCode.value() == 429) {
+                kisRateLimiterPort.onTpsExceeded()
+                log.warn("KIS 잔고조회 HTTP 429 — onTpsExceeded 시그널: user={}", maskUserId(userId))
+            }
             log.error(
                 "KIS 잔고조회 실패: user={} status={} body={}",
                 maskUserId(userId),

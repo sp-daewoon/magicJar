@@ -7,6 +7,8 @@ import kr.spdaewoon.magicjar.api.secret.AesGcmCipher
 import kr.spdaewoon.magicjar.api.service.dto.CandleRefreshResponse
 import kr.spdaewoon.magicjar.api.service.dto.IntervalRefreshResult
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.redis.core.StringRedisTemplate
@@ -39,7 +41,9 @@ import java.time.temporal.ChronoUnit
  *   KIS 미제공 — 1m 갱신 시 ON CONFLICT DO NOTHING으로 upsert만 수행.
  *   합산 재계산은 향후 별도 trigger (현재 consumer AggregateBackfillRunner 전용).
  *
- * Rate Limit (ADR 0037): 20 req/s 한도. interval 간 50ms 마진.
+ * Rate Limit (ADR 0037): 초당 10건 한도 (KisRateLimiterPort.acquire 합류 — spec PR #564 §2-2 LOCK).
+ *   - 사용자 트리거 path → priority=USER_PATH (즉시 우선 처리)
+ *   - Bucket4j 단일 bucket 강제 후 sleep 마진 제거 (acquire blocking polling이 이미 0.1초 단위 회복)
  * 인증: api 모듈 UserKisCredentialJpaRepository + AesGcmCipher + Redis token cache (KisRestPriceMetricsAdapter 패턴 정합).
  *
  * 룰 5 위반 금지: LLM provider import 0건.
@@ -52,6 +56,7 @@ class CandleRefreshService(
     private val candleJpaRepository: CandleJpaRepository,
     private val aesGcmCipher: AesGcmCipher,
     private val redisTemplate: StringRedisTemplate,
+    private val kisRateLimiterPort: KisRateLimiterPort,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseProd: String,
 ) {
@@ -126,11 +131,10 @@ class CandleRefreshService(
                 else -> "J" // 안전 기본값
             }
 
-        // 5. interval 별 순차 갱신 (Rate Limit ADR 0037: 50ms 마진)
+        // 5. interval 별 순차 갱신 (Rate Limit ADR 0037 초당 10건 + spec PR #564 §2-2 LOCK)
+        // sleep 마진 제거 — KisRateLimiterPort.acquire가 USER_PATH 우선순위로 적시 진입
         val results = mutableListOf<IntervalRefreshResult>()
-        for ((index, intervalCode) in effectiveIntervals.withIndex()) {
-            if (index > 0) Thread.sleep(50) // 20 req/s 한도 준수
-
+        for (intervalCode in effectiveIntervals) {
             val result =
                 when (intervalCode) {
                     "1m" -> refreshOneMinCandles(code, mrktDivCode, accessToken, appKey, secretKey)
@@ -173,6 +177,10 @@ class CandleRefreshService(
         val today = LocalDate.now(KST_ZONE).format(DATE_FMT)
         // 30년 전 기준 전수 수집 (KIS 응답 가능 범위 최대)
         val startDate = LocalDate.now(KST_ZONE).minusYears(30).format(DATE_FMT)
+
+        // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority)
+        // ADR 0037 초당 10건 한도 강제. 사용자 트리거 즉시 acquire.
+        kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
 
         return try {
             @Suppress("UNCHECKED_CAST")
@@ -230,9 +238,12 @@ class CandleRefreshService(
                 candles.size,
                 inserted,
             )
+            kisRateLimiterPort.onSuccess()
             IntervalRefreshResult(intervalCode, candles.size, inserted, latestTs, "OK")
         } catch (e: WebClientResponseException) {
             if (e.statusCode.value() == 429) {
+                // HTTP 429 → onTpsExceeded 시그널 + 명시 에러 결과 (mock 합성 0, ADR 0014)
+                kisRateLimiterPort.onTpsExceeded()
                 log.warn("캔들 갱신 Rate Limit (429): code={} interval={}", code, intervalCode)
                 IntervalRefreshResult(intervalCode, 0, 0, null, "RATE_LIMITED")
             } else {
@@ -295,7 +306,9 @@ class CandleRefreshService(
 
             while (!dayDone && pageCount < maxPagesPerDay) {
                 try {
-                    if (pageCount > 0) Thread.sleep(50) // Rate Limit ADR 0037
+                    // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority)
+                    // ADR 0037 초당 10건 한도 강제. 사용자 트리거 path → 즉시 acquire.
+                    kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
 
                     @Suppress("UNCHECKED_CAST")
                     val body =

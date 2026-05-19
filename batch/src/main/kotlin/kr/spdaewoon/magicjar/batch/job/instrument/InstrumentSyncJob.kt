@@ -5,6 +5,9 @@ import kr.spdaewoon.magicjar.batch.infrastructure.kis.KisInstrumentMasterAdapter
 import kr.spdaewoon.magicjar.batch.infrastructure.kis.KisInstrumentRaw
 import kr.spdaewoon.magicjar.batch.persistence.BatchInstrumentAliasJpaRepository
 import kr.spdaewoon.magicjar.batch.persistence.BatchInstrumentJpaRepository
+import kr.spdaewoon.magicjar.batch.persistence.BatchInstrumentStatusHistoryJpaEntity
+import kr.spdaewoon.magicjar.batch.persistence.BatchInstrumentStatusHistoryJpaRepository
+import kr.spdaewoon.magicjar.domain.instrument.InstrumentStatus
 import kr.spdaewoon.magicjar.domain.instrument.port.KisInstrumentMasterPort
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
@@ -45,6 +48,7 @@ class InstrumentSyncJob(
     private val kisAdapter: KisInstrumentMasterAdapter,
     private val instrumentRepo: BatchInstrumentJpaRepository,
     private val aliasRepo: BatchInstrumentAliasJpaRepository,
+    private val statusHistoryRepo: BatchInstrumentStatusHistoryJpaRepository,
     private val redisTemplate: StringRedisTemplate,
     private val kafkaTemplate: KafkaTemplate<String, String>,
     private val objectMapper: ObjectMapper,
@@ -136,12 +140,19 @@ class InstrumentSyncJob(
 
         val changes = mutableListOf<Map<String, String>>()
 
+        // status history detection 통계 (ADR 0090 Phase 1)
+        var statusHistoryInserted = 0
+
         // 4-A. INSERT NEW
         for (code in newCodes) {
             val raw = kisMap[code] ?: continue
             try {
                 upsertInstrumentFull(raw)
                 upsertAlias(raw.code, raw.name)
+                // ADR 0090 Phase 1 — 신규 종목 baseline status row 발행 (NORMAL or 초기 status)
+                val initialStatus = deriveStatus(raw)
+                insertStatusHistory(raw.code, initialStatus, "ADR 0090 신규 종목 baseline")
+                statusHistoryInserted++
                 inserted++
                 changes.add(
                     mapOf(
@@ -171,10 +182,24 @@ class InstrumentSyncJob(
                     existing.managementStock != raw.managementStock ||
                     existing.marketAlert != raw.marketAlert ||
                     existing.liquidation != raw.liquidation
+            // ADR 0090 Phase 1 — status 변화 detection (trading_halt·liquidation 분기)
+            val statusChanged =
+                existing.tradingHalt != raw.tradingHalt ||
+                    existing.liquidation != raw.liquidation
             if (changed) {
                 try {
                     upsertInstrumentFull(raw)
                     upsertAlias(raw.code, raw.name)
+                    if (statusChanged) {
+                        // status 변화 → 기존 active row close + 신규 row insert (ADR 0090 §2-2)
+                        val newStatus = deriveStatus(raw)
+                        val reason =
+                            "ADR 0090 status 변화 detection " +
+                                "(tradingHalt=${existing.tradingHalt}->${raw.tradingHalt}, " +
+                                "liquidation=${existing.liquidation}->${raw.liquidation})"
+                        rotateStatusHistory(raw.code, newStatus, reason)
+                        statusHistoryInserted++
+                    }
                     updated++
                     changes.add(
                         mapOf(
@@ -196,6 +221,9 @@ class InstrumentSyncJob(
             val existing = existingActive[code] ?: continue
             try {
                 instrumentRepo.markDelisted(code, today)
+                // ADR 0090 Phase 1 — DELIST 시 status DELISTED 전이 row 발행
+                rotateStatusHistory(code, InstrumentStatus.DELISTED, "ADR 0090 DELIST")
+                statusHistoryInserted++
                 delisted++
                 changes.add(
                     mapOf(
@@ -209,6 +237,10 @@ class InstrumentSyncJob(
                 log.warn("[instrument-sync] DELIST 실패 code={} err={}", code, e.message)
                 failed++
             }
+        }
+
+        if (statusHistoryInserted > 0) {
+            log.info("[instrument-sync] ADR 0090 status history rows inserted={}", statusHistoryInserted)
         }
 
         // 5. Kafka publish
@@ -330,6 +362,76 @@ class InstrumentSyncJob(
         name: String,
     ) {
         aliasRepo.upsert(code = code, alias = name, source = "KRX")
+    }
+
+    /**
+     * ADR 0090 Phase 1 — KIS raw → InstrumentStatus enum 변환.
+     *
+     * 분기 룰 (chart-curator §12 4축 axis 2·3 정합):
+     *   - liquidation=true → LIQUIDATION (정리매매 우선 — 상장폐지 직전 limited 거래)
+     *   - tradingHalt=true → TRADING_HALT (거래정지)
+     *   - 그 외 → NORMAL
+     *
+     * DELISTED 분기는 별도 path (delistedCodes detection) — 본 함수는 raw 정합 종목 한정.
+     */
+    internal fun deriveStatus(raw: KisInstrumentRaw): InstrumentStatus =
+        when {
+            raw.liquidation -> InstrumentStatus.LIQUIDATION
+            raw.tradingHalt -> InstrumentStatus.TRADING_HALT
+            else -> InstrumentStatus.NORMAL
+        }
+
+    /**
+     * ADR 0090 Phase 1 — 신규 status history row INSERT (active row 1건 LOCK).
+     *
+     * caller 책임: 본 호출 직전 [rotateStatusHistory] 또는 신규 종목 baseline path여야 한다.
+     */
+    @Transactional
+    fun insertStatusHistory(
+        code: String,
+        status: InstrumentStatus,
+        reason: String,
+    ) {
+        val now = Instant.now()
+        statusHistoryRepo.save(
+            BatchInstrumentStatusHistoryJpaEntity(
+                instrumentCode = code,
+                status = status.name,
+                effectiveFrom = now,
+                effectiveUntil = null,
+                reason = reason,
+                recordedAt = now,
+            ),
+        )
+    }
+
+    /**
+     * ADR 0090 Phase 1 — status 변화 detection 시 active row 교체.
+     *
+     * 알고리즘 (ADR 0090 §2-2 LOCK):
+     *   1. 기존 active row(effective_until=null) effectiveUntil=now() UPDATE
+     *   2. 신규 active row INSERT (effectiveFrom=now() · effectiveUntil=null)
+     *
+     * history immutability — 기존 row의 status·effective_from·reason 수정 0.
+     */
+    @Transactional
+    fun rotateStatusHistory(
+        code: String,
+        newStatus: InstrumentStatus,
+        reason: String,
+    ) {
+        val now = Instant.now()
+        statusHistoryRepo.closeActiveStatus(code, now)
+        statusHistoryRepo.save(
+            BatchInstrumentStatusHistoryJpaEntity(
+                instrumentCode = code,
+                status = newStatus.name,
+                effectiveFrom = now,
+                effectiveUntil = null,
+                reason = reason,
+                recordedAt = now,
+            ),
+        )
     }
 
     private fun publishKafka(

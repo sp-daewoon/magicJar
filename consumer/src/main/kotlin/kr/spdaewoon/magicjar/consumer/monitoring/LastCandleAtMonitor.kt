@@ -37,7 +37,7 @@ import java.time.temporal.ChronoUnit
  *   - 1분봉(ONE_MIN): 1 거래일 stale → alert + backfill 트리거
  *     (장중 모니터링 — 분봉 파이프라인 끊김 즉시 감지)
  *
- * Rate Limit 보호 (ADR 0037 — 20 req/s):
+ * Rate Limit 보호 (ADR 0037 — 초당 10건):
  *   - 종목 간 100ms 간격 (cold-start 호출 비동기지만 큐잉 부담 분산)
  *   - 거래정지·정리매매 종목 자동 skip (KIS_COLD_START_SKIPPED audit)
  *
@@ -240,7 +240,7 @@ class LastCandleAtMonitor(
                 }
             }
 
-            // Rate limit 보호 — KIS API rate limit (ADR 0037 — 20 req/s) 정합.
+            // Rate limit 보호 — KIS API rate limit (ADR 0037 — 초당 10건) 정합.
             // ColdStartExecutor.submit 자체는 즉시 반환되나, 큐잉 부담 분산 + DB read 부하 분산.
             try {
                 Thread.sleep(PER_CODE_INTERVAL_MS)

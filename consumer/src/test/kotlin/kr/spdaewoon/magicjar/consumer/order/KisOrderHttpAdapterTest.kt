@@ -6,6 +6,7 @@ import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisHashKeyAdapter
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialId
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.order.execution.OrderIntent
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
@@ -36,6 +37,7 @@ class KisOrderHttpAdapterTest {
     private val kisAuthAdapter = mockk<KisAuthAdapter>(relaxed = true)
     private val kisHashKeyAdapter = mockk<KisHashKeyAdapter>(relaxed = true)
     private val credentialRepository = mockk<ConsumerUserKisCredentialJpaRepository>(relaxed = true)
+    private val kisRateLimiterPort = mockk<KisRateLimiterPort>(relaxed = true)
 
     private val adapter =
         KisOrderHttpAdapter(
@@ -44,6 +46,7 @@ class KisOrderHttpAdapterTest {
             kisAuthAdapter = kisAuthAdapter,
             kisHashKeyAdapter = kisHashKeyAdapter,
             credentialRepository = credentialRepository,
+            kisRateLimiterPort = kisRateLimiterPort,
             kisBaseProd = "https://openapi.koreainvestment.com:9443",
             kisBaseVps = "https://openapivts.koreainvestment.com:29443",
         )

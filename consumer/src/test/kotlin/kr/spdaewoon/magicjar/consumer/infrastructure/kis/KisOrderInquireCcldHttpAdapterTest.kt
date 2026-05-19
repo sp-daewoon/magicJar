@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.consumer.infrastructure.kis
 
 import io.mockk.mockk
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -37,6 +38,7 @@ class KisOrderInquireCcldHttpAdapterTest {
             secretCipher = secretCipher,
             kisAuthAdapter = kisAuthAdapter,
             credentialRepository = credentialRepo,
+            kisRateLimiterPort = mockk<KisRateLimiterPort>(relaxed = true),
             kisBaseProd = "https://openapi.koreainvestment.com:9443",
             kisBaseVps = "https://openapivts.koreainvestment.com:29443",
         )

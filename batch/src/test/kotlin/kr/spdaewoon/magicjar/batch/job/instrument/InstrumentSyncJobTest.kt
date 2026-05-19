@@ -10,6 +10,8 @@ import kr.spdaewoon.magicjar.batch.infrastructure.kis.KisInstrumentRaw
 import kr.spdaewoon.magicjar.batch.persistence.BatchInstrumentAliasJpaRepository
 import kr.spdaewoon.magicjar.batch.persistence.BatchInstrumentJpaEntity
 import kr.spdaewoon.magicjar.batch.persistence.BatchInstrumentJpaRepository
+import kr.spdaewoon.magicjar.batch.persistence.BatchInstrumentStatusHistoryJpaEntity
+import kr.spdaewoon.magicjar.batch.persistence.BatchInstrumentStatusHistoryJpaRepository
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentMarket
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentType
 import kr.spdaewoon.magicjar.domain.instrument.port.KisInstrumentMasterPort
@@ -39,6 +41,7 @@ class InstrumentSyncJobTest {
     private val kisAdapter: KisInstrumentMasterAdapter = mockk()
     private val instrumentRepo: BatchInstrumentJpaRepository = mockk()
     private val aliasRepo: BatchInstrumentAliasJpaRepository = mockk()
+    private val statusHistoryRepo: BatchInstrumentStatusHistoryJpaRepository = mockk()
     private val redisTemplate: StringRedisTemplate = mockk()
     private val valueOps: ValueOperations<String, String> = mockk()
     private val kafkaTemplate: KafkaTemplate<String, String> = mockk()
@@ -54,12 +57,19 @@ class InstrumentSyncJobTest {
         every { redisTemplate.keys(any()) } returns emptySet()
         every { valueOps.set(any(), any(), any<Duration>()) } returns Unit
 
+        // ADR 0090 Phase 1 — status history repo mock (active row 부재 default — INSERT만 호출)
+        every { statusHistoryRepo.findActiveByCode(any()) } returns null
+        every { statusHistoryRepo.closeActiveStatus(any(), any()) } returns 1
+        every { statusHistoryRepo.save(any<BatchInstrumentStatusHistoryJpaEntity>()) } answers
+            { firstArg() }
+
         job =
             InstrumentSyncJob(
                 kisPort = kisPort,
                 kisAdapter = kisAdapter,
                 instrumentRepo = instrumentRepo,
                 aliasRepo = aliasRepo,
+                statusHistoryRepo = statusHistoryRepo,
                 redisTemplate = redisTemplate,
                 kafkaTemplate = kafkaTemplate,
                 objectMapper = objectMapper,

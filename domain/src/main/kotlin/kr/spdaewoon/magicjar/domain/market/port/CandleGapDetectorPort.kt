@@ -33,7 +33,7 @@ interface CandleGapDetectorPort {
      *   ```
      *
      * 윈도우 LOCK 사유:
-     *   - KIS 호출 cost 보호 (ADR 0037 — 20 req/s)
+     *   - KIS 호출 cost 보호 (ADR 0037 — 초당 10건)
      *   - chart-curator skill §캔들 데이터 SLA 매트릭스 5m·15m·30m·90m·1h 30 거래일 정합
      *   - 30 거래일 × 1m = 21,600 ts/종목 (in-memory diff 1초 이내)
      *

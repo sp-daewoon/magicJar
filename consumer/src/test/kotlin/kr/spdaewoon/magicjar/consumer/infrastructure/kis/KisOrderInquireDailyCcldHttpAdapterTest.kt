@@ -5,6 +5,7 @@ import io.mockk.mockk
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialId
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderInquireResult
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
@@ -38,6 +39,7 @@ class KisOrderInquireDailyCcldHttpAdapterTest {
             secretCipher = secretCipher,
             kisAuthAdapter = kisAuthAdapter,
             credentialRepository = credentialRepository,
+            kisRateLimiterPort = mockk<KisRateLimiterPort>(relaxed = true),
             kisBaseProd = "https://openapi.koreainvestment.com:9443",
             kisBaseVps = "https://openapivts.koreainvestment.com:29443",
         )
