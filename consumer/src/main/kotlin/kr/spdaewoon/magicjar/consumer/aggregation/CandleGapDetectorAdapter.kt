@@ -5,6 +5,8 @@ import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepository
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentStatusHistoryJpaRepository
+import kr.spdaewoon.magicjar.domain.instrument.InstrumentStatus
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleGapDetectorPort
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
@@ -18,7 +20,7 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 
 /**
- * CandleGapDetectorPort 구현 — consumer 모듈 (ADR 0086 §2-2 + T-CC Phase 2-A/B).
+ * CandleGapDetectorPort 구현 — consumer 모듈 (ADR 0086 §2-2 + T-CC Phase 2-A/B + ADR 0090 Phase 2).
  *
  * 책임:
  *   - 영업일 캘린더 기반 expected sequence 생성 (BusinessDayCalendar.isBusinessDay() 의무 호출)
@@ -31,15 +33,20 @@ import java.time.ZonedDateTime
  *       * 휴장일 제외 (BusinessDayCalendar.isBusinessDay() 호출)
  *       * 시간외(NXT) — Phase 2-A 1차 MVP 1m 갭은 정규장 09:00~15:30 KST만 cover (NXT cover는 Phase 후속)
  *   - 룰 #7 false negative 가드: actual 0건이면 expected 전체 = 갭 list (last_ts null Phase 1 패턴 정합)
- *   - **룰 §12 Active gap detection 4축 교차 검증 (Phase 2-B amend, ADR 0086 §2-7)**:
+ *   - **룰 §12 Active gap detection 4축 교차 검증 (ADR 0090 Phase 2 정밀화, 2026-05-19)**:
  *       1축: `market_calendar.is_business_day=TRUE` (BusinessDayCalendar 권위 — 위 #6과 동일 호출)
- *       2축: `instrument.trading_halt=FALSE` (거래정지 history 부재 — entity snapshot 1차 MVP)
- *       3축: `instrument.liquidation=FALSE` (정리매매 부재)
+ *       2축: `instrument_status_history at ts != TRADING_HALT` (★ Phase 2 history snapshot LOCK)
+ *       3축: `instrument_status_history at ts != LIQUIDATION` (★ Phase 2 history snapshot LOCK)
  *       4축: `instrument.listed_at <= ts` (상장일 이후 ts)
  *     → 4축 모두 TRUE인데 candle row 부재 = 명확한 결함 → audit `CANDLE_GAP_DETECTED` 발행.
  *     사용자(최고 관리자) 명시 정합 룰. 임의 임계치("5+ 영업일 연속") 영구 폐기.
- *     **현행 한계 (Phase 2-B 1차 MVP)**: 거래정지·정리매매 history snapshot 부재 → 현재 entity flag만으로 판단.
- *     정확한 history 검증은 Phase 3 (instrument_status_history 별도 테이블) 의제.
+ *
+ * ADR 0090 Phase 2 — axis 2·3 시점 정밀도 향상 (false positive·false negative 영구 차단):
+ *   - 기존 한계 (Phase 2-B 1차 MVP): `instrument.trading_halt`·`instrument.liquidation` flag는 **현재 상태**만 보존
+ *     → 5개월 전 거래정지 후 NORMAL 복귀한 종목의 과거 정지 구간을 결함으로 오인할 risk
+ *   - Phase 2 정밀화: `instrument_status_history` lens (`ConsumerInstrumentStatusHistoryJpaRepository`)를
+ *     `passesActiveGapAxes(ts)`에서 각 ts마다 조회 → 시점별 status 판단
+ *   - 호환성 fallback: history row 0건 또는 repository 미주입 시 기존 entity flag로 폴백 (회귀 0)
  *
  * 윈도우 (ADR 0086 §2-3 LOCK):
  *   - 최근 30 거래일 (default windowDays=30)
@@ -56,6 +63,7 @@ class CandleGapDetectorAdapter(
     private val instrumentJpaRepository: ConsumerInstrumentJpaRepository,
     private val auditRepositoryProvider: ObjectProvider<ConsumerAuditTrailJpaRepository>,
     private val objectMapperProvider: ObjectProvider<ObjectMapper>,
+    private val statusHistoryRepositoryProvider: ObjectProvider<ConsumerInstrumentStatusHistoryJpaRepository>,
 ) : CandleGapDetectorPort {
     private val log = LoggerFactory.getLogger(CandleGapDetectorAdapter::class.java)
 
@@ -117,10 +125,12 @@ class CandleGapDetectorAdapter(
         if (expected.isEmpty()) return emptyList()
 
         // §12 4축 교차 검증 — 각 ts별로 axes 2·3·4 통과 여부 필터 (axis 1은 위 expectedDates에서 이미 적용)
-        // axis 2: instrument.trading_halt = FALSE (entity 단위 — 위 early-return으로 이미 통과)
-        // axis 3: instrument.liquidation = FALSE (위 early-return으로 이미 통과)
+        // axis 2: instrument_status_history at ts != TRADING_HALT (ADR 0090 Phase 2 시점 정밀화)
+        // axis 3: instrument_status_history at ts != LIQUIDATION (ADR 0090 Phase 2 시점 정밀화)
         // axis 4: instrument.listed_at <= ts (ts가 상장일 이전이면 false positive — 데이터 부재가 정상)
-        val verifiedExpected = expected.filter { ts -> passesActiveGapAxes(instrument, ts) }
+        val statusHistoryRepo = statusHistoryRepositoryProvider.getIfAvailable()
+        val verifiedExpected =
+            expected.filter { ts -> passesActiveGapAxes(code, instrument, ts, statusHistoryRepo) }
         if (verifiedExpected.isEmpty()) {
             log.info(
                 "CandleGapDetector — 4축 통과 ts 0건 (상장일 이전 등): code={} interval={} rawExpected={}",
@@ -162,6 +172,7 @@ class CandleGapDetectorAdapter(
                 verifiedExpected = verifiedExpected.size,
                 actualCount = actual.size,
                 gaps = gaps,
+                statusHistoryRepo = statusHistoryRepo,
             )
         }
 
@@ -171,10 +182,19 @@ class CandleGapDetectorAdapter(
     /**
      * §12 4축 교차 검증 중 axis 2·3·4 통과 여부 (axis 1은 expectedDates 생성 단계에서 이미 적용).
      *
-     * axis 2 (trading_halt=FALSE) + axis 3 (liquidation=FALSE):
-     *   detectGaps() 진입 early-return으로 이미 통과 보장 (이 함수 호출 시점에는 무조건 통과 상태).
-     *   다만 instrument 자체가 null이면 trading_halt·liquidation flag 추론 불가 → "정보 없음" → 통과로 간주
-     *   (false positive 회피 — 미지정 종목은 갭 검증 진행).
+     * ADR 0090 Phase 2 정밀화 (2026-05-19):
+     *
+     * axis 2 (TRADING_HALT) + axis 3 (LIQUIDATION):
+     *   `instrument_status_history` lens — `findStatusAt(code, ts)` 조회로 시점별 status 판단:
+     *     - row 발견 + status == TRADING_HALT → axis 2 fail
+     *     - row 발견 + status == LIQUIDATION  → axis 3 fail
+     *     - row 발견 + status == DELISTED    → axis 2·3 fail (상장폐지는 매매 불가)
+     *     - row 발견 + status == NORMAL      → 통과
+     *     - row 부재 → fallback: 기존 entity flag (`instrument.tradingHalt`·`liquidation`) 적용 (Phase 1 backfill 종목 cover)
+     *     - statusHistoryRepo null (DI 부재·테스트) → fallback: entity flag (회귀 0 가드)
+     *
+     *   ★ 기존 detectGaps() early-return은 이미 entity 현재 상태 기준으로 통과 보장.
+     *     본 함수는 그 위에 history snapshot lens를 덧입혀 axis 2·3 시점 정밀도를 ts 단위로 향상.
      *
      * axis 4 (listed_at <= ts):
      *   instrument.listedAt null 시 "상장일 미상" → 통과로 간주 (false positive 회피).
@@ -183,9 +203,17 @@ class CandleGapDetectorAdapter(
      * ts → KST LocalDate 변환 후 비교 (listed_at은 LocalDate).
      */
     private fun passesActiveGapAxes(
+        code: String,
         instrument: ConsumerInstrumentJpaEntity?,
         ts: Instant,
+        statusHistoryRepo: ConsumerInstrumentStatusHistoryJpaRepository?,
     ): Boolean {
+        // axis 2·3 — instrument_status_history at ts (ADR 0090 Phase 2)
+        val statusAt = resolveStatusAt(code, instrument, ts, statusHistoryRepo)
+        if (statusAt == InstrumentStatus.TRADING_HALT) return false
+        if (statusAt == InstrumentStatus.LIQUIDATION) return false
+        if (statusAt == InstrumentStatus.DELISTED) return false
+
         // axis 4 — 상장일 이후 ts 검증
         val listedAt = instrument?.listedAt ?: return true // 상장일 미상 → 통과 (false positive 회피)
         val tsKstDate = ts.atZone(KST).toLocalDate()
@@ -193,7 +221,61 @@ class CandleGapDetectorAdapter(
     }
 
     /**
+     * 시점 ts의 instrument status 해석 (ADR 0090 Phase 2 권위 path).
+     *
+     * 우선순위:
+     *   1. `instrument_status_history` row at ts (Phase 1 baseline backfill 종목 cover)
+     *   2. fallback: entity 현재 상태 flag (history row 부재 종목 — 회귀 0 가드)
+     *   3. fallback: NORMAL (instrument 자체 null — false positive 회피)
+     *
+     * 호출자: `passesActiveGapAxes(...)` + `recordGapDetectedAudit(...)` audit evidence 단일 source.
+     */
+    private fun resolveStatusAt(
+        code: String,
+        instrument: ConsumerInstrumentJpaEntity?,
+        ts: Instant,
+        statusHistoryRepo: ConsumerInstrumentStatusHistoryJpaRepository?,
+    ): InstrumentStatus {
+        // 1. instrument_status_history at ts (Phase 2 권위)
+        if (statusHistoryRepo != null) {
+            val rows =
+                try {
+                    statusHistoryRepo.findStatusAt(code, ts)
+                } catch (e: Exception) {
+                    log.warn(
+                        "CandleGapDetector — instrument_status_history 조회 실패: code={} ts={} err={}",
+                        code,
+                        ts,
+                        e.message,
+                    )
+                    emptyList()
+                }
+            val activeRow = rows.firstOrNull()
+            if (activeRow != null) {
+                val parsed = runCatching { InstrumentStatus.valueOf(activeRow.status) }.getOrNull()
+                if (parsed != null) return parsed
+                log.warn(
+                    "CandleGapDetector — instrument_status_history status enum 변환 실패: code={} raw={}",
+                    code,
+                    activeRow.status,
+                )
+            }
+        }
+        // 2. fallback: entity 현재 상태 flag (history row 부재 종목)
+        if (instrument != null) {
+            if (instrument.tradingHalt) return InstrumentStatus.TRADING_HALT
+            if (instrument.liquidation) return InstrumentStatus.LIQUIDATION
+        }
+        // 3. fallback: NORMAL (instrument null — false positive 회피)
+        return InstrumentStatus.NORMAL
+    }
+
+    /**
      * §12 audit_trail `CANDLE_GAP_DETECTED` 발행 — 4축 evidence inline.
+     *
+     * ADR 0090 Phase 2 — axes.historyStatusAt evidence 추가:
+     *   - 첫 번째 gap ts에서 resolveStatusAt() 호출 → 해당 시점 history snapshot status
+     *   - history row 부재 시 "fallback:entity" 표기 (운영 audit 추적 가능)
      *
      * detail JSON 구조:
      *   {
@@ -207,9 +289,11 @@ class CandleGapDetectorAdapter(
      *     "gapsSample": ["2026-05-15T00:00:00Z", ...],  // 상위 10개
      *     "axes": {                  // 4축 권위 source evidence
      *       "businessDayCalendar": true,         // axis 1 — 항상 true (filter 결과)
-     *       "tradingHalt": false,                // axis 2
-     *       "liquidation": false,                // axis 3
-     *       "listedAt": "2010-12-09"            // axis 4 (null 시 "unknown")
+     *       "tradingHalt": false,                // axis 2 entity flag (현재 상태)
+     *       "liquidation": false,                // axis 3 entity flag (현재 상태)
+     *       "listedAt": "2010-12-09",            // axis 4 (null 시 "unknown")
+     *       "historyStatusAt": "NORMAL",         // ADR 0090 Phase 2 — 첫 gap ts history snapshot status
+     *       "historyLensActive": true            // history repository 활성 여부 (회귀 추적)
      *     }
      *   }
      */
@@ -222,9 +306,17 @@ class CandleGapDetectorAdapter(
         verifiedExpected: Int,
         actualCount: Int,
         gaps: List<Instant>,
+        statusHistoryRepo: ConsumerInstrumentStatusHistoryJpaRepository?,
     ) {
         val auditRepo = auditRepositoryProvider.getIfAvailable() ?: return
         val objectMapper = objectMapperProvider.getIfAvailable() ?: return
+        val firstGap = gaps.firstOrNull()
+        val historyStatusAt =
+            if (firstGap != null) {
+                resolveStatusAt(code, instrument, firstGap, statusHistoryRepo).name
+            } else {
+                "unknown"
+            }
         val detail =
             mapOf(
                 "code" to code,
@@ -241,6 +333,8 @@ class CandleGapDetectorAdapter(
                         "tradingHalt" to (instrument?.tradingHalt ?: false),
                         "liquidation" to (instrument?.liquidation ?: false),
                         "listedAt" to (instrument?.listedAt?.toString() ?: "unknown"),
+                        "historyStatusAt" to historyStatusAt,
+                        "historyLensActive" to (statusHistoryRepo != null),
                     ),
             )
         val detailJson =

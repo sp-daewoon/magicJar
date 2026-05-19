@@ -9,6 +9,8 @@ import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepository
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentStatusHistoryJpaEntity
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentStatusHistoryJpaRepository
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import kr.spdaewoon.magicjar.domain.market.session.BusinessDayCalendar
@@ -36,6 +38,7 @@ class CandleGapDetectorAdapterTest {
     private val instrumentJpaRepository = mockk<ConsumerInstrumentJpaRepository>()
     private val auditRepository = mockk<ConsumerAuditTrailJpaRepository>(relaxed = true)
     private val objectMapper = ObjectMapper()
+    private val statusHistoryRepository = mockk<ConsumerInstrumentStatusHistoryJpaRepository>()
 
     @Suppress("UNCHECKED_CAST")
     private val auditRepositoryProvider: ObjectProvider<ConsumerAuditTrailJpaRepository> =
@@ -49,6 +52,25 @@ class CandleGapDetectorAdapterTest {
             every { it.getIfAvailable() } returns objectMapper
         }
 
+    /**
+     * ADR 0090 Phase 2 — instrument_status_history lens provider stub.
+     *
+     * default behaviour: findStatusAt(...) returns emptyList → fallback to entity flag
+     * (회귀 가드 — Phase 2 통합 후에도 기존 테스트 흐름 동작 보장).
+     *
+     * 시점별 정밀화 단위 테스트는 별도로 every { repo.findStatusAt(...) } stub override.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private val statusHistoryRepositoryProvider: ObjectProvider<ConsumerInstrumentStatusHistoryJpaRepository> =
+        mockk<ObjectProvider<ConsumerInstrumentStatusHistoryJpaRepository>>().also {
+            every { it.getIfAvailable() } returns statusHistoryRepository
+        }
+
+    init {
+        // 기본값: history row 0건 → fallback to entity (기존 테스트 회귀 0 가드)
+        every { statusHistoryRepository.findStatusAt(any(), any()) } returns emptyList()
+    }
+
     private val adapter =
         CandleGapDetectorAdapter(
             candleRepository = candleRepository,
@@ -56,6 +78,20 @@ class CandleGapDetectorAdapterTest {
             instrumentJpaRepository = instrumentJpaRepository,
             auditRepositoryProvider = auditRepositoryProvider,
             objectMapperProvider = objectMapperProvider,
+            statusHistoryRepositoryProvider = statusHistoryRepositoryProvider,
+        )
+
+    private fun historyRow(
+        code: String,
+        status: String,
+        effectiveFrom: Instant,
+        effectiveUntil: Instant? = null,
+    ): ConsumerInstrumentStatusHistoryJpaEntity =
+        ConsumerInstrumentStatusHistoryJpaEntity(
+            instrumentCode = code,
+            status = status,
+            effectiveFrom = effectiveFrom,
+            effectiveUntil = effectiveUntil,
         )
 
     @Test
@@ -438,5 +474,166 @@ class CandleGapDetectorAdapterTest {
         // instrument null이어도 갭 검출 진행 (audit 발행)
         assertThat(gaps).hasSize(5)
         verify(exactly = 1) { auditRepository.save(any()) }
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // ADR 0090 Phase 2 — instrument_status_history lens 통합 (chart-curator 보수 페르소나, 2026-05-19)
+    // axis 2·3 시점별 정밀화 회귀 가드 5건
+    // ──────────────────────────────────────────────────────────
+
+    @Test
+    fun `axis-2-history-trading-halt — 시점별 TRADING_HALT history snapshot 검출 시 axis 2 fail (해당 ts gap 제외)`() {
+        // 시나리오: instrument 현재 상태는 NORMAL이지만, history는 windowDays 전체 구간 TRADING_HALT
+        // → axis 2 fail → verifiedExpected 0건 → gaps 0건 → audit 발행 0건 (false positive 영구 차단)
+        val instrument =
+            mockk<ConsumerInstrumentJpaEntity>().also {
+                every { it.tradingHalt } returns false
+                every { it.liquidation } returns false
+                every { it.listedAt } returns LocalDate.of(2010, 1, 1)
+            }
+        every { instrumentJpaRepository.findById("004090") } returns Optional.of(instrument)
+
+        // history: 5 영업일 모두 TRADING_HALT 상태 (effective_from 충분히 과거)
+        val haltFrom = Instant.parse("2020-01-01T00:00:00Z")
+        every { statusHistoryRepository.findStatusAt(eq("004090"), any()) } answers {
+            listOf(historyRow("004090", "TRADING_HALT", haltFrom))
+        }
+
+        val gaps = adapter.detectGaps("004090", CandleInterval.ONE_DAY, windowDays = 5)
+
+        // axis 2 fail → 4축 통과 ts 0건 → gaps 0건 (정상 — 거래정지 종목 갭은 결함 아님)
+        assertThat(gaps).isEmpty()
+        // candle actual 조회 자체가 호출되지 않아야 함 (verifiedExpected 0건이면 early return)
+        verify(exactly = 0) {
+            candleRepository.findAllTsByCodeAndIntervalBetween(any(), any(), any(), any())
+        }
+        // audit 발행 0건 (gaps=0)
+        verify(exactly = 0) { auditRepository.save(any()) }
+    }
+
+    @Test
+    fun `axis-3-history-liquidation — 시점별 LIQUIDATION history snapshot 검출 시 axis 3 fail`() {
+        // 시나리오: 현재 entity 상태는 NORMAL, history는 LIQUIDATION
+        val instrument =
+            mockk<ConsumerInstrumentJpaEntity>().also {
+                every { it.tradingHalt } returns false
+                every { it.liquidation } returns false
+                every { it.listedAt } returns LocalDate.of(2010, 1, 1)
+            }
+        every { instrumentJpaRepository.findById("004090") } returns Optional.of(instrument)
+
+        every { statusHistoryRepository.findStatusAt(eq("004090"), any()) } returns
+            listOf(historyRow("004090", "LIQUIDATION", Instant.parse("2020-01-01T00:00:00Z")))
+
+        val gaps = adapter.detectGaps("004090", CandleInterval.ONE_DAY, windowDays = 5)
+
+        assertThat(gaps).isEmpty()
+        verify(exactly = 0) {
+            candleRepository.findAllTsByCodeAndIntervalBetween(any(), any(), any(), any())
+        }
+    }
+
+    @Test
+    fun `history-normal-recovery — 거래정지 후 NORMAL 회복 시점 axis 2 pass (시점별 정밀도 evidence)`() {
+        // 시나리오: 현재 NORMAL, history는 특정 과거 ts에 NORMAL active row 보유 (회복 후)
+        // → axis 2 pass → gaps 검출 진행 (한국석유 dogfooding 정합 — 정지 이력 없는 종목)
+        val instrument =
+            mockk<ConsumerInstrumentJpaEntity>().also {
+                every { it.tradingHalt } returns false
+                every { it.liquidation } returns false
+                every { it.listedAt } returns LocalDate.of(2010, 12, 9)
+            }
+        every { instrumentJpaRepository.findById("004090") } returns Optional.of(instrument)
+
+        // history NORMAL — 모든 ts에서 NORMAL active row 보유
+        every { statusHistoryRepository.findStatusAt(eq("004090"), any()) } returns
+            listOf(historyRow("004090", "NORMAL", Instant.parse("2010-12-09T00:00:00Z")))
+
+        every {
+            candleRepository.findAllTsByCodeAndIntervalBetween(
+                code = "004090",
+                interval = CandleInterval.ONE_DAY,
+                from = any(),
+                to = any(),
+            )
+        } returns emptyList()
+
+        val auditSlot = slot<ConsumerAuditTrailJpaEntity>()
+        every { auditRepository.save(capture(auditSlot)) } returns mockk(relaxed = true)
+
+        val gaps = adapter.detectGaps("004090", CandleInterval.ONE_DAY, windowDays = 5)
+
+        // 4축 모두 pass + actual 0건 → 5건 gap 검출
+        assertThat(gaps).hasSize(5)
+        // audit detail에 historyStatusAt=NORMAL + historyLensActive=true evidence inline
+        val detail = auditSlot.captured.detailJson ?: ""
+        assertThat(detail)
+            .contains("\"historyStatusAt\":\"NORMAL\"")
+            .contains("\"historyLensActive\":true")
+    }
+
+    @Test
+    fun `history-row-absent — history row 0건 시 fallback to entity current flag (회귀 가드)`() {
+        // 시나리오: history 0건 (Phase 1 backfill 미적용 종목) + entity TRADING_HALT=true
+        // → resolveStatusAt fallback → TRADING_HALT → axis 2 fail
+        // (회귀 0 가드 — 기존 detectGaps early-return 동작 보존)
+        val instrument =
+            mockk<ConsumerInstrumentJpaEntity>().also {
+                every { it.tradingHalt } returns true
+                every { it.liquidation } returns false
+                every { it.listedAt } returns LocalDate.of(2010, 1, 1)
+            }
+        every { instrumentJpaRepository.findById("004090") } returns Optional.of(instrument)
+
+        // history row 0건 — fallback to entity
+        every { statusHistoryRepository.findStatusAt(eq("004090"), any()) } returns emptyList()
+
+        val gaps = adapter.detectGaps("004090", CandleInterval.ONE_DAY, windowDays = 5)
+
+        // entity tradingHalt=true → detectGaps() 초기 early-return → empty list
+        // (history lens는 보조 — 기존 contract 회귀 0)
+        assertThat(gaps).isEmpty()
+    }
+
+    @Test
+    fun `active-gap-detection-precision — history NORMAL + 4축 통과 시 audit historyStatusAt evidence 인용 의무`() {
+        // 시나리오: 한국석유(004090) Phase 2 cross-ref 정합 — history NORMAL + gaps 5건 검출
+        // detail JSON axes block에 ADR 0090 신규 evidence 키 (historyStatusAt·historyLensActive) inline 보장
+        val instrument =
+            mockk<ConsumerInstrumentJpaEntity>().also {
+                every { it.tradingHalt } returns false
+                every { it.liquidation } returns false
+                every { it.listedAt } returns LocalDate.of(2010, 12, 9)
+            }
+        every { instrumentJpaRepository.findById("004090") } returns Optional.of(instrument)
+
+        every { statusHistoryRepository.findStatusAt(eq("004090"), any()) } returns
+            listOf(historyRow("004090", "NORMAL", Instant.parse("2010-12-09T00:00:00Z")))
+
+        every {
+            candleRepository.findAllTsByCodeAndIntervalBetween(
+                code = "004090",
+                interval = CandleInterval.ONE_DAY,
+                from = any(),
+                to = any(),
+            )
+        } returns emptyList()
+
+        val auditSlot = slot<ConsumerAuditTrailJpaEntity>()
+        every { auditRepository.save(capture(auditSlot)) } returns mockk(relaxed = true)
+
+        adapter.detectGaps("004090", CandleInterval.ONE_DAY, windowDays = 3)
+
+        val detail = auditSlot.captured.detailJson ?: ""
+        // ADR 0090 Phase 2 — historyStatusAt + historyLensActive evidence inline 의무
+        assertThat(detail)
+            .contains("\"historyStatusAt\":\"NORMAL\"")
+            .contains("\"historyLensActive\":true")
+        // 기존 4축 evidence 회귀 0 가드
+        assertThat(detail)
+            .contains("\"businessDayCalendar\":true")
+            .contains("\"tradingHalt\":false")
+            .contains("\"liquidation\":false")
+            .contains("\"listedAt\":\"2010-12-09\"")
     }
 }
