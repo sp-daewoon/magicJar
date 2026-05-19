@@ -2,9 +2,14 @@
 <configuration>
     <springProperty scope="context" name="springAppName" source="spring.application.name" defaultValue="magicjar-api"/>
 
+    <!--
+        ADR 0084 P1-3 — MDC traceId 분산 추적 패턴.
+        TraceIdServletFilter(HTTP) + TraceIdKafkaRecordInterceptor(Kafka) + WebClient filter가
+        같은 thread MDC `traceId` 부착 → 본 패턴이 자동 출력. 부재 시 `-` 출력 (default).
+    -->
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
-            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <pattern>%d{HH:mm:ss.SSS} [%X{traceId:--}] [%thread] %-5level %logger{36} - %msg%n</pattern>
         </encoder>
     </appender>
 

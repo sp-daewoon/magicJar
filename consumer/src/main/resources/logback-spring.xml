@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <springProperty scope="context" name="springAppName" source="spring.application.name" defaultValue="magicjar-consumer"/>
+
+    <!--
+        ADR 0084 P1-3 — MDC traceId 분산 추적 패턴.
+        TraceIdKafkaRecordInterceptor가 inbound record 진입 시 MDC `traceId` 부착 →
+        listener 본문 + downstream Kafka send + KIS REST 호출 로그 전체에 같은 traceId 출력.
+    -->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+            <pattern>%d{HH:mm:ss.SSS} [%X{traceId:--}] [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="STDOUT"/>
+    </root>
+
+    <springProfile name="dev">
+        <logger name="kr.spdaewoon.magicjar" level="DEBUG"/>
+        <logger name="org.hibernate.SQL" level="DEBUG"/>
+    </springProfile>
+
+    <springProfile name="prd">
+        <root level="WARN">
+            <appender-ref ref="STDOUT"/>
+        </root>
+    </springProfile>
+</configuration>
