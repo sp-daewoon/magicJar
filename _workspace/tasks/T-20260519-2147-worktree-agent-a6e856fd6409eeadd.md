@@ -3,10 +3,10 @@ id: T-20260519-2147-worktree-agent-a6e856fd6409eeadd
 agent: backend-core
 model: opus
 branch: agent/backend-core/baseline-v3-7-0-data-flow-feature-spec
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T21:47:17.255+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T21:58:14.596+09:00
+pr: #579
 parentPhase: ?
 ---
 
