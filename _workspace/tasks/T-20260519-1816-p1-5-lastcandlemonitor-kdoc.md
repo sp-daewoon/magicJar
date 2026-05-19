@@ -3,10 +3,10 @@ id: T-20260519-1816-p1-5-lastcandlemonitor-kdoc
 agent: chart-curator
 model: opus
 branch: agent/chart-curator/p1-5-lastcandlemonitor-kdoc
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T18:16:45.817+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T18:19:47.287+09:00
+pr: #561
 parentPhase: ?
 ---
 
