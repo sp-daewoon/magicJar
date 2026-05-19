@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.config
 
+import kr.spdaewoon.magicjar.consumer.infrastructure.observability.TraceIdWebClientFilter
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -24,9 +25,19 @@ import reactor.netty.http.client.HttpClient
  */
 @Configuration
 class WebClientConfig {
-    /** 일반 WebClient — KIS REST 호출 */
+    /**
+     * 일반 WebClient — KIS REST 호출.
+     *
+     * ### MDC traceId 자동 부착 (ADR 0084 P1-3)
+     * [TraceIdWebClientFilter] 등록 — 모든 outbound HTTP 호출 헤더에 진입 Kafka record의 traceId 부착.
+     * KIS REST audit log chain 추적 가능.
+     */
     @Bean
-    fun webClient(): WebClient = WebClient.builder().build()
+    fun webClient(traceIdWebClientFilter: TraceIdWebClientFilter): WebClient =
+        WebClient
+            .builder()
+            .filter(traceIdWebClientFilter)
+            .build()
 
     /**
      * KIS WS 전용 WebSocketClient — ws:// 비암호화 WebSocket.

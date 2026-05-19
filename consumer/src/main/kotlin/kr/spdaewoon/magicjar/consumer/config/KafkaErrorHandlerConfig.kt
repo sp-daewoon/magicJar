@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.config
 
+import kr.spdaewoon.magicjar.consumer.infrastructure.observability.TraceIdKafkaRecordInterceptor
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.SerializationException
 import org.slf4j.LoggerFactory
@@ -151,6 +152,7 @@ class KafkaErrorHandlerConfig {
         sslBundlesProvider: ObjectProvider<SslBundles>,
         kafkaProperties: KafkaProperties,
         errorHandler: DefaultErrorHandler,
+        traceIdRecordInterceptor: TraceIdKafkaRecordInterceptor,
     ): ConcurrentKafkaListenerContainerFactory<Any, Any> {
         val factory = ConcurrentKafkaListenerContainerFactory<Any, Any>()
         // Spring Boot KafkaAnnotationDrivenConfiguration.kafkaListenerContainerFactory pattern 정합
@@ -162,6 +164,8 @@ class KafkaErrorHandlerConfig {
             }
         configurer.configure(factory, consumerFactory)
         factory.setCommonErrorHandler(errorHandler)
+        // ADR 0084 P1-3 — MDC traceId 분산 추적: 모든 @KafkaListener 진입 시 header → MDC 복원
+        factory.setRecordInterceptor(traceIdRecordInterceptor)
         return factory
     }
 }
