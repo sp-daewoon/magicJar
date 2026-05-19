@@ -1,8 +1,8 @@
-# ADR 0086: T-CC Phase 2 — 자동 backfill 워커 + 갭 검출 + 데이터 햇징 룰 매트릭스 13건 (chart-curator 신입 보호)
+# ADR 0086: T-CC Phase 2 — 자동 backfill 워커 + 갭 검출 + 데이터 햇징 룰 매트릭스 14건 (chart-curator 신입 보호)
 
-- 상태: **Accepted (2026-05-19 amend — 햇징 룰 §11·§12·§13 추가 · 한국석유 dogfooding evidence + 사용자 명시 active gap detection 정합)**
+- 상태: **Accepted (2026-05-19 amend — 햇징 룰 §11·§12·§13·§14 추가 · 한국석유 PR #535·#587 dogfooding evidence + 사용자 명시 active gap detection 정합 + KIS 호출 한도 cover + fix 후 regression 영구 차단)**
 - 작성일: 2026-05-19
-- 결정자: architect (opus 4.7 1M) — 사용자 위임 명시 "신입한테 위 내용 잘 상기시켜서 진행해" + amend "갭 5+ 영업일 연속 누락 시 backfill skip + 운영자 escalation 이거 뭐야? 우리 정책이 있었어???"
+- 결정자: architect (opus 4.7 1M) — 사용자 위임 명시 "신입한테 위 내용 잘 상기시켜서 진행해" + amend "갭 5+ 영업일 연속 누락 시 backfill skip + 운영자 escalation 이거 뭐야? 우리 정책이 있었어???" + PR #587 진단 evidence(`RealKisRestAdapter` → `KisRestCandleAdapter` 재작성 시 페이지네이션 algorithm regression)
 - 영역: 캔들 정합성 + 메타·운영·하네스 (chart-curator skill SoT 정합)
 - 관련: ADR 0013(영업일 캘린더) · ADR 0019(캔들 저장 정책) · ADR 0028(Watchlist Ingestion) · ADR 0037(KIS API Rate Limit) · ADR 0043(KillSwitch 행동 정의) · ADR 0057(KIS-only) · ADR 0062(합산 가공 5종) · ADR 0063(NXT 매트릭스) · ADR 0085(chart-curator 영입)
 
@@ -40,9 +40,9 @@ chart-curator는 ADR 0085(2026-05-19, PR #511 머지) 영입 신입. **자동 ba
 
 ## 2. Decision
 
-### 2-1. 13 데이터 햇징 룰 LOCK
+### 2-1. 14 데이터 햇징 룰 LOCK
 
-chart-curator가 캔들 데이터를 적재·변경·갱신·삭제할 때 **반드시** 다음 13 룰 적용 (spec §5 본문 정합 + 2026-05-19 amend §11·§12·§13 추가).
+chart-curator가 캔들 데이터를 적재·변경·갱신·삭제할 때 **반드시** 다음 14 룰 적용 (spec §5 본문 정합 + 2026-05-19 amend §11·§12·§13·§14 추가).
 
 | # | 룰 | 위반 시 risk |
 |---|-----|-------------|
@@ -59,6 +59,7 @@ chart-curator가 캔들 데이터를 적재·변경·갱신·삭제할 때 **반
 | 11 | **KIS raw 사전 ASC 정규화 (신설 amend)** — adapter layer가 raw 응답 반환 직전 `.sortedBy { it.ts.epochSeconds }` 의무. `KisRestCandleAdapter.parseKisDailyResponse`·`parseKisMinuteResponse` 등 모든 parse 함수. 이중 LOCK: `CandleBackfillWorker.sanityCheck` ASC monotonic 가드는 마지막 안전망 | KIS DESC 응답 + sanity check reject → insertedCount=0 → 갭 누적 (한국석유 PR #535 root cause) |
 | 12 | **Active gap detection (4축 교차 검증, 신설 amend)** — 4축 모두 TRUE인데 candle row 부재 시 **명확한 결함 → 자동 backfill 의무**: (1) `market_calendar.is_business_day=TRUE` (ADR 0013) (2) `instrument.trading_halt=FALSE` 또는 거래정지 history 부재 (3) `instrument.liquidation=FALSE` (4) `instrument.listed_at <= ts`. **§6 passive와 대비 — §12는 active "이 조건인데 없으면 결함"** | 단순 임계치(예: "5+ 영업일 연속 skip")는 임의 + 정합성 검증 부재 → 결함 누락 risk |
 | 13 | **LWC chart instance state lift (신설 amend)** — TradingView LWC v4 chart instance는 반드시 `useState`로 lift. `useRef` 직접 props 전달 금지. React 18 StrictMode 이중 mount + ref mutation re-render 미발생 → 자식 useEffect cleanup이 disposed chart에 도달 race → `Uncaught Error: Object is disposed` | LWC v4 console.error spam + 차트 컴포넌트 안정성 회귀 (한국석유 PR #535 결함 #1) |
+| 14 | **KIS 호출 한도 cover 의무 (신설 amend)** — 모든 KIS 캔들/체결/잔고 endpoint 호출 시 **100건 한도 cover** (cursor 페이지네이션 + MAX_PAGES guard + distinctBy boundary dedup + 응답 row 0 break). **이중 LOCK** — (a) algorithm 본체는 별도 helper class/object 분리 의무 (예: `KisCursorPaginator`) — 후속 재작성/리팩토링 시 inline 발행 algorithm regression 영구 차단 (b) helper에 회귀 test 1건 의무 (algorithm 자체 검증) | 100건만 적재 후 종료 → 1년치 backfill 시 100봉 → 5개월 갭 재발 → 백테스트 왜곡 → 실거래 시그널 오작동 → **자본 손실** (한국석유 PR 915699b regression evidence) |
 
 **위반 시 risk 종합**: 잘못된 캔들 적재 → 백테스트 결과 왜곡 → 실거래 시그널 오작동 → **자본 손실**. chart-curator는 단일 owner이므로 본 룰 위반은 운영 부채 전체 책임 단일 귀속.
 
@@ -205,6 +206,41 @@ return <IndicatorOverlay chart={chartApi} ... />
 - line 469·478에서 ref.current를 props로 전달
 - console.error 추적 결과: React 18 StrictMode 이중 mount + ref mutation re-render 미발생 race
 
+### 2-9. 룰 §14 KIS 호출 한도 cover 의무 (신설 amend · PR #587 dogfooding evidence)
+
+**기존 §11(KIS raw 사전 ASC 정규화)만으로 부족** — 한국석유(004090) 빈 DB 재발 진단 결과(PR #587 chart-curator 보고서) KIS 100건 호출 한도 cover algorithm regression이 root cause. ADR 0086 §11이 ASC 정렬만 정합화하고 페이지네이션을 명시하지 않으면 후속 재작성 시 algorithm 누락 risk 영구 상존.
+
+**역사 evidence (regression 시퀀스)**:
+
+| 일자 | PR | 변경 | 검증 결과 |
+|------|-----|------|---------|
+| 2026-05-04 | 2cbd4e8 | `RealKisRestAdapter` cursor 페이지네이션 algorithm 검증 구현 | 한국석유 1년 full backfill 100봉 → 243봉 (페이지네이션 작동 evidence) |
+| 2026-05-11 | 915699b | `RealKisRestAdapter` → `KisRestCandleAdapter` 재작성 | 1m만 페이징 유지 + **일/주/월/년봉 단일 호출 regression** (algorithm 누락) |
+| 2026-05-19 | PR #587 | chart-curator 진단 보고서 + B+E fix 사이클 | ASC 정규화만 fix(§11) + 페이지네이션 누락 → 빈 DB 재발 확인 → §14 신설 trigger |
+
+**룰 §14 본문**:
+
+1. **호출 한도 cover 의무** — 모든 KIS 캔들/체결/잔고 endpoint 호출 시 100건 한도 cover. KIS-first MCP raw `inquire_daily_itemchartprice.py` docstring 정합("한 번의 호출에 최대 100건"). 단일 호출 종료 금지.
+2. **cursor 페이지네이션 algorithm 의무** — MAX_PAGES 6 (1년치 backwalk) 또는 fromDate 기준 종료 + distinctBy boundary dedup (페이지 경계 중복 ts 방지) + 응답 row 0건 시 break (KIS 데이터 종점 도달) + ASC 정규화는 페이지 합산 후 마지막 단계 (§11 monotonic 정합).
+3. **helper class 분리 의무** — algorithm 본체는 별도 helper class/object로 분리(예: `KisCursorPaginator`, `CandleSanityChecker`). caller 코드에서 helper 호출만 (algorithm inline 발행 금지). 후속 재작성/리팩토링에서 algorithm regression 영구 차단.
+4. **회귀 test 1건 의무** — helper에 회귀 test 1건 의무 — algorithm 자체 검증 (pagination round-trip / sanity reject count / sort idempotence 등). caller 통합 test와 별도로 algorithm 자체 verification 보장.
+5. **§함정 가드 cross-ref 매트릭스** — caller 코드 KDoc에 `// skill §함정 #N` 인용 의무 — 후속 작업자에게 함정 location 명시.
+
+**구현 의제 (chart-curator·market-data 별도 사이클)**:
+- `KisRestCandleAdapter` 본문 5 parse 함수에 `KisCursorPaginator` helper 합류 (또는 신규 helper class 생성)
+- `KisCursorPaginator` 회귀 test 1건 (pagination round-trip + boundary dedup + 0-row break)
+- caller KDoc에 `// skill §함정 #8·#10·룰 §14` 인용 매트릭스
+
+**chart-curator 신입 잘못된 inline algorithm 발행 영구 차단**:
+
+> ~~"adapter parse 함수에 페이지네이션 algorithm을 inline 발행"~~
+
+위 inline 패턴은 **폐기**. 사유:
+- inline algorithm은 후속 재작성/리팩토링에서 통째로 사라질 risk (PR 2cbd4e8 → PR 915699b regression evidence)
+- helper class 분리 + 회귀 test 의무가 algorithm 영구 보존 LOCK
+
+**evidence**: chart-curator 한국석유 PR #587 진단 보고서 — `KisRestCandleAdapter.parseKisDailyResponse` 등 5 parse 함수에 페이지네이션 algorithm 누락 → 100건만 적재 후 종료 → 한국석유 일봉 backfill 시 100봉(약 5개월)만 적재 → 그 이전 데이터 부재로 사용자 dogfooding 시점에 빈 DB 재발.
+
 ---
 
 ## 3. Consequences
@@ -218,6 +254,7 @@ return <IndicatorOverlay chart={chartApi} ... />
 - **§11 (amend)** — KIS DESC 응답 root cause 영구 차단 (한국석유 PR #535 dogfooding evidence)
 - **§12 (amend)** — 사용자 명시 active gap detection 4축 권위 source 교차 검증 정합 (임의 임계치 영구 폐기)
 - **§13 (amend)** — LWC v4 React 18 StrictMode dispose race 영구 차단 (한국석유 PR #535 결함 #1)
+- **§14 (amend)** — KIS 100건 호출 한도 cover 의무 + helper class 분리 + 회귀 test 영구 차단 (한국석유 PR #587 진단 evidence — PR 2cbd4e8 검증 후 PR 915699b 재작성 시 페이지네이션 algorithm regression)
 
 ### 3-2. 부정 결과
 
@@ -269,3 +306,4 @@ T-CC Phase 2 의제를 ADR 0085(chart-curator 영입)에 add-only § 추가로 �
 | 2026-05-19 | Proposed | T-CC Phase 2 spec 정합 신규 발행 — 자동 backfill 워커 + 갭 검출 + 데이터 햇징 룰 매트릭스 10건 LOCK + chart-curator 신입 보호. 사용자 명시 "신입한테 위 내용 잘 상기시켜서 진행해" 정합. spec 본문: `_workspace/specs/2026-05-19-t-cc-phase2-auto-backfill-gap-detection-spec.md`. (architect, opus 4.7 1M) |
 | 2026-05-19 | Proposed → Accepted | Phase 2-A 햇징 룰 10건 모두 구현 + 27 단위 테스트 ALL GREEN (PR #525) · `CandleGapDetectorPort/Adapter` + `CandleBackfillWorker` + `CandleBackfillAdminController` + Flyway V39 `candle.backfill_batch_id` add-only + Phase 1 `LastCandleAtMonitor.checkAllCodes()` 1 line edit 통합 · 한국석유 dogfooding cycle 검증 path 확보 · v3.6.17 release 포함. (architect, opus 4.7 1M) |
 | 2026-05-19 | Accepted (amend) | **햇징 룰 §11·§12·§13 추가 (10 → 13 룰 확장)** · §11 KIS raw 사전 ASC 정규화 (한국석유 PR #535 evidence — KIS DESC 응답 + sanity check reject 99건) · §12 Active gap detection 4축 교차 검증 (사용자 명시 정합 룰 · market_calendar + 거래정지 + 정리매매 + 상장일 권위 source · chart-curator 신입 잘못된 "5+ 영업일 임의 임계치" 영구 차단) · §13 LWC chart instance state lift (`useRef` → `useState` LOCK · 한국석유 PR #535 결함 #1 React 18 StrictMode dispose race) · chart-curator SKILL.md 매트릭스 13 룰로 갱신 · 운영 코드 0 touch (ADR + skill 본문만). (architect, opus 4.7 1M) |
+| 2026-05-19 | Accepted (amend) | **햇징 룰 §14 추가 (13 → 14 룰 확장) — KIS 호출 한도 cover 의무** · §14 KIS 100건 한도 cover 의무 (모든 KIS 캔들/체결/잔고 endpoint 호출 시 cursor 페이지네이션 algorithm + MAX_PAGES guard + distinctBy boundary dedup + 응답 row 0 break + ASC 정규화 페이지 합산 후 마지막 단계) + helper class 분리 의무(예: `KisCursorPaginator`) + 회귀 test 1건 의무 + §함정 가드 cross-ref 매트릭스 (caller KDoc inline 인용) · evidence: PR 2cbd4e8(2026-05-04 cursor 페이지네이션 검증) → PR 915699b(2026-05-11 `RealKisRestAdapter` → `KisRestCandleAdapter` 재작성 시 페이지네이션 algorithm regression — 1m만 페이징 + 일/주/월/년봉 단일 호출) → PR #587(2026-05-19 chart-curator 진단 보고서 + B+E fix 사이클) · 사용자 비판 trigger: 한국석유 빈 DB 재발(ASC 정규화 §11만으로 부족 → 페이지네이션 명시 룰 부재 → algorithm regression 누락) · chart-curator SKILL.md 매트릭스 14 룰로 갱신 + §함정 #8 amend (KIS 100건 한도 추가) + §함정 #10 신설 (fix 후 regression 함정) · 운영 코드 0 touch (ADR + skill 본문만 + master·README·CHANGELOG 정합). 구현 의제 별도 사이클 위임 (chart-curator·market-data Phase — `KisCursorPaginator` helper class + 회귀 test + 5 parse 함수 합류). (architect, opus 4.7 1M) |
