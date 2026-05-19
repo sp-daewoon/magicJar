@@ -101,6 +101,21 @@ magicjar:
     persist: ${MAGICJAR_SCREENER_PERSIST:false}
     # universe screening 전용 DSL eval timeout (ADR 0071 §2-3 C-1 LOCK)
     eval-timeout-ms: ${MAGICJAR_SCREENER_EVAL_TIMEOUT_MS:500}
+  # P1-4 Bucket4j-Redis KIS Rate Limit (ADR 0037 + spec PR #564 §2-1 옵션 A LOCK)
+  # KIS 공식 한도: 초당 10건 (계정·앱키당, EGW00201/HTTP 429 위반 시)
+  # multi-JVM(api·batch·consumer) 단일 bucket share — Phase 2 batch·consumer Bean wiring 후속
+  kis:
+    rate-limiter:
+      enabled: ${MAGICJAR_KIS_RATE_LIMIT_ENABLED:true}
+      bucket-capacity: ${MAGICJAR_KIS_RATE_LIMIT_BURST:10}        # rollback: 12·15 임시 ↑ 가능 (KIS 차단 risk 동반)
+      bucket-refill-tokens: 10
+      bucket-refill-period-seconds: 1
+      bucket-key: kis-rate-limit:global
+      bucket-ttl-seconds: 10
+      acquire-poll-interval-millis: 50
+      circuit-breaker-failure-rate: ${MAGICJAR_KIS_CIRCUIT_BREAKER_THRESHOLD:0.5}
+      circuit-breaker-window-seconds: 300
+      circuit-breaker-open-duration-seconds: 300
 
 # ─────────────────────────────────────────────────
 # Naver Open API (T-NEWS Phase 2 — ADR 0075 §7-5 + §7-6)

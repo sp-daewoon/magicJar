@@ -44,6 +44,12 @@ dependencies {
         exclude(group = "org.springframework.boot", module = "spring-boot-starter-logging")
     }
 
+    // Bucket4j Rate Limiter — KIS REST 초당 10건 강제 (ADR 0037 + spec PR #564 §2-1 옵션 A LOCK)
+    // multi-JVM 단일 bucket share — Lettuce Redis backend 직접 발행 (Spring Data Redis와 별도 client)
+    implementation("com.bucket4j:bucket4j-core:8.10.1")
+    implementation("com.bucket4j:bucket4j-redis:8.10.1")
+    // Lettuce는 spring-boot-starter-data-redis가 이미 가져옴 — 별도 명시 0 (transitive)
+
     // Test
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.kafka:spring-kafka-test")
