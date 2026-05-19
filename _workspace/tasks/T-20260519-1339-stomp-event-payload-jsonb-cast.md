@@ -3,10 +3,10 @@ id: T-20260519-1339-stomp-event-payload-jsonb-cast
 agent: backend-core
 model: opus
 branch: hotfix/stomp-event-payload-jsonb-cast
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T13:39:56.530+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T13:46:36.093+09:00
+pr: #532
 parentPhase: ?
 ---
 
