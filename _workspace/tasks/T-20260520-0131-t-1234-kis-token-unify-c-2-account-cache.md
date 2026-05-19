@@ -3,10 +3,10 @@ id: T-20260520-0131-t-1234-kis-token-unify-c-2-account-cache
 agent: backend-core
 model: opus
 branch: agent/backend-core/t-1234-kis-token-unify-c-2-account-cache
-status: RUNNING
+status: DONE
 startedAt: 2026-05-20T01:31:36.194+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-20T01:45:07.702+09:00
+pr: #594
 parentPhase: ?
 ---
 
