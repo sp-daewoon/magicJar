@@ -12,6 +12,8 @@
  * Dashboard 하단 또는 별도 페이지에서 사용 가능.
  */
 import { useAccountBalance } from '../../api/hooks/useAccountBalance'
+import type { AccountType } from '../../api/account'
+import { extractStatus } from './errorStatus'
 
 /** 원화 포맷 */
 function formatKrw(value: number): string {
@@ -33,6 +35,8 @@ function pnlColor(value: number): string {
 interface BalanceCardProps {
   /** ADR 0089 Phase 2 — userId number */
   userId: number
+  /** B-1 (2026-05-20): 실전/모의 계좌 선택. */
+  accountType?: AccountType
 }
 
 /** 잔고 라인 한 줄 */
@@ -63,10 +67,13 @@ function BalanceRow({
   )
 }
 
-export function BalanceCard({ userId }: BalanceCardProps) {
-  const { data, isLoading, isError, refetch, isFetching } = useAccountBalance({
+export function BalanceCard({ userId, accountType = 'REAL' }: BalanceCardProps) {
+  const { data, isLoading, isError, error, refetch, isFetching } = useAccountBalance({
     userId,
+    accountType,
   })
+
+  const isCredentialMissing = extractStatus(error) === 412
 
   return (
     <section
@@ -76,7 +83,19 @@ export function BalanceCard({ userId }: BalanceCardProps) {
       {/* 헤더 */}
       <div className="mb-4 flex items-start justify-between">
         <div>
-          <h2 className="text-base font-semibold text-white">잔고 상세</h2>
+          <h2 className="text-base font-semibold text-white">
+            잔고 상세
+            <span
+              className={[
+                'ml-2 rounded px-1.5 py-0.5 text-[10px] font-bold',
+                accountType === 'REAL'
+                  ? 'bg-blue-900/60 text-blue-300'
+                  : 'bg-purple-900/60 text-purple-300',
+              ].join(' ')}
+            >
+              {accountType === 'REAL' ? '실전' : '모의'}
+            </span>
+          </h2>
           <p className="mt-0.5 text-xs text-gray-500">
             KIS inquire-balance output2 — 30초마다 자동 갱신
           </p>
@@ -97,6 +116,13 @@ export function BalanceCard({ userId }: BalanceCardProps) {
           {Array.from({ length: 8 }).map((_, i) => (
             <div key={i} className="h-8 animate-pulse rounded bg-gray-800/40" />
           ))}
+        </div>
+      ) : isError && isCredentialMissing ? (
+        <div className="rounded-xl border border-yellow-800 bg-yellow-900/20 p-4 text-center text-sm text-yellow-300">
+          {accountType === 'MOCK' ? '모의' : '실전'}계좌 KIS 키가 등록되지 않았습니다.
+          <p className="mt-1 text-xs text-yellow-500">
+            우측 상단 설정(⚙️)에서 {accountType === 'MOCK' ? '모의(VPS)' : '실전(PROD)'} 키를 등록한 뒤 다시 시도해 주세요.
+          </p>
         </div>
       ) : isError ? (
         <div className="rounded-xl border border-red-800 bg-red-900/20 p-4 text-center text-sm text-red-400">
