@@ -93,6 +93,31 @@ class KisRestCandleAdapter(
         private val RETRY_BACKOFF_MS = listOf(500L, 1000L, 2000L)
         private const val RETRY_MAX_ATTEMPTS = 3
 
+        /**
+         * KIS inquire-daily-itemchartprice (FHKST03010100) 1회 호출 최대 봉 수.
+         *
+         * KIS-first raw spec (헌법 §3 의무 인용):
+         *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
+         *   docstring: "한 번의 호출에 최대 100건"
+         *
+         * 4 PERIOD_DIV_CODE(D/W/M/Y) 공통 한도. 페이지네이션 미적용 시 30년 backfill 의도가
+         * 최근 100건(일봉 약 5개월·주봉 약 2년·월봉 약 8년·연봉 100년)으로 잘림 → regression.
+         */
+        const val KIS_PAGE_LIMIT: Int = 100
+
+        /**
+         * 페이지네이션 안전 한도 — 무한 loop·과도한 호출 방지.
+         *
+         * PR 2cbd4e8 검증 패턴 (한국석유 004090 1년 backfill 243봉 = 3 pages):
+         *   - 일봉(D): 6 pages × 100 = 600봉 ≈ 약 2.5년 cover
+         *   - 주봉(W): 6 pages × 100 = 600봉 ≈ 약 11년 cover
+         *   - 월봉(M): 6 pages × 100 = 600봉 ≈ 약 50년 cover
+         *   - 연봉(Y): 6 pages × 100 = 600봉 ≈ 600년 cover (사실상 무제한)
+         *
+         * Rate Limit (ADR 0037 초당 10건): 6 calls × ~100ms = 600ms — 한도 영향 미미.
+         */
+        const val MAX_PAGES: Int = 6
+
         /** CandleInterval → KIS period_div_code 매핑 (FHKST03010100) */
         private fun toPeriodDivCode(interval: CandleInterval): String =
             when (interval) {
@@ -103,6 +128,21 @@ class KisRestCandleAdapter(
                 else -> throw IllegalArgumentException("KIS REST 미지원 interval: ${interval.code}")
             }
     }
+
+    /**
+     * 다음 페이지 cursor 산정 — `oldestDate - 1day` 단순 패턴 (PR 2cbd4e8 검증된 패턴 1:1).
+     *
+     * 페이지 경계 중복 방지 — 이전 페이지의 가장 오래된 row가 이미 수집됐으므로
+     * 다음 페이지 cursor는 그 row의 직전 영업일이 시작. 단순화하여 1일 차감
+     * (영업일 정확도 불필요 — distinctBy boundary dedup이 방어).
+     *
+     * 함정 #N (보수 페르소나 — 4 timeframe 공통 적용 검증):
+     *   - 일봉(D): cursor = lastDate - 1day → KIS가 그 이전 일봉 100건 반환
+     *   - 주봉(W): cursor = lastDate - 1day → KIS가 그 이전 주봉 100건 반환 (윈도우 자동 산정)
+     *   - 월봉(M)/연봉(Y): 동일 — KIS endpoint는 fid_input_date_2 이전 데이터만 반환하므로
+     *     1day 차감으로도 충분히 새 윈도우 확보. 더 큰 차감은 데이터 누락 위험.
+     */
+    private fun nextCursor(oldestDate: LocalDate): LocalDate = oldestDate.minusDays(1)
 
     /**
      * 종목코드 → KIS fid_cond_mrkt_div_code 결정.
@@ -547,11 +587,36 @@ class KisRestCandleAdapter(
     }
 
     /**
-     * 일봉·주봉·월봉·연봉 조회 (FHKST03010100).
+     * 일봉·주봉·월봉·연봉 조회 (FHKST03010100) — **cursor 페이지네이션** (PR 2cbd4e8 검증된 패턴 1:1 재적용).
      *
      * raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
      *
-     * §33: HTTP 500 발생 시 exponential backoff 3회 재시도 (500ms → 1000ms → 2000ms).
+     * 페이지네이션 알고리즘 (PR 2cbd4e8 검증된 패턴 — 한국석유 004090 1년 backfill 243봉 GREEN):
+     *   1. `cursor = today` 부터 역순 백워크 (외부 loop `for page in 0 until MAX_PAGES`)
+     *   2. `fetchDailyCandlesSinglePage(code, interval, cursor)` — 1회 KIS 호출 (최대 100봉 응답)
+     *   3. 응답 < KIS_PAGE_LIMIT(100) 이면 종료 (마지막 페이지 — 더 이상 과거 데이터 없음)
+     *   4. 응답 0건 또는 cursor advance 실패 시 종료 (infinite loop guard)
+     *   5. 다음 cursor = `oldestDate - 1day` → 다음 페이지
+     *   6. distinctBy boundary dedup (페이지 경계 중복 ts 방어) + sortedBy ASC (PR #537 정규화 보존)
+     *
+     * regression 원인 evidence (PR #587 진단):
+     *   PR 915699b (2026-05-11) Yahoo→KIS-only 재작성 시 페이지네이션 algorithm regression.
+     *   결과: 30년 backfill 의도 → KIS 100건 한도로 잘림 (일봉 약 5개월만 수집).
+     *
+     * §33: HTTP 500 발생 시 exponential backoff 3회 재시도 (500ms → 1000ms → 2000ms) — single-page 내부.
+     *
+     * Rate Limit (ADR 0037 초당 10건): 6 calls × ~100ms = 600ms — 한도 영향 미미.
+     *
+     * ASC 정규화 LOCK (PR #537 보존):
+     *   각 page 내부에서 parseKisDailyResponse가 이미 ASC 정규화 → 외부 sortedBy는 페이지 합산 후
+     *   global ASC 보장. 이중 보강 — page 1 oldest + page 2 newest 사이 단조성 회귀 가드.
+     *
+     * 4 timeframe(D/W/M/Y) cover: fid_period_div_code 분기로 단일 함수가 4 PERIOD_DIV_CODE 처리
+     *   (toPeriodDivCode 매핑). MAX_PAGES=6 × 100봉:
+     *     - 일봉(D): 600봉 ≈ 약 2.5년 cover
+     *     - 주봉(W): 600봉 ≈ 약 11년 cover
+     *     - 월봉(M): 600봉 ≈ 약 50년 cover
+     *     - 연봉(Y): 600봉 ≈ 600년 cover (사실상 무제한)
      */
     private fun fetchDailyCandles(
         code: String,
@@ -583,122 +648,262 @@ class KisRestCandleAdapter(
             val appKeyStr = String(appKey)
             val secretKeyStr = String(secretKey)
 
-            val periodDivCode = toPeriodDivCode(interval)
-            val today = LocalDate.now(KST_ZONE).format(DATE_FMT)
-            // 충분한 과거 시작일 (count * 1.5 거래일 마진)
-            val startDate = LocalDate.now(KST_ZONE).minusYears(30).format(DATE_FMT)
-
             // market 분기 — KIS raw spec: J=KRX주식(KOSPI+KOSDAQ), UN=통합(KRX+NXT)
             // raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
             val mrktDivCode = resolveMrktDivCode(code)
+            val periodDivCode = toPeriodDivCode(interval)
 
-            // §33 exponential backoff retry — 500 발생 시 최대 3회
-            // Rate Limit (ADR 0037): retry는 500 발생 시에만 — 초당 10건 한도 영향 미미
-            var lastException: WebClientResponseException? = null
-            for (attempt in 0 until RETRY_MAX_ATTEMPTS) {
-                if (attempt > 0) {
-                    val waitMs = RETRY_BACKOFF_MS[attempt - 1]
-                    log.warn(
-                        "KIS daily candle 500 오류 — {}ms backoff 후 재시도({}/{}): code={} interval={}",
-                        waitMs,
-                        attempt + 1,
-                        RETRY_MAX_ATTEMPTS,
-                        code,
-                        interval.code,
-                    )
-                    Thread.sleep(waitMs)
-                }
-                try {
-                    // Rate Limit acquire (spec PR #564 §2-2 LOCK — INGESTION priority)
-                    // ADR 0037 초당 10건 한도. 일봉/주봉/월봉/연봉 정기 갱신 path → INGESTION 우선순위
-                    kisRateLimiterPort.acquire(KisCallPriority.INGESTION, timeoutMillis = 1000L)
+            // PR 2cbd4e8 cursor 페이지네이션 (1:1 재적용 — 한국석유 검증된 패턴).
+            // cursor = today부터 역순 walkback. MAX_PAGES=6 (≈ 2.5년 일봉 / 11년 주봉 / 50년 월봉).
+            val accumulator = mutableListOf<Candle>()
+            var cursor: LocalDate = LocalDate.now(KST_ZONE)
+            // 30년 backfill 의도 — minimum 시작일 가드 (cursor가 이보다 더 과거로 가면 종료).
+            val minStartDate: LocalDate = LocalDate.now(KST_ZONE).minusYears(30)
 
-                    val body =
-                        webClient
-                            .get()
-                            .uri { builder ->
-                                builder
-                                    .scheme("https")
-                                    .host(kisBaseProd.removePrefix("https://").substringBefore(":"))
-                                    .port(kisBaseProd.substringAfterLast(":").toIntOrNull() ?: 9443)
-                                    .path(ENDPOINT_DAILY)
-                                    .queryParam("fid_cond_mrkt_div_code", mrktDivCode)
-                                    .queryParam("fid_input_iscd", code)
-                                    .queryParam("fid_input_date_1", startDate)
-                                    .queryParam("fid_input_date_2", today)
-                                    .queryParam("fid_period_div_code", periodDivCode)
-                                    .queryParam("fid_org_adj_prc", "0")
-                                    .build()
-                            }.header("authorization", "Bearer $accessToken")
-                            .header("appkey", appKeyStr)
-                            .header("appsecret", secretKeyStr)
-                            .header("tr_id", TR_ID_DAILY)
-                            .header("custtype", "P")
-                            .retrieve()
-                            .bodyToMono(Map::class.java)
-                            .timeout(Duration.ofSeconds(10))
-                            .block()
-                            ?: return emptyList()
-                    if (attempt > 0) {
-                        log.info(
-                            "KIS daily candle 500 retry 성공: code={} interval={} attempt={}/{}",
-                            code,
-                            interval.code,
-                            attempt + 1,
-                            RETRY_MAX_ATTEMPTS,
-                        )
-                    }
-                    kisRateLimiterPort.onSuccess()
-                    return parseKisDailyResponse(body, code, interval)
-                } catch (e: WebClientResponseException) {
-                    if (e.statusCode.value() == 429) {
-                        // HTTP 429 → onTpsExceeded + 1초 backoff (spec PR #564 §2-2 LOCK)
-                        kisRateLimiterPort.onTpsExceeded()
-                        log.warn(
-                            "KIS REST candle HTTP 429 — 1초 backoff 후 빈 결과: code={} interval={}",
-                            code,
-                            interval.code,
-                        )
-                        Thread.sleep(1000L)
-                        return emptyList()
-                    }
-                    if (e.statusCode.value() == 500 && attempt < RETRY_MAX_ATTEMPTS - 1) {
-                        lastException = e
-                        continue // 재시도 횟수 남음 — backoff 후 재시도
-                    }
-                    log.warn(
-                        "KIS REST candle 실패: code={} interval={} status={}",
+            for (page in 0 until MAX_PAGES) {
+                if (cursor.isBefore(minStartDate)) {
+                    log.debug(
+                        "KIS REST candle 페이지네이션 minStartDate 도달 — 종료: code={} interval={} page={} cursor={}",
                         code,
                         interval.code,
-                        e.statusCode,
+                        page,
+                        cursor,
                     )
-                    return emptyList()
-                } catch (e: Exception) {
-                    log.warn(
-                        "KIS REST candle 오류: code={} interval={} err={}",
-                        code,
-                        interval.code,
-                        e.message,
-                    )
-                    return emptyList()
+                    break
                 }
+
+                val pageCandles =
+                    fetchDailyCandlesSinglePage(
+                        code = code,
+                        interval = interval,
+                        periodDivCode = periodDivCode,
+                        mrktDivCode = mrktDivCode,
+                        cursor = cursor,
+                        minStartDate = minStartDate,
+                        accessToken = accessToken,
+                        appKeyStr = appKeyStr,
+                        secretKeyStr = secretKeyStr,
+                    )
+
+                if (pageCandles.isEmpty()) {
+                    log.debug(
+                        "KIS REST candle 페이지 0건 — 종료: code={} interval={} page={} cursor={}",
+                        code,
+                        interval.code,
+                        page,
+                        cursor,
+                    )
+                    break
+                }
+
+                accumulator.addAll(pageCandles)
+
+                // 마지막 페이지 — KIS_PAGE_LIMIT 미만 응답이면 더 이상 과거 데이터 없음 (PR 2cbd4e8 시나리오 6b).
+                if (pageCandles.size < KIS_PAGE_LIMIT) {
+                    log.debug(
+                        "KIS REST candle 페이지 < {} — 마지막 페이지 종료: code={} interval={} page={} fetched={}",
+                        KIS_PAGE_LIMIT,
+                        code,
+                        interval.code,
+                        page,
+                        pageCandles.size,
+                    )
+                    break
+                }
+
+                // 다음 cursor 산정 — 응답의 가장 오래된 ts - 1day.
+                val oldestEpoch = pageCandles.minOf { it.ts.epochSeconds }
+                val oldestDate =
+                    java.time.Instant
+                        .ofEpochSecond(oldestEpoch)
+                        .atZone(KST_ZONE)
+                        .toLocalDate()
+                val newCursor = nextCursor(oldestDate)
+
+                // infinite loop guard — cursor가 advance 안 하면 종료 (PR 2cbd4e8 시나리오 6 동일 가드).
+                if (!newCursor.isBefore(cursor)) {
+                    log.warn(
+                        "KIS REST candle 페이지네이션 cursor advance 실패 — 종료: code={} interval={} page={} cursor={} newCursor={}",
+                        code,
+                        interval.code,
+                        page,
+                        cursor,
+                        newCursor,
+                    )
+                    break
+                }
+                if (newCursor.isBefore(minStartDate)) {
+                    log.debug(
+                        "KIS REST candle 페이지네이션 newCursor < minStartDate — 종료: code={} interval={} page={} newCursor={}",
+                        code,
+                        interval.code,
+                        page,
+                        newCursor,
+                    )
+                    break
+                }
+                cursor = newCursor
             }
-            // retry 소진 (500 3회 모두 실패)
-            log.warn(
-                "KIS daily candle 500 retry 소진({}/{}) — 빈 결과 반환: code={} interval={}",
-                RETRY_MAX_ATTEMPTS,
-                RETRY_MAX_ATTEMPTS,
+
+            // 페이지 경계 중복 방어 (distinctBy boundary dedup) + ASC 정규화 (PR #537 보존).
+            // 각 page의 parseKisDailyResponse가 이미 ASC 정렬했으므로 외부 sortedBy는 페이지 합산 후 global ASC 보장.
+            val result =
+                accumulator
+                    .distinctBy { it.ts.epochSeconds }
+                    .sortedBy { it.ts.epochSeconds }
+
+            log.info(
+                "KIS REST candle 페이지네이션 완료: code={} interval={} pages_consumed={} total={} (raw_accumulated={})",
                 code,
                 interval.code,
+                (accumulator.size + KIS_PAGE_LIMIT - 1) / KIS_PAGE_LIMIT,
+                result.size,
+                accumulator.size,
             )
-            if (lastException != null) {
-                log.debug("마지막 예외: {}", lastException.message)
-            }
-            emptyList()
+
+            result
         } finally {
             appKey?.fill(0)
             secretKey?.fill(0)
         }
+    }
+
+    /**
+     * 단일 페이지 KIS 호출 — 1회 호출 최대 KIS_PAGE_LIMIT(100) 봉 응답.
+     *
+     * PR 2cbd4e8 `fetchCandlesSinglePage` 패턴 1:1 — 외부 페이지네이션 loop와 분리하여 단일 책임.
+     *
+     * §33 retry 정책 적용 (HTTP 500 exponential backoff 3회):
+     *   - 500 발생 시 RETRY_BACKOFF_MS[0..2] = 500ms → 1000ms → 2000ms 대기 후 재시도
+     *   - 429 발생 시 onTpsExceeded + 1초 backoff 후 빈 결과
+     *   - 기타 HTTP 오류 / 일반 예외 시 즉시 빈 결과 (외부 loop가 break)
+     *
+     * @param cursor fid_input_date_2 — 이 시각 이전 100건 반환
+     * @param minStartDate fid_input_date_1 — 30년 전 (충분한 마진)
+     */
+    private fun fetchDailyCandlesSinglePage(
+        code: String,
+        interval: CandleInterval,
+        periodDivCode: String,
+        mrktDivCode: String,
+        cursor: LocalDate,
+        minStartDate: LocalDate,
+        accessToken: String,
+        appKeyStr: String,
+        secretKeyStr: String,
+    ): List<Candle> {
+        val cursorStr = cursor.format(DATE_FMT)
+        val startStr = minStartDate.format(DATE_FMT)
+
+        // §33 exponential backoff retry — 500 발생 시 최대 3회
+        // Rate Limit (ADR 0037): retry는 500 발생 시에만 — 초당 10건 한도 영향 미미
+        var lastException: WebClientResponseException? = null
+        for (attempt in 0 until RETRY_MAX_ATTEMPTS) {
+            if (attempt > 0) {
+                val waitMs = RETRY_BACKOFF_MS[attempt - 1]
+                log.warn(
+                    "KIS daily candle 500 오류 — {}ms backoff 후 재시도({}/{}): code={} interval={} cursor={}",
+                    waitMs,
+                    attempt + 1,
+                    RETRY_MAX_ATTEMPTS,
+                    code,
+                    interval.code,
+                    cursorStr,
+                )
+                Thread.sleep(waitMs)
+            }
+            try {
+                // Rate Limit acquire (spec PR #564 §2-2 LOCK — INGESTION priority)
+                // ADR 0037 초당 10건 한도. 일봉/주봉/월봉/연봉 정기 갱신 path → INGESTION 우선순위
+                kisRateLimiterPort.acquire(KisCallPriority.INGESTION, timeoutMillis = 1000L)
+
+                val body =
+                    webClient
+                        .get()
+                        .uri { builder ->
+                            builder
+                                .scheme("https")
+                                .host(kisBaseProd.removePrefix("https://").substringBefore(":"))
+                                .port(kisBaseProd.substringAfterLast(":").toIntOrNull() ?: 9443)
+                                .path(ENDPOINT_DAILY)
+                                .queryParam("fid_cond_mrkt_div_code", mrktDivCode)
+                                .queryParam("fid_input_iscd", code)
+                                .queryParam("fid_input_date_1", startStr)
+                                .queryParam("fid_input_date_2", cursorStr)
+                                .queryParam("fid_period_div_code", periodDivCode)
+                                .queryParam("fid_org_adj_prc", "0")
+                                .build()
+                        }.header("authorization", "Bearer $accessToken")
+                        .header("appkey", appKeyStr)
+                        .header("appsecret", secretKeyStr)
+                        .header("tr_id", TR_ID_DAILY)
+                        .header("custtype", "P")
+                        .retrieve()
+                        .bodyToMono(Map::class.java)
+                        .timeout(Duration.ofSeconds(10))
+                        .block()
+                        ?: return emptyList()
+                if (attempt > 0) {
+                    log.info(
+                        "KIS daily candle 500 retry 성공: code={} interval={} cursor={} attempt={}/{}",
+                        code,
+                        interval.code,
+                        cursorStr,
+                        attempt + 1,
+                        RETRY_MAX_ATTEMPTS,
+                    )
+                }
+                kisRateLimiterPort.onSuccess()
+                return parseKisDailyResponse(body, code, interval)
+            } catch (e: WebClientResponseException) {
+                if (e.statusCode.value() == 429) {
+                    // HTTP 429 → onTpsExceeded + 1초 backoff (spec PR #564 §2-2 LOCK)
+                    kisRateLimiterPort.onTpsExceeded()
+                    log.warn(
+                        "KIS REST candle HTTP 429 — 1초 backoff 후 빈 결과: code={} interval={} cursor={}",
+                        code,
+                        interval.code,
+                        cursorStr,
+                    )
+                    Thread.sleep(1000L)
+                    return emptyList()
+                }
+                if (e.statusCode.value() == 500 && attempt < RETRY_MAX_ATTEMPTS - 1) {
+                    lastException = e
+                    continue // 재시도 횟수 남음 — backoff 후 재시도
+                }
+                log.warn(
+                    "KIS REST candle 실패: code={} interval={} cursor={} status={}",
+                    code,
+                    interval.code,
+                    cursorStr,
+                    e.statusCode,
+                )
+                return emptyList()
+            } catch (e: Exception) {
+                log.warn(
+                    "KIS REST candle 오류: code={} interval={} cursor={} err={}",
+                    code,
+                    interval.code,
+                    cursorStr,
+                    e.message,
+                )
+                return emptyList()
+            }
+        }
+        // retry 소진 (500 3회 모두 실패)
+        log.warn(
+            "KIS daily candle 500 retry 소진({}/{}) — 빈 결과 반환: code={} interval={} cursor={}",
+            RETRY_MAX_ATTEMPTS,
+            RETRY_MAX_ATTEMPTS,
+            code,
+            interval.code,
+            cursorStr,
+        )
+        if (lastException != null) {
+            log.debug("마지막 예외: {}", lastException.message)
+        }
+        return emptyList()
     }
 
     /**
