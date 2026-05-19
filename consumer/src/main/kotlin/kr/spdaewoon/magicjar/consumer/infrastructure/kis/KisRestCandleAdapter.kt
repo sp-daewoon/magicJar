@@ -655,6 +655,9 @@ class KisRestCandleAdapter(
      * output2[]: stck_bsop_date (yyyyMMdd) + stck_cntg_hour (HHmmss) → KST timestamp
      * stck_oprc·stck_hgpr·stck_lwpr·stck_prpr(현재가=종가)·acml_vol
      *
+     * ⚠ KIS 응답 정렬 함정 (P0 fix, 2026-05-19 — chart-curator):
+     *   1m 응답도 DESC 가능성. parseKisDailyResponse와 동일한 햇징 룰 §1 monotonic risk → ASC 정규화 의무.
+     *
      * raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
      */
     @Suppress("UNCHECKED_CAST")
@@ -724,12 +727,20 @@ class KisRestCandleAdapter(
                 ),
             )
         }
-        return candles
+        // KIS DESC → ASC 정규화 (P0 fix 2026-05-19 chart-curator) — parseKisDailyResponse와 동일.
+        return candles.sortedBy { it.ts.epochSeconds }
     }
 
     /**
      * FHKST03010100 일봉/주봉/월봉/연봉 응답 파싱.
      * output2[]: stck_bsop_date (yyyyMMdd) → KST 00:00:00 ts
+     *
+     * ⚠ KIS 응답 정렬 함정 (P0 fix, 2026-05-19 — chart-curator):
+     *   KIS `inquire-daily-itemchartprice`는 응답 output2[]를 **최신→과거 DESC 순서**로 반환.
+     *   햇징 룰 §1 (이중 검증) monotonic이 ASC 강제이므로,
+     *   정규화 누락 시 idx 1+ 전부 reject → insertedCount=0 → 한국석유 evidence 5개월 갭 누적.
+     *   따라서 본 파서가 `sortedBy { it.ts.epochSeconds }` ASC 정규화 책임 (chart-curator skill §5 source-of-truth + §11 KIS raw 사전 정규화).
+     *   KIS 공식 example도 `sort_values('stck_bsop_date', ascending=True)` 패턴 적용 (KIS-first 정합).
      *
      * raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
      */
@@ -781,8 +792,11 @@ class KisRestCandleAdapter(
                 ),
             )
         }
-        log.debug("KIS REST candle 파싱: code={} interval={} count={}", code, interval.code, candles.size)
-        return candles
+        // KIS DESC → ASC 정규화 (P0 fix 2026-05-19 chart-curator).
+        // 햇징 룰 §1 monotonic이 ASC 강제이므로 adapter layer가 source-of-truth로 정규화.
+        val sorted = candles.sortedBy { it.ts.epochSeconds }
+        log.debug("KIS REST candle 파싱: code={} interval={} count={} (ASC 정규화)", code, interval.code, sorted.size)
+        return sorted
     }
 
     override fun fetchPrice(
