@@ -9,14 +9,20 @@
  *   4. BalanceCard — 예수금·자산·매입평가 3 그룹 상세
  *
  * userId 미등록 → /setup 안내 (PerformanceDashboardPage 패턴 정합).
- * 모든 위젯은 30s auto-refresh (Redis TTL 30s 정합 — KIS 호출 1회 / 30s).
+ * 모든 위젯은 5s auto-refresh (backend Redis TTL 5s 정합 — KIS 호출 1회 / 5s).
  * mock 합성 0 LOCK — 실패 시 위젯별 오류 표시 (페이지 전체 중단 금지).
  *
  * B-1 (2026-05-20): accountType state 추가 — 실전/모의 토글로 두 잔고 둘 다 조회.
  *   - queryKey 에 accountType 포함되므로 캐시 분리 자동 (REAL/MOCK 동시 보존 가능).
  *   - MOCK 키 미등록 시 backend 412 응답 → 각 카드 isError 분기에서 안내.
+ *
+ * C-5 (2026-05-20): 토글 클릭 시 immediate refetch — queryClient.invalidateQueries
+ *   로 새 accountType queryKey 묶음을 즉시 fetch 트리거. cache miss 시 backend KIS
+ *   REST latency (1-3s) 사용자 체감 단축. (사용자 dogfooding: "모의 누르면 바로
+ *   계좌정보를 가져오는게 아니고 딜레이가 있는데?")
  */
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { useOnboardingStore } from '../../stores/onboarding'
 import type { AccountType } from '../../api/account'
@@ -28,6 +34,27 @@ import { AccountTypeToggle } from './AccountTypeToggle'
 export function DashboardPage() {
   const userId = useOnboardingStore((s) => s.registeredUserId)
   const [accountType, setAccountType] = useState<AccountType>('REAL')
+  const queryClient = useQueryClient()
+
+  /**
+   * C-5: 토글 클릭 시 invalidate trigger.
+   *
+   * queryKey 가 `['account', 'summary' | 'balance' | 'positions', userId, accountType]`
+   * 형태라 prefix `['account']` 만 invalidate 해도 충분히 새 type 분기 refetch 강제됨.
+   * exact:false 로 모든 account-* 묶음 cover. (REAL→MOCK 또는 MOCK→REAL 양방향)
+   */
+  const handleAccountTypeChange = useCallback(
+    (next: AccountType) => {
+      if (next === accountType) return
+      setAccountType(next)
+      // 새 queryKey 묶음 (accountType 이 next 인 항목) 즉시 refetch 유도.
+      queryClient.invalidateQueries({
+        queryKey: ['account'],
+        exact: false,
+      })
+    },
+    [accountType, queryClient],
+  )
 
   // userId 미등록 → 셋업 안내
   if (!userId) {
@@ -64,14 +91,15 @@ export function DashboardPage() {
         <div>
           <h1 className="text-xl font-bold text-gray-100">대시보드</h1>
           <p className="mt-0.5 text-sm text-gray-500">
-            KIS 실시간 잔고·보유 종목·평가손익 (30초마다 자동 갱신)
+            KIS 실시간 잔고·보유 종목·평가손익 (5초마다 자동 갱신)
             <span className="ml-1 text-gray-600">
               · 현재 {accountType === 'REAL' ? '실전' : '모의'} 계좌
             </span>
           </p>
         </div>
         {/* B-1: 실전/모의 토글 — 클릭 시 모든 하위 카드 동시 전환 */}
-        <AccountTypeToggle value={accountType} onChange={setAccountType} />
+        {/* C-5: handleAccountTypeChange 가 invalidateQueries 로 즉시 refetch 강제 */}
+        <AccountTypeToggle value={accountType} onChange={handleAccountTypeChange} />
       </div>
 
       {/* 빠른 진입 링크 (ADR 0040 Watchlist-first 정합) */}
