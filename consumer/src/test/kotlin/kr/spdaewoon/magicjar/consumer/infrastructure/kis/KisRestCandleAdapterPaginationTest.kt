@@ -1,7 +1,9 @@
 package kr.spdaewoon.magicjar.consumer.infrastructure.kis
 
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.datetime.Instant
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
@@ -13,6 +15,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.web.reactive.function.client.WebClient
 import java.math.BigDecimal
 import java.time.LocalDate
+import java.util.Optional
 
 /**
  * KisRestCandleAdapter — cursor 페이지네이션 회귀 가드 (B-1 fix 2026-05-19 chart-curator).
@@ -38,13 +41,15 @@ import java.time.LocalDate
  * 직접 검증하여 회귀 가드. 통합 흐름은 추후 WireMock dogfooding(B-1 후속).
  */
 class KisRestCandleAdapterPaginationTest {
-    private fun buildAdapter(): KisRestCandleAdapter =
+    private fun buildAdapter(
+        instrumentRepository: ConsumerInstrumentJpaRepository = mockk<ConsumerInstrumentJpaRepository>(relaxed = true),
+    ): KisRestCandleAdapter =
         KisRestCandleAdapter(
             webClient = mockk<WebClient>(relaxed = true),
             kisAuthAdapter = mockk<KisAuthAdapter>(relaxed = true),
             secretCipher = mockk<SecretCipher>(relaxed = true),
             credentialRepository = mockk<ConsumerUserKisCredentialJpaRepository>(relaxed = true),
-            instrumentRepository = mockk<ConsumerInstrumentJpaRepository>(relaxed = true),
+            instrumentRepository = instrumentRepository,
             kisRateLimiterPort = mockk<KisRateLimiterPort>(relaxed = true),
             kisBaseProd = "https://openapi.koreainvestment.com:9443",
             kisBaseVps = "https://openapivts.koreainvestment.com:29443",
@@ -63,6 +68,50 @@ class KisRestCandleAdapterPaginationTest {
         method.isAccessible = true
         return method.invoke(adapter, oldestDate) as LocalDate
     }
+
+    /** private resolveMrktDivCode(code) reflection 호출 */
+    private fun invokeResolveMrktDivCode(
+        adapter: KisRestCandleAdapter,
+        code: String,
+    ): String {
+        val method =
+            KisRestCandleAdapter::class.java.getDeclaredMethod(
+                "resolveMrktDivCode",
+                String::class.java,
+            )
+        method.isAccessible = true
+        return method.invoke(adapter, code) as String
+    }
+
+    /** private resolveMrktDivCodeCandidates(code) reflection 호출 */
+    @Suppress("UNCHECKED_CAST")
+    private fun invokeResolveMrktDivCodeCandidates(
+        adapter: KisRestCandleAdapter,
+        code: String,
+    ): List<String> {
+        val method =
+            KisRestCandleAdapter::class.java.getDeclaredMethod(
+                "resolveMrktDivCodeCandidates",
+                String::class.java,
+            )
+        method.isAccessible = true
+        return method.invoke(adapter, code) as List<String>
+    }
+
+    private fun instrument(
+        code: String,
+        market: String,
+        isKospi200: Boolean = false,
+        isKosdaq150: Boolean = false,
+    ): ConsumerInstrumentJpaEntity =
+        ConsumerInstrumentJpaEntity(
+            code = code,
+            name = code,
+            market = market,
+            type = "STOCK",
+            isKospi200 = isKospi200,
+            isKosdaq150 = isKosdaq150,
+        )
 
     /** Candle 빌더 — 페이지네이션 invariant 검증용 fixture */
     private fun candle(
@@ -115,6 +164,37 @@ class KisRestCandleAdapterPaginationTest {
         // 일봉 cover 가드 (250 영업일 = 1년 → 3 pages 충분, 6 pages = 약 2.5년):
         val dailyCover = maxPages * kisPageLimit
         assertThat(dailyCover).isGreaterThanOrEqualTo(600)
+    }
+
+    @Test
+    fun `market-div-resolver KOSPI 전체 UN 금지 — KOSPI200만 UN 후보 후 J fallback`() {
+        val instrumentRepository = mockk<ConsumerInstrumentJpaRepository>()
+        every { instrumentRepository.findById("005930") } returns
+            Optional.of(instrument("005930", market = "KOSPI", isKospi200 = true))
+        every { instrumentRepository.findById("000001") } returns
+            Optional.of(instrument("000001", market = "KOSPI", isKospi200 = false))
+        val adapter = buildAdapter(instrumentRepository)
+
+        assertThat(invokeResolveMrktDivCode(adapter, "005930")).isEqualTo("UN")
+        assertThat(invokeResolveMrktDivCodeCandidates(adapter, "005930")).containsExactly("UN", "J")
+        assertThat(invokeResolveMrktDivCode(adapter, "000001")).isEqualTo("J")
+        assertThat(invokeResolveMrktDivCodeCandidates(adapter, "000001")).containsExactly("J")
+    }
+
+    @Test
+    fun `market-div-resolver KOSDAQ 전체 J 고정 금지 — KOSDAQ150은 UN 후보 후 J fallback`() {
+        val instrumentRepository = mockk<ConsumerInstrumentJpaRepository>()
+        every { instrumentRepository.findById("091990") } returns
+            Optional.of(instrument("091990", market = "KOSDAQ", isKosdaq150 = true))
+        every { instrumentRepository.findById("123456") } returns
+            Optional.of(instrument("123456", market = "KOSDAQ", isKosdaq150 = false))
+        every { instrumentRepository.findById("999999") } returns Optional.empty()
+        val adapter = buildAdapter(instrumentRepository)
+
+        assertThat(invokeResolveMrktDivCode(adapter, "091990")).isEqualTo("UN")
+        assertThat(invokeResolveMrktDivCodeCandidates(adapter, "091990")).containsExactly("UN", "J")
+        assertThat(invokeResolveMrktDivCode(adapter, "123456")).isEqualTo("J")
+        assertThat(invokeResolveMrktDivCode(adapter, "999999")).isEqualTo("J")
     }
 
     @Test

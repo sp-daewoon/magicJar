@@ -1,6 +1,6 @@
 # ADR 0063 — NXT/통합거래 매트릭스 cover (분봉·일봉 시장 분류 코드 결정)
 
-- 상태: **Accepted (2026-05-11 사용자 결정)** — 채택안 = A UN 통합 + 시간 1 08:00~20:00 명시 + threshold 350 → 700
+- 상태: **Accepted (2026-05-11 사용자 결정, 2026-05-20 ADR 0091로 market-level UN 분기 보강)** — 채택안 = A UN 통합 + 시간 1 08:00~20:00 명시 + threshold 350 → 700
 - 작성일: 2026-05-11
 - 채택일: 2026-05-11 (사용자 채팅 명시)
 - 결정자: 사용자(최고 관리자) — 본 ADR Accepted 갱신, sub-agent 디스패치 진행 (architect dogfooding 의제 발의 2026-05-11)
@@ -76,7 +76,7 @@ fid_cond_mrkt_div_code (str): [필수] 조건 시장 분류 코드 (ex. J:KRX, N
 
 | 옵션 | 동작 | Pro | Con |
 |---|---|---|---|
-| **A. UN 통합** (architect 권장) | `fid_cond_mrkt_div_code="UN"` 단일 호출 → KIS가 KRX+NXT 통합 응답 반환 | 종목별 시장 분기 불요 · instrument 컬럼 신설 회피 · 코드 변경 최소(쿼리파라미터 + 시간 상수만) · NXT 미거래 종목은 KRX 단독 응답으로 자동 호환 | UN 응답 sample 검증 부족 (NXT 미거래 종목 시 응답 형식 변동 가능성) · KIS 부하 영향 측정 미흡 |
+| **A. UN 통합** (2026-05-20 ADR 0091로 보강) | `fid_cond_mrkt_div_code="UN"` 단일 호출 → KIS가 KRX+NXT 통합 응답 반환 | NXT 후보 종목의 확장시간 캔들 cover | market 전체 일괄 적용 시 빈 응답 결함. ADR 0091부터 `is_kospi200/is_kosdaq150` 종목 단위 후보 + `J` fallback으로 보강 |
 | B. NX 분기 + instrument 컬럼 신설 | 종목별 `nxt_tradable` 컬럼 + 분기 호출 (NX 종목 = NX 호출, 그 외 = J 호출) | NXT 비대상 종목의 KIS 호출 최적화 · 명시적 데이터 분리 | instrument 마이그레이션 추가 · 종목 마스터 sync에서 NXT 거래 가능 정보 별도 수집 의무 · KIS 종목 마스터에 NXT 정보 포함 여부 확인 필요 |
 | C. KRX 단일 유지 (현행) | `fid_cond_mrkt_div_code="J"` 그대로 | 변경 0 | 사용자 의제 미해결 — NXT pre/after-hour 누락 지속 |
 
@@ -113,7 +113,7 @@ fid_cond_mrkt_div_code (str): [필수] 조건 시장 분류 코드 (ex. J:KRX, N
 
 > "A UN 통합 + 시간 1 08:00~20:00 + threshold 700 — 2026-05-11 사용자 채팅 명시"
 
-- 의제 A → **A UN 통합** 채택 (`fid_cond_mrkt_div_code="UN"`)
+- 의제 A → **A UN 통합** 채택 (`fid_cond_mrkt_div_code="UN"`). 2026-05-20 ADR 0091에서 market-level 일괄 분기를 폐기하고 종목 단위 후보 + `J` fallback으로 보강.
 - 의제 B → **옵션 1 08:00~20:00 명시** 채택 (`fid_input_hour_1="200000"` 시작, 종료 `< 08:00 KST`)
 - 의제 C → **threshold 350 → 700** 채택 (`MIN_1M_CANDLE_THRESHOLD = 700L`)
 
@@ -204,7 +204,7 @@ revert는 모두 `git revert <commit>` single-line operation으로 가능 (add-o
 
 ## 7. 결과 (예상 — 옵션 A·1·700 채택 후)
 
-- NXT 거래 종목(KOSPI 200 대형주)의 pre-hour + after-hour 시세가 시그널·룰엔진·백테스트에 진입
+- NXT 거래 후보 종목의 pre-hour + after-hour 시세가 시그널·룰엔진·백테스트에 진입
 - 자동매매 본체가 NXT 시간대 가격 변동을 인지 → 룰 기반 트레이딩 fitness 보완
 - KIS 호출량 종목당 +33% — ADR 0037 한도 안전
 - DB 영속 영향 0 (1m은 Redis only) · Redis 메모리 +5 MB 수준
@@ -212,7 +212,7 @@ revert는 모두 `git revert <commit>` single-line operation으로 가능 (add-o
 ## 8. 절충
 
 - KIS 호출량 +33% — 향후 풀 size 100+로 확장 시 Rate Limit 영향 측정 의무 (backlog §32 후속)
-- NXT 미거래 종목(소형주 등)의 UN 호출이 KRX 단독 응답을 반환하는지 sample 검증 필요 (KIS MCP 추가 검증 권장)
+- NXT 미거래 종목(소형주 등)의 `UN` 호출이 빈 응답을 낼 수 있어 ADR 0091에서 `J` fallback을 채택
 - 사용자 차트 UI가 NXT 시간대 분봉을 표시 시 X축 범위 09:00~15:30 가정의 LWC 설정 점검 필요 (frontend 사이클 후속)
 
 ## 9. 결정 후 트리거
@@ -233,3 +233,9 @@ revert는 모두 `git revert <commit>` single-line operation으로 가능 (add-o
 - ADR 0019 — 캔들 저장 정책 (본 ADR 채택 후 §2 매트릭스 NXT 행 보강 의무)
 - backlog §32 — 본 트랙 후속
 - 사용자 메모리 `feedback_kis_first_policy.md`·`feedback_kis_key_realonly_for_data.md`·`feedback_v3_skepticism_no_regression.md`·`feedback_spec_plan_scope.md`·`feedback_3tier_hierarchy.md`
+
+## 11. 변경 이력
+
+| 날짜 | 변경 | 사유 |
+|------|------|------|
+| 2026-05-20 | ADR 0091 cross-ref 추가 — `KOSPI=UN/KOSDAQ=J` market-level 분기를 종목 단위 후보 + `J` fallback으로 보강 | 사용자 지적: market 전체 `UN` 통합 처리가 캔들 fetch 결함 원인. NXT 가능 여부는 종목 단위로 관리해야 함 |
