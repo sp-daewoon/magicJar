@@ -5,6 +5,7 @@ import jakarta.persistence.Entity
 import jakarta.persistence.Id
 import jakarta.persistence.Table
 import java.time.Instant
+import java.time.LocalDate
 
 /**
  * instrument JPA 엔티티 (consumer 모듈 — V3 stub 허용).
@@ -12,6 +13,12 @@ import java.time.Instant
  *
  * tradingHalt: 거래정지 여부 (trht_yn — ADR 0021 §2 매매가드).
  *   cold-start skip 판단에 사용 (결함 정정 2026-05-11).
+ *
+ * listedAt (ADR 0086 §2-7 §12 amend, 2026-05-19):
+ *   Active gap detection 4축 교차 검증 중 4번째 축(상장일 이후 ts) 권위 source.
+ *   api/InstrumentJpaEntity에 이미 존재하는 `listed_at` 컬럼을 read-only로 매핑 (add-only).
+ *   stub 생성 시점에는 null이며, T-IM1 정식 데이터 인입 시 KIS `lstn_dt`로 채워진다.
+ *   null이면 §12 검증에서 "상장일 미상" → 결함으로 간주하지 않고 skip(false positive 회피).
  */
 @Entity
 @Table(name = "instrument")
@@ -33,6 +40,12 @@ class ConsumerInstrumentJpaEntity(
     /** 정리매매 여부 (sltr_yn). cold-start skip 판단에 사용. */
     @Column(name = "liquidation", nullable = false)
     val liquidation: Boolean = false,
+    /**
+     * 상장일 (KIS lstn_dt). ADR 0086 §2-7 §12 4축 교차 검증의 4번째 축 권위 source.
+     * null 시: 상장일 미상 → §12 검증에서 false positive 회피 (skip).
+     */
+    @Column(name = "listed_at")
+    val listedAt: LocalDate? = null,
     @Column(name = "created_at", nullable = false, updatable = false)
     val createdAt: Instant = Instant.now(),
     @Column(name = "updated_at", nullable = false)

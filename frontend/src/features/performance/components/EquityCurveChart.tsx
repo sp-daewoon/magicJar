@@ -8,6 +8,11 @@
  * - cleanup: chart.remove()
  *
  * 룰 5: LWC import 0건 외 — anthropic·openai import 0건
+ *
+ * §13 LWC dispose race 가드 (ADR 0086 §2-8 amend, 2026-05-19):
+ *   - chart 자체는 자식 컴포넌트로 prop 전달하지 않으므로 §13 본문 ref→state lift 미적용.
+ *   - ResizeObserver async 콜백 + data update useEffect가 cleanup 후 도달할 race risk
+ *     → isDisposedRef + try/catch로 disposed chart 접근 차단.
  */
 import { useEffect, useRef } from 'react'
 import { createChart } from 'lightweight-charts'
@@ -24,10 +29,13 @@ export function EquityCurveChart({ points, isLoading, isError }: EquityCurveChar
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  // §13 dispose race 가드 (ADR 0086 §2-8) — async 콜백이 cleanup 이후 도달해도 차단
+  const isDisposedRef = useRef(false)
 
   // 차트 초기화
   useEffect(() => {
     if (!containerRef.current) return
+    isDisposedRef.current = false
 
     const chart = createChart(containerRef.current, {
       width: containerRef.current.clientWidth,
@@ -62,39 +70,56 @@ export function EquityCurveChart({ points, isLoading, isError }: EquityCurveChar
     chartRef.current = chart
     seriesRef.current = lineSeries
 
-    // ResizeObserver
+    // ResizeObserver — §13 dispose race 가드 (isDisposedRef + try/catch)
     const ro = new ResizeObserver((entries) => {
+      if (isDisposedRef.current) return
       const entry = entries[0]
       if (entry && chartRef.current) {
-        chartRef.current.applyOptions({ width: entry.contentRect.width })
+        try {
+          chartRef.current.applyOptions({ width: entry.contentRect.width })
+        } catch {
+          // 이미 dispose된 경우 graceful (StrictMode 이중 mount race 대응)
+        }
       }
     })
     ro.observe(containerRef.current)
 
     return () => {
-      ro.disconnect()
-      chart.remove()
-      chartRef.current = null
+      // §13 dispose 순서 LOCK: flag → series ref null → disconnect → remove(try/catch) → chart ref null
+      isDisposedRef.current = true
+      // series ref 먼저 null — 데이터 update useEffect의 stale ref 접근 차단
       seriesRef.current = null
+      ro.disconnect()
+      try {
+        chart.remove()
+      } catch {
+        // 이미 dispose된 경우 graceful 무시
+      }
+      chartRef.current = null
     }
   }, [])
 
-  // 데이터 갱신
+  // 데이터 갱신 — §13 dispose race 가드 (isDisposedRef + try/catch)
   useEffect(() => {
+    if (isDisposedRef.current) return
     if (!seriesRef.current || !points) return
 
-    if (points.length === 0) {
-      seriesRef.current.setData([])
-      return
+    try {
+      if (points.length === 0) {
+        seriesRef.current.setData([])
+        return
+      }
+
+      const data: LineData[] = points.map((p) => ({
+        time: p.tradeDate as LineData['time'],
+        value: Number(p.cumulativePnl),
+      }))
+
+      seriesRef.current.setData(data)
+      chartRef.current?.timeScale().fitContent()
+    } catch {
+      // 이미 dispose된 경우 graceful (async data fetch 도착이 unmount 후일 때)
     }
-
-    const data: LineData[] = points.map((p) => ({
-      time: p.tradeDate as LineData['time'],
-      value: Number(p.cumulativePnl),
-    }))
-
-    seriesRef.current.setData(data)
-    chartRef.current?.timeScale().fitContent()
   }, [points])
 
   if (isLoading) {
