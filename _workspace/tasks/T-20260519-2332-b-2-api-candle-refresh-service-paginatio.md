@@ -3,10 +3,10 @@ id: T-20260519-2332-b-2-api-candle-refresh-service-paginatio
 agent: backend-core
 model: opus
 branch: agent/backend-core/b-2-api-candle-refresh-service-pagination-fix
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T23:32:45.748+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T23:39:16.919+09:00
+pr: #588
 parentPhase: ?
 ---
 
