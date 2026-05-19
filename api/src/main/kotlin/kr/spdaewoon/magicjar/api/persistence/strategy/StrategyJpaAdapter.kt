@@ -1,15 +1,9 @@
 package kr.spdaewoon.magicjar.api.persistence.strategy
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
-import kr.spdaewoon.magicjar.domain.strategy.Signal
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
-import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
-import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
 import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
-import kr.spdaewoon.magicjar.domain.strategy.Universe
-import kr.spdaewoon.magicjar.domain.strategy.dsl.DslStrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyRepositoryPort
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
@@ -22,6 +16,11 @@ import org.springframework.transaction.annotation.Transactional
  * 헌법 §6 (ADR 0051) 준수: 헬퍼 메서드는 interface 0건, 이 클래스 private fun 위치.
  * V14 확장: status 4단 + codes/intervals JSONB (ADR 0066 §2-6 F-1).
  *
+ * ### P2-4 진보 페르소나 refactor (ADR 0087, 2026-05-19)
+ * - `toDomain`·`safeComplexityClass`·`safeDisabledReason` → [StrategyEntityMapper] 추출
+ * - 더이상 자기 손에 변환 로직 보유하지 않음 (DRY 위반 해소)
+ * - 죽은 ref `private val signalRef = Signal.HOLD` 제거
+ *
  * // AI 호출 0 — T-SIG 트랙 정책
  */
 @Component
@@ -33,14 +32,14 @@ class StrategyJpaAdapter(
     override fun save(strategy: Strategy): Strategy {
         val entity = toEntity(strategy)
         val saved = strategyJpaRepository.save(entity)
-        return toDomain(saved)
+        return StrategyEntityMapper.toDomain(saved, objectMapper)
     }
 
     @Transactional(readOnly = true)
     override fun findById(id: Long): Strategy? =
         strategyJpaRepository
             .findByIdAndStatusNot(id, StrategyStatus.DELETED.name)
-            ?.let { toDomain(it) }
+            ?.let { StrategyEntityMapper.toDomain(it, objectMapper) }
 
     @Transactional(readOnly = true)
     override fun findAllByUserId(userId: Long): List<Strategy> {
@@ -50,7 +49,7 @@ class StrategyJpaAdapter(
                 StrategyStatus.DELETED.name,
                 PageRequest.of(0, 10000, Sort.by(Sort.Direction.DESC, "createdAt")),
             )
-        return page.content.map { toDomain(it) }
+        return page.content.map { StrategyEntityMapper.toDomain(it, objectMapper) }
     }
 
     @Transactional
@@ -101,60 +100,7 @@ class StrategyJpaAdapter(
         )
     }
 
-    private fun toDomain(entity: StrategyJpaEntity): Strategy {
-        val dsl =
-            DslStrategyDefinition(
-                name = entity.name,
-                nameKo = entity.nameKo ?: "",
-                buyCondition = null, // AST는 텍스트 재파싱 필요 — 조회 시 dslEntry 텍스트 제공
-                sellCondition = null,
-            )
-        val definition =
-            StrategyDefinition(
-                dsl = dsl,
-                universe = Universe(market = entity.universeMarket),
-                tf = entity.tf,
-            )
-        val complexity =
-            StrategyComplexity(
-                astDepth = entity.astDepth,
-                nodeCount = entity.nodeCount,
-                indicatorCallCount = entity.indicatorCallCount,
-                estimatedEvalTimeMs = entity.estimatedEvalTimeMs,
-                complexityClass = safeComplexityClass(entity.complexityClass),
-            )
-        val disabledReason = safeDisabledReason(entity.disabledReason)
-
-        @Suppress("UNCHECKED_CAST")
-        val evalMetricSummary: Map<String, Any>? =
-            entity.evalMetricSummary?.let {
-                objectMapper.readValue(it, Map::class.java) as Map<String, Any>
-            }
-
-        return Strategy(
-            id = entity.id,
-            userId = entity.userId,
-            definition = definition,
-            complexity = complexity,
-            disabledReason = disabledReason,
-            lastDisabledAt = entity.lastDisabledAt,
-            evalMetricSummary = evalMetricSummary,
-            createdAt = entity.createdAt,
-            updatedAt = entity.updatedAt,
-        )
-    }
-
     private fun extractDslText(node: kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode?): String = node?.toString() ?: ""
-
-    private fun safeComplexityClass(value: String): ComplexityClass =
-        runCatching { ComplexityClass.valueOf(value) }.getOrDefault(ComplexityClass.LOW)
-
-    private fun safeDisabledReason(value: String?): StrategyDisabledReason =
-        if (value == null) {
-            StrategyDisabledReason.NULL
-        } else {
-            runCatching { StrategyDisabledReason.valueOf(value) }.getOrDefault(StrategyDisabledReason.NULL)
-        }
 
     /** 평가 결과 outcome 문자열 — 외부 참조용 */
     object EvalOutcome {
@@ -164,8 +110,4 @@ class StrategyJpaAdapter(
         const val UNKNOWN_SYMBOL = "UNKNOWN_SYMBOL"
         const val SYNTAX_ERROR = "SYNTAX_ERROR"
     }
-
-    /** 미사용이지만 컴파일 참조 제거 방지 */
-    @Suppress("unused")
-    private val signalRef = Signal.HOLD
 }

@@ -206,6 +206,14 @@ class OrderRouterKafkaListener(
                     is PersistResult.Ok -> result.saved
                 }
 
+            // P2-4-3 진보 페르소나 (ADR 0087) — `!!` 가드: 자본 path에서 saved.id null은 invariant 위반.
+            // JPA save 후 generated id 미설정 시 명시 throw + audit 메시지로 운영자 즉시 매칭 가능.
+            val savedOrderId =
+                requireNotNull(saved.id) {
+                    "OrderRouterKafkaListener — saved.id null after JPA save (자본 path invariant 위반): " +
+                        "userId=${intent.userId} signalId=${intent.signalId}"
+                }
+
             // Step 6: Kafka order.requested.v1 publish (STOMP notify는 Phase 2 backend-core가 listen)
             orderRequestedKafkaProducer.publish(saved)
 
@@ -236,12 +244,12 @@ class OrderRouterKafkaListener(
                             // PENDING_RECONCILE 상태로만 마킹 — completedAt 미설정 (worker 결정 후 설정).
                             orderRequestRepositoryProvider
                                 .getIfAvailable()
-                                ?.updateStatus(saved.id!!, OrderStatus.PENDING_RECONCILE, rejectReason)
+                                ?.updateStatus(savedOrderId, OrderStatus.PENDING_RECONCILE, rejectReason)
                                 ?: saved.copy(status = OrderStatus.PENDING_RECONCILE, rejectReason = rejectReason)
                         } else {
                             orderRequestRepositoryProvider
                                 .getIfAvailable()
-                                ?.updateStatus(saved.id!!, OrderStatus.REJECTED, rejectReason)
+                                ?.updateStatus(savedOrderId, OrderStatus.REJECTED, rejectReason)
                                 ?: saved.copy(status = OrderStatus.REJECTED, rejectReason = rejectReason, completedAt = now)
                         }
                     } catch (e: Exception) {
@@ -291,9 +299,9 @@ class OrderRouterKafkaListener(
             try {
                 orderRequestRepositoryProvider
                     .getIfAvailable()
-                    ?.updateKisAck(saved.id!!, ackData.kisOrderNo, ackData.kisFwdgOrgno, ackTime)
+                    ?.updateKisAck(savedOrderId, ackData.kisOrderNo, ackData.kisFwdgOrgno, ackTime)
             } catch (e: Exception) {
-                log.error("updateKisAck 실패: orderId={} err={}", saved.id, e.message)
+                log.error("updateKisAck 실패: orderId={} err={}", savedOrderId, e.message)
             }
 
             writeAudit(
