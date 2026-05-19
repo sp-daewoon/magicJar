@@ -3,10 +3,10 @@ id: T-20260519-2012-p1-4-phase2-kis-rate-limit-adr-0090-phas
 agent: market-data
 model: opus
 branch: agent/market-data/p1-4-phase2-kis-rate-limit-adr-0090-phase1
-status: RUNNING
+status: DONE
 startedAt: 2026-05-19T20:12:41.393+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-19T20:43:20.344+09:00
+pr: #571
 parentPhase: ?
 ---
 
