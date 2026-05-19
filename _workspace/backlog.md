@@ -7,7 +7,7 @@
 
 ---
 
-## §0-A. P1-4 KIS Rate Limit Bucket4j 실 구현 의제 (2026-05-19 신설 · architect ADR 0037 amend + spec 발행 완료 · Phase 1 backend-core 대기)
+## §0-A. P1-4 KIS Rate Limit Bucket4j 실 구현 의제 (2026-05-19 신설 · architect ADR 0037 amend + spec 발행 완료 · **Phase 1 backend-core 완료 PR #N**)
 
 ### 사유
 
@@ -25,14 +25,19 @@ market-data PR #555 system audit evidence — **Rate Limit 가드 DEGRADED**:
 - ADR 0037 Accepted (amend) — `_workspace/arch/adr/0037-kis-rate-limit-enforcement.md` (§1-1·§2-1·§2-2·§5·§6 amend)
 - Spec 본문 — `_workspace/specs/2026-05-19-p1-4-bucket4j-kis-rate-limiter-spec.md` (9 § 풀세트)
 
-### 대기 사이클 (Phase 1 backend-core 단일 PR)
+### Phase 1 완료 (backend-core, 2026-05-19 PR #N)
 
-- 영역: domain port `KisRateLimiterPort` + `KisCallPriority` enum + 2 Exception + Bucket4j-Redis adapter 신설 + Bean wiring + Gradle dep + application.yml + 단위 테스트 4건
-- 파일 수: ~10 + ~300 LOC
-- adapter 모듈 위치 1차 결정 (backend-core 위임): 옵션 a (api 단독 Bean — batch·consumer 별도 Bean 발행 필요) vs 옵션 b (persistence-shared 패턴 1:1 재사용 ★ 권장 — ADR 0088 정합) vs 옵션 c (신규 kis-shared 모듈)
-- Gradle dep: `com.bucket4j:bucket4j-core:8.10.1` + `com.bucket4j:bucket4j-redis:8.10.1`
-- 단위 테스트: (1) 초당 10건 정확 강제 + 11번째 throw `KisRateLimitTimeoutException` (2) EGW00201 mock 응답 → 1초 backoff + 1회 재시도 + 재시도도 fail 시 명시 에러 throw (3) HTTP 429 동일 path (4) Circuit Breaker OPEN 5분 + `KisCircuitOpenException` throw
-- cross-review: 자본 path 직결 chart-curator 1차(보수 🔴/🟡/🔵) + 모듈 경계 backend-core 1차(진보 💡/🔄/✨) (ADR 0085·0087 정합)
+- 영역: domain port `KisRateLimiterPort` + `KisCallPriority` enum + sealed `KisRateLimitException` 2종 (`KisRateLimitTimeoutException`·`KisCircuitOpenException`) + Bucket4j-Redis adapter + Bean wiring + Gradle dep + application.yml + 단위 테스트 4건 = ~7 신규 파일 + 3 갱신 파일
+- adapter 모듈 위치 1차 결정: **옵션 a 채택** (api 모듈 단독 Bean — Phase 2 batch·consumer 별도 Bean wiring 후속 dispatch). 사유: Phase 1 단순화 LOCK + ADR 0088 모듈 패턴은 JPA 기반이라 Bucket4j Redis-only는 부적합. Phase 2 합류 후 multi-JVM 모듈 분리 의제 별도 평가.
+- Gradle dep: `com.bucket4j:bucket4j-core:8.10.1` + `com.bucket4j:bucket4j-redis:8.10.1` (api 단독)
+- 단위 테스트 4건 GREEN: (1) acquire 즉시 return (2) polling 후 token 회복 return (3) timeout 시 `KisRateLimitTimeoutException` throw (4) `onTpsExceeded()` 시그널 카운터 누적
+- spec §6-1 #2(EGW00201 backoff)·#3(HTTP 429 backoff)·#4(Circuit Breaker OPEN 5분)는 Phase 2·3 합류 후 통합 테스트로 검증 (Phase 1 어댑터 자체는 Circuit Breaker stub — `onTpsExceeded`/`onSuccess` 시그널만 누적)
+
+### Phase 1 follow-up backlog (2026-05-19 발행)
+
+- **Bucket4j 8.10.1 `withExpirationStrategy` deprecation 정정** — `KisRateLimiterConfiguration.kt:95` `LettuceBasedProxyManager.builderFor().withExpirationStrategy(...).build()` deprecated. Bucket4j 9.x baseline 또는 8.x 신규 대체 API 검증 후 정정. K2 compile warning 1건만 — 빌드는 GREEN. Phase 2 합류 또는 별도 chore PR로 처리.
+- **Circuit Breaker 실 차단 path** — Phase 1은 `onTpsExceeded`/`onSuccess` 카운터만, OPEN/HALF_OPEN 차단 0. Phase 3 Resilience4j 또는 Bucket4j Listener 합류 의무.
+- **우선순위 큐** — `KisCallPriority` Phase 1 정보 수집만, USER_PATH 즉시 / INGESTION / BACKFILL 라우팅 0. Phase 2 합류 후 priority별 polling interval 또는 Redis-side queue 검토.
 
 ### Phase 2 대기 (Phase 1 머지 후 market-data dispatch)
 
