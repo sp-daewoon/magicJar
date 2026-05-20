@@ -82,6 +82,115 @@ class RealtimeSignalGeneratorTest {
     }
 
     @Test
+    fun `buyCondition 충족 시 BUY 시그널을 직접 저장하고 Kafka로 발행한다`() {
+        val buyAst = ast("1", Operator.GT, "0")
+        val sellAst = ast("0", Operator.GT, "1")
+        val boundaryTs = Instant.parse("2026-05-20T00:30:00Z")
+        val savedSignal = slot<GeneratedSignal>()
+        val publishedSignal = slot<GeneratedSignal>()
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(strategy(buyAst = buyAst, sellAst = sellAst))
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
+        every { candleRepository.findByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(candle("2026-05-20T00:25:00Z", "100"))
+        every { evaluator.evaluate(42L, buyAst, any()) } returns
+            StrategyEvalResult(
+                signal = StrategySignal.BUY,
+                strength = BigDecimal("0.85"),
+                reason = mapOf("trigger" to "MA_CROSS", "lhs" to "MA(5)=120", "rhs" to "MA(20)=110"),
+                evaluatedAt = fixedNow,
+                evalTimeMs = 2L,
+            )
+        every { signalRepository.save(capture(savedSignal)) } answers { savedSignal.captured.copy(id = 88L) }
+        every { signalKafkaProducer.publish(capture(publishedSignal)) } just Runs
+
+        generator().onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.FIVE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "150"),
+        )
+
+        // BUY direct path — sellCondition 평가는 호출 0 (BUY 우선 LOCK 정합)
+        verify(exactly = 1) { evaluator.evaluate(42L, buyAst, any()) }
+        verify(exactly = 0) { evaluator.evaluate(42L, sellAst, any()) }
+        // signal save 호출 + id 채번 확인 + Kafka publish 호출 + id 포함
+        assertThat(savedSignal.captured.side).isEqualTo(SignalSide.BUY)
+        assertThat(savedSignal.captured.strength).isEqualTo(85)
+        assertThat(savedSignal.captured.reason).isEqualTo("MA_CROSS: MA(5)=120 vs MA(20)=110")
+        assertThat(savedSignal.captured.priceAtSignal.toPlainString()).isEqualTo("150")
+        assertThat(savedSignal.captured.code).isEqualTo("005930")
+        assertThat(savedSignal.captured.interval).isEqualTo(CandleInterval.FIVE_MIN)
+        assertThat(savedSignal.captured.ts).isEqualTo(boundaryTs)
+        // Kafka publish는 저장 후 id가 채번된 signal로 호출되어야 한다
+        assertThat(publishedSignal.captured.id).isEqualTo(88L)
+        assertThat(publishedSignal.captured.side).isEqualTo(SignalSide.BUY)
+        verify(exactly = 1) { signalKafkaProducer.publish(any()) }
+    }
+
+    @Test
+    fun `dedupeGuard tryAcquire false 시 evaluator 호출과 signal save를 모두 skip 한다`() {
+        val buyAst = ast("1", Operator.GT, "0")
+        val sellAst = ast("1", Operator.GT, "0")
+        val boundaryTs = Instant.parse("2026-05-20T00:45:00Z")
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(strategy(buyAst = buyAst, sellAst = sellAst))
+        // dedupe acquire 실패 — 이전 동일 boundary 처리 흔적 (Redis SETNX 30s window LOCK)
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns false
+
+        generator().onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.FIVE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "160"),
+        )
+
+        // evaluator·signal save·Kafka publish 모두 0 — dedupe LOCK 정합
+        verify(exactly = 0) { evaluator.evaluate(any(), any(), any()) }
+        verify(exactly = 0) { signalRepository.save(any()) }
+        verify(exactly = 0) { signalKafkaProducer.publish(any()) }
+        verify(exactly = 0) { candleRepository.findByCodeAndInterval(any(), any()) }
+        // dedupe guard 자체는 호출되어야 함 (정상 path 진입 evidence)
+        verify(exactly = 1) { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) }
+    }
+
+    @Test
+    fun `signalRepository save 예외 발생 시 Kafka publish 0 + listener thread 살아 있다`() {
+        val buyAst = ast("1", Operator.GT, "0")
+        val boundaryTs = Instant.parse("2026-05-20T01:00:00Z")
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(strategy(buyAst = buyAst))
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
+        every { candleRepository.findByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(candle("2026-05-20T00:55:00Z", "100"))
+        every { evaluator.evaluate(42L, buyAst, any()) } returns
+            StrategyEvalResult(
+                signal = StrategySignal.BUY,
+                strength = BigDecimal("0.50"),
+                reason = mapOf("trigger" to "RULE"),
+                evaluatedAt = fixedNow,
+                evalTimeMs = 1L,
+            )
+        // signal save 실패 — UQ violation 또는 영속 오류
+        every { signalRepository.save(any()) } throws RuntimeException("UQ violation (strategyId, code, interval, ts)")
+
+        // listener thread를 죽이지 않고 graceful catch 되어야 함 (assert no throw)
+        generator().onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.FIVE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "170"),
+        )
+
+        // save는 1회 시도, publish는 0회 (save 실패 시 publish skip 정합)
+        verify(exactly = 1) { signalRepository.save(any()) }
+        verify(exactly = 0) { signalKafkaProducer.publish(any()) }
+    }
+
+    @Test
     fun `buyCondition HOLD 이후 sellCondition 충족 시 SELL 시그널을 저장하고 발행한다`() {
         val buyAst = ast("1", Operator.LT, "0")
         val sellAst = ast("1", Operator.GT, "0")
