@@ -21,9 +21,18 @@ import org.springframework.stereotype.Component
  * `runCatching` wrap + `log.error` 만 (offset/error 흔적 남기고 다음 메시지 진행).
  * 손실 허용 — DB 영속(SystemEventLoggerAdapter)이 source-of-truth, STOMP는 push 보조.
  *
+ * ### stomp_event 영속 (P2.1 — final reviewer ★★ #1 fix)
+ * PR #621 [StompAccountNotifier] 패턴 1:1 정합 — `convertAndSend` 직전 [StompEventPersister.persist]
+ * 호출로 frontend 재접속 시 `GET /api/stomp/events?since=` backfill 가능.
+ *
+ * - `userId != null` (user-specific) → persist 호출 (channel=`system-event`, eventType=action)
+ * - `userId == null` (broadcast)     → persist skip — stomp_event 는 multi-tenant 격리 키 userId 필수
+ *   (global broadcast 는 backfill 대상 아님; DB system_event 가 source-of-truth)
+ *
+ * persist 실패는 publish 자체를 막지 않음 — best-effort (StompEventPersister 내부 swallow).
+ *
  * ### 모듈 경계
  * api 모듈 단독 — consumer 모듈이 STOMP 직접 호출하지 않음 (ADR 0004 정합).
- * PR #621 ([StompAccountNotifier]) 패턴 1:1 정합.
  *
  * ### groupId
  * `magicjar-system-event-stomp` — api 모듈 STOMP fanout 전용 그룹.
@@ -38,6 +47,7 @@ import org.springframework.stereotype.Component
 class SystemEventStompNotifier(
     private val stomp: SimpMessagingTemplate,
     private val objectMapper: ObjectMapper,
+    private val stompEventPersister: StompEventPersister,
 ) {
     private val log = LoggerFactory.getLogger(SystemEventStompNotifier::class.java)
 
@@ -46,6 +56,7 @@ class SystemEventStompNotifier(
         const val TOPIC_BROADCAST = "/topic/system.event.broadcast"
         const val KAFKA_TOPIC = "system.event.v1"
         const val GROUP_ID = "magicjar-system-event-stomp"
+        const val CHANNEL = "system-event"
     }
 
     @KafkaListener(topics = [KAFKA_TOPIC], groupId = GROUP_ID)
@@ -58,6 +69,16 @@ class SystemEventStompNotifier(
                 } else {
                     TOPIC_BROADCAST
                 }
+            // P2.1 ★★ #1: PR #621 정합 — publish 직전 stomp_event 영속 (best-effort)
+            // broadcast(userId null) 는 persist skip — multi-tenant 격리 키 부재
+            event.userId?.let { uid ->
+                stompEventPersister.persist(
+                    userId = uid,
+                    channel = CHANNEL,
+                    eventType = event.action,
+                    payload = event,
+                )
+            }
             stomp.convertAndSend(topic, event)
             log.debug(
                 "SystemEvent STOMP fanout: topic={} category={} severity={} action={}",
