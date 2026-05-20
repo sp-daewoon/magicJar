@@ -79,6 +79,7 @@ class OrderRouterKafkaListener(
     private val kisOrderPort: KisOrderPort,
     private val orderRequestedKafkaProducer: OrderRequestedKafkaProducer,
     private val orderRejectedKafkaProducer: OrderRejectedKafkaProducer,
+    private val accountBalanceChangedKafkaProducer: AccountBalanceChangedKafkaProducer,
     private val objectMapper: ObjectMapper,
 ) {
     private val log = LoggerFactory.getLogger(OrderRouterKafkaListener::class.java)
@@ -288,6 +289,13 @@ class OrderRouterKafkaListener(
                     )
                 } else {
                     orderRejectedKafkaProducer.publish(transitioned, rejectReason)
+                    // Polling → STOMP push (2026-05-20) — REJECTED 시 예약 cash 환원 가능 → 잔고 invalidate trigger.
+                    accountBalanceChangedKafkaProducer.publish(
+                        userId = transitioned.userId,
+                        mode = transitioned.mode,
+                        reason = AccountBalanceChangedKafkaProducer.REASON_REJECTED,
+                        triggerKisOrderNo = transitioned.kisOrderNo,
+                    )
                 }
                 ack.acknowledge()
                 return
@@ -444,6 +452,15 @@ class OrderRouterKafkaListener(
             mapOf("reason" to reason, "source" to intent.source.name),
         )
         orderRejectedKafkaProducer.publish(saved, reason)
+        // Polling → STOMP push (2026-05-20) — gate REJECTED (TradingModeGate · KillSwitch).
+        // 게이트 차단은 KIS 요청 자체를 안 보냈으므로 사실상 잔고 변동 없음 — 그러나 frontend "주문 거절" UX 정합으로
+        // invalidate trigger를 동일 path로 통일 (사용자가 잔고창 새로고침해도 무해 — cache TTL 10s 내 KIS 0 호출).
+        accountBalanceChangedKafkaProducer.publish(
+            userId = saved.userId,
+            mode = saved.mode,
+            reason = AccountBalanceChangedKafkaProducer.REASON_REJECTED,
+            triggerKisOrderNo = saved.kisOrderNo,
+        )
         log.warn(
             "OrderRouterKafkaListener REJECTED: userId={} signalId={} source={} reason={}",
             intent.userId,

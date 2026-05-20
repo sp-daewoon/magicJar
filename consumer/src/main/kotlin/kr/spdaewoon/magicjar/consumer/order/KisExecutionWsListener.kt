@@ -81,6 +81,7 @@ class KisExecutionWsListener(
     private val orderFilledKafkaProducer: OrderFilledKafkaProducer,
     private val orderRejectedKafkaProducer: OrderRejectedKafkaProducer,
     private val orderCancelledKafkaProducer: OrderCancelledKafkaProducer,
+    private val accountBalanceChangedKafkaProducer: AccountBalanceChangedKafkaProducer,
     private val objectMapper: ObjectMapper,
     private val clock: Clock = Clock.system(ZoneId.of("Asia/Seoul")),
 ) {
@@ -437,6 +438,13 @@ class KisExecutionWsListener(
             )
         }
         orderCancelledKafkaProducer.publish(updated)
+        // Polling → STOMP push (2026-05-20) — 잔고 변경 trigger (취소도 예약 cash 회복).
+        accountBalanceChangedKafkaProducer.publish(
+            userId = updated.userId,
+            mode = updated.mode,
+            reason = AccountBalanceChangedKafkaProducer.REASON_CANCELLED,
+            triggerKisOrderNo = msg.odno,
+        )
         log.info("KisExecutionWsListener CANCELLED: orderId={} odno={}", requestId, msg.odno)
     }
 
@@ -550,6 +558,13 @@ class KisExecutionWsListener(
                     )
                 }
                 orderFilledKafkaProducer.publish(partial, execution, partial = true)
+                // Polling → STOMP push (2026-05-20) — 부분 체결도 잔고 변경 (현금·평가금액 즉시 변동).
+                accountBalanceChangedKafkaProducer.publish(
+                    userId = partial.userId,
+                    mode = partial.mode,
+                    reason = AccountBalanceChangedKafkaProducer.REASON_FILLED,
+                    triggerKisOrderNo = msg.odno,
+                )
                 log.info(
                     "KisExecutionWsListener PARTIALLY_FILLED: orderId={} sum={}/{}",
                     requestId,
@@ -579,6 +594,13 @@ class KisExecutionWsListener(
                     )
                 }
                 orderFilledKafkaProducer.publish(filled, execution, partial = false)
+                // Polling → STOMP push (2026-05-20) — 전체 체결 → 잔고 즉시 invalidate trigger.
+                accountBalanceChangedKafkaProducer.publish(
+                    userId = filled.userId,
+                    mode = filled.mode,
+                    reason = AccountBalanceChangedKafkaProducer.REASON_FILLED,
+                    triggerKisOrderNo = msg.odno,
+                )
                 log.info("KisExecutionWsListener FILLED: orderId={} qty={}", requestId, sum)
             }
 
