@@ -27,12 +27,21 @@
  *   onCandleSeriesReady?: (series: ISeriesApi<'Candlestick'>) => void — PatternMarker 연동용 series ref 노출
  *   onCandleSeriesDestroy?: () => void                               — series destroy 시 알림
  *
+ * Phase 5 chart-curator (ADR 0093 §3-1·§3-2 정합 — 2026-05-20):
+ *   maxCandles?: number             — lazy backfill 누적 cap (timeframe별 매트릭스 — candleCountMaxByInterval)
+ *   onMaxCapReached?: () => void   — 가드 3 trigger 시 1회 콜백 (toast 1회 표시용 — SymbolChart 책임)
+ *
+ *   가드 3 의도: 사용자가 좌측 끝까지 스크롤 → candles.length가 cap에 도달했음 신호.
+ *   onScrollLeft 호출 차단 + onMaxCapReached 1회 호출. 무한 lazy backfill·과도한 KIS 호출 차단.
+ *
  * props:
  *   candles: CandleDto[]           초기 데이터 (ASC 정렬 보장 — backend 정합)
  *   interval: CandleInterval       현재 인터벌 (시간 포맷 분기용)
  *   realtimeCandle?: CandleDto     STOMP push 실시간 candle (optional)
  *   liveTick?: { price: string; ts: string } | null  STOMP tick — 마지막 bar 실시간 update
  *   onScrollLeft?: () => void      좌측 스크롤 끝 콜백 (페이지네이션 트리거)
+ *   maxCandles?: number            가드 3 cap — candles.length >= cap이면 onScrollLeft 차단
+ *   onMaxCapReached?: () => void   가드 3 trigger 시 1회 콜백 (SymbolChart에서 toast)
  *   onChartReady?: (chart) => void 차트 생성 완료 콜백 (IndicatorOverlay 연동)
  *   onChartDestroy?: () => void    차트 파괴 콜백 (IndicatorOverlay 정리)
  *   onCandleSeriesReady?: (series) => void  캔들 시리즈 노출 (PatternMarker 연동)
@@ -67,6 +76,16 @@ interface LightweightChartProps {
    */
   liveTick?: LiveTick | null
   onScrollLeft?: () => void
+  /**
+   * 가드 3 cap — candles.length >= maxCandles 이면 onScrollLeft 호출 차단 (ADR 0093 §3-2).
+   * undefined 또는 0 이하 값이면 가드 3 비활성 (기존 동작 유지 — 보수적 fallback).
+   */
+  maxCandles?: number
+  /**
+   * 가드 3 trigger 시 1회 콜백 — SymbolChart가 toast 1회 표시 책임 (ADR 0093 §3-2).
+   * candles 배열 reference 동일 + cap 도달 상태가 유지되는 동안 중복 호출 차단.
+   */
+  onMaxCapReached?: () => void
   /** 차트 API 인스턴스를 부모에게 노출 (IndicatorOverlay 연동) */
   onChartReady?: (chart: IChartApi) => void
   /** 차트 파괴 시 알림 */
@@ -273,6 +292,8 @@ export function LightweightChart({
   realtimeCandle,
   liveTick,
   onScrollLeft,
+  maxCandles,
+  onMaxCapReached,
   onChartReady,
   onChartDestroy,
   onCandleSeriesReady,
@@ -292,6 +313,15 @@ export function LightweightChart({
   onCandleSeriesReadyRef.current = onCandleSeriesReady
   const onCandleSeriesDestroyRef = useRef(onCandleSeriesDestroy)
   onCandleSeriesDestroyRef.current = onCandleSeriesDestroy
+
+  // Phase 5 ADR 0093 §3-2 가드 3 — 최신 candles.length·maxCandles·onMaxCapReached ref
+  // (subscribeVisibleLogicalRangeChange 콜백 클로저에서 최신 값 참조 — useEffect 의존성 없이 안전)
+  const candlesLengthRef = useRef<number>(candles.length)
+  candlesLengthRef.current = candles.length
+  const maxCandlesRef = useRef<number | undefined>(maxCandles)
+  maxCandlesRef.current = maxCandles
+  const onMaxCapReachedRef = useRef(onMaxCapReached)
+  onMaxCapReachedRef.current = onMaxCapReached
 
   // interval ref — tickMarkFormatter 클로저에서 최신 값 참조
   const intervalRef = useRef(interval)
@@ -321,23 +351,35 @@ export function LightweightChart({
   const lastBarRef = useRef<{ time: UTCTimestamp; open: number; high: number; low: number; close: number } | null>(null)
 
   /**
-   * backlog §30 fix — 차트 좌측 스크롤 자동 페이지네이션 false trigger 가드
+   * 차트 좌측 스크롤 자동 페이지네이션 false trigger·과도한 KIS 호출 차단 — 3단 가드
    *
-   * 문제: LWC v4 setData + fitContent 직후 timeScale이 visibleLogicalRange 콜백을
-   *      자동 발화. fitContent는 우측 패딩을 두기 위해 range.from 값을 음수로
-   *      설정(예: -10 ~ -50)하므로 사용자가 좌측 스크롤하지 않았음에도 onScrollLeft
-   *      자동 호출 → fetchNextPage(before=oldest_ts) → 옛 candle 200개 즉시 요청.
-   *      사용자 dogfooding(2026-05-11): 차트 첫 진입 시 `before=2009-10-31T15:00:00Z`
-   *      자동 호출 + 응답 `ts=2000-01-31T15:00:00Z` 확인 — 의도되지 않은 초기 페이지네이션.
+   * ### 가드 1 — 첫 setData 후 1초 cooldown (backlog §30 fix · 2026-05-11)
+   * LWC v4 setData + fitContent 직후 timeScale이 visibleLogicalRange 콜백을 자동 발화.
+   * fitContent는 우측 패딩을 두기 위해 range.from 값을 음수로 설정(예: -10 ~ -50)하므로
+   * 사용자가 좌측 스크롤하지 않았음에도 onScrollLeft 자동 호출 → fetchNextPage(before=oldest_ts)
+   * → 옛 candle 200개 즉시 요청.
+   * Dogfooding evidence (2026-05-11): 차트 첫 진입 시 `before=2009-10-31T15:00:00Z` 자동 호출
+   *                                 + 응답 `ts=2000-01-31T15:00:00Z` — 의도되지 않은 초기 페이지네이션.
    *
-   * 가드 정책 (2단):
-   *   1. **첫 setData 후 1초 cooldown** — 초기 setData·fitContent 직후 자동 콜백 무시.
-   *   2. **range.from 단조감소(좌측 pan) 검증** — 직전 range.from보다 더 작아진 경우만
-   *      onScrollLeft 호출(사용자가 실제 좌측 pan했음 신호). 우측 zoom·resize 같은
-   *      false positive 차단.
+   * ### 가드 2 — range.from 단조감소(좌측 pan) 검증 (backlog §30 fix · 2026-05-11)
+   * 직전 range.from보다 더 작아진 경우만 onScrollLeft 호출(사용자가 실제 좌측 pan했음 신호).
+   * 우측 zoom·resize 같은 false positive 차단.
+   *
+   * ### 가드 3 — max cap 도달 시 lazy backfill 차단 + toast 1회 (Phase 5 · ADR 0093 §3-2 · 2026-05-20)
+   * candles.length가 maxCandles에 도달하면 onScrollLeft 호출 차단 + onMaxCapReached 1회 콜백.
+   * Dogfooding evidence (2026-05-20 한국석유 004090):
+   *   - 일봉 600 → 800 → 1000봉 누적 lazy backfill 후 cap(5000) 미도달 → 가드 3 통과
+   *   - 일봉 5000봉 도달 시 가드 3 발동 → toast "표시 봉수 최대 도달 (5000봉)" 1회 표시 후 호출 중단
+   * 효과: 무한 lazy backfill·KIS Rate Limit 침범·DB 적재량 폭주 차단 (ADR 0086 §14 함정 가드 정합).
+   * Idempotency: maxCapReachedRef로 candles 배열이 cap 이하로 줄지 않는 한 콜백 1회만 발화.
+   *
+   * ★ 페르소나 lens "동작하는 코드를 함부로 건드리지 마라": 가드 1·2는 backlog §30 fix LOCK 그대로,
+   * 가드 3은 추가만 (변경 0). 롤백 시 가드 3 분기만 git revert → 가드 1·2 무영향.
    */
   const setDataReceivedAtRef = useRef<number>(0)
   const lastVisibleRangeFromRef = useRef<number | null>(null)
+  /** 가드 3 idempotency — cap 도달 toast 1회 보장 (cap 미만으로 줄면 다시 trigger 가능) */
+  const maxCapReachedRef = useRef<boolean>(false)
 
   const hideTooltip = useCallback(() => {
     setTooltip((prev) => ({ ...prev, visible: false }))
@@ -416,11 +458,12 @@ export function LightweightChart({
     })
     volumeSeriesRef.current = volumeSeries
 
-    // 차트 좌측 스크롤 끝 도달 감지 (페이지네이션 트리거 — backlog §30 fix)
+    // 차트 좌측 스크롤 끝 도달 감지 (페이지네이션 트리거 — 3단 가드)
     //
-    // 가드 1) setData 후 1초 cooldown — fitContent 자동 발화 무시.
-    // 가드 2) range.from 단조감소 — 좌측 pan 신호일 때만 트리거.
+    // 가드 1) setData 후 1초 cooldown — fitContent 자동 발화 무시. (backlog §30 fix)
+    // 가드 2) range.from 단조감소 — 좌측 pan 신호일 때만 트리거. (backlog §30 fix)
     //         (이전 from > 현재 from = 좌측 이동, zoom·resize·우측 pan은 무시)
+    // 가드 3) candles.length >= maxCandles 시 lazy backfill 차단 + toast 1회. (Phase 5 ADR 0093 §3-2)
     chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
       if (!range || !onScrollLeftRef.current) return
 
@@ -443,6 +486,22 @@ export function LightweightChart({
 
       // 좌측 끝 도달 (range.from < 1: 차트 좌측 경계 근접) + 단조감소(실제 좌측 pan)
       if (range.from < 1) {
+        // 가드 3: max cap 도달 검사 (ADR 0093 §3-2 — 무한 lazy backfill·KIS 폭주 차단)
+        const cap = maxCandlesRef.current
+        const count = candlesLengthRef.current
+        if (typeof cap === 'number' && cap > 0 && count >= cap) {
+          // 1회만 toast — cap 미만으로 줄지 않는 한 중복 trigger 차단 (idempotent)
+          if (!maxCapReachedRef.current) {
+            maxCapReachedRef.current = true
+            try {
+              onMaxCapReachedRef.current?.()
+            } catch {
+              // toast 측 결함이 차트에 영향 주지 않도록 graceful (보수 페르소나 — 방어적 프로그래밍)
+            }
+          }
+          // lazy backfill 호출 차단
+          return
+        }
         onScrollLeftRef.current()
       }
     })
@@ -589,6 +648,14 @@ export function LightweightChart({
     setDataReceivedAtRef.current = Date.now()
     // 추가 페이지 append 시 prevFrom 단조감소 비교 baseline 재설정
     lastVisibleRangeFromRef.current = null
+    // Phase 5 가드 3 idempotency 재설정 — cap 미만이면 toast 재발화 가능 상태 복원
+    // (interval 변경·재진입·종목 전환 시 새 cap·새 candles 모수에 맞춰 가드 3 재무장)
+    {
+      const cap = maxCandlesRef.current
+      if (typeof cap !== 'number' || cap <= 0 || candles.length < cap) {
+        maxCapReachedRef.current = false
+      }
+    }
 
     // 마지막 bar 추적 — liveTick update 시 open·low·high 유지용
     const last = candleData[candleData.length - 1]

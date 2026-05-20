@@ -24,8 +24,13 @@
  * - PatternToggleMenu — 57 catalog picker 슬라이드인 패널
  * - PatternMarker — LWC 차트에 BULL/BEAR 마커 overlay
  * - 패턴 0건 시 "패턴 데이터 없음" 명시 (feedback_no_mock_data.md 정합)
+ *
+ * Phase 5 chart-curator (ADR 0093 §3-1·§3-2 정합 — 2026-05-20):
+ * - LightweightChart에 timeframe별 max cap 전달 (getCandleCountMax)
+ * - 가드 3 trigger 시 onMaxCapReached 콜백 → toast 1회 표시 ("표시 봉수 최대 도달 ({max}봉) — 추가 과거 데이터 없음")
+ * - interval 변경 시 maxCapReachedLockRef 초기화 (재무장)
  */
-import { useMemo, useState, useCallback } from 'react'
+import { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import type { IChartApi, ISeriesApi } from 'lightweight-charts'
 import { useSymbolCandles } from '../../api/hooks/useSymbolCandles'
 import { useCandleRefresh } from '../../api/hooks/useCandleRefresh'
@@ -35,6 +40,7 @@ import { usePatterns } from '../../api/hooks/usePatterns'
 import { useToast } from '../../components/ui/ToastProvider'
 import { PatternMarker } from '../../components/chart/PatternMarker'
 import { PatternToggleMenu, usePatternSelection } from '../../components/chart/PatternToggleMenu'
+import { getCandleCountMax } from '../../components/chart/candleCountMaxByInterval'
 import { IntervalToggle } from './IntervalToggle'
 import { LightweightChart } from './LightweightChart'
 import { IndicatorPanel } from './IndicatorPanel'
@@ -196,6 +202,31 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
       void fetchNextPage()
     }
   }, [hasNextPage, isFetchingNextPage, fetchNextPage])
+
+  // Phase 5 ADR 0093 §3-1 — timeframe별 max cap (interval 변경 시 자동 재계산)
+  const maxCandles = useMemo(() => getCandleCountMax(interval), [interval])
+
+  // Phase 5 ADR 0093 §3-2 — max cap toast 1회 lock (interval/종목 변경 시 재무장)
+  // useRef 사용 사유: toast 표시 후 동일 interval 내 중복 toast 차단 + re-render trigger 0
+  const maxCapToastLockRef = useRef<{ code: string; interval: CandleInterval } | null>(null)
+
+  // interval·code 변경 시 lock 해제 — 새 timeframe·새 종목 진입 시 가드 3 toast 재발화 가능
+  useEffect(() => {
+    maxCapToastLockRef.current = null
+  }, [code, interval])
+
+  const handleMaxCapReached = useCallback(() => {
+    // 동일 (code, interval) 컨텍스트에서 1회만 toast — 사용자 좌측 스크롤 반복 시 toast 폭주 차단
+    const lock = maxCapToastLockRef.current
+    if (lock && lock.code === code && lock.interval === interval) {
+      return
+    }
+    maxCapToastLockRef.current = { code, interval }
+    showToast(
+      `표시 봉수 최대 도달 (${maxCandles.toLocaleString('ko-KR')}봉) — 추가 과거 데이터 없음`,
+      'info',
+    )
+  }, [code, interval, maxCandles, showToast])
 
   const handleIndicatorToggle = useCallback((id: string) => {
     setSelectedIndicatorIds((prev) => {
@@ -459,6 +490,8 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
                 realtimeCandle={realtimeCandleDto}
                 liveTick={liveTick}
                 onScrollLeft={handleScrollLeft}
+                maxCandles={maxCandles}
+                onMaxCapReached={handleMaxCapReached}
                 onChartReady={handleChartReady}
                 onChartDestroy={handleChartDestroy}
                 onCandleSeriesReady={handleCandleSeriesReady}
