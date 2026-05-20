@@ -1,0 +1,62 @@
+package kr.spdaewoon.magicjar.persistence.shared.event
+
+import kr.spdaewoon.magicjar.domain.event.SystemEvent
+import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
+import org.slf4j.LoggerFactory
+import org.springframework.stereotype.Component
+import org.springframework.transaction.annotation.Transactional
+
+/**
+ * [SystemEventLogger] port JPA + Kafka 구현 어댑터 — outbox 패턴 (PR #621 account.balance.changed 1:1 정합).
+ *
+ * spec: `_workspace/specs/2026-05-20-system-event-log-design.md` §6 + §9
+ *
+ * ### graceful 정책
+ * - **DB INSERT 실패** → log.error + Kafka publish skip (`return`)
+ *   사유: DB 영속이 source-of-truth. Kafka 단독 발사는 STOMP fanout 후 정합 불가 (사용자는 알람만 받고 dashboard 에 0건).
+ * - **Kafka publish 실패** → log.warn (DB 영속만 유지)
+ *   사유: UI 알람 즉시성은 손실되지만 dashboard backfill + 후속 운영 정합 가능.
+ * - **emit 자체 무한 루프 차단** — runCatching 으로 wrap → listener thread 안 죽임.
+ *   caller 도 `runCatching { eventLogger.emit(event) }.onFailure { log.error(...) }` 패턴 의무 (cascade 2중 차단).
+ *
+ * ### 트랜잭션
+ * `@Transactional` — DB INSERT 만 단일 commit. Kafka publish 는 트랜잭션 밖이지만 graceful 정책상 실패 시 rollback 0.
+ *
+ * ### ADR 0051 정합
+ * helper 0 — emit 메서드 단일 책임. Spring Data Repository default fun 함정 회피 (Repository 는 abstract fun only).
+ *
+ * // AI 호출 0 — ADR 0023 §2-4 정합
+ */
+@Component
+class SystemEventLoggerAdapter(
+    private val jpa: SystemEventJpaRepository,
+    private val kafkaProducer: SystemEventKafkaProducer,
+) : SystemEventLogger {
+    private val log = LoggerFactory.getLogger(SystemEventLoggerAdapter::class.java)
+
+    @Transactional
+    override fun emit(event: SystemEvent) {
+        val saved =
+            runCatching { jpa.save(SystemEventJpaEntity.fromDomain(event)) }
+                .onFailure { e ->
+                    log.error(
+                        "SystemEvent DB INSERT 실패 — Kafka publish skip: category={} severity={} action={} err={}",
+                        event.category,
+                        event.severity,
+                        event.action,
+                        e.message,
+                    )
+                }.getOrNull() ?: return
+
+        runCatching { kafkaProducer.publish(saved.toDomain()) }
+            .onFailure { e ->
+                log.warn(
+                    "SystemEvent Kafka publish 실패 — DB 영속만 유지: id={} category={} action={} err={}",
+                    saved.id,
+                    event.category,
+                    event.action,
+                    e.message,
+                )
+            }
+    }
+}
