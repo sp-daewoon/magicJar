@@ -17,6 +17,24 @@ import java.time.Instant
  * - [markViewed] : viewed_at = now 마킹 (사용자 확인 → 벨 badge 감소)
  * - [markResolved] : resolved_at = now 마킹 (운영자 dismiss → dashboard 시각화)
  *
+ * ### findList filter 매트릭스 (P2.1 — final reviewer ★★ #2 fix)
+ *
+ * | userId | unreadOnly | items                                                    | totalCount                       | unreadCount                          |
+ * |--------|------------|----------------------------------------------------------|----------------------------------|--------------------------------------|
+ * | Y      | true       | findByUserIdAndViewedAtIsNullOrderByOccurredAtDesc       | countByUserIdAndViewedAtIsNull   | countByUserIdAndViewedAtIsNull       |
+ * | Y      | false      | findByUserIdOrderByOccurredAtDesc                        | countByUserId                    | countByUserIdAndViewedAtIsNull       |
+ * | N      | true       | findByViewedAtIsNullOrderByOccurredAtDesc                | countByViewedAtIsNull            | countByViewedAtIsNull                |
+ * | N      | false      | findAllByOrderByOccurredAtDesc                           | jpa.count()                      | countByViewedAtIsNull                |
+ *
+ * 결함 fix:
+ * - userId null + unreadOnly=true → 기존 코드는 전체 반환 (filter 무시) → 4 case 정확 분기로 정정
+ * - totalCount 가 항상 jpa.count() → 사용자/unread filter 무시 → filter 정합 count 사용
+ * - userId null 시 unreadCount=0 → frontend dashboard 미확인 표시 정확성 손실 → countByViewedAtIsNull 사용
+ *
+ * 부가 개선 (진보적 페르소나 — 보일러플레이트 제거):
+ * - 기존 findBy*( ..., PageRequest.of(0, Int.MAX_VALUE)).size.toLong() 풀로딩 패턴 폐기 →
+ *   countBy* derived query 로 efficient COUNT(*) 전환 (SystemEventJpaRepository P2.1 신규 finder)
+ *
  * ### 헌법 §6 + ADR 0051 정합
  * Repository interface 안에 body 가진 fun 0건 — `toResponse()` mapper는 본 service 의
  * private extension fun 으로 격리 (default fun 함정 회피).
@@ -42,23 +60,36 @@ class SystemEventQueryService(
         size: Int,
     ): SystemEventPageDto {
         val pageable = PageRequest.of(page, size)
-        val items =
-            if (userId != null && unreadOnly) {
-                jpa.findByUserIdAndViewedAtIsNullOrderByOccurredAtDesc(userId, pageable)
-            } else {
-                jpa.findAllByOrderByOccurredAtDesc(pageable)
-            }
-        val totalCount = jpa.count()
-        val unreadCount =
-            if (userId != null) {
-                jpa
-                    .findByUserIdAndViewedAtIsNullOrderByOccurredAtDesc(
-                        userId,
-                        PageRequest.of(0, Int.MAX_VALUE),
-                    ).size
-                    .toLong()
-            } else {
-                0L
+        val (items, totalCount, unreadCount) =
+            when {
+                userId != null && unreadOnly -> {
+                    val unread = jpa.countByUserIdAndViewedAtIsNull(userId)
+                    Triple(
+                        jpa.findByUserIdAndViewedAtIsNullOrderByOccurredAtDesc(userId, pageable),
+                        unread,
+                        unread,
+                    )
+                }
+                userId != null ->
+                    Triple(
+                        jpa.findByUserIdOrderByOccurredAtDesc(userId, pageable),
+                        jpa.countByUserId(userId),
+                        jpa.countByUserIdAndViewedAtIsNull(userId),
+                    )
+                unreadOnly -> {
+                    val unread = jpa.countByViewedAtIsNull()
+                    Triple(
+                        jpa.findByViewedAtIsNullOrderByOccurredAtDesc(pageable),
+                        unread,
+                        unread,
+                    )
+                }
+                else ->
+                    Triple(
+                        jpa.findAllByOrderByOccurredAtDesc(pageable),
+                        jpa.count(),
+                        jpa.countByViewedAtIsNull(),
+                    )
             }
         return SystemEventPageDto(
             items = items.map { it.toResponse() },
