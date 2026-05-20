@@ -10,6 +10,7 @@ import jakarta.persistence.Id
 import jakarta.persistence.Table
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import java.math.BigDecimal
@@ -72,6 +73,11 @@ class ConsumerOrderRequestJpaEntity(
     var acknowledgedAt: Instant? = null,
     @Column(name = "completed_at")
     var completedAt: Instant? = null,
+    // hotfix 2026-05-20 — T-MAN Phase 1 PR #510 회귀 (api entity 합류 OK, consumer 사본 누락).
+    // Flyway V37 source 컬럼 NOT NULL DEFAULT 'AUTO' — 매핑 누락 시 DB DEFAULT fallback → MANUAL 주문도 AUTO 저장 결함.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "source", nullable = false, updatable = false, length = 20)
+    val source: OrderSource = OrderSource.AUTO,
 ) {
     protected constructor() : this(
         signalId = 0L,
