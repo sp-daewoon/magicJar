@@ -134,6 +134,31 @@ class OrderKafkaProducerOutboxIntegrationTest {
 
         assertThat(outboxSlot.captured.eventType).isEqualTo(OrderOutboxEventType.ORDER_FILLED)
         assertThat(outboxSlot.captured.topic).isEqualTo("order.filled.v1")
+
+        // hotfix(2026-05-20): STOMP contract key 정합 가드
+        // — frontend useStompReconnect.ts L104 `qty ?? executedQty` path 정합
+        // — StompOrderNotifier.toStompPayload raw["quantity"]·raw["executedQty"] read
+        val payload = outboxSlot.captured.payloadJson
+        assertThat(payload).contains("\"quantity\":10")
+        assertThat(payload).contains("\"executedQty\":10")
+        assertThat(payload).doesNotContain("\"executedQuantity\":") // 옛 key 회귀 가드
+    }
+
+    @Test
+    fun `(c-2) OrderRejectedKafkaProducer — STOMP contract key 정합 (rejectReason + quantity)`() {
+        val outboxSlot = slot<OrderEventOutbox>()
+        every { outboxRepository.save(capture(outboxSlot)) } answers {
+            firstArg<OrderEventOutbox>().copy(id = 2999L)
+        }
+
+        val producer = OrderRejectedKafkaProducer(kafkaTemplate, objectMapper, provider)
+        producer.publish(sampleRequest(), reason = "REAL_GATE_DENIED:cond")
+
+        val payload = outboxSlot.captured.payloadJson
+        // hotfix(2026-05-20): STOMP contract key 정합 — raw["rejectReason"]·raw["quantity"]
+        assertThat(payload).contains("\"quantity\":10")
+        assertThat(payload).contains("\"rejectReason\":\"REAL_GATE_DENIED:cond\"")
+        assertThat(payload).doesNotContain("\"reason\":\"") // 옛 key 회귀 가드
     }
 
     @Test
@@ -166,6 +191,23 @@ class OrderKafkaProducerOutboxIntegrationTest {
 
         assertThat(outboxSlot.captured.eventType).isEqualTo(OrderOutboxEventType.ORDER_INTENT)
         assertThat(outboxSlot.captured.topic).isEqualTo("order.intent.v1")
+    }
+
+    @Test
+    fun `(c-3) OrderCancelledKafkaProducer — STOMP contract key 정합 (quantity 포함)`() {
+        // OrderCancelledKafkaProducer는 outbox 미사용 — direct publish only.
+        // payload key contract만 검증한다.
+        val payloadSlot = slot<String>()
+        every { kafkaTemplate.send("order.cancelled.v1", "U1", capture(payloadSlot)) } answers {
+            mockk(relaxed = true)
+        }
+
+        val producer = OrderCancelledKafkaProducer(kafkaTemplate, objectMapper)
+        producer.publish(sampleRequest())
+
+        verify { kafkaTemplate.send("order.cancelled.v1", "U1", any<String>()) }
+        // hotfix(2026-05-20): STOMP contract key 정합 — frontend "0주" toast 회피
+        assertThat(payloadSlot.captured).contains("\"quantity\":10")
     }
 
     @Test
