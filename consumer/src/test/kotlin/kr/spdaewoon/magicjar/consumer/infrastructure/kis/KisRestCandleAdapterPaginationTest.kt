@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.consumer.infrastructure.kis
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.datetime.Instant
+import kr.spdaewoon.magicjar.consumer.config.ChartCandleProperties
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
@@ -43,6 +44,7 @@ import java.util.Optional
 class KisRestCandleAdapterPaginationTest {
     private fun buildAdapter(
         instrumentRepository: ConsumerInstrumentJpaRepository = mockk<ConsumerInstrumentJpaRepository>(relaxed = true),
+        chartCandleProperties: ChartCandleProperties = ChartCandleProperties(),
     ): KisRestCandleAdapter =
         KisRestCandleAdapter(
             webClient = mockk<WebClient>(relaxed = true),
@@ -51,6 +53,7 @@ class KisRestCandleAdapterPaginationTest {
             credentialRepository = mockk<ConsumerUserKisCredentialJpaRepository>(relaxed = true),
             instrumentRepository = instrumentRepository,
             kisRateLimiterPort = mockk<KisRateLimiterPort>(relaxed = true),
+            chartCandleProperties = chartCandleProperties,
             kisBaseProd = "https://openapi.koreainvestment.com:9443",
             kisBaseVps = "https://openapivts.koreainvestment.com:29443",
         )

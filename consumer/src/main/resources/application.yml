@@ -79,6 +79,27 @@ magicjar:
     base-url: ${MAGICJAR_YAHOO_BASE_URL:https://query1.finance.yahoo.com}
     request-timeout-seconds: ${MAGICJAR_YAHOO_TIMEOUT:10}
     retry-wait-seconds: ${MAGICJAR_YAHOO_RETRY_WAIT:60}  # 429/404 시 대기
+  # ─────────────────────────────────────────────────
+  # 차트 캔들 페이지네이션 매트릭스 (ADR 0093 §3-1 LOCK · api 모듈 mirror)
+  #   key 매트릭스 = api/application.yml 1:1 (spec PR #609 §5 정합)
+  #   timeframe별 max-pages × KIS 100건/page = max 봉 cover
+  #     1m=48(4800봉), 5m·15m·30m·1h=38(3800봉), 1d=50(5000봉),
+  #     1wk=20(2000봉), 1mo=12(1200봉), 1y=6(600봉)
+  #   default-max-pages: 누락 키 fallback (회귀 안전)
+  # ─────────────────────────────────────────────────
+  candle:
+    max-pages-by-interval:
+      "[1m]": 48
+      "[5m]": 38
+      "[15m]": 38
+      "[30m]": 38
+      "[1h]": 38
+      "[1d]": 50
+      "[1wk]": 20
+      "[1mo]": 12
+      "[1y]": 6
+    default-max-pages: 6
+
   # MarketSession 설정 (ADR 0013 §2-2, PR-29a 본격 교체)
   session:
     # KIS chk-holiday(CTCA0903R) + market_calendar DB 기반 (KrxMarketSessionResolver)

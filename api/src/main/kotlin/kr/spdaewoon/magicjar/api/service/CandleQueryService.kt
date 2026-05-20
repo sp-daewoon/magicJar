@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.api.service
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.api.config.ChartCandleProperties
 import kr.spdaewoon.magicjar.api.controller.CandleDto
 import kr.spdaewoon.magicjar.api.controller.CandlesResponseDto
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
@@ -29,12 +30,21 @@ class CandleQueryService(
     private val candleJpaRepository: CandleJpaRepository,
     private val redisTemplate: StringRedisTemplate,
     private val objectMapper: ObjectMapper,
+    private val chartCandleProperties: ChartCandleProperties,
 ) {
     private val log = LoggerFactory.getLogger(CandleQueryService::class.java)
 
     val supportedIntervals = setOf("1m", "5m", "30m", "1h", "1d", "1wk", "1mo", "1y")
-    val defaultLimit = 200
-    val maxLimit = 500
+    val defaultLimit = 600
+
+    /**
+     * `?limit=` 사용자 입력 cap — ADR 0093 §3-1 LOCK (500 → 5000 확장).
+     *
+     * property override: `magicjar.candle.max-response-limit` (default 5000).
+     * clamp: 사용자 입력 limit는 `coerceIn(1, maxLimit)` 적용 — 5000 초과 시 5000으로 cap.
+     */
+    val maxLimit: Int
+        get() = chartCandleProperties.maxResponseLimit
 
     // interval → DB candle interval code 매핑 (DB CHECK constraint 11종 중 API 노출 8종)
     private val intervalCodeMap =

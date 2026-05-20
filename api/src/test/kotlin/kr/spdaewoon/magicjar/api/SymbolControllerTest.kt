@@ -8,9 +8,12 @@ import kr.spdaewoon.magicjar.api.controller.SymbolDto
 import kr.spdaewoon.magicjar.api.service.CandleQueryService
 import kr.spdaewoon.magicjar.api.service.CandleRefreshService
 import kr.spdaewoon.magicjar.api.service.SymbolMetaService
+import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyOrNull
+import org.mockito.kotlin.argumentCaptor
+import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest
@@ -249,6 +252,74 @@ class SymbolControllerTest {
             .get("/api/symbols/999") // 3자리 — 6자리 아님
             .andExpect {
                 status { isBadRequest() }
+            }
+    }
+
+    // ── ADR 0093 §3-1 LOCK — Phase 3 limit cap 500 → 5000 확장 회귀 가드 ──
+
+    /**
+     * limit 파라미터 default 600 (ADR 0093 §3-1 — 일반 증권앱 표준 1년 일봉 cover).
+     * 사용자가 `?limit=` 미지정 시 600봉 default fetch.
+     */
+    @Test
+    fun `GET candles limit 파라미터 미지정 시 default 600 — ADR 0093 §3-1`() {
+        whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
+        whenever(candleQueryService.supportedIntervals).thenReturn(setOf("1m", "5m", "30m", "1h", "1d", "1wk", "1mo", "1y"))
+        whenever(candleQueryService.getCandles(any(), any(), anyOrNull(), any())).thenReturn(
+            CandlesResponseDto(code = "005930", interval = "1d", candles = emptyList(), hasMore = false, nextBefore = null),
+        )
+
+        mockMvc
+            .get("/api/symbols/005930/candles?interval=1d")
+            .andExpect {
+                status { isOk() }
+            }
+
+        // service.getCandles 호출 시 limit=600 (default) 인자 검증.
+        val limitCaptor = argumentCaptor<Int>()
+        verify(candleQueryService).getCandles(any(), any(), anyOrNull(), limitCaptor.capture())
+        assertThat(limitCaptor.firstValue).isEqualTo(600)
+    }
+
+    /**
+     * limit 5000 사용자 요청 — controller가 직접 reject 안 하고 service에 그대로 위임 (clamp는 service에서).
+     * 사용자 dogfooding: "20년치 일봉을 한번에 보고 싶다" path.
+     */
+    @Test
+    fun `GET candles limit 5000 — controller가 그대로 전달 (clamp는 service)`() {
+        whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
+        whenever(candleQueryService.supportedIntervals).thenReturn(setOf("1m", "5m", "30m", "1h", "1d", "1wk", "1mo", "1y"))
+        whenever(candleQueryService.getCandles(any(), any(), anyOrNull(), any())).thenReturn(
+            CandlesResponseDto(code = "005930", interval = "1d", candles = emptyList(), hasMore = false, nextBefore = null),
+        )
+
+        mockMvc
+            .get("/api/symbols/005930/candles?interval=1d&limit=5000")
+            .andExpect {
+                status { isOk() }
+            }
+
+        val limitCaptor = argumentCaptor<Int>()
+        verify(candleQueryService).getCandles(any(), any(), anyOrNull(), limitCaptor.capture())
+        assertThat(limitCaptor.firstValue).isEqualTo(5000)
+    }
+
+    /**
+     * limit 99999 (cap 5000 초과) — controller는 그대로 전달, service가 clamp(1, maxLimit) 적용.
+     * 본 controller layer 검증은 "controller가 reject 하지 않고 service로 전달"만 본다.
+     */
+    @Test
+    fun `GET candles limit 99999 cap 초과 — controller 거부 X, service clamp 위임`() {
+        whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
+        whenever(candleQueryService.supportedIntervals).thenReturn(setOf("1m", "5m", "30m", "1h", "1d", "1wk", "1mo", "1y"))
+        whenever(candleQueryService.getCandles(any(), any(), anyOrNull(), any())).thenReturn(
+            CandlesResponseDto(code = "005930", interval = "1d", candles = emptyList(), hasMore = false, nextBefore = null),
+        )
+
+        mockMvc
+            .get("/api/symbols/005930/candles?interval=1d&limit=99999")
+            .andExpect {
+                status { isOk() }
             }
     }
 }
