@@ -110,6 +110,15 @@ class SystemKisKeyChangedListener(
         userId: String,
         accountType: String,
     ) {
+        // P0 hotfix 2026-05-20 (backend-core) — 빈 userId 차단 (`kis:token::REAL` 같은 polluted key 재생성 방지)
+        if (userId.isBlank()) {
+            log.warn(
+                "[KisKeyChanged] invalidateRedisCache userId 빈 문자열 — accountType={} 스킵 (cache pollution 차단)",
+                accountType,
+            )
+            return
+        }
+
         // KIS OAuth tokenP cache (KisAuthAdapter Redis 키)
         val tokenKey = "kis:token:$userId:$accountType"
         val tokenDeleted = redisTemplate.delete(tokenKey)

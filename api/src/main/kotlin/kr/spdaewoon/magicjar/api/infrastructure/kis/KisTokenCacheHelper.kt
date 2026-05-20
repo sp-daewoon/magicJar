@@ -99,22 +99,39 @@ class KisTokenCacheHelper(
      *
      * 자격증명은 [accountType] 지정 우선, 미지정 시 REAL → MOCK fallback.
      * appKey/secretKey 도 필요하면 [resolveTokenAndKeys] 사용.
+     *
+     * 빈 userId 차단 (P0 hotfix 2026-05-20 — backend-core):
+     *   evidence — Redis `kis:token::REAL` `kis:token::MOCK` cache pollution + cross-user leak risk.
+     *   caller 결함 (예: CandleRefreshService.resolveAccessTokenAndKeys 의 `userId = ""` 명시 path)
+     *   입구에서 fail-fast — 호출자가 명시적 userId 전달하도록 강제.
      */
     fun getAccessToken(
         userId: String,
         accountType: AccountType,
-    ): String = resolveTokenAndKeys(userId, accountType).first
+    ): String {
+        require(userId.isNotBlank()) {
+            "KIS getAccessToken userId 빈 문자열 차단 — caller 결함 " +
+                "(cache key 'kis:token::${accountType.name}' pollution + cross-user leak risk)"
+        }
+        return resolveTokenAndKeys(userId, accountType).first
+    }
 
     /**
      * 토큰 + appKey + secretKey 묶음 반환 — KIS quotation endpoint 헤더 fix용.
      *
      * 토큰은 Redis cache + 분산락 보호. appKey/secretKey 는 매 호출 DB 복호화.
      * caller 가 사용 후 별도 zero-fill 의무는 없음 (helper 내부에서 String 변환 후 ByteArray fill).
+     *
+     * 빈 userId 차단 (P0 hotfix 2026-05-20) — getAccessToken 동일 사유.
      */
     fun resolveTokenAndKeys(
         userId: String,
         accountType: AccountType,
     ): Triple<String, String, String> {
+        require(userId.isNotBlank()) {
+            "KIS resolveTokenAndKeys userId 빈 문자열 차단 — caller 결함 " +
+                "(cache key 'kis:token::${accountType.name}' pollution + cross-user leak risk)"
+        }
         val cred = loadCredential(userId, accountType)
         var appKey: ByteArray? = null
         var secretKey: ByteArray? = null
@@ -133,22 +150,25 @@ class KisTokenCacheHelper(
 
     // ── private ───────────────────────────────────────────────────────────────
 
+    /**
+     * userId × accountType 으로 자격증명 정확 매칭.
+     *
+     * P0 hotfix 2026-05-20 (backend-core): "DB 첫 번째 row" fallback 폐기.
+     *   - 기존: userId 매칭 실패 시 첫 row 반환 → cross-user 토큰 leak root cause
+     *     (빈 userId 흘려도 첫 row credential 로 KIS tokenP 발급 + cache key `kis:token::REAL` 저장)
+     *   - 신규: 정확 매칭 실패 시 IllegalStateException — 사용자별 자격증명 엄격 분리
+     */
     private fun loadCredential(
         userId: String,
         accountType: AccountType,
-    ): UserKisCredentialJpaEntity {
-        // 명시 accountType 우선
+    ): UserKisCredentialJpaEntity =
         credentialRepository
             .findAllByAccountType(accountType.name)
             .firstOrNull { it.id.userId == userId }
-            ?.let { return it }
-        // userId 매칭 실패 시 fallback — DB 첫 번째 자격증명 (단일 사용자 가정)
-        credentialRepository
-            .findAllByAccountType(accountType.name)
-            .firstOrNull()
-            ?.let { return it }
-        throw IllegalStateException("KIS 자격증명이 등록되지 않았습니다 — accountType=${accountType.name}")
-    }
+            ?: throw IllegalStateException(
+                "KIS 자격증명 매칭 실패 — userId=$userId accountType=${accountType.name} 등록 필요 " +
+                    "(fallback 폐기 — cross-user leak 차단)",
+            )
 
     /**
      * Redis cache + 분산락 + KIS tokenP 발급 통합 (ADR 0038 패턴).
