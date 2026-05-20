@@ -6,14 +6,16 @@
  * UX 흐름 (ADR 0074 §3-2-2 이중 confirm + 사유 입력 LOCK):
  *   idle     → [액션 버튼 클릭] → confirming
  *   confirming → [정말 변경하시겠습니까? "예" 클릭] → reasoning
- *   reasoning  → [사유 입력 (minLength=5) + 60초 cooldown 완료] → [확인] → onConfirm(reason) 호출
+ *   reasoning  → [사유 입력 (minLength=5) + 20초 cooldown 완료] → [확인] → onConfirm(reason) 호출
  *   confirming → [취소] → idle
  *   reasoning  → [취소] → idle
  *
- * 60초 cooldown (ADR 0074 §3-2-2 + frontend 채택 — §12 트레이드오프 (j)):
+ * 20초 cooldown (ADR 0074 §3-2-2 + frontend 채택 — §12 트레이드오프 (j)):
+ *   - 2026-05-20 dogfooding 결과 60초 → 20초 단축 (사용자 UX 답답함 해소).
+ *     이중 confirm + 사유 입력 5자 강제 의도치 않은 토글 방지 layer는 그대로.
  *   - reasoning 단계 진입 시 타이머 시작
- *   - 60초 남은 시간 카운트다운 표시
- *   - 60초 경과 + 사유 5자 이상 시 "확인" 버튼 활성화
+ *   - 20초 남은 시간 카운트다운 표시
+ *   - 20초 경과 + 사유 5자 이상 시 "확인" 버튼 활성화
  *
  * Props:
  *   actionLabel — 초기 버튼 텍스트 (예: "KillSwitch OFF 해제")
@@ -22,7 +24,7 @@
  *   onConfirm(reason) — 이중 confirm + 사유 + cooldown 완료 시 호출
  *   isPending — 외부 mutation 진행 중 여부
  *   buttonVariant — 'danger' | 'warning' (색상 변형)
- *   cooldownSeconds — cooldown 초 (default 60, 테스트 환경에서 0 주입 가능)
+ *   cooldownSeconds — cooldown 초 (default 20, 테스트 환경에서 0 주입 가능)
  */
 import { useEffect, useRef, useState } from 'react'
 
@@ -33,7 +35,7 @@ export interface ConfirmDangerToggleProps {
   onConfirm: (reason: string) => void
   isPending?: boolean
   buttonVariant?: 'danger' | 'warning'
-  /** cooldown 초. default=60. 테스트 시 0 주입 가능 */
+  /** cooldown 초. default=20 (2026-05-20 60→20 단축, 사용자 UX dogfooding). 테스트 시 0 주입 가능 */
   cooldownSeconds?: number
 }
 
@@ -46,7 +48,7 @@ export function ConfirmDangerToggle({
   onConfirm,
   isPending = false,
   buttonVariant = 'danger',
-  cooldownSeconds = 60,
+  cooldownSeconds = 20,
 }: ConfirmDangerToggleProps) {
   const [stage, setStage] = useState<Stage>('idle')
   const [reason, setReason] = useState('')
@@ -162,7 +164,7 @@ export function ConfirmDangerToggle({
     )
   }
 
-  // ── reasoning 단계 (사유 입력 + 60초 cooldown) ──
+  // ── reasoning 단계 (사유 입력 + 20초 cooldown) ──
   return (
     <div className={`rounded-lg border ${borderColor} ${bgColor} p-4 space-y-3`}>
       <p className={`text-sm font-medium ${textColor}`}>
@@ -186,7 +188,7 @@ export function ConfirmDangerToggle({
             ? `최소 5자 필요 (현재 ${reason.trim().length}자)`
             : `${reason.trim().length}/64자`}
         </span>
-        {/* 60초 cooldown 카운트다운 */}
+        {/* 20초 cooldown 카운트다운 (2026-05-20 60→20 단축) */}
         {remaining > 0 ? (
           <span className={textColor}>
             {remaining}초 후 확인 가능

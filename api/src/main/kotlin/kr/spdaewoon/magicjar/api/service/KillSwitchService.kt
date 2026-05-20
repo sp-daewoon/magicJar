@@ -16,7 +16,7 @@ import java.time.Instant
  * GET: kill_switch_state DB 단일 source 조회 (Redis 캐시 0건 — ADR 0043 §2-5 정합)
  * PUT: DB UPDATE + Kafka killswitch.engaged.v1 publish (schema 확장 — engaged:boolean)
  *
- * 60초 cooldown: frontend 담당 (ADR 0074 §3-4 §j 채택 — backend 강제 없음)
+ * 20초 cooldown: frontend 담당 (ADR 0074 §3-4 §j 채택 — backend 강제 없음, 2026-05-20 60→20 단축 dogfooding)
  * KillSwitch OFF = 사용자 수동만 (ADR 0043 §2-3 자동 OFF 0 LOCK 정합)
  *
  * // AI 호출 0 건 (ADR 0074 §11-2 정합)
