@@ -1,6 +1,8 @@
 package kr.spdaewoon.magicjar.api.order
 
 import kr.spdaewoon.magicjar.api.controller.order.OrderQueryController
+import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaEntity
+import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.service.order.OrderQueryService
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
@@ -34,8 +36,13 @@ import java.time.Instant
 class OrderQueryControllerTest {
     private val orderQueryService: OrderQueryService =
         Mockito.mock(OrderQueryService::class.java)
+    private val instrumentJpaRepository: InstrumentJpaRepository =
+        Mockito.mock(InstrumentJpaRepository::class.java).also {
+            // default — instrument lookup 빈 결과 (이전 케이스 정합 유지)
+            Mockito.doReturn(emptyList<InstrumentJpaEntity>()).`when`(it).findAllById(any<Set<String>>())
+        }
 
-    private val sut = OrderQueryController(orderQueryService)
+    private val sut = OrderQueryController(orderQueryService, instrumentJpaRepository)
 
     private fun makeRequest(
         id: Long,
@@ -87,6 +94,80 @@ class OrderQueryControllerTest {
         assertEquals(2L, item.id)
         assertEquals("REJECTED", item.status)
         assertEquals("REAL_GATE_DENIED:CREDENTIAL_NOT_FOUND", item.rejectReason)
+    }
+
+    @Test
+    fun `(3) 종목명 mapping — instrument join (Watchlist 패턴 정합)`() {
+        val userId = "user1"
+        val req =
+            makeRequest(
+                id = 3L,
+                userId = userId,
+                status = OrderStatus.FILLED,
+                rejectReason = null,
+            )
+        val page = PageImpl(listOf(req))
+
+        Mockito.doReturn(page).`when`(orderQueryService).listByUser(
+            any(),
+            anyOrNull(),
+            anyOrNull(),
+            anyOrNull(),
+            any(),
+            any(),
+        )
+        // instrument batch lookup mock — 005930 → 삼성전자
+        val samsung =
+            InstrumentJpaEntity(
+                code = "005930",
+                name = "삼성전자",
+                market = "KOSPI",
+                type = "STOCK",
+            )
+        Mockito.doReturn(listOf(samsung)).`when`(instrumentJpaRepository).findAllById(any<Set<String>>())
+
+        val response = sut.list(userId, null, null, null, 0, 20)
+
+        assertEquals(1, response.content.size)
+        val item = response.content[0]
+        assertEquals("005930", item.code)
+        assertEquals("삼성전자", item.name)
+    }
+
+    @Test
+    fun `(4) 종목명 mapping — stub instrument 시 name null (graceful)`() {
+        val userId = "user1"
+        val req =
+            makeRequest(
+                id = 4L,
+                userId = userId,
+                status = OrderStatus.FILLED,
+                rejectReason = null,
+            )
+        val page = PageImpl(listOf(req))
+
+        Mockito.doReturn(page).`when`(orderQueryService).listByUser(
+            any(),
+            anyOrNull(),
+            anyOrNull(),
+            anyOrNull(),
+            any(),
+            any(),
+        )
+        // stub row(name=code, market='UNKNOWN') — Watchlist 정책 정합으로 name 노출 X
+        val stub =
+            InstrumentJpaEntity(
+                code = "005930",
+                name = "005930",
+                market = "UNKNOWN",
+                type = "UNKNOWN",
+            )
+        Mockito.doReturn(listOf(stub)).`when`(instrumentJpaRepository).findAllById(any<Set<String>>())
+
+        val response = sut.list(userId, null, null, null, 0, 20)
+
+        assertEquals(1, response.content.size)
+        assertNull(response.content[0].name)
     }
 
     @Test
