@@ -5,6 +5,8 @@ import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionSynchronization
+import org.springframework.transaction.support.TransactionSynchronizationManager
 
 /**
  * [SystemEventLogger] port JPA + Kafka 구현 어댑터 — outbox 패턴 (PR #621 account.balance.changed 1:1 정합).
@@ -20,10 +22,11 @@ import org.springframework.transaction.annotation.Transactional
  *   caller 도 `runCatching { eventLogger.emit(event) }.onFailure { log.error(...) }` 패턴 의무 (cascade 2중 차단).
  *
  * ### 트랜잭션
- * `@Transactional` — DB INSERT 만 단일 commit. Kafka publish 는 트랜잭션 밖이지만 graceful 정책상 실패 시 rollback 0.
+ * `@Transactional` — DB INSERT commit 이후 `afterCommit` 에서 Kafka publish 예약.
+ * Kafka 장애·지연이 caller thread 와 DB transaction 을 오래 붙잡지 않도록 send 는 non-blocking.
  *
  * ### ADR 0051 정합
- * helper 0 — emit 메서드 단일 책임. Spring Data Repository default fun 함정 회피 (Repository 는 abstract fun only).
+ * helper 는 adapter private fun 위치. Spring Data Repository default fun 함정 회피 (Repository 는 abstract fun only).
  *
  * // AI 호출 0 — ADR 0023 §2-4 정합
  */
@@ -48,11 +51,25 @@ class SystemEventLoggerAdapter(
                     )
                 }.getOrNull() ?: return
 
-        runCatching { kafkaProducer.publish(saved.toDomain()) }
+        val savedEvent = saved.toDomain()
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(
+                object : TransactionSynchronization {
+                    override fun afterCommit() {
+                        publishBestEffort(savedEvent)
+                    }
+                },
+            )
+        } else {
+            publishBestEffort(savedEvent)
+        }
+    }
+
+    private fun publishBestEffort(event: SystemEvent) {
+        runCatching { kafkaProducer.publish(event) }
             .onFailure { e ->
                 log.warn(
-                    "SystemEvent Kafka publish 실패 — DB 영속만 유지: id={} category={} action={} err={}",
-                    saved.id,
+                    "SystemEvent Kafka publish 예약 실패 — DB 영속만 유지: category={} action={} err={}",
                     event.category,
                     event.action,
                     e.message,

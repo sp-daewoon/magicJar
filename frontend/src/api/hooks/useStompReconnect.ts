@@ -7,10 +7,10 @@
  * 흐름:
  *   1. STOMP 클라이언트 onConnect callback (재연결 포함 매 연결마다 발동)
  *   2. localStorage `stomp:lastSeenAt:${userId}` 조회 → 첫 진입 시 now-1day fallback
- *   3. GET /api/stomp/events/unread?userId=&since=lastSeenAt → count·latestOccurredAt
- *   4. count > 0 시 GET /api/stomp/events?userId=&since=lastSeenAt&limit=100
+ *   3. order/signal/risk 채널별 GET /api/stomp/events/unread?userId=&since=lastSeenAt&channel=
+ *   4. count > 0 채널만 GET /api/stomp/events?userId=&since=lastSeenAt&limit=100&channel=
  *   5. 각 이벤트 분기 — order/signal/risk → toast 또는 modal 표시
- *   6. lastSeenAt = latestOccurredAt (또는 마지막 이벤트 occurredAt) 갱신
+ *   6. lastSeenAt = lastTs (또는 최신 createdAt) 갱신
  *
  * 정합:
  *  - onConnect callback 시점 — useStompTopic은 useEffect 기반이므로 hook 별도 클라이언트 onConnect hook 으로 통합
@@ -29,6 +29,7 @@ import { Client } from '@stomp/stompjs'
 import { useOptionalToast } from '../../components/ui/ToastProvider'
 import {
   stompBackfillApi,
+  type StompBackfillChannel,
   type StompEventDto,
 } from '../stompBackfill'
 import type { OrderStompPayload } from './useStompOrder'
@@ -142,6 +143,7 @@ function buildBackfillRiskToast(r: RiskEventDto): ToastSpec {
 
 // 100건 초과 누락 경고 임계치
 const BACKFILL_LIMIT = 100
+const BACKFILL_CHANNELS: StompBackfillChannel[] = ['order', 'signal', 'risk']
 
 // ──────────────────────────────────────────────
 // 메인 hook
@@ -180,31 +182,48 @@ export function useStompReconnect({
     try {
       const since = readLastSeenAt(userId)
 
-      const unread = await stompBackfillApi.getUnreadCount(userId, since)
-      if (unread.count === 0) {
-        // 미수신 0건 — lastSeenAt 만 최신화 (backend latestOccurredAt = null 가능)
-        if (unread.latestOccurredAt) writeLastSeenAt(userId, unread.latestOccurredAt)
+      const unreadByChannel = await Promise.all(
+        BACKFILL_CHANNELS.map(async (channel) => ({
+          channel,
+          unread: await stompBackfillApi.getUnreadCount(userId, since, channel),
+        })),
+      )
+      const missedCount = unreadByChannel.reduce((sum, item) => sum + item.unread.count, 0)
+
+      if (missedCount === 0) {
+        writeLastSeenAt(userId, new Date().toISOString())
         return
       }
 
       // 100건 초과 누락 시 사용자에게 안내 (정확한 모든 토스트 노출은 spam 우려)
-      if (unread.count > BACKFILL_LIMIT) {
+      if (missedCount > BACKFILL_LIMIT) {
         showToast(
-          `누락된 이벤트 ${unread.count}건 감지 — 최근 ${BACKFILL_LIMIT}건만 표시. 매매일지·주문 내역 확인 권장.`,
+          `누락된 이벤트 ${missedCount}건 감지 — 최근 ${BACKFILL_LIMIT}건만 표시. 매매일지·주문 내역 확인 권장.`,
           'warning',
         )
       }
 
-      const events = await stompBackfillApi.list(userId, since, BACKFILL_LIMIT)
+      const eventsByChannel = await Promise.all(
+        unreadByChannel
+          .filter((item) => item.unread.count > 0)
+          .map((item) => stompBackfillApi.list(userId, since, BACKFILL_LIMIT, item.channel)),
+      )
+      const events = eventsByChannel
+        .flat()
+        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+        .slice(0, BACKFILL_LIMIT)
+        .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
 
       for (const ev of events) {
         const toastSpec = buildBackfillToast(ev)
         if (toastSpec) showToast(toastSpec.message, toastSpec.type)
       }
 
-      // 마지막 이벤트 occurredAt 또는 backend latestOccurredAt 으로 anchor 갱신
-      const newAnchor =
-        events.length > 0 ? events[events.length - 1].occurredAt : unread.latestOccurredAt
+      const lastTsValues = unreadByChannel
+        .map((item) => item.unread.lastTs)
+        .filter((value): value is string => Boolean(value))
+      const createdAtValues = events.map((event) => event.createdAt)
+      const newAnchor = newestIsoInstant([...lastTsValues, ...createdAtValues])
       if (newAnchor) writeLastSeenAt(userId, newAnchor)
     } catch {
       // backend 미구현 / 네트워크 fail — graceful, 다음 reconnect 시 재시도
@@ -245,23 +264,45 @@ export function useStompReconnect({
 }
 
 /**
- * eventKind 기반 narrowing → 적절한 토스트 spec 생성. 알 수 없는 kind는 null 반환.
+ * channel 기반 narrowing → payloadJson 을 파싱한 뒤 적절한 토스트 spec 생성.
  *
  * 분기:
- *  - ORDER  → buildBackfillOrderToast
- *  - SIGNAL → buildBackfillSignalToast
- *  - RISK   → buildBackfillRiskToast
+ *  - order  → buildBackfillOrderToast
+ *  - signal → buildBackfillSignalToast
+ *  - risk   → buildBackfillRiskToast
  */
 function buildBackfillToast(ev: StompEventDto): ToastSpec | null {
-  if (!ev || !ev.payload) return null
-  switch (ev.eventKind) {
-    case 'ORDER':
-      return buildBackfillOrderToast(ev.payload as OrderStompPayload)
-    case 'SIGNAL':
-      return buildBackfillSignalToast(ev.payload as SignalDto)
-    case 'RISK':
-      return buildBackfillRiskToast(ev.payload as RiskEventDto)
+  const payload = parsePayload(ev)
+  if (!payload) return null
+  switch (ev.channel) {
+    case 'order':
+      return buildBackfillOrderToast(payload as OrderStompPayload)
+    case 'signal':
+      return buildBackfillSignalToast(payload as SignalDto)
+    case 'risk':
+      return buildBackfillRiskToast(payload as RiskEventDto)
     default:
       return null
   }
+}
+
+function parsePayload(ev: StompEventDto): unknown | null {
+  try {
+    return JSON.parse(ev.payloadJson)
+  } catch {
+    return null
+  }
+}
+
+function newestIsoInstant(values: string[]): string | null {
+  let newest: string | null = null
+  let newestMs = Number.NEGATIVE_INFINITY
+  for (const value of values) {
+    const ms = Date.parse(value)
+    if (!Number.isNaN(ms) && ms > newestMs) {
+      newest = value
+      newestMs = ms
+    }
+  }
+  return newest
 }
