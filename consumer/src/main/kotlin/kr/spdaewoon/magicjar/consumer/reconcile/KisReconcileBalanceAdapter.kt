@@ -69,6 +69,8 @@ class KisReconcileBalanceAdapter(
     private val kisBaseProd: String,
     @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
     private val kisBaseVps: String,
+    @Value("\${magicjar.mode:MOCK}")
+    private val magicjarMode: String,
 ) : ReconcileKisBalancePort {
     private val log = LoggerFactory.getLogger(KisReconcileBalanceAdapter::class.java)
 
@@ -89,17 +91,13 @@ class KisReconcileBalanceAdapter(
      * AccountType 분기는 `inquire-balance` 호출 시 tr_id만 다를 뿐 — REAL 기본.
      */
     override fun fetchAllBalances(userId: String): List<ReconcileHolding> {
-        // REAL 자격증명 우선 (정보 수집 = 실전 키 정책)
+        val accountType = if (magicjarMode.equals("REAL", ignoreCase = true)) AccountType.REAL else AccountType.MOCK
         val cred =
             credentialRepository
-                .findAllByAccountType(AccountType.REAL.name)
+                .findAllByAccountType(accountType.name)
                 .firstOrNull { it.id.userId == userId }
-                ?: credentialRepository
-                    .findAllByAccountType(AccountType.MOCK.name)
-                    .firstOrNull { it.id.userId == userId }
-                ?: error("KIS 자격증명 없음 — userId=${maskUserId(userId)}")
+                ?: error("KIS 자격증명 없음 — userId=${maskUserId(userId)} accountType=${accountType.name}")
 
-        val accountType = AccountType.valueOf(cred.id.accountType)
         val trId = if (accountType == AccountType.REAL) TR_ID_REAL else TR_ID_MOCK
         val baseUrl = if (accountType == AccountType.REAL) kisBaseProd else kisBaseVps
         val accessToken = kisAuthAdapter.getAccessToken(userId, accountType)
@@ -263,7 +261,7 @@ class KisReconcileBalanceAdapter(
 
             @Suppress("UNCHECKED_CAST")
             val output1 = body["output1"] as? List<Map<String, Any?>> ?: emptyList()
-            val holdings = parseHoldings(output1)
+            val holdings = parseHoldings(output1, AccountType.valueOf(trIdToAccountTypeName(trId)))
             val nextFk100 = body["ctx_area_fk100"]?.toString()?.trim() ?: ""
             val nextNk100 = body["ctx_area_nk100"]?.toString()?.trim() ?: ""
             kisRateLimiterPort.onSuccess()
@@ -314,15 +312,20 @@ class KisReconcileBalanceAdapter(
      *
      * 수량 0주 종목은 필터링 (KIS는 0주 종목도 응답에 포함 — reconcile은 보유 종목만 비교 의무).
      */
-    internal fun parseHoldings(output1: List<Map<String, Any?>>): List<ReconcileHolding> =
+    internal fun parseHoldings(
+        output1: List<Map<String, Any?>>,
+        accountType: AccountType = AccountType.REAL,
+    ): List<ReconcileHolding> =
         output1.mapNotNull { item ->
             val symbol = item["pdno"]?.toString() ?: return@mapNotNull null
             val quantity = item["hldg_qty"]?.toString()?.toIntOrNull() ?: 0
             if (quantity <= 0) return@mapNotNull null
             val avgPrice =
                 item["pchs_avg_pric"]?.toString()?.toBigDecimalOrNull() ?: BigDecimal.ZERO
-            ReconcileHolding(symbol = symbol, quantity = quantity, avgPrice = avgPrice)
+            ReconcileHolding(symbol = symbol, quantity = quantity, avgPrice = avgPrice, accountType = accountType)
         }
+
+    private fun trIdToAccountTypeName(trId: String): String = if (trId == TR_ID_REAL) AccountType.REAL.name else AccountType.MOCK.name
 
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"
 

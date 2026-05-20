@@ -44,6 +44,8 @@ class KisExecutionBackfillServiceTest {
     private val orderRepo = mockk<OrderRequestRepository>(relaxed = true)
     private val execRepo = mockk<OrderExecutionRepository>(relaxed = true)
     private val auditRepo = mockk<OrderAuditEventRepository>(relaxed = true)
+    private val orderFilledKafkaProducer = mockk<OrderFilledKafkaProducer>(relaxed = true)
+    private val accountBalanceChangedKafkaProducer = mockk<AccountBalanceChangedKafkaProducer>(relaxed = true)
     private val webSocketBridge = mockk<KisWebSocketBridge>(relaxed = true)
     private val orderRepoProvider =
         mockk<ObjectProvider<OrderRequestRepository>>().also {
@@ -67,6 +69,8 @@ class KisExecutionBackfillServiceTest {
         orderRequestRepositoryProvider = orderRepoProvider,
         orderExecutionRepositoryProvider = execRepoProvider,
         orderAuditEventRepositoryProvider = auditRepoProvider,
+        orderFilledKafkaProducer = orderFilledKafkaProducer,
+        accountBalanceChangedKafkaProducer = accountBalanceChangedKafkaProducer,
         webSocketBridge = webSocketBridge,
         magicjarMode = magicjarMode,
         backfillEnabled = backfillEnabled,
@@ -84,6 +88,7 @@ class KisExecutionBackfillServiceTest {
         val existingRequest = stubOrderRequest(id = 50L, kisOrderNo = "ODNO_BF1", userId = "USER123")
         every { orderRepo.findByKisOrderNo("ODNO_BF1") } returns existingRequest
         every { execRepo.existsByEventId(any()) } returns false
+        every { execRepo.sumExecutedQuantityByOrder(50L) } returns 0 andThen 5
         every { execRepo.save(any()) } answers { firstArg<OrderExecution>().copy(id = 100L) }
 
         service.runBackfill()
@@ -102,13 +107,16 @@ class KisExecutionBackfillServiceTest {
         val exec = stubBackfillExec(kisOrderNo = "ODNO_DUP")
         every { kisAdapter.fetchTodayExecutions("USER123", AccountType.REAL) } returns listOf(exec)
 
+        every { orderRepo.findByKisOrderNo("ODNO_DUP") } returns
+            stubOrderRequest(id = 51L, kisOrderNo = "ODNO_DUP", userId = "USER123")
         every { execRepo.existsByEventId(any()) } returns true // 이미 합류
+        every { execRepo.sumExecutedQuantityByOrder(51L) } returns 10
 
         service.runBackfill()
 
         // dedup → save 호출 0건
         verify(exactly = 0) { execRepo.save(any()) }
-        verify(exactly = 0) { orderRepo.findByKisOrderNo(any()) }
+        verify(exactly = 1) { orderRepo.findByKisOrderNo("ODNO_DUP") }
     }
 
     @Test
@@ -127,6 +135,7 @@ class KisExecutionBackfillServiceTest {
         val sentinel = stubOrderRequest(id = 60L, kisOrderNo = "ODNO_NEW", userId = "USER999")
         every { orderRepo.save(any()) } returns sentinel
 
+        every { execRepo.sumExecutedQuantityByOrder(60L) } returns 0 andThen 7
         every { execRepo.save(any()) } answers { firstArg<OrderExecution>().copy(id = 101L) }
 
         service.runBackfill()
@@ -158,8 +167,8 @@ class KisExecutionBackfillServiceTest {
 
     @Test
     fun `(f) buildBackfillEventId 합성 규칙 정합 — BACKFILL prefix + odno + ordTmd`() {
-        val eventId = KisExecutionBackfillService.buildBackfillEventId("ODNO123", "093015")
-        assertThat(eventId).isEqualTo("BACKFILL:ODNO123:093015")
+        val eventId = KisExecutionBackfillService.buildBackfillEventId("ODNO123", "093015", 10)
+        assertThat(eventId).isEqualTo("BACKFILL:ODNO123:093015:10")
     }
 
     @Test
@@ -178,6 +187,7 @@ class KisExecutionBackfillServiceTest {
         every { orderRepo.findByKisOrderNo(any()) } answers {
             stubOrderRequest(id = 30L, kisOrderNo = firstArg(), userId = "USER")
         }
+        every { execRepo.sumExecutedQuantityByOrder(30L) } returnsMany listOf(0, 10, 0, 10, 0, 10)
         every { execRepo.save(any()) } answers { firstArg<OrderExecution>().copy(id = 200L) }
 
         service.runBackfill()

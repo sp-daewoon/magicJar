@@ -6,6 +6,8 @@ import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Table
+import org.hibernate.annotations.JdbcTypeCode
+import org.hibernate.type.SqlTypes
 import java.time.Instant
 import java.util.UUID
 
@@ -46,6 +48,7 @@ class OrderEventOutboxJpaEntity(
     val topic: String,
     @Column(name = "partition_key", length = 64)
     val partitionKey: String? = null,
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "payload_json", nullable = false, columnDefinition = "jsonb")
     val payloadJson: String,
     @Column(name = "status", nullable = false, length = 16)

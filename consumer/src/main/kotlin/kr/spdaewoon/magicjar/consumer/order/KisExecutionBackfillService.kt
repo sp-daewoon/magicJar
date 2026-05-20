@@ -70,6 +70,8 @@ class KisExecutionBackfillService(
     private val orderRequestRepositoryProvider: ObjectProvider<OrderRequestRepository>,
     private val orderExecutionRepositoryProvider: ObjectProvider<OrderExecutionRepository>,
     private val orderAuditEventRepositoryProvider: ObjectProvider<OrderAuditEventRepository>,
+    private val orderFilledKafkaProducer: OrderFilledKafkaProducer,
+    private val accountBalanceChangedKafkaProducer: AccountBalanceChangedKafkaProducer,
     private val webSocketBridge: KisWebSocketBridge,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String,
@@ -86,7 +88,8 @@ class KisExecutionBackfillService(
         fun buildBackfillEventId(
             kisOrderNo: String,
             ordTmd: String,
-        ): String = "$BACKFILL_EVENT_ID_PREFIX:$kisOrderNo:$ordTmd"
+            totCcldQty: Int,
+        ): String = "$BACKFILL_EVENT_ID_PREFIX:$kisOrderNo:$ordTmd:$totCcldQty"
     }
 
     /**
@@ -103,6 +106,7 @@ class KisExecutionBackfillService(
         }
         webSocketBridge.onReconnect = { runBackfillSafely() }
         log.info("ADR 0084 P0-3 — WS 재연결 backfill hook register 완료")
+        runBackfillSafely()
     }
 
     /**
@@ -182,22 +186,8 @@ class KisExecutionBackfillService(
         userId: String,
         accountType: AccountType,
     ): Boolean {
-        val eventId = buildBackfillEventId(exec.kisOrderNo, exec.ordTmd)
+        val eventId = buildBackfillEventId(exec.kisOrderNo, exec.ordTmd, exec.totCcldQty)
 
-        // 1단계: eventId UNIQUE 가드
-        val alreadyPersisted =
-            try {
-                execRepo.existsByEventId(eventId)
-            } catch (e: Exception) {
-                log.error("backfill existsByEventId 실패 — skip (자본 안전): eventId={} err={}", eventId, e.message)
-                return false
-            }
-        if (alreadyPersisted) {
-            log.debug("backfill skip (event_id dedup): eventId={}", eventId)
-            return false
-        }
-
-        // 2단계: OrderRequest 조회 — 부재 시 pre-insert sentinel row 생성
         val request =
             try {
                 orderRepo.findByKisOrderNo(exec.kisOrderNo)
@@ -211,16 +201,52 @@ class KisExecutionBackfillService(
             return false
         }
 
-        // 3단계: OrderExecution INSERT
+        val orderId = request.id ?: return false
+
+        // 1단계: eventId UNIQUE 가드
+        val alreadyPersisted =
+            try {
+                execRepo.existsByEventId(eventId)
+            } catch (e: Exception) {
+                log.error("backfill existsByEventId 실패 — skip (자본 안전): eventId={} err={}", eventId, e.message)
+                return false
+            }
+        if (alreadyPersisted) {
+            log.debug("backfill skip (event_id dedup): eventId={}", eventId)
+            syncOrderStatusAfterBackfill(orderRepo, execRepo, request, null, emitFilledEvent = false)
+            return false
+        }
+
+        val currentExecutedQty =
+            try {
+                execRepo.sumExecutedQuantityByOrder(orderId)
+            } catch (e: Exception) {
+                log.error("backfill sumExecutedQuantityByOrder 실패 — skip: orderId={} err={}", orderId, e.message)
+                return false
+            }
+        val deltaQty = exec.totCcldQty - currentExecutedQty
+        if (deltaQty <= 0) {
+            log.info(
+                "backfill skip — KIS 누적체결 이하 이미 반영: orderId={} kisOrderNo={} current={} kisTotal={}",
+                orderId,
+                exec.kisOrderNo,
+                currentExecutedQty,
+                exec.totCcldQty,
+            )
+            syncOrderStatusAfterBackfill(orderRepo, execRepo, request, null, emitFilledEvent = false)
+            return false
+        }
+
+        // 3단계: OrderExecution INSERT — KIS 누적체결에서 이미 반영된 수량을 뺀 delta만 저장.
         val now = Instant.now(clock)
         val saved =
             try {
                 execRepo.save(
                     OrderExecution(
-                        orderId = request.id!!,
+                        orderId = orderId,
                         userId = request.userId,
                         kisOrderNo = exec.kisOrderNo,
-                        executedQuantity = exec.totCcldQty,
+                        executedQuantity = deltaQty,
                         executedPrice = exec.avgPrice,
                         executedAt = exec.executedAt,
                         eventId = eventId,
@@ -247,7 +273,7 @@ class KisExecutionBackfillService(
                     eventType = OrderAuditEventType.FILL_RECEIVED,
                     payloadJson =
                         """{"source":"REST_BACKFILL","eventId":"$eventId","kisOrderNo":"${exec.kisOrderNo}",""" +
-                            """"totCcldQty":${exec.totCcldQty},"avgPrice":"${exec.avgPrice.toPlainString()}"}""",
+                            """"deltaQty":$deltaQty,"totCcldQty":${exec.totCcldQty},"avgPrice":"${exec.avgPrice.toPlainString()}"}""",
                     createdAt = now,
                 ),
             )
@@ -258,11 +284,111 @@ class KisExecutionBackfillService(
             request.id,
             exec.kisOrderNo,
             eventId,
-            exec.totCcldQty,
+            deltaQty,
             exec.avgPrice.toPlainString(),
             saved.id,
         )
+        syncOrderStatusAfterBackfill(orderRepo, execRepo, request, saved, emitFilledEvent = true)
         return true
+    }
+
+    private fun syncOrderStatusAfterBackfill(
+        orderRepo: OrderRequestRepository,
+        execRepo: OrderExecutionRepository,
+        request: OrderRequest,
+        execution: OrderExecution?,
+        emitFilledEvent: Boolean,
+    ) {
+        val orderId = request.id ?: return
+        val totalExecuted =
+            try {
+                execRepo.sumExecutedQuantityByOrder(orderId)
+            } catch (e: Exception) {
+                log.error("backfill status sync sum 실패: orderId={} err={}", orderId, e.message)
+                return
+            }
+        if (totalExecuted <= 0) return
+
+        val auditRepo = orderAuditEventRepositoryProvider.getIfAvailable()
+        val now = Instant.now(clock)
+        when {
+            totalExecuted < request.quantity -> {
+                val updated =
+                    try {
+                        orderRepo.updateStatus(orderId, OrderStatus.PARTIALLY_FILLED, null)
+                    } catch (e: Exception) {
+                        log.error("backfill updateStatus PARTIALLY_FILLED 실패: orderId={} err={}", orderId, e.message)
+                        request.copy(status = OrderStatus.PARTIALLY_FILLED)
+                    } ?: request.copy(status = OrderStatus.PARTIALLY_FILLED)
+
+                auditRepo?.runCatching {
+                    save(
+                        OrderAuditEvent(
+                            orderId = orderId,
+                            userId = request.userId,
+                            eventType = OrderAuditEventType.PARTIAL_FILL,
+                            payloadJson = """{"source":"REST_BACKFILL","sum":$totalExecuted,"qty":${request.quantity}}""",
+                            createdAt = now,
+                        ),
+                    )
+                }
+                publishBackfillFillEvents(updated, execution, partial = true, emitFilledEvent = emitFilledEvent)
+            }
+            totalExecuted == request.quantity -> {
+                val updated =
+                    try {
+                        orderRepo.markCompleted(orderId, now, OrderStatus.FILLED)
+                    } catch (e: Exception) {
+                        log.error("backfill markCompleted FILLED 실패: orderId={} err={}", orderId, e.message)
+                        request.copy(status = OrderStatus.FILLED, completedAt = now)
+                    } ?: request.copy(status = OrderStatus.FILLED, completedAt = now)
+
+                auditRepo?.runCatching {
+                    save(
+                        OrderAuditEvent(
+                            orderId = orderId,
+                            userId = request.userId,
+                            eventType = OrderAuditEventType.FULL_FILL,
+                            payloadJson = """{"source":"REST_BACKFILL","sum":$totalExecuted,"qty":${request.quantity}}""",
+                            createdAt = now,
+                        ),
+                    )
+                }
+                publishBackfillFillEvents(updated, execution, partial = false, emitFilledEvent = emitFilledEvent)
+            }
+            else -> {
+                auditRepo?.runCatching {
+                    save(
+                        OrderAuditEvent(
+                            orderId = orderId,
+                            userId = request.userId,
+                            eventType = OrderAuditEventType.EXECUTION_OVERFLOW,
+                            payloadJson = """{"source":"REST_BACKFILL","sum":$totalExecuted,"qty":${request.quantity}}""",
+                            createdAt = now,
+                        ),
+                    )
+                }
+                log.error("backfill EXECUTION_OVERFLOW: orderId={} sum={} > qty={}", orderId, totalExecuted, request.quantity)
+            }
+        }
+    }
+
+    private fun publishBackfillFillEvents(
+        request: OrderRequest,
+        execution: OrderExecution?,
+        partial: Boolean,
+        emitFilledEvent: Boolean,
+    ) {
+        if (!emitFilledEvent) return
+        if (execution != null) {
+            orderFilledKafkaProducer.publish(request, execution, partial)
+        }
+        accountBalanceChangedKafkaProducer.publish(
+            userId = request.userId,
+            mode = request.mode,
+            reason = AccountBalanceChangedKafkaProducer.REASON_FILLED,
+            triggerKisOrderNo = request.kisOrderNo,
+        )
     }
 
     /**

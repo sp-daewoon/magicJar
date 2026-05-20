@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.domain.reconcile
 
+import kr.spdaewoon.magicjar.domain.user.AccountType
 import java.math.BigDecimal
 
 /**
@@ -17,6 +18,7 @@ data class ReconcileHolding(
     val symbol: String,
     val quantity: Int,
     val avgPrice: BigDecimal,
+    val accountType: AccountType = AccountType.REAL,
 )
 
 /**
