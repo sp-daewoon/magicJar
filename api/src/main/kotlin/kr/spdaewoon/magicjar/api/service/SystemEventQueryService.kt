@@ -16,6 +16,11 @@ import java.time.Instant
  * - [findList]   : 사용자별/전체 페이지네이션 + unread count 계산
  * - [markViewed] : viewed_at = now 마킹 (사용자 확인 → 벨 badge 감소)
  * - [markResolved] : resolved_at = now 마킹 (운영자 dismiss → dashboard 시각화)
+ *                   ★ viewed_at IS NULL 일 때 viewed_at = now 동반 마킹 (사용자 mental model 정합)
+ *                   사유: 사용자 dogfooding(2026-05-20) — "해결 표시" 9건 처리해도 "미확인 9건"
+ *                   카운트 그대로 + "미확인만" 필터로 사라지지 않는 mismatch.
+ *                   "해결 = 확인된 것"이 사용자 mental model — viewed_at NOT NULL 인 경우(이미 확인됨)
+ *                   는 그대로 두어 idempotent 보장.
  *
  * ### findList filter 매트릭스 (P2.1 — final reviewer ★★ #2 fix)
  *
@@ -110,7 +115,10 @@ class SystemEventQueryService(
     @Transactional
     fun markResolved(id: Long): SystemEventResponseDto? {
         val entity = jpa.findById(id).orElse(null) ?: return null
-        entity.resolvedAt = Instant.now()
+        val now = Instant.now()
+        entity.resolvedAt = now
+        // 사용자 mental model: "해결 = 확인된 것" — viewed_at NULL 일 때만 동반 마킹 (idempotent)
+        entity.viewedAt = entity.viewedAt ?: now
         return jpa.save(entity).toResponse()
     }
 
