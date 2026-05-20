@@ -2,7 +2,12 @@ package kr.spdaewoon.magicjar.consumer.reconcile
 
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
+import kr.spdaewoon.magicjar.domain.event.SystemEvent
+import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
+import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
+import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.reconcile.HoldingDiff
 import kr.spdaewoon.magicjar.domain.reconcile.InternalHolding
 import kr.spdaewoon.magicjar.domain.reconcile.ReconcileHolding
@@ -36,6 +41,7 @@ class BalanceReconcileServiceTest {
     private val reconcileRepo = mockk<ReconcileRunRepository>()
     private val internalPositionPort = mockk<InternalPositionQueryPort>()
     private val positionUpsertPort = mockk<PositionUpsertPort>(relaxed = true)
+    private val systemEventLogger = mockk<SystemEventLogger>(relaxed = true)
 
     private val reconcileRepoProvider = mockk<ObjectProvider<ReconcileRunRepository>>()
     private val internalPosProvider = mockk<ObjectProvider<InternalPositionQueryPort>>()
@@ -58,6 +64,7 @@ class BalanceReconcileServiceTest {
             reconcileRunRepositoryProvider = reconcileRepoProvider,
             internalPositionQueryPortProvider = internalPosProvider,
             positionUpsertPortProvider = positionUpsertProvider,
+            systemEventLogger = systemEventLogger,
         )
     }
 
@@ -108,6 +115,59 @@ class BalanceReconcileServiceTest {
         assertThat(result.status).isEqualTo(ReconcileStatus.ERROR)
         assertThat(result.lastError).contains("KIS 401")
         verify(exactly = 0) { eventPublisher.publishDrift(any(), any(), any()) }
+    }
+
+    // ===== SystemEvent emit (P1 spec §6.1 emit point #3) =====
+
+    /**
+     * (e) Drifted 분기 진입 시 SystemEventLogger emit RECONCILE_DRIFT_DETECTED.
+     *
+     * spec §6.1 P1 emit point #3:
+     *  - category = RECONCILE / severity = WARN / actor = BalanceReconcileService
+     *  - userId = reconcile 대상 사용자
+     *  - detailJson = {"kisHoldings":N,"dbPositions":M,"driftCount":K}
+     *
+     * 진보 페르소나 lens: Drifted = 자본 사고 즉시 audit 의무 (WARN). PriceDrifted 단독은 emit skip.
+     */
+    @Test
+    fun `(e) Drifted 분기 — SystemEventLogger emit RECONCILE_DRIFT_DETECTED (WARN + userId + driftCount)`() {
+        every { kisBalancePort.fetchAllBalances("U1") } returns
+            listOf(ReconcileHolding("005930", 100, BigDecimal("70000")))
+        every { internalPositionPort.findCurrentByUser("U1") } returns
+            listOf(InternalHolding("005930", 99, BigDecimal("70000"))) // 1주 diff → drift
+
+        val service = newService()
+        service.reconcileUser("U1", ReconcileTriggerSource.CRON)
+
+        val eventSlot = slot<SystemEvent>()
+        verify(exactly = 1) { systemEventLogger.emit(capture(eventSlot)) }
+        val event = eventSlot.captured
+        assertThat(event.category).isEqualTo(SystemEventCategory.RECONCILE)
+        assertThat(event.severity).isEqualTo(SystemEventSeverity.WARN)
+        assertThat(event.action).isEqualTo("RECONCILE_DRIFT_DETECTED")
+        assertThat(event.actor).isEqualTo("BalanceReconcileService")
+        assertThat(event.userId).isEqualTo("U1")
+        assertThat(event.detailJson).contains("\"kisHoldings\":1")
+        assertThat(event.detailJson).contains("\"dbPositions\":1")
+        assertThat(event.detailJson).contains("\"driftCount\":1")
+    }
+
+    /**
+     * (f) Reconciled 분기 — DRIFT 아닌 정상 흐름은 RECONCILE_DRIFT_DETECTED emit 0건.
+     *
+     * 진보 페르소나 lens: 정상 audit noise 회피 — RECONCILE_DETECTED 외 다른 catalog로 처리될 사안 (스펙 P2/P3).
+     */
+    @Test
+    fun `(f) Reconciled 정상 흐름 — RECONCILE_DRIFT_DETECTED emit 0건 (audit noise 회피)`() {
+        every { kisBalancePort.fetchAllBalances("U1") } returns
+            listOf(ReconcileHolding("005930", 100, BigDecimal("70000")))
+        every { internalPositionPort.findCurrentByUser("U1") } returns
+            listOf(InternalHolding("005930", 100, BigDecimal("70000")))
+
+        val service = newService()
+        service.reconcileUser("U1", ReconcileTriggerSource.CRON)
+
+        verify(exactly = 0) { systemEventLogger.emit(any()) }
     }
 
     @Test
