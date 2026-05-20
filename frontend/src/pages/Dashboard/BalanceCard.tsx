@@ -1,7 +1,7 @@
 /**
  * BalanceCard — 잔고 상세 카드 (T-ACCT Phase 4 — ADR 0081 + spec §5-3 옵션)
  *
- * 데이터: GET /api/account/balance (useAccountBalance 5s auto-refresh)
+ * 데이터: GET /api/account/balance (useAccountBalance — STOMP push primary + 30s polling fallback)
  * KIS inquire-balance output2 11 필드 노출:
  *   - 예수금: 총금액·D+1·D+2 (3 라인)
  *   - 자산: 총 평가금액·순자산금액 (2 라인)
@@ -97,7 +97,7 @@ export function BalanceCard({ userId, accountType = 'REAL' }: BalanceCardProps) 
             </span>
           </h2>
           <p className="mt-0.5 text-xs text-gray-500">
-            KIS inquire-balance output2 — 5초마다 자동 갱신
+            KIS inquire-balance output2 — 실시간 push + 30초 fallback
           </p>
         </div>
         <button

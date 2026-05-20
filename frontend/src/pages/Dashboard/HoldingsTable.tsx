@@ -1,7 +1,7 @@
 /**
  * HoldingsTable — 보유 종목 테이블 (T-ACCT Phase 4 — ADR 0081 + spec §5-1)
  *
- * 데이터: GET /api/account/positions (useAccountPositions 5s auto-refresh)
+ * 데이터: GET /api/account/positions (useAccountPositions — STOMP push primary + 30s polling fallback)
  * 컬럼: 종목코드·종목명·수량·평균가·현재가·평가금·손익·수익률 (8 컬럼)
  *
  * 종목 클릭 → /symbol/:code 이동 (T-S1 진입점 — ADR 0040 §2-2)
@@ -73,7 +73,7 @@ export function HoldingsTable({
             </span>
           </h2>
           <p className="mt-0.5 text-xs text-gray-500">
-            KIS 실시간 시세 · 5초마다 자동 갱신
+            KIS 실시간 시세 · 실시간 push + 30초 fallback
             {!isLoading && !isError && (
               <span className="ml-1 text-gray-600">· 총 {holdings.length}종목</span>
             )}

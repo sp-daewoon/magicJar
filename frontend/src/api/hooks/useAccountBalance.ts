@@ -4,13 +4,13 @@
  * GET /api/account/balance?userId=&accountType=
  * KIS inquire-balance output2 11 필드 — 예수금·평가금·평가손익 등.
  *
- * - 5s auto-refresh (C-3 자본 시각화 즉시성 — backend Redis cache TTL 5s 정합)
+ * - 30s polling fallback — STOMP push (useStompAccountBalance) 가 primary
  * - userId 없으면 쿼리 비활성
  *
- * C-3 (2026-05-20): refetchInterval 30s → 5s, staleTime 25s → 3s.
- *   "돈 관련된건 실시간 정보를 가져와야지" (사용자 dogfooding).
- *   backend 5s cache TTL이라 5s polling은 1번 backend hit + 4번 frontend cache hit —
- *   KIS rate limit 영향 최소.
+ * C-3 polling → push 전환 (2026-05-20): refetchInterval 5s → 30s, staleTime 3s → 25s.
+ *   "소켓방식으로 가져와야하는거" (사용자 dogfooding). 5s polling KIS rate limit burst 해소.
+ *   STOMP /topic/account.balance.{userId} 가 주문체결·취소·거절 시 즉시 invalidate 트리거.
+ *   30s polling 은 STOMP 끊김 시 fallback only.
  *
  * A-3 (2026-05-20): refetchIntervalInBackground=false 명시화 — TanStack Query v5
  *   default이지만 의도 명시 (background tab 시 polling pause).
@@ -33,14 +33,14 @@ interface UseAccountBalanceOptions {
 export function useAccountBalance({
   userId,
   accountType = 'REAL',
-  refetchInterval = 5_000,
+  refetchInterval = 30_000,
   enabled = true,
 }: UseAccountBalanceOptions) {
   return useQuery<AccountBalanceDto, Error>({
     queryKey: ['account', 'balance', userId, accountType],
     queryFn: () => accountApi.getBalance(userId!, accountType),
     enabled: enabled && userId !== null && userId !== undefined,
-    staleTime: 3_000,
+    staleTime: 25_000,
     refetchInterval,
     refetchIntervalInBackground: false, // A-3: background tab 시 pause (v5 default 명시화)
     refetchOnWindowFocus: true,
