@@ -6,11 +6,15 @@ import kr.spdaewoon.magicjar.domain.account.AccountBalance
 import kr.spdaewoon.magicjar.domain.account.AccountHolding
 import kr.spdaewoon.magicjar.domain.account.KisAccountBalance
 import kr.spdaewoon.magicjar.domain.account.port.KisBalanceQueryPort
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
 import kr.spdaewoon.magicjar.domain.user.AccountType
+import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
+import org.springframework.web.reactive.function.client.WebClientResponseException
 import java.math.BigDecimal
 import java.time.Duration
 import java.time.Instant
@@ -66,6 +70,7 @@ class ApiKisBalanceQueryAdapter(
     private val secretCipher: SecretCipher,
     private val credentialRepository: UserKisCredentialJpaRepository,
     private val tokenHelper: KisTokenCacheHelper,
+    private val kisRateLimiterPort: KisRateLimiterPort,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseProd: String,
     @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
@@ -75,6 +80,8 @@ class ApiKisBalanceQueryAdapter(
         private val TIMEOUT = Duration.ofSeconds(5)
         private const val INQUIRE_BALANCE_PATH = "/uapi/domestic-stock/v1/trading/inquire-balance"
     }
+
+    private val log = LoggerFactory.getLogger(ApiKisBalanceQueryAdapter::class.java)
 
     override fun fetchFullBalance(
         userId: String,
@@ -88,11 +95,16 @@ class ApiKisBalanceQueryAdapter(
 
         var appKey: ByteArray? = null
         var secretKey: ByteArray? = null
+        // Rate Limit acquire (D-2 합류 — USER_PATH priority — T-ACCT 사용자 응답 path)
+        // try 안 진입 + signalSent flag로 drift 차단 (D-1 패턴 정합).
+        var signalSent = false
         return try {
             appKey = secretCipher.decrypt(cred.appKeyEnc)
             secretKey = secretCipher.decrypt(cred.secretKeyEnc)
             val appKeyStr = String(appKey)
             val secretKeyStr = String(secretKey)
+
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
 
             @Suppress("UNCHECKED_CAST")
             val response =
@@ -130,6 +142,8 @@ class ApiKisBalanceQueryAdapter(
             val holdings = parseOutput1(response)
             val balance = parseOutput2(response)
             val now = Instant.now()
+            kisRateLimiterPort.onSuccess()
+            signalSent = true
             KisAccountBalance(
                 userId = userId,
                 accountType = accountType,
@@ -137,9 +151,21 @@ class ApiKisBalanceQueryAdapter(
                 holdings = holdings,
                 fetchedAt = now,
             )
+        } catch (e: WebClientResponseException) {
+            if (e.statusCode.value() == 429) {
+                kisRateLimiterPort.onTpsExceeded()
+                signalSent = true
+            }
+            throw e
         } finally {
             appKey?.fill(0)
             secretKey?.fill(0)
+            if (!signalSent) {
+                log.warn(
+                    "[KisRateLimit] ApiKisBalanceQuery acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): userId={}",
+                    userId,
+                )
+            }
         }
     }
 

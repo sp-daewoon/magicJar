@@ -66,11 +66,15 @@ class KisRestPriceAdapter(
         val baseUrl = kisBaseProd
         val token = kisAuthAdapter.getAccessToken(userId, accountType)
 
-        // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority)
-        // 현재가 polling은 사용자 path 즉시 응답 path
-        kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
-
+        // D-1 try-finally drift 차단 패턴 (T-D-1):
+        //   acquire를 try 안으로 옮기고 signalSent flag로 통계 시그널 미발행 path 감시.
+        //   기존 결함: acquire 후 OOM/interrupt/parse error 등 예외 시 통계 0 → drift.
+        var signalSent = false
         return try {
+            // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority)
+            // 현재가 polling은 사용자 path 즉시 응답 path
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+
             @Suppress("UNCHECKED_CAST")
             val response =
                 webClient
@@ -95,6 +99,7 @@ class KisRestPriceAdapter(
             val volumeStr = output["acml_vol"]?.toString() ?: "0"
 
             kisRateLimiterPort.onSuccess()
+            signalSent = true
             TickEvent(
                 code = code,
                 price = BigDecimal(priceStr.ifBlank { "0" }),
@@ -106,6 +111,7 @@ class KisRestPriceAdapter(
         } catch (e: WebClientResponseException) {
             if (e.statusCode.value() == 429) {
                 kisRateLimiterPort.onTpsExceeded()
+                signalSent = true
                 log.warn("KIS inquire-price HTTP 429 — onTpsExceeded 시그널: code={}", code)
             }
             log.error(
@@ -115,6 +121,13 @@ class KisRestPriceAdapter(
                 e.responseBodyAsString.take(200),
             )
             throw e
+        } finally {
+            if (!signalSent) {
+                log.warn(
+                    "[KisRateLimit] inquire-price acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): code={}",
+                    code,
+                )
+            }
         }
     }
 
@@ -154,14 +167,17 @@ class KisRestPriceAdapter(
         val baseUrl = kisBaseProd
         val token = kisAuthAdapter.getAccessToken(userId, accountType)
 
-        // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority — metrics path)
-        kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
-
         val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul"))
         val startDate = today.minusDays(7).format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
         val endDate = today.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
 
+        // D-1 try-finally drift 차단 패턴 (T-D-1):
+        //   acquire를 try 안으로 옮기고 signalSent flag로 통계 시그널 미발행 path 감시.
+        var signalSent = false
         return try {
+            // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority — metrics path)
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+
             @Suppress("UNCHECKED_CAST")
             val response =
                 webClient
@@ -188,6 +204,7 @@ class KisRestPriceAdapter(
                     ?: error("KIS inquire-daily-itemchartprice (metrics) output1 없음 — code=$code")
 
             kisRateLimiterPort.onSuccess()
+            signalSent = true
             PriceMetrics(
                 per = output1["per"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
                 pbr = output1["pbr"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
@@ -210,6 +227,7 @@ class KisRestPriceAdapter(
         } catch (e: WebClientResponseException) {
             if (e.statusCode.value() == 429) {
                 kisRateLimiterPort.onTpsExceeded()
+                signalSent = true
                 log.warn("KIS inquire-daily-itemchartprice (metrics) HTTP 429 — onTpsExceeded: code={}", code)
             }
             log.error(
@@ -219,6 +237,13 @@ class KisRestPriceAdapter(
                 e.responseBodyAsString.take(200),
             )
             throw e
+        } finally {
+            if (!signalSent) {
+                log.warn(
+                    "[KisRateLimit] PriceMetrics(consumer) acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): code={}",
+                    code,
+                )
+            }
         }
     }
 

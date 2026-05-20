@@ -22,6 +22,12 @@ dependencies {
     // PostgreSQL driver
     implementation("org.postgresql:postgresql")
 
+    // Bucket4j Rate Limiter — KIS REST 초당 10건 강제 (ADR 0037 + spec PR #564 §2-3 옵션 a LOCK)
+    // multi-JVM 단일 bucket share — Lettuce Redis backend 직접 발행 (api·consumer 모듈과 동일 bucketKey).
+    // batch 3개 KIS 어댑터(KisChkHolidayAdapter·KisInstrumentMasterAdapter·KisKsdInfoAdapter) 합류 prerequisite.
+    implementation("com.bucket4j:bucket4j-core:8.10.1")
+    implementation("com.bucket4j:bucket4j-redis:8.10.1")
+
     // Flyway 미포함 (api 모듈만 마이그레이션 — ADR 0006 §마이그레이션)
 
     // Test

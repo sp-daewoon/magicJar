@@ -272,6 +272,10 @@ class CandleRefreshService(
         var pageCount = 0
         var pageStatus = "OK"
 
+        // D-1 try-finally drift 차단 패턴 (T-D-1): 메서드 단위 outer signalSent 추적 — 각 페이지마다 갱신.
+        // (refreshDailyCandles 메서드 outer try 전체에서 마지막 acquire의 시그널 미발행 path 감시)
+        var lastPageSignalSent = true // 첫 페이지 진입 전 — outer catch에서 false 시그널 보강
+        var lastPageAcquired = false
         try {
             while (pageCount < DAILY_MAX_PAGES) {
                 if (cursor < fromDate) break
@@ -279,6 +283,8 @@ class CandleRefreshService(
                 // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority)
                 // ADR 0037 초당 10건 한도 강제. 페이지마다 acquire — 사용자 트리거 즉시 우선 처리.
                 kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+                lastPageSignalSent = false
+                lastPageAcquired = true
 
                 val cursorStr = cursor.format(DATE_FMT)
 
@@ -339,16 +345,19 @@ class CandleRefreshService(
                 if (output2.isNullOrEmpty()) {
                     log.debug("캔들 갱신 output2 0건 — 페이지네이션 종료: code={} interval={} page={}", code, intervalCode, pageCount)
                     kisRateLimiterPort.onSuccess()
+                    lastPageSignalSent = true
                     break
                 }
 
                 val pageCandles = parseKisDailyOutput2(output2, code, intervalCode)
                 if (pageCandles.isEmpty()) {
                     kisRateLimiterPort.onSuccess()
+                    lastPageSignalSent = true
                     break
                 }
                 allCandles.addAll(pageCandles)
                 kisRateLimiterPort.onSuccess()
+                lastPageSignalSent = true
 
                 // cursor advance — oldest epochSec → LocalDate.minusDays(1)
                 // parseKisDailyOutput2가 이미 ASC 정렬이므로 first() = oldest.
@@ -408,6 +417,7 @@ class CandleRefreshService(
             if (e.statusCode.value() == 429) {
                 // HTTP 429 → onTpsExceeded 시그널 + 명시 에러 결과 (mock 합성 0, ADR 0014)
                 kisRateLimiterPort.onTpsExceeded()
+                lastPageSignalSent = true
                 log.warn("캔들 갱신 Rate Limit (429): code={} interval={} pages={}", code, intervalCode, pageCount)
                 return IntervalRefreshResult(intervalCode, allCandles.size, 0, null, "RATE_LIMITED")
             } else {
@@ -423,6 +433,15 @@ class CandleRefreshService(
         } catch (e: Exception) {
             log.warn("캔들 갱신 오류: code={} interval={} pages={} err={}", code, intervalCode, pageCount, e.message)
             return IntervalRefreshResult(intervalCode, allCandles.size, 0, null, "FAILED")
+        } finally {
+            if (lastPageAcquired && !lastPageSignalSent) {
+                log.warn(
+                    "[KisRateLimit] CandleRefresh daily acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): code={} interval={} page={}",
+                    code,
+                    intervalCode,
+                    pageCount,
+                )
+            }
         }
     }
 
@@ -470,10 +489,14 @@ class CandleRefreshService(
             var dayDone = false
 
             while (!dayDone && pageCount < maxPagesPerDay) {
+                // D-1 try-finally drift 차단 패턴 (T-D-1): 페이지 단위 signalSent flag.
+                var pageSignalSent = false
+                var pageAcquired = false
                 try {
                     // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority)
                     // ADR 0037 초당 10건 한도 강제. 사용자 트리거 path → 즉시 acquire.
                     kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+                    pageAcquired = true
 
                     @Suppress("UNCHECKED_CAST")
                     val body =
@@ -507,6 +530,9 @@ class CandleRefreshService(
                             .block()
 
                     pageCount++
+                    // 정상 응답 (null·rt_cd!=0·output2 empty 포함) — token 소비 정상 집계.
+                    kisRateLimiterPort.onSuccess()
+                    pageSignalSent = true
                     if (body == null) {
                         dayDone = true
                         continue
@@ -564,9 +590,29 @@ class CandleRefreshService(
                         val nextLt = earliestLt.minus(1, ChronoUnit.MINUTES)
                         currentHour = "%02d%02d%02d".format(nextLt.hour, nextLt.minute, nextLt.second)
                     }
+                } catch (e: WebClientResponseException) {
+                    if (e.statusCode.value() == 429) {
+                        kisRateLimiterPort.onTpsExceeded()
+                        pageSignalSent = true
+                    }
+                    log.warn(
+                        "1m 갱신 페이지 HTTP 오류: code={} date={} status={}",
+                        code,
+                        dateStr,
+                        e.statusCode.value(),
+                    )
+                    dayDone = true
                 } catch (e: Exception) {
                     log.warn("1m 갱신 페이지 오류: code={} date={} err={}", code, dateStr, e.message)
                     dayDone = true
+                } finally {
+                    if (pageAcquired && !pageSignalSent) {
+                        log.warn(
+                            "[KisRateLimit] CandleRefresh 1m page acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): code={} date={}",
+                            code,
+                            dateStr,
+                        )
+                    }
                 }
             }
         }

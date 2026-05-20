@@ -178,9 +178,15 @@ class KisReconcileBalanceAdapter(
         nk100: String,
         retried: Boolean = false,
     ): BalancePage {
-        // Rate Limit acquire (spec PR #564 §2-2 LOCK — BACKFILL priority — cron reconcile path)
-        kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 1000L)
+        // D-1 try-finally drift 차단 패턴 (T-D-1):
+        //   acquire를 try 안으로 옮기고 signalSent flag로 통계 시그널 미발행 path 감시.
+        var signalSent = false
+        var acquiredToken = false
         try {
+            // Rate Limit acquire (spec PR #564 §2-2 LOCK — BACKFILL priority — cron reconcile path)
+            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 1000L)
+            acquiredToken = true
+
             @Suppress("UNCHECKED_CAST")
             val response =
                 webClient
@@ -231,6 +237,7 @@ class KisReconcileBalanceAdapter(
             // EGW00201 backoff + 1회 재시도 (spec PR #564 §2-2 LOCK — onTpsExceeded 시그널)
             if (msgCd == EGW_TPS_EXCEEDED && !retried) {
                 kisRateLimiterPort.onTpsExceeded()
+                signalSent = true
                 log.warn("KIS EGW00201 TPS 초과 — onTpsExceeded + 1s backoff + 1회 retry")
                 Thread.sleep(EGW_BACKOFF_MS)
                 return fetchBalancePage(
@@ -248,6 +255,9 @@ class KisReconcileBalanceAdapter(
             }
 
             if (rtCd != "0") {
+                // 명시적 KIS 비정상 응답 — token 자체는 소비됐으므로 onSuccess로 통계 집계 (drift 회피)
+                kisRateLimiterPort.onSuccess()
+                signalSent = true
                 error("KIS 잔고조회 실패: rt_cd=$rtCd msg_cd=$msgCd")
             }
 
@@ -257,6 +267,7 @@ class KisReconcileBalanceAdapter(
             val nextFk100 = body["ctx_area_fk100"]?.toString()?.trim() ?: ""
             val nextNk100 = body["ctx_area_nk100"]?.toString()?.trim() ?: ""
             kisRateLimiterPort.onSuccess()
+            signalSent = true
             return BalancePage(
                 holdings = holdings,
                 trCont = response.first.trim(),
@@ -267,6 +278,7 @@ class KisReconcileBalanceAdapter(
             if (e.statusCode.value() == 429 && !retried) {
                 // HTTP 429 → onTpsExceeded + 1초 backoff + 1회 재시도 (spec PR #564 §2-2 LOCK)
                 kisRateLimiterPort.onTpsExceeded()
+                signalSent = true
                 log.warn("KIS 잔고조회 HTTP 429 — 1초 backoff 후 1회 retry")
                 Thread.sleep(EGW_BACKOFF_MS)
                 return fetchBalancePage(
@@ -281,9 +293,19 @@ class KisReconcileBalanceAdapter(
                     nk100 = nk100,
                     retried = true,
                 )
+            } else if (e.statusCode.value() == 429) {
+                kisRateLimiterPort.onTpsExceeded()
+                signalSent = true
             }
             log.error("KIS 잔고조회 HTTP 실패: status={} body={}", e.statusCode, e.responseBodyAsString.take(200))
             throw e
+        } finally {
+            if (acquiredToken && !signalSent) {
+                log.warn(
+                    "[KisRateLimit] reconcile-balance acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): trId={}",
+                    trId,
+                )
+            }
         }
     }
 

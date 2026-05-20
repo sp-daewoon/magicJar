@@ -56,6 +56,10 @@ class KisBalanceAdapter(
 
         var appKey: ByteArray? = null
         var secretKey: ByteArray? = null
+        // D-1 try-finally drift 차단 패턴 (T-D-1):
+        //   acquire는 try 안에 이미 있으나 catch 분기 외 path(parse error, RuntimeException 등) drift risk.
+        //   signalSent flag로 모든 path 통계 시그널 발행 감시.
+        var signalSent = false
         return try {
             appKey = secretCipher.decrypt(cred.appKeyEnc)
             secretKey = secretCipher.decrypt(cred.secretKeyEnc)
@@ -114,6 +118,7 @@ class KisBalanceAdapter(
                 }
 
             kisRateLimiterPort.onSuccess()
+            signalSent = true
             log.info(
                 "KIS 잔고조회 성공: user={} type={} holdings={}건",
                 maskUserId(userId),
@@ -129,6 +134,7 @@ class KisBalanceAdapter(
         } catch (e: WebClientResponseException) {
             if (e.statusCode.value() == 429) {
                 kisRateLimiterPort.onTpsExceeded()
+                signalSent = true
                 log.warn("KIS 잔고조회 HTTP 429 — onTpsExceeded 시그널: user={}", maskUserId(userId))
             }
             log.error(
@@ -141,6 +147,12 @@ class KisBalanceAdapter(
         } finally {
             appKey?.fill(0)
             secretKey?.fill(0)
+            if (!signalSent) {
+                log.warn(
+                    "[KisRateLimit] inquire-balance(consumer) acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): user={}",
+                    maskUserId(userId),
+                )
+            }
         }
     }
 

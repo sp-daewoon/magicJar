@@ -133,6 +133,10 @@ class KisOrderInquireDailyCcldHttpAdapter(
 
         var appKey: ByteArray? = null
         var secretKey: ByteArray? = null
+        // D-1 try-finally drift 차단 패턴 (T-D-1):
+        //   기존 결함: acquire 호출 후 onSuccess/onTpsExceeded 시그널이 모든 path 누락 → 통계 영구 drift.
+        var signalSent = false
+        var acquiredToken = false
         return try {
             appKey = secretCipher.decrypt(cred.appKeyEnc)
             secretKey = secretCipher.decrypt(cred.secretKeyEnc)
@@ -141,6 +145,7 @@ class KisOrderInquireDailyCcldHttpAdapter(
 
             // Rate Limit acquire (spec PR #564 §2-2 LOCK — BACKFILL priority — daily ccld reconcile)
             kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 1000L)
+            acquiredToken = true
 
             // raw L141~L155 verbatim — params 매트릭스
             val response =
@@ -176,7 +181,14 @@ class KisOrderInquireDailyCcldHttpAdapter(
                     .bodyToMono(KisOdnoInquireResponse::class.java)
                     .timeout(Duration.ofSeconds(TIMEOUT_SEC))
                     .block()
-                    ?: return OrderInquireResult.Failed("RESPONSE_NULL")
+                    ?: run {
+                        kisRateLimiterPort.onSuccess()
+                        signalSent = true
+                        return OrderInquireResult.Failed("RESPONSE_NULL")
+                    }
+
+            kisRateLimiterPort.onSuccess()
+            signalSent = true
 
             if (response.rtCd != "0") {
                 log.warn(
@@ -219,6 +231,10 @@ class KisOrderInquireDailyCcldHttpAdapter(
                 )
             }
         } catch (e: WebClientResponseException) {
+            if (e.statusCode.value() == 429) {
+                kisRateLimiterPort.onTpsExceeded()
+                signalSent = true
+            }
             log.warn(
                 "KIS inquire-daily-ccld HTTP 실패: trId={} userId={} ODNO={} status={}",
                 trId,
@@ -239,6 +255,13 @@ class KisOrderInquireDailyCcldHttpAdapter(
         } finally {
             appKey?.fill(0)
             secretKey?.fill(0)
+            if (acquiredToken && !signalSent) {
+                log.warn(
+                    "[KisRateLimit] inquire-daily-ccld(ODNO) acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): trId={} ODNO={}",
+                    trId,
+                    kisOrderNo,
+                )
+            }
         }
     }
 

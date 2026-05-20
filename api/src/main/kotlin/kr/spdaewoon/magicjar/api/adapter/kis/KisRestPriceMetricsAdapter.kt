@@ -3,6 +3,8 @@ package kr.spdaewoon.magicjar.api.adapter.kis
 import kr.spdaewoon.magicjar.api.infrastructure.kis.KisTokenCacheHelper
 import kr.spdaewoon.magicjar.domain.market.PriceMetrics
 import kr.spdaewoon.magicjar.domain.market.port.KisRestPriceMetricsPort
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -39,6 +41,7 @@ import java.time.Duration
 class KisRestPriceMetricsAdapter(
     private val webClient: WebClient,
     private val tokenHelper: KisTokenCacheHelper,
+    private val kisRateLimiterPort: KisRateLimiterPort,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseProd: String,
     @Suppress("UNUSED_PARAMETER")
@@ -65,7 +68,11 @@ class KisRestPriceMetricsAdapter(
         val startDate = today.minusDays(7).format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
         val endDate = today.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
 
+        // Rate Limit acquire (D-2 합류 — USER_PATH priority — SymbolMetaService 사용자 응답 path)
+        // try 안 진입 + signalSent flag로 drift 차단 (D-1 패턴 정합).
+        var signalSent = false
         return try {
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
             @Suppress("UNCHECKED_CAST")
             val response =
                 webClient
@@ -93,6 +100,8 @@ class KisRestPriceMetricsAdapter(
                 response["output1"] as? Map<String, Any>
                     ?: error("KIS inquire-daily-itemchartprice output1 없음 — code=$code")
 
+            kisRateLimiterPort.onSuccess()
+            signalSent = true
             PriceMetrics(
                 per = output1["per"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
                 pbr = output1["pbr"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
@@ -117,6 +126,10 @@ class KisRestPriceMetricsAdapter(
                 volume = output1["acml_vol"]?.toString()?.ifBlank { null }?.toLongOrNull(),
             )
         } catch (e: WebClientResponseException) {
+            if (e.statusCode.value() == 429) {
+                kisRateLimiterPort.onTpsExceeded()
+                signalSent = true
+            }
             log.error(
                 "KIS inquire-daily-itemchartprice 실패: code={} status={} body={}",
                 code,
@@ -124,6 +137,13 @@ class KisRestPriceMetricsAdapter(
                 e.responseBodyAsString.take(200),
             )
             throw e
+        } finally {
+            if (!signalSent) {
+                log.warn(
+                    "[KisRateLimit] PriceMetrics acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): code={}",
+                    code,
+                )
+            }
         }
     }
 }

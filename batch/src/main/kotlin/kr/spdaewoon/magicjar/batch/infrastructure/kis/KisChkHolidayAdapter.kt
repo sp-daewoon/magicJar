@@ -1,6 +1,8 @@
 package kr.spdaewoon.magicjar.batch.infrastructure.kis
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.market.session.MarketCalendarEntry
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -40,6 +42,7 @@ import java.time.format.DateTimeFormatter
 class KisChkHolidayAdapter(
     private val webClient: WebClient,
     private val objectMapper: ObjectMapper,
+    private val kisRateLimiterPort: KisRateLimiterPort,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseProd: String,
 ) {
@@ -120,35 +123,54 @@ class KisChkHolidayAdapter(
         val host = kisBaseProd.removePrefix("https://").substringBefore(":")
         val port = kisBaseProd.substringAfterLast(":").toIntOrNull() ?: 9443
 
+        // Rate Limit acquire (D-2 합류 — BACKFILL priority — 1일 1회 cron이라 risk 낮지만 페이징 burst 가능)
+        // try 안 진입 + signalSent flag로 drift 차단 (D-1 패턴 정합).
+        var signalSent = false
         return try {
-            webClient
-                .get()
-                .uri { builder ->
-                    builder
-                        .scheme("https")
-                        .host(host)
-                        .port(port)
-                        .path(ENDPOINT)
-                        .queryParam("BASS_DT", bassDate)
-                        .apply {
-                            if (ctxAreaFk.isNotEmpty()) queryParam("CTX_AREA_FK", ctxAreaFk)
-                            if (ctxAreaNk.isNotEmpty()) queryParam("CTX_AREA_NK", ctxAreaNk)
-                        }.build()
-                }.header("authorization", "Bearer $accessToken")
-                .header("appkey", appKey)
-                .header("appsecret", secretKey)
-                .header("tr_id", TR_ID)
-                .header("custtype", "P")
-                .retrieve()
-                .bodyToMono(Map::class.java)
-                .timeout(Duration.ofSeconds(15))
-                .block()
+            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 1000L)
+            val body =
+                webClient
+                    .get()
+                    .uri { builder ->
+                        builder
+                            .scheme("https")
+                            .host(host)
+                            .port(port)
+                            .path(ENDPOINT)
+                            .queryParam("BASS_DT", bassDate)
+                            .apply {
+                                if (ctxAreaFk.isNotEmpty()) queryParam("CTX_AREA_FK", ctxAreaFk)
+                                if (ctxAreaNk.isNotEmpty()) queryParam("CTX_AREA_NK", ctxAreaNk)
+                            }.build()
+                    }.header("authorization", "Bearer $accessToken")
+                    .header("appkey", appKey)
+                    .header("appsecret", secretKey)
+                    .header("tr_id", TR_ID)
+                    .header("custtype", "P")
+                    .retrieve()
+                    .bodyToMono(Map::class.java)
+                    .timeout(Duration.ofSeconds(15))
+                    .block()
+            kisRateLimiterPort.onSuccess()
+            signalSent = true
+            body
         } catch (e: WebClientResponseException) {
+            if (e.statusCode.value() == 429) {
+                kisRateLimiterPort.onTpsExceeded()
+                signalSent = true
+            }
             log.warn("chk-holiday HTTP 오류: bassDate={} status={}", bassDate, e.statusCode)
             null
         } catch (e: Exception) {
             log.warn("chk-holiday 오류: bassDate={} err={}", bassDate, e.message)
             null
+        } finally {
+            if (!signalSent) {
+                log.warn(
+                    "[KisRateLimit] chk-holiday acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): bassDate={}",
+                    bassDate,
+                )
+            }
         }
     }
 

@@ -297,10 +297,14 @@ class KisRestCandleAdapter(
                 var dayDone = false
 
                 while (!dayDone && pageCount < maxPagesPerDay) {
+                    // D-1 try-finally drift 차단 패턴 (T-D-1): 페이지 단위 signalSent flag.
+                    var pageSignalSent = false
+                    var pageAcquired = false
                     try {
                         // Rate Limit acquire (spec PR #564 §2-2 LOCK — BACKFILL priority)
                         // ADR 0037 초당 10건 한도. 1m 페이지네이션 backfill path → BACKFILL 우선순위
                         kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 1000L)
+                        pageAcquired = true
 
                         val body =
                             webClient
@@ -414,11 +418,13 @@ class KisRestCandleAdapter(
                         // KIS API rate limit 준수: ADR 0037 — 초당 10건 한도 (KisRateLimiterPort.acquire 합류 — spec PR #564 §2-2)
                         // sleep 마진 제거 — Bucket4j blocking polling이 적시 진입 보장
                         kisRateLimiterPort.onSuccess()
+                        pageSignalSent = true
                     } catch (e: WebClientResponseException) {
                         val statusCode = e.statusCode.value()
                         if (statusCode == 429) {
                             // HTTP 429 → onTpsExceeded + 1초 backoff (spec PR #564 §2-2 LOCK)
                             kisRateLimiterPort.onTpsExceeded()
+                            pageSignalSent = true
                             log.warn(
                                 "KIS 1m candle HTTP 429 — 1초 backoff, 일자 건너뜀: code={} date={} hour={}",
                                 code,
@@ -444,9 +450,13 @@ class KisRestCandleAdapter(
                                     currentHour,
                                 )
                                 Thread.sleep(waitMs)
+                                // D-1: 500 retry inner try drift 차단 (T-D-1).
+                                var retrySignalSent = false
+                                var retryAcquired = false
                                 try {
                                     // Rate Limit acquire 재진입 (spec PR #564 §2-2 — retry path BACKFILL)
                                     kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 1000L)
+                                    retryAcquired = true
                                     val retryBody =
                                         webClient
                                             .get()
@@ -479,6 +489,8 @@ class KisRestCandleAdapter(
                                             .timeout(Duration.ofSeconds(10))
                                             .block()
                                     pageCount++
+                                    kisRateLimiterPort.onSuccess()
+                                    retrySignalSent = true
                                     if (retryBody == null) {
                                         log.debug(
                                             "KIS 1m retry 빈 body: code={} date={} hour={} attempt={}/{}",
@@ -534,6 +546,10 @@ class KisRestCandleAdapter(
                                     retriedSuccessfully = true
                                     break
                                 } catch (retryEx: WebClientResponseException) {
+                                    if (retryEx.statusCode.value() == 429) {
+                                        kisRateLimiterPort.onTpsExceeded()
+                                        retrySignalSent = true
+                                    }
                                     if (retryEx.statusCode.value() == 500 &&
                                         attempt < RETRY_MAX_ATTEMPTS - 2
                                     ) {
@@ -562,6 +578,14 @@ class KisRestCandleAdapter(
                                     dayDone = true
                                     retriedSuccessfully = true
                                     break
+                                } finally {
+                                    if (retryAcquired && !retrySignalSent) {
+                                        log.warn(
+                                            "[KisRateLimit] 1m retry acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): code={} date={}",
+                                            code,
+                                            dateStr,
+                                        )
+                                    }
                                 }
                             }
                             if (!retriedSuccessfully) dayDone = true
@@ -584,6 +608,14 @@ class KisRestCandleAdapter(
                             e.message,
                         )
                         dayDone = true
+                    } finally {
+                        if (pageAcquired && !pageSignalSent) {
+                            log.warn(
+                                "[KisRateLimit] 1m page acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): code={} date={}",
+                                code,
+                                dateStr,
+                            )
+                        }
                     }
                 }
 
@@ -849,10 +881,14 @@ class KisRestCandleAdapter(
                 )
                 Thread.sleep(waitMs)
             }
+            // D-1 try-finally drift 차단 패턴 (T-D-1): attempt 단위 signalSent flag.
+            var attemptSignalSent = false
+            var attemptAcquired = false
             try {
                 // Rate Limit acquire (spec PR #564 §2-2 LOCK — INGESTION priority)
                 // ADR 0037 초당 10건 한도. 일봉/주봉/월봉/연봉 정기 갱신 path → INGESTION 우선순위
                 kisRateLimiterPort.acquire(KisCallPriority.INGESTION, timeoutMillis = 1000L)
+                attemptAcquired = true
 
                 val body =
                     webClient
@@ -879,7 +915,11 @@ class KisRestCandleAdapter(
                         .bodyToMono(Map::class.java)
                         .timeout(Duration.ofSeconds(10))
                         .block()
-                        ?: return emptyList()
+                        ?: run {
+                            kisRateLimiterPort.onSuccess()
+                            attemptSignalSent = true
+                            return emptyList()
+                        }
                 if (attempt > 0) {
                     log.info(
                         "KIS daily candle 500 retry 성공: code={} interval={} cursor={} attempt={}/{}",
@@ -891,11 +931,13 @@ class KisRestCandleAdapter(
                     )
                 }
                 kisRateLimiterPort.onSuccess()
+                attemptSignalSent = true
                 return parseKisDailyResponse(body, code, interval)
             } catch (e: WebClientResponseException) {
                 if (e.statusCode.value() == 429) {
                     // HTTP 429 → onTpsExceeded + 1초 backoff (spec PR #564 §2-2 LOCK)
                     kisRateLimiterPort.onTpsExceeded()
+                    attemptSignalSent = true
                     log.warn(
                         "KIS REST candle HTTP 429 — 1초 backoff 후 빈 결과: code={} interval={} cursor={}",
                         code,
@@ -926,6 +968,14 @@ class KisRestCandleAdapter(
                     e.message,
                 )
                 return emptyList()
+            } finally {
+                if (attemptAcquired && !attemptSignalSent) {
+                    log.warn(
+                        "[KisRateLimit] daily candle attempt acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): code={} cursor={}",
+                        code,
+                        cursorStr,
+                    )
+                }
             }
         }
         // retry 소진 (500 3회 모두 실패)

@@ -95,11 +95,14 @@ class KisHashKeyAdapter(
     ): String {
         val baseUrl = if (accountType == AccountType.REAL) kisBaseProd else kisBaseVps
 
-        // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority, 주문 직전 경로)
-        // ADR 0037 초당 10건 한도 강제. timeout 1초 초과 시 KisRateLimitTimeoutException throw.
-        kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
-
+        // D-1 try-finally drift 차단 패턴 (T-D-1):
+        //   acquire를 try 안으로 옮기고 signalSent flag로 통계 시그널 미발행 path 감시.
+        var signalSent = false
         return try {
+            // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority, 주문 직전 경로)
+            // ADR 0037 초당 10건 한도 강제. timeout 1초 초과 시 KisRateLimitTimeoutException throw.
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+
             val response =
                 webClient
                     .post()
@@ -116,12 +119,14 @@ class KisHashKeyAdapter(
                     ?: throw IllegalStateException("HASHKEY_RESPONSE_NULL")
 
             kisRateLimiterPort.onSuccess()
+            signalSent = true
             response.hash?.takeIf { it.isNotBlank() }
                 ?: throw IllegalStateException("HASHKEY_HASH_FIELD_NULL")
         } catch (e: WebClientResponseException) {
             // EGW00201 / HTTP 429 backoff (spec PR #564 §2-2 — 1초 + 1회 재시도)
             if (e.statusCode == HttpStatus.TOO_MANY_REQUESTS) {
                 kisRateLimiterPort.onTpsExceeded()
+                signalSent = true
                 log.warn("KIS hashkey HTTP 429 — 1초 backoff 후 1회 재시도: accountType={}", accountType.name)
                 Thread.sleep(1000L)
                 return retryHashKey(body, baseUrl, accessToken, appKey, appSecret, accountType)
@@ -139,6 +144,13 @@ class KisHashKeyAdapter(
             }
             // 4xx → IllegalStateException 변환 throw
             throw IllegalStateException("HASHKEY_HTTP_${e.statusCode.value()}", e)
+        } finally {
+            if (!signalSent) {
+                log.warn(
+                    "[KisRateLimit] hashkey acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): accountType={}",
+                    accountType.name,
+                )
+            }
         }
     }
 
@@ -154,9 +166,11 @@ class KisHashKeyAdapter(
         appSecret: String,
         accountType: AccountType,
     ): String {
-        // 재시도 전 다시 acquire — 1초 sleep 후이므로 token refill 보장
-        kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+        // D-1 try-finally drift 차단 패턴 (T-D-1).
+        var signalSent = false
         return try {
+            // 재시도 전 다시 acquire — 1초 sleep 후이므로 token refill 보장
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
             val response =
                 webClient
                     .post()
@@ -172,14 +186,23 @@ class KisHashKeyAdapter(
                     .block()
                     ?: throw IllegalStateException("HASHKEY_RESPONSE_NULL")
             kisRateLimiterPort.onSuccess()
+            signalSent = true
             response.hash?.takeIf { it.isNotBlank() }
                 ?: throw IllegalStateException("HASHKEY_HASH_FIELD_NULL")
         } catch (e: WebClientResponseException) {
             if (e.statusCode == HttpStatus.TOO_MANY_REQUESTS) {
                 kisRateLimiterPort.onTpsExceeded()
+                signalSent = true
                 throw IllegalStateException("HASHKEY_HTTP_429_RETRY_EXHAUSTED", e)
             }
             throw IllegalStateException("HASHKEY_HTTP_${e.statusCode.value()}_RETRY", e)
+        } finally {
+            if (!signalSent) {
+                log.warn(
+                    "[KisRateLimit] hashkey retry acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): accountType={}",
+                    accountType.name,
+                )
+            }
         }
     }
 }
