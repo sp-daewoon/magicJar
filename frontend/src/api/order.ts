@@ -109,6 +109,7 @@ export interface OrderAuditEventDto {
  *  - rejectReason: String? (PR #489 신규 — REAL_GATE_DENIED 등 노출)
  *  - userId: number (ADR 0089 Phase 2 — backend Long → JS number 정합)
  *  - source: OrderSource? (T-MAN B-2-extended 신규 — backend 필드 add 흡수 전까지 optional)
+ *  - name: string | null (hotfix order-list-symbol-name — instrument 테이블 join 종목명, 미동기화/stub 시 null)
  *
  * T-MAN B-2-extended LOCK (ADR 0082):
  *   `source` 필드는 backend `OrderListItemDto.source` 컬럼 add 후 항상 'AUTO'|'MANUAL' 도래.
@@ -118,6 +119,8 @@ export interface OrderListItemDto {
   id: number
   userId: number
   code: string
+  /** 종목명 (instrument 테이블 join · null=미동기화/stub) — Watchlist 패턴 정합 */
+  name: string | null
   side: OrderSide
   priceType: OrderPriceType
   qty: number

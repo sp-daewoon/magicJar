@@ -54,7 +54,10 @@ export function OrderCard({ order }: OrderCardProps) {
         {/* 왼쪽: 종목 + 방향 + 모드 + 출처(자동/수동) */}
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
-            <span className="text-base font-semibold text-white">{order.code}</span>
+            <span className="text-base font-semibold text-white">
+              {order.code}
+              {order.name && <span className="ml-1 text-gray-400">· {order.name}</span>}
+            </span>
             <span className={`text-sm font-medium ${sideColor}`}>{sideLabel}</span>
             {order.mode === 'REAL' && (
               <span className="rounded bg-red-900/50 px-1.5 py-0.5 text-xs font-bold text-red-400">

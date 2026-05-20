@@ -104,7 +104,10 @@ export function OrderDetailPage() {
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold text-white">{order.code}</h1>
+              <h1 className="text-2xl font-bold text-white">
+                {order.code}
+                {order.name && <span className="ml-2 text-gray-400">· {order.name}</span>}
+              </h1>
               <span className={`text-lg font-semibold ${sideColor}`}>{sideLabel}</span>
               {order.mode === 'REAL' && (
                 <span className="rounded bg-red-900/50 px-2 py-0.5 text-xs font-bold text-red-400">
