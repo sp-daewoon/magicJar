@@ -31,6 +31,32 @@ import { HoldingsTable } from './HoldingsTable'
 import { BalanceCard } from './BalanceCard'
 import { AccountTypeToggle } from './AccountTypeToggle'
 
+/**
+ * 빠른 진입 링크 목록 (ADR 0040 Watchlist-first 정합).
+ *
+ * A-2 (2026-05-20): 5중 Link DRY 위반 해소 — 동일 className 30 line 중복 → 단일 정의 + map.
+ * 신규 빠른 링크 추가 시 본 배열에 객체 한 줄 push.
+ */
+const QUICK_LINKS = [
+  { to: '/watchlist', label: '관심종목' },
+  { to: '/positions', label: 'DB 포지션' },
+  { to: '/orders', label: '주문 내역' },
+  { to: '/performance', label: '성과 대시보드' },
+  { to: '/journal', label: '매매일지' },
+] as const
+
+/** 빠른 진입 단일 링크 — 모양·동작 단일 정의 (A-2 DRY). */
+function QuickLink({ to, label }: { to: string; label: string }) {
+  return (
+    <Link
+      to={to}
+      className="rounded-lg border border-gray-700 bg-gray-900/60 px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
+    >
+      {label} →
+    </Link>
+  )
+}
+
 export function DashboardPage() {
   const userId = useOnboardingStore((s) => s.registeredUserId)
   const [accountType, setAccountType] = useState<AccountType>('REAL')
@@ -102,38 +128,11 @@ export function DashboardPage() {
         <AccountTypeToggle value={accountType} onChange={handleAccountTypeChange} />
       </div>
 
-      {/* 빠른 진입 링크 (ADR 0040 Watchlist-first 정합) */}
+      {/* 빠른 진입 링크 (ADR 0040 Watchlist-first 정합) — A-2 DRY: QUICK_LINKS map */}
       <div className="mb-5 flex flex-wrap gap-2">
-        <Link
-          to="/watchlist"
-          className="rounded-lg border border-gray-700 bg-gray-900/60 px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
-        >
-          관심종목 →
-        </Link>
-        <Link
-          to="/positions"
-          className="rounded-lg border border-gray-700 bg-gray-900/60 px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
-        >
-          DB 포지션 →
-        </Link>
-        <Link
-          to="/orders"
-          className="rounded-lg border border-gray-700 bg-gray-900/60 px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
-        >
-          주문 내역 →
-        </Link>
-        <Link
-          to="/performance"
-          className="rounded-lg border border-gray-700 bg-gray-900/60 px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
-        >
-          성과 대시보드 →
-        </Link>
-        <Link
-          to="/journal"
-          className="rounded-lg border border-gray-700 bg-gray-900/60 px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
-        >
-          매매일지 →
-        </Link>
+        {QUICK_LINKS.map((link) => (
+          <QuickLink key={link.to} to={link.to} label={link.label} />
+        ))}
       </div>
 
       {/* 1. 계좌 요약 카드 (4 셀) */}

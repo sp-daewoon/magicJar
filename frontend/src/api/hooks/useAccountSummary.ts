@@ -10,6 +10,9 @@
  *
  * C-3 (2026-05-20): refetchInterval 30s → 5s, staleTime 25s → 3s.
  *   "돈 관련된건 실시간 정보를 가져와야지" (사용자 dogfooding).
+ *
+ * A-3 (2026-05-20): refetchIntervalInBackground=false 명시화 — TanStack Query v5
+ *   default이지만 의도 명시 (background tab 시 polling pause → 불필요 KIS 호출 차단).
  */
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -39,6 +42,7 @@ export function useAccountSummary({
     enabled: enabled && userId !== null && userId !== undefined,
     staleTime: 3_000, // 3s — 5s refetch 직전까지 fresh
     refetchInterval,
+    refetchIntervalInBackground: false, // A-3: background tab 시 pause (v5 default 명시화)
     refetchOnWindowFocus: true,
   })
 }

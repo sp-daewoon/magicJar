@@ -1,7 +1,7 @@
 /**
  * AccountSummaryCard — Dashboard 헤더 4 셀 카드 (T-ACCT Phase 4 — ADR 0081 + spec §5-1)
  *
- * 데이터: GET /api/account/summary (useAccountSummary 30s auto-refresh)
+ * 데이터: GET /api/account/summary (useAccountSummary 5s auto-refresh)
  * 표시:
  *   - 총 평가금액 (자산)
  *   - 예수금 D+2 (실가용)
@@ -82,7 +82,7 @@ export function AccountSummaryCard({
             </span>
           </h2>
           <p className="mt-0.5 text-xs text-gray-500">
-            KIS 실시간 · 30초마다 자동 갱신
+            KIS 실시간 · 5초마다 자동 갱신
             {data && (
               <span className="ml-1 text-gray-600">
                 · 최근 갱신 {formatKstTime(data.fetchedAt)} KST
