@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.domain.instrument.corpaction.CorpAction
 import kr.spdaewoon.magicjar.domain.instrument.corpaction.CorpActionType
 import kr.spdaewoon.magicjar.domain.instrument.corpaction.port.KisKsdInfoFetcher
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
@@ -70,6 +72,7 @@ import java.time.format.DateTimeFormatter
 class KisKsdInfoAdapter(
     private val webClient: WebClient,
     private val objectMapper: ObjectMapper,
+    private val kisRateLimiterPort: KisRateLimiterPort,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseUrl: String,
     @Value("\${magicjar.kis.ksdinfo.app-key:}")
@@ -280,7 +283,11 @@ class KisKsdInfoAdapter(
                 "&t_dt=${to.format(dtf)}" +
                 "&sht_cd=${code ?: ""}"
 
+        // Rate Limit acquire (D-2 합류 — BACKFILL priority — ksdinfo는 cron 기반 backfill path)
+        // try 안 진입 + signalSent flag로 drift 차단 (D-1 패턴 정합).
+        var signalSent = false
         return try {
+            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 1000L)
             val body =
                 webClient
                     .get()
@@ -294,13 +301,26 @@ class KisKsdInfoAdapter(
                     .bodyToMono(String::class.java)
                     .timeout(Duration.ofSeconds(10))
                     .block() ?: "{}"
+            kisRateLimiterPort.onSuccess()
+            signalSent = true
             objectMapper.readTree(body)
         } catch (e: WebClientResponseException) {
+            if (e.statusCode.value() == 429) {
+                kisRateLimiterPort.onTpsExceeded()
+                signalSent = true
+            }
             log.error("[KisKsdInfo] HTTP 에러 $trId status=${e.statusCode} body=${e.responseBodyAsString.take(200)}")
             objectMapper.createObjectNode()
         } catch (e: Exception) {
             log.error("[KisKsdInfo] 조회 실패 $trId ${e.message}")
             objectMapper.createObjectNode()
+        } finally {
+            if (!signalSent) {
+                log.warn(
+                    "[KisRateLimit] ksdinfo acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): trId={}",
+                    trId,
+                )
+            }
         }
     }
 

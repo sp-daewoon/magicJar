@@ -5,6 +5,8 @@ import kr.spdaewoon.magicjar.domain.instrument.Instrument
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentMarket
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentType
 import kr.spdaewoon.magicjar.domain.instrument.port.KisInstrumentMasterPort
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
@@ -45,6 +47,7 @@ import java.util.zip.ZipInputStream
 @Component
 class KisInstrumentMasterAdapter(
     private val webClient: WebClient,
+    private val kisRateLimiterPort: KisRateLimiterPort,
     @Value("\${magicjar.instrument.kospi-mst-url:https://new.real.download.dws.co.kr/common/master/kospi_code.mst.zip}")
     private val kospiMstUrl: String,
     @Value("\${magicjar.instrument.kosdaq-mst-url:https://new.real.download.dws.co.kr/common/master/kosdaq_code.mst.zip}")
@@ -340,14 +343,37 @@ class KisInstrumentMasterAdapter(
 
     private fun downloadWithTimeout(url: String): ByteArray {
         log.debug("[instrument-master] 다운로드: {}", url)
-        return webClient
-            .get()
-            .uri(url)
-            .retrieve()
-            .bodyToMono(ByteArray::class.java)
-            .timeout(Duration.ofSeconds(30))
-            .block()
-            ?: error("종목 마스터 zip 다운로드 응답 없음: url=$url")
+        // Rate Limit acquire (D-2 합류 — BACKFILL priority — 1일 1회 sync-at-boot + cron이라 risk 낮으나 burst 가능)
+        // try 안 진입 + signalSent flag로 drift 차단 (D-1 패턴 정합).
+        var signalSent = false
+        return try {
+            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 1000L)
+            val bytes =
+                webClient
+                    .get()
+                    .uri(url)
+                    .retrieve()
+                    .bodyToMono(ByteArray::class.java)
+                    .timeout(Duration.ofSeconds(30))
+                    .block()
+                    ?: error("종목 마스터 zip 다운로드 응답 없음: url=$url")
+            kisRateLimiterPort.onSuccess()
+            signalSent = true
+            bytes
+        } catch (e: WebClientResponseException) {
+            if (e.statusCode.value() == 429) {
+                kisRateLimiterPort.onTpsExceeded()
+                signalSent = true
+            }
+            throw e
+        } finally {
+            if (!signalSent) {
+                log.warn(
+                    "[KisRateLimit] instrument-master acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): url={}",
+                    url,
+                )
+            }
+        }
     }
 
     private fun parseZipBytesRaw(

@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.api.account
 import kr.spdaewoon.magicjar.api.infrastructure.kis.ApiKisBalanceQueryAdapter
 import kr.spdaewoon.magicjar.api.infrastructure.kis.KisTokenCacheHelper
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -32,12 +33,16 @@ class ApiKisBalanceQueryAdapterTest {
     private val credentialRepository: UserKisCredentialJpaRepository = mock()
     private val tokenHelper: KisTokenCacheHelper = mock()
 
+    // T-D-2 Rate Limit 합류 — 본 단위 테스트는 파싱 책임만 검증하므로 NoOp mock으로 충분.
+    private val kisRateLimiterPort: KisRateLimiterPort = mock()
+
     private val sut =
         ApiKisBalanceQueryAdapter(
             webClient = webClient,
             secretCipher = secretCipher,
             credentialRepository = credentialRepository,
             tokenHelper = tokenHelper,
+            kisRateLimiterPort = kisRateLimiterPort,
             kisBaseProd = "https://openapi.koreainvestment.com:9443",
             kisBaseVps = "https://openapivts.koreainvestment.com:29443",
         )

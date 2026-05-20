@@ -109,6 +109,11 @@ class KisOrderHttpAdapter(
 
         var appKey: ByteArray? = null
         var secretKey: ByteArray? = null
+        // D-1 try-finally drift 차단 패턴 (T-D-1):
+        //   기존 결함: acquire 호출 후 onSuccess/onTpsExceeded 시그널이 정상 path / catch path 모두 누락 → 통계 영구 drift.
+        //   본 fix: 정상 path에 onSuccess + 429 catch에 onTpsExceeded + signalSent flag로 모든 path 감시.
+        var signalSent = false
+        var acquiredToken = false
         return try {
             appKey = secretCipher.decrypt(cred.appKeyEnc)
             secretKey = secretCipher.decrypt(cred.secretKeyEnc)
@@ -143,6 +148,7 @@ class KisOrderHttpAdapter(
             // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH 최우선 priority)
             // 주문 path는 자본 직결 — 즉시 acquire 강제 (사용자 path)
             kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+            acquiredToken = true
 
             val response =
                 webClient
@@ -159,7 +165,14 @@ class KisOrderHttpAdapter(
                     .bodyToMono(KisOrderResponse::class.java)
                     .timeout(Duration.ofSeconds(TIMEOUT_SEC))
                     .block()
-                    ?: return OrderResult.Left(DenyReason.KisException("RESPONSE_NULL"))
+                    ?: run {
+                        kisRateLimiterPort.onSuccess() // HTTP 자체는 200·body null path — token 소비 정상 집계
+                        signalSent = true
+                        return OrderResult.Left(DenyReason.KisException("RESPONSE_NULL"))
+                    }
+
+            kisRateLimiterPort.onSuccess()
+            signalSent = true
 
             if (response.rtCd == "0") {
                 val output =
@@ -199,6 +212,10 @@ class KisOrderHttpAdapter(
                 )
             }
         } catch (e: WebClientResponseException) {
+            if (e.statusCode.value() == 429) {
+                kisRateLimiterPort.onTpsExceeded()
+                signalSent = true
+            }
             log.error(
                 "KIS 주문 HTTP 실패: trId={} userId={} status={} body={}",
                 trId,
@@ -221,6 +238,13 @@ class KisOrderHttpAdapter(
         } finally {
             appKey?.fill(0)
             secretKey?.fill(0)
+            if (acquiredToken && !signalSent) {
+                log.warn(
+                    "[KisRateLimit] order submit acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): trId={} userId={}",
+                    trId,
+                    maskUserId(intent.userId),
+                )
+            }
         }
     }
 
@@ -256,6 +280,9 @@ class KisOrderHttpAdapter(
 
         var appKey: ByteArray? = null
         var secretKey: ByteArray? = null
+        // D-1 try-finally drift 차단 패턴 (T-D-1).
+        var signalSent = false
+        var acquiredToken = false
         return try {
             appKey = secretCipher.decrypt(cred.appKeyEnc)
             secretKey = secretCipher.decrypt(cred.secretKeyEnc)
@@ -298,6 +325,7 @@ class KisOrderHttpAdapter(
 
             // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority — 주문 취소 path)
             kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+            acquiredToken = true
 
             val response =
                 webClient
@@ -314,7 +342,14 @@ class KisOrderHttpAdapter(
                     .bodyToMono(KisOrderResponse::class.java)
                     .timeout(Duration.ofSeconds(TIMEOUT_SEC))
                     .block()
-                    ?: return OrderResult.Left(DenyReason.KisException("RESPONSE_NULL"))
+                    ?: run {
+                        kisRateLimiterPort.onSuccess()
+                        signalSent = true
+                        return OrderResult.Left(DenyReason.KisException("RESPONSE_NULL"))
+                    }
+
+            kisRateLimiterPort.onSuccess()
+            signalSent = true
 
             if (response.rtCd == "0") {
                 log.info(
@@ -334,6 +369,10 @@ class KisOrderHttpAdapter(
                 )
             }
         } catch (e: WebClientResponseException) {
+            if (e.statusCode.value() == 429) {
+                kisRateLimiterPort.onTpsExceeded()
+                signalSent = true
+            }
             log.error(
                 "KIS 주문 취소 HTTP 실패: userId={} status={}",
                 maskUserId(request.userId),
@@ -346,6 +385,13 @@ class KisOrderHttpAdapter(
         } finally {
             appKey?.fill(0)
             secretKey?.fill(0)
+            if (acquiredToken && !signalSent) {
+                log.warn(
+                    "[KisRateLimit] order cancel acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): trId={} userId={}",
+                    trId,
+                    maskUserId(request.userId),
+                )
+            }
         }
     }
 

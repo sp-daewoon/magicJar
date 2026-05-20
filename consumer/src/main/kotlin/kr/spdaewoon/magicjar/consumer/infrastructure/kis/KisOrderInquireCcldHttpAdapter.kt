@@ -173,6 +173,10 @@ class KisOrderInquireCcldHttpAdapter(
 
         var appKey: ByteArray? = null
         var secretKey: ByteArray? = null
+        // D-1 try-finally drift 차단 패턴 (T-D-1):
+        //   기존 결함: acquire 호출 후 onSuccess/onTpsExceeded 시그널이 모든 path 누락 → 통계 영구 drift.
+        var signalSent = false
+        var acquiredToken = false
         return try {
             appKey = secretCipher.decrypt(cred.appKeyEnc)
             secretKey = secretCipher.decrypt(cred.secretKeyEnc)
@@ -204,6 +208,7 @@ class KisOrderInquireCcldHttpAdapter(
 
             // Rate Limit acquire (spec PR #564 §2-2 LOCK — BACKFILL priority — reconcile cron ccld 조회)
             kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 1000L)
+            acquiredToken = true
 
             val response =
                 webClient
@@ -219,9 +224,14 @@ class KisOrderInquireCcldHttpAdapter(
                     .timeout(Duration.ofSeconds(TIMEOUT_SEC))
                     .block()
                     ?: run {
+                        kisRateLimiterPort.onSuccess()
+                        signalSent = true
                         log.warn("KIS inquire-daily-ccld response null: userId={}", maskUserId(userId))
                         return emptyList()
                     }
+
+            kisRateLimiterPort.onSuccess()
+            signalSent = true
 
             if (response.rtCd != "0") {
                 log.warn(
@@ -248,6 +258,10 @@ class KisOrderInquireCcldHttpAdapter(
             )
             executions
         } catch (e: WebClientResponseException) {
+            if (e.statusCode.value() == 429) {
+                kisRateLimiterPort.onTpsExceeded()
+                signalSent = true
+            }
             log.error(
                 "KIS inquire-daily-ccld HTTP 실패: userId={} status={} body={}",
                 maskUserId(userId),
@@ -265,6 +279,12 @@ class KisOrderInquireCcldHttpAdapter(
         } finally {
             appKey?.fill(0)
             secretKey?.fill(0)
+            if (acquiredToken && !signalSent) {
+                log.warn(
+                    "[KisRateLimit] inquire-daily-ccld acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): userId={}",
+                    maskUserId(userId),
+                )
+            }
         }
     }
 
