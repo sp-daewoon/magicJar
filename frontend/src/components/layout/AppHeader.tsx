@@ -23,6 +23,7 @@ import { SettingsModal } from '../settings/SettingsModal'
 import { KisRealCredentialBanner } from './KisRealCredentialBanner'
 import { RuntimeFlagsIndicator } from './RuntimeFlagsIndicator'
 import { NotificationCenter } from '../notification/NotificationCenter'
+import { WsConnectionIndicator } from './WsConnectionIndicator'
 import { useSystemEventStompSubscription } from '../../api/hooks/useSystemEventStompSubscription'
 import { useOnboardingStore } from '../../stores/onboarding'
 
@@ -214,6 +215,11 @@ export function AppHeader() {
           >
             성과
           </NavLink>
+
+          {/* WS 접속 상태 indicator — 사용자 결재 2026-05-20 (헤더 영구 표시) */}
+          <div className="ml-2">
+            <WsConnectionIndicator />
+          </div>
 
           {/* P2 Task 8: 시스템 이벤트 알림센터 — 벨 + unread badge + 드롭다운 + /system 링크 */}
           <div className="ml-2">
