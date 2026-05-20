@@ -3,10 +3,10 @@ id: T-20260520-1217-chart-candle-history-limit-spec
 agent: chart-curator
 model: opus
 branch: agent/chart-curator/chart-candle-history-limit-spec
-status: RUNNING
+status: DONE
 startedAt: 2026-05-20T12:17:50.787+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-20T12:23:09.912+09:00
+pr: #609
 parentPhase: ?
 ---
 
