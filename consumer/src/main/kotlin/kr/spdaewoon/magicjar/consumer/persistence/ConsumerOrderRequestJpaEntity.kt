@@ -39,6 +39,8 @@ class ConsumerOrderRequestJpaEntity(
     val id: Long? = null,
     @Column(name = "signal_id", nullable = false, updatable = false)
     val signalId: Long,
+    @Column(name = "strategy_id", nullable = false, updatable = false)
+    val strategyId: Long = 0L,
     @Column(name = "user_id", nullable = false, updatable = false, length = 40)
     val userId: String,
     @Column(name = "code", nullable = false, updatable = false, length = 8)

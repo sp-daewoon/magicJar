@@ -109,6 +109,8 @@ class StrategyService(
                 nameKo = nameKo ?: "",
                 buyCondition = entryAst,
                 sellCondition = exitAst,
+                buyConditionText = entryText,
+                sellConditionText = exitText,
             )
         val definition =
             StrategyDefinition(

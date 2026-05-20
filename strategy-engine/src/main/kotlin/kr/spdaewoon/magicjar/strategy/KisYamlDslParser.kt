@@ -138,6 +138,8 @@ class KisYamlDslParser(
             nameKo = nameKo,
             buyCondition = buy,
             sellCondition = sell,
+            buyConditionText = buyText,
+            sellConditionText = sellText,
             params = params,
         )
     }

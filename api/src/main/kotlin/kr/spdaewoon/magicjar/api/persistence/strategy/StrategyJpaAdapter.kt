@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
 import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
+import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyRepositoryPort
+import kr.spdaewoon.magicjar.strategy.KisYamlDslParser
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
 import org.springframework.stereotype.Component
@@ -27,19 +29,20 @@ import org.springframework.transaction.annotation.Transactional
 class StrategyJpaAdapter(
     private val strategyJpaRepository: StrategyJpaRepository,
     private val objectMapper: ObjectMapper,
+    private val kisYamlDslParser: KisYamlDslParser,
 ) : StrategyRepositoryPort {
     @Transactional
     override fun save(strategy: Strategy): Strategy {
         val entity = toEntity(strategy)
         val saved = strategyJpaRepository.save(entity)
-        return StrategyEntityMapper.toDomain(saved, objectMapper)
+        return toDomain(saved)
     }
 
     @Transactional(readOnly = true)
     override fun findById(id: Long): Strategy? =
         strategyJpaRepository
             .findByIdAndStatusNot(id, StrategyStatus.DELETED.name)
-            ?.let { StrategyEntityMapper.toDomain(it, objectMapper) }
+            ?.let { toDomain(it) }
 
     @Transactional(readOnly = true)
     override fun findAllByUserId(userId: Long): List<Strategy> {
@@ -49,7 +52,7 @@ class StrategyJpaAdapter(
                 StrategyStatus.DELETED.name,
                 PageRequest.of(0, 10000, Sort.by(Sort.Direction.DESC, "createdAt")),
             )
-        return page.content.map { StrategyEntityMapper.toDomain(it, objectMapper) }
+        return page.content.map { toDomain(it) }
     }
 
     @Transactional
@@ -82,8 +85,8 @@ class StrategyJpaAdapter(
             userId = strategy.userId,
             name = dsl.name,
             nameKo = dsl.nameKo?.takeIf { it.isNotBlank() },
-            dslEntry = extractDslText(dsl.buyCondition),
-            dslExit = dsl.sellCondition?.let { extractDslText(it) },
+            dslEntry = dsl.buyConditionText?.takeIf { it.isNotBlank() } ?: extractDslText(dsl.buyCondition),
+            dslExit = dsl.sellConditionText?.takeIf { it.isNotBlank() } ?: dsl.sellCondition?.let { extractDslText(it) },
             universeMarket = strategy.definition.universe.market,
             tf = strategy.definition.tf,
             astDepth = strategy.complexity.astDepth,
@@ -101,6 +104,29 @@ class StrategyJpaAdapter(
     }
 
     private fun extractDslText(node: kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode?): String = node?.toString() ?: ""
+
+    private fun toDomain(entity: StrategyJpaEntity): Strategy =
+        StrategyEntityMapper.toDomain(
+            entity = entity,
+            objectMapper = objectMapper,
+            buyCondition = parseDslOrNull(entity.id, "buy", entity.dslEntry),
+            sellCondition = entity.dslExit?.let { parseDslOrNull(entity.id, "sell", it) },
+        )
+
+    private fun parseDslOrNull(
+        strategyId: Long?,
+        side: String,
+        text: String,
+    ): DslNode? {
+        if (text.isBlank()) return null
+        return runCatching { kisYamlDslParser.parse(text) }
+            .onFailure { e ->
+                // 과거 저장 row 중 AST.toString()이 dsl_entry에 들어간 경우가 있어 조회 전체 실패 대신 조건만 null 처리한다.
+                org.slf4j.LoggerFactory
+                    .getLogger(StrategyJpaAdapter::class.java)
+                    .warn("strategy DSL parse 실패: strategyId={} side={} err={}", strategyId, side, e.message)
+            }.getOrNull()
+    }
 
     /** 평가 결과 outcome 문자열 — 외부 참조용 */
     object EvalOutcome {

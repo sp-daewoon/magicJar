@@ -4,16 +4,19 @@ import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import kr.spdaewoon.magicjar.domain.signal.Signal
 import kr.spdaewoon.magicjar.domain.signal.SignalContext
 import kr.spdaewoon.magicjar.domain.signal.SignalSide
 import kr.spdaewoon.magicjar.domain.signal.port.SignalRepository
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyEvalResult
+import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyLookupPort
 import kr.spdaewoon.magicjar.strategy.JvmStrategyEvaluator
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
 
@@ -50,9 +53,11 @@ import java.math.BigDecimal
 class RealtimeSignalGenerator(
     private val strategyLookupProvider: ObjectProvider<StrategyLookupPort>,
     private val signalRepositoryProvider: ObjectProvider<SignalRepository>,
+    private val candleRepositoryProvider: ObjectProvider<CandleRepository>,
     private val jvmStrategyEvaluator: JvmStrategyEvaluator,
     private val signalDedupeGuard: SignalDedupeGuard,
     private val signalKafkaProducer: SignalKafkaProducer,
+    @Value("\${magicjar.signal.eval-lookback-candles:500}") private val evalLookbackCandles: Int = 500,
     private val clock: Clock = Clock.System,
 ) {
     private val log = LoggerFactory.getLogger(RealtimeSignalGenerator::class.java)
@@ -159,10 +164,11 @@ class RealtimeSignalGenerator(
                 nowKst = clock.now(),
             )
 
+        val candles = loadEvaluationCandles(code, interval, boundaryTs, candle)
+
         // 3. JvmStrategyEvaluator 평가 (ADR 0047 sandbox)
-        //    Phase 1은 buyCondition AST만 평가 — Phase 2 후속에서 sellCondition 분리 + SELL 신호 처리
-        //    [DslStrategyDefinition] buyCondition/sellCondition 정합 (KIS .kis.yaml superset)
-        val ast =
+        //    buyCondition 우선 평가 후, BUY가 아니면 sellCondition을 SELL 신호로 매핑한다.
+        val buyAst =
             strategy.definition.dsl.buyCondition ?: run {
                 log.trace(
                     "RealtimeSignalGenerator buyCondition 부재 — skip: strategyId={} code={}",
@@ -171,20 +177,9 @@ class RealtimeSignalGenerator(
                 )
                 return
             }
-        val evalResult: StrategyEvalResult =
-            try {
-                jvmStrategyEvaluator.evaluate(strategyId, ast, listOf(candle))
-            } catch (e: Exception) {
-                log.warn(
-                    "RealtimeSignalGenerator evaluate 실패: strategyId={} code={} err={}",
-                    strategyId,
-                    code,
-                    e.message,
-                )
-                return
-            }
-
-        val side = mapToSignalSide(evalResult.signal)
+        val decision = evaluateDecision(strategyId, code, buyAst, strategy.definition.dsl.sellCondition, candles) ?: return
+        val side = decision.side
+        val evalResult = decision.result
 
         // 4. HOLD는 영속 0 (ADR 0066 §9-2 noise 회피)
         if (side == SignalSide.HOLD) {
@@ -266,6 +261,100 @@ class RealtimeSignalGenerator(
             kr.spdaewoon.magicjar.domain.strategy.Signal.SELL -> SignalSide.SELL
             kr.spdaewoon.magicjar.domain.strategy.Signal.HOLD -> SignalSide.HOLD
         }
+
+    private data class SignalDecision(
+        val side: SignalSide,
+        val result: StrategyEvalResult,
+    )
+
+    private fun evaluateDecision(
+        strategyId: Long,
+        code: String,
+        buyAst: DslNode,
+        sellAst: DslNode?,
+        candles: List<Candle>,
+    ): SignalDecision? {
+        val buyResult = evaluateAst(strategyId, code, "BUY", buyAst, candles) ?: return null
+        if (mapToSignalSide(buyResult.signal) == SignalSide.BUY) {
+            return SignalDecision(SignalSide.BUY, buyResult)
+        }
+
+        if (sellAst != null) {
+            val sellResult = evaluateAst(strategyId, code, "SELL", sellAst, candles) ?: return null
+            if (mapToSignalSide(sellResult.signal) == SignalSide.BUY) {
+                return SignalDecision(
+                    SignalSide.SELL,
+                    sellResult.copy(
+                        signal = kr.spdaewoon.magicjar.domain.strategy.Signal.SELL,
+                        reason = sellResult.reason + ("condition" to "SELL"),
+                    ),
+                )
+            }
+        }
+
+        return SignalDecision(SignalSide.HOLD, buyResult)
+    }
+
+    private fun evaluateAst(
+        strategyId: Long,
+        code: String,
+        label: String,
+        ast: DslNode,
+        candles: List<Candle>,
+    ): StrategyEvalResult? =
+        try {
+            jvmStrategyEvaluator.evaluate(strategyId, ast, candles)
+        } catch (e: Exception) {
+            log.warn(
+                "RealtimeSignalGenerator {} evaluate 실패: strategyId={} code={} candles={} err={}",
+                label,
+                strategyId,
+                code,
+                candles.size,
+                e.message,
+            )
+            null
+        }
+
+    private fun loadEvaluationCandles(
+        code: String,
+        interval: CandleInterval,
+        boundaryTs: Instant,
+        boundaryCandle: Candle,
+    ): List<Candle> {
+        val repo = candleRepositoryProvider.ifAvailable
+        if (repo == null) {
+            log.warn(
+                "RealtimeSignalGenerator CandleRepository bean 부재 — boundary candle 1건으로 평가: code={} interval={}",
+                code,
+                interval.code,
+            )
+            return listOf(boundaryCandle)
+        }
+
+        val persisted =
+            try {
+                repo
+                    .findByCodeAndInterval(code, interval)
+                    .asSequence()
+                    .filter { it.ts <= boundaryTs }
+                    .filterNot { it.ts == boundaryTs }
+                    .toList()
+            } catch (e: Exception) {
+                log.warn(
+                    "RealtimeSignalGenerator candle history 조회 실패 — boundary candle 1건으로 평가: code={} interval={} err={}",
+                    code,
+                    interval.code,
+                    e.message,
+                )
+                return listOf(boundaryCandle)
+            }
+
+        val lookback = evalLookbackCandles.coerceAtLeast(1)
+        return (persisted + boundaryCandle)
+            .sortedBy { it.ts }
+            .takeLast(lookback)
+    }
 
     /** StrategyEvalResult.reason Map → 한 줄 reason string. */
     private fun buildReason(result: StrategyEvalResult): String {

@@ -38,7 +38,8 @@ class OrderCancelController(
             "사용자가 주문을 수동으로 취소합니다. " +
                 "취소 가능 상태: REQUESTED·ACK·PARTIALLY_FILLED. " +
                 "취소 불가(409): FILLED·CANCELLED·REJECTED·EXPIRED. " +
-                "성공 시 KIS order-rvsecncl 호출 + status=CANCELLED + STOMP CANCELLED 통지 (ADR 0068 §7-4 의제 E-1).",
+                "성공 시 KIS order-rvsecncl ACK 이후 status=CANCELLED로 전이합니다. " +
+                "KIS 취소 실패 시 DB 상태를 CANCELLED로 바꾸지 않습니다.",
     )
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "주문 취소 성공"),
