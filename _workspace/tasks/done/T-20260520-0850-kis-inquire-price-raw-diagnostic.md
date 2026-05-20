@@ -3,9 +3,9 @@ id: T-20260520-0850-kis-inquire-price-raw-diagnostic
 agent: backend-core
 model: opus
 branch: hotfix/kis-inquire-price-raw-diagnostic
-status: RUNNING
+status: DONE
 startedAt: 2026-05-20T08:50:04.037+09:00
-completedAt: null
+completedAt: 2026-05-20T09:24:20.475+09:00
 pr: null
 parentPhase: ?
 ---
