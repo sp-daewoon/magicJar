@@ -1,8 +1,8 @@
 /**
  * STOMP Backfill REST API 클라이언트 (P1-3 frontend)
  *
- * GET /api/stomp/events/unread?userId=&since=    → UnreadStompEventCountDto
- * GET /api/stomp/events?userId=&since=&limit=    → StompEventDto[]
+ * GET /api/stomp/events/unread?userId=&since=&channel= → UnreadStompEventCountDto
+ * GET /api/stomp/events?userId=&since=&limit=&channel= → StompEventBackfillResponse
  *
  * 목적: STOMP 재연결 시점에 누락된 이벤트를 backend REST로 backfill — 끊김 구간 동안 발생한
  * order/signal/risk 이벤트를 사용자에게 한 번에 토스트/모달로 노출.
@@ -20,36 +20,46 @@ import apiClient from '../lib/axios'
 // DTO
 // ──────────────────────────────────────────────────────────────
 
-/** STOMP event payload 분기 — backend StompEventDto.eventKind */
-export type StompEventKind = 'ORDER' | 'SIGNAL' | 'RISK'
+/** useStompReconnect 가 toast backfill 대상으로 삼는 채널. system-event 는 별도 알림센터가 담당. */
+export type StompBackfillChannel = 'order' | 'signal' | 'risk'
 
 /**
- * STOMP 미수신 이벤트 통일 DTO.
+ * STOMP 미수신 이벤트 DTO — backend StompEventDto 1:1.
  *
- * 각 이벤트 종류별 payload는 backend StompOrderNotifier/StompSignalDispatcher/StompRiskNotifier가
- * 발행한 원본 STOMP body JSON 그대로 `payload` 필드에 직렬화되어 옴.
- *
- *  - ORDER:  payload = OrderStompPayload (useStompOrder.ts)
- *  - SIGNAL: payload = SignalDto (signal.ts)
- *  - RISK:   payload = RiskEventDto (risk.ts)
- *
- * 정확한 타입 분기는 hook에서 eventKind 기반 narrowing 수행.
+ * backend 는 payloadJson 문자열을 그대로 반환한다. hook 에서 channel 별로 JSON.parse 후
+ * order/signal/risk 토스트를 구성한다.
  */
 export interface StompEventDto {
   /** DB sequence ID (재발행 idempotency anchor) */
-  id: number
-  eventKind: StompEventKind
-  /** ISO 8601 instant (UTC) — 이벤트 발생 시각 */
-  occurredAt: string
-  /** 이벤트 원본 payload JSON object (eventKind 기반 narrowing 필요) */
-  payload: unknown
+  id: number | null
+  userId: number
+  /** STOMP topic 그룹 (order/signal/risk 등) */
+  channel: string
+  /** 채널별 이벤트 세부 유형 */
+  eventType: string
+  /** 이벤트 원본 payload JSON 문자열 */
+  payloadJson: string
+  /** ISO 8601 instant (UTC) — stomp_event.created_at */
+  createdAt: string
+}
+
+/** GET /api/stomp/events 응답 — backend StompEventBackfillResponse 1:1. */
+export interface StompEventBackfillResponse {
+  content: StompEventDto[]
+  count: number
+  since: string
+  channel: string | null
 }
 
 /** GET /api/stomp/events/unread 응답 — count 단건 */
 export interface UnreadStompEventCountDto {
   count: number
-  /** backend 측 최신 이벤트 occurredAt (frontend lastSeenAt 갱신 anchor — count > 0 시 의미 있음) */
-  latestOccurredAt: string | null
+  /** 가장 오래된 미수신 이벤트 시각 (count=0 시 null) */
+  firstTs: string | null
+  /** 가장 최근 미수신 이벤트 시각 (frontend lastSeenAt 갱신 anchor) */
+  lastTs: string | null
+  since: string
+  channel: string | null
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -66,10 +76,11 @@ export const stompBackfillApi = {
   getUnreadCount: async (
     userId: number,
     since: string,
+    channel?: StompBackfillChannel,
   ): Promise<UnreadStompEventCountDto> => {
-    const res = await apiClient.get<UnreadStompEventCountDto>(
-      `/stomp/events/unread?userId=${userId}&since=${encodeURIComponent(since)}`,
-    )
+    const res = await apiClient.get<UnreadStompEventCountDto>('/stomp/events/unread', {
+      params: { userId, since, channel },
+    })
     return res.data
   },
 
@@ -83,10 +94,11 @@ export const stompBackfillApi = {
     userId: number,
     since: string,
     limit = 100,
+    channel?: StompBackfillChannel,
   ): Promise<StompEventDto[]> => {
-    const res = await apiClient.get<StompEventDto[]>(
-      `/stomp/events?userId=${userId}&since=${encodeURIComponent(since)}&limit=${limit}`,
-    )
-    return res.data
+    const res = await apiClient.get<StompEventBackfillResponse>('/stomp/events', {
+      params: { userId, since, limit, channel },
+    })
+    return res.data.content
   },
 }

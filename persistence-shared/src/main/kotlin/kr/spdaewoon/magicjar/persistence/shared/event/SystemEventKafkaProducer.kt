@@ -5,7 +5,6 @@ import kr.spdaewoon.magicjar.domain.event.SystemEvent
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Component
-import java.util.concurrent.TimeUnit
 
 /**
  * SystemEvent → Kafka `system.event.v1` publish (P2 STOMP fanout 트리거 source).
@@ -17,8 +16,8 @@ import java.util.concurrent.TimeUnit
  * - userId null  → "broadcast" (system-wide 이벤트 — STOMP `/topic/system.event.broadcast`)
  *
  * ### 실패 정책
- * - send `.get(5s)` blocking — 호출 측 [SystemEventLoggerAdapter] 가 `runCatching` 으로 wrap
- * - Kafka broker down 시 IO/TimeoutException — adapter 가 log.warn 후 DB 영속만 유지 (graceful)
+ * - send future 에 callback 만 부착하고 caller thread 는 block 하지 않음
+ * - Kafka broker down 시 callback log.warn, DB source-of-truth 는 유지 (graceful)
  *
  * // AI 호출 0 — ADR 0023 §2-4 정합
  */
@@ -31,7 +30,6 @@ class SystemEventKafkaProducer(
 
     companion object {
         const val TOPIC = "system.event.v1"
-        const val SEND_TIMEOUT_SECONDS = 5L
         const val BROADCAST_KEY = "broadcast"
     }
 
@@ -40,13 +38,24 @@ class SystemEventKafkaProducer(
         val payload = objectMapper.writeValueAsString(event)
         kafkaTemplate
             .send(TOPIC, partitionKey, payload)
-            .get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        log.debug(
-            "SystemEvent publish OK: category={} severity={} action={} partitionKey={}",
-            event.category,
-            event.severity,
-            event.action,
-            partitionKey,
-        )
+            .whenComplete { _, error ->
+                if (error != null) {
+                    log.warn(
+                        "SystemEvent publish 실패 — DB 영속만 유지: category={} action={} partitionKey={} err={}",
+                        event.category,
+                        event.action,
+                        partitionKey,
+                        error.message,
+                    )
+                } else {
+                    log.debug(
+                        "SystemEvent publish OK: category={} severity={} action={} partitionKey={}",
+                        event.category,
+                        event.severity,
+                        event.action,
+                        partitionKey,
+                    )
+                }
+            }
     }
 }

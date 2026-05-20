@@ -13,6 +13,7 @@ import org.springframework.kafka.config.TopicBuilder
  * - market.candle.minute.closed.v1  — 1m closing 캔들 (retention 1d)
  * - market.orderbook.v1             — H0STASP0 호가 스냅샷 (retention 1h) — PR-10b 신규
  * - symbol.detail.command.v1        — 호가 sub/unsub 명령 (retention 1h) — PR-10b 신규
+ * - system.event.v1                  — 운영 이벤트 대시보드 STOMP fanout source (retention 7d)
  *
  * PR-9b market-data 담당. PR-10b 보강.
  */
@@ -273,6 +274,22 @@ class KafkaTopicConfig {
     fun systemKisKeyChangedTopic(): NewTopic =
         TopicBuilder
             .name("system.kis-key-changed.v1")
+            .partitions(1)
+            .replicas(1)
+            .config("retention.ms", "604800000") // 7d
+            .build()
+
+    /**
+     * 시스템 운영 이벤트 — persistence-shared SystemEventLoggerAdapter publish →
+     * api SystemEventStompNotifier fanout.
+     *
+     * partition key = userId 또는 broadcast.
+     * retention: 7d (운영 대시보드 즉시성 + Kafka UI 추적용; DB system_event 가 장기 source-of-truth)
+     */
+    @Bean
+    fun systemEventTopic(): NewTopic =
+        TopicBuilder
+            .name("system.event.v1")
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "604800000") // 7d
