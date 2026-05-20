@@ -9,7 +9,7 @@
  *   4. BalanceCard — 예수금·자산·매입평가 3 그룹 상세
  *
  * userId 미등록 → /setup 안내 (PerformanceDashboardPage 패턴 정합).
- * 모든 위젯은 5s auto-refresh (backend Redis TTL 5s 정합 — KIS 호출 1회 / 5s).
+ * 모든 위젯은 STOMP push 시 즉시 invalidate + 30s polling fallback (KIS rate limit 보호).
  * mock 합성 0 LOCK — 실패 시 위젯별 오류 표시 (페이지 전체 중단 금지).
  *
  * B-1 (2026-05-20): accountType state 추가 — 실전/모의 토글로 두 잔고 둘 다 조회.
@@ -20,12 +20,17 @@
  *   로 새 accountType queryKey 묶음을 즉시 fetch 트리거. cache miss 시 backend KIS
  *   REST latency (1-3s) 사용자 체감 단축. (사용자 dogfooding: "모의 누르면 바로
  *   계좌정보를 가져오는게 아니고 딜레이가 있는데?")
+ *
+ * polling → STOMP push 전환 (2026-05-20): useStompAccountBalance subscribe 도입.
+ *   주문 체결·취소·거절 즉시 invalidate → 5s polling 폐기, 30s polling 은 fallback only.
+ *   "소켓방식으로 가져와야하는거" (사용자 dogfooding) — KIS rate limit burst 해소.
  */
 import { useCallback, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { useOnboardingStore } from '../../stores/onboarding'
 import type { AccountType } from '../../api/account'
+import { useStompAccountBalance } from '../../api/hooks/useStompAccountBalance'
 import { AccountSummaryCard } from './AccountSummaryCard'
 import { HoldingsTable } from './HoldingsTable'
 import { BalanceCard } from './BalanceCard'
@@ -61,6 +66,16 @@ export function DashboardPage() {
   const userId = useOnboardingStore((s) => s.registeredUserId)
   const [accountType, setAccountType] = useState<AccountType>('REAL')
   const queryClient = useQueryClient()
+
+  /**
+   * STOMP push 구독 (polling → push 전환 / 2026-05-20).
+   *
+   * 단일 topic `/topic/account.balance.{userId}` 메시지 수신 시 ['account'] prefix 전체 invalidate.
+   * payload.accountType 무관하게 양쪽 (REAL·MOCK) 캐시 동시 invalidate (queryKey 가
+   *   ['account', kind, userId, accountType] 구조 → prefix invalidate 시 둘 다 cover).
+   * STOMP 끊김 시 useAccountSummary 등 3 hook 의 refetchInterval 30s 가 fallback.
+   */
+  useStompAccountBalance({ userId, enabled: userId !== null && userId !== undefined })
 
   /**
    * C-5: 토글 클릭 시 invalidate trigger.
@@ -117,7 +132,7 @@ export function DashboardPage() {
         <div>
           <h1 className="text-xl font-bold text-gray-100">대시보드</h1>
           <p className="mt-0.5 text-sm text-gray-500">
-            KIS 실시간 잔고·보유 종목·평가손익 (5초마다 자동 갱신)
+            KIS 실시간 잔고·보유 종목·평가손익 (실시간 push + 30초 fallback)
             <span className="ml-1 text-gray-600">
               · 현재 {accountType === 'REAL' ? '실전' : '모의'} 계좌
             </span>
