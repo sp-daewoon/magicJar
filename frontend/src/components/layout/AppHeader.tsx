@@ -24,6 +24,7 @@ import { KisRealCredentialBanner } from './KisRealCredentialBanner'
 import { RuntimeFlagsIndicator } from './RuntimeFlagsIndicator'
 import { NotificationCenter } from '../notification/NotificationCenter'
 import { WsConnectionIndicator } from './WsConnectionIndicator'
+import { KisWsHealthIndicator } from './KisWsHealthIndicator'
 import { useSystemEventStompSubscription } from '../../api/hooks/useSystemEventStompSubscription'
 import { useOnboardingStore } from '../../stores/onboarding'
 
@@ -217,8 +218,10 @@ export function AppHeader() {
           </NavLink>
 
           {/* WS 접속 상태 indicator — 사용자 결재 2026-05-20 (헤더 영구 표시) */}
-          <div className="ml-2">
+          {/* 사용자 dogfooding 2026-05-20: STOMP + KIS WS 2 indicator 분리 — 각각 상태 + 각각 toast */}
+          <div className="ml-2 flex items-center gap-2">
             <WsConnectionIndicator />
+            <KisWsHealthIndicator />
           </div>
 
           {/* P2 Task 8: 시스템 이벤트 알림센터 — 벨 + unread badge + 드롭다운 + /system 링크 */}
