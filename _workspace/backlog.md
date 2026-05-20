@@ -3075,3 +3075,70 @@ architect 단독 PR — `docs(policies): AI 옵션 트리거 게이트 단일 �
 - PR-35 spec §5-1 (KIS 텍스트 1줄 표현식 LOCK)
 - `_workspace/ai/prompt-catalog.md` §1·§3 (광고-실재 매트릭스)
 - `feedback_release_policy_patch_first` (v3.7=W4 마감 정합)
+
+---
+
+## §81. 차트 캔들 히스토리 limit 정책 + Lazy Backfill + 사용자 입력 봉수 (ADR 0093 · 2026-05-20)
+
+### 사유
+
+사용자(최고 관리자) 2026-05-20 KST 명시 결함 보고 — "차트에서 보이는 캔들이 너무 적다. 일반 증권앱은 과거로 한참 스크롤 가능한데 magicJar는 막힌다." 코덱스 협업 답변 정합 4 의제 통합.
+
+**현행 결함 evidence**:
+- `api/service/CandleRefreshService.kt:87` `DAILY_MAX_PAGES=6` × KIS 100건 = 600봉 cap (사용자 수동 trigger)
+- `consumer/infrastructure/kis/KisRestCandleAdapter.kt:119` `MAX_PAGES=6` 동일 cap (consumer cursor pagination)
+- `api/controller/SymbolController.kt:116~135` `GET /candles` endpoint `before`+`limit(default 200, max 500)` 부분 완비 but DB 모수 부족
+- LWC `subscribeVisibleLogicalRangeChange` 가드 2단(backlog §30 fix) 존재 but 실작동 dogfooding 미실시
+
+코드 주석 cover: D 2.5년 / W 11년 / M 50년 / Y 600년 — 일봉 2.5년은 일반 증권앱 (10년+) 미달.
+
+### ADR 0093 결정 매트릭스
+
+| 항목 | 결정 |
+|------|------|
+| 기본 patten | **Lazy backfill** (대안 B) — A(단순 limit 확장) 거부 / C(백그라운드 prefetch) 거부 / D(streaming) 거부 |
+| Default 봉수 | 1d=300 · 1wk=200 · 1mo=120 · 1y=50 · 1m=600 · 5m~1h=480 |
+| Max cap | 1d=5000 · 1wk=2000 · 1mo=1200 · 1y=600 · 1m=4800 · 5m~1h=3840 |
+| 사용자 입력 UI | select(300/600/1200/3000) + 직접입력 모달 + localStorage 전역 1개 |
+| API endpoint | 기존 `GET /candles?before=&limit=` 재사용 + `limit` cap 500 → 5000 |
+| MAX_PAGES 상수 | property 외부화 (`magicjar.candle.max-pages-by-interval` map) |
+| ADR 0037 Rate Limit | baseline LOCK으로 cover (추가 정책 0) |
+| 마이그레이션 | 0 (add-only) |
+
+### Phase 분리 dispatch 매트릭스 (5 PR)
+
+| Phase | sub-agent | 영역 | 산출물 | 예상 PR |
+|-------|-----------|------|--------|---------|
+| 1 ✅ | architect | ADR + backlog | 본 ADR 0093(Proposed) | 본 PR |
+| 2 | chart-curator | spec 발행 | `_workspace/specs/2026-05-20-chart-candle-history-limit-spec.md` | 1 |
+| 3 | backend-core | api/consumer property화 + cap 확장 | `application.yml` + `CandleRefreshService` + `KisRestCandleAdapter` (~50 LOC) | 1 |
+| 4 | frontend | 봉수 input UI + localStorage | `SymbolChart` 헤더 select + 직접입력 모달 + clamp 검증 (~80 LOC) | 1 |
+| 5 | chart-curator | LWC 가드 강화 + dogfooding | `LightweightChart.tsx` `subscribeVisibleLogicalRangeChange` 가드 보강 + max cap toast + 실작동 evidence | 1 |
+
+### chart-curator 1차 lens 의무 (ADR 0087 페르소나 매트릭스 정합)
+
+자본 path 직결 차트 영역 = 보수 lens 우선 — backend-core(Phase 3) + frontend(Phase 4) PR 모두 chart-curator 🔴/🟡/🔵 검토 후 머지. chart-curator Phase 2 spec + Phase 5 dogfooding은 single owner LOCK(ADR 0085 §책임 영역).
+
+### 트리거
+
+- **우선순위 ↑**: 사용자 결함 보고 직후(2026-05-20) → 다음 즉시 사이클(v3.6.x patch 또는 W4 진입 직전 묶음)
+- chart-curator spec 발행(Phase 2) 1순위 → 그 후 backend-core·frontend 병렬 dispatch 가능(Phase 3·4 add-only 충돌 없음 — `feedback_orchestrator_active_parallel` 정합)
+- Phase 5(LWC 가드 + dogfooding)는 Phase 3·4 머지 후 직렬 — 실 사용자 path 작동 evidence 의무
+
+### 예상 cut
+
+v3.6.x patch (Phase 1·2 머지 시 spec 사이클 cut + Phase 3·4·5 묶음 후 별 patch cut) — `feedback_release_policy_patch_first` 정합 (v3.7=W4 마감 이전 patch만).
+
+### 연관
+
+- ADR 0019 (Watchlist 기반 캔들 저장 정책 — DB row 누적 8배 영향 monitoring 의무)
+- ADR 0025 (LWC 확장)
+- ADR 0028 (Ingestion Worker 1~5초 polling — 영향 없음, 본 ADR은 조회 path만)
+- ADR 0029 (당일 진행 중 캔들 Redis 캐시 — 현행 LOCK)
+- ADR 0037 (KIS API Rate Limit — baseline LOCK으로 cover)
+- ADR 0085 (chart-curator single owner — Phase 2·5 LOCK)
+- ADR 0086 (데이터 햇징 룰 14건 — §14 helper class 분리 + §6 passive 가드 정합)
+- ADR 0087 (페르소나 매트릭스 — chart-curator 보수 lens 1차)
+- ADR 0091 (NXT resolver — 영향 없음, 본 ADR은 candle 모수만)
+- backlog §30 (LWC false trigger 가드 evidence — 가드 2단 LOCK 유지)
+- 사용자 메모리 `feedback_dev_priority_qa_batch` (개발 진도 우선 + QA 일괄)
