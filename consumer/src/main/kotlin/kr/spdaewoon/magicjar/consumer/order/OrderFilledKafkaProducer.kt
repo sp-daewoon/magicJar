@@ -44,6 +44,12 @@ class OrderFilledKafkaProducer(
         execution: OrderExecution,
         partial: Boolean,
     ) {
+        // STOMP contract key 정합 (StompOrderNotifier.toStompPayload + OrderStompPayload):
+        //   quantity      — request 주문 수량 (UX 표시 — "[FILLED] 10주 @ 73,000원")
+        //   executedQty   — 체결 수량 (frontend useStompReconnect.ts L104 `qty ?? executedQty` path)
+        //   rejectReason  — null on FILLED
+        // hotfix(2026-05-20): 옛 publish key "executedQuantity"가 StompOrderNotifier raw["executedQty"]와
+        //   mismatch → frontend "0주" toast. publisher contract를 STOMP key와 통일.
         val payload =
             try {
                 objectMapper.writeValueAsString(
@@ -56,7 +62,8 @@ class OrderFilledKafkaProducer(
                         "side" to request.side.name,
                         "executionId" to execution.id,
                         "kisOrderNo" to request.kisOrderNo,
-                        "executedQuantity" to execution.executedQuantity,
+                        "quantity" to request.quantity,
+                        "executedQty" to execution.executedQuantity,
                         "executedPrice" to execution.executedPrice.toPlainString(),
                         "executedAt" to execution.executedAt.epochSecond,
                         "partial" to partial,

@@ -28,6 +28,9 @@ class OrderCancelledKafkaProducer(
 
     fun publish(request: OrderRequest) {
         try {
+            // STOMP contract key 정합 (StompOrderNotifier.toStompPayload + OrderStompPayload):
+            //   quantity — request 주문 수량 (UX 표시 — "[CANCELLED] 10주 취소")
+            // hotfix(2026-05-20): FILLED·REJECTED 결함과 동반 정합화 — 취소 toast "0주" 회피.
             val payload =
                 objectMapper.writeValueAsString(
                     mapOf(
@@ -37,6 +40,7 @@ class OrderCancelledKafkaProducer(
                         "strategyId" to request.strategyId,
                         "code" to request.code,
                         "side" to request.side.name,
+                        "quantity" to request.quantity,
                         "kisOrderNo" to request.kisOrderNo,
                         "mode" to request.mode.name,
                         "cancelledAt" to (request.completedAt?.epochSecond ?: request.requestedAt.epochSecond),

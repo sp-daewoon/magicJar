@@ -100,6 +100,12 @@ class StompOrderNotifier(
 
     // --- private helper ---
 
+    /**
+     * hotfix(2026-05-20): publisher contract drift defensive read.
+     *   - executedQty ← raw["executedQty"] ?: raw["executedQuantity"] (옛 FILLED key)
+     *   - rejectReason ← raw["rejectReason"] ?: raw["reason"] (옛 REJECTED key)
+     *   outbox에 잔존한 옛 payload replay·in-flight Kafka msg lag 시 frontend "0주" 회피.
+     */
     private fun toStompPayload(
         raw: Map<String, Any?>,
         eventType: String,
@@ -114,9 +120,9 @@ class StompOrderNotifier(
             priceType = raw["priceType"]?.toString(),
             limitPrice = raw["limitPrice"]?.toString(),
             executedPrice = raw["executedPrice"]?.toString(),
-            executedQty = toInt(raw["executedQty"]),
+            executedQty = toInt(raw["executedQty"] ?: raw["executedQuantity"]),
             partial = raw["partial"] as? Boolean ?: false,
-            rejectReason = raw["rejectReason"]?.toString(),
+            rejectReason = raw["rejectReason"]?.toString() ?: raw["reason"]?.toString(),
             mode = raw["mode"]?.toString(),
             ts =
                 raw["ts"]?.toString() ?: java.time.Instant

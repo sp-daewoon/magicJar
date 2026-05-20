@@ -42,6 +42,10 @@ class OrderRejectedKafkaProducer(
         request: OrderRequest,
         reason: String,
     ) {
+        // STOMP contract key 정합 (StompOrderNotifier.toStompPayload + OrderStompPayload):
+        //   quantity     — request 주문 수량 (UX 표시 — "[REJECTED] 10주 거절")
+        //   rejectReason — STOMP key (옛 "reason"은 StompOrderNotifier raw["rejectReason"]와 mismatch)
+        // hotfix(2026-05-20): FILLED 결함과 동반 정합화.
         val payload =
             try {
                 objectMapper.writeValueAsString(
@@ -52,7 +56,8 @@ class OrderRejectedKafkaProducer(
                         "strategyId" to request.strategyId,
                         "code" to request.code,
                         "side" to request.side.name,
-                        "reason" to reason,
+                        "quantity" to request.quantity,
+                        "rejectReason" to reason,
                         "mode" to request.mode.name,
                         "rejectedAt" to (request.completedAt?.epochSecond ?: request.requestedAt.epochSecond),
                     ),

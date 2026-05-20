@@ -1,11 +1,14 @@
 package kr.spdaewoon.magicjar.api.order
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.api.messaging.OrderStompPayload
 import kr.spdaewoon.magicjar.api.messaging.StompEventPersister
 import kr.spdaewoon.magicjar.api.messaging.StompOrderNotifier
 import kr.spdaewoon.magicjar.domain.stomp.port.StompEventRepository
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.mockito.ArgumentCaptor
 import org.mockito.Mockito
 import org.mockito.kotlin.any
 import org.mockito.kotlin.eq
@@ -84,5 +87,89 @@ class StompOrderNotifierTest {
         sut.onOrderEvent(makeRecord(topic, userId), topic)
 
         verify(messagingTemplate).convertAndSend(eq("/topic/order.user.$userId"), any<Any>())
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // hotfix(2026-05-20): FILLED qty/executedQty 매핑 회귀 가드
+    // 사용자 dogfooding "[누락] 005930 0주 @ 273,500원" toast 결함 대응.
+    // ─────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `FILLED — publisher contract 정합 (executedQty + quantity key) — qty·executedQty 정상 매핑`() {
+        val topic = "order.filled.v1"
+        val userId = "user1"
+        // OrderFilledKafkaProducer가 publish하는 STOMP contract 정합 payload
+        val payload =
+            objectMapper.writeValueAsString(
+                mapOf(
+                    "userId" to userId,
+                    "orderId" to 2,
+                    "code" to "005930",
+                    "side" to "BUY",
+                    "quantity" to 10,
+                    "executedQty" to 10,
+                    "executedPrice" to "273500",
+                    "partial" to false,
+                ),
+            )
+        val record = ConsumerRecord<String, String>(topic, 0, 0L, "key", payload)
+
+        sut.onOrderEvent(record, topic)
+
+        val captor = ArgumentCaptor.forClass(OrderStompPayload::class.java)
+        verify(messagingTemplate).convertAndSend(eq("/topic/order.user.$userId"), captor.capture())
+        val sent = captor.value
+        assertThat(sent.event).isEqualTo("FILLED")
+        assertThat(sent.qty).isEqualTo(10)
+        assertThat(sent.executedQty).isEqualTo(10)
+        assertThat(sent.executedPrice).isEqualTo("273500")
+    }
+
+    @Test
+    fun `FILLED — 옛 publisher contract (executedQuantity key) defensive fallback`() {
+        // outbox replay·in-flight Kafka msg lag 시 옛 payload key 잔존 case
+        val topic = "order.filled.v1"
+        val userId = "user1"
+        val payload =
+            objectMapper.writeValueAsString(
+                mapOf(
+                    "userId" to userId,
+                    "orderId" to 2,
+                    "code" to "005930",
+                    "side" to "BUY",
+                    "executedQuantity" to 7, // 옛 key
+                    "executedPrice" to "273500",
+                ),
+            )
+        val record = ConsumerRecord<String, String>(topic, 0, 0L, "key", payload)
+
+        sut.onOrderEvent(record, topic)
+
+        val captor = ArgumentCaptor.forClass(OrderStompPayload::class.java)
+        verify(messagingTemplate).convertAndSend(eq("/topic/order.user.$userId"), captor.capture())
+        assertThat(captor.value.executedQty).isEqualTo(7)
+    }
+
+    @Test
+    fun `REJECTED — 옛 publisher contract (reason key) defensive fallback → rejectReason 매핑`() {
+        val topic = "order.rejected.v1"
+        val userId = "user1"
+        val payload =
+            objectMapper.writeValueAsString(
+                mapOf(
+                    "userId" to userId,
+                    "orderId" to 3,
+                    "code" to "005930",
+                    "side" to "BUY",
+                    "reason" to "REAL_GATE_DENIED:test", // 옛 key
+                ),
+            )
+        val record = ConsumerRecord<String, String>(topic, 0, 0L, "key", payload)
+
+        sut.onOrderEvent(record, topic)
+
+        val captor = ArgumentCaptor.forClass(OrderStompPayload::class.java)
+        verify(messagingTemplate).convertAndSend(eq("/topic/order.user.$userId"), captor.capture())
+        assertThat(captor.value.rejectReason).isEqualTo("REAL_GATE_DENIED:test")
     }
 }
