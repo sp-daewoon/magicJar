@@ -11,10 +11,13 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatus
+import org.springframework.kafka.KafkaException
 import org.springframework.stereotype.Service
 import org.springframework.web.server.ResponseStatusException
 import java.math.BigDecimal
 import java.time.Instant
+import java.util.UUID
+import java.util.concurrent.ExecutionException
 
 /**
  * 수동 주문 서비스 (ADR 0082 T-MAN B-2-extended LOCK · spec §3-2 본문).
@@ -47,11 +50,14 @@ class ManualOrderService(
     /**
      * 수동 주문 처리 — endpoint controller 호출 진입점.
      *
+     * side·priceType DTO @Pattern 1차 검증 통과 가정 (controller @Valid LOCK).
+     * 방어적 valueOf — DTO 우회(reflection·테스트 등) 이상 입력 시 400 fallback.
+     *
      * @throws ResponseStatusException 400 validation 위반 / 403 게이트 차단 / 503 Kafka publish 실패
      */
     fun submit(request: ManualOrderRequestDto): ManualOrderSubmitResult {
-        val side = parseSide(request.side)
-        val priceType = parsePriceType(request.priceType)
+        val side = OrderSide.valueOf(request.side.uppercase())
+        val priceType = OrderPriceType.valueOf(request.priceType.uppercase())
         val limitPrice = validateLimitPrice(priceType, request.limitPrice)
 
         // ── api 측 fast precheck (UX 가속 — 권위는 consumer) ──
@@ -59,8 +65,12 @@ class ManualOrderService(
         preCheckRealGate(request.userId)
 
         // ── OrderIntent 생성 + Kafka publish ──
+        // FIX B-1 (P0) — idempotencyKey 강화 (코덱스 review P2):
+        // 기존 "manual:{userId}:{epochSecond}" → 같은 사용자·같은 초·다른 종목/방향 충돌 risk.
+        // 신규 "manual:{userId}:{code}:{side}:{UUID}" — UUID 도입으로 동일 초 다중 주문 무조건 unique.
+        // 향후 client-supplied Idempotency-Key 헤더(Stripe 패턴) 도입 시 헤더 우선 + 본 sentinel fallback.
         val now = Instant.now()
-        val idempotencyKey = "manual:${request.userId}:${now.epochSecond}"
+        val idempotencyKey = "manual:${request.userId}:${request.code}:${side.name}:${UUID.randomUUID()}"
         val intent =
             OrderIntent(
                 id = 0L, // MANUAL sentinel — consumer step 5 INSERT 시점에 채번
@@ -77,10 +87,16 @@ class ManualOrderService(
                 source = OrderSource.MANUAL,
             )
 
+        // FIX B-3 (P2) — catch 좁힘:
+        // 기존 RuntimeException 광범위 (IllegalArgumentException도 503 분류 risk).
+        // 신규 KafkaException · ExecutionException specific — 진짜 Kafka publish 실패만 503.
         try {
             manualProducer.publish(intent)
-        } catch (e: RuntimeException) {
-            log.error("ManualOrderService.submit Kafka publish 실패: userId={} err={}", request.userId, e.message)
+        } catch (e: KafkaException) {
+            log.error("ManualOrderService.submit Kafka publish 실패(KafkaException): userId={} err={}", request.userId, e.message)
+            throw ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "KAFKA_PUBLISH_FAILED: ${e.message}")
+        } catch (e: ExecutionException) {
+            log.error("ManualOrderService.submit Kafka publish 실패(ExecutionException): userId={} err={}", request.userId, e.message)
             throw ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "KAFKA_PUBLISH_FAILED: ${e.message}")
         }
 
@@ -97,24 +113,6 @@ class ManualOrderService(
     }
 
     // ── private helper ──
-
-    private fun parseSide(value: String): OrderSide =
-        runCatching { OrderSide.valueOf(value.uppercase()) }
-            .getOrElse {
-                throw ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "INVALID_SIDE: side는 BUY 또는 SELL이어야 합니다 (실제=$value)",
-                )
-            }
-
-    private fun parsePriceType(value: String): OrderPriceType =
-        runCatching { OrderPriceType.valueOf(value.uppercase()) }
-            .getOrElse {
-                throw ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "INVALID_PRICE_TYPE: priceType는 MARKET 또는 LIMIT이어야 합니다 (실제=$value)",
-                )
-            }
 
     private fun validateLimitPrice(
         priceType: OrderPriceType,

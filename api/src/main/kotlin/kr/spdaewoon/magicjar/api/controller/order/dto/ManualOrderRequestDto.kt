@@ -8,11 +8,11 @@ import jakarta.validation.constraints.Pattern
 /**
  * 수동 주문 요청 DTO (ADR 0082 T-MAN B-2-extended LOCK · spec §3-1 본문).
  *
- * Bean Validation 4 layer:
+ * Bean Validation 4 layer (FIX B-2 — service parseSide/parsePriceType DTO 이전):
  *   1. userId — KIS credential identity (NotBlank)
  *   2. code   — 종목코드 6자리 LOCK (@Pattern)
  *   3. quantity — 양수 LOCK (@Min(1))
- *   4. side·priceType — enum 매핑 (Bean Validation 외 ManualOrderService valueOf 검증)
+ *   4. side·priceType — enum 매핑 (DTO @Pattern 1차 검증 — Service runCatching boilerplate 제거)
  *
  * limitPrice — LIMIT 시 not null 검증은 service 측에서 수행 (priceType 동반 검증).
  *
@@ -42,6 +42,7 @@ data class ManualOrderRequestDto(
         required = true,
     )
     @field:NotBlank(message = "side는 필수입니다.")
+    @field:Pattern(regexp = "^(BUY|SELL)$", message = "side는 BUY 또는 SELL이어야 합니다.")
     val side: String,
     @field:Schema(
         description = "가격 유형 — MARKET(시장가) / LIMIT(지정가)",
@@ -50,6 +51,7 @@ data class ManualOrderRequestDto(
         required = true,
     )
     @field:NotBlank(message = "priceType는 필수입니다.")
+    @field:Pattern(regexp = "^(MARKET|LIMIT)$", message = "priceType는 MARKET 또는 LIMIT이어야 합니다.")
     val priceType: String,
     @field:Schema(
         description = "주문 수량 — 양수 LOCK",

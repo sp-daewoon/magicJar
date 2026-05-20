@@ -3,8 +3,10 @@ package kr.spdaewoon.magicjar.api.messaging.order
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.domain.order.execution.OrderIntent
 import org.slf4j.LoggerFactory
+import org.springframework.kafka.KafkaException
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Component
+import java.util.concurrent.ExecutionException
 
 /**
  * 수동 주문 의도(order.intent.v1) Kafka publish 어댑터 (ADR 0082 T-MAN B-2-extended LOCK).
@@ -51,19 +53,26 @@ class ManualOrderIntentKafkaProducer(
     /**
      * 수동 주문 의도 publish.
      *
+     * FIX B-3 (P2) — Service catch 좁힘 정합:
+     *   기존 Exception catch + RuntimeException wrapping → service에서 광범위 RuntimeException catch.
+     *   신규 KafkaException / ExecutionException 만 그대로 throw (caller가 specific catch 가능) +
+     *        나머지(json 직렬화 등)는 IllegalStateException으로 분리 — 503 분류 X.
+     *
      * @param intent OrderIntent (source=MANUAL LOCK — service 레이어에서 채움)
-     * @throws RuntimeException Kafka publish 실패 시 — endpoint 503 응답 매핑
+     * @throws KafkaException Kafka producer send 실패 시 — endpoint 503 매핑
+     * @throws ExecutionException Future.get 대기 중 publish 실패 시 — endpoint 503 매핑
+     * @throws IllegalStateException payload 직렬화 등 publish 외 내부 오류 — 5xx 일반 매핑
      */
     fun publish(intent: OrderIntent) {
         require(intent.source.name == "MANUAL") {
             "ManualOrderIntentKafkaProducer는 source=MANUAL OrderIntent만 publish 가능 (실제=${intent.source})"
         }
-        try {
-            val now =
-                java.time.Instant
-                    .now()
-                    .epochSecond
-            val payload =
+        val now =
+            java.time.Instant
+                .now()
+                .epochSecond
+        val payload =
+            try {
                 objectMapper.writeValueAsString(
                     mapOf(
                         "signalId" to intent.signalId,
@@ -84,25 +93,52 @@ class ManualOrderIntentKafkaProducer(
                         "emittedAt" to now,
                     ),
                 )
+            } catch (e: com.fasterxml.jackson.core.JsonProcessingException) {
+                log.error(
+                    "ManualOrderIntentKafkaProducer payload 직렬화 실패: userId={} code={} err={}",
+                    intent.userId,
+                    intent.code,
+                    e.message,
+                )
+                throw IllegalStateException("PAYLOAD_SERIALIZE_FAILED: ${e.message}", e)
+            }
+        try {
             kafkaTemplate.send(TOPIC, intent.userId, payload).get()
-            log.info(
-                "ManualOrderIntentKafkaProducer publish OK: topic={} userId={} code={} side={} priceType={} qty={} idempotency={}",
-                TOPIC,
-                intent.userId,
-                intent.code,
-                intent.side,
-                intent.priceType,
-                intent.quantity,
-                intent.idempotencyKey,
-            )
-        } catch (e: Exception) {
+        } catch (e: KafkaException) {
             log.error(
-                "ManualOrderIntentKafkaProducer publish 실패: userId={} code={} err={}",
+                "ManualOrderIntentKafkaProducer publish 실패(KafkaException): userId={} code={} err={}",
                 intent.userId,
                 intent.code,
                 e.message,
             )
-            throw RuntimeException("KAFKA_PUBLISH_FAILED: ${e.message}", e)
+            throw e
+        } catch (e: ExecutionException) {
+            log.error(
+                "ManualOrderIntentKafkaProducer publish 실패(ExecutionException): userId={} code={} err={}",
+                intent.userId,
+                intent.code,
+                e.message,
+            )
+            throw e
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            log.error(
+                "ManualOrderIntentKafkaProducer publish 인터럽트: userId={} code={} err={}",
+                intent.userId,
+                intent.code,
+                e.message,
+            )
+            throw KafkaException("PUBLISH_INTERRUPTED: ${e.message}", e)
         }
+        log.info(
+            "ManualOrderIntentKafkaProducer publish OK: topic={} userId={} code={} side={} priceType={} qty={} idempotency={}",
+            TOPIC,
+            intent.userId,
+            intent.code,
+            intent.side,
+            intent.priceType,
+            intent.quantity,
+            intent.idempotencyKey,
+        )
     }
 }
