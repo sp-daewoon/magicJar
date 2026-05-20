@@ -19,7 +19,7 @@ import java.time.Instant
  *   priceType       — MARKET/LIMIT ([OrderPriceType])
  *   quantity        — 주문 수량 (양수 LOCK — 검증 책임은 publisher)
  *   limitPrice      — LIMIT 시 not null, MARKET 시 null
- *   idempotencyKey  — AUTO: "{signalId}:{userId}" / MANUAL: "manual:{userId}:{epochSeconds}"
+ *   idempotencyKey  — AUTO: "{signalId}:{userId}" / MANUAL: "manual:{userId}:{code}:{side}:{UUID}" (FIX B-1 P0 강화 — 동일 초 다중 주문 충돌 해소)
  *   requestedAt     — T-RISK publish 시각 (Kafka producer 채번)
  *   source          — AUTO(자동 path, default) / MANUAL(POST /api/orders/manual 진입) — ADR 0082 B-2-extended LOCK
  *
