@@ -19,10 +19,12 @@ interface PositionJpaRepository : JpaRepository<PositionJpaEntity, Long> {
     @Transactional
     @Query(
         value = """
-            INSERT INTO position (user_id, code, quantity, avg_price, updated_at)
-            VALUES (:userId, :code, :quantity, :avgPrice, now())
+            INSERT INTO position (user_id, code, quantity, qty, avg_price, source, entry_ts, updated_at, created_at)
+            VALUES (:userId, :code, :quantity, :quantity, :avgPrice, 'REAL', now(), now(), now())
             ON CONFLICT (user_id, code) DO UPDATE
                 SET quantity = EXCLUDED.quantity,
+                    qty = EXCLUDED.quantity,
+                    source = 'REAL',
                     avg_price = EXCLUDED.avg_price,
                     updated_at = now()
         """,
@@ -33,5 +35,32 @@ interface PositionJpaRepository : JpaRepository<PositionJpaEntity, Long> {
         code: String,
         quantity: Int,
         avgPrice: java.math.BigDecimal,
+    )
+
+    /**
+     * Reconcile upsert — KIS 계좌 유형(REAL/MOCK)을 source에 보존하고 quantity·qty 동시 갱신.
+     */
+    @Modifying
+    @Transactional
+    @Query(
+        value = """
+            INSERT INTO position (user_id, code, quantity, qty, avg_price, source, entry_ts, updated_at, created_at)
+            VALUES (:userId, :code, :quantity, :quantity, :avgPrice, :source, now(), now(), now())
+            ON CONFLICT (user_id, code) DO UPDATE
+                SET quantity = EXCLUDED.quantity,
+                    qty = EXCLUDED.qty,
+                    avg_price = EXCLUDED.avg_price,
+                    source = EXCLUDED.source,
+                    entry_ts = now(),
+                    updated_at = now()
+        """,
+        nativeQuery = true,
+    )
+    fun upsertReconciled(
+        userId: String,
+        code: String,
+        quantity: Int,
+        avgPrice: java.math.BigDecimal,
+        source: String,
     )
 }

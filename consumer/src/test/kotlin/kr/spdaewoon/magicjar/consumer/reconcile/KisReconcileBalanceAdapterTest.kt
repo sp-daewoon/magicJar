@@ -29,6 +29,7 @@ class KisReconcileBalanceAdapterTest {
             kisRateLimiterPort = mockk<KisRateLimiterPort>(relaxed = true),
             kisBaseProd = "https://openapi.koreainvestment.com:9443",
             kisBaseVps = "https://openapivts.koreainvestment.com:29443",
+            magicjarMode = "REAL",
         )
     }
 

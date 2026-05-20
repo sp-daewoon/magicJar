@@ -2,7 +2,9 @@ package kr.spdaewoon.magicjar.consumer.reconcile
 
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.reconcile.ReconcileTriggerSource
+import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 
@@ -30,12 +32,10 @@ class BalanceReconcileJob(
     private val balanceReconcileService: BalanceReconcileService,
     private val reconcileLockAdapter: ReconcileLockAdapter,
     private val credentialRepository: ConsumerUserKisCredentialJpaRepository,
+    @Value("\${magicjar.mode:MOCK}")
+    private val magicjarMode: String,
 ) {
     private val log = LoggerFactory.getLogger(BalanceReconcileJob::class.java)
-
-    companion object {
-        private const val ACCOUNT_TYPE = "REAL" // 정보 수집 = 실전 키 정책 (사용자 메모리 feedback_kis_key_realonly_for_data)
-    }
 
     /**
      * 시장 OPEN 5분 cron — KST 09:00~15:55 MON-FRI.
@@ -54,13 +54,14 @@ class BalanceReconcileJob(
      * @param triggerSource CRON · MANUAL · API
      */
     internal fun runForAllActiveUsers(triggerSource: ReconcileTriggerSource) {
-        val activeCreds = credentialRepository.findAllByAccountType(ACCOUNT_TYPE)
+        val accountType = if (magicjarMode.equals("REAL", ignoreCase = true)) AccountType.REAL else AccountType.MOCK
+        val activeCreds = credentialRepository.findAllByAccountType(accountType.name)
         if (activeCreds.isEmpty()) {
-            log.info("BalanceReconcileJob — 활성 사용자 0명 idle")
+            log.info("BalanceReconcileJob — 활성 사용자 0명 idle (accountType={})", accountType.name)
             return
         }
 
-        log.info("BalanceReconcileJob — 활성 user {}명 처리 시작", activeCreds.size)
+        log.info("BalanceReconcileJob — 활성 user {}명 처리 시작 (accountType={})", activeCreds.size, accountType.name)
 
         activeCreds.forEach { cred ->
             val userId = cred.id.userId
