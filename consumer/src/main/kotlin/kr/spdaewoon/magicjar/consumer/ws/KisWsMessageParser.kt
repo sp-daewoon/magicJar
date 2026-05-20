@@ -102,6 +102,9 @@ object KisWsMessageParser {
         data class RealtimeData(
             val trId: String,
             val rawData: String,
+            // hotfix 2026-05-20 — KIS 첫 필드 `0`=평문 / `1`=AES-256-CBC 암호화 분기.
+            // H0STCNI0/9 (체결통보) 등은 항상 encrypted=true → KisWebSocketBridge.handleMessage에서 AES 복호화 후 listener forward.
+            val encrypted: Boolean = false,
         ) : ParsedMessage()
 
         data class SubscriptionResponse(
@@ -131,9 +134,13 @@ object KisWsMessageParser {
             return ParsedMessage.SubscriptionResponse(trId = "", rawJson = raw)
         }
 
+        // hotfix 2026-05-20 — KIS 공식 spec: 첫 필드 0=평문, 1=AES-256-CBC 암호화.
+        // 기존 결함: `1`을 SubscriptionResponse로 잘못 분류 → H0STCNI9 체결통보 KisExecutionWsListener forward 0
+        //   → order_request status=ACK stuck (사용자 dogfooding 2026-05-20 evidence).
+        // fix: `0`/`1` 둘 다 RealtimeData (encrypted flag 분기) — KisWebSocketBridge.handleMessage에서 AES 복호화.
         return when (val type = parts[0]) {
-            "0" -> ParsedMessage.RealtimeData(trId = parts[1], rawData = parts[3])
-            "1" -> ParsedMessage.SubscriptionResponse(trId = parts[1], rawJson = raw)
+            "0" -> ParsedMessage.RealtimeData(trId = parts[1], rawData = parts[3], encrypted = false)
+            "1" -> ParsedMessage.RealtimeData(trId = parts[1], rawData = parts[3], encrypted = true)
             else -> {
                 log.debug("KIS WS 알 수 없는 메시지 타입: type={} raw={}", type, raw.take(100))
                 ParsedMessage.Unknown(raw)
