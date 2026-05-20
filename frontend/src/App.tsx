@@ -20,6 +20,7 @@
  *   /orders/:id       -> 주문 상세 (T-O Phase 3 — ADR 0068)
  *   /journal          -> 매매일지 시계열 (T-J Phase 3 — ADR 0072)
  *   /performance      -> 성과 대시보드 (T-PERF Phase 3 — ADR 0072)
+ *   /system           -> 시스템 이벤트 운영 대시보드 (P2 Task 7 — ADR 0084 P0 system_event_log)
  *   /setup            -> 셋업 마법사 7단계 (T-ONBOARD)
  *   *                 -> / 리다이렉트
  *
@@ -46,6 +47,7 @@ import { OrderDetailPage } from './pages/orders/OrderDetailPage'
 import { NewOrderPage } from './pages/orders/NewOrderPage'
 import { TradingJournalPage } from './pages/TradingJournalPage'
 import { PerformanceDashboardPage } from './pages/PerformanceDashboardPage'
+import { SystemEventPage } from './pages/SystemEvent/SystemEventPage'
 import { useStompReconnect } from './api/hooks/useStompReconnect'
 import { useOnboardingStore } from './stores/onboarding'
 
@@ -136,6 +138,8 @@ export function App() {
           <Route path="/journal" element={<TradingJournalPage />} />
           {/* T-PERF Phase 3: 성과 대시보드 — ADR 0072 */}
           <Route path="/performance" element={<PerformanceDashboardPage />} />
+          {/* P2 Task 7: 시스템 이벤트 운영 대시보드 — ADR 0084 P0 system_event_log */}
+          <Route path="/system" element={<SystemEventPage />} />
           <Route path="/setup" element={<SetupWizard />} />
           {/* 미정의 경로는 / 로 리다이렉트 */}
           <Route path="*" element={<Navigate to="/" replace />} />
