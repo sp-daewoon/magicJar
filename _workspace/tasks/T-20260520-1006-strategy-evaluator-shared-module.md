@@ -3,10 +3,10 @@ id: T-20260520-1006-strategy-evaluator-shared-module
 agent: strategy
 model: opus
 branch: agent/strategy/strategy-evaluator-shared-module
-status: RUNNING
+status: DONE
 startedAt: 2026-05-20T10:06:25.177+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-20T10:23:46+09:00
+pr: 601
 parentPhase: ?
 ---
 
@@ -25,6 +25,7 @@ P0 auto-trading review fix: move JVM strategy evaluator out of consumer so api b
 - (필요 시 기록)
 
 ## 마지막 활동
-2026-05-20T10:06:25.185+09:00 — 작업 시작
+2026-05-20T10:23:46+09:00 — PR #601 rebase merge 완료, main 반영 확인
 
 ## 비고
+- PR: https://github.com/sp-daewoon/magicJar/pull/601
