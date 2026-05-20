@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.api.service
 
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
 import kr.spdaewoon.magicjar.persistence.shared.event.SystemEventJpaEntity
 import kr.spdaewoon.magicjar.persistence.shared.event.SystemEventJpaRepository
@@ -9,6 +10,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.data.domain.Pageable
 import java.time.Instant
+import java.util.Optional
 
 /**
  * P2.1 — final reviewer ★★ #2 fix 검증.
@@ -119,5 +121,79 @@ class SystemEventQueryServiceTest {
         verify(exactly = 1) { jpa.findAllByOrderByOccurredAtDesc(any<Pageable>()) }
         verify(exactly = 1) { jpa.count() }
         verify(exactly = 1) { jpa.countByViewedAtIsNull() }
+    }
+
+    // ───────────────────────────────────────────────────────────────────────
+    // hotfix(2026-05-20): markResolved 시 viewed_at 동반 마킹 (사용자 mental model 정합)
+    //
+    // 사용자 dogfooding 결함: 알람센터에서 "해결 표시" 9건 처리(resolved_at 마킹)했는데
+    //   - "미확인 9건" 카운트 그대로
+    //   - "미확인만 (viewed_at IS NULL)" 필터 체크해도 9건 모두 그대로 (viewed_at NULL)
+    // root cause: markResolved 가 resolved_at 만 갱신 — viewed_at 은 별개 필드
+    // mental model: "해결 = 확인된 것"
+    // fix: viewed_at IS NULL 일 때만 viewed_at = now 동반 마킹 (idempotent 보장)
+    // ───────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `markResolved — viewed_at IS NULL 일 때 resolved_at + viewed_at 모두 마킹 (사용자 mental model 정합)`() {
+        val before =
+            SystemEventJpaEntity(
+                id = 42L,
+                category = "RECONCILE",
+                severity = "WARN",
+                actor = "Test",
+                action = "TEST_ACTION",
+                userId = "74683223",
+                correlationId = null,
+                detailJson = "{}",
+                occurredAt = Instant.parse("2026-05-20T15:00:00Z"),
+                resolvedAt = null,
+                viewedAt = null,
+            )
+        every { jpa.findById(42L) } returns Optional.of(before)
+        val saved = slot<SystemEventJpaEntity>()
+        every { jpa.save(capture(saved)) } answers { saved.captured }
+
+        val result = sut.markResolved(42L)
+
+        assertThat(result).isNotNull
+        assertThat(saved.captured.resolvedAt).isNotNull
+        assertThat(saved.captured.viewedAt)
+            .describedAs("viewed_at NULL 이었으면 동반 마킹 의무 — 사용자 mental model 정합")
+            .isNotNull
+        // resolvedAt 과 viewedAt 은 동일 시각(now)으로 설정 — 동일 transaction 내 1 Instant.now() 의도
+        assertThat(saved.captured.viewedAt).isEqualTo(saved.captured.resolvedAt)
+        verify(exactly = 1) { jpa.save(any()) }
+    }
+
+    @Test
+    fun `markResolved — viewed_at NOT NULL (이미 확인됨) 일 때 viewed_at 불변 (idempotent)`() {
+        val alreadyViewedAt = Instant.parse("2026-05-20T10:00:00Z")
+        val before =
+            SystemEventJpaEntity(
+                id = 99L,
+                category = "RECONCILE",
+                severity = "WARN",
+                actor = "Test",
+                action = "TEST_ACTION",
+                userId = "74683223",
+                correlationId = null,
+                detailJson = "{}",
+                occurredAt = Instant.parse("2026-05-20T09:00:00Z"),
+                resolvedAt = null,
+                viewedAt = alreadyViewedAt,
+            )
+        every { jpa.findById(99L) } returns Optional.of(before)
+        val saved = slot<SystemEventJpaEntity>()
+        every { jpa.save(capture(saved)) } answers { saved.captured }
+
+        val result = sut.markResolved(99L)
+
+        assertThat(result).isNotNull
+        assertThat(saved.captured.resolvedAt).isNotNull
+        assertThat(saved.captured.viewedAt)
+            .describedAs("viewed_at 이미 NOT NULL 이면 기존 값 보존 — idempotent")
+            .isEqualTo(alreadyViewedAt)
+        verify(exactly = 1) { jpa.save(any()) }
     }
 }
