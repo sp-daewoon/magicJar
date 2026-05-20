@@ -282,7 +282,7 @@ class CandleRefreshService(
 
                 // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority)
                 // ADR 0037 초당 10건 한도 강제. 페이지마다 acquire — 사용자 트리거 즉시 우선 처리.
-                kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+                kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
                 lastPageSignalSent = false
                 lastPageAcquired = true
 
@@ -495,7 +495,7 @@ class CandleRefreshService(
                 try {
                     // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority)
                     // ADR 0037 초당 10건 한도 강제. 사용자 트리거 path → 즉시 acquire.
-                    kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+                    kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
                     pageAcquired = true
 
                     @Suppress("UNCHECKED_CAST")

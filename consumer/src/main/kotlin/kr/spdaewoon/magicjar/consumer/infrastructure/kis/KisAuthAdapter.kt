@@ -171,7 +171,7 @@ class KisAuthAdapter(
                         ),
                     ).retrieve()
                     .bodyToMono(Map::class.java)
-                    .timeout(Duration.ofSeconds(5))
+                    .timeout(Duration.ofSeconds(10))
                     .block() ?: error("KIS tokenP 응답 없음")
 
             response["access_token"]?.toString()

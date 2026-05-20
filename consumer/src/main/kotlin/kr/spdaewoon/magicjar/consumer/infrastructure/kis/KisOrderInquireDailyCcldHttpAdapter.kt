@@ -102,7 +102,7 @@ class KisOrderInquireDailyCcldHttpAdapter(
         /** raw L115: env=demo + pd=before (3개월 이전) — backfill 용 (본 baseline 미사용) */
         const val TR_ID_MOCK_BEFORE: String = "VTSC9215R"
 
-        private const val TIMEOUT_SEC = 5L
+        private const val TIMEOUT_SEC = 10L
         private val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd")
     }
 
@@ -144,7 +144,7 @@ class KisOrderInquireDailyCcldHttpAdapter(
             val secretKeyStr = String(secretKey)
 
             // Rate Limit acquire (spec PR #564 §2-2 LOCK — BACKFILL priority — daily ccld reconcile)
-            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 1000L)
+            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 5000L)
             acquiredToken = true
 
             // raw L141~L155 verbatim — params 매트릭스

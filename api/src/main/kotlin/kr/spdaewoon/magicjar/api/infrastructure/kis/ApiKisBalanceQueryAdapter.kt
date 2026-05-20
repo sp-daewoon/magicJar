@@ -77,7 +77,7 @@ class ApiKisBalanceQueryAdapter(
     private val kisBaseVps: String,
 ) : KisBalanceQueryPort {
     companion object {
-        private val TIMEOUT = Duration.ofSeconds(5)
+        private val TIMEOUT = Duration.ofSeconds(10)
         private const val INQUIRE_BALANCE_PATH = "/uapi/domestic-stock/v1/trading/inquire-balance"
     }
 
@@ -104,7 +104,7 @@ class ApiKisBalanceQueryAdapter(
             val appKeyStr = String(appKey)
             val secretKeyStr = String(secretKey)
 
-            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
 
             @Suppress("UNCHECKED_CAST")
             val response =

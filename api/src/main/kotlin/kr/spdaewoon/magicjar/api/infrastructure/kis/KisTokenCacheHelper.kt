@@ -78,7 +78,7 @@ class KisTokenCacheHelper(
         private const val LOCK_WAIT_MS = 500L
         private const val LOCK_MAX_RETRIES = 60
 
-        private val TOKEN_ISSUE_TIMEOUT = Duration.ofSeconds(5)
+        private val TOKEN_ISSUE_TIMEOUT = Duration.ofSeconds(10)
 
         fun tokenKey(
             userId: String,

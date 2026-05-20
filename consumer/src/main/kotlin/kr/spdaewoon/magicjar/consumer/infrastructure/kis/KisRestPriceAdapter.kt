@@ -73,7 +73,7 @@ class KisRestPriceAdapter(
         return try {
             // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority)
             // 현재가 polling은 사용자 path 즉시 응답 path
-            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
 
             @Suppress("UNCHECKED_CAST")
             val response =
@@ -176,7 +176,7 @@ class KisRestPriceAdapter(
         var signalSent = false
         return try {
             // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority — metrics path)
-            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
 
             @Suppress("UNCHECKED_CAST")
             val response =

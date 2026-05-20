@@ -77,7 +77,7 @@ class KisOrderHttpAdapter(
     companion object {
         private const val ORDER_CASH_PATH = "/uapi/domestic-stock/v1/trading/order-cash"
         private const val ORDER_RVSECNCL_PATH = "/uapi/domestic-stock/v1/trading/order-rvsecncl"
-        private const val TIMEOUT_SEC = 5L
+        private const val TIMEOUT_SEC = 10L
     }
 
     /**
@@ -147,7 +147,7 @@ class KisOrderHttpAdapter(
 
             // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH 최우선 priority)
             // 주문 path는 자본 직결 — 즉시 acquire 강제 (사용자 path)
-            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
             acquiredToken = true
 
             val response =
@@ -324,7 +324,7 @@ class KisOrderHttpAdapter(
                 }
 
             // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority — 주문 취소 path)
-            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
             acquiredToken = true
 
             val response =

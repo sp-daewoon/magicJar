@@ -287,7 +287,7 @@ class KisKsdInfoAdapter(
         // try 안 진입 + signalSent flag로 drift 차단 (D-1 패턴 정합).
         var signalSent = false
         return try {
-            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 1000L)
+            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 5000L)
             val body =
                 webClient
                     .get()
