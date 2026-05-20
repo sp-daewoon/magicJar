@@ -3,10 +3,10 @@ id: T-20260520-2304-mock-reconcile-backfill
 agent: orchestrator
 model: opus
 branch: agent/orchestrator/mock-reconcile-backfill
-status: RUNNING
+status: DONE
 startedAt: 2026-05-20T23:04:18.247+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-20T23:07:19.719+09:00
+pr: #634
 parentPhase: ?
 ---
 
