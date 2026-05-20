@@ -47,7 +47,9 @@ class AccountQueryServiceTest {
 
     private val userId = "user_test_001"
     private val accountType = AccountType.REAL
-    private val cacheKey = "account:balance:$userId"
+
+    // hotfix 2026-05-20 — cache key 에 accountType 포함 (REAL/MOCK 분리)
+    private val cacheKey = "account:balance:$userId:REAL"
     private val now: Instant = Instant.parse("2026-05-18T05:30:00Z")
 
     private fun fixtureSnapshot(): KisAccountBalance =
@@ -120,6 +122,36 @@ class AccountQueryServiceTest {
     @Test
     fun `EGW00201 hotfix — CACHE_TTL companion 상수 10s LOCK (KIS rate limit burst 흡수)`() {
         assertThat(AccountQueryService.CACHE_TTL).isEqualTo(Duration.ofSeconds(10))
+    }
+
+    @Test
+    fun `cache key — REAL accountType 별도 key (account-balance-userId-REAL)`() {
+        whenever(redis.opsForValue()).thenReturn(valueOps)
+        whenever(valueOps.get(eq("account:balance:$userId:REAL"))).thenReturn(null)
+        whenever(kisPort.fetchFullBalance(userId, AccountType.REAL)).thenReturn(fixtureSnapshot())
+
+        sut.getBalance(userId, AccountType.REAL)
+
+        // REAL key 만 read·write 검증 (MOCK key 무관)
+        verify(valueOps).get(eq("account:balance:$userId:REAL"))
+        val keyCap = argumentCaptor<String>()
+        verify(valueOps).set(keyCap.capture(), any<String>(), any<Duration>())
+        assertThat(keyCap.firstValue).isEqualTo("account:balance:$userId:REAL")
+    }
+
+    @Test
+    fun `cache key — MOCK accountType 별도 key (account-balance-userId-MOCK) — REAL cache 무관`() {
+        whenever(redis.opsForValue()).thenReturn(valueOps)
+        whenever(valueOps.get(eq("account:balance:$userId:MOCK"))).thenReturn(null)
+        // MOCK fixture
+        val mockSnapshot = fixtureSnapshot().copy(accountType = AccountType.MOCK)
+        whenever(kisPort.fetchFullBalance(userId, AccountType.MOCK)).thenReturn(mockSnapshot)
+
+        sut.getBalance(userId, AccountType.MOCK)
+
+        verify(valueOps).get(eq("account:balance:$userId:MOCK"))
+        // REAL key 미접근 검증 (cross-contamination 차단)
+        verify(valueOps, never()).get(eq("account:balance:$userId:REAL"))
     }
 
     @Test

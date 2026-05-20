@@ -133,7 +133,11 @@ class AccountQueryService(
         userId: String,
         accountType: AccountType,
     ): KisAccountBalance {
-        val cacheKey = "$CACHE_KEY_PREFIX:$userId"
+        // hotfix 2026-05-20 — cache key 에 accountType 포함 (REAL/MOCK 분리 의무).
+        // 사용자 dogfooding evidence: 기존 "$prefix:$userId" 단일 key → REAL/MOCK fetch 시 cache 충돌
+        //   → cache miss 폭주 → KIS 호출 burst → EGW00201 "초당 거래건수 초과" 지속 발생.
+        // fix: "$prefix:$userId:${accountType}" 분리 → REAL/MOCK 독립 cache → 충돌 해소.
+        val cacheKey = "$CACHE_KEY_PREFIX:$userId:${accountType.name}"
 
         // 1. Redis cache hit
         val cached = redisTemplate.opsForValue().get(cacheKey)
