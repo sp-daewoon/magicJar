@@ -18,6 +18,8 @@ import kr.spdaewoon.magicjar.domain.position.port.KisHolding
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.junit.jupiter.api.Test
 import org.springframework.boot.DefaultApplicationArguments
+import org.springframework.http.HttpStatus
+import org.springframework.web.reactive.function.client.WebClientResponseException
 import java.math.BigDecimal
 import java.time.Instant
 
@@ -29,6 +31,10 @@ import java.time.Instant
  *   - 테스트 3: magicjar.mode=MOCK → Bootstrap skip (KIS 호출 0)
  *   - 테스트 4: magicjar.allow-real=false → Bootstrap skip
  *   - 테스트 5: magicjar.bootstrap.position-on-startup=false → Bootstrap skip (명시 비활성)
+ * - B 의제 hotfix (2026-05-20) — retry 메커니즘 신규:
+ *   - 테스트 6: KIS 500 1회 실패 + 2회째 성공 → Bootstrap 성공 (KillSwitch 0)
+ *   - 테스트 7: KIS 500 maxAttempts 도달 → 최종 fail + KillSwitch ON (기존 동작 유지)
+ *   - 테스트 8: KIS 401 (non-retryable) → retry 0 + 즉시 fail + KillSwitch ON
  */
 class PositionBootstrapRunnerTest {
     private val credentialRepository = mockk<ConsumerUserKisCredentialJpaRepository>()
@@ -168,5 +174,101 @@ class PositionBootstrapRunnerTest {
         assert(!newRunner("REAL", true, false).shouldRunBootstrap())
         // 대소문자 무관 (real == REAL)
         assert(newRunner("real", true, true).shouldRunBootstrap())
+    }
+
+    // ── B 의제 hotfix (2026-05-20) — retry 메커니즘 검증 ──
+
+    /** KIS 500 응답 만들기 helper (WebClientResponseException) */
+    private fun kis500(): WebClientResponseException =
+        WebClientResponseException.create(
+            HttpStatus.INTERNAL_SERVER_ERROR.value(),
+            "Internal Server Error",
+            org.springframework.http.HttpHeaders.EMPTY,
+            ByteArray(0),
+            null,
+        )
+
+    private fun kis401(): WebClientResponseException =
+        WebClientResponseException.create(
+            HttpStatus.UNAUTHORIZED.value(),
+            "Unauthorized",
+            org.springframework.http.HttpHeaders.EMPTY,
+            ByteArray(0),
+            null,
+        )
+
+    private fun activeCred(userId: String): ConsumerUserKisCredentialJpaEntity =
+        ConsumerUserKisCredentialJpaEntity(
+            id = ConsumerUserKisCredentialId(userId = userId, accountType = "REAL"),
+            accountNumber = userId,
+            appKeyEnc = ByteArray(0),
+            secretKeyEnc = ByteArray(0),
+        )
+
+    @Test
+    fun `B 의제 — KIS 500 1회 실패 + 2회째 성공 → Bootstrap 성공 (KillSwitch 0)`() {
+        val cred = activeCred("33333333")
+        every { credentialRepository.findAllByAccountType("REAL") } returns listOf(cred)
+
+        // 1st call: 500 throw, 2nd call: success
+        val successBalance =
+            KisBalance(
+                userId = "33333333",
+                accountType = AccountType.REAL,
+                holdings =
+                    listOf(
+                        KisHolding(code = "005930", quantity = 5, avgPrice = BigDecimal("70000")),
+                    ),
+                fetchedAt = Instant.now(),
+            )
+        every { kisBalanceAdapter.fetchBalance("33333333", AccountType.REAL) } throws kis500() andThen successBalance
+        justRun { instrumentJpaRepository.upsertStub(any()) }
+        justRun { positionJpaRepository.upsert(any(), any(), any(), any()) }
+        justRun { redisPositionCacheAdapter.putHoldings(any(), any(), any()) }
+        every { auditTrailJpaRepository.save(any()) } answers { firstArg() }
+
+        runner.run(args)
+
+        // 2회 호출됨 (1 실패 + 1 성공)
+        verify(exactly = 2) { kisBalanceAdapter.fetchBalance("33333333", AccountType.REAL) }
+        // KillSwitch ON 호출 0건
+        verify(exactly = 0) { killSwitchJpaRepository.enableKillSwitch(any(), any(), any()) }
+        // 정상 path → position upsert 호출됨
+        verify(exactly = 1) { positionJpaRepository.upsert("33333333", "005930", 5, BigDecimal("70000")) }
+    }
+
+    @Test
+    fun `B 의제 — KIS 500 maxAttempts 도달 → 최종 fail + KillSwitch ON (기존 동작 유지)`() {
+        val cred = activeCred("44444444")
+        every { credentialRepository.findAllByAccountType("REAL") } returns listOf(cred)
+
+        // 모든 시도 500 throw (총 4회 = 1 + 3 retry)
+        every { kisBalanceAdapter.fetchBalance("44444444", AccountType.REAL) } throws kis500()
+        justRun { killSwitchJpaRepository.enableKillSwitch(any(), any(), any()) }
+        every { auditTrailJpaRepository.save(any()) } answers { firstArg() }
+
+        runner.run(args)
+
+        // 4회 호출됨 (1 + 3 retry)
+        verify(exactly = 4) { kisBalanceAdapter.fetchBalance("44444444", AccountType.REAL) }
+        // 최종 fail → KillSwitch ON (기존 동작 유지)
+        verify(exactly = 1) { killSwitchJpaRepository.enableKillSwitch("44444444", "POSITION_BOOTSTRAP_FAILED", "consumer") }
+    }
+
+    @Test
+    fun `B 의제 — KIS 401 (non-retryable) → retry 0 + 즉시 fail + KillSwitch ON`() {
+        val cred = activeCred("55555555")
+        every { credentialRepository.findAllByAccountType("REAL") } returns listOf(cred)
+
+        every { kisBalanceAdapter.fetchBalance("55555555", AccountType.REAL) } throws kis401()
+        justRun { killSwitchJpaRepository.enableKillSwitch(any(), any(), any()) }
+        every { auditTrailJpaRepository.save(any()) } answers { firstArg() }
+
+        runner.run(args)
+
+        // 401 = non-retryable → 1회만 호출됨
+        verify(exactly = 1) { kisBalanceAdapter.fetchBalance("55555555", AccountType.REAL) }
+        // 즉시 fail → KillSwitch ON
+        verify(exactly = 1) { killSwitchJpaRepository.enableKillSwitch("55555555", "POSITION_BOOTSTRAP_FAILED", "consumer") }
     }
 }

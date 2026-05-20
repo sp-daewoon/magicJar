@@ -14,7 +14,11 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.ApplicationArguments
 import org.springframework.boot.ApplicationRunner
 import org.springframework.stereotype.Component
+import org.springframework.web.reactive.function.client.WebClientRequestException
+import org.springframework.web.reactive.function.client.WebClientResponseException
+import java.io.IOException
 import java.time.Duration
+import java.util.concurrent.TimeoutException
 
 /**
  * 부팅 잔고 워밍 (ADR 0042 Bootstrap — consumer ApplicationRunner).
@@ -47,6 +51,21 @@ import java.time.Duration
  *
  * per-user consent_at 검증은 후속 의제 (D — KillSwitch trigger 정책 보수화와 함께).
  *
+ * ### B 의제 hotfix (2026-05-20) — KIS transient 결함 흡수 retry 메커니즘
+ *
+ * A 의제는 trigger 자체 차단(3중 게이트)이고, B 의제는 trigger 충족 시 KIS 호출의
+ * transient 결함(500~504, timeout, IO) 자동 회복.
+ *
+ * retry 정책:
+ *   - maxAttempts = 3 (총 4번 시도 = 1 + 3 retry)
+ *   - exponential backoff: 500ms → 1000ms → 2000ms (multiplier=2)
+ *   - retryable: WebClientResponseException(5xx 500..504), TimeoutException, IOException, WebClientRequestException
+ *   - non-retryable: 401·403·400·429 (자격증명/검증/rate limit → retry 무의미)
+ *   - 최종 실패 시 기존 KillSwitch ON + audit_trail 유지 (정책 변경 0 — C 의제 영역)
+ *
+ * 적용 범위: PositionBootstrapRunner 단독. KisBalanceAdapter 시그니처는 미변경
+ * (KisCapitalSnapshotProviderAdapter 등 다른 caller risk 회피).
+ *
  * 룰 5 위반 금지: LLM provider import 0건.
  */
 @Component
@@ -71,6 +90,11 @@ class PositionBootstrapRunner(
         private const val BOOTSTRAP_ACCOUNT_TYPE = "REAL" // 실전 계좌 대상
         private const val AUDIT_ACTOR = "consumer"
         private val CACHE_TTL = Duration.ofHours(24)
+
+        // B 의제 hotfix — retry 정책 (KIS transient 결함 흡수)
+        internal const val RETRY_MAX_ATTEMPTS = 3 // 총 4 시도 = 1 + 3 retry
+        internal const val RETRY_INITIAL_BACKOFF_MS = 500L
+        internal const val RETRY_BACKOFF_MULTIPLIER = 2L
     }
 
     /**
@@ -98,7 +122,8 @@ class PositionBootstrapRunner(
         activeCredentials.forEach { cred ->
             val userId = cred.id.userId
             try {
-                runBootstrap(userId, AccountType.valueOf(cred.id.accountType))
+                // B 의제 hotfix — retry wrapper (transient 5xx/timeout/IO 흡수)
+                runBootstrapWithRetry(userId, AccountType.valueOf(cred.id.accountType))
             } catch (e: Exception) {
                 // 해당 user만 KillSwitch ON + 다른 user 계속 (ADR 0042 §2-5)
                 val reason = "POSITION_BOOTSTRAP_FAILED"
@@ -133,6 +158,103 @@ class PositionBootstrapRunner(
         }
 
         log.info("Position bootstrap 완료")
+    }
+
+    /**
+     * B 의제 hotfix (2026-05-20) — runBootstrap retry wrapper.
+     *
+     * KIS transient 결함(5xx 500..504, timeout, IO)을 exponential backoff 로 흡수.
+     * 4 시도 모두 실패 시 마지막 예외를 throw → 상위 catch 가 기존 KillSwitch ON + audit_trail 수행.
+     *
+     *  attempt 1: 즉시
+     *  attempt 2: + 500ms
+     *  attempt 3: + 1000ms
+     *  attempt 4: + 2000ms
+     *  최종 fail → throw
+     *
+     * non-retryable(401·403·400·429)는 즉시 throw — retry 무의미 (자격증명·검증·rate limit).
+     */
+    internal fun runBootstrapWithRetry(
+        userId: String,
+        accountType: AccountType,
+    ) {
+        val totalAttempts = RETRY_MAX_ATTEMPTS + 1
+        var lastError: Throwable? = null
+        var backoffMs = RETRY_INITIAL_BACKOFF_MS
+
+        for (attempt in 1..totalAttempts) {
+            try {
+                runBootstrap(userId, accountType)
+                if (attempt > 1) {
+                    log.info(
+                        "Bootstrap retry 성공: user={} attempt={}/{}",
+                        maskUserId(userId),
+                        attempt,
+                        totalAttempts,
+                    )
+                }
+                return
+            } catch (e: Throwable) {
+                lastError = e
+                if (!isRetryable(e)) {
+                    log.warn(
+                        "Bootstrap non-retryable 결함 — 즉시 fail: user={} err={}",
+                        maskUserId(userId),
+                        e.javaClass.simpleName + ":" + (e.message?.take(120) ?: "no-msg"),
+                    )
+                    throw e
+                }
+                if (attempt < totalAttempts) {
+                    log.warn(
+                        "Bootstrap retry {}/{}: user={} err={} backoffMs={}",
+                        attempt,
+                        totalAttempts,
+                        maskUserId(userId),
+                        e.javaClass.simpleName + ":" + (e.message?.take(120) ?: "no-msg"),
+                        backoffMs,
+                    )
+                    sleepQuietly(backoffMs)
+                    backoffMs *= RETRY_BACKOFF_MULTIPLIER
+                }
+            }
+        }
+
+        log.error(
+            "Bootstrap 최종 실패 after {} attempts: user={}",
+            totalAttempts,
+            maskUserId(userId),
+        )
+        throw lastError ?: IllegalStateException("Bootstrap retry loop ended without error reference")
+    }
+
+    /**
+     * B 의제 — retry 가능 결함 판정.
+     *
+     * retryable:
+     *  - WebClientResponseException statusCode 500..504 (KIS 일시 결함)
+     *  - WebClientRequestException (connection reset 등 reactor 요청 단 결함)
+     *  - TimeoutException (reactor block timeout, WebClient timeout 등)
+     *  - IOException (소켓 IO 결함)
+     *
+     * non-retryable (즉시 fail):
+     *  - WebClientResponseException 400/401/403/429 (validation·credentials·rate limit)
+     *  - 그 외 일반 Exception (IllegalState·자격증명 없음 error("…") 등)
+     */
+    internal fun isRetryable(e: Throwable): Boolean =
+        when (e) {
+            is WebClientResponseException -> e.statusCode.value() in 500..504
+            is WebClientRequestException -> true
+            is TimeoutException -> true
+            is IOException -> true
+            else -> false
+        }
+
+    private fun sleepQuietly(ms: Long) {
+        try {
+            Thread.sleep(ms)
+        } catch (ie: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
     }
 
     private fun runBootstrap(
