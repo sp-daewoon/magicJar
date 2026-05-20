@@ -1,5 +1,9 @@
 package kr.spdaewoon.magicjar.consumer.reconcile
 
+import kr.spdaewoon.magicjar.domain.event.SystemEvent
+import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
+import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
+import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.reconcile.BalanceReconciler
 import kr.spdaewoon.magicjar.domain.reconcile.HoldingDiff
 import kr.spdaewoon.magicjar.domain.reconcile.InternalHolding
@@ -51,8 +55,14 @@ class BalanceReconcileService(
     private val reconcileRunRepositoryProvider: ObjectProvider<ReconcileRunRepository>,
     private val internalPositionQueryPortProvider: ObjectProvider<InternalPositionQueryPort>,
     private val positionUpsertPortProvider: ObjectProvider<PositionUpsertPort>,
+    private val systemEventLogger: SystemEventLogger,
 ) {
     private val log = LoggerFactory.getLogger(BalanceReconcileService::class.java)
+
+    companion object {
+        /** SystemEvent actor — P1 catalog (spec §6.1 emit point #3) */
+        private const val SYSTEM_EVENT_ACTOR = "BalanceReconcileService"
+    }
 
     /**
      * 단일 사용자 reconcile 1회 실행.
@@ -95,6 +105,18 @@ class BalanceReconcileService(
 
             // Step 4 — diff 계산
             val result = BalanceReconciler.compare(kisHoldings, internalHoldings)
+
+            // ★ SystemEvent emit point #3 (P1 spec §6.1) — RECONCILE_DRIFT_DETECTED
+            // Drifted 분기 진입 시 1회 emit (WARN severity, 자본 사고 audit).
+            // PriceDrifted 단독은 자본 영향 없음 (avg price 차이만) → emit skip.
+            if (result is ReconcileResult.Drifted) {
+                emitDriftDetected(
+                    userId = userId,
+                    kisHoldingsSize = kisHoldings.size,
+                    dbPositionsSize = internalHoldings.size,
+                    driftCount = result.driftedHoldings.size,
+                )
+            }
 
             // Step 5 — 분기 처리
             val finalRun = handleResult(run, result, userId, kisHoldings)
@@ -275,6 +297,35 @@ class BalanceReconcileService(
         diff: HoldingDiff,
     ) {
         eventPublisher.publishDrift(userId, null, diff)
+    }
+
+    /**
+     * SystemEvent emit graceful wrap — RECONCILE_DRIFT_DETECTED (spec §6.1 emit point #3).
+     *
+     * runCatching 의무 — emit 자체 실패가 reconcile 본체 cascade 차단 방지.
+     * SystemEventLoggerAdapter도 내부 graceful이지만, port 계약 (spec §6.1)에 따라 caller 측도 추가 wrap.
+     */
+    private fun emitDriftDetected(
+        userId: String,
+        kisHoldingsSize: Int,
+        dbPositionsSize: Int,
+        driftCount: Int,
+    ) {
+        runCatching {
+            systemEventLogger.emit(
+                SystemEvent(
+                    category = SystemEventCategory.RECONCILE,
+                    severity = SystemEventSeverity.WARN,
+                    actor = SYSTEM_EVENT_ACTOR,
+                    action = "RECONCILE_DRIFT_DETECTED",
+                    userId = userId,
+                    detailJson =
+                        """{"kisHoldings":$kisHoldingsSize,"dbPositions":$dbPositionsSize,"driftCount":$driftCount}""",
+                ),
+            )
+        }.onFailure { e ->
+            log.error("SystemEventLogger.emit 실패: action=RECONCILE_DRIFT_DETECTED err={}", e.message)
+        }
     }
 
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"
