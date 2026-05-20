@@ -7,6 +7,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisApprovalAdapter
 import kr.spdaewoon.magicjar.consumer.order.KisExecutionWsListener
+import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.port.QuoteCachePort
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
@@ -41,6 +42,7 @@ class KisWebSocketBridgeOpsp8996FixTest {
     private val objectMapper = ObjectMapper().registerKotlinModule()
     private val quoteCachePort = mockk<QuoteCachePort>(relaxed = true)
     private val wsClient = mockk<ReactorNettyWebSocketClient>(relaxed = true)
+    private val systemEventLogger = mockk<SystemEventLogger>(relaxed = true)
 
     private lateinit var bridge: KisWebSocketBridge
 
@@ -219,6 +221,7 @@ class KisWebSocketBridgeOpsp8996FixTest {
             magicjarMode = magicjarMode,
             defaultUserId = defaultUserId,
             executionListenerProvider = executionListenerProvider,
+            systemEventLogger = systemEventLogger,
         )
     }
 }

@@ -5,6 +5,10 @@ import jakarta.annotation.PreDestroy
 import kotlinx.datetime.Clock
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisApprovalAdapter
 import kr.spdaewoon.magicjar.consumer.order.KisExecutionWsListener
+import kr.spdaewoon.magicjar.domain.event.SystemEvent
+import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
+import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
+import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.port.KisWsPort
 import kr.spdaewoon.magicjar.domain.market.port.QuoteCachePort
 import kr.spdaewoon.magicjar.domain.market.tick.TickEvent
@@ -24,8 +28,10 @@ import reactor.util.concurrent.Queues
 import java.math.BigDecimal
 import java.net.URI
 import java.time.Duration
+import java.time.Instant
 import java.time.LocalTime
 import java.time.ZoneId
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
@@ -105,12 +111,24 @@ class KisWebSocketBridge(
      * - 헌법 §6 + ADR 0066 ObjectProvider 패턴 정합 (KisExecutionWsListener 본체와 동일 패턴).
      */
     private val executionListenerProvider: ObjectProvider<KisExecutionWsListener>,
+    /**
+     * SystemEvent emit port (P1 spec §6.1 emit point #4·#5 — WS_DISCONNECTED·WS_RECONNECTED).
+     *
+     * disconnect/reconnect 사건 그룹화: disconnect 시점 UUID 생성 → reconnect 시 동일 UUID 재사용
+     * (correlationId — UI 표시 시 1쌍 그룹).
+     *
+     * graceful 정책 (헌법 §6 + spec §6.1): emit 실패가 WS 흐름 cascade 차단 방지 — runCatching wrap 의무.
+     */
+    private val systemEventLogger: SystemEventLogger,
 ) : KisWsPort {
     companion object {
         // backlog §29 #4 — Sinks unicast bounded buffer 사이즈 (reconnect 폭주 hardcap).
         // 정상 시 send queue ~6 KB(50 종목 × ~120 byte) 대비 충분한 여유.
         // overflow 시 tryEmitNext가 FAIL_OVERFLOW 반환 → silent drop (backpressure 정책).
         private const val BACKPRESSURE_BUFFER_SIZE = 1024
+
+        /** SystemEvent actor — P1 catalog (spec §6.1 emit point #4·#5). */
+        private const val SYSTEM_EVENT_ACTOR = "KisWebSocketBridge"
     }
 
     private val log = LoggerFactory.getLogger(KisWebSocketBridge::class.java)
@@ -169,6 +187,18 @@ class KisWebSocketBridge(
 
     // 재연결 중복 방지 guard — watchdog 트리거 후 doFinally 완료 전 중복 dispose 차단.
     private val reconnecting = AtomicBoolean(false)
+
+    /**
+     * P1 spec §6.1 emit point #4·#5 — WS_DISCONNECTED·WS_RECONNECTED correlationId 묶기.
+     *
+     * disconnect handler 진입 시 UUID 생성·set, reconnect handler 진입 시 getAndSet(null)로 회수.
+     * - getAndSet(null) → 비어있으면(첫 connect) emit 0 — disconnect 흔적 없는 connect은 audit 의무 없음
+     * - getAndSet(null) → UUID 있으면 동일 correlationId로 WS_RECONNECTED emit (UI 그룹 표시)
+     *
+     * AtomicReference 사용 사유: disconnect doFinally vs handshake handler가 별도 Reactor thread 가능성 →
+     * 가시성·원자성 보장 의무.
+     */
+    private val currentDisconnectCorrelationId = AtomicReference<String?>(null)
 
     // F-1: OPSP8996 self-heal retry 카운터 (subscribe 응답 메시지 단위).
     // ADR 0076 §3 F-1 — 1회 retry(1초 대기) 후 2회 fail 시 ERROR + skip.
@@ -467,6 +497,18 @@ class KisWebSocketBridge(
                     log.info("KIS WS 연결 성공 — approval_key 발급 완료")
                     startHeartbeatWatchdog()
 
+                    // ★ SystemEvent emit point #5 (P1 spec §6.1) — WS_RECONNECTED
+                    // currentDisconnectCorrelationId.getAndSet(null) — 비어있으면 첫 connect (emit skip),
+                    // UUID 있으면 disconnect↔reconnect 1쌍 그룹화 (UI 표시 시 correlationId join).
+                    currentDisconnectCorrelationId.getAndSet(null)?.let { cid ->
+                        emitWsEvent(
+                            severity = SystemEventSeverity.INFO,
+                            action = "WS_RECONNECTED",
+                            correlationId = cid,
+                            detailJson = """{"timestamp":"${Instant.now()}"}""",
+                        )
+                    }
+
                     // ADR 0084 P0-3 — WS 재연결 backfill hook (외부 코드 리뷰 결함 #4 fix).
                     // 재구독 메시지 발사 직전 호출 — disconnect 동안 발생한 체결 통보를 KIS REST inquire-daily-ccld로 보강.
                     // hook 미등록 시 graceful — null check 후 skip.
@@ -524,7 +566,20 @@ class KisWebSocketBridge(
                     session.onDisconnected()
                     stopHeartbeatWatchdog()
                     log.warn("KIS WS 연결 종료: signal={}", signal)
+
+                    // ★ SystemEvent emit point #4 (P1 spec §6.1) — WS_DISCONNECTED
+                    // shuttingDown=true (destroy 정상 종료)는 emit skip — 운영 사고 아님.
+                    // correlationId 새로 생성 → currentDisconnectCorrelationId AtomicReference set →
+                    // 다음 reconnect 시 동일 ID 재사용 (UI 그룹 표시).
                     if (!session.shuttingDown) {
+                        val correlationId = UUID.randomUUID().toString()
+                        currentDisconnectCorrelationId.set(correlationId)
+                        emitWsEvent(
+                            severity = SystemEventSeverity.WARN,
+                            action = "WS_DISCONNECTED",
+                            correlationId = correlationId,
+                            detailJson = """{"reason":"$signal"}""",
+                        )
                         scheduleReconnect()
                     }
                 }.subscribe()
@@ -1374,6 +1429,37 @@ class KisWebSocketBridge(
             log.info("KIS WS AES key 저장: trId={} ivLen={} keyLen={}", trId, iv.length, key.length)
         }.onFailure { e ->
             log.debug("KIS WS AES key 추출 skip: err={}", e.message)
+        }
+    }
+
+    /**
+     * SystemEvent emit graceful wrap — WS catalog (spec §6.1 emit point #4·#5).
+     *
+     * runCatching 의무 — emit 실패가 WS doFinally cascade 차단 방지 (재연결 흐름 보호).
+     * SystemEventLoggerAdapter 자체 graceful이지만, port 계약 따라 caller 측 추가 wrap (헌법 §6).
+     *
+     * userId=null (broadcast) — KIS WS는 단일 시스템 연결 (multi-user 분기 없음).
+     */
+    private fun emitWsEvent(
+        severity: SystemEventSeverity,
+        action: String,
+        correlationId: String,
+        detailJson: String,
+    ) {
+        runCatching {
+            systemEventLogger.emit(
+                SystemEvent(
+                    category = SystemEventCategory.WEBSOCKET,
+                    severity = severity,
+                    actor = SYSTEM_EVENT_ACTOR,
+                    action = action,
+                    userId = null,
+                    correlationId = correlationId,
+                    detailJson = detailJson,
+                ),
+            )
+        }.onFailure { e ->
+            log.error("SystemEventLogger.emit 실패: action={} err={}", action, e.message)
         }
     }
 }
