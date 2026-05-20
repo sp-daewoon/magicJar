@@ -21,6 +21,15 @@ dependencies {
     // PostgreSQL driver (Hibernate JSON cast — StompEventJpaEntity `@JdbcTypeCode(SqlTypes.JSON)` 정합)
     runtimeOnly("org.postgresql:postgresql")
 
+    // Spring Kafka — SystemEventKafkaProducer (P1 system event log)
+    // spec: _workspace/specs/2026-05-20-system-event-log-design.md §6.2
+    // api·consumer 양쪽 ApplicationContext 에서 KafkaTemplate 빈 wiring 정합
+    implementation("org.springframework.kafka:spring-kafka")
+
+    // Jackson jsr310 — SystemEvent.occurredAt(java.time.Instant) 직렬화
+    // api·consumer 모듈은 spring-boot-starter-web 통해 transitively 보유 — persistence-shared 단독 test 정합용
+    implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
+
     // Kotlin std
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
 
