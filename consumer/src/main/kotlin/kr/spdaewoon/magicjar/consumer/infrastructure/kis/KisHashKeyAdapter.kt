@@ -101,7 +101,7 @@ class KisHashKeyAdapter(
         return try {
             // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority, 주문 직전 경로)
             // ADR 0037 초당 10건 한도 강제. timeout 1초 초과 시 KisRateLimitTimeoutException throw.
-            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
 
             val response =
                 webClient
@@ -170,7 +170,7 @@ class KisHashKeyAdapter(
         var signalSent = false
         return try {
             // 재시도 전 다시 acquire — 1초 sleep 후이므로 token refill 보장
-            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
             val response =
                 webClient
                     .post()

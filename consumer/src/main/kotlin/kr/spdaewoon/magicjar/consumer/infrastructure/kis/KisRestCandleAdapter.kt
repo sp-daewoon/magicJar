@@ -303,7 +303,7 @@ class KisRestCandleAdapter(
                     try {
                         // Rate Limit acquire (spec PR #564 §2-2 LOCK — BACKFILL priority)
                         // ADR 0037 초당 10건 한도. 1m 페이지네이션 backfill path → BACKFILL 우선순위
-                        kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 1000L)
+                        kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 5000L)
                         pageAcquired = true
 
                         val body =
@@ -455,7 +455,7 @@ class KisRestCandleAdapter(
                                 var retryAcquired = false
                                 try {
                                     // Rate Limit acquire 재진입 (spec PR #564 §2-2 — retry path BACKFILL)
-                                    kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 1000L)
+                                    kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 5000L)
                                     retryAcquired = true
                                     val retryBody =
                                         webClient
@@ -887,7 +887,7 @@ class KisRestCandleAdapter(
             try {
                 // Rate Limit acquire (spec PR #564 §2-2 LOCK — INGESTION priority)
                 // ADR 0037 초당 10건 한도. 일봉/주봉/월봉/연봉 정기 갱신 path → INGESTION 우선순위
-                kisRateLimiterPort.acquire(KisCallPriority.INGESTION, timeoutMillis = 1000L)
+                kisRateLimiterPort.acquire(KisCallPriority.INGESTION, timeoutMillis = 3000L)
                 attemptAcquired = true
 
                 val body =

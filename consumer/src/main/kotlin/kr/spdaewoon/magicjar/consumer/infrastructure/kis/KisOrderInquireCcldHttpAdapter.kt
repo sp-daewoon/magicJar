@@ -111,7 +111,7 @@ class KisOrderInquireCcldHttpAdapter(
     companion object {
         /** raw: `API_URL = "/uapi/domestic-stock/v1/trading/inquire-daily-ccld"` (2026-05-18 WebFetch LOCK). */
         const val INQUIRE_DAILY_CCLD_PATH: String = "/uapi/domestic-stock/v1/trading/inquire-daily-ccld"
-        private const val TIMEOUT_SEC = 5L
+        private const val TIMEOUT_SEC = 10L
         private val DATE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd")
         private val TIME_FMT = DateTimeFormatter.ofPattern("HHmmss")
         private val KST = ZoneId.of("Asia/Seoul")
@@ -207,7 +207,7 @@ class KisOrderInquireCcldHttpAdapter(
                 }
 
             // Rate Limit acquire (spec PR #564 §2-2 LOCK — BACKFILL priority — reconcile cron ccld 조회)
-            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 1000L)
+            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 5000L)
             acquiredToken = true
 
             val response =

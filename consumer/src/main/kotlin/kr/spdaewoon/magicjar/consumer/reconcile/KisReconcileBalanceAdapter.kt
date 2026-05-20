@@ -76,7 +76,7 @@ class KisReconcileBalanceAdapter(
         private const val ENDPOINT = "/uapi/domestic-stock/v1/trading/inquire-balance"
         private const val TR_ID_REAL = "TTTC8434R"
         private const val TR_ID_MOCK = "VTTC8434R"
-        private const val TIMEOUT_SECONDS = 5L
+        private const val TIMEOUT_SECONDS = 10L
         private const val MAX_PAGES = 20 // 1000주 보유 가정 — 실전 50건 × 20 페이지 안전 한도
         private const val EGW_TPS_EXCEEDED = "EGW00201"
         private const val EGW_BACKOFF_MS = 1000L
@@ -184,7 +184,7 @@ class KisReconcileBalanceAdapter(
         var acquiredToken = false
         try {
             // Rate Limit acquire (spec PR #564 §2-2 LOCK — BACKFILL priority — cron reconcile path)
-            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 1000L)
+            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 5000L)
             acquiredToken = true
 
             @Suppress("UNCHECKED_CAST")

@@ -34,7 +34,7 @@ class KisAuthValidator(
         private const val TOKEN_PATH = "/oauth2/tokenP"
         private const val REAL_HOST = "https://openapi.koreainvestment.com:9443"
         private const val MOCK_HOST = "https://openapivts.koreainvestment.com:29443"
-        private val TIMEOUT = Duration.ofSeconds(5)
+        private val TIMEOUT = Duration.ofSeconds(10)
     }
 
     fun validate(

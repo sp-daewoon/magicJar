@@ -56,12 +56,18 @@ class AccountQueryService(
         const val CACHE_KEY_PREFIX = "account:balance"
 
         /**
-         * Account 잔고 cache TTL — C-2 자본 시각화 정합 (2026-05-20, 30s → 5s 단축).
+         * Account 잔고 cache TTL — EGW00201 burst hotfix (2026-05-20, 5s → 10s 재조정).
          *
-         * 단축 사유: Dashboard 토글·신규 새로고침 시 캐시된 30s 구식 데이터로 시각화 → 자본 흐름 즉시성 손상.
-         * 5s 는 frontend 30s 자동 갱신과 충분히 분리되면서 사용자 trigger 시 KIS 1 호출만 추가.
+         * 변경 이력:
+         *   - 1차: 30s default
+         *   - 2차 (PR #594 C-2): 30s → 5s "돈 관련 실시간" dogfooding
+         *   - 3차 (본 hotfix): 5s → 10s — EGW00201 "초당 거래건수 초과" burst 흡수
+         *     * 사용자 evidence 2026-05-20: REAL+MOCK 동시 polling 5s + schedule worker + Bootstrap
+         *       → KIS 호출 burst → EGW00201 → 500/502 반복
+         *     * 10s 는 frontend 5s polling 중 2번에 1번만 cache miss → KIS 호출 빈도 절반
+         *     * 신선도 손실은 사용자 toggle 시 invalidateQueries 가 즉시 refetch trigger 로 흡수
          */
-        val CACHE_TTL: Duration = Duration.ofSeconds(5)
+        val CACHE_TTL: Duration = Duration.ofSeconds(10)
     }
 
     /**
