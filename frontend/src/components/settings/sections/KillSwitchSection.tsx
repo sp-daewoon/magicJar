@@ -5,9 +5,9 @@
  *
  * 기능:
  * - GET /api/system-config/kill-switch → 현재 상태 표시 (ON/OFF 점 + 사유 + 토글 시각 + 주체)
- * - 토글 버튼 + ConfirmDangerToggle (이중 confirm + 사유 입력 + 60초 cooldown)
+ * - 토글 버튼 + ConfirmDangerToggle (이중 confirm + 사유 입력 + 20초 cooldown)
  * - 사유 minLength=5 maxLength=64 (backend VARCHAR(64) 정합)
- * - 60초 cooldown (ADR 0074 §3-2-2 frontend 채택 — 트레이드오프 (j))
+ * - 20초 cooldown (ADR 0074 §3-2-2 frontend 채택 — 트레이드오프 (j); 2026-05-20 60→20 단축, 사용자 UX dogfooding)
  *
  * 상태별 UX (ADR 0074 §3-2-2 매트릭스 정합):
  * - enabled=true (활성): 빨간 점 + "활성 (ON)" + 사유 + 토글 시각 + 주체 + [KillSwitch OFF 해제] 버튼
@@ -166,13 +166,13 @@ export function KillSwitchSection() {
           warningMessage={
             'KillSwitch를 해제하면 자동 매매가 재개됩니다.\n' +
             'KIS HTS에서 잔고를 직접 확인한 경우에만 해제하세요.\n' +
-            '60초 대기 후 사유 입력 시 확인됩니다.'
+            '20초 대기 후 사유 입력 시 확인됩니다.'
           }
           reasonPlaceholder="해제 사유 (예: KIS HTS 잔고 확인 완료 — 일치)"
           onConfirm={(reason) => handleToggle(false, reason)}
           isPending={isPending}
           buttonVariant="danger"
-          cooldownSeconds={60}
+          cooldownSeconds={20}
         />
       ) : (
         <ConfirmDangerToggle
@@ -180,13 +180,13 @@ export function KillSwitchSection() {
           warningMessage={
             'KillSwitch를 활성화하면 자동 매매가 즉시 중단됩니다.\n' +
             '긴급 상황 또는 시스템 점검 시에만 사용하세요.\n' +
-            '60초 대기 후 사유 입력 시 확인됩니다.'
+            '20초 대기 후 사유 입력 시 확인됩니다.'
           }
           reasonPlaceholder="활성화 사유 (예: 긴급 매매 중단 — 시스템 점검)"
           onConfirm={(reason) => handleToggle(true, reason)}
           isPending={isPending}
           buttonVariant="warning"
-          cooldownSeconds={60}
+          cooldownSeconds={20}
         />
       )}
 

@@ -2,7 +2,7 @@
  * useToggleKillSwitch — PUT /api/system-config/kill-switch mutation hook
  *
  * ADR 0074 §3-3 PUT 흐름 정합:
- * [1] ConfirmDangerToggle confirm + 사유 입력 + 60초 cooldown (UI 레이어 책임)
+ * [1] ConfirmDangerToggle confirm + 사유 입력 + 20초 cooldown (UI 레이어 책임 — 2026-05-20 60→20 단축)
  * [2] PUT { enabled, reason } → backend: UPDATE kill_switch_state + Kafka publish
  * [3] 성공 시 useKillSwitchState 쿼리 invalidate
  *
