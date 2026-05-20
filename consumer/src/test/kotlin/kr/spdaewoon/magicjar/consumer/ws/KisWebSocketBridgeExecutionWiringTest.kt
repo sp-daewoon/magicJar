@@ -7,6 +7,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisApprovalAdapter
 import kr.spdaewoon.magicjar.consumer.order.KisExecutionWsListener
+import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.port.QuoteCachePort
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.ObjectProvider
@@ -41,6 +42,7 @@ class KisWebSocketBridgeExecutionWiringTest {
     private val objectMapper = ObjectMapper().registerKotlinModule()
     private val quoteCachePort = mockk<QuoteCachePort>(relaxed = true)
     private val wsClient = mockk<ReactorNettyWebSocketClient>(relaxed = true)
+    private val systemEventLogger = mockk<SystemEventLogger>(relaxed = true)
 
     init {
         val valueOps = mockk<ValueOperations<String, String>>(relaxed = true)
@@ -179,5 +181,6 @@ class KisWebSocketBridgeExecutionWiringTest {
             magicjarMode = magicjarMode,
             defaultUserId = defaultUserId,
             executionListenerProvider = executionListenerProvider,
+            systemEventLogger = systemEventLogger,
         )
 }
