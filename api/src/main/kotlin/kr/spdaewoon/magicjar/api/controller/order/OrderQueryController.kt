@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.media.Schema
 import io.swagger.v3.oas.annotations.responses.ApiResponse
 import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
+import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.service.order.OrderDetail
 import kr.spdaewoon.magicjar.api.service.order.OrderQueryService
 import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEvent
@@ -32,6 +33,7 @@ import java.time.Instant
 @RequestMapping("/api/orders")
 class OrderQueryController(
     private val orderQueryService: OrderQueryService,
+    private val instrumentJpaRepository: InstrumentJpaRepository,
 ) {
     private val log = LoggerFactory.getLogger(OrderQueryController::class.java)
 
@@ -64,8 +66,10 @@ class OrderQueryController(
     ): OrderListPageResponse {
         log.debug("주문 목록 조회: userId={} status={} from={} to={} page={} size={}", userId, status, from, to, page, size)
         val result = orderQueryService.listByUser(userId, from, to, status, page, size)
+        // Watchlist 패턴 정합 — instrument 테이블 batch lookup으로 종목명 채움 (N+1 회피)
+        val nameByCode = resolveNamesByCodes(result.content.map { it.code }.toSet())
         return OrderListPageResponse(
-            content = result.content.map { toListItem(it) },
+            content = result.content.map { toListItem(it, nameByCode[it.code]) },
             page = result.number,
             size = result.size,
             totalElements = result.totalElements,
@@ -100,11 +104,31 @@ class OrderQueryController(
 
     // ─── private helper ───────────────────────────────────────────────────────
 
-    private fun toListItem(req: OrderRequest): OrderListItemDto =
+    /**
+     * Watchlist 패턴 정합 (WatchlistService.list) — instrument 테이블 batch lookup.
+     *  - findAllById(codes) IN 절 단일 쿼리 → N+1 회피
+     *  - stub row(name=code, market='UNKNOWN')는 사용자에게 종목명으로 부적합 → null fallback
+     *  - 미동기화 종목(존재 X)도 null → frontend가 code만 표시 (graceful)
+     */
+    private fun resolveNamesByCodes(codes: Set<String>): Map<String, String> {
+        if (codes.isEmpty()) return emptyMap()
+        return instrumentJpaRepository
+            .findAllById(codes)
+            .asSequence()
+            .filter { it.market != "UNKNOWN" }
+            .filter { it.name.isNotBlank() && it.name != it.code }
+            .associate { it.code to it.name }
+    }
+
+    private fun toListItem(
+        req: OrderRequest,
+        name: String?,
+    ): OrderListItemDto =
         OrderListItemDto(
             id = req.id ?: 0L,
             userId = req.userId,
             code = req.code,
+            name = name,
             side = req.side.name,
             qty = req.quantity,
             priceType = req.priceType.name,
@@ -117,12 +141,15 @@ class OrderQueryController(
             completedAt = req.completedAt?.toString(),
         )
 
-    private fun toDetailResponse(detail: OrderDetail): OrderDetailResponse =
-        OrderDetailResponse(
-            request = toListItem(detail.request),
+    private fun toDetailResponse(detail: OrderDetail): OrderDetailResponse {
+        // 단건 — 1회 lookup만 (batch 불필요)
+        val name = resolveNamesByCodes(setOf(detail.request.code))[detail.request.code]
+        return OrderDetailResponse(
+            request = toListItem(detail.request, name),
             executions = detail.executions.map { toExecutionDto(it) },
             auditEvents = detail.auditEvents.map { toAuditDto(it) },
         )
+    }
 
     private fun toExecutionDto(exec: OrderExecution): OrderExecutionDto =
         OrderExecutionDto(
@@ -155,6 +182,12 @@ data class OrderListItemDto(
     val userId: String,
     @field:Schema(description = "종목 코드", example = "005930")
     val code: String,
+    @field:Schema(
+        description = "종목명 (instrument 테이블 join · null=미동기화/stub)",
+        example = "삼성전자",
+        nullable = true,
+    )
+    val name: String?,
     @field:Schema(description = "매수/매도", example = "BUY", allowableValues = ["BUY", "SELL"])
     val side: String,
     @field:Schema(description = "주문 수량", example = "10")
