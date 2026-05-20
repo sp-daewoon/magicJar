@@ -7,6 +7,7 @@ import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
 import kr.spdaewoon.magicjar.domain.strategy.Universe
+import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslStrategyDefinition
 
 /**
@@ -42,13 +43,17 @@ object StrategyEntityMapper {
     fun toDomain(
         entity: StrategyJpaEntity,
         objectMapper: ObjectMapper,
+        buyCondition: DslNode? = null,
+        sellCondition: DslNode? = null,
     ): Strategy {
         val dsl =
             DslStrategyDefinition(
                 name = entity.name,
                 nameKo = entity.nameKo ?: "",
-                buyCondition = null, // AST는 텍스트 재파싱 필요 — 조회 시 dslEntry 텍스트 제공
-                sellCondition = null,
+                buyCondition = buyCondition,
+                sellCondition = sellCondition,
+                buyConditionText = entity.dslEntry,
+                sellConditionText = entity.dslExit,
             )
         val definition =
             StrategyDefinition(

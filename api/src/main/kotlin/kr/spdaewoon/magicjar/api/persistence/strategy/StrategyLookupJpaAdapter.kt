@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.cache.RedisStrategyCache
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
+import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyLookupPort
+import kr.spdaewoon.magicjar.strategy.KisYamlDslParser
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
@@ -30,6 +32,7 @@ class StrategyLookupJpaAdapter(
     private val strategyJpaRepository: StrategyJpaRepository,
     private val redisStrategyCache: RedisStrategyCache,
     private val objectMapper: ObjectMapper,
+    private val kisYamlDslParser: KisYamlDslParser,
 ) : StrategyLookupPort {
     private val log = LoggerFactory.getLogger(StrategyLookupJpaAdapter::class.java)
 
@@ -57,15 +60,35 @@ class StrategyLookupJpaAdapter(
         redisStrategyCache.putActive(code, intervalCode, ids)
         log.debug("cache miss → DB: strategy:active:by_code:{}:{} → {} strategies", code, intervalCode, entities.size)
 
-        return entities.map { StrategyEntityMapper.toDomain(it, objectMapper) }
+        return entities.map { toDomain(it) }
     }
 
     // --- private helper ---
 
     private fun fetchByIds(ids: List<Long>): List<Strategy> {
         if (ids.isEmpty()) return emptyList()
-        return strategyJpaRepository.findAllById(ids).map { StrategyEntityMapper.toDomain(it, objectMapper) }
+        return strategyJpaRepository.findAllById(ids).map { toDomain(it) }
     }
 
     private fun buildJsonArray(value: String): String = objectMapper.writeValueAsString(listOf(value))
+
+    private fun toDomain(entity: StrategyJpaEntity): Strategy =
+        StrategyEntityMapper.toDomain(
+            entity = entity,
+            objectMapper = objectMapper,
+            buyCondition = parseDslOrNull(entity.id, "buy", entity.dslEntry),
+            sellCondition = entity.dslExit?.let { parseDslOrNull(entity.id, "sell", it) },
+        )
+
+    private fun parseDslOrNull(
+        strategyId: Long?,
+        side: String,
+        text: String,
+    ): DslNode? {
+        if (text.isBlank()) return null
+        return runCatching { kisYamlDslParser.parse(text) }
+            .onFailure { e ->
+                log.warn("strategy lookup DSL parse 실패: strategyId={} side={} err={}", strategyId, side, e.message)
+            }.getOrNull()
+    }
 }

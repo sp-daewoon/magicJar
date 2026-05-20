@@ -126,6 +126,7 @@ class OrderRequestRepositoryAdapter(
         OrderRequestJpaEntity(
             id = domain.id,
             signalId = domain.signalId,
+            strategyId = domain.strategyId,
             userId = domain.userId,
             code = domain.code,
             side = domain.side,
@@ -148,7 +149,7 @@ class OrderRequestRepositoryAdapter(
             id = entity.id,
             signalId = entity.signalId,
             userId = entity.userId,
-            strategyId = 0L,
+            strategyId = entity.strategyId,
             code = entity.code,
             side = safeEnum<OrderSide>(entity.side.name) ?: OrderSide.BUY,
             priceType = safeEnum<OrderPriceType>(entity.priceType.name) ?: OrderPriceType.MARKET,

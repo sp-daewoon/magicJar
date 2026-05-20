@@ -15,5 +15,7 @@ data class DslStrategyDefinition(
     val nameKo: String? = null,
     val buyCondition: DslNode? = null,
     val sellCondition: DslNode? = null,
+    val buyConditionText: String? = null,
+    val sellConditionText: String? = null,
     val params: Map<String, Any> = emptyMap(),
 )
