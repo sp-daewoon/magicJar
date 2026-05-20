@@ -1,6 +1,10 @@
 package kr.spdaewoon.magicjar.consumer.order
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.event.SystemEvent
+import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
+import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
+import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEvent
 import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEventType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
@@ -55,6 +59,7 @@ class OrderReconciliationWorker(
     private val orderAuditEventRepositoryProvider: ObjectProvider<OrderAuditEventRepository>,
     private val kisOrderInquireDailyCcldPort: KisOrderInquireDailyCcldPort,
     private val objectMapper: ObjectMapper,
+    private val systemEventLogger: SystemEventLogger,
     private val clock: Clock = Clock.systemDefaultZone(),
 ) {
     private val log = LoggerFactory.getLogger(OrderReconciliationWorker::class.java)
@@ -70,6 +75,9 @@ class OrderReconciliationWorker(
         internal const val BATCH_LIMIT: Int = 50
 
         private val KST: ZoneId = ZoneId.of("Asia/Seoul")
+
+        /** SystemEvent actor — P1 catalog (spec §6.1) */
+        private const val SYSTEM_EVENT_ACTOR = "OrderReconciliationWorker"
     }
 
     /**
@@ -106,6 +114,15 @@ class OrderReconciliationWorker(
             pending.size,
             cutoff,
             BATCH_LIMIT,
+        )
+
+        // ★ SystemEvent emit point #1 (P1 spec §6.1) — RECONCILE_FALLBACK_FIRED
+        // PENDING_RECONCILE 1건 이상 발견 시 운영 audit (INFO severity).
+        emitSystemEvent(
+            severity = SystemEventSeverity.INFO,
+            action = "RECONCILE_FALLBACK_FIRED",
+            userId = null, // system-wide audit — 다중 사용자 row 합산 (개별 사용자 audit은 RESOLVED에서)
+            detailJson = """{"pendingCount":${pending.size}}""",
         )
 
         for (row in pending) {
@@ -227,6 +244,18 @@ class OrderReconciliationWorker(
                             "ccldStatus" to result.ccldStatus,
                         ),
                 )
+
+                // ★ SystemEvent emit point #2 (P1 spec §6.1) — RECONCILE_FALLBACK_RESOLVED
+                // filledQty > 0 (실제 체결 발견 — 자본 audit 의무). WARN severity (운영 결함 신호).
+                if (result.filledQty > 0) {
+                    emitSystemEvent(
+                        severity = SystemEventSeverity.WARN,
+                        action = "RECONCILE_FALLBACK_RESOLVED",
+                        userId = row.userId,
+                        detailJson =
+                            """{"orderId":$orderId,"filledQty":${result.filledQty},"orderQty":${result.orderQty}}""",
+                    )
+                }
             }
             is OrderInquireResult.NotFound -> {
                 // KIS 응답 정상 + ODNO 미존재 — KIS 미접수 확정. REJECTED 전이.
@@ -290,6 +319,35 @@ class OrderReconciliationWorker(
             )
         } catch (e: Exception) {
             log.error("writeAudit 실패: orderId={} eventType={} err={}", orderId, eventType, e.message)
+        }
+    }
+
+    /**
+     * SystemEvent emit graceful wrap (spec §6.1 Reconcile catalog).
+     *
+     * runCatching 의무 — emit 자체 실패가 reconcile cron tick을 cascade 차단하면 안 됨.
+     * SystemEventLoggerAdapter 자체도 내부 graceful이지만, port interface 계약 (spec §6.1)에
+     * 따라 caller 측도 추가 wrap 의무.
+     */
+    private fun emitSystemEvent(
+        severity: SystemEventSeverity,
+        action: String,
+        userId: String?,
+        detailJson: String,
+    ) {
+        runCatching {
+            systemEventLogger.emit(
+                SystemEvent(
+                    category = SystemEventCategory.RECONCILE,
+                    severity = severity,
+                    actor = SYSTEM_EVENT_ACTOR,
+                    action = action,
+                    userId = userId,
+                    detailJson = detailJson,
+                ),
+            )
+        }.onFailure { e ->
+            log.error("SystemEventLogger.emit 실패: action={} err={}", action, e.message)
         }
     }
 }

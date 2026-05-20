@@ -5,6 +5,10 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import kr.spdaewoon.magicjar.domain.event.SystemEvent
+import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
+import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
+import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEvent
 import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEventType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
@@ -42,6 +46,7 @@ class OrderReconciliationWorkerTest {
     private val orderRequestRepo = mockk<OrderRequestRepository>(relaxed = true)
     private val orderAuditRepo = mockk<OrderAuditEventRepository>(relaxed = true)
     private val kisInquirePort = mockk<KisOrderInquireDailyCcldPort>(relaxed = true)
+    private val systemEventLogger = mockk<SystemEventLogger>(relaxed = true)
     private val objectMapper = ObjectMapper()
 
     private val now: Instant = Instant.parse("2026-05-18T10:00:00Z")
@@ -62,6 +67,7 @@ class OrderReconciliationWorkerTest {
             orderAuditEventRepositoryProvider = orderAuditProvider,
             kisOrderInquireDailyCcldPort = kisInquirePort,
             objectMapper = objectMapper,
+            systemEventLogger = systemEventLogger,
             clock = fixedClock,
         )
 
@@ -219,6 +225,106 @@ class OrderReconciliationWorkerTest {
                 inquireEndDate = today,
             )
         }
+    }
+
+    // ===== SystemEvent emit (P1 spec §6.1) =====
+
+    /**
+     * (j) PENDING_RECONCILE 1건 이상 발견 시 SystemEventLogger emit RECONCILE_FALLBACK_FIRED.
+     *
+     * spec §6.1 P1 emit point #1:
+     *  - category = RECONCILE / severity = INFO / actor = OrderReconciliationWorker
+     *  - userId = null (system-wide audit — 다중 사용자 row 합산)
+     *  - detailJson = {"pendingCount":N}
+     */
+    @Test
+    fun `(j) FIRED emit — PENDING_RECONCILE 1건 이상 발견 시 SystemEventLogger emit RECONCILE_FALLBACK_FIRED (INFO)`() {
+        val row = stubPendingRow(id = 300L, kisOrderNo = "0000444555", elapsedMinutes = 7)
+        stubPendingLookup(listOf(row))
+        every {
+            kisInquirePort.inquireByOrderNo(any(), any(), any(), any(), any())
+        } returns OrderInquireResult.NotFound
+
+        worker.reconcileTick()
+
+        val eventSlot = slot<SystemEvent>()
+        verify(atLeast = 1) { systemEventLogger.emit(capture(eventSlot)) }
+        val firedEvent = eventSlot.captured
+        assertThat(firedEvent.category).isEqualTo(SystemEventCategory.RECONCILE)
+        assertThat(firedEvent.action).isEqualTo("RECONCILE_FALLBACK_FIRED")
+        assertThat(firedEvent.severity).isEqualTo(SystemEventSeverity.INFO)
+        assertThat(firedEvent.actor).isEqualTo("OrderReconciliationWorker")
+        assertThat(firedEvent.userId).isNull()
+        assertThat(firedEvent.detailJson).contains("\"pendingCount\":1")
+    }
+
+    /**
+     * (k) Found + filledQty > 0 시 SystemEventLogger emit RECONCILE_FALLBACK_RESOLVED.
+     *
+     * spec §6.1 P1 emit point #2:
+     *  - category = RECONCILE / severity = WARN / actor = OrderReconciliationWorker
+     *  - userId = order.userId (사용자별 audit)
+     *  - detailJson = {"orderId":N,"filledQty":N,"orderQty":N}
+     */
+    @Test
+    fun `(k) RESOLVED emit — KIS Found + filledQty greater than 0 시 RECONCILE_FALLBACK_RESOLVED (WARN + userId + filledQty)`() {
+        val row = stubPendingRow(id = 301L, kisOrderNo = "0000666777", elapsedMinutes = 7)
+        stubPendingLookup(listOf(row))
+        every {
+            kisInquirePort.inquireByOrderNo(any(), any(), any(), any(), any())
+        } returns
+            OrderInquireResult.Found(
+                odno = "0000666777",
+                krxFwdgOrdOrgno = "ORG301",
+                filledQty = 7,
+                orderQty = 10,
+                ccldStatus = "부분체결",
+            )
+
+        worker.reconcileTick()
+
+        // FIRED + RESOLVED 둘 다 emit — 2건 capture
+        val events = mutableListOf<SystemEvent>()
+        verify(atLeast = 2) { systemEventLogger.emit(capture(events)) }
+
+        val resolvedEvent = events.first { it.action == "RECONCILE_FALLBACK_RESOLVED" }
+        assertThat(resolvedEvent.category).isEqualTo(SystemEventCategory.RECONCILE)
+        assertThat(resolvedEvent.severity).isEqualTo(SystemEventSeverity.WARN)
+        assertThat(resolvedEvent.actor).isEqualTo("OrderReconciliationWorker")
+        assertThat(resolvedEvent.userId).isEqualTo("user-001")
+        assertThat(resolvedEvent.detailJson).contains("\"orderId\":301")
+        assertThat(resolvedEvent.detailJson).contains("\"filledQty\":7")
+        assertThat(resolvedEvent.detailJson).contains("\"orderQty\":10")
+    }
+
+    /**
+     * (l) Found + filledQty == 0 시 RESOLVED emit 0 — ACK 분기는 자본 audit 의무 없음 (FIRED만 1회).
+     *
+     * 진보 페르소나 lens: RESOLVED는 "실제 체결 발견" 즉 자본 영향 발생 시점 audit.
+     * filledQty == 0 (ACK only)는 자본 영향 0 → audit noise 회피.
+     */
+    @Test
+    fun `(l) Found filledQty == 0 시 RESOLVED emit 0 (FIRED 1회만)`() {
+        val row = stubPendingRow(id = 302L, kisOrderNo = "0000888999", elapsedMinutes = 7)
+        stubPendingLookup(listOf(row))
+        every {
+            kisInquirePort.inquireByOrderNo(any(), any(), any(), any(), any())
+        } returns
+            OrderInquireResult.Found(
+                odno = "0000888999",
+                krxFwdgOrdOrgno = "ORG302",
+                filledQty = 0,
+                orderQty = 10,
+                ccldStatus = "미체결",
+            )
+
+        worker.reconcileTick()
+
+        val events = mutableListOf<SystemEvent>()
+        verify { systemEventLogger.emit(capture(events)) }
+        // FIRED 1건만 — RESOLVED 0건
+        assertThat(events).hasSize(1)
+        assertThat(events[0].action).isEqualTo("RECONCILE_FALLBACK_FIRED")
     }
 
     private fun stubPendingLookup(rows: List<OrderRequest>) {
