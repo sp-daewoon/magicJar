@@ -56,6 +56,11 @@ management:
 magicjar:
   mode: ${MAGICJAR_MODE:MOCK}
   allow-real: ${MAGICJAR_ALLOW_REAL:false}
+  # A 의제 hotfix (2026-05-20) — PositionBootstrapRunner trigger 조건 3중 게이트.
+  # bootstrap.position-on-startup=false 시 부팅 시 KIS 호출 0 (KillSwitch ON risk 0).
+  # default true — 회귀 안전. dev/staging 환경은 magicjar.mode=MOCK 또는 allow-real=false 로 자동 skip.
+  bootstrap:
+    position-on-startup: ${MAGICJAR_BOOTSTRAP_POSITION_ON_STARTUP:true}
   # NOTE: magicjar.ai.* 는 consumer 모듈에서 미사용 (W4 미진입).
   #   T-DSL helper(`NaturalLanguageDslTranslator`)는 api 모듈 한정 — `api/.../application.yml` 단일 위치 LOCK.
   #   W4 진입 시 ai-engineer가 단일 모듈(api)에만 binding 발행 — consumer 합류 시점은 ADR 0026 후속에서 별도 결정.

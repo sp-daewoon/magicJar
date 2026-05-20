@@ -25,6 +25,10 @@ import java.time.Instant
  * PositionBootstrapRunner 단위 테스트 (ADR 0042 idempotency·실패 fallback — 룰 4 정합).
  * - 테스트 1: 활성 사용자 0명 → idle return (KIS 호출 0건)
  * - 테스트 2: KIS 오류 → KillSwitch auto-ON + 다른 사용자 계속
+ * - A 의제 hotfix (2026-05-20) — 3중 게이트 검증 신규:
+ *   - 테스트 3: magicjar.mode=MOCK → Bootstrap skip (KIS 호출 0)
+ *   - 테스트 4: magicjar.allow-real=false → Bootstrap skip
+ *   - 테스트 5: magicjar.bootstrap.position-on-startup=false → Bootstrap skip (명시 비활성)
  */
 class PositionBootstrapRunnerTest {
     private val credentialRepository = mockk<ConsumerUserKisCredentialJpaRepository>()
@@ -35,7 +39,14 @@ class PositionBootstrapRunnerTest {
     private val killSwitchJpaRepository = mockk<KillSwitchJpaRepository>()
     private val auditTrailJpaRepository = mockk<ConsumerAuditTrailJpaRepository>()
 
-    private val runner =
+    /** 3중 게이트 충족 default runner (REAL + allowReal + bootstrapOnStartup=true) */
+    private val runner = newRunner(mode = "REAL", allowReal = true, bootstrapOnStartup = true)
+
+    private fun newRunner(
+        mode: String,
+        allowReal: Boolean,
+        bootstrapOnStartup: Boolean,
+    ): PositionBootstrapRunner =
         PositionBootstrapRunner(
             credentialRepository = credentialRepository,
             kisBalanceAdapter = kisBalanceAdapter,
@@ -44,6 +55,9 @@ class PositionBootstrapRunnerTest {
             redisPositionCacheAdapter = redisPositionCacheAdapter,
             killSwitchJpaRepository = killSwitchJpaRepository,
             auditTrailJpaRepository = auditTrailJpaRepository,
+            magicjarMode = mode,
+            magicjarAllowReal = allowReal,
+            bootstrapOnStartup = bootstrapOnStartup,
         )
 
     private val args = DefaultApplicationArguments()
@@ -106,5 +120,53 @@ class PositionBootstrapRunnerTest {
         verify(exactly = 1) { killSwitchJpaRepository.enableKillSwitch("11111111", any(), any()) }
         // user2 position upsert 검증 — 계속 진행
         verify(exactly = 1) { positionJpaRepository.upsert("22222222", "005930", 10, BigDecimal("70000")) }
+    }
+
+    // ── A 의제 hotfix (2026-05-20) — 3중 게이트 검증 ──
+
+    @Test
+    fun `A 의제 — magicjar_mode=MOCK 이면 Bootstrap skip (KIS 호출 0 + KillSwitch 0)`() {
+        val mockModeRunner = newRunner(mode = "MOCK", allowReal = true, bootstrapOnStartup = true)
+
+        mockModeRunner.run(args)
+
+        // credentialRepository 호출 자체가 없음 (3중 게이트 검증 후 즉시 return)
+        verify(exactly = 0) { credentialRepository.findAllByAccountType(any()) }
+        verify(exactly = 0) { kisBalanceAdapter.fetchBalance(any(), any()) }
+        verify(exactly = 0) { killSwitchJpaRepository.enableKillSwitch(any(), any(), any()) }
+    }
+
+    @Test
+    fun `A 의제 — magicjar_allow-real=false 이면 Bootstrap skip (REAL 게이트 미충족)`() {
+        val noAllowRealRunner = newRunner(mode = "REAL", allowReal = false, bootstrapOnStartup = true)
+
+        noAllowRealRunner.run(args)
+
+        verify(exactly = 0) { credentialRepository.findAllByAccountType(any()) }
+        verify(exactly = 0) { kisBalanceAdapter.fetchBalance(any(), any()) }
+        verify(exactly = 0) { killSwitchJpaRepository.enableKillSwitch(any(), any(), any()) }
+    }
+
+    @Test
+    fun `A 의제 — bootstrap_position-on-startup=false 이면 Bootstrap skip (명시 비활성)`() {
+        val disabledRunner = newRunner(mode = "REAL", allowReal = true, bootstrapOnStartup = false)
+
+        disabledRunner.run(args)
+
+        verify(exactly = 0) { credentialRepository.findAllByAccountType(any()) }
+        verify(exactly = 0) { kisBalanceAdapter.fetchBalance(any(), any()) }
+        verify(exactly = 0) { killSwitchJpaRepository.enableKillSwitch(any(), any(), any()) }
+    }
+
+    @Test
+    fun `A 의제 — shouldRunBootstrap 3중 게이트 모두 true 일 때만 true 반환`() {
+        // REAL + allowReal + bootstrapOnStartup 모두 true → true
+        assert(newRunner("REAL", true, true).shouldRunBootstrap())
+        // 셋 중 하나라도 false → false
+        assert(!newRunner("MOCK", true, true).shouldRunBootstrap())
+        assert(!newRunner("REAL", false, true).shouldRunBootstrap())
+        assert(!newRunner("REAL", true, false).shouldRunBootstrap())
+        // 대소문자 무관 (real == REAL)
+        assert(newRunner("real", true, true).shouldRunBootstrap())
     }
 }
