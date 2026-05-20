@@ -10,6 +10,7 @@ import kr.spdaewoon.magicjar.domain.order.event.OrderEventOutbox
 import kr.spdaewoon.magicjar.domain.order.event.port.OrderEventOutboxRepository
 import kr.spdaewoon.magicjar.domain.reconcile.port.KillSwitchTogglePort
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
@@ -44,9 +45,15 @@ import java.util.concurrent.TimeoutException
  * `kafkaTemplate.send().get([KAFKA_SEND_TIMEOUT_SECONDS]s)` — broker 응답 지연 시 worker 무한 block 차단.
  * TimeoutException 발생 시 일반 publish 실패와 동일하게 attempt_count++ 처리.
  *
- * ### Repository wiring (FIX C-3)
- * persistence-shared 모듈 합류(ADR 0088) 이후 어댑터 항상 available 보장 → ObjectProvider 폐기 +
- * direct inject 로 단순화. 알림·KillSwitch 보조 path 도 동일.
+ * ### Repository wiring (FIX C-3 + hotfix 2026-05-20)
+ * persistence-shared 모듈 합류(ADR 0088) 이후 OrderEventOutbox·NotificationOutbox 어댑터는 항상 available
+ * 보장 → direct inject.
+ *
+ * **KillSwitchTogglePort hotfix (2026-05-20)**: KillSwitchToggleAdapter는 api 모듈 단독 등록
+ * (consumer 모듈 어댑터 0건) → consumer ApplicationContext 에서 direct inject 시 UnsatisfiedDependencyException
+ * → 부팅 fail → 자본 path 전체 차단 (사용자 dogfooding evidence: manual 주문 발행했으나 consumer 처리 0).
+ * 따라서 KillSwitchTogglePort 는 `ObjectProvider` 패턴 복원 — graceful skip 으로 부팅 안전성 우선.
+ * 후속 의제: KillSwitchToggleAdapter persistence-shared 이관 검토 (ADR 0088 amend).
  *
  * // AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0084 §1-2)
  */
@@ -56,7 +63,8 @@ class OrderOutboxPublisherWorker(
     private val kafkaTemplate: KafkaTemplate<String, String>,
     private val objectMapper: ObjectMapper,
     private val notificationOutboxRepository: NotificationOutboxRepository,
-    private val killSwitchTogglePort: KillSwitchTogglePort,
+    // hotfix: api 단독 어댑터라 consumer direct inject 불가 → ObjectProvider 복원 (부팅 안전)
+    private val killSwitchTogglePortProvider: ObjectProvider<KillSwitchTogglePort>,
 ) {
     private val log = LoggerFactory.getLogger(OrderOutboxPublisherWorker::class.java)
 
@@ -224,7 +232,17 @@ class OrderOutboxPublisherWorker(
             )
             return
         }
-        runCatching { killSwitchTogglePort.engage(userId, KILLSWITCH_REASON) }
+        // hotfix: KillSwitchToggleAdapter 는 api 모듈 단독 → consumer 에서 getIfAvailable() == null 가능 (graceful skip)
+        val port = killSwitchTogglePortProvider.getIfAvailable()
+        if (port == null) {
+            log.warn(
+                "KillSwitchTogglePort 미등록 (api 모듈 단독 어댑터) — drain FAILED 후속 engage skip outboxId={} userId={}",
+                outbox.id,
+                userId,
+            )
+            return
+        }
+        runCatching { port.engage(userId, KILLSWITCH_REASON) }
             .onSuccess {
                 log.error(
                     "KillSwitch auto-ON (drain FAILED): outboxId={} userId={} reason={}",

@@ -14,6 +14,7 @@ import kr.spdaewoon.magicjar.domain.order.event.port.OrderEventOutboxRepository
 import kr.spdaewoon.magicjar.domain.reconcile.port.KillSwitchTogglePort
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.kafka.support.SendResult
 import java.time.Instant
@@ -39,19 +40,22 @@ class OrderOutboxPublisherWorkerTest {
     private val outboxRepository = mockk<OrderEventOutboxRepository>(relaxed = true)
     private val notificationRepository = mockk<NotificationOutboxRepository>(relaxed = true)
     private val killSwitchPort = mockk<KillSwitchTogglePort>(relaxed = true)
+    private val killSwitchProvider = mockk<ObjectProvider<KillSwitchTogglePort>>()
 
     @Suppress("UNCHECKED_CAST")
     private val kafkaTemplate = mockk<KafkaTemplate<String, String>>(relaxed = true)
     private val objectMapper = ObjectMapper()
 
-    private fun newWorker(): OrderOutboxPublisherWorker =
-        OrderOutboxPublisherWorker(
+    private fun newWorker(): OrderOutboxPublisherWorker {
+        every { killSwitchProvider.getIfAvailable() } returns killSwitchPort
+        return OrderOutboxPublisherWorker(
             outboxRepository = outboxRepository,
             kafkaTemplate = kafkaTemplate,
             objectMapper = objectMapper,
             notificationOutboxRepository = notificationRepository,
-            killSwitchTogglePort = killSwitchPort,
+            killSwitchTogglePortProvider = killSwitchProvider,
         )
+    }
 
     private fun pendingOutbox(
         id: Long,
