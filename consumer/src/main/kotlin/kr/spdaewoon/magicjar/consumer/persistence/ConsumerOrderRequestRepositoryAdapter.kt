@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.consumer.persistence
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
@@ -124,6 +125,8 @@ class ConsumerOrderRequestRepositoryAdapter(
             requestedAt = domain.requestedAt,
             acknowledgedAt = domain.acknowledgedAt,
             completedAt = domain.completedAt,
+            // hotfix 2026-05-20 — T-MAN Phase 1 PR #510 회귀 매핑 (MANUAL 주문 보존 의무)
+            source = domain.source,
         )
 
     private fun toDomain(entity: ConsumerOrderRequestJpaEntity): OrderRequest =
@@ -146,6 +149,8 @@ class ConsumerOrderRequestRepositoryAdapter(
             requestedAt = entity.requestedAt,
             acknowledgedAt = entity.acknowledgedAt,
             completedAt = entity.completedAt,
+            // hotfix 2026-05-20 — source 매핑 추가 (audit 정합 의무)
+            source = safeEnum<OrderSource>(entity.source.name) ?: OrderSource.AUTO,
         )
 
     private inline fun <reified T : Enum<T>> safeEnum(value: String): T? = runCatching { enumValueOf<T>(value) }.getOrNull()
