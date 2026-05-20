@@ -95,7 +95,7 @@ class SymbolController(
             "interval 인터벌의 캔들 시계열을 반환합니다 (DB candle + Redis current·today 합류). " +
                 "interval: 1m·5m·30m·1h·1d·1wk·1mo·1y (8종 — ADR 0019 §2-2). " +
                 "before: 페이지네이션 cursor (ISO8601, 미지정 시 최신). " +
-                "limit: 최대 500 (default 200). " +
+                "limit: 1 ≤ limit ≤ 5000 (default 600 — ADR 0093 §3-1 LOCK). " +
                 "응답 candles는 ts ASC 정렬 (LWC v4 setData 기대). " +
                 "hasMore:true이면 nextBefore cursor로 추가 fetch 가능. " +
                 "데이터 0건이면 candles:[] + hasMore:false (graceful — '데이터 수집 중' 표시).",
@@ -121,8 +121,8 @@ class SymbolController(
         @RequestParam(defaultValue = "1d") interval: String,
         @Parameter(description = "페이지네이션 cursor — 이 시각 이전 candle 반환 (ISO8601)", example = "2026-05-07T15:30:00Z")
         @RequestParam(required = false) before: String?,
-        @Parameter(description = "응답 캔들 수 (1~500, default 200)", example = "200")
-        @RequestParam(defaultValue = "200") limit: Int,
+        @Parameter(description = "응답 캔들 수 (1~5000, default 600 — ADR 0093 §3-1 LOCK)", example = "600")
+        @RequestParam(defaultValue = "600") limit: Int,
     ): CandlesResponseDto {
         validateCode(code)
         if (interval !in candleQueryService.supportedIntervals) {

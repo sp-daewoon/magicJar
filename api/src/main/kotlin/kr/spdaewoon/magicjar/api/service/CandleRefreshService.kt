@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.api.service
 
+import kr.spdaewoon.magicjar.api.config.ChartCandleProperties
 import kr.spdaewoon.magicjar.api.infrastructure.kis.KisTokenCacheHelper
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
@@ -56,6 +57,7 @@ class CandleRefreshService(
     private val tokenHelper: KisTokenCacheHelper,
     private val credentialRepository: UserKisCredentialJpaRepository,
     private val kisRateLimiterPort: KisRateLimiterPort,
+    private val chartCandleProperties: ChartCandleProperties,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseProd: String,
 ) {
@@ -74,17 +76,17 @@ class CandleRefreshService(
         private val DATE_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd")
         private val KST_ZONE: ZoneId = ZoneId.of("Asia/Seoul")
 
-        /**
-         * FHKST03010100 cursor 페이지네이션 최대 페이지 수 (B-2 fix 2026-05-19 backend-core).
-         *
-         * KIS `inquire-daily-itemchartprice` 응답 output2[]는 단일 호출 100건 limit (KIS API 정책).
-         * 30년 범위(약 7560 거래일) 요청 시 단일 페이지로 전부 못 받음 → cursor 페이지네이션 의무.
-         *
-         * MAX_PAGES=6 (100 × 6 = 600 거래일 ≈ 2.4년 cover) — fromDate~toDate 범위가 그 이상이면 안전 종료.
-         * 정기 운영 시 fromDate=30년 전이지만 실제 사용자 요청은 fresh fetch (recent gap fill) 위주이므로
-         * 6 페이지로 충분. B-1 consumer fix와 정합 — chart-curator PR #587 evidence + ADR 0086 §11.
-         */
-        private const val DAILY_MAX_PAGES = 6
+        // FHKST03010100 cursor 페이지네이션 최대 페이지 수 — **property 외부화** (ADR 0093 §3-1 LOCK).
+        //
+        // 기존 hardcode `DAILY_MAX_PAGES = 6` → [ChartCandleProperties.getMaxPagesFor] 동적 lookup.
+        //
+        // 매트릭스 (spec PR #609 §5 정합 — application.yml `magicjar.candle.max-pages-by-interval`):
+        //   1d=50(5000봉·약 20년) / 1wk=20(2000봉·약 38년) / 1mo=12(1200봉·약 100년) / 1y=6(600봉)
+        //
+        // KIS `inquire-daily-itemchartprice` 응답 output2[]는 단일 호출 100건 limit (KIS API 정책).
+        // 30년 범위(약 7560 거래일) 요청 시 단일 페이지로 전부 못 받음 → cursor 페이지네이션 의무.
+        // Default fallback (config 부재 시): 6 — 기존 hardcode 회귀 안전.
+        // B-1 consumer fix와 정합 — chart-curator PR #587 evidence + ADR 0086 §11 + ADR 0093.
 
         /** FHKST03010100 interval → period_div_code 매핑 */
         private val DAILY_INTERVALS =
@@ -251,7 +253,8 @@ class CandleRefreshService(
      *   사용자 dogfooding (한국석유 004090) evidence: 5개월 갭 누적 root cause 중 하나.
      *
      *   Fix: `fid_input_date_2`(종료일)를 cursor로 역방향 페이지네이션 — 응답 oldest date의 -1일을 다음 cursor로 사용.
-     *   최대 DAILY_MAX_PAGES(=6) 페이지 안전 종료. cursor advance 부재 시 break 무한루프 가드.
+     *   최대 페이지 수는 [ChartCandleProperties.getMaxPagesFor] 기반 timeframe별 매트릭스 (ADR 0093 §3-1).
+     *   cursor advance 부재 시 break 무한루프 가드.
      *   ASC 정규화는 parseKisDailyOutput2 단일 LOCK (PR #558 정합) — 전체 페이지 합산 후 sortedBy.
      */
     private fun refreshDailyCandles(
@@ -267,6 +270,10 @@ class CandleRefreshService(
         val fromDate = LocalDate.now(KST_ZONE).minusYears(30)
         val startDateStr = fromDate.format(DATE_FMT)
 
+        // ADR 0093 §3-1 LOCK — property 외부화 매트릭스 lookup (1d=50, 1wk=20, 1mo=12, 1y=6).
+        // 기존 hardcode `DAILY_MAX_PAGES = 6` 폐기 — fallback 6 유지 (회귀 안전).
+        val maxPages = chartCandleProperties.getMaxPagesFor(intervalCode)
+
         val allCandles = mutableListOf<KisDailyRow>()
         var cursor: LocalDate = LocalDate.now(KST_ZONE)
         var pageCount = 0
@@ -277,7 +284,7 @@ class CandleRefreshService(
         var lastPageSignalSent = true // 첫 페이지 진입 전 — outer catch에서 false 시그널 보강
         var lastPageAcquired = false
         try {
-            while (pageCount < DAILY_MAX_PAGES) {
+            while (pageCount < maxPages) {
                 if (cursor < fromDate) break
 
                 // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority)
@@ -386,12 +393,13 @@ class CandleRefreshService(
                 if (cursor < fromDate) break
             }
 
-            if (pageCount >= DAILY_MAX_PAGES) {
+            if (pageCount >= maxPages) {
                 log.info(
-                    "캔들 갱신 MAX_PAGES 도달 안전 종료: code={} interval={} pages={}",
+                    "캔들 갱신 MAX_PAGES 도달 안전 종료 (property 매트릭스 LOCK): code={} interval={} pages={} maxPages={}",
                     code,
                     intervalCode,
                     pageCount,
+                    maxPages,
                 )
             }
 

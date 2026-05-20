@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.api
 
+import kr.spdaewoon.magicjar.api.config.ChartCandleProperties
 import kr.spdaewoon.magicjar.api.infrastructure.kis.KisTokenCacheHelper
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaEntity
@@ -48,9 +49,13 @@ import java.util.Optional
  * 룰 5 위반 금지: LLM provider import 0건.
  */
 class CandleRefreshServiceAscNormalizeTest {
-    private fun buildService(instrumentJpaRepository: InstrumentJpaRepository = mock<InstrumentJpaRepository>()): CandleRefreshService {
+    private fun buildService(
+        instrumentJpaRepository: InstrumentJpaRepository = mock<InstrumentJpaRepository>(),
+        chartCandleProperties: ChartCandleProperties = ChartCandleProperties(),
+    ): CandleRefreshService {
         // ASC 정규화는 외부 의존성 0이므로 모든 dependency mock 가능.
         // T-4 통합 (2026-05-20) — credential·cipher·redis 는 KisTokenCacheHelper 위임으로 이전.
+        // Phase 3 (2026-05-20 ADR 0093) — ChartCandleProperties 의존성 추가 (default fallback 6 활용).
         return CandleRefreshService(
             webClient = mock<WebClient>(),
             instrumentJpaRepository = instrumentJpaRepository,
@@ -59,6 +64,7 @@ class CandleRefreshServiceAscNormalizeTest {
             // P0 hotfix 2026-05-20 — credentialRepository 추가 (빈 userId 차단을 위한 1순위 REAL row userId 추출)
             credentialRepository = mock<kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaRepository>(),
             kisRateLimiterPort = mock<KisRateLimiterPort>(),
+            chartCandleProperties = chartCandleProperties,
             kisBaseProd = "https://openapi.koreainvestment.com:9443",
         )
     }

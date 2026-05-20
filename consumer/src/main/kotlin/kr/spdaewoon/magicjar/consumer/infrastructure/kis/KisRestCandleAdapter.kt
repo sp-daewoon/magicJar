@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.infrastructure.kis
 
+import kr.spdaewoon.magicjar.consumer.config.ChartCandleProperties
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
@@ -65,6 +66,7 @@ class KisRestCandleAdapter(
     private val credentialRepository: ConsumerUserKisCredentialJpaRepository,
     private val instrumentRepository: ConsumerInstrumentJpaRepository,
     private val kisRateLimiterPort: KisRateLimiterPort,
+    private val chartCandleProperties: ChartCandleProperties,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseProd: String,
     @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
@@ -106,17 +108,28 @@ class KisRestCandleAdapter(
         const val KIS_PAGE_LIMIT: Int = 100
 
         /**
-         * 페이지네이션 안전 한도 — 무한 loop·과도한 호출 방지.
+         * 페이지네이션 안전 한도 default fallback (ADR 0093 §3-1 LOCK · application.yml 미설정 시).
          *
-         * PR 2cbd4e8 검증 패턴 (한국석유 004090 1년 backfill 243봉 = 3 pages):
-         *   - 일봉(D): 6 pages × 100 = 600봉 ≈ 약 2.5년 cover
-         *   - 주봉(W): 6 pages × 100 = 600봉 ≈ 약 11년 cover
-         *   - 월봉(M): 6 pages × 100 = 600봉 ≈ 약 50년 cover
-         *   - 연봉(Y): 6 pages × 100 = 600봉 ≈ 600년 cover (사실상 무제한)
+         * **권위 변경 (2026-05-20 backend-core Phase 3 — ADR 0093)**:
+         *   기존 `const val MAX_PAGES = 6` 단일 hardcode → [ChartCandleProperties.getMaxPagesFor] timeframe별 매트릭스.
          *
-         * Rate Limit (ADR 0037 초당 10건): 6 calls × ~100ms = 600ms — 한도 영향 미미.
+         *   매트릭스 (`magicjar.candle.max-pages-by-interval` — spec PR #609 §5):
+         *     1d=50(5000봉·약 20년) / 1wk=20(2000봉·약 38년) / 1mo=12(1200봉·약 100년) / 1y=6(600봉)
+         *     1m=48(4800봉) / 5m·15m·30m·1h=38(3800봉)
+         *
+         *   본 const `DEFAULT_MAX_PAGES`는 회귀 안전 fallback (config 부재 시) — chart-curator
+         *   페이지네이션 회귀 가드 테스트 호환성 LOCK.
+         *
+         * Rate Limit (ADR 0037 초당 10건): 일봉 50 pages × ~100ms = 5초 — 사용자 1명 5초 점유.
+         * USER_PATH priority 합류 시 다른 종목 진입 사용자에 영향 미미 (ADR 0037 §2-1 LOCK).
          */
-        const val MAX_PAGES: Int = 6
+        const val DEFAULT_MAX_PAGES: Int = 6
+
+        @Deprecated(
+            message = "ADR 0093 §3-1 LOCK — timeframe별 매트릭스 ChartCandleProperties.getMaxPagesFor 사용. 본 상수는 default fallback 시그니처 유지용.",
+            replaceWith = ReplaceWith("DEFAULT_MAX_PAGES"),
+        )
+        const val MAX_PAGES: Int = DEFAULT_MAX_PAGES
 
         /** CandleInterval → KIS period_div_code 매핑 (FHKST03010100) */
         private fun toPeriodDivCode(interval: CandleInterval): String =
@@ -723,13 +736,15 @@ class KisRestCandleAdapter(
             val periodDivCode = toPeriodDivCode(interval)
 
             // PR 2cbd4e8 cursor 페이지네이션 (1:1 재적용 — 한국석유 검증된 패턴).
-            // cursor = today부터 역순 walkback. MAX_PAGES=6 (≈ 2.5년 일봉 / 11년 주봉 / 50년 월봉).
+            // ADR 0093 §3-1 LOCK — timeframe별 매트릭스 (1d=50, 1wk=20, 1mo=12, 1y=6 — property 외부화).
+            // 기존 hardcode `MAX_PAGES = 6` 폐기 → ChartCandleProperties.getMaxPagesFor(interval.code).
             val accumulator = mutableListOf<Candle>()
             var cursor: LocalDate = LocalDate.now(KST_ZONE)
             // 30년 backfill 의도 — minimum 시작일 가드 (cursor가 이보다 더 과거로 가면 종료).
             val minStartDate: LocalDate = LocalDate.now(KST_ZONE).minusYears(30)
+            val maxPages = chartCandleProperties.getMaxPagesFor(interval.code)
 
-            for (page in 0 until MAX_PAGES) {
+            for (page in 0 until maxPages) {
                 if (cursor.isBefore(minStartDate)) {
                     log.debug(
                         "KIS REST candle 페이지네이션 minStartDate 도달 — 종료: code={} interval={} page={} cursor={}",

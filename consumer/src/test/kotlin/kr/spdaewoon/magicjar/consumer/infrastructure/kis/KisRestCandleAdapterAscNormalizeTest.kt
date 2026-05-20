@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.infrastructure.kis
 
 import io.mockk.mockk
+import kr.spdaewoon.magicjar.consumer.config.ChartCandleProperties
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
@@ -45,6 +46,7 @@ import java.time.LocalDate
 class KisRestCandleAdapterAscNormalizeTest {
     private fun buildAdapter(): KisRestCandleAdapter {
         // ASC 정규화는 외부 의존성 0이므로 모든 dependency mock 가능.
+        // Phase 3 (2026-05-20 ADR 0093) — ChartCandleProperties 의존성 추가 (default fallback 6 활용).
         return KisRestCandleAdapter(
             webClient = mockk<WebClient>(relaxed = true),
             kisAuthAdapter = mockk<KisAuthAdapter>(relaxed = true),
@@ -52,6 +54,7 @@ class KisRestCandleAdapterAscNormalizeTest {
             credentialRepository = mockk<ConsumerUserKisCredentialJpaRepository>(relaxed = true),
             instrumentRepository = mockk<ConsumerInstrumentJpaRepository>(relaxed = true),
             kisRateLimiterPort = mockk<KisRateLimiterPort>(relaxed = true),
+            chartCandleProperties = ChartCandleProperties(),
             kisBaseProd = "https://openapi.koreainvestment.com:9443",
             kisBaseVps = "https://openapivts.koreainvestment.com:29443",
         )
