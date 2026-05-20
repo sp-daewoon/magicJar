@@ -132,6 +132,16 @@ class KisWebSocketBridge(
     // destroy() 진입 시 새 CountDownLatch(1)로 교체, handleMessage에서 isUnsubscribeAck 시 countDown
     private val pendingUnsubAckLatch = AtomicReference<java.util.concurrent.CountDownLatch?>(null)
 
+    // hotfix 2026-05-20 — KIS WS AES key 저장 (trId별 iv·key 매핑).
+    // 구독 SUCCESS 응답 `output.iv/key` 추출 후 trIdToAesKey[trId]에 저장 → encrypted RealtimeData (H0STCNI 등) 복호화 시 사용.
+    // KIS spec: H0STCNI0/9 (체결통보)는 항상 AES-256-CBC 암호화 — iv 16 byte UTF-8, key 32 byte UTF-8.
+    private data class KisWsAesKey(
+        val iv: String,
+        val key: String,
+    )
+
+    private val trIdToAesKey = ConcurrentHashMap<String, KisWsAesKey>()
+
     private val session = KisWebSocketSession()
     private val scheduler = Executors.newScheduledThreadPool(1)
 
@@ -532,24 +542,45 @@ class KisWebSocketBridge(
             }
 
             is KisWsMessageParser.ParsedMessage.RealtimeData -> {
+                // hotfix 2026-05-20 — encrypted=true (KIS 첫 필드 1) 시 AES-256-CBC 복호화 후 forward.
+                // H0STCNI0/9 (체결통보)는 항상 encrypted=true. 평문은 그대로 통과.
+                val data =
+                    if (parsed.encrypted) {
+                        val aesKey = trIdToAesKey[parsed.trId]
+                        if (aesKey == null) {
+                            log.error(
+                                "KIS WS encrypted 메시지 — AES key 미저장 (구독 SUCCESS 응답 누락): trId={} rawDataPrefix={}",
+                                parsed.trId,
+                                parsed.rawData.take(40),
+                            )
+                            return
+                        }
+                        runCatching { KisWsAesDecryptor.decrypt(parsed.rawData, aesKey.iv, aesKey.key) }
+                            .getOrElse { e ->
+                                log.error("KIS WS AES 복호화 실패: trId={} err={}", parsed.trId, e.message)
+                                return
+                            }
+                    } else {
+                        parsed.rawData
+                    }
                 when (parsed.trId) {
-                    "H0STCNT0" -> handleTickData(parsed.rawData)
+                    "H0STCNT0" -> handleTickData(data)
                     // H0NXCNT0 NXT 대체거래소 체결가 — ADR 0063 NXT 08:00~20:00 KST cover
                     // KIS-first: open-trading-api ccnl_nxt() tr_id=H0NXCNT0
                     // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
-                    "H0NXCNT0" -> handleNxtTickData(parsed.rawData)
-                    "H0STASP0" -> handleOrderbookData(parsed.rawData)
+                    "H0NXCNT0" -> handleNxtTickData(data)
+                    "H0STASP0" -> handleOrderbookData(data)
                     // H0STCNI0(REAL) / H0STCNI9(MOCK) 체결통보 — ADR 0068 §14-6 LOCK
                     // KIS-first 출처: examples_user/domestic_stock/domestic_stock_functions_ws.py L389~L446 (def ccnl_notice)
                     //   raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
                     //   - H0STCNI0 = 실전 체결통보 / H0STCNI9 = 모의 체결통보 (env_dv real/demo 분기)
                     //   - body는 caret(^) delimiter — KisExecutionWsListener.onWebSocketMessage()가 KisExecutionMessage.parseFromCaretDelimited() 위임
                     //   - 흐름 분기는 cntgYn/acptYn/rfusYn 기준 (tr_id 분기 불필요 — listener 내부 §14-6 LOCK)
-                    "H0STCNI0", "H0STCNI9" -> handleExecutionNotice(parsed.trId, parsed.rawData)
+                    "H0STCNI0", "H0STCNI9" -> handleExecutionNotice(parsed.trId, data)
                     // H0STOUP0 시간외 단일가 체결가 — ADR 0076 Phase 3 B-2 — 16:00~18:00 KST
                     // KIS-first: overtime_ccnl_krx.py tr_id="H0STOUP0" — 국내주식 시간외 실시간체결가 (KRX) [실시간-042]
                     // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
-                    "H0STOUP0" -> handleOvertimeSinglePriceTickData(parsed.rawData)
+                    "H0STOUP0" -> handleOvertimeSinglePriceTickData(data)
                     else -> log.debug("KIS WS 알 수 없는 TR_ID: trId={}", parsed.trId)
                 }
             }
@@ -568,6 +599,9 @@ class KisWebSocketBridge(
                         opsp8996RetryCount.set(0)
                         log.debug("KIS WS subscribe 성공 — OPSP8996 retry counter reset")
                     }
+                    // hotfix 2026-05-20 — 구독 SUCCESS 응답에서 AES iv·key 추출 + trIdToAesKey 저장.
+                    // H0STCNI0/9 등 encrypted RealtimeData 처리 시 KisWsAesDecryptor에 위임.
+                    extractAndStoreAesKey(parsed.rawJson)
                     log.info("KIS WS 구독 응답: success=true json={}", parsed.rawJson.take(200))
                 } else if (KisWsMessageParser.isUnsubscribeAck(parsed.rawJson)) {
                     // E-1: unsubscribe ACK 수신 — destroy() 대기 latch 해제
@@ -1310,4 +1344,36 @@ class KisWebSocketBridge(
                     ),
             ),
         )
+
+    /**
+     * hotfix 2026-05-20 — KIS WS 구독 SUCCESS 응답에서 AES iv·key 추출 + [trIdToAesKey] 저장.
+     *
+     * KIS 공식 응답 format (subscribe SUCCESS):
+     * ```
+     * {"header":{"tr_id":"H0STCNI9","tr_key":"...","encrypt":"N"},
+     *  "body":{"rt_cd":"0","msg_cd":"OPSP0000","msg1":"SUBSCRIBE SUCCESS",
+     *          "output":{"iv":"42e0241e013374b7","key":"ygnh..."}}}
+     * ```
+     *
+     * iv·key 부재 시 (체결가 등 비암호화 구독) skip — log 0.
+     * iv·key 존재 시 trIdToAesKey[trId] 저장 → 후속 RealtimeData(encrypted=true) 도착 시 복호화.
+     */
+    private fun extractAndStoreAesKey(rawJson: String) {
+        runCatching {
+            val root = objectMapper.readTree(rawJson)
+            val trId =
+                root
+                    .path("header")
+                    .path("tr_id")
+                    .asText("")
+                    .takeIf { it.isNotBlank() } ?: return@runCatching
+            val output = root.path("body").path("output")
+            val iv = output.path("iv").asText("").takeIf { it.isNotBlank() } ?: return@runCatching
+            val key = output.path("key").asText("").takeIf { it.isNotBlank() } ?: return@runCatching
+            trIdToAesKey[trId] = KisWsAesKey(iv = iv, key = key)
+            log.info("KIS WS AES key 저장: trId={} ivLen={} keyLen={}", trId, iv.length, key.length)
+        }.onFailure { e ->
+            log.debug("KIS WS AES key 추출 skip: err={}", e.message)
+        }
+    }
 }

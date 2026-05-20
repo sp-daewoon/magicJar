@@ -21,12 +21,32 @@ class KisWsMessageParserTest {
     }
 
     /**
-     * H0STCNT0 PIPE 구분자 + 캐럿 구분자 파싱 검증.
-     * raw 형식: "0|H0STCNT0|001|{code}^{time}^{price}^..."
-     * - IDX 0: code, IDX 1: time(HHMMSS), IDX 2: price, IDX 12: cntg_vol, IDX 33: bsop_date
+     * hotfix 2026-05-20 — KIS 첫 필드 `1` = AES 암호화 분기 검증.
      *
-     * KIS-first 출처: open-trading-api domestic_stock_functions_ws.py ccnl_krx() cols 배열.
+     * 사용자 dogfooding evidence: H0STCNI9 모의 체결통보가 `1|H0STCNI9|001|<base64>` 패턴으로 도달.
+     * 이전 결함: `1`을 SubscriptionResponse로 잘못 분류 → KisExecutionWsListener forward 0.
+     * fix: `1`도 RealtimeData (encrypted=true) → handleMessage에서 AES 복호화 후 listener forward.
      */
+    @Test
+    fun `hotfix — type=1 encrypted RealtimeData 분류 (H0STCNI9 체결통보)`() {
+        val raw = "1|H0STCNI9|001|A2BZvg+Cor+sIhIcW7D4pniN4Z0SBvpfeTvpXlNyMm5FSOCbLbZ"
+        val parsed = KisWsMessageParser.parse(raw)
+        assertThat(parsed).isInstanceOf(KisWsMessageParser.ParsedMessage.RealtimeData::class.java)
+        val data = parsed as KisWsMessageParser.ParsedMessage.RealtimeData
+        assertThat(data.trId).isEqualTo("H0STCNI9")
+        assertThat(data.encrypted).isTrue()
+        assertThat(data.rawData).isEqualTo("A2BZvg+Cor+sIhIcW7D4pniN4Z0SBvpfeTvpXlNyMm5FSOCbLbZ")
+    }
+
+    @Test
+    fun `hotfix — type=0 평문 RealtimeData encrypted=false (H0STCNT0 체결가)`() {
+        val raw = "0|H0STCNT0|001|005930^090012^60900"
+        val parsed = KisWsMessageParser.parse(raw)
+        assertThat(parsed).isInstanceOf(KisWsMessageParser.ParsedMessage.RealtimeData::class.java)
+        val data = parsed as KisWsMessageParser.ParsedMessage.RealtimeData
+        assertThat(data.encrypted).isFalse()
+    }
+
     @Test
     fun `H0STCNT0 raw 메시지 파싱 → TickEvent code·price·volume 정합`() {
         // H0STCNT0 45개 필드: IDX[0]=code, IDX[2]=price, IDX[12]=cntg_vol, IDX[33]=bsop_date
