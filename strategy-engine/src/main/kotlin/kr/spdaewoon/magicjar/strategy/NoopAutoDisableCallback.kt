@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.consumer.application.strategy
+package kr.spdaewoon.magicjar.strategy
 
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
 import org.slf4j.LoggerFactory
@@ -7,8 +7,8 @@ import org.springframework.stereotype.Component
 /**
  * [EvaluatorAutoDisableCallback] default no-op 구현.
  *
- * backend-core PR-36b 합류 전 — `StrategyService` bean이 없을 때 graceful 동작 보장.
- * 합류 후 `@Service StrategyService : EvaluatorAutoDisableCallback`이 우선 (`@ConditionalOnMissingBean`).
+ * 앱별 `EvaluatorAutoDisableCallback` 구현이 없을 때 graceful 동작 보장.
+ * api 모듈에서는 `@Primary StrategyService : EvaluatorAutoDisableCallback`이 우선한다.
  *
  * spec §6-3 LOCK.
  */
@@ -21,7 +21,7 @@ class NoopAutoDisableCallback : EvaluatorAutoDisableCallback {
         reason: StrategyDisabledReason,
     ) {
         log.warn(
-            "NoopAutoDisableCallback.onAutoDisable(strategyId={}, reason={}) — backend-core StrategyService 미합류, no-op.",
+            "NoopAutoDisableCallback.onAutoDisable(strategyId={}, reason={}) — app callback 미합류, no-op.",
             strategyId,
             reason,
         )

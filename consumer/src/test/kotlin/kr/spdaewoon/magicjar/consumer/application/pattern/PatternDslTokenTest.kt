@@ -1,10 +1,10 @@
 package kr.spdaewoon.magicjar.consumer.application.pattern
 
-import kr.spdaewoon.magicjar.consumer.application.strategy.KisYamlDslParser
 import kr.spdaewoon.magicjar.domain.strategy.dsl.Condition
 import kr.spdaewoon.magicjar.domain.strategy.dsl.ConditionType
 import kr.spdaewoon.magicjar.domain.strategy.dsl.IndicatorRef
 import kr.spdaewoon.magicjar.domain.strategy.dsl.LiteralValue
+import kr.spdaewoon.magicjar.strategy.KisYamlDslParser
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test

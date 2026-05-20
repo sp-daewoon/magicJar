@@ -16,8 +16,10 @@ import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslStrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.dsl.IndicatorRef
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyRepositoryPort
+import kr.spdaewoon.magicjar.strategy.EvaluatorAutoDisableCallback
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.context.annotation.Primary
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
@@ -42,6 +44,7 @@ import org.springframework.web.server.ResponseStatusException
  * // AI 호출 0 — T-SIG 트랙 정책
  */
 @Service
+@Primary
 class StrategyService(
     private val strategyRepositoryPort: StrategyRepositoryPort,
     private val strategyJpaRepository: StrategyJpaRepository,
@@ -49,7 +52,7 @@ class StrategyService(
     @Value("\${magicjar.dsl.ast-depth-limit:32}") private val astDepthLimit: Int,
     @Value("\${magicjar.dsl.node-count-limit:10000}") private val nodeCountLimit: Int,
     @Value("\${magicjar.dsl.indicator-call-limit:50}") private val indicatorCallLimit: Int,
-) {
+) : EvaluatorAutoDisableCallback {
     private val log = LoggerFactory.getLogger(StrategyService::class.java)
 
     /**
@@ -196,7 +199,7 @@ class StrategyService(
 
     /**
      * auto-disable — ADR 0047 §2-2-D.
-     * JvmStrategyEvaluator timeout 발생 시 consumer에서 호출.
+     * strategy-engine JvmStrategyEvaluator timeout 발생 시 호출.
      */
     fun autoDisable(
         strategyId: Long,
@@ -206,6 +209,11 @@ class StrategyService(
         redisStrategyCache.invalidateAll()
         log.warn("전략 auto-disable: id={} reason={}", strategyId, reason)
     }
+
+    override fun onAutoDisable(
+        strategyId: Long,
+        reason: StrategyDisabledReason,
+    ) = autoDisable(strategyId, reason)
 
     /**
      * 전략 재활성화 — 사용자 명시 활성화 (DISABLED → ACTIVE).

@@ -2,7 +2,6 @@ package kr.spdaewoon.magicjar.consumer.signal
 
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
-import kr.spdaewoon.magicjar.consumer.application.strategy.JvmStrategyEvaluator
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.signal.Signal
@@ -12,6 +11,7 @@ import kr.spdaewoon.magicjar.domain.signal.port.SignalRepository
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyEvalResult
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyLookupPort
+import kr.spdaewoon.magicjar.strategy.JvmStrategyEvaluator
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.stereotype.Component

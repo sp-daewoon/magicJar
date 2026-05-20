@@ -15,6 +15,7 @@ import kr.spdaewoon.magicjar.domain.strategy.StrategyException
 import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.Universe
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
+import kr.spdaewoon.magicjar.strategy.KisYamlDslParser
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.DeleteMapping
@@ -46,6 +47,7 @@ import org.springframework.web.server.ResponseStatusException
 @RequestMapping("/api/strategies")
 class StrategiesController(
     private val strategyService: StrategyService,
+    private val kisYamlDslParser: KisYamlDslParser,
 ) {
     private val log = LoggerFactory.getLogger(StrategiesController::class.java)
 
@@ -273,8 +275,9 @@ class StrategiesController(
         if (text.isBlank()) {
             throw StrategyException.DslSyntaxException("DSL 표현식이 비어 있습니다")
         }
-        return kr.spdaewoon.magicjar.domain.strategy.dsl
-            .IndicatorRef("stub", emptyList())
+        val ast = kisYamlDslParser.parse(text)
+        kisYamlDslParser.validateStatic(ast)
+        return ast
     }
 
     private fun toDetailResponse(strategy: Strategy): StrategyDetailResponse =

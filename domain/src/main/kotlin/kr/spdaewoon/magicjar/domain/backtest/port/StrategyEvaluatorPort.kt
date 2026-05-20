@@ -9,14 +9,12 @@ import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
  *
  * ### 모듈 경계 (ADR 0004)
  * - api, batch, consumer는 서로 직접 의존하지 않음
- * - 따라서 api 모듈은 consumer의 JvmStrategyEvaluator를 직접 import 불가
+ * - strategy-engine이 실제 evaluator 구현을 제공하고 api·consumer가 domain port로 공유
  * - domain port 인터페이스를 통한 의존성 역전 (헥사고날 정합)
  *
  * ### 구현
- * - consumer 모듈: JvmStrategyEvaluatorAdapter (JvmStrategyEvaluator 위임)
- * - api 모듈 1차: HoldStrategyEvaluatorStub (stub — 백테스트 없이 HOLD 반환)
- *   → 1차 stateless REST run은 직접 실행 불가 (consumer Bean 없음)
- *   → 실제 백테스트는 consumer 모듈이 Bean으로 등록 후 실행
+ * - strategy-engine 모듈: JvmStrategyEvaluatorAdapter (JvmStrategyEvaluator 위임)
+ * - api 모듈: HoldStrategyEvaluatorStub은 strategy-engine bean이 없을 때의 테스트 fallback
  *
  * 도메인 모듈에만 위치 — Spring·JPA·Kafka import 절대 금지.
  */
@@ -39,7 +37,7 @@ interface StrategyEvaluatorPort {
     /**
      * 실시간 평가를 수행한다 (universe screener + 시그널 생성 공용).
      *
-     * timeout 100ms sandbox 정책은 구현체(consumer JvmStrategyEvaluatorAdapter) 내부 책임.
+     * timeout 100ms sandbox 정책은 구현체(strategy-engine JvmStrategyEvaluatorAdapter) 내부 책임.
      *
      * @param strategyId 전략 ID
      * @param ast 평가할 DSL AST (buyCondition)

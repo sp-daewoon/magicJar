@@ -9,7 +9,7 @@ package kr.spdaewoon.magicjar.domain.strategy.dsl
  * 텍스트 표현식 `ma(5)` → `IndicatorRef(name="ma", params=[5])`.
  *
  * params는 KIS Python 정합 — `Any` 리스트 (정수·소수·문자열 가능).
- * 식별자 → IndicatorSpec 매핑은 `DslIdentifierMapper` (consumer 모듈) 책임.
+ * 식별자 → IndicatorSpec 매핑은 `DslIdentifierMapper` (strategy-engine 모듈) 책임.
  */
 data class IndicatorRef(
     val name: String,

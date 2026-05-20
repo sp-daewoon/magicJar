@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.consumer.application.strategy
+package kr.spdaewoon.magicjar.strategy
 
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value

@@ -8,13 +8,19 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse
 import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
 import kr.spdaewoon.magicjar.api.service.strategy.StrategyService
+import kr.spdaewoon.magicjar.domain.backtest.port.StrategyEvaluatorPort
+import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
 import kr.spdaewoon.magicjar.domain.strategy.StrategyException
 import kr.spdaewoon.magicjar.domain.strategy.Universe
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
+import kr.spdaewoon.magicjar.strategy.KisYamlDslParser
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
@@ -31,7 +37,7 @@ import java.math.BigDecimal
  * 전략 DSL REST 컨트롤러 — CRUD + 검증 + import (spec §6-4 LOCK).
  *
  * 등록 흐름: POST → KisYamlDslParser.parse() → StrategyService.validateAndComputeComplexity() → DB persist → 200 + complexity.
- * 평가 흐름: POST /{id}/evaluate → JvmStrategyEvaluator (strategy-engine sub-agent 책임 — 본 컨트롤러 stub).
+ * 평가 흐름: POST /{id}/evaluate → StrategyEvaluatorPort → strategy-engine JvmStrategyEvaluatorAdapter.
  *
  * Swagger 4단 어노테이션 (메모리 feedback_swagger_pattern 정합):
  * - @Tag: 컨트롤러 레벨
@@ -47,6 +53,10 @@ import java.math.BigDecimal
 @RequestMapping("/api/strategy")
 class StrategyController(
     private val strategyService: StrategyService,
+    private val strategyEvaluatorPort: StrategyEvaluatorPort,
+    private val kisYamlDslParser: KisYamlDslParser,
+    private val candleRepositoryProvider: ObjectProvider<CandleRepository>,
+    @Value("\${magicjar.strategy.evaluate.candle-lookback:200}") private val evaluateCandleLookback: Int,
 ) {
     private val log = LoggerFactory.getLogger(StrategyController::class.java)
 
@@ -192,11 +202,10 @@ class StrategyController(
     }
 
     @Operation(
-        summary = "전략 평가 (evaluate — stub)",
+        summary = "전략 평가",
         description =
             "전략 DSL을 최신 캔들 데이터로 평가하여 BUY/SELL/HOLD 시그널을 반환합니다. " +
-                "JvmStrategyEvaluator (strategy-engine sub-agent 구현) 호출 — " +
-                "현재 strategy-engine 미완성 시 stub 응답(HOLD) 반환.",
+                "StrategyEvaluatorPort를 통해 strategy-engine JvmStrategyEvaluatorAdapter를 호출합니다.",
     )
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "평가 성공 — signal + strength + reason"),
@@ -212,23 +221,30 @@ class StrategyController(
         @PathVariable id: Long,
         @RequestBody req: EvaluateRequest,
     ): EvaluateResponse {
-        strategyService.findById(id) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
-        // JvmStrategyEvaluator는 strategy-engine 담당 — 본 stub은 interface 연결 후 교체 예정
+        val strategy = strategyService.findById(id) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
+        val ast =
+            strategy.definition.dsl.buyCondition
+                ?: throw ResponseStatusException(HttpStatus.BAD_REQUEST, "전략 매수 조건 없음: id=$id")
+        val candleRepository =
+            candleRepositoryProvider.ifAvailable
+                ?: throw ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "캔들 저장소 bean 없음")
+        val interval = parseInterval(req.interval)
+        val candles = candleRepository.findByCodeAndInterval(req.code, interval).takeLast(evaluateCandleLookback)
+        if (candles.isEmpty()) {
+            throw StrategyException.InsufficientCandlesException(required = 1, actual = 0)
+        }
+        val result = strategyEvaluatorPort.evaluate(strategy.id ?: id, ast, candles)
         return EvaluateResponse(
             strategyId = id,
-            signal = "HOLD",
-            strength = BigDecimal.ZERO,
-            reason = mapOf("stub" to "JvmStrategyEvaluator not yet wired — strategy-engine PR-36a pending"),
-            evalTimeMs = 0L,
+            signal = result.signal.name,
+            strength = result.strength,
+            reason = result.reason,
+            evalTimeMs = result.evalTimeMs,
         )
     }
 
     // --- private helper ---
 
-    /**
-     * DSL 텍스트 파싱 — strategy-engine PR-36a에서 KisYamlDslParser bean 주입 후 교체.
-     * 현재는 빈 stub AST 반환 (StrategyService.validateAndComputeComplexity는 호출 완료).
-     */
     private fun parseDslTexts(
         entry: String,
         exit: String?,
@@ -239,14 +255,18 @@ class StrategyController(
     }
 
     private fun parseOneDsl(text: String): DslNode {
-        // strategy-engine KisYamlDslParser bean 주입 전 최소 stub
-        // 빈 IndicatorRef("stub") 반환 — 실제 파서 연결 시 교체
         if (text.isBlank()) {
             throw StrategyException.DslSyntaxException("DSL 표현식이 비어 있습니다")
         }
-        return kr.spdaewoon.magicjar.domain.strategy.dsl
-            .IndicatorRef("stub", emptyList())
+        val ast = kisYamlDslParser.parse(text)
+        kisYamlDslParser.validateStatic(ast)
+        return ast
     }
+
+    private fun parseInterval(interval: String): CandleInterval =
+        runCatching { CandleInterval.fromCode(interval) }.getOrElse {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "지원하지 않는 캔들 인터벌: $interval")
+        }
 
     private fun toStrategyResponse(strategy: Strategy): StrategyResponse =
         StrategyResponse(
