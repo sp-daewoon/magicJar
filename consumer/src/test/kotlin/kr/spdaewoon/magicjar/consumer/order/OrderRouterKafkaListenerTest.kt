@@ -51,6 +51,7 @@ class OrderRouterKafkaListenerTest {
     private val kisOrderPort = mockk<KisOrderPort>()
     private val requestedProducer = mockk<OrderRequestedKafkaProducer>(relaxed = true)
     private val rejectedProducer = mockk<OrderRejectedKafkaProducer>(relaxed = true)
+    private val accountBalanceChangedProducer = mockk<AccountBalanceChangedKafkaProducer>(relaxed = true)
     private val objectMapper = ObjectMapper()
 
     private val orderRepoProvider =
@@ -76,6 +77,7 @@ class OrderRouterKafkaListenerTest {
             kisOrderPort = kisOrderPort,
             orderRequestedKafkaProducer = requestedProducer,
             orderRejectedKafkaProducer = rejectedProducer,
+            accountBalanceChangedKafkaProducer = accountBalanceChangedProducer,
             objectMapper = objectMapper,
         )
 
@@ -208,6 +210,7 @@ class OrderRouterKafkaListenerTest {
                 kisOrderPort = kisOrderPort,
                 orderRequestedKafkaProducer = requestedProducer,
                 orderRejectedKafkaProducer = rejectedProducer,
+                accountBalanceChangedKafkaProducer = accountBalanceChangedProducer,
                 objectMapper = objectMapper,
             )
 

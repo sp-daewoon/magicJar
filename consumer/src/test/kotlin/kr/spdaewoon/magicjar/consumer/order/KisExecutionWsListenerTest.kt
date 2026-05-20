@@ -54,6 +54,7 @@ class KisExecutionWsListenerTest {
     private val filledProducer = mockk<OrderFilledKafkaProducer>(relaxed = true)
     private val rejectedProducer = mockk<OrderRejectedKafkaProducer>(relaxed = true)
     private val cancelledProducer = mockk<OrderCancelledKafkaProducer>(relaxed = true)
+    private val accountBalanceChangedProducer = mockk<AccountBalanceChangedKafkaProducer>(relaxed = true)
 
     private val listener =
         KisExecutionWsListener(
@@ -63,6 +64,7 @@ class KisExecutionWsListenerTest {
             orderFilledKafkaProducer = filledProducer,
             orderRejectedKafkaProducer = rejectedProducer,
             orderCancelledKafkaProducer = cancelledProducer,
+            accountBalanceChangedKafkaProducer = accountBalanceChangedProducer,
             objectMapper = ObjectMapper(),
         )
 
