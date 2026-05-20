@@ -15,6 +15,7 @@ include(
     "domain",
     "pattern-engine",
     "indicator-impl",
+    "strategy-engine",
     "persistence-shared",
     "api",
     "batch",

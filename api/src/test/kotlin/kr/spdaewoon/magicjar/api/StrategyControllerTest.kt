@@ -2,17 +2,25 @@ package kr.spdaewoon.magicjar.api
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.controller.CreateStrategyRequest
+import kr.spdaewoon.magicjar.api.controller.EvaluateRequest
 import kr.spdaewoon.magicjar.api.controller.StrategyController
 import kr.spdaewoon.magicjar.api.controller.ValidateRequest
 import kr.spdaewoon.magicjar.api.service.strategy.StrategyService
+import kr.spdaewoon.magicjar.domain.backtest.port.StrategyEvaluatorPort
+import kr.spdaewoon.magicjar.domain.market.candle.Candle
+import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
+import kr.spdaewoon.magicjar.domain.strategy.Signal
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
+import kr.spdaewoon.magicjar.domain.strategy.StrategyEvalResult
 import kr.spdaewoon.magicjar.domain.strategy.Universe
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslStrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.dsl.IndicatorRef
+import kr.spdaewoon.magicjar.strategy.KisYamlDslParser
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyOrNull
@@ -21,13 +29,16 @@ import org.mockito.kotlin.whenever
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest
 import org.springframework.boot.test.mock.mockito.MockBean
+import org.springframework.context.annotation.Import
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.delete
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import org.springframework.test.web.servlet.put
+import java.math.BigDecimal
 import java.time.Instant
+import kotlinx.datetime.Instant as KtInstant
 
 /**
  * StrategyController 슬라이스 테스트 — spec §6-4 + 룰 4 정합.
@@ -43,8 +54,10 @@ import java.time.Instant
  * 검증 6: POST /api/strategy/validate → 200 OK (DSL 검증 성공)
  * 검증 7: POST /api/strategy → 400 (DSL 빈 값 — DslSyntaxException)
  * 검증 8: PUT /api/strategy/{id}/enable → 200 OK (재활성화)
+ * 검증 9: POST /api/strategy/{id}/evaluate → StrategyEvaluatorPort 결과 반환
  */
 @WebMvcTest(controllers = [StrategyController::class])
+@Import(KisYamlDslParser::class)
 class StrategyControllerTest {
     @Autowired
     lateinit var mockMvc: MockMvc
@@ -54,6 +67,12 @@ class StrategyControllerTest {
 
     @MockBean
     lateinit var strategyService: StrategyService
+
+    @MockBean
+    lateinit var strategyEvaluatorPort: StrategyEvaluatorPort
+
+    @MockBean
+    lateinit var candleRepository: CandleRepository
 
     // OnboardingGuardFilter mock 의무 (IndicatorControllerTest 패턴 정합)
     @MockBean
@@ -107,6 +126,28 @@ class StrategyControllerTest {
             estimatedEvalTimeMs = 4,
             complexityClass = ComplexityClass.LOW,
         )
+
+    private fun makeCandle(
+        close: String,
+        ts: String,
+    ): Candle {
+        val price = close.toBigDecimal()
+        return Candle(
+            code = "005930",
+            interval = CandleInterval.ONE_DAY,
+            ts = KtInstant.parse(ts),
+            openRaw = price,
+            highRaw = price,
+            lowRaw = price,
+            closeRaw = price,
+            openAdj = null,
+            highAdj = null,
+            lowAdj = null,
+            closeAdj = null,
+            volume = 1_000L,
+            source = "TEST",
+        )
+    }
 
     // ── 검증 1: POST /api/strategy → 200 OK ─────────────────────────────────
 
@@ -267,6 +308,46 @@ class StrategyControllerTest {
             .andExpect {
                 status { isOk() }
                 jsonPath("$.enabled") { value(true) }
+            }
+    }
+
+    // ── 검증 9: POST /api/strategy/{id}/evaluate → 실제 평가 포트 결과 반환 ───────
+
+    @Test
+    fun `POST strategy evaluate 실평가기 결과 반환 200`() {
+        stubOnboarding()
+        whenever(strategyService.findById(eq(1L))).thenReturn(makeStrategy(1L))
+        whenever(candleRepository.findByCodeAndInterval(eq("005930"), eq(CandleInterval.ONE_DAY)))
+            .thenReturn(
+                listOf(
+                    makeCandle("70000", "2026-05-18T00:00:00Z"),
+                    makeCandle("71000", "2026-05-19T00:00:00Z"),
+                ),
+            )
+        whenever(strategyEvaluatorPort.evaluate(eq(1L), any(), any()))
+            .thenReturn(
+                StrategyEvalResult(
+                    signal = Signal.BUY,
+                    strength = BigDecimal.ONE,
+                    reason = mapOf("trigger" to "TEST_BUY"),
+                    evaluatedAt = KtInstant.parse("2026-05-19T00:00:01Z"),
+                    evalTimeMs = 3L,
+                ),
+            )
+
+        val req = EvaluateRequest(code = "005930", interval = "1d")
+
+        mockMvc
+            .post("/api/strategy/1/evaluate") {
+                contentType = MediaType.APPLICATION_JSON
+                content = objectMapper.writeValueAsString(req)
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.strategyId") { value(1) }
+                jsonPath("$.signal") { value("BUY") }
+                jsonPath("$.strength") { value(1) }
+                jsonPath("$.reason.trigger") { value("TEST_BUY") }
+                jsonPath("$.evalTimeMs") { value(3) }
             }
     }
 }

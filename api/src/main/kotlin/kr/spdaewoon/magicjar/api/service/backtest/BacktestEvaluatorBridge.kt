@@ -12,12 +12,12 @@ import org.springframework.stereotype.Component
  * ### 의무 사항 (ADR 0047 + ADR 0056 + ADR 0004)
  * - ADR 0004: api ↔ consumer 직접 의존 금지 — domain port 인터페이스 경유 (헥사고날 정합)
  * - 반드시 [StrategyEvaluatorPort.evaluateBacktest] 경유 (직접 walkRoot 호출 절대 금지)
- * - timeout 1000ms 적용은 구현체(consumer JvmStrategyEvaluatorAdapter) 내부에서 처리
+ * - timeout 1000ms 적용은 구현체(strategy-engine JvmStrategyEvaluatorAdapter) 내부에서 처리
  * - auto-disable=false LOCK은 구현체 책임
  * - strategy-eval-pool 4 fixed thread 경유는 구현체 책임
  *
  * ### 구현체
- * - consumer 모듈: JvmStrategyEvaluatorAdapter (실제 평가)
+ * - strategy-engine 모듈: JvmStrategyEvaluatorAdapter (실제 평가)
  * - api 1차: HoldStrategyEvaluatorStub (Spring Boot Test + 단위 테스트용)
  *
  * 이 클래스는 단순 위임만 담당 — 비즈니스 로직 0.

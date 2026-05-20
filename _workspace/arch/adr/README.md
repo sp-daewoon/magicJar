@@ -8,7 +8,7 @@
 |------|------|
 | 0001 | 시스템 비전 — 룰 본체 + AI 옵션 + MCP 서버 미래 |
 
-## §2. 기술 스택 + 모듈 구조 (8건)
+## §2. 기술 스택 + 모듈 구조 (11건)
 
 | 번호 | 제목 |
 |------|------|
@@ -22,6 +22,7 @@
 | 0054 | pattern-engine 라이브러리 모듈 분리 (domain 순수성 보존 + api·consumer 공유) |
 | 0083 | indicator-impl 라이브러리 모듈 분리 (IndicatorSource 모듈 경계 결함 fix — domain 순수성 + api·consumer 공유, ADR 0054 패턴 1:1) — **Accepted (2026-05-19, v3.6.15 cut)** |
 | 0088 | **persistence-shared 라이브러리 모듈 분리 (Outbox Repository wiring 결함 fix — domain port + adapter 분리 + api·consumer 공유, ADR 0083 패턴 1:1) — Proposed (2026-05-19, Phase 1 backend-core 후 Accepted 격상 예정)** |
+| 0092 | **strategy-engine 라이브러리 모듈 분리 (DSL parser/evaluator 공유 — API 백테스트·스크리너 HOLD stub 제거 + consumer 실시간 평가와 단일 evaluator 사용) — Accepted (2026-05-20)** |
 
 ## §3. 프론트엔드 (2건)
 
@@ -168,7 +169,7 @@
 
 - **새 ADR 발행 시** — 본 README + `master-architecture.md` §10 + `tracks-roadmap.md` §3 동시 갱신.
 - **Superseded 처리 시** — 본문 상단 헤더 + 본 README 행 supersede 표기. `_archive/` 이동은 v3.3.0 cycle에 일괄.
-- **신규 진입 시 후속 ADR 번호** — **0091부터 sequential**. 0082(T-MAN)·0083(indicator-impl)·0084(주문 path 안정성)·0085(chart-curator 영입)·0086(T-CC Phase 2 데이터 햇징 룰)·0087(sub-agent 페르소나 매트릭스)·0088(persistence-shared 모듈)·0089(userId 타입 정합)·0090(instrument_status_history) 점유 완료. 예약 슬롯은 §12 참조.
+- **신규 진입 시 후속 ADR 번호** — **0093부터 sequential**. 0082(T-MAN)·0083(indicator-impl)·0084(주문 path 안정성)·0085(chart-curator 영입)·0086(T-CC Phase 2 데이터 햇징 룰)·0087(sub-agent 페르소나 매트릭스)·0088(persistence-shared 모듈)·0089(userId 타입 정합)·0090(instrument_status_history)·0091(NXT resolver)·0092(strategy-engine 모듈) 점유 완료. 예약 슬롯은 §12 참조.
 - **변경 이력 기록 의무** — 의미 있는 ADR 발행·재발행·supersede·예약 해제 시 §14에 한 줄 추가.
 
 ## §12. 예약 슬롯 (Reserved)
@@ -206,6 +207,7 @@
 
 | 일자 | 사이클 | 변경 |
 |------|--------|------|
+| 2026-05-20 | ADR 0092 신설 — strategy-engine shared DSL evaluator module | consumer 내부에 있던 `JvmStrategyEvaluator`·`KisYamlDslParser`를 root 라이브러리 모듈 `strategy-engine`으로 이동해 api·consumer가 같은 DSL parser/evaluator bean을 공유한다. API 전략 CRUD의 빈 AST stub과 evaluate의 무조건 HOLD stub을 제거하고, Backtest/Screener도 `StrategyEvaluatorPort`를 통해 실제 evaluator를 호출한다. |
 | 2026-05-20 | ADR 0091 신설 — NXT 통합 시장코드 종목 단위 resolver | `KOSPI -> UN` 일괄 분기 결함 정정. KIS `J/NX/UN` 옵션은 유지하되 `UN` 적용 기준을 market-level에서 instrument-level로 보강하고, `UN` 응답 0건 시 `J` fallback으로 KRX 캔들을 보존. consumer/api 캔들 REST resolver와 정책 문서 정합. |
 | 2026-05-19 | E chart-curator skill §함정 #8·#10 + 햇징 룰 §14 + ADR 0086 §14 amend (PR #587 regression 영구 차단) | **ADR 0086 Accepted (amend) — 햇징 룰 §14 KIS 호출 한도 cover 의무 추가 (13 → 14 룰)** + **chart-curator SKILL.md §함정 #8 amend (KIS 100건 한도) + §함정 #10 신설 (fix 후 regression 함정) + 햇징 매트릭스 §14 row 추가** — PR #587 chart-curator 진단 보고서 evidence(`RealKisRestAdapter` → `KisRestCandleAdapter` 재작성 시 페이지네이션 algorithm regression). **regression 시퀀스 evidence**: PR 2cbd4e8(2026-05-04 cursor 페이지네이션 검증 구현 + 한국석유 1년 backfill 100봉 → 243봉) → PR 915699b(2026-05-11 재작성 시 algorithm 누락 — 1m만 페이징 유지 + 일/주/월/년봉 단일 호출) → PR #587(2026-05-19 chart-curator 진단 + ASC 정규화만 fix → 페이지네이션 누락 → 빈 DB 재발). **§14 룰 본문 5건**: (1) 호출 한도 cover 의무(KIS-first MCP raw `inquire_daily_itemchartprice.py` docstring 정합 100건 LOCK) (2) cursor 페이지네이션 algorithm 의무(MAX_PAGES 6 + distinctBy boundary dedup + 응답 row 0 break + ASC 정규화 페이지 합산 후 마지막 단계) (3) helper class 분리 의무(예: `KisCursorPaginator`, `CandleSanityChecker` — caller inline 발행 금지 → 후속 재작성 algorithm regression 영구 차단) (4) helper 회귀 test 1건 의무(algorithm 자체 verification — pagination round-trip / sanity reject count / sort idempotence) (5) §함정 가드 cross-ref 매트릭스 의무(caller KDoc inline `// skill §함정 #N` 인용). **§함정 #8 amend**: KIS DESC 응답 정렬 + 100건 한도 함정 통합(룰 §11·§14 cross-ref) + 의무 5건(cursor 페이지네이션 + MAX_PAGES + distinctBy + 0-row break + ASC 정규화 마지막). **§함정 #10 신설**: fix 후 regression 함정(helper class 분리 + 회귀 test 1건 + caller inline 금지 + §함정 가드 KDoc cross-ref). 변경 매트릭스 6건: (1) `.claude/skills/magicjar-chart-curator/SKILL.md` — §함정 #8 amend + §함정 #10 신설 + 햇징 매트릭스 §14 row + 룰 § 헤더 13→14 + 적용 의무 영역 #8 항목 + cross-ref 매트릭스 #14 row (2) `_workspace/arch/adr/0086-t-cc-phase2-auto-backfill-data-hedging.md` — 상태 헤더 §14 추가 + §2-1 매트릭스 §14 row + §2-9 본문 신설(§14 룰 본문 5건 + 역사 evidence 시퀀스 + 구현 의제) + §3 긍정 결과 §14 line + §5 변경 이력 row (3) 본 ADR README §14 변경 이력 row(본 row) (4) `docs/architecture/master-architecture.md` §13 변경 이력 row (5) `CHANGELOG.md` row (6) task 파일. **운영 코드 0 touch** (Kotlin/TS/SQL 0 변경 — ADR amend + skill 본문 + README/master/CHANGELOG only). **자본 영향 0** + **KIS endpoint 호출 0** + **AI 호출 0** + **mock 합성 0**. 구현 의제 별도 사이클 위임 (chart-curator·market-data Phase — `KisCursorPaginator` helper class + 회귀 test + 5 parse 함수 합류). (architect, opus 4.7 1M) |
 | 2026-05-19 | PR-36 baseline v3.7.0 architect 영역 4 파일 (README + 01-architecture + 06-history-traceability + 07-policy-evolution) | **baseline v3.7.0 init** — `_workspace/baseline/v3.7.0/` architect 영역 4 파일 발행(시스템 점검 + Phase 보강 + 운영 헌법 §1-A-extended·§2 4→6단계 진화 baseline · W4 진입 0). v3.6.0 → v3.7.0 사이 19 patch + 200+ PR + ADR 신규 22건(v3.6.x 16 + v3.7.0 6: 0085~0090) + amend 5건(0037·0085 v3.6.18·v3.6.19 + 0086 v3.6.18·v3.6.19) + Superseded 2건(0035 → 0080 · 0073 → 0075) + JVM 5 → 7 모듈(+ indicator-impl ADR 0083 + persistence-shared ADR 0088) + sub-agent 7 → 8(chart-curator ADR 0085 영입) + 페르소나 매트릭스 2건(chart-curator 보수 ADR 0085 amend + backend-core 진보 ADR 0087) + cross-review 운영 룰 LOCK(자본 path → chart-curator 1차 / 인프라 일반 → backend-core 1차) + 운영 흐름 작동률 0% → 100% 회복(ADR 0088 persistence-shared 모듈 — Outbox wiring 결함 영구 차단). 본 ADR README 변경 0 (architect 영역 4 baseline md 본문만 add-only). master-architecture §13 변경 이력 row 동반. 운영 코드 0 touch + 자본 영향 0 + KIS endpoint 호출 0 + AI 호출 0 + mock 합성 0. (architect, opus 4.7 1M, PR #N) |

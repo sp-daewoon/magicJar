@@ -3,9 +3,9 @@ package kr.spdaewoon.magicjar.consumer.risk
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import kr.spdaewoon.magicjar.consumer.application.strategy.EvaluatorAutoDisableCallback
 import kr.spdaewoon.magicjar.domain.risk.port.RiskEventRepository
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
+import kr.spdaewoon.magicjar.strategy.EvaluatorAutoDisableCallback
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.ObjectProvider

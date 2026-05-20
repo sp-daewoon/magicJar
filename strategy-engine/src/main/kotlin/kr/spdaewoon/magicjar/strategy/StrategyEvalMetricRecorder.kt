@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.consumer.application.strategy
+package kr.spdaewoon.magicjar.strategy
 
 import kr.spdaewoon.magicjar.domain.strategy.StrategyEvalResult
 import org.slf4j.LoggerFactory
@@ -9,8 +9,8 @@ import java.util.concurrent.ConcurrentHashMap
  * 평가 metric ring buffer (ADR 0047 §2-6).
  *
  * - 마지막 N=100건 in-memory ring buffer per strategyId
- * - DB persist는 backend-core PR-36b의 StrategyEvalMetricRepository 합류 시 본 빈을 교체 (`@ConditionalOnMissingBean`)
- * - 본 PR-36a stub 단계에서는 ring buffer만 — 별도 retention cron으로 DB sync는 post-MVP
+ * - DB persist는 후속 StrategyEvalMetricRepository 합류 시 본 빈을 교체
+ * - 현재는 ring buffer만 — 별도 retention cron으로 DB sync는 post-MVP
  *
  * outcome 코드:
  * - OK · TIMEOUT · CPU_EXCEEDED · UNKNOWN_SYMBOL · SYNTAX_ERROR

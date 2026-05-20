@@ -12,6 +12,8 @@ dependencies {
     implementation(project(":pattern-engine"))
     // indicator-impl 라이브러리 의존 — IndicatorEngineConfig가 NativeIndicatorSource·KisStrategyBuilderSource 자동 collect (ADR 0083 + spec §4-5 LOCK)
     implementation(project(":indicator-impl"))
+    // strategy-engine 라이브러리 의존 — 실시간 신호와 api 백테스트/스크리너가 같은 JVM DSL evaluator 사용
+    implementation(project(":strategy-engine"))
     // persistence-shared 라이브러리 의존 — Outbox/Stomp 어댑터를 api·consumer 양쪽 ApplicationContext에 노출 (ADR 0088 + spec §3 LOCK)
     implementation(project(":persistence-shared"))
 
@@ -25,10 +27,6 @@ dependencies {
 
     // Kafka (KafkaListener + KIS WS 데이터 발행)
     implementation("org.springframework.kafka:spring-kafka")
-
-    // YAML — KisYamlDslParser .kis.yaml import (T-DSL · spec §8-8)
-    implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml")
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
 
     // PostgreSQL driver
     implementation("org.postgresql:postgresql")

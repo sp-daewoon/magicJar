@@ -12,6 +12,8 @@ dependencies {
     implementation(project(":pattern-engine"))
     // indicator-impl 라이브러리 의존 — IndicatorEngineConfig가 NativeIndicatorSource·KisStrategyBuilderSource 자동 collect (ADR 0083 + spec §4-5 LOCK)
     implementation(project(":indicator-impl"))
+    // strategy-engine 라이브러리 의존 — Backtest/Screener/StrategyController가 실제 JVM DSL parser/evaluator 사용 (autotrading review P0)
+    implementation(project(":strategy-engine"))
     // persistence-shared 라이브러리 의존 — Outbox/Stomp 어댑터를 api·consumer 양쪽 ApplicationContext에 노출 (ADR 0088 + spec §3 LOCK)
     implementation(project(":persistence-shared"))
 

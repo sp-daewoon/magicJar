@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.consumer.application.strategy
+package kr.spdaewoon.magicjar.strategy
 
 import kr.spdaewoon.magicjar.domain.backtest.port.StrategyEvaluatorPort
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
@@ -7,9 +7,9 @@ import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import org.springframework.stereotype.Component
 
 /**
- * StrategyEvaluatorPort 구현체 — consumer 모듈 (ADR 0056 §2-4-A + ADR 0004 정합).
+ * StrategyEvaluatorPort 구현체 — strategy-engine 모듈 (ADR 0056 §2-4-A + ADR 0004 정합).
  *
- * consumer 모듈에서 domain port를 구현하여 api 모듈에 Bean으로 제공.
+ * strategy-engine 모듈에서 domain port를 구현하여 api·consumer가 같은 evaluator Bean을 공유.
  * (api ↔ consumer 직접 의존 금지 — ADR 0004 모듈 경계 정합)
  *
  * ### 의무 사항 (ADR 0047 + ADR 0056)
@@ -18,7 +18,7 @@ import org.springframework.stereotype.Component
  * - strategy-eval-pool 4 fixed thread 경유는 JvmStrategyEvaluator 내부에서 처리
  *
  * ### PR-39a ConsecutiveDirectionCalculator 패턴 정합
- * strategy-engine sub-agent 영역 파일(JvmStrategyEvaluator.kt) 수정 0건 — 본 파일만 신규 추가.
+ * JvmStrategyEvaluator는 pattern-engine PatternRecognizer port를 통해 패턴 평가를 위임.
  */
 @Component("strategyEvaluatorPortImpl")
 class JvmStrategyEvaluatorAdapter(

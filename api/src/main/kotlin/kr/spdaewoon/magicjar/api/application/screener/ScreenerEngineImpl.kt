@@ -30,8 +30,8 @@ import java.math.RoundingMode
  * ScreenerController·ScreenerService → ScreenerEngine port → 본 구현체 (api JVM 내 동기 inline 평가).
  *
  * ### 의존성 역전 (ADR 0004 헥사고날 정합)
- * - DSL 평가: StrategyEvaluatorPort.evaluate() 경유 (consumer JvmStrategyEvaluatorAdapter 구현체)
- * - api 단독 환경: HoldStrategyEvaluatorStub (HOLD 반환 — @ConditionalOnMissingBean)
+ * - DSL 평가: StrategyEvaluatorPort.evaluate() 경유 (strategy-engine JvmStrategyEvaluatorAdapter 구현체)
+ * - 테스트 슬라이스 환경: HoldStrategyEvaluatorStub (HOLD 반환 — @ConditionalOnMissingBean)
  *
  * Phase 1 책임:
  * 1. Strategy 조회 (StrategyRepositoryPort.findById)

@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.consumer.application.strategy
+package kr.spdaewoon.magicjar.strategy
 
 import kotlinx.datetime.Instant
 import kr.spdaewoon.magicjar.domain.indicator.IndicatorEngine

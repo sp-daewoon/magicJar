@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.consumer.application.strategy
+package kr.spdaewoon.magicjar.strategy
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory

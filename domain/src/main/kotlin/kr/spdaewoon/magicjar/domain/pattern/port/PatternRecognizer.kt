@@ -13,7 +13,7 @@ import kr.spdaewoon.magicjar.domain.pattern.PatternMatch
  * 2. [recognize] (single Boolean) — DSL `pattern("hammer")` evaluator 호환.
  * 3. [consecutive] — DSL `consecutive("up")` evaluator 호환 (magicJar 자체 룰 — KIS 미존재).
  *
- * 구현체: `consumer/.../application/pattern/JvmPatternRecognizer` (`@Component(name="patternRecognizer")`).
+ * 구현체: `pattern-engine/.../pattern/JvmPatternRecognizer` (`@Component(name="patternRecognizer")`).
  * T-DSL 시점 stub 자동 비활성화 → 실제 detector 활성화 (1줄 교체 LOCK).
  */
 interface PatternRecognizer {

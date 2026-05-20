@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.consumer.application.strategy
+package kr.spdaewoon.magicjar.strategy
 
 import kr.spdaewoon.magicjar.domain.indicator.IndicatorCatalog
 import kr.spdaewoon.magicjar.domain.indicator.IndicatorPoint

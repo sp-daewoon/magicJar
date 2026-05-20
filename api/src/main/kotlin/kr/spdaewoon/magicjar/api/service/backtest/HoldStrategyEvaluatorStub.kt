@@ -14,10 +14,10 @@ import java.math.BigDecimal
 /**
  * HOLD 반환 stub 구현 — api 모듈 단독 테스트 환경용 (ADR 0056 §2-4-A).
  *
- * consumer 모듈의 JvmStrategyEvaluatorAdapter Bean이 없을 때 폴백으로 등록됨.
+ * strategy-engine 모듈의 JvmStrategyEvaluatorAdapter Bean이 없을 때 폴백으로 등록됨.
  * 항상 HOLD 신호를 반환하므로 매매 기록 0건 — 성능 테스트·슬라이스 테스트에서만 사용.
  *
- * @ConditionalOnMissingBean — consumer Bean이 있으면 이 stub은 등록되지 않음.
+ * @ConditionalOnMissingBean — strategy-engine Bean이 있으면 이 stub은 등록되지 않음.
  */
 @Component
 @ConditionalOnMissingBean(name = ["strategyEvaluatorPortImpl"])
@@ -33,7 +33,7 @@ class HoldStrategyEvaluatorStub : StrategyEvaluatorPort {
         return StrategyEvalResult(
             signal = Signal.HOLD,
             strength = BigDecimal.ZERO,
-            reason = mapOf("trigger" to "STUB_HOLD", "note" to "consumer 모듈 없음 — api 단독 테스트 환경"),
+            reason = mapOf("trigger" to "STUB_HOLD", "note" to "strategy-engine evaluator bean 없음 — 테스트 fallback"),
             evaluatedAt = Clock.System.now(),
             evalTimeMs = 0L,
         )
@@ -48,7 +48,7 @@ class HoldStrategyEvaluatorStub : StrategyEvaluatorPort {
         return StrategyEvalResult(
             signal = Signal.HOLD,
             strength = BigDecimal.ZERO,
-            reason = mapOf("trigger" to "STUB_HOLD", "note" to "consumer 모듈 없음 — api 단독 테스트 환경"),
+            reason = mapOf("trigger" to "STUB_HOLD", "note" to "strategy-engine evaluator bean 없음 — 테스트 fallback"),
             evaluatedAt = Clock.System.now(),
             evalTimeMs = 0L,
         )

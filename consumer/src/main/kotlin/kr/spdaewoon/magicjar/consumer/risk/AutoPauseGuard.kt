@@ -1,8 +1,8 @@
 package kr.spdaewoon.magicjar.consumer.risk
 
-import kr.spdaewoon.magicjar.consumer.application.strategy.EvaluatorAutoDisableCallback
 import kr.spdaewoon.magicjar.domain.risk.port.RiskEventRepository
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
+import kr.spdaewoon.magicjar.strategy.EvaluatorAutoDisableCallback
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.stereotype.Component
@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component
  *
  * 임계 도달 시 [EvaluatorAutoDisableCallback.onAutoDisable] 호출 — Phase 2 backend-core가
  * strategy.status=PAUSED + StrategyCache evict + STOMP AUTO_PAUSED 알림. Phase 2 미합류 시
- * [kr.spdaewoon.magicjar.consumer.application.strategy.NoopAutoDisableCallback] graceful no-op.
+ * [kr.spdaewoon.magicjar.strategy.NoopAutoDisableCallback] graceful no-op.
  *
  * spec 인용: ADR 0067 §7-1 AutoPauseGuard + §7-2 단계 5 + F-1 4단 처리.
  *
