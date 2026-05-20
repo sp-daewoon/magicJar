@@ -21,19 +21,20 @@ import java.util.UUID
  *  (2) retry_count ≥ MAX_RETRY(5) → markFailed()
  *  (3) PENDING 0건 → 작업 skip
  *
+ * FIX C-3 (ADR 0088 합류): outboxRepository 는 direct inject — ObjectProvider 폐기.
+ * slackSender 는 webhook URL 미설정 시 옵셔널이므로 ObjectProvider 유지.
+ *
  * AI 호출 0 — T-NOTIFY 트랙 정책 (ADR 0070 §1-2).
  */
 class NotificationOutboxRetryWorkerTest {
     private val outboxRepository = mockk<NotificationOutboxRepository>(relaxed = true)
     private val slackSender = mockk<SlackWebhookSender>(relaxed = true)
 
-    private val outboxProvider = mockk<ObjectProvider<NotificationOutboxRepository>>()
     private val senderProvider = mockk<ObjectProvider<SlackWebhookSender>>()
 
     private fun newWorker(): NotificationOutboxRetryWorker {
-        every { outboxProvider.getIfAvailable() } returns outboxRepository
         every { senderProvider.getIfAvailable() } returns slackSender
-        return NotificationOutboxRetryWorker(outboxProvider, senderProvider)
+        return NotificationOutboxRetryWorker(outboxRepository, senderProvider)
     }
 
     private fun pendingOutbox(

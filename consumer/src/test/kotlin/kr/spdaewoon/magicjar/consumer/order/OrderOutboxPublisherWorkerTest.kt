@@ -14,7 +14,6 @@ import kr.spdaewoon.magicjar.domain.order.event.port.OrderEventOutboxRepository
 import kr.spdaewoon.magicjar.domain.reconcile.port.KillSwitchTogglePort
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
-import org.springframework.beans.factory.ObjectProvider
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.kafka.support.SendResult
 import java.time.Instant
@@ -30,6 +29,10 @@ import java.util.concurrent.CompletableFuture
  *  (3) publish 실패 누적 (attempt 2→3, MAX_ATTEMPT 도달) → markFailed + 알림 INSERT + KillSwitch engage
  *  (4) PENDING 0건 → kafkaTemplate.send 0회
  *
+ * FIX C-3 (ADR 0088 합류 후): repository/port 는 direct inject. ObjectProvider 폐기.
+ *  → (5) "OrderEventOutboxRepository 미등록 graceful skip" 케이스 폐기
+ *    (persistence-shared 어댑터 항상 available 보장 → Spring DI fail-fast 정상).
+ *
  * AI 호출 0 — T-O 트랙 정책 (ADR 0084 §1-2).
  */
 class OrderOutboxPublisherWorkerTest {
@@ -41,22 +44,14 @@ class OrderOutboxPublisherWorkerTest {
     private val kafkaTemplate = mockk<KafkaTemplate<String, String>>(relaxed = true)
     private val objectMapper = ObjectMapper()
 
-    private val outboxProvider = mockk<ObjectProvider<OrderEventOutboxRepository>>()
-    private val notificationProvider = mockk<ObjectProvider<NotificationOutboxRepository>>()
-    private val killSwitchProvider = mockk<ObjectProvider<KillSwitchTogglePort>>()
-
-    private fun newWorker(): OrderOutboxPublisherWorker {
-        every { outboxProvider.getIfAvailable() } returns outboxRepository
-        every { notificationProvider.getIfAvailable() } returns notificationRepository
-        every { killSwitchProvider.getIfAvailable() } returns killSwitchPort
-        return OrderOutboxPublisherWorker(
-            outboxRepositoryProvider = outboxProvider,
+    private fun newWorker(): OrderOutboxPublisherWorker =
+        OrderOutboxPublisherWorker(
+            outboxRepository = outboxRepository,
             kafkaTemplate = kafkaTemplate,
             objectMapper = objectMapper,
-            notificationOutboxRepositoryProvider = notificationProvider,
-            killSwitchTogglePortProvider = killSwitchProvider,
+            notificationOutboxRepository = notificationRepository,
+            killSwitchTogglePort = killSwitchPort,
         )
-    }
 
     private fun pendingOutbox(
         id: Long,
@@ -144,24 +139,5 @@ class OrderOutboxPublisherWorkerTest {
 
         verify(exactly = 0) { kafkaTemplate.send(any<String>(), any<String>(), any<String>()) }
         verify(exactly = 0) { outboxRepository.markPublished(any()) }
-    }
-
-    @Test
-    fun `(5) OrderEventOutboxRepository 미등록 — graceful skip`() {
-        every { outboxProvider.getIfAvailable() } returns null
-        every { notificationProvider.getIfAvailable() } returns notificationRepository
-        every { killSwitchProvider.getIfAvailable() } returns killSwitchPort
-
-        val worker =
-            OrderOutboxPublisherWorker(
-                outboxRepositoryProvider = outboxProvider,
-                kafkaTemplate = kafkaTemplate,
-                objectMapper = objectMapper,
-                notificationOutboxRepositoryProvider = notificationProvider,
-                killSwitchTogglePortProvider = killSwitchProvider,
-            )
-        worker.drainPending()
-
-        verify(exactly = 0) { kafkaTemplate.send(any<String>(), any<String>(), any<String>()) }
     }
 }

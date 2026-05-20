@@ -10,11 +10,13 @@ import kr.spdaewoon.magicjar.domain.order.event.OrderEventOutbox
 import kr.spdaewoon.magicjar.domain.order.event.port.OrderEventOutboxRepository
 import kr.spdaewoon.magicjar.domain.reconcile.port.KillSwitchTogglePort
 import org.slf4j.LoggerFactory
-import org.springframework.beans.factory.ObjectProvider
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
+import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /**
  * order_event_outbox PENDING 재시도 worker (ADR 0084 P1-1 + spec 2026-05-18 §2-5 LOCK).
@@ -34,19 +36,27 @@ import java.util.UUID
  * 4. 실패: attempt_count++ + last_error 갱신
  *    attempt_count ≥ MAX_ATTEMPT(3) → markFailed + 운영 알림 + KillSwitch engage
  *
- * ### graceful 조건
- * - OrderEventOutboxRepository 미등록 → skip + log.warn
- * - KafkaTemplate 미등록 시 부팅 자체가 실패하므로 별도 가드 0 (Spring Kafka 의무)
+ * ### 트랜잭션 경계 (FIX C-2)
+ * `@Transactional` 로 `findPending(FOR UPDATE SKIP LOCKED) → send.get(timeout) → markPublished/recordAttemptFailure`
+ * 까지 단일 트랜잭션 묶음. 다중 worker instance 동시 실행 시 같은 row 중복 처리 영구 차단.
+ *
+ * ### Kafka publish timeout (FIX C-1)
+ * `kafkaTemplate.send().get([KAFKA_SEND_TIMEOUT_SECONDS]s)` — broker 응답 지연 시 worker 무한 block 차단.
+ * TimeoutException 발생 시 일반 publish 실패와 동일하게 attempt_count++ 처리.
+ *
+ * ### Repository wiring (FIX C-3)
+ * persistence-shared 모듈 합류(ADR 0088) 이후 어댑터 항상 available 보장 → ObjectProvider 폐기 +
+ * direct inject 로 단순화. 알림·KillSwitch 보조 path 도 동일.
  *
  * // AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0084 §1-2)
  */
 @Component
 class OrderOutboxPublisherWorker(
-    private val outboxRepositoryProvider: ObjectProvider<OrderEventOutboxRepository>,
+    private val outboxRepository: OrderEventOutboxRepository,
     private val kafkaTemplate: KafkaTemplate<String, String>,
     private val objectMapper: ObjectMapper,
-    private val notificationOutboxRepositoryProvider: ObjectProvider<NotificationOutboxRepository>,
-    private val killSwitchTogglePortProvider: ObjectProvider<KillSwitchTogglePort>,
+    private val notificationOutboxRepository: NotificationOutboxRepository,
+    private val killSwitchTogglePort: KillSwitchTogglePort,
 ) {
     private val log = LoggerFactory.getLogger(OrderOutboxPublisherWorker::class.java)
 
@@ -54,17 +64,17 @@ class OrderOutboxPublisherWorker(
         const val MAX_ATTEMPT = 3
         const val BATCH_SIZE = 100
         const val FIXED_DELAY_MS = 5_000L
+        const val KAFKA_SEND_TIMEOUT_SECONDS = 5L
         const val KILLSWITCH_REASON = "ORDER_OUTBOX_DRAIN_FAILED"
     }
 
+    /**
+     * FIX C-2: `@Transactional` 적용 — findPending(FOR UPDATE SKIP LOCKED) 부터 markPublished 까지
+     * 단일 트랜잭션 묶음. 다중 worker instance 동시 실행 시 같은 row 중복 처리 차단.
+     */
     @Scheduled(fixedDelay = FIXED_DELAY_MS)
+    @Transactional
     fun drainPending() {
-        val outboxRepository = outboxRepositoryProvider.getIfAvailable()
-        if (outboxRepository == null) {
-            log.warn("OrderEventOutboxRepository 미등록 — drain worker skip")
-            return
-        }
-
         val pending = outboxRepository.findPending(limit = BATCH_SIZE)
         if (pending.isEmpty()) {
             log.trace("drain worker: PENDING 0건 — skip")
@@ -77,10 +87,16 @@ class OrderOutboxPublisherWorker(
         var retriedCount = 0
 
         for (outbox in pending) {
-            val id = outbox.id ?: continue
+            val id = outbox.id
+            if (id == null) {
+                log.warn("drain worker: outbox row id null skip — eventId={} topic={}", outbox.eventId, outbox.topic)
+                continue
+            }
             try {
                 val key = outbox.partitionKey ?: outbox.eventId.toString()
-                kafkaTemplate.send(outbox.topic, key, outbox.payloadJson).get()
+                kafkaTemplate
+                    .send(outbox.topic, key, outbox.payloadJson)
+                    .get(KAFKA_SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 outboxRepository.markPublished(id)
                 publishedCount++
                 log.info(
@@ -89,33 +105,14 @@ class OrderOutboxPublisherWorker(
                     outbox.topic,
                     outbox.attemptCount,
                 )
+            } catch (e: TimeoutException) {
+                // FIX C-1: broker 응답 지연 — 일반 publish 실패와 동일 분기 처리
+                val newCount = handlePublishFailure(outbox, id, "TIMEOUT_${KAFKA_SEND_TIMEOUT_SECONDS}s")
+                if (newCount >= MAX_ATTEMPT) failedCount++ else retriedCount++
             } catch (e: Exception) {
-                val newAttempt = outbox.attemptCount + 1
                 val errMsg = e.message?.take(200) ?: "unknown"
-                if (newAttempt >= MAX_ATTEMPT) {
-                    outboxRepository.markFailed(id, "attempt=$newAttempt err=$errMsg")
-                    failedCount++
-                    log.error(
-                        "drain 소진 FAILED: outboxId={} topic={} attempt={} err={} — P0 알림 + KillSwitch engage",
-                        id,
-                        outbox.topic,
-                        newAttempt,
-                        errMsg,
-                    )
-                    raiseFailureAlertSafely(outbox, errMsg)
-                    engageKillSwitchSafely(outbox)
-                } else {
-                    outboxRepository.recordAttemptFailure(id, "attempt=$newAttempt err=$errMsg")
-                    retriedCount++
-                    log.warn(
-                        "drain 실패 {}/{}: outboxId={} topic={} err={}",
-                        newAttempt,
-                        MAX_ATTEMPT,
-                        id,
-                        outbox.topic,
-                        errMsg,
-                    )
-                }
+                val newCount = handlePublishFailure(outbox, id, errMsg)
+                if (newCount >= MAX_ATTEMPT) failedCount++ else retriedCount++
             }
         }
 
@@ -126,6 +123,42 @@ class OrderOutboxPublisherWorker(
             retriedCount,
             failedCount,
         )
+    }
+
+    /**
+     * publish 실패 공통 분기 — TimeoutException + 일반 Exception 양쪽 caller 가 호출.
+     * 사이드 이펙트: outbox 상태 갱신 + (MAX 도달 시) 알림 INSERT + KillSwitch engage.
+     * 반환: 갱신된 attempt count.
+     */
+    private fun handlePublishFailure(
+        outbox: OrderEventOutbox,
+        id: Long,
+        errMsg: String,
+    ): Int {
+        val newAttempt = outbox.attemptCount + 1
+        if (newAttempt >= MAX_ATTEMPT) {
+            outboxRepository.markFailed(id, "attempt=$newAttempt err=$errMsg")
+            log.error(
+                "drain 소진 FAILED: outboxId={} topic={} attempt={} err={} — P0 알림 + KillSwitch engage",
+                id,
+                outbox.topic,
+                newAttempt,
+                errMsg,
+            )
+            raiseFailureAlertSafely(outbox, errMsg)
+            engageKillSwitchSafely(outbox)
+        } else {
+            outboxRepository.recordAttemptFailure(id, "attempt=$newAttempt err=$errMsg")
+            log.warn(
+                "drain 실패 {}/{}: outboxId={} topic={} err={}",
+                newAttempt,
+                MAX_ATTEMPT,
+                id,
+                outbox.topic,
+                errMsg,
+            )
+        }
+        return newAttempt
     }
 
     // --- private helper ---
@@ -139,11 +172,6 @@ class OrderOutboxPublisherWorker(
         outbox: OrderEventOutbox,
         errMsg: String,
     ) {
-        val repo = notificationOutboxRepositoryProvider.getIfAvailable()
-        if (repo == null) {
-            log.warn("NotificationOutboxRepository 미등록 — drain failure 알림 skip outboxId={}", outbox.id)
-            return
-        }
         runCatching {
             val payload =
                 objectMapper.writeValueAsString(
@@ -158,7 +186,7 @@ class OrderOutboxPublisherWorker(
                         "createdAt" to outbox.createdAt.epochSecond,
                     ),
                 )
-            repo.save(
+            notificationOutboxRepository.save(
                 NotificationOutbox(
                     eventId = UUID.randomUUID(),
                     channel = NotificationChannel.SLACK,
@@ -196,16 +224,7 @@ class OrderOutboxPublisherWorker(
             )
             return
         }
-        val port = killSwitchTogglePortProvider.getIfAvailable()
-        if (port == null) {
-            log.warn(
-                "KillSwitchTogglePort 미등록 — drain FAILED 후속 engage skip outboxId={} userId={}",
-                outbox.id,
-                userId,
-            )
-            return
-        }
-        runCatching { port.engage(userId, KILLSWITCH_REASON) }
+        runCatching { killSwitchTogglePort.engage(userId, KILLSWITCH_REASON) }
             .onSuccess {
                 log.error(
                     "KillSwitch auto-ON (drain FAILED): outboxId={} userId={} reason={}",

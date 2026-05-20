@@ -20,16 +20,19 @@ import org.springframework.stereotype.Component
  * 4. 실패: incrementRetryCount()
  *    retry_count ≥ MAX_RETRY(5): markFailed() → status=FAILED + log.error
  *
+ * ### Repository wiring (FIX C-3)
+ * persistence-shared 모듈 합류(ADR 0088) 이후 어댑터 항상 available 보장 → ObjectProvider 폐기 +
+ * direct inject. SlackWebhookSender 는 webhook URL 미설정 시 빈 sender Bean 가능하므로 ObjectProvider 유지.
+ *
  * ### graceful 조건
- * - NotificationOutboxRepository 미등록 → skip + log.warn
- * - SlackWebhookSender 미등록 → skip + log.warn
- * - Slack webhook 미설정 → sender가 null 반환 → PENDING 유지
+ * - SlackWebhookSender 미등록 → skip + log.warn (webhook URL 0 시 옵셔널)
+ * - Slack webhook 미설정 → sender 가 null 반환 → PENDING 유지
  *
  * // AI 호출 0 — T-NOTIFY 트랙 정책 (ADR 0023 §2-4 + ADR 0070 §1-2)
  */
 @Component
 class NotificationOutboxRetryWorker(
-    private val outboxRepositoryProvider: ObjectProvider<NotificationOutboxRepository>,
+    private val outboxRepository: NotificationOutboxRepository,
     private val slackSenderProvider: ObjectProvider<SlackWebhookSender>,
 ) {
     private val log = LoggerFactory.getLogger(NotificationOutboxRetryWorker::class.java)
@@ -41,12 +44,6 @@ class NotificationOutboxRetryWorker(
 
     @Scheduled(fixedDelay = 5 * 60 * 1000L)
     fun retryPending() {
-        val outboxRepository = outboxRepositoryProvider.getIfAvailable()
-        if (outboxRepository == null) {
-            log.warn("NotificationOutboxRepository 미등록 — retry worker skip")
-            return
-        }
-
         val sender = slackSenderProvider.getIfAvailable()
         if (sender == null) {
             log.warn("SlackWebhookSender 미등록 — retry worker skip")
@@ -64,7 +61,11 @@ class NotificationOutboxRetryWorker(
         var failedCount = 0
 
         for (outbox in pending) {
-            val id = outbox.id ?: continue
+            val id = outbox.id
+            if (id == null) {
+                log.warn("retry worker: notification outbox id null skip eventId={}", outbox.eventId)
+                continue
+            }
             try {
                 val sent = sender.sendOutbox(outbox)
                 if (sent) {
