@@ -237,6 +237,11 @@ class KisRestCandleAdapter(
                 }
 
         val userId = cred.id.userId
+        // P0 hotfix 2026-05-20 — DB row 의 userId 빈 문자열 방어 (Redis `kis:token::REAL` cache pollution 차단)
+        if (userId.isBlank()) {
+            log.warn("KIS REST 1m candle: credential userId 빈 문자열 — code={} DB 결함 (cache pollution 차단)", code)
+            return emptyList()
+        }
         val accessToken =
             try {
                 kisAuthAdapter.getAccessToken(userId, AccountType.REAL)
@@ -655,6 +660,15 @@ class KisRestCandleAdapter(
                 }
 
         val userId = cred.id.userId
+        // P0 hotfix 2026-05-20 — DB row 의 userId 빈 문자열 방어 (Redis `kis:token::REAL` cache pollution 차단)
+        if (userId.isBlank()) {
+            log.warn(
+                "KIS REST candle: credential userId 빈 문자열 — code={} interval={} DB 결함 (cache pollution 차단)",
+                code,
+                interval.code,
+            )
+            return emptyList()
+        }
         val accessToken =
             try {
                 kisAuthAdapter.getAccessToken(userId, AccountType.REAL)

@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.api.service
 import kr.spdaewoon.magicjar.api.infrastructure.kis.KisTokenCacheHelper
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
+import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.api.service.dto.CandleRefreshResponse
 import kr.spdaewoon.magicjar.api.service.dto.IntervalRefreshResult
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
@@ -53,6 +54,7 @@ class CandleRefreshService(
     private val instrumentJpaRepository: InstrumentJpaRepository,
     private val candleJpaRepository: CandleJpaRepository,
     private val tokenHelper: KisTokenCacheHelper,
+    private val credentialRepository: UserKisCredentialJpaRepository,
     private val kisRateLimiterPort: KisRateLimiterPort,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseProd: String,
@@ -736,13 +738,29 @@ class CandleRefreshService(
      *   - ADR 0038 분산락 정합 — EGW00133 1분 1회 위반 차단 (T-4)
      *   - KIS `expires_in` 응답 × 0.95 동적 TTL (T-3)
      *
-     * KIS-only 정보 수집 정책 (feedback_kis_key_realonly_for_data): REAL 자격증명 우선.
-     * helper 가 REAL 부재 시 MOCK fallback 처리. 부재 시 IllegalStateException → 502 변환.
+     * KIS-only 정보 수집 정책 (feedback_kis_key_realonly_for_data): REAL 자격증명 1순위 row 의 userId 사용.
+     *
+     * P0 hotfix 2026-05-20 (backend-core):
+     *   - 기존: `tokenHelper.resolveTokenAndKeys(userId = "", ...)` → Redis `kis:token::REAL` cache pollution
+     *     + cross-user leak (helper `loadCredential` 의 "DB 첫 row" fallback 결합) root cause
+     *   - 신규: REAL credential 1순위 row 의 `id.userId` 명시적 추출 → helper 에 정확한 userId 전달.
+     *     자격증명 부재 시 ResponseStatusException 502 변환 (UI 메시지 보존).
      */
-    private fun resolveAccessTokenAndKeys(): Triple<String, String, String> =
-        try {
-            // userId 빈 문자열 → helper 가 REAL 우선 → 1순위 자격증명 fallback
-            tokenHelper.resolveTokenAndKeys(userId = "", accountType = AccountType.REAL)
+    private fun resolveAccessTokenAndKeys(): Triple<String, String, String> {
+        // 1순위 REAL credential — 부재 시 즉시 502 변환 (helper 호출 전 차단)
+        val primaryUserId =
+            credentialRepository
+                .findAllByAccountType(AccountType.REAL.name)
+                .firstOrNull()
+                ?.id
+                ?.userId
+                ?: throw ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "KIS 자격증명이 등록되지 않았습니다. 온보딩에서 KIS API 키를 등록해 주세요.",
+                )
+
+        return try {
+            tokenHelper.resolveTokenAndKeys(userId = primaryUserId, accountType = AccountType.REAL)
         } catch (e: IllegalStateException) {
             throw ResponseStatusException(
                 HttpStatus.INTERNAL_SERVER_ERROR,
@@ -754,4 +772,5 @@ class CandleRefreshService(
             log.error("KIS access_token 발급 실패: {}", e.message)
             throw ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "KIS 인증 실패: ${e.message}")
         }
+    }
 }

@@ -75,6 +75,10 @@ class KisAuthAdapter(
         userId: String,
         accountType: AccountType,
     ): String {
+        require(userId.isNotBlank()) {
+            "KIS getAccessToken userId 빈 문자열 차단 — caller 결함 " +
+                "(cache key 'kis:token::${accountType.name}' pollution + cross-user leak risk · P0 hotfix 2026-05-20)"
+        }
         val cacheKey = "kis:token:$userId:${accountType.name}"
         val lockKey = "kis:token:lock:$userId:${accountType.name}"
 

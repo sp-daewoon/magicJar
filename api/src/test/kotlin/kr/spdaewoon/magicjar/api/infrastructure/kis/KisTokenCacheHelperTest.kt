@@ -1,11 +1,15 @@
 package kr.spdaewoon.magicjar.api.infrastructure.kis
 
+import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialId
+import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.whenever
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.web.reactive.function.client.WebClient
 import java.time.Duration
@@ -114,5 +118,52 @@ class KisTokenCacheHelperTest {
     @Test
     fun `T-3 parseExpiresInSeconds — 비숫자 String → -1`() {
         assertThat(sut.parseExpiresInSeconds("invalid")).isEqualTo(-1L)
+    }
+
+    // ── P0 hotfix 2026-05-20 (backend-core) — 빈 userId cache pollution 차단 ───────────────────
+
+    @Test
+    fun `P0 hotfix — getAccessToken userId 빈 문자열 IllegalArgumentException`() {
+        assertThatThrownBy { sut.getAccessToken(userId = "", accountType = AccountType.REAL) }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("userId 빈 문자열 차단")
+            .hasMessageContaining("kis:token::REAL")
+    }
+
+    @Test
+    fun `P0 hotfix — getAccessToken userId 공백 IllegalArgumentException`() {
+        assertThatThrownBy { sut.getAccessToken(userId = "   ", accountType = AccountType.MOCK) }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("userId 빈 문자열 차단")
+            .hasMessageContaining("kis:token::MOCK")
+    }
+
+    @Test
+    fun `P0 hotfix — resolveTokenAndKeys userId 빈 문자열 IllegalArgumentException`() {
+        assertThatThrownBy { sut.resolveTokenAndKeys(userId = "", accountType = AccountType.REAL) }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("userId 빈 문자열 차단")
+    }
+
+    @Test
+    fun `P0 hotfix — loadCredential userId 매칭 실패 시 fallback 없이 throw (cross-user leak 차단)`() {
+        // DB에 첫 row 가 있지만 요청 userId와 매칭 안 됨 → 기존 fallback 으로 첫 row 반환 (root cause)
+        // 신규: 정확 매칭 실패 시 IllegalStateException (fallback 폐기)
+        val storedCred =
+            UserKisCredentialJpaEntity(
+                id = UserKisCredentialId(userId = "stored-user", accountType = AccountType.REAL.name),
+                accountNumber = "11111111",
+                appKeyEnc = ByteArray(0),
+                secretKeyEnc = ByteArray(0),
+            )
+        whenever(credentialRepository.findAllByAccountType(AccountType.REAL.name))
+            .thenReturn(listOf(storedCred))
+
+        // 요청 userId="other-user" — DB row 의 "stored-user" 와 매칭 실패
+        assertThatThrownBy { sut.resolveTokenAndKeys(userId = "other-user", accountType = AccountType.REAL) }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("KIS 자격증명 매칭 실패")
+            .hasMessageContaining("other-user")
+            .hasMessageContaining("cross-user leak 차단")
     }
 }
