@@ -2,7 +2,7 @@
  * useSymbolCandles — 차트 series 무한 스크롤 TanStack Query hook + boundary STOMP subscribe
  *
  * spec §6-3 LOCK:
- * - queryKey: ['symbolCandles', code, interval]
+ * - queryKey: ['symbolCandles', code, interval, pageSize]
  * - useInfiniteQuery + before cursor 페이지네이션
  * - getNextPageParam: lastPage.hasMore ? lastPage.nextBefore : undefined
  *
@@ -13,6 +13,12 @@
  *   interval이 BOUNDARY_INTERVALS 중 하나일 때 /topic/market.candle.{interval}.{code} 구독
  *   interval 변경 시 기존 구독 해제 → 새 interval 구독
  *   boundary candle 수신 시 onBoundaryCandle 콜백 호출
+ *
+ * ADR 0093 §결정 LOCK Phase 4-D (2026-05-20):
+ *   - pageSize prop 추가 — 사용자 입력 봉수 (CandleCountSelector value)
+ *   - queryKey에 pageSize 포함 → cache 분리 (pageSize 변경 시 re-fetch)
+ *   - backend `/candles?limit=<pageSize>` 전달 (Phase 3 backend cap 5000 정합)
+ *   - default 200 (현행 동작 회귀 안전 — props 미지정 시)
  */
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -28,6 +34,9 @@ import {
 // useSymbolCandles — REST + STOMP boundary 통합 hook
 // ──────────────────────────────────────────────
 
+/** 기본 페이지 크기 — props 미지정 시 (현행 동작 회귀 안전) */
+const DEFAULT_PAGE_SIZE = 200
+
 export interface UseSymbolCandlesResult {
   /** TanStack useInfiniteQuery 결과 (REST fetch) */
   data: ReturnType<typeof useInfiniteQueryForCandles>['data']
@@ -41,11 +50,11 @@ export interface UseSymbolCandlesResult {
 }
 
 /** 타입 추론 전용 내부 헬퍼 — export 0 */
-function useInfiniteQueryForCandles(code: string, interval: CandleInterval) {
+function useInfiniteQueryForCandles(code: string, interval: CandleInterval, pageSize: number) {
   return useInfiniteQuery({
-    queryKey: ['symbolCandles', code, interval] as const,
+    queryKey: ['symbolCandles', code, interval, pageSize] as const,
     queryFn: ({ pageParam }) =>
-      symbolApi.getCandles(code, interval, pageParam as string | undefined),
+      symbolApi.getCandles(code, interval, pageParam as string | undefined, pageSize),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.nextBefore : undefined),
     enabled: Boolean(code),
@@ -55,9 +64,13 @@ function useInfiniteQueryForCandles(code: string, interval: CandleInterval) {
   })
 }
 
-export function useSymbolCandles(code: string, interval: CandleInterval): UseSymbolCandlesResult {
+export function useSymbolCandles(
+  code: string,
+  interval: CandleInterval,
+  pageSize: number = DEFAULT_PAGE_SIZE,
+): UseSymbolCandlesResult {
   // REST 무한 스크롤 query
-  const infiniteQuery = useInfiniteQueryForCandles(code, interval)
+  const infiniteQuery = useInfiniteQueryForCandles(code, interval, pageSize)
 
   // boundary closed candle 상태 (ADR 0064 §2-C)
   const [latestBoundaryCandle, setLatestBoundaryCandle] = useState<CandleClosedPayload | null>(null)
