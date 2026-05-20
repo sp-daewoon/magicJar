@@ -13,17 +13,33 @@
  * - ADR 0069 §6: ⚙️ SettingsModal 진입점 추가
  * - backlog §58 / ADR 0077 K-1: KisRealCredentialBanner — REAL 미등록 시 안내
  * - P2-2 frontend: RuntimeFlagsIndicator — 로고 옆 dot LED + 모드 라벨 (MOCK/REAL/Stop)
+ * - P2 Task 8 (system_event_log): NotificationCenter 벨 + 드롭다운 + 전역 STOMP 구독
+ *   (useSystemEventStompSubscription — /topic/system.event.user.{userId} + broadcast)
  */
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { SettingsIcon } from '../icons/SettingsIcon'
 import { SettingsModal } from '../settings/SettingsModal'
 import { KisRealCredentialBanner } from './KisRealCredentialBanner'
 import { RuntimeFlagsIndicator } from './RuntimeFlagsIndicator'
+import { NotificationCenter } from '../notification/NotificationCenter'
+import { useSystemEventStompSubscription } from '../../api/hooks/useSystemEventStompSubscription'
+import { useOnboardingStore } from '../../stores/onboarding'
 
 export function AppHeader() {
   // ADR 0069 §6 — SettingsModal 열림 상태 (로컬 hook)
   const [settingsOpen, setSettingsOpen] = useState(false)
+
+  // P2 Task 8 — userId 획득 (number | null) → STOMP topic/REST API 는 string 사용 → 변환
+  const registeredUserId = useOnboardingStore((s) => s.registeredUserId)
+  const userIdStr = useMemo<string | null>(
+    () => (registeredUserId !== null ? String(registeredUserId) : null),
+    [registeredUserId],
+  )
+
+  // P2 Task 8 — 전역 STOMP 구독 (/topic/system.event.user.{userId} + broadcast)
+  // 메시지 수신 시 query invalidate + CRITICAL toast (hook 내부 처리)
+  useSystemEventStompSubscription(userIdStr)
 
   return (
     <>
@@ -199,12 +215,17 @@ export function AppHeader() {
             성과
           </NavLink>
 
+          {/* P2 Task 8: 시스템 이벤트 알림센터 — 벨 + unread badge + 드롭다운 + /system 링크 */}
+          <div className="ml-2">
+            <NotificationCenter userId={userIdStr} />
+          </div>
+
           {/* SettingsModal 진입점 — ADR 0069 §6 */}
           <button
             type="button"
             onClick={() => setSettingsOpen(true)}
             aria-label="설정"
-            className="ml-2 rounded-lg px-2.5 py-1.5 text-gray-400 hover:bg-gray-800/60 hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-950"
+            className="ml-1 rounded-lg px-2.5 py-1.5 text-gray-400 hover:bg-gray-800/60 hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-950"
           >
             <SettingsIcon className="h-4 w-4" />
           </button>
