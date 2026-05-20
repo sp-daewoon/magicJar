@@ -39,6 +39,12 @@ import { IntervalToggle } from './IntervalToggle'
 import { LightweightChart } from './LightweightChart'
 import { IndicatorPanel } from './IndicatorPanel'
 import { IndicatorOverlay } from './IndicatorOverlay'
+import { CandleCountSelector } from './CandleCountSelector'
+import {
+  clampCandleCount,
+  readStoredCandleCount,
+  writeStoredCandleCount,
+} from './candleCountMaxByInterval'
 
 /** ADR 0062: 합산(precomputed) 인터벌 여부 — 빈 응답 시 전용 안내 메시지 구분 */
 const AGGREGATED_INTERVALS: ReadonlySet<CandleInterval> = new Set<CandleInterval>([
@@ -61,6 +67,19 @@ interface SymbolChartProps {
 
 export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps) {
   const [interval, setInterval] = useState<CandleInterval>('1d')
+  // ADR 0093 §결정 LOCK Phase 4-B (2026-05-20):
+  //   사용자가 선택한 차트 표시 봉수. localStorage 전역 1개 키(magicjar:chart:candleCount)로
+  //   symbol/timeframe 무관 영속. default 600 (현행 동작 회귀 안전).
+  //   interval 변경 시 max cap 초과면 CandleCountSelector 내부 useEffect가 clamp 후 통보.
+  const [pageSize, setPageSize] = useState<number>(() => readStoredCandleCount())
+  const handlePageSizeChange = useCallback(
+    (next: number) => {
+      const clamped = clampCandleCount(next, interval)
+      setPageSize(clamped)
+      writeStoredCandleCount(clamped)
+    },
+    [interval],
+  )
   const {
     data,
     isLoading,
@@ -69,7 +88,7 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
     hasNextPage,
     isError,
     latestBoundaryCandle,
-  } = useSymbolCandles(code, interval)
+  } = useSymbolCandles(code, interval, pageSize)
 
   // 토스트
   const { showToast } = useToast()
@@ -210,10 +229,17 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
 
   return (
     <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
-      {/* 헤더: 인터벌 토글 + 지표·패턴 버튼 + 더 보기 */}
-      <div className="flex items-center justify-between gap-3 mb-4">
-        <div className="flex items-center gap-2">
+      {/* 헤더: 인터벌 토글 + 봉수 셀렉터 + 지표·패턴 버튼 + 더 보기 */}
+      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
           <IntervalToggle value={interval} onChange={handleIntervalChange} />
+
+          {/* ADR 0093 §결정 LOCK Phase 4 — 차트 표시 봉수 셀렉터 (interval 옆 배치) */}
+          <CandleCountSelector
+            value={pageSize}
+            interval={interval}
+            onChange={handlePageSizeChange}
+          />
 
           {/* 지표 토글 버튼 */}
           <button
