@@ -135,15 +135,14 @@ class KisRestPriceAdapter(
     }
 
     /**
-     * KIS REST PER·PBR·EPS·BPS·시총·업종 조회 (FHKST01010100 inquire-price).
+     * KIS REST 가격·메타 조회 — inquire-daily-itemchartprice (FHKST03010100) output1.
      *
-     * KIS-first 출처: kis-api-reference.md §3 #1, §4 fetchPriceMetrics 패턴
-     * Response output 필드:
-     *   per → PER, pbr → PBR, eps → EPS, bps → BPS
-     *   hts_avls → 시가총액(억원), bstp_kor_isnm → 업종 한글명
-     *   hts_kor_isnm → 종목명, rprs_mrkt_kor_name → 대표시장 한글명
-     *   stck_sdpr → 기준가(전일종가), stck_hgpr → 최고가, stck_lwpr → 최저가
-     *   stck_oprc → 시가, acml_vol → 누적거래량
+     * 2026-05-20 endpoint 교체 사유: 기존 inquire-price(FHKST01010100) stck_prpr이 NXT 시간외
+     * 거래를 반영해 정규장 종가와 다른 가격 반환 (SK하이닉스 사례). candle adapter와 동일 endpoint
+     * 사용으로 정규장 source 정합.
+     *
+     * output1: 종목 메타 + 당일 시세 (스칼라). output2(일봉 시계열)는 candle adapter 영역.
+     * BPS는 output1에 없음 → null graceful. industry·market은 instrument 테이블 1순위.
      *
      * timeout: 3s (dispatch-spec §3-2 정합)
      */
@@ -158,54 +157,63 @@ class KisRestPriceAdapter(
         // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority — metrics path)
         kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
 
+        val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul"))
+        val startDate = today.minusDays(7).format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
+        val endDate = today.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
+
         return try {
             @Suppress("UNCHECKED_CAST")
             val response =
                 webClient
                     .get()
                     .uri(
-                        "$baseUrl/uapi/domestic-stock/v1/quotations/inquire-price" +
-                            "?fid_cond_mrkt_div_code=J&fid_input_iscd=$code",
+                        "$baseUrl/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice" +
+                            "?fid_cond_mrkt_div_code=J" +
+                            "&fid_input_iscd=$code" +
+                            "&fid_input_date_1=$startDate" +
+                            "&fid_input_date_2=$endDate" +
+                            "&fid_period_div_code=D" +
+                            "&fid_org_adj_prc=0",
                     ).header("authorization", "Bearer $token")
-                    .header("tr_id", "FHKST01010100")
+                    .header("tr_id", "FHKST03010100")
                     .header("custtype", "P")
                     .retrieve()
                     .bodyToMono(Map::class.java)
                     .timeout(Duration.ofSeconds(3))
                     .block() as? Map<String, Any>
-                    ?: error("KIS inquire-price (metrics) 응답 없음 — code=$code")
+                    ?: error("KIS inquire-daily-itemchartprice (metrics) 응답 없음 — code=$code")
 
-            val output =
-                response["output"] as? Map<String, Any>
-                    ?: error("KIS inquire-price (metrics) output 없음 — code=$code")
+            val output1 =
+                response["output1"] as? Map<String, Any>
+                    ?: error("KIS inquire-daily-itemchartprice (metrics) output1 없음 — code=$code")
 
             kisRateLimiterPort.onSuccess()
             PriceMetrics(
-                per = output["per"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
-                pbr = output["pbr"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
-                eps = output["eps"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
-                bps = output["bps"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
-                marketCap = output["hts_avls"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
-                industry = output["bstp_kor_isnm"]?.toString()?.ifBlank { null },
-                name = output["hts_kor_isnm"]?.toString()?.ifBlank { null },
-                market = output["rprs_mrkt_kor_name"]?.toString()?.ifBlank { null },
-                currentPrice = output["stck_prpr"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
-                previousClose = output["stck_sdpr"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
-                priceChange = output["prdy_vrss"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
-                changeRate = output["prdy_ctrt"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
-                changeSign = output["prdy_vrss_sign"]?.toString()?.ifBlank { null },
-                high = output["stck_hgpr"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
-                low = output["stck_lwpr"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
-                open = output["stck_oprc"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
-                volume = output["acml_vol"]?.toString()?.ifBlank { null }?.toLongOrNull(),
+                per = output1["per"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
+                pbr = output1["pbr"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
+                eps = output1["eps"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
+                bps = null, // output1에 없음 — nullable graceful
+                marketCap = output1["hts_avls"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
+                industry = null, // output1에 없음 — instrument 테이블 1순위
+                name = output1["hts_kor_isnm"]?.toString()?.ifBlank { null },
+                market = null, // output1에 없음 — instrument 테이블 1순위
+                currentPrice = output1["stck_prpr"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
+                previousClose = output1["stck_prdy_clpr"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
+                priceChange = output1["prdy_vrss"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
+                changeRate = output1["prdy_ctrt"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
+                changeSign = output1["prdy_vrss_sign"]?.toString()?.ifBlank { null },
+                high = output1["stck_hgpr"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
+                low = output1["stck_lwpr"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
+                open = output1["stck_oprc"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
+                volume = output1["acml_vol"]?.toString()?.ifBlank { null }?.toLongOrNull(),
             )
         } catch (e: WebClientResponseException) {
             if (e.statusCode.value() == 429) {
                 kisRateLimiterPort.onTpsExceeded()
-                log.warn("KIS inquire-price (metrics) HTTP 429 — onTpsExceeded 시그널: code={}", code)
+                log.warn("KIS inquire-daily-itemchartprice (metrics) HTTP 429 — onTpsExceeded: code={}", code)
             }
             log.error(
-                "KIS inquire-price (metrics) 실패: code={} status={} body={}",
+                "KIS inquire-daily-itemchartprice (metrics) 실패: code={} status={} body={}",
                 code,
                 e.statusCode,
                 e.responseBodyAsString.take(200),
