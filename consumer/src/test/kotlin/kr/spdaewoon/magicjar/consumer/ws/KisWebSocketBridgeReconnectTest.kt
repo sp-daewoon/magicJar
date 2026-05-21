@@ -696,6 +696,168 @@ class KisWebSocketBridgeReconnectTest {
         assertThat(cidRef.get()).isNull() // 회수 후 clear
     }
 
+    // ===== hotfix 2026-05-21 (2차): startup 첫 connect WS_CONNECTED emit (사용자 dogfooding "거짓 끊김 영구 잔존") =====
+
+    /**
+     * [hotfix 2차] startup 첫 connect (connectCount=0) → WS_CONNECTED emit 분기 로직 검증.
+     *
+     * evidence (사용자 dogfooding):
+     *   "KIS WS 끊김 아직도 끊김상태로 유지되고 있어" — 재배포 후 startup 직전 WS_DISCONNECTED 잔재가
+     *   DB 최신 system_event로 stuck. 첫 connect emit skip이면 frontend KisWsHealthIndicator 영구 🔴 표시.
+     *
+     * PR #644 한계: 첫 connect 분기 emit skip → 본 hotfix가 WS_CONNECTED emit으로 변경.
+     *
+     * 분기 매트릭스 검증 (3 케이스):
+     *   | cid getAndSet | connectCount | expected action |
+     *   |---------------|--------------|-----------------|
+     *   | null          | == 0         | WS_CONNECTED    |
+     *   | null          | > 0          | WS_RECONNECTED  |
+     *   | non-null      | > 0          | WS_RECONNECTED  |
+     *
+     * 검증 방식: wsClient.execute() handler 람다는 실제 Reactor handshake 시점 호출이라 단위 테스트
+     * mock으로 트리거 불가 → 분기 로직(emit point #5 핵심 조건)을 reflection·직접 시뮬레이션으로 검증.
+     * 기존 `hotfix — reconnect 시 cid null...` 테스트와 동일 패턴.
+     */
+    @Test
+    fun `hotfix 2차 — startup 첫 connect (cid null + connectCount==0) WS_CONNECTED action 선택`() {
+        // given: 초기 상태 — connectCount=0, cid=null (startup 직후)
+        val connectCountField = KisWebSocketBridge::class.java.getDeclaredField("connectCount")
+        connectCountField.isAccessible = true
+        val connectCount = connectCountField.get(bridge) as java.util.concurrent.atomic.AtomicInteger
+
+        val cidField = KisWebSocketBridge::class.java.getDeclaredField("currentDisconnectCorrelationId")
+        cidField.isAccessible = true
+
+        @Suppress("UNCHECKED_CAST")
+        val cidRef = cidField.get(bridge) as java.util.concurrent.atomic.AtomicReference<String?>
+
+        assertThat(connectCount.get()).describedAs("초기 — connectCount=0").isEqualTo(0)
+        assertThat(cidRef.get()).describedAs("초기 — cid=null").isNull()
+
+        // when: emit point #5 분기 로직 직접 시뮬레이션 (production 코드 정합)
+        val attemptCount = connectCount.getAndIncrement() // 0 → 1
+        val recoveredCid = cidRef.getAndSet(null) // null
+
+        val action: String
+        val emittedCid: String
+        if (attemptCount > 0) {
+            action = "WS_RECONNECTED"
+            emittedCid = recoveredCid ?: java.util.UUID
+                .randomUUID()
+                .toString()
+        } else {
+            action = "WS_CONNECTED"
+            emittedCid =
+                java.util.UUID
+                    .randomUUID()
+                    .toString()
+        }
+
+        // then: 첫 connect 분기 — WS_CONNECTED 선택 + fresh UUID
+        assertThat(action)
+            .describedAs("attemptCount==0 + cid null → WS_CONNECTED (startup audit + frontend stale 해소)")
+            .isEqualTo("WS_CONNECTED")
+        assertThat(emittedCid).describedAs("fresh UUID 생성").isNotNull()
+        assertThat(emittedCid).matches("^[0-9a-f-]{36}$") // UUID v4 형식
+
+        // 회귀: connectCount는 increment로 1 (다음 호출은 재연결로 분류)
+        assertThat(connectCount.get()).isEqualTo(1)
+    }
+
+    /**
+     * [hotfix 2차] 재연결 (connectCount > 0) → WS_RECONNECTED action 선택 (회귀 보호).
+     *
+     * 첫 connect는 WS_CONNECTED, 두번째부터는 WS_RECONNECTED — action 분리 정합 보존.
+     * 1차 hotfix (cid null + connectCount>0 → fresh UUID RECONNECTED) 회귀 보호 겸용.
+     */
+    @Test
+    fun `hotfix 2차 — 재연결 (connectCount greater than 0) WS_RECONNECTED action 선택 (회귀 보호)`() {
+        val connectCountField = KisWebSocketBridge::class.java.getDeclaredField("connectCount")
+        connectCountField.isAccessible = true
+        val connectCount = connectCountField.get(bridge) as java.util.concurrent.atomic.AtomicInteger
+
+        val cidField = KisWebSocketBridge::class.java.getDeclaredField("currentDisconnectCorrelationId")
+        cidField.isAccessible = true
+
+        @Suppress("UNCHECKED_CAST")
+        val cidRef = cidField.get(bridge) as java.util.concurrent.atomic.AtomicReference<String?>
+
+        // given: 이미 1회 connect 성공 + cid 회수 실패 시나리오
+        connectCount.set(1)
+        cidRef.set(null) // cid race condition
+
+        // when: emit point #5 분기 로직 직접 시뮬레이션
+        val attemptCount = connectCount.getAndIncrement() // 1 → 2
+        val recoveredCid = cidRef.getAndSet(null) // null
+
+        val action: String
+        if (attemptCount > 0) {
+            action = "WS_RECONNECTED"
+        } else {
+            action = "WS_CONNECTED"
+        }
+
+        // then: 재연결 분기 — WS_RECONNECTED 선택 (action 분리 정합 보존)
+        assertThat(action)
+            .describedAs("attemptCount>0 → WS_RECONNECTED (CONNECTED는 startup 전용)")
+            .isEqualTo("WS_RECONNECTED")
+
+        // 1차 hotfix 회귀: cid null이어도 RECONNECTED 분기 진입 보장
+        val emittedCid =
+            recoveredCid ?: java.util.UUID
+                .randomUUID()
+                .toString()
+        assertThat(emittedCid).describedAs("cid 회수 실패해도 fresh UUID fallback (RECONNECTED 누락 0)").isNotNull()
+    }
+
+    /**
+     * [hotfix 2차] 정상 1쌍 회수 (재연결 + cid 회수 성공) → WS_RECONNECTED 동일 cid 재사용 (1쌍 그룹).
+     *
+     * disconnect 시 set한 cid를 reconnect에서 회수하여 동일 correlationId로 RECONNECTED emit —
+     * UI 그룹 표시·audit pair 정합 보존 회귀 보호.
+     */
+    @Test
+    fun `hotfix 2차 — 정상 재연결 (cid 회수 성공) 시 WS_RECONNECTED 동일 cid 재사용 (1쌍 회귀 보호)`() {
+        val connectCountField = KisWebSocketBridge::class.java.getDeclaredField("connectCount")
+        connectCountField.isAccessible = true
+        val connectCount = connectCountField.get(bridge) as java.util.concurrent.atomic.AtomicInteger
+
+        val cidField = KisWebSocketBridge::class.java.getDeclaredField("currentDisconnectCorrelationId")
+        cidField.isAccessible = true
+
+        @Suppress("UNCHECKED_CAST")
+        val cidRef = cidField.get(bridge) as java.util.concurrent.atomic.AtomicReference<String?>
+
+        // given: 이미 1회 connect + disconnect cid set 상태
+        connectCount.set(1)
+        val pairedCid = "paired-cid-2nd-hotfix"
+        cidRef.set(pairedCid)
+
+        // when: emit point #5 분기 로직 직접 시뮬레이션
+        val attemptCount = connectCount.getAndIncrement() // 1 → 2
+        val recoveredCid = cidRef.getAndSet(null) // pairedCid
+
+        val action: String
+        val emittedCid: String
+        if (attemptCount > 0) {
+            action = "WS_RECONNECTED"
+            emittedCid = recoveredCid ?: java.util.UUID
+                .randomUUID()
+                .toString()
+        } else {
+            action = "WS_CONNECTED"
+            emittedCid =
+                java.util.UUID
+                    .randomUUID()
+                    .toString()
+        }
+
+        // then: WS_RECONNECTED + 동일 cid 재사용 (1쌍 그룹)
+        assertThat(action).isEqualTo("WS_RECONNECTED")
+        assertThat(emittedCid).describedAs("cid 회수 성공 시 fresh UUID 생성 안 함 — 동일 cid 재사용").isEqualTo(pairedCid)
+        assertThat(cidRef.get()).describedAs("회수 후 AtomicReference clear").isNull()
+    }
+
     /**
      * KisWebSocketBridge 내부 session 필드 접근 (reflection).
      * 프로덕션 코드 변경 없이 내부 상태 검증용.

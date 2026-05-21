@@ -189,27 +189,36 @@ class KisWebSocketBridge(
     private val reconnecting = AtomicBoolean(false)
 
     /**
-     * P1 spec §6.1 emit point #4·#5 — WS_DISCONNECTED·WS_RECONNECTED correlationId 묶기.
+     * P1 spec §6.1 emit point #4·#5 — WS_DISCONNECTED·WS_RECONNECTED·WS_CONNECTED correlationId 묶기.
      *
      * disconnect handler 진입 시 UUID 생성·set, reconnect handler 진입 시 getAndSet(null)로 회수.
-     * - getAndSet(null) → 비어있으면 첫 connect (connectCount=0)이면 emit skip, 아니면 fresh UUID로 RECONNECTED emit
+     * - getAndSet(null) → 비어있으면 첫 connect (connectCount=0)이면 WS_CONNECTED emit (fresh UUID), 아니면 RECONNECTED emit (fresh UUID)
      * - getAndSet(null) → UUID 있으면 동일 correlationId로 WS_RECONNECTED emit (UI 그룹 표시)
      *
      * AtomicReference 사용 사유: disconnect doFinally vs handshake handler가 별도 Reactor thread 가능성 →
      * 가시성·원자성 보장 의무.
      *
-     * hotfix 2026-05-21 — 거짓 끊김 표시 fix (사용자 dogfooding):
+     * hotfix 2026-05-21 — 거짓 끊김 표시 fix (사용자 dogfooding 1차):
      *   evidence: id=145·146·147에서 disconnect 2건 연속(onComplete+onError) 발생 시 두번째 set이 첫번째 cid를 덮어
      *   첫번째 RECONNECTED 발사 0건. id=150에서 disconnect 후 stale cid stuck 가능성.
      *   fix: emit point #4에서 기존 cid가 살아있으면 WS_RECONNECT_LOST emit으로 분리 audit + 새 cid set.
      *        emit point #5에서 cid가 null이고 connectCount > 0 (재연결)이면 fresh UUID로 RECONNECTED emit 보장.
+     *
+     * hotfix 2026-05-21 — startup 첫 connect WS_CONNECTED emit (사용자 dogfooding 2차):
+     *   evidence: 재배포마다 startup 직전 WS_DISCONNECTED 잔재가 DB 최신 system_event로 stuck →
+     *   첫 connect emit skip이면 frontend KisWsHealthIndicator가 영구 🔴 표시.
+     *   fix: 첫 connect (connectCount==0)에서 WS_CONNECTED emit으로 변경 — action 분리 (RECONNECTED ≠ CONNECTED audit 정합).
+     *        frontend useKisWsHealthState는 이미 CONNECTED_ACTIONS = {WS_RECONNECTED, WS_CONNECTED} 인식.
      */
     private val currentDisconnectCorrelationId = AtomicReference<String?>(null)
 
     /**
      * hotfix 2026-05-21 — connect handler 진입 횟수 카운터.
      *
-     * 첫 connect(=0)와 재연결(≥1) 구분 — emit point #5에서 cid가 null이어도 재연결이면 fresh UUID로 RECONNECTED emit 보장.
+     * 첫 connect(=0)와 재연결(≥1) 구분 — emit point #5 분기 매트릭스:
+     *   - attemptCount==0 (첫 connect) → WS_CONNECTED emit (fresh UUID) — startup·재배포 audit + frontend stale 해소
+     *   - attemptCount > 0 (재연결) + cid 회수 성공 → WS_RECONNECTED emit (재사용 cid — 1쌍 그룹)
+     *   - attemptCount > 0 (재연결) + cid 회수 실패 → WS_RECONNECTED emit (fresh UUID — race fallback)
      * (cid stuck or race condition으로 disconnect cid 회수 실패해도 RECONNECTED emit 누락 없음 — 사용자 거짓 끊김 표시 차단.)
      *
      * AtomicInteger 사용 사유: connect handler가 Reactor thread에서 호출되며 reconnect/graceful 경로 다중 진입 가능 →
@@ -516,26 +525,50 @@ class KisWebSocketBridge(
                     log.info("KIS WS 연결 성공 — approval_key 발급 완료")
                     startHeartbeatWatchdog()
 
-                    // ★ SystemEvent emit point #5 (P1 spec §6.1) — WS_RECONNECTED
+                    // ★ SystemEvent emit point #5 (P1 spec §6.1) — WS_CONNECTED·WS_RECONNECTED
                     // currentDisconnectCorrelationId.getAndSet(null) — UUID 있으면 disconnect↔reconnect 1쌍 그룹화
                     // (UI 표시 시 correlationId join).
                     //
-                    // hotfix 2026-05-21 — fallback UUID 보장 (사용자 dogfooding "거짓 끊김 표시" fix):
+                    // hotfix 2026-05-21 — fallback UUID 보장 (사용자 dogfooding "거짓 끊김 표시" fix, 1차):
                     // 1) cid null + connectCount==0 (첫 connect): emit skip — disconnect 흔적 없는 첫 connect는 audit 무가치.
                     // 2) cid null + connectCount > 0 (재연결): fresh UUID 생성해서 RECONNECTED emit — 이전 disconnect cid가
                     //    onComplete+onError 2건 연속·doConnect 실패 race로 회수 실패한 경우라도 RECONNECTED 누락 0건 보장.
                     // 3) cid 있음: 그대로 회수해서 동일 cid로 emit (정상 1쌍 그룹).
+                    //
+                    // hotfix 2026-05-21 — startup 첫 connect WS_CONNECTED emit (사용자 dogfooding "거짓 끊김 영구 잔존" 2차 fix):
+                    //   evidence: consumer 재배포 시 startup 직전 WS_DISCONNECTED 잔재가 DB 최신 system_event로 stuck.
+                    //   첫 connect (connectCount==0)에서 emit skip이면 frontend KisWsHealthIndicator(useKisWsHealthState)가
+                    //   영구 🔴 표시 → 사용자 거짓 끊김 표시 영구 잔존.
+                    //   fix: 첫 connect 분기를 WS_CONNECTED emit으로 변경 (action 분리 — RECONNECTED ≠ CONNECTED audit 정합).
+                    //   frontend는 이미 CONNECTED_ACTIONS = {WS_RECONNECTED, WS_CONNECTED} 인식 (useKisWsHealthState.ts L51).
+                    //
+                    // 분기 매트릭스:
+                    //   | cid getAndSet | connectCount | emit action       |
+                    //   |---------------|--------------|-------------------|
+                    //   | non-null      | > 0          | WS_RECONNECTED (recoveredCid 재사용 — 1쌍 그룹) |
+                    //   | null          | > 0          | WS_RECONNECTED (fresh UUID — cid 회수 실패 fallback) |
+                    //   | null          | == 0         | WS_CONNECTED   (fresh UUID — startup 첫 연결 ★ 본 hotfix) |
                     val attemptCount = connectCount.getAndIncrement()
                     val recoveredCid = currentDisconnectCorrelationId.getAndSet(null)
-                    val reconnectCid =
-                        recoveredCid ?: if (attemptCount > 0) UUID.randomUUID().toString() else null
-                    if (reconnectCid != null) {
+                    if (attemptCount > 0) {
+                        // 재연결 경로 — RECONNECTED emit (recovered or fresh UUID)
+                        val reconnectCid = recoveredCid ?: UUID.randomUUID().toString()
                         emitWsEvent(
                             severity = SystemEventSeverity.INFO,
                             action = "WS_RECONNECTED",
                             correlationId = reconnectCid,
                             detailJson =
                                 """{"timestamp":"${Instant.now()}","cidRecovered":${recoveredCid != null}}""",
+                        )
+                    } else {
+                        // 첫 connect 경로 — WS_CONNECTED emit (startup·재배포 audit + frontend stale stuck 해소)
+                        val firstConnectCid = UUID.randomUUID().toString()
+                        emitWsEvent(
+                            severity = SystemEventSeverity.INFO,
+                            action = "WS_CONNECTED",
+                            correlationId = firstConnectCid,
+                            detailJson =
+                                """{"timestamp":"${Instant.now()}","firstConnect":true}""",
                         )
                     }
 
