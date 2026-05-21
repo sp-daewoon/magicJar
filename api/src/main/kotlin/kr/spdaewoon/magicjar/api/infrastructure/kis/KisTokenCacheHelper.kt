@@ -117,6 +117,36 @@ class KisTokenCacheHelper(
     }
 
     /**
+     * Redis 토큰 캐시 강제 무효화 — 호출자가 KIS EGW00123 등 stale 토큰 검출 시 사용.
+     *
+     * 2026-05-21 hotfix (backend-core · EGW00123 self-heal):
+     *   evidence — REAL dashboard 진입 시 GET /api/account/positions 502 무한 폭주.
+     *   Redis TTL 살아있어 helper fast path(line 187 readCache)가 stale 토큰 무한 재사용 →
+     *   `body={"msg_cd":"EGW00123","msg1":"기간이 만료된 token 입니다."}` 20+ 회 반복.
+     *   수동 `redis-cli DEL "kis:token:74683223:REAL"` 후에야 신규 발급 + 정상 응답 복귀.
+     *
+     * 본 API 호출 → 다음 getAccessToken 호출에서 cache miss → 분산락 보호 하에 신규 발급.
+     * 분산락(lock key)은 건드리지 않음 — 진행 중 발급이 있다면 그쪽이 완료 후 신규 토큰을 cache에 write.
+     * Redis DEL은 idempotent이므로 다중 호출 안전.
+     *
+     * 호출 정책 (caller 의무):
+     * - **재시도는 1회로 LIMIT** — 무한 루프 차단 (정상 발급된 토큰이 즉시 EGW00123 떨어지는 비정상 케이스).
+     * - WebClient EGW00123 검출 후에만 호출 (네트워크 오류·다른 KIS 에러에서는 호출 금지).
+     */
+    fun evictToken(
+        userId: String,
+        accountType: AccountType,
+    ) {
+        require(userId.isNotBlank()) {
+            "KIS evictToken userId 빈 문자열 차단 — caller 결함"
+        }
+        val cacheKey = tokenKey(userId, accountType)
+        runCatching { redisTemplate.delete(cacheKey) }
+            .onFailure { ex -> log.warn("Redis token evict 실패 — graceful: key={} err={}", cacheKey, ex.message) }
+        log.info("KIS 토큰 evict (api helper): user={} type={}", maskUserId(userId), accountType.name)
+    }
+
+    /**
      * 토큰 + appKey + secretKey 묶음 반환 — KIS quotation endpoint 헤더 fix용.
      *
      * 토큰은 Redis cache + 분산락 보호. appKey/secretKey 는 매 호출 DB 복호화.

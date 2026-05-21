@@ -2,15 +2,31 @@ package kr.spdaewoon.magicjar.api.account
 
 import kr.spdaewoon.magicjar.api.infrastructure.kis.ApiKisBalanceQueryAdapter
 import kr.spdaewoon.magicjar.api.infrastructure.kis.KisTokenCacheHelper
+import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialId
+import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
+import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
+import org.mockito.kotlin.any
+import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.never
+import org.mockito.kotlin.verify
+import org.mockito.kotlin.whenever
+import org.springframework.http.HttpStatus
+import org.springframework.http.MediaType
+import org.springframework.web.reactive.function.client.ClientResponse
+import org.springframework.web.reactive.function.client.ExchangeFunction
 import org.springframework.web.reactive.function.client.WebClient
+import org.springframework.web.reactive.function.client.WebClientResponseException
+import reactor.core.publisher.Mono
 import java.math.BigDecimal
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * ApiKisBalanceQueryAdapter 단위 테스트 — T-ACCT Phase 1B (ADR 0081 §2-6).
@@ -242,5 +258,244 @@ class ApiKisBalanceQueryAdapterTest {
         assertThat(holdings[0].avgPrice).isEqualByComparingTo(BigDecimal.ZERO)
         assertThat(holdings[0].currentPrice).isEqualByComparingTo(BigDecimal.ZERO)
         assertThat(holdings[0].profitLossRate).isEqualByComparingTo(BigDecimal.ZERO)
+    }
+
+    // ── 2026-05-21 hotfix (backend-core) — EGW00123 self-heal e2e ──────────────────────────────
+    //
+    // dogfooding evidence (사용자 2026-05-21):
+    //   GET /api/account/positions?userId=74683223&accountType=REAL 502 무한 폭주.
+    //   docker logs magicjar-api 20+ 회 반복:
+    //     ERROR account KIS upstream 실패: status=500 body={"rt_cd":"1","msg1":"기간이 만료된 token 입니다.","msg_cd":"EGW00123"}
+    //   Redis TTL 살아있어 helper fast path가 stale 토큰 무한 재사용 →
+    //   수동 `redis-cli DEL "kis:token:74683223:REAL"` 후에야 신규 발급 + 정상 응답 복귀.
+
+    /** EGW00123 응답 body (KIS 실제 wire format). */
+    private val egw00123Body = """{"rt_cd":"1","msg1":"기간이 만료된 token 입니다.","msg_cd":"EGW00123"}"""
+
+    /** 정상 응답 body — output2 11 필드 + output1 1 종목. */
+    private val successBody =
+        """
+        {
+          "rt_cd":"0",
+          "msg1":"정상처리",
+          "output1":[{
+            "pdno":"005930","prdt_name":"삼성전자","hldg_qty":"10",
+            "pchs_avg_pric":"70000","prpr":"71000","evlu_amt":"710000",
+            "evlu_pfls_amt":"10000","evlu_pfls_rt":"1.43"
+          }],
+          "output2":[{
+            "dnca_tot_amt":"10000000","nxdy_excc_amt":"10000000","prvs_rcdl_excc_amt":"10000000",
+            "tot_evlu_amt":"12000000","nass_amt":"12000000",
+            "pchs_amt_smtl_amt":"1900000","evlu_amt_smtl_amt":"2000000","evlu_pfls_smtl_amt":"100000",
+            "asst_icdc_amt":"50000","asst_icdc_erng_rt":"0.42"
+          }]
+        }
+        """.trimIndent()
+
+    private fun stubCredential(testCredRepo: UserKisCredentialJpaRepository) {
+        val cred =
+            UserKisCredentialJpaEntity(
+                id = UserKisCredentialId(userId = "u-001", accountType = AccountType.REAL.name),
+                accountNumber = "12345678",
+                accountPrdtCd = "01",
+                appKeyEnc = ByteArray(0),
+                secretKeyEnc = ByteArray(0),
+            )
+        whenever(testCredRepo.findAllByAccountType(AccountType.REAL.name)).thenReturn(listOf(cred))
+    }
+
+    /**
+     * ExchangeFunction 기반 WebClient — TraceIdWebClientFilterTest와 동일 패턴.
+     * brittle 한 mock chain(.get().uri().retrieve()...) 없이 e2e 검증.
+     */
+    private fun webClientWith(exchange: ExchangeFunction): WebClient = WebClient.builder().exchangeFunction(exchange).build()
+
+    @Test
+    fun `EGW00123 self-heal — 첫 호출 만료 → evictToken 1회 호출 + 재시도 성공 정합`() {
+        val testCredRepo: UserKisCredentialJpaRepository = mock()
+        val testCipher: SecretCipher = mock()
+        val testTokenHelper: KisTokenCacheHelper = mock()
+        val testRateLimiter: KisRateLimiterPort = mock()
+        stubCredential(testCredRepo)
+        whenever(testCipher.decrypt(any())).thenReturn(ByteArray(0))
+        whenever(testTokenHelper.getAccessToken(eq("u-001"), eq(AccountType.REAL))).thenReturn("stale-token")
+
+        val callCount = AtomicInteger(0)
+        val exchange =
+            ExchangeFunction { _ ->
+                val n = callCount.incrementAndGet()
+                if (n == 1) {
+                    // 1차: KIS 토큰 만료 EGW00123 — HTTP 500 wrap (status 만으로 분기 불가)
+                    Mono.just(
+                        ClientResponse
+                            .create(HttpStatus.INTERNAL_SERVER_ERROR)
+                            .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                            .body(egw00123Body)
+                            .build(),
+                    )
+                } else {
+                    // 2차: evict 후 재발급 토큰으로 재호출 → 정상 응답
+                    Mono.just(
+                        ClientResponse
+                            .create(HttpStatus.OK)
+                            .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                            .body(successBody)
+                            .build(),
+                    )
+                }
+            }
+
+        val testSut =
+            ApiKisBalanceQueryAdapter(
+                webClient = webClientWith(exchange),
+                secretCipher = testCipher,
+                credentialRepository = testCredRepo,
+                tokenHelper = testTokenHelper,
+                kisRateLimiterPort = testRateLimiter,
+                kisBaseProd = "https://openapi.koreainvestment.com:9443",
+                kisBaseVps = "https://openapivts.koreainvestment.com:29443",
+            )
+
+        val result = testSut.fetchFullBalance(userId = "u-001", accountType = AccountType.REAL)
+
+        // (a) cache evict 1회 호출
+        verify(testTokenHelper).evictToken(eq("u-001"), eq(AccountType.REAL))
+        // (b) WebClient 2회 호출
+        assertThat(callCount.get()).isEqualTo(2)
+        // (c) 정상 응답 파싱
+        assertThat(result.balance.cashBalance).isEqualByComparingTo("10000000")
+        assertThat(result.holdings).hasSize(1)
+        assertThat(result.holdings[0].code).isEqualTo("005930")
+        // (d) EGW00123 은 RateLimit 아님 → onTpsExceeded 호출되지 않음
+        verify(testRateLimiter, never()).onTpsExceeded()
+        // (e) 정상 종료 → onSuccess 1회
+        verify(testRateLimiter).onSuccess()
+    }
+
+    @Test
+    fun `EGW00123 self-heal — 재시도도 만료면 throw (무한 루프 차단, retried=true LIMIT)`() {
+        val testCredRepo: UserKisCredentialJpaRepository = mock()
+        val testCipher: SecretCipher = mock()
+        val testTokenHelper: KisTokenCacheHelper = mock()
+        val testRateLimiter: KisRateLimiterPort = mock()
+        stubCredential(testCredRepo)
+        whenever(testCipher.decrypt(any())).thenReturn(ByteArray(0))
+        whenever(testTokenHelper.getAccessToken(eq("u-001"), eq(AccountType.REAL))).thenReturn("always-expired-token")
+
+        val callCount = AtomicInteger(0)
+        val exchange =
+            ExchangeFunction { _ ->
+                callCount.incrementAndGet()
+                Mono.just(
+                    ClientResponse
+                        .create(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                        .body(egw00123Body)
+                        .build(),
+                )
+            }
+
+        val testSut =
+            ApiKisBalanceQueryAdapter(
+                webClient = webClientWith(exchange),
+                secretCipher = testCipher,
+                credentialRepository = testCredRepo,
+                tokenHelper = testTokenHelper,
+                kisRateLimiterPort = testRateLimiter,
+                kisBaseProd = "https://openapi.koreainvestment.com:9443",
+                kisBaseVps = "https://openapivts.koreainvestment.com:29443",
+            )
+
+        assertThatThrownBy { testSut.fetchFullBalance(userId = "u-001", accountType = AccountType.REAL) }
+            .isInstanceOf(WebClientResponseException::class.java)
+
+        // evict 1회만 호출 (재시도 진입 직전)
+        verify(testTokenHelper).evictToken(eq("u-001"), eq(AccountType.REAL))
+        // WebClient 정확히 2회 (1차 EGW00123 → evict → 2차 retry EGW00123 → throw, 3차 진입 0)
+        assertThat(callCount.get()).isEqualTo(2)
+    }
+
+    @Test
+    fun `EGW00201 (429 rate limit) — 기존 동작 보존 (onTpsExceeded 호출, EGW00123 self-heal 미진입)`() {
+        val testCredRepo: UserKisCredentialJpaRepository = mock()
+        val testCipher: SecretCipher = mock()
+        val testTokenHelper: KisTokenCacheHelper = mock()
+        val testRateLimiter: KisRateLimiterPort = mock()
+        stubCredential(testCredRepo)
+        whenever(testCipher.decrypt(any())).thenReturn(ByteArray(0))
+        whenever(testTokenHelper.getAccessToken(eq("u-001"), eq(AccountType.REAL))).thenReturn("valid-token")
+
+        val egw00201Body = """{"rt_cd":"1","msg1":"초당 거래건수를 초과하였습니다.","msg_cd":"EGW00201"}"""
+        val callCount = AtomicInteger(0)
+        val exchange =
+            ExchangeFunction { _ ->
+                callCount.incrementAndGet()
+                // KIS EGW00201은 HTTP 500 wrap (진단 PR #639 정합)
+                Mono.just(
+                    ClientResponse
+                        .create(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                        .body(egw00201Body)
+                        .build(),
+                )
+            }
+
+        val testSut =
+            ApiKisBalanceQueryAdapter(
+                webClient = webClientWith(exchange),
+                secretCipher = testCipher,
+                credentialRepository = testCredRepo,
+                tokenHelper = testTokenHelper,
+                kisRateLimiterPort = testRateLimiter,
+                kisBaseProd = "https://openapi.koreainvestment.com:9443",
+                kisBaseVps = "https://openapivts.koreainvestment.com:29443",
+            )
+
+        assertThatThrownBy { testSut.fetchFullBalance(userId = "u-001", accountType = AccountType.REAL) }
+            .isInstanceOf(WebClientResponseException::class.java)
+
+        // EGW00201 은 RateLimit → onTpsExceeded 호출
+        verify(testRateLimiter).onTpsExceeded()
+        // EGW00123 미포함 → evict 호출 0회 + 재시도 0회 (호출 1회만)
+        verify(testTokenHelper, never()).evictToken(any(), any())
+        assertThat(callCount.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun `Rate Limit acquire 호출 — USER_PATH priority 3000ms timeout (정합 회귀)`() {
+        val testCredRepo: UserKisCredentialJpaRepository = mock()
+        val testCipher: SecretCipher = mock()
+        val testTokenHelper: KisTokenCacheHelper = mock()
+        val testRateLimiter: KisRateLimiterPort = mock()
+        stubCredential(testCredRepo)
+        whenever(testCipher.decrypt(any())).thenReturn(ByteArray(0))
+        whenever(testTokenHelper.getAccessToken(eq("u-001"), eq(AccountType.REAL))).thenReturn("valid-token")
+
+        val exchange =
+            ExchangeFunction { _ ->
+                Mono.just(
+                    ClientResponse
+                        .create(HttpStatus.OK)
+                        .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                        .body(successBody)
+                        .build(),
+                )
+            }
+
+        val testSut =
+            ApiKisBalanceQueryAdapter(
+                webClient = webClientWith(exchange),
+                secretCipher = testCipher,
+                credentialRepository = testCredRepo,
+                tokenHelper = testTokenHelper,
+                kisRateLimiterPort = testRateLimiter,
+                kisBaseProd = "https://openapi.koreainvestment.com:9443",
+                kisBaseVps = "https://openapivts.koreainvestment.com:29443",
+            )
+
+        testSut.fetchFullBalance(userId = "u-001", accountType = AccountType.REAL)
+
+        verify(testRateLimiter).acquire(eq(KisCallPriority.USER_PATH), eq(3000L))
+        verify(testRateLimiter).onSuccess()
     }
 }
