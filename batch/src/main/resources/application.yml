@@ -33,14 +33,25 @@ server:
   port: 8081
   shutdown: graceful
 
+# ADR 0094 P0-OPS-2 — Actuator/Prometheus 노출 (3 모듈 정합 LOCK)
 management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health, info, metrics, prometheus, loggers, env
   endpoint:
     health:
       show-details: always
+    prometheus:
+      enabled: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      environment: ${SPRING_PROFILES_ACTIVE:dev}
 
 magicjar:
   mode: ${MAGICJAR_MODE:MOCK}

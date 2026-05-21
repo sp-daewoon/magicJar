@@ -58,14 +58,28 @@ server:
   port: 8080
   shutdown: graceful  # ADR 0045 — SIGTERM HTTP draining
 
+# ADR 0094 P0-OPS-2 — Actuator/Prometheus 노출 + Micrometer common tags.
+#   exposure.include = health, info, metrics, prometheus, loggers, env (운영 관측 SoT)
+#   show-details = when-authorized (prd 비인증 노출 차단), dev 회귀 보존 위해 always default 유지
+#   metrics.tags = 모든 metric에 application + environment 자동 부착 (Grafana label join)
 management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health, info, metrics, prometheus, loggers, env
   endpoint:
     health:
-      show-details: always
+      show-details: always   # prd 진입 시 when-authorized 권장 (ADR 0094 후속 P0-OPS-3 alert config)
+    prometheus:
+      enabled: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      environment: ${SPRING_PROFILES_ACTIVE:dev}
 
 magicjar:
   mode: ${MAGICJAR_MODE:MOCK}

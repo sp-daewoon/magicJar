@@ -25,6 +25,14 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-webflux") // KIS REST/WS 클라이언트
     implementation("org.springframework.boot:spring-boot-starter-web") // @Scheduled enablement (dispatch §K)
 
+    // ADR 0094 P0-OPS-2 — Micrometer Prometheus registry
+    //   /actuator/prometheus 노출 prerequisite (3 모듈 동일 패턴).
+    implementation("io.micrometer:micrometer-registry-prometheus")
+
+    // ADR 0094 P0-OPS-1 — Logstash JSON encoder
+    //   logback-spring.xml `LogstashEncoder` prerequisite (3 모듈 동일 패턴).
+    implementation("net.logstash.logback:logstash-logback-encoder:7.4")
+
     // Kafka (KafkaListener + KIS WS 데이터 발행)
     implementation("org.springframework.kafka:spring-kafka")
 
