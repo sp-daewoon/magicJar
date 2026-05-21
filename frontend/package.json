@@ -10,7 +10,10 @@
     "lint": "eslint src --ext .ts,.tsx",
     "tsc": "tsc",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "qa:visual": "playwright test --reporter=html,list",
+    "qa:visual:update": "playwright test --update-snapshots",
+    "qa:e2e": "playwright test --grep @e2e"
   },
   "dependencies": {
     "@stomp/stompjs": "^7.0.0",
@@ -23,6 +26,7 @@
     "zustand": "^5.0.13"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.5.2",
@@ -32,6 +36,7 @@
     "autoprefixer": "^10.4.21",
     "jsdom": "^26.1.0",
     "msw": "^2.10.0",
+    "playwright": "^1.60.0",
     "postcss": "^8.5.3",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.3",

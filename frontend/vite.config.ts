@@ -9,6 +9,8 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/__tests__/setup.ts'],
+    // qa Visual (Playwright) 디렉토리는 vitest 수집 대상에서 제외 — @playwright/test API 충돌 회피
+    exclude: ['node_modules', 'dist', 'tests/e2e/**', 'playwright-report/**', 'test-results/**'],
   },
   server: {
     port: 5173,

@@ -34,3 +34,8 @@ lerna-debug.log*
 # OS
 .DS_Store
 Thumbs.db
+
+# Playwright (qa Visual)
+playwright-report/
+test-results/
+playwright/.cache/
