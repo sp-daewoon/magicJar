@@ -8,11 +8,11 @@ Spring Boot 3.3 + Spring AI + 한국투자증권 KIS OpenAPI 기반 **개인 맞
 
 ## 하네스: magicJar 자동매매 팀
 
-사용자가 **최고 관리자**, `magicjar-orchestrator` 스킬이 그 위임을 받아 8명 전문 에이전트(architect · backend-core · market-data · strategy-engine · ai-engineer · frontend · qa · chart-curator)를 통솔합니다. chart-curator는 2026-05-19 ADR 0085 영입 — TradingView LWC v4 차트 + 캔들 데이터 SLA·정합성 단일 owner.
+사용자가 **최고 관리자**, `magicjar-orchestrator` 스킬이 그 위임을 받아 **7명** 전문 에이전트(architect · backend-core · market-data · strategy-engine · ai-engineer · frontend · qa)를 통솔합니다. **2026-05-21 ADR 0094 amend** — 운영 단계 진입 (개발 단계 종착 + 운영·점진 고도화 단계) + chart-curator 해고 (캔들 SLA → market-data / LWC v4 → frontend 책임 이관) + **qa Visual "품질 헌터" 격상** (Playwright + 스크린샷 + 시각 회귀 + E2E + DR drill 자동 재현) + sre 영입 거절 (P0 OPS 6건 backend-core 인수).
 
-**트리거:** magicJar 관련 모든 비트리비얼 작업은 `magicjar-orchestrator` 스킬 사용. 단순 질문(설명·조회) 또는 단일 파일 소소한 편집은 직접 응답 가능. **모듈 추가·전략 추가·AI 기능·화면 추가·차트/캔들 작업·부분 재실행은 반드시 오케스트레이터.**
+**트리거:** magicJar 관련 모든 비트리비얼 작업은 `magicjar-orchestrator` 스킬 사용. 단순 질문(설명·조회) 또는 단일 파일 소소한 편집은 직접 응답 가능. **모듈 추가·전략 추가·AI 기능·화면 추가·차트/캔들 작업·frontend 핵심 화면 변경(헌법 §9-2 qa Visual 자동 의무)·부분 재실행은 반드시 오케스트레이터.**
 
-**위치:** `.claude/agents/*.md`, `.claude/skills/magicjar-*/SKILL.md`. **전체 에이전트 opus 4.7 통일** (ADR 0080, 2026-05-18 — ADR 0035 supersede). 사유: W3 종착 + W4 진입 직전 단계에서 코드 한 줄 수정도 룰 본체·자본 흐름 결합으로 진화하므로 sonnet 패턴화 추론 risk 회피.
+**위치:** `.claude/agents/*.md`, `.claude/skills/magicjar-*/SKILL.md`. `.claude/agents/_archive/chart-curator.md`는 역사 보존(dispatch 대상 X). **전체 에이전트 opus 4.7 통일** (ADR 0080, 2026-05-18 — ADR 0035 supersede + ADR 0094 amend 2026-05-21 — 8→7 actor reshuffle 적용 + opus 4.7 LOCK 유지). 사유: W3 종착 + W4 진입 직전 단계 + 운영 단계 진입에서 코드 한 줄 수정도 룰 본체·자본 흐름 결합으로 진화하므로 sonnet 패턴화 추론 risk 회피.
 
 ## 핵심 명령
 
@@ -67,7 +67,8 @@ node scripts/task.mjs done --pr <N>         # PR 생성 후
 ### pre-commit (ADR 0036)
 - **author email 화이트리스트 강제**. 다음 외에는 커밋 거부:
   - `sp-daewoon@gmail.com`, `seonjupark94@gmail.com` (사용자 본인)
-  - `bot+<agent>@magicjar.local` — `<agent>` ∈ {architect, backend-core, market-data, strategy, ai, frontend, qa, orchestrator, chart-curator}
+  - `bot+<agent>@magicjar.local` — `<agent>` ∈ {architect, backend-core, market-data, strategy, ai, frontend, qa, orchestrator, chart-curator(archived)}
+  - **chart-curator는 2026-05-21 ADR 0094 amend로 해고**되었으나, 역사 evidence 보존 + 사용자 force commit 시점 회피를 위해 `.husky/pre-commit` allowed list는 유지. dispatch는 0 (오케스트라가 대상 매트릭스에서 제외).
 - 따라서 에이전트 모자를 쓸 때는 매 커밋에 `git -c user.name="magicjar-<agent>" -c user.email="bot+<agent>@magicjar.local" commit ...` 또는 작업 시작 시 `git config user.email` 갱신.
 - 시크릿 추정 파일(`.env`, `application-local.*`, `*.p12`, `*.pem` 등) staged 시 차단.
 - 변경된 `.kt`/`.kts` 있으면 `ktlintCheck` 자동 실행.
@@ -85,14 +86,18 @@ node scripts/task.mjs done --pr <N>         # PR 생성 후
 ## 아키텍처
 
 ```
-JVM 4 모듈 (Kotlin 2.0 K2 / Spring Boot 3.3 / JDK 21 / Gradle KTS)
-├─ domain/    순수 도메인 + port (Spring·JPA 의존 0)
-├─ api/       REST/STOMP + 외부 어댑터(KIS·Yahoo·DART·Naver) + Kafka producer
-├─ batch/     Spring Batch — 일봉 backfill·전략 백테스트 잡
-└─ consumer/  Kafka 소비 + KIS WS + 시그널·주문 dispatch + AI 분석
+JVM 7 모듈 (Kotlin 2.0 K2 / Spring Boot 3.3 / JDK 21 / Gradle KTS) — 2026-05-21 baseline
+├─ domain/              순수 도메인 + port (Spring·JPA 의존 0)
+├─ api/                 REST/STOMP + 외부 어댑터(KIS·Yahoo·DART·Naver) + Kafka producer
+├─ batch/               Spring Batch — 일봉 backfill·전략 백테스트 잡
+├─ consumer/            Kafka 소비 + KIS WS + 시그널·주문 dispatch + AI 분석
+├─ persistence-shared/  Outbox Repository + JPA 어댑터 공유 (ADR 0088 · api·consumer 모듈 의존 회피 — 2026-05-19 모듈 분리)
+├─ indicator-impl/      Indicator 계산 lib (ADR 0083 · api·consumer 공유)
+└─ strategy-engine/     DSL parser + StrategyEvaluator 공유 (ADR 0092 · api·consumer 공유)
 
 frontend/    React 19 + TS + Vite + Tailwind + LWC v4 (TradingView Lightweight Charts) — pnpm
 docker/      docker compose 통합(인프라 3 + 앱 4 = 7 컨테이너)
+observability/  Prometheus + Grafana SLO dashboard (P0-OPS-1·2·6 — ADR 0095 alert routing)
 ```
 
 데이터(A) → 분석·전략(B) → 의사결정·실행(C) → 운영(D) 4영역 19컴포넌트 맵은 `docs/architecture/master-architecture.md` §2.
@@ -120,7 +125,7 @@ docker/      docker compose 통합(인프라 3 + 앱 4 = 7 컨테이너)
 | 코드 컨벤션 | `docs/architecture/code-convention.md` |
 | 외부 API 정책(KIS 호출 빈도·토큰) | `docs/architecture/external-api-policy.md` |
 | 캔들 데이터 정책 | `docs/architecture/candle-data-policy-v2.md` |
-| ADR 인덱스 (결정 이력) | `_workspace/arch/adr/README.md` (53건, 파일명 = 본문 헤더 번호) |
+| ADR 인덱스 (결정 이력) | `_workspace/arch/adr/README.md` (총 93+ ADR · Accepted ~70 + Proposed ~15 + Superseded 3 · 파일명 = 본문 헤더 번호) |
 | 진행 중 의제 (backlog) | `_workspace/backlog.md` (처리 완료 §은 minor release마다 `done/v3.X.x.md`로 archive) |
 | baseline 시점 snapshot | `_workspace/baseline/<version>/` (immutable, `/baseline init <ver>` 명령) |
 | 브랜칭·머지·author 정책 | `_workspace/arch/branching-rules.md` |

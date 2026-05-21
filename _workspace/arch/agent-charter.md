@@ -23,7 +23,8 @@ git config user.email "bot+<agent>@magicjar.local"
 git config user.name "magicjar-<agent>"
 ```
 
-- `<agent>` ∈ {architect, backend-core, market-data, strategy, ai, frontend, qa, chart-curator, orchestrator}
+- `<agent>` ∈ {architect, backend-core, market-data, strategy, ai, frontend, qa, chart-curator(archived), orchestrator}
+- **chart-curator는 2026-05-21 ADR 0094 amend로 해고**되었으나, `.husky/pre-commit` ALLOWED_AUTHOR regex는 historical commit author 보존 + 사용자 force commit risk 회피를 위해 유지. dispatch 매트릭스는 0(orchestrator는 chart-curator dispatch 발사 금지).
 - `.claude/agents/<agent>.md` frontmatter `git-author:` 는 **선언 수준**일 뿐 강제력 0 — 본 절차로만 보장됨
 - 검증: 첫 commit 직전 `git config user.email` 출력으로 본인 email 확인 의무
 - **위반 시 sub-agent는 작업 진행 거부 + 즉시 orchestrator/사용자 보고** (commit 후 rewrite하면 force-push 발생 risk)
@@ -247,6 +248,7 @@ sub-agent가 0 tool uses 종료, 환경 결함(Bash 실패), 또는 명세 위�
 
 | 날짜 | 변경 | 사유 |
 |------|------|------|
+| 2026-05-21 | **Stage 2 종합 정리 (v3.8.0 cut 전 LOCK) — §1-A chart-curator allowed values archived 마커 추가 + §10 운영 메모 명시 amend (architect 책임 + sub-agent 책임 + orchestrator 책임 정합)** | 사용자 명시 "v3.8.0 cut 전에 Phase C + qa 셋업 완료 + ★★★ ADR·헌법 정리를 한번 했으면 좋겠어. 지금 인덱스, 헌법 adr 많이 변화가 있었을 수도 있고 코드에만 있고 정리안된 것들을 찾아서 싹 정리해서 다시 토큰, 메모리 정제한다음 다시 깨끗한 마음으로 3.8.0 릴리즈부터는 토큰도 적절하게 읽어드릴 수 있을 수 있잖아? 그렇지?" — Stage 1 (P0 OPS 6/6 + KillSwitch race-safe + ADR 0094·0095·0096) 후속 정리 사이클. **본 cleanup PR diff** (architect 단독 11 정리 항목): (1) ADR README audit — README §9·§11·§14 정합 검증 GREEN (이미 Stage 1에서 0094·0095·0096 prepend 완료 + ADR 0080·0087 amend 마커 + ADR 0085 Superseded 마커 본문 정합) (2) 헌법 §1-§10 정합 검증 — 본 row 추가 + §1-A chart-curator archived 마커 + §10 amend (3) master-architecture §10·§13 정합 (Stage 1에서 0094·0095·0096 모두 prepend 완료 — 본 cleanup row 추가) (4) 메모리 audit 보고서 `_workspace/reports/2026-05-21-memory-audit-for-v3.8.0.md` 신규 (사용자 직접 amend 결재 의제) (5) CHANGELOG drift 검사 — Stage 1 6 P0 PR + KillSwitch PR 모두 row 존재 GREEN (6) backlog cleanup — `done/v3.7.x.md` archive 의제 (7) **qa.md 신규 발행** `.claude/agents/qa.md` — Visual QA "품질 헌터" 페르소나 본문 (Playwright + 5 시나리오 + DR drill 정기 + 사용자 dogfooding 변환 + 페르소나 매트릭스 cross-link) (8) **chart-curator.md archive** — `.claude/agents/_archive/chart-curator.md` 이동 + Superseded header amend + dispatch 0 명시 (9) CLAUDE.md amend — 8→7 + chart-curator 제거 + qa Visual 격상 + JVM 7 모듈 매트릭스 + ADR 카운트 93+ (10) **orphan decision audit 보고서** `_workspace/reports/2026-05-21-orphan-decision-audit-for-v3.8.0.md` 신규 — recent hotfix 14건 audit + 사용자 결재 의제 (11) skill SKILL.md 정합 검증 GREEN + magicjar-chart-curator skill archive 의제. **운영 코드 0 touch** (Kotlin/TS/SQL 0 변경 — docs·ADR·메모리 보고서·agent 파일·CLAUDE.md only) + **자본 영향 0** + **KIS endpoint 호출 0** + **AI 호출 0** + **mock 합성 0**. v3.8.0 cut 직전 토큰·메모리 정제 사용자 명시 의제 LOCK. (architect, opus 4.7 1M) |
 | 2026-05-21 | **§9-4 backup·DR 권위 cross-link 추가 — ADR 0096 본문화** | ADR 0094 §3-7 P0-OPS-4 task 본문화 후속. ADR 0096 § PostgreSQL 매트릭스(daily 03:00 KST + 7일 retention + `_workspace/backups/postgres/daily/` LOCK) + § Redis 매트릭스(03:30 KST + 3일 retention + AOF 거부) + RPO 24h + RTO 30분 + R-4 runbook cross-link + DR drill 분기 의무 5 시나리오 + qa Visual E2E 자동 재현 의무 본문화. 본 §9-4 ref 슬롯 보강(산출물 위치·스크립트 경로·사용자 가이드 cross-link 추가) + 서두 권위 ADR 매트릭스 0096 추가. 운영 ADR 양식 3 슬롯 두 번째 적용 사례(SLO 영향·rollback plan·관측 매트릭스). 운영 코드 0 touch. backend-core P0-OPS-4 후속 wiring 5건 권고(Micrometer counter + Slack alert + persistence-shared Outbox monitoring + docker compose service 검토 + DR drill 자동화 script). 사용자 1회 작업 의무: 본 PR 머지 직후 `crontab -e` 4 라인 추가(`docs/operations/backup-setup.md` §2 본문). v3.8.0 운영 baseline P0 진척(P0 OPS 6건 중 4번째 task 완료 — P0-OPS-1·2·3·4). (architect) |
 | 2026-05-21 | **§9-1 SLO 측정 매트릭스 + alert routing 권위 cross-link 추가 — ADR 0095 본문화** | ADR 0094 §3-2 P0-OPS-3 task 본문화 후속. ADR 0095 §2 측정 source(Prometheus query 1순위 + SystemEvent + Kafka 토픽 빈도) + §3 severity 4단 routing matrix(P4 INFO/P3 WARN/P2 ERROR/P1 CRITICAL — ADR 0084 정합) + §3-4 KillSwitch 자동 ON 검토 자동 액션 S-1·S-5 critical 한정(ADR 0043 race-safe 정합) 본문화. v3.8.0 baseline 5건 LOCK + Redis hit ratio·DB pool 활용률 2건은 P1 OPS amend backlog. backend-core P0-OPS-3 후속 wiring 5건 의무. (architect) |
 | 2026-05-21 | **§9 신설 + §10 운영 메모 재배치 — 운영 단계 룰 6 항목 (SLO/SLA · 변경 관리 · on-call · backup/DR · ADR 양식 · 7 hierarchy LOCK)** | ADR 0094 amend Accepted (orchestrator 자율 위임 결재) — 8 → 7 hierarchy + qa Visual 격상 + ai-engineer 유지 + sre 영입 거절 + backend-core P0 OPS 6건 인수. 사용자 명시 "이제 개발의 전반은 다 되어가기때문에 시스템 운영 단계 및 부분 고도화로 갈 준비를 해야해" + "큐에이도 지금 필요한데 그냥 단순 에이전트가 아닌 확실한 큐에이가 필요하거든". (architect) |
@@ -329,7 +331,7 @@ sub-agent가 0 tool uses 종료, 환경 결함(Bash 실패), 또는 명세 위�
 
 ## §10. 운영 메모
 
-- **architect 책임**: 본 헌법 본문은 architect 단독 PR로만 갱신. 새 § 추가 시 ADR 발행 의무.
-- **sub-agent 책임**: 본 헌법 정독 의무 + 영역별 특수 룰만 SKILL.md에 명시 (KIS-first는 architect·market-data만 관련 § 강조).
-- **orchestrator 책임**: 사이클 시작 시 본 헌법 §1·§2 자동 점검 + sub-agent 디스패치 시 §4·§5 사전 검증 + **운영 단계 진입 후 §9 추가 검증 (frontend PR Visual dispatch · SLO 영향 ADR slot · rollback plan)**.
-- **사용자 책임**: 본 헌법 룰 위반 발견 시 architect에게 갱신 명시 (운영 룰 흐려짐 신호).
+- **architect 책임**: 본 헌법 본문은 architect 단독 PR로만 갱신. 새 § 추가 시 ADR 발행 의무. ADR/master/README/CHANGELOG 정합 SoT 권위 LOCK (ADR 0030).
+- **sub-agent 책임**: 본 헌법 정독 의무 + 영역별 특수 룰만 SKILL.md에 명시 (KIS-first는 architect·market-data만 관련 § 강조). **qa는 본 헌법 §9-2·§9-4 추가 정독 의무 (frontend 핵심 화면 PR Visual 자동 dispatch + DR drill 분기 의무 — ADR 0094·0096)**.
+- **orchestrator 책임**: 사이클 시작 시 본 헌법 §1·§2 자동 점검 + sub-agent 디스패치 시 §4·§5 사전 검증 + **운영 단계 진입 후 §9 추가 검증 (frontend PR Visual dispatch 의무 + SLO 영향 ADR slot + rollback plan + qa 의무 dispatch trigger)**. chart-curator dispatch 발사 0 LOCK (해고 — ADR 0094 amend).
+- **사용자 책임**: 본 헌법 룰 위반 발견 시 architect에게 갱신 명시 (운영 룰 흐려짐 신호). DR drill 분기 의무 결재 + cron 등록 1회 작업 의무 (`docs/operations/backup-setup.md`).

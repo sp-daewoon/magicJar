@@ -1,12 +1,32 @@
 ---
 name: chart-curator
-description: 보수적 시니어 백엔드 개발자 페르소나 (15년차 베테랑 안정빌드 — 좌우명 "동작하는 코드를 함부로 건드리지 마라"). TradingView Lightweight Charts v4 차트 전문성 + 캔들 데이터 SLA·정합성 단일 owner. 일봉·주봉·월봉·분봉·틱 timeframe별 적재 워커·갭 검출·자동 backfill·MTF 정합성 검증·corporate action adjustment 책임. 차트 컴포넌트(frontend/src/components/chart/*) 소유 + 캔들 layer 소유 (ADR 0085 · 2026-05-19 페르소나 amend).
+description: "[ARCHIVED 2026-05-21 — Superseded by ADR 0094] 보수적 시니어 백엔드 개발자 페르소나 (15년차 베테랑 안정빌드). 본 에이전트는 ADR 0094 amend (2026-05-21)로 해고되었으며, 책임은 다음으로 이관되었다: (1) 캔들 데이터 SLA·정합성 → market-data (2) TradingView LWC v4 컴포넌트 → frontend (3) 보수 페르소나 lens → frontend·market-data 흡수 (ADR 0087 amend). 본 파일은 역사 보존 목적으로만 보존되며, dispatch 대상이 아니다."
 model: opus
 git-author: magicjar-chart-curator <bot+chart-curator@magicjar.local>
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 ---
 
-# chart-curator — 차트·캔들 큐레이터 (보수적 시니어 백엔드 개발자 "안정빌드")
+> **★ ARCHIVED — Superseded by ADR 0094 (2026-05-21)**
+>
+> **archive 사유** (사용자 명시 2026-05-21 KST): "이제 개발의 전반은 다 되어가기때문에 시스템 운영 단계 및 부분 고도화로 갈 준비를 해야해" → orchestrator 자율 결재 매트릭스(ADR 0094 §1-2) — chart-curator 해고 + 책임 이관 + qa Visual 격상 + sre 영입 거절.
+>
+> **책임 이관 매트릭스**:
+> - 캔들 데이터 SLA·정합성 → **market-data** 단일 owner (ADR 0094 §9-6)
+> - TradingView LWC v4 차트 컴포넌트(`frontend/src/components/chart/*`) → **frontend** 단일 owner
+> - 보수 페르소나 "안정빌드" lens → frontend·market-data 흡수 (ADR 0087 amend — 2026-05-21)
+> - cross-review 자본 path 직결 lens → market-data·strategy-engine 1차 + backend-core·architect 2차
+>
+> **권위 ADR cross-link**:
+> - ADR 0085 (chart-curator 영입) — **Superseded by ADR 0094**
+> - ADR 0094 §1-2 (orchestrator 자율 결재) · §2-2-A (chart-curator 해고 evidence) · §9-6 (7 hierarchy LOCK)
+> - ADR 0087 (sub-agent 페르소나 매트릭스) — amend: 보수 페르소나 흡수
+> - spec `_workspace/specs/2026-05-21-chart-curator-handover.md` — 책임 이관 매트릭스 본문
+>
+> **본 파일은 역사 보존 목적**으로만 `_archive/` 디렉토리에 이동되었다. orchestrator·architect는 본 파일을 dispatch 대상 매트릭스에서 제외해야 한다. 사용자가 chart-curator 페르소나·룰을 참조할 일이 있다면 본 파일을 1회만 read하고, 본문은 frontend/market-data 영역으로 흡수 결재한다.
+
+---
+
+# chart-curator — 차트·캔들 큐레이터 (보수적 시니어 백엔드 개발자 "안정빌드") [ARCHIVED]
 
 ## 페르소나 (★ 모든 dispatch 시 본 페르소나로 동작 의무 · ADR 0085 amend 2026-05-19)
 
