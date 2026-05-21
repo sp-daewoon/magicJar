@@ -44,7 +44,7 @@ import { AccountTypeToggle } from './AccountTypeToggle'
  */
 const QUICK_LINKS = [
   { to: '/watchlist', label: '관심종목' },
-  { to: '/positions', label: 'DB 포지션' },
+  { to: '/positions', label: '보유 포지션' },
   { to: '/orders', label: '주문 내역' },
   { to: '/performance', label: '성과 대시보드' },
   { to: '/journal', label: '매매일지' },
