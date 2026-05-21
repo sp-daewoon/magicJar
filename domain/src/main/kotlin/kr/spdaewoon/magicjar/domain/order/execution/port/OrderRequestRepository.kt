@@ -23,6 +23,16 @@ interface OrderRequestRepository {
     fun findOpenByUserId(userId: String): List<OrderRequest>
 
     /**
+     * KillSwitch race-safe guard B (Grace Window) 용 — userId의 마지막 ORDER_FILLED 시각.
+     *
+     * 정의: `status = FILLED` 중 `completedAt MAX`. 부분 체결(`PARTIALLY_FILLED`)은 grace 대상 아님 —
+     *      KillSwitch 정책상 "최종 체결 직후 reconcile drift는 KIS 인덱스 반영 race"를 가드하는 목적.
+     *
+     * @return 한 건도 없으면 null (해당 사용자는 grace 미적용).
+     */
+    fun findLastFilledAt(userId: String): Instant?
+
+    /**
      * ADR 0084 P0-2 — PENDING_RECONCILE 상태 + requestedAt < cutoff 조회.
      *
      * 사용처: [kr.spdaewoon.magicjar.consumer.order.OrderReconciliationWorker] cron 1분 — 5분 이상 경과한

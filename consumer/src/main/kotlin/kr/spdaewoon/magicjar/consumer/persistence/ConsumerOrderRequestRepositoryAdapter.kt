@@ -50,6 +50,9 @@ class ConsumerOrderRequestRepositoryAdapter(
     @Transactional(readOnly = true)
     override fun findOpenByUserId(userId: String): List<OrderRequest> = jpa.findOpenByUserId(userId).map { toDomain(it) }
 
+    @Transactional(readOnly = true)
+    override fun findLastFilledAt(userId: String): Instant? = jpa.findLastFilledAtByUserId(userId)
+
     /**
      * ADR 0084 P0-2 — OrderReconciliationWorker cron 1분 lookup.
      *

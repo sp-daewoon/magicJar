@@ -4,6 +4,7 @@ import kr.spdaewoon.magicjar.domain.event.SystemEvent
 import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
 import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
 import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
+import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import kr.spdaewoon.magicjar.domain.reconcile.BalanceReconciler
 import kr.spdaewoon.magicjar.domain.reconcile.HoldingDiff
 import kr.spdaewoon.magicjar.domain.reconcile.InternalHolding
@@ -56,6 +57,15 @@ class BalanceReconcileService(
     private val internalPositionQueryPortProvider: ObjectProvider<InternalPositionQueryPort>,
     private val positionUpsertPortProvider: ObjectProvider<PositionUpsertPort>,
     private val systemEventLogger: SystemEventLogger,
+    /**
+     * KillSwitch race-safe guard A (Pending Order Exclusion) — drift publish 직전 종목별 필터.
+     *
+     * `OrderRequestRepository.findOpenByUserId` 호출로 status ∈ {REQUESTED, ACK, PARTIALLY_FILLED}
+     * 종목 set 획득 → drift symbol에 포함되면 publish skip (KillSwitchAutoToggler ON 차단).
+     *
+     * ObjectProvider Phase 2 graceful — 어댑터 부재 시 emptySet 가정 (skip 0).
+     */
+    private val orderRequestRepositoryProvider: ObjectProvider<OrderRequestRepository>,
 ) {
     private val log = LoggerFactory.getLogger(BalanceReconcileService::class.java)
 
@@ -169,6 +179,11 @@ class BalanceReconcileService(
                     )
                 val saved = saveOrInMemory(drifted)
 
+                // KillSwitch race-safe guard A (Pending Order Exclusion) — drift publish 직전 종목 필터.
+                // status ∈ {REQUESTED, ACK, PARTIALLY_FILLED} 종목은 KIS 인덱스 반영 race 가능 → publish skip.
+                // upsertFromKis는 정상 수행 (DB 정합은 그대로 KIS 신뢰원 갱신, 다만 자동 KillSwitch ON 차단).
+                val pendingSymbols = fetchPendingSymbols(userId)
+
                 // KIS 신뢰원으로 내부 position upsert
                 val kisBySymbol = kisHoldings.associateBy { it.symbol }
                 result.driftedHoldings.forEach { diff ->
@@ -187,7 +202,17 @@ class BalanceReconcileService(
                             ),
                         )
                     }
-                    eventPublisher.publishDrift(userId, saved.id, diff)
+                    if (diff.symbol in pendingSymbols) {
+                        log.info(
+                            "reconcile drift publish skip — pending order 존재 (race-safe guard A): " +
+                                "userId={} symbol={} qtyDiff={}",
+                            maskUserId(userId),
+                            diff.symbol,
+                            diff.qtyDiff,
+                        )
+                    } else {
+                        eventPublisher.publishDrift(userId, saved.id, diff)
+                    }
                 }
 
                 // priceDrift 종목은 audit (publish drift는 임계 도달 종목만)
@@ -227,6 +252,29 @@ class BalanceReconcileService(
                 eventPublisher.publishRun(saved)
                 saved
             }
+        }
+    }
+
+    /**
+     * KillSwitch race-safe guard A — pending order(REQUESTED·ACK·PARTIALLY_FILLED) 종목 set.
+     *
+     * Phase 2 graceful — `OrderRequestRepository` 어댑터 부재 시 emptySet (skip 0).
+     * 호출 실패 시도 graceful — emptySet fallback + log.warn (drift publish는 정상 진행).
+     */
+    private fun fetchPendingSymbols(userId: String): Set<String> {
+        val repo = orderRequestRepositoryProvider.getIfAvailable() ?: return emptySet()
+        return runCatching {
+            repo
+                .findOpenByUserId(userId)
+                .map { it.code }
+                .toSet()
+        }.getOrElse { e ->
+            log.warn(
+                "OrderRequestRepository.findOpenByUserId 호출 실패 — race-safe guard A skip: userId={} err={}",
+                maskUserId(userId),
+                e.message,
+            )
+            emptySet()
         }
     }
 
