@@ -108,13 +108,13 @@
 | 0036 | Orchestrator Meta Rules (git-author + task-file-system + architect-as-orchestrator) |
 | 0078 | 내부 자산 추출 전략 — Proposed (재사용 가능한 프로젝트 부트스트랩 템플릿 + Plugin Independence 제약) |
 | 0079 | **마스터 시각화 HTML 표준화 (`scripts/master-index.mjs` + `/master-index` slash + release.sh 통합) — Accepted (2026-05-17)** |
-| 0080 | **전체 에이전트 Opus 4.7 통일 (ADR 0035 supersede) — Accepted (2026-05-18)** |
+| 0080 | **전체 에이전트 Opus 4.7 통일 (ADR 0035 supersede) — Accepted (2026-05-18) — Amended by ADR 0094 (2026-05-21): 8 → 7 actor (chart-curator 해고) + qa Visual 격상. opus 4.7 LOCK 유지** |
 | 0081 | **계좌 잔고·예수금 사용자 노출 endpoint + UI (T-ACCT 신규 트랙) — Accepted (2026-05-19 격상 · Phase 1·2·3·4 머지 evidence · v3.6.17 release 포함)** |
 | 0082 | **사용자 수동 주문 발행 트랙 (T-MAN — 가상계좌 통합테스트 dogfooding + 사용자 최고 관리자 통제) — Proposed (2026-05-18 · spec 발행 단계)** |
-| 0085 | **chart-curator 신규 에이전트 영입 (8번째 sub-agent) — TradingView LWC v4 차트 + 캔들 데이터 SLA·정합성 단일 owner — Accepted (2026-05-19 격상 · T-CC Phase 1 + Phase 2-A 머지 evidence · v3.6.17 release 포함 · 2026-05-19 §Persona amend — 보수적 시니어 백엔드 개발자 "안정빌드")** |
+| 0085 | ~~chart-curator 신규 에이전트 영입 (8번째 sub-agent) — TradingView LWC v4 차트 + 캔들 데이터 SLA·정합성 단일 owner~~ — **Superseded by ADR 0094 (2026-05-21)**: chart-curator 해고 + 책임 이관 (LWC v4 → frontend / 캔들 SLA → market-data). 페르소나 "안정빌드"는 frontend·market-data 보수 lens로 흡수 보존. spec: `_workspace/specs/2026-05-21-chart-curator-handover.md` |
 | 0086 | **T-CC Phase 2 — 자동 backfill 워커 + 갭 검출 + 데이터 햇징 룰 매트릭스 10건 (신입 chart-curator 보호) — Accepted (2026-05-19 격상 · Phase 2-A 햇징 룰 10건 모두 구현 + 27 단위 테스트 ALL GREEN · v3.6.17 release 포함)** |
-| 0087 | **Sub-agent 페르소나 매트릭스 — 보수적 chart-curator ↔ 진보적 backend-core 짝 시스템 — Proposed (2026-05-19, Phase 1 후 Accepted 격상 예정)** |
-| 0094 | **운영 단계 transition — 개발 단계 종착 + 운영·점진 고도화 단계 진입 (sub-agent 8 → 6 reshuffle: 해고 qa·보류 ai-engineer·흡수 chart-curator→frontend/market-data·신규 sre · 운영 헌법 §9 신설 SLO/SLA·on-call·DR·운영 ADR 양식) — Proposed (2026-05-21, 사용자 결재 D-1~D-6 후 Accepted 격상 예정 · ADR 0080·0085·0087 amend)** |
+| 0087 | **Sub-agent 페르소나 매트릭스 — 보수적 chart-curator ↔ 진보적 backend-core 짝 시스템 — Accepted (2026-05-21 ADR 0094 amend 동반 격상) — Amended by ADR 0094: 7 actor 페르소나 매트릭스 (chart-curator 보수 흡수 → frontend·market-data + qa Visual "품질 헌터" 신규 + ai-engineer 균형 추가)** |
+| 0094 | **운영 단계 transition — 개발 단계 종착 + 운영·점진 고도화 단계 진입 (sub-agent 8 → 7 reshuffle: 해고 chart-curator·격상 qa Visual "품질 헌터"·유지 ai-engineer·거절 sre · backend-core P0 OPS 6건 인수 · 운영 헌법 §9 신설 SLO/SLA·on-call·DR·운영 ADR 양식 · spec 2건 동반 발행) — Accepted (2026-05-21 사용자 위임 결재 · orchestrator 자율 결정 매트릭스 반영 · ADR 0080·0087 amend + ADR 0085 supersede)** |
 
 ## §10. 외부 API 강제 정책 + UI 흐름 (4건)
 

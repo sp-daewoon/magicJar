@@ -1,10 +1,11 @@
 # ADR 0087: Sub-agent 페르소나 매트릭스 — 보수적 chart-curator ↔ 진보적 backend-core 짝 시스템
 
-- 상태: **Proposed (2026-05-19 — Phase 1 backend-core 페르소나 적용 후 Accepted 격상 예정)**
+- 상태: **Accepted (2026-05-21 — ADR 0094 amend 동반 격상)**
 - 작성일: 2026-05-19
 - 결정자: 사용자(최고 관리자) — architect sub-agent 수행
 - 영역: 메타·하네스 (§9)
-- 관련: ADR 0036(Orchestrator Meta Rules) · ADR 0080(전체 opus 4.7) · ADR 0085(chart-curator 영입 + 보수적 페르소나 amend)
+- Amended by: ADR 0094 (2026-05-21) — 7 actor 페르소나 매트릭스 재배치. chart-curator 보수 "안정빌드" 페르소나는 frontend·market-data 보수 lens로 흡수 보존. qa는 "품질 헌터" 방어 페르소나 신규. ai-engineer는 균형 "보조 분석" 명시.
+- 관련: ADR 0036(Orchestrator Meta Rules) · ADR 0080(전체 opus 4.7) · ADR 0085(chart-curator 영입 — Superseded by ADR 0094) · **ADR 0094(2026-05-21 amend — 7 actor + qa Visual 격상)**
 
 ## 1. 맥락
 
