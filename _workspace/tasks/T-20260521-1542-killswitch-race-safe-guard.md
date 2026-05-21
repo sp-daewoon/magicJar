@@ -3,10 +3,10 @@ id: T-20260521-1542-killswitch-race-safe-guard
 agent: backend-core
 model: opus
 branch: hotfix/killswitch-race-safe-guard
-status: RUNNING
+status: DONE
 startedAt: 2026-05-21T15:42:44.620+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-21T15:54:12.564+09:00
+pr: #648
 parentPhase: ?
 ---
 
