@@ -3,10 +3,10 @@ id: T-20260521-0951-kis-ratelimit-p0
 agent: backend-core
 model: opus
 branch: agent/backend-core/kis-ratelimit-p0
-status: RUNNING
+status: DONE
 startedAt: 2026-05-21T09:51:26.053+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-21T10:17:17.630+09:00
+pr: #640
 parentPhase: ?
 ---
 
