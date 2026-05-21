@@ -3,12 +3,18 @@ package kr.spdaewoon.magicjar.consumer.infrastructure.kis.ratelimit
 import io.github.bucket4j.BucketConfiguration
 import io.github.bucket4j.distributed.BucketProxy
 import io.github.bucket4j.distributed.proxy.ProxyManager
+import kr.spdaewoon.magicjar.domain.event.SystemEvent
+import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
+import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
+import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimitTimeoutException
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import org.slf4j.LoggerFactory
 import java.time.Duration
+import java.time.Instant
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * consumer 모듈 KIS Rate Limit Bucket4j-Redis 단일 bucket adapter (spec PR #564 §2-3 옵션 a 정합).
@@ -33,12 +39,27 @@ import java.util.concurrent.atomic.AtomicLong
 class ConsumerRedisKisRateLimiterAdapter(
     private val proxyManager: ProxyManager<String>,
     private val props: ConsumerKisRateLimitProperties,
+    /**
+     * SystemEvent emit port (진단 PR #639 P0 hotfix — KIS_RATELIMIT P3 catalog → P1 활성).
+     *
+     * nullable LOCK 사유 — 단위 테스트 허용 + Bean wiring 단계 분리.
+     */
+    private val systemEventLogger: SystemEventLogger? = null,
 ) : KisRateLimiterPort {
     private val log = LoggerFactory.getLogger(ConsumerRedisKisRateLimiterAdapter::class.java)
 
     /** Phase 1 통계 카운터 (Phase 3 Circuit Breaker에서 권위 위임) */
     private val tpsExceededCount = AtomicLong(0L)
     private val successCount = AtomicLong(0L)
+
+    /** SystemEvent emit aggregator — 5분 윈도 1회 LOCK (spam 회피) */
+    private val lastEmittedAt = AtomicReference<Instant>(Instant.EPOCH)
+
+    private companion object {
+        val EMIT_AGGREGATOR_WINDOW: Duration = Duration.ofMinutes(5)
+        const val ACTOR = "ConsumerRedisKisRateLimiterAdapter"
+        const val ACTION_TPS_EXCEEDED = "KIS_TPS_EXCEEDED"
+    }
 
     /**
      * Bucket4j BucketConfiguration — Greedy refill (capacity 도달 시 일정 간격 회복).
@@ -120,8 +141,11 @@ class ConsumerRedisKisRateLimiterAdapter(
     }
 
     /**
-     * EGW00201 / HTTP 429 응답 시그널 (Phase 1: log + 카운터만).
-     * Phase 3 합류 시 Resilience4j Circuit Breaker `onError()` 위임.
+     * EGW00201 / HTTP 429 응답 시그널 — 통계 누적 + SystemEvent emit (P0 hotfix).
+     *
+     * ### 진단 PR #639 P0 hotfix
+     * - SystemEventLogger.emit(KIS_RATELIMIT, WARN) 합류 — `/system` 페이지 가시화
+     * - aggregator 5분 LOCK — spam 회피 (EGW00201 burst 시 1건만 발사)
      */
     override fun onTpsExceeded() {
         val count = tpsExceededCount.incrementAndGet()
@@ -129,6 +153,48 @@ class ConsumerRedisKisRateLimiterAdapter(
             "[KisRateLimit/consumer] TPS exceeded signal — count={} (Phase 3 Circuit Breaker 합류 대기)",
             count,
         )
+        emitSystemEventIfThresholdReached(count)
+    }
+
+    /**
+     * SystemEvent emit aggregator — 5분 윈도 1회 LOCK (spam 회피, api·batch 동일 패턴).
+     */
+    private fun emitSystemEventIfThresholdReached(currentCount: Long) {
+        val logger = systemEventLogger ?: return
+        val now = Instant.now()
+        val prev = lastEmittedAt.get()
+        if (Duration.between(prev, now) < EMIT_AGGREGATOR_WINDOW) {
+            return
+        }
+        if (!lastEmittedAt.compareAndSet(prev, now)) {
+            return
+        }
+
+        runCatching {
+            logger.emit(
+                SystemEvent(
+                    category = SystemEventCategory.KIS_RATELIMIT,
+                    severity = SystemEventSeverity.WARN,
+                    actor = ACTOR,
+                    action = ACTION_TPS_EXCEEDED,
+                    userId = null,
+                    correlationId = null,
+                    detailJson =
+                        """{"tpsExceededCount":$currentCount,"bucketKey":"${props.bucketKey}",""" +
+                            """"aggregatorWindowMinutes":5,"module":"consumer"}""",
+                ),
+            )
+            log.warn(
+                "[KisRateLimit/consumer] SystemEvent KIS_RATELIMIT emit — count={} window=5min",
+                currentCount,
+            )
+        }.onFailure { e ->
+            log.error(
+                "[KisRateLimit/consumer] SystemEvent emit 실패 — count={} err={}",
+                currentCount,
+                e.message,
+            )
+        }
     }
 
     /** 정상 응답 시그널 (Phase 1: log debug + 카운터만 — fail rate 분모 누적). */

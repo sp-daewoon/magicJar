@@ -6,7 +6,9 @@ import kr.spdaewoon.magicjar.domain.instrument.corpaction.CorpAction
 import kr.spdaewoon.magicjar.domain.instrument.corpaction.CorpActionType
 import kr.spdaewoon.magicjar.domain.instrument.corpaction.port.KisKsdInfoFetcher
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
+import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
@@ -305,7 +307,8 @@ class KisKsdInfoAdapter(
             signalSent = true
             objectMapper.readTree(body)
         } catch (e: WebClientResponseException) {
-            if (e.statusCode.value() == 429) {
+            // P0 hotfix (진단 PR #639) — classifyKisError() 분기 통일 (EGW00201 = HTTP 500 wrap).
+            if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
                 kisRateLimiterPort.onTpsExceeded()
                 signalSent = true
             }

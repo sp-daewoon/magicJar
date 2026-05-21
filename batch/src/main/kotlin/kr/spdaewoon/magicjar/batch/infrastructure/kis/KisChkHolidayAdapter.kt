@@ -2,7 +2,9 @@ package kr.spdaewoon.magicjar.batch.infrastructure.kis
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
+import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
 import kr.spdaewoon.magicjar.domain.market.session.MarketCalendarEntry
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -155,7 +157,8 @@ class KisChkHolidayAdapter(
             signalSent = true
             body
         } catch (e: WebClientResponseException) {
-            if (e.statusCode.value() == 429) {
+            // P0 hotfix (진단 PR #639) — classifyKisError() 분기 통일 (EGW00201 = HTTP 500 wrap).
+            if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
                 kisRateLimiterPort.onTpsExceeded()
                 signalSent = true
             }

@@ -9,7 +9,9 @@ import io.lettuce.core.api.StatefulRedisConnection
 import io.lettuce.core.codec.ByteArrayCodec
 import io.lettuce.core.codec.RedisCodec
 import io.lettuce.core.codec.StringCodec
+import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.properties.EnableConfigurationProperties
@@ -102,5 +104,6 @@ class BatchKisRateLimiterConfiguration {
     fun batchKisRateLimiterPort(
         batchKisRateLimitProxyManager: ProxyManager<String>,
         props: BatchKisRateLimitProperties,
-    ): KisRateLimiterPort = BatchRedisKisRateLimiterAdapter(batchKisRateLimitProxyManager, props)
+        @Autowired(required = false) systemEventLogger: SystemEventLogger?,
+    ): KisRateLimiterPort = BatchRedisKisRateLimiterAdapter(batchKisRateLimitProxyManager, props, systemEventLogger)
 }

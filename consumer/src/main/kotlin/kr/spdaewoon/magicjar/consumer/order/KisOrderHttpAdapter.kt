@@ -7,7 +7,9 @@ import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisHashKeyAdapter
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
+import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
 import kr.spdaewoon.magicjar.domain.order.execution.DenyReason
 import kr.spdaewoon.magicjar.domain.order.execution.KisOrderAck
 import kr.spdaewoon.magicjar.domain.order.execution.OrderIntent
@@ -212,7 +214,8 @@ class KisOrderHttpAdapter(
                 )
             }
         } catch (e: WebClientResponseException) {
-            if (e.statusCode.value() == 429) {
+            // P0 hotfix (진단 PR #639) — classifyKisError() 분기 통일 (EGW00201 = HTTP 500 wrap).
+            if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
                 kisRateLimiterPort.onTpsExceeded()
                 signalSent = true
             }
@@ -369,7 +372,8 @@ class KisOrderHttpAdapter(
                 )
             }
         } catch (e: WebClientResponseException) {
-            if (e.statusCode.value() == 429) {
+            // P0 hotfix (진단 PR #639) — classifyKisError() 분기 통일 (EGW00201 = HTTP 500 wrap).
+            if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
                 kisRateLimiterPort.onTpsExceeded()
                 signalSent = true
             }

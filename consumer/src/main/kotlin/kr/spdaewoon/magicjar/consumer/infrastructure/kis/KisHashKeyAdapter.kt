@@ -3,11 +3,12 @@ package kr.spdaewoon.magicjar.consumer.infrastructure.kis
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
+import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
@@ -123,11 +124,11 @@ class KisHashKeyAdapter(
             response.hash?.takeIf { it.isNotBlank() }
                 ?: throw IllegalStateException("HASHKEY_HASH_FIELD_NULL")
         } catch (e: WebClientResponseException) {
-            // EGW00201 / HTTP 429 backoff (spec PR #564 §2-2 — 1초 + 1회 재시도)
-            if (e.statusCode == HttpStatus.TOO_MANY_REQUESTS) {
+            // P0 hotfix (진단 PR #639) — EGW00201 = HTTP 500 wrap. classifyKisError() 분기 통일.
+            if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
                 kisRateLimiterPort.onTpsExceeded()
                 signalSent = true
-                log.warn("KIS hashkey HTTP 429 — 1초 backoff 후 1회 재시도: accountType={}", accountType.name)
+                log.warn("KIS hashkey Rate Limit — 1초 backoff 후 1회 재시도: accountType={} status={}", accountType.name, e.statusCode.value())
                 Thread.sleep(1000L)
                 return retryHashKey(body, baseUrl, accessToken, appKey, appSecret, accountType)
             }
@@ -190,10 +191,11 @@ class KisHashKeyAdapter(
             response.hash?.takeIf { it.isNotBlank() }
                 ?: throw IllegalStateException("HASHKEY_HASH_FIELD_NULL")
         } catch (e: WebClientResponseException) {
-            if (e.statusCode == HttpStatus.TOO_MANY_REQUESTS) {
+            // P0 hotfix (진단 PR #639) — classifyKisError() 분기 통일.
+            if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
                 kisRateLimiterPort.onTpsExceeded()
                 signalSent = true
-                throw IllegalStateException("HASHKEY_HTTP_429_RETRY_EXHAUSTED", e)
+                throw IllegalStateException("HASHKEY_RATELIMIT_RETRY_EXHAUSTED_${e.statusCode.value()}", e)
             }
             throw IllegalStateException("HASHKEY_HTTP_${e.statusCode.value()}_RETRY", e)
         } finally {

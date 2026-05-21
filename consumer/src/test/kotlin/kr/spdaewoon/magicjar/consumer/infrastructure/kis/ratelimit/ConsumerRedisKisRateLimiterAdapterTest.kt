@@ -3,6 +3,10 @@ package kr.spdaewoon.magicjar.consumer.infrastructure.kis.ratelimit
 import io.github.bucket4j.distributed.BucketProxy
 import io.github.bucket4j.distributed.proxy.ProxyManager
 import io.github.bucket4j.distributed.proxy.RemoteBucketBuilder
+import kr.spdaewoon.magicjar.domain.event.SystemEvent
+import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
+import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
+import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimitTimeoutException
 import org.assertj.core.api.Assertions.assertThat
@@ -10,6 +14,7 @@ import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
@@ -96,5 +101,29 @@ class ConsumerRedisKisRateLimiterAdapterTest {
         adapter.onSuccess()
         adapter.onSuccess()
         assertThat(adapter.snapshotSuccess()).isEqualTo(2L)
+    }
+
+    /**
+     * 진단 PR #639 P0 hotfix — SystemEvent KIS_RATELIMIT emit aggregator 검증.
+     * 첫 호출만 emit, 5분 미만 추가 호출은 skip (사용자 알림 spam 회피).
+     */
+    @Test
+    fun `onTpsExceeded - SystemEvent KIS_RATELIMIT emit (5분 aggregator LOCK)`() {
+        val systemEventLogger = mock<SystemEventLogger>()
+        val adapterWithLogger = ConsumerRedisKisRateLimiterAdapter(proxyManager, props, systemEventLogger)
+
+        adapterWithLogger.onTpsExceeded()
+        adapterWithLogger.onTpsExceeded()
+        adapterWithLogger.onTpsExceeded()
+
+        assertThat(adapterWithLogger.snapshotTpsExceeded()).isEqualTo(3L)
+        val captor = argumentCaptor<SystemEvent>()
+        verify(systemEventLogger, times(1)).emit(captor.capture())
+        val event = captor.firstValue
+        assertThat(event.category).isEqualTo(SystemEventCategory.KIS_RATELIMIT)
+        assertThat(event.severity).isEqualTo(SystemEventSeverity.WARN)
+        assertThat(event.actor).isEqualTo("ConsumerRedisKisRateLimiterAdapter")
+        assertThat(event.action).isEqualTo("KIS_TPS_EXCEEDED")
+        assertThat(event.detailJson).contains("\"module\":\"consumer\"")
     }
 }

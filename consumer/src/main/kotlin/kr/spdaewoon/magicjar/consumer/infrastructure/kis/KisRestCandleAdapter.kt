@@ -7,7 +7,9 @@ import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.KisRestPort
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
+import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
@@ -434,15 +436,18 @@ class KisRestCandleAdapter(
                         pageSignalSent = true
                     } catch (e: WebClientResponseException) {
                         val statusCode = e.statusCode.value()
-                        if (statusCode == 429) {
-                            // HTTP 429 → onTpsExceeded + 1초 backoff (spec PR #564 §2-2 LOCK)
+                        // P0 hotfix (진단 PR #639) — classifyKisError() 분기 통일 (EGW00201 = HTTP 500 wrap).
+                        val errorClass = classifyKisError(statusCode, e.responseBodyAsString)
+                        if (errorClass is KisErrorClass.RateLimit) {
+                            // Rate Limit (HTTP 429 또는 EGW00201) → onTpsExceeded + 1초 backoff (spec PR #564 §2-2 LOCK)
                             kisRateLimiterPort.onTpsExceeded()
                             pageSignalSent = true
                             log.warn(
-                                "KIS 1m candle HTTP 429 — 1초 backoff, 일자 건너뜀: code={} date={} hour={}",
+                                "KIS 1m candle Rate Limit — 1초 backoff, 일자 건너뜀: code={} date={} hour={} status={}",
                                 code,
                                 dateStr,
                                 currentHour,
+                                statusCode,
                             )
                             Thread.sleep(1000L)
                             dayDone = true
@@ -559,7 +564,10 @@ class KisRestCandleAdapter(
                                     retriedSuccessfully = true
                                     break
                                 } catch (retryEx: WebClientResponseException) {
-                                    if (retryEx.statusCode.value() == 429) {
+                                    // P0 hotfix (진단 PR #639) — classifyKisError() 분기 통일.
+                                    val retryClass =
+                                        classifyKisError(retryEx.statusCode.value(), retryEx.responseBodyAsString)
+                                    if (retryClass is KisErrorClass.RateLimit) {
                                         kisRateLimiterPort.onTpsExceeded()
                                         retrySignalSent = true
                                     }
@@ -949,15 +957,17 @@ class KisRestCandleAdapter(
                 attemptSignalSent = true
                 return parseKisDailyResponse(body, code, interval)
             } catch (e: WebClientResponseException) {
-                if (e.statusCode.value() == 429) {
-                    // HTTP 429 → onTpsExceeded + 1초 backoff (spec PR #564 §2-2 LOCK)
+                // P0 hotfix (진단 PR #639) — classifyKisError() 분기 통일 (EGW00201 = HTTP 500 wrap).
+                if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
+                    // Rate Limit (HTTP 429 또는 EGW00201) → onTpsExceeded + 1초 backoff (spec PR #564 §2-2 LOCK)
                     kisRateLimiterPort.onTpsExceeded()
                     attemptSignalSent = true
                     log.warn(
-                        "KIS REST candle HTTP 429 — 1초 backoff 후 빈 결과: code={} interval={} cursor={}",
+                        "KIS REST candle Rate Limit — 1초 backoff 후 빈 결과: code={} interval={} cursor={} status={}",
                         code,
                         interval.code,
                         cursorStr,
+                        e.statusCode.value(),
                     )
                     Thread.sleep(1000L)
                     return emptyList()

@@ -7,7 +7,9 @@ import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.KisRestPort
 import kr.spdaewoon.magicjar.domain.market.port.KisRestPriceMetricsPort
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
+import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
 import kr.spdaewoon.magicjar.domain.market.tick.TickEvent
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
@@ -109,10 +111,11 @@ class KisRestPriceAdapter(
                 stale = false,
             )
         } catch (e: WebClientResponseException) {
-            if (e.statusCode.value() == 429) {
+            // P0 hotfix (진단 PR #639) — classifyKisError() 분기 통일 (EGW00201 = HTTP 500 wrap).
+            if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
                 kisRateLimiterPort.onTpsExceeded()
                 signalSent = true
-                log.warn("KIS inquire-price HTTP 429 — onTpsExceeded 시그널: code={}", code)
+                log.warn("KIS inquire-price Rate Limit — onTpsExceeded: code={} status={}", code, e.statusCode.value())
             }
             log.error(
                 "KIS inquire-price 실패: code={} status={} body={}",
@@ -225,10 +228,15 @@ class KisRestPriceAdapter(
                 volume = output1["acml_vol"]?.toString()?.ifBlank { null }?.toLongOrNull(),
             )
         } catch (e: WebClientResponseException) {
-            if (e.statusCode.value() == 429) {
+            // P0 hotfix (진단 PR #639) — classifyKisError() 분기 통일.
+            if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
                 kisRateLimiterPort.onTpsExceeded()
                 signalSent = true
-                log.warn("KIS inquire-daily-itemchartprice (metrics) HTTP 429 — onTpsExceeded: code={}", code)
+                log.warn(
+                    "KIS inquire-daily-itemchartprice (metrics) Rate Limit — onTpsExceeded: code={} status={}",
+                    code,
+                    e.statusCode.value(),
+                )
             }
             log.error(
                 "KIS inquire-daily-itemchartprice (metrics) 실패: code={} status={} body={}",
