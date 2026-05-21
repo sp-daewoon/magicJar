@@ -18,6 +18,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.signal.Signal
 import kr.spdaewoon.magicjar.domain.signal.SignalSide
+import kr.spdaewoon.magicjar.persistence.shared.metric.PersistenceMetrics
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.ObjectProvider
@@ -46,8 +47,12 @@ class OrderKafkaProducerOutboxIntegrationTest {
     private val outboxRepository = mockk<OrderEventOutboxRepository>(relaxed = true)
     private val provider = mockk<ObjectProvider<OrderEventOutboxRepository>>()
 
+    // ADR 0094 P0-OPS-6 — PersistenceMetrics ObjectProvider (graceful skip for non-metric tests)
+    private val metricsProvider = mockk<ObjectProvider<PersistenceMetrics>>(relaxed = true)
+
     init {
         every { provider.getIfAvailable() } returns outboxRepository
+        every { metricsProvider.getIfAvailable() } returns null
     }
 
     private fun sampleRequest(): OrderRequest =
@@ -182,7 +187,7 @@ class OrderKafkaProducerOutboxIntegrationTest {
                 priceAtSignal = BigDecimal("70000"),
             )
 
-        val producer = OrderIntentKafkaProducer(kafkaTemplate, objectMapper, provider)
+        val producer = OrderIntentKafkaProducer(kafkaTemplate, objectMapper, provider, metricsProvider)
         producer.publish(signal)
 
         verify { outboxRepository.save(any()) }

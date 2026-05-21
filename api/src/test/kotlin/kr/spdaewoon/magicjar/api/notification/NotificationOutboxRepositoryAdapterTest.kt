@@ -8,11 +8,13 @@ import kr.spdaewoon.magicjar.domain.notification.NotificationChannel
 import kr.spdaewoon.magicjar.domain.notification.NotificationOutbox
 import kr.spdaewoon.magicjar.domain.notification.NotificationPriority
 import kr.spdaewoon.magicjar.domain.notification.NotificationStatus
+import kr.spdaewoon.magicjar.persistence.shared.metric.PersistenceMetrics
 import kr.spdaewoon.magicjar.persistence.shared.notification.outbox.NotificationOutboxJpaEntity
 import kr.spdaewoon.magicjar.persistence.shared.notification.outbox.NotificationOutboxJpaRepository
 import kr.spdaewoon.magicjar.persistence.shared.notification.outbox.NotificationOutboxRepositoryAdapter
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.data.domain.Pageable
 import java.time.Instant
 import java.util.Optional
@@ -32,7 +34,13 @@ import java.util.UUID
  */
 class NotificationOutboxRepositoryAdapterTest {
     private val jpaRepository = mockk<NotificationOutboxJpaRepository>(relaxed = true)
-    private val adapter = NotificationOutboxRepositoryAdapter(jpaRepository)
+
+    // ADR 0094 P0-OPS-6 — PersistenceMetrics ObjectProvider mock (graceful skip)
+    private val metricsProvider =
+        mockk<ObjectProvider<PersistenceMetrics>>(relaxed = true).also {
+            every { it.getIfAvailable() } returns null
+        }
+    private val adapter = NotificationOutboxRepositoryAdapter(jpaRepository, metricsProvider)
 
     private fun sampleOutbox(): NotificationOutbox =
         NotificationOutbox(

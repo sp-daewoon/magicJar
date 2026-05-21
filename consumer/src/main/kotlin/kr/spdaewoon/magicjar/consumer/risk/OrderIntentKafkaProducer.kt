@@ -5,6 +5,7 @@ import kr.spdaewoon.magicjar.domain.order.event.OrderEventOutbox
 import kr.spdaewoon.magicjar.domain.order.event.OrderOutboxEventType
 import kr.spdaewoon.magicjar.domain.order.event.port.OrderEventOutboxRepository
 import kr.spdaewoon.magicjar.domain.signal.Signal
+import kr.spdaewoon.magicjar.persistence.shared.metric.PersistenceMetrics
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.kafka.core.KafkaTemplate
@@ -34,6 +35,8 @@ class OrderIntentKafkaProducer(
     private val kafkaTemplate: KafkaTemplate<String, String>,
     private val objectMapper: ObjectMapper,
     private val outboxRepositoryProvider: ObjectProvider<OrderEventOutboxRepository>,
+    // ADR 0094 P0-OPS-6 + ADR 0095 §2-1 S-1 — signal emit ~ order intent publish latency Timer
+    private val persistenceMetricsProvider: ObjectProvider<PersistenceMetrics>,
 ) {
     private val log = LoggerFactory.getLogger(OrderIntentKafkaProducer::class.java)
 
@@ -108,6 +111,10 @@ class OrderIntentKafkaProducer(
                         )
                     }
             }
+            // ADR 0095 S-1 측정 — signal.ts(epoch s) → now(epoch s) latency Timer record
+            persistenceMetricsProvider
+                .getIfAvailable()
+                ?.recordSignalToOrderLatency(signal.ts.epochSeconds, now)
             log.debug(
                 "OrderIntentKafkaProducer publish: topic={} userId={} signalId={} code={} side={}",
                 TOPIC,

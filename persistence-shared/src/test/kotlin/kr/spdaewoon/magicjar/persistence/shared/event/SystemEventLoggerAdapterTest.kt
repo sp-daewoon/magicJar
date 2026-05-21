@@ -6,7 +6,9 @@ import io.mockk.verify
 import kr.spdaewoon.magicjar.domain.event.SystemEvent
 import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
 import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
+import kr.spdaewoon.magicjar.persistence.shared.metric.PersistenceMetrics
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.ObjectProvider
 import java.time.Instant
 
 /**
@@ -23,7 +25,13 @@ import java.time.Instant
 class SystemEventLoggerAdapterTest {
     private val jpa = mockk<SystemEventJpaRepository>(relaxed = true)
     private val kafkaProducer = mockk<SystemEventKafkaProducer>(relaxed = true)
-    private val sut = SystemEventLoggerAdapter(jpa, kafkaProducer)
+
+    // ADR 0094 P0-OPS-6 — PersistenceMetrics ObjectProvider mock (graceful skip: getIfAvailable null 반환)
+    private val metricsProvider =
+        mockk<ObjectProvider<PersistenceMetrics>>(relaxed = true).also {
+            every { it.getIfAvailable() } returns null
+        }
+    private val sut = SystemEventLoggerAdapter(jpa, kafkaProducer, metricsProvider)
 
     private fun fixture() =
         SystemEvent(

@@ -5,7 +5,9 @@ import kr.spdaewoon.magicjar.domain.notification.NotificationOutbox
 import kr.spdaewoon.magicjar.domain.notification.NotificationPriority
 import kr.spdaewoon.magicjar.domain.notification.NotificationStatus
 import kr.spdaewoon.magicjar.domain.notification.port.NotificationOutboxRepository
+import kr.spdaewoon.magicjar.persistence.shared.metric.PersistenceMetrics
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
@@ -21,6 +23,8 @@ import java.time.Instant
 @Component
 class NotificationOutboxRepositoryAdapter(
     private val jpaRepository: NotificationOutboxJpaRepository,
+    // ADR 0094 P0-OPS-6 — Outbox drain lag Gauge wiring (ObjectProvider graceful)
+    private val persistenceMetricsProvider: ObjectProvider<PersistenceMetrics>,
 ) : NotificationOutboxRepository {
     private val log = LoggerFactory.getLogger(NotificationOutboxRepositoryAdapter::class.java)
 
@@ -40,9 +44,32 @@ class NotificationOutboxRepositoryAdapter(
     @Transactional(readOnly = true)
     override fun findPending(limit: Int): List<NotificationOutbox> {
         val pageable = PageRequest.of(0, limit)
-        return jpaRepository
-            .findByStatusOrderByCreatedAtAsc(NotificationStatus.PENDING.name, pageable)
-            .map { toDomain(it) }
+        val result =
+            jpaRepository
+                .findByStatusOrderByCreatedAtAsc(NotificationStatus.PENDING.name, pageable)
+                .map { toDomain(it) }
+        // ADR 0094 P0-OPS-6 — drain lag Gauge 갱신
+        updateDrainLagSafely()
+        return result
+    }
+
+    /** drain lag 갱신 — adapter scope private helper (헌법 §6 ADR 0051 정합). */
+    private fun updateDrainLagSafely() {
+        runCatching {
+            val oldest = jpaRepository.findOldestPendingCreatedAtEpochSeconds()
+            val lag =
+                if (oldest == null) {
+                    0L
+                } else {
+                    (Instant.now().epochSecond - oldest).coerceAtLeast(0)
+                }
+            persistenceMetricsProvider.getIfAvailable()?.updateOutboxDrainLag(
+                PersistenceMetrics.TAG_OUTBOX_NOTIFICATION,
+                lag,
+            )
+        }.onFailure { e ->
+            log.trace("NotificationOutbox drain lag 갱신 skip: err={}", e.message)
+        }
     }
 
     @Transactional(readOnly = true)

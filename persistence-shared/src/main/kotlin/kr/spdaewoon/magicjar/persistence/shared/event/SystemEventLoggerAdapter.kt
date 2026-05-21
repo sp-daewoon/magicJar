@@ -2,7 +2,9 @@ package kr.spdaewoon.magicjar.persistence.shared.event
 
 import kr.spdaewoon.magicjar.domain.event.SystemEvent
 import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
+import kr.spdaewoon.magicjar.persistence.shared.metric.PersistenceMetrics
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.transaction.support.TransactionSynchronization
@@ -34,11 +36,17 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 class SystemEventLoggerAdapter(
     private val jpa: SystemEventJpaRepository,
     private val kafkaProducer: SystemEventKafkaProducer,
+    // ADR 0094 P0-OPS-6 + ADR 0095 S-2/S-4 측정 source — Micrometer Counter increment
+    // ObjectProvider 패턴: persistence-shared 단독 test fixture(스프링 Actuator 의존 부재) graceful skip
+    private val persistenceMetricsProvider: ObjectProvider<PersistenceMetrics>,
 ) : SystemEventLogger {
     private val log = LoggerFactory.getLogger(SystemEventLoggerAdapter::class.java)
 
     @Transactional
     override fun emit(event: SystemEvent) {
+        // ADR 0095 S-2(WS_DISCONNECTED) · S-4(KIS_RATELIMIT) 측정 — DB INSERT 성공/실패 무관 emit count 캡처
+        persistenceMetricsProvider.getIfAvailable()?.incrementSystemEvent(event)
+
         val saved =
             runCatching { jpa.save(SystemEventJpaEntity.fromDomain(event)) }
                 .onFailure { e ->

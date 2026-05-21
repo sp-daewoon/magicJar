@@ -26,6 +26,11 @@ dependencies {
     // api·consumer 양쪽 ApplicationContext 에서 KafkaTemplate 빈 wiring 정합
     implementation("org.springframework.kafka:spring-kafka")
 
+    // Micrometer core — Counter/Timer/Gauge metric 노출 (ADR 0094 P0-OPS-6 + ADR 0095 SLO 측정 source)
+    // api·batch·consumer 모듈에서 micrometer-registry-prometheus 로 transit-bridge — Prometheus scrape 직결
+    // PersistenceMetrics: SystemEvent Counter + Outbox drain lag Gauge wiring source
+    implementation("io.micrometer:micrometer-core")
+
     // Jackson jsr310 — SystemEvent.occurredAt(java.time.Instant) 직렬화
     // api·consumer 모듈은 spring-boot-starter-web 통해 transitively 보유 — persistence-shared 단독 test 정합용
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
