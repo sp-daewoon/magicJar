@@ -89,56 +89,95 @@ interface ToastSpec {
   type: 'info' | 'success' | 'warning' | 'error'
 }
 
-function buildBackfillOrderToast(p: OrderStompPayload): ToastSpec {
+/**
+ * KST(Asia/Seoul) HH:mm 시각 prefix — backfill 이벤트가 "지난 알림"임을 사용자에게 시각적으로 안내.
+ * 결함 3-C 정합: `[누락]` prefix copy를 제거하고 발생 시각으로 대체.
+ *
+ * createdAt이 없거나 파싱 실패 시 빈 문자열 반환 (prefix 없음).
+ */
+function backfillTimePrefix(createdAt: string | undefined | null): string {
+  if (!createdAt) return ''
+  const ms = Date.parse(createdAt)
+  if (Number.isNaN(ms)) return ''
+  try {
+    const hhmm = new Intl.DateTimeFormat('ko-KR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'Asia/Seoul',
+    }).format(new Date(ms))
+    return `[${hhmm}] `
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 결함 3-A 정합: PR #636 머지 이전 발행된 옛 stomp_event row(qty·executedQty 모두 null)는
+ * "0주" 표시로 사용자 오인 risk → toast skip. null 반환 시 호출 측에서 토스트 미발행.
+ *
+ * 기준: event=FILLED + quantity·executedQty 둘 다 null/undefined 인 경우만 skip.
+ * 정상 신규 이벤트(qty 있음)는 그대로 표시.
+ */
+function buildBackfillOrderToast(
+  p: OrderStompPayload,
+  createdAt?: string,
+): ToastSpec | null {
   const code = p.code ?? ''
+  const prefix = backfillTimePrefix(createdAt)
   switch (p.event) {
     case 'REQUESTED':
       return {
-        message: `[누락] 주문 접수 — ${code} ${sideLabel(p.side)} ${p.quantity ?? 0}주`,
+        message: `${prefix}주문 접수 — ${code} ${sideLabel(p.side)} ${p.quantity ?? 0}주`,
         type: 'info',
       }
-    case 'FILLED':
+    case 'FILLED': {
+      // 결함 3-A: 옛 데이터(qty=null) graceful skip
+      if (p.quantity == null && p.executedQty == null) return null
       return {
         message: p.partial
-          ? `[누락] 부분 체결 — ${code} ${p.executedQty ?? 0}/${p.quantity ?? 0}주 @ ${formatPrice(p.executedPrice)}원`
-          : `[누락] 체결 완료 — ${code} ${p.quantity ?? 0}주 @ ${formatPrice(p.executedPrice)}원`,
+          ? `${prefix}부분 체결 — ${code} ${p.executedQty ?? 0}/${p.quantity ?? 0}주 @ ${formatPrice(p.executedPrice)}원`
+          : `${prefix}체결 완료 — ${code} ${p.quantity ?? 0}주 @ ${formatPrice(p.executedPrice)}원`,
         type: p.partial ? 'warning' : 'success',
       }
+    }
     case 'REJECTED':
       return {
-        message: `[누락] 주문 거절 — ${code}: ${p.reason ?? ''}`,
+        message: `${prefix}주문 거절 — ${code}: ${p.reason ?? ''}`,
         type: 'error',
       }
     case 'CANCELLED':
       return {
-        message: `[누락] 주문 취소 — ${code} ${p.quantity ?? 0}주`,
+        message: `${prefix}주문 취소 — ${code} ${p.quantity ?? 0}주`,
         type: 'info',
       }
     default:
-      return { message: `[누락] 주문 이벤트: ${p.event}`, type: 'info' }
+      return { message: `${prefix}주문 이벤트: ${p.event}`, type: 'info' }
   }
 }
 
-function buildBackfillSignalToast(s: SignalDto): ToastSpec {
+function buildBackfillSignalToast(s: SignalDto, createdAt?: string): ToastSpec {
   const sideKo = s.side === 'BUY' ? '매수' : s.side === 'SELL' ? '매도' : '홀드'
   const codePart = s.codeName ? `${s.code} ${s.codeName}` : s.code
   const pricePart = formatPrice(s.price)
   const rulePart = s.rule ? ` — ${s.rule}` : ''
+  const prefix = backfillTimePrefix(createdAt)
   return {
-    message: `[누락] [${sideKo}] ${codePart} ${s.interval} ${pricePart}원${rulePart}`,
+    message: `${prefix}[${sideKo}] ${codePart} ${s.interval} ${pricePart}원${rulePart}`,
     type: s.side === 'BUY' ? 'success' : s.side === 'SELL' ? 'error' : 'info',
   }
 }
 
-function buildBackfillRiskToast(r: RiskEventDto): ToastSpec {
+function buildBackfillRiskToast(r: RiskEventDto, createdAt?: string): ToastSpec {
+  const prefix = backfillTimePrefix(createdAt)
   if (r.verdict === 'BLOCKED') {
-    return { message: `[누락] [차단] ${r.reason}`, type: 'error' }
+    return { message: `${prefix}[차단] ${r.reason}`, type: 'error' }
   }
   if (r.verdict === 'AUTO_PAUSED') {
     const strat = r.strategyName ?? r.strategyId ?? '전략'
-    return { message: `[누락] [자동 정지] ${strat} — ${r.reason}`, type: 'warning' }
+    return { message: `${prefix}[자동 정지] ${strat} — ${r.reason}`, type: 'warning' }
   }
-  return { message: `[누락] [${r.verdict}] ${r.reason}`, type: 'info' }
+  return { message: `${prefix}[${r.verdict}] ${r.reason}`, type: 'info' }
 }
 
 // 100건 초과 누락 경고 임계치
@@ -219,12 +258,15 @@ export function useStompReconnect({
         if (toastSpec) showToast(toastSpec.message, toastSpec.type)
       }
 
+      // 결함 3-B 정합: lastSeenAt 갱신 보장
+      // - 정상 케이스: lastTs · 이벤트 createdAt 중 최신값을 anchor 로 사용 (옛 이벤트 재 backfill 방지)
+      // - fallback: lastTs/createdAt 둘 다 없는 edge case 도 now() 로 갱신 → 다음 reconnect 시 재 backfill 무한루프 차단
       const lastTsValues = unreadByChannel
         .map((item) => item.unread.lastTs)
         .filter((value): value is string => Boolean(value))
       const createdAtValues = events.map((event) => event.createdAt)
       const newAnchor = newestIsoInstant([...lastTsValues, ...createdAtValues])
-      if (newAnchor) writeLastSeenAt(userId, newAnchor)
+      writeLastSeenAt(userId, newAnchor ?? new Date().toISOString())
     } catch {
       // backend 미구현 / 네트워크 fail — graceful, 다음 reconnect 시 재시도
     } finally {
@@ -267,20 +309,22 @@ export function useStompReconnect({
  * channel 기반 narrowing → payloadJson 을 파싱한 뒤 적절한 토스트 spec 생성.
  *
  * 분기:
- *  - order  → buildBackfillOrderToast
+ *  - order  → buildBackfillOrderToast (qty=null FILLED 옛 row 는 null 반환 → toast skip)
  *  - signal → buildBackfillSignalToast
  *  - risk   → buildBackfillRiskToast
+ *
+ * createdAt 은 backfillTimePrefix(KST HH:mm)로 메시지에 prefix.
  */
 function buildBackfillToast(ev: StompEventDto): ToastSpec | null {
   const payload = parsePayload(ev)
   if (!payload) return null
   switch (ev.channel) {
     case 'order':
-      return buildBackfillOrderToast(payload as OrderStompPayload)
+      return buildBackfillOrderToast(payload as OrderStompPayload, ev.createdAt)
     case 'signal':
-      return buildBackfillSignalToast(payload as SignalDto)
+      return buildBackfillSignalToast(payload as SignalDto, ev.createdAt)
     case 'risk':
-      return buildBackfillRiskToast(payload as RiskEventDto)
+      return buildBackfillRiskToast(payload as RiskEventDto, ev.createdAt)
     default:
       return null
   }
