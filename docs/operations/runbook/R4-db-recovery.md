@@ -1,6 +1,6 @@
 # R-4: DB 복구·Backup
 
-> ADR 0094 §3-7 P0-OPS-5 · 운영 헌법 §10-4 정기 backup · P0-OPS-4 DR/backup ADR 예정 (별도 발행)
+> ADR 0094 §3-7 P0-OPS-5 · 운영 헌법 §9-4 정기 backup · **ADR 0096 P0-OPS-4 DR/backup 단일 권위** (스크립트·산출물·RPO/RTO·DR drill 본문화 완료 — 2026-05-21)
 
 ## 0. 사용 시점
 
@@ -112,22 +112,25 @@ docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml \
 
 ## 3. 복구 (Recover)
 
-### 3-1. 백업 위치 (P0-OPS-4 DR ADR 예정 — 본 runbook은 절차 인용)
+### 3-1. 백업 위치 (ADR 0096 §2-4 산출물 LOCK)
 
-ADR 0094 §10-4 정기 backup:
-- **위치**: `_workspace/backups/postgres/` (cron 산출물 — P0-OPS-4 DR ADR에서 정의)
-- **파일 형식**: `magicjar-YYYY-MM-DD-HHMM.dump` (pg_dump custom format)
-- **주기**: 매일 03:00 KST + 7일 retention (backend-core 책임)
+ADR 0094 §9-4 정기 backup + ADR 0096 §2·§3 매트릭스 LOCK:
+- **PostgreSQL 위치**: `_workspace/backups/postgres/daily/YYYY-MM-DD.dump` (cron 산출물 — ADR 0096 §2-1)
+- **Redis 위치**: `_workspace/backups/redis/snapshots/dump-YYYY-MM-DD-HHMM.rdb` (cron 산출물 — ADR 0096 §3-2)
+- **파일 형식**: pg_dump custom format (`-Fc`) — `pg_restore --clean --create` 호환
+- **주기**: PostgreSQL 매일 03:00 KST + 7일 retention · Redis 매일 03:30 KST + 3일 retention (backend-core 책임)
+- **스크립트**: `scripts/backup/pg-dump-daily.sh` + `scripts/backup/redis-snapshot.sh` (executable)
+- **사용자 가이드**: `docs/operations/backup-setup.md` (macOS crontab 등록)
 
 ```bash
-# 백업 파일 목록 확인
-ls -lh _workspace/backups/postgres/ | tail -10
+# 백업 파일 목록 확인 (ADR 0096 §2-4 정합)
+ls -lh _workspace/backups/postgres/daily/ | tail -10
 # 예시 출력:
-# -rw-r--r--  1 user  staff  3.2M  5 21 03:00 magicjar-2026-05-21-0300.dump
-# -rw-r--r--  1 user  staff  3.1M  5 20 03:00 magicjar-2026-05-20-0300.dump
+# -rw-r--r--  1 user  staff  3.2M  5 21 03:00 2026-05-21.dump
+# -rw-r--r--  1 user  staff  3.1M  5 20 03:00 2026-05-20.dump
 ```
 
-★ **현 단계 evidence**: `_workspace/backups/postgres/` 디렉토리 부재 — P0-OPS-4 DR ADR 발행 + cron 셋업 dispatch 후 산출물 등재. 본 runbook 발행 시점은 절차 LOCK + cron 셋업은 후속 사이클 의제.
+★ **현 단계 evidence**: ADR 0096 발행 완료. `_workspace/backups/postgres/daily/` 디렉토리는 사용자 macOS crontab 등록 후 첫 03:00 KST 사이클에 자동 생성. 본 runbook은 ADR 0096 §2·§3 정합 절차 인용.
 
 ### 3-2. 복구 — pg_restore
 
@@ -268,22 +271,25 @@ docker exec magicjar-postgres psql -U magicjar -d magicjar \
 
 ---
 
-## 5. backup 정책 (운영 헌법 §10-4 — backend-core 책임)
+## 5. backup 정책 (운영 헌법 §9-4 — backend-core 책임 + ADR 0096 단일 권위)
 
-### 5-1. cron 셋업 (P0-OPS-4 DR ADR 발행 후 적용)
+### 5-1. cron 셋업 (ADR 0096 + `docs/operations/backup-setup.md` 정합)
+
+ADR 0096 발행 완료. 사용자 macOS crontab 등록 1회 (자세한 가이드: `docs/operations/backup-setup.md` §2):
 
 ```bash
-# 매일 03:00 KST pg_dump 자동 backup
-# crontab -e 또는 launchd plist (macOS)
-0 3 * * * cd /Users/ak-song/magic_ch1 && \
-  docker exec magicjar-postgres pg_dump -U magicjar -Fc magicjar > \
-  "_workspace/backups/postgres/magicjar-$(date +\%Y-\%m-\%d-\%H\%M).dump"
-
-# 7일 retention
-0 4 * * * find /Users/ak-song/magic_ch1/_workspace/backups/postgres -name "*.dump" -mtime +7 -delete
+crontab -e
 ```
 
-★ 현 단계는 cron 셋업 전 — backend-core 후속 사이클 P0-OPS-4 dispatch 후 활성.
+```cron
+# magicJar backup — ADR 0096 P0-OPS-4 정합
+0 3 * * * cd /Users/ak-song/magic_ch1 && bash scripts/backup/pg-dump-daily.sh >> _workspace/backups/postgres/cron.log 2>&1
+30 3 * * * cd /Users/ak-song/magic_ch1 && bash scripts/backup/redis-snapshot.sh >> _workspace/backups/redis/cron.log 2>&1
+```
+
+스크립트는 `scripts/backup/pg-dump-daily.sh` + `scripts/backup/redis-snapshot.sh` — pg_isready/BGSAVE 진단 + retention rotation + KST 로그 자동.
+
+★ 현 단계: ADR 0096 baseline LOCK. 사용자 cron 등록 후 첫 03:00 KST 사이클에 자동 backup 활성.
 
 ### 5-2. 수동 backup (긴급 시)
 
@@ -315,11 +321,16 @@ R-1 §6 통합. 추가 evidence:
 
 ### 6-1. ADR cross-link
 
-- **ADR 0094 §3-7 P0-OPS-4** — DR/backup 책임 (backend-core 1차 dispatch)
-- **ADR 0094 §10-4** — postgres pg_dump 매일 03:00 + 7일 retention + 분기 DR drill
-- **ADR 0088** — persistence-shared Outbox (drain lag 모니터링 — P0-OPS-6)
+- **ADR 0096 P0-OPS-4** ★ — DR/backup 단일 권위 (PostgreSQL 매트릭스 + Redis 매트릭스 + RPO 24h + RTO 30분 + DR drill 분기 + 스크립트 + 사용자 가이드)
+- **ADR 0094 §3-7 P0-OPS-4** — task 본문화 (ADR 0096이 본문화 완료)
+- **ADR 0094 §9-4** — postgres pg_dump 매일 03:00 + 7일 retention + 분기 DR drill (ADR 0096 본문화)
+- **ADR 0095 P0-OPS-3** — SLO/SLA + alert routing (RTO/RPO 측정 source cross)
+- **ADR 0088** — persistence-shared Outbox (drain lag 모니터링 — P0-OPS-6 cross)
+- **ADR 0044** — Notification (backup 실패 Slack alert reuse)
+- **ADR 0043** — KillSwitch (DR drill 시 사용자 결재 정합)
+- **ADR 0070** — T-RECON notify bundled (DR drill 후 reconcile 강제)
 - **ADR 0006** — PostgreSQL 단일 + 스키마 분리 (기술 스택 베이스)
-- **ADR 0030** — master-architecture (post-MVP TimescaleDB 전환 — 일봉 ≥1억 row 도달 시)
+- **ADR 0030** — master-architecture (post-MVP TimescaleDB 전환 — 일봉 ≥1억 row 도달 시 ADR 0096 amend 트리거)
 
 ---
 
@@ -327,4 +338,5 @@ R-1 §6 통합. 추가 evidence:
 
 | 날짜 | 변경 |
 |------|------|
+| 2026-05-21 | **ADR 0096 cross-link 보강** — §3-1 백업 위치 + §5-1 cron 셋업 + §6-1 ADR cross-link 매트릭스 갱신. ADR 0096 P0-OPS-4 DR/backup 단일 권위 본문화 완료(스크립트·산출물·RPO 24h·RTO 30분·DR drill 분기). `scripts/backup/pg-dump-daily.sh` + `scripts/backup/redis-snapshot.sh` + `docs/operations/backup-setup.md` 신규 발행. (architect) |
 | 2026-05-21 | 신규 발행 — ADR 0094 §3-7 P0-OPS-5 · backend-core 1차 dispatch. pg_isready·Flyway info·무결성 SQL 5건·pg_restore·부분 복구·볼륨 손상 절차 매트릭스. P0-OPS-4 DR ADR 발행 후 cron 셋업 활성. |
