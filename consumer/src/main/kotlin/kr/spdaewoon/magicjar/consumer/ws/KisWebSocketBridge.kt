@@ -192,13 +192,32 @@ class KisWebSocketBridge(
      * P1 spec §6.1 emit point #4·#5 — WS_DISCONNECTED·WS_RECONNECTED correlationId 묶기.
      *
      * disconnect handler 진입 시 UUID 생성·set, reconnect handler 진입 시 getAndSet(null)로 회수.
-     * - getAndSet(null) → 비어있으면(첫 connect) emit 0 — disconnect 흔적 없는 connect은 audit 의무 없음
+     * - getAndSet(null) → 비어있으면 첫 connect (connectCount=0)이면 emit skip, 아니면 fresh UUID로 RECONNECTED emit
      * - getAndSet(null) → UUID 있으면 동일 correlationId로 WS_RECONNECTED emit (UI 그룹 표시)
      *
      * AtomicReference 사용 사유: disconnect doFinally vs handshake handler가 별도 Reactor thread 가능성 →
      * 가시성·원자성 보장 의무.
+     *
+     * hotfix 2026-05-21 — 거짓 끊김 표시 fix (사용자 dogfooding):
+     *   evidence: id=145·146·147에서 disconnect 2건 연속(onComplete+onError) 발생 시 두번째 set이 첫번째 cid를 덮어
+     *   첫번째 RECONNECTED 발사 0건. id=150에서 disconnect 후 stale cid stuck 가능성.
+     *   fix: emit point #4에서 기존 cid가 살아있으면 WS_RECONNECT_LOST emit으로 분리 audit + 새 cid set.
+     *        emit point #5에서 cid가 null이고 connectCount > 0 (재연결)이면 fresh UUID로 RECONNECTED emit 보장.
      */
     private val currentDisconnectCorrelationId = AtomicReference<String?>(null)
+
+    /**
+     * hotfix 2026-05-21 — connect handler 진입 횟수 카운터.
+     *
+     * 첫 connect(=0)와 재연결(≥1) 구분 — emit point #5에서 cid가 null이어도 재연결이면 fresh UUID로 RECONNECTED emit 보장.
+     * (cid stuck or race condition으로 disconnect cid 회수 실패해도 RECONNECTED emit 누락 없음 — 사용자 거짓 끊김 표시 차단.)
+     *
+     * AtomicInteger 사용 사유: connect handler가 Reactor thread에서 호출되며 reconnect/graceful 경로 다중 진입 가능 →
+     * 가시성·원자성 보장 의무. session.reconnectCount는 onConnected에서 0 reset되므로 별도 누적 카운터 필요.
+     */
+    private val connectCount =
+        java.util.concurrent.atomic
+            .AtomicInteger(0)
 
     // F-1: OPSP8996 self-heal retry 카운터 (subscribe 응답 메시지 단위).
     // ADR 0076 §3 F-1 — 1회 retry(1초 대기) 후 2회 fail 시 ERROR + skip.
@@ -498,14 +517,25 @@ class KisWebSocketBridge(
                     startHeartbeatWatchdog()
 
                     // ★ SystemEvent emit point #5 (P1 spec §6.1) — WS_RECONNECTED
-                    // currentDisconnectCorrelationId.getAndSet(null) — 비어있으면 첫 connect (emit skip),
-                    // UUID 있으면 disconnect↔reconnect 1쌍 그룹화 (UI 표시 시 correlationId join).
-                    currentDisconnectCorrelationId.getAndSet(null)?.let { cid ->
+                    // currentDisconnectCorrelationId.getAndSet(null) — UUID 있으면 disconnect↔reconnect 1쌍 그룹화
+                    // (UI 표시 시 correlationId join).
+                    //
+                    // hotfix 2026-05-21 — fallback UUID 보장 (사용자 dogfooding "거짓 끊김 표시" fix):
+                    // 1) cid null + connectCount==0 (첫 connect): emit skip — disconnect 흔적 없는 첫 connect는 audit 무가치.
+                    // 2) cid null + connectCount > 0 (재연결): fresh UUID 생성해서 RECONNECTED emit — 이전 disconnect cid가
+                    //    onComplete+onError 2건 연속·doConnect 실패 race로 회수 실패한 경우라도 RECONNECTED 누락 0건 보장.
+                    // 3) cid 있음: 그대로 회수해서 동일 cid로 emit (정상 1쌍 그룹).
+                    val attemptCount = connectCount.getAndIncrement()
+                    val recoveredCid = currentDisconnectCorrelationId.getAndSet(null)
+                    val reconnectCid =
+                        recoveredCid ?: if (attemptCount > 0) UUID.randomUUID().toString() else null
+                    if (reconnectCid != null) {
                         emitWsEvent(
                             severity = SystemEventSeverity.INFO,
                             action = "WS_RECONNECTED",
-                            correlationId = cid,
-                            detailJson = """{"timestamp":"${Instant.now()}"}""",
+                            correlationId = reconnectCid,
+                            detailJson =
+                                """{"timestamp":"${Instant.now()}","cidRecovered":${recoveredCid != null}}""",
                         )
                     }
 
@@ -571,9 +601,33 @@ class KisWebSocketBridge(
                     // shuttingDown=true (destroy 정상 종료)는 emit skip — 운영 사고 아님.
                     // correlationId 새로 생성 → currentDisconnectCorrelationId AtomicReference set →
                     // 다음 reconnect 시 동일 ID 재사용 (UI 그룹 표시).
+                    //
+                    // hotfix 2026-05-21 — getAndSet으로 이전 cid 회수 + stale 감지 (사용자 dogfooding):
+                    // evidence id=145·146 (10:00:01): doFinally가 onComplete + onError 2건 연속 발생 →
+                    // 두번째 set이 첫번째 cid(c7ce1e03) 덮어 RECONNECTED 발사 불가.
+                    // fix: getAndSet으로 이전 cid 회수 → 있으면 그 cid에 대해 강제 RECONNECTED emit으로 짝 맞춤
+                    //      (WS는 실제 종료된 상태이지만 이전 disconnect-reconnect 쌍 audit 닫기 의무 + emit point #5에서
+                    //      재진입 후 새 cid emit 보장).
                     if (!session.shuttingDown) {
                         val correlationId = UUID.randomUUID().toString()
-                        currentDisconnectCorrelationId.set(correlationId)
+                        val stalePrevCid = currentDisconnectCorrelationId.getAndSet(correlationId)
+                        if (stalePrevCid != null) {
+                            log.warn(
+                                "KIS WS doFinally 중복 발생 — 이전 disconnect cid stale 감지 (RECONNECTED 누락 차단): " +
+                                    "prevCid={} newCid={} signal={}",
+                                stalePrevCid,
+                                correlationId,
+                                signal,
+                            )
+                            // 이전 cid에 대한 RECONNECT_LOST emit — UI 그룹 닫기 + audit 보존.
+                            emitWsEvent(
+                                severity = SystemEventSeverity.WARN,
+                                action = "WS_RECONNECT_LOST",
+                                correlationId = stalePrevCid,
+                                detailJson =
+                                    """{"reason":"doFinally 중복 발생 — 이전 cid stale (onComplete+onError 연속 패턴)"}""",
+                            )
+                        }
                         emitWsEvent(
                             severity = SystemEventSeverity.WARN,
                             action = "WS_DISCONNECTED",
