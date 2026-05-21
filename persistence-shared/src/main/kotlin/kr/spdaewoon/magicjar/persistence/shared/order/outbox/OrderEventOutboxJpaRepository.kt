@@ -46,4 +46,16 @@ interface OrderEventOutboxJpaRepository : JpaRepository<OrderEventOutboxJpaEntit
         status: String,
         pageable: Pageable,
     ): List<OrderEventOutboxJpaEntity>
+
+    /**
+     * 가장 오래된 PENDING row의 created_at (Outbox drain lag Gauge 측정 source — ADR 0095 §2-1 S 보조).
+     *
+     * 결과 epoch seconds 반환 (timezone 무관). PENDING 0건 시 null.
+     * 0건 시 `PersistenceMetrics.updateOutboxDrainLag` caller가 0 갱신 의무 (gauge 잔존 stale 값 방지).
+     */
+    @Query(
+        value = "SELECT EXTRACT(EPOCH FROM MIN(created_at))::BIGINT FROM order_event_outbox WHERE published_at IS NULL",
+        nativeQuery = true,
+    )
+    fun findOldestPendingCreatedAtEpochSeconds(): Long?
 }

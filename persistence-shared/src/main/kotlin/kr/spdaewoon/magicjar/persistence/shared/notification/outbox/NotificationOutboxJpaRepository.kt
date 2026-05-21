@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.persistence.shared.notification.outbox
 
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Query
 
 /**
  * notification_outbox Spring Data JPA 리포지터리.
@@ -17,4 +18,16 @@ interface NotificationOutboxJpaRepository : JpaRepository<NotificationOutboxJpaE
         status: String,
         pageable: Pageable,
     ): List<NotificationOutboxJpaEntity>
+
+    /**
+     * 가장 오래된 PENDING row의 created_at (Outbox drain lag Gauge 측정 source — ADR 0094 P0-OPS-6 + ADR 0095 §2-1 S 보조).
+     *
+     * 결과 epoch seconds 반환. PENDING 0건 시 null.
+     * 0건 시 `PersistenceMetrics.updateOutboxDrainLag` caller가 0 갱신 의무.
+     */
+    @Query(
+        value = "SELECT EXTRACT(EPOCH FROM MIN(created_at))::BIGINT FROM notification_outbox WHERE status = 'PENDING'",
+        nativeQuery = true,
+    )
+    fun findOldestPendingCreatedAtEpochSeconds(): Long?
 }

@@ -1,6 +1,6 @@
 # magicJar 관측 스택 가이드 (Prometheus + Grafana)
 
-ADR 0094 P0-OPS-1·2 정합 · backend-core 단일 owner
+ADR 0094 P0-OPS-1·2·6 정합 + ADR 0095 SLO 5건 측정 · backend-core 단일 owner
 
 ## 1. 구성 매트릭스
 
@@ -89,6 +89,35 @@ JSON 출력 시 자동 부착, Plain 출력 시 `[%X{traceId:--}]` 패턴으로 
 
 기본 dashboard `magicJar / magicJar — JVM Baseline` — 4 panel (JVM heap·HTTP rate·CPU·thread). Grafana 부팅 직후 자동 등록.
 
+### 5.1 P0-OPS-6 추가 메트릭 (persistence-shared 발행 — ADR 0094 §3-2 P0-OPS-6 + ADR 0095 SLO 5건)
+
+| 메트릭 | 타입 | 소스 | 용도 |
+|------|------|------|------|
+| `magicjar_signal_to_order_latency_seconds_*` | Timer histogram | `OrderIntentKafkaProducer.publish` (consumer) | ADR 0095 S-1 — signal emit ts → order intent publish ts 측정 (P50·P95·P99) |
+| `magicjar_outbox_drain_lag_seconds{outbox=order\|notification}` | Gauge | `OrderEventOutboxRepositoryAdapter.findPending` + `NotificationOutboxRepositoryAdapter.findPending` (persistence-shared) | drain worker fixedDelay 5s 호출 정합 → 가장 오래된 PENDING age (seconds) — 30s 초과 시 SLO 위반 |
+| `magicjar_system_events_total{category,severity,action,event_type}` | Counter | `SystemEventLoggerAdapter.emit` (persistence-shared) | ADR 0095 S-2(WS_DISCONNECTED) · S-4(KIS_RATELIMIT) 측정 source — 5분 sliding sum |
+
+### 5.2 자동 노출 (Spring Boot · 추가 wiring 불필요)
+
+- `hikaricp_connections_active`·`hikaricp_connections_idle`·`hikaricp_connections_pending` — HikariCP 자동
+- `hibernate.query.execution` — `spring.jpa.properties.hibernate.generate_statistics=true` 시 자동
+- `kafka_consumer_records_consumed_total{topic}` — Spring Kafka default (ADR 0095 S-5 `killswitch.engaged.v1` 측정 reuse)
+- `http_server_requests_seconds_bucket{uri}` — Spring Actuator default (ADR 0095 S-3 `/api/account/*` 측정 reuse)
+
+### 5.3 SLO dashboard (`magicJar — SLO (ADR 0095)`)
+
+7 panel — Grafana 부팅 직후 자동 등록 (`magicjar-slo.json`):
+
+| panel | SLO | 표현 |
+|-------|-----|------|
+| S-1 | signal→order latency | timeseries (P50·P95·P99 5m, 임계 5s/10s line) |
+| S-2 | KIS WS uptime | gauge (5m window, 임계 95%/99%) |
+| S-3 | account API latency | timeseries (P95 5m, 임계 500ms/2s) |
+| S-4 | KIS rate limit | stat (5m count, 임계 1/5) |
+| S-5 | KillSwitch auto-ON | stat (24h count, 임계 1/3) |
+| P0-OPS-6 | Outbox drain lag | timeseries (order·notification, 임계 30s/60s) |
+| audit | SystemEvent emit rate | timeseries (category·severity 분포) |
+
 ## 6. 검증 시나리오
 
 ```bash
@@ -109,7 +138,20 @@ docker logs magicjar-api 2>&1 | tail -5 | jq .
 
 ## 7. 운영 진입 후속 작업 (ADR 0094 P0-OPS-3·4·5·6)
 
-- P0-OPS-3 — SLO/SLA 정의 + Slack/PagerDuty alertmanager routing
-- P0-OPS-4 — DR/backup 자동화 (pg_dump cron + S3 업로드)
-- P0-OPS-5 — runbook 5 시나리오 (Postgres down·Kafka lag·KIS rate limit·메모리 누수·디스크 가득)
-- P0-OPS-6 — persistence-shared monitoring (Outbox drain lag · notification retry queue)
+- P0-OPS-3 — SLO/SLA 정의 + Slack/PagerDuty alertmanager routing — **ADR 0095 Accepted (2026-05-21)**
+- P0-OPS-4 — DR/backup 자동화 (pg_dump cron + S3 업로드) — **완료 (PR baseline)**
+- P0-OPS-5 — runbook 5 시나리오 (Postgres down·Kafka lag·KIS rate limit·메모리 누수·디스크 가득) — **완료 (49f1bc31)**
+- P0-OPS-6 — persistence-shared monitoring (Outbox drain lag · SystemEvent counter · SLO Timer) — **완료 (본 PR — Stage 1 R3)**
+
+## 8. P0 OPS 완료 status (Stage 1 마감)
+
+| ID | gap | 처리 PR | 상태 |
+|----|-----|--------|------|
+| P0-OPS-1 | logback JSON encoder | #650 (26f83f39) | ✅ |
+| P0-OPS-2 | Actuator/Prometheus exporter + Grafana | #650 (26f83f39) | ✅ |
+| P0-OPS-3 | SLO/SLA 정의 + alert routing (ADR 0095) | (b89eed6b) | ✅ |
+| P0-OPS-4 | DR/backup 자동화 | baseline | ✅ |
+| P0-OPS-5 | runbook 5 시나리오 | (49f1bc31) | ✅ |
+| P0-OPS-6 | persistence monitoring + SLO source wiring + Grafana | **본 PR** | ✅ |
+
+**Stage 1 P0 OPS 6/6 완료** → **Stage 2 정리 진입 ready** (v3.8.0 운영 baseline P0 마감).

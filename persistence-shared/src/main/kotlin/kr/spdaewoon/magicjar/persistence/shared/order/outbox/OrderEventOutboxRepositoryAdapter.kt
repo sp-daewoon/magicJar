@@ -4,7 +4,9 @@ import kr.spdaewoon.magicjar.domain.order.event.OrderEventOutbox
 import kr.spdaewoon.magicjar.domain.order.event.OrderOutboxEventType
 import kr.spdaewoon.magicjar.domain.order.event.OrderOutboxStatus
 import kr.spdaewoon.magicjar.domain.order.event.port.OrderEventOutboxRepository
+import kr.spdaewoon.magicjar.persistence.shared.metric.PersistenceMetrics
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
@@ -20,6 +22,8 @@ import java.time.Instant
 @Component
 class OrderEventOutboxRepositoryAdapter(
     private val jpaRepository: OrderEventOutboxJpaRepository,
+    // ADR 0094 P0-OPS-6 — Outbox drain lag Gauge wiring (ObjectProvider graceful — test fixture 호환)
+    private val persistenceMetricsProvider: ObjectProvider<PersistenceMetrics>,
 ) : OrderEventOutboxRepository {
     private val log = LoggerFactory.getLogger(OrderEventOutboxRepositoryAdapter::class.java)
 
@@ -48,10 +52,34 @@ class OrderEventOutboxRepositoryAdapter(
      * 같은 row 중복 select → 중복 Kafka 발행 risk. native `FOR UPDATE SKIP LOCKED` 로 영구 차단.
      */
     @Transactional
-    override fun findPending(limit: Int): List<OrderEventOutbox> =
-        jpaRepository
-            .findPendingForUpdate(limit)
-            .map { toDomain(it) }
+    override fun findPending(limit: Int): List<OrderEventOutbox> {
+        val result =
+            jpaRepository
+                .findPendingForUpdate(limit)
+                .map { toDomain(it) }
+        // ADR 0094 P0-OPS-6 — drain lag Gauge 갱신 (drain worker fixedDelay 5s 호출 정합 — 30s SLO 측정 가능)
+        updateDrainLagSafely()
+        return result
+    }
+
+    /** drain lag 갱신 — adapter scope private helper (헌법 §6 ADR 0051 정합). */
+    private fun updateDrainLagSafely() {
+        runCatching {
+            val oldest = jpaRepository.findOldestPendingCreatedAtEpochSeconds()
+            val lag =
+                if (oldest == null) {
+                    0L
+                } else {
+                    (Instant.now().epochSecond - oldest).coerceAtLeast(0)
+                }
+            persistenceMetricsProvider.getIfAvailable()?.updateOutboxDrainLag(
+                PersistenceMetrics.TAG_OUTBOX_ORDER,
+                lag,
+            )
+        }.onFailure { e ->
+            log.trace("OrderEventOutbox drain lag 갱신 skip: err={}", e.message)
+        }
+    }
 
     @Transactional
     override fun markPublished(id: Long): OrderEventOutbox? {
