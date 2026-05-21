@@ -41,7 +41,13 @@ enum class SystemEventCategory {
     /** P3 — Kafka publish retry·DLT */
     KAFKA,
 
-    /** P3 — EGW00201·EGW00133 rate limit hit */
+    /**
+     * P1 — EGW00201·EGW00121 rate limit hit (진단 PR #639 → hotfix P0 활성).
+     *
+     * emit point: api/consumer/batch `RedisKisRateLimiterAdapter.onTpsExceeded()`
+     * aggregator: 5분당 1회 (spam 회피)
+     * severity: WARN (반복 burst 시 Phase 3 Circuit Breaker OPEN trigger 시 ERROR로 격상 후속)
+     */
     KIS_RATELIMIT,
 
     /** P3 — DB connection·query fail */

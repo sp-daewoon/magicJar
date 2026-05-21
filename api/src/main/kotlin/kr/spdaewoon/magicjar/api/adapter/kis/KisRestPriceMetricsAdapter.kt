@@ -4,7 +4,9 @@ import kr.spdaewoon.magicjar.api.infrastructure.kis.KisTokenCacheHelper
 import kr.spdaewoon.magicjar.domain.market.PriceMetrics
 import kr.spdaewoon.magicjar.domain.market.port.KisRestPriceMetricsPort
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
+import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -126,7 +128,8 @@ class KisRestPriceMetricsAdapter(
                 volume = output1["acml_vol"]?.toString()?.ifBlank { null }?.toLongOrNull(),
             )
         } catch (e: WebClientResponseException) {
-            if (e.statusCode.value() == 429) {
+            // P0 hotfix (진단 PR #639) — classifyKisError() 분기 통일 (EGW00201 body 검사 포함).
+            if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
                 kisRateLimiterPort.onTpsExceeded()
                 signalSent = true
             }

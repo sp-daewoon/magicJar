@@ -3,6 +3,10 @@ package kr.spdaewoon.magicjar.api.infrastructure.kis.ratelimit
 import io.github.bucket4j.distributed.BucketProxy
 import io.github.bucket4j.distributed.proxy.ProxyManager
 import io.github.bucket4j.distributed.proxy.RemoteBucketBuilder
+import kr.spdaewoon.magicjar.domain.event.SystemEvent
+import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
+import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
+import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimitTimeoutException
 import org.assertj.core.api.Assertions.assertThat
@@ -11,6 +15,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.never
 import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
@@ -145,5 +150,48 @@ class RedisKisRateLimiterAdapterTest {
         adapter.onSuccess()
         adapter.onSuccess()
         assertThat(adapter.snapshotSuccess()).isEqualTo(2L)
+    }
+
+    /**
+     * 검증 5: SystemEvent KIS_RATELIMIT emit — 첫 onTpsExceeded() 호출에서 emit, 동일 5분 윈도 내 추가 호출은 aggregator skip.
+     *
+     * 진단 PR #639 P0 hotfix — 사용자 알림센터 가시화 검증 게이트.
+     */
+    @Test
+    fun `onTpsExceeded - SystemEvent KIS_RATELIMIT emit (5분 aggregator LOCK)`() {
+        val systemEventLogger = mock<SystemEventLogger>()
+        val adapterWithLogger = RedisKisRateLimiterAdapter(proxyManager, props, systemEventLogger)
+
+        // when: 3회 burst 호출 (5분 미만 — 첫 호출만 emit)
+        adapterWithLogger.onTpsExceeded()
+        adapterWithLogger.onTpsExceeded()
+        adapterWithLogger.onTpsExceeded()
+
+        // then: 3 카운트 누적 + SystemEvent emit 정확 1회 (aggregator)
+        assertThat(adapterWithLogger.snapshotTpsExceeded()).isEqualTo(3L)
+
+        val captor = org.mockito.kotlin.argumentCaptor<SystemEvent>()
+        verify(systemEventLogger, times(1)).emit(captor.capture())
+        val event = captor.firstValue
+        assertThat(event.category).isEqualTo(SystemEventCategory.KIS_RATELIMIT)
+        assertThat(event.severity).isEqualTo(SystemEventSeverity.WARN)
+        assertThat(event.actor).isEqualTo("RedisKisRateLimiterAdapter")
+        assertThat(event.action).isEqualTo("KIS_TPS_EXCEEDED")
+        assertThat(event.userId).isNull() // system-wide broadcast
+        assertThat(event.detailJson).contains("tpsExceededCount")
+        assertThat(event.detailJson).contains("kis-rate-limit:test")
+    }
+
+    /**
+     * 검증 6: SystemEventLogger null 주입 시 emit 0 — 회귀 마진 LOCK (Bean wiring 단계 분리 정합).
+     */
+    @Test
+    fun `onTpsExceeded - SystemEventLogger 0 주입 시 emit 0 (회귀 마진 LOCK)`() {
+        val systemEventLogger = mock<SystemEventLogger>()
+        // adapter 는 systemEventLogger=null default — emit 의무 0
+        adapter.onTpsExceeded()
+        adapter.onTpsExceeded()
+
+        verify(systemEventLogger, never()).emit(any())
     }
 }

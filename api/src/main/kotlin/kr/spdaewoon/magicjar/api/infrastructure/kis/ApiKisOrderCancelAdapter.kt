@@ -5,7 +5,9 @@ import com.fasterxml.jackson.annotation.JsonProperty
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
+import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
 import kr.spdaewoon.magicjar.domain.order.execution.DenyReason
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderResult
@@ -95,7 +97,8 @@ class ApiKisOrderCancelAdapter(
                     OrderResult.Left(DenyReason.KisRejected(response.rtCd ?: "UNKNOWN", response.msg1 ?: ""))
                 }
             } catch (e: WebClientResponseException) {
-                if (e.statusCode.value() == 429) {
+                // P0 hotfix (진단 PR #639) — EGW00201 = HTTP 500 wrap. classifyKisError() 로 분기 통일.
+                if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
                     kisRateLimiterPort.onTpsExceeded()
                     signalSent = true
                 }

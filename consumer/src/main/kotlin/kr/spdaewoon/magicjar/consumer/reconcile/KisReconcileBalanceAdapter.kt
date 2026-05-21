@@ -3,7 +3,9 @@ package kr.spdaewoon.magicjar.consumer.reconcile
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisAuthAdapter
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
+import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
 import kr.spdaewoon.magicjar.domain.reconcile.ReconcileHolding
 import kr.spdaewoon.magicjar.domain.reconcile.port.ReconcileKisBalancePort
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
@@ -273,11 +275,13 @@ class KisReconcileBalanceAdapter(
                 ctxAreaNk100 = nextNk100,
             )
         } catch (e: WebClientResponseException) {
-            if (e.statusCode.value() == 429 && !retried) {
-                // HTTP 429 → onTpsExceeded + 1초 backoff + 1회 재시도 (spec PR #564 §2-2 LOCK)
+            // P0 hotfix (진단 PR #639) — classifyKisError() 분기 통일 (EGW00201 = HTTP 500 wrap).
+            val isRateLimit = classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit
+            if (isRateLimit && !retried) {
+                // Rate Limit (HTTP 429 또는 EGW00201 body) → onTpsExceeded + 1초 backoff + 1회 재시도
                 kisRateLimiterPort.onTpsExceeded()
                 signalSent = true
-                log.warn("KIS 잔고조회 HTTP 429 — 1초 backoff 후 1회 retry")
+                log.warn("KIS 잔고조회 Rate Limit — 1초 backoff 후 1회 retry: status={}", e.statusCode.value())
                 Thread.sleep(EGW_BACKOFF_MS)
                 return fetchBalancePage(
                     baseUrl = baseUrl,
@@ -291,7 +295,7 @@ class KisReconcileBalanceAdapter(
                     nk100 = nk100,
                     retried = true,
                 )
-            } else if (e.statusCode.value() == 429) {
+            } else if (isRateLimit) {
                 kisRateLimiterPort.onTpsExceeded()
                 signalSent = true
             }

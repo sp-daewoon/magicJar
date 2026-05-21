@@ -9,7 +9,9 @@ import kr.spdaewoon.magicjar.api.service.dto.CandleRefreshResponse
 import kr.spdaewoon.magicjar.api.service.dto.IntervalRefreshResult
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
+import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -422,11 +424,12 @@ class CandleRefreshService(
             )
             return IntervalRefreshResult(intervalCode, dedupedCandles.size, inserted, latestTs, pageStatus)
         } catch (e: WebClientResponseException) {
-            if (e.statusCode.value() == 429) {
-                // HTTP 429 → onTpsExceeded 시그널 + 명시 에러 결과 (mock 합성 0, ADR 0014)
+            // P0 hotfix (진단 PR #639) — EGW00201 = HTTP 500 wrap. classifyKisError() 분기 통일.
+            if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
+                // Rate Limit (HTTP 429 또는 EGW00201) → onTpsExceeded 시그널 + 명시 에러 결과 (mock 합성 0, ADR 0014)
                 kisRateLimiterPort.onTpsExceeded()
                 lastPageSignalSent = true
-                log.warn("캔들 갱신 Rate Limit (429): code={} interval={} pages={}", code, intervalCode, pageCount)
+                log.warn("캔들 갱신 Rate Limit: code={} interval={} pages={} status={}", code, intervalCode, pageCount, e.statusCode.value())
                 return IntervalRefreshResult(intervalCode, allCandles.size, 0, null, "RATE_LIMITED")
             } else {
                 log.warn(
@@ -599,7 +602,8 @@ class CandleRefreshService(
                         currentHour = "%02d%02d%02d".format(nextLt.hour, nextLt.minute, nextLt.second)
                     }
                 } catch (e: WebClientResponseException) {
-                    if (e.statusCode.value() == 429) {
+                    // P0 hotfix (진단 PR #639) — classifyKisError() 분기 통일 (EGW00201 = HTTP 500 wrap).
+                    if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
                         kisRateLimiterPort.onTpsExceeded()
                         pageSignalSent = true
                     }

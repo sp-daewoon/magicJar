@@ -2,7 +2,9 @@ package kr.spdaewoon.magicjar.consumer.infrastructure.kis
 
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
+import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
 import kr.spdaewoon.magicjar.domain.position.port.KisBalance
 import kr.spdaewoon.magicjar.domain.position.port.KisBalancePort
 import kr.spdaewoon.magicjar.domain.position.port.KisHolding
@@ -132,10 +134,11 @@ class KisBalanceAdapter(
                 fetchedAt = Instant.now(),
             )
         } catch (e: WebClientResponseException) {
-            if (e.statusCode.value() == 429) {
+            // P0 hotfix (진단 PR #639) — classifyKisError() 분기 통일 (EGW00201 = HTTP 500 wrap).
+            if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
                 kisRateLimiterPort.onTpsExceeded()
                 signalSent = true
-                log.warn("KIS 잔고조회 HTTP 429 — onTpsExceeded 시그널: user={}", maskUserId(userId))
+                log.warn("KIS 잔고조회 Rate Limit — onTpsExceeded: user={} status={}", maskUserId(userId), e.statusCode.value())
             }
             log.error(
                 "KIS 잔고조회 실패: user={} status={} body={}",

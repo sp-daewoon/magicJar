@@ -7,7 +7,9 @@ import kr.spdaewoon.magicjar.domain.account.AccountHolding
 import kr.spdaewoon.magicjar.domain.account.KisAccountBalance
 import kr.spdaewoon.magicjar.domain.account.port.KisBalanceQueryPort
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
+import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
@@ -152,7 +154,9 @@ class ApiKisBalanceQueryAdapter(
                 fetchedAt = now,
             )
         } catch (e: WebClientResponseException) {
-            if (e.statusCode.value() == 429) {
+            // P0 hotfix (진단 PR #639) — KIS EGW00201 = HTTP 500 wrap. 429 단일 가드 폐기.
+            // classifyKisError() 가 body msg_cd 까지 검사 → RateLimit/AuthError/NetworkError/ClientError/Unknown 분류
+            if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
                 kisRateLimiterPort.onTpsExceeded()
                 signalSent = true
             }
