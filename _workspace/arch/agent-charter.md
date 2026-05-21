@@ -2,8 +2,8 @@
 
 > **위치**: `_workspace/arch/agent-charter.md`
 > **신설일**: 2026-05-08 (PR-26 — 사용자 명시 "강령 만들어야 하고", "토큰 소모 없이 가게")
-> **권위**: 본 헌법은 9 sub-agent SKILL + orchestrator SKILL + 메타 ADR(0033·0036·0046·0049·0050·0085)에서 산재된 운영 룰을 단일 출처로 통합한 **참조 가능한 헌법**이다.
-> **의무 정독 대상**: architect · backend-core · market-data · strategy-engine · ai-engineer · frontend · qa · chart-curator · orchestrator (9 actor 모두 — chart-curator 영입 2026-05-19 ADR 0085)
+> **권위**: 본 헌법은 7 sub-agent SKILL + orchestrator SKILL + 메타 ADR(0033·0036·0046·0049·0050·0080·0094)에서 산재된 운영 룰을 단일 출처로 통합한 **참조 가능한 헌법**이다.
+> **의무 정독 대상**: architect · backend-core · market-data · strategy-engine · ai-engineer · frontend · qa · orchestrator (7 sub-agent + orchestrator — ADR 0094 amend 2026-05-21: chart-curator 해고 + qa Visual 격상 + sre 영입 거절)
 > **변경 정책**: 본 헌법은 architect 단독 PR로만 갱신. sub-agent SKILL은 본 헌법을 참조만 하고 룰 본문 중복 금지.
 
 본 헌법은 **운영 룰의 단일 출처**다. 본문에 명시된 7개 § 룰을 위반하면 운영 부채(hotfix·재작업·사용자 비판) 누적 risk. 각 § 본문은 30~40줄 max — 헌법은 실행 매뉴얼이 아닌 참조 룰북.
@@ -247,6 +247,7 @@ sub-agent가 0 tool uses 종료, 환경 결함(Bash 실패), 또는 명세 위�
 
 | 날짜 | 변경 | 사유 |
 |------|------|------|
+| 2026-05-21 | **§9 신설 + §10 운영 메모 재배치 — 운영 단계 룰 6 항목 (SLO/SLA · 변경 관리 · on-call · backup/DR · ADR 양식 · 7 hierarchy LOCK)** | ADR 0094 amend Accepted (orchestrator 자율 위임 결재) — 8 → 7 hierarchy + qa Visual 격상 + ai-engineer 유지 + sre 영입 거절 + backend-core P0 OPS 6건 인수. 사용자 명시 "이제 개발의 전반은 다 되어가기때문에 시스템 운영 단계 및 부분 고도화로 갈 준비를 해야해" + "큐에이도 지금 필요한데 그냥 단순 에이전트가 아닌 확실한 큐에이가 필요하거든". (architect) |
 | 2026-05-19 | §1-A-extended 보강 — 필수 worktree-local 발행 의무 + 라운드 3 evidence + 헬퍼 스크립트 Step 2 보강 | 라운드 3 evidence — `extensions.worktreeConfig=true` 활성 상태에서도 PR #562(ai-engineer)·#564(architect)·#565(backend-core) 라운드 2 dispatch 모두 author 결함 재발. root cause: 옵션 활성만으로는 각 worktree에 `config.worktree` 파일이 자동 발행되지 않음. `scripts/setup-worktree-config.sh` Step 2 신설(기존 모든 worktree에 config.worktree 일괄 발행 idempotent) + 본 §1-A-extended 필수 worktree-local 발행 의무 추가(`git config --worktree user.email/name` 4 명령 LOCK)로 영구 차단. (architect) |
 | 2026-05-19 | §2-3·§2-4·§2-5 강화 — worktree 디렉토리·worktree-agent-* 잔재 누적 root cause fix | 사용자 명시 비판 (2026-05-19 KST) — 헌법 §2 4단계가 git 명령만 다루고 빈 wrapper 디렉토리·Agent isolation 임시 브랜치 검증 누락 → worktree 잔재 9 디렉토리 + worktree-agent-* 23 브랜치 누적. §2-3 빈 wrapper rmdir 명시 + §2-4 worktree-agent-* force delete 명시 + §2-5 사이클 시작 자동 점검 4 항목 신설(task 파일·worktree list·빈 wrapper·임시 브랜치). orchestrator SKILL.md 정합 갱신 동반. (architect) |
 | 2026-05-19 | §1-A chart-curator author 추가 hotfix — `.husky/pre-commit` ALLOWED_AUTHOR regex + CLAUDE.md Git hook 본문 정합 흡수 | PR #514 evidence — chart-curator sub-agent commit이 frontend author로 attribution. PR #511 ADR 0085 영입 시 agent-charter §1-A allowed values는 갱신했으나 `.husky/pre-commit` 강제 regex + CLAUDE.md SoT 본문 갱신 누락. pre-commit hook이 chart-curator 거부 안 함 → sub-agent fallback으로 다른 author 사용 → git blame·CHANGELOG `(작성: chart-curator)` 마커 깨짐. (architect) |
@@ -256,9 +257,71 @@ sub-agent가 0 tool uses 종료, 환경 결함(Bash 실패), 또는 명세 위�
 
 ---
 
-## §9. 운영 메모
+## §9. 운영 단계 룰 (2026-05-21 ADR 0094 amend 신설 — 사용자 위임 결재)
+
+본 §은 ADR 0094 §4-2 본문에 권위. 본 charter는 운영 단계 진입 후 모든 sub-agent dispatch + ADR 발행 시 본 §을 의무 적용한다.
+
+### 9-1. SLO/SLA 의무
+
+자동매매 운영 단계 SLO 5건 (위반 시 SystemEvent P1 자동 발사 + Slack alert — ADR 0044 reuse):
+
+- 자동매매 시그널 emit ~ 주문 발사 지연 **P95 < 5초 (P99 < 10초)**
+- KIS WS 연결률 (장중 09:00~15:30) **> 99%**
+- account API **p95 < 500ms**
+- Outbox drain lag **P95 < 30초**
+- Redis hit ratio **> 95%**
+- DB connection pool 활용률 **< 80%**
+
+### 9-2. 변경 관리 의무
+
+- 모든 PR diff > 50 LOC 또는 자본 path 직결 시 **rollback plan 본문 명시 의무**
+- canary 배포: dev → staging → REAL (자동매매 진입 전 30분 staging dwell)
+- frontend 핵심 화면(Dashboard·Orders·Positions·Settings) 변경 PR은 **qa Visual 시나리오 자동 dispatch**
+- 사용자 결재 가시화: PR description "운영 영향 매트릭스" 섹션 의무 (SLO 영향·예상 alert·롤백 단계 3건 + Visual 회귀 evidence)
+
+### 9-3. on-call rotation (사용자 단독 운영자 단순화)
+
+- **1차**: 사용자(최고 관리자) — KillSwitch 토글 권한 보유 + Slack alert 1차 수신
+- **2차**: backend-core sub-agent — incident classification + runbook 적용 + DR/backup 가동
+- **3차**: architect + 영역 sub-agent (market-data·strategy-engine·frontend·qa) — root cause + ADR 발행
+
+### 9-4. 정기 backup·DR
+
+- postgres pg_dump cron 매일 03:00 KST + 7일 retention (**backend-core 책임**)
+- Redis snapshot 매일 03:30 KST + 3일 retention (**backend-core 책임**)
+- 분기별 DR drill (사용자 결재 의무) + **qa Visual E2E 시나리오 자동 재현 의무**
+
+### 9-5. 신규 ADR 양식 (운영 단계)
+
+모든 신규 ADR §결과 직전에 다음 3 슬롯 의무 추가:
+
+1. **SLO 영향** — 본 결정이 §9-1 SLO에 미치는 영향 (개선/유지/저하 + 수치 변동)
+2. **rollback plan** — 본 결정이 운영에 부적합 발견 시 즉시 되돌리는 절차 (코드 revert · DB 마이그레이션 down · 설정 toggle 등)
+3. **관측 매트릭스** — 본 결정 결과를 운영 단계에서 측정하는 metric 또는 alert (Prometheus query · Grafana panel · Slack alert) + **Visual 회귀 시나리오 (frontend 영향 시)**
+
+### 9-6. sub-agent 7 hierarchy LOCK (ADR 0094 amend)
+
+운영 단계 진입 후 sub-agent 7 actor:
+
+| actor | 책임 | 페르소나 |
+|-------|------|---------|
+| architect | 시스템 설계·ADR·운영 헌법 amend·SLO/SLA 정의 | 균형 — 결정자 |
+| backend-core | Spring Boot 도메인·인프라·persistence-shared·KIS adapter + **운영 인프라 단일 owner (P0 OPS 6건)** | 진보 — "리팩토링맨" |
+| frontend | React/TS·STOMP UI·운영 dashboard + **TradingView LWC v4 단일 owner (chart-curator 이관)** | 보수 — "안정빌드" |
+| market-data | KIS API·시세·뉴스·공시 + **캔들 SLA 정합성 단일 owner (chart-curator 이관)** | 보수 — "안정빌드" |
+| strategy-engine | DSL·지표·백테스트·시그널·리스크·주문 path | 보수 — "안정빌드" |
+| ai-engineer | Spring AI·프롬프트·AI 옵션 보조 (사용자 트리거만 — W4 진입 시 active dispatch) | 균형 — 보조 분석 |
+| **qa (격상)** ★ | **Visual QA "품질 헌터"** — Playwright + 스크린샷 + 시각 회귀 + E2E + 사용자 시나리오 자동 검증 | 방어 — "품질 헌터" |
+
+- **chart-curator 해고** (ADR 0094 §2-2-A) — 책임 이관 매트릭스: `_workspace/specs/2026-05-21-chart-curator-handover.md`
+- **qa Visual 격상** (ADR 0094 §2-2-B) — 도구·페르소나·시나리오: `_workspace/specs/2026-05-21-qa-visual-uplift.md`
+- **sre 영입 거절** (사용자 명시) — P0 OPS 6건은 backend-core 인수
+
+---
+
+## §10. 운영 메모
 
 - **architect 책임**: 본 헌법 본문은 architect 단독 PR로만 갱신. 새 § 추가 시 ADR 발행 의무.
 - **sub-agent 책임**: 본 헌법 정독 의무 + 영역별 특수 룰만 SKILL.md에 명시 (KIS-first는 architect·market-data만 관련 § 강조).
-- **orchestrator 책임**: 사이클 시작 시 본 헌법 §1·§2 자동 점검 + sub-agent 디스패치 시 §4·§5 사전 검증.
+- **orchestrator 책임**: 사이클 시작 시 본 헌법 §1·§2 자동 점검 + sub-agent 디스패치 시 §4·§5 사전 검증 + **운영 단계 진입 후 §9 추가 검증 (frontend PR Visual dispatch · SLO 영향 ADR slot · rollback plan)**.
 - **사용자 책임**: 본 헌법 룰 위반 발견 시 architect에게 갱신 명시 (운영 룰 흐려짐 신호).

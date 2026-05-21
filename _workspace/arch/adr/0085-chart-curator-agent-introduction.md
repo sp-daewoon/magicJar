@@ -1,6 +1,8 @@
 # ADR 0085: chart-curator 신규 에이전트 영입 — TradingView LWC v4 + 캔들 데이터 SLA·정합성 single owner
 
-- 상태: **Accepted (2026-05-19 격상 — T-CC Phase 1 + Phase 2-A 머지 evidence · v3.6.17 release 포함 · 2026-05-19 §Persona amend — 보수적 시니어 백엔드 개발자 페르소나 · 2026-05-19 §2-1-extended amend — 책임 영역 명확화 chart-curator vs frontend 매트릭스 LOCK)**
+- 상태: **Superseded by ADR 0094 (2026-05-21)** — chart-curator 해고 + 책임 이관 (LWC v4 컴포넌트 → frontend / 캔들 SLA → market-data). 페르소나 "안정빌드"는 frontend·market-data 보수 lens로 흡수 보존. 이관 매트릭스: `_workspace/specs/2026-05-21-chart-curator-handover.md`.
+  - 이전 상태: Accepted (2026-05-19 격상 — T-CC Phase 1 + Phase 2-A 머지 evidence · v3.6.17 release 포함 · 2026-05-19 §Persona amend — 보수적 시니어 백엔드 개발자 페르소나 · 2026-05-19 §2-1-extended amend — 책임 영역 명확화 chart-curator vs frontend 매트릭스 LOCK)
+  - Superseded 사유: 8 → 7 hierarchy 운영 부담 ↓ + LWC v4(frontend 본질) + 캔들 SLA(market-data 본질) 영역 owner 명확 분리. 사용자 2단계 결재 (2026-05-21) "에이전트 전격적으로 해고 절차와 투입하는걸 다시 만들 거야" 정합.
 - 작성일: 2026-05-19
 - 결정자: 사용자(최고 관리자) — orchestrator 위임 수행
 - 영역: 메타·하네스 (§9)

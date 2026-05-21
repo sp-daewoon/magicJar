@@ -1,9 +1,10 @@
 # ADR 0080: 전체 에이전트 Opus 4.7 통일 (ADR 0035 supersede)
 
-- 상태: Accepted
+- 상태: **Accepted (2026-05-18) — Amended by ADR 0094 (2026-05-21): 8 → 7 actor (chart-curator 해고) + qa 페르소나 "품질 헌터" 격상. opus 4.7 LOCK은 유지.**
 - 작성일: 2026-05-18
 - 결정자: 사용자(최고 관리자) — orchestrator 위임 수행
 - Supersedes: ADR 0035 (에이전트별 모델 차등 + 에스컬레이션)
+- Amended by: ADR 0094 (2026-05-21) — actor 8 → 7 (chart-curator 해고 + sre 영입 거절) + qa Visual 격상. 모델 opus 4.7 LOCK은 변동 없음.
 
 ## 맥락
 
@@ -36,7 +37,9 @@ ADR 0035 (2025-Q4 PoC 단계) 결정 — 작업 성격별 모델 차등:
 | backend-core | **opus** | ★ Spring Boot 도메인 invariant 결합 코드 — 신중 필요 (sonnet → opus) |
 | market-data | **opus** | ★ KIS API 미묘한 분기·실계좌 게이트 결합 — 신중 필요 (sonnet → opus) |
 | frontend | **opus** | ★ 실시간 시그널·매매일지·리스크 상태 머신 결합 — 신중 필요 (sonnet → opus) |
-| qa | **opus** | ★ 경계면 교차 검증 (sonnet → opus, 메타 표기) |
+| qa | **opus** | ★ 경계면 교차 검증 (sonnet → opus, 메타 표기) — **ADR 0094 amend: "품질 헌터" Visual 격상 (Playwright + 스크린샷 + 시각 회귀 + E2E)** |
+
+> **ADR 0094 amend (2026-05-21)**: chart-curator 해고 + sre 영입 거절 → 7 actor 매트릭스로 정합. ai-engineer는 유지(W4 진입 시 active dispatch 재개). opus 4.7 LOCK은 모든 7 actor 유지.
 
 > Haiku 미채택 정책 유지 (ADR 0035 §결과 정합 — 절약보다 재작업 비용이 큼).
 
