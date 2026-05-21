@@ -2,7 +2,7 @@
 
 > **위치**: `_workspace/arch/agent-charter.md`
 > **신설일**: 2026-05-08 (PR-26 — 사용자 명시 "강령 만들어야 하고", "토큰 소모 없이 가게")
-> **권위**: 본 헌법은 7 sub-agent SKILL + orchestrator SKILL + 메타 ADR(0033·0036·0046·0049·0050·0080·0094)에서 산재된 운영 룰을 단일 출처로 통합한 **참조 가능한 헌법**이다.
+> **권위**: 본 헌법은 7 sub-agent SKILL + orchestrator SKILL + 메타 ADR(0033·0036·0046·0049·0050·0080·0094·0095)에서 산재된 운영 룰을 단일 출처로 통합한 **참조 가능한 헌법**이다.
 > **의무 정독 대상**: architect · backend-core · market-data · strategy-engine · ai-engineer · frontend · qa · orchestrator (7 sub-agent + orchestrator — ADR 0094 amend 2026-05-21: chart-curator 해고 + qa Visual 격상 + sre 영입 거절)
 > **변경 정책**: 본 헌법은 architect 단독 PR로만 갱신. sub-agent SKILL은 본 헌법을 참조만 하고 룰 본문 중복 금지.
 
@@ -247,6 +247,7 @@ sub-agent가 0 tool uses 종료, 환경 결함(Bash 실패), 또는 명세 위�
 
 | 날짜 | 변경 | 사유 |
 |------|------|------|
+| 2026-05-21 | **§9-1 SLO 측정 매트릭스 + alert routing 권위 cross-link 추가 — ADR 0095 본문화** | ADR 0094 §3-2 P0-OPS-3 task 본문화 후속. ADR 0095 §2 측정 source(Prometheus query 1순위 + SystemEvent + Kafka 토픽 빈도) + §3 severity 4단 routing matrix(P4 INFO/P3 WARN/P2 ERROR/P1 CRITICAL — ADR 0084 정합) + §3-4 KillSwitch 자동 ON 검토 자동 액션 S-1·S-5 critical 한정(ADR 0043 race-safe 정합) 본문화. v3.8.0 baseline 5건 LOCK + Redis hit ratio·DB pool 활용률 2건은 P1 OPS amend backlog. backend-core P0-OPS-3 후속 wiring 5건 의무. (architect) |
 | 2026-05-21 | **§9 신설 + §10 운영 메모 재배치 — 운영 단계 룰 6 항목 (SLO/SLA · 변경 관리 · on-call · backup/DR · ADR 양식 · 7 hierarchy LOCK)** | ADR 0094 amend Accepted (orchestrator 자율 위임 결재) — 8 → 7 hierarchy + qa Visual 격상 + ai-engineer 유지 + sre 영입 거절 + backend-core P0 OPS 6건 인수. 사용자 명시 "이제 개발의 전반은 다 되어가기때문에 시스템 운영 단계 및 부분 고도화로 갈 준비를 해야해" + "큐에이도 지금 필요한데 그냥 단순 에이전트가 아닌 확실한 큐에이가 필요하거든". (architect) |
 | 2026-05-19 | §1-A-extended 보강 — 필수 worktree-local 발행 의무 + 라운드 3 evidence + 헬퍼 스크립트 Step 2 보강 | 라운드 3 evidence — `extensions.worktreeConfig=true` 활성 상태에서도 PR #562(ai-engineer)·#564(architect)·#565(backend-core) 라운드 2 dispatch 모두 author 결함 재발. root cause: 옵션 활성만으로는 각 worktree에 `config.worktree` 파일이 자동 발행되지 않음. `scripts/setup-worktree-config.sh` Step 2 신설(기존 모든 worktree에 config.worktree 일괄 발행 idempotent) + 본 §1-A-extended 필수 worktree-local 발행 의무 추가(`git config --worktree user.email/name` 4 명령 LOCK)로 영구 차단. (architect) |
 | 2026-05-19 | §2-3·§2-4·§2-5 강화 — worktree 디렉토리·worktree-agent-* 잔재 누적 root cause fix | 사용자 명시 비판 (2026-05-19 KST) — 헌법 §2 4단계가 git 명령만 다루고 빈 wrapper 디렉토리·Agent isolation 임시 브랜치 검증 누락 → worktree 잔재 9 디렉토리 + worktree-agent-* 23 브랜치 누적. §2-3 빈 wrapper rmdir 명시 + §2-4 worktree-agent-* force delete 명시 + §2-5 사이클 시작 자동 점검 4 항목 신설(task 파일·worktree list·빈 wrapper·임시 브랜치). orchestrator SKILL.md 정합 갱신 동반. (architect) |
@@ -271,6 +272,8 @@ sub-agent가 0 tool uses 종료, 환경 결함(Bash 실패), 또는 명세 위�
 - Outbox drain lag **P95 < 30초**
 - Redis hit ratio **> 95%**
 - DB connection pool 활용률 **< 80%**
+
+**측정 매트릭스 + alert routing 권위**: **ADR 0095** (P0-OPS-3 — SLO/SLA + alert routing matrix). 본 §9-1 6건 중 v3.8.0 baseline 5건(S-1 시그널→주문 + S-2 KIS WS + S-3 account API + S-4 KIS rate limit + S-5 KillSwitch 자동 ON)은 ADR 0095 §2 측정 source(Prometheus query + SystemEvent + Kafka 토픽 빈도) 본문화. Redis hit ratio + DB pool 활용률 2건은 P1 OPS 사이클 amend (측정 source wiring backlog). severity 4단 routing matrix(P4 INFO/P3 WARN/P2 ERROR/P1 CRITICAL — ADR 0084 정합) + S-1·S-5 critical KillSwitch 자동 ON 검토 자동 액션(ADR 0043 race-safe 정합)은 ADR 0095 §3 본문화. backend-core P0-OPS-3 후속 wiring 5건(Micrometer timer + alert rule yml + Alertmanager + runbook) 의무.
 
 ### 9-2. 변경 관리 의무
 
