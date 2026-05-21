@@ -26,6 +26,16 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-webflux")
 
+    // ADR 0094 P0-OPS-2 — Micrometer Prometheus registry
+    //   /actuator/prometheus 노출 prerequisite. spring-boot-starter-actuator + 본 의존이 함께 있을 때
+    //   PrometheusMeterRegistry 자동 등록.
+    implementation("io.micrometer:micrometer-registry-prometheus")
+
+    // ADR 0094 P0-OPS-1 — Logstash JSON encoder
+    //   logback-spring.xml `LogstashEncoder` prerequisite. JSON 한 줄 로그 + MDC(traceId/spanId/userId/orderId)
+    //   필드 자동 포함. 운영 검색·grep·Loki ingestion 정합.
+    implementation("net.logstash.logback:logstash-logback-encoder:7.4")
+
     // Kafka
     implementation("org.springframework.kafka:spring-kafka")
 
