@@ -54,6 +54,9 @@ _workspace/**/smoke-*.md
 _workspace/_harness-state.lock
 _workspace/dashboard.html
 
+# backup 산출물 (ADR 0096 §2-4 — 실 dump/snapshot 파일 git tracked 0)
+_workspace/backups/
+
 # Claude Code local overrides (per-user, do not commit)
 .claude/settings.local.json
 .claude/worktrees/

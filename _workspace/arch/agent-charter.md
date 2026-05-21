@@ -2,7 +2,7 @@
 
 > **위치**: `_workspace/arch/agent-charter.md`
 > **신설일**: 2026-05-08 (PR-26 — 사용자 명시 "강령 만들어야 하고", "토큰 소모 없이 가게")
-> **권위**: 본 헌법은 7 sub-agent SKILL + orchestrator SKILL + 메타 ADR(0033·0036·0046·0049·0050·0080·0094·0095)에서 산재된 운영 룰을 단일 출처로 통합한 **참조 가능한 헌법**이다.
+> **권위**: 본 헌법은 7 sub-agent SKILL + orchestrator SKILL + 메타 ADR(0033·0036·0046·0049·0050·0080·0094·0095·0096)에서 산재된 운영 룰을 단일 출처로 통합한 **참조 가능한 헌법**이다.
 > **의무 정독 대상**: architect · backend-core · market-data · strategy-engine · ai-engineer · frontend · qa · orchestrator (7 sub-agent + orchestrator — ADR 0094 amend 2026-05-21: chart-curator 해고 + qa Visual 격상 + sre 영입 거절)
 > **변경 정책**: 본 헌법은 architect 단독 PR로만 갱신. sub-agent SKILL은 본 헌법을 참조만 하고 룰 본문 중복 금지.
 
@@ -247,6 +247,7 @@ sub-agent가 0 tool uses 종료, 환경 결함(Bash 실패), 또는 명세 위�
 
 | 날짜 | 변경 | 사유 |
 |------|------|------|
+| 2026-05-21 | **§9-4 backup·DR 권위 cross-link 추가 — ADR 0096 본문화** | ADR 0094 §3-7 P0-OPS-4 task 본문화 후속. ADR 0096 § PostgreSQL 매트릭스(daily 03:00 KST + 7일 retention + `_workspace/backups/postgres/daily/` LOCK) + § Redis 매트릭스(03:30 KST + 3일 retention + AOF 거부) + RPO 24h + RTO 30분 + R-4 runbook cross-link + DR drill 분기 의무 5 시나리오 + qa Visual E2E 자동 재현 의무 본문화. 본 §9-4 ref 슬롯 보강(산출물 위치·스크립트 경로·사용자 가이드 cross-link 추가) + 서두 권위 ADR 매트릭스 0096 추가. 운영 ADR 양식 3 슬롯 두 번째 적용 사례(SLO 영향·rollback plan·관측 매트릭스). 운영 코드 0 touch. backend-core P0-OPS-4 후속 wiring 5건 권고(Micrometer counter + Slack alert + persistence-shared Outbox monitoring + docker compose service 검토 + DR drill 자동화 script). 사용자 1회 작업 의무: 본 PR 머지 직후 `crontab -e` 4 라인 추가(`docs/operations/backup-setup.md` §2 본문). v3.8.0 운영 baseline P0 진척(P0 OPS 6건 중 4번째 task 완료 — P0-OPS-1·2·3·4). (architect) |
 | 2026-05-21 | **§9-1 SLO 측정 매트릭스 + alert routing 권위 cross-link 추가 — ADR 0095 본문화** | ADR 0094 §3-2 P0-OPS-3 task 본문화 후속. ADR 0095 §2 측정 source(Prometheus query 1순위 + SystemEvent + Kafka 토픽 빈도) + §3 severity 4단 routing matrix(P4 INFO/P3 WARN/P2 ERROR/P1 CRITICAL — ADR 0084 정합) + §3-4 KillSwitch 자동 ON 검토 자동 액션 S-1·S-5 critical 한정(ADR 0043 race-safe 정합) 본문화. v3.8.0 baseline 5건 LOCK + Redis hit ratio·DB pool 활용률 2건은 P1 OPS amend backlog. backend-core P0-OPS-3 후속 wiring 5건 의무. (architect) |
 | 2026-05-21 | **§9 신설 + §10 운영 메모 재배치 — 운영 단계 룰 6 항목 (SLO/SLA · 변경 관리 · on-call · backup/DR · ADR 양식 · 7 hierarchy LOCK)** | ADR 0094 amend Accepted (orchestrator 자율 위임 결재) — 8 → 7 hierarchy + qa Visual 격상 + ai-engineer 유지 + sre 영입 거절 + backend-core P0 OPS 6건 인수. 사용자 명시 "이제 개발의 전반은 다 되어가기때문에 시스템 운영 단계 및 부분 고도화로 갈 준비를 해야해" + "큐에이도 지금 필요한데 그냥 단순 에이전트가 아닌 확실한 큐에이가 필요하거든". (architect) |
 | 2026-05-19 | §1-A-extended 보강 — 필수 worktree-local 발행 의무 + 라운드 3 evidence + 헬퍼 스크립트 Step 2 보강 | 라운드 3 evidence — `extensions.worktreeConfig=true` 활성 상태에서도 PR #562(ai-engineer)·#564(architect)·#565(backend-core) 라운드 2 dispatch 모두 author 결함 재발. root cause: 옵션 활성만으로는 각 worktree에 `config.worktree` 파일이 자동 발행되지 않음. `scripts/setup-worktree-config.sh` Step 2 신설(기존 모든 worktree에 config.worktree 일괄 발행 idempotent) + 본 §1-A-extended 필수 worktree-local 발행 의무 추가(`git config --worktree user.email/name` 4 명령 LOCK)로 영구 차단. (architect) |
@@ -290,9 +291,13 @@ sub-agent가 0 tool uses 종료, 환경 결함(Bash 실패), 또는 명세 위�
 
 ### 9-4. 정기 backup·DR
 
-- postgres pg_dump cron 매일 03:00 KST + 7일 retention (**backend-core 책임**)
-- Redis snapshot 매일 03:30 KST + 3일 retention (**backend-core 책임**)
-- 분기별 DR drill (사용자 결재 의무) + **qa Visual E2E 시나리오 자동 재현 의무**
+**단일 권위**: **ADR 0096** (P0-OPS-4 — DR/backup 절차) — PostgreSQL backup 매트릭스 + Redis snapshot 매트릭스 + RPO 24h + RTO 30분 + DR drill 분기 의무 본문화. 본 §은 charter 내 ref 슬롯만 보유 — 산출물 위치·스크립트·복구 절차 본문은 ADR 0096 + R-4 runbook 단일 권위.
+
+- postgres pg_dump cron 매일 03:00 KST + 7일 retention (`_workspace/backups/postgres/daily/YYYY-MM-DD.dump`) — **backend-core 책임** (스크립트: `scripts/backup/pg-dump-daily.sh`)
+- Redis snapshot 매일 03:30 KST + 3일 retention (`_workspace/backups/redis/snapshots/dump-YYYY-MM-DD-HHMM.rdb`) — **backend-core 책임** (스크립트: `scripts/backup/redis-snapshot.sh`)
+- 분기별 DR drill (사용자 결재 의무) + **qa Visual E2E 시나리오 5건 자동 재현 의무** (ADR 0096 §6-2)
+- **RPO 24h + RTO 30분** LOCK (ADR 0096 §4) — 복구 절차 본문은 R-4 runbook 단일 권위
+- 사용자 cron 등록 가이드: `docs/operations/backup-setup.md`
 
 ### 9-5. 신규 ADR 양식 (운영 단계)
 
