@@ -3,10 +3,10 @@ id: T-20260521-1540-killswitch-race-safe-policy
 agent: architect
 model: opus
 branch: agent/architect/killswitch-race-safe-policy
-status: RUNNING
+status: DONE
 startedAt: 2026-05-21T15:40:09.895+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-21T15:47:46.402+09:00
+pr: #647
 parentPhase: ?
 ---
 
