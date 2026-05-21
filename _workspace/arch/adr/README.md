@@ -114,6 +114,7 @@
 | 0085 | **chart-curator 신규 에이전트 영입 (8번째 sub-agent) — TradingView LWC v4 차트 + 캔들 데이터 SLA·정합성 단일 owner — Accepted (2026-05-19 격상 · T-CC Phase 1 + Phase 2-A 머지 evidence · v3.6.17 release 포함 · 2026-05-19 §Persona amend — 보수적 시니어 백엔드 개발자 "안정빌드")** |
 | 0086 | **T-CC Phase 2 — 자동 backfill 워커 + 갭 검출 + 데이터 햇징 룰 매트릭스 10건 (신입 chart-curator 보호) — Accepted (2026-05-19 격상 · Phase 2-A 햇징 룰 10건 모두 구현 + 27 단위 테스트 ALL GREEN · v3.6.17 release 포함)** |
 | 0087 | **Sub-agent 페르소나 매트릭스 — 보수적 chart-curator ↔ 진보적 backend-core 짝 시스템 — Proposed (2026-05-19, Phase 1 후 Accepted 격상 예정)** |
+| 0094 | **운영 단계 transition — 개발 단계 종착 + 운영·점진 고도화 단계 진입 (sub-agent 8 → 6 reshuffle: 해고 qa·보류 ai-engineer·흡수 chart-curator→frontend/market-data·신규 sre · 운영 헌법 §9 신설 SLO/SLA·on-call·DR·운영 ADR 양식) — Proposed (2026-05-21, 사용자 결재 D-1~D-6 후 Accepted 격상 예정 · ADR 0080·0085·0087 amend)** |
 
 ## §10. 외부 API 강제 정책 + UI 흐름 (4건)
 
