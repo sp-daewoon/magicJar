@@ -3,10 +3,10 @@ id: T-20260521-1125-positions-page-data-source
 agent: frontend
 model: opus
 branch: agent/frontend/positions-page-data-source
-status: RUNNING
+status: DONE
 startedAt: 2026-05-21T11:25:35.586+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-21T11:27:18.162+09:00
+pr: #643
 parentPhase: ?
 ---
 
