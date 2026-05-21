@@ -3,10 +3,10 @@ id: T-20260521-1123-ws-reconnected-emit
 agent: market-data
 model: opus
 branch: agent/market-data/ws-reconnected-emit
-status: RUNNING
+status: DONE
 startedAt: 2026-05-21T11:23:16.403+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-21T11:28:38.787+09:00
+pr: #644
 parentPhase: ?
 ---
 
