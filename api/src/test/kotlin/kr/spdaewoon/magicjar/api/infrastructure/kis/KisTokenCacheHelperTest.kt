@@ -9,6 +9,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.web.reactive.function.client.WebClient
@@ -143,6 +144,42 @@ class KisTokenCacheHelperTest {
         assertThatThrownBy { sut.resolveTokenAndKeys(userId = "", accountType = AccountType.REAL) }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("userId 빈 문자열 차단")
+    }
+
+    // ── 2026-05-21 hotfix (backend-core) — EGW00123 self-heal cache evict ───────────────────
+
+    @Test
+    fun `EGW00123 self-heal — evictToken Redis delete 호출 (cache key prefix LOCK)`() {
+        val valueOps: org.springframework.data.redis.core.ValueOperations<String, String> = mock()
+        whenever(redis.opsForValue()).thenReturn(valueOps)
+
+        sut.evictToken(userId = "u-001", accountType = AccountType.REAL)
+
+        verify(redis).delete("kis:token:u-001:REAL")
+    }
+
+    @Test
+    fun `EGW00123 self-heal — evictToken MOCK accountType 도 동일 prefix delete`() {
+        sut.evictToken(userId = "u-001", accountType = AccountType.MOCK)
+
+        verify(redis).delete("kis:token:u-001:MOCK")
+    }
+
+    @Test
+    fun `EGW00123 self-heal — evictToken userId 빈 문자열 차단 (caller 결함 fail-fast)`() {
+        assertThatThrownBy { sut.evictToken(userId = "", accountType = AccountType.REAL) }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("userId 빈 문자열 차단")
+    }
+
+    @Test
+    fun `EGW00123 self-heal — evictToken Redis delete 예외 graceful (log warn + 계속)`() {
+        whenever(redis.delete(org.mockito.kotlin.any<String>())).thenThrow(RuntimeException("redis down"))
+
+        // 예외 흡수 — 호출자에 throw 하면 self-heal 자체가 실패해 의미 상실
+        sut.evictToken(userId = "u-001", accountType = AccountType.REAL)
+
+        verify(redis).delete("kis:token:u-001:REAL")
     }
 
     @Test

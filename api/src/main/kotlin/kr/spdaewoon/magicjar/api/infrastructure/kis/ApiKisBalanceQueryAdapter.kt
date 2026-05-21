@@ -65,6 +65,15 @@ import java.time.Instant
  *   - 분산락 정합 (ADR 0038): in-process ReentrantLock + Redis SETNX (다중 JVM 안전)
  *   - 동적 TTL (T-3): KIS `expires_in` 응답 × 0.95 (hardcode 23h 제거)
  *   - 단일 prefix LOCK (T-1): `access_token:` 결함 prefix 폐기
+ *
+ * ### EGW00123 self-heal (2026-05-21 hotfix · backend-core)
+ * - 결함: Redis TTL 살아있는 stale 토큰을 helper fast path가 재사용 → KIS EGW00123 무한 폭주
+ *   (REAL dashboard 진입 시 GET /api/account/positions 502 20+ 회 반복 evidence)
+ * - 본 어댑터 catch 분기:
+ *   1) WebClient 응답 body `msg_cd=EGW00123` 검출
+ *   2) [KisTokenCacheHelper.evictToken] 호출 → Redis cache key 삭제
+ *   3) `fetchFullBalanceInternal(retried=true)` 1회 재호출 → 분산락 보호 하에 신규 발급 + 정상 응답
+ *   4) retried=true 진입에서 또 EGW00123 → 무한 루프 차단 위해 throw
  */
 @Component
 class ApiKisBalanceQueryAdapter(
@@ -81,6 +90,12 @@ class ApiKisBalanceQueryAdapter(
     companion object {
         private val TIMEOUT = Duration.ofSeconds(10)
         private const val INQUIRE_BALANCE_PATH = "/uapi/domestic-stock/v1/trading/inquire-balance"
+
+        /**
+         * KIS 토큰 만료 응답 코드. HTTP status 500 + body `msg_cd=EGW00123` 으로 wrap 되어 오므로
+         * status 만으로 분기 불가 — body 문자열 검사 의무.
+         */
+        private const val KIS_TOKEN_EXPIRED_CODE = "EGW00123"
     }
 
     private val log = LoggerFactory.getLogger(ApiKisBalanceQueryAdapter::class.java)
@@ -88,6 +103,20 @@ class ApiKisBalanceQueryAdapter(
     override fun fetchFullBalance(
         userId: String,
         accountType: AccountType,
+    ): KisAccountBalance = fetchFullBalanceInternal(userId, accountType, retried = false)
+
+    /**
+     * 잔고조회 본문 — [retried] flag로 self-heal 1회 LIMIT (무한 루프 차단).
+     *
+     * 2026-05-21 hotfix (backend-core · KIS EGW00123 self-heal):
+     *   evidence — Redis TTL 살아있는 stale 토큰 fast path 재사용으로 EGW00123 무한 폭주.
+     *   본 메서드: WebClient catch에서 body msg_cd 검사 → cache evict + 1회 재호출.
+     *   `retried=true` 진입 시 EGW00123 또 떨어지면 즉시 throw (재시도 1회 LIMIT).
+     */
+    private fun fetchFullBalanceInternal(
+        userId: String,
+        accountType: AccountType,
+        retried: Boolean,
     ): KisAccountBalance {
         val cred = loadCredential(userId, accountType)
         // T-4 — KisTokenCacheHelper 위임 (분산락 + 동적 TTL + 단일 prefix)
@@ -156,9 +185,26 @@ class ApiKisBalanceQueryAdapter(
         } catch (e: WebClientResponseException) {
             // P0 hotfix (진단 PR #639) — KIS EGW00201 = HTTP 500 wrap. 429 단일 가드 폐기.
             // classifyKisError() 가 body msg_cd 까지 검사 → RateLimit/AuthError/NetworkError/ClientError/Unknown 분류
-            if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
+            val body = e.responseBodyAsString
+            if (classifyKisError(e.statusCode.value(), body) is KisErrorClass.RateLimit) {
                 kisRateLimiterPort.onTpsExceeded()
                 signalSent = true
+            }
+
+            // 2026-05-21 hotfix (backend-core · EGW00123 self-heal):
+            // KIS 토큰 만료(EGW00123) 시 HTTP 500 wrap → status 만으로 분기 불가.
+            // Redis TTL 살아있는 stale 토큰 무한 재사용 차단 — cache evict + 1회 재호출.
+            // retried=true 이미 진입 후 또 EGW00123 → 정상 발급 토큰이 즉시 만료된 비정상 상황,
+            // 무한 루프 차단 위해 그대로 throw.
+            if (!retried && body.contains(KIS_TOKEN_EXPIRED_CODE)) {
+                log.warn(
+                    "KIS {} 검출 — token cache evict 후 1회 재발급 시도: userId={} type={}",
+                    KIS_TOKEN_EXPIRED_CODE,
+                    userId,
+                    accountType.name,
+                )
+                tokenHelper.evictToken(userId, accountType)
+                return fetchFullBalanceInternal(userId, accountType, retried = true)
             }
             throw e
         } finally {
