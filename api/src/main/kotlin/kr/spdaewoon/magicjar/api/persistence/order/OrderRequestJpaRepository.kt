@@ -64,4 +64,18 @@ interface OrderRequestJpaRepository : JpaRepository<OrderRequestJpaEntity, Long>
         @Param("cutoff") cutoff: Instant,
         pageable: Pageable,
     ): List<OrderRequestJpaEntity>
+
+    /**
+     * KillSwitch race-safe guard B (Grace Window) — userId의 마지막 FILLED 시각.
+     *
+     * `completedAt MAX WHERE status=FILLED`. 한 건도 없으면 null.
+     * 헌법 §6 — interface body 0건, @Query 만 사용.
+     */
+    @Query(
+        "SELECT MAX(e.completedAt) FROM OrderRequestJpaEntity e " +
+            "WHERE e.userId = :userId AND e.status = kr.spdaewoon.magicjar.domain.order.execution.OrderStatus.FILLED",
+    )
+    fun findLastFilledAtByUserId(
+        @Param("userId") userId: String,
+    ): Instant?
 }
