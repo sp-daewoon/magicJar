@@ -1,9 +1,10 @@
 # ADR 0070 — T-RECON + T-NOTIFY 묶음 spec/plan (W3 자본 보호 prereq)
 
-- 상태: Accepted (architect 자율 결정 — 사용자 위임 2026-05-13 "W3 진행해서 마무리까지하자 W4 진입까지 자율 최종권한")
+- 상태: **Amended** 2026-05-21 (§2-11 step 5·6 race-safe LOCK — 가드 규칙 권위는 ADR 0043 §2-11로 위임)
 - 작성일: 2026-05-13
-- 결정자: architect (사용자 위임 + orchestrator dispatch · W3 마무리 v3.6.2 patch 사이클)
-- 관계: **ADR 0041 baseline 정밀화 (T-RECON)** · **ADR 0044 baseline 정밀화 (T-NOTIFY)** · ADR 0068 정합(T-O 마감 직후 안전망) · ADR 0024·0043 정합(KillSwitch) · ADR 0042 정합(Position Bootstrap) · ADR 0037 정합(KIS Rate Limit) · ADR 0038 정합(KIS OAuth 분산락) · ADR 0067 정합(Risk Guard chain) · ADR 0046 정합(system_config Slack webhook)
+- amend: 2026-05-21
+- 결정자: architect (사용자 위임 + orchestrator dispatch · W3 마무리 v3.6.2 patch 사이클) · **amend**: architect (사용자 dogfooding 09:43~11:05 false positive 결함 직후 직접 정책 LOCK)
+- 관계: **ADR 0041 baseline 정밀화 (T-RECON)** · **ADR 0044 baseline 정밀화 (T-NOTIFY)** · ADR 0068 정합(T-O 마감 직후 안전망) · ADR 0024·**ADR 0043 §2-11 권위 위임 (race-safe auto-ON A·B·C 가드 규칙 본문 SoT)** · ADR 0042 정합(Position Bootstrap) · ADR 0037 정합(KIS Rate Limit) · ADR 0038 정합(KIS OAuth 분산락) · ADR 0067 정합(Risk Guard chain) · ADR 0046 정합(system_config Slack webhook)
 
 ---
 
@@ -221,17 +222,25 @@ ADR 0041 §2-1 baseline 정합. strategy-engine Phase 1에서 `@Scheduled` + `Jo
 
 **audit only 사유** (평균단가 diff): 재계산 노이즈(소수점 처리·KIS round-down·CorpAction 정합) — 자본 사고 직결 아님. backlog §N에 사용자 설정화 의제 (ADR 0047 후보 — 임계치 사용자 토글).
 
-### 2-11. KillSwitch auto-ON 흐름 (ADR 0043 baseline 정합)
+### 2-11. KillSwitch auto-ON 흐름 (ADR 0043 §2-11 race-safe LOCK 정합)
+
+> **★ 2026-05-21 amend**: step 5·6의 "drift 검출 즉시 KillSwitch ON" 본문은 사용자 dogfooding 결함(09:43 매수 → 11:05 false positive)으로 race-safe 가드 통과 후 ON으로 정정. **가드 규칙 본문(A·B·C·D 트레이드오프 + N=2·5분 결정 사유) 권위는 ADR 0043 §2-11로 위임** — 본 ADR §2-11은 흐름 step만 보유.
 
 ```
 [BalanceReconcileJob detects drift]
   ↓
-[1] reconcile_run row INSERT (status=DRIFT, drift_count=N)
+[A] reconcile worker filter: pending order set ({PENDING, SUBMITTED, PARTIALLY_FILLED}) 종목 제외 (ADR 0043 §2-11-A LOCK)
+  ↓ (A 통과한 drift만 publish)
+[1] reconcile_run row INSERT (status=DRIFT, drift_count=N) — A 차단 종목도 audit 보존 (drift_count 산정에는 포함, publish payload에만 drop)
 [2] DB position upsert (KIS 값 = 신뢰원)
 [3] Redis position:current:{userId} SET (TTL 24h)
-[4] Kafka publish: reconcile.drift.v1 (payload: userId, symbol, kisQty, internalQty, diff)
+[4] Kafka publish: reconcile.drift.v1 (payload: userId, symbol, kisQty, internalQty, diff) — A 통과 종목만
   ↓ (consumer KillSwitchAutoToggler listen)
-[5] kill_switch_state.enabled = true (ADR 0043 baseline)
+[B] grace window 체크: now - lastFilledAt < 5min ? → 보류 (log INFO + Micrometer block counter +1) (ADR 0043 §2-11-B LOCK)
+  ↓ (B 통과)
+[C] N-strike 카운터: 5분 sliding window 안 (userId, symbol) drift 2회 미만이면 보류 (log INFO + strike +1) (ADR 0043 §2-11-C LOCK)
+  ↓ (C 통과 = 진짜 drift 확정)
+[5] kill_switch_state.enabled = true (ADR 0043 baseline §2-1 5대 행동 발동)
 [6] Kafka publish: killswitch.engaged.v1 (payload: userId, reason=POSITION_DRIFT, triggeredBy=AUTO)
   ↓ (consumer NotificationDispatcher listen)
 [7] Slack POST (P0 즉시)
@@ -239,7 +248,17 @@ ADR 0041 §2-1 baseline 정합. strategy-engine Phase 1에서 `@Scheduled` + `Jo
 [8] STOMP /topic/recon.user.{userId} fanout (eventType=killswitch.auto.engaged)
 ```
 
-**KillSwitch OFF 정책** (사용자 수동 only — ADR 0043 baseline): drift 후 KillSwitch auto-ON된 상태에서 사용자가 KIS HTS 직접 점검 후 일치 확인 → 수동 OFF 토글. 자동 OFF 0 (자본 보호 LOCK).
+**구현 책임 매트릭스 (ADR 0043 §2-11 정합)**:
+
+| 가드 | 구현 위치 | 호출 시점 | 책임 sub-agent |
+|---|---|---|---|
+| A | `consumer/reconcile/BalanceReconcileJob` (또는 `BalanceReconciler` — backend-core 자율) | `reconcile.drift.v1` Kafka publish 직전 | strategy-engine (T-RECON Phase 1) |
+| B | `consumer/risk/KillSwitchAutoToggler.onDriftDetected` | drift listener 진입 첫 번째 분기 | strategy-engine (T-RECON Phase 1) |
+| C | `consumer/risk/KillSwitchAutoToggler` strike 카운터 | B 통과 후 두 번째 분기 | strategy-engine (T-RECON Phase 1) |
+
+**N-strike 카운터 in-memory LOCK (Phase 1)**: `ConcurrentHashMap<Pair<Long, String>, MutableList<Long>>` + 시간 기반 eviction + size cap 10K. multi-replica 진입 시 Redis ZSET 분산 전환 — ADR 0043 §4 후속 의제 등재.
+
+**KillSwitch OFF 정책** (사용자 수동 only — ADR 0043 baseline §2-3): drift 후 KillSwitch auto-ON된 상태에서 사용자가 KIS HTS 직접 점검 후 일치 확인 → 수동 OFF 토글. 자동 OFF 0 (자본 보호 LOCK).
 
 ## 3. 결과·영향
 
@@ -320,4 +339,5 @@ ADR 0037 `KisRateLimiterPort` baseline = 초당 10건 + batch share 3/10. 본 �
 
 | 날짜 | 변경 |
 |---|---|
+| 2026-05-21 | **Amended** — §2-11 step 5·6 "drift 검출 즉시 KillSwitch ON" → "A·B·C 가드 통과 시 ON"으로 LOCK 정정. 사용자 본인 dogfooding(2026-05-21 09:43 매수 → 11:05 false positive) 직후 직접 정책 LOCK. A=pending order exclusion (reconcile worker publish 단계 필터) + B=grace window 5분 (`KillSwitchAutoToggler` lastFilledAt 체크) + C=N-strike N=2 (`KillSwitchAutoToggler` per-userId·symbol in-memory ConcurrentHashMap). **가드 규칙 본문 권위는 ADR 0043 §2-11로 위임** — 본 ADR은 흐름 step만 보유. (architect) |
 | 2026-05-13 | ADR 0070 신규 발행 — T-RECON + T-NOTIFY 묶음 spec/plan. ADR 0041·0044 baseline reuse + Phase 분리 LOCK (T-RECON Phase 1 strategy-engine → Phase 2 backend-core → T-NOTIFY Phase 1 backend-core 직렬 디스패치). KIS-first raw 인용 4건 (TTTC8434R·VTTC8434R·CTRP6548R + H0STCNI0 cross-ref). Flyway V25(reconcile_run) + V26(risk_event enum 보강) + V27(notification_outbox + system_config.notification_slack_webhook ALTER). Kafka 신규 2(reconcile.drift.v1·reconcile.run.v1) + listen 7 + killswitch.engaged.v1 publish. REST 3(reconcile manual + runs list + run detail) + Swagger 4단 LOCK. frontend 변경 0 LOCK(SettingsModal·KillSwitch 토글 baseline reuse, Risk 페이지 UI는 후속 backlog §N). 자본 보호 흐름 LOCK(drift → KillSwitch ON → Slack P0). v3.6.0 T-O 마감 후 자본 보호 prereq 단일 사이클 v3.6.2 patch. 사용자 자율 최종권한 위임 (2026-05-13 "W3 진행해서 마무리까지하자 W4 진입까지 자율"). (architect) |
