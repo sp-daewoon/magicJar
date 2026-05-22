@@ -65,7 +65,34 @@ class LiveDailyCandleScheduler(
         var okCount = 0
         var failCount = 0
 
-        for (code in codes) {
+        // 종목 간 burst 완화 sleep 마진 (2026-05-22 hotfix — KIS_TPS_EXCEEDED LIVE root cause).
+        //
+        // 결함 배경 (`_workspace/reports/2026-05-22-kis-tps-exceeded-root-cause.md` §4-3):
+        //   - 6 종목 × 1d × 평균 N 페이지 (최대 50)을 종목 간 sleep 0ms로 직렬 발사
+        //     → Bucket4j(capacity=10, refillGreedy 10/s)는 통과 OK이나 KIS server-side가
+        //       sliding window 또는 sub-second 분해 한도 적용 시 EGW00201 차단 발생.
+        //   - 2시간 LIVE window evidence — count=109 누적 + ok=3 fail=3 (50% fail rate).
+        //
+        // 본 sleep 마진 (200ms):
+        //   - Bucket4j 단일 bucket이 다른 사용자/scheduler caller에게도 token 회복 마진 제공
+        //   - KIS sliding window 가설 (KIS 100ms당 1건 강제) 대비 안전 마진 확보
+        //   - 6 종목 × 200ms = 1.2초 추가 elapsed (5분 cron 윈도 대비 0.4% — 영향 미미)
+        //
+        // 자본 영향: 0 (read-only 캔들 갱신 path). caller `LiveDailyCandleScheduler` 외부 사용 0.
+        // Phase 3 후속: Circuit Breaker + 1초 backoff + 1회 재시도 (architect spec 권한 — backlog).
+        val codeIntervalMs = 200L
+
+        for ((index, code) in codes.withIndex()) {
+            // 첫 종목은 sleep 마진 없이 즉시 진입 — 5분 cron 초기 burst가 가장 부담 적음
+            if (index > 0) {
+                try {
+                    Thread.sleep(codeIntervalMs)
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    log.warn("[LiveDailyCandle] sleep interrupted — graceful stop")
+                    break
+                }
+            }
             try {
                 val response = candleRefreshService.refresh(code, listOf("1d"))
                 val ok = response.refreshedIntervals.all { it.status == "OK" }
