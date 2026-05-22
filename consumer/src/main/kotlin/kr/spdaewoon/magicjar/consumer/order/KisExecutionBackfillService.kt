@@ -19,6 +19,7 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.context.event.ApplicationReadyEvent
 import org.springframework.context.event.EventListener
 import org.springframework.stereotype.Component
+import reactor.core.scheduler.Schedulers
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
@@ -113,6 +114,14 @@ class KisExecutionBackfillService(
      * 재연결 직후 backfill 실행 — 예외 catch + WS thread 안 죽이기.
      */
     internal fun runBackfillSafely() {
+        if (Schedulers.isInNonBlockingThread()) {
+            Schedulers.boundedElastic().schedule { runBackfillCatching() }
+            return
+        }
+        runBackfillCatching()
+    }
+
+    private fun runBackfillCatching() {
         try {
             runBackfill()
         } catch (e: Exception) {

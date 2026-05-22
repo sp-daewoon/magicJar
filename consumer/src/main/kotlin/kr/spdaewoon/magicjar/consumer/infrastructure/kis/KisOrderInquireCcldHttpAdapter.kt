@@ -225,14 +225,9 @@ class KisOrderInquireCcldHttpAdapter(
                     .retrieve()
                     .bodyToMono(KisInquireDailyCcldResponse::class.java)
                     .timeout(Duration.ofSeconds(TIMEOUT_SEC))
-                    // P0 hotfix (v3.8.0 cut 차단 결함):
-                    // 본 어댑터는 KisExecutionBackfillService → KisWebSocketBridge.onReconnect hook path
-                    // (reactor-http-nio thread)에서 호출됨. publishOn 없이 .block() 호출 시
-                    //   "block()/blockFirst()/blockLast() are blocking, which is not supported in
-                    //    thread reactor-http-nio-N"
-                    // ERROR 발생 (BlockHound 차단 + 잠재 deadlock). boundedElastic worker로 신호
-                    // 위임하여 reactor 비-blocking 계약 정합.
-                    .publishOn(Schedulers.boundedElastic())
+                    // P0 hotfix 보강: caller(KisExecutionBackfillService)가 reactor event-loop에서
+                    // 진입하면 boundedElastic으로 넘기고, WebClient subscription도 blocking 전용 worker에 둔다.
+                    .subscribeOn(Schedulers.boundedElastic())
                     .block()
                     ?: run {
                         kisRateLimiterPort.onSuccess()

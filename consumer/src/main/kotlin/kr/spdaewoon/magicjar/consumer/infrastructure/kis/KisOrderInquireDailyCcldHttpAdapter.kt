@@ -183,11 +183,8 @@ class KisOrderInquireDailyCcldHttpAdapter(
                     .retrieve()
                     .bodyToMono(KisOdnoInquireResponse::class.java)
                     .timeout(Duration.ofSeconds(TIMEOUT_SEC))
-                    // P0 hotfix (v3.8.0 cut 차단 결함 — 자매 어댑터 KisOrderInquireCcldHttpAdapter 동일 패턴):
-                    // 본 어댑터는 OrderReconciliationWorker @Scheduled cron path에서 호출되어 통상은
-                    // scheduler thread pool에서 실행되지만, 동일 결함 패턴 예방 목적으로 boundedElastic
-                    // worker로 신호 위임하여 reactor 비-blocking 계약 정합 LOCK.
-                    .publishOn(Schedulers.boundedElastic())
+                    // P0 hotfix 보강 — subscription을 blocking 전용 worker에 둔다.
+                    .subscribeOn(Schedulers.boundedElastic())
                     .block()
                     ?: run {
                         kisRateLimiterPort.onSuccess()
