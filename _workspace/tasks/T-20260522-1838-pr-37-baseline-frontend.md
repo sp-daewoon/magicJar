@@ -3,10 +3,10 @@ id: T-20260522-1838-pr-37-baseline-frontend
 agent: frontend
 model: opus
 branch: agent/frontend/pr-37-baseline-frontend
-status: RUNNING
+status: DONE
 startedAt: 2026-05-22T18:38:35.824+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-22T18:44:08.834+09:00
+pr: #663
 parentPhase: ?
 ---
 
@@ -15,7 +15,7 @@ baseline v3.8.0 — 05-ui-inventory.md 작성
 
 ## 결과물 체크리스트
 - [ ] _workspace/baseline/v3.8.0/05-ui-inventory.md
-- [ ] CHANGELOG row
+- [x] CHANGELOG row
 
 ## 의존성
 - (필요 시 기록)
