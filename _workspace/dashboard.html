@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="refresh" content="60" />
+<title>magicJar — 상태 대시보드 v2</title>
+<style>
+:root {
+  --bg:#0f0e17; --panel:#1a1925; --panel-2:#232133; --text:#fffffe;
+  --muted:#a7a9be; --accent:#ff8906; --lilac:#a786df;
+  --green:#2cb67d; --red:#e53170; --line:#393952; --code-bg:#0a0915;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg:#fffffe; --panel:#f7f5fb; --panel-2:#efeaf6; --text:#2e2f3e;
+    --muted:#6f6c90; --accent:#cc6c00; --lilac:#7a4fd9;
+    --green:#1e8a5d; --red:#c41e5d; --line:#d8d4e2; --code-bg:#e8e4ee;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin:0; padding:0; background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Pretendard","Apple SD Gothic Neo","Noto Sans KR","Segoe UI",sans-serif;
+  line-height:1.55; -webkit-font-smoothing:antialiased; }
+body { padding:28px 16px 80px; }
+.wrap { max-width:1180px; margin:0 auto; }
+header.hero {
+  border:1px solid var(--line); border-radius:16px; padding:22px 28px;
+  background:linear-gradient(135deg,var(--panel),var(--panel-2));
+  margin-bottom:16px; display:grid; grid-template-columns:1fr auto; gap:20px; align-items:center;
+}
+header h1 { margin:0; font-size:22px; letter-spacing:-0.02em; }
+header h1 .accent { color:var(--accent); }
+header .sub { color:var(--muted); font-size:13px; margin-top:4px; }
+.phase-pill {
+  display:inline-flex; align-items:center; gap:8px; padding:8px 14px; border-radius:999px;
+  background:rgba(255,137,6,0.12); border:1px solid var(--accent); color:var(--accent);
+  font-weight:700; font-size:14px;
+}
+.refresh-info { font-size:11px; color:var(--muted); text-align:right; }
+.refresh-btn {
+  display:inline-flex; align-items:center; gap:6px; padding:6px 12px; font-size:12px;
+  font-weight:600; background:var(--accent); color:var(--bg); border:none; border-radius:6px;
+  cursor:pointer; margin-top:6px; font-family:inherit;
+}
+.refresh-btn:hover { opacity:0.85; }
+.staleness-banner {
+  border-radius:10px; padding:12px 16px; margin-bottom:16px; font-size:13px;
+  display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+}
+.staleness-banner code {
+  background:var(--code-bg); padding:2px 7px; border-radius:4px;
+  font-family:"SF Mono",Menlo,monospace; font-size:12px; color:var(--text);
+}
+.staleness-banner.fresh { background:rgba(44,182,125,0.12); border:1px solid var(--green); color:var(--green); }
+.staleness-banner.cooling { background:rgba(255,137,6,0.12); border:1px solid var(--accent); color:var(--accent); }
+.staleness-banner.stale { background:rgba(229,49,112,0.15); border:1px solid var(--red); color:var(--red); }
+.staleness-banner .age { font-weight:700; }
+.staleness-banner .help-cmd { font-family:"SF Mono",Menlo,monospace; font-size:11.5px; color:var(--text); }
+.grid { display:grid; gap:16px; grid-template-columns:repeat(12,1fr); }
+.card { border:1px solid var(--line); border-radius:12px; background:var(--panel); padding:18px 20px; }
+.card h2 {
+  margin:0 0 12px; font-size:14px; letter-spacing:0.02em; text-transform:uppercase;
+  color:var(--muted); display:flex; align-items:center; justify-content:space-between;
+}
+.card h2 .count {
+  background:var(--panel-2); border-radius:999px; padding:2px 9px;
+  font-size:11px; color:var(--text); font-weight:600; text-transform:none; letter-spacing:0;
+}
+.span-12 { grid-column:span 12; } .span-8 { grid-column:span 8; }
+.span-6 { grid-column:span 6; } .span-4 { grid-column:span 4; }
+@media (max-width:900px) { .span-8,.span-6,.span-4 { grid-column:span 12; } }
+
+/* Task cards */
+.task-list { list-style:none; padding:0; margin:0; display:grid; gap:10px; }
+.task-card {
+  border:1px solid var(--line); border-radius:10px; padding:14px 16px;
+  background:var(--panel-2); position:relative;
+}
+.task-card.running { border-left:3px solid var(--accent); }
+.task-card.blocked { border-left:3px solid var(--red); background:rgba(229,49,112,0.06); }
+.task-card.done { border-left:3px solid var(--green); opacity:0.85; }
+.task-card .top { display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; }
+.task-card .id { font-family:"SF Mono",Menlo,monospace; font-size:11.5px; color:var(--lilac); }
+.task-card .agent { font-weight:700; color:var(--accent); font-size:13px; }
+.task-card .model {
+  font-size:10.5px; padding:1px 6px; border-radius:3px;
+  background:var(--code-bg); color:var(--text); font-family:"SF Mono",Menlo,monospace;
+}
+.task-card .status-pill {
+  font-size:10px; padding:2px 7px; border-radius:999px; font-weight:700;
+  letter-spacing:0.04em; text-transform:uppercase;
+}
+.task-card .status-pill.running { background:rgba(255,137,6,0.18); color:var(--accent); }
+.task-card .status-pill.blocked { background:rgba(229,49,112,0.18); color:var(--red); }
+.task-card .status-pill.done { background:rgba(44,182,125,0.18); color:var(--green); }
+.task-card .branch { font-family:"SF Mono",Menlo,monospace; font-size:11.5px; color:var(--muted); margin-top:4px; }
+.task-card .goal { font-size:13px; color:var(--text); margin:6px 0 8px; }
+.task-card .progress-row { display:flex; align-items:center; gap:10px; margin:4px 0 6px; }
+.task-card .progress-bar { flex:1; height:8px; border-radius:4px; background:var(--code-bg); overflow:hidden; }
+.task-card .progress-fill {
+  height:100%; background:linear-gradient(90deg,var(--lilac),var(--accent)); transition:width 0.3s ease;
+}
+.task-card .progress-text { font-size:11px; color:var(--muted); white-space:nowrap; }
+.task-card .meta-row { font-size:11px; color:var(--muted); display:flex; gap:10px; flex-wrap:wrap; }
+.task-card .pr-link { color:var(--lilac); }
+
+/* Worktree list */
+.wt-list { list-style:none; padding:0; margin:0; }
+.wt-list li {
+  border:1px solid var(--line); border-radius:9px; padding:10px 14px;
+  background:var(--panel-2); margin-bottom:8px;
+  display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:center;
+}
+.wt-list li:last-child { margin-bottom:0; }
+.wt-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+.wt-fresh { background:var(--green); box-shadow:0 0 0 4px rgba(44,182,125,0.18); }
+.wt-recent { background:var(--accent); box-shadow:0 0 0 4px rgba(255,137,6,0.18); }
+.wt-cooling { background:var(--lilac); }
+.wt-stale { background:var(--red); }
+.wt-list .branch { font-family:"SF Mono",Menlo,monospace; font-size:12px; color:var(--lilac); }
+.wt-list .subject {
+  font-size:12.5px; color:var(--text);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.wt-list .time { font-size:11px; color:var(--muted); }
+
+/* PR cards */
+.pr-list { list-style:none; padding:0; margin:0; }
+.pr-list li {
+  border:1px solid var(--line); border-radius:9px; padding:10px 14px;
+  background:var(--panel-2); margin-bottom:8px;
+}
+.pr-list li:last-child { margin-bottom:0; }
+.pr-num { font-family:"SF Mono",Menlo,monospace; color:var(--accent); font-weight:700; }
+.pr-title { font-size:13px; color:var(--text); margin:4px 0; }
+.pr-meta { font-size:11px; color:var(--muted); display:flex; gap:10px; flex-wrap:wrap; }
+.pr-meta .branch { font-family:"SF Mono",Menlo,monospace; color:var(--lilac); }
+.pr-empty { color:var(--muted); font-size:13px; padding:8px 0; }
+.pr-empty code { background:var(--code-bg); padding:1px 6px; border-radius:4px; font-family:"SF Mono",Menlo,monospace; font-size:11px; }
+
+/* Commit list */
+.commit-list { list-style:none; padding:0; margin:0; font-family:"SF Mono",Menlo,monospace; font-size:12px; }
+.commit-list li {
+  padding:6px 0; border-bottom:1px dashed var(--line);
+  display:grid; grid-template-columns:70px auto 1fr; gap:12px; align-items:baseline;
+}
+.commit-list li:last-child { border-bottom:none; }
+.commit-list .sha { color:var(--lilac); }
+.commit-list .when { color:var(--muted); font-size:11px; }
+.commit-list .msg { color:var(--text); }
+
+/* Phase timeline */
+.phase-row { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+.phase-cell {
+  border:1px solid var(--line); border-radius:8px; padding:10px 12px;
+  background:var(--panel-2); position:relative;
+}
+.phase-cell.done { border-color:var(--green); }
+.phase-cell.active { border-color:var(--accent); box-shadow:0 0 0 2px rgba(255,137,6,0.15); }
+.phase-cell .label { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.08em; }
+.phase-cell .title { font-weight:700; font-size:13px; margin:3px 0 4px; }
+.phase-cell .body { font-size:11.5px; color:var(--muted); }
+.phase-cell.active::after {
+  content:"●"; color:var(--accent); position:absolute; top:8px; right:10px;
+  font-size:10px; animation:pulse 1.5s infinite;
+}
+.phase-cell.done::after {
+  content:"✓"; color:var(--green); position:absolute; top:8px; right:10px;
+  font-size:13px; font-weight:700;
+}
+@keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+
+/* Quick stats */
+.stats { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:4px; }
+.stat {
+  background:var(--panel-2); border-radius:9px; padding:12px 14px;
+  border-left:3px solid var(--accent);
+}
+.stat .v { font-size:20px; font-weight:800; color:var(--text); }
+.stat .l { font-size:11px; color:var(--muted); margin-top:2px; }
+.stat.green { border-left-color:var(--green); }
+.stat.red { border-left-color:var(--red); }
+.stat.lilac { border-left-color:var(--lilac); }
+
+/* Agents */
+.agent-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:8px; }
+.agent-card {
+  border:1px solid var(--line); border-radius:8px; padding:10px 12px;
+  background:var(--panel-2);
+}
+.agent-card .n { font-weight:700; color:var(--accent); font-size:13px; }
+.agent-card .m {
+  font-size:10px; padding:1px 5px; border-radius:3px; background:var(--code-bg);
+  font-family:"SF Mono",Menlo,monospace; color:var(--text); margin-left:6px;
+}
+.agent-card .d {
+  font-size:11.5px; color:var(--muted); margin-top:3px;
+  display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical;
+  overflow:hidden; line-height:1.4;
+}
+
+footer { text-align:center; color:var(--muted); font-size:11px; margin-top:32px; }
+footer a { color:var(--lilac); }
+footer code { background:var(--code-bg); padding:1px 6px; border-radius:4px; font-family:"SF Mono",Menlo,monospace; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <div>
+      <h1><span class="accent">magicJar</span> · 상태 대시보드 v2</h1>
+      <div class="sub">생성 시각: <strong>2026. 5. 12. 오후 11:16:55</strong> (KST)</div>
+      <div class="sub" id="age-line" style="margin-top:4px">데이터 신선도: 계산 중…</div>
+    </div>
+    <div>
+      <div class="phase-pill">◌ Phase ?</div>
+      <button class="refresh-btn" onclick="location.reload()" title="dashboard.html을 브라우저에서 다시 읽기">
+        ↻ 페이지 새로고침
+      </button>
+      <div class="refresh-info" style="margin-top:6px">
+        브라우저는 60초마다 자동 reload
+      </div>
+    </div>
+  </header>
+
+  <div id="staleness" class="staleness-banner cooling" style="display:none">
+    <div><span class="age">데이터 신선도 확인 중</span></div>
+  </div>
+
+  <script>
+    const GENERATED_AT = new Date("2026-05-12T14:16:55.711Z");
+    function fmtAge(sec) {
+      if (sec < 60) return Math.round(sec) + '초 전';
+      if (sec < 3600) return Math.round(sec / 60) + '분 전';
+      return (sec / 3600).toFixed(1) + '시간 전';
+    }
+    function tickAge() {
+      const sec = (Date.now() - GENERATED_AT.getTime()) / 1000;
+      const ageStr = fmtAge(sec);
+      const line = document.getElementById('age-line');
+      if (line) line.innerHTML = '데이터 신선도: <strong>' + ageStr + '</strong>';
+      const banner = document.getElementById('staleness');
+      if (!banner) return;
+      banner.style.display = '';
+      let cls, html;
+      if (sec < 90) {
+        cls = 'fresh';
+        html = '<span><span class="age">✓ 신선 (' + ageStr + ')</span> — watcher 또는 새로고침이 정상 동작 중입니다.</span>';
+      } else if (sec < 300) {
+        cls = 'cooling';
+        html = '<span><span class="age">~~ 식는 중 (' + ageStr + ')</span> — 곧 갱신되거나, watcher가 안 떠있을 수 있어요.</span>'
+             + '<span class="help-cmd">백그라운드 갱신: <code>nohup npm run status:watch &gt; /tmp/magicjar-status.log 2&gt;&amp;1 &amp;</code></span>';
+      } else {
+        cls = 'stale';
+        html = '<span><span class="age">✗ 오래됨 (' + ageStr + ')</span> — 데이터가 신선하지 않습니다.</span>'
+             + '<span class="help-cmd"><code>nohup npm run status:watch &gt; /tmp/magicjar-status.log 2&gt;&amp;1 &amp;</code></span>';
+      }
+      banner.className = 'staleness-banner ' + cls;
+      banner.innerHTML = html;
+    }
+    tickAge();
+    setInterval(tickAge, 5000);
+  </script>
+
+  <!-- Quick stats -->
+  <div class="card span-12" style="margin-bottom:16px">
+    <div class="stats">
+      <div class="stat"><div class="v">6</div><div class="l">에이전트</div></div>
+      <div class="stat lilac"><div class="v">17</div><div class="l">활성 Task</div></div>
+      <div class="stat green"><div class="v">0</div><div class="l">열린 PR</div></div>
+      <div class="stat green"><div class="v">63</div><div class="l">ADR</div></div>
+    </div>
+  </div>
+
+  <div class="grid">
+
+    <div class="card span-12">
+      <h2>Phase 진행</h2>
+      <div class="phase-row">
+        <div class="phase-cell ">
+            <div class="label">Phase 0</div>
+            <div class="title">컨텍스트</div>
+            <div class="body">대기</div>
+          </div><div class="phase-cell ">
+            <div class="label">Phase A</div>
+            <div class="title">설계</div>
+            <div class="body">대기</div>
+          </div><div class="phase-cell ">
+            <div class="label">Phase B</div>
+            <div class="title">구현</div>
+            <div class="body">대기</div>
+          </div><div class="phase-cell ">
+            <div class="label">Phase C</div>
+            <div class="title">QA 통합</div>
+            <div class="body">대기</div>
+          </div>
+      </div>
+    </div>
+
+    <!-- 활성 Task (ADR 0018) -->
+    <div class="card span-12">
+      <h2>활성 Task <span class="count">17</span></h2>
+      <ul class="task-list">
+        <li class="task-card running">
+            <div class="top">
+              <span class="agent">architect</span>
+              <span class="model">opus</span>
+              <span class="status-pill running">RUNNING</span>
+              <span class="id">T-20260512-2302-pr-53-architect</span>
+            </div>
+            <div class="branch">main</div>
+            <div class="goal">🎯 v3.5.0 baseline — README + 01 + 06 + 07</div>
+            <div class="progress-row">
+              <div class="progress-bar"><div class="progress-fill" style="width:0%"></div></div>
+              <span class="progress-text">0/5 (0%)</span>
+            </div>
+            <div class="meta-row">
+              <span>시작 15분 전</span>
+              <span>· 최근: 2026-05-12T23:02:16.504+09:00 — 작업 시작</span>
+              
+            </div>
+          </li><li class="task-card running">
+            <div class="top">
+              <span class="agent">architect</span>
+              <span class="model">opus</span>
+              <span class="status-pill running">RUNNING</span>
+              <span class="id">T-20260512-2255-readme-rewrite</span>
+            </div>
+            <div class="branch">agent/architect/readme-rewrite</div>
+            <div class="goal">🎯 README.md 굴직 본문 재작성 (A-1·B-2·C-3·D-3·E-1 채택)</div>
+            <div class="progress-row">
+              <div class="progress-bar"><div class="progress-fill" style="width:100%"></div></div>
+              <span class="progress-text">6/6 (100%)</span>
+            </div>
+            <div class="meta-row">
+              <span>시작 21분 전</span>
+              <span>· 최근: 2026-05-12T22:55:42.992+09:00 — 작업 시작</span>
+              
+            </div>
+          </li><li class="task-card running">
+            <div class="top">
+              <span class="agent">frontend</span>
+              <span class="model">sonnet</span>
+              <span class="status-pill running">RUNNING</span>
+              <span class="id">T-20260512-2233-t-risk-phase3</span>
+            </div>
+            <div class="branch">agent/frontend/t-risk-phase3</div>
+            <div class="goal">🎯 T-RISK Phase 3 /risk-config + /risk-events + /positions 3 페이지 + useStompRisk 토스트 (ADR 0067)</div>
+            <div class="progress-row">
+              <div class="progress-bar"><div class="progress-fill" style="width:100%"></div></div>
+              <span class="progress-text">6/6 (100%)</span>
+            </div>
+            <div class="meta-row">
+              <span>시작 43분 전</span>
+              <span>· 최근: 2026-05-12T22:33:52.277+09:00 — 작업 시작</span>
+              
+            </div>
+          </li><li class="task-card running">
+            <div class="top">
+              <span class="agent">backend-core</span>
+              <span class="model">sonnet</span>
+              <span class="status-pill running">RUNNING</span>
+              <span class="id">T-20260512-2142-t-risk-phase2</span>
+            </div>
+            <div class="branch">agent/backend-core/t-risk-phase2</div>
+            <div class="goal">🎯 T-RISK Phase 2 Flyway V16~V19 + JPA + REST 7 + RiskConfigService + StompRiskNotifier</div>
+            <div class="progress-row">
+              <div class="progress-bar"><div class="progress-fill" style="width:100%"></div></div>
+              <span class="progress-text">9/9 (100%)</span>
+            </div>
+            <div class="meta-row">
+              <span>시작 2시간 전</span>
+              <span>· 최근: 2026-05-12T21:42:43.374+09:00 — 작업 시작</span>
+              
+            </div>
+          </li><li class="task-card running">
+            <div class="top">
+              <span class="agent">strategy-engine</span>
+              <span class="model">opus</span>
+              <span class="status-pill running">RUNNING</span>
+              <span class="id">T-20260512-2134-t-risk-phase1</span>
+            </div>
+            <div class="branch">agent/strategy/t-risk-phase1</div>
+            <div class="goal">🎯 T-RISK Phase 1 RiskGateway + domain + 6 룰 + Kafka listener·producer (ADR 0067)</div>
+            <div class="progress-row">
+              <div class="progress-bar"><div class="progress-fill" style="width:89%"></div></div>
+              <span class="progress-text">8/9 (89%)</span>
+            </div>
+            <div class="meta-row">
+              <span>시작 2시간 전</span>
+              <span>· 최근: 2026-05-12T21:34:49.655+09:00 — 작업 시작</span>
+              
+            </div>
+          </li><li class="task-card running">
+            <div class="top">
+              <span class="agent">architect</span>
+              <span class="model">opus</span>
+              <span class="status-pill running">RUNNING</span>
+              <span class="id">T-20260512-2121-readme-vision</span>
+            </div>
+            <div class="branch">agent/architect/readme-flagship-vision-plan</div>
+            <div class="goal">🎯 README 굴직 비전 plan — 사용자 명시 의제 2026-05-12 (프로젝트의 꽃)</div>
+            <div class="progress-row">
+              <div class="progress-bar"><div class="progress-fill" style="width:100%"></div></div>
+              <span class="progress-text">7/7 (100%)</span>
+            </div>
+            <div class="meta-row">
+              <span>시작 2시간 전</span>
+              <span>· 최근: 2026-05-12T21:21:45.378+09:00 — 작업 시작</span>
+              
+            </div>
+          </li><li class="task-card running">
+            <div class="top">
+              <span class="agent">architect</span>
+              <span class="model">opus</span>
+              <span class="status-pill running">RUNNING</span>
+              <span class="id">T-20260512-2033-t-risk-plan</span>
+            </div>
+            <div class="branch">agent/architect/t-risk-plan</div>
+            <div class="goal">🎯 T-RISK 리스크 관리 spec/plan (W3 세 번째 트랙)</div>
+            <div class="progress-row">
+              <div class="progress-bar"><div class="progress-fill" style="width:100%"></div></div>
+              <span class="progress-text">9/9 (100%)</span>
+            </div>
+            <div class="meta-row">
+              <span>시작 3시간 전</span>
+              <span>· 최근: 2026-05-12T20:33:48.864+09:00 — 작업 시작</span>
+              
+            </div>
+          </li><li class="task-card running">
+            <div class="top">
+              <span class="agent">market-data</span>
+              <span class="model">sonnet</span>
+              <span class="status-pill running">RUNNING</span>
+              <span class="id">T-20260512-1733-pr-51-baseline-md</span>
+            </div>
+            <div class="branch">agent/market-data/pr-51-baseline-md</div>
+            <div class="goal">🎯 v3.4.0 baseline 03-use-sequences.md 작성 — T-SIG 실시간 시그널 발행(시나리오 11) + T-BT 백테스트 실행 영속(시나리오 12) + CHANGELOG slot in-place edit</div>
+            <div class="progress-row">
+              <div class="progress-bar"><div class="progress-fill" style="width:100%"></div></div>
+              <span class="progress-text">2/2 (100%)</span>
+            </div>
+            <div class="meta-row">
+              <span>시작 6시간 전</span>
+              <span>· 최근: 2026-05-12T17:33:56.786+09:00 — 작업 시작</span>
+              
+            </div>
+          </li><li class="task-card done">
+            <div class="top">
+              <span class="agent">frontend</span>
+              <span class="model">sonnet</span>
+              <span class="status-pill done">DONE</span>
+              <span class="id">T-20260512-1732-pr-51-frontend</span>
+            </div>
+            <div class="branch">main</div>
+            <div class="goal">🎯 v3.4.0 baseline — 05</div>
+            <div class="progress-row">
+              <div class="progress-bar"><div class="progress-fill" style="width:100%"></div></div>
+              <span class="progress-text">2/2 (100%)</span>
+            </div>
+            <div class="meta-row">
+              <span>시작 6시간 전</span>
+              <span>· 최근: 2026-05-12T17:32:18.929+09:00 — 작업 시작</span>
+              <span class="pr-link">· PR 343</span>
+            </div>
+          </li><li class="task-card running">
+            <div class="top">
+              <span class="agent">market-data</span>
+              <span class="model">sonnet</span>
+              <span class="status-pill running">RUNNING</span>
+              <span class="id">T-20260512-1732-pr-51-market-data</span>
+            </div>
+            <div class="branch">main</div>
+            <div class="goal">🎯 v3.4.0 baseline — 03</div>
+            <div class="progress-row">
+              <div class="progress-bar"><div class="progress-fill" style="width:0%"></div></div>
+              <span class="progress-text">0/2 (0%)</span>
+            </div>
+            <div class="meta-row">
+              <span>시작 6시간 전</span>
+              <span>· 최근: 2026-05-12T17:32:18.858+09:00 — 작업 시작</span>
+              
+            </div>
+          </li><li class="task-card running">
+            <div class="top">
+              <span class="agent">backend-core</span>
+              <span class="model">sonnet</span>
+              <span class="status-pill running">RUNNING</span>
+              <span class="id">T-20260512-1732-pr-51-backend-core</span>
+            </div>
+            <div class="branch">agent/backend-core/pr-51-baseline-be</div>
+            <div class="goal">🎯 v3.4.0 baseline — 02 + 04</div>
+            <div class="progress-row">
+              <div class="progress-bar"><div class="progress-fill" style="width:100%"></div></div>
+              <span class="progress-text">3/3 (100%)</span>
+            </div>
+            <div class="meta-row">
+              <span>시작 6시간 전</span>
+              <span>· 최근: 2026-05-12T17:32:18.785+09:00 — 작업 시작</span>
+              
+            </div>
+          </li><li class="task-card running">
+            <div class="top">
+              <span class="agent">architect</span>
+              <span class="model">opus</span>
+              <span class="status-pill running">RUNNING</span>
+              <span class="id">T-20260512-1732-pr-51-architect</span>
+            </div>
+            <div class="branch">agent/architect/pr-51-baseline-arch</div>
+            <div class="goal">🎯 v3.4.0 baseline — README + 01 + 06 + 07</div>
+            <div class="progress-row">
+              <div class="progress-bar"><div class="progress-fill" style="width:100%"></div></div>
+              <span class="progress-text">5/5 (100%)</span>
+            </div>
+            <div class="meta-row">
+              <span>시작 6시간 전</span>
+              <span>· 최근: 2026-05-12T17:32:18.714+09:00 — 작업 시작</span>
+              
+            </div>
+          </li><li class="task-card running">
+            <div class="top">
+              <span class="agent">orchestrator</span>
+              <span class="model">opus</span>
+              <span class="status-pill running">RUNNING</span>
+              <span class="id">T-20260512-1659-disable-gha-release</span>
+            </div>
+            <div class="branch">chore/disable-gha-release</div>
+            <div class="goal">🎯 GHA release workflow 폐기 — 사용자 결제 안 함 결정</div>
+            <div class="progress-row">
+              <div class="progress-bar"><div class="progress-fill" style="width:0%"></div></div>
+              <span class="progress-text">0/3 (0%)</span>
+            </div>
+            <div class="meta-row">
+              <span>시작 6시간 전</span>
+              <span>· 최근: 2026-05-12T16:59:42.875+09:00 — 작업 시작</span>
+              
+            </div>
+          </li><li class="task-card running">
+            <div class="top">
+              <span class="agent">architect</span>
+              <span class="model">opus</span>
+              <span class="status-pill running">RUNNING</span>
+              <span class="id">T-20260512-1515-t-sig-plan</span>
+            </div>
+            <div class="branch">agent/architect/t-sig-realtime-signal-engine-plan</div>
+            <div class="goal">🎯 T-SIG 실시간 시그널 엔진 spec/plan (W3 두 번째 트랙)</div>
+            <div class="progress-row">
+              <div class="progress-bar"><div class="progress-fill" style="width:100%"></div></div>
+              <span class="progress-text">9/9 (100%)</span>
+            </div>
+            <div class="meta-row">
+              <span>시작 8시간 전</span>
+              <span>· 최근: 2026-05-12T15:15:45.715+09:00 — 작업 시작</span>
+              
+            </div>
+          </li><li class="task-card running">
+            <div class="top">
+              <span class="agent">orchestrator</span>
+              <span class="model">opus</span>
+              <span class="status-pill running">RUNNING</span>
+              <span class="id">T-20260512-1513-v3-3-1-cut</span>
+            </div>
+            <div class="branch">chore/v3.3.1-cut</div>
+            <div class="goal">🎯 v3.3.1 cut</div>
+            <div class="progress-row">
+              <div class="progress-bar"><div class="progress-fill" style="width:0%"></div></div>
+              <span class="progress-text">0/3 (0%)</span>
+            </div>
+            <div class="meta-row">
+              <span>시작 8시간 전</span>
+              <span>· 최근: 2026-05-12T15:13:53.339+09:00 — 작업 시작</span>
+              
+            </div>
+          </li><li class="task-card running">
+            <div class="top">
+              <span class="agent">backend-core</span>
+              <span class="model">sonnet</span>
+              <span class="status-pill running">RUNNING</span>
+              <span class="id">T-20260512-1404-t-bt-r2</span>
+            </div>
+            <div class="branch">agent/backend-core/t-bt-r2-persistence</div>
+            <div class="goal">🎯 T-BT R2 영속 + REST 5 endpoint + ADR 0061</div>
+            <div class="progress-row">
+              <div class="progress-bar"><div class="progress-fill" style="width:100%"></div></div>
+              <span class="progress-text">9/9 (100%)</span>
+            </div>
+            <div class="meta-row">
+              <span>시작 9시간 전</span>
+              <span>· 최근: 2026-05-12T14:04:16.581+09:00 — 작업 시작</span>
+              
+            </div>
+          </li><li class="task-card running">
+            <div class="top">
+              <span class="agent">architect</span>
+              <span class="model">opus</span>
+              <span class="status-pill running">RUNNING</span>
+              <span class="id">T-20260512-1343-t-bt-w3-rounds-plan</span>
+            </div>
+            <div class="branch">agent/architect/t-bt-w3-rounds-plan</div>
+            <div class="goal">🎯 T-BT W3 잔여 R2/R3 plan — 결과 영속 + frontend + 모델 확장 매트릭스 (backlog §37·§38·§39 등록)</div>
+            <div class="progress-row">
+              <div class="progress-bar"><div class="progress-fill" style="width:100%"></div></div>
+              <span class="progress-text">6/6 (100%)</span>
+            </div>
+            <div class="meta-row">
+              <span>시작 10시간 전</span>
+              <span>· 최근: 2026-05-12T13:43:59.679+09:00 — 작업 시작</span>
+              
+            </div>
+          </li>
+      </ul>
+    </div>
+
+    
+    <div class="card span-12">
+      <h2>최근 완료된 Task (24시간) <span class="count">5</span></h2>
+      <ul class="task-list">
+        <li class="task-card done">
+          <div class="top">
+            <span class="agent">market-data</span>
+            <span class="model">sonnet</span>
+            <span class="status-pill done">DONE</span>
+            <span class="id">T-20260512-2302-pr-53-market-data</span>
+          </div>
+          <div class="goal">v3.5.0 baseline — 03</div>
+          <div class="meta-row">
+            <span>완료 24초 전</span>
+            
+          </div>
+        </li><li class="task-card done">
+          <div class="top">
+            <span class="agent">backend-core</span>
+            <span class="model">sonnet</span>
+            <span class="status-pill done">DONE</span>
+            <span class="id">T-20260512-2302-pr-53-backend-core</span>
+          </div>
+          <div class="goal">v3.5.0 baseline — 02 + 04</div>
+          <div class="meta-row">
+            <span>완료 24초 전</span>
+            
+          </div>
+        </li><li class="task-card done">
+          <div class="top">
+            <span class="agent">frontend</span>
+            <span class="model">sonnet</span>
+            <span class="status-pill done">DONE</span>
+            <span class="id">T-20260512-2302-pr-53-frontend</span>
+          </div>
+          <div class="goal">v3.5.0 baseline — 05</div>
+          <div class="meta-row">
+            <span>완료 7분 전</span>
+            
+          </div>
+        </li><li class="task-card done">
+          <div class="top">
+            <span class="agent">architect</span>
+            <span class="model">opus</span>
+            <span class="status-pill done">DONE</span>
+            <span class="id">T-20260512-2255-readme-rewrite</span>
+          </div>
+          <div class="goal">README.md 굴직 본문 재작성 (A-1·B-2·C-3·D-3·E-1 채택)</div>
+          <div class="meta-row">
+            <span>완료 15분 전</span>
+            
+          </div>
+        </li><li class="task-card done">
+          <div class="top">
+            <span class="agent">frontend</span>
+            <span class="model">sonnet</span>
+            <span class="status-pill done">DONE</span>
+            <span class="id">T-20260512-2233-t-risk-phase3</span>
+          </div>
+          <div class="goal">T-RISK Phase 3 /risk-config + /risk-events + /positions 3 페이지 + useStompRisk 토스트 (ADR 0067)</div>
+          <div class="meta-row">
+            <span>완료 35분 전</span>
+            
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    
+
+    <div class="card span-4">
+      <h2>열린 PR <span class="count">0</span></h2>
+      <div class="pr-empty">열린 PR 없음</div>
+    </div>
+
+    <div class="card span-6">
+      <h2>최근 main 커밋 <span class="count">10</span></h2>
+      <ul class="commit-list">
+        <li>
+          <span class="sha">1be6b70</span>
+          <span class="when">28초 전</span>
+          <span class="msg">docs(market-data): v3.5.0 baseline 03-use-sequences — T-RISK 시나리오 13·14 신규 추가</span>
+        </li><li>
+          <span class="sha">60ac6ab</span>
+          <span class="when">34초 전</span>
+          <span class="msg">chore(baseline): PR-53 backend-core — v3.5.0 baseline 02-data-flow + 04-feature-spec</span>
+        </li><li>
+          <span class="sha">312fa9e</span>
+          <span class="when">7분 전</span>
+          <span class="msg">docs(baseline): PR-53 frontend — v3.5.0 05-ui-inventory (T-RISK Phase 3)</span>
+        </li><li>
+          <span class="sha">6e51d47</span>
+          <span class="when">15분 전</span>
+          <span class="msg">chore(baseline): v3.5.0 init — 폴더 + CHANGELOG 5 slot prepend (PR-52)</span>
+        </li><li>
+          <span class="sha">43bb3ed</span>
+          <span class="when">16분 전</span>
+          <span class="msg">docs(architect): README 굴직 본문 재작성 — 프로젝트의 꽃 (PR-52 A-1·B-2·C-3·D-3·E-1)</span>
+        </li><li>
+          <span class="sha">781087b</span>
+          <span class="when">23분 전</span>
+          <span class="msg">feat(scripts): release.sh — GHA 없이 GitHub Release 자동 승격 (사용자 결정 정합)</span>
+        </li><li>
+          <span class="sha">53e5113</span>
+          <span class="when">35분 전</span>
+          <span class="msg">release: v3.5.0 — T-RISK W3 세 번째 트랙 마감 (리스크 관리 게이트)</span>
+        </li><li>
+          <span class="sha">1bb1269</span>
+          <span class="when">35분 전</span>
+          <span class="msg">feat(frontend): T-RISK Phase 3 — /risk-config + /risk-events + /positions 3 페이지 + useStompRisk 토스트 (ADR 0067 F-1)</span>
+        </li><li>
+          <span class="sha">c73ffe2</span>
+          <span class="when">45분 전</span>
+          <span class="msg">hotfix(api): V18 position CREATE → ALTER 정정 (ADR 0042 baseline 충돌 fix)</span>
+        </li><li>
+          <span class="sha">da1c9c4</span>
+          <span class="when">48분 전</span>
+          <span class="msg">feat(api): T-RISK Phase 2 — Flyway V16~V19 + JPA 3쌍 + REST 7 + StompRiskNotifier</span>
+        </li>
+      </ul>
+    </div>
+
+    <div class="card span-6">
+      <h2>최근 머지된 PR <span class="count">8</span></h2>
+      
+      <ul class="pr-list">
+        <li>
+          <div><span class="pr-num">#363</span></div>
+          <div class="pr-title">docs(market-data): v3.5.0 baseline 03-use-sequences — T-RISK 시나리오 13·14 신규</div>
+          <div class="pr-meta">
+            <span class="branch">agent/market-data/pr-53-baseline-md → main</span>
+            <span>28초 전</span>
+          </div>
+        </li><li>
+          <div><span class="pr-num">#362</span></div>
+          <div class="pr-title">chore(baseline): PR-53 backend-core — v3.5.0 baseline 02-data-flow + 04-feature-spec</div>
+          <div class="pr-meta">
+            <span class="branch">agent/backend-core/pr-53-baseline-be → main</span>
+            <span>34초 전</span>
+          </div>
+        </li><li>
+          <div><span class="pr-num">#361</span></div>
+          <div class="pr-title">docs(baseline): PR-53 frontend — v3.5.0 05-ui-inventory (T-RISK Phase 3)</div>
+          <div class="pr-meta">
+            <span class="branch">agent/frontend/pr-53-baseline-fe → main</span>
+            <span>7분 전</span>
+          </div>
+        </li><li>
+          <div><span class="pr-num">#360</span></div>
+          <div class="pr-title">chore(baseline): v3.5.0 init</div>
+          <div class="pr-meta">
+            <span class="branch">chore/baseline-v3.5.0-init → main</span>
+            <span>15분 전</span>
+          </div>
+        </li><li>
+          <div><span class="pr-num">#359</span></div>
+          <div class="pr-title">docs(architect): README 굴직 본문 재작성 — 프로젝트의 꽃 (PR-52 A-1·B-2·C-3·D-3·E-1)</div>
+          <div class="pr-meta">
+            <span class="branch">agent/architect/readme-rewrite → main</span>
+            <span>16분 전</span>
+          </div>
+        </li><li>
+          <div><span class="pr-num">#358</span></div>
+          <div class="pr-title">feat(scripts): release.sh — GHA 없이 GitHub Release 자동 승격</div>
+          <div class="pr-meta">
+            <span class="branch">chore/release-sh → main</span>
+            <span>23분 전</span>
+          </div>
+        </li><li>
+          <div><span class="pr-num">#357</span></div>
+          <div class="pr-title">release: v3.5.0 — T-RISK W3 세 번째 트랙 마감</div>
+          <div class="pr-meta">
+            <span class="branch">chore/v3.5.0-cut → main</span>
+            <span>35분 전</span>
+          </div>
+        </li><li>
+          <div><span class="pr-num">#356</span></div>
+          <div class="pr-title">feat(frontend): T-RISK Phase 3 — /risk-config + /risk-events + /positions + useStompRisk (ADR 0067)</div>
+          <div class="pr-meta">
+            <span class="branch">agent/frontend/t-risk-phase3 → main</span>
+            <span>35분 전</span>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <div class="card span-4">
+      <h2>QA 상태 (On-Demand)</h2>
+      <div class="stats" style="grid-template-columns:1fr 1fr;">
+        <div class="stat ">
+          <div class="v">0</div><div class="l">보고서</div>
+        </div>
+        <div class="stat green">
+          <div class="v">0</div><div class="l">OPEN 이슈</div>
+        </div>
+      </div>
+      <div style="font-size:11.5px; color:var(--muted); margin-top:10px;">
+        FIXED 0건 · ADR 0016 — 7개 트리거 시에만 호출
+      </div>
+    </div>
+
+    <div class="card span-8">
+      <h2>에이전트 <span class="count">6</span></h2>
+      <div class="agent-grid">
+        <div class="agent-card">
+          <div><span class="n">ai-engineer</span><span class="m">opus</span></div>
+          <div class="d">Spring AI 통합·프롬프트 엔지니어링·뉴스/공시 감성 분석·전략 자연어 설명·자연어→조건식 변환을 담당. magicJar에서 LLM이 하는 모든 것의 책임자.</div>
+        </div><div class="agent-card">
+          <div><span class="n">architect</span><span class="m">opus</span></div>
+          <div class="d">magicJar의 전체 시스템 아키텍처·모듈 경계·기술 결정·ADR을 담당하는 수석 설계자. Spring Boot + Spring AI 기반 한국 주식 자동매매 시스템의 상위 설계 책임.</div>
+        </div><div class="agent-card">
+          <div><span class="n">backend-core</span><span class="m">sonnet</span></div>
+          <div class="d">magicJar의 Spring Boot 뼈대·도메인 모델·설정·보안·공용 인프라(REST/WebSocket/스케줄러)를 담당하는 백엔드 코어 엔지니어.</div>
+        </div><div class="agent-card">
+          <div><span class="n">frontend</span><span class="m">sonnet</span></div>
+          <div class="d">magicJar 대시보드(Watchlist·실시간 시세·차트·백테스트 결과·AI 인사이트)를 담당하는 프론트엔드 엔지니어. React 19 + TS + Vite + Tailwind + LWC v4 (TradingView Lightweight Charts) SPA (ADR 0009).</div>
+        </div><div class="agent-card">
+          <div><span class="n">market-data</span><span class="m">sonnet</span></div>
+          <div class="d">KIS OpenAPI 연동과 국내 주식 시세·뉴스·공시 수집 파이프라인을 책임지는 데이터 엔지니어. 실시간 WebSocket 체결/호가, 일봉·분봉 적재, DART 공시·네이버 뉴스 크롤링.</div>
+        </div><div class="agent-card">
+          <div><span class="n">strategy-engine</span><span class="m">opus</span></div>
+          <div class="d">기술적 지표 계산·차트 조건식 DSL·백테스트 엔진·주문 실행 로직을 만드는 전략 엔지니어. magicJar의 &quot;매매 두뇌&quot;로서 market-data의 캔들과 ai-engineer의 조건을 받아 신호/주문을 생성.</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <footer>
+    데이터 소스 — <code>_workspace/_harness-state.json</code> · <code>_workspace/tasks/*.md</code> · <code>git log</code> ·
+    <code>gh pr list</code> · <code>.claude/agents/*.md</code> · <code>.claude/worktrees/*</code> · <code>_workspace/qa/*</code><br>
+    워크플로우 다이어그램 → <a href="arch/workflow.html">arch/workflow.html</a> · 운영 가이드 → <a href="arch/branching-and-qa-gates.md">arch/branching-and-qa-gates.md</a>
+  </footer>
+
+</div>
+</body>
+</html>
