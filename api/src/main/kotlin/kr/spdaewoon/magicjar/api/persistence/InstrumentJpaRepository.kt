@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.api.persistence
 
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
@@ -12,7 +13,9 @@ import java.time.LocalDate
  * PR-11b 보강: active 조회·markDelisted·pg_trgm fallback 검색 메서드 추가.
  * PR-21b 보강: findActiveTradeable·findByMarketCapDescLimit·findByIsKospi200True 추가.
  */
-interface InstrumentJpaRepository : JpaRepository<InstrumentJpaEntity, String> {
+interface InstrumentJpaRepository :
+    JpaRepository<InstrumentJpaEntity, String>,
+    JpaSpecificationExecutor<InstrumentJpaEntity> {
     fun existsByCode(code: String): Boolean
 
     /** 활성 종목 전체 조회 (Redis 인덱스 rebuild 용도). */

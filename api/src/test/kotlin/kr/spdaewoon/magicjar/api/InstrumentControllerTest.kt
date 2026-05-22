@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.api
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.controller.InstrumentController
 import kr.spdaewoon.magicjar.api.persistence.InstrumentAliasJpaRepository
+import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.service.InstrumentSearchService
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentMarket
@@ -14,6 +15,8 @@ import org.mockito.kotlin.whenever
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest
 import org.springframework.boot.test.mock.mockito.MockBean
+import org.springframework.data.domain.Sort
+import org.springframework.data.jpa.domain.Specification
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
 
@@ -93,6 +96,35 @@ class InstrumentControllerTest {
             .get("/api/instruments/search?q=")
             .andExpect {
                 status { isBadRequest() }
+            }
+    }
+
+    @Test
+    fun `GET instruments universe 섹터명 포함 200 OK`() {
+        whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
+        val hynix =
+            InstrumentJpaEntity(
+                code = "000660",
+                name = "SK하이닉스",
+                market = "KOSPI",
+                type = "STOCK",
+            ).also {
+                it.krxSectorSemicon = true
+                it.marketCapPrev = 100000L
+            }
+        whenever(instrumentJpaRepository.findAll(any<Specification<InstrumentJpaEntity>>(), any<Sort>()))
+            .thenReturn(listOf(hynix))
+
+        mockMvc
+            .get("/api/instruments?q=하이닉스&limit=20")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$.items.length()") { value(1) }
+                jsonPath("$.items[0].code") { value("000660") }
+                jsonPath("$.items[0].sectorKey") { value("krx:반도체") }
+                jsonPath("$.items[0].sectorName") { value("반도체") }
+                jsonPath("$.items[0].marketCapPrev") { value(100000) }
+                jsonPath("$.total") { value(1) }
             }
     }
 }

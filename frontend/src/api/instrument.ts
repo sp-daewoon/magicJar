@@ -4,6 +4,7 @@
  * dispatch-spec §5-3 REST 시그니처 LOCK 정합:
  * - GET /api/instruments/search?q=&limit=&market=
  * - GET /api/instruments/{code}
+ * - GET /api/instruments?q=&market=&active=&limit=&offset=
  */
 import apiClient from '../lib/axios'
 
@@ -26,6 +27,38 @@ export interface InstrumentSearchResponseDto {
   results: InstrumentSearchResultDto[]
   totalMatched: number
   limit: number
+}
+
+/** GET /api/instruments 응답 단건 */
+export interface InstrumentUniverseItemDto {
+  code: string
+  name: string
+  market: string
+  type: string
+  sector: string | null
+  sectorKey: string
+  sectorName: string
+  industryMedium: string | null
+  marketCapPrev: number | null
+  tradingHalt: boolean
+  managementStock: boolean
+  active: boolean
+}
+
+/** GET /api/instruments 응답 */
+export interface InstrumentUniverseResponseDto {
+  items: InstrumentUniverseItemDto[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface InstrumentUniverseParams {
+  q?: string
+  market?: string
+  active?: boolean
+  limit?: number
+  offset?: number
 }
 
 /** GET /api/instruments/{code} 응답 (PR-21b 83 필드 정합) */
@@ -84,6 +117,14 @@ export const instrumentApi = {
    */
   getByCode: async (code: string): Promise<InstrumentDetailDto> => {
     const res = await apiClient.get<InstrumentDetailDto>(`/instruments/${encodeURIComponent(code)}`)
+    return res.data
+  },
+
+  /**
+   * GET /api/instruments — 전체 종목 universe.
+   */
+  list: async (params: InstrumentUniverseParams = {}): Promise<InstrumentUniverseResponseDto> => {
+    const res = await apiClient.get<InstrumentUniverseResponseDto>('/instruments', { params })
     return res.data
   },
 }

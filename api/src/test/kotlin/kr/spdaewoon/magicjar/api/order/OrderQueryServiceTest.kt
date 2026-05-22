@@ -74,11 +74,14 @@ class OrderQueryServiceTest {
             anyOrNull(),
             anyOrNull(),
             anyOrNull(),
+            anyOrNull(),
+            anyOrNull(),
+            anyOrNull(),
             any(),
             any(),
         )
 
-        val result = sut.listByUser(userId, null, null, null, 0, 20)
+        val result = sut.listByUser(userId, null, null, null, null, null, null, 0, 20)
 
         assertEquals(2, result.content.size)
         assertEquals(userId, result.content[0].userId)
@@ -95,11 +98,14 @@ class OrderQueryServiceTest {
             anyOrNull(),
             anyOrNull(),
             anyOrNull(),
+            anyOrNull(),
+            anyOrNull(),
+            anyOrNull(),
             any(),
             any(),
         )
 
-        val result = sut.listByUser(userId, null, null, listOf(OrderStatus.REQUESTED), 0, 20)
+        val result = sut.listByUser(userId, null, null, listOf(OrderStatus.REQUESTED), null, null, null, 0, 20)
 
         assertEquals(1, result.content.size)
         assertEquals(OrderStatus.REQUESTED, result.content[0].status)
