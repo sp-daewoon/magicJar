@@ -52,6 +52,15 @@ function formatChange(value: string): string {
   return `${sign}${num.toLocaleString('ko-KR')}`
 }
 
+function normalizeSignedValue(value: string, changeSign: string | null | undefined): string {
+  const num = parseFloat(value)
+  if (isNaN(num)) return value
+  if (changeSign === '1' || changeSign === '2') return Math.abs(num).toString()
+  if (changeSign === '3') return '0'
+  if (changeSign === '4' || changeSign === '5') return (-Math.abs(num)).toString()
+  return value
+}
+
 /**
  * changeSign 코드 → 방향 부호 문자열 (한국 주식 KIS PRDY_VRSS_SIGN 정합)
  * "1"=상한·"2"=상승·"3"=보합·"4"=하한·"5"=하락
@@ -106,9 +115,9 @@ export function SymbolPriceCard({ symbol, realtimeTick }: SymbolPriceCardProps) 
   // dogfooding hotfix: STOMP changeRate·priceChange·changeSign 우선 사용 (단일 source 동기화)
   // - STOMP tick의 값이 non-null이면 현재가와 동일 tick에서 온 값 → 싱크 보장
   // - null이면 REST SymbolDto의 초기 조회값으로 fallback
-  const displayChange = realtimeTick?.priceChange ?? symbol.change
-  const displayChangeRate = realtimeTick?.changeRate ?? symbol.changeRate
   const displayChangeSign = realtimeTick?.changeSign ?? null
+  const displayChange = normalizeSignedValue(realtimeTick?.priceChange ?? symbol.change, displayChangeSign)
+  const displayChangeRate = normalizeSignedValue(realtimeTick?.changeRate ?? symbol.changeRate, displayChangeSign)
 
   // 색상 결정: changeSign 코드 우선 → 없으면 change 숫자값 기반 fallback
   const changeColorClass = displayChangeSign

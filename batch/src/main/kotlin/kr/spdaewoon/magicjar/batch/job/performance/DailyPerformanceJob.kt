@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.batch.job.performance
 
+import kr.spdaewoon.magicjar.batch.persistence.performance.BatchOrderExecutionJpaEntity
 import kr.spdaewoon.magicjar.batch.persistence.performance.BatchOrderExecutionJpaRepository
 import kr.spdaewoon.magicjar.batch.persistence.performance.BatchOrderRequestJpaRepository
 import kr.spdaewoon.magicjar.batch.persistence.performance.BatchPerformanceSummaryJpaEntity
@@ -27,7 +28,7 @@ import java.time.temporal.TemporalAdjusters
  *
  * 처리 흐름:
  * 1. order_request distinct user_id 목록 조회
- * 2. 각 userId별로 어제 trade_date 기준 order_execution realized_pnl 집계
+ * 2. 각 userId별로 order_execution 체결 이력을 평균단가 방식으로 replay
  * 3. pnl_daily UPSERT (UQ user_id + trade_date — 멱등성)
  * 4. performance_summary 5종 UPSERT (DAY·WEEK·MONTH·YEAR·ALL)
  * 5. Redis perf:* 캐시 invalidate
@@ -85,19 +86,17 @@ class DailyPerformanceJob(
         targetDate: LocalDate,
     ) {
         runCatching {
-            // 1. targetDate 하루 체결 조회
-            val fromInstant = targetDate.atStartOfDay(kst).toInstant()
+            // 1. targetDate 종료 시점까지 체결 이력 replay
             val toInstant = targetDate.plusDays(1).atStartOfDay(kst).toInstant()
+            val replayResult = replayRealizedPnls(userId, targetDate, toInstant)
 
-            val executions = orderExecutionJpaRepository.findByUserIdAndExecutedAtRange(userId, fromInstant, toInstant)
-
-            if (executions.isEmpty()) {
+            if (!replayResult.hasTargetExecutions) {
                 log.debug("[DailyPerformanceJob] userId={} targetDate={} 체결 0건 — skip", userId, targetDate)
                 return@runCatching
             }
 
             // 2. pnl_daily 집계
-            val pnlRow = aggregatePnlDaily(userId, targetDate, executions.map { it.realizedPnl })
+            val pnlRow = aggregatePnlDaily(userId, targetDate, replayResult.realizedPnls)
             upsertPnlDaily(pnlRow)
 
             // 3. performance_summary 5종 UPSERT
@@ -118,20 +117,117 @@ class DailyPerformanceJob(
         }
     }
 
+    private data class DailyReplayResult(
+        val hasTargetExecutions: Boolean,
+        val realizedPnls: List<BigDecimal>,
+    )
+
+    private data class PositionState(
+        var qty: BigDecimal = BigDecimal.ZERO,
+        var avgPrice: BigDecimal = BigDecimal.ZERO,
+    )
+
+    private fun replayRealizedPnls(
+        userId: String,
+        targetDate: LocalDate,
+        toInstant: Instant,
+    ): DailyReplayResult {
+        val executions = orderExecutionJpaRepository.findByUserIdAndExecutedAtBefore(userId, toInstant)
+        if (executions.isEmpty()) return DailyReplayResult(hasTargetExecutions = false, realizedPnls = emptyList())
+
+        val positions = mutableMapOf<String, PositionState>()
+        val realizedPnls = mutableListOf<BigDecimal>()
+        var hasTargetExecutions = false
+
+        for (execution in executions) {
+            val request = execution.orderRequest
+            val code = request.code
+            val executionDate = execution.executedAt.atZone(kst).toLocalDate()
+            val isTargetDate = executionDate == targetDate
+            if (isTargetDate) hasTargetExecutions = true
+
+            val state = positions.getOrPut(code) { PositionState() }
+            when (request.side.uppercase()) {
+                "BUY" -> applyBuy(state, execution)
+                "SELL" -> {
+                    val pnl = applySell(state, execution)
+                    if (isTargetDate && pnl != null) realizedPnls += pnl
+                }
+                else -> log.warn("[DailyPerformanceJob] 알 수 없는 주문 side={} orderId={}", request.side, request.id)
+            }
+        }
+
+        return DailyReplayResult(hasTargetExecutions = hasTargetExecutions, realizedPnls = realizedPnls)
+    }
+
+    private fun applyBuy(
+        state: PositionState,
+        execution: BatchOrderExecutionJpaEntity,
+    ) {
+        if (execution.executedQty <= BigDecimal.ZERO) return
+
+        val currentCost = state.qty.multiply(state.avgPrice)
+        val addedCost =
+            execution.executedQty
+                .multiply(execution.executedPrice)
+                .add(execution.fee)
+                .add(execution.tax)
+        val nextQty = state.qty.add(execution.executedQty)
+
+        state.qty = nextQty
+        state.avgPrice =
+            if (nextQty.signum() > 0) {
+                currentCost.add(addedCost).divide(nextQty, 8, RoundingMode.HALF_UP)
+            } else {
+                BigDecimal.ZERO
+            }
+    }
+
+    private fun applySell(
+        state: PositionState,
+        execution: BatchOrderExecutionJpaEntity,
+    ): BigDecimal? {
+        if (execution.executedQty <= BigDecimal.ZERO || state.qty <= BigDecimal.ZERO) {
+            log.warn(
+                "[DailyPerformanceJob] 보유 수량 없는 매도 체결 skip — orderId={} qty={}",
+                execution.orderRequest.id,
+                execution.executedQty,
+            )
+            return null
+        }
+
+        val closedQty = minOf(execution.executedQty, state.qty)
+        val expenseRatio = closedQty.divide(execution.executedQty, 8, RoundingMode.HALF_UP)
+        val expenses = execution.fee.add(execution.tax).multiply(expenseRatio)
+        val realizedPnl =
+            execution.executedPrice
+                .subtract(state.avgPrice)
+                .multiply(closedQty)
+                .subtract(expenses)
+                .setScale(2, RoundingMode.HALF_UP)
+
+        state.qty = state.qty.subtract(closedQty)
+        if (state.qty <= BigDecimal.ZERO) {
+            state.qty = BigDecimal.ZERO
+            state.avgPrice = BigDecimal.ZERO
+        }
+
+        return realizedPnl
+    }
+
     private fun aggregatePnlDaily(
         userId: String,
         tradeDate: LocalDate,
-        pnlList: List<BigDecimal?>,
+        pnlList: List<BigDecimal>,
     ): BatchPnlDailyJpaEntity {
-        val nonNullPnl = pnlList.filterNotNull()
-        val realizedPnl = nonNullPnl.fold(BigDecimal.ZERO) { acc, v -> acc + v }
+        val realizedPnl = pnlList.fold(BigDecimal.ZERO) { acc, v -> acc + v }.setScale(2, RoundingMode.HALF_UP)
 
-        val winPnl = nonNullPnl.filter { it > BigDecimal.ZERO }
-        val lossPnl = nonNullPnl.filter { it < BigDecimal.ZERO }
+        val winPnl = pnlList.filter { it > BigDecimal.ZERO }
+        val lossPnl = pnlList.filter { it < BigDecimal.ZERO }
 
         val winCount = winPnl.size
         val lossCount = lossPnl.size
-        val tradeCount = nonNullPnl.size
+        val tradeCount = pnlList.size
 
         val avgProfit =
             if (winPnl.isNotEmpty()) {

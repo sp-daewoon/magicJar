@@ -121,10 +121,38 @@ class InstrumentControllerTest {
                 status { isOk() }
                 jsonPath("$.items.length()") { value(1) }
                 jsonPath("$.items[0].code") { value("000660") }
-                jsonPath("$.items[0].sectorKey") { value("krx:반도체") }
+                jsonPath("$.items[0].sectorKey") { value("sector:반도체") }
                 jsonPath("$.items[0].sectorName") { value("반도체") }
                 jsonPath("$.items[0].marketCapPrev") { value(100000) }
                 jsonPath("$.total") { value(1) }
+            }
+    }
+
+    @Test
+    fun `GET instruments universe KIS 업종 코드 한국어 섹터명 매핑`() {
+        whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
+        val samsung =
+            InstrumentJpaEntity(
+                code = "005930",
+                name = "삼성전자",
+                market = "KOSPI",
+                type = "STOCK",
+                sector = "0013",
+            ).also {
+                it.industryMedium = "0013"
+                it.marketCapPrev = 5000000L
+            }
+        whenever(instrumentJpaRepository.findAll(any<Specification<InstrumentJpaEntity>>(), any<Sort>()))
+            .thenReturn(listOf(samsung))
+
+        mockMvc
+            .get("/api/instruments?q=삼성&limit=20")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$.items.length()") { value(1) }
+                jsonPath("$.items[0].code") { value("005930") }
+                jsonPath("$.items[0].sectorKey") { value("sector:전기·전자") }
+                jsonPath("$.items[0].sectorName") { value("전기·전자") }
             }
     }
 }

@@ -57,6 +57,34 @@ export interface EquityCurveDto {
   points: EquityPointDto[]
 }
 
+/** 실현손익 상세 row */
+export interface PerformanceTradeDto {
+  executionId: number
+  orderId: number
+  tradeDate: string
+  executedAt: string
+  code: string
+  name: string | null
+  mode: 'MOCK' | 'REAL'
+  source: 'AUTO' | 'MANUAL'
+  executedQty: number
+  executedPrice: number
+  avgBuyPrice: number
+  fee: number
+  tax: number
+  realizedPnl: number
+}
+
+/** 실현손익 상세 응답 */
+export interface PerformanceTradeBreakdownDto {
+  period: PerformancePeriod
+  periodStart: string
+  periodEnd: string
+  totalRealizedPnl: number
+  tradeCount: number
+  items: PerformanceTradeDto[]
+}
+
 // ──────────────────────────────────────────────
 // API 함수
 // ──────────────────────────────────────────────
@@ -89,6 +117,22 @@ export const performanceApi = {
   ): Promise<EquityCurveDto> => {
     const res = await apiClient.get<EquityCurveDto>('/performance/equity-curve', {
       params: { userId, from, to },
+    })
+    return res.data
+  },
+
+  /**
+   * GET /api/performance/trades
+   * 총 손익의 매도 체결별 상세 근거
+   */
+  getTrades: async (
+    userId: number,
+    period: PerformancePeriod,
+    periodStart?: string,
+    periodEnd?: string,
+  ): Promise<PerformanceTradeBreakdownDto> => {
+    const res = await apiClient.get<PerformanceTradeBreakdownDto>('/performance/trades', {
+      params: { userId, period, periodStart, periodEnd },
     })
     return res.data
   },

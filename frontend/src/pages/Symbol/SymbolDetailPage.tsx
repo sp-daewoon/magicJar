@@ -229,7 +229,17 @@ export function SymbolDetailPage() {
             <SymbolChart
               code={code}
               realtimeCandle={realtimeCandle}
-              liveTick={realtimeTick ? { price: realtimeTick.price, ts: realtimeTick.ts } : null}
+              liveTick={
+                realtimeTick
+                  ? {
+                      price: realtimeTick.price,
+                      priceChange: realtimeTick.priceChange,
+                      changeRate: realtimeTick.changeRate,
+                      changeSign: realtimeTick.changeSign,
+                      ts: realtimeTick.ts,
+                    }
+                  : null
+              }
             />
           </div>
         </div>

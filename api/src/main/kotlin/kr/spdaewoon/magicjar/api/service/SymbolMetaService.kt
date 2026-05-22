@@ -59,14 +59,11 @@ class SymbolMetaService(
         internal val staleThreshold: Duration = Duration.ofMinutes(30)
 
         /**
-         * NXT 야간 일봉 휴리스틱 임계 — 최신 candle 거래량이 그 직전 정상 row 대비 본 비율 미만이면 NXT 의심 skip.
-         * PR #597 휴리스틱 `curVol * 10 < nextVol` (즉 < 10%)이 2026-05-21 회귀 — SK하이닉스 case
-         *   2026-05-21 close=1,918,000 vol=4,850,226  (실제 NXT 의심)
-         *   2026-05-19 close=1,719,000 vol=7,805,248  (정규장 정합 baseline)
-         *   비율 = 4,850,226 / 7,805,248 = 62% → PR #597 휴리스틱 통과(=skip 실패)
-         * 강화: 30% 임계 (장중 cumulative volume + 시간외 단일가 거래량 증가 고려).
+         * NXT 야간 일봉 휴리스틱 임계 — 극저거래량 row만 제외한다.
+         * 30% 임계는 LG전자 2026-05-21 정상 일봉(전일 대비 26.97%)까지 버려
+         * 전일종가가 하루 더 밀리는 회귀를 만들었다. 명백한 5% 미만 row만 보수적으로 skip.
          */
-        internal val nxtVolumeRatioThreshold: BigDecimal = BigDecimal("0.30")
+        internal val nxtVolumeRatioThreshold: BigDecimal = BigDecimal("0.05")
 
         /** KRX 정규장 운영시간 (KST) — 본 시간 외 candle 최신 row 가 의심 분포면 fallback. */
         internal val krxOpen: LocalTime = LocalTime.of(9, 0)
@@ -132,7 +129,8 @@ class SymbolMetaService(
             }
 
         val quoteSource = quoteMap["source"]?.toString() ?: "polling"
-        val isNxtTainted = quoteSource.contains("nxt", ignoreCase = true)
+        val quoteChangeMetrics = resolveQuoteChangeMetrics(quoteMap)
+        val isNxtTainted = quoteSource.contains("nxt", ignoreCase = true) && quoteChangeMetrics == null
         val quoteCurrentPrice = if (isNxtTainted) null else quoteMap["price"]?.toString()
         val quoteTs = if (isNxtTainted) null else quoteMap["ts"]?.toString()
         val source = if (isNxtTainted) "candle-1d" else quoteSource
@@ -140,11 +138,12 @@ class SymbolMetaService(
             if (isNxtTainted) false else quoteMap["stale"]?.toString()?.toBooleanStrictOrNull() ?: false
 
         // 가격 LOCK 우선순위:
-        //  1. candle DB 1d 최신 close (정규장 종가, 차트와 LOCK 동기)
-        //  2. Redis quote:last (NXT 오염 아닐 때만, 장중 실시간)
-        //  3. KIS metrics fallback (candle 부재 시)
+        //  1. Redis quote:last with priceChange/changeRate/changeSign (가격·등락 단일 source)
+        //  2. candle DB 1d 최신 close (차트와 LOCK 동기)
+        //  3. Redis quote:last price only (NXT 오염 아닐 때)
+        //  4. KIS metrics fallback (candle 부재 시)
         val candleCurrentPrice = candleLatest?.closeRaw?.toPlainString()
-        val currentPrice = candleCurrentPrice ?: quoteCurrentPrice
+        val currentPrice = quoteChangeMetrics?.price?.toPlainString() ?: candleCurrentPrice ?: quoteCurrentPrice
 
         // 2. Redis meta:{code} 5분 cache — PER·PBR·시총 등
         val metaJson = redisTemplate.opsForValue().get("meta:$code")
@@ -198,19 +197,25 @@ class SymbolMetaService(
                     "종목 데이터를 가져올 수 없습니다",
                 )
 
-        // 전일종가: candle DB 1d 2번째 row close 우선 (정규장 source LOCK), 없으면 KIS metrics 응답
-        val prevClose = candlePrev?.closeRaw ?: resolvedMetrics?.previousClose
+        // 전일종가: tick 등락 필드가 있으면 tick 기준으로 복원, 없으면 candle DB 1d 2번째 row close 우선.
+        val prevClose = quoteChangeMetrics?.previousClose ?: candlePrev?.closeRaw ?: resolvedMetrics?.previousClose
         val priceDecimal = price.toBigDecimalOrNull()
 
         // 전일대비·등락률 — candle 기반 직접 계산 우선 (정규장 LOCK), KIS 응답값은 NXT 영향 가능
         val change =
-            if (priceDecimal != null && prevClose != null) {
+            if (quoteChangeMetrics != null) {
+                quoteChangeMetrics.signedChange.toPlainString()
+            } else if (priceDecimal != null && prevClose != null) {
                 (priceDecimal - prevClose).toPlainString()
             } else {
                 resolvedMetrics?.priceChange?.toPlainString() ?: "0"
             }
         val changeRate =
-            if (priceDecimal != null && prevClose != null && prevClose != BigDecimal.ZERO) {
+            if (quoteChangeMetrics != null) {
+                quoteChangeMetrics.signedChangeRate
+                    .setScale(2, RoundingMode.HALF_UP)
+                    .toPlainString()
+            } else if (priceDecimal != null && prevClose != null && prevClose != BigDecimal.ZERO) {
                 (priceDecimal - prevClose)
                     .divide(prevClose, 4, RoundingMode.HALF_UP)
                     .multiply(BigDecimal("100"))
@@ -225,7 +230,7 @@ class SymbolMetaService(
         //   ② candle·quote 모두 부재 → KIS fallback (usedKisFallback)
         //   ③ asOf 가 현재 시각 기준 STALE_THRESHOLD(30분)보다 오래됨 (시간 경과 검증) ★ 신규
         // 결함 시점 evidence: asOf=15:19 KST + 현재=23:33 KST → 8시간 stale 인데 stale=false 응답.
-        val usedKisFallback = candleCurrentPrice == null && quoteCurrentPrice == null
+        val usedKisFallback = candleCurrentPrice == null && quoteCurrentPrice == null && quoteChangeMetrics == null
         val asOfInstant = parseQuoteTs(quoteTs)
         val stale = staleFromCache || usedKisFallback || isAsOfStale(asOfInstant)
 

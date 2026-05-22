@@ -4,12 +4,16 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.config.ChartCandleProperties
 import kr.spdaewoon.magicjar.api.controller.CandleDto
 import kr.spdaewoon.magicjar.api.controller.CandlesResponseDto
+import kr.spdaewoon.magicjar.api.persistence.CandleJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import org.slf4j.LoggerFactory
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Service
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.Instant
+import java.time.ZoneId
 
 /**
  * 캔들 시계열 조회 서비스 — DB candle + Redis current·today 합류 (spec §3-3, ADR 0019·0029).
@@ -33,6 +37,7 @@ class CandleQueryService(
     private val chartCandleProperties: ChartCandleProperties,
 ) {
     private val log = LoggerFactory.getLogger(CandleQueryService::class.java)
+    private val kst: ZoneId = ZoneId.of("Asia/Seoul")
 
     val supportedIntervals = setOf("1m", "5m", "30m", "1h", "1d", "1wk", "1mo", "1y")
     val defaultLimit = 600
@@ -92,18 +97,11 @@ class CandleQueryService(
             }
 
         // DB rows → CandleDto 변환 (DESC → ASC 변환)
+        val sortedRows = dbRows.sortedBy { it.ts }
         val candleDtos =
-            dbRows
-                .sortedBy { it.ts }
-                .map { entity ->
-                    CandleDto(
-                        ts = entity.ts.toString(),
-                        open = (entity.openRaw ?: entity.openAdj)?.toPlainString() ?: "0",
-                        high = (entity.highRaw ?: entity.highAdj)?.toPlainString() ?: "0",
-                        low = (entity.lowRaw ?: entity.lowAdj)?.toPlainString() ?: "0",
-                        close = (entity.closeRaw ?: entity.closeAdj)?.toPlainString() ?: "0",
-                        volume = entity.volume ?: 0L,
-                    )
+            sortedRows
+                .mapIndexed { index, entity ->
+                    toCandleDto(entity, sortedRows.getOrNull(index - 1)?.closeRaw)
                 }.toMutableList()
 
         // Redis current/today 합류 (장중 마지막 미확정 bar)
@@ -145,6 +143,9 @@ class CandleQueryService(
                             low = redisCandle["low"] ?: "0",
                             close = redisCandle["close"] ?: "0",
                             volume = redisCandle["volume"]?.toLongOrNull() ?: 0L,
+                            previousClose = candleDtos.lastOrNull()?.previousClose,
+                            change = candleDtos.lastOrNull()?.change,
+                            changeRate = candleDtos.lastOrNull()?.changeRate,
                         )
                     if (lastDbTs == null || redisInstant > lastDbTs) {
                         candleDtos.add(redisCandleDto)
@@ -153,6 +154,10 @@ class CandleQueryService(
                     }
                 }
             }
+        }
+
+        if (effectiveInterval == "1d" && beforeInstant == null) {
+            mergeQuoteLastDailyCandle(code, candleDtos)
         }
 
         val hasMore = dbRows.size == effectiveLimit
@@ -165,6 +170,79 @@ class CandleQueryService(
             hasMore = hasMore,
             nextBefore = nextBefore,
         )
+    }
+
+    private fun toCandleDto(
+        entity: CandleJpaEntity,
+        previousClose: BigDecimal?,
+    ): CandleDto {
+        val close = entity.closeRaw ?: entity.closeAdj
+        val change = if (close != null && previousClose != null) close - previousClose else null
+        return CandleDto(
+            ts = entity.ts.toString(),
+            open = (entity.openRaw ?: entity.openAdj)?.toPlainString() ?: "0",
+            high = (entity.highRaw ?: entity.highAdj)?.toPlainString() ?: "0",
+            low = (entity.lowRaw ?: entity.lowAdj)?.toPlainString() ?: "0",
+            close = close?.toPlainString() ?: "0",
+            volume = entity.volume ?: 0L,
+            previousClose = previousClose?.toPlainString(),
+            change = change?.toPlainString(),
+            changeRate = formatChangeRate(change, previousClose),
+        )
+    }
+
+    private fun mergeQuoteLastDailyCandle(
+        code: String,
+        candleDtos: MutableList<CandleDto>,
+    ) {
+        val latest = candleDtos.lastOrNull() ?: return
+        val quoteMap = readQuoteLast(code)
+        val metrics = resolveQuoteChangeMetrics(quoteMap) ?: return
+        val quoteTs = quoteMap["ts"]?.toString()?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: return
+        val latestTs = runCatching { Instant.parse(latest.ts) }.getOrNull() ?: return
+        if (quoteTs.atZone(kst).toLocalDate() != latestTs.atZone(kst).toLocalDate()) return
+
+        val price = metrics.price
+        val high = maxOf(latest.high.toBigDecimalOrNull() ?: price, price)
+        val low = minOf(latest.low.toBigDecimalOrNull() ?: price, price)
+        candleDtos[candleDtos.lastIndex] =
+            latest.copy(
+                high = high.toPlainString(),
+                low = low.toPlainString(),
+                close = price.toPlainString(),
+                previousClose = metrics.previousClose.toPlainString(),
+                change = metrics.signedChange.toPlainString(),
+                changeRate = metrics.signedChangeRate.setScale(2, RoundingMode.HALF_UP).toPlainString(),
+            )
+    }
+
+    private fun readQuoteLast(code: String): Map<String, Any?> {
+        val quoteJson =
+            try {
+                redisTemplate.opsForValue().get("quote:last:$code")
+            } catch (e: Exception) {
+                log.debug("quote:last 조회 실패: code={} err={}", code, e.message)
+                null
+            } ?: return emptyMap()
+        return try {
+            @Suppress("UNCHECKED_CAST")
+            objectMapper.readValue(quoteJson, Map::class.java) as Map<String, Any?>
+        } catch (e: Exception) {
+            log.debug("quote:last 파싱 실패: code={} err={}", code, e.message)
+            emptyMap()
+        }
+    }
+
+    private fun formatChangeRate(
+        change: BigDecimal?,
+        previousClose: BigDecimal?,
+    ): String? {
+        if (change == null || previousClose == null || previousClose == BigDecimal.ZERO) return null
+        return change
+            .divide(previousClose, 4, RoundingMode.HALF_UP)
+            .multiply(BigDecimal("100"))
+            .setScale(2, RoundingMode.HALF_UP)
+            .toPlainString()
     }
 
     private fun readRedisCandleHash(key: String): Map<String, String>? =

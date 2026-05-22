@@ -24,4 +24,8 @@ class BatchOrderRequestJpaEntity(
     val id: Long? = null,
     @Column(name = "user_id", nullable = false, length = 40)
     val userId: String,
+    @Column(name = "code", nullable = false, length = 8)
+    val code: String = "",
+    @Column(name = "side", nullable = false, length = 4)
+    val side: String = "BUY",
 )

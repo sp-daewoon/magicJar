@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.api.persistence.order
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
+import java.time.Instant
 
 /**
  * order_execution Spring Data JPA 리포지터리.
@@ -14,6 +15,20 @@ import org.springframework.data.repository.query.Param
  */
 interface OrderExecutionJpaRepository : JpaRepository<OrderExecutionJpaEntity, Long> {
     fun findByOrderIdOrderByExecutedAtAsc(orderId: Long): List<OrderExecutionJpaEntity>
+
+    @Query(
+        """
+        SELECT e FROM OrderExecutionJpaEntity e, OrderRequestJpaEntity r
+        WHERE e.orderId = r.id
+          AND r.userId = :userId
+          AND e.executedAt < :to
+        ORDER BY e.executedAt ASC, e.id ASC
+        """,
+    )
+    fun findByUserIdAndExecutedAtBefore(
+        @Param("userId") userId: String,
+        @Param("to") to: Instant,
+    ): List<OrderExecutionJpaEntity>
 
     @Query(
         "SELECT COALESCE(SUM(e.executedQty), 0) FROM OrderExecutionJpaEntity e WHERE e.orderId = :orderId",

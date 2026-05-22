@@ -15,8 +15,10 @@ import { PerformancePeriodSelector } from '../features/performance/components/Pe
 import { PerformanceSummaryCards } from '../features/performance/components/PerformanceSummaryCards'
 import { EquityCurveChart } from '../features/performance/components/EquityCurveChart'
 import { DailyPnlBarChart } from '../features/performance/components/DailyPnlBarChart'
+import { PerformanceTradeBreakdownTable } from '../features/performance/components/PerformanceTradeBreakdownTable'
 import { usePerformanceSummary } from '../features/performance/hooks/usePerformanceSummary'
 import { useEquityCurve } from '../features/performance/hooks/useEquityCurve'
+import { usePerformanceTrades } from '../features/performance/hooks/usePerformanceTrades'
 import type { PerformancePeriod } from '../features/performance/api/performanceApi'
 
 export function PerformanceDashboardPage() {
@@ -35,7 +37,24 @@ export function PerformanceDashboardPage() {
     data: equityCurve,
     isLoading: curveLoading,
     isError: curveError,
-  } = useEquityCurve({ userId })
+  } = useEquityCurve({
+    userId,
+    from: summary?.periodStart,
+    to: summary?.periodEnd,
+    enabled: Boolean(summary),
+  })
+
+  const {
+    data: tradeBreakdown,
+    isLoading: tradeLoading,
+    isError: tradeError,
+  } = usePerformanceTrades({
+    userId,
+    period,
+    periodStart: summary?.periodStart,
+    periodEnd: summary?.periodEnd,
+    enabled: Boolean(summary),
+  })
 
   // userId 미등록 → setup 안내
   if (!userId) {
@@ -93,6 +112,14 @@ export function PerformanceDashboardPage() {
           points={equityCurve?.points}
           isLoading={curveLoading}
           isError={curveError}
+        />
+      </div>
+
+      <div className="mt-6">
+        <PerformanceTradeBreakdownTable
+          breakdown={tradeBreakdown}
+          isLoading={tradeLoading}
+          isError={tradeError}
         />
       </div>
 

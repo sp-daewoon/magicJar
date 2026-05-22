@@ -223,7 +223,7 @@ class InstrumentController(
             "전체 활성 종목 목록 (페이지네이션). " +
                 "q 검색 + market 필터: KOSPI·KOSDAQ·KONEX. " +
                 "active=false이면 상장폐지 포함 (ADR 0017 §2-2 보존). " +
-                "섹터 표시용 sectorKey·sectorName 포함. limit: 최대 500 (default 100).",
+                "섹터 표시용 sectorKey·sectorName 포함. limit: 최대 5000 (default 100).",
     )
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "조회 성공"),
@@ -237,19 +237,23 @@ class InstrumentController(
         @RequestParam(required = false) market: String?,
         @Parameter(description = "활성 여부 필터 (true=활성만, false=전체)", example = "true")
         @RequestParam(defaultValue = "true") active: Boolean,
-        @Parameter(description = "페이지 크기 (1~500, default 100)", example = "100")
+        @Parameter(description = "페이지 크기 (1~5000, default 100)", example = "100")
         @RequestParam(defaultValue = "100") limit: Int,
         @Parameter(description = "페이지 오프셋 (0-based)", example = "0")
         @RequestParam(defaultValue = "0") offset: Int,
     ): InstrumentUniverseResponseDto {
-        val effectiveLimit = limit.coerceIn(1, 500)
+        val effectiveLimit = limit.coerceIn(1, 5000)
         val safeOffset = offset.coerceAtLeast(0)
         val marketFilter = market?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
         val query = q?.trim()?.takeIf { it.isNotBlank() }
         val queryNorm = query?.replace(Regex("[\\s.·()（）]"), "")?.lowercase()
         val sort =
             Sort
-                .by(Sort.Order.asc("sector"), Sort.Order.asc("market"), Sort.Order.asc("code"))
+                .by(
+                    Sort.Order.desc("marketCapPrev").nullsLast(),
+                    Sort.Order.asc("market"),
+                    Sort.Order.asc("code"),
+                )
 
         val spec =
             Specification<InstrumentJpaEntity> { root, _, cb ->
@@ -349,26 +353,57 @@ class InstrumentController(
     }
 
     private fun resolveSectorInfo(entity: InstrumentJpaEntity): SectorInfo {
-        entity.sector
-            ?.trim()
-            ?.takeIf { it.isNotBlank() && !it.equals("UNKNOWN", ignoreCase = true) }
-            ?.let { return SectorInfo("sector:$it", it) }
+        resolveIndustrySectorName(entity.sector)?.let {
+            return sectorInfo(it)
+        }
+
+        resolveIndustrySectorName(entity.industryMedium)?.let {
+            return sectorInfo(it)
+        }
 
         resolveKrxSectorName(entity)?.let {
-            return SectorInfo("krx:$it", it)
+            return sectorInfo(it)
         }
 
         resolveKospi200SectorName(entity.kospi200Sector)?.let {
-            return SectorInfo("kospi200:${entity.kospi200Sector}", it)
+            return sectorInfo(it)
         }
-
-        entity.industryMedium
-            ?.trim()
-            ?.takeIf { it.isNotBlank() && it != "0000" }
-            ?.let { return SectorInfo("industry:$it", "업종 $it") }
 
         return SectorInfo("unclassified", "미분류")
     }
+
+    private fun sectorInfo(name: String): SectorInfo = SectorInfo("sector:${name.trim().replace(Regex("\\s+"), "-")}", name)
+
+    private fun normalizeSectorCode(code: String?): String? =
+        code?.trim()?.uppercase()?.takeIf { it.isNotBlank() && it != "0000" && it != "UNKNOWN" }
+
+    private fun resolveIndustrySectorName(code: String?): String? =
+        when (normalizeSectorCode(code)) {
+            "0005", "1019" -> "음식료·담배"
+            "0006", "1020" -> "섬유·의류"
+            "0007", "1021" -> "종이·목재"
+            "1022" -> "출판·매체복제"
+            "0008", "1023" -> "화학"
+            "0009", "1024" -> "의약품·바이오"
+            "0010", "1025" -> "비금속"
+            "0011", "1026" -> "철강·금속"
+            "0012", "1027" -> "기계·장비"
+            "0013", "1028" -> "전기·전자"
+            "0014", "1029" -> "의료·정밀기기"
+            "0015", "1030" -> "운송장비·부품"
+            "0016" -> "유통업"
+            "0017" -> "전기가스업"
+            "0018" -> "건설업"
+            "0019" -> "운수창고업"
+            "0020" -> "통신업"
+            "0021" -> "금융업"
+            "0022" -> "은행"
+            "0024" -> "증권"
+            "0025" -> "보험"
+            "0026" -> "서비스업"
+            "1031" -> "기타 제조"
+            else -> null
+        }
 
     private fun resolveKrxSectorName(entity: InstrumentJpaEntity): String? =
         when {

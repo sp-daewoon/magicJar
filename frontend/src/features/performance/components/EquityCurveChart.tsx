@@ -18,6 +18,7 @@ import { useEffect, useRef } from 'react'
 import { createChart } from 'lightweight-charts'
 import type { IChartApi, ISeriesApi, LineData } from 'lightweight-charts'
 import type { EquityPointDto } from '../api/performanceApi'
+import { formatPerformanceChartDate, toBusinessDay } from './performanceChartTime'
 
 interface EquityCurveChartProps {
   points: EquityPointDto[] | undefined
@@ -50,10 +51,16 @@ export function EquityCurveChart({ points, isLoading, isError }: EquityCurveChar
       },
       timeScale: {
         borderColor: '#374151',
-        timeVisible: true,
+        timeVisible: false,
+        tickMarkFormatter: formatPerformanceChartDate,
       },
       rightPriceScale: {
         borderColor: '#374151',
+      },
+      localization: {
+        locale: 'ko-KR',
+        dateFormat: 'yyyy-MM-dd',
+        timeFormatter: formatPerformanceChartDate,
       },
       crosshair: {
         mode: 1,
@@ -111,7 +118,7 @@ export function EquityCurveChart({ points, isLoading, isError }: EquityCurveChar
       }
 
       const data: LineData[] = points.map((p) => ({
-        time: p.tradeDate as LineData['time'],
+        time: toBusinessDay(p.tradeDate) as LineData['time'],
         value: Number(p.cumulativePnl),
       }))
 

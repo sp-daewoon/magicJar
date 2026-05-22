@@ -49,7 +49,7 @@ export interface SymbolDto {
   eps?: string
   bps?: string
   asOf: string // ISO 8601
-  source: 'live' | 'polling' | 'closed'
+  source: 'live' | 'live-nxt' | 'polling' | 'closed' | 'candle-1d'
   stale: boolean
 }
 
@@ -61,6 +61,9 @@ export interface CandleDto {
   low: string
   close: string
   volume: number
+  previousClose?: string | null
+  change?: string | null
+  changeRate?: string | null
 }
 
 /** GET /api/symbols/{code}/candles 응답 */
@@ -102,7 +105,7 @@ export interface TickPayload {
   changeSign: string | null
   volume: number
   ts: string
-  source: 'live' | 'polling' | 'closed'
+  source: 'live' | 'live-nxt' | 'polling' | 'closed' | 'candle-1d'
   stale: boolean
 }
 

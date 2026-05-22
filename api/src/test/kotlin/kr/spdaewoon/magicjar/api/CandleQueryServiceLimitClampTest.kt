@@ -15,6 +15,9 @@ import org.mockito.kotlin.whenever
 import org.springframework.data.domain.Pageable
 import org.springframework.data.redis.core.HashOperations
 import org.springframework.data.redis.core.StringRedisTemplate
+import org.springframework.data.redis.core.ValueOperations
+import java.math.BigDecimal
+import java.time.Instant
 
 /**
  * CandleQueryService — `?limit=` 사용자 입력 cap 500 → 5000 확장 회귀 가드 (ADR 0093 §3-1 LOCK).
@@ -36,8 +39,11 @@ class CandleQueryServiceLimitClampTest {
     ): CandleQueryService {
         val redisTemplate = mock<StringRedisTemplate>()
         val hashOps = mock<HashOperations<String, String, String>>()
+        val valueOps = mock<ValueOperations<String, String>>()
         whenever(redisTemplate.opsForHash<String, String>()).thenReturn(hashOps)
+        whenever(redisTemplate.opsForValue()).thenReturn(valueOps)
         whenever(hashOps.entries(any())).thenReturn(emptyMap())
+        whenever(valueOps.get(any())).thenReturn(null)
         return CandleQueryService(
             candleJpaRepository = repository,
             redisTemplate = redisTemplate,
@@ -133,4 +139,59 @@ class CandleQueryServiceLimitClampTest {
         verify(repository).findByCodeAndIntervalLatest(any(), any(), pageableCaptor.capture())
         assertThat(pageableCaptor.firstValue.pageSize).isEqualTo(3000)
     }
+
+    @Test
+    fun `getCandles 1d 최신 요청은 quote last 등락 필드로 마지막 봉 close와 등락률을 보정한다`() {
+        val repository = mock<CandleJpaRepository>()
+        val redisTemplate = mock<StringRedisTemplate>()
+        val hashOps = mock<HashOperations<String, String, String>>()
+        val valueOps = mock<ValueOperations<String, String>>()
+        whenever(redisTemplate.opsForHash<String, String>()).thenReturn(hashOps)
+        whenever(redisTemplate.opsForValue()).thenReturn(valueOps)
+        whenever(hashOps.entries(any())).thenReturn(emptyMap())
+        whenever(valueOps.get("quote:last:066570")).thenReturn(
+            """{"price":"237000","ts":"2026-05-22T10:59:59Z","source":"live-nxt","priceChange":"2000","changeRate":"0.85","changeSign":"2"}""",
+        )
+        whenever(repository.findByCodeAndIntervalLatest(any(), any(), any())).thenReturn(
+            listOf(
+                candle(ts = "2026-05-21T15:00:00Z", open = 235_000, high = 254_500, low = 230_500, close = 237_500, volume = 5_200_571L),
+                candle(ts = "2026-05-20T15:00:00Z", open = 185_200, high = 195_900, low = 185_200, close = 191_800, volume = 1_982_341L),
+            ),
+        )
+        val service =
+            CandleQueryService(
+                candleJpaRepository = repository,
+                redisTemplate = redisTemplate,
+                objectMapper = ObjectMapper(),
+                chartCandleProperties = ChartCandleProperties(maxResponseLimit = 5000),
+            )
+
+        val response = service.getCandles(code = "066570", interval = "1d", before = null, limit = 10)
+        val last = response.candles.last()
+
+        assertThat(last.close).isEqualTo("237000")
+        assertThat(last.previousClose).isEqualTo("235000")
+        assertThat(last.change).isEqualTo("2000")
+        assertThat(last.changeRate).isEqualTo("0.85")
+    }
+
+    private fun candle(
+        ts: String,
+        open: Int,
+        high: Int,
+        low: Int,
+        close: Int,
+        volume: Long,
+    ): CandleJpaEntity =
+        CandleJpaEntity(
+            code = "TEST",
+            interval = "1d",
+            ts = Instant.parse(ts),
+            openRaw = BigDecimal.valueOf(open.toLong()),
+            highRaw = BigDecimal.valueOf(high.toLong()),
+            lowRaw = BigDecimal.valueOf(low.toLong()),
+            closeRaw = BigDecimal.valueOf(close.toLong()),
+            volume = volume,
+            source = "KIS",
+        )
 }

@@ -16,7 +16,11 @@ const MARKET_OPTIONS = [
   { value: 'KONEX', label: 'KONEX' },
 ]
 
-const PAGE_SIZE_OPTIONS = [100, 200, 300, 500]
+const PAGE_SIZE_OPTIONS = [
+  { value: 500, label: '500' },
+  { value: 1000, label: '1000' },
+  { value: 5000, label: '전체' },
+]
 
 const SECTOR_STYLES = [
   'border-cyan-700/60 bg-cyan-950/20',
@@ -37,12 +41,13 @@ function formatMarketCap(value: number | null): string {
 function groupBySector(items: InstrumentUniverseItemDto[]) {
   const map = new Map<string, { key: string; name: string; items: InstrumentUniverseItemDto[] }>()
   for (const item of items) {
-    const key = item.sectorKey || 'unclassified'
+    const name = item.sectorName?.trim() || '미분류'
+    const key = name === '미분류' ? 'unclassified' : `sector:${name}`
     const existing = map.get(key)
     if (existing) {
       existing.items.push(item)
     } else {
-      map.set(key, { key, name: item.sectorName || '미분류', items: [item] })
+      map.set(key, { key, name, items: [item] })
     }
   }
   return Array.from(map.values()).sort((a, b) => {
@@ -57,7 +62,7 @@ export function InstrumentUniversePage() {
   const [query, setQuery] = useState('')
   const [market, setMarket] = useState('')
   const [activeOnly, setActiveOnly] = useState(true)
-  const [limit, setLimit] = useState(200)
+  const [limit, setLimit] = useState(5000)
   const [offset, setOffset] = useState(0)
 
   const { data, isLoading, isError, error } = useInstrumentUniverse({
@@ -163,8 +168,8 @@ export function InstrumentUniversePage() {
             className="h-8 rounded-lg border border-gray-700 bg-gray-950 px-2 text-xs text-gray-300 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
             {PAGE_SIZE_OPTIONS.map((size) => (
-              <option key={size} value={size}>
-                {size}
+              <option key={size.value} value={size.value}>
+                {size.label}
               </option>
             ))}
           </select>

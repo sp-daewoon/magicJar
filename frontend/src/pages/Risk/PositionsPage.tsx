@@ -17,11 +17,11 @@
  *
  * 룰 5: LLM provider import 0건
  */
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useOnboardingStore } from '../../stores/onboarding'
 import type { AccountType } from '../../api/account'
 import { useAccountPositions } from '../../api/hooks/useAccountPositions'
+import { usePreferredAccountType } from '../../api/hooks/usePreferredAccountType'
 import { AccountHoldingCard } from '../../components/risk/AccountHoldingCard'
 import { extractStatus } from '../Dashboard/errorStatus'
 
@@ -32,10 +32,11 @@ const ACCOUNT_OPTIONS: { value: AccountType; label: string }[] = [
 
 export function PositionsPage() {
   const userId = useOnboardingStore((s) => s.registeredUserId)
-  const [accountType, setAccountType] = useState<AccountType>('REAL')
+  const { accountType, setAccountType, isReady: accountTypeReady } = usePreferredAccountType()
   const { data, isLoading, isError, error, refetch, isFetching } = useAccountPositions({
     userId,
     accountType,
+    enabled: accountTypeReady,
   })
 
   const holdings = data ?? []
@@ -53,6 +54,14 @@ export function PositionsPage() {
         >
           계좌 등록하러 가기
         </Link>
+      </div>
+    )
+  }
+
+  if (!accountTypeReady) {
+    return (
+      <div className="mx-auto max-w-5xl px-4 py-8">
+        <div className="h-32 animate-pulse rounded-xl border border-gray-800 bg-gray-900/60" />
       </div>
     )
   }
