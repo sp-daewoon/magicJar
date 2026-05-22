@@ -3,10 +3,10 @@ id: T-20260522-1713-kis-tps-comprehensive-fix
 agent: market-data
 model: opus
 branch: agent/market-data/kis-tps-comprehensive-fix
-status: RUNNING
+status: DONE
 startedAt: 2026-05-22T17:13:06.833+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-22T17:24:47.160+09:00
+pr: #659
 parentPhase: ?
 ---
 
