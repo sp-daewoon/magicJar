@@ -7,7 +7,7 @@
 <!-- pr-37-slot-orchestrator -->
 | 2026-05-?? | **TBD — PR-37 architect: 01-architecture + 06-history + 07-policy + README** | baseline/v3.8.0 | PR-37 architect 4 파일 |
 <!-- pr-37-slot-architect -->
-| 2026-05-?? | **TBD — PR-37 backend-core: 02-data-flow + 04-feature-spec** | baseline/v3.8.0 | PR-37 backend-core 2 파일 |
+| 2026-05-22 | **docs(baseline): PR-37 backend-core v3.8.0 — 02-data-flow + 04-feature-spec** — 7→8 모듈(strategy-engine 추가 ADR 0092) + 운영 단계 진입(ADR 0094) + SLO 5건 wiring(ADR 0095) + DR/backup(ADR 0096) + KillSwitch race-safe + SystemEvent emit 5 point + NXT resolver + LIVE TPS fix 3 PR 풀세트 흡수. (backend-core) | baseline/v3.8.0 | PR-37 backend-core 2 파일 |
 <!-- pr-37-slot-backend-core -->
 | 2026-05-?? | **TBD — PR-37 market-data: 03-use-sequences (KIS-first raw 출처)** | baseline/v3.8.0 | PR-37 market-data 1 파일 |
 <!-- pr-37-slot-market-data -->
