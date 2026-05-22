@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>02-data-flow — magicJar v3.8.0 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">📁 인덱스</a><a href="01-architecture.html">01 Architecture</a><a href="02-data-flow.html" class="active">02 Data Flow</a><a href="03-use-sequences.html">03 Use Sequences</a><a href="04-feature-spec.html">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html">06 History</a><a href="07-policy-evolution.html">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.8.0 Baseline · 2026-05-22 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># v3.8.0 데이터 흐름 매트릭스
+
+- baseline: v3.8.0
+- 작성일: 2026-05-22
+- 작성자: backend-core (bot+backend-core@magicjar.local)
+- SoT: `docs/architecture/master-architecture.md` §2 + `settings.gradle.kts` + ADR 0004 + ADR 0094 (운영 단계 transition)
+- 기준: v3.7.0 02-data-flow.md 전체 이월 + 운영 단계 진입(ADR 0094) + 모듈 1건 추가(strategy-engine — ADR 0092) + P0 OPS 6건(observability·SLO·DR/backup·runbook·persistence monitoring) + 자본 path 보강(KillSwitch race-safe·KIS_TPS_EXCEEDED LIVE fix·NXT resolver·lazy backfill·QA Visual 격상)
+
+---
+
+## 🔄 v3.7.0 → v3.8.0 진화 요약 (리팩토링맨 lens)
+
+| 영역 | v3.7.0 | v3.8.0 | 진화 사유 |
+|------|--------|--------|----------|
+| JVM 모듈 | 7건 (`domain·pattern-engine·indicator-impl·persistence-shared·api·batch·consumer`) | **8건** (+ `strategy-engine`) | ADR 0092 — DSL parser + StrategyEvaluator api·consumer 공유 (HOLD stub P0 결함 차단) |
+| 운영 단계 | 개발 단계 (W3 마감 + W4 진입 직전) | **운영 단계 진입 (v3.8.0~)** | ADR 0094 — 8→7 hierarchy reshuffle + qa Visual 격상 + chart-curator 해고 |
+| Observability stack | 0건 (logback default + Actuator 0건) | **logback JSON encoder + Actuator/Prometheus + Grafana SLO dashboard** | ADR 0094 P0-OPS-1·2·6 — backend-core 단독 책임 인수 |
+| SLO/SLA 정의 | 0건 (운영 헌법 §9 메모만) | **SLO 5건 LOCK (S-1~S-5) + alert routing P1·P2·P3** | ADR 0095 — Micrometer timer + SystemEvent counter + Prometheus query 5건 |
+| DR/backup 절차 | 0건 (수동 dump만) | **pg_dump cron 매일 03:00 KST + Redis snapshot 03:30 + RPO 24h/RTO 4h** | ADR 0096 — 분기 DR drill (사용자 결재 + qa Visual 자동 재현) |
+| Runbook | 0건 (`docs/operations/` 2 파일만 — initial-setup·kis-api) | **5 시나리오 R-1~R-5 (incident response + DR drill + KillSwitch + SLA 위반 + KIS rate limit 대응)** | ADR 0094 P0-OPS-5 — backend-core 단독 발행 |
+| persistence-shared monitoring | wiring 회복(v3.7.0 ADR 0088)만 | **Outbox lag · stomp_event retention · SystemEvent counter 3 지표 Grafana 패널** | ADR 0094 P0-OPS-6 — SLO 측정 source wiring |
+| KillSwitch 발동 | 단일 조건 토픽 발사 | **A+B+C race-safe guard (pending + grace + strike)** | PR #648 — ADR 0043·0070 amend (운영 race condition 가드 + 사용자 dogfooding evidence) |
+| KIS Rate Limit | Bucket4j 10 req/s LOCK | **+ LIVE TPS_EXCEEDED 종합 fix** (LiveDailyCandleScheduler 200ms sleep 마진 + H1 페이지 burst 완화 + H4 EGW00201 1초 backoff + priority=BACKFILL 분리) | PR #571·#658·#659 — ADR 0037 amend + 사용자 LIVE evidence |
+| NXT 시장 통합 | KOSPI=`UN`/KOSDAQ=`J` 단순 분기 | **종목 단위 allow-list (KOSPI200·KOSDAQ150) + `UN` 우선 + `J` fallback** | ADR 0091 — NXT 통합 시장코드 종목 단위 resolver |
+| 차트 캔들 모수 | 600봉 cap (`MAX_PAGES=6` × KIS 100건) | **Lazy backfill + 사용자 입력 (300/600/1200/3000/직접입력) + timeframe별 매트릭스** | ADR 0093 — `D=2.5년` → 일반 증권앱 표준 cover (Proposed → v3.8.x 합류 대기) |
+| QA 자동 회귀 | 0건 | **Playwright + 스크린샷 + 시각 회귀 5 시나리오 baseline + 첫 실전 결함 hunt (NXT stale 30분 검증)** | ADR 0094 qa Visual 격상 — 운영 헌법 §10 회귀 자동화 의무 |
+
+✨ **핵심 통찰**: v3.8.0은 **개발 단계 마감 + 운영 단계 1차 baseline**. v3.7.0이 자본 path 안정성(ADR 0084 P0+P1)이었다면 v3.8.0은 **observability + DR + runbook + 회귀 자동화** — 룰 본체 추가 0건 + 운영 단계 fitness 풀세트 달성. 코드 한 줄 수정도 자본 path·운영 SLA 결합으로 진화하는 단계에서 backend-core 단독 P0 OPS 6건 인수 + qa Visual 격상으로 운영 단계 핵심 인프라 LOCK.
+
+---
+
+## 1. 모듈 의존성 매트릭스
+
+### 1-1. JVM 8 모듈 구성 (✨ v3.7.0 7 → v3.8.0 8)
+
+```
+settings.gradle.kts include:
+  domain
+  pattern-engine
+  indicator-impl
+  strategy-engine         ← ✨ v3.8.0 ADR 0092 (DSL parser + StrategyEvaluator 공유)
+  persistence-shared
+  api
+  batch
+  consumer
+```
+
+| 모듈 | Spring 의존 | JPA 의존 | 역할 |
+|------|------------|---------|------|
+| `domain` | 0 | 0 | 순수 도메인 + 포트 인터페이스 (Spring·JPA 0 — 헥사고날 내부 링) |
+| `pattern-engine` | 0 | 0 | 캔들스틱 패턴 57종 인식 (Pure Kotlin — ADR 0054) |
+| `indicator-impl` | 0 | 0 | 80종 지표 계산 구현 (ADR 0083 — Pure Kotlin) |
+| **`strategy-engine`** ★ | **0** | **0** | **✨ v3.8.0 신규** — DSL parser + JvmStrategyEvaluator (ADR 0092 · Pure Kotlin lib + api·consumer 공유) |
+| `persistence-shared` | data-jpa | JPA | Outbox 공용 어댑터 (ADR 0088 · api·consumer 양방향 의존) |
+| `api` | Spring Boot 3.3 | JPA | REST/STOMP + KIS REST 어댑터 + Kafka producer + SystemEvent dashboard fanout |
+| `batch` | Spring Boot 3.3 + Spring Batch | JPA | 종목 마스터 sync + 기업 행위 + 일별 성과 잡 + InstrumentSyncJob status history |
+| `consumer` | Spring Boot 3.3 | JPA | Kafka 소비 + KIS WS 브릿지 + 시그널·리스크·주문 dispatch + KillSwitch race-safe guard |
+
+### 1-2. 모듈 간 의존 방향 (v3.8.0 갱신)
+
+```
+domain ←── pattern-engine
+domain ←── indicator-impl
+domain ←── strategy-engine      ← ✨ v3.8.0 신규 의존
+domain ←── persistence-shared
+domain ←── api
+domain ←── batch
+domain ←── consumer
+
+persistence-shared ←── api          (ADR 0088 Outbox 어댑터 공유)
+persistence-shared ←── consumer     (ADR 0088 자본 path Outbox publish)
+
+pattern-engine ←── api
+indicator-impl ←── api
+indicator-impl ←── consumer
+
+strategy-engine ←── api             ← ✨ v3.8.0 신규 — KisYamlDslParser + JvmStrategyEvaluatorAdapter (api 전략 CRUD + 백테스트 + 스크리너 실평가)
+strategy-engine ←── consumer        ← ✨ v3.8.0 신규 — JvmStrategyEvaluator (시그널 생성 실평가 본체)
+```
+
+- `domain` 비의존 LOCK 유지 (Spring·JPA import 0 — `ArchUnit` 게이트 ADR 0004)
+- `strategy-engine`은 **library jar** (Boot main 0 + bootJar 미발행 — ADR 0083 indicator-impl + ADR 0088 persistence-shared 패턴 1:1)
+- 컨테이너 매트릭스 변동 0 (여전히 4 + 인프라 3 = 7 컨테이너 — strategy-engine은 jar 노출 0)
+
+### 1-3. v3.8.0 신규 컴포넌트 위치 매트릭스
+
+| 컴포넌트 | 모듈 | 패키지 경로 | ADR 근거 |
+|---------|------|-----------|---------|
+| `KisYamlDslParser` | `strategy-engine` | `strategy.engine.parser.*` | ADR 0092 (consumer.application.strategy 이관) |
+| `JvmStrategyEvaluator` | `strategy-engine` | `strategy.engine.evaluator.*` | ADR 0092 (HOLD stub P0 결함 차단) |
+| `StrategyEvaluatorPort` | `domain` | `domain/strategy/port/*` | ADR 0092 (api·consumer 공유 시그니처) |
+| `JvmStrategyEvaluatorAdapter` | api (`@Primary`) | `api/.../strategy/adapter/*` | ADR 0092 (timeout auto-disable 콜백 wiring) |
+| `LogbackJsonEncoderConfig` | `api/batch/consumer` | resources `logback-spring.xml` | ADR 0094 P0-OPS-1 (운영 JSON 로그) |
+| `ActuatorPrometheusConfig` | `api/batch/consumer` | resources `application.yml` `management.endpoints` | ADR 0094 P0-OPS-2 |
+| `SignalToOrderLatencyTimer` | `consumer` | `consumer/.../metrics/*` | ADR 0095 S-1 (Micrometer timer wiring) |
+| `MagicjarSystemEventsCounter` | `persistence-shared` | `persistence.shared.systemevent.metrics.*` | ADR 0095 S-2·S-4 (counter exporter) |
+| `OutboxLagGauge` | `persistence-shared` | `persistence.shared.order.outbox.metrics.*` | ADR 0094 P0-OPS-6 (drain lag P95 < 30초) |
+| `StompEventRetentionMonitor` | `api` | `api/.../scheduler/StompEventRetentionScheduler.kt` | ADR 0094 P0-OPS-6 (7d retention 측정) |
+| `KillSwitchRaceSafeGuard` | `consumer` | `consumer/.../killswitch/*` | PR #648 — ADR 0043·0070 amend (pending+grace+strike) |
+| `NxtMarketCodeResolver` | `consumer` (또는 `api`) | `.../market/nxt/*` | ADR 0091 (KOSPI200·KOSDAQ150 allow-list + `UN`→`J` fallback) |
+| `LiveDailyCandleScheduler` (정정) | `consumer` | `consumer/.../market/scheduler/*` | PR #659 — 종목 간 200ms sleep 마진 (TPS 완화) |
+| `SystemEventStompNotifier` | `api` | `api/.../notification/*` | PR (P2) — Kafka → STOMP fanout (NotificationCenter 벨) |
+| `SystemEventQueryService` | `api` | `api/.../systemevent/*` | PR (P2) — list filter + totalCount·unreadCount 정확 |
+| `BalanceReconcileService` (DRIFT emit) | `consumer` | `consumer/.../reconcile/*` | PR (P1 emit point 3) — SystemEvent emit |
+| `KisWebSocketBridge` (WS_DISCONNECTED+RECONNECTED emit) | `api` | `api/.../websocket/*` | PR (P1 emit point 4·5) — SystemEvent correlationId |
+| `NxtStaleHeuristicAdapter` (정정) | `consumer` | `consumer/.../market/nxt/*` | PR #660 — NXT 30% 휴리스틱 + stale 30분 (qa 첫 실전 임무 hotfix) |
+
+---
+
+## 2. api 모듈 데이터 흐름
+
+### 2-1. REST 엔드포인트 매트릭스 (v3.7.0 이월 + v3.8.0 추가)
+
+#### v3.8.0 신규 추가 (운영 인프라)
+
+| 경로 | 컨트롤러 | 역할 | Kafka 발행 |
+|------|---------|------|-----------|
+| `GET /actuator/health` · `/actuator/info` · `/actuator/prometheus` · `/actuator/metrics` | Spring Boot Actuator | 운영 인프라 baseline (ADR 0094 P0-OPS-2) | — |
+| `GET /api/system-events` | `SystemEventController` | 시스템 이벤트 list + filter(severity·status·channel) + totalCount·unreadCount | — |
+| `PATCH /api/system-events/{id}/viewed` | `SystemEventController` | viewed_at 마킹 | — |
+| `PATCH /api/system-events/{id}/resolved` | `SystemEventController` | resolved + viewed_at 동반 (사용자 mental model 정합 — PR hotfix) |
+| `POST /api/orders/manual` | `ManualOrderController` (v3.7.0 이월) | 수동 주문 발행 — `source='MANUAL'` (v3.7.0 baseline 유지) | `order.intent.v1` |
+| `GET /api/symbols/{code}/candles?before={ts}&limit={N}` (확장) | `SymbolController` | Lazy backfill cursor pagination — `limit` cap **500 → 5000** (ADR 0093 Proposed) | — |
+
+`/api/symbols/{code}/candles`의 `limit` cap 확장은 ADR 0093 합류 후 LOCK. v3.8.0 baseline 시점은 Proposed.
+
+#### Swagger 4단 어노테이션 정합 (feedback_swagger_pattern)
+
+v3.8.0 신규 4 endpoint(SystemEvent 3 + Actuator 4) — Actuator는 Spring Boot 기본, SystemEvent는 `@Tag` · `@Operation` · `@Parameter` · `@Schema` DTO 한국어 + example LOCK.
+
+### 2-2. STOMP 구독 토픽 (v3.8.0 SystemEvent fanout 추가)
+
+v3.7.0 ADR 0084 P1-2 stomp_event 영속 + unread/resync 매트릭스 LOCK 이월 + **SystemEvent fanout 신규**.
+
+| Kafka 토픽 (소비) | STOMP 토픽 (발행) | 포워더 클래스 | 영속 (stomp_event) |
+|-----------------|----------------|-------------|-------------------|
+| `market.tick.v1` | `/topic/market.tick.{code}` | `MarketTickStompForwarder` | — (실시간만) |
+| `market.candle.minute.closed.v1` | `/topic/market.candle.minute.{code}` | `MarketCandleStompForwarder` | — |
+| `market.orderbook.v1` | `/topic/market.orderbook.{code}` | `MarketOrderbookStompForwarder` | — |
+| `market.candle.{5m·15m·30m·90m·1h}.closed.v1` | `/topic/market.candle.{interval}.{code}` | `CandleClosedStompListener` | — |
+| `signal.generated.v1` | `/topic/signal.user.{userId}` | `StompSignalDispatcher` | ✅ |
+| `risk.violation.v1` | `/topic/risk.user.{userId}` | `StompRiskNotifier` | ✅ |
+| `order.requested.v1` `order.filled.v1` `order.rejected.v1` `order.cancelled.v1` | `/topic/order.user.{userId}` | `StompOrderNotifier` | ✅ |
+| `reconcile.drift.detected.v1` | `/topic/recon.user.{userId}` | `StompReconNotifier` | ✅ |
+| `killswitch.engaged.v1` | `/topic/recon.user.{userId}` (recon 결합) | `StompKillSwitchNotifier` | ✅ |
+| **✨ `system.event.v1`** | **`/topic/system.user.{userId}`** | **`SystemEventStompNotifier`** | ✅ (system_event 영속 권위) |
+
+✨ **v3.8.0 NotificationCenter 벨 매트릭스**:
+1. emit point 1~5 (KIS_RATELIMIT·KIS_TOKEN_EGW00123·KIS_REJECT·DRIFT_DETECTED·WS_DISCONNECTED/RECONNECTED) — backend 6 path
+2. `system.event.v1` Kafka publish
+3. `SystemEventStompNotifier` → `/topic/system.user.{userId}` STOMP push
+4. frontend `useSystemEventStompSubscription` hook → NotificationCenter 벨 드롭다운 + 30s polling fallback
+5. `PATCH /api/system-events/{id}/viewed` 또는 `resolved` 마킹 (resolved 시 viewed_at 동반 — PR hotfix)
+
+### 2-3. api 모듈 내부 서비스 레이어 (v3.8.0 추가)
+
+```
+SystemEventController          → SystemEventQueryService    → SystemEventRepository (persistence-shared)
+                                                            → filter+pagination+counter 정확 (P2.1 PR — totalCount·unreadCount fix)
+                               → SystemEventCommandService → markViewed / markResolved (viewed_at 동반)
+
+JvmStrategyEvaluatorAdapter    ← strategy-engine (project dep)
+StrategyService                → JvmStrategyEvaluatorAdapter (@Primary) — ADR 0092
+                               → timeout auto-disable 콜백 → DB auto-disable path
+
+SymbolController(/candles)     → CandleRefreshService       → DAILY_MAX_PAGES (ADR 0093 합류 시 6→60 검토 + ADR 0091 NxtMarketCodeResolver)
+                               → NxtMarketCodeResolver     → instrument.is_kospi200/is_kosdaq150 allow-list → fid_cond_mrkt_div_code 결정
+```
+
+---
+
+## 3. consumer 모듈 데이터 흐름
+
+### 3-1. Kafka 토픽 소비 매트릭스 (v3.8.0 LOCK + 신규 1건)
+
+v3.7.0 매트릭스 전체 이월 + **v3.8.0 신규 `strategy-engine` 실평가 path 합류**.
+
+| 토픽 | 리스너 클래스 | groupId | v3.8.0 변경 |
+|------|------------|---------|------------|
+| `order.intent.v1` | `OrderRouterKafkaListener` | `magicjar-consumer-order` | — (v3.7.0 LOCK 이월) |
+| `signal.generated.v1` | `SignalGeneratedKafkaListener` | `magicjar-consumer-risk-gateway` | **+ KillSwitchRaceSafeGuard A+B+C** (pending+grace+strike — PR #648) |
+| `market.candle.*.closed.v1` (5종) | `BoundaryClosingKafkaListener` | `magicjar-consumer-signal-{interval}` | **JvmStrategyEvaluator 호출 → strategy-engine 모듈 의존** (ADR 0092) |
+| `watchlist.changed.v1` | `WatchlistChangedKafkaListener` | `magicjar-consumer-watchlist-ingestion` | — |
+| `symbol.detail.command.v1` | `SymbolDetailCommandKafkaListener` | `magicjar-consumer-orderbook-cmd` | — |
+
+### 3-2. ✨ KillSwitch race-safe guard (PR #648 — ADR 0043·0070 amend, v3.8.0)
+
+```
+Signal 또는 Risk 위반 발사
+    ↓
+KillSwitchRaceSafeGuard.evaluate(userId, trigger):
+    Step A. pending list 조회 — 최근 10초 내 진행 중인 KillSwitch trigger 존재 여부 (Redis SETNX 10s TTL)
+        └── exists → 기존 trigger와 묶음 처리 (중복 토픽 발사 차단)
+    Step B. grace window 검증 — KillSwitch ON 후 3초 grace
+        └── grace 내 추가 trigger → audit만 + 토픽 미발사 (race condition 가드)
+    Step C. strike counter — 동일 userId 5분 내 trigger 3회 이상 시 강제 ON (단일 trigger drift 회피)
+        └── strike >= 3 → killswitch.engaged.v1 forced=true 발사 + audit reason='STRIKE_THRESHOLD'
+    Step Final. all-clear → killswitch.engaged.v1 발사 + audit reason=trigger
+```
+
+✨ v3.7.0 → v3.8.0 진화: **단일 조건 토픽 발사** → **A+B+C race-safe guard**. 사용자 dogfooding evidence — KillSwitch 발동 시 중복 토픽 + race condition 결함 보고 → PR #648 hotfix.
+
+### 3-3. ✨ KIS_TPS_EXCEEDED LIVE 종합 fix (PR #571·#658·#659 — v3.8.0)
+
+```
+LiveDailyCandleScheduler
+    ↓ 종목 16건 (KOSPI200 watchlist + USER_PATH)
+    ✨ v3.8.0: 종목 간 200ms sleep 마진 (PR #659 — burst 완화 root cause hotfix)
+    ↓
+KisRateLimiterPort.acquire(priority=...) — Bucket4j-Redis (10 req/s)
+    ├── USER_PATH 즉시 / INGESTION normal / **BACKFILL priority=BACKFILL 분리** (PR #658)
+    └── EGW00201 → onTpsExceeded() + **1초 backoff + 1회 재시도** (PR #658 — H4 정밀화)
+    ↓
+H1 페이지 burst 완화 (PR #658) — TPS 카운터 sliding 60s 내 8회 이상 시 자동 pause 2초
+    ↓
+KIS REST 호출
+    ├── 200 + rt_cd="0" → 정상
+    ├── 200 + rt_cd="EGW00201" → onTpsExceeded() + backoff + retry (위 path 정합)
+    └── 5xx → 1회 retry + 실패 시 audit + SystemEvent KIS_RATELIMIT emit (P1 severity)
+```
+
+✨ v3.7.0 → v3.8.0 진화: Bucket4j 인프라는 v3.7.0 LOCK + **LIVE evidence 기반 burst 완화 3건 보강** (200ms sleep · H1 페이지 완화 · H4 backoff 1초·priority 분리). 사용자 LIVE evidence — 16종목 watchlist + 5 timeframe = 80건 burst 시 KIS_TPS_EXCEEDED 빈발 보고 → 3 PR hotfix.
+
+### 3-4. ✨ NXT 통합 시장코드 종목 단위 resolver (ADR 0091, v3.8.0)
+
+```
+SymbolController(/candles) 또는 LiveDailyCandleScheduler
+    ↓
+NxtMarketCodeResolver.resolve(instrumentCode):
+    Step 1. instrument 테이블 lookup → is_kospi200·is_kosdaq150
+    Step 2. allow-list 매트릭스:
+        ├── is_kospi200=true 또는 is_kosdaq150=true → `UN` 우선 (NXT 통합 시도)
+        └── 그 외 → `J` 기본 (KRX 단독)
+    Step 3. allow-list 종목의 `UN` 응답 0건 시 → `J`로 재시도 (fallback)
+    Step 4. NXT 30% 휴리스틱 — UN 응답이 KRX 대비 ±30% volume 편차 시 stale 의심 (PR #660 qa 첫 임무 hotfix)
+        └── stale 30분 검증 — 마지막 backfill 시점이 30분 이상 경과 시 forced refresh
+    ↓
+fid_cond_mrkt_div_code=`UN` 또는 `J` → KIS REST 호출
+```
+
+✨ v3.7.0 → v3.8.0 진화: **market-level 분기 (`KOSPI=UN/KOSDAQ=J`)** → **instrument-level allow-list + fallback + 30% 휴리스틱 + stale 30분 검증**. qa Visual 첫 실전 임무(2026-05-22 KST)에서 NXT 결함 hunt → PR #660 hotfix.
+
+### 3-5. ✨ 자본 path 12 step (v3.7.0 ADR 0084 P0+P1 LOCK 이월 + v3.8.0 KillSwitch race-safe 합류)
+
+v3.7.0 §3-4 baseline 풀세트 유지 + 다음 변경:
+
+```
+Kafka order.intent.v1 (partition by userId)
+    ↓
+OrderRouterKafkaListener (groupId: magicjar-consumer-order)
+    Step 1. OrderIntentEvent deserialize → OrderIntent
+    Step 2. OrderIdempotencyGuard.acquire("order:${idempotencyKey}", 60s)
+    Step 3. TradingModeGate.resolveMode(userId)
+    Step 4. ✨ KillSwitchQueryPort.isOn(userId) — A+B+C race-safe guard 정합 (PR #648)
+            └─ pending(10s) + grace(3s) + strike(3회/5분) 매트릭스 LOCK
+    Step 5. order_request INSERT
+    Step 6. order_event_outbox INSERT (ADR 0084 P1-1) + @TransactionalEventListener(AFTER_COMMIT)
+    Step 7. KisRateLimiterPort.tryAcquire(userId, endpoint, timeout=50ms) — v3.7.0 LOCK + LIVE TPS fix(§3-3)
+    Step 8. KisOrderHttpAdapter.submit(intent, mode) — 1회 retry (500ms backoff)
+            ✨ EGW00201 → 1초 backoff (PR #658)
+    Step 9. order_request UPDATE(status=ACK, kis_order_no=ODNO, ...)
+    Step 10. audit KIS_ACK + ✨ SystemEvent emit (P1 — KIS_TOKEN_EGW00123·KIS_REJECT 분기 hotfix)
+    Step 11. KisExecutionWsListener — H0STCNI0 비동기 수신 + event_id 멱등(V35)
+            ✨ stomp_event qty/executedQty 매핑 누락 fix (PR hotfix — 사용자 dogfooding 0주 toast)
+    Step 12. Kafka publish 실패 시 status='PENDING_RECONCILE' (V36) — reconcile 흡수
+```
+
+✨ v3.8.0 보강 요약:
+- **KillSwitch race-safe**: Step 4 pending+grace+strike 매트릭스 LOCK (사용자 dogfooding evidence)
+- **LIVE TPS fix**: Step 7·8 EGW00201 1초 backoff + priority 분리 + 200ms sleep 마진
+- **SystemEvent emit**: Step 10·11 KIS_TOKEN·KIS_REJECT·WS_DISCONNECTED/RECONNECTED·DRIFT_DETECTED 5 emit point
+- **stomp_event qty mapping fix**: Step 11 FILLED 통보 시 qty/executedQty 정확
+
+### 3-6. v3.7.0 이월 흐름 (변경 없음)
+
+- KIS WS 브릿지 (H0STCNT0·H0STASP0·H0STCNI0/9 26 컬럼) — ADR 0068 D-1 LOCK
+- BoundaryAggregator → 5 boundary closing — ADR 0064 LOCK
+- cold-start·DailyCloseFinalizer·CandleBootstrapRunner — ADR 0042·0062·0063 LOCK
+- Transactional Outbox 흐름 (ADR 0084 P1-1) — v3.7.0 §3-3 LOCK 풀세트 이월
+
+---
+
+## 4. batch 모듈 데이터 흐름 (v3.8.0 LOCK)
+
+### 4-1. Spring Batch 잡 매트릭스
+
+v3.7.0 매트릭스 풀세트 이월. v3.8.0 신규 잡 0건 (운영 인프라 보강만).
+
+| 잡 클래스 | 스케줄 | 역할 | KIS 엔드포인트 | v3.8.0 변경 |
+|----------|-------|------|--------------|------------|
+| `InstrumentSyncJob` | `InstrumentMasterSyncScheduler` | 종목 마스터 sync + `instrument_status_history` diff INSERT | `CTPF1002R` | v3.7.0 LOCK 이월 |
+| `MarketCalendarSyncJob` | — | 영업일 캘린더 | `CTCA0903R` | — |
+| `CorpActionSyncJob` | — | 기업 행위 sync | HHKDB669*C0 (6종) | — |
+| `CandleAdjustmentJob` | `CorpActionSyncJob` 후속 | 수정 주가 조정 | — | — |
+| `DailyPerformanceJob` | cron 00:30 KST | 일별 P&L aggregate | — | — |
+| `CandleBackfillWorker` | `LastCandleAtMonitor` trigger | 갭 검출 + 정밀 backfill | `FHKST03010100`·`FHKST03010200` | ✨ NxtMarketCodeResolver 합류 (ADR 0091) |
+| **✨ `PostgresBackupCron`** ★ | **cron 03:00 KST** | **pg_dump custom format → `_workspace/backups/postgres/daily/YYYY-MM-DD.dump`** | — | ✨ v3.8.0 ADR 0096 P0-OPS-4 — backend-core 책임 |
+| **✨ `RedisSnapshotCron`** ★ | **cron 03:30 KST** | **Redis BGSAVE + RDB 호스트 export → `_workspace/backups/redis/daily/YYYY-MM-DD.rdb`** | — | ✨ v3.8.0 ADR 0096 P0-OPS-4 |
+
+✨ PostgresBackupCron·RedisSnapshotCron은 batch JVM 모듈 영역이 아닌 **macOS crontab 또는 launchd plist** 등록 (ADR 0096 §2-1 — 개발 단계 actor). v3.9.0+에서 docker compose service 승격 검토.
+
+---
+
+## 5. DB 테이블 매트릭스 (Flyway v3.8.0 누적)
+
+### 5-1. v3.7.0 이월 (변경 없음)
+
+V1~V42 baseline 풀세트 + v3.7.0 신규 3건(V40 `order_event_outbox` · V41 `stomp_event` · V42 `instrument_status_history`) LOCK 이월.
+
+### 5-2. ✨ v3.7.x~v3.8.0 patch 누적 + 신규
+
+| 테이블 | Flyway | 신규 시점 | 역할 | ADR |
+|-------|--------|---------|------|-----|
+| `system_event` | V43 | v3.7.x | SystemEvent 영구 audit log (severity P1~P4 · event_type · channel · viewed_at · resolved_at · correlation_id) | ADR 0084 framework + v3.8.0 P1·P2 dashboard |
+
+`system_event` 컬럼 (V43):
+
+```sql
+id             BIGSERIAL    PRIMARY KEY,
+user_id        BIGINT       NOT NULL,
+event_type     VARCHAR(64)  NOT NULL,    -- KIS_RATELIMIT·KIS_TOKEN_EGW00123·KIS_REJECT·DRIFT_DETECTED·WS_DISCONNECTED·WS_RECONNECTED 등
+severity       VARCHAR(8)   NOT NULL CHECK (severity IN ('P1','P2','P3','P4')),
+channel        VARCHAR(64)  NOT NULL,    -- order·account·websocket·reconcile·system 등
+payload_json   JSONB        NOT NULL,
+correlation_id VARCHAR(96)  NULL,        -- WS_DISCONNECTED ↔ WS_RECONNECTED 묶음 추적 (PR P1 emit point 4·5)
+created_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
+viewed_at      TIMESTAMPTZ  NULL,        -- frontend NotificationCenter 마킹
+resolved_at    TIMESTAMPTZ  NULL         -- 사용자 또는 자동 resolve 마킹 (viewed_at 동반 — hotfix)
+```
+
+인덱스:
+- `idx_system_event_user_created (user_id, created_at DESC)` — list query
+- `idx_system_event_user_unread (user_id) WHERE viewed_at IS NULL` — unread counter
+- `idx_system_event_correlation (correlation_id) WHERE correlation_id IS NOT NULL` — WS 묶음 lookup
+
+retention 30d (별도 cron 사이클 — `SystemEventRetentionScheduler` 후속 dispatch).
+
+### 5-3. v3.7.0 → v3.8.0 schema 변경 매트릭스
+
+v3.8.0 baseline 시점에 V43 외 신규 Flyway 0건. **운영 인프라 layer만 보강** (logback·Actuator·SLO·DR/backup·runbook·persistence monitoring) → schema drift 0.
+
+---
+
+## 6. Redis 키 매트릭스 (v3.8.0 누적)
+
+### 6-1. v3.7.0 이월 (변경 없음)
+
+`quote:last:{code}` · `candle:current:{code}:{interval}` 6종 · `indicator:cache:*` · `pattern:cache:*` · `watchlist:source:{userId}` · `instrument:search:idx` · `strategy:active:by_code:*` · `sigdedupe:*` · `trades:freq:*` · `daily_pnl:*` · `balance:user:*` · `order:idem:{key}` · `kis:ratelimit:{userId}:{endpoint-family}` (Bucket4j) · `kis:ratelimit:tps:{userId}` (counter)
+
+### 6-2. ✨ v3.8.0 신규 (KillSwitch race-safe + KIS_TPS LIVE fix)
+
+| Redis 키 패턴 | 자료구조 | 데이터 | TTL | ADR |
+|--------------|---------|-------|-----|-----|
+| `killswitch:pending:{userId}` | STRING (SETNX) | KillSwitch trigger 진행 중 lock | 10s | PR #648 (A — pending) |
+| `killswitch:grace:{userId}` | STRING | KillSwitch ON 후 grace window | 3s | PR #648 (B — grace) |
+| `killswitch:strike:{userId}` | INCR counter | 5분 내 trigger 누적 카운트 | 300s (sliding) | PR #648 (C — strike threshold 3회) |
+| `kis:tps:pause:{endpoint}` | STRING | H1 페이지 burst 완화 시 pause 2초 lock | 2s | PR #658 |
+| `nxt:stale:check:{code}` | STRING | NXT 30분 stale 검증 lock (qa 첫 임무 hotfix) | 1800s | PR #660 |
+
+---
+
+## 7. Kafka 토픽 전체 매트릭스 (v3.8.0)
+
+### 7-1. v3.7.0 이월 + v3.8.0 신규 1건
+
+v3.7.0 18종 풀세트 LOCK + **`system.event.v1`** 신규 (v3.8.0 P2 SystemEvent dashboard).
+
+| 토픽 | partition_key | 발행자 | 소비자 | v3.8.0 변경 |
+|------|--------------|-------|-------|------------|
+| `order.intent.v1` | userId | api·consumer (Outbox 경유) | OrderRouterKafkaListener | — |
+| `order.requested.v1` `order.filled.v1` `order.rejected.v1` `order.cancelled.v1` | userId | consumer (Outbox 경유) | StompOrderNotifier·JournalEventConsumer | — |
+| `signal.generated.v1` | userId | consumer | SignalGeneratedKafkaListener (KillSwitch race-safe Step 4 결합) | — |
+| `risk.violation.v1` | userId | consumer | StompRiskNotifier·JournalEventConsumer | — |
+| `reconcile.run.v1` `reconcile.drift.detected.v1` `killswitch.engaged.v1` | userId | consumer | StompReconNotifier·JournalEventConsumer | KillSwitch race-safe forced=true 분기 추가 |
+| `market.candle.{minute·5m·15m·30m·1h·90m}.closed.v1` | code | consumer | BoundaryClosingKafkaListener·MarketCandleStompForwarder | — |
+| `market.tick.v1` `market.orderbook.v1` | code | api/consumer (KIS WS 브릿지) | MarketTickStompForwarder·MarketOrderbookStompForwarder | — |
+| `watchlist.changed.v1` | userId | api | WatchlistChangedKafkaListener | — |
+| `symbol.detail.command.v1` | code | api | SymbolDetailCommandKafkaListener | — |
+| **✨ `system.event.v1`** ★ | **userId** | **api/consumer (`SystemEventLoggerAdapter`)** | **SystemEventStompNotifier (api)** | **✨ v3.8.0 신규 — P1·P2 fanout** |
+
+### 7-2. ✨ v3.8.0 publish path Outbox 경유 LOCK (v3.7.0 이월)
+
+자본 path 4 producer(intent·requested·filled·rejected)는 v3.7.0 ADR 0084 P1-1 LOCK 이월. `order_event_outbox` INSERT → `@TransactionalEventListener(AFTER_COMMIT)` → KafkaTemplate.send() 매트릭스 LOCK.
+
+`system.event.v1`은 자본 path 외 — Outbox 보장 없이 직접 KafkaTemplate.send() (audit 영구 영속이 system_event 테이블 권위 — v3.8.0 baseline 범위).
+
+---
+
+## 8. ✨ Observability 데이터 흐름 (P0-OPS-1·2·6 — ADR 0094·0095, v3.8.0 신규)
+
+### 8-1. Logback JSON encoder (P0-OPS-1 — ADR 0094)
+
+```
+api/batch/consumer 모듈
+    ↓ slf4j logger
+LogbackJsonEncoderConfig (logback-spring.xml)
+    ├── timestamp ISO8601 KST + level + thread + logger + message
+    ├── correlation_id MDC (자동 — Spring Cloud Sleuth 또는 수동 wiring)
+    ├── userId MDC (jwt filter 자동 set — multi-tenant 격리)
+    └── trace fields (kafka_topic·kafka_partition·http_method·http_uri 등)
+    ↓ stdout (JSON 1줄/이벤트)
+docker compose api-app/batch-app/consumer-app logs → 운영 진단 ELK 또는 grep
+```
+
+✨ 효과: 운영 incident 진단 시 grep·jq 정합. correlation_id로 WS_DISCONNECTED ↔ WS_RECONNECTED 묶음 추적 (PR P1 emit point 4·5).
+
+### 8-2. Actuator/Prometheus + Grafana SLO dashboard (P0-OPS-2·6 — ADR 0094·0095)
+
+```
+api/batch/consumer Actuator endpoints
+    ├── /actuator/health  ← docker compose health check
+    ├── /actuator/info
+    ├── /actuator/prometheus  ← Prometheus scrape (15s interval)
+    └── /actuator/metrics    ← 운영자 수동 inspect
+    ↓ 15s scrape
+docker observability/prometheus (docker compose 등록 — P0-OPS-2)
+    ├── http.server.requests (자동) — S-3 measurement
+    ├── magicjar.signal.to.order.latency timer — S-1 (backend-core wiring)
+    ├── magicjar.system.events counter — S-2·S-4 (persistence-shared SystemEventLoggerAdapter wiring)
+    ├── magicjar.kafka.messages counter — S-5 (killswitch.engaged.v1 빈도)
+    └── magicjar.outbox.lag gauge — P0-OPS-6 (OutboxLagGauge wiring)
+    ↓ PromQL
+docker observability/grafana (P0-OPS-2 baseline + P0-OPS-6 패널 풀세트)
+    ├── SLO 5건 dashboard (S-1~S-5 임계 line + heat map)
+    ├── persistence monitoring (Outbox lag·stomp_event retention·SystemEvent emit rate)
+    └── infrastructure (kafka lag·redis hit ratio·db pool)
+```
+
+✨ ADR 0095 SLO 5건 매트릭스:
+
+| # | 항목 | SLO | warning / critical |
+|---|------|-----|-------------------|
+| S-1 | 시그널 → 주문 지연 | P95 < 5s | ≥ 5s/5m / ≥ 10s/2m |
+| S-2 | KIS WS 연결률 (09:00~15:30 KST) | > 99% | ≥ 1건 WS_DISCONNECTED/5m / ≥ 3건/5m |
+| S-3 | account API 지연 | p95 < 500ms | ≥ 500ms/5m / ≥ 2s/2m |
+| S-4 | KIS rate limit 초과 | < 1건/5분 | ≥ 1건/5m / ≥ 5건/5m |
+| S-5 | KillSwitch 자동 ON | < 1건/일 | ≥ 1건/일 / ≥ 3건/일 |
+
+### 8-3. Alert routing matrix (P0-OPS-3 — ADR 0095)
+
+```
+Prometheus alert manager (또는 직접 PromQL)
+    ↓ warning/critical
+NotificationDispatcher (ADR 0044 reuse)
+    ├── P1 critical → Slack #magicjar-incident (즉시 PagerDuty 대체)
+    ├── P2 warning → Slack #magicjar-ops (5분 dedup window)
+    ├── P3 info → audit log only (SystemEvent emit)
+    └── P4 debug → discard (dev profile만)
+```
+
+routing 매트릭스 — `notification_outbox`(v3.7.0 persistence-shared 이관) + Slack webhook reuse. user별 webhook 분리는 backlog §49.
+
+---
+
+## 9. ✨ DR/backup 데이터 흐름 (P0-OPS-4 — ADR 0096, v3.8.0)
+
+### 9-1. PostgreSQL 매일 backup (RPO 24h LOCK)
+
+```
+cron 매일 03:00 KST (사용자 macOS crontab 또는 launchd plist)
+    ↓
+docker exec magicjar-postgres pg_dump -U magicjar -Fc magicjar
+    ↓ pg_dump custom format
+_workspace/backups/postgres/daily/YYYY-MM-DD.dump  (~수십~수백 MB / 30d)
+    ↓ cron 03:30 KST (retention)
+find _workspace/backups/postgres/daily/ -mtime +7 -delete  (7일 retention LOCK)
+    ↓ 실패 시
+NotificationDispatcher Slack alert (backend-core 후속 wiring — P1)
+```
+
+### 9-2. Redis 매일 snapshot (RPO 24h)
+
+```
+cron 매일 03:30 KST
+    ↓
+docker exec magicjar-redis redis-cli BGSAVE
+    ↓ RDB dump (Redis 컨테이너 내부 /data/dump.rdb)
+docker cp magicjar-redis:/data/dump.rdb _workspace/backups/redis/daily/YYYY-MM-DD.rdb
+    ↓ retention
+find _workspace/backups/redis/daily/ -mtime +3 -delete  (3일 retention LOCK)
+```
+
+### 9-3. RPO/RTO 정의 (ADR 0096 §4)
+
+| 항목 | 정의 | 비고 |
+|------|------|------|
+| RPO (Recovery Point Objective) | **24h** (매일 03:00/03:30 backup) | weekly·WAL archiving은 backlog (§2-2·§2-3) |
+| RTO (Recovery Time Objective) | **4h** (사용자 결재 + pg_restore + Redis restore + 서비스 재기동) | 분기 DR drill 실측 의무 |
+
+### 9-4. 분기 DR drill (ADR 0096 §6 + 운영 헌법 §10-4)
+
+- 분기 1회 사용자 결재 → backend-core가 백업 dump를 staging DB에 restore → qa Visual E2E 시나리오 자동 재현 (Playwright 5 시나리오 LOCK)
+- drill 실패 시 runbook R-2(DR drill) 정합 행동 매트릭스
+
+---
+
+## 10. ✨ Runbook 5 시나리오 (P0-OPS-5 — ADR 0094, v3.8.0)
+
+backend-core 단독 발행 — `docs/operations/runbooks/` 5 파일:
+
+| Runbook | 트리거 | 의무 행동 |
+|--------|--------|---------|
+| R-1: incident response | SLO 5건 중 1건 critical 임계 | NotificationDispatcher P1 Slack → on-call backend-core → MAGICJAR_MODE=MOCK 또는 KillSwitch 수동 ON |
+| R-2: DR drill | 분기 1회 + 사용자 결재 | ADR 0096 §3 pg_restore → Redis restore → qa Visual E2E 자동 재현 |
+| R-3: KillSwitch 자동 ON 대응 | killswitch.engaged.v1 발사 | StompKillSwitchNotifier 사용자 즉시 인지 → 원인 분석(strike·grace·pending evidence) → 사용자 결재 후 KillSwitch OFF |
+| R-4: SLA 위반 대응 | S-1~S-5 SLO 위반 5분 지속 | Grafana dashboard 진단 → root cause grep · jq → hotfix 또는 점진 fix |
+| R-5: KIS rate limit 대응 | KIS_RATELIMIT SystemEvent 5분 5건 이상 | LiveDailyCandleScheduler pause + priority=BACKFILL 검토 + EGW00201 backoff 1초 + sleep 200ms 마진 정합 (PR #571·#658·#659 LOCK) |
+
+---
+
+## 11. ✨ Mermaid 데이터 흐름 — v3.8.0 운영 단계 통합
+
+### 11-1. Observability + SLO + alert routing
+
+```mermaid
+flowchart LR
+    APP1["api JVM"]
+    APP2["batch JVM"]
+    APP3["consumer JVM"]
+
+    LOG["stdout JSON\n(Logback JSON encoder\nP0-OPS-1)"]
+
+    ACT["Actuator endpoints\n/health /info /prometheus /metrics\nP0-OPS-2"]
+
+    PROM["Prometheus\n15s scrape\nMicrometer timer + counter\nP0-OPS-2"]
+
+    GRAF["Grafana SLO dashboard\nS-1~S-5 임계 line + heat\nP0-OPS-6"]
+
+    ALERT["Alert routing\nP1 critical→Slack incident\nP2 warning→Slack ops\nP3 info→SystemEvent\nADR 0095"]
+
+    SLACK["Slack webhook\n(NotificationDispatcher\nADR 0044 reuse)"]
+
+    APP1 --> LOG
+    APP2 --> LOG
+    APP3 --> LOG
+
+    APP1 --> ACT
+    APP2 --> ACT
+    APP3 --> ACT
+
+    ACT --> PROM
+    PROM --> GRAF
+    PROM --> ALERT
+    ALERT --> SLACK
+```
+
+### 11-2. v3.8.0 자본 path + race-safe + LIVE TPS fix + NXT resolver + SystemEvent fanout
+
+```mermaid
+flowchart TD
+    FE_UI["frontend\n(React 19 + TS)"]
+    FE_NC["NotificationCenter 벨\nuseSystemEventStompSubscription\n+ 30s polling fallback"]
+    FE_STOMP["useStompReconnect\nlastDisconnectedAt"]
+
+    API_MAN["ManualOrderController\nPOST /api/orders/manual\n(source=MANUAL)"]
+    API_SE_REST["SystemEventController\nGET /api/system-events\nPATCH /api/system-events/{id}/viewed|resolved"]
+    API_CANDLE["SymbolController\nGET /api/symbols/{code}/candles\n+ NxtMarketCodeResolver"]
+
+    NXT_RES["NxtMarketCodeResolver\nis_kospi200/is_kosdaq150 allow-list\nUN 우선 → J fallback\n+ 30% 휴리스틱 + stale 30분"]
+
+    KAFKA_OI["Kafka order.intent.v1"]
+    KAFKA_SE["Kafka system.event.v1\n(v3.8.0 신규)"]
+
+    ORKL["OrderRouterKafkaListener\n12 step\n+ KillSwitch race-safe Step 4\n(pending+grace+strike)"]
+
+    SE_NOT["SystemEventStompNotifier\n/topic/system.user.{userId}"]
+    SE_LOG["SystemEventLoggerAdapter\n(persistence-shared)\nsystem_event INSERT (V43)"]
+
+    BUCKET["Bucket4j-Redis\nKisRateLimiterPort\n10 req/s\n+ LIVE TPS fix:\n200ms sleep / H1 pause 2s / EGW00201 1s backoff"]
+
+    KIS_REST["KIS REST\nTTTC/VTTC 6 tr_id\n+ EGW00201 retry"]
+
+    DB_OR["order_request\n(V36 PENDING_RECONCILE\nV37 source\nV38 FK relax)"]
+    DB_OUTBOX["order_event_outbox (V40)\nPENDING/PUBLISHED/FAILED"]
+    DB_STOMPEV["stomp_event (V41)"]
+    DB_SE["system_event (V43)\nseverity P1~P4\ncorrelation_id\nviewed_at·resolved_at"]
+
+    PROD_4["4 자본 producer + 1 SystemEvent\n(Outbox + 직접 send)"]
+    KAFKA_R["order.requested.v1\norder.filled.v1\norder.rejected.v1\n(Outbox 경유)"]
+
+    STOMP_O["StompOrderNotifier\nStompRiskNotifier\nStompReconNotifier\nStompKillSwitchNotifier"]
+
+    KIS_WS["KIS WS\nH0STCNI0/9 26컬럼"]
+    KEWL["KisExecutionWsListener\n+ qty/executedQty 정확 매핑"]
+
+    KSGUARD["KillSwitchRaceSafeGuard\nA pending(10s) +\nB grace(3s) +\nC strike(3회/5분)"]
+
+    BAL_REC["BalanceReconcileService\n+ DRIFT_DETECTED emit"]
+    WS_BR["KisWebSocketBridge\n+ WS_DISCONNECTED+RECONNECTED\n   correlationId"]
+
+    %% System Event emit path
+    BAL_REC --> SE_LOG
+    WS_BR --> SE_LOG
+    BUCKET -->|"KIS_RATELIMIT P1"| SE_LOG
+    KIS_REST -->|"KIS_TOKEN_EGW00123\nKIS_REJECT"| SE_LOG
+    KSGUARD -->|"KILLSWITCH_AUTO_ON"| SE_LOG
+    SE_LOG --> DB_SE
+    SE_LOG --> KAFKA_SE
+    KAFKA_SE --> SE_NOT
+    SE_NOT --> FE_NC
+    SE_NOT --> DB_STOMPEV
+
+    %% NotificationCenter REST path
+    FE_NC --> API_SE_REST
+    API_SE_REST --> DB_SE
+
+    %% 자본 path
+    FE_UI -->|"수동 주문"| API_MAN
+    API_MAN --> KAFKA_OI
+    KAFKA_OI --> ORKL
+    ORKL --> KSGUARD
+    KSGUARD -->|"all-clear"| DB_OR
+    DB_OR --> DB_OUTBOX
+    DB_OUTBOX -->|"@TransactionalEventListener\nAFTER_COMMIT"| PROD_4
+    PROD_4 --> KAFKA_R
+    ORKL --> BUCKET
+    BUCKET --> KIS_REST
+    KIS_REST --> DB_OR
+
+    %% 체결 통보
+    KIS_WS --> KEWL
+    KEWL --> DB_STOMPEV
+    KEWL --> STOMP_O
+    STOMP_O --> FE_UI
+
+    %% 차트 + NXT
+    FE_UI -->|"종목 차트"| API_CANDLE
+    API_CANDLE --> NXT_RES
+    NXT_RES --> BUCKET
+    BUCKET --> KIS_REST
+```
+
+---
+
+## 12. strategy-engine 모듈 흐름 (ADR 0092 — v3.8.0 신규)
+
+```
+strategy-engine (library jar — Boot main 0)
+├── kr.spdaewoon.magicjar.strategy.engine.parser
+│     └── KisYamlDslParser — DSL YAML → AST 변환
+├── kr.spdaewoon.magicjar.strategy.engine.evaluator
+│     ├── JvmStrategyEvaluator — AST 평가 본체 (지표·패턴 의존 주입)
+│     ├── IndicatorRef·PatternRef·CompositeRef — AST 노드
+│     └── StrategyEvaluationContext — 캔들·지표·패턴 입력
+└── kr.spdaewoon.magicjar.strategy.engine.callback
+      └── EvaluatorTimeoutCallback — timeout auto-disable hook
+
+의존:
+  domain ← strategy-engine (StrategyEvaluatorPort 시그니처)
+  api → strategy-engine (KisYamlDslParser + JvmStrategyEvaluatorAdapter @Primary)
+  consumer → strategy-engine (JvmStrategyEvaluator 시그널 생성 본체)
+```
+
+✨ **HOLD stub P0 결함 차단 효과**:
+- v3.7.0 이전: api 전략 CRUD가 consumer 모듈을 직접 의존 못 함(ADR 0004) → `HOLD` stub 또는 빈 `IndicatorRef("stub")` AST 저장 → API 백테스트·스크리너가 실제 평가기와 분리 (사용자가 등록한 전략이 실 매매와 다른 path 가능)
+- v3.8.0: api·consumer 모두 `project(":strategy-engine")` 의존 → 동일 `KisYamlDslParser.parse()` + `validateStatic()` + `JvmStrategyEvaluator` 사용 → 전략 등록·검증·백테스트·스크리너·실시간 시그널 5 path가 동일 본체 LOCK
+
+✨ **후속 P0-2 의제 (ADR 0092 §결과)**: `LiveCandleMerger`를 api·consumer 공용 정책으로 승격 또는 `CandleEvaluationSource` 포트 신설 — 당일 진행 중 캔들 합류 보장. v3.8.0 baseline 외 (backlog 등재).
+
+---
+
+## 13. boundary 시각 매트릭스 (v3.3.0 이월 — 변경 없음)
+
+| Interval | boundary 시각 (KST) | bar/일 | Redis 키 TTL |
+|----------|-------------------|-------|------------|
+| 5m | 08:05·…·19:55·20:00 | 144 | 25h |
+| 15m | 08:15·…·19:45·20:00 | 48 | 25h |
+| 30m | 08:30·…·19:30·20:00 | 24 | 25h |
+| 90m | 09:30·…·18:30·20:00 | 8 | 25h |
+| 1h | 09:00·…·19:00·20:00 | 12 | 25h |
+
+v3.8.0 추가 부하 예상:
+- `system_event`: ~30 row/일/사용자 (SystemEvent 5 emit point + retention 30d) — 900 row 정상 누적 (지수 증가 risk 0 — retention LOCK)
+- KillSwitch Redis lock 3종: TTL 짧음 (10s·3s·300s sliding) — Redis 부담 ε
+- Observability scrape: 15s × 4건 = 분당 16 scrape × 100~200 metric/scrape = 분당 1.6K~3.2K 데이터 포인트 (Prometheus 1주 retention default OK)
+
+영향 0. PostgreSQL·Redis 부담 ε.
+
+---
+
+## 14. ADR 정합 참조 (v3.8.0 갱신)
+
+| ADR | 관련 흐름 |
+|-----|---------|
+| ADR 0004 | 모듈 경계 — **8 모듈로 확장** (+ strategy-engine) |
+| ADR 0007 | Kafka 이벤트 backbone — Outbox publish path LOCK 이월 |
+| ADR 0010 | Multi-tenant — userId 격리 (v3.7.0 ADR 0089 number 통일 정합) |
+| ADR 0037 | KIS Rate Limit — Bucket4j-Redis amend + **LIVE TPS fix 3건 보강** (PR #571·#658·#659) |
+| ADR 0043·0070 | KillSwitch — **A+B+C race-safe guard amend** (PR #648) |
+| ADR 0044 | Notification — Alert routing (P0-OPS-3 ADR 0095 정합) |
+| ADR 0051 | Repository default fun 함정 — 8 모듈 모든 Repository body 0 LOCK |
+| ADR 0068·0084 | T-O 자본 path — v3.7.0 baseline 풀세트 + v3.8.0 KillSwitch race-safe + SystemEvent emit point 5건 |
+| ADR 0083 | indicator-impl 모듈 (패턴 baseline) |
+| ADR 0088 | persistence-shared 모듈 (v3.7.0 LOCK 이월) |
+| ADR 0091 | **NXT 통합 시장코드 종목 단위 resolver** (v3.8.0 신규 — KOSPI200·KOSDAQ150 allow-list + fallback) |
+| ADR 0092 | **strategy-engine 모듈** (v3.8.0 신규 — DSL parser + StrategyEvaluator api·consumer 공유) |
+| ADR 0093 | **차트 캔들 history limit + Lazy backfill** (Proposed — v3.8.x 합류) |
+| ADR 0094 | **운영 단계 transition** (v3.8.0 권위 — 8→7 hierarchy + qa Visual 격상 + chart-curator 해고 + P0 OPS 6건) |
+| ADR 0095 | **SLO/SLA + alert routing** (v3.8.0 신규 — S-1~S-5 + P1·P2·P3 routing) |
+| ADR 0096 | **DR/backup 절차** (v3.8.0 신규 — pg_dump cron + Redis snapshot + RPO 24h/RTO 4h) |
+
+---
+
+## 15. 💡 v3.8.0 리팩토링맨 lens 진보 평가
+
+| 영역 | 진보도 | 평가 |
+|------|-------|------|
+| 모듈 격리 | ★★★★★ | 7 → 8 모듈 (strategy-engine 추가) — HOLD stub P0 결함 영구 차단 |
+| Observability | ★★★★★ | 0 → logback JSON + Actuator/Prometheus + Grafana SLO dashboard — 운영 단계 baseline 풀세트 |
+| SLO/SLA 정의 | ★★★★★ | 0 → S-1~S-5 5건 LOCK + alert routing P1·P2·P3 매트릭스 |
+| DR/backup | ★★★★ | 0 → pg_dump cron + Redis snapshot + RPO 24h/RTO 4h + 분기 drill |
+| Runbook | ★★★★ | 0 → 5 시나리오 R-1~R-5 — 운영 incident 대응 LOCK |
+| KillSwitch race-safe | ★★★★★ | 단일 조건 → A+B+C (pending+grace+strike) — 사용자 dogfooding evidence 흡수 |
+| KIS_TPS LIVE fix | ★★★★ | Bucket4j baseline + LIVE evidence 3건 보강 (200ms sleep · H1 pause · 1초 backoff·priority 분리) |
+| NXT resolver | ★★★★ | market-level → instrument-level allow-list + fallback + 30% 휴리스틱 + stale 검증 |
+| SystemEvent dashboard | ★★★★ | emit 5 point + Kafka fanout + STOMP push + REST query + NotificationCenter 벨 — 운영 가시성 회복 |
+| QA Visual 격상 | ★★★★ | 0 → Playwright 5 시나리오 + 첫 실전 결함 hunt(NXT) — 회귀 자동화 baseline |
+
+✨ **W3 마감 + 운영 단계 진입 종합 평가**: v3.7.0이 자본 path 안정성(P0+P1)이었다면 v3.8.0은 **운영 단계 1차 baseline** — 6 운영 영역(observability·SLO·DR·runbook·persistence monitoring·SystemEvent dashboard) + 5 자본 path 보강(KillSwitch race-safe·KIS_TPS LIVE fix·NXT resolver·strategy-engine 통합·QA 회귀 자동화) 풀세트. 룰 본체 추가 0건 + 운영 단계 fitness 9건 충족 — "기능 완성 + 트랙 진입" → "안정 운영 + 점진 개선" mindset 전환 완료.
+
+🔄 **Risk 흡수 매트릭스 (v3.8.0 → v3.8.x patch 후보)**:
+- ADR 0093 차트 lazy backfill 합류 (Proposed → Accepted) — chart-curator 해고 후 frontend 단독 책임
+- weekly backup + WAL archiving (ADR 0096 §2-2·§2-3 backlog)
+- ArchUnit 게이트(KIS REST strict gate) — backend-core 후속 사이클
+- AccountReconcile cron + MarketSessionFsm 결합 (drift 임계치 사용자 설정화)
+- user별 Slack webhook 분리 + Discord/Email/SMS 보조 채널
+- T-J 차트 스냅샷 자동 영속
+- T-PERF Sharpe·Sortino·CAGR 지표 확장
+- 일별 잔고 history 영속 (T-ACCT)
+- cooldown 60s 사용자 설정화 (T-MAN)
+- W4 진입 게이트(T-AI·T-MCP) — 운영 단계 안정 dwell evidence 확보 후 사용자 결재 의존
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>

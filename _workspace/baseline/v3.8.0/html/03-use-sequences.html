@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>03-use-sequences — magicJar v3.8.0 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">📁 인덱스</a><a href="01-architecture.html">01 Architecture</a><a href="02-data-flow.html">02 Data Flow</a><a href="03-use-sequences.html" class="active">03 Use Sequences</a><a href="04-feature-spec.html">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html">06 History</a><a href="07-policy-evolution.html">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.8.0 Baseline · 2026-05-22 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># v3.8.0 사용자 유즈 시퀀스 + KIS-first raw 출처
+
+> **작성자**: market-data (bot+market-data@magicjar.local)
+> **작성일**: 2026-05-22
+> **기준 시점**: v3.8.0 — **운영 단계 진입 1차 baseline** (ADR 0094 amend — 8→7 actor reshuffle · qa Visual "품질 헌터" 격상 · chart-curator 해고 [캔들 SLA → market-data 인수] · LWC v4 → frontend) + P0 OPS 6건 마감 (P0-OPS-1·2 logback JSON + Actuator/Prometheus + Grafana / P0-OPS-3 ADR 0095 SLO/SLA + alert routing / P0-OPS-4 ADR 0096 DR/backup / P0-OPS-5 runbook R-1~R-5 / P0-OPS-6 persistence monitoring + SLO source wiring) + KillSwitch race-safe A+B+C (ADR 0043·0070 amend — PR #647·#648) + KIS WS 끊김 emit 회복 (PR #644·#645) + LiveDailyCandleScheduler 5분 cron + KIS_TPS_EXCEEDED 종합 fix (PR #658·#659) + QA Visual 첫 셋업 (Playwright + 5 시나리오 baseline) + symbol detail current price QA hotfix (NXT 30% + stale 30분, PR #660)
+> **KIS-first 의무**: 헌법 §3 정합 — 자체 추론 0, 모든 endpoint·tr_id·필드는 raw 출처 인용 의무 (`docs/architecture/policies/kis-first-raw-fetch.md` 권위)
+> **v3.7.0 대비 변경**: 시나리오 S-1·S-2·S-3·S-4·S-5·S-6·S-7 7건 신규/amend (v3.7.0 baseline 위 add-only 누적 + 일부 시나리오는 v3.7.0 18·19와 cross-ref). v3.7.0 시나리오 1~23은 본 baseline 위에 add-only 보존.
+
+---
+
+## 0. 변경 매트릭스 — v3.7.0 → v3.8.0
+
+| # | 영역 | 트리거 | 시나리오 |
+|---|---|---|---|
+| S-1 | market-data + backend-core | KIS credential 정책(ADR 0038·0046) + 운영 baseline 진입 | 사용자 KIS 키 등록 + OAuth tokenP 발급 + 23h cache + ReentrantLock + Redis SETNX |
+| S-2 | market-data + frontend | 종목상세 페이지 진입(REST + STOMP) + QA hotfix(PR #660 NXT 30% + stale 30분) | `/api/symbols/{code}` + `quote:last` Redis + STOMP `/topic/market.tick.{code}` |
+| S-3 | market-data (chart-curator 해고 후 인수) | LiveDailyCandleScheduler 5분 cron + KIS_TPS_EXCEEDED 종합 fix(PR #658·#659) | 1d backfill 페이지 150ms sleep + 종목 200ms sleep + EGW00201 1초 backoff·1회 재시도 + priority=BACKFILL |
+| S-4 | market-data + backend-core (consumer 영역) | 사용자 자율 주문 흐름 + 3중 게이트 REAL 본격 진입 | NewOrder POST → api Outbox INSERT → consumer drain → Kafka → consumer listener → KIS submit |
+| S-5 | market-data + backend-core | KIS WS H0STCNI 체결통보 + STOMP fanout (ADR 0068) | KIS WS H0STCNI0/H0STCNI9 → KisExecutionWsListener → `/topic/order.execution.{userId}` |
+| S-6 | market-data + backend-core | KillSwitch race-safe A+B+C (ADR 0043·0070 amend — PR #647·#648) | 사용자 toggle → pending+grace+strike guard → 자율매매 차단 LOCK |
+| S-7 | 운영 단계 (P0-OPS-4 + ADR 0096) | DR drill 분기 1회 의무 + R-4 runbook | pg_dump custom + Redis BGSAVE + RPO 24h + RTO 30분 + qa Visual E2E 자동 재현 |
+
+---
+
+## 1. raw 출처 인용 인덱스 (v3.8.0 추가분)
+
+v3.7.0 baseline `03-use-sequences.md` 인용 인덱스 R1~R20은 본 baseline 위에 그대로 LOCK. 본 § 1은 v3.8.0 신규 시나리오 S-1~S-7에 필요한 raw 출처 R21~R23 add-only.
+
+| # | 출처 | raw URL | 사용 시나리오 |
+|---|---|---|---|
+| R1 | KIS KOSPI master(73필드) | `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/stocks_info/kis_kospi_code_mst.py` | (v3.6.0 baseline 인용 — S-2·S-3 cross-ref) |
+| R5 | KIS WS 체결가 H0STCNT0 | `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/websocket/kis_websocket.py` | S-2 실시간 시세 (44 컬럼) |
+| R6 | KIS REST 현재가 FHKST01010100 | `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_price/inquire_price.py` | S-2 종목상세 진입 시 1회 호출 |
+| R7 | KIS REST 일봉 FHKST03010100 | `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py` | S-3 1d backfill (LiveDailyCandleScheduler) |
+| R12 | KIS REST 주문 TTTC0012U/VTTC0012U | `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/python/examples_llm/domestic_stock/order_cash/order_cash.py` | S-4 REAL/MOCK 주문 submit |
+| R14 | KIS WS H0STCNI0/H0STCNI9 체결통보 | `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/websocket/ccnl_notice.py` | S-5 체결 STOMP push |
+| R15 | KIS auth getHashKey | `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/auth/auth.py` | S-4 REAL POST 주문 hashkey 헤더 |
+| **R21** | **KIS OAuth tokenP (oauth2)** | `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/auth/kis_auth.py` (`auth()` 본체 + `oauth2/tokenP` 호출) | **S-1 토큰 발급 + 23h cache + ReentrantLock + Redis SETNX (ADR 0038)** |
+| **R22** | **KIS REST 일별 체결 (inquire_ccnl) — S-5 backfill cross-ref** | `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_ccnl/inquire_ccnl.py` | **S-5 WS race + REST backfill (v3.7.0 R16 reuse)** |
+| **R23** | **KIS REST 잔고 (inquire_balance) — S-6 KillSwitch 후 포지션 확인 cross-ref** | `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_balance/inquire_balance.py` | **S-6 KillSwitch 토글 후 보유 포지션 view (v3.7.0 R19 reuse)** |
+
+**v3.8.0 KIS-first 의무 (헌법 §3 + ADR 0094 §9-1 + ADR 0096 §5-1 정합)**:
+- 시나리오 S-1 — KIS `oauth2/tokenP` 호출 시 R21 raw 출처 inline KDoc 의무. body `{grant_type, appkey, appsecret}` + 응답 `{access_token, access_token_token_expired}` 매핑 자체 추론 0.
+- 시나리오 S-2 — `inquire-price`(R6) `output.stck_prpr` raw 보존 + STOMP fanout 응답 `prpr` 컬럼 raw 정합. NXT 야간 거래량 휴리스틱(PR #660)은 raw KIS 응답 그대로 흡수 후 별도 SymbolMetaService 헬퍼 분리.
+- 시나리오 S-3 — `inquire-daily-itemchartprice`(R7) `output2[]` DESC → ASC 정규화 LOCK(PR #540 raw 출처 정합). EGW00201 1초 backoff + 1회 재시도(PR #659) raw 출처는 KisHashKeyAdapter:126 패턴 inline cross-ref 의무.
+- 시나리오 S-4 — `order_cash`(R12) tr_id REAL TTTC0012U / MOCK VTTC0012U 매트릭스 + hashkey(R15) 헤더 의무.
+- 시나리오 S-5 — `ccnl_notice()`(R14) 26 컬럼 LOCK + 재연결 backfill 시 `inquire-ccnl`(R22) raw 컬럼 매핑.
+- 시나리오 S-6 — KillSwitch race-safe A+B+C 자체 결정론 (KIS endpoint 직접 호출 아님 — KIS submit 단계 직전 차단 path). R23 cross-ref는 사용자가 toggle 직후 잔고 view 진입할 때만 발동.
+- 시나리오 S-7 — DR drill 시 KIS endpoint 0건 (영속 dump + RDB 복원 path).
+
+**ADR 0094 §9-1 운영 단계 의무 정합**:
+- S-1·S-2·S-3·S-4·S-5 모든 KIS REST 호출 직전 `KisRateLimiterPort.acquire(priority)` 호출 의무 (ADR 0037 amend — Bucket4j-Redis baseline + PR #571).
+- S-3 BACKFILL priority LOCK (PR #659 §C 신규 — `refresh()` parameter 추가, USER_PATH 양보).
+- S-4 USER_PATH priority LOCK (화면 path 직결).
+- S-5 INGESTION priority (WS 재연결 backfill).
+- KIS 공식 한도 "초당 10건" raw 출처: PR #571 inline KDoc + open-trading-api EGW00201 cross-ref.
+
+---
+
+## 2. 시나리오 1~23 (v3.7.0 baseline 보존 — add-only 참조)
+
+> 시나리오 1~23은 v3.7.0 + v3.6.0 `03-use-sequences.md` 본문 그대로 유지. 본 v3.8.0 baseline은 v3.7.0 위에 시나리오 **S-1·S-2·S-3·S-4·S-5·S-6·S-7** 7건만 신규 추가.
+>
+> **참조**: `_workspace/baseline/v3.7.0/03-use-sequences.md` + `_workspace/baseline/v3.6.0/03-use-sequences.md`
+> - v3.6.0 시나리오 1·2 — 사용자 가입 + 종목마스터 (KOSPI 73필드 + KOSDAQ 67필드)
+> - v3.6.0 시나리오 3·4·5·6 — KIS WS H0STCNT0 44 컬럼 + REST 현재가·일봉·분봉
+> - v3.6.0 시나리오 7~14 — 전략·시그널·백테스트
+> - v3.6.0 시나리오 15·16·17 — T-O 주문 실행 흐름 (모의 정상·3중 게이트 BLOCKED·분할 체결)
+> - v3.7.0 시나리오 18 — REAL hashkey + rate limit acquire
+> - v3.7.0 시나리오 19 — KIS WS H0STCNI 재연결 + inquire-ccnl backfill
+> - v3.7.0 시나리오 20 — 일봉 DESC → ASC 정규화 UPSERT
+> - v3.7.0 시나리오 21 — instrument_status_history INSERT/UPDATE
+> - v3.7.0 시나리오 22 — 잔고·보유종목 조회
+> - v3.7.0 시나리오 23 — Outbox publish chain (api INSERT → consumer drain → Kafka)
+
+---
+
+## 3. 시나리오 S-1: 사용자 KIS 키 등록 + 토큰 발급 (v3.8.0 신규 — ADR 0038 + ADR 0046 정합)
+
+**목적**: 사용자 ⚙️ SettingsModal 진입 → KIS appkey/appsecret + CANO + 계좌상품코드 입력 → `UserKisCredentialController` POST → AES 암호화 후 DB 저장 → 첫 KIS REST 호출 트리거 → `KisTokenAdapter.acquireToken()` → `oauth2/tokenP` 호출 → access_token 23h Redis cache + ReentrantLock(JVM 단일 머신 race 차단) + Redis SETNX(다중 머신 race 차단) → 후속 KIS 호출은 cache hit.
+
+**관련 PR/ADR**: ADR 0038(KIS 토큰 24h cache + JVM ReentrantLock + Redis SETNX 이중 lock) · ADR 0046(KIS credential per-user 저장 정책) · ADR 0094 §9-3(사용자 단독 운영자 가정 + ⚙️ SettingsModal 입력 baseline) · `project_kis_key_management.md` 메모리(개발 중 ⚙️ SettingsModal 입력 + DB AES 암호화) · `project_kis_key_realonly_for_data.md` 메모리(정보 수집은 실전 키 단일)
+
+**KIS-first raw 출처 (헌법 §3 LOCK)**:
+
+| endpoint | 환경 | raw 출처 | 비고 |
+|---|---|---|---|
+| `POST /oauth2/tokenP` | prod·vps 공통 | **R21** `examples_user/auth/kis_auth.py` (`auth()` 본체) | grant_type=client_credentials |
+| host (prod) | 조회·시세 | `https://openapi.koreainvestment.com:9443` | KIS 공식 |
+| host (vps) | 주문(모의) | `https://openapivts.koreainvestment.com:29443` | KIS 공식 |
+| 응답 LOCK | — | `{access_token, access_token_token_expired, expires_in=86400, token_type=Bearer}` | 24h LOCK |
+
+```mermaid
+sequenceDiagram
+    participant FE as Frontend SettingsModal<br/>(KisCredentialForm)
+    participant SettingsCtrl as UserKisCredentialController<br/>(api)
+    participant CredService as UserKisCredentialService<br/>(backend-core)
+    participant Crypto as AES256Encryptor<br/>(backend-core — ADR 0046 §2-3)
+    participant CredRepo as UserKisCredentialRepository<br/>(persistence-shared — ADR 0088)
+    participant TokenAdapter as KisTokenAdapter<br/>(market-data — ADR 0038)
+    participant LocalLock as ReentrantLock<br/>(JVM 단일 머신 race 차단)
+    participant RedisLock as Redis SETNX<br/>(다중 머신 race 차단)
+    participant RedisCache as Redis<br/>(kis:token:{userId}:{accountType} TTL 23h)
+    participant KisAuth as KIS<br/>(openapi.koreainvestment.com:9443)
+
+    FE->>SettingsCtrl: POST /api/me/kis-credential<br/>{ appkey, appsecret, cano, acntPrdtCd, accountType=REAL }
+    SettingsCtrl->>CredService: save(userId, dto)
+    CredService->>Crypto: encrypt(appsecret)
+    Crypto-->>CredService: ciphertext (AES-256-GCM)
+    CredService->>CredRepo: save(UserKisCredential { user_id, appkey, appsecret_cipher, cano, acnt_prdt_cd, account_type=REAL, real_trading_consent_at=NULL })
+    note over CredRepo: ADR 0046 §2-3 — appsecret 평문 보존 0 (`feedback_secret_handling`)
+    CredRepo-->>CredService: UserKisCredential { id, created_at }
+    CredService-->>SettingsCtrl: 200 { credentialId, masked }
+    SettingsCtrl-->>FE: 200 (key 등록 완료)
+
+    Note over FE: 사용자 첫 KIS 호출 트리거 (예: 종목상세 진입 — S-2 진입점)
+    FE->>SettingsCtrl: (후속) GET /api/symbols/005930
+    SettingsCtrl->>TokenAdapter: acquireToken(userId, accountType=REAL)
+
+    TokenAdapter->>RedisCache: GET kis:token:{userId}:REAL
+    alt cache hit
+        RedisCache-->>TokenAdapter: { access_token, expires_at, cached_at }
+        TokenAdapter-->>SettingsCtrl: token (cache hit)
+    else cache miss
+        TokenAdapter->>LocalLock: lock(userId+accountType)
+        note over LocalLock: ADR 0038 §2-1 JVM ReentrantLock<br/>같은 user/account 다중 동시 호출 시 한 번만 발급
+        LocalLock-->>TokenAdapter: acquired
+
+        TokenAdapter->>RedisCache: GET kis:token:{userId}:REAL (재확인)
+        alt 동시 호출 사이 cache 채워졌음 (다른 thread 우선)
+            RedisCache-->>TokenAdapter: { access_token, expires_at }
+            TokenAdapter-->>SettingsCtrl: token (race 회피 hit)
+        else 여전히 miss
+            TokenAdapter->>RedisLock: SETNX kis:token:lock:{userId}:REAL "<jvm-id>" EX 30
+            note over RedisLock: ADR 0038 §2-2 Redis SETNX 이중 lock<br/>다중 머신/컨테이너 환경에서도 단일 발급 LOCK<br/>EX 30s — KIS API 자체 latency 대비 충분
+            alt SETNX OK (lock 획득)
+                RedisLock-->>TokenAdapter: true
+
+                TokenAdapter->>CredRepo: findByUserAndType(userId, REAL)
+                CredRepo-->>TokenAdapter: UserKisCredential { appkey, appsecret_cipher }
+                TokenAdapter->>Crypto: decrypt(appsecret_cipher)
+                Crypto-->>TokenAdapter: appsecret (in-memory only)
+
+                TokenAdapter->>KisAuth: POST /oauth2/tokenP<br/>headers: content-type=application/json<br/>body: { grant_type="client_credentials", appkey, appsecret }<br/>raw 출처: examples_user/auth/kis_auth.py auth() (R21)
+                alt 정상
+                    KisAuth-->>TokenAdapter: 200<br/>{ access_token="eyJ...JWT 350자",<br/>access_token_token_expired="2026-05-23 14:38:00",<br/>expires_in=86400, token_type="Bearer" }
+                    TokenAdapter->>RedisCache: SETEX kis:token:{userId}:REAL 82800 {access_token, expires_at, cached_at}
+                    note over RedisCache: TTL 23h LOCK (24h - 1h 마진 — KIS 토큰 종료 직전 race 회피)
+                    TokenAdapter->>RedisLock: DEL kis:token:lock:{userId}:REAL
+                    TokenAdapter-->>SettingsCtrl: token (신규 발급 완료)
+                else KIS EGW00123 (token expired race)
+                    KisAuth-->>TokenAdapter: 200 { rt_cd="EGW00123", msg1="기간이 만료된 토큰입니다" }
+                    note over TokenAdapter: ★ self-heal — `hotfix(api): KIS 토큰 EGW00123` (775c87fe) 정합<br/>cache evict + 1회 재발급
+                    TokenAdapter->>RedisCache: DEL kis:token:{userId}:REAL
+                    TokenAdapter->>KisAuth: POST /oauth2/tokenP (2회차 — 재발급)
+                    KisAuth-->>TokenAdapter: 200 { access_token, ... }
+                    TokenAdapter->>RedisCache: SETEX (재캐시)
+                else KIS 인증 실패 (appkey/appsecret invalid)
+                    KisAuth-->>TokenAdapter: 200 { rt_cd != "0", msg1="유효하지 않은 KEY 정보" }
+                    note over TokenAdapter: 즉시 실패 — 재시도 0 (사용자 메모리 `feedback_secret_handling`)
+                    TokenAdapter->>RedisLock: DEL kis:token:lock:{userId}:REAL
+                    TokenAdapter-->>SettingsCtrl: throw KisCredentialInvalidException
+                end
+            else SETNX 실패 (다른 머신/컨테이너 발급 중)
+                RedisLock-->>TokenAdapter: false
+                TokenAdapter->>TokenAdapter: poll 100ms × N (deadline 5s)
+                TokenAdapter->>RedisCache: GET kis:token:{userId}:REAL
+                alt 다른 머신 발급 완료
+                    RedisCache-->>TokenAdapter: token (race 회피 hit)
+                else 다른 머신 발급 실패
+                    TokenAdapter-->>SettingsCtrl: throw KisTokenAcquireTimeoutException
+                end
+            end
+        end
+        TokenAdapter->>LocalLock: unlock
+    end
+```
+
+**dogfooding 검증 evidence (ADR 0038 정합 + EGW00123 self-heal hotfix 정합)**:
+- DB: `user_kis_credential` row 1건 (사용자당 — account_type=REAL/MOCK)
+- DB: `appsecret_cipher` 컬럼은 AES-256-GCM 암호문(평문 0건 — `feedback_secret_handling`)
+- Redis: `kis:token:{userId}:REAL` TTL 82800s (23h) — `redis-cli TTL ...` 확인
+- 회귀: 동일 user/account 24h 내 KIS `oauth2/tokenP` 호출 1회만 발생 (cache hit 확인 — KIS 측 rate limit 회피)
+- 회귀: EGW00123 발생 시 cache evict + 1회 재발급 후 정상 흐름 (commit 775c87fe evidence)
+
+**보안 매트릭스 (사용자 메모리 `feedback_secret_handling` 정합)**:
+
+| 항목 | 정책 |
+|---|---|
+| appsecret 평문 보존 | 0 — DB는 AES-256-GCM cipher만 |
+| 응답에 appsecret 노출 | 0 — 응답 DTO에 `appsecretMasked` (앞 4자 + `***`) |
+| 로그에 appsecret 출력 | 0 — `MaskingLogger` 적용 |
+| KIS HTTP 호출 시 appsecret | in-memory only — decrypt 직후 즉시 KIS 헤더 + GC 적격 |
+| Redis cache 키 명명 | `kis:token:{userId}:{accountType}` — appsecret 노출 0 |
+
+**latency 예측**:
+
+| 단계 | 예상 latency |
+|---|---|
+| KIS 토큰 cache hit | <5ms (Redis GET) |
+| KIS 토큰 cache miss + ReentrantLock + Redis SETNX 신규 발급 | ~200ms (KIS oauth2/tokenP 1회) |
+| EGW00123 self-heal | ~400ms (2회 호출) |
+
+---
+
+## 4. 시나리오 S-2: 종목상세 페이지 진입 (REST + STOMP — QA hotfix 정합)
+
+**목적**: 사용자 종목상세 페이지(`/symbol/:code`) 진입 → frontend `useSymbolMeta` 호출 → backend-core `SymbolController.getSymbol(code)` → `SymbolMetaService.fetch(code)` → Redis `quote:last:{code}` cache 확인 → cache hit이면 즉시 반환 / cache miss이면 market-data `KisQuoteAdapter.inquirePrice(code)` REST 호출 → KIS `FHKST01010100` 응답 → NXT 야간 휴리스틱(30% 임계, PR #660) + stale 30분 검증(PR #660) → DTO 매핑 → frontend SymbolDetailHeader 표시 → 동시에 STOMP subscribe `/topic/market.tick.{code}` → KIS WS H0STCNT0 fanout → 실시간 가격 갱신.
+
+**관련 PR/ADR**: PR #660(NXT 30% 휴리스틱 + stale 30분 시간 경과 검증 — `SymbolMetaServiceNxtStaleTest` 17/17 PASS) · QA 첫 임무 보고서(`_workspace/reports/2026-05-21-qa-first-mission-symbol-detail.md`) · ADR 0064(WS fanout boundary) · ADR 0091(NXT MARKET_DIV_CODE resolver) · backlog §59(candle venue 컬럼 도입 P1)
+
+**KIS-first raw 출처 (헌법 §3 LOCK)**:
+
+| tr_id | 환경 | endpoint | raw 출처 |
+|---|---|---|---|
+| `FHKST01010100` | 현재가 1회 | `GET /uapi/domestic-stock/v1/quotations/inquire-price` | **R6** `examples_llm/inquire_price/inquire_price.py` |
+| `H0STCNT0` | 실시간 체결가 WS | WS subscribe | **R5** `examples_user/websocket/kis_websocket.py` (44 컬럼) |
+
+```mermaid
+sequenceDiagram
+    participant FE as Frontend SymbolDetail<br/>(useSymbolMeta + useStomp)
+    participant SymbolCtrl as SymbolController<br/>(api — backend-core)
+    participant MetaService as SymbolMetaService<br/>(api — PR #660 amend)
+    participant Cache as Redis<br/>(quote:last:{code} TTL 5s)
+    participant RateLimit as RedisKisRateLimiterAdapter<br/>(USER_PATH 최우선)
+    participant QuoteAdapter as KisQuoteAdapter<br/>(market-data)
+    participant KisRest as KIS REST<br/>(openapi.koreainvestment.com:9443)
+    participant StompBroker as Spring STOMP Broker<br/>(/topic/market.tick.{code})
+    participant WsBridge as KisWebSocketBridge<br/>(market-data — ADR 0064 fanout boundary)
+    participant KisWs as KIS WS<br/>(ops.koreainvestment.com:21000)
+
+    FE->>SymbolCtrl: GET /api/symbols/005930
+    SymbolCtrl->>MetaService: fetch(code="005930")
+
+    MetaService->>Cache: GET quote:last:005930
+    alt cache hit (5s TTL 이내)
+        Cache-->>MetaService: { prpr, prdy_vrss, vol_tdy, asOfTs }
+        MetaService->>MetaService: ★ isAsOfStale(asOfInstant)<br/>staleThreshold=Duration.ofMinutes(30) (PR #660 companion 상수)<br/>현재 시각 - asOf > 30분이면 stale=true
+        MetaService->>MetaService: ★ filterNxtNightCandles + isNxtNightSuspect<br/>nxtVolumeRatioThreshold=BigDecimal("0.30") (PR #660)<br/>장중 cumulative volume 고려 — curVol < nextVol * 0.30 이면 suspect
+        MetaService-->>SymbolCtrl: SymbolMeta { prpr, ..., stale=false, nxtSuspect=false }
+    else cache miss
+        MetaService->>RateLimit: acquire(KisCallPriority.USER_PATH, timeoutMs=2000)
+        note over RateLimit: 화면 path 최우선 — INGESTION/BACKFILL 양보
+
+        MetaService->>QuoteAdapter: inquirePrice(code="005930", marketDivCode=resolveNxt(code))
+        note over QuoteAdapter: ADR 0091 NXT MARKET_DIV_CODE resolver<br/>FID_COND_MRKT_DIV_CODE="J"(KRX) 또는 "X"(NXT) 분기
+
+        QuoteAdapter->>KisRest: GET /uapi/domestic-stock/v1/quotations/inquire-price<br/>headers: authorization=Bearer <token (S-1)>, appkey, appsecret, tr_id=FHKST01010100, custtype=P<br/>params: FID_COND_MRKT_DIV_CODE="J", FID_INPUT_ISCD="005930"<br/>raw 출처: examples_llm/inquire_price/inquire_price.py (R6)
+        KisRest-->>QuoteAdapter: 200<br/>{ rt_cd="0",<br/>  output: {<br/>    stck_prpr: "76000", prdy_vrss: "1000", prdy_ctrt: "1.33",<br/>    acml_vol: "12345678", acml_tr_pbmn: "...",<br/>    stck_oprc: "75500", stck_hgpr: "76500", stck_lwpr: "75000",<br/>    askp1: "76100", bidp1: "76000",<br/>    ... 40+ 컬럼<br/>  } }
+        note over QuoteAdapter: raw 컬럼 → SymbolQuote 도메인 매핑 (자체 추론 0)<br/>QA 첫 임무 evidence(2026-05-21): SK하이닉스 inflated 1,918,000<br/>→ PR #660 SymbolMetaService NXT 30% 임계 + stale 30분 검증
+
+        QuoteAdapter-->>MetaService: SymbolQuote { prpr, prdy_vrss, ..., asOfTs=NOW }
+        MetaService->>MetaService: NXT 휴리스틱 + stale 검증 적용
+        note over MetaService: ★ PR #660 amend matrix<br/>① filterNxtNightCandles — 장 마감 후 NXT 비정상 거래 1차 필터<br/>② isNxtNightSuspect — 30% 임계 비교 (`curVol < nextVol * 0.30`)<br/>③ parseQuoteTs / isAsOfStale — Duration.between(asOfInstant, now) > 30분<br/>④ isKrxRegularHours — KRX 09:00~15:30 KST companion 상수 (재사용 대비)<br/>backlog §59 — venue 컬럼 도입 P1 (옵션 B 본격 fix · v3.8.x sunset)
+
+        MetaService->>Cache: SETEX quote:last:005930 5s {prpr, ..., asOfTs}
+        MetaService-->>SymbolCtrl: SymbolMeta { prpr=76000, stale=false, nxtSuspect=false }
+        MetaService->>RateLimit: onSuccess()
+    end
+
+    SymbolCtrl-->>FE: 200 SymbolDetailDto
+
+    Note over FE,StompBroker: STOMP subscribe (별도 channel)
+    FE->>StompBroker: SUBSCRIBE /topic/market.tick.005930
+    StompBroker-->>FE: receipt-id
+
+    Note over WsBridge: KIS WS 구독 — ADR 0064 fanout boundary
+    WsBridge->>KisWs: SUBSCRIBE H0STCNT0 ^ 005930
+    KisWs-->>WsBridge: "0|H0STCNT0|001|005930^091523^76000^... (44 cols)"
+    note over WsBridge: raw 출처: examples_user/websocket/kis_websocket.py (R5) — 44 컬럼 LOCK<br/>0=stck_shrn_iscd, 1=stck_cntg_hour, 2=stck_prpr, 3=prdy_vrss_sign, 4=prdy_vrss, ...
+
+    WsBridge->>StompBroker: publish /topic/market.tick.005930 { prpr=76000, asOfTs, ... }
+    StompBroker-->>FE: MESSAGE /topic/market.tick.005930 { prpr=76000, ... }
+    FE->>FE: SymbolDetailHeader 갱신 (실시간 prpr)
+
+    Note over FE: 종목상세 페이지 떠나면 unsubscribe → STOMP cleanup
+```
+
+**NXT 휴리스틱 매트릭스 (PR #660 evidence + backlog §59 cross-ref)**:
+
+| 케이스 | 동작 | 결과 |
+|---|---|---|
+| 장중 KRX 정규 거래 (curVol >> nextVol) | 휴리스틱 통과 | nxtSuspect=false (정상) |
+| 야간 NXT 거래 (curVol < nextVol * 0.30) | suspect detect | nxtSuspect=true (UI 라벨 표시) |
+| SK하이닉스 2026-05-20 NXT 2.86% case | 30% 임계 미달 (PR #597 10% → PR #660 30%) | suspect detect (이전 false positive fix) |
+| SK하이닉스 2026-05-21 62% 경계 case | 잔존 — backlog §59 venue 컬럼 도입 후 본격 fix | 임시 잔존 (P1 의제) |
+
+**stale 매트릭스 (PR #660 evidence)**:
+
+| 케이스 | asOfInstant | now | Duration | stale |
+|---|---|---|---|---|
+| 정상 cache hit | 2026-05-22 14:30 | 14:30 | <1s | false |
+| 5s TTL 직전 | 2026-05-22 14:30:00 | 14:30:04 | 4s | false |
+| QA evidence (8시간 stale) | 2026-05-21 15:19 | 23:33 | 8h 14m | **true** (PR #660 fix) |
+| 30분 경계 | 14:30 | 15:00 | 30m 0s | **true** (LOCK) |
+
+**dogfooding 검증 evidence (PR #660 + QA 첫 임무 보고서)**:
+- DB: 종목 메타 read-only (자본 영향 0 — backend-core 메모리 정합)
+- Redis: `quote:last:005930` 5s TTL 후 자동 소멸
+- 화면: SymbolDetailHeader prpr 표시값 == KIS 응답 raw `stck_prpr`
+- Playwright E2E: `frontend/tests/e2e/s6-symbol-detail-current-price.spec.ts` 3 종목 (005930/000660/004090) expectRange 통과 (QA Visual 격상 — ADR 0094 §2-2-B)
+- 단위 테스트: `SymbolMetaServiceNxtStaleTest` 17건 PASS (NXT 휴리스틱 7건 + stale 5건 + KRX 운영시간 5건)
+
+---
+
+## 5. 시나리오 S-3: 실시간 캔들 갱신 (1d backfill — LiveDailyCandleScheduler 5분 cron)
+
+**목적**: chart-curator 해고 (ADR 0094 — 캔들 SLA market-data 인수) 후 **시점 정밀 1d backfill** path. `LiveDailyCandleScheduler.refresh()` `@Scheduled(fixedDelayString = "PT5M")` 5분 cron → watchlist 종목 each(6개 예시) → 종목 간 `Thread.sleep(codeIntervalMs=200L)` 마진(PR #658) → `KisRateLimiterPort.acquire(BACKFILL, timeoutMs=5000)` → `CandleRefreshService.refreshDailyCandles(code, priority=BACKFILL)` → 페이지 each `Thread.sleep(PAGE_INTERVAL_MS=150L)` 마진(PR #659 §A) → KIS REST `FHKST03010100` 호출 → DESC → ASC 정규화(PR #540) → UPSERT(natural key) → 만약 EGW00201 발생 시 1초 backoff + 1회 재시도(PR #659 §B).
+
+**관련 PR/ADR**: PR #658(LiveDailyCandleScheduler 종목 간 200ms sleep — burst 완화 옵션 B) · PR #659(KIS_TPS_EXCEEDED 종합 fix — H1 페이지 150ms + H4 EGW00201 1초 backoff + priority=BACKFILL 분리) · PR #540(KIS 일봉 DESC → ASC 정규화 — v3.7.0 시나리오 20 cross-ref) · ADR 0037 amend(Bucket4j-Redis baseline) · ADR 0094(chart-curator 해고 + 캔들 SLA market-data 인수) · `_workspace/reports/2026-05-22-kis-tps-exceeded-root-cause.md`
+
+**KIS-first raw 출처 (헌법 §3 LOCK)**:
+
+| tr_id | endpoint | raw 출처 | 비고 |
+|---|---|---|---|
+| `FHKST03010100` | `GET /uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice` | **R7** `examples_llm/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py` | 일봉(D/W/M/Y) |
+| EGW00201 1초 backoff 패턴 | — | `KisHashKeyAdapter:126` inline cross-ref (PR #659 §B) | KIS 측 rate limit race 응답 |
+
+```mermaid
+sequenceDiagram
+    participant Scheduler as LiveDailyCandleScheduler<br/>(api — @Scheduled fixedDelayString="PT5M")
+    participant Refresh as CandleRefreshService<br/>(api — PR #659 amend)
+    participant RateLimit as RedisKisRateLimiterAdapter<br/>(BACKFILL 최저 우선순위)
+    participant Adapter as KisCandleQueryAdapter<br/>(market-data — Bucket4j-Redis acquire)
+    participant KisRest as KIS REST<br/>(openapi.koreainvestment.com:9443)
+    participant Normalizer as KisCandleResponseNormalizer<br/>(DESC → ASC)
+    participant CandleRepo as DailyCandleRepository<br/>(persistence-shared — UQ: code + bsop_date)
+    participant Audit as instrument_audit_event
+
+    Note over Scheduler: cron 트리거 — watchlist 6 종목 (예시)<br/>(주의: chart-curator 해고 후 market-data 단독 path)
+    Scheduler->>Scheduler: codes = watchlist.fetch()  // ["005930","000660","004090","035720","051910","207940"]
+
+    loop for ((index, code) in codes.withIndex())
+        alt index > 0 (첫 종목 skip)
+            Scheduler->>Scheduler: Thread.sleep(codeIntervalMs=200L)
+            note over Scheduler: ★ PR #658 — 종목 간 200ms sleep<br/>6 종목 × 50 페이지 burst 완화<br/>InterruptedException graceful
+        end
+
+        Scheduler->>Refresh: refreshDailyCandles(code, priority=KisCallPriority.BACKFILL)
+        note over Refresh: ★ PR #659 §C — priority parameter 추가<br/>USER_PATH 양보 (사용자 화면 path 우선)
+
+        loop while (페이지 존재 — KIS pagination)
+            alt 첫 페이지가 아님
+                Refresh->>Refresh: Thread.sleep(PAGE_INTERVAL_MS=150L)
+                note over Refresh: ★ PR #659 §A — 페이지 간 150ms sleep<br/>Bucket4j refillGreedy 100ms refill의 50% 마진<br/>sub-second 분해 안전 (KIS sliding window 회피)<br/>첫 페이지 skip — USER_PATH 첫 응답 latency 보존
+            end
+
+            Refresh->>RateLimit: acquire(KisCallPriority.BACKFILL, timeoutMs=5000)
+            note over RateLimit: BACKFILL 최저 우선순위 — USER_PATH·INGESTION 양보<br/>KIS 공식 한도 "초당 10건" (PR #571 inline KDoc raw 출처)
+
+            Refresh->>Adapter: queryDaily(code, fromDate, toDate, periodDivCode="D")
+            Adapter->>KisRest: GET /uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice<br/>headers: authorization=Bearer <token (S-1)>, appkey, appsecret, tr_id=FHKST03010100, custtype=P<br/>params:<br/>  FID_COND_MRKT_DIV_CODE="J"<br/>  FID_INPUT_ISCD={code}<br/>  FID_INPUT_DATE_1=fromDate<br/>  FID_INPUT_DATE_2=toDate<br/>  FID_PERIOD_DIV_CODE="D"<br/>  FID_ORG_ADJ_PRC="0"<br/>raw 출처: examples_llm/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py (R7)
+
+            alt rt_cd="0" (정상)
+                KisRest-->>Adapter: 200<br/>{ output2: [<br/>  {stck_bsop_date:"20260522", stck_clpr:"76000", ...} ← index 0 (★ DESC)<br/>  {stck_bsop_date:"20260521", stck_clpr:"75500", ...}<br/>  ...<br/>  {stck_bsop_date:"20260101", stck_clpr:"70000", ...} ← index N-1 (가장 오래된)<br/>] }
+                Adapter-->>Refresh: KisCandleResponse { rows=output2, rt_cd="0" }
+                Refresh->>Normalizer: normalize(rows)
+                note over Normalizer: ★ PR #540 raw 출처 정합 LOCK<br/>1. KIS DESC → ASC sortedBy { stckBsopDate }<br/>2. 빈 row (stck_bsop_date="") skip — KIS 미체결 일자 가드<br/>3. raw 컬럼 → DailyCandle 매핑 (자체 추론 0)
+                Normalizer-->>Refresh: List<DailyCandle> ASC sorted
+
+                loop 각 DailyCandle (ASC 순서)
+                    Refresh->>CandleRepo: upsert(code, bsop_date, open, high, low, close, volume)
+                    note over CandleRepo: ★ 헌법 §6 Repository default fun 함정 가드<br/>private fun upsertCandle in caller class (Repository 외부)<br/>JPA Repository interface는 abstract fun only<br/>UQ: (instrument_code, bsop_date) — 멱등성 보장
+                end
+
+                Refresh->>RateLimit: onSuccess()
+                Refresh->>Audit: save(InstrumentAuditEvent(CANDLE_BACKFILL_DONE, payload={code, rowCount, sort="ASC"}))
+
+            else rt_cd="EGW00201" (KIS rate limit race — sliding window race)
+                KisRest-->>Adapter: 200 { rt_cd="EGW00201", msg1="허용된 거래건수를 초과하였습니다" }
+                Adapter-->>Refresh: throw KisRateLimitExceededException
+
+                alt retryAttempt == 0 (PR #659 §B 1회 재시도)
+                    Refresh->>RateLimit: onTpsExceeded()
+                    Refresh->>Refresh: Thread.sleep(EGW_BACKOFF_MS=1000L)
+                    note over Refresh: ★ PR #659 §B — EGW00201 catch 후 1초 backoff<br/>raw 출처: KisHashKeyAdapter:126 패턴 인용<br/>두 번째 frame canRetry=false (retryAttempt: Int = 0 parameter LOCK)<br/>무한루프 차단
+                    Refresh->>Refresh: refreshDailyCandles(code, priority, retryAttempt=1)  // 메서드 재귀
+                else retryAttempt >= 1 (2회차 시도)
+                    Refresh->>Audit: save(InstrumentAuditEvent(CANDLE_BACKFILL_RATE_LIMITED, code, retryAttempts=2))
+                    note over Refresh: 2회차 실패 시 사이클 종결<br/>5분 cron 다음 cycle 자연 회복 기회
+                end
+            else 기타 rt_cd != "0"
+                KisRest-->>Adapter: 200 { rt_cd, msg1 }
+                Adapter-->>Refresh: throw KisHttpException
+                Refresh->>Audit: save(InstrumentAuditEvent(CANDLE_BACKFILL_FAILED, rawResponse))
+            end
+        end
+    end
+
+    Scheduler->>Scheduler: cycle 종료 — 다음 5분 후 재발동
+```
+
+**LIVE evidence 매트릭스 (PR #658·#659 dogfooding)**:
+
+| 항목 | PR #658 이전 (2026-05-22 12:58~14:22) | PR #658 (2026-05-22 16:34~17:03) | PR #659 (이후) |
+|---|---|---|---|
+| ok rate | 50% (ok=3 fail=3) | 0% (ok=0 fail=6) — 옵션 B 단독 reject 확정 | 권장 ok≥5/fail≤1 |
+| 5분 SystemEvent emit | 4건 | +4 cycle | 0건 LOCK |
+| TPS signal/cycle | — | +6 | +2 미만 |
+| 옵션 채택 | A REJECTED · B PARTIAL · C REJECTED · D backlog | B 단독 부족 | B+H1+H4+C 합류 |
+
+**ASC 정규화 LOCK (v3.7.0 시나리오 20 cross-ref — PR #540 raw 출처 정합)**:
+
+| 단계 | 동작 | 의도 |
+|---|---|---|
+| ① KIS 응답 수신 | `output2: DESC` (가장 최근 index 0) | KIS 공식 raw spec (R7) |
+| ② 빈 row 가드 | `stck_bsop_date == ""` skip | KIS 미체결 일자 (휴장 등) |
+| ③ sortedBy(stckBsopDate) | DESC → ASC 정렬 | DB UPSERT 후 시계열 ASC 권위 |
+| ④ DailyCandle 매핑 | raw 컬럼 → domain 변환 | 자체 추론 0 (raw 컬럼 1:1 보존) |
+| ⑤ UPSERT | UQ(code, bsop_date) | 멱등성 — 재실행 시 INSERT/UPDATE 분기 |
+
+**dogfooding 검증 evidence (PR #658·#659 amend matrix)**:
+- 로그: `docker compose logs magicjar-api | grep -E "LiveDailyCandle|KIS_TPS_EXCEEDED"` — 5분 cycle 후 ok≥5/fail≤1 + 5분 SystemEvent emit 0건
+- DB: `daily_candle` row 수 == KIS 응답 row 수 (빈 row 제외) + ASC 정렬 검증
+- DB: `instrument_audit_event.type=CANDLE_BACKFILL_DONE` 1건/사이클 + `CANDLE_BACKFILL_RATE_LIMITED` 0건 (PR #659 GREEN)
+- 회귀: TPS signal/cycle 이전 +6 → +2 미만 (Phase 2 priority queue 활성화 사전 준비)
+
+**Phase 3 backlog 잔류 의제 (`_workspace/reports/2026-05-22-kis-tps-exceeded-root-cause.md` §9)**:
+1. Circuit Breaker 5분 윈도 50% → OPEN 5분 + Slack alert (ADR 0037 §2-2)
+2. caller priority queue 활성화 (USER_PATH > INGESTION > BACKFILL) — PR #659 §C 사전 wiring 완료
+3. KIS sliding window 가설 검증 raw fetch
+
+---
+
+## 6. 시나리오 S-4: 사용자 자율 주문 (REAL 게이트)
+
+**목적**: 사용자 NewOrderPage(T-MAN 신규 화면) → POST `/api/orders` → `OrderController.createOrder()` → api `OrderService` Transactional → `OrderEventOutboxRepository` INSERT(ADR 0088 persistence-shared) → consumer `OrderOutboxPublisherWorker.drain()` → Kafka `order.intent.v1` publish → consumer `OrderRouterKafkaListener` consume → `OrderIdempotencyGuard`(Redis SETNX 60s) → `TradingModeGateImpl` 3중 게이트(MAGICJAR_MODE=REAL + MAGICJAR_ALLOW_REAL=true + user_account.real_trading_consent_at NOT NULL) → `KillSwitchGuard`(S-6 cross-ref) → `KisRateLimiterPort.acquire(USER_PATH)` → `KisHashKeyAdapter.compute()`(ADR 0084 P0-1) → `KisOrderHttpAdapter.submit()` REST POST → KIS 응답 → 시나리오 S-5(체결 STOMP push) 진입.
+
+**관련 PR/ADR**: ADR 0082(T-MAN 사용자 자율 주문 발행 — NewOrderPage 신규) · ADR 0084 P0-1(hashkey 의무) · ADR 0088(persistence-shared Outbox wiring) · ADR 0043(KillSwitch — race-safe A+B+C amend S-6 cross-ref) · ADR 0094 §9-3(REAL 진입 사용자 결재 의무) · v3.7.0 시나리오 18·23 baseline 위 superset
+
+**KIS-first raw 출처 (헌법 §3 LOCK)**:
+
+| tr_id | 환경 | endpoint | raw 출처 |
+|---|---|---|---|
+| `TTTC0012U` | REAL 매수 | `POST /uapi/domestic-stock/v1/trading/order-cash` | **R12** `examples_llm/order_cash/order_cash.py` |
+| `TTTC0011U` | REAL 매도 | `POST /uapi/domestic-stock/v1/trading/order-cash` | R12 |
+| `VTTC0012U` / `VTTC0011U` | MOCK 매수/매도 | 동일 endpoint, host `openapivts.koreainvestment.com:29443` | R12 |
+| `getHashKey()` | hashkey 발급 | `POST /uapi/hashkey` | **R15** `examples_user/auth/auth.py` |
+
+```mermaid
+sequenceDiagram
+    participant FE as Frontend NewOrderPage<br/>(T-MAN — ADR 0082)
+    participant ApiCtrl as OrderController<br/>(api — backend-core)
+    participant ApiService as OrderService<br/>(api)
+    participant Tx as @Transactional<br/>(api DB session)
+    participant OrderReqRepo as OrderRequestRepository<br/>(persistence-shared)
+    participant OutboxRepo as OrderEventOutboxRepository<br/>(persistence-shared — ADR 0088)
+    participant Drain as OrderOutboxPublisherWorker<br/>(consumer — @Scheduled 100ms)
+    participant Kafka as Kafka<br/>(order.intent.v1)
+    participant Listener as OrderRouterKafkaListener<br/>(consumer)
+    participant IdemGuard as OrderIdempotencyGuard<br/>(Redis SETNX 60s)
+    participant ModeGate as TradingModeGateImpl<br/>(3중 게이트)
+    participant KillSwitchGuard as KillSwitchGuard<br/>(consumer — S-6 cross-ref)
+    participant RateLimit as RedisKisRateLimiterAdapter<br/>(USER_PATH)
+    participant HashAdapter as KisHashKeyAdapter<br/>(consumer — ADR 0084 P0-1)
+    participant KisAdapter as KisOrderHttpAdapter<br/>(consumer)
+    participant KisProd as KIS prod<br/>(openapi.koreainvestment.com:9443)
+    participant Audit as OrderAuditEventRepository
+
+    FE->>ApiCtrl: POST /api/orders<br/>{ userId, code="005930", side="BUY", quantity=10,<br/>ordPrice=0(시장가), idempotencyKey="uuid-..." }
+
+    ApiCtrl->>ApiService: createOrder(intent)
+    ApiService->>Tx: BEGIN
+    Tx->>OrderReqRepo: save(OrderIntent(status=REQUESTED, idempotency_key=...))<br/>UQ(idempotency_key)
+    OrderReqRepo-->>Tx: OrderIntent { id=99 }
+
+    Tx->>OutboxRepo: save(OrderEventOutbox(<br/>aggregate_id=99,<br/>event_type="order.intent.v1",<br/>payload=JSON,<br/>status="PENDING"))
+    note over OutboxRepo: ★ ADR 0088 LOCK — persistence-shared 모듈 어댑터<br/>api·consumer 양쪽 bean 정합
+    OutboxRepo-->>Tx: OrderEventOutbox { id=outbox-1 }
+
+    Tx->>Tx: COMMIT
+    ApiService-->>ApiCtrl: OrderIntent { id=99, status=REQUESTED }
+    ApiCtrl-->>FE: 201 { orderId=99 }
+
+    Note over Drain: consumer 컨테이너 — schedule cycle 100ms (v3.7.0 시나리오 23 정합)
+    Drain->>OutboxRepo: findPendingBatch(limit=100)
+    OutboxRepo-->>Drain: List { id=outbox-1, payload, ... }
+    Drain->>Kafka: send("order.intent.v1", key=99, value=payload)
+    Kafka-->>Drain: RecordMetadata
+    Drain->>OutboxRepo: markPublished(id=outbox-1, status="PUBLISHED")
+
+    Kafka->>Listener: consume order.intent.v1<br/>{ userId, code, side, quantity, idempotencyKey }
+    Listener->>IdemGuard: acquire(idempotencyKey) → true (60s)
+    Listener->>ModeGate: resolveMode(userId)
+    note over ModeGate: ★ CLAUDE.md 함정 4번 — 3중 게이트<br/>① MAGICJAR_MODE=REAL ✓<br/>② MAGICJAR_ALLOW_REAL=true ✓<br/>③ user_account.real_trading_consent_at NOT NULL ✓
+    ModeGate-->>Listener: AllowedMode(TradingMode.REAL)
+
+    Listener->>KillSwitchGuard: assertNotEngaged(userId)
+    note over KillSwitchGuard: ★ S-6 cross-ref — KillSwitch ON 시 즉시 BLOCK<br/>race-safe A+B+C (ADR 0043·0070 amend — PR #647·#648)<br/>pending+grace+strike 3 단계 guard
+    alt KillSwitch ENGAGED
+        KillSwitchGuard-->>Listener: throw KillSwitchEngagedException
+        Listener->>Audit: save(OrderAuditEvent(KILLSWITCH_BLOCKED))
+        note over Listener: ★ 자본 path 즉시 차단 — KIS REST 호출 0건
+    else NOT ENGAGED
+        KillSwitchGuard-->>Listener: pass
+
+        Listener->>RateLimit: acquire(KisCallPriority.USER_PATH, timeoutMs=2000)
+        RateLimit-->>Listener: granted
+
+        Listener->>HashAdapter: compute(orderBody)
+        note over HashAdapter: raw 출처: examples_user/auth/auth.py getHashKey() (R15)<br/>POST /uapi/hashkey<br/>body: { CANO, ACNT_PRDT_CD, PDNO, ORD_DVSN, ORD_QTY, ORD_UNPR }
+        HashAdapter->>KisProd: POST /uapi/hashkey
+        KisProd-->>HashAdapter: 200 { "HASH": "a1b2c3...32char" }
+        HashAdapter-->>Listener: hashkey
+
+        Listener->>KisAdapter: submit(OrderIntent, hashkey)
+        note over KisAdapter: raw 출처: examples_llm/order_cash/order_cash.py (R12)<br/>tr_id: TTTC0012U (REAL BUY) / VTTC0012U (MOCK BUY)<br/>endpoint: POST /uapi/domestic-stock/v1/trading/order-cash<br/>host: openapi.koreainvestment.com:9443 (REAL) / openapivts.koreainvestment.com:29443 (MOCK)<br/>headers:<br/>  authorization: Bearer {token}<br/>  appkey · appsecret · tr_id · custtype=P<br/>  ★ hashkey: a1b2c3...32char (ADR 0084 P0-1)<br/>body:<br/>  CANO={cano}<br/>  ACNT_PRDT_CD="01"<br/>  PDNO="005930"<br/>  ORD_DVSN="01" (시장가)<br/>  ORD_QTY="10"<br/>  ORD_UNPR="0"<br/>  EXCG_ID_DVSN_CD="KRX"
+
+        KisAdapter->>KisProd: POST /uapi/domestic-stock/v1/trading/order-cash<br/>+ hashkey 헤더
+        alt rt_cd="0" (정상)
+            KisProd-->>KisAdapter: 200 { rt_cd="0",<br/>  output.ODNO="0000789012",<br/>  output.KRX_FWDG_ORD_ORGNO="91020000",<br/>  output.ORD_TMD="091523" }
+            KisAdapter-->>Listener: KisOrderAck { kisOrderNo="0000789012", kisFwdgOrgno="91020000" }
+            Listener->>OrderReqRepo: updateKisRefs(id=99, kisOrderNo, kisFwdgOrgno, status=ACK)
+            Listener->>Audit: save(OrderAuditEvent(KIS_ACK, rawResponse))
+            note over Listener: ★ 다음 단계 S-5 — KIS WS H0STCNI0 체결통보 listen
+        else rt_cd != "0" (KIS reject)
+            KisProd-->>KisAdapter: 200 { rt_cd, msg1 }
+            KisAdapter-->>Listener: throw KisOrderRejectedException
+            Listener->>OrderReqRepo: updateStatus(id=99, status=REJECTED, reason)
+            Listener->>Audit: save(OrderAuditEvent(KIS_REJECTED, rawResponse))
+        end
+    end
+```
+
+**3중 게이트 매트릭스 (CLAUDE.md 함정 4번 + ADR 0094 §9-3 정합)**:
+
+| MAGICJAR_MODE | MAGICJAR_ALLOW_REAL | real_trading_consent_at | 결과 |
+|---|---|---|---|
+| MOCK | — | — | MOCK 흐름 (vps host + V tr_id) |
+| REAL | false | — | BLOCKED (REJECTED reason="ALLOW_REAL_FALSE") |
+| REAL | true | NULL | BLOCKED (REJECTED reason="USER_CONSENT_NULL") |
+| REAL | true | NOT NULL | **REAL 흐름 통과** (prod host + T tr_id + hashkey 의무) |
+
+**dogfooding 검증 evidence (ADR 0082 T-MAN + ADR 0084 P0-1 + ADR 0088)**:
+- DB: `order_request` row REQUESTED → ACK 전이 + `kis_order_no` 채워짐 (REAL 진입 후)
+- DB: `order_event_outbox` row PENDING → PUBLISHED 전이 (ADR 0088 정합)
+- DB: `order_audit_event` REQUESTED → KIS_ACK 또는 KILLSWITCH_BLOCKED chain 정합
+- Kafka: `order.intent.v1` topic offset 증가 (Outbox drain evidence)
+- Redis: `order:idempotency:{key}` TTL 60s
+- 회귀: 동일 idempotency_key 60s 내 두 번째 시도 시 SETNX 실패 + 무시 (멱등성 LOCK)
+
+---
+
+## 7. 시나리오 S-5: 주문 체결 STOMP push (ADR 0068 — KIS WS H0STCNI fanout)
+
+**목적**: S-4 시점 KIS prod 측 주문 접수 후 → KIS WebSocket `H0STCNI0`(REAL) / `H0STCNI9`(MOCK) 체결통보 발사 → consumer `KisExecutionWsListener` 수신 → `event_id`(UUID UNIQUE — ADR 0084 P0-3 Flyway V35) deterministic 생성 → `OrderExecutionRepository.save()`(중복 SILENT skip) → `OrderRequestRepository.recomputeStatus()`(누적 sum → FILLED / PARTIALLY_FILLED) → Kafka `order.filled.v1` publish → consumer `OrderFilledNotificationListener` → STOMP `/topic/order.execution.{userId}` fanout → frontend OrderCard 갱신.
+
+**관련 PR/ADR**: ADR 0068(STOMP fanout `/topic/order.execution.{userId}`) · ADR 0084 P0-3 #4(WS race + 재연결 backfill) · ADR 0064(WS fanout boundary) · v3.7.0 시나리오 19 baseline 위 superset · hotfix(consumer KIS inquire-daily-ccld `.block()` reactor-http-nio fix — 2026-05-22 commit 2635e6fe) · WS_RECONNECTED emit fix(PR #644·#645)
+
+**KIS-first raw 출처 (헌법 §3 LOCK)**:
+
+| WS tr_id | 환경 | raw 출처 | 비고 |
+|---|---|---|---|
+| `H0STCNI0` | REAL 체결통보 | **R14** `examples_user/websocket/ccnl_notice.py` L389~L446 | 26 컬럼 |
+| `H0STCNI9` | MOCK 체결통보 | R14 동일 | 26 컬럼 |
+| `inquire-ccnl` (재연결 backfill) | REST | **R22** `examples_llm/inquire_ccnl/inquire_ccnl.py` | v3.7.0 시나리오 19 cross-ref |
+
+```mermaid
+sequenceDiagram
+    participant KisWs as KIS WS<br/>(ops.koreainvestment.com:21000)
+    participant WsBridge as KisWebSocketBridge<br/>(consumer — ADR 0064)
+    participant WsListener as KisExecutionWsListener<br/>(consumer)
+    participant ExecRepo as OrderExecutionRepository<br/>(persistence-shared — UQ event_id)
+    participant OrderRepo as OrderRequestRepository<br/>(persistence-shared)
+    participant FilledKafka as Kafka<br/>(order.filled.v1)
+    participant NotifListener as OrderFilledNotificationListener<br/>(consumer)
+    participant StompBroker as Spring STOMP Broker<br/>(/topic/order.execution.{userId})
+    participant FE as Frontend OrderCard / Toast
+    participant Audit as OrderAuditEventRepository
+    participant Backfill as KisExecutionBackfillService<br/>(WS race fallback — ADR 0084 P0-3)
+
+    Note over KisWs,WsBridge: S-4 시점 KIS prod 주문 접수 후 자동 발사
+    KisWs->>WsBridge: "0|H0STCNI0|001|{26 cols ^ 구분}"<br/>raw 출처: examples_user/websocket/ccnl_notice.py (R14) L389~L446<br/>cols: cust_id, acnt_no, oder_no, ooder_no, sell_buy_dvsn, rctf_cls,<br/>      oder_kind, oder_cond, stck_shrn_iscd, cntg_qty, cntg_unpr,<br/>      stck_cntg_hour, rfus_yn, cntg_yn, acpt_yn, brnc_no,<br/>      oder_qty, acnt_name, cntg_isnm, oder_cond_prc, oder_exg_unit_qty,<br/>      cust_prty, frgn_buy_qty, frgn_sell_qty, ... (26 컬럼 LOCK)
+
+    WsBridge->>WsListener: ExecutionRawEvent { 26 cols 매핑 }
+
+    WsListener->>WsListener: event_id = UUID(MD5(kis_order_no + cntg_qty_누적 + stck_cntg_hour))
+    note over WsListener: ★ ADR 0084 P0-3 Flyway V35<br/>order_execution.event_id UUID UNIQUE — WS·REST race silent skip
+
+    WsListener->>ExecRepo: existsByEventId(event_id)
+    alt 이미 존재 (Backfill REST 먼저 도착)
+        ExecRepo-->>WsListener: true → SILENT SKIP
+        WsListener->>Audit: save(OrderAuditEvent(WS_EXECUTION_DEDUPED))
+    else 신규 (정상 path)
+        ExecRepo-->>WsListener: false
+        WsListener->>ExecRepo: save(OrderExecution { event_id, kis_order_no, cntg_qty, cntg_unpr, stck_cntg_hour, ... })
+        ExecRepo-->>WsListener: INSERT OK
+
+        WsListener->>OrderRepo: recomputeStatus(kisOrderNo)
+        note over OrderRepo: SELECT SUM(cntg_qty) FROM order_execution WHERE kis_order_no=...<br/>전체 수량 누적 비교:<br/>- sum == ord_qty → FILLED<br/>- 0 < sum < ord_qty → PARTIALLY_FILLED
+        OrderRepo-->>WsListener: status=FILLED, executedQty=10
+
+        WsListener->>FilledKafka: publish order.filled.v1<br/>{ orderId=99, userId, code, executedQty=10, avgPrice, status=FILLED }
+        FilledKafka-->>WsListener: ack
+
+        WsListener->>Audit: save(OrderAuditEvent(EXECUTION_RECEIVED, rawCols))
+    end
+
+    FilledKafka->>NotifListener: consume order.filled.v1
+    NotifListener->>StompBroker: publish /topic/order.execution.{userId}<br/>{ orderId=99, code, executedQty, status=FILLED, ... }
+    note over NotifListener: ★ hotfix(backend-core) order FILLED stomp_event qty/executedQty 매핑 누락 fix (commit b6d17fbc)<br/>사용자 dogfooding "0주 toast" 결함 회귀 0
+    StompBroker-->>FE: MESSAGE /topic/order.execution.{userId}
+    FE->>FE: OrderCard 갱신 (FILLED 표시 + Toast "체결 완료 — 10주")
+
+    Note over WsBridge: ★ WS 재연결 시 backfill path (ADR 0084 P0-3)
+    KisWs--xWsBridge: connection lost @t=t1
+    WsBridge->>WsBridge: 지수 백오프 재연결 (1s · 2s · 4s ...)
+    WsBridge->>WsBridge: PING/PONG + approval_key 재발급 (R4)
+    WsBridge->>WsListener: reconnected @t=t2
+    note over WsBridge: ★ PR #644·#645 — WS_RECONNECTED + WS_CONNECTED 첫 연결 emit 누락 fix<br/>사용자 dogfooding 거짓 끊김 영구 잔존 회복
+
+    WsListener->>Backfill: triggerBackfill(disconnectedAt=t1, reconnectedAt=t2)
+    note over Backfill: ★ hotfix(market-data) consumer KIS inquire-daily-ccld `.block()` reactor-http-nio fix (commit 2635e6fe)<br/>onReconnect은 reactor-netty WS 콜백 thread에서 invoke<br/>→ webClient `.block()` BlockHound 차단 위반 + deadlock + 자본 audit risk<br/>→ `.publishOn(Schedulers.boundedElastic())` 1라인 insert로 fix
+    Backfill->>WsBridge: (inquire-ccnl REST 호출 — R22)
+    Backfill->>ExecRepo: existsByEventId(event_id) → false인 경우만 INSERT
+    note over Backfill: v3.7.0 시나리오 19 정합 — silent dedup + recovery
+```
+
+**WS race 매트릭스 (v3.7.0 시나리오 19 baseline 정합 + v3.8.0 reactor-nio thread fix amend)**:
+
+| 케이스 | WS 동작 | Backfill 동작 | 가드 결과 |
+|---|---|---|---|
+| 정상 운영 | WS 즉시 INSERT | (미발동) | UQ 통과 1건 |
+| 끊김 후 backfill만 수신 | (수신 0건) | REST 응답 INSERT | UQ 통과 1건 (silent recovery) |
+| 끊김 후 WS·Backfill 양쪽 수신 | 재연결 직후 WS 도착 | Backfill REST 응답에도 동일 row | **두 번째 INSERT UQ 위반 → silent skip (LOCK)** |
+| WS 늦어 Backfill 먼저 | (지연) | REST 응답 INSERT 먼저 | WS 두 번째 도착 시 UQ 위반 → silent skip |
+| **2026-05-22 hotfix 정합** | onReconnect reactor-nio thread | `.publishOn(boundedElastic())` LOCK | BlockHound GREEN + 자본 audit OK |
+
+**dogfooding 검증 evidence (ADR 0068 + ADR 0084 P0-3 + 2026-05-22 hotfix)**:
+- DB: `order_execution` UQ `event_id` 위반 시 `silent skip` 로그 + row 수 정합
+- DB: `order_request.status` REQUESTED → ACK → FILLED chain (S-4 → S-5)
+- Kafka: `order.filled.v1` offset 증가
+- STOMP: 사용자 화면 OrderCard FILLED 표시 + Toast "체결 완료 — N주" (`b6d17fbc` hotfix evidence)
+- 로그: `docker logs magicjar-consumer --since 5m | grep -E "block\(\)|reactor-http-nio.*ERROR"` 0건 LOCK (2635e6fe hotfix evidence)
+- 회귀: WS 재연결 시 backfill 발동 + 동일 event_id silent dedup
+
+---
+
+## 8. 시나리오 S-6: KillSwitch 토글 (race-safe A+B+C — ADR 0043·0070 amend)
+
+**목적**: 사용자가 운영 중 자율매매를 즉시 차단해야 할 때 → frontend KillSwitchToggle(Header 영구 표시 — PR #647 시점 baseline) → POST `/api/killswitch/toggle` → backend-core `KillSwitchController.toggle()` → `KillSwitchService.engage(userId)` → DB `kill_switch_state` UPDATE + Kafka `killswitch.engaged.v1` publish → consumer `KillSwitchGuardListener` → **A+B+C race-safe guard**(pending+grace+strike) → 진행 중 시그널·주문 모두 차단 → STOMP `/topic/killswitch.engaged.{userId}` fanout → frontend KillSwitch banner ENGAGED 표시 + 모든 자동매매 UI BLOCKED.
+
+**관련 PR/ADR**: PR #647(KillSwitch race-safe policy A+B+C ADR 0043·0070 amend) · PR #648(KillSwitch race-safe guard hotfix — consumer 본 wiring) · ADR 0043(KillSwitch 자동 OFF 0 LOCK + race-safe) · ADR 0070(killswitch.engaged.v1 토픽 권위) · ADR 0094 §9-3(사용자 단독 운영자 시 KillSwitch UI 1차 도구) · runbook R-3(KillSwitch 토글)
+
+**자체 결정론 path — KIS endpoint 직접 호출 0건** (S-4·S-5 path 직전 차단)
+
+```mermaid
+sequenceDiagram
+    participant FE as Frontend KillSwitchToggle<br/>(Header 영구 표시)
+    participant KsCtrl as KillSwitchController<br/>(api — backend-core)
+    participant KsService as KillSwitchService<br/>(api)
+    participant Tx as @Transactional
+    participant KsRepo as KillSwitchStateRepository<br/>(persistence-shared)
+    participant OutboxRepo as OrderEventOutboxRepository<br/>(ADR 0088 reuse)
+    participant Drain as Outbox drain (consumer)
+    participant Kafka as Kafka<br/>(killswitch.engaged.v1)
+    participant Listener as KillSwitchGuardListener<br/>(consumer)
+    participant GuardA as Phase A — pending guard<br/>(in-flight 시그널 차단)
+    participant GuardB as Phase B — grace guard<br/>(KIS submit 직전 5초 grace window)
+    participant GuardC as Phase C — strike guard<br/>(이미 KIS submit 한 ORDER 정정/취소)
+    participant OrderRepo as OrderRequestRepository
+    participant KisAdapter as KisOrderHttpAdapter<br/>(consumer)
+    participant KisProd as KIS prod (TTTC0013U 정정/취소)
+    participant StompBroker as STOMP Broker<br/>(/topic/killswitch.engaged.{userId})
+    participant Audit as OrderAuditEventRepository
+
+    FE->>KsCtrl: POST /api/killswitch/toggle<br/>{ userId, action="ENGAGE", reason="user_manual" }
+
+    KsCtrl->>KsService: engage(userId, reason)
+    KsService->>Tx: BEGIN
+    Tx->>KsRepo: upsert(KillSwitchState(user_id, engaged=true, engaged_at=NOW(), reason))
+    note over KsRepo: ADR 0043 §2-3 자동 OFF 0 LOCK<br/>한번 ENGAGED 되면 사용자 수동 OFF만 허용
+    KsRepo-->>Tx: KillSwitchState { id, engaged=true }
+
+    Tx->>OutboxRepo: save(OrderEventOutbox(<br/>event_type="killswitch.engaged.v1",<br/>aggregate_id=userId,<br/>payload=JSON))
+    note over OutboxRepo: ADR 0088 persistence-shared Outbox reuse<br/>Transactional Outbox 원자성 보장
+    OutboxRepo-->>Tx: outbox row
+
+    Tx->>Tx: COMMIT
+    KsService-->>KsCtrl: KillSwitchState { engaged=true }
+    KsCtrl-->>FE: 200 (ENGAGED LOCK)
+
+    Note over Drain: consumer schedule cycle (100ms)
+    Drain->>Kafka: publish killswitch.engaged.v1 { userId, engagedAt, reason }
+    Kafka->>Listener: consume
+
+    Note over Listener: ★ PR #647·#648 — race-safe A+B+C guard chain LOCK<br/>이 LOCK이 없을 때: 사용자 ENGAGE 직후에도<br/>1) Phase A in-flight 시그널 발사 강행<br/>2) Phase B KIS submit 직전 race 5초 grace 위반<br/>3) Phase C 이미 submit 된 ORDER 정정/취소 0 → 자본 누출
+
+    Listener->>GuardA: assertPendingZero(userId)
+    note over GuardA: ★ Phase A — pending guard<br/>SELECT FROM order_request WHERE user_id=? AND status='REQUESTED'<br/>→ 신규 시그널 발사 즉시 중단 (KillSwitchEngagedException)
+    GuardA->>OrderRepo: cancelPending(userId)
+    OrderRepo-->>GuardA: List<OrderIntent> cancelled (status=CANCELLED_BY_KILLSWITCH)
+
+    Listener->>GuardB: enforceGraceWindow(userId, graceMs=5000)
+    note over GuardB: ★ Phase B — grace guard<br/>ENGAGE 시각 t0 기준 5초 grace window<br/>이미 in-flight (KIS submit 진행 중) 호출은 5초 대기 후 결과 확인<br/>5초 내 ACK 도달 시 → Phase C 진입<br/>5초 timeout 시 → 정정 불가 PENDING_RECONCILE 마킹
+    GuardB-->>Listener: graceCompleted
+
+    Listener->>GuardC: cancelOrAmendActive(userId)
+    note over GuardC: ★ Phase C — strike guard<br/>SELECT FROM order_request WHERE user_id=? AND status IN ('ACK','PARTIALLY_FILLED')<br/>각 row 대상 KIS 정정/취소 발사
+    GuardC->>OrderRepo: findActiveOrders(userId)
+    OrderRepo-->>GuardC: List<OrderIntent> active
+
+    loop 각 active order
+        GuardC->>KisAdapter: cancel(orderRequest)
+        note over KisAdapter: tr_id=TTTC0013U/VTTC0013U (정정/취소)<br/>raw 출처: R13 (v3.6.0 시나리오 16)<br/>endpoint: POST /uapi/domestic-stock/v1/trading/order-rvsecncl
+        KisAdapter->>KisProd: POST /uapi/.../order-rvsecncl
+        KisProd-->>KisAdapter: 200 { rt_cd="0", output.ODNO=cancelOrderNo }
+        KisAdapter-->>GuardC: KisCancelAck
+        GuardC->>OrderRepo: updateStatus(id, status=CANCELLED_BY_KILLSWITCH)
+        GuardC->>Audit: save(OrderAuditEvent(KILLSWITCH_CANCELLED, kisCancelOrderNo))
+    end
+
+    Listener->>StompBroker: publish /topic/killswitch.engaged.{userId}<br/>{ engagedAt, reason, pendingCancelled=N, activeCancelled=M }
+    StompBroker-->>FE: MESSAGE
+    FE->>FE: KillSwitch banner ENGAGED + 모든 자율매매 UI BLOCKED + Toast "KillSwitch ON — 신규 N건·진행 M건 차단"
+
+    Note over FE: 사용자 OFF 절차 (수동 dogfooding)
+    FE->>KsCtrl: POST /api/killswitch/toggle { action="DISENGAGE", reason="user_manual" }
+    KsCtrl->>KsService: disengage(userId, reason)
+    note over KsService: ADR 0043 §2-3 LOCK — 자동 OFF 0<br/>오직 사용자 명시 수동 DISENGAGE만 허용
+    KsService->>Tx: BEGIN + UPDATE engaged=false + audit + STOMP fanout
+```
+
+**A+B+C race-safe 매트릭스 (PR #647·#648 evidence)**:
+
+| Phase | 차단 대상 | 자본 path 영향 | 검증 SQL |
+|---|---|---|---|
+| A — pending | `order_request.status='REQUESTED'` | 신규 시그널 즉시 차단 (KIS submit 0건) | `SELECT count(*) FROM order_request WHERE status='REQUESTED' AND user_id=?` |
+| B — grace | KIS submit 진행 중 (in-flight 5초 window) | ACK 도달 대기 + Phase C 진입 또는 PENDING_RECONCILE 마킹 | `SELECT count(*) FROM order_audit_event WHERE type='REQUESTED' AND created_at >= NOW() - INTERVAL '5 seconds'` |
+| C — strike | `order_request.status IN ('ACK','PARTIALLY_FILLED')` | KIS 정정/취소 발사 (TTTC0013U) | `SELECT count(*) FROM order_request WHERE status IN ('ACK','PARTIALLY_FILLED') AND user_id=?` |
+
+**race 시나리오 dogfooding (PR #647·#648)**:
+
+| 케이스 | A | B | C | 결과 |
+|---|---|---|---|---|
+| 정상 ENGAGE (in-flight 0) | 0 cancel | grace 5s skip | 0 strike | 즉시 LOCK |
+| ENGAGE + in-flight 1건 (KIS 진행 중) | 0 cancel | 5s wait → ACK | 1 strike (TTTC0013U) | grace 후 정정 발사 |
+| ENGAGE + 신규 시그널 burst 5건 | 5 cancel | skip | skip | 신규 모두 차단 |
+| ENGAGE + 이미 FILLED 3건 | 0 cancel | skip | 0 strike (FILLED 상태 정정 불가) | 자본 path 보호 — FILLED는 이미 종결 |
+| 사용자 DISENGAGE 후 즉시 신규 발사 | normal | normal | normal | engaged=false → guard pass |
+
+**자동 OFF 거부 LOCK (ADR 0043 §2-3 정합)**:
+- 시스템·KIS 응답·시간 경과·DB rollback — 모두 자동 OFF 발동 0건
+- 오직 **사용자 명시 수동 POST /api/killswitch/toggle action=DISENGAGE**만 허용
+- 사유: 자동 OFF가 자본 path 보호 본질 위배 — 사용자 가시화 의무
+
+**dogfooding 검증 evidence (PR #647·#648 + runbook R-3)**:
+- DB: `kill_switch_state.engaged=true` row + `engaged_at` timestamp
+- DB: `order_audit_event.type` chain: KILLSWITCH_ENGAGE_REQUESTED → KILLSWITCH_PENDING_CANCELLED(N) → KILLSWITCH_ACTIVE_STRIKE(M)
+- DB: `order_request.status='CANCELLED_BY_KILLSWITCH'` row N+M개 (engage 사이클당)
+- Kafka: `killswitch.engaged.v1` offset 증가
+- STOMP: 사용자 화면 banner ENGAGED 즉시 표시
+- 회귀: ENGAGED 상태에서 S-4 신규 주문 시도 시 KillSwitchEngagedException → 401 응답 + 화면 차단
+
+---
+
+## 9. 시나리오 S-7: DR drill — backup 복구 (ADR 0096 + R-4 runbook)
+
+**목적**: 분기 1회 DR drill 의무(ADR 0096 §6 + 운영 헌법 §10-4) → 사용자 결재 전날 명시 → staging 환경 격리 → backend-core 진행 + qa Visual E2E 자동 재현 + architect root cause·ADR amend → 5 시나리오(DB 전체 + 부분 + Flyway + 컨테이너 + Redis snapshot) 자동 재현 → RPO 24h + RTO 30분 실측 evidence → ADR amend 트리거 매트릭스.
+
+**관련 PR/ADR**: ADR 0096(DR/backup procedure — pg_dump custom + Redis BGSAVE + RPO/RTO LOCK) · ADR 0094 §9-4(backup 매트릭스 amend) · ADR 0094 §2-2-B(qa Visual 격상) · runbook R-4(DB 복구·Backup) · `scripts/backup/pg-dump-daily.sh` · `scripts/backup/redis-snapshot.sh` · `docs/operations/backup-setup.md`
+
+**KIS-first raw 출처**: KIS endpoint 호출 0건 (영속 dump + RDB 복원 path — 자본 path 별도)
+
+```mermaid
+sequenceDiagram
+    participant User as 사용자<br/>(전날 결재 + drill 진행)
+    participant Cron as macOS crontab<br/>(03:00 KST pg_dump · 03:30 KST redis BGSAVE)
+    participant PgDump as scripts/backup/pg-dump-daily.sh
+    participant RedisSnap as scripts/backup/redis-snapshot.sh
+    participant Postgres as magicjar-postgres<br/>(docker)
+    participant Redis as magicjar-redis<br/>(docker)
+    participant Backups as _workspace/backups/<br/>(.gitignore — 시크릿 누출 risk 회피)
+    participant Architect as architect<br/>(ADR amend trigger)
+    participant BackendCore as backend-core<br/>(drill 진행자)
+    participant Qa as qa Visual E2E<br/>(Playwright + 5 시나리오 자동 재현)
+    participant Devlog as _workspace/devlog/<br/>YYYY-MM-DD-dr-drill-quarter-N.html
+
+    Note over Cron,Backups: ★ daily backup baseline (ADR 0096 §2·§3 매트릭스)
+    Cron->>PgDump: 03:00 KST cron 실행
+    PgDump->>Postgres: docker exec magicjar-postgres pg_dump -U magicjar -Fc magicjar
+    note over PgDump: ADR 0096 §2-1 — pg_dump custom format (-Fc)<br/>pg_restore --clean --create 호환
+    Postgres-->>PgDump: dump bytes
+    PgDump->>Backups: write _workspace/backups/postgres/daily/YYYY-MM-DD.dump
+    PgDump->>Backups: find ... -mtime +7 -delete (7일 retention)
+    PgDump-->>Cron: exit 0 (success counter Micrometer wiring 권고 — P0-OPS-4 후속)
+
+    Cron->>RedisSnap: 03:30 KST cron 실행 (pg_dump 30분 후 자원 경합 회피)
+    RedisSnap->>Redis: docker exec magicjar-redis redis-cli BGSAVE
+    Redis-->>RedisSnap: BGSAVE started
+    RedisSnap->>Redis: LASTSAVE polling (30s timeout)
+    Redis-->>RedisSnap: lastSave timestamp updated
+    RedisSnap->>Redis: docker cp magicjar-redis:/data/dump.rdb <host>
+    RedisSnap->>Backups: write _workspace/backups/redis/snapshots/dump-YYYY-MM-DD-HHMM.rdb (3일 retention)
+    note over Redis: AOF 비활성 — Redis 사용 패턴은 cache + 임시 state<br/>KIS 토큰·Bucket4j rate limit·WS fanout·Screener cache 모두 자연 회복 (ADR 0096 §3-3)
+
+    Note over User,Devlog: ★ 분기 DR drill 의무 (ADR 0096 §6 — 5 시나리오 자동 재현)
+    User->>BackendCore: drill 전날 명시 결재 (자본 path 영향 가시화)
+
+    Note over BackendCore: Scenario 1 — DB 전체 복구
+    BackendCore->>BackendCore: KillSwitch ON 검토 (R-3 §3-1 + ADR 0043 race-safe A+B+C cross-ref — S-6)
+    BackendCore->>BackendCore: 앱 정지 (DB 추가 write 차단)
+    BackendCore->>Backups: 최신 daily backup 선택 (예: 2026-06-30.dump)
+    BackendCore->>Postgres: docker cp + pg_restore --clean --create
+    note over Postgres: R-4 runbook §3-2 절차 LOCK<br/>RTO 30분 baseline:<br/>1) 컨테이너 정지(2분)<br/>2) docker cp(1분)<br/>3) pg_restore(5~10분)<br/>4) 앱 재배포(5분)<br/>5) dogfooding 검증(5분)<br/>6) buffer(5분) = 30분
+    BackendCore->>BackendCore: 앱 재배포(scripts/build-and-deploy.sh)
+    BackendCore->>Qa: trigger Playwright E2E 5 시나리오 자동 재현
+    Qa->>Qa: Dashboard 진입 + Watchlist 갱신 + Positions 표시 + account API 200
+    Qa-->>BackendCore: 통과율 100% (ADR 0094 §2-2-B 정합)
+
+    Note over BackendCore: Scenario 2 — DB 부분 복구 (orders 테이블만)
+    BackendCore->>Postgres: pg_restore --data-only --table=orders <backup>
+    Postgres-->>BackendCore: OK (RTO 15분)
+    BackendCore->>Qa: trigger E2E orders 시나리오
+
+    Note over BackendCore: Scenario 3 — Flyway 결함 복구
+    BackendCore->>Postgres: flyway_schema_history clean
+    BackendCore->>BackendCore: migration SQL fix + 재배포 (RTO 20분)
+    BackendCore->>Qa: trigger E2E startup 시나리오
+
+    Note over BackendCore: Scenario 4 — 컨테이너 자체 결함 (볼륨 보존)
+    BackendCore->>Postgres: docker compose restart postgres (RTO 10분)
+    BackendCore->>Qa: trigger E2E
+
+    Note over BackendCore: Scenario 5 — Redis snapshot 복구
+    BackendCore->>Redis: docker compose stop + cp dump.rdb /data/ + start
+    Redis-->>BackendCore: RDB 자동 로드 (RTO 5분)
+    BackendCore->>BackendCore: KIS 토큰 cache 자연 회복 검증 (S-1 cross-ref)
+    BackendCore->>Qa: trigger E2E
+
+    Note over Qa: ★ qa Visual E2E 자동 재현 매트릭스 (ADR 0094 §2-2-B + ADR 0096 §6-2)<br/>baseline 5 시나리오 — Dashboard · Orders · Positions · Settings · Watchlist<br/>screenshot 1px diff RED gate (PR #649 evidence)
+
+    BackendCore->>Devlog: 발행 _workspace/devlog/2026-06-30-dr-drill-quarter-2.html<br/>(7 표준 § + RPO/RTO 실측 + Visual diff 결과)
+    note over Devlog: 사용자 메모리 feedback_devlog_html 정합<br/>/devlog slash 호출마다 신규 파일 생성 + index.html 누적
+
+    Devlog->>Architect: RPO 실측 evidence
+    note over Architect: ADR amend trigger 매트릭스 (ADR 0096 §6-4):<br/>RPO > 24h → WAL archiving 도입 검토 (P2 OPS)<br/>RTO > 30분 → R-4 절차 갱신 + ADR amend<br/>Visual E2E < 100% → qa 시나리오 본문 갱신<br/>Slack alert < 100% → ADR 0044·0095 amend
+```
+
+**RPO/RTO LOCK 매트릭스 (ADR 0096 §4 정합)**:
+
+| 항목 | RPO | RTO | 사유 |
+|---|---|---|---|
+| **PostgreSQL** | **24h** | **30분** (전체 복구) / 15분(부분) / 20분(Flyway) / 10분(컨테이너) | daily backup baseline + R-4 절차 LOCK |
+| **Redis** | **24h** or 자연 회복 | **5분** | cache 본질 (KIS 토큰·rate limit·fanout) |
+| **Kafka offset** | N/A | N/A | Outbox table 영속 권위 (ADR 0088) |
+| **DR drill (staging 5 시나리오)** | — | **60분** (5 시나리오 + qa Visual) | 분기 1회 의무 |
+
+**스크립트 매트릭스 (ADR 0096 §2-2·§3-2 + `scripts/backup/`)**:
+
+| 스크립트 | 주기 | retention | LIVE 검증 |
+|---|---|---|---|
+| `scripts/backup/pg-dump-daily.sh` | 03:00 KST | 7일 | `bash -n` SYNTAX OK + executable (chmod +x) |
+| `scripts/backup/redis-snapshot.sh` | 03:30 KST | 3일 | BGSAVE LASTSAVE polling + 30s timeout |
+| `scripts/backup/README.md` | — | — | 환경변수 + 검증 의무 본문 |
+| `docs/operations/backup-setup.md` | — | — | macOS crontab 등록 가이드 + Linux 참고 + rollback |
+
+**dogfooding 검증 evidence (ADR 0096 §6-3 실측 의무 매트릭스)**:
+- daily backup 성공률 > 99% (`magicjar.backup.success` Micrometer counter — P0-OPS-4 후속 wiring 권고)
+- 평균 dump 용량 < 100MB (현 baseline)
+- retention 0건 초과 (`find ... -mtime +7 -delete` 정합)
+- Redis snapshot 성공률 > 99%
+- 분기 DR drill 100% 통과 (사용자 결재 + qa Visual 100%)
+- RPO 실측 < 24h (무결성 SQL 5건 row count diff)
+- RTO 실측 < 30분 (drill 시작·종료 timestamp diff)
+- Visual 회귀 시나리오 100% (Playwright report)
+- Slack alert 도달률 100% (ADR 0044 + ADR 0095 P0-OPS-3 alert routing 정합)
+
+**거부 옵션 매트릭스 (ADR 0096 §결정 LOCK)**:
+
+| 거부 옵션 | 사유 |
+|---|---|
+| WAL archiving baseline | 운영 부담 ↑ + RPO 24h 충분 → P2 OPS amend 후보 |
+| weekly backup baseline | daily 7일 충분 → P1 amend 후보 |
+| Redis AOF 활성화 | cache 본질 위배 — 자연 회복 GREEN |
+| Kafka offset backup | Outbox 영속 권위 흡수 (ADR 0088) |
+| docker compose service cron | 사용자 단독 운영자 가정 + crontab 단독 |
+| 외부 storage (S3/B2) | 외부 의존 ↑ → post-MVP v4.0.0+ |
+| backup git tracked | 시크릿 누출 risk → `_workspace/backups/` `.gitignore` LOCK |
+| DR drill 주간/월간 | 부담 ↑ + 분기 1회 충분 |
+| RPO 5분 baseline | 자본 path 일일 정산 정합 + 분초 RPO 필요성 0 |
+
+---
+
+## 10. tr_id·endpoint 매트릭스 (v3.8.0 v3.7.0 superset)
+
+v3.7.0 baseline LOCK 매트릭스 위에 v3.8.0 신규 add-only:
+
+| tr_id / 호출 | 환경 | endpoint | raw 출처 (R#) | 시나리오 |
+|---|---|---|---|---|
+| `FHKST01010100` | 현재가 | `/quotations/inquire-price` | R6 | v3.6.0 시나리오 4 + **v3.8.0 S-2** |
+| `FHKST03010100` | 일봉 | `/quotations/inquire-daily-itemchartprice` | R7 | v3.7.0 시나리오 20 + **v3.8.0 S-3** |
+| `FHKST03010200` | 분봉 | `/quotations/inquire-time-itemchartprice` | R18 | v3.7.0 시나리오 20 |
+| `H0STCNT0` | WS 체결가 | WS subscribe | R5 | v3.6.0 시나리오 3 + **v3.8.0 S-2** |
+| `H0STCNI0` / `H0STCNI9` | WS 체결통보 | WS subscribe | R14 | v3.6.0 시나리오 15·17 + v3.7.0 시나리오 18·19 + **v3.8.0 S-5** |
+| `TTTC0012U` / `VTTC0012U` | 매수 | `/trading/order-cash` | R12 | v3.6.0 시나리오 15 + v3.7.0 시나리오 18 + **v3.8.0 S-4** |
+| `TTTC0011U` / `VTTC0011U` | 매도 | `/trading/order-cash` | R12 | v3.6.0 시나리오 15 + v3.7.0 시나리오 18 + **v3.8.0 S-4** |
+| `TTTC0013U` / `VTTC0013U` | 정정/취소 | `/trading/order-rvsecncl` | R13 | v3.6.0 시나리오 15~17 + **v3.8.0 S-6** (KillSwitch Phase C strike) |
+| `TTTC8434R` / `VTTC8434R` | 잔고 | `/trading/inquire-balance` | R19·R20·**R23** | v3.7.0 시나리오 22 + **v3.8.0 S-6 cross-ref** |
+| `inquire-ccnl` | 일별 체결 | `/quotations/inquire-ccnl` | R16·**R22** | v3.7.0 시나리오 19 + **v3.8.0 S-5 (backfill)** |
+| `TTTC8001R` / `VTTC8001R` | 일별 주문체결 reconciliation | `/trading/inquire-daily-ccld` | R17 | v3.7.0 시나리오 19 |
+| `inquire-status` | 거래정지 상세 | `/quotations/inquire-status` | KIS open-trading-api `examples_llm/inquire_status` | v3.7.0 시나리오 21 |
+| `getHashKey()` | POST 주문 hashkey | `/uapi/hashkey` | R15 | v3.7.0 시나리오 18 + **v3.8.0 S-4** |
+| **`POST /oauth2/tokenP`** | **KIS 토큰 발급** | **`/oauth2/tokenP`** | **R21** | **v3.8.0 S-1 (ADR 0038 23h cache + ReentrantLock + Redis SETNX)** |
+
+---
+
+## 11. AI 호출 0 검증 (v3.8.0 신규 시나리오 S-1~S-7 LOCK)
+
+ADR 0023 §2-4 + ADR 0066·0067·0068 §8 + 개발 룰 #5 (W1·W2·W3 트랙 코드 LLM provider import 0건):
+- S-1 토큰 발급: KIS `oauth2/tokenP` 호출 + Redis cache + ReentrantLock — deterministic LLM 0
+- S-2 종목상세: KIS `inquire-price` + NXT 30% 임계 휴리스틱 + stale 30분 검증 — 수학적 비교 LLM 0
+- S-3 1d backfill: KIS `inquire-daily-itemchartprice` + ASC 정규화 + UPSERT — deterministic LLM 0
+- S-4 REAL 주문: 3중 게이트 + hashkey + KIS POST — deterministic LLM 0
+- S-5 체결 STOMP push: KIS WS H0STCNI + event_id UQ + STOMP fanout — deterministic LLM 0
+- S-6 KillSwitch: race-safe A+B+C guard + DB state + Kafka publish — deterministic LLM 0
+- S-7 DR drill: pg_dump custom + Redis BGSAVE + Playwright E2E — deterministic LLM 0
+
+**inline 주석 의무**:
+```kotlin
+// AI 호출 0 — 운영 단계 정책 (ADR 0023 §2-4 + ADR 0066~0068 §8 + 개발 룰 #5)
+// W4 트랙 AI 보조는 시그널·주문 본체 path에 진입 금지 (ADR 0094 §2-2)
+```
+
+---
+
+## 12. fitness gap 검증 (사용자 메모리 `feedback_v3_skepticism_no_regression`)
+
+**자동매매에 필요한가?** (각 시나리오)
+
+| 시나리오 | 자동매매 본체 path | v1/v2 잔재? | MVP 적합 |
+|---|---|---|---|
+| S-1 (KIS 토큰 발급) | ★★★ 모든 KIS 호출의 진입점 | 아님 — ADR 0038 baseline (v3 본체) | ✓ |
+| S-2 (종목상세 + QA hotfix) | ★★ 사용자 1차 view + 룰 본체 시세 source | 아님 — PR #660 NXT 30%+stale 30분 QA dogfooding | ✓ |
+| S-3 (1d backfill 5분 cron) | ★★★ chart-curator 해고 후 캔들 SLA market-data 단독 | 아님 — PR #658·#659 v3.8.0 cycle | ✓ |
+| S-4 (REAL 주문 3중 게이트) | ★★★ 자본 path 직결 + hashkey 의무 | 아님 — ADR 0084 P0-1 + ADR 0082 T-MAN | ✓ |
+| S-5 (체결 STOMP push) | ★★★ FILLED 사용자 가시화 + WS race 영구 차단 | 아님 — ADR 0068 + 2026-05-22 reactor-nio fix | ✓ |
+| S-6 (KillSwitch race-safe) | ★★★ 자본 path 즉시 차단 + 사용자 1차 도구 | 아님 — ADR 0043 race-safe A+B+C amend (PR #647·#648) | ✓ |
+| S-7 (DR drill 분기 의무) | ★★ 운영 단계 인프라 의무 | 아님 — ADR 0096 운영 baseline P0 | ✓ |
+
+**v1/v2 잔재 검증**: 7 시나리오 모두 v3 본체 path. v1/v2 잔재 0건.
+
+**MVP 범위 적합**: 7 시나리오 모두 운영 baseline 진입 의무 또는 ADR 0094 7 actor reshuffle 정합. add-only baseline 정합.
+
+---
+
+## 13. dogfooding 의무 매트릭스 (사용자 메모리 `feedback_verification_strict`)
+
+| 시나리오 | DB evidence | log evidence | Kafka/STOMP evidence | 회귀 검증 |
+|---|---|---|---|---|
+| S-1 | user_kis_credential cipher 0 평문 + Redis TTL 82800s | KIS oauth2/tokenP 호출 1회 (cache hit 회귀) | — | EGW00123 self-heal 1회 재발급 |
+| S-2 | quote:last:{code} TTL 5s + symbol meta read-only | KIS inquire-price 호출 빈도 검증 | STOMP /topic/market.tick.{code} | NXT 30% + stale 30분 Playwright 17/17 PASS |
+| S-3 | daily_candle ASC + UPSERT + audit CANDLE_BACKFILL_DONE | docker logs ok≥5/fail≤1 + 5분 emit 0건 | — | TPS signal/cycle ≤+2 |
+| S-4 | order_request REQUESTED→ACK + outbox PENDING→PUBLISHED + audit chain | KIS prod 호출 1건 + hashkey 마스킹 | order.intent.v1 publish | hashkey 누락 시 KIS reject + 3중 게이트 BLOCK 회귀 |
+| S-5 | order_execution UQ event_id + status FILLED/PARTIALLY_FILLED | reactor-http-nio block 0건 (2635e6fe hotfix) | order.filled.v1 + STOMP /topic/order.execution.{userId} | WS·REST 동일 row silent skip + WS_RECONNECTED emit |
+| S-6 | kill_switch_state.engaged=true + audit KILLSWITCH chain | 사용자 명시 OFF만 (자동 OFF 0건 LOCK) | killswitch.engaged.v1 + STOMP fanout | A·B·C 5 race case 매트릭스 통과 |
+| S-7 | _workspace/backups/ daily dump 7일 + rdb 3일 | crontab 정합 + pg_dump exit 0 | — | RPO 24h + RTO 30분 실측 + qa Visual 100% |
+
+---
+
+## 14. 출처 검증 매트릭스 (헌법 §3 §3-3 의무 산출물)
+
+| 시나리오 | 인용 raw URL 건수 | 자체 추론 0 확인 |
+|---|---|---|
+| S-1 | 1건 (**R21**) | KIS oauth2/tokenP 절차·헤더·body·응답 raw 출처 정합 |
+| S-2 | 2건 (R5·R6) | inquire-price + WS H0STCNT0 44 컬럼 raw 정합 |
+| S-3 | 1건 (R7) | inquire-daily-itemchartprice DESC→ASC sortedBy + EGW00201 1초 backoff raw 출처 |
+| S-4 | 2건 (R12·R15) | order-cash REAL/MOCK tr_id + hashkey 헤더 raw 출처 |
+| S-5 | 3건 (R14·**R22**·R13 보조) | ccnl_notice 26 컬럼 + inquire-ccnl backfill raw 컬럼 |
+| S-6 | 1건 (R13 — KillSwitch Phase C strike 정정/취소) | KillSwitch 자체는 결정론 path + Phase C 정정/취소만 KIS 호출 |
+| S-7 | 0건 (KIS endpoint 0 — 영속 dump path) | pg_dump·BGSAVE·Playwright deterministic LLM 0 |
+
+**v3.8.0 raw 인용 카운트**: **R21(신규)** + R22·R23(reuse) — v3.7.0 superset.
+
+**검증 보고서 cross-ref**:
+- v3.6.0 PR-21·PR-38·PR-35 + v3.7.0 raw verification 보고서는 v3.8.0 baseline 위에 그대로 LOCK
+- 본 baseline 발행 시점에 raw R21 신규 인용 — 향후 S-1~S-7 구현 PR(이미 시간상 PR #647·#648·#658·#659·#660 등으로 머지 완료) 시점 raw 검증 보고서는 backlog (헌법 §3 §3-3)
+
+---
+
+## 15. 운영 단계 진입 cross-link 매트릭스 (ADR 0094 정합)
+
+| ADR 0094 § | 본 03 내 시나리오 cross-ref |
+|---|---|
+| §2-2-A 7 actor reshuffle + chart-curator 해고 | S-3 1d backfill → market-data 인수 evidence |
+| §2-2-B qa Visual "품질 헌터" 격상 | S-2·S-7 qa Visual E2E 자동 재현 의무 cross-ref |
+| §3-2 P0-OPS-3 SLO/SLA | 모든 시나리오 SystemEvent emit + Prometheus metric cross |
+| §3-7 P0-OPS-4 DR/backup | **S-7 본문화** |
+| §3-7 P0-OPS-5 runbook R-1~R-5 | S-6 → R-3 KillSwitch + S-7 → R-4 DB 복구 |
+| §9-1 SLO 5건 | S-4 S-1 자동매매 시그널 → 주문 발사 P95<5s + S-2 S-3 account API p95<500ms |
+| §9-3 사용자 단독 운영자 가정 | S-1 ⚙️ SettingsModal 입력 + S-6 KillSwitch UI 1차 도구 |
+| §9-4 backup 매트릭스 + DR drill 분기 | **S-7 본문화** |
+
+---
+
+## 16. 변경 이력
+
+| 날짜 | 변경 | 사유 (작성: market-data) |
+|------|------|------|
+| 2026-05-22 | v3.8.0 baseline 03-use-sequences.md 신규 발행 — 시나리오 S-1·S-2·S-3·S-4·S-5·S-6·S-7 (7건) + raw 인용 R21 신규 + R22·R23 reuse + tr_id 매트릭스 v3.7.0 superset + AI 호출 0 검증 + fitness gap 검증 + dogfooding 매트릭스 + 출처 검증 매트릭스 + 운영 단계 진입 ADR 0094 cross-link 매트릭스 | v3.8.0 운영 단계 1차 baseline 발행 트리거 (orchestrator 디스패치 market-data 영역). v3.7.0 시나리오 1~23은 add-only 보존 + 본 baseline 위에서 참조. ADR 0094 amend(8→7 actor reshuffle + qa Visual 격상 + chart-curator 해고) + P0 OPS 6건 마감(ADR 0095 SLO/SLA + ADR 0096 DR/backup + runbook R-1~R-5 + logback JSON + Actuator/Prometheus + persistence monitoring) + KillSwitch race-safe A+B+C(PR #647·#648) + KIS WS 끊김 emit 회복(PR #644·#645) + LiveDailyCandleScheduler 5분 cron + KIS_TPS_EXCEEDED 종합 fix(PR #658·#659) + QA Visual 첫 셋업 + symbol detail QA hotfix(PR #660) |
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>

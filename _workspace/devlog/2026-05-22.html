@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>magicJar devlog · 2026-05-22 (금) — v3.8.0 cut</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --brown: #5b3a1f; --cream: #fff8ed; --paper: #fafaf7; --line: #d8d4c8;
+      --ok: #2f7a3a; --warn: #b58606; --pending: #1c5fa6; --todo: #b03060; --mute: #6a6a6a;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Pretendard", "Apple SD Gothic Neo", sans-serif;
+      background: var(--paper); color: #222;
+      max-width: 1080px; margin: 0 auto; padding: 36px 24px 80px; line-height: 1.65;
+    }
+    h1 { color: var(--brown); border-bottom: 2px solid var(--brown); padding-bottom: 8px; margin-bottom: 6px; font-size: 1.55rem; }
+    .subtitle { color: var(--mute); font-size: 0.95rem; margin-bottom: 24px; }
+    h2 { color: var(--brown); margin-top: 36px; border-left: 4px solid var(--brown); padding-left: 10px; font-size: 1.15rem; }
+    h3 { color: #444; margin-top: 22px; font-size: 1rem; }
+    table { width: 100%; border-collapse: collapse; margin: 12px 0 18px; font-size: 0.88rem; }
+    th, td { padding: 6px 10px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: var(--cream); color: var(--brown); font-weight: 600; }
+    tr:nth-child(even) td { background: #fcfcf8; }
+    code { background: #f3efe6; padding: 1px 6px; border-radius: 3px; font-size: 0.85em; color: #333; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 600; margin: 0 2px; }
+    .b-ok { background: #e3f1e6; color: var(--ok); border: 1px solid var(--ok); }
+    .b-warn { background: #fef7e0; color: var(--warn); border: 1px solid var(--warn); }
+    .b-pending { background: #e3edf7; color: var(--pending); border: 1px solid var(--pending); }
+    .b-todo { background: #fce6ec; color: var(--todo); border: 1px solid var(--todo); }
+    .b-mute { background: #f0f0f0; color: var(--mute); border: 1px solid var(--mute); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin: 12px 0; }
+    .card { background: var(--cream); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; font-size: 0.9rem; }
+    .card strong { color: var(--brown); }
+    .nav-back { display: inline-block; margin-bottom: 18px; color: var(--brown); text-decoration: none; font-size: 0.9rem; }
+    .nav-back:hover { text-decoration: underline; }
+    .hl { background: #fff2c9; padding: 1px 4px; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <a class="nav-back" href="index.html">← devlog index</a>
+  <h1>2026-05-22 (금) — v3.8.0 cut ★</h1>
+  <div class="subtitle">작성: 19:18 KST · 회차 1 · KIS_TPS LIVE 해소 + QA 첫 임무 fix + consumer block() ERROR + v3.8.0 baseline cycle 마감</div>
+
+  <h2>0. 세션 한 줄 요약</h2>
+  <div class="card">
+    "오늘 할거" 질문 → KIS_TPS_EXCEEDED LIVE 진단(12:58~14:22 KST count=109) → 3 hotfix 사이클 → QA 첫 임무 NXT/stale fix → consumer block() ERROR fix → v3.8.0 baseline 4 sub-agent 병렬 + tag cut + release 발행. <span class="hl">10 PR 머지 · 8 sub-agent 디스패치 · v3.8.0 cut</span>.
+  </div>
+
+  <h2>1. 머지 PR 매트릭스 (10건 — chronological)</h2>
+  <table>
+    <thead><tr><th>#</th><th>제목</th><th>영역</th><th>모델</th><th>의의</th></tr></thead>
+    <tbody>
+      <tr><td>#657</td><td>chore — stale task·ADR drift·untracked 잔재 정리</td><td>orchestrator</td><td>opus</td><td>ADR 0088 Proposed→Accepted 격상 + backlog §0 stale 정정 + task 21건 archive + untracked 제거 (.agents/.codex/AGENTS.md)</td></tr>
+      <tr><td>#658</td><td>fix — KIS_TPS LIVE 1차 hotfix (200ms 종목 간 sleep)</td><td>market-data</td><td>opus</td><td>LiveDailyCandleScheduler burst 완화 1차 시도 — 효과 0 (옵션 B fluke 가설)</td></tr>
+      <tr><td>#659</td><td>fix — KIS_TPS 종합 fix (H1 페이지 + H4 retry + priority=BACKFILL) ★</td><td>market-data</td><td>opus</td><td>페이지 150ms sleep + EGW00201 1초 backoff + priority 재배치. <span class="badge b-ok">3 cycle LIVE GREEN</span> ok=6 fail=0</td></tr>
+      <tr><td>#660</td><td>fix — QA 첫 임무 P0 (NXT 30% + stale 30분)</td><td>backend-core</td><td>opus</td><td>SymbolMetaService 휴리스틱 강화. stale=true 검증 LIVE GREEN. 62% 경계 case는 backlog §59 sunset</td></tr>
+      <tr><td>#661</td><td>fix — consumer block() reactor-http-nio ERROR (publishOn 위임)</td><td>market-data</td><td>opus</td><td>KisOrderInquireCcldHttpAdapter + Daily 2건 → boundedElastic 위임. <span class="badge b-ok">LIVE 0건</span></td></tr>
+      <tr><td>#662</td><td>chore — baseline v3.8.0 init (5 slot + 폴더)</td><td>orchestrator</td><td>opus</td><td>CHANGELOG 5 anchor + README skeleton + baseline 폴더</td></tr>
+      <tr><td>#663</td><td>docs — baseline 05-ui-inventory.md</td><td>frontend</td><td>opus</td><td>14 route + 13 nav + 4 Mermaid + LWC v4 이관 + qa Visual baseline 본문</td></tr>
+      <tr><td>#664</td><td>docs — baseline 03-use-sequences.md (KIS-first raw)</td><td>market-data</td><td>opus</td><td>7 sequence diagram + 10 raw 인용 (R21 신규 oauth2/tokenP)</td></tr>
+      <tr><td>#665</td><td>docs — baseline 02 + 04</td><td>backend-core</td><td>opus</td><td>16 트랙 (14→16 +2: T-OPS·T-QA) + 12 mermaid + Flyway V43 (system_event)</td></tr>
+      <tr><td>#666</td><td>docs — baseline README + 01 + 06 + 07 ★</td><td>architect</td><td>opus</td><td>운영 단계 진입 baseline 본문화 + ADR 0094 amend 7 actor + P0 OPS 6/6 LOCK</td></tr>
+    </tbody>
+  </table>
+  <div class="card">
+    <strong>v3.8.0 tag</strong>: <code>ef43d403</code> 머지 직후 cut + <code>release/v3.8.0</code> brunch push (ADR 0031 immutable) + <code>scripts/release.sh v3.8.0</code> → <a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.8.0">GitHub Release</a> · README 37 tags · master.html 124.5 KB.
+  </div>
+
+  <h2>2. PostgreSQL 테이블 변경</h2>
+  <div class="card">
+    오늘 신규 Flyway 0건. 본 세션은 hotfix + docs 위주 — schema 변경 없음. <span class="badge b-mute">no change</span>
+    <br>
+    참고: 어제 V43 <code>system_event</code> 테이블 (severity P1~P4, correlation_id, viewed_at, resolved_at) 신설이 baseline 02-data-flow.md에 본문화됨.
+  </div>
+
+  <h2>3. Kafka 토픽·데이터 흐름 변경</h2>
+  <div class="card">
+    오늘 신규 토픽 0건. <span class="badge b-mute">no change</span>
+    <br>
+    참고: 19 토픽 매트릭스 (system.event.v1 포함 — ADR 0094) baseline 02-data-flow.md 본문화.
+  </div>
+
+  <h2>4. Redis 사용처 변경</h2>
+  <div class="card">
+    오늘 신규 key 0건. <span class="badge b-mute">no change</span>
+    <br>
+    참고: 5종 신규 key (killswitch race-safe 3 + kis:tps:pause + nxt:stale:check) baseline 02-data-flow.md 본문화.
+  </div>
+
+  <h2>5. sub-agent 디스패치 내역 (8건 — chronological)</h2>
+  <table>
+    <thead><tr><th>#</th><th>임무</th><th>Agent</th><th>결과</th><th>비고</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>§0-A Phase 2 KIS Rate Limit acquire 합류</td><td>market-data</td><td><span class="badge b-warn">변경 0</span></td><td>정찰 결과 Phase 2 이미 PR #571 머지 완료 확인 → 변경 없이 종결. worktree isolation 누수로 main에 KisAuthAdapter 변경 흘림 → orchestrator restore</td></tr>
+      <tr><td>2</td><td>KIS_TPS LIVE root cause hotfix (1차)</td><td>market-data</td><td><span class="badge b-warn">PR #658</span></td><td>옵션 B (200ms 종목 간 sleep). 효과 0 LIVE 검증 — fluke 가설</td></tr>
+      <tr><td>3</td><td>KIS_TPS 종합 fix (H1+H4)</td><td>market-data</td><td><span class="badge b-ok">PR #659</span></td><td>페이지 150ms + EGW00201 retry + BACKFILL priority. <span class="hl">3 cycle ok=6 fail=0 LIVE GREEN</span></td></tr>
+      <tr><td>4</td><td>QA 첫 임무 P0 fix (NXT + stale)</td><td>backend-core</td><td><span class="badge b-ok">PR #660</span></td><td>SymbolMetaService 30% 휴리스틱 + 30분 stale 검증. 17 unit test</td></tr>
+      <tr><td>5</td><td>consumer block() ERROR fix</td><td>market-data</td><td><span class="badge b-ok">PR #661</span></td><td>publishOn(boundedElastic) — 2 adapter (Inquire Ccld + Daily). 9건 잔여 backlog 권고</td></tr>
+      <tr><td>6</td><td>baseline architect (README + 01 + 06 + 07)</td><td>architect</td><td><span class="badge b-ok">PR #666</span></td><td>1525 LOC · 5 mermaid · 운영 단계 진입 baseline 본문화 (가장 큰 sub-agent)</td></tr>
+      <tr><td>7</td><td>baseline backend-core (02 + 04)</td><td>backend-core</td><td><span class="badge b-ok">PR #665</span></td><td>1404 LOC · 12 mermaid · 16 트랙 (T-OPS + T-QA 신규)</td></tr>
+      <tr><td>8</td><td>baseline market-data (03 KIS-first raw)</td><td>market-data</td><td><span class="badge b-ok">PR #664</span></td><td>1026 LOC · 7 sequence · 10 raw 인용 (R21 oauth2/tokenP 신규)</td></tr>
+      <tr><td>9</td><td>baseline frontend (05)</td><td>frontend</td><td><span class="badge b-ok">PR #663</span></td><td>423 LOC · 4 mermaid · 14 route + LWC v4 이관 + qa Visual baseline</td></tr>
+    </tbody>
+  </table>
+  <div class="card">
+    <strong>worktree leak 사건 2건</strong>: ① sub-agent 1 (market-data Phase 2 정찰)이 main worktree에 KisAuthAdapter·CandleRefreshService·KisApprovalAdapter 변경 흘림 → restore + 재디스패치. ② architect baseline 작업 시 root main HEAD로 첫 commit 직진 → <code>git update-ref refs/heads/main origin/main</code> + cherry-pick + amend로 복구. 둘 다 자가 회복 GREEN.
+  </div>
+
+  <h2>6. sanity / dogfooding 결과</h2>
+  <h3>6-1. KIS_TPS_EXCEEDED LIVE 검증 (PR #659 — 3 cycle GREEN ★)</h3>
+  <table>
+    <thead><tr><th>Cycle</th><th>시각 (KST)</th><th>ok/fail</th><th>elapsedMs</th><th>TPS signal Δ</th><th>status=500</th></tr></thead>
+    <tbody>
+      <tr><td>1st</td><td>17:42:43</td><td><span class="badge b-ok">ok=6 fail=0</span></td><td>77.2s</td><td>+0</td><td>0</td></tr>
+      <tr><td>2nd</td><td>17:47:41</td><td><span class="badge b-ok">ok=6 fail=0</span></td><td>74.8s</td><td>+0</td><td>0</td></tr>
+      <tr><td>3rd</td><td>18:03:08</td><td><span class="badge b-ok">ok=6 fail=0</span></td><td>82.5s</td><td>+1</td><td>1</td></tr>
+    </tbody>
+  </table>
+  <div class="card">
+    이전(PR #658 시점) <span class="badge b-todo">ok=0 fail=6 100%</span> 7 cycle 누적 → PR #659 머지 후 <span class="badge b-ok">ok=6 fail=0</span> 3 cycle 연속. 자본 path 0 / 데이터 수집 50% fail → 0% fail 회복.
+  </div>
+
+  <h3>6-2. QA fix 효과 (PR #660 — stale GREEN, NXT 부분 GREEN)</h3>
+  <table>
+    <thead><tr><th>종목</th><th>currentPrice</th><th>stale</th><th>expectRange</th><th>평가</th></tr></thead>
+    <tbody>
+      <tr><td>005930 삼성전자</td><td>292,000</td><td><span class="badge b-ok">true ★</span></td><td>[30K, 200K]</td><td>NXT 62% 경계 case 잔존 (backlog §59)</td></tr>
+      <tr><td>000660 SK하이닉스</td><td>1,919,000</td><td><span class="badge b-ok">true ★</span></td><td>[100K, 400K]</td><td>NXT 62% 경계 case 잔존</td></tr>
+      <tr><td>004090 한국석유</td><td>13,470</td><td><span class="badge b-ok">true ★</span></td><td>[5K, 50K]</td><td><span class="badge b-ok">baseline 정합</span> 회귀 0</td></tr>
+    </tbody>
+  </table>
+
+  <h3>6-3. consumer block() ERROR fix (PR #661 — 0건 LOCK)</h3>
+  <div class="card">
+    재배포 후 <code>docker logs magicjar-consumer --since 3m | grep "block()"</code> → <span class="badge b-ok">0건</span>. KisExecutionBackfillService 정상 동작 (응답row=1 체결row=1).
+  </div>
+
+  <h3>6-4. 9 컨테이너 상태</h3>
+  <div class="grid">
+    <div class="card">api-app <span class="badge b-ok">healthy</span></div>
+    <div class="card">batch-app <span class="badge b-ok">healthy</span></div>
+    <div class="card">consumer-app <span class="badge b-ok">healthy</span></div>
+    <div class="card">frontend <span class="badge b-ok">healthy</span></div>
+    <div class="card">kafka <span class="badge b-ok">healthy</span></div>
+    <div class="card">kafka-ui <span class="badge b-ok">healthy</span></div>
+    <div class="card">postgres <span class="badge b-ok">healthy</span></div>
+    <div class="card">redis <span class="badge b-ok">healthy</span></div>
+    <div class="card">dozzle <span class="badge b-ok">up</span></div>
+  </div>
+
+  <h2>7. baseline v3.8.0 산출물</h2>
+  <table>
+    <thead><tr><th>파일</th><th>작성자</th><th>LOC</th><th>Mermaid</th><th>비고</th></tr></thead>
+    <tbody>
+      <tr><td>README.md</td><td>architect</td><td>181</td><td>—</td><td>한 장 요약 + 7 파일 인덱스</td></tr>
+      <tr><td>01-architecture.md</td><td>architect</td><td>606</td><td>4</td><td>8 모듈 + 외부 통합 + Flyway 시계열</td></tr>
+      <tr><td>02-data-flow.md</td><td>backend-core</td><td>731</td><td>12</td><td>모듈별 데이터 흐름 + Kafka 19 + Redis</td></tr>
+      <tr><td>03-use-sequences.md</td><td>market-data</td><td>1026</td><td>6 (7 sequence)</td><td>7 시나리오 + KIS raw 10건</td></tr>
+      <tr><td>04-feature-spec.md</td><td>backend-core</td><td>673</td><td>—</td><td>16 트랙 표준 명세</td></tr>
+      <tr><td>05-ui-inventory.md</td><td>frontend</td><td>423</td><td>4</td><td>14 route + 8 STOMP + LWC + qa Visual</td></tr>
+      <tr><td>06-history-traceability.md</td><td>architect</td><td>285</td><td>—</td><td>PR + ADR 시계열 + backlog 처리표</td></tr>
+      <tr><td>07-policy-evolution.md</td><td>architect</td><td>453</td><td>—</td><td>헌법 §1~§10 진화 + ADR 96건</td></tr>
+      <tr><td colspan="2"><strong>합계</strong></td><td><strong>4378</strong></td><td><strong>26+ blocks</strong></td><td>8 html 변환 GREEN</td></tr>
+    </tbody>
+  </table>
+
+  <h2>8. 다음 세션 일정 (우선순위)</h2>
+  <table>
+    <thead><tr><th>우선순위</th><th>의제</th><th>사이즈</th><th>예정 트랙</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge b-todo">P1</span></td><td>candle venue 컬럼 (옵션 B — 005930·000660 NXT 62% case 해소)</td><td>~150 LOC + Flyway V44</td><td>backlog §59 · chart-curator(archived) 책임 → market-data + backend-core 합류</td></tr>
+      <tr><td><span class="badge b-pending">P2</span></td><td>Phase 3 Circuit Breaker + EGW00201 1초 backoff + caller priority queue</td><td>~300 LOC</td><td>backlog §0-A Phase 3</td></tr>
+      <tr><td><span class="badge b-pending">P2</span></td><td>§57 KIS EGW00123 self-heal 잔여 어댑터 확장 (5 어댑터)</td><td>~650 LOC</td><td>backlog §57</td></tr>
+      <tr><td><span class="badge b-pending">P2</span></td><td>§58 EGW00201 폭주 차단 — frontend exponential backoff</td><td>~50 LOC</td><td>backlog §58</td></tr>
+      <tr><td><span class="badge b-warn">P3</span></td><td>stale local branches 8건 force delete</td><td>git 명령</td><td>사용자 결재 (-D 권한 차단)</td></tr>
+      <tr><td><span class="badge b-warn">P3</span></td><td>consumer block() 동일 패턴 9건 (KisApprovalAdapter·KisRestPriceAdapter·KisHashKeyAdapter 등)</td><td>~50 LOC each</td><td>BlockHound 도입 검토 backlog</td></tr>
+      <tr><td><span class="badge b-mute">P4</span></td><td>W4 진입 (T-AI·T-MCP) — Spring AI + Anthropic + MCP server</td><td>대규모</td><td>사용자 결재 대기 (현재 LOCK)</td></tr>
+    </tbody>
+  </table>
+
+  <h2>9. 마감 요약</h2>
+  <div class="card">
+    <strong>v3.8.0 cut 완료</strong> ★ — 운영 단계 진입 후 첫 minor. 자본 path 안정성 회복 (KIS_TPS GREEN + consumer block() GREEN). QA Visual 첫 가동 evidence 흡수. baseline 7 md (4378 LOC) + 8 html. Release: <a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.8.0">github.com/sp-daewoon/magicJar/releases/tag/v3.8.0</a>
+  </div>
+
+  <footer style="margin-top: 36px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--mute); font-size: 0.82rem;">
+    SoT: <code>docs/architecture/master-architecture.md</code> · <code>_workspace/backlog.md</code> · <code>_workspace/baseline/v3.8.0/</code> · <code>_workspace/arch/adr/README.md</code>
+  </footer>
+</body>
+</html>
