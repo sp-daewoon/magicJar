@@ -12,6 +12,8 @@ import kr.spdaewoon.magicjar.api.service.order.OrderQueryService
 import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEvent
 import kr.spdaewoon.magicjar.domain.order.execution.OrderExecution
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
@@ -59,13 +61,30 @@ class OrderQueryController(
         @RequestParam(required = false) from: Instant?,
         @Parameter(description = "조회 종료 시점 (ISO-8601 UTC)", example = "2026-05-13T23:59:59Z")
         @RequestParam(required = false) to: Instant?,
+        @Parameter(description = "주문 출처 필터", example = "MANUAL")
+        @RequestParam(required = false) source: OrderSource?,
+        @Parameter(description = "매수/매도 필터", example = "BUY")
+        @RequestParam(required = false) side: OrderSide?,
+        @Parameter(description = "종목코드 검색", example = "005930")
+        @RequestParam(required = false) code: String?,
         @Parameter(description = "페이지 번호 (0-based)", example = "0")
         @RequestParam(defaultValue = "0") page: Int,
         @Parameter(description = "페이지 크기", example = "20")
         @RequestParam(defaultValue = "20") size: Int,
     ): OrderListPageResponse {
-        log.debug("주문 목록 조회: userId={} status={} from={} to={} page={} size={}", userId, status, from, to, page, size)
-        val result = orderQueryService.listByUser(userId, from, to, status, page, size)
+        log.debug(
+            "주문 목록 조회: userId={} status={} from={} to={} source={} side={} code={} page={} size={}",
+            userId,
+            status,
+            from,
+            to,
+            source,
+            side,
+            code,
+            page,
+            size,
+        )
+        val result = orderQueryService.listByUser(userId, from, to, status, source, side, code, page, size)
         // Watchlist 패턴 정합 — instrument 테이블 batch lookup으로 종목명 채움 (N+1 회피)
         val nameByCode = resolveNamesByCodes(result.content.map { it.code }.toSet())
         return OrderListPageResponse(
@@ -74,6 +93,7 @@ class OrderQueryController(
             size = result.size,
             totalElements = result.totalElements,
             totalPages = result.totalPages,
+            last = result.isLast,
         )
     }
 
@@ -139,6 +159,7 @@ class OrderQueryController(
             rejectReason = req.rejectReason,
             requestedAt = req.requestedAt.toString(),
             completedAt = req.completedAt?.toString(),
+            source = req.source.name,
         )
 
     private fun toDetailResponse(detail: OrderDetail): OrderDetailResponse {
@@ -208,6 +229,8 @@ data class OrderListItemDto(
     val requestedAt: String,
     @field:Schema(description = "주문 종료 시각 (ISO-8601 UTC)", example = "2026-05-13T09:00:01Z")
     val completedAt: String?,
+    @field:Schema(description = "주문 출처", example = "MANUAL", allowableValues = ["AUTO", "MANUAL"])
+    val source: String,
 )
 
 @Schema(description = "체결 단건 DTO")
@@ -264,4 +287,6 @@ data class OrderListPageResponse(
     val totalElements: Long,
     @field:Schema(description = "총 페이지 수", example = "5")
     val totalPages: Int,
+    @field:Schema(description = "마지막 페이지 여부", example = "false")
+    val last: Boolean,
 )

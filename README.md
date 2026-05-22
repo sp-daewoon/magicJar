@@ -5,7 +5,7 @@
 **개인 맞춤형 한국 주식 자동매매 시스템**
 _룰 기반 quant trading 본체 + AI 옵션 보조 + MCP 서버 미래 노출_
 
-[![Version](https://img.shields.io/badge/version-v3.5.0-blue)](https://github.com/sp-daewoon/magicJar/releases)
+[![Version](https://img.shields.io/badge/version-v3.8.1-blue)](https://github.com/sp-daewoon/magicJar/releases)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0_(K2)-purple)](https://kotlinlang.org/)
 [![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.3-6db33f)](https://spring.io/projects/spring-boot)
 [![React](https://img.shields.io/badge/React-19-61dafb)](https://react.dev/)
@@ -433,6 +433,7 @@ GitHub 방문자가 한 번에 진입할 수 있도록 release notes(📋) + bas
 
 | 버전 | 날짜 | 미러스톤 | Release | Baseline |
 |------|------|----------|---------|----------|
+| **v3.8.1** | 2026-05-22 | 주문 조회성·종목검색 섹터·메뉴 그룹화 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.8.1) | [📊](_workspace/baseline/v3.8.0/html/index.html) |
 | **v3.8.0** | 2026-05-22 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.8.0) | [📊](_workspace/baseline/v3.8.0/html/index.html) |
 | **v3.7.1** | 2026-05-19 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.7.1) | [📊](_workspace/baseline/v3.7.0/html/index.html) |
 | **v3.7.0** | 2026-05-19 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.7.0) | [📊](_workspace/baseline/v3.7.0/html/index.html) |

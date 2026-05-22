@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.api.persistence.order
 
+import jakarta.persistence.criteria.Predicate
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
@@ -9,6 +10,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
+import org.springframework.data.jpa.domain.Specification
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -108,19 +110,45 @@ class OrderRequestRepositoryAdapter(
         from: Instant?,
         to: Instant?,
         statuses: List<OrderStatus>?,
+        source: OrderSource?,
+        side: OrderSide?,
+        code: String?,
         page: Int,
         size: Int,
     ): org.springframework.data.domain.Page<OrderRequest> {
         val pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "requestedAt"))
         val fromTs = from ?: Instant.EPOCH
         val toTs = to ?: Instant.now().plusSeconds(86400)
-        return if (statuses.isNullOrEmpty()) {
-            jpa.findByUserIdAndRequestedAtBetween(userId, fromTs, toTs, pageable).map { toDomain(it) }
-        } else {
-            jpa
-                .findByUserIdAndStatusInAndRequestedAtBetween(userId, statuses, fromTs, toTs, pageable)
-                .map { toDomain(it) }
-        }
+        val codeQuery =
+            code
+                ?.trim()
+                ?.replace("%", "")
+                ?.replace("_", "")
+                ?.takeIf { it.isNotBlank() }
+
+        val spec =
+            Specification<OrderRequestJpaEntity> { root, _, cb ->
+                val predicates = mutableListOf<Predicate>()
+                predicates += cb.equal(root.get<String>("userId"), userId)
+                predicates += cb.between(root.get<Instant>("requestedAt"), fromTs, toTs)
+
+                if (!statuses.isNullOrEmpty()) {
+                    predicates += root.get<OrderStatus>("status").`in`(statuses)
+                }
+                source?.let {
+                    predicates += cb.equal(root.get<OrderSource>("source"), it)
+                }
+                side?.let {
+                    predicates += cb.equal(root.get<OrderSide>("side"), it)
+                }
+                codeQuery?.let {
+                    predicates += cb.like(root.get<String>("code"), "%$it%")
+                }
+
+                cb.and(*predicates.toTypedArray())
+            }
+
+        return jpa.findAll(spec, pageable).map { toDomain(it) }
     }
 
     // --- private helper ---

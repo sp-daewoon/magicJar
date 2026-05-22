@@ -7,6 +7,7 @@ import kr.spdaewoon.magicjar.api.service.order.OrderQueryService
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -49,6 +50,7 @@ class OrderQueryControllerTest {
         userId: String,
         status: OrderStatus,
         rejectReason: String?,
+        source: OrderSource = OrderSource.AUTO,
     ) = OrderRequest(
         id = id,
         userId = userId,
@@ -64,6 +66,7 @@ class OrderQueryControllerTest {
         idempotencyKey = "key-$id",
         rejectReason = rejectReason,
         requestedAt = Instant.parse("2026-05-18T03:35:52.174379Z"),
+        source = source,
     )
 
     @Test
@@ -83,11 +86,14 @@ class OrderQueryControllerTest {
             anyOrNull(),
             anyOrNull(),
             anyOrNull(),
+            anyOrNull(),
+            anyOrNull(),
+            anyOrNull(),
             any(),
             any(),
         )
 
-        val response = sut.list(userId, null, null, null, 0, 20)
+        val response = sut.list(userId, null, null, null, null, null, null, 0, 20)
 
         assertEquals(1, response.content.size)
         val item = response.content[0]
@@ -105,11 +111,15 @@ class OrderQueryControllerTest {
                 userId = userId,
                 status = OrderStatus.FILLED,
                 rejectReason = null,
+                source = OrderSource.MANUAL,
             )
         val page = PageImpl(listOf(req))
 
         Mockito.doReturn(page).`when`(orderQueryService).listByUser(
             any(),
+            anyOrNull(),
+            anyOrNull(),
+            anyOrNull(),
             anyOrNull(),
             anyOrNull(),
             anyOrNull(),
@@ -126,12 +136,13 @@ class OrderQueryControllerTest {
             )
         Mockito.doReturn(listOf(samsung)).`when`(instrumentJpaRepository).findAllById(any<Set<String>>())
 
-        val response = sut.list(userId, null, null, null, 0, 20)
+        val response = sut.list(userId, null, null, null, null, null, null, 0, 20)
 
         assertEquals(1, response.content.size)
         val item = response.content[0]
         assertEquals("005930", item.code)
         assertEquals("삼성전자", item.name)
+        assertEquals("MANUAL", item.source)
     }
 
     @Test
@@ -151,6 +162,9 @@ class OrderQueryControllerTest {
             anyOrNull(),
             anyOrNull(),
             anyOrNull(),
+            anyOrNull(),
+            anyOrNull(),
+            anyOrNull(),
             any(),
             any(),
         )
@@ -164,7 +178,7 @@ class OrderQueryControllerTest {
             )
         Mockito.doReturn(listOf(stub)).`when`(instrumentJpaRepository).findAllById(any<Set<String>>())
 
-        val response = sut.list(userId, null, null, null, 0, 20)
+        val response = sut.list(userId, null, null, null, null, null, null, 0, 20)
 
         assertEquals(1, response.content.size)
         assertNull(response.content[0].name)
@@ -187,11 +201,14 @@ class OrderQueryControllerTest {
             anyOrNull(),
             anyOrNull(),
             anyOrNull(),
+            anyOrNull(),
+            anyOrNull(),
+            anyOrNull(),
             any(),
             any(),
         )
 
-        val response = sut.list(userId, null, null, null, 0, 20)
+        val response = sut.list(userId, null, null, null, null, null, null, 0, 20)
 
         assertEquals(1, response.content.size)
         val item = response.content[0]

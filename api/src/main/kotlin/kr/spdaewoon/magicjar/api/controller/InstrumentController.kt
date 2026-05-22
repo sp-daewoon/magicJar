@@ -7,12 +7,15 @@ import io.swagger.v3.oas.annotations.media.Schema
 import io.swagger.v3.oas.annotations.responses.ApiResponse
 import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
+import jakarta.persistence.criteria.Predicate
 import kr.spdaewoon.magicjar.api.persistence.InstrumentAliasJpaRepository
+import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.service.InstrumentSearchService
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentMarket
 import org.slf4j.LoggerFactory
-import org.springframework.data.domain.PageRequest
+import org.springframework.data.domain.Sort
+import org.springframework.data.jpa.domain.Specification
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -28,7 +31,7 @@ import org.springframework.web.server.ResponseStatusException
  *
  * - GET  /api/instruments/search?q=&limit=&market=  — 자동완성·검색
  * - GET  /api/instruments/{code}                    — 단일 종목 조회
- * - GET  /api/instruments?market=&active=&limit=&offset= — 전체 universe 조회
+ * - GET  /api/instruments?q=&market=&active=&limit=&offset= — 전체 universe 조회
  * - POST /api/instruments/sync                      — 수동 sync trigger (검색 인덱스 재구성)
  *
  * OnboardingGuardFilter 통과 의무 (PR-6 정합 — 자동).
@@ -218,9 +221,9 @@ class InstrumentController(
         summary = "종목 universe 조회",
         description =
             "전체 활성 종목 목록 (페이지네이션). " +
-                "market 필터: KOSPI·KOSDAQ·KONEX. " +
+                "q 검색 + market 필터: KOSPI·KOSDAQ·KONEX. " +
                 "active=false이면 상장폐지 포함 (ADR 0017 §2-2 보존). " +
-                "limit: 최대 200 (default 100).",
+                "섹터 표시용 sectorKey·sectorName 포함. limit: 최대 500 (default 100).",
     )
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "조회 성공"),
@@ -228,48 +231,77 @@ class InstrumentController(
     )
     @GetMapping
     fun getUniverse(
+        @Parameter(description = "종목명·종목코드 검색어", example = "삼성")
+        @RequestParam(required = false) q: String?,
         @Parameter(description = "시장 필터 (KOSPI·KOSDAQ·KONEX)", example = "KOSPI")
         @RequestParam(required = false) market: String?,
         @Parameter(description = "활성 여부 필터 (true=활성만, false=전체)", example = "true")
         @RequestParam(defaultValue = "true") active: Boolean,
-        @Parameter(description = "페이지 크기 (1~200, default 100)", example = "100")
+        @Parameter(description = "페이지 크기 (1~500, default 100)", example = "100")
         @RequestParam(defaultValue = "100") limit: Int,
         @Parameter(description = "페이지 오프셋 (0-based)", example = "0")
         @RequestParam(defaultValue = "0") offset: Int,
     ): InstrumentUniverseResponseDto {
-        val effectiveLimit = limit.coerceIn(1, 200)
-        val pageable = PageRequest.of(offset / effectiveLimit, effectiveLimit)
+        val effectiveLimit = limit.coerceIn(1, 500)
+        val safeOffset = offset.coerceAtLeast(0)
+        val marketFilter = market?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+        val query = q?.trim()?.takeIf { it.isNotBlank() }
+        val queryNorm = query?.replace(Regex("[\\s.·()（）]"), "")?.lowercase()
+        val sort =
+            Sort
+                .by(Sort.Order.asc("sector"), Sort.Order.asc("market"), Sort.Order.asc("code"))
 
-        val entities =
-            when {
-                market != null && active ->
-                    instrumentJpaRepository.findByActiveTrueAndMarket(market.uppercase())
-                active -> instrumentJpaRepository.findByActiveTrue()
-                else -> instrumentJpaRepository.findAll(pageable).content
+        val spec =
+            Specification<InstrumentJpaEntity> { root, _, cb ->
+                val predicates = mutableListOf<Predicate>()
+                if (active) {
+                    predicates += cb.equal(root.get<Boolean>("active"), true)
+                }
+                marketFilter?.let {
+                    predicates += cb.equal(cb.upper(root.get<String>("market")), it)
+                }
+                query?.let {
+                    val keyword = "%${it.lowercase()}%"
+                    val normalizedKeyword = "%${queryNorm ?: it.lowercase()}%"
+                    predicates +=
+                        cb.or(
+                            cb.like(root.get<String>("code"), "%$it%"),
+                            cb.like(cb.lower(root.get<String>("name")), keyword),
+                            cb.like(cb.lower(root.get<String>("nameNorm")), normalizedKeyword),
+                        )
+                }
+                cb.and(*predicates.toTypedArray())
             }
 
+        val entities = instrumentJpaRepository.findAll(spec, sort)
         val items =
             entities
                 .asSequence()
-                .filter { market == null || it.market.equals(market, ignoreCase = true) }
-                .drop(if (market != null || active) offset else 0)
+                .drop(safeOffset)
                 .take(effectiveLimit)
                 .map {
+                    val sector = resolveSectorInfo(it)
                     InstrumentUniverseItemDto(
                         code = it.code,
                         name = it.name,
                         market = it.market,
                         type = it.type,
                         sector = it.sector,
+                        sectorKey = sector.key,
+                        sectorName = sector.name,
+                        industryMedium = it.industryMedium,
+                        marketCapPrev = it.marketCapPrev,
+                        tradingHalt = it.tradingHalt,
+                        managementStock = it.managementStock,
                         active = it.active,
                     )
                 }.toList()
 
         return InstrumentUniverseResponseDto(
             items = items,
-            total = items.size,
+            total = entities.size,
             limit = effectiveLimit,
-            offset = offset,
+            offset = safeOffset,
         )
     }
 
@@ -315,4 +347,64 @@ class InstrumentController(
             )
         }
     }
+
+    private fun resolveSectorInfo(entity: InstrumentJpaEntity): SectorInfo {
+        entity.sector
+            ?.trim()
+            ?.takeIf { it.isNotBlank() && !it.equals("UNKNOWN", ignoreCase = true) }
+            ?.let { return SectorInfo("sector:$it", it) }
+
+        resolveKrxSectorName(entity)?.let {
+            return SectorInfo("krx:$it", it)
+        }
+
+        resolveKospi200SectorName(entity.kospi200Sector)?.let {
+            return SectorInfo("kospi200:${entity.kospi200Sector}", it)
+        }
+
+        entity.industryMedium
+            ?.trim()
+            ?.takeIf { it.isNotBlank() && it != "0000" }
+            ?.let { return SectorInfo("industry:$it", "업종 $it") }
+
+        return SectorInfo("unclassified", "미분류")
+    }
+
+    private fun resolveKrxSectorName(entity: InstrumentJpaEntity): String? =
+        when {
+            entity.krxSectorSemicon -> "반도체"
+            entity.krxSectorBio -> "바이오"
+            entity.krxSectorCar -> "자동차"
+            entity.krxSectorBank -> "은행"
+            entity.krxSectorEnergyChem -> "에너지화학"
+            entity.krxSectorSteel -> "철강"
+            entity.krxSectorMediaComm -> "미디어통신"
+            entity.krxSectorConstruction -> "건설"
+            entity.krxSectorSecurities -> "증권"
+            entity.krxSectorShip -> "조선"
+            entity.krxSectorInsurance -> "보험"
+            entity.krxSectorTransport -> "운송"
+            else -> null
+        }
+
+    private fun resolveKospi200SectorName(code: String?): String? =
+        when (code?.uppercase()) {
+            "1" -> "건설"
+            "2" -> "중공업"
+            "3" -> "철강"
+            "4" -> "에너지화학"
+            "5" -> "정보통신"
+            "6" -> "금융"
+            "7" -> "필수소비재"
+            "8" -> "자유소비재"
+            "9" -> "산업재"
+            "A" -> "건강관리"
+            "B" -> "커뮤니케이션"
+            else -> null
+        }
 }
+
+private data class SectorInfo(
+    val key: String,
+    val name: String,
+)

@@ -4,6 +4,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
 import java.time.Instant
@@ -16,7 +17,9 @@ import java.time.Instant
  *
  * // AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8)
  */
-interface OrderRequestJpaRepository : JpaRepository<OrderRequestJpaEntity, Long> {
+interface OrderRequestJpaRepository :
+    JpaRepository<OrderRequestJpaEntity, Long>,
+    JpaSpecificationExecutor<OrderRequestJpaEntity> {
     fun findByKisOrderNo(kisOrderNo: String): OrderRequestJpaEntity?
 
     fun findByIdempotencyKey(idempotencyKey: String): OrderRequestJpaEntity?

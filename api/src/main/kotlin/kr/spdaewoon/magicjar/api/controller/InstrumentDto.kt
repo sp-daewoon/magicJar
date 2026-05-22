@@ -164,6 +164,12 @@ data class InstrumentUniverseItemDto(
     val market: String,
     val type: String,
     val sector: String?,
+    val sectorKey: String,
+    val sectorName: String,
+    val industryMedium: String? = null,
+    val marketCapPrev: Long? = null,
+    val tradingHalt: Boolean = false,
+    val managementStock: Boolean = false,
     val active: Boolean,
 )
 

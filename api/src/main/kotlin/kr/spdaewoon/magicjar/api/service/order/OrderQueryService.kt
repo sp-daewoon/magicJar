@@ -4,6 +4,8 @@ import kr.spdaewoon.magicjar.api.persistence.order.OrderAuditEventRepositoryAdap
 import kr.spdaewoon.magicjar.api.persistence.order.OrderExecutionRepositoryAdapter
 import kr.spdaewoon.magicjar.api.persistence.order.OrderRequestRepositoryAdapter
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import org.slf4j.LoggerFactory
 import org.springframework.data.domain.Page
@@ -39,11 +41,25 @@ class OrderQueryService(
         from: Instant?,
         to: Instant?,
         statuses: List<OrderStatus>?,
+        source: OrderSource?,
+        side: OrderSide?,
+        code: String?,
         page: Int,
         size: Int,
     ): Page<OrderRequest> {
-        log.debug("주문 목록 조회: userId={} from={} to={} statuses={} page={} size={}", userId, from, to, statuses, page, size)
-        return orderRequestAdapter.findByUserAndRange(userId, from, to, statuses, page, size)
+        log.debug(
+            "주문 목록 조회: userId={} from={} to={} statuses={} source={} side={} code={} page={} size={}",
+            userId,
+            from,
+            to,
+            statuses,
+            source,
+            side,
+            code,
+            page,
+            size,
+        )
+        return orderRequestAdapter.findByUserAndRange(userId, from, to, statuses, source, side, code, page, size)
     }
 
     /**
