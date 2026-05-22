@@ -3,10 +3,10 @@ id: T-20260523-0029-worktree-agent-a0a1ea0339dbd709a
 agent: market-data
 model: opus
 branch: agent/market-data/pr-1-kis-block-subscribeon-hotfix
-status: RUNNING
+status: DONE
 startedAt: 2026-05-23T00:29:39.957+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-23T00:35:43.317+09:00
+pr: #669
 parentPhase: ?
 ---
 
