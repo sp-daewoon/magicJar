@@ -44,9 +44,12 @@ import java.time.temporal.ChronoUnit
  *   KIS 미제공 — 1m 갱신 시 ON CONFLICT DO NOTHING으로 upsert만 수행.
  *   합산 재계산은 향후 별도 trigger (현재 consumer AggregateBackfillRunner 전용).
  *
- * Rate Limit (ADR 0037): 초당 10건 한도 (KisRateLimiterPort.acquire 합류 — spec PR #564 §2-2 LOCK).
- *   - 사용자 트리거 path → priority=USER_PATH (즉시 우선 처리)
- *   - Bucket4j 단일 bucket 강제 후 sleep 마진 제거 (acquire blocking polling이 이미 0.1초 단위 회복)
+ * Rate Limit (ADR 0037 + 본 PR 종합 fix 2026-05-22 — KIS_TPS_EXCEEDED LIVE evidence 7 cycle ok=0 fail=6 매트릭스):
+ *   - 초당 10건 KisRateLimiterPort.acquire 강제 (spec PR #564 §2-2 LOCK)
+ *   - priority 분기: 사용자 트리거 = USER_PATH (즉시) / scheduler 종목 갱신 = BACKFILL (USER_PATH 양보)
+ *   - H1 페이지 burst 완화: 페이지 간 [PAGE_INTERVAL_MS] sleep 마진 추가 (Bucket4j refillGreedy 100ms 보조,
+ *     KIS server-side sliding window 가설 대비)
+ *   - H4 EGW00201 catch 후 1초 backoff + 1회 재시도 (KisHashKeyAdapter:126 패턴 정합)
  * 인증: api 모듈 UserKisCredentialJpaRepository + AesGcmCipher + Redis token cache (KisRestPriceMetricsAdapter 패턴 정합).
  *
  * 룰 5 위반 금지: LLM provider import 0건.
@@ -77,6 +80,31 @@ class CandleRefreshService(
         private const val SOURCE = "KIS"
         private val DATE_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd")
         private val KST_ZONE: ZoneId = ZoneId.of("Asia/Seoul")
+
+        /**
+         * H1 페이지 burst 완화 sleep 마진 (2026-05-22 KIS_TPS_EXCEEDED 종합 fix).
+         *
+         * 결함 evidence (`_workspace/reports/2026-05-22-kis-tps-exceeded-root-cause.md` §8):
+         *   - PR #658 (LiveDailyCandleScheduler 종목 간 200ms sleep) 머지 후 7 cycle 검증 ok=0 fail=6
+         *     → H2(cooldown) 가설 reject. 실 root cause는 H1(refreshDailyCandles 50 페이지 burst)
+         *   - Bucket4j refillGreedy 100ms당 1 token 회복 + capacity=10 idle 후 burst — KIS server-side가
+         *     sub-second 분해 강제 시 첫 10 페이지가 ~1초 안에 모두 발사되어 EGW00201 차단
+         *
+         * 150ms 선정 사유:
+         *   - Bucket4j 100ms refill의 50% 마진 (sub-second 분해 안전)
+         *   - 50 페이지 × 150ms = 7.5초 추가 elapsed (5분 cron 윈도 대비 2.5% — 영향 미미)
+         *   - KIS sliding window 1s 가설 대비 안전 마진
+         *   - 첫 페이지(index 0)는 sleep 없음 — 사용자 USER_PATH 첫 응답 latency 보존
+         */
+        private const val PAGE_INTERVAL_MS = 150L
+
+        /**
+         * H4 EGW00201 catch 후 backoff 시간 (KisHashKeyAdapter:132 패턴 정합).
+         *
+         * 1초 = Bucket4j refill 1 cycle 완료 보장 (10 token 전체 회복).
+         * KIS server-side window가 1초 단위라면 가장 안전한 reset point.
+         */
+        private const val RATE_LIMIT_BACKOFF_MS = 1000L
 
         // FHKST03010100 cursor 페이지네이션 최대 페이지 수 — **property 외부화** (ADR 0093 §3-1 LOCK).
         //
@@ -111,12 +139,16 @@ class CandleRefreshService(
      *
      * @param code 종목코드 6자리
      * @param intervals 갱신 대상 interval 목록 (빈 리스트 = DEFAULT_INTERVALS 적용)
+     * @param priority 호출 path 우선순위 (default USER_PATH — 사용자 트리거 path 보존).
+     *                 LiveDailyCandleScheduler 등 백그라운드 cron은 BACKFILL 명시 의무
+     *                 (2026-05-22 KIS_TPS_EXCEEDED LIVE 종합 fix — H1+H4 합류 §C).
      * @return CandleRefreshResponse (interval 별 결과 + 경과 시간)
      * @throws ResponseStatusException 404 (종목 없음) | 500 (KIS 인증 실패)
      */
     fun refresh(
         code: String,
         intervals: List<String>,
+        priority: KisCallPriority = KisCallPriority.USER_PATH,
     ): CandleRefreshResponse {
         val startMs = System.currentTimeMillis()
 
@@ -141,14 +173,14 @@ class CandleRefreshService(
         val mrktDivCodes = resolveMrktDivCodeCandidates(code)
 
         // 5. interval 별 순차 갱신 (Rate Limit ADR 0037 초당 10건 + spec PR #564 §2-2 LOCK)
-        // sleep 마진 제거 — KisRateLimiterPort.acquire가 USER_PATH 우선순위로 적시 진입
+        // priority 전파: 사용자 path = USER_PATH (default) / scheduler path = BACKFILL (LiveDailyCandleScheduler)
         val results = mutableListOf<IntervalRefreshResult>()
         for (intervalCode in effectiveIntervals) {
             val result =
                 when (intervalCode) {
-                    "1m" -> refreshOneMinCandlesWithFallback(code, mrktDivCodes, accessToken, appKey, secretKey)
+                    "1m" -> refreshOneMinCandlesWithFallback(code, mrktDivCodes, accessToken, appKey, secretKey, priority)
                     in DAILY_INTERVALS ->
-                        refreshDailyCandlesWithFallback(code, intervalCode, mrktDivCodes, accessToken, appKey, secretKey)
+                        refreshDailyCandlesWithFallback(code, intervalCode, mrktDivCodes, accessToken, appKey, secretKey, priority)
                     else -> IntervalRefreshResult(intervalCode, 0, 0, null, "SKIPPED")
                 }
             results.add(result)
@@ -201,9 +233,10 @@ class CandleRefreshService(
         accessToken: String,
         appKey: String,
         secretKey: String,
+        priority: KisCallPriority,
     ): IntervalRefreshResult {
         for ((index, mrktDivCode) in mrktDivCodes.withIndex()) {
-            val result = refreshDailyCandles(code, intervalCode, mrktDivCode, accessToken, appKey, secretKey)
+            val result = refreshDailyCandles(code, intervalCode, mrktDivCode, accessToken, appKey, secretKey, priority)
             if (result.fetchedCount > 0 || result.status != "OK" || index == mrktDivCodes.lastIndex) {
                 return result
             }
@@ -223,9 +256,10 @@ class CandleRefreshService(
         accessToken: String,
         appKey: String,
         secretKey: String,
+        priority: KisCallPriority,
     ): IntervalRefreshResult {
         for ((index, mrktDivCode) in mrktDivCodes.withIndex()) {
-            val result = refreshOneMinCandles(code, mrktDivCode, accessToken, appKey, secretKey)
+            val result = refreshOneMinCandles(code, mrktDivCode, accessToken, appKey, secretKey, priority)
             if (result.fetchedCount > 0 || result.status != "OK" || index == mrktDivCodes.lastIndex) {
                 return result
             }
@@ -266,6 +300,8 @@ class CandleRefreshService(
         accessToken: String,
         appKey: String,
         secretKey: String,
+        priority: KisCallPriority,
+        retryAttempt: Int = 0,
     ): IntervalRefreshResult {
         val periodDivCode = DAILY_INTERVALS[intervalCode] ?: return IntervalRefreshResult(intervalCode, 0, 0, null, "SKIPPED")
         // 30년 전 기준 전수 수집 (KIS 응답 가능 범위 최대)
@@ -280,6 +316,9 @@ class CandleRefreshService(
         var cursor: LocalDate = LocalDate.now(KST_ZONE)
         var pageCount = 0
         var pageStatus = "OK"
+        // H4 EGW00201 1회 재시도 게이트 (2026-05-22 KIS_TPS_EXCEEDED 종합 fix §B).
+        // retryAttempt parameter LOCK — 메서드 재귀 호출마다 +1 누적, max=1 보장 (무한루프 차단).
+        val canRetry = retryAttempt == 0
 
         // D-1 try-finally drift 차단 패턴 (T-D-1): 메서드 단위 outer signalSent 추적 — 각 페이지마다 갱신.
         // (refreshDailyCandles 메서드 outer try 전체에서 마지막 acquire의 시그널 미발행 path 감시)
@@ -289,9 +328,32 @@ class CandleRefreshService(
             while (pageCount < maxPages) {
                 if (cursor < fromDate) break
 
-                // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority)
-                // ADR 0037 초당 10건 한도 강제. 페이지마다 acquire — 사용자 트리거 즉시 우선 처리.
-                kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
+                // H1 페이지 burst 완화 sleep 마진 (2026-05-22 KIS_TPS_EXCEEDED 종합 fix §A).
+                //
+                // 페이지 1(pageCount=0)은 sleep 없음 — 사용자 USER_PATH 첫 응답 latency 보존.
+                // 페이지 2+ 부터 [PAGE_INTERVAL_MS]=150ms sleep 추가 — Bucket4j refillGreedy 100ms당 1 token
+                // 회복 위에 50% 마진. KIS sliding window 가설 대비 sub-second 분해 안전 확보.
+                //
+                // 50 페이지 max × 150ms = 7.5초 추가 elapsed (5분 cron 윈도 2.5%) — 영향 미미.
+                if (pageCount > 0) {
+                    try {
+                        Thread.sleep(PAGE_INTERVAL_MS)
+                    } catch (e: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        log.warn(
+                            "캔들 갱신 페이지 sleep interrupted — graceful stop: code={} interval={} page={}",
+                            code,
+                            intervalCode,
+                            pageCount,
+                        )
+                        break
+                    }
+                }
+
+                // Rate Limit acquire (spec PR #564 §2-2 LOCK — caller priority 전파)
+                // ADR 0037 초당 10건 한도 강제. 페이지마다 acquire.
+                // 사용자 트리거 = USER_PATH(즉시) / scheduler cron = BACKFILL(USER_PATH 양보 — H1 보완 §C)
+                kisRateLimiterPort.acquire(priority, timeoutMillis = 3000L)
                 lastPageSignalSent = false
                 lastPageAcquired = true
 
@@ -426,10 +488,57 @@ class CandleRefreshService(
         } catch (e: WebClientResponseException) {
             // P0 hotfix (진단 PR #639) — EGW00201 = HTTP 500 wrap. classifyKisError() 분기 통일.
             if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
-                // Rate Limit (HTTP 429 또는 EGW00201) → onTpsExceeded 시그널 + 명시 에러 결과 (mock 합성 0, ADR 0014)
+                // Rate Limit (HTTP 429 또는 EGW00201) → onTpsExceeded 시그널.
                 kisRateLimiterPort.onTpsExceeded()
                 lastPageSignalSent = true
-                log.warn("캔들 갱신 Rate Limit: code={} interval={} pages={} status={}", code, intervalCode, pageCount, e.statusCode.value())
+
+                // H4 1초 backoff + 1회 재시도 (2026-05-22 KIS_TPS_EXCEEDED 종합 fix §B).
+                // KisHashKeyAdapter:126 패턴 정합 — RateLimit 분기에서 onTpsExceeded → sleep(1s) → retry.
+                //
+                // 재시도 진입 조건:
+                //   - retryAttempt == 0 (첫 진입 frame)
+                //   - 재귀 호출 시 retryAttempt=1 전달 → 두 번째 frame에서 또 RateLimit 발생해도 retry 안 함 (무한루프 차단)
+                //
+                // 재시도 후에도 RateLimit이면 RATE_LIMITED 종결 (mock 합성 0 — ADR 0014).
+                if (canRetry) {
+                    log.warn(
+                        "캔들 갱신 Rate Limit — 1초 backoff 후 1회 재시도: code={} interval={} pages={} status={}",
+                        code,
+                        intervalCode,
+                        pageCount,
+                        e.statusCode.value(),
+                    )
+                    try {
+                        Thread.sleep(RATE_LIMIT_BACKOFF_MS)
+                    } catch (ie: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        log.warn(
+                            "캔들 갱신 backoff sleep interrupted — RATE_LIMITED 종결: code={} interval={}",
+                            code,
+                            intervalCode,
+                        )
+                        return IntervalRefreshResult(intervalCode, allCandles.size, 0, null, "RATE_LIMITED")
+                    }
+                    // 재귀 재시도 — retryAttempt=1 전달. 두 번째 frame에서 또 RateLimit 발생 시 canRetry=false이므로 종결.
+                    return refreshDailyCandles(
+                        code,
+                        intervalCode,
+                        mrktDivCode,
+                        accessToken,
+                        appKey,
+                        secretKey,
+                        priority,
+                        retryAttempt = 1,
+                    )
+                }
+
+                log.warn(
+                    "캔들 갱신 Rate Limit 재시도 후 재발 — RATE_LIMITED 종결: code={} interval={} pages={} status={}",
+                    code,
+                    intervalCode,
+                    pageCount,
+                    e.statusCode.value(),
+                )
                 return IntervalRefreshResult(intervalCode, allCandles.size, 0, null, "RATE_LIMITED")
             } else {
                 log.warn(
@@ -475,6 +584,7 @@ class CandleRefreshService(
         accessToken: String,
         appKey: String,
         secretKey: String,
+        priority: KisCallPriority,
     ): IntervalRefreshResult {
         val allRows = mutableListOf<Map<String, Any>>()
         val seenTs = mutableSetOf<Long>()
@@ -492,6 +602,10 @@ class CandleRefreshService(
             checked++
         }
 
+        // H4 1m path 1회 재시도 게이트 (2026-05-22 KIS_TPS_EXCEEDED 종합 fix §B).
+        // 메서드 단위 LOCK — 30 거래일 × 8 페이지 max 전체에서 최대 1회 backoff + retry 보장.
+        var oneMinRateLimitRetried = false
+
         for (targetDate in targetDays) {
             val dateStr = targetDate.format(DATE_FMT)
             var currentHour = "200000"
@@ -500,13 +614,31 @@ class CandleRefreshService(
             var dayDone = false
 
             while (!dayDone && pageCount < maxPagesPerDay) {
+                // H1 페이지 burst 완화 sleep 마진 (2026-05-22 KIS_TPS_EXCEEDED 종합 fix §A).
+                // 페이지 1(pageCount=0)은 sleep 없음. 페이지 2+ 부터 [PAGE_INTERVAL_MS] sleep.
+                if (pageCount > 0) {
+                    try {
+                        Thread.sleep(PAGE_INTERVAL_MS)
+                    } catch (e: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        log.warn(
+                            "1m 갱신 페이지 sleep interrupted — graceful stop: code={} date={} page={}",
+                            code,
+                            dateStr,
+                            pageCount,
+                        )
+                        dayDone = true
+                        continue
+                    }
+                }
+
                 // D-1 try-finally drift 차단 패턴 (T-D-1): 페이지 단위 signalSent flag.
                 var pageSignalSent = false
                 var pageAcquired = false
                 try {
-                    // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority)
-                    // ADR 0037 초당 10건 한도 강제. 사용자 트리거 path → 즉시 acquire.
-                    kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
+                    // Rate Limit acquire (spec PR #564 §2-2 LOCK — caller priority 전파)
+                    // 사용자 트리거 = USER_PATH(즉시) / scheduler cron = BACKFILL(USER_PATH 양보)
+                    kisRateLimiterPort.acquire(priority, timeoutMillis = 3000L)
                     pageAcquired = true
 
                     @Suppress("UNCHECKED_CAST")
@@ -606,6 +738,39 @@ class CandleRefreshService(
                     if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
                         kisRateLimiterPort.onTpsExceeded()
                         pageSignalSent = true
+
+                        // H4 1초 backoff + 1회 재시도 (2026-05-22 KIS_TPS_EXCEEDED 종합 fix §B).
+                        // 메서드 단위 oneMinRateLimitRetried LOCK — 30 거래일 × 8 페이지 전체에서 1회만.
+                        // 재시도는 currentHour 그대로 유지 + dayDone=false 유지 → while loop 다음 iteration이 같은 페이지 재진입.
+                        if (!oneMinRateLimitRetried) {
+                            oneMinRateLimitRetried = true
+                            log.warn(
+                                "1m 갱신 Rate Limit — 1초 backoff 후 1회 재시도: code={} date={} page={} status={}",
+                                code,
+                                dateStr,
+                                pageCount,
+                                e.statusCode.value(),
+                            )
+                            try {
+                                Thread.sleep(RATE_LIMIT_BACKOFF_MS)
+                            } catch (ie: InterruptedException) {
+                                Thread.currentThread().interrupt()
+                                log.warn("1m 갱신 backoff sleep interrupted — dayDone: code={} date={}", code, dateStr)
+                                dayDone = true
+                            }
+                            // continue — 같은 currentHour로 while 다음 iteration 진입 (1회 재시도)
+                            continue
+                        }
+
+                        log.warn(
+                            "1m 갱신 Rate Limit 재시도 후 재발 — dayDone: code={} date={} page={} status={}",
+                            code,
+                            dateStr,
+                            pageCount,
+                            e.statusCode.value(),
+                        )
+                        dayDone = true
+                        continue
                     }
                     log.warn(
                         "1m 갱신 페이지 HTTP 오류: code={} date={} status={}",

@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.api.service
 
 import kr.spdaewoon.magicjar.api.persistence.UserAccountJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.WatchlistJpaRepository
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.domain.PageRequest
@@ -94,7 +95,16 @@ class LiveDailyCandleScheduler(
                 }
             }
             try {
-                val response = candleRefreshService.refresh(code, listOf("1d"))
+                // priority=BACKFILL 전달 (2026-05-22 KIS_TPS_EXCEEDED 종합 fix §C).
+                //
+                // 결함 evidence (`_workspace/reports/2026-05-22-kis-tps-exceeded-root-cause.md` §8):
+                //   - PR #658 (종목 간 200ms sleep) 7 cycle ok=0 fail=6 → H1·H4 root cause 확정
+                //   - 본 scheduler는 사용자 path 와 동일 USER_PATH로 acquire → bucket 경쟁 → USER_PATH 사용자가 cron에 막힘
+                //
+                // 본 fix: priority=BACKFILL 전달 → CandleRefreshService 내부 acquire가 BACKFILL 라벨로 호출
+                //   - Phase 1 단계는 단일 bucket이므로 효과는 정보 수집만 (Phase 2 priority queue 활성화 시 사용자 path 우선)
+                //   - 그럼에도 본 PR에서 priority 분리는 architect spec 권한 — Phase 2 활성화 전 사전 합류 의무
+                val response = candleRefreshService.refresh(code, listOf("1d"), KisCallPriority.BACKFILL)
                 val ok = response.refreshedIntervals.all { it.status == "OK" }
                 if (ok) okCount++ else failCount++
             } catch (e: Exception) {
