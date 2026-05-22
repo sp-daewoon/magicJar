@@ -648,3 +648,122 @@ interface IndicatorSource {
 3. Guard 시나리오 (장외 시간 매수 시도 → REJECTED)
 4. 백테스트 흐름 (DSL upload → 과거 데이터 → 결과 표시)
 5. AI 옵션 흐름 (사용자 분석 버튼 → AI 코멘트 표시. 실패 시 graceful)
+
+## 26. Reactor `.block()` non-blocking 계약 (v2 신규 — ADR 0099)
+
+> **권위**: `_workspace/arch/adr/0099-reactor-block-non-blocking-contract.md` 본문 LOCK. 본 § 본문은 ADR 0099 본문 인용 + Before/After 예시 + async re-entry path 5종 + BlockHound 통합 테스트 의무 본문화.
+
+### 26.1 root cause — `publishOn` vs `subscribeOn` 의미 차이
+
+v3.8.0 cut hotfix가 실측 ERROR 잔존 root cause:
+
+| operator | 실행 위치 변경 대상 | subscription·request·`.block()` 호출 thread |
+|----------|-------------------|----------------------------------------------|
+| `publishOn(Scheduler)` | downstream operator (map·filter·doOnNext 등) | **caller thread 그대로** |
+| `subscribeOn(Scheduler)` | subscription chain 전체 (source emission + downstream) | **worker thread로 위임** |
+
+→ `.block()` 호출 thread를 worker로 위임하려면 **`subscribeOn` 의무**. `publishOn`은 응답 수신 후 처리 부담만 위임 (캡슐화). 
+
+### 26.2 WebClient + `.block()` 동시 사용 시 **2단 방어 의무**
+
+#### 26.2.1 callee 측 — `subscribeOn(Schedulers.boundedElastic())` 부착
+
+```kotlin
+// ✅ 올바른 패턴
+fun fetchExecutions(...): Response {
+    return webClient.get()
+        .uri(...)
+        .retrieve()
+        .bodyToMono(Response::class.java)
+        .subscribeOn(Schedulers.boundedElastic())   // ← subscription chain 전체 위임
+        .block() ?: throw KisApiException("empty response")
+}
+
+// ❌ 잘못된 패턴 (v3.8.0 hotfix가 이 함정)
+fun fetchExecutions(...): Response {
+    return webClient.get()
+        .uri(...)
+        .retrieve()
+        .bodyToMono(Response::class.java)
+        .publishOn(Schedulers.boundedElastic())     // ← downstream만 위임 (caller thread 그대로)
+        .block() ?: throw KisApiException("empty response")
+}
+```
+
+#### 26.2.2 caller 측 — async re-entry path에 `isInNonBlockingThread()` 가드
+
+```kotlin
+// ✅ 올바른 패턴 — WS reconnect callback이 reactor-http-nio thread에서 호출
+fun reconnectAndRefresh() {
+    if (Schedulers.isInNonBlockingThread()) {
+        Schedulers.boundedElastic().schedule {
+            kisAuthService.refreshToken()    // .block() 호출 caller
+        }
+    } else {
+        kisAuthService.refreshToken()
+    }
+}
+```
+
+### 26.3 magicJar 통신 thread 모델
+
+| thread prefix | source | blocking 허용 여부 | 가드 필요 |
+|---------------|--------|------------------|----------|
+| `reactor-http-nio-*` | Netty event-loop (WebClient HTTP 인입) | **금지** (non-blocking 전용 — BlockHound 차단 대상) | ★★★ 의무 |
+| `boundedElastic-*` | Schedulers.boundedElastic() worker pool | 허용 (blocking 의도 worker pool) | 0 (이미 안전) |
+| `scheduler-*` | @Scheduled cron worker (Spring TaskScheduler) | 허용 | 0 (Spring 표준) |
+| `parallel-*` | Schedulers.parallel() (CPU bound) | 권장 안 함 (CPU bound 전용) | ★ caller 의도 확인 |
+| `kafka-*` | Kafka listener container thread | 허용 (Spring Kafka standard) | 0 |
+| `http-nio-*` | Tomcat servlet thread | 허용 (Spring MVC standard) | 0 |
+
+### 26.4 5단 진단 체크리스트 LOCK
+
+신규 WebClient + `.block()` 코드 작성·결함 진단 시 의무 체크리스트:
+
+1. **에러 thread 이름으로 caller 식별** — ERROR 로그의 thread prefix 확인 (§26.3 표 참조)
+2. **`publishOn` vs `subscribeOn` 의미 차이 명확화** — `.block()` thread 위임은 `subscribeOn` 의무 (§26.1)
+3. **callee + caller 2단 방어** — callee `subscribeOn(boundedElastic)` + caller `isInNonBlockingThread()` 가드 (§26.2)
+4. **BlockHound 호환성 통합 테스트 의무** — consumer 모듈 우선 (KIS WS callback caller 영역) + 5 시나리오 (정상·timeout·circuit break·WS reconnect·@Scheduled 동시)
+5. **async re-entry path 일괄 점검** — §26.5 5종 path 점검
+
+### 26.5 async re-entry path 5종 + 1차 방어 가드 예시
+
+신규 코드 머지 전 다음 5종 path 점검 의무:
+
+| # | path 종류 | caller thread 가능성 | 1차 방어 가드 |
+|---|----------|-------------------|--------------|
+| 1 | **WS callback** (KIS WS message·disconnect·reconnect handler) | `reactor-http-nio-*` ★ | `isInNonBlockingThread()` 가드 + worker re-schedule |
+| 2 | **Kafka listener** (`@KafkaListener`) | `kafka-*` (대부분 안전) | inner async chain 점검 |
+| 3 | **@Scheduled cron** (Spring TaskScheduler) | `scheduler-*` (대부분 안전) | inner Mono callback chain 점검 |
+| 4 | **CompletableFuture.thenApply** | non-blocking thread 잔류 가능 | `isInNonBlockingThread()` 가드 |
+| 5 | **Mono callback chain** (`doOnNext`·`doOnSuccess`·`flatMap` 등 callback 내부 `.block()`) | callback에 따라 다양 | callback 내부 `.block()` 0 권장 + 필요 시 `subscribeOn` 부착 |
+
+### 26.6 BlockHound 통합 테스트 의무 (consumer 모듈 우선)
+
+- 신규 WebClient + `.block()` 코드 머지 전 통합 테스트에서 BlockHound install 의무
+- consumer 모듈 우선 — KIS WS callback caller 영역이 가장 race risk 높음
+- 5 시나리오 ALL GREEN 의무: (1) 정상 응답 (2) timeout (3) circuit break (4) WS reconnect 중 refresh (5) @Scheduled 동시 호출
+
+```kotlin
+// 통합 테스트 setup 예시 (consumer 모듈)
+class BlockHoundConsumerTest {
+    init {
+        BlockHound.install()   // application boot 직전
+    }
+
+    @Test
+    fun `KIS WS reconnect token refresh — non-blocking thread 차단 검증`() {
+        // ... 5 시나리오 ALL GREEN 의무
+    }
+}
+```
+
+### 26.7 적용 대상 매트릭스 (v3.8.0 cut 후 hotfix LOCK)
+
+| 파일 | 결함 | 본 § 적용 패턴 | 사이클 |
+|------|------|--------------|--------|
+| `KisOrderInquireCcldHttpAdapter` | publishOn 잘못 적용 | callee subscribeOn 정정 + caller 가드 | v3.8.x patch PR-1 (market-data) |
+| `KisOrderInquireDailyCcldHttpAdapter` | publishOn 잘못 적용 | callee subscribeOn 정정 + caller 가드 | v3.8.x patch PR-1 (market-data) |
+| `KisExecutionBackfillService` | caller가 reactor-http-nio (WS callback) | `Schedulers.isInNonBlockingThread()` 가드 | v3.8.x patch PR-1 (market-data) |
+
+→ 신규 WebClient + `.block()` 코드 추가 시 review checklist 5단 강제 (architect/qa Visual 의무).
