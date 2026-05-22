@@ -279,3 +279,143 @@ docker compose -f docker/docker-compose.yml --env-file ../.env logs magicjar-api
 - **이전 PR 매트릭스** — Phase 1: PR #565~#571 / Phase 2: PR #571 (19 어댑터 합류) / 진단 PR #639 (classifyKisError + SystemEvent emit hotfix)
 - **KIS 공식 문서** — https://apiportal.koreainvestment.com/intro (REST 한도 "초당 10건" 표기)
 - **Bucket4j 8.10.1 refillGreedy 알고리즘** — https://github.com/bucket4j/bucket4j (refillGreedy = "1초당 10 token 균등 회복" — 100ms당 1 token)
+
+---
+
+## §8. LIVE 검증 evidence — 옵션 B (PR #658 종목 간 200ms sleep) REJECT
+
+> **amend 2026-05-22 17:13 KST — 사용자 직접 결재 후 add-only 추가** (이전 §1~§7는 immutable).
+
+### 8-1. PR #658 머지 후 컨테이너 재배포 + 7 cycle 검증 매트릭스
+
+| Cycle | 시각 | ok | fail | 비고 |
+|-------|------|----|----- |------|
+| 1st (재배포 직후) | 16:34:04 | 0 | 6 | 첫 cycle — 효과 0 |
+| 2nd | 16:38:59 | 0 | 6 | 회귀 |
+| 3rd | 16:44:08 | 1 | 5 | fluke (다음 cycle 즉시 회귀) |
+| 4th | 16:48:58 | 0 | 6 | 회귀 — fluke 확정 |
+| 5th | 16:54:05 | 0 | 6 | |
+| 6th | 16:59:03 | 0 | 6 | |
+| 7th | 17:03:56 | 0 | 6 | |
+
+**누적 매트릭스**:
+- TPS exceeded signal count: 17 → 41 (24건 추가 — 약 1.2건/분 + 변화 없음)
+- status=500 누적: 24건
+- ok=1 한 cycle만 일시 fluke + 6 cycle 100% fail = **§5-1 옵션 B ACCEPT 판정 reject**
+
+### 8-2. 옵션 B REJECT 사유 — H2(cooldown) 가설 reject
+
+§5-1 매트릭스에서 옵션 B의 인과 핵심은 *"종목 간 sleep 마진이 KIS sliding window 마진 확보"* 였으나, LIVE evidence는 정반대:
+
+- 종목 1 → 200ms sleep → 종목 2 진입해도 fail 발생
+- 즉 KIS 차단은 **종목 간 cooldown 부족이 아닌**, **종목 내 페이지 burst** 또는 **EGW00201 후 backoff 부재** 가설로 이동
+
+따라서 §5-1 옵션 B 판정 ACCEPT는 LIVE 검증 결과 **부정확** — 본 §8·§9 amend로 정합 회복.
+
+### 8-3. PR #658 코드 유지 결정 (revert 안 함)
+
+- 효과는 미미하나 코드 자체는 무해 (read-only path, 5분 cron 윈도 0.4% 영향)
+- revert 시 commit history 복잡화 + 추후 priority queue Phase 2 활성화 시 cooldown 효과 일부 발현 가능성 0이 아님
+- 따라서 PR #658 코드 유지 + 본 PR §A~§C 합류로 종합 fix 회복
+
+---
+
+## §9. H1+H4 재진단 + 종합 fix 채택 옵션
+
+### 9-1. H1 (refreshDailyCandles 페이지 burst) — 채택
+
+**증상 인과 재진단**:
+- `CandleRefreshService.refreshDailyCandles:289~396` while loop는 페이지 간 sleep 0ms
+- Bucket4j refillGreedy(10, 1s) capacity=10 idle 후 burst 즉시 10건 통과 가능
+- 첫 10 페이지가 ~1초 이내에 모두 KIS로 발사 → KIS server-side sliding window 가설 위반
+
+**채택 fix** (`CandleRefreshService.kt` 신규 `PAGE_INTERVAL_MS = 150L`):
+```kotlin
+// 페이지 2+ 부터 150ms sleep — Bucket4j 100ms refill의 50% 마진
+if (pageCount > 0) {
+    Thread.sleep(PAGE_INTERVAL_MS)
+}
+kisRateLimiterPort.acquire(priority, timeoutMillis = 3000L)
+```
+
+**적용 범위**: `refreshDailyCandles` (1d·1wk·1mo·1y) + `refreshOneMinCandles` (1m). 첫 페이지(index 0)는 sleep 없음 — 사용자 USER_PATH 첫 응답 latency 보존.
+
+**자본 영향**: 0 (read-only). 50 페이지 max × 150ms = 7.5초 추가 elapsed (5분 cron 2.5%).
+
+### 9-2. H4 (EGW00201 catch 후 backoff·재시도 0) — 채택
+
+**증상 인과 재진단**:
+- `CandleRefreshService.kt:426~433` `WebClientResponseException` catch 분기에서 `KisErrorClass.RateLimit` 시 즉시 `onTpsExceeded()` + `return IntervalRefreshResult("RATE_LIMITED")` 종결
+- 1초 backoff + 1회 재시도 path 0 → 1회 차단 = scheduler ok=0 fail=6 100%
+- `KisHashKeyAdapter:126~133` 패턴 (★ 사용자 확인된 reference)은 이미 1초 backoff + 1회 retry 구현되어 있음
+
+**채택 fix** (메서드 단위 `retryAttempt: Int = 0` parameter LOCK + `RATE_LIMIT_BACKOFF_MS = 1000L`):
+```kotlin
+if (canRetry) {
+    Thread.sleep(RATE_LIMIT_BACKOFF_MS)
+    return refreshDailyCandles(..., retryAttempt = 1)  // 재귀 1회 LOCK
+}
+// 두 번째 frame canRetry=false → RATE_LIMITED 종결
+```
+
+**적용 범위**: `refreshDailyCandles` (재귀 호출 패턴) + `refreshOneMinCandles` (메서드 단위 flag `oneMinRateLimitRetried`로 동일 효과).
+
+**무한루프 차단**: `retryAttempt` parameter로 frame 단위 LOCK (재귀 호출은 최대 1단계 깊이).
+
+### 9-3. C (priority 재배치) — 채택
+
+**증상 인과 재진단**:
+- `CandleRefreshService:294, 509` 모든 acquire가 `KisCallPriority.USER_PATH` hardcode → `LiveDailyCandleScheduler` cron이 사용자 path와 동일 priority로 acquire
+- Phase 1은 단일 bucket이므로 효과 0이나 Phase 2 priority queue 활성화 시 사용자 path 막힘 risk
+
+**채택 fix** (`CandleRefreshService.refresh()` 시그니처에 `priority: KisCallPriority = USER_PATH` parameter 추가):
+```kotlin
+fun refresh(code: String, intervals: List<String>, priority: KisCallPriority = USER_PATH)
+```
+- `SymbolController` (사용자 path): default USER_PATH 그대로
+- `LiveDailyCandleScheduler` (scheduler path): `KisCallPriority.BACKFILL` 명시
+
+**Phase 2 활성화 시 효과**: scheduler가 사용자 path 양보 — fail rate <10% 권장.
+
+### 9-4. 본 PR 변경 매트릭스
+
+| 변경 | 파일 | LOC | 영역 침범? |
+|------|------|-----|-----------|
+| H1 페이지 sleep + H4 retry + priority parameter — refreshDailyCandles·refreshOneMinCandles | `api/.../service/CandleRefreshService.kt` | +~80 | api/market-data (정합) |
+| priority=BACKFILL 전달 (1 line + import) | `api/.../service/LiveDailyCandleScheduler.kt` | +~10 | api/market-data (정합) |
+| 보고서 §8·§9 amend (add-only) | `_workspace/reports/2026-05-22-kis-tps-exceeded-root-cause.md` | +본 §8·§9 | docs (정합) |
+
+**영역 침범 검증**: backend-core·strategy·frontend·architect·persistence-shared·indicator-impl·strategy-engine·domain·consumer·batch 모듈 touch 0 — ★ market-data + api 단독 LOCK 정합. SymbolController는 default priority 보존 — 변경 0.
+
+### 9-5. 검증 plan (PR 머지 후)
+
+```bash
+# 1. 본 PR 머지 후 재배포
+scripts/build-and-deploy.sh api-app
+
+# 2. 5분 cron 3 cycle (15분) evidence 수집
+docker compose -f docker/docker-compose.yml --env-file ../.env logs magicjar-api \
+  --tail 500 --since 15m | grep -E "LiveDailyCandle|KIS_TPS_EXCEEDED|Rate Limit"
+
+# 3. 권장 검증 매트릭스 (3 cycle 평균)
+#   - 6 종목 갱신 ok ≥ 5 / fail ≤ 1 (이전 7 cycle 평균 ok=0 fail=6)
+#   - 5분 SystemEvent emit 0건 권장 (이전 cycle당 1건)
+#   - TPS signal cycle당 +2 미만 (이전 +6 → +2 권장)
+```
+
+### 9-6. Phase 3 backlog 잔류 의제 (재확인)
+
+§5-3 매트릭스 4건 그대로 잔존 + 본 PR에서 §2(EGW00201 backoff+retry)은 **이미 흡수** → 잔여 3건:
+
+1. **Circuit Breaker** — 5분 윈도 50% EGW00201/429 → OPEN 5분 + Slack alert
+2. **caller priority queue 활성화** — Phase 2 USER_PATH 우선 (본 PR에서 priority parameter 합류는 Phase 2 사전 준비)
+3. **KIS sliding window 가설 검증** — KIS 공식 응답 raw fetch로 한도 알고리즘 정확화
+
+---
+
+## §10. amend changelog
+
+| 시각 | 변경 | PR | 트리거 |
+|------|------|----|--------|
+| 2026-05-22 15:30 KST | 초안 (§1~§7) | (PR 이전 — 진단 보고서) | 사용자 LIVE evidence 2시간 |
+| 2026-05-22 17:13 KST | §8 LIVE 검증 evidence + §9 H1+H4 재진단 (add-only) | 본 PR | PR #658 머지 후 7 cycle 재검증 — 옵션 B reject 확정 |

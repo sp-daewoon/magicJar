@@ -61,7 +61,9 @@ class CandleRefreshControllerTest {
     @Test
     fun `POST candles refresh 200 OK`() {
         whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
-        whenever(candleRefreshService.refresh(eq("006110"), any())).thenReturn(
+        // signature 변경 (2026-05-22 KIS_TPS_EXCEEDED 종합 fix §C — priority parameter 추가).
+        // SymbolController는 default USER_PATH 호출 → any() 추가로 모든 priority arg 매칭.
+        whenever(candleRefreshService.refresh(eq("006110"), any(), any())).thenReturn(
             CandleRefreshResponse(
                 refreshedIntervals =
                     listOf(
@@ -103,7 +105,7 @@ class CandleRefreshControllerTest {
     @Test
     fun `POST candles refresh intervals 빈 문자열 default 적용 200 OK`() {
         whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
-        whenever(candleRefreshService.refresh(eq("005930"), any())).thenReturn(
+        whenever(candleRefreshService.refresh(eq("005930"), any(), any())).thenReturn(
             CandleRefreshResponse(
                 refreshedIntervals =
                     listOf(
@@ -128,7 +130,7 @@ class CandleRefreshControllerTest {
     @Test
     fun `POST candles refresh 종목 없음 404`() {
         whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
-        whenever(candleRefreshService.refresh(eq("999999"), any())).thenThrow(
+        whenever(candleRefreshService.refresh(eq("999999"), any(), any())).thenThrow(
             ResponseStatusException(HttpStatus.NOT_FOUND, "종목을 찾을 수 없습니다: 999999"),
         )
 
@@ -143,7 +145,7 @@ class CandleRefreshControllerTest {
     @Test
     fun `POST candles refresh KIS 인증 실패 500`() {
         whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
-        whenever(candleRefreshService.refresh(eq("005930"), any())).thenThrow(
+        whenever(candleRefreshService.refresh(eq("005930"), any(), any())).thenThrow(
             ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "KIS 자격증명이 등록되지 않았습니다"),
         )
 
