@@ -3197,3 +3197,59 @@ PR #641 self-heal 도입으로 EGW00123 root cause 차단됐으나, frontend 폴
 
 - §0-A Phase 2 (Bucket4j KIS Rate Limit)
 - PR #641 (self-heal hotfix — EGW00123만 처리)
+
+---
+
+## §59. candle venue 컬럼 도입 + KIS J/X path 분리 (QA 첫 임무 root fix · 2026-05-22 신설 · backend-core + market-data)
+
+### 사유
+
+QA 첫 임무 evidence (2026-05-21 보고서 `_workspace/reports/2026-05-21-qa-first-mission-symbol-detail.md`):
+- SK하이닉스 2026-05-21 candle DB row close=1,918,000 vol=4,850,226 (NXT 야간 의심)
+- baseline 2026-05-19 close=1,719,000 vol=7,805,248 (정규장 정합)
+- 비율 4,850,226 / 7,805,248 = **62%** → PR #597 휴리스틱(10%) 통과 + PR #682 강화(30%) 통과
+- 즉 **휴리스틱 자체로는 venue 구분 불가능한 경계 case 잔존**
+
+본 §59 P1 의제는 옵션 B(QA 보고서 §6) — **근본 fix**:
+- candle 테이블에 venue 컬럼 도입 → KIS J(KRX 정규장) vs X(NXT)을 schema level 분리
+- 휴리스틱 폐기 + 정확한 single source of truth
+
+### 옵션 A 즉시 fix (본 PR · #682) — 완료
+- ✅ NXT 휴리스틱 30% 임계 강화 (`SymbolMetaService.kt`)
+- ✅ stale 30분 시간 경과 검증
+- ✅ 한계: 62% 경계 case 잔존 (SK하이닉스 evidence)
+
+### 옵션 B 본격 fix (본 §59 backlog) — 추후
+
+#### 산출물
+
+1. **Flyway migration** — `candle` 테이블에 `venue VARCHAR(10) NOT NULL DEFAULT 'KRX'` 컬럼 추가
+   - UQ 변경: `(code, interval, ts)` → `(code, interval, ts, venue)` (NXT/KRX 같은 ts 별도 row 허용)
+   - backfill: 기존 row 모두 `venue='KRX'` 기본값 + NXT 의심 row(`vol < prev_vol * 0.30`) 보정 별도 migration
+2. **KIS chart adapter 2 path 분리** — `fid_cond_mrkt_div_code`
+   - 현재: `UN` (통합)
+   - 신규: `J` (KRX 정규장) + `X` (NXT)
+   - 각 path 별도 호출 + 응답 row에 `venue` 부여 후 INSERT
+3. **SymbolMetaService candle 조회 시 `venue='KRX'` 필터** — 휴리스틱 폐기
+4. **chart·indicator·pattern consumer 영향 평가** — 모두 정규장 source 의도면 `venue='KRX'` 필터 일괄 추가
+5. **NXT venue 활용 path 별도 검토** — 시간외 분석·NXT 분리 차트 등 (P2)
+
+### 영향 모듈
+
+- backend-core (lead — schema migration + SymbolMetaService 필터 + candle query API)
+- market-data (KIS chart adapter J/X 2 path 분리 + venue 응답 부여)
+- batch (CandleRefreshService backfill — venue 매트릭스)
+- consumer (CandleClosedStompListener — venue=KRX 필터 일괄)
+- indicator-impl + strategy-engine (input candle filtering — 외부 호출자 영향)
+- frontend (LWC v4 chart — venue tab 미래 검토 P2)
+
+### 트리거
+
+- v3.8.x sunset 시점 (운영 단계 점진 고도화)
+- 또는 QA 시나리오에서 30% 임계 회귀 재발견 시
+
+### evidence
+
+- QA 첫 임무 보고서: `_workspace/reports/2026-05-21-qa-first-mission-symbol-detail.md` §6 옵션 B
+- PR #682 (본 옵션 A 즉시 fix · QA 첫 임무 P0 hotfix)
+- 보강 테스트: `api/src/test/.../SymbolMetaServiceNxtStaleTest.kt` (62% 경계 case명시 — venue 분리 P1 정당화 evidence)

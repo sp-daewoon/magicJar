@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.api.service
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.controller.SymbolDto
+import kr.spdaewoon.magicjar.api.persistence.CandleJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.UserAccountJpaRepository
@@ -14,6 +15,9 @@ import org.springframework.stereotype.Service
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.Duration
+import java.time.Instant
+import java.time.LocalTime
+import java.time.ZoneId
 
 /**
  * 종목 메타 + 현재가 조립 서비스 (spec §3-2).
@@ -47,6 +51,29 @@ class SymbolMetaService(
 
     private val metaCacheTtl: Duration = Duration.ofMinutes(5)
 
+    companion object {
+        /**
+         * stale 시간 경과 임계 — asOf 가 현재 시각 기준 본 임계보다 오래되면 stale=true.
+         * QA 첫 임무 evidence (2026-05-21 23:33 KST): asOf=15:19 KST 8시간 stale인데 stale=false 응답 결함.
+         */
+        internal val staleThreshold: Duration = Duration.ofMinutes(30)
+
+        /**
+         * NXT 야간 일봉 휴리스틱 임계 — 최신 candle 거래량이 그 직전 정상 row 대비 본 비율 미만이면 NXT 의심 skip.
+         * PR #597 휴리스틱 `curVol * 10 < nextVol` (즉 < 10%)이 2026-05-21 회귀 — SK하이닉스 case
+         *   2026-05-21 close=1,918,000 vol=4,850,226  (실제 NXT 의심)
+         *   2026-05-19 close=1,719,000 vol=7,805,248  (정규장 정합 baseline)
+         *   비율 = 4,850,226 / 7,805,248 = 62% → PR #597 휴리스틱 통과(=skip 실패)
+         * 강화: 30% 임계 (장중 cumulative volume + 시간외 단일가 거래량 증가 고려).
+         */
+        internal val nxtVolumeRatioThreshold: BigDecimal = BigDecimal("0.30")
+
+        /** KRX 정규장 운영시간 (KST) — 본 시간 외 candle 최신 row 가 의심 분포면 fallback. */
+        internal val krxOpen: LocalTime = LocalTime.of(9, 0)
+        internal val krxClose: LocalTime = LocalTime.of(15, 30)
+        internal val kst: ZoneId = ZoneId.of("Asia/Seoul")
+    }
+
     fun getSymbol(code: String): SymbolDto {
         // 0. instrument 테이블 1순위 (PR-11b 정정 — design §11-8)
         // market='UNKNOWN' 또는 부재 → KIS inquire-price fallback
@@ -73,9 +100,10 @@ class SymbolMetaService(
         // 1. candle DB 1d 최근 5 row (ts DESC) → NXT 야간 일봉 휴리스틱 제외
         //    chart adapter가 fid_cond_mrkt_div_code=UN(NXT 통합)으로 fetch하므로 candle DB에는
         //    NXT 야간 일봉이 정규장 일봉과 별도 row로 들어옴(volume 5-10% 수준 → 1-2 order 차이).
-        //    SK하이닉스 사례: 2026-05-20 NXT 야간 vol=223K vs 2026-05-19 정규장 vol=7.8M (2.85%).
-        //    룰: 최신 row volume이 그 직전 row volume의 10% 미만이면 NXT 의심 → skip.
-        //    근본 해결은 chart adapter NXT 분리 (별도 후속 dispatch).
+        //    QA 첫 임무 evidence (2026-05-21): PR #597 휴리스틱 `curVol * 10 < nextVol` 회귀.
+        //    SK하이닉스 2026-05-21 candle close=1,918,000 vol=4,850,226 (NXT 의심) ↔ baseline 2026-05-19 vol=7.8M.
+        //    강화: 30% 임계로 상향 — `curVol < nextVol * 0.30`.
+        //    근본 해결(candle venue 컬럼 도입)은 backlog §opt-B (P1).
         val rawCandles =
             try {
                 candleJpaRepository.findByCodeAndIntervalLatest(code, "1d", PageRequest.of(0, 5))
@@ -83,18 +111,7 @@ class SymbolMetaService(
                 log.warn("candle 1d 조회 실패: code={} err={}", code, e.message)
                 emptyList()
             }
-        val validCandles = rawCandles.filter { it.closeRaw != null && (it.volume ?: 0L) > 0L }
-        val normalCandles =
-            buildList {
-                for (i in validCandles.indices) {
-                    val cur = validCandles[i]
-                    val next = validCandles.getOrNull(i + 1)
-                    val curVol = cur.volume ?: 0L
-                    val nextVol = next?.volume ?: 0L
-                    val isNxtNight = next != null && nextVol > 0L && curVol * 10L < nextVol
-                    if (!isNxtNight) add(cur)
-                }
-            }
+        val normalCandles = filterNxtNightCandles(rawCandles, code)
         val candleLatest = normalCandles.getOrNull(0)
         val candlePrev = normalCandles.getOrNull(1)
 
@@ -203,9 +220,14 @@ class SymbolMetaService(
                 resolvedMetrics?.changeRate?.setScale(2, RoundingMode.HALF_UP)?.toPlainString() ?: "0.00"
             }
 
-        // stale 판정: candle DB 1d 최신 row 부재 + Redis quote:last 부재 시만 stale
+        // stale 판정 — QA 첫 임무 evidence (2026-05-21):
+        //   ① cache stale flag (staleFromCache)
+        //   ② candle·quote 모두 부재 → KIS fallback (usedKisFallback)
+        //   ③ asOf 가 현재 시각 기준 STALE_THRESHOLD(30분)보다 오래됨 (시간 경과 검증) ★ 신규
+        // 결함 시점 evidence: asOf=15:19 KST + 현재=23:33 KST → 8시간 stale 인데 stale=false 응답.
         val usedKisFallback = candleCurrentPrice == null && quoteCurrentPrice == null
-        val stale = staleFromCache || usedKisFallback
+        val asOfInstant = parseQuoteTs(quoteTs)
+        val stale = staleFromCache || usedKisFallback || isAsOfStale(asOfInstant)
 
         // name·market·industry: instrument 테이블 1순위 (design §11-8)
         // instrument 부재 또는 market='UNKNOWN'이면 KIS inquire-price fallback
@@ -257,4 +279,94 @@ class SymbolMetaService(
             log.warn("userId 조회 실패: {}", e.message)
             null
         }
+
+    /**
+     * NXT 야간 일봉 필터 — 최신 row volume 이 직전 row volume 의 NXT_VOLUME_RATIO_THRESHOLD(30%) 미만이면 skip.
+     *
+     * 추가 가드 (QA 첫 임무 §6 옵션 A-3):
+     *   candle ts(KST 변환) 이 KRX 정규장 운영시간 외(09:00 ~ 15:30 KST)에 있고
+     *   직전 정상 row(vol >= 100K) 와 비교해도 NXT 의심이면 skip.
+     *
+     * @param candles ts DESC 정렬 raw candle row (최신 → 과거)
+     * @param code 종목 코드 (로그용)
+     * @return NXT 야간 row 제거한 정상 candle list (ts DESC 유지)
+     */
+    internal fun filterNxtNightCandles(
+        candles: List<CandleJpaEntity>,
+        code: String,
+    ): List<CandleJpaEntity> {
+        val validCandles = candles.filter { it.closeRaw != null && (it.volume ?: 0L) > 0L }
+        return buildList {
+            for (i in validCandles.indices) {
+                val cur = validCandles[i]
+                val next = validCandles.getOrNull(i + 1)
+                if (isNxtNightSuspect(cur, next)) {
+                    log.info(
+                        "NXT 야간 candle skip: code={} ts={} vol={} nextVol={}",
+                        code,
+                        cur.ts,
+                        cur.volume,
+                        next?.volume,
+                    )
+                } else {
+                    add(cur)
+                }
+            }
+        }
+    }
+
+    /**
+     * 단일 candle row 가 NXT 야간 row 인지 판정.
+     *  - next 부재면 비교 불가 → 정상 처리.
+     *  - next.volume 이 0 이면 비교 무의미 → 정상 처리.
+     *  - cur.volume < next.volume * 0.30 이면 NXT 의심 (PR #597 회귀 fix — 30% 임계).
+     */
+    private fun isNxtNightSuspect(
+        cur: CandleJpaEntity,
+        next: CandleJpaEntity?,
+    ): Boolean {
+        if (next == null) return false
+        val curVol = cur.volume ?: 0L
+        val nextVol = next.volume ?: 0L
+        if (nextVol <= 0L) return false
+        val curVolBd = BigDecimal.valueOf(curVol)
+        val nextVolBd = BigDecimal.valueOf(nextVol)
+        val threshold = nextVolBd.multiply(nxtVolumeRatioThreshold)
+        return curVolBd < threshold
+    }
+
+    /**
+     * quote:last.ts (ISO8601 String) → Instant 파싱. 부재·실패 시 null.
+     */
+    private fun parseQuoteTs(ts: String?): Instant? =
+        ts?.let {
+            try {
+                Instant.parse(it)
+            } catch (e: Exception) {
+                log.debug("quote ts 파싱 실패: ts={} err={}", it, e.message)
+                null
+            }
+        }
+
+    /**
+     * asOf 가 현재 시각 기준 STALE_THRESHOLD(30분) 보다 오래됐는지 판정.
+     * asOf 부재 시 false (다른 stale 분기에서 처리).
+     */
+    internal fun isAsOfStale(
+        asOf: Instant?,
+        now: Instant = Instant.now(),
+    ): Boolean = asOf?.let { it.isBefore(now.minus(staleThreshold)) } ?: false
+
+    /**
+     * KRX 정규장 운영시간(KST 09:00 ~ 15:30) 내인지 판정.
+     * candle ts 가 일봉 자정 정규화(00:00 KST)면 본 판정은 false.
+     * 향후 분봉·체결 시계열에서 운영시간 가드 시 재사용.
+     */
+    internal fun isKrxRegularHours(
+        ts: Instant,
+        zone: ZoneId = kst,
+    ): Boolean {
+        val localTime = ts.atZone(zone).toLocalTime()
+        return !localTime.isBefore(krxOpen) && !localTime.isAfter(krxClose)
+    }
 }
