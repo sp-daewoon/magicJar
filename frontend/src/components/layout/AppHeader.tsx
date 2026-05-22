@@ -16,8 +16,8 @@
  * - P2 Task 8 (system_event_log): NotificationCenter 벨 + 드롭다운 + 전역 STOMP 구독
  *   (useSystemEventStompSubscription — /topic/system.event.user.{userId} + broadcast)
  */
-import { useMemo, useState } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { SettingsIcon } from '../icons/SettingsIcon'
 import { SettingsModal } from '../settings/SettingsModal'
 import { KisRealCredentialBanner } from './KisRealCredentialBanner'
@@ -81,24 +81,60 @@ function isActivePath(pathname: string, item: NavItem): boolean {
 
 function NavGroupMenu({ group }: { group: NavGroup }) {
   const [open, setOpen] = useState(false)
+  const closeTimerRef = useRef<number | null>(null)
   const location = useLocation()
+  const navigate = useNavigate()
   const active = group.items.some((item) => isActivePath(location.pathname, item))
+
+  const cancelClose = () => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
+  }
+
+  const openMenu = () => {
+    cancelClose()
+    setOpen(true)
+  }
+
+  const closeMenu = () => {
+    cancelClose()
+    setOpen(false)
+  }
+
+  const scheduleClose = () => {
+    cancelClose()
+    closeTimerRef.current = window.setTimeout(() => {
+      setOpen(false)
+      closeTimerRef.current = null
+    }, 180)
+  }
+
+  const navigateToFirstItem = () => {
+    const firstItem = group.items[0]
+    if (!firstItem) return
+    closeMenu()
+    navigate(firstItem.to)
+  }
+
+  useEffect(() => () => cancelClose(), [])
 
   return (
     <div
       className="relative"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+      onMouseEnter={openMenu}
+      onMouseLeave={scheduleClose}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-          setOpen(false)
+          closeMenu()
         }
       }}
     >
       <button
         type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        onFocus={() => setOpen(true)}
+        onClick={navigateToFirstItem}
+        onFocus={openMenu}
         aria-haspopup="true"
         aria-expanded={open}
         className={[
@@ -115,25 +151,27 @@ function NavGroupMenu({ group }: { group: NavGroup }) {
       </button>
 
       {open && (
-        <div className="absolute left-0 z-50 mt-2 min-w-44 rounded-lg border border-gray-800 bg-gray-950 p-1 shadow-xl">
-          {group.items.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              onClick={() => setOpen(false)}
-              className={({ isActive }) =>
-                [
-                  'block rounded-md px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400',
-                  isActive
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200',
-                ].join(' ')
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
+        <div className="absolute left-0 top-full z-50 min-w-44 pt-2" onMouseEnter={openMenu}>
+          <div className="rounded-lg border border-gray-800 bg-gray-950 p-1 shadow-xl">
+            {group.items.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                onClick={closeMenu}
+                className={({ isActive }) =>
+                  [
+                    'block rounded-md px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400',
+                    isActive
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200',
+                  ].join(' ')
+                }
+              >
+                {item.label}
+              </NavLink>
+            ))}
+          </div>
         </div>
       )}
     </div>

@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.controller.dto.performance.EquityCurveDto
 import kr.spdaewoon.magicjar.api.controller.dto.performance.EquityPointDto
 import kr.spdaewoon.magicjar.api.controller.dto.performance.PerformanceSummaryDto
+import kr.spdaewoon.magicjar.api.controller.dto.performance.PerformanceTradeBreakdownDto
+import kr.spdaewoon.magicjar.api.controller.dto.performance.PerformanceTradeDto
 import kr.spdaewoon.magicjar.api.controller.performance.PerformanceController
 import kr.spdaewoon.magicjar.api.persistence.UserAccountJpaRepository
 import kr.spdaewoon.magicjar.api.service.performance.PerformanceService
@@ -107,6 +109,51 @@ class PerformanceControllerTest {
                 status { isOk() }
                 jsonPath("$.points.length()") { value(2) }
                 jsonPath("$.points[0].tradeDate") { value("2026-05-05") }
+            }
+    }
+
+    @Test
+    fun `GET trades 200 — 실현손익 상세 반환`() {
+        val dto =
+            PerformanceTradeBreakdownDto(
+                period = "MONTH",
+                periodStart = LocalDate.of(2026, 5, 1),
+                periodEnd = LocalDate.of(2026, 5, 22),
+                totalRealizedPnl = BigDecimal("2166.67"),
+                tradeCount = 1,
+                items =
+                    listOf(
+                        PerformanceTradeDto(
+                            executionId = 1L,
+                            orderId = 6L,
+                            tradeDate = LocalDate.of(2026, 5, 20),
+                            executedAt = OffsetDateTime.now(kst),
+                            code = "005930",
+                            name = "삼성전자",
+                            mode = "MOCK",
+                            source = "MANUAL",
+                            executedQty = BigDecimal.ONE,
+                            executedPrice = BigDecimal("276000"),
+                            avgBuyPrice = BigDecimal("273833.3333"),
+                            fee = BigDecimal.ZERO,
+                            tax = BigDecimal.ZERO,
+                            realizedPnl = BigDecimal("2166.67"),
+                        ),
+                    ),
+            )
+        whenever(performanceService.getTradeBreakdown(eq(userId), any(), anyOrNull(), anyOrNull())).thenReturn(dto)
+        whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
+
+        mockMvc
+            .get("/api/performance/trades") {
+                param("userId", userId)
+                param("period", "MONTH")
+                accept(MediaType.APPLICATION_JSON)
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.tradeCount") { value(1) }
+                jsonPath("$.items[0].code") { value("005930") }
+                jsonPath("$.items[0].realizedPnl") { value(2166.67) }
             }
     }
 

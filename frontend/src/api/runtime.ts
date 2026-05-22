@@ -41,6 +41,18 @@ export interface RuntimeFlagsDto {
   fetchedAt: string
 }
 
+interface RuntimeFlagsBackendDto {
+  mode?: RuntimeMode
+  magicjarMode?: RuntimeMode
+  allowReal?: boolean
+  magicjarAllowReal?: boolean
+  killSwitchEnabled?: boolean
+  killSwitchActive?: boolean
+  killSwitchReason?: string | null
+  userConsented?: boolean | null
+  fetchedAt?: string
+}
+
 // ──────────────────────────────────────────────────────────────
 // API 함수
 // ──────────────────────────────────────────────────────────────
@@ -53,7 +65,15 @@ export const runtimeApi = {
    * backend 구현 의존 — 미구현 시 404 / 500. frontend는 isError 시 indicator hidden.
    */
   getFlags: async (): Promise<RuntimeFlagsDto> => {
-    const res = await apiClient.get<RuntimeFlagsDto>('/runtime/flags')
-    return res.data
+    const res = await apiClient.get<RuntimeFlagsBackendDto>('/runtime/flags')
+    const raw = res.data
+    return {
+      mode: raw.mode ?? raw.magicjarMode ?? 'MOCK',
+      allowReal: raw.allowReal ?? raw.magicjarAllowReal ?? false,
+      killSwitchEnabled: raw.killSwitchEnabled ?? raw.killSwitchActive ?? false,
+      killSwitchReason: raw.killSwitchReason ?? null,
+      userConsented: raw.userConsented ?? false,
+      fetchedAt: raw.fetchedAt ?? new Date().toISOString(),
+    }
   },
 }

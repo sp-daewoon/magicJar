@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
 import kr.spdaewoon.magicjar.api.controller.dto.performance.EquityCurveDto
 import kr.spdaewoon.magicjar.api.controller.dto.performance.PerformanceSummaryDto
+import kr.spdaewoon.magicjar.api.controller.dto.performance.PerformanceTradeBreakdownDto
 import kr.spdaewoon.magicjar.api.service.performance.PerformanceService
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestMapping
@@ -20,9 +21,10 @@ import java.time.LocalDate
  * Swagger 4단 어노테이션 (사용자 메모리 feedback_swagger_pattern 정합):
  * @Tag(controller) · @Operation(method) · @Parameter(param) · @Schema(DTO)
  *
- * 2 endpoint:
+ * 3 endpoint:
  * - GET /api/performance/summary — KPI 카드용 (5 지표)
  * - GET /api/performance/equity-curve — 차트용 시계열
+ * - GET /api/performance/trades — 실현손익 상세 근거
  *
  * Redis cache 1h (PerformanceService 내부).
  * userId: String — user_account.user_id VARCHAR(40) 정합.
@@ -109,4 +111,38 @@ class PerformanceController(
         @Parameter(description = "조회 종료 일자 (옵션 — 미지정 시 오늘)", example = "2026-05-14")
         @RequestParam(required = false) to: LocalDate?,
     ): EquityCurveDto = performanceService.getEquityCurve(userId, from, to)
+
+    /**
+     * GET /api/performance/trades
+     *
+     * 총 손익의 근거를 매도 체결 단위로 조회.
+     * 성과 배치와 동일하게 평균단가 방식으로 체결 이력을 replay한다.
+     */
+    @Operation(
+        summary = "성과 실현손익 상세 조회",
+        description = """
+            총 손익의 근거가 되는 매도 체결별 상세 목록.
+            period=DAY·WEEK·MONTH·YEAR·ALL + periodStart·periodEnd 사용자 지정.
+
+            모든 데이터는 order_request·order_execution 영속 데이터 reuse.
+            KIS endpoint 호출 0, AI 호출 0.
+        """,
+    )
+    @ApiResponses(
+        value = [
+            ApiResponse(responseCode = "200", description = "실현손익 상세 목록"),
+            ApiResponse(responseCode = "400", description = "period 값 오류 (허용값: DAY·WEEK·MONTH·YEAR·ALL)"),
+        ],
+    )
+    @GetMapping("/trades")
+    fun trades(
+        @Parameter(description = "사용자 ID (user_account.user_id — multi-tenant 격리)", example = "user_12345678")
+        @RequestParam userId: String,
+        @Parameter(description = "기간 단위 (DAY·WEEK·MONTH·YEAR·ALL)", example = "MONTH")
+        @RequestParam(defaultValue = "MONTH") period: String,
+        @Parameter(description = "기간 시작 일자 (옵션 — 미지정 시 period 기준 자동 계산)", example = "2026-05-01")
+        @RequestParam(required = false) periodStart: LocalDate?,
+        @Parameter(description = "기간 종료 일자 (옵션 — 미지정 시 오늘)", example = "2026-05-22")
+        @RequestParam(required = false) periodEnd: LocalDate?,
+    ): PerformanceTradeBreakdownDto = performanceService.getTradeBreakdown(userId, period, periodStart, periodEnd)
 }

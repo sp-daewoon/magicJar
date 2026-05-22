@@ -51,30 +51,48 @@ class DailyPerformanceJobTest {
     private val kst = ZoneId.of("Asia/Seoul")
     private val targetDate = LocalDate.of(2026, 5, 13)
 
-    private fun makeOrderRequest(id: Long = 1L) = BatchOrderRequestJpaEntity(id = id, userId = userId)
+    private fun makeOrderRequest(
+        id: Long = 1L,
+        code: String = "005930",
+        side: String = "BUY",
+    ) = BatchOrderRequestJpaEntity(id = id, userId = userId, code = code, side = side)
 
     private fun makeExecution(
         id: Long = 1L,
-        pnl: BigDecimal?,
+        orderRequest: BatchOrderRequestJpaEntity,
+        tradeDate: LocalDate = targetDate,
+        qty: BigDecimal = BigDecimal.ONE,
+        price: BigDecimal,
     ): BatchOrderExecutionJpaEntity =
         BatchOrderExecutionJpaEntity(
             id = id,
-            orderRequest = makeOrderRequest(),
-            executedAt = targetDate.atTime(10, 0).atZone(kst).toInstant(),
-            realizedPnl = pnl,
+            orderRequest = orderRequest,
+            executedQty = qty,
+            executedPrice = price,
+            executedAt = tradeDate.atTime(10, 0).atZone(kst).toInstant(),
+            fee = BigDecimal.ZERO,
+            tax = BigDecimal.ZERO,
         )
 
     @Test
-    fun `정상 1 사용자 N 거래 — pnl_daily INSERT + summary 5종 UPSERT`() {
+    fun `정상 1 사용자 N 거래 — 체결 이력 replay로 pnl_daily INSERT + summary 5종 UPSERT`() {
+        val buyRequest = makeOrderRequest(id = 1L, side = "BUY")
+        val sellRequest = makeOrderRequest(id = 2L, side = "SELL")
         val executions =
             listOf(
-                makeExecution(1L, BigDecimal("150000")),
-                makeExecution(2L, BigDecimal("-50000")),
-                makeExecution(3L, BigDecimal("80000")),
+                makeExecution(
+                    id = 1L,
+                    orderRequest = buyRequest,
+                    tradeDate = targetDate.minusDays(1),
+                    qty = BigDecimal("2"),
+                    price = BigDecimal("10000"),
+                ),
+                makeExecution(id = 2L, orderRequest = sellRequest, price = BigDecimal("12000")),
+                makeExecution(id = 3L, orderRequest = sellRequest, price = BigDecimal("9000")),
             )
 
         whenever(orderRequestJpaRepository.findDistinctUserIds()).thenReturn(listOf(userId))
-        whenever(orderExecutionJpaRepository.findByUserIdAndExecutedAtRange(eq(userId), any<Instant>(), any<Instant>()))
+        whenever(orderExecutionJpaRepository.findByUserIdAndExecutedAtBefore(eq(userId), any<Instant>()))
             .thenReturn(executions)
         whenever(pnlDailyJpaRepository.findByUserIdAndTradeDate(eq(userId), any())).thenReturn(null)
         whenever(pnlDailyJpaRepository.save(any())).thenAnswer { it.getArgument(0) }
@@ -93,10 +111,10 @@ class DailyPerformanceJobTest {
         val saved = pnlCaptor.firstValue
         assertThat(saved.userId).isEqualTo(userId)
         assertThat(saved.tradeDate).isEqualTo(targetDate)
-        assertThat(saved.realizedPnl).isEqualByComparingTo(BigDecimal("180000")) // 150000 - 50000 + 80000
-        assertThat(saved.winCount).isEqualTo(2)
+        assertThat(saved.realizedPnl).isEqualByComparingTo(BigDecimal("1000.00"))
+        assertThat(saved.winCount).isEqualTo(1)
         assertThat(saved.lossCount).isEqualTo(1)
-        assertThat(saved.tradeCount).isEqualTo(3)
+        assertThat(saved.tradeCount).isEqualTo(2)
     }
 
     @Test
@@ -105,17 +123,28 @@ class DailyPerformanceJobTest {
 
         sut.run(targetDate)
 
-        verify(orderExecutionJpaRepository, never()).findByUserIdAndExecutedAtRange(any(), any(), any())
+        verify(orderExecutionJpaRepository, never()).findByUserIdAndExecutedAtBefore(any(), any())
         verify(pnlDailyJpaRepository, never()).save(any())
     }
 
     @Test
     fun `기존 row 재계산 UPSERT — 멱등성 DELETE + INSERT`() {
         val existingPnl = mock<kr.spdaewoon.magicjar.batch.persistence.performance.BatchPnlDailyJpaEntity>()
-        val executions = listOf(makeExecution(1L, BigDecimal("100000")))
+        val buyRequest = makeOrderRequest(id = 1L, side = "BUY")
+        val sellRequest = makeOrderRequest(id = 2L, side = "SELL")
+        val executions =
+            listOf(
+                makeExecution(
+                    id = 1L,
+                    orderRequest = buyRequest,
+                    tradeDate = targetDate.minusDays(1),
+                    price = BigDecimal("10000"),
+                ),
+                makeExecution(id = 2L, orderRequest = sellRequest, price = BigDecimal("11000")),
+            )
 
         whenever(orderRequestJpaRepository.findDistinctUserIds()).thenReturn(listOf(userId))
-        whenever(orderExecutionJpaRepository.findByUserIdAndExecutedAtRange(any(), any(), any())).thenReturn(executions)
+        whenever(orderExecutionJpaRepository.findByUserIdAndExecutedAtBefore(any(), any())).thenReturn(executions)
         whenever(pnlDailyJpaRepository.findByUserIdAndTradeDate(eq(userId), any())).thenReturn(existingPnl)
         whenever(pnlDailyJpaRepository.save(any())).thenAnswer { it.getArgument(0) }
         whenever(pnlDailyJpaRepository.findByUserIdAndTradeDateBetweenOrderByTradeDateAsc(any(), any(), any()))

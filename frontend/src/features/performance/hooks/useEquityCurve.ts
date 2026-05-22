@@ -11,13 +11,14 @@ interface UseEquityCurveParams {
   userId: number | null
   from?: string
   to?: string
+  enabled?: boolean
 }
 
-export function useEquityCurve({ userId, from, to }: UseEquityCurveParams) {
+export function useEquityCurve({ userId, from, to, enabled = true }: UseEquityCurveParams) {
   return useQuery({
     queryKey: ['performance', 'equity-curve', { userId, from, to }],
     queryFn: () => performanceApi.getEquityCurve(userId!, from, to),
-    enabled: userId !== null,
+    enabled: enabled && userId !== null,
     staleTime: 5 * 60_000,
     refetchInterval: false,
   })

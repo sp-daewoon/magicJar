@@ -31,8 +31,16 @@ class BatchOrderExecutionJpaEntity(
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "order_id", nullable = false)
     val orderRequest: BatchOrderRequestJpaEntity,
+    @Column(name = "executed_qty", nullable = false, precision = 15, scale = 4)
+    val executedQty: BigDecimal = BigDecimal.ZERO,
+    @Column(name = "executed_price", nullable = false, precision = 19, scale = 4)
+    val executedPrice: BigDecimal = BigDecimal.ZERO,
     @Column(name = "executed_at", nullable = false)
     val executedAt: Instant,
+    @Column(name = "fee", nullable = false, precision = 19, scale = 4)
+    val fee: BigDecimal = BigDecimal.ZERO,
+    @Column(name = "tax", nullable = false, precision = 19, scale = 4)
+    val tax: BigDecimal = BigDecimal.ZERO,
     @Column(name = "realized_pnl", precision = 18, scale = 2)
-    val realizedPnl: BigDecimal?,
+    val realizedPnl: BigDecimal? = null,
 )

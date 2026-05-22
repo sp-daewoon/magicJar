@@ -63,6 +63,9 @@ import type { CandleDto, CandleInterval } from '../../api/symbol'
 /** STOMP tick에서 추출한 실시간 가격·시각 */
 export interface LiveTick {
   price: string
+  priceChange?: string | null
+  changeRate?: string | null
+  changeSign?: string | null
   ts: string
 }
 
@@ -273,6 +276,15 @@ function fmtVolume(v: number): string {
   return v.toLocaleString('ko-KR')
 }
 
+function signedChangeRate(value: string, changeSign?: string | null): string {
+  const num = parseFloat(value)
+  if (isNaN(num)) return value
+  if (changeSign === '1' || changeSign === '2') return Math.abs(num).toFixed(2)
+  if (changeSign === '3') return '0.00'
+  if (changeSign === '4' || changeSign === '5') return (-Math.abs(num)).toFixed(2)
+  return num.toFixed(2)
+}
+
 interface TooltipState {
   visible: boolean
   x: number
@@ -343,6 +355,8 @@ export function LightweightChart({
 
   // volume lookup: ts(UTCTimestamp) → volume
   const volumeMapRef = useRef<Map<number, number>>(new Map())
+  // changeRate lookup: ts(UTCTimestamp) → 전일종가 기준 등락률
+  const changeRateMapRef = useRef<Map<number, string>>(new Map())
 
   /**
    * 마지막 bar OHLC 추적 ref — liveTick update 시 open·low·high 유지용.
@@ -545,9 +559,11 @@ export function LightweightChart({
             ) as UTCTimestamp)
 
       const volume = volumeMapRef.current.get(ts) ?? 0
-      const changeRate = candle.open !== 0
-        ? (((candle.close - candle.open) / candle.open) * 100).toFixed(2)
-        : '0.00'
+      const changeRate =
+        changeRateMapRef.current.get(ts) ??
+        (candle.open !== 0
+          ? (((candle.close - candle.open) / candle.open) * 100).toFixed(2)
+          : '0.00')
 
       const containerRect = container.getBoundingClientRect()
       // param.point는 차트 내부 좌표 — 컨테이너 기준 위치 사용
@@ -624,6 +640,7 @@ export function LightweightChart({
       candleSeries.setData([])
       volumeSeries.setData([])
       volumeMapRef.current = new Map()
+      changeRateMapRef.current = new Map()
       lastBarRef.current = null
       return
     }
@@ -634,11 +651,16 @@ export function LightweightChart({
 
     // volume lookup 맵 갱신
     const vMap = new Map<number, number>()
+    const changeRateMap = new Map<number, string>()
     candles.forEach((c) => {
       const ts = toUTCTimestamp(c.ts)
       vMap.set(ts, c.volume)
+      if (c.changeRate != null) {
+        changeRateMap.set(ts, c.changeRate)
+      }
     })
     volumeMapRef.current = vMap
+    changeRateMapRef.current = changeRateMap
 
     candleSeries.setData(candleData)
     volumeSeries.setData(volumeData)
@@ -684,6 +706,9 @@ export function LightweightChart({
       volumeSeries.update(vd)
       // volume 맵도 갱신
       volumeMapRef.current.set(cd.time as number, realtimeCandle.volume)
+      if (realtimeCandle.changeRate != null) {
+        changeRateMapRef.current.set(cd.time as number, realtimeCandle.changeRate)
+      }
       // 마지막 bar 추적 갱신
       lastBarRef.current = {
         time: cd.time as UTCTimestamp,
@@ -731,6 +756,9 @@ export function LightweightChart({
         close: price,
       }
       candleSeries.update(updated)
+      if (liveTick.changeRate != null) {
+        changeRateMapRef.current.set(barTime, signedChangeRate(liveTick.changeRate, liveTick.changeSign))
+      }
 
       // lastBarRef 갱신
       lastBarRef.current = updated

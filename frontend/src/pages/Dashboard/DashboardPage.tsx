@@ -25,12 +25,13 @@
  *   주문 체결·취소·거절 즉시 invalidate → 5s polling 폐기, 30s polling 은 fallback only.
  *   "소켓방식으로 가져와야하는거" (사용자 dogfooding) — KIS rate limit burst 해소.
  */
-import { useCallback, useState } from 'react'
+import { useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { useOnboardingStore } from '../../stores/onboarding'
 import type { AccountType } from '../../api/account'
 import { useStompAccountBalance } from '../../api/hooks/useStompAccountBalance'
+import { usePreferredAccountType } from '../../api/hooks/usePreferredAccountType'
 import { AccountSummaryCard } from './AccountSummaryCard'
 import { HoldingsTable } from './HoldingsTable'
 import { BalanceCard } from './BalanceCard'
@@ -64,7 +65,7 @@ function QuickLink({ to, label }: { to: string; label: string }) {
 
 export function DashboardPage() {
   const userId = useOnboardingStore((s) => s.registeredUserId)
-  const [accountType, setAccountType] = useState<AccountType>('REAL')
+  const { accountType, setAccountType, isReady: accountTypeReady } = usePreferredAccountType()
   const queryClient = useQueryClient()
 
   /**
@@ -121,6 +122,14 @@ export function DashboardPage() {
         >
           계좌 등록하러 가기 →
         </Link>
+      </div>
+    )
+  }
+
+  if (!accountTypeReady) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-6">
+        <div className="h-24 animate-pulse rounded-2xl border border-gray-800 bg-gray-900/60" />
       </div>
     )
   }

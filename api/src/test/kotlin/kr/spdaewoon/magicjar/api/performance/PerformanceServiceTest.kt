@@ -3,8 +3,18 @@ package kr.spdaewoon.magicjar.api.performance
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.controller.dto.performance.PerformanceSummaryDto
 import kr.spdaewoon.magicjar.api.infrastructure.cache.RedisPerformanceCacheAdapter
+import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
+import kr.spdaewoon.magicjar.api.persistence.order.OrderExecutionJpaEntity
+import kr.spdaewoon.magicjar.api.persistence.order.OrderExecutionJpaRepository
+import kr.spdaewoon.magicjar.api.persistence.order.OrderRequestJpaEntity
+import kr.spdaewoon.magicjar.api.persistence.order.OrderRequestJpaRepository
 import kr.spdaewoon.magicjar.api.service.performance.PerformanceCalculatorImpl
 import kr.spdaewoon.magicjar.api.service.performance.PerformanceService
+import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
+import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
+import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.performance.PnlDaily
 import kr.spdaewoon.magicjar.domain.performance.port.PerformanceRepository
 import org.assertj.core.api.Assertions.assertThat
@@ -35,8 +45,20 @@ class PerformanceServiceTest {
     private val performanceCalculator = PerformanceCalculatorImpl()
     private val cache: RedisPerformanceCacheAdapter = mock()
     private val objectMapper = ObjectMapper().apply { findAndRegisterModules() }
+    private val orderExecutionJpaRepository: OrderExecutionJpaRepository = mock()
+    private val orderRequestJpaRepository: OrderRequestJpaRepository = mock()
+    private val instrumentJpaRepository: InstrumentJpaRepository = mock()
 
-    private val sut = PerformanceService(performanceRepository, performanceCalculator, cache, objectMapper)
+    private val sut =
+        PerformanceService(
+            performanceRepository,
+            performanceCalculator,
+            cache,
+            objectMapper,
+            orderExecutionJpaRepository,
+            orderRequestJpaRepository,
+            instrumentJpaRepository,
+        )
 
     private val userId = "user_test_001"
     private val kst = ZoneId.of("Asia/Seoul")
@@ -153,4 +175,87 @@ class PerformanceServiceTest {
         assertThat(result.periodStart).isEqualTo(today)
         assertThat(result.totalPnl).isEqualByComparingTo(BigDecimal("80000"))
     }
+
+    @Test
+    fun `trade breakdown — 평균단가 replay로 매도 체결별 손익 반환`() {
+        val from = LocalDate.of(2026, 5, 1)
+        val to = LocalDate.of(2026, 5, 22)
+        val buyOrder =
+            makeOrderRequest(
+                id = 1L,
+                side = OrderSide.BUY,
+            )
+        val sellOrder =
+            makeOrderRequest(
+                id = 2L,
+                side = OrderSide.SELL,
+            )
+        val executions =
+            listOf(
+                makeExecution(
+                    id = 1L,
+                    orderId = 1L,
+                    date = LocalDate.of(2026, 5, 20),
+                    qty = BigDecimal("2"),
+                    price = BigDecimal("10000"),
+                ),
+                makeExecution(
+                    id = 2L,
+                    orderId = 2L,
+                    date = LocalDate.of(2026, 5, 21),
+                    qty = BigDecimal.ONE,
+                    price = BigDecimal("12000"),
+                ),
+            )
+
+        whenever(orderExecutionJpaRepository.findByUserIdAndExecutedAtBefore(eq(userId), any()))
+            .thenReturn(executions)
+        whenever(orderRequestJpaRepository.findAllById(listOf(1L, 2L))).thenReturn(listOf(buyOrder, sellOrder))
+        whenever(instrumentJpaRepository.findAllById(listOf("005930"))).thenReturn(emptyList())
+
+        val result = sut.getTradeBreakdown(userId, "MONTH", from, to)
+
+        assertThat(result.totalRealizedPnl).isEqualByComparingTo(BigDecimal("2000.00"))
+        assertThat(result.tradeCount).isEqualTo(1)
+        assertThat(result.items.first().code).isEqualTo("005930")
+        assertThat(result.items.first().avgBuyPrice).isEqualByComparingTo(BigDecimal("10000"))
+        assertThat(result.items.first().realizedPnl).isEqualByComparingTo(BigDecimal("2000.00"))
+    }
+
+    private fun makeOrderRequest(
+        id: Long,
+        side: OrderSide,
+    ): OrderRequestJpaEntity =
+        OrderRequestJpaEntity(
+            id = id,
+            signalId = 0L,
+            strategyId = 0L,
+            userId = userId,
+            code = "005930",
+            side = side,
+            qty = BigDecimal.ONE,
+            priceType = OrderPriceType.MARKET,
+            status = OrderStatus.FILLED,
+            mode = TradingMode.MOCK,
+            idempotencyKey = "test-$id",
+            requestedAt = LocalDate.of(2026, 5, 20).atStartOfDay(kst).toInstant(),
+            source = OrderSource.MANUAL,
+        )
+
+    private fun makeExecution(
+        id: Long,
+        orderId: Long,
+        date: LocalDate,
+        qty: BigDecimal,
+        price: BigDecimal,
+    ): OrderExecutionJpaEntity =
+        OrderExecutionJpaEntity(
+            id = id,
+            orderId = orderId,
+            executedQty = qty,
+            executedPrice = price,
+            executedAt = date.atTime(10, 0).atZone(kst).toInstant(),
+            fee = BigDecimal.ZERO,
+            tax = BigDecimal.ZERO,
+        )
 }

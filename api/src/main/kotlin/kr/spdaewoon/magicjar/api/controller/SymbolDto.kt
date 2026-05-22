@@ -52,6 +52,9 @@ data class CandleDto(
     val low: String,
     val close: String,
     val volume: Long,
+    val previousClose: String? = null,
+    val change: String? = null,
+    val changeRate: String? = null,
 )
 
 /**
