@@ -3,10 +3,10 @@ id: T-20260521-0900-price-badge-marketclose
 agent: frontend
 model: opus
 branch: agent/frontend/price-badge-marketclose
-status: RUNNING
+status: DONE
 startedAt: 2026-05-21T09:00:25.643+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-21T00:44:58+09:00
+pr: 638
 parentPhase: ?
 ---
 
@@ -22,6 +22,7 @@ parentPhase: ?
 - (필요 시 기록)
 
 ## 마지막 활동
-2026-05-21T09:00:25.651+09:00 — 작업 시작
+2026-05-21T00:44:58+09:00 — PR #638 머지 (커밋 c1f37fe5)
 
 ## 비고
+2026-05-22 orchestrator 일괄 audit — pr 필드 미갱신 stale 잔재 정리.

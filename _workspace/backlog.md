@@ -66,7 +66,7 @@ market-data PR #555 system audit evidence — **Rate Limit 가드 DEGRADED**:
 
 ---
 
-## §0. P0-A persistence-shared 모듈 구현 의제 (2026-05-19 신설 · architect spec 발행 완료 · backend-core Phase 1 대기)
+## §0. ✅ 처리 완료 — P0-A persistence-shared 모듈 구현 (2026-05-19 신설 → 2026-05-22 마감 · ADR 0088 Accepted 격상)
 
 ### 사유
 
@@ -78,27 +78,21 @@ qa cross-validation evidence + backend-core 자가 진단 PR #524·#523 운영 �
 
 ### Spec/ADR 발행 (architect, 2026-05-19 완료)
 
-- ADR 0088 Proposed — `_workspace/arch/adr/0088-persistence-shared-module-outbox-wiring.md`
+- ADR 0088 **Accepted** (2026-05-22 격상) — `_workspace/arch/adr/0088-persistence-shared-module-outbox-wiring.md`
 - Spec 본문 — `_workspace/specs/2026-05-19-persistence-shared-module-outbox-wiring-spec.md` (10 § 풀세트)
 - 헌법 §1-A-extended 동반 신설 (P0-C — extensions.worktreeConfig=true 의무 + 헬퍼 스크립트)
 
-### 대기 사이클 (Phase 1 backend-core 단일 PR)
+### Phase 1 마감 (2026-05-22)
 
-- 영역: persistence-shared 모듈 신설 (root 직속) + 어댑터 9 파일 git mv + 패키지 rename + Gradle 4 파일
-- 파일 수: ~10 + ~200 LOC
-- cross-review: 자본 path 직결 chart-curator 1차 + 모듈 경계 backend-core 1차 (ADR 0085·0087 페르소나 정합)
-- 검증: `WARN drain worker skip` 0건 + `WARN retry worker skip` 0건 LOCK + 주문 path 자본 흐름 작동률 0% → 100% 회복
+- `persistence-shared/` 모듈 root 직속 신설 + 9 어댑터 git mv (Order Outbox·Notification Outbox·STOMP Event 각 3 파일)
+- Gradle 4 파일 변경 (`settings.gradle.kts`·`persistence-shared/build.gradle.kts`·`api/build.gradle.kts`·`consumer/build.gradle.kts`)
+- 검증 GREEN — 컨테이너 부팅 후 Bean 등록 + drain·retry worker `log.warn skip` 0건 + 8시간+ 운영 안정
+- 주문 path 자본 흐름 작동률 0% → 100% 회복
 
-### 트리거
+### 잔존 evidence
 
-- **우선순위 ★★★**: 자본 흐름 차단 해소 — 사용자 결재 후 즉시 backend-core Phase 1 dispatch
-- v3.7.0 minor cut 후보 (`feedback_release_policy_patch_first` v3.7=W4 마감 정합 — 본 P0-A는 patch 누적 후 W4 마감 시 minor)
-
-### PR #556 close evidence
-
-- 본 사이클에 close된 PR #556 (T-AI W4 진입 spec)은 사용자 명시 "W4 진입 안 함" 위반으로 자율 close
-- 산출물 (T-AI spec + ADR 0088 슬롯)은 사용자 W4 진입 시점에 재발행 가능 path 보존
-- 본 ADR 0088 발행으로 0088 슬롯 재점유 (persistence-shared) — 사용자 우선순위 정합(자본 흐름 차단 해소 > W4 진입)
+- PR #556 close (T-AI W4 진입 spec) — 사용자 명시 "W4 진입 안 함" 정합. T-AI 산출물은 W4 진입 시점에 재발행 path 보존
+- ADR 0088 슬롯 점유 (persistence-shared) — 사용자 우선순위 정합(자본 흐름 차단 해소 > W4 진입)
 
 ---
 
@@ -3142,3 +3136,64 @@ v3.6.x patch (Phase 1·2 머지 시 spec 사이클 cut + Phase 3·4·5 묶음 �
 - ADR 0091 (NXT resolver — 영향 없음, 본 ADR은 candle 모수만)
 - backlog §30 (LWC false trigger 가드 evidence — 가드 2단 LOCK 유지)
 - 사용자 메모리 `feedback_dev_priority_qa_batch` (개발 진도 우선 + QA 일괄)
+
+---
+
+## §57. KIS EGW00123 self-heal 잔여 어댑터 확장 (2026-05-21 신설 · backend-core)
+
+### 사유
+
+PR #641 (hotfix) — `ApiKisBalanceQueryAdapter` 에 EGW00123 catch + `tokenHelper.evictToken` + 1회 재시도 self-heal 패턴 적용 완료. dogfooding 09:43~09:44 시점 stale REAL 토큰 무한 폭주 root cause 차단.
+
+그러나 동일 helper(`KisTokenCacheHelper`)를 쓰는 다른 어댑터들은 catch 분기 미적용 — 동일 결함 재현 가능:
+
+- `api/src/main/kotlin/kr/spdaewoon/magicjar/api/adapter/kis/KisRestPriceMetricsAdapter.kt:62` — `tokenHelper.resolveTokenAndKeys(userId, REAL)` 사용, EGW00123 catch 없음
+- `api/src/main/kotlin/kr/spdaewoon/magicjar/api/service/CandleRefreshService.kt:821` — 동일 helper 호출, 동일 catch 분기 부재
+- consumer 모듈 `KisAuthAdapter`·`KisBalanceAdapter`·`KisReconcileBalanceAdapter` 등도 같은 토큰 prefix 공유 — 동일 결함 보유 추정 (확정은 별도 audit)
+
+### 보강 안
+
+PR #641 패턴 그대로 복제:
+1. catch (WebClientResponseException) 분기에 body `EGW00123` 검출 시 `tokenHelper.evictToken(userId, accountType)` + retried flag 1회 재시도
+2. 어댑터별 단위 테스트 — `ExchangeFunction` mock 패턴(`ApiKisBalanceQueryAdapterTest` 인용)
+3. 가능하면 helper에 `executeWithSelfHeal` 같은 inline 함수 추가로 boilerplate 축약 검토 (다만 어댑터 시그니처 다양해서 사례 검증 후 결정)
+
+### 예상 LOC
+
+어댑터당 ~50, 테스트당 ~80. 5 어댑터 = ~650 LOC.
+
+### 트리거
+
+- **우선순위 ↑**: 자가 치유 없는 결함 — 다음 사이클 dispatch 권고 (P0 잔재)
+- v3.6.x patch 후보
+
+### 연관
+
+- PR #641 (hotfix · 2026-05-21 머지 `775c87fe`)
+- ADR 0038 (KIS 분산락 패턴 — helper 골격 유지)
+- ADR 0081 (T-ACCT)
+- `KisTokenCacheHelper.evictToken` (신규 public API · 2026-05-21)
+
+---
+
+## §58. KIS EGW00201 폭주 차단 — 클라이언트 backoff/circuit-breaker (2026-05-21 신설 · backend-core + frontend)
+
+### 사유
+
+PR #641 self-heal 도입으로 EGW00123 root cause 차단됐으나, frontend 폴링이 502를 받고 즉시 재시도 → KIS rate limit 트리거(EGW00201) 부수효과는 별개 결함으로 잔존. 본 hotfix에선 명시 제외.
+
+§0-A (Bucket4j Phase 2·3) 합류 시 자동 처리될 수 있으나, 어댑터별 EGW00201 명시 backoff + frontend useAccountBalance 재시도 정책 갱신은 별도 검토 필요.
+
+### 보강 안
+
+- backend: 어댑터 catch에 EGW00201 검출 시 1초 backoff + 1회 재시도 (Phase 2 합류 시 통합)
+- frontend: `useAccountBalance` 502 응답 시 즉시 재시도 금지, exponential backoff (1s → 2s → 4s, max 3회)
+
+### 트리거
+
+- §0-A Phase 2 합류 후 backlog 흡수 또는 별도 사이클
+
+### 연관
+
+- §0-A Phase 2 (Bucket4j KIS Rate Limit)
+- PR #641 (self-heal hotfix — EGW00123만 처리)

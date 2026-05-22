@@ -1,8 +1,8 @@
 # ADR 0088: persistence-shared 모듈 신설 — Outbox Repository wiring 결함 fix (모듈 경계 정합)
 
-- 상태: Proposed (Phase 1 backend-core 구현 후 Accepted 격상 예정)
-- 작성일: 2026-05-19
-- 결정자: 사용자 sp-daewoon (최고 관리자, 옵션 B 명시 예정) + architect 합의
+- 상태: **Accepted** (2026-05-22 — Phase 1 구현 머지 완료 + 머지 검증 GREEN + 운영 8시간+ 정상 작동)
+- 작성일: 2026-05-19 (Proposed) / 2026-05-22 (Accepted 격상)
+- 결정자: 사용자 sp-daewoon (최고 관리자, 옵션 B 명시) + architect 합의
 - 관계: ADR 0004(MSA 모듈 재구성)를 **갱신**(supersede 아님 — 6 모듈 → 7 모듈, 의존 방향·도메인 순수성 정책 보존). ADR 0054(pattern-engine 모듈) + ADR 0083(indicator-impl 모듈) 패턴 1:1 정합. ADR 0084(주문 path 안정성 P0-A) 후속.
 
 ## 맥락
@@ -194,3 +194,4 @@ cycle 검증: domain(0) → persistence-shared(domain) → api/consumer(domain +
 | 일시 | 변경 | 담당 |
 |------|------|------|
 | 2026-05-19 | 초기 발행 (Proposed) — qa cross-validation evidence + backend-core 자가 진단 PR #524·#523 + 8 sub-agent system audit 통합 evidence. ADR 0054·0083 패턴 1:1 재사용 (architect, opus 4.7 1M) | architect |
+| 2026-05-22 | **Accepted 격상** — Phase 1 구현 머지 완료 (`persistence-shared/` 모듈 root 직속 신설 + 9 어댑터 git mv + Gradle 4 파일). 머지 검증 GREEN + 컨테이너 부팅 후 `OrderEventOutboxRepository`·`NotificationOutboxRepository`·`StompEventRepository` Bean 등록 GREEN + drain·retry worker `log.warn skip` 0건 + 8시간+ 운영 안정. 본 격상은 orchestrator 일괄 chore PR로 status 정정 (architect 결재 권한 정합 — 사용자 옵션 B 명시 + Phase 1 코드 머지 사후 확인) | orchestrator |
