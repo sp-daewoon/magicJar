@@ -1,0 +1,453 @@
+# 07 — MD 룰 정책 진화 (v3.7.0 → v3.8.0)
+
+> **작성자**: architect (PR-37 baseline v3.8.0)
+> **시점**: 2026-05-22 v3.8.0 태그 컷 직후
+> **사용자 명시 의도**: "우리 md 룰 정책의 변화로 더 나아지고 있다는 점을 어필 할 수 있는 목록" (v3.1.0 baseline 도입 — v3.8.0까지 누적 갱신) + "이제 개발의 전반은 다 되어가기때문에 시스템 운영 단계 및 부분 고도화로 갈 준비를 해야해"
+
+본 문서는 **v3.7.0 → v3.8.0 정책 진화**를 추적한다. 추측 0 — 모든 룰은 운영 헌법(`_workspace/arch/agent-charter.md`) 9 § + **§9·§10 (v3.8.0 신설)** + §1-A-extended (v3.7.0 신설) + Living Policy(`docs/architecture/policies/`) + ADR 0030·0036·0049(Superseded)·0050·0051·0052·0053·0079·0080·0085(Superseded)·0086·0087·0088·0089·0090·**0091·0092·0093·0094·0095·0096** + backlog 처리 매트릭스로 추적 가능.
+
+각 § 본문은 **도입 전 / 도입 후 / 효과 / 사례 PR** 4단 구조다 (v3.1.0~v3.7.0 baseline 정합).
+
+**v3.7.0 baseline 보존**: §1~§7 정책 진화 (v3.7.0 7건) + §0 운영 헌법 §1-A-extended·§2 6단계 + 누적 §8·§9 보존. v3.8.0 사이클에서 **§0·§8·§9 본격 갱신** (운영 단계 진입 + 7 actor reshuffle + qa Visual 격상 + P0 OPS 6건 LOCK + 운영 헌법 §9·§10 신설).
+
+**v3.8.0 사이클 정책 진화 8건** (v3.7.0 baseline 직후 → v3.7.1 patch → v3.8.0 cut):
+
+1. **운영 헌법 §9 신설 — 운영 단계 룰 6 항목** (ADR 0094 §4-2 본문화) — SLO/SLA · 변경 관리 · on-call rotation · backup/DR · 신규 ADR 양식 3 슬롯 · 7 hierarchy LOCK
+2. **운영 헌법 §10 신설 — 운영 메모 재배치** — architect/sub-agent/orchestrator/사용자 책임 매트릭스 명시
+3. **ADR 0094 — 운영 단계 transition + 사용자 위임 결재** — 8 → 7 actor reshuffle (chart-curator 해고 + qa Visual "품질 헌터" 격상 + ai-engineer 유지 + sre 영입 거절) + backend-core P0 OPS 6건 인수
+4. **ADR 0095 — P0-OPS-3 SLO/SLA + alert routing matrix** — 5 SLO LOCK + severity 4단 routing + Prometheus alert sketch 10건 + KillSwitch 자동 ON S-1·S-5 critical 한정 (ADR 0043 race-safe 정합) + 운영 ADR 양식 3 슬롯 첫 적용 사례
+5. **ADR 0096 — P0-OPS-4 DR/backup 절차** — PostgreSQL pg_dump daily + Redis snapshot + RPO 24h + RTO 30분 + 분기 DR drill + qa Visual E2E 자동 재현 + 운영 ADR 양식 두 번째 적용 사례
+6. **ADR 0091 — NXT 통합 시장코드 종목 단위 resolver** — ADR 0063 보강 + KOSPI=UN/KOSDAQ=J market-level 분기 폐기 + is_kospi200/is_kosdaq150 allow-list + J fallback
+7. **ADR 0092 — strategy-engine 라이브러리 모듈 분리** — DSL parser/evaluator 공유 + API 백테스트·screener HOLD stub 제거 + ADR 0054·0083·0088 패턴 1:1 재사용
+8. **ADR 0093 — 차트 캔들 히스토리 limit + Lazy Backfill + 사용자 입력 봉수** (Proposed) — backend MAX_PAGES property + /candles limit cap 5000 + frontend CandleCountSelector UI + Phase 5 LWC 가드 3단
+
+추가로 **AI 호출 0 LOCK 유지 정책 진화** — W4 진입 0 LOCK + ai-engineer 유지 (W4 진입 시점 가동). 자동매매 본체 영역 AI 호출 0 grep 검증 6 디렉토리 의무 LOCK 유지.
+
+---
+
+## §0. 운영 헌법 10 § (v3.8.0 진화) — §9·§10 신설
+
+운영 헌법 7 §는 v3.1.0 PR-26(#224)에서 통합 발행 후 v3.2.0~v3.6.x 사이클 보존 → v3.7.0 사이클 §1-A-extended 신설 + §2 4단계 → 6단계 진화 → **v3.8.0 사이클 §9·§10 신설** (운영 단계 룰 6 항목 + 운영 메모 재배치).
+
+| § | 제목 | v3.8.0 사이클 검증 |
+|---|------|---------------------|
+| §0 | architect=조정자, 결정 책임 | ADR 0091·0092·0093·0094·0095·0096 모든 발행 사이클 architect 단독 (사용자 위임 결재 evidence) |
+| §1 | task.mjs 4단계 의무 | 모든 sub-agent 디스패치 사이클 start·check·done 4단계 호출 LOCK |
+| §1-A-extended | 신설 v3.7.0 — worktreeConfig=true 의무 | 보존. 8 → 7 actor reshuffle 후에도 author 정합 LOCK 유지. `.husky/pre-commit` ALLOWED_AUTHOR regex는 chart-curator·해고된 actor도 historical evidence 보존 |
+| §2 (6단계) | 머지 후 정리 | 보존. cut 차단 hotfix 3건 모두 정리 LOCK |
+| §3 | KIS-first raw fetch 의무 | **v3.8.0 사이클 강화 영역** — KIS_TPS_EXCEEDED LIVE root cause hotfix (PR #657·#659) raw 출처 인용 의무 + AES-256-CBC 복호화 raw 명세 + `.publishOn(boundedElastic)` reactor pattern raw 인용 (PR #661) |
+| §4 | CHANGELOG 슬롯 채번룰 | PR-37 baseline 사이클 5 anchor 사전 prepend (orchestrator/architect/backend-core/market-data/frontend). architect 본인 row in-place edit 정합 |
+| §5 | PR 생성 직전 rebase 의무 | 본 PR-37 포함 모든 사이클 적용 — 통합 빌드 fail 0건 |
+| §6 | JPA Repository default fun 함정 | v3.8.0 사이클 — strategy-engine 모듈 신설 시 evaluator/parser interface body 검증 GREEN + SystemEventRepository abstract만 유지 LOCK |
+| §7 | sub-agent fail 분기 룰 | v3.8.0 사이클 — 재디스패치 0건. **cut 차단 hotfix 3건 모두 자율 진행** (orchestrator 단독 결정 + 사용자 사후 인지). 사용자 메모리 `feedback_conflict_resolution_autonomy.md` 정합 |
+| **§9 (운영 단계 룰)** | **신설 v3.8.0** | **ADR 0094 §4-2 본문화. 6 항목** — 9-1 SLO/SLA 5건 (S-1 시그널→주문 P95<5s · S-2 KIS WS>99% · S-3 account p95<500ms · S-4 KIS rate<1건/5분 · S-5 KillSwitch<1건/일) · 9-2 변경 관리 (PR>50LOC 또는 자본 path → rollback plan + canary 30분 dwell + frontend 핵심 화면 qa Visual 자동 dispatch) · 9-3 on-call rotation (1차 사용자 + 2차 backend-core + 3차 architect+영역) · 9-4 backup/DR (ADR 0096 단일 권위 — PostgreSQL daily + Redis snapshot + RPO 24h/RTO 30분 + 분기 DR drill) · 9-5 신규 ADR 양식 3 슬롯 (SLO 영향·rollback plan·관측 매트릭스+Visual 회귀) · 9-6 7 hierarchy LOCK |
+| **§10 (운영 메모 재배치)** | **신설 v3.8.0** | **architect/sub-agent/orchestrator/사용자 책임 매트릭스 명시.** qa는 §9-2·§9-4 추가 정독 의무 (frontend 핵심 화면 PR Visual 자동 dispatch + DR drill 분기 의무 — ADR 0094·0096) |
+
+**baseline 정합**: v3.2.0 통합 헌법이 v3.2.2~v3.6.0 사이클까지 완주 + v3.7.0 §1-A-extended·§2 6단계 진화 → v3.8.0 사이클에서 **§9·§10 신설** — 사용자 명시 운영 단계 진입 + qa Visual 격상 정합. 7 sub-agent 운영 hierarchy LOCK + 운영 단계 룰 6 항목 + SLO 5 baseline + RPO/RTO 본문화 영구 LOCK.
+
+---
+
+## §1. ADR 0094 — 운영 단계 transition (사용자 위임 결재 + 8 → 7 actor reshuffle)
+
+### 도입 전
+
+v3.7.0 baseline 시점 8 sub-agent hierarchy (architect·backend-core·market-data·strategy-engine·ai-engineer·frontend·qa·chart-curator). qa는 on-demand 0 default (사용자 메모리 `feedback_qa_on_demand.md`). 페르소나 2 매트릭스 (chart-curator 보수 + backend-core 진보). 운영 인프라 단일 owner 부재.
+
+**드리프트 risk 누적**:
+- "개발 단계"와 "운영 단계" fitness gap 기준 모호 — SLO·on-call·DR/backup·runbook 본문화 0
+- chart-curator(8번째 sub-agent)의 영역(`frontend/src/components/chart/*` + `CandleGapDetector` + `CandleBackfillWorker`) 단일 점유 + 영입 직후 결함 5건 누적 evidence (ADR 0085 §Persona amend의 보수 페르소나 LOCK 사유)
+- qa의 본질 = "QA 게이트 배제" + on-demand 0 default가 운영 단계 진입에 부적합
+- 운영 인프라 P0 OPS 6건(logback JSON·Actuator·SLO·DR/backup·runbook·persistence monitoring) 단일 owner 부재 → sre 영입 의제 도출
+
+### 도입 후
+
+ADR 0094 Accepted (2026-05-21 — 사용자 위임 결재) — **운영 단계 transition + 8 → 7 actor reshuffle**:
+
+- **사용자 결재 evidence 2단계**:
+  - 1단계: "전영역 코드베이스로 검증 절차에 돌입해야해. 이거 하고 나서 에이전트 전격적으로 해고 절차와 투입하는걸 다시 만들 거야. 이제 개발의 전반은 다 되어가기때문에 시스템 운영 단계 및 부분 고도화로 갈 준비를 해야해"
+  - 2단계 (qa 격상 + sre 거절): "큐에이도 지금 필요한데 그냥 단순 에이전트가 아닌 확실한 큐에이가 필요하거든. 스크린샷 등 하면서 테스트 시킬라했어. 오케스트라 믿고 맡길께. 최고 훌륭한 팀원으로 다시 구성해줘"
+
+- **orchestrator 자율 결정 매트릭스** (사용자 2단계 위임):
+  - **chart-curator 해고** → 캔들 SLA → market-data + LWC v4 → frontend 책임 이관. `_workspace/specs/2026-05-21-chart-curator-handover.md` + `.claude/agents/_archive/chart-curator.md` 이동 + dispatch 0 LOCK. `.husky/pre-commit` ALLOWED_AUTHOR regex는 historical evidence 보존
+  - **qa Visual "품질 헌터" 격상** → Playwright + 5 시나리오 baseline + 스크린샷 + 시각 회귀 + E2E + DR drill 자동 재현. `_workspace/specs/2026-05-21-qa-visual-uplift.md` + `.claude/agents/qa.md` 신규 발행
+  - **ai-engineer 유지** → W4 진입 시 가동 (사용자 1단계 결재에 명시적 동의 없음 → 안전 default = 보존)
+  - **sre 영입 거절** → 사용자 명시 "최고 훌륭한 팀원" → 기존 actor 강화 우선. P0 OPS 6건은 backend-core 인수
+  - **backend-core**: 진보 페르소나 유지 + **운영 인프라 단일 owner (P0 OPS 6건 인수)**
+
+- **운영 헌법 §9·§10 신설** (6 항목 본문화 — 본 baseline §1·§2 cross-link)
+
+- **fitness gap 기준 LOCK 전환**: "개발 단계" → "운영 단계" (SLO/SLA·on-call·DR/backup·runbook·persistence monitoring 모두 본문화)
+
+### 효과
+
+- 운영 단계 진입 baseline LOCK — 7 actor hierarchy + 페르소나 5 매트릭스 (보수 흡수 + 진보 유지 + 균형 신규 + 방어 신규) + 운영 인프라 단일 owner 확립
+- qa의 본질 재정의 — "QA 게이트 배제" 룰은 보존하되 **"품질 헌터" 페르소나로 격상** (Playwright + 스크린샷 + 시각 회귀 + E2E + 사용자 시나리오 자동 재현 + DR drill 분기 의무)
+- chart-curator 해고 후 영역 책임 명확화 — 캔들 SLA (market-data) + LWC v4 (frontend)
+- 사용자 dogfooding 결함 흡수 path 일관화 — qa Visual이 사용자 시나리오 변환 + 자동 재현 + 회귀 가드
+
+### 사례
+
+- **PR #649** (qa Visual baseline) — Playwright + 5 시나리오 baseline 첫 셋업 (qa 격상 후 첫 dispatch)
+- **PR #656** (qa 첫 실전 임무 보고서) — 종목상세 현재가 결함 hunt (Visual QA 첫 가동)
+- **PR #655** (Stage 2 Cleanup) — `.claude/agents/qa.md` 신규 발행 + `.claude/agents/_archive/chart-curator.md` archive + CLAUDE.md amend (8→7 + chart-curator 제거 + qa Visual 격상 + JVM 7 모듈 매트릭스 + ADR 카운트 93+)
+
+---
+
+## §2. 운영 헌법 §9 신설 — 운영 단계 룰 6 항목 (ADR 0094 §4-2 본문화)
+
+### 도입 전
+
+v3.7.0 baseline 시점 운영 헌법 §1~§8 (task.mjs 4단계·머지 후 정리·KIS-first·CHANGELOG 슬롯·rebase·default fun·sub-agent fail 분기) — **개발 단계 룰**만 본문화. 운영 단계 진입 후 SLO/SLA·on-call·backup/DR·runbook 본문화 0.
+
+**드리프트 risk**:
+- 자동매매 운영 단계 SLO 정의 0 — 시그널→주문 지연·KIS WS 연결률·account API 응답시간·KIS rate limit·KillSwitch 자동 ON 임계치 추적 부재
+- alert routing matrix 부재 — Slack alert P1·P2·P3·P4 routing 매트릭스 0
+- 변경 관리 룰 0 — PR rollback plan 의무 부재 + canary 배포 절차 부재
+- on-call rotation 0 — incident 발생 시 1차·2차·3차 책임 매트릭스 부재
+- backup/DR 절차 0 — pg_dump cron 부재 + RPO/RTO 정의 0 + DR drill 0
+- 신규 ADR 양식 0 — SLO 영향·rollback plan·관측 매트릭스 슬롯 0
+
+### 도입 후
+
+운영 헌법 §9 신설 (2026-05-21 — ADR 0094 §4-2 본문화) — **운영 단계 룰 6 항목**:
+
+- **§9-1 SLO/SLA 의무** — 자동매매 운영 단계 SLO 5건 baseline LOCK + Redis hit ratio·DB pool 활용률 2건 P1 amend 후보:
+  - S-1 시그널 emit ~ 주문 발사 지연 P95<5s (P99<10s)
+  - S-2 KIS WS 연결률 (장중 09:00~15:30) >99%
+  - S-3 account API p95<500ms
+  - S-4 Outbox drain lag P95<30s
+  - S-5 KillSwitch 자동 ON <1건/일
+  - 측정 source: Prometheus query 1순위 + SystemEvent + Kafka 토픽 빈도 (ADR 0095 §2 본문화)
+
+- **§9-2 변경 관리 의무**:
+  - PR diff > 50 LOC 또는 자본 path 직결 시 rollback plan 본문 명시 의무
+  - canary 배포: dev → staging → REAL (자동매매 진입 전 30분 staging dwell)
+  - frontend 핵심 화면(Dashboard·Orders·Positions·Settings) 변경 PR은 **qa Visual 시나리오 자동 dispatch**
+  - 사용자 결재 가시화: PR description "운영 영향 매트릭스" 섹션 의무 (SLO 영향·예상 alert·롤백 단계 3건 + Visual 회귀 evidence)
+
+- **§9-3 on-call rotation** (사용자 단독 운영자 단순화):
+  - 1차: 사용자(최고 관리자) — KillSwitch 토글 권한 + Slack alert 1차 수신
+  - 2차: backend-core sub-agent — incident classification + runbook 적용 + DR/backup 가동
+  - 3차: architect + 영역 sub-agent — root cause + ADR 발행
+
+- **§9-4 정기 backup·DR** (ADR 0096 단일 권위 cross-link):
+  - PostgreSQL pg_dump cron 매일 03:00 KST + 7일 retention
+  - Redis snapshot 매일 03:30 KST + 3일 retention
+  - 분기별 DR drill + qa Visual E2E 시나리오 5건 자동 재현 의무
+  - RPO 24h + RTO 30분 LOCK
+
+- **§9-5 신규 ADR 양식** (운영 단계 ADR 의무 3 슬롯):
+  - SLO 영향 — 본 결정이 §9-1 SLO에 미치는 영향
+  - rollback plan — 본 결정이 운영에 부적합 발견 시 즉시 되돌리는 절차
+  - 관측 매트릭스 — 본 결정 결과를 운영 단계에서 측정하는 metric 또는 alert + Visual 회귀 시나리오
+
+- **§9-6 sub-agent 7 hierarchy LOCK** (ADR 0094 amend):
+  - architect (균형 — 결정자)
+  - backend-core (진보 — "리팩토링맨" + P0 OPS 6건 인수)
+  - market-data (보수 — "안정빌드" + 캔들 SLA 인수)
+  - strategy-engine (보수 — "안정빌드")
+  - ai-engineer (균형 — 보조 분석, W4 진입 시 가동)
+  - frontend (보수 — "안정빌드" + LWC v4 인수)
+  - **qa (방어 — "품질 헌터" 격상)** ★
+
+### 효과
+
+- 운영 단계 룰 본문화 LOCK — SLO 5건 + alert routing + 변경 관리 + on-call + backup/DR + 신규 ADR 양식 모두 본문 권위 보유
+- 모든 신규 ADR 발행 시 SLO 영향·rollback plan·관측 매트릭스 의무 슬롯 — ADR 0095·0096 첫·두 번째 적용 사례
+- frontend 핵심 화면 변경 시 qa Visual 자동 dispatch — 사용자 dogfooding 결함 영구 차단 path
+- 분기 DR drill 의무 — 사용자 결재 + qa Visual E2E 5 시나리오 자동 재현 + RPO/RTO 실측 evidence → ADR amend 트리거
+
+### 사례
+
+- **ADR 0095** (P0-OPS-3 SLO/SLA) — 운영 ADR 양식 3 슬롯 첫 적용 사례
+- **ADR 0096** (P0-OPS-4 DR/backup) — 운영 ADR 양식 두 번째 적용 사례
+- **PR #649** (P0-OPS-1·2 logback JSON + Actuator/Prometheus + Grafana) — §9-1 SLO 측정 인프라 baseline
+- **PR #649** (qa Visual baseline) — §9-6 qa 격상 첫 dispatch + §9-2 frontend 핵심 화면 변경 시 자동 dispatch path 확립
+
+---
+
+## §3. ADR 0095 — P0-OPS-3 SLO/SLA + alert routing matrix
+
+### 도입 전
+
+v3.7.0 baseline 시점 SLO 정의 0 + alert routing matrix 0. 운영 단계 진입 시 어떤 metric을 monitoring할지·어떤 임계 위반 시 어떤 routing할지 본문화 0.
+
+### 도입 후
+
+ADR 0095 Accepted (2026-05-21) — **P0-OPS-3 SLO/SLA + alert routing matrix**:
+
+- **5 SLO 매트릭스 LOCK** (운영 헌법 §9-1 amend):
+  - S-1 자동매매 시그널 → 주문 발사 지연 P95<5s (P99<10s)
+  - S-2 KIS WS 연결률 (장중 09:00~15:30 KST) >99%
+  - S-3 account API p95<500ms
+  - S-4 KIS rate limit <1건/5분
+  - S-5 KillSwitch 자동 ON <1건/일
+
+- **측정 source 분리** — Prometheus query 1순위 권위 (P0-OPS-2 baseline 정합) + SystemEvent SQL 보조 (사후 audit) + Kafka 토픽 빈도 S-5 직결 (killswitch.engaged.v1 ADR 0070)
+
+- **severity 4단 routing matrix** (ADR 0084 정합):
+  - P4 INFO — SystemEvent emit만
+  - P3 WARN — frontend toast
+  - P2 ERROR — toast + 알람센터 sticky badge
+  - P1 CRITICAL — Slack alert + KillSwitch 자동 ON 검토
+
+- **SLO × severity routing 매트릭스 LOCK** — S-1·S-5 critical → **KillSwitch 자동 ON 검토 자동 액션** (자본 path 직결 한정 — S-2·S-3·S-4 critical은 자동 액션 0) — ADR 0043 race-safe 정합
+
+- **Prometheus alert rule sketch** — 5 SLO × 2 임계 = 10 rule + 권고 위치 `docker/observability/prometheus/alerts/magicjar-slo.yml` (backend-core 후속 dispatch 본문화 영역)
+
+- **Slack 단일 channel** — ADR 0044 reuse + email/SMS/PagerDuty 외부 routing 확장 v3.8.x backlog
+
+- **운영 ADR 양식 첫 적용 사례** — 헌법 §9-5 SLO 영향·rollback plan·관측 매트릭스 3 슬롯 본보기 LOCK
+
+### 효과
+
+- 운영 단계 SLO 5건 LOCK + measurement source 분리 본문화 → 운영자가 어떤 임계 위반인지 즉시 인지 가능
+- severity 4단 routing matrix → frontend toast·알람센터 badge·Slack alert·KillSwitch 자동 ON 4 path 모두 ADR 권위
+- KillSwitch 자동 ON 검토 자동 액션 S-1·S-5 critical 한정 (ADR 0043 race-safe 정합 — A+B+C 가드) → 자본 path 직결 영역만 critical 자동 액션 LOCK
+- 운영 ADR 양식 3 슬롯 (SLO 영향·rollback plan·관측 매트릭스) 본보기 → 후속 ADR 모두 동일 형식 의무
+
+### 사례
+
+- **ADR 0094 §3-2** (P0-OPS-3 task 본문화) — ADR 0095 발행 트리거
+- **PR #649** (P0-OPS-1·2 logback JSON + Actuator/Prometheus + Grafana baseline) — ADR 0095 측정 source baseline
+- **PR #648** (KillSwitch race-safe guard A+B+C) — ADR 0095 §3-4 자동 액션 정합 hotfix
+- **ADR 0095 §3** severity 4단 routing → backend-core P0-OPS-3 후속 wiring 5건 의무 (Micrometer S-1 timer · SystemEvent → Counter · alert rule yml · Alertmanager · runbook)
+
+---
+
+## §4. ADR 0096 — P0-OPS-4 DR/backup 절차
+
+### 도입 전
+
+v3.7.0 baseline 시점 backup 자동화 0 + RPO/RTO 정의 0 + DR drill 0. 운영 단계 진입 시 데이터 손실·복구 시간 본문화 0 → 사용자 자본 audit risk 누적.
+
+### 도입 후
+
+ADR 0096 Accepted (2026-05-21) — **P0-OPS-4 DR/backup 절차**:
+
+- **PostgreSQL backup 매트릭스** — daily full dump `pg_dump -Fc` custom format 매일 03:00 KST + 7일 retention (`find ... -mtime +7 -delete`) + 산출물 위치 LOCK `_workspace/backups/postgres/daily/YYYY-MM-DD.dump`. Weekly + WAL archiving은 P1·P2 OPS amend 후보 (자본 path RPO 24h 충분 baseline)
+
+- **Redis snapshot 매트릭스** — 매일 03:30 KST (pg_dump 30분 후 자원 경합 회피) + 3일 retention + `_workspace/backups/redis/snapshots/dump-YYYY-MM-DD-HHMM.rdb` + `redis-cli BGSAVE` → LASTSAVE polling (30초 timeout) → `docker cp /data/dump.rdb`. **AOF 활성화 거부** (Redis 사용 패턴 cache + 임시 state 본질 — KIS 토큰·Bucket4j rate limit·WS fanout·Screener cache 모두 자연 회복)
+
+- **RPO/RTO 정의 LOCK**:
+  - **RPO 24h** (PostgreSQL daily) + Redis 24h or 0~분 (자연 회복) + Kafka N/A (Outbox 영속 권위 ADR 0088 흡수)
+  - **RTO 30분** (DB 전체 복구 — R-4 §3-2 절차 정합) · 15분 (부분 복구) · 20분 (Flyway 결함) · 10분 (컨테이너 보존) · 5분 (Redis) · 60분 (분기 DR drill)
+
+- **복구 절차 LOCK = R-4 runbook cross-link** — 본 ADR은 백업 정책 + RPO/RTO LOCK + 산출물 위치 권위, 복구 실행 절차 본문은 R-4 단일 권위 (본문 중복 회피)
+
+- **DR drill 분기 의무** — 운영 헌법 §9-4 정합 — 5 시나리오 (DB 전체 + 부분 + Flyway + 컨테이너 + Redis) + **qa Visual E2E 자동 재현 의무** (ADR 0094 §2-2-B 정합) + 사용자 결재 의무 + evidence `_workspace/devlog/YYYY-MM-DD-dr-drill-quarter-N.html` + RPO/RTO 실측 evidence → ADR amend 트리거 매트릭스
+
+- **스크립트 + 사용자 가이드** — `scripts/backup/pg-dump-daily.sh` (executable + `set -Eeuo pipefail` + docker 진단 + pg_isready 검증 + retention rotation + KST 로그) + `scripts/backup/redis-snapshot.sh` (executable + BGSAVE LASTSAVE polling + docker cp + retention) + `scripts/backup/README.md` (스크립트 매트릭스 + 환경변수 + 검증 의무) + `docs/operations/backup-setup.md` (macOS crontab 등록 9 § 풀세트)
+
+- **운영 ADR 양식 두 번째 적용 사례**:
+  - **SLO 영향**: backup 자동화 0→100% + RPO/RTO 0→본문화 + DR drill 0→5 시나리오 + 신규 SLO 후보 (backup 성공률·DR drill 성공률)
+  - **rollback plan**: PR 단일 revert + crontab -e 4 라인 삭제 + `_workspace/backups/` 수동 정리 + R-4 cross-link 보존
+  - **관측 매트릭스**: daily backup 성공률 >99% + 평균 용량 <100MB + retention 0건 초과 + Redis snapshot 성공률 >99% + 분기 DR drill 100% + RPO/RTO 실측 + Visual 회귀 시나리오
+
+### 효과
+
+- 운영 단계 backup 자동화 LOCK → RPO 24h + RTO 30분 측정 가능
+- 분기 DR drill 의무 + qa Visual E2E 자동 재현 → 복구 절차 dogfooding evidence 누적 path
+- AOF 거부 + Kafka offset N/A 명시 → Redis cache 본질 정합 + Outbox 영속 권위 ADR 0088 흡수 명확
+- 운영 ADR 양식 3 슬롯 두 번째 적용 → 후속 운영 ADR 본보기 정합
+
+### 사례
+
+- **PR ADR 0096 baseline** (commit b1aab9e9) — pg_dump cron + redis-snapshot.sh + 사용자 가이드 본문화
+- **사용자 1회 작업 의무** — `crontab -e` 4 라인 추가 (`docs/operations/backup-setup.md` §2 본문)
+- **분기 DR drill 첫 후보** — v3.8.x patch 사이클에서 첫 1회 evidence + RPO/RTO 실측 + Visual 회귀 시나리오 5건 자동 재현
+
+---
+
+## §5. ADR 0091 — NXT 통합 시장코드 종목 단위 resolver (ADR 0063 보강)
+
+### 도입 전
+
+v3.7.0 baseline 시점 NXT 통합 시장코드 baseline (ADR 0063):
+- KOSPI=UN/KOSDAQ=J market-level 분기 — 사용자 입력 KOSPI 종목이 모두 UN 시장으로 fallback
+- 비-KOSPI200·KOSDAQ150 종목도 UN 시장으로 처리 → 자본 path 정합성 risk
+
+**드리프트 evidence**:
+- 한국석유 dogfooding cycle 일부 종목 NXT 시장 분류 오인 risk
+- KIS API `inquire-daily-itemchartprice` market div 분기 정합성 부재
+
+### 도입 후
+
+ADR 0091 Accepted (2026-05-20) — **NXT 통합 시장코드 종목 단위 resolver**:
+
+- KOSPI=UN / KOSDAQ=J market-level 분기 **폐기**
+- **종목 단위 resolver** — is_kospi200·is_kosdaq150 allow-list 기반:
+  - is_kospi200 = TRUE → UN (NXT 통합)
+  - is_kosdaq150 = TRUE → UN (NXT 통합)
+  - 그 외 → **J fallback** (NXT 미포함 종목)
+- 적용 영역:
+  - `InstrumentMasterRefreshJob` NXT resolver 합류
+  - `KisRestCandleAdapter` market div resolver
+  - frontend `SymbolChart` market div LOCK
+
+### 효과
+
+- 종목 단위 정확한 NXT 시장 분류 → KIS API market div 정합 LOCK
+- 한국석유 dogfooding cycle false positive risk 영구 차단
+- ADR 0063 baseline 보강 (market-level → 종목 단위)
+
+---
+
+## §6. ADR 0092 — strategy-engine 라이브러리 모듈 분리
+
+### 도입 전
+
+v3.7.0 baseline 시점 DSL parser/evaluator baseline:
+- API 백테스트·screener: `api/strategy/` 단독 DSL parser + evaluator (HOLD stub 다수)
+- consumer 실시간: `consumer/strategy/` 별도 evaluator + Signal 평가
+
+**드리프트 risk**:
+- API 백테스트/screener HOLD stub vs consumer 실시간 평가 → DSL 진화 시 양쪽 path 동시 갱신 의무 + 누락 risk
+- 모듈 경계 결함 — DSL 변경 시 API + consumer 양쪽 PR 의무
+
+### 도입 후
+
+ADR 0092 Accepted (2026-05-20) — **strategy-engine 라이브러리 모듈 분리**:
+
+- 신규 8 JVM 모듈 매트릭스 (domain · pattern-engine · indicator-impl · **strategy-engine** · persistence-shared · api · batch · consumer)
+- `strategy-engine/src/main/kotlin/.../`:
+  - `dsl/DslParser + DslExpression`
+  - `evaluator/StrategyEvaluator` (HOLD stub 제거 — 단일 evaluator LOCK)
+  - `lookup/ConsumerStrategyLookup` (test coverage 보강)
+  - `signal/ConsumerSignal` (test coverage 보강)
+- API + consumer 양쪽 모듈 `implementation(project(":strategy-engine"))` 의존
+- ADR 0054 (pattern-engine) + ADR 0083 (indicator-impl) + ADR 0088 (persistence-shared) 패턴 1:1 재사용
+
+### 효과
+
+- DSL parser/evaluator 단일 evaluator LOCK → DSL 진화 시 단일 path 갱신 LOCK
+- HOLD stub 제거 → API 백테스트·screener + consumer 실시간 평가 정합
+- 모듈 매트릭스 7 → 8 (ADR 0088 패턴 1:1 재사용)
+
+### 사례
+
+- v3.8.0 라운드 — `RealtimeSignalGenerator + ConsumerStrategyLookup + ConsumerSignal` test coverage 보강 (commit 399e4743)
+
+---
+
+## §7. ADR 0093 — 차트 캔들 히스토리 limit + Lazy Backfill + 사용자 입력 봉수 (Proposed)
+
+### 도입 전
+
+v3.7.0 baseline 시점 차트 캔들 히스토리:
+- backend `/candles` endpoint limit 무한정 (cap 부재)
+- frontend SymbolChart 봉수 fixed 200·500 등 hardcoded
+- LWC v4 chart instance state 부재 → dispose race risk
+- 한국석유 dogfooding cycle: 사용자 봉수 선택 옵션 부재 + 일봉 5개월 stale 한계
+
+### 도입 후
+
+ADR 0093 Proposed (2026-05-20) — **차트 캔들 히스토리 limit + Lazy Backfill + 사용자 입력 봉수**:
+
+- **Phase 1·2 spec 발행** (chart-curator + architect) — backend property/cap + frontend UI Phase 분리 dispatch
+- **Phase 3 backend** (commit 5c4df022) — `MAX_PAGES` property + `/candles?limit=cap5000` cap LOCK
+- **Phase 4 frontend** (commit 6f9d669c) — `CandleCountSelector` UI + localStorage 영속
+- **Phase 5 LWC 가드 3단** (commit 67443134) — chart instance state guard + dispose race fix + max cap toast + 한국석유 dogfooding
+
+### 효과
+
+- 사용자 입력 봉수 옵션 (200·500·1000·2000·5000)
+- backend cap 5000 LOCK → KIS API 호출 burst 방지
+- LWC 가드 3단 → dispose race risk 영구 차단
+- 한국석유 dogfooding한계 영구 차단
+
+---
+
+## §8. v3.8.0 사이클 누적 통계 매트릭스 (v3.1.0 baseline 이후 누적 정책 진화 40건)
+
+| 사이클 | 정책 진화 | ADR |
+|--------|-----------|-----|
+| v3.1.0 | 운영 헌법 7 § 통합 발행 | 0036 |
+| v3.2.0 | ADR-0050·0051·0052·0053 인프라 4건 | 0050·0051·0052·0053 |
+| v3.2.2 | KIS-only 데이터 정책 | 0057 |
+| v3.3.0 | Boundary fanout | 0064 |
+| v3.4.0 | T-SIG 시그널 + GHA 폐기 | 0066 + ~~0049~~ |
+| v3.5.0 | T-RISK 리스크 게이트 | 0067 |
+| v3.6.0 | T-O 주문 실행 + 3중 게이트 자본 보호 | 0068 |
+| v3.6.1 | SettingsModal vs SetupWizard 책임 분리 | 0069 |
+| v3.6.2 | T-RECON + T-NOTIFY 묶음 spec | 0070 |
+| v3.6.3 | T-SC Screener spec | 0071 |
+| v3.6.4 | T-J + T-PERF 묶음 spec | 0072 |
+| v3.6.5 | SettingsModal 풀세트 | 0074 |
+| v3.6.7 | T-NEWS 트랙 진입 | 0075 |
+| v3.6.10 | 마스터 시각화 HTML 표준화 | 0079 |
+| v3.6.14 | T-ACCT + indicator-impl 결함 fix | 0081·0083 |
+| v3.6.15 | T-MAN + indicator-impl Accepted | 0082·0083 Accepted |
+| v3.6.16 | 외부 코드 리뷰 13 코멘트 흡수 + 전체 에이전트 Opus 4.7 통일 + 주문 path P0 4건 마감 | 0080·0084 P0 |
+| v3.6.17 | T-ACCT Phase 4 + chart-curator 영입 + T-CC Phase 1 + Phase 2-A 햇징 룰 10건 | 0081·0085·0086 Accepted |
+| v3.6.18 | T-CC Phase 2-B + 햇징 룰 §11·§12·§13 amend | 0086 amend |
+| v3.6.19 | chart-curator 보수 페르소나 amend + backend-core 진보 페르소나 부여 | 0085·0087 |
+| v3.7.0 | 시스템 점검 + Phase 보강 + 운영 헌법 §1-A-extended·§2 4단계 → 6단계 + persistence-shared 모듈 + userId 정합 + instrument_status_history | 0088·0089·0090 + 헌법 §1-A-extended·§2 진화 |
+| v3.7.1 | persistence-shared JpaRepository scan 누락 hotfix + SettingsModal MOCK 키 신규 등록 POST 분기 | 0088 baseline fix |
+| **v3.8.0** | **운영 단계 진입 + 7 actor reshuffle + qa Visual 격상 + chart-curator 해고 + sre 영입 거절 + P0 OPS 6/6 LOCK + ADR 0091·0092·0093 + 운영 헌법 §9·§10 신설** | **0091·0092·0093·0094·0095·0096 + 헌법 §9·§10 신설 + ADR 0080·0085·0087 amend** |
+
+**누적 정책 진화 40건** (v3.1.0 ~ v3.8.0). magicJar md 룰 정책 진화의 핵심 6축:
+
+1. **운영 헌법 진화** — 7 § baseline → §1-A-extended 신설 (v3.7.0) + §2 4단계 → 6단계 (v3.7.0) + **§9·§10 신설** (v3.8.0 운영 단계 룰 6 항목 + 운영 메모 재배치)
+2. **모듈 매트릭스 진화** — 4 → 5 (pattern-engine ADR 0054) → 6 (indicator-impl ADR 0083) → 7 (persistence-shared ADR 0088 v3.7.0) → **8 (strategy-engine ADR 0092 v3.8.0)**
+3. **sub-agent hierarchy 진화** — 7 → 8 (chart-curator ADR 0085 v3.6.17) → **7 (ADR 0094 amend v3.8.0 — chart-curator 해고 + qa Visual 격상 + ai-engineer 유지 + sre 영입 거절 reshuffle)**
+4. **페르소나 매트릭스 진화** — 0 → 2 (chart-curator 보수 + backend-core 진보 v3.6.19) → **5 (보수 흡수 → market-data·frontend + 진보 유지 → backend-core + 균형 신규 → ai-engineer + 방어 신규 → qa Visual)**
+5. **자본 흐름 안정 진화** — T-O 종착 노드 가동 (v3.6.0) → 3중 게이트 자본 보호 LOCK + 외부 코드 리뷰 13 코멘트 흡수 (v3.6.16) → persistence-shared 모듈 운영 흐름 작동률 0% → 100% 회복 (v3.7.0) → **KillSwitch race-safe guard A+B+C + AES-256-CBC 복호화 + KIS WS H0STCNI9 라우팅 + persistence monitoring + SLO 5건 LOCK** (v3.8.0)
+6. **운영 단계 진입 (신규)** — 0 → **P0 OPS 6/6 LOCK + SLO 5 baseline + RPO 24h/RTO 30분 + 분기 DR drill + qa Visual "품질 헌터" 격상** (v3.8.0)
+
+---
+
+## §9. 다음 Wave 정책 후보 (v3.8.0 baseline 직후 — v3.8.x patch + v3.9.0 minor candidate)
+
+### 9-1. ADR 0093 Accepted 격상 (Phase 4·5 dogfooding evidence 누적 후)
+
+- backend Phase 3 cap 5000 LOCK + frontend Phase 4 CandleCountSelector + Phase 5 LWC 가드 3단 모두 머지 완료
+- 한국석유 dogfooding cycle + 분기 1회 dogfooding evidence 누적 후 Accepted 격상
+
+### 9-2. ADR 0087 Accepted 격상 (페르소나 5 매트릭스 dogfooding evidence 누적 후)
+
+- 7 actor 페르소나 매트릭스 dogfooding evidence 누적:
+  - market-data 보수 흡수 dispatch evidence
+  - frontend 보수 흡수 dispatch evidence
+  - backend-core 진보 P0 OPS 6건 인수 evidence
+  - ai-engineer 보존 (W4 진입 시 가동)
+  - qa Visual 첫 임무 evidence (PR #656)
+
+### 9-3. 분기 DR drill 첫 1회 evidence
+
+- ADR 0096 §6-2 정합 — 5 시나리오 (DB 전체 + 부분 + Flyway + 컨테이너 + Redis) + qa Visual E2E 자동 재현 + 사용자 결재
+- v3.8.x patch 사이클에서 첫 1회 evidence + RPO/RTO 실측 + Visual 회귀 시나리오 5건
+
+### 9-4. P0 OPS 6건 dogfooding 누적
+
+- P0-OPS-1·2 logback JSON + Actuator/Prometheus + Grafana dogfooding (Grafana panel 매트릭스)
+- P0-OPS-3 SLO 5건 실측 evidence (Prometheus query GREEN)
+- P0-OPS-4 backup 자동화 1주일 dwell evidence
+- P0-OPS-5 runbook 5 시나리오 실전 적용 evidence
+- P0-OPS-6 persistence monitoring SLO 측정 source wiring GREEN
+
+### 9-5. P1 OPS amend backlog (v3.8.x patch 후보)
+
+- Redis hit ratio SLO 측정 source wiring (ADR 0095 §9-1 baseline 5건 → 6건 확장)
+- DB connection pool 활용률 SLO 측정 source wiring (5건 → 7건 확장)
+- WAL archiving baseline 검토 (RPO 24h → 분초 RPO amend 후보)
+- weekly backup baseline (daily 7일 + weekly 4주 추가)
+
+### 9-6. W4 진입 정책 (T-AI · T-MCP) — v3.9.0 minor 후보
+
+- 사용자 명시 "W4 진입 안 함" 정합 — v3.8.0 사이클 0 LOCK
+- v3.9.0 minor 후보 = W4(T-AI·T-MCP) 진입 시점 결정 (사용자 의제)
+- **ai-engineer 유지 결정** (ADR 0094 §2-2) — W4 진입 시 가동 준비 완료
+- AI 트리거 게이트 사전 발행 후보: `MAGICJAR_AI_ENABLED=true` env + 명시 동의 + 트리거 endpoint + 분석 코멘트 prompt-catalog 정합 (ADR 0026 baseline)
+
+### 9-7. W5 진입 정책 (T-LEARN) — v3.9.0 minor 후보
+
+- v3.8.0 baseline 시점 0 (사용자 명시 W4 우선 또는 W5 우선 결정 의제)
+- T-LWC: TradingView LWC v4 차트 + 자체 도형/주석/패턴 (ADR 0025 baseline + frontend single owner v3.8.0 인수)
+- T-LEARN: 학습형 룰 추천 + 백테스트 자동 fine-tune (사용자 의제)
+
+---
+
+## §10. v3.8.0 baseline 사이클 핵심 정책 메시지
+
+**운영 단계 진입 baseline (개발 단계 종착 + 7 actor reshuffle + qa Visual "품질 헌터" 격상 + chart-curator 해고 + sre 영입 거절 + ai-engineer 유지 + P0 OPS 6/6 LOCK + 운영 헌법 §9·§10 신설)** — v3.7.0 baseline (시스템 점검 + Phase 보강 + 운영 헌법 §1-A-extended·§2 6단계) → v3.7.1 patch (persistence-shared JpaRepository scan 누락 hotfix) → v3.8.0 (ADR 0094 amend 사용자 위임 결재로 8→7 actor reshuffle + qa Visual 격상 + ADR 0085 supersede + 운영 헌법 §9·§10 신설 + P0 OPS 6건 마감 + ADR 0091·0092·0093 W3 보강 + Stage 2 Cleanup + cut 차단 hotfix 3건). **fitness gap 기준 LOCK 전환** — "개발 단계" → "운영 단계" (SLO/SLA·on-call·DR/backup·runbook·persistence monitoring 모두 본문화). **W4(T-AI) 진입 0** — 사용자 명시 정합 (ai-engineer 유지하되 W4 진입 시점 가동). magicJar 비전 "룰 기반 quant trading 본체"의 W3 baseline 안정화 LOCK + AI 호출 0 grep 검증 의무 지속 (ADR 0023·0066·0067·0068·0080·0094 baseline) + 운영 인프라 단일 owner 확립 (backend-core P0 OPS 6건 인수). v3.8.x patch 후보 = DR drill 분기 1회 evidence + P0 OPS 6건 dogfooding 누적 + ADR 0093 chart limit Phase 4·5 dogfooding + P1 OPS amend (Redis hit ratio + DB pool 활용률 SLO 측정 source wiring 추가). v3.9.0 minor 후보 = W4(T-AI·T-MCP) 진입 또는 W5(T-LEARN) 진입 결정 의제. 정책 진화는 사용자 결정·운영 dogfooding evidence·외부 검증 흡수·운영 단계 fitness gap 4축으로 누적되어 v3.8.0까지 **40건 정책 진화 + ADR 96건 + 운영 헌법 10 § + 7 sub-agent + 8 JVM 모듈 + 5 페르소나 + 1 cross-review 운영 룰 + SLO 5건 + Prometheus alert 10건 + Backup 2건 + Runbook 5건 + Visual QA 5 시나리오** baseline에 도달.
