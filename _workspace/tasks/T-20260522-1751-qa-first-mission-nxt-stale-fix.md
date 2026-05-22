@@ -3,10 +3,10 @@ id: T-20260522-1751-qa-first-mission-nxt-stale-fix
 agent: backend-core
 model: opus
 branch: agent/backend-core/qa-first-mission-nxt-stale-fix
-status: RUNNING
+status: DONE
 startedAt: 2026-05-22T17:51:54.714+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-22T17:59:40.822+09:00
+pr: #660
 parentPhase: ?
 ---
 
