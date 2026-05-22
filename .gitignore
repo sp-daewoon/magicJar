@@ -4,7 +4,7 @@ out/
 bin/
 target/
 *.jar
-!move/gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.jar
 *.war
 *.ear
 *.class
