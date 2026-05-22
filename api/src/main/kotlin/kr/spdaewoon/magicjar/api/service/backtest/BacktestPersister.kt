@@ -95,6 +95,7 @@ class BacktestPersister(
         val runEntity =
             BacktestRunJpaEntity(
                 userId = userId,
+                strategyId = request.strategyId,
                 code = request.universe.joinToString(","),
                 interval = request.interval,
                 ruleDsl = buildRuleDslSummary(request),
@@ -148,6 +149,7 @@ class BacktestPersister(
         val runEntity =
             BacktestRunJpaEntity(
                 userId = userId,
+                strategyId = request.strategyId,
                 code = request.universe.joinToString(","),
                 interval = request.interval,
                 ruleDsl = buildRuleDslSummary(request),

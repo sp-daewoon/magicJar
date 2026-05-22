@@ -11,6 +11,11 @@ import org.springframework.transaction.annotation.Transactional
 interface PositionJpaRepository : JpaRepository<PositionJpaEntity, Long> {
     fun findByUserId(userId: String): List<PositionJpaEntity>
 
+    fun findByUserIdAndCode(
+        userId: String,
+        code: String,
+    ): PositionJpaEntity?
+
     /**
      * upsert — ON CONFLICT (user_id, code) DO UPDATE.
      * idempotency 보장 (ADR 0042 §5-6 — 부팅 N회 반복 안전).

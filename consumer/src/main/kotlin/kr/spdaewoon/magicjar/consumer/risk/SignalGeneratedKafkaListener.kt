@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.order.execution.port.KillSwitchQueryPort
 import kr.spdaewoon.magicjar.domain.risk.RiskContext
 import kr.spdaewoon.magicjar.domain.risk.RiskEvent
 import kr.spdaewoon.magicjar.domain.risk.RiskGatewayResult
@@ -21,6 +22,7 @@ import org.springframework.beans.factory.ObjectProvider
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
+import java.math.RoundingMode
 
 /**
  * Kafka `signal.generated.v1` listener (ADR 0067 §7-1 SignalGeneratedKafkaListener + §11-1 Phase 1 (8) + E-1).
@@ -69,6 +71,7 @@ class SignalGeneratedKafkaListener(
     private val riskPositionPortProvider: ObjectProvider<RiskPositionPort>,
     private val signalRiskStatusUpdaterProvider: ObjectProvider<SignalRiskStatusUpdater>,
     private val riskNotifierProvider: ObjectProvider<RiskNotifier>,
+    private val killSwitchQueryPortProvider: ObjectProvider<KillSwitchQueryPort>,
     private val clock: Clock = Clock.System,
 ) {
     private val log = LoggerFactory.getLogger(SignalGeneratedKafkaListener::class.java)
@@ -128,7 +131,7 @@ class SignalGeneratedKafkaListener(
         tradeFrequencyGuard.record(signal.strategyId, signal.userId, allowed.signalId, context.nowKst)
 
         // 3. order.intent.v1 publish — T-O 진입
-        orderIntentKafkaProducer.publish(signal)
+        orderIntentKafkaProducer.publish(signal, resolveOrderQuantity(signal, context))
     }
 
     private fun handleBlocked(
@@ -239,9 +242,15 @@ class SignalGeneratedKafkaListener(
         val recentMinute = tradeFrequencyGuard.countRecentMinute(signal.strategyId, signal.userId, nowKst)
         val recentDay = tradeFrequencyGuard.countRecentDay(signal.strategyId, signal.userId, nowKst)
 
-        // Phase 1 KillSwitch 평가 — Phase 2 KillSwitchRepository 어댑터 부재 가정 → false default.
-        // 별도 ObjectProvider 의존 추가 보류 (signature 폭증 회피) — ADR 0043 정합 후속 Phase 2 통합 시점에 확장.
-        val killSwitchOn = false
+        val killSwitchOn =
+            killSwitchQueryPortProvider.getIfAvailable()?.let {
+                try {
+                    it.isOn(signal.userId)
+                } catch (e: Exception) {
+                    log.warn("KillSwitchQueryPort.isOn 실패 (fallback true): userId={} err={}", signal.userId, e.message)
+                    true
+                }
+            } ?: false
 
         return RiskContext(
             userId = signal.userId,
@@ -255,6 +264,39 @@ class SignalGeneratedKafkaListener(
             nowKst = nowKst,
         )
     }
+
+    private fun resolveOrderQuantity(
+        signal: Signal,
+        context: RiskContext,
+    ): Int =
+        when (signal.side) {
+            SignalSide.BUY -> {
+                val percentBudget =
+                    if (context.currentCapital > BigDecimal.ZERO) {
+                        context.currentCapital
+                            .multiply(context.config.maxPositionPercent)
+                            .divide(BigDecimal("100"), 4, RoundingMode.HALF_UP)
+                    } else {
+                        BigDecimal.ZERO
+                    }
+                val budget =
+                    if (percentBudget < context.config.maxPositionAmount) {
+                        percentBudget
+                    } else {
+                        context.config.maxPositionAmount
+                    }
+                budget
+                    .divide(signal.priceAtSignal, 0, RoundingMode.DOWN)
+                    .toInt()
+                    .coerceAtLeast(1)
+            }
+            SignalSide.SELL ->
+                context.currentPositions
+                    .firstOrNull { it.code == signal.code && it.quantity > 0 }
+                    ?.quantity
+                    ?: 0
+            SignalSide.HOLD -> 0
+        }
 
     private fun deserialize(value: String): Signal? =
         try {

@@ -6,6 +6,7 @@ import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
+import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.Universe
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslStrategyDefinition
@@ -83,6 +84,7 @@ object StrategyEntityMapper {
             definition = definition,
             complexity = complexity,
             disabledReason = disabledReason,
+            status = safeStatus(entity.status),
             lastDisabledAt = entity.lastDisabledAt,
             evalMetricSummary = evalMetricSummary,
             createdAt = entity.createdAt,
@@ -110,4 +112,6 @@ object StrategyEntityMapper {
         } else {
             runCatching { StrategyDisabledReason.valueOf(value) }.getOrDefault(StrategyDisabledReason.NULL)
         }
+
+    fun safeStatus(value: String): StrategyStatus = runCatching { StrategyStatus.valueOf(value) }.getOrDefault(StrategyStatus.ACTIVE)
 }

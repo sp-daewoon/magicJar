@@ -1,0 +1,161 @@
+package kr.spdaewoon.magicjar.consumer.risk
+
+import com.fasterxml.jackson.databind.ObjectMapper
+import io.mockk.Runs
+import io.mockk.every
+import io.mockk.just
+import io.mockk.mockk
+import io.mockk.verify
+import kotlinx.datetime.Clock
+import kotlinx.datetime.Instant
+import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.order.execution.port.KillSwitchQueryPort
+import kr.spdaewoon.magicjar.domain.position.Position
+import kr.spdaewoon.magicjar.domain.risk.RiskConfig
+import kr.spdaewoon.magicjar.domain.risk.RiskEvent
+import kr.spdaewoon.magicjar.domain.risk.RiskRule
+import kr.spdaewoon.magicjar.domain.risk.port.CapitalSnapshotProvider
+import kr.spdaewoon.magicjar.domain.risk.port.RiskConfigRepository
+import kr.spdaewoon.magicjar.domain.risk.port.RiskEventRepository
+import kr.spdaewoon.magicjar.domain.risk.port.RiskNotifier
+import kr.spdaewoon.magicjar.domain.risk.port.RiskPositionPort
+import kr.spdaewoon.magicjar.domain.risk.port.SignalRiskStatusUpdater
+import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.ObjectProvider
+import java.math.BigDecimal
+
+class SignalGeneratedKafkaListenerTest {
+    private val objectMapper = ObjectMapper()
+    private val riskConfigRepository = mockk<RiskConfigRepository>()
+    private val riskEventRepository = mockk<RiskEventRepository>(relaxed = true)
+    private val riskPositionPort = mockk<RiskPositionPort>()
+    private val signalRiskStatusUpdater = mockk<SignalRiskStatusUpdater>(relaxed = true)
+    private val riskNotifier = mockk<RiskNotifier>(relaxed = true)
+    private val killSwitchQueryPort = mockk<KillSwitchQueryPort>()
+    private val capitalSnapshotProvider = mockk<CapitalSnapshotProvider>()
+    private val tradeFrequencyGuard = mockk<TradeFrequencyRedisGuard>(relaxed = true)
+    private val dailyPnlCalculator = mockk<DailyPnlCalculator>()
+    private val orderIntentKafkaProducer = mockk<OrderIntentKafkaProducer>(relaxed = true)
+    private val riskViolationKafkaProducer = mockk<RiskViolationKafkaProducer>(relaxed = true)
+    private val autoPauseGuard = mockk<AutoPauseGuard>(relaxed = true)
+    private val now = Instant.parse("2026-05-22T01:00:00Z")
+    private val clock =
+        object : Clock {
+            override fun now(): Instant = now
+        }
+
+    @Test
+    fun `BUY ALLOWED — risk budget 기반 주문 수량을 계산해서 order intent에 싣는다`() {
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.record(100L, "user-A", 77L, now) } just Runs
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+
+        listener().onSignalGenerated(record(payload(side = "BUY", price = "50000")))
+
+        verify(exactly = 1) { signalRiskStatusUpdater.markAllowed(77L) }
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 20) }
+    }
+
+    @Test
+    fun `KillSwitch ON — risk 단계에서 BLOCKED 처리하고 order intent를 발행하지 않는다`() {
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { killSwitchQueryPort.isOn("user-A") } returns true
+        every { riskEventRepository.save(any()) } answers { firstArg<RiskEvent>() }
+
+        listener().onSignalGenerated(record(payload(side = "BUY", price = "50000")))
+
+        verify(exactly = 1) {
+            signalRiskStatusUpdater.markBlocked(77L, RiskRule.KILL_SWITCH_ON, match { it.contains("KillSwitch") })
+        }
+        verify(exactly = 1) { riskViolationKafkaProducer.publish(any(), match { it.rule == RiskRule.KILL_SWITCH_ON }) }
+        verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any()) }
+    }
+
+    @Test
+    fun `SELL ALLOWED — 보유 수량 전체를 주문 수량으로 사용한다`() {
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { riskPositionPort.findCurrentByUser("user-A") } returns
+            listOf(Position(userId = "user-A", code = "005930", quantity = 7, avgPrice = BigDecimal("70000"), updatedAt = now))
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.record(100L, "user-A", 77L, now) } just Runs
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+
+        listener().onSignalGenerated(record(payload(side = "SELL", price = "72000")))
+
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 7) }
+    }
+
+    private fun listener() =
+        SignalGeneratedKafkaListener(
+            objectMapper = objectMapper,
+            riskGatewayEvaluator = RiskGatewayEvaluator(),
+            tradeFrequencyGuard = tradeFrequencyGuard,
+            dailyPnlCalculator = dailyPnlCalculator,
+            capitalSnapshotProvider = capitalSnapshotProvider,
+            orderIntentKafkaProducer = orderIntentKafkaProducer,
+            riskViolationKafkaProducer = riskViolationKafkaProducer,
+            autoPauseGuard = autoPauseGuard,
+            riskConfigRepositoryProvider = providerOf(riskConfigRepository),
+            riskEventRepositoryProvider = providerOf(riskEventRepository),
+            riskPositionPortProvider = providerOf(riskPositionPort),
+            signalRiskStatusUpdaterProvider = providerOf(signalRiskStatusUpdater),
+            riskNotifierProvider = providerOf(riskNotifier),
+            killSwitchQueryPortProvider = providerOf(killSwitchQueryPort),
+            clock = clock,
+        )
+
+    private fun sampleConfig(): RiskConfig =
+        RiskConfig(
+            userId = "user-A",
+            maxPositionAmount = BigDecimal("1000000"),
+            maxPositionPercent = BigDecimal("10.00"),
+            dailyLossLimitAmount = null,
+            dailyLossLimitPercent = BigDecimal("3.00"),
+            maxConcurrentPositions = 5,
+            maxTradesPerMinute = 3,
+            maxTradesPerDay = 50,
+            autoPauseThreshold = 10,
+            createdAt = now,
+            updatedAt = now,
+        )
+
+    private fun payload(
+        side: String,
+        price: String,
+    ): String =
+        objectMapper.writeValueAsString(
+            mapOf(
+                "id" to 77,
+                "strategyId" to 100,
+                "userId" to "user-A",
+                "code" to "005930",
+                "interval" to CandleInterval.FIVE_MIN.code,
+                "ts" to now.epochSeconds,
+                "side" to side,
+                "strength" to 80,
+                "reason" to "test",
+                "priceAtSignal" to price,
+            ),
+        )
+
+    private fun record(value: String) = ConsumerRecord("signal.generated.v1", 0, 0L, "user-A", value)
+
+    private fun <T : Any> providerOf(value: T): ObjectProvider<T> =
+        mockk<ObjectProvider<T>>().also {
+            every { it.getIfAvailable() } returns value
+        }
+}

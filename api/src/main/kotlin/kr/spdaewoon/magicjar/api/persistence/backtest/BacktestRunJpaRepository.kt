@@ -3,6 +3,8 @@ package kr.spdaewoon.magicjar.api.persistence.backtest
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.query.Param
 
 /**
  * 백테스트 실행 Spring Data JPA 리포지터리.
@@ -24,5 +26,19 @@ interface BacktestRunJpaRepository : JpaRepository<BacktestRunJpaEntity, Long> {
     fun existsByIdAndUserId(
         id: Long,
         userId: String,
+    ): Boolean
+
+    @Query(
+        """
+        SELECT COUNT(b) > 0
+        FROM BacktestRunJpaEntity b
+        WHERE b.strategyId = :strategyId
+          AND b.userId = :userId
+          AND b.status = 'SUCCEEDED'
+        """,
+    )
+    fun existsAutoActivationReadyRun(
+        @Param("strategyId") strategyId: Long,
+        @Param("userId") userId: String,
     ): Boolean
 }

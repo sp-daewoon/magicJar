@@ -44,7 +44,10 @@ class OrderIntentKafkaProducer(
         const val TOPIC = "order.intent.v1"
     }
 
-    fun publish(signal: Signal) {
+    fun publish(
+        signal: Signal,
+        quantity: Int = 1,
+    ) {
         val now =
             java.time.Instant
                 .now()
@@ -62,6 +65,11 @@ class OrderIntentKafkaProducer(
                         "side" to signal.side.name,
                         "strength" to signal.strength,
                         "priceAtSignal" to signal.priceAtSignal.toPlainString(),
+                        "priceType" to "MARKET",
+                        "quantity" to quantity,
+                        "limitPrice" to null,
+                        "idempotencyKey" to "${signal.id}:${signal.userId}",
+                        "source" to "AUTO",
                         "riskVerdict" to "ALLOWED",
                         "emittedAt" to now,
                     ),
@@ -116,12 +124,13 @@ class OrderIntentKafkaProducer(
                 .getIfAvailable()
                 ?.recordSignalToOrderLatency(signal.ts.epochSeconds, now)
             log.debug(
-                "OrderIntentKafkaProducer publish: topic={} userId={} signalId={} code={} side={}",
+                "OrderIntentKafkaProducer publish: topic={} userId={} signalId={} code={} side={} quantity={}",
                 TOPIC,
                 signal.userId,
                 signal.id,
                 signal.code,
                 signal.side,
+                quantity,
             )
         } catch (e: Exception) {
             if (outboxId != null) {

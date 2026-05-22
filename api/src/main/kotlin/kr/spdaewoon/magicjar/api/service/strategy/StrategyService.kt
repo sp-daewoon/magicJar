@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.api.service.strategy
 
 import kr.spdaewoon.magicjar.api.cache.RedisStrategyCache
+import kr.spdaewoon.magicjar.api.persistence.backtest.BacktestRunJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyJpaRepository
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
@@ -48,6 +49,7 @@ import org.springframework.web.server.ResponseStatusException
 class StrategyService(
     private val strategyRepositoryPort: StrategyRepositoryPort,
     private val strategyJpaRepository: StrategyJpaRepository,
+    private val backtestRunJpaRepository: BacktestRunJpaRepository,
     private val redisStrategyCache: RedisStrategyCache,
     @Value("\${magicjar.dsl.ast-depth-limit:32}") private val astDepthLimit: Int,
     @Value("\${magicjar.dsl.node-count-limit:10000}") private val nodeCountLimit: Int,
@@ -123,6 +125,7 @@ class StrategyService(
                 userId = userId,
                 definition = definition,
                 complexity = combinedComplexity,
+                status = StrategyStatus.PAUSED,
             )
         val saved = strategyRepositoryPort.save(strategy)
         log.info("전략 등록 완료: id={} userId={} complexity={}", saved.id, userId, combinedComplexity.complexityClass)
@@ -190,6 +193,9 @@ class StrategyService(
 
         val currentStatus = runCatching { StrategyStatus.valueOf(entity.status) }.getOrDefault(StrategyStatus.ACTIVE)
         validateTransition(id, currentStatus, newStatus)
+        if (newStatus == StrategyStatus.ACTIVE) {
+            validateActivationReady(id, entity.userId)
+        }
 
         strategyJpaRepository.updateStatus(id, newStatus.name)
         redisStrategyCache.invalidateAll()
@@ -221,6 +227,10 @@ class StrategyService(
      * 전략 재활성화 — 사용자 명시 활성화 (DISABLED → ACTIVE).
      */
     fun enable(strategyId: Long) {
+        val entity =
+            strategyJpaRepository.findByIdAndStatusNot(strategyId, StrategyStatus.DELETED.name)
+                ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$strategyId")
+        validateActivationReady(strategyId, entity.userId)
         strategyRepositoryPort.enable(strategyId)
         redisStrategyCache.invalidateAll()
         log.info("전략 재활성화: id={}", strategyId)
@@ -248,6 +258,19 @@ class StrategyService(
             throw ResponseStatusException(
                 HttpStatus.BAD_REQUEST,
                 "전략 상태 전환 불가: id=$id $current → $next",
+            )
+        }
+    }
+
+    private fun validateActivationReady(
+        strategyId: Long,
+        userId: Long,
+    ) {
+        val ready = backtestRunJpaRepository.existsAutoActivationReadyRun(strategyId, userId.toString())
+        if (!ready) {
+            throw ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "성공한 백테스트가 있어야 전략을 ACTIVE로 전환할 수 있습니다: id=$strategyId",
             )
         }
     }

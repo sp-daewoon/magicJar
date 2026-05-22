@@ -79,7 +79,6 @@ class StrategyJpaAdapter(
 
     private fun toEntity(strategy: Strategy): StrategyJpaEntity {
         val dsl = strategy.definition.dsl
-        val statusStr = StrategyStatus.ACTIVE.name // 신규 등록은 항상 ACTIVE
         return StrategyJpaEntity(
             id = strategy.id,
             userId = strategy.userId,
@@ -97,7 +96,7 @@ class StrategyJpaAdapter(
             disabledReason = if (strategy.disabledReason == StrategyDisabledReason.NULL) null else strategy.disabledReason.name,
             lastDisabledAt = strategy.lastDisabledAt,
             evalMetricSummary = strategy.evalMetricSummary?.let { objectMapper.writeValueAsString(it) },
-            status = statusStr,
+            status = strategy.status.name,
             createdAt = strategy.createdAt,
             updatedAt = strategy.updatedAt,
         )
