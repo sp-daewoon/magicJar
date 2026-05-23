@@ -21,7 +21,18 @@ function sevenDaysAgo(): string {
   return d.toISOString().slice(0, 10)
 }
 
-export function useSymbolNews(code: string, params: SymbolNewsParams = {}) {
+interface UseSymbolNewsOptions {
+  enabled?: boolean
+  refetchInterval?: number | false
+}
+
+export function useSymbolNews(
+  code: string,
+  params: SymbolNewsParams = {},
+  options: UseSymbolNewsOptions = {},
+) {
+  const { enabled = true, refetchInterval = 60_000 } = options
+
   return useInfiniteQuery({
     queryKey: ['symbolNews', code, params] as const,
     queryFn: ({ pageParam }) =>
@@ -34,9 +45,10 @@ export function useSymbolNews(code: string, params: SymbolNewsParams = {}) {
     getNextPageParam: (lastPage) =>
       lastPage.page + 1 < lastPage.totalPages ? lastPage.page + 1 : undefined,
     // ADR 0075 §6-2 LOCK: 60s polling
-    refetchInterval: 60_000,
+    refetchInterval,
+    refetchIntervalInBackground: false,
     staleTime: 30_000,
-    enabled: Boolean(code),
+    enabled: Boolean(code) && enabled,
     retry: 1,
     retryDelay: 3000,
   })

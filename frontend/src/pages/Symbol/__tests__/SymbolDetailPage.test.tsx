@@ -30,10 +30,20 @@ vi.mock('../LightweightChart', () => ({
 // STOMP mock (WebSocket 미지원 환경)
 // ──────────────────────────────────────────────
 
-vi.mock('../../../lib/stomp', () => ({
-  useStompTopic: vi.fn(),
-  isStompConnected: () => false,
-}))
+vi.mock('../../../lib/stomp', () => {
+  const client = {
+    connected: false,
+    onConnect: undefined,
+    onDisconnect: undefined,
+    onWebSocketClose: undefined,
+    onStompError: undefined,
+  }
+  return {
+    getStompClient: () => client,
+    useStompTopic: vi.fn(),
+    isStompConnected: () => false,
+  }
+})
 
 // ──────────────────────────────────────────────
 // msw 서버 설정

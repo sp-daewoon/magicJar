@@ -21,7 +21,18 @@ function sevenDaysAgoDate(): string {
   return d.toISOString().slice(0, 10)
 }
 
-export function useSymbolDisclosures(code: string, params: SymbolDisclosureParams = {}) {
+interface UseSymbolDisclosuresOptions {
+  enabled?: boolean
+  refetchInterval?: number | false
+}
+
+export function useSymbolDisclosures(
+  code: string,
+  params: SymbolDisclosureParams = {},
+  options: UseSymbolDisclosuresOptions = {},
+) {
+  const { enabled = true, refetchInterval = 60_000 } = options
+
   return useInfiniteQuery({
     queryKey: ['symbolDisclosures', code, params] as const,
     queryFn: ({ pageParam }) =>
@@ -34,9 +45,10 @@ export function useSymbolDisclosures(code: string, params: SymbolDisclosureParam
     getNextPageParam: (lastPage) =>
       lastPage.page + 1 < lastPage.totalPages ? lastPage.page + 1 : undefined,
     // ADR 0075 §6-2 LOCK: 60s polling
-    refetchInterval: 60_000,
+    refetchInterval,
+    refetchIntervalInBackground: false,
     staleTime: 30_000,
-    enabled: Boolean(code),
+    enabled: Boolean(code) && enabled,
     retry: 1,
     retryDelay: 3000,
   })

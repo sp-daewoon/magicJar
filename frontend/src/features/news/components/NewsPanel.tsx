@@ -2,7 +2,7 @@
  * NewsPanel — 종목 상세 sidebar 뉴스 패널
  *
  * ADR 0075 §8-5 Phase 3 산출물 + spec §2-3 핵심 결정 LOCK:
- *   - useSymbolNews hook (refetchInterval 60s)
+ *   - useSymbolNews hook (viewport 진입 시 refetchInterval 60s)
  *   - STOMP 0 LOCK (§6 사용자 결정 6-1)
  *   - 빈 상태: "최근 7일간 뉴스가 없습니다" (feedback_no_mock_data 정합)
  *   - Naver 키 미등록 + 빈 array → 안내 문구 표시
@@ -15,6 +15,7 @@
  *   - hasNextPage=false 시 "더 보기" 버튼 숨김
  *   - isFetchingNextPage 시 로딩 표시
  */
+import { useInViewport } from '../../../hooks/useInViewport'
 import { useSymbolNews } from '../hooks/useSymbolNews'
 import { NewsItemRow } from './NewsItem'
 
@@ -23,13 +24,26 @@ interface Props {
 }
 
 export function NewsPanel({ code }: Props) {
+  const { ref, isVisible, hasEntered } = useInViewport<HTMLElement>()
   const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } =
-    useSymbolNews(code, { size: 20 })
+    useSymbolNews(code, { size: 20 }, { enabled: isVisible })
+
+  if (!hasEntered) {
+    return (
+      <section
+        ref={ref}
+        aria-label="뉴스"
+        className="min-h-[180px] rounded-lg border border-gray-800 bg-gray-900 p-4"
+      >
+        <h3 className="mb-3 text-sm font-semibold text-gray-300">뉴스</h3>
+      </section>
+    )
+  }
 
   // ── 로딩 스켈레톤 (최초 로드)
   if (isLoading) {
     return (
-      <section aria-label="뉴스" className="rounded-lg border border-gray-800 bg-gray-900 p-4">
+      <section ref={ref} aria-label="뉴스" className="rounded-lg border border-gray-800 bg-gray-900 p-4">
         <h3 className="mb-3 text-sm font-semibold text-gray-300">뉴스</h3>
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
@@ -46,7 +60,7 @@ export function NewsPanel({ code }: Props) {
   // ── REST 실패
   if (isError) {
     return (
-      <section aria-label="뉴스" className="rounded-lg border border-gray-800 bg-gray-900 p-4">
+      <section ref={ref} aria-label="뉴스" className="rounded-lg border border-gray-800 bg-gray-900 p-4">
         <h3 className="mb-3 text-sm font-semibold text-gray-300">뉴스</h3>
         <p className="text-xs text-red-400">뉴스를 불러오지 못했습니다.</p>
       </section>
@@ -58,7 +72,7 @@ export function NewsPanel({ code }: Props) {
   const totalElements = data?.pages[0]?.totalElements ?? 0
 
   return (
-    <section aria-label="뉴스" className="rounded-lg border border-gray-800 bg-gray-900 p-4">
+    <section ref={ref} aria-label="뉴스" className="rounded-lg border border-gray-800 bg-gray-900 p-4">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-300">뉴스</h3>
         {totalElements > 0 && (

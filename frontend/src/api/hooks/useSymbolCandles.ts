@@ -59,7 +59,9 @@ function useInfiniteQueryForCandles(code: string, interval: CandleInterval, page
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.nextBefore : undefined),
     enabled: Boolean(code),
     staleTime: 30_000,
-    gcTime: 60_000,
+    gcTime: 5 * 60_000,
+    refetchOnWindowFocus: true,
+    refetchIntervalInBackground: false,
     retry: 1,
   })
 }

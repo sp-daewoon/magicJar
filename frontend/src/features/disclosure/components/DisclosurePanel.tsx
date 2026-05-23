@@ -2,7 +2,7 @@
  * DisclosurePanel — 종목 상세 sidebar 공시 패널
  *
  * ADR 0075 §8-5 Phase 3 산출물 + spec §2-3 핵심 결정 LOCK:
- *   - useSymbolDisclosures hook (refetchInterval 60s)
+ *   - useSymbolDisclosures hook (viewport 진입 시 refetchInterval 60s)
  *   - STOMP 0 LOCK (§6 사용자 결정 6-1)
  *   - 정정공시 빨간 배지 강조 (isCorrection=true)
  *   - onlyCorrection 필터 토글 버튼
@@ -18,6 +18,7 @@
  *   - onlyCorrection 필터 토글 시 query 재시작 (queryKey 변경)
  */
 import { useState } from 'react'
+import { useInViewport } from '../../../hooks/useInViewport'
 import { useSymbolDisclosures } from '../hooks/useSymbolDisclosures'
 import { DisclosureItemRow } from './DisclosureItem'
 
@@ -27,22 +28,39 @@ interface Props {
 
 export function DisclosurePanel({ code }: Props) {
   const [onlyCorrection, setOnlyCorrection] = useState(false)
+  const { ref, isVisible, hasEntered } = useInViewport<HTMLElement>()
 
   const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } =
-    useSymbolDisclosures(code, {
-      size: 20,
-      onlyCorrection,
-    })
+    useSymbolDisclosures(
+      code,
+      {
+        size: 20,
+        onlyCorrection,
+      },
+      { enabled: isVisible },
+    )
 
   // onlyCorrection 필터 토글 — queryKey 변경으로 useInfiniteQuery가 자동 재시작
   function handleToggleOnlyCorrection() {
     setOnlyCorrection((prev) => !prev)
   }
 
+  if (!hasEntered) {
+    return (
+      <section
+        ref={ref}
+        aria-label="공시"
+        className="min-h-[180px] rounded-lg border border-gray-800 bg-gray-900 p-4"
+      >
+        <h3 className="mb-3 text-sm font-semibold text-gray-300">공시</h3>
+      </section>
+    )
+  }
+
   // ── 로딩 스켈레톤 (최초 로드)
   if (isLoading) {
     return (
-      <section aria-label="공시" className="rounded-lg border border-gray-800 bg-gray-900 p-4">
+      <section ref={ref} aria-label="공시" className="rounded-lg border border-gray-800 bg-gray-900 p-4">
         <h3 className="mb-3 text-sm font-semibold text-gray-300">공시</h3>
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
@@ -59,7 +77,7 @@ export function DisclosurePanel({ code }: Props) {
   // ── REST 실패
   if (isError) {
     return (
-      <section aria-label="공시" className="rounded-lg border border-gray-800 bg-gray-900 p-4">
+      <section ref={ref} aria-label="공시" className="rounded-lg border border-gray-800 bg-gray-900 p-4">
         <h3 className="mb-3 text-sm font-semibold text-gray-300">공시</h3>
         <p className="text-xs text-red-400">공시를 불러오지 못했습니다.</p>
       </section>
@@ -71,7 +89,7 @@ export function DisclosurePanel({ code }: Props) {
   const totalElements = data?.pages[0]?.totalElements ?? 0
 
   return (
-    <section aria-label="공시" className="rounded-lg border border-gray-800 bg-gray-900 p-4">
+    <section ref={ref} aria-label="공시" className="rounded-lg border border-gray-800 bg-gray-900 p-4">
       {/* 헤더 + onlyCorrection 필터 */}
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">

@@ -6,7 +6,7 @@
  *
  * 구현 사항:
  * 1. useParams → code 추출
- * 2. useSymbol(code) → 메타·현재가 (5s polling fallback)
+ * 2. useSymbol(code) → 메타·현재가 초기 스냅샷
  * 3. STOMP /topic/market.tick.{code} → 현재가 실시간 갱신
  * 4. STOMP /topic/market.candle.minute.{code} → 차트 1m 실시간 append
  * 5. STOMP /topic/market.orderbook.{code} → 호가 실시간 갱신
@@ -18,14 +18,18 @@
  * - HTTP 503/404 → SymbolError
  * - cold-start 미완 (candle 0건) → SymbolChart "데이터 수집 중" skeleton
  * - 장 마감 → stale 배지 (SymbolPriceCard)
- * - STOMP 끊김 → "실시간 연결 재시도 중..." 배지 + 5s polling 자동 fallback
+ * - STOMP 끊김·tick 지연 → 30s HTTP polling fallback
  * - instrument 테이블 부재 → code 그대로 표시 (SymbolHeader graceful)
  * - 호가 slot 가득(queued) → "polling fallback 중" 배지 (SymbolOrderbook)
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useInstrument } from '../../api/hooks/useInstrument'
-import { useSymbol } from '../../api/hooks/useSymbol'
+import {
+  SYMBOL_FALLBACK_POLLING_INTERVAL_MS,
+  useSymbol,
+} from '../../api/hooks/useSymbol'
+import { useStompConnectionState } from '../../api/hooks/useStompConnectionState'
 import {
   symbolApi,
   type CandleMinutePayload,
@@ -34,13 +38,17 @@ import {
 } from '../../api/symbol'
 import { DisclosurePanel } from '../../features/disclosure/components/DisclosurePanel'
 import { NewsPanel } from '../../features/news/components/NewsPanel'
-import { isStompConnected, useStompTopic } from '../../lib/stomp'
+import { currentKrxSession } from '../../lib/marketHours'
+import { useStompTopic } from '../../lib/stomp'
 import { SymbolChart } from './SymbolChart'
 import { SymbolError } from './SymbolError'
 import { SymbolHeader } from './SymbolHeader'
 import { SymbolMetaCard } from './SymbolMetaCard'
 import { SymbolOrderbook } from './SymbolOrderbook'
 import { SymbolPriceCard } from './SymbolPriceCard'
+
+const SYMBOL_TICK_STALE_MS = 30_000
+const SYMBOL_STATUS_CLOCK_MS = 5_000
 
 // ──────────────────────────────────────────────
 // 유틸
@@ -58,25 +66,58 @@ export function SymbolDetailPage() {
   const { code = '' } = useParams<{ code: string }>()
   const { data: instrument, isLoading: isInstrumentLoading } = useInstrument(code)
   const isDelisted = instrument?.active === false
-  // 상장폐지 종목은 가격 조회 의미 없음 — useSymbol 비활성으로 polling 차단
-  const { data: symbol, isLoading: isSymbolLoading, isError, error } = useSymbol(isDelisted ? '' : code)
-  const isLoading = isInstrumentLoading || (!isDelisted && isSymbolLoading)
 
   // STOMP 실시간 상태
   const [realtimeTick, setRealtimeTick] = useState<TickPayload | null>(null)
   const [realtimeCandle, setRealtimeCandle] = useState<CandleMinutePayload | null>(null)
   const [orderbook, setOrderbook] = useState<OrderbookPayload | null>(null)
   const [orderbookSlot, setOrderbookSlot] = useState<'live' | 'queued' | null>(null)
-  const [stompConnected, setStompConnected] = useState(false)
+  const [lastTickAt, setLastTickAt] = useState<number | null>(null)
+  const [watchStartedAt, setWatchStartedAt] = useState(() => Date.now())
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  const stompState = useStompConnectionState({
+    enabled: Boolean(code) && !isDelisted,
+    enableToast: false,
+  })
+  const stompConnected = stompState === 'CONNECTED'
+  const krxSession = currentKrxSession(new Date(nowMs))
+  const isTradingSession = krxSession !== 'CLOSED'
+  const tickAgeMs = lastTickAt === null ? null : Math.max(0, nowMs - lastTickAt)
+  const noTickAgeMs = Math.max(0, nowMs - watchStartedAt)
+  const tickStale =
+    isTradingSession &&
+    stompConnected &&
+    (tickAgeMs === null ? noTickAgeMs > SYMBOL_TICK_STALE_MS : tickAgeMs > SYMBOL_TICK_STALE_MS)
+  const symbolPollingEnabled =
+    Boolean(code) && !isDelisted && isTradingSession && (!stompConnected || tickStale)
 
-  // STOMP 연결 상태 주기적 확인 (5s)
+  // 상장폐지 종목은 가격 조회 의미 없음 — useSymbol 비활성으로 polling 차단.
+  // 정상 실시간 수신 중에는 HTTP polling 0건, STOMP 장애·tick 지연 시에만 30s fallback.
+  const { data: symbol, isLoading: isSymbolLoading, isError, error } = useSymbol(code, {
+    enabled: !isDelisted,
+    pollingEnabled: symbolPollingEnabled,
+  })
+  const isLoading = isInstrumentLoading || (!isDelisted && isSymbolLoading)
+
+  // 네트워크가 아닌 화면 상태용 clock: tick stale·장 상태 badge 계산에만 사용.
   useEffect(() => {
-    const id = setInterval(() => {
-      setStompConnected(isStompConnected())
-    }, 5000)
-    setStompConnected(isStompConnected())
+    const id = window.setInterval(() => {
+      setNowMs(Date.now())
+    }, SYMBOL_STATUS_CLOCK_MS)
     return () => clearInterval(id)
   }, [])
+
+  // 종목 전환 시 이전 종목의 실시간 payload가 UI에 남지 않도록 즉시 초기화.
+  useEffect(() => {
+    setRealtimeTick(null)
+    setRealtimeCandle(null)
+    setOrderbook(null)
+    setOrderbookSlot(null)
+    setLastTickAt(null)
+    const resetAt = Date.now()
+    setWatchStartedAt(resetAt)
+    setNowMs(resetAt)
+  }, [code])
 
   // STOMP topic 구독 (3개 — tick·candle.minute·orderbook).
   // 상장폐지 종목은 실시간 데이터가 없으므로 구독 자체 차단.
@@ -84,19 +125,31 @@ export function SymbolDetailPage() {
 
   useStompTopic<TickPayload>(
     `/topic/market.tick.${code}`,
-    useCallback((payload) => setRealtimeTick(payload), []),
+    useCallback((payload) => {
+      if (payload.code && payload.code !== code) return
+      const receivedAt = Date.now()
+      setRealtimeTick(payload)
+      setLastTickAt(receivedAt)
+      setNowMs(receivedAt)
+    }, [code]),
     stompEnabled,
   )
 
   useStompTopic<CandleMinutePayload>(
     `/topic/market.candle.minute.${code}`,
-    useCallback((payload) => setRealtimeCandle(payload), []),
+    useCallback((payload) => {
+      if (payload.code && payload.code !== code) return
+      setRealtimeCandle(payload)
+    }, [code]),
     stompEnabled,
   )
 
   useStompTopic<OrderbookPayload>(
     `/topic/market.orderbook.${code}`,
-    useCallback((payload) => setOrderbook(payload), []),
+    useCallback((payload) => {
+      if (payload.code && payload.code !== code) return
+      setOrderbook(payload)
+    }, [code]),
     stompEnabled,
   )
 
@@ -148,6 +201,15 @@ export function SymbolDetailPage() {
     isError && error && 'response' in (error as { response?: { status?: number } })
       ? (error as { response?: { status?: number } }).response?.status
       : undefined
+
+  const fallbackSeconds = SYMBOL_FALLBACK_POLLING_INTERVAL_MS / 1000
+  const realtimeStatusMessage = !isTradingSession
+    ? null
+    : !stompConnected
+      ? `실시간 연결 재시도 중... HTTP ${fallbackSeconds}초 fallback 활성`
+      : tickStale
+        ? `실시간 체결 수신 지연... HTTP ${fallbackSeconds}초 fallback 활성`
+        : null
 
   // ──────────────────────────────────────────────
   // 렌더링
@@ -203,7 +265,7 @@ export function SymbolDetailPage() {
         <SymbolHeader symbol={symbol} />
 
         {/* ── STOMP 연결 상태 배지 ── */}
-        {!stompConnected && (
+        {realtimeStatusMessage && (
           <div
             role="status"
             aria-live="polite"
@@ -212,7 +274,7 @@ export function SymbolDetailPage() {
             <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
             </svg>
-            실시간 연결 재시도 중... (5초 polling fallback 활성)
+            {realtimeStatusMessage}
           </div>
         )}
 
