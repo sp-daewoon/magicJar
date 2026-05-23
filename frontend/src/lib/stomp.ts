@@ -127,7 +127,7 @@ export function useStompTopic<T>(
         unsubscribeFn = () => sub.unsubscribe()
       })
       .catch(() => {
-        // STOMP 연결 실패 — polling fallback으로 자동 전환됨 (useSymbol refetchInterval 5s)
+        // STOMP 연결 실패 — 화면별 fallback 정책(useSymbol pollingEnabled)이 처리한다.
       })
 
     return () => {

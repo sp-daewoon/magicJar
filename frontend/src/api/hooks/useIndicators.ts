@@ -72,6 +72,8 @@ export function useIndicators({
     enabled: isEnabled,
     staleTime: getStaleTime(interval),
     gcTime: 120_000, // 2분 캐시 유지
+    refetchOnWindowFocus: false,
+    refetchIntervalInBackground: false,
     retry: 1,
   })
 
