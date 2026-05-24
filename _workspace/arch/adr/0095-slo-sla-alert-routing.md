@@ -101,7 +101,7 @@ ADR 0084 SystemEvent severity P1~P4 매트릭스 정합. 본 ADR이 P1~P4 routin
 | **P2 ERROR** | SystemEvent + frontend toast + 알람센터 강조(상단 sticky badge) | 1h 내 사용자 즉시 인지 | 사용자 + backend-core (runbook 적용) | S-2 warning · S-3 critical · S-4 critical |
 | **P1 CRITICAL** | SystemEvent + toast + 알람센터 강조 + **★★ KillSwitch 자동 ON 검토** + Slack alert (ADR 0044 reuse) | **즉시** | 사용자 + backend-core + architect (root cause ADR) | S-1 critical · S-2 critical · **S-5 critical** |
 
-### 3-2. SLO × severity routing 매트릭스
+### 3-2. SLO × severity routing 매트릭스 (2026-05-24 amend — W4 3 alert 신규 추가)
 
 | SLO | warning routing | critical routing |
 |-----|----------------|------------------|
@@ -110,6 +110,9 @@ ADR 0084 SystemEvent severity P1~P4 매트릭스 정합. 본 ADR이 P1~P4 routin
 | **S-3** account API 지연 | P3 WARN (frontend toast `[성능] account API ${latency}ms — 평균 500ms 초과`) | P2 ERROR (frontend 알람센터 sticky badge — 사용자 UX 차단 risk) |
 | **S-4** KIS rate limit | P3 WARN (frontend toast `[KIS] rate limit ${count}건/5분`) | P2 ERROR (Slack alert 권장 — KIS 차단 risk 가속) |
 | **S-5** KillSwitch 자동 ON | P3 WARN (frontend toast `[자본] KillSwitch 자동 ON 1건/일`) | **P1 CRITICAL** (Slack alert 필수 + 사용자 즉시 인지 — 자본 보호 본질) |
+| **S-AI-1 (2026-05-24 amend) — AI 월 비용** | (P3 default disabled — $5/월 누적 시 frontend toast 권장 옵션) | **P1 CRITICAL** ($10/월 초과 시 Slack alert + AI KillSwitch 자동 검토 — `MAGICJAR_AI_KILLSWITCH` env toggle 권장 · 비용 폭주 차단 path) |
+| **S-MCP-1 (2026-05-24 amend) — MCP 분당 호출** | **P3 WARN** (100/min 초과 → frontend toast `[MCP] 분당 호출 ${count}건 — 외부 client abuse risk`) | (P2 ERROR — 500/min 초과 시 Slack alert + ApiKeyAuthFilter rate limit 강제 검토) |
+| **S-MARKET-1 (2026-05-24 amend) — 지수 fetch 실패** | (P3 default — 1건/5m frontend toast) | **P2 ERROR** (5건 연속 5m window → Slack ERROR · KIS overseas API 차단 risk 가속) |
 
 ### 3-3. routing channel 우선순위
 
@@ -355,3 +358,4 @@ ADR 0044 reuse: Alertmanager → webhook → `NotificationDispatcher` Slack chan
 | 날짜 | 변경 | 결정자 |
 |------|------|--------|
 | 2026-05-21 | **ADR 0095 Accepted — P0-OPS-3 SLO/SLA + alert routing 본문화** (ADR 0094 §3-2 P0-OPS-3 task 본문화 + 운영 헌법 §9-1 측정 매트릭스 amend + 5 SLO × 2 임계 alert sketch + severity 4단 routing matrix + KillSwitch 자동 ON 검토 S-1·S-5 한정 + backend-core 후속 wiring 5건 권고) | architect (ADR 0094 §3-2 task 본문화 의무) |
+| 2026-05-24 | **amend — §3-2 SLO × severity routing 매트릭스 3 신규 row (S-AI-1 AI 월 비용 $10 초과 Slack CRITICAL + AI KillSwitch 자동 검토 · S-MCP-1 MCP 분당 100/500 호출 routing · S-MARKET-1 지수 fetch 실패 5건 연속 Slack ERROR)** — W4 통합 사이클 (T-AI + T-MCP + T-MARKET) brainstorming 결재 cec6a4d6 정합. ADR 0026·0027·0094·0100·0101 amend 동반. orchestrator → architect R0 dispatch. backend-core P0-OPS-3 후속 wiring 추가 권고 3건 (Prometheus alert rule 3 신규 · Slack channel routing wiring · runbook 5 시나리오 amend `AI 비용 폭주`·`MCP abuse`·`지수 fetch 실패` 3 추가 시나리오). 운영 코드 0 touch. (architect, opus 4.7 1M) |

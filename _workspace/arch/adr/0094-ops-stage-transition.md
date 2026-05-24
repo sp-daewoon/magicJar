@@ -269,20 +269,50 @@ cross-review 효과:
 | v3.7.0 | W3 종착 + chart-curator 영입 + 안정성 누적 (현재 baseline) |
 | v3.8.0 | **운영 단계 1차 baseline — 7 hierarchy 정착 + qa Visual 격상 + P0 OPS 6건 해소 + observability stack + runbook** |
 | v3.8.x patch | 운영 hotfix + SLO 위반 대응 + P0/P1 gap 해소 |
-| v3.9.0 | W4 진입 결재 시 — AI·MCP 옵션 트랙 마감 (ai-engineer active dispatch 재개) |
+| v3.9.0 | **W4 완전 닫기 — T-MARKET (지수·섹터 추세) + T-AI (5 진입점 — 사용자 트리거) + T-MCP (6 tool 외부 노출) — 2026-05-24 brainstorming 결재 cec6a4d6 정합 + ADR 0100·0101 신설 + ADR 0026·0027 amend** (ai-engineer active dispatch 재개) |
 | v4.0.0 | 실서비스 cut (`MAGICJAR_MODE=REAL` 정식 진입 + multi-tenant 인증) |
 
 ### 4-4. 항목별 결정 매트릭스 (W4·W5·backlog)
 
 | 항목 | 본 ADR 이후 | 사유 |
 |------|------------|------|
-| W4 T-AI (AI 옵션 보조) | **보류 — 사용자 결재 시 진입** | LLM 비용 + 운영 단계 1순위는 안정성 (ai-engineer는 유지하되 active dispatch 0) |
-| W4 T-MCP (MCP 서버 노출) | **보류 — 사용자 결재 시 진입** | 외부 노출 → 인증·rate limit 필요 → 운영 안정 baseline 후 |
+| **W4 T-MARKET (지수·섹터 추세) (2026-05-24 amend)** | **진입 결재 — v3.9.0 cut 후보** | 사용자 brainstorming 결재 cec6a4d6 (옵션 1 = T-MARKET 신규 트랙) — read-only · 자본 path 영향 0 · INGESTION_LOW 우선순위 +26 req/min 안전 (ADR 0100·0101) |
+| **W4 T-AI (AI 옵션 보조) (2026-05-24 amend)** | **진입 결재 — v3.9.0 cut 후보** | 사용자 brainstorming 결재 — 5 진입점 (사용자 트리거 한정 · 매매 결정권 0) · **AI 호출 비용 통제 의무**: `MAGICJAR_AI_ENABLED=false` default · 1일 1사용자 토큰 한도 1000 · 5분 prompt cache · **AI 월 비용 $10 초과 시 Slack CRITICAL alert (ADR 0095 amend) + 비용 임계 KillSwitch (`MAGICJAR_AI_KILLSWITCH=true` 시 모든 AI 호출 graceful refuse)** (ADR 0026 amend) |
+| **W4 T-MCP (MCP 서버 노출) (2026-05-24 amend)** | **진입 결재 — v3.9.0 cut 후보** | 사용자 brainstorming 결재 — tool 6종 read-only · API key 인증 localhost 한정 · **MCP 분당 호출 100 초과 시 Slack WARN alert (ADR 0095 amend)** (ADR 0027 amend) |
 | W5 T-LWC (LWC 확장) | **진행 OK** (chart-curator 해고 후 frontend 단일 dispatch) | 차트 점진 개선은 운영 단계와 양립 + qa Visual 회귀 자동 |
 | W5 T-LEARN (학습/검증) | **부분 진행** (운영 단계 사용자 학습 자료 우선) | mindset 전환과 정합 |
 | backlog §0-A persistence-shared Phase 2~3 | **즉시 처리** | P0 자본 흐름 차단 해소 |
 | backlog §0 P1-4 Rate Limit Phase 2 | **즉시 처리** | P0 KIS 차단 risk 해소 |
 | backlog §1·§5·§7·§8 etc | **architect 사이클 trim** | 운영 무관 평가 + 후순위/폐기 |
+
+#### 4-4-A. T-MARKET cron이 운영 SLO에 미치는 영향 평가 (2026-05-24 amend)
+
+ADR 0100 §6 SLO 영향 분석 인용:
+
+| SLO | 영향 | 평가 |
+|---|---|---|
+| S-1 (시그널→주문 P95<5s) | 0 | T-MARKET read-only · 자본 path 미경유 |
+| S-2 (KIS WS 연결률>99%) | 0 | REST cron only · WS 미사용 |
+| S-3 (account API p95<500ms) | 0 | 신규 endpoint `/api/market/*` · account path 별개 |
+| **S-4 (KIS rate limit<1건/5분)** | **+26 req/min = +0.43 req/s** (저영향) | 한도 10 req/s 대비 4.3% 점유. INGESTION_LOW 우선순위 분리 + Phase 2 priority queue 활성 시 burst drop 우선순위 가장 낮음 · 안전 |
+| S-5 (KillSwitch 자동 ON<1건/일) | 0 | 자본 path 미경유 |
+
+신규 SLO 후보 (P1 OPS backlog 등재):
+- `market_index_snapshot` insertion 성공률 > 99%/min — **S-MARKET-1**
+- KIS overseas API 호출 성공률 > 99% (장 closed 시 자동 skip 정합) — **S-MARKET-2**
+
+#### 4-4-B. AI 비용 통제 + KillSwitch 정책 (2026-05-24 amend — T-AI 합류 정합)
+
+ADR 0026 amend 정합 — 운영 단계 W4 진입 후 AI 호출 비용 통제 본문:
+
+| 통제 매트릭스 | 정책 |
+|---|---|
+| default 비활성 | `MAGICJAR_AI_ENABLED=false` default — 사용자 명시 활성 후 사용 |
+| 1일 사용자 한도 | 1000 tokens/사용자/일 default (env override) — 초과 시 graceful refuse 한국어 |
+| 5분 prompt cache | Redis `ai:prompt:cache:{templateHash}` — 동일 입력 재사용 |
+| **AI 비용 임계 alert** | **AI 월 비용 $10 초과 → Slack CRITICAL (ADR 0095 §3-2 amend)** — `ai_comment_log.cost_usd` 월 누적 |
+| **AI KillSwitch (신규)** | **`MAGICJAR_AI_KILLSWITCH=true` env toggle 시 모든 AI 호출 graceful refuse 한국어** — 비용 폭주 사고 시 즉시 차단 path · ADR 0043 KillSwitch와는 분리 (자본 path 영향 0) |
+| Resilience4j circuit | 30s open + 3 retry exponential (ADR 0026 §2-4 baseline) — provider 장애 시 본체 영향 0 |
 
 ### 4-5. 점진 고도화 우선순위 (운영 데이터 기반)
 
@@ -429,3 +459,4 @@ cross-review 효과:
 |------|------|--------|
 | 2026-05-21 | **ADR 0094 amend Accepted — orchestrator 자율 위임 결재 반영** (8 → 7 hierarchy + qa Visual 격상 + ai-engineer 유지 + sre 영입 거절 + backend-core P0 OPS 6건 인수 + 헌법 §10 신설 + spec 2건 신규 발행) | architect (사용자 위임 결재) |
 | 2026-05-21 | ADR 0094 Proposed — 운영 단계 transition master plan 발행 (audit + agent reshuffle 1단계 6 hierarchy + transition + 헌법 §9 신설 plan) | architect (사용자 결재 대기) |
+| 2026-05-24 | **amend — §4-3 v3.9.0 row 갱신 (W4 완전 닫기 — T-MARKET + T-AI + T-MCP brainstorming 결재 cec6a4d6 정합) + §4-4 W4 3 항목 진입 결재 매트릭스 본문화 + §4-4-A T-MARKET cron SLO 영향 평가 (S-4 +4.3% 안전) + §4-4-B AI 비용 통제 + KillSwitch 정책 본문화 (`MAGICJAR_AI_KILLSWITCH` 신규 env · 비용 폭주 차단 path)** — orchestrator → architect R0 dispatch. ADR 0026·0027·0095·0100·0101 동반. 운영 코드 0 touch. (architect, opus 4.7 1M) |
