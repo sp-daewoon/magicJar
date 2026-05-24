@@ -11,6 +11,16 @@ import org.springframework.transaction.annotation.Transactional
 interface PositionJpaRepository : JpaRepository<PositionJpaEntity, Long> {
     fun findByUserId(userId: String): List<PositionJpaEntity>
 
+    fun findByUserIdAndQuantityGreaterThan(
+        userId: String,
+        minQuantity: Int,
+    ): List<PositionJpaEntity>
+
+    fun countByUserIdAndQuantityGreaterThan(
+        userId: String,
+        minQuantity: Int,
+    ): Int
+
     fun findByUserIdAndCode(
         userId: String,
         code: String,
