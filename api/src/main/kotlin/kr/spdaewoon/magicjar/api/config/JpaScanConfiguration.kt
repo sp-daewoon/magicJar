@@ -47,13 +47,29 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories
 @EnableJpaRepositories(
     basePackages = [
         "kr.spdaewoon.magicjar.api.persistence",
+        "kr.spdaewoon.magicjar.api.mcp.persistence",
         "kr.spdaewoon.magicjar.persistence.shared",
     ],
 )
 @EntityScan(
     basePackages = [
         "kr.spdaewoon.magicjar.api.persistence",
+        "kr.spdaewoon.magicjar.api.mcp.persistence",
         "kr.spdaewoon.magicjar.persistence.shared",
     ],
 )
 class JpaScanConfiguration
+/*
+ * 2026-05-24 W4 R3 qa hotfix — McpAuditJpaRepository scan path 추가.
+ *
+ * R2 backend-core T-MCP Phase 1 (PR #679)에서 McpAuditJpaRepository를 신규
+ * `kr.spdaewoon.magicjar.api.mcp.persistence` 패키지에 추가했으나 본 화이트리스트에 등록 누락.
+ *
+ * 증상: `magicjar-api` 부팅 abort
+ *   APPLICATION FAILED TO START — McpAuditService 의존성 McpAuditJpaRepository bean 미발견.
+ *
+ * 본 hotfix: basePackages + entityScan 둘 다 `api.mcp.persistence` 추가하여 단일 책임 보장.
+ *
+ * 재발 방지 — 신규 패키지에 JpaRepository/Entity 추가 시 본 화이트리스트 갱신 의무.
+ * (장기 fix는 sub-package 자동 스캔으로 ADR amend 후보 — backend-core 영역 dispatch.)
+ */
