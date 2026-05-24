@@ -3,10 +3,10 @@ id: T-20260524-1559-w4-r2-t-market-t-ai-ui
 agent: frontend
 model: opus
 branch: agent/frontend/w4-r2-t-market-t-ai-ui
-status: RUNNING
+status: DONE
 startedAt: 2026-05-24T15:59:48.601+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-24T16:23:32.334+09:00
+pr: #680
 parentPhase: ?
 ---
 
