@@ -28,18 +28,20 @@
 | backend-core (T-MARKET Phase 2) | **신규 모듈 `market-trend-engine/`** · domain `trend/` (신규) · api `controller/market/` (신규) + `controller/user/` (신규) · `infrastructure/persistence/TrendPreferenceJpaAdapter.kt` · settings.gradle.kts amend (+1 라인) | 0 (모두 신규 디렉토리 add-only) | — |
 | ai-engineer | api `ai/` (신규 패키지) · api `controller/ai/` (신규) · consumer `listener/AiCommentDispatcherListener.kt` (신규) · domain `ai/` (신규 또는 ADR 0026 §2-3 정합 신설) | 0 | — |
 
-### 2-2. Flyway 번호 사전 분배 LOCK (R0 spec §1 정합 — 충돌 회피)
+### 2-2. Flyway 번호 사전 분배 LOCK (R0 spec §1 정합 — 충돌 회피 · 2026-05-24 amend V47~V52 shift)
 
 | version | 표 | 담당 | 충돌 검증 |
 |---|---|---|---|
-| **V40** | `market_index_snapshot` | market-data | LOCK |
-| **V41** | `sector_index_snapshot` | market-data | LOCK |
-| **V42** | `ai_comment_log` | ai-engineer | LOCK |
-| **V43** | `prompt_template` (+ seed 5건) | ai-engineer | LOCK |
-| **V44** | `user_preference` | backend-core (T-MARKET) | LOCK |
-| **V45** | `mcp_audit` | backend-core (T-MCP) — R2 영역 | LOCK |
+| **V47** | `market_index_snapshot` | market-data | LOCK (2026-05-24 amend — V40 → V47 shift) |
+| **V48** | `sector_index_snapshot` | market-data | LOCK (2026-05-24 amend — V41 → V48 shift) |
+| **V49** | `ai_comment_log` | ai-engineer | LOCK (2026-05-24 amend — V42 → V49 shift) |
+| **V50** | `prompt_template` (+ seed 5건) | ai-engineer | LOCK (2026-05-24 amend — V43 → V50 shift) |
+| **V51** | `user_preference` | backend-core (T-MARKET) | LOCK (2026-05-24 amend — V44 → V51 shift) |
+| **V52** | `mcp_audit` | backend-core (T-MCP) — R2 영역 | LOCK (2026-05-24 amend — V45 → V52 shift) |
 
-**충돌 LOCK 검증 의무**: 각 sub-agent dispatch 시 본 매트릭스 정합 의무. V40~V45 외 신규 마이그레이션 발견 시 architect 우선 결정 (orchestrator escalation 의무).
+**충돌 LOCK 검증 의무**: 각 sub-agent dispatch 시 본 매트릭스 정합 의무. V47~V52 외 신규 마이그레이션 발견 시 architect 우선 결정 (orchestrator escalation 의무).
+
+**2026-05-24 amend 사유**: R0 PR #674 시점 V40~V45 LOCK 발행 → ai-engineer R1 dispatch가 main HEAD audit 결과 V40~V46 이미 점유 사실 발견 → 헌법 §7 escalation 절차 가동 → architect R0 amend PR로 V47~V52 재분배. 본 결함 재발 방지 의무는 ADR 0102 신설 본문 (spec audit 5단계 절차 LOCK) 참조.
 
 ### 2-3. Kafka 토픽 사전 분배 LOCK
 
@@ -109,7 +111,7 @@ git diff <R1-PR-A>..<R1-PR-B> --stat | grep -v "^_workspace/\|^CHANGELOG.md\|^do
 | sub-agent | 영역 점유 | 영역 침범 risk |
 |---|---|---|
 | frontend | `frontend/src/components/market/` · `frontend/src/components/ai/` · `frontend/src/pages/MarketTrendPage.tsx` · `frontend/src/hooks/use*` · `frontend/src/api/*` · `frontend/src/types/*` + DashboardPage·SettingsModal·SymbolDetailPage·StrategyPage·DashboardPage·Routes·AppHeader amend (각 5~30 라인) | 0 — 모두 frontend 영역 |
-| backend-core (T-MCP) | api `mcp/` (신규 패키지) · Flyway V45 · `mcp/indicator_catalog.json` resource | 0 — frontend 영역 0 touch |
+| backend-core (T-MCP) | api `mcp/` (신규 패키지) · Flyway V52 · `mcp/indicator_catalog.json` resource (2026-05-24 amend — V45 → V52 shift) | 0 — frontend 영역 0 touch |
 
 ### 3-2. 완전 영역 분리
 
@@ -139,8 +141,8 @@ qa 단독 dispatch — `tests/e2e/w4/` 신규 디렉토리 + `_workspace/reports
 orchestrator dispatch 직렬 순서:
 
 1. **R0 architect** (본 PR) — main 머지
-2. **R1 3 PR 머지** (병렬 OK · 머지 순서 무관) — Flyway V40~V44 모두 적용 + market-trend-engine 모듈 신설 + ai_comment_log·prompt_template 영속
-3. **R2 2 PR 머지** (병렬 OK · 머지 순서 무관) — frontend UI + MCP T-MCP V45 적용
+2. **R1 3 PR 머지** (병렬 OK · 머지 순서 무관) — Flyway V47·V48·V49·V50·V51 모두 적용 (2026-05-24 amend — V40~V44 shift) + market-trend-engine 모듈 신설 + ai_comment_log·prompt_template 영속
+3. **R2 2 PR 머지** (병렬 OK · 머지 순서 무관) — frontend UI + MCP T-MCP V52 적용 (2026-05-24 amend — V45 → V52 shift)
 4. **R3 qa PR 머지** — E2E Visual 회귀 7 케이스 GREEN
 5. **v3.9.0 cut** — baseline + tag + release notes
 

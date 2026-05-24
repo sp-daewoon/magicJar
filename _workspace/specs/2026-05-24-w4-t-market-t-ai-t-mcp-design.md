@@ -42,8 +42,8 @@ W4 = 3 트랙 add-only — 본체 자본 흐름 영향 0 (ADR 0026 §2-6 정합)
 
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  T-MARKET (신규 모듈 후보 market-trend-engine — indicator-impl 패턴 1:1)│
-│   ├─ market_index_snapshot · sector_index_snapshot 영속 (Flyway V40+)   │
-│   ├─ user_preference 영속 (Flyway V44 · extra JSONB 확장 슬롯)          │
+│   ├─ market_index_snapshot · sector_index_snapshot 영속 (Flyway V47·V48) │
+│   ├─ user_preference 영속 (Flyway V51 · extra JSONB 확장 슬롯)          │
 │   ├─ KIS endpoint 5 (국내 3 + 해외 2 — raw fetch 의무)                  │
 │   ├─ TrendCalculator (1d·5d·N MA·RS pure math — user periods 입력)      │
 │   ├─ TrendPreference 1급 도메인 (user-settable · default [5,20,60])     │
@@ -54,14 +54,14 @@ W4 = 3 트랙 add-only — 본체 자본 흐름 영향 0 (ADR 0026 §2-6 정합)
 │   ├─ 진입점 5종: SYMBOL·CHART·STRATEGY·SIGNAL·MARKET (신규)             │
 │   ├─ AnthropicCommentAdapter (1차 default) + Gemini·OpenAI 옵션         │
 │   ├─ AiCommentProvider 추상화 + Redis ai:prompt:cache 5분 + 1일 한도   │
-│   ├─ ai_comment_log V41 + prompt_template V42 (variable schema)         │
+│   ├─ ai_comment_log V49 + prompt_template V50 (variable schema)         │
 │   └─ STOMP /topic/ai.explain.{requestId} fanout                         │
 │              ↓ expose                                                   │
 │  T-MCP (api 모듈 mcp/ 패키지 — ADR 0027)                                │
 │   ├─ McpController HTTP/SSE + JSON Schema 정합                          │
 │   ├─ tool 6종: get_candles·run_screener·get_journal·explain_indicator   │
 │   │              ·backtest_strategy·get_market_trend (T-MARKET 합류)    │
-│   ├─ ApiKeyAuthFilter (localhost 1차) + mcp_audit V43                   │
+│   ├─ ApiKeyAuthFilter (localhost 1차) + mcp_audit V52                   │
 │   └─ explain_indicator는 LLM 호출 0 (정적 catalog)                      │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -202,19 +202,20 @@ data class SectorRanking(
   - 일봉 영속 + retroactive trend recompute
   - 해외 일봉은 별도 cron (한국 시간 06:00 KST · 미국 정규장 마감 + 30분)
 
-#### Flyway 마이그레이션 6건 (api 모듈 LOCK · 본 사이클 전역 분배)
+#### Flyway 마이그레이션 6건 (api 모듈 LOCK · 본 사이클 전역 분배 · 2026-05-24 amend V47~V52 shift)
 | version | 표 | 담당 sub-agent | 비고 |
 |---|---|---|---|
-| V40 | `market_index_snapshot` | market-data (R1) | code · ts · price · open · high · low · close · volume · UQ(code, ts) |
-| V41 | `sector_index_snapshot` | market-data (R1) | sector_code · sector_name · ts · price · change_rate · trade_value · UQ(sector_code, ts) |
-| V42 | `ai_comment_log` | ai-engineer (R1) | §3-3 — request_id · user_id · type · provider · model · prompt_hash · tokens · cost · latency · cached · content |
-| V43 | `prompt_template` | ai-engineer (R1) | §3-3 — type · version · template_text · variables_schema · is_active (versioned) + data seed 5건 |
-| V44 | `user_preference` | backend-core (R1) | user_id PK · trend_ma_periods JSONB · trend_rs_period · trend_cross_pair JSONB null · extra JSONB · timestamps |
-| V45 | `mcp_audit` | backend-core (R2) | §4-3 — user_id · client_id · tool · params · response_size · latency_ms · error_message · called_at |
+| V47 (← V40) | `market_index_snapshot` | market-data (R1) | code · ts · price · open · high · low · close · volume · UQ(code, ts) |
+| V48 (← V41) | `sector_index_snapshot` | market-data (R1) | sector_code · sector_name · ts · price · change_rate · trade_value · UQ(sector_code, ts) |
+| V49 (← V42) | `ai_comment_log` | ai-engineer (R1) | §3-3 — request_id · user_id · type · provider · model · prompt_hash · tokens · cost · latency · cached · content |
+| V50 (← V43) | `prompt_template` | ai-engineer (R1) | §3-3 — type · version · template_text · variables_schema · is_active (versioned) + data seed 5건 |
+| V51 (← V44) | `user_preference` | backend-core (R1) | user_id PK · trend_ma_periods JSONB · trend_rs_period · trend_cross_pair JSONB null · extra JSONB · timestamps |
+| V52 (← V45) | `mcp_audit` | backend-core (R2) | §4-3 — user_id · client_id · tool · params · response_size · latency_ms · error_message · called_at |
 
-> **충돌 회피 LOCK**: 6건 모두 번호 사전 분배. R0 architect dispatch-spec §X 에 본 표 그대로 인용 의무. 사이클 도중 V40 ~ V45 외 신규 마이그레이션 발견 시 architect 우선 결정 필요.
+> **충돌 회피 LOCK**: 6건 모두 번호 사전 분배. R0 architect dispatch-spec §X 에 본 표 그대로 인용 의무. 사이클 도중 V47 ~ V52 외 신규 마이그레이션 발견 시 architect 우선 결정 필요.
+> **2026-05-24 amend 사유**: R0 PR #674 시점 V40~V45 LOCK 발행 → ai-engineer R1 dispatch에서 main HEAD V40~V46 점유 사실 발견 → 헌법 §7 escalation → architect R0 amend로 V47~V52 재분배 (main HEAD V46 + V47 비점유 검증 evidence). 본 결함 재발 방지는 ADR 0102 신설 본문 (spec audit 5단계 절차 LOCK) 참조.
 
-#### user_preference DDL (V44)
+#### user_preference DDL (V51)
 ```sql
 CREATE TABLE user_preference (
     user_id BIGINT PRIMARY KEY,
@@ -280,11 +281,11 @@ COMMENT ON COLUMN user_preference.extra IS 'forward-compat 확장 슬롯 — MA 
   ↓ frontend AiCard 표시 (markdown render + 인용 출처 + token 비용)
 ```
 
-### 3-3. 영속 (Flyway V42 · V43 — §2-5 표 정합)
+### 3-3. 영속 (Flyway V49 · V50 — §2-5 표 정합 · 2026-05-24 amend V42·V43 shift)
 | version | 표 | 비고 |
 |---|---|---|
-| V42 | `ai_comment_log` | request_id UUID PK · user_id · type · provider · model · prompt_hash · tokens_in · tokens_out · cost_usd · latency_ms · cached BOOL · content TEXT · created_at |
-| V43 | `prompt_template` | type · version · template_text · variables_schema JSONB · is_active BOOL · created_at — versioned (A/B 대비) |
+| V49 (← V42) | `ai_comment_log` | request_id UUID PK · user_id · type · provider · model · prompt_hash · tokens_in · tokens_out · cost_usd · latency_ms · cached BOOL · content TEXT · created_at |
+| V50 (← V43) | `prompt_template` | type · version · template_text · variables_schema JSONB · is_active BOOL · created_at — versioned (A/B 대비) |
 
 #### prompt_template 시드 (Flyway data 5건)
 - `prompt_template:symbol_v1` — 종목 분석
@@ -341,9 +342,9 @@ COMMENT ON COLUMN user_preference.extra IS 'forward-compat 확장 슬롯 — MA 
 ```
 periods 생략 시 user preference 적용 + 응답 echo. 외부 AI client (Claude / Cursor) 가 사용자 mental model 동일 조회.
 
-### 4-3. 인증 · audit (Flyway V45 — §2-5 표 정합)
+### 4-3. 인증 · audit (Flyway V52 — §2-5 표 정합 · 2026-05-24 amend V45 shift)
 - **인증 1차**: API key env `MAGICJAR_MCP_API_KEY` (localhost 한정)
-- **mcp_audit V45** — `id BIGSERIAL · user_id · client_id · tool · params JSONB · response_size · latency_ms · error_message · called_at` + idx (user_id, called_at DESC)
+- **mcp_audit V52 (← V45)** — `id BIGSERIAL · user_id · client_id · tool · params JSONB · response_size · latency_ms · error_message · called_at` + idx (user_id, called_at DESC)
 
 ---
 
@@ -360,7 +361,7 @@ periods 생략 시 user preference 적용 + 응답 echo. 외부 AI client (Claud
 | ADR 0004 모듈 매트릭스 | 7 → 8 (market-trend-engine 추가) | ADR 0004 §2 갱신 + diagram 보강 |
 | 기존 SettingsModal | "추세 설정" 섹션 add-only | 기존 섹션 0 touch |
 | 기존 DashboardPage | MarketIndexStrip add-only 상단 배치 | 기존 위젯 0 touch |
-| 기존 ai_comment_log (ADR 0026 V20 예약) | 신규 발행 V42 (§2-5 표 LOCK · V20 예약 폐기) | architect R0 dispatch-spec 에서 V20 예약 명시 폐기 · ADR 0026 본문 §2-3 영속 참조 V20 → V42 갱신 |
+| 기존 ai_comment_log (ADR 0026 V20 예약) | 신규 발행 V49 (§2-5 표 LOCK · V20 예약 폐기 · 2026-05-24 amend — V42 → V49 shift) | architect R0 dispatch-spec 에서 V20 예약 명시 폐기 · ADR 0026 본문 §2-3 영속 참조 V20 → V49 갱신 |
 
 ### 5-2. 연결 매트릭스 (신규 → 기존 port · event 활용)
 | 신규 컴포넌트 | 활용 기존 |
@@ -390,7 +391,7 @@ periods 생략 시 user preference 적용 + 응답 echo. 외부 AI client (Claud
 | MCP write tool (주문 발행) | T-MCP 7 번째 tool | 안전성 검증 후 별도 ADR |
 | MCP OAuth2 인증 | ApiKeyAuthFilter → OAuth2Filter | 옵션 |
 
-→ **`user_preference.extra JSONB` 슬롯이 post-MVP forward-compat 단일 진입점**. V44 한 번 마이그레이션으로 차후 사용자 설정 도메인 전체 흡수.
+→ **`user_preference.extra JSONB` 슬롯이 post-MVP forward-compat 단일 진입점**. V51 한 번 마이그레이션으로 차후 사용자 설정 도메인 전체 흡수 (2026-05-24 amend — V44 → V51 shift).
 
 ---
 
@@ -400,19 +401,19 @@ periods 생략 시 user preference 적용 + 응답 echo. 외부 AI client (Claud
 | Round | sub-agent | scope | size | 영역 충돌 |
 |---|---|---|---|---|
 | **R0** | architect | spec 4건 발행 (design 동기화 + dispatch-spec + conflict-matrix + CHANGELOG slot) + ADR 0100 (T-MARKET) Proposed→Accepted + ADR 0101 (TrendPreference 도메인 + user_preference 확장 슬롯) Proposed→Accepted + ADR 0026·0027·0004·0037·0094·0095 amend + KIS endpoint 5 raw fetch evidence 첨부 + 헌법 §3 5단계 절차 정합 | L | 단독 |
-| **R1 (3 병렬)** | market-data | T-MARKET Phase 1 — KIS adapter 5 (국내 3 + 해외 2) + cron Job 2 (MarketIndexSyncJob 1분 + MarketIndexDailyCloseJob 16:30) + raw fetch inline KDoc + KisCallPriority.INGESTION_LOW 합류 + Flyway V40·V41 | L | api adapter / batch job |
-| | backend-core | T-MARKET Phase 2 — market-trend-engine 모듈 신설 + TrendCalculator pure math + TrendPreference 도메인 + TrendPreferenceRepository JPA + TrendPreferenceService + REST 6 endpoint Swagger 4단 + Flyway V44 (user_preference) + STOMP 3 topic | L | domain · market-trend-engine · api service/controller |
-| | ai-engineer | T-AI Phase 1 — Anthropic·Gemini·OpenAI 3 adapter + AiCommentProvider interface + AiCommentDispatcher consumer + 5 prompt template seed (V42 data) + Redis ai:prompt:cache + Resilience4j circuit + Flyway V41 (ai_comment_log) + V42 (prompt_template) + `POST /api/ai/explain` controller | L | api ai/ 패키지 + consumer dispatcher |
+| **R1 (3 병렬)** | market-data | T-MARKET Phase 1 — KIS adapter 5 (국내 3 + 해외 2) + cron Job 2 (MarketIndexSyncJob 1분 + MarketIndexDailyCloseJob 16:30) + raw fetch inline KDoc + KisCallPriority.INGESTION_LOW 합류 + Flyway V47·V48 (2026-05-24 amend — V40·V41 shift) | L | api adapter / batch job |
+| | backend-core | T-MARKET Phase 2 — market-trend-engine 모듈 신설 + TrendCalculator pure math + TrendPreference 도메인 + TrendPreferenceRepository JPA + TrendPreferenceService + REST 6 endpoint Swagger 4단 + Flyway V51 (user_preference · 2026-05-24 amend — V44 shift) + STOMP 3 topic | L | domain · market-trend-engine · api service/controller |
+| | ai-engineer | T-AI Phase 1 — Anthropic·Gemini·OpenAI 3 adapter + AiCommentProvider interface + AiCommentDispatcher consumer + 5 prompt template seed (V50 data) + Redis ai:prompt:cache + Resilience4j circuit + Flyway V49 (ai_comment_log) + V50 (prompt_template · 2026-05-24 amend — V42·V43 shift) + `POST /api/ai/explain` controller | L | api ai/ 패키지 + consumer dispatcher |
 | **R2 (2 병렬 · R1 머지 후)** | frontend | T-MARKET·T-AI UI — DashboardPage MarketIndexStrip + `/market/trend` 페이지 + 5 진입점 AiCard + SettingsModal "추세 설정" 섹션 + `useTrendPreference`·`useMarketTrend`·`useAiExplain` hook + STOMP subscribe 3 topic + LWC v4 MA overlay | L | frontend 단독 |
-| | backend-core | T-MCP Phase 1 — McpController HTTP/SSE + 6 tool (get_candles · run_screener · get_journal · explain_indicator · backtest_strategy · get_market_trend) + JSON Schema 정합 + ApiKeyAuthFilter + Flyway V43 (mcp_audit) + explain_indicator 정적 catalog seed | M | api mcp/ 패키지 단독 |
+| | backend-core | T-MCP Phase 1 — McpController HTTP/SSE + 6 tool (get_candles · run_screener · get_journal · explain_indicator · backtest_strategy · get_market_trend) + JSON Schema 정합 + ApiKeyAuthFilter + Flyway V52 (mcp_audit · 2026-05-24 amend — V45 shift) + explain_indicator 정적 catalog seed | M | api mcp/ 패키지 단독 |
 | **R3 (직렬 · R2 머지 후)** | qa | E2E Visual 회귀 — 5 진입점 AI click flow + DashboardPage MarketIndexStrip + `/market/trend` 페이지 (default pref · custom pref 양쪽) + SettingsModal 추세 설정 변경 → 차트 즉시 반영 + MCP curl 6 tool + AI mock mode evidence + KIS Rate Limit 26 req/min 실측 evidence + docker logs 4 모듈 0건 검증 | M | qa 단독 |
 
 ### 6-2. 병렬 가능 사유 (modify-shared 0 검증)
 - **R1 3 영역 분리**:
-  - market-data → api adapter + batch job + Flyway V40·V41 (영속 표는 backend-core 와 별개 V40·V41 vs V44 분리)
-  - backend-core → domain + market-trend-engine 신설 + api service/controller + Flyway V44 (user_preference 단독)
-  - ai-engineer → api ai/ 패키지 + consumer dispatcher + Flyway V41(ai_comment_log)·V42(prompt_template) — **충돌 가능성 V41**
-  - **충돌 회피**: market-data 가 V40·V41 (market_index · sector_index) 점유 + ai-engineer 가 V42·V43 (ai_comment_log · prompt_template) 재배치. architect R0 dispatch-spec 에서 Flyway 번호 LOCK 분배 의무.
+  - market-data → api adapter + batch job + Flyway V47·V48 (영속 표는 backend-core 와 별개 V47·V48 vs V51 분리 · 2026-05-24 amend V40·V41 → V47·V48 shift)
+  - backend-core → domain + market-trend-engine 신설 + api service/controller + Flyway V51 (user_preference 단독 · 2026-05-24 amend V44 → V51 shift)
+  - ai-engineer → api ai/ 패키지 + consumer dispatcher + Flyway V49(ai_comment_log)·V50(prompt_template · 2026-05-24 amend V42·V43 → V49·V50 shift)
+  - **충돌 회피**: market-data 가 V47·V48 (market_index · sector_index) 점유 + ai-engineer 가 V49·V50 (ai_comment_log · prompt_template) 재배치. architect R0 dispatch-spec 에서 Flyway 번호 LOCK 분배 의무 (2026-05-24 amend — V40~V45 → V47~V52 shift · main HEAD V46 점유 사실 audit 누락 결함 evidence + ADR 0102 신설로 재발 방지).
 - **R2 2 영역 분리**: frontend 단독 vs backend-core T-MCP api mcp/ 패키지 단독. 0 영역 충돌.
 
 ### 6-3. CHANGELOG slot anchor (ADR 0050 정합)

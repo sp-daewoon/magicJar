@@ -31,7 +31,7 @@ R0 architect 머지 → 헌법 §2 정리 4단계 완료 → orchestrator R1 3 s
 #### 영역 LOCK
 - api 모듈 `api/src/main/kotlin/kr/spdaewoon/magicjar/api/infrastructure/kis/index/` (신규 디렉토리)
 - batch 모듈 `batch/src/main/kotlin/kr/spdaewoon/magicjar/batch/job/market/` (신규 디렉토리)
-- Flyway **V40·V41 LOCK**
+- Flyway **V47·V48 LOCK** (2026-05-24 amend — 본 PR R0 PR #674 시점 V40·V41 LOCK 발행 → main HEAD V46까지 점유 검증으로 무효 → V47·V48 shift · 본 결함 evidence + 재발 방지는 ADR 0102 신설 본문 참조)
 - 영역 침범 0 — 기존 KIS adapter / batch Job / domain port 0 touch
 
 #### 산출 파일 매트릭스
@@ -46,8 +46,8 @@ R0 architect 머지 → 헌법 §2 정리 4단계 완료 → orchestrator R1 3 s
 | 6 | `domain/.../market/index/MarketIndexFetcherPort.kt` | domain port (5 adapter 공통 interface) | ~30 |
 | 7 | `batch/.../job/market/MarketIndexSyncJob.kt` | 1분 cron · 장중 한정 · MarketSession FSM 게이트 · 26 req/min | ~150 |
 | 8 | `batch/.../job/market/MarketIndexDailyCloseJob.kt` | 16:30 KST + 06:00 KST 2회 일봉 backfill | ~120 |
-| 9 | `api/src/main/resources/db/migration/V40__market_index_snapshot.sql` | ADR 0100 §2-7 DDL 정합 | ~30 |
-| 10 | `api/src/main/resources/db/migration/V41__sector_index_snapshot.sql` | ADR 0100 §2-7 DDL 정합 | ~25 |
+| 9 | `api/src/main/resources/db/migration/V47__market_index_snapshot.sql` | ADR 0100 §2-7 DDL 정합 (2026-05-24 amend — V40 → V47 shift) | ~30 |
+| 10 | `api/src/main/resources/db/migration/V48__sector_index_snapshot.sql` | ADR 0100 §2-7 DDL 정합 (2026-05-24 amend — V41 → V48 shift) | ~25 |
 | 11 | `domain/.../market/ratelimit/KisCallPriority.kt` | INGESTION_LOW enum value 추가 (ADR 0037 amend 정합) | +~5 |
 | 12 | `_workspace/specs/2026-05-24-r1-market-data-kis-raw-verification.md` | KIS-first 5단계 §3 검증 보고서 (raw response sample 첨부 의무 — `.IXIC`·`.SPX` symbol query 실측 evidence) | ~150 |
 | 13 | 테스트 fixture 4건 (어댑터 4 + Job 2 부분) | mock response 기반 unit test | ~250 |
@@ -81,7 +81,7 @@ R0 architect 머지 → 헌법 §2 정리 4단계 완료 → orchestrator R1 3 s
 - **신규 모듈 `market-trend-engine/`** (root 직속 — indicator-impl 패턴 1:1)
 - domain 모듈 `domain/.../trend/` (신규 디렉토리)
 - api 모듈 `api/.../controller/market/` + `api/.../controller/user/` (신규)
-- Flyway **V44 LOCK**
+- Flyway **V51 LOCK** (2026-05-24 amend — V44 → V51 shift · main HEAD V46 점유 검증 결과 · ADR 0102 정합)
 - settings.gradle.kts 갱신 (market-trend-engine include)
 - 영역 침범 0 — 기존 모듈/controller 0 touch
 
@@ -104,7 +104,7 @@ R0 architect 머지 → 헌법 §2 정리 4단계 완료 → orchestrator R1 3 s
 | 13 | `market-trend-engine/.../service/IndexTrendComposer.kt` | DTO 조립 | ~70 |
 | 14 | `market-trend-engine/.../service/SectorRankingComposer.kt` | DTO 조립 + ranking 가중치 0.7+0.3 | ~90 |
 | 15 | `api/.../infrastructure/persistence/TrendPreferenceJpaAdapter.kt` | JPA adapter + JPA entity | ~120 |
-| 16 | `api/src/main/resources/db/migration/V44__user_preference.sql` | ADR 0101 §2-2 DDL 정합 + 시드 SQL idempotent | ~30 |
+| 16 | `api/src/main/resources/db/migration/V51__user_preference.sql` | ADR 0101 §2-2 DDL 정합 + 시드 SQL idempotent (2026-05-24 amend — V44 → V51 shift) | ~30 |
 | 17 | `api/.../controller/market/MarketIndexController.kt` | GET /api/market/index/snapshot + /index/{code}/trend | ~120 |
 | 18 | `api/.../controller/market/MarketSectorController.kt` | GET /api/market/sectors/snapshot + /sectors/ranking | ~100 |
 | 19 | `api/.../controller/user/UserPreferenceController.kt` | GET·PUT /api/users/me/preferences/trend | ~100 |
@@ -123,7 +123,7 @@ R0 architect 머지 → 헌법 §2 정리 4단계 완료 → orchestrator R1 3 s
 1. `./gradlew :market-trend-engine:test GREEN`
 2. `./gradlew :domain:test GREEN`
 3. `./gradlew :api:test --tests "*TrendPreference*" --tests "*MarketIndex*" --tests "*MarketSector*" --tests "*UserPreference*" GREEN`
-4. `./gradlew :api:bootRun` 또는 통합 부팅 smoke — Flyway V44 적용 + endpoint 6 응답 200 + Swagger UI 한국어 description 렌더링 evidence
+4. `./gradlew :api:bootRun` 또는 통합 부팅 smoke — Flyway V51 적용 (2026-05-24 amend — V44 → V51 shift) + endpoint 6 응답 200 + Swagger UI 한국어 description 렌더링 evidence
 5. TrendPreference require 5건 edge case 테스트 모두 GREEN (size 0/6 · 0/253 · sorted ASC 위반 · crossPair short>=long · crossPair not in maPeriods)
 
 #### Codex 4 lens 체크리스트
@@ -145,14 +145,14 @@ R0 architect 머지 → 헌법 §2 정리 4단계 완료 → orchestrator R1 3 s
 #### 영역 LOCK
 - api 모듈 `api/.../ai/` (신규 패키지)
 - consumer 모듈 `consumer/.../listener/AiCommentDispatcherListener.kt` (신규)
-- Flyway **V42·V43 LOCK**
+- Flyway **V49·V50 LOCK** (2026-05-24 amend — V42·V43 → V49·V50 shift · main HEAD V46 점유 검증 · ADR 0102 정합)
 - 영역 침범 0 — 기존 controller / consumer listener 0 touch
 
 #### 산출 파일 매트릭스
 
 | # | 파일 | 책임 | 예상 LOC |
 |---|---|---|---|
-| 1 | `domain/.../ai/AiCommentProvider.kt` | interface (이미 ADR 0026 §2-3에 존재 — 본 PR에서 V20→V42 정합으로 코드 신설) | ~25 |
+| 1 | `domain/.../ai/AiCommentProvider.kt` | interface (이미 ADR 0026 §2-3에 존재 — 본 PR에서 V20→V49 정합으로 코드 신설 · 2026-05-24 amend V42→V49 shift) | ~25 |
 | 2 | `domain/.../ai/AiCommentRequest.kt` + `AiCommentResponse.kt` + `AiCommentType.kt` | data class + enum (MARKET 신규 포함) | ~50 |
 | 3 | `api/.../ai/adapter/AnthropicCommentAdapter.kt` | Anthropic SDK 호출 + Resilience4j circuit 30s + 3 retry exponential | ~150 |
 | 4 | `api/.../ai/adapter/GeminiCommentAdapter.kt` | Google Gemini API 호출 (free tier — dev 1차 무료) | ~120 |
@@ -164,8 +164,8 @@ R0 architect 머지 → 헌법 §2 정리 4단계 완료 → orchestrator R1 3 s
 | 10 | `api/.../controller/ai/AiExplainController.kt` | POST /api/ai/explain — Swagger 4단 한국어 | ~100 |
 | 11 | `api/.../ai/AiCostTracker.kt` | `ai_comment_log.cost_usd` 월 누적 + ADR 0095 $10 임계 alert | ~70 |
 | 12 | `consumer/.../listener/AiCommentDispatcherListener.kt` | Kafka ai.comment.requested.v1 consume → adapter 호출 → ai.comment.responded.v1 publish | ~120 |
-| 13 | `api/src/main/resources/db/migration/V42__ai_comment_log.sql` | ADR 0026 §2-5 amend 정합 DDL | ~30 |
-| 14 | `api/src/main/resources/db/migration/V43__prompt_template.sql` + seed 5건 | ADR 0026 §2-7 amend 정합 — symbol_v1·chart_v1·strategy_v1·signal_v1·market_v1 | ~80 |
+| 13 | `api/src/main/resources/db/migration/V49__ai_comment_log.sql` | ADR 0026 §2-5 amend 정합 DDL (2026-05-24 amend — V42 → V49 shift) | ~30 |
+| 14 | `api/src/main/resources/db/migration/V50__prompt_template.sql` + seed 5건 | ADR 0026 §2-7 amend 정합 — symbol_v1·chart_v1·strategy_v1·signal_v1·market_v1 (2026-05-24 amend — V43 → V50 shift) | ~80 |
 | 15 | `api/.../ai/PromptTemplateResolver.kt` | type+version 조회 + 변수 치환 (`{{code}}`·`{{maPeriods}}`·`{{rsPeriod}}` 등) | ~60 |
 | 16 | `api/.../stomp/AiExplainStompPublisher.kt` | /topic/ai.explain.{requestId} fanout | ~40 |
 | 17 | 테스트 fixture | 3 adapter mock + cache hit/miss + token limit + KillSwitch + dispatcher consume·publish + prompt 변수 치환 | ~500 |
@@ -254,11 +254,11 @@ frontend 핵심 화면 변경 (DashboardPage · SettingsModal · /market/trend p
 
 ---
 
-### §R2-2. backend-core — T-MCP Phase 1 (McpController + 6 tool + JSON Schema + Flyway V45)
+### §R2-2. backend-core — T-MCP Phase 1 (McpController + 6 tool + JSON Schema + Flyway V52)
 
 #### 영역 LOCK
 - api 모듈 `api/.../mcp/` (신규 패키지 — ADR 0027 §2-1 정합)
-- Flyway **V45 LOCK**
+- Flyway **V52 LOCK** (2026-05-24 amend — V45 → V52 shift · main HEAD V46 점유 검증 · ADR 0102 정합)
 - 영역 침범 0 — 기존 controller / service 0 touch
 
 #### 산출 파일 매트릭스
@@ -274,9 +274,9 @@ frontend 핵심 화면 변경 (DashboardPage · SettingsModal · /market/trend p
 | 7 | `api/.../mcp/tool/BacktestStrategyTool.kt` | 성과 카드 + trades — 기존 BacktestService reuse | ~100 |
 | 8 | `api/.../mcp/tool/GetMarketTrendTool.kt` | scope (index/sector/both) + periods + rsPeriod → T-MARKET service reuse | ~120 |
 | 9 | `api/.../mcp/auth/ApiKeyAuthFilter.kt` | env `MAGICJAR_MCP_API_KEY` 1차 인증 (localhost 한정) | ~80 |
-| 10 | `api/.../mcp/McpAuditLogger.kt` | mcp_audit V45 insert (호출 직후) | ~60 |
+| 10 | `api/.../mcp/McpAuditLogger.kt` | mcp_audit V52 insert (호출 직후 · 2026-05-24 amend V45→V52 shift) | ~60 |
 | 11 | `api/.../mcp/McpRateLimitGuard.kt` | 분당 호출 100 초과 시 SystemEvent emit (ADR 0095 amend S-MCP-1) | ~70 |
-| 12 | `api/src/main/resources/db/migration/V45__mcp_audit.sql` | ADR 0027 §2-5 amend 정합 | ~25 |
+| 12 | `api/src/main/resources/db/migration/V52__mcp_audit.sql` | ADR 0027 §2-5 amend 정합 (2026-05-24 amend — V45 → V52 shift) | ~25 |
 | 13 | `api/src/main/resources/mcp/indicator_catalog.json` | explain_indicator 정적 catalog seed (RSI·MACD·MA 등 20+ 지표) | ~300 |
 | 14 | `api/.../mcp/dto/*` | JSON Schema DTO 6 tool 입력 + 응답 | ~250 |
 | 15 | 테스트 fixture | McpController 통합 + 6 tool 단위 + ApiKeyAuthFilter + McpAuditLogger + McpRateLimitGuard | ~400 |

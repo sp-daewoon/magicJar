@@ -84,10 +84,10 @@
 | 번호 | 제목 |
 |------|------|
 | 0025 | LWC 확장 + 자체 도형/주석/패턴 |
-| 0026 | AI 옵션 보조 (사용자 트리거 한정 + 분석 코멘트) — **Accepted (2026-05-24 amend — 진입점 4 → 5 MARKET 신규 · V42·V43 LOCK · AI 비용 통제 + KillSwitch · prompt_template:market_v1 seed)** |
-| 0027 | MCP 서버 미래 노출 — **Accepted (2026-05-24 amend — tool 5 → 6 `get_market_trend` 신규 · JSON Schema 본문 추가 · V45 LOCK · MCP 분당 100 초과 alert)** |
-| **0100** | **T-MARKET 트랙 — 지수·섹터 추세 분석 모듈 (market-trend-engine 신설 + KIS endpoint 5 LOCK + cron 매트릭스 + Flyway V40·V41 + REST 6 endpoint + STOMP 3 topic + KIS-first raw fetch 5 evidence) — Accepted (2026-05-24 — architect R0 spec 발행, 사용자 brainstorming 결재 cec6a4d6 정합)** |
-| **0101** | **TrendPreference 1급 도메인 + `user_preference` 표 (forward-compat 확장 슬롯 단일 진입점 — V44 + extra JSONB + 시드 SQL idempotent + Bean Validation + REST 2 endpoint Swagger 4단) — Accepted (2026-05-24 — architect R0 spec 발행, 사용자 brainstorming §0-2 추가 의제 결재)** |
+| 0026 | AI 옵션 보조 (사용자 트리거 한정 + 분석 코멘트) — **Accepted (2026-05-24 amend — 진입점 4 → 5 MARKET 신규 · V49·V50 LOCK (R0 결함 fix amend V42·V43 → V49·V50 shift · ADR 0102 정합) · AI 비용 통제 + KillSwitch · prompt_template:market_v1 seed)** |
+| 0027 | MCP 서버 미래 노출 — **Accepted (2026-05-24 amend — tool 5 → 6 `get_market_trend` 신규 · JSON Schema 본문 추가 · V52 LOCK (R0 결함 fix amend V45 → V52 shift · ADR 0102 정합) · MCP 분당 100 초과 alert)** |
+| **0100** | **T-MARKET 트랙 — 지수·섹터 추세 분석 모듈 (market-trend-engine 신설 + KIS endpoint 5 LOCK + cron 매트릭스 + Flyway V47·V48 (R0 결함 fix amend V40·V41 → V47·V48 shift · ADR 0102 정합) + REST 6 endpoint + STOMP 3 topic + KIS-first raw fetch 5 evidence) — Accepted (2026-05-24 — architect R0 spec 발행, 사용자 brainstorming 결재 cec6a4d6 정합)** |
+| **0101** | **TrendPreference 1급 도메인 + `user_preference` 표 (forward-compat 확장 슬롯 단일 진입점 — V51 (R0 결함 fix amend V44 → V51 shift · ADR 0102 정합) + extra JSONB + 시드 SQL idempotent + Bean Validation + REST 2 endpoint Swagger 4단) — Accepted (2026-05-24 — architect R0 spec 발행, 사용자 brainstorming §0-2 추가 의제 결재)** |
 
 ## §8. Watchlist · 차트 데이터 흐름 (3건)
 
@@ -97,7 +97,7 @@
 | 0029 | 당일 진행 중 캔들 Redis 캐시 |
 | 0093 | **차트 캔들 히스토리 limit 정책 + Lazy Backfill + 사용자 입력 봉수 — Proposed (2026-05-20, chart-curator spec 발행 + backend-core property/cap + frontend UI Phase 분리 dispatch 대기)** |
 
-## §9. 메타·운영·하네스 (11건)
+## §9. 메타·운영·하네스 (12건)
 
 | 번호 | 제목 |
 |------|------|
@@ -119,6 +119,7 @@
 | 0094 | **운영 단계 transition — 개발 단계 종착 + 운영·점진 고도화 단계 진입 (sub-agent 8 → 7 reshuffle: 해고 chart-curator·격상 qa Visual "품질 헌터"·유지 ai-engineer·거절 sre · backend-core P0 OPS 6건 인수 · 운영 헌법 §9 신설 SLO/SLA·on-call·DR·운영 ADR 양식 · spec 2건 동반 발행) — Accepted (2026-05-21 사용자 위임 결재 · orchestrator 자율 결정 매트릭스 반영 · ADR 0080·0087 amend + ADR 0085 supersede)** |
 | 0095 | **P0-OPS-3 — SLO/SLA 정의 + alert routing matrix (v3.8.0 운영 baseline P0) — Accepted (2026-05-21)** — ADR 0094 §3-2 P0-OPS-3 task 본문화 + 운영 헌법 §9-1 SLO 5건 측정 매트릭스 amend (S-1 시그널→주문 P95<5s · S-2 KIS WS 연결률>99% · S-3 account API p95<500ms · S-4 KIS rate limit<1건/5분 · S-5 KillSwitch 자동 ON<1건/일) + severity 4단 routing matrix (P4 INFO/P3 WARN/P2 ERROR/P1 CRITICAL — ADR 0084 정합) + Prometheus alert rule sketch 5 SLO × 2 임계 10건 + KillSwitch 자동 ON 검토 자동 액션 S-1·S-5 critical 한정 (ADR 0043 race-safe 정합) + Slack 단일 channel (ADR 0044 reuse) + 운영 ADR 양식 3 슬롯 첫 적용 사례 (SLO 영향·rollback plan·관측 매트릭스). 운영 코드 0 touch. backend-core P0-OPS-3 후속 wiring 5건 권고 (Micrometer timer S-1 · SystemEvent → Counter · alert rule yml · Alertmanager · runbook 본문). |
 | 0096 | **P0-OPS-4 — DR/backup 절차 (PostgreSQL pg_dump + Redis snapshot + RPO/RTO 정의) — Accepted (2026-05-21)** — ADR 0094 §3-7 P0-OPS-4 task 본문화 + 운영 헌법 §9-4 backup 매트릭스 amend (산출물 위치 LOCK). PostgreSQL daily full dump 매일 03:00 KST + 7일 retention(`_workspace/backups/postgres/daily/YYYY-MM-DD.dump`) · Redis snapshot 매일 03:30 KST + 3일 retention(`_workspace/backups/redis/snapshots/dump-YYYY-MM-DD-HHMM.rdb`) + AOF 거부(cache 본질 정합) + Kafka offset N/A(Outbox 영속 권위 ADR 0088 흡수). **RPO 24h** (daily backup) + **RTO 30분** (R-4 §3-2 pg_restore 절차 정합 — 부분 15분/Flyway 20분/컨테이너 10분/Redis 5분/DR drill 60분). 복구 절차 본문은 R-4 runbook (P0-OPS-5) 단일 권위 — 본 ADR은 정책·산출물·DR drill 권위 LOCK + 본문 중복 회피. **DR drill 분기 의무** — 5 시나리오 + qa Visual E2E 자동 재현 + 사용자 결재 + RPO/RTO 실측 evidence → amend 트리거. **스크립트 + 가이드** — `scripts/backup/pg-dump-daily.sh` + `scripts/backup/redis-snapshot.sh` + `scripts/backup/README.md` + `docs/operations/backup-setup.md`(macOS crontab 등록 가이드 + 진단 매트릭스 + Linux 참고 + rollback). **운영 ADR 양식 두 번째 적용 사례** — SLO 영향(backup 0%→100% + RPO/RTO 0→본문화) · rollback plan(PR 단일 revert + crontab 4 라인 삭제) · 관측 매트릭스(backup 성공률>99% + retention 0건 초과 + DR drill 100% + Visual 회귀 시나리오). 운영 코드 0 touch. backend-core P0-OPS-4 후속 wiring 5건 권고 (Micrometer counter + Slack alert backup 실패 + persistence-shared Outbox monitoring + docker compose service 검토 + DR drill 자동화 script). 거부 옵션: WAL archiving baseline(P2 amend) · weekly backup baseline(P1 amend) · Redis AOF · Kafka offset backup · 외부 storage(post-MVP) · backup git tracked. |
+| **0102** | **spec/plan 발행 시 main 영속 자원 audit 의무 (5단계 절차 LOCK · Flyway·Kafka·Redis·STOMP·REST·ENV 6 영역) — Accepted (2026-05-24 — R0 결함 fix amend PR 동반 신설)** — 2026-05-24 R0 PR #674 시점 Flyway V40~V45 LOCK 발행 후 main HEAD V40~V46 점유 사실 발견 결함 (헌법 §7 escalation 1건 발생) → 본 ADR 신설로 spec/plan 발행 직전 5단계 audit (inventory·신설 매트릭스·충돌 검사·shift 결정·evidence 첨부) LOCK + 면제 조건 3건 (md only·hotfix·기존 LOCK amend) + 위반 시 escalation 경로 5단계. 헌법 §3 (KIS-first raw fetch "자체 추론 0") lens 외부 ↔ 내부 영속 자원 양면 보완. 운영 코드 0 touch (md only). 사용자 메모리 `feedback-codex-validation-gate` 4 lens 정합. |
 
 ## §10. 외부 API 강제 정책 + UI 흐름 (4건)
 
