@@ -46,7 +46,28 @@ dependencies {
     implementation("com.bucket4j:bucket4j-redis:8.10.1")
 
     // Flyway 미포함 (api 모듈만 마이그레이션)
-    // LLM provider 의존 0건 (W4 트랙 한정 — CLAUDE.md 개발 룰 §5)
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // W4 R1 T-AI Phase 1 — LLM provider 의존 (ADR 0026 amend · 사용자 결재 cec6a4d6)
+    //
+    // 개발 룰 §5 "AI 호출 자제" 정합:
+    //   - W1·W2·W3 트랙 코드(strategy/signal/order/risk/ingestion 등)에 LLM import 0건 LOCK
+    //   - 본 의존은 W4 트랙 한정 + `consumer/ai/` 패키지 외 import 금지
+    //   - architect R3 grep 검증 의무: `grep -rln "spring.ai\|AnthropicChatModel" consumer/src/main/kotlin/ | grep -v consumer/ai/` = 0건
+    // 매매 결정권 0 (ADR 0023 정합) — AiCommentDispatcherListener 는 advisory only, 시그널/주문 흐름 0 touch.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Spring AI Anthropic — 1차 default provider (`MAGICJAR_AI_PROVIDER=anthropic`)
+    implementation("org.springframework.ai:spring-ai-anthropic-spring-boot-starter") {
+        exclude(group = "org.springframework.boot", module = "spring-boot-starter-logging")
+    }
+
+    // Resilience4j — 3 retry exponential (1s/2s/4s) + 30s circuit breaker 50% threshold (ADR 0026 §2-6 amend)
+    //   - 모든 provider adapter 가 공통 적용 (AnthropicCommentAdapter · GeminiCommentAdapter · OpenAiCommentAdapter)
+    //   - 실패 시 본체 흐름 영향 0 — Circuit Breaker fallback → graceful refuse 한국어
+    implementation("io.github.resilience4j:resilience4j-spring-boot3:2.2.0")
+    implementation("io.github.resilience4j:resilience4j-kotlin:2.2.0")
+    implementation("io.github.resilience4j:resilience4j-reactor:2.2.0")
 
     // Test
     testImplementation("org.springframework.boot:spring-boot-starter-test")
