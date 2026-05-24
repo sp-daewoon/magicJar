@@ -297,46 +297,43 @@ export function SymbolDetailPage() {
           </div>
         )}
 
-        {/* ── 본문 레이아웃 (desktop: 3열, mobile: stacked) ── */}
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          {/* 좌측: 현재가 + 메타 카드 */}
-          <div className="flex flex-col gap-4 lg:col-span-1">
-            <SymbolPriceCard symbol={symbol} realtimeTick={realtimeTick} />
-            <SymbolMetaCard symbol={symbol} />
-          </div>
+        {/* ── 시장 스냅샷: 차트를 가로로 압박하지 않도록 상단 보조 정보로 배치 ── */}
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <SymbolPriceCard symbol={symbol} realtimeTick={realtimeTick} />
+          <SymbolMetaCard symbol={symbol} />
+        </div>
 
-          {/* 우측: 차트 (2열) */}
-          <div className="lg:col-span-2 space-y-3">
-            {/* W4 R2 AI 진입점: CHART (차트 해석) */}
-            <div>
-              <AiExplainEntry
-                type="CHART"
-                userId={userId}
-                context={{
-                  code,
-                  name: instrument?.name ?? symbol.code,
-                  currentPrice: realtimeTick?.price ?? symbol.currentPrice ?? null,
-                  changeRate: realtimeTick?.changeRate ?? symbol.changeRate ?? null,
-                  source: symbol.source,
-                }}
-              />
-            </div>
-            <SymbolChart
-              code={code}
-              realtimeCandle={realtimeCandle}
-              liveTick={
-                realtimeTick
-                  ? {
-                      price: realtimeTick.price,
-                      priceChange: realtimeTick.priceChange,
-                      changeRate: realtimeTick.changeRate,
-                      changeSign: realtimeTick.changeSign,
-                      ts: realtimeTick.ts,
-                    }
-                  : null
-              }
+        {/* ── 차트: 종목상세의 주 작업면이므로 전폭 사용 ── */}
+        <div className="space-y-3">
+          {/* W4 R2 AI 진입점: CHART (차트 해석) */}
+          <div>
+            <AiExplainEntry
+              type="CHART"
+              userId={userId}
+              context={{
+                code,
+                name: instrument?.name ?? symbol.code,
+                currentPrice: realtimeTick?.price ?? symbol.currentPrice ?? null,
+                changeRate: realtimeTick?.changeRate ?? symbol.changeRate ?? null,
+                source: symbol.source,
+              }}
             />
           </div>
+          <SymbolChart
+            code={code}
+            realtimeCandle={realtimeCandle}
+            liveTick={
+              realtimeTick
+                ? {
+                    price: realtimeTick.price,
+                    priceChange: realtimeTick.priceChange,
+                    changeRate: realtimeTick.changeRate,
+                    changeSign: realtimeTick.changeSign,
+                    ts: realtimeTick.ts,
+                  }
+                : null
+            }
+          />
         </div>
 
         {/* ── 호가창 (전폭) ── */}

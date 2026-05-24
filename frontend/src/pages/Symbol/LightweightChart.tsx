@@ -69,6 +69,11 @@ export interface LiveTick {
   ts: string
 }
 
+export interface ChartPriceTimePoint {
+  ts: string
+  price: string
+}
+
 interface LightweightChartProps {
   candles: CandleDto[]
   interval?: CandleInterval
@@ -97,6 +102,10 @@ interface LightweightChartProps {
   onCandleSeriesReady?: (series: ISeriesApi<'Candlestick'>) => void
   /** 캔들스틱 시리즈 파괴 시 알림 */
   onCandleSeriesDestroy?: () => void
+  /** 차트 클릭 좌표를 price/time으로 변환해 부모에게 전달 (추세선 수동 입력용) */
+  onPriceTimeClick?: (point: ChartPriceTimePoint) => void
+  /** 차트 hover 좌표를 price/time으로 변환해 부모에게 전달 (추세선 미리보기용) */
+  onPriceTimeMove?: (point: ChartPriceTimePoint | null) => void
 }
 
 /**
@@ -231,6 +240,18 @@ function lwcTimeToMs(time: UTCTimestamp | { year: number; month: number; day: nu
   return Date.UTC(time.year, time.month - 1, time.day)
 }
 
+function lwcTimeToIso(time: MouseEventParams['time']): string | null {
+  if (!time) return null
+  const ms =
+    typeof time === 'number'
+      ? time * 1000
+      : typeof time === 'string'
+        ? new Date(time).getTime()
+      : Date.UTC(time.year, time.month - 1, time.day)
+  if (!Number.isFinite(ms)) return null
+  return new Date(ms).toISOString()
+}
+
 /**
  * KST 시간 포맷터 — 분봉이면 "2026-01-01 10:20", 일봉 이상은 "2026-01-01"
  */
@@ -310,6 +331,8 @@ export function LightweightChart({
   onChartDestroy,
   onCandleSeriesReady,
   onCandleSeriesDestroy,
+  onPriceTimeClick,
+  onPriceTimeMove,
 }: LightweightChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -325,6 +348,10 @@ export function LightweightChart({
   onCandleSeriesReadyRef.current = onCandleSeriesReady
   const onCandleSeriesDestroyRef = useRef(onCandleSeriesDestroy)
   onCandleSeriesDestroyRef.current = onCandleSeriesDestroy
+  const onPriceTimeClickRef = useRef(onPriceTimeClick)
+  onPriceTimeClickRef.current = onPriceTimeClick
+  const onPriceTimeMoveRef = useRef(onPriceTimeMove)
+  onPriceTimeMoveRef.current = onPriceTimeMove
 
   // Phase 5 ADR 0093 §3-2 가드 3 — 최신 candles.length·maxCandles·onMaxCapReached ref
   // (subscribeVisibleLogicalRangeChange 콜백 클로저에서 최신 값 참조 — useEffect 의존성 없이 안전)
@@ -472,6 +499,24 @@ export function LightweightChart({
     })
     volumeSeriesRef.current = volumeSeries
 
+    const handleClick = (param: MouseEventParams) => {
+      if (isDisposedRef.current) return
+      if (!param.time || !param.point) return
+      const callback = onPriceTimeClickRef.current
+      if (!callback) return
+
+      const price = candleSeriesRef.current?.coordinateToPrice(param.point.y)
+      if (price == null || !Number.isFinite(price)) return
+      const ts = lwcTimeToIso(param.time)
+      if (!ts) return
+
+      callback({
+        ts,
+        price: price.toFixed(4),
+      })
+    }
+    chart.subscribeClick(handleClick)
+
     // 차트 좌측 스크롤 끝 도달 감지 (페이지네이션 트리거 — 3단 가드)
     //
     // 가드 1) setData 후 1초 cooldown — fitContent 자동 발화 무시. (backlog §30 fix)
@@ -531,15 +576,28 @@ export function LightweightChart({
         param.point.x < 0 ||
         param.point.y < 0
       ) {
+        onPriceTimeMoveRef.current?.(null)
         hideTooltip()
         return
       }
 
       const cs = candleSeriesRef.current
       if (!cs) {
+        onPriceTimeMoveRef.current?.(null)
         hideTooltip()
         return
       }
+
+      const hoverPrice = cs.coordinateToPrice(param.point.y)
+      const hoverTs = lwcTimeToIso(param.time)
+      onPriceTimeMoveRef.current?.(
+        hoverPrice != null && Number.isFinite(hoverPrice) && hoverTs
+          ? {
+              ts: hoverTs,
+              price: hoverPrice.toFixed(4),
+            }
+          : null,
+      )
 
       const candle = param.seriesData.get(cs) as CandlestickData | undefined
       if (!candle) {
@@ -609,6 +667,11 @@ export function LightweightChart({
       // 콜백 알림 (IndicatorOverlay·PatternMarker가 ref 정리 가능하도록)
       onCandleSeriesDestroyRef.current?.()
       onChartDestroyRef.current?.()
+      try {
+        chart.unsubscribeClick(handleClick)
+      } catch {
+        // 이미 dispose된 경우 무시
+      }
       // chart.remove() — try/catch: 이미 dispose된 경우 graceful 무시
       try {
         chart.remove()
@@ -772,7 +835,7 @@ export function LightweightChart({
     changeRateNum > 0 ? 'text-red-400' : changeRateNum < 0 ? 'text-blue-400' : 'text-gray-300'
 
   return (
-    <div className="relative w-full h-96" aria-label="종목 차트" role="img">
+    <div className="relative h-[520px] w-full xl:h-[620px]" aria-label="종목 차트" role="img">
       <div ref={containerRef} className="w-full h-full" />
 
       {/* hover 툴팁 — 결함 6 */}
