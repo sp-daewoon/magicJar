@@ -3,10 +3,10 @@ id: T-20260524-2045-pr-2-backend-core
 agent: backend-core
 model: opus
 branch: agent/backend-core/pr-2-baseline-be
-status: RUNNING
+status: DONE
 startedAt: 2026-05-24T20:45:41.331+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-24T21:02:12.055+09:00
+pr: #691
 parentPhase: ?
 ---
 
