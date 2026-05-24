@@ -1,0 +1,577 @@
+# 05 — UI Inventory (frontend SPA · 화면·메뉴·버튼·상태 매트릭스)
+
+> **시점**: v3.9.0 baseline (2026-05-24 cut 직전)
+> **권위 소스**: `frontend/src/App.tsx` (route 정의) · `frontend/src/components/layout/AppHeader.tsx` (메뉴) · `frontend/src/features/market/**` · `frontend/src/features/ai/**` · `frontend/src/features/settings/**` · `frontend/src/pages/**`, `frontend/src/components/**`, `frontend/src/api/**` · `frontend/tests/e2e/**` (Playwright baseline)
+> **작성자**: frontend (W4 종착 — T-MARKET R2 / T-AI R2 / TrendPreference / 5 AiCard 진입점 통합 + LWC v4 책임 ADR 0094 §2-2-A 유지 + Playwright w4 5 spec 추가)
+
+본 문서는 **v3.9.0 시점에 화면이 무엇을 보여주고, 어떤 메뉴·버튼·상태를 가지며, 어떤 데이터 토픽을 구독하는지**를 SPA 구조 그대로 인벤토리화한다. 화면 추측·미구현 화면 묘사 금지 — 본 인벤토리는 `App.tsx` route 정의 + `AppHeader.tsx` nav를 raw 출처로 한다.
+
+---
+
+## 5-0. v3.9.0 변경 요약 (v3.8.0 대비)
+
+| 영역 | v3.8.0 | v3.9.0 | 권위 |
+|------|--------|--------|------|
+| route count | 14 | **15** (`/market/trend` 신규) | `App.tsx` L67·L143 |
+| nav 구조 | 13 단일 nav | **4 group dropdown** (운영·시장·전략·리스크) | `AppHeader.tsx` L42~L75 |
+| Dashboard | AccountSummary + Holdings + Balance | + **MarketIndexStrip (4 카드)** + 빠른 진입 6 링크 (시장 추세 포함) | `DashboardPage.tsx` L36·L48·L173 |
+| Market 페이지 | 없음 | **`/market/trend` 신설** (LWC v4 추세 차트 + MA overlay + 섹터 ranking) | `features/market/pages/MarketTrendPage.tsx` (256 LOC) |
+| SettingsModal | 4 섹션 | **5 섹션** (추세 설정 추가) | `SettingsModal.tsx` L8~L14·L115 |
+| AI 진입점 | (시스템 미정착) | **5 AiCard 진입점 정착** — SYMBOL · CHART · STRATEGY · SIGNAL · MARKET | `features/ai/components/AiCard.tsx` + `AiExplainEntry.tsx` |
+| API 패밀리 | account · symbol · strategy · risk · order · journal · system | + **market (지수·섹터·추세)** + **users/me/preferences/trend** + **ai/explain** | `api/market.ts` · `api/ai.ts` |
+| STOMP 토픽 | 8 (5-4-D 매트릭스) | + **`/topic/market.index.{code}` · `/topic/market.sector.rank` · `/topic/market.user.{userId}.pref` · `/topic/ai.explain.{requestId}`** | `api/market.ts` L13~L15 · `api/ai.ts` L8 |
+| Playwright baseline | 7 시나리오 (s1~s6) | + **w4-1~w4-7** (MarketIndexStrip · MarketTrendPage · TrendPreference · 5 AiCard · MCP curl · validation · KIS rate limit) | `frontend/tests/e2e/w4/` |
+
+> v3.9.0 = **W4 (AI 옵션 분석 보조) + T-MARKET (시장 추세 분석) 종착 베이스라인**. AI 매매 결정권은 여전히 0 (ADR 0026 정합).
+
+---
+
+## 5-1. SPA 한 장 요약
+
+- **단일 SPA** — React 19 + TS + Vite + Tailwind + TanStack Query + STOMP.js, pnpm 패키지 매니저, Vite dev `:5173`, 운영 docker `frontend` 컨테이너 (ADR 0009 · ADR 0049)
+- **레이아웃** — `AppHeader` (전 화면 공통 header · 4 nav group dropdown + 2 WS indicator + RuntimeFlagsIndicator + NotificationCenter + Settings) + page outlet
+- **데이터 채널** — REST (`/api/**`, axios `apiClient`) + STOMP (`/topic/**` 9 토픽 패밀리 · 5-4-D)
+- **상태 관리** — TanStack Query (server state) + zustand (`frontend/src/stores`) + STOMP topic subscription (실시간 invalidate)
+- **route count** — **15** · **nav group** — 4 (운영 5 · 시장 2 · 전략 3 · 리스크 2 = 12 item) · indicator 2 + RuntimeFlags + NotificationCenter + Settings
+- **Playwright baseline** — **12 시나리오** (s1~s6 + w4-1~w4-7) · chromium-darwin PNG 스냅샷 LOCK (ADR 0094 §2-2-B)
+
+---
+
+## 5-2. 화면 매트릭스 (route × 컴포넌트 × hook × data source × 액션)
+
+> **권위**: `frontend/src/App.tsx` L116~L161 의 `<Route>` 정의 15건 그대로.
+
+### 5-2-A. Dashboard 영역 ⭐ v3.9.0 격상
+
+| route | 페이지 컴포넌트 | 주요 child 컴포넌트 | 주요 hook | REST endpoint | STOMP topic | 사용자 액션 |
+|-------|-----------------|---------------------|-----------|---------------|-------------|------------|
+| `/` | `pages/Dashboard/DashboardPage.tsx` | **`MarketIndexStrip`** ⭐ · `AccountSummaryCard` · `BalanceCard` · `HoldingsTable` · `AccountTypeToggle` · **`QuickLink` × 6** (`/watchlist`·`/market/trend`·`/positions`·`/orders`·`/performance`·`/journal`) | `usePreferredAccountType` · `useAccountSummary` · `useAccountBalance` · `useAccountPositions` · `useStompAccountBalance` · **`useTrendPreferenceSubscription`** ⭐ · `useMarketIndex` (Strip 내부) | `GET /api/account/summary` · `GET /api/account/balance` · `GET /api/account/positions` · **`GET /api/market/index/snapshot`** ⭐ | `/topic/account.balance.{userId}` · **`/topic/market.user.{userId}.pref`** ⭐ · **`/topic/market.index.{code}`** ⭐ (Strip 내부) | 계좌 타입 토글 (실전/모의) · 종목 click → `/symbol/:code` · **빠른 진입 6 링크** · "상세 추세 →" → `/market/trend` |
+| `/performance` | `pages/PerformanceDashboardPage.tsx` | `features/performance/components/*` | `useQuery` (performance api) | `GET /api/performance/*` (R/PnL · 손익 곡선) | — | 기간 필터 |
+
+> **★ MarketIndexStrip 신설 (v3.9.0)** — 4 default 지수 (`0001` KOSPI · `1001` KOSDAQ · `NDX` NASDAQ · `SPX` S&P 500) 카드 가로 배치. `useMarketIndex` polling + STOMP merge. 우상단 "상세 추세 →" link → `/market/trend`. 빈 list 시 "데이터 수집 중" graceful 표시(mock 합성 0 LOCK). 권위: `features/market/components/MarketIndexStrip.tsx` (91 LOC).
+
+### 5-2-B. Watchlist 영역 (UI 진입 default — T-W1)
+
+| route | 페이지 컴포넌트 | 주요 child 컴포넌트 | 주요 hook | REST endpoint | STOMP topic | 사용자 액션 |
+|-------|-----------------|---------------------|-----------|---------------|-------------|------------|
+| `/watchlist` | `pages/Watchlist/WatchlistPage.tsx` | `WatchlistRow` · `WatchlistAddForm` · `WatchlistEmpty` | `useWatchlist` (TanStack) + STOMP tick subscription per row | `GET /api/watchlist` · `POST /api/watchlist` · `DELETE /api/watchlist/{code}` · `PUT /api/watchlist/order` | `/topic/market.tick.{code}` (행별 구독) | 종목 추가 · 삭제 · 드래그 이동 · row click → `/symbol/:code` |
+| `/instruments` | `pages/Instruments/InstrumentUniversePage.tsx` | 종목 universe 검색 + 섹터 그룹 | `useInstrumentUniverse` | `GET /api/instruments/*` | — | 종목 검색 → `/symbol/:code` |
+
+### 5-2-C. Symbol Detail (실시간 차트 · 호가 · 지표 + AI SYMBOL/CHART 진입점)
+
+| route | 페이지 컴포넌트 | 주요 child 컴포넌트 | 주요 hook | REST endpoint | STOMP topic | 사용자 액션 |
+|-------|-----------------|---------------------|-----------|---------------|-------------|------------|
+| `/symbol/:code` | `pages/Symbol/SymbolDetailPage.tsx` | `SymbolHeader` · `SymbolPriceCard` · `SymbolMetaCard` · `SymbolChart` (LWC v4 wrapper) · `LightweightChart` · `SymbolOrderbook` · `IndicatorPanel` · `IndicatorOverlay` · `CandleCountSelector` · `IntervalToggle` · `SymbolError` · **`AiExplainEntry type="SYMBOL"`** ⭐ · **`AiExplainEntry type="CHART"`** ⭐ | `useSymbolTick` · `useSymbolCandles` · `useSymbolOrderbook` · `useSymbolMeta` · `useIndicator` · `usePatterns` · **`useAiExplain`** ⭐ · STOMP boundary subscribe | `GET /api/symbols/{code}` · `GET /api/symbols/{code}/candles` · `GET /api/symbols/{code}/indicator/*` · `POST /api/symbols/{code}/orderbook/{subscribe,unsubscribe}` · **`POST /api/ai/explain`** ⭐ | `/topic/market.tick.{code}` · `/topic/market.candle.minute.{code}` · `/topic/market.candle.{interval}.{code}` · `/topic/market.orderbook.{code}` · **`/topic/ai.explain.{requestId}`** ⭐ | interval 토글 · 캔들 수 변경 · 지표 on/off · 패턴 toggle · 호가 구독 토글 · [매수]/[매도] → `/orders/new?code=...&side=...` · **[AI 종목 분석]** · **[AI 차트 해석]** |
+
+> **★ LWC v4 책임 (frontend 단독 유지 · ADR 0094 §2-2-A / ADR 0085)** — 5-5 항 참조. v3.9.0에서는 신규 `MarketTrendPage` 의 `IndexTrendChart` 도 LWC v4 사용.
+
+### 5-2-D. Strategy 영역 (+ AI STRATEGY/SIGNAL 진입점)
+
+| route | 페이지 컴포넌트 | 주요 child 컴포넌트 | 주요 hook | REST endpoint | STOMP topic | 사용자 액션 |
+|-------|-----------------|---------------------|-----------|---------------|-------------|------------|
+| `/strategy/builder` | `pages/Strategy/StrategyBuilderPage.tsx` | `components/strategy/*` (블록 DSL) | `useDslTranslate` (YAML ↔ block tree) | `POST /api/strategy/dsl/translate` · `GET /api/indicators/catalog` · `GET /api/patterns/catalog` | — | 블록 추가/삭제/논리 결합 · YAML import/export · 저장 → 백테스트 |
+| `/strategy/backtest` | `pages/Strategy/BacktestPage.tsx` | `components/backtest/*` | `useBacktest` mutation + result polling | `POST /api/backtest` · `GET /api/backtest/{jobId}` | — | 기간·종목·전략 선택 · [Run] · 결과 차트·표 · 저장 |
+| `/strategy/list` | `pages/Strategy/StrategyListPage.tsx` | `StrategyCard` (+ **`AiExplainEntry type="STRATEGY"`** ⭐) · `SignalCard` (+ **`AiExplainEntry type="SIGNAL"`** ⭐) | `useStrategies` · `useAiExplain` | `GET /api/strategies` · `POST /api/strategies/{id}/{activate,deactivate}` · **`POST /api/ai/explain`** ⭐ | **`/topic/ai.explain.{requestId}`** ⭐ | 전략 활성/비활성 · [AI 전략 평가] · [이 시그널 해석] |
+
+### 5-2-E. Risk 영역 (T-RISK Phase 3 · ADR 0067)
+
+| route | 페이지 컴포넌트 | 주요 child 컴포넌트 | 주요 hook | REST endpoint | STOMP topic | 사용자 액션 |
+|-------|-----------------|---------------------|-----------|---------------|-------------|------------|
+| `/risk-config` | `pages/Risk/RiskConfigPage.tsx` | `components/risk/*` | `useRiskConfig` query + mutation | `GET /api/risk/config` · `PUT /api/risk/config` | — | 일일 손실 한도 · 종목당 비중 · 동시 포지션 수 등 편집 |
+| `/risk-events` | `pages/Risk/RiskEventsPage.tsx` | risk event 테이블 | `useRiskEvents` (페이지네이션) | `GET /api/risk/events` | — | 필터 (rule_id · severity · 기간) |
+| `/positions` | `pages/Risk/PositionsPage.tsx` | 포지션 테이블 | `useAccountPositions` + STOMP tick (PnL 실시간) | `GET /api/account/positions` | `/topic/market.tick.{code}` · `/topic/account.balance.{userId}` | 종목 click → 상세 · [청산] (시장가 close) |
+
+### 5-2-F. Orders 영역 (T-O Phase 3 · ADR 0068 · T-MAN Phase 2 · ADR 0082)
+
+| route | 페이지 컴포넌트 | 주요 child 컴포넌트 | 주요 hook | REST endpoint | STOMP topic | 사용자 액션 |
+|-------|-----------------|---------------------|-----------|---------------|-------------|------------|
+| `/orders` | `pages/orders/OrdersPage.tsx` | 주문 내역 테이블 | `useOrders` (날짜/상태 필터) | `GET /api/orders` | `/topic/orders.{userId}` | 필터 · row click → `/orders/:id` |
+| `/orders/new` | `pages/orders/NewOrderPage.tsx` | `components/order/OrderForm` · `OrderPreviewModal` | `useNewOrder` mutation + dry-run preview | `POST /api/orders/preview` · `POST /api/orders` | — | 종목/측/수량/가격/구분 → [미리보기] → 3중 게이트(MAGICJAR_MODE + ALLOW_REAL + KillSwitch OFF) → [제출] |
+| `/orders/:id` | `pages/orders/OrderDetailPage.tsx` | 주문 + 체결 + 상태 history | `useOrder(id)` | `GET /api/orders/{id}` · `POST /api/orders/{id}/cancel` | `/topic/orders.{userId}` | [취소] (CANCELLABLE 일 때만) |
+
+### 5-2-G. Market 영역 ⭐ v3.9.0 신설 (T-MARKET R2 · ADR 0100·0101)
+
+| route | 페이지 컴포넌트 | 주요 child 컴포넌트 | 주요 hook | REST endpoint | STOMP topic | 사용자 액션 |
+|-------|-----------------|---------------------|-----------|---------------|-------------|------------|
+| **`/market/trend`** ⭐ | **`features/market/pages/MarketTrendPage.tsx`** (256 LOC) | `IndexTrendCard` × 4 (지수 토글) · `IndexTrendChart` (LWC v4 + MA overlay) · `CrossSignalBadge` (GOLDEN/DEAD/NEUTRAL 점멸) · `TrendLabelBadge` · `SectorRankingPanel` (todayTop 5 / longTop 5 탭) · `PresetButtons` (인라인 토글) · **`AiExplainEntry type="MARKET"`** ⭐ | `useMarketIndex` · `useIndexTrend({ code })` · `useSectorRanking` · `useTrendPreference({ userId })` · `useAiExplain` | `GET /api/market/index/snapshot` · `GET /api/market/index/{code}/trend?periods=...` · `GET /api/market/sectors/snapshot` · `GET /api/market/sectors/ranking?periods=&rsPeriod=` · `GET /api/users/me/preferences/trend` · `PUT /api/users/me/preferences/trend` · `POST /api/ai/explain` | `/topic/market.index.{code}` (1분 cron push) · `/topic/market.sector.rank` (5분 캐시 push) · `/topic/market.user.{userId}.pref` (다중 탭 sync) · `/topic/ai.explain.{requestId}` | 지수 카드 toggle (4 선택) · 프리셋 인라인 변경 (classic·mid·long·custom) · 섹터 ranking 탭 전환 · [AI 시장 추세 해석] |
+
+> **★ MarketTrendPage 신설 (v3.9.0)** — 3 패널 grid (좌측: 지수 4 토글 + LWC v4 차트 · 우측: 섹터 ranking · 하단: 추세 라벨 + CrossSignal). 우상단 `PresetButtons` 인라인 토글이 SettingsModal "추세 설정" 섹션과 동일 endpoint 공유 (`PUT /api/users/me/preferences/trend`). 권위: `features/market/pages/MarketTrendPage.tsx` L39~L256.
+
+### 5-2-H. Journal·System·Setup 영역
+
+| route | 페이지 컴포넌트 | 주요 child 컴포넌트 | 주요 hook | REST endpoint | STOMP topic | 사용자 액션 |
+|-------|-----------------|---------------------|-----------|---------------|-------------|------------|
+| `/journal` | `pages/TradingJournalPage.tsx` | `features/journal/components/*` (Trade 카드 · 차트 스냅샷) | `useJournal` (기간 필터) | `GET /api/journal/trades` · `GET /api/journal/{tradeId}/snapshot` | — | 거래 카드 펼치기 · 차트 스냅샷 (`SymbolChart` import) · 메모 |
+| `/system` | `pages/SystemEvent/SystemEventPage.tsx` | system event 테이블 | `useSystemEvents` + `useSystemEventStompSubscription` | `GET /api/system/events` | `/topic/system.event.user.{userId}` · `/topic/system.event.broadcast` | 필터 (severity · type · 기간) · ack |
+| `/setup` | `pages/SetupWizard.tsx` | `pages/setup/steps/*` (`SystemConfigStep` · `KisRealStep` · `KisMockStep` · `KisValidatingStep` · `CompleteStep`) | `useOnboarding` step state machine | `POST /api/onboarding/*` | — | step 진행 · KIS 키 입력 · 검증 · 완료 → `/` |
+
+### 5-2-I. 폴백
+
+| route | 동작 |
+|-------|------|
+| `*` (catch-all) | `<Navigate to="/" replace />` — 미정의 URL은 대시보드로 |
+
+---
+
+## 5-3. 메뉴 매트릭스 ⭐ v3.9.0 group nav 재편
+
+### 5-3-A. AppHeader nav group (4 dropdown · 권위: `AppHeader.tsx` L42~L75)
+
+> **★ v3.9.0 변경** — v3.8.0 단일 horizontal 13 nav → **4 group dropdown** (hover 펼침 + 첫 아이템 click 이동). 그룹 활성화 indicator는 group 내 1+ item active 여부.
+
+| 그룹 | 아이템 (label / to) | 도입 시점 / ADR | 비고 |
+|------|----------------------|------------------|------|
+| **운영** | 대시보드(`/`) · 주문(`/orders`) · 포지션(`/positions`) · 성과(`/performance`) · 매매일지(`/journal`) | T-W1·T-O·T-RISK·T-PERF·T-J | 5 item · "대시보드" `end: true` (정확 일치) |
+| **시장** | 관심종목(`/watchlist`) · 종목검색(`/instruments`) | T-W1 / ADR 0040 §1 | 2 item · `/symbol/:code`·`/market/trend` 는 nav에 없음(진입은 Dashboard QuickLink + Watchlist row + Strip "상세 추세" link) |
+| **전략** | 전략 빌더(`/strategy/builder`) · 전략 목록(`/strategy/list`) · 백테스트(`/strategy/backtest`) | T-SB·T-SIG·T-BT | 3 item |
+| **리스크** | 리스크 설정(`/risk-config`) · 위반 이력(`/risk-events`) | T-RISK Phase 3 / ADR 0067 | 2 item |
+
+### 5-3-B. AppHeader 우측 indicator·button (권위: `AppHeader.tsx` L196~L244)
+
+| 항목 | 컴포넌트 | 역할 | 도입 |
+|------|---------|------|------|
+| `RuntimeFlagsIndicator` | `components/layout/RuntimeFlagsIndicator.tsx` | 로고 옆 dot LED + 모드 라벨 (MOCK/REAL/Stop) | P2-2 frontend |
+| `WsConnectionIndicator` | `components/layout/WsConnectionIndicator.tsx` | STOMP 접속 상태 dot + toast | dogfooding 2026-05-20 |
+| `KisWsHealthIndicator` | `components/layout/KisWsHealthIndicator.tsx` | KIS WS 상태 dot + toast (STOMP 와 분리) | dogfooding 2026-05-20 |
+| `NotificationCenter` | `components/notification/NotificationCenter.tsx` | 벨 + unread badge + 드롭다운 + `/system` 링크 | P2 Task 8 |
+| Settings button | `SettingsModal` 진입점 (톱니) | conditional render → SettingsModal | ADR 0069 §6 |
+
+> 헤더 상단 추가: `KisRealCredentialBanner` (실전 KIS 키 미등록 시 노란 배너 + [설정 열기] CTA — backlog §58 / ADR 0077 K-1)
+
+### 5-3-C. Symbol Detail 내부 탭 / 토글
+
+| 영역 | 항목 |
+|------|------|
+| Interval | `IntervalToggle` — 1m · 5m · 15m · 30m · 1H · 1D · 1W |
+| Candle Count | `CandleCountSelector` — interval 별 max cap (`candleCountMaxByInterval.ts`) |
+| Indicator overlay | `IndicatorPanel` + `IndicatorOverlay` — 가격 overlay (MA·BB) · 별창 (RSI·MACD·STOCH 등) |
+| Pattern | `PatternToggleMenu` + `PatternMarker` — 57패턴 (T-PAT) |
+| Orderbook | 구독 toggle (REST `subscribe`/`unsubscribe`) |
+| **AI 진입점 SYMBOL** ⭐ | `<AiExplainEntry type="SYMBOL" context={{code, name}} />` — `SymbolDetailPage.tsx` L273 |
+| **AI 진입점 CHART** ⭐ | `<AiExplainEntry type="CHART" context={{code, interval, candles}} />` — `SymbolDetailPage.tsx` L312 |
+
+### 5-3-D. SettingsModal 내부 섹션 ⭐ v3.9.0: 4 → 5 섹션 (권위: `SettingsModal.tsx` L7~L14·L101~L116)
+
+| section | 컴포넌트 | 책임 | ADR |
+|---------|---------|------|-----|
+| 1 | `RealTradingConsentSection` | 실거래 동의 — 이중 confirm UX | ADR 0074 §2 |
+| 2 | `KisCredentialSection` | KIS 키 등록·교체·삭제 (실전·모의) — submit 활성화 | ADR 0069 §6 · ADR 0074 §2 |
+| 3 | `SystemConfigSection` | DART + Slack 시스템 설정 (fully functional) | — |
+| 4 | `KillSwitchSection` | 자본 보호 수동 토글 | ADR 0074 §3 |
+| **5** ⭐ | **`TrendPreferenceSection`** ⭐ | **추세 분석 설정 — MA periods · rsPeriod · crossPair · 4 프리셋 (classic·mid·long·custom)** | **ADR 0101** |
+
+> **★ TrendPreferenceSection 신설 (v3.9.0)** — 권위: `features/settings/components/TrendPreferenceSection.tsx` (343 LOC) + `PresetButtons.tsx` (`MarketTrendPage` 와 공유). 1차 client pre-validation (1~5개·1~252·sorted ASC·중복 없음) + backend Bean Validation 한국어 message 권위. PUT 성공 시 `/topic/market.user.{userId}.pref` 다중 탭 sync.
+
+---
+
+## 5-4. 상태 매트릭스
+
+### 5-4-A. Price Card 장 구분 badge (`frontend/src/lib/marketHours.ts` · `SymbolPriceCard.tsx`)
+
+| badge | 의미 | 시간대 (KST) |
+|-------|------|--------------|
+| 정규장 | 정규 거래시간 | 09:00 ~ 15:30 |
+| 시간외 단일가 | 단일가 거래 | 15:40 ~ 16:00 (일부) |
+| 시간외 | 종가 시간외 | 16:00 ~ 18:00 |
+| NXT 야간 | NXT 야간시장 | 정책 ADR 참조 |
+| 장 마감 | 거래 외 | 그 외 시간 |
+
+### 5-4-B. Tick stale badge
+
+| badge | trigger |
+|-------|---------|
+| LIVE | STOMP `/topic/market.tick.{code}` 최근 수신 < 5s |
+| stale | 임계 초과 시 — 회색 dot + ttl 안내 |
+| no data | tick 0건 (mock 합성 금지 정책 — KIS-first 미응답 시 명시) |
+
+### 5-4-C. Order status (`api/order.ts` enum)
+
+| status | 의미 | UI 표시 |
+|--------|------|---------|
+| PENDING | 클라이언트 검증 통과 + 서버 dry-run | 회색 |
+| SUBMITTED | KIS 제출 완료 + 응답 대기 | 파랑 |
+| ACCEPTED | KIS 접수 완료 | 파랑 |
+| PARTIAL_FILLED | 일부 체결 | 노랑 |
+| FILLED | 전량 체결 | 초록 |
+| CANCELLED | 취소 완료 | 회색 |
+| REJECTED | KIS reject (사유 표시) | 빨강 |
+
+### 5-4-D. KillSwitch state (`KillSwitchSection.tsx` + `useKillSwitchState`)
+
+| state | dot 색 | 라벨 | UI 동작 |
+|-------|-------|------|---------|
+| RELEASED (= OFF) | 회색 | 비활성 (OFF) | [KillSwitch ON] 버튼 표시 |
+| LOCKED (= ON) | 빨강 | 활성 (ON) + 사유 + 토글 시각 + 주체 | [KillSwitch OFF 해제] 버튼 표시 + `OrderPreviewModal` "⛔ KillSwitch ON" red banner + 모든 주문 차단 |
+| PENDING | 노랑 | (토글 mutation in-flight) | 버튼 disabled |
+
+### 5-4-E. RuntimeFlags / Mode banner
+
+| flag | 표시 |
+|------|------|
+| `MAGICJAR_MODE=REAL` + `MAGICJAR_ALLOW_REAL=true` | "REAL 주문 활성" 빨간 표식 |
+| `MAGICJAR_MODE=MOCK` | "MOCK" 회색 |
+| KIS 실전 키 미등록 | `KisRealCredentialBanner` 노랑 배너 — [설정 열기] CTA |
+| STOMP/KIS WS 끊김 | 헤더 indicator 빨간 dot + toast |
+
+### 5-4-F. AI Card state ⭐ v3.9.0 정착 (권위: `features/ai/components/AiCard.tsx` L113~L228)
+
+| status | 표시 |
+|--------|------|
+| **IDLE** | trigger 버튼만 (보라 outline · "AI [라벨]") |
+| **REQUESTING** | spinner + "AI에 요청 중..." |
+| **WAITING** | pulse dot + "AI 응답 대기 중 (최대 10초)" + `requestId` slice 표시 |
+| **RECEIVED** | markdown 본문 (`AiCardMarkdown`) + meta bar (provider·model·token in/out·cost USD·latencyMs·cached badge) + 매매 advisory 면책 footer |
+| **REFUSED** | 한국어 사유 (4단계 가드) + `refuseCode` 표시 |
+| **ERROR** | red 사유 + [다시 시도] button |
+| **TIMEOUT** | amber "10초 이상 지연" + `requestId` + [다시 시도] button |
+
+### 5-4-G. CrossSignal badge (MA 교차 / `features/market/components/CrossSignalBadge.tsx`)
+
+| signal | 의미 | 표시 |
+|--------|------|------|
+| GOLDEN | 골든 크로스 (단기 MA > 장기 MA 신규) | 황금색 + pulse |
+| DEAD | 데드 크로스 (단기 MA < 장기 MA 신규) | 빨강 + pulse |
+| NEUTRAL | 교차 없음 | 회색 (정적) |
+
+### 5-4-H. TrendLabel badge (추세 라벨 / `features/market/components/TrendLabelBadge.tsx`)
+
+| label | 의미 |
+|-------|------|
+| UP_STRONG · UP · SIDEWAYS · DOWN · DOWN_STRONG · UNKNOWN | MA 기반 추세 분류 (backend `IndexTrendResponse.trendLabel`) |
+
+---
+
+## 5-5. Mermaid 화면 전이도
+
+### 5-5-A. 전체 SPA 진입·전이 (top-level · v3.9.0 — `/market/trend` 추가)
+
+```mermaid
+flowchart LR
+    Start([앱 진입]) --> CheckSetup{Setup 완료?}
+    CheckSetup -- No --> Setup[/setup<br/>SetupWizard/]
+    Setup --> Dashboard
+    CheckSetup -- Yes --> Dashboard[/<br/>DashboardPage<br/>★ MarketIndexStrip/]
+
+    Dashboard -->|상세 추세 →| MarketTrend[/market/trend<br/>MarketTrendPage<br/>★ 신설/]
+    Dashboard -->|QuickLink 시장 추세| MarketTrend
+    Dashboard -->|관심종목 메뉴| Watchlist[/watchlist<br/>WatchlistPage/]
+    Dashboard -->|holding row click| SymbolDetail
+    Watchlist -->|row click| SymbolDetail[/symbol/:code<br/>SymbolDetailPage<br/>AI SYMBOL+CHART/]
+
+    SymbolDetail -->|매수/매도 버튼| NewOrder[/orders/new<br/>NewOrderPage/]
+    Dashboard -->|주문 메뉴| Orders[/orders<br/>OrdersPage/]
+    Orders -->|row click| OrderDetail[/orders/:id<br/>OrderDetailPage/]
+    NewOrder -->|미리보기 → 제출| OrderDetail
+
+    Dashboard -->|전략 빌더| StrategyBuilder[/strategy/builder/]
+    StrategyBuilder -->|YAML 저장 → 백테스트| Backtest[/strategy/backtest/]
+    StrategyBuilder --> StrategyList[/strategy/list<br/>AI STRATEGY+SIGNAL/]
+    Backtest -->|결과 저장| StrategyList
+
+    Dashboard -->|리스크 설정| RiskConfig[/risk-config/]
+    Dashboard -->|위반 이력| RiskEvents[/risk-events/]
+    Dashboard -->|포지션| Positions[/positions/]
+    Positions -->|종목 click| SymbolDetail
+
+    Dashboard -->|매매일지| Journal[/journal/]
+    Journal -->|trade snapshot| SymbolDetail
+    Dashboard -->|성과| Performance[/performance/]
+    Dashboard -->|시스템 이벤트| SystemEvent[/system/]
+
+    Dashboard -.->|Settings 톱니| SettingsModal{{SettingsModal<br/>5 sections<br/>★ TrendPreference 추가}}
+    MarketTrend -.->|프리셋 인라인 변경| TrendPrefAPI[/PUT /api/users/me/preferences/trend/]
+    SettingsModal -.->|TrendPreference 저장| TrendPrefAPI
+    TrendPrefAPI -.->|STOMP /topic/market.user.userId.pref| Dashboard
+    TrendPrefAPI -.->|STOMP /topic/market.user.userId.pref| MarketTrend
+    SettingsModal -.->|KillSwitch ON| NewOrder
+```
+
+### 5-5-B. MarketTrendPage 내부 인터랙션 ⭐ v3.9.0 신설
+
+```mermaid
+flowchart TB
+    Enter[/market/trend 진입/] --> Auth{userId 존재?}
+    Auth -- No --> Guide[KIS 계좌 등록 안내 → /setup]
+    Auth -- Yes --> Fetch[useMarketIndex + useIndexTrend + useSectorRanking + useTrendPreference]
+    Fetch --> Render[3 패널 grid]
+
+    Render --> P1[좌측: 지수 4 카드 토글 + IndexTrendChart LWC v4]
+    P1 -->|카드 click| SelectCode[setSelectedCode → useIndexTrend code 갱신]
+    SelectCode -->|GET /api/market/index/code/trend?periods=...| RefetchTrend[chart MA overlay 갱신]
+
+    Render --> P2[우측: SectorRankingPanel]
+    P2 -->|탭 전환| Tab[todayTop 5 / longTop 5]
+
+    Render --> P3[하단: TrendLabelBadge + CrossSignalBadge pulse]
+
+    Render --> Preset[우상단: PresetButtons]
+    Preset -->|classic·mid·long click| UpdatePref[updatePref → PUT /api/users/me/preferences/trend]
+    UpdatePref -->|STOMP /topic/market.user.userId.pref| MultiTabSync[다중 탭 즉시 sync]
+
+    Render --> AiM[AiExplainEntry type=MARKET]
+    AiM -->|click| AiAPI[POST /api/ai/explain · context: kospiTrend·sectorTopList·maPeriods·rsPeriod]
+    AiAPI -->|STOMP /topic/ai.explain.requestId| AiCard[AiCard RECEIVED → markdown + meta]
+```
+
+### 5-5-C. Symbol Detail 내부 인터랙션 (+ AI SYMBOL/CHART)
+
+```mermaid
+flowchart TB
+    Enter[/symbol/:code 진입/] --> Fetch[useSymbolMeta + useSymbolCandles + useSymbolTick]
+    Fetch --> Render[SymbolHeader + PriceCard + Chart + Orderbook + IndicatorPanel + AI entries]
+
+    Render --> A[Interval 토글]
+    A -->|interval change| RefetchCandles[useSymbolCandles invalidate + STOMP re-subscribe]
+
+    Render --> B[지표 on/off]
+    B --> IndicatorAPI[GET /api/symbols/:code/indicator/*]
+
+    Render --> C[패턴 toggle]
+    C --> PatternsAPI[GET /api/patterns/:code]
+
+    Render --> D[호가 구독 toggle]
+    D -->|on/off| OBSubscribe[POST /symbols/:code/orderbook/subscribe·unsubscribe]
+
+    Render --> E[매수/매도]
+    E --> NewOrder[/orders/new?code=...&side=.../]
+
+    Render --> F[AiExplainEntry SYMBOL]
+    F -->|click| AiSym[POST /api/ai/explain · context: code·name]
+
+    Render --> G[AiExplainEntry CHART]
+    G -->|click| AiCh[POST /api/ai/explain · context: code·interval·candles]
+
+    AiSym -->|STOMP /topic/ai.explain.requestId| AiCardSym[AiCard SYMBOL RECEIVED]
+    AiCh -->|STOMP /topic/ai.explain.requestId| AiCardCh[AiCard CHART RECEIVED]
+```
+
+### 5-5-D. AI 5 진입점 통합 (T-AI R2)
+
+```mermaid
+flowchart LR
+    subgraph 진입점 5종
+        E1[SymbolDetailPage<br/>type=SYMBOL]
+        E2[SymbolDetailPage 차트<br/>type=CHART]
+        E3[StrategyCard<br/>type=STRATEGY]
+        E4[SignalCard<br/>type=SIGNAL]
+        E5[MarketTrendPage<br/>type=MARKET ★ v3.9.0]
+    end
+
+    E1 --> Wrap[AiExplainEntry · useAiExplain hook]
+    E2 --> Wrap
+    E3 --> Wrap
+    E4 --> Wrap
+    E5 --> Wrap
+
+    Wrap -->|POST /api/ai/explain · requestId 발급| API[backend ai-engine]
+    API -->|즉시 ACCEPTED 또는 REFUSED| Wrap
+    Wrap -->|STOMP subscribe /topic/ai.explain.requestId| Wait[WAITING]
+    Wait -->|envelope 수신| Render[AiCard RECEIVED · markdown + meta]
+    Wait -.->|10s 초과| TO[AiCard TIMEOUT]
+    API -.->|4단계 가드 거부| Refused[AiCard REFUSED]
+```
+
+### 5-5-E. Order 제출 게이트 체인 (3중 게이트 + KillSwitch)
+
+```mermaid
+flowchart LR
+    User[사용자 입력] --> Preview[OrderPreviewModal]
+    Preview --> G1{MAGICJAR_MODE = REAL?}
+    G1 -- No --> Block1[MOCK 표시 + 가상 제출]
+    G1 -- Yes --> G2{ALLOW_REAL = true?}
+    G2 -- No --> Block2[빨간 banner: ALLOW_REAL 게이트]
+    G2 -- Yes --> G3{KillSwitch RELEASED?}
+    G3 -- No --> BlockKS[⛔ KillSwitch ON — 모든 주문 차단]
+    G3 -- Yes --> Submit[POST /api/orders → KIS 제출]
+    Submit --> Detail[/orders/:id 이동/]
+```
+
+### 5-5-F. STOMP 토픽 패밀리 매트릭스 ⭐ v3.9.0: 8 → 12 토픽
+
+```mermaid
+flowchart LR
+    subgraph 실시간_시세
+        T1[/topic/market.tick.code]
+        T2[/topic/market.orderbook.code]
+        T3[/topic/market.candle.minute.code]
+        T4[/topic/market.candle.interval.code · boundary closed]
+    end
+    subgraph 시장_추세 ★_v3.9.0
+        T9[/topic/market.index.code · 1분 cron]
+        T10[/topic/market.sector.rank · 5분 캐시]
+        T11[/topic/market.user.userId.pref · 다중 탭 sync]
+    end
+    subgraph 계좌_주문
+        T5[/topic/account.balance.userId]
+        T6[/topic/orders.userId]
+    end
+    subgraph 시스템
+        T7[/topic/system.event.user.userId]
+        T8[/topic/system.event.broadcast]
+    end
+    subgraph AI ★_v3.9.0
+        T12[/topic/ai.explain.requestId · 단발 envelope]
+    end
+
+    T1 --> SymbolDetail
+    T1 --> Watchlist
+    T2 --> SymbolDetail
+    T3 --> SymbolDetail
+    T4 --> SymbolDetail
+    T5 --> Dashboard
+    T5 --> Positions
+    T6 --> Orders
+    T6 --> OrderDetail
+    T7 --> NotificationCenter
+    T8 --> NotificationCenter
+    T9 --> Dashboard
+    T9 --> MarketTrend
+    T10 --> MarketTrend
+    T11 --> Dashboard
+    T11 --> MarketTrend
+    T11 --> SettingsModal
+    T12 --> AiCard
+```
+
+---
+
+## 5-6. TradingView LWC v4 통합 (frontend 단독 책임 · ADR 0094 §2-2-A / ADR 0085)
+
+### 5-6-A. 책임 범위 (v3.9.0 유지 + 확장)
+
+- **권위 코드** (Symbol Detail): `frontend/src/pages/Symbol/SymbolChart.tsx` · `frontend/src/pages/Symbol/LightweightChart.tsx` · `frontend/src/pages/Symbol/IndicatorOverlay.tsx` · `frontend/src/components/chart/PatternMarker.tsx` · `frontend/src/components/chart/PatternToggleMenu.tsx`
+- **권위 코드** (MarketTrendPage ⭐ v3.9.0): `frontend/src/features/market/components/IndexTrendChart.tsx` (LWC v4 candlestick + MA periods overlay)
+- **이관 사유 (ADR 0094 amend 2026-05-21)**: chart-curator 해고 (캔들 SLA → market-data / LWC v4 컴포넌트 → frontend). v3.9.0에서 MarketTrendPage `IndexTrendChart` 가 동일 책임 라인 위에 추가됨.
+
+### 5-6-B. LWC v4 핵심 책임 매트릭스
+
+| 항목 | 컴포넌트 | 비고 |
+|------|----------|------|
+| 메인 캔들 series | `LightweightChart` (LWC `CandlestickSeries`) | interval prop으로 series 갱신 |
+| 거래량 별창 | `LightweightChart` (LWC `HistogramSeries`) | priceScaleId='vol' |
+| MA / BB overlay (가격 동축) | `IndicatorOverlay` (LWC `LineSeries`) | `useIndicator` 응답을 setData |
+| RSI / MACD / STOCH 별창 | `IndicatorOverlay` (별도 chart instance) | priceScaleId 분리 |
+| 패턴 마커 | `PatternMarker` (LWC `series.setMarkers`) | 57패턴 (T-PAT) |
+| 캔들 카운트 cap | `candleCountMaxByInterval.ts` | interval별 max guard |
+| boundary closed 실시간 | STOMP `/topic/market.candle.{interval}.{code}` | interval ∈ BOUNDARY_INTERVALS 일 때만 구독 |
+| **지수 추세 차트 ⭐ v3.9.0** | **`IndexTrendChart`** | LWC v4 candlestick + 사용자 MA periods overlay (`PUT /api/users/me/preferences/trend` 응답 사용) |
+| Multipane MTF | (현 baseline 미구현 / W5 T-LWC) | — |
+| Plugin (custom series) | (현 baseline 미구현 / W5 T-LWC) | — |
+
+### 5-6-C. 외부 인터랙션 인터페이스
+
+- `WatchlistRow` → `<Link to="/symbol/:code">` (대표 진입점)
+- `HoldingsTable` (Dashboard) → 동일
+- `PositionsPage` → 동일
+- `TradingJournalPage` 차트 스냅샷 — `SymbolChart` import + `snapshotMode` prop
+- **`MarketIndexStrip` → `<Link to="/market/trend">`** ⭐ v3.9.0
+- **`Dashboard QuickLink (시장 추세)` → `/market/trend`** ⭐ v3.9.0
+
+> chart-curator agent 정의 자체는 `.claude/agents/_archive/chart-curator.md` (역사 보존). dispatch 0.
+
+---
+
+## 5-7. qa Visual Playwright baseline 통합 (ADR 0094 §2-2-B · v3.9.0: 7 → 12 시나리오)
+
+### 5-7-A. 시나리오 baseline 매트릭스
+
+| ID | spec 파일 | 대상 화면 | 비고 |
+|----|-----------|----------|------|
+| s1 | `tests/e2e/s1-dashboard.spec.ts` | `/` Dashboard | v3.8.0 baseline LOCK · v3.9.0 MarketIndexStrip 추가로 갱신 필요 가능성 (다음 회 dispatch backlog 후보) |
+| s2 | `tests/e2e/s2-orders.spec.ts` | `/orders` Orders | |
+| s3 | `tests/e2e/s3-positions.spec.ts` | `/positions` Positions | |
+| s4 | `tests/e2e/s4-settings-modal.spec.ts` | SettingsModal | v3.9.0 TrendPreferenceSection 5 번째 섹션 추가 → snapshot 갱신 후보 |
+| s5 | `tests/e2e/s5-notification-center.spec.ts` | Header NotificationCenter | |
+| s6 | `tests/e2e/s6-symbol-detail-current-price.spec.ts` | `/symbol/:code` × 3 종목 (005930·000660·004090) | v3.9.0 AI SYMBOL/CHART 진입점 추가 → snapshot 갱신 후보 |
+| **w4-1** ⭐ | `tests/e2e/w4/w4-1-dashboard-market-index-strip.spec.ts` | Dashboard MarketIndexStrip | v3.9.0 신규 |
+| **w4-2** ⭐ | `tests/e2e/w4/w4-2-market-trend-page.spec.ts` | `/market/trend` MarketTrendPage | v3.9.0 신규 |
+| **w4-3** ⭐ | `tests/e2e/w4/w4-3-settings-trend-preference.spec.ts` | SettingsModal TrendPreferenceSection | v3.9.0 신규 |
+| **w4-4** ⭐ | `tests/e2e/w4/w4-4-ai-5-entries.spec.ts` | 5 AiCard 진입점 통합 (SYMBOL·CHART·STRATEGY·SIGNAL·MARKET) | v3.9.0 신규 |
+| **w4-5** ⭐ | `tests/e2e/w4/w4-5-mcp-curl-6-tools.spec.ts` | MCP server 6 tool curl 검증 | v3.9.0 신규 (T-MCP) |
+| **w4-6** ⭐ | `tests/e2e/w4/w4-6-preference-validation.spec.ts` | TrendPreference Bean Validation (1~5개·1~252·sorted ASC) | v3.9.0 신규 |
+| **w4-7** ⭐ | `tests/e2e/w4/w4-7-kis-rate-limit-realtime.spec.ts` | KIS REST rate limit 실시간 동시 디스플레이 검증 | v3.9.0 신규 |
+
+> baseline 명세서 README: `frontend/tests/e2e/README.md`
+
+### 5-7-B. baseline screenshot 위치 (LOCK)
+
+- 디렉토리: `frontend/tests/e2e/<spec>.spec.ts-snapshots/` · `frontend/tests/e2e/w4/<spec>.spec.ts-snapshots/`
+- 명명: `<test-id>-<platform>.png` (`chromium-darwin` 고정)
+- 갱신 정책: 1px diff 시 RED gate — 의도된 UI 변경일 경우 PR에서 `pnpm playwright test --update-snapshots` 후 새 PNG 커밋
+
+### 5-7-C. 1px diff RED gate
+
+- Playwright `toHaveScreenshot` default tolerance + `maxDiffPixelRatio` 보수적 설정 (spec 별)
+- 시각 회귀 발견 시 qa가 결함 보고서 발행 (frontend 책임은 baseline 화면 안정성 유지)
+- 회귀 발견 → frontend 측 commit 의무 (디자인 변경 의도면 snapshot 갱신, 의도 외면 UI fix)
+- frontend 핵심 화면 변경(헌법 §9-2 · `CLAUDE.md`) → qa Visual 자동 의무 (오케스트라가 qa 동시 dispatch)
+
+### 5-7-D. baseline 미커버 화면 (v3.9.0 시점)
+
+다음 화면은 Playwright spec 미작성 (다음 cut backlog 후보):
+
+- `/watchlist` (T-W1 UI 진입 default)
+- `/strategy/builder` · `/strategy/backtest` · `/strategy/list`
+- `/risk-config` · `/risk-events`
+- `/orders/new` · `/orders/:id`
+- `/journal` · `/performance` · `/system`
+- `/setup` (SetupWizard 5 step)
+- `/instruments`
+
+> backlog 이관 권고는 본 baseline 범위 외 — `_workspace/backlog.md` 또는 qa 차회 dispatch 시 결정.
+
+---
+
+## 5-8. AI 5 진입점 컨텍스트 페이로드 (T-AI R2 · ADR 0026 advisory-only 정합)
+
+> 권위: `features/ai/components/AiExplainEntry.tsx` 주석 L8~L12 + `features/market/pages/MarketTrendPage.tsx` L98~L109 (MARKET context).
+
+| 진입점 type | 위치 | context payload 예시 | backend prompt template |
+|-------------|------|----------------------|--------------------------|
+| **SYMBOL** | `SymbolDetailPage` | `{ code, name }` | `symbol_v1` |
+| **CHART** | `SymbolDetailPage` 차트 | `{ code, interval, candles }` | `chart_v1` |
+| **STRATEGY** | `StrategyCard` (`/strategy/list`) | `{ strategyId, dsl }` | `strategy_v1` |
+| **SIGNAL** | `SignalCard` (`/strategy/list`) | `{ signalId, code, side, ... }` | `signal_v1` |
+| **MARKET** ⭐ v3.9.0 | `MarketTrendPage` | `{ kospiTrend, selectedIndex, selectedIndexCode, maPeriods, rsPeriod, crossSignal, lastClose, changeRate, sectorTopList, sectorLongList }` | `market_v1` |
+
+> 5 진입점 모두 **advisory only** — AI 응답은 매매 자동 실행과 무관 (ADR 0026). AiCard `RECEIVED` footer에 "AI 코멘트는 보조 참고 자료입니다. 매매 결정은 직접 확인 후 진행하세요." 의무 표시.
+
+---
+
+## 5-9. 본 문서가 의도적으로 다루지 않는 것 (TBD / 차회 baseline)
+
+- **MCP UI 노출 (T-MCP)** — backend MCP 서버는 v3.9.0에서 expose (`w4-5-mcp-curl-6-tools.spec.ts` 권위) 되나 frontend 전용 진입 화면은 미정착. AI 5 진입점 + curl 검증으로 충분 평가.
+- **Multipane MTF · LWC plugin** — W5 T-LWC.
+- **screenshot description** (`_workspace/frontend/screenshot-desc/`) — Playwright 시각 baseline이 raw evidence이므로 본 baseline에서는 5-7 표가 SoT.
+- **s1·s4·s6 시각 baseline 갱신** — v3.9.0 신설 UI(MarketIndexStrip·TrendPreferenceSection·AI 진입점) 추가로 1px diff 발생 가능. 갱신 dispatch는 qa Visual 별도 사이클.
+
+---
+
+## 5-10. 권위 출처 (raw 인용 LOCK)
+
+| 항목 | raw 출처 |
+|------|---------|
+| route 15건 | `frontend/src/App.tsx` L116~L161 |
+| 메뉴 4 group dropdown | `frontend/src/components/layout/AppHeader.tsx` L42~L75 |
+| Dashboard MarketIndexStrip + QuickLink | `frontend/src/pages/Dashboard/DashboardPage.tsx` L36·L48~L55·L88·L171~L174 |
+| MarketIndexStrip 컴포넌트 | `frontend/src/features/market/components/MarketIndexStrip.tsx` (91 LOC) |
+| MarketTrendPage 페이지 | `frontend/src/features/market/pages/MarketTrendPage.tsx` (256 LOC) |
+| TrendPreferenceSection | `frontend/src/features/settings/components/TrendPreferenceSection.tsx` (343 LOC) + `PresetButtons.tsx` |
+| SettingsModal 5 섹션 | `frontend/src/components/settings/SettingsModal.tsx` L7~L14·L101~L116 |
+| AiCard 7 상태 | `frontend/src/features/ai/components/AiCard.tsx` (229 LOC) |
+| AiExplainEntry 5 진입점 | `frontend/src/features/ai/components/AiExplainEntry.tsx` L8~L12 |
+| AI 진입점 호출 site | `pages/Symbol/SymbolDetailPage.tsx` L273·L312 · `components/strategy/StrategyCard.tsx` L171 · `components/strategy/SignalCard.tsx` L126 · `features/market/pages/MarketTrendPage.tsx` L131 |
+| Market API 패밀리 | `frontend/src/api/market.ts` L5~L15 (6 REST + 3 STOMP) |
+| AI API 패밀리 | `frontend/src/api/ai.ts` L5~L8 (1 REST + 1 STOMP) |
+| Playwright w4 5 spec | `frontend/tests/e2e/w4/w4-{1..7}-*.spec.ts` |
+| STOMP 토픽 12종 | 5-5-F Mermaid + `api/market.ts` L13~L15 · `api/ai.ts` L8 |
+| KillSwitch UI | `frontend/src/components/settings/sections/KillSwitchSection.tsx` |
+| Order 3중 게이트 UI | `frontend/src/components/order/OrderPreviewModal.tsx` |
+| LWC v4 컴포넌트 (Symbol) | `frontend/src/pages/Symbol/{SymbolChart,LightweightChart,IndicatorOverlay}.tsx` + `components/chart/{PatternMarker,PatternToggleMenu,candleCountMaxByInterval}.{tsx,ts}` |
+| LWC v4 컴포넌트 (Market) | `frontend/src/features/market/components/IndexTrendChart.tsx` ⭐ v3.9.0 |
+| 차트 책임 이관 결정 | ADR 0085 · ADR 0094 amend 2026-05-21 |
+| qa Visual 격상 결정 | ADR 0094 §2-2-B |
+| T-MARKET 결정 | ADR 0100 · ADR 0101 |
+| AI advisory-only 원칙 | ADR 0026 |
+
+— frontend baseline 작성 END —
