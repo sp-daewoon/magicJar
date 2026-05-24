@@ -350,4 +350,57 @@ class KafkaTopicConfig {
             .replicas(1)
             .config("retention.ms", "604800000") // 7d
             .build()
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ADR 0100 T-MARKET Phase 1 — 지수·섹터 1분 cron 갱신 이벤트 2건
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * 시장 지수 갱신 이벤트 (ADR 0100 §2-6 STOMP fanout source LOCK — T-MARKET Phase 1).
+     *
+     * publisher : batch MarketIndexSyncJob (1분 cron · 26 row × 1min)
+     * consumer  : R2 backend-core MarketIndexUpdatedListener → STOMP /topic/market.index.{code}
+     *
+     * partition key = code (지수·섹터 코드 — 종목별 ordering).
+     * retention: 1h (1분 cron 본질 + STOMP fanout 즉시 소비 — 장기 보관 불필요).
+     *
+     * 이벤트 스키마 v1 (ADR 0100 §2-6 정합):
+     *   code, category, ts, price, changeRate, volume, occurredAt, schemaVersion=1
+     *
+     * 호출 빈도 (ADR 0100 §2-4): 26 msg/min × 6h 장중 = ~9360 msg/day = 0.108 msg/s — 매우 가벼움.
+     *
+     * // AI 호출 0 건 (룰 5 + ADR 0100 §1-3 자본 path 영향 0)
+     */
+    @Bean
+    fun marketIndexUpdatedTopic(): NewTopic =
+        TopicBuilder
+            .name("market.index.updated.v1")
+            .partitions(1)
+            .replicas(1)
+            .config("retention.ms", "3600000") // 1h
+            .build()
+
+    /**
+     * 섹터 ranking 갱신 이벤트 (ADR 0100 §2-6 STOMP fanout source LOCK — T-MARKET Phase 1).
+     *
+     * publisher : batch MarketIndexDailyCloseJob (16:30 KST + 사용자 변경 시 lazy) + 1분 cron 옵션
+     * consumer  : R2 backend-core MarketSectorUpdatedListener → STOMP /topic/market.sector.rank
+     *
+     * partition key = "ALL" (단일 ranking — broadcast).
+     * retention: 1d (장 마감 ranking 일 1회 본질).
+     *
+     * 이벤트 스키마 v1 (ADR 0100 §2-6 정합):
+     *   ts, sectors[]={sectorCode, sectorName, price, changeRate, tradeValue},
+     *   occurredAt, schemaVersion=1
+     *
+     * // AI 호출 0 건 (룰 5 + ADR 0100 §1-3 자본 path 영향 0)
+     */
+    @Bean
+    fun marketSectorUpdatedTopic(): NewTopic =
+        TopicBuilder
+            .name("market.sector.updated.v1")
+            .partitions(1)
+            .replicas(1)
+            .config("retention.ms", "86400000") // 1d
+            .build()
 }

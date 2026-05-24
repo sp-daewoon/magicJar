@@ -1,10 +1,10 @@
 package kr.spdaewoon.magicjar.domain.market.ratelimit
 
 /**
- * KIS REST 호출 path 우선순위 분류 (spec PR #564 §2-2 LOCK).
+ * KIS REST 호출 path 우선순위 분류 (spec PR #564 §2-2 + ADR 0037 amend 2026-05-24 LOCK).
  *
  * Phase 1: 정보 수집만 — 모든 priority 동일 bucket (단일 LOCK).
- * Phase 2: USER_PATH > INGESTION > BACKFILL 우선순위 큐 적용 (별도 사이클).
+ * Phase 2: USER_PATH > INGESTION > BACKFILL > INGESTION_LOW 우선순위 큐 적용 (별도 사이클).
  *
  * sealed class 대신 enum 선택 사유:
  *   - Phase 1은 분류 라벨 LOCK (인스턴스 상태 0)
@@ -29,4 +29,21 @@ enum class KisCallPriority {
      * Phase 2에서 최후 우선순위 (사용자 path 방해 0).
      */
     BACKFILL,
+
+    /**
+     * T-MARKET 시장 추세 cron (1분 cron, 26 req/min · 4.3% 한도 점유 · ADR 0100 §2-3 LOCK).
+     *
+     * 우선순위 사유 (ADR 0037 amend 2026-05-24 + ADR 0100 §2-8):
+     *   - 사용자 path 보다 느린 user-facing latency 허용 (1분 지연 OK)
+     *   - 정기 시장 추세 갱신 본질 — burst 시 BACKFILL 보다 먼저 drop 가능 (사용자·자본 path 영향 0)
+     *   - 본 priority의 5 KIS endpoint:
+     *     · FHPUP02100000 inquire-index-price (국내 지수·업종 현재가)
+     *     · FHPUP02120000 inquire-index-daily-price (국내 일봉)
+     *     · FHPUP02140000 inquire-index-category-price (국내 섹터 ranking)
+     *     · HHDFS00000300 overseas price (해외 지수 현재가 .IXIC/.SPX)
+     *     · HHDFS76240000 overseas dailyprice (해외 일봉)
+     *
+     * Phase 2 라우팅 LOCK: USER_PATH > INGESTION > BACKFILL > INGESTION_LOW
+     */
+    INGESTION_LOW,
 }
