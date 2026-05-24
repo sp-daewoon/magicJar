@@ -3,10 +3,10 @@ id: T-20260524-1737-w4-p1-graceful-handlers
 agent: backend-core
 model: opus
 branch: agent/backend-core/w4-p1-graceful-handlers
-status: RUNNING
+status: DONE
 startedAt: 2026-05-24T17:37:42.497+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-24T17:46:43.427+09:00
+pr: #686
 parentPhase: ?
 ---
 
