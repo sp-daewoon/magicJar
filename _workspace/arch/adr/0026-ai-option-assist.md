@@ -1,6 +1,6 @@
 # ADR 0026: AI 옵션 보조 (사용자 트리거 한정)
 
-- 상태: **Accepted (2026-05-24 amend — 진입점 4→5 갱신 (MARKET 신규) + V20 예약 폐기 → V42·V43 LOCK + ADR 0094·0100·0101 동반 정합)**
+- 상태: **Accepted (2026-05-24 amend — 진입점 4→5 갱신 (MARKET 신규) + V20 예약 폐기 → V49·V50 LOCK (2026-05-24 R0 amend — V42·V43 → V49·V50 shift · ADR 0102 정합) + ADR 0094·0100·0101 동반 정합)**
 - 작성일: 2026-05-03
 - 결정자: architect (opus 4.7 1M) — 사용자 비전(2026-05-02) + 결정(default 12 §5) 정합 + brainstorming 결재 cec6a4d6 (2026-05-24)
 - master §위치: `docs/architecture/master-architecture.md` v2 §1·§3-3·§D.17·§7
@@ -98,7 +98,7 @@ frontend AiCard 표시
 
 - 5분 prompt cache (`ai:prompt:cache:{templateHash}`) — 동일 입력 재사용
 - `MAGICJAR_AI_ENABLED=false` default — 사용자 명시 활성 후 사용
-- audit 테이블 `ai_comment_log` (**2026-05-24 amend — V20 예약 폐기 → V42 LOCK** · §2-5 정합) — model·tokens·cost_usd 기록
+- audit 테이블 `ai_comment_log` (**2026-05-24 amend — V20 예약 폐기 → V49 LOCK** (2026-05-24 R0 amend — V42 → V49 shift · main HEAD V46 점유 + V47 비점유 검증 evidence · ADR 0102 정합) · §2-5 정합) — model·tokens·cost_usd 기록
 - 1일 1사용자 토큰 한도 (default 1000 · env override · 초과 시 graceful refuse 한국어)
 - **2026-05-24 amend — AI 월 비용 임계 alert** (ADR 0095 amend 동반) — `$10` 초과 시 Slack CRITICAL
 
@@ -108,13 +108,13 @@ frontend AiCard 표시
 - **본체 흐름 영향 0** — 시그널·주문·screener 모두 정상 작동
 - Circuit Breaker (Resilience4j) — 30s open + 3회 retry
 
-### 2-7. prompt 표준 (2026-05-24 amend — V20 예약 폐기 → V43 LOCK)
+### 2-7. prompt 표준 (2026-05-24 amend — V20 예약 폐기 → V50 LOCK · 2026-05-24 R0 amend V43 → V50 shift)
 
-`prompt_template` 테이블 (**V43** — 2026-05-24 amend):
+`prompt_template` 테이블 (**V50** — 2026-05-24 R0 amend · main HEAD V46 점유 audit 결과 V43 → V50 shift · ADR 0102 정합):
 - type · version · template_text · variables_schema JSONB · is_active BOOL · created_at
 - 같은 type의 prompt는 version으로 관리 — A/B 비교·드리프트 추적
 - 변수 치환 — `{{code}}`·`{{indicators}}`·`{{news}}`·**`{{maPeriods}}`·`{{rsPeriod}}` (MARKET 진입점 — ADR 0101 TrendPreference 사용자 mental model 반영)**
-- **seed 5건** (Flyway V43 data) — `prompt_template:symbol_v1` · `chart_v1` · `strategy_v1` · `signal_v1` · **`market_v1` (신규)**
+- **seed 5건** (Flyway V50 data) — `prompt_template:symbol_v1` · `chart_v1` · `strategy_v1` · `signal_v1` · **`market_v1` (신규)**
 
 ## 3. 결과·영향
 
@@ -146,3 +146,4 @@ frontend AiCard 표시
 |------|------|--------|
 | 2026-05-03 | ADR 0026 신설 — AI 옵션 보조 (사용자 트리거 한정 · 매매 결정권 0 · default 12 §5 정합) | architect |
 | 2026-05-24 | **amend — §2-2 진입점 4 → 5 (MARKET 신규 — `/market/trend` 진입점 + `prompt_template:market_v1` 변수 `{{maPeriods}}`·`{{rsPeriod}}` 치환) + §2-3 type enum MARKET 추가 + §2-5 영속 참조 V20 예약 폐기 → V42(ai_comment_log)·V43(prompt_template) LOCK + §2-7 V43 seed 5건 (market_v1 신규) + AI 비용 임계 $10/월 alert routing 동반 (ADR 0095 amend)** — 사용자 brainstorming 결재 cec6a4d6 정합. orchestrator → architect R0 dispatch. ADR 0094·0100·0101 동반. 운영 코드 0 touch. (architect, opus 4.7 1M) |
+| 2026-05-24 | **amend (R0 결함 fix · 본 ADR 의 V42·V43 LOCK shift) — §2-5 V42 → V49 shift + §2-7 V43 → V50 shift + 상태 행 정합. R0 PR #674 시점 V40~V45 LOCK 발행 → ai-engineer R1 dispatch가 main HEAD audit 결과 V40~V46 점유 사실 발견 → 헌법 §7 escalation → architect R0 amend PR로 V47~V52 재분배. 본 결함 재발 방지는 ADR 0102 신설 본문 (spec audit 5단계 절차 LOCK) 참조** — orchestrator R0 결함 fix dispatch 정합. 운영 코드 0 touch (md only). (architect, opus 4.7 1M) |

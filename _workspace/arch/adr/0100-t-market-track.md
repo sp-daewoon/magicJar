@@ -107,7 +107,7 @@ include("market-trend-engine")
   - 해외: `price` × 2 (.IXIC + .SPX) = 2 req
   - 총 = **26 req/min** = 0.43 req/s
 - KisCallPriority: `INGESTION_LOW` (신규 — ADR 0037 amend)
-- 결과: Redis `market:index:{code}` TTL 30s + Kafka `market.index.updated.v1` publish + 영속 `market_index_snapshot` (V40 1행 / minute / code)
+- 결과: Redis `market:index:{code}` TTL 30s + Kafka `market.index.updated.v1` publish + 영속 `market_index_snapshot` (V47 1행 / minute / code · 2026-05-24 R0 amend V40 → V47 shift · ADR 0102 정합)
 
 #### `MarketIndexDailyCloseJob` — 16:30 KST + 06:00 KST 2회
 
@@ -142,9 +142,9 @@ include("market-trend-engine")
 | `/topic/market.sector.rank` | api consumer of `market.sector.updated.v1` | SectorRanking DTO | 5분 |
 | `/topic/market.user.{userId}.pref` | api after PUT `/preferences/trend` | TrendPreference DTO | 즉시 (다중 탭 sync) |
 
-### 2-7. Flyway 마이그레이션 2건 (V40·V41 LOCK — R1 market-data 영역)
+### 2-7. Flyway 마이그레이션 2건 (V47·V48 LOCK — R1 market-data 영역 · 2026-05-24 R0 amend V40·V41 → V47·V48 shift · main HEAD V46 점유 audit · ADR 0102 정합)
 
-#### V40 — `market_index_snapshot`
+#### V47 (← V40) — `market_index_snapshot`
 
 ```sql
 CREATE TABLE market_index_snapshot (
@@ -169,7 +169,7 @@ COMMENT ON COLUMN market_index_snapshot.code IS 'KIS index code (예: 0001=KOSPI
 COMMENT ON COLUMN market_index_snapshot.raw_payload IS 'KIS raw response (KIS-first 정합 — 필드 변경 시 add-only 흡수 가능)';
 ```
 
-#### V41 — `sector_index_snapshot`
+#### V48 (← V41) — `sector_index_snapshot`
 
 ```sql
 CREATE TABLE sector_index_snapshot (
@@ -279,7 +279,7 @@ class KisDomesticIndexPriceAdapter(...) { ... }
 |---|---|---|
 | api 모듈 controller | 신규 2개 add-only (MarketIndexController · MarketSectorController) | 기존 controller 0 touch |
 | batch 모듈 cron Job | 신규 2개 add-only (MarketIndexSyncJob · MarketIndexDailyCloseJob) | 기존 Job 0 touch |
-| Flyway version | V40·V41 LOCK (market-data 영역) | V42·V43 (ai-engineer) · V44 (backend-core-trend) · V45 (backend-core-mcp) 분리 LOCK |
+| Flyway version | V47·V48 LOCK (market-data 영역 · 2026-05-24 R0 amend V40·V41 shift) | V49·V50 (ai-engineer · V42·V43 shift) · V51 (backend-core-trend · V44 shift) · V52 (backend-core-mcp · V45 shift) 분리 LOCK |
 | domain port | 신규 1개 add-only (TrendPreferenceRepository — ADR 0101 정합) | 기존 port 0 touch |
 | frontend 화면 | DashboardPage MarketIndexStrip add-only + `/market/trend` 신규 page | 기존 화면 0 touch |
 | 자본 path | 0 (read-only 완전 LOCK) | grep 검증 의무 |
@@ -343,7 +343,7 @@ class KisDomesticIndexPriceAdapter(...) { ... }
 | 2 | `MarketIndexSyncJob` `@ConditionalOnProperty` 자동 비활성 | 즉시 (jvm restart 0건) |
 | 3 | frontend `MarketIndexStrip` feature flag `VITE_FEATURE_MARKET_TREND=false` env toggle + rebuild | < 5분 |
 | 4 | DB 영속 보존 (rollback이 데이터 손실 없음 — read-only 본질) | 0 |
-| 5 | PR revert (단일 PR revert + Flyway V40·V41 down migration 불요 — table drop은 별 사이클 의제) | < 30분 |
+| 5 | PR revert (단일 PR revert + Flyway V47·V48 down migration 불요 — table drop은 별 사이클 의제 · 2026-05-24 R0 amend V40·V41 shift) | < 30분 |
 
 전체 rollback 6분 (RTO 30분 LOCK 안에 충분 · ADR 0096 §4 정합).
 
@@ -366,7 +366,7 @@ class KisDomesticIndexPriceAdapter(...) { ... }
 | 모듈 위치 | **market-trend-engine 신설** (ADR 0083·0088·0092 패턴 1:1) | api 단독 (모듈 폭증 회피 의제) — domain 순수성 위반 risk + indicator-impl 패턴 위반 |
 | KIS endpoint 5 선택 | **본 ADR §2-3 5건 LOCK** | KIS Overseas API 미사용 + 해외 Yahoo fallback (KIS-only 정책 ADR 0057 위반 risk) |
 | cron 빈도 | **1분 cron** | 5분 cron (사용자 dashboard 자연스러움 감소) · 10초 cron (rate limit 부담 ↑) |
-| Flyway version | **V40·V41 LOCK** (market-data 영역) | architect 결정 deferred + sub-agent 자율 — 충돌 risk |
+| Flyway version | **V47·V48 LOCK** (market-data 영역 · 2026-05-24 R0 amend V40·V41 shift) | architect 결정 deferred + sub-agent 자율 — 충돌 risk |
 | AI 합류 | **별 트랙 T-AI** (data layer · AI layer 분리) | T-MARKET 내부 AI prompt — AI 끊김 시 본체 영향 risk |
 | frontend 1차 화면 | **DashboardPage MarketIndexStrip + `/market/trend` 페이지 양쪽** | DashboardPage strip만 — 섹터 ranking view 진입점 부재 |
 | MA periods 1차 default | **[5, 20, 60]** | [10, 30, 90] (중기 안 — 사용자 1차 mental model 표준 SMA 5/20/60 정합) |
@@ -405,3 +405,4 @@ class KisDomesticIndexPriceAdapter(...) { ... }
 | 날짜 | 변경 | 결정자 |
 |------|------|--------|
 | 2026-05-24 | **ADR 0100 신설 Accepted — T-MARKET 트랙 도입 + market-trend-engine 모듈 신설 + KIS endpoint 5 LOCK + cron 매트릭스 + Flyway V40·V41 LOCK + REST 6 endpoint + STOMP 3 topic + 운영 ADR 양식 3 슬롯 첫 적용 사례 (v3.9.0 후보) + KIS-first raw fetch 5 evidence 인용** — 사용자 brainstorming 결재 cec6a4d6 정합. orchestrator → architect R0 dispatch. 운영 코드 0 touch (Kotlin/TS/SQL 0 변경 — ADR + spec + ADR README + master + CHANGELOG only). 자본 영향 0 + KIS endpoint 호출 0 (R1 market-data dispatch에서 실제 호출) + AI 호출 0 + mock 합성 0. ADR 0004 6→7 amend + ADR 0037 INGESTION_LOW amend + ADR 0026·0027·0094·0095 amend 동반. ADR 0101 (TrendPreference) 짝 ADR 동시 발행. (architect, opus 4.7 1M) |
+| 2026-05-24 | **amend (R0 결함 fix · 본 ADR 의 V40·V41 LOCK shift) — §2-3 V40 cron 영속 라벨 V47 shift + §2-7 Flyway 마이그레이션 2건 V40·V41 → V47·V48 shift + §4-2 영역 침범 매트릭스 동반 shift + §6-2 rollback Flyway 라벨 shift + §7 트레이드오프 Flyway version 행 shift. R0 PR #674 시점 V40~V45 LOCK 발행 → ai-engineer R1 dispatch가 main HEAD audit 결과 V40~V46 점유 사실 발견 → 헌법 §7 escalation → architect R0 amend PR로 V47~V52 재분배 (main HEAD V46 점유 + V47 비점유 검증 evidence). 본 결함 재발 방지는 ADR 0102 신설 본문 (spec audit 5단계 절차 LOCK) 참조** — orchestrator R0 결함 fix dispatch 정합. 운영 코드 0 touch (md only). (architect, opus 4.7 1M) |

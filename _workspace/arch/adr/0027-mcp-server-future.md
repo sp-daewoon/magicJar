@@ -1,6 +1,6 @@
 # ADR 0027: MCP 서버 미래 노출 (W4)
 
-- 상태: **Accepted (2026-05-24 amend — tool 5 → 6 (`get_market_trend` 신규) + V21 예약 폐기 → V45 LOCK + JSON Schema 본문 추가 + alert routing 매트릭스 동반)**
+- 상태: **Accepted (2026-05-24 amend — tool 5 → 6 (`get_market_trend` 신규) + V21 예약 폐기 → V52 LOCK (2026-05-24 R0 amend — V45 → V52 shift · main HEAD V46 점유 audit · ADR 0102 정합) + JSON Schema 본문 추가 + alert routing 매트릭스 동반)**
 - 작성일: 2026-05-03
 - 결정자: architect (opus 4.7 1M) — 사용자 비전(2026-05-02) 명시 정합 + brainstorming 결재 cec6a4d6 (2026-05-24)
 - master §위치: `docs/architecture/master-architecture.md` v2 §1-5·§D.18·§3-4
@@ -152,10 +152,10 @@ api/
 
 API key는 `mcp_audit` 테이블에 `client_id` 매핑.
 
-### 2-5. audit (2026-05-24 amend — V21 예약 폐기 → V45 LOCK)
+### 2-5. audit (2026-05-24 amend — V21 예약 폐기 → V52 LOCK · 2026-05-24 R0 amend V45 → V52 shift · ADR 0102 정합)
 
 ```sql
--- V45__mcp_audit.sql (2026-05-24 amend — 본 ADR 권위)
+-- V52__mcp_audit.sql (2026-05-24 R0 amend — 본 ADR 권위 · main HEAD V46 점유 audit 결과 V45 → V52 shift)
 CREATE TABLE mcp_audit (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL,
@@ -212,3 +212,4 @@ CREATE INDEX idx_mcp_tool_time ON mcp_audit(tool, called_at DESC);
 |------|------|--------|
 | 2026-05-03 | ADR 0027 신설 — MCP 서버 미래 노출 (우리가 server · AI client · tool 5종 read-only · API key 인증) | architect |
 | 2026-05-24 | **amend — §2-2 tool 5 → 6 (`get_market_trend` 신규 · T-MARKET 합류 · LLM 호출 0) + §2-3 `get_market_trend` JSON Schema 본문 추가 (request·response 양방) + §2-5 영속 참조 V21 예약 폐기 → V45(mcp_audit) LOCK + idx_mcp_tool_time 인덱스 추가 + MCP 분당 호출 100 초과 alert (ADR 0095 amend 동반)** — 사용자 brainstorming 결재 cec6a4d6 정합. orchestrator → architect R0 dispatch. ADR 0094·0100·0101 동반. 운영 코드 0 touch. (architect, opus 4.7 1M) |
+| 2026-05-24 | **amend (R0 결함 fix · 본 ADR 의 V45 LOCK shift) — §2-5 V45 → V52 shift + 상태 행 정합. R0 PR #674 시점 V40~V45 LOCK 발행 → ai-engineer R1 dispatch가 main HEAD audit 결과 V40~V46 점유 사실 발견 → 헌법 §7 escalation → architect R0 amend PR로 V47~V52 재분배. 본 결함 재발 방지는 ADR 0102 신설 본문 (spec audit 5단계 절차 LOCK) 참조** — orchestrator R0 결함 fix dispatch 정합. 운영 코드 0 touch (md only). (architect, opus 4.7 1M) |

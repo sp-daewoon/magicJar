@@ -26,7 +26,7 @@
 - [ ] ADR 0100 §3-2 raw 출처 5건 인용 — GitHub blob URL + 필드 매트릭스 + sample call evidence
 - [ ] ADR 0101 §2-1 TrendPreference require 5건 본문 — size 1~5 · 각 1~252 · sorted ASC · rsPeriod 1~252 · crossPair invariant
 - [ ] ADR 0101 §2-2 DDL CHECK 제약 2건 + 한국어 COMMENT
-- [ ] ADR 0026·0027 amend — V20·V21 예약 폐기 → V42·V43·V45 LOCK 명시
+- [ ] ADR 0026·0027 amend — V20·V21 예약 폐기 → V49·V50·V52 LOCK 명시 (2026-05-24 R0 amend — V42·V43·V45 → V49·V50·V52 shift · ADR 0102 정합)
 - [ ] ADR 0094 §4-4-B AI KillSwitch `MAGICJAR_AI_KILLSWITCH` env 명시
 - [ ] ADR 0095 §3-2 amend 3 신규 row (S-AI-1 · S-MCP-1 · S-MARKET-1) — 임계 + Slack severity 명시
 - [ ] 각 ADR 끝 변경 이력 row 작성자 (architect, opus 4.7 1M) 명시
@@ -77,7 +77,7 @@
 - [ ] KIS rate limit 26 req/min = 0.43 req/s (한도 4.3% 점유) 실측 evidence 의무
 - [ ] grep — 자본 path (`OrderService` · `OrderRouterKafkaListener` · `KillSwitchAutoToggler`) 0 touch 검증
 - [ ] grep — 기존 KIS adapter 0 touch (신규 디렉토리 add-only 검증)
-- [ ] Flyway V40·V41 외 신규 마이그레이션 0건 검증
+- [ ] Flyway V47·V48 외 신규 마이그레이션 0건 검증 (2026-05-24 amend — V40·V41 → V47·V48 shift · ADR 0102 정합)
 - [ ] KisCallPriority enum 4 value (USER_PATH·INGESTION·BACKFILL·INGESTION_LOW) 모두 grep evidence
 
 ### 2-3. 연결 체크
@@ -115,7 +115,7 @@
 ### 3-2. 영향도 체크
 
 - [ ] 신규 모듈 `market-trend-engine` 1개 추가 — settings.gradle.kts +1 라인 amend
-- [ ] 신규 표 `user_preference` 1건 (V44) — 시드 SQL idempotent 검증
+- [ ] 신규 표 `user_preference` 1건 (V51) — 시드 SQL idempotent 검증 (2026-05-24 amend — V44 → V51 shift)
 - [ ] grep — 기존 controller / service 0 touch
 - [ ] grep — 자본 path 0 touch
 - [ ] grep — frontend 영역 0 touch (frontend는 R2)
@@ -162,7 +162,7 @@
 - [ ] grep — W1·W2·W3 코드 영역 (W4 외 모든 영역) LLM provider import 0건 검증 (ADR 0026 §3)
 - [ ] grep — 자본 path 0 touch (signal·order·risk·killswitch path 모두 격리)
 - [ ] `MAGICJAR_AI_ENABLED=false` default 검증 (application.yml + .env.example)
-- [ ] Flyway V42·V43 외 신규 마이그레이션 0건 검증
+- [ ] Flyway V49·V50 외 신규 마이그레이션 0건 검증 (2026-05-24 amend — V42·V43 → V49·V50 shift)
 
 ### 4-3. 연결 체크
 
@@ -238,7 +238,7 @@
 
 - [ ] grep — write tool 0건 (모든 tool read-only LOCK 검증 — ADR 0027 §2-2 정합)
 - [ ] grep — 기존 controller / service 0 touch
-- [ ] grep — Flyway V45 외 신규 마이그레이션 0건
+- [ ] grep — Flyway V52 외 신규 마이그레이션 0건 (2026-05-24 amend — V45 → V52 shift)
 - [ ] OnboardingGuardFilter skip (인증 분리) — McpController는 ApiKeyAuthFilter 단독
 
 ### 6-3. 연결 체크
@@ -309,7 +309,7 @@
 
 ### 8-4. 자체 결정 권한 침해 risk
 
-- [ ] Flyway V40~V45 외 신규 마이그레이션 0건 — orchestrator escalation 의무
+- [ ] Flyway V47~V52 외 신규 마이그레이션 0건 — orchestrator escalation 의무 (2026-05-24 amend — V40~V45 → V47~V52 shift · 본 결함 evidence + 재발 방지는 ADR 0102 신설 본문 참조)
 - [ ] 모듈 경계 변경 0 (architect 권위) — settings.gradle.kts amend는 backend-core (T-MARKET) 단독
 
 ### 8-5. 성능 risk

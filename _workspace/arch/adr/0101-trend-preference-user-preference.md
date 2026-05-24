@@ -33,7 +33,7 @@
 
 - mindset: 본 ADR은 **사용자 설정 단일 진입점** — `extra JSONB` 확장 슬롯이 post-MVP 모든 사용자 설정 흡수 path (마이그레이션 폭증 회피)
 - 자본 path 영향 0 (read-only · 추세 라벨만 영향)
-- 신규 표 1건 (V44) — 마이그레이션 단일
+- 신규 표 1건 (V51 · 2026-05-24 R0 amend V44 → V51 shift · main HEAD V46 점유 audit · ADR 0102 정합) — 마이그레이션 단일
 
 ---
 
@@ -53,7 +53,7 @@ import java.time.Instant
  * 사용자 시장 추세 분석 설정 (MA periods · RS period · cross pair).
  *
  * 본 도메인은 forward-compat 확장 슬롯 단일 진입점 — MA type · indicator 추가 · 차트 default · 알림 임계 등
- * 모든 사용자 설정은 `extra JSONB` (Flyway V44 user_preference 표)로 add-only 흡수.
+ * 모든 사용자 설정은 `extra JSONB` (Flyway V51 user_preference 표 · 2026-05-24 R0 amend V44 → V51 shift)로 add-only 흡수.
  *
  * @see ADR 0100 (T-MARKET 트랙) · ADR 0101 (본 ADR — TrendPreference + user_preference)
  */
@@ -114,10 +114,10 @@ interface TrendPreferenceRepository {
 
 ADR 0088 패턴 1:1 reuse 의제 — 본 ADR R1 backend-core dispatch 시점에 결정 (api 단독 또는 persistence-shared 흡수). 1차 권장: **api 단독** (`user_account` 등 사용자 관련 표는 api 단독 패턴 정합).
 
-### 2-2. Flyway V44 — `user_preference` 표 (R1 backend-core 영역 LOCK)
+### 2-2. Flyway V51 — `user_preference` 표 (R1 backend-core 영역 LOCK · 2026-05-24 R0 amend V44 → V51 shift · main HEAD V46 점유 audit · ADR 0102 정합)
 
 ```sql
--- V44__user_preference.sql
+-- V51__user_preference.sql (2026-05-24 R0 amend — V44 → V51 shift)
 CREATE TABLE user_preference (
     user_id BIGINT PRIMARY KEY REFERENCES user_account(id) ON DELETE CASCADE,
     trend_ma_periods JSONB NOT NULL DEFAULT '[5,20,60]'::jsonb,
@@ -236,7 +236,7 @@ PUT 성공 후 즉시 push — 다중 탭 sync. WebSocketConfig reuse (frontend 
 | AI prompt 사용자 메모 (트레이딩 스타일) | `extra.ai.userMemo` | text | 0 |
 | MCP 외부 client 권한 매트릭스 | `extra.mcp.allowedTools` | array | 0 |
 
-→ **단일 마이그레이션 V44 한 번으로 모든 사용자 설정 확장 path 흡수**. 신규 컬럼 add 의무 0건 baseline.
+→ **단일 마이그레이션 V51 한 번으로 모든 사용자 설정 확장 path 흡수** (2026-05-24 R0 amend V44 → V51 shift · ADR 0102 정합). 신규 컬럼 add 의무 0건 baseline.
 
 #### 2-5-A. 단점 (확장 슬롯 vs 컬럼)
 
@@ -266,7 +266,7 @@ PUT 성공 후 즉시 push — 다중 탭 sync. WebSocketConfig reuse (frontend 
 | 영역 | 침범 | 회피 |
 |---|---|---|
 | domain | 신규 2 파일 add-only (TrendPreference · TrendPreferenceRepository) | 기존 domain 0 touch |
-| Flyway V44 | LOCK (backend-core 영역) | V40·V41 (market-data) · V42·V43 (ai-engineer) · V45 (backend-core-mcp) 분리 LOCK |
+| Flyway V51 | LOCK (backend-core 영역 · 2026-05-24 R0 amend V44 → V51 shift) | V47·V48 (market-data · V40·V41 shift) · V49·V50 (ai-engineer · V42·V43 shift) · V52 (backend-core-mcp · V45 shift) 분리 LOCK |
 | api controller | 신규 1개 add-only (UserPreferenceController) | 기존 controller 0 touch |
 | 자본 path | 0 (read-only + 사용자 설정만) | grep 검증 의무 |
 
@@ -324,7 +324,7 @@ PUT 성공 후 즉시 push — 다중 탭 sync. WebSocketConfig reuse (frontend 
 | 3 | frontend `SettingsModal` "추세 설정" section feature flag `VITE_FEATURE_TREND_PREF=false` | < 5분 (rebuild) |
 | 4 | T-MARKET trend 라벨 계산 hardcoded default [5,20,60] fallback (TrendPreferenceService graceful → default Defaults 반환) | 즉시 (코드 이미 default echo path 존재 — `isUserCustom: false`) |
 | 5 | DB `user_preference` 표 보존 (rollback 데이터 손실 없음) | 0 |
-| 6 | PR revert (Flyway V44 down 불요 — table drop은 별 사이클 의제) | < 30분 |
+| 6 | PR revert (Flyway V51 down 불요 — table drop은 별 사이클 의제 · 2026-05-24 R0 amend V44 shift) | < 30분 |
 
 전체 rollback 6분 (RTO 30분 LOCK 안 · ADR 0096 §4 정합).
 
@@ -384,3 +384,4 @@ PUT 성공 후 즉시 push — 다중 탭 sync. WebSocketConfig reuse (frontend 
 | 날짜 | 변경 | 결정자 |
 |------|------|--------|
 | 2026-05-24 | **ADR 0101 신설 Accepted — TrendPreference 1급 도메인 + `user_preference` 표 (V44) + `extra JSONB` forward-compat 확장 슬롯 단일 진입점 + REST 2 endpoint Swagger 4단 + STOMP fanout + 시드 SQL idempotent + Bean Validation 강제 + 운영 ADR 양식 3 슬롯 + 후속 사이클 10+ 슬롯** — 사용자 brainstorming §0-2 추가 의제 1건 결재 정합. orchestrator → architect R0 dispatch. 운영 코드 0 touch (Kotlin/TS/SQL 0 변경 — ADR + spec + ADR README + master + CHANGELOG only). 자본 영향 0 + KIS endpoint 호출 0 + AI 호출 0 + mock 합성 0. ADR 0100 (T-MARKET) 짝 ADR 동시 발행. (architect, opus 4.7 1M) |
+| 2026-05-24 | **amend (R0 결함 fix · 본 ADR 의 V44 LOCK shift) — §1-3 신규 표 V44 → V51 + §2-1-A 도메인 KDoc V44 → V51 + §2-2 Flyway V44 → V51 (DDL 파일명 헤더 동반 shift) + §2-5 단일 마이그레이션 V44 → V51 + §3-2 영역 침범 매트릭스 Flyway 행 shift + §5-2 rollback V44 → V51. R0 PR #674 시점 V40~V45 LOCK 발행 → ai-engineer R1 dispatch가 main HEAD audit 결과 V40~V46 점유 사실 발견 → 헌법 §7 escalation → architect R0 amend PR로 V47~V52 재분배 (main HEAD V46 점유 + V47 비점유 검증 evidence). 본 결함 재발 방지는 ADR 0102 신설 본문 (spec audit 5단계 절차 LOCK) 참조** — orchestrator R0 결함 fix dispatch 정합. 운영 코드 0 touch (md only). (architect, opus 4.7 1M) |
