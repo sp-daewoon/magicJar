@@ -403,4 +403,56 @@ class KafkaTopicConfig {
             .replicas(1)
             .config("retention.ms", "86400000") // 1d
             .build()
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ADR 0026 amend T-AI Phase 1 (W4 R1) — AI 코멘트 요청·응답 토픽 2건
+    //   사용자 명시 클릭 trigger 한정 — 자동 호출 0건 (매매 결정권 0)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * AI 코멘트 요청 (ADR 0026 §2-4 amend — 사용자 클릭 → POST /api/ai/explain → Kafka publish).
+     *
+     * publisher : api AiExplainController (사용자 트리거 only)
+     * consumer  : consumer AiCommentDispatcherListener (W4 R1 신규)
+     *
+     * partition key = userId — 같은 사용자 요청 ordering 보장 (1일 한도 정확성).
+     * retention: 7d (audit · MCP 후속 정합)
+     *
+     * 부하 예측 (ADR 0026 §2-2 amend — 5 진입점 advisory only):
+     *   사용자 평균 10 클릭/일 × 100 사용자 = 1,000 msg/day = 0.012 msg/s — 매우 가벼움.
+     *
+     * 이벤트 스키마 v1:
+     *   requestId · userId · type (SYMBOL/CHART/STRATEGY/SIGNAL/MARKET) ·
+     *   contextJson · occurredAt · schemaVersion=1
+     */
+    @Bean
+    fun aiCommentRequestedTopic(): NewTopic =
+        TopicBuilder
+            .name("ai.comment.requested.v1")
+            .partitions(1)
+            .replicas(1)
+            .config("retention.ms", "604800000") // 7d
+            .build()
+
+    /**
+     * AI 코멘트 응답 (ADR 0026 §2-4 amend — adapter 호출 결과 → Kafka publish → api STOMP fanout).
+     *
+     * publisher : consumer AiCommentDispatcherListener
+     * consumer  : api AiExplainStompPublisher (STOMP /topic/ai.explain.{requestId} fanout)
+     *
+     * partition key = userId — 같은 사용자 응답 ordering 보장.
+     * retention: 7d
+     *
+     * 이벤트 스키마 v1:
+     *   requestId · userId · provider · model · content · tokensIn · tokensOut ·
+     *   latencyMs · cached · graceful · occurredAt · schemaVersion=1
+     */
+    @Bean
+    fun aiCommentRespondedTopic(): NewTopic =
+        TopicBuilder
+            .name("ai.comment.responded.v1")
+            .partitions(1)
+            .replicas(1)
+            .config("retention.ms", "604800000") // 7d
+            .build()
 }
