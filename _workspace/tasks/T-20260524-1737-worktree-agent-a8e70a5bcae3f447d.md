@@ -3,10 +3,10 @@ id: T-20260524-1737-worktree-agent-a8e70a5bcae3f447d
 agent: market-data
 model: opus
 branch: agent/market-data/w4-p2-noop-reader-fix
-status: RUNNING
+status: DONE
 startedAt: 2026-05-24T17:37:56.717+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-24T17:46:06.047+09:00
+pr: #684
 parentPhase: ?
 ---
 
