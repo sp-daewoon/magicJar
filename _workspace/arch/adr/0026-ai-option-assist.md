@@ -1,12 +1,13 @@
 # ADR 0026: AI 옵션 보조 (사용자 트리거 한정)
 
-- 상태: Accepted
+- 상태: **Accepted (2026-05-24 amend — 진입점 4→5 갱신 (MARKET 신규) + V20 예약 폐기 → V42·V43 LOCK + ADR 0094·0100·0101 동반 정합)**
 - 작성일: 2026-05-03
-- 결정자: architect (opus 4.7 1M) — 사용자 비전(2026-05-02) + 결정(default 12 §5) 정합
+- 결정자: architect (opus 4.7 1M) — 사용자 비전(2026-05-02) + 결정(default 12 §5) 정합 + brainstorming 결재 cec6a4d6 (2026-05-24)
 - master §위치: `docs/architecture/master-architecture.md` v2 §1·§3-3·§D.17·§7
 - 트랙: T-AI (AI Option Console, W4)
 - 선행: ADR 0001, 0023 (Signal Engine 룰 only)
 - 폐기 대체: 1차안 LLM 공급자 ADR (본 ADR로 superseded)
+- 2026-05-24 amend 관련: ADR 0094 (운영 단계 — AI 비용 통제 lens) · ADR 0100 (T-MARKET — MARKET 진입점 신규) · ADR 0101 (TrendPreference — AI prompt 사용자 mental model 반영)
 
 ---
 
@@ -29,26 +30,27 @@ AI = **사용자 트리거 한정 분석 코멘트**. 매매 트리거 0.
 
 `MAGICJAR_AI_PROVIDER=anthropic|gemini|openai` env로 토글.
 
-### 2-2. 호출 트리거
+### 2-2. 호출 트리거 (2026-05-24 amend — 진입점 4 → 5)
 
 **사용자 명시 클릭만** — 자동 호출 0. UI 진입점:
 
-| 위치 | 버튼 | 입력 | 응답 |
-|---|---|---|---|
-| `/symbol/:code` 종목 상세 | "AI 종목 분석" | code + 현재 지표·패턴·뉴스 컨텍스트 | 코멘트 (시장 위치·재무 흐름·주의 사항) |
-| `/symbol/:code` 차트 | "차트 해석" | code + timeframe + 표시 지표 | 차트 흐름 코멘트 (추세·과열·과매도) |
-| `/strategy/:id` 전략 | "전략 평가" | 전략 DSL + 백테스트 결과 | 전략 강·약점 코멘트 |
-| `/dashboard` 시그널 카드 | "이 시그널 해석" | 시그널 + 종목 상태 | 코멘트 |
+| 위치 | 버튼 | 입력 | 응답 | prompt template |
+|---|---|---|---|---|
+| `/symbol/:code` 종목 상세 | "AI 종목 분석" | code + 현재 지표·패턴·뉴스 컨텍스트 | 코멘트 (시장 위치·재무 흐름·주의 사항) | `prompt_template:symbol_v1` |
+| `/symbol/:code` 차트 | "차트 해석" | code + timeframe + 표시 지표 | 차트 흐름 코멘트 (추세·과열·과매도) | `prompt_template:chart_v1` |
+| `/strategy/:id` 전략 | "전략 평가" | 전략 DSL + 백테스트 결과 | 전략 강·약점 코멘트 | `prompt_template:strategy_v1` |
+| `/dashboard` 시그널 카드 | "이 시그널 해석" | 시그널 + 종목 상태 | 코멘트 | `prompt_template:signal_v1` |
+| **`/market/trend` 시장 추세 (신규 — 2026-05-24 amend)** | **"시장 추세 해석"** | **지수 4 (KOSPI·KOSDAQ·NASDAQ·S&P) + 섹터 상위 5 + 추세 라벨 + user maPeriods·rsPeriod (ADR 0101)** | **시장 전체 흐름 코멘트 (강세 섹터·약세 섹터·진입 시점 advisory)** | **`prompt_template:market_v1`** (변수 `{{maPeriods}}`·`{{rsPeriod}}` 치환) |
 
-**매매 트리거 0** — UI에서 "이 시그널을 받아 자동 매수" 같은 결정 버튼 X.
+**매매 트리거 0** — UI에서 "이 시그널을 받아 자동 매수" 같은 결정 버튼 X. MARKET 진입점도 advisory only — KillSwitch · 시그널 · 주문 path 영향 0.
 
-### 2-3. Domain
+### 2-3. Domain (2026-05-24 amend — type 5종 LOCK)
 
 ```kotlin
 // domain/.../ai/
 data class AiCommentRequest(
-    val type: AiCommentType,            // SYMBOL · CHART · STRATEGY · SIGNAL · INDICATOR
-    val context: Map<String, Any>,      // code · indicators · patterns · news 등
+    val type: AiCommentType,            // SYMBOL · CHART · STRATEGY · SIGNAL · MARKET (2026-05-24 amend) · INDICATOR(deprecated — explain_indicator는 MCP ADR 0027 정적 catalog 별도)
+    val context: Map<String, Any>,      // code · indicators · patterns · news · trendPreference · indexTrends 등
     val userId: Long,
     val requestId: UUID,
 )
@@ -96,8 +98,9 @@ frontend AiCard 표시
 
 - 5분 prompt cache (`ai:prompt:cache:{templateHash}`) — 동일 입력 재사용
 - `MAGICJAR_AI_ENABLED=false` default — 사용자 명시 활성 후 사용
-- audit 테이블 `ai_comment_log` (V20) — model·tokens·cost_usd 기록
-- 1일 1사용자 토큰 한도 (post-MVP)
+- audit 테이블 `ai_comment_log` (**2026-05-24 amend — V20 예약 폐기 → V42 LOCK** · §2-5 정합) — model·tokens·cost_usd 기록
+- 1일 1사용자 토큰 한도 (default 1000 · env override · 초과 시 graceful refuse 한국어)
+- **2026-05-24 amend — AI 월 비용 임계 alert** (ADR 0095 amend 동반) — `$10` 초과 시 Slack CRITICAL
 
 ### 2-6. AI 응답 실패 시 본체 영향
 
@@ -105,12 +108,13 @@ frontend AiCard 표시
 - **본체 흐름 영향 0** — 시그널·주문·screener 모두 정상 작동
 - Circuit Breaker (Resilience4j) — 30s open + 3회 retry
 
-### 2-7. prompt 표준 (post-W4 보강)
+### 2-7. prompt 표준 (2026-05-24 amend — V20 예약 폐기 → V43 LOCK)
 
-`prompt_template` 테이블 (V20):
-- type · version · template_text · variables_schema · created_at
+`prompt_template` 테이블 (**V43** — 2026-05-24 amend):
+- type · version · template_text · variables_schema JSONB · is_active BOOL · created_at
 - 같은 type의 prompt는 version으로 관리 — A/B 비교·드리프트 추적
-- 변수 치환 — `{{code}}`·`{{indicators}}`·`{{news}}`
+- 변수 치환 — `{{code}}`·`{{indicators}}`·`{{news}}`·**`{{maPeriods}}`·`{{rsPeriod}}` (MARKET 진입점 — ADR 0101 TrendPreference 사용자 mental model 반영)**
+- **seed 5건** (Flyway V43 data) — `prompt_template:symbol_v1` · `chart_v1` · `strategy_v1` · `signal_v1` · **`market_v1` (신규)**
 
 ## 3. 결과·영향
 
@@ -132,3 +136,13 @@ frontend AiCard 표시
 - ADR 0027 (MCP server)
 - 폐기 대체: 1차안 LLM 공급자 ADR (본 ADR로 superseded)
 - Anthropic API: https://docs.anthropic.com/
+- **2026-05-24 amend 동반**: ADR 0094 (운영 단계 — AI 비용 통제 amend) · ADR 0095 (alert routing — AI 월 비용 임계 amend) · ADR 0100 (T-MARKET — MARKET 진입점 신규) · ADR 0101 (TrendPreference — AI prompt 사용자 mental model 반영)
+
+---
+
+## 6. 변경 이력
+
+| 날짜 | 변경 | 결정자 |
+|------|------|--------|
+| 2026-05-03 | ADR 0026 신설 — AI 옵션 보조 (사용자 트리거 한정 · 매매 결정권 0 · default 12 §5 정합) | architect |
+| 2026-05-24 | **amend — §2-2 진입점 4 → 5 (MARKET 신규 — `/market/trend` 진입점 + `prompt_template:market_v1` 변수 `{{maPeriods}}`·`{{rsPeriod}}` 치환) + §2-3 type enum MARKET 추가 + §2-5 영속 참조 V20 예약 폐기 → V42(ai_comment_log)·V43(prompt_template) LOCK + §2-7 V43 seed 5건 (market_v1 신규) + AI 비용 임계 $10/월 alert routing 동반 (ADR 0095 amend)** — 사용자 brainstorming 결재 cec6a4d6 정합. orchestrator → architect R0 dispatch. ADR 0094·0100·0101 동반. 운영 코드 0 touch. (architect, opus 4.7 1M) |
