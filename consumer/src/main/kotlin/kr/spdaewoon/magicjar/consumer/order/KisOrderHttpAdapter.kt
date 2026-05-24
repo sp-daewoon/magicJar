@@ -231,6 +231,21 @@ class KisOrderHttpAdapter(
             }
             OrderResult.Left(DenyReason.KisException("HTTP_${e.statusCode.value()}"))
         } catch (e: Exception) {
+            if (isTimeout(e)) {
+                if (acquiredToken && !signalSent) {
+                    kisRateLimiterPort.onSuccess()
+                    signalSent = true
+                }
+                log.error(
+                    "KIS 주문 timeout(wrapped) → PENDING_RECONCILE: trId={} userId={} err={}",
+                    trId,
+                    maskUserId(intent.userId),
+                    e.message,
+                )
+                return OrderResult.Left(
+                    DenyReason.KisTimeoutPendingReconcile("KIS_TIMEOUT_WRAPPED:${e.message ?: "unknown"}"),
+                )
+            }
             log.error(
                 "KIS 주문 예외: trId={} userId={} err={}",
                 trId,
@@ -446,6 +461,15 @@ class KisOrderHttpAdapter(
     }
 
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"
+
+    private fun isTimeout(e: Exception): Boolean =
+        e is java.util.concurrent.TimeoutException ||
+            e.message?.contains("timeout", ignoreCase = true) == true ||
+            generateSequence(e.cause) { it.cause }
+                .any { cause ->
+                    cause is java.util.concurrent.TimeoutException ||
+                        cause.javaClass.simpleName.contains("Timeout", ignoreCase = true)
+                }
 }
 
 /**

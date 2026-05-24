@@ -169,10 +169,13 @@ class OrderRouterKafkaListener(
                     try {
                         it.isOn(intent.userId)
                     } catch (e: Exception) {
-                        log.warn("KillSwitchQueryPort.isOn 실패 (fallback false): userId={} err={}", intent.userId, e.message)
-                        false
+                        log.error("KillSwitchQueryPort.isOn 실패 (fail-closed): userId={} err={}", intent.userId, e.message)
+                        true
                     }
-                } ?: false
+                } ?: run {
+                    log.error("KillSwitchQueryPort 미합류 (fail-closed): userId={} signalId={}", intent.userId, intent.signalId)
+                    true
+                }
 
             if (killSwitchOn) {
                 handleRejected(intent, mode, "KILLSWITCH_ON", OrderAuditEventType.KILLSWITCH_DENIED)

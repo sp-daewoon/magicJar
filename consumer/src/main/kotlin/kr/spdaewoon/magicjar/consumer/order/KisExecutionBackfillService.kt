@@ -9,6 +9,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEventType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderExecution
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
+import kr.spdaewoon.magicjar.domain.order.execution.port.ExecutionPositionUpdatePort
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderAuditEventRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderExecutionRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
@@ -73,6 +74,7 @@ class KisExecutionBackfillService(
     private val orderAuditEventRepositoryProvider: ObjectProvider<OrderAuditEventRepository>,
     private val orderFilledKafkaProducer: OrderFilledKafkaProducer,
     private val accountBalanceChangedKafkaProducer: AccountBalanceChangedKafkaProducer,
+    private val executionPositionUpdatePortProvider: ObjectProvider<ExecutionPositionUpdatePort>,
     private val webSocketBridge: KisWebSocketBridge,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String,
@@ -272,6 +274,8 @@ class KisExecutionBackfillService(
                 return false
             }
 
+        applyExecutionPositionUpdate(request, saved)
+
         // 4단계: audit FILL_RECEIVED + source=REST_BACKFILL
         val auditRepo = orderAuditEventRepositoryProvider.getIfAvailable()
         auditRepo?.runCatching {
@@ -299,6 +303,32 @@ class KisExecutionBackfillService(
         )
         syncOrderStatusAfterBackfill(orderRepo, execRepo, request, saved, emitFilledEvent = true)
         return true
+    }
+
+    private fun applyExecutionPositionUpdate(
+        request: OrderRequest,
+        execution: OrderExecution,
+    ) {
+        val port = executionPositionUpdatePortProvider.getIfAvailable()
+        if (port == null) {
+            log.error(
+                "backfill position update skip — ExecutionPositionUpdatePort 미합류: orderId={} kisOrderNo={}",
+                request.id,
+                execution.kisOrderNo,
+            )
+            return
+        }
+        try {
+            port.applyExecution(request, execution)
+        } catch (e: Exception) {
+            log.error(
+                "backfill position update 실패: orderId={} kisOrderNo={} err={}",
+                request.id,
+                execution.kisOrderNo,
+                e.message,
+                e,
+            )
+        }
     }
 
     private fun syncOrderStatusAfterBackfill(

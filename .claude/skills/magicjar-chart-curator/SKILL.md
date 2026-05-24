@@ -146,6 +146,22 @@ magicJar 표준 (ADR 0085 §2-1):
 - 자체 도형(추세선·박스·피보나치)·주석·패턴(57 candle pattern ADR 0058) overlay
 - TradingView Advanced 의존 0 (라이선스 회피 — ADR 0025)
 
+### Symbol Detail 추세선 도구 LOCK (2026-05-25 amend)
+
+권위 spec: `_workspace/specs/2026-05-25-symbol-trendline-tool-spec.md`
+
+추세선 관련 변경 시 아래 계약을 깨면 안 된다.
+
+| 항목 | LOCK |
+|------|------|
+| 구현 방식 | LWC v4 + `TrendlineOverlay.tsx` SVG overlay 유지. TradingView Advanced/외부 drawing lib로 교체 금지. |
+| 봉 전환 | `sourceInterval`은 생성 출처 metadata다. 현재 interval과 다르다고 렌더링에서 제외하지 않는다. |
+| 오른쪽 익스텐션 | `extendRight=true` 선의 `x2`는 마지막 캔들이 아니라 overlay 오른쪽 끝(`overlayWidth`)이어야 한다. |
+| 수동 작성 | 첫 점 전 cursor ring, 첫 점 후 dashed rubber-band preview, Esc 2단계 취소를 유지한다. |
+| 편집 | line/anchor drag, Ctrl/Cmd candle OHLC snap, 더블클릭 설정 패널, Delete/Backspace 삭제를 유지한다. |
+| 복제 | Ctrl/Cmd+C/V는 같은 시간 길이·기울기의 평행선을 backend POST로 영속한다. 화면 임시 복제 금지. |
+| 자동선 | 현재 AUTO는 최근 pivot 2개 근거리 보조선이다. strategy DSL/자동매매 진입 조건에 직결 금지. |
+
 ### 한국 시장 특수 처리
 
 - 시간 단위: `time` 필드는 UTC timestamp 또는 `{ year, month, day }` business day
@@ -314,6 +330,7 @@ magicJar 표준 (ADR 0085 §2-1):
 8. **KIS DESC 응답 정렬 + 100건 한도 함정 (amend · 룰 §11·§14 cross-ref)** — `inquire-daily-itemchartprice` (FHKST03010100) 응답은 DESC + **한 번의 호출에 최대 100건 한도** (KIS-first MCP raw `inquire_daily_itemchartprice.py` docstring 명시). adapter parse 함수에서 반환 직전 `.sortedBy { it.ts.epochSeconds }` 의무 + **단일 호출 종료 금지 — cursor 페이지네이션 의무**. 미정렬 시 `CandleBackfillWorker.sanityCheck` ASC monotonic 가드가 idx 1~99 reject → insertedCount=0 → 갭 누적. 페이지네이션 누락 시 100건만 적재 후 종료 → 1년치 backfill 시 100봉 → 5개월 갭 재발. **의무**: (a) cursor 페이지네이션 의무 (단일 호출 종료 금지) (b) MAX_PAGES 6 (1년치 backwalk) 또는 fromDate 기준 종료 (c) distinctBy boundary dedup (페이지 경계 중복 ts 방지) (d) 응답 row 0건 시 break (KIS 데이터 종점 도달) (e) ASC 정규화는 페이지 합산 후 마지막 단계 (룰 §1 monotonic 정합). **역사 evidence**: PR 2cbd4e8 (2026-05-04) 검증된 cursor 페이지네이션 algorithm (한국석유 1년 full backfill 100봉 → 243봉) → PR 915699b (2026-05-11) `RealKisRestAdapter` → `KisRestCandleAdapter` 재작성 시 algorithm regression (1m만 페이징 + 일/주/월/년봉 단일 호출) → PR #587 (2026-05-19) chart-curator 진단 보고서 + B+E fix 사이클. 한국석유 5개월 갭 누적 (`2025-12-31 ~ 2026-05-18`).
 9. **임의 임계치 갭 검출 함정 (amend · 룰 §12 cross-ref)** — "5+ 영업일 연속 누락 시 backfill skip" 같은 임의 임계치 영구 폐기. 정합 룰: 4축 권위 source 교차 검증 (market_calendar + trading_halt + liquidation + listed_at). 사용자 비판: "영업일 연속을 기준으로 하면 안되는거고. 실제 장이 열렸던 날과 아니였던 날을 관리하고".
 10. **fix 후 regression 함정 (신설 · 룰 §14 cross-ref · PR #587 evidence)** — 핵심 algorithm을 helper로 분리하지 않고 inline 발행 시 후속 재작성/리팩토링에서 algorithm이 통째로 사라지는 regression 발생. **의무**: (a) 페이지네이션·sanity check·sort 등 핵심 algorithm은 **별도 helper class/object 분리** (예: `KisCursorPaginator`, `CandleSanityChecker`) (b) helper에 회귀 test 1건 의무 (algorithm 자체 검증 — pagination round-trip / sanity reject count / sort idempotence) (c) caller 코드에서 helper 호출만 (algorithm inline 발행 금지) (d) §함정 가드 cross-ref 매트릭스 (skill §함정 #N 인용 KDoc — 후속 작업자에게 함정 location 명시). **역사 evidence**: PR 2cbd4e8 cursor 페이지네이션 inline 발행 → PR 915699b 재작성 시 누락(regression) → PR #587 chart-curator 진단(ASC 정규화만 fix + 페이지네이션 누락 → 빈 DB 재발) → B+E fix 사이클(helper class 분리 + 회귀 test 의무).
+11. **추세선 overlay 회귀 함정 (신설 · 2026-05-25 spec cross-ref)** — `sourceInterval`을 현재 interval 필터로 오해하면 주봉에서 그린 선이 일봉·분봉에서 사라진다. `extendRight`를 last candle time으로 clamp하면 오른쪽 확장이 마지막 캔들에서 끊긴다. drawing mode에서 cursor ring/rubber-band preview를 제거하면 사용자가 두 번째 점 방향을 볼 수 없다. Ctrl/Cmd+C/V를 브라우저 clipboard 전용으로 구현하면 in-app browser/OS 차이에 따라 복제가 깨진다. **의무**: `_workspace/specs/2026-05-25-symbol-trendline-tool-spec.md` §3~§8 체크리스트를 통과해야 한다.
 
 ## 첫 발화 dogfooding (ADR 0085 머지 후 즉시)
 

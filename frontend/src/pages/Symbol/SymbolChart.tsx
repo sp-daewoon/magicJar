@@ -35,7 +35,20 @@ import type { IChartApi, ISeriesApi } from 'lightweight-charts'
 import { useSymbolCandles } from '../../api/hooks/useSymbolCandles'
 import { useCandleRefresh } from '../../api/hooks/useCandleRefresh'
 import type { CandleInterval, CandleDto, CandleMinutePayload } from '../../api/symbol'
-import type { LiveTick } from './LightweightChart'
+import type { ChartPriceTimePoint, LiveTick } from './LightweightChart'
+import type {
+  TrendlineCreateRequest,
+  TrendlineDto,
+  TrendlineType,
+  TrendlineUpdateRequest,
+} from '../../api/trendlines'
+import {
+  useCreateAutoTrendlines,
+  useCreateTrendline,
+  useDeleteTrendline,
+  useTrendlines,
+  useUpdateTrendline,
+} from '../../api/hooks/useTrendlines'
 import { usePatterns } from '../../api/hooks/usePatterns'
 import { useToast } from '../../components/ui/ToastProvider'
 import { PatternMarker } from '../../components/chart/PatternMarker'
@@ -45,6 +58,7 @@ import { IntervalToggle } from './IntervalToggle'
 import { LightweightChart } from './LightweightChart'
 import { IndicatorPanel } from './IndicatorPanel'
 import { IndicatorOverlay } from './IndicatorOverlay'
+import { TrendlineOverlay } from './TrendlineOverlay'
 import { CandleCountSelector } from './CandleCountSelector'
 import {
   clampCandleCount,
@@ -60,6 +74,37 @@ const AGGREGATED_INTERVALS: ReadonlySet<CandleInterval> = new Set<CandleInterval
   '90m',
   '1h',
 ])
+
+function trendlineTypeLabel(type: TrendlineType): string {
+  return type === 'SUPPORT' ? '지지' : '저항'
+}
+
+function trendlineSourceLabel(source: TrendlineDto['source']): string {
+  return source === 'AUTO' ? '자동' : '수동'
+}
+
+function trendlineColor(type: TrendlineType): string {
+  return type === 'SUPPORT' ? '#10b981' : '#ef4444'
+}
+
+function resolveTrendlineError(error: unknown): string {
+  const err = error as {
+    response?: { data?: { message?: string; error?: string } }
+    message?: string
+  }
+  return err.response?.data?.message ?? err.response?.data?.error ?? err.message ?? '처리 중 오류가 발생했습니다'
+}
+
+function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  const tagName = target.tagName
+  return (
+    tagName === 'INPUT' ||
+    tagName === 'TEXTAREA' ||
+    tagName === 'SELECT' ||
+    target.isContentEditable
+  )
+}
 
 interface SymbolChartProps {
   code: string
@@ -99,6 +144,13 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
   // 토스트
   const { showToast } = useToast()
 
+  const { data: trendlines = [] } = useTrendlines(code)
+  const { mutate: createTrendline, isPending: isSavingTrendline } = useCreateTrendline(code)
+  const { mutate: createAutoTrendlines, isPending: isCreatingAutoTrendline } =
+    useCreateAutoTrendlines(code)
+  const { mutate: deleteTrendline, isPending: isDeletingTrendline } = useDeleteTrendline(code)
+  const { mutate: updateTrendline } = useUpdateTrendline(code)
+
   // 캔들 갱신 mutation
   const { refresh: refreshCandles, isPending: isRefreshing } = useCandleRefresh({
     code,
@@ -136,6 +188,12 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
     usePatternSelection()
   // candleSeries도 동일 사유로 useState lift (chartApi와 동일 dispose race risk).
   const [candleSeries, setCandleSeries] = useState<ISeriesApi<'Candlestick'> | null>(null)
+
+  // 추세선 수동 입력 상태 — 차트 클릭 두 번으로 anchor 저장.
+  const [isTrendlineMode, setIsTrendlineMode] = useState(false)
+  const [trendlineType, setTrendlineType] = useState<TrendlineType>('SUPPORT')
+  const [pendingTrendAnchor, setPendingTrendAnchor] = useState<ChartPriceTimePoint | null>(null)
+  const [trendlineCursorPoint, setTrendlineCursorPoint] = useState<ChartPriceTimePoint | null>(null)
 
   // 패턴 데이터 fetch
   const {
@@ -215,6 +273,46 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
     maxCapToastLockRef.current = null
   }, [code, interval])
 
+  useEffect(() => {
+    setPendingTrendAnchor(null)
+    setTrendlineCursorPoint(null)
+  }, [code, interval])
+
+  useEffect(() => {
+    if (!isTrendlineMode) {
+      setPendingTrendAnchor(null)
+      setTrendlineCursorPoint(null)
+    }
+  }, [isTrendlineMode])
+
+  useEffect(() => {
+    if (!isTrendlineMode) return
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (isEditableKeyboardTarget(event.target)) return
+
+      event.preventDefault()
+      event.stopPropagation()
+
+      if (pendingTrendAnchor) {
+        setPendingTrendAnchor(null)
+        setTrendlineCursorPoint(null)
+        showToast('추세선 시작점 취소됨', 'info')
+        return
+      }
+
+      setIsTrendlineMode(false)
+      setTrendlineCursorPoint(null)
+      showToast('추세선 모드 해제됨', 'info')
+    }
+
+    window.addEventListener('keydown', handleEscape)
+    return () => {
+      window.removeEventListener('keydown', handleEscape)
+    }
+  }, [isTrendlineMode, pendingTrendAnchor, showToast])
+
   const handleMaxCapReached = useCallback(() => {
     // 동일 (code, interval) 컨텍스트에서 1회만 toast — 사용자 좌측 스크롤 반복 시 toast 폭주 차단
     const lock = maxCapToastLockRef.current
@@ -227,6 +325,129 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
       'info',
     )
   }, [code, interval, maxCandles, showToast])
+
+  const handleTrendlineChartClick = useCallback(
+    (point: ChartPriceTimePoint) => {
+      if (!isTrendlineMode || isSavingTrendline) return
+
+      if (!pendingTrendAnchor) {
+        setPendingTrendAnchor(point)
+        showToast('추세선 시작점 선택됨', 'info')
+        return
+      }
+
+      if (pendingTrendAnchor.ts === point.ts) {
+        showToast('다른 봉을 끝점으로 선택해 주세요', 'error')
+        return
+      }
+
+      createTrendline(
+        {
+          sourceInterval: interval,
+          type: trendlineType,
+          anchor1Ts: pendingTrendAnchor.ts,
+          anchor1Price: pendingTrendAnchor.price,
+          anchor2Ts: point.ts,
+          anchor2Price: point.price,
+          extendRight: true,
+          extendLeft: false,
+          color: trendlineColor(trendlineType),
+        },
+        {
+          onSuccess: () => {
+            setPendingTrendAnchor(null)
+            setTrendlineCursorPoint(null)
+            showToast(`${trendlineTypeLabel(trendlineType)} 추세선 저장됨`, 'success')
+          },
+          onError: (error) => {
+            showToast(`추세선 저장 실패: ${resolveTrendlineError(error)}`, 'error')
+          },
+        },
+      )
+    },
+    [
+      createTrendline,
+      interval,
+      isSavingTrendline,
+      isTrendlineMode,
+      pendingTrendAnchor,
+      showToast,
+      trendlineType,
+    ],
+  )
+
+  const handleTrendlineChartMove = useCallback(
+    (point: ChartPriceTimePoint | null) => {
+      if (!isTrendlineMode) {
+        setTrendlineCursorPoint(null)
+        return
+      }
+      setTrendlineCursorPoint(point)
+    },
+    [isTrendlineMode],
+  )
+
+  const handleAutoTrendline = useCallback(() => {
+    createAutoTrendlines(interval, {
+      onSuccess: (data) => {
+        const count = data.trendlines.length
+        showToast(
+          count > 0
+            ? `자동 추세선 ${count.toLocaleString('ko-KR')}개 생성됨`
+            : '자동 추세선을 만들 피벗이 부족합니다',
+          count > 0 ? 'success' : 'info',
+        )
+      },
+      onError: (error) => {
+        showToast(`자동 추세선 실패: ${resolveTrendlineError(error)}`, 'error')
+      },
+    })
+  }, [createAutoTrendlines, interval, showToast])
+
+  const handleDeleteTrendline = useCallback(
+    (id: number) => {
+      deleteTrendline(id, {
+        onSuccess: () => {
+          showToast('추세선 삭제됨', 'success')
+        },
+        onError: (error) => {
+          showToast(`추세선 삭제 실패: ${resolveTrendlineError(error)}`, 'error')
+        },
+      })
+    },
+    [deleteTrendline, showToast],
+  )
+
+  const handleUpdateTrendline = useCallback(
+    (id: number, request: TrendlineUpdateRequest) => {
+      updateTrendline(
+        { id, request },
+        {
+          onSuccess: () => {
+            showToast('추세선 수정됨', 'success')
+          },
+          onError: (error) => {
+            showToast(`추세선 수정 실패: ${resolveTrendlineError(error)}`, 'error')
+          },
+        },
+      )
+    },
+    [showToast, updateTrendline],
+  )
+
+  const handleDuplicateTrendline = useCallback(
+    (request: TrendlineCreateRequest) => {
+      createTrendline(request, {
+        onSuccess: () => {
+          showToast('추세선 복제됨', 'success')
+        },
+        onError: (error) => {
+          showToast(`추세선 복제 실패: ${resolveTrendlineError(error)}`, 'error')
+        },
+      })
+    },
+    [createTrendline, showToast],
+  )
 
   const handleIndicatorToggle = useCallback((id: string) => {
     setSelectedIndicatorIds((prev) => {
@@ -257,6 +478,8 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
   const handleOverlayErrors = useCallback((errors: Map<string, string>) => {
     setIndicatorErrors(new Map(errors))
   }, [])
+
+  const showInitialChartLoading = isLoading && chartApi === null && allCandles.length === 0
 
   return (
     <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
@@ -317,6 +540,74 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
               </span>
             )}
           </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setIsTrendlineMode((prev) => !prev)
+              setPendingTrendAnchor(null)
+              setTrendlineCursorPoint(null)
+            }}
+            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-400 ${
+              isTrendlineMode
+                ? 'bg-cyan-700 text-white hover:bg-cyan-800'
+                : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+            }`}
+            aria-pressed={isTrendlineMode}
+            aria-label="추세선 수동 입력 모드"
+          >
+            <svg className="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 19L20 5M6 17l4 1 8-8 1-4" />
+            </svg>
+            추세선
+          </button>
+
+          <div className="flex items-center rounded-md bg-gray-800 p-0.5">
+            {(['SUPPORT', 'RESISTANCE'] as const).map((type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => {
+                  setTrendlineType(type)
+                  setPendingTrendAnchor(null)
+                  setTrendlineCursorPoint(null)
+                }}
+                className={`rounded px-2 py-0.5 text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-400 ${
+                  trendlineType === type
+                    ? 'bg-gray-700 text-white'
+                    : 'text-gray-500 hover:text-gray-200'
+                }`}
+                aria-pressed={trendlineType === type}
+              >
+                {trendlineTypeLabel(type)}
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={handleAutoTrendline}
+            disabled={isCreatingAutoTrendline || isLoading}
+            className="flex items-center gap-1.5 rounded-md bg-gray-800 px-2.5 py-1 text-xs text-gray-400 hover:bg-gray-700 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-400"
+            aria-label="현재 봉 기준 자동 추세선 생성"
+          >
+            {isCreatingAutoTrendline ? (
+              <>
+                <span
+                  className="h-3 w-3 animate-spin rounded-full border-2 border-gray-600 border-t-cyan-400 shrink-0"
+                  aria-hidden="true"
+                />
+                자동 중...
+              </>
+            ) : (
+              <>
+                <svg className="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l5-5 4 4 7-7M5 20h14" />
+                </svg>
+                자동
+              </>
+            )}
+          </button>
         </div>
 
         <div className="flex items-center gap-2">
@@ -371,6 +662,44 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
           )}
         </div>
       </div>
+
+      {(isTrendlineMode || trendlines.length > 0) && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          {isTrendlineMode && (
+            <span className="rounded-md border border-cyan-700/60 bg-cyan-950/40 px-2 py-1 text-xs text-cyan-300">
+              {pendingTrendAnchor
+                ? `${trendlineTypeLabel(trendlineType)} 끝점 대기`
+                : `${trendlineTypeLabel(trendlineType)} 시작점 대기`}
+            </span>
+          )}
+
+          {trendlines.map((trendline) => (
+            <span
+              key={trendline.id}
+              className="inline-flex items-center gap-1.5 rounded-md border border-gray-700 bg-gray-800/80 px-2 py-1 text-xs text-gray-300"
+            >
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: trendline.color ?? trendlineColor(trendline.type) }}
+                aria-hidden="true"
+              />
+              <span>
+                {trendlineSourceLabel(trendline.source)} · {trendline.sourceInterval} ·{' '}
+                {trendlineTypeLabel(trendline.type)}
+              </span>
+              <button
+                type="button"
+                onClick={() => handleDeleteTrendline(trendline.id)}
+                disabled={isDeletingTrendline}
+                className="ml-0.5 rounded px-1 text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label={`${trendlineSourceLabel(trendline.source)} ${trendline.sourceInterval} ${trendlineTypeLabel(trendline.type)} 추세선 삭제`}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* 패턴 오류 알림 (T-PAT PR-40 — 위젯 수준 오류, 페이지 전체 중단 X) */}
       {isPatternError && patternErrorMessage && (
@@ -430,8 +759,8 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
       <div className={`flex gap-4 ${isPanelOpen || isPatternPanelOpen ? 'items-start' : ''}`}>
         {/* 차트 본체 */}
         <div className="flex-1 min-w-0">
-          {isLoading ? (
-            <div className="flex h-96 items-center justify-center">
+          {showInitialChartLoading ? (
+            <div className="flex h-[520px] items-center justify-center xl:h-[620px]">
               <div className="flex flex-col items-center gap-3">
                 <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-700 border-t-blue-500" />
                 <p className="text-sm text-gray-500">차트 로딩 중...</p>
@@ -496,6 +825,23 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
                 onChartDestroy={handleChartDestroy}
                 onCandleSeriesReady={handleCandleSeriesReady}
                 onCandleSeriesDestroy={handleCandleSeriesDestroy}
+                onPriceTimeClick={handleTrendlineChartClick}
+                onPriceTimeMove={handleTrendlineChartMove}
+              />
+              <TrendlineOverlay
+                chart={chartApi}
+                series={candleSeries}
+                trendlines={trendlines}
+                candles={allCandles}
+                isDrawingMode={isTrendlineMode}
+                drawingType={trendlineType}
+                drawingAnchor={pendingTrendAnchor}
+                drawingPoint={trendlineCursorPoint}
+                onDrawingPointClick={handleTrendlineChartClick}
+                onDrawingPointMove={handleTrendlineChartMove}
+                onUpdate={handleUpdateTrendline}
+                onDelete={handleDeleteTrendline}
+                onDuplicate={handleDuplicateTrendline}
               />
             </div>
           )}

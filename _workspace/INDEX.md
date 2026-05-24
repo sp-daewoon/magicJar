@@ -85,6 +85,9 @@ PR 머지마다 row 추가. anchor 기반 슬롯 (ADR 0050).
 - **전략·지표·패턴**: [_workspace/strategy/](strategy/)
 - **AI 프롬프트**: [_workspace/ai/](ai/)
 
+### 차트·추세선
+- **Symbol Detail 추세선 도구 명세**: [_workspace/specs/2026-05-25-symbol-trendline-tool-spec.md](specs/2026-05-25-symbol-trendline-tool-spec.md)
+
 ---
 
 ## ⚙️ Slash Commands
