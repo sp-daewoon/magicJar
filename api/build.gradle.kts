@@ -16,6 +16,9 @@ dependencies {
     implementation(project(":strategy-engine"))
     // persistence-shared 라이브러리 의존 — Outbox/Stomp 어댑터를 api·consumer 양쪽 ApplicationContext에 노출 (ADR 0088 + spec §3 LOCK)
     implementation(project(":persistence-shared"))
+    // market-trend-engine 라이브러리 의존 — TrendCalculator·SmaTrendCalculator @Component 자동 collect
+    // (ADR 0100 §2-2 + indicator-impl 패턴 1:1 + W4 R1 T-MARKET Phase 2)
+    implementation(project(":market-trend-engine"))
 
     // Spring Boot starters
     implementation("org.springframework.boot:spring-boot-starter-web")
