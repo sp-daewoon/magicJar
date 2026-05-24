@@ -38,8 +38,10 @@ import {
 } from '../../api/symbol'
 import { DisclosurePanel } from '../../features/disclosure/components/DisclosurePanel'
 import { NewsPanel } from '../../features/news/components/NewsPanel'
+import { AiExplainEntry } from '../../features/ai/components/AiExplainEntry'
 import { currentKrxSession } from '../../lib/marketHours'
 import { useStompTopic } from '../../lib/stomp'
+import { useOnboardingStore } from '../../stores/onboarding'
 import { SymbolChart } from './SymbolChart'
 import { SymbolError } from './SymbolError'
 import { SymbolHeader } from './SymbolHeader'
@@ -66,6 +68,8 @@ export function SymbolDetailPage() {
   const { code = '' } = useParams<{ code: string }>()
   const { data: instrument, isLoading: isInstrumentLoading } = useInstrument(code)
   const isDelisted = instrument?.active === false
+  // W4 R2 AI 진입점 — userId 1일 토큰 한도 키
+  const userId = useOnboardingStore((s) => s.registeredUserId)
 
   // STOMP 실시간 상태
   const [realtimeTick, setRealtimeTick] = useState<TickPayload | null>(null)
@@ -264,6 +268,21 @@ export function SymbolDetailPage() {
         {/* ── 헤더: 종목명·코드·시장·산업 + 복귀 버튼 ── */}
         <SymbolHeader symbol={symbol} />
 
+        {/* ── W4 R2 AI 진입점: SYMBOL (AI 종목 분석) ── */}
+        <div>
+          <AiExplainEntry
+            type="SYMBOL"
+            userId={userId}
+            context={{
+              code,
+              name: instrument?.name ?? symbol.code,
+              market: instrument?.market ?? 'UNKNOWN',
+              sector: instrument?.sector ?? null,
+              industryMedium: instrument?.industryMedium ?? null,
+            }}
+          />
+        </div>
+
         {/* ── STOMP 연결 상태 배지 ── */}
         {realtimeStatusMessage && (
           <div
@@ -287,7 +306,21 @@ export function SymbolDetailPage() {
           </div>
 
           {/* 우측: 차트 (2열) */}
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-2 space-y-3">
+            {/* W4 R2 AI 진입점: CHART (차트 해석) */}
+            <div>
+              <AiExplainEntry
+                type="CHART"
+                userId={userId}
+                context={{
+                  code,
+                  name: instrument?.name ?? symbol.code,
+                  currentPrice: realtimeTick?.price ?? symbol.currentPrice ?? null,
+                  changeRate: realtimeTick?.changeRate ?? symbol.changeRate ?? null,
+                  source: symbol.source,
+                }}
+              />
+            </div>
             <SymbolChart
               code={code}
               realtimeCandle={realtimeCandle}

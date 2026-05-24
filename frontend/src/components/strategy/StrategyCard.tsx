@@ -11,6 +11,8 @@ import {
   type StrategyStatus,
 } from '../../api/strategy'
 import { useDeleteSigStrategy, useToggleSigStrategyStatus } from '../../api/hooks/useSigStrategy'
+import { AiExplainEntry } from '../../features/ai/components/AiExplainEntry'
+import { useOnboardingStore } from '../../stores/onboarding'
 
 // ──────────────────────────────────────────────
 // 상태 배지 스타일
@@ -34,6 +36,8 @@ interface StrategyCardProps {
 export function StrategyCard({ strategy }: StrategyCardProps) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const badge = STATUS_BADGE[strategy.status]
+  // W4 R2 AI 진입점 — userId 1일 토큰 한도 키
+  const userId = useOnboardingStore((s) => s.registeredUserId)
 
   const toggleMutation = useToggleSigStrategyStatus()
   const deleteMutation = useDeleteSigStrategy()
@@ -160,6 +164,24 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
         {(toggleMutation.isError || deleteMutation.isError) && (
           <p className="text-xs text-red-400">요청 실패. 다시 시도해 주세요.</p>
         )}
+      </div>
+
+      {/* W4 R2 AI 진입점: STRATEGY (전략 평가) */}
+      <div className="border-t border-gray-800 pt-2">
+        <AiExplainEntry
+          type="STRATEGY"
+          userId={userId}
+          context={{
+            strategyId: strategy.id,
+            name: strategy.name,
+            codes: strategy.codes,
+            intervals: strategy.intervals,
+            status: strategy.status,
+            buyCondition: strategy.buyCondition ?? null,
+            sellCondition: strategy.sellCondition ?? null,
+            recentSignalCount: strategy.recentSignalCount ?? 0,
+          }}
+        />
       </div>
     </article>
   )

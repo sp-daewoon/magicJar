@@ -32,6 +32,8 @@ import { useOnboardingStore } from '../../stores/onboarding'
 import type { AccountType } from '../../api/account'
 import { useStompAccountBalance } from '../../api/hooks/useStompAccountBalance'
 import { usePreferredAccountType } from '../../api/hooks/usePreferredAccountType'
+import { useTrendPreferenceSubscription } from '../../api/hooks/useTrendPreference'
+import { MarketIndexStrip } from '../../features/market/components/MarketIndexStrip'
 import { AccountSummaryCard } from './AccountSummaryCard'
 import { HoldingsTable } from './HoldingsTable'
 import { BalanceCard } from './BalanceCard'
@@ -45,6 +47,7 @@ import { AccountTypeToggle } from './AccountTypeToggle'
  */
 const QUICK_LINKS = [
   { to: '/watchlist', label: '관심종목' },
+  { to: '/market/trend', label: '시장 추세' },
   { to: '/positions', label: '보유 포지션' },
   { to: '/orders', label: '주문 내역' },
   { to: '/performance', label: '성과 대시보드' },
@@ -77,6 +80,12 @@ export function DashboardPage() {
    * STOMP 끊김 시 useAccountSummary 등 3 hook 의 refetchInterval 30s 가 fallback.
    */
   useStompAccountBalance({ userId, enabled: userId !== null && userId !== undefined })
+
+  /**
+   * W4 R2: TrendPreference 다중 탭 sync.
+   * 다른 탭에서 추세 설정 변경 시 본 탭 query 자동 invalidate → MarketIndexStrip 즉시 재계산.
+   */
+  useTrendPreferenceSubscription(userId)
 
   /**
    * C-5: 토글 클릭 시 invalidate trigger.
@@ -157,6 +166,11 @@ export function DashboardPage() {
         {QUICK_LINKS.map((link) => (
           <QuickLink key={link.to} to={link.to} label={link.label} />
         ))}
+      </div>
+
+      {/* 0. 시장 지수 strip — W4 T-MARKET (4 카드 가로 + 상세 추세 링크) */}
+      <div className="mb-5">
+        <MarketIndexStrip enabled={userId != null} />
       </div>
 
       {/* 1. 계좌 요약 카드 (4 셀) */}
