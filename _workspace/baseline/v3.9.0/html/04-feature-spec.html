@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>04-feature-spec — magicJar v3.9.0 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">📁 인덱스</a><a href="01-architecture.html">01 Architecture</a><a href="02-data-flow.html">02 Data Flow</a><a href="03-use-sequences.html">03 Use Sequences</a><a href="04-feature-spec.html" class="active">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html">06 History</a><a href="07-policy-evolution.html">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.9.0 Baseline · 2026-05-24 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># v3.9.0 기능 명세 (트랙별 표준 9 항목)
+
+- baseline: v3.9.0
+- 작성일: 2026-05-24
+- 작성자: backend-core (bot+backend-core@magicjar.local)
+- SoT: `docs/architecture/master-architecture.md` + ADR INDEX (`_workspace/arch/adr/README.md`) + ADR 0094 (운영 단계) + ADR 0100·0101·0102·0103 (W4 통합 사이클)
+- 기준: v3.8.0 04-feature-spec.md 전체 이월 + **W4 완전 닫기** (T-MARKET·T-AI·T-MCP 3 신규 트랙 합류 — 16 트랙 → **19 트랙**) + 신규 ADR 4건(0100·0101·0102·0103) + ADR 6건 amend(0004·0026·0027·0037·0094·0095) + Flyway 6건(V47~V52) + KIS Overseas API 첫 진출 + market-trend-engine 모듈 신설
+
+---
+
+## 🔄 v3.8.0 → v3.9.0 기능 매트릭스 진화 요약 (리팩토링맨 lens)
+
+| 트랙 | v3.8.0 | v3.9.0 변경 |
+|------|--------|------------|
+| **T-MARKET** ★★ | 0건 (DashboardPage 시장 추세 view 0) | **★ v3.9.0 신규 트랙 — 4 지수 카드 + KRX 21 섹터 + 사용자 MA periods + KIS Overseas API 첫 진출 + market-trend-engine 모듈 신설 (ADR 0100 + 0101)** |
+| **T-AI** ★★ | 0건 (W4 진입 대기) | **★ v3.9.0 신규 트랙 — 5 진입점 × 3 provider + 5 prompt seed + Redis 5분 cache + 1일 한도 + graceful 5 매트릭스 (ADR 0026 amend)** |
+| **T-MCP** ★★ | 0건 (W4 진입 대기) | **★ v3.9.0 신규 트랙 — 6 tool read-only + ApiKeyAuthFilter + mcp_audit V52 (ADR 0027 amend)** |
+| T-O 주문 실행 | KillSwitch race-safe + SystemEvent emit 5건 | v3.8.0 LOCK 이월 (자본 path touch 0건) |
+| T-RECON | DRIFT_DETECTED SystemEvent emit | v3.8.0 LOCK 이월 |
+| T-RISK | KillSwitch chain + A+B+C race-safe | v3.8.0 LOCK 이월 (KillSwitchQueryPort ADR 0098 v3.8.x patch만) |
+| T-IND 지표 | indicator-impl 모듈 | v3.8.0 LOCK 이월 |
+| T-PAT 패턴 | pattern-engine 모듈 | v3.8.0 LOCK 이월 |
+| T-SIG·T-DSL | strategy-engine 모듈 (api·consumer 공유) | v3.8.0 LOCK 이월 |
+| T-BT | strategy-engine 실 evaluator + trade breakdown 화면 추가 (v3.8.x patch afa2e24e) | v3.8.x patch 흡수 |
+| T-SC | strategy-engine 실 evaluator | v3.8.0 LOCK 이월 |
+| T-NOTIFY | Alert routing P1·P2·P3 | v3.8.0 LOCK 이월 |
+| T-CC 캔들 정합 | NXT instrument-level resolver + LIVE TPS fix | v3.8.x patch — consumer KIS .block() subscribeOn hotfix (8c156227 — ADR 0099) |
+| T-LWC 차트 lazy backfill | ADR 0093 Proposed | v3.9.0 LOCK 이월 (frontend 합류 대기 — W5 검토) |
+| **T-OPS** ★ | P0 OPS 6건 풀세트 | v3.8.0 LOCK 이월 + persistence monitoring 정합 + AI cost tracker S-AI-1 신규 후보 (ADR 0095 amend) |
+| **T-QA Visual** ★ | Playwright + 5 시나리오 + 첫 실전 결함 hunt | **+ Visual 회귀 7 spec + AI 5 진입점 PNG + MCP 6 tool 실측 + Codex prereq + 부팅 차단 hotfix 1줄** (W4 R3 062abecd) |
+| T-W1 KIS Auth | + KIS_TOKEN_EGW00123 self-heal | v3.8.0 LOCK 이월 |
+| T-ACCT | 3 endpoint + Dashboard 격상 | v3.8.0 LOCK 이월 |
+| T-MAN | POST /api/orders/manual + source='MANUAL' | v3.8.0 LOCK 이월 |
+| T-J 매매일지 | 5 Kafka listen 자동 INSERT | v3.8.0 LOCK 이월 |
+| T-PERF 성과 | DailyPerformanceJob + 5 지표 | v3.8.0 LOCK 이월 + trade breakdown 화면 (v3.8.x patch afa2e24e) |
+| T-NEWS | DART + Naver + 60s polling | v3.8.0 LOCK 이월 |
+
+✨ **트랙 수**: v3.8.0 16 트랙 → v3.9.0 **19 트랙** (T-MARKET + T-AI + T-MCP 3 신규 합류). 핵심 변화는 **W4 완전 닫기** — 사용자 옵션 path 3 트랙 동시 종착 + 자본 path 0 touch.
+
+---
+
+## 표준 항목 구조
+
+각 트랙은 아래 9 항목으로 기술합니다.
+
+1. **REST** — 노출 엔드포인트
+2. **도메인** — 핵심 domain 클래스 + 포트 인터페이스
+3. **영속** — JPA 엔티티 + Flyway 마이그레이션
+4. **Kafka** — 발행/소비 토픽
+5. **UI** — 프론트엔드 페이지/컴포넌트
+6. **PR** — 관련 PR 목록
+7. **ADR** — 의존 ADR
+8. **한계** — 미구현·보류 사항
+9. **NXT 영향** — ADR 0063·0091 결합 영향 (해당 트랙만)
+
+---
+
+## ✨ T-MARKET — 시장 추세 분석 (v3.9.0 신규 트랙 — ADR 0100 + 0101)
+
+W4 완전 닫기 핵심 트랙 1순위. 사용자 dashboard 진입 시 시장 전체 추세 (4 지수 + 21 섹터) 즉시 인지 — 자본 path 0 touch (read-only).
+
+### 1. REST (v3.9.0 신규 6 endpoint)
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `GET` | `/api/market/index/snapshot` | 4 지수 카드 (KOSPI·KOSDAQ·NASDAQ·S&P) + user pref MA 추세 라벨 |
+| `GET` | `/api/market/index/{code}/trend?periods=5,20,60` | 지수 추세 상세 — periods 생략 시 user pref echo + `isUserCustom` |
+| `GET` | `/api/market/sectors/snapshot` | KRX 21 섹터 snapshot (이름 + 등락률 + 거래대금) |
+| `GET` | `/api/market/sectors/ranking?periods=5,20,60&rsPeriod=60` | 섹터 ranking (todayTop 5 + longTop 5) |
+| `GET` | `/api/users/me/preferences/trend` | 현재 설정 조회 (없으면 default echo + `isUserCustom: false`) |
+| `PUT` | `/api/users/me/preferences/trend` | MA periods · rsPeriod · crossPair 변경 |
+
+#### Swagger 4단 의무 (한국어 + example)
+
+```kotlin
+@Tag(name = "시장 추세 API", description = "지수·섹터 추세 분석 — 사용자 MA periods 기본 적용")
+@RestController
+class MarketIndexController(...) {
+    @Operation(summary = "4 지수 카드", description = "KOSPI·KOSDAQ·NASDAQ·S&P 500 — user pref MA 적용 추세 라벨")
+    @GetMapping("/snapshot")
+    fun snapshot(): List<IndexCardResponse>
+
+    @Operation(summary = "지수 추세 상세", description = "periods 생략 시 사용자 설정 기본 적용")
+    @GetMapping("/{code}/trend")
+    fun trend(
+        @PathVariable code: String,
+        @Parameter(description = "MA 기간 list (1~5개·각 1~252일·sorted ASC)", example = "5,20,60")
+        @RequestParam(required = false) periods: List<Int>?,
+    ): IndexTrendResponse
+}
+```
+
+### 2. 도메인 (market-trend-engine 모듈 신설)
+
+```
+market-trend-engine/         (Spring Context only — Boot main 0 · ADR 0100 §2-2)
+├── calculator
+│     ├── TrendCalculator (interface — Spring 의존 0)
+│     ├── SmaTrendCalculator (1차 default)
+│     ├── CrossSignalCalculator (GOLDEN/DEAD/NEUTRAL 표준)
+│     └── RsRatingCalculator (Mansfield RS — sector vs KOSPI)
+├── service
+│     ├── TrendPreferenceService (user pref 조회·검증·적용)
+│     ├── IndexTrendComposer (IndexTrend DTO 조립)
+│     └── SectorRankingComposer (SectorRanking 조립 — todayTop + longTop)
+└── port (또는 domain reuse)
+      └── TrendPreferenceRepository (domain port)
+```
+
+#### TrendPreference 도메인 (1급 격상 · ADR 0101 §2-1 + W4 P1 amend)
+
+```kotlin
+// domain/trend/TrendPreference.kt
+data class TrendPreference(
+    val userId: String,              // W4 P1 amend — user_account.user_id VARCHAR(20) KIS 계좌번호 자연 키 정합 (ADR 0046)
+    val maPeriods: List<Int>,        // default [5, 20, 60] · size 1~5 · 각 1~252 · sorted ASC 의무
+    val rsPeriod: Int = 60,
+    val crossPair: Pair<Int, Int>? = null,
+    val updatedAt: Instant,
+) {
+    init {
+        require(maPeriods.isNotEmpty()) { "MA periods 1개 이상 필수" }
+        require(maPeriods.size <= 5) { "MA periods 5개 초과 금지" }
+        require(maPeriods.all { it in 1..252 }) { "각 MA 기간은 1~252일 사이" }
+        require(maPeriods == maPeriods.sorted().distinct()) { "MA periods는 중복 없이 오름차순" }
+        require(rsPeriod in 1..252) { "RS period는 1~252일 사이" }
+        crossPair?.let { (short, long) ->
+            require(short in maPeriods && long in maPeriods) { "crossPair는 maPeriods 내 값 필수" }
+            require(short < long) { "crossPair는 short < long" }
+        }
+    }
+    fun shortMa(): Int = crossPair?.first ?: maPeriods.first()
+    fun longMa(): Int = crossPair?.second ?: maPeriods.last()
+}
+```
+
+### 3. 영속 (Flyway 3건 — V47·V48·V51)
+
+| Flyway | 테이블 | 핵심 컬럼 | ADR |
+|--------|-------|----------|-----|
+| **V47** | `market_index_snapshot` | code(KOSPI=0001 · 해외=.IXIC) · market · ts · price · OHLC · change_rate · volume · raw_payload JSONB · UNIQUE(code,ts) | ADR 0100 §2-7 |
+| **V48** | `sector_index_snapshot` | sector_code · sector_name · ts · price · change_rate · trade_value · UNIQUE(sector_code,ts) | ADR 0100 §2-7 |
+| **V51** | `user_preference` | **user_id VARCHAR(20) PK** (FK user_account · W4 P1 amend) · trend_ma_periods JSONB DEFAULT '[5,20,60]' · trend_rs_period · trend_cross_pair JSONB · **extra JSONB forward-compat 확장 슬롯** + CHECK | ADR 0101 §2-2 |
+
+✨ **V51 idempotent default 시드** (모든 사용자에 default `[5,20,60]` 자동 부여):
+```sql
+INSERT INTO user_preference (user_id, trend_ma_periods, trend_rs_period)
+SELECT user_id, '[5,20,60]'::jsonb, 60
+FROM user_account
+ON CONFLICT (user_id) DO NOTHING;
+```
+
+### 4. Kafka (신규 2 토픽)
+
+| 토픽 | partition_key | 발행자 | 소비자 | retention |
+|------|--------------|-------|-------|-----------|
+| **✨ `market.index.updated.v1`** | code | `MarketIndexSyncJob` (batch) | `MarketIndexStompForwarder` (api) | 1d |
+| **✨ `market.sector.updated.v1`** | sector_code 또는 rank | `MarketIndexSyncJob`·`MarketIndexDailyCloseJob` (batch) | `MarketSectorStompForwarder` (api) | 1d |
+
+✨ STOMP fanout 3 토픽:
+- `/topic/market.index.{code}` — 1분 cron 결과 push
+- `/topic/market.sector.rank` — 5분 캐시 갱신 push
+- `/topic/market.user.{userId}.pref` — PUT preference 시 즉시 fanout (다중 탭 sync)
+
+### 5. UI
+
+- `frontend/src/pages/DashboardPage.tsx` — `MarketIndexStrip` add-only 상단 (4 카드 · TanStack Query 30s polling + STOMP race-safe merge)
+- `frontend/src/pages/market/MarketTrendPage.tsx` — `/market/trend` 신규 페이지 (섹터 ranking + 추세 라벨)
+- `frontend/src/components/settings/TrendPreferenceSection.tsx` — SettingsModal "추세 설정" section add-only (MA periods · RS period · crossPair UI)
+- `frontend/src/hooks/useMarketIndex.ts` · `useMarketSectors.ts` · `useTrendPreference.ts` — TanStack Query + STOMP race-safe merge 패턴 1:1
+
+### 6. PR (v3.9.0)
+
+- PR — W4 brainstorming 통합 design (orchestrator cec6a4d6)
+- PR — W4 R0 + ADR 0100·0101 신설 + 6 ADR amend (architect 1411d392)
+- PR — W4 R0 amend Flyway V47~V52 shift + ADR 0102 신설 (architect 60449432)
+- PR #675/#676 — W4 R1 T-MARKET Phase 2 (backend-core 20748c1c — market-trend-engine + REST 6 + V51)
+- PR — W4 R1 T-MARKET Phase 1 (market-data fbdb9ed6 — KIS adapter 5 + cron Job 2 + V47·V48 + INGESTION_LOW)
+- PR #680 — W4 R2 T-MARKET UI (frontend 9abd5de6 — DashboardPage·/market/trend·SettingsModal·5 AiCard 진입점)
+- PR #682 — W4 P1 ADR amend (architect fdd35ea7 — ADR 0101 §2-2 user_id VARCHAR + ADR 0103 신설)
+- PR #686 — W4 P1 graceful handlers (backend-core e13f7dcb — TrendPreference 400 + backtest_strategy 422)
+
+### 7. ADR
+
+- ADR 0100 (T-MARKET 트랙 권위) · ADR 0101 (TrendPreference 1급 + user_preference) · ADR 0102 (spec audit 절차) · ADR 0103 (JpaScan 패키지)
+- ADR 0004 (모듈 경계 amend — 8→9 market-trend-engine) · ADR 0037 (KIS Rate Limit amend — INGESTION_LOW) · ADR 0094 (운영 단계 — 첫 신규 트랙) · ADR 0095 (SLO amend — S-4 영향) · ADR 0096 (DR/backup — V47·V48·V51 cover)
+- ADR 0013 (MarketSession FSM — cron 게이트) · ADR 0017 (Instrument Master — sector 시드) · ADR 0046 (UserKisCredential — user_id 자연 키) · ADR 0083 (indicator-impl 패턴 1:1) · ADR 0088 (persistence-shared 패턴) · ADR 0057 (KIS-only 정책 정합)
+
+### 8. 한계
+
+- 1차 단일 trend type (SMA) — post-MVP EMA·WMA·DEMA add-only (`user_preference.extra JSONB` 슬롯 활용)
+- RS period UI 노출 0 (1차 60 LOCK · `TrendPreference.rsPeriod`만 endpoint 노출)
+- 알림 임계 (cross 발생 시 Slack/STOMP push) 미구현 (`extra.alertOnCross` 슬롯 예약)
+- KIS WS 지수 실시간 push 미구현 (1차 1분 REST cron only · WS 41 slot 미사용 LOCK)
+- 테마/테마주 그룹 미구현 (KRX 공식 분류 권위 확보 후 — 증권사마다 다른 분류 risk)
+- 해외 NYS exchange 확장 미구현 (1차 NAS 단일 — 다우 `.DJI` post-MVP)
+
+### 9. NXT 영향
+
+- 0 (지수·섹터는 NXT 미해당 — KRX 단일 source) · ADR 0091 NXT resolver 결합 0
+
+---
+
+## ✨ T-AI — AI 옵션 코멘트 보조 (v3.9.0 신규 트랙 — ADR 0026 amend)
+
+W4 완전 닫기 핵심 트랙 2순위. 사용자 트리거만 발행 · 매매 결정권 0 · 자본 path 영향 0 LOCK.
+
+### 1. REST (v3.9.0 신규 2 endpoint)
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `POST` | `/api/ai/explain` | AI 코멘트 발행 (`{type, vars, userId}` — sync inline 또는 async Kafka — `cached` flag) |
+| `GET` | `/api/ai/comments?type=&page=` | 과거 코멘트 list (audit 표 query) |
+
+### 2. 도메인 (3 provider + dispatcher)
+
+```
+api/ai/
+├── controller
+│     └── AiCommentController (POST /api/ai/explain + GET /api/ai/comments)
+├── provider
+│     ├── AiCommentProvider (interface — domain)
+│     ├── AnthropicProvider (Messages API)
+│     ├── GeminiProvider (Generate API)
+│     ├── OpenAiProvider (Chat Completions API)
+│     └── MockProvider (MAGICJAR_AI_MOCK_MODE=auto + 키 없음)
+├── resolver
+│     └── PromptTemplateResolver (variables_schema 검증 + missing key 사전 차단)
+├── cache
+│     └── AiPromptCacheAdapter (Redis ai:prompt:cache TTL 5분)
+├── tracker
+│     └── AiCostTracker (Micrometer counter — S-AI-1 누적 source)
+└── circuit
+      └── ResilienceCircuitConfig (provider별 circuit breaker)
+
+consumer/ai/
+└── AiCommentDispatcher (@KafkaListener ai.comment.requested.v1 → provider routing)
+```
+
+### 3. 영속 (Flyway 2건 — V49·V50)
+
+| Flyway | 테이블 | 핵심 컬럼 |
+|--------|-------|----------|
+| **V49** | `ai_comment_log` | request_id UUID · user_id · type · provider · model · prompt_template · prompt_hash · tokens_in · tokens_out · cost_usd · latency_ms · **cached BOOL** · **graceful BOOL** · content · created_at + idx(user_id, created_at DESC) + idx(provider, created_at DESC) + idx(request_id) |
+| **V50** | `prompt_template` | type · version · template_text · variables_schema JSONB · is_active BOOL · created_at + UNIQUE(type,version) + **PARTIAL UNIQUE idx (type) WHERE is_active=true** (동시 active 1행만 — A/B drift 가드) |
+
+#### prompt_template 시드 (5건 — Flyway data)
+
+| type | version | description |
+|------|---------|------------|
+| `symbol_v1` | v1 | 종목 분석 (code + 지표 + 패턴 + 뉴스 + position) |
+| `chart_v1` | v1 | 차트 해석 (code + timeframe + 표시 지표) |
+| `strategy_v1` | v1 | 전략 평가 (DSL + 최근 백테스트) |
+| `signal_v1` | v1 | 시그널 해석 (signal + 종목 상태) |
+| **`market_v1`** ★ | v1 | **시장 추세 해석 (지수 4 + 섹터 상위 5 + 추세 라벨 + user maPeriods·rsPeriod 변수 `{{maPeriods}}`·`{{rsPeriod}}` 치환)** |
+
+### 4. Kafka (신규 2 토픽)
+
+| 토픽 | partition_key | 발행자 | 소비자 | retention |
+|------|--------------|-------|-------|-----------|
+| **✨ `ai.comment.requested.v1`** | userId | `AiCommentController` (api) | `AiCommentDispatcher` (consumer) | 7d |
+| **✨ `ai.comment.responded.v1`** | requestId | `AiCommentDispatcher` (consumer) | `AiCommentStompForwarder` (api) | 7d |
+
+✨ STOMP fanout 1 토픽:
+- `/topic/ai.explain.{requestId}` — AI 응답 push (stomp_event userId 격리 + retention 7d)
+
+### 5. UI
+
+- `frontend/src/components/ai/AiCard.tsx` — 5 진입점 공용 카드 (loading · cached badge · graceful 메시지 · timestamp)
+- `frontend/src/components/symbol/SymbolDetailAiSection.tsx` — Symbol Detail "AI 종목 분석" 버튼
+- `frontend/src/components/chart/ChartAiSection.tsx` — Chart "차트 해석" 버튼
+- `frontend/src/components/strategy/StrategyAiSection.tsx` — Strategy "전략 평가" 버튼
+- `frontend/src/components/signal/SignalAiSection.tsx` — Dashboard 시그널 "시그널 해석" 버튼
+- `frontend/src/pages/market/MarketTrendAiSection.tsx` — **/market/trend "시장 추세 해석" 버튼 ★ 신규 진입점**
+- `frontend/src/hooks/useAiExplain.ts` — POST + STOMP subscribe race-safe merge
+
+### 6. PR (v3.9.0)
+
+- PR #678 — W4 R1 T-AI Phase 1 (ai-engineer 7bd19956 — 3 provider + dispatcher + 5 prompt seed + V49·V50)
+- PR #680 — W4 R2 5 AiCard UI (frontend 9abd5de6 — DashboardPage·/market/trend·SettingsModal·5 AiCard 진입점)
+- PR #685 — W4 P0 hotfix (ai-engineer ce2405db — ai_comment_log @Transactional INSERT 0/5 → 5/5 회복)
+- PR #682 — W4 P1 ADR 0103 신설 (architect fdd35ea7 — JpaScan 패키지 누락 차단 hotfix)
+- PR #683 — W4 P1 Visual evidence (qa 47915059 — Playwright baseline 3 PNG + 5 AI + 6 MCP 실측 + 영속 매트릭스 evidence)
+
+### 7. ADR
+
+- ADR 0026 (AI 옵션 amend — 3 provider + 5 진입점 + 5 prompt seed + cache + graceful)
+- ADR 0094 (운영 단계 — AI 끊김 본체 영향 0 LOCK)
+- ADR 0095 (SLO amend — **S-AI-1 신규 후보** — 1일 cost · provider별 latency)
+- ADR 0103 (JpaScan 패키지 — ai_comment_log·prompt_template 부팅 차단 hotfix)
+
+### 8. 한계
+
+- prompt A/B 테스트 미구현 (`prompt_template.version` 활용 — backlog)
+- T-NEWS news.collected.v1 → AI sentiment fusion 미구현 (backlog §62)
+- AI cost tracker S-AI-1 SLO 본격 정의 미실시 (Prometheus 패널 dispatch 후속)
+- 1일 한도 사용자 설정화 미구현 (현재 system_config fixed — backlog)
+- circuit breaker threshold 사용자 설정화 미구현
+- streaming response 미구현 (1차 단일 response — SSE 합류는 backlog)
+
+### 9. NXT 영향
+
+- 0 (AI는 자본 path 외 read-only)
+
+---
+
+## ✨ T-MCP — MCP Server expose (v3.9.0 신규 트랙 — ADR 0027 amend)
+
+W4 완전 닫기 핵심 트랙 3순위. Claude/Cursor 외부 client용 read-only 노출 — write 작업 0 LOCK.
+
+### 1. REST (v3.9.0 신규 7 endpoint — SSE 1 + tool 6)
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `POST` | `/mcp/sse` | SSE 세션 시작 (Server-Sent Events) |
+| `POST` | `/mcp/tool/get_candles` | KIS 캔들 조회 (read-only) |
+| `POST` | `/mcp/tool/run_screener` | 스크리너 실행 (strategy-engine reuse · inline 동기) |
+| `POST` | `/mcp/tool/get_journal` | 매매일지 조회 (filter · pagination) |
+| `POST` | `/mcp/tool/explain_indicator` | 정적 indicator catalog 조회 |
+| `POST` | `/mcp/tool/backtest_strategy` | 백테스트 inline 실행 (strategy-engine reuse) |
+| `POST` | `/mcp/tool/get_market_trend` | 시장 추세 조회 (**T-MARKET reuse — user pref 적용**) |
+
+### 2. 도메인 (McpController + 6 tool handler + auth)
+
+```
+api/mcp/
+├── controller
+│     └── McpController (HTTP/SSE + 6 tool routing)
+├── auth
+│     ├── ApiKeyAuthFilter (localhost 1차 LOCK — OnboardingGuardFilter skip)
+│     └── ApiKeyValidator (Redis mcp:auth:apikey:{hash} cache 60s)
+├── tool
+│     ├── GetCandlesTool → CandleRepository
+│     ├── RunScreenerTool → ScreenerEngineImpl (strategy-engine)
+│     ├── GetJournalTool → TradingJournalQueryService
+│     ├── ExplainIndicatorTool → IndicatorCatalog (정적 seed)
+│     ├── BacktestStrategyTool → BacktestEvaluatorBridge
+│     └── GetMarketTrendTool → IndexTrendComposer + TrendPreferenceService (T-MARKET reuse)
+├── audit
+│     └── McpAuditLogger (mcp_audit INSERT — latency · response_size · error_message)
+└── schema
+      └── JsonSchemaValidator (tool params 사전 검증)
+```
+
+### 3. 영속 (Flyway 1건 — V52)
+
+| Flyway | 테이블 | 핵심 컬럼 |
+|--------|-------|----------|
+| **V52** | `mcp_audit` | id · user_id VARCHAR(20) · client_id · tool · params JSONB · response_size_bytes · latency_ms · error_message · called_at + CHECK(latency·response_size >= 0) + idx(user_id, called_at DESC) + idx(tool, called_at DESC) |
+
+### 4. Kafka
+
+- 발행 0건 (audit는 mcp_audit 표가 권위)
+- 소비 0건
+
+### 5. UI
+
+- frontend 0 (외부 client만 호출)
+- 사용자는 magicJar 본체 UI에서만 자본 path 발동 LOCK
+
+### 6. PR (v3.9.0)
+
+- PR #679 — W4 R2 T-MCP Phase 1 (backend-core 484ca94c — McpController + 6 tool + ApiKeyAuthFilter + V52 + mcp_audit)
+- PR #683 — W4 P1 MCP 6 tool 실측 evidence (qa 47915059 — Playwright + 영속 매트릭스)
+- PR #681 — W4 R3 Visual 회귀 7 spec (qa 062abecd — docker logs evidence + Codex prereq + 부팅 차단 hotfix 1줄)
+
+### 7. ADR
+
+- ADR 0027 (MCP server amend — 6 tool read 전용 + ApiKeyAuthFilter + mcp_audit V52 + localhost 1차)
+- ADR 0094 (운영 단계 — 외부 client 자본 path 차단 LOCK)
+- ADR 0095 (SLO amend — **S-MCP 신규 후보** — tool별 latency · error rate)
+
+### 8. 한계
+
+- write 작업 0 LOCK (place_order 등 자본 path tool 0건 — 사용자 결재 후 별 트랙 의제)
+- 사용자별 API key 분리 미구현 (1차 localhost 단일 client_id LOCK)
+- rate limit per-client 미구현 (KIS rate limit과 별개 — backlog)
+- SSE streaming 1차 단일 response (multi-event streaming은 backlog)
+- 6 tool 외 신규 tool 추가는 사용자 결재 의존 (현재 read-only 6 LOCK)
+
+### 9. NXT 영향
+
+- 0 (read-only · 자본 path 외)
+
+---
+
+## ✨ T-OPS — 운영 인프라 (v3.9.0 amend — ADR 0095 amend + S-AI-1 신규 후보)
+
+v3.8.0 baseline LOCK 이월 + AI cost tracker · MARKET cron 정합 보강.
+
+### 1. REST (v3.8.0 LOCK 이월)
+
+- Actuator endpoints 4건 + SystemEvent endpoints 3건 LOCK 이월
+
+### 2. 도메인 (S-AI-1 신규 후보 추가)
+
+```kotlin
+// v3.8.0 baseline LOCK (SloMeasurementPort · SystemEvent · 5 의제 A~F) + v3.9.0 amend:
+
+interface AiCostTracker {  // ✨ v3.9.0 신규 — Micrometer counter
+    fun recordCost(userId: String, costUsd: BigDecimal, provider: String)
+    fun queryDailyCost(userId: String, day: LocalDate): BigDecimal
+}
+
+interface MarketIndexSyncMonitor {  // ✨ v3.9.0 신규
+    fun recordSyncInvocation()
+    fun recordFetchFailure(eventType: String)
+}
+```
+
+### 3. 영속 (v3.8.0 LOCK 이월 + v3.9.0 V49·V52 cover)
+
+- `system_event` V43 v3.8.0 LOCK 이월 (모든 emit point 권위 — KIS_RATELIMIT·KIS_TOKEN_EGW00123·KIS_REJECT·DRIFT_DETECTED·WS_DISCONNECTED·WS_RECONNECTED·KILLSWITCH_AUTO_ON)
+- v3.9.0 신규 SystemEvent 매트릭스:
+  - **MARKET_INDEX_FETCH_FAIL** (P2 ERROR) — 5분 5건 연속 → Slack ERROR alert (ADR 0095 amend)
+  - **AI_DAILY_LIMIT_EXCEEDED** (P3 INFO) — 사용자별 1일 한도 초과
+  - **MCP_AUTH_REJECT** (P2 WARN) — ApiKeyAuthFilter 실패
+
+### 4. Kafka
+
+- 발행: `system.event.v1` v3.8.0 LOCK 이월 + 신규 3 event_type
+- 소비: `SystemEventStompNotifier` (api) LOCK 이월
+
+### 5. UI
+
+- v3.8.0 SystemDashboardPage `/system` 라우트 LOCK 이월
+- NotificationCenter 벨 v3.8.0 LOCK 이월
+- v3.9.0 신규 SystemEvent 3 event_type 자동 노출 (filter 추가 0건 — 기존 channel filter 활용)
+
+### 6. PR (v3.9.0)
+
+- PR — ADR 0095 amend (S-AI-1·S-MARKET-1·2 신규 후보 — backlog 등재)
+- (v3.8.0 PR LOCK 이월 — P0-OPS-1·2·3·4·5·6)
+
+### 7. ADR
+
+- ADR 0094 · ADR 0095 (amend) · ADR 0096 (DR/backup — V47~V52 cover) · ADR 0044 (Notification reuse) · ADR 0084 (SystemEvent framework)
+
+### 8. 한계
+
+- v3.8.0 LOCK 이월 (Kafka offset backup · WAL archiving · weekly backup · user별 Slack webhook · Discord/Email/SMS 보조 채널 · ArchUnit KIS REST strict gate 등)
+- v3.9.0 신규 SLO 본격 정의 미실시 (S-AI-1 · S-MARKET-1·2 — Prometheus 패널 dispatch 후속)
+
+---
+
+## ✨ T-QA Visual — 품질 헌터 (v3.9.0 amend — ADR 0094 + W4 R3 강화)
+
+v3.8.0 baseline + W4 R3 Visual 회귀 7 spec 추가.
+
+### 1. REST
+- 없음 (frontend Playwright E2E + Visual regression 자동 재현)
+
+### 2. 도메인
+- `qa/playwright/scenarios/` 12 시나리오 baseline (v3.8.0 5 + v3.9.0 7 신규)
+- `qa/visual/snapshots/` 시각 회귀 baseline (Playwright baseline 3 PNG 추가 — W4 P1)
+
+### 3. 영속
+- 없음 (Playwright report HTML + 스크린샷 파일만)
+
+### 4. Kafka
+- 없음
+
+### 5. UI
+- qa Visual은 frontend 화면을 검증하는 actor 자체
+- v3.9.0 신규 시나리오 매트릭스:
+  - **DashboardPage MarketIndexStrip** — 4 카드 노출 + STOMP push 갱신
+  - **/market/trend page** — 섹터 ranking + 추세 라벨 + AI Card
+  - **SettingsModal 추세 설정** — MA periods 변경 → 차트 즉시 재계산
+  - **5 AI Card 진입점** — Symbol·Chart·Strategy·Signal·Market trigger + graceful 메시지
+  - **6 MCP tool 실측** — get_candles·run_screener·get_journal·explain_indicator·backtest_strategy·get_market_trend
+  - **AI 1일 한도 graceful** — 초과 시 한국어 메시지 노출
+  - **AI mock fallback** — 키 미등록 시 "SettingsModal에서 입력" 안내
+
+### 6. PR (v3.9.0)
+
+- PR #681 — W4 R3 Visual 회귀 7 spec + docker logs evidence + Codex prereq + 부팅 차단 hotfix 1줄 (qa 062abecd)
+- PR #683 — W4 P1 Playwright baseline 3 PNG + 5 AI + 6 MCP 실측 + 영속 매트릭스 evidence (qa 47915059)
+
+### 7. ADR
+- ADR 0094 (qa Visual 격상 — 운영 헌법 §10 회귀 자동화 의무)
+- ADR 0100·0101·0026·0027 (각 신규 트랙 화면 정합)
+
+### 8. 한계
+- 분기 DR drill 자동 재현 시나리오 1차 baseline만 (실 dump 기반 검증 후속 dispatch)
+- AI streaming response 시나리오 미발행 (1차 단일 response LOCK)
+- MCP write tool 시나리오 0 (read-only LOCK 정합)
+
+---
+
+## T-O · T-RECON · T-RISK · T-IND · T-PAT · T-SIG·T-DSL · T-BT · T-SC · T-NOTIFY · T-CC · T-LWC · T-W1 · T-ACCT · T-MAN · T-J · T-PERF · T-NEWS (v3.8.0 LOCK 이월)
+
+v3.8.0 04-feature-spec.md 풀세트 LOCK 이월. v3.9.0 변경 매트릭스:
+
+| 트랙 | v3.9.0 변경 |
+|------|------------|
+| T-O 주문 실행 | v3.8.0 LOCK 이월 (자본 path touch 0건) |
+| T-RECON | v3.8.0 LOCK 이월 |
+| T-RISK | + ADR 0098 KillSwitchQueryPort + 전략 활성화 게이트 (v3.8.x patch efe9dd0a) |
+| T-IND | v3.8.0 LOCK 이월 |
+| T-PAT | v3.8.0 LOCK 이월 |
+| T-SIG·T-DSL | v3.8.0 strategy-engine LOCK 이월 |
+| T-BT | + ADR 0097 ExecutionPositionUpdate port (v3.8.x patch) + trade breakdown 화면 (PR #670 afa2e24e) |
+| T-SC | v3.8.0 LOCK 이월 |
+| T-NOTIFY | v3.8.0 LOCK 이월 |
+| T-CC 캔들 정합 | + ADR 0099 reactor block 비동기 컨벤션 + consumer KIS .block() subscribeOn hotfix (v3.8.x patch 8c156227) |
+| T-LWC | ADR 0093 Proposed 이월 (frontend 합류 대기 — W5 검토) |
+| T-W1 | v3.8.0 LOCK 이월 |
+| T-ACCT | v3.8.0 LOCK 이월 + frontend order/instrument navigation hotfix (PR 474f92de) |
+| T-MAN | v3.8.0 LOCK 이월 |
+| T-J 매매일지 | v3.8.0 LOCK 이월 |
+| T-PERF 성과 | + trade breakdown 화면 (PR afa2e24e — backend API + batch + frontend 흡수) |
+| T-NEWS | v3.8.0 LOCK 이월 |
+
+---
+
+## ✨ ADR 0100 T-MARKET § (v3.9.0 권위)
+
+T-MARKET 트랙 §에서 본문 요약. 본 §는 ADR 결정 본문 핵심 매트릭스.
+
+### 결정 매트릭스 (ADR 0100 §2)
+
+| 의제 | 결정 |
+|------|------|
+| 모듈 신설 | **market-trend-engine 신설** (Spring Context only · indicator-impl 패턴 1:1) |
+| KIS endpoint | **5 LOCK** (inquire-index-price·inquire-index-daily-price·inquire-index-category-price·overseas price·overseas dailyprice) |
+| cron 빈도 | **1분 cron** (장중 한정 · MarketSession FSM 게이트) |
+| cron 부담 | **26 req/min = 0.43 req/s** (S-4 4.3% 점유 안전) |
+| priority enum | **`INGESTION_LOW` 신규** (ADR 0037 4단계 amend) |
+| Flyway version | **V47·V48·V51 LOCK** (R0 amend V40·V41·V44 → V47·V48·V51 shift — ADR 0102 정합) |
+| REST endpoint | **6건** (preference 2 + trend 4) |
+| STOMP topic | **3건** (`/topic/market.index.{code}` · `/topic/market.sector.rank` · `/topic/market.user.{userId}.pref`) |
+| MA periods 1차 default | **[5, 20, 60]** (사용자 mental model 표준 SMA 정합) |
+| 1차 trend type | **SMA** (post-MVP EMA·WMA·DEMA add-only — extra JSONB 슬롯) |
+
+### KIS-first raw fetch evidence (ADR 0100 §3 — 5건 inline KDoc 의무)
+
+| # | endpoint | raw URL |
+|---|---------|---------|
+| 1 | inquire_index_price (FHPUP02100000) | `examples_llm/domestic_stock/inquire_index_price/inquire_index_price.py` |
+| 2 | inquire_index_daily_price (FHPUP02120000) | `examples_llm/domestic_stock/inquire_index_daily_price/inquire_index_daily_price.py` |
+| 3 | inquire_index_category_price (FHPUP02140000) | `examples_llm/domestic_stock/inquire_index_category_price/inquire_index_category_price.py` |
+| 4 | overseas price (HHDFS00000300) | `examples_llm/overseas_stock/price/price.py` |
+| 5 | overseas dailyprice (HHDFS76240000) | `examples_llm/overseas_stock/dailyprice/dailyprice.py` |
+
+### SLO 영향 매트릭스 (ADR 0100 §6-1)
+
+| SLO | 영향 | 분석 |
+|-----|-----|------|
+| S-1 (시그널→주문 P95<5s) | 0 | 자본 path 미경유 |
+| S-2 (KIS WS 연결률>99%) | 0 | WS 미사용 |
+| S-3 (account API p95<500ms) | 0 | account path 별개 |
+| **S-4 (KIS rate limit)** | **+26 req/min = +0.43 req/s** | 한도 10 req/s 대비 4.3% 점유 안전 |
+| S-5 (KillSwitch 자동 ON) | 0 | 자본 path 미경유 |
+
+신규 SLO 후보 (backlog § 등재):
+- **S-MARKET-1**: market_index_snapshot insertion 성공률 > 99%/min (P1 backlog)
+- **S-MARKET-2**: KIS overseas API 호출 성공률 > 99% (P1 backlog)
+
+---
+
+## ✨ ADR 0101 TrendPreference 1급 도메인 § (v3.9.0 권위)
+
+T-MARKET §에서 본문 요약. 본 §는 ADR 결정 본문 핵심 + W4 P1 amend evidence.
+
+### 결정 매트릭스 (ADR 0101 §2)
+
+| 의제 | 결정 |
+|------|------|
+| 도메인 격상 | **TrendPreference 1급 도메인 격상** (data class + require validation Kotlin level) |
+| 영속 표 | **user_preference V51** (사용자 설정 단일 진입점) |
+| FK 자연 키 | **user_id VARCHAR(20)** (user_account 자연 키 정합 — ADR 0046 §2-1 · W4 P1 amend evidence) |
+| forward-compat | **extra JSONB 확장 슬롯** (MA type · indicator · 차트 default · 알림 임계 등 add-only 흡수) |
+| validation 이중 방어 | **Kotlin require + DB CHECK** (jsonb_array_length BETWEEN 1 AND 5 · rs_period BETWEEN 1 AND 252) |
+| 기본 시드 | **idempotent INSERT SELECT FROM user_account ON CONFLICT DO NOTHING** (모든 기존 사용자 default `[5,20,60]` 자동 부여) |
+| REST endpoint | **2건** (GET 조회 echo + isUserCustom · PUT 변경 + STOMP fanout) |
+
+### W4 P1 amend evidence (2026-05-24 — ADR 0102 §5 cross-ref)
+
+ADR 0102 §2-2 영속 자원 audit 5단계 절차의 적용 범위가 **외부 영속 자원 6 영역**(Flyway·Kafka·Redis·STOMP·REST·ENV)에 한정되었던 lens를 **내부 도메인 모델 inventory**(기존 표 컬럼 타입·PK 자연/surrogate 구분 등)로 확장하는 사례 1건.
+
+- 초안 (R0): `user_id BIGINT REFERENCES user_account(id)`
+- 실 schema (V1 baseline L29-35): `user_account.user_id VARCHAR(20)` (KIS 계좌번호 자연 키)
+- 결함: `user_account` 표는 자연 키만 보유 — surrogate `id BIGINT` 컬럼 0건. 초안은 surrogate 가정 결함.
+- amend: R1 backend-core dispatch에서 audit 후 V51 마이그레이션 실 schema 1:1 정합 발행 (`user_id VARCHAR(20) PK` · FK CASCADE)
+
+---
+
+## ✨ ADR 0102 spec audit 5단계 절차 § (v3.9.0 권위 — 신규)
+
+### 결정 매트릭스 (ADR 0102 §2-2 + W4 P1 amend §5-4)
+
+R0 architect dispatch-spec 발행 직전 의무 5단계:
+
+| Step | 영역 | audit 명령 | 결함 시 행동 |
+|------|------|-----------|------------|
+| 1 | **Flyway version** | `ls api/src/main/resources/db/migration/V*.sql \| tail -5` | 점유 V 번호 발견 시 R0 amend로 신규 V 분배 |
+| 2 | **Kafka topic** | `grep -r "topics.*\"\\w*\\.\\w*\\.v[0-9]\"" --include="*.kt"` | 점유 topic 발견 시 신규 .v2 또는 별 prefix |
+| 3 | **Redis key 패턴** | `grep -r "\"[a-z]*:[a-z]*:" --include="*.kt"` | 점유 패턴 발견 시 신규 prefix |
+| 4 | **STOMP topic** | `grep -r "/topic/" --include="*.kt"` | 점유 topic 발견 시 신규 path |
+| 5 | **REST endpoint** | `grep -rE "@(Get|Post|Put|Delete|Patch)Mapping" --include="*.kt"` | 점유 path 발견 시 신규 path |
+| (W4 P1 amend) | **내부 도메인 모델** | 기존 표 schema audit (PK 자연/surrogate 구분 · FK 컬럼 타입) | 결함 발견 시 ADR 본문 amend |
+
+### evidence (ADR 0102 신설 사유)
+
+R0 PR #674 시점 V40~V45 LOCK 발행 → ai-engineer R1 dispatch가 main HEAD audit 결과 V40~V46 점유 사실 발견 → 헌법 §7 escalation → architect R0 amend PR로 V47~V52 재분배 (main HEAD V46 점유 + V47 비점유 검증 evidence).
+
+본 결함 재발 방지가 ADR 0102 §2-2 5단계 절차 LOCK.
+
+---
+
+## ✨ ADR 0103 JpaScan 패키지 누락 차단 § (v3.9.0 권위 — 신규)
+
+### 결정 매트릭스
+
+W4 R1 ai-engineer dispatch에서 ai_comment_log·prompt_template JpaRepository 부팅 차단 결함 발견 → R1 dispatch-spec 의무에 JpaScan 패키지 명시 검증 LOCK + application.yml `spring.jpa.properties.hibernate.physical_naming_strategy` 정합 의무 추가.
+
+### evidence
+
+- 결함: `@EnableJpaRepositories(basePackages = ["..."])` basePackages 신규 JpaRepository 패키지 누락 → 부팅 시 `No qualifying bean of type 'XxxRepository'` 에러
+- hotfix: R0 architect dispatch-spec에 JpaScan 매트릭스 의무 추가 + ai-engineer dispatch에서 신규 표 JpaRepository 등록 시 검증 의무 LOCK
+- 부팅 차단 hotfix 1줄 (qa W4 R3 062abecd Visual evidence 동반)
+
+---
+
+## ADR 의존 요약 (v3.9.0 갱신)
+
+| ADR | 영향 트랙 |
+|-----|---------|
+| ADR 0004 | 모든 트랙 (모듈 경계 **9건**으로 확장) |
+| ADR 0007 | 모든 Kafka 트랙 (Outbox publish path LOCK + v3.9.0 신규 4 토픽 Outbox 미경유 — read-only) |
+| ADR 0010 | 모든 user-isolated 트랙 (userId 격리) |
+| ADR 0013 | T-MARKET (MarketSession FSM — cron 게이트) |
+| ADR 0017 | T-MARKET (Instrument Master — 섹터 시드) |
+| ADR 0023 | T-DSL·T-BT·T-SIG·T-RISK·T-O·T-MAN (룰 온리 + AI 호출 0 — T-AI는 옵션 path만 합류) |
+| ADR 0024·0043·0070 | T-RISK KillSwitch (v3.8.0 LOCK + v3.8.x ADR 0098 KillSwitchQueryPort) |
+| ADR 0026 | **T-AI** (amend — 3 provider + 5 진입점 + 5 prompt seed + cache + graceful 5 매트릭스) |
+| ADR 0027 | **T-MCP** (amend — 6 tool read 전용 + ApiKeyAuthFilter + mcp_audit V52) |
+| ADR 0037 | 모든 KIS REST 어댑터 (amend — **INGESTION_LOW 4단계 신규** + T-MARKET 26 req/min) |
+| ADR 0044 | T-NOTIFY (Alert routing) |
+| ADR 0046 | T-W1 + T-MARKET (user_account.user_id VARCHAR(20) 자연 키 — TrendPreference FK 정합) |
+| ADR 0048 | WS 41 slot (T-MARKET 미사용 LOCK) |
+| ADR 0051 | 모든 JPA Repository (body 0 의무 — 9 모듈 + V47~V52 신규 Repository 검증) |
+| ADR 0054·0083 | T-IND·T-PAT + T-MARKET (indicator-impl 패턴 1:1 reuse 권위) |
+| ADR 0057 | KIS REST 호출 모든 트랙 (KIS-only 정책 — T-MARKET overseas API 첫 진출 정합) |
+| ADR 0068·0084 | T-O 자본 path (v3.8.0 LOCK 이월 + v3.8.x ADR 0097 ExecutionPositionUpdate) |
+| ADR 0081 | T-ACCT (v3.7.0 baseline) |
+| ADR 0082 | T-MAN (v3.7.0 baseline) |
+| ADR 0086 | T-CC Phase 2 (v3.7.0 baseline) |
+| ADR 0087 | Sub-agent 페르소나 매트릭스 (v3.8.0 reshuffle LOCK 이월) |
+| ADR 0088 | persistence-shared 모듈 (v3.7.0 LOCK 이월) |
+| ADR 0089 | userId number 통일 (v3.7.0 LOCK) |
+| ADR 0090 | instrument_status_history (v3.7.0 LOCK) |
+| ADR 0091 | NXT resolver (v3.8.0 LOCK) |
+| ADR 0092 | strategy-engine 모듈 (v3.8.0 LOCK + T-MCP run_screener·backtest_strategy reuse) |
+| ADR 0093 | 차트 lazy backfill (Proposed 이월 — W5 검토) |
+| ADR 0094 | 운영 단계 (v3.9.0이 첫 신규 트랙 baseline — T-MARKET·T-AI·T-MCP) |
+| ADR 0095 | SLO/SLA (amend — S-4 +0.43 req/s + S-AI-1·S-MARKET-1·2 신규 후보) |
+| ADR 0096 | DR/backup (V47~V52 cover) |
+| ADR 0097 | ExecutionPositionUpdate port (v3.8.x patch — T-O 정합) |
+| ADR 0098 | KillSwitchQueryPort + 전략 활성화 게이트 (v3.8.x patch — T-RISK 정합) |
+| ADR 0099 | reactor block 비동기 컨벤션 (v3.8.x patch — T-CC consumer KIS hotfix) |
+| ADR 0100 | **T-MARKET 트랙** (v3.9.0 권위 — market-trend-engine + KIS 5 endpoint + cron 2 + REST 4 + STOMP 3 + V47·V48) |
+| ADR 0101 | **TrendPreference 1급 + user_preference V51** (v3.9.0 권위 — forward-compat extra JSONB + W4 P1 amend user_id VARCHAR(20)) |
+| ADR 0102 | **spec audit 5단계 절차** (v3.9.0 신규 — V40~V45 → V47~V52 shift evidence 재발 방지 LOCK) |
+| ADR 0103 | **JpaScan 패키지 누락 차단** (v3.9.0 신규 — W4 R1 ai-engineer dispatch 부팅 결함 hotfix) |
+
+---
+
+## 💡 v3.9.0 리팩토링맨 lens 진보 평가 (트랙 매트릭스)
+
+| 트랙 | v3.8.0 상태 | v3.9.0 상태 | 진보도 |
+|------|-----------|-----------|-------|
+| **T-MARKET** ★★ | 0건 | **★ 4 지수 카드 + KRX 21 섹터 + 사용자 MA periods + KIS Overseas API 첫 진출 + market-trend-engine 모듈 신설 + Flyway V47·V48·V51** | ★★★★★ |
+| **T-AI** ★★ | 0건 (W4 대기) | **★ 5 진입점 × 3 provider + 5 prompt seed + Redis 5분 cache + 1일 한도 + graceful 5 매트릭스 + V49·V50** | ★★★★★ |
+| **T-MCP** ★★ | 0건 (W4 대기) | **★ 6 tool read-only + ApiKeyAuthFilter + V52 + Claude/Cursor 외부 client 노출** | ★★★★★ |
+| T-OPS | P0 OPS 6건 풀세트 | + S-AI-1·S-MARKET-1·2 SLO 신규 후보 (ADR 0095 amend) | ★★★ |
+| T-QA Visual | 5 시나리오 baseline | + 7 시나리오 신규 (MarketIndexStrip · /market/trend · SettingsModal · 5 AiCard · 6 MCP · AI 한도 graceful · AI mock fallback) | ★★★★★ |
+| 인프라 (모듈) | 8 모듈 | **9 모듈 (+ market-trend-engine)** | ★★★★ |
+| spec audit 절차 | 결함 가능 (V46 점유 사례) | **5단계 절차 LOCK (ADR 0102 신설)** | ★★★★★ |
+| JpaScan 패키지 검증 | 0건 | **명시 검증 LOCK (ADR 0103 신설)** | ★★★★ |
+| TrendPreference 1급 도메인 | 0건 (hardcoded constant) | **사용자 설정 도메인 격상 + extra JSONB 확장 슬롯** | ★★★★★ |
+| KIS Overseas API | 0건 (한국 단독) | **NAS exchange — .IXIC + .SPX (향후 US 종목 prereq)** | ★★★★ |
+| 자본 path 영향 0 LOCK | (자본 path 보강) | **3 신규 트랙 모두 read-only — touch 0 grep 검증** | ★★★★★ |
+| AI graceful 매트릭스 | 0건 | **5 분기 (disabled·KillSwitch·1일 한도·circuit·mock fallback) — AI 끊김 시 본체 영향 0** | ★★★★★ |
+
+✨ **W4 완전 닫기 + v3.9.0 cut 종합 평가**:
+- v3.8.0이 운영 단계 1차 baseline(observability·SLO·DR)이었다면 v3.9.0은 **사용자 옵션 path 완전 합류** — 시장 추세·AI 코멘트·MCP 외부 client 3 트랙 동시 종착
+- 16 → 19 트랙 (3 신규 합류) + 새 표 6건 + 새 endpoint 14건 + 새 Kafka 4건 + 새 STOMP 4건 — 표면 확장은 v3.8.0 대비 가장 큰 사이클
+- 자본 path 0 touch + 룰 본체 영향 0 LOCK — "기능 완성 + 트랙 진입" → "안정 운영 + 점진 개선 + 옵션 path 확장" mindset 정착
+- ADR 0102·0103 신설로 dispatch 절차 LOCK (spec audit + JpaScan 검증) — V46 점유·부팅 차단 결함 재발 방지
+
+🔄 **backlog 매트릭스 (v3.9.0 → v3.9.x patch 또는 W5 후보)**:
+- ADR 0093 차트 lazy backfill 합류 (Proposed → Accepted — frontend 단독 W5 검토)
+- KIS overseas API NYS exchange 확장 (다우 `.DJI` · 미국 종목 prereq)
+- AI A/B prompt 테스트 (prompt_template.version 활용)
+- T-NEWS news.collected.v1 → AI sentiment fusion (backlog §62)
+- MCP write tool 추가 의제 (place_order 등 — 사용자 결재 의존 · 본 1차는 read-only LOCK)
+- TrendPreference UI 확장 (RS period user-settable + MA type 선택)
+- S-AI-1·S-MARKET-1·2 SLO 본격 정의 (Prometheus 패널 dispatch)
+- weekly backup + WAL archiving (v3.8.0 backlog 이월)
+- ArchUnit 게이트(KIS REST strict gate · AI provider import grep)
+- AI streaming response (SSE multi-event — 1차 단일 response LOCK)
+- 사용자별 MCP API key 분리 (1차 localhost 단일)
+- T-LWC (W5 진입) + T-LEARN (W5)
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>

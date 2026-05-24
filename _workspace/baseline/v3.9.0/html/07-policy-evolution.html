@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>07-policy-evolution — magicJar v3.9.0 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">📁 인덱스</a><a href="01-architecture.html">01 Architecture</a><a href="02-data-flow.html">02 Data Flow</a><a href="03-use-sequences.html">03 Use Sequences</a><a href="04-feature-spec.html">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html">06 History</a><a href="07-policy-evolution.html" class="active">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.9.0 Baseline · 2026-05-24 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># 07 — magicJar v3.9.0 운영 헌법 + ADR 진화 누적 + Codex 검증 게이트 통과 evidence
+
+> **작성자**: architect (PR-2 baseline v3.9.0)
+> **권위**: `_workspace/arch/agent-charter.md` v3.8.0 baseline (10 §) + ADR 0094·0095·0096·0100·0101·0102·0103 본문 + 사용자 메모리 `feedback-codex-validation-gate` 4 lens + `feedback_conflict_resolution_autonomy` 자율 처리 + `feedback_spec_plan_scope.md` spec 범위 + `feedback_verification_strict` 검증 의무
+
+본 문서는 v3.9.0 시점 magicJar 운영 헌법의 **누적 진화 + Codex 검증 게이트 통과 evidence**이다. 운영 헌법 §1~§10 본문은 `agent-charter.md` 단일 권위이며, 본 baseline은 본 사이클(v3.8.0 → v3.9.0)에서 추가된 ADR이 운영 헌법에 어떻게 정합 본문화되었는지 + Codex 4 lens (세심함·영향도·연결·확장성) 정합 검증 게이트 통과 evidence를 본문화한다.
+
+---
+
+## §1. 운영 헌법 §1~§10 baseline LOCK (v3.8.0 보존)
+
+v3.9.0 사이클은 운영 헌법 §추가 0건 — v3.8.0 baseline §1~§10 (10 §) 본문 LOCK 보존. 본 사이클 ADR 0100·0101·0102·0103 신설 + 6 ADR amend는 모두 기존 § 본문에 cross-ref만 보강 (§ 본문 amend 0건).
+
+| § | 본문 | v3.9.0 신규 cross-ref |
+|---|------|---------------------|
+| §1 task.mjs 4단계 의무 | (보존) | (보존) |
+| §1-A worktree 진입 author 의무 | (보존 — 7 actor + chart-curator archived) | (보존) |
+| §1-A-extended `extensions.worktreeConfig=true` | (보존) | (보존) |
+| §1-B task.mjs 본체 | (보존) | (보존) |
+| §1-C task 파일 commit 의무 | (보존) | (보존) |
+| §1-D 시간 표기 | (보존) | (보존) |
+| §1-E 위반 시 risk | (보존) | (보존) |
+| §2 머지 후 정리 4단계 | (보존 — 안정성 Cycle 1·2·3·4 evidence) | (보존) |
+| **§3 KIS-first raw fetch 의무** | (보존 — Living Policy 위임 ADR 0053) | **★ ADR 0102 §1-2 lens 양면 cross-ref — "자체 추론 0 정책" 외부 데이터 규격 ↔ 내부 영속 자원 양면 보완** |
+| §4 CHANGELOG 슬롯 채번룰 | (보존 — ADR 0050) | (보존) |
+| §5 PR 생성 직전 rebase 의무 | (보존) | (보존) |
+| §6 JPA Repository default fun 함정 | (보존 — ADR 0051) | (보존) |
+| §7 sub-agent fail 시 분기 룰 | (보존) | **★ ADR 0102 §2-4 escalation 경로 5단계 신설 — R0 결함 fix 사이클 evidence (sub-agent escalation → orchestrator kill → architect amend → 정합 머지 → 재 dispatch)** |
+| **§9 운영 단계 룰** | (보존 — 6 항목) | **★ ADR 0100·0101·0102·0103 운영 ADR 양식 3 슬롯 (§9-5) 모두 적용 — v3.9.0 첫 4회 적용 사례** |
+| §9-1 SLO/SLA | (보존 — 5 baseline) | **★ S-OPS-1 신규 SLO 후보 (ADR 0103 §4-1) + S-MARKET-1·S-MARKET-2 후보 (ADR 0100 §6-1) backlog amend** |
+| §9-2 변경 관리 | (보존) | (frontend 핵심 화면 PR Visual 자동 dispatch 의무 — v3.9.0 PR #680 + R3 PR #681 + W4 P1 PR #683 evidence) |
+| §9-3 on-call rotation | (보존) | (보존) |
+| §9-4 정기 backup·DR | (보존 — ADR 0096) | (DR drill 분기 의무 1회 evidence 잔여 backlog) |
+| **§9-5 신규 ADR 양식 (운영 단계)** | (보존 — 3 슬롯 SLO 영향·rollback plan·관측 매트릭스) | **★ ADR 0100·0101·0102·0103 모두 적용 — v3.9.0 첫 4회 적용 사례** |
+| §9-6 sub-agent 7 hierarchy LOCK | (보존 — chart-curator 해고 + qa Visual 격상 + ai-engineer 유지) | **★ ai-engineer v3.9.0 W4 마감으로 active dispatch 시작** |
+| §10 운영 메모 | (보존) | (보존) |
+
+---
+
+## §2. ADR 0102 신설 — spec/plan 발행 시 main 영속 자원 audit 5단계 절차 LOCK (v3.9.0 핵심 진화)
+
+### 2-1. 본 ADR 발생 trigger (헌법 §7 escalation 5단계 완주 evidence)
+
+2026-05-24 R0 PR #674 (1411d392)는 W4 통합 사이클 (T-MARKET·T-AI·T-MCP 3 트랙) spec/ADR/dispatch 매트릭스 발행. Flyway V40~V45 6건 sub-agent별 LOCK 분배:
+
+```
+V40 = market_index_snapshot   (market-data)
+V41 = sector_index_snapshot   (market-data)
+V42 = ai_comment_log          (ai-engineer)
+V43 = prompt_template         (ai-engineer)
+V44 = user_preference         (backend-core T-MARKET)
+V45 = mcp_audit               (backend-core T-MCP)
+```
+
+ai-engineer R1 dispatch가 main HEAD audit 결과 **V40~V46 모두 점유 사실** 발견:
+
+```bash
+$ git fetch origin main && ls api/src/main/resources/db/migration/ | grep "^V4" | sort
+V40__order_event_outbox.sql
+V41__stomp_event.sql
+V42__instrument_status_history.sql
+V43__order_request_add_strategy_id.sql
+V44__system_event.sql
+V45__order_request_backfill_manual_source.sql
+V46__backtest_run_strategy_id.sql
+```
+
+→ R0 spec V40~V45 LOCK 전체 무효 → R1·R2 sub-agent 5명 동시 영향 → 헌법 §7 escalation 가동:
+
+1. **sub-agent escalation** — ai-engineer 작업 0 발행 + orchestrator 보고
+2. **orchestrator R1·R2 dispatched sub-agent 즉시 kill** — market-data + backend-core T-MARKET 즉시 kill
+3. **architect R0 결함 fix amend PR dispatch** — R0 amend PR #675 (60449432) V47~V52 재분배 LOCK + ADR 0102 신설
+4. **amend 머지 + 정합 LOCK 검증**
+5. **R1·R2 sub-agent 재 dispatch (헌법 §2 정리 4단계 완료 후)**
+
+### 2-2. ADR 0102 본문 LOCK — spec/plan 발행 직전 5단계 audit 절차
+
+**대상 영속 자원 매트릭스 (6 영역 LOCK)**:
+
+| # | 영속 자원 | 위치 | audit 명령 (예시) | 충돌 시 shift 방식 |
+|---|---|---|---|---|
+| 1 | **Flyway** | `api/src/main/resources/db/migration/` | `git ls-tree origin/main api/src/main/resources/db/migration/ \| grep "^.*V[0-9]"` | next-available version (V47, V48...) |
+| 2 | **Kafka topic** | `KafkaTopicConfig.kt` + grep | `git grep "TOPIC_" origin/main -- '*.kt'` | 도메인 prefix 추가 |
+| 3 | **Redis key** | 코드 grep | `git grep "redis" origin/main -- '*.kt' \| grep "key\|prefix"` | 차별 prefix |
+| 4 | **STOMP topic** | `WebSocketConfig` + grep | `git grep "/topic/" origin/main -- '*.kt'` | namespace 분리 |
+| 5 | **REST endpoint** | controller grep | `git grep "@RequestMapping\|@GetMapping\|..." origin/main -- '*.kt'` | path 충돌 시 별 path |
+| 6 | **ENV 변수** | `.env.example` + grep | `git grep "MAGICJAR_" origin/main -- '*.kt' '*.yml' '.env*'` | 도메인 prefix |
+
+**면제 조건 3건 (architect 자율 판단 슬롯)**:
+- **md only PR** (운영 코드 0 touch · ADR 본문 정합·헌법 §amend·CHANGELOG row 추가)
+- **hotfix PR** (시급한 결함 fix · 영속 자원 신설 0건 본질)
+- **이미 LOCK된 자원의 amend 본문 수정** (새 자원 발행 0건 본질)
+
+**위반 시 escalation 경로 5단계** (헌법 §7 정합):
+- sub-agent escalation → orchestrator kill → architect amend → 정합 머지 → 재 dispatch
+
+### 2-3. ADR 0102 W4 P1 amend — 내부 도메인 모델 inventory 영역 확장 후보
+
+ADR 0101 §2-2 DDL `user_id BIGINT REFERENCES user_account(id)` 초안 vs 실 schema (`user_account.user_id VARCHAR(20)` KIS 계좌번호 자연 키 · ADR 0046 §2-1) 불일치 발견 (R1 backend-core PR #676 audit) → ADR 0101 W4 P1 amend (`VARCHAR(20)` 실 schema 정합 정정).
+
+본 사례는 ADR 0102 영역 확장 후보 cross-ref 1건 등재 (§5-4):
+
+| # | 사례 evidence | 결함 본질 | 누적 |
+|---|---|---|---|
+| 1 | ADR 0101 §2-2 DDL `user_id BIGINT` 초안 (W4 P1 amend) | 기존 표 컬럼 타입·PK 자연/surrogate 구분 미인지 | 1 |
+
+**확장 후보 영역**: **내부 도메인 모델 inventory** (기존 표 컬럼 타입 + PK 자연/surrogate 구분 + JPA Entity field 타입 등). 누적 3건 시 ADR 0102 §2-2 7번째 영역 추가 amend 발행 의제.
+
+---
+
+## §3. ADR 0103 신설 — JpaScanConfiguration 신규 패키지 누락 차단 (장기 fix 옵션 매트릭스 + 채택안 LOCK)
+
+### 3-1. 본 ADR 발생 trigger (W4 P1 R3 qa 부팅 차단 1줄 hotfix evidence)
+
+2026-05-24 W4 R3 qa Visual 회귀 dispatch가 docker logs 검증 단계에서:
+
+```
+APPLICATION FAILED TO START
+Parameter 0 of constructor in McpAuditService required a bean of type
+'kr.spdaewoon.magicjar.api.mcp.persistence.McpAuditJpaRepository' that could not be found.
+```
+
+→ exit code 1 → api·batch·consumer 3 컨테이너 RED.
+
+**Root cause**: R2 backend-core T-MCP Phase 1 (PR #679) 신규 `api.mcp.persistence` 패키지 신설 시 `JpaScanConfiguration.kt` 화이트리스트 (ADR 0088 v3.7.1 hotfix #2 권위) 갱신 누락. Spring Boot `JpaRepositoriesAutoConfiguration` fallback 룰 (main class 패키지 = `kr.spdaewoon.magicjar` 자동 scan) 은 `@EnableJpaRepositories` 1회 등장 시 비활성화 → 화이트리스트 누락 패키지 자동 fallback 0 → bean 미발견 → 부팅 차단.
+
+### 3-2. R3 qa 자율 hotfix (1줄 add-only · `feedback_conflict_resolution_autonomy` 정합)
+
+R3 qa PR #681 commit 062abecd 머지 완료 — 1줄 add-only + KDoc 7줄 사유:
+
+```kotlin
+@EnableJpaRepositories(
+    basePackages = [
+        "kr.spdaewoon.magicjar.api.persistence",
+        "kr.spdaewoon.magicjar.api.mcp.persistence",   // ← R3 qa hotfix (W4 P1)
+        "kr.spdaewoon.magicjar.persistence.shared",
+    ],
+)
+```
+
+본 hotfix 머지 후 docker 재기동 → 3 컨테이너 GREEN 복귀.
+
+### 3-3. ADR 0103 신설 — 장기 fix 옵션 3건 매트릭스 + 채택안 LOCK
+
+**옵션 매트릭스**:
+
+| 옵션 | 원리 | 재발 방지 강도 | 코드 변경량 |
+|------|------|----------------|----------------|
+| **옵션 A** | `basePackages = ["kr.spdaewoon.magicjar"]` 단일화 → 모든 sub-package 자동 scan | **100% (자동 발견)** | 1줄 |
+| 옵션 B | PR template + 갱신 의무 명문화 | 30% (사람 의존) | 0 |
+| **옵션 C** | Spring context load smoke test 1건 add-only (`./gradlew :api:check` pre-push 자동 RED 차단) | **100% (RED 차단)** | 통합 테스트 1건 (~10 LOC) |
+
+**채택안 LOCK**: **옵션 A (장기) + 옵션 C-lite (즉시 안전망) 하이브리드**
+
+| lens | 옵션 A | 옵션 B | 옵션 C |
+|---|---|---|---|
+| 재발 방지 강도 | **100%** (자동 발견) | 30% (사람 의존) | 100% (RED 차단) |
+| 코드 변경량 | 1줄 | 0 | 통합 테스트 1건 |
+| 운영 risk | **0** | 0 | LOW (테스트 시간 ↑) |
+| 유지보수 비용 | **0** (갱신 의무 0) | HIGH (사람 의존 누적) | LOW (테스트 단일) |
+| 운영 SLO S-2 영향 | **0 (제거)** | LOW (재발 가능) | 0 (CI 차단) |
+
+**임시 baseline**: R3 qa hotfix 화이트리스트 3건 명시 유지 (옵션 A 적용 전 안전망). 옵션 C smoke test 적용 후 1 사이클 안정 운영 evidence (W4 P1 후속) → backend-core PR으로 옵션 A 적용.
+
+### 3-4. 후속 사이클 매트릭스
+
+| # | 영역 | 작업 | 트리거 |
+|---|---|---|---|
+| P1 | backend-core | 옵션 C smoke test 1건 add-only (`JpaScanSmokeTest.kt`) | 본 ADR 발행 직후 (자율) |
+| P2 | backend-core | 옵션 A 적용 (basePackages 단일화) + ADR 0088 §root cause 패턴 audit | 옵션 C 안정 운영 evidence 누적 후 1 사이클 |
+| P3 | architect | 본 ADR amend (옵션 A 적용 완료 본문 + ADR 0088 정합 amend) | 옵션 A 적용 머지 후 |
+| post-MVP | architect | S-OPS-1 신규 SLO 발행 (`api·batch·consumer 3 컨테이너 부팅 성공률 = 100%`) — ADR 0095 §9-1 amend + Prometheus alert rule 1건 add-only | 운영 evidence 누적 후 |
+
+---
+
+## §4. 운영 ADR 양식 3 슬롯 — v3.9.0 첫 4회 적용 사례 (헌법 §9-5 정합)
+
+운영 단계 진입 후 모든 신규 ADR §결과 직전에 다음 3 슬롯 의무 추가 (헌법 §9-5):
+
+1. **SLO 영향** — 본 결정이 §9-1 SLO에 미치는 영향
+2. **rollback plan** — 본 결정이 운영에 부적합 발견 시 즉시 되돌리는 절차
+3. **관측 매트릭스** — 본 결정 결과를 운영 단계에서 측정하는 metric/alert + Visual 회귀 시나리오 (frontend 영향 시)
+
+**v3.9.0 사이클은 운영 ADR 양식 3 슬롯 첫 4회 적용 사례**:
+
+| ADR | SLO 영향 (§6-1/§5-1/§4-1) | rollback plan (§6-2/§5-2/§4-2) | 관측 매트릭스 (§6-3/§5-3/§4-3) |
+|---|---|---|---|
+| **ADR 0100 (T-MARKET)** | S-1·S-2·S-3·S-5 = 0 (자본 path 미경유) · S-4 = **+0.43 req/s (4.3% 점유 안전 — INGESTION_LOW)** · 신규 SLO 후보 S-MARKET-1·S-MARKET-2 P1 backlog | 5 단계 (env toggle → conditional 비활성 → frontend feature flag → DB 영속 보존 → PR revert) · 전체 rollback 6분 (RTO 30분 안) | MarketIndexSyncJob 발사 빈도 (Micrometer counter) · 지수 fetch 실패 (SystemEvent ERROR severity) · 섹터 ranking 계산 latency · Redis hit ratio · Visual 회귀 (DashboardPage MarketIndexStrip · /market/trend · SettingsModal 추세 변경) |
+| **ADR 0101 (TrendPreference)** | S-1·S-2·S-3·S-4·S-5 = 0 · 신규 SLO 후보 user_preference UPSERT 성공률 + STOMP push latency P2 backlog | 6 단계 (env toggle → conditional 비활성 → frontend feature flag → graceful fallback → DB 보존 → PR revert) · 전체 rollback 6분 | user_preference UPSERT 성공률/실패률 (Micrometer) · TrendPreference 변경 빈도 · STOMP push latency · Visual 회귀 (다중 탭 sync · 잘못된 입력 400 한국어) |
+| **ADR 0102 (spec audit)** | governance 본문 — SLO 직접 영향 0 (간접 효율 ↑) | 2 단계 (Superseded 표시 + 새 ADR 발행) | spec/plan 결함 발생 빈도 (escalation count) · 5단계 절차 수행 비율 (PR 본문 audit evidence grep) |
+| **ADR 0103 (JpaScan)** | **S-1·S-2·S-3 부팅 차단 시 직접 RED** · 옵션 C smoke test 적용 시 CI 차단 → 0 · 옵션 A 적용 시 자동 발견 → 0 · S-OPS-1 신규 SLO 후보 | 5 단계 (옵션 A 적용 후 revert + 재빌드 + GREEN evidence + 옵션 C 유지 + 본 ADR amend) · 전체 rollback < 50분 | 컨테이너 부팅 성공률 (docker compose status) · 옵션 C smoke test 통과율 (CI run) · JpaScanConfiguration 변경 빈도 · Bean missing 발생 빈도 · Visual 회귀 (부팅 abort 시 frontend 모든 화면 RED 자동 검출) |
+
+본 4 ADR은 헌법 §9-5 운영 ADR 양식 3 슬롯을 모두 본문화 → 운영 단계 진입 후 ADR 발행 표준 사이클 정립. ADR 0094·0095·0096 (v3.8.0 baseline) → ADR 0100·0101·0102·0103 (v3.9.0) 누적 6회 적용 사례.
+
+---
+
+## §5. Codex 검증 게이트 4 lens 통과 evidence (사용자 메모리 `feedback-codex-validation-gate` 정합)
+
+본 v3.9.0 사이클은 Codex 외부 review 4 lens (세심함·영향도·연결·확장성) 정합 검증 게이트 통과 evidence 첫 사이클이다. 본 lens별 통과 evidence 본문화:
+
+### 5-1. 세심함 (Conscientiousness)
+
+| evidence | 본 사이클 사례 |
+|---|---|
+| **R0 PR #674 결함** | W4 통합 사이클 spec/ADR 발행 시점에 main HEAD audit 누락 → Flyway V40~V45 LOCK 발행 후 main HEAD V40~V46 점유 사실 발견 → grep 1회면 회피 가능했던 결함 |
+| **본 lens 통과 evidence** | **ADR 0102 5단계 절차 LOCK 신설 — 영속 자원 6 영역 (Flyway·Kafka·Redis·STOMP·REST·ENV) audit 매트릭스 본문화 + 면제 조건 3건 + escalation 경로 5단계 본문화 → 영구 차단** |
+
+### 5-2. 영향도 (Impact)
+
+| evidence | 본 사이클 사례 |
+|---|---|
+| **R0 결함 영향** | R1·R2 sub-agent 5명 동시 무효화 (market-data + backend-core T-MARKET + ai-engineer + backend-core T-MCP + frontend) + orchestrator dispatch 비용 손실 + 사용자 신뢰 손실 |
+| **본 lens 통과 evidence** | **헌법 §7 escalation 5단계 완주 evidence — sub-agent escalation (ai-engineer) → orchestrator kill (market-data + backend-core T-MARKET) → architect R0 amend PR #675 (V47~V52 shift + ADR 0102 신설) → 정합 머지 → R1·R2 재 dispatch 완료** |
+
+### 5-3. 연결 (Connection)
+
+| evidence | 본 사이클 사례 |
+|---|---|
+| **lens 양면 발견** | 헌법 §3 (KIS-first raw fetch — 외부 데이터 규격 "자체 추론 0") ↔ ADR 0102 (내부 영속 자원 audit — 동일 lens 양면 보완) |
+| **부팅 차단 hotfix chain** | R2 backend-core T-MCP Phase 1 (PR #679) 신규 패키지 신설 → R3 qa 자율 hotfix 1줄 add-only (PR #681) → architect 후속 재발 방지 ADR 0103 본문화 (PR #682) chain |
+| **본 lens 통과 evidence** | **ADR 0102 §1-2 lens 양면 cross-ref 본문 + ADR 0103 §1-3 R3 qa 자율 hotfix → architect 후속 본문화 chain evidence + W4 P1 amend ADR 0101 user_id 결함 → ADR 0102 §5-4 영역 확장 후보 cross-ref evidence** |
+
+### 5-4. 확장성 (Extensibility)
+
+| evidence | 본 사이클 사례 |
+|---|---|
+| **ADR 0102 영역 확장 가능성** | 6 영역 LOCK (Flyway·Kafka·Redis·STOMP·REST·ENV) + 내부 도메인 모델 inventory 영역 확장 후보 cross-ref (W4 P1 amend §5-4) — 누적 evidence 3건+ 시 별 사이클 amend trigger |
+| **ADR 0103 후속 사이클 매트릭스** | 옵션 C smoke test (P1) → 옵션 A 적용 (P2) → ADR 0103 amend (P3) → S-OPS-1 신규 SLO 발행 (post-MVP) 4단계 사이클 본문화 |
+| **운영 ADR 양식 3 슬롯 누적** | v3.8.0 baseline 2회 (ADR 0095·0096) → v3.9.0 4회 (ADR 0100·0101·0102·0103) → 누적 6회 → 운영 단계 진입 후 ADR 발행 표준 사이클 정립 |
+| **본 lens 통과 evidence** | **ADR 0102 §5-4 영역 확장 후보 cross-ref + ADR 0103 §3-3 후속 사이클 매트릭스 (P1·P2·P3 + post-MVP S-OPS-1) + 운영 ADR 양식 누적 6회 = 운영 단계 진입 후 ADR 발행 표준 사이클 정립** |
+
+---
+
+## §6. ADR 0100·0101·0102·0103 진화 누적 어필 (v3.9.0 핵심)
+
+### 6-1. ADR 0100 (T-MARKET) — 운영 단계 진입 후 첫 신규 트랙 도입 baseline
+
+- **운영 헌법 §9-2 정합** — frontend 핵심 화면(DashboardPage + 신규 `/market/trend`) 변경 PR Visual 자동 dispatch 의무 (R3 qa PR #681 + W4 P1 PR #683 evidence)
+- **헌법 §3 KIS-first raw fetch 5 evidence** — open-trading-api 공식 SDK `examples_llm/` path 5건 인용 (자체 추론 0)
+- **운영 ADR 양식 3 슬롯 첫 적용 사례 (v3.9.0)** — SLO 영향 §6-1 + rollback plan §6-2 + 관측 매트릭스 §6-3
+- **R0 결함 fix amend** — V40·V41 → V47·V48 shift + ADR 0102 정합 본문화
+- **9번째 JVM 모듈 신설 (market-trend-engine)** — ADR 0083 indicator-impl · ADR 0088 persistence-shared · ADR 0092 strategy-engine 패턴 1:1 reuse → domain 순수성 보존 LOCK
+
+### 6-2. ADR 0101 (TrendPreference) — 사용자 mental model 단일 진입점 + forward-compat 확장 슬롯
+
+- **TrendPreference 1급 도메인** — `domain/trend/TrendPreference.kt` + `TrendPreferenceRepository.kt` add-only
+- **`user_preference` 표 (V51) + `extra JSONB` 확장 슬롯** — 향후 사용자 설정 12+ 후보 (MA type · RS period UI · crossPair UI · RSI/MACD 라벨 · 차트 default timeframe · 알림 임계 · AI prompt 사용자 메모 · MCP 권한 매트릭스 등) 마이그레이션 0건으로 흡수
+- **Bean Validation 한국어 의무** — 1~5개 · 각 1~252일 · sorted ASC + 위반 시 400 한국어 응답
+- **시드 SQL idempotent** — `INSERT FROM user_account ON CONFLICT DO NOTHING` (기존 사용자 자동 default pref 보유)
+- **W4 P1 amend evidence** — user_id BIGINT → VARCHAR(20) 실 schema 정합 (ADR 0046 §2-1 자연 키 정합) → ADR 0102 §5-4 영역 확장 후보 cross-ref 1건 누적
+- **운영 ADR 양식 3 슬롯 두 번째 적용 사례 (v3.9.0)** — SLO 영향 §5-1 + rollback plan §5-2 + 관측 매트릭스 §5-3
+
+### 6-3. ADR 0102 (spec audit) — architect governance 본문 LOCK
+
+- **5단계 절차 LOCK** — main HEAD inventory → 신설 매트릭스 → 충돌 검사 → next-available shift → spec 본문 evidence 첨부
+- **영속 자원 6 영역** — Flyway · Kafka topic · Redis key · STOMP topic · REST endpoint · ENV 변수
+- **면제 조건 3건** — md only · hotfix · 이미 LOCK 자원 amend
+- **위반 시 escalation 경로 5단계** — sub-agent escalation → orchestrator kill → architect amend → 정합 머지 → 재 dispatch
+- **W4 P1 amend** — §5-4 내부 도메인 모델 inventory 영역 확장 후보 cross-ref 1건 (누적 3건+ 시 별 사이클 amend)
+- **운영 ADR 양식 3 슬롯 세 번째 적용 사례 (v3.9.0)** — governance 본문이지만 §5-1 SLO 영향 (간접 효율 ↑) + §5-2 rollback plan + §5-3 관측 매트릭스
+- **헌법 §3 lens 양면 보완 권위** — 외부 데이터 규격 (헌법 §3) ↔ 내부 영속 자원 (ADR 0102) — 동일 lens "자체 추론 0"
+
+### 6-4. ADR 0103 (JpaScanConfiguration) — 부팅 차단 결함 영구 차단 + 장기 fix 옵션 매트릭스
+
+- **3 옵션 매트릭스** — A (basePackages 단일화) · B (PR template) · C (Spring context load smoke test)
+- **채택안 하이브리드** — 옵션 A (장기 100% 재발 방지 · 갱신 의무 0) + 옵션 C-lite (즉시 안전망 CI RED 차단) → 옵션 B 거부
+- **임시 baseline** — R3 qa hotfix 화이트리스트 3건 명시 유지 (옵션 A 적용 전 안전망)
+- **후속 사이클 매트릭스** — P1 옵션 C smoke test (backend-core 자율) → P2 옵션 A 적용 (1 사이클 안정 후) → P3 ADR 0103 amend
+- **S-OPS-1 신규 SLO 후보** — `api·batch·consumer 3 컨테이너 부팅 성공률 = 100%` — ADR 0095 §9-1 amend (post-MVP backlog)
+- **운영 ADR 양식 3 슬롯 네 번째 적용 사례 (v3.9.0)** — §4-1 SLO 영향 (S-1·S-2·S-3 부팅 차단 시 직접 RED) + §4-2 rollback plan (< 50분) + §4-3 관측 매트릭스 (컨테이너 부팅 성공률 + Visual 회귀 자동 검출)
+- **`feedback_conflict_resolution_autonomy` 정합** — R3 qa 자율 hotfix 1줄 add-only + KDoc 7줄 사유 → architect 후속 재발 방지 ADR 본문화 chain
+
+---
+
+## §7. 7 actor hierarchy LOCK + ai-engineer active dispatch 시작 (v3.9.0 W4 마감)
+
+ADR 0094 amend 본문화 — chart-curator 해고 + qa Visual 격상 + ai-engineer 유지 + sre 영입 거절 + backend-core P0 OPS 6건 인수.
+
+| actor | 책임 | 페르소나 | v3.9.0 활성 상태 |
+|-------|------|---------|-----------------|
+| architect | 시스템 설계·ADR·운영 헌법 amend·SLO/SLA 정의 | 균형 — 결정자 | **active (본 baseline PR-2 + R0 + R0 amend + W4 P1 ADR amend)** |
+| backend-core | Spring Boot 도메인·인프라·persistence-shared·KIS adapter + 운영 인프라 단일 owner (P0 OPS 6건) | 진보 — 리팩토링맨 | **active (R1 T-MARKET Phase 2 + R2 T-MCP Phase 1 + W4 P1 graceful)** |
+| frontend | React/TS·STOMP UI·운영 dashboard + TradingView LWC v4 단일 owner (chart-curator 이관) | 보수 — 안정빌드 | **active (R2 T-MARKET·T-AI UI + 5 AiCard)** |
+| market-data | KIS API·시세·뉴스·공시 + 캔들 SLA 정합성 단일 owner (chart-curator 이관) | 보수 — 안정빌드 | **active (R1 T-MARKET Phase 1 + W4 P2 NoopReader 진단)** |
+| strategy-engine | DSL·지표·백테스트·시그널·리스크·주문 path | 보수 — 안정빌드 | (v3.9.0 사이클 dispatch 0 — W3 보존) |
+| **ai-engineer** | Spring AI·프롬프트·AI 옵션 보조 (사용자 트리거만) | 균형 — 보조 분석 | **★ active dispatch (W4 마감 — R1 T-AI Phase 1 + W4 P0 hotfix `@Transactional`)** |
+| qa (격상) | Visual QA "품질 헌터" — Playwright + 스크린샷 + 시각 회귀 + E2E + 사용자 시나리오 자동 검증 + DR drill 분기 의무 | 방어 — 품질 헌터 | **active (R3 Visual 회귀 + 부팅 차단 hotfix evidence + W4 P1 Playwright baseline)** |
+
+**chart-curator** — 해고 (ADR 0094 amend 2026-05-21) · dispatch 0 LOCK · `.husky/pre-commit` ALLOWED_AUTHOR regex 유지 (historical evidence 보존).
+
+**sre** — 영입 거절 (사용자 명시) · P0 OPS 6건 backend-core 인수.
+
+---
+
+## §8. 자동매매 본체 AI 호출 0 LOCK 보존 (v3.9.0 W4 마감 후에도 LOCK)
+
+v3.9.0 W4 마감으로 ai-engineer active dispatch 시작 — 그러나 **자동매매 본체 (시그널 → risk → 주문) AI 호출 0 LOCK 보존** (ADR 0023·0066·0067·0068·0080·0094 baseline 정합).
+
+| 트랙 | AI 호출 | 사유 |
+|------|---------|------|
+| T-SIG (실시간 시그널) | **0 LOCK** | ADR 0023 룰 매칭 only — AI 호출 0 |
+| T-RISK (리스크) | **0 LOCK** | ADR 0067 룰 매칭 only — AI 호출 0 |
+| T-O (주문) | **0 LOCK** | ADR 0068 KIS REST 단일 자본 path — AI 호출 0 |
+| **T-AI 5 진입점 (사용자 옵션 트리거만)** | **+5 진입점 active** | SYMBOL · CHART · STRATEGY · SIGNAL · MARKET — 사용자 클릭 트리거만 호출. 자동매매 본체 chain 영향 0 |
+| **T-MCP 6 tool (외부 client)** | **+6 tool active** | get_candles · run_screener · get_journal · explain_indicator · backtest_strategy · get_market_trend — 외부 MCP client (Claude Desktop · Cursor) 호출만. 자동매매 본체 chain 영향 0 |
+
+본 LOCK은 사용자 명시 "ai는 사용자 트리거 옵션 분석 보조(매매 결정권 0)" + "미래에 MCP 서버 노출" 정합 — magicJar 시스템 비전 (CLAUDE.md) 정합.
+
+---
+
+## §9. v3.9.0 사이클 핵심 메시지
+
+**W4 마감 baseline (T-MARKET + T-AI + T-MCP 3 트랙 동시 진입 + market-trend-engine 8번째 모듈 신설 + ADR 0100·0101·0102·0103 신설 + 6 ADR amend + R0 spec audit 결함 fix evidence + Codex 검증 게이트 4 lens 통과 + W4 P0·P1·P2 hotfix 사이클 LOCK)** — 운영 헌법 §1~§10 LOCK 보존 + 운영 ADR 양식 3 슬롯 v3.9.0 첫 4회 적용 사례 (ADR 0100·0101·0102·0103) + 헌법 §3 KIS-first raw fetch lens 양면 보완 (ADR 0102 내부 영속 자원 audit) + 헌법 §7 escalation 5단계 완주 evidence (R0 결함 fix 사이클) + ai-engineer active dispatch 시작 (W4 마감) + 자동매매 본체 AI 호출 0 LOCK 보존 (ADR 0023·0066·0067·0068·0080·0094 정합). **다음 운영 헌법 amend 후보** (v3.9.x patch 또는 v3.10.0 minor 사이클):
+
+- §9-1 SLO/SLA amend — S-OPS-1 신규 SLO 발행 (ADR 0103 §4-1 후속) + S-MARKET-1·S-MARKET-2 신규 SLO 발행 (ADR 0100 §6-1 후속)
+- ADR 0102 §2-2 7번째 영역 추가 amend — 내부 도메인 모델 inventory (누적 evidence 3건+ 시)
+- ADR 0103 옵션 A 적용 amend (옵션 C smoke test 안정 운영 1 사이클 후 P3 architect dispatch)
+
+본 07-policy-evolution은 v3.9.0 시점 운영 헌법 + ADR 진화 누적 단일 위치 본문이다. SoT는 `agent-charter.md` + 각 ADR 본문. 본 문서는 v3.9.0 baseline 사이클 변경 어필 + Codex 검증 게이트 통과 evidence 본문화 단독.
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>
