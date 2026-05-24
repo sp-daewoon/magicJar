@@ -3,10 +3,10 @@ id: T-20260524-1626-w4-r3-visual-regression
 agent: qa
 model: opus
 branch: agent/qa/w4-r3-visual-regression
-status: RUNNING
+status: DONE
 startedAt: 2026-05-24T16:26:25.062+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-24T16:42:04.877+09:00
+pr: #681
 parentPhase: ?
 ---
 
