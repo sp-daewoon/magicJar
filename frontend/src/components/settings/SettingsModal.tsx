@@ -4,13 +4,14 @@
  * 진입점: AppHeader ⚙️ 버튼 클릭
  * 닫기: 우상단 X 버튼 / Esc 키 / overlay click
  *
- * 4 section:
+ * 5 section (W4 R2: 추세 분석 설정 합류):
  *   Section 1: RealTradingConsentSection (실거래 동의 — 이중 confirm UX)
  *   Section 2: KisCredentialSection (KIS 키 변경 풀세트 — ADR 0074 §2 submit 활성화)
  *   Section 3: SystemConfigSection (DART + Slack — fully functional)
  *   Section 4: KillSwitchSection (자본 보호 — ADR 0074 §3 신규)
+ *   Section 5: TrendPreferenceSection (W4 T-MARKET — ADR 0101)
  *
- * Section 5 (AiCredentialSection): T-AI 사이클 진입 시 합류 — 본 PR scope 외
+ * Section 6 (AiCredentialSection): 환경변수 기반 운영 — 본 PR scope 외
  *
  * overlay z-index: z-[60] — AppHeader(z-50) 위
  * panel: max-w-2xl + max-h-[85vh] overflow-y-auto
@@ -22,6 +23,7 @@ import { KisCredentialSection } from './sections/KisCredentialSection'
 import { KillSwitchSection } from './sections/KillSwitchSection'
 import { RealTradingConsentSection } from './sections/RealTradingConsentSection'
 import { SystemConfigSection } from './sections/SystemConfigSection'
+import { TrendPreferenceSection } from '../../features/settings/components/TrendPreferenceSection'
 
 interface Props {
   onClose: () => void
@@ -108,6 +110,9 @@ export function SettingsModal({ onClose }: Props) {
 
           {/* Section 4: 자본 보호 (KillSwitch) — ADR 0074 §3 신규 */}
           <KillSwitchSection />
+
+          {/* Section 5: 추세 분석 설정 — W4 T-MARKET (ADR 0101) */}
+          <TrendPreferenceSection />
         </div>
       </div>
     </div>

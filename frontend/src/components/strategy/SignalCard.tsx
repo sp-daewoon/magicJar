@@ -3,9 +3,14 @@
  *
  * 표시 항목: ts·code·interval·side·price·rule·strategyId 링크
  * 실제 데이터만 표시 (feedback_no_mock_data 정합)
+ *
+ * W4 R2 (2026-05-24): SIGNAL AI 진입점 추가 — AiExplainEntry "이 시그널 해석"
+ * (4번째 진입점 / 5 중 SYMBOL·CHART·STRATEGY·SIGNAL·MARKET).
  */
 import { Link } from 'react-router-dom'
 import { type SignalDto, type SignalSide } from '../../api/signal'
+import { AiExplainEntry } from '../../features/ai/components/AiExplainEntry'
+import { useOnboardingStore } from '../../stores/onboarding'
 
 // ──────────────────────────────────────────────
 // 스타일 헬퍼
@@ -54,6 +59,8 @@ interface SignalCardProps {
 
 export function SignalCard({ signal, isNew = false }: SignalCardProps) {
   const badge = SIDE_BADGE[signal.side]
+  // W4 R2 AI 진입점 — userId 1일 토큰 한도 키
+  const userId = useOnboardingStore((s) => s.registeredUserId)
 
   return (
     <article
@@ -112,6 +119,25 @@ export function SignalCard({ signal, isNew = false }: SignalCardProps) {
               {signal.strategyName}
             </Link>
           )}
+        </div>
+
+        {/* W4 R2 AI 진입점: SIGNAL (이 시그널 해석) */}
+        <div className="mt-2">
+          <AiExplainEntry
+            type="SIGNAL"
+            userId={userId}
+            context={{
+              signalId: signal.id,
+              code: signal.code,
+              codeName: signal.codeName ?? signal.code,
+              interval: signal.interval,
+              side: signal.side,
+              price: signal.price,
+              rule: signal.rule ?? '',
+              strategyName: signal.strategyName ?? null,
+              ts: signal.ts,
+            }}
+          />
         </div>
       </div>
     </article>
