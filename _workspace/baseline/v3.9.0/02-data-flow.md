@@ -1,0 +1,921 @@
+# v3.9.0 데이터 흐름 매트릭스
+
+- baseline: v3.9.0
+- 작성일: 2026-05-24
+- 작성자: backend-core (bot+backend-core@magicjar.local)
+- SoT: `docs/architecture/master-architecture.md` §2 + `settings.gradle.kts` + ADR 0004 + ADR 0094 (운영 단계) + ADR 0100·0101·0102·0103 (W4 통합 사이클)
+- 기준: v3.8.0 02-data-flow.md 전체 이월 + **W4 완전 닫기** (T-MARKET·T-AI·T-MCP 3 신규 트랙 합류) + 모듈 1건 추가(`market-trend-engine` — ADR 0100) + Flyway 6건(V47~V52) + Kafka 신규 4건 + STOMP 신규 4건 + Redis 신규 4 group + ADR 0102 (spec audit 5단계 절차 — V46 점유 audit 결함 evidence) + ADR 0103 (JpaScan 패키지 누락 차단 hotfix)
+
+---
+
+## 🔄 v3.8.0 → v3.9.0 진화 요약 (리팩토링맨 lens)
+
+| 영역 | v3.8.0 | v3.9.0 | 진화 사유 |
+|------|--------|--------|----------|
+| JVM 모듈 | 8건 | **9건** (+ `market-trend-engine`) | ADR 0100 — 추세 계산 단일 owner (indicator-impl·persistence-shared·strategy-engine 패턴 1:1 reuse) |
+| W4 진입 상태 | 진입 직전 LOCK | **W4 완전 닫기** (T-MARKET + T-AI + T-MCP 3 트랙 동시 종착) | 사용자 brainstorming 결재 cec6a4d6 — `/goal` 한번 묶음 범위 = W4 풀세트 |
+| 시장 추세 lens | 0건 (DashboardPage watchlist + signal 카드만) | **4 지수 카드 (KOSPI·KOSDAQ·NASDAQ·S&P) + KRX 21 섹터 ranking + 사용자 MA periods (5/20/60 default + [1~5개·1~252일·sorted ASC])** | ADR 0100·0101 — data layer (T-MARKET) + 사용자 설정 도메인 (TrendPreference) 분리 |
+| AI 옵션 코멘트 | 0건 (W4 진입 대기) | **5 진입점 (종목·차트·전략·시그널·시장 추세) × 3 provider (Anthropic·Gemini·OpenAI) + 1일 한도 + Redis 5분 cache + KillSwitch graceful** | ADR 0026 amend — 사용자 트리거만·매매 결정권 0·자본 path 영향 0 |
+| MCP server | 0건 (W4 진입 대기) | **6 tool (read 전용) + ApiKeyAuthFilter + mcp_audit V52** | ADR 0027 amend — Claude/Cursor 외부 client용 read-only 노출 |
+| KIS endpoint | 한국 단독 | **+ KIS Overseas API 첫 진출** (`HHDFS00000300` price + `HHDFS76240000` dailyprice — NASDAQ `.IXIC` + S&P `.SPX`) | ADR 0100 §2-3 — 향후 US 종목 트랙 prereq path 확보 |
+| KIS Rate Limit priority | 3단계 (USER_PATH > INGESTION > BACKFILL) | **4단계 (+ INGESTION_LOW)** — cron 26 req/min 본질 | ADR 0037 amend — 본 T-MARKET cron이 BACKFILL 보다 더 낮은 우선순위 (burst 시 가장 먼저 drop) |
+| spec audit 절차 | 결함 가능 (V46 점유 audit 누락 사례) | **5단계 절차 LOCK (R0 amend → V47~V52 shift)** | ADR 0102 — 외부 영속 자원 6 영역 audit 의무 (Flyway·Kafka·Redis·STOMP·REST·ENV) |
+| JpaScan 패키지 누락 | 0건 (default scan path) | **JpaScan 명시 검증 LOCK + 보조 application.yml 정합** | ADR 0103 — JpaRepositories 부팅 차단 hotfix (W4 R1 ai-engineer dispatch 결함 흡수) |
+| ai_comment_log @Transactional | 0건 | **명시 LOCK** | W4 P0 — INSERT 0/5 → 5/5 회복 hotfix (ce2405db) |
+| TrendPreference graceful 핸들러 | 0건 | **400/422 graceful + backtest_strategy 422 매트릭스** | W4 P1 — frontend smoke 5/5 통과 hotfix (e13f7dcb) |
+
+✨ **핵심 통찰**: v3.9.0은 **W4 완전 닫기 baseline** — v3.8.0이 운영 단계 1차 baseline(observability·SLO·DR)이었다면 v3.9.0은 **사용자 옵션 path (시장 추세·AI 코멘트·MCP 외부 client)** 완전 합류. 자본 path 0 touch + AI 끊김·KIS rate limit·MCP 외부 client error 모두 graceful — 룰 본체 영향 0 LOCK. 코드 변경량은 v3.8.0 운영 인프라보다 적되 **새 표 6건·새 endpoint 14건·새 Kafka 4건·새 STOMP 4건** 등 표면 확장은 v3.8.0 대비 가장 큰 사이클.
+
+---
+
+## 1. 모듈 의존성 매트릭스
+
+### 1-1. JVM 9 모듈 구성 (✨ v3.8.0 8 → v3.9.0 9)
+
+```
+settings.gradle.kts include:
+  domain
+  pattern-engine
+  indicator-impl
+  strategy-engine
+  market-trend-engine        ← ✨ v3.9.0 ADR 0100 (TrendCalculator pure math + TrendPreference service)
+  persistence-shared
+  api
+  batch
+  consumer
+```
+
+| 모듈 | Spring 의존 | JPA 의존 | 역할 |
+|------|------------|---------|------|
+| `domain` | 0 | 0 | 순수 도메인 + 포트 (Spring·JPA 0 — 헥사고날 내부 링) |
+| `pattern-engine` | 0 | 0 | 캔들스틱 57패턴 인식 (Pure Kotlin · ADR 0054) |
+| `indicator-impl` | 0 | 0 | 80지표 계산 구현 (Pure Kotlin · ADR 0083) |
+| `strategy-engine` | 0 | 0 | DSL parser + JvmStrategyEvaluator (Pure Kotlin · ADR 0092) |
+| **`market-trend-engine`** ★ | **Spring Context only** | **0** | **✨ v3.9.0 신규 — TrendCalculator (SMA/Cross/RS Mansfield) + IndexTrendComposer + SectorRankingComposer + TrendPreferenceService (ADR 0100 + 0101)** |
+| `persistence-shared` | data-jpa | JPA | Outbox 공용 어댑터 (ADR 0088) |
+| `api` | Spring Boot 3.3 | JPA | REST/STOMP + KIS REST 어댑터 + Kafka producer + MarketIndexController·MarketSectorController·UserPreferenceController·McpController·AiCommentController |
+| `batch` | Spring Boot 3.3 + Spring Batch | JPA | + `MarketIndexSyncJob` (1분 cron) + `MarketIndexDailyCloseJob` (16:30/06:00 KST 2회) |
+| `consumer` | Spring Boot 3.3 | JPA | Kafka 소비 + KIS WS + 시그널·주문 dispatch + **AiCommentDispatcher (Kafka → 3 provider fanout)** |
+
+### 1-2. 모듈 간 의존 방향 (v3.9.0 갱신)
+
+```
+domain ←── pattern-engine
+domain ←── indicator-impl
+domain ←── strategy-engine
+domain ←── market-trend-engine    ← ✨ v3.9.0 신규 의존
+domain ←── persistence-shared
+domain ←── api
+domain ←── batch
+domain ←── consumer
+
+persistence-shared ←── api
+persistence-shared ←── consumer
+
+pattern-engine ←── api
+indicator-impl ←── api
+indicator-impl ←── consumer
+
+strategy-engine ←── api
+strategy-engine ←── consumer
+
+market-trend-engine ←── api       ← ✨ v3.9.0 신규 — TrendPreferenceService + IndexTrendComposer + SectorRankingComposer
+market-trend-engine ←── batch     ← ✨ v3.9.0 신규 — MarketIndexSyncJob·MarketIndexDailyCloseJob TrendCalculator reuse
+```
+
+- `domain` 비의존 LOCK 유지 (Spring·JPA import 0 — ArchUnit 게이트)
+- `market-trend-engine`은 **Spring Context only** (Boot main 0 + bootJar 미발행 — indicator-impl 패턴 1:1, 단 Service bean 등록 위해 Spring Context 의존)
+- 컨테이너 매트릭스 변동 0 (여전히 4 + 인프라 3 = 7 컨테이너 — market-trend-engine은 jar 노출 0)
+- `consumer` → `market-trend-engine` 의존 0 LOCK (시장 추세는 read-only — 시그널 path 결합 0)
+
+### 1-3. v3.9.0 신규 컴포넌트 위치 매트릭스
+
+| 컴포넌트 | 모듈 | 패키지 경로 | ADR 근거 |
+|---------|------|-----------|---------|
+| `TrendCalculator` (interface) | `market-trend-engine` | `market.calculator.*` | ADR 0100 §2-2 |
+| `SmaTrendCalculator` | `market-trend-engine` | `market.calculator.*` | ADR 0100 §2-2 — 1차 default |
+| `CrossSignalCalculator` (GOLDEN/DEAD/NEUTRAL) | `market-trend-engine` | `market.calculator.*` | ADR 0100 §2-2 |
+| `RsRatingCalculator` (Mansfield RS) | `market-trend-engine` | `market.calculator.*` | ADR 0100 §2-2 — sector vs KOSPI |
+| `TrendPreferenceService` | `market-trend-engine` | `market.service.*` | ADR 0101 §2 |
+| `TrendPreference` (도메인) | `domain` | `domain.trend.*` | ADR 0101 §2-1 (userId VARCHAR — W4 P1 amend) |
+| `TrendPreferenceRepository` (port) | `domain` | `domain.trend.*` | ADR 0101 §2-1-B |
+| `IndexTrendComposer` | `market-trend-engine` | `market.service.*` | ADR 0100 §2-2 |
+| `SectorRankingComposer` | `market-trend-engine` | `market.service.*` | ADR 0100 §2-2 |
+| `MarketIndexController` | `api` | `api/.../market/*` | ADR 0100 §2-5 |
+| `MarketSectorController` | `api` | `api/.../market/*` | ADR 0100 §2-5 |
+| `UserPreferenceController` | `api` | `api/.../preference/*` | ADR 0101 §2-3 |
+| `MarketIndexSyncJob` (1분 cron) | `batch` | `batch/.../job/market/*` | ADR 0100 §2-4 |
+| `MarketIndexDailyCloseJob` (16:30/06:00) | `batch` | `batch/.../job/market/*` | ADR 0100 §2-4 |
+| `KisDomesticIndexPriceAdapter` | `consumer` 또는 `api` | `infrastructure.kis.market.*` | ADR 0100 §2-3 raw fetch |
+| `KisDomesticSectorPriceAdapter` | `consumer` 또는 `api` | `infrastructure.kis.market.*` | ADR 0100 §2-3 |
+| `KisOverseasPriceAdapter` | `consumer` 또는 `api` | `infrastructure.kis.overseas.*` | ADR 0100 §2-3 (NAS exchange) |
+| `AnthropicProvider` · `GeminiProvider` · `OpenAiProvider` | `api` | `api/.../ai/provider/*` | ADR 0026 amend — 3 provider Resilience4j circuit |
+| `AiCommentProvider` (interface) | `domain` | `domain/ai/*` | ADR 0026 amend |
+| `AiCommentDispatcher` | `consumer` | `consumer/.../ai/*` | ADR 0026 amend — Kafka listen → provider fanout |
+| `AiCommentController` (`POST /api/ai/explain`) | `api` | `api/.../ai/*` | ADR 0026 amend |
+| `PromptTemplateResolver` | `api` | `api/.../ai/*` | ADR 0026 amend — variables_schema 사전 검출 |
+| `AiCostTracker` | `api` | `api/.../ai/*` | ADR 0095 amend S-AI-1 — 비용 누적 source |
+| `McpController` (HTTP/SSE) | `api` | `api/.../mcp/*` | ADR 0027 amend |
+| `ApiKeyAuthFilter` (localhost 1차) | `api` | `api/.../mcp/auth/*` | ADR 0027 amend |
+| 6 MCP tool handler | `api` | `api/.../mcp/tool/*` | ADR 0027 amend §4-1 |
+
+---
+
+## 2. api 모듈 데이터 흐름
+
+### 2-1. REST 엔드포인트 매트릭스 (v3.8.0 이월 + v3.9.0 신규 14건)
+
+#### v3.9.0 신규 추가 (W4 통합 사이클)
+
+| 경로 | 컨트롤러 | 역할 | Kafka 발행 | ADR |
+|------|---------|------|-----------|-----|
+| `GET /api/market/index/snapshot` | `MarketIndexController` | 4 지수 카드(KOSPI·KOSDAQ·NASDAQ·S&P) + user pref MA 추세 라벨 | — | 0100 §2-5 |
+| `GET /api/market/index/{code}/trend?periods=5,20,60` | `MarketIndexController` | 지수 추세 상세 — periods 생략 시 user pref echo + `isUserCustom` | — | 0100 §2-5 |
+| `GET /api/market/sectors/snapshot` | `MarketSectorController` | KRX 21 섹터 snapshot (이름 + 등락률 + 거래대금) | — | 0100 §2-5 |
+| `GET /api/market/sectors/ranking?periods=5,20,60&rsPeriod=60` | `MarketSectorController` | 섹터 ranking (todayTop 5 + longTop 5) | — | 0100 §2-5 |
+| `GET /api/users/me/preferences/trend` | `UserPreferenceController` | 현재 설정 조회 (없으면 default echo + `isUserCustom: false`) | — | 0101 §2-3 |
+| `PUT /api/users/me/preferences/trend` | `UserPreferenceController` | MA periods · rsPeriod · crossPair 변경 | — | 0101 §2-3 |
+| `POST /api/ai/explain` | `AiCommentController` | AI 코멘트 발행 (sync inline 또는 async Kafka — `cached` flag) | `ai.comment.requested.v1` (cache MISS) | 0026 amend |
+| `GET /api/ai/comments?type=&page=` | `AiCommentController` | 과거 코멘트 list (audit 표 query) | — | 0026 amend |
+| `POST /mcp/sse` | `McpController` | SSE 세션 시작 (Server-Sent Events) | — | 0027 amend |
+| `POST /mcp/tool/get_candles` | `McpController` | KIS 캔들 조회 (read-only) | — | 0027 amend §4-1 |
+| `POST /mcp/tool/run_screener` | `McpController` | 스크리너 실행 (read-only — strategy-engine reuse) | — | 0027 amend §4-1 |
+| `POST /mcp/tool/get_journal` | `McpController` | 매매일지 조회 | — | 0027 amend §4-1 |
+| `POST /mcp/tool/explain_indicator` | `McpController` | 정적 indicator catalog 조회 | — | 0027 amend §4-1 |
+| `POST /mcp/tool/backtest_strategy` | `McpController` | 백테스트 inline 실행 (strategy-engine reuse) | — | 0027 amend §4-1 |
+| `POST /mcp/tool/get_market_trend` | `McpController` | 시장 추세 조회 (T-MARKET reuse — user pref 적용) | — | 0027 amend §4-1 |
+
+#### Swagger 4단 어노테이션 정합 (feedback_swagger_pattern)
+
+v3.9.0 신규 14 endpoint 모두 `@Tag` · `@Operation` · `@Parameter` · `@Schema` 한국어 description + example LOCK. 특히:
+- `MarketIndexController` Tag: `"시장 추세 API"` (description: "지수·섹터 추세 분석 — 사용자 MA periods 기본 적용")
+- `AiCommentController` Tag: `"AI 옵션 코멘트 API"` (description: "사용자 트리거만 발행 — 매매 결정권 0")
+- `McpController` Tag: `"MCP 외부 client API"` (description: "Claude/Cursor 외부 호출 — read-only 6 tool")
+
+### 2-2. STOMP 구독 토픽 (v3.8.0 이월 + v3.9.0 신규 4건)
+
+| Kafka 토픽 (소비) | STOMP 토픽 (발행) | 포워더 클래스 | 영속 (stomp_event) | v3.9.0 신규 |
+|-----------------|----------------|-------------|-------------------|-----|
+| (v3.8.0 이월 12건 — `market.tick.v1` · `signal.generated.v1` · `system.event.v1` 등) | (동일) | (동일) | (동일) | — |
+| **✨ `market.index.updated.v1`** | **`/topic/market.index.{code}`** | **`MarketIndexStompForwarder`** | — (실시간 push · 30s polling fallback) | ✅ ADR 0100 §2-6 |
+| **✨ `market.sector.updated.v1`** | **`/topic/market.sector.rank`** | **`MarketSectorStompForwarder`** | — (5분 캐시 갱신 push) | ✅ ADR 0100 §2-6 |
+| **(PUT 후 즉시)** | **`/topic/market.user.{userId}.pref`** | **`UserPreferenceController` 내부 fanout** | — (즉시 다중 탭 sync) | ✅ ADR 0100 §2-6 + ADR 0101 |
+| **✨ `ai.comment.responded.v1`** | **`/topic/ai.explain.{requestId}`** | **`AiCommentStompForwarder`** | ✅ (stomp_event userId 격리) | ✅ ADR 0026 amend |
+
+### 2-3. api 모듈 내부 서비스 레이어 (v3.9.0 추가)
+
+```
+MarketIndexController         → IndexTrendComposer (market-trend-engine)
+                              → MarketIndexSnapshotRepository (api/persistence)
+                              → TrendPreferenceService (market-trend-engine) — user pref 적용
+
+MarketSectorController        → SectorRankingComposer (market-trend-engine)
+                              → SectorIndexSnapshotRepository (api/persistence)
+
+UserPreferenceController      → TrendPreferenceService
+                              → TrendPreferenceRepository (domain port)
+                              → JPA TrendPreferenceJpaAdapter (api 단독 1차 결정 — ADR 0101 §2-1-C)
+                              → STOMP fanout `/topic/market.user.{userId}.pref`
+
+AiCommentController(/api/ai/explain)
+                              → PromptTemplateResolver — variables_schema 사전 검출 + missing key 차단
+                              → AiPromptCacheAdapter (Redis `ai:prompt:cache:{templateHash}` TTL 5분)
+                                  ├── HIT  → ai_comment_log INSERT (cached=true · tokens=0 · graceful=false) → 사용자 즉시 반환
+                                  └── MISS → Kafka `ai.comment.requested.v1` publish → consumer AiCommentDispatcher path
+                              → AiCostTracker (S-AI-1 누적 source)
+
+McpController(SSE)            → ApiKeyAuthFilter (localhost 1차 LOCK — OnboardingGuardFilter skip)
+                              → 6 tool handler routing (get_candles · run_screener · get_journal · explain_indicator · backtest_strategy · get_market_trend)
+                              → 각 tool은 기존 서비스 reuse (CandleRepository · ScreenerEngineImpl · TradingJournalQueryService · IndicatorCatalog · BacktestEvaluatorBridge · IndexTrendComposer)
+                              → mcp_audit INSERT (latency · response_size · error_message)
+```
+
+---
+
+## 3. consumer 모듈 데이터 흐름
+
+### 3-1. Kafka 토픽 소비 매트릭스 (v3.8.0 이월 + v3.9.0 신규 1건)
+
+| 토픽 | 리스너 클래스 | groupId | v3.9.0 변경 |
+|------|------------|---------|------------|
+| (v3.8.0 이월 5종 — `order.intent.v1` · `signal.generated.v1` · `market.candle.*.closed.v1` · `watchlist.changed.v1` · `symbol.detail.command.v1`) | (동일) | (동일) | — |
+| **✨ `ai.comment.requested.v1`** | **`AiCommentDispatcher`** | **`magicjar-consumer-ai-dispatcher`** | ✨ v3.9.0 신규 — 3 provider fanout |
+
+### 3-2. ✨ AiCommentDispatcher 흐름 (v3.9.0 신규 — ADR 0026 amend)
+
+```
+api AiCommentController POST /api/ai/explain
+    ↓ PromptTemplateResolver.resolve(type, vars) → 검증 (variables_schema)
+    ↓ Redis ai:prompt:cache:{templateHash} 5분 cache lookup
+    ├── HIT → ai_comment_log INSERT (cached=true · tokens=0 · graceful=false) → 사용자 즉시 반환 (LLM 호출 0)
+    └── MISS ↓
+ai_comment_log INSERT (cached=false · LLM 호출 직전 audit)
+    ↓ 1일 token 한도 check (ai_comment_log COUNT WHERE user_id=? AND created_at > today)
+    ├── 한도 초과 → graceful=true · 사용자 친화 한국어 응답 ("오늘 AI 한도 초과 — 내일 재시도")
+    └── 한도 OK ↓
+Kafka ai.comment.requested.v1 publish (partition by userId)
+    ↓
+consumer AiCommentDispatcher.@KafkaListener
+    ↓ provider routing (template.type → Anthropic·Gemini·OpenAI 매트릭스)
+    ↓ Resilience4j circuit breaker
+    ├── circuit OPEN → graceful=true · "AI 일시 장애 — 잠시 후 재시도"
+    └── circuit CLOSED ↓
+3 provider client 호출 (Anthropic Messages · Gemini Generate · OpenAI Chat Completions)
+    ↓ response (content + tokens_in + tokens_out + latency_ms)
+ai_comment_log UPDATE (content · tokens · cost_usd 계산 · latency_ms)
+    ↓ AiCostTracker.record(userId, costUsd) — Micrometer counter (S-AI-1 누적 source)
+Kafka ai.comment.responded.v1 publish (partition by requestId)
+    ↓
+api AiCommentStompForwarder → /topic/ai.explain.{requestId} STOMP push
+    ↓ stomp_event INSERT (userId 격리 + retention 7d)
+    ↓
+frontend AiCard `AiCard.tsx` lastResponse 갱신 (5 진입점 — Symbol Detail · Chart · Strategy · Signal · Market Trend)
+```
+
+✨ **graceful 매트릭스 (KillSwitch / 1일 한도 / mock fallback / disabled 분기)**:
+1. `MAGICJAR_AI_ENABLED=false` → 사용자 친화 메시지 "AI 옵션 비활성화" + ai_comment_log graceful=true
+2. KillSwitch ON (시장 추세 lens) → 사용자 친화 메시지 "KillSwitch 발동 중 — AI 호출 제한"
+3. 1일 한도 초과 → "오늘 AI 한도 초과 — 내일 재시도"
+4. circuit OPEN → "AI 일시 장애 — 잠시 후 재시도"
+5. `MAGICJAR_AI_MOCK_MODE=auto` 키 없음 → mock 합성 0 LOCK + "AI 키 미등록" (사용자가 SettingsModal에서 입력 의무)
+
+### 3-3. v3.8.0 이월 흐름 (변경 없음)
+
+- KIS WS 브릿지 + BoundaryAggregator + KillSwitchRaceSafeGuard + Outbox publish — 전부 v3.8.0 LOCK 이월
+- 자본 path 12 step LOCK 이월 — v3.9.0에서 자본 path touch 0건 (read-only 트랙만 합류)
+
+---
+
+## 4. batch 모듈 데이터 흐름
+
+### 4-1. Spring Batch 잡 매트릭스 (v3.8.0 이월 + v3.9.0 신규 2건)
+
+| 잡 클래스 | 스케줄 | 역할 | KIS 엔드포인트 | ADR |
+|----------|-------|------|--------------|-----|
+| (v3.8.0 이월 7건 — `InstrumentSyncJob` · `CandleBackfillWorker` · `DailyPerformanceJob` · `PostgresBackupCron` 등) | (동일) | (동일) | (동일) | (동일) |
+| **✨ `MarketIndexSyncJob`** ★ | **1분 cron (장중 한정 — MarketSession FSM 게이트)** | **국내 24 + 해외 2 = 26 req/min 지수·섹터 현재가 fetch + market_index_snapshot INSERT + Kafka publish** | `FHPUP02100000` (24) + `FHPUP02140000` (1) + `HHDFS00000300` (2) | ADR 0100 §2-4 |
+| **✨ `MarketIndexDailyCloseJob`** ★ | **16:30 KST + 06:00 KST 2회** | **국내 21 업종 + 3 지수 일봉 backfill (16:30) + 해외 2 지수 일봉 backfill (06:00) + 추세 retroactive recompute + Kafka `market.sector.updated.v1` publish** | `FHPUP02120000` (국내 일봉) + `HHDFS76240000` (해외 일봉) | ADR 0100 §2-4 |
+
+### 4-2. ✨ MarketIndexSyncJob 흐름 (v3.9.0 신규 · 1분 cron · 26 req/min)
+
+```
+@Scheduled(fixedRate=60000)  매 분
+    ↓
+MarketSession FSM (ADR 0013) 조회
+    ├── CLOSED·HOLIDAY → skip (alert 0)
+    └── OPEN·OVERNIGHT → ↓ 발사
+KisRateLimiterPort.acquire(priority=INGESTION_LOW)  ← ✨ ADR 0037 amend 4단계 (USER_PATH > INGESTION > BACKFILL > INGESTION_LOW)
+    ↓
+국내 24 req:
+    ├── inquire-index-price × 3 (KOSPI 0001 · KOSDAQ 1001 · KOSPI200 2001)
+    └── inquire-index-price × 21 (KRX 21 업종 코드 매트릭스)
+해외 2 req:
+    └── price × 2 (NAS.IXIC · NAS.SPX)
+    ↓ (총 26 req/min = 0.43 req/s · 한도 10 req/s 대비 4.3% 점유 — S-4 안전)
+KIS REST 응답 처리
+    ├── 성공 → market_index_snapshot INSERT (V47) + Redis `market:index:{code}` SET TTL 30s
+    └── 실패 → SystemEvent MARKET_INDEX_FETCH_FAIL emit (P2 ERROR · 5분 5건 연속 → alert)
+    ↓
+Kafka market.index.updated.v1 publish (partition by code)
+    ↓
+api MarketIndexStompForwarder → /topic/market.index.{code} push
+    ↓
+frontend MarketIndexStrip (DashboardPage 상단) — 4 카드 즉시 갱신 + 30s polling fallback
+```
+
+✨ **rollback 매트릭스 (ADR 0100 §6-2)**:
+- `application.yml` `magicjar.market.index.sync.enabled=false` env toggle → `@ConditionalOnProperty` 즉시 비활성 (jvm restart 0)
+- frontend `VITE_FEATURE_MARKET_TREND=false` env toggle + rebuild → MarketIndexStrip 0 표시
+- DB 영속 보존 (read-only — 데이터 손실 0)
+
+### 4-3. v3.8.0 이월 잡 (변경 없음)
+
+- `InstrumentSyncJob` · `MarketCalendarSyncJob` · `CorpActionSyncJob` · `CandleAdjustmentJob` · `DailyPerformanceJob` · `CandleBackfillWorker` · `PostgresBackupCron` · `RedisSnapshotCron` 8건 모두 v3.8.0 LOCK 이월
+
+---
+
+## 5. DB 테이블 매트릭스 (Flyway v3.9.0 누적)
+
+### 5-1. v3.8.0 이월 (변경 없음)
+
+V1~V43 baseline 풀세트 + v3.7.0 V40·V41·V42 + v3.8.0 V43 `system_event` LOCK 이월. v3.8.0 이후 v3.9.0 cut 직전까지 V44~V46 점유 (v3.8.x patch 사이클 — order/instrument navigation·KIS block hotfix·trade breakdown 등 영속 흡수).
+
+> **⚠️ V46 점유 audit 결함 evidence (ADR 0102)**: R0 architect 초안은 V40~V45 LOCK 발행 → ai-engineer R1 dispatch에서 main HEAD V46 점유 사실 발견 → 헌법 §7 escalation → R0 amend로 V47~V52 재분배. 본 결함 재발 방지가 ADR 0102 (spec audit 5단계 절차) 신설 본문.
+
+### 5-2. ✨ v3.9.0 신규 6건 (V47~V52 — W4 통합 사이클)
+
+| 테이블 | Flyway | 발행자 | 역할 | ADR |
+|-------|--------|-------|------|-----|
+| `market_index_snapshot` | **V47** | market-data (R1) | 지수 · 섹터 1분 cron snapshot (raw_payload JSONB 보존) | ADR 0100 §2-7 |
+| `sector_index_snapshot` | **V48** | market-data (R1) | KRX 21 섹터 별도 snapshot (sector_code · sector_name · trade_value) | ADR 0100 §2-7 |
+| `ai_comment_log` | **V49** | ai-engineer (R1) | AI 코멘트 호출 audit + 토큰·비용 누적 + cached/graceful flag | ADR 0026 amend |
+| `prompt_template` | **V50** | ai-engineer (R1) | type+version (A/B drift) + variables_schema JSONB + is_active partial unique + 5 seed | ADR 0026 amend |
+| `user_preference` | **V51** | backend-core (R1) | TrendPreference + extra JSONB forward-compat 확장 슬롯 (user_id VARCHAR(20) FK — W4 P1 amend) | ADR 0101 §2-2 |
+| `mcp_audit` | **V52** | backend-core (R2) | MCP 외부 client audit (user_id · client_id · tool · params · response_size · latency · error · called_at) | ADR 0027 amend |
+
+#### V47 `market_index_snapshot` 핵심 컬럼 (ADR 0100 §2-7)
+
+```sql
+id BIGSERIAL PRIMARY KEY,
+code VARCHAR(16) NOT NULL,         -- KOSPI=0001 · KOSDAQ=1001 · KOSPI200=2001 · 업종 · 해외=.IXIC/.SPX
+market VARCHAR(16) NOT NULL,       -- DOMESTIC_INDEX · DOMESTIC_SECTOR · OVERSEAS_INDEX
+ts TIMESTAMPTZ NOT NULL,           -- 1분 단위 snapshot
+price NUMERIC(15,4) NOT NULL,
+open·high·low·close NUMERIC(15,4) NULL,  -- 일봉 source만
+change_rate NUMERIC(8,4) NULL,
+volume BIGINT NULL,
+raw_payload JSONB NULL,            -- KIS-first 정합 (필드 add-only 흡수)
+created_at TIMESTAMPTZ DEFAULT now(),
+UNIQUE (code, ts)
++ idx (code, ts DESC) + idx (market, ts DESC)
+```
+
+#### V49 `ai_comment_log` 핵심 컬럼 (ADR 0026 amend)
+
+```sql
+id BIGSERIAL PK,
+request_id UUID NOT NULL,
+user_id VARCHAR(20) NOT NULL,
+type VARCHAR(32) NOT NULL,                  -- symbol·chart·strategy·signal·market
+provider VARCHAR(32) NOT NULL,              -- anthropic·gemini·openai·mock
+model VARCHAR(64) NOT NULL,
+prompt_template VARCHAR(64) NOT NULL,       -- prompt_template:type:version (예: market_v1)
+prompt_hash VARCHAR(64) NOT NULL,
+tokens_in INT NOT NULL,
+tokens_out INT NOT NULL,
+cost_usd NUMERIC(10,6) NOT NULL,
+latency_ms BIGINT NOT NULL,
+cached BOOLEAN NOT NULL,                    -- TRUE = Redis 5분 cache hit (tokens=0)
+graceful BOOLEAN NOT NULL,                  -- TRUE = KillSwitch/한도/mock/disabled 분기
+content TEXT NULL,
+created_at TIMESTAMPTZ DEFAULT now()
++ idx (user_id, created_at DESC) + idx (provider, created_at DESC) + idx (request_id)
+```
+
+#### V50 `prompt_template` 핵심 컬럼 (ADR 0026 amend)
+
+```sql
+id BIGSERIAL PK,
+type VARCHAR(32) NOT NULL,
+version VARCHAR(16) NOT NULL,
+template_text TEXT NOT NULL,
+variables_schema JSONB NOT NULL,            -- JSON Schema-like missing key 사전 검출
+is_active BOOLEAN NOT NULL DEFAULT false,
+created_at TIMESTAMPTZ DEFAULT now(),
+UNIQUE (type, version)
++ PARTIAL UNIQUE idx (type) WHERE is_active = true  -- 동시 active 1행만
+
+seed 5건: symbol_v1 · chart_v1 · strategy_v1 · signal_v1 · market_v1 (market_v1은 {{maPeriods}}·{{rsPeriod}} 치환)
+```
+
+#### V51 `user_preference` 핵심 컬럼 (ADR 0101 §2-2 + W4 P1 amend)
+
+```sql
+user_id VARCHAR(20) PK,                     -- ADR 0046 §2-1 user_account.user_id FK (KIS 계좌번호 자연 키)
+trend_ma_periods JSONB DEFAULT '[5,20,60]',
+trend_rs_period INT DEFAULT 60,
+trend_cross_pair JSONB NULL,                -- {"short":5,"long":60} 또는 null
+extra JSONB NULL,                           -- ✨ forward-compat 확장 슬롯 (MA type·indicator·차트·알림 등 add-only)
+created_at TIMESTAMPTZ DEFAULT now(),
+updated_at TIMESTAMPTZ DEFAULT now(),
+FK (user_id) → user_account (user_id) ON DELETE CASCADE,
+CHECK jsonb_array_length(trend_ma_periods) BETWEEN 1 AND 5,
+CHECK trend_rs_period BETWEEN 1 AND 252
+
+seed: INSERT ... SELECT user_id FROM user_account ON CONFLICT DO NOTHING (idempotent default 시드)
+```
+
+#### V52 `mcp_audit` 핵심 컬럼 (ADR 0027 amend)
+
+```sql
+id BIGSERIAL PK,
+user_id VARCHAR(20) NOT NULL,
+client_id VARCHAR(64) NOT NULL,             -- localhost 1차 (API key 식별)
+tool VARCHAR(64) NOT NULL,                  -- get_candles · run_screener · get_journal · explain_indicator · backtest_strategy · get_market_trend
+params JSONB NULL,
+response_size_bytes BIGINT NULL,
+latency_ms BIGINT NULL,
+error_message TEXT NULL,
+called_at TIMESTAMPTZ DEFAULT now(),
+CHECK latency_ms IS NULL OR latency_ms >= 0,
+CHECK response_size_bytes IS NULL OR response_size_bytes >= 0
++ idx (user_id, called_at DESC) + idx (tool, called_at DESC)
+```
+
+### 5-3. v3.8.0 → v3.9.0 schema drift 매트릭스
+
+- 신규 표 6건 (V47~V52) · 기존 표 ALTER 0건 (add-only LOCK)
+- 일일 row 증가량 추산:
+  - `market_index_snapshot`: 26 row/min × 60min × 6h(장중) = ~9,360 row/일 · 90일 누적 ~840K row (BIGSERIAL + UQ index 충분)
+  - `sector_index_snapshot`: 21 row/min × 60min × 6h = ~7,560 row/일
+  - `ai_comment_log`: 1일 한도 (사용자별 ~50 호출) · cached HIT 50% 가정 = ~25 row/사용자/일
+  - `prompt_template`: 5 seed · A/B drift 시 +1~+2 row (마이그레이션)
+  - `user_preference`: 사용자 수 = row 수 (1:1 PK)
+  - `mcp_audit`: 외부 client 호출 빈도에 따름 (1차 localhost 단일 — 일 ~100 row 추정)
+
+---
+
+## 6. Redis 키 매트릭스 (v3.9.0 누적)
+
+### 6-1. v3.8.0 이월 (변경 없음)
+
+v3.8.0 풀세트 LOCK 이월 — `quote:last:*` · `candle:current:*` · `watchlist:source:*` · `kis:approval:*` · `order:idem:*` · `kis:ratelimit:*` · KillSwitch `pending/grace/strike` 3종 · `kis:tps:pause:*` · `nxt:stale:check:*` 등.
+
+### 6-2. ✨ v3.9.0 신규 4 group (T-MARKET · T-AI · T-MCP)
+
+| Redis 키 패턴 | 자료구조 | 데이터 | TTL | 트랙 |
+|--------------|---------|-------|-----|-----|
+| `market:index:{code}` | STRING (JSON) | IndexTrend snapshot — price · change_rate · trend (UP/DOWN/NEUTRAL) | **30s** | T-MARKET (ADR 0100 §2-4) |
+| `market:sector:rank:today` | STRING (JSON list) | 섹터 todayTop 5 ranking | **5분** | T-MARKET |
+| `market:sector:rank:long` | STRING (JSON list) | 섹터 longTop 5 ranking (RS period 60d 기준) | **5분** | T-MARKET |
+| `ai:prompt:cache:{templateHash}` | STRING (JSON) | AI 코멘트 응답 cache (cached=true 시 LLM 호출 0) | **5분** | T-AI (ADR 0026 amend) |
+| `ai:dailylimit:{userId}` | INCR counter | 1일 AI 호출 누적 (자정 KST 리셋) | **24h sliding** | T-AI |
+| `ai:circuit:state:{provider}` | STRING | Resilience4j circuit state (CLOSED/OPEN/HALF_OPEN) | 30s (writethrough) | T-AI |
+| `mcp:auth:apikey:{hash}` | STRING (boolean valid) | ApiKeyAuthFilter validation cache | 60s | T-MCP (ADR 0027 amend) |
+| `trendpref:user:{userId}` | STRING (JSON) | TrendPreference cache (UPSERT 시 invalidate) | 10분 | T-MARKET + T-AI (ADR 0101) |
+
+✨ **사용자 PUT preferences/trend → 즉시 fanout 매트릭스**:
+1. `UserPreferenceController.update()` → JPA UPSERT + Redis `trendpref:user:{userId}` invalidate (DEL)
+2. STOMP `/topic/market.user.{userId}.pref` push (다중 탭 sync)
+3. frontend hook `useTrendPreference` race-safe merge (TanStack Query + STOMP)
+4. 다음 `GET /api/market/index/{code}/trend` 호출 시 새 pref 적용 + `isUserCustom: true` echo
+
+---
+
+## 7. Kafka 토픽 전체 매트릭스 (v3.9.0)
+
+### 7-1. v3.8.0 이월 (변경 없음)
+
+v3.8.0 19종 풀세트 LOCK 이월 (자본 path 9 · 시장 5 · 운영 3 · 알림 2 — `order.intent.v1` · `signal.generated.v1` · `system.event.v1` 등).
+
+### 7-2. ✨ v3.9.0 신규 4건
+
+| 토픽 | partition_key | 발행자 | 소비자 | retention | ADR |
+|------|--------------|-------|-------|-----------|-----|
+| **✨ `market.index.updated.v1`** | code | `MarketIndexSyncJob` (batch) | `MarketIndexStompForwarder` (api) | 1d | ADR 0100 §2-6 |
+| **✨ `market.sector.updated.v1`** | `sector_code` 또는 `rank` | `MarketIndexDailyCloseJob` (batch) + `MarketIndexSyncJob` (sector portion) | `MarketSectorStompForwarder` (api) | 1d | ADR 0100 §2-6 |
+| **✨ `ai.comment.requested.v1`** | userId | `AiCommentController` (api) | `AiCommentDispatcher` (consumer) | 7d | ADR 0026 amend |
+| **✨ `ai.comment.responded.v1`** | requestId | `AiCommentDispatcher` (consumer) | `AiCommentStompForwarder` (api) | 7d | ADR 0026 amend |
+
+### 7-3. ✨ v3.9.0 publish path 매트릭스 (Outbox 미경유 LOCK)
+
+- `market.index.updated.v1` · `market.sector.updated.v1` · `ai.comment.requested.v1` · `ai.comment.responded.v1` — 4건 모두 **자본 path 외** (read-only + 옵션 트리거) → Outbox 보장 없이 직접 KafkaTemplate.send()
+- audit 권위:
+  - 시장 추세: `market_index_snapshot` · `sector_index_snapshot` (V47·V48) 영속이 권위
+  - AI 코멘트: `ai_comment_log` (V49) 영속이 권위
+- 자본 path 4 producer(intent·requested·filled·rejected)는 v3.8.0 ADR 0084 P1-1 Outbox publish LOCK 이월 — 본 사이클 변경 0
+
+---
+
+## 8. ✨ T-MARKET 데이터 흐름 종합 (ADR 0100 — v3.9.0 신규)
+
+### 8-1. 1분 cron → 4 지수 카드 즉시 push
+
+```mermaid
+flowchart LR
+    CRON["MarketIndexSyncJob<br/>@Scheduled fixedRate=60000<br/>(batch)"]
+    SESSION["MarketSession FSM<br/>(ADR 0013 OPEN/OVERNIGHT 게이트)"]
+    RL["KisRateLimiterPort<br/>priority=INGESTION_LOW<br/>(ADR 0037 amend 4단계)"]
+
+    KIS_D_PRICE["KIS inquire-index-price<br/>FHPUP02100000<br/>x 24 (3 지수 + 21 업종)"]
+    KIS_O_PRICE["KIS overseas price<br/>HHDFS00000300<br/>x 2 (.IXIC + .SPX)"]
+
+    DB_MI["market_index_snapshot<br/>(V47 · raw_payload JSONB)"]
+    DB_SI["sector_index_snapshot<br/>(V48)"]
+    REDIS_MI["Redis market:index:{code}<br/>TTL 30s"]
+
+    KAFKA_MI["Kafka market.index.updated.v1<br/>(partition=code · 1d retention)"]
+    KAFKA_MS["Kafka market.sector.updated.v1<br/>(5분 캐시 갱신)"]
+
+    STOMP_MI["api MarketIndexStompForwarder<br/>/topic/market.index.{code}"]
+    STOMP_MS["api MarketSectorStompForwarder<br/>/topic/market.sector.rank"]
+
+    FE_STRIP["DashboardPage MarketIndexStrip<br/>(4 카드 즉시 갱신 + 30s polling fallback)"]
+    FE_TREND["/market/trend page<br/>섹터 ranking + 추세 라벨"]
+
+    CRON --> SESSION
+    SESSION -->|"CLOSED/HOLIDAY"| CRON
+    SESSION -->|"OPEN/OVERNIGHT"| RL
+    RL --> KIS_D_PRICE
+    RL --> KIS_O_PRICE
+    KIS_D_PRICE --> DB_MI
+    KIS_D_PRICE --> DB_SI
+    KIS_O_PRICE --> DB_MI
+    DB_MI --> REDIS_MI
+    DB_MI --> KAFKA_MI
+    DB_SI --> KAFKA_MS
+    KAFKA_MI --> STOMP_MI
+    KAFKA_MS --> STOMP_MS
+    STOMP_MI --> FE_STRIP
+    STOMP_MS --> FE_TREND
+```
+
+### 8-2. 사용자 pref PUT → 즉시 fanout (다중 탭 sync)
+
+```mermaid
+flowchart LR
+    FE_SETTINGS["SettingsModal<br/>추세 설정 section"]
+    PUT["PUT /api/users/me/preferences/trend<br/>{maPeriods, rsPeriod, crossPair?}"]
+    CTRL["UserPreferenceController"]
+    SVC["TrendPreferenceService<br/>(market-trend-engine)"]
+    REPO["TrendPreferenceRepository (port)"]
+    JPA["TrendPreferenceJpaAdapter (api)"]
+    DB["user_preference (V51)<br/>UPSERT user_id PK"]
+    REDIS["Redis trendpref:user:{userId}<br/>invalidate (DEL)"]
+    STOMP["/topic/market.user.{userId}.pref<br/>(즉시 다중 탭 sync)"]
+    HOOK["frontend useTrendPreference hook<br/>race-safe merge TanStack + STOMP"]
+
+    FE_SETTINGS --> PUT
+    PUT --> CTRL
+    CTRL --> SVC
+    SVC --> REPO
+    REPO --> JPA
+    JPA --> DB
+    SVC --> REDIS
+    CTRL --> STOMP
+    STOMP --> HOOK
+    REDIS -.->|"다음 GET trend 호출 시 새 pref 적용"| SVC
+```
+
+---
+
+## 9. ✨ T-AI 데이터 흐름 종합 (ADR 0026 amend — v3.9.0 신규)
+
+### 9-1. 사용자 트리거 → graceful → response
+
+```mermaid
+flowchart TD
+    FE_BTN["5 진입점 AiCard<br/>symbol/chart/strategy/signal/market"]
+    POST["POST /api/ai/explain<br/>{type, vars, userId}"]
+    CTRL["AiCommentController"]
+    RESOLVER["PromptTemplateResolver<br/>variables_schema 검증<br/>missing key 사전 차단"]
+    CACHE["Redis ai:prompt:cache:{templateHash}<br/>TTL 5분"]
+    LIMIT["1일 한도 check<br/>ai_comment_log COUNT WHERE user_id AND created_at > today"]
+    LOG_PRE["ai_comment_log INSERT<br/>(cached=false · LLM 직전 audit)"]
+
+    KAFKA_REQ["Kafka ai.comment.requested.v1<br/>(partition=userId)"]
+    DISP["consumer AiCommentDispatcher"]
+    CIRCUIT["Resilience4j circuit breaker<br/>(provider별)"]
+
+    PROV_A["AnthropicProvider"]
+    PROV_G["GeminiProvider"]
+    PROV_O["OpenAiProvider"]
+
+    LOG_POST["ai_comment_log UPDATE<br/>(content · tokens · cost_usd · latency_ms)"]
+    COST["AiCostTracker<br/>Micrometer counter<br/>(S-AI-1 누적)"]
+    KAFKA_RES["Kafka ai.comment.responded.v1<br/>(partition=requestId)"]
+    STOMP_AI["api AiCommentStompForwarder<br/>/topic/ai.explain.{requestId}"]
+    SE_EVT["stomp_event INSERT<br/>(userId 격리 + retention 7d)"]
+    FE_RESP["frontend AiCard lastResponse"]
+
+    GRACEFUL["graceful 메시지<br/>(KillSwitch/한도/disabled/mock/circuit)"]
+
+    FE_BTN --> POST
+    POST --> CTRL
+    CTRL --> RESOLVER
+    RESOLVER --> CACHE
+    CACHE -->|HIT| LOG_POST
+    CACHE -->|MISS| LIMIT
+    LIMIT -->|OK| LOG_PRE
+    LIMIT -->|초과| GRACEFUL
+    LOG_PRE --> KAFKA_REQ
+    KAFKA_REQ --> DISP
+    DISP --> CIRCUIT
+    CIRCUIT -->|OPEN| GRACEFUL
+    CIRCUIT -->|CLOSED| PROV_A
+    CIRCUIT --> PROV_G
+    CIRCUIT --> PROV_O
+    PROV_A --> LOG_POST
+    PROV_G --> LOG_POST
+    PROV_O --> LOG_POST
+    LOG_POST --> COST
+    LOG_POST --> KAFKA_RES
+    KAFKA_RES --> STOMP_AI
+    STOMP_AI --> SE_EVT
+    STOMP_AI --> FE_RESP
+    GRACEFUL --> FE_RESP
+```
+
+### 9-2. ✨ graceful 매트릭스 (자본 path 영향 0 LOCK)
+
+| 분기 | 트리거 | 메시지 (한국어) | graceful flag |
+|------|--------|----------------|---------------|
+| disabled | `MAGICJAR_AI_ENABLED=false` | "AI 옵션 비활성화" | true |
+| KillSwitch | KillSwitch ON 상태 | "KillSwitch 발동 중 — AI 호출 제한" | true |
+| 1일 한도 | `ai_comment_log` COUNT > 한도 | "오늘 AI 한도 초과 — 내일 재시도" | true |
+| circuit OPEN | Resilience4j circuit OPEN | "AI 일시 장애 — 잠시 후 재시도" | true |
+| mock fallback | `MAGICJAR_AI_MOCK_MODE=auto` + 키 없음 | "AI 키 미등록 — SettingsModal에서 입력" | true (mock 합성 0 LOCK) |
+
+✨ **AI 끊김 → 본체 영향 0** (ADR 0026 amend 핵심) — 자본 path 12 step 어디에도 AI 호출 0 grep LOCK.
+
+---
+
+## 10. ✨ T-MCP 데이터 흐름 종합 (ADR 0027 amend — v3.9.0 신규)
+
+### 10-1. 외부 client (Claude/Cursor) → 6 tool read-only
+
+```mermaid
+flowchart LR
+    EXT["외부 client<br/>(Claude · Cursor · custom)"]
+    SSE["POST /mcp/sse<br/>Server-Sent Events session"]
+    AUTH["ApiKeyAuthFilter<br/>(localhost 1차)<br/>Redis mcp:auth:apikey:{hash}"]
+    ROUTE["McpController tool routing<br/>(6 tool)"]
+
+    T1["get_candles<br/>→ CandleRepository"]
+    T2["run_screener<br/>→ ScreenerEngineImpl (strategy-engine)"]
+    T3["get_journal<br/>→ TradingJournalQueryService"]
+    T4["explain_indicator<br/>→ IndicatorCatalog (정적)"]
+    T5["backtest_strategy<br/>→ BacktestEvaluatorBridge"]
+    T6["get_market_trend<br/>→ IndexTrendComposer + TrendPreferenceService"]
+
+    AUDIT["mcp_audit INSERT (V52)<br/>(latency · response_size · error_message)"]
+
+    EXT --> SSE
+    SSE --> AUTH
+    AUTH -->|invalid| EXT
+    AUTH -->|valid| ROUTE
+    ROUTE --> T1
+    ROUTE --> T2
+    ROUTE --> T3
+    ROUTE --> T4
+    ROUTE --> T5
+    ROUTE --> T6
+    T1 --> AUDIT
+    T2 --> AUDIT
+    T3 --> AUDIT
+    T4 --> AUDIT
+    T5 --> AUDIT
+    T6 --> AUDIT
+    AUDIT --> EXT
+```
+
+### 10-2. ✨ MCP 6 tool 매트릭스 (read 전용 LOCK)
+
+| # | tool | 호출 path | 출력 |
+|---|------|----------|-----|
+| 1 | `get_candles` | CandleRepository (DB) | OHLCV array (timeframe · code · before · limit) |
+| 2 | `run_screener` | ScreenerEngineImpl (strategy-engine reuse) | universe matched list (inline 동기 평가) |
+| 3 | `get_journal` | TradingJournalQueryService | trading_journal entries + note (filter · pagination) |
+| 4 | `explain_indicator` | IndicatorCatalog 정적 seed | indicator description (한국어 의미 + 80지표 카탈로그) |
+| 5 | `backtest_strategy` | BacktestEvaluatorBridge → JvmStrategyEvaluator | summary (총 P&L · MDD · 승률) |
+| 6 | `get_market_trend` | IndexTrendComposer + TrendPreferenceService | IndexTrend + SectorRanking (user pref 적용) |
+
+✨ **write 작업 0 LOCK** — `place_order` · `update_position` 등 자본 path tool 0건. ADR 0027 amend §4-1 — 외부 client는 read-only로만 노출 (사용자가 magicJar 본체 UI에서만 자본 path 발동).
+
+---
+
+## 11. ✨ Mermaid 데이터 흐름 — v3.9.0 W4 통합 (T-MARKET + T-AI + T-MCP)
+
+```mermaid
+flowchart TD
+    %% Frontend
+    FE_DASH["DashboardPage<br/>+ MarketIndexStrip (4 카드)"]
+    FE_TREND["/market/trend page<br/>섹터 ranking"]
+    FE_SETTINGS["SettingsModal<br/>+ 추세 설정 section"]
+    FE_AI["5 AiCard 진입점<br/>(symbol·chart·strategy·signal·market)"]
+    FE_NC["NotificationCenter 벨<br/>(v3.8.0 이월)"]
+
+    %% MCP external
+    EXT_MCP["외부 MCP client<br/>(Claude·Cursor)"]
+
+    %% API controllers
+    API_MI["MarketIndexController"]
+    API_MS["MarketSectorController"]
+    API_PREF["UserPreferenceController"]
+    API_AI["AiCommentController"]
+    API_MCP["McpController<br/>+ ApiKeyAuthFilter"]
+    API_SE["SystemEventController (v3.8.0)"]
+
+    %% market-trend-engine
+    MTE_IDX["IndexTrendComposer"]
+    MTE_SEC["SectorRankingComposer"]
+    MTE_TP["TrendPreferenceService"]
+    MTE_CALC["TrendCalculator<br/>(SmaTrendCalculator·CrossSignalCalculator·RsRatingCalculator)"]
+
+    %% batch
+    B_CRON["MarketIndexSyncJob<br/>1분 cron · INGESTION_LOW"]
+    B_CLOSE["MarketIndexDailyCloseJob<br/>16:30 + 06:00 KST"]
+    B_SESSION["MarketSession FSM<br/>(ADR 0013 게이트)"]
+
+    %% Adapters
+    KIS_DI["KisDomesticIndexPriceAdapter<br/>FHPUP02100000"]
+    KIS_DD["KisDomesticIndexDailyAdapter<br/>FHPUP02120000"]
+    KIS_DS["KisDomesticSectorPriceAdapter<br/>FHPUP02140000"]
+    KIS_OI["KisOverseasPriceAdapter<br/>HHDFS00000300 (NAS)"]
+    KIS_OD["KisOverseasDailyAdapter<br/>HHDFS76240000"]
+
+    %% AI providers
+    PROV["3 provider<br/>Anthropic·Gemini·OpenAI<br/>+ Resilience4j circuit"]
+    AI_RESOLVER["PromptTemplateResolver<br/>variables_schema 검증"]
+    AI_CACHE["Redis ai:prompt:cache 5분"]
+    AI_LIMIT["1일 한도 + AiCostTracker"]
+
+    %% consumer
+    C_DISP["AiCommentDispatcher<br/>@KafkaListener ai.comment.requested.v1"]
+
+    %% Kafka
+    K_MI["Kafka market.index.updated.v1"]
+    K_MS["Kafka market.sector.updated.v1"]
+    K_AIR["Kafka ai.comment.requested.v1"]
+    K_AIS["Kafka ai.comment.responded.v1"]
+
+    %% STOMP
+    S_MI["/topic/market.index.{code}"]
+    S_MS["/topic/market.sector.rank"]
+    S_PREF["/topic/market.user.{userId}.pref"]
+    S_AI["/topic/ai.explain.{requestId}"]
+
+    %% DB
+    DB_MI["market_index_snapshot V47"]
+    DB_SI["sector_index_snapshot V48"]
+    DB_AI["ai_comment_log V49"]
+    DB_PT["prompt_template V50<br/>(5 seed)"]
+    DB_UP["user_preference V51<br/>(user_id VARCHAR(20) PK · extra JSONB)"]
+    DB_MCP["mcp_audit V52"]
+
+    %% Redis
+    R_MI["Redis market:index TTL 30s"]
+    R_SR["Redis market:sector:rank TTL 5분"]
+    R_TP["Redis trendpref:user TTL 10분"]
+    R_AP["Redis ai:prompt:cache TTL 5분"]
+    R_MCPA["Redis mcp:auth:apikey 60s"]
+
+    %% T-MARKET cron path
+    B_CRON --> B_SESSION
+    B_SESSION -->|"OPEN/OVERNIGHT"| KIS_DI
+    B_SESSION --> KIS_DS
+    B_SESSION --> KIS_OI
+    KIS_DI --> DB_MI
+    KIS_DS --> DB_SI
+    KIS_OI --> DB_MI
+    DB_MI --> R_MI
+    DB_MI --> K_MI
+    DB_SI --> K_MS
+    B_CLOSE --> KIS_DD
+    B_CLOSE --> KIS_OD
+    KIS_DD --> DB_MI
+    KIS_OD --> DB_MI
+    B_CLOSE --> K_MS
+
+    %% T-MARKET REST + STOMP
+    FE_DASH --> API_MI
+    FE_TREND --> API_MS
+    FE_SETTINGS --> API_PREF
+    API_MI --> MTE_IDX
+    API_MS --> MTE_SEC
+    API_PREF --> MTE_TP
+    MTE_IDX --> MTE_CALC
+    MTE_SEC --> MTE_CALC
+    MTE_IDX --> DB_MI
+    MTE_SEC --> DB_SI
+    MTE_TP --> DB_UP
+    MTE_TP --> R_TP
+    K_MI --> S_MI
+    K_MS --> S_MS
+    API_PREF --> S_PREF
+    S_MI --> FE_DASH
+    S_MS --> FE_TREND
+    S_PREF --> FE_SETTINGS
+
+    %% T-AI path
+    FE_AI --> API_AI
+    API_AI --> AI_RESOLVER
+    AI_RESOLVER --> DB_PT
+    AI_RESOLVER --> AI_CACHE
+    AI_CACHE -->|HIT| DB_AI
+    AI_CACHE -->|MISS| AI_LIMIT
+    AI_LIMIT --> K_AIR
+    K_AIR --> C_DISP
+    C_DISP --> PROV
+    PROV --> DB_AI
+    DB_AI --> K_AIS
+    K_AIS --> S_AI
+    S_AI --> FE_AI
+
+    %% T-MCP path
+    EXT_MCP --> API_MCP
+    API_MCP --> R_MCPA
+    API_MCP --> MTE_IDX
+    API_MCP --> DB_MCP
+
+    %% Cross-track reuse
+    API_MCP -.->|get_market_trend tool reuse| MTE_IDX
+    API_AI -.->|market_v1 prompt uses pref| MTE_TP
+```
+
+---
+
+## 12. ✨ market-trend-engine 모듈 흐름 (ADR 0100 — v3.9.0 신규)
+
+```
+market-trend-engine (Spring Context only — Boot main 0 · indicator-impl 패턴 1:1)
+├── kr.spdaewoon.magicjar.market.calculator
+│     ├── TrendCalculator (interface — Spring 의존 0)
+│     ├── SmaTrendCalculator (1차 default)
+│     ├── CrossSignalCalculator (GOLDEN/DEAD/NEUTRAL 표준 정의)
+│     └── RsRatingCalculator (Mansfield RS — sector vs KOSPI)
+├── kr.spdaewoon.magicjar.market.service
+│     ├── TrendPreferenceService (user pref 조회·검증·적용)
+│     ├── IndexTrendComposer (IndexTrend DTO 조립 — candles + periods → result)
+│     └── SectorRankingComposer (SectorRanking 조립 — todayTop + longTop)
+└── kr.spdaewoon.magicjar.market.port (또는 domain reuse)
+      └── TrendPreferenceRepository (domain port — impl은 api 1차 결정)
+
+의존:
+  domain ← market-trend-engine (TrendPreference + TrendPreferenceRepository 시그니처)
+  api → market-trend-engine (3 controller — MarketIndexController·MarketSectorController·UserPreferenceController)
+  batch → market-trend-engine (TrendCalculator reuse — cron Job 내부)
+  consumer → market-trend-engine 의존 0 LOCK (시장 추세는 시그널 path 결합 0)
+```
+
+✨ **add-only 확장 path**:
+- post-MVP EMA·WMA·DEMA 추세 라벨 추가 시 — `TrendCalculator` 인터페이스 신규 구현체만 추가 (interface unchanged)
+- RSI·MACD 추세 라벨 추가 시 — 동일 인터페이스 reuse
+- 사용자 설정 신규 (MA type · indicator add) — `user_preference.extra JSONB` 슬롯 add-only
+
+---
+
+## 13. boundary 시각 매트릭스 (v3.3.0 이월 — 변경 없음)
+
+| Interval | boundary 시각 (KST) | bar/일 | Redis 키 TTL |
+|----------|-------------------|-------|------------|
+| 5m | 08:05·…·19:55·20:00 | 144 | 25h |
+| 15m | 08:15·…·19:45·20:00 | 48 | 25h |
+| 30m | 08:30·…·19:30·20:00 | 24 | 25h |
+| 90m | 09:30·…·18:30·20:00 | 8 | 25h |
+| 1h | 09:00·…·19:00·20:00 | 12 | 25h |
+
+v3.9.0 추가 부하 예상:
+- `market_index_snapshot`: 26 row/min × 60min × 6h = ~9.4K row/일 · 90일 누적 ~840K row (BIGSERIAL + UQ index 충분)
+- `sector_index_snapshot`: 21 row/min × 60min × 6h = ~7.6K row/일
+- `ai_comment_log`: 1일 한도 + cached HIT 50% = ~25 row/사용자/일 (지수 증가 risk 0)
+- `mcp_audit`: 외부 client 호출 빈도 — 1차 localhost 단일 ~100 row/일
+- KIS rate limit: +26 req/min (0.43 req/s) = **한도 10 req/s 대비 4.3% 점유** (S-4 안전)
+- Kafka throughput: +1분당 2 event (market.index/sector) + 사용자 트리거 AI = +수십 event/시간
+
+영향 0 LOCK. PostgreSQL·Redis·Kafka 부담 ε.
+
+---
+
+## 14. ADR 정합 참조 (v3.9.0 갱신)
+
+| ADR | 관련 흐름 |
+|-----|---------|
+| ADR 0004 | 모듈 경계 — **9 모듈로 확장** (+ market-trend-engine) |
+| ADR 0007 | Kafka 이벤트 backbone — v3.9.0 신규 4 토픽 (Outbox 미경유 LOCK — read-only + 옵션) |
+| ADR 0010 | Multi-tenant — userId 격리 (user_preference + ai_comment_log + mcp_audit 모두 user_id FK) |
+| ADR 0013 | MarketSession FSM — `MarketIndexSyncJob` cron 발사 게이트 (OPEN/OVERNIGHT) |
+| ADR 0017 | Instrument Master — KOSPI200/KOSDAQ150 allow-list (v3.8.0 NXT resolver 정합 · 본 사이클 변경 0) |
+| ADR 0026 | **AI 옵션 코멘트** (amend — 3 provider + 5 진입점 + 5 prompt seed + Redis cache + 1일 한도 + graceful 5 매트릭스) |
+| ADR 0027 | **MCP server** (amend — 6 tool read 전용 + ApiKeyAuthFilter + mcp_audit V52 + localhost 1차) |
+| ADR 0037 | **KIS Rate Limit** (amend — `INGESTION_LOW` 4단계 신규 + +26 req/min S-4 4.3% 점유) |
+| ADR 0046 | UserKisCredential — `user_account.user_id VARCHAR(20)` 자연 키 (TrendPreference FK 정합 — W4 P1 amend) |
+| ADR 0048 | WS 41 slot — 본 사이클 WS 미사용 LOCK (REST 1분 cron only) |
+| ADR 0051 | Repository default fun 함정 — 9 모듈 모든 Repository body 0 LOCK + TrendPreferenceRepository 패턴 검증 |
+| ADR 0083 | indicator-impl 모듈 — market-trend-engine 패턴 1:1 reuse 권위 |
+| ADR 0088 | persistence-shared 모듈 — Outbox는 v3.8.0 LOCK 이월 |
+| ADR 0094 | 운영 단계 — v3.9.0이 운영 단계 진입 후 첫 신규 트랙 (T-MARKET·T-AI·T-MCP) baseline |
+| ADR 0095 | SLO/SLA — **S-4 +0.43 req/s 영향** (4.3% 점유 안전) + **S-AI-1 신규 후보** (AI cost tracker) + **S-MARKET-1·2 신규 후보** (backlog) |
+| ADR 0096 | DR/backup — V47~V52 신규 표 모두 cover (별도 변경 0) |
+| ADR 0097 | ExecutionPositionUpdate port (v3.8.x patch — 본 사이클 변경 0) |
+| ADR 0098 | KillSwitchQueryPort + 전략 활성화 게이트 (v3.8.x patch — 본 사이클 변경 0) |
+| ADR 0099 | reactor block + 비동기 컨벤션 (v3.8.x patch — 본 사이클 변경 0) |
+| ADR 0100 | **T-MARKET 트랙** (v3.9.0 권위 — market-trend-engine 모듈 + KIS endpoint 5 + cron 2 + REST 4 + STOMP 3 + Flyway V47·V48) |
+| ADR 0101 | **TrendPreference 1급 도메인** (v3.9.0 권위 — user_preference V51 + extra JSONB forward-compat + W4 P1 amend user_id VARCHAR(20)) |
+| ADR 0102 | **spec audit 5단계 절차** (v3.9.0 신규 — V40~V45 → V47~V52 shift evidence 재발 방지 LOCK) |
+| ADR 0103 | **JpaScan 패키지 누락 차단** (v3.9.0 신규 — W4 R1 ai-engineer dispatch 부팅 결함 hotfix) |
+
+---
+
+## 15. 💡 v3.9.0 리팩토링맨 lens 진보 평가
+
+| 영역 | 진보도 | 평가 |
+|------|-------|------|
+| 모듈 격리 | ★★★★★ | 8 → 9 모듈 (market-trend-engine 추가) — TrendCalculator pure math 단일 owner |
+| Forward-compat 슬롯 | ★★★★★ | `user_preference.extra JSONB` — 사용자 설정 신규 (MA type·indicator·차트·알림 등) 모두 add-only 흡수 path 확보 |
+| 자본 path 영향 0 LOCK | ★★★★★ | T-MARKET·T-AI·T-MCP 3 트랙 모두 read-only — 시그널·주문 path touch 0 grep 검증 |
+| AI graceful 매트릭스 | ★★★★★ | 5 분기 (disabled·KillSwitch·1일 한도·circuit·mock fallback) — AI 끊김 시 본체 영향 0 |
+| KIS Overseas 첫 진출 | ★★★★ | NAS exchange — NASDAQ `.IXIC` + S&P `.SPX` (향후 US 종목 트랙 prereq) |
+| MCP 6 tool read-only | ★★★★ | write 작업 0 LOCK — 외부 client (Claude/Cursor)에 노출하되 자본 path 차단 |
+| KIS Rate Limit 4단계 | ★★★★ | `INGESTION_LOW` 신규 — cron 26 req/min은 BACKFILL 보다 더 낮은 우선순위 (burst drop 우선) |
+| spec audit 5단계 절차 | ★★★★★ | ADR 0102 — Flyway·Kafka·Redis·STOMP·REST·ENV 6 영역 audit 의무 (V46 점유 결함 재발 방지) |
+| TrendPreference 1급 격상 | ★★★★ | hardcoded constant → 사용자 설정 도메인 (1~5개·1~252일·sorted ASC validation Kotlin + DB CHECK 이중 방어) |
+| graceful 핸들러 (400/422) | ★★★★ | W4 P1 hotfix — TrendPreference 400 + backtest_strategy 422 매트릭스 (frontend smoke 5/5 통과) |
+
+✨ **W4 완전 닫기 + v3.9.0 cut 종합 평가**:
+- v3.8.0이 운영 단계 1차 baseline(observability·SLO·DR)이었다면 v3.9.0은 **사용자 옵션 path 완전 합류** — 시장 추세·AI 코멘트·MCP 외부 client 3 트랙 동시 종착
+- 자본 path 0 touch + 새 표 6건 + 새 endpoint 14건 + 새 Kafka 4건 + 새 STOMP 4건 — 표면 확장은 v3.8.0 대비 가장 큰 사이클
+- ADR 0102 신설로 spec audit 절차 LOCK — V46 점유 결함 재발 방지 (Flyway·Kafka·Redis·STOMP·REST·ENV 6 영역 의무 audit)
+- W5 진입(T-LWC·T-LEARN) 또는 v3.9.x patch 사이클에 따라 다음 사이클 결정 — 사용자 결재 + v3.9.0 운영 dwell evidence 확보 후
+
+🔄 **Risk 흡수 매트릭스 (v3.9.0 → v3.9.x patch 후보)**:
+- ADR 0093 차트 lazy backfill 합류 (Proposed → Accepted — frontend 단독)
+- KIS overseas API NYS exchange 확장 (다우 `.DJI` · 미국 종목 prereq)
+- AI A/B prompt 테스트 (prompt_template.version 활용 — backlog)
+- T-NEWS news.collected.v1 → AI sentiment fusion (backlog §62)
+- MCP write tool 추가 의제 (place_order 등 — 사용자 결재 의존 · 본 1차는 read-only LOCK)
+- TrendPreference UI 확장 (RS period user-settable + MA type 선택)
+- S-AI-1 SLO 본격 정의 (AI cost tracker Prometheus 패널)
+- S-MARKET-1·2 SLO 본격 정의 (market_index_snapshot insertion 성공률 + KIS overseas API 성공률)
+- weekly backup + WAL archiving (v3.8.0 backlog 이월)
+- ArchUnit 게이트(KIS REST strict gate · AI provider import grep)
