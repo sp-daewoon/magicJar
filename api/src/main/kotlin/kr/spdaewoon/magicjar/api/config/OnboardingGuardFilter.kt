@@ -31,10 +31,12 @@ class OnboardingGuardFilter(
     ) {
         val path = req.requestURI
 
-        // 통과 조건: /api/onboarding/..., /api/system-config/..., /actuator/..., /api/ 외 경로
+        // 통과 조건: /api/onboarding/..., /api/system-config/..., /api/mcp/..., /actuator/..., /api/ 외 경로
         // /api/system-config/kill-switch GET·PUT — OnboardingGuardFilter 통과 허용 (ADR 0074 §2-6 인증 정책)
+        // /api/mcp/** — ApiKeyAuthFilter 단독 인증 (ADR 0027 §2-4 인증 분리 정책 · W4 R2 T-MCP)
         if (path.startsWith("/api/onboarding/") ||
             path.startsWith("/api/system-config/") ||
+            path.startsWith("/api/mcp/") ||
             path.startsWith("/actuator/") ||
             !path.startsWith("/api/")
         ) {

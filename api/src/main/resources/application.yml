@@ -139,6 +139,17 @@ magicjar:
     default-max-pages: 6
     max-response-limit: 5000
 
+  # ─────────────────────────────────────────────────
+  # MCP 서버 (ADR 0027 — W4 R2 T-MCP Phase 1)
+  #   api-key: env MAGICJAR_MCP_API_KEY (미설정 시 MCP 전체 503 graceful refuse)
+  #   localhost-only: true LOCK (1차 보안 — X-Forwarded-For 첫 hop loopback 한정)
+  #   client-id: 1차 단일 client ("default-client" — post-MVP per-client 분리 + OAuth2)
+  # ─────────────────────────────────────────────────
+  mcp:
+    api-key: ${MAGICJAR_MCP_API_KEY:}
+    localhost-only: ${MAGICJAR_MCP_LOCALHOST_ONLY:true}
+    client-id: ${MAGICJAR_MCP_CLIENT_ID:default-client}
+
   # P1-4 Bucket4j-Redis KIS Rate Limit (ADR 0037 + spec PR #564 §2-1 옵션 A LOCK)
   # KIS 공식 한도: 초당 10건 (계정·앱키당, EGW00201/HTTP 429 위반 시)
   # multi-JVM(api·batch·consumer) 단일 bucket share — Phase 2 batch·consumer Bean wiring 후속
