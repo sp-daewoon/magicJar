@@ -1,11 +1,11 @@
 # ADR 0101: TrendPreference 1급 도메인 + `user_preference` 표 (forward-compat 확장 슬롯 단일 진입점)
 
-- 상태: **Accepted (2026-05-24 — architect R0 spec 발행, 사용자 brainstorming 결재 완료 cec6a4d6)**
+- 상태: **Accepted (2026-05-24 — architect R0 spec 발행, 사용자 brainstorming 결재 완료 cec6a4d6 · 2026-05-24 W4 P1 amend — §2-2 DDL user_id BIGINT→VARCHAR(20) 실 schema 정합 정정)**
 - 작성일: 2026-05-24
 - 결정자: architect (W4 통합 사이클 R0 — orchestrator dispatch 정합)
 - 영역: 도메인 본체 (§4) + 운영 단계 SLO 영향 (§9-1) + 모듈 경계 (§2)
 - 권위 spec: `_workspace/specs/2026-05-24-w4-t-market-t-ai-t-mcp-design.md` (brainstorming §0-2 사용자 추가 의제 1건 + §2-2 도메인 정의)
-- 관련 ADR: 0001(비전) · 0004(모듈 경계) · 0010(Multi-tenant — user_id FK) · 0030(SoT) · 0083(indicator-impl 패턴) · 0088(persistence-shared 패턴) · 0094(운영 단계 — 본 ADR 첫 도메인 ADR amend 정합) · 0100(T-MARKET 트랙 짝 ADR)
+- 관련 ADR: 0001(비전) · 0004(모듈 경계) · 0010(Multi-tenant — user_id FK) · 0030(SoT) · 0046(user_account 자연 키 — user_id VARCHAR(20) KIS 계좌번호 · 본 §2-2 amend 정합) · 0083(indicator-impl 패턴) · 0088(persistence-shared 패턴) · 0094(운영 단계 — 본 ADR 첫 도메인 ADR amend 정합) · 0100(T-MARKET 트랙 짝 ADR) · 0102(spec audit 5단계 절차 — 본 amend evidence)
 
 ---
 
@@ -58,7 +58,7 @@ import java.time.Instant
  * @see ADR 0100 (T-MARKET 트랙) · ADR 0101 (본 ADR — TrendPreference + user_preference)
  */
 data class TrendPreference(
-    val userId: Long,
+    val userId: String,              // 2026-05-24 W4 P1 amend — user_account.user_id VARCHAR(20) KIS 계좌번호 자연 키 정합 (ADR 0046 §2-1). 초안 Long FK 결함은 §9 변경 이력 참조.
     val maPeriods: List<Int>,        // default [5, 20, 60] · size 1~5 · 각 1~252 · sorted ASC 의무
     val rsPeriod: Int = 60,          // RS rating 비교 기간 (1차 60 LOCK · post-MVP user-settable)
     val crossPair: Pair<Int, Int>? = null,  // null 시 maPeriods 최소·최대 auto
@@ -102,8 +102,8 @@ object TrendPreferenceDefaults {
 package kr.spdaewoon.magicjar.domain.trend
 
 interface TrendPreferenceRepository {
-    /** 사용자 ID로 조회. 없으면 null. */
-    fun findByUserId(userId: Long): TrendPreference?
+    /** 사용자 ID로 조회. 없으면 null. (2026-05-24 W4 P1 amend — Long → String · user_account.user_id VARCHAR(20)) */
+    fun findByUserId(userId: String): TrendPreference?
 
     /** UPSERT — 신규 row 또는 기존 row 갱신. updatedAt 자동 now(). */
     fun upsert(pref: TrendPreference): TrendPreference
@@ -114,31 +114,52 @@ interface TrendPreferenceRepository {
 
 ADR 0088 패턴 1:1 reuse 의제 — 본 ADR R1 backend-core dispatch 시점에 결정 (api 단독 또는 persistence-shared 흡수). 1차 권장: **api 단독** (`user_account` 등 사용자 관련 표는 api 단독 패턴 정합).
 
-### 2-2. Flyway V51 — `user_preference` 표 (R1 backend-core 영역 LOCK · 2026-05-24 R0 amend V44 → V51 shift · main HEAD V46 점유 audit · ADR 0102 정합)
+### 2-2. Flyway V51 — `user_preference` 표 (R1 backend-core 영역 LOCK · 2026-05-24 R0 amend V44 → V51 shift · main HEAD V46 점유 audit · ADR 0102 정합 · **2026-05-24 W4 P1 amend — user_id BIGINT→VARCHAR(20) 실 schema 정합 정정**)
+
+#### 2-2-Z. 본 §2-2 amend 사유 (2026-05-24 W4 P1)
+
+본 §2-2 초안 DDL은 `user_id BIGINT REFERENCES user_account(id) ON DELETE CASCADE`로 작성되었으나, R1 backend-core T-MARKET Phase 2 (PR #676) audit 결과 실 schema 와 불일치 발견:
+
+- 초안: `user_id BIGINT REFERENCES user_account(id)`
+- 실 schema (`api/src/main/resources/db/migration/V1__baseline.sql` L29-35): **`user_account.user_id VARCHAR(20)` (KIS 계좌번호 자연 키 · ADR 0046 §2-1 권위)**
+- `user_account` 표는 자연 키 `user_id VARCHAR(20)`만 보유 — surrogate `id BIGINT` 컬럼 0건. 초안은 surrogate 가정으로 작성된 결함.
+
+본 amend는 ADR 0102 §2-2 (영속 자원 audit 5단계 절차 LOCK) 의 적용 범위가 **외부 영속 자원 (Flyway version·Kafka topic·Redis key·STOMP topic·REST endpoint·ENV) 6 영역**에 한정되었던 lens를 **내부 도메인 모델 inventory** (기존 표 컬럼 타입·PK 자연/surrogate 구분 등)로 확장하는 사례 1건이다 (cross-ref ADR 0102 §5 권장 영역 확장 후보).
+
+R1 backend-core가 audit 후 V51 마이그레이션을 실 schema 1:1 정합으로 발행 (`api/src/main/resources/db/migration/V51__user_preference.sql` L20·L28-29) — 본 amend는 ADR 본문을 실 schema 와 동기화하기 위한 정정 (실 코드와의 drift 0 LOCK).
+
+#### 2-2-A. amend 후 DDL (실 schema 1:1)
 
 ```sql
--- V51__user_preference.sql (2026-05-24 R0 amend — V44 → V51 shift)
-CREATE TABLE user_preference (
-    user_id BIGINT PRIMARY KEY REFERENCES user_account(id) ON DELETE CASCADE,
-    trend_ma_periods JSONB NOT NULL DEFAULT '[5,20,60]'::jsonb,
-    trend_rs_period INT NOT NULL DEFAULT 60,
-    trend_cross_pair JSONB NULL,        -- null 시 maPeriods 최소·최대 auto · 형식 {"short": 5, "long": 60}
-    extra JSONB NULL,                   -- forward-compat 확장 슬롯 (MA type · indicator · 차트 default · 알림 등)
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT chk_user_pref_ma_periods_size CHECK (jsonb_array_length(trend_ma_periods) BETWEEN 1 AND 5),
-    CONSTRAINT chk_user_pref_rs_period CHECK (trend_rs_period BETWEEN 1 AND 252)
+-- V51__user_preference.sql (2026-05-24 R0 amend — V44 → V51 shift · 2026-05-24 W4 P1 amend — user_id VARCHAR(20) 정합)
+CREATE TABLE IF NOT EXISTS user_preference (
+    user_id            VARCHAR(20)   NOT NULL,   -- ADR 0046 §2-1 user_account.user_id (KIS 계좌번호 자연 키) FK
+    trend_ma_periods   JSONB         NOT NULL DEFAULT '[5,20,60]'::jsonb,
+    trend_rs_period    INT           NOT NULL DEFAULT 60,
+    trend_cross_pair   JSONB         NULL,       -- null 시 maPeriods 최소·최대 auto · 형식 {"short": 5, "long": 60}
+    extra              JSONB         NULL,       -- forward-compat 확장 슬롯 (MA type · indicator · 차트 default · 알림 등)
+    created_at         TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    updated_at         TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    CONSTRAINT pk_user_preference PRIMARY KEY (user_id),
+    CONSTRAINT fk_user_preference_user FOREIGN KEY (user_id)
+        REFERENCES user_account (user_id) ON DELETE CASCADE,
+    CONSTRAINT chk_user_pref_ma_periods_size
+        CHECK (jsonb_array_length(trend_ma_periods) BETWEEN 1 AND 5),
+    CONSTRAINT chk_user_pref_rs_period
+        CHECK (trend_rs_period BETWEEN 1 AND 252)
 );
-CREATE INDEX idx_user_pref_updated ON user_preference(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_pref_updated ON user_preference(updated_at DESC);
 COMMENT ON TABLE user_preference IS '사용자 설정 단일 진입점 (ADR 0101). extra JSONB는 forward-compat 확장 슬롯.';
+COMMENT ON COLUMN user_preference.user_id IS 'user_account.user_id FK (VARCHAR(20) KIS 계좌번호 자연 키 — ADR 0046 §2-1 · ON DELETE CASCADE).';
 COMMENT ON COLUMN user_preference.trend_ma_periods IS 'JSONB array — MA 기간 list (1~5개 · 각 1~252일 · sorted ASC). default [5,20,60].';
 COMMENT ON COLUMN user_preference.trend_rs_period IS 'RS rating 비교 기간 (1~252일). default 60.';
 COMMENT ON COLUMN user_preference.trend_cross_pair IS 'crossPair 명시 — {"short":5,"long":60}. null 시 maPeriods 최소/최대 auto.';
 COMMENT ON COLUMN user_preference.extra IS 'forward-compat 확장 슬롯 — MA type·indicator·차트 default·알림 임계 등 add-only 흡수. Kotlin 측 Map<String, Any?>.';
 
 -- 기존 사용자 default 시드 (idempotent — ON CONFLICT DO NOTHING)
+-- 2026-05-24 W4 P1 amend — SELECT id → SELECT user_id (user_account 자연 키 정합)
 INSERT INTO user_preference (user_id, trend_ma_periods, trend_rs_period)
-SELECT id, '[5,20,60]'::jsonb, 60
+SELECT user_id, '[5,20,60]'::jsonb, 60
 FROM user_account
 ON CONFLICT (user_id) DO NOTHING;
 ```
@@ -254,7 +275,8 @@ PUT 성공 후 즉시 push — 다중 탭 sync. WebSocketConfig reuse (frontend 
 
 | 기존 ADR/컴포넌트 | 영향 | 대응 |
 |---|---|---|
-| ADR 0010 (Multi-tenant) | 0 (user_id FK reuse) | 본 ADR `user_preference.user_id REFERENCES user_account(id) ON DELETE CASCADE` |
+| ADR 0010 (Multi-tenant) | 0 (user_id FK reuse) | 본 ADR `user_preference.user_id VARCHAR(20) REFERENCES user_account(user_id) ON DELETE CASCADE` (2026-05-24 W4 P1 amend — ADR 0046 §2-1 자연 키 정합) |
+| ADR 0046 (user_account 자연 키) | 0 (FK reuse) | `user_id VARCHAR(20)` (KIS 계좌번호) FK reuse — 본 §2-2 amend로 실 schema 1:1 정합 LOCK |
 | ADR 0004 (모듈 경계) | 0 (domain 추가만) | `domain/.../trend/TrendPreference.kt` · `TrendPreferenceRepository.kt` add-only |
 | 기존 `user_account` 표 | 0 (FK reference만) | 시드 SQL `INSERT FROM user_account ON CONFLICT DO NOTHING` |
 | 기존 SettingsModal | LOW (add-only) | "추세 설정" section add-only · 기존 section 0 touch |
@@ -274,7 +296,7 @@ PUT 성공 후 즉시 push — 다중 탭 sync. WebSocketConfig reuse (frontend 
 
 | 신규 컴포넌트 | 활용 기존 |
 |---|---|
-| `TrendPreference.userId` FK | `user_account.id` (W1 V8) |
+| `TrendPreference.userId` FK | `user_account.user_id` VARCHAR(20) KIS 계좌번호 자연 키 (W1 V1 baseline · ADR 0046 §2-1) — 2026-05-24 W4 P1 amend |
 | `TrendPreferenceService` (market-trend-engine) | `TrendPreferenceRepository` port (본 ADR) |
 | `UserPreferenceController` (api) | Spring Security `@AuthenticationPrincipal` 또는 OnboardingGuardFilter pattern reuse |
 | `useTrendPreference` hook (frontend) | TanStack Query mutation + STOMP subscribe `/topic/market.user.{userId}.pref` |
@@ -348,6 +370,7 @@ PUT 성공 후 즉시 push — 다중 탭 sync. WebSocketConfig reuse (frontend 
 | 시드 정책 | **`INSERT FROM user_account ON CONFLICT DO NOTHING`** (idempotent · 기존 사용자 자동 default) | 사용자 명시 등록 (사용자 부담 ↑) · default 반환 only (영속 0건 → query 비효율) |
 | crossPair invariant | **application require + DB CHECK 부재** | DB JSONB CHECK (PostgreSQL JSONB CHECK 복잡도 ↑) |
 | user_id FK ON DELETE | **CASCADE** | NO ACTION (사용자 삭제 시 orphan row 누적 risk) · SET NULL (FK 본질 위반) |
+| user_id 타입 (2026-05-24 W4 P1 amend) | **VARCHAR(20) — user_account.user_id 자연 키 (KIS 계좌번호 · ADR 0046 §2-1)** | BIGINT surrogate (V1 baseline에 surrogate `id` 컬럼 부재 · 초안 결함) · UUID (FK 불가 · 신규 surrogate 도입 비용 ↑) |
 | Repository pattern | **domain port + JPA adapter (api 단독)** | persistence-shared 흡수 (R1 backend-core dispatch 시 1차 결정) |
 | post-MVP 확장 슬롯 위치 | **`extra JSONB`** | 신규 `user_setting_kv` key-value 표 (조회 효율 낮음 + 마이그레이션 추가) |
 
@@ -385,3 +408,4 @@ PUT 성공 후 즉시 push — 다중 탭 sync. WebSocketConfig reuse (frontend 
 |------|------|--------|
 | 2026-05-24 | **ADR 0101 신설 Accepted — TrendPreference 1급 도메인 + `user_preference` 표 (V44) + `extra JSONB` forward-compat 확장 슬롯 단일 진입점 + REST 2 endpoint Swagger 4단 + STOMP fanout + 시드 SQL idempotent + Bean Validation 강제 + 운영 ADR 양식 3 슬롯 + 후속 사이클 10+ 슬롯** — 사용자 brainstorming §0-2 추가 의제 1건 결재 정합. orchestrator → architect R0 dispatch. 운영 코드 0 touch (Kotlin/TS/SQL 0 변경 — ADR + spec + ADR README + master + CHANGELOG only). 자본 영향 0 + KIS endpoint 호출 0 + AI 호출 0 + mock 합성 0. ADR 0100 (T-MARKET) 짝 ADR 동시 발행. (architect, opus 4.7 1M) |
 | 2026-05-24 | **amend (R0 결함 fix · 본 ADR 의 V44 LOCK shift) — §1-3 신규 표 V44 → V51 + §2-1-A 도메인 KDoc V44 → V51 + §2-2 Flyway V44 → V51 (DDL 파일명 헤더 동반 shift) + §2-5 단일 마이그레이션 V44 → V51 + §3-2 영역 침범 매트릭스 Flyway 행 shift + §5-2 rollback V44 → V51. R0 PR #674 시점 V40~V45 LOCK 발행 → ai-engineer R1 dispatch가 main HEAD audit 결과 V40~V46 점유 사실 발견 → 헌법 §7 escalation → architect R0 amend PR로 V47~V52 재분배 (main HEAD V46 점유 + V47 비점유 검증 evidence). 본 결함 재발 방지는 ADR 0102 신설 본문 (spec audit 5단계 절차 LOCK) 참조** — orchestrator R0 결함 fix dispatch 정합. 운영 코드 0 touch (md only). (architect, opus 4.7 1M) |
+| 2026-05-24 | **amend (W4 P1 · 본 ADR §2-2 DDL 결함 fix — user_id BIGINT → VARCHAR(20) 실 schema 정합 정정)** — R1 backend-core T-MARKET Phase 2 (PR #676) audit 결과 §2-2 초안 DDL (`user_id BIGINT REFERENCES user_account(id)`) 과 실 schema (`V1__baseline.sql` L29-35 — `user_account.user_id VARCHAR(20)` KIS 계좌번호 자연 키 · ADR 0046 §2-1 권위) 불일치 발견. `user_account` 표는 자연 키 단일 — surrogate `id BIGINT` 컬럼 0건 (초안 결함). 본 amend: ① 헤더 상태 행 W4 P1 정정 표기 + 관련 ADR 0046·0102 cross-ref 추가 ② §2-1-A `TrendPreference.userId: Long` → `String` (KDoc 사유 본문) ③ §2-1-B `TrendPreferenceRepository.findByUserId(userId: Long)` → `String` ④ §2-2 §2-2-Z amend 사유 본문 신설 + §2-2-A 실 schema 1:1 DDL (PK·FK CONSTRAINT 명명 + 시드 SQL `SELECT id` → `SELECT user_id`) ⑤ §3-1 ADR 0010 row 정합 + ADR 0046 row 신설 ⑥ §3-3 `TrendPreference.userId` FK 정합 ⑦ §6 user_id 타입 트레이드오프 row 신설 ⑧ §9 본 row. **R1 backend-core가 audit 후 발행한 `api/src/main/resources/db/migration/V51__user_preference.sql` (origin/main `094ab481`) 이 실 schema 정합** — 본 amend는 ADR 본문을 실 코드와 동기화 (drift 0 LOCK). **ADR 0102 cross-ref** — 본 사례는 ADR 0102 §2-2 영속 자원 audit 5단계 절차 (현재 6 영역 LOCK)의 **내부 도메인 모델 inventory** 영역 확장 후보 evidence (ADR 0102 §5 권장 cross-link만 — 영역 확장 LOCK은 별 사이클). 운영 코드 0 touch (md only — V51 DDL은 R1 PR #676이 이미 정합 발행 · 본 amend는 ADR 본문 amend 단독). 자본 영향 0 + KIS endpoint 호출 0 + AI 호출 0 + mock 합성 0. (architect, opus 4.7 1M) |
