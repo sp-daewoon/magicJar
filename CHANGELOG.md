@@ -3,6 +3,17 @@
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 
+| 2026-05-24 | **chore(meta): PR-2 v3.9.0 baseline 폴더 신설 + sub-agent 슬롯 4 anchor 발행** — `_workspace/baseline/v3.9.0/` 폴더 신설(README skeleton + 7 파일 인덱스). CHANGELOG sub-agent 슬롯 4 anchor(architect/backend-core/market-data/frontend). 4 sub-agent 병렬 디스패치 add-only LOCK. (orchestrator) | meta/baseline | PR-2 v3.9.0 baseline 슬롯 발행 |
+<!-- pr-2-slot-orchestrator -->
+| 2026-05-?? | **TBD — PR-2 architect: 01-architecture + 06-history + 07-policy + README** | baseline/v3.9.0 | PR-2 architect 4 파일 |
+<!-- pr-2-slot-architect -->
+| 2026-05-?? | **TBD — PR-2 backend-core: 02-data-flow + 04-feature-spec** | baseline/v3.9.0 | PR-2 backend-core 2 파일 |
+<!-- pr-2-slot-backend-core -->
+| 2026-05-?? | **TBD — PR-2 market-data: 03-use-sequences (KIS-first raw 출처)** | baseline/v3.9.0 | PR-2 market-data 1 파일 |
+<!-- pr-2-slot-market-data -->
+| 2026-05-?? | **TBD — PR-2 frontend: 05-ui-inventory** | baseline/v3.9.0 | PR-2 frontend 1 파일 |
+<!-- pr-2-slot-frontend -->
+
 <!-- pr-N-slot-backend-core -->
 | 2026-05-24 | **fix(backend-core): W4 P1 — TrendPreference 400 + backtest_strategy 422 graceful 핸들러 (결함 2건 fix)** — qa P1 evidence 인용 fix 사이클. **결함 1 fix** (TrendPreference 500 → 400 graceful): 신규 `api/config/ValidationExceptionHandler.kt` `@RestControllerAdvice` (HIGHEST_PRECEDENCE) — `MethodArgumentNotValidException`·`HandlerMethodValidationException`·`ConstraintViolationException`·`IllegalArgumentException` 4 path 한 곳에서 400 graceful 흡수 + 한국어 message + violations array (`{field, reason, rejectedValue}`) + `ValidationErrorResponse(errorCode=VALIDATION_ERROR, message, violations)` 공통 응답 body. 영향도: 기존 `StrategyExceptionHandler` 책임 분리 (DRY) · 정상 path 회귀 0. **결함 2 fix** (backtest_strategy 500 → 422 graceful): `api/mcp/tool/BacktestStrategyTool.kt` `BacktestException` sealed when 변환 helper `toMcpToolException()` 신설 — StrategyNotFound→422 · InvalidStrategyDsl→422 · InvalidRequest→400 · InsufficientCandleData→503. `McpController` 의 기존 `ex.httpStatus to message` 매핑 1:1 정합 활용 (McpController 변경 0). **단위 테스트 7건** (`ValidationExceptionHandlerTest` 3건 + `BacktestStrategyToolGracefulTest` 4건 — 4 결함 case + 3 정상 회귀 case) — api full 통과. **페르소나 진보 lens**: 💡 frontend toast 즉시 사용 body 구조 / 🔄 sealed when 컴파일 안전성 / ✨ @Order HIGHEST_PRECEDENCE 자동 흡수. | api/config·api/mcp/tool | qa P1 evidence — TrendPreference Bean Validation 500·MCP backtest_strategy 500 graceful fix + spec ADR 0101 invariant 한국어 require + ADR 0027 §2-4 MCP error handling 정합 |
 
