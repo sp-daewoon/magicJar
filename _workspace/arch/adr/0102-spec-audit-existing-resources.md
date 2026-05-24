@@ -1,6 +1,6 @@
 # ADR 0102: spec/plan 발행 시 main 영속 자원 audit 의무 (5단계 절차 LOCK)
 
-- 상태: **Accepted**
+- 상태: **Accepted (2026-05-24 신설 · 2026-05-24 W4 P1 amend — §5-4 영역 확장 후보 cross-ref 신규 1건)**
 - 작성일: 2026-05-24
 - 결정자: architect (opus 4.7 1M) — orchestrator R0 결함 fix dispatch 정합 (사용자 메모리 `feedback-codex-validation-gate` 4 lens 정합)
 - master §위치: `docs/architecture/master-architecture.md` v2 §10 (ADR 인덱스) · 헌법 §3 (KIS-first raw fetch) 보강 본문
@@ -194,6 +194,16 @@ V40~V46 모두 점유 사실 확인 → R0 spec V40~V45 LOCK 전체 무효 → a
 | spec/plan 결함 발생 빈도 (헌법 §7 escalation count) | sub-agent escalation 보고 | orchestrator 누적 카운트 | (단순 observability — alert 없음 · 사용자 자율 검토) |
 | 5단계 절차 수행 비율 | architect PR 본문 audit evidence 인용 grep | 사용자 spot check | (검증 단순 — grep 1회) |
 
+### 5-4. 영역 확장 후보 (post-MVP cross-ref)
+
+본 ADR §2-2 영속 자원 매트릭스는 **6 영역 (Flyway·Kafka·Redis·STOMP·REST·ENV)** 외부 영속 자원 LOCK이 1차. 다음 사례는 6 영역 외 추가 영역의 결함 1회 누적 evidence로, 향후 영역 확장 amend 후보다 (단 본 ADR 영역 LOCK은 6 LOCK 유지 — 누적 evidence 3건+ 시 별 사이클 amend).
+
+| # | 사례 evidence | 결함 본질 | 누적 |
+|---|---|---|---|
+| 1 | **ADR 0101 §2-2 DDL `user_id BIGINT REFERENCES user_account(id)` 초안 (W4 P1 amend)** | 기존 표 컬럼 타입·PK 자연/surrogate 구분 미인지 (실 `user_account.user_id VARCHAR(20)` 자연 키 · surrogate `id` 컬럼 0건) — R1 backend-core PR #676 audit 결과 발견 → ADR 0101 본문 amend 1건 (R1 코드 V51 마이그레이션은 이미 실 schema 정합 발행) | 1 |
+
+→ **확장 후보 영역**: **내부 도메인 모델 inventory** (기존 표 컬럼 타입 + PK 자연/surrogate 구분 + JPA Entity field 타입 등). 누적 3건 시 ADR 0102 §2-2 7번째 영역 추가 amend 발행 의제.
+
 ---
 
 ## 6. 트레이드오프
@@ -237,3 +247,4 @@ V40~V46 모두 점유 사실 확인 → R0 spec V40~V45 LOCK 전체 무효 → a
 | 날짜 | 변경 | 결정자 |
 |------|------|--------|
 | 2026-05-24 | **ADR 0102 신설 Accepted — architect spec/plan 발행 직전 main 영속 자원 audit 5단계 절차 LOCK (Flyway·Kafka·Redis·STOMP·REST·ENV 6 영역) + 면제 조건 3건 (md only·hotfix·기존 LOCK amend) + 위반 시 escalation 경로 5단계 + 발생 evidence 본문 (R0 PR #674 V40~V45 결함) + 운영 ADR 양식 3 슬롯 + 후속 사이클 6 슬롯** — orchestrator R0 결함 fix dispatch 정합 (사용자 메모리 `feedback-codex-validation-gate` 4 lens 정합). architect 단독 R0 amend PR (본 결함 fix + 본 ADR 신설 함께). 운영 코드 0 touch (md only). 자본 영향 0 + KIS endpoint 호출 0 + AI 호출 0 + mock 합성 0. ADR 0026·0027·0100·0101 amend 동반 (V47~V52 shift 본문 정합). (architect, opus 4.7 1M) |
+| 2026-05-24 | **§5-4 영역 확장 후보 cross-ref 추가 (W4 P1 amend)** — ADR 0101 §2-2 DDL `user_id BIGINT REFERENCES user_account(id)` 초안 결함 (R1 backend-core PR #676 audit 결과 실 `user_account.user_id VARCHAR(20)` 자연 키 미인지 — ADR 0046 §2-1 권위) 1건을 본 ADR §5-4 영역 확장 후보 표에 신규 추가. 본질: 외부 영속 자원 6 영역 LOCK 외 **내부 도메인 모델 inventory** (기존 표 컬럼 타입·PK 자연/surrogate 구분) 영역 결함. 영역 확장 LOCK은 본 amend에서 수행 0 (누적 evidence 3건+ 시 별 사이클 amend) — 본 amend는 cross-link 단독. 운영 코드 0 touch (md only). 본 amend는 ADR 0101 §2-2 amend PR과 동반 (W4 P1 architect 단독). (architect, opus 4.7 1M) |
