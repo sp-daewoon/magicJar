@@ -8,6 +8,7 @@ import kr.spdaewoon.magicjar.api.mcp.tool.McpParamSupport.optionalString
 import kr.spdaewoon.magicjar.api.mcp.tool.McpParamSupport.requireString
 import kr.spdaewoon.magicjar.api.mcp.tool.McpParamSupport.requireStringList
 import kr.spdaewoon.magicjar.api.service.backtest.BacktestService
+import kr.spdaewoon.magicjar.domain.backtest.BacktestException
 import kr.spdaewoon.magicjar.domain.backtest.BacktestPerformance
 import kr.spdaewoon.magicjar.domain.backtest.BacktestResult
 import kr.spdaewoon.magicjar.domain.backtest.BacktestTrade
@@ -103,21 +104,50 @@ class BacktestStrategyTool(
         val tradesLimit = params.optionalInt("tradesLimit", default = 200, min = 0, max = 5000) ?: 200
 
         val result =
-            backtestService.runBacktest(
-                strategyId = strategyId.toLong(),
-                universe = universe,
-                interval = interval,
-                fromStr = from,
-                toStr = to,
-                initialCapital = initialCapital,
-                priceAdjustmentMode = priceAdjustmentMode,
-            )
+            try {
+                backtestService.runBacktest(
+                    strategyId = strategyId.toLong(),
+                    universe = universe,
+                    interval = interval,
+                    fromStr = from,
+                    toStr = to,
+                    initialCapital = initialCapital,
+                    priceAdjustmentMode = priceAdjustmentMode,
+                )
+            } catch (ex: BacktestException) {
+                // W4 P1 fix (2026-05-24) — MCP tool 호출 시 graceful 매핑.
+                // 기존: McpController 의 onFailure 가 McpToolException 외 모든 ex 를 500 으로 매핑 → BacktestException 미가공 노출.
+                // 신규: BacktestException sub-class 별 적절한 HTTP status + 한국어 message 로 McpToolException 변환.
+                throw ex.toMcpToolException()
+            }
 
         return when (result) {
             is BacktestResult.Success -> result.toResponseMap(tradesLimit)
             is BacktestResult.Aborted -> result.toResponseMap(tradesLimit)
         }
     }
+
+    /**
+     * BacktestException → McpToolException 매핑 (W4 P1 fix · 2026-05-24).
+     *
+     * | exception                          | HTTP | 의미                                 |
+     * |------------------------------------|------|------------------------------------|
+     * | StrategyNotFoundException          | 422  | 입력은 적법 but 도메인 상 처리 불가 (Unprocessable) |
+     * | InvalidStrategyDslException        | 422  | 저장된 DSL 손상 — caller 가 strategy 재발행 의무       |
+     * | InvalidRequestException            | 400  | 입력 자체 invalid                         |
+     * | InsufficientCandleDataException    | 503  | 캔들 backfill 미완료 (일시 unavailable)         |
+     */
+    private fun BacktestException.toMcpToolException(): McpToolException =
+        when (this) {
+            is BacktestException.StrategyNotFoundException ->
+                McpToolException(message ?: "전략을 찾을 수 없습니다", httpStatus = 422, cause = this)
+            is BacktestException.InvalidStrategyDslException ->
+                McpToolException(message ?: "전략 DSL 파싱 실패", httpStatus = 422, cause = this)
+            is BacktestException.InvalidRequestException ->
+                McpToolException(message ?: "잘못된 백테스트 요청", httpStatus = 400, cause = this)
+            is BacktestException.InsufficientCandleDataException ->
+                McpToolException(message ?: "캔들 데이터 부족", httpStatus = 503, cause = this)
+        }
 
     private fun BacktestResult.Success.toResponseMap(tradesLimit: Int): Map<String, Any?> =
         mapOf(
