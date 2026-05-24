@@ -3,10 +3,10 @@ id: T-20260524-1427-w4-r0-amend-flyway-shift
 agent: architect
 model: opus
 branch: agent/architect/w4-r0-amend-flyway-shift
-status: RUNNING
+status: DONE
 startedAt: 2026-05-24T14:27:43.897+09:00
-completedAt: null
-pr: null
+completedAt: 2026-05-24T14:49:14.335+09:00
+pr: #675
 parentPhase: ?
 ---
 
