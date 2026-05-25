@@ -61,6 +61,9 @@ class DailyPnlCalculator(
         val port = positionPortProvider.getIfAvailable()
         val pnl =
             if (port == null) {
+                if (realMode) {
+                    throw IllegalStateException("RiskPositionPort unavailable in REAL mode")
+                }
                 log.debug(
                     "DailyPnlCalculator RiskPositionPort 미합류 — fallback 0 (userId={} kstDate={})",
                     userId,
@@ -72,6 +75,9 @@ class DailyPnlCalculator(
                     val kstMidnight = kstMidnightInstant(kstDate)
                     port.sumDailyRealizedPnl(userId, kstMidnight)
                 } catch (e: Exception) {
+                    if (realMode) {
+                        throw IllegalStateException("Daily realized PnL unavailable in REAL mode", e)
+                    }
                     log.warn(
                         "DailyPnlCalculator port.sumDailyRealizedPnl 실패 (fallback 0): userId={} err={}",
                         userId,

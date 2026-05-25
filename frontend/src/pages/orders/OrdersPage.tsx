@@ -16,6 +16,7 @@ import { useOnboardingStore } from '../../stores/onboarding'
 import { useOrders } from '../../api/hooks/useOrders'
 import { useStompOrder } from '../../api/hooks/useStompOrder'
 import { useRealTradingConsent } from '../../api/hooks/useUpdateRealTradingConsent'
+import { useRuntimeFlags } from '../../api/hooks/useRuntimeFlags'
 import { OrderCard } from '../../components/order/OrderCard'
 import type { OrderStatus, OrderSource } from '../../api/order'
 
@@ -78,7 +79,11 @@ export function OrdersPage() {
 
   // 실거래 동의 상태 배지용
   const { data: consent } = useRealTradingConsent(userId)
-  const isRealMode = !!(consent?.realTradingConsentAt)
+  const { data: runtimeFlags } = useRuntimeFlags(userId)
+  const isRealMode =
+    runtimeFlags?.mode === 'REAL' &&
+    (runtimeFlags?.allowReal ?? false) &&
+    (runtimeFlags?.userConsented ?? !!consent?.realTradingConsentAt)
 
   function handleSearchSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()

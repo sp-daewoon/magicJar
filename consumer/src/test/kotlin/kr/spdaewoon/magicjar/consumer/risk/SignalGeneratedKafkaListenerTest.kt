@@ -26,6 +26,7 @@ import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.ObjectProvider
+import org.springframework.kafka.support.Acknowledgment
 import java.math.BigDecimal
 
 class SignalGeneratedKafkaListenerTest {
@@ -60,7 +61,7 @@ class SignalGeneratedKafkaListenerTest {
         every { tradeFrequencyGuard.record(100L, "user-A", 77L, now) } just Runs
         every { killSwitchQueryPort.isOn("user-A") } returns false
 
-        listener().onSignalGenerated(record(payload(side = "BUY", price = "50000")))
+        listener().onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
 
         verify(exactly = 1) { signalRiskStatusUpdater.markAllowed(77L) }
         verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 20) }
@@ -77,7 +78,7 @@ class SignalGeneratedKafkaListenerTest {
         every { killSwitchQueryPort.isOn("user-A") } returns true
         every { riskEventRepository.save(any()) } answers { firstArg<RiskEvent>() }
 
-        listener().onSignalGenerated(record(payload(side = "BUY", price = "50000")))
+        listener().onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
 
         verify(exactly = 1) {
             signalRiskStatusUpdater.markBlocked(77L, RiskRule.KILL_SWITCH_ON, match { it.contains("KillSwitch") })
@@ -98,7 +99,7 @@ class SignalGeneratedKafkaListenerTest {
         every { tradeFrequencyGuard.record(100L, "user-A", 77L, now) } just Runs
         every { killSwitchQueryPort.isOn("user-A") } returns false
 
-        listener().onSignalGenerated(record(payload(side = "SELL", price = "72000")))
+        listener().onSignalGenerated(record(payload(side = "SELL", price = "72000")), ack())
 
         verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 7) }
     }
@@ -116,7 +117,7 @@ class SignalGeneratedKafkaListenerTest {
         listener(
             magicjarMode = "REAL",
             executionBackfillProvider = providerOf(executionBackfillService),
-        ).onSignalGenerated(record(payload(side = "BUY", price = "50000")))
+        ).onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
 
         verify(exactly = 1) {
             signalRiskStatusUpdater.markBlocked(77L, RiskRule.KIS_EXECUTION_SYNC_STALE, match { it.contains("KIS_EXECUTION_SYNC_STALE") })
@@ -148,7 +149,7 @@ class SignalGeneratedKafkaListenerTest {
         listener(
             magicjarMode = "REAL",
             executionBackfillProvider = providerOf(executionBackfillService),
-        ).onSignalGenerated(record(payload(side = "BUY", price = "50000")))
+        ).onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
 
         verify(exactly = 1) {
             signalRiskStatusUpdater.markBlocked(77L, RiskRule.KIS_EXECUTION_SYNC_STALE, match { it.contains("DAILY_PNL_UNAVAILABLE") })
@@ -214,6 +215,8 @@ class SignalGeneratedKafkaListenerTest {
         )
 
     private fun record(value: String) = ConsumerRecord("signal.generated.v1", 0, 0L, "user-A", value)
+
+    private fun ack(): Acknowledgment = mockk(relaxed = true)
 
     private fun <T : Any> providerOf(value: T): ObjectProvider<T> =
         mockk<ObjectProvider<T>>().also {

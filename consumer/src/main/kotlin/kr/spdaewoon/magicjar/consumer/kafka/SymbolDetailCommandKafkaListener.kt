@@ -33,6 +33,7 @@ class SymbolDetailCommandKafkaListener(
     @KafkaListener(
         topics = ["symbol.detail.command.v1"],
         groupId = "magicjar-consumer-symbol-detail",
+        containerFactory = "manualImmediateKafkaListenerContainerFactory",
     )
     fun onMessage(
         record: ConsumerRecord<String, String>,

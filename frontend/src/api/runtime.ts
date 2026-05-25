@@ -64,8 +64,10 @@ export const runtimeApi = {
    *
    * backend 구현 의존 — 미구현 시 404 / 500. frontend는 isError 시 indicator hidden.
    */
-  getFlags: async (): Promise<RuntimeFlagsDto> => {
-    const res = await apiClient.get<RuntimeFlagsBackendDto>('/runtime/flags')
+  getFlags: async (userId?: string | number | null): Promise<RuntimeFlagsDto> => {
+    const res = await apiClient.get<RuntimeFlagsBackendDto>('/runtime/flags', {
+      params: userId == null ? undefined : { userId },
+    })
     const raw = res.data
     return {
       mode: raw.mode ?? raw.magicjarMode ?? 'MOCK',

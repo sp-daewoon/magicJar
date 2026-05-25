@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Component
+import java.util.concurrent.TimeUnit
 
 /**
  * 주문 의도(order.intent.v1) Kafka publish 어댑터 (ADR 0067 §7-1 + E-1 정합).
@@ -42,6 +43,7 @@ class OrderIntentKafkaProducer(
 
     companion object {
         const val TOPIC = "order.intent.v1"
+        private const val KAFKA_SEND_TIMEOUT_SECONDS = 5L
     }
 
     fun publish(
@@ -108,7 +110,9 @@ class OrderIntentKafkaProducer(
             }
 
         try {
-            kafkaTemplate.send(TOPIC, signal.userId, payload)
+            kafkaTemplate
+                .send(TOPIC, signal.userId, payload)
+                .get(KAFKA_SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             if (outboxId != null) {
                 runCatching { outboxRepository?.markPublished(outboxId) }
                     .onFailure { e ->

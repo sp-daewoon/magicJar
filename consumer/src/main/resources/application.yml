@@ -31,7 +31,7 @@ spring:
       properties:
         isolation.level: read_committed
     listener:
-      ack-mode: MANUAL_IMMEDIATE
+      ack-mode: RECORD
       concurrency: 1
     # system.kis-key-changed.v1 consumer group (ADR 0074 Phase 3)
     # groupId: magicjar-consumer-system (SystemKisKeyChangedListener @KafkaListener 설정)

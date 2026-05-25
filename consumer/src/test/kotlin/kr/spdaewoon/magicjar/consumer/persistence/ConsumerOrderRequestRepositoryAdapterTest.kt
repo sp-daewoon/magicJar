@@ -100,6 +100,7 @@ class ConsumerOrderRequestRepositoryAdapterTest {
                 requestedAt = now.minusSeconds(1),
             )
         every { jpa.findById(42L) } returns Optional.of(existing)
+        every { jpa.findAllByKisOrderNoOrderByIdAsc("ODNO123") } returns emptyList()
         every { jpa.save(any()) } answers { firstArg() }
 
         val result = adapter.updateKisAck(42L, "ODNO123", "ORG001", now)
@@ -109,6 +110,53 @@ class ConsumerOrderRequestRepositoryAdapterTest {
         assertThat(result?.kisFwdgOrgno).isEqualTo("ORG001")
         assertThat(result?.status).isEqualTo(OrderStatus.ACK)
         assertThat(result?.acknowledgedAt).isEqualTo(now)
+    }
+
+    @Test
+    fun `(2-2) updateKisAck - WS_PREINSERT sentinel이 있으면 execution과 audit을 원 주문으로 병합`() {
+        val now = Instant.parse("2026-05-18T03:02:56Z")
+        val canonical =
+            ConsumerOrderRequestJpaEntity(
+                id = 42L,
+                signalId = 99001L,
+                userId = "74683223",
+                code = "005930",
+                side = OrderSide.BUY,
+                qty = BigDecimal.ONE,
+                priceType = OrderPriceType.MARKET,
+                status = OrderStatus.REQUESTED,
+                mode = TradingMode.REAL,
+                idempotencyKey = "99001:74683223",
+                requestedAt = now.minusSeconds(1),
+            )
+        val sentinel =
+            ConsumerOrderRequestJpaEntity(
+                id = 100L,
+                signalId = 0L,
+                userId = "74683223",
+                code = "005930",
+                side = OrderSide.BUY,
+                qty = BigDecimal.ONE,
+                priceType = OrderPriceType.MARKET,
+                status = OrderStatus.ACK,
+                mode = TradingMode.REAL,
+                kisOrderNo = "ODNO123",
+                idempotencyKey = "WS_PREINSERT:ODNO123",
+                requestedAt = now.minusSeconds(1),
+            )
+        every { jpa.findById(42L) } returns Optional.of(canonical)
+        every { jpa.findAllByKisOrderNoOrderByIdAsc("ODNO123") } returns listOf(sentinel)
+        every { jpa.reassignExecutions(100L, 42L) } returns 1
+        every { jpa.reassignAuditEvents(100L, 42L) } returns 1
+        every { jpa.delete(sentinel) } returns Unit
+        every { jpa.save(any()) } answers { firstArg() }
+
+        val result = adapter.updateKisAck(42L, "ODNO123", "ORG001", now)
+
+        assertThat(result?.kisOrderNo).isEqualTo("ODNO123")
+        verify(exactly = 1) { jpa.reassignExecutions(100L, 42L) }
+        verify(exactly = 1) { jpa.reassignAuditEvents(100L, 42L) }
+        verify(exactly = 1) { jpa.delete(sentinel) }
     }
 
     @Test

@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.order
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.consumer.persistence.KillSwitchJpaRepository
 import kr.spdaewoon.magicjar.domain.order.execution.DenyReason
 import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEvent
 import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEventType
@@ -56,8 +57,7 @@ import java.time.Instant
  * - concurrency=1 per partition (멀티스레드 race 회피)
  * - isolation.level=read_committed
  *
- * 본 PR은 listener 흐름 LOCK 구현. ack-mode·concurrency 등 컨테이너 factory 별도 설정은
- * application.yml `spring.kafka.listener.ack-mode=manual_immediate` 의존 (기존 설정 정합).
+ * 본 listener는 `manualImmediateKafkaListenerContainerFactory`를 명시해 KIS submit 이후 offset commit 시점을 직접 제어한다.
  *
  * ### Phase 2 graceful fallback (헌법 §6 + ADR 0066 ObjectProvider 패턴)
  * OrderRequestRepository / OrderAuditEventRepository / KillSwitchQueryPort 미합류 시 ObjectProvider로
@@ -84,6 +84,7 @@ class OrderRouterKafkaListener(
     private val orderRejectedKafkaProducer: OrderRejectedKafkaProducer,
     private val accountBalanceChangedKafkaProducer: AccountBalanceChangedKafkaProducer,
     private val executionBackfillServiceProvider: ObjectProvider<KisExecutionBackfillService>,
+    private val killSwitchJpaRepositoryProvider: ObjectProvider<KillSwitchJpaRepository>,
     private val objectMapper: ObjectMapper,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String = "MOCK",
@@ -94,6 +95,7 @@ class OrderRouterKafkaListener(
         const val TOPIC = "order.intent.v1"
         const val GROUP = "magicjar-consumer-order"
         private const val RETRY_BACKOFF_MS = 500L
+        private const val POST_KIS_DB_SYNC_FAILED_REASON = "ORDER_DB_SYNC_FAILED"
     }
 
     /**
@@ -103,6 +105,7 @@ class OrderRouterKafkaListener(
     @KafkaListener(
         topics = [TOPIC],
         groupId = GROUP,
+        containerFactory = "manualImmediateKafkaListenerContainerFactory",
     )
     fun onOrderIntent(
         record: ConsumerRecord<String, String>,
@@ -290,20 +293,27 @@ class OrderRouterKafkaListener(
 
                 val transitioned =
                     try {
-                        if (isPendingReconcile) {
-                            // PENDING_RECONCILE 상태로만 마킹 — completedAt 미설정 (worker 결정 후 설정).
-                            orderRequestRepositoryProvider
-                                .getIfAvailable()
-                                ?.updateStatus(savedOrderId, OrderStatus.PENDING_RECONCILE, rejectReason)
-                                ?: saved.copy(status = OrderStatus.PENDING_RECONCILE, rejectReason = rejectReason)
-                        } else {
-                            orderRequestRepositoryProvider
-                                .getIfAvailable()
-                                ?.updateStatus(savedOrderId, OrderStatus.REJECTED, rejectReason)
-                                ?: saved.copy(status = OrderStatus.REJECTED, rejectReason = rejectReason, completedAt = now)
-                        }
+                        val updated =
+                            if (isPendingReconcile) {
+                                // PENDING_RECONCILE 상태로만 마킹 — completedAt 미설정 (worker 결정 후 설정).
+                                orderRequestRepositoryProvider
+                                    .getIfAvailable()
+                                    ?.updateStatus(savedOrderId, OrderStatus.PENDING_RECONCILE, rejectReason)
+                            } else {
+                                orderRequestRepositoryProvider
+                                    .getIfAvailable()
+                                    ?.updateStatus(savedOrderId, OrderStatus.REJECTED, rejectReason)
+                            }
+                        updated ?: throw IllegalStateException("OrderRequestRepository.updateStatus returned null")
                     } catch (e: Exception) {
                         log.error("updateStatus $targetStatus 실패: orderId={} err={}", saved.id, e.message)
+                        handlePostKisDbSyncFailure(
+                            userId = saved.userId,
+                            orderId = savedOrderId,
+                            mode = mode,
+                            stage = "UPDATE_STATUS_$targetStatus",
+                            cause = e,
+                        )
                         saved.copy(
                             status = targetStatus,
                             rejectReason = rejectReason,
@@ -354,11 +364,22 @@ class OrderRouterKafkaListener(
             val ackData = (kisResult as OrderResult.Right).value
             val ackTime = Instant.now()
             try {
-                orderRequestRepositoryProvider
-                    .getIfAvailable()
-                    ?.updateKisAck(savedOrderId, ackData.kisOrderNo, ackData.kisFwdgOrgno, ackTime)
+                val updated =
+                    orderRequestRepositoryProvider
+                        .getIfAvailable()
+                        ?.updateKisAck(savedOrderId, ackData.kisOrderNo, ackData.kisFwdgOrgno, ackTime)
+                if (updated == null) {
+                    throw IllegalStateException("OrderRequestRepository.updateKisAck returned null")
+                }
             } catch (e: Exception) {
                 log.error("updateKisAck 실패: orderId={} err={}", savedOrderId, e.message)
+                handlePostKisDbSyncFailure(
+                    userId = saved.userId,
+                    orderId = savedOrderId,
+                    mode = mode,
+                    stage = "UPDATE_KIS_ACK",
+                    cause = e,
+                )
             }
 
             writeAudit(
@@ -676,6 +697,63 @@ class OrderRouterKafkaListener(
             )
         } catch (e: Exception) {
             log.error("writeAudit 실패: orderId={} userId={} eventType={} err={}", orderId, userId, eventType, e.message)
+        }
+    }
+
+    private fun handlePostKisDbSyncFailure(
+        userId: String,
+        orderId: Long,
+        mode: TradingMode,
+        stage: String,
+        cause: Exception,
+    ) {
+        writeAudit(
+            orderId = orderId,
+            userId = userId,
+            eventType = OrderAuditEventType.ORDER_DB_SYNC_FAILED,
+            payload =
+                mapOf(
+                    "stage" to stage,
+                    "reason" to POST_KIS_DB_SYNC_FAILED_REASON,
+                    "error" to (cause.message ?: "unknown"),
+                    "mode" to mode.name,
+                ),
+        )
+
+        if (mode != TradingMode.REAL) return
+
+        val killSwitchRepo = killSwitchJpaRepositoryProvider.getIfAvailable()
+        if (killSwitchRepo == null) {
+            log.error(
+                "REAL post-KIS DB sync 실패 후 KillSwitchJpaRepository 미합류: userId={} orderId={} stage={}",
+                userId,
+                orderId,
+                stage,
+            )
+            return
+        }
+
+        try {
+            killSwitchRepo.enableKillSwitch(
+                userId = userId,
+                reason = "$POST_KIS_DB_SYNC_FAILED_REASON:$stage",
+                updatedBy = "consumer-order-router",
+            )
+            log.error(
+                "KillSwitch auto-ON: REAL post-KIS DB sync 실패 userId={} orderId={} stage={}",
+                userId,
+                orderId,
+                stage,
+            )
+        } catch (e: Exception) {
+            log.error(
+                "KillSwitch auto-ON 실패: userId={} orderId={} stage={} err={}",
+                userId,
+                orderId,
+                stage,
+                e.message,
+                e,
+            )
         }
     }
 

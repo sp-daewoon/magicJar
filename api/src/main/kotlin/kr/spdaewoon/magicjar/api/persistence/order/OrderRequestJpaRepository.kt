@@ -5,6 +5,7 @@ import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor
+import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
 import java.time.Instant
@@ -21,6 +22,8 @@ interface OrderRequestJpaRepository :
     JpaRepository<OrderRequestJpaEntity, Long>,
     JpaSpecificationExecutor<OrderRequestJpaEntity> {
     fun findByKisOrderNo(kisOrderNo: String): OrderRequestJpaEntity?
+
+    fun findAllByKisOrderNoOrderByIdAsc(kisOrderNo: String): List<OrderRequestJpaEntity>
 
     fun findByIdempotencyKey(idempotencyKey: String): OrderRequestJpaEntity?
 
@@ -81,4 +84,24 @@ interface OrderRequestJpaRepository :
     fun findLastFilledAtByUserId(
         @Param("userId") userId: String,
     ): Instant?
+
+    @Modifying
+    @Query(
+        value = "UPDATE order_execution SET order_id = :targetId WHERE order_id = :sourceId",
+        nativeQuery = true,
+    )
+    fun reassignExecutions(
+        @Param("sourceId") sourceId: Long,
+        @Param("targetId") targetId: Long,
+    ): Int
+
+    @Modifying
+    @Query(
+        value = "UPDATE order_audit_event SET order_id = :targetId WHERE order_id = :sourceId",
+        nativeQuery = true,
+    )
+    fun reassignAuditEvents(
+        @Param("sourceId") sourceId: Long,
+        @Param("targetId") targetId: Long,
+    ): Int
 }
