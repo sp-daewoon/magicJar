@@ -8,7 +8,7 @@ package kr.spdaewoon.magicjar.domain.strategy.dsl
  *
  * `volume_ma(20) * 1.5` → ArithmeticExpr(IndicatorRef("volume_ma",[20]), MUL, LiteralValue(1.5)).
  *
- * 우선순위: `* /` > `+ -` (parser.py:L450-L470 정합).
+ * 우선순위: `* /` > `+ -`.
  */
 data class ArithmeticExpr(
     val left: DslNode,

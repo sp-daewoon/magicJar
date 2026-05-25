@@ -485,10 +485,11 @@
         <article class="finding">
           <span class="badge p2">P2</span>
           <div>
-            <h3>남은 P2: 전략 CPU budget 자동 비활성화가 실제로는 동작하지 않습니다</h3>
-            <p>정책은 CPU time을 본다고 되어 있지만 측정 함수가 항상 <code>null</code>을 반환합니다. 현재는 wall-clock timeout만 의미 있습니다.</p>
+            <h3>처리 완료: 전략 CPU budget 자동 비활성화가 실제로 동작합니다</h3>
+            <p>평가 worker 내부에서 실제 thread CPU time을 측정하고, consumer 실시간 JVM에서도 strategy 테이블을 <code>DISABLED / CPU_BUDGET_EXCEEDED</code>로 갱신하는 콜백을 연결했습니다.</p>
             <div class="refs">
-              <span class="ref">strategy-engine/.../JvmStrategyEvaluator.kt:173</span>
+              <span class="ref">strategy-engine/.../JvmStrategyEvaluator.kt</span>
+              <span class="ref">consumer/.../ConsumerStrategyAutoDisableCallback.kt</span>
             </div>
           </div>
         </article>
@@ -496,10 +497,10 @@
         <article class="finding">
           <span class="badge p2">P2</span>
           <div>
-            <h3>남은 P2: DSL 산술 우선순위가 일반적인 계산 순서와 다르게 보입니다</h3>
-            <p><code>1 + 2 * 3</code> 같은 식이 <code>1 + (2 * 3)</code>이 아니라 <code>(1 + 2) * 3</code>처럼 파싱될 수 있습니다. 전략 조건 결과가 바뀔 수 있습니다.</p>
+            <h3>처리 완료: DSL 산술 우선순위를 일반 계산 순서로 정정</h3>
+            <p><code>1 + 2 * 3</code>이 <code>1 + (2 * 3)</code>으로 파싱되도록 바꿨습니다. <code>* /</code>가 <code>+ -</code>보다 먼저 묶입니다.</p>
             <div class="refs">
-              <span class="ref">strategy-engine/.../KisYamlDslParser.kt:300</span>
+              <span class="ref">strategy-engine/.../KisYamlDslParser.kt</span>
             </div>
           </div>
         </article>
@@ -713,7 +714,7 @@
       <h2 id="next-title">남은 추천 개선</h2>
       <ol class="next-list">
         <li><code>KisWebSocketBridge</code>에서 시세 REAL 세션과 체결통보 MOCK/REAL 세션을 구조적으로 분리합니다.</li>
-        <li>DSL 산술 파서에 일반 우선순위 테스트를 추가하고, 기존 전략 결과가 바뀌는지 migration note를 만듭니다.</li>
+        <li>DSL 산술 파서에 일반 우선순위 테스트를 추가했습니다. 기존 전략 중 <code>+ - * /</code>를 괄호 없이 섞어 쓴 식은 결과가 바뀔 수 있으므로 배포 시 한 번 점검합니다.</li>
         <li>전략 CPU budget은 wall-clock timeout과 별개로 실제 CPU 측정이 가능한 방식으로 다시 설계합니다.</li>
         <li>REAL/MOCK 전환 회귀 테스트를 API, consumer, frontend에 시나리오 단위로 더 추가합니다.</li>
         <li>운영 대시보드에 <code>INVALID_ORDER_INTENT</code>, <code>SELL_WITHOUT_POSITION</code>, Redis idempotency 장애 카운터를 노출합니다.</li>

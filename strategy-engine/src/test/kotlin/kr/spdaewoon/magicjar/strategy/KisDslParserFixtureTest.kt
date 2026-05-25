@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.strategy
 
 import kr.spdaewoon.magicjar.domain.strategy.StrategyException
 import kr.spdaewoon.magicjar.domain.strategy.dsl.ArithmeticExpr
+import kr.spdaewoon.magicjar.domain.strategy.dsl.ArithmeticOperator
 import kr.spdaewoon.magicjar.domain.strategy.dsl.CompositeCondition
 import kr.spdaewoon.magicjar.domain.strategy.dsl.Condition
 import kr.spdaewoon.magicjar.domain.strategy.dsl.ConditionType
@@ -95,23 +96,26 @@ class KisDslParserFixtureTest {
     }
 
     @Test
-    fun `arithmetic — KIS precedence ADD_SUB binds tighter than MUL_DIV (parser_py L461-L483)`() {
-        // KIS raw 정합 (자체 추론 0):
-        //   _parse_arithmetic = MUL/DIV (top-level, lower precedence)
-        //   _parse_term = ADD/SUB (binds tighter)
-        //
-        // 따라서 `close < ma(20) - atr(14) * 2` →
-        //   THRESHOLD lhs=close · rhs=ArithmeticExpr( ArithmeticExpr(ma, SUB, atr), MUL, 2 )
-        //
-        // (일반 수학 우선순위와 정반대지만 KIS 호환 LOCK — Source: parser.py:L461-L483)
+    fun `arithmetic — standard precedence MUL_DIV binds tighter than ADD_SUB`() {
+        // `close < ma(20) - atr(14) * 2` →
+        //   THRESHOLD lhs=close · rhs=ArithmeticExpr(ma, SUB, ArithmeticExpr(atr, MUL, 2))
         val ast = parser.parse("close < ma(20) - atr(14) * 2")
         val cond = assertInstanceOf(Condition::class.java, ast)
         assertEquals(Operator.LT, cond.operator)
         val rhs = assertInstanceOf(ArithmeticExpr::class.java, cond.right)
-        // 최상위가 MUL · left가 SUB (KIS LOCK)
-        assertEquals(kr.spdaewoon.magicjar.domain.strategy.dsl.ArithmeticOperator.MUL, rhs.operator)
-        val rhsLeft = assertInstanceOf(ArithmeticExpr::class.java, rhs.left)
-        assertEquals(kr.spdaewoon.magicjar.domain.strategy.dsl.ArithmeticOperator.SUB, rhsLeft.operator)
+        assertEquals(ArithmeticOperator.SUB, rhs.operator)
+        val rhsRight = assertInstanceOf(ArithmeticExpr::class.java, rhs.right)
+        assertEquals(ArithmeticOperator.MUL, rhsRight.operator)
+    }
+
+    @Test
+    fun `arithmetic — one plus two times three parses as seven`() {
+        val ast = parser.parse("1 + 2 * 3 == 7")
+        val cond = assertInstanceOf(Condition::class.java, ast)
+        val lhs = assertInstanceOf(ArithmeticExpr::class.java, cond.left)
+        assertEquals(ArithmeticOperator.ADD, lhs.operator)
+        val rhs = assertInstanceOf(ArithmeticExpr::class.java, lhs.right)
+        assertEquals(ArithmeticOperator.MUL, rhs.operator)
     }
 
     @Test

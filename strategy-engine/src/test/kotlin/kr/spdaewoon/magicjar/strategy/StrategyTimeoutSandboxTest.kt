@@ -10,6 +10,7 @@ import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.pattern.PatternMatch
 import kr.spdaewoon.magicjar.domain.pattern.port.PatternRecognizer
+import kr.spdaewoon.magicjar.domain.strategy.Signal
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
 import kr.spdaewoon.magicjar.domain.strategy.StrategyException
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -137,6 +138,44 @@ class StrategyTimeoutSandboxTest {
     }
 
     @Test
+    fun `cpu budget violation threshold triggers auto-disable callback`() {
+        val evalPool =
+            ThreadPoolTaskExecutor().apply {
+                corePoolSize = 1
+                maxPoolSize = 1
+                queueCapacity = 5
+                setThreadNamePrefix("strategy-eval-test-")
+                setRejectedExecutionHandler(ThreadPoolExecutor.CallerRunsPolicy())
+                initialize()
+            }
+
+        val disabledLog = mutableListOf<Pair<Long, StrategyDisabledReason>>()
+        val metricRecorder = StrategyEvalMetricRecorder()
+        val engine = IndicatorEngine(listOf(BusyIndicatorSource()))
+        val parser = KisYamlDslParser(astDepthLimit = 32, nodeCountLimit = 10000, indicatorCallLimit = 50)
+        val evaluator =
+            JvmStrategyEvaluator(
+                indicatorEngine = engine,
+                patternRecognizer = noopPatternRecognizer(),
+                identifierMapper = DslIdentifierMapper(),
+                evalPool = evalPool,
+                metricRecorder = metricRecorder,
+                autoDisableCallback = { id, r -> disabledLog.add(id to r) },
+                timeoutMs = 5000,
+                cpuBudgetMs = 1,
+                backtestTimeoutMs = 5000,
+                cpuBudgetViolationThreshold = 1,
+            )
+
+        val result = evaluator.evaluate(strategyId = 101L, ast = parser.parse("rsi(14) > 0"), candles = candles(30))
+
+        assertEquals(Signal.BUY, result.signal)
+        assertEquals(listOf(101L to StrategyDisabledReason.CPU_BUDGET_EXCEEDED), disabledLog)
+        val metrics = metricRecorder.lastN(101L)
+        assertTrue(metrics.any { it.outcome == "CPU_EXCEEDED" && (it.cpuTimeMs ?: 0L) > 1L })
+    }
+
+    @Test
     fun `pool thread name prefix is strategy-eval`() {
         val pool = StrategyEvalPoolConfig().strategyEvalPool(poolSize = 4, queueSize = 100)
         val nameHolder = mutableListOf<String>()
@@ -145,5 +184,66 @@ class StrategyTimeoutSandboxTest {
         Thread.sleep(50)
         assertEquals(1, nameHolder.size)
         assertTrue(nameHolder[0].startsWith("strategy-eval-"))
+    }
+
+    private fun noopPatternRecognizer(): PatternRecognizer =
+        object : PatternRecognizer {
+            override fun recognize(
+                candles: List<Candle>,
+                patterns: Set<String>,
+            ): List<PatternMatch> = emptyList()
+
+            override fun recognize(
+                name: String,
+                candles: List<Candle>,
+            ): Boolean = false
+
+            override fun consecutive(
+                direction: String,
+                candles: List<Candle>,
+            ): Int = 0
+        }
+
+    private fun candles(count: Int): List<Candle> =
+        (0 until count).map { i ->
+            Candle(
+                code = "005930",
+                interval = CandleInterval.ONE_DAY,
+                ts = Instant.fromEpochSeconds(1_700_000_000L + i * 86_400L),
+                openRaw = BigDecimal("100"),
+                highRaw = BigDecimal("105"),
+                lowRaw = BigDecimal("95"),
+                closeRaw = BigDecimal("100"),
+                openAdj = null,
+                highAdj = null,
+                lowAdj = null,
+                closeAdj = null,
+                volume = 1_000_000L,
+                source = "test",
+            )
+        }
+
+    private class BusyIndicatorSource : IndicatorSource {
+        override val name: String = "busy-fake"
+        override val priority: Int = 1
+
+        override fun supports(spec: IndicatorSpec): Boolean = true
+
+        override fun calculate(
+            spec: IndicatorSpec,
+            candles: List<Candle>,
+        ): IndicatorResult {
+            val deadline = System.nanoTime() + 50_000_000L
+            var spin = 0L
+            while (System.nanoTime() < deadline) {
+                spin += 1L
+            }
+            val value = BigDecimal((spin % 100L) + 1L)
+            return IndicatorResult(
+                spec = spec,
+                series = candles.map { IndicatorPoint(time = it.ts, values = mapOf(spec.name to value)) },
+                source = name,
+            )
+        }
     }
 }
