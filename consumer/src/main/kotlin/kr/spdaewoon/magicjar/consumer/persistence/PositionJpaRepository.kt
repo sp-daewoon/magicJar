@@ -16,8 +16,20 @@ interface PositionJpaRepository : JpaRepository<PositionJpaEntity, Long> {
         minQuantity: Int,
     ): List<PositionJpaEntity>
 
+    fun findByUserIdAndSourceAndQuantityGreaterThan(
+        userId: String,
+        source: String,
+        minQuantity: Int,
+    ): List<PositionJpaEntity>
+
     fun countByUserIdAndQuantityGreaterThan(
         userId: String,
+        minQuantity: Int,
+    ): Int
+
+    fun countByUserIdAndSourceAndQuantityGreaterThan(
+        userId: String,
+        source: String,
         minQuantity: Int,
     ): Int
 
@@ -26,8 +38,14 @@ interface PositionJpaRepository : JpaRepository<PositionJpaEntity, Long> {
         code: String,
     ): PositionJpaEntity?
 
+    fun findByUserIdAndCodeAndSource(
+        userId: String,
+        code: String,
+        source: String,
+    ): PositionJpaEntity?
+
     /**
-     * upsert — ON CONFLICT (user_id, code) DO UPDATE.
+     * upsert — ON CONFLICT (user_id, code, source) DO UPDATE.
      * idempotency 보장 (ADR 0042 §5-6 — 부팅 N회 반복 안전).
      */
     @Modifying
@@ -36,7 +54,7 @@ interface PositionJpaRepository : JpaRepository<PositionJpaEntity, Long> {
         value = """
             INSERT INTO position (user_id, code, quantity, qty, avg_price, source, entry_ts, updated_at, created_at)
             VALUES (:userId, :code, :quantity, :quantity, :avgPrice, 'REAL', now(), now(), now())
-            ON CONFLICT (user_id, code) DO UPDATE
+            ON CONFLICT (user_id, code, source) DO UPDATE
                 SET quantity = EXCLUDED.quantity,
                     qty = EXCLUDED.quantity,
                     source = 'REAL',
@@ -61,7 +79,7 @@ interface PositionJpaRepository : JpaRepository<PositionJpaEntity, Long> {
         value = """
             INSERT INTO position (user_id, code, quantity, qty, avg_price, source, entry_ts, updated_at, created_at)
             VALUES (:userId, :code, :quantity, :quantity, :avgPrice, :source, now(), now(), now())
-            ON CONFLICT (user_id, code) DO UPDATE
+            ON CONFLICT (user_id, code, source) DO UPDATE
                 SET quantity = EXCLUDED.quantity,
                     qty = EXCLUDED.qty,
                     avg_price = EXCLUDED.avg_price,

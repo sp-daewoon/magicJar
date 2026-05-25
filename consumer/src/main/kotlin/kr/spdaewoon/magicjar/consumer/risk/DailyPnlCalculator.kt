@@ -11,8 +11,10 @@ import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
 import kr.spdaewoon.magicjar.domain.risk.port.DailyPnlProvider
 import kr.spdaewoon.magicjar.domain.risk.port.RiskPositionPort
+import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
@@ -21,9 +23,9 @@ import java.time.Duration
 /**
  * 일일 실현 P&L 산출기 — KST 자정 reset (ADR 0067 §7-1 + B-1 정합).
  *
- *  1. Redis cache `daily_pnl:{userId}:{kstDate}` 우선 조회 (TTL 자정까지)
- *  2. miss 시 `RiskPositionPort.sumDailyRealizedPnl` 위임 (Phase 2 어댑터 부재 시 0 fallback)
- *  3. 결과 cache SET
+ *  1. REAL 모드: 주문 전 KIS 체결 sync 이후 DB 체결 이력을 매번 재계산 (일중 손실 stale cache 금지)
+ *  2. MOCK 모드: Redis cache `daily_pnl:{userId}:{kstDate}` 우선 조회 (TTL 자정까지)
+ *  3. miss 시 `RiskPositionPort.sumDailyRealizedPnl` 위임 (Phase 2 어댑터 부재 시 0 fallback)
  *
  * spec 인용: ADR 0067 §5-5 + §7-1 DailyPnlCalculator.
  *
@@ -33,6 +35,8 @@ import java.time.Duration
 class DailyPnlCalculator(
     private val redisTemplate: StringRedisTemplate,
     private val positionPortProvider: ObjectProvider<RiskPositionPort>,
+    @Value("\${magicjar.mode:MOCK}")
+    private val magicjarMode: String = "MOCK",
 ) : DailyPnlProvider {
     private val log = LoggerFactory.getLogger(DailyPnlCalculator::class.java)
 
@@ -48,8 +52,11 @@ class DailyPnlCalculator(
         val kstDate = kstNow.toLocalDateTime(KST).date
         val key = "$KEY_PREFIX$userId:$kstDate"
 
-        val cached = readCache(key)
-        if (cached != null) return cached
+        val realMode = RuntimeModeParser.isRealMode(magicjarMode)
+        if (!realMode) {
+            val cached = readCache(key)
+            if (cached != null) return cached
+        }
 
         val port = positionPortProvider.getIfAvailable()
         val pnl =
@@ -74,7 +81,9 @@ class DailyPnlCalculator(
                 }
             }
 
-        writeCache(key, pnl, kstNow, kstDate)
+        if (!realMode) {
+            writeCache(key, pnl, kstNow, kstDate)
+        }
         return pnl
     }
 

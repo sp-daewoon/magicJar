@@ -48,6 +48,20 @@ class RiskGatewayEvaluator {
             )
         }
 
+        if (signal.priceAtSignal <= BigDecimal.ZERO) {
+            return blocked(
+                signalId,
+                RiskRule.INVALID_SIGNAL_PRICE,
+                reason = "Signal price must be positive: ${signal.priceAtSignal.toPlainString()}",
+                context =
+                    mapOf(
+                        "priceAtSignal" to signal.priceAtSignal.toPlainString(),
+                        "side" to signal.side.name,
+                        "code" to signal.code,
+                    ),
+            )
+        }
+
         // 2. DAILY_LOSS_LIMIT — B-1 amount OR percent xor
         if (context.config.isDailyLossLimitActive) {
             val pnl = context.dailyRealizedPnl
@@ -108,6 +122,26 @@ class RiskGatewayEvaluator {
                             "currentCount" to currentCount,
                             "limit" to context.config.maxConcurrentPositions,
                             "codes" to context.currentPositions.map { it.code },
+                        ),
+                )
+            }
+        }
+
+        if (signal.side == SignalSide.SELL) {
+            val holdingQty =
+                context.currentPositions
+                    .firstOrNull { it.code == signal.code && it.quantity > 0 }
+                    ?.quantity
+                    ?: 0
+            if (holdingQty <= 0) {
+                return blocked(
+                    signalId,
+                    RiskRule.SELL_WITHOUT_POSITION,
+                    reason = "SELL signal has no current holding for code=${signal.code}",
+                    context =
+                        mapOf(
+                            "code" to signal.code,
+                            "currentCodes" to context.currentPositions.map { it.code },
                         ),
                 )
             }

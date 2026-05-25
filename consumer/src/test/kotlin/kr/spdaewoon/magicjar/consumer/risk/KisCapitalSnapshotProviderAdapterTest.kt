@@ -37,7 +37,7 @@ class KisCapitalSnapshotProviderAdapterTest {
     private val sut = KisCapitalSnapshotProviderAdapter(redis, objectMapper)
 
     private val userId = "user_test_001"
-    private val cacheKey = "account:balance:$userId"
+    private val cacheKey = "account:balance:$userId:MOCK"
     private val now: Instant = Instant.parse("2026-05-18T05:30:00Z")
 
     private fun fixtureSnapshot(netAssetValue: BigDecimal = BigDecimal("12000000.00")): KisAccountBalance =

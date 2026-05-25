@@ -3,22 +3,27 @@ package kr.spdaewoon.magicjar.consumer.risk
 import com.fasterxml.jackson.databind.ObjectMapper
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import kr.spdaewoon.magicjar.consumer.order.KisExecutionBackfillService
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.order.execution.port.KillSwitchQueryPort
 import kr.spdaewoon.magicjar.domain.risk.RiskContext
 import kr.spdaewoon.magicjar.domain.risk.RiskEvent
 import kr.spdaewoon.magicjar.domain.risk.RiskGatewayResult
+import kr.spdaewoon.magicjar.domain.risk.RiskRule
 import kr.spdaewoon.magicjar.domain.risk.RiskVerdict
 import kr.spdaewoon.magicjar.domain.risk.port.RiskConfigRepository
 import kr.spdaewoon.magicjar.domain.risk.port.RiskEventRepository
 import kr.spdaewoon.magicjar.domain.risk.port.RiskNotifier
 import kr.spdaewoon.magicjar.domain.risk.port.RiskPositionPort
 import kr.spdaewoon.magicjar.domain.risk.port.SignalRiskStatusUpdater
+import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import kr.spdaewoon.magicjar.domain.signal.Signal
 import kr.spdaewoon.magicjar.domain.signal.SignalSide
+import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
@@ -72,6 +77,9 @@ class SignalGeneratedKafkaListener(
     private val signalRiskStatusUpdaterProvider: ObjectProvider<SignalRiskStatusUpdater>,
     private val riskNotifierProvider: ObjectProvider<RiskNotifier>,
     private val killSwitchQueryPortProvider: ObjectProvider<KillSwitchQueryPort>,
+    private val executionBackfillServiceProvider: ObjectProvider<KisExecutionBackfillService>,
+    @Value("\${magicjar.mode:MOCK}")
+    private val magicjarMode: String = "MOCK",
     private val clock: Clock = Clock.System,
 ) {
     private val log = LoggerFactory.getLogger(SignalGeneratedKafkaListener::class.java)
@@ -95,7 +103,19 @@ class SignalGeneratedKafkaListener(
                 return
             }
 
-            val context = buildContext(signal)
+            val syncBlocked = ensureKisExecutionSyncIfReal(signal)
+            if (syncBlocked != null) {
+                handleBlocked(signal, syncBlocked)
+                return
+            }
+
+            val context =
+                try {
+                    buildContext(signal)
+                } catch (e: RealRiskContextUnavailableException) {
+                    handleBlocked(signal, syncBlocked(signal, e.reasonCode))
+                    return
+                }
             val result = riskGatewayEvaluator.evaluate(signal, context)
 
             when (result) {
@@ -118,6 +138,25 @@ class SignalGeneratedKafkaListener(
         context: RiskContext,
         allowed: RiskGatewayResult.Allowed,
     ) {
+        val quantity = resolveOrderQuantity(signal, context)
+        if (quantity <= 0) {
+            handleBlocked(
+                signal,
+                RiskGatewayResult.Blocked(
+                    signalId = allowed.signalId,
+                    rule = RiskRule.INVALID_ORDER_INTENT,
+                    reason = "Resolved order quantity must be positive: $quantity",
+                    context =
+                        mapOf(
+                            "code" to signal.code,
+                            "side" to signal.side.name,
+                            "quantity" to quantity,
+                        ),
+                ),
+            )
+            return
+        }
+
         // 1. signal.risk_status = ALLOWED 갱신 (Phase 2 어댑터 부재 시 skip)
         signalRiskStatusUpdaterProvider.getIfAvailable()?.let {
             try {
@@ -131,8 +170,54 @@ class SignalGeneratedKafkaListener(
         tradeFrequencyGuard.record(signal.strategyId, signal.userId, allowed.signalId, context.nowKst)
 
         // 3. order.intent.v1 publish — T-O 진입
-        orderIntentKafkaProducer.publish(signal, resolveOrderQuantity(signal, context))
+        orderIntentKafkaProducer.publish(signal, quantity)
     }
+
+    private fun ensureKisExecutionSyncIfReal(signal: Signal): RiskGatewayResult.Blocked? {
+        if (!RuntimeModeParser.isRealMode(magicjarMode)) return null
+        val syncService =
+            executionBackfillServiceProvider.getIfAvailable()
+                ?: return syncBlocked(signal, "SYNC_SERVICE_UNAVAILABLE")
+
+        val result =
+            try {
+                syncService.syncUserTodayExecutions(signal.userId, AccountType.REAL)
+            } catch (e: Exception) {
+                log.error("risk KIS execution sync 예외: userId={} signalId={} err={}", signal.userId, signal.id, e.message, e)
+                return syncBlocked(signal, "SYNC_EXCEPTION:${e.message ?: "UNKNOWN"}")
+            }
+
+        if (result.isComplete) {
+            log.info(
+                "risk KIS execution sync PASS: userId={} signalId={} fetched={} inserted={} alreadySynced={}",
+                signal.userId,
+                signal.id,
+                result.fetched,
+                result.inserted,
+                result.alreadySynced,
+            )
+            return null
+        }
+
+        return syncBlocked(signal, result.reasonCode)
+    }
+
+    private fun syncBlocked(
+        signal: Signal,
+        reasonCode: String,
+    ): RiskGatewayResult.Blocked =
+        RiskGatewayResult.Blocked(
+            signalId = signal.id ?: 0L,
+            rule = RiskRule.KIS_EXECUTION_SYNC_STALE,
+            reason = "KIS_EXECUTION_SYNC_STALE:$reasonCode",
+            context =
+                mapOf(
+                    "code" to signal.code,
+                    "side" to signal.side.name,
+                    "magicjarMode" to magicjarMode,
+                    "reasonCode" to reasonCode,
+                ),
+        )
 
     private fun handleBlocked(
         signal: Signal,
@@ -203,6 +288,7 @@ class SignalGeneratedKafkaListener(
 
     private fun buildContext(signal: Signal): RiskContext {
         val nowKst = clock.now()
+        val realMode = RuntimeModeParser.isRealMode(magicjarMode)
         val configRepo = riskConfigRepositoryProvider.getIfAvailable()
         val config =
             if (configRepo == null) {
@@ -222,19 +308,38 @@ class SignalGeneratedKafkaListener(
             try {
                 capitalSnapshotProvider.getCapital(signal.userId)
             } catch (e: Exception) {
+                if (realMode) {
+                    throw RealRiskContextUnavailableException("CAPITAL_UNAVAILABLE:${e.message ?: "UNKNOWN"}")
+                }
                 log.warn("CapitalSnapshotProvider 실패 (fallback 0): userId={} err={}", signal.userId, e.message)
                 BigDecimal.ZERO
             }
 
         val positionPort = riskPositionPortProvider.getIfAvailable()
         val positions =
-            positionPort?.let { runCatching { it.findCurrentByUser(signal.userId) }.getOrNull() }
-                ?: emptyList()
+            if (positionPort == null) {
+                if (realMode) {
+                    throw RealRiskContextUnavailableException("POSITION_PORT_UNAVAILABLE")
+                }
+                emptyList()
+            } else {
+                try {
+                    positionPort.findCurrentByUser(signal.userId)
+                } catch (e: Exception) {
+                    if (realMode) {
+                        throw RealRiskContextUnavailableException("POSITION_UNAVAILABLE:${e.message ?: "UNKNOWN"}")
+                    }
+                    emptyList()
+                }
+            }
 
         val dailyPnl =
             try {
                 dailyPnlCalculator.getDailyPnl(signal.userId, nowKst)
             } catch (e: Exception) {
+                if (realMode) {
+                    throw RealRiskContextUnavailableException("DAILY_PNL_UNAVAILABLE:${e.message ?: "UNKNOWN"}")
+                }
                 log.warn("DailyPnlCalculator 실패 (fallback 0): userId={} err={}", signal.userId, e.message)
                 BigDecimal.ZERO
             }
@@ -323,7 +428,7 @@ class SignalGeneratedKafkaListener(
             val priceAtSignal =
                 when (val raw = payload["priceAtSignal"]) {
                     is Number -> BigDecimal.valueOf(raw.toDouble())
-                    is String -> raw.toBigDecimalOrNull() ?: BigDecimal.ZERO
+                    is String -> raw.toBigDecimalOrNull() ?: return null
                     else -> BigDecimal.ZERO
                 }
             val contextJson = payload["contextJson"]?.toString()
@@ -346,4 +451,8 @@ class SignalGeneratedKafkaListener(
             log.error("SignalGeneratedKafkaListener deserialize 실패: err={}", e.message)
             null
         }
+
+    private class RealRiskContextUnavailableException(
+        val reasonCode: String,
+    ) : RuntimeException(reasonCode)
 }

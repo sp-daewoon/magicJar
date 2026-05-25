@@ -16,6 +16,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.stereotype.Component
+import java.math.BigDecimal
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
@@ -99,14 +100,21 @@ class KisExecutionWsListener(
 
         /**
          * ADR 0084 P0-3 — event_id 합성 규칙.
-         * `{kisOrderNo}:{stckCntgHour}:{cntgQty}` — WS 통보 + REST inquire-daily-ccld backfill 양 경로 동일.
+         * `{kisOrderNo}:{stckCntgHour}:{cntgQty}:{cntgPrice}` — 같은 초/같은 수량 부분체결 충돌을 줄인다.
          * Flyway V35 `uq_execution_event_id` UNIQUE partial index와 정합.
          */
         fun buildEventId(
             kisOrderNo: String,
             stckCntgHour: String,
             cntgQty: Int,
-        ): String = "$kisOrderNo:$stckCntgHour:$cntgQty"
+            cntgPrice: BigDecimal? = null,
+        ): String =
+            listOfNotNull(
+                kisOrderNo,
+                stckCntgHour,
+                cntgQty.toString(),
+                cntgPrice?.stripTrailingZeros()?.toPlainString(),
+            ).joinToString(":")
     }
 
     /**
@@ -474,7 +482,7 @@ class KisExecutionWsListener(
         }
 
         // ADR 0084 P0-3 — event_id 멱등 가드 (WS + REST backfill 양 경로 dedup LOCK)
-        val eventId = buildEventId(msg.odno, msg.stckCntgHour, msg.cntgQty)
+        val eventId = buildEventId(msg.odno, msg.stckCntgHour, msg.cntgQty, msg.cntgUnpr)
         val alreadyPersisted =
             try {
                 execRepo.existsByEventId(eventId)

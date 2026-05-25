@@ -7,6 +7,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
 import kr.spdaewoon.magicjar.domain.order.execution.port.KillSwitchQueryPort
+import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Value
@@ -56,8 +57,8 @@ class ManualOrderService(
      * @throws ResponseStatusException 400 validation 위반 / 403 게이트 차단 / 503 Kafka publish 실패
      */
     fun submit(request: ManualOrderRequestDto): ManualOrderSubmitResult {
-        val side = OrderSide.valueOf(request.side.uppercase())
-        val priceType = OrderPriceType.valueOf(request.priceType.uppercase())
+        val side = OrderSide.valueOf(request.side.trim().uppercase())
+        val priceType = OrderPriceType.valueOf(request.priceType.trim().uppercase())
         val limitPrice = validateLimitPrice(priceType, request.limitPrice)
 
         // ── api 측 fast precheck (UX 가속 — 권위는 consumer) ──
@@ -169,7 +170,7 @@ class ManualOrderService(
      * MOCK fallback은 정상 path로 흘려보냄 (consumer step 3 권위 재검증).
      */
     private fun preCheckRealGate(userId: String) {
-        val modeIsReal = magicjarMode.equals("REAL", ignoreCase = true)
+        val modeIsReal = RuntimeModeParser.isRealMode(magicjarMode)
         if (!modeIsReal) {
             // MOCK 모드 — MOCK fallback 정상 path (차단 X)
             return

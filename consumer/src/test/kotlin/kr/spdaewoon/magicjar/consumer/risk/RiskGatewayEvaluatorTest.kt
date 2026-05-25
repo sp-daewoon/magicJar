@@ -79,12 +79,34 @@ class RiskGatewayEvaluatorTest {
     fun `3b MAX_CONCURRENT_POSITIONS SELL 통과 — 청산은 size 한도 무관`() {
         val signal = sampleSignal(side = SignalSide.SELL)
         val positions = (1..5).map { samplePosition("00${it}000") }
-        val context = sampleContext(currentPositions = positions)
+        val context = sampleContext(currentPositions = positions + samplePosition("005930"))
 
         val result = evaluator.evaluate(signal, context)
 
         // MAX_CONCURRENT 검사 skip — POSITION_LIMIT도 SELL이라 skip → ALLOWED
         assertThat(result).isInstanceOf(RiskGatewayResult.Allowed::class.java)
+    }
+
+    @Test
+    fun `SELL_WITHOUT_POSITION BLOCKED — 보유 없는 매도 신호는 주문으로 보내지 않는다`() {
+        val signal = sampleSignal(side = SignalSide.SELL)
+        val context = sampleContext(currentPositions = emptyList())
+
+        val result = evaluator.evaluate(signal, context)
+
+        assertThat(result).isInstanceOf(RiskGatewayResult.Blocked::class.java)
+        assertThat((result as RiskGatewayResult.Blocked).rule).isEqualTo(RiskRule.SELL_WITHOUT_POSITION)
+    }
+
+    @Test
+    fun `INVALID_SIGNAL_PRICE BLOCKED — 가격 0 신호는 수량 계산 전에 차단`() {
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal.ZERO)
+        val context = sampleContext()
+
+        val result = evaluator.evaluate(signal, context)
+
+        assertThat(result).isInstanceOf(RiskGatewayResult.Blocked::class.java)
+        assertThat((result as RiskGatewayResult.Blocked).rule).isEqualTo(RiskRule.INVALID_SIGNAL_PRICE)
     }
 
     @Test

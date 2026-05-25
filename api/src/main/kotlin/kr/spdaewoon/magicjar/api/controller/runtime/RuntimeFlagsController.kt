@@ -74,7 +74,7 @@ class RuntimeFlagsController(
         )
         @RequestParam(required = false) userId: String?,
     ): RuntimeFlagsResponse {
-        val normalizedMode = magicjarMode.uppercase().takeIf { it in MODE_ALLOWED } ?: "MOCK"
+        val normalizedMode = magicjarMode.trim().uppercase().takeIf { it in MODE_ALLOWED } ?: "MOCK"
         val killSwitchActive = resolveKillSwitchActive(userId)
         val userConsented = resolveUserConsented(userId)
         log.debug(

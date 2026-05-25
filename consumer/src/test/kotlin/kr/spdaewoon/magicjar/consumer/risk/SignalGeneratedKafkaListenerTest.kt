@@ -8,6 +8,8 @@ import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import kr.spdaewoon.magicjar.consumer.order.KisExecutionBackfillService
+import kr.spdaewoon.magicjar.consumer.order.KisExecutionSyncResult
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.order.execution.port.KillSwitchQueryPort
 import kr.spdaewoon.magicjar.domain.position.Position
@@ -20,6 +22,7 @@ import kr.spdaewoon.magicjar.domain.risk.port.RiskEventRepository
 import kr.spdaewoon.magicjar.domain.risk.port.RiskNotifier
 import kr.spdaewoon.magicjar.domain.risk.port.RiskPositionPort
 import kr.spdaewoon.magicjar.domain.risk.port.SignalRiskStatusUpdater
+import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.ObjectProvider
@@ -39,6 +42,7 @@ class SignalGeneratedKafkaListenerTest {
     private val orderIntentKafkaProducer = mockk<OrderIntentKafkaProducer>(relaxed = true)
     private val riskViolationKafkaProducer = mockk<RiskViolationKafkaProducer>(relaxed = true)
     private val autoPauseGuard = mockk<AutoPauseGuard>(relaxed = true)
+    private val executionBackfillService = mockk<KisExecutionBackfillService>(relaxed = true)
     private val now = Instant.parse("2026-05-22T01:00:00Z")
     private val clock =
         object : Clock {
@@ -99,24 +103,81 @@ class SignalGeneratedKafkaListenerTest {
         verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 7) }
     }
 
-    private fun listener() =
-        SignalGeneratedKafkaListener(
-            objectMapper = objectMapper,
-            riskGatewayEvaluator = RiskGatewayEvaluator(),
-            tradeFrequencyGuard = tradeFrequencyGuard,
-            dailyPnlCalculator = dailyPnlCalculator,
-            capitalSnapshotProvider = capitalSnapshotProvider,
-            orderIntentKafkaProducer = orderIntentKafkaProducer,
-            riskViolationKafkaProducer = riskViolationKafkaProducer,
-            autoPauseGuard = autoPauseGuard,
-            riskConfigRepositoryProvider = providerOf(riskConfigRepository),
-            riskEventRepositoryProvider = providerOf(riskEventRepository),
-            riskPositionPortProvider = providerOf(riskPositionPort),
-            signalRiskStatusUpdaterProvider = providerOf(signalRiskStatusUpdater),
-            riskNotifierProvider = providerOf(riskNotifier),
-            killSwitchQueryPortProvider = providerOf(killSwitchQueryPort),
-            clock = clock,
-        )
+    @Test
+    fun `REAL 모드 KIS 체결 sync 실패 — risk 단계에서 BLOCKED 처리하고 order intent를 발행하지 않는다`() {
+        every { executionBackfillService.syncUserTodayExecutions("user-A", AccountType.REAL) } returns
+            KisExecutionSyncResult.failure(
+                userId = "user-A",
+                accountType = AccountType.REAL,
+                error = "KIS_FETCH_FAILED:timeout",
+            )
+        every { riskEventRepository.save(any()) } answers { firstArg<RiskEvent>() }
+
+        listener(
+            magicjarMode = "REAL",
+            executionBackfillProvider = providerOf(executionBackfillService),
+        ).onSignalGenerated(record(payload(side = "BUY", price = "50000")))
+
+        verify(exactly = 1) {
+            signalRiskStatusUpdater.markBlocked(77L, RiskRule.KIS_EXECUTION_SYNC_STALE, match { it.contains("KIS_EXECUTION_SYNC_STALE") })
+        }
+        verify(exactly = 1) { riskViolationKafkaProducer.publish(any(), match { it.rule == RiskRule.KIS_EXECUTION_SYNC_STALE }) }
+        verify(exactly = 0) { dailyPnlCalculator.getDailyPnl(any(), any()) }
+        verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any()) }
+    }
+
+    @Test
+    fun `REAL 모드 KIS sync 후 daily PnL 조회 실패도 BLOCKED 처리한다`() {
+        every { executionBackfillService.syncUserTodayExecutions("user-A", AccountType.REAL) } returns
+            KisExecutionSyncResult(
+                userId = "user-A",
+                accountType = AccountType.REAL,
+                fetched = 0,
+                inserted = 0,
+                alreadySynced = 0,
+                failed = 0,
+                error = null,
+                syncedAt = java.time.Instant.parse("2026-05-22T01:00:00Z"),
+            )
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } throws IllegalStateException("DB down")
+        every { riskEventRepository.save(any()) } answers { firstArg<RiskEvent>() }
+
+        listener(
+            magicjarMode = "REAL",
+            executionBackfillProvider = providerOf(executionBackfillService),
+        ).onSignalGenerated(record(payload(side = "BUY", price = "50000")))
+
+        verify(exactly = 1) {
+            signalRiskStatusUpdater.markBlocked(77L, RiskRule.KIS_EXECUTION_SYNC_STALE, match { it.contains("DAILY_PNL_UNAVAILABLE") })
+        }
+        verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any()) }
+    }
+
+    private fun listener(
+        magicjarMode: String = "MOCK",
+        executionBackfillProvider: ObjectProvider<KisExecutionBackfillService> = nullableProvider(),
+    ) = SignalGeneratedKafkaListener(
+        objectMapper = objectMapper,
+        riskGatewayEvaluator = RiskGatewayEvaluator(),
+        tradeFrequencyGuard = tradeFrequencyGuard,
+        dailyPnlCalculator = dailyPnlCalculator,
+        capitalSnapshotProvider = capitalSnapshotProvider,
+        orderIntentKafkaProducer = orderIntentKafkaProducer,
+        riskViolationKafkaProducer = riskViolationKafkaProducer,
+        autoPauseGuard = autoPauseGuard,
+        riskConfigRepositoryProvider = providerOf(riskConfigRepository),
+        riskEventRepositoryProvider = providerOf(riskEventRepository),
+        riskPositionPortProvider = providerOf(riskPositionPort),
+        signalRiskStatusUpdaterProvider = providerOf(signalRiskStatusUpdater),
+        riskNotifierProvider = providerOf(riskNotifier),
+        killSwitchQueryPortProvider = providerOf(killSwitchQueryPort),
+        executionBackfillServiceProvider = executionBackfillProvider,
+        magicjarMode = magicjarMode,
+        clock = clock,
+    )
 
     private fun sampleConfig(): RiskConfig =
         RiskConfig(
@@ -157,5 +218,10 @@ class SignalGeneratedKafkaListenerTest {
     private fun <T : Any> providerOf(value: T): ObjectProvider<T> =
         mockk<ObjectProvider<T>>().also {
             every { it.getIfAvailable() } returns value
+        }
+
+    private inline fun <reified T : Any> nullableProvider(): ObjectProvider<T> =
+        mockk<ObjectProvider<T>>().also {
+            every { it.getIfAvailable() } returns null
         }
 }

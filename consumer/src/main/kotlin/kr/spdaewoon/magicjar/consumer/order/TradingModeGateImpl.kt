@@ -5,6 +5,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderResult
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.order.execution.port.RealTradingConsentPort
 import kr.spdaewoon.magicjar.domain.order.execution.port.TradingModeGate
+import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Value
@@ -46,13 +47,13 @@ class TradingModeGateImpl(
 
     override fun resolveMode(userId: String): OrderResult<DenyReason.RealGateDenied, TradingMode> {
         // 조건 1: env mode가 REAL이 아니면 → MOCK 강제 (안전 default — §14-3)
-        if (magicjarMode != "REAL") {
+        if (!RuntimeModeParser.isRealMode(magicjarMode)) {
             log.debug("TradingModeGate MOCK fallback: userId={} env.mode={}", userId, magicjarMode)
             return OrderResult.Right(TradingMode.MOCK)
         }
 
         // 조건 2: ALLOW_REAL flag 필수
-        if (magicjarAllowReal != "true") {
+        if (!RuntimeModeParser.allowReal(magicjarAllowReal)) {
             log.warn(
                 "TradingModeGate REJECTED — MAGICJAR_ALLOW_REAL=false: userId={}",
                 userId,

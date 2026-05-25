@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MagicJar 자동매매 코드 점검 리포트</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172026;
+      --muted: #5d6975;
+      --line: #d9e0e7;
+      --paper: #f7f9fb;
+      --white: #ffffff;
+      --red: #c7363d;
+      --red-soft: #fff0f0;
+      --amber: #b56d00;
+      --amber-soft: #fff5df;
+      --green: #1d7f5f;
+      --green-soft: #eaf7f0;
+      --blue: #2368a2;
+      --blue-soft: #edf5ff;
+      --violet: #6653b7;
+      --violet-soft: #f2f0ff;
+      --shadow: 0 18px 45px rgba(20, 35, 50, .08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.58;
+    }
+
+    a {
+      color: inherit;
+    }
+
+    .page {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 48px 24px 80px;
+    }
+
+    .hero {
+      display: grid;
+      gap: 24px;
+      grid-template-columns: 1.35fr .65fr;
+      align-items: end;
+      margin-bottom: 28px;
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--blue);
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(34px, 5vw, 58px);
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    .lead {
+      max-width: 760px;
+      margin: 18px 0 0;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    .meta {
+      display: grid;
+      gap: 10px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--white);
+      box-shadow: var(--shadow);
+    }
+
+    .meta-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      border-bottom: 1px solid #eef2f6;
+      padding-bottom: 9px;
+      font-size: 14px;
+    }
+
+    .meta-row:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .meta-row b {
+      color: var(--ink);
+    }
+
+    .meta-row span {
+      color: var(--muted);
+      text-align: right;
+    }
+
+    section {
+      margin-top: 36px;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      font-size: 25px;
+      letter-spacing: 0;
+    }
+
+    .section-note {
+      margin: -4px 0 18px;
+      color: var(--muted);
+    }
+
+    .summary-grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .summary-card,
+    .finding,
+    .flow-shell,
+    .legend,
+    .check-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--white);
+      box-shadow: var(--shadow);
+    }
+
+    .summary-card {
+      padding: 18px;
+      min-height: 128px;
+    }
+
+    .summary-card strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 26px;
+      line-height: 1;
+    }
+
+    .summary-card span {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .findings {
+      display: grid;
+      gap: 14px;
+    }
+
+    .finding {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: auto 1fr;
+      padding: 18px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 46px;
+      height: 30px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .p1 {
+      background: var(--red-soft);
+      color: var(--red);
+    }
+
+    .p2 {
+      background: var(--amber-soft);
+      color: var(--amber);
+    }
+
+    .finding h3 {
+      margin: 2px 0 4px;
+      font-size: 17px;
+      letter-spacing: 0;
+    }
+
+    .finding p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .refs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    code,
+    .ref {
+      border: 1px solid #e2e8ef;
+      border-radius: 6px;
+      background: #f8fafc;
+      color: #2d3c48;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+    }
+
+    code {
+      padding: 1px 5px;
+    }
+
+    .ref {
+      padding: 5px 8px;
+      text-decoration: none;
+    }
+
+    .flow-shell {
+      overflow: auto;
+      padding: 18px;
+    }
+
+    .flow-svg {
+      display: block;
+      min-width: 1080px;
+      width: 100%;
+      height: auto;
+    }
+
+    .flow-text {
+      fill: #1b2832;
+      font-size: 16px;
+      font-weight: 800;
+    }
+
+    .flow-sub {
+      fill: #5d6975;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .legend-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .legend {
+      padding: 16px;
+    }
+
+    .legend h3 {
+      margin: 0 0 6px;
+      font-size: 16px;
+    }
+
+    .legend p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .checks {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .check-card {
+      padding: 18px;
+    }
+
+    .check-card strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .check-card p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .next-list {
+      display: grid;
+      gap: 10px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      counter-reset: item;
+    }
+
+    .next-list li {
+      position: relative;
+      padding: 14px 16px 14px 52px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--white);
+      box-shadow: var(--shadow);
+      counter-increment: item;
+    }
+
+    .next-list li::before {
+      content: counter(item);
+      position: absolute;
+      left: 16px;
+      top: 15px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--blue-soft);
+      color: var(--blue);
+      font-size: 13px;
+      font-weight: 900;
+      line-height: 24px;
+      text-align: center;
+    }
+
+    @media (max-width: 880px) {
+      .page {
+        padding: 32px 16px 56px;
+      }
+
+      .hero,
+      .summary-grid,
+      .legend-grid,
+      .checks {
+        grid-template-columns: 1fr;
+      }
+
+      .finding {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Code Review · Auto Trading Flow</p>
+        <h1>MagicJar 자동매매 코드 점검 리포트</h1>
+        <p class="lead">
+          자동매매가 시세를 받아 전략을 평가하고, 리스크 게이트를 통과한 뒤 실제 주문과 체결 반영까지 이어지는 전체 길을 초보 개발자도 따라갈 수 있게 정리했습니다. 2026-05-25 추가 패치로 P1 안전장치와 REAL/MOCK 분리 핵심 지점도 반영했습니다.
+        </p>
+      </div>
+      <aside class="meta" aria-label="리포트 정보">
+        <div class="meta-row"><b>점검일</b><span>2026-05-25</span></div>
+        <div class="meta-row"><b>범위</b><span>Consumer, Strategy, API, Frontend</span></div>
+        <div class="meta-row"><b>핵심 관점</b><span>실거래 안전장치와 주문 흐름</span></div>
+        <div class="meta-row"><b>결론</b><span>P1 처리 완료, P2 핵심 보강</span></div>
+      </aside>
+    </header>
+
+    <section aria-labelledby="summary-title">
+      <h2 id="summary-title">한눈에 보는 결론</h2>
+      <div class="summary-grid">
+        <article class="summary-card">
+          <strong>4</strong>
+          <span>P1급 안전 이슈를 처리했습니다. 손실 제한, 체결 중복, 주문 누락, 0 수량/가격 방어가 핵심입니다.</span>
+        </article>
+        <article class="summary-card">
+          <strong>분리</strong>
+          <span>시세/캔들은 REAL 고정 정책을 유지하고, 주문·잔고·포지션·리스크는 MOCK/REAL을 분리하도록 보강했습니다.</span>
+        </article>
+        <article class="summary-card">
+          <strong>통과</strong>
+          <span>Gradle 핵심 테스트, batch/strategy 테스트, 프론트 타입체크와 프론트 전체 테스트가 통과했습니다.</span>
+        </article>
+        <article class="summary-card">
+          <strong>관찰</strong>
+          <span>CPU budget과 DSL 산술 우선순위는 별도 P2 개선 후보로 남겨두는 것이 좋습니다.</span>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="patch-title">
+      <h2 id="patch-title">이번 패치 결과</h2>
+      <p class="section-note">실전/모의 혼선과 주문 안전장치 관점에서 실제 코드에 반영한 내용입니다.</p>
+      <div class="checks">
+        <article class="check-card">
+          <strong>P1 주문 안전장치</strong>
+          <p>일일 손실 제한은 체결 이력을 평균단가 방식으로 재계산하고, 잘못된 가격·0 수량·보유 없는 SELL은 주문 전 차단합니다.</p>
+        </article>
+        <article class="check-card">
+          <strong>REAL 체결 동기화 게이트</strong>
+          <p>REAL 주문은 KIS 당일 체결조회와 DB backfill이 성공해야 다음 단계로 갑니다. 조회·저장·손익/포지션 조회 실패 시 <code>KIS_EXECUTION_SYNC_STALE</code>로 차단합니다.</p>
+        </article>
+        <article class="check-card">
+          <strong>주문 누락 방지</strong>
+          <p>Redis 멱등성 장애는 조용히 버리지 않고 거절 주문/audit 경로로 남깁니다. 체결 event id에는 가격까지 포함해 부분체결 중복 오탐을 줄였습니다.</p>
+        </article>
+        <article class="check-card">
+          <strong>REAL/MOCK 분리</strong>
+          <p>런타임 모드 파서를 공통화하고, 포지션 unique key를 user+code+source로 바꿔 실전/모의 포지션이 서로 덮어쓰지 않게 했습니다.</p>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="real-mock-title">
+      <h2 id="real-mock-title">REAL/MOCK 점검 결과</h2>
+      <p class="section-note">사용자 정책: WS 시세와 캔들값은 REAL, 그 외 주문·잔고·포지션·리스크는 MOCK/REAL 각각 분리.</p>
+      <div class="checks">
+        <article class="check-card">
+          <strong>REAL 고정 유지</strong>
+          <p>시세 WebSocket, REST 현재가/호가, 캔들 refresh, batch 시장 데이터는 REAL 자격증명 기준 흐름으로 확인했습니다.</p>
+        </article>
+        <article class="check-card">
+          <strong>모드별 분리 보강</strong>
+          <p>주문 라우터, 수동 주문 precheck, reconcile, 포지션 조회, 자본 snapshot, KIS 키 변경 이벤트가 공통 파서와 계좌 타입별 key를 사용합니다. REAL 모드의 일일손익 cache는 stale 방지를 위해 우회합니다.</p>
+        </article>
+        <article class="check-card">
+          <strong>남은 구조 리스크</strong>
+          <p><code>KisWebSocketBridge</code>는 시세 구독과 체결통보 구독을 한 클래스에서 함께 다룹니다. 정책은 맞췄지만 장기적으로 세션/클래스 분리를 추천합니다.</p>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="findings-title">
+      <h2 id="findings-title">주요 발견 사항</h2>
+      <p class="section-note">실거래에 직접 영향을 줄 수 있는 항목을 위로 올렸고, 처리된 항목은 조치 내용을 함께 적었습니다.</p>
+      <div class="findings">
+        <article class="finding">
+          <span class="badge p1">P1</span>
+          <div>
+            <h3>처리 완료: 일일 손실 제한이 실제 손익을 보도록 보강</h3>
+            <p>기존에는 <code>order_execution.realized_pnl</code> 합계만 봐서 null이면 손실이 0처럼 보일 수 있었습니다. 이제 체결 이력을 replay해 평균단가 기준 실현손익을 계산하고, 현재 모드의 source만 집계합니다.</p>
+            <div class="refs">
+              <span class="ref">consumer/.../ConsumerRiskPositionAdapter.kt:35</span>
+              <span class="ref">api/.../V31__order_execution_realized_pnl.sql:7</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="finding">
+          <span class="badge p1">P1</span>
+          <div>
+            <h3>처리 완료: 체결 중복 제거 키에 가격 포함</h3>
+            <p>기존에는 <code>kisOrderNo + 체결시각 + 체결수량</code>만 사용했습니다. 이제 체결가까지 포함해 같은 초·같은 수량의 정상 부분체결을 중복으로 오판할 가능성을 낮췄습니다.</p>
+            <div class="refs">
+              <span class="ref">consumer/.../KisExecutionWsListener.kt:105</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="finding">
+          <span class="badge p1">P1</span>
+          <div>
+            <h3>처리 완료: 주문 멱등성 장애를 거절 주문으로 기록</h3>
+            <p>Redis 오류를 조용히 삼키지 않고 라우터에서 거절 처리합니다. <code>order_request=REJECTED</code>, audit, reject publish 경로로 남아 주문이 사라진 것처럼 보이지 않게 했습니다.</p>
+            <div class="refs">
+              <span class="ref">consumer/.../OrderIdempotencyGuardImpl.kt:26</span>
+              <span class="ref">consumer/.../OrderRouterKafkaListener.kt:130</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="finding">
+          <span class="badge p1">P1</span>
+          <div>
+            <h3>처리 완료: 0 수량 또는 0 가격 주문 차단</h3>
+            <p>신호 가격이 0 이하이거나, 보유 없는 SELL이거나, 계산 수량이 0 이하이면 주문 intent를 만들지 않고 리스크 차단 이벤트로 남기도록 바꿨습니다.</p>
+            <div class="refs">
+              <span class="ref">consumer/.../SignalGeneratedKafkaListener.kt:288</span>
+              <span class="ref">consumer/.../SignalGeneratedKafkaListener.kt:293</span>
+              <span class="ref">consumer/.../OrderRouterKafkaListener.kt:604</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="finding">
+          <span class="badge p2">P2</span>
+          <div>
+            <h3>남은 P2: 전략 CPU budget 자동 비활성화가 실제로는 동작하지 않습니다</h3>
+            <p>정책은 CPU time을 본다고 되어 있지만 측정 함수가 항상 <code>null</code>을 반환합니다. 현재는 wall-clock timeout만 의미 있습니다.</p>
+            <div class="refs">
+              <span class="ref">strategy-engine/.../JvmStrategyEvaluator.kt:173</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="finding">
+          <span class="badge p2">P2</span>
+          <div>
+            <h3>남은 P2: DSL 산술 우선순위가 일반적인 계산 순서와 다르게 보입니다</h3>
+            <p><code>1 + 2 * 3</code> 같은 식이 <code>1 + (2 * 3)</code>이 아니라 <code>(1 + 2) * 3</code>처럼 파싱될 수 있습니다. 전략 조건 결과가 바뀔 수 있습니다.</p>
+            <div class="refs">
+              <span class="ref">strategy-engine/.../KisYamlDslParser.kt:300</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="finding">
+          <span class="badge p2">P2</span>
+          <div>
+            <h3>처리 완료: REAL/MOCK 모드 비교 공통화</h3>
+            <p>공통 <code>RuntimeModeParser</code>를 추가해 대소문자와 앞뒤 공백을 통일 처리합니다. 주문 라우터, API precheck, WebSocket, reconcile, 키 변경 이벤트의 판단이 같은 기준을 쓰게 했습니다.</p>
+            <div class="refs">
+              <span class="ref">consumer/.../TradingModeGateImpl.kt:47</span>
+              <span class="ref">api/.../ManualOrderService.kt:171</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="finding">
+          <span class="badge p2">P2</span>
+          <div>
+            <h3>처리 완료: 프론트 테스트 기본 계좌 타입 정합</h3>
+            <p><code>PositionsPage</code>는 런타임 플래그와 저장값이 없으면 MOCK을 안전 기본값으로 사용합니다. 테스트 기대값을 이 정책에 맞춰 갱신했습니다.</p>
+            <div class="refs">
+              <span class="ref">frontend/.../usePreferredAccountType.ts:4</span>
+              <span class="ref">frontend/.../positions-page.test.tsx:147</span>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="flow-title">
+      <h2 id="flow-title">자동매매 흐름도</h2>
+      <p class="section-note">왼쪽에서 오른쪽으로, 위에서 아래로 읽으면 됩니다. 파란색은 시세/전략, 보라색은 리스크, 초록색은 주문/체결, 빨간색은 차단 또는 실패 경로입니다.</p>
+      <div class="flow-shell">
+        <svg class="flow-svg" viewBox="0 0 1120 1240" role="img" aria-labelledby="flow-svg-title flow-svg-desc" xmlns="http://www.w3.org/2000/svg">
+          <title id="flow-svg-title">MagicJar 자동매매 흐름도</title>
+          <desc id="flow-svg-desc">시세 수집부터 전략 평가, 리스크 검사, 주문 전송, 체결 반영까지의 단계별 흐름</desc>
+          <defs>
+            <marker id="arrow" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto" markerUnits="strokeWidth">
+              <path d="M2,2 L10,6 L2,10 Z" fill="#53616e"></path>
+            </marker>
+            <filter id="soft-shadow" x="-10%" y="-10%" width="120%" height="125%">
+              <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#142332" flood-opacity=".12"></feDropShadow>
+            </filter>
+          </defs>
+
+          <rect x="20" y="20" width="1080" height="1200" rx="18" fill="#ffffff" stroke="#d9e0e7"></rect>
+
+          <g filter="url(#soft-shadow)">
+            <rect x="90" y="70" width="260" height="86" rx="8" fill="#edf5ff" stroke="#a8cbea"></rect>
+            <text x="220" y="104" text-anchor="middle" class="flow-text">1. KIS 시세 수집</text>
+            <text x="220" y="130" text-anchor="middle" class="flow-sub">WebSocket / REST</text>
+
+            <rect x="430" y="70" width="260" height="86" rx="8" fill="#edf5ff" stroke="#a8cbea"></rect>
+            <text x="560" y="104" text-anchor="middle" class="flow-text">2. 캔들 생성/마감</text>
+            <text x="560" y="130" text-anchor="middle" class="flow-sub">Boundary Aggregation</text>
+
+            <rect x="770" y="70" width="260" height="86" rx="8" fill="#edf5ff" stroke="#a8cbea"></rect>
+            <text x="900" y="104" text-anchor="middle" class="flow-text">3. Kafka 발행</text>
+            <text x="900" y="130" text-anchor="middle" class="flow-sub">market.candle.closed.v1</text>
+
+            <rect x="770" y="230" width="260" height="86" rx="8" fill="#edf5ff" stroke="#a8cbea"></rect>
+            <text x="900" y="264" text-anchor="middle" class="flow-text">4. 캔들 이벤트 수신</text>
+            <text x="900" y="290" text-anchor="middle" class="flow-sub">BoundaryClosingKafkaListener</text>
+
+            <rect x="430" y="230" width="260" height="86" rx="8" fill="#edf5ff" stroke="#a8cbea"></rect>
+            <text x="560" y="264" text-anchor="middle" class="flow-text">5. 활성 전략 조회</text>
+            <text x="560" y="290" text-anchor="middle" class="flow-sub">RealtimeSignalGenerator</text>
+
+            <rect x="90" y="230" width="260" height="86" rx="8" fill="#edf5ff" stroke="#a8cbea"></rect>
+            <text x="220" y="264" text-anchor="middle" class="flow-text">6. 전략 DSL 평가</text>
+            <text x="220" y="290" text-anchor="middle" class="flow-sub">JvmStrategyEvaluator</text>
+          </g>
+
+          <path d="M350 113 H430" stroke="#53616e" stroke-width="2.4" fill="none" marker-end="url(#arrow)"></path>
+          <path d="M690 113 H770" stroke="#53616e" stroke-width="2.4" fill="none" marker-end="url(#arrow)"></path>
+          <path d="M900 156 V230" stroke="#53616e" stroke-width="2.4" fill="none" marker-end="url(#arrow)"></path>
+          <path d="M770 273 H690" stroke="#53616e" stroke-width="2.4" fill="none" marker-end="url(#arrow)"></path>
+          <path d="M430 273 H350" stroke="#53616e" stroke-width="2.4" fill="none" marker-end="url(#arrow)"></path>
+
+          <g filter="url(#soft-shadow)">
+            <path d="M220 390 L330 455 L220 520 L110 455 Z" fill="#f2f0ff" stroke="#bdb4f1"></path>
+            <text x="220" y="448" text-anchor="middle" class="flow-text">7. 신호 결과?</text>
+            <text x="220" y="475" text-anchor="middle" class="flow-sub">BUY / SELL / HOLD</text>
+
+            <rect x="430" y="412" width="260" height="86" rx="8" fill="#edf5ff" stroke="#a8cbea"></rect>
+            <text x="560" y="446" text-anchor="middle" class="flow-text">8. 신호 저장</text>
+            <text x="560" y="472" text-anchor="middle" class="flow-sub">signal.generated.v1</text>
+
+            <rect x="770" y="412" width="260" height="86" rx="8" fill="#f2f0ff" stroke="#bdb4f1"></rect>
+            <text x="900" y="446" text-anchor="middle" class="flow-text">9. 리스크 검사</text>
+            <text x="900" y="472" text-anchor="middle" class="flow-sub">킬스위치 / 손실 / 빈도 / 포지션</text>
+          </g>
+
+          <path d="M220 316 V390" stroke="#53616e" stroke-width="2.4" fill="none" marker-end="url(#arrow)"></path>
+          <path d="M330 455 H430" stroke="#53616e" stroke-width="2.4" fill="none" marker-end="url(#arrow)"></path>
+          <text x="365" y="439" text-anchor="middle" class="flow-sub">BUY/SELL</text>
+          <path d="M690 455 H770" stroke="#53616e" stroke-width="2.4" fill="none" marker-end="url(#arrow)"></path>
+          <path d="M220 520 V590 H90" stroke="#c7363d" stroke-width="2.4" fill="none" marker-end="url(#arrow)"></path>
+          <text x="170" y="579" text-anchor="middle" class="flow-sub">HOLD</text>
+
+          <g filter="url(#soft-shadow)">
+            <rect x="40" y="590" width="260" height="86" rx="8" fill="#f7f9fb" stroke="#d9e0e7"></rect>
+            <text x="170" y="624" text-anchor="middle" class="flow-text">주문 없음</text>
+            <text x="170" y="650" text-anchor="middle" class="flow-sub">시장 관찰 계속</text>
+
+            <rect x="770" y="590" width="260" height="92" rx="8" fill="#fff0f0" stroke="#f0a7aa"></rect>
+            <text x="900" y="624" text-anchor="middle" class="flow-text">차단 경로</text>
+            <text x="900" y="650" text-anchor="middle" class="flow-sub">risk_event 저장</text>
+            <text x="900" y="671" text-anchor="middle" class="flow-sub">UI 알림 / auto-pause</text>
+
+            <rect x="430" y="590" width="260" height="92" rx="8" fill="#eaf7f0" stroke="#a8d8bd"></rect>
+            <text x="560" y="624" text-anchor="middle" class="flow-text">10. 주문 의도 생성</text>
+            <text x="560" y="650" text-anchor="middle" class="flow-sub">수량 계산</text>
+            <text x="560" y="671" text-anchor="middle" class="flow-sub">order.intent.v1</text>
+          </g>
+
+          <path d="M900 498 V590" stroke="#c7363d" stroke-width="2.4" fill="none" marker-end="url(#arrow)"></path>
+          <text x="930" y="548" class="flow-sub">BLOCKED</text>
+          <path d="M770 636 H690" stroke="#1d7f5f" stroke-width="2.4" fill="none" marker-end="url(#arrow)"></path>
+          <text x="725" y="620" text-anchor="middle" class="flow-sub">ALLOWED</text>
+
+          <g filter="url(#soft-shadow)">
+            <rect x="90" y="765" width="260" height="86" rx="8" fill="#eaf7f0" stroke="#a8d8bd"></rect>
+            <text x="220" y="799" text-anchor="middle" class="flow-text">11. 주문 라우터</text>
+            <text x="220" y="825" text-anchor="middle" class="flow-sub">OrderRouterKafkaListener</text>
+
+            <rect x="430" y="765" width="260" height="86" rx="8" fill="#eaf7f0" stroke="#a8d8bd"></rect>
+            <text x="560" y="799" text-anchor="middle" class="flow-text">12. 3중 안전 확인</text>
+            <text x="560" y="825" text-anchor="middle" class="flow-sub">멱등성 / REAL-MOCK / 킬스위치</text>
+
+            <rect x="770" y="765" width="260" height="86" rx="8" fill="#eaf7f0" stroke="#a8d8bd"></rect>
+            <text x="900" y="799" text-anchor="middle" class="flow-text">13. 주문 요청 저장</text>
+            <text x="900" y="825" text-anchor="middle" class="flow-sub">order_request REQUESTED</text>
+
+            <rect x="770" y="925" width="260" height="86" rx="8" fill="#eaf7f0" stroke="#a8d8bd"></rect>
+            <text x="900" y="959" text-anchor="middle" class="flow-text">14. KIS 주문 전송</text>
+            <text x="900" y="985" text-anchor="middle" class="flow-sub">KisOrderHttpAdapter</text>
+
+            <path d="M560 925 L670 990 L560 1055 L450 990 Z" fill="#f2f0ff" stroke="#bdb4f1"></path>
+            <text x="560" y="983" text-anchor="middle" class="flow-text">15. KIS 응답?</text>
+            <text x="560" y="1010" text-anchor="middle" class="flow-sub">ACK / REJECT</text>
+
+            <rect x="90" y="947" width="260" height="86" rx="8" fill="#fff0f0" stroke="#f0a7aa"></rect>
+            <text x="220" y="981" text-anchor="middle" class="flow-text">거절/보류</text>
+            <text x="220" y="1007" text-anchor="middle" class="flow-sub">REJECTED / PENDING_RECONCILE</text>
+          </g>
+
+          <path d="M560 682 V725 H220 V765" stroke="#53616e" stroke-width="2.4" fill="none" marker-end="url(#arrow)"></path>
+          <path d="M350 808 H430" stroke="#53616e" stroke-width="2.4" fill="none" marker-end="url(#arrow)"></path>
+          <path d="M690 808 H770" stroke="#53616e" stroke-width="2.4" fill="none" marker-end="url(#arrow)"></path>
+          <path d="M900 851 V925" stroke="#53616e" stroke-width="2.4" fill="none" marker-end="url(#arrow)"></path>
+          <path d="M770 968 H670" stroke="#53616e" stroke-width="2.4" fill="none" marker-end="url(#arrow)"></path>
+          <path d="M450 990 H350" stroke="#c7363d" stroke-width="2.4" fill="none" marker-end="url(#arrow)"></path>
+          <text x="400" y="974" text-anchor="middle" class="flow-sub">실패</text>
+
+          <g filter="url(#soft-shadow)">
+            <rect x="430" y="1110" width="260" height="86" rx="8" fill="#eaf7f0" stroke="#a8d8bd"></rect>
+            <text x="560" y="1144" text-anchor="middle" class="flow-text">16. 체결 통보 수신</text>
+            <text x="560" y="1170" text-anchor="middle" class="flow-sub">KIS Execution WebSocket</text>
+
+            <rect x="770" y="1110" width="260" height="86" rx="8" fill="#eaf7f0" stroke="#a8d8bd"></rect>
+            <text x="900" y="1144" text-anchor="middle" class="flow-text">17. 체결/포지션 반영</text>
+            <text x="900" y="1170" text-anchor="middle" class="flow-sub">order_execution + position</text>
+          </g>
+
+          <path d="M560 1055 V1110" stroke="#1d7f5f" stroke-width="2.4" fill="none" marker-end="url(#arrow)"></path>
+          <text x="592" y="1088" class="flow-sub">ACK</text>
+          <path d="M690 1153 H770" stroke="#53616e" stroke-width="2.4" fill="none" marker-end="url(#arrow)"></path>
+        </svg>
+      </div>
+    </section>
+
+    <section aria-labelledby="read-title">
+      <h2 id="read-title">초보 개발자용 읽는 법</h2>
+      <div class="legend-grid">
+        <article class="legend">
+          <h3>입력: 시장 데이터</h3>
+          <p>KIS에서 들어오는 실시간 가격을 캔들로 묶고, 캔들이 닫히면 Kafka 이벤트로 다음 단계에 넘깁니다.</p>
+        </article>
+        <article class="legend">
+          <h3>판단: 전략과 리스크</h3>
+          <p>전략 DSL이 BUY/SELL/HOLD를 만들고, 리스크 게이트가 실제 주문으로 보내도 되는지 마지막으로 검사합니다.</p>
+        </article>
+        <article class="legend">
+          <h3>실행: 주문과 체결</h3>
+          <p>주문 라우터가 멱등성, 거래 모드, 킬스위치를 재검사한 뒤 KIS에 주문을 넣고 체결 결과로 포지션을 갱신합니다.</p>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="verify-title">
+      <h2 id="verify-title">검증 결과</h2>
+      <div class="checks">
+        <article class="check-card">
+          <strong>Gradle 핵심 테스트</strong>
+          <p><code>./gradlew :domain:test :consumer:test :api:test --rerun-tasks</code> 통과</p>
+        </article>
+        <article class="check-card">
+          <strong>추가 백엔드 테스트</strong>
+          <p><code>./gradlew :batch:test :strategy-engine:test --rerun-tasks</code> 통과</p>
+        </article>
+        <article class="check-card">
+          <strong>프론트 검증</strong>
+          <p><code>pnpm typecheck</code> 통과, <code>pnpm test</code> 418개 전체 통과</p>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="next-title">
+      <h2 id="next-title">남은 추천 개선</h2>
+      <ol class="next-list">
+        <li><code>KisWebSocketBridge</code>에서 시세 REAL 세션과 체결통보 MOCK/REAL 세션을 구조적으로 분리합니다.</li>
+        <li>DSL 산술 파서에 일반 우선순위 테스트를 추가하고, 기존 전략 결과가 바뀌는지 migration note를 만듭니다.</li>
+        <li>전략 CPU budget은 wall-clock timeout과 별개로 실제 CPU 측정이 가능한 방식으로 다시 설계합니다.</li>
+        <li>REAL/MOCK 전환 회귀 테스트를 API, consumer, frontend에 시나리오 단위로 더 추가합니다.</li>
+        <li>운영 대시보드에 <code>INVALID_ORDER_INTENT</code>, <code>SELL_WITHOUT_POSITION</code>, Redis idempotency 장애 카운터를 노출합니다.</li>
+      </ol>
+    </section>
+  </main>
+</body>
+</html>

@@ -19,7 +19,7 @@ class ConsumerExecutionPositionUpdateAdapterTest {
 
     @Test
     fun `BUY 체결은 기존 수량과 체결금액으로 평단을 재계산한다`() {
-        every { repository.findByUserIdAndCode("user-A", "005930") } returns
+        every { repository.findByUserIdAndCodeAndSource("user-A", "005930", "MOCK") } returns
             PositionJpaEntity(userId = "user-A", code = "005930", quantity = 10, avgPrice = BigDecimal("10000"))
 
         adapter.applyExecution(
@@ -40,7 +40,7 @@ class ConsumerExecutionPositionUpdateAdapterTest {
 
     @Test
     fun `SELL 체결은 보유 수량을 차감하고 전량 매도 시 평단을 0으로 둔다`() {
-        every { repository.findByUserIdAndCode("user-A", "005930") } returns
+        every { repository.findByUserIdAndCodeAndSource("user-A", "005930", "MOCK") } returns
             PositionJpaEntity(userId = "user-A", code = "005930", quantity = 5, avgPrice = BigDecimal("10000"))
 
         adapter.applyExecution(

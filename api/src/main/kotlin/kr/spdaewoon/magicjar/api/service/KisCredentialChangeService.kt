@@ -16,7 +16,7 @@ import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialId
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.api.secret.AesGcmCipher
-import kr.spdaewoon.magicjar.domain.user.AccountType
+import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import org.slf4j.LoggerFactory
 import org.springframework.data.domain.PageRequest
 import org.springframework.http.HttpStatus
@@ -134,7 +134,7 @@ class KisCredentialChangeService(
                 }
 
             // KIS OAuth tokenP 검증 (ADR 0074 §2-2-1 핵심 흐름 step 3)
-            val parsedAccountType = if (accountType == "REAL") AccountType.REAL else AccountType.MOCK
+            val parsedAccountType = RuntimeModeParser.accountTypeOrMock(accountType)
             val validationResult =
                 kisAuthValidator.validate(
                     accountType = parsedAccountType,
@@ -185,13 +185,13 @@ class KisCredentialChangeService(
 
             // Redis invalidate (ADR 0074 §7-1)
             kisCacheInvalidator.deleteAccessToken(userId, accountType)
-            if (accountType == "REAL") {
+            if (RuntimeModeParser.isRealMode(accountType)) {
                 kisCacheInvalidator.deleteApprovalKey(userId)
             }
             kisCacheInvalidator.setKeyChangedLock(userId, accountType)
 
             // Kafka publish (REAL만 — MOCK은 WS 미사용, ADR 0074 §2-2-3)
-            if (accountType == "REAL") {
+            if (RuntimeModeParser.isRealMode(accountType)) {
                 kisKeyChangedProducer.publish(userId, accountType)
             }
 
@@ -244,7 +244,7 @@ class KisCredentialChangeService(
         accountType: String,
     ): KisCredentialDeleteResponse {
         // REAL 삭제 금지 (ADR 0074 §2-2-1 §h)
-        if (accountType == "REAL") {
+        if (RuntimeModeParser.isRealMode(accountType)) {
             throw ResponseStatusException(
                 HttpStatus.FORBIDDEN,
                 """{"code":"REAL_DELETE_FORBIDDEN","message":"실전 계좌 자격증명은 삭제할 수 없습니다. 변경(PUT)만 허용됩니다"}""",

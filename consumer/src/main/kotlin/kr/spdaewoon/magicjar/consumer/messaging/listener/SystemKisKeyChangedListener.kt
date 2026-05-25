@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.consumer.messaging.listener
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import kr.spdaewoon.magicjar.consumer.ws.KisWebSocketBridge
+import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
@@ -78,7 +79,7 @@ class SystemKisKeyChangedListener(
             invalidateRedisCache(event.userId, event.accountType)
 
             // 3. REAL 키 변경 시만 WS graceful reconnect (MOCK은 WS 미사용)
-            if (event.accountType == "REAL") {
+            if (RuntimeModeParser.isRealMode(event.accountType)) {
                 kisWebSocketBridge.reconnectGracefully(event.userId)
                 log.info(
                     "[KisKeyChanged] WS reconnect 완료 — userId={} accountType={}",

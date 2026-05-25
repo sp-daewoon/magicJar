@@ -8,6 +8,7 @@ import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepositor
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.KillSwitchJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.PositionJpaRepository
+import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -334,7 +335,7 @@ class PositionBootstrapRunner(
             )
             return false
         }
-        if (!magicjarMode.equals("REAL", ignoreCase = true)) {
+        if (!RuntimeModeParser.isRealMode(magicjarMode)) {
             log.info(
                 "Position bootstrap skip — magicjar.mode={} (REAL 외 환경, 자동매매 비활성)",
                 magicjarMode,

@@ -13,6 +13,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.port.ExecutionPositionUpdate
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderAuditEventRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderExecutionRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
+import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
@@ -21,6 +22,7 @@ import org.springframework.boot.context.event.ApplicationReadyEvent
 import org.springframework.context.event.EventListener
 import org.springframework.stereotype.Component
 import reactor.core.scheduler.Schedulers
+import java.math.BigDecimal
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
@@ -92,7 +94,15 @@ class KisExecutionBackfillService(
             kisOrderNo: String,
             ordTmd: String,
             totCcldQty: Int,
-        ): String = "$BACKFILL_EVENT_ID_PREFIX:$kisOrderNo:$ordTmd:$totCcldQty"
+            avgPrice: BigDecimal? = null,
+        ): String =
+            listOfNotNull(
+                BACKFILL_EVENT_ID_PREFIX,
+                kisOrderNo,
+                ordTmd,
+                totCcldQty.toString(),
+                avgPrice?.stripTrailingZeros()?.toPlainString(),
+            ).joinToString(":")
     }
 
     /**
@@ -135,19 +145,8 @@ class KisExecutionBackfillService(
      * 본 backfill 진입점 — REAL 사용자별 KIS REST 일별 체결 조회 + 누락 INSERT.
      */
     internal fun runBackfill() {
-        val orderRepo = orderRequestRepositoryProvider.getIfAvailable()
-        val execRepo = orderExecutionRepositoryProvider.getIfAvailable()
-        if (orderRepo == null || execRepo == null) {
-            log.warn(
-                "ADR 0084 P0-3 — backfill skip (Phase 2 wiring 미합류): orderRepo={} execRepo={}",
-                orderRepo != null,
-                execRepo != null,
-            )
-            return
-        }
-
         // 자격증명 사용자별 backfill 분기 (MOCK·REAL 모두 분기)
-        val accountType = if (magicjarMode == "REAL") AccountType.REAL else AccountType.MOCK
+        val accountType = RuntimeModeParser.accountTypeOrMock(magicjarMode)
         val creds = credentialRepository.findAllByAccountType(accountType.name)
         if (creds.isEmpty()) {
             log.info(
@@ -159,30 +158,109 @@ class KisExecutionBackfillService(
 
         var totalFetched = 0
         var totalInserted = 0
+        var totalFailed = 0
         creds.forEach { cred ->
             val userId = cred.id.userId
-            val executions =
-                try {
-                    kisOrderInquireCcldHttpAdapter.fetchTodayExecutions(userId, accountType)
-                } catch (e: Exception) {
-                    log.error("backfill REST 호출 실패: userId={} err={}", maskUserId(userId), e.message)
-                    return@forEach
-                }
-            totalFetched += executions.size
-            executions.forEach { exec ->
-                if (persistBackfillRow(orderRepo, execRepo, exec, userId, accountType)) {
-                    totalInserted++
-                }
-            }
+            val result = syncUserTodayExecutions(userId, accountType, verifyCredential = false)
+            totalFetched += result.fetched
+            totalInserted += result.inserted
+            totalFailed += result.failed
         }
 
         log.info(
-            "ADR 0084 P0-3 — backfill 완료: 사용자={}건 fetched={} inserted={} (skipped={})",
+            "ADR 0084 P0-3 — backfill 완료: 사용자={}건 fetched={} inserted={} failed={} (skipped={})",
             creds.size,
             totalFetched,
             totalInserted,
-            totalFetched - totalInserted,
+            totalFailed,
+            (totalFetched - totalInserted - totalFailed).coerceAtLeast(0),
         )
+    }
+
+    /**
+     * REAL 주문 전 동기화 가드에서 사용하는 단일 사용자 KIS 체결 동기화.
+     *
+     * 성공 조건은 KIS 당일 체결조회가 성공했고, 각 응답 row가 DB에 INSERT 되거나 이미 반영되어
+     * 손익 계산 재료로 사용할 수 있는 상태다. 하나라도 저장/매칭 실패하면 REAL 신규 주문은 fail-closed 한다.
+     */
+    internal fun syncUserTodayExecutions(
+        userId: String,
+        accountType: AccountType,
+        verifyCredential: Boolean = true,
+    ): KisExecutionSyncResult {
+        val orderRepo = orderRequestRepositoryProvider.getIfAvailable()
+        val execRepo = orderExecutionRepositoryProvider.getIfAvailable()
+        if (orderRepo == null || execRepo == null) {
+            log.warn(
+                "KIS execution sync 실패 — repository 미합류: userId={} orderRepo={} execRepo={}",
+                maskUserId(userId),
+                orderRepo != null,
+                execRepo != null,
+            )
+            return KisExecutionSyncResult.failure(userId, accountType, "REPOSITORY_NOT_WIRED")
+        }
+
+        if (verifyCredential) {
+            val hasCredential =
+                try {
+                    credentialRepository.findAllByAccountType(accountType.name).any { it.id.userId == userId }
+                } catch (e: Exception) {
+                    log.error(
+                        "KIS execution sync 자격증명 조회 실패: userId={} accountType={} err={}",
+                        maskUserId(userId),
+                        accountType.name,
+                        e.message,
+                    )
+                    return KisExecutionSyncResult.failure(userId, accountType, "CREDENTIAL_LOOKUP_FAILED:${e.message ?: "UNKNOWN"}")
+                }
+            if (!hasCredential) {
+                log.warn("KIS execution sync 실패 — 자격증명 없음: userId={} accountType={}", maskUserId(userId), accountType.name)
+                return KisExecutionSyncResult.failure(userId, accountType, "CREDENTIAL_NOT_FOUND")
+            }
+        }
+
+        val executions =
+            try {
+                kisOrderInquireCcldHttpAdapter.fetchTodayExecutions(userId, accountType)
+            } catch (e: Exception) {
+                log.error("KIS execution sync REST 호출 실패: userId={} accountType={} err={}", maskUserId(userId), accountType.name, e.message)
+                return KisExecutionSyncResult.failure(userId, accountType, "KIS_FETCH_FAILED:${e.message ?: "UNKNOWN"}")
+            }
+
+        var inserted = 0
+        var alreadySynced = 0
+        var failed = 0
+        executions.forEach { exec ->
+            when (persistBackfillRowDetailed(orderRepo, execRepo, exec, userId, accountType)) {
+                BackfillRowStatus.INSERTED -> inserted++
+                BackfillRowStatus.ALREADY_SYNCED -> alreadySynced++
+                BackfillRowStatus.FAILED -> failed++
+            }
+        }
+
+        val result =
+            KisExecutionSyncResult(
+                userId = userId,
+                accountType = accountType,
+                fetched = executions.size,
+                inserted = inserted,
+                alreadySynced = alreadySynced,
+                failed = failed,
+                error = null,
+                syncedAt = Instant.now(clock),
+            )
+        if (!result.isComplete) {
+            log.error(
+                "KIS execution sync 불완전 — userId={} accountType={} fetched={} inserted={} alreadySynced={} failed={}",
+                maskUserId(userId),
+                accountType.name,
+                result.fetched,
+                result.inserted,
+                result.alreadySynced,
+                result.failed,
+            )
+        }
+        return result
     }
 
     /**
@@ -196,8 +274,16 @@ class KisExecutionBackfillService(
         exec: KisDailyCcldExecution,
         userId: String,
         accountType: AccountType,
-    ): Boolean {
-        val eventId = buildBackfillEventId(exec.kisOrderNo, exec.ordTmd, exec.totCcldQty)
+    ): Boolean = persistBackfillRowDetailed(orderRepo, execRepo, exec, userId, accountType) == BackfillRowStatus.INSERTED
+
+    private fun persistBackfillRowDetailed(
+        orderRepo: OrderRequestRepository,
+        execRepo: OrderExecutionRepository,
+        exec: KisDailyCcldExecution,
+        userId: String,
+        accountType: AccountType,
+    ): BackfillRowStatus {
+        val eventId = buildBackfillEventId(exec.kisOrderNo, exec.ordTmd, exec.totCcldQty, exec.avgPrice)
 
         val request =
             try {
@@ -209,10 +295,10 @@ class KisExecutionBackfillService(
 
         if (request == null || request.id == null) {
             log.warn("backfill skip — OrderRequest pre-insert 실패: kisOrderNo={}", exec.kisOrderNo)
-            return false
+            return BackfillRowStatus.FAILED
         }
 
-        val orderId = request.id ?: return false
+        val orderId = request.id ?: return BackfillRowStatus.FAILED
 
         // 1단계: eventId UNIQUE 가드
         val alreadyPersisted =
@@ -220,12 +306,12 @@ class KisExecutionBackfillService(
                 execRepo.existsByEventId(eventId)
             } catch (e: Exception) {
                 log.error("backfill existsByEventId 실패 — skip (자본 안전): eventId={} err={}", eventId, e.message)
-                return false
+                return BackfillRowStatus.FAILED
             }
         if (alreadyPersisted) {
             log.debug("backfill skip (event_id dedup): eventId={}", eventId)
             syncOrderStatusAfterBackfill(orderRepo, execRepo, request, null, emitFilledEvent = false)
-            return false
+            return BackfillRowStatus.ALREADY_SYNCED
         }
 
         val currentExecutedQty =
@@ -233,7 +319,7 @@ class KisExecutionBackfillService(
                 execRepo.sumExecutedQuantityByOrder(orderId)
             } catch (e: Exception) {
                 log.error("backfill sumExecutedQuantityByOrder 실패 — skip: orderId={} err={}", orderId, e.message)
-                return false
+                return BackfillRowStatus.FAILED
             }
         val deltaQty = exec.totCcldQty - currentExecutedQty
         if (deltaQty <= 0) {
@@ -245,7 +331,7 @@ class KisExecutionBackfillService(
                 exec.totCcldQty,
             )
             syncOrderStatusAfterBackfill(orderRepo, execRepo, request, null, emitFilledEvent = false)
-            return false
+            return BackfillRowStatus.ALREADY_SYNCED
         }
 
         // 3단계: OrderExecution INSERT — KIS 누적체결에서 이미 반영된 수량을 뺀 delta만 저장.
@@ -271,10 +357,12 @@ class KisExecutionBackfillService(
                     eventId,
                     e.message,
                 )
-                return false
+                return BackfillRowStatus.FAILED
             }
 
-        applyExecutionPositionUpdate(request, saved)
+        if (!applyExecutionPositionUpdate(request, saved)) {
+            return BackfillRowStatus.FAILED
+        }
 
         // 4단계: audit FILL_RECEIVED + source=REST_BACKFILL
         val auditRepo = orderAuditEventRepositoryProvider.getIfAvailable()
@@ -302,13 +390,13 @@ class KisExecutionBackfillService(
             saved.id,
         )
         syncOrderStatusAfterBackfill(orderRepo, execRepo, request, saved, emitFilledEvent = true)
-        return true
+        return BackfillRowStatus.INSERTED
     }
 
     private fun applyExecutionPositionUpdate(
         request: OrderRequest,
         execution: OrderExecution,
-    ) {
+    ): Boolean {
         val port = executionPositionUpdatePortProvider.getIfAvailable()
         if (port == null) {
             log.error(
@@ -316,10 +404,11 @@ class KisExecutionBackfillService(
                 request.id,
                 execution.kisOrderNo,
             )
-            return
+            return false
         }
-        try {
+        return try {
             port.applyExecution(request, execution)
+            true
         } catch (e: Exception) {
             log.error(
                 "backfill position update 실패: orderId={} kisOrderNo={} err={}",
@@ -328,6 +417,7 @@ class KisExecutionBackfillService(
                 e.message,
                 e,
             )
+            false
         }
     }
 
@@ -492,4 +582,51 @@ class KisExecutionBackfillService(
     }
 
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"
+
+    private enum class BackfillRowStatus {
+        INSERTED,
+        ALREADY_SYNCED,
+        FAILED,
+    }
+}
+
+data class KisExecutionSyncResult(
+    val userId: String,
+    val accountType: AccountType,
+    val fetched: Int,
+    val inserted: Int,
+    val alreadySynced: Int,
+    val failed: Int,
+    val error: String?,
+    val syncedAt: Instant,
+) {
+    val isComplete: Boolean
+        get() = error == null && failed == 0
+
+    val reasonCode: String
+        get() =
+            when {
+                error != null -> error
+                failed > 0 -> "BACKFILL_INCOMPLETE:fetched=$fetched,failed=$failed"
+                else -> "OK"
+            }
+
+    companion object {
+        fun failure(
+            userId: String,
+            accountType: AccountType,
+            error: String,
+            now: Instant = Instant.now(),
+        ): KisExecutionSyncResult =
+            KisExecutionSyncResult(
+                userId = userId,
+                accountType = accountType,
+                fetched = 0,
+                inserted = 0,
+                alreadySynced = 0,
+                failed = 1,
+                error = error,
+                syncedAt = now,
+            )
+    }
 }

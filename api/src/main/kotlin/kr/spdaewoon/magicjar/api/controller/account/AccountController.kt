@@ -166,7 +166,7 @@ class AccountController(
     // ── private helper ────────────────────────────────────────────────────────
 
     private fun parseAccountType(raw: String): AccountType =
-        runCatching { AccountType.valueOf(raw.uppercase()) }
+        runCatching { AccountType.valueOf(raw.trim().uppercase()) }
             .getOrElse {
                 throw ResponseStatusException(
                     HttpStatus.BAD_REQUEST,

@@ -18,9 +18,12 @@ import kr.spdaewoon.magicjar.domain.order.execution.port.OrderAuditEventReposito
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderIdempotencyGuard
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.TradingModeGate
+import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
+import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.kafka.support.Acknowledgment
 import org.springframework.stereotype.Component
@@ -37,14 +40,14 @@ import java.time.Instant
  * 2. OrderIdempotencyGuard.acquire (Redis SETNX 60s, key="idem:order:{signalId}:{userId}")
  * 3. TradingModeGate.resolveMode(userId) — 3중 게이트
  * 4. KillSwitch 재검증
- * 5. order_request INSERT(status=REQUESTED, mode)
- * 6. STOMP notifyRequested + Kafka order.requested.v1 publish
- * 7. KisOrderHttpAdapter.submit(intent, mode) — 5xx 1회 retry
- * 8. order_request UPDATE(status=ACK, kis_order_no, kis_fwdg_orgno, acknowledged_at)
- * 9. audit KIS_ACK
- * 10. (FILLED 통보는 KisExecutionWsListener)
- * 11. Kafka commit (MANUAL_IMMEDIATE)
- * 12. Micrometer counter magicjar_order_processed_total{result=ACK|REJECTED|SKIPPED}
+ * 5. REAL이면 KIS 당일 체결조회 + DB backfill 완결성 확인
+ * 6. order_request INSERT(status=REQUESTED, mode)
+ * 7. STOMP notifyRequested + Kafka order.requested.v1 publish
+ * 8. KisOrderHttpAdapter.submit(intent, mode) — 5xx 1회 retry
+ * 9. order_request UPDATE(status=ACK, kis_order_no, kis_fwdg_orgno, acknowledged_at)
+ * 10. audit KIS_ACK
+ * 11. (FILLED 통보는 KisExecutionWsListener)
+ * 12. Kafka commit (MANUAL_IMMEDIATE)
  * ```
  *
  * ### Kafka 설정 LOCK (§14-2 자본 보호)
@@ -80,7 +83,10 @@ class OrderRouterKafkaListener(
     private val orderRequestedKafkaProducer: OrderRequestedKafkaProducer,
     private val orderRejectedKafkaProducer: OrderRejectedKafkaProducer,
     private val accountBalanceChangedKafkaProducer: AccountBalanceChangedKafkaProducer,
+    private val executionBackfillServiceProvider: ObjectProvider<KisExecutionBackfillService>,
     private val objectMapper: ObjectMapper,
+    @Value("\${magicjar.mode:MOCK}")
+    private val magicjarMode: String = "MOCK",
 ) {
     private val log = LoggerFactory.getLogger(OrderRouterKafkaListener::class.java)
 
@@ -129,7 +135,34 @@ class OrderRouterKafkaListener(
 
             // Step 2: 멱등성 가드
             val idemKey = "idem:order:${intent.idempotencyKey}"
-            if (!orderIdempotencyGuard.acquire(idemKey, 60)) {
+            val acquired =
+                try {
+                    orderIdempotencyGuard.acquire(idemKey, 60)
+                } catch (e: Exception) {
+                    val reason = "IDEMPOTENCY_REDIS_DOWN"
+                    writeAudit(
+                        orderId = null,
+                        userId = intent.userId,
+                        eventType = OrderAuditEventType.REDIS_DOWN_FALLBACK,
+                        payload =
+                            mapOf(
+                                "idempotencyKey" to intent.idempotencyKey,
+                                "signalId" to intent.signalId,
+                                "source" to intent.source.name,
+                                "reason" to reason,
+                                "error" to (e.message ?: "unknown"),
+                            ),
+                    )
+                    handleRejected(
+                        intent,
+                        RuntimeModeParser.tradingModeOrMock(magicjarMode),
+                        reason,
+                        OrderAuditEventType.REDIS_DOWN_FALLBACK,
+                    )
+                    ack.acknowledge()
+                    return
+                }
+            if (!acquired) {
                 writeAudit(
                     orderId = null,
                     userId = intent.userId,
@@ -162,6 +195,12 @@ class OrderRouterKafkaListener(
             }
             val mode = (modeResult as OrderResult.Right).value
 
+            if (intent.quantity <= 0) {
+                handleRejected(intent, mode, "INVALID_ORDER_QUANTITY:${intent.quantity}", OrderAuditEventType.INVALID_ORDER_INTENT)
+                ack.acknowledge()
+                return
+            }
+
             // Step 4: KillSwitch 재검증 (ADR 0024·0043)
             val killSwitchPort = killSwitchQueryPortProvider.getIfAvailable()
             val killSwitchOn =
@@ -179,6 +218,13 @@ class OrderRouterKafkaListener(
 
             if (killSwitchOn) {
                 handleRejected(intent, mode, "KILLSWITCH_ON", OrderAuditEventType.KILLSWITCH_DENIED)
+                ack.acknowledge()
+                return
+            }
+
+            val syncResult = ensureKisExecutionSyncIfReal(intent, mode)
+            if (!syncResult.allowed) {
+                handleRejected(intent, mode, syncResult.reason, OrderAuditEventType.KIS_EXECUTION_SYNC_STALE)
                 ack.acknowledge()
                 return
             }
@@ -407,6 +453,52 @@ class OrderRouterKafkaListener(
         data class Ok(
             val saved: OrderRequest,
         ) : PersistResult()
+    }
+
+    private data class SyncGateResult(
+        val allowed: Boolean,
+        val reason: String,
+    ) {
+        companion object {
+            val ALLOWED = SyncGateResult(true, "OK")
+        }
+    }
+
+    /**
+     * REAL 신규 주문 직전 KIS 당일 체결조회와 DB backfill 완결성을 확인한다.
+     *
+     * 이 검사는 "DB와 KIS가 영구적으로 완전히 같다"를 증명하려는 검사가 아니다. 주문 직전 KIS 체결 원장을
+     * 방금 읽고, DB 손익 계산 재료로 반영 가능한 상태인지 확인하는 fail-closed 게이트다.
+     */
+    private fun ensureKisExecutionSyncIfReal(
+        intent: OrderIntent,
+        mode: TradingMode,
+    ): SyncGateResult {
+        if (mode != TradingMode.REAL) return SyncGateResult.ALLOWED
+        val syncService =
+            executionBackfillServiceProvider.getIfAvailable()
+                ?: return SyncGateResult(false, "KIS_EXECUTION_SYNC_STALE:SYNC_SERVICE_UNAVAILABLE")
+
+        val result =
+            try {
+                syncService.syncUserTodayExecutions(intent.userId, AccountType.REAL)
+            } catch (e: Exception) {
+                log.error("KIS execution sync guard 예외 — userId={} signalId={} err={}", intent.userId, intent.signalId, e.message, e)
+                return SyncGateResult(false, "KIS_EXECUTION_SYNC_STALE:SYNC_EXCEPTION:${e.message ?: "UNKNOWN"}")
+            }
+
+        if (result.isComplete) {
+            log.info(
+                "KIS execution sync guard PASS — userId={} fetched={} inserted={} alreadySynced={}",
+                intent.userId,
+                result.fetched,
+                result.inserted,
+                result.alreadySynced,
+            )
+            return SyncGateResult.ALLOWED
+        }
+
+        return SyncGateResult(false, "KIS_EXECUTION_SYNC_STALE:${result.reasonCode}")
     }
 
     /**
