@@ -15,7 +15,6 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
-import kr.spdaewoon.magicjar.domain.order.execution.port.ExecutionPositionUpdatePort
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderAuditEventRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderExecutionRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
@@ -47,7 +46,9 @@ class KisExecutionBackfillServiceTest {
     private val auditRepo = mockk<OrderAuditEventRepository>(relaxed = true)
     private val orderFilledKafkaProducer = mockk<OrderFilledKafkaProducer>(relaxed = true)
     private val accountBalanceChangedKafkaProducer = mockk<AccountBalanceChangedKafkaProducer>(relaxed = true)
-    private val positionUpdater = mockk<ExecutionPositionUpdatePort>(relaxed = true)
+    private val positionUpdater =
+        mockk<kr.spdaewoon.magicjar.domain.order.execution.port.ExecutionPositionUpdatePort>(relaxed = true)
+    private val executionPersistenceService = ExecutionPersistenceService(execRepo, positionUpdater)
     private val webSocketBridge = mockk<KisWebSocketBridge>(relaxed = true)
     private val orderRepoProvider =
         mockk<ObjectProvider<OrderRequestRepository>>().also {
@@ -61,10 +62,6 @@ class KisExecutionBackfillServiceTest {
         mockk<ObjectProvider<OrderAuditEventRepository>>().also {
             every { it.getIfAvailable() } returns auditRepo
         }
-    private val positionUpdaterProvider =
-        mockk<ObjectProvider<ExecutionPositionUpdatePort>>().also {
-            every { it.getIfAvailable() } returns positionUpdater
-        }
 
     private fun newService(
         backfillEnabled: Boolean = true,
@@ -77,7 +74,7 @@ class KisExecutionBackfillServiceTest {
         orderAuditEventRepositoryProvider = auditRepoProvider,
         orderFilledKafkaProducer = orderFilledKafkaProducer,
         accountBalanceChangedKafkaProducer = accountBalanceChangedKafkaProducer,
-        executionPositionUpdatePortProvider = positionUpdaterProvider,
+        executionPersistenceService = executionPersistenceService,
         webSocketBridge = webSocketBridge,
         magicjarMode = magicjarMode,
         backfillEnabled = backfillEnabled,

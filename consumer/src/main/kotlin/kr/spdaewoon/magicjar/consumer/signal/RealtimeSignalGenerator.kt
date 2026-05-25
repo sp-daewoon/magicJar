@@ -228,12 +228,23 @@ class RealtimeSignalGenerator(
                 }
             } else {
                 log.debug(
-                    "RealtimeSignalGenerator SignalRepository bean 부재 (Phase 2 의존) — Kafka publish만 진행: strategyId={} code={}",
+                    "RealtimeSignalGenerator SignalRepository bean 부재 (Phase 2 의존) — id 없는 signal publish 차단: strategyId={} code={}",
                     strategyId,
                     code,
                 )
                 signal
             }
+
+        if (persisted.id == null) {
+            log.error(
+                "RealtimeSignalGenerator signal id null — Kafka publish 차단: strategyId={} code={} interval={} ts={}",
+                strategyId,
+                code,
+                interval.code,
+                boundaryTs,
+            )
+            return
+        }
 
         // 7. Kafka publish — Phase 2 STOMP fanout consumer가 listen
         signalKafkaProducer.publish(persisted)

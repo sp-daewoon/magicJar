@@ -186,6 +186,13 @@ class StrategyTimeoutSandboxTest {
         assertTrue(nameHolder[0].startsWith("strategy-eval-"))
     }
 
+    @Test
+    fun `strategy eval pool rejects saturated work instead of running on caller thread`() {
+        val pool = StrategyEvalPoolConfig().strategyEvalPool(poolSize = 1, queueSize = 1)
+
+        assertTrue(pool.threadPoolExecutor.rejectedExecutionHandler is ThreadPoolExecutor.AbortPolicy)
+    }
+
     private fun noopPatternRecognizer(): PatternRecognizer =
         object : PatternRecognizer {
             override fun recognize(

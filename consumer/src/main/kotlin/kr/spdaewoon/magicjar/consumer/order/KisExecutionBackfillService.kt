@@ -9,7 +9,6 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEventType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderExecution
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
-import kr.spdaewoon.magicjar.domain.order.execution.port.ExecutionPositionUpdatePort
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderAuditEventRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderExecutionRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
@@ -26,6 +25,7 @@ import java.math.BigDecimal
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * KIS WS 재연결 backfill 서비스 — ADR 0084 P0-3 (외부 코드 리뷰 결함 #4).
@@ -76,15 +76,18 @@ class KisExecutionBackfillService(
     private val orderAuditEventRepositoryProvider: ObjectProvider<OrderAuditEventRepository>,
     private val orderFilledKafkaProducer: OrderFilledKafkaProducer,
     private val accountBalanceChangedKafkaProducer: AccountBalanceChangedKafkaProducer,
-    private val executionPositionUpdatePortProvider: ObjectProvider<ExecutionPositionUpdatePort>,
+    private val executionPersistenceService: ExecutionPersistenceService,
     private val webSocketBridge: KisWebSocketBridge,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String,
     @Value("\${magicjar.order.ws-backfill.enabled:true}")
     private val backfillEnabled: Boolean,
+    @Value("\${magicjar.order.ws-backfill.min-interval-seconds:60}")
+    private val backfillMinIntervalSeconds: Long = 60L,
     private val clock: Clock = Clock.system(ZoneId.of("Asia/Seoul")),
 ) {
     private val log = LoggerFactory.getLogger(KisExecutionBackfillService::class.java)
+    private val lastBackfillAtMs = AtomicLong(0L)
 
     companion object {
         /** ADR 0084 P0-3 — REST backfill eventId namespace prefix. */
@@ -134,10 +137,29 @@ class KisExecutionBackfillService(
     }
 
     private fun runBackfillCatching() {
+        if (!acquireBackfillRunSlot()) return
         try {
             runBackfill()
         } catch (e: Exception) {
             log.error("ADR 0084 P0-3 — backfill 실행 실패: err={}", e.message, e)
+        }
+    }
+
+    private fun acquireBackfillRunSlot(): Boolean {
+        val minIntervalMs = backfillMinIntervalSeconds.coerceAtLeast(0L) * 1000L
+        if (minIntervalMs == 0L) return true
+        val nowMs = clock.millis()
+        while (true) {
+            val last = lastBackfillAtMs.get()
+            if (last > 0 && nowMs - last < minIntervalMs) {
+                log.warn(
+                    "ADR 0084 P0-3 — backfill throttle skip: elapsedMs={} minIntervalMs={}",
+                    nowMs - last,
+                    minIntervalMs,
+                )
+                return false
+            }
+            if (lastBackfillAtMs.compareAndSet(last, nowMs)) return true
         }
     }
 
@@ -338,7 +360,8 @@ class KisExecutionBackfillService(
         val now = Instant.now(clock)
         val saved =
             try {
-                execRepo.save(
+                executionPersistenceService.saveAndApplyPosition(
+                    request,
                     OrderExecution(
                         orderId = orderId,
                         userId = request.userId,
@@ -352,17 +375,13 @@ class KisExecutionBackfillService(
                 )
             } catch (e: Exception) {
                 log.error(
-                    "backfill orderExecution save 실패: kisOrderNo={} eventId={} err={}",
+                    "backfill execution persistence 실패: kisOrderNo={} eventId={} err={}",
                     exec.kisOrderNo,
                     eventId,
                     e.message,
                 )
                 return BackfillRowStatus.FAILED
             }
-
-        if (!applyExecutionPositionUpdate(request, saved)) {
-            return BackfillRowStatus.FAILED
-        }
 
         // 4단계: audit FILL_RECEIVED + source=REST_BACKFILL
         val auditRepo = orderAuditEventRepositoryProvider.getIfAvailable()
@@ -391,34 +410,6 @@ class KisExecutionBackfillService(
         )
         syncOrderStatusAfterBackfill(orderRepo, execRepo, request, saved, emitFilledEvent = true)
         return BackfillRowStatus.INSERTED
-    }
-
-    private fun applyExecutionPositionUpdate(
-        request: OrderRequest,
-        execution: OrderExecution,
-    ): Boolean {
-        val port = executionPositionUpdatePortProvider.getIfAvailable()
-        if (port == null) {
-            log.error(
-                "backfill position update skip — ExecutionPositionUpdatePort 미합류: orderId={} kisOrderNo={}",
-                request.id,
-                execution.kisOrderNo,
-            )
-            return false
-        }
-        return try {
-            port.applyExecution(request, execution)
-            true
-        } catch (e: Exception) {
-            log.error(
-                "backfill position update 실패: orderId={} kisOrderNo={} err={}",
-                request.id,
-                execution.kisOrderNo,
-                e.message,
-                e,
-            )
-            false
-        }
     }
 
     private fun syncOrderStatusAfterBackfill(

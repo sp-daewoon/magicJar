@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Component
+import java.util.concurrent.TimeUnit
 
 /**
  * `order.requested.v1` Kafka publish 어댑터 (ADR 0068 §9-2 매트릭스 LOCK).
@@ -38,6 +39,7 @@ class OrderRequestedKafkaProducer(
 
     companion object {
         const val TOPIC = "order.requested.v1"
+        private const val KAFKA_SEND_TIMEOUT_SECONDS = 5L
     }
 
     fun publish(request: OrderRequest) {
@@ -95,7 +97,9 @@ class OrderRequestedKafkaProducer(
 
         // 2단계 — Kafka publish
         try {
-            kafkaTemplate.send(TOPIC, request.userId, payload)
+            kafkaTemplate
+                .send(TOPIC, request.userId, payload)
+                .get(KAFKA_SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             // 3단계 — outbox markPublished (outboxId non-null 시 outboxRepository도 non-null 보장)
             if (outboxId != null) {
                 runCatching { outboxRepository?.markPublished(outboxId) }

@@ -9,7 +9,6 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
-import kr.spdaewoon.magicjar.domain.order.execution.port.ExecutionPositionUpdatePort
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderAuditEventRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderExecutionRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
@@ -84,7 +83,7 @@ class KisExecutionWsListener(
     private val orderRejectedKafkaProducer: OrderRejectedKafkaProducer,
     private val orderCancelledKafkaProducer: OrderCancelledKafkaProducer,
     private val accountBalanceChangedKafkaProducer: AccountBalanceChangedKafkaProducer,
-    private val executionPositionUpdatePortProvider: ObjectProvider<ExecutionPositionUpdatePort>,
+    private val executionPersistenceService: ExecutionPersistenceService,
     private val objectMapper: ObjectMapper,
     private val clock: Clock = Clock.system(ZoneId.of("Asia/Seoul")),
 ) {
@@ -502,7 +501,8 @@ class KisExecutionWsListener(
         // 1. order_execution INSERT (eventId 포함)
         val execution =
             try {
-                execRepo.save(
+                executionPersistenceService.saveAndApplyPosition(
+                    request,
                     OrderExecution(
                         orderId = requestId,
                         userId = request.userId,
@@ -516,15 +516,13 @@ class KisExecutionWsListener(
                 )
             } catch (e: Exception) {
                 log.error(
-                    "KisExecutionWsListener orderExecution save 실패: orderId={} eventId={} err={}",
+                    "KisExecutionWsListener execution persistence 실패: orderId={} eventId={} err={}",
                     requestId,
                     eventId,
                     e.message,
                 )
                 return
             }
-
-        applyExecutionPositionUpdate(request, execution)
 
         // 2. audit FILL_RECEIVED
         auditRepo?.runCatching {
@@ -636,32 +634,6 @@ class KisExecutionWsListener(
                     request.quantity,
                 )
             }
-        }
-    }
-
-    private fun applyExecutionPositionUpdate(
-        request: OrderRequest,
-        execution: OrderExecution,
-    ) {
-        val port = executionPositionUpdatePortProvider.getIfAvailable()
-        if (port == null) {
-            log.error(
-                "KisExecutionWsListener — ExecutionPositionUpdatePort 미합류: orderId={} kisOrderNo={}",
-                request.id,
-                execution.kisOrderNo,
-            )
-            return
-        }
-        try {
-            port.applyExecution(request, execution)
-        } catch (e: Exception) {
-            log.error(
-                "KisExecutionWsListener position update 실패: orderId={} kisOrderNo={} err={}",
-                request.id,
-                execution.kisOrderNo,
-                e.message,
-                e,
-            )
         }
     }
 

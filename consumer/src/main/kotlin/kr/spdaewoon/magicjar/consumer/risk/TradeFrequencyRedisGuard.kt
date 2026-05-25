@@ -16,7 +16,7 @@ import java.time.Duration
  * score = epoch second · member = signalId.toString()
  * count = `ZCOUNT(key, now-window, now)` — O(log N).
  *
- * fail-open 정책 (Redis 결함 시 count 0 + 다른 룰로 안전망 cover).
+ * count 조회는 fail-closed 정책이다. Redis 결함 시 매우 큰 count를 반환해 빈도 제한 룰이 주문을 차단한다.
  *
  * spec 인용: ADR 0067 §5-5 + §7-1 TradeFrequencyRedisGuard.
  *
@@ -98,8 +98,8 @@ class TradeFrequencyRedisGuard(
             val result = redisTemplate.opsForZSet().count(key, fromEpoch, nowEpoch)
             result?.toInt() ?: 0
         } catch (e: Exception) {
-            log.warn("TradeFrequencyRedisGuard count 실패 (fail-open): key={} err={}", key, e.message)
-            0
+            log.warn("TradeFrequencyRedisGuard count 실패 (fail-closed): key={} err={}", key, e.message)
+            Int.MAX_VALUE
         }
 
     private fun buildKey(

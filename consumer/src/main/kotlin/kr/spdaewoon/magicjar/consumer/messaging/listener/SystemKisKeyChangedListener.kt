@@ -41,7 +41,7 @@ class SystemKisKeyChangedListener(
     @KafkaListener(
         topics = ["system.kis-key-changed.v1"],
         groupId = "magicjar-consumer-system",
-        containerFactory = "kafkaListenerContainerFactory",
+        containerFactory = "manualImmediateKafkaListenerContainerFactory",
     )
     fun onMessage(
         record: ConsumerRecord<String, String>,

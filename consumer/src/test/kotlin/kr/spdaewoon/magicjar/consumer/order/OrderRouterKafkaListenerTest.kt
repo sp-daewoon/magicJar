@@ -5,6 +5,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import kr.spdaewoon.magicjar.consumer.persistence.KillSwitchJpaRepository
 import kr.spdaewoon.magicjar.domain.order.execution.DenyReason
 import kr.spdaewoon.magicjar.domain.order.execution.KisOrderAck
 import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEvent
@@ -54,6 +55,7 @@ class OrderRouterKafkaListenerTest {
     private val rejectedProducer = mockk<OrderRejectedKafkaProducer>(relaxed = true)
     private val accountBalanceChangedProducer = mockk<AccountBalanceChangedKafkaProducer>(relaxed = true)
     private val executionBackfillService = mockk<KisExecutionBackfillService>(relaxed = true)
+    private val killSwitchJpaRepository = mockk<KillSwitchJpaRepository>(relaxed = true)
     private val objectMapper = ObjectMapper()
 
     private val orderRepoProvider =
@@ -72,6 +74,10 @@ class OrderRouterKafkaListenerTest {
         mockk<ObjectProvider<KisExecutionBackfillService>>().also {
             every { it.getIfAvailable() } returns null
         }
+    private val killSwitchJpaRepositoryProvider =
+        mockk<ObjectProvider<KillSwitchJpaRepository>>().also {
+            every { it.getIfAvailable() } returns killSwitchJpaRepository
+        }
 
     private val listener =
         OrderRouterKafkaListener(
@@ -85,6 +91,7 @@ class OrderRouterKafkaListenerTest {
             orderRejectedKafkaProducer = rejectedProducer,
             accountBalanceChangedKafkaProducer = accountBalanceChangedProducer,
             executionBackfillServiceProvider = executionBackfillProvider,
+            killSwitchJpaRepositoryProvider = killSwitchJpaRepositoryProvider,
             objectMapper = objectMapper,
         )
 
@@ -205,6 +212,7 @@ class OrderRouterKafkaListenerTest {
                 orderRejectedKafkaProducer = rejectedProducer,
                 accountBalanceChangedKafkaProducer = accountBalanceChangedProducer,
                 executionBackfillServiceProvider = syncProvider,
+                killSwitchJpaRepositoryProvider = killSwitchJpaRepositoryProvider,
                 objectMapper = objectMapper,
                 magicjarMode = "REAL",
             )
@@ -292,6 +300,7 @@ class OrderRouterKafkaListenerTest {
                 orderRejectedKafkaProducer = rejectedProducer,
                 accountBalanceChangedKafkaProducer = accountBalanceChangedProducer,
                 executionBackfillServiceProvider = executionBackfillProvider,
+                killSwitchJpaRepositoryProvider = killSwitchJpaRepositoryProvider,
                 objectMapper = objectMapper,
             )
 

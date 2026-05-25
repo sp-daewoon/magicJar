@@ -15,6 +15,7 @@ import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory
 import org.springframework.kafka.core.ConsumerFactory
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory
 import org.springframework.kafka.core.KafkaTemplate
+import org.springframework.kafka.listener.ContainerProperties
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer
 import org.springframework.kafka.listener.DefaultErrorHandler
 import org.springframework.kafka.support.serializer.DeserializationException
@@ -38,7 +39,8 @@ import org.springframework.util.backoff.FixedBackOff
  *
  * ### 적용 범위
  * 본 Bean은 Spring Boot 자동 설정의 `kafkaListenerContainerFactory` (default)를 override (@Primary).
- * 모든 @KafkaListener (OrderRouterKafkaListener + NotificationDispatcher 7건 + 기타) 본 정책 적용.
+ * 대부분 @KafkaListener는 RECORD ack 기본 정책을 사용한다.
+ * 자본 path에서 직접 offset을 제어해야 하는 listener는 `manualImmediateKafkaListenerContainerFactory`를 명시한다.
  *
  * 예외: WatchlistChangedKafkaConfig는 본인 전용 factory 사용 — 별도 정책 미적용 (slot router 영역 분리).
  *
@@ -130,9 +132,9 @@ class KafkaErrorHandlerConfig {
     /**
      * Spring Boot 자동 설정의 `kafkaListenerContainerFactory` override.
      *
-     * @Primary로 기본 factory 대체 — 모든 @KafkaListener (groupId 무관) 본 factory 사용.
-     * ack-mode·concurrency 등 application.yml `spring.kafka.listener.*` 설정은
-     * `ConcurrentKafkaListenerContainerFactoryConfigurer`가 자동 주입.
+     * @Primary로 기본 factory 대체 — 명시적 containerFactory가 없는 @KafkaListener는 RECORD ack를 사용.
+     * concurrency 등 application.yml `spring.kafka.listener.*` 설정은 `ConcurrentKafkaListenerContainerFactoryConfigurer`가
+     * 자동 주입하고, ackMode만 자본 path 재처리 루프 방지를 위해 RECORD로 고정한다.
      *
      * 예외: WatchlistChangedKafkaConfig는 별도 named factory (`watchlistChangedKafkaListenerContainerFactory`) 보유 →
      * @KafkaListener(containerFactory = "watchlistChangedKafkaListenerContainerFactory")로 명시 시 본 default 우회.
@@ -163,8 +165,38 @@ class KafkaErrorHandlerConfig {
                 )
             }
         configurer.configure(factory, consumerFactory)
+        factory.containerProperties.ackMode = ContainerProperties.AckMode.RECORD
         factory.setCommonErrorHandler(errorHandler)
         // ADR 0084 P1-3 — MDC traceId 분산 추적: 모든 @KafkaListener 진입 시 header → MDC 복원
+        factory.setRecordInterceptor(traceIdRecordInterceptor)
+        return factory
+    }
+
+    /**
+     * 직접 ack 제어가 필요한 자본 path listener 전용 factory.
+     *
+     * KIS 주문 submit 이후 예외 처리처럼 "재처리하면 중복 실주문"이 될 수 있는 구간은 listener가 명시적으로
+     * acknowledge 시점을 결정한다.
+     */
+    @Bean("manualImmediateKafkaListenerContainerFactory")
+    fun manualImmediateKafkaListenerContainerFactory(
+        configurer: ConcurrentKafkaListenerContainerFactoryConfigurer,
+        consumerFactoryProvider: ObjectProvider<ConsumerFactory<Any, Any>>,
+        sslBundlesProvider: ObjectProvider<SslBundles>,
+        kafkaProperties: KafkaProperties,
+        errorHandler: DefaultErrorHandler,
+        traceIdRecordInterceptor: TraceIdKafkaRecordInterceptor,
+    ): ConcurrentKafkaListenerContainerFactory<Any, Any> {
+        val factory = ConcurrentKafkaListenerContainerFactory<Any, Any>()
+        val consumerFactory: ConsumerFactory<Any, Any> =
+            consumerFactoryProvider.getIfAvailable {
+                DefaultKafkaConsumerFactory(
+                    kafkaProperties.buildConsumerProperties(sslBundlesProvider.ifAvailable),
+                )
+            }
+        configurer.configure(factory, consumerFactory)
+        factory.containerProperties.ackMode = ContainerProperties.AckMode.MANUAL_IMMEDIATE
+        factory.setCommonErrorHandler(errorHandler)
         factory.setRecordInterceptor(traceIdRecordInterceptor)
         return factory
     }

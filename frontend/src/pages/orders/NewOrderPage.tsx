@@ -34,6 +34,7 @@ import { InstrumentSearchInput } from '../../components/InstrumentSearchInput'
 import { OrderPreviewModal } from '../../components/order/OrderPreviewModal'
 import { useManualOrderMutation } from '../../api/hooks/useManualOrderMutation'
 import { useRealTradingConsent } from '../../api/hooks/useUpdateRealTradingConsent'
+import { useRuntimeFlags } from '../../api/hooks/useRuntimeFlags'
 import { useKillSwitchState } from '../../api/queries/useKillSwitchState'
 import type { OrderSide, OrderPriceType, TradingMode, ManualOrderRequest } from '../../api/order'
 import type { InstrumentSearchResultDto } from '../../api/instrument'
@@ -94,15 +95,13 @@ export function NewOrderPage() {
   // 3중 게이트 데이터
   const { data: consent } = useRealTradingConsent(userId)
   const { data: killSwitchState } = useKillSwitchState()
+  const { data: runtimeFlags } = useRuntimeFlags(userId)
 
-  // 거래 모드 — RealTradingConsent의 consentAt이 있으면 REAL, 아니면 MOCK
-  // 정확한 권위는 backend (env MAGICJAR_MODE). UI 표시는 consent 기반 best-effort.
-  const mode: TradingMode = consent?.realTradingConsentAt ? 'REAL' : 'MOCK'
-  const hasConsent = !!consent?.realTradingConsentAt
-  // ALLOW_REAL은 backend env. frontend 직접 노출 0 — consent 통과를 ALLOW_REAL gate 통과의 proxy로 가정.
-  // (실제 권위는 backend ManualOrderService 3중 게이트 fast precheck + consumer 재검증)
-  const allowReal = hasConsent
-  const killSwitchOn = !!killSwitchState?.enabled
+  // RuntimeFlags가 backend env/runtime gate의 권위다. 개별 consent/killSwitch query는 응답 지연 시 표시 보강용.
+  const mode: TradingMode = runtimeFlags?.mode ?? 'MOCK'
+  const hasConsent = runtimeFlags?.userConsented ?? !!consent?.realTradingConsentAt
+  const allowReal = runtimeFlags?.allowReal ?? false
+  const killSwitchOn = runtimeFlags?.killSwitchEnabled ?? !!killSwitchState?.enabled
 
   // mutation
   const manualOrderMutation = useManualOrderMutation()

@@ -25,6 +25,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.kafka.annotation.KafkaListener
+import org.springframework.kafka.support.Acknowledgment
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -92,20 +93,30 @@ class SignalGeneratedKafkaListener(
     @KafkaListener(
         topics = ["signal.generated.v1"],
         groupId = "magicjar-consumer-risk",
+        containerFactory = "manualImmediateKafkaListenerContainerFactory",
     )
-    fun onSignalGenerated(record: ConsumerRecord<String, String>) {
+    fun onSignalGenerated(
+        record: ConsumerRecord<String, String>,
+        ack: Acknowledgment,
+    ) {
         try {
-            val signal = deserialize(record.value()) ?: return
+            val signal =
+                deserialize(record.value()) ?: run {
+                    ack.acknowledge()
+                    return
+                }
 
             // HOLD 시그널은 risk 검사 무관 (T-O 진입 X)
             if (signal.side == SignalSide.HOLD) {
                 log.debug("SignalGeneratedKafkaListener HOLD skip: signalId={}", signal.id)
+                ack.acknowledge()
                 return
             }
 
             val syncBlocked = ensureKisExecutionSyncIfReal(signal)
             if (syncBlocked != null) {
                 handleBlocked(signal, syncBlocked)
+                ack.acknowledge()
                 return
             }
 
@@ -114,6 +125,7 @@ class SignalGeneratedKafkaListener(
                     buildContext(signal)
                 } catch (e: RealRiskContextUnavailableException) {
                     handleBlocked(signal, syncBlocked(signal, e.reasonCode))
+                    ack.acknowledge()
                     return
                 }
             val result = riskGatewayEvaluator.evaluate(signal, context)
@@ -122,9 +134,10 @@ class SignalGeneratedKafkaListener(
                 is RiskGatewayResult.Allowed -> handleAllowed(signal, context, result)
                 is RiskGatewayResult.Blocked -> handleBlocked(signal, result)
             }
+            ack.acknowledge()
         } catch (e: Exception) {
             log.error(
-                "SignalGeneratedKafkaListener dispatch 실패: offset={} key={} err={}",
+                "SignalGeneratedKafkaListener dispatch 실패 (ack 보류, 재처리 대상): offset={} key={} err={}",
                 record.offset(),
                 record.key(),
                 e.message,

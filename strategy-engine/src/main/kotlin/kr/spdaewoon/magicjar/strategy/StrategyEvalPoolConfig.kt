@@ -33,12 +33,12 @@ class StrategyEvalPoolConfig {
         executor.maxPoolSize = poolSize
         executor.queueCapacity = queueSize
         executor.setThreadNamePrefix("strategy-eval-")
-        executor.setRejectedExecutionHandler(ThreadPoolExecutor.CallerRunsPolicy())
+        executor.setRejectedExecutionHandler(ThreadPoolExecutor.AbortPolicy())
         executor.setWaitForTasksToCompleteOnShutdown(true)
         executor.setAwaitTerminationSeconds(2)
         executor.initialize()
         log.info(
-            "Initialized strategy-eval-pool (size={}, queue={}, rejection=CallerRunsPolicy, gracefulShutdown=2s)",
+            "Initialized strategy-eval-pool (size={}, queue={}, rejection=AbortPolicy, gracefulShutdown=2s)",
             poolSize,
             queueSize,
         )

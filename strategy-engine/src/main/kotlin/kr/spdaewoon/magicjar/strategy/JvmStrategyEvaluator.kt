@@ -27,6 +27,7 @@ import java.lang.management.ManagementFactory
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.util.concurrent.Callable
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
@@ -109,7 +110,23 @@ class JvmStrategyEvaluator(
                 SandboxEvalResult(result, cpuTimeMs)
             }
 
-        val future = evalPool.submit(callable)
+        val future =
+            try {
+                evalPool.submit(callable)
+            } catch (e: RejectedExecutionException) {
+                val evalTimeMs = (System.nanoTime() - startNs) / 1_000_000
+                log.warn("Strategy {} eval rejected because pool is saturated", strategyId)
+                metricRecorder.recordFailure(
+                    strategyId = strategyId,
+                    outcome = "POOL_REJECTED",
+                    evalTimeMs = evalTimeMs,
+                    errorMsg = "strategy eval pool saturated",
+                )
+                if (autoDisable) {
+                    autoDisableCallback.onAutoDisable(strategyId, StrategyDisabledReason.TIMEOUT)
+                }
+                throw StrategyException.StrategyTimeoutException(strategyId, timeoutMillis)
+            }
         return try {
             val sandboxResult = future.get(timeoutMillis, TimeUnit.MILLISECONDS)
             val result = sandboxResult.result

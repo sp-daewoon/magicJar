@@ -13,10 +13,10 @@ import { runtimeApi, type RuntimeFlagsDto } from '../runtime'
 
 export const RUNTIME_FLAGS_QUERY_KEY = ['runtime', 'flags'] as const
 
-export function useRuntimeFlags() {
+export function useRuntimeFlags(userId?: string | number | null) {
   return useQuery<RuntimeFlagsDto, Error>({
-    queryKey: RUNTIME_FLAGS_QUERY_KEY,
-    queryFn: () => runtimeApi.getFlags(),
+    queryKey: [...RUNTIME_FLAGS_QUERY_KEY, userId ?? null],
+    queryFn: () => runtimeApi.getFlags(userId),
     staleTime: 30_000,
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,

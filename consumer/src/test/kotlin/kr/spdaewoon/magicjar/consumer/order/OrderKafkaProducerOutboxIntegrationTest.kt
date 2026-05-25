@@ -25,6 +25,7 @@ import org.springframework.beans.factory.ObjectProvider
 import org.springframework.kafka.core.KafkaTemplate
 import java.math.BigDecimal
 import java.time.Instant
+import java.util.concurrent.CompletableFuture
 import kotlinx.datetime.Instant as KxInstant
 
 /**
@@ -53,6 +54,8 @@ class OrderKafkaProducerOutboxIntegrationTest {
     init {
         every { provider.getIfAvailable() } returns outboxRepository
         every { metricsProvider.getIfAvailable() } returns null
+        every { kafkaTemplate.send(any<String>(), any<String>(), any<String>()) } returns
+            CompletableFuture.completedFuture(mockk(relaxed = true))
     }
 
     private fun sampleRequest(): OrderRequest =

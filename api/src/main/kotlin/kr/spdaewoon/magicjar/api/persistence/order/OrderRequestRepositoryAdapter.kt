@@ -33,7 +33,11 @@ class OrderRequestRepositoryAdapter(
     override fun findById(id: Long): OrderRequest? = jpa.findById(id).map { toDomain(it) }.orElse(null)
 
     @Transactional(readOnly = true)
-    override fun findByKisOrderNo(kisOrderNo: String): OrderRequest? = jpa.findByKisOrderNo(kisOrderNo)?.let { toDomain(it) }
+    override fun findByKisOrderNo(kisOrderNo: String): OrderRequest? =
+        jpa
+            .findAllByKisOrderNoOrderByIdAsc(kisOrderNo)
+            .preferCanonicalOrder()
+            ?.let { toDomain(it) }
 
     @Transactional(readOnly = true)
     override fun findByIdempotencyKey(idempotencyKey: String): OrderRequest? =
@@ -82,6 +86,7 @@ class OrderRequestRepositoryAdapter(
         acknowledgedAt: Instant,
     ): OrderRequest? {
         val entity = jpa.findById(id).orElse(null) ?: return null
+        mergeWsPreinsertIfPresent(target = entity, kisOrderNo = kisOrderNo)
         entity.kisOrderNo = kisOrderNo
         entity.kisFwdgOrgno = kisFwdgOrgno
         entity.acknowledgedAt = acknowledgedAt
@@ -152,6 +157,37 @@ class OrderRequestRepositoryAdapter(
     }
 
     // --- private helper ---
+
+    private fun mergeWsPreinsertIfPresent(
+        target: OrderRequestJpaEntity,
+        kisOrderNo: String,
+    ) {
+        val targetId = target.id ?: return
+        val existing =
+            jpa
+                .findAllByKisOrderNoOrderByIdAsc(kisOrderNo)
+                .firstOrNull { it.id != targetId }
+                ?: return
+
+        if (!existing.idempotencyKey.isWsPreinsertKey(kisOrderNo)) {
+            throw IllegalStateException(
+                "kis_order_no already bound to order_request id=${existing.id} (target=$targetId, kisOrderNo=$kisOrderNo)",
+            )
+        }
+
+        val sourceId = existing.id ?: return
+        jpa.reassignExecutions(sourceId = sourceId, targetId = targetId)
+        jpa.reassignAuditEvents(sourceId = sourceId, targetId = targetId)
+        jpa.delete(existing)
+    }
+
+    private fun List<OrderRequestJpaEntity>.preferCanonicalOrder(): OrderRequestJpaEntity? =
+        sortedWith(
+            compareBy<OrderRequestJpaEntity> { if (it.idempotencyKey.isWsPreinsertKey(it.kisOrderNo)) 1 else 0 }
+                .thenBy { it.id ?: Long.MAX_VALUE },
+        ).firstOrNull()
+
+    private fun String.isWsPreinsertKey(kisOrderNo: String?): Boolean = kisOrderNo != null && this == "WS_PREINSERT:$kisOrderNo"
 
     private fun toEntity(domain: OrderRequest): OrderRequestJpaEntity =
         OrderRequestJpaEntity(

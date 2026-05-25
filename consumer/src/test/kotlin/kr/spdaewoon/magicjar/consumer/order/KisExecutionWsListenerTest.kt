@@ -12,7 +12,6 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
-import kr.spdaewoon.magicjar.domain.order.execution.port.ExecutionPositionUpdatePort
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderAuditEventRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderExecutionRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
@@ -56,11 +55,9 @@ class KisExecutionWsListenerTest {
     private val rejectedProducer = mockk<OrderRejectedKafkaProducer>(relaxed = true)
     private val cancelledProducer = mockk<OrderCancelledKafkaProducer>(relaxed = true)
     private val accountBalanceChangedProducer = mockk<AccountBalanceChangedKafkaProducer>(relaxed = true)
-    private val positionUpdater = mockk<ExecutionPositionUpdatePort>(relaxed = true)
-    private val positionUpdaterProvider =
-        mockk<ObjectProvider<ExecutionPositionUpdatePort>>().also {
-            every { it.getIfAvailable() } returns positionUpdater
-        }
+    private val positionUpdater =
+        mockk<kr.spdaewoon.magicjar.domain.order.execution.port.ExecutionPositionUpdatePort>(relaxed = true)
+    private val executionPersistenceService = ExecutionPersistenceService(execRepo, positionUpdater)
 
     private val listener =
         KisExecutionWsListener(
@@ -71,7 +68,7 @@ class KisExecutionWsListenerTest {
             orderRejectedKafkaProducer = rejectedProducer,
             orderCancelledKafkaProducer = cancelledProducer,
             accountBalanceChangedKafkaProducer = accountBalanceChangedProducer,
-            executionPositionUpdatePortProvider = positionUpdaterProvider,
+            executionPersistenceService = executionPersistenceService,
             objectMapper = ObjectMapper(),
         )
 
