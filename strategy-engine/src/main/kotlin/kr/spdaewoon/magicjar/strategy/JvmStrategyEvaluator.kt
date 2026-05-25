@@ -38,7 +38,7 @@ import java.util.concurrent.TimeoutException
  * ### 책임
  * 1. AST visitor walk — IndicatorRef → DslIdentifierMapper → IndicatorEngine.calculate (ADR 0021 단일 진입점)
  * 2. Condition / CompositeCondition 평가 → Signal (BUY/SELL/HOLD) + reason
- * 3. Sandbox: Future.get(timeout=100ms) + ThreadMXBean CPU 측정 + auto-disable 콜백
+ * 3. Sandbox: Future.get(timeout=100ms) + 평가 worker 내부 ThreadMXBean CPU 측정 + auto-disable 콜백
  * 4. 캔들 부족 시 graceful HOLD (insufficient_data)
  * 5. PatternRecognizer domain port 호출 — `@Component(name="patternRecognizer")` JvmPatternRecognizer (PR-39a)
  *
@@ -100,17 +100,23 @@ class JvmStrategyEvaluator(
         val startNs = System.nanoTime()
         val callable =
             Callable {
-                walkRoot(ast, candles)
+                val cpuStartNs = currentThreadCpuTimeNs()
+                val result = walkRoot(ast, candles)
+                val cpuTimeMs =
+                    cpuStartNs?.let { start ->
+                        currentThreadCpuTimeNs()?.let { end -> (end - start).coerceAtLeast(0L) / 1_000_000 }
+                    }
+                SandboxEvalResult(result, cpuTimeMs)
             }
 
         val future = evalPool.submit(callable)
         return try {
-            val result = future.get(timeoutMillis, TimeUnit.MILLISECONDS)
+            val sandboxResult = future.get(timeoutMillis, TimeUnit.MILLISECONDS)
+            val result = sandboxResult.result
             val evalTimeMs = (System.nanoTime() - startNs) / 1_000_000
-            metricRecorder.record(strategyId, result.copy(evalTimeMs = evalTimeMs))
+            metricRecorder.record(strategyId, result.copy(evalTimeMs = evalTimeMs), sandboxResult.cpuTimeMs)
 
-            // CPU budget 측정 — strategy-eval-* thread CPU time 측정 (best-effort)
-            val cpuTimeMs = measureCpuTimeMs(future)
+            val cpuTimeMs = sandboxResult.cpuTimeMs
             if (cpuTimeMs != null && cpuTimeMs > cpuBudgetMs) {
                 val newCount = cpuViolationCount.merge(strategyId, 1) { a, b -> a + b } ?: 1
                 log.warn(
@@ -170,13 +176,19 @@ class JvmStrategyEvaluator(
         }
     }
 
-    private fun measureCpuTimeMs(future: java.util.concurrent.Future<*>): Long? {
-        // strategy-eval-* 스레드 ThreadCpuTime는 thread 종료 후엔 측정 불가 — best effort
+    private data class SandboxEvalResult(
+        val result: StrategyEvalResult,
+        val cpuTimeMs: Long?,
+    )
+
+    private fun currentThreadCpuTimeNs(): Long? {
         return try {
             val mx = ManagementFactory.getThreadMXBean()
             if (!mx.isCurrentThreadCpuTimeSupported) return null
-            // 실제 thread CPU time 측정은 callable 내부 구현 필요. evaluator 단순화 단계에서는 null.
-            null
+            if (mx.isThreadCpuTimeSupported && !mx.isThreadCpuTimeEnabled) {
+                runCatching { mx.isThreadCpuTimeEnabled = true }
+            }
+            mx.currentThreadCpuTime.takeIf { it >= 0L }
         } catch (_: Throwable) {
             null
         }

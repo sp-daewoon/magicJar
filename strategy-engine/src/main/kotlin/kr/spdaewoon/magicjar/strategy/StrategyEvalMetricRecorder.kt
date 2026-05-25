@@ -30,12 +30,13 @@ class StrategyEvalMetricRecorder {
     fun record(
         strategyId: Long,
         result: StrategyEvalResult,
+        cpuTimeMs: Long? = null,
     ) {
         record(
             strategyId = strategyId,
             outcome = "OK",
             evalTimeMs = result.evalTimeMs,
-            cpuTimeMs = null,
+            cpuTimeMs = cpuTimeMs,
             errorMsg = null,
         )
     }

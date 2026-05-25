@@ -35,8 +35,8 @@ import java.math.BigDecimal
  *    - `_parse_or_expression` (우선순위 1, 최저)
  *    - `_parse_and_expression` (우선순위 2)
  *    - `_parse_condition` (우선순위 3, operator 매칭)
- *    - `_parse_arithmetic` (우선순위 4, `*` `/`)
- *    - `_parse_term` (우선순위 5, `+` `-`)
+ *    - `_parse_arithmetic` (우선순위 4, `+` `-`)
+ *    - `_parse_term` (우선순위 5, `*` `/`)
  *    - `_parse_factor` (우선순위 6, 단항 `-`, NUMBER, IDENTIFIER, `( )`, IndicatorRef)
  * 3. **validateStatic** — AST visitor (depth · 노드 · indicator · 화이트리스트, ADR 0047 §2-1)
  *
@@ -330,13 +330,13 @@ class KisYamlDslParser(
         }
 
         // ---------------------------------------------------------------------
-        // Source: parser.py:L450 _parse_arithmetic — 우선순위 4 (* /)
+        // Source amend: 일반 산술 우선순위 — +,- 는 *,/ 보다 낮게 결합한다.
         // ---------------------------------------------------------------------
         private fun parseArithmetic(): DslNode {
             var left = parseTerm()
-            while (match("MUL", "DIV")) {
+            while (match("ADD", "SUB")) {
                 val opTok = consume()
-                val op = if (opTok.type == "MUL") ArithmeticOperator.MUL else ArithmeticOperator.DIV
+                val op = if (opTok.type == "ADD") ArithmeticOperator.ADD else ArithmeticOperator.SUB
                 val right = parseTerm()
                 left = ArithmeticExpr(left, op, right)
             }
@@ -344,13 +344,13 @@ class KisYamlDslParser(
         }
 
         // ---------------------------------------------------------------------
-        // Source: parser.py:L460 _parse_term — 우선순위 5 (+ -)
+        // Source amend: 일반 산술 우선순위 — *,/ 를 factor에 먼저 결합한다.
         // ---------------------------------------------------------------------
         private fun parseTerm(): DslNode {
             var left = parseFactor()
-            while (match("ADD", "SUB")) {
+            while (match("MUL", "DIV")) {
                 val opTok = consume()
-                val op = if (opTok.type == "ADD") ArithmeticOperator.ADD else ArithmeticOperator.SUB
+                val op = if (opTok.type == "MUL") ArithmeticOperator.MUL else ArithmeticOperator.DIV
                 val right = parseFactor()
                 left = ArithmeticExpr(left, op, right)
             }
