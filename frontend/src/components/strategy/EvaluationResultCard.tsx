@@ -25,7 +25,7 @@ interface EvaluationResultCardProps {
 }
 
 const SIGNAL_CONFIG: Record<
-  EvaluateResponse['signal'],
+  'BUY' | 'SELL' | 'HOLD',
   { label: string; badge: string; icon: string }
 > = {
   BUY: {
@@ -45,8 +45,38 @@ const SIGNAL_CONFIG: Record<
   },
 }
 
+const UNKNOWN_SIGNAL_CONFIG = {
+  label: '알 수 없음',
+  badge: 'bg-yellow-900/40 text-yellow-300 border-yellow-800',
+  icon: '?',
+}
+
+function toFiniteNumber(value: number | string): number {
+  const parsed = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function formatReasonValue(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) {
+    return value.map(formatReasonValue).filter(Boolean).join(', ')
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .map(([key, nestedValue]) => {
+        const formatted = formatReasonValue(nestedValue)
+        return formatted ? `${key}: ${formatted}` : ''
+      })
+      .filter(Boolean)
+    return entries.join(' · ')
+  }
+  return String(value)
+}
+
 export function EvaluationResultCard({ result, code, codeName }: EvaluationResultCardProps) {
-  const cfg = SIGNAL_CONFIG[result.signal]
+  const cfg = SIGNAL_CONFIG[result.signal as keyof typeof SIGNAL_CONFIG] ?? UNKNOWN_SIGNAL_CONFIG
   const [watchlistAdded, setWatchlistAdded] = useState(false)
   const { mutate: addWatchlist, isPending: isAdding } = useAddWatchlist()
 
@@ -64,7 +94,12 @@ export function EvaluationResultCard({ result, code, codeName }: EvaluationResul
     )
   }
 
-  const strengthPercent = Math.round(result.strength * 100)
+  const strengthPercent = Math.min(
+    100,
+    Math.max(0, Math.round(toFiniteNumber(result.strength) * 100)),
+  )
+  const reasonText = formatReasonValue(result.reason)
+  const evalTimeMs = toFiniteNumber(result.evalTimeMs)
 
   return (
     <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
@@ -109,16 +144,16 @@ export function EvaluationResultCard({ result, code, codeName }: EvaluationResul
       </div>
 
       {/* 평가 근거 */}
-      {result.reason && (
+      {reasonText && (
         <div className="mb-3 rounded-lg bg-gray-950 px-3 py-2">
           <div className="mb-1 text-xs text-gray-500">평가 근거</div>
-          <p className="text-sm text-gray-300">{result.reason}</p>
+          <p className="break-words text-sm text-gray-300">{reasonText}</p>
         </div>
       )}
 
       {/* 평가 시간 */}
       <div className="mb-3 text-right">
-        <span className="text-xs text-gray-600">평가 시간: {result.evalTimeMs}ms</span>
+        <span className="text-xs text-gray-600">평가 시간: {evalTimeMs}ms</span>
       </div>
 
       {/* 관심종목 추가 (ADR 0040 §2 정합) */}

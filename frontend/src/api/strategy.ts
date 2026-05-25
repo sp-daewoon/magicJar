@@ -48,12 +48,21 @@ export interface EvaluateRequest {
 }
 
 /** POST /api/strategy/{id}/evaluate 응답 */
+export type EvaluateReason =
+  | string
+  | number
+  | boolean
+  | null
+  | Record<string, unknown>
+  | unknown[]
+
 export interface EvaluateResponse {
-  strategyId: string
-  signal: 'BUY' | 'SELL' | 'HOLD'
-  strength: number
-  reason: string
-  evalTimeMs: number
+  strategyId: string | number
+  signal: 'BUY' | 'SELL' | 'HOLD' | (string & {})
+  strength: number | string
+  /** 백엔드 reason은 Map<String, Any>; 오래된 mock은 문자열을 보낼 수 있다. */
+  reason: EvaluateReason
+  evalTimeMs: number | string
 }
 
 /** POST /api/strategy 요청 — CreateStrategyRequest (ADR 0089 — userId number) */

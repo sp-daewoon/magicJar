@@ -32,7 +32,7 @@ const buyResult: EvaluateResponse = {
   strategyId: 'test-id',
   signal: 'BUY',
   strength: 0.85,
-  reason: 'RSI 30 이하 진입 신호',
+  reason: { trigger: 'RSI 30 이하 진입 신호', lhsValue: 29.8 },
   evalTimeMs: 42,
 }
 
@@ -57,6 +57,12 @@ describe('EvaluationResultCard signal 분기', () => {
     render(<EvaluationResultCard result={buyResult} code="005930" />, { wrapper })
     expect(screen.getByText(/매수/)).toBeInTheDocument()
     expect(screen.getByText(/RSI 30/)).toBeInTheDocument()
+  })
+
+  it('backend Map 형태의 평가 근거를 문자열로 표시', () => {
+    render(<EvaluationResultCard result={buyResult} code="005930" />, { wrapper })
+    expect(screen.getByText(/trigger: RSI 30 이하 진입 신호/)).toBeInTheDocument()
+    expect(screen.getByText(/lhsValue: 29.8/)).toBeInTheDocument()
   })
 
   it('SELL 신호 표시', () => {
