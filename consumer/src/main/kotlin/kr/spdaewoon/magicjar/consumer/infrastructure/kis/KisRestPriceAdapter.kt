@@ -11,6 +11,7 @@ import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
 import kr.spdaewoon.magicjar.domain.market.tick.TickEvent
+import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -256,6 +257,6 @@ class KisRestPriceAdapter(
     }
 
     companion object {
-        fun accountTypeForMode(mode: String): AccountType = if (mode == "REAL") AccountType.REAL else AccountType.MOCK
+        fun accountTypeForMode(mode: String): AccountType = RuntimeModeParser.accountTypeOrMock(mode)
     }
 }

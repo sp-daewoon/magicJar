@@ -20,6 +20,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.port.OrderAuditEventReposito
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderIdempotencyGuard
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.TradingModeGate
+import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -52,6 +53,7 @@ class OrderRouterKafkaListenerTest {
     private val requestedProducer = mockk<OrderRequestedKafkaProducer>(relaxed = true)
     private val rejectedProducer = mockk<OrderRejectedKafkaProducer>(relaxed = true)
     private val accountBalanceChangedProducer = mockk<AccountBalanceChangedKafkaProducer>(relaxed = true)
+    private val executionBackfillService = mockk<KisExecutionBackfillService>(relaxed = true)
     private val objectMapper = ObjectMapper()
 
     private val orderRepoProvider =
@@ -66,6 +68,10 @@ class OrderRouterKafkaListenerTest {
         mockk<ObjectProvider<KillSwitchQueryPort>>().also {
             every { it.getIfAvailable() } returns killSwitchPort
         }
+    private val executionBackfillProvider =
+        mockk<ObjectProvider<KisExecutionBackfillService>>().also {
+            every { it.getIfAvailable() } returns null
+        }
 
     private val listener =
         OrderRouterKafkaListener(
@@ -78,6 +84,7 @@ class OrderRouterKafkaListenerTest {
             orderRequestedKafkaProducer = requestedProducer,
             orderRejectedKafkaProducer = rejectedProducer,
             accountBalanceChangedKafkaProducer = accountBalanceChangedProducer,
+            executionBackfillServiceProvider = executionBackfillProvider,
             objectMapper = objectMapper,
         )
 
@@ -122,6 +129,21 @@ class OrderRouterKafkaListenerTest {
     }
 
     @Test
+    fun `idempotency Redis 장애 → REJECTED 저장과 rejected 이벤트 발행`() {
+        every { idempotencyGuard.acquire(any(), any()) } throws IllegalStateException("ORDER_IDEMPOTENCY_REDIS_DOWN")
+        every { orderRepo.save(any()) } answers { firstArg<OrderRequest>().copy(id = 77L) }
+
+        val ack = mockk<Acknowledgment>(relaxed = true)
+        listener.onOrderIntent(buildRecord(stubPayload()), ack)
+
+        verify(exactly = 1) { orderRepo.save(match { it.status == OrderStatus.REJECTED }) }
+        verify(exactly = 1) { rejectedProducer.publish(any(), "IDEMPOTENCY_REDIS_DOWN") }
+        verify(exactly = 0) { tradingModeGate.resolveMode(any()) }
+        verify(exactly = 0) { kisOrderPort.submit(any(), any()) }
+        verify(exactly = 1) { ack.acknowledge() }
+    }
+
+    @Test
     fun `(c) real gate denied → REAL_GATE_DENIED audit + Kafka rejected publish`() {
         every { idempotencyGuard.acquire(any(), any()) } returns true
         every { tradingModeGate.resolveMode("12345678") } returns
@@ -153,6 +175,64 @@ class OrderRouterKafkaListenerTest {
         assertThat(auditSlot.map { it.eventType }).contains(OrderAuditEventType.KILLSWITCH_DENIED)
         verify(exactly = 1) { rejectedProducer.publish(any(), eq("KILLSWITCH_ON")) }
         verify(exactly = 0) { kisOrderPort.submit(any(), any()) }
+    }
+
+    @Test
+    fun `REAL 주문 전 KIS 체결 sync 실패 시 REQUESTED와 KIS 전송 없이 REJECTED`() {
+        every { idempotencyGuard.acquire(any(), any()) } returns true
+        every { tradingModeGate.resolveMode("12345678") } returns OrderResult.Right(TradingMode.REAL)
+        every { killSwitchPort.isOn("12345678") } returns false
+        every { orderRepo.save(any()) } answers { firstArg<OrderRequest>().copy(id = 99L) }
+        every { executionBackfillService.syncUserTodayExecutions("12345678", AccountType.REAL) } returns
+            KisExecutionSyncResult.failure(
+                userId = "12345678",
+                accountType = AccountType.REAL,
+                error = "KIS_FETCH_FAILED:timeout",
+            )
+        val syncProvider =
+            mockk<ObjectProvider<KisExecutionBackfillService>>().also {
+                every { it.getIfAvailable() } returns executionBackfillService
+            }
+        val realListener =
+            OrderRouterKafkaListener(
+                orderRequestRepositoryProvider = orderRepoProvider,
+                orderAuditEventRepositoryProvider = auditRepoProvider,
+                killSwitchQueryPortProvider = killSwitchProvider,
+                tradingModeGate = tradingModeGate,
+                orderIdempotencyGuard = idempotencyGuard,
+                kisOrderPort = kisOrderPort,
+                orderRequestedKafkaProducer = requestedProducer,
+                orderRejectedKafkaProducer = rejectedProducer,
+                accountBalanceChangedKafkaProducer = accountBalanceChangedProducer,
+                executionBackfillServiceProvider = syncProvider,
+                objectMapper = objectMapper,
+                magicjarMode = "REAL",
+            )
+
+        val ack = mockk<Acknowledgment>(relaxed = true)
+        realListener.onOrderIntent(buildRecord(stubPayload()), ack)
+
+        verify(exactly = 1) { executionBackfillService.syncUserTodayExecutions("12345678", AccountType.REAL) }
+        verify(exactly = 1) { orderRepo.save(match { it.status == OrderStatus.REJECTED && it.mode == TradingMode.REAL }) }
+        verify(exactly = 1) { rejectedProducer.publish(any(), match { it.contains("KIS_EXECUTION_SYNC_STALE") }) }
+        verify(exactly = 0) { requestedProducer.publish(any()) }
+        verify(exactly = 0) { kisOrderPort.submit(any(), any()) }
+        verify(exactly = 1) { ack.acknowledge() }
+    }
+
+    @Test
+    fun `quantity 0 주문 의도는 KIS 전송 전에 REJECTED`() {
+        every { idempotencyGuard.acquire(any(), any()) } returns true
+        every { tradingModeGate.resolveMode("12345678") } returns OrderResult.Right(TradingMode.MOCK)
+        every { orderRepo.save(any()) } answers { firstArg<OrderRequest>().copy(id = 99L) }
+
+        val ack = mockk<Acknowledgment>(relaxed = true)
+        listener.onOrderIntent(buildRecord(payloadWithQuantity(0)), ack)
+
+        verify(exactly = 1) { orderRepo.save(match { it.status == OrderStatus.REJECTED }) }
+        verify(exactly = 1) { rejectedProducer.publish(any(), "INVALID_ORDER_QUANTITY:0") }
+        verify(exactly = 0) { kisOrderPort.submit(any(), any()) }
+        verify(exactly = 1) { ack.acknowledge() }
     }
 
     @Test
@@ -211,6 +291,7 @@ class OrderRouterKafkaListenerTest {
                 orderRequestedKafkaProducer = requestedProducer,
                 orderRejectedKafkaProducer = rejectedProducer,
                 accountBalanceChangedKafkaProducer = accountBalanceChangedProducer,
+                executionBackfillServiceProvider = executionBackfillProvider,
                 objectMapper = objectMapper,
             )
 
@@ -386,6 +467,20 @@ class OrderRouterKafkaListenerTest {
                 "riskVerdict" to "ALLOWED",
                 "emittedAt" to 1747094405L,
                 "source" to source,
+            ),
+        )
+
+    private fun payloadWithQuantity(quantity: Int): String =
+        objectMapper.writeValueAsString(
+            mapOf(
+                "signalId" to 42,
+                "strategyId" to 100,
+                "userId" to "12345678",
+                "code" to "005930",
+                "side" to "BUY",
+                "quantity" to quantity,
+                "emittedAt" to 1747094405L,
+                "source" to "AUTO",
             ),
         )
 

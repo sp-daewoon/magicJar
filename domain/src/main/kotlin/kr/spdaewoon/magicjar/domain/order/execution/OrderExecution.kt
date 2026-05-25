@@ -19,7 +19,7 @@ import java.time.Instant
  *   executedAt         — STCK_CNTG_HOUR (HHMMSS) + today date 합성
  *   fee                — KIS 별도 조회 의무, 1차 null 허용
  *   tax                — 매도세·증권거래세, 1차 null 허용
- *   eventId            — ADR 0084 P0-3 — WS + REST backfill 멱등 키 ({kisOrderNo}:{HHMMSS}:{qty})
+ *   eventId            — ADR 0084 P0-3 — WS + REST backfill 멱등 키 ({kisOrderNo}:{HHMMSS}:{qty}:{price})
  *   createdAt          — listener INSERT 시각
  *
  * ### eventId 멱등성 LOCK (ADR 0084 P0-3)

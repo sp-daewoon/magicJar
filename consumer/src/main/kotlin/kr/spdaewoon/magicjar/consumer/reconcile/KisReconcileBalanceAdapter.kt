@@ -8,6 +8,7 @@ import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
 import kr.spdaewoon.magicjar.domain.reconcile.ReconcileHolding
 import kr.spdaewoon.magicjar.domain.reconcile.port.ReconcileKisBalancePort
+import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
@@ -93,7 +94,7 @@ class KisReconcileBalanceAdapter(
      * AccountType 분기는 `inquire-balance` 호출 시 tr_id만 다를 뿐 — REAL 기본.
      */
     override fun fetchAllBalances(userId: String): List<ReconcileHolding> {
-        val accountType = if (magicjarMode.equals("REAL", ignoreCase = true)) AccountType.REAL else AccountType.MOCK
+        val accountType = RuntimeModeParser.accountTypeOrMock(magicjarMode)
         val cred =
             credentialRepository
                 .findAllByAccountType(accountType.name)

@@ -21,11 +21,12 @@ import java.time.Instant
  */
 interface PositionReconJpaRepository : JpaRepository<PositionJpaEntity, Long> {
     /**
-     * userId + code로 포지션 단건 조회 — upsert 존재 여부 판단용.
+     * userId + code + source로 포지션 단건 조회 — REAL/MOCK 분리 upsert 존재 여부 판단용.
      */
-    fun findByUserIdAndCode(
+    fun findByUserIdAndCodeAndSource(
         userId: String,
         code: String,
+        source: String,
     ): PositionJpaEntity?
 
     /**
@@ -40,7 +41,7 @@ interface PositionReconJpaRepository : JpaRepository<PositionJpaEntity, Long> {
                    avg_price = :avgPrice,
                    entry_ts = :entryTs,
                    source = :source
-             WHERE user_id = :userId AND code = :code
+             WHERE user_id = :userId AND code = :code AND source = :source
         """,
         nativeQuery = true,
     )
@@ -63,7 +64,7 @@ interface PositionReconJpaRepository : JpaRepository<PositionJpaEntity, Long> {
  * ### upsert 전략
  * - symbol(code) + userId로 기존 행 조회 → qty·avg_price 갱신 또는 신규 INSERT
  * - qty=0이면 포지션 청산 (DB 행 유지 — ADR 0042 Position.isClosed 정합)
- * - source = "T-RECON" (origin 표기)
+ * - source = holding.accountType.name (REAL/MOCK 계좌 유형)
  *
  * 헌법 §6 (ADR 0051): helper 메서드는 이 클래스 private fun 위치.
  *
@@ -81,7 +82,8 @@ class PositionUpsertAdapter(
         holding: ReconcileHolding,
     ) {
         try {
-            val existing = positionReconJpaRepository.findByUserIdAndCode(userId, holding.symbol)
+            val source = holding.accountType.name
+            val existing = positionReconJpaRepository.findByUserIdAndCodeAndSource(userId, holding.symbol, source)
             if (existing != null) {
                 // 기존 행 있으면 UPDATE
                 val updated =
@@ -91,7 +93,7 @@ class PositionUpsertAdapter(
                         qty = holding.quantity.toLong(),
                         avgPrice = holding.avgPrice,
                         entryTs = Instant.now(),
-                        source = "T-RECON",
+                        source = source,
                     )
                 log.info(
                     "PositionUpsertAdapter — 갱신: userId={}**** code={} qty={} rows={}",
@@ -109,7 +111,7 @@ class PositionUpsertAdapter(
                         qty = holding.quantity.toLong(),
                         avgPrice = holding.avgPrice,
                         entryTs = Instant.now(),
-                        source = "T-RECON",
+                        source = source,
                         createdAt = Instant.now(),
                     )
                 positionReconJpaRepository.save(entity)

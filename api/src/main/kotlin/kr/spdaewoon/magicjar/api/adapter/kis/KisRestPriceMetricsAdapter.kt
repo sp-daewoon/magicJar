@@ -49,8 +49,6 @@ class KisRestPriceMetricsAdapter(
     @Suppress("UNUSED_PARAMETER")
     @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
     kisBaseVps: String,
-    @Value("\${magicjar.mode:MOCK}")
-    private val magicjarMode: String,
 ) : KisRestPriceMetricsPort {
     private val log = LoggerFactory.getLogger(KisRestPriceMetricsAdapter::class.java)
 
@@ -58,7 +56,7 @@ class KisRestPriceMetricsAdapter(
         userId: String,
         code: String,
     ): PriceMetrics {
-        val baseUrl = if (magicjarMode == "REAL") kisBaseProd else kisBaseProd // 조회는 항상 실전 endpoint
+        val baseUrl = kisBaseProd // 시세·캔들·메타 조회는 항상 실전 endpoint
         val (token, appKey, secretKey) = tokenHelper.resolveTokenAndKeys(userId, AccountType.REAL)
 
         // inquire-daily-itemchartprice 호출 파라미터:

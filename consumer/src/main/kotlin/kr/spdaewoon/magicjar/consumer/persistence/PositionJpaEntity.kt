@@ -28,6 +28,8 @@ class PositionJpaEntity(
     val quantity: Int = 0,
     @Column(name = "avg_price", precision = 19, scale = 4, nullable = false)
     val avgPrice: BigDecimal = BigDecimal.ZERO,
+    @Column(name = "source", length = 10, nullable = false)
+    val source: String = "MOCK",
     @Column(name = "updated_at", nullable = false)
     var updatedAt: Instant = Instant.now(),
 ) {

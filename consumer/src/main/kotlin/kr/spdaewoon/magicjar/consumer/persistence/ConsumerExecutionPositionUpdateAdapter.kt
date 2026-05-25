@@ -27,7 +27,8 @@ class ConsumerExecutionPositionUpdateAdapter(
         request: OrderRequest,
         execution: OrderExecution,
     ) {
-        val current = positionJpaRepository.findByUserIdAndCode(request.userId, request.code)
+        val source = request.mode.name
+        val current = positionJpaRepository.findByUserIdAndCodeAndSource(request.userId, request.code, source)
         val currentQty = current?.quantity ?: 0
         val currentAvg = current?.avgPrice ?: BigDecimal.ZERO
         val fillQty = execution.executedQuantity.coerceAtLeast(0)
@@ -65,7 +66,7 @@ class ConsumerExecutionPositionUpdateAdapter(
             code = request.code,
             quantity = next.first,
             avgPrice = next.second,
-            source = request.mode.name,
+            source = source,
         )
         log.info(
             "execution position update: userId={} code={} side={} fillQty={} nextQty={} avgPrice={} source={}",
@@ -75,7 +76,7 @@ class ConsumerExecutionPositionUpdateAdapter(
             fillQty,
             next.first,
             next.second.toPlainString(),
-            request.mode.name,
+            source,
         )
     }
 

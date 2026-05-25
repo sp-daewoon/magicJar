@@ -6,7 +6,7 @@
  * 2. /api/account/positions 가 3건 반환 → 카드 3개 + KIS 매트릭스 셀 표시
  * 3. /api/account/positions 빈 배열 → "보유 포지션이 없습니다" 안내
  * 4. 412 응답 → "KIS 키 미등록" 안내 (실전·모의 동적 분기)
- * 5. accountType 토글(REAL→MOCK) 시 새 endpoint 호출 (?accountType=MOCK)
+ * 5. accountType 토글(MOCK→REAL) 시 새 endpoint 호출 (?accountType=REAL)
  *
  * 회귀 방지: 기존 PositionsPage 는 usePositions (DB position) 호출 → 사용자 실제 보유와 무관 → 빈 결과.
  * 본 test 는 useAccountPositions (KIS inquire-balance) 로 정합됐는지 보증.
@@ -143,8 +143,8 @@ describe('PositionsPage — /api/account/positions 정합 (hotfix 2026-05-21)', 
     expect(screen.getByText('0.00%')).toBeInTheDocument()
     // 평가손익 부호 — SK하이닉스 +60,000원
     expect(screen.getByText('+60,000원')).toBeInTheDocument()
-    // accountType 기본 REAL
-    expect(lastQueryString).toContain('accountType=REAL')
+    // 런타임 플래그/저장값이 없으면 안전 기본값 MOCK
+    expect(lastQueryString).toContain('accountType=MOCK')
     expect(lastQueryString).toContain('userId=74683223')
   })
 
@@ -162,13 +162,13 @@ describe('PositionsPage — /api/account/positions 정합 (hotfix 2026-05-21)', 
     renderPage()
 
     await waitFor(() => {
-      // 기본 REAL → "실전계좌 KIS 키가 등록되지 않았습니다"
-      expect(screen.getByText(/실전계좌 KIS 키가 등록되지 않았습니다/)).toBeInTheDocument()
+      // 기본 MOCK → "모의계좌 KIS 키가 등록되지 않았습니다"
+      expect(screen.getByText(/모의계좌 KIS 키가 등록되지 않았습니다/)).toBeInTheDocument()
     })
-    expect(screen.getByText(/실전\(PROD\) 키를 등록한 뒤/)).toBeInTheDocument()
+    expect(screen.getByText(/모의\(VPS\) 키를 등록한 뒤/)).toBeInTheDocument()
   })
 
-  it('accountType 토글 REAL→MOCK 시 새 endpoint 호출(?accountType=MOCK)', async () => {
+  it('accountType 토글 MOCK→REAL 시 새 endpoint 호출(?accountType=REAL)', async () => {
     positionsResponse = 'three'
     renderPage()
     const user = userEvent.setup()
@@ -176,13 +176,13 @@ describe('PositionsPage — /api/account/positions 정합 (hotfix 2026-05-21)', 
     await waitFor(() => {
       expect(screen.getByText('SK하이닉스')).toBeInTheDocument()
     })
-    expect(lastQueryString).toContain('accountType=REAL')
+    expect(lastQueryString).toContain('accountType=MOCK')
 
-    // 모의 버튼 클릭
-    await user.click(screen.getByRole('button', { name: '모의' }))
+    // 실전 버튼 클릭
+    await user.click(screen.getByRole('button', { name: '실전' }))
 
     await waitFor(() => {
-      expect(lastQueryString).toContain('accountType=MOCK')
+      expect(lastQueryString).toContain('accountType=REAL')
     })
   })
 })

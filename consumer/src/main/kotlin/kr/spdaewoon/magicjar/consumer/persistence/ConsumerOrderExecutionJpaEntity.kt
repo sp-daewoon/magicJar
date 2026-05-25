@@ -51,7 +51,7 @@ class ConsumerOrderExecutionJpaEntity(
     /**
      * ADR 0084 P0-3 — WS + REST backfill 멱등 키.
      * Flyway V35 — `order_execution.event_id VARCHAR(64) UNIQUE` partial index (NULL 허용).
-     * 합성 규칙: `{kisOrderNo}:{stckCntgHour}:{cntgQty}` (KisExecutionWsListener·KisOrderInquireCcldHttpAdapter 양 경로 동일).
+     * 합성 규칙: `{kisOrderNo}:{stckCntgHour}:{cntgQty}:{price}` (KisExecutionWsListener·backfill 양 경로 동일).
      */
     @Column(name = "event_id", length = 64)
     val eventId: String? = null,

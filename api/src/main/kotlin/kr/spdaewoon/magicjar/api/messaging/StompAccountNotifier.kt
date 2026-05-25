@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.api.messaging
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.swagger.v3.oas.annotations.media.Schema
+import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -72,7 +73,7 @@ class StompAccountNotifier(
 
             val payload =
                 AccountBalanceChangedStompPayload(
-                    accountType = rawMap["accountType"]?.toString() ?: "REAL",
+                    accountType = RuntimeModeParser.accountTypeOrMock(rawMap["accountType"]?.toString()).name,
                     reason = rawMap["reason"]?.toString() ?: "UNKNOWN",
                     occurredAt = rawMap["occurredAt"]?.toString() ?: Instant.now().toString(),
                 )

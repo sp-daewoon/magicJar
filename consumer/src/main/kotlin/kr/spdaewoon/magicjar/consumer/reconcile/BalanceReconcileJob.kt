@@ -2,7 +2,7 @@ package kr.spdaewoon.magicjar.consumer.reconcile
 
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.reconcile.ReconcileTriggerSource
-import kr.spdaewoon.magicjar.domain.user.AccountType
+import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Scheduled
@@ -54,7 +54,7 @@ class BalanceReconcileJob(
      * @param triggerSource CRON · MANUAL · API
      */
     internal fun runForAllActiveUsers(triggerSource: ReconcileTriggerSource) {
-        val accountType = if (magicjarMode.equals("REAL", ignoreCase = true)) AccountType.REAL else AccountType.MOCK
+        val accountType = RuntimeModeParser.accountTypeOrMock(magicjarMode)
         val activeCreds = credentialRepository.findAllByAccountType(accountType.name)
         if (activeCreds.isEmpty()) {
             log.info("BalanceReconcileJob — 활성 사용자 0명 idle (accountType={})", accountType.name)

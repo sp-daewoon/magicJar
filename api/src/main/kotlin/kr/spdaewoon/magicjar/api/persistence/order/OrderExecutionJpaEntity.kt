@@ -40,7 +40,7 @@ class OrderExecutionJpaEntity(
     val kisExecutionNo: String? = null,
     /**
      * ADR 0084 P0-3 — WS + REST backfill 멱등 키 (Flyway V35 uq_execution_event_id partial UNIQUE).
-     * 합성 규칙: `{kisOrderNo}:{stckCntgHour}:{cntgQty}`.
+     * 합성 규칙: `{kisOrderNo}:{stckCntgHour}:{cntgQty}:{price}`.
      */
     @Column(name = "event_id", length = 64)
     val eventId: String? = null,

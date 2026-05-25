@@ -51,6 +51,17 @@ class TradingModeGateImplTest {
     }
 
     @Test
+    fun `env mode와 allow-real은 대소문자와 공백을 정규화한다`() {
+        every { consentPort.findConsentAt("12345678") } returns Instant.parse("2026-05-10T00:00:00Z")
+        val gate = TradingModeGateImpl(consentProvider, magicjarMode = " real ", magicjarAllowReal = "True")
+
+        val result = gate.resolveMode(userId = "12345678")
+
+        assertThat(result).isInstanceOf(OrderResult.Right::class.java)
+        assertThat((result as OrderResult.Right).value).isEqualTo(TradingMode.REAL)
+    }
+
+    @Test
     fun `(c) MAGICJAR_ALLOW_REAL=false → DENIED MAGICJAR_ALLOW_REAL=false`() {
         val gate = TradingModeGateImpl(consentProvider, magicjarMode = "REAL", magicjarAllowReal = "false")
 

@@ -12,6 +12,7 @@ import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.port.KisWsPort
 import kr.spdaewoon.magicjar.domain.market.port.QuoteCachePort
 import kr.spdaewoon.magicjar.domain.market.tick.TickEvent
+import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
@@ -861,7 +862,7 @@ class KisWebSocketBridge(
      *   REAL → H0STCNI0 (실전 체결통보)
      *   기본값 MOCK (dev/staging 안전 default).
      */
-    private fun executionNoticeTrId(): String = if (magicjarMode == "REAL") "H0STCNI0" else "H0STCNI9"
+    private fun executionNoticeTrId(): String = if (RuntimeModeParser.isRealMode(magicjarMode)) "H0STCNI0" else "H0STCNI9"
 
     /**
      * 체결통보 자동 subscribe — 사용자 본인 HTS 사용자 ID(defaultUserId) 1 구독.
@@ -1450,7 +1451,7 @@ class KisWebSocketBridge(
         }
     }
 
-    private fun getWsUrl(): String = if (magicjarMode == "REAL") wsUrlProd else wsUrlVps
+    private fun getWsUrl(): String = if (RuntimeModeParser.isRealMode(magicjarMode)) wsUrlProd else wsUrlVps
 
     /**
      * KIS WS subscribe/unsubscribe 메시지 빌드.
