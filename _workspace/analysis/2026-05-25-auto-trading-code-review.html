@@ -382,8 +382,8 @@
           <span>Gradle 핵심 테스트, batch/strategy 테스트, 프론트 타입체크와 프론트 전체 테스트가 통과했습니다.</span>
         </article>
         <article class="summary-card">
-          <strong>관찰</strong>
-          <span>CPU budget과 DSL 산술 우선순위는 별도 P2 개선 후보로 남겨두는 것이 좋습니다.</span>
+          <strong>P2 완료</strong>
+          <span>전략 CPU budget 자동 비활성화와 DSL 산술 우선순위도 실제 코드와 테스트로 보강했습니다.</span>
         </article>
       </div>
     </section>
@@ -407,6 +407,36 @@
         <article class="check-card">
           <strong>REAL/MOCK 분리</strong>
           <p>런타임 모드 파서를 공통화하고, 포지션 unique key를 user+code+source로 바꿔 실전/모의 포지션이 서로 덮어쓰지 않게 했습니다.</p>
+        </article>
+        <article class="check-card">
+          <strong>전략 CPU budget</strong>
+          <p>전략 DSL 평가가 CPU를 오래 붙잡으면 누적 카운트가 올라가고, 기준 초과 시 해당 전략을 <code>DISABLED / CPU_BUDGET_EXCEEDED</code>로 전환합니다.</p>
+        </article>
+        <article class="check-card">
+          <strong>DSL 산술 우선순위</strong>
+          <p><code>1 + 2 * 3</code>은 일반 계산처럼 <code>1 + (2 * 3)</code>으로 해석됩니다. 괄호 없는 기존 전략은 배포 전 한 번 점검합니다.</p>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="explain-title">
+      <h2 id="explain-title">초보자용 설명</h2>
+      <div class="checks">
+        <article class="check-card">
+          <strong>CPU budget이란?</strong>
+          <p>서버 전체 CPU 제한이 아니라, 전략 하나가 한 번 평가될 때 CPU를 너무 오래 쓰지 못하게 하는 안전장치입니다. 느리거나 무거운 전략이 다른 전략 평가와 자동매매 흐름을 밀어내지 않게 막습니다.</p>
+        </article>
+        <article class="check-card">
+          <strong>timeout과 CPU budget 차이</strong>
+          <p><code>timeout</code>은 “평가 결과가 제한 시간 안에 안 나오면 중단”이고, <code>CPU budget</code>은 “결과가 나왔더라도 CPU를 과하게 태웠으면 위반으로 기록”입니다.</p>
+        </article>
+        <article class="check-card">
+          <strong>자동 비활성화 흐름</strong>
+          <p>전략 평가 → CPU 사용 시간 측정 → 기준 초과 누적 → 임계치 도달 → strategy 테이블 상태를 <code>DISABLED</code>로 변경 → 이후 실시간 평가 대상에서 빠집니다.</p>
+        </article>
+        <article class="check-card">
+          <strong>DSL 산술 우선순위</strong>
+          <p>전략식에서 <code>*</code>, <code>/</code>가 <code>+</code>, <code>-</code>보다 먼저 계산됩니다. 의도가 애매한 전략식은 괄호를 쓰면 가장 안전합니다.</p>
         </article>
       </div>
     </section>
@@ -697,7 +727,7 @@
       <div class="checks">
         <article class="check-card">
           <strong>Gradle 핵심 테스트</strong>
-          <p><code>./gradlew :domain:test :consumer:test :api:test --rerun-tasks</code> 통과</p>
+          <p><code>./gradlew :domain:test :strategy-engine:test :consumer:test :api:test --rerun-tasks</code> 통과</p>
         </article>
         <article class="check-card">
           <strong>추가 백엔드 테스트</strong>
@@ -707,6 +737,10 @@
           <strong>프론트 검증</strong>
           <p><code>pnpm typecheck</code> 통과, <code>pnpm test</code> 418개 전체 통과</p>
         </article>
+        <article class="check-card">
+          <strong>스타일 검증</strong>
+          <p><code>:domain:ktlintCheck</code>, <code>:strategy-engine:ktlintCheck</code>, <code>:consumer:ktlintCheck</code>, <code>:api:ktlintCheck</code> 통과</p>
+        </article>
       </div>
     </section>
 
@@ -714,8 +748,8 @@
       <h2 id="next-title">남은 추천 개선</h2>
       <ol class="next-list">
         <li><code>KisWebSocketBridge</code>에서 시세 REAL 세션과 체결통보 MOCK/REAL 세션을 구조적으로 분리합니다.</li>
-        <li>DSL 산술 파서에 일반 우선순위 테스트를 추가했습니다. 기존 전략 중 <code>+ - * /</code>를 괄호 없이 섞어 쓴 식은 결과가 바뀔 수 있으므로 배포 시 한 번 점검합니다.</li>
-        <li>전략 CPU budget은 wall-clock timeout과 별개로 실제 CPU 측정이 가능한 방식으로 다시 설계합니다.</li>
+        <li>기존 저장 전략 중 <code>+ - * /</code>를 괄호 없이 섞어 쓴 DSL 식이 있는지 배포 전 점검합니다.</li>
+        <li>CPU budget 자동 비활성화 발생 건수를 운영 대시보드와 알림에 노출합니다.</li>
         <li>REAL/MOCK 전환 회귀 테스트를 API, consumer, frontend에 시나리오 단위로 더 추가합니다.</li>
         <li>운영 대시보드에 <code>INVALID_ORDER_INTENT</code>, <code>SELL_WITHOUT_POSITION</code>, Redis idempotency 장애 카운터를 노출합니다.</li>
       </ol>
