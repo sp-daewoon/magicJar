@@ -13,6 +13,11 @@ import java.time.LocalDate
  * 동일 물리 테이블 — api 모듈 MarketCalendarJpaRepository와 공유.
  */
 interface BatchMarketCalendarJpaRepository : JpaRepository<BatchMarketCalendarJpaEntity, LocalDate> {
+    fun findByDateBetween(
+        from: LocalDate,
+        to: LocalDate,
+    ): List<BatchMarketCalendarJpaEntity>
+
     /**
      * upsert — date PK 충돌 시 갱신.
      * ADR 0051: body 있는 fun은 @Query native 쿼리로 격리.

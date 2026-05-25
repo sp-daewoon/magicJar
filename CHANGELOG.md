@@ -3,6 +3,8 @@
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 
+| 2026-05-25 | **feat(market): KRX 휴장일 게이트 + 웹 시장 캘린더 일정 CRUD + ADR 0104 정합** — 2026-05-25 부처님오신날 대체휴무일 실측 기준으로 batch 국내 지수/종목 마스터 수집을 `market_calendar` 영업일 권위에 묶고, `market_calendar_event` V55와 `/api/market/calendar`, `/market/calendar`를 추가해 IPO 등 확장 가능한 시장 중요 일정을 웹에서 입력·수정·삭제 가능하게 함. 시장 지수 `dataInsufficient=true` 원인은 휴장일 수집 차단이 아니라 `market_index_snapshot`·`sector_index_snapshot`·지수 candle 0건인 초기 데이터 부재로 분리 기록. | batch scheduler · api market calendar · frontend market calendar · `_workspace/arch/adr/0104-market-calendar-event-and-holiday-gate.md` · `_workspace/tasks/T-20260525-1509-market-calendar-holiday.md` | 휴장일 캘린더 신뢰성 회복 + 투자 지표로서 데이터 부족 원인 명확화 |
+
 | 2026-05-25 | **docs(chart): Symbol Detail 추세선 도구 기능 계약 명세 LOCK** — `_workspace/specs/2026-05-25-symbol-trendline-tool-spec.md` 신설. LWC v4 + SVG overlay 유지, `sourceInterval` 표시 필터 금지, 봉 전환 보존, 오른쪽 익스텐션 `overlayWidth` 외삽, 수동 작성 cursor ring/rubber-band preview, Esc 2단계 취소, Ctrl/Cmd OHLC snap, Delete/Backspace 삭제, Ctrl/Cmd+C/V 평행선 복제, 자동 추세선은 근거리 pivot 보조선이며 strategy DSL/자동매매 진입 조건 직결 금지 계약을 문서화. `.claude/skills/magicjar-chart-curator/SKILL.md`에 추세선 회귀 함정 가드와 spec cross-ref 추가. | `_workspace/specs/2026-05-25-symbol-trendline-tool-spec.md` · `.claude/skills/magicjar-chart-curator/SKILL.md` · `_workspace/INDEX.md` | 후속 에이전트가 TradingView-like 추세선 UX와 영속 계약을 임의 변경하지 못하도록 회귀 방지 |
 
 | 2026-05-24 | **chore(meta): PR-2 v3.9.0 baseline 폴더 신설 + sub-agent 슬롯 4 anchor 발행** — `_workspace/baseline/v3.9.0/` 폴더 신설(README skeleton + 7 파일 인덱스). CHANGELOG sub-agent 슬롯 4 anchor(architect/backend-core/market-data/frontend). 4 sub-agent 병렬 디스패치 add-only LOCK. (orchestrator) | meta/baseline | PR-2 v3.9.0 baseline 슬롯 발행 |

@@ -55,6 +55,8 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/watchlist', label: '관심종목' },
       { to: '/instruments', label: '종목검색' },
+      { to: '/market/trend', label: '시장 추세' },
+      { to: '/market/calendar', label: '시장 캘린더' },
     ],
   },
   {
