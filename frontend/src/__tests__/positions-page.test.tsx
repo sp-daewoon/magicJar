@@ -172,6 +172,7 @@ describe('PositionsPage — /api/account/positions 정합 (hotfix 2026-05-21)', 
     expect(screen.getByText('0.00%')).toBeInTheDocument()
     // 평가손익 부호 — SK하이닉스 +60,000원
     expect(screen.getByText('+60,000원')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: '추가 매수' })).toHaveLength(3)
     expect(screen.getAllByRole('button', { name: '일부 매도' })).toHaveLength(3)
     expect(screen.getAllByRole('button', { name: '전량 청산' })).toHaveLength(3)
     // 런타임 플래그/저장값이 없으면 안전 기본값 MOCK
@@ -217,7 +218,7 @@ describe('PositionsPage — /api/account/positions 정합 (hotfix 2026-05-21)', 
     })
   })
 
-  it('주문 런타임과 선택 계좌가 다르면 포지션 직접 매도를 차단한다', async () => {
+  it('주문 런타임과 선택 계좌가 다르면 포지션 직접 주문을 차단한다', async () => {
     positionsResponse = 'three'
     renderPage()
     const user = userEvent.setup()
@@ -230,16 +231,51 @@ describe('PositionsPage — /api/account/positions 정합 (hotfix 2026-05-21)', 
 
     await waitFor(() => {
       expect(
-        screen.getAllByText('현재 주문 모드가 MOCK라 REAL 포지션 매도를 막았습니다.').length,
+        screen.getAllByText('현재 주문 모드가 MOCK라 REAL 포지션 주문을 막았습니다.').length,
       ).toBeGreaterThan(0)
     })
 
+    for (const button of screen.getAllByRole('button', { name: '추가 매수' })) {
+      expect(button).toBeDisabled()
+    }
     for (const button of screen.getAllByRole('button', { name: '일부 매도' })) {
       expect(button).toBeDisabled()
     }
     for (const button of screen.getAllByRole('button', { name: '전량 청산' })) {
       expect(button).toBeDisabled()
     }
+  })
+
+  it('추가 매수 모달에서 보유 수량보다 큰 BUY 시장가 주문을 접수한다', async () => {
+    positionsResponse = 'three'
+    renderPage()
+    const user = userEvent.setup()
+
+    await waitFor(() => {
+      expect(screen.getByText('한국석유')).toBeInTheDocument()
+    })
+
+    const oilCard = screen.getByLabelText('보유 종목 한국석유')
+
+    await user.click(within(oilCard).getByRole('button', { name: '추가 매수' }))
+    expect(screen.getByRole('dialog', { name: '보유 종목 추가 매수' })).toBeInTheDocument()
+
+    const quantityInput = screen.getByLabelText('매수 수량')
+    await user.clear(quantityInput)
+    await user.type(quantityInput, '7')
+    await user.click(screen.getByLabelText('포지션 추가 매수 주문 내용 확인'))
+    await user.click(screen.getByRole('button', { name: '추가 매수 접수' }))
+
+    await waitFor(() => {
+      expect(lastManualOrderRequest).toMatchObject({
+        userId: 74683223,
+        code: '004090',
+        side: 'BUY',
+        priceType: 'MARKET',
+        quantity: 7,
+        limitPrice: null,
+      })
+    })
   })
 
   it('일부 매도 모달에서 보유 수량 이하 SELL 시장가 주문을 접수한다', async () => {

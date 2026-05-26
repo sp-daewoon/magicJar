@@ -21,11 +21,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useOnboardingStore } from '../../stores/onboarding'
 import type { AccountHoldingDto, AccountType } from '../../api/account'
+import type { OrderSide } from '../../api/order'
 import { useAccountPositions } from '../../api/hooks/useAccountPositions'
 import { usePreferredAccountType } from '../../api/hooks/usePreferredAccountType'
 import { useRuntimeFlags } from '../../api/hooks/useRuntimeFlags'
 import { AccountHoldingCard } from '../../components/risk/AccountHoldingCard'
-import { PositionSellModal } from '../../components/risk/PositionSellModal'
+import { PositionOrderModal } from '../../components/risk/PositionOrderModal'
 import { extractStatus } from '../Dashboard/errorStatus'
 
 const ACCOUNT_OPTIONS: { value: AccountType; label: string }[] = [
@@ -33,28 +34,31 @@ const ACCOUNT_OPTIONS: { value: AccountType; label: string }[] = [
   { value: 'MOCK', label: '모의' },
 ]
 
-const POSITION_SELL_COOLDOWN_SECONDS = 60
+const POSITION_ORDER_COOLDOWN_SECONDS = 60
 
-interface SellSelection {
+interface OrderSelection {
   holding: AccountHoldingDto
+  side: OrderSide
   initialQuantity: number
 }
 
-function positionSellCooldownKey(
+function positionOrderCooldownKey(
   userId: number,
   accountType: AccountType,
   code: string,
+  side: OrderSide,
 ): string {
-  return `position_sell_cooldown:${userId}:${accountType}:${code}`
+  return `position_order_cooldown:${userId}:${accountType}:${code}:${side}`
 }
 
-function getPositionSellCooldownRemainSec(
+function getPositionOrderCooldownRemainSec(
   userId: number,
   accountType: AccountType,
   code: string,
+  side: OrderSide,
 ): number {
   try {
-    const raw = sessionStorage.getItem(positionSellCooldownKey(userId, accountType, code))
+    const raw = sessionStorage.getItem(positionOrderCooldownKey(userId, accountType, code, side))
     if (!raw) return 0
     const expiryEpoch = parseInt(raw, 10)
     if (Number.isNaN(expiryEpoch)) return 0
@@ -65,14 +69,15 @@ function getPositionSellCooldownRemainSec(
   }
 }
 
-function setPositionSellCooldown(
+function setPositionOrderCooldown(
   userId: number,
   accountType: AccountType,
   code: string,
+  side: OrderSide,
 ): void {
   try {
-    const expiry = Math.floor(Date.now() / 1000) + POSITION_SELL_COOLDOWN_SECONDS
-    sessionStorage.setItem(positionSellCooldownKey(userId, accountType, code), String(expiry))
+    const expiry = Math.floor(Date.now() / 1000) + POSITION_ORDER_COOLDOWN_SECONDS
+    sessionStorage.setItem(positionOrderCooldownKey(userId, accountType, code, side), String(expiry))
   } catch {
     // sessionStorage 차단 환경에서는 UI 재시도 쿨다운만 생략된다.
   }
@@ -87,19 +92,19 @@ export function PositionsPage() {
     accountType,
     enabled: accountTypeReady,
   })
-  const [sellSelection, setSellSelection] = useState<SellSelection | null>(null)
+  const [orderSelection, setOrderSelection] = useState<OrderSelection | null>(null)
   const [, setCooldownTick] = useState(0)
 
   const holdings = data ?? []
   const isCredentialMissing = extractStatus(error) === 412
   const orderMode = runtimeFlags?.mode ?? null
   const killSwitchOn = runtimeFlags?.killSwitchEnabled ?? false
-  const canSellSelectedAccount = orderMode !== null && orderMode === accountType && !killSwitchOn
-  const sellDisabledReason = useMemo(() => {
+  const canTradeSelectedAccount = orderMode !== null && orderMode === accountType && !killSwitchOn
+  const tradeDisabledReason = useMemo(() => {
     if (isRuntimeFlagsLoading || orderMode === null) return '주문 런타임 모드를 확인 중입니다.'
-    if (killSwitchOn) return 'KillSwitch ON 상태라 매도 주문이 차단됩니다.'
+    if (killSwitchOn) return 'KillSwitch ON 상태라 포지션 주문이 차단됩니다.'
     if (orderMode !== accountType) {
-      return `현재 주문 모드가 ${orderMode}라 ${accountType} 포지션 매도를 막았습니다.`
+      return `현재 주문 모드가 ${orderMode}라 ${accountType} 포지션 주문을 막았습니다.`
     }
     return null
   }, [accountType, isRuntimeFlagsLoading, killSwitchOn, orderMode])
@@ -109,22 +114,32 @@ export function PositionsPage() {
     return () => clearInterval(timer)
   }, [])
 
-  function handleOpenPartialSell(holding: AccountHoldingDto) {
-    setSellSelection({
+  function handleOpenBuyMore(holding: AccountHoldingDto) {
+    setOrderSelection({
       holding,
+      side: 'BUY',
+      initialQuantity: 1,
+    })
+  }
+
+  function handleOpenPartialSell(holding: AccountHoldingDto) {
+    setOrderSelection({
+      holding,
+      side: 'SELL',
       initialQuantity: Math.min(1, holding.quantity),
     })
   }
 
   function handleOpenClosePosition(holding: AccountHoldingDto) {
-    setSellSelection({
+    setOrderSelection({
       holding,
+      side: 'SELL',
       initialQuantity: holding.quantity,
     })
   }
 
-  function handleSellSubmitted(holding: AccountHoldingDto) {
-    setPositionSellCooldown(userId!, accountType, holding.code)
+  function handleOrderSubmitted(holding: AccountHoldingDto, side: OrderSide) {
+    setPositionOrderCooldown(userId!, accountType, holding.code, side)
     setCooldownTick((tick) => tick + 1)
     void refetch()
   }
@@ -162,8 +177,8 @@ export function PositionsPage() {
           <p className="mt-2 text-sm text-gray-500">
             KIS 실시간 보유 종목입니다. (현재 {accountType === 'REAL' ? '실전' : '모의'}계좌)
           </p>
-          {sellDisabledReason && (
-            <p className="mt-1 text-xs text-yellow-500">{sellDisabledReason}</p>
+          {tradeDisabledReason && (
+            <p className="mt-1 text-xs text-yellow-500">{tradeDisabledReason}</p>
           )}
         </div>
         {/* 새로고침 버튼 */}
@@ -239,9 +254,11 @@ export function PositionsPage() {
               <AccountHoldingCard
                 key={h.code}
                 holding={h}
-                canSell={canSellSelectedAccount}
-                sellDisabledReason={sellDisabledReason}
-                cooldownRemainSec={getPositionSellCooldownRemainSec(userId, accountType, h.code)}
+                canTrade={canTradeSelectedAccount}
+                tradeDisabledReason={tradeDisabledReason}
+                buyCooldownRemainSec={getPositionOrderCooldownRemainSec(userId, accountType, h.code, 'BUY')}
+                sellCooldownRemainSec={getPositionOrderCooldownRemainSec(userId, accountType, h.code, 'SELL')}
+                onBuyMore={handleOpenBuyMore}
                 onSellPartial={handleOpenPartialSell}
                 onClosePosition={handleOpenClosePosition}
               />
@@ -250,8 +267,9 @@ export function PositionsPage() {
         </>
       )}
 
-      <PositionSellModal
-        holding={sellSelection?.holding ?? null}
+      <PositionOrderModal
+        holding={orderSelection?.holding ?? null}
+        side={orderSelection?.side ?? null}
         userId={userId}
         accountType={accountType}
         orderMode={orderMode}
@@ -259,13 +277,18 @@ export function PositionsPage() {
         hasConsent={runtimeFlags?.userConsented ?? false}
         killSwitchOn={killSwitchOn}
         cooldownRemainSec={
-          sellSelection
-            ? getPositionSellCooldownRemainSec(userId, accountType, sellSelection.holding.code)
+          orderSelection
+            ? getPositionOrderCooldownRemainSec(
+                userId,
+                accountType,
+                orderSelection.holding.code,
+                orderSelection.side,
+              )
             : 0
         }
-        initialQuantity={sellSelection?.initialQuantity ?? 1}
-        onClose={() => setSellSelection(null)}
-        onSubmitted={handleSellSubmitted}
+        initialQuantity={orderSelection?.initialQuantity ?? 1}
+        onClose={() => setOrderSelection(null)}
+        onSubmitted={handleOrderSubmitted}
       />
     </div>
   )

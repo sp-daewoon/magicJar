@@ -1,17 +1,20 @@
 /**
- * PositionSellModal — 보유 종목 직접 매도 / 전량 청산 확인 모달.
+ * PositionOrderModal — 보유 종목 추가 매수 / 매도 / 전량 청산 확인 모달.
  *
- * `/positions`의 KIS 실시간 보유 수량을 상한으로 삼고, 실제 주문은 기존 수동 주문 API
- * `POST /api/orders/manual`에 SELL + MARKET 으로 위임한다.
+ * `/positions`의 KIS 실시간 보유 종목을 기준으로 기존 수동 주문 API
+ * `POST /api/orders/manual`에 MARKET 주문을 위임한다.
  */
 import { useEffect, useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { AccountHoldingDto, AccountType } from '../../api/account'
-import type { TradingMode } from '../../api/order'
+import type { OrderSide, TradingMode } from '../../api/order'
 import { useManualOrderMutation } from '../../api/hooks/useManualOrderMutation'
 
-interface PositionSellModalProps {
+const MAX_BUY_QUANTITY = 999_999
+
+interface PositionOrderModalProps {
   holding: AccountHoldingDto | null
+  side: OrderSide | null
   userId: number
   accountType: AccountType
   orderMode: TradingMode | null
@@ -21,7 +24,7 @@ interface PositionSellModalProps {
   cooldownRemainSec: number
   initialQuantity: number
   onClose: () => void
-  onSubmitted: (holding: AccountHoldingDto) => void
+  onSubmitted: (holding: AccountHoldingDto, side: OrderSide) => void
 }
 
 function formatKrw(value: number): string {
@@ -44,8 +47,13 @@ function percentQuantity(
   return clampQuantity(Math.floor(total * percent), total)
 }
 
-export function PositionSellModal({
+function sideLabel(side: OrderSide): string {
+  return side === 'BUY' ? '추가 매수' : '매도'
+}
+
+export function PositionOrderModal({
   holding,
+  side,
   userId,
   accountType,
   orderMode,
@@ -56,33 +64,36 @@ export function PositionSellModal({
   initialQuantity,
   onClose,
   onSubmitted,
-}: PositionSellModalProps) {
+}: PositionOrderModalProps) {
   const queryClient = useQueryClient()
   const manualOrderMutation = useManualOrderMutation({ navigateOnSuccess: false })
   const [quantityText, setQuantityText] = useState('1')
   const [confirmed, setConfirmed] = useState(false)
 
-  const maxQuantity = holding?.quantity ?? 1
+  const isBuy = side === 'BUY'
+  const quantityLimit = holding && side === 'SELL' ? holding.quantity : MAX_BUY_QUANTITY
   const parsedQuantity = quantityText === '' ? NaN : Number(quantityText)
   const quantity = Number.isInteger(parsedQuantity) ? parsedQuantity : NaN
   const modeMatchesAccount = orderMode === accountType
   const isReal = orderMode === 'REAL'
   const realGatePassed = !isReal || (allowReal && hasConsent)
-  const quantityValid = holding !== null && quantity >= 1 && quantity <= maxQuantity
-  const isFullClose = holding !== null && quantity === maxQuantity
+  const quantityValid = holding !== null && side !== null && quantity >= 1 && quantity <= quantityLimit
+  const isFullClose = holding !== null && side === 'SELL' && quantity === holding.quantity
   const estimatedAmount = holding && quantityValid ? holding.currentPrice * quantity : 0
+  const actionLabel = side ? sideLabel(side) : '주문'
   const submitDisabledReason = useMemo(() => {
-    if (!holding) return '선택된 보유 종목이 없습니다.'
+    if (!holding || !side) return '선택된 보유 종목이 없습니다.'
     if (orderMode === null) return '주문 런타임 모드를 확인 중입니다.'
-    if (!modeMatchesAccount) return `현재 주문 모드가 ${orderMode}라 ${accountType} 포지션 매도를 막았습니다.`
+    if (!modeMatchesAccount) return `현재 주문 모드가 ${orderMode}라 ${accountType} 포지션 ${actionLabel}를 막았습니다.`
     if (killSwitchOn) return 'KillSwitch ON 상태라 주문이 차단됩니다.'
     if (!realGatePassed) return 'REAL 게이트가 통과되지 않았습니다.'
-    if (cooldownRemainSec > 0) return `동일 종목 매도 재시도까지 ${cooldownRemainSec}초 남았습니다.`
-    if (!quantityValid) return '매도 수량을 확인해 주세요.'
+    if (cooldownRemainSec > 0) return `동일 종목 ${actionLabel} 재시도까지 ${cooldownRemainSec}초 남았습니다.`
+    if (!quantityValid) return `${actionLabel} 수량을 확인해 주세요.`
     if (!confirmed) return '주문 내용을 확인해 주세요.'
     return null
   }, [
     accountType,
+    actionLabel,
     confirmed,
     cooldownRemainSec,
     holding,
@@ -91,28 +102,30 @@ export function PositionSellModal({
     orderMode,
     quantityValid,
     realGatePassed,
+    side,
   ])
   const canSubmit = submitDisabledReason === null && !manualOrderMutation.isPending
 
   useEffect(() => {
-    if (!holding) return
-    setQuantityText(String(clampQuantity(initialQuantity, holding.quantity)))
+    if (!holding || !side) return
+    const limit = side === 'SELL' ? holding.quantity : MAX_BUY_QUANTITY
+    setQuantityText(String(clampQuantity(initialQuantity, limit)))
     setConfirmed(false)
-  }, [holding, initialQuantity])
+  }, [holding, initialQuantity, side])
 
   useEffect(() => {
-    if (!holding) return
+    if (!holding || !side) return
     function handleEsc(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose()
     }
     document.addEventListener('keydown', handleEsc)
     return () => document.removeEventListener('keydown', handleEsc)
-  }, [holding, onClose])
+  }, [holding, onClose, side])
 
-  if (!holding) return null
+  if (!holding || !side) return null
 
   function setQuantityFromNumber(value: number) {
-    setQuantityText(String(clampQuantity(value, maxQuantity)))
+    setQuantityText(String(clampQuantity(value, quantityLimit)))
   }
 
   function handleQuantityChange(nextValue: string) {
@@ -129,12 +142,12 @@ export function PositionSellModal({
   }
 
   function handleSubmit() {
-    if (!holding || !canSubmit) return
+    if (!holding || !side || !canSubmit) return
     manualOrderMutation.mutate(
       {
         userId,
         code: holding.code,
-        side: 'SELL',
+        side,
         priceType: 'MARKET',
         quantity,
         limitPrice: null,
@@ -143,19 +156,28 @@ export function PositionSellModal({
         onSuccess: () => {
           void queryClient.invalidateQueries({ queryKey: ['account'] })
           void queryClient.invalidateQueries({ queryKey: ['orders'] })
-          onSubmitted(holding)
+          onSubmitted(holding, side)
           onClose()
         },
       },
     )
   }
 
+  const title = isBuy
+    ? '보유 종목 추가 매수'
+    : isFullClose
+      ? '종목 전량 청산'
+      : '보유 종목 매도'
+  const quantityInputLabel = isBuy ? '매수 수량' : '매도 수량'
+  const confirmLabel = isBuy ? '포지션 추가 매수 주문 내용 확인' : '포지션 매도 주문 내용 확인'
+  const submitLabel = isBuy ? '추가 매수 접수' : isFullClose ? '전량 청산 접수' : '매도 주문 접수'
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="position-sell-title"
+      aria-labelledby="position-order-title"
       onClick={onClose}
     >
       <div
@@ -166,11 +188,11 @@ export function PositionSellModal({
       >
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <h2 id="position-sell-title" className="text-lg font-bold text-white">
-              {isFullClose ? '종목 전량 청산' : '보유 종목 매도'}
+            <h2 id="position-order-title" className="text-lg font-bold text-white">
+              {title}
             </h2>
             <p className="mt-1 text-xs text-gray-500">
-              시장가 SELL 주문으로 접수됩니다. 체결 후 KIS 보유 수량이 갱신됩니다.
+              시장가 {side} 주문으로 접수됩니다. 체결 후 KIS 보유 수량이 갱신됩니다.
             </p>
           </div>
           <span
@@ -195,7 +217,7 @@ export function PositionSellModal({
           <div>
             <dt className="text-xs text-gray-500">보유 수량</dt>
             <dd className="mt-0.5 font-semibold text-white tabular-nums">
-              {maxQuantity.toLocaleString('ko-KR')}주
+              {holding.quantity.toLocaleString('ko-KR')}주
             </dd>
           </div>
           <div>
@@ -205,7 +227,7 @@ export function PositionSellModal({
             </dd>
           </div>
           <div>
-            <dt className="text-xs text-gray-500">예상 매도금액</dt>
+            <dt className="text-xs text-gray-500">{isBuy ? '예상 매수금액' : '예상 매도금액'}</dt>
             <dd className="mt-0.5 font-semibold text-white tabular-nums">
               {formatKrw(estimatedAmount)}
             </dd>
@@ -214,7 +236,7 @@ export function PositionSellModal({
 
         {isReal && (
           <div className="mb-4 rounded-xl border border-red-700 bg-red-950/50 px-4 py-3">
-            <p className="text-sm font-bold text-red-300">실전 계좌 매도 주문입니다.</p>
+            <p className="text-sm font-bold text-red-300">실전 계좌 {actionLabel} 주문입니다.</p>
             <p className="mt-1 text-xs text-red-400">
               시장가 주문은 체결 가격이 현재가와 달라질 수 있습니다.
             </p>
@@ -223,28 +245,28 @@ export function PositionSellModal({
 
         {!modeMatchesAccount && orderMode !== null && (
           <div className="mb-4 rounded-xl border border-yellow-700 bg-yellow-950/30 px-4 py-3 text-xs text-yellow-300">
-            현재 주문 런타임은 {orderMode}입니다. {accountType} 탭의 보유 종목과 주문 계좌가 달라질 수 있어 매도를 차단했습니다.
+            현재 주문 런타임은 {orderMode}입니다. {accountType} 탭의 보유 종목과 주문 계좌가 달라질 수 있어 주문을 차단했습니다.
           </div>
         )}
 
         <div className="mb-4">
-          <label htmlFor="sellQuantity" className="mb-2 block text-sm font-medium text-gray-300">
-            매도 수량
+          <label htmlFor="positionOrderQuantity" className="mb-2 block text-sm font-medium text-gray-300">
+            {quantityInputLabel}
           </label>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setQuantityFromNumber((quantityValid ? quantity : 1) - 1)}
               className="h-10 w-10 rounded-lg border border-gray-700 bg-gray-900 text-lg text-gray-300 hover:bg-gray-800"
-              aria-label="매도 수량 1주 줄이기"
+              aria-label={`${quantityInputLabel} 1주 줄이기`}
             >
               -
             </button>
             <input
-              id="sellQuantity"
+              id="positionOrderQuantity"
               type="number"
               min={1}
-              max={maxQuantity}
+              max={quantityLimit}
               step={1}
               value={quantityText}
               onChange={(e) => handleQuantityChange(e.target.value)}
@@ -254,21 +276,28 @@ export function PositionSellModal({
               type="button"
               onClick={() => setQuantityFromNumber((quantityValid ? quantity : 0) + 1)}
               className="h-10 w-10 rounded-lg border border-gray-700 bg-gray-900 text-lg text-gray-300 hover:bg-gray-800"
-              aria-label="매도 수량 1주 늘리기"
+              aria-label={`${quantityInputLabel} 1주 늘리기`}
             >
               +
             </button>
           </div>
           <div className="mt-2 grid grid-cols-3 gap-2">
-            {[
-              { label: '25%', value: 0.25 },
-              { label: '50%', value: 0.5 },
-              { label: '전량', value: 1 },
-            ].map((item) => (
+            {(isBuy
+              ? [
+                  { label: '1주', value: 1 },
+                  { label: '5주', value: 5 },
+                  { label: '10주', value: 10 },
+                ]
+              : [
+                  { label: '25%', value: percentQuantity(holding.quantity, 0.25) },
+                  { label: '50%', value: percentQuantity(holding.quantity, 0.5) },
+                  { label: '전량', value: holding.quantity },
+                ]
+            ).map((item) => (
               <button
                 key={item.label}
                 type="button"
-                onClick={() => setQuantityFromNumber(percentQuantity(maxQuantity, item.value))}
+                onClick={() => setQuantityFromNumber(item.value)}
                 className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
                 {item.label}
@@ -283,10 +312,10 @@ export function PositionSellModal({
             checked={confirmed}
             onChange={(e) => setConfirmed(e.target.checked)}
             className="mt-0.5 h-4 w-4 cursor-pointer accent-blue-500"
-            aria-label="포지션 매도 주문 내용 확인"
+            aria-label={confirmLabel}
           />
           <span className="text-xs text-gray-300">
-            {holding.name || holding.code} {quantityLabel()}주를 시장가로 매도하는 내용을 확인했습니다.
+            {holding.name || holding.code} {quantityLabel()}주를 시장가로 {actionLabel}하는 내용을 확인했습니다.
           </span>
         </label>
 
@@ -314,15 +343,13 @@ export function PositionSellModal({
               canSubmit
                 ? isReal
                   ? 'bg-red-600 text-white hover:bg-red-500 focus:ring-red-400'
-                  : 'bg-blue-600 text-white hover:bg-blue-500 focus:ring-blue-400'
+                  : isBuy
+                    ? 'bg-emerald-600 text-white hover:bg-emerald-500 focus:ring-emerald-400'
+                    : 'bg-blue-600 text-white hover:bg-blue-500 focus:ring-blue-400'
                 : 'cursor-not-allowed bg-gray-800 text-gray-500',
             ].join(' ')}
           >
-            {manualOrderMutation.isPending
-              ? '접수 중...'
-              : isFullClose
-                ? '전량 청산 접수'
-                : '매도 주문 접수'}
+            {manualOrderMutation.isPending ? '접수 중...' : submitLabel}
           </button>
         </div>
       </div>

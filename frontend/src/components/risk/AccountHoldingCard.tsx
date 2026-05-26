@@ -32,18 +32,22 @@ function pnlColor(value: number): string {
 
 interface AccountHoldingCardProps {
   holding: AccountHoldingDto
-  canSell?: boolean
-  sellDisabledReason?: string | null
-  cooldownRemainSec?: number
+  canTrade?: boolean
+  tradeDisabledReason?: string | null
+  buyCooldownRemainSec?: number
+  sellCooldownRemainSec?: number
+  onBuyMore?: (holding: AccountHoldingDto) => void
   onSellPartial?: (holding: AccountHoldingDto) => void
   onClosePosition?: (holding: AccountHoldingDto) => void
 }
 
 export function AccountHoldingCard({
   holding,
-  canSell = false,
-  sellDisabledReason = null,
-  cooldownRemainSec = 0,
+  canTrade = false,
+  tradeDisabledReason = null,
+  buyCooldownRemainSec = 0,
+  sellCooldownRemainSec = 0,
+  onBuyMore,
   onSellPartial,
   onClosePosition,
 }: AccountHoldingCardProps) {
@@ -57,9 +61,13 @@ export function AccountHoldingCard({
     profitLoss,
     profitLossRate,
   } = holding
-  const sellBlocked = !canSell || cooldownRemainSec > 0
+  const buyBlocked = !canTrade || buyCooldownRemainSec > 0
+  const sellBlocked = !canTrade || sellCooldownRemainSec > 0
+  const buyDisabledReason =
+    buyCooldownRemainSec > 0 ? `추가 매수 재시도 대기 ${buyCooldownRemainSec}초` : tradeDisabledReason
   const disabledReason =
-    cooldownRemainSec > 0 ? `매도 재시도 대기 ${cooldownRemainSec}초` : sellDisabledReason
+    buyDisabledReason ??
+    (sellCooldownRemainSec > 0 ? `매도 재시도 대기 ${sellCooldownRemainSec}초` : tradeDisabledReason)
 
   return (
     <div
@@ -124,7 +132,20 @@ export function AccountHoldingCard({
       </div>
 
       <div className="mt-3 border-t border-gray-800 pt-3">
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
+          <button
+            type="button"
+            onClick={() => onBuyMore?.(holding)}
+            disabled={buyBlocked}
+            className={[
+              'rounded-lg px-2 py-2 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-400',
+              buyBlocked
+                ? 'cursor-not-allowed bg-gray-800 text-gray-500'
+                : 'border border-emerald-700 bg-emerald-950/40 text-emerald-200 hover:bg-emerald-900/60',
+            ].join(' ')}
+          >
+            추가 매수
+          </button>
           <button
             type="button"
             onClick={() => onSellPartial?.(holding)}
