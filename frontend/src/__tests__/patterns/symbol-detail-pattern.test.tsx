@@ -15,12 +15,13 @@
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { SymbolDetailPage } from '../../pages/Symbol/SymbolDetailPage'
 import { ToastProvider } from '../../components/ui/ToastProvider'
+import { useOnboardingStore } from '../../stores/onboarding'
 
 // ──────────────────────────────────────────────
 // LWC canvas + STOMP mock
@@ -104,6 +105,19 @@ const server = setupServer(
     }),
   ),
 
+  http.get('/api/runtime/flags', () =>
+    HttpResponse.json({
+      mode: 'MOCK',
+      allowReal: false,
+      killSwitchEnabled: false,
+      killSwitchReason: null,
+      userConsented: false,
+      fetchedAt: '2026-05-26T00:00:00Z',
+    }),
+  ),
+
+  http.get('/api/account/positions', () => HttpResponse.json([])),
+
   // 패턴 API — 기본 0건 응답
   http.get('/api/patterns', () => HttpResponse.json({ matches: [] })),
 
@@ -118,7 +132,15 @@ const server = setupServer(
 )
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'bypass' }))
-afterEach(() => server.resetHandlers())
+beforeEach(() => {
+  window.localStorage.clear()
+  window.sessionStorage.clear()
+  useOnboardingStore.setState({ registeredUserId: null })
+})
+afterEach(() => {
+  server.resetHandlers()
+  useOnboardingStore.setState({ registeredUserId: null })
+})
 afterAll(() => server.close())
 
 // ──────────────────────────────────────────────
@@ -155,7 +177,7 @@ describe('SymbolDetailPage 패턴 통합 시나리오', () => {
     renderSymbolDetailPage()
 
     await waitFor(() => {
-      expect(screen.getByText('삼성전자')).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: '삼성전자' })).toBeInTheDocument()
     })
 
     // 패턴 토글 버튼 확인
@@ -166,7 +188,7 @@ describe('SymbolDetailPage 패턴 통합 시나리오', () => {
     renderSymbolDetailPage()
 
     await waitFor(() => {
-      expect(screen.getByText('삼성전자')).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: '삼성전자' })).toBeInTheDocument()
     })
 
     // 패턴 버튼 클릭
@@ -183,7 +205,7 @@ describe('SymbolDetailPage 패턴 통합 시나리오', () => {
     renderSymbolDetailPage()
 
     await waitFor(() => {
-      expect(screen.getByText('삼성전자')).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: '삼성전자' })).toBeInTheDocument()
     })
 
     const patternBtn = screen.getByRole('button', { name: /패턴 선택 패널 열기/ })
@@ -200,7 +222,7 @@ describe('SymbolDetailPage 패턴 통합 시나리오', () => {
     renderSymbolDetailPage()
 
     await waitFor(() => {
-      expect(screen.getByText('삼성전자')).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: '삼성전자' })).toBeInTheDocument()
     })
 
     const patternBtn = screen.getByRole('button', { name: /패턴 선택 패널 열기/ })
@@ -238,7 +260,7 @@ describe('SymbolDetailPage 패턴 통합 시나리오', () => {
     renderSymbolDetailPage()
 
     await waitFor(() => {
-      expect(screen.getByText('삼성전자')).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: '삼성전자' })).toBeInTheDocument()
     })
 
     // 패턴 버튼이 있어서 선택 가능한 상태 확인
@@ -257,7 +279,7 @@ describe('PatternToggleMenu 57 카탈로그 카테고리 분류', () => {
     renderSymbolDetailPage()
 
     await waitFor(() => {
-      expect(screen.getByText('삼성전자')).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: '삼성전자' })).toBeInTheDocument()
     })
 
     const patternBtn = screen.getByRole('button', { name: /패턴 선택 패널 열기/ })
