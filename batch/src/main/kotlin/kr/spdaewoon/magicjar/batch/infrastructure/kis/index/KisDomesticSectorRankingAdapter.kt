@@ -63,10 +63,12 @@ class KisDomesticSectorRankingAdapter(
         marketClsCode: String,
         belongClsCode: String,
     ): List<SectorIndexSnapshot> {
-        if (gate.shouldSkip()) {
-            log.debug("[KisDomesticSectorRanking] gate skip")
-            return emptyList()
-        }
+        val credential =
+            gate.resolve()
+                ?: run {
+                    log.debug("[KisDomesticSectorRanking] credential skip")
+                    return emptyList()
+                }
 
         val accumulated = mutableListOf<SectorIndexSnapshot>()
         var trCont = ""
@@ -86,8 +88,8 @@ class KisDomesticSectorRankingAdapter(
                         .uri { builder ->
                             builder
                                 .scheme("https")
-                                .host(KisIndexCommons.parseHost(gate.baseUrl))
-                                .port(KisIndexCommons.parsePort(gate.baseUrl))
+                                .host(KisIndexCommons.parseHost(credential.baseUrl))
+                                .port(KisIndexCommons.parsePort(credential.baseUrl))
                                 .path(ENDPOINT)
                                 .queryParam("FID_COND_MRKT_DIV_CODE", FID_COND_MRKT_DIV_CODE)
                                 .queryParam("FID_INPUT_ISCD", ROOT_ISCD)
@@ -95,9 +97,9 @@ class KisDomesticSectorRankingAdapter(
                                 .queryParam("FID_MRKT_CLS_CODE", marketClsCode)
                                 .queryParam("FID_BLNG_CLS_CODE", belongClsCode)
                                 .build()
-                        }.header("authorization", "Bearer ${gate.accessToken}")
-                        .header("appkey", gate.appKey)
-                        .header("appsecret", gate.appSecret)
+                        }.header("authorization", "Bearer ${credential.accessToken}")
+                        .header("appkey", credential.appKey)
+                        .header("appsecret", credential.appSecret)
                         .header("tr_id", TR_ID)
                         .header("custtype", "P")
                         .header("tr_cont", trCont)

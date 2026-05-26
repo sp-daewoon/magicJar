@@ -28,6 +28,15 @@ interface MarketIndexSnapshotReader {
     fun findLatestIndexes(codes: List<String>): List<MarketIndexSnapshot>
 
     /**
+     * 지수별 일 단위 series 조회.
+     * 1분 snapshot 테이블에서 KST 날짜별 최신 1건을 골라 오래된 → 최신 순으로 반환한다.
+     */
+    fun findDailyIndexSeries(
+        code: String,
+        limit: Int,
+    ): List<MarketIndexSnapshot>
+
+    /**
      * 섹터 list 최신 snapshot (1분 기준).
      */
     fun findLatestSectorSnapshots(): List<SectorSnapshot>

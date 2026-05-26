@@ -76,21 +76,21 @@ internal object KisIndexCommons {
 }
 
 /**
- * KIS index 어댑터 5건 공유 credential + disabled 게이트 — env `magicjar.kis.index.*` LOCK.
+ * KIS index 어댑터 5건 공유 credential + fallback resolver.
  *
  * env 매트릭스 (T-MARKET Phase 1 LOCK):
- *   - magicjar.kis.index.disabled        (default true — dev/test 안전 LOCK)
+ *   - magicjar.kis.index.enabled         (static env credential 사용 여부, default false)
  *   - magicjar.kis.index.app-key
  *   - magicjar.kis.index.app-secret
  *   - magicjar.kis.index.access-token    (사용자별 token 없음 — 시스템 단일 token)
  *   - magicjar.kis.index.base-url        (default prod: https://openapi.koreainvestment.com:9443)
+ *   - magicjar.kis.index.use-real-credential (default true — DB REAL credential fallback)
  *
- * 본 게이트 활성 시 모든 adapter는 null/empty 응답 → caller batch Job 자연 skip.
- * dev 환경에서 KIS app-key 미제공 + Bucket4j 부담 0 path 보장.
+ * static env credential 이 없으면 DB에 등록된 REAL KIS credential 로 토큰을 발급한다.
+ * 시세·캔들 조회는 REAL KIS 우선 정책이므로 시장지수도 같은 데이터 path 를 따른다.
  *
- * disabled=true default 사유 (안전 우선):
- *   - 본 트랙 R1 단계는 통합 부팅 smoke 우선 — 실 KIS 호출은 R3 qa 단계에서 evidence 동반 활성
- *   - mock 합성 0 LOCK (feedback_no_mock_data) — disabled 시 null 반환 (mock 합성 0)
+ * 완전 비활성은 `magicjar.market.index.sync.enabled=false` 로 Job 전체를 끈다.
+ * DB REAL credential 도 없으면 null 반환 (mock 합성 0).
  */
 @org.springframework.stereotype.Component
 class KisIndexCredentials(
@@ -104,11 +104,28 @@ class KisIndexCredentials(
     val accessToken: String = "",
     @org.springframework.beans.factory.annotation.Value("\${magicjar.kis.index.base-url:https://openapi.koreainvestment.com:9443}")
     val baseUrl: String = "https://openapi.koreainvestment.com:9443",
+    @org.springframework.beans.factory.annotation.Value("\${magicjar.kis.index.use-real-credential:true}")
+    val useRealCredential: Boolean = true,
+    private val realCredentialResolver: org.springframework.beans.factory.ObjectProvider<KisIndexRealCredentialResolver>? = null,
 ) {
     /**
      * disabled / credential 비어있음 시 true — caller가 KIS 호출 우회.
      */
-    fun shouldSkip(): Boolean = !enabled || appKey.isBlank() || appSecret.isBlank() || accessToken.isBlank()
+    fun shouldSkip(): Boolean = resolve() == null
+
+    fun resolve(): ResolvedKisIndexCredentials? {
+        if (enabled && appKey.isNotBlank() && appSecret.isNotBlank() && accessToken.isNotBlank()) {
+            return ResolvedKisIndexCredentials(
+                appKey = appKey,
+                appSecret = appSecret,
+                accessToken = accessToken,
+                baseUrl = baseUrl,
+                source = "static-env",
+            )
+        }
+        if (!useRealCredential) return null
+        return realCredentialResolver?.getIfAvailable()?.resolve()
+    }
 
     /**
      * 단위 테스트용 보조 생성자 — Spring 의존 0 fixture.
@@ -123,3 +140,11 @@ class KisIndexCredentials(
         ): KisIndexCredentials = KisIndexCredentials(enabled, appKey, appSecret, accessToken, baseUrl)
     }
 }
+
+data class ResolvedKisIndexCredentials(
+    val appKey: String,
+    val appSecret: String,
+    val accessToken: String,
+    val baseUrl: String,
+    val source: String,
+)

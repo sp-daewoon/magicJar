@@ -55,10 +55,12 @@ class KisDomesticIndexDailyAdapter(
         baseDate: LocalDate,
         periodDiv: String,
     ): List<MarketIndexDaily> {
-        if (gate.shouldSkip()) {
-            log.debug("[KisDomesticIndexDaily] gate skip — code={}", code.code)
-            return emptyList()
-        }
+        val credential =
+            gate.resolve()
+                ?: run {
+                    log.debug("[KisDomesticIndexDaily] credential skip — code={}", code.code)
+                    return emptyList()
+                }
 
         var signalSent = false
         return try {
@@ -71,17 +73,17 @@ class KisDomesticIndexDailyAdapter(
                     .uri { builder ->
                         builder
                             .scheme("https")
-                            .host(KisIndexCommons.parseHost(gate.baseUrl))
-                            .port(KisIndexCommons.parsePort(gate.baseUrl))
+                            .host(KisIndexCommons.parseHost(credential.baseUrl))
+                            .port(KisIndexCommons.parsePort(credential.baseUrl))
                             .path(ENDPOINT)
                             .queryParam("FID_PERIOD_DIV_CODE", periodDiv)
                             .queryParam("FID_COND_MRKT_DIV_CODE", FID_COND_MRKT_DIV_CODE)
                             .queryParam("FID_INPUT_ISCD", code.code)
                             .queryParam("FID_INPUT_DATE_1", baseDate.format(DATE_FMT))
                             .build()
-                    }.header("authorization", "Bearer ${gate.accessToken}")
-                    .header("appkey", gate.appKey)
-                    .header("appsecret", gate.appSecret)
+                    }.header("authorization", "Bearer ${credential.accessToken}")
+                    .header("appkey", credential.appKey)
+                    .header("appsecret", credential.appSecret)
                     .header("tr_id", TR_ID)
                     .header("custtype", "P")
                     .retrieve()

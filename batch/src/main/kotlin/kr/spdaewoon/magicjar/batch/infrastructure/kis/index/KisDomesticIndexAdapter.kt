@@ -57,10 +57,12 @@ class KisDomesticIndexAdapter(
      * @return null 시: disabled gate / KIS 응답 부재 / RateLimit drop — caller batch Job 자연 skip
      */
     fun fetch(code: IndexCode): MarketIndexSnapshot? {
-        if (gate.shouldSkip()) {
-            log.debug("[KisDomesticIndex] gate skip — code={} (env magicjar.kis.index.disabled 또는 credential 미설정)", code.code)
-            return null
-        }
+        val credential =
+            gate.resolve()
+                ?: run {
+                    log.debug("[KisDomesticIndex] credential skip — code={} (static env/DB REAL credential 미설정)", code.code)
+                    return null
+                }
 
         var signalSent = false
         return try {
@@ -73,15 +75,15 @@ class KisDomesticIndexAdapter(
                     .uri { builder ->
                         builder
                             .scheme("https")
-                            .host(KisIndexCommons.parseHost(gate.baseUrl))
-                            .port(KisIndexCommons.parsePort(gate.baseUrl))
+                            .host(KisIndexCommons.parseHost(credential.baseUrl))
+                            .port(KisIndexCommons.parsePort(credential.baseUrl))
                             .path(ENDPOINT)
                             .queryParam("FID_COND_MRKT_DIV_CODE", FID_COND_MRKT_DIV_CODE)
                             .queryParam("FID_INPUT_ISCD", code.code)
                             .build()
-                    }.header("authorization", "Bearer ${gate.accessToken}")
-                    .header("appkey", gate.appKey)
-                    .header("appsecret", gate.appSecret)
+                    }.header("authorization", "Bearer ${credential.accessToken}")
+                    .header("appkey", credential.appKey)
+                    .header("appsecret", credential.appSecret)
                     .header("tr_id", TR_ID)
                     .header("custtype", "P")
                     .retrieve()

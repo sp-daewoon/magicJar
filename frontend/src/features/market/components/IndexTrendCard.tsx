@@ -38,6 +38,8 @@ export function IndexTrendCard({ index, onClick, selected = false }: Props) {
   const lastClose = toNumberOrNull(index.lastClose)
   const changeRate = toNumberOrNull(index.changeRate)
   const change = formatChangeRate(changeRate)
+  const hasQuote = lastClose !== null
+  const isOverseasIndex = index.code.startsWith('.')
 
   const isClickable = onClick !== undefined
   const baseCls =
@@ -56,11 +58,11 @@ export function IndexTrendCard({ index, onClick, selected = false }: Props) {
         <span className="text-[10px] text-gray-500">MA {index.periodsUsed.join('·')}</span>
       </div>
 
-      {index.dataInsufficient ? (
+      {!hasQuote ? (
         <div className="flex flex-col gap-1 py-1">
-          <span className="text-sm text-gray-400">데이터 부족</span>
+          <span className="text-sm text-gray-400">수집 대기</span>
           <span className="text-[10px] text-gray-600">
-            캔들 수집 대기 중 (필요: {Math.max(...index.periodsUsed)}일 이상)
+            {isOverseasIndex ? '미국장 최신값 대기 중' : '시장지수 수집 대기 중'}
           </span>
         </div>
       ) : (
@@ -73,11 +75,18 @@ export function IndexTrendCard({ index, onClick, selected = false }: Props) {
           </div>
           <div className="mt-0.5 flex items-center justify-between gap-2">
             <TrendLabelBadge label={index.trendLabel} compact />
-            {index.isUserCustom && (
-              <span className="text-[10px] text-blue-400" title="사용자 설정 MA periods 적용">
-                user pref
-              </span>
-            )}
+            <div className="flex flex-wrap justify-end gap-1">
+              {index.dataInsufficient && (
+                <span className="text-[10px] text-amber-300">
+                  추세 {Math.max(...index.periodsUsed)}일 수집 중
+                </span>
+              )}
+              {index.isUserCustom && (
+                <span className="text-[10px] text-blue-400" title="사용자 설정 MA periods 적용">
+                  user pref
+                </span>
+              )}
+            </div>
           </div>
         </>
       )}

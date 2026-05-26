@@ -53,10 +53,12 @@ class KisOverseasIndexAdapter(
     }
 
     fun fetch(code: IndexCode): MarketIndexSnapshot? {
-        if (gate.shouldSkip()) {
-            log.debug("[KisOverseasIndex] gate skip — code={}", code.code)
-            return null
-        }
+        val credential =
+            gate.resolve()
+                ?: run {
+                    log.debug("[KisOverseasIndex] credential skip — code={}", code.code)
+                    return null
+                }
         require(code.category == IndexCategory.OVERSEAS_INDEX) {
             "KisOverseasIndexAdapter는 OVERSEAS_INDEX 한정 — code=${code.code}"
         }
@@ -73,16 +75,16 @@ class KisOverseasIndexAdapter(
                     .uri { builder ->
                         builder
                             .scheme("https")
-                            .host(KisIndexCommons.parseHost(gate.baseUrl))
-                            .port(KisIndexCommons.parsePort(gate.baseUrl))
+                            .host(KisIndexCommons.parseHost(credential.baseUrl))
+                            .port(KisIndexCommons.parsePort(credential.baseUrl))
                             .path(ENDPOINT)
                             .queryParam("AUTH", "")
                             .queryParam("EXCD", excd)
                             .queryParam("SYMB", code.code)
                             .build()
-                    }.header("authorization", "Bearer ${gate.accessToken}")
-                    .header("appkey", gate.appKey)
-                    .header("appsecret", gate.appSecret)
+                    }.header("authorization", "Bearer ${credential.accessToken}")
+                    .header("appkey", credential.appKey)
+                    .header("appsecret", credential.appSecret)
                     .header("tr_id", TR_ID)
                     .header("custtype", "P")
                     .retrieve()
