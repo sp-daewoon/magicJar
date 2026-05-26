@@ -32,9 +32,21 @@ function pnlColor(value: number): string {
 
 interface AccountHoldingCardProps {
   holding: AccountHoldingDto
+  canSell?: boolean
+  sellDisabledReason?: string | null
+  cooldownRemainSec?: number
+  onSellPartial?: (holding: AccountHoldingDto) => void
+  onClosePosition?: (holding: AccountHoldingDto) => void
 }
 
-export function AccountHoldingCard({ holding }: AccountHoldingCardProps) {
+export function AccountHoldingCard({
+  holding,
+  canSell = false,
+  sellDisabledReason = null,
+  cooldownRemainSec = 0,
+  onSellPartial,
+  onClosePosition,
+}: AccountHoldingCardProps) {
   const {
     code,
     name,
@@ -45,9 +57,15 @@ export function AccountHoldingCard({ holding }: AccountHoldingCardProps) {
     profitLoss,
     profitLossRate,
   } = holding
+  const sellBlocked = !canSell || cooldownRemainSec > 0
+  const disabledReason =
+    cooldownRemainSec > 0 ? `매도 재시도 대기 ${cooldownRemainSec}초` : sellDisabledReason
 
   return (
-    <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-4 transition-colors hover:bg-gray-800/40">
+    <div
+      className="rounded-xl border border-gray-800 bg-gray-900/60 p-4 transition-colors hover:bg-gray-800/40"
+      aria-label={`보유 종목 ${name || code}`}
+    >
       {/* 상단: 종목코드 + 종목명 */}
       <div className="flex items-start justify-between">
         <div>
@@ -103,6 +121,40 @@ export function AccountHoldingCard({ holding }: AccountHoldingCardProps) {
             {formatRate(profitLossRate)}
           </p>
         </div>
+      </div>
+
+      <div className="mt-3 border-t border-gray-800 pt-3">
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => onSellPartial?.(holding)}
+            disabled={sellBlocked}
+            className={[
+              'rounded-lg px-3 py-2 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400',
+              sellBlocked
+                ? 'cursor-not-allowed bg-gray-800 text-gray-500'
+                : 'border border-blue-700 bg-blue-950/40 text-blue-200 hover:bg-blue-900/60',
+            ].join(' ')}
+          >
+            일부 매도
+          </button>
+          <button
+            type="button"
+            onClick={() => onClosePosition?.(holding)}
+            disabled={sellBlocked}
+            className={[
+              'rounded-lg px-3 py-2 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-red-400',
+              sellBlocked
+                ? 'cursor-not-allowed bg-gray-800 text-gray-500'
+                : 'border border-red-700 bg-red-950/40 text-red-200 hover:bg-red-900/60',
+            ].join(' ')}
+          >
+            전량 청산
+          </button>
+        </div>
+        {disabledReason && (
+          <p className="mt-2 text-[11px] leading-snug text-gray-500">{disabledReason}</p>
+        )}
       </div>
     </div>
   )
