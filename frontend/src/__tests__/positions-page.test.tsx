@@ -15,12 +15,16 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { PositionsPage } from '../pages/Risk/PositionsPage'
 import { useOnboardingStore } from '../stores/onboarding'
 import { ToastProvider } from '../components/ui/ToastProvider'
+
+vi.mock('../api/hooks/useStompAccountBalance', () => ({
+  useStompAccountBalance: () => ({ latestEvent: null }),
+}))
 
 // ──────────────────────────────────────────────
 // msw — /api/account/positions 분기 스텁
@@ -63,6 +67,16 @@ const THREE_HOLDINGS = [
   },
 ]
 
+const REFRESHED_HOLDINGS = THREE_HOLDINGS.map((holding) =>
+  holding.code === '004090'
+    ? {
+        ...holding,
+        quantity: 6,
+        evaluationAmount: 69_000,
+      }
+    : holding,
+)
+
 const server = setupServer(
   http.get('/api/runtime/flags', () =>
     HttpResponse.json({
@@ -75,7 +89,9 @@ const server = setupServer(
     }),
   ),
   http.get('/api/account/positions', ({ request }) => {
-    lastQueryString = new URL(request.url).search
+    const url = new URL(request.url)
+    lastQueryString = url.search
+    if (url.searchParams.get('refresh') === 'true') return HttpResponse.json(REFRESHED_HOLDINGS)
     if (positionsResponse === 'three') return HttpResponse.json(THREE_HOLDINGS)
     if (positionsResponse === 'empty') return HttpResponse.json([])
     if (positionsResponse === 'missing-credential')
@@ -218,6 +234,25 @@ describe('PositionsPage — /api/account/positions 정합 (hotfix 2026-05-21)', 
     })
   })
 
+  it('새로고침 버튼은 Redis cache를 우회해 KIS 보유 수량을 다시 읽는다', async () => {
+    positionsResponse = 'three'
+    renderPage()
+    const user = userEvent.setup()
+
+    await waitFor(() => {
+      expect(screen.getByText('한국석유')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: '포지션 목록 새로고침' }))
+
+    await waitFor(() => {
+      expect(lastQueryString).toContain('refresh=true')
+    })
+
+    const oilCard = screen.getByLabelText('보유 종목 한국석유')
+    expect(within(oilCard).getByText('6주')).toBeInTheDocument()
+  })
+
   it('주문 런타임과 선택 계좌가 다르면 포지션 직접 주문을 차단한다', async () => {
     positionsResponse = 'three'
     renderPage()
@@ -275,6 +310,9 @@ describe('PositionsPage — /api/account/positions 정합 (hotfix 2026-05-21)', 
         quantity: 7,
         limitPrice: null,
       })
+    })
+    await waitFor(() => {
+      expect(lastQueryString).toContain('refresh=true')
     })
   })
 

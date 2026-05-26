@@ -76,8 +76,9 @@ class AccountQueryService(
     fun getBalance(
         userId: String,
         accountType: AccountType,
+        refresh: Boolean = false,
     ): AccountBalanceResponse {
-        val snapshot = fetchOrLoad(userId, accountType)
+        val snapshot = fetchOrLoad(userId, accountType, refresh)
         return AccountBalanceResponse.from(snapshot.balance, toIso(snapshot.fetchedAt))
     }
 
@@ -87,8 +88,9 @@ class AccountQueryService(
     fun getPositions(
         userId: String,
         accountType: AccountType,
+        refresh: Boolean = false,
     ): List<AccountHoldingResponse> {
-        val snapshot = fetchOrLoad(userId, accountType)
+        val snapshot = fetchOrLoad(userId, accountType, refresh)
         return snapshot.holdings.map { AccountHoldingResponse.from(it) }
     }
 
@@ -100,8 +102,9 @@ class AccountQueryService(
     fun getSummary(
         userId: String,
         accountType: AccountType,
+        refresh: Boolean = false,
     ): AccountSummaryResponse {
-        val snapshot = fetchOrLoad(userId, accountType)
+        val snapshot = fetchOrLoad(userId, accountType, refresh)
         val balance = snapshot.balance
         val rate =
             if (balance.totalPurchaseAmount.signum() == 0) {
@@ -132,6 +135,7 @@ class AccountQueryService(
     private fun fetchOrLoad(
         userId: String,
         accountType: AccountType,
+        refresh: Boolean,
     ): KisAccountBalance {
         // hotfix 2026-05-20 — cache key 에 accountType 포함 (REAL/MOCK 분리 의무).
         // 사용자 dogfooding evidence: 기존 "$prefix:$userId" 단일 key → REAL/MOCK fetch 시 cache 충돌
@@ -140,7 +144,7 @@ class AccountQueryService(
         val cacheKey = "$CACHE_KEY_PREFIX:$userId:${accountType.name}"
 
         // 1. Redis cache hit
-        val cached = redisTemplate.opsForValue().get(cacheKey)
+        val cached = if (refresh) null else redisTemplate.opsForValue().get(cacheKey)
         if (cached != null) {
             runCatching { objectMapper.readValue<KisAccountBalance>(cached) }
                 .onSuccess { snapshot ->
@@ -157,7 +161,11 @@ class AccountQueryService(
                 }
         }
 
-        // 2. cache miss → KIS REST 직접 호출
+        if (refresh) {
+            log.info("account 강제 새로고침 — Redis cache bypass: userId={} type={}", maskUserId(userId), accountType.name)
+        }
+
+        // 2. cache miss 또는 refresh=true → KIS REST 직접 호출
         val snapshot = kisBalanceQueryPort.fetchFullBalance(userId, accountType)
         log.info(
             "account KIS 잔고조회 성공: userId={} type={} holdings={}건 cash={} netAsset={}",

@@ -90,10 +90,12 @@ class AccountController(
             example = "REAL",
         )
         @RequestParam(required = false, defaultValue = "REAL") accountType: String,
+        @Parameter(description = "true면 Redis cache를 우회하고 KIS 잔고를 즉시 재조회", example = "false")
+        @RequestParam(required = false, defaultValue = "false") refresh: Boolean,
     ): AccountBalanceResponse {
         val type = parseAccountType(accountType)
-        log.debug("account balance 조회: userId={} type={}", maskUserId(userId), type.name)
-        return runKisCall { accountQueryService.getBalance(userId, type) }
+        log.debug("account balance 조회: userId={} type={} refresh={}", maskUserId(userId), type.name, refresh)
+        return runKisCall { accountQueryService.getBalance(userId, type, refresh) }
     }
 
     // ── GET /api/account/positions ────────────────────────────────────────────
@@ -124,10 +126,12 @@ class AccountController(
         @RequestParam userId: String,
         @Parameter(description = "계좌 유형 (REAL/MOCK) — 기본 REAL", example = "REAL")
         @RequestParam(required = false, defaultValue = "REAL") accountType: String,
+        @Parameter(description = "true면 Redis cache를 우회하고 KIS 잔고를 즉시 재조회", example = "false")
+        @RequestParam(required = false, defaultValue = "false") refresh: Boolean,
     ): List<AccountHoldingResponse> {
         val type = parseAccountType(accountType)
-        log.debug("account positions 조회: userId={} type={}", maskUserId(userId), type.name)
-        return runKisCall { accountQueryService.getPositions(userId, type) }
+        log.debug("account positions 조회: userId={} type={} refresh={}", maskUserId(userId), type.name, refresh)
+        return runKisCall { accountQueryService.getPositions(userId, type, refresh) }
     }
 
     // ── GET /api/account/summary ──────────────────────────────────────────────
@@ -157,10 +161,12 @@ class AccountController(
         @RequestParam userId: String,
         @Parameter(description = "계좌 유형 (REAL/MOCK) — 기본 REAL", example = "REAL")
         @RequestParam(required = false, defaultValue = "REAL") accountType: String,
+        @Parameter(description = "true면 Redis cache를 우회하고 KIS 잔고를 즉시 재조회", example = "false")
+        @RequestParam(required = false, defaultValue = "false") refresh: Boolean,
     ): AccountSummaryResponse {
         val type = parseAccountType(accountType)
-        log.debug("account summary 조회: userId={} type={}", maskUserId(userId), type.name)
-        return runKisCall { accountQueryService.getSummary(userId, type) }
+        log.debug("account summary 조회: userId={} type={} refresh={}", maskUserId(userId), type.name, refresh)
+        return runKisCall { accountQueryService.getSummary(userId, type, refresh) }
     }
 
     // ── private helper ────────────────────────────────────────────────────────
