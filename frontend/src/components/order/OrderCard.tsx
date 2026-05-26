@@ -43,6 +43,13 @@ export function OrderCard({ order }: OrderCardProps) {
 
   const sideLabel = order.side === 'BUY' ? '매수' : '매도'
   const sideColor = order.side === 'BUY' ? 'text-red-400' : 'text-blue-400'
+  const isReconcileReason =
+    order.status === 'PENDING_RECONCILE' || order.rejectReason?.startsWith('KIS_RECONCILE_PENDING')
+  const reasonColor = isReconcileReason
+    ? order.status === 'EXPIRED'
+      ? 'text-orange-300'
+      : 'text-amber-300'
+    : 'text-red-400'
 
   return (
     <button
@@ -93,7 +100,9 @@ export function OrderCard({ order }: OrderCardProps) {
             {order.priceType === 'MARKET' ? '시장가' : '지정가'}
           </div>
           {order.rejectReason && (
-            <div className="mt-0.5 text-xs text-red-400">거절 사유: {order.rejectReason}</div>
+            <div className={`mt-0.5 text-xs ${reasonColor}`}>
+              {isReconcileReason ? '확인 사유' : '거절 사유'}: {order.rejectReason}
+            </div>
           )}
         </div>
 

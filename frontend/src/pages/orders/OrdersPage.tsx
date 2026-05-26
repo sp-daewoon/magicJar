@@ -24,6 +24,7 @@ const STATUS_FILTER_OPTIONS: { value: OrderStatus | ''; label: string }[] = [
   { value: '', label: '전체' },
   { value: 'REQUESTED', label: '접수' },
   { value: 'ACK', label: 'KIS 접수' },
+  { value: 'PENDING_RECONCILE', label: 'KIS 확인 중' },
   { value: 'PARTIALLY_FILLED', label: '부분 체결' },
   { value: 'FILLED', label: '체결 완료' },
   { value: 'REJECTED', label: '거부' },
