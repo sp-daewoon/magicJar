@@ -1,14 +1,17 @@
 package kr.spdaewoon.magicjar.api.service.trend
 
+import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import kr.spdaewoon.magicjar.domain.trend.IndexTrend
+import kr.spdaewoon.magicjar.domain.trend.MarketIndexSnapshot
 import kr.spdaewoon.magicjar.domain.trend.MarketIndexSnapshotReader
 import kr.spdaewoon.magicjar.domain.trend.TrendPreferenceDefaults
 import kr.spdaewoon.magicjar.market.calculator.TrendCalculator
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.math.RoundingMode
 
 /**
  * 지수 추세 query 단일 진입점 (ADR 0100 §2-5 `MarketIndexController` reuse).
@@ -16,7 +19,8 @@ import org.springframework.transaction.annotation.Transactional
  * - `snapshot()` — 4 지수 (KOSPI · KOSDAQ · NASDAQ · S&P) 카드 query (user pref 적용 trend 라벨)
  * - `trend(code, overrides)` — 단일 지수 상세 (periods override 우선 · 없으면 user pref)
  *
- * candles는 `CandleRepository.findByCodeAndInterval(code, ONE_DAY)` 일봉 list ASC 사용.
+ * 시장지수는 `market_index_snapshot` 이 단일 진실원이다.
+ * 1분 snapshot 에서 KST 날짜별 최신 1건을 일봉처럼 조립하고, 구형 데이터가 없을 때만 candle table 로 fallback 한다.
  * 데이터 0건 시 `dataInsufficient=true` flag echo (mock 합성 0 — feedback_no_mock_data 정합).
  */
 @Service
@@ -82,18 +86,61 @@ class TrendQueryService(
         crossPair: Pair<Int, Int>?,
         isUserCustom: Boolean,
     ): IndexTrend {
-        val candles = candleRepository.findByCodeAndInterval(code, CandleInterval.ONE_DAY)
-        log.debug("trend candles loaded: code={} count={}", code, candles.size)
-        return trendCalculator.computeIndexTrend(
-            code = code,
-            candles = candles,
-            periods = periods,
-            crossPair = crossPair,
-            isUserCustom = isUserCustom,
-        )
+        val latestSnapshot = marketIndexSnapshotReader.findLatestIndex(code)
+        val candles = loadIndexCandles(code, periods, crossPair)
+        log.debug("trend index series loaded: code={} count={} latestSnapshot={}", code, candles.size, latestSnapshot != null)
+        val computed =
+            trendCalculator.computeIndexTrend(
+                code = code,
+                candles = candles,
+                periods = periods,
+                crossPair = crossPair,
+                isUserCustom = isUserCustom,
+            )
+        return latestSnapshot?.let {
+            computed.copy(
+                lastClose = it.price.setScale(4, RoundingMode.HALF_UP),
+                changeRate = it.changeRate ?: computed.changeRate,
+            )
+        } ?: computed
     }
 
+    private fun loadIndexCandles(
+        code: String,
+        periods: List<Int>,
+        crossPair: Pair<Int, Int>?,
+    ): List<Candle> {
+        val longMa = maxOf(periods.maxOrNull() ?: 0, crossPair?.second ?: 0)
+        val historyLimit = (longMa + TREND_LOOKBACK_BUFFER_DAYS).coerceAtLeast(2)
+        val snapshotCandles =
+            marketIndexSnapshotReader
+                .findDailyIndexSeries(code, historyLimit)
+                .map { it.toCandle() }
+        if (snapshotCandles.isNotEmpty()) return snapshotCandles
+        return candleRepository.findByCodeAndInterval(code, CandleInterval.ONE_DAY)
+    }
+
+    private fun MarketIndexSnapshot.toCandle(): Candle =
+        Candle(
+            code = code,
+            interval = CandleInterval.ONE_DAY,
+            ts = ts,
+            openRaw = price,
+            highRaw = price,
+            lowRaw = price,
+            closeRaw = price,
+            openAdj = null,
+            highAdj = null,
+            lowAdj = null,
+            closeAdj = price,
+            volume = 0L,
+            source = MARKET_INDEX_SNAPSHOT_SOURCE,
+        )
+
     companion object {
+        private const val TREND_LOOKBACK_BUFFER_DAYS: Int = 6
+        private const val MARKET_INDEX_SNAPSHOT_SOURCE: String = "MARKET_INDEX_SNAPSHOT"
+
         /**
          * 4 지수 default codes (ADR 0100 §2-5).
          * - 0001 = KOSPI · 1001 = KOSDAQ · .IXIC = NASDAQ · .SPX = S&P 500

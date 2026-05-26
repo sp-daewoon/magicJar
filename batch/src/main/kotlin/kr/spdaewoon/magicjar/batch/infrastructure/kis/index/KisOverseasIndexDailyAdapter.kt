@@ -62,10 +62,12 @@ class KisOverseasIndexDailyAdapter(
         baseDate: LocalDate,
         modp: String,
     ): List<MarketIndexDaily> {
-        if (gate.shouldSkip()) {
-            log.debug("[KisOverseasIndexDaily] gate skip — code={}", code.code)
-            return emptyList()
-        }
+        val credential =
+            gate.resolve()
+                ?: run {
+                    log.debug("[KisOverseasIndexDaily] credential skip — code={}", code.code)
+                    return emptyList()
+                }
         require(code.category == IndexCategory.OVERSEAS_INDEX) {
             "KisOverseasIndexDailyAdapter는 OVERSEAS_INDEX 한정 — code=${code.code}"
         }
@@ -89,8 +91,8 @@ class KisOverseasIndexDailyAdapter(
                         .uri { builder ->
                             builder
                                 .scheme("https")
-                                .host(KisIndexCommons.parseHost(gate.baseUrl))
-                                .port(KisIndexCommons.parsePort(gate.baseUrl))
+                                .host(KisIndexCommons.parseHost(credential.baseUrl))
+                                .port(KisIndexCommons.parsePort(credential.baseUrl))
                                 .path(ENDPOINT)
                                 .queryParam("AUTH", "")
                                 .queryParam("EXCD", excd)
@@ -99,9 +101,9 @@ class KisOverseasIndexDailyAdapter(
                                 .queryParam("BYMD", currentBaseDate.format(DATE_FMT))
                                 .queryParam("MODP", modp)
                                 .build()
-                        }.header("authorization", "Bearer ${gate.accessToken}")
-                        .header("appkey", gate.appKey)
-                        .header("appsecret", gate.appSecret)
+                        }.header("authorization", "Bearer ${credential.accessToken}")
+                        .header("appkey", credential.appKey)
+                        .header("appsecret", credential.appSecret)
                         .header("tr_id", TR_ID)
                         .header("custtype", "P")
                         .header("tr_cont", trCont)

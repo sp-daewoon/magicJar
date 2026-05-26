@@ -202,7 +202,6 @@ services:
       REDIS_HOST: redis
       # KIS 분산 토큰 store + secret 암호화 (R3-5c-3 + 1번 트랙).
       # MAGICJAR_KIS_REDIS_TOKEN_ENABLED=true 시 Redisson client 등록 → redis:6379 연결 필요.
-      MAGICJAR_SECRET_MASTER_KEY: ${MAGICJAR_SECRET_MASTER_KEY:-}
       MAGICJAR_KIS_REDIS_TOKEN_ENABLED: ${MAGICJAR_KIS_REDIS_TOKEN_ENABLED:-false}
       # Spring Boot relaxed binding override (PR-12 hotfix — backlog §12)
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/magicjar
@@ -237,7 +236,6 @@ services:
       REDIS_HOST: redis
       # 1번 트랙 (T2~T3) — KIS 키 암호화 master key + 시드 사용자 등록 데이터.
       # mock profile에선 master key 검증 skip. dev/prd에선 fail-fast.
-      MAGICJAR_SECRET_MASTER_KEY: ${MAGICJAR_SECRET_MASTER_KEY:-}
       MAGICJAR_SEED_KIS_APP_KEY: ${KIS_MOCK_APP_KEY:-}
       MAGICJAR_SEED_KIS_APP_SECRET: ${KIS_MOCK_APP_SECRET:-}
       MAGICJAR_SEED_KIS_ACCOUNT_CANO: ${KIS_ACCOUNT_CANO:-}

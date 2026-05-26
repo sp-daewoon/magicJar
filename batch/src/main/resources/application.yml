@@ -56,6 +56,19 @@ management:
 magicjar:
   mode: ${MAGICJAR_MODE:MOCK}
   allow-real: ${MAGICJAR_ALLOW_REAL:false}
+  secret:
+    master-key: ${MAGICJAR_SECRET_MASTER_KEY:}
+  kis:
+    base-url-prod: ${MAGICJAR_KIS_BASE_URL_PROD:https://openapi.koreainvestment.com:9443}
+    base-url-vps: ${MAGICJAR_KIS_BASE_URL_VPS:https://openapivts.koreainvestment.com:29443}
+    index:
+      # static env credential 이 없으면 DB REAL credential 로 자동 fallback.
+      # 시장지수는 시세·캔들과 같은 REAL quotation 정책을 따른다.
+      use-real-credential: ${MAGICJAR_KIS_INDEX_USE_REAL_CREDENTIAL:true}
+  market:
+    index:
+      sync:
+        inter-request-delay-ms: ${MAGICJAR_MARKET_INDEX_SYNC_INTER_REQUEST_DELAY_MS:250}
   corp-action:
     # cron 18:30 KST (UTC+9) = 09:30 UTC (KRX 마감 + 정리 시간)
     sync-cron: ${MAGICJAR_CORP_ACTION_SYNC_CRON:0 30 9 * * *}

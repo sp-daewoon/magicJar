@@ -14,6 +14,8 @@ import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Component
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 
 /**
  * T-MARKET 1분 cron Job — 지수·섹터 snapshot 일괄 발사 (ADR 0100 §2-4 LOCK).
@@ -50,6 +52,8 @@ class MarketIndexSyncJob(
     private val objectMapper: ObjectMapper,
     @Value("\${magicjar.market.index.sync.enabled:true}")
     private val enabled: Boolean,
+    @Value("\${magicjar.market.index.sync.inter-request-delay-ms:250}")
+    private val interRequestDelayMs: Long = 0L,
 ) {
     private val log = LoggerFactory.getLogger(MarketIndexSyncJob::class.java)
 
@@ -57,6 +61,9 @@ class MarketIndexSyncJob(
         const val TOPIC_INDEX = "market.index.updated.v1"
         const val TOPIC_SECTOR = "market.sector.updated.v1"
         const val SCHEMA_VERSION = 1
+        val KST: ZoneId = ZoneId.of("Asia/Seoul")
+        private const val OVERSEAS_DAILY_FALLBACK_LOOKBACK_DAYS = 7
+        private val OVERSEAS_DAILY_FALLBACK_CACHE_TTL: Duration = Duration.ofHours(36)
     }
 
     /**
@@ -89,12 +96,7 @@ class MarketIndexSyncJob(
         for (code in IndexCode.ALL_FOR_MINUTE_SYNC) {
             indexAttempted++
             try {
-                val snapshot =
-                    when (code.category) {
-                        IndexCategory.OVERSEAS_INDEX -> kisIndexFetcher.fetchOverseasIndex(code)
-                        IndexCategory.DOMESTIC_INDEX, IndexCategory.DOMESTIC_SECTOR ->
-                            kisIndexFetcher.fetchDomesticIndex(code)
-                    }
+                val snapshot = fetchSnapshot(code)
                 if (snapshot != null) {
                     val saved = indexRepository.save(snapshot)
                     if (saved) {
@@ -105,6 +107,8 @@ class MarketIndexSyncJob(
             } catch (e: Exception) {
                 log.warn("[market-index-sync] code={} 실패 err={}", code.code, e.message)
                 failed++
+            } finally {
+                delayBetweenKisCalls()
             }
         }
 
@@ -153,6 +157,62 @@ class MarketIndexSyncJob(
             Duration.between(startedAt, result.finishedAt).toMillis(),
         )
         return result
+    }
+
+    private fun fetchSnapshot(code: IndexCode): MarketIndexSnapshot? =
+        when (code.category) {
+            IndexCategory.OVERSEAS_INDEX ->
+                kisIndexFetcher.fetchOverseasIndex(code)
+                    ?: fetchLatestOverseasDailyAsSnapshot(code)
+            IndexCategory.DOMESTIC_INDEX, IndexCategory.DOMESTIC_SECTOR ->
+                kisIndexFetcher.fetchDomesticIndex(code)
+        }
+
+    /**
+     * 미국 정규장 외 시간에는 해외 현재가 endpoint 가 0 가격을 줄 수 있다.
+     * 한국 장중 화면에서는 최신 미국 종가라도 보여야 하므로 dailyprice 최신 close 를 snapshot 으로 저장한다.
+     */
+    private fun fetchLatestOverseasDailyAsSnapshot(code: IndexCode): MarketIndexSnapshot? {
+        val now = Instant.now()
+        indexRepository
+            .findLatest(code.code, 1)
+            .firstOrNull()
+            ?.takeIf { Duration.between(it.ts, now).abs() <= OVERSEAS_DAILY_FALLBACK_CACHE_TTL }
+            ?.let { return it.copy(ts = now) }
+
+        val today = LocalDate.now(KST)
+        val latestDaily =
+            (0..OVERSEAS_DAILY_FALLBACK_LOOKBACK_DAYS)
+                .firstNotNullOfOrNull { daysAgo ->
+                    val daily =
+                        kisIndexFetcher
+                            .fetchOverseasIndexDaily(code, today.minusDays(daysAgo.toLong()), modp = "1")
+                            .maxByOrNull { it.tradeDate }
+                    delayBetweenKisCalls()
+                    daily
+                }
+                ?: run {
+                    log.debug("[market-index-sync] overseas daily fallback empty code={}", code.code)
+                    return null
+                }
+        return MarketIndexSnapshot(
+            code = latestDaily.code,
+            category = latestDaily.category,
+            ts = Instant.now(),
+            price = latestDaily.close,
+            changeRate = null,
+            volume = latestDaily.volume,
+            rawPayload = latestDaily.rawPayload,
+        )
+    }
+
+    private fun delayBetweenKisCalls() {
+        if (interRequestDelayMs <= 0L) return
+        try {
+            Thread.sleep(interRequestDelayMs)
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
     }
 
     /**
