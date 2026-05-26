@@ -11,12 +11,14 @@
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import userEvent from '@testing-library/user-event'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { SymbolDetailPage } from '../SymbolDetailPage'
 import { ToastProvider } from '../../../components/ui/ToastProvider'
+import { useOnboardingStore } from '../../../stores/onboarding'
 
 // ──────────────────────────────────────────────
 // LWC canvas mock (jsdom 미지원 — graceful)
@@ -38,9 +40,25 @@ vi.mock('../../../lib/stomp', () => {
     onWebSocketClose: undefined,
     onStompError: undefined,
   }
+  const orderbookPayload = {
+    code: '005930',
+    ts: '2026-05-26T10:10:00+09:00',
+    asks: [
+      { price: '61000', quantity: 1200 },
+      { price: '61100', quantity: 1800 },
+    ],
+    bids: [
+      { price: '60900', quantity: 2200 },
+      { price: '60800', quantity: 1500 },
+    ],
+  }
   return {
     getStompClient: () => client,
-    useStompTopic: vi.fn(),
+    useStompTopic: vi.fn((topic: string, handler: (payload: unknown) => void, enabled?: boolean) => {
+      if (enabled && topic === '/topic/market.orderbook.005930') {
+        window.setTimeout(() => handler(orderbookPayload), 0)
+      }
+    }),
     isStompConnected: () => false,
   }
 })
@@ -81,6 +99,22 @@ const mockCandlesData = {
   hasMore: false,
 }
 
+let accountPositionsResponse: 'holding' | 'empty' = 'holding'
+let lastManualOrderRequest: Record<string, unknown> | null = null
+
+const mockAccountHoldings = [
+  {
+    code: '005930',
+    name: '삼성전자',
+    quantity: 2,
+    avgPrice: 60000,
+    currentPrice: 60900,
+    evaluationAmount: 121800,
+    profitLoss: 1800,
+    profitLossRate: 1.5,
+  },
+]
+
 const server = setupServer(
   http.get('/api/symbols/005930', () => {
     return HttpResponse.json(mockSymbolData)
@@ -103,6 +137,34 @@ const server = setupServer(
       listedAt: '1975-06-11', delistedAt: null, active: true, aliases: [],
       tradingHalt: false, managementStock: false, marketCapPrev: '4800000', isKospi200: true,
     })
+  }),
+
+  http.get('/api/runtime/flags', () => {
+    return HttpResponse.json({
+      mode: 'MOCK',
+      allowReal: false,
+      killSwitchEnabled: false,
+      killSwitchReason: null,
+      userConsented: false,
+      fetchedAt: '2026-05-26T00:00:00Z',
+    })
+  }),
+
+  http.get('/api/account/positions', () => {
+    return HttpResponse.json(accountPositionsResponse === 'holding' ? mockAccountHoldings : [])
+  }),
+
+  http.post('/api/orders/manual', async ({ request }) => {
+    lastManualOrderRequest = (await request.json()) as Record<string, unknown>
+    return HttpResponse.json(
+      {
+        orderId: null,
+        status: 'ACCEPTED',
+        idempotencyKey: 'manual:symbol-detail-test',
+        message: '수동 주문이 접수되었습니다.',
+      },
+      { status: 202 },
+    )
   }),
 
   // 상장폐지 종목 instrument (active=false)
@@ -139,7 +201,17 @@ const server = setupServer(
 )
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'bypass' }))
-afterEach(() => server.resetHandlers())
+beforeEach(() => {
+  window.localStorage.clear()
+  window.sessionStorage.clear()
+  useOnboardingStore.setState({ registeredUserId: 74683223 })
+})
+afterEach(() => {
+  server.resetHandlers()
+  accountPositionsResponse = 'holding'
+  lastManualOrderRequest = null
+  useOnboardingStore.setState({ registeredUserId: null })
+})
 afterAll(() => server.close())
 
 // ──────────────────────────────────────────────
@@ -178,7 +250,7 @@ describe('SymbolDetailPage smoke', () => {
     // 로딩 스피너 표시 후 데이터 로드
     await waitFor(() => {
       // 종목명 헤더
-      expect(screen.getByText('삼성전자')).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: '삼성전자' })).toBeInTheDocument()
     })
 
     // 종목 코드
@@ -191,7 +263,7 @@ describe('SymbolDetailPage smoke', () => {
     expect(screen.getByText('전기전자')).toBeInTheDocument()
 
     // 현재가 (천 단위 콤마 포맷: 60,900)
-    expect(screen.getByText('60,900')).toBeInTheDocument()
+    expect(screen.getAllByText('60,900').length).toBeGreaterThan(0)
 
     // 메타 카드: PER
     expect(screen.getByText('PER')).toBeInTheDocument()
@@ -233,5 +305,74 @@ describe('SymbolDetailPage smoke', () => {
 
     // "관심종목으로" 복귀 버튼 표시
     expect(screen.getByRole('button', { name: /관심종목으로/ })).toBeInTheDocument()
+  })
+
+  it('호가 가격을 지정가로 가져와 종목상세에서 BUY LIMIT 주문을 접수한다', async () => {
+    renderSymbolDetailPage('005930')
+    const user = userEvent.setup()
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: '삼성전자' })).toBeInTheDocument()
+    })
+
+    await user.click(await screen.findByRole('button', { name: '60,900원 매수호가 지정가 선택' }))
+
+    const priceInput = screen.getByLabelText('주문 가격')
+    expect(priceInput).toHaveValue('60900')
+
+    const quantityInput = screen.getByLabelText('주문 수량')
+    await user.clear(quantityInput)
+    await user.type(quantityInput, '3')
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '미리보기' })).toBeEnabled()
+    })
+    await user.click(screen.getByRole('button', { name: '미리보기' }))
+    await user.click(screen.getByLabelText('주문 내용 확인'))
+    await user.click(screen.getByRole('button', { name: 'MOCK 주문 발행' }))
+
+    await waitFor(() => {
+      expect(lastManualOrderRequest).toMatchObject({
+        userId: 74683223,
+        code: '005930',
+        side: 'BUY',
+        priceType: 'LIMIT',
+        quantity: 3,
+        limitPrice: '60900',
+      })
+    })
+  })
+
+  it('보유가 없어도 종목상세 SELL 주문 입력과 접수가 가능하다', async () => {
+    accountPositionsResponse = 'empty'
+    renderSymbolDetailPage('005930')
+    const user = userEvent.setup()
+
+    await waitFor(() => {
+      expect(screen.getByText('보유 없음')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: '매도' }))
+    await user.click(await screen.findByRole('button', { name: '61,000원 매도호가 지정가 선택' }))
+
+    expect(screen.getByText(/보유 수량을 초과하거나 보유가 확인되지 않은 매도/)).toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '미리보기' })).toBeEnabled()
+    })
+    await user.click(screen.getByRole('button', { name: '미리보기' }))
+    await user.click(screen.getByLabelText('주문 내용 확인'))
+    await user.click(screen.getByRole('button', { name: 'MOCK 주문 발행' }))
+
+    await waitFor(() => {
+      expect(lastManualOrderRequest).toMatchObject({
+        userId: 74683223,
+        code: '005930',
+        side: 'SELL',
+        priceType: 'LIMIT',
+        quantity: 1,
+        limitPrice: '61000',
+      })
+    })
   })
 })

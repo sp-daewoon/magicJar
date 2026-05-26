@@ -20,6 +20,8 @@ interface SymbolOrderbookProps {
   orderbook: OrderbookPayload | null
   orderbookSlot?: 'live' | 'queued' | null
   isStompConnected: boolean
+  selectedPrice?: string
+  onSelectPrice?: (price: string, side: 'ask' | 'bid') => void
 }
 
 function formatPrice(price: string): string {
@@ -39,12 +41,35 @@ interface OrderbookRowProps {
   level: OrderbookLevel
   side: 'ask' | 'bid'
   maxQty: number
+  selectedPrice?: string
+  onSelectPrice?: (price: string, side: 'ask' | 'bid') => void
 }
 
-function OrderbookRow({ level, side, maxQty }: OrderbookRowProps) {
+function OrderbookRow({ level, side, maxQty, selectedPrice, onSelectPrice }: OrderbookRowProps) {
   const qty = level.quantity
   const barWidth = maxQty > 0 ? Math.round((qty / maxQty) * 100) : 0
   const isAsk = side === 'ask'
+  const isSelected = selectedPrice === level.price
+
+  const priceClassName = [
+    'relative z-10 rounded px-1.5 py-0.5 font-medium tabular-nums transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-400',
+    isAsk ? 'text-blue-300 hover:bg-blue-500/15' : 'text-red-300 hover:bg-red-500/15',
+    isSelected ? 'bg-cyan-500/15 ring-1 ring-cyan-300' : '',
+  ].join(' ')
+
+  const priceNode = onSelectPrice ? (
+    <button
+      type="button"
+      onClick={() => onSelectPrice(level.price, side)}
+      className={priceClassName}
+      aria-label={`${formatPrice(level.price)}원 ${isAsk ? '매도' : '매수'}호가 지정가 선택`}
+      title="지정가 선택"
+    >
+      {formatPrice(level.price)}
+    </button>
+  ) : (
+    <span className={priceClassName}>{formatPrice(level.price)}</span>
+  )
 
   return (
     <div className="relative flex items-center justify-between gap-2 py-0.5 px-2 rounded text-xs tabular-nums overflow-hidden">
@@ -59,17 +84,13 @@ function OrderbookRow({ level, side, maxQty }: OrderbookRowProps) {
 
       {isAsk ? (
         <>
-          <span className={`relative z-10 font-medium ${isAsk ? 'text-blue-300' : 'text-red-300'}`}>
-            {formatPrice(level.price)}
-          </span>
+          {priceNode}
           <span className="relative z-10 text-gray-400">{formatQuantity(qty)}</span>
         </>
       ) : (
         <>
           <span className="relative z-10 text-gray-400">{formatQuantity(qty)}</span>
-          <span className={`relative z-10 font-medium ${isAsk ? 'text-blue-300' : 'text-red-300'}`}>
-            {formatPrice(level.price)}
-          </span>
+          {priceNode}
         </>
       )}
     </div>
@@ -81,6 +102,8 @@ export function SymbolOrderbook({
   orderbook,
   orderbookSlot,
   isStompConnected,
+  selectedPrice,
+  onSelectPrice,
 }: SymbolOrderbookProps) {
   if (!orderbook) {
     // 결함 3: 장 외 시간이면 "장 마감" 메시지, 장 중이면 기존 대기 메시지
@@ -156,13 +179,27 @@ export function SymbolOrderbook({
         {/* 매도 (asks) — 10단계 */}
         <div className="flex flex-col gap-0.5">
           {asks.slice(0, 10).map((level, i) => (
-            <OrderbookRow key={`ask-${i}`} level={level} side="ask" maxQty={maxQty} />
+            <OrderbookRow
+              key={`ask-${i}`}
+              level={level}
+              side="ask"
+              maxQty={maxQty}
+              selectedPrice={selectedPrice}
+              onSelectPrice={onSelectPrice}
+            />
           ))}
         </div>
         {/* 매수 (bids) — 10단계 */}
         <div className="flex flex-col gap-0.5">
           {bids.slice(0, 10).map((level, i) => (
-            <OrderbookRow key={`bid-${i}`} level={level} side="bid" maxQty={maxQty} />
+            <OrderbookRow
+              key={`bid-${i}`}
+              level={level}
+              side="bid"
+              maxQty={maxQty}
+              selectedPrice={selectedPrice}
+              onSelectPrice={onSelectPrice}
+            />
           ))}
         </div>
       </div>

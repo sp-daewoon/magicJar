@@ -22,9 +22,12 @@
  * - instrument 테이블 부재 → code 그대로 표시 (SymbolHeader graceful)
  * - 호가 slot 가득(queued) → "polling fallback 중" 배지 (SymbolOrderbook)
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import { useAccountPositions } from '../../api/hooks/useAccountPositions'
 import { useInstrument } from '../../api/hooks/useInstrument'
+import { usePreferredAccountType } from '../../api/hooks/usePreferredAccountType'
+import { useRuntimeFlags } from '../../api/hooks/useRuntimeFlags'
 import {
   SYMBOL_FALLBACK_POLLING_INTERVAL_MS,
   useSymbol,
@@ -47,6 +50,7 @@ import { SymbolError } from './SymbolError'
 import { SymbolHeader } from './SymbolHeader'
 import { SymbolMetaCard } from './SymbolMetaCard'
 import { SymbolOrderbook } from './SymbolOrderbook'
+import { SymbolOrderTicket } from './SymbolOrderTicket'
 import { SymbolPriceCard } from './SymbolPriceCard'
 
 const SYMBOL_TICK_STALE_MS = 30_000
@@ -76,6 +80,7 @@ export function SymbolDetailPage() {
   const [realtimeCandle, setRealtimeCandle] = useState<CandleMinutePayload | null>(null)
   const [orderbook, setOrderbook] = useState<OrderbookPayload | null>(null)
   const [orderbookSlot, setOrderbookSlot] = useState<'live' | 'queued' | null>(null)
+  const [selectedOrderPrice, setSelectedOrderPrice] = useState('')
   const [lastTickAt, setLastTickAt] = useState<number | null>(null)
   const [watchStartedAt, setWatchStartedAt] = useState(() => Date.now())
   const [nowMs, setNowMs] = useState(() => Date.now())
@@ -94,6 +99,21 @@ export function SymbolDetailPage() {
     (tickAgeMs === null ? noTickAgeMs > SYMBOL_TICK_STALE_MS : tickAgeMs > SYMBOL_TICK_STALE_MS)
   const symbolPollingEnabled =
     Boolean(code) && !isDelisted && isTradingSession && (!stompConnected || tickStale)
+  const { accountType, setAccountType, isReady: accountTypeReady } = usePreferredAccountType()
+  const { data: runtimeFlags, isLoading: isRuntimeFlagsLoading } = useRuntimeFlags(userId)
+  const {
+    data: accountHoldings,
+    isLoading: isAccountHoldingsLoading,
+    isError: isAccountHoldingsError,
+  } = useAccountPositions({
+    userId,
+    accountType,
+    enabled: accountTypeReady && userId !== null && userId !== undefined && !isDelisted,
+  })
+  const accountHolding = useMemo(
+    () => accountHoldings?.find((holding) => holding.code === code) ?? null,
+    [accountHoldings, code],
+  )
 
   // 상장폐지 종목은 가격 조회 의미 없음 — useSymbol 비활성으로 polling 차단.
   // 정상 실시간 수신 중에는 HTTP polling 0건, STOMP 장애·tick 지연 시에만 30s fallback.
@@ -117,6 +137,7 @@ export function SymbolDetailPage() {
     setRealtimeCandle(null)
     setOrderbook(null)
     setOrderbookSlot(null)
+    setSelectedOrderPrice('')
     setLastTickAt(null)
     const resetAt = Date.now()
     setWatchStartedAt(resetAt)
@@ -336,13 +357,36 @@ export function SymbolDetailPage() {
           />
         </div>
 
-        {/* ── 호가창 (전폭) ── */}
-        <SymbolOrderbook
-          code={code}
-          orderbook={orderbook}
-          orderbookSlot={orderbookSlot}
-          isStompConnected={stompConnected}
-        />
+        {/* ── 호가창 + 종목 주문 ── */}
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+          <SymbolOrderbook
+            code={code}
+            orderbook={orderbook}
+            orderbookSlot={orderbookSlot}
+            isStompConnected={stompConnected}
+            selectedPrice={selectedOrderPrice}
+            onSelectPrice={(price) => setSelectedOrderPrice(price)}
+          />
+          <SymbolOrderTicket
+            code={code}
+            name={instrument?.name ?? symbol.name ?? code}
+            currentPrice={realtimeTick?.price ?? symbol.currentPrice ?? null}
+            userId={userId}
+            accountType={accountType}
+            accountTypeReady={accountTypeReady}
+            onAccountTypeChange={setAccountType}
+            holding={accountHolding}
+            isHoldingLoading={isAccountHoldingsLoading}
+            isHoldingError={isAccountHoldingsError}
+            orderMode={runtimeFlags?.mode ?? null}
+            isRuntimeFlagsLoading={isRuntimeFlagsLoading}
+            allowReal={runtimeFlags?.allowReal ?? false}
+            hasConsent={runtimeFlags?.userConsented ?? false}
+            killSwitchOn={runtimeFlags?.killSwitchEnabled ?? false}
+            selectedLimitPrice={selectedOrderPrice}
+            onLimitPriceChange={setSelectedOrderPrice}
+          />
+        </div>
 
         {/* ── 뉴스·공시 sidebar (ADR 0075 Phase 3 — 60s polling STOMP 0 LOCK) ── */}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
