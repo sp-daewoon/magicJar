@@ -19,6 +19,7 @@ import {
   toNumberOrNull,
   type CrossSignal,
 } from '../../../api/market'
+import { useIndexCandles } from '../../../api/hooks/useIndexCandles'
 import { useIndexTrend } from '../../../api/hooks/useIndexTrend'
 import { useMarketIndex } from '../../../api/hooks/useMarketIndex'
 import { useSectorRanking } from '../../../api/hooks/useSectorRanking'
@@ -46,6 +47,16 @@ export function MarketTrendPage() {
   })
   const { trend, isLoading: isTrendLoading, isError: isTrendError } = useIndexTrend({
     code: selectedCode,
+    enabled: userId != null,
+  })
+  const {
+    candles: indexCandles,
+    isLoading: isIndexCandlesLoading,
+    isError: isIndexCandlesError,
+  } = useIndexCandles({
+    code: selectedCode,
+    interval: '1m',
+    limit: 240,
     enabled: userId != null,
   })
   const { ranking, isLoading: isRankingLoading, isError: isRankingError } = useSectorRanking({
@@ -190,9 +201,14 @@ export function MarketTrendPage() {
           {/* 차트 */}
           <div>
             <h2 className="mb-2 text-sm font-semibold text-gray-200">
-              {INDEX_LABELS[selectedCode] ?? selectedCode} — MA periods overlay
+              {INDEX_LABELS[selectedCode] ?? selectedCode} — 장중 지수 캔들
             </h2>
-            <IndexTrendChart trend={trend} isLoading={isTrendLoading} isError={isTrendError} />
+            <IndexTrendChart
+              trend={trend}
+              candles={indexCandles?.candles ?? []}
+              isLoading={isTrendLoading || isIndexCandlesLoading}
+              isError={isTrendError || isIndexCandlesError}
+            />
           </div>
         </section>
 

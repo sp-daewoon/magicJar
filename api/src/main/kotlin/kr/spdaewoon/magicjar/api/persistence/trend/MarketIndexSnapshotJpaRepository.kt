@@ -54,4 +54,23 @@ interface MarketIndexSnapshotJpaRepository : JpaRepository<MarketIndexSnapshotJp
         @Param("code") code: String,
         @Param("limit") limit: Int,
     ): List<MarketIndexSnapshotJpaEntity>
+
+    @Query(
+        value = """
+            SELECT *
+            FROM (
+                SELECT *
+                FROM market_index_snapshot
+                WHERE code = :code
+                ORDER BY ts DESC
+                LIMIT :limit
+            ) snapshots
+            ORDER BY ts ASC
+        """,
+        nativeQuery = true,
+    )
+    fun findSnapshotSeries(
+        @Param("code") code: String,
+        @Param("limit") limit: Int,
+    ): List<MarketIndexSnapshotJpaEntity>
 }
