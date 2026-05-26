@@ -162,7 +162,7 @@ export async function fetchIndexTrend(
   return data
 }
 
-/** GET /api/market/index/{code}/candles — 지수 snapshot 기반 실제 캔들 series. */
+/** GET /api/market/index/{code}/candles — 지수 snapshot 기반 실제 캔들 series. 기본은 KST 일봉. */
 export async function fetchIndexCandles(
   code: string,
   opts?: { interval?: '1m' | '1d'; limit?: number },
@@ -171,8 +171,8 @@ export async function fetchIndexCandles(
     `/market/index/${encodeURIComponent(code)}/candles`,
     {
       params: {
-        interval: opts?.interval ?? '1m',
-        limit: opts?.limit ?? 240,
+        interval: opts?.interval ?? '1d',
+        limit: opts?.limit ?? 260,
       },
     },
   )

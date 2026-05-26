@@ -2,7 +2,7 @@
  * IndexTrendChart — market_index_snapshot 기반 지수 캔들 + MA overlay.
  *
  * Trend API의 MA 계산은 일봉 history가 부족하면 dataInsufficient=true일 수 있다.
- * 그래도 장중 snapshot 이 존재하면 캔들 자체는 표시해서 "현재 장이 움직이는지"를 바로 볼 수 있게 한다.
+ * 차트는 KST 거래일 기준 일봉을 기본으로 표시해 UTC 시간이 축에 노출되지 않게 한다.
  */
 import { useEffect, useMemo, useRef } from 'react'
 import {
@@ -15,9 +15,12 @@ import {
 } from 'lightweight-charts'
 import { toNumberOrNull, type IndexCandleItem, type IndexTrendResponse } from '../../../api/market'
 
+type IndexCandleInterval = '1m' | '1d'
+
 interface Props {
   trend: IndexTrendResponse | undefined
   candles?: IndexCandleItem[]
+  interval?: IndexCandleInterval
   isLoading?: boolean
   isError?: boolean
 }
@@ -30,14 +33,32 @@ interface TrendLineEntry {
   value: number
 }
 
-function toTimestamp(ts: string): UTCTimestamp | null {
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000
+
+function toKstDate(ts: string): string | null {
   const ms = Date.parse(ts)
   if (!Number.isFinite(ms)) return null
-  return Math.floor(ms / 1000) as UTCTimestamp
+  return new Date(ms + KST_OFFSET_MS).toISOString().slice(0, 10)
 }
 
-function toCandleData(candle: IndexCandleItem): CandlestickData | null {
-  const time = toTimestamp(candle.ts)
+function toKstTimestamp(ts: string): UTCTimestamp | null {
+  const ms = Date.parse(ts)
+  if (!Number.isFinite(ms)) return null
+  return Math.floor((ms + KST_OFFSET_MS) / 1000) as UTCTimestamp
+}
+
+function toChartTime(
+  candle: IndexCandleItem,
+  interval: IndexCandleInterval,
+): CandlestickData['time'] | null {
+  return interval === '1d' ? toKstDate(candle.ts) : toKstTimestamp(candle.ts)
+}
+
+function toCandleData(
+  candle: IndexCandleItem,
+  interval: IndexCandleInterval,
+): CandlestickData | null {
+  const time = toChartTime(candle, interval)
   const open = toNumberOrNull(candle.open)
   const high = toNumberOrNull(candle.high)
   const low = toNumberOrNull(candle.low)
@@ -48,30 +69,47 @@ function toCandleData(candle: IndexCandleItem): CandlestickData | null {
   return { time, open, high, low, close }
 }
 
-function normalizeCandles(candles: IndexCandleItem[]): CandlestickData[] {
-  const byTime = new Map<number, CandlestickData>()
+function chartTimeSortValue(time: CandlestickData['time']): number {
+  if (typeof time === 'string') return Date.parse(`${time}T00:00:00Z`)
+  return Number(time)
+}
+
+function addDays(date: string, days: number): string {
+  const ms = Date.parse(`${date}T00:00:00Z`)
+  if (!Number.isFinite(ms)) return date
+  return new Date(ms + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
+
+function normalizeCandles(
+  candles: IndexCandleItem[],
+  interval: IndexCandleInterval,
+): CandlestickData[] {
+  const byTime = new Map<string, CandlestickData>()
   candles.forEach((candle) => {
-    const data = toCandleData(candle)
+    const data = toCandleData(candle, interval)
     if (!data) return
-    byTime.set(Number(data.time), data)
+    byTime.set(String(data.time), data)
   })
-  return [...byTime.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([, data]) => data)
+  return [...byTime.values()].sort((a, b) => chartTimeSortValue(a.time) - chartTimeSortValue(b.time))
 }
 
 function fallbackLineRange(): [LineData['time'], LineData['time']] {
-  const today = new Date()
-  const past = new Date(today)
-  past.setDate(today.getDate() - 30)
+  const today = new Date(Date.now() + KST_OFFSET_MS)
+  const past = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000)
   return [past.toISOString().slice(0, 10), today.toISOString().slice(0, 10)]
 }
 
-function candleLineRange(candleData: CandlestickData[]): [LineData['time'], LineData['time']] {
+function candleLineRange(
+  candleData: CandlestickData[],
+  interval: IndexCandleInterval,
+): [LineData['time'], LineData['time']] {
   if (candleData.length === 0) return fallbackLineRange()
   const first = candleData[0].time as LineData['time']
   const lastCandle = candleData[candleData.length - 1]
   if (candleData.length === 1) {
+    if (interval === '1d' && typeof lastCandle.time === 'string') {
+      return [addDays(lastCandle.time, -1), first]
+    }
     return [first, (Number(lastCandle.time) + 60) as UTCTimestamp]
   }
   return [first, lastCandle.time as LineData['time']]
@@ -80,6 +118,7 @@ function candleLineRange(candleData: CandlestickData[]): [LineData['time'], Line
 export function IndexTrendChart({
   trend,
   candles = [],
+  interval = '1d',
   isLoading = false,
   isError = false,
 }: Props) {
@@ -89,7 +128,7 @@ export function IndexTrendChart({
   const seriesMapRef = useRef<Map<number, ISeriesApi<'Line'>>>(new Map())
   const isDisposedRef = useRef(false)
 
-  const candleData = useMemo(() => normalizeCandles(candles), [candles])
+  const candleData = useMemo(() => normalizeCandles(candles, interval), [candles, interval])
   const trendLineEntries = useMemo<TrendLineEntry[]>(() => {
     if (!trend || trend.dataInsufficient) return []
     return trend.periodsUsed
@@ -121,7 +160,7 @@ export function IndexTrendChart({
       },
       timeScale: {
         borderColor: '#374151',
-        timeVisible: true,
+        timeVisible: interval !== '1d',
         secondsVisible: false,
       },
       rightPriceScale: {
@@ -162,7 +201,7 @@ export function IndexTrendChart({
       }
       chartRef.current = null
     }
-  }, [hasDisplayData, isError, isLoading])
+  }, [hasDisplayData, interval, isError, isLoading])
 
   // 데이터 갱신 — 실제 snapshot 캔들 + MA/lastClose 기준선.
   useEffect(() => {
@@ -203,7 +242,7 @@ export function IndexTrendChart({
         candleSeriesRef.current = candleSeries
       }
 
-      const [rangeStart, rangeEnd] = candleLineRange(candleData)
+      const [rangeStart, rangeEnd] = candleLineRange(candleData, interval)
 
       // periodsUsed 순으로 색상 매핑.
       trendLineEntries.forEach(({ period, value }, idx) => {
@@ -243,7 +282,7 @@ export function IndexTrendChart({
     } catch {
       // graceful — disposed during async data fetch
     }
-  }, [candleData, hasDisplayData, lastClose, shouldDrawLastClose, trendLineEntries])
+  }, [candleData, hasDisplayData, interval, lastClose, shouldDrawLastClose, trendLineEntries])
 
   if (isLoading) {
     return (
@@ -272,10 +311,10 @@ export function IndexTrendChart({
         role="status"
         className="flex h-[260px] flex-col items-center justify-center gap-2 rounded-lg border border-gray-800 bg-gray-900 text-sm text-gray-400"
       >
-        <p>{isOverseas ? '미국장 지수 캔들 수집 대기 중입니다.' : '지수 캔들 수집 대기 중입니다.'}</p>
+        <p>{isOverseas ? '미국장 지수 일봉 수집 대기 중입니다.' : '지수 일봉 수집 대기 중입니다.'}</p>
         {maxPeriod !== null && (
           <p className="text-xs text-gray-500">
-            MA 계산 필요 최소: {maxPeriod}일. 장중 캔들은 snapshot 수집 즉시 표시됩니다.
+            MA 계산 필요 최소: {maxPeriod}일. 일봉은 KST 거래일 기준으로 표시됩니다.
           </p>
         )}
       </div>
