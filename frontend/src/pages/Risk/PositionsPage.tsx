@@ -17,14 +17,16 @@
  *
  * 룰 5: LLM provider import 0건
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { useOnboardingStore } from '../../stores/onboarding'
-import type { AccountHoldingDto, AccountType } from '../../api/account'
+import { accountApi, type AccountHoldingDto, type AccountType } from '../../api/account'
 import type { OrderSide } from '../../api/order'
 import { useAccountPositions } from '../../api/hooks/useAccountPositions'
 import { usePreferredAccountType } from '../../api/hooks/usePreferredAccountType'
 import { useRuntimeFlags } from '../../api/hooks/useRuntimeFlags'
+import { useStompAccountBalance } from '../../api/hooks/useStompAccountBalance'
 import { AccountHoldingCard } from '../../components/risk/AccountHoldingCard'
 import { PositionOrderModal } from '../../components/risk/PositionOrderModal'
 import { extractStatus } from '../Dashboard/errorStatus'
@@ -85,15 +87,19 @@ function setPositionOrderCooldown(
 
 export function PositionsPage() {
   const userId = useOnboardingStore((s) => s.registeredUserId)
+  const queryClient = useQueryClient()
   const { accountType, setAccountType, isReady: accountTypeReady } = usePreferredAccountType()
   const { data: runtimeFlags, isLoading: isRuntimeFlagsLoading } = useRuntimeFlags(userId)
-  const { data, isLoading, isError, error, refetch, isFetching } = useAccountPositions({
+  const { data, isLoading, isError, error, isFetching } = useAccountPositions({
     userId,
     accountType,
     enabled: accountTypeReady,
   })
   const [orderSelection, setOrderSelection] = useState<OrderSelection | null>(null)
+  const [refreshNotice, setRefreshNotice] = useState<string | null>(null)
+  const [forceRefreshing, setForceRefreshing] = useState(false)
   const [, setCooldownTick] = useState(0)
+  const postOrderRefreshTimersRef = useRef<number[]>([])
 
   const holdings = data ?? []
   const isCredentialMissing = extractStatus(error) === 412
@@ -109,10 +115,62 @@ export function PositionsPage() {
     return null
   }, [accountType, isRuntimeFlagsLoading, killSwitchOn, orderMode])
 
+  const forceRefreshPositions = useCallback(
+    async (notice = 'KIS 잔고를 직접 새로고침 중입니다.') => {
+      if (!userId) return
+      setRefreshNotice(notice)
+      setForceRefreshing(true)
+      try {
+        const fresh = await accountApi.getPositions(userId, accountType, { refresh: true })
+        queryClient.setQueryData(['account', 'positions', userId, accountType], fresh)
+        void queryClient.invalidateQueries({
+          queryKey: ['account', 'summary', userId, accountType],
+          exact: true,
+        })
+      } catch {
+        setRefreshNotice('KIS 잔고 새로고침에 실패했습니다. 잠시 후 다시 시도해 주세요.')
+      } finally {
+        setForceRefreshing(false)
+      }
+    },
+    [accountType, queryClient, userId],
+  )
+
+  useStompAccountBalance({
+    userId,
+    enabled: userId !== null && userId !== undefined,
+    onBalanceChanged: (payload) => {
+      if (payload.accountType !== accountType) return
+      void forceRefreshPositions('체결 이벤트를 받아 KIS 보유 수량을 다시 확인 중입니다.')
+    },
+  })
+
   useEffect(() => {
     const timer = setInterval(() => setCooldownTick((tick) => tick + 1), 1000)
     return () => clearInterval(timer)
   }, [])
+
+  useEffect(
+    () => () => {
+      for (const timer of postOrderRefreshTimersRef.current) {
+        window.clearTimeout(timer)
+      }
+    },
+    [],
+  )
+
+  function schedulePostOrderRefresh() {
+    for (const timer of postOrderRefreshTimersRef.current) {
+      window.clearTimeout(timer)
+    }
+    postOrderRefreshTimersRef.current = []
+    void forceRefreshPositions('주문이 접수되었습니다. KIS 체결/잔고 반영을 확인 중입니다.')
+    postOrderRefreshTimersRef.current = [1_500, 4_000, 8_000, 12_000].map((delay) =>
+      window.setTimeout(() => {
+        void forceRefreshPositions('주문 체결 반영을 다시 확인 중입니다.')
+      }, delay),
+    )
+  }
 
   function handleOpenBuyMore(holding: AccountHoldingDto) {
     setOrderSelection({
@@ -141,7 +199,7 @@ export function PositionsPage() {
   function handleOrderSubmitted(holding: AccountHoldingDto, side: OrderSide) {
     setPositionOrderCooldown(userId!, accountType, holding.code, side)
     setCooldownTick((tick) => tick + 1)
-    void refetch()
+    schedulePostOrderRefresh()
   }
 
   // userId 미등록 시 셋업 안내
@@ -183,14 +241,21 @@ export function PositionsPage() {
         </div>
         {/* 새로고침 버튼 */}
         <button
-          onClick={() => void refetch()}
-          disabled={isFetching}
+          onClick={() => void forceRefreshPositions('KIS 잔고를 직접 새로고침 중입니다.')}
+          disabled={isFetching || forceRefreshing}
           className="rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:opacity-50"
           aria-label="포지션 목록 새로고침"
         >
-          {isFetching ? '갱신 중...' : '새로고침'}
+          {isFetching || forceRefreshing ? '갱신 중...' : '새로고침'}
         </button>
       </div>
+
+      {refreshNotice && (
+        <div className="mb-4 rounded-lg border border-blue-900 bg-blue-950/30 px-4 py-3 text-xs text-blue-200">
+          {refreshNotice}
+          {!forceRefreshing && ' 최신 KIS 응답 기준으로 화면을 갱신했습니다.'}
+        </div>
+      )}
 
       {/* 계좌 유형 필터 (REAL / MOCK) */}
       <div className="mb-6 flex flex-wrap items-center gap-3">
@@ -231,7 +296,7 @@ export function PositionsPage() {
         <div className="rounded-xl border border-red-800 bg-red-900/20 p-6 text-center text-sm text-red-400">
           포지션 목록을 불러오지 못했습니다.
           <button
-            onClick={() => void refetch()}
+            onClick={() => void forceRefreshPositions('KIS 잔고를 직접 다시 확인 중입니다.')}
             className="ml-2 text-red-300 underline hover:text-red-200"
           >
             다시 시도

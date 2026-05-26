@@ -168,6 +168,26 @@ class AccountQueryServiceTest {
     }
 
     @Test
+    fun `refresh true — Redis cache hit 무시하고 KIS 재조회 후 cache overwrite`() {
+        whenever(redis.opsForValue()).thenReturn(valueOps)
+        val staleJson = objectMapper.writeValueAsString(fixtureSnapshot())
+        whenever(valueOps.get(eq(cacheKey))).thenReturn(staleJson)
+        val freshSnapshot =
+            fixtureSnapshot().copy(
+                holdings = listOf(fixtureSnapshot().holdings[0].copy(quantity = 12)),
+            )
+        whenever(kisPort.fetchFullBalance(userId, accountType)).thenReturn(freshSnapshot)
+
+        val positions = sut.getPositions(userId, accountType, refresh = true)
+
+        assertThat(positions).hasSize(1)
+        assertThat(positions[0].quantity).isEqualTo(12)
+        verify(valueOps, never()).get(eq(cacheKey))
+        verify(kisPort).fetchFullBalance(userId, accountType)
+        verify(valueOps).set(eq(cacheKey), any<String>(), eq(Duration.ofSeconds(10)))
+    }
+
+    @Test
     fun `summary — 수익률 = totalProfitLoss div totalPurchaseAmount times 100, 보유 종목 수 정합`() {
         whenever(redis.opsForValue()).thenReturn(valueOps)
         whenever(valueOps.get(eq(cacheKey))).thenReturn(null)

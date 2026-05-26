@@ -150,10 +150,14 @@ export const accountApi = {
   getBalance: async (
     userId: number,
     accountType: AccountType = 'REAL',
+    options: { refresh?: boolean } = {},
   ): Promise<AccountBalanceDto> => {
-    const res = await apiClient.get<AccountBalanceDto>(
-      `/account/balance?userId=${userId}&accountType=${accountType}`,
-    )
+    const params = new URLSearchParams({
+      userId: String(userId),
+      accountType,
+    })
+    if (options.refresh) params.set('refresh', 'true')
+    const res = await apiClient.get<AccountBalanceDto>(`/account/balance?${params.toString()}`)
     return res.data
   },
 
@@ -167,10 +171,14 @@ export const accountApi = {
   getPositions: async (
     userId: number,
     accountType: AccountType = 'REAL',
+    options: { refresh?: boolean } = {},
   ): Promise<AccountHoldingDto[]> => {
-    const res = await apiClient.get<AccountHoldingDto[]>(
-      `/account/positions?userId=${userId}&accountType=${accountType}`,
-    )
+    const params = new URLSearchParams({
+      userId: String(userId),
+      accountType,
+    })
+    if (options.refresh) params.set('refresh', 'true')
+    const res = await apiClient.get<AccountHoldingDto[]>(`/account/positions?${params.toString()}`)
     return res.data
   },
 
@@ -182,10 +190,14 @@ export const accountApi = {
   getSummary: async (
     userId: number,
     accountType: AccountType = 'REAL',
+    options: { refresh?: boolean } = {},
   ): Promise<AccountSummaryDto> => {
-    const res = await apiClient.get<AccountSummaryDto>(
-      `/account/summary?userId=${userId}&accountType=${accountType}`,
-    )
+    const params = new URLSearchParams({
+      userId: String(userId),
+      accountType,
+    })
+    if (options.refresh) params.set('refresh', 'true')
+    const res = await apiClient.get<AccountSummaryDto>(`/account/summary?${params.toString()}`)
     return res.data
   },
 }
