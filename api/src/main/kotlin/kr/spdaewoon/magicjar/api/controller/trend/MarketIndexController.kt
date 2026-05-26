@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController
  *
  * - GET `/api/market/index/snapshot` — 4 지수 카드 (KOSPI · KOSDAQ · NASDAQ · S&P)
  * - GET `/api/market/index/{code}/trend?periods=5,20,60` — 단일 지수 상세 (periods 생략 시 user pref)
- * - GET `/api/market/index/{code}/candles?interval=1m&limit=240` — 지수 snapshot 기반 캔들
+ * - GET `/api/market/index/{code}/candles?interval=1d&limit=260` — 지수 snapshot 기반 캔들
  *
  * Swagger 4단 의무 (feedback_swagger_pattern 정합).
  */
@@ -100,7 +100,7 @@ class MarketIndexController(
         summary = "단일 지수 캔들",
         description =
             "market_index_snapshot 실제 수집값을 오래된 → 최신 순서 캔들로 반환합니다. " +
-                "1m은 인접 snapshot 가격으로 OHLC를 파생하고, 1d는 KST 날짜별 최신 snapshot series를 사용합니다.",
+                "기본값 1d는 KST 날짜별 최신 snapshot series를 사용하고, 1m은 인접 snapshot 가격으로 OHLC를 파생합니다.",
     )
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "성공"),
@@ -117,8 +117,8 @@ class MarketIndexController(
             example = "0001",
         )
         @PathVariable code: String,
-        @Parameter(description = "캔들 간격. 현재 1m 또는 1d 지원", example = "1m")
-        @RequestParam(defaultValue = "1m") interval: String,
+        @Parameter(description = "캔들 간격. 현재 1d 또는 1m 지원", example = "1d")
+        @RequestParam(defaultValue = "1d") interval: String,
         @Parameter(description = "조회 개수. 1~1000 사이로 clamp", example = "240")
         @RequestParam(defaultValue = "240") limit: Int,
     ): IndexCandlesResponse {

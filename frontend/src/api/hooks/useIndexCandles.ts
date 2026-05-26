@@ -1,7 +1,7 @@
 /**
  * useIndexCandles — market_index_snapshot 기반 지수 캔들 series.
  *
- * Trend API의 MA 계산 데이터가 부족해도, 장중 실제 snapshot 이 있으면 차트는 별도로 표시한다.
+ * 시장 추세 화면은 기본적으로 KST 거래일 기준 일봉만 표시한다.
  */
 import { useQuery } from '@tanstack/react-query'
 import { fetchIndexCandles } from '../market'
@@ -15,8 +15,8 @@ interface UseIndexCandlesOptions {
 
 export function indexCandlesQueryKey(
   code: string,
-  interval: '1m' | '1d' = '1m',
-  limit = 240,
+  interval: '1m' | '1d' = '1d',
+  limit = 260,
 ) {
   return ['indexCandles', code, interval, limit] as const
 }
@@ -25,8 +25,8 @@ const POLLING_INTERVAL_MS = 30_000
 
 export function useIndexCandles({
   code,
-  interval = '1m',
-  limit = 240,
+  interval = '1d',
+  limit = 260,
   enabled = true,
 }: UseIndexCandlesOptions) {
   const query = useQuery({

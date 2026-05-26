@@ -55,8 +55,8 @@ export function MarketTrendPage() {
     isError: isIndexCandlesError,
   } = useIndexCandles({
     code: selectedCode,
-    interval: '1m',
-    limit: 240,
+    interval: '1d',
+    limit: 260,
     enabled: userId != null,
   })
   const { ranking, isLoading: isRankingLoading, isError: isRankingError } = useSectorRanking({
@@ -201,11 +201,12 @@ export function MarketTrendPage() {
           {/* 차트 */}
           <div>
             <h2 className="mb-2 text-sm font-semibold text-gray-200">
-              {INDEX_LABELS[selectedCode] ?? selectedCode} — 장중 지수 캔들
+              {INDEX_LABELS[selectedCode] ?? selectedCode} — 지수 일봉
             </h2>
             <IndexTrendChart
               trend={trend}
               candles={indexCandles?.candles ?? []}
+              interval={indexCandles?.interval ?? '1d'}
               isLoading={isTrendLoading || isIndexCandlesLoading}
               isError={isTrendError || isIndexCandlesError}
             />
