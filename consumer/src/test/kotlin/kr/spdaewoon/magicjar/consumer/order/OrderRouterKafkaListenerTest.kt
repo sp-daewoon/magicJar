@@ -278,6 +278,36 @@ class OrderRouterKafkaListenerTest {
     }
 
     @Test
+    fun `ORDER_NOT_SENT KIS 예외는 PENDING_RECONCILE이 아니라 REJECTED로 확정`() {
+        every { idempotencyGuard.acquire(any(), any()) } returns true
+        every { tradingModeGate.resolveMode("12345678") } returns OrderResult.Right(TradingMode.MOCK)
+        every { killSwitchPort.isOn("12345678") } returns false
+        every { orderRepo.save(any()) } answers { firstArg<OrderRequest>().copy(id = 99L) }
+        every { orderRepo.updateStatus(99L, OrderStatus.REJECTED, any()) } returns null
+        every { kisOrderPort.submit(any(), TradingMode.MOCK) } returns
+            OrderResult.Left(DenyReason.KisException("ORDER_NOT_SENT:HASHKEY_RATE_LIMIT_TIMEOUT:test"))
+
+        val ack = mockk<Acknowledgment>(relaxed = true)
+        listener.onOrderIntent(buildRecord(stubPayload()), ack)
+
+        val auditSlot = mutableListOf<OrderAuditEvent>()
+        verify(atLeast = 1) { auditRepo.save(capture(auditSlot)) }
+        assertThat(auditSlot.map { it.eventType }).contains(OrderAuditEventType.KIS_EXCEPTION)
+        verify(exactly = 1) {
+            orderRepo.updateStatus(
+                99L,
+                OrderStatus.REJECTED,
+                match { it.contains("ORDER_NOT_SENT:HASHKEY_RATE_LIMIT_TIMEOUT") },
+            )
+        }
+        verify(exactly = 0) { orderRepo.updateStatus(99L, OrderStatus.PENDING_RECONCILE, any()) }
+        verify(exactly = 1) {
+            rejectedProducer.publish(any(), match { it.contains("ORDER_NOT_SENT:HASHKEY_RATE_LIMIT_TIMEOUT") })
+        }
+        verify(exactly = 1) { ack.acknowledge() }
+    }
+
+    @Test
     fun `(g §62) Repository 미합류 (NotWired) → listener 진행 중단 + 후속 publish·KIS submit 0`() {
         every { idempotencyGuard.acquire(any(), any()) } returns true
         every { tradingModeGate.resolveMode("12345678") } returns OrderResult.Right(TradingMode.MOCK)

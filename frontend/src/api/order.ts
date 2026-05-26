@@ -18,6 +18,7 @@ import apiClient from '../lib/axios'
 export type OrderStatus =
   | 'REQUESTED'
   | 'ACK'
+  | 'PENDING_RECONCILE'
   | 'FILLED'
   | 'PARTIALLY_FILLED'
   | 'REJECTED'
@@ -53,6 +54,7 @@ export type OrderAuditEventType =
   | 'KIS_ACK'
   | 'KIS_REJECT'
   | 'KIS_EXCEPTION'
+  | 'KIS_INVALID_RESPONSE'
   | 'FILL_RECEIVED'
   | 'PARTIAL_FILL'
   | 'FULL_FILL'
@@ -61,6 +63,14 @@ export type OrderAuditEventType =
   | 'KIS_CANCEL_REJECT'
   | 'EXECUTION_TIMEOUT'
   | 'EXECUTION_OVERFLOW'
+  | 'REDIS_DOWN_FALLBACK'
+  | 'INVALID_ORDER_INTENT'
+  | 'KIS_EXECUTION_SYNC_STALE'
+  | 'KIS_TIMEOUT'
+  | 'KIS_RECONCILE_PENDING'
+  | 'KIS_RECONCILE_RESOLVED'
+  | 'KIS_RECONCILE_TIMEOUT'
+  | 'ORDER_DB_SYNC_FAILED'
 
 // ──────────────────────────────────────────────
 // DTO

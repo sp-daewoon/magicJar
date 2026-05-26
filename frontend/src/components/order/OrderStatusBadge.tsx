@@ -4,6 +4,7 @@
  * 색상 매트릭스 LOCK (§16-2):
  *   REQUESTED      → bg-blue-100   text-blue-800   "접수"
  *   ACK            → bg-blue-200   text-blue-900   "KIS 접수"
+ *   PENDING_RECONCILE → bg-amber-100 text-amber-800 "KIS 확인 중"
  *   PARTIALLY_FILLED → bg-yellow-100 text-yellow-800 "부분 체결"
  *   FILLED         → bg-green-100  text-green-800  "체결 완료"
  *   REJECTED       → bg-red-100    text-red-800    "거부"
@@ -20,6 +21,7 @@ interface OrderStatusBadgeProps {
 const STATUS_STYLES: Record<OrderStatus, { bg: string; label: string }> = {
   REQUESTED: { bg: 'bg-blue-100 text-blue-800', label: '접수' },
   ACK: { bg: 'bg-blue-200 text-blue-900', label: 'KIS 접수' },
+  PENDING_RECONCILE: { bg: 'bg-amber-100 text-amber-800', label: 'KIS 확인 중' },
   PARTIALLY_FILLED: { bg: 'bg-yellow-100 text-yellow-800', label: '부분 체결' },
   FILLED: { bg: 'bg-green-100 text-green-800', label: '체결 완료' },
   REJECTED: { bg: 'bg-red-100 text-red-800', label: '거부' },

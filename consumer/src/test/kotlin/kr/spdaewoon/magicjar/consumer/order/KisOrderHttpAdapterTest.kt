@@ -1,17 +1,24 @@
 package kr.spdaewoon.magicjar.consumer.order
 
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisAuthAdapter
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisHashKeyAdapter
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialId
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimitTimeoutException
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
+import kr.spdaewoon.magicjar.domain.order.execution.DenyReason
 import kr.spdaewoon.magicjar.domain.order.execution.OrderIntent
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
+import kr.spdaewoon.magicjar.domain.order.execution.OrderResult
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
+import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.web.reactive.function.client.WebClient
@@ -99,6 +106,29 @@ class KisOrderHttpAdapterTest {
         assertThat(body["ORD_UNPR"]).isEqualTo("78000")
         // SELL은 SLL_TYPE="01" (일반매도) 부착 LOCK
         assertThat(body["SLL_TYPE"]).isEqualTo("01")
+    }
+
+    @Test
+    fun `hashkey rate-limit timeout은 order-cash 미전송 REJECT 사유로 반환`() {
+        every { credentialRepository.findAllByAccountType("MOCK") } returns listOf(stubCredential())
+        every { kisAuthAdapter.getAccessToken("12345678", AccountType.MOCK) } returns "token"
+        every { secretCipher.decrypt(any()) } returns "plain".toByteArray()
+        every {
+            kisHashKeyAdapter.issueHashKey(any(), any(), any(), any(), AccountType.MOCK)
+        } throws KisRateLimitTimeoutException(KisCallPriority.USER_PATH, 3000L)
+
+        val result =
+            adapter.submit(
+                buildIntent(OrderSide.SELL, OrderPriceType.LIMIT, limit = BigDecimal("78000")),
+                TradingMode.MOCK,
+            )
+
+        assertThat(result).isInstanceOf(OrderResult.Left::class.java)
+        val deny = (result as OrderResult.Left).value
+        assertThat(deny).isInstanceOf(DenyReason.KisException::class.java)
+        assertThat((deny as DenyReason.KisException).cause)
+            .startsWith("ORDER_NOT_SENT:HASHKEY_RATE_LIMIT_TIMEOUT")
+        verify(exactly = 0) { kisRateLimiterPort.acquire(any(), any()) }
     }
 
     private fun stubCredential() =

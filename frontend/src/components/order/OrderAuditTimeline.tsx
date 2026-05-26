@@ -7,7 +7,7 @@
  * 중요 event type 색상:
  *   REAL_GATE_DENIED, KIS_REJECT, KIS_EXCEPTION → 빨강
  *   FULL_FILL                                   → 녹색
- *   PARTIAL_FILL                                → 노랑
+ *   PARTIAL_FILL, KIS_RECONCILE_PENDING         → 노랑
  *   REQUESTED, KIS_ACK, KIS_REQUEST             → 파랑
  *   USER_CANCEL_REQUEST, KIS_CANCEL_ACK         → 회색
  */
@@ -26,9 +26,18 @@ const EVENT_STYLES: Partial<Record<OrderAuditEventType, { dot: string; label: st
   FULL_FILL: { dot: 'bg-green-500', label: '전체 체결' },
   KIS_REJECT: { dot: 'bg-red-500', label: 'KIS 거부' },
   KIS_EXCEPTION: { dot: 'bg-red-600', label: 'KIS 오류' },
+  KIS_INVALID_RESPONSE: { dot: 'bg-red-600', label: 'KIS 응답 오류' },
   REAL_GATE_DENIED: { dot: 'bg-red-700', label: '실거래 게이트 차단' },
   IDEMPOTENCY_SKIPPED: { dot: 'bg-gray-400', label: '중복 스킵' },
   KILLSWITCH_DENIED: { dot: 'bg-red-800', label: '킬스위치 차단' },
+  REDIS_DOWN_FALLBACK: { dot: 'bg-red-700', label: 'Redis 장애 차단' },
+  INVALID_ORDER_INTENT: { dot: 'bg-red-700', label: '주문 값 오류' },
+  KIS_EXECUTION_SYNC_STALE: { dot: 'bg-orange-500', label: '체결 동기화 지연' },
+  KIS_TIMEOUT: { dot: 'bg-orange-500', label: 'KIS 타임아웃' },
+  KIS_RECONCILE_PENDING: { dot: 'bg-amber-400', label: 'KIS 확인 중' },
+  KIS_RECONCILE_RESOLVED: { dot: 'bg-green-400', label: 'KIS 확인 완료' },
+  KIS_RECONCILE_TIMEOUT: { dot: 'bg-orange-500', label: 'KIS 확인 만료' },
+  ORDER_DB_SYNC_FAILED: { dot: 'bg-red-700', label: '주문 DB 동기화 실패' },
   USER_CANCEL_REQUEST: { dot: 'bg-gray-400', label: '취소 요청' },
   KIS_CANCEL_ACK: { dot: 'bg-gray-300', label: 'KIS 취소 접수' },
   KIS_CANCEL_REJECT: { dot: 'bg-red-400', label: 'KIS 취소 거부' },

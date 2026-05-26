@@ -87,6 +87,13 @@ export function OrderDetailPage() {
 
   const sideLabel = order.side === 'BUY' ? '매수' : '매도'
   const sideColor = order.side === 'BUY' ? 'text-red-400' : 'text-blue-400'
+  const isReconcileReason =
+    order.status === 'PENDING_RECONCILE' || order.rejectReason?.startsWith('KIS_RECONCILE_PENDING')
+  const reasonColor = isReconcileReason
+    ? order.status === 'EXPIRED'
+      ? 'text-orange-300'
+      : 'text-amber-300'
+    : 'text-red-400'
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
@@ -169,8 +176,8 @@ export function OrderDetailPage() {
           )}
           {order.rejectReason && (
             <div className="col-span-2 md:col-span-3">
-              <p className="text-xs text-gray-500">거절 사유</p>
-              <p className="font-medium text-red-400">{order.rejectReason}</p>
+              <p className="text-xs text-gray-500">{isReconcileReason ? '확인 사유' : '거절 사유'}</p>
+              <p className={`font-medium ${reasonColor}`}>{order.rejectReason}</p>
             </div>
           )}
         </div>

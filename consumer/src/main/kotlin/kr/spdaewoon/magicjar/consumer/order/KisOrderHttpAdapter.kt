@@ -7,7 +7,9 @@ import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisHashKeyAdapter
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCircuitOpenException
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimitTimeoutException
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
 import kr.spdaewoon.magicjar.domain.order.execution.DenyReason
@@ -91,7 +93,9 @@ class KisOrderHttpAdapter(
      *   Right(KisOrderAck) — rt_cd == "0" 정상
      *   Left(DenyReason.KisRejected(rt, msg)) — rt_cd != "0"
      *   Left(DenyReason.KisException(cause)) — invalid response / parse 실패
-     *   throws WebClientResponseException 5xx — caller retry 책임 (§14-2 step 7)
+     *   throws WebClientResponseException 5xx — order-cash 본주문 호출 후 caller retry 책임 (§14-2 step 7)
+     *
+     * 토큰·hashkey·rate-limit acquire 실패는 KIS 본주문 미전송이 확정되므로 ORDER_NOT_SENT KisException으로 반환한다.
      */
     override fun submit(
         intent: OrderIntent,
@@ -105,7 +109,6 @@ class KisOrderHttpAdapter(
                 .firstOrNull { it.id.userId == intent.userId }
                 ?: return OrderResult.Left(DenyReason.RealGateDenied("CREDENTIAL_NOT_FOUND"))
 
-        val accessToken = kisAuthAdapter.getAccessToken(intent.userId, accountType)
         val trId = resolveTrId(intent.side, mode)
         val baseUrl = if (mode == TradingMode.REAL) kisBaseProd else kisBaseVps
 
@@ -117,6 +120,31 @@ class KisOrderHttpAdapter(
         var signalSent = false
         var acquiredToken = false
         return try {
+            val accessToken =
+                try {
+                    kisAuthAdapter.getAccessToken(intent.userId, accountType)
+                } catch (e: WebClientResponseException) {
+                    log.warn(
+                        "KIS auth HTTP 실패 — order-cash 미전송: trId={} userId={} status={} body={}",
+                        trId,
+                        maskUserId(intent.userId),
+                        e.statusCode,
+                        e.responseBodyAsString.take(200),
+                    )
+                    return OrderResult.Left(
+                        DenyReason.KisException("ORDER_NOT_SENT:AUTH_HTTP_${e.statusCode.value()}"),
+                    )
+                } catch (e: Exception) {
+                    val reasonPrefix = if (isTimeout(e)) "ORDER_NOT_SENT:AUTH_TIMEOUT" else "ORDER_NOT_SENT:AUTH_FAILED"
+                    log.warn(
+                        "KIS auth 예외 — order-cash 미전송: trId={} userId={} reason={} err={}",
+                        trId,
+                        maskUserId(intent.userId),
+                        reasonPrefix,
+                        e.message,
+                    )
+                    return OrderResult.Left(DenyReason.KisException("$reasonPrefix:${e.message ?: "unknown"}"))
+                }
             appKey = secretCipher.decrypt(cred.appKeyEnc)
             secretKey = secretCipher.decrypt(cred.secretKeyEnc)
             val appKeyStr = String(appKey)
@@ -135,6 +163,37 @@ class KisOrderHttpAdapter(
                         appSecret = secretKeyStr,
                         accountType = accountType,
                     )
+                } catch (e: KisRateLimitTimeoutException) {
+                    log.warn(
+                        "KIS hashkey rate-limit timeout — order-cash 미전송: trId={} userId={} timeoutMs={}",
+                        trId,
+                        maskUserId(intent.userId),
+                        e.timeoutMillis,
+                    )
+                    return OrderResult.Left(
+                        DenyReason.KisException("ORDER_NOT_SENT:HASHKEY_RATE_LIMIT_TIMEOUT:${e.message}"),
+                    )
+                } catch (e: KisCircuitOpenException) {
+                    log.warn(
+                        "KIS hashkey circuit open — order-cash 미전송: trId={} userId={} openUntil={}",
+                        trId,
+                        maskUserId(intent.userId),
+                        e.openUntilEpochMillis,
+                    )
+                    return OrderResult.Left(
+                        DenyReason.KisException("ORDER_NOT_SENT:HASHKEY_CIRCUIT_OPEN:${e.message}"),
+                    )
+                } catch (e: WebClientResponseException) {
+                    log.warn(
+                        "KIS hashkey HTTP 실패 — order-cash 미전송: trId={} userId={} status={} body={}",
+                        trId,
+                        maskUserId(intent.userId),
+                        e.statusCode,
+                        e.responseBodyAsString.take(200),
+                    )
+                    return OrderResult.Left(
+                        DenyReason.KisException("ORDER_NOT_SENT:HASHKEY_HTTP_${e.statusCode.value()}"),
+                    )
                 } catch (e: IllegalStateException) {
                     // 4xx 또는 response 구조 결함 — 재시도 무의미, 즉시 REJECT
                     log.warn(
@@ -143,14 +202,46 @@ class KisOrderHttpAdapter(
                         maskUserId(intent.userId),
                         e.message,
                     )
-                    return OrderResult.Left(DenyReason.KisException("HASHKEY_FAILED:${e.message}"))
+                    return OrderResult.Left(DenyReason.KisException("ORDER_NOT_SENT:HASHKEY_FAILED:${e.message}"))
+                } catch (e: Exception) {
+                    val reasonPrefix = if (isTimeout(e)) "ORDER_NOT_SENT:HASHKEY_TIMEOUT" else "ORDER_NOT_SENT:HASHKEY_FAILED"
+                    log.warn(
+                        "KIS hashkey 예외 — order-cash 미전송: trId={} userId={} reason={} err={}",
+                        trId,
+                        maskUserId(intent.userId),
+                        reasonPrefix,
+                        e.message,
+                    )
+                    return OrderResult.Left(DenyReason.KisException("$reasonPrefix:${e.message ?: "unknown"}"))
                 }
-            // 5xx WebClientResponseException은 caller submitWithRetry가 재시도 — re-throw 자연 흐름
+            // hashkey 이전/발급 실패는 order-cash 미전송이 확정되므로 위 catch에서 ORDER_NOT_SENT로 반환.
 
             // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH 최우선 priority)
             // 주문 path는 자본 직결 — 즉시 acquire 강제 (사용자 path)
-            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
-            acquiredToken = true
+            try {
+                kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
+                acquiredToken = true
+            } catch (e: KisRateLimitTimeoutException) {
+                log.warn(
+                    "KIS order-cash rate-limit timeout — KIS 본주문 미전송: trId={} userId={} timeoutMs={}",
+                    trId,
+                    maskUserId(intent.userId),
+                    e.timeoutMillis,
+                )
+                return OrderResult.Left(
+                    DenyReason.KisException("ORDER_NOT_SENT:ORDER_RATE_LIMIT_TIMEOUT:${e.message}"),
+                )
+            } catch (e: KisCircuitOpenException) {
+                log.warn(
+                    "KIS order-cash circuit open — KIS 본주문 미전송: trId={} userId={} openUntil={}",
+                    trId,
+                    maskUserId(intent.userId),
+                    e.openUntilEpochMillis,
+                )
+                return OrderResult.Left(
+                    DenyReason.KisException("ORDER_NOT_SENT:ORDER_CIRCUIT_OPEN:${e.message}"),
+                )
+            }
 
             val response =
                 webClient

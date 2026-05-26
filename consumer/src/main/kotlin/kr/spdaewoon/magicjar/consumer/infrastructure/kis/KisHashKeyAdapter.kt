@@ -3,7 +3,9 @@ package kr.spdaewoon.magicjar.consumer.infrastructure.kis
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCircuitOpenException
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimitTimeoutException
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
 import kr.spdaewoon.magicjar.domain.user.AccountType
@@ -71,7 +73,8 @@ class KisHashKeyAdapter(
          * raw: `url = f"{getTREnv().my_url}/uapi/hashkey"` (kis_auth.py L? — 2026-05-18 WebFetch LOCK).
          */
         const val HASHKEY_PATH: String = "/uapi/hashkey"
-        private const val TIMEOUT_SEC = 3L
+        private const val TIMEOUT_SEC = 10L
+        private const val RATE_LIMIT_TIMEOUT_MS = 3000L
     }
 
     /**
@@ -84,7 +87,7 @@ class KisHashKeyAdapter(
      * @param accountType REAL/MOCK — base URL 분기
      * @return hashkey String (response.HASH)
      *
-     * @throws WebClientResponseException 5xx — caller submitWithRetry가 1회 재시도
+     * @throws WebClientResponseException 5xx — caller가 호출 단계에 맞춰 처리 (order-cash 전이면 ORDER_NOT_SENT)
      * @throws IllegalStateException 4xx 또는 response null/HASH 부재 — 재시도 무의미
      */
     fun issueHashKey(
@@ -99,10 +102,12 @@ class KisHashKeyAdapter(
         // D-1 try-finally drift 차단 패턴 (T-D-1):
         //   acquire를 try 안으로 옮기고 signalSent flag로 통계 시그널 미발행 path 감시.
         var signalSent = false
+        var acquiredToken = false
         return try {
             // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority, 주문 직전 경로)
-            // ADR 0037 초당 10건 한도 강제. timeout 1초 초과 시 KisRateLimitTimeoutException throw.
-            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
+            // ADR 0037 초당 10건 한도 강제. timeout 초과 시 KisRateLimitTimeoutException throw.
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = RATE_LIMIT_TIMEOUT_MS)
+            acquiredToken = true
 
             val response =
                 webClient
@@ -123,6 +128,20 @@ class KisHashKeyAdapter(
             signalSent = true
             response.hash?.takeIf { it.isNotBlank() }
                 ?: throw IllegalStateException("HASHKEY_HASH_FIELD_NULL")
+        } catch (e: KisRateLimitTimeoutException) {
+            log.warn(
+                "KIS hashkey rate-limit acquire timeout — HTTP 미전송: accountType={} timeoutMs={}",
+                accountType.name,
+                e.timeoutMillis,
+            )
+            throw e
+        } catch (e: KisCircuitOpenException) {
+            log.warn(
+                "KIS hashkey circuit open — HTTP 미전송: accountType={} openUntil={}",
+                accountType.name,
+                e.openUntilEpochMillis,
+            )
+            throw e
         } catch (e: WebClientResponseException) {
             // P0 hotfix (진단 PR #639) — EGW00201 = HTTP 500 wrap. classifyKisError() 분기 통일.
             if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
@@ -146,7 +165,7 @@ class KisHashKeyAdapter(
             // 4xx → IllegalStateException 변환 throw
             throw IllegalStateException("HASHKEY_HTTP_${e.statusCode.value()}", e)
         } finally {
-            if (!signalSent) {
+            if (acquiredToken && !signalSent) {
                 log.warn(
                     "[KisRateLimit] hashkey acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): accountType={}",
                     accountType.name,
@@ -169,9 +188,11 @@ class KisHashKeyAdapter(
     ): String {
         // D-1 try-finally drift 차단 패턴 (T-D-1).
         var signalSent = false
+        var acquiredToken = false
         return try {
             // 재시도 전 다시 acquire — 1초 sleep 후이므로 token refill 보장
-            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = RATE_LIMIT_TIMEOUT_MS)
+            acquiredToken = true
             val response =
                 webClient
                     .post()
@@ -190,6 +211,20 @@ class KisHashKeyAdapter(
             signalSent = true
             response.hash?.takeIf { it.isNotBlank() }
                 ?: throw IllegalStateException("HASHKEY_HASH_FIELD_NULL")
+        } catch (e: KisRateLimitTimeoutException) {
+            log.warn(
+                "KIS hashkey retry rate-limit acquire timeout — HTTP 미전송: accountType={} timeoutMs={}",
+                accountType.name,
+                e.timeoutMillis,
+            )
+            throw e
+        } catch (e: KisCircuitOpenException) {
+            log.warn(
+                "KIS hashkey retry circuit open — HTTP 미전송: accountType={} openUntil={}",
+                accountType.name,
+                e.openUntilEpochMillis,
+            )
+            throw e
         } catch (e: WebClientResponseException) {
             // P0 hotfix (진단 PR #639) — classifyKisError() 분기 통일.
             if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
@@ -199,7 +234,7 @@ class KisHashKeyAdapter(
             }
             throw IllegalStateException("HASHKEY_HTTP_${e.statusCode.value()}_RETRY", e)
         } finally {
-            if (!signalSent) {
+            if (acquiredToken && !signalSent) {
                 log.warn(
                     "[KisRateLimit] hashkey retry acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): accountType={}",
                     accountType.name,
