@@ -29,6 +29,11 @@ class NoopMarketIndexSnapshotReader : MarketIndexSnapshotReader {
         limit: Int,
     ): List<MarketIndexSnapshot> = emptyList()
 
+    override fun findIndexSnapshotSeries(
+        code: String,
+        limit: Int,
+    ): List<MarketIndexSnapshot> = emptyList()
+
     override fun findLatestSectorSnapshots(): List<SectorSnapshot> = emptyList()
 
     override fun findPreviousSectorSnapshots(): List<SectorSnapshot>? = null

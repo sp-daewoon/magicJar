@@ -33,6 +33,14 @@ class MarketIndexSnapshotReaderAdapter(
         return indexRepository.findDailySeries(code, limit).map { it.toDomain() }
     }
 
+    override fun findIndexSnapshotSeries(
+        code: String,
+        limit: Int,
+    ): List<MarketIndexSnapshot> {
+        if (limit <= 0) return emptyList()
+        return indexRepository.findSnapshotSeries(code, limit).map { it.toDomain() }
+    }
+
     override fun findLatestSectorSnapshots(): List<SectorSnapshot> = sectorRepository.findLatestBySector().map { it.toDomain() }
 
     override fun findPreviousSectorSnapshots(): List<SectorSnapshot>? =

@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.api.controller.trend
 
 import io.swagger.v3.oas.annotations.media.Schema
+import kr.spdaewoon.magicjar.api.service.trend.IndexCandle
 import kr.spdaewoon.magicjar.domain.trend.CrossSignal
 import kr.spdaewoon.magicjar.domain.trend.IndexTrend
 import kr.spdaewoon.magicjar.domain.trend.SectorRankEntry
@@ -60,6 +61,44 @@ data class IndexTrendResponse(
 data class IndexSnapshotResponse(
     @field:Schema(description = "지수 추세 list (default 4 지수: KOSPI · KOSDAQ · NASDAQ · S&P)")
     val indexes: List<IndexTrendResponse>,
+)
+
+@Schema(description = "시장 지수 캔들 한 행 — market_index_snapshot 실제 수집값 기반")
+data class IndexCandleItem(
+    @field:Schema(description = "캔들 시각")
+    val ts: String,
+    @field:Schema(description = "시가", example = "2680.12")
+    val open: BigDecimal,
+    @field:Schema(description = "고가", example = "2685.34")
+    val high: BigDecimal,
+    @field:Schema(description = "저가", example = "2678.90")
+    val low: BigDecimal,
+    @field:Schema(description = "종가", example = "2682.45")
+    val close: BigDecimal,
+    @field:Schema(description = "거래량. 지수 snapshot에는 없으면 0", example = "0")
+    val volume: Long,
+) {
+    companion object {
+        fun from(candle: IndexCandle): IndexCandleItem =
+            IndexCandleItem(
+                ts = candle.ts.toString(),
+                open = candle.open,
+                high = candle.high,
+                low = candle.low,
+                close = candle.close,
+                volume = candle.volume,
+            )
+    }
+}
+
+@Schema(description = "시장 지수 캔들 응답 — /api/market/index/{code}/candles")
+data class IndexCandlesResponse(
+    @field:Schema(description = "KIS index code", example = "0001")
+    val code: String,
+    @field:Schema(description = "캔들 간격", example = "1m")
+    val interval: String,
+    @field:Schema(description = "오래된 → 최신 ASC 캔들 list")
+    val candles: List<IndexCandleItem>,
 )
 
 @Schema(description = "섹터 snapshot 한 행")

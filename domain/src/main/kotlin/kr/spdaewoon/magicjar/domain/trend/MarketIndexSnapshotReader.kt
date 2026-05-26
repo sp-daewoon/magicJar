@@ -37,6 +37,15 @@ interface MarketIndexSnapshotReader {
     ): List<MarketIndexSnapshot>
 
     /**
+     * 지수별 원본 snapshot series 조회.
+     * 1분 지수 차트는 이 실제 수집값을 시간순으로 받아 OHLC 형태로 파생한다.
+     */
+    fun findIndexSnapshotSeries(
+        code: String,
+        limit: Int,
+    ): List<MarketIndexSnapshot>
+
+    /**
      * 섹터 list 최신 snapshot (1분 기준).
      */
     fun findLatestSectorSnapshots(): List<SectorSnapshot>

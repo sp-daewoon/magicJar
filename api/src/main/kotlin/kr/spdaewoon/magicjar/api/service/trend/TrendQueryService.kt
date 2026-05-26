@@ -80,6 +80,21 @@ class TrendQueryService(
         return computeTrend(code = code, periods = periods, crossPair = crossPair, isUserCustom = isUserCustom)
     }
 
+    @Transactional(readOnly = true)
+    fun candles(
+        code: String,
+        interval: String,
+        limit: Int,
+    ): List<IndexCandle> {
+        val effectiveLimit = limit.coerceIn(1, INDEX_CANDLE_MAX_LIMIT)
+        val snapshots =
+            when (interval) {
+                "1d" -> marketIndexSnapshotReader.findDailyIndexSeries(code, effectiveLimit)
+                else -> marketIndexSnapshotReader.findIndexSnapshotSeries(code, effectiveLimit)
+            }
+        return snapshots.toIndexCandles()
+    }
+
     private fun computeTrend(
         code: String,
         periods: List<Int>,
@@ -137,8 +152,22 @@ class TrendQueryService(
             source = MARKET_INDEX_SNAPSHOT_SOURCE,
         )
 
+    private fun List<MarketIndexSnapshot>.toIndexCandles(): List<IndexCandle> =
+        mapIndexed { index, snapshot ->
+            val open = getOrNull(index - 1)?.price ?: snapshot.price
+            val close = snapshot.price
+            IndexCandle(
+                ts = snapshot.ts,
+                open = open,
+                high = maxOf(open, close),
+                low = minOf(open, close),
+                close = close,
+            )
+        }
+
     companion object {
         private const val TREND_LOOKBACK_BUFFER_DAYS: Int = 6
+        private const val INDEX_CANDLE_MAX_LIMIT: Int = 1_000
         private const val MARKET_INDEX_SNAPSHOT_SOURCE: String = "MARKET_INDEX_SNAPSHOT"
 
         /**

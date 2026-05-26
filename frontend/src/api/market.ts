@@ -4,6 +4,7 @@
  * Backend 1:1 정합 endpoint (R1 머지 — PR #676 backend-core):
  * - GET  /api/market/index/snapshot                   → IndexSnapshotResponse
  * - GET  /api/market/index/{code}/trend?periods=...   → IndexTrendResponse
+ * - GET  /api/market/index/{code}/candles             → IndexCandlesResponse
  * - GET  /api/market/sectors/snapshot                 → SectorsSnapshotResponse
  * - GET  /api/market/sectors/ranking?periods=&rsPeriod= → SectorRankingResponse
  * - GET  /api/users/me/preferences/trend              → TrendPreferenceResponse
@@ -46,6 +47,21 @@ export interface IndexTrendResponse {
 
 export interface IndexSnapshotResponse {
   indexes: IndexTrendResponse[]
+}
+
+export interface IndexCandleItem {
+  ts: string
+  open: number | string
+  high: number | string
+  low: number | string
+  close: number | string
+  volume: number
+}
+
+export interface IndexCandlesResponse {
+  code: string
+  interval: '1m' | '1d'
+  candles: IndexCandleItem[]
 }
 
 export interface SectorSnapshotItem {
@@ -142,6 +158,23 @@ export async function fetchIndexTrend(
   const { data } = await apiClient.get<IndexTrendResponse>(
     `/market/index/${encodeURIComponent(code)}/trend`,
     { params },
+  )
+  return data
+}
+
+/** GET /api/market/index/{code}/candles — 지수 snapshot 기반 실제 캔들 series. */
+export async function fetchIndexCandles(
+  code: string,
+  opts?: { interval?: '1m' | '1d'; limit?: number },
+): Promise<IndexCandlesResponse> {
+  const { data } = await apiClient.get<IndexCandlesResponse>(
+    `/market/index/${encodeURIComponent(code)}/candles`,
+    {
+      params: {
+        interval: opts?.interval ?? '1m',
+        limit: opts?.limit ?? 240,
+      },
+    },
   )
   return data
 }

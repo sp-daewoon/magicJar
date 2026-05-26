@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController
  *
  * - GET `/api/market/index/snapshot` — 4 지수 카드 (KOSPI · KOSDAQ · NASDAQ · S&P)
  * - GET `/api/market/index/{code}/trend?periods=5,20,60` — 단일 지수 상세 (periods 생략 시 user pref)
+ * - GET `/api/market/index/{code}/candles?interval=1m&limit=240` — 지수 snapshot 기반 캔들
  *
  * Swagger 4단 의무 (feedback_swagger_pattern 정합).
  */
@@ -93,6 +94,44 @@ class MarketIndexController(
         val parsed = parsePeriods(periods)
         val trend = trendQueryService.trend(userId = userId, code = code, periodsOverride = parsed)
         return IndexTrendResponse.from(trend)
+    }
+
+    @Operation(
+        summary = "단일 지수 캔들",
+        description =
+            "market_index_snapshot 실제 수집값을 오래된 → 최신 순서 캔들로 반환합니다. " +
+                "1m은 인접 snapshot 가격으로 OHLC를 파생하고, 1d는 KST 날짜별 최신 snapshot series를 사용합니다.",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "200", description = "성공"),
+        ApiResponse(
+            responseCode = "401",
+            description = "셋업 미완료",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+    )
+    @GetMapping("/{code}/candles")
+    fun candles(
+        @Parameter(
+            description = "KIS index code (0001=KOSPI · 1001=KOSDAQ · .IXIC=NASDAQ · .SPX=S&P)",
+            example = "0001",
+        )
+        @PathVariable code: String,
+        @Parameter(description = "캔들 간격. 현재 1m 또는 1d 지원", example = "1m")
+        @RequestParam(defaultValue = "1m") interval: String,
+        @Parameter(description = "조회 개수. 1~1000 사이로 clamp", example = "240")
+        @RequestParam(defaultValue = "240") limit: Int,
+    ): IndexCandlesResponse {
+        val effectiveInterval = if (interval == "1d") "1d" else "1m"
+        val candles =
+            trendQueryService
+                .candles(code = code, interval = effectiveInterval, limit = limit)
+                .map { IndexCandleItem.from(it) }
+        return IndexCandlesResponse(
+            code = code,
+            interval = effectiveInterval,
+            candles = candles,
+        )
     }
 
     /**
