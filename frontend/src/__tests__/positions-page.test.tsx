@@ -12,7 +12,7 @@
  * 본 test 는 useAccountPositions (KIS inquire-balance) 로 정합됐는지 보증.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -20,6 +20,7 @@ import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { PositionsPage } from '../pages/Risk/PositionsPage'
 import { useOnboardingStore } from '../stores/onboarding'
+import { ToastProvider } from '../components/ui/ToastProvider'
 
 // ──────────────────────────────────────────────
 // msw — /api/account/positions 분기 스텁
@@ -27,6 +28,7 @@ import { useOnboardingStore } from '../stores/onboarding'
 
 let lastQueryString = ''
 let positionsResponse: 'three' | 'empty' | 'missing-credential' | 'error' = 'three'
+let lastManualOrderRequest: Record<string, unknown> | null = null
 
 const THREE_HOLDINGS = [
   {
@@ -62,6 +64,16 @@ const THREE_HOLDINGS = [
 ]
 
 const server = setupServer(
+  http.get('/api/runtime/flags', () =>
+    HttpResponse.json({
+      mode: 'MOCK',
+      allowReal: false,
+      killSwitchEnabled: false,
+      killSwitchReason: null,
+      userConsented: false,
+      fetchedAt: '2026-05-26T00:00:00Z',
+    }),
+  ),
   http.get('/api/account/positions', ({ request }) => {
     lastQueryString = new URL(request.url).search
     if (positionsResponse === 'three') return HttpResponse.json(THREE_HOLDINGS)
@@ -73,12 +85,25 @@ const server = setupServer(
       })
     return new HttpResponse('upstream error', { status: 502 })
   }),
+  http.post('/api/orders/manual', async ({ request }) => {
+    lastManualOrderRequest = (await request.json()) as Record<string, unknown>
+    return HttpResponse.json(
+      {
+        orderId: null,
+        status: 'ACCEPTED',
+        idempotencyKey: 'manual:test',
+        message: '수동 주문이 접수되었습니다.',
+      },
+      { status: 202 },
+    )
+  }),
 )
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'bypass' }))
 afterEach(() => {
   server.resetHandlers()
   lastQueryString = ''
+  lastManualOrderRequest = null
   positionsResponse = 'three'
 })
 afterAll(() => server.close())
@@ -94,7 +119,9 @@ function renderPage() {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <PositionsPage />
+        <ToastProvider>
+          <PositionsPage />
+        </ToastProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -111,6 +138,8 @@ function setUserId(id: number | null) {
 describe('PositionsPage — /api/account/positions 정합 (hotfix 2026-05-21)', () => {
   beforeEach(() => {
     // 각 테스트마다 깨끗한 상태 — 기본은 등록된 userId
+    window.localStorage.clear()
+    window.sessionStorage.clear()
     setUserId(74683223)
   })
 
@@ -143,6 +172,8 @@ describe('PositionsPage — /api/account/positions 정합 (hotfix 2026-05-21)', 
     expect(screen.getByText('0.00%')).toBeInTheDocument()
     // 평가손익 부호 — SK하이닉스 +60,000원
     expect(screen.getByText('+60,000원')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: '일부 매도' })).toHaveLength(3)
+    expect(screen.getAllByRole('button', { name: '전량 청산' })).toHaveLength(3)
     // 런타임 플래그/저장값이 없으면 안전 기본값 MOCK
     expect(lastQueryString).toContain('accountType=MOCK')
     expect(lastQueryString).toContain('userId=74683223')
@@ -183,6 +214,63 @@ describe('PositionsPage — /api/account/positions 정합 (hotfix 2026-05-21)', 
 
     await waitFor(() => {
       expect(lastQueryString).toContain('accountType=REAL')
+    })
+  })
+
+  it('주문 런타임과 선택 계좌가 다르면 포지션 직접 매도를 차단한다', async () => {
+    positionsResponse = 'three'
+    renderPage()
+    const user = userEvent.setup()
+
+    await waitFor(() => {
+      expect(screen.getByText('SK하이닉스')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: '실전' }))
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByText('현재 주문 모드가 MOCK라 REAL 포지션 매도를 막았습니다.').length,
+      ).toBeGreaterThan(0)
+    })
+
+    for (const button of screen.getAllByRole('button', { name: '일부 매도' })) {
+      expect(button).toBeDisabled()
+    }
+    for (const button of screen.getAllByRole('button', { name: '전량 청산' })) {
+      expect(button).toBeDisabled()
+    }
+  })
+
+  it('일부 매도 모달에서 보유 수량 이하 SELL 시장가 주문을 접수한다', async () => {
+    positionsResponse = 'three'
+    renderPage()
+    const user = userEvent.setup()
+
+    await waitFor(() => {
+      expect(screen.getByText('한국석유')).toBeInTheDocument()
+    })
+
+    const oilCard = screen.getByLabelText('보유 종목 한국석유')
+
+    await user.click(within(oilCard).getByRole('button', { name: '일부 매도' }))
+    expect(screen.getByRole('dialog', { name: '보유 종목 매도' })).toBeInTheDocument()
+
+    const quantityInput = screen.getByLabelText('매도 수량')
+    await user.clear(quantityInput)
+    await user.type(quantityInput, '2')
+    await user.click(screen.getByLabelText('포지션 매도 주문 내용 확인'))
+    await user.click(screen.getByRole('button', { name: '매도 주문 접수' }))
+
+    await waitFor(() => {
+      expect(lastManualOrderRequest).toMatchObject({
+        userId: 74683223,
+        code: '004090',
+        side: 'SELL',
+        priceType: 'MARKET',
+        quantity: 2,
+        limitPrice: null,
+      })
     })
   })
 })
