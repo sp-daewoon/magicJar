@@ -18,8 +18,9 @@ import java.math.BigDecimal
  *
  * 테스트 매트릭스:
  *  1. 5m payload 파싱 → onBoundaryClosed FIVE_MIN 호출 + Candle 정확 매핑
- *  2. 1h payload 파싱 → onBoundaryClosed ONE_HOUR 호출
- *  3. 잘못된 payload (code 없음) → 예외 X (dispatch failure log만 + RSG 호출 0)
+ *  2. 1m payload 파싱 → onBoundaryClosed ONE_MIN 호출 + openRaw/closeRaw alias 매핑
+ *  3. 1h payload 파싱 → onBoundaryClosed ONE_HOUR 호출
+ *  4. 잘못된 payload (code 없음) → 예외 X (dispatch failure log만 + RSG 호출 0)
  */
 class BoundaryClosingKafkaListenerTest {
     private val objectMapper = ObjectMapper().registerKotlinModule()
@@ -70,6 +71,45 @@ class BoundaryClosingKafkaListenerTest {
     }
 
     @Test
+    fun `1m payload 정상 → onBoundaryClosed ONE_MIN 호출 + Raw 필드 매핑 정확`() {
+        val payload =
+            """
+            {
+                "code":"005930",
+                "interval":"1m",
+                "ts":"2026-05-29T04:10:00Z",
+                "openRaw":"70000",
+                "highRaw":"71000",
+                "lowRaw":"69500",
+                "closeRaw":"70500",
+                "volume":12345
+            }
+            """.trimIndent()
+
+        val record = ConsumerRecord("market.candle.minute.closed.v1", 0, 0L, "005930", payload)
+        val codeSlot = slot<String>()
+        val intervalSlot = slot<CandleInterval>()
+        val tsSlot = slot<Instant>()
+        val candleSlot = slot<Candle>()
+
+        listener.on1m(record)
+
+        verify {
+            realtimeSignalGenerator.onBoundaryClosed(
+                capture(codeSlot),
+                capture(intervalSlot),
+                capture(tsSlot),
+                capture(candleSlot),
+            )
+        }
+        assertThat(codeSlot.captured).isEqualTo("005930")
+        assertThat(intervalSlot.captured).isEqualTo(CandleInterval.ONE_MIN)
+        assertThat(tsSlot.captured).isEqualTo(Instant.parse("2026-05-29T04:10:00Z"))
+        assertThat(candleSlot.captured.closeRaw).isEqualByComparingTo(BigDecimal("70500"))
+        assertThat(candleSlot.captured.source).isEqualTo("KIS")
+    }
+
+    @Test
     fun `1h payload 정상 → onBoundaryClosed ONE_HOUR 호출`() {
         val payload =
             """
@@ -88,18 +128,22 @@ class BoundaryClosingKafkaListenerTest {
             """.trimIndent()
 
         val record = ConsumerRecord("market.candle.1h.closed.v1", 0, 0L, "000660", payload)
+        val codeSlot = slot<String>()
         val intervalSlot = slot<CandleInterval>()
+        val tsSlot = slot<Instant>()
+        val candleSlot = slot<Candle>()
 
         listener.on1h(record)
 
         verify {
             realtimeSignalGenerator.onBoundaryClosed(
-                eq("000660"),
+                capture(codeSlot),
                 capture(intervalSlot),
-                any(),
-                any(),
+                capture(tsSlot),
+                capture(candleSlot),
             )
         }
+        assertThat(codeSlot.captured).isEqualTo("000660")
         assertThat(intervalSlot.captured).isEqualTo(CandleInterval.ONE_HOUR)
     }
 
@@ -107,11 +151,20 @@ class BoundaryClosingKafkaListenerTest {
     fun `잘못된 payload (code 없음) → 예외 throw 0 + onBoundaryClosed 호출 0`() {
         val payload = """{"interval":"5m","ts":1700000000}"""
         val record = ConsumerRecord("market.candle.5m.closed.v1", 0, 0L, "X", payload)
+        val codeSlot = slot<String>()
+        val intervalSlot = slot<CandleInterval>()
+        val tsSlot = slot<Instant>()
+        val candleSlot = slot<Candle>()
 
         listener.on5m(record)
 
         verify(exactly = 0) {
-            realtimeSignalGenerator.onBoundaryClosed(any(), any(), any(), any())
+            realtimeSignalGenerator.onBoundaryClosed(
+                capture(codeSlot),
+                capture(intervalSlot),
+                capture(tsSlot),
+                capture(candleSlot),
+            )
         }
     }
 }

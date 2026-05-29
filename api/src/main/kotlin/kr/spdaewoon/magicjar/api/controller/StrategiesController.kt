@@ -115,6 +115,7 @@ class StrategiesController(
             size = result.size,
             totalElements = result.totalElements,
             totalPages = result.totalPages,
+            last = result.isLast,
         )
     }
 
@@ -288,11 +289,17 @@ class StrategiesController(
             nameKo = strategy.definition.dsl.nameKo ?: "",
             universe = strategy.definition.universe.market,
             tf = strategy.definition.tf,
+            codes = strategy.codes,
+            intervals = strategy.intervals.ifEmpty { listOf(strategy.definition.tf) },
+            buyCondition = strategy.definition.dsl.buyConditionText,
+            sellCondition = strategy.definition.dsl.sellConditionText,
             complexity = toComplexityDto(strategy.complexity),
             disabledReason = strategy.disabledReason.name,
             lastDisabledAt = strategy.lastDisabledAt?.toString(),
             enabled = strategy.isEnabled(),
-            status = StrategyStatus.ACTIVE.name, // toDomain은 status 필드 미포함 — Phase 2 대응
+            status = strategy.status.name,
+            createdAt = strategy.createdAt.toString(),
+            updatedAt = strategy.updatedAt.toString(),
         )
 
     private fun toComplexityDto(complexity: StrategyComplexity): StrategyComplexityResponse =
@@ -375,6 +382,14 @@ data class StrategyDetailResponse(
     val universe: String,
     @field:Schema(description = "타임프레임", example = "D1")
     val tf: String,
+    @field:Schema(description = "감시 종목 코드 목록", example = "[\"005930\"]")
+    val codes: List<String> = emptyList(),
+    @field:Schema(description = "감시 인터벌 목록", example = "[\"5m\"]")
+    val intervals: List<String> = emptyList(),
+    @field:Schema(description = "매수 조건 DSL 텍스트", example = "ma(5) crosses_above ma(20)")
+    val buyCondition: String? = null,
+    @field:Schema(description = "매도 조건 DSL 텍스트", example = "ma(5) crosses_below ma(20)")
+    val sellCondition: String? = null,
     @field:Schema(description = "DSL 복잡도 메타")
     val complexity: StrategyComplexityResponse,
     @field:Schema(description = "비활성화 사유 (NULL=정상)", example = "NULL")
@@ -389,6 +404,10 @@ data class StrategyDetailResponse(
         allowableValues = ["ACTIVE", "PAUSED", "DISABLED", "DELETED"],
     )
     val status: String,
+    @field:Schema(description = "생성 시각", example = "2026-05-29T03:51:36Z")
+    val createdAt: String,
+    @field:Schema(description = "수정 시각", example = "2026-05-29T03:51:36Z")
+    val updatedAt: String,
 )
 
 @Schema(description = "전략 페이징 응답")
@@ -403,6 +422,8 @@ data class StrategyPageResponse(
     val totalElements: Long,
     @field:Schema(description = "총 페이지 수", example = "1")
     val totalPages: Int,
+    @field:Schema(description = "마지막 페이지 여부", example = "true")
+    val last: Boolean,
 )
 
 @Schema(description = "DSL 복잡도 응답")

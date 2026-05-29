@@ -1,6 +1,9 @@
 package kr.spdaewoon.magicjar.consumer.persistence
 
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Modifying
+import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.query.Param
 import java.time.Instant
 
 /**
@@ -13,4 +16,11 @@ interface ConsumerSignalJpaRepository : JpaRepository<ConsumerSignalJpaEntity, L
         interval: String,
         ts: Instant,
     ): ConsumerSignalJpaEntity?
+
+    @Modifying
+    @Query("UPDATE ConsumerSignalJpaEntity s SET s.riskStatus = :status WHERE s.id = :id")
+    fun updateRiskStatus(
+        @Param("id") id: Long,
+        @Param("status") status: String,
+    ): Int
 }

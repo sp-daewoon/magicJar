@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>자동매매 주문 플로우 분석 — 전략 #8 (2026-05-29)</title>
+<style>
+  :root{
+    --bg:#0f1117; --panel:#171a23; --panel2:#1d2130; --line:#2a2f40;
+    --txt:#e6e8ef; --muted:#9aa3b8; --dim:#6b7488;
+    --buy:#ff4d5e; --buy-bg:rgba(255,77,94,.12);
+    --sell:#3b82f6; --sell-bg:rgba(59,130,246,.12);
+    --block:#6b7488; --block-bg:rgba(107,116,136,.14);
+    --ok:#22c55e; --warn:#f59e0b; --accent:#a78bfa;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Segoe UI",sans-serif;line-height:1.6;font-size:15px}
+  .wrap{max-width:1180px;margin:0 auto;padding:32px 22px 80px}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:-.4px}
+  h2{font-size:20px;margin:44px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line);letter-spacing:-.3px}
+  h3{font-size:16px;margin:22px 0 10px;color:var(--accent)}
+  p{margin:8px 0}
+  code{background:#0b0d13;border:1px solid var(--line);padding:1.5px 6px;border-radius:5px;font-family:"SF Mono",Menlo,Consolas,monospace;font-size:13px;color:#c7d0e8}
+  .sub{color:var(--muted);font-size:13.5px}
+  .lede{color:var(--muted);font-size:15px;max-width:880px}
+  .tag{display:inline-block;font-size:12px;padding:2px 9px;border-radius:999px;font-weight:600;vertical-align:middle}
+  .tag.buy{background:var(--buy-bg);color:var(--buy)}
+  .tag.sell{background:var(--sell-bg);color:var(--sell)}
+  .tag.block{background:var(--block-bg);color:#b2bacb}
+  .tag.mock{background:rgba(167,139,250,.14);color:var(--accent)}
+
+  /* summary cards */
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:15px 16px}
+  .card .k{font-size:12px;color:var(--muted);margin-bottom:6px}
+  .card .v{font-size:23px;font-weight:700;letter-spacing:-.5px}
+  .card .v small{font-size:13px;font-weight:500;color:var(--muted)}
+  .card.hl{border-color:#5b4ba8;background:linear-gradient(180deg,#1d1a2e,#171a23)}
+
+  /* pipeline */
+  .pipe{display:flex;flex-wrap:wrap;gap:0;align-items:stretch;margin:18px 0}
+  .step{flex:1 1 150px;min-width:150px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;position:relative}
+  .step .n{font-size:11px;color:var(--dim);font-weight:700;letter-spacing:1px}
+  .step .t{font-weight:700;margin:3px 0 6px;font-size:15px}
+  .step .d{font-size:12.5px;color:var(--muted)}
+  .step .src{font-size:11px;color:var(--dim);margin-top:8px;font-family:"SF Mono",Menlo,monospace;word-break:break-all}
+  .arrow{display:flex;align-items:center;color:var(--accent);font-size:22px;padding:0 4px;flex:0 0 auto}
+  @media(max-width:880px){.arrow{transform:rotate(90deg);width:100%;justify-content:center;padding:6px 0}.step{flex-basis:100%}}
+
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px}
+  th,td{text-align:left;padding:9px 11px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600;font-size:12.5px;background:var(--panel2)}
+  tr:hover td{background:rgba(255,255,255,.015)}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;font-family:"SF Mono",Menlo,monospace}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:14px 0}
+
+  /* formula */
+  .formula{background:#0b0d13;border:1px solid var(--line);border-radius:10px;padding:18px 20px;font-family:"SF Mono",Menlo,monospace;font-size:14px;line-height:2}
+  .formula .res{color:var(--ok);font-weight:700}
+  .formula .var{color:var(--accent)}
+  .formula .cmt{color:var(--dim)}
+
+  /* cycle bars */
+  .cyc td.bar{padding-right:14px}
+  .barwrap{display:flex;align-items:center;gap:8px}
+  .bar-buy{height:13px;background:var(--buy);border-radius:3px;min-width:3px}
+  .bar-sell{height:13px;background:var(--sell);border-radius:3px;min-width:3px}
+
+  .note{border-left:3px solid var(--accent);background:rgba(167,139,250,.06);padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0;font-size:13.5px;color:#cdd3e3}
+  .warnote{border-left-color:var(--warn);background:rgba(245,158,11,.07)}
+  .flow-mini{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0;font-size:13px}
+  .chip{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-family:"SF Mono",Menlo,monospace;font-size:12.5px}
+  .chip.buy{border-color:#5a2730;color:#ffb3bb}
+  .chip.sell{border-color:#22386b;color:#bcd2ff}
+  .chip-arr{color:var(--dim)}
+  ul.tight{margin:8px 0;padding-left:20px}
+  ul.tight li{margin:4px 0;font-size:13.5px;color:#cdd3e3}
+  .foot{margin-top:50px;padding-top:16px;border-top:1px solid var(--line);color:var(--dim);font-size:12px}
+  .kv{display:grid;grid-template-columns:130px 1fr;gap:6px 14px;font-size:14px}
+  .kv .k{color:var(--muted)}
+  .pos{color:var(--ok)} .neg{color:var(--buy)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>자동매매 주문 플로우 분석</h1>
+  <p class="sub">전략 #8 · <b>모의 학습용 1분봉 MA10 터치 삼성전자</b> · 종목 005930 · <span class="tag mock">MOCK</span> · 실행일 2026-05-29 13:39 ~ 14:42 (KST)</p>
+  <p class="lede">사용자가 전략빌더로 만든 자동 매수 전략이 실제로 가동되어 남긴 <b>주문 50건 · 체결 99건</b>의 DB 레코드를 분석했습니다. 어떤 조건으로 매수했고, 왜 매번 <b>3주</b>를 샀으며, 매도가 어떻게 일어나 결국 <b>일일 50건 한도</b>로 멈췄는지를 플로우별로 시각화합니다. 모든 수치는 <code>order_request</code>·<code>order_execution</code>·<code>signal</code>·<code>risk_event</code>·<code>risk_config</code> 실데이터에서 직접 추출했습니다.</p>
+
+  <!-- ===================== 1. 한눈에 ===================== -->
+  <h2>1. 한눈에 — 결과 요약</h2>
+  <div class="cards">
+    <div class="card"><div class="k">자동매매 구간</div><div class="v">63<small> 분</small></div><div class="sub">13:39 → 14:42</div></div>
+    <div class="card hl"><div class="k">총 주문</div><div class="v">50<small> 건</small></div><div class="sub">= 일일 한도 50건 정확히 소진</div></div>
+    <div class="card"><div class="k">매수 <span class="tag buy">BUY</span></div><div class="v">120<small> 주 / 40건</small></div><div class="sub">+거부 3건 (현금부족)</div></div>
+    <div class="card"><div class="k">매도 <span class="tag sell">SELL</span></div><div class="v">118<small> 주 / 7건</small></div><div class="sub">전부 체결</div></div>
+    <div class="card"><div class="k">생성된 시그널</div><div class="v">72<small> 건</small></div><div class="sub">BUY 56 / SELL 16</div></div>
+    <div class="card"><div class="k">리스크 차단</div><div class="v">13<small> 건</small></div><div class="sub">보유없음 8 · 한도초과 5</div></div>
+    <div class="card"><div class="k">최종 잔량</div><div class="v">3<small> 주</small></div><div class="sub">@ 316,750 (미매도)</div></div>
+    <div class="card"><div class="k">거래 중단 원인</div><div class="v" style="font-size:17px;color:var(--warn)">일일 한도</div><div class="sub">50건 도달 → 전 신호 차단</div></div>
+  </div>
+  <div class="note warnote"><b>핵심 한 줄:</b> 매수조건이 1분봉마다 계속 충족되어 <b>매분 3주씩 누적 매수</b>했고, 매도조건(종가가 10분선 이탈)이 뜰 때마다 <b>그동안 쌓인 보유 전량을 한 번에 매도</b>했습니다. 이 매수/매도가 7개 사이클 반복되며 주문 50건을 채웠고, 한도에 걸려 마지막 3주를 못 팔고 종료됐습니다.</div>
+
+  <!-- ===================== 2. 전략 정의 ===================== -->
+  <h2>2. 왜 사고 / 왜 파는가 — 전략 정의</h2>
+  <p class="sub">전략빌더가 <code>strategy.dsl_entry</code> / <code>dsl_exit</code> 텍스트 DSL로 저장. 매 1분봉 마감 시 평가됩니다.</p>
+  <div class="panel">
+    <h3 style="margin-top:0;color:var(--buy)">매수조건 (dsl_entry)</h3>
+    <p><code>low &lt;= ma(10) * 1.002 AND close &gt;= ma(10)</code></p>
+    <p class="sub">→ <b>저가가 10분 이동평균선의 0.2% 이내까지 닿고(눌림목 터치)</b>, 동시에 <b>종가는 10분선 위에서 마감</b>하면 매수. 즉 "이평선을 찍고 다시 올라선 지지 확인 매수".</p>
+    <h3 style="color:var(--sell)">매도조건 (dsl_exit)</h3>
+    <p><code>close &lt; ma(10)</code></p>
+    <p class="sub">→ <b>종가가 10분선 아래로 떨어지면 청산.</b> 추세가 깨졌다고 보고 보유분을 정리.</p>
+  </div>
+  <div class="note"><b>이 전략의 구조적 특성:</b> 매수조건은 "이평선 위에 있으면" 계속 참이 되기 쉬워 <b>여러 분봉 연속 매수(누적)</b>가 일어나고, 매도조건은 "이평선 이탈"이라 <b>한 번에 전량 청산</b>됩니다. 사용자가 본 "매수만 하다 나중에 매도까지 있더라"가 바로 이 누적매수 → 전량매도 패턴입니다.</div>
+
+  <!-- ===================== 3. 파이프라인 ===================== -->
+  <h2>3. 주문 1건이 흐르는 6단계 파이프라인</h2>
+  <p class="sub">하나의 시그널이 실제 체결·포지션 갱신까지 가는 경로. 각 단계는 별도 Kafka 토픽으로 연결됩니다.</p>
+  <div class="pipe">
+    <div class="step"><div class="n">STEP 1</div><div class="t">시그널 생성</div><div class="d">1분봉 마감마다 전략 조건 평가 → BUY/SELL/HOLD</div><div class="src">RealtimeSignalGenerator → signal</div></div>
+    <div class="arrow">▸</div>
+    <div class="step"><div class="n">STEP 2</div><div class="t">리스크 게이트</div><div class="d">보유·한도·빈도 검사. 통과=ALLOWED, 위반=BLOCKED 기록</div><div class="src">SignalGeneratedKafkaListener<br>→ RiskGatewayEvaluator</div></div>
+    <div class="arrow">▸</div>
+    <div class="step"><div class="n">STEP 3</div><div class="t">수량 결정</div><div class="d">BUY=예산÷현재가, SELL=보유 전량</div><div class="src">resolveOrderQuantity()</div></div>
+    <div class="arrow">▸</div>
+    <div class="step"><div class="n">STEP 4</div><div class="t">주문 라우팅</div><div class="d">order_request INSERT(REQUESTED) → KIS REST 제출 → ACK</div><div class="src">OrderRouterKafkaListener</div></div>
+    <div class="arrow">▸</div>
+    <div class="step"><div class="n">STEP 5</div><div class="t">KIS 체결</div><div class="d">WS 체결통보 수신 → order_execution INSERT (분할 가능)</div><div class="src">KisExecutionWsListener</div></div>
+    <div class="arrow">▸</div>
+    <div class="step"><div class="n">STEP 6</div><div class="t">포지션 갱신</div><div class="d">누적체결=주문량 → FILLED + position UPSERT</div><div class="src">position</div></div>
+  </div>
+
+  <!-- ===================== 4. 왜 3주 ===================== -->
+  <h2>4. 왜 매번 "3주"인가 — 포지션 사이징 계산</h2>
+  <p class="sub">매수 수량은 고정값이 아니라 <code>risk_config</code> + 현재가로 매번 계산됩니다. 코드: <code>resolveOrderQuantity()</code> (consumer · SignalGeneratedKafkaListener).</p>
+  <div class="panel">
+    <div class="kv" style="margin-bottom:14px">
+      <div class="k">계좌 리스크 설정</div><div>user 74683223 · <code>risk_config</code></div>
+      <div class="k">최대 포지션(절대)</div><div><b>1,000,000원</b> <span class="sub">max_position_abs</span></div>
+      <div class="k">최대 포지션(비율)</div><div><b>10%</b> <span class="sub">max_position_pct</span></div>
+      <div class="k">삼성전자 현재가</div><div>약 <b>314,000원</b> <span class="sub">시그널 시점 종가</span></div>
+    </div>
+    <div class="formula">
+<span class="cmt"># 매수 예산 = 비율한도와 절대한도 중 작은 값</span><br>
+budget = min( <span class="var">자본금 × 10%</span> , <span class="var">1,000,000원</span> ) = <span class="res">1,000,000원</span><br>
+<br>
+<span class="cmt"># 수량 = 예산 ÷ 현재가 (소수점 버림, 최소 1주)</span><br>
+qty = floor( 1,000,000 ÷ 314,000 ) = floor(3.18) = <span class="res">3주</span>
+    </div>
+    <p class="sub" style="margin-top:14px">→ 삼성전자가 31만원대를 유지하는 한 매수는 항상 <b>3주 고정</b>. 만약 가격이 더 높았다면 2주, 더 쌌다면 더 많이 샀을 것입니다. <b>매도는 사이징을 거치지 않고 "현재 보유 전량"</b>을 그대로 주문합니다.</p>
+  </div>
+
+  <!-- ===================== 5. 누적매수 → 전량매도 ===================== -->
+  <h2>5. 누적 매수 → 전량 매도 — 실제 7개 사이클</h2>
+  <p class="sub">매수조건이 연속 충족되는 동안 매분 3주씩 쌓이다가, 매도조건이 뜨면 보유 전량을 한 번에 청산. 막대 길이 = 주식 수.</p>
+  <table class="cyc">
+    <thead><tr><th>사이클</th><th>매수 누적 구간</th><th class="num">매수</th><th>누적 포지션</th><th>매도</th><th class="num">매도 수량</th><th>결과</th></tr></thead>
+    <tbody>
+      <tr><td><b>1</b></td><td>13:39 ~ 13:45</td><td class="num">7회 × 3</td>
+        <td class="bar"><div class="barwrap"><div class="bar-buy" style="width:88px"></div><span class="sub">22주<small> (기존 1주 포함)</small></span></div></td>
+        <td>13:46 <span class="tag sell">SELL</span></td><td class="num">22</td><td class="sub">전량 청산 → 0</td></tr>
+      <tr><td><b>2</b></td><td>13:49 ~ 13:52</td><td class="num">4회 × 3</td>
+        <td class="bar"><div class="barwrap"><div class="bar-buy" style="width:48px"></div><span class="sub">12주</span></div></td>
+        <td>13:53 <span class="tag sell">SELL</span></td><td class="num">12</td><td class="sub">전량 청산 → 0</td></tr>
+      <tr><td><b>3</b></td><td>13:54 ~ 14:03</td><td class="num">9회 × 3</td>
+        <td class="bar"><div class="barwrap"><div class="bar-buy" style="width:108px"></div><span class="sub">27주</span></div></td>
+        <td>14:04 <span class="tag sell">SELL</span></td><td class="num">26</td><td class="sub">1주 다음 사이클 이월</td></tr>
+      <tr><td><b>4</b></td><td>14:05</td><td class="num">1회 × 3</td>
+        <td class="bar"><div class="barwrap"><div class="bar-buy" style="width:16px"></div><span class="sub">4주<small> (이월 1주 포함)</small></span></div></td>
+        <td>14:06 <span class="tag sell">SELL</span></td><td class="num">4</td><td class="sub">전량 청산 → 0</td></tr>
+      <tr><td><b>5</b></td><td>14:08</td><td class="num">1회 × 3</td>
+        <td class="bar"><div class="barwrap"><div class="bar-buy" style="width:12px"></div><span class="sub">3주</span></div></td>
+        <td>14:09 <span class="tag sell">SELL</span></td><td class="num">3</td><td class="sub">전량 청산 → 0</td></tr>
+      <tr><td><b>6</b></td><td>14:10 ~ 14:18</td><td class="num">8회 × 3</td>
+        <td class="bar"><div class="barwrap"><div class="bar-buy" style="width:96px"></div><span class="sub">24주</span></div></td>
+        <td>14:19 <span class="tag sell">SELL</span></td><td class="num">24</td><td class="sub">전량 청산 → 0</td></tr>
+      <tr><td><b>7</b></td><td>14:20 ~ 14:31</td><td class="num">9회 × 3</td>
+        <td class="bar"><div class="barwrap"><div class="bar-buy" style="width:108px"></div><span class="sub">27주</span></div></td>
+        <td>14:36 <span class="tag sell">SELL</span></td><td class="num">27</td><td class="sub">전량 청산 → 0</td></tr>
+      <tr style="opacity:.75"><td>—</td><td>14:42</td><td class="num">1회 × 3</td>
+        <td class="bar"><div class="barwrap"><div class="bar-buy" style="width:12px"></div><span class="sub">3주</span></div></td>
+        <td colspan="2" class="sub" style="color:var(--warn)">매도 못 함 — 일일 한도 도달</td><td class="sub"><b>잔량 3주</b></td></tr>
+    </tbody>
+  </table>
+  <div class="note">매도 수량(22·12·26·4·3·24·27)이 들쭉날쭉한 이유는, 매도조건이 뜨기까지 <b>매수조건이 몇 분봉 연속 유지됐는지</b>에 따라 그동안 쌓인 양이 달라지기 때문입니다. 오래 쌓일수록 한 번에 크게 팝니다.</div>
+
+  <!-- ===================== 6. 차단 ===================== -->
+  <h2>6. 리스크 게이트가 막은 13건 — 자동매매는 왜 멈췄나</h2>
+  <p class="sub">시그널이 생성돼도 리스크 게이트(STEP 2)에서 막히면 주문이 나가지 않고 <code>risk_event</code>에 기록됩니다.</p>
+  <table>
+    <thead><tr><th>차단 규칙</th><th class="num">건수</th><th>해당 시각</th><th>사유</th></tr></thead>
+    <tbody>
+      <tr><td><span class="tag block">SELL_WITHOUT_POSITION</span></td><td class="num">8</td><td class="sub">13:47, 13:48, 14:07, 14:37~14:41</td>
+        <td>직전 매도로 보유가 0이 됐는데 다음 분봉도 종가&lt;10분선이라 SELL 신호가 또 떴음 → <b>팔 물량이 없어 차단</b></td></tr>
+      <tr><td><span class="tag block">TRADE_FREQUENCY_DAY</span></td><td class="num">5</td><td class="sub">14:43 ~ 14:47</td>
+        <td><b>"Strategy daily trade count 50 &gt;= limit 50"</b> — 50번째 주문으로 일일 거래 한도 도달 → 이후 모든 신호(BUY·SELL) 차단</td></tr>
+    </tbody>
+  </table>
+  <div class="note warnote"><b>자동매매가 멈춘 진짜 이유:</b> 매분 3주씩 사들이느라 주문 건수가 빠르게 쌓여 <b>오후 2시 43분에 일일 50건 한도</b>에 도달했습니다. 이 안전장치(<code>risk_config.trade_freq_per_day=50</code>)가 발동하면서 14:42에 산 마지막 3주를 팔지 못한 채 자동매매가 종료됐고, 그래서 <b>최종 잔량 3주</b>가 남았습니다. (그 직전 14:33~14:35에는 모의계좌 현금이 바닥나 KIS가 "주문가능금액 부족"으로 거부한 매수 3건도 있었습니다.)</div>
+
+  <!-- ===================== 7. 주문 1건 심층 ===================== -->
+  <h2>7. 주문 1건의 실제 흐름 (심층 예시)</h2>
+
+  <h3>예시 A — 매수: 시그널 #10 → 주문 #23 (3주)</h3>
+  <div class="flow-mini">
+    <span class="chip">signal #10 <span class="tag buy">BUY</span> @13:38 close 314,250</span>
+    <span class="chip-arr">→</span>
+    <span class="chip">risk: ALLOWED</span>
+    <span class="chip-arr">→</span>
+    <span class="chip">qty = 1,000,000÷314,250 = 3주</span>
+    <span class="chip-arr">→</span>
+    <span class="chip buy">order_request #23 REQUESTED</span>
+    <span class="chip-arr">→</span>
+    <span class="chip">KIS 체결통보 (2건 분할)</span>
+    <span class="chip-arr">→</span>
+    <span class="chip buy">2주@314,250 + 1주@314,250 = FILLED</span>
+  </div>
+  <p class="sub">한 주문이 KIS에서 <b>2건으로 분할 체결</b>(2주 + 1주)되어 <code>order_execution</code> 2행이 생성됐습니다. 누적 체결량 3 = 주문량 3 이 되는 순간 주문 상태가 FILLED로 바뀌고 포지션이 갱신됩니다.</p>
+
+  <h3>예시 B — 매도: 시그널 #50 → 주문 #58 (보유 전량 24주)</h3>
+  <div class="flow-mini">
+    <span class="chip">signal #50 <span class="tag sell">SELL</span> @14:18 close 314,500</span>
+    <span class="chip-arr">→</span>
+    <span class="chip">risk: ALLOWED</span>
+    <span class="chip-arr">→</span>
+    <span class="chip">qty = 보유 전량 24주</span>
+    <span class="chip-arr">→</span>
+    <span class="chip sell">order_request #58 REQUESTED</span>
+    <span class="chip-arr">→</span>
+    <span class="chip">KIS 체결통보 (8건 분할)</span>
+    <span class="chip-arr">→</span>
+    <span class="chip sell">24주 분할 체결 → FILLED</span>
+  </div>
+  <p class="sub">매도는 사이징 계산 없이 <b>그 시점 보유 24주를 통째로</b> 주문했고, KIS가 시장 호가에 맞춰 5주·1주·9주·1주·1주·2주·2주·3주 등 <b>8건으로 쪼개 체결</b>했습니다(313,500~315,000원). 매도 수량(24)이 사이클 6의 누적 매수량과 정확히 일치합니다.</p>
+
+  <!-- ===================== 8. 손익 / 결론 ===================== -->
+  <h2>8. 종합 — 무슨 일이 일어났나</h2>
+  <div class="panel">
+    <ul class="tight">
+      <li>전략은 의도대로 <b>"10분선 터치 후 지지" 매수 / "10분선 이탈" 매도</b>를 정확히 실행했습니다.</li>
+      <li>매수는 매번 <b>예산 100만원 ÷ 현재가 ≈ 3주</b>로 계산됐고, 조건이 연속 충족되어 <b>매분 누적 매수</b>됐습니다.</li>
+      <li>매도는 <b>그때까지 쌓인 보유 전량</b>을 한 번에 청산 — 7개 사이클 동안 매수 120주 / 매도 118주.</li>
+      <li>총 체결액: 매수 <b>37,750,499원</b> · 매도 <b>37,139,000원</b> (모의 가격이 313~318k에서 진동 → <b>거의 본전</b> 수준의 단타 회전).</li>
+      <li>오후 2시 43분 <b>일일 거래 50건 한도</b>에 걸려 자동매매가 종료, 마지막 매수 <b>3주(@316,750)</b>가 잔량으로 남음.</li>
+    </ul>
+  </div>
+  <div class="note"><b>관찰 포인트 (참고):</b> 매수조건이 분봉마다 반복 충족되면 <b>같은 종목을 끝없이 누적 매수</b>하는 구조라, 분봉 전략에서는 (1) 보유 중이면 추가 매수 금지(중복 진입 방지), 또는 (2) 1회 진입 후 매도 전까지 BUY 무시 같은 규칙이 없으면 빠르게 현금·거래한도를 소진합니다. 이번 실행이 그 전형적 사례입니다.</div>
+
+  <div class="foot">
+    데이터 출처: PostgreSQL <code>magicjar</code> — order_request / order_execution / signal / risk_event / risk_config / position (2026-05-29 추출).<br>
+    전략 #8 · user 74683223 · MOCK 모드. 분석·작성: magicjar-orchestrator. 추측 없이 실 레코드 기반.
+  </div>
+
+</div>
+</body>
+</html>

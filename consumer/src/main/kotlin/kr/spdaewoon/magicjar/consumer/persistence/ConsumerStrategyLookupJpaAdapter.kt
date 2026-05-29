@@ -7,6 +7,7 @@ import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
+import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.Universe
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslStrategyDefinition
@@ -86,6 +87,9 @@ class ConsumerStrategyLookupJpaAdapter(
             definition = definition,
             complexity = complexity,
             disabledReason = safeDisabledReason(entity.disabledReason),
+            status = safeStatus(entity.status),
+            codes = safeStringList(entity.codes),
+            intervals = safeStringList(entity.intervals),
             lastDisabledAt = entity.lastDisabledAt,
             evalMetricSummary = evalMetricSummary,
             createdAt = entity.createdAt,
@@ -114,4 +118,20 @@ class ConsumerStrategyLookupJpaAdapter(
         } else {
             runCatching { StrategyDisabledReason.valueOf(value) }.getOrDefault(StrategyDisabledReason.NULL)
         }
+
+    private fun safeStatus(value: String): StrategyStatus =
+        runCatching { StrategyStatus.valueOf(value) }.getOrDefault(StrategyStatus.ACTIVE)
+
+    private fun safeStringList(value: String?): List<String> =
+        value
+            ?.let {
+                runCatching {
+                    objectMapper
+                        .readValue(it, List::class.java)
+                        .mapNotNull { item ->
+                            item?.toString()?.takeIf(String::isNotBlank)
+                        }
+                }.getOrNull()
+            }
+            ?: emptyList()
 }

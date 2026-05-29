@@ -23,6 +23,12 @@ export interface SignalDto {
   id: string
   strategyId: string
   strategyName?: string
+  /** 발행 전략명(한글) — backend enrichment */
+  strategyNameKo?: string
+  /** 발행 전략 매수 조건 DSL — backend enrichment */
+  buyCondition?: string
+  /** 발행 전략 매도 조건 DSL — backend enrichment */
+  sellCondition?: string
   /** ADR 0089 Phase 2 — userId number (backend Long) */
   userId: number
   code: string
@@ -32,10 +38,22 @@ export interface SignalDto {
   side: SignalSide
   /** 발생 가격 (문자열 원화) */
   price: string
+  priceAtSignal?: string
   /** 시그널 발생 규칙 텍스트 (예: "RSI(14) < 30") */
   rule?: string
+  reason?: string
   /** 시그널 발생 시각 (ISO 8601 KST) */
   ts: string
+}
+
+type SignalBackendDto = Omit<Partial<SignalDto>, 'id' | 'strategyId' | 'userId'> & {
+  id: string | number
+  strategyId: string | number
+  userId: string | number
+  side: SignalSide | string
+  priceAtSignal?: string | number
+  reason?: string
+  createdAt?: string
 }
 
 /** GET /api/signals 응답 페이지 래퍼 */
@@ -48,12 +66,18 @@ export interface SignalPage {
   last: boolean
 }
 
+type SignalBackendPage = Omit<Partial<SignalPage>, 'content'> & {
+  content?: SignalBackendDto[]
+}
+
 /** GET /api/signals 필터 파라미터 */
 export interface SignalListParams {
   userId?: number
   code?: string
   interval?: string
   side?: SignalSide
+  /** 발행 전략 ID 필터 */
+  strategyId?: string
   from?: string
   to?: string
   page?: number
@@ -71,18 +95,20 @@ export const signalApi = {
    */
   list: async (params: SignalListParams = {}): Promise<SignalPage> => {
     const searchParams = new URLSearchParams()
+    const range = withDefaultRange(params)
     if (params.userId !== undefined) searchParams.set('userId', String(params.userId))
     if (params.code) searchParams.set('code', params.code)
     if (params.interval) searchParams.set('interval', params.interval)
     if (params.side) searchParams.set('side', params.side)
-    if (params.from) searchParams.set('from', params.from)
-    if (params.to) searchParams.set('to', params.to)
+    if (params.strategyId) searchParams.set('strategyId', params.strategyId)
+    searchParams.set('from', range.from)
+    searchParams.set('to', range.to)
     if (params.page !== undefined) searchParams.set('page', String(params.page))
     if (params.size !== undefined) searchParams.set('size', String(params.size))
 
     const qs = searchParams.toString()
-    const res = await apiClient.get<SignalPage>(`/signals${qs ? `?${qs}` : ''}`)
-    return res.data
+    const res = await apiClient.get<SignalBackendPage>(`/signals${qs ? `?${qs}` : ''}`)
+    return normalizeSignalPage(res.data, params.page ?? 0, params.size ?? 50)
   },
 
   /**
@@ -90,7 +116,60 @@ export const signalApi = {
    * 시그널 단건 조회
    */
   get: async (id: string, userId: number): Promise<SignalDto> => {
-    const res = await apiClient.get<SignalDto>(`/signals/${id}?userId=${userId}`)
-    return res.data
+    const res = await apiClient.get<SignalBackendDto>(`/signals/${id}?userId=${userId}`)
+    return normalizeSignal(res.data)
   },
+}
+
+function withDefaultRange(params: SignalListParams): { from: string; to: string } {
+  if (params.from && params.to) return { from: params.from, to: params.to }
+  // 기본 범위 = 오늘 (로컬 자정 ~ 현재). 명시 from/to 미지정 시 fallback.
+  const to = params.to ? new Date(params.to) : new Date()
+  let from: Date
+  if (params.from) {
+    from = new Date(params.from)
+  } else {
+    from = new Date()
+    from.setHours(0, 0, 0, 0)
+  }
+  return { from: from.toISOString(), to: to.toISOString() }
+}
+
+function normalizeSide(side: SignalBackendDto['side']): SignalSide {
+  return side === 'BUY' || side === 'SELL' || side === 'HOLD' ? side : 'HOLD'
+}
+
+function normalizeSignal(raw: SignalBackendDto): SignalDto {
+  const price = raw.price ?? raw.priceAtSignal ?? ''
+  return {
+    ...raw,
+    id: String(raw.id),
+    strategyId: String(raw.strategyId),
+    strategyName: raw.strategyName ?? undefined,
+    strategyNameKo: raw.strategyNameKo ?? undefined,
+    buyCondition: raw.buyCondition ?? undefined,
+    sellCondition: raw.sellCondition ?? undefined,
+    userId: Number(raw.userId),
+    code: raw.code ?? '',
+    interval: raw.interval ?? '',
+    side: normalizeSide(raw.side),
+    price: String(price),
+    priceAtSignal: raw.priceAtSignal === undefined ? undefined : String(raw.priceAtSignal),
+    rule: raw.rule ?? raw.reason,
+    reason: raw.reason,
+    ts: raw.ts ?? raw.createdAt ?? '',
+  }
+}
+
+function normalizeSignalPage(raw: SignalBackendPage, page: number, size: number): SignalPage {
+  const totalPages = raw.totalPages ?? 0
+  const currentPage = raw.page ?? page
+  return {
+    content: (raw.content ?? []).map(normalizeSignal),
+    page: currentPage,
+    size: raw.size ?? size,
+    totalElements: raw.totalElements ?? raw.content?.length ?? 0,
+    totalPages,
+    last: raw.last ?? (totalPages === 0 || currentPage + 1 >= totalPages),
+  }
 }

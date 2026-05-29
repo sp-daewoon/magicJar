@@ -35,7 +35,9 @@ interface StrategyCardProps {
 
 export function StrategyCard({ strategy }: StrategyCardProps) {
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const badge = STATUS_BADGE[strategy.status]
+  const badge = STATUS_BADGE[strategy.status] ?? STATUS_BADGE.DISABLED
+  const codes = Array.isArray(strategy.codes) ? strategy.codes : []
+  const intervals = Array.isArray(strategy.intervals) ? strategy.intervals : []
   // W4 R2 AI 진입점 — userId 1일 토큰 한도 키
   const userId = useOnboardingStore((s) => s.registeredUserId)
 
@@ -69,8 +71,18 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
           <h3 className="truncate text-base font-semibold text-white" title={strategy.name}>
             {strategy.name}
           </h3>
+          {strategy.nameKo && strategy.nameKo !== strategy.name && (
+            <p className="mt-0.5 truncate text-xs text-gray-400" title={strategy.nameKo}>
+              {strategy.nameKo}
+            </p>
+          )}
           <div className="mt-1 flex flex-wrap gap-1">
-            {strategy.codes.slice(0, 4).map((code) => (
+            {codes.length === 0 && (
+              <span className="rounded bg-gray-800 px-1.5 py-0.5 text-xs text-gray-500">
+                종목 미지정
+              </span>
+            )}
+            {codes.slice(0, 4).map((code) => (
               <span
                 key={code}
                 className="rounded bg-gray-800 px-1.5 py-0.5 text-xs font-medium text-gray-300"
@@ -78,9 +90,9 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
                 {code}
               </span>
             ))}
-            {strategy.codes.length > 4 && (
+            {codes.length > 4 && (
               <span className="rounded bg-gray-800 px-1.5 py-0.5 text-xs text-gray-500">
-                +{strategy.codes.length - 4}
+                +{codes.length - 4}
               </span>
             )}
           </div>
@@ -95,9 +107,9 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
       </div>
 
       {/* 인터벌 */}
-      {strategy.intervals.length > 0 && (
+      {intervals.length > 0 && (
         <div className="flex flex-wrap gap-1">
-          {strategy.intervals.map((iv) => (
+          {intervals.map((iv) => (
             <span
               key={iv}
               className="rounded bg-blue-950/50 px-2 py-0.5 text-xs text-blue-400"
@@ -108,10 +120,22 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
         </div>
       )}
 
-      {/* DSL 미리보기 */}
+      <div className="grid grid-cols-2 gap-2 text-xs text-gray-500">
+        <span>전략 ID {strategy.id}</span>
+        <span className="text-right">
+          {strategy.status === 'ACTIVE' ? '실시간 평가 중' : '주문 미수행'}
+        </span>
+      </div>
+
+      {/* DSL 미리보기 — 매수 / 매도 조건 */}
       {strategy.buyCondition && (
         <p className="truncate rounded bg-gray-800/60 px-3 py-1.5 font-mono text-xs text-gray-300" title={strategy.buyCondition}>
-          매수: {strategy.buyCondition}
+          <span className="text-emerald-400">매수:</span> {strategy.buyCondition}
+        </p>
+      )}
+      {strategy.sellCondition && (
+        <p className="truncate rounded bg-gray-800/60 px-3 py-1.5 font-mono text-xs text-gray-300" title={strategy.sellCondition}>
+          <span className="text-orange-300">매도:</span> {strategy.sellCondition}
         </p>
       )}
 
@@ -174,8 +198,8 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
           context={{
             strategyId: strategy.id,
             name: strategy.name,
-            codes: strategy.codes,
-            intervals: strategy.intervals,
+            codes,
+            intervals,
             status: strategy.status,
             buyCondition: strategy.buyCondition ?? null,
             sellCondition: strategy.sellCondition ?? null,

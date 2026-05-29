@@ -28,7 +28,6 @@ import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.kafka.support.Acknowledgment
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
-import java.math.RoundingMode
 
 /**
  * Kafka `signal.generated.v1` listener (ADR 0067 §7-1 SignalGeneratedKafkaListener + §11-1 Phase 1 (8) + E-1).
@@ -389,24 +388,7 @@ class SignalGeneratedKafkaListener(
     ): Int =
         when (signal.side) {
             SignalSide.BUY -> {
-                val percentBudget =
-                    if (context.currentCapital > BigDecimal.ZERO) {
-                        context.currentCapital
-                            .multiply(context.config.maxPositionPercent)
-                            .divide(BigDecimal("100"), 4, RoundingMode.HALF_UP)
-                    } else {
-                        BigDecimal.ZERO
-                    }
-                val budget =
-                    if (percentBudget < context.config.maxPositionAmount) {
-                        percentBudget
-                    } else {
-                        context.config.maxPositionAmount
-                    }
-                budget
-                    .divide(signal.priceAtSignal, 0, RoundingMode.DOWN)
-                    .toInt()
-                    .coerceAtLeast(1)
+                riskGatewayEvaluator.resolveBuyQuantity(signal, context)
             }
             SignalSide.SELL ->
                 context.currentPositions

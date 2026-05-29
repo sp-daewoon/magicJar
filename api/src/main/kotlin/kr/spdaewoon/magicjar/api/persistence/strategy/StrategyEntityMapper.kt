@@ -85,6 +85,8 @@ object StrategyEntityMapper {
             complexity = complexity,
             disabledReason = disabledReason,
             status = safeStatus(entity.status),
+            codes = safeStringList(entity.codes, objectMapper),
+            intervals = safeStringList(entity.intervals, objectMapper),
             lastDisabledAt = entity.lastDisabledAt,
             evalMetricSummary = evalMetricSummary,
             createdAt = entity.createdAt,
@@ -114,4 +116,18 @@ object StrategyEntityMapper {
         }
 
     fun safeStatus(value: String): StrategyStatus = runCatching { StrategyStatus.valueOf(value) }.getOrDefault(StrategyStatus.ACTIVE)
+
+    private fun safeStringList(
+        value: String?,
+        objectMapper: ObjectMapper,
+    ): List<String> =
+        value
+            ?.let {
+                runCatching {
+                    objectMapper
+                        .readValue(it, List::class.java)
+                        .mapNotNull { item -> item?.toString()?.takeIf(String::isNotBlank) }
+                }.getOrNull()
+            }
+            ?: emptyList()
 }

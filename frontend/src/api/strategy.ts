@@ -179,6 +179,9 @@ export interface SigStrategyDto {
   id: string
   userId: number
   name: string
+  nameKo?: string
+  universe?: string
+  tf?: string
   /** 감시 종목 코드 배열 (JSONB) */
   codes: string[]
   /** 감시 인터벌 배열 (JSONB) */
@@ -192,6 +195,16 @@ export interface SigStrategyDto {
   recentSignalCount?: number
   createdAt: string
   updatedAt?: string
+  enabled?: boolean
+  disabledReason?: string
+  lastDisabledAt?: string | null
+}
+
+type SigStrategyBackendDto = Omit<Partial<SigStrategyDto>, 'id' | 'userId'> & {
+  id: string | number
+  userId: string | number
+  entry?: string
+  exit?: string
 }
 
 /** ADR 0066 전략 목록 페이지 */
@@ -202,6 +215,10 @@ export interface SigStrategyPage {
   totalElements: number
   totalPages: number
   last: boolean
+}
+
+type SigStrategyBackendPage = Omit<Partial<SigStrategyPage>, 'content'> & {
+  content?: SigStrategyBackendDto[]
 }
 
 /** POST /api/strategies 요청 */
@@ -228,10 +245,10 @@ export const sigStrategyApi = {
    * 전략 목록 (페이징) — userId: Long (StrategiesController 정합)
    */
   list: async (userId: number, page = 0, size = 20): Promise<SigStrategyPage> => {
-    const res = await apiClient.get<SigStrategyPage>(
+    const res = await apiClient.get<SigStrategyBackendPage>(
       `/strategies?userId=${userId}&page=${page}&size=${size}`,
     )
-    return res.data
+    return normalizeSigStrategyPage(res.data, page, size)
   },
 
   /**
@@ -239,8 +256,8 @@ export const sigStrategyApi = {
    * 전략 단건 조회
    */
   get: async (id: string): Promise<SigStrategyDto> => {
-    const res = await apiClient.get<SigStrategyDto>(`/strategies/${id}`)
-    return res.data
+    const res = await apiClient.get<SigStrategyBackendDto>(`/strategies/${id}`)
+    return normalizeSigStrategy(res.data)
   },
 
   /**
@@ -248,8 +265,8 @@ export const sigStrategyApi = {
    * 신규 전략 생성
    */
   create: async (req: CreateSigStrategyRequest): Promise<SigStrategyDto> => {
-    const res = await apiClient.post<SigStrategyDto>('/strategies', req)
-    return res.data
+    const res = await apiClient.post<SigStrategyBackendDto>('/strategies', req)
+    return normalizeSigStrategy(res.data)
   },
 
   /**
@@ -257,8 +274,8 @@ export const sigStrategyApi = {
    * 전략 수정
    */
   update: async (id: string, req: UpdateSigStrategyRequest): Promise<SigStrategyDto> => {
-    const res = await apiClient.put<SigStrategyDto>(`/strategies/${id}`, req)
-    return res.data
+    const res = await apiClient.put<SigStrategyBackendDto>(`/strategies/${id}`, req)
+    return normalizeSigStrategy(res.data)
   },
 
   /**
@@ -274,7 +291,71 @@ export const sigStrategyApi = {
    * 상태 토글 (ACTIVE·PAUSED·DISABLED)
    */
   toggleStatus: async (id: string, status: StrategyStatus): Promise<SigStrategyDto> => {
-    const res = await apiClient.put<SigStrategyDto>(`/strategies/${id}/status`, { status })
-    return res.data
+    const res = await apiClient.put<SigStrategyBackendDto>(`/strategies/${id}/status`, { status })
+    return normalizeSigStrategy(res.data)
   },
+}
+
+function asStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item)).filter(Boolean)
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return []
+    try {
+      const parsed = JSON.parse(trimmed) as unknown
+      if (Array.isArray(parsed)) {
+        return parsed.map((item) => String(item)).filter(Boolean)
+      }
+    } catch {
+      return [trimmed]
+    }
+  }
+  return []
+}
+
+function normalizeStatus(raw: SigStrategyBackendDto): StrategyStatus {
+  if (raw.status === 'ACTIVE' || raw.status === 'PAUSED' || raw.status === 'DISABLED' || raw.status === 'DELETED') {
+    return raw.status
+  }
+  return raw.enabled === false ? 'DISABLED' : 'ACTIVE'
+}
+
+function normalizeSigStrategy(raw: SigStrategyBackendDto): SigStrategyDto {
+  const codes = asStringArray(raw.codes)
+  const intervals = asStringArray(raw.intervals)
+  const tf = raw.tf ? String(raw.tf) : undefined
+  return {
+    ...raw,
+    id: String(raw.id),
+    userId: Number(raw.userId),
+    name: raw.name ?? `strategy-${raw.id}`,
+    nameKo: raw.nameKo,
+    universe: raw.universe,
+    tf,
+    codes,
+    intervals: intervals.length > 0 ? intervals : tf ? [tf] : [],
+    buyCondition: raw.buyCondition ?? raw.entry,
+    sellCondition: raw.sellCondition ?? raw.exit,
+    status: normalizeStatus(raw),
+    createdAt: raw.createdAt ?? '',
+    updatedAt: raw.updatedAt,
+    enabled: raw.enabled,
+    disabledReason: raw.disabledReason,
+    lastDisabledAt: raw.lastDisabledAt ?? null,
+  }
+}
+
+function normalizeSigStrategyPage(raw: SigStrategyBackendPage, page: number, size: number): SigStrategyPage {
+  const totalPages = raw.totalPages ?? 0
+  const currentPage = raw.page ?? page
+  return {
+    content: (raw.content ?? []).map(normalizeSigStrategy),
+    page: currentPage,
+    size: raw.size ?? size,
+    totalElements: raw.totalElements ?? raw.content?.length ?? 0,
+    totalPages,
+    last: raw.last ?? (totalPages === 0 || currentPage + 1 >= totalPages),
+  }
 }

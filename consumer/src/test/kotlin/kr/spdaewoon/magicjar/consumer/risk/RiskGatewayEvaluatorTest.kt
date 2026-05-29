@@ -153,6 +153,47 @@ class RiskGatewayEvaluatorTest {
     }
 
     @Test
+    fun `6b POSITION_LIMIT BLOCKED — 같은 종목 기존 보유금액 포함`() {
+        // budget 100만, 005930 3주 보유(현재가 30만 기준 90만 노출), 추가 1주 30만은 남은 예산 10만 초과
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("300000"))
+        val context =
+            sampleContext(
+                config =
+                    sampleConfig(
+                        maxPositionAmount = BigDecimal("1000000"),
+                        maxPositionPercent = BigDecimal("10.00"),
+                    ),
+                currentCapital = BigDecimal("10000000"),
+                currentPositions = listOf(samplePosition("005930", quantity = 3)),
+            )
+
+        val result = evaluator.evaluate(signal, context)
+
+        assertThat(result).isInstanceOf(RiskGatewayResult.Blocked::class.java)
+        assertThat((result as RiskGatewayResult.Blocked).rule).isEqualTo(RiskRule.POSITION_LIMIT)
+        assertThat(result.reason).contains("remaining position budget")
+    }
+
+    @Test
+    fun `6c resolveBuyQuantity — 같은 종목 남은 예산만 수량 산정`() {
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("300000"))
+        val context =
+            sampleContext(
+                config =
+                    sampleConfig(
+                        maxPositionAmount = BigDecimal("1000000"),
+                        maxPositionPercent = BigDecimal("10.00"),
+                    ),
+                currentCapital = BigDecimal("10000000"),
+                currentPositions = listOf(samplePosition("005930", quantity = 1)),
+            )
+
+        val quantity = evaluator.resolveBuyQuantity(signal, context)
+
+        assertThat(quantity).isEqualTo(2)
+    }
+
+    @Test
     fun `7 ALLOWED happy path — 6 룰 모두 통과`() {
         val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("50000"))
         // 자본 1,000만, 100만 budget — unitCost 5만 < 100만 → 통과
@@ -239,12 +280,15 @@ class RiskGatewayEvaluatorTest {
             updatedAt = now,
         )
 
-    private fun samplePosition(code: String): Position =
+    private fun samplePosition(
+        code: String,
+        quantity: Int = 10,
+    ): Position =
         Position(
             id = null,
             userId = "user-A",
             code = code,
-            quantity = 10,
+            quantity = quantity,
             avgPrice = BigDecimal("10000"),
             updatedAt = now,
         )

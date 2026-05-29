@@ -42,6 +42,7 @@ function formatTs(iso: string): string {
 
 /** 가격 원화 포맷 */
 function formatPrice(priceStr: string): string {
+  if (!priceStr) return '-'
   const num = Number(priceStr.replace(/,/g, ''))
   if (isNaN(num)) return priceStr
   return `${num.toLocaleString('ko-KR')}원`
@@ -58,7 +59,7 @@ interface SignalCardProps {
 }
 
 export function SignalCard({ signal, isNew = false }: SignalCardProps) {
-  const badge = SIDE_BADGE[signal.side]
+  const badge = SIDE_BADGE[signal.side] ?? SIDE_BADGE.HOLD
   // W4 R2 AI 진입점 — userId 1일 토큰 한도 키
   const userId = useOnboardingStore((s) => s.registeredUserId)
 
@@ -111,15 +112,31 @@ export function SignalCard({ signal, isNew = false }: SignalCardProps) {
         {/* 하단 메타 */}
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-500">
           <time dateTime={signal.ts}>{formatTs(signal.ts)}</time>
-          {signal.strategyName && (
+          {(signal.strategyNameKo || signal.strategyName) && (
             <Link
               to={`/strategy/list`}
-              className="hover:text-gray-300 focus:outline-none"
+              className="text-gray-400 hover:text-gray-200 focus:outline-none"
             >
-              {signal.strategyName}
+              전략: {signal.strategyNameKo || signal.strategyName}
             </Link>
           )}
         </div>
+
+        {/* 발행 전략 조건 — 이 시그널이 어떤 매수/매도 조건으로 나왔는지 */}
+        {(signal.buyCondition || signal.sellCondition) && (
+          <div className="mt-1.5 flex flex-col gap-1 rounded-md bg-gray-800/40 px-2.5 py-1.5">
+            {signal.buyCondition && (
+              <p className="truncate font-mono text-xs text-gray-300" title={signal.buyCondition}>
+                <span className="text-emerald-400">매수</span> {signal.buyCondition}
+              </p>
+            )}
+            {signal.sellCondition && (
+              <p className="truncate font-mono text-xs text-gray-300" title={signal.sellCondition}>
+                <span className="text-orange-300">매도</span> {signal.sellCondition}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* W4 R2 AI 진입점: SIGNAL (이 시그널 해석) */}
         <div className="mt-2">
