@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.api.persistence.signal
 
+import jakarta.persistence.criteria.Predicate
 import kotlinx.datetime.toJavaInstant
 import kotlinx.datetime.toKotlinInstant
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
@@ -10,6 +11,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
+import org.springframework.data.jpa.domain.Specification
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant as JInstant
@@ -70,21 +72,51 @@ class SignalJpaAdapter(
     fun findById(id: Long): Signal? = signalJpaRepository.findById(id).map { toDomain(it) }.orElse(null)
 
     /**
-     * 사용자 시계열 시그널 페이징 조회.
+     * 사용자 시계열 시그널 페이징 조회 — code·interval·side·strategyId 옵션 필터.
      * SignalQueryService에서 직접 호출 — port 외 추가 메서드.
+     * null 필터는 무시 (OrderRequestRepositoryAdapter.findByUserAndRange 패턴 정합).
      */
     @Transactional(readOnly = true)
     fun findByUserAndRange(
         userId: String,
         from: JInstant,
         to: JInstant,
+        code: String?,
+        interval: String?,
+        side: String?,
+        strategyId: Long?,
         page: Int,
         size: Int,
     ): org.springframework.data.domain.Page<Signal> {
         val pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "ts"))
-        return signalJpaRepository
-            .findByUserIdAndTsBetween(userId, from, to, pageable)
-            .map { toDomain(it) }
+        val codeQuery =
+            code
+                ?.trim()
+                ?.replace("%", "")
+                ?.replace("_", "")
+                ?.takeIf { it.isNotBlank() }
+
+        val spec =
+            Specification<SignalJpaEntity> { root, _, cb ->
+                val predicates = mutableListOf<Predicate>()
+                predicates += cb.equal(root.get<String>("userId"), userId)
+                predicates += cb.between(root.get<JInstant>("ts"), from, to)
+                codeQuery?.let {
+                    predicates += cb.like(root.get<String>("code"), "%$it%")
+                }
+                interval?.takeIf { it.isNotBlank() }?.let {
+                    predicates += cb.equal(root.get<String>("interval"), it)
+                }
+                side?.takeIf { it.isNotBlank() }?.let {
+                    predicates += cb.equal(root.get<String>("side"), it)
+                }
+                strategyId?.let {
+                    predicates += cb.equal(root.get<Long>("strategyId"), it)
+                }
+                cb.and(*predicates.toTypedArray())
+            }
+
+        return signalJpaRepository.findAll(spec, pageable).map { toDomain(it) }
     }
 
     // --- private helper ---

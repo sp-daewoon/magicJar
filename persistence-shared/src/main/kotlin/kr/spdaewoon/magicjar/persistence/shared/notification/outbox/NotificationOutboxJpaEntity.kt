@@ -6,6 +6,8 @@ import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Table
+import org.hibernate.annotations.JdbcTypeCode
+import org.hibernate.type.SqlTypes
 import java.time.Instant
 import java.util.UUID
 
@@ -42,6 +44,7 @@ class NotificationOutboxJpaEntity(
     val channel: String,
     @Column(name = "priority", nullable = false, length = 4)
     val priority: String,
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "payload", nullable = false, columnDefinition = "jsonb")
     val payload: String,
     @Column(name = "status", nullable = false, length = 16)

@@ -11,18 +11,19 @@ import org.springframework.stereotype.Component
 import java.math.BigDecimal
 
 /**
- * Kafka boundary closing 5종 토픽 listener (ADR 0066 §7-1 BoundaryClosingKafkaListener + §11-1 Phase 1 (5)).
+ * Kafka boundary closing 6종 토픽 listener (ADR 0066 §7-1 BoundaryClosingKafkaListener + §11-1 Phase 1 (5)).
  *
  * 사용자 결정 (2026-05-12): A-1 Kafka boundary listen 5 listener.
  *
  * ### 구독 토픽 (ADR 0064 §4-5 + KafkaTopicConfig 5종 정합)
- *   market.candle.5m.closed.v1   → 5m interval 평가
+ *   market.candle.minute.closed.v1 → 1m interval 평가
+ *   market.candle.5m.closed.v1     → 5m interval 평가
  *   market.candle.15m.closed.v1  → 15m interval 평가
  *   market.candle.30m.closed.v1  → 30m interval 평가
  *   market.candle.90m.closed.v1  → 90m interval 평가
  *   market.candle.1h.closed.v1   → 1h interval 평가
  *
- * ### groupId 분리 (5 listener 독립 thread)
+ * ### groupId 분리 (interval별 listener 독립 thread)
  * `magicjar-consumer-signal-{interval}` — 각 listener 독립 thread.
  * 같은 종목 5m·15m 동시 도달 시 (예: 09:30) — 다른 thread → strategy-eval-pool queue → 순차 처리.
  *
@@ -42,6 +43,18 @@ class BoundaryClosingKafkaListener(
     private val objectMapper: ObjectMapper,
 ) {
     private val log = LoggerFactory.getLogger(BoundaryClosingKafkaListener::class.java)
+
+    /**
+     * 1m closing → RealtimeSignalGenerator 평가 위임.
+     * groupId: magicjar-consumer-signal-1m
+     */
+    @KafkaListener(
+        topics = ["market.candle.minute.closed.v1"],
+        groupId = "magicjar-consumer-signal-1m",
+    )
+    fun on1m(record: ConsumerRecord<String, String>) {
+        dispatch(record, CandleInterval.ONE_MIN)
+    }
 
     /**
      * 5m boundary closing → RealtimeSignalGenerator 평가 위임.
@@ -115,13 +128,7 @@ class BoundaryClosingKafkaListener(
             val payload = objectMapper.readValue(record.value(), Map::class.java) as Map<String, Any?>
 
             val code = payload["code"]?.toString() ?: return
-            val tsEpoch =
-                when (val raw = payload["ts"]) {
-                    is Number -> raw.toLong()
-                    is String -> raw.toLongOrNull() ?: return
-                    else -> return
-                }
-            val boundaryTs = Instant.fromEpochSeconds(tsEpoch)
+            val boundaryTs = parseTs(payload["ts"]) ?: return
 
             val candle =
                 Candle(
@@ -129,10 +136,10 @@ class BoundaryClosingKafkaListener(
                     code = code,
                     interval = interval,
                     ts = boundaryTs,
-                    openRaw = parseBd(payload["open"]) ?: BigDecimal.ZERO,
-                    highRaw = parseBd(payload["high"]) ?: BigDecimal.ZERO,
-                    lowRaw = parseBd(payload["low"]) ?: BigDecimal.ZERO,
-                    closeRaw = parseBd(payload["close"]) ?: BigDecimal.ZERO,
+                    openRaw = parseBd(payload["open"] ?: payload["openRaw"]) ?: BigDecimal.ZERO,
+                    highRaw = parseBd(payload["high"] ?: payload["highRaw"]) ?: BigDecimal.ZERO,
+                    lowRaw = parseBd(payload["low"] ?: payload["lowRaw"]) ?: BigDecimal.ZERO,
+                    closeRaw = parseBd(payload["close"] ?: payload["closeRaw"]) ?: BigDecimal.ZERO,
                     openAdj = null,
                     highAdj = null,
                     lowAdj = null,
@@ -159,6 +166,16 @@ class BoundaryClosingKafkaListener(
             )
         }
     }
+
+    private fun parseTs(value: Any?): Instant? =
+        when (value) {
+            null -> null
+            is Number -> Instant.fromEpochSeconds(value.toLong())
+            is String ->
+                value.toLongOrNull()?.let { Instant.fromEpochSeconds(it) }
+                    ?: runCatching { Instant.parse(value) }.getOrNull()
+            else -> null
+        }
 
     private fun parseBd(value: Any?): BigDecimal? =
         when (value) {

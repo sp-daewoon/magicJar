@@ -1,0 +1,1131 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>magicJar 종합 코드 audit · 2026-05-26</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      mermaid.initialize({
+        startOnLoad: true,
+        theme: 'base',
+        themeVariables: {
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+          fontSize: '14px',
+          primaryColor: '#fff5df',
+          primaryTextColor: '#172026',
+          primaryBorderColor: '#b56d00',
+          lineColor: '#5d6975',
+          secondaryColor: '#edf5ff',
+          tertiaryColor: '#f7f9fb'
+        },
+        flowchart: { htmlLabels: true, curve: 'basis' }
+      });
+    });
+  </script>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172026;
+      --muted: #5d6975;
+      --line: #d9e0e7;
+      --paper: #f7f9fb;
+      --white: #ffffff;
+      --red: #c7363d;
+      --red-soft: #fff0f0;
+      --red-strong: #8b1d23;
+      --amber: #b56d00;
+      --amber-soft: #fff5df;
+      --green: #1d7f5f;
+      --green-soft: #eaf7f0;
+      --blue: #2368a2;
+      --blue-soft: #edf5ff;
+      --violet: #6653b7;
+      --violet-soft: #f2f0ff;
+      --shadow: 0 18px 45px rgba(20, 35, 50, .08);
+      --shadow-soft: 0 8px 20px rgba(20, 35, 50, .04);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.6; }
+    .page { max-width: 1180px; margin: 0 auto; padding: 48px 24px 80px; }
+
+    /* Hero */
+    .hero { display: grid; gap: 24px; grid-template-columns: 1.4fr .6fr; align-items: end; margin-bottom: 32px; }
+    .eyebrow { margin: 0 0 10px; color: var(--blue); font-size: 13px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(32px, 4.5vw, 50px); line-height: 1.08; }
+    .lead { max-width: 760px; margin: 16px 0 0; color: var(--muted); font-size: 17px; }
+    .verdict { background: var(--red); color: white; border-radius: 16px; padding: 24px 28px; text-align: center; box-shadow: var(--shadow); }
+    .verdict .grade { font-size: 56px; font-weight: 900; line-height: 1; margin: 0 0 8px; letter-spacing: -.02em; }
+    .verdict .label { font-size: 13px; letter-spacing: .15em; text-transform: uppercase; opacity: .9; }
+    .verdict .sub { margin-top: 12px; font-size: 13px; opacity: .85; }
+
+    /* Severity badges */
+    .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .04em; }
+    .badge.p0 { background: var(--red); color: white; }
+    .badge.p1 { background: var(--amber); color: white; }
+    .badge.p2 { background: var(--blue); color: white; }
+    .badge.obs { background: var(--green); color: white; }
+    .badge.green { background: var(--green-soft); color: var(--green); border: 1px solid var(--green); }
+    .badge.yellow { background: var(--amber-soft); color: var(--amber); border: 1px solid var(--amber); }
+    .badge.red { background: var(--red-soft); color: var(--red); border: 1px solid var(--red); }
+
+    /* Summary table */
+    .summary { background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 24px; margin-bottom: 32px; box-shadow: var(--shadow-soft); }
+    .summary h2 { margin: 0 0 16px; font-size: 22px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 12px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+    th { background: var(--paper); font-weight: 700; color: var(--muted); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+    td.center { text-align: center; }
+    td.num { text-align: center; font-variant-numeric: tabular-nums; font-weight: 700; }
+    tr.red-row td { background: var(--red-soft); }
+
+    /* Sections */
+    section { margin-bottom: 56px; }
+    h2.section-title { font-size: 26px; margin: 0 0 8px; padding-bottom: 12px; border-bottom: 3px solid var(--ink); }
+    .section-intro { color: var(--muted); margin: 0 0 24px; font-size: 15px; }
+
+    /* Finding card */
+    .finding { background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 28px; margin-bottom: 28px; box-shadow: var(--shadow-soft); position: relative; overflow: hidden; }
+    .finding.p0-card { border-left: 6px solid var(--red); }
+    .finding.p1-card { border-left: 6px solid var(--amber); }
+    .finding-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; }
+    .finding-title { margin: 0; font-size: 20px; line-height: 1.3; }
+    .finding-id { color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+
+    .finding-evidence { background: var(--paper); border-radius: 10px; padding: 14px 18px; margin: 14px 0; font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 12.5px; color: var(--ink); border-left: 3px solid var(--blue); overflow-x: auto; }
+    .finding-evidence .file { color: var(--blue); }
+    .finding-evidence .line { color: var(--violet); }
+
+    /* Flow comparison */
+    .flow-grid { display: grid; gap: 20px; grid-template-columns: 1fr 1fr; margin: 24px 0; }
+    @media (max-width: 900px) { .flow-grid { grid-template-columns: 1fr; } }
+    .flow-box { border-radius: 12px; padding: 18px; }
+    .flow-box.wrong { background: var(--red-soft); border: 1px solid #f3c5c8; }
+    .flow-box.right { background: var(--green-soft); border: 1px solid #b8e0cc; }
+    .flow-box h4 { margin: 0 0 12px; font-size: 14px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+    .flow-box.wrong h4 { color: var(--red-strong); }
+    .flow-box.right h4 { color: var(--green); }
+    .flow-box .mermaid { background: white; border-radius: 8px; padding: 12px; }
+
+    /* Scenario */
+    .scenario { background: var(--amber-soft); border-radius: 12px; padding: 18px 22px; margin: 20px 0; border-left: 4px solid var(--amber); }
+    .scenario h4 { margin: 0 0 10px; font-size: 14px; color: var(--amber); font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+    .scenario p { margin: 0 0 10px; font-size: 14.5px; }
+    .scenario p:last-child { margin-bottom: 0; }
+    .scenario .demo { background: white; padding: 12px 16px; border-radius: 8px; margin-top: 12px; font-family: 'SF Mono', Menlo, monospace; font-size: 12.5px; }
+
+    /* Fix block */
+    .fix { background: var(--blue-soft); border-radius: 12px; padding: 18px 22px; margin: 20px 0 0; border-left: 4px solid var(--blue); }
+    .fix h4 { margin: 0 0 10px; font-size: 14px; color: var(--blue); font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+    .fix ul { margin: 0; padding-left: 20px; font-size: 14.5px; }
+    .fix li { margin-bottom: 6px; }
+    .fix code { background: white; padding: 2px 6px; border-radius: 4px; font-size: 12.5px; }
+
+    /* Why section */
+    .why { font-size: 15px; color: var(--ink); margin: 16px 0; padding-left: 16px; border-left: 3px solid var(--line); }
+    .why strong { color: var(--red-strong); }
+
+    /* Highlight */
+    .kbd { background: white; border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; font-family: 'SF Mono', monospace; font-size: 12px; color: var(--ink); }
+    mark { background: #fff8a8; padding: 1px 4px; border-radius: 3px; }
+
+    /* Green/Cleanup section */
+    .pos { background: var(--green-soft); border-radius: 12px; padding: 20px 24px; }
+    .pos h3 { margin: 0 0 12px; color: var(--green); font-size: 16px; }
+    .pos ul { margin: 0; padding-left: 20px; columns: 2; column-gap: 32px; }
+    .pos li { margin-bottom: 6px; font-size: 14px; break-inside: avoid; }
+
+    .toc { background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 20px 28px; margin-bottom: 32px; }
+    .toc h3 { margin: 0 0 12px; font-size: 14px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+    .toc ol { margin: 0; padding-left: 22px; columns: 2; column-gap: 32px; }
+    .toc li { margin-bottom: 6px; font-size: 14px; break-inside: avoid; }
+    .toc a { color: var(--ink); text-decoration: none; }
+    .toc a:hover { color: var(--blue); text-decoration: underline; }
+
+    footer { margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- HERO -->
+  <header class="hero">
+    <div>
+      <p class="eyebrow">magicJar 종합 코드 audit · 2026-05-26</p>
+      <h1>7 에이전트 병렬 audit 보고서</h1>
+      <p class="lead">코덱스(외부 AI) 작업 이후 전체 코드를 architect · backend-core · market-data · strategy-engine · ai-engineer · frontend · qa 7 영역으로 분해해 동시에 read-only 점검한 결과입니다. 본 문서는 결함을 발견 → "왜 문제인가" → "원래 어떻게 되어야 하는가" 순서로 플로우 다이어그램과 함께 정리합니다.</p>
+    </div>
+    <div class="verdict">
+      <div class="label">종합 등급</div>
+      <div class="grade">RED</div>
+      <div class="sub">자본 보호 본체 결함 P0 4건이 발견되어 종합 RED. 12 P0 / 24 P1 / 24 P2.</div>
+    </div>
+  </header>
+
+  <!-- SUMMARY MATRIX -->
+  <div class="summary">
+    <h2>영역별 결함 매트릭스</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>영역</th>
+          <th class="center">등급</th>
+          <th class="num">P0</th>
+          <th class="num">P1</th>
+          <th class="num">P2</th>
+          <th>한 줄 진단</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>architect</strong></td>
+          <td class="center"><span class="badge yellow">YELLOW</span></td>
+          <td class="num">2</td><td class="num">3</td><td class="num">1</td>
+          <td>ADR 0004 모듈 카운트 4중 drift (README=6 / master=4 / CLAUDE=7 / 실=8)</td>
+        </tr>
+        <tr>
+          <td><strong>backend-core</strong></td>
+          <td class="center"><span class="badge yellow">YELLOW</span></td>
+          <td class="num">2</td><td class="num">5</td><td class="num">5</td>
+          <td>MAGICJAR_MODE default=MOCK 18+ 분산 + 관측 도구 익명 노출</td>
+        </tr>
+        <tr>
+          <td><strong>market-data</strong></td>
+          <td class="center"><span class="badge yellow">YELLOW</span></td>
+          <td class="num">2</td><td class="num">3</td><td class="num">3</td>
+          <td>휴장일 게이트 api 누락 + KIS WS subscribe silent drop drift</td>
+        </tr>
+        <tr class="red-row">
+          <td><strong>strategy-engine</strong></td>
+          <td class="center"><span class="badge red">RED</span></td>
+          <td class="num">4</td><td class="num">3</td><td class="num">4</td>
+          <td>KillSwitch fail-open + 활성화 게이트 무력 + 백테스트 look-ahead + 멀티 종목 직렬</td>
+        </tr>
+        <tr>
+          <td><strong>ai-engineer</strong></td>
+          <td class="center"><span class="badge yellow">YELLOW</span></td>
+          <td class="num">0</td><td class="num">2</td><td class="num">3</td>
+          <td>DSL 변환 endpoint KillSwitch · TokenLimit 가드 우회 (비용 폭주 risk)</td>
+        </tr>
+        <tr>
+          <td><strong>frontend</strong></td>
+          <td class="center"><span class="badge green">GREEN</span></td>
+          <td class="num">0</td><td class="num">3</td><td class="num">3</td>
+          <td>Mock 룰 100% + 타입 안전 + 핵심 화면 정합 (P0 0건)</td>
+        </tr>
+        <tr>
+          <td><strong>qa</strong></td>
+          <td class="center"><span class="badge yellow">YELLOW</span></td>
+          <td class="num">2</td><td class="num">5</td><td class="num">5</td>
+          <td>DR drill 자동 재현 0건 + 코덱스 6 fix Visual dispatch 0</td>
+        </tr>
+        <tr style="background: var(--paper); font-weight: 700;">
+          <td>합계</td><td class="center">—</td>
+          <td class="num">12</td><td class="num">24</td><td class="num">24</td>
+          <td>P0 12건 fix 필수, 그 중 4건은 자본 보호 본체</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- TOC -->
+  <div class="toc">
+    <h3>P0 결함 목차</h3>
+    <ol>
+      <li><a href="#p0-1">KillSwitch fail-open — 자본 보호 무력</a></li>
+      <li><a href="#p0-2">전략 활성화 게이트 5조건 누락</a></li>
+      <li><a href="#p0-3">백테스트 look-ahead bias</a></li>
+      <li><a href="#p0-4">멀티 종목 자본 순차 시뮬</a></li>
+      <li><a href="#p0-5">휴장일 게이트 api cron 누락</a></li>
+      <li><a href="#p0-6">KIS WS subscribe silent drop drift</a></li>
+      <li><a href="#p0-7">MAGICJAR_MODE default = MOCK 모순</a></li>
+      <li><a href="#p0-8">관측 도구(Grafana 등) 익명 노출</a></li>
+      <li><a href="#p0-9">ADR 0004 모듈 카운트 4중 drift</a></li>
+      <li><a href="#p0-10">master §10 인덱스 row count mismatch</a></li>
+      <li><a href="#p0-11">DR drill 자동 재현 0건</a></li>
+      <li><a href="#p0-12">코덱스 6 fix qa Visual dispatch 0</a></li>
+    </ol>
+  </div>
+
+  <!-- ========== SECTION A: 자본 보호 본체 ========== -->
+  <section>
+    <h2 class="section-title">A. 자본 보호 본체 결함 (strategy-engine — 🔴 최우선)</h2>
+    <p class="section-intro">사용자 실주문 · 매매 결정에 직접 영향을 주는 4건입니다. 다른 모든 영역보다 먼저 fix해야 합니다. 본 카테고리만 단독으로 종합 등급 RED를 결정짓는 결함입니다.</p>
+
+    <!-- P0-1: KillSwitch fail-open -->
+    <article class="finding p0-card" id="p0-1">
+      <div class="finding-header">
+        <div>
+          <p class="finding-id">P0-1 · strategy-engine</p>
+          <h3 class="finding-title">KillSwitch가 "꺼진 채" 통과한다 — 자본 보호 마지막 방어선 무력화</h3>
+        </div>
+        <span class="badge p0">P0 CRITICAL</span>
+      </div>
+
+      <div class="finding-evidence">
+        <span class="file">api/src/main/kotlin/kr/spdaewoon/magicjar/api/persistence/order/KillSwitchQueryAdapter.kt</span>:<span class="line">22</span><br>
+        <span class="file">consumer/src/main/kotlin/kr/spdaewoon/magicjar/consumer/persistence/order/ConsumerKillSwitchQueryAdapter.kt</span>:<span class="line">15</span><br>
+        <span class="file">api/src/main/kotlin/kr/spdaewoon/magicjar/api/service/order/ManualOrderService.kt</span>:<span class="line">153</span>
+      </div>
+
+      <div class="why">
+        KillSwitch는 사용자가 "전 자동매매 멈춰!"라고 하면 즉시 모든 주문을 차단하는 <strong>비상 정지 스위치</strong>입니다. ADR 0098 §2-2는 명시적으로 "스위치 정보를 조회할 수 없으면(미등록·DB 오류·예외 발생) <strong>차단(fail-closed)</strong>"이 default라고 정했습니다.
+        그런데 현재 코드는 <code>findById(userId).map { it.enabled }.<mark>orElse(false)</mark></code> — 데이터가 없으면 "스위치가 꺼져있다"고 답합니다. <strong>차단이 아니라 통과시킵니다.</strong>
+      </div>
+
+      <div class="flow-grid">
+        <div class="flow-box wrong">
+          <h4>🚨 현재 (잘못된 흐름)</h4>
+          <div class="mermaid">
+flowchart TD
+  A[주문 요청] --> B[KillSwitchQueryAdapter.isOn]
+  B --> C{DB 조회}
+  C -->|레코드 있음| D[enabled 값 반환]
+  C -->|레코드 없음| E[orElse false]
+  C -->|DB 예외| F[catch 없음, false 전파]
+  D --> G{스위치 ON?}
+  E --> G
+  F --> G
+  G -->|YES| H[주문 차단]
+  G -->|NO| I[✅ 주문 통과]
+  style E fill:#fff0f0,stroke:#c7363d,stroke-width:2px
+  style F fill:#fff0f0,stroke:#c7363d,stroke-width:2px
+  style I fill:#fff0f0,stroke:#c7363d,stroke-width:3px
+          </div>
+        </div>
+        <div class="flow-box right">
+          <h4>✅ 원래 이래야 함 (ADR 0098 §2-2)</h4>
+          <div class="mermaid">
+flowchart TD
+  A[주문 요청] --> B[KillSwitchQueryAdapter.isOn]
+  B --> C{DB 조회 try}
+  C -->|레코드 있음| D[enabled 값 반환]
+  C -->|레코드 없음| E[true 반환 fail-closed]
+  C -->|DB 예외| F[catch → true 반환]
+  D --> G{스위치 ON?}
+  E --> G
+  F --> G
+  G -->|YES| H[🛑 주문 차단]
+  G -->|NO| I[주문 통과]
+  style E fill:#eaf7f0,stroke:#1d7f5f,stroke-width:2px
+  style F fill:#eaf7f0,stroke:#1d7f5f,stroke-width:2px
+  style H fill:#eaf7f0,stroke:#1d7f5f,stroke-width:3px
+          </div>
+        </div>
+      </div>
+
+      <div class="scenario">
+        <h4>⚠️ 이렇게 되면 어떤 문제가 생기나</h4>
+        <p><strong>시나리오 1.</strong> 새로 가입한 사용자는 <code>user_killswitch</code> 테이블에 레코드가 없습니다. → "KillSwitch가 꺼져있음"으로 잘못 응답 → 사용자가 명시적으로 KillSwitch를 ON 하기 전까지 <mark>모든 주문이 통과</mark>됩니다.</p>
+        <p><strong>시나리오 2.</strong> Redis나 DB가 일시 장애를 일으키면 예외가 던져집니다. 현재 코드는 catch 0건 → 호출자가 그대로 false로 받아 <mark>주문 진행</mark>. 비상 상황에 오히려 비상 정지가 풀립니다.</p>
+        <p><strong>시나리오 3.</strong> <code>ManualOrderService.kt:153</code>의 <code>ObjectProvider</code>가 빈을 못 찾으면 <code>return</code>으로 스킵 — Spring 컨텍스트 misconfig 시 <mark>가드 자체가 무존재화</mark>됩니다.</p>
+        <div class="demo">// 예: 새 사용자 user_id=999 가 처음 주문
+KillSwitchQueryAdapter.isOn(999)
+  → repository.findById(999) → Optional.empty()
+  → .map { it.enabled }.orElse(<mark>false</mark>)
+  → 주문 가드: "스위치 꺼져있으니 통과"
+  → 실제로는 <strong>아무도 스위치를 정의한 적이 없는 미보호 상태</strong>임</div>
+      </div>
+
+      <div class="fix">
+        <h4>🔧 권장 fix</h4>
+        <ul>
+          <li><code>orElse(false)</code> → <code>orElse(true)</code> 양 어댑터 모두 변경 (api · consumer)</li>
+          <li>전체 try-catch 감싸 예외 시 <code>true</code> 반환 + <code>logger.error</code></li>
+          <li><code>ManualOrderService.kt:153</code> <code>ObjectProvider</code> 미존재 시 <code>throw IllegalStateException</code>로 부팅 거부</li>
+          <li>단위 테스트 5건 추가: 레코드 없음 / enabled=true / enabled=false / DB 예외 / ObjectProvider 부재</li>
+        </ul>
+      </div>
+    </article>
+
+    <!-- P0-2: 활성화 게이트 5조건 누락 -->
+    <article class="finding p0-card" id="p0-2">
+      <div class="finding-header">
+        <div>
+          <p class="finding-id">P0-2 · strategy-engine</p>
+          <h3 class="finding-title">전략 활성화 게이트 — 5조건 중 4건 누락 (-100% 백테스트도 통과)</h3>
+        </div>
+        <span class="badge p0">P0 CRITICAL</span>
+      </div>
+
+      <div class="finding-evidence">
+        <span class="file">api/src/main/kotlin/kr/spdaewoon/magicjar/api/persistence/backtest/BacktestRunJpaRepository.kt</span>:<span class="line">31-43</span>
+      </div>
+
+      <div class="why">
+        ADR 0098 §2-3-2는 "전략을 실주문에 활성화하려면 백테스트가 다음 5조건을 동시 만족해야 한다"고 정의했습니다.
+        <br>① <code>status = SUCCEEDED</code> · ② <code>completedAt > now() - 30일</code> · ③ <code>totalReturnPct > -50%</code> · ④ <code>maxDrawdownPct < 80%</code> · ⑤ <code>universe ⊇ 활성화 종목</code>
+        <br>그런데 현재 query는 <strong>① 단 한 건만 검사</strong>합니다. 나머지 4건은 코드에 흔적조차 없습니다.
+      </div>
+
+      <div class="flow-grid">
+        <div class="flow-box wrong">
+          <h4>🚨 현재 (잘못된 흐름)</h4>
+          <div class="mermaid">
+flowchart TD
+  A[전략 활성화 요청] --> B[existsAutoActivationReadyRun]
+  B --> C[SELECT COUNT * FROM backtest_run<br/>WHERE strategy_id = ?<br/>AND status = SUCCEEDED]
+  C --> D{COUNT &gt; 0?}
+  D -->|YES| E[✅ 활성화 허용]
+  D -->|NO| F[차단]
+  style E fill:#fff0f0,stroke:#c7363d,stroke-width:3px
+          </div>
+        </div>
+        <div class="flow-box right">
+          <h4>✅ 원래 이래야 함 (ADR 0098 §2-3-2)</h4>
+          <div class="mermaid">
+flowchart TD
+  A[전략 활성화 요청] --> B[existsAutoActivationReadyRun]
+  B --> C[SELECT * FROM backtest_run<br/>WHERE strategy_id = ?<br/>AND status = SUCCEEDED<br/>AND completed_at &gt; now-30d<br/>AND total_return_pct &gt; -50<br/>AND max_drawdown_pct &lt; 80]
+  C --> D[universe ⊇ 활성화 종목 검증]
+  D --> E{5 조건 모두 만족?}
+  E -->|YES| F[활성화 허용]
+  E -->|NO| G[🛑 차단 + 사유 응답]
+  style F fill:#eaf7f0,stroke:#1d7f5f,stroke-width:3px
+          </div>
+        </div>
+      </div>
+
+      <div class="scenario">
+        <h4>⚠️ 이렇게 되면 어떤 문제가 생기나</h4>
+        <p>사용자가 1년 전 어쩌다 <code>SUCCEEDED</code> 1건 찍어둔 전략을 오늘 활성화하려고 합니다. 그 백테스트는 <strong>-95% 손실 + MDD 90%</strong>로 사실상 폭망 결과지만 <code>status = SUCCEEDED</code>(실행 성공)이긴 합니다.</p>
+        <p>현재 코드는 "SUCCEEDED 1건 있네" → <mark>활성화 통과</mark> → 사용자 자본으로 실주문 시작. <strong>자본 보호 첫 단계 자체가 무력화</strong>됩니다.</p>
+        <div class="demo">// 실제 시뮬:
+backtest_run #42 (strategy_id=7)
+  status        = SUCCEEDED  ✓ (실행 자체는 성공)
+  completed_at  = 2025-04-15  ← 1년 전 (조건 위반)
+  return_pct    = -95.2       ← 폭망 (조건 위반)
+  max_drawdown  = 92.7         ← 청산 직전 (조건 위반)
+
+→ existsAutoActivationReadyRun(7) = true  ← 통과
+→ Strategy.activate() 호출
+→ 실거래 진입 → 자본 손실 가속</div>
+      </div>
+
+      <div class="fix">
+        <h4>🔧 권장 fix</h4>
+        <ul>
+          <li>JPQL/JPA query에 4 조건 추가</li>
+          <li><code>StrategyService.validateActivationReady()</code>에 universe 포함관계 검증 추가</li>
+          <li>차단 시 <code>DenyReason.BacktestMaxDrawdownExceeded</code> 등 sealed 분기 → UI에 명확한 사유 표시</li>
+          <li>활성화 흐름 E2E 테스트 — -95% backtest는 반드시 활성화 실패해야 함</li>
+        </ul>
+      </div>
+    </article>
+
+    <!-- P0-3: 백테스트 look-ahead bias -->
+    <article class="finding p0-card" id="p0-3">
+      <div class="finding-header">
+        <div>
+          <p class="finding-id">P0-3 · strategy-engine</p>
+          <h3 class="finding-title">백테스트 look-ahead bias — 미래 가격으로 평가하고 같은 가격에 체결</h3>
+        </div>
+        <span class="badge p0">P0 CRITICAL</span>
+      </div>
+
+      <div class="finding-evidence">
+        <span class="file">api/src/main/kotlin/kr/spdaewoon/magicjar/api/service/backtest/JvmBacktestEngine.kt</span>:<span class="line">160-256</span>
+      </div>
+
+      <div class="why">
+        백테스트의 신뢰성은 "<strong>같은 시점의 종가를 평가에 쓰고 즉시 그 종가에 체결</strong>"하지 않는 것에서 출발합니다. 실거래에서는 t시점 종가를 본 직후엔 거래가 끝났으니 <strong>t+1 시점 시가 이후</strong>에만 진입할 수 있기 때문입니다. 현재 엔진은 t의 종가를 슬라이스에 포함시켜 평가하고 동일 t의 종가로 즉시 체결합니다 — 백테스트 학계에서 가장 유명한 <strong>self-bar bias</strong>입니다.
+      </div>
+
+      <div class="flow-grid">
+        <div class="flow-box wrong">
+          <h4>🚨 현재 (잘못된 흐름)</h4>
+          <div class="mermaid">
+flowchart TD
+  A[t시점 진입] --> B[safeSlice candles, t]
+  B --> C[<mark>t의 close 포함</mark> 슬라이스]
+  C --> D[전략 평가: t close 사용]
+  D --> E{BUY 신호?}
+  E -->|YES| F[<mark>같은 t의 close × 1+slippage</mark>로 체결]
+  F --> G[수익 계산: 인위적 inflate]
+  style C fill:#fff0f0,stroke:#c7363d,stroke-width:2px
+  style F fill:#fff0f0,stroke:#c7363d,stroke-width:3px
+          </div>
+        </div>
+        <div class="flow-box right">
+          <h4>✅ 원래 이래야 함</h4>
+          <div class="mermaid">
+flowchart TD
+  A[t시점 진입] --> B[safeSlice candles, t-1]
+  B --> C[t-1까지 close만 사용]
+  C --> D[전략 평가]
+  D --> E{BUY 신호?}
+  E -->|YES| F[t+1 open × 1+slippage 로 체결]
+  F --> G[수익 계산: 실거래 정합]
+  style B fill:#eaf7f0,stroke:#1d7f5f,stroke-width:2px
+  style F fill:#eaf7f0,stroke:#1d7f5f,stroke-width:3px
+          </div>
+        </div>
+      </div>
+
+      <div class="scenario">
+        <h4>⚠️ 이렇게 되면 어떤 문제가 생기나</h4>
+        <p>전략 평가에 "이미 일어난 t의 종가"를 쓰는데 체결도 "그 종가"에 한다면 — 매수 신호가 발생한 순간 <strong>이미 그 가격을 알고 있는 셈</strong>이라 무조건 그 가격에 살 수 있다는 비현실적 가정입니다.</p>
+        <p>결과적으로 백테스트 통과율 · 수익률이 <strong>구조적으로 부풀어 오릅니다</strong>. 그 백테스트가 <strong>P0-2 활성화 게이트의 input</strong>으로 들어가므로 → 두 결함이 합쳐지면 거의 모든 전략이 활성화 게이트를 통과해버립니다.</p>
+        <div class="demo">// 예: t = 2026-04-15, A종목 close = 1000원
+[현재 잘못된 흐름]
+  평가: "오늘 close 1000원이 SMA 위에 있다" → BUY 신호
+  체결: 1000원 × (1 + 0.001 slippage) = 1001원
+  → 시뮬상 1001원에 매수 성공
+
+[실거래]
+  4월 15일 장 마감 후에는 거래 불가
+  → 4월 16일 시가 = 1020원 (gap up)
+  → 실제 매수 = 1020원
+  → 1.9% 손실 출발 (slippage 0.1% 가정과 19배 차이)</div>
+      </div>
+
+      <div class="fix">
+        <h4>🔧 권장 fix</h4>
+        <ul>
+          <li><code>safeSlice(allCandles, t)</code> → <code>safeSlice(allCandles, t-1)</code>로 변경 (평가는 t-1까지)</li>
+          <li>또는 체결을 <code>t+1 open</code> 시점 가격으로 shift</li>
+          <li>슬리피지 모델 강화: gap up/down 시 시가 적용 + 최대 변동폭 cap</li>
+          <li>회귀 테스트: 동일 전략 v3.8과 비교해 수익률 1~5%p 하락이 정상 — 그 이상은 의심</li>
+        </ul>
+      </div>
+    </article>
+
+    <!-- P0-4: 멀티 종목 자본 순차 시뮬 -->
+    <article class="finding p0-card" id="p0-4">
+      <div class="finding-header">
+        <div>
+          <p class="finding-id">P0-4 · strategy-engine</p>
+          <h3 class="finding-title">멀티 종목 자본 순차 시뮬 — 종목 A 전 기간 끝낸 후 B 시작</h3>
+        </div>
+        <span class="badge p0">P0 CRITICAL</span>
+      </div>
+
+      <div class="finding-evidence">
+        <span class="file">api/src/main/kotlin/kr/spdaewoon/magicjar/api/service/backtest/JvmBacktestEngine.kt</span>:<span class="line">133</span>
+      </div>
+
+      <div class="why">
+        멀티 종목 전략의 본질은 "<strong>같은 자본을 여러 종목이 동시에 경쟁하며 사용</strong>"하는 것입니다. 그런데 현재 outer loop는 <code>for (code in request.universe)</code> — 종목별로 전 기간을 직렬 실행하고 <code>cash</code>를 그대로 다음 종목으로 이월합니다. 즉 종목 A가 전 기간 매수·매도를 다 하고 남은 cash를 종목 B가 처음부터 받습니다.
+      </div>
+
+      <div class="flow-grid">
+        <div class="flow-box wrong">
+          <h4>🚨 현재 (잘못된 흐름)</h4>
+          <div class="mermaid">
+flowchart TD
+  A[자본 1000만원 시작] --> B[종목 A: 2024-01~2026-05<br/>매수→매도 사이클]
+  B --> C[A 종료 후 cash 900만원]
+  C --> D[종목 B: 2024-01부터 다시 시작<br/>매수→매도]
+  D --> E[B 종료 후 cash 850만원]
+  E --> F[종목 C: 2024-01부터...]
+  style B fill:#fff0f0,stroke:#c7363d,stroke-width:2px
+  style D fill:#fff0f0,stroke:#c7363d,stroke-width:2px
+          </div>
+        </div>
+        <div class="flow-box right">
+          <h4>✅ 원래 이래야 함</h4>
+          <div class="mermaid">
+flowchart TD
+  A[자본 1000만원 시작] --> B[시간 t = 2024-01-02]
+  B --> C[A, B, C 동시 신호 평가]
+  C --> D{동일 t 다중 BUY?}
+  D -->|YES| E[우선순위 정책 적용:<br/>점수순/시총순/랜덤]
+  D -->|NO| F[단일 종목 진입]
+  E --> G[t+1 으로 진행]
+  F --> G
+  G --> H[t = 2024-01-03 ...]
+  style E fill:#eaf7f0,stroke:#1d7f5f,stroke-width:2px
+          </div>
+        </div>
+      </div>
+
+      <div class="scenario">
+        <h4>⚠️ 이렇게 되면 어떤 문제가 생기나</h4>
+        <p><strong>시나리오.</strong> universe = [삼성전자, SK하이닉스, LG에너지솔루션] 3 종목. 전략이 모두 같은 날 BUY 신호를 낸다 가정.</p>
+        <p>실거래 = 자본이 1/3씩 나뉘어 3종목 매수 (또는 우선순위 1종목만). 백테스트 = <mark>삼성전자 혼자 전 자본 다 쓰고 매도까지 끝낸 후</mark> 남은 자본으로 SK하이닉스가 처음부터 다시 시뮬. <strong>portfolio backtest 개념 자체가 무너집니다.</strong></p>
+        <div class="demo">// 실거래 vs 현재 백테스트 결과 분기
+[실거래] 1000만원 → 3종목 333만원씩 분산 매수
+  → 삼성 +5% / SK +2% / LG -3% = 평균 +1.3% (자본 1013만원)
+
+[현재 백테스트] 삼성 단독 1000만원 매수
+  → 삼성 +5% 청산 (cash 1050만원)
+  → SK 단독 1050만원 매수
+  → SK +2% 청산 (cash 1071만원)
+  → LG 단독 1071만원 매수
+  → LG -3% 청산 (cash 1039만원)
+
+  → 백테스트 "수익률 +3.9%" 표시 (실거래 +1.3%와 2.6%p 분기)</div>
+      </div>
+
+      <div class="fix">
+        <h4>🔧 권장 fix</h4>
+        <ul>
+          <li>outer loop를 종목 → 시간 순서로 transpose: <code>for (t in dates) for (code in universe)</code></li>
+          <li>동일 t 다중 신호 우선순위 정책 spec 발행 (architect dispatch): 점수 / 시총 / 알파벳 중 결정</li>
+          <li>cash 분배 모드 옵션화: 균등 분할 / 우선순위 단일 / Kelly criterion</li>
+          <li>portfolio backtest 회귀 테스트 — 단일 vs 멀티 종목 결과 비교</li>
+        </ul>
+      </div>
+    </article>
+  </section>
+
+  <!-- ========== SECTION B: 데이터 정합 ========== -->
+  <section>
+    <h2 class="section-title">B. 데이터 정합 · 운영 안전 (market-data)</h2>
+    <p class="section-intro">KIS OpenAPI 호출량 · 실시간 시세 데이터 정합성에 직결되는 결함입니다. 자본 직접 영향은 없으나 데이터가 손상되면 위 strategy 결함과 합쳐져 잘못된 신호 발사 risk.</p>
+
+    <!-- P0-5: 휴장일 게이트 -->
+    <article class="finding p0-card" id="p0-5">
+      <div class="finding-header">
+        <div>
+          <p class="finding-id">P0-5 · market-data</p>
+          <h3 class="finding-title">휴장일에도 KIS 호출 발사 — api 모듈 cron이 휴장일 게이트 누락</h3>
+        </div>
+        <span class="badge p0">P0 CRITICAL</span>
+      </div>
+
+      <div class="finding-evidence">
+        <span class="file">api/src/main/kotlin/kr/spdaewoon/magicjar/api/service/LiveDailyCandleScheduler.kt</span>:<span class="line">43-50</span>
+      </div>
+
+      <div class="why">
+        ADR 0104는 "<strong>batch 국내 경로는 weekday만 보지 않고 BusinessDayCalendar.isBusinessDay(date)를 호출한다</strong>"고 명시했습니다. batch에는 정확히 적용됐는데 api 모듈의 5분 cron이 같은 게이트를 누락했습니다. weekday + 시간대(08:00~20:00) 체크만 통과하면 휴장일에도 KIS 호출이 발사됩니다.
+      </div>
+
+      <div class="flow-grid">
+        <div class="flow-box wrong">
+          <h4>🚨 현재 (api 모듈)</h4>
+          <div class="mermaid">
+flowchart TD
+  A[@Scheduled fixedRate 5min] --> B{weekday?}
+  B -->|YES| C{08:00 ~ 20:00 KST?}
+  B -->|NO| D[skip]
+  C -->|YES| E[<mark>휴장일 체크 없이</mark>]
+  C -->|NO| D
+  E --> F[7~16 종목 × N페이지<br/>KIS 호출 발사]
+  F --> G[부처님오신날 휴장에도 호출]
+  style E fill:#fff0f0,stroke:#c7363d,stroke-width:3px
+  style G fill:#fff0f0,stroke:#c7363d,stroke-width:2px
+          </div>
+        </div>
+        <div class="flow-box right">
+          <h4>✅ batch 모듈 (정합 reference)</h4>
+          <div class="mermaid">
+flowchart TD
+  A[@Scheduled] --> B{businessDayCalendar.<br/>isBusinessDay today?}
+  B -->|NO| C[skip + log<br/>휴장일 안내]
+  B -->|YES| D{weekday + 시간대?}
+  D -->|YES| E[KIS 호출 발사]
+  D -->|NO| F[skip]
+  style B fill:#eaf7f0,stroke:#1d7f5f,stroke-width:3px
+          </div>
+        </div>
+      </div>
+
+      <div class="scenario">
+        <h4>⚠️ 이렇게 되면 어떤 문제가 생기나</h4>
+        <p><strong>실측 사례.</strong> 2026-05-25 부처님오신날 (대체휴무). KRX 휴장. 시장 데이터는 5월 22일 금요일 종가 그대로.</p>
+        <p>api cron은 휴장일 무관 5분마다 발사 → 하루 12시간 × 12회 = <mark>144회 × 종목 수 × 페이지</mark> 휴장일 KIS 호출. 응답은 "데이터 없음" 또는 5/22 금요일 데이터 중복. KIS rate limit (ADR 0037, 분당 26 req cap) 압박 + 토큰 소비 + EGW00201 (rate exceeded) 재발 risk.</p>
+        <div class="demo">// 부처님오신날 KIS 호출량 simulation
+종목 16개 × 5분 cron × 12시간 = 16 × 144 = <mark>2,304회</mark>
+응답 중 유효 데이터 = 0건
+KIS rate limit 소비 = 100%
+EGW00201 발생 가능성 = HIGH</div>
+      </div>
+
+      <div class="fix">
+        <h4>🔧 권장 fix</h4>
+        <ul>
+          <li><code>LiveDailyCandleScheduler</code>에 <code>BusinessDayCalendar</code> 주입</li>
+          <li><code>tick()</code> 첫 줄에 <code>if (!businessDayCalendar.isBusinessDay(LocalDate.now(seoul))) return</code></li>
+          <li>스킵 시 INFO log + Micrometer counter <code>magicjar.scheduler.holiday.skip</code></li>
+          <li>같은 패턴으로 <code>CandleRefreshService</code>의 30 거래일 산정 path도 동일 보강 (P2 결함)</li>
+        </ul>
+      </div>
+    </article>
+
+    <!-- P0-6: KIS WS subscribe drift -->
+    <article class="finding p0-card" id="p0-6">
+      <div class="finding-header">
+        <div>
+          <p class="finding-id">P0-6 · market-data</p>
+          <h3 class="finding-title">KIS WebSocket subscribe silent drop — 구독 상태와 실제 KIS 영구 분기</h3>
+        </div>
+        <span class="badge p0">P0 CRITICAL</span>
+      </div>
+
+      <div class="finding-evidence">
+        <span class="file">consumer/src/main/kotlin/kr/spdaewoon/magicjar/consumer/ws/KisWebSocketBridge.kt</span>:<span class="line">289-302, 322-333</span>
+      </div>
+
+      <div class="why">
+        실시간 시세 구독은 <code>sendSink?.tryEmitNext(msg)</code>로 KIS WS에 메시지를 보내고, <code>session.subscribedCodes.add(code)</code>로 "이 종목은 구독했다"고 우리 쪽 set에 기록합니다. 그런데 <code>tryEmitNext</code>의 반환값을 체크하지 않습니다. <code>BACKPRESSURE_BUFFER_SIZE=1024</code> overflow 시 메시지가 silent drop 됩니다. 하지만 우리 쪽 set은 무조건 갱신 → "구독한 줄 알지만 KIS는 모른다"는 영구 drift.
+      </div>
+
+      <div class="flow-grid">
+        <div class="flow-box wrong">
+          <h4>🚨 현재 (잘못된 흐름)</h4>
+          <div class="mermaid">
+flowchart TD
+  A[종목 구독 요청] --> B[sendSink.tryEmitNext msg]
+  B --> C{Sink 상태?}
+  C -->|정상| D[KIS WS로 메시지 전송]
+  C -->|backpressure 1024 overflow| E[<mark>silent drop</mark> 반환값 미검사]
+  D --> F[subscribedCodes.add code]
+  E --> F
+  F --> G[우리 쪽: 구독 상태]
+  G --> H[KIS 쪽: 모름]
+  H --> I[<mark>시세 안 들어옴</mark>]
+  style E fill:#fff0f0,stroke:#c7363d,stroke-width:3px
+  style I fill:#fff0f0,stroke:#c7363d,stroke-width:2px
+          </div>
+        </div>
+        <div class="flow-box right">
+          <h4>✅ 원래 이래야 함</h4>
+          <div class="mermaid">
+flowchart TD
+  A[종목 구독 요청] --> B[result = sendSink.tryEmitNext msg]
+  B --> C{result.isSuccess?}
+  C -->|YES| D[subscribedCodes.add code]
+  C -->|NO| E[WARN log + retry queue]
+  E --> F[pending set에 보류]
+  F --> G[다음 reconnect 시 재전송]
+  D --> H[시세 정상 수신]
+  style C fill:#eaf7f0,stroke:#1d7f5f,stroke-width:3px
+          </div>
+        </div>
+      </div>
+
+      <div class="scenario">
+        <h4>⚠️ 이렇게 되면 어떤 문제가 생기나</h4>
+        <p><strong>시나리오.</strong> OPSP8996 (KIS 측 ALREADY-IN-USE 에러)으로 reconnect 폭주 + 사용자가 watchlist에 50종목 일괄 추가. 이 순간 sendSink 큐가 1024 초과 → 일부 구독 메시지 silent drop.</p>
+        <p>frontend에는 "구독 OK" 표시되지만 KIS는 모름 → <mark>해당 종목 시세 0건 수신</mark>. 사용자는 "차트가 안 움직이네?" 라고만 인지 + detect 가드 0 → 다음 reconnect까지 영구 drift.</p>
+        <div class="demo">// 현재 결함 simulation
+sink.bufferSize = 1024
+subscribe 요청 1500건 일시 폭주
+  → 첫 1024건은 send 성공 (subscribedCodes.add OK)
+  → 나머지 476건: <mark>tryEmitNext 반환값 미검사</mark>
+  → subscribedCodes.add 무조건 실행
+  → 476종목: "구독했다고 인식 + KIS는 모름"
+  → 차트·호가·체결 데이터 영구 0건</div>
+      </div>
+
+      <div class="fix">
+        <h4>🔧 권장 fix</h4>
+        <ul>
+          <li><code>val result = sendSink.tryEmitNext(msg)</code></li>
+          <li><code>if (result.isSuccess) subscribedCodes.add(code) else pending.add(code) + log</code></li>
+          <li>pending set은 다음 heartbeat 또는 reconnect 후 batch 재전송</li>
+          <li>Micrometer gauge <code>magicjar.kis.ws.subscribe.pending.count</code> 노출 + Grafana alert (>10 5분 지속 시 WARN)</li>
+        </ul>
+      </div>
+    </article>
+  </section>
+
+  <!-- ========== SECTION C: 보안·부트스트랩 ========== -->
+  <section>
+    <h2 class="section-title">C. 보안 · 부트스트랩 (backend-core)</h2>
+    <p class="section-intro">시스템 기본 설정과 보안 정책이 사용자 명시 룰과 모순되거나 외부 노출되어 있는 결함입니다.</p>
+
+    <!-- P0-7: MAGICJAR_MODE default MOCK -->
+    <article class="finding p0-card" id="p0-7">
+      <div class="finding-header">
+        <div>
+          <p class="finding-id">P0-7 · backend-core</p>
+          <h3 class="finding-title">MAGICJAR_MODE default = MOCK 18+ 위치 hardcode — 사용자 룰 정면 모순</h3>
+        </div>
+        <span class="badge p0">P0 CRITICAL</span>
+      </div>
+
+      <div class="finding-evidence">
+        <span class="file">api/src/main/resources/application.yml</span>:<span class="line">85</span> ·
+        <span class="file">consumer/.../application.yml</span>:<span class="line">68</span> ·
+        <span class="file">batch/.../application.yml</span>:<span class="line">57</span><br>
+        + <code>@Value("\${magicjar.mode:MOCK}")</code> 18+ 위치 분산
+      </div>
+
+      <div class="why">
+        사용자 명시 룰: "<strong>mock 부팅 path 폐기. mock은 jvm test fixture 전용</strong>". profile default는 이미 <code>dev,real-kis</code>로 설정됨. 그런데 <code>MAGICJAR_MODE</code>는 default가 <code>MOCK</code>으로 18+ 위치에 hardcode → <strong>profile은 REAL인데 mode는 MOCK</strong>인 모순 상태로 부팅 가능. 자본 path 분기점에서 갈피를 잃습니다.
+      </div>
+
+      <div class="flow-grid">
+        <div class="flow-box wrong">
+          <h4>🚨 현재 (모순 상태)</h4>
+          <div class="mermaid">
+flowchart TD
+  A[부팅] --> B[spring.profiles.active = dev,real-kis]
+  A --> C[<mark>magicjar.mode = MOCK</mark> default]
+  B --> D[KIS REST/WS 실연결]
+  C --> E[TradingModeGate isMock=true]
+  D --> F[실시세 수신]
+  E --> G[<mark>주문은 mock 분기</mark>]
+  F --> H{사용자 주문}
+  H --> G
+  G --> I[실시세 보고 mock 주문<br/>= 정합 0]
+  style C fill:#fff0f0,stroke:#c7363d,stroke-width:3px
+  style I fill:#fff0f0,stroke:#c7363d,stroke-width:2px
+          </div>
+        </div>
+        <div class="flow-box right">
+          <h4>✅ 원래 이래야 함</h4>
+          <div class="mermaid">
+flowchart TD
+  A[부팅] --> B[@ConfigurationProperties<br/>MagicjarProperties]
+  B --> C{mode 명시 없음?}
+  C -->|YES| D[부팅 거부 + 에러 메시지<br/>'mode를 명시하세요']
+  C -->|NO| E[mode 값 검증]
+  E --> F[profile + mode 일관성 체크]
+  F -->|일관| G[정상 부팅]
+  F -->|불일치| H[부팅 거부]
+  style D fill:#eaf7f0,stroke:#1d7f5f,stroke-width:2px
+  style H fill:#eaf7f0,stroke:#1d7f5f,stroke-width:2px
+          </div>
+        </div>
+      </div>
+
+      <div class="scenario">
+        <h4>⚠️ 이렇게 되면 어떤 문제가 생기나</h4>
+        <p>실제 운영 단계 진입 시 운영자가 <code>MAGICJAR_ALLOW_REAL=true</code>만 set하고 <code>MAGICJAR_MODE</code>는 까먹으면 <strong>실연결된 KIS로 mock 주문</strong> 발사. 사용자는 "주문 됐는데 KIS 화면엔 안 보이네?" 혼동.</p>
+        <p>반대로 mock 테스트 한다고 <code>MAGICJAR_MODE=MOCK</code>만 set + profile은 <code>real-kis</code>면 KIS 실연결 트래픽 발생 → KIS 호출 cost + rate limit 압박.</p>
+      </div>
+
+      <div class="fix">
+        <h4>🔧 권장 fix</h4>
+        <ul>
+          <li><code>@ConfigurationProperties(prefix="magicjar")</code> 단일 bean <code>MagicjarProperties</code> 생성</li>
+          <li>18+ <code>@Value</code> 분산 → 단일 bean injection</li>
+          <li>default 제거 → 명시 안 되면 부팅 거부 (Spring <code>@Validated</code> + <code>@NotNull</code>)</li>
+          <li>application.yml에 <code>magicjar.mode</code> 주석으로 "REAL/MOCK 중 선택, default 없음" 명시</li>
+          <li>profile vs mode 일관성 체크 (real-kis profile + MOCK mode 조합 부팅 거부)</li>
+        </ul>
+      </div>
+    </article>
+
+    <!-- P0-8: 관측 도구 익명 노출 -->
+    <article class="finding p0-card" id="p0-8">
+      <div class="finding-header">
+        <div>
+          <p class="finding-id">P0-8 · backend-core</p>
+          <h3 class="finding-title">Grafana · Dozzle · Kafka UI · Prometheus 익명 접근 — KIS 키 평문 노출 risk</h3>
+        </div>
+        <span class="badge p0">P0 CRITICAL</span>
+      </div>
+
+      <div class="finding-evidence">
+        <span class="file">docker/docker-compose.observability.yml</span>:<span class="line">62</span> ·
+        <span class="file">docker/docker-compose.yml</span>:<span class="line">97</span>
+      </div>
+
+      <div class="why">
+        Grafana는 <code>GF_AUTH_ANONYMOUS_ENABLED=true</code> + viewer 권한. Dozzle (실시간 docker log 뷰어, :8888) · Kafka UI (:8090) · Prometheus (:9090) 인증 0. 로컬 개발 환경 가정이라도 MDC traceId · logback 출력에 KIS 키 마스킹 잔재 · 사용자 계좌번호가 흘러 들어가면 누구나 web으로 열람 가능.
+      </div>
+
+      <div class="flow-grid">
+        <div class="flow-box wrong">
+          <h4>🚨 현재 (외부 노출)</h4>
+          <div class="mermaid">
+flowchart TD
+  A[Grafana :3000<br/>익명 viewer ON] --> B[모든 dashboard 열람]
+  C[Dozzle :8888<br/>인증 0] --> D[실시간 docker log]
+  E[Kafka UI :8090<br/>인증 0] --> F[모든 topic 메시지 열람]
+  G[Prometheus :9090<br/>인증 0] --> H[metric 쿼리]
+  B --> I[KIS rate limit metric 노출]
+  D --> J[<mark>KIS 키 마스킹 잔재 노출</mark>]
+  F --> K[<mark>주문 메시지 평문 노출</mark>]
+  H --> I
+  style J fill:#fff0f0,stroke:#c7363d,stroke-width:3px
+  style K fill:#fff0f0,stroke:#c7363d,stroke-width:3px
+          </div>
+        </div>
+        <div class="flow-box right">
+          <h4>✅ 원래 이래야 함</h4>
+          <div class="mermaid">
+flowchart TD
+  A[All observability tools] --> B[bind 127.0.0.1]
+  B --> C{LAN 외부 접근?}
+  C -->|YES| D[차단]
+  C -->|NO localhost| E{Basic auth 통과?}
+  E -->|NO| F[차단]
+  E -->|YES| G[열람 허용 + audit log]
+  style B fill:#eaf7f0,stroke:#1d7f5f,stroke-width:2px
+  style D fill:#eaf7f0,stroke:#1d7f5f,stroke-width:2px
+          </div>
+        </div>
+      </div>
+
+      <div class="fix">
+        <h4>🔧 권장 fix</h4>
+        <ul>
+          <li><code>GF_AUTH_ANONYMOUS_ENABLED=false</code> + admin 비밀번호 강제 변경</li>
+          <li>4 컨테이너 모두 port mapping <code>"127.0.0.1:3000:3000"</code> 형태로 localhost bind</li>
+          <li>Dozzle <code>DOZZLE_AUTH_PROVIDER=simple</code> 또는 reverse-proxy + basic auth</li>
+          <li>Kafka UI <code>SPRING_SECURITY_USER_NAME/PASSWORD</code> set</li>
+          <li>logback pattern에서 KIS 키 정규식 마스킹 + 사용자 계좌번호 부분 마스킹 LOCK</li>
+        </ul>
+      </div>
+    </article>
+  </section>
+
+  <!-- ========== SECTION D: 설계 SoT 정합 ========== -->
+  <section>
+    <h2 class="section-title">D. 설계 SoT 정합 (architect)</h2>
+    <p class="section-intro">결정 권위(ADR/master) vs 실제 코드 drift. 자체 결함은 아니나 다음 사이클 의사결정 input이 깨져있으면 잘못된 판단 누적 risk.</p>
+
+    <!-- P0-9 -->
+    <article class="finding p0-card" id="p0-9">
+      <div class="finding-header">
+        <div>
+          <p class="finding-id">P0-9 · architect</p>
+          <h3 class="finding-title">ADR 0004 모듈 카운트 4중 drift — 4개 SoT가 서로 다른 수 주장</h3>
+        </div>
+        <span class="badge p0">P0 CRITICAL</span>
+      </div>
+
+      <div class="why">
+        ADR 0030이 정한 마스터 아키텍처 SoT 권위가 흔들립니다. 4개 권위 문서가 각자 다른 모듈 카운트를 주장 — 의사결정 input이 깨진 상태.
+      </div>
+
+      <div class="finding-evidence">
+        <span class="file">_workspace/arch/adr/README.md</span>:<span class="line">17</span> → "<strong>6 JVM</strong> + frontend (2026-05-18 갱신: 5 → 6)"<br>
+        <span class="file">docs/architecture/master-architecture.md</span>:<span class="line">563</span> §10 → "(<strong>4 JVM</strong> + frontend)"<br>
+        <span class="file">CLAUDE.md</span>:<span class="line">89</span> → "JVM <strong>7 모듈</strong>"<br>
+        <span class="file">settings.gradle.kts</span>:<span class="line">14-26</span> → 실제 <strong>8 JVM 모듈</strong> (domain + pattern-engine + indicator-impl + strategy-engine + persistence-shared + market-trend-engine + api + batch + consumer)
+      </div>
+
+      <div class="scenario">
+        <h4>⚠️ 이렇게 되면 어떤 문제가 생기나</h4>
+        <p>다음 사이클 architect가 새 모듈 추가 결정을 내릴 때 "지금 몇 모듈인지" 부터 합의 안 됨. ADR 0100 §2-2가 이미 "8 JVM 모듈"로 인용했는데 ADR 0004 본문은 6 → <strong>ADR 인용 chain이 자기 모순</strong>. ADR 0102가 강제하는 "spec 발행 시 5단계 audit"를 architect 본인이 적용 누락한 사례.</p>
+      </div>
+
+      <div class="fix">
+        <h4>🔧 권장 fix</h4>
+        <ul>
+          <li>ADR 0004 amend → "8 JVM + frontend" LOCK (baseline)</li>
+          <li>master-architecture.md §10 row 0004 동시 amend</li>
+          <li>README.md 인덱스 amend</li>
+          <li>CLAUDE.md 89행 "8 모듈"로 정정</li>
+          <li>architect 단독 PR 1건으로 4 문서 동시 amend (단일 책임 PR)</li>
+        </ul>
+      </div>
+    </article>
+
+    <!-- P0-10 -->
+    <article class="finding p0-card" id="p0-10">
+      <div class="finding-header">
+        <div>
+          <p class="finding-id">P0-10 · architect</p>
+          <h3 class="finding-title">master §10 인덱스 row count — 헤더 vs 실 row mismatch (ADR 0102 self-application 누락)</h3>
+        </div>
+        <span class="badge p0">P0 CRITICAL</span>
+      </div>
+
+      <div class="why">
+        master-architecture.md §10 헤더는 "0001~0057 Accepted + 0094~0104 Accepted" 명시. 실 row count = 111건. README 카운트 = 107건. 헤더가 자체적으로 합의되지 않은 상태. ADR 0102 ("spec 발행 시 5단계 audit")를 발행한 architect가 본인 SoT에 적용 누락.
+      </div>
+
+      <div class="fix">
+        <h4>🔧 권장 fix</h4>
+        <ul>
+          <li>master §10 헤더 + 실 row 카운트 일치</li>
+          <li>README 인덱스 재집계</li>
+          <li>ADR 0102 5단계 audit 절차에 "본인 영역 SoT 우선 검증" 명시</li>
+          <li>P0-9와 묶어 단일 PR</li>
+        </ul>
+      </div>
+    </article>
+  </section>
+
+  <!-- ========== SECTION E: 검증 운영 안전망 ========== -->
+  <section>
+    <h2 class="section-title">E. 검증 · 운영 안전망 (qa)</h2>
+    <p class="section-intro">"코드는 잘 짰지만 검증 evidence가 없으면 사용자에게 보여줄 수 없습니다." 헌법 §9-2 + verification-strict 룰 직접 위반 2건.</p>
+
+    <!-- P0-11 -->
+    <article class="finding p0-card" id="p0-11">
+      <div class="finding-header">
+        <div>
+          <p class="finding-id">P0-11 · qa</p>
+          <h3 class="finding-title">DR drill 자동 재현 0건 — ADR 0096 §6-2 분기 5 시나리오 의무 위반</h3>
+        </div>
+        <span class="badge p0">P0 CRITICAL</span>
+      </div>
+
+      <div class="why">
+        ADR 0096 §6-2는 "<strong>분기 1회 5 시나리오(DB 전체/부분/Flyway/컨테이너/Redis) 자동 재현 의무</strong>" LOCK. 그런데 <code>scripts/dr-drill*</code> 부재 + <code>frontend/tests/e2e/</code>에 drill·runbook 키워드 0건. 운영 단계 진입 후에도 자동화 0건 → Q2 baseline 측정 불가.
+      </div>
+
+      <div class="scenario">
+        <h4>⚠️ 이렇게 되면 어떤 문제가 생기나</h4>
+        <p>실제 DB 장애 발생 시 runbook 본문(<code>R1-R5</code>)은 있지만 한 번도 실행되지 않은 상태 → 복구 절차의 첫 명령이 작동하는지조차 검증 0. 사용자가 "DR drill 결과 보여줘" 요청 시 evidence 0건. 운영 단계 신뢰성 첫 의무 미충족.</p>
+      </div>
+
+      <div class="fix">
+        <h4>🔧 권장 fix</h4>
+        <ul>
+          <li><code>scripts/dr-drill.sh</code> + 5 sub-script (db-full / db-partial / flyway / container / redis) 발행</li>
+          <li>각 drill 후 <code>_workspace/qa/reports/dr-drill-YYYY-MM-DD.html</code> 자동 생성</li>
+          <li><code>docs/operations/runbook/R6-dr-drill.md</code> 분기 1회 trigger schedule 등록</li>
+          <li>Playwright spec <code>dr-drill.spec.ts</code> 5건 추가</li>
+        </ul>
+      </div>
+    </article>
+
+    <!-- P0-12 -->
+    <article class="finding p0-card" id="p0-12">
+      <div class="finding-header">
+        <div>
+          <p class="finding-id">P0-12 · qa</p>
+          <h3 class="finding-title">코덱스 fix 6 머지 후 qa Visual dispatch 0건 — 헌법 §9-2 + 할루시네이션 금지 룰 위반</h3>
+        </div>
+        <span class="badge p0">P0 CRITICAL</span>
+      </div>
+
+      <div class="why">
+        헌법 §9-2: "frontend 핵심 화면 변경 시 qa Visual 시나리오 자동 dispatch 의무". <code>feedback_verification_strict.md</code>: "로그·DB·STOMP·화면 실증 evidence 인용 의무 — 할루시네이션 금지". 그런데 최근 6 머지 (KIS reconcile timeout · order ticket · position buy/sell · market index real data · daily index dates · refresh after orders) 모두 qa dispatch 0건.
+      </div>
+
+      <div class="finding-evidence">
+        baseline PNG mtime = 모두 2026-05-22 이전 · 그 이후 frontend 13개 핵심 .tsx 변경<br>
+        신규 컴포넌트 <code>SymbolOrderTicket</code> · <code>PositionOrderModal</code> · <code>PositionSellModal</code> Playwright spec = <strong>0건</strong>
+      </div>
+
+      <div class="flow-grid">
+        <div class="flow-box wrong">
+          <h4>🚨 현재 (할루시네이션 risk)</h4>
+          <div class="mermaid">
+flowchart TD
+  A[코덱스 6 머지] --> B[핵심 화면 13 tsx 변경]
+  B --> C[qa Visual dispatch 0]
+  C --> D[baseline 5건 lag]
+  D --> E[신규 OrderTicket spec 0]
+  E --> F[<mark>다음 pnpm qa:visual 실행 시 RED 다수</mark>]
+  E --> G[<mark>사용자 dogfooding 결함 발견 시까지 회귀 미발견</mark>]
+  style F fill:#fff0f0,stroke:#c7363d,stroke-width:2px
+  style G fill:#fff0f0,stroke:#c7363d,stroke-width:3px
+          </div>
+        </div>
+        <div class="flow-box right">
+          <h4>✅ 원래 이래야 함 (헌법 §9-2)</h4>
+          <div class="mermaid">
+flowchart TD
+  A[frontend 핵심 화면 변경] --> B[orchestrator 인지]
+  B --> C[qa Visual 자동 dispatch]
+  C --> D[기존 baseline 회귀 검사]
+  D --> E{회귀?}
+  E -->|YES| F[fix → baseline 갱신]
+  E -->|NO| G[OK]
+  C --> H[신규 컴포넌트 spec 추가]
+  H --> I[새 baseline 생성]
+  style C fill:#eaf7f0,stroke:#1d7f5f,stroke-width:3px
+          </div>
+        </div>
+      </div>
+
+      <div class="fix">
+        <h4>🔧 권장 fix</h4>
+        <ul>
+          <li>baseline 5건 일괄 갱신 (s1-dashboard · s3-positions · s4-settings-modal · s6-symbol-detail · w4-1)</li>
+          <li>신규 spec 3건 발행: <code>SymbolOrderTicket</code> · <code>PositionBuyModal</code> · <code>PositionSellModal</code></li>
+          <li>orchestrator 룰 amend — frontend 핵심 화면 PR 머지 직후 qa dispatch 의무 자동화</li>
+          <li><code>.husky/pre-push</code> 또는 별도 hook에 <code>pnpm qa:visual</code> 통합 검토</li>
+        </ul>
+      </div>
+    </article>
+  </section>
+
+  <!-- ========== P1 SUMMARY ========== -->
+  <section>
+    <h2 class="section-title">F. P1 핵심 발견 (24건 중 highlight)</h2>
+    <p class="section-intro">P0만큼 긴급하진 않으나 다음 사이클 내 fix 권장. 대표 7건만 요약합니다.</p>
+
+    <div class="summary" style="margin: 0;">
+      <table>
+        <thead>
+          <tr><th>영역</th><th>결함</th><th>파일:라인</th><th>영향</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><span class="badge p1">P1</span> ai-engineer</td><td>DSL 변환 endpoint KillSwitch · TokenLimit 가드 우회</td><td><code>DslTranslateController.kt:72</code></td><td>비용 폭주</td></tr>
+          <tr><td><span class="badge p1">P1</span> strategy-engine</td><td>reactor block fix가 inquire path만, 주문 발사 본체 누락</td><td><code>KisOrderHttpAdapter.kt:260, 453</code></td><td>BlockHound 차단 risk</td></tr>
+          <tr><td><span class="badge p1">P1</span> market-data</td><td>api·consumer 토큰 TTL 정책 비대칭 (23h hardcode vs 동적)</td><td><code>KisAuthAdapter.kt:43</code> vs <code>KisTokenCacheHelper.kt:69</code></td><td>토큰 만료 race</td></tr>
+          <tr><td><span class="badge p1">P1</span> backend-core</td><td>Spring Security 0건 — 자본 path endpoint 무인증</td><td><code>api/build.gradle.kts</code></td><td>KIS 키·KillSwitch 토글 노출</td></tr>
+          <tr><td><span class="badge p1">P1</span> backend-core</td><td><code>Thread.sleep(1000)</code>가 reactor block 직후</td><td><code>KisReconcileBalanceAdapter.kt:243</code></td><td>Tomcat worker 1초 점유</td></tr>
+          <tr><td><span class="badge p1">P1</span> frontend</td><td>LWC <code>subscribeVisibleLogicalRangeChange</code> dispose 가드 부재</td><td><code>LightweightChart.tsx:526-566</code></td><td>stale fetch race</td></tr>
+          <tr><td><span class="badge p1">P1</span> qa</td><td>baseline 5건 코덱스 fix 이후 미갱신</td><td><code>frontend/tests/e2e/s*-snapshots/</code></td><td>차회 RED 다수</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ========== POSITIVE EVIDENCE ========== -->
+  <section>
+    <h2 class="section-title">G. 정합 GREEN 항목 (긍정 evidence)</h2>
+    <div class="pos">
+      <h3>아래는 audit 결과 견고하다고 확인된 항목입니다 — 다음 사이클에도 LOCK 유지 권장</h3>
+      <ul>
+        <li><strong>도메인 순수성</strong> — <code>domain/</code> Spring/JPA import 0건 (헥사고날 LOCK)</li>
+        <li><strong>Repository default fun</strong> — 19개 모두 abstract fun only (ADR 0051 정합)</li>
+        <li><strong>persistence-shared 분리</strong> — Outbox · SystemEvent · StompEvent 정합 (ADR 0088)</li>
+        <li><strong>Flyway V40~V55 점유 매트릭스</strong> — 1:1 정합 (ADR 0102 5단계 audit 첫 적용)</li>
+        <li><strong>AI W3 트랙 침투 0건</strong> — LLM provider import 0 (룰 5건 §5 LOCK)</li>
+        <li><strong>W4 AI Phase 1 완전 진입</strong> — 3 provider + Resilience4j + 4단 가드</li>
+        <li><strong>frontend Mock 룰 100% 준수</strong> — production 0건, 한국어 i18n 일관</li>
+        <li><strong>AES-256-GCM</strong> — IV 매번 SecureRandom + zero-fill</li>
+        <li><strong>실주문 5중 게이트 (UI)</strong> — mode badge + ALLOW_REAL + consent + KillSwitch + cooldown + 이중 confirm</li>
+        <li><strong>chartApi · candleSeries useState lift</strong> — 2026-05-19 chart P0 fix 정합 유지</li>
+        <li><strong>MDC 5 키 표준 + LogstashEncoder</strong> — ADR 0094 P0-OPS-1 정합</li>
+        <li><strong>stale jar 가드</strong> — smoke.sh mtime check + escape hatch 작동</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ========== CLEANUP VIOLATION ========== -->
+  <section>
+    <h2 class="section-title">H. 헌법 §2 정리 위반 (사이클 시작 자동 점검)</h2>
+    <p class="section-intro">audit와 별개로 헌법 §2 머지 후 정리 4단계 위반이 누적되어 있습니다. audit 종료 후 사용자 승인 받아 일괄 정리 권장.</p>
+    <div class="summary" style="margin: 0;">
+      <table>
+        <thead><tr><th>항목</th><th>잔재 수</th><th>위반 사유</th></tr></thead>
+        <tbody>
+          <tr><td>task 파일</td><td class="num">7</td><td>5건 이상이면 일괄 archive 의무 (헌법 §2 자동 점검 1)</td></tr>
+          <tr><td>worktree (main 외)</td><td class="num">6 (4 locked)</td><td><code>git worktree remove</code> 미수행</td></tr>
+          <tr><td>agent/* 브랜치</td><td class="num">5</td><td>머지 후 <code>git branch -d</code> 미수행</td></tr>
+          <tr><td>worktree-agent-* 브랜치</td><td class="num">1</td><td>Agent isolation 임시 ref 미정리 (헌법 §2 4-extended)</td></tr>
+          <tr><td>wrapper 디렉토리</td><td class="num">6</td><td>빈 .gradle/.idea 캐시 잔재 (헌법 §2 3-extended)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ========== NEXT ACTIONS ========== -->
+  <section>
+    <h2 class="section-title">I. 권장 다음 액션</h2>
+    <div class="summary" style="margin: 0;">
+      <h3 style="margin: 0 0 8px; color: var(--red);">🔴 즉시 (이번 사이클 — 자본 보호)</h3>
+      <ol>
+        <li><strong>strategy-engine P0 4건 fix</strong> — KillSwitch fail-closed 정정 + 활성화 게이트 5조건 + 백테스트 t+1 open shift + 멀티 종목 동일-t 우선순위 정책 (단일 PR 또는 4 PR 분할)</li>
+        <li><strong>market-data P0 2건 fix</strong> — <code>LiveDailyCandleScheduler</code> 휴장일 게이트 + WS <code>tryEmitNext</code> 반환 검사</li>
+        <li><strong>backend-core P0 2건 fix</strong> — <code>MagicjarProperties</code> 통합 + 관측 도구 익명 OFF + localhost bind</li>
+      </ol>
+      <h3 style="margin: 16px 0 8px; color: var(--amber);">🟡 다음 사이클</h3>
+      <ol start="4">
+        <li><strong>architect</strong> — ADR 0004 amend (모듈 카운트 8 LOCK) + master §10 정정 + chart-curator allowed values amend (단일 PR)</li>
+        <li><strong>ai-engineer</strong> — DSL 변환 endpoint KillSwitch · TokenLimit 가드 추가</li>
+        <li><strong>qa</strong> — baseline 5건 일괄 갱신 + DR drill 5 시나리오 발행 + 신규 OrderTicket · Position 3건 spec</li>
+        <li><strong>backend-core</strong> — Spring Security stub + Prometheus alerting + DR drill R6 runbook</li>
+      </ol>
+      <h3 style="margin: 16px 0 8px; color: var(--blue);">🔵 사용자 결재 의제</h3>
+      <ul>
+        <li>정리 위반 5건 일괄 처리 승인 (locked worktree 안전 확인)</li>
+        <li>P0 12건 fix dispatch 순서 — strategy-engine 단독 우선 vs 5 영역 병렬</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    <p>본 audit는 코드 변경 0건의 read-only 점검입니다. 7 에이전트(architect · backend-core · market-data · strategy-engine · ai-engineer · frontend · qa)가 각자 본인 영역만 검증한 후 orchestrator가 종합했습니다. 발견된 결함은 사용자(최고 관리자) 결재 후 영역 sub-agent에 fix dispatch 합니다.</p>
+    <p>· 작성: magicjar-orchestrator · 헌법 정합: <code>_workspace/arch/agent-charter.md</code> · 사이클: 2026-05-26</p>
+  </footer>
+</div>
+</body>
+</html>

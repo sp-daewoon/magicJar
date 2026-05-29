@@ -7,8 +7,8 @@ import io.swagger.v3.oas.annotations.media.Schema
 import io.swagger.v3.oas.annotations.responses.ApiResponse
 import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
+import kr.spdaewoon.magicjar.api.service.signal.EnrichedSignal
 import kr.spdaewoon.magicjar.api.service.signal.SignalQueryService
-import kr.spdaewoon.magicjar.domain.signal.Signal
 import org.slf4j.LoggerFactory
 import org.springframework.format.annotation.DateTimeFormat
 import org.springframework.http.HttpStatus
@@ -75,6 +75,18 @@ class SignalController(
         @RequestParam
         @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
         to: Instant,
+        @Parameter(description = "종목 코드 부분 검색 (선택)", example = "005930")
+        @RequestParam(required = false) code: String?,
+        @Parameter(description = "평가 인터벌 필터 (선택)", example = "1m")
+        @RequestParam(required = false) interval: String?,
+        @Parameter(
+            description = "매매 방향 필터 (선택)",
+            example = "BUY",
+            schema = Schema(allowableValues = ["BUY", "SELL", "HOLD"]),
+        )
+        @RequestParam(required = false) side: String?,
+        @Parameter(description = "발행 전략 ID 필터 (선택)", example = "8")
+        @RequestParam(required = false) strategyId: Long?,
         @Parameter(description = "페이지 번호 (0-based)", example = "0")
         @RequestParam(defaultValue = "0") page: Int,
         @Parameter(description = "페이지 크기", example = "50")
@@ -83,14 +95,26 @@ class SignalController(
         if (from.isAfter(to)) {
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "from은 to보다 이전이어야 합니다")
         }
-        log.debug("시그널 목록 조회: userId={} from={} to={} page={} size={}", userId, from, to, page, size)
-        val result = signalQueryService.list(userId, from, to, page, size)
+        log.debug(
+            "시그널 목록 조회: userId={} from={} to={} code={} interval={} side={} strategyId={} page={} size={}",
+            userId,
+            from,
+            to,
+            code,
+            interval,
+            side,
+            strategyId,
+            page,
+            size,
+        )
+        val result = signalQueryService.list(userId, from, to, code, interval, side, strategyId, page, size)
         return SignalPageResponse(
             content = result.content.map { toResponse(it) },
             page = result.number,
             size = result.size,
             totalElements = result.totalElements,
             totalPages = result.totalPages,
+            last = result.isLast,
         )
     }
 
@@ -121,10 +145,15 @@ class SignalController(
 
     // ─── private helper ───────────────────────────────────────────────────────
 
-    private fun toResponse(signal: Signal): SignalResponse =
-        SignalResponse(
+    private fun toResponse(enriched: EnrichedSignal): SignalResponse {
+        val signal = enriched.signal
+        return SignalResponse(
             id = signal.id ?: 0L,
             strategyId = signal.strategyId,
+            strategyName = enriched.strategyName,
+            strategyNameKo = enriched.strategyNameKo,
+            buyCondition = enriched.buyCondition,
+            sellCondition = enriched.sellCondition,
             userId = signal.userId,
             code = signal.code,
             interval = signal.interval.code,
@@ -136,6 +165,7 @@ class SignalController(
             contextJson = signal.contextJson,
             createdAt = signal.createdAt?.toString(),
         )
+    }
 }
 
 // ─── DTO ──────────────────────────────────────────────────────────────────────
@@ -146,6 +176,14 @@ data class SignalResponse(
     val id: Long,
     @field:Schema(description = "시그널 발행 전략 ID", example = "1")
     val strategyId: Long,
+    @field:Schema(description = "발행 전략명", example = "ma20_test")
+    val strategyName: String?,
+    @field:Schema(description = "발행 전략명(한글)", example = "이평선 돌파")
+    val strategyNameKo: String?,
+    @field:Schema(description = "발행 전략 매수 조건 DSL", example = "ma(5) crosses_above ma(20)")
+    val buyCondition: String?,
+    @field:Schema(description = "발행 전략 매도 조건 DSL", example = "close < ma(10)")
+    val sellCondition: String?,
     @field:Schema(description = "전략 소유자 userId", example = "1")
     val userId: String,
     @field:Schema(description = "종목 코드 (KIS 6자리)", example = "005930")
@@ -184,4 +222,6 @@ data class SignalPageResponse(
     val totalElements: Long,
     @field:Schema(description = "총 페이지 수", example = "2")
     val totalPages: Int,
+    @field:Schema(description = "마지막 페이지 여부", example = "true")
+    val last: Boolean,
 )

@@ -24,6 +24,8 @@ data class Strategy(
     val complexity: StrategyComplexity,
     val disabledReason: StrategyDisabledReason = StrategyDisabledReason.NULL,
     val status: StrategyStatus = StrategyStatus.ACTIVE,
+    val codes: List<String> = emptyList(),
+    val intervals: List<String> = emptyList(),
     val lastDisabledAt: Instant? = null,
     val evalMetricSummary: Map<String, Any>? = null,
     val createdAt: Instant = Instant.now(),

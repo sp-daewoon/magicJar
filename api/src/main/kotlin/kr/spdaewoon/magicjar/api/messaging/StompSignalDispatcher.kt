@@ -83,6 +83,10 @@ class StompSignalDispatcher(
         SignalResponse(
             id = toLong(raw["id"]),
             strategyId = toLong(raw["strategyId"]),
+            strategyName = raw["strategyName"]?.toString(),
+            strategyNameKo = raw["strategyNameKo"]?.toString(),
+            buyCondition = raw["buyCondition"]?.toString(),
+            sellCondition = raw["sellCondition"]?.toString(),
             userId = raw["userId"]?.toString() ?: "",
             code = raw["code"]?.toString() ?: "",
             interval = raw["interval"]?.toString() ?: "",

@@ -179,24 +179,18 @@ class RiskGatewayEvaluator {
 
         // 6. POSITION_LIMIT — A-1 min(absolute, capital × percent/100), BUY만 의미
         if (signal.side == SignalSide.BUY) {
-            val abs = context.config.maxPositionAmount
-            val pct = context.config.maxPositionPercent
-            val percentBudget =
-                if (context.currentCapital > BigDecimal.ZERO) {
-                    context.currentCapital
-                        .multiply(pct)
-                        .divide(BigDecimal("100"), 4, RoundingMode.HALF_UP)
-                } else {
-                    BigDecimal.ZERO
-                }
-            val budget = if (percentBudget < abs) percentBudget else abs
+            val positionBudget = resolvePositionBudget(context)
+            val existingExposure = currentCodeExposure(signal, context)
+            val remainingBudget = (positionBudget.budget - existingExposure).coerceAtLeast(BigDecimal.ZERO)
 
-            // Phase 1 quantity 결정은 T-O 트랙 — 시그널 단위 가격(priceAtSignal) > budget 시 즉시 BLOCKED.
+            // Phase 1 quantity 결정은 T-O 트랙 — 시그널 단위 가격(priceAtSignal) > 남은 종목 예산 시 즉시 BLOCKED.
             val unitCost = signal.priceAtSignal
-            if (unitCost > budget) {
+            if (unitCost > remainingBudget) {
                 val reasonText =
-                    "Unit price ${unitCost.toPlainString()} exceeds position budget " +
-                        "${budget.toPlainString()} (min(abs=${abs.toPlainString()}, pct=${percentBudget.toPlainString()}))"
+                    "Unit price ${unitCost.toPlainString()} exceeds remaining position budget " +
+                        "${remainingBudget.toPlainString()} " +
+                        "(budget=${positionBudget.budget.toPlainString()}, existing=${existingExposure.toPlainString()}, " +
+                        "min(abs=${positionBudget.absoluteLimit.toPlainString()}, pct=${positionBudget.percentBudget.toPlainString()}))"
                 return blocked(
                     signalId,
                     RiskRule.POSITION_LIMIT,
@@ -204,9 +198,11 @@ class RiskGatewayEvaluator {
                     context =
                         mapOf(
                             "unitCost" to unitCost.toPlainString(),
-                            "budget" to budget.toPlainString(),
-                            "absLimit" to abs.toPlainString(),
-                            "percentBudget" to percentBudget.toPlainString(),
+                            "budget" to positionBudget.budget.toPlainString(),
+                            "remainingBudget" to remainingBudget.toPlainString(),
+                            "existingExposure" to existingExposure.toPlainString(),
+                            "absLimit" to positionBudget.absoluteLimit.toPlainString(),
+                            "percentBudget" to positionBudget.percentBudget.toPlainString(),
                             "currentCapital" to context.currentCapital.toPlainString(),
                         ),
                 )
@@ -223,6 +219,52 @@ class RiskGatewayEvaluator {
         )
         return RiskGatewayResult.Allowed(signalId)
     }
+
+    fun resolveBuyQuantity(
+        signal: Signal,
+        context: RiskContext,
+    ): Int {
+        val positionBudget = resolvePositionBudget(context)
+        val existingExposure = currentCodeExposure(signal, context)
+        val remainingBudget = (positionBudget.budget - existingExposure).coerceAtLeast(BigDecimal.ZERO)
+        return remainingBudget
+            .divide(signal.priceAtSignal, 0, RoundingMode.DOWN)
+            .toInt()
+    }
+
+    private fun resolvePositionBudget(context: RiskContext): PositionBudget {
+        val absoluteLimit = context.config.maxPositionAmount
+        val percentBudget =
+            if (context.currentCapital > BigDecimal.ZERO) {
+                context.currentCapital
+                    .multiply(context.config.maxPositionPercent)
+                    .divide(BigDecimal("100"), 4, RoundingMode.HALF_UP)
+            } else {
+                BigDecimal.ZERO
+            }
+        val budget = if (percentBudget < absoluteLimit) percentBudget else absoluteLimit
+        return PositionBudget(
+            absoluteLimit = absoluteLimit,
+            percentBudget = percentBudget,
+            budget = budget,
+        )
+    }
+
+    private fun currentCodeExposure(
+        signal: Signal,
+        context: RiskContext,
+    ): BigDecimal =
+        context.currentPositions
+            .filter { it.code == signal.code && it.quantity > 0 }
+            .fold(BigDecimal.ZERO) { acc, position ->
+                acc + signal.priceAtSignal.multiply(BigDecimal(position.quantity))
+            }
+
+    private data class PositionBudget(
+        val absoluteLimit: BigDecimal,
+        val percentBudget: BigDecimal,
+        val budget: BigDecimal,
+    )
 
     private fun blocked(
         signalId: Long,

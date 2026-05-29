@@ -1,8 +1,7 @@
 package kr.spdaewoon.magicjar.api.persistence.signal
 
-import org.springframework.data.domain.Page
-import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
@@ -18,20 +17,15 @@ import java.time.Instant
  *
  * // AI 호출 0 — T-SIG 트랙 정책
  */
-interface SignalJpaRepository : JpaRepository<SignalJpaEntity, Long> {
+interface SignalJpaRepository :
+    JpaRepository<SignalJpaEntity, Long>,
+    JpaSpecificationExecutor<SignalJpaEntity> {
     fun findByStrategyIdAndCodeAndIntervalAndTs(
         strategyId: Long,
         code: String,
         interval: String,
         ts: Instant,
     ): SignalJpaEntity?
-
-    fun findByUserIdAndTsBetween(
-        userId: String,
-        from: Instant,
-        to: Instant,
-        pageable: Pageable,
-    ): Page<SignalJpaEntity>
 
     @Modifying
     @Query("UPDATE SignalJpaEntity s SET s.riskStatus = :status WHERE s.id = :id")

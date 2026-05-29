@@ -16,6 +16,7 @@ import { Link } from 'react-router-dom'
 import { useOnboardingStore } from '../../stores/onboarding'
 import { StrategyFilterBar, type StrategyFilterOption } from '../../components/strategy/StrategyFilterBar'
 import { StrategyList } from '../../components/strategy/StrategyList'
+import { StrategyRunStatusSummary } from '../../components/strategy/StrategyRunStatusSummary'
 import { SignalListPanel } from '../../components/strategy/SignalListPanel'
 import { useStompSignal } from '../../api/hooks/useStompSignal'
 
@@ -80,6 +81,8 @@ export function StrategyListPage() {
           새 전략 만들기
         </Link>
       </div>
+
+      <StrategyRunStatusSummary userId={userId} />
 
       {/* 전략 목록 섹션 */}
       <section aria-labelledby="strategy-section-heading" className="mb-10">

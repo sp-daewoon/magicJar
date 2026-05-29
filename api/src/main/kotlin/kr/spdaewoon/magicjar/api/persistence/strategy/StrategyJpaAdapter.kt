@@ -97,6 +97,8 @@ class StrategyJpaAdapter(
             lastDisabledAt = strategy.lastDisabledAt,
             evalMetricSummary = strategy.evalMetricSummary?.let { objectMapper.writeValueAsString(it) },
             status = strategy.status.name,
+            codes = strategy.codes.takeIf { it.isNotEmpty() }?.let { objectMapper.writeValueAsString(it) },
+            intervals = strategy.intervals.takeIf { it.isNotEmpty() }?.let { objectMapper.writeValueAsString(it) },
             createdAt = strategy.createdAt,
             updatedAt = strategy.updatedAt,
         )
