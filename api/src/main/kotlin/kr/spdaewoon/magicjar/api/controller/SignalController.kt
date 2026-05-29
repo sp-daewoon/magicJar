@@ -156,6 +156,7 @@ class SignalController(
             sellCondition = enriched.sellCondition,
             userId = signal.userId,
             code = signal.code,
+            codeName = enriched.codeName,
             interval = signal.interval.code,
             ts = signal.ts.toString(),
             side = signal.side.name,
@@ -188,6 +189,8 @@ data class SignalResponse(
     val userId: String,
     @field:Schema(description = "종목 코드 (KIS 6자리)", example = "005930")
     val code: String,
+    @field:Schema(description = "종목명 (instrument 테이블 join · 미동기화/stub 시 null)", example = "삼성전자")
+    val codeName: String?,
     @field:Schema(description = "평가 인터벌 code", example = "5m")
     val interval: String,
     @field:Schema(description = "boundary closing ts (ISO-8601 UTC)", example = "2026-05-12T00:05:00Z")

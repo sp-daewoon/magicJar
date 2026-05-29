@@ -62,6 +62,14 @@ export function SignalCard({ signal, isNew = false }: SignalCardProps) {
   const badge = SIDE_BADGE[signal.side] ?? SIDE_BADGE.HOLD
   // W4 R2 AI 진입점 — userId 1일 토큰 한도 키
   const userId = useOnboardingStore((s) => s.registeredUserId)
+  const instrumentLabel = signal.codeName ? (
+    <>
+      {signal.codeName}
+      <span className="font-mono text-xs font-normal text-gray-400">({signal.code})</span>
+    </>
+  ) : (
+    signal.code
+  )
 
   return (
     <article
@@ -85,10 +93,7 @@ export function SignalCard({ signal, isNew = false }: SignalCardProps) {
             to={`/symbol/${signal.code}`}
             className="text-sm font-semibold text-white hover:text-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-900"
           >
-            {signal.code}
-            {signal.codeName && (
-              <span className="ml-1 font-normal text-gray-400">{signal.codeName}</span>
-            )}
+            {instrumentLabel}
           </Link>
 
           {/* 인터벌 */}

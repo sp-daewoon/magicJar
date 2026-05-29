@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.api.service.signal
 
+import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.signal.SignalJpaAdapter
 import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyJpaRepository
@@ -18,6 +19,7 @@ import java.time.Instant
  */
 data class EnrichedSignal(
     val signal: Signal,
+    val codeName: String?,
     val strategyName: String?,
     val strategyNameKo: String?,
     val buyCondition: String?,
@@ -36,6 +38,7 @@ data class EnrichedSignal(
 @Service
 class SignalQueryService(
     private val signalJpaAdapter: SignalJpaAdapter,
+    private val instrumentJpaRepository: InstrumentJpaRepository,
     private val strategyJpaRepository: StrategyJpaRepository,
 ) {
     private val log = LoggerFactory.getLogger(SignalQueryService::class.java)
@@ -80,7 +83,8 @@ class SignalQueryService(
         )
         val signalPage = signalJpaAdapter.findByUserAndRange(userId, from, to, code, interval, side, strategyId, page, size)
         val strategyMap = loadStrategies(signalPage.content.map { it.strategyId })
-        return signalPage.map { enrich(it, strategyMap) }
+        val instrumentNameMap = loadInstrumentNames(signalPage.content.map { it.code })
+        return signalPage.map { enrich(it, strategyMap, instrumentNameMap) }
     }
 
     /**
@@ -101,7 +105,11 @@ class SignalQueryService(
         if (signal.userId != userId) {
             throw ResponseStatusException(HttpStatus.NOT_FOUND, "시그널 없음: id=$id")
         }
-        return enrich(signal, loadStrategies(listOf(signal.strategyId)))
+        return enrich(
+            signal,
+            loadStrategies(listOf(signal.strategyId)),
+            loadInstrumentNames(listOf(signal.code)),
+        )
     }
 
     // --- private helper ---
@@ -112,13 +120,26 @@ class SignalQueryService(
         return strategyJpaRepository.findAllById(distinct).mapNotNull { e -> e.id?.let { it to e } }.toMap()
     }
 
+    private fun loadInstrumentNames(codes: List<String>): Map<String, String> {
+        val distinct = codes.filter { it.isNotBlank() }.distinct()
+        if (distinct.isEmpty()) return emptyMap()
+        return instrumentJpaRepository
+            .findAllById(distinct)
+            .asSequence()
+            .filter { it.market != "UNKNOWN" }
+            .filter { it.name.isNotBlank() && it.name != it.code }
+            .associate { it.code to it.name }
+    }
+
     private fun enrich(
         signal: Signal,
         strategyMap: Map<Long, StrategyJpaEntity>,
+        instrumentNameMap: Map<String, String>,
     ): EnrichedSignal {
         val strategy = strategyMap[signal.strategyId]
         return EnrichedSignal(
             signal = signal,
+            codeName = instrumentNameMap[signal.code],
             strategyName = strategy?.name,
             strategyNameKo = strategy?.nameKo,
             buyCondition = strategy?.dslEntry,

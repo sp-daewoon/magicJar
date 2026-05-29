@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.api.messaging
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.controller.SignalResponse
+import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -33,6 +34,7 @@ import java.math.BigDecimal
 class StompSignalDispatcher(
     private val brokerMessagingTemplate: SimpMessagingTemplate,
     private val objectMapper: ObjectMapper,
+    private val instrumentJpaRepository: InstrumentJpaRepository,
     private val stompEventPersister: StompEventPersister,
 ) {
     private val log = LoggerFactory.getLogger(StompSignalDispatcher::class.java)
@@ -89,6 +91,7 @@ class StompSignalDispatcher(
             sellCondition = raw["sellCondition"]?.toString(),
             userId = raw["userId"]?.toString() ?: "",
             code = raw["code"]?.toString() ?: "",
+            codeName = resolveCodeName(raw),
             interval = raw["interval"]?.toString() ?: "",
             ts = raw["ts"]?.toString() ?: "",
             side = raw["side"]?.toString() ?: "HOLD",
@@ -98,6 +101,17 @@ class StompSignalDispatcher(
             contextJson = raw["contextJson"]?.toString(),
             createdAt = raw["createdAt"]?.toString(),
         )
+
+    private fun resolveCodeName(raw: Map<String, Any?>): String? {
+        val code = raw["code"]?.toString()?.takeIf { it.isNotBlank() } ?: return null
+        val payloadName = raw["codeName"]?.toString()?.takeIf { it.isNotBlank() && it != code }
+        if (payloadName != null) return payloadName
+        return runCatching { instrumentJpaRepository.findById(code).orElse(null) }
+            .getOrNull()
+            ?.takeIf { it.market != "UNKNOWN" }
+            ?.takeIf { it.name.isNotBlank() && it.name != it.code }
+            ?.name
+    }
 
     private fun toLong(value: Any?): Long =
         when (value) {

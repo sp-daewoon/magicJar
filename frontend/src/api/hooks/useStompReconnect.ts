@@ -158,7 +158,7 @@ function buildBackfillOrderToast(
 
 function buildBackfillSignalToast(s: SignalDto, createdAt?: string): ToastSpec {
   const sideKo = s.side === 'BUY' ? '매수' : s.side === 'SELL' ? '매도' : '홀드'
-  const codePart = s.codeName ? `${s.code} ${s.codeName}` : s.code
+  const codePart = s.codeName ? `${s.codeName}(${s.code})` : s.code
   const pricePart = formatPrice(s.price)
   const rulePart = s.rule ? ` — ${s.rule}` : ''
   const prefix = backfillTimePrefix(createdAt)
