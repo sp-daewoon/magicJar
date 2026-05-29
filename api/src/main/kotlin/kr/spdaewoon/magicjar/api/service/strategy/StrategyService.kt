@@ -195,9 +195,10 @@ class StrategyService(
         validateTransition(id, currentStatus, newStatus)
         if (newStatus == StrategyStatus.ACTIVE) {
             validateActivationReady(id, entity.userId)
+            strategyRepositoryPort.enable(id)
+        } else {
+            strategyJpaRepository.updateStatus(id, newStatus.name)
         }
-
-        strategyJpaRepository.updateStatus(id, newStatus.name)
         redisStrategyCache.invalidateAll()
         log.info("전략 status 전환: id={} {} → {}", id, currentStatus, newStatus)
 

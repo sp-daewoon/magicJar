@@ -68,10 +68,8 @@ class AutoPauseGuard(
                 autoPauseThreshold,
             )
             try {
-                // ADR 0067 F-1 정합 — Phase 2 backend-core가 strategy.status=PAUSED + StrategyCache evict + STOMP 알림.
-                // StrategyDisabledReason enum 신규 RISK_VIOLATION row는 Phase 2 권한 —
-                // Phase 1은 기존 MANUAL 값으로 graceful fallback (audit log + risk_event 본문이 사유 식별).
-                autoDisableCallback.onAutoDisable(strategyId, StrategyDisabledReason.MANUAL)
+                // ADR 0067 F-1 정합 — risk 차단 누적은 사용자 화면에서 구분 가능한 사유로 남긴다.
+                autoDisableCallback.onAutoDisable(strategyId, StrategyDisabledReason.RISK_VIOLATION)
             } catch (e: Exception) {
                 log.error(
                     "AutoPauseGuard onAutoDisable 호출 실패: strategyId={} err={}",

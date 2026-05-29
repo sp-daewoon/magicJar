@@ -16,8 +16,8 @@ package kr.spdaewoon.magicjar.domain.strategy
  * - 시스템 액션: ACTIVE → DISABLED (sandbox auto, ADR 0047 §2-2-D)
  *
  * ### 기존 자산 정합
- * 기존 [StrategyDisabledReason] (NULL·TIMEOUT·CPU_BUDGET_EXCEEDED·MANUAL)와 별도 axis.
- * status=DISABLED 일 때 disabledReason ∈ {TIMEOUT·CPU_BUDGET_EXCEEDED·MANUAL} 매트릭스.
+ * 기존 [StrategyDisabledReason] (NULL·TIMEOUT·CPU_BUDGET_EXCEEDED·MANUAL·RISK_VIOLATION)와 별도 axis.
+ * status=DISABLED 일 때 disabledReason ∈ {TIMEOUT·CPU_BUDGET_EXCEEDED·MANUAL·RISK_VIOLATION} 매트릭스.
  * status=ACTIVE 일 때 disabledReason=NULL 정합.
  *
  * spec 인용: ADR 0066 §2-6 F-1 + §5-1.
