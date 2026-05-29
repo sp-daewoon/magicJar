@@ -13,6 +13,7 @@ import {
 import { useDeleteSigStrategy, useToggleSigStrategyStatus } from '../../api/hooks/useSigStrategy'
 import { AiExplainEntry } from '../../features/ai/components/AiExplainEntry'
 import { useOnboardingStore } from '../../stores/onboarding'
+import { useToast } from '../ui/ToastProvider'
 
 // ──────────────────────────────────────────────
 // 상태 배지 스타일
@@ -23,6 +24,13 @@ const STATUS_BADGE: Record<StrategyStatus, { label: string; cls: string }> = {
   PAUSED:   { label: '일시정지', cls: 'bg-amber-900/80 text-amber-300 border border-amber-700' },
   DISABLED: { label: '비활성',  cls: 'bg-gray-700/80 text-gray-400 border border-gray-600' },
   DELETED:  { label: '삭제됨',  cls: 'bg-red-900/80 text-red-400 border border-red-800' },
+}
+
+const DISABLED_REASON_LABEL: Record<string, string> = {
+  TIMEOUT: '평가 시간 초과',
+  CPU_BUDGET_EXCEEDED: 'CPU 예산 초과',
+  MANUAL: '보호 중지',
+  RISK_VIOLATION: '리스크 차단 누적',
 }
 
 // ──────────────────────────────────────────────
@@ -38,6 +46,7 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
   const badge = STATUS_BADGE[strategy.status] ?? STATUS_BADGE.DISABLED
   const codes = Array.isArray(strategy.codes) ? strategy.codes : []
   const intervals = Array.isArray(strategy.intervals) ? strategy.intervals : []
+  const { showToast } = useToast()
   // W4 R2 AI 진입점 — userId 1일 토큰 한도 키
   const userId = useOnboardingStore((s) => s.registeredUserId)
 
@@ -47,7 +56,17 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
   function handleToggle() {
     const nextStatus: StrategyStatus =
       strategy.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE'
-    toggleMutation.mutate({ id: strategy.id, status: nextStatus })
+    toggleMutation.mutate(
+      { id: strategy.id, status: nextStatus },
+      {
+        onSuccess: () => {
+          showToast(statusSuccessMessage(nextStatus), 'success')
+        },
+        onError: (error) => {
+          showToast(resolveMutationErrorMessage(error), 'error')
+        },
+      },
+    )
   }
 
   function handleDelete() {
@@ -59,9 +78,13 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
     setConfirmDelete(false)
   }
 
-  const isToggleable = strategy.status === 'ACTIVE' || strategy.status === 'PAUSED'
+  const isToggleable = strategy.status === 'ACTIVE' || strategy.status === 'PAUSED' || strategy.status === 'DISABLED'
   const isDeletable = strategy.status !== 'DELETED'
   const isBusy = toggleMutation.isPending || deleteMutation.isPending
+  const disabledReasonLabel = strategy.disabledReason && strategy.disabledReason !== 'NULL'
+    ? DISABLED_REASON_LABEL[strategy.disabledReason] ?? strategy.disabledReason
+    : null
+  const disabledAtLabel = formatKst(strategy.lastDisabledAt)
 
   return (
     <article className="flex flex-col gap-3 rounded-xl border border-gray-800 bg-gray-900 p-5 transition-colors hover:border-gray-700">
@@ -123,9 +146,24 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
       <div className="grid grid-cols-2 gap-2 text-xs text-gray-500">
         <span>전략 ID {strategy.id}</span>
         <span className="text-right">
-          {strategy.status === 'ACTIVE' ? '실시간 평가 중' : '주문 미수행'}
+          {strategyStatusDescription(strategy.status)}
         </span>
       </div>
+
+      {strategy.status === 'DISABLED' && (
+        <div className="border-l-2 border-amber-500 pl-3 text-xs leading-5 text-amber-100">
+          <p className="font-medium">
+            {disabledReasonLabel
+              ? `중지 사유: ${disabledReasonLabel}`
+              : '중지 사유를 확인 중입니다'}
+          </p>
+          <p className="text-amber-200/70">
+            {disabledAtLabel
+              ? `${disabledAtLabel}에 자동매매 보호 장치가 전략을 멈췄습니다.`
+              : '자동매매 보호 장치가 전략을 멈췄습니다.'}
+          </p>
+        </div>
+      )}
 
       {/* DSL 미리보기 — 매수 / 매도 조건 */}
       {strategy.buyCondition && (
@@ -160,6 +198,8 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
               ? '처리 중...'
               : strategy.status === 'ACTIVE'
               ? '일시정지'
+              : strategy.status === 'DISABLED'
+              ? '다시 활성화'
               : '활성화'}
           </button>
         )}
@@ -186,7 +226,11 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
         )}
 
         {(toggleMutation.isError || deleteMutation.isError) && (
-          <p className="text-xs text-red-400">요청 실패. 다시 시도해 주세요.</p>
+          <p className="text-xs text-red-400">
+            {toggleMutation.isError
+              ? resolveMutationErrorMessage(toggleMutation.error)
+              : '요청 실패. 다시 시도해 주세요.'}
+          </p>
         )}
       </div>
 
@@ -209,4 +253,59 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
       </div>
     </article>
   )
+}
+
+function strategyStatusDescription(status: StrategyStatus): string {
+  switch (status) {
+    case 'ACTIVE':
+      return '실시간 평가 중'
+    case 'PAUSED':
+      return '사용자 일시정지'
+    case 'DISABLED':
+      return '보호 장치로 중지'
+    case 'DELETED':
+      return '삭제됨'
+  }
+}
+
+function statusSuccessMessage(status: StrategyStatus): string {
+  switch (status) {
+    case 'ACTIVE':
+      return '전략이 다시 활성화되었습니다.'
+    case 'PAUSED':
+      return '전략이 일시정지되었습니다.'
+    case 'DELETED':
+      return '전략이 삭제되었습니다.'
+    case 'DISABLED':
+      return '전략이 비활성화되었습니다.'
+  }
+}
+
+function formatKst(value: string | null | undefined): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+}
+
+function resolveMutationErrorMessage(error: unknown): string {
+  const fallback = '상태 변경 실패. 다시 시도해 주세요.'
+  if (error && typeof error === 'object' && 'response' in error) {
+    const data = (error as { response?: { data?: unknown } }).response?.data
+    if (typeof data === 'string' && data.trim()) return data
+    if (data && typeof data === 'object') {
+      const record = data as Record<string, unknown>
+      const message = record.message ?? record.error ?? record.detail
+      if (message) return String(message)
+    }
+  }
+  if (error instanceof Error && error.message) return error.message
+  return fallback
 }

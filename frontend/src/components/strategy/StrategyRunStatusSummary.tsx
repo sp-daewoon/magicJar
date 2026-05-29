@@ -1,7 +1,9 @@
 import { Link } from 'react-router-dom'
+import { useMemo } from 'react'
 import { useRuntimeFlags } from '../../api/hooks/useRuntimeFlags'
 import { useOrders } from '../../api/hooks/useOrders'
 import { useRiskConfig } from '../../api/hooks/useRiskConfig'
+import { useRiskEvents } from '../../api/hooks/useRiskEvents'
 import { useSignals } from '../../api/hooks/useSignal'
 import { useSigStrategies } from '../../api/hooks/useSigStrategy'
 import { type SigStrategyDto } from '../../api/strategy'
@@ -45,10 +47,19 @@ function strategyTargetLabel(strategy: SigStrategyDto): string {
 }
 
 export function StrategyRunStatusSummary({ userId }: StrategyRunStatusSummaryProps) {
+  const riskWindow = useMemo(() => {
+    const to = new Date()
+    const from = new Date(to.getTime() - 24 * 60 * 60 * 1000)
+    return {
+      from: from.toISOString(),
+      to: to.toISOString(),
+    }
+  }, [])
   const { data: runtimeFlags, isLoading: isRuntimeLoading } = useRuntimeFlags(userId)
   const { data: riskConfig } = useRiskConfig(userId)
   const { data: strategyPages, isLoading: isStrategiesLoading } = useSigStrategies(userId, 20)
   const { data: signalPages, isError: isSignalsError } = useSignals({ userId }, 5)
+  const { data: riskEventPages, isError: isRiskEventsError } = useRiskEvents(userId, riskWindow, 3)
   const { data: autoOrders, isError: isOrdersError } = useOrders({
     userId,
     source: 'AUTO',
@@ -60,6 +71,7 @@ export function StrategyRunStatusSummary({ userId }: StrategyRunStatusSummaryPro
   const activeStrategies = strategies.filter((strategy) => strategy.status === 'ACTIVE')
   const primaryStrategy = activeStrategies[0] ?? strategies[0]
   const latestSignal = signalPages?.pages[0]?.content[0]
+  const latestRiskEvent = riskEventPages?.pages[0]?.content[0]
   const latestAutoOrder = autoOrders?.content[0]
   const killSwitchOn = runtimeFlags?.killSwitchEnabled ?? false
   const isMock = runtimeFlags?.mode !== 'REAL'
@@ -154,14 +166,24 @@ export function StrategyRunStatusSummary({ userId }: StrategyRunStatusSummaryPro
       </div>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-gray-800 pt-3 text-xs text-gray-500">
-        <span>
-          최근 시그널:{' '}
-          {isSignalsError
-            ? '조회 실패'
-            : latestSignal
-              ? `${latestSignal.code} ${latestSignal.side} · ${formatKst(latestSignal.ts)}`
-              : '조건 대기 중'}
-        </span>
+        <div className="flex flex-col gap-1">
+          <span>
+            최근 시그널:{' '}
+            {isSignalsError
+              ? '조회 실패'
+              : latestSignal
+                ? `${latestSignal.code} ${latestSignal.side} · ${formatKst(latestSignal.ts)}`
+                : '조건 대기 중'}
+          </span>
+          <span>
+            최근 리스크:{' '}
+            {isRiskEventsError
+              ? '조회 실패'
+              : latestRiskEvent
+                ? `${latestRiskEvent.rule} · ${latestRiskEvent.reason} · ${formatKst(latestRiskEvent.ts)}`
+                : '차단 없음'}
+          </span>
+        </div>
         <div className="flex items-center gap-3">
           <Link to="/orders" className="font-medium text-blue-300 hover:text-blue-200">
             주문 보기

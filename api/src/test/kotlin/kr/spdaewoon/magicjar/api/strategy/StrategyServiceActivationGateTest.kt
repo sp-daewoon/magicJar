@@ -46,18 +46,19 @@ class StrategyServiceActivationGateTest {
             .hasMessageContaining("성공한 백테스트")
 
         verify(exactly = 0) { strategyJpaRepository.updateStatus(1L, StrategyStatus.ACTIVE.name) }
+        verify(exactly = 0) { strategyRepositoryPort.enable(1L) }
     }
 
     @Test
-    fun `성공한 백테스트가 있으면 ACTIVE 전환을 허용한다`() {
+    fun `성공한 백테스트가 있으면 ACTIVE 전환 시 비활성 사유를 함께 지운다`() {
         every { strategyJpaRepository.findByIdAndStatusNot(1L, StrategyStatus.DELETED.name) } returns entity(status = "PAUSED")
         every { backtestRunJpaRepository.existsAutoActivationReadyRun(1L, "1234") } returns true
-        every { strategyJpaRepository.updateStatus(1L, StrategyStatus.ACTIVE.name) } returns 1
         every { strategyRepositoryPort.findById(1L) } returns strategy(status = StrategyStatus.ACTIVE)
 
         service.toggleStatus(1L, StrategyStatus.ACTIVE)
 
-        verify(exactly = 1) { strategyJpaRepository.updateStatus(1L, StrategyStatus.ACTIVE.name) }
+        verify(exactly = 1) { strategyRepositoryPort.enable(1L) }
+        verify(exactly = 0) { strategyJpaRepository.updateStatus(1L, StrategyStatus.ACTIVE.name) }
         verify(exactly = 1) { redisStrategyCache.invalidateAll() }
     }
 

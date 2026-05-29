@@ -94,6 +94,17 @@ export interface RiskEventListParams {
   verdict?: RiskVerdict
 }
 
+type RiskEventBackendDto = Omit<Partial<RiskEventDto>, 'id' | 'userId' | 'signalId'> & {
+  id: string | number
+  userId: string | number
+  signalId?: string | number | null
+  createdAt?: string
+}
+
+type RiskEventBackendPage = Omit<Partial<RiskEventPage>, 'content'> & {
+  content?: RiskEventBackendDto[]
+}
+
 // ──────────────────────────────────────────────
 // API 함수
 // ──────────────────────────────────────────────
@@ -140,8 +151,8 @@ export const riskApi = {
     if (params.verdict) searchParams.set('verdict', params.verdict)
 
     const qs = searchParams.toString()
-    const res = await apiClient.get<RiskEventPage>(`/risk-events${qs ? `?${qs}` : ''}`)
-    return res.data
+    const res = await apiClient.get<RiskEventBackendPage>(`/risk-events${qs ? `?${qs}` : ''}`)
+    return normalizeRiskEventPage(res.data, params.page ?? 0, params.size ?? 50)
   },
 
   /**
@@ -149,7 +160,34 @@ export const riskApi = {
    * 리스크 이벤트 단건
    */
   getEvent: async (id: string, userId: number): Promise<RiskEventDto> => {
-    const res = await apiClient.get<RiskEventDto>(`/risk-events/${id}?userId=${userId}`)
-    return res.data
+    const res = await apiClient.get<RiskEventBackendDto>(`/risk-events/${id}?userId=${userId}`)
+    return normalizeRiskEvent(res.data)
   },
+}
+
+function normalizeRiskEvent(raw: RiskEventBackendDto): RiskEventDto {
+  return {
+    id: String(raw.id),
+    userId: Number(raw.userId),
+    verdict: raw.verdict ?? 'BLOCKED',
+    rule: raw.rule ?? 'UNKNOWN',
+    reason: raw.reason ?? '',
+    signalId: raw.signalId === null || raw.signalId === undefined ? undefined : String(raw.signalId),
+    strategyId: raw.strategyId,
+    strategyName: raw.strategyName,
+    ts: raw.ts ?? raw.createdAt ?? '',
+  }
+}
+
+function normalizeRiskEventPage(raw: RiskEventBackendPage, page: number, size: number): RiskEventPage {
+  const currentPage = raw.page ?? page
+  const totalPages = raw.totalPages ?? 0
+  return {
+    content: (raw.content ?? []).map(normalizeRiskEvent),
+    page: currentPage,
+    size: raw.size ?? size,
+    totalElements: raw.totalElements ?? raw.content?.length ?? 0,
+    totalPages,
+    last: raw.last ?? (totalPages === 0 || currentPage + 1 >= totalPages),
+  }
 }
