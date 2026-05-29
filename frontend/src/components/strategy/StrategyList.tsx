@@ -12,6 +12,13 @@ import { type StrategyStatus } from '../../api/strategy'
 import { type StrategyFilterOption } from './StrategyFilterBar'
 import { StrategyCard } from './StrategyCard'
 
+const FILTER_EMPTY_LABEL: Record<StrategyStatus, string> = {
+  ACTIVE: '자동매매중',
+  PAUSED: '중지',
+  DISABLED: '보호중지',
+  DELETED: '삭제됨',
+}
+
 interface StrategyListProps {
   /** ADR 0089 Phase 2 — userId number */
   userId: number
@@ -84,7 +91,7 @@ export function StrategyList({ userId, filter }: StrategyListProps) {
         <p className="text-sm text-gray-400">
           {filter === 'ALL'
             ? '등록된 전략이 없습니다.'
-            : `${filter} 상태의 전략이 없습니다.`}
+            : `${FILTER_EMPTY_LABEL[filter as StrategyStatus]} 상태의 전략이 없습니다.`}
         </p>
         <p className="text-xs text-gray-500">전략을 등록하고 실시간 시그널을 받아보세요.</p>
         <Link

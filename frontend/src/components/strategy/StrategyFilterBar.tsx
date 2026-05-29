@@ -16,9 +16,9 @@ interface StrategyFilterBarProps {
 
 const OPTIONS: { value: StrategyFilterOption; label: string }[] = [
   { value: 'ALL',      label: '전체' },
-  { value: 'ACTIVE',   label: '활성' },
-  { value: 'PAUSED',   label: '일시정지' },
-  { value: 'DISABLED', label: '비활성' },
+  { value: 'ACTIVE',   label: '자동매매중' },
+  { value: 'PAUSED',   label: '중지' },
+  { value: 'DISABLED', label: '보호중지' },
 ]
 
 const TAB_ACTIVE =
