@@ -2,7 +2,7 @@
  * StrategyCard — 전략 단건 카드 (T-SIG Phase 3 — ADR 0066)
  *
  * 표시 항목: 이름·codes·intervals·status badge·시그널 카운트
- * 액션: 상태 토글 (ACTIVE↔PAUSED), 삭제 (soft delete)
+ * 액션: 자동매매 중지/시작, 삭제 (soft delete)
  * 실제 데이터만 표시 (feedback_no_mock_data 정합)
  */
 import { useState } from 'react'
@@ -20,10 +20,10 @@ import { useToast } from '../ui/ToastProvider'
 // ──────────────────────────────────────────────
 
 const STATUS_BADGE: Record<StrategyStatus, { label: string; cls: string }> = {
-  ACTIVE:   { label: '활성',     cls: 'bg-emerald-900/80 text-emerald-300 border border-emerald-700' },
-  PAUSED:   { label: '일시정지', cls: 'bg-amber-900/80 text-amber-300 border border-amber-700' },
-  DISABLED: { label: '비활성',  cls: 'bg-gray-700/80 text-gray-400 border border-gray-600' },
-  DELETED:  { label: '삭제됨',  cls: 'bg-red-900/80 text-red-400 border border-red-800' },
+  ACTIVE:   { label: '자동매매중', cls: 'bg-emerald-900/80 text-emerald-300 border border-emerald-700' },
+  PAUSED:   { label: '중지됨',     cls: 'bg-amber-900/80 text-amber-300 border border-amber-700' },
+  DISABLED: { label: '보호중지',   cls: 'bg-gray-700/80 text-gray-400 border border-gray-600' },
+  DELETED:  { label: '삭제됨',     cls: 'bg-red-900/80 text-red-400 border border-red-800' },
 }
 
 const DISABLED_REASON_LABEL: Record<string, string> = {
@@ -192,15 +192,18 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
           <button
             onClick={handleToggle}
             disabled={isBusy}
-            className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs font-medium text-gray-200 transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-900"
+            className={[
+              'rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-offset-gray-900',
+              strategy.status === 'ACTIVE'
+                ? 'bg-amber-700 text-white hover:bg-amber-600 focus:ring-amber-300'
+                : 'bg-emerald-600 text-white hover:bg-emerald-500 focus:ring-emerald-300',
+            ].join(' ')}
           >
             {toggleMutation.isPending
               ? '처리 중...'
               : strategy.status === 'ACTIVE'
-              ? '일시정지'
-              : strategy.status === 'DISABLED'
-              ? '다시 활성화'
-              : '활성화'}
+              ? '자동매매 중지'
+              : '자동매매 시작'}
           </button>
         )}
 
@@ -258,9 +261,9 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
 function strategyStatusDescription(status: StrategyStatus): string {
   switch (status) {
     case 'ACTIVE':
-      return '실시간 평가 중'
+      return '자동매매 수행 중'
     case 'PAUSED':
-      return '사용자 일시정지'
+      return '자동매매 중지됨'
     case 'DISABLED':
       return '보호 장치로 중지'
     case 'DELETED':
@@ -271,13 +274,13 @@ function strategyStatusDescription(status: StrategyStatus): string {
 function statusSuccessMessage(status: StrategyStatus): string {
   switch (status) {
     case 'ACTIVE':
-      return '전략이 다시 활성화되었습니다.'
+      return '자동매매가 시작되었습니다.'
     case 'PAUSED':
-      return '전략이 일시정지되었습니다.'
+      return '자동매매가 중지되었습니다.'
     case 'DELETED':
       return '전략이 삭제되었습니다.'
     case 'DISABLED':
-      return '전략이 비활성화되었습니다.'
+      return '자동매매가 보호 중지되었습니다.'
   }
 }
 

@@ -82,7 +82,7 @@ export function StrategyRunStatusSummary({ userId }: StrategyRunStatusSummaryPro
       ? '주문 정지'
       : activeStrategies.length > 0
         ? '자동매매 감시 중'
-        : '활성 전략 없음'
+        : '자동매매중 전략 없음'
 
   const statusClass = killSwitchOn
     ? 'border-gray-700 bg-gray-800 text-gray-300'
@@ -101,7 +101,7 @@ export function StrategyRunStatusSummary({ userId }: StrategyRunStatusSummaryPro
             자동매매 현재 상태
           </h2>
           <p className="mt-1 text-sm text-gray-400">
-            모드, 활성 전략, 리스크 기준, 최근 자동 주문을 한 번에 봅니다.
+            모드, 자동매매중 전략, 리스크 기준, 최근 자동 주문을 한 번에 봅니다.
           </p>
         </div>
         <span className={`rounded-md border px-3 py-1 text-xs font-semibold ${statusClass}`}>
@@ -127,14 +127,14 @@ export function StrategyRunStatusSummary({ userId }: StrategyRunStatusSummaryPro
         </div>
 
         <div className="rounded-md border border-gray-800 bg-gray-950/60 p-3">
-          <p className="text-xs text-gray-500">활성 전략</p>
+          <p className="text-xs text-gray-500">자동매매중 전략</p>
           <p className="mt-1 text-sm font-semibold text-white">
             {activeStrategies.length.toLocaleString('ko-KR')}개
           </p>
           <p className="mt-1 truncate text-xs text-gray-500" title={primaryStrategy ? strategyTargetLabel(primaryStrategy) : undefined}>
             {primaryStrategy
               ? `#${primaryStrategy.id} ${strategyTargetLabel(primaryStrategy)}`
-              : '전략을 활성화해야 신호를 평가합니다'}
+              : '전략을 자동매매 시작해야 신호를 평가합니다'}
           </p>
         </div>
 

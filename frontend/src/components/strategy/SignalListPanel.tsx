@@ -4,13 +4,15 @@
  * - useSignals(params) 무한 쿼리
  * - 실시간 prepend: useStompSignal signalQueue 수신 시 목록 상단 표시
  * - 필터: code·interval·side
- * - 빈 목록: "활성 전략 시그널이 아직 발생하지 않았습니다"
+ * - 빈 목록: "자동매매중 전략 시그널이 아직 발생하지 않았습니다"
  * - feedback_no_mock_data 정합
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSignals } from '../../api/hooks/useSignal'
 import { useSigStrategies } from '../../api/hooks/useSigStrategy'
+import { type InstrumentSearchResultDto } from '../../api/instrument'
 import { type SignalDto, type SignalSide } from '../../api/signal'
+import { InstrumentSearchInput } from '../InstrumentSearchInput'
 import { SignalCard } from './SignalCard'
 
 // ──────────────────────────────────────────────
@@ -78,6 +80,7 @@ export function SignalListPanel({ userId, prependSignals = [] }: SignalListPanel
   const [rangePreset, setRangePreset] = useState<RangePreset>('today')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
+  const [codeSearchValue, setCodeSearchValue] = useState('')
   const [newIds, setNewIds] = useState<Set<string>>(new Set())
 
   // 전략 필터 드롭다운 — 사용자 전략 목록
@@ -148,6 +151,16 @@ export function SignalListPanel({ userId, prependSignals = [] }: SignalListPanel
   const uniquePrepend = prependSignals.filter((s) => !restIds.has(s.id))
   const allSignals = [...uniquePrepend, ...restSignals]
 
+  function handleInstrumentSelect(result: InstrumentSearchResultDto) {
+    setCodeSearchValue(`${result.name} (${result.code})`)
+    setFilter((f) => ({ ...f, code: result.code }))
+  }
+
+  function clearCodeFilter() {
+    setCodeSearchValue('')
+    setFilter((f) => ({ ...f, code: '' }))
+  }
+
   return (
     <section aria-labelledby="signal-list-heading" className="flex flex-col gap-4">
       {/* 섹션 헤더 */}
@@ -211,15 +224,25 @@ export function SignalListPanel({ userId, prependSignals = [] }: SignalListPanel
 
         {/* 2행: 종목·전략·인터벌·방향 */}
         <div className="flex flex-wrap items-center gap-3">
-          {/* 종목 코드 검색 */}
-          <input
-            type="text"
-            value={filter.code}
-            onChange={(e) => setFilter((f) => ({ ...f, code: e.target.value.toUpperCase() }))}
-            placeholder="종목 코드"
-            maxLength={6}
-            className="w-28 rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-          />
+          {/* 종목 검색 */}
+          <div className="relative z-20 flex min-w-[260px] items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <InstrumentSearchInput
+                value={codeSearchValue}
+                onSelect={handleInstrumentSelect}
+                placeholder="종목명 또는 코드"
+              />
+            </div>
+            {filter.code && (
+              <button
+                type="button"
+                onClick={clearCodeFilter}
+                className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-2.5 text-xs font-medium text-gray-300 transition-colors hover:bg-gray-700 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+              >
+                초기화
+              </button>
+            )}
+          </div>
 
           {/* 전략 필터 */}
           <select
@@ -298,9 +321,9 @@ export function SignalListPanel({ userId, prependSignals = [] }: SignalListPanel
       ) : allSignals.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-gray-700 bg-gray-900/40 py-12 text-center">
           <p className="text-sm text-gray-400">
-            활성 전략 시그널이 아직 발생하지 않았습니다.
+            자동매매중 전략 시그널이 아직 발생하지 않았습니다.
           </p>
-          <p className="text-xs text-gray-500">전략을 활성화하면 시그널이 여기에 표시됩니다.</p>
+          <p className="text-xs text-gray-500">전략을 자동매매 시작하면 시그널이 여기에 표시됩니다.</p>
         </div>
       ) : (
         <div className="flex flex-col gap-2">
