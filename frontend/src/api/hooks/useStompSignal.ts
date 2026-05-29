@@ -44,7 +44,7 @@ function formatPrice(priceStr: string): string {
 /** 시그널 토스트 메시지 조립 */
 function buildToastMessage(signal: SignalDto): string {
   const sideLabel = signal.side === 'BUY' ? '매수' : signal.side === 'SELL' ? '매도' : '홀드'
-  const codePart = signal.codeName ? `${signal.code} ${signal.codeName}` : signal.code
+  const codePart = signal.codeName ? `${signal.codeName}(${signal.code})` : signal.code
   const pricePart = formatPrice(signal.price)
   const rulePart = signal.rule ? ` — ${signal.rule}` : ''
   return `[${sideLabel}] ${codePart} ${signal.interval} ${pricePart}원${rulePart}`

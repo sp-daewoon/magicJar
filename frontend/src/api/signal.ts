@@ -151,6 +151,7 @@ function normalizeSignal(raw: SignalBackendDto): SignalDto {
     sellCondition: raw.sellCondition ?? undefined,
     userId: Number(raw.userId),
     code: raw.code ?? '',
+    codeName: raw.codeName ?? undefined,
     interval: raw.interval ?? '',
     side: normalizeSide(raw.side),
     price: String(price),
