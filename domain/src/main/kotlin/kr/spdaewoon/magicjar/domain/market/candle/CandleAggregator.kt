@@ -33,6 +33,8 @@ import kotlinx.datetime.toLocalDateTime
  *   30m : 08:00, 08:30, ..., 19:30  (24 bars/일)
  *   90m : 08:00, 09:30, 11:00, 12:30, 14:00, 15:30, 17:00, 18:30  (8 bars/일)
  *   1h  : 08:00, 09:00, ..., 19:00  (12 bars/일)
+ *   4h  : 08:00, 12:00, 16:00  (3 bars/일)
+ *   12h : 08:00  (1 bar/일)
  *
  * 5m·15m·30m·1h 는 KST 자정 기준의 단순 modulo 로도 자연스럽게 08:00·08:05·... 등에 정렬됨
  * (자정 기준 480분 = 08:00, 480/5·480/15·480/30·480/60 모두 정수).
@@ -89,7 +91,7 @@ object CandleAggregator {
      * @param candles 1m candle list
      * @param target  목표 합산 interval (FIVE_MIN·FIFTEEN_MIN·THIRTY_MIN·NINETY_MIN·ONE_HOUR·FOUR_HOUR·TWELVE_HOUR)
      * @return 합산된 candle list (ts ASC 정렬, target boundary 정합)
-     * @throws IllegalArgumentException target 이 ONE_MIN 이거나 지원 5종 외이거나, 입력에 비-1m candle 포함
+     * @throws IllegalArgumentException target 이 ONE_MIN 이거나 지원 대상 외이거나, 입력에 비-1m candle 포함
      */
     fun aggregate(
         candles: List<Candle>,
@@ -106,10 +108,6 @@ object CandleAggregator {
         val invalidInterval = candles.firstOrNull { it.interval != CandleInterval.ONE_MIN }
         require(invalidInterval == null) {
             "입력 candles 는 모두 ONE_MIN 이어야 함 (발견: interval=${invalidInterval?.interval})"
-        }
-
-        if (target == CandleInterval.TWELVE_HOUR) {
-            return aggregateTwelveHourActualLast(candles)
         }
 
         // ts 동일·코드 동일 boundary 그룹화. groupBy 는 순서를 보존하므로 sortedBy 선행 시
@@ -190,6 +188,7 @@ object CandleAggregator {
                 CandleInterval.THIRTY_MIN -> (minOfDay / 30) * 30
                 CandleInterval.ONE_HOUR -> (minOfDay / 60) * 60
                 CandleInterval.FOUR_HOUR -> fourHourBoundaryMin(minOfDay)
+                CandleInterval.TWELVE_HOUR -> KST_MIDNIGHT_TO_OPEN_MIN
                 CandleInterval.NINETY_MIN -> ninetyMinBoundaryMin(minOfDay)
                 else ->
                     throw IllegalArgumentException(
@@ -231,23 +230,5 @@ object CandleAggregator {
         if (minOfDay < KST_MIDNIGHT_TO_OPEN_MIN) return KST_MIDNIGHT_TO_OPEN_MIN
         val offset = minOfDay - KST_MIDNIGHT_TO_OPEN_MIN
         return KST_MIDNIGHT_TO_OPEN_MIN + (offset / 240) * 240
-    }
-
-    /**
-     * 12h는 사용자가 지적한 정책대로 고정 08:00~20:00 한 개 봉을 만들지 않는다.
-     * KST 날짜·종목별 실제 마지막 1m candle을 끝점으로 삼고, 거기서 최대 720개 1분봉을 역산해 하나의 bar로 합산한다.
-     */
-    private fun aggregateTwelveHourActualLast(candles: List<Candle>): List<Candle> {
-        val sorted = candles.sortedBy { it.ts.epochSeconds }
-        return sorted
-            .groupBy { candle -> candle.code to candle.ts.toLocalDateTime(KST).date }
-            .values
-            .mapNotNull { dayCandles ->
-                val daySorted = dayCandles.sortedBy { it.ts.epochSeconds }
-                val last = daySorted.lastOrNull() ?: return@mapNotNull null
-                val windowStartEpochSec = last.ts.epochSeconds - 719L * 60L
-                val window = daySorted.filter { it.ts.epochSeconds >= windowStartEpochSec }
-                if (window.isEmpty()) null else aggregateGroup(window.first().ts.epochSeconds, window, CandleInterval.TWELVE_HOUR)
-            }.sortedBy { it.ts.epochSeconds }
     }
 }

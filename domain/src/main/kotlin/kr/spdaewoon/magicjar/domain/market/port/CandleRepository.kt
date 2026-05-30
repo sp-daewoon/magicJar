@@ -28,7 +28,7 @@ interface CandleRepository {
     /**
      * 특정 종목·interval 의 전체 candle list 반환 (ts ASC).
      *
-     * ADR 0062 §9 — AggregateBackfillRunner 가 1m 전량 → 5m·15m·30m·90m·1h 합산 시 사용.
+     * ADR 0062 §9 — AggregateBackfillRunner 가 1m 전량 → 5m·15m·30m·90m·1h·4h·12h 합산 시 사용.
      * 30 거래일 1m 기준 ~10k~20k row 예상 (in-memory aggregation 가능 범위).
      */
     fun findByCodeAndInterval(

@@ -28,7 +28,7 @@ import java.time.ZoneId
  *   1. 현재 날짜가 영업일인지 확인 (비영업일 → skip)
  *   2. Redis candle:today:{code}:1d Hash 키 스캔 → 1d candle DB INSERT (ON CONFLICT DO NOTHING)
  *   3. KIS WS tick 집계 값 직접 사용 — 자체 계산 0 (ADR 0013 §3-7 §6 정합)
- *   4. ADR 0062 §9 NXT cover — watchlist 전 종목 당일 1m → 5m·15m·30m·90m·1h 합산 갱신
+ *   4. ADR 0062 §9 NXT cover — watchlist 전 종목 당일 1m → 5m·15m·30m·90m·1h·4h·12h 합산 갱신
  *      (cold-start 합산 이후 당일 1m 추가 수집분이 있어 갱신 필요)
  *
  * T3 fallback source: 이 파이널라이저가 영속한 1d candle은 candle-data-policy-v2 §6 T3 소스.
@@ -143,7 +143,7 @@ class DailyCloseFinalizer(
             elapsed1d,
         )
 
-        // ADR 0062 §9 NXT cover — 당일 1m 전량 → 5m·15m·30m·90m·1h 합산 갱신.
+        // ADR 0062 §9 NXT cover — 당일 1m 전량 → 5m·15m·30m·90m·1h·4h·12h 합산 갱신.
         // cold-start 이후 당일 1m 추가 수집분(장중 누적) 이 있어 20:00 재합산 의무.
         // 실패 시 warn 기록 후 계속 진행 (일봉 영속 결과에 영향 없음).
         flushAggregations(today)
@@ -157,7 +157,7 @@ class DailyCloseFinalizer(
     }
 
     /**
-     * watchlist 전 종목 당일 1m → 5m·15m·30m·90m·1h 합산 갱신.
+     * watchlist 전 종목 당일 1m → 5m·15m·30m·90m·1h·4h·12h 합산 갱신.
      * ADR 0062 §9 NXT cover 정합 — 20:00 KST 마감 후 당일 분봉 전량 합산.
      */
     private fun flushAggregations(today: LocalDate) {

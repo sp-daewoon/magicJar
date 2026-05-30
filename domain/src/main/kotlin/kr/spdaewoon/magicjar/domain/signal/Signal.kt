@@ -21,7 +21,7 @@ import java.math.BigDecimal
  * @param strategyId 시그널 발행 전략 ID
  * @param userId 정합 cache (signal table denormalized — 페이징 조회 효율)
  * @param code 종목 코드 (KIS 6자리)
- * @param interval 평가 인터벌 (5m·15m·30m·90m·1h 중 하나)
+ * @param interval 평가 인터벌 (1m·5m·15m·30m·90m·1h·4h·12h 등)
  * @param ts boundary closing ts (deterministic — ADR 0064 §4-2 정합)
  * @param side BUY · SELL · HOLD ([SignalSide])
  * @param strength 0~100 — 룰 매칭 강도 (ADR 0023 §2-1 baseline)

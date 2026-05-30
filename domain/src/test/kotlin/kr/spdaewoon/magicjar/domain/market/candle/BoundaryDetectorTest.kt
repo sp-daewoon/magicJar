@@ -231,8 +231,13 @@ class BoundaryDetectorTest {
     }
 
     @Test
-    fun `12h boundary는 실제 마지막 봉 기반이라 실시간 boundary detector에서 닫지 않는다`() {
-        BoundaryDetector.isBoundaryClosed(kstInstant(19, 59), CandleInterval.TWELVE_HOUR) shouldBe false
+    fun `12h boundary 마감 분 정합 - 19h59m`() {
+        BoundaryDetector.isBoundaryClosed(kstInstant(19, 59), CandleInterval.TWELVE_HOUR) shouldBe true
+    }
+
+    @Test
+    fun `12h boundary 비마감 분 - 19h58m`() {
+        BoundaryDetector.isBoundaryClosed(kstInstant(19, 58), CandleInterval.TWELVE_HOUR) shouldBe false
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -341,5 +346,12 @@ class BoundaryDetectorTest {
         val ts = kstInstant(19, 59)
         val result = BoundaryDetector.boundaryStartTs(ts, CandleInterval.ONE_HOUR)
         result shouldBe kstInstant(19, 0)
+    }
+
+    @Test
+    fun `boundaryStartTs 12h - 19h59m → 08h00m`() {
+        val ts = kstInstant(19, 59)
+        val result = BoundaryDetector.boundaryStartTs(ts, CandleInterval.TWELVE_HOUR)
+        result shouldBe kstInstant(8, 0)
     }
 }

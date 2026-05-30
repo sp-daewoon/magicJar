@@ -66,7 +66,7 @@ class RealtimeSignalGenerator(
      * Kafka boundary closed payload 수신 시 호출.
      *
      * @param code 종목 코드
-     * @param interval 평가 인터벌 (5m·15m·30m·90m·1h 중 하나)
+     * @param interval 평가 인터벌 (1m·5m·15m·30m·90m·1h·4h·12h 중 하나)
      * @param boundaryTs boundary closing ts (deterministic — ADR 0064 §4-2)
      * @param candle 마감된 boundary 캔들 (payload에서 변환)
      */

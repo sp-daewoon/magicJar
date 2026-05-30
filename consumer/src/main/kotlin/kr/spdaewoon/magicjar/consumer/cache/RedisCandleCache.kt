@@ -9,19 +9,21 @@ import java.time.Duration
 import kotlinx.datetime.Instant as KtInstant
 
 /**
- * 장중 진행 중 캔들 Redis hash 캐시 어댑터 — 5종 boundary 캐시 (ADR 0064 A-1 채택).
+ * 장중 진행 중 캔들 Redis hash 캐시 어댑터 — boundary 캐시 (ADR 0064 A-1 채택).
  *
- * ADR 0029 §2-1 매트릭스 LOCK (5m·15m·30m·90m·1h 5종 별도 키):
+ * ADR 0029 §2-1 매트릭스 LOCK (5m·15m·30m·90m·1h·4h·12h 별도 키):
  *   candle:current:{code}:5m   → 당일 5m bar  (5분 boundary 마감 시 갱신)
  *   candle:current:{code}:15m  → 당일 15m bar (15분 boundary 마감 시 갱신)
  *   candle:current:{code}:30m  → 당일 30m bar (30분 boundary 마감 시 갱신)
  *   candle:current:{code}:90m  → 당일 90m bar (90분 boundary 마감 시 갱신)
  *   candle:current:{code}:1h   → 당일 1h bar  (60분 boundary 마감 시 갱신)
+ *   candle:current:{code}:4h   → 당일 4h bar  (4시간 boundary 마감 시 갱신)
+ *   candle:current:{code}:12h  → 당일 12h bar (12시간 boundary 마감 시 갱신)
  *
  * Hash fields: ts(epochSecond), open, high, low, close, volume, source
  * TTL: 25h (장 마감(20:00) 후 다음 영업일 갱신 보장, DailyCloseFinalizer evict 전 유지)
  *
- * 지원 interval: FIVE_MIN·FIFTEEN_MIN·THIRTY_MIN·NINETY_MIN·ONE_HOUR (5종 ADR 0062 정합)
+ * 지원 interval: FIVE_MIN·FIFTEEN_MIN·THIRTY_MIN·NINETY_MIN·ONE_HOUR·FOUR_HOUR·TWELVE_HOUR
  * 1m·1d 는 KisWebSocketBridge·DailyCloseFinalizer 각각 처리 — 본 클래스 범위 외.
  *
  * 헌법 §6 JPA default fun 함정 해당 없음 (Redis 어댑터 — JPA interface 아님).
@@ -44,6 +46,7 @@ class RedisCandleCache(
                 CandleInterval.NINETY_MIN,
                 CandleInterval.ONE_HOUR,
                 CandleInterval.FOUR_HOUR,
+                CandleInterval.TWELVE_HOUR,
             )
     }
 
@@ -54,7 +57,7 @@ class RedisCandleCache(
      * fields: ts, open, high, low, close, volume, source
      *
      * @param code 종목코드 (KIS 6자리)
-     * @param interval target interval (FIVE_MIN·FIFTEEN_MIN·THIRTY_MIN·NINETY_MIN·ONE_HOUR)
+     * @param interval target interval (FIVE_MIN·FIFTEEN_MIN·THIRTY_MIN·NINETY_MIN·ONE_HOUR·FOUR_HOUR·TWELVE_HOUR)
      * @param candle 합산 완결된 캔들 (boundary 마감 bar)
      */
     fun putBoundaryCandle(
@@ -63,7 +66,7 @@ class RedisCandleCache(
         candle: Candle,
     ) {
         require(interval in SUPPORTED_INTERVALS) {
-            "RedisCandleCache: 지원하지 않는 interval=$interval (지원: 5m·15m·30m·90m·1h·4h)"
+            "RedisCandleCache: 지원하지 않는 interval=$interval (지원: 5m·15m·30m·90m·1h·4h·12h)"
         }
         val key = buildKey(code, interval)
         try {
@@ -100,7 +103,7 @@ class RedisCandleCache(
         interval: CandleInterval,
     ): Candle? {
         require(interval in SUPPORTED_INTERVALS) {
-            "RedisCandleCache: 지원하지 않는 interval=$interval (지원: 5m·15m·30m·90m·1h·4h)"
+            "RedisCandleCache: 지원하지 않는 interval=$interval (지원: 5m·15m·30m·90m·1h·4h·12h)"
         }
         val key = buildKey(code, interval)
         return try {
