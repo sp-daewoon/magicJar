@@ -93,7 +93,7 @@ class SymbolController(
         summary = "종목 캔들(차트) 시계열 조회",
         description =
             "interval 인터벌의 캔들 시계열을 반환합니다 (DB candle + Redis current·today 합류). " +
-                "interval: 1m·5m·30m·1h·1d·1wk·1mo·1y (8종 — ADR 0019 §2-2). " +
+                "interval: 1m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y. " +
                 "before: 페이지네이션 cursor (ISO8601, 미지정 시 최신). " +
                 "limit: 1 ≤ limit ≤ 5000 (default 600 — ADR 0093 §3-1 LOCK). " +
                 "응답 candles는 ts ASC 정렬 (LWC v4 setData 기대). " +
@@ -117,7 +117,7 @@ class SymbolController(
     fun getCandles(
         @Parameter(description = "KIS 종목코드 6자리", example = "005930")
         @PathVariable code: String,
-        @Parameter(description = "인터벌 (1m·5m·30m·1h·1d·1wk·1mo·1y)", example = "1d")
+        @Parameter(description = "인터벌 (1m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y)", example = "1d")
         @RequestParam(defaultValue = "1d") interval: String,
         @Parameter(description = "페이지네이션 cursor — 이 시각 이전 candle 반환 (ISO8601)", example = "2026-05-07T15:30:00Z")
         @RequestParam(required = false) before: String?,
@@ -128,7 +128,7 @@ class SymbolController(
         if (interval !in candleQueryService.supportedIntervals) {
             throw ResponseStatusException(
                 HttpStatus.BAD_REQUEST,
-                "지원하지 않는 interval: $interval (허용: 1m·5m·30m·1h·1d·1wk·1mo·1y)",
+                "지원하지 않는 interval: $interval (허용: 1m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y)",
             )
         }
         return candleQueryService.getCandles(code, interval, before, limit)

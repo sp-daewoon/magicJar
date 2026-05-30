@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS candle (
     CONSTRAINT pk_candle PRIMARY KEY (id),
     CONSTRAINT uq_candle_code_interval_ts UNIQUE (code, interval, ts),
     CONSTRAINT chk_candle_interval CHECK (
-        interval IN ('1m', '2m', '5m', '15m', '30m', '90m', '1h', '1d', '1wk', '1mo', '1y')
+        interval IN ('1m', '2m', '5m', '15m', '30m', '90m', '1h', '4h', '12h', '1d', '1wk', '1mo', '1y')
     )
 );
 

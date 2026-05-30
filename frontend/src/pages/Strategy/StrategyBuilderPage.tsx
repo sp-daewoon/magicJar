@@ -274,7 +274,7 @@ export function StrategyBuilderPage() {
                   onChange={(e) => setEvalForm((f) => ({ ...f, interval: e.target.value }))}
                   className="w-full rounded border border-gray-700 bg-gray-950 px-2 py-1 text-sm text-white focus:outline-none"
                 >
-                  {['1m', '5m', '30m', '1h', '1d', '1wk'].map((i) => (
+                  {['1m', '5m', '15m', '30m', '90m', '1h', '4h', '12h', '1d', '1wk'].map((i) => (
                     <option key={i} value={i}>{i}</option>
                   ))}
                 </select>

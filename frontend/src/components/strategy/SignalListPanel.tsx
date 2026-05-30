@@ -33,7 +33,7 @@ const SIDE_OPTIONS: { value: FilterState['side']; label: string }[] = [
   { value: 'HOLD', label: '홀드' },
 ]
 
-const INTERVAL_OPTIONS = ['', '1m', '5m', '15m', '30m', '1h', '1d']
+const INTERVAL_OPTIONS = ['', '1m', '5m', '15m', '30m', '90m', '1h', '4h', '12h', '1d']
 
 type RangePreset = 'today' | '7d' | '30d' | 'custom'
 

@@ -31,6 +31,11 @@ describe('CANDLE_COUNT_MAX_BY_INTERVAL — ADR 0093 §3-1 매트릭스 LOCK', ()
     expect(CANDLE_COUNT_MAX_BY_INTERVAL['1h']).toBe(3840)
   })
 
+  it('4h·12h 고타임프레임 합산 cap이 정합하다', () => {
+    expect(CANDLE_COUNT_MAX_BY_INTERVAL['4h']).toBe(2000)
+    expect(CANDLE_COUNT_MAX_BY_INTERVAL['12h']).toBe(1200)
+  })
+
   it('1d = 5000', () => {
     expect(CANDLE_COUNT_MAX_BY_INTERVAL['1d']).toBe(5000)
   })
@@ -83,6 +88,11 @@ describe('clampCandleCount', () => {
     expect(clampCandleCount(4000, '30m')).toBe(3840)
     expect(clampCandleCount(4000, '90m')).toBe(3840)
     expect(clampCandleCount(4000, '1h')).toBe(3840)
+  })
+
+  it('4h·12h interval 직접입력은 각 max로 clamp된다', () => {
+    expect(clampCandleCount(4000, '4h')).toBe(2000)
+    expect(clampCandleCount(4000, '12h')).toBe(1200)
   })
 
   it('NaN/음수/0 → DEFAULT_CANDLE_COUNT (600)', () => {

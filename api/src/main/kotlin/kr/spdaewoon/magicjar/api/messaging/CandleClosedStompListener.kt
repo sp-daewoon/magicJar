@@ -16,6 +16,8 @@ import org.springframework.stereotype.Component
  *   market.candle.30m.closed.v1  → /topic/market.candle.30m.{code}
  *   market.candle.90m.closed.v1  → /topic/market.candle.90m.{code}
  *   market.candle.1h.closed.v1   → /topic/market.candle.1h.{code}
+ *   market.candle.4h.closed.v1   → /topic/market.candle.4h.{code}
+ *   market.candle.12h.closed.v1  → /topic/market.candle.12h.{code}
  *
  * payload schema (BoundaryAggregator publish 정합 — ADR 0064 §4-5):
  *   { code, interval, ts, open, high, low, close, volume, source, publishedAt }
@@ -95,6 +97,30 @@ class CandleClosedStompListener(
     )
     fun on1hClosed(record: ConsumerRecord<String, String>) {
         forwardToStomp(record, "1h")
+    }
+
+    /**
+     * 4h boundary closing → STOMP /topic/market.candle.4h.{code} fanout.
+     * groupId: magicjar-api-stomp-boundary-4h
+     */
+    @KafkaListener(
+        topics = ["market.candle.4h.closed.v1"],
+        groupId = "magicjar-api-stomp-boundary-4h",
+    )
+    fun on4hClosed(record: ConsumerRecord<String, String>) {
+        forwardToStomp(record, "4h")
+    }
+
+    /**
+     * 12h final aggregate closing → STOMP /topic/market.candle.12h.{code} fanout.
+     * groupId: magicjar-api-stomp-boundary-12h
+     */
+    @KafkaListener(
+        topics = ["market.candle.12h.closed.v1"],
+        groupId = "magicjar-api-stomp-boundary-12h",
+    )
+    fun on12hClosed(record: ConsumerRecord<String, String>) {
+        forwardToStomp(record, "12h")
     }
 
     /**

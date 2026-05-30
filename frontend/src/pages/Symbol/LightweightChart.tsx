@@ -122,7 +122,9 @@ function isIntradayInterval(interval?: CandleInterval): boolean {
     interval === '15m' ||
     interval === '30m' ||
     interval === '90m' ||
-    interval === '1h'
+    interval === '1h' ||
+    interval === '4h' ||
+    interval === '12h'
   )
 }
 
@@ -165,6 +167,14 @@ function barBoundaryTimestamp(isoString: string, interval: CandleInterval | unde
     }
     case '1h': {
       boundaryKstMs = Math.floor(kstMs / (60 * 60 * 1000)) * (60 * 60 * 1000)
+      break
+    }
+    case '4h': {
+      boundaryKstMs = Math.floor(kstMs / (4 * 60 * 60 * 1000)) * (4 * 60 * 60 * 1000)
+      break
+    }
+    case '12h': {
+      boundaryKstMs = Math.floor(kstMs / (12 * 60 * 60 * 1000)) * (12 * 60 * 60 * 1000)
       break
     }
     case '1wk': {

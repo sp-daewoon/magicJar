@@ -73,6 +73,8 @@ const AGGREGATED_INTERVALS: ReadonlySet<CandleInterval> = new Set<CandleInterval
   '30m',
   '90m',
   '1h',
+  '4h',
+  '12h',
 ])
 
 function trendlineTypeLabel(type: TrendlineType): string {

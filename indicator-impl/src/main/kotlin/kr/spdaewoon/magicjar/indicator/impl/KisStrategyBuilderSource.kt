@@ -30,7 +30,7 @@ class KisStrategyBuilderSource : IndicatorSource {
     override val name: String = "kis-strategy-builder"
     override val priority: Int = 100
 
-    override fun supports(spec: IndicatorSpec): Boolean = spec.name in IndicatorCatalog.ALL_IDS
+    override fun supports(spec: IndicatorSpec): Boolean = spec.name in IndicatorCatalog.ALL_IDS && spec.name !in SMART_MONEY_IDS
 
     override fun calculate(
         spec: IndicatorSpec,
@@ -137,4 +137,8 @@ class KisStrategyBuilderSource : IndicatorSource {
         } catch (e: Throwable) {
             throw IndicatorException.CalculationFailureException(spec, e)
         }
+
+    private companion object {
+        val SMART_MONEY_IDS = setOf("fvg", "order_block")
+    }
 }

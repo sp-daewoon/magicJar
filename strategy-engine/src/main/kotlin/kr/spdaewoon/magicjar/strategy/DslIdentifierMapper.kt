@@ -38,6 +38,10 @@ class DslIdentifierMapper {
             "bb_middle" -> IndicatorSpec("bb", mapOf("period" to (ref.params.firstOrNull()?.toIntOrDefault(20) ?: 20)))
             "stoch_k" -> IndicatorSpec("stochastic_k", paramsOfPeriod(ref, default = 14))
             "stoch_d" -> IndicatorSpec("stochastic_d", paramsOfPeriod(ref, default = 14))
+            "fvg" -> IndicatorSpec("fvg", paramsOfFvg(ref))
+            "order_block" -> IndicatorSpec("order_block", paramsOfOrderBlock(ref))
+            in FVG_ALIASES -> IndicatorSpec("fvg", paramsOfFvg(ref))
+            in ORDER_BLOCK_ALIASES -> IndicatorSpec("order_block", paramsOfOrderBlock(ref))
             // ===== 1:1 매핑 (80지표 — IndicatorCatalog 등록 정합) =====
             else -> {
                 if (ref.name !in CATALOG_IDS) {
@@ -65,6 +69,8 @@ class DslIdentifierMapper {
                 "bb_middle" -> "middle"
                 "stoch_k" -> "k"
                 "stoch_d" -> "d"
+                in FVG_ALIASES -> FVG_ALIASES.getValue(ref.name)
+                in ORDER_BLOCK_ALIASES -> ORDER_BLOCK_ALIASES.getValue(ref.name)
                 else -> ref.name
             }
         val lastPoint: IndicatorPoint =
@@ -105,6 +111,18 @@ class DslIdentifierMapper {
         return mapOf("period" to period, "std" to std)
     }
 
+    private fun paramsOfFvg(ref: IndicatorRef): Map<String, Any> {
+        val mitigationPct = ref.params.getOrNull(0)?.toBigDecimalOrDefault(BigDecimal("50")) ?: BigDecimal("50")
+        return mapOf("mitigationPct" to mitigationPct)
+    }
+
+    private fun paramsOfOrderBlock(ref: IndicatorRef): Map<String, Any> {
+        val swingLookback = ref.params.getOrNull(0)?.toIntOrDefault(20) ?: 20
+        val searchLookback = ref.params.getOrNull(1)?.toIntOrDefault(20) ?: 20
+        val mitigationPct = ref.params.getOrNull(2)?.toBigDecimalOrDefault(BigDecimal("50")) ?: BigDecimal("50")
+        return mapOf("swingLookback" to swingLookback, "searchLookback" to searchLookback, "mitigationPct" to mitigationPct)
+    }
+
     private fun Any.toIntOrDefault(default: Int): Int =
         when (this) {
             is Int -> this
@@ -126,5 +144,34 @@ class DslIdentifierMapper {
          * 80지표 ID set (IndicatorCatalog.ALL.id) — 빠른 lookup.
          */
         private val CATALOG_IDS: Set<String> = IndicatorCatalog.ALL.map { it.id }.toSet()
+        private val FVG_ALIASES: Map<String, String> =
+            mapOf(
+                "fvg_active" to "fvg",
+                "fvg_bullish_active" to "bullish_active",
+                "fvg_bearish_active" to "bearish_active",
+                "fvg_bullish_top" to "bullish_top",
+                "fvg_bullish_bottom" to "bullish_bottom",
+                "fvg_bullish_mid" to "bullish_mid",
+                "fvg_bullish_fill_pct" to "bullish_fill_pct",
+                "fvg_bearish_top" to "bearish_top",
+                "fvg_bearish_bottom" to "bearish_bottom",
+                "fvg_bearish_mid" to "bearish_mid",
+                "fvg_bearish_fill_pct" to "bearish_fill_pct",
+            )
+        private val ORDER_BLOCK_ALIASES: Map<String, String> =
+            mapOf(
+                "ob_active" to "order_block",
+                "ob_bullish_active" to "bullish_active",
+                "ob_bearish_active" to "bearish_active",
+                "ob_bullish_top" to "bullish_top",
+                "ob_bullish_bottom" to "bullish_bottom",
+                "ob_bullish_mid" to "bullish_mid",
+                "ob_bullish_fill_pct" to "bullish_fill_pct",
+                "ob_bearish_top" to "bearish_top",
+                "ob_bearish_bottom" to "bearish_bottom",
+                "ob_bearish_mid" to "bearish_mid",
+                "ob_bearish_fill_pct" to "bearish_fill_pct",
+                "ob_bos_direction" to "bos_direction",
+            )
     }
 }

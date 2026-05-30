@@ -38,6 +38,8 @@ enum class CandleInterval(
     THIRTY_MIN("30m"),
     NINETY_MIN("90m"),
     ONE_HOUR("1h"),
+    FOUR_HOUR("4h"),
+    TWELVE_HOUR("12h"),
     ONE_DAY("1d"),
     ONE_WEEK("1wk"),
     ONE_MONTH("1mo"),

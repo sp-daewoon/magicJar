@@ -66,6 +66,22 @@ class DslIdentifierMapperTest {
     }
 
     @Test
+    fun `fvg_bullish_mid — alias to fvg with mitigation pct`() {
+        val spec = mapper.toIndicatorSpec(IndicatorRef("fvg_bullish_mid", listOf(50)))
+        assertEquals("fvg", spec.name)
+        assertEquals(0, BigDecimal("50").compareTo(spec.params["mitigationPct"] as BigDecimal))
+    }
+
+    @Test
+    fun `ob_bullish_active — alias to order_block params`() {
+        val spec = mapper.toIndicatorSpec(IndicatorRef("ob_bullish_active", listOf(20, 30, 50)))
+        assertEquals("order_block", spec.name)
+        assertEquals(20, spec.params["swingLookback"])
+        assertEquals(30, spec.params["searchLookback"])
+        assertEquals(0, BigDecimal("50").compareTo(spec.params["mitigationPct"] as BigDecimal))
+    }
+
+    @Test
     fun `unknown identifier — UnknownDslSymbolException`() {
         assertThrows(StrategyException.UnknownDslSymbolException::class.java) {
             mapper.toIndicatorSpec(IndicatorRef("definitely_not_an_indicator", emptyList()))

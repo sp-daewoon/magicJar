@@ -30,8 +30,8 @@ import {
 // ──────────────────────────────────────────────
 
 describe('INDICATOR_CATALOG 총량 (spec §5-1·§5-2)', () => {
-  it('총 80개 항목이어야 한다', () => {
-    expect(INDICATOR_CATALOG).toHaveLength(80)
+  it('총 82개 항목이어야 한다', () => {
+    expect(INDICATOR_CATALOG).toHaveLength(82)
   })
 
   it('카테고리별 수량이 정합해야 한다', () => {
@@ -45,9 +45,9 @@ describe('INDICATOR_CATALOG 총량 (spec §5-1·§5-2)', () => {
     expect(counts['VOLUME']).toBe(12)
     expect(counts['VOLATILITY']).toBe(12)
     expect(counts['OSCILLATOR']).toBe(8)
-    expect(counts['OTHER']).toBe(8)
+    expect(counts['OTHER']).toBe(10)
     // 합계
-    expect(20 + 20 + 12 + 12 + 8 + 8).toBe(80)
+    expect(20 + 20 + 12 + 12 + 8 + 10).toBe(82)
   })
 
   it('모든 항목의 id가 고유해야 한다', () => {
@@ -98,11 +98,11 @@ describe('multi-output 지표 outputKeys (spec §5-2 LOCK)', () => {
     expect(item.outputKeys).toEqual(['p', 'r1', 'r2', 'r3', 's1', 's2', 's3'])
   })
 
-  it('multi-output 지표는 정확히 5종이어야 한다', () => {
+  it('multi-output 지표는 정확히 7종이어야 한다', () => {
     const multiOutputItems = INDICATOR_CATALOG.filter((item) => item.multiOutput)
-    expect(multiOutputItems).toHaveLength(5)
+    expect(multiOutputItems).toHaveLength(7)
     const multiOutputIds = multiOutputItems.map((item) => item.id).sort()
-    expect(multiOutputIds).toEqual(['bb', 'macd', 'pivot', 'stochastic_d', 'supertrend'])
+    expect(multiOutputIds).toEqual(['bb', 'fvg', 'macd', 'order_block', 'pivot', 'stochastic_d', 'supertrend'])
   })
 })
 

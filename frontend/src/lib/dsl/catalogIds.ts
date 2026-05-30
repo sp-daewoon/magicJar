@@ -29,7 +29,7 @@ export const INDICATOR_CATALOG_IDS: ReadonlySet<string> = new Set([
   'ultosc', 'bop',
   // OTHER
   'std', 'variance', 'disparity', 'midpoint', 'midprice', 'logr', 'pivot',
-  'regression_intercept',
+  'regression_intercept', 'fvg', 'order_block',
 ])
 
 /** 57패턴 ID 집합 (patterns.ts PATTERN_CATALOG.id LOCK) */

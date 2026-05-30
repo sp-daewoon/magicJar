@@ -11,17 +11,19 @@ import org.springframework.stereotype.Component
 import java.math.BigDecimal
 
 /**
- * Kafka boundary closing 6종 토픽 listener (ADR 0066 §7-1 BoundaryClosingKafkaListener + §11-1 Phase 1 (5)).
+ * Kafka boundary closing 토픽 listener (ADR 0066 §7-1 BoundaryClosingKafkaListener + §11-1 Phase 1 (5)).
  *
  * 사용자 결정 (2026-05-12): A-1 Kafka boundary listen 5 listener.
  *
  * ### 구독 토픽 (ADR 0064 §4-5 + KafkaTopicConfig 5종 정합)
  *   market.candle.minute.closed.v1 → 1m interval 평가
  *   market.candle.5m.closed.v1     → 5m interval 평가
- *   market.candle.15m.closed.v1  → 15m interval 평가
- *   market.candle.30m.closed.v1  → 30m interval 평가
- *   market.candle.90m.closed.v1  → 90m interval 평가
- *   market.candle.1h.closed.v1   → 1h interval 평가
+ *   market.candle.15m.closed.v1    → 15m interval 평가
+ *   market.candle.30m.closed.v1    → 30m interval 평가
+ *   market.candle.90m.closed.v1    → 90m interval 평가
+ *   market.candle.1h.closed.v1     → 1h interval 평가
+ *   market.candle.4h.closed.v1     → 4h interval 평가
+ *   market.candle.12h.closed.v1    → 12h interval 평가
  *
  * ### groupId 분리 (interval별 listener 독립 thread)
  * `magicjar-consumer-signal-{interval}` — 각 listener 독립 thread.
@@ -114,6 +116,30 @@ class BoundaryClosingKafkaListener(
     )
     fun on1h(record: ConsumerRecord<String, String>) {
         dispatch(record, CandleInterval.ONE_HOUR)
+    }
+
+    /**
+     * 4h boundary closing → RealtimeSignalGenerator 평가 위임.
+     * groupId: magicjar-consumer-signal-4h
+     */
+    @KafkaListener(
+        topics = ["market.candle.4h.closed.v1"],
+        groupId = "magicjar-consumer-signal-4h",
+    )
+    fun on4h(record: ConsumerRecord<String, String>) {
+        dispatch(record, CandleInterval.FOUR_HOUR)
+    }
+
+    /**
+     * 12h final aggregate closing → RealtimeSignalGenerator 평가 위임.
+     * groupId: magicjar-consumer-signal-12h
+     */
+    @KafkaListener(
+        topics = ["market.candle.12h.closed.v1"],
+        groupId = "magicjar-consumer-signal-12h",
+    )
+    fun on12h(record: ConsumerRecord<String, String>) {
+        dispatch(record, CandleInterval.TWELVE_HOUR)
     }
 
     /**
