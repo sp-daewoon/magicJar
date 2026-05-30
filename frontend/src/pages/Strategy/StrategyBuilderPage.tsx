@@ -42,6 +42,19 @@ interface EvaluateForm {
   interval: string
 }
 
+const EVAL_INTERVAL_OPTIONS = [
+  { value: '1m', label: '1m' },
+  { value: '5m', label: '5m' },
+  { value: '15m', label: '15m' },
+  { value: '30m', label: '30m' },
+  { value: '90m', label: '90m' },
+  { value: '1h', label: '1h' },
+  { value: '4h', label: '4h' },
+  { value: '12h', label: '12h (정규장 전체)' },
+  { value: '1d', label: '1d' },
+  { value: '1wk', label: '1wk' },
+]
+
 export function StrategyBuilderPage() {
   const [tree, setTree] = useState<BlockTree>({})
   const [strategyId, setStrategyId] = useState<string | undefined>()
@@ -274,8 +287,8 @@ export function StrategyBuilderPage() {
                   onChange={(e) => setEvalForm((f) => ({ ...f, interval: e.target.value }))}
                   className="w-full rounded border border-gray-700 bg-gray-950 px-2 py-1 text-sm text-white focus:outline-none"
                 >
-                  {['1m', '5m', '15m', '30m', '90m', '1h', '4h', '12h', '1d', '1wk'].map((i) => (
-                    <option key={i} value={i}>{i}</option>
+                  {EVAL_INTERVAL_OPTIONS.map((i) => (
+                    <option key={i.value} value={i.value}>{i.label}</option>
                   ))}
                 </select>
                 <button

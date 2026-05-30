@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RestController
  * consumer 모듈 내부 REST (port 8082). 운영 편의 — DB 에 1m 이미 적재된 상태에서
  * 5m·15m·30m·90m·1h 합산 재실행 시 사용.
  *
- * ADR 0062 §9 NXT cover — 1m 베이스가 충분할 때 합산만 재실행.
+ * TradingView 정합 — 1m 베이스가 충분할 때 KRX 정규장 기준 합산만 재실행.
  *
  * endpoint:
  *   POST /admin/aggregate/{code}  — 단일 종목 합산

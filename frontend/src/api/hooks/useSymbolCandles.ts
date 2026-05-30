@@ -6,10 +6,10 @@
  * - useInfiniteQuery + before cursor 페이지네이션
  * - getNextPageParam: lastPage.hasMore ? lastPage.nextBefore : undefined
  *
- * ADR 0019 §2-2: interval 5종 한정 (1m·5m·30m·1h·1d)
+ * ADR 0019 §2-2: interval 확장 (1m·5m·15m·30m·90m·1h·4h·12h·1d...)
  * ADR 0029 §2-1: 1m = DB + Redis candle:current 합류, 1d = DB + Redis candle:today 합류
  *
- * ADR 0064 §2-C: 합산 5종(5m·15m·30m·90m·1h) — boundary 마감 시점 STOMP 실시간 갱신
+ * ADR 0064 §2-C: 합산 interval(5m·15m·30m·90m·1h·4h·12h) — boundary 마감 시점 STOMP 실시간 갱신
  *   interval이 BOUNDARY_INTERVALS 중 하나일 때 /topic/market.candle.{interval}.{code} 구독
  *   interval 변경 시 기존 구독 해제 → 새 interval 구독
  *   boundary candle 수신 시 onBoundaryCandle 콜백 호출
@@ -45,7 +45,7 @@ export interface UseSymbolCandlesResult {
   fetchNextPage: ReturnType<typeof useInfiniteQueryForCandles>['fetchNextPage']
   hasNextPage: ReturnType<typeof useInfiniteQueryForCandles>['hasNextPage']
   isError: ReturnType<typeof useInfiniteQueryForCandles>['isError']
-  /** ADR 0064 §2-C: 가장 최근에 수신한 boundary closed candle (합산 5종 전용) */
+  /** ADR 0064 §2-C: 가장 최근에 수신한 boundary closed candle (합산 interval 전용) */
   latestBoundaryCandle: CandleClosedPayload | null
 }
 
@@ -95,7 +95,7 @@ export function useSymbolCandles(
     setLatestBoundaryCandle(payload)
   }, [])
 
-  // ADR 0064 §2-C: 합산 5종 boundary STOMP 구독
+  // ADR 0064 §2-C: 합산 interval boundary STOMP 구독
   // isBoundaryInterval 검사 — 1m·1d·1wk·1mo·1y 는 구독 0
   const boundaryTopic = isBoundaryInterval(interval)
     ? `/topic/market.candle.${interval}.${code}`

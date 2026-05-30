@@ -7,21 +7,21 @@ import kotlinx.datetime.toLocalDateTime
 /**
  * 1m tick ts 기준 boundary 마감 검사 — Pure Kotlin 도메인 (Spring 의존 0).
  *
- * ADR 0064 §4-2 boundary 시각 매트릭스 (NXT cover 08:00~20:00 KST, ADR 0063 정합):
- *   5m  : 08:05·08:10·...·19:55·20:00 (boundary = bar 마감 ts)  → 144 bar/일
- *   15m : 08:15·08:30·...·19:45·20:00                           →  48 bar/일
- *   30m : 08:30·09:00·...·19:30·20:00                           →  24 bar/일
- *   90m : 09:30·11:00·12:30·14:00·15:30·17:00·18:30·20:00      →   8 bar/일
- *   1h  : 09:00·10:00·...·19:00·20:00                           →  12 bar/일
- *   4h  : 12:00·16:00·20:00                                      →   3 bar/일
- *   12h : 20:00                                                    →   1 bar/일
+ * TradingView 정합 boundary 시각 매트릭스 (KRX 정규장 09:00~15:30 KST):
+ *   5m  : 09:05·09:10·...·15:25·15:30 (boundary = bar 마감 ts)  → 78 bar/일
+ *   15m : 09:15·09:30·...·15:15·15:30                          → 26 bar/일
+ *   30m : 09:30·10:00·...·15:00·15:30                          → 13 bar/일
+ *   90m : 10:30·12:00·13:30·15:00·15:30                         →  5 bar/일
+ *   1h  : 10:00·11:00·...·15:00·15:30                           →  7 bar/일
+ *   4h  : 13:00·15:30                                            →  2 bar/일
+ *   12h : 15:30                                                   →  1 bar/일
  *
  * boundary 마감 정의 (B-1 권장안 ADR 0064):
  *   "이 분(minute)이 target interval boundary의 마지막 1m bar이다"
  *   = 다음 분이 boundary 시작 시점이 됨.
  *
  *   예) 5m boundary 마감:
- *     08:04 → 다음 분 08:05 = 새 5m bar 시작 → 08:00~08:04 5건이 완결 → boundary closed
+ *     09:04 → 다음 분 09:05 = 새 5m bar 시작 → 09:00~09:04 5건이 완결 → boundary closed
  *     09:29 → 다음 분 09:30 = 새 5m bar 시작 → boundary closed
  *
  * KIS-first 출처 (헌법 §3 의무):
@@ -30,35 +30,43 @@ import kotlinx.datetime.toLocalDateTime
  *   ccnl_krx() cols[1] = STCK_CNTG_HOUR
  *   ADR 0064 §1-4 + _workspace/baseline/v3.2.2/03-use-sequences.md §시나리오 3 R5 인용.
  *
- * 90m boundary anchor (ADR 0064 §4-2 + CandleAggregator 정합):
- *   NXT cover 8개/일:
- *   09:30·11:00·12:30·14:00·15:30·17:00·18:30·20:00 KST
- *   → boundary 마감 분 = 09:29·10:59·12:29·13:59·15:29·16:59·18:29·19:59
+ * 90m boundary close anchor (CandleAggregator 정합):
+ *   10:30·12:00·13:30·15:00·15:30 KST
+ *   → boundary 마감 분 = 10:29·11:59·13:29·14:59·15:29
  */
 object BoundaryDetector {
     private val KST: TimeZone = TimeZone.of("Asia/Seoul")
 
-    /** NXT cover 거래시간 시작 = KST 08:00 = 자정 기준 480분 (ADR 0063 정합). */
-    private const val NXT_OPEN_MIN: Int = 8 * 60
+    /** KRX 정규장 시작 = KST 09:00 = 자정 기준 540분. */
+    private const val REGULAR_OPEN_MIN: Int = 9 * 60
 
-    /** NXT cover 거래시간 종료 = KST 20:00 = 자정 기준 1200분 (ADR 0063 정합). */
-    private const val NXT_CLOSE_MIN: Int = 20 * 60
+    /** KRX 정규장 종료 = KST 15:30 = 자정 기준 930분. */
+    private const val REGULAR_CLOSE_MIN: Int = 15 * 60 + 30
 
     /**
-     * 90m boundary anchor 분 (KST, 자정 기준).
-     * ADR 0064 §4-2 + CandleAggregator.NINETY_MIN_BOUNDARIES_KST_MIN 정합.
-     * 각 anchor = 해당 90m bar의 시작 분. boundary 마감 분 = anchor - 1.
+     * 90m boundary close 분 (KST, 자정 기준).
+     * 각 close = 해당 90m bar의 종료 분. boundary 마감 분 = close - 1.
      */
-    private val NINETY_MIN_ANCHOR_MIN: IntArray =
+    private val NINETY_MIN_CLOSE_MIN: IntArray =
         intArrayOf(
-            9 * 60 + 30, // 09:30 → 마감 분 09:29
-            11 * 60 + 0, // 11:00 → 마감 분 10:59
-            12 * 60 + 30, // 12:30 → 마감 분 12:29
-            14 * 60 + 0, // 14:00 → 마감 분 13:59
-            15 * 60 + 30, // 15:30 → 마감 분 15:29
-            17 * 60 + 0, // 17:00 → 마감 분 16:59
-            18 * 60 + 30, // 18:30 → 마감 분 18:29
-            NXT_CLOSE_MIN, // 20:00 → 마감 분 19:59
+            10 * 60 + 30, // 10:30 → 마감 분 10:29
+            12 * 60 + 0, // 12:00 → 마감 분 11:59
+            13 * 60 + 30, // 13:30 → 마감 분 13:29
+            15 * 60 + 0, // 15:00 → 마감 분 14:59
+            REGULAR_CLOSE_MIN, // 15:30 → 마감 분 15:29
+        )
+
+    /**
+     * 90m boundary start 분 (KST, 자정 기준).
+     * 마지막 15:00 start bar는 정규장 종료(15:30) 때문에 30분 partial.
+     */
+    private val NINETY_MIN_START_MIN: IntArray =
+        intArrayOf(
+            9 * 60 + 0,
+            10 * 60 + 30,
+            12 * 60 + 0,
+            13 * 60 + 30,
+            15 * 60 + 0,
         )
 
     /**
@@ -78,35 +86,36 @@ object BoundaryDetector {
         val kstLdt = ts.toLocalDateTime(KST)
         val minOfDay = kstLdt.hour * 60 + kstLdt.minute
 
-        // NXT cover 범위 밖이면 skip (ADR 0063 정합)
-        // 마감 분은 NXT_OPEN_MIN..NXT_CLOSE_MIN-1 범위
-        if (minOfDay < NXT_OPEN_MIN || minOfDay >= NXT_CLOSE_MIN) return false
+        // KRX 정규장 범위 밖이면 skip. 마감 분은 REGULAR_OPEN_MIN..REGULAR_CLOSE_MIN-1 범위.
+        if (minOfDay < REGULAR_OPEN_MIN || minOfDay >= REGULAR_CLOSE_MIN) return false
 
         // 다음 분 = 이 분 + 1
         val nextMin = minOfDay + 1
 
         return when (target) {
-            // 5m: 다음 분이 5의 배수이면 이 분이 마감 (08:04→08:05, 08:09→08:10, ...)
-            // 단, NXT_OPEN_MIN(480) 자체는 5의 배수이므로 nextMin==NXT_OPEN_MIN이면 false (장 시작 분 자체는 이전 bar 없음)
-            CandleInterval.FIVE_MIN -> nextMin % 5 == 0 && nextMin > NXT_OPEN_MIN
+            // 5m: 다음 분이 5의 배수이면 이 분이 마감 (09:04→09:05, 09:09→09:10, ...)
+            // 단, REGULAR_OPEN_MIN 자체는 5의 배수이므로 nextMin==REGULAR_OPEN_MIN이면 false.
+            CandleInterval.FIVE_MIN -> nextMin % 5 == 0 && nextMin > REGULAR_OPEN_MIN
 
             // 15m: 다음 분이 15의 배수이면 이 분이 마감
-            CandleInterval.FIFTEEN_MIN -> nextMin % 15 == 0 && nextMin > NXT_OPEN_MIN
+            CandleInterval.FIFTEEN_MIN -> nextMin % 15 == 0 && nextMin > REGULAR_OPEN_MIN
 
             // 30m: 다음 분이 30의 배수이면 이 분이 마감
-            CandleInterval.THIRTY_MIN -> nextMin % 30 == 0 && nextMin > NXT_OPEN_MIN
+            CandleInterval.THIRTY_MIN -> nextMin % 30 == 0 && nextMin > REGULAR_OPEN_MIN
 
-            // 1h: 다음 분이 60의 배수이면 이 분이 마감
-            CandleInterval.ONE_HOUR -> nextMin % 60 == 0 && nextMin > NXT_OPEN_MIN
+            // 1h: 10:00·...·15:00 정각 + 정규장 종료 15:30 partial 마감
+            CandleInterval.ONE_HOUR -> (nextMin % 60 == 0 && nextMin > REGULAR_OPEN_MIN) || nextMin == REGULAR_CLOSE_MIN
 
-            // 4h: NXT 08:00 anchor 기준 12:00·16:00·20:00 마감
-            CandleInterval.FOUR_HOUR -> (nextMin - NXT_OPEN_MIN) % 240 == 0 && nextMin > NXT_OPEN_MIN
+            // 4h: KRX 정규장 09:00 anchor 기준 13:00 + 정규장 종료 15:30 partial 마감
+            CandleInterval.FOUR_HOUR ->
+                ((nextMin - REGULAR_OPEN_MIN) % 240 == 0 && nextMin > REGULAR_OPEN_MIN) ||
+                    nextMin == REGULAR_CLOSE_MIN
 
-            // 12h: NXT 08:00 anchor 기준 20:00 마감
-            CandleInterval.TWELVE_HOUR -> nextMin == NXT_CLOSE_MIN
+            // 12h: 실제 12시간 지속 불가. TradingView 세션 truncation처럼 정규장 전체 1개 bar.
+            CandleInterval.TWELVE_HOUR -> nextMin == REGULAR_CLOSE_MIN
 
-            // 90m: 다음 분이 anchor set에 속하면 이 분이 마감
-            CandleInterval.NINETY_MIN -> NINETY_MIN_ANCHOR_MIN.contains(nextMin)
+            // 90m: 다음 분이 close set에 속하면 이 분이 마감
+            CandleInterval.NINETY_MIN -> NINETY_MIN_CLOSE_MIN.contains(nextMin)
 
             else -> false
         }
@@ -119,7 +128,7 @@ object BoundaryDetector {
      * (도메인 내부 internal fun 호출 대신 인라인으로 구현 — cross-call 결합도 회피)
      *
      * 예: ts=09:04 KST + target=FIVE_MIN → 09:00 KST Instant
-     *     ts=09:29 KST + target=NINETY_MIN → 08:00 KST Instant (첫 90m anchor)
+     *     ts=10:29 KST + target=NINETY_MIN → 09:00 KST Instant (첫 90m anchor)
      *
      * @param ts 1m tick ts (Instant)
      * @param target 목표 interval
@@ -139,28 +148,16 @@ object BoundaryDetector {
                 CandleInterval.FIFTEEN_MIN -> (minOfDay / 15) * 15
                 CandleInterval.THIRTY_MIN -> (minOfDay / 30) * 30
                 CandleInterval.ONE_HOUR -> (minOfDay / 60) * 60
-                CandleInterval.FOUR_HOUR -> {
-                    if (minOfDay < NXT_OPEN_MIN) {
-                        NXT_OPEN_MIN
-                    } else {
-                        NXT_OPEN_MIN + ((minOfDay - NXT_OPEN_MIN) / 240) * 240
-                    }
-                }
-                CandleInterval.TWELVE_HOUR -> NXT_OPEN_MIN
+                CandleInterval.FOUR_HOUR -> anchoredBoundaryMin(minOfDay, 240)
+                CandleInterval.TWELVE_HOUR -> REGULAR_OPEN_MIN
                 CandleInterval.NINETY_MIN -> {
-                    if (minOfDay < NINETY_MIN_ANCHOR_MIN.first()) {
-                        // NXT_OPEN_MIN(08:00) 직전 anchor 없음 — 08:00 전이면 전날 18:30 backward 매핑 불가
-                        // BoundaryDetector.isBoundaryClosed 가 NXT_OPEN_MIN 미만을 이미 필터링하므로
-                        // 실제로는 호출되지 않음 (방어 코드)
-                        NXT_OPEN_MIN
+                    if (minOfDay < NINETY_MIN_START_MIN.first()) {
+                        REGULAR_OPEN_MIN
                     } else {
-                        var picked = NINETY_MIN_ANCHOR_MIN.first()
-                        for (anchor in NINETY_MIN_ANCHOR_MIN) {
+                        var picked = NINETY_MIN_START_MIN.first()
+                        for (anchor in NINETY_MIN_START_MIN) {
                             if (anchor <= minOfDay) picked = anchor else break
                         }
-                        // 90m anchor 직전 boundary 시작: picked는 "다음 bar 시작"이 아닌 "현재 bar 시작"
-                        // CandleAggregator와 동일하게: minOfDay가 anchor 이상이면 그 anchor가 시작
-                        // 실제 90m anchor는 bar 시작 ts이므로 picked 그대로 반환
                         picked
                     }
                 }
@@ -168,6 +165,14 @@ object BoundaryDetector {
             }
 
         return Instant.fromEpochSeconds(midnightEpochSec + boundaryMin * 60L)
+    }
+
+    private fun anchoredBoundaryMin(
+        minOfDay: Int,
+        intervalMin: Int,
+    ): Int {
+        if (minOfDay < REGULAR_OPEN_MIN) return REGULAR_OPEN_MIN
+        return REGULAR_OPEN_MIN + ((minOfDay - REGULAR_OPEN_MIN) / intervalMin) * intervalMin
     }
 
     /**

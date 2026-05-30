@@ -109,11 +109,8 @@ interface LightweightChartProps {
 }
 
 /**
- * 인터벌이 분봉(intraday)인지 여부
- * ADR 0062 채택: 5m·15m·30m·90m·1h 합산 5종 포함 — KST 시·분 표시 활성
- * ADR 0063 채택: NXT 시장 08:00~20:00 KST 범위 — LWC v4 ts ASC input 시 X축 자동 확장 정합
- *   LWC v4 timeScale은 전달된 UTCTimestamp 범위 기반으로 X축을 자동 결정하므로
- *   08:00~20:00 KST 범위 ts가 입력되면 X축이 자동 확장됨 (별도 range 설정 불필요).
+ * 인터벌이 분봉(intraday)인지 여부.
+ * KRX 정규장 09:00~15:30 KST 기준 TradingView식 경계로 마지막 bar를 갱신한다.
  */
 function isIntradayInterval(interval?: CandleInterval): boolean {
   return (
@@ -128,6 +125,42 @@ function isIntradayInterval(interval?: CandleInterval): boolean {
   )
 }
 
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000
+const MINUTE_MS = 60 * 1000
+const DAY_MS = 24 * 60 * 60 * 1000
+const KRX_REGULAR_OPEN_MIN = 9 * 60
+const KRX_REGULAR_CLOSE_MIN = 15 * 60 + 30
+const NINETY_MIN_BOUNDARY_STARTS = [9 * 60, 10 * 60 + 30, 12 * 60, 13 * 60 + 30, 15 * 60]
+
+function kstParts(isoString: string): { kstMs: number; dayStartMs: number; minOfDay: number } {
+  const kstMs = new Date(isoString).getTime() + KST_OFFSET_MS
+  const dayStartMs = Math.floor(kstMs / DAY_MS) * DAY_MS
+  const minOfDay = Math.floor((kstMs - dayStartMs) / MINUTE_MS)
+  return { kstMs, dayStartMs, minOfDay }
+}
+
+function isKrxRegularSessionMinute(isoString: string): boolean {
+  const { minOfDay } = kstParts(isoString)
+  return minOfDay >= KRX_REGULAR_OPEN_MIN && minOfDay < KRX_REGULAR_CLOSE_MIN
+}
+
+function anchoredKstBoundaryMs(dayStartMs: number, minOfDay: number, intervalMin: number): number {
+  const boundedMin = Math.max(minOfDay, KRX_REGULAR_OPEN_MIN)
+  const boundaryMin =
+    KRX_REGULAR_OPEN_MIN +
+    Math.floor((boundedMin - KRX_REGULAR_OPEN_MIN) / intervalMin) * intervalMin
+  return dayStartMs + boundaryMin * MINUTE_MS
+}
+
+function ninetyMinKstBoundaryMs(dayStartMs: number, minOfDay: number): number {
+  let picked = NINETY_MIN_BOUNDARY_STARTS[0]
+  for (const anchor of NINETY_MIN_BOUNDARY_STARTS) {
+    if (anchor <= minOfDay) picked = anchor
+    else break
+  }
+  return dayStartMs + picked * MINUTE_MS
+}
+
 /**
  * tick 도착 시각(isoString)을 기준으로 interval의 bar time boundary를 UTCTimestamp로 반환.
  * KST(Asia/Seoul, UTC+9)를 기준으로 boundary를 계산하고 UTC로 변환.
@@ -136,10 +169,7 @@ function isIntradayInterval(interval?: CandleInterval): boolean {
  * series.update()가 새 bar 생성 없이 기존 마지막 bar를 덮어쓴다.
  */
 function barBoundaryTimestamp(isoString: string, interval: CandleInterval | undefined): UTCTimestamp {
-  const ms = new Date(isoString).getTime()
-  // KST = UTC+9
-  const KST_OFFSET_MS = 9 * 60 * 60 * 1000
-  const kstMs = ms + KST_OFFSET_MS
+  const { kstMs, dayStartMs, minOfDay } = kstParts(isoString)
 
   let boundaryKstMs: number
 
@@ -162,7 +192,7 @@ function barBoundaryTimestamp(isoString: string, interval: CandleInterval | unde
       break
     }
     case '90m': {
-      boundaryKstMs = Math.floor(kstMs / (90 * 60 * 1000)) * (90 * 60 * 1000)
+      boundaryKstMs = ninetyMinKstBoundaryMs(dayStartMs, minOfDay)
       break
     }
     case '1h': {
@@ -170,11 +200,11 @@ function barBoundaryTimestamp(isoString: string, interval: CandleInterval | unde
       break
     }
     case '4h': {
-      boundaryKstMs = Math.floor(kstMs / (4 * 60 * 60 * 1000)) * (4 * 60 * 60 * 1000)
+      boundaryKstMs = anchoredKstBoundaryMs(dayStartMs, minOfDay, 4 * 60)
       break
     }
     case '12h': {
-      boundaryKstMs = Math.floor(kstMs / (12 * 60 * 60 * 1000)) * (12 * 60 * 60 * 1000)
+      boundaryKstMs = dayStartMs + KRX_REGULAR_OPEN_MIN * MINUTE_MS
       break
     }
     case '1wk': {
@@ -184,8 +214,7 @@ function barBoundaryTimestamp(isoString: string, interval: CandleInterval | unde
       // getUTCDay()로 요일 계산 (kstMs는 이미 KST shifted)
       const dayOfWeek = kstDate.getUTCDay() // 0=일, 1=월 ... 6=토
       const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1
-      const kstDayStartMs = Math.floor(kstMs / (24 * 60 * 60 * 1000)) * (24 * 60 * 60 * 1000)
-      boundaryKstMs = kstDayStartMs - daysSinceMonday * 24 * 60 * 60 * 1000
+      boundaryKstMs = dayStartMs - daysSinceMonday * DAY_MS
       break
     }
     case '1mo': {
@@ -206,8 +235,7 @@ function barBoundaryTimestamp(isoString: string, interval: CandleInterval | unde
     case '1d':
     default: {
       // 오늘 KST 00:00
-      const kstDayStartMs = Math.floor(kstMs / (24 * 60 * 60 * 1000)) * (24 * 60 * 60 * 1000)
-      boundaryKstMs = kstDayStartMs
+      boundaryKstMs = dayStartMs
       break
     }
   }
@@ -811,6 +839,7 @@ export function LightweightChart({
 
     const price = parseFloat(liveTick.price)
     if (isNaN(price) || price <= 0) return
+    if (isIntradayInterval(intervalRef.current) && !isKrxRegularSessionMinute(liveTick.ts)) return
 
     try {
       const barTime = barBoundaryTimestamp(liveTick.ts, intervalRef.current)
