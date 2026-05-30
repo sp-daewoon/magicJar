@@ -70,8 +70,8 @@
   <div class="banner-cards">
     <div class="banner-card release">
       <div class="label">현재 Release</div>
-      <div class="value">v3.8.0</div>
-      <div class="sub">2026-05-22</div>
+      <div class="value">v3.9.1</div>
+      <div class="sub">2026-05-30</div>
     </div>
     <div class="banner-card cycle">
       <div class="label">현재 사이클 단계</div>
@@ -86,7 +86,7 @@
   </div>
   <div class="banner-timeline">
     <div class="label">📍 이번 작업 사이클 timeline</div>
-    <div>docs(baseline): PR-37 architect — v3.8.0 baseline </div>
+    <div>chore(tasks): archive v3.9.1 patch prep</div>
   </div>
 </div>
 
@@ -112,7 +112,7 @@
       <div class="card">
         <div class="card-title">📄 README.md</div>
         <div class="card-sub">🪄 magicJar Master Index</div>
-        <div class="card-meta">496 lines · 갱신 2026-05-22</div>
+        <div class="card-meta">499 lines · 갱신 2026-05-30</div>
       </div>
     
       <div class="card">
@@ -124,13 +124,13 @@
       <div class="card">
         <div class="card-title">📄 _workspace/INDEX.md</div>
         <div class="card-sub">🧭 의도별 진입 경로</div>
-        <div class="card-meta">126 lines · 갱신 2026-05-12</div>
+        <div class="card-meta">129 lines · 갱신 2026-05-24</div>
       </div>
     
       <div class="card">
         <div class="card-title">📄 docs/architecture/master-architecture.md</div>
         <div class="card-sub">§1. 시스템 비전 (사용자 정정 2026-05-02 반영)</div>
-        <div class="card-meta">756 lines · 갱신 2026-05-21</div>
+        <div class="card-meta">769 lines · 갱신 2026-05-25</div>
       </div>
     
   </div>
@@ -143,43 +143,99 @@
     <div class="adr-recent">
       
         <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0096</div>
-          <div class="adr-title">P0-OPS-4 — DR/backup 절차 (PostgreSQL pg_dump + Redis snapshot + RPO/RTO 정의)</div>
+          <div class="adr-number">0104</div>
+          <div class="adr-title">시장 캘린더 이벤트 표면 + KRX 휴장일 배치 게이트</div>
           <div class="adr-meta">Accepted · -</div>
         </div>
       
         <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0095</div>
-          <div class="adr-title">P0-OPS-3 — SLO/SLA 정의 + alert routing matrix (v3.8.0 운영 baseline P0)</div>
+          <div class="adr-number">0103</div>
+          <div class="adr-title">JpaScanConfiguration 신규 패키지 누락 차단 (장기 fix 옵션 매트릭스 + 채택안 LOCK)</div>
           <div class="adr-meta">Accepted · -</div>
         </div>
       
         <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0094</div>
-          <div class="adr-title">운영 단계 transition — 개발 단계 종착 + 운영·점진 고도화 단계 진입 (sub-agent 7 hierarchy + qa Visual 격상 + 운영 헌법 §10 신설)</div>
+          <div class="adr-number">0102</div>
+          <div class="adr-title">spec/plan 발행 시 main 영속 자원 audit 의무 (5단계 절차 LOCK)</div>
           <div class="adr-meta">Accepted · -</div>
         </div>
       
         <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0093</div>
-          <div class="adr-title">차트 캔들 히스토리 limit 정책 + Lazy Backfill + 사용자 입력 봉수</div>
+          <div class="adr-number">0101</div>
+          <div class="adr-title">TrendPreference 1급 도메인 + `user_preference` 표 (forward-compat 확장 슬롯 단일 진입점)</div>
           <div class="adr-meta">Accepted · -</div>
         </div>
       
         <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0092</div>
-          <div class="adr-title">strategy-engine shared DSL evaluator module</div>
+          <div class="adr-number">0100</div>
+          <div class="adr-title">T-MARKET 트랙 — 지수·섹터 추세 분석 모듈 (market-trend-engine 신설 + KIS endpoint 5 LOCK)</div>
           <div class="adr-meta">Accepted · -</div>
         </div>
       
     </div>
-    <h3>전체 92건 (검색·정렬 가능)</h3>
+    <h3>전체 100건 (검색·정렬 가능)</h3>
     <input class="cat-search" data-cat="C" placeholder="ADR 검색…" />
     <table class="adr-table" data-sortable>
       <thead>
         <tr><th data-sort="number">번호</th><th data-sort="title">제목</th><th data-sort="status">status</th><th data-sort="date">날짜</th></tr>
       </thead>
       <tbody>
+        
+          <tr data-search="104 시장 캘린더 이벤트 표면 + krx 휴장일 배치 게이트 accepted">
+            <td>0104</td>
+            <td><a href="_workspace/arch/adr/0104-market-calendar-event-and-holiday-gate.md">시장 캘린더 이벤트 표면 + KRX 휴장일 배치 게이트</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="103 jpascanconfiguration 신규 패키지 누락 차단 (장기 fix 옵션 매트릭스 + 채택안 lock) accepted">
+            <td>0103</td>
+            <td><a href="_workspace/arch/adr/0103-jpa-scan-package-whitelist.md">JpaScanConfiguration 신규 패키지 누락 차단 (장기 fix 옵션 매트릭스 + 채택안 LOCK)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="102 spec/plan 발행 시 main 영속 자원 audit 의무 (5단계 절차 lock) accepted">
+            <td>0102</td>
+            <td><a href="_workspace/arch/adr/0102-spec-audit-existing-resources.md">spec/plan 발행 시 main 영속 자원 audit 의무 (5단계 절차 LOCK)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="101 trendpreference 1급 도메인 + `user_preference` 표 (forward-compat 확장 슬롯 단일 진입점) accepted">
+            <td>0101</td>
+            <td><a href="_workspace/arch/adr/0101-trend-preference-user-preference.md">TrendPreference 1급 도메인 + `user_preference` 표 (forward-compat 확장 슬롯 단일 진입점)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="100 t-market 트랙 — 지수·섹터 추세 분석 모듈 (market-trend-engine 신설 + kis endpoint 5 lock) accepted">
+            <td>0100</td>
+            <td><a href="_workspace/arch/adr/0100-t-market-track.md">T-MARKET 트랙 — 지수·섹터 추세 분석 모듈 (market-trend-engine 신설 + KIS endpoint 5 LOCK)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="99 reactor `.block()` non-blocking 계약 정합 패턴 lock accepted">
+            <td>0099</td>
+            <td><a href="_workspace/arch/adr/0099-reactor-block-non-blocking-contract.md">Reactor `.block()` non-blocking 계약 정합 패턴 LOCK</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="98 killswitchqueryport + strategy 활성화 게이트 (백테스트 통과 의무) accepted">
+            <td>0098</td>
+            <td><a href="_workspace/arch/adr/0098-killswitch-query-port-and-strategy-activation-gate.md">KillSwitchQueryPort + Strategy 활성화 게이트 (백테스트 통과 의무)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="97 executionpositionupdateport — 체결 직후 내부 position 갱신 도메인 port 신설 accepted">
+            <td>0097</td>
+            <td><a href="_workspace/arch/adr/0097-execution-position-update-port.md">ExecutionPositionUpdatePort — 체결 직후 내부 position 갱신 도메인 port 신설</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
         
           <tr data-search="96 p0-ops-4 — dr/backup 절차 (postgresql pg_dump + redis snapshot + rpo/rto 정의) accepted">
             <td>0096</td>
@@ -797,9 +853,9 @@
             <td>-</td>
           </tr>
         
-          <tr data-search="4 msa 모듈 재구성 (6 jvm 모듈 + frontend) accepted">
+          <tr data-search="4 msa 모듈 재구성 (7 jvm 모듈 + frontend) accepted">
             <td>0004</td>
-            <td><a href="_workspace/arch/adr/0004-msa-module-restructure.md">MSA 모듈 재구성 (6 JVM 모듈 + frontend)</a></td>
+            <td><a href="_workspace/arch/adr/0004-msa-module-restructure.md">MSA 모듈 재구성 (7 JVM 모듈 + frontend)</a></td>
             <td><span style="color:#4caf50">Accepted</span></td>
             <td>-</td>
           </tr>
@@ -873,7 +929,7 @@
         <div class="card">
           <div class="card-title">📍 code-convention</div>
           <div class="card-sub">> **Status**: ACTIVE — 마스터 아키텍처 정합 > **참조**: `docs/architecture/master-architecture.md` · `docs/architecture/development…</div>
-          <div class="card-meta">📄 docs/architecture/code-convention.md · 갱신 2026-05-05</div>
+          <div class="card-meta">📄 docs/architecture/code-convention.md · 갱신 2026-05-22</div>
         </div>
       
         <div class="card">
@@ -891,7 +947,7 @@
         <div class="card">
           <div class="card-title">📍 tracks-roadmap</div>
           <div class="card-sub">> **선행**: `docs/architecture/master-architecture.md` > **작성일**: TBD</div>
-          <div class="card-meta">📄 docs/architecture/tracks-roadmap.md · 갱신 2026-05-19</div>
+          <div class="card-meta">📄 docs/architecture/tracks-roadmap.md · 갱신 2026-05-25</div>
         </div>
       
     </div>
@@ -1293,6 +1349,13 @@
     <div class="cat-cards">
       
         <div class="card baseline-card">
+          <div class="card-title">📊 v3.9.0</div>
+          <div class="card-files">
+            <a href="_workspace/baseline/v3.9.0/html/01-architecture.html">01-architecture</a> · <a href="_workspace/baseline/v3.9.0/html/02-data-flow.html">02-data-flow</a> · <a href="_workspace/baseline/v3.9.0/html/03-use-sequences.html">03-use-sequences</a> · <a href="_workspace/baseline/v3.9.0/html/04-feature-spec.html">04-feature-spec</a> · <a href="_workspace/baseline/v3.9.0/html/05-ui-inventory.html">05-ui-inventory</a> · <a href="_workspace/baseline/v3.9.0/html/06-history-traceability.html">06-history-traceability</a> · <a href="_workspace/baseline/v3.9.0/html/07-policy-evolution.html">07-policy-evolution</a> · <a href="_workspace/baseline/v3.9.0/html/index.html">index</a>
+          </div>
+        </div>
+      
+        <div class="card baseline-card">
           <div class="card-title">📊 v3.8.0</div>
           <div class="card-files">
             <a href="_workspace/baseline/v3.8.0/html/01-architecture.html">01-architecture</a> · <a href="_workspace/baseline/v3.8.0/html/02-data-flow.html">02-data-flow</a> · <a href="_workspace/baseline/v3.8.0/html/03-use-sequences.html">03-use-sequences</a> · <a href="_workspace/baseline/v3.8.0/html/04-feature-spec.html">04-feature-spec</a> · <a href="_workspace/baseline/v3.8.0/html/05-ui-inventory.html">05-ui-inventory</a> · <a href="_workspace/baseline/v3.8.0/html/06-history-traceability.html">06-history-traceability</a> · <a href="_workspace/baseline/v3.8.0/html/07-policy-evolution.html">07-policy-evolution</a> · <a href="_workspace/baseline/v3.8.0/html/index.html">index</a>
@@ -1361,7 +1424,7 @@
 
   <div class="cat-content" data-cat="D" data-group-content-cat="권위" data-active="false">
     
-    <h3>최근 spec 10건 / 전체 75건</h3>
+    <h3>최근 spec 10건 / 전체 81건</h3>
     <input class="cat-search" data-cat="D" placeholder="spec 검색…" />
     <div class="spec-list">
       
@@ -1660,6 +1723,36 @@
           <div class="card-meta">📄 _workspace/specs/pr-5-w1-bootstrap-design.md </div>
         </div>
       
+        <div class="card" data-search="2026-05-25-symbol-trendline-tool-spec.md spec: symbol detail trendline tool contract">
+          <div class="card-title">📄 spec: Symbol Detail Trendline Tool Contract</div>
+          <div class="card-meta">📄 _workspace/specs/2026-05-25-symbol-trendline-tool-spec.md · 2026-05-25</div>
+        </div>
+      
+        <div class="card" data-search="2026-05-24-w4-codex-validation-checklist.md w4 통합 사이클 codex 외부 review 통과 prereq 체크리스트 (4 lens 격자)">
+          <div class="card-title">📄 W4 통합 사이클 Codex 외부 review 통과 prereq 체크리스트 (4 lens 격자)</div>
+          <div class="card-meta">📄 _workspace/specs/2026-05-24-w4-codex-validation-checklist.md · 2026-05-24</div>
+        </div>
+      
+        <div class="card" data-search="2026-05-24-w4-conflict-matrix.md w4 통합 사이클 충돌 매트릭스 (r1 3 병렬 + r2 2 병렬)">
+          <div class="card-title">📄 W4 통합 사이클 충돌 매트릭스 (R1 3 병렬 + R2 2 병렬)</div>
+          <div class="card-meta">📄 _workspace/specs/2026-05-24-w4-conflict-matrix.md · 2026-05-24</div>
+        </div>
+      
+        <div class="card" data-search="2026-05-24-w4-r0-design.md architect r0 design — w4 통합 사이클 (t-market + t-ai + t-mcp, v3.9.0 후보)">
+          <div class="card-title">📄 architect R0 design — W4 통합 사이클 (T-MARKET + T-AI + T-MCP, v3.9.0 후보)</div>
+          <div class="card-meta">📄 _workspace/specs/2026-05-24-w4-r0-design.md · 2026-05-24</div>
+        </div>
+      
+        <div class="card" data-search="2026-05-24-w4-r1-r2-r3-dispatch-spec.md w4 통합 사이클 r1·r2·r3 sub-agent dispatch spec">
+          <div class="card-title">📄 W4 통합 사이클 R1·R2·R3 sub-agent dispatch spec</div>
+          <div class="card-meta">📄 _workspace/specs/2026-05-24-w4-r1-r2-r3-dispatch-spec.md · 2026-05-24</div>
+        </div>
+      
+        <div class="card" data-search="2026-05-24-w4-t-market-t-ai-t-mcp-design.md w4 통합 design — t-market + t-ai + t-mcp (v3.9.0 후보)">
+          <div class="card-title">📄 W4 통합 Design — T-MARKET + T-AI + T-MCP (v3.9.0 후보)</div>
+          <div class="card-meta">📄 _workspace/specs/2026-05-24-w4-t-market-t-ai-t-mcp-design.md · 2026-05-24</div>
+        </div>
+      
         <div class="card" data-search="2026-05-21-chart-curator-handover.md chart-curator 책임 이관 매트릭스 — frontend(lwc v4) + market-data(캔들 sla) 인수 절차">
           <div class="card-title">📄 chart-curator 책임 이관 매트릭스 — frontend(LWC v4) + market-data(캔들 SLA) 인수 절차</div>
           <div class="card-meta">📄 _workspace/specs/2026-05-21-chart-curator-handover.md · 2026-05-21</div>
@@ -1763,7 +1856,7 @@
       <div class="card">
         <div class="card-title">📚 prompt-catalog</div>
         <div class="card-sub">§1. 현행 실 프롬프트 (PR #552 cross-validation evidence 정합)</div>
-        <div class="card-meta">98 lines · 갱신 2026-05-19</div>
+        <div class="card-meta">155 lines · 갱신 2026-05-24</div>
       </div>
     
   </div>
@@ -1794,6 +1887,24 @@
     <div class="adr-recent">
       
         <div class="adr-card" style="border-left:3px solid #ff9800">
+          <div class="adr-number">v3.9.1</div>
+          <div class="adr-title">v3.9.1 — 자동매매 dogfooding patch</div>
+          <div class="adr-meta">2026-05-30</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #ff9800">
+          <div class="adr-number">v3.9.0</div>
+          <div class="adr-title">v3.9.0 — v3.9.0 릴리즈</div>
+          <div class="adr-meta">2026-05-24</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #ff9800">
+          <div class="adr-number">v3.8.1</div>
+          <div class="adr-title">v3.8.1</div>
+          <div class="adr-meta">2026-05-22</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #ff9800">
           <div class="adr-number">v3.8.0</div>
           <div class="adr-title">v3.8.0 — v3.8.0 릴리즈</div>
           <div class="adr-meta">2026-05-22</div>
@@ -1805,29 +1916,17 @@
           <div class="adr-meta">2026-05-19</div>
         </div>
       
-        <div class="adr-card" style="border-left:3px solid #ff9800">
-          <div class="adr-number">v3.7.0</div>
-          <div class="adr-title">v3.7.0 — v3.7.0 릴리즈</div>
-          <div class="adr-meta">2026-05-19</div>
-        </div>
-      
-        <div class="adr-card" style="border-left:3px solid #ff9800">
-          <div class="adr-number">v3.6.19</div>
-          <div class="adr-title">v3.6.19 — v3.6.19 릴리즈</div>
-          <div class="adr-meta">2026-05-19</div>
-        </div>
-      
-        <div class="adr-card" style="border-left:3px solid #ff9800">
-          <div class="adr-number">v3.6.18</div>
-          <div class="adr-title">v3.6.18 — v3.6.18 릴리즈</div>
-          <div class="adr-meta">2026-05-19</div>
-        </div>
-      
     </div>
     <h3>전체 30건</h3>
     <table>
       <thead><tr><th>tag</th><th>날짜</th><th>title</th></tr></thead>
       <tbody>
+        
+          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.9.1">v3.9.1</a></td><td>2026-05-30</td><td>v3.9.1 — 자동매매 dogfooding patch</td></tr>
+        
+          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.9.0">v3.9.0</a></td><td>2026-05-24</td><td>v3.9.0 — v3.9.0 릴리즈</td></tr>
+        
+          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.8.1">v3.8.1</a></td><td>2026-05-22</td><td>v3.8.1</td></tr>
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.8.0">v3.8.0</a></td><td>2026-05-22</td><td>v3.8.0 — v3.8.0 릴리즈</td></tr>
         
@@ -1883,12 +1982,6 @@
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.2.2">v3.2.2</a></td><td>2026-05-12</td><td>v3.2.2 — KIS-only 데이터 정책 + NXT/통합거래 cover + 분봉 합산 가공 트랙 가동 (orchestrator)</td></tr>
         
-          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.2.1">v3.2.1</a></td><td>2026-05-12</td><td>v3.2.1 — v3.2.1 릴리즈</td></tr>
-        
-          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.1.1">v3.1.1</a></td><td>2026-05-12</td><td>v3.1.1 — v3.1.1 릴리즈</td></tr>
-        
-          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.1.0">v3.1.0</a></td><td>2026-05-12</td><td>v3.1.0 — v3.1.0 릴리즈</td></tr>
-        
       </tbody>
     </table>
   
@@ -1896,63 +1989,63 @@
 
   <div class="cat-content" data-cat="I" data-group-content-cat="시계열" data-active="false">
     
-    <h3>전체 294건 · status별 분포</h3>
+    <h3>전체 315건 · status별 분포</h3>
     <div class="cat-cards">
       
-        <div class="card"><div class="card-title">DONE</div><div class="card-sub">294건</div></div>
+        <div class="card"><div class="card-title">DONE</div><div class="card-sub">315건</div></div>
       
     </div>
     <h3>최근 10건</h3>
     <div class="spec-list">
       
         <div class="card">
-          <div class="card-title">T-20260522-1839-pr-37-baseline-backend.md</div>
-          <div class="card-meta">DONE · backend-core · PR #665</div>
+          <div class="card-title">T-20260530-2137-v3-9-1-patch.md</div>
+          <div class="card-meta">DONE · orchestrator · PR #696</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260522-1838-pr-37-baseline-marketdata.md</div>
-          <div class="card-meta">DONE · market-data · PR #664</div>
-        </div>
-      
-        <div class="card">
-          <div class="card-title">T-20260522-1838-pr-37-baseline-frontend.md</div>
-          <div class="card-meta">DONE · frontend · PR #663</div>
-        </div>
-      
-        <div class="card">
-          <div class="card-title">T-20260522-1838-pr-37-baseline-architect.md</div>
-          <div class="card-meta">DONE · architect </div>
-        </div>
-      
-        <div class="card">
-          <div class="card-title">T-20260522-1829-baseline-v3-8-0-init.md</div>
+          <div class="card-title">T-20260525-1509-market-calendar-holiday.md</div>
           <div class="card-meta">DONE · orchestrator </div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260521-2258-stage2-cleanup.md</div>
-          <div class="card-meta">DONE · architect · PR #655</div>
+          <div class="card-title">T-20260524-2046-pr-2-market-data.md</div>
+          <div class="card-meta">DONE · market-data · PR #690</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260521-2233-p0-ops-dr-backup.md</div>
-          <div class="card-meta">DONE · architect · PR #654</div>
+          <div class="card-title">T-20260524-2045-pr-2-backend-core.md</div>
+          <div class="card-meta">DONE · backend-core · PR #691</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260521-2224-p0-ops-runbook.md</div>
-          <div class="card-meta">DONE · backend-core · PR #652</div>
+          <div class="card-title">T-20260524-1737-worktree-agent-a8e70a5bcae3f447d.md</div>
+          <div class="card-meta">DONE · market-data · PR #684</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260521-2212-p0-ops-slo-sla-alert.md</div>
-          <div class="card-meta">DONE · architect · PR #651</div>
+          <div class="card-title">T-20260524-1737-worktree-agent-a05344e3c11923217.md</div>
+          <div class="card-meta">DONE · ai · PR #685</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260521-2157-p0-ops-logback-actuator.md</div>
-          <div class="card-meta">DONE · backend-core · PR #650</div>
+          <div class="card-title">T-20260524-1737-w4-p1-graceful-handlers.md</div>
+          <div class="card-meta">DONE · backend-core · PR #686</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">T-20260524-1704-w4-p1-adr-amend.md</div>
+          <div class="card-meta">DONE · architect · PR #682</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">T-20260524-1702-w4-p1-evidence.md</div>
+          <div class="card-meta">DONE · qa · PR #683</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">T-20260524-1626-w4-r3-visual-regression.md</div>
+          <div class="card-meta">DONE · qa · PR #681</div>
         </div>
       
     </div>
