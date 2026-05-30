@@ -27,6 +27,8 @@ interface BacktestFormProps {
 
 const INTERVAL_OPTIONS = [
   { value: '1d', label: '일봉 (1d)' },
+  { value: '12h', label: '12시간 (12h)' },
+  { value: '4h', label: '4시간 (4h)' },
   { value: '1h', label: '1시간 (1h)' },
   { value: '30m', label: '30분 (30m)' },
   { value: '15m', label: '15분 (15m)' },

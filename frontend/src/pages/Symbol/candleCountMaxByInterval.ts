@@ -35,6 +35,8 @@ export const CANDLE_COUNT_MAX_BY_INTERVAL: Readonly<Record<CandleInterval, numbe
   '30m': 3840,
   '90m': 3840,
   '1h': 3840,
+  '4h': 2000,
+  '12h': 1200,
   '1d': 5000,
   '1wk': 2000,
   '1mo': 1200,

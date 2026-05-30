@@ -42,7 +42,7 @@ import kotlinx.datetime.toLocalDateTime
  * 경계 케이스:
  *   - candles 빈 list           → 빈 list 반환
  *   - target == ONE_MIN         → IllegalArgumentException
- *   - target ∉ 지원 5종         → IllegalArgumentException
+ *   - target ∉ 지원 7종         → IllegalArgumentException
  *   - 입력 candle 의 interval 이 ONE_MIN 이 아님 → IllegalArgumentException
  *   - 한 boundary 내 1m 0건     → 해당 bar 생략 (mock 합성 금지)
  *   - 거래정지·중단 일자        → 자연스럽게 boundary 내 1m 0건이라 생략
@@ -69,7 +69,7 @@ object CandleAggregator {
             18 * 60 + 30, // 18:30
         )
 
-    /** 지원 target interval 5종 (ADR 0062 UI 매트릭스). */
+    /** 지원 target interval 7종 (ADR 0062 UI 매트릭스 + FVG/OB 고타임프레임). */
     private val SUPPORTED_TARGETS: Set<CandleInterval> =
         setOf(
             CandleInterval.FIVE_MIN,
@@ -77,6 +77,8 @@ object CandleAggregator {
             CandleInterval.THIRTY_MIN,
             CandleInterval.NINETY_MIN,
             CandleInterval.ONE_HOUR,
+            CandleInterval.FOUR_HOUR,
+            CandleInterval.TWELVE_HOUR,
         )
 
     /**
@@ -85,7 +87,7 @@ object CandleAggregator {
      * 입력 candles 는 정렬 무관 (내부에서 ts ASC 정렬). 모든 candle 의 interval 은 ONE_MIN 이어야 함.
      *
      * @param candles 1m candle list
-     * @param target  목표 합산 interval (FIVE_MIN·FIFTEEN_MIN·THIRTY_MIN·NINETY_MIN·ONE_HOUR)
+     * @param target  목표 합산 interval (FIVE_MIN·FIFTEEN_MIN·THIRTY_MIN·NINETY_MIN·ONE_HOUR·FOUR_HOUR·TWELVE_HOUR)
      * @return 합산된 candle list (ts ASC 정렬, target boundary 정합)
      * @throws IllegalArgumentException target 이 ONE_MIN 이거나 지원 5종 외이거나, 입력에 비-1m candle 포함
      */
@@ -97,13 +99,17 @@ object CandleAggregator {
             "target=$target — ONE_MIN 합산 불가 (1m → 1m 항등)"
         }
         require(target in SUPPORTED_TARGETS) {
-            "target=$target — 지원하지 않는 interval (지원: 5m·15m·30m·90m·1h)"
+            "target=$target — 지원하지 않는 interval (지원: 5m·15m·30m·90m·1h·4h·12h)"
         }
         if (candles.isEmpty()) return emptyList()
 
         val invalidInterval = candles.firstOrNull { it.interval != CandleInterval.ONE_MIN }
         require(invalidInterval == null) {
             "입력 candles 는 모두 ONE_MIN 이어야 함 (발견: interval=${invalidInterval?.interval})"
+        }
+
+        if (target == CandleInterval.TWELVE_HOUR) {
+            return aggregateTwelveHourActualLast(candles)
         }
 
         // ts 동일·코드 동일 boundary 그룹화. groupBy 는 순서를 보존하므로 sortedBy 선행 시
@@ -183,6 +189,7 @@ object CandleAggregator {
                 CandleInterval.FIFTEEN_MIN -> (minOfDay / 15) * 15
                 CandleInterval.THIRTY_MIN -> (minOfDay / 30) * 30
                 CandleInterval.ONE_HOUR -> (minOfDay / 60) * 60
+                CandleInterval.FOUR_HOUR -> fourHourBoundaryMin(minOfDay)
                 CandleInterval.NINETY_MIN -> ninetyMinBoundaryMin(minOfDay)
                 else ->
                     throw IllegalArgumentException(
@@ -214,5 +221,33 @@ object CandleAggregator {
             if (anchor <= minOfDay) picked = anchor else break
         }
         return picked
+    }
+
+    /**
+     * 4h boundary는 NXT cover 시작(08:00)을 anchor로 08:00·12:00·16:00 세 구간에 매핑한다.
+     * 실제 1m 데이터가 없는 분은 만들지 않으므로 종목별 조기 종료 시 마지막 구간은 자연스럽게 partial bar가 된다.
+     */
+    private fun fourHourBoundaryMin(minOfDay: Int): Int {
+        if (minOfDay < KST_MIDNIGHT_TO_OPEN_MIN) return KST_MIDNIGHT_TO_OPEN_MIN
+        val offset = minOfDay - KST_MIDNIGHT_TO_OPEN_MIN
+        return KST_MIDNIGHT_TO_OPEN_MIN + (offset / 240) * 240
+    }
+
+    /**
+     * 12h는 사용자가 지적한 정책대로 고정 08:00~20:00 한 개 봉을 만들지 않는다.
+     * KST 날짜·종목별 실제 마지막 1m candle을 끝점으로 삼고, 거기서 최대 720개 1분봉을 역산해 하나의 bar로 합산한다.
+     */
+    private fun aggregateTwelveHourActualLast(candles: List<Candle>): List<Candle> {
+        val sorted = candles.sortedBy { it.ts.epochSeconds }
+        return sorted
+            .groupBy { candle -> candle.code to candle.ts.toLocalDateTime(KST).date }
+            .values
+            .mapNotNull { dayCandles ->
+                val daySorted = dayCandles.sortedBy { it.ts.epochSeconds }
+                val last = daySorted.lastOrNull() ?: return@mapNotNull null
+                val windowStartEpochSec = last.ts.epochSeconds - 719L * 60L
+                val window = daySorted.filter { it.ts.epochSeconds >= windowStartEpochSec }
+                if (window.isEmpty()) null else aggregateGroup(window.first().ts.epochSeconds, window, CandleInterval.TWELVE_HOUR)
+            }.sortedBy { it.ts.epochSeconds }
     }
 }

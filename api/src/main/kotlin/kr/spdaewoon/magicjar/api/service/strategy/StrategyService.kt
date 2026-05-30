@@ -126,6 +126,7 @@ class StrategyService(
                 definition = definition,
                 complexity = combinedComplexity,
                 status = StrategyStatus.PAUSED,
+                intervals = listOf(tf),
             )
         val saved = strategyRepositoryPort.save(strategy)
         log.info("전략 등록 완료: id={} userId={} complexity={}", saved.id, userId, combinedComplexity.complexityClass)

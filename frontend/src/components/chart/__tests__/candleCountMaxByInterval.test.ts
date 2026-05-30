@@ -30,6 +30,11 @@ describe('candleCountMaxByInterval — ADR 0093 §3-1 LOCK', () => {
     expect(getCandleCountMax('1h')).toBe(3840)
   })
 
+  it('고타임프레임 합산 2종 max cap이 정합하다', () => {
+    expect(getCandleCountMax('4h')).toBe(2000)
+    expect(getCandleCountMax('12h')).toBe(1200)
+  })
+
   it('1wk·1mo·1y max cap 매트릭스', () => {
     expect(getCandleCountMax('1wk')).toBe(2000)
     expect(getCandleCountMax('1mo')).toBe(1200)
@@ -41,7 +46,7 @@ describe('candleCountMaxByInterval — ADR 0093 §3-1 LOCK', () => {
   })
 
   it('모든 timeframe에 양수 cap 존재', () => {
-    const intervals: CandleInterval[] = ['1m', '5m', '15m', '30m', '90m', '1h', '1d', '1wk', '1mo', '1y']
+    const intervals: CandleInterval[] = ['1m', '5m', '15m', '30m', '90m', '1h', '4h', '12h', '1d', '1wk', '1mo', '1y']
     intervals.forEach((i) => {
       expect(getCandleCountMax(i)).toBeGreaterThan(0)
     })

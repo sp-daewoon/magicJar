@@ -63,6 +63,33 @@ const MULTI_OUTPUT_ALIAS: Record<string, Record<string, string>> = {
     k: 'stoch_k',
     d: 'stoch_d',
   },
+  fvg: {
+    fvg: 'fvg_active',
+    bullish_active: 'fvg_bullish_active',
+    bearish_active: 'fvg_bearish_active',
+    bullish_top: 'fvg_bullish_top',
+    bullish_bottom: 'fvg_bullish_bottom',
+    bullish_mid: 'fvg_bullish_mid',
+    bullish_fill_pct: 'fvg_bullish_fill_pct',
+    bearish_top: 'fvg_bearish_top',
+    bearish_bottom: 'fvg_bearish_bottom',
+    bearish_mid: 'fvg_bearish_mid',
+    bearish_fill_pct: 'fvg_bearish_fill_pct',
+  },
+  order_block: {
+    order_block: 'ob_active',
+    bullish_active: 'ob_bullish_active',
+    bearish_active: 'ob_bearish_active',
+    bullish_top: 'ob_bullish_top',
+    bullish_bottom: 'ob_bullish_bottom',
+    bullish_mid: 'ob_bullish_mid',
+    bullish_fill_pct: 'ob_bullish_fill_pct',
+    bearish_top: 'ob_bearish_top',
+    bearish_bottom: 'ob_bearish_bottom',
+    bearish_mid: 'ob_bearish_mid',
+    bearish_fill_pct: 'ob_bearish_fill_pct',
+    bos_direction: 'ob_bos_direction',
+  },
 }
 
 // ──────────────────────────────────────────────

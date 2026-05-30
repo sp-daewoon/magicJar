@@ -20,7 +20,7 @@ import apiClient from '../lib/axios'
 //       합산 5종은 AggregateBackfillRunner 작동 전 빈 배열 반환 → graceful 표시.
 // ──────────────────────────────────────────────
 
-export type CandleInterval = '1m' | '5m' | '15m' | '30m' | '90m' | '1h' | '1d' | '1wk' | '1mo' | '1y'
+export type CandleInterval = '1m' | '5m' | '15m' | '30m' | '90m' | '1h' | '4h' | '12h' | '1d' | '1wk' | '1mo' | '1y'
 
 // ──────────────────────────────────────────────
 // DTO 정의 (spec §3-2 LOCK)
@@ -138,7 +138,7 @@ export interface CandleClosedPayload {
 }
 
 /** boundary closed STOMP 구독 대상 인터벌 (ADR 0064 §2-C 5종) */
-export const BOUNDARY_INTERVALS = ['5m', '15m', '30m', '90m', '1h'] as const
+export const BOUNDARY_INTERVALS = ['5m', '15m', '30m', '90m', '1h', '4h', '12h'] as const
 export type BoundaryInterval = (typeof BOUNDARY_INTERVALS)[number]
 
 /** CandleInterval이 boundary closed STOMP 구독 대상인지 확인 */

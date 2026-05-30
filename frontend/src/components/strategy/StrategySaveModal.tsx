@@ -39,6 +39,8 @@ const TF_OPTIONS = [
   { value: '5m', label: '5분봉' },
   { value: '30m', label: '30분봉' },
   { value: '1h', label: '1시간봉' },
+  { value: '4h', label: '4시간봉' },
+  { value: '12h', label: '12시간봉' },
   { value: '1d', label: '일봉' },
   { value: '1wk', label: '주봉' },
 ]

@@ -43,6 +43,7 @@ class RedisCandleCache(
                 CandleInterval.THIRTY_MIN,
                 CandleInterval.NINETY_MIN,
                 CandleInterval.ONE_HOUR,
+                CandleInterval.FOUR_HOUR,
             )
     }
 
@@ -62,7 +63,7 @@ class RedisCandleCache(
         candle: Candle,
     ) {
         require(interval in SUPPORTED_INTERVALS) {
-            "RedisCandleCache: 지원하지 않는 interval=$interval (지원: 5m·15m·30m·90m·1h)"
+            "RedisCandleCache: 지원하지 않는 interval=$interval (지원: 5m·15m·30m·90m·1h·4h)"
         }
         val key = buildKey(code, interval)
         try {
@@ -99,7 +100,7 @@ class RedisCandleCache(
         interval: CandleInterval,
     ): Candle? {
         require(interval in SUPPORTED_INTERVALS) {
-            "RedisCandleCache: 지원하지 않는 interval=$interval (지원: 5m·15m·30m·90m·1h)"
+            "RedisCandleCache: 지원하지 않는 interval=$interval (지원: 5m·15m·30m·90m·1h·4h)"
         }
         val key = buildKey(code, interval)
         return try {

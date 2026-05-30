@@ -220,6 +220,21 @@ class BoundaryDetectorTest {
         BoundaryDetector.isBoundaryClosed(kstInstant(9, 0), CandleInterval.ONE_HOUR) shouldBe false
     }
 
+    @Test
+    fun `4h boundary 마감 분 정합 - 11h59m`() {
+        BoundaryDetector.isBoundaryClosed(kstInstant(11, 59), CandleInterval.FOUR_HOUR) shouldBe true
+    }
+
+    @Test
+    fun `4h boundary 마감 분 정합 - 15h59m`() {
+        BoundaryDetector.isBoundaryClosed(kstInstant(15, 59), CandleInterval.FOUR_HOUR) shouldBe true
+    }
+
+    @Test
+    fun `12h boundary는 실제 마지막 봉 기반이라 실시간 boundary detector에서 닫지 않는다`() {
+        BoundaryDetector.isBoundaryClosed(kstInstant(19, 59), CandleInterval.TWELVE_HOUR) shouldBe false
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // 6. NXT 범위 밖 → false
     // ─────────────────────────────────────────────────────────────────────────

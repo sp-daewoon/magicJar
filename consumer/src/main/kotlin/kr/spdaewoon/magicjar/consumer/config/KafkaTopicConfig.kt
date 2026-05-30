@@ -163,6 +163,34 @@ class KafkaTopicConfig {
             .config("retention.ms", "86400000") // 1d
             .build()
 
+    /**
+     * 4시간봉 boundary closing 이벤트.
+     * NXT 08:00 anchor 기준 12:00·16:00·20:00 KST 마감.
+     * retention: 1d
+     */
+    @Bean
+    fun marketCandle4hClosedTopic(): NewTopic =
+        TopicBuilder
+            .name("market.candle.4h.closed.v1")
+            .partitions(1)
+            .replicas(1)
+            .config("retention.ms", "86400000") // 1d
+            .build()
+
+    /**
+     * 12시간봉 final aggregate 이벤트.
+     * 고정 20:00 봉이 아니라 종목별 실제 마지막 1m 기준 역산한 bar를 DailyCloseFinalizer가 발행한다.
+     * retention: 1d
+     */
+    @Bean
+    fun marketCandle12hClosedTopic(): NewTopic =
+        TopicBuilder
+            .name("market.candle.12h.closed.v1")
+            .partitions(1)
+            .replicas(1)
+            .config("retention.ms", "86400000") // 1d
+            .build()
+
     // ─────────────────────────────────────────────────────────────────────────
     // ADR 0066 §11-1 Phase 1 (6) — T-SIG 시그널 생성 토픽 (W3 두 번째 트랙)
     // ─────────────────────────────────────────────────────────────────────────

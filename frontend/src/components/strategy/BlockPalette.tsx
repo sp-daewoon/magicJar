@@ -156,6 +156,7 @@ export function BlockPalette({ onSelect, width = 224 }: BlockPaletteProps) {
       params: Object.fromEntries(
         Object.entries(item.defaultParams).map(([k, v]) => [k, String(v)]),
       ),
+      outputKey: item.multiOutput ? item.outputKeys[0] : undefined,
     })
   }
 

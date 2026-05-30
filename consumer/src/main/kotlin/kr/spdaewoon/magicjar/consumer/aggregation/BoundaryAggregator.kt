@@ -9,6 +9,7 @@ import kr.spdaewoon.magicjar.domain.market.candle.CandleAggregator
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.FIFTEEN_MIN
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.FIVE_MIN
+import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.FOUR_HOUR
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.NINETY_MIN
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.ONE_HOUR
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.ONE_MIN
@@ -39,7 +40,7 @@ import kotlinx.datetime.Instant as KtInstant
  *
  * 흐름 (ADR 0064 §4-3):
  *   1m tick 마감 ts → BoundaryDetector.isBoundaryClosed(ts, target) → 도달한 interval 각각:
- *     1. DB 1m fetch (boundary 내 최근 N건 — 5m=5건, 15m=15건, 30m=30건, 90m=90건, 1h=60건)
+ *     1. DB 1m fetch (boundary 내 최근 N건 — 5m=5건, 15m=15건, 30m=30건, 90m=90건, 1h=60건, 4h=240건)
  *     2. CandleAggregator.aggregate(1m list, target) → bar 생성
  *     3. RedisCandleCache.putBoundaryCandle(code, interval, bar) (ADR 0064 A-1)
  *     4. ConsumerCandleJpaRepository.insertIgnore (ON CONFLICT DO NOTHING 멱등)
@@ -63,7 +64,7 @@ class BoundaryAggregator(
     private val log = LoggerFactory.getLogger(BoundaryAggregator::class.java)
 
     companion object {
-        private val TARGET_INTERVALS = listOf(FIVE_MIN, FIFTEEN_MIN, THIRTY_MIN, NINETY_MIN, ONE_HOUR)
+        private val TARGET_INTERVALS = listOf(FIVE_MIN, FIFTEEN_MIN, THIRTY_MIN, NINETY_MIN, ONE_HOUR, FOUR_HOUR)
         private val KST = ZoneId.of("Asia/Seoul")
 
         /** interval → Kafka topic 매핑 (ADR 0064 C-1 §4-5) */
@@ -74,6 +75,7 @@ class BoundaryAggregator(
                 THIRTY_MIN to "market.candle.30m.closed.v1",
                 NINETY_MIN to "market.candle.90m.closed.v1",
                 ONE_HOUR to "market.candle.1h.closed.v1",
+                FOUR_HOUR to "market.candle.4h.closed.v1",
             )
 
         /** interval → 직전 N건 1m fetch 건수 (ADR 0064 §4-3 정합) */
@@ -84,6 +86,7 @@ class BoundaryAggregator(
                 THIRTY_MIN to 30,
                 NINETY_MIN to 90,
                 ONE_HOUR to 60,
+                FOUR_HOUR to 240,
             )
     }
 

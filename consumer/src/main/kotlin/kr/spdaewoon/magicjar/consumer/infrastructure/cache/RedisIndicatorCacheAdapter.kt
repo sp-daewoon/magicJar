@@ -31,7 +31,7 @@ class RedisIndicatorCacheAdapter(
 
     companion object {
         private const val KEY_PREFIX = "indicator:cache"
-        private val INTRADAY_INTERVALS = setOf("1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h")
+        private val INTRADAY_INTERVALS = setOf("1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "4h", "12h")
         private val INTRADAY_TTL = Duration.ofSeconds(300)
         private val DAILY_TTL = Duration.ofSeconds(86400)
     }

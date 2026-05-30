@@ -1,11 +1,15 @@
 package kr.spdaewoon.magicjar.consumer.application.market
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.consumer.aggregation.AggregateBackfillRunner
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerCandleJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerWatchlistJpaRepository
+import kr.spdaewoon.magicjar.domain.market.candle.Candle
+import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.session.MarketSessionResolver
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
+import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
@@ -44,6 +48,8 @@ class DailyCloseFinalizer(
     private val redisTemplate: StringRedisTemplate,
     private val watchlistJpaRepository: ConsumerWatchlistJpaRepository,
     private val aggregateBackfillRunner: AggregateBackfillRunner,
+    private val kafkaTemplate: KafkaTemplate<String, String>,
+    private val objectMapper: ObjectMapper,
 ) {
     private val log = LoggerFactory.getLogger(DailyCloseFinalizer::class.java)
 
@@ -53,6 +59,11 @@ class DailyCloseFinalizer(
         private const val INTERVAL_1D = "1d"
         private const val SOURCE_FINALIZER = "KIS_DAILY_CLOSE"
         private val KST = ZoneId.of("Asia/Seoul")
+        private val FINAL_AGGREGATE_TOPICS =
+            mapOf(
+                CandleInterval.FOUR_HOUR to "market.candle.4h.closed.v1",
+                CandleInterval.TWELVE_HOUR to "market.candle.12h.closed.v1",
+            )
     }
 
     /**
@@ -81,46 +92,45 @@ class DailyCloseFinalizer(
         val pattern = "$CANDLE_TODAY_PREFIX*$CANDLE_TODAY_SUFFIX"
         val keys = redisTemplate.keys(pattern)
 
-        if (keys.isNullOrEmpty()) {
-            log.info("DailyCloseFinalizer: Redis 1d 캔들 없음 — skip")
-            return
-        }
-
         var flushed = 0
         var failed = 0
 
-        for (key in keys) {
-            try {
-                // key 예: candle:today:005930:1d → code = "005930"
-                val code =
-                    key
-                        .removePrefix(CANDLE_TODAY_PREFIX)
-                        .removeSuffix(CANDLE_TODAY_SUFFIX)
+        if (keys.isNullOrEmpty()) {
+            log.info("DailyCloseFinalizer: Redis 1d 캔들 없음 — 1d 저장만 skip, 고타임프레임 합산은 계속 진행")
+        } else {
+            for (key in keys) {
+                try {
+                    // key 예: candle:today:005930:1d → code = "005930"
+                    val code =
+                        key
+                            .removePrefix(CANDLE_TODAY_PREFIX)
+                            .removeSuffix(CANDLE_TODAY_SUFFIX)
 
-                // FIX(dogfooding): candle:today:{code}:1d 는 KisWebSocketBridge.updateCandleToday()가
-                // opsForHash(HMSET)로 저장. 기존 opsForValue().get() 호출은 WRONGTYPE 에러 → null 반환
-                // → DB 미삽입 결함. Hash 타입으로 읽도록 수정.
-                val hash = redisTemplate.opsForHash<String, String>().entries(key)
-                if (hash.isEmpty()) continue
+                    // FIX(dogfooding): candle:today:{code}:1d 는 KisWebSocketBridge.updateCandleToday()가
+                    // opsForHash(HMSET)로 저장. 기존 opsForValue().get() 호출은 WRONGTYPE 에러 → null 반환
+                    // → DB 미삽입 결함. Hash 타입으로 읽도록 수정.
+                    val hash = redisTemplate.opsForHash<String, String>().entries(key)
+                    if (hash.isEmpty()) continue
 
-                val candle = parseCandleHash(hash, code, today) ?: continue
+                    val candle = parseCandleHash(hash, code, today) ?: continue
 
-                val count =
-                    candleJpaRepository.insertIgnore(
-                        code = code,
-                        interval = INTERVAL_1D,
-                        ts = candle.ts,
-                        openRaw = candle.openRaw,
-                        highRaw = candle.highRaw,
-                        lowRaw = candle.lowRaw,
-                        closeRaw = candle.closeRaw,
-                        volume = candle.volume,
-                        source = SOURCE_FINALIZER,
-                    )
-                flushed += count
-            } catch (e: Exception) {
-                log.warn("DailyCloseFinalizer candle flush 실패: key={} err={}", key, e.message)
-                failed++
+                    val count =
+                        candleJpaRepository.insertIgnore(
+                            code = code,
+                            interval = INTERVAL_1D,
+                            ts = candle.ts,
+                            openRaw = candle.openRaw,
+                            highRaw = candle.highRaw,
+                            lowRaw = candle.lowRaw,
+                            closeRaw = candle.closeRaw,
+                            volume = candle.volume,
+                            source = SOURCE_FINALIZER,
+                        )
+                    flushed += count
+                } catch (e: Exception) {
+                    log.warn("DailyCloseFinalizer candle flush 실패: key={} err={}", key, e.message)
+                    failed++
+                }
             }
         }
 
@@ -136,7 +146,7 @@ class DailyCloseFinalizer(
         // ADR 0062 §9 NXT cover — 당일 1m 전량 → 5m·15m·30m·90m·1h 합산 갱신.
         // cold-start 이후 당일 1m 추가 수집분(장중 누적) 이 있어 20:00 재합산 의무.
         // 실패 시 warn 기록 후 계속 진행 (일봉 영속 결과에 영향 없음).
-        flushAggregations()
+        flushAggregations(today)
 
         val elapsed = Instant.now().epochSecond - startTs.epochSecond
         log.info(
@@ -150,7 +160,7 @@ class DailyCloseFinalizer(
      * watchlist 전 종목 당일 1m → 5m·15m·30m·90m·1h 합산 갱신.
      * ADR 0062 §9 NXT cover 정합 — 20:00 KST 마감 후 당일 분봉 전량 합산.
      */
-    private fun flushAggregations() {
+    private fun flushAggregations(today: LocalDate) {
         val watchlistEntries =
             try {
                 watchlistJpaRepository.findAllByOrderByPriorityAscCreatedAtDesc()
@@ -171,8 +181,13 @@ class DailyCloseFinalizer(
         for (entry in watchlistEntries) {
             val code = entry.code
             try {
-                val result = aggregateBackfillRunner.backfill(code)
-                val totalInserted = result.values.filter { it >= 0 }.sum()
+                val result = aggregateBackfillRunner.backfillDetailed(code)
+                publishFinalAggregateCloses(code, today, result)
+                val totalInserted =
+                    result.values
+                        .map { it.inserted }
+                        .filter { it >= 0 }
+                        .sum()
                 log.debug(
                     "DailyCloseFinalizer aggregation: code={} inserted={}",
                     code,
@@ -190,6 +205,59 @@ class DailyCloseFinalizer(
             aggregateSuccess,
             aggregateFail,
         )
+    }
+
+    private fun publishFinalAggregateCloses(
+        code: String,
+        today: LocalDate,
+        result: Map<String, AggregateBackfillRunner.IntervalBackfillResult>,
+    ) {
+        for ((interval, topic) in FINAL_AGGREGATE_TOPICS) {
+            val bar = result[interval.code]?.latestBar ?: continue
+            val barDate = Instant.ofEpochSecond(bar.ts.epochSeconds).atZone(KST).toLocalDate()
+            if (barDate != today) continue
+            publishFinalAggregateClose(topic, code, interval, bar)
+        }
+    }
+
+    private fun publishFinalAggregateClose(
+        topic: String,
+        code: String,
+        interval: CandleInterval,
+        bar: Candle,
+    ) {
+        try {
+            val payload =
+                objectMapper.writeValueAsString(
+                    mapOf(
+                        "code" to code,
+                        "interval" to interval.code,
+                        "ts" to bar.ts.epochSeconds,
+                        "open" to bar.openRaw.toPlainString(),
+                        "high" to bar.highRaw.toPlainString(),
+                        "low" to bar.lowRaw.toPlainString(),
+                        "close" to bar.closeRaw.toPlainString(),
+                        "volume" to bar.volume,
+                        "source" to bar.source,
+                        "publishedAt" to Instant.now().toString(),
+                    ),
+                )
+            kafkaTemplate.send(topic, code, payload)
+            log.info(
+                "DailyCloseFinalizer final aggregate publish: topic={} code={} interval={} ts={}",
+                topic,
+                code,
+                interval.code,
+                bar.ts,
+            )
+        } catch (e: Exception) {
+            log.warn(
+                "DailyCloseFinalizer final aggregate publish 실패: topic={} code={} err={}",
+                topic,
+                code,
+                e.message,
+            )
+        }
     }
 
     /**

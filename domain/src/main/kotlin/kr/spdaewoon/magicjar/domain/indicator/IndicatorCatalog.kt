@@ -1,7 +1,7 @@
 package kr.spdaewoon.magicjar.domain.indicator
 
 /**
- * 80지표 분류.
+ * KIS 80지표 + magicJar 확장 지표 분류.
  */
 enum class IndicatorCategory {
     TREND,
@@ -15,7 +15,7 @@ enum class IndicatorCategory {
 /**
  * 지표 메타데이터 (frontend IndicatorPicker · DSL · StrategyBuilder 의존).
  *
- * - [id]: 지표 고유 ID (예: "rsi"). 80지표 카탈로그 정합.
+ * - [id]: 지표 고유 ID (예: "rsi"). 지표 카탈로그 정합.
  * - [displayName]: 한국어 표시 이름.
  * - [category]: 6 분류.
  * - [defaultParams]: 기본 파라미터 (예: {"period": 14}).
@@ -30,9 +30,9 @@ data class IndicatorMetadata(
 )
 
 /**
- * 80지표 카탈로그 (read-only).
+ * 지표 카탈로그 (read-only).
  *
- * source-of-truth: `_workspace/strategy/indicator-catalog.md` (KIS indicators.py raw fetch 결과).
+ * source-of-truth: `_workspace/strategy/indicator-catalog.md` (KIS indicators.py raw fetch 결과) + magicJar 확장 지표.
  * multi-output 매트릭스: spec §5 LOCK.
  *
  * ADR 0020 §3-1 + ADR 0021 §2-4 정합.
@@ -226,7 +226,7 @@ object IndicatorCatalog {
             )
             add(IndicatorMetadata("bop", "매수-매도 균형(BOP)", IndicatorCategory.OSCILLATOR, emptyMap(), listOf("bop")))
 
-            // ===== OTHER 8개 =====
+            // ===== OTHER 8개 + magicJar 확장 2개 =====
             add(IndicatorMetadata("std", "표준편차", IndicatorCategory.OTHER, mapOf("period" to 20), listOf("std")))
             add(IndicatorMetadata("variance", "분산", IndicatorCategory.OTHER, mapOf("period" to 20), listOf("variance")))
             add(IndicatorMetadata("disparity", "이격도", IndicatorCategory.OTHER, mapOf("period" to 20), listOf("disparity")))
@@ -235,10 +235,53 @@ object IndicatorCatalog {
             add(IndicatorMetadata("logr", "로그 수익률", IndicatorCategory.OTHER, emptyMap(), listOf("logr")))
             add(IndicatorMetadata("pivot", "피봇 포인트", IndicatorCategory.OTHER, emptyMap(), listOf("p", "r1", "r2", "r3", "s1", "s2", "s3")))
             add(IndicatorMetadata("regression_intercept", "선형회귀 절편", IndicatorCategory.OTHER, mapOf("period" to 20), listOf("intercept")))
+            add(
+                IndicatorMetadata(
+                    "fvg",
+                    "Fair Value Gap(FVG)",
+                    IndicatorCategory.OTHER,
+                    mapOf("mitigationPct" to 50),
+                    listOf(
+                        "fvg",
+                        "bullish_active",
+                        "bearish_active",
+                        "bullish_top",
+                        "bullish_bottom",
+                        "bullish_mid",
+                        "bullish_fill_pct",
+                        "bearish_top",
+                        "bearish_bottom",
+                        "bearish_mid",
+                        "bearish_fill_pct",
+                    ),
+                ),
+            )
+            add(
+                IndicatorMetadata(
+                    "order_block",
+                    "오더블록(Order Block)",
+                    IndicatorCategory.OTHER,
+                    mapOf("swingLookback" to 20, "searchLookback" to 20, "mitigationPct" to 50),
+                    listOf(
+                        "order_block",
+                        "bullish_active",
+                        "bearish_active",
+                        "bullish_top",
+                        "bullish_bottom",
+                        "bullish_mid",
+                        "bullish_fill_pct",
+                        "bearish_top",
+                        "bearish_bottom",
+                        "bearish_mid",
+                        "bearish_fill_pct",
+                        "bos_direction",
+                    ),
+                ),
+            )
         }
 
     /**
-     * 등록된 모든 spec ID 집합. 80개.
+     * 등록된 모든 spec ID 집합. KIS 80개 + magicJar 확장 2개.
      */
     val ALL_IDS: Set<String> = ALL.map { it.id }.toSet()
 

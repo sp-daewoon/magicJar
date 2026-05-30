@@ -128,6 +128,32 @@ class CandleAggregatorTest {
     }
 
     @Test
+    fun `4h aggregate uses 0800 anchor and allows actual data partial`() {
+        val candles =
+            (0 until 30).map { i ->
+                oneMin(kstTs(2026, 5, 11, 15, i), 100L, 105L, 95L, 101L, 1L)
+            }
+        val result = CandleAggregator.aggregate(candles, CandleInterval.FOUR_HOUR)
+        result shouldHaveSize 1
+        result[0].ts shouldBe kstTs(2026, 5, 11, 12, 0)
+        result[0].volume shouldBe 30L
+    }
+
+    @Test
+    fun `12h aggregate anchors by actual last 1m candle per day`() {
+        val candles =
+            (0 until 450).map { i ->
+                val totalMin = 8 * 60 + i
+                oneMin(kstTs(2026, 5, 11, totalMin / 60, totalMin % 60), 100L, 110L, 90L, 100L + i, 1L)
+            }
+        val result = CandleAggregator.aggregate(candles, CandleInterval.TWELVE_HOUR)
+        result shouldHaveSize 1
+        result[0].ts shouldBe kstTs(2026, 5, 11, 8, 0)
+        result[0].closeRaw shouldBe BigDecimal(549)
+        result[0].volume shouldBe 450L
+    }
+
+    @Test
     fun `90m aggregate 0930 anchor ninety ones`() {
         // 09:30 anchor 그룹 = 09:30 ~ 10:59 (90 분).
         val candles =

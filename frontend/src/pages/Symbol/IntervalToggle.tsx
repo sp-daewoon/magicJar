@@ -25,6 +25,8 @@ const INTERVALS: { value: CandleInterval; label: string }[] = [
   { value: '30m', label: '30분' },
   { value: '90m', label: '90분' },
   { value: '1h', label: '1시간' },
+  { value: '4h', label: '4시간' },
+  { value: '12h', label: '12시간' },
   { value: '1d', label: '일' },
   { value: '1wk', label: '주' },
   { value: '1mo', label: '월' },

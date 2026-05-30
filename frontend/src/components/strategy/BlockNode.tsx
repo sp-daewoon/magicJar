@@ -148,6 +148,7 @@ function IndicatorNodeView({
   const inputRef = useRef<HTMLInputElement>(null)
 
   const paramStr = Object.values(node.params).join(', ')
+  const outputKey = node.outputKey ?? meta?.outputKeys[0]
   const displayStr = paramStr ? `${node.id}(${paramStr})` : node.id
 
   return (
@@ -189,6 +190,20 @@ function IndicatorNodeView({
         )}
         {meta && (
           <span className="text-xs text-gray-500">{meta.name}</span>
+        )}
+        {meta?.multiOutput && (
+          <select
+            value={outputKey}
+            onChange={(e) => onChange({ ...node, outputKey: e.target.value })}
+            className="rounded border border-gray-700 bg-gray-950 px-1.5 py-0.5 text-xs text-gray-200 focus:border-blue-500 focus:outline-none"
+            aria-label={`${node.id} 출력 선택`}
+          >
+            {meta.outputKeys.map((key) => (
+              <option key={key} value={key}>
+                {key}
+              </option>
+            ))}
+          </select>
         )}
       </div>
     </div>
