@@ -7,17 +7,17 @@
  *   POST /api/symbols/{code}/orderbook/subscribe   → OrderbookSubscribeResponseDto
  *   POST /api/symbols/{code}/orderbook/unsubscribe → OrderbookUnsubscribeResponseDto
  *
- * ADR 0019 §2-2 인터벌 5종: 1m·5m·30m·1h·1d
+ * ADR 0019 §2-2 인터벌 확장: 1m·5m·15m·30m·90m·1h·4h·12h·1d...
  * ADR 0014 stale 배지: source 필드 + stale boolean
  */
 import apiClient from '../lib/axios'
 
 // ──────────────────────────────────────────────
-// 인터벌 타입 (ADR 0062 채택 2026-05-11 — 10종)
+// 인터벌 타입 (ADR 0062 채택 2026-05-11 — 확장)
 //   KIS 직접 제공 5종: 1m·1d·1wk·1mo·1y
-//   합산(precomputed) 5종: 5m·15m·30m·90m·1h  ← ADR 0062 활성화
+//   합산(precomputed): 5m·15m·30m·90m·1h·4h·12h
 // 주의: 1wk·1mo·1y는 backend-core PR(PR-31b)과 동시 활성화.
-//       합산 5종은 AggregateBackfillRunner 작동 전 빈 배열 반환 → graceful 표시.
+//       합산 interval은 AggregateBackfillRunner 작동 전 빈 배열 반환 → graceful 표시.
 // ──────────────────────────────────────────────
 
 export type CandleInterval = '1m' | '5m' | '15m' | '30m' | '90m' | '1h' | '4h' | '12h' | '1d' | '1wk' | '1mo' | '1y'
@@ -123,7 +123,7 @@ export interface CandleMinutePayload {
 
 /**
  * /topic/market.candle.{interval}.{code} — boundary closed 실시간 캔들
- * ADR 0064 §2-C: 5m·15m·30m·90m·1h 합산 boundary 마감 시점에 fanout
+ * ADR 0064 §2-C: 합산 interval boundary 마감 시점에 fanout
  * BoundaryAggregator → Kafka market.candle.{interval}.closed.v1 → StompCandleForwarder → fanout
  */
 export interface CandleClosedPayload {
@@ -137,7 +137,7 @@ export interface CandleClosedPayload {
   volume: number
 }
 
-/** boundary closed STOMP 구독 대상 인터벌 (ADR 0064 §2-C 5종) */
+/** boundary closed STOMP 구독 대상 인터벌 (ADR 0064 §2-C) */
 export const BOUNDARY_INTERVALS = ['5m', '15m', '30m', '90m', '1h', '4h', '12h'] as const
 export type BoundaryInterval = (typeof BOUNDARY_INTERVALS)[number]
 

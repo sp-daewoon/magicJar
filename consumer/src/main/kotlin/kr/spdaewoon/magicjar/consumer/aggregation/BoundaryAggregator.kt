@@ -41,7 +41,7 @@ import kotlinx.datetime.Instant as KtInstant
  *
  * 흐름 (ADR 0064 §4-3):
  *   1m tick 마감 ts → BoundaryDetector.isBoundaryClosed(ts, target) → 도달한 interval 각각:
- *     1. DB 1m fetch (boundary 내 최근 N건 — 5m=5건, 15m=15건, 30m=30건, 90m=90건, 1h=60건, 4h=240건, 12h=720건)
+ *     1. DB 1m fetch (boundary 내 최근 N건 — 5m=5건, 15m=15건, 30m=30건, 90m=90건, 1h=60건, 4h=240건, 12h=390건)
  *     2. CandleAggregator.aggregate(1m list, target) → bar 생성
  *     3. RedisCandleCache.putBoundaryCandle(code, interval, bar) (ADR 0064 A-1)
  *     4. ConsumerCandleJpaRepository.insertIgnore (ON CONFLICT DO NOTHING 멱등)
@@ -89,7 +89,7 @@ class BoundaryAggregator(
                 NINETY_MIN to 90,
                 ONE_HOUR to 60,
                 FOUR_HOUR to 240,
-                TWELVE_HOUR to 720,
+                TWELVE_HOUR to 390,
             )
     }
 

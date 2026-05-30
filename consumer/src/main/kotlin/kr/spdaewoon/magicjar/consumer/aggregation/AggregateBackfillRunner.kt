@@ -19,11 +19,11 @@ import org.springframework.stereotype.Component
  *
  * 사용 시점:
  *   - [kr.spdaewoon.magicjar.consumer.ingestion.ColdStartExecutor] 1m 적재 직후 (cold-start 확장)
- *   - [kr.spdaewoon.magicjar.consumer.application.market.DailyCloseFinalizer] 20:00 KST 당일 갱신
+ *   - [kr.spdaewoon.magicjar.consumer.application.market.DailyCloseFinalizer] 16:00 KST 당일 갱신
  *   - admin REST endpoint 수동 트리거 (단발 운영)
  *
- * ADR 0062 §9 NXT 결합:
- *   - 입력 1m 이 NXT cover(KST 08:00~19:55) 이면 합산 결과도 NXT cover 보장.
+ * TradingView 정합:
+ *   - 입력 1m 중 KRX 정규장(KST 09:00~15:30)만 합산한다.
  *   - boundary 정렬은 CandleAggregator 내부 처리 — 본 클래스는 위임만.
  *
  * ADR 0019 §2-5 합성 폐기 결정 **revoke** (ADR 0062 채택 — 2026-05-11):

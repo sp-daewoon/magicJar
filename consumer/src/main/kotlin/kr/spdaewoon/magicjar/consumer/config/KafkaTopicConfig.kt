@@ -89,12 +89,12 @@ class KafkaTopicConfig {
             .build()
 
     // ─────────────────────────────────────────────────────────────────────────
-    // ADR 0064 A-1·C-1 — boundary 마감 5종 토픽 (v3.3.0 §34)
+    // ADR 0064 A-1·C-1 — boundary 마감 토픽 (v3.3.0 §34)
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
      * 5분봉 boundary closing 이벤트 (ADR 0064 §4-5 C-1 채택).
-     * NXT cover 08:05~20:00 KST 144건/일 (ADR 0063 정합).
+     * KRX 정규장 09:05~15:30 KST 78건/일 (TradingView 정합).
      * api StompCandleClosedForwarder → /topic/market.candle.5m.{code} STOMP fanout.
      * retention: 1d (하루 배치·fallback 충분)
      */
@@ -109,7 +109,7 @@ class KafkaTopicConfig {
 
     /**
      * 15분봉 boundary closing 이벤트 (ADR 0064 §4-5 C-1 채택).
-     * NXT cover 08:15~20:00 KST 48건/일.
+     * KRX 정규장 09:15~15:30 KST 26건/일.
      * retention: 1d
      */
     @Bean
@@ -123,7 +123,7 @@ class KafkaTopicConfig {
 
     /**
      * 30분봉 boundary closing 이벤트 (ADR 0064 §4-5 C-1 채택).
-     * NXT cover 08:30~20:00 KST 24건/일.
+     * KRX 정규장 09:30~15:30 KST 13건/일.
      * retention: 1d
      */
     @Bean
@@ -137,7 +137,7 @@ class KafkaTopicConfig {
 
     /**
      * 90분봉 boundary closing 이벤트 (ADR 0064 §4-5 C-1 채택).
-     * NXT cover 09:30·11:00·12:30·14:00·15:30·17:00·18:30·20:00 KST 8건/일.
+     * KRX 정규장 10:30·12:00·13:30·15:00·15:30 KST 5건/일.
      * retention: 1d
      */
     @Bean
@@ -151,7 +151,7 @@ class KafkaTopicConfig {
 
     /**
      * 1시간봉 boundary closing 이벤트 (ADR 0064 §4-5 C-1 채택).
-     * NXT cover 09:00~20:00 KST 12건/일.
+     * KRX 정규장 10:00~15:30 KST 7건/일.
      * retention: 1d
      */
     @Bean
@@ -165,7 +165,7 @@ class KafkaTopicConfig {
 
     /**
      * 4시간봉 boundary closing 이벤트.
-     * NXT 08:00 anchor 기준 12:00·16:00·20:00 KST 마감.
+     * KRX 정규장 09:00 anchor 기준 13:00·15:30 KST 마감.
      * retention: 1d
      */
     @Bean
@@ -178,8 +178,8 @@ class KafkaTopicConfig {
             .build()
 
     /**
-     * 12시간봉 boundary closing 이벤트.
-     * NXT 08:00 anchor 기준 20:00 KST 마감.
+     * 12h(정규장 전체) boundary closing 이벤트.
+     * KRX 정규장 09:00 anchor 기준 15:30 KST 마감.
      * retention: 1d
      */
     @Bean

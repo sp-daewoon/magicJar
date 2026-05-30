@@ -20,15 +20,14 @@ import java.time.ZoneId
 /**
  * 일봉 마감 파이널라이저 (ADR 0013 §3-6, PR-29a).
  *
- * 실행 시점: 매 거래일 20:00 KST (@Scheduled cron)
- *   - ADR 0063 NXT 마감 시각 정합: NXT(야간 거래) 19:50 마감 + 여유 10분 = 20:00
- *   - (구: 16:00 KST KRX 마감 기준 — 2026-05-11 ADR 0063 채택으로 갱신)
+ * 실행 시점: 매 거래일 16:00 KST (@Scheduled cron)
+ *   - TradingView 정합 패치: KRX 정규장 15:30 마감 + 여유 30분 = 16:00
  *
  * 동작 흐름:
  *   1. 현재 날짜가 영업일인지 확인 (비영업일 → skip)
  *   2. Redis candle:today:{code}:1d Hash 키 스캔 → 1d candle DB INSERT (ON CONFLICT DO NOTHING)
  *   3. KIS WS tick 집계 값 직접 사용 — 자체 계산 0 (ADR 0013 §3-7 §6 정합)
- *   4. ADR 0062 §9 NXT cover — watchlist 전 종목 당일 1m → 5m·15m·30m·90m·1h·4h·12h 합산 갱신
+ *   4. watchlist 전 종목 당일 정규장 1m → 5m·15m·30m·90m·1h·4h·12h 합산 갱신
  *      (cold-start 합산 이후 당일 1m 추가 수집분이 있어 갱신 필요)
  *
  * T3 fallback source: 이 파이널라이저가 영속한 1d candle은 candle-data-policy-v2 §6 T3 소스.
@@ -67,7 +66,7 @@ class DailyCloseFinalizer(
     }
 
     /**
-     * 매 거래일 20:00 KST 실행 (ADR 0063 NXT 마감 시각 정합).
+     * 매 거래일 16:00 KST 실행 (KRX 정규장 15:30 마감 후 여유 30분).
      * 비영업일은 자동 skip (MarketSessionResolver.isBusinessDay 체크).
      *
      * 함정: @Transactional + @Scheduled 조합 시 Kotlin CGLIB proxy 결함으로
@@ -75,7 +74,7 @@ class DailyCloseFinalizer(
      * 단일 Repository INSERT만 호출하므로 트랜잭션 전체 wrap 불필요 —
      * candleJpaRepository.insertIgnore 자체 @Transactional로 충분.
      */
-    @Scheduled(cron = "0 0 20 * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 16 * * *", zone = "Asia/Seoul")
     fun finalize() {
         val today = LocalDate.now(KST)
 
@@ -143,8 +142,8 @@ class DailyCloseFinalizer(
             elapsed1d,
         )
 
-        // ADR 0062 §9 NXT cover — 당일 1m 전량 → 5m·15m·30m·90m·1h·4h·12h 합산 갱신.
-        // cold-start 이후 당일 1m 추가 수집분(장중 누적) 이 있어 20:00 재합산 의무.
+        // 당일 1m 전량 중 CandleAggregator가 KRX 정규장(09:00~15:30)만 합산 갱신.
+        // cold-start 이후 당일 1m 추가 수집분(장중 누적) 이 있어 16:00 재합산 의무.
         // 실패 시 warn 기록 후 계속 진행 (일봉 영속 결과에 영향 없음).
         flushAggregations(today)
 
@@ -158,7 +157,7 @@ class DailyCloseFinalizer(
 
     /**
      * watchlist 전 종목 당일 1m → 5m·15m·30m·90m·1h·4h·12h 합산 갱신.
-     * ADR 0062 §9 NXT cover 정합 — 20:00 KST 마감 후 당일 분봉 전량 합산.
+     * TradingView 정합 — 16:00 KST에 당일 정규장 분봉 전량 합산.
      */
     private fun flushAggregations(today: LocalDate) {
         val watchlistEntries =

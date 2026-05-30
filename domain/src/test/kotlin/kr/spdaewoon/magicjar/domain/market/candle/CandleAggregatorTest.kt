@@ -13,14 +13,14 @@ import java.math.BigDecimal
 /**
  * CandleAggregator 단위 테스트.
  *
- * 검증 시나리오 (ADR 0062 + ADR 0063 NXT cover boundary 정합):
+ * 검증 시나리오 (TradingView + KRX 정규장 boundary 정합):
  *   1. 5m·15m·30m·1h·90m 합산 — 각 interval boundary 정합
  *   2. OHLCV 정합 — open=first, close=last, high=max, low=min, vol=sum
  *   3. 빈 입력 / 잘못된 target / 비-1m 섞임 → IllegalArgumentException
  *   4. 다중 boundary 분산
  *   5. 거래정지 시뮬 (boundary 내 1m 0건 → bar 생략, mock 0 정합)
  *   6. ts 무정렬 입력 정렬·합산
- *   7. NXT cover boundary sample (08:00 / 08:05 / 15:30 / 17:00 / 19:55)
+ *   7. KRX 정규장 boundary sample (09:00 / 09:05 / 15:00 / 15:25)
  */
 class CandleAggregatorTest {
     private val kst = TimeZone.of("Asia/Seoul")
@@ -63,11 +63,11 @@ class CandleAggregatorTest {
         )
 
     @Test
-    fun `5m aggregate from NXT open boundary 0800 to 0804`() {
+    fun `5m aggregate from KRX regular open boundary 0900 to 0904`() {
         val candles =
             (0 until 5).map { i ->
                 oneMin(
-                    ts = kstTs(2026, 5, 11, 8, i),
+                    ts = kstTs(2026, 5, 11, 9, i),
                     o = 100L + i,
                     h = 110L + i,
                     l = 90L + i,
@@ -81,7 +81,7 @@ class CandleAggregatorTest {
         result shouldHaveSize 1
         val bar = result[0]
         bar.interval shouldBe CandleInterval.FIVE_MIN
-        bar.ts shouldBe kstTs(2026, 5, 11, 8, 0)
+        bar.ts shouldBe kstTs(2026, 5, 11, 9, 0)
         bar.openRaw shouldBe BigDecimal(100)
         bar.highRaw shouldBe BigDecimal(114)
         bar.lowRaw shouldBe BigDecimal(90)
@@ -92,26 +92,26 @@ class CandleAggregatorTest {
     }
 
     @Test
-    fun `15m aggregate 0800 to 0814 fifteen ones`() {
+    fun `15m aggregate 0900 to 0914 fifteen ones`() {
         val candles =
             (0 until 15).map { i ->
-                oneMin(kstTs(2026, 5, 11, 8, i), 100L, 100L, 100L, 100L, 10L)
+                oneMin(kstTs(2026, 5, 11, 9, i), 100L, 100L, 100L, 100L, 10L)
             }
         val result = CandleAggregator.aggregate(candles, CandleInterval.FIFTEEN_MIN)
         result shouldHaveSize 1
-        result[0].ts shouldBe kstTs(2026, 5, 11, 8, 0)
+        result[0].ts shouldBe kstTs(2026, 5, 11, 9, 0)
         result[0].volume shouldBe 150L
     }
 
     @Test
-    fun `30m aggregate 0800 to 0829 thirty ones`() {
+    fun `30m aggregate 0900 to 0929 thirty ones`() {
         val candles =
             (0 until 30).map { i ->
-                oneMin(kstTs(2026, 5, 11, 8, i), 100L, 100L, 100L, 100L, 1L)
+                oneMin(kstTs(2026, 5, 11, 9, i), 100L, 100L, 100L, 100L, 1L)
             }
         val result = CandleAggregator.aggregate(candles, CandleInterval.THIRTY_MIN)
         result shouldHaveSize 1
-        result[0].ts shouldBe kstTs(2026, 5, 11, 8, 0)
+        result[0].ts shouldBe kstTs(2026, 5, 11, 9, 0)
         result[0].volume shouldBe 30L
     }
 
@@ -128,19 +128,19 @@ class CandleAggregatorTest {
     }
 
     @Test
-    fun `4h aggregate uses 0800 anchor and allows actual data partial`() {
+    fun `4h aggregate uses 0900 anchor and allows final session partial`() {
         val candles =
             (0 until 30).map { i ->
                 oneMin(kstTs(2026, 5, 11, 15, i), 100L, 105L, 95L, 101L, 1L)
             }
         val result = CandleAggregator.aggregate(candles, CandleInterval.FOUR_HOUR)
         result shouldHaveSize 1
-        result[0].ts shouldBe kstTs(2026, 5, 11, 12, 0)
+        result[0].ts shouldBe kstTs(2026, 5, 11, 13, 0)
         result[0].volume shouldBe 30L
     }
 
     @Test
-    fun `12h aggregate uses fixed 0800 anchor like TradingView style time bucket`() {
+    fun `12h aggregate uses fixed 0900 regular-session anchor like TradingView style time bucket`() {
         val candles =
             (0 until 30).map { i ->
                 val totalMin = 9 * 60 + 30 + i
@@ -148,24 +148,24 @@ class CandleAggregatorTest {
             }
         val result = CandleAggregator.aggregate(candles, CandleInterval.TWELVE_HOUR)
         result shouldHaveSize 1
-        result[0].ts shouldBe kstTs(2026, 5, 11, 8, 0)
+        result[0].ts shouldBe kstTs(2026, 5, 11, 9, 0)
         result[0].closeRaw shouldBe BigDecimal(129)
         result[0].volume shouldBe 30L
     }
 
     @Test
-    fun `90m aggregate 0930 anchor ninety ones`() {
-        // 09:30 anchor 그룹 = 09:30 ~ 10:59 (90 분).
+    fun `90m aggregate 0900 anchor ninety ones`() {
+        // 09:00 anchor 그룹 = 09:00 ~ 10:29 (90 분).
         val candles =
             (0 until 90).map { i ->
-                val totalMin = 9 * 60 + 30 + i
+                val totalMin = 9 * 60 + i
                 val hh = totalMin / 60
                 val mm = totalMin % 60
                 oneMin(kstTs(2026, 5, 11, hh, mm), 100L, 100L, 100L, 100L, 1L)
             }
         val result = CandleAggregator.aggregate(candles, CandleInterval.NINETY_MIN)
         result shouldHaveSize 1
-        result[0].ts shouldBe kstTs(2026, 5, 11, 9, 30)
+        result[0].ts shouldBe kstTs(2026, 5, 11, 9, 0)
         result[0].volume shouldBe 90L
     }
 
@@ -173,11 +173,11 @@ class CandleAggregatorTest {
     fun `OHLCV semantics open first close last high max low min vol sum`() {
         val candles =
             listOf(
-                oneMin(kstTs(2026, 5, 11, 8, 0), 100L, 120L, 95L, 110L, 100L),
-                oneMin(kstTs(2026, 5, 11, 8, 1), 110L, 130L, 100L, 115L, 200L),
-                oneMin(kstTs(2026, 5, 11, 8, 2), 115L, 125L, 90L, 105L, 150L),
-                oneMin(kstTs(2026, 5, 11, 8, 3), 105L, 140L, 100L, 135L, 80L),
-                oneMin(kstTs(2026, 5, 11, 8, 4), 135L, 145L, 130L, 140L, 50L),
+                oneMin(kstTs(2026, 5, 11, 9, 0), 100L, 120L, 95L, 110L, 100L),
+                oneMin(kstTs(2026, 5, 11, 9, 1), 110L, 130L, 100L, 115L, 200L),
+                oneMin(kstTs(2026, 5, 11, 9, 2), 115L, 125L, 90L, 105L, 150L),
+                oneMin(kstTs(2026, 5, 11, 9, 3), 105L, 140L, 100L, 135L, 80L),
+                oneMin(kstTs(2026, 5, 11, 9, 4), 135L, 145L, 130L, 140L, 50L),
             )
         val result = CandleAggregator.aggregate(candles, CandleInterval.FIVE_MIN)
         result shouldHaveSize 1
@@ -197,7 +197,7 @@ class CandleAggregatorTest {
     @Test
     fun `target ONE_MIN throws IllegalArgumentException`() {
         val candles =
-            listOf(oneMin(kstTs(2026, 5, 11, 8, 0), 100L, 100L, 100L, 100L, 1L))
+            listOf(oneMin(kstTs(2026, 5, 11, 9, 0), 100L, 100L, 100L, 100L, 1L))
         shouldThrow<IllegalArgumentException> {
             CandleAggregator.aggregate(candles, CandleInterval.ONE_MIN)
         }
@@ -206,7 +206,7 @@ class CandleAggregatorTest {
     @Test
     fun `target ONE_DAY unsupported throws IllegalArgumentException`() {
         val candles =
-            listOf(oneMin(kstTs(2026, 5, 11, 8, 0), 100L, 100L, 100L, 100L, 1L))
+            listOf(oneMin(kstTs(2026, 5, 11, 9, 0), 100L, 100L, 100L, 100L, 1L))
         shouldThrow<IllegalArgumentException> {
             CandleAggregator.aggregate(candles, CandleInterval.ONE_DAY)
         }
@@ -215,7 +215,7 @@ class CandleAggregatorTest {
     @Test
     fun `target TWO_MIN unsupported throws IllegalArgumentException`() {
         val candles =
-            listOf(oneMin(kstTs(2026, 5, 11, 8, 0), 100L, 100L, 100L, 100L, 1L))
+            listOf(oneMin(kstTs(2026, 5, 11, 9, 0), 100L, 100L, 100L, 100L, 1L))
         shouldThrow<IllegalArgumentException> {
             CandleAggregator.aggregate(candles, CandleInterval.TWO_MIN)
         }
@@ -225,12 +225,12 @@ class CandleAggregatorTest {
     fun `non-1m candle in input throws IllegalArgumentException`() {
         val candles =
             listOf(
-                oneMin(kstTs(2026, 5, 11, 8, 0), 100L, 100L, 100L, 100L, 1L),
+                oneMin(kstTs(2026, 5, 11, 9, 0), 100L, 100L, 100L, 100L, 1L),
                 Candle(
                     id = null,
                     code = code,
                     interval = CandleInterval.FIVE_MIN,
-                    ts = kstTs(2026, 5, 11, 8, 5),
+                    ts = kstTs(2026, 5, 11, 9, 5),
                     openRaw = BigDecimal(100),
                     highRaw = BigDecimal(100),
                     lowRaw = BigDecimal(100),
@@ -252,43 +252,43 @@ class CandleAggregatorTest {
     fun `multi boundary distribution 15m 30 ones to 2 bars`() {
         val candles =
             (0 until 30).map { i ->
-                oneMin(kstTs(2026, 5, 11, 8, i), 100L, 100L, 100L, 100L, 1L)
+                oneMin(kstTs(2026, 5, 11, 9, i), 100L, 100L, 100L, 100L, 1L)
             }
         val result = CandleAggregator.aggregate(candles, CandleInterval.FIFTEEN_MIN)
         result shouldHaveSize 2
-        result[0].ts shouldBe kstTs(2026, 5, 11, 8, 0)
+        result[0].ts shouldBe kstTs(2026, 5, 11, 9, 0)
         result[0].volume shouldBe 15L
-        result[1].ts shouldBe kstTs(2026, 5, 11, 8, 15)
+        result[1].ts shouldBe kstTs(2026, 5, 11, 9, 15)
         result[1].volume shouldBe 15L
     }
 
     @Test
     fun `trading halt sim - boundary with zero 1m bars is skipped (no mock)`() {
-        // 0800~0804 (첫 5m), [0805~0809 skip], 0810~0814 (세 번째 5m).
+        // 0900~0904 (첫 5m), [0905~0909 skip], 0910~0914 (세 번째 5m).
         val firstGroup =
             (0..4).map { i ->
-                oneMin(kstTs(2026, 5, 11, 8, i), 100L, 100L, 100L, 100L, 1L)
+                oneMin(kstTs(2026, 5, 11, 9, i), 100L, 100L, 100L, 100L, 1L)
             }
         val thirdGroup =
             (10..14).map { i ->
-                oneMin(kstTs(2026, 5, 11, 8, i), 100L, 100L, 100L, 100L, 1L)
+                oneMin(kstTs(2026, 5, 11, 9, i), 100L, 100L, 100L, 100L, 1L)
             }
         val result =
             CandleAggregator.aggregate(firstGroup + thirdGroup, CandleInterval.FIVE_MIN)
         result shouldHaveSize 2
-        result[0].ts shouldBe kstTs(2026, 5, 11, 8, 0)
-        result[1].ts shouldBe kstTs(2026, 5, 11, 8, 10)
+        result[0].ts shouldBe kstTs(2026, 5, 11, 9, 0)
+        result[1].ts shouldBe kstTs(2026, 5, 11, 9, 10)
     }
 
     @Test
     fun `unsorted input is sorted and aggregated correctly`() {
         val candles =
             listOf(
-                oneMin(kstTs(2026, 5, 11, 8, 4), 140L, 145L, 130L, 140L, 50L),
-                oneMin(kstTs(2026, 5, 11, 8, 0), 100L, 120L, 95L, 110L, 100L),
-                oneMin(kstTs(2026, 5, 11, 8, 3), 105L, 140L, 100L, 135L, 80L),
-                oneMin(kstTs(2026, 5, 11, 8, 1), 110L, 130L, 100L, 115L, 200L),
-                oneMin(kstTs(2026, 5, 11, 8, 2), 115L, 125L, 90L, 105L, 150L),
+                oneMin(kstTs(2026, 5, 11, 9, 4), 140L, 145L, 130L, 140L, 50L),
+                oneMin(kstTs(2026, 5, 11, 9, 0), 100L, 120L, 95L, 110L, 100L),
+                oneMin(kstTs(2026, 5, 11, 9, 3), 105L, 140L, 100L, 135L, 80L),
+                oneMin(kstTs(2026, 5, 11, 9, 1), 110L, 130L, 100L, 115L, 200L),
+                oneMin(kstTs(2026, 5, 11, 9, 2), 115L, 125L, 90L, 105L, 150L),
             )
         val result = CandleAggregator.aggregate(candles, CandleInterval.FIVE_MIN)
         result shouldHaveSize 1
@@ -301,59 +301,77 @@ class CandleAggregatorTest {
     }
 
     @Test
-    fun `NXT cover boundary 0800 epoch alignment`() {
-        val expectedEpoch = kstTs(2026, 5, 11, 8, 0).epochSeconds
+    fun `KRX regular boundary 0900 epoch alignment`() {
+        val expectedEpoch = kstTs(2026, 5, 11, 9, 0).epochSeconds
         val candles =
-            listOf(oneMin(kstTs(2026, 5, 11, 8, 0), 100L, 100L, 100L, 100L, 1L))
+            listOf(oneMin(kstTs(2026, 5, 11, 9, 0), 100L, 100L, 100L, 100L, 1L))
         val result = CandleAggregator.aggregate(candles, CandleInterval.FIVE_MIN)
         result[0].ts.epochSeconds shouldBe expectedEpoch
     }
 
     @Test
-    fun `NXT cover boundary samples 0805 1530 1700 5m and 90m`() {
-        // 5m 08:05 (입력 08:07 -> 08:05 boundary)
+    fun `KRX regular boundary samples 0905 1500 5m and 90m`() {
+        // 5m 09:05 (입력 09:07 -> 09:05 boundary)
         val r5 =
             CandleAggregator.aggregate(
-                listOf(oneMin(kstTs(2026, 5, 11, 8, 7), 100L, 100L, 100L, 100L, 1L)),
+                listOf(oneMin(kstTs(2026, 5, 11, 9, 7), 100L, 100L, 100L, 100L, 1L)),
                 CandleInterval.FIVE_MIN,
             )
-        r5[0].ts shouldBe kstTs(2026, 5, 11, 8, 5)
+        r5[0].ts shouldBe kstTs(2026, 5, 11, 9, 5)
 
-        // 30m 15:30 (입력 15:45 -> 15:30 boundary)
+        // 30m 15:00 (입력 15:15 -> 15:00 boundary)
         val r30 =
             CandleAggregator.aggregate(
-                listOf(oneMin(kstTs(2026, 5, 11, 15, 45), 100L, 100L, 100L, 100L, 1L)),
+                listOf(oneMin(kstTs(2026, 5, 11, 15, 15), 100L, 100L, 100L, 100L, 1L)),
                 CandleInterval.THIRTY_MIN,
             )
-        r30[0].ts shouldBe kstTs(2026, 5, 11, 15, 30)
+        r30[0].ts shouldBe kstTs(2026, 5, 11, 15, 0)
 
-        // 1h 17:00 (입력 17:42 -> 17:00 boundary)
+        // 1h 15:00 (입력 15:20 -> 15:00 boundary)
         val r1h =
             CandleAggregator.aggregate(
-                listOf(oneMin(kstTs(2026, 5, 11, 17, 42), 100L, 100L, 100L, 100L, 1L)),
+                listOf(oneMin(kstTs(2026, 5, 11, 15, 20), 100L, 100L, 100L, 100L, 1L)),
                 CandleInterval.ONE_HOUR,
             )
-        r1h[0].ts shouldBe kstTs(2026, 5, 11, 17, 0)
+        r1h[0].ts shouldBe kstTs(2026, 5, 11, 15, 0)
 
-        // 90m 17:00 anchor (입력 18:00 -> 17:00 anchor)
+        // 90m 15:00 anchor (입력 15:20 -> 15:00 anchor)
         val r90 =
             CandleAggregator.aggregate(
-                listOf(oneMin(kstTs(2026, 5, 11, 18, 0), 100L, 100L, 100L, 100L, 1L)),
+                listOf(oneMin(kstTs(2026, 5, 11, 15, 20), 100L, 100L, 100L, 100L, 1L)),
                 CandleInterval.NINETY_MIN,
             )
-        r90[0].ts shouldBe kstTs(2026, 5, 11, 17, 0)
+        r90[0].ts shouldBe kstTs(2026, 5, 11, 15, 0)
     }
 
     @Test
-    fun `NXT cover last boundary 1955 five ones`() {
-        // NXT 마감 19:55. 19:55~19:59 1m 5건이 마지막 5m bar 형성.
+    fun `KRX regular last boundary 1525 five ones`() {
+        // KRX 정규장 마감 15:30. 15:25~15:29 1m 5건이 마지막 5m bar 형성.
         val candles =
             (0 until 5).map { i ->
-                oneMin(kstTs(2026, 5, 11, 19, 55 + i), 100L, 100L, 100L, 100L, 1L)
+                oneMin(kstTs(2026, 5, 11, 15, 25 + i), 100L, 100L, 100L, 100L, 1L)
             }
         val result = CandleAggregator.aggregate(candles, CandleInterval.FIVE_MIN)
         result shouldHaveSize 1
-        result[0].ts shouldBe kstTs(2026, 5, 11, 19, 55)
+        result[0].ts shouldBe kstTs(2026, 5, 11, 15, 25)
         result[0].volume shouldBe 5L
+    }
+
+    @Test
+    fun `off-session one minute candles are ignored for TradingView regular session`() {
+        val candles =
+            listOf(
+                oneMin(kstTs(2026, 5, 11, 8, 59), 50L, 50L, 50L, 50L, 100L),
+                oneMin(kstTs(2026, 5, 11, 9, 0), 100L, 110L, 95L, 105L, 1L),
+                oneMin(kstTs(2026, 5, 11, 15, 30), 200L, 200L, 200L, 200L, 100L),
+            )
+
+        val result = CandleAggregator.aggregate(candles, CandleInterval.FIVE_MIN)
+
+        result shouldHaveSize 1
+        result[0].ts shouldBe kstTs(2026, 5, 11, 9, 0)
+        result[0].openRaw shouldBe BigDecimal(100)
+        result[0].closeRaw shouldBe BigDecimal(105)
+        result[0].volume shouldBe 1L
     }
 }
