@@ -140,17 +140,17 @@ class CandleAggregatorTest {
     }
 
     @Test
-    fun `12h aggregate anchors by actual last 1m candle per day`() {
+    fun `12h aggregate uses fixed 0800 anchor like TradingView style time bucket`() {
         val candles =
-            (0 until 450).map { i ->
-                val totalMin = 8 * 60 + i
+            (0 until 30).map { i ->
+                val totalMin = 9 * 60 + 30 + i
                 oneMin(kstTs(2026, 5, 11, totalMin / 60, totalMin % 60), 100L, 110L, 90L, 100L + i, 1L)
             }
         val result = CandleAggregator.aggregate(candles, CandleInterval.TWELVE_HOUR)
         result shouldHaveSize 1
         result[0].ts shouldBe kstTs(2026, 5, 11, 8, 0)
-        result[0].closeRaw shouldBe BigDecimal(549)
-        result[0].volume shouldBe 450L
+        result[0].closeRaw shouldBe BigDecimal(129)
+        result[0].volume shouldBe 30L
     }
 
     @Test

@@ -58,7 +58,7 @@ class AggregateBackfillRunner(
     )
 
     /**
-     * 종목 1m candle 전량을 5m·15m·30m·90m·1h 로 합산 + DB INSERT.
+     * 종목 1m candle 전량을 5m·15m·30m·90m·1h·4h·12h 로 합산 + DB INSERT.
      *
      * 흐름:
      *   1. DB 에서 해당 종목의 1m candle 전량 조회 (30 거래일 기준 ~10k~20k row)

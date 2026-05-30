@@ -178,8 +178,8 @@ class KafkaTopicConfig {
             .build()
 
     /**
-     * 12시간봉 final aggregate 이벤트.
-     * 고정 20:00 봉이 아니라 종목별 실제 마지막 1m 기준 역산한 bar를 DailyCloseFinalizer가 발행한다.
+     * 12시간봉 boundary closing 이벤트.
+     * NXT 08:00 anchor 기준 20:00 KST 마감.
      * retention: 1d
      */
     @Bean

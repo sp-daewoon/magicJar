@@ -14,6 +14,7 @@ import kotlinx.datetime.toLocalDateTime
  *   90m : 09:30·11:00·12:30·14:00·15:30·17:00·18:30·20:00      →   8 bar/일
  *   1h  : 09:00·10:00·...·19:00·20:00                           →  12 bar/일
  *   4h  : 12:00·16:00·20:00                                      →   3 bar/일
+ *   12h : 20:00                                                    →   1 bar/일
  *
  * boundary 마감 정의 (B-1 권장안 ADR 0064):
  *   "이 분(minute)이 target interval boundary의 마지막 1m bar이다"
@@ -67,7 +68,7 @@ object BoundaryDetector {
      *   = 다음 분(ts+1m)이 새 boundary 시작점.
      *
      * @param ts 1m tick의 시작 ts (Instant — KST 기준 분 단위로 추출)
-     * @param target 검사 대상 interval (FIVE_MIN·FIFTEEN_MIN·THIRTY_MIN·NINETY_MIN·ONE_HOUR·FOUR_HOUR)
+     * @param target 검사 대상 interval (FIVE_MIN·FIFTEEN_MIN·THIRTY_MIN·NINETY_MIN·ONE_HOUR·FOUR_HOUR·TWELVE_HOUR)
      * @return true = 이 분이 boundary 마감분 (합산·갱신 실행 필요)
      */
     fun isBoundaryClosed(
@@ -100,6 +101,9 @@ object BoundaryDetector {
 
             // 4h: NXT 08:00 anchor 기준 12:00·16:00·20:00 마감
             CandleInterval.FOUR_HOUR -> (nextMin - NXT_OPEN_MIN) % 240 == 0 && nextMin > NXT_OPEN_MIN
+
+            // 12h: NXT 08:00 anchor 기준 20:00 마감
+            CandleInterval.TWELVE_HOUR -> nextMin == NXT_CLOSE_MIN
 
             // 90m: 다음 분이 anchor set에 속하면 이 분이 마감
             CandleInterval.NINETY_MIN -> NINETY_MIN_ANCHOR_MIN.contains(nextMin)
@@ -142,6 +146,7 @@ object BoundaryDetector {
                         NXT_OPEN_MIN + ((minOfDay - NXT_OPEN_MIN) / 240) * 240
                     }
                 }
+                CandleInterval.TWELVE_HOUR -> NXT_OPEN_MIN
                 CandleInterval.NINETY_MIN -> {
                     if (minOfDay < NINETY_MIN_ANCHOR_MIN.first()) {
                         // NXT_OPEN_MIN(08:00) 직전 anchor 없음 — 08:00 전이면 전날 18:30 backward 매핑 불가

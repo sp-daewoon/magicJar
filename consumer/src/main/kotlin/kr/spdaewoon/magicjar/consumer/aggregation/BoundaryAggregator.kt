@@ -14,6 +14,7 @@ import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.NINETY_MIN
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.ONE_HOUR
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.ONE_MIN
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.THIRTY_MIN
+import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.TWELVE_HOUR
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Component
@@ -26,7 +27,7 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlinx.datetime.Instant as KtInstant
 
 /**
- * KIS WS 1m tick 마감 시 boundary 검사 + 5m·15m·30m·90m·1h bar 합산 + 갱신.
+ * KIS WS 1m tick 마감 시 boundary 검사 + 5m·15m·30m·90m·1h·4h·12h bar 합산 + 갱신.
  *
  * ADR 0064 B-1 채택 (in-process boundary 검사):
  *   KisWebSocketBridge H0STCNT0 체결 수신 → TickToMinuteAggregator 1m closing 처리 직후
@@ -40,7 +41,7 @@ import kotlinx.datetime.Instant as KtInstant
  *
  * 흐름 (ADR 0064 §4-3):
  *   1m tick 마감 ts → BoundaryDetector.isBoundaryClosed(ts, target) → 도달한 interval 각각:
- *     1. DB 1m fetch (boundary 내 최근 N건 — 5m=5건, 15m=15건, 30m=30건, 90m=90건, 1h=60건, 4h=240건)
+ *     1. DB 1m fetch (boundary 내 최근 N건 — 5m=5건, 15m=15건, 30m=30건, 90m=90건, 1h=60건, 4h=240건, 12h=720건)
  *     2. CandleAggregator.aggregate(1m list, target) → bar 생성
  *     3. RedisCandleCache.putBoundaryCandle(code, interval, bar) (ADR 0064 A-1)
  *     4. ConsumerCandleJpaRepository.insertIgnore (ON CONFLICT DO NOTHING 멱등)
@@ -64,7 +65,7 @@ class BoundaryAggregator(
     private val log = LoggerFactory.getLogger(BoundaryAggregator::class.java)
 
     companion object {
-        private val TARGET_INTERVALS = listOf(FIVE_MIN, FIFTEEN_MIN, THIRTY_MIN, NINETY_MIN, ONE_HOUR, FOUR_HOUR)
+        private val TARGET_INTERVALS = listOf(FIVE_MIN, FIFTEEN_MIN, THIRTY_MIN, NINETY_MIN, ONE_HOUR, FOUR_HOUR, TWELVE_HOUR)
         private val KST = ZoneId.of("Asia/Seoul")
 
         /** interval → Kafka topic 매핑 (ADR 0064 C-1 §4-5) */
@@ -76,6 +77,7 @@ class BoundaryAggregator(
                 NINETY_MIN to "market.candle.90m.closed.v1",
                 ONE_HOUR to "market.candle.1h.closed.v1",
                 FOUR_HOUR to "market.candle.4h.closed.v1",
+                TWELVE_HOUR to "market.candle.12h.closed.v1",
             )
 
         /** interval → 직전 N건 1m fetch 건수 (ADR 0064 §4-3 정합) */
@@ -87,6 +89,7 @@ class BoundaryAggregator(
                 NINETY_MIN to 90,
                 ONE_HOUR to 60,
                 FOUR_HOUR to 240,
+                TWELVE_HOUR to 720,
             )
     }
 
