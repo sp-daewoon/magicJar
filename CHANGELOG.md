@@ -3,6 +3,8 @@
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 
+| 2026-05-30 | **release: v3.9.1 — 자동매매 dogfooding patch** — v3.9.0 이후 운영 검증 누적분을 패치 컷. 자동매매 리스크/주문 실행 흐름 연결, KIS 체결 동기화 게이트, 주문·포지션 UX 보강, 추세선 도구, 시장 캘린더/휴장일 게이트, 시장 지수 데이터 흐름 복구, 전략 비활성 복구/자동매매 시작 문구/시그널 검색/시그널 종목명 표시까지 포함. FVG·오더블록 핵심 전략 검토 전 현재 dogfooding 안정화분을 release/v3.9.1로 보존. | release | v3.9.0 이후 자동매매 실사용 검증분을 Claude Code 릴리즈 패치 방식으로 고정 |
+
 | 2026-05-25 | **feat(market): KRX 휴장일 게이트 + 웹 시장 캘린더 일정 CRUD + ADR 0104 정합** — 2026-05-25 부처님오신날 대체휴무일 실측 기준으로 batch 국내 지수/종목 마스터 수집을 `market_calendar` 영업일 권위에 묶고, `market_calendar_event` V55와 `/api/market/calendar`, `/market/calendar`를 추가해 IPO 등 확장 가능한 시장 중요 일정을 웹에서 입력·수정·삭제 가능하게 함. 시장 지수 `dataInsufficient=true` 원인은 휴장일 수집 차단이 아니라 `market_index_snapshot`·`sector_index_snapshot`·지수 candle 0건인 초기 데이터 부재로 분리 기록. | batch scheduler · api market calendar · frontend market calendar · `_workspace/arch/adr/0104-market-calendar-event-and-holiday-gate.md` · `_workspace/tasks/T-20260525-1509-market-calendar-holiday.md` | 휴장일 캘린더 신뢰성 회복 + 투자 지표로서 데이터 부족 원인 명확화 |
 
 | 2026-05-25 | **docs(chart): Symbol Detail 추세선 도구 기능 계약 명세 LOCK** — `_workspace/specs/2026-05-25-symbol-trendline-tool-spec.md` 신설. LWC v4 + SVG overlay 유지, `sourceInterval` 표시 필터 금지, 봉 전환 보존, 오른쪽 익스텐션 `overlayWidth` 외삽, 수동 작성 cursor ring/rubber-band preview, Esc 2단계 취소, Ctrl/Cmd OHLC snap, Delete/Backspace 삭제, Ctrl/Cmd+C/V 평행선 복제, 자동 추세선은 근거리 pivot 보조선이며 strategy DSL/자동매매 진입 조건 직결 금지 계약을 문서화. `.claude/skills/magicjar-chart-curator/SKILL.md`에 추세선 회귀 함정 가드와 spec cross-ref 추가. | `_workspace/specs/2026-05-25-symbol-trendline-tool-spec.md` · `.claude/skills/magicjar-chart-curator/SKILL.md` · `_workspace/INDEX.md` | 후속 에이전트가 TradingView-like 추세선 UX와 영속 계약을 임의 변경하지 못하도록 회귀 방지 |
