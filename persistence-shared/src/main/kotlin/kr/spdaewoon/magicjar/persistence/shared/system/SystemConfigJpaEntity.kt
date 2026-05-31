@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.api.persistence
+package kr.spdaewoon.magicjar.persistence.shared.system
 
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
@@ -25,6 +25,5 @@ class SystemConfigJpaEntity(
     @Column(name = "updated_at", nullable = false)
     var updatedAt: Instant = Instant.now(),
 ) {
-    // no-arg constructor for JPA
     protected constructor() : this(id = 1)
 }

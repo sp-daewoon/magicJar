@@ -22,8 +22,8 @@ import java.util.UUID
  * ### 7 listen 매트릭스 (ADR 0070 §2-4)
  * | # | topic                  | priority | rate limit             |
  * |---|------------------------|----------|------------------------|
- * | 1 | order.filled.v1        | P1       | 60분 윈도 ≥ 10건 시 1회  |
- * | 2 | order.rejected.v1      | P1       | 60분 윈도 ≥ 5건 시 1회   |
+ * | 1 | order.filled.v1        | P0       | 즉시 (TRADE, REAL/MOCK/PAPER 공통) |
+ * | 2 | order.rejected.v1      | P0       | 즉시 (TRADE, REAL/MOCK/PAPER 공통) |
  * | 3 | order.cancelled.v1     | P2       | 60분 윈도 ≥ 5건 시 1회   |
  * | 4 | risk.violation.v1      | P0       | 즉시 (rate limit 0)     |
  * | 5 | reconcile.drift.v1     | P0       | 즉시                     |
@@ -49,9 +49,7 @@ class NotificationDispatcher(
     private val log = LoggerFactory.getLogger(NotificationDispatcher::class.java)
 
     companion object {
-        // P1 rate limit 임계값 (ADR 0070 §2-4)
-        const val FILLED_THRESHOLD = 10
-        const val REJECTED_THRESHOLD = 5
+        // P2 rate limit 임계값 (ADR 0070 §2-4)
         const val CANCELLED_THRESHOLD = 5
 
         const val WINDOW_60_MIN = 60
@@ -194,8 +192,6 @@ class NotificationDispatcher(
 
         val (threshold, windowMin) =
             when (topicHash) {
-                "order.filled" -> FILLED_THRESHOLD to WINDOW_60_MIN
-                "order.rejected" -> REJECTED_THRESHOLD to WINDOW_60_MIN
                 "order.cancelled" -> CANCELLED_THRESHOLD to WINDOW_60_MIN
                 else -> 1 to WINDOW_60_MIN
             }
@@ -249,11 +245,11 @@ class NotificationDispatcher(
     ): String =
         when (eventType) {
             NotificationEventType.ORDER_FILLED ->
-                "체결: ${raw["code"]} ${raw["side"]} ${raw["executedQuantity"]}주 @ ${raw["executedPrice"]}"
+                "체결: ${accountModeLabel(raw)}${raw["code"]} ${raw["side"]} ${executedQuantity(raw)}주 @ ${raw["executedPrice"]}"
             NotificationEventType.ORDER_REJECTED ->
-                "주문 거절: ${raw["code"]} ${raw["side"]} — ${raw["reason"]}"
+                "주문 거절: ${accountModeLabel(raw)}${raw["code"]} ${raw["side"]} — ${raw["reason"]}"
             NotificationEventType.ORDER_CANCELLED ->
-                "주문 취소: ${raw["code"]} ${raw["side"]} (주문번호 ${raw["kisOrderNo"]})"
+                "주문 취소: ${accountModeLabel(raw)}${raw["code"]} ${raw["side"]} (주문번호 ${raw["kisOrderNo"]})"
             NotificationEventType.RISK_VIOLATION ->
                 "리스크 위반: ${raw["code"]} rule=${raw["rule"]} — ${raw["reason"]}"
             NotificationEventType.RECONCILE_DRIFT ->
@@ -266,7 +262,20 @@ class NotificationDispatcher(
                 // 본 dispatcher가 직접 produce 안 함 — OrderDltMonitorListener 영역.
                 // exhaustive when 정합용 분기 (실제 호출 path 0건).
                 "Kafka DLT 수신: dltTopic=${raw["dltTopic"]} srcOffset=${raw["srcOffset"]}"
+            NotificationEventType.SYSTEM_EVENT ->
+                "시스템 이벤트: severity=${raw["severity"]} category=${raw["category"]} action=${raw["action"]} detail=${raw["detailJson"]}"
         }
+
+    private fun accountModeLabel(raw: Map<String, Any?>): String {
+        val mode = raw["accountType"] ?: raw["mode"] ?: raw["accountMode"]
+        return mode?.toString()?.takeIf { it.isNotBlank() }?.let { "[$it] " } ?: ""
+    }
+
+    private fun executedQuantity(raw: Map<String, Any?>): Any? =
+        raw["executedQuantity"]
+            ?: raw["executedQty"]
+            ?: raw["filledQuantity"]
+            ?: raw["filledQty"]
 
     private fun buildMeta(
         raw: Map<String, Any?>,

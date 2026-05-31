@@ -1,25 +1,21 @@
-package kr.spdaewoon.magicjar.api.persistence.notification
+package kr.spdaewoon.magicjar.persistence.shared.notification
 
-import kr.spdaewoon.magicjar.api.persistence.SystemConfigJpaRepository
-import kr.spdaewoon.magicjar.api.secret.AesGcmCipher
 import kr.spdaewoon.magicjar.domain.notification.port.SystemConfigSlackPort
+import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
+import kr.spdaewoon.magicjar.persistence.shared.system.SystemConfigJpaRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 
 /**
- * system_config.notification_slack_webhook BYTEA 복호화 어댑터 (ADR 0046 AES-256-GCM 정합).
+ * system_config.notification_slack_webhook BYTEA 복호화 어댑터.
  *
- * Flyway V27 ALTER 정합 — notification_slack_webhook BYTEA 컬럼.
- * SystemConfigJpaEntity.notificationSlackWebhook (BYTEA) → AesGcmCipher.decrypt() → String URL.
- *
+ * persistence-shared에 위치해 api와 consumer가 같은 Slack webhook source를 읽는다.
  * NULL 또는 복호화 실패 시 null 반환 → SlackWebhookSender graceful skip.
- *
- * // AI 호출 0 — T-NOTIFY 트랙 정책 (ADR 0023 §2-4 + ADR 0070 §1-2)
  */
 @Component
 class SystemConfigSlackAdapter(
     private val systemConfigJpaRepository: SystemConfigJpaRepository,
-    private val aesGcmCipher: AesGcmCipher,
+    private val secretCipher: SecretCipher,
 ) : SystemConfigSlackPort {
     private val log = LoggerFactory.getLogger(SystemConfigSlackAdapter::class.java)
 
@@ -37,7 +33,7 @@ class SystemConfigSlackAdapter(
         }
 
         return try {
-            val decrypted = aesGcmCipher.decrypt(encrypted)
+            val decrypted = secretCipher.decrypt(encrypted)
             val url = String(decrypted, Charsets.UTF_8).trim()
             if (url.isBlank()) {
                 log.warn("system_config.notification_slack_webhook 복호화 결과 empty")

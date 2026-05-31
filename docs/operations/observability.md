@@ -7,6 +7,7 @@ ADR 0094 P0-OPS-1·2·6 정합 + ADR 0095 SLO 5건 측정 · backend-core 단일
 | 레이어 | 컴포넌트 | 위치 |
 |------|---------|------|
 | 로그 | logback JSON encoder (LogstashEncoder) | `{api,batch,consumer}/src/main/resources/logback-spring.xml` |
+| 로그 관제 보조 | Dozzle v10 alerts/webhooks | `docker/docker-compose.yml` `dozzle` + `dozzle_data:/data` |
 | 메트릭 노출 | Spring Actuator + Micrometer Prometheus registry | `{api,batch,consumer}/src/main/resources/application.yml` |
 | 메트릭 수집 | Prometheus 2.54 | `docker/observability/prometheus/prometheus.yml` |
 | 메트릭 시각화 | Grafana 11.2 | `docker/observability/grafana/{provisioning,dashboards}/` |
@@ -43,6 +44,7 @@ Prometheus가 자동으로 `host.docker.internal:8080·8081·8082` scrape — ID
 |------|-----|------|
 | Prometheus | http://localhost:9090 | scrape targets / metric explorer |
 | Grafana | http://localhost:3001 | admin / admin (default — env `GRAFANA_ADMIN_PASSWORD`) |
+| Dozzle | http://localhost:8888 | 컨테이너 로그, WARN/ERROR 보조 webhook alert |
 | api `/actuator/prometheus` | http://localhost:8080/actuator/prometheus | raw metric scrape |
 | batch `/actuator/prometheus` | http://localhost:8081/actuator/prometheus | raw metric scrape |
 | consumer `/actuator/prometheus` | http://localhost:8082/actuator/prometheus | raw metric scrape |
@@ -135,6 +137,50 @@ curl -s http://localhost:3001/api/health
 # 4. JSON 로그 검증 (prd profile 기동 후)
 docker logs magicjar-api 2>&1 | tail -5 | jq .
 ```
+
+## 6.1 Dozzle WARN/ERROR 보조 알림
+
+Dozzle는 운영 이벤트의 권위 source가 아니라 로그 기반 보조 트리거다. 권위 path는 `SystemEvent`와 `notification_outbox`이고, Dozzle은 예상하지 못한 `log.warn`/`log.error` 누락을 잡는 안전망으로 사용한다.
+
+### Destination
+
+Dozzle `Notifications` 화면에서 Slack destination을 1개 등록한다.
+
+- URL: 시스템 설정에 넣은 Slack Incoming Webhook과 같은 URL 사용 가능
+- 저장 위치: `dozzle_data:/data`
+- Test 버튼으로 Slack 수신 확인
+
+### 권장 Alert 1 — 앱 WARN/ERROR 묶음
+
+Container expression:
+
+```text
+name contains "magicjar-api" || name contains "magicjar-consumer" || name contains "magicjar-batch"
+```
+
+Log expression:
+
+```text
+level == "error" || level == "warn" || message matches "(?i)(ERROR|WARN|Exception|EGW00201|WebSocketClientHandshakeException)"
+```
+
+권장 cooldown: 300초 이상. 운영 중 같은 오류가 폭주하면 Dozzle는 묶음 보조 알림, 원인 분석은 Dozzle 로그와 `system_event`를 함께 본다.
+
+### 권장 Alert 2 — 컨테이너 생명주기
+
+Container expression:
+
+```text
+name contains "magicjar-"
+```
+
+Event expression:
+
+```text
+name == "die" || name == "oom" || (name == "health_status" && attributes["health_status"] == "unhealthy")
+```
+
+이 알림은 Spring 내부 이벤트를 거치지 못하는 crash/OOM/unhealthy를 잡는다.
 
 ## 7. 운영 진입 후속 작업 (ADR 0094 P0-OPS-3·4·5·6)
 

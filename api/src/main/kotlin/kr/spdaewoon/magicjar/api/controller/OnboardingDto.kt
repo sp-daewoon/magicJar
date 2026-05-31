@@ -164,6 +164,14 @@ data class SystemConfigResponse(
     val hasDartKey: Boolean,
     @Schema(description = "Slack webhook 등록 여부", example = "true")
     val hasSlackWebhook: Boolean,
+    @Schema(description = "DART API 키 평문 — 설정 화면 재입력 UX용", example = "someDART-API-key", nullable = true)
+    val dartApiKey: String? = null,
+    @Schema(
+        description = "Slack webhook URL 평문 — 설정 화면 재입력 UX용",
+        example = "https://hooks.slack.com/services/T00/B00/xxx",
+        nullable = true,
+    )
+    val slackWebhookUrl: String? = null,
     @Schema(description = "갱신 시각 (UTC ISO-8601)", example = "2026-05-07T10:23:45.123Z")
     val updatedAt: Instant,
 )

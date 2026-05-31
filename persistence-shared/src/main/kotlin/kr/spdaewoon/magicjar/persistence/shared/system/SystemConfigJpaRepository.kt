@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.api.persistence
+package kr.spdaewoon.magicjar.persistence.shared.system
 
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query

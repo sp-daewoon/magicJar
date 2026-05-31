@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.tags.Tag
 import jakarta.validation.Valid
 import kr.spdaewoon.magicjar.api.service.KillSwitchService
 import kr.spdaewoon.magicjar.api.service.KisCredentialChangeService
+import kr.spdaewoon.magicjar.api.service.OnboardingService
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
@@ -45,7 +46,25 @@ import org.springframework.web.bind.annotation.RestController
 class SystemConfigController(
     private val killSwitchService: KillSwitchService,
     private val kisCredentialChangeService: KisCredentialChangeService,
+    private val onboardingService: OnboardingService,
 ) {
+    @Operation(
+        summary = "시스템 전역 설정 조회",
+        description =
+            "DART API 키와 Slack webhook URL을 조회합니다. " +
+                "DB 저장은 AES-256-GCM 암호문을 유지하고, 설정 화면 재진입 UX를 위해 응답에서만 복호화 평문을 반환합니다.",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "200", description = "조회 성공"),
+        ApiResponse(
+            responseCode = "500",
+            description = "시스템 설정 row 없음 또는 DB 오류",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+    )
+    @GetMapping
+    fun getSystemConfig(): SystemConfigResponse = onboardingService.getSystemConfig()
+
     @Operation(
         summary = "KillSwitch 현재 상태 조회",
         description =

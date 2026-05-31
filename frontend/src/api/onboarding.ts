@@ -66,6 +66,8 @@ export interface SystemConfigRequest {
 export interface SystemConfigResponse {
   hasDartKey: boolean
   hasSlackWebhook: boolean
+  dartApiKey?: string | null
+  slackWebhookUrl?: string | null
   updatedAt: string // ISO 8601
 }
 
@@ -183,11 +185,33 @@ export function useAddMockAccount() {
  * Step 4에서 사용 (선택)
  */
 export function useUpdateSystemConfig() {
+  const queryClient = useQueryClient()
   return useMutation<SystemConfigResponse, unknown, SystemConfigRequest>({
     mutationFn: async (req) => {
       const res = await apiClient.post<SystemConfigResponse>('/onboarding/system-config', req)
       return res.data
     },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['onboarding', 'status'] })
+      void queryClient.invalidateQueries({ queryKey: ['settings', 'systemConfig'] })
+    },
+  })
+}
+
+/**
+ * 시스템 설정 조회.
+ *
+ * 설정 화면 재진입 시 DART API 키와 Slack webhook URL을 기존 입력값으로 복원한다.
+ */
+export function useSystemConfig() {
+  return useQuery<SystemConfigResponse>({
+    queryKey: ['settings', 'systemConfig'],
+    queryFn: async () => {
+      const res = await apiClient.get<SystemConfigResponse>('/system-config')
+      return res.data
+    },
+    retry: 1,
+    staleTime: 0,
   })
 }
 

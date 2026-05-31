@@ -10,10 +10,11 @@ import type { SectionStatus } from '../SettingsSection'
 import { SettingsSection } from '../SettingsSection'
 import type { SystemConfigFormValues } from '../forms/SystemConfigForm'
 import { SystemConfigForm } from '../forms/SystemConfigForm'
-import { useOnboardingStatus, useUpdateSystemConfig } from '../../../api/onboarding'
+import { extractErrorMessage, useOnboardingStatus, useSystemConfig, useUpdateSystemConfig } from '../../../api/onboarding'
 
 export function SystemConfigSection() {
   const { data: status } = useOnboardingStatus()
+  const { data: systemConfig, isLoading: isSystemConfigLoading } = useSystemConfig()
   const [sectionStatus, setSectionStatus] = useState<SectionStatus>('idle')
   const [sectionError, setSectionError] = useState<string | null>(null)
   const [serverError, setServerError] = useState<string | null>(null)
@@ -27,8 +28,8 @@ export function SystemConfigSection() {
 
     mutate(
       {
-        dartApiKey: values.dartApiKey || undefined,
-        slackWebhookUrl: values.slackWebhookUrl || undefined,
+        dartApiKey: values.dartApiKey,
+        slackWebhookUrl: values.slackWebhookUrl,
       },
       {
         onSuccess: () => {
@@ -37,10 +38,7 @@ export function SystemConfigSection() {
           setTimeout(() => setSectionStatus('idle'), 3000)
         },
         onError: (err) => {
-          const message =
-            err instanceof Error
-              ? err.message
-              : '설정 저장에 실패했습니다. 다시 시도해 주세요.'
+          const message = extractErrorMessage(err, '설정 저장에 실패했습니다. 다시 시도해 주세요.')
           setSectionStatus('error')
           setSectionError(message)
           setServerError(message)
@@ -49,8 +47,8 @@ export function SystemConfigSection() {
     )
   }
 
-  const hasDart = status?.hasDartKey ?? false
-  const hasSlack = status?.hasSlackWebhook ?? false
+  const hasDart = systemConfig?.hasDartKey ?? status?.hasDartKey ?? false
+  const hasSlack = systemConfig?.hasSlackWebhook ?? status?.hasSlackWebhook ?? false
 
   return (
     <SettingsSection
@@ -80,9 +78,13 @@ export function SystemConfigSection() {
       </div>
 
       <SystemConfigForm
+        initialValues={{
+          dartApiKey: systemConfig?.dartApiKey ?? '',
+          slackWebhookUrl: systemConfig?.slackWebhookUrl ?? '',
+        }}
         serverError={serverError}
         onSubmit={handleSubmit}
-        isSubmitting={isPending}
+        isSubmitting={isPending || isSystemConfigLoading}
         submitLabel={isPending ? '저장 중...' : '저장'}
       />
     </SettingsSection>

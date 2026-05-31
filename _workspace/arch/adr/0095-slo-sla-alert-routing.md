@@ -1,6 +1,7 @@
 # ADR 0095: P0-OPS-3 — SLO/SLA 정의 + alert routing matrix (v3.8.0 운영 baseline P0)
 
 - 상태: **Accepted (2026-05-21 — architect 단독 결재, 사용자 의제는 ADR 0094 D-5 운영 단계 v3.8.0 cut 결재에 통합 완료)**
+  - **Amended (2026-06-01)**: TRADE 즉시 Slack, SystemEvent Slack bridge, Dozzle WARN/ERROR 보조 alert 추가.
 - 작성일: 2026-05-21
 - 결정자: architect (ADR 0094 §3-2 P0-OPS-3 task 본문화 의무 정합)
 - 영역: 운영 헌법 §9 (SLA/SLO) + observability + alerting
@@ -128,6 +129,23 @@ ADR 0094 §9-3 on-call rotation 정합:
 **★ Slack/email/SMS 외부 routing 확장**:
 - Slack alert 기본 channel은 `MAGICJAR_SLACK_WEBHOOK_URL` 단일 (ADR 0044 정합)
 - email/SMS/PagerDuty 등 외부 routing 확장은 **v3.8.x 이후 backlog** (외부 의존 + 사용자 단독 운영자 가정 정합 — ADR 0094 §9-3 1차 사용자 직접 인지 본질)
+
+### 3-3-1. 2026-06-01 amend — 사용자 체감 알림 라우팅
+
+사용자 운영 요구를 반영해 외부 메신저 정책을 다음 4분류로 고정한다.
+
+| 분류 | routing | 포함 |
+|------|---------|------|
+| **CRITICAL/P0** | 즉시 Slack | killswitch, 주문 차단, 리스크 위반, DLT, 데이터 복구 실패, KIS WS 장시간 단절 |
+| **ERROR** | 즉시 Slack 또는 짧은 묶음 | KIS upstream 실패, 주문 거절, gap fill 실패, 계좌/호가/현재가 stale |
+| **WARN** | 묶음 또는 UI 알림 | KIS rate limit, 재연결 성공, 일부 캔들 지연, 일시적 API 실패 |
+| **TRADE** | 즉시 Slack | REAL/MOCK/PAPER 매수체결, 매도체결, 부분체결, 주문거절 |
+
+구현 원칙:
+
+- `order.filled.v1`과 `order.rejected.v1`은 REAL/MOCK/PAPER 구분 없이 P0 즉시 Slack이다.
+- `system.event.v1`은 consumer에서 외부 알림으로 bridge한다. `CRITICAL`/`ERROR`는 P0 즉시, `WARN`은 Redis window로 묶어 P2 outbox에 넣고, `INFO`는 Slack으로 보내지 않는다.
+- Dozzle alert는 권위 source가 아니라 보조 안전망이다. 앱 로그의 WARN/ERROR를 cooldown으로 묶어 Slack에 보내되, 주문/자본/시장 데이터 사건은 Kafka/SystemEvent/outbox 경로를 우선한다.
 
 ### 3-4. 자동 액션 — KillSwitch 자동 ON 검토 (S-1·S-5 critical 한정)
 

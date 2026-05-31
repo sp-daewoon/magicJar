@@ -7,7 +7,7 @@
  * - DART API 키: 선택 입력
  * - Slack Webhook URL: https://hooks.slack.com/ 시작 URL 검증
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 export interface SystemConfigFormValues {
   dartApiKey: string
@@ -15,7 +15,7 @@ export interface SystemConfigFormValues {
 }
 
 interface Props {
-  /** 초기값 (SettingsModal에서 기존 값 pre-fill — 단, 키는 마스킹된 값만) */
+  /** 초기값 (SettingsModal에서 기존 값을 pre-fill) */
   initialValues?: Partial<SystemConfigFormValues>
   /** 폼 값 변경 콜백 */
   onChange?: (values: SystemConfigFormValues) => void
@@ -46,6 +46,11 @@ export function SystemConfigForm({
   const [dartApiKey, setDartApiKey] = useState(initialValues?.dartApiKey ?? '')
   const [slackWebhookUrl, setSlackWebhookUrl] = useState(initialValues?.slackWebhookUrl ?? '')
   const [errors, setErrors] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    setDartApiKey(initialValues?.dartApiKey ?? '')
+    setSlackWebhookUrl(initialValues?.slackWebhookUrl ?? '')
+  }, [initialValues?.dartApiKey, initialValues?.slackWebhookUrl])
 
   function notifyChange(dart: string, slack: string) {
     onChange?.({ dartApiKey: dart, slackWebhookUrl: slack })

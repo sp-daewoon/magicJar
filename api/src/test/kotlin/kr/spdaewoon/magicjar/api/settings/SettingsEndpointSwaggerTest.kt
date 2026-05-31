@@ -2,9 +2,11 @@ package kr.spdaewoon.magicjar.api.settings
 
 import kr.spdaewoon.magicjar.api.controller.KisCredentialChangeController
 import kr.spdaewoon.magicjar.api.controller.SystemConfigController
+import kr.spdaewoon.magicjar.api.controller.SystemConfigResponse
 import kr.spdaewoon.magicjar.api.persistence.UserAccountJpaRepository
 import kr.spdaewoon.magicjar.api.service.KillSwitchService
 import kr.spdaewoon.magicjar.api.service.KisCredentialChangeService
+import kr.spdaewoon.magicjar.api.service.OnboardingService
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito.`when`
 import org.springframework.beans.factory.annotation.Autowired
@@ -17,6 +19,7 @@ import org.springframework.test.web.servlet.delete
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.put
 import org.springframework.web.server.ResponseStatusException
+import java.time.Instant
 
 /**
  * 5 endpoint Swagger 4단 + HTTP 상태코드 검증 (spec §2-4-1 정합).
@@ -49,6 +52,9 @@ class SettingsEndpointSwaggerTest {
 
     @MockBean
     private lateinit var killSwitchService: KillSwitchService
+
+    @MockBean
+    private lateinit var onboardingService: OnboardingService
 
     // OnboardingGuardFilter 의존성 — WebMvcTest 컨텍스트 로드 필요
     @MockBean
@@ -124,6 +130,28 @@ class SettingsEndpointSwaggerTest {
             .andExpect {
                 status { isOk() }
                 jsonPath("$.enabled") { value(false) }
+            }
+    }
+
+    @Test
+    fun `GET system-config - 저장된 평문 설정 반환`() {
+        `when`(userAccountJpaRepository.existsAny()).thenReturn(true)
+        `when`(onboardingService.getSystemConfig()).thenReturn(
+            SystemConfigResponse(
+                hasDartKey = true,
+                hasSlackWebhook = true,
+                dartApiKey = "dart-key",
+                slackWebhookUrl = "https://hooks.slack.com/services/T00/B00/xxx",
+                updatedAt = Instant.parse("2026-06-01T00:00:00Z"),
+            ),
+        )
+
+        mockMvc
+            .get("/api/system-config")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$.dartApiKey") { value("dart-key") }
+                jsonPath("$.slackWebhookUrl") { value("https://hooks.slack.com/services/T00/B00/xxx") }
             }
     }
 

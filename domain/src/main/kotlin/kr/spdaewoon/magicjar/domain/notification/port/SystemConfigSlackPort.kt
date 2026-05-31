@@ -3,7 +3,7 @@ package kr.spdaewoon.magicjar.domain.notification.port
 /**
  * system_config Slack webhook 조회 포트 (ADR 0046 AES-256-GCM 복호화 정합).
  *
- * 구현: api 모듈 SystemConfigSlackAdapter.
+ * 구현: persistence-shared 모듈 SystemConfigSlackAdapter.
  * system_config.notification_slack_webhook BYTEA → 복호화 → String URL.
  * NULL 또는 복호화 실패 시 null 반환 → sender graceful skip.
  *

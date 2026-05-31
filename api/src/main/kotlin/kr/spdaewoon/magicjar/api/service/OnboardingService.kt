@@ -12,7 +12,6 @@ import kr.spdaewoon.magicjar.api.controller.SystemConfigRequest
 import kr.spdaewoon.magicjar.api.controller.SystemConfigResponse
 import kr.spdaewoon.magicjar.api.persistence.AuditTrailJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.AuditTrailJpaRepository
-import kr.spdaewoon.magicjar.api.persistence.SystemConfigJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.UserAccountJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.UserAccountJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialId
@@ -21,6 +20,7 @@ import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.api.secret.AesGcmCipher
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import kr.spdaewoon.magicjar.domain.user.UserOnboardedEvent
+import kr.spdaewoon.magicjar.persistence.shared.system.SystemConfigJpaRepository
 import org.slf4j.LoggerFactory
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.data.domain.PageRequest
@@ -79,6 +79,30 @@ class OnboardingService(
             hasDartKey = systemConfigJpaRepository.hasDartApiKey(),
             hasSlackWebhook = systemConfigJpaRepository.hasSlackWebhook(),
             userId = userId,
+        )
+    }
+
+    /**
+     * 시스템 설정 조회.
+     *
+     * DB 저장은 계속 AES-256-GCM 암호문을 권위로 유지하되, 설정 화면 재진입 UX를 위해
+     * DART API 키와 Slack webhook URL은 복호화한 평문으로 반환한다.
+     */
+    @Transactional(readOnly = true)
+    fun getSystemConfig(): SystemConfigResponse {
+        val config =
+            systemConfigJpaRepository.findSingleton()
+                ?: throw ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    """{"code":"SYSTEM_CONFIG_NOT_FOUND","message":"시스템 설정을 찾을 수 없습니다"}""",
+                )
+
+        return SystemConfigResponse(
+            hasDartKey = config.dartApiKey != null,
+            hasSlackWebhook = config.notificationSlackWebhook != null,
+            dartApiKey = decryptSystemConfigValue(config.dartApiKey, "dart_api_key"),
+            slackWebhookUrl = decryptSystemConfigValue(config.notificationSlackWebhook, "notification_slack_webhook"),
+            updatedAt = config.updatedAt,
         )
     }
 
@@ -332,8 +356,22 @@ class OnboardingService(
         return SystemConfigResponse(
             hasDartKey = config.dartApiKey != null,
             hasSlackWebhook = config.notificationSlackWebhook != null,
+            dartApiKey = decryptSystemConfigValue(config.dartApiKey, "dart_api_key"),
+            slackWebhookUrl = decryptSystemConfigValue(config.notificationSlackWebhook, "notification_slack_webhook"),
             updatedAt = now,
         )
+    }
+
+    private fun decryptSystemConfigValue(
+        encrypted: ByteArray?,
+        fieldName: String,
+    ): String? {
+        if (encrypted == null || encrypted.isEmpty()) return null
+        return runCatching {
+            String(aesGcmCipher.decrypt(encrypted), Charsets.UTF_8)
+        }.onFailure {
+            log.warn("system_config {} 복호화 실패 — 응답에서는 null 처리: err={}", fieldName, it.message)
+        }.getOrNull()
     }
 
     /**

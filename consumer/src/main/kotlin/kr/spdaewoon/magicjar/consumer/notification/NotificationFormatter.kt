@@ -54,6 +54,7 @@ object NotificationFormatter {
             NotificationEventType.KILLSWITCH_ENGAGED -> ":red_circle:" to "KillSwitch 자동 발동"
             NotificationEventType.RECONCILE_RUN -> ":mag:" to "잔고 점검"
             NotificationEventType.DLT_RECEIVED -> ":boom:" to "Kafka DLT 수신 (P0 자본 path risk)"
+            NotificationEventType.SYSTEM_EVENT -> ":rotating_light:" to "시스템 이벤트"
         }
 
     private fun immediateAction(eventType: NotificationEventType): String =
@@ -63,6 +64,7 @@ object NotificationFormatter {
             NotificationEventType.RISK_VIOLATION -> "리스크 한도 점검 후 필요 시 전략 비활성화"
             NotificationEventType.DLT_RECEIVED ->
                 "DLT 토픽 record 검토 후 수동 replay 또는 운영 결함 fix. KIS 주문 영향 시 HTS 직접 확인."
+            NotificationEventType.SYSTEM_EVENT -> "시스템 이벤트 상세와 Dozzle 로그를 함께 확인"
             else -> ""
         }
 }

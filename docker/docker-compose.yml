@@ -80,9 +80,9 @@ services:
       retries: 5
 
   # ─────────── Dozzle (모든 컨테이너 로그 web UI) ───────────
-  # amir20/dozzle — 컨테이너 로그 실시간 web viewer (색상·검색·multi-pane·다운로드).
-  # localhost:8888 접속 → 모든 컨테이너 stdout/stderr 한 화면. 메모리 50MB 미만.
-  # 운영 진입 시 제외 가능 (개발·디버깅 전용).
+  # amir20/dozzle — 컨테이너 로그 실시간 web viewer + v10 alert/webhook 보조 관제.
+  # localhost:8888 접속 → 모든 컨테이너 stdout/stderr 한 화면.
+  # 알림 destination/alert rule은 /data에 저장되므로 dozzle_data volume으로 재시작 후에도 보존.
   dozzle:
     image: amir20/dozzle:latest
     container_name: magicjar-dozzle
@@ -94,6 +94,8 @@ services:
     volumes:
       # docker socket 읽기 전용 mount — 모든 컨테이너 로그 read
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Dozzle v10 notifications/alerts 설정 영속
+      - dozzle_data:/data
     ports: ["${DOZZLE_HOST_PORT:-8888}:8080"]
     # healthcheck 미정의 — dozzle scratch 기반 이미지라 wget/curl 없음. 컨테이너 자체는 가벼워 영향 0.
 
@@ -262,3 +264,4 @@ services:
 
 volumes:
   pg_data:
+  dozzle_data:

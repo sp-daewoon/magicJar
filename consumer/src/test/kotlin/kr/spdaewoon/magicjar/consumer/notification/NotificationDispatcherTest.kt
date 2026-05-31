@@ -21,8 +21,8 @@ import java.util.UUID
  * NotificationDispatcher 단위 테스트 (spec §2-4 + ADR 0070 §2-4 LOCK).
  *
  * 7 케이스:
- *  (1) ORDER_FILLED → outbox INSERT PENDING
- *  (2) ORDER_REJECTED → outbox INSERT PENDING
+ *  (1) ORDER_FILLED → outbox INSERT PENDING + 즉시 발송
+ *  (2) ORDER_REJECTED → outbox INSERT PENDING + 즉시 발송
  *  (3) ORDER_CANCELLED → outbox INSERT PENDING
  *  (4) RISK_VIOLATION (P0) → outbox INSERT + 즉시 발송 시도
  *  (5) RECONCILE_DRIFT (P0) → outbox INSERT + 즉시 발송 시도
@@ -57,24 +57,26 @@ class NotificationDispatcherTest {
         }
 
     @Test
-    fun `(1) ORDER_FILLED — outbox INSERT PENDING (P1)`() {
+    fun `(1) ORDER_FILLED — outbox INSERT PENDING plus immediate Slack (P0 TRADE)`() {
         val record = record("order.filled.v1", filledPayload("U1", "005930"))
         dispatcher.onOrderFilled(record)
 
         val slot = slot<NotificationOutbox>()
         verify { outboxRepository.save(capture(slot)) }
-        assertThat(slot.captured.priority).isEqualTo(NotificationPriority.P1)
+        assertThat(slot.captured.priority).isEqualTo(NotificationPriority.P0)
         assertThat(slot.captured.status).isEqualTo(NotificationStatus.PENDING)
+        verify { slackSender.sendOutbox(any()) }
     }
 
     @Test
-    fun `(2) ORDER_REJECTED — outbox INSERT PENDING (P1)`() {
+    fun `(2) ORDER_REJECTED — outbox INSERT PENDING plus immediate Slack (P0 TRADE)`() {
         val record = record("order.rejected.v1", rejectedPayload("U1", "005930"))
         dispatcher.onOrderRejected(record)
 
         val slot = slot<NotificationOutbox>()
         verify { outboxRepository.save(capture(slot)) }
-        assertThat(slot.captured.priority).isEqualTo(NotificationPriority.P1)
+        assertThat(slot.captured.priority).isEqualTo(NotificationPriority.P0)
+        verify { slackSender.sendOutbox(any()) }
     }
 
     @Test

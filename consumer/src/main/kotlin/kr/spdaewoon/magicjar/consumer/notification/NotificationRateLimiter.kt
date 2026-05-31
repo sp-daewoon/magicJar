@@ -17,8 +17,9 @@ import java.time.Instant
  * 1. 현재 epoch millis를 score로 ZADD
  * 2. 윈도 밖(now - windowMin*60*1000 이전) member 제거 (ZREMRANGEBYSCORE)
  * 3. 윈도 내 count 계산 (ZCARD)
- * 4. count ≥ threshold → shouldEmit = true (윈도 초과 1회 발송)
+ * 4. count == threshold → shouldEmit = true (윈도 내 임계 도달 시 1회만 발송)
  *    count < threshold → shouldEmit = false (아직 대기)
+ *    count > threshold → shouldEmit = false (이미 해당 윈도에서 발송됨)
  *
  * P0 이벤트는 이 rate limiter를 통과하지 않음 (dispatcher에서 P0 bypass).
  *
@@ -56,7 +57,7 @@ class NotificationRateLimiter(
             // 4. TTL 갱신
             redisTemplate.expire(key, Duration.ofMinutes(windowMin.toLong() + 5))
 
-            val emit = count >= threshold
+            val emit = count == threshold.toLong()
             log.debug(
                 "rate limit check: key={} count={} threshold={} emit={}",
                 key,

@@ -65,6 +65,19 @@ location /ws/ { ...; access_log off; }
 
 본 문서 갱신 + (필요 시) 영향이 큰 변경은 ADR 후속 발행.
 
+## 알림 승격 정책 (2026-06-01 보강)
+
+로그 레벨 자체가 외부 메신저의 단일 권위가 아니다. 코드가 의미 있는 운영 사건으로 판단할 수 있으면 `SystemEvent`를 발행하고, consumer가 `system.event.v1`을 받아 Slack outbox로 라우팅한다.
+
+| 분류 | 메신저 정책 | 예시 |
+|------|------------|------|
+| `CRITICAL/P0` | 즉시 Slack | KillSwitch, 주문 차단, 리스크 위반, DLT, 데이터 복구 실패, KIS WS 장시간 단절 |
+| `ERROR` | 즉시 Slack | KIS upstream 실패, 주문 거절, gap fill 실패, 계좌/호가/현재가 stale |
+| `WARN` | UI 알림 + Dozzle/Slack 묶음 보조 | KIS rate limit, 재연결 성공, 일부 캔들 지연, 일시적 API 실패 |
+| `TRADE` | 즉시 Slack | REAL/MOCK/PAPER 매수체결, 매도체결, 부분체결, 주문거절 |
+
+Dozzle v10 alert는 보조 안전망으로 사용한다. 앱 컨테이너의 `WARN`/`ERROR` 로그를 5분 이상 cooldown으로 묶어 Slack에 보낼 수 있지만, 주문·자본·시장 데이터 권위 알림은 `SystemEvent`/Kafka/outbox 경로를 우선한다.
+
 ---
 
 ## 적용 위치
