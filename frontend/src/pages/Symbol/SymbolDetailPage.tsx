@@ -179,21 +179,21 @@ export function SymbolDetailPage() {
   )
 
   // ──────────────────────────────────────────────
-  // 호가 slot 라이프사이클 (spec §5 LOCK)
+  // 종목 상세 실시간 라이프사이클 (현재가+호가, watchlist 독립)
   // ──────────────────────────────────────────────
   const subscribeCalledRef = useRef(false)
 
   useEffect(() => {
-    // 상장폐지 종목은 호가 LRU slot 점유 안 함 (실시간 데이터 없음).
+    // 상장폐지 종목은 실시간 slot 점유 안 함.
     if (!code || isDelisted || subscribeCalledRef.current) return
     subscribeCalledRef.current = true
 
     // mount → POST subscribe (200ms 딜레이 — spec §5-2 throttle 정합)
     const timer = setTimeout(() => {
       symbolApi
-        .subscribeOrderbook(code)
+        .subscribeRealtime(code)
         .then((res) => {
-          setOrderbookSlot(res.slot)
+          setOrderbookSlot(res.orderbookSlot)
         })
         .catch(() => {
           // 구독 실패 — graceful (backend 미완 시 무시)
@@ -205,13 +205,13 @@ export function SymbolDetailPage() {
       // cleanup: POST unsubscribe
       // sendBeacon fallback (브라우저 탭 닫기 시에도 발동)
       // Content-Type: application/json blob 전달 — 일부 서버가 text/plain을 reject하는 경우 대비
-      const unsubUrl = `/api/symbols/${encodeURIComponent(code)}/orderbook/unsubscribe`
+      const unsubUrl = `/api/symbols/${encodeURIComponent(code)}/realtime/unsubscribe`
       const beaconData = new Blob([JSON.stringify({ code })], { type: 'application/json' })
       try {
         navigator.sendBeacon(unsubUrl, beaconData)
       } catch {
         // sendBeacon 미지원 환경 — REST fallback
-        symbolApi.unsubscribeOrderbook(code).catch(() => {
+        symbolApi.unsubscribeRealtime(code).catch(() => {
           // cleanup 실패 — backend 5분 idle timeout으로 자동 회수
         })
       }

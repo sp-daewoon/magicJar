@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.api.service.screener
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.controller.screener.ScreenerEvaluateRequest
 import kr.spdaewoon.magicjar.api.controller.screener.ScreenerMatchDto
 import kr.spdaewoon.magicjar.api.controller.screener.ScreenerResultDto
@@ -18,9 +19,11 @@ import kr.spdaewoon.magicjar.domain.screener.port.ScreenerEngine
 import org.slf4j.LoggerFactory
 import org.springframework.data.domain.Page
 import org.springframework.http.HttpStatus
+import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Service
 import org.springframework.web.server.ResponseStatusException
 import java.security.MessageDigest
+import java.time.Instant
 
 /**
  * Screener 서비스 (ADR 0071 §2-4 D-1 + §5 + spec §2-3).
@@ -33,8 +36,9 @@ import java.security.MessageDigest
  * 3. 캐시 HIT 시 즉시 반환 (sub-second)
  * 4. MISS → ScreenerEngine.screen(criteria)
  * 5. 결과 Redis 캐시 PUT (TTL 30m)
- * 6. 옵션 영속 ON 시 screening_run + screening_match INSERT
- * 7. finally 분산락 해제
+ * 6. 상위 후보를 watchlist가 아닌 STRATEGY owner 실시간 관찰 수요로 발행
+ * 7. 옵션 영속 ON 시 screening_run + screening_match INSERT
+ * 8. finally 분산락 해제
  *
  * userId 격리 (ADR 0010 multi-tenant 정합).
  *
@@ -46,6 +50,8 @@ class ScreenerService(
     private val screenerEngine: ScreenerEngine,
     private val screenerCachePort: ScreenerCachePort,
     private val screeningRunRepositoryAdapter: ScreeningRunRepositoryAdapter,
+    private val kafkaTemplate: KafkaTemplate<String, String>,
+    private val objectMapper: ObjectMapper,
 ) {
     private val log = LoggerFactory.getLogger(ScreenerService::class.java)
 
@@ -76,6 +82,7 @@ class ScreenerService(
                     request.strategyId,
                     interval.code,
                 )
+                publishStrategyRealtimeDemands(cached, request, interval)
                 return toDto(cached)
             }
             log.warn(
@@ -92,6 +99,7 @@ class ScreenerService(
             val cached = screenerCachePort.get(cacheKey)
             if (cached != null) {
                 log.debug("[screener] cache HIT: key={}", cacheKey)
+                publishStrategyRealtimeDemands(cached, request, interval)
                 return toDto(cached)
             }
 
@@ -127,7 +135,10 @@ class ScreenerService(
             val resultWithKey = result.copy(cacheKey = cacheKey, cacheHit = false)
             screenerCachePort.put(cacheKey, resultWithKey)
 
-            // 5. 옵션 영속
+            // 5. 전략 후보 실시간 관찰 수요 발행 (watchlist 자동 등록 아님)
+            publishStrategyRealtimeDemands(resultWithKey, request, interval)
+
+            // 6. 옵션 영속
             persistIfEnabled(resultWithKey, request, filterHash, dslHash)
 
             log.info(
@@ -225,6 +236,50 @@ class ScreenerService(
         }
     }
 
+    private fun publishStrategyRealtimeDemands(
+        result: ScreenerRunResult,
+        request: ScreenerEvaluateRequest,
+        interval: CandleInterval,
+    ) {
+        val topMatches = result.matches.take(request.limit.coerceIn(1, STRATEGY_REALTIME_DEMAND_MAX))
+        if (topMatches.isEmpty()) return
+
+        topMatches.forEachIndexed { index, match ->
+            runCatching {
+                val payload =
+                    objectMapper.writeValueAsString(
+                        mapOf(
+                            "action" to "ENTER",
+                            "owner" to "STRATEGY",
+                            "ownerId" to "strategy:${request.strategyId}",
+                            "code" to match.instrumentCode,
+                            "priority" to (STRATEGY_REALTIME_PRIORITY_BASE + index),
+                            "ttlSeconds" to STRATEGY_REALTIME_TTL_SECONDS,
+                            "strategyId" to request.strategyId,
+                            "rank" to match.rank,
+                            "interval" to interval.code,
+                            "cacheKey" to result.cacheKey,
+                            "ts" to Instant.now().toString(),
+                        ),
+                    )
+                kafkaTemplate.send("market.realtime.demand.v1", match.instrumentCode, payload)
+            }.onFailure { ex ->
+                log.warn(
+                    "[screener] realtime demand 발행 실패 (무시): strategyId={} code={} err={}",
+                    request.strategyId,
+                    match.instrumentCode,
+                    ex.message,
+                )
+            }
+        }
+        log.info(
+            "[screener] realtime demand 발행: strategyId={} interval={} count={}",
+            request.strategyId,
+            interval.code,
+            topMatches.size,
+        )
+    }
+
     private fun toDto(result: ScreenerRunResult): ScreenerResultDto =
         ScreenerResultDto(
             cacheKey = result.cacheKey,
@@ -246,4 +301,10 @@ class ScreenerService(
             scoreComponents = match.breakdown.toComponentMap(),
             reason = match.reason,
         )
+
+    private companion object {
+        const val STRATEGY_REALTIME_DEMAND_MAX = 30
+        const val STRATEGY_REALTIME_PRIORITY_BASE = 40
+        const val STRATEGY_REALTIME_TTL_SECONDS = 30L * 60L
+    }
 }

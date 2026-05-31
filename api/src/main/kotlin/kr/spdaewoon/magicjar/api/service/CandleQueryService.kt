@@ -16,12 +16,12 @@ import java.time.Instant
 import java.time.ZoneId
 
 /**
- * 캔들 시계열 조회 서비스 — DB candle + Redis current·today 합류 (spec §3-3, ADR 0019·0029).
+ * 캔들 시계열 조회 서비스 — DB candle + Redis live current 합류 (spec §3-3, ADR 0019·0029).
  *
  * 인터벌별 source:
- * - 1m: DB candle + Redis candle:current:{code}:1m (장중 마지막 미확정 bar)
- * - 1d: DB candle + Redis candle:today:{code}:1d (당일 진행 중)
- * - 3m·5m·15m·30m·90m·1h·4h·12h: DB only
+ * - 1m·3m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y:
+ *   DB candle + Redis candle:current:{code}:{interval} (장중 마지막 미확정 bar)
+ * - 1d legacy fallback: Redis candle:today:{code}:1d
  *
  * 페이지네이션: before(ISO8601) cursor 기반 — before 이전 ts DESC LIMIT limit.
  * 응답: ts ASC 정렬 (LWC v4 setData() 기대).
@@ -109,13 +109,10 @@ class CandleQueryService(
                     toCandleDto(entity, sortedRows.getOrNull(index - 1)?.closeRaw)
                 }.toMutableList()
 
-        // Redis current/today 합류 (장중 마지막 미확정 bar)
+        // Redis current 합류 (장중 마지막 미확정 bar)
         val redisCandle =
-            when (effectiveInterval) {
-                "1m" -> readRedisCandleHash("candle:current:$code:1m")
-                "1d" -> readRedisCandleHash("candle:today:$code:1d")
-                else -> null
-            }
+            readRedisCandleHash("candle:current:$code:$effectiveInterval")
+                ?: if (effectiveInterval == "1d") readRedisCandleHash("candle:today:$code:1d") else null
 
         if (redisCandle != null && beforeInstant == null) {
             // before 없는 최신 요청일 때만 합류 (페이지네이션 시 제외)
@@ -140,18 +137,8 @@ class CandleQueryService(
                     // hotfix 2026-05-15: same ts 일 때 replace 패턴 (자본 보호 critical sync).
                     // DB 마지막 row 와 Redis ts 가 같으면 (오늘 진행 중 1d 또는 1m) Redis 값으로 덮어쓰기.
                     // 이전 > 만 add → same ts 시 skip → 차트 + 자동매매 stale DB close 사용 risk.
-                    val redisCandleDto =
-                        CandleDto(
-                            ts = redisTs,
-                            open = redisCandle["open"] ?: "0",
-                            high = redisCandle["high"] ?: "0",
-                            low = redisCandle["low"] ?: "0",
-                            close = redisCandle["close"] ?: "0",
-                            volume = redisCandle["volume"]?.toLongOrNull() ?: 0L,
-                            previousClose = candleDtos.lastOrNull()?.previousClose,
-                            change = candleDtos.lastOrNull()?.change,
-                            changeRate = candleDtos.lastOrNull()?.changeRate,
-                        )
+                    val sameTsCandle = if (redisInstant == lastDbTs) candleDtos.lastOrNull() else null
+                    val redisCandleDto = mergeRedisCandle(redisTs, redisCandle, sameTsCandle, candleDtos.lastOrNull())
                     if (lastDbTs == null || redisInstant > lastDbTs) {
                         candleDtos.add(redisCandleDto)
                     } else if (redisInstant == lastDbTs && candleDtos.isNotEmpty()) {
@@ -193,6 +180,44 @@ class CandleQueryService(
             previousClose = previousClose?.toPlainString(),
             change = change?.toPlainString(),
             changeRate = formatChangeRate(change, previousClose),
+        )
+    }
+
+    private fun mergeRedisCandle(
+        redisTs: String,
+        redisCandle: Map<String, String>,
+        sameTsCandle: CandleDto?,
+        previousForMetrics: CandleDto?,
+    ): CandleDto {
+        val redisClose = redisCandle["close"] ?: "0"
+        val close = redisClose.toBigDecimalOrNull() ?: BigDecimal.ZERO
+        val redisOpen = redisCandle["open"] ?: redisClose
+        val redisHigh = redisCandle["high"]?.toBigDecimalOrNull() ?: close
+        val redisLow = redisCandle["low"]?.toBigDecimalOrNull() ?: close
+
+        val high =
+            sameTsCandle
+                ?.high
+                ?.toBigDecimalOrNull()
+                ?.let { maxOf(it, redisHigh, close) }
+                ?: redisHigh
+        val low =
+            sameTsCandle
+                ?.low
+                ?.toBigDecimalOrNull()
+                ?.let { minOf(it, redisLow, close) }
+                ?: redisLow
+
+        return CandleDto(
+            ts = redisTs,
+            open = sameTsCandle?.open ?: redisOpen,
+            high = high.toPlainString(),
+            low = low.toPlainString(),
+            close = redisClose,
+            volume = maxOf(sameTsCandle?.volume ?: 0L, redisCandle["volume"]?.toLongOrNull() ?: 0L),
+            previousClose = previousForMetrics?.previousClose,
+            change = previousForMetrics?.change,
+            changeRate = previousForMetrics?.changeRate,
         )
     }
 

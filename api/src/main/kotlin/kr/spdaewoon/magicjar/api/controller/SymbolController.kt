@@ -31,8 +31,10 @@ import java.time.Instant
  *
  * - GET  /api/symbols/{code}                        — SymbolDto (현재가·PER·PBR·시총·업종)
  * - GET  /api/symbols/{code}/candles                — CandlesResponseDto (차트 series)
- * - POST /api/symbols/{code}/orderbook/subscribe    — 호가 slot ENTER 명령
- * - POST /api/symbols/{code}/orderbook/unsubscribe  — 호가 slot EXIT 명령
+ * - POST /api/symbols/{code}/realtime/subscribe     — 현재가+호가 slot ENTER 명령
+ * - POST /api/symbols/{code}/realtime/unsubscribe   — 현재가+호가 slot EXIT 명령
+ * - POST /api/symbols/{code}/orderbook/subscribe    — 기존 호환 alias
+ * - POST /api/symbols/{code}/orderbook/unsubscribe  — 기존 호환 alias
  *
  * OnboardingGuardFilter 통과 의무 (PR-6 정합 — 자동).
  * Swagger 4단 어노테이션 (사용자 메모리 feedback_swagger_pattern 정합).
@@ -240,11 +242,52 @@ class SymbolController(
     }
 
     @Operation(
-        summary = "호가 구독 시작",
+        summary = "종목 상세 실시간 구독 시작",
         description =
-            "SymbolDetail 페이지 진입 시 호출 — KIS WS H0STASP0 호가 stream slot 할당 (ADR 0048 §2-1 LRU 10). " +
-                "Kafka symbol.detail.command.v1 {action:ENTER} 발행 → consumer OrderbookSubscriptionRouter 처리. " +
-                "STOMP /topic/market.orderbook.{code}로 호가 데이터 push 시작.",
+            "SymbolDetail 페이지 진입 시 호출 — watchlist 등록 여부와 무관하게 KIS WS 현재가(H0STCNT0/H0NXCNT0)와 " +
+                "호가(H0STASP0)를 요청합니다. Kafka symbol.detail.command.v1 {action:ENTER} 발행 → consumer가 " +
+                "DETAIL owner 실시간 가격 구독 + 호가 LRU slot을 처리합니다. " +
+                "STOMP /topic/market.tick.{code}, /topic/market.orderbook.{code}로 push 시작.",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "200", description = "구독 명령 발행 성공"),
+        ApiResponse(responseCode = "401", description = "셋업 미완"),
+    )
+    @PostMapping("/{code}/realtime/subscribe")
+    fun subscribeRealtime(
+        @Parameter(description = "KIS 종목코드 6자리", example = "005930")
+        @PathVariable code: String,
+    ): RealtimeSubscribeResponse {
+        validateCode(code)
+        publishSymbolDetailCommand(code, "ENTER")
+        return RealtimeSubscribeResponse(subscribed = true, priceSlot = "live", orderbookSlot = "live")
+    }
+
+    @Operation(
+        summary = "종목 상세 실시간 구독 해제",
+        description =
+            "SymbolDetail 페이지 이탈 시 호출 — DETAIL owner 현재가 수요와 호가 slot을 회수합니다. " +
+                "해당 종목이 watchlist 또는 strategy owner로도 요구 중이면 현재가 WS 구독은 유지됩니다.",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "200", description = "구독 해제 명령 발행 성공"),
+        ApiResponse(responseCode = "401", description = "셋업 미완"),
+    )
+    @PostMapping("/{code}/realtime/unsubscribe")
+    fun unsubscribeRealtime(
+        @Parameter(description = "KIS 종목코드 6자리", example = "005930")
+        @PathVariable code: String,
+    ): RealtimeUnsubscribeResponse {
+        validateCode(code)
+        publishSymbolDetailCommand(code, "EXIT")
+        return RealtimeUnsubscribeResponse(unsubscribed = true)
+    }
+
+    @Operation(
+        summary = "호가 구독 시작 (호환 alias)",
+        description =
+            "기존 클라이언트 호환용 alias입니다. 실제로는 종목 상세 실시간 구독 ENTER 명령을 발행해 " +
+                "현재가+호가를 함께 요청합니다.",
     )
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "구독 명령 발행 성공"),
@@ -261,11 +304,10 @@ class SymbolController(
     }
 
     @Operation(
-        summary = "호가 구독 해제",
+        summary = "호가 구독 해제 (호환 alias)",
         description =
-            "SymbolDetail 페이지 이탈 시 호출 — KIS WS H0STASP0 slot 회수. " +
-                "Kafka symbol.detail.command.v1 {action:EXIT} 발행 → consumer 처리. " +
-                "navigator.sendBeacon 폴백으로도 호출 가능 (§5-4 함정 3).",
+            "기존 클라이언트 호환용 alias입니다. 실제로는 종목 상세 실시간 구독 EXIT 명령을 발행해 " +
+                "DETAIL owner 현재가 수요와 호가 slot을 함께 회수합니다.",
     )
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "구독 해제 명령 발행 성공"),

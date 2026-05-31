@@ -12,7 +12,8 @@ import org.springframework.kafka.config.TopicBuilder
  * - market.tick.v1                  — KIS WS tick + polling fallback publish (retention 1h)
  * - market.candle.minute.closed.v1  — 1m closing 캔들 (retention 1d)
  * - market.orderbook.v1             — H0STASP0 호가 스냅샷 (retention 1h) — PR-10b 신규
- * - symbol.detail.command.v1        — 호가 sub/unsub 명령 (retention 1h) — PR-10b 신규
+ * - symbol.detail.command.v1        — 종목 상세 실시간 sub/unsub 명령 (retention 1h)
+ * - market.realtime.demand.v1       — 전략 후보 실시간 관찰 수요 (retention 1h)
  * - system.event.v1                  — 운영 이벤트 대시보드 STOMP fanout source (retention 7d)
  *
  * PR-9b market-data 담당. PR-10b 보강.
@@ -60,14 +61,26 @@ class KafkaTopicConfig {
             .build()
 
     /**
-     * 호가 sub/unsub 명령 (api → consumer OrderbookSubscriptionRouter).
+     * 종목 상세 실시간 sub/unsub 명령 (api → consumer RealtimeSubscriptionRouter + OrderbookSubscriptionRouter).
      * retention: 1h (명령 재처리 필요 없음)
-     * PR-10b 신규.
      */
     @Bean
     fun symbolDetailCommandTopic(): NewTopic =
         TopicBuilder
             .name("symbol.detail.command.v1")
+            .partitions(1)
+            .replicas(1)
+            .config("retention.ms", "3600000") // 1h
+            .build()
+
+    /**
+     * 전략/스크리너 후보 실시간 관찰 수요.
+     * watchlist 자동 등록 없이 owner/priority/TTL만 전달한다.
+     */
+    @Bean
+    fun marketRealtimeDemandTopic(): NewTopic =
+        TopicBuilder
+            .name("market.realtime.demand.v1")
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "3600000") // 1h

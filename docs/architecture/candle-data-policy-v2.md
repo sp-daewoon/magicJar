@@ -7,19 +7,20 @@
 - 2026-05-12 갱신 (v3.2.3 doc cut — backlog §35): **§3 매트릭스 5m~1h 행 "1m 합산 가공 (백엔드 precomputed)" 갱신** (ADR 0062 Accepted 2026-05-11) + **§3·§6 매트릭스에 NXT 통합 시각 cover 08:00~20:00 KST 통합** (ADR 0063 Accepted) + **§4 IntervalToggle 5종 활성화 갱신** + **§6 cold-start 흐름 AggregateBackfillRunner 호출 인용** (PR #303) + **§7 당일 진행 중 캔들 흐름 20:00 KST DailyCloseFinalizer 갱신** (PR #303) + **mock 합성 금지 정합** (`feedback_no_mock_data.md` 인용).
 - 2026-05-20 갱신 (ADR 0091): **KOSPI=UN/KOSDAQ=J market-level 분기 폐기**. NXT 후보 종목(`is_kospi200` 또는 `is_kosdaq150`)은 `UN` 우선 + `J` fallback, 그 외는 `J` 기본값.
 - 2026-05-31 갱신: **3m·4h·12h 합산 interval 정규 편입 + 사용자 재수집(recollect) path 추가**. 스크리닝은 야간 전용이 아니라 사용자가 언제든 실행하는 기능이며, 1차 broad screening 기본 기준봉은 1d, 2차/사용자 선택 기준봉은 1m·3m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y 중 선택 가능. 잘못 모인 캔들은 mock 보정 없이 DB row 삭제 후 KIS 원천 재수집, 합산봉은 1m 재수집 후 `CandleAggregator` 재생성.
+- 2026-05-31 갱신: **실시간 수요 owner 분리**. Watchlist는 사용자 고정 목록, SymbolDetail은 `DETAIL` owner, Screener/Strategy 후보는 `STRATEGY` owner TTL 수요다. 후보군을 watchlist에 자동 합치지 않는다. 장중 현재가·호가·모든 기준봉 마지막 close는 KIS WS tick 기반 Redis current candle이 권위다.
 - 본 문서는 운영 가이드. 결정 본문은 **ADR 0057 (KIS OpenAPI 단일 데이터 출처)** + **ADR 0062 (합산 interval 백엔드 precomputed)** + **ADR 0063 (NXT/통합거래 cover)** + **ADR 0019 (Accepted, 2026-05-12 §2 재통합)** + **ADR 0028 (Watchlist Ingestion)** + **ADR 0029 (당일 진행 중 캔들 Redis 캐시)** + **ADR 0048 (KIS WS 41 slot + polling fallback)** 참조.
 
 ## 1. 정책 한 줄 요약
 
-> **KIS OpenAPI 단일 출처 (prod credential 단일 채널). NXT 통합 cover 08:00~20:00 KST (`UN`은 종목 단위 후보만, `J` fallback). DB 영속 = Watchlist 풀 내 종목의 1m(30 거래일) + 3m·5m·15m·30m·90m·1h·4h·12h(백엔드 precomputed 합산) + 1d·1wk·1mo·1y. Yahoo Finance 폐기. Mock 합성 금지 (`feedback_no_mock_data.md`).**
+> **KIS OpenAPI 단일 출처 (prod credential 단일 채널). NXT 통합 cover 08:00~20:00 KST (`UN`은 종목 단위 후보만, `J` fallback). DB 영속 = KIS 원천 candle + 1m 기반 합산 candle. 장중 실시간 = watchlist priority + 별도 owner KIS WS 수요(`DETAIL`/`STRATEGY`) + Redis `candle:current:{code}:{interval}`. Yahoo Finance 폐기. Mock 합성 금지 (`feedback_no_mock_data.md`).**
 
 ## 2. 핵심 원칙
 
 1. **KIS OpenAPI 단일 출처** — Yahoo Finance·네이버 금융 등 보조 출처 폐기 (ADR 0057, 사용자 결정 2026-05-11)
 2. **정보 수집 = prod credential 단일 채널** — 모의/실전 분기는 주문 라우터 한정 (사용자 명시 정책 정정 2026-05-11)
-3. **Watchlist 기반 universe** — Watchlist 풀 외 종목은 수집·저장 안 함 (ADR 0028)
-4. **DB가 진실원** — 1m(30 거래일) + 3m·5m·15m·30m·90m·1h·4h·12h(백엔드 precomputed) + 1d·1wk·1mo·1y 영속. Redis는 당일 진행 중 OHLCV만
-5. **LRU 폐기** — 풀 size가 자연 universe 한도
+3. **수요 owner 분리** — Watchlist는 사용자 고정 목록이다. SymbolDetail 진입은 `DETAIL`, Screener/Strategy 후보는 `STRATEGY` owner로 KIS WS 실시간 수요를 낸다. 후보군을 watchlist에 자동 삽입하거나 단순 합집합으로 slot을 계산하지 않는다.
+4. **DB가 진실원 + Redis는 진행 중 현재봉** — 1m(30 거래일) + 3m·5m·15m·30m·90m·1h·4h·12h(백엔드 precomputed) + 1d·1wk·1mo·1y 영속. 장중 마지막 bar close는 Redis `candle:current:{code}:{interval}`가 KIS WS tick으로 갱신한다.
+5. **slot은 owner-aware priority/TTL** — KIS WS 가격 slot은 watchlist priority, DETAIL high priority, STRATEGY TTL priority를 함께 보되 해제 책임을 owner별로 분리한다.
 6. **3m·5m·15m·30m·90m·1h·4h·12h = 백엔드 precomputed 합산 (ADR 0062 §3 권장안 A-1 확장)** — `CandleAggregator` 도메인 본체(Pure Kotlin) + `AggregateBackfillRunner` cold-start trigger. MCP·룰엔진·백테스트·스크리너 동일 source 정합
 7. **NXT 통합 cover 08:00~20:00 KST (ADR 0063·0091)** — `fid_cond_mrkt_div_code` 분기 (`is_kospi200`/`is_kosdaq150` 후보는 `UN` 우선 + `J` fallback, 그 외 `J`). 1m 베이스 720 bar/일 (NXT pre/after-hour 포함). `MIN_1M_CANDLE_THRESHOLD = 700L`
 8. **Mock 합성 금지** — backend 0건/에러 시 "데이터 없음" 명시 표시 (사용자 메모리 `feedback_no_mock_data.md` — 2026-05-11 dogfooding 사용자 결정)
@@ -30,15 +31,15 @@
 
 | Interval | Source (KIS tr_id) | Cache | DB 영속 | 시각 cover | TTL/만료 |
 |---|---|---|---|---|---|
-| **틱** | KIS WS `H0STCNT0` | Redis (휘발) | X | NXT 통합 08:00~20:00 KST | retention 1h |
-| **1m (1분봉) — 당일** | KIS REST `FHKST03010200` (NXT 후보=`UN`→`J`, 그 외=`J`) | Redis (당일) | DB INSERT (분 단위 closing) | NXT 통합 08:00~20:00 KST (720 bar/일) | Redis: 다음날 00:00 evict |
+| **틱** | KIS WS `H0STCNT0` + `H0NXCNT0` + 시간외 `H0STOUP0` | Redis `quote:last:{code}` + Kafka/STOMP | X | NXT 통합 08:00~20:00 KST + 시간외 단일가 | quote TTL 7d |
+| **1m (1분봉) — 당일** | KIS WS tick → Redis current, closing 시 DB INSERT. REST `FHKST03010200`은 backfill/검증 | Redis `candle:current:{code}:1m` | DB INSERT (분 단위 closing) | NXT 통합 08:00~20:00 KST (720 bar/일) | Redis: 2m |
 | **1m (1분봉) — 30 거래일 페이지네이션** | KIS REST `FHKST03010230` (NXT 후보=`UN`→`J`, 그 외=`J` — ADR 0091) | Redis (당일) | **DB 영속 (30 거래일)** | NXT 통합 08:00~20:00 KST | — |
-| **3m·5m·15m·30m·90m·1h·4h·12h** | **백엔드 precomputed 합산 (ADR 0062 §3 권장안 A-1 확장)** — `CandleAggregator` 도메인 본체 + `AggregateBackfillRunner` cold-start trigger | Redis (당일 진행 중 boundary 마감 시) | **DB 영속 (30 거래일)** | KRX 정규장 09:00~15:30 KST boundary 정렬 | Redis: 마감 시 evict + DB INSERT |
+| **3m·5m·15m·30m·90m·1h·4h·12h** | **백엔드 precomputed 합산** + 장중 KIS WS tick current candle | Redis `candle:current:{code}:{interval}` | **DB 영속 (30 거래일)** | KRX 정규장 09:00~15:30 KST boundary 정렬 | Redis: 24h |
 | **1d (일봉)** | KIS REST `FHKST03010100` (period='D', NXT 후보=`UN`→`J`, 그 외=`J`) | Redis cache (옵션) | **DB 영속** | NXT 종가 통합 (20:00 KST 마감 기준) | — |
 | **1wk (주봉)** | KIS REST `FHKST03010100` (period='W', NXT 후보=`UN`→`J`, 그 외=`J`) | Redis cache (옵션) | **DB 영속** | — | — |
 | **1mo (월봉)** | KIS REST `FHKST03010100` (period='M', NXT 후보=`UN`→`J`, 그 외=`J`) | Redis cache (옵션) | **DB 영속** | — | — |
 | **1y (년봉)** | KIS REST `FHKST03010100` (period='Y', NXT 후보=`UN`→`J`, 그 외=`J`) | Redis cache (옵션) | **DB 영속** | — | — |
-| **당일 진행 중 일봉** | KIS REST + KIS WS tick 누적 | Redis only (휘발, 장 마감까지) | **20:00 KST 후 DB INSERT (`DailyCloseFinalizer` PR #303)** | NXT 마감 20:00 KST | Redis: 장 마감(20:00) + 30분 |
+| **진행 중 1d·1wk·1mo·1y** | KIS WS tick 누적 (REST는 backfill/마감 검증) | Redis `candle:current:{code}:{interval}` (`1d` legacy `candle:today` 병행) | **마감 후 DB INSERT/검증** | NXT 마감 20:00 KST | interval별 TTL |
 
 ### 3-A. 합산 interval source 매트릭스 (CandleAggregator precomputed 30 거래일)
 
@@ -84,6 +85,7 @@
 ## 6. cold-start 흐름 (ADR 0028 §2-3 + ADR 0062·0063 정합)
 
 > **2026-05-12 갱신 (v3.2.3 doc cut — PR #303·#304 구현 인용)**: halt/liquidation skip + market 분기 + AggregateBackfillRunner 호출 + 1m 30 거래일 페이지네이션 명시.
+> **2026-05-31 갱신**: watchlist는 cold-start 트리거 중 하나일 뿐, 실시간 구독의 유일한 source가 아니다. SymbolDetail·Strategy/Screener 후보는 watchlist INSERT 없이 별도 KIS WS 수요를 낸다.
 
 ```
 사용자 [관심등록 클릭] (frontend /watchlist)
@@ -114,10 +116,75 @@ consumer WatchlistChangedKafkaListener → ColdStartExecutor.submit(code) (PR #3
          └─ audit_trail.detail_json.aggregateInserted 필드 기록
     ↓
 사용자 /symbol/{code} 진입 시:
-  - 1d·1wk·1mo·1y → 즉시 응답 (DB)
-  - 1m → 30 거래일 cover (DB) + 당일 추가분 (Redis)
-  - 3m·5m·15m·30m·90m·1h·4h·12h → 즉시 응답 (DB, 백엔드 precomputed 합산 — ADR 0062 채택)
+  - POST /api/symbols/{code}/realtime/subscribe → symbol.detail.command.v1
+  - consumer RealtimeSubscriptionRouter DETAIL owner → KIS WS 현재가(H0STCNT0/H0NXCNT0)
+  - OrderbookSubscriptionRouter → KIS WS 호가(H0STASP0)
+  - 1m·3m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y → DB + Redis current 합류
+  - watchlist에 없는 종목이어도 현재가·호가·마지막 close 실시간 갱신 가능
+
+사용자 /screener 실행 시:
+  - ScreenerService 결과 상위 후보 → market.realtime.demand.v1
+  - consumer RealtimeSubscriptionRouter STRATEGY owner TTL 30m
+  - watchlist 자동 등록 0건. 사용자가 따로 고정하고 싶을 때만 watchlist에 추가
 ```
+
+### 6-A. 실시간 수요 전/후 플로우 기록 (2026-05-31)
+
+**Before — watchlist 중심 실시간 수집**
+
+```mermaid
+flowchart TD
+    A["사용자가 watchlist에 종목 추가"] --> B["watchlist.changed.v1"]
+    B --> C["SubscriptionRouter"]
+    C --> D["KIS WS 현재가 구독"]
+    D --> E["quote:last / 1m current / 1d today 갱신"]
+
+    X["사용자가 종목 상세 진입"] --> Y["orderbook subscribe"]
+    Y --> Z["호가 H0STASP0만 구독"]
+
+    S["Screener / Strategy 후보"] --> T["후보 결과 목록 표시"]
+    T --> U["사용자가 직접 watchlist 추가해야 실시간 수집"]
+```
+
+**After — owner-aware 실시간 수요 분리**
+
+```mermaid
+flowchart TD
+    A["사용자 watchlist"] --> B["watchlist priority 수요"]
+    D["종목 상세 진입"] --> E["DETAIL owner 수요"]
+    S["Screener / Strategy 후보"] --> F["STRATEGY owner TTL 수요"]
+
+    B --> R["Realtime / Subscription routing"]
+    E --> R
+    F --> R
+
+    R --> K["KIS WS 현재가 H0STCNT0 / H0NXCNT0"]
+    E --> O["KIS WS 호가 H0STASP0"]
+
+    K --> Q["quote:last:{code}"]
+    K --> C["candle:current:{code}:{interval}"]
+    K --> T["market.tick.v1 → STOMP tick"]
+
+    C --> API["GET candles: DB + Redis current merge"]
+    API --> UI["차트 마지막 bar close 갱신"]
+    O --> OB["market.orderbook.v1 → STOMP orderbook"]
+```
+
+**Owner 공유/해제 규칙**
+
+```mermaid
+flowchart LR
+    W["watchlist"] -. "사용자가 고정한 목록" .-> Slot["KIS WS price slot"]
+    D["DETAIL"] -. "상세 화면에서 보는 중" .-> Slot
+    S["STRATEGY"] -. "전략/스크리너 후보 TTL" .-> Slot
+
+    Slot --> KIS["KIS WS"]
+    W -. "삭제해도 DETAIL/STRATEGY 수요가 있으면 유지" .-> KIS
+    D -. "화면 이탈 시 DETAIL만 해제" .-> KIS
+    S -. "TTL 만료 시 STRATEGY만 해제" .-> KIS
+```
+
+이 결정의 핵심은 실제 KIS WS 구독은 종목당 하나로 공유하되, 수요 이유(owner)를 분리해 해제·eviction·polling demotion 판단을 섞지 않는 것이다. 전략 후보는 watchlist에 자동 삽입하지 않고, `market.realtime.demand.v1`의 `STRATEGY` owner TTL 수요로만 관리한다.
 
 **WS 끊김 시 polling 자동 전환 (ADR 0048 §2-4)**:
 - 10초 heartbeat 무신호 또는 onClose → 지수 백오프 1·2·5·10·30s 재연결 시도
@@ -134,7 +201,9 @@ consumer WatchlistChangedKafkaListener → ColdStartExecutor.submit(code) (PR #3
        ↓
 KIS WS tick 도달 (08:00~20:00 KST NXT cover)
   ├─ candle:current:{code}:1m 갱신 (current bar OHLCV)
-  └─ candle:today:{code}:1d 갱신 (high·low·close·volume 누적)
+  ├─ candle:current:{code}:{3m|5m|15m|30m|90m|1h|4h|12h} 갱신
+  ├─ candle:current:{code}:{1d|1wk|1mo|1y} 갱신
+  └─ candle:today:{code}:1d legacy key 병행 갱신
        ↓
 1분 boundary closing
   ├─ candle:current:{code}:1m → candle table INSERT (interval='1m')
@@ -168,6 +237,9 @@ KIS WS tick 도달 (08:00~20:00 KST NXT cover)
 | 위치 | 컴포넌트 | 책임 |
 |---|---|---|
 | `consumer/.../kafka/WatchlistChangedKafkaListener.kt` | Kafka 진입점 | watchlist.changed.v1 수신 → ColdStartExecutor.submit(code) |
+| `consumer/.../kafka/RealtimeDemandKafkaListener.kt` | 전략 후보 실시간 수요 진입점 | market.realtime.demand.v1 수신 → STRATEGY owner KIS WS 수요 |
+| `consumer/.../kafka/SymbolDetailCommandKafkaListener.kt` | 종목 상세 실시간 수요 진입점 | symbol.detail.command.v1 수신 → DETAIL owner 가격 WS + 호가 LRU |
+| `consumer/.../ingestion/RealtimeSubscriptionRouter.kt` | owner-aware KIS WS 가격 slot 라우터 | DETAIL/STRATEGY 수요 TTL·priority 관리, watchlist 자동 삽입 금지 |
 | `consumer/.../ingestion/ColdStartExecutor.kt` | KIS cold-start 5종 + halt skip + AggregateBackfillRunner 호출 (PR #303·#304) | KIS_COLD_START_INTERVALS 5종 fetch + audit 발행 |
 | `consumer/.../aggregation/AggregateBackfillRunner.kt` | 1m 합산 → 3m·5m·15m·30m·90m·1h·4h·12h DB INSERT | cold-start trigger + 20:00 flushAggregations trigger |
 | `consumer/.../aggregation/AggregateAdminController.kt` | admin 수동 트리거 (PR #303 신규, port 8082) | `POST /admin/aggregate/{code}` + `POST /admin/aggregate/all` |
@@ -177,6 +249,7 @@ KIS WS tick 도달 (08:00~20:00 KST NXT cover)
 | `consumer/.../infrastructure/kis/KisRestCandleAdapter.kt` | KIS REST 캔들 fetch (종목 단위 NXT 후보 `UN` 우선 + `J` fallback — ADR 0091) | 1d·1wk·1mo·1y 전체 기간 backfill + 1m 30 거래일 페이지네이션 (FHKST03010230) + 1m 당일분 (FHKST03010200) |
 | `domain/.../market/CandleAggregator.kt` | **3m·5m·15m·30m·90m·1h·4h·12h 합산 도메인 본체** Pure Kotlin, Spring/JPA 의존 0 | OHLCV 합산 + boundary 정렬 |
 | `api/.../service/CandleRefreshService.kt` | 사용자 재수집(recollect) path | 선택 interval 삭제 → KIS 재수집 → 합산봉은 1m 기반 재생성 |
+| `api/.../service/screener/ScreenerService.kt` | 전략 후보 실시간 관찰 수요 producer | Screener 상위 후보 → STRATEGY owner TTL 30m Kafka 발행 |
 | `api/.../infrastructure/cache/RedisCandleCache.kt` | Redis 어댑터 | 당일 진행 중 캔들 read/write |
 | `api/.../controller/WatchlistController.kt` | Watchlist REST | 등록·조회·삭제 |
 | `frontend/src/pages/Watchlist/` | UI 1순위 | 관심종목 등록 화면 (ADR 0040) |

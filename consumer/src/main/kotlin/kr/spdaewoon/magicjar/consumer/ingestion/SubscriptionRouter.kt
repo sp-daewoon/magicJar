@@ -15,6 +15,7 @@ import kotlin.concurrent.withLock
  *
  * - slot 예산: H0STCNT0 30개 (SubscriptionPolicy.PRICE_TICK_MAX)
  * - priority 낮은 종목 eviction (priority ASC 정렬 — 낮은 값 = 높은 우선순위)
+ * - SymbolDetail·Strategy 수요는 RealtimeSubscriptionRouter가 별도 owner로 보유
  * - thread safety: ReentrantLock (Kafka listener concurrency=1 + 부팅 reconcile 동시 호출 대응)
  * - stateless decision: 매번 KisWsPort.subscribedCodes() + WatchlistRepository 재계산
  */
@@ -24,6 +25,7 @@ class SubscriptionRouter(
     private val pollingWorker: WatchlistPollingWorker,
     private val watchlistRepository: ConsumerWatchlistRepositoryAdapter,
     private val sourceTracker: RedisSourceTrackerAdapter,
+    private val realtimeSubscriptionRouter: RealtimeSubscriptionRouter,
 ) {
     private val log = LoggerFactory.getLogger(SubscriptionRouter::class.java)
     private val lock = ReentrantLock()
@@ -39,7 +41,10 @@ class SubscriptionRouter(
         val subscribed = kisWsPort.subscribedCodes()
         val slotsAvailable = SubscriptionPolicy.priceTickSlotsAvailable(subscribed.size)
 
-        if (slotsAvailable > 0) {
+        if (code in subscribed) {
+            sourceTracker.set(userId, code, "live")
+            log.info("WS 이미 구독 중 — watchlist source live 동기화: code={}", code)
+        } else if (slotsAvailable > 0) {
             // slot 여유 → WS 구독
             kisWsPort.subscribe(listOf(code))
             sourceTracker.set(userId, code, "live")
@@ -81,10 +86,14 @@ class SubscriptionRouter(
     ) = lock.withLock {
         val subscribed = kisWsPort.subscribedCodes()
         if (code in subscribed) {
-            kisWsPort.unsubscribe(listOf(code))
-            log.info("WS 구독 제거: code={}", code)
-            // slot 회수 → polling 종목 중 가장 높은 priority 1건 promotion
-            promoteFromPolling(userId)
+            if (realtimeSubscriptionRouter.isExternallyDemanded(code)) {
+                log.info("watchlist 제거 — DETAIL/STRATEGY 수요로 WS 유지: code={}", code)
+            } else {
+                kisWsPort.unsubscribe(listOf(code))
+                log.info("WS 구독 제거: code={}", code)
+                // slot 회수 → polling 종목 중 가장 높은 priority 1건 promotion
+                promoteFromPolling(userId)
+            }
         } else {
             pollingWorker.remove(code)
             log.info("polling 제거: code={}", code)
@@ -102,16 +111,18 @@ class SubscriptionRouter(
 
             val codes = watchlist.map { it.code }
             val subscribed = kisWsPort.subscribedCodes().toMutableSet()
+            val externalDemandCodes = realtimeSubscriptionRouter.activeCodes()
 
             // 현재 구독 중이지만 watchlist에 없는 코드 제거
-            val toUnsubscribe = subscribed.filter { it !in codes }
+            val toUnsubscribe = subscribed.filter { it !in codes && it !in externalDemandCodes }
             if (toUnsubscribe.isNotEmpty()) {
                 kisWsPort.unsubscribe(toUnsubscribe)
                 toUnsubscribe.forEach { pollingWorker.remove(it) }
             }
 
             // watchlist priority 상위 N개 → WS, 나머지 → polling
-            val wsCapacity = SubscriptionPolicy.PRICE_TICK_MAX
+            val externalOnlyCount = externalDemandCodes.count { it !in codes }
+            val wsCapacity = (SubscriptionPolicy.PRICE_TICK_MAX - externalOnlyCount).coerceAtLeast(0)
             val toSubscribeWs = codes.take(wsCapacity)
             val toPolling = codes.drop(wsCapacity)
 
@@ -179,7 +190,7 @@ class SubscriptionRouter(
         val allWatchlist = watchlistRepository.findAll()
         val subscribedEntries =
             allWatchlist
-                .filter { it.code in subscribed }
+                .filter { it.code in subscribed && !realtimeSubscriptionRouter.isExternallyDemanded(it.code) }
                 .sortedByDescending { it.priority } // priority 높은(숫자 큰) 것이 eviction 후보
         val candidate = subscribedEntries.firstOrNull { it.priority > newPriority }
         return candidate?.code
@@ -193,6 +204,7 @@ class SubscriptionRouter(
         if (pollingCodes.isEmpty()) return
         val watchlist = watchlistRepository.findByUserIdOrderByPriority(userId)
         val candidate = watchlist.firstOrNull { it.code in pollingCodes } ?: return
+        if (kisWsPort.subscribedCodes().size >= SubscriptionPolicy.PRICE_TICK_MAX) return
         pollingWorker.remove(candidate.code)
         kisWsPort.subscribe(listOf(candidate.code))
         sourceTracker.set(userId, candidate.code, "live")

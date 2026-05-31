@@ -22,6 +22,8 @@ Spring Boot 3.3 + Spring AI + 한국투자증권 KIS OpenAPI 기반 **개인 맞
 - 변경 전/후 방향 차이, 데이터 흐름, 자본 흐름, API 계약, 사이트/화면 UX, 운영 스케줄, 검증 범위를 함께 비교한다.
 - 기존 방향을 바꾸는 변경은 작은 버그 수정처럼 처리하지 않는다. 대안·위험·마이그레이션·롤백 가능성을 정리하고 사용자 확인 또는 ADR/spec 갱신을 거친다.
 - 불필요한 대규모 재작성보다 현 구조 위에 보수적으로 보강하는 경로를 우선한다.
+- 실시간 시세 수요를 watchlist 단순 합집합으로 다루지 않는다. watchlist는 사용자가 고정해서 보는 목록이고, 종목 상세 진입은 `DETAIL`, 스크리너/전략 후보는 `STRATEGY` owner로 TTL·우선순위가 분리된 KIS WS 수요여야 한다. 전략 후보를 watchlist에 자동 삽입하지 않는다.
+- 종목 상세 화면은 watchlist 등록 여부와 무관하게 KIS WS 현재가·호가·진행 중 캔들 close를 요청해야 한다. REST는 bootstrap/backfill/fallback이며 장중 실시간 권위는 KIS WS tick이다.
 
 ### FVG / OrderBlock 작업 가드
 

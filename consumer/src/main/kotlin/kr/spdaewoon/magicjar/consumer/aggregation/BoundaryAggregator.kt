@@ -322,7 +322,7 @@ class BoundaryAggregator(
                     mapOf(
                         "code" to code,
                         "interval" to interval.code,
-                        "ts" to bar.ts.epochSeconds,
+                        "ts" to Instant.ofEpochSecond(bar.ts.epochSeconds).toString(),
                         "open" to bar.openRaw.toPlainString(),
                         "high" to bar.highRaw.toPlainString(),
                         "low" to bar.lowRaw.toPlainString(),

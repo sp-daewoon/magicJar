@@ -22,17 +22,26 @@ class SubscriptionRouterTest {
     private val pollingWorker = mockk<WatchlistPollingWorker>(relaxed = true)
     private val watchlistRepository = mockk<ConsumerWatchlistRepositoryAdapter>()
     private val sourceTracker = mockk<RedisSourceTrackerAdapter>(relaxed = true)
+    private lateinit var realtimeSubscriptionRouter: RealtimeSubscriptionRouter
 
     private lateinit var router: SubscriptionRouter
 
     @BeforeEach
     fun setUp() {
+        realtimeSubscriptionRouter =
+            RealtimeSubscriptionRouter(
+                kisWsPort = kisWsPort,
+                pollingWorker = pollingWorker,
+                watchlistRepository = watchlistRepository,
+                sourceTracker = sourceTracker,
+            )
         router =
             SubscriptionRouter(
                 kisWsPort = kisWsPort,
                 pollingWorker = pollingWorker,
                 watchlistRepository = watchlistRepository,
                 sourceTracker = sourceTracker,
+                realtimeSubscriptionRouter = realtimeSubscriptionRouter,
             )
     }
 

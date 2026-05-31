@@ -4,6 +4,8 @@
  * spec §3 REST 시그니처 LOCK 1:1 정합:
  *   GET  /api/symbols/{code}                      → SymbolDto
  *   GET  /api/symbols/{code}/candles?interval=...  → CandlesResponseDto
+ *   POST /api/symbols/{code}/realtime/subscribe    → RealtimeSubscribeResponseDto
+ *   POST /api/symbols/{code}/realtime/unsubscribe  → RealtimeUnsubscribeResponseDto
  *   POST /api/symbols/{code}/orderbook/subscribe   → OrderbookSubscribeResponseDto
  *   POST /api/symbols/{code}/orderbook/unsubscribe → OrderbookUnsubscribeResponseDto
  *
@@ -83,6 +85,18 @@ export interface OrderbookSubscribeResponseDto {
 
 /** POST /api/symbols/{code}/orderbook/unsubscribe 응답 */
 export interface OrderbookUnsubscribeResponseDto {
+  unsubscribed: boolean
+}
+
+/** POST /api/symbols/{code}/realtime/subscribe 응답 */
+export interface RealtimeSubscribeResponseDto {
+  subscribed: boolean
+  priceSlot: 'live' | 'queued'
+  orderbookSlot: 'live' | 'queued'
+}
+
+/** POST /api/symbols/{code}/realtime/unsubscribe 응답 */
+export interface RealtimeUnsubscribeResponseDto {
   unsubscribed: boolean
 }
 
@@ -211,7 +225,7 @@ export const symbolApi = {
    * @param code - 종목 코드
    * @param interval - 인터벌 (1m·3m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y)
    * @param before - 페이지네이션 cursor (ISO 8601, 미지정 시 최신)
-   * @param limit - 최대 캔들 수 (default 200, max 500)
+   * @param limit - 최대 캔들 수 (backend default 600, max 5000)
    */
   getCandles: async (
     code: string,
@@ -228,9 +242,32 @@ export const symbolApi = {
   },
 
   /**
-   * POST /api/symbols/{code}/orderbook/subscribe
-   * 호가 slot 사용 통보 (ADR 0048 LRU 10)
+   * POST /api/symbols/{code}/realtime/subscribe
+   * 종목 상세 실시간 수요 통보: KIS WS 현재가 + 호가.
    * 페이지 mount 시 호출
+   */
+  subscribeRealtime: async (code: string): Promise<RealtimeSubscribeResponseDto> => {
+    const res = await apiClient.post<RealtimeSubscribeResponseDto>(
+      `/symbols/${encodeURIComponent(code)}/realtime/subscribe`,
+    )
+    return res.data
+  },
+
+  /**
+   * POST /api/symbols/{code}/realtime/unsubscribe
+   * 종목 상세 실시간 수요 회수.
+   * 페이지 unmount 시 호출 + sendBeacon fallback
+   */
+  unsubscribeRealtime: async (code: string): Promise<RealtimeUnsubscribeResponseDto> => {
+    const res = await apiClient.post<RealtimeUnsubscribeResponseDto>(
+      `/symbols/${encodeURIComponent(code)}/realtime/unsubscribe`,
+    )
+    return res.data
+  },
+
+  /**
+   * POST /api/symbols/{code}/orderbook/subscribe
+   * 기존 호환 alias.
    */
   subscribeOrderbook: async (code: string): Promise<OrderbookSubscribeResponseDto> => {
     const res = await apiClient.post<OrderbookSubscribeResponseDto>(
@@ -241,8 +278,7 @@ export const symbolApi = {
 
   /**
    * POST /api/symbols/{code}/orderbook/unsubscribe
-   * 호가 slot 회수 (ADR 0048 LRU 10)
-   * 페이지 unmount 시 호출 + sendBeacon fallback
+   * 기존 호환 alias.
    */
   unsubscribeOrderbook: async (code: string): Promise<OrderbookUnsubscribeResponseDto> => {
     const res = await apiClient.post<OrderbookUnsubscribeResponseDto>(

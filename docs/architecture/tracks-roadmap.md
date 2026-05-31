@@ -61,15 +61,15 @@
 ### T-W2 — Watchlist Ingestion Worker (W1 ★ — 본 PR-9에서 진입)
 
 - **마스터 §위치**: §A.2 · §3-1 [3]
-- **목표**: T-W1에서 사용자가 등록한 Watchlist 종목들을 magicJar consumer가 자동 시세 수집. KIS WebSocket(`H0STCNT0` 체결가) 실시간 tick + 끊김 시 KIS REST(`FHKST01010100` `inquire-price`) 5초 polling 자동 전환. 신규 종목 등록 시 Yahoo Finance 7 interval 분봉 cold-start fetch + DB candle 영속. 41 stream slot 한도(ADR 0048) 차면 priority 낮은 종목은 polling demotion. `watchlist.changed.v1` Kafka 즉시 반응 (PR-7 producer · 본 PR-9 첫 consumer).
+- **목표**: T-W1에서 사용자가 등록한 Watchlist 종목들을 magicJar consumer가 자동 시세 수집하되, watchlist를 실시간 수요의 유일한 단위로 보지 않는다. KIS WebSocket(`H0STCNT0`/`H0NXCNT0` 체결가) 실시간 tick + 끊김 시 KIS REST(`FHKST01010100` `inquire-price`) 5초 polling 자동 전환. SymbolDetail은 `DETAIL`, Screener/Strategy 후보는 `STRATEGY` owner로 watchlist 자동 등록 없이 KIS WS 수요를 낸다. 41 stream slot 한도(ADR 0048) 차면 owner priority/TTL 기준으로 watchlist polling demotion 또는 queued 처리. `watchlist.changed.v1`·`symbol.detail.command.v1`·`market.realtime.demand.v1` Kafka 즉시 반응.
 - **선행/후행**: T-W1·T-ONBOARD / T-S1·T-MS1·W3 모든 트랙의 시세 인입 전제
 - **오프라인 동작**: 필수 (정적 MarketSessionResolver stub 1차 + WS 끊김 시 polling fallback + Yahoo cold-start 실패 시 graceful)
 - **KIS 흡수**: KIS open-trading-api repo `examples_llm/domestic-stock/.../websocket_*.py`(WS 메시지 + PIPE 구분자) + `inquire_price.py`·`inquire_daily_itemchartprice.py`(REST 어댑터) 출처 의무 — `feedback_kis_first_policy.md` 정합
 - **ADR**: **0048 (본 트랙 진입 시 발행 — 1급 권위)** + 0028 (1~5초 polling — 5초 LOCK) + 0014 (T1 live·T2 cache) + 0029 (당일 진행 중 캔들 Redis) + 0019 (Yahoo 매트릭스) + 0037 (KIS Rate Limit) + 0038 (KIS OAuth + approval_key 분산락) + 0042 STAGE 0-4 (`H0STCNI0` 1 slot reserve) + 0045 (Graceful Shutdown SIGTERM)
 - **데이터**:
   - DB — `candle` (V1 기존, 본 트랙 영속 본격 시작) — Yahoo 7 interval × universe 30 ≈ 530K row × 80 byte ≈ 42 MB
-  - Redis — `quote:last:{code}` (TTL 7일) · `candle:current:{code}:1m` · `candle:today:{code}:1d` · `watchlist:source:{userId}` (HASH 24h) · `kis:approval:{userId}` (TTL 23h)
-  - Kafka — `market.tick.v1`(신규 1h) · `market.candle.minute.closed.v1`(신규 1d) · `watchlist.changed.v1`(PR-7 producer · 본 트랙 첫 consumer)
+  - Redis — `quote:last:{code}` (TTL 7일) · `candle:current:{code}:{interval}`(1m·3m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y) · `candle:today:{code}:1d` legacy · `watchlist:source:{userId}` (HASH 24h) · `kis:approval:{userId}` (TTL 23h)
+  - Kafka — `market.tick.v1` · `market.candle.minute.closed.v1` · `market.candle.{interval}.closed.v1` · `watchlist.changed.v1` · `symbol.detail.command.v1` · `market.realtime.demand.v1`
 - **산출물 핵심** (PR-9a backend-core + PR-9b market-data 병렬 — `_workspace/specs/pr-9-dispatch-spec.md` 정합):
   - **PR-9a backend-core**: `consumer/.../kafka/WatchlistChangedKafkaListener.kt` + `consumer/.../ingestion/{SubscriptionRouter,WatchlistIngestionWorker,WatchlistPollingWorker,ColdStartExecutor}.kt` + `consumer/.../infrastructure/{yahoo/YahooCandleFetcher,kis/KisRestCandleAdapter,cache/RedisQuoteCacheAdapter,cache/RedisSourceTrackerAdapter,session/SimpleMarketSessionResolver}.kt` + `api/.../persistence/Candle{JpaEntity,Repository,Adapter}.kt` + domain port 4건(`SubscriptionPolicy`·`YahooCandleFetcher`·`SourceTracker`·`CandleRepository`)
   - **PR-9b market-data**: `consumer/.../ws/{KisWebSocketBridge,KisWebSocketSession,KisWsMessageParser}.kt` + `consumer/.../infrastructure/kis/{KisRestPriceAdapter,KisApprovalAdapter}.kt` + `consumer/.../market/TickToMinuteAggregator.kt` + `consumer/.../config/KafkaTopicConfig.kt` + domain `TickEvent` + `KisRestPort.fetchPrice` 확장

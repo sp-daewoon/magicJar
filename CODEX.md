@@ -13,6 +13,8 @@ Before non-trivial code, design, candle, chart, screener, FVG/order-block, strat
 - Compare before/after data flow, capital flow, API contracts, DB/Redis/Kafka keys, operations schedule, frontend UX, and verification scope.
 - Do not hide missing market data with mock or synthetic candles. Show missing/preparing/queued states or trigger real KIS recollection paths.
 - Treat direction changes as decisions. Record options, risks, migration/rollback, and ask for confirmation or update ADR/spec/policy when needed.
+- Do not make watchlist the only realtime market-data owner. Watchlist is the user-pinned list; symbol detail uses `DETAIL` demand, and screener/strategy candidates use `STRATEGY` demand with TTL and priority. Strategy candidates must not be silently auto-inserted into watchlist.
+- For symbol detail, KIS WS current price/orderbook/tick-derived current candle close must work even when the symbol is not in watchlist. REST is bootstrap/backfill/fallback, not the intraday realtime authority.
 
 ## Working Note Template
 

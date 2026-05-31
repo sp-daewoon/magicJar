@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.api.screener
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.controller.screener.ScreenerEvaluateRequest
 import kr.spdaewoon.magicjar.api.persistence.screener.ScreeningRunRepositoryAdapter
 import kr.spdaewoon.magicjar.api.service.screener.ScreenerService
@@ -22,6 +23,7 @@ import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import org.springframework.http.HttpStatus
+import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.web.server.ResponseStatusException
 import java.math.BigDecimal
 
@@ -42,12 +44,21 @@ class ScreenerServiceTest {
     private val screenerEngine: ScreenerEngine = mock()
     private val screenerCachePort: ScreenerCachePort = mock()
     private val screeningRunRepositoryAdapter: ScreeningRunRepositoryAdapter = mock()
+    private val kafkaTemplate: KafkaTemplate<String, String> = mock()
+    private val objectMapper = ObjectMapper()
 
     private lateinit var service: ScreenerService
 
     @BeforeEach
     fun setUp() {
-        service = ScreenerService(screenerEngine, screenerCachePort, screeningRunRepositoryAdapter)
+        service =
+            ScreenerService(
+                screenerEngine = screenerEngine,
+                screenerCachePort = screenerCachePort,
+                screeningRunRepositoryAdapter = screeningRunRepositoryAdapter,
+                kafkaTemplate = kafkaTemplate,
+                objectMapper = objectMapper,
+            )
     }
 
     // ── 픽스처 ────────────────────────────────────────────────────────

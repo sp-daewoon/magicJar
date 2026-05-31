@@ -71,7 +71,20 @@ data class CandlesResponseDto(
 )
 
 /**
- * 호가 sub/unsub 응답 DTO.
+ * 종목 상세 실시간 sub/unsub 응답 DTO.
+ */
+data class RealtimeSubscribeResponse(
+    val subscribed: Boolean,
+    val priceSlot: String, // "live" | "queued"
+    val orderbookSlot: String, // "live" | "queued"
+)
+
+data class RealtimeUnsubscribeResponse(
+    val unsubscribed: Boolean,
+)
+
+/**
+ * 호가 sub/unsub 응답 DTO. 기존 frontend/API 호환용으로 유지.
  */
 data class OrderbookSubscribeResponse(
     val subscribed: Boolean,

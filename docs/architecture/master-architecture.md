@@ -95,7 +95,7 @@ magicJar는 미래에 **MCP 서버를 외부에 노출**해 Claude/Cursor 등 AI
 
 | # | 영역 | 책임 | **오프라인 동작** | 트랙 |
 |---|---|---|---|---|
-| C.10 | **Screener (종목 발굴)** | universe(instrument 영속) × DSL 조건식 → 후보 + 랭킹(4 기준 multi-criteria fixed weights). **Redis cache 30m + 옵션 영속 V28(env toggle)**. **1차 inline 동기 평가 모드** (universe ~3000 inline ~5s) + 일별 batch cron은 post-MVP backlog §55. **KIS endpoint 호출 0 LOCK** (영속 candle + instrument reuse). Strategy Builder "전략으로 종목 찾기" 버튼 + ScreenerResultModal 합류. ADR 0071 정밀 명세 정합. | 가능 (영속 candle + 룰만) | T-SC (ADR 0071 Accepted 2026-05-14) |
+| C.10 | **Screener (종목 발굴)** | universe(instrument 영속) × DSL 조건식 → 후보 + 랭킹(4 기준 multi-criteria fixed weights). **Redis cache 30m + 옵션 영속 V28(env toggle)**. **1차 inline 동기 평가 모드** (universe ~3000 inline ~5s) + 일별 batch cron은 post-MVP backlog §55. **KIS endpoint 호출 0 LOCK** (영속 candle + instrument reuse). Strategy Builder "전략으로 종목 찾기" 버튼 + ScreenerResultModal 합류. 상위 후보는 watchlist 자동 등록이 아니라 `STRATEGY` owner TTL 실시간 관찰 수요(`market.realtime.demand.v1`)로만 발행. ADR 0071 정밀 명세 정합. | 가능 (영속 candle + 룰만) | T-SC (ADR 0071 Accepted 2026-05-14) |
 | C.11 | **Signal Engine (시그널)** | 실시간 watch list × 활성 전략 → BUY/SELL/HOLD + 강도 + reason. **DSL 평가만, AI 호출 0**. | 가능 (in-process 룰) | T-SIG |
 | C.12 | **Auto Order Execution (주문 실행)** | 시그널 → 위험 가드(ADR 0067 ALLOWED) → KisOrderHttpAdapter(TTTC0012U·TTTC0011U) → KIS API → KisExecutionWsListener(H0STCNI0 체결통보) → audit. MAGICJAR_MODE × MAGICJAR_ALLOW_REAL × user_account.real_trading_consent_at 3중 게이트 (실계좌). 분할 체결 1:N + 사용자 수동 취소(TTTC0013U). | 가능 (MOCK 환경 — KIS VPS endpoint + H0STCNI9) | T-O (ADR 0068 plan 발행 2026-05-12, 사용자 결정 대기) |
 | C.13 | **Risk & Position Guard (위험 관리)** | Guard chain 6단 (KillSwitch·Session·DailyLimit·PositionLimit·DrawdownStop·PriceSanity). 사이징(Kelly·Fixed Fractional). | 가능 (in-process 정책) | T-RISK |
@@ -105,7 +105,7 @@ magicJar는 미래에 **MCP 서버를 외부에 노출**해 Claude/Cursor 등 AI
 
 | # | 영역 | 책임 | **오프라인 동작** | 트랙 |
 |---|---|---|---|---|
-| D.15 | **Watchlist (관심종목)** | UI 1순위 진입점. Strategy Builder 발굴 → 관심등록 → 상세 보기 흐름. 모든 외부 시세 수집의 단위 (Watchlist 풀). | 가능 (DB only) | T-W1 (최우선) |
+| D.15 | **Watchlist (관심종목)** | 사용자가 고정해서 지켜보는 목록. Strategy Builder 발굴 결과를 사용자가 명시적으로 고정할 때만 등록한다. 실시간 시세 수요의 유일한 단위가 아니며, SymbolDetail은 `DETAIL`, Screener/Strategy 후보는 `STRATEGY` owner로 KIS WS 수요를 별도 관리한다. | 가능 (DB only) | T-W1 (최우선) |
 | D.16 | **Trading Journal (매매일지)** | order·signal·risk·reconcile·position 5 Kafka 이벤트 통합 시계열 영속(trading_journal 테이블) + 사용자 메모(journal_note 1:N) + 멱등성 UQ(source_table+source_id+event_type). 차트 스냅샷 자동 영속은 backlog §60 (post-MVP). **AI 호출 0 LOCK** + W4 회고 코멘트 backlog §62. ADR 0072 정밀 명세 정합. | 가능 (영속 only) | T-J (ADR 0072 Accepted 2026-05-14) |
 | D.17 | **Chart UI (LWC + 자체 도형/주석/패턴)** | 다중 timeframe·지표 overlay·패턴 마커·자체 도형/주석/패턴 시각화. **TradingView Advanced 의존 0**. | 가능 (frontend in-browser) | T-LWC |
 | D.18 | **AI Option Console (W4)** | 사용자 버튼 클릭 시 LLM 호출 — 종목 코멘트·기업 분석·차트 해석·지표 의미 설명. **매매 트리거 0**. dev에선 5분 prompt cache. | 부분 (LLM endpoint 끊겨도 본체 흐름 영향 0) | W4 |
