@@ -29,6 +29,11 @@ import { NaturalLanguageInput } from '../../components/strategy/NaturalLanguageI
 import { DslTextEditor } from '../../components/strategy/DslTextEditor'
 import type { BlockNode, BlockTree } from '../../lib/dsl/blockTree'
 import { serializeBlockTree } from '../../lib/dsl/serializer'
+import {
+  clonePresetTree,
+  SMART_MONEY_STRATEGY_PRESETS,
+  type SmartMoneyStrategyPreset,
+} from '../../lib/dsl/smartMoneyPresets'
 import { kisYamlExport, kisYamlImport } from '../../lib/dsl/yaml'
 import { useStrategyValidate, useStrategyEvaluate } from '../../api/hooks/useStrategy'
 import type { StrategyComplexityDto, EvaluateResponse } from '../../api/strategy'
@@ -99,6 +104,21 @@ export function StrategyBuilderPage() {
         ? { ...prev, entry: prev.entry ?? block }
         : { ...prev, exit: prev.exit ?? block },
     )
+  }
+
+  const handlePresetApply = (preset: SmartMoneyStrategyPreset) => {
+    if (tree.entry || tree.exit) {
+      const ok = window.confirm('현재 조건을 프리셋 후보로 교체할까요?')
+      if (!ok) return
+    }
+    setTree(clonePresetTree(preset.tree))
+    setCanvasTab('entry')
+    setStrategyId(undefined)
+    setComplexity(null)
+    setEvalResult(null)
+    setValidateError(null)
+    setEvalForm((prev) => ({ ...prev, interval: preset.suggestedInterval }))
+    showToast(`${preset.label} 적용됨`)
   }
 
   // 검증
@@ -264,6 +284,8 @@ export function StrategyBuilderPage() {
           onValidate={handleValidate}
           onSave={() => setShowSaveModal(true)}
           onEvaluate={handleEvaluate}
+          presets={SMART_MONEY_STRATEGY_PRESETS}
+          onPresetApply={handlePresetApply}
           strategyId={strategyId}
           isValidating={isValidating}
           isSaving={false}

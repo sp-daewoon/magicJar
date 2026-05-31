@@ -12,6 +12,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { StrategyBuilderCanvas } from '../StrategyBuilderCanvas'
 import type { BlockTree } from '../../../lib/dsl/blockTree'
+import { SMART_MONEY_STRATEGY_PRESETS } from '../../../lib/dsl/smartMoneyPresets'
 
 const noop = () => {}
 
@@ -108,5 +109,20 @@ describe('StrategyBuilderCanvas', () => {
     )
     const evalBtn = screen.getByText('평가')
     expect(evalBtn).not.toBeDisabled()
+  })
+
+  it('프리셋 후보 버튼 클릭 시 onPresetApply 호출', () => {
+    const onPresetApply = vi.fn()
+    render(
+      <StrategyBuilderCanvas
+        tree={{}}
+        onTreeChange={noop}
+        presets={SMART_MONEY_STRATEGY_PRESETS.slice(0, 1)}
+        onPresetApply={onPresetApply}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('FVG 매수 후보'))
+    expect(onPresetApply).toHaveBeenCalledWith(SMART_MONEY_STRATEGY_PRESETS[0])
   })
 })

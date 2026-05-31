@@ -12,6 +12,7 @@
 import { useMemo, useState } from 'react'
 import type { BlockNode as BlockNodeType, BlockTree } from '../../lib/dsl/blockTree'
 import { serializeBlockTree } from '../../lib/dsl/serializer'
+import type { SmartMoneyStrategyPreset } from '../../lib/dsl/smartMoneyPresets'
 import { BlockNode } from './BlockNode'
 
 type TreeTab = 'entry' | 'exit'
@@ -38,6 +39,10 @@ interface StrategyBuilderCanvasProps {
   onSave?: () => void
   /** 평가 버튼 */
   onEvaluate?: () => void
+  /** 전략 후보 프리셋 */
+  presets?: SmartMoneyStrategyPreset[]
+  /** 프리셋 적용 */
+  onPresetApply?: (preset: SmartMoneyStrategyPreset) => void
   /** 저장된 strategyId — 평가 활성화 여부 */
   strategyId?: string
   /** 유효성 검사 로딩 */
@@ -58,6 +63,8 @@ export function StrategyBuilderCanvas({
   onValidate,
   onSave,
   onEvaluate,
+  presets = [],
+  onPresetApply,
   strategyId,
   isValidating,
   isSaving,
@@ -120,6 +127,23 @@ export function StrategyBuilderCanvas({
           {isTreeEmpty ? '팔레트에서 블록을 선택하세요' : 'Entry 조건 구성 중'}
         </span>
       </div>
+
+      {presets.length > 0 && (
+        <div className="flex items-center gap-2 overflow-x-auto border-b border-gray-800 px-4 py-2">
+          <span className="shrink-0 text-xs font-medium text-gray-500">프리셋 후보</span>
+          {presets.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              className="shrink-0 rounded-md border border-gray-700 bg-gray-900 px-2.5 py-1 text-xs text-gray-300 transition-colors hover:border-teal-500 hover:bg-teal-950/40 hover:text-teal-100 focus:outline-none focus:ring-2 focus:ring-teal-400"
+              onClick={() => onPresetApply?.(preset)}
+              title={`${preset.description} · 추천 기준봉 ${preset.suggestedInterval}`}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* 트리 영역 */}
       <div

@@ -15,13 +15,14 @@ import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.web.server.ResponseStatusException
+import java.security.MessageDigest
 import java.time.Duration
 import java.time.Instant
 
 /**
  * 지표 계산 서비스 — cache-aside 패턴 (spec §6-1 호출 시퀀스 LOCK).
  *
- * 1. Redis 캐시 조회 (indicator:cache:{code}:{interval}:{name}:{paramsHash})
+ * 1. Redis 캐시 조회 (indicator:cache:{code}:{interval}:{name}:{paramsHash}:{rangeHash})
  * 2. miss → DB candle 조회 → IndicatorEngine.calculate()
  * 3. 결과 Redis 저장 (분봉 5분 / 일봉 1일 TTL — spec §6-4 LOCK)
  *
@@ -59,7 +60,7 @@ class IndicatorService(
 
         val params = parseParams(paramsRaw)
         val spec = IndicatorSpec(name = name, params = params)
-        val cacheKey = buildCacheKey(code, interval, name, spec.paramsHash())
+        val cacheKey = buildCacheKey(code, interval, name, spec.paramsHash(), from, to, adjusted)
 
         // 1. Redis 캐시 hit 확인
         val cached = tryGetCache(cacheKey)
@@ -157,7 +158,14 @@ class IndicatorService(
         val toInstant: Instant? = to?.let { parseJavaInstant(it) }
 
         val rawEntities =
-            if (toInstant != null) {
+            if (fromInstant != null && toInstant != null) {
+                candleJpaRepository.findByCodeAndIntervalAndTsBetween(
+                    code,
+                    interval,
+                    fromInstant,
+                    toInstant,
+                )
+            } else if (toInstant != null) {
                 candleJpaRepository.findByCodeAndIntervalAndTsBefore(
                     code,
                     interval,
@@ -232,13 +240,27 @@ class IndicatorService(
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "잘못된 시각 형식: $value (ISO 8601 UTC 필요, 예: 2024-01-01T00:00:00Z)")
         }
 
-    /** Redis 캐시 key: indicator:cache:{code}:{interval}:{name}:{paramsHash} (spec §6-4 LOCK) */
+    /** Redis 캐시 key: indicator:cache:{code}:{interval}:{name}:{paramsHash}:{rangeHash} (spec §6-4 LOCK) */
     private fun buildCacheKey(
         code: String,
         interval: String,
         name: String,
         paramsHash: String,
-    ): String = "indicator:cache:$code:$interval:$name:$paramsHash"
+        from: String?,
+        to: String?,
+        adjusted: Boolean,
+    ): String = "indicator:cache:$code:$interval:$name:$paramsHash:${rangeHash(from, to, adjusted)}"
+
+    private fun rangeHash(
+        from: String?,
+        to: String?,
+        adjusted: Boolean,
+    ): String =
+        MessageDigest
+            .getInstance("SHA-256")
+            .digest("${from.orEmpty()}|${to.orEmpty()}|adjusted=$adjusted".toByteArray())
+            .joinToString("") { "%02x".format(it) }
+            .take(16)
 
     /** TTL 결정: 분봉 300s / 일봉 이상 86400s (spec §6-4 TTL 매트릭스 LOCK) */
     private fun ttlFor(interval: String): Duration =

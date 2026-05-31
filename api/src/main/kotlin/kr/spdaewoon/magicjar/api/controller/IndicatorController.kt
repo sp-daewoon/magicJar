@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.RestController
  * - GET /api/indicators?code=...&name=...&interval=...&params=...&from=...&to=...&adjusted=...
  *
  * IndicatorEngine은 api·consumer 양쪽에 bean 등록 (sources stateless — ADR 0021 §2-5, spec §3-3).
- * Redis 캐시 (indicator:cache:{code}:{interval}:{name}:{paramsHash}): 분봉 5분 / 일봉 1일 TTL.
+ * Redis 캐시 (indicator:cache:{code}:{interval}:{name}:{paramsHash}:{rangeHash}): 분봉 5분 / 일봉 1일 TTL.
  * 미지원 지표 → 400, 캔들 부족 → 400.
  * 룰 5 위반 금지: LLM provider import 0건.
  */

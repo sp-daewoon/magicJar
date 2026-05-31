@@ -58,6 +58,7 @@ import { IntervalToggle } from './IntervalToggle'
 import { LightweightChart } from './LightweightChart'
 import { IndicatorPanel } from './IndicatorPanel'
 import { IndicatorOverlay } from './IndicatorOverlay'
+import { SMART_MONEY_INDICATOR_IDS, SmartMoneyZoneOverlay } from './SmartMoneyZoneOverlay'
 import { TrendlineOverlay } from './TrendlineOverlay'
 import { CandleCountSelector } from './CandleCountSelector'
 import {
@@ -196,7 +197,8 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
   // 지표 관련 상태
   const [isPanelOpen, setIsPanelOpen] = useState(false)
   const [selectedIndicatorIds, setSelectedIndicatorIds] = useState<Set<string>>(new Set())
-  const [indicatorErrors, setIndicatorErrors] = useState<Map<string, string>>(new Map())
+  const [lineIndicatorErrors, setLineIndicatorErrors] = useState<Map<string, string>>(new Map())
+  const [smartMoneyErrors, setSmartMoneyErrors] = useState<Map<string, string>>(new Map())
   // chart instance를 useState로 lift (P0 fix 2026-05-19 chart-curator):
   //   useRef는 mutation 시 re-render trigger 안 함 → IndicatorOverlay·PatternMarker가
   //   chart 교체(StrictMode 이중 mount 또는 SymbolDetailPage 재진입)를 감지 못해
@@ -479,7 +481,12 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
       if (next.has(id)) {
         next.delete(id)
         // 오류도 제거
-        setIndicatorErrors((errs) => {
+        setLineIndicatorErrors((errs) => {
+          const nextErrs = new Map(errs)
+          nextErrs.delete(id)
+          return nextErrs
+        })
+        setSmartMoneyErrors((errs) => {
           const nextErrs = new Map(errs)
           nextErrs.delete(id)
           return nextErrs
@@ -500,8 +507,21 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
   }, [])
 
   const handleOverlayErrors = useCallback((errors: Map<string, string>) => {
-    setIndicatorErrors(new Map(errors))
+    setLineIndicatorErrors(new Map(errors))
   }, [])
+
+  const handleSmartMoneyErrors = useCallback((errors: Map<string, string>) => {
+    setSmartMoneyErrors(new Map(errors))
+  }, [])
+
+  const lineIndicatorIds = useMemo(
+    () => new Set([...selectedIndicatorIds].filter((id) => !SMART_MONEY_INDICATOR_IDS.has(id))),
+    [selectedIndicatorIds],
+  )
+  const indicatorErrors = useMemo(
+    () => new Map([...lineIndicatorErrors, ...smartMoneyErrors]),
+    [lineIndicatorErrors, smartMoneyErrors],
+  )
 
   const showInitialChartLoading = isLoading && chartApi === null && allCandles.length === 0
 
@@ -541,6 +561,32 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
               </span>
             )}
           </button>
+
+          <div className="flex items-center rounded-md bg-gray-800 p-0.5">
+            {([
+              ['fvg', 'FVG', 'FVG 박스 overlay'],
+              ['order_block', 'OB', 'Order Block 박스 overlay'],
+            ] as const).map(([id, label, title]) => {
+              const active = selectedIndicatorIds.has(id)
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => handleIndicatorToggle(id)}
+                  className={`rounded px-2 py-0.5 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-teal-400 ${
+                    active
+                      ? 'bg-teal-700 text-white'
+                      : 'text-gray-500 hover:bg-gray-700 hover:text-gray-200'
+                  }`}
+                  aria-pressed={active}
+                  aria-label={title}
+                  title={title}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
 
           {/* 패턴 토글 버튼 (T-PAT PR-40) */}
           <button
@@ -885,6 +931,15 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
                 onPriceTimeClick={handleTrendlineChartClick}
                 onPriceTimeMove={handleTrendlineChartMove}
               />
+              <SmartMoneyZoneOverlay
+                chart={chartApi}
+                series={candleSeries}
+                code={code}
+                interval={interval}
+                candles={allCandles}
+                selectedIds={selectedIndicatorIds}
+                onErrorsChange={handleSmartMoneyErrors}
+              />
               <TrendlineOverlay
                 chart={chartApi}
                 series={candleSeries}
@@ -939,7 +994,7 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
         chart={chartApi}
         code={code}
         interval={interval}
-        selectedIds={selectedIndicatorIds}
+        selectedIds={lineIndicatorIds}
         onErrorsChange={handleOverlayErrors}
       />
 
