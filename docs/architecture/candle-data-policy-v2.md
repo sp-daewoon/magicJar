@@ -12,6 +12,7 @@
 - 2026-06-01 갱신 (ADR 0105 amend): **실전 운용 시나리오 acceptance matrix 추가**. A→B→A 재진입 gap fill, 3일 off 후 boot managed universe reconciliation, 3일 1m gap 자동 복구+합산봉 재생성, 1년 초과 1m 복구 불가, 자동매매 data readiness fail-closed, 장기 backfill progress streaming 원칙을 LOCK.
 - 2026-06-01 갱신: **합산 interval boundary 문서/구현 NXT 통합 재정렬**. 3m·5m·15m·30m·90m·1h·4h·12h boundary는 KRX 09:00~15:30 고정이 아니라 NXT 통합 08:00~20:00 기준이다. KRX-only 종목은 해당 구간에 실제 1m tick/bar가 없으면 빈 구간으로 남기며 mock 합성하지 않는다.
 - 2026-06-01 구현 반영: **ADR 0105 1차 reconciliation 코드 연결**. `SymbolDetailMinuteGapFillService`가 상세 진입 시 1m gap fill을 큐잉하고, `CandleBootstrapRunner`는 managed universe를 대상으로 reconciliation을 시작한다. 1m gap fill 성공 후 합산봉은 `AggregateBackfillRunner`가 upsert로 재생성하며, `RealtimeSignalGenerator`는 data readiness `READY`가 아니면 `SIGNAL_SKIPPED_DATA_NOT_READY`로 fail-closed 한다.
+- 2026-06-01 보강 구현: **SymbolDetail 1m range gap fill 정밀화**. 상세 진입 path는 더 이상 장기 lookback backfill worker를 직접 호출하지 않고, `KisOneMinuteCandleRangePort.fetchOneMinuteCandlesBetween(code, lastDb+1m, previousMinute)`로 필요한 범위만 조회한다. 저장 source는 `KIS-RANGE-GAPFILL`, 삽입 발생 시 3m~12h 합산봉을 재생성한다.
 - 본 문서는 운영 가이드. 결정 본문은 **ADR 0057 (KIS OpenAPI 단일 데이터 출처)** + **ADR 0062 (합산 interval 백엔드 precomputed)** + **ADR 0063 (NXT/통합거래 cover)** + **ADR 0019 (Accepted, 2026-05-12 §2 재통합)** + **ADR 0028 (Watchlist Ingestion)** + **ADR 0029 (당일 진행 중 캔들 Redis 캐시)** + **ADR 0048 (KIS WS 41 slot + polling fallback)** + **ADR 0105 (캔들 Reconciliation + 장기 1m retention)** 참조.
 
 ## 1. 정책 한 줄 요약
@@ -213,7 +214,7 @@ flowchart LR
 
 | 상황 | 이전/현재 한계 | 실전 기준 |
 |---|---|---|
-| 종목 A → B → A 재진입 | `DETAIL` grace TTL은 짧은 이탈을 완충하지만, WS가 빠진 구간의 닫힌 1m은 보장하지 못한다 | 재진입 시 `SymbolDetailMinuteGapFillService`가 마지막 DB 1m 이후부터 현재 직전분까지 REST gap fill을 queue하고, 차트는 기존 DB+Redis current로 즉시 표시한다 |
+| 종목 A → B → A 재진입 | `DETAIL` grace TTL은 짧은 이탈을 완충하지만, WS가 빠진 구간의 닫힌 1m은 보장하지 못한다 | 재진입 시 `SymbolDetailMinuteGapFillService`가 `KisOneMinuteCandleRangePort`로 마지막 DB 1m 이후부터 현재 직전분까지만 REST gap fill queue에 넣고, 차트는 기존 DB+Redis current로 즉시 표시한다 |
 | 시스템 3일 off 후 boot | watchlist stale 감지는 가능하지만 watchlist 밖의 최근 상세·전략 후보·자동매매 대상은 누락될 수 있다 | boot에서 managed universe를 재산정해 보유/미체결, ACTIVE 전략, 최근 상세, watchlist, screener/strategy 후보 TTL snapshot을 reconciliation 대상에 넣는다 |
 | 3일간 빠진 1m | KIS `FHKST03010230`로 1년 안의 1m 복구 가능 | boot/scheduled reconciliation이 1m gap을 채우고, 성공한 구간의 3m·5m·15m·30m·90m·1h·4h·12h를 재생성한다 |
 | 1년 초과 off | KIS 1m 보관 한도 밖은 표준 API로 복구 불가 | DB 백업/장기 보관/외부 유료 데이터가 없으면 구멍을 인정하고, 필요한 전략 window에 포함되면 readiness를 `FAILED`/`UNRECOVERABLE`로 둔다 |

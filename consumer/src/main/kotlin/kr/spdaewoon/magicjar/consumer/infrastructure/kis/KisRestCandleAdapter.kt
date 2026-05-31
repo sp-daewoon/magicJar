@@ -5,6 +5,7 @@ import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepositor
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.market.port.KisOneMinuteCandleRangePort
 import kr.spdaewoon.magicjar.domain.market.port.KisRestPort
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
@@ -73,7 +74,8 @@ class KisRestCandleAdapter(
     private val kisBaseProd: String,
     @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
     private val kisBaseVps: String,
-) : KisRestPort {
+) : KisRestPort,
+    KisOneMinuteCandleRangePort {
     private val log = LoggerFactory.getLogger(KisRestCandleAdapter::class.java)
 
     companion object {
@@ -90,6 +92,7 @@ class KisRestCandleAdapter(
         private val KST_ZONE = ZoneId.of("Asia/Seoul")
         private const val ONE_MINUTE_INITIAL_CURSOR_HOUR = "200000"
         private val ONE_MINUTE_MARKET_OPEN = LocalTime.of(8, 0, 0)
+        private val ONE_MINUTE_MARKET_CLOSE = LocalTime.of(20, 0, 0)
 
         /**
          * KIS HTTP 500 exponential backoff 대기 시간 (ms).
@@ -264,6 +267,314 @@ class KisRestCandleAdapter(
                 interval.code,
                 mrktDivCode,
             )
+        }
+        return emptyList()
+    }
+
+    override fun fetchOneMinuteCandlesBetween(
+        code: String,
+        from: java.time.Instant,
+        to: java.time.Instant,
+    ): List<Candle> {
+        if (from.isAfter(to)) return emptyList()
+        val mrktDivCodes = resolveMrktDivCodeCandidates(code)
+        for ((index, mrktDivCode) in mrktDivCodes.withIndex()) {
+            val candles = fetchOneMinCandlesBetween(code, mrktDivCode, from, to)
+            if (candles.isNotEmpty() || index == mrktDivCodes.lastIndex) {
+                return candles
+            }
+            log.warn(
+                "KIS 1m range UN 응답 0건 — J fallback 재시도: code={} from={} to={} mrktDivCode={}",
+                code,
+                from,
+                to,
+                mrktDivCode,
+            )
+        }
+        return emptyList()
+    }
+
+    private fun oneMinuteRangeTargetDays(
+        from: java.time.Instant,
+        to: java.time.Instant,
+    ): List<LocalDate> {
+        val startDate = from.atZone(KST_ZONE).toLocalDate()
+        val endDate = to.atZone(KST_ZONE).toLocalDate()
+        val days = mutableListOf<LocalDate>()
+        var current = endDate
+        while (!current.isBefore(startDate)) {
+            val dow = current.dayOfWeek
+            if (dow != java.time.DayOfWeek.SATURDAY && dow != java.time.DayOfWeek.SUNDAY) {
+                days.add(current)
+            }
+            current = current.minusDays(1)
+        }
+        return days
+    }
+
+    private fun oneMinuteRangeMaxPages(
+        from: java.time.Instant,
+        to: java.time.Instant,
+    ): Int {
+        val minutes = Duration.between(from, to).toMinutes().coerceAtLeast(0L) + 1L
+        val estimatedPages = ((minutes + 119L) / 120L + 1L).toInt()
+        return estimatedPages.coerceAtLeast(1).coerceAtMost(oneMinuteMaxPagesPerDay())
+    }
+
+    private fun formatHourCursor(time: LocalTime): String = "%02d%02d%02d".format(time.hour, time.minute, time.second)
+
+    private fun maxInstant(
+        a: java.time.Instant,
+        b: java.time.Instant,
+    ): java.time.Instant = if (a.isAfter(b)) a else b
+
+    private fun minInstant(
+        a: java.time.Instant,
+        b: java.time.Instant,
+    ): java.time.Instant = if (a.isBefore(b)) a else b
+
+    private fun fetchOneMinCandlesBetween(
+        code: String,
+        mrktDivCode: String,
+        from: java.time.Instant,
+        to: java.time.Instant,
+    ): List<Candle> {
+        val cred =
+            credentialRepository
+                .findAllByAccountType(AccountType.REAL.name)
+                .firstOrNull()
+                ?: run {
+                    log.warn("KIS REST 1m range candle: REAL credential 없음 — code={}", code)
+                    return emptyList()
+                }
+
+        val userId = cred.id.userId
+        if (userId.isBlank()) {
+            log.warn("KIS REST 1m range candle: credential userId 빈 문자열 — code={} DB 결함", code)
+            return emptyList()
+        }
+        val accessToken =
+            try {
+                kisAuthAdapter.getAccessToken(userId, AccountType.REAL)
+            } catch (e: Exception) {
+                log.warn("KIS REST 1m range candle: 토큰 발급 실패 — code={}: {}", code, e.message)
+                return emptyList()
+            }
+
+        var appKey: ByteArray? = null
+        var secretKey: ByteArray? = null
+        return try {
+            appKey = secretCipher.decrypt(cred.appKeyEnc)
+            secretKey = secretCipher.decrypt(cred.secretKeyEnc)
+            val appKeyStr = String(appKey)
+            val secretKeyStr = String(secretKey)
+
+            val allCandles = mutableListOf<Candle>()
+            val seenTs = mutableSetOf<Long>()
+            val targetDays = oneMinuteRangeTargetDays(from, to)
+
+            for (targetDate in targetDays) {
+                val dayStart = targetDate.atStartOfDay(KST_ZONE).toInstant()
+                val dayEnd =
+                    targetDate
+                        .plusDays(1)
+                        .atStartOfDay(KST_ZONE)
+                        .minusNanos(1)
+                        .toInstant()
+                val dayFrom = maxInstant(from, dayStart)
+                val dayTo = minInstant(to, dayEnd)
+                if (dayFrom.isAfter(dayTo)) continue
+
+                val dayToTime = dayTo.atZone(KST_ZONE).toLocalTime()
+                if (dayToTime.isBefore(ONE_MINUTE_MARKET_OPEN)) {
+                    log.debug("KIS 1m range fetch 장시작 전 범위 skip: code={} date={} to={}", code, targetDate, dayTo)
+                    continue
+                }
+
+                val dateStr = targetDate.format(DATE_FMT)
+                val cursorTime =
+                    if (dayToTime.isAfter(ONE_MINUTE_MARKET_CLOSE)) {
+                        ONE_MINUTE_MARKET_CLOSE
+                    } else {
+                        dayToTime
+                    }
+                var currentHour = formatHourCursor(cursorTime.truncatedTo(ChronoUnit.SECONDS))
+                val maxPages = oneMinuteRangeMaxPages(dayFrom, dayTo)
+                var pageCount = 0
+                var dayDone = false
+
+                while (!dayDone && pageCount < maxPages) {
+                    val parsed =
+                        fetchOneMinRangeSinglePage(
+                            code = code,
+                            targetDate = targetDate,
+                            dateStr = dateStr,
+                            currentHour = currentHour,
+                            mrktDivCode = mrktDivCode,
+                            accessToken = accessToken,
+                            appKeyStr = appKeyStr,
+                            secretKeyStr = secretKeyStr,
+                        )
+                    pageCount++
+
+                    if (parsed.isEmpty()) {
+                        dayDone = true
+                        continue
+                    }
+
+                    for (candle in parsed) {
+                        val epochSec = candle.ts.epochSeconds
+                        if (epochSec >= dayFrom.epochSecond && epochSec <= dayTo.epochSecond && seenTs.add(epochSec)) {
+                            allCandles.add(candle)
+                        }
+                    }
+
+                    val earliest = parsed.minByOrNull { it.ts.epochSeconds }
+                    val latest = parsed.maxByOrNull { it.ts.epochSeconds }
+                    if (earliest == null || latest == null || latest.ts.epochSeconds < dayFrom.epochSecond) {
+                        dayDone = true
+                        continue
+                    }
+
+                    val cursorStep = nextOneMinuteCursor(earliest)
+                    if (cursorStep.nextHour == null || earliest.ts.epochSeconds <= dayFrom.epochSecond) {
+                        dayDone = true
+                    } else {
+                        currentHour = cursorStep.nextHour
+                    }
+                }
+
+                log.info(
+                    "KIS 1m range 일자 완료: code={} date={} pages={} maxPages={} total={}",
+                    code,
+                    dateStr,
+                    pageCount,
+                    maxPages,
+                    allCandles.size,
+                )
+            }
+
+            allCandles
+                .distinctBy { it.ts.epochSeconds }
+                .sortedBy { it.ts.epochSeconds }
+        } finally {
+            appKey?.fill(0)
+            secretKey?.fill(0)
+        }
+    }
+
+    private fun fetchOneMinRangeSinglePage(
+        code: String,
+        targetDate: LocalDate,
+        dateStr: String,
+        currentHour: String,
+        mrktDivCode: String,
+        accessToken: String,
+        appKeyStr: String,
+        secretKeyStr: String,
+    ): List<Candle> {
+        var lastException: WebClientResponseException? = null
+        for (attempt in 0 until RETRY_MAX_ATTEMPTS) {
+            if (attempt > 0) {
+                val waitMs = RETRY_BACKOFF_MS[attempt - 1]
+                log.warn(
+                    "KIS 1m range candle 500 오류 — {}ms backoff 후 재시도({}/{}): code={} date={} hour={}",
+                    waitMs,
+                    attempt + 1,
+                    RETRY_MAX_ATTEMPTS,
+                    code,
+                    dateStr,
+                    currentHour,
+                )
+                Thread.sleep(waitMs)
+            }
+
+            var signalSent = false
+            var acquired = false
+            try {
+                kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
+                acquired = true
+
+                val body =
+                    webClient
+                        .get()
+                        .uri { builder ->
+                            builder
+                                .scheme("https")
+                                .host(kisBaseProd.removePrefix("https://").substringBefore(":"))
+                                .port(kisBaseProd.substringAfterLast(":").toIntOrNull() ?: 9443)
+                                .path(ENDPOINT_1MIN)
+                                .queryParam("fid_cond_mrkt_div_code", mrktDivCode)
+                                .queryParam("fid_input_iscd", code)
+                                .queryParam("fid_input_hour_1", currentHour)
+                                .queryParam("fid_input_date_1", dateStr)
+                                .queryParam("fid_pw_data_incu_yn", "N")
+                                .queryParam("fid_fake_tick_incu_yn", "")
+                                .build()
+                        }.header("authorization", "Bearer $accessToken")
+                        .header("appkey", appKeyStr)
+                        .header("appsecret", secretKeyStr)
+                        .header("tr_id", TR_ID_1MIN)
+                        .header("custtype", "P")
+                        .retrieve()
+                        .bodyToMono(Map::class.java)
+                        .timeout(Duration.ofSeconds(10))
+                        .block()
+
+                kisRateLimiterPort.onSuccess()
+                signalSent = true
+                return body?.let { parseKis1mResponse(it, code, targetDate) } ?: emptyList()
+            } catch (e: WebClientResponseException) {
+                val errorClass = classifyKisError(e.statusCode.value(), e.responseBodyAsString)
+                if (errorClass is KisErrorClass.RateLimit) {
+                    kisRateLimiterPort.onTpsExceeded()
+                    signalSent = true
+                    log.warn(
+                        "KIS 1m range candle Rate Limit — 1초 backoff 후 빈 결과: code={} date={} hour={} status={}",
+                        code,
+                        dateStr,
+                        currentHour,
+                        e.statusCode.value(),
+                    )
+                    Thread.sleep(1000L)
+                    return emptyList()
+                }
+                if (e.statusCode.value() == 500 && attempt < RETRY_MAX_ATTEMPTS - 1) {
+                    lastException = e
+                    continue
+                }
+                log.warn(
+                    "KIS 1m range candle 실패: code={} date={} hour={} status={}",
+                    code,
+                    dateStr,
+                    currentHour,
+                    e.statusCode.value(),
+                )
+                return emptyList()
+            } catch (e: Exception) {
+                log.warn("KIS 1m range candle 오류: code={} date={} hour={} err={}", code, dateStr, currentHour, e.message)
+                return emptyList()
+            } finally {
+                if (acquired && !signalSent) {
+                    log.warn(
+                        "[KisRateLimit] 1m range acquire 후 통계 시그널 미발행 — drift risk: code={} date={} hour={}",
+                        code,
+                        dateStr,
+                        currentHour,
+                    )
+                }
+            }
+        }
+        log.warn(
+            "KIS 1m range candle 500 retry 소진({}/{}) — 빈 결과 반환: code={} date={} hour={}",
+            RETRY_MAX_ATTEMPTS,
+            RETRY_MAX_ATTEMPTS,
+            code,
+            dateStr,
+            currentHour,
+        )
+        if (lastException != null) {
+            log.debug("마지막 예외: {}", lastException.message)
         }
         return emptyList()
     }

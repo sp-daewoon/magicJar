@@ -127,6 +127,39 @@ class KisRestCandleAdapterPaginationTest {
         return method.invoke(adapter) as Int
     }
 
+    /** private oneMinuteRangeTargetDays(from, to) reflection 호출 */
+    @Suppress("UNCHECKED_CAST")
+    private fun invokeOneMinuteRangeTargetDays(
+        adapter: KisRestCandleAdapter,
+        from: java.time.Instant,
+        to: java.time.Instant,
+    ): List<LocalDate> {
+        val method =
+            KisRestCandleAdapter::class.java.getDeclaredMethod(
+                "oneMinuteRangeTargetDays",
+                java.time.Instant::class.java,
+                java.time.Instant::class.java,
+            )
+        method.isAccessible = true
+        return method.invoke(adapter, from, to) as List<LocalDate>
+    }
+
+    /** private oneMinuteRangeMaxPages(from, to) reflection 호출 */
+    private fun invokeOneMinuteRangeMaxPages(
+        adapter: KisRestCandleAdapter,
+        from: java.time.Instant,
+        to: java.time.Instant,
+    ): Int {
+        val method =
+            KisRestCandleAdapter::class.java.getDeclaredMethod(
+                "oneMinuteRangeMaxPages",
+                java.time.Instant::class.java,
+                java.time.Instant::class.java,
+            )
+        method.isAccessible = true
+        return method.invoke(adapter, from, to) as Int
+    }
+
     private fun instrument(
         code: String,
         market: String,
@@ -259,6 +292,60 @@ class KisRestCandleAdapterPaginationTest {
 
         assertThat(targetDays).hasSize(252)
         assertThat(invokeOneMinuteMaxPagesPerDay(adapter)).isEqualTo(8)
+    }
+
+    @Test
+    fun `one-minute-range target days는 요청 범위 날짜만 역순으로 포함하고 주말을 제외한다`() {
+        val adapter = buildAdapter()
+        val zone = java.time.ZoneId.of("Asia/Seoul")
+        val from =
+            java.time.LocalDateTime
+                .of(2026, 5, 29, 15, 0)
+                .atZone(zone)
+                .toInstant()
+        val to =
+            java.time.LocalDateTime
+                .of(2026, 6, 1, 9, 30)
+                .atZone(zone)
+                .toInstant()
+
+        val days = invokeOneMinuteRangeTargetDays(adapter, from, to)
+
+        assertThat(days).containsExactly(
+            LocalDate.of(2026, 6, 1),
+            LocalDate.of(2026, 5, 29),
+        )
+    }
+
+    @Test
+    fun `one-minute-range max pages는 요청 분량 기준으로 줄이고 일자 cap을 넘지 않는다`() {
+        val adapter = buildAdapter()
+        val zone = java.time.ZoneId.of("Asia/Seoul")
+        val shortFrom =
+            java.time.LocalDateTime
+                .of(2026, 6, 1, 9, 0)
+                .atZone(zone)
+                .toInstant()
+        val shortTo =
+            java.time.LocalDateTime
+                .of(2026, 6, 1, 9, 10)
+                .atZone(zone)
+                .toInstant()
+        val fullFrom =
+            java.time.LocalDateTime
+                .of(2026, 6, 1, 8, 0)
+                .atZone(zone)
+                .toInstant()
+        val fullTo =
+            java.time.LocalDateTime
+                .of(2026, 6, 1, 19, 59)
+                .atZone(zone)
+                .toInstant()
+
+        assertThat(invokeOneMinuteRangeMaxPages(adapter, shortFrom, shortTo)).isEqualTo(2)
+        assertThat(invokeOneMinuteRangeMaxPages(adapter, fullFrom, fullTo)).isEqualTo(7)
+        assertThat(invokeOneMinuteRangeMaxPages(adapter, fullFrom, fullTo))
+            .isLessThanOrEqualTo(invokeOneMinuteMaxPagesPerDay(adapter))
     }
 
     @Test

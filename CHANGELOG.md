@@ -3,6 +3,8 @@
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 
+| 2026-06-01 | **fix(market): SymbolDetail 1m gap fill range 정밀화** — 상세 진입 시 기존 장기 lookback backfill worker를 직접 호출하던 흐름을 `KisOneMinuteCandleRangePort.fetchOneMinuteCandlesBetween`로 분리해 `lastDb+1m ~ 현재 직전분` 범위만 KIS `FHKST03010230` cursor로 조회. `lastDb`가 없으면 당일 NXT 통합 세션 시작부터만 빠르게 채우고, 삽입된 row는 `KIS-RANGE-GAPFILL` source로 저장 후 3m~12h 합산봉을 재생성한다. | domain · consumer · docs · task | SymbolDetail A→B→A 재진입 보정이 6개월/장기 backfill처럼 무겁게 돌지 않도록 KIS TPS와 사용자 path 리스크를 낮추기 위함 |
+
 | 2026-06-01 | **feat(market): ADR 0105 candle reconciliation gate 1차 구현** — SymbolDetail 진입 시 KIS WS 현재가·호가 수요와 별개로 마지막 DB 1m 이후 현재 직전분까지 gap fill을 큐잉하고, boot candle reconciliation 대상을 watchlist 단독에서 보유/미체결·ACTIVE 명시 전략·현재 realtime 수요·최근 상세·watchlist·strategy 후보 TTL snapshot으로 확장. 1m gap fill 성공 후 3m~12h 합산봉은 insert-only가 아니라 upsert 재생성되며, `RealtimeSignalGenerator`는 data readiness가 `READY`가 아니면 `SIGNAL_SKIPPED_DATA_NOT_READY` audit 후 signal 생성을 fail-closed 한다. | consumer · api · domain · docs · task | 재기동/상세 화면 이탈/전략 후보 universe에서 생기는 캔들 공백이 자동매매 주문으로 이어지지 않도록 ADR 0105 acceptance를 코드 경로에 연결 |
 
 | 2026-06-01 | **feat(ops): 설정 평문 재표시 + TRADE/SystemEvent/Dozzle 알림 라우팅 보강** — 시스템 설정 화면 재진입 시 DART API 키와 Slack webhook URL을 DB 암호문 복호화 응답으로 다시 채우고, consumer가 같은 `persistence-shared` SystemConfig adapter로 Slack webhook을 읽도록 모듈 경계를 정리. `order.filled.v1`·`order.rejected.v1`은 REAL/MOCK/PAPER 구분 없이 P0 즉시 Slack으로 승격하고, `system.event.v1`은 ERROR/CRITICAL 즉시·WARN 묶음 outbox로 bridge한다. Dozzle에는 `/data` volume을 붙여 WARN/ERROR alert/webhook 설정을 보존하고, 운영 문서와 ADR 0095에 CRITICAL/ERROR/WARN/TRADE 라우팅 기준을 반영. | api · consumer · persistence-shared · frontend · docker · docs · task | 실전 운용 전 주문 체결·거절, 시스템 오류, 로그 기반 보조 관제를 사용자 메신저로 놓치지 않기 위함 |
