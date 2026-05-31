@@ -8,9 +8,10 @@ import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Component
 
 /**
- * Kafka boundary closing 5종 토픽 → STOMP 5종 토픽 fanout (ADR 0064 C-1 채택).
+ * Kafka boundary closing 토픽 → STOMP 토픽 fanout (ADR 0064 C-1 채택).
  *
- * 구독 토픽 (ADR 0064 §4-5 + KafkaTopicConfig 5종):
+ * 구독 토픽 (ADR 0064 §4-5 + KafkaTopicConfig):
+ *   market.candle.3m.closed.v1   → /topic/market.candle.3m.{code}
  *   market.candle.5m.closed.v1   → /topic/market.candle.5m.{code}
  *   market.candle.15m.closed.v1  → /topic/market.candle.15m.{code}
  *   market.candle.30m.closed.v1  → /topic/market.candle.30m.{code}
@@ -29,7 +30,7 @@ import org.springframework.stereotype.Component
  * frontend subscription 정합 (ADR 0064 §7-1 frontend 디스패치):
  *   useSymbolCandles.ts IntervalToggle 선택값 기반 dynamic subscribe/unsubscribe.
  *
- * throttle 미적용 — boundary 마감은 이미 저빈도 (5m=144건/일, 1h=12건/일 per code).
+ * throttle 미적용 — boundary 마감은 이미 저빈도 (3m=130건/일, 1h=7건/일 per code).
  * 룰 5 위반 금지: LLM provider import 0건.
  */
 @Component
@@ -38,6 +39,18 @@ class CandleClosedStompListener(
     private val objectMapper: ObjectMapper,
 ) {
     private val log = LoggerFactory.getLogger(CandleClosedStompListener::class.java)
+
+    /**
+     * 3m boundary closing → STOMP /topic/market.candle.3m.{code} fanout.
+     * groupId: magicjar-api-stomp-boundary-3m
+     */
+    @KafkaListener(
+        topics = ["market.candle.3m.closed.v1"],
+        groupId = "magicjar-api-stomp-boundary-3m",
+    )
+    fun on3mClosed(record: ConsumerRecord<String, String>) {
+        forwardToStomp(record, "3m")
+    }
 
     /**
      * 5m boundary closing → STOMP /topic/market.candle.5m.{code} fanout.

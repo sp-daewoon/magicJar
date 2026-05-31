@@ -2,11 +2,15 @@ package kr.spdaewoon.magicjar.api.service
 
 import kr.spdaewoon.magicjar.api.config.ChartCandleProperties
 import kr.spdaewoon.magicjar.api.infrastructure.kis.KisTokenCacheHelper
+import kr.spdaewoon.magicjar.api.persistence.CandleJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.api.service.dto.CandleRecollectResponse
 import kr.spdaewoon.magicjar.api.service.dto.CandleRefreshResponse
 import kr.spdaewoon.magicjar.api.service.dto.IntervalRefreshResult
+import kr.spdaewoon.magicjar.domain.market.candle.Candle
+import kr.spdaewoon.magicjar.domain.market.candle.CandleAggregator
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
@@ -28,6 +32,7 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
+import kotlinx.datetime.Instant as KtInstant
 
 /**
  * 캔들 수동 갱신 서비스 (dogfooding qa #5 — POST /api/symbols/{code}/candles/refresh).
@@ -40,7 +45,7 @@ import java.time.temporal.ChronoUnit
  *   FHKST03010230 (inquire-time-dailychartprice) — 1m 분봉
  *     raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
  *
- * 분봉(5m·15m·30m·90m·1h) 처리:
+ * 합산봉(3m·5m·15m·30m·90m·1h·4h·12h) 처리:
  *   KIS 미제공 — 1m 갱신 시 ON CONFLICT DO NOTHING으로 upsert만 수행.
  *   합산 재계산은 향후 별도 trigger (현재 consumer AggregateBackfillRunner 전용).
  *
@@ -132,6 +137,22 @@ class CandleRefreshService(
 
         /** 지원하는 갱신 interval 전체 목록 */
         val SUPPORTED_INTERVALS = setOf("1m", "1d", "1wk", "1mo", "1y")
+
+        /** 1m 기준으로 서버에서 재생성하는 합산 interval. */
+        private val AGGREGATE_INTERVALS =
+            setOf(
+                CandleInterval.THREE_MIN,
+                CandleInterval.FIVE_MIN,
+                CandleInterval.FIFTEEN_MIN,
+                CandleInterval.THIRTY_MIN,
+                CandleInterval.NINETY_MIN,
+                CandleInterval.ONE_HOUR,
+                CandleInterval.FOUR_HOUR,
+                CandleInterval.TWELVE_HOUR,
+            )
+
+        private val AGGREGATE_INTERVAL_CODES = AGGREGATE_INTERVALS.map { it.code }.toSet()
+        private val RECOLLECT_SUPPORTED_INTERVALS = SUPPORTED_INTERVALS + AGGREGATE_INTERVAL_CODES
     }
 
     /**
@@ -194,6 +215,94 @@ class CandleRefreshService(
             elapsedMs,
         )
         return CandleRefreshResponse(refreshedIntervals = results, elapsedMs = elapsedMs)
+    }
+
+    /**
+     * 캔들 재수집 진입점.
+     *
+     * 기존 refresh는 ON CONFLICT DO NOTHING upsert라 잘못 저장된 row를 교정하지 못한다.
+     * recollect는 사용자가 명시 확인한 경우에만 기존 row를 삭제하고 KIS 원천을 다시 수집한다.
+     *
+     * 합산 interval(3m~12h)은 KIS가 직접 제공하지 않으므로 1m을 함께 재수집한 뒤 [CandleAggregator]로 재생성한다.
+     */
+    fun recollect(
+        code: String,
+        intervals: List<String>,
+        priority: KisCallPriority = KisCallPriority.USER_PATH,
+    ): CandleRecollectResponse {
+        val startMs = System.currentTimeMillis()
+
+        if (!instrumentJpaRepository.existsByCode(code)) {
+            throw ResponseStatusException(HttpStatus.NOT_FOUND, "종목을 찾을 수 없습니다: $code")
+        }
+
+        val requested =
+            intervals
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+        if (requested.isEmpty()) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "재수집할 interval을 지정해 주세요")
+        }
+
+        val unsupported = requested.filter { it !in RECOLLECT_SUPPORTED_INTERVALS }
+        if (unsupported.isNotEmpty()) {
+            throw ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "지원하지 않는 재수집 interval: ${unsupported.joinToString(",")} " +
+                    "(허용: 1m·3m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y)",
+            )
+        }
+
+        // 삭제 전에 최소 인증/자격증명 문제를 먼저 확인해, 명백한 재수집 불가 상태에서 기존 데이터를 지우지 않는다.
+        resolveAccessTokenAndKeys()
+
+        val requestedSet = requested.toSet()
+        val aggregateRequested = requestedSet.intersect(AGGREGATE_INTERVAL_CODES)
+        val resetIntervalSet = linkedSetOf<String>()
+        resetIntervalSet.addAll(requested)
+        if (CandleInterval.ONE_MIN.code in requestedSet) {
+            resetIntervalSet.addAll(AGGREGATE_INTERVAL_CODES)
+        }
+        if (aggregateRequested.isNotEmpty()) {
+            resetIntervalSet.add(CandleInterval.ONE_MIN.code)
+        }
+        val resetIntervals = resetIntervalSet.toList()
+
+        val refreshIntervalSet = linkedSetOf<String>()
+        refreshIntervalSet.addAll(requested.filter { it in SUPPORTED_INTERVALS })
+        if (aggregateRequested.isNotEmpty()) {
+            refreshIntervalSet.add(CandleInterval.ONE_MIN.code)
+        }
+        val refreshIntervals = refreshIntervalSet.toList()
+
+        val deletedCount = candleJpaRepository.deleteByCodeAndIntervalIn(code, resetIntervals)
+        val refreshResponse = refresh(code, refreshIntervals, priority)
+
+        val rebuildTargets =
+            when {
+                CandleInterval.ONE_MIN.code in requestedSet -> AGGREGATE_INTERVALS
+                else -> aggregateRequested.map { CandleInterval.fromCode(it) }.toSet()
+            }.sortedBy { it.code }
+        val rebuiltIntervals = rebuildAggregateIntervals(code, rebuildTargets)
+
+        val elapsedMs = System.currentTimeMillis() - startMs
+        log.info(
+            "캔들 재수집 완료: code={} requested={} reset={} deleted={} rebuilt={} elapsedMs={}",
+            code,
+            requested,
+            resetIntervals,
+            deletedCount,
+            rebuiltIntervals.map { it.interval },
+            elapsedMs,
+        )
+        return CandleRecollectResponse(
+            deletedCount = deletedCount,
+            resetIntervals = resetIntervals,
+            refreshedIntervals = refreshResponse.refreshedIntervals,
+            rebuiltIntervals = rebuiltIntervals,
+            elapsedMs = elapsedMs,
+        )
     }
 
     /**
@@ -931,6 +1040,88 @@ class CandleRefreshService(
                 )
         }
         return total
+    }
+
+    private fun rebuildAggregateIntervals(
+        code: String,
+        targets: Collection<CandleInterval>,
+    ): List<IntervalRefreshResult> {
+        if (targets.isEmpty()) return emptyList()
+
+        val oneMinCandles =
+            candleJpaRepository
+                .findByCodeAndIntervalOrderByTsAsc(code, CandleInterval.ONE_MIN.code)
+                .mapNotNull { it.toOneMinCandleOrNull() }
+
+        if (oneMinCandles.isEmpty()) {
+            return targets.map { target ->
+                IntervalRefreshResult(target.code, 0, 0, null, "SKIPPED")
+            }
+        }
+
+        return targets.map { target ->
+            runCatching {
+                val aggregated = CandleAggregator.aggregate(oneMinCandles, target)
+                val inserted = upsertAggregateCandles(aggregated)
+                IntervalRefreshResult(
+                    interval = target.code,
+                    fetchedCount = aggregated.size,
+                    insertedCount = inserted,
+                    latestTs = queryLatestTs(code, target.code),
+                    status = "OK",
+                )
+            }.getOrElse { ex ->
+                log.warn(
+                    "합산봉 재생성 실패: code={} interval={} err={}",
+                    code,
+                    target.code,
+                    ex.message,
+                )
+                IntervalRefreshResult(target.code, oneMinCandles.size, 0, null, "FAILED")
+            }
+        }
+    }
+
+    private fun upsertAggregateCandles(candles: List<Candle>): Int {
+        var total = 0
+        for (candle in candles) {
+            total +=
+                candleJpaRepository.insertIgnore(
+                    code = candle.code,
+                    interval = candle.interval.code,
+                    ts = Instant.ofEpochSecond(candle.ts.epochSeconds),
+                    openRaw = candle.openRaw,
+                    highRaw = candle.highRaw,
+                    lowRaw = candle.lowRaw,
+                    closeRaw = candle.closeRaw,
+                    volume = candle.volume,
+                    source = candle.source,
+                )
+        }
+        return total
+    }
+
+    private fun CandleJpaEntity.toOneMinCandleOrNull(): Candle? {
+        val open = openRaw ?: return null
+        val high = highRaw ?: return null
+        val low = lowRaw ?: return null
+        val close = closeRaw ?: return null
+        return Candle(
+            id = id,
+            code = code,
+            interval = CandleInterval.ONE_MIN,
+            ts = KtInstant.fromEpochSeconds(ts.epochSecond),
+            openRaw = open,
+            highRaw = high,
+            lowRaw = low,
+            closeRaw = close,
+            openAdj = openAdj,
+            highAdj = highAdj,
+            lowAdj = lowAdj,
+            closeAdj = closeAdj,
+            volume = volume ?: 0L,
+            source = source,
+        )
     }
 
     /** 갱신 후 DB 최신 ts 조회 (frontend 검증 노출용). */

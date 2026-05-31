@@ -5,7 +5,7 @@
  *   name     — 전략 식별자 (영문·숫자·언더스코어)
  *   nameKo   — 한국어 이름
  *   universe — 종목 유니버스 (KOSPI/KOSDAQ/ALL)
- *   tf       — 타임프레임 (1m/5m/30m/1h/1d/1wk)
+ *   tf       — 타임프레임 (1m/3m/5m/15m/30m/90m/1h/4h/12h/1d/1wk/1mo/1y)
  *
  * 저장 후:
  *   onSaved(strategyId) 콜백 호출
@@ -36,13 +36,18 @@ const UNIVERSE_OPTIONS = [
 
 const TF_OPTIONS = [
   { value: '1m', label: '1분봉' },
+  { value: '3m', label: '3분봉' },
   { value: '5m', label: '5분봉' },
+  { value: '15m', label: '15분봉' },
   { value: '30m', label: '30분봉' },
+  { value: '90m', label: '90분봉' },
   { value: '1h', label: '1시간봉' },
   { value: '4h', label: '4시간봉' },
   { value: '12h', label: '정규장 전체' },
   { value: '1d', label: '일봉' },
   { value: '1wk', label: '주봉' },
+  { value: '1mo', label: '월봉' },
+  { value: '1y', label: '년봉' },
 ]
 
 export function StrategySaveModal({ entry, exit, onSaved, onClose }: StrategySaveModalProps) {

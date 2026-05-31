@@ -6,6 +6,7 @@
  * | Interval | Max cap | KIS cover (max 기준)        |
  * |----------|---------|------------------------------|
  * | 1m       | 4800    | 약 13 거래일 (분봉 KIS 30일) |
+ * | 3m       | 3840    | 합산                          |
  * | 5m       | 3840    | 약 40 거래일 (합산 — ADR 0062) |
  * | 15m      | 3840    | 합산                          |
  * | 30m      | 3840    | 합산                          |
@@ -39,6 +40,7 @@ import type { CandleInterval } from '../../api/symbol'
  */
 export const CANDLE_COUNT_MAX_BY_INTERVAL: Readonly<Record<CandleInterval, number>> = Object.freeze({
   '1m': 4800,
+  '3m': 3840,
   '5m': 3840,
   '15m': 3840,
   '30m': 3840,

@@ -93,6 +93,21 @@ class KafkaTopicConfig {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
+     * 3분봉 boundary closing 이벤트.
+     * KRX 정규장 09:03~15:30 KST 130건/일 (TradingView 정합).
+     * api StompCandleClosedForwarder → /topic/market.candle.3m.{code} STOMP fanout.
+     * retention: 1d (하루 배치·fallback 충분)
+     */
+    @Bean
+    fun marketCandle3mClosedTopic(): NewTopic =
+        TopicBuilder
+            .name("market.candle.3m.closed.v1")
+            .partitions(1)
+            .replicas(1)
+            .config("retention.ms", "86400000") // 1d
+            .build()
+
+    /**
      * 5분봉 boundary closing 이벤트 (ADR 0064 §4-5 C-1 채택).
      * KRX 정규장 09:05~15:30 KST 78건/일 (TradingView 정합).
      * api StompCandleClosedForwarder → /topic/market.candle.5m.{code} STOMP fanout.

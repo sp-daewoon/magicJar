@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>06-history-traceability — magicJar v3.10.0 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">📁 인덱스</a><a href="01-architecture.html">01 Architecture</a><a href="02-data-flow.html">02 Data Flow</a><a href="03-use-sequences.html">03 Use Sequences</a><a href="04-feature-spec.html">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html" class="active">06 History</a><a href="07-policy-evolution.html">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.10.0 Baseline · 2026-05-31 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># v3.10.0 History and Traceability
+
+- baseline: v3.10.0
+- 작성일: 2026-05-31
+- 작성자: architect/orchestrator
+
+## Git 시계열
+
+| commit | 내용 |
+|--------|------|
+| `8b610491` | smart money high timeframe strategy support |
+| `49edc9e2` | 12h candles fixed session boundary |
+| `61ca592e` | intraday candles KRX regular session alignment |
+| working tree | 3m interval, screener basis, recollect, policy/docs/tests/release artifacts |
+
+## 정책/문서 연결
+
+| 문서 | 역할 |
+|------|------|
+| `docs/architecture/candle-data-policy-v2.md` | 캔들 수집/집계/결측 정책 |
+| `docs/architecture/external-api-policy.md` | KIS 호출/운영 제약 |
+| `CLAUDE.md` | Claude 운영 규칙 + direction guard |
+| `.claude/skills/magicjar-direction-guard/SKILL.md` | repo-local skill |
+| `_workspace/INDEX.md` | 단일 진입점 |
+
+## 검증 추적
+
+| 범위 | 명령 |
+|------|------|
+| domain | `./gradlew :domain:test --tests "...CandleAggregatorTest" --tests "...BoundaryDetectorTest"` |
+| consumer | `./gradlew :consumer:test --tests "...BoundaryClosingKafkaListenerTest"` |
+| api | `./gradlew :api:test --tests "...ScreenerServiceTest" ...` |
+| frontend tests | `pnpm --dir frontend test -- ...` |
+| frontend typecheck | `pnpm --dir frontend typecheck` |
+| whitespace | `git diff --check` |
+
+## 릴리즈 산출물
+
+| 산출물 | 위치 |
+|--------|------|
+| release row | `CHANGELOG.md` |
+| baseline | `_workspace/baseline/v3.10.0/` |
+| baseline html | `_workspace/baseline/v3.10.0/html/` |
+| release table | `README.md` |
+| master index | `_workspace/master.html` |
+| task | `_workspace/tasks/T-20260531-1759-v3-10-0-candle-orderblock-release.md` |
+
+## 미해결/후속 후보
+
+| 후보 | 이유 |
+|------|------|
+| KIS 1m 장외 수집 대체 정책 | 외부 데이터 소스 도입 여부는 별도 결정 필요 |
+| 재수집 실패 후 복구 UX | 현재는 실패 시 interval 공백 가능 |
+| full visual E2E | dev server 확인은 했으나 release 전 별도 Playwright 확대 가능 |
+
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>

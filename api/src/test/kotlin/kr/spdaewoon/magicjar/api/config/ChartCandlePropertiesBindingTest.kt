@@ -14,7 +14,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner
  *
  * 검증 시나리오:
  *   1. property 미설정 시 default 값 (maxPagesByInterval=empty, defaultMaxPages=6, maxResponseLimit=5000)
- *   2. yml 매트릭스 binding (1d=50·1m=48 등 spec PR #609 §5 매트릭스)
+ *   2. yml 매트릭스 binding (1d=50·1m=48·3m=38 등 spec PR #609 §5 매트릭스)
  *   3. maxResponseLimit override binding (env override path)
  *
  * ApplicationContextRunner — 부팅 비용 최소화 (full SpringBootTest 회피).
@@ -44,14 +44,18 @@ class ChartCandlePropertiesBindingTest {
     }
 
     @Test
-    fun `yml 매트릭스 binding — spec PR #609 §5 정합 (1d=50, 1m=48 등)`() {
+    fun `yml 매트릭스 binding — spec PR #609 §5 정합 (1d=50, 1m=48, 3m=38 등)`() {
         contextRunner
             .withPropertyValues(
                 "magicjar.candle.max-pages-by-interval.[1m]=48",
+                "magicjar.candle.max-pages-by-interval.[3m]=38",
                 "magicjar.candle.max-pages-by-interval.[5m]=38",
                 "magicjar.candle.max-pages-by-interval.[15m]=38",
                 "magicjar.candle.max-pages-by-interval.[30m]=38",
+                "magicjar.candle.max-pages-by-interval.[90m]=38",
                 "magicjar.candle.max-pages-by-interval.[1h]=38",
+                "magicjar.candle.max-pages-by-interval.[4h]=20",
+                "magicjar.candle.max-pages-by-interval.[12h]=12",
                 "magicjar.candle.max-pages-by-interval.[1d]=50",
                 "magicjar.candle.max-pages-by-interval.[1wk]=20",
                 "magicjar.candle.max-pages-by-interval.[1mo]=12",
@@ -63,8 +67,12 @@ class ChartCandlePropertiesBindingTest {
 
                 // ADR 0093 §3-1 매트릭스 LOCK 검증.
                 assertThat(props.getMaxPagesFor("1m")).isEqualTo(48)
+                assertThat(props.getMaxPagesFor("3m")).isEqualTo(38)
                 assertThat(props.getMaxPagesFor("5m")).isEqualTo(38)
+                assertThat(props.getMaxPagesFor("90m")).isEqualTo(38)
                 assertThat(props.getMaxPagesFor("1d")).isEqualTo(50)
+                assertThat(props.getMaxPagesFor("4h")).isEqualTo(20)
+                assertThat(props.getMaxPagesFor("12h")).isEqualTo(12)
                 assertThat(props.getMaxPagesFor("1wk")).isEqualTo(20)
                 assertThat(props.getMaxPagesFor("1mo")).isEqualTo(12)
                 assertThat(props.getMaxPagesFor("1y")).isEqualTo(6)

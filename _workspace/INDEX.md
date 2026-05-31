@@ -66,6 +66,7 @@ PR 머지마다 row 추가. anchor 기반 슬롯 (ADR 0050).
 - **KIS API 레퍼런스**: [docs/operations/kis-api-reference.md](../docs/operations/kis-api-reference.md)
 - **외부 API 정책**: [docs/architecture/external-api-policy.md](../docs/architecture/external-api-policy.md)
 - **캔들 데이터 정책**: [docs/architecture/candle-data-policy-v2.md](../docs/architecture/candle-data-policy-v2.md)
+- **캔들/오더블럭 스크리닝 baseline**: [_workspace/baseline/v3.10.0/](baseline/v3.10.0/) — `3m`·`4h`·`12h`, 사용자 실행형 screener, 캔들 재수집 UX
 
 ### 운영
 

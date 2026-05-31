@@ -38,17 +38,21 @@ class ChartCandlePropertiesTest {
 
     @Test
     fun `getMaxPagesFor — ADR 0093 §3-1 LOCK 매트릭스 lookup 정합`() {
-        // application.yml 매트릭스 1:1 검증 (spec PR #609 §5):
-        //   1m=48, 5m·15m·30m·1h=38, 1d=50, 1wk=20, 1mo=12, 1y=6
+        // application.yml 매트릭스 1:1 검증 (spec PR #609 §5 + 2026-05-31 3m 확장):
+        //   1m=48, 3m·5m·15m·30m·90m·1h=38, 4h=20, 12h=12, 1d=50, 1wk=20, 1mo=12, 1y=6
         val props =
             ChartCandleProperties(
                 maxPagesByInterval =
                     mapOf(
                         "1m" to 48,
+                        "3m" to 38,
                         "5m" to 38,
                         "15m" to 38,
                         "30m" to 38,
+                        "90m" to 38,
                         "1h" to 38,
+                        "4h" to 20,
+                        "12h" to 12,
                         "1d" to 50,
                         "1wk" to 20,
                         "1mo" to 12,
@@ -59,17 +63,20 @@ class ChartCandlePropertiesTest {
 
         // ADR 0093 §3-1 매트릭스 각 timeframe별 검증.
         assertThat(props.getMaxPagesFor("1m")).isEqualTo(48)
+        assertThat(props.getMaxPagesFor("3m")).isEqualTo(38)
         assertThat(props.getMaxPagesFor("5m")).isEqualTo(38)
         assertThat(props.getMaxPagesFor("15m")).isEqualTo(38)
         assertThat(props.getMaxPagesFor("30m")).isEqualTo(38)
+        assertThat(props.getMaxPagesFor("90m")).isEqualTo(38)
         assertThat(props.getMaxPagesFor("1h")).isEqualTo(38)
+        assertThat(props.getMaxPagesFor("4h")).isEqualTo(20)
+        assertThat(props.getMaxPagesFor("12h")).isEqualTo(12)
         assertThat(props.getMaxPagesFor("1d")).isEqualTo(50)
         assertThat(props.getMaxPagesFor("1wk")).isEqualTo(20)
         assertThat(props.getMaxPagesFor("1mo")).isEqualTo(12)
         assertThat(props.getMaxPagesFor("1y")).isEqualTo(6)
 
         // 누락 interval은 default 6 fallback.
-        assertThat(props.getMaxPagesFor("90m")).isEqualTo(6)
         assertThat(props.getMaxPagesFor("unknown")).isEqualTo(6)
     }
 
@@ -82,10 +89,14 @@ class ChartCandlePropertiesTest {
                 maxPagesByInterval =
                     mapOf(
                         "1m" to 48,
+                        "3m" to 38,
                         "5m" to 38,
                         "15m" to 38,
                         "30m" to 38,
+                        "90m" to 38,
                         "1h" to 38,
+                        "4h" to 20,
+                        "12h" to 12,
                         "1d" to 50,
                         "1wk" to 20,
                         "1mo" to 12,
@@ -95,7 +106,11 @@ class ChartCandlePropertiesTest {
 
         // ADR 0093 §3-1 매트릭스 — 각 timeframe별 cover 봉 수:
         assertThat(props.getMaxPagesFor("1m") * kisPageLimit).isEqualTo(4800) // ≈ 1주 1분봉
+        assertThat(props.getMaxPagesFor("3m") * kisPageLimit).isEqualTo(3800)
         assertThat(props.getMaxPagesFor("5m") * kisPageLimit).isEqualTo(3800) // ≈ 1년 5분봉
+        assertThat(props.getMaxPagesFor("90m") * kisPageLimit).isEqualTo(3800)
+        assertThat(props.getMaxPagesFor("4h") * kisPageLimit).isEqualTo(2000)
+        assertThat(props.getMaxPagesFor("12h") * kisPageLimit).isEqualTo(1200)
         assertThat(props.getMaxPagesFor("1d") * kisPageLimit).isEqualTo(5000) // ≈ 20년 일봉
         assertThat(props.getMaxPagesFor("1wk") * kisPageLimit).isEqualTo(2000) // ≈ 38년 주봉
         assertThat(props.getMaxPagesFor("1mo") * kisPageLimit).isEqualTo(1200) // ≈ 100년 월봉

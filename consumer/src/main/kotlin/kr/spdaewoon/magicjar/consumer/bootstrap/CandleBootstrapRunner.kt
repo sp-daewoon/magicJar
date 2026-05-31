@@ -20,7 +20,7 @@ import org.springframework.stereotype.Component
  * 목적:
  *   - Yahoo 삭제 또는 신규 배포 후 DB에 1d candle이 없는 watchlist 종목 자동 감지
  *   - 1m candle이 부족한 종목(MIN_1M_CANDLE_THRESHOLD 미만) cold-start 트리거
- *   - 1m 충분하나 5m·15m·30m·90m·1h 미생성 종목 — aggregateBackfillRunner 직접 트리거
+ *   - 1m 충분하나 합산봉(3m·5m·15m·30m·90m·1h·4h·12h) 미생성 종목 — aggregateBackfillRunner 직접 트리거
  *   - ColdStartExecutor.submit(code)로 비동기 KIS backfill 트리거
  *
  * 실행 순서: PositionBootstrapRunner 이후 실행 (@Order(10)).
@@ -29,10 +29,10 @@ import org.springframework.stereotype.Component
  * 판단 기준:
  *   - 1d candle count == 0 → cold-start 트리거 (전체 interval 재수집 — aggregation 포함)
  *   - 1m candle count < MIN_1M_CANDLE_THRESHOLD (=700) → cold-start 트리거 (aggregation 포함)
- *   - 1m 충분 + 5m candle count == 0 → aggregateBackfillRunner.backfill 직접 호출
+ *   - 1m 충분 + 합산 target 중 하나라도 candle count == 0 → aggregateBackfillRunner.backfill 직접 호출
  *     (기존 1m 데이터로 합산만 재실행 — cold-start 중복 호출 없음)
  *
- * ADR 0062 §9 — 5m 검사 분기는 배포 후 첫 부팅 시 자동 트리거 보장.
+ * ADR 0062 §9 — 합산 target 검사 분기는 배포 후 첫 부팅 시 자동 트리거 보장.
  *
  * 룰 5 위반 금지: LLM provider import 0건.
  */
@@ -166,14 +166,18 @@ class CandleBootstrapRunner(
                 continue
             }
 
-            // ADR 0062 §9 — 1m 충분하나 5m candle 없으면 aggregation만 재실행.
+            // ADR 0062 §9 — 1m 충분하나 합산 candle 일부가 없으면 aggregation만 재실행.
             // 배포 후 첫 부팅(PR 이전 1m 적재된 상태)에서 자동 트리거됨.
-            val count5m = candleRepository.countByCodeAndInterval(code, CandleInterval.FIVE_MIN)
-            if (count5m == 0L) {
+            val missingAggregateIntervals =
+                AggregateBackfillRunner.TARGET_INTERVALS.filter { interval ->
+                    candleRepository.countByCodeAndInterval(code, interval) == 0L
+                }
+            if (missingAggregateIntervals.isNotEmpty()) {
                 log.info(
-                    "CandleBootstrapRunner — 1m 충분하나 5m 없음, aggregate 트리거: code={} 1m={}",
+                    "CandleBootstrapRunner — 1m 충분하나 합산봉 누락, aggregate 트리거: code={} 1m={} missing={}",
                     code,
                     count1m,
+                    missingAggregateIntervals.map { it.code },
                 )
                 try {
                     aggregateBackfillRunner.backfill(code)
@@ -183,11 +187,11 @@ class CandleBootstrapRunner(
                 }
             } else {
                 log.debug(
-                    "CandleBootstrapRunner — candle 충분: code={} 1d={} 1m={} 5m={}",
+                    "CandleBootstrapRunner — candle 충분: code={} 1d={} 1m={} aggregateTargets={}",
                     code,
                     count1d,
                     count1m,
-                    count5m,
+                    AggregateBackfillRunner.TARGET_INTERVALS.map { it.code },
                 )
             }
         }

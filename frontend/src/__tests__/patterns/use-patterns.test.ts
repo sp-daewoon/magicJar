@@ -201,13 +201,14 @@ describe('staleTime 설정 (backend Redis TTL LOCK)', () => {
   it('분봉 인터벌은 5분 staleTime', () => {
     // 내부 함수 로직 직접 검증
     function isIntraday(interval: string): boolean {
-      return ['1m', '5m', '15m', '30m', '1h', '90m'].includes(interval)
+      return ['1m', '3m', '5m', '15m', '30m', '90m', '1h', '4h', '12h'].includes(interval)
     }
     function getStaleTime(interval: string): number {
       return isIntraday(interval) ? 300_000 : 86_400_000
     }
 
     expect(getStaleTime('1m')).toBe(300_000)
+    expect(getStaleTime('3m')).toBe(300_000)
     expect(getStaleTime('5m')).toBe(300_000)
     expect(getStaleTime('30m')).toBe(300_000)
     expect(getStaleTime('1h')).toBe(300_000)
@@ -215,7 +216,7 @@ describe('staleTime 설정 (backend Redis TTL LOCK)', () => {
 
   it('일봉 이상 인터벌은 1일 staleTime', () => {
     function isIntraday(interval: string): boolean {
-      return ['1m', '5m', '15m', '30m', '1h', '90m'].includes(interval)
+      return ['1m', '3m', '5m', '15m', '30m', '90m', '1h', '4h', '12h'].includes(interval)
     }
     function getStaleTime(interval: string): number {
       return isIntraday(interval) ? 300_000 : 86_400_000

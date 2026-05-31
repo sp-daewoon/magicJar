@@ -38,7 +38,7 @@ class IndicatorService(
     private val log = LoggerFactory.getLogger(IndicatorService::class.java)
 
     /** 분봉 interval set — TTL 5분 적용 (spec §6-4 TTL 매트릭스) */
-    private val intraIntervals = setOf("1m", "2m", "5m", "15m", "30m", "90m", "1h", "4h", "12h")
+    private val intraIntervals = setOf("1m", "2m", "3m", "5m", "15m", "30m", "90m", "1h", "4h", "12h")
 
     /**
      * 지표 계산 메인 메서드.

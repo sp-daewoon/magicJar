@@ -11,12 +11,13 @@ import org.springframework.stereotype.Component
 import java.math.BigDecimal
 
 /**
- * Kafka boundary closing 토픽 listener (ADR 0066 §7-1 BoundaryClosingKafkaListener + §11-1 Phase 1 (5)).
+ * Kafka boundary closing 토픽 listener (ADR 0066 §7-1 BoundaryClosingKafkaListener).
  *
- * 사용자 결정 (2026-05-12): A-1 Kafka boundary listen 5 listener.
+ * 사용자 결정 (2026-05-12): A-1 Kafka boundary listener.
  *
- * ### 구독 토픽 (ADR 0064 §4-5 + KafkaTopicConfig 5종 정합)
+ * ### 구독 토픽 (ADR 0064 §4-5 + KafkaTopicConfig 정합)
  *   market.candle.minute.closed.v1 → 1m interval 평가
+ *   market.candle.3m.closed.v1     → 3m interval 평가
  *   market.candle.5m.closed.v1     → 5m interval 평가
  *   market.candle.15m.closed.v1    → 15m interval 평가
  *   market.candle.30m.closed.v1    → 30m interval 평가
@@ -56,6 +57,18 @@ class BoundaryClosingKafkaListener(
     )
     fun on1m(record: ConsumerRecord<String, String>) {
         dispatch(record, CandleInterval.ONE_MIN)
+    }
+
+    /**
+     * 3m boundary closing → RealtimeSignalGenerator 평가 위임.
+     * groupId: magicjar-consumer-signal-3m
+     */
+    @KafkaListener(
+        topics = ["market.candle.3m.closed.v1"],
+        groupId = "magicjar-consumer-signal-3m",
+    )
+    fun on3m(record: ConsumerRecord<String, String>) {
+        dispatch(record, CandleInterval.THREE_MIN)
     }
 
     /**

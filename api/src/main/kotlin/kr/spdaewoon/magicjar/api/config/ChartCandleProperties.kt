@@ -12,7 +12,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties
  * | Interval | maxPages | cover 봉 (×100) | 사유 |
  * |----------|----------|------------------|------|
  * | `1m`     | 48       | 4800             | KIS 분봉 distinct 30 거래일 LOCK 이내 |
- * | `5m`·`15m`·`30m`·`1h` | 38 | 3800   | ≈ 1년 5분봉 / 합산 가공 정합 |
+ * | `3m`·`5m`·`15m`·`30m`·`90m`·`1h` | 38 | 3800 | 합산 가공 정합 |
+ * | `4h`     | 20       | 2000             | 고타임프레임 합산 |
+ * | `12h`    | 12       | 1200             | 정규장 전체 합산 |
  * | `1d`     | 50       | 5000             | ≈ 20년 일봉 (일반 증권앱 표준) |
  * | `1wk`    | 20       | 2000             | ≈ 38년 주봉 |
  * | `1mo`    | 12       | 1200             | ≈ 100년 월봉 |
@@ -47,7 +49,7 @@ data class ChartCandleProperties(
      *
      * 누락 키 fallback = [defaultMaxPages] (회귀 안전 — 기존 hardcode 6).
      *
-     * 키 형식: CandleInterval.code (`1m`·`5m`·`15m`·`30m`·`1h`·`1d`·`1wk`·`1mo`·`1y`).
+     * 키 형식: CandleInterval.code (`1m`·`3m`·`5m`·`15m`·`30m`·`90m`·`1h`·`4h`·`12h`·`1d`·`1wk`·`1mo`·`1y`).
      */
     val maxPagesByInterval: Map<String, Int> = emptyMap(),
     /**

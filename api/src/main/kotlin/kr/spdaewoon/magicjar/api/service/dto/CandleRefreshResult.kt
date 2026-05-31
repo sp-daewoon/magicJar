@@ -15,6 +15,20 @@ data class CandleRefreshResponse(
 )
 
 /**
+ * 캔들 재수집 endpoint 응답 DTO.
+ *
+ * POST /api/symbols/{code}/candles/recollect 응답.
+ * 기존 candle row를 삭제한 뒤 KIS 원천 데이터를 다시 수집하고, 합산봉 요청 시 1m 기준으로 재생성한다.
+ */
+data class CandleRecollectResponse(
+    val deletedCount: Int,
+    val resetIntervals: List<String>,
+    val refreshedIntervals: List<IntervalRefreshResult>,
+    val rebuiltIntervals: List<IntervalRefreshResult>,
+    val elapsedMs: Long,
+)
+
+/**
  * interval 별 갱신 결과.
  *
  * @param interval 인터벌 코드 (예: "1d", "1wk", "1mo", "1y", "1m")

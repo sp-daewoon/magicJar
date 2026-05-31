@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger
  *   - 1mo : FHKST03010100 — 월봉 120건
  *   - 1y  : FHKST03010100 — 연봉 10건
  *
- * KIS 미제공 interval (5m·15m·30m·90m·1h)은 cold-start 제외.
+ * KIS 미제공 합산 interval (3m·5m·15m·30m·90m·1h·4h·12h)은 KIS 직접 fetch에서 제외.
  * 해당 interval은 candle 요청 시 빈 결과 반환 (mock 합성 금지 — feedback_no_mock_data).
  *
  * audit action: KIS_COLD_START_DONE / KIS_COLD_START_PARTIAL_FAIL / KIS_COLD_START_FAILED
@@ -51,7 +51,7 @@ class ColdStartExecutor(
          * (interval, count) — count는 fetchCandles 에 전달되는 상한 힌트.
          * 1m은 KisRestCandleAdapter 내부에서 30 거래일 페이지네이션으로 처리 (count 무시).
          *
-         * KIS 미제공(5m·15m·30m·90m·1h)은 제외 — backlog 의제 결정 전까지 enum 값은 domain에 보존.
+         * KIS 미제공 합산봉(3m·5m·15m·30m·90m·1h·4h·12h)은 제외 — 1m 적재 후 AggregateBackfillRunner가 생성.
          */
         val KIS_COLD_START_INTERVALS =
             listOf(
@@ -140,7 +140,7 @@ class ColdStartExecutor(
             }
         }
 
-        // ADR 0062 §9 — 1m 적재 직후 5m·15m·30m·90m·1h 합산 일괄 INSERT.
+        // ADR 0062 §9 — 1m 적재 직후 3m·5m·15m·30m·90m·1h·4h·12h 합산 일괄 INSERT.
         // 실패는 warn 기록 후 계속 진행 (cold-start 전체를 막지 않음).
         var aggregateResult: Map<String, Int> = emptyMap()
         try {

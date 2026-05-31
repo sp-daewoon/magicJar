@@ -34,11 +34,11 @@ interface CandleGapDetectorPort {
      *
      * 윈도우 LOCK 사유:
      *   - KIS 호출 cost 보호 (ADR 0037 — 초당 10건)
-     *   - chart-curator skill §캔들 데이터 SLA 매트릭스 5m·15m·30m·90m·1h 30 거래일 정합
+     *   - chart-curator skill §캔들 데이터 SLA 매트릭스 3m·5m·15m·30m·90m·1h·4h·12h 30 거래일 정합
      *   - 30 거래일 × 1m = 21,600 ts/종목 (in-memory diff 1초 이내)
      *
      * @param code 종목 코드 (KIS 6자리, 예: "004090")
-     * @param interval 캔들 인터벌 (1d / 1m 지원 — 5m·15m·30m·90m·1h는 AggregateBackfillRunner 위임)
+     * @param interval 캔들 인터벌 (1d / 1m 지원 — 3m·5m·15m·30m·90m·1h·4h·12h는 AggregateBackfillRunner 위임)
      * @param windowDays 최근 거래일 윈도우 (default 30, LOCK — admin endpoint에서 override 가능)
      * @return 누락된 ts list (영업일 expected sequence diff, ts ASC)
      */

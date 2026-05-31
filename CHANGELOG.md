@@ -3,6 +3,19 @@
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 
+| 2026-05-31 | **release: v3.10.0 — 캔들/오더블럭 후보 스크리닝 minor** — FVG·오더블럭 후보 탐색을 위해 `3m` interval을 정식 추가하고 `4h`·`12h` 주요 기준봉을 chart/screener/boundary 흐름에 연결. 스크리너는 특정 시간대가 아니라 사용자가 언제든 실행하는 후보군 탐색 기능으로 정리하고 기본 기준봉을 `1d`로 LOCK. Symbol Chart에는 현재 interval 캔들이 이상할 때 삭제 후 재수집하는 `재수집` UX와 `POST /api/symbols/{code}/candles/recollect` 경로를 추가. KIS 1분봉 정규장 제약과 mock 합성 금지 정책을 문서화하고, `magicjar-direction-guard`를 Claude/Codex 양쪽 스킬로 남겨 후속 캔들·오더블럭 변경의 방향 전환 리스크를 줄임. | release · candle · screener · frontend · docs | v3.9.1 이후 FVG/오더블럭 실사용 전 캔들 coverage·기준봉·재수집 운영 도구를 minor로 고정 |
+
+| 2026-05-31 | **chore(meta): PR-3 v3.10.0 baseline 폴더 신설 + sub-agent 슬롯 4 anchor 발행** — `_workspace/baseline/v3.10.0/` 폴더 신설(README skeleton + 7 파일 인덱스). CHANGELOG sub-agent 슬롯 4 anchor(architect/backend-core/market-data/frontend). 4 sub-agent 병렬 디스패치 add-only LOCK. (orchestrator) | meta/baseline | PR-3 v3.10.0 baseline 슬롯 발행 |
+<!-- pr-3-slot-orchestrator -->
+| 2026-05-31 | **docs(architect): PR-3 v3.10.0 baseline — README + 01-architecture + 06-history-traceability + 07-policy-evolution** — v3.9.1 → v3.10.0 minor의 방향성 보존 근거를 baseline에 본문화. KIS-first 실제 데이터, mock 합성 금지, `1d` 기본 넓은 후보 탐색, 사용자 실행형 screener, 재수집 delete/rebuild 리스크, 자본 path 변경 0을 기록. | `_workspace/baseline/v3.10.0/README.md` · `01-architecture.md` · `06-history-traceability.md` · `07-policy-evolution.md` | PR-3 architect 4 파일 |
+<!-- pr-3-slot-architect -->
+| 2026-05-31 | **docs(backend-core): PR-3 v3.10.0 baseline — 02-data-flow + 04-feature-spec** — KIS 1m source refresh, aggregate rebuild, `V58__candle_add_3m_interval.sql`, screener `interval` 계약, recollect credential preflight/delete/refresh/reaggregate 흐름과 실패 시 interval 공백 가능성을 정리. | `_workspace/baseline/v3.10.0/02-data-flow.md` · `04-feature-spec.md` | PR-3 backend-core 2 파일 |
+<!-- pr-3-slot-backend-core -->
+| 2026-05-31 | **docs(market-data): PR-3 v3.10.0 baseline — 03-use-sequences (KIS 1분봉 제약 + on-demand screening)** — "밤 스크리닝"이 아니라 사용자 실행형 후보군 탐색으로 정리하고, `1d` 넓은 수집과 `3m`~`12h` 세부 확인, 캔들 재수집 시퀀스, KIS 1분봉 정규장 제약을 사용자 시나리오로 기록. | `_workspace/baseline/v3.10.0/03-use-sequences.md` | PR-3 market-data 1 파일 |
+<!-- pr-3-slot-market-data -->
+| 2026-05-31 | **docs(frontend): PR-3 v3.10.0 baseline — 05-ui-inventory (Symbol Chart 재수집 + Screener basis selector)** — interval toggle에 `3m`·`4h`·`12h`를 포함하고, `재수집` 버튼과 확인창, screener 기준봉 selector, modal header wrap/overflow 회귀 포인트를 UI inventory에 기록. | `_workspace/baseline/v3.10.0/05-ui-inventory.md` | PR-3 frontend 1 파일 |
+<!-- pr-3-slot-frontend -->
+
 | 2026-05-30 | **release: v3.9.1 — 자동매매 dogfooding patch** — v3.9.0 이후 운영 검증 누적분을 패치 컷. 자동매매 리스크/주문 실행 흐름 연결, KIS 체결 동기화 게이트, 주문·포지션 UX 보강, 추세선 도구, 시장 캘린더/휴장일 게이트, 시장 지수 데이터 흐름 복구, 전략 비활성 복구/자동매매 시작 문구/시그널 검색/시그널 종목명 표시까지 포함. FVG·오더블록 핵심 전략 검토 전 현재 dogfooding 안정화분을 release/v3.9.1로 보존. | release | v3.9.0 이후 자동매매 실사용 검증분을 Claude Code 릴리즈 패치 방식으로 고정 |
 
 | 2026-05-25 | **feat(market): KRX 휴장일 게이트 + 웹 시장 캘린더 일정 CRUD + ADR 0104 정합** — 2026-05-25 부처님오신날 대체휴무일 실측 기준으로 batch 국내 지수/종목 마스터 수집을 `market_calendar` 영업일 권위에 묶고, `market_calendar_event` V55와 `/api/market/calendar`, `/market/calendar`를 추가해 IPO 등 확장 가능한 시장 중요 일정을 웹에서 입력·수정·삭제 가능하게 함. 시장 지수 `dataInsufficient=true` 원인은 휴장일 수집 차단이 아니라 `market_index_snapshot`·`sector_index_snapshot`·지수 candle 0건인 초기 데이터 부재로 분리 기록. | batch scheduler · api market calendar · frontend market calendar · `_workspace/arch/adr/0104-market-calendar-event-and-holiday-gate.md` · `_workspace/tasks/T-20260525-1509-market-calendar-holiday.md` | 휴장일 캘린더 신뢰성 회복 + 투자 지표로서 데이터 부족 원인 명확화 |

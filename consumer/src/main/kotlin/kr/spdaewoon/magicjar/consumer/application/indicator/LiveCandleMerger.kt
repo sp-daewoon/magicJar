@@ -25,7 +25,7 @@ import kotlinx.datetime.Instant as KtInstant
  * - candles 마지막 row.ts < redisTs → Redis bar add
  *
  * ### 범위
- * - 1d 인터벌만 (1m·5m·30m·1h 는 boundary closing 시점 명확 — 평가 시 이미 closed)
+ * - 1d 인터벌만 (1m·3m·5m·30m·1h 등은 boundary closing 시점 명확 — 평가 시 이미 closed)
  * - Redis 부재 / 파싱 실패 시 graceful no-op (DB 그대로 반환)
  *
  * ### 영역 LOCK

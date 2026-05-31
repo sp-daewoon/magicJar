@@ -25,12 +25,20 @@ const mockResult: ScreenerRunResponse = {
   cacheHit: false,
 }
 
+let lastEvaluateBody: Record<string, unknown> | null = null
+
 const server = setupServer(
-  http.post('/api/screener/evaluate', () => HttpResponse.json(mockResult)),
+  http.post('/api/screener/evaluate', async ({ request }) => {
+    lastEvaluateBody = await request.json() as Record<string, unknown>
+    return HttpResponse.json(mockResult)
+  }),
 )
 
 beforeAll(() => server.listen())
-afterEach(() => server.resetHandlers())
+afterEach(() => {
+  lastEvaluateBody = null
+  server.resetHandlers()
+})
 afterAll(() => server.close())
 
 function createWrapper() {
@@ -48,12 +56,13 @@ describe('useScreenerEvaluate', () => {
     })
 
     act(() => {
-      result.current.mutate({ userId: 1, strategyId: 42, limit: 50 })
+      result.current.mutate({ userId: 1, strategyId: 42, interval: '3m', limit: 50 })
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(result.current.data?.matchedCount).toBe(5)
     expect(result.current.data?.cacheHit).toBe(false)
+    expect(lastEvaluateBody?.interval).toBe('3m')
   })
 
   it('2. 서버 에러 → error 반환', async () => {

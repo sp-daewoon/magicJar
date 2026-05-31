@@ -14,6 +14,7 @@ import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.NINETY_MIN
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.ONE_HOUR
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.ONE_MIN
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.THIRTY_MIN
+import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.THREE_MIN
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.TWELVE_HOUR
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.core.KafkaTemplate
@@ -27,7 +28,7 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlinx.datetime.Instant as KtInstant
 
 /**
- * KIS WS 1m tick 마감 시 boundary 검사 + 5m·15m·30m·90m·1h·4h·12h bar 합산 + 갱신.
+ * KIS WS 1m tick 마감 시 boundary 검사 + 3m·5m·15m·30m·90m·1h·4h·12h bar 합산 + 갱신.
  *
  * ADR 0064 B-1 채택 (in-process boundary 검사):
  *   KisWebSocketBridge H0STCNT0 체결 수신 → TickToMinuteAggregator 1m closing 처리 직후
@@ -41,7 +42,7 @@ import kotlinx.datetime.Instant as KtInstant
  *
  * 흐름 (ADR 0064 §4-3):
  *   1m tick 마감 ts → BoundaryDetector.isBoundaryClosed(ts, target) → 도달한 interval 각각:
- *     1. DB 1m fetch (boundary 내 최근 N건 — 5m=5건, 15m=15건, 30m=30건, 90m=90건, 1h=60건, 4h=240건, 12h=390건)
+ *     1. DB 1m fetch (boundary 내 최근 N건 — 3m=3건, 5m=5건, 15m=15건, 30m=30건, 90m=90건, 1h=60건, 4h=240건, 12h=390건)
  *     2. CandleAggregator.aggregate(1m list, target) → bar 생성
  *     3. RedisCandleCache.putBoundaryCandle(code, interval, bar) (ADR 0064 A-1)
  *     4. ConsumerCandleJpaRepository.insertIgnore (ON CONFLICT DO NOTHING 멱등)
@@ -65,12 +66,23 @@ class BoundaryAggregator(
     private val log = LoggerFactory.getLogger(BoundaryAggregator::class.java)
 
     companion object {
-        private val TARGET_INTERVALS = listOf(FIVE_MIN, FIFTEEN_MIN, THIRTY_MIN, NINETY_MIN, ONE_HOUR, FOUR_HOUR, TWELVE_HOUR)
+        private val TARGET_INTERVALS =
+            listOf(
+                THREE_MIN,
+                FIVE_MIN,
+                FIFTEEN_MIN,
+                THIRTY_MIN,
+                NINETY_MIN,
+                ONE_HOUR,
+                FOUR_HOUR,
+                TWELVE_HOUR,
+            )
         private val KST = ZoneId.of("Asia/Seoul")
 
         /** interval → Kafka topic 매핑 (ADR 0064 C-1 §4-5) */
         private val INTERVAL_TOPIC =
             mapOf(
+                THREE_MIN to "market.candle.3m.closed.v1",
                 FIVE_MIN to "market.candle.5m.closed.v1",
                 FIFTEEN_MIN to "market.candle.15m.closed.v1",
                 THIRTY_MIN to "market.candle.30m.closed.v1",
@@ -83,6 +95,7 @@ class BoundaryAggregator(
         /** interval → 직전 N건 1m fetch 건수 (ADR 0064 §4-3 정합) */
         private val INTERVAL_FETCH_COUNT =
             mapOf(
+                THREE_MIN to 3,
                 FIVE_MIN to 5,
                 FIFTEEN_MIN to 15,
                 THIRTY_MIN to 30,
@@ -102,7 +115,7 @@ class BoundaryAggregator(
         ConcurrentHashMap()
 
     /**
-     * 1m tick 마감 시 호출 — 5 target interval 각각 boundary 검사.
+     * 1m tick 마감 시 호출 — 합산 target interval 각각 boundary 검사.
      *
      * 호출 시점: TickToMinuteAggregator.aggregateOneMinuteCandle() 완료 직후
      * (KisWebSocketBridge.handleTickData → TickToMinuteAggregator → onTickClosed 순서로 확장).

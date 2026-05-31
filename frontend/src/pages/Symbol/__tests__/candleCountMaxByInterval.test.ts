@@ -23,7 +23,8 @@ describe('CANDLE_COUNT_MAX_BY_INTERVAL — ADR 0093 §3-1 매트릭스 LOCK', ()
     expect(CANDLE_COUNT_MAX_BY_INTERVAL['1m']).toBe(4800)
   })
 
-  it('5m·15m·30m·90m·1h = 3840 (합산 5종)', () => {
+  it('3m·5m·15m·30m·90m·1h = 3840 (합산 6종)', () => {
+    expect(CANDLE_COUNT_MAX_BY_INTERVAL['3m']).toBe(3840)
     expect(CANDLE_COUNT_MAX_BY_INTERVAL['5m']).toBe(3840)
     expect(CANDLE_COUNT_MAX_BY_INTERVAL['15m']).toBe(3840)
     expect(CANDLE_COUNT_MAX_BY_INTERVAL['30m']).toBe(3840)
@@ -82,7 +83,8 @@ describe('clampCandleCount', () => {
     expect(clampCandleCount(5000, '1m')).toBe(4800)
   })
 
-  it('5m·15m·30m·90m·1h interval에서 4000 → 3840 (합산 5종 max)', () => {
+  it('3m·5m·15m·30m·90m·1h interval에서 4000 → 3840 (합산 6종 max)', () => {
+    expect(clampCandleCount(4000, '3m')).toBe(3840)
     expect(clampCandleCount(4000, '5m')).toBe(3840)
     expect(clampCandleCount(4000, '15m')).toBe(3840)
     expect(clampCandleCount(4000, '30m')).toBe(3840)

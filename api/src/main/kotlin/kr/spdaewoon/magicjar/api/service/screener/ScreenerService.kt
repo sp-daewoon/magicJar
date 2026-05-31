@@ -8,6 +8,7 @@ import kr.spdaewoon.magicjar.api.controller.screener.ScreeningRunDto
 import kr.spdaewoon.magicjar.api.persistence.screener.ScreeningRunRepositoryAdapter
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentMarket
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentType
+import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.screener.ScreenerCriteria
 import kr.spdaewoon.magicjar.domain.screener.ScreenerFilter
 import kr.spdaewoon.magicjar.domain.screener.ScreenerMatch
@@ -27,7 +28,7 @@ import java.security.MessageDigest
  * 분산락 + 캐시 lookup + ScreenerEngine 호출 + 옵션 영속 (D-2).
  *
  * 흐름:
- * 1. 캐시 키 조립 (dslHash + universeFilterHash)
+ * 1. 캐시 키 조립 (strategy + 기준봉 interval hash + universeFilterHash)
  * 2. 분산락 SETNX — 동시 호출 방지
  * 3. 캐시 HIT 시 즉시 반환 (sub-second)
  * 4. MISS → ScreenerEngine.screen(criteria)
@@ -58,7 +59,8 @@ class ScreenerService(
      */
     fun evaluate(request: ScreenerEvaluateRequest): ScreenerResultDto {
         val filter = buildFilter(request)
-        val dslHash = sha256Short("strategy:${request.strategyId}")
+        val interval = parseInterval(request.interval)
+        val dslHash = sha256Short("strategy:${request.strategyId}:interval:${interval.code}")
         val filterHash = buildFilterHash(filter)
         val cacheKey = "screener:cache:$dslHash:$filterHash"
 
@@ -68,10 +70,20 @@ class ScreenerService(
             // 동시 호출 — 직전 캐시 fetch 시도
             val cached = screenerCachePort.get(cacheKey)
             if (cached != null) {
-                log.info("[screener] 분산락 충돌 + 캐시 HIT: userId={} strategyId={}", request.userId, request.strategyId)
+                log.info(
+                    "[screener] 분산락 충돌 + 캐시 HIT: userId={} strategyId={} interval={}",
+                    request.userId,
+                    request.strategyId,
+                    interval.code,
+                )
                 return toDto(cached)
             }
-            log.warn("[screener] 분산락 충돌 + 캐시 MISS: userId={} strategyId={}", request.userId, request.strategyId)
+            log.warn(
+                "[screener] 분산락 충돌 + 캐시 MISS: userId={} strategyId={} interval={}",
+                request.userId,
+                request.strategyId,
+                interval.code,
+            )
             throw ResponseStatusException(HttpStatus.CONFLICT, "동시 평가 중 — 잠시 후 재시도")
         }
 
@@ -84,20 +96,28 @@ class ScreenerService(
             }
 
             // 3. ScreenerEngine inline 평가
-            log.info("[screener] evaluate START: userId={} strategyId={} limit={}", request.userId, request.strategyId, request.limit)
+            log.info(
+                "[screener] evaluate START: userId={} strategyId={} interval={} limit={}",
+                request.userId,
+                request.strategyId,
+                interval.code,
+                request.limit,
+            )
             val criteria =
                 ScreenerCriteria(
                     userId = request.userId,
                     strategyId = request.strategyId,
                     filter = filter,
+                    interval = interval,
                     limit = request.limit,
                 )
             val result =
                 runCatching { screenerEngine.screen(criteria) }.getOrElse { ex ->
                     log.error(
-                        "[screener] ScreenerEngine 오류: userId={} strategyId={} err={}",
+                        "[screener] ScreenerEngine 오류: userId={} strategyId={} interval={} err={}",
                         request.userId,
                         request.strategyId,
+                        interval.code,
                         ex.message,
                     )
                     throw ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "DSL 평가 엔진 오류: ${ex.message}")
@@ -111,9 +131,10 @@ class ScreenerService(
             persistIfEnabled(resultWithKey, request, filterHash, dslHash)
 
             log.info(
-                "[screener] evaluate DONE: userId={} strategyId={} universeSize={} matchedCount={} elapsedMs={}",
+                "[screener] evaluate DONE: userId={} strategyId={} interval={} universeSize={} matchedCount={} elapsedMs={}",
                 request.userId,
                 request.strategyId,
+                interval.code,
                 result.universeSize,
                 result.matchedCount,
                 result.elapsedMs,
@@ -166,6 +187,14 @@ class ScreenerService(
             avgVolumeMin = dto.avgVolumeMin,
         )
     }
+
+    private fun parseInterval(interval: String): CandleInterval =
+        runCatching { CandleInterval.fromCode(interval) }.getOrElse {
+            throw ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "지원하지 않는 interval: $interval (허용: 1m·3m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y)",
+            )
+        }
 
     private fun buildFilterHash(filter: ScreenerFilter): String {
         val raw = "${filter.markets.sorted()}:${filter.types.sorted()}:${filter.marketCapMin}:${filter.avgVolumeMin}"

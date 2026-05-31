@@ -61,7 +61,7 @@ class PatternController(
         summary = "패턴 인식 시계열",
         description =
             "57패턴 중 다중 패턴을 candle 시계열 위에서 인식하여 매칭 결과를 반환합니다. " +
-                "결과는 Redis 캐시 적용 — 분봉(1m·2m·5m·15m·30m·90m·1h) 5분 TTL, 일봉 이상(1d·1wk·1mo·1y) 1일 TTL. " +
+                "결과는 Redis 캐시 적용 — 분봉(1m·2m·3m·5m·15m·30m·90m·1h·4h·12h) 5분 TTL, 일봉 이상(1d·1wk·1mo·1y) 1일 TTL. " +
                 "미지원 패턴 요청 시 결과 미포함(graceful, KIS 정합). " +
                 "R2 stub 47건 패턴은 direction=NEUTRAL → 결과 미포함. " +
                 "캔들 부족(< 5건) 시 빈 matches(graceful, KIS L48 정합).",
@@ -84,7 +84,7 @@ class PatternController(
         @Parameter(description = "종목코드 6자리", example = "005930", required = true)
         @RequestParam code: String,
         @Parameter(
-            description = "캔들 interval (1m·2m·5m·15m·30m·90m·1h·1d·1wk·1mo·1y)",
+            description = "캔들 interval (1m·2m·3m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y)",
             example = "1d",
             required = true,
         )

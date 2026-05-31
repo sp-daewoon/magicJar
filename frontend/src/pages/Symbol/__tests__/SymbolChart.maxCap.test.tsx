@@ -62,6 +62,10 @@ vi.mock('../../../api/hooks/useCandleRefresh', () => ({
     refresh: vi.fn(),
     isPending: false,
   }),
+  useCandleRecollect: () => ({
+    recollect: vi.fn(),
+    isPending: false,
+  }),
 }))
 
 // ──────────────────────────────────────────────

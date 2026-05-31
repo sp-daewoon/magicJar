@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RestController
  * 집계(aggregation) 수동 트리거 admin REST endpoint.
  *
  * consumer 모듈 내부 REST (port 8082). 운영 편의 — DB 에 1m 이미 적재된 상태에서
- * 5m·15m·30m·90m·1h 합산 재실행 시 사용.
+ * 3m·5m·15m·30m·90m·1h·4h·12h 합산 재실행 시 사용.
  *
  * TradingView 정합 — 1m 베이스가 충분할 때 KRX 정규장 기준 합산만 재실행.
  *

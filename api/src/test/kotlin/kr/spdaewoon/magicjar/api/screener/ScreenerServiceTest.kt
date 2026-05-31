@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.api.screener
 import kr.spdaewoon.magicjar.api.controller.screener.ScreenerEvaluateRequest
 import kr.spdaewoon.magicjar.api.persistence.screener.ScreeningRunRepositoryAdapter
 import kr.spdaewoon.magicjar.api.service.screener.ScreenerService
+import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.screener.ScreenerCriteria
 import kr.spdaewoon.magicjar.domain.screener.ScreenerMatch
 import kr.spdaewoon.magicjar.domain.screener.ScreenerRunResult
@@ -14,6 +15,7 @@ import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
@@ -33,6 +35,8 @@ import java.math.BigDecimal
  * 4. 분산락 충돌 + 캐시 MISS — 409 Conflict 예외
  * 5. 옵션 영속 ON — persist 호출
  * 6. userId 격리 — ScreenerEngine에 criteria.userId 전달 확인
+ * 7. request.interval 기준봉 — ScreenerCriteria.interval 전달 확인
+ * 8. 지원하지 않는 interval — 400 + engine/cache 호출 없음
  */
 class ScreenerServiceTest {
     private val screenerEngine: ScreenerEngine = mock()
@@ -81,7 +85,14 @@ class ScreenerServiceTest {
     private fun buildRequest(
         userId: Long = 1L,
         strategyId: Long = 42L,
-    ): ScreenerEvaluateRequest = ScreenerEvaluateRequest(userId = userId, strategyId = strategyId, limit = 50)
+        interval: String = "1d",
+    ): ScreenerEvaluateRequest =
+        ScreenerEvaluateRequest(
+            userId = userId,
+            strategyId = strategyId,
+            interval = interval,
+            limit = 50,
+        )
 
     // ── 1. 캐시 HIT ───────────────────────────────────────────────────
 
@@ -180,9 +191,43 @@ class ScreenerServiceTest {
 
         service.evaluate(request)
 
-        val captor = org.mockito.kotlin.argumentCaptor<ScreenerCriteria>()
+        val captor = argumentCaptor<ScreenerCriteria>()
         verify(screenerEngine).screen(captor.capture())
         assertThat(captor.firstValue.userId).isEqualTo(99999L)
         assertThat(captor.firstValue.strategyId).isEqualTo(7L)
+    }
+
+    // ── 7. 기준봉 전달 ────────────────────────────────────────────────
+
+    @Test
+    fun `request interval 3m — ScreenerEngine criteria interval THREE_MIN 전달`() {
+        val request = buildRequest(interval = "3m")
+        val engineResult = buildResult()
+        whenever(screenerCachePort.tryLock(any(), any(), any())).thenReturn(true)
+        whenever(screenerCachePort.get(any())).thenReturn(null)
+        whenever(screenerEngine.screen(any<ScreenerCriteria>())).thenReturn(engineResult)
+        whenever(screeningRunRepositoryAdapter.persist(any(), any(), any(), any(), any())).thenReturn(null)
+
+        service.evaluate(request)
+
+        val captor = argumentCaptor<ScreenerCriteria>()
+        verify(screenerEngine).screen(captor.capture())
+        assertThat(captor.firstValue.interval).isEqualTo(CandleInterval.THREE_MIN)
+    }
+
+    // ── 8. 지원하지 않는 interval ────────────────────────────────────
+
+    @Test
+    fun `지원하지 않는 interval — 400 Bad Request + engine cache 호출 없음`() {
+        val request = buildRequest(interval = "2h")
+
+        val thrown =
+            assertThatThrownBy { service.evaluate(request) }
+                .isInstanceOf(ResponseStatusException::class.java)
+        thrown
+            .extracting { (it as ResponseStatusException).statusCode }
+            .isEqualTo(HttpStatus.BAD_REQUEST)
+        verify(screenerCachePort, never()).tryLock(any(), any(), any())
+        verify(screenerEngine, never()).screen(any())
     }
 }

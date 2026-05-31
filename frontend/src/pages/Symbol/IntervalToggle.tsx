@@ -1,9 +1,9 @@
 /**
  * 차트 인터벌 토글 컴포넌트
  *
- * 인터벌 12종 (소→대 순): 1m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y
+ * 인터벌 13종 (소→대 순): 1m·3m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y
  *
- * ADR 0062 채택 (2026-05-11): 5m·15m·30m·90m·1h·4h·12h 활성화 — 1m tick 합산 precomputed
+ * ADR 0062 채택 (2026-05-11): 3m·5m·15m·30m·90m·1h·4h·12h 활성화 — 1m tick 합산 precomputed
  *   - 합산 interval은 AggregateBackfillRunner 수집 전 빈 배열 반환 → "데이터 수집 중" graceful 표시
  *
  * ADR 0019 §2-2: 기존 KIS 직접 제공 5종(1m·1d·1wk·1mo·1y) + 합산 interval
@@ -20,6 +20,7 @@ interface IntervalToggleProps {
 
 const INTERVALS: { value: CandleInterval; label: string }[] = [
   { value: '1m', label: '1분' },
+  { value: '3m', label: '3분' },
   { value: '5m', label: '5분' },
   { value: '15m', label: '15분' },
   { value: '30m', label: '30분' },

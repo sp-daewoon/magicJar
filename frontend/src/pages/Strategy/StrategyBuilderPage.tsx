@@ -44,6 +44,7 @@ interface EvaluateForm {
 
 const EVAL_INTERVAL_OPTIONS = [
   { value: '1m', label: '1m' },
+  { value: '3m', label: '3m' },
   { value: '5m', label: '5m' },
   { value: '15m', label: '15m' },
   { value: '30m', label: '30m' },
@@ -53,6 +54,8 @@ const EVAL_INTERVAL_OPTIONS = [
   { value: '12h', label: '12h (정규장 전체)' },
   { value: '1d', label: '1d' },
   { value: '1wk', label: '1wk' },
+  { value: '1mo', label: '1mo' },
+  { value: '1y', label: '1y' },
 ]
 
 export function StrategyBuilderPage() {

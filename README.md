@@ -5,7 +5,7 @@
 **개인 맞춤형 한국 주식 자동매매 시스템**
 _룰 기반 quant trading 본체 + AI 옵션 보조 + MCP 서버 미래 노출_
 
-[![Version](https://img.shields.io/badge/version-v3.8.1-blue)](https://github.com/sp-daewoon/magicJar/releases)
+[![Version](https://img.shields.io/badge/version-v3.10.0-blue)](https://github.com/sp-daewoon/magicJar/releases)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0_(K2)-purple)](https://kotlinlang.org/)
 [![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.3-6db33f)](https://spring.io/projects/spring-boot)
 [![React](https://img.shields.io/badge/React-19-61dafb)](https://react.dev/)
@@ -130,7 +130,7 @@ open http://localhost:3000
 
 1. **⚙️ Settings 모달** → KIS 키 입력 (DB AES 암호화 저장, [`project_kis_key_management.md`](docs/architecture/policies/) 정합)
 2. **/strategy/list** → DSL 룰 활성화 (status: `ACTIVE`)
-3. **boundary 마감 시점** (5m / 15m / 30m / 90m / 1h) → STOMP 시그널 토스트 도착
+3. **boundary 마감 시점** (3m / 5m / 15m / 30m / 90m / 1h / 4h / 12h 등) → STOMP 시그널 토스트 도착
 4. **리스크 게이트** 통과 시 → `order.intent.v1` Kafka 발행 → T-O 트랙 진입 대기
 
 ### 개발 모드 (IDE bootRun + Infra 컨테이너)

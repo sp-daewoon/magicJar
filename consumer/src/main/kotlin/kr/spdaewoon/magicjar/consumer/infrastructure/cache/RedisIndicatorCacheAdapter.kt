@@ -17,7 +17,7 @@ import java.time.Duration
  * key: `indicator:cache:{code}:{interval}:{name}:{paramsHash}` (paramsHash = SHA-256 16자리 hex prefix)
  * value: JSON IndicatorResult (BigDecimal → String, Instant → ISO String 직렬화)
  * TTL:
- *   - 분봉 (1m·5m·15m·30m·60m·90m·1h): 300s (5분)
+ *   - 분봉 (1m·3m·5m·15m·30m·60m·90m·1h·4h·12h): 300s (5분)
  *   - 일봉 이상 (1d·1wk·1mo·1y): 86400s (1일)
  *
  * spec §6-4 LOCK 정합.
@@ -31,7 +31,7 @@ class RedisIndicatorCacheAdapter(
 
     companion object {
         private const val KEY_PREFIX = "indicator:cache"
-        private val INTRADAY_INTERVALS = setOf("1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "4h", "12h")
+        private val INTRADAY_INTERVALS = setOf("1m", "2m", "3m", "5m", "15m", "30m", "60m", "90m", "1h", "4h", "12h")
         private val INTRADAY_TTL = Duration.ofSeconds(300)
         private val DAILY_TTL = Duration.ofSeconds(86400)
     }

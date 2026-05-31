@@ -30,6 +30,20 @@ interface CandleJpaRepository : JpaRepository<CandleJpaEntity, Long> {
     ): Long
 
     /**
+     * 종목·interval 목록 기준 candle 삭제.
+     * 사용자 재수집(recollect) path에서만 사용한다.
+     */
+    @Transactional
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(
+        "DELETE FROM CandleJpaEntity c WHERE c.code = :code AND c.interval IN :intervals",
+    )
+    fun deleteByCodeAndIntervalIn(
+        @Param("code") code: String,
+        @Param("intervals") intervals: Collection<String>,
+    ): Int
+
+    /**
      * 캔들 시계열 페이지네이션 조회 — before 이전 ts DESC LIMIT limit (CandleQueryService 용).
      * 응답은 ASC 변환은 service 레이어 책임.
      */
