@@ -6,6 +6,7 @@
 - 2026-05-12 amend (v3.2.3 doc cut — backlog §35): **§2-5 NXT 매트릭스 추가** (KIS `fid_cond_mrkt_div_code` 옵션 J/NX/UN 본문 추가) + **KOSPI→UN / KOSDAQ→J 분기 룰 명시** (PR #304 구현 결과 인용) + **§2-5-A·§2-5-B 신설** (raw 출처 인용 — `inquire_time_dailychartprice.py` + `inquire_daily_itemchartprice.py`). ADR 0062·0063 Accepted 정합 (5m~1h 백엔드 precomputed 합산 + NXT 08:00~20:00 KST cover + threshold 700).
 - 2026-05-20 amend (ADR 0091): **KOSPI→UN / KOSDAQ→J market-level 분기 폐기**. `UN`은 종목 단위 NXT 후보(`is_kospi200` 또는 `is_kosdaq150`)에만 우선 적용하고, 응답 0건이면 `J`로 fallback한다.
 - 2026-05-31 amend: 합산 interval은 3m·5m·15m·30m·90m·1h·4h·12h로 확장한다. 합산봉 재수집은 KIS 1m 원천(`FHKST03010230`)을 다시 수집한 뒤 `CandleAggregator`로 재생성하며, KIS가 직접 제공하지 않는 interval에 대해 외부 보조 API나 mock 데이터를 사용하지 않는다.
+- 2026-05-31 amend (ADR 0105): KIS `FHKST03010230`은 과거 1m gap 복구 source로 채택한다. 1m retention은 기본 6개월, admin/manual 최대 1년이며, 장기 backfill은 KIS REST 10 TPS budget 안에서 BACKFILL/INGESTION_LOW priority로 분산 처리한다.
 
 magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공식 한도와 우리 운영 정책을 정리한다.
 
@@ -14,6 +15,7 @@ magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공
 > - **ADR 0062** — 3m·5m·15m·30m·90m·1h·4h·12h 합산 가공 백엔드 precomputed (2026-05-11 Accepted, 2026-05-31 확장)
 > - **ADR 0063** — NXT/통합거래 매트릭스 cover (2026-05-11 Accepted)
 > - **ADR 0091** — NXT 통합 시장코드 종목 단위 resolver (2026-05-20 Accepted, `UN` 후보 + `J` fallback) ← **최신**
+> - **ADR 0105** — 캔들 Reconciliation + 장기 1m 보관/복구 정책 (2026-05-31 Accepted)
 > - **ADR 0037** — KIS API Rate Limit 강제 (초당 10건 + 토큰 버킷)
 > - **ADR 0038** — KIS OAuth 24h 토큰 + Redis 분산락
 > - **ADR 0039** — 종목 마스터 갱신 Cron (KIS 13시각 +5분)
@@ -87,7 +89,7 @@ magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공
 
 2026-05-11 ADR 0057 발효 이후 magicJar의 캔들 데이터는 **KIS OpenAPI 단일 출처**다. Yahoo Finance·네이버 금융 등 보조 출처는 폐기. **모든 호출은 prod credential 단일 채널** (사용자 명시 정책 정정 2026-05-11).
 
-**2026-05-31 갱신**: 3m·5m·15m·30m·90m·1h·4h·12h은 **백엔드 precomputed 합산** (CandleAggregator 도메인 본체 + AggregateBackfillRunner). 1m baseline은 KIS 1m 원천(`FHKST03010230`)이며, 사용자 재수집 path도 같은 원천만 사용한다.
+**2026-05-31 갱신 (ADR 0105)**: 3m·5m·15m·30m·90m·1h·4h·12h은 **백엔드 precomputed 합산** (CandleAggregator 도메인 본체 + AggregateBackfillRunner). 1m baseline은 KIS 1m 원천(`FHKST03010230`)이며, 사용자 재수집 path도 같은 원천만 사용한다. 1m은 기본 6개월, 최대 1년을 목표로 하며, `FHKST03010230` 공식 제약은 실전계좌 1회 최대 120건 + 날짜/시간 cursor + KIS 서버 보관 최대 1년이다.
 
 **2026-05-20 갱신 (ADR 0091)**: `KOSPI=UN/KOSDAQ=J` market-level 분기는 폐기. `UN`은 종목 단위 NXT 후보에만 우선 적용하고, 빈 응답이면 `J`로 fallback한다.
 
@@ -95,7 +97,7 @@ magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공
 |---|---|---|---|---|
 | 틱 | WebSocket `H0STCNT0` | — | — | Redis only |
 | 1m (1분봉) — 당일 | `inquire-time-itemchartprice` | `FHKST03010200` | NXT 후보=`UN`→`J`, 그 외=`J` | 당일 한정 — Redis & DB (NXT cover 08:00~20:00 KST) |
-| **1m (1분봉) — 30 거래일 페이지네이션** | `inquire-time-dailychartprice` | **`FHKST03010230`** | **NXT 후보=`UN`→`J`, 그 외=`J`** | **NXT cover — 720 bar/일 × 30 거래일 (ADR 0062 옵션 2 채택)** |
+| **1m (1분봉) — 장기 backfill/reconciliation** | `inquire-time-dailychartprice` | **`FHKST03010230`** | **NXT 후보=`UN`→`J`, 그 외=`J`** | **기본 6개월, 최대 1년. 120건/호출 + 날짜/시간 cursor. NXT cover — 720 bar/일** |
 | **3m·5m·15m·30m·90m·1h·4h·12h (백엔드 합산)** | — | — | — | **CandleAggregator 합산 (ADR 0062 §3 권장안 A-1 백엔드 precomputed). 직접 KIS REST 호출 0건, 1m 원천 기반** |
 | 1d (일봉) | `inquire-daily-itemchartprice` | `FHKST03010100` (period='D') | NXT 후보=`UN`→`J`, 그 외=`J` | 전체 기간 — DB 영속 |
 | 1wk (주봉) | `inquire-daily-itemchartprice` | `FHKST03010100` (period='W') | NXT 후보=`UN`→`J`, 그 외=`J` | 전체 기간 — DB 영속 |

@@ -8,18 +8,19 @@
 - 2026-05-20 갱신 (ADR 0091): **KOSPI=UN/KOSDAQ=J market-level 분기 폐기**. NXT 후보 종목(`is_kospi200` 또는 `is_kosdaq150`)은 `UN` 우선 + `J` fallback, 그 외는 `J` 기본값.
 - 2026-05-31 갱신: **3m·4h·12h 합산 interval 정규 편입 + 사용자 재수집(recollect) path 추가**. 스크리닝은 야간 전용이 아니라 사용자가 언제든 실행하는 기능이며, 1차 broad screening 기본 기준봉은 1d, 2차/사용자 선택 기준봉은 1m·3m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y 중 선택 가능. 잘못 모인 캔들은 mock 보정 없이 DB row 삭제 후 KIS 원천 재수집, 합산봉은 1m 재수집 후 `CandleAggregator` 재생성.
 - 2026-05-31 갱신: **실시간 수요 owner 분리**. Watchlist는 사용자 고정 목록, SymbolDetail은 `DETAIL` owner, Screener/Strategy 후보는 `STRATEGY` owner TTL 수요다. 후보군을 watchlist에 자동 합치지 않는다. 장중 현재가·호가·모든 기준봉 마지막 close는 KIS WS tick 기반 Redis current candle이 권위다.
-- 본 문서는 운영 가이드. 결정 본문은 **ADR 0057 (KIS OpenAPI 단일 데이터 출처)** + **ADR 0062 (합산 interval 백엔드 precomputed)** + **ADR 0063 (NXT/통합거래 cover)** + **ADR 0019 (Accepted, 2026-05-12 §2 재통합)** + **ADR 0028 (Watchlist Ingestion)** + **ADR 0029 (당일 진행 중 캔들 Redis 캐시)** + **ADR 0048 (KIS WS 41 slot + polling fallback)** 참조.
+- 2026-05-31 갱신 (ADR 0105): **캔들 Reconciliation + 장기 1m 보관/복구 정책**. 1m은 기본 최근 6개월 거래일, admin/manual 최대 1년을 목표로 하고, 지난 gap은 KIS `FHKST03010230`로 복구한다. 자동매매는 data readiness `READY`가 아니면 전략 평가와 주문 발행을 skip/fail-closed 한다.
+- 본 문서는 운영 가이드. 결정 본문은 **ADR 0057 (KIS OpenAPI 단일 데이터 출처)** + **ADR 0062 (합산 interval 백엔드 precomputed)** + **ADR 0063 (NXT/통합거래 cover)** + **ADR 0019 (Accepted, 2026-05-12 §2 재통합)** + **ADR 0028 (Watchlist Ingestion)** + **ADR 0029 (당일 진행 중 캔들 Redis 캐시)** + **ADR 0048 (KIS WS 41 slot + polling fallback)** + **ADR 0105 (캔들 Reconciliation + 장기 1m retention)** 참조.
 
 ## 1. 정책 한 줄 요약
 
-> **KIS OpenAPI 단일 출처 (prod credential 단일 채널). NXT 통합 cover 08:00~20:00 KST (`UN`은 종목 단위 후보만, `J` fallback). DB 영속 = KIS 원천 candle + 1m 기반 합산 candle. 장중 실시간 = watchlist priority + 별도 owner KIS WS 수요(`DETAIL`/`STRATEGY`) + Redis `candle:current:{code}:{interval}`. Yahoo Finance 폐기. Mock 합성 금지 (`feedback_no_mock_data.md`).**
+> **KIS OpenAPI 단일 출처 (prod credential 단일 채널). NXT 통합 cover 08:00~20:00 KST (`UN`은 종목 단위 후보만, `J` fallback). DB 영속 = KIS 원천 candle + 1m 기반 합산 candle. 1m은 기본 6개월, 최대 1년 복구 목표. 장중 실시간 = watchlist priority + 별도 owner KIS WS 수요(`DETAIL`/`STRATEGY`) + Redis `candle:current:{code}:{interval}`. Yahoo Finance 폐기. Mock 합성 금지 (`feedback_no_mock_data.md`).**
 
 ## 2. 핵심 원칙
 
 1. **KIS OpenAPI 단일 출처** — Yahoo Finance·네이버 금융 등 보조 출처 폐기 (ADR 0057, 사용자 결정 2026-05-11)
 2. **정보 수집 = prod credential 단일 채널** — 모의/실전 분기는 주문 라우터 한정 (사용자 명시 정책 정정 2026-05-11)
 3. **수요 owner 분리** — Watchlist는 사용자 고정 목록이다. SymbolDetail 진입은 `DETAIL`, Screener/Strategy 후보는 `STRATEGY` owner로 KIS WS 실시간 수요를 낸다. 후보군을 watchlist에 자동 삽입하거나 단순 합집합으로 slot을 계산하지 않는다.
-4. **DB가 진실원 + Redis는 진행 중 현재봉** — 1m(30 거래일) + 3m·5m·15m·30m·90m·1h·4h·12h(백엔드 precomputed) + 1d·1wk·1mo·1y 영속. 장중 마지막 bar close는 Redis `candle:current:{code}:{interval}`가 KIS WS tick으로 갱신한다.
+4. **DB가 진실원 + Redis는 진행 중 현재봉** — 1m은 ADR 0105 기준 기본 6개월, admin/manual 최대 1년을 목표로 한다(Phase 1 전 legacy 구현은 30거래일). 3m·5m·15m·30m·90m·1h·4h·12h은 1m 기반 백엔드 precomputed, 1d·1wk·1mo·1y는 KIS 원천으로 영속한다. 장중 마지막 bar close는 Redis `candle:current:{code}:{interval}`가 KIS WS tick으로 갱신한다.
 5. **slot은 owner-aware priority/TTL** — KIS WS 가격 slot은 watchlist priority, DETAIL high priority, STRATEGY TTL priority를 함께 보되 해제 책임을 owner별로 분리한다.
 6. **3m·5m·15m·30m·90m·1h·4h·12h = 백엔드 precomputed 합산 (ADR 0062 §3 권장안 A-1 확장)** — `CandleAggregator` 도메인 본체(Pure Kotlin) + `AggregateBackfillRunner` cold-start trigger. MCP·룰엔진·백테스트·스크리너 동일 source 정합
 7. **NXT 통합 cover 08:00~20:00 KST (ADR 0063·0091)** — `fid_cond_mrkt_div_code` 분기 (`is_kospi200`/`is_kosdaq150` 후보는 `UN` 우선 + `J` fallback, 그 외 `J`). 1m 베이스 720 bar/일 (NXT pre/after-hour 포함). `MIN_1M_CANDLE_THRESHOLD = 700L`
@@ -33,17 +34,17 @@
 |---|---|---|---|---|---|
 | **틱** | KIS WS `H0STCNT0` + `H0NXCNT0` + 시간외 `H0STOUP0` | Redis `quote:last:{code}` + Kafka/STOMP | X | NXT 통합 08:00~20:00 KST + 시간외 단일가 | quote TTL 7d |
 | **1m (1분봉) — 당일** | KIS WS tick → Redis current, closing 시 DB INSERT. REST `FHKST03010200`은 backfill/검증 | Redis `candle:current:{code}:1m` | DB INSERT (분 단위 closing) | NXT 통합 08:00~20:00 KST (720 bar/일) | Redis: 2m |
-| **1m (1분봉) — 30 거래일 페이지네이션** | KIS REST `FHKST03010230` (NXT 후보=`UN`→`J`, 그 외=`J` — ADR 0091) | Redis (당일) | **DB 영속 (30 거래일)** | NXT 통합 08:00~20:00 KST | — |
-| **3m·5m·15m·30m·90m·1h·4h·12h** | **백엔드 precomputed 합산** + 장중 KIS WS tick current candle | Redis `candle:current:{code}:{interval}` | **DB 영속 (30 거래일)** | KRX 정규장 09:00~15:30 KST boundary 정렬 | Redis: 24h |
+| **1m (1분봉) — 장기 backfill/reconciliation** | KIS REST `FHKST03010230` (NXT 후보=`UN`→`J`, 그 외=`J` — ADR 0091) | Redis (당일 current) | **DB 영속 (기본 6개월, 최대 1년; Phase 1 전 legacy 30거래일)** | NXT 통합 08:00~20:00 KST | — |
+| **3m·5m·15m·30m·90m·1h·4h·12h** | **백엔드 precomputed 합산** + 장중 KIS WS tick current candle | Redis `candle:current:{code}:{interval}` | **DB 영속 (1m retention 기준 재생성)** | KRX 정규장 09:00~15:30 KST boundary 정렬 | Redis: 24h |
 | **1d (일봉)** | KIS REST `FHKST03010100` (period='D', NXT 후보=`UN`→`J`, 그 외=`J`) | Redis cache (옵션) | **DB 영속** | NXT 종가 통합 (20:00 KST 마감 기준) | — |
 | **1wk (주봉)** | KIS REST `FHKST03010100` (period='W', NXT 후보=`UN`→`J`, 그 외=`J`) | Redis cache (옵션) | **DB 영속** | — | — |
 | **1mo (월봉)** | KIS REST `FHKST03010100` (period='M', NXT 후보=`UN`→`J`, 그 외=`J`) | Redis cache (옵션) | **DB 영속** | — | — |
 | **1y (년봉)** | KIS REST `FHKST03010100` (period='Y', NXT 후보=`UN`→`J`, 그 외=`J`) | Redis cache (옵션) | **DB 영속** | — | — |
 | **진행 중 1d·1wk·1mo·1y** | KIS WS tick 누적 (REST는 backfill/마감 검증) | Redis `candle:current:{code}:{interval}` (`1d` legacy `candle:today` 병행) | **마감 후 DB INSERT/검증** | NXT 마감 20:00 KST | interval별 TTL |
 
-### 3-A. 합산 interval source 매트릭스 (CandleAggregator precomputed 30 거래일)
+### 3-A. 합산 interval source 매트릭스 (CandleAggregator precomputed)
 
-| Interval | 1m 합산 단위 | NXT cover bar/일 | 30 거래일 row 추정 |
+| Interval | 1m 합산 단위 | NXT cover bar/일 | 30 거래일 legacy row 추정 |
 |---|---|---|---|
 | 3m | 3건 | 130 (09:00~15:27) | ~3,900 / 종목 |
 | 5m | 5건 | 78 (09:00~15:25) | ~2,340 / 종목 |
@@ -55,7 +56,19 @@
 | 12h | 390건 | 1 (09:00) | ~30 / 종목 |
 | **합계 합산 8종** | — | — | **~7.9K rows / 종목** |
 
-풀 30종목 × ~7K = ~210K rows. 1m 베이스 (720/일 × 30 × 30종목 ≈ 648K rows) 대비 ~32% 추가 (ADR 0062 §9-3 정합).
+위 표는 ADR 0062 당시 30거래일 legacy 산출 기준이며, 합산봉 overhead를 보기 위한 참고치다. ADR 0105 이후 장기 1m 보관 규모는 아래 §3-B를 기준으로 한다.
+
+### 3-B. 1m 장기 보관/복구 estimate (ADR 0105)
+
+| 기준 | 6개월(약 126 거래일) | 1년(약 252 거래일) |
+|---|---:|---:|
+| KRX 정규장 390 bar/day | 약 49K rows/종목 | 약 98K rows/종목 |
+| NXT 통합 720 bar/day | 약 91K rows/종목 | 약 181K rows/종목 |
+| `FHKST03010230` calls/day | KRX 4 / NXT 6 | KRX 4 / NXT 6 |
+| 안전 cap | 8 pages/day | 8 pages/day |
+| NXT 1년 worst call | — | 약 1.5K calls, safety cap 기준 약 2.0K calls |
+
+전체 universe 1년 1m 수집은 부팅 동기 작업이 아니다. boot는 queue 등록까지만 수행하고, backfill/reconciliation worker가 KIS 10 TPS budget 안에서 BACKFILL/INGESTION_LOW priority로 분산 처리한다.
 
 ## 4. UI 버튼 (ADR 0057·0062 정합)
 
@@ -75,17 +88,18 @@
 | Interval | KIS endpoint / tr_id | 한도 |
 |---|---|---|
 | 1m (당일) | `FHKST03010200` | 당일 한정 — 1회 호출당 30건 / 페이징 가능 |
+| 1m (과거 일별 분봉) | `FHKST03010230` | 실전계좌 — 1회 호출당 120건 / 날짜+시간 cursor / KIS 서버 보관 최대 1년 |
 | 1d·1wk·1mo·1y | `FHKST03010100` | 1회 호출당 100건 / 페이징 (FID_INPUT_DATE_1·FID_INPUT_DATE_2 범위) |
 | 현재가 | `FHKST01010100` | 1회 호출당 1건 |
 
 **Rate Limit (ADR 0037)**: 초당 10건 토큰 버킷 + 우선순위 큐 (사용자 path > Watchlist Ingestion > backfill).
 
-**`FHKST03010230` (KIS 1분봉 과거 데이터)**: prod credential 단일 채널 호출. 1m 30거래일 영속 + 3m·5m·15m·30m·90m·1h·4h·12h 합산 source로 활용.
+**`FHKST03010230` (KIS 1분봉 과거 데이터)**: prod credential 단일 채널 호출. 1m 기본 6개월/최대 1년 영속 + 3m·5m·15m·30m·90m·1h·4h·12h 합산 source로 활용한다. KIS 공식 샘플 기준 1회 최대 120건, `FID_INPUT_DATE_1` + `FID_INPUT_HOUR_1` cursor, 서버 보관 최대 1년.
 
 ## 6. cold-start 흐름 (ADR 0028 §2-3 + ADR 0062·0063 정합)
 
 > **2026-05-12 갱신 (v3.2.3 doc cut — PR #303·#304 구현 인용)**: halt/liquidation skip + market 분기 + AggregateBackfillRunner 호출 + 1m 30 거래일 페이지네이션 명시.
-> **2026-05-31 갱신**: watchlist는 cold-start 트리거 중 하나일 뿐, 실시간 구독의 유일한 source가 아니다. SymbolDetail·Strategy/Screener 후보는 watchlist INSERT 없이 별도 KIS WS 수요를 낸다.
+> **2026-05-31 갱신**: watchlist는 cold-start 트리거 중 하나일 뿐, 실시간 구독의 유일한 source가 아니다. SymbolDetail·Strategy/Screener 후보는 watchlist INSERT 없이 별도 KIS WS 수요를 낸다. ADR 0105 Phase 1에서 1m cold-start/reconciliation target은 기본 6개월, 최대 1년으로 확장한다.
 
 ```
 사용자 [관심등록 클릭] (frontend /watchlist)
@@ -104,7 +118,7 @@ consumer WatchlistChangedKafkaListener → ColdStartExecutor.submit(code) (PR #3
     │    ├─ slot 여유 → KIS WS subscribe(code) — H0STCNT0 체결가
     │    └─ slot 가득 + priority 낮음 → WatchlistPollingWorker 진입 (5초 주기 KIS REST inquire-price)
     ├─ KIS_COLD_START_INTERVALS 5종 fetch (prod credential 단일 채널):
-    │    ├─ 1m  : FHKST03010230 — 30 거래일 페이지네이션 → DB INSERT (~10K rows / 종목)
+    │    ├─ 1m  : FHKST03010230 — legacy 30거래일 → ADR 0105 Phase 1 기본 6개월/최대 1년 → DB INSERT
     │    ├─ 1d  : FHKST03010100 period='D' → DB INSERT (200건)
     │    ├─ 1wk : FHKST03010100 period='W' → DB INSERT (200건)
     │    ├─ 1mo : FHKST03010100 period='M' → DB INSERT (120건)
@@ -246,7 +260,7 @@ KIS WS tick 도달 (08:00~20:00 KST NXT cover)
 | `consumer/.../market/TickToMinuteAggregator.kt` | tick → 1m closing | Redis 갱신 + closing 시 evict + DB INSERT + 합산 boundary 검사 |
 | `consumer/.../application/market/DailyCloseFinalizer.kt` | **20:00 KST 일봉 확정 + flushAggregations** | Redis 당일 D1 → DB INSERT + watchlist 전 종목 합산봉 갱신 |
 | `consumer/.../bootstrap/CandleBootstrapRunner.kt` | 부팅 시 watchlist 1m·합산봉 검사 | 1m 충분하나 합산 interval 중 누락이 있으면 AggregateBackfillRunner 자동 호출 |
-| `consumer/.../infrastructure/kis/KisRestCandleAdapter.kt` | KIS REST 캔들 fetch (종목 단위 NXT 후보 `UN` 우선 + `J` fallback — ADR 0091) | 1d·1wk·1mo·1y 전체 기간 backfill + 1m 30 거래일 페이지네이션 (FHKST03010230) + 1m 당일분 (FHKST03010200) |
+| `consumer/.../infrastructure/kis/KisRestCandleAdapter.kt` | KIS REST 캔들 fetch (종목 단위 NXT 후보 `UN` 우선 + `J` fallback — ADR 0091) | 1d·1wk·1mo·1y 전체 기간 backfill + 1m 기본 6개월/최대 1년 페이지네이션 (FHKST03010230) + 1m 당일분 (FHKST03010200) |
 | `domain/.../market/CandleAggregator.kt` | **3m·5m·15m·30m·90m·1h·4h·12h 합산 도메인 본체** Pure Kotlin, Spring/JPA 의존 0 | OHLCV 합산 + boundary 정렬 |
 | `api/.../service/CandleRefreshService.kt` | 사용자 재수집(recollect) path | 선택 interval 삭제 → KIS 재수집 → 합산봉은 1m 기반 재생성 |
 | `api/.../service/screener/ScreenerService.kt` | 전략 후보 실시간 관찰 수요 producer | Screener 상위 후보 → STRATEGY owner TTL 30m Kafka 발행 |
@@ -274,12 +288,10 @@ KIS WS tick 도달 (08:00~20:00 KST NXT cover)
 
 ## 10. Universe 사이즈 estimate (ADR 0057 정합)
 
-| 풀 size | 1m DB | 1d·1wk·1mo·1y DB | DB 합계 |
-|---|---|---|---|
-| 30 종목 (MVP) | 0 (당일 한정 Redis only) | ~ 30 MB (1d 10년 + 1wk/1mo/1y) | **≤ 50 MB** |
-| 100 종목 | 0 | ~ 100 MB | **≤ 150 MB** |
-| 500 종목 (post-MVP) | 0 | ~ 500 MB | **≤ 750 MB** |
+| 풀 size | 1m DB (6개월 NXT 기준) | 1m DB (1년 NXT 기준) | 1d·1wk·1mo·1y DB | 비고 |
+|---|---:|---:|---:|---|
+| 30 종목 (MVP) | ~2.7M rows | ~5.4M rows | ~30 MB | backfill queue 분산 필수 |
+| 100 종목 | ~9.1M rows | ~18.1M rows | ~100 MB | active universe 우선순위 필요 |
+| 500 종목 (post-MVP) | ~45.4M rows | ~90.7M rows | ~500 MB | 전체 1년 backfill은 저부하 maintenance 전용 |
 
-ADR 0019 §2 매트릭스의 Yahoo 의존 부분이 보류된 현시점 대비 약 **4배 디스크 감소** (Yahoo 1m 7일 + 5m·15m·30m·90m·1h 60~730일 영속이 제거됨). 8GB host 한도 안에서 universe 1000 종목 이상 가능.
-
-**backlog §31 결정 후 변동**: 합산 위치(백엔드 vs 프론트) + source 시간 범위(당일 한정 vs `FHKST03010230` 과거 포함) 채택안에 따라 디스크 영향 차이 — 백엔드 합산 + `FHKST03010230` 도입 시 1m 장기 영속이 추가되어 디스크 증가, 프론트 합산 + 당일 한정 시 현재 수준 유지.
+ADR 0057 이후 Yahoo 의존은 폐기되었지만, ADR 0105로 1m 장기 영속이 전략 품질 요구사항이 되었다. 따라서 전체 universe를 즉시 1년 수집하지 않고, managed universe(priority: 보유/미체결 > ACTIVE 전략 > detail > watchlist > screener 후보) 기준으로 queue를 분산한다.

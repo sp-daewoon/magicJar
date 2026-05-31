@@ -3,6 +3,8 @@
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 
+| 2026-05-31 | **docs(adr): ADR 0105 — 캔들 Reconciliation + 장기 1m 보관/복구 정책** — KIS `FHKST03010230`을 지난 1m gap 복구 source로 LOCK하고, 1m retention을 기본 6개월·최대 1년으로 정리. boot/re-entry/scheduled reconciliation, SymbolDetail grace TTL, managed universe 우선순위, data readiness gate(`READY/RECONCILING/STALE/FAILED`), stale data 자동매매 fail-closed, KIS 10 TPS budget과 NXT 1년 row/call estimate를 문서화. | ADR · candle policy · external API policy · roadmap · task | 시스템 재기동/화면 이탈/장기 기준봉 전략에서 발생할 수 있는 캔들 누락을 정책 수준에서 먼저 고정 |
+
 | 2026-05-31 | **release: v3.10.1 — FVG/OrderBlock 프리셋·차트 overlay patch** — Strategy Builder에 FVG/OrderBlock 매수·매도 후보 프리셋 4종을 추가하고, Symbol Chart 위에 TradingView-like FVG/OB zone overlay를 실제 indicator 결과와 candle 좌표 기준으로 표시. indicator cache key는 조회 range를 포함하도록 보강해 차트 구간별 FVG/OB 박스가 오래된 제한 데이터에 묶이지 않게 했고, Claude/Codex 작업 가드에는 계산-only가 아니라 전략 후보·스크리너·차트 검증까지 이어야 한다는 기준을 고정. 주문·리스크·실계좌 자본 path 변경은 0. | release · strategy · indicator · frontend · docs | v3.10.0 이후 FVG/오더블럭 계산 자원을 사용자가 프리셋 후보와 차트 박스로 검증할 수 있게 하는 patch 1 |
 
 | 2026-05-31 | **release: v3.10.0 — 캔들/오더블럭 후보 스크리닝 minor** — FVG·오더블럭 후보 탐색을 위해 `3m` interval을 정식 추가하고 `4h`·`12h` 주요 기준봉을 chart/screener/boundary 흐름에 연결. 스크리너는 특정 시간대가 아니라 사용자가 언제든 실행하는 후보군 탐색 기능으로 정리하고 기본 기준봉을 `1d`로 LOCK. Symbol Chart에는 현재 interval 캔들이 이상할 때 삭제 후 재수집하는 `재수집` UX와 `POST /api/symbols/{code}/candles/recollect` 경로를 추가. KIS 1분봉 정규장 제약과 mock 합성 금지 정책을 문서화하고, `magicjar-direction-guard`를 Claude/Codex 양쪽 스킬로 남겨 후속 캔들·오더블럭 변경의 방향 전환 리스크를 줄임. | release · candle · screener · frontend · docs | v3.9.1 이후 FVG/오더블럭 실사용 전 캔들 coverage·기준봉·재수집 운영 도구를 minor로 고정 |

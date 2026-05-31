@@ -65,9 +65,9 @@
 - **선행/후행**: T-W1·T-ONBOARD / T-S1·T-MS1·W3 모든 트랙의 시세 인입 전제
 - **오프라인 동작**: 필수 (정적 MarketSessionResolver stub 1차 + WS 끊김 시 polling fallback + Yahoo cold-start 실패 시 graceful)
 - **KIS 흡수**: KIS open-trading-api repo `examples_llm/domestic-stock/.../websocket_*.py`(WS 메시지 + PIPE 구분자) + `inquire_price.py`·`inquire_daily_itemchartprice.py`(REST 어댑터) 출처 의무 — `feedback_kis_first_policy.md` 정합
-- **ADR**: **0048 (본 트랙 진입 시 발행 — 1급 권위)** + 0028 (1~5초 polling — 5초 LOCK) + 0014 (T1 live·T2 cache) + 0029 (당일 진행 중 캔들 Redis) + 0019 (Yahoo 매트릭스) + 0037 (KIS Rate Limit) + 0038 (KIS OAuth + approval_key 분산락) + 0042 STAGE 0-4 (`H0STCNI0` 1 slot reserve) + 0045 (Graceful Shutdown SIGTERM)
+- **ADR**: **0048 (본 트랙 진입 시 발행 — 1급 권위)** + 0028 (1~5초 polling — 5초 LOCK) + 0029 (당일 진행 중 캔들 Redis) + **0105 (boot/re-entry/scheduled candle reconciliation + 1m 기본 6개월/최대 1년 retention + data readiness gate)** + 0014 (T1 live·T2 cache) + 0019 (Yahoo 매트릭스) + 0037 (KIS Rate Limit) + 0038 (KIS OAuth + approval_key 분산락) + 0042 STAGE 0-4 (`H0STCNI0` 1 slot reserve) + 0045 (Graceful Shutdown SIGTERM)
 - **데이터**:
-  - DB — `candle` (V1 기존, 본 트랙 영속 본격 시작) — Yahoo 7 interval × universe 30 ≈ 530K row × 80 byte ≈ 42 MB
+  - DB — `candle` (V1 기존, 본 트랙 영속 본격 시작) — KIS 1m 기본 6개월/최대 1년 + 합산 interval 재생성. legacy Yahoo 7 interval 정책은 ADR 0057 이후 폐기.
   - Redis — `quote:last:{code}` (TTL 7일) · `candle:current:{code}:{interval}`(1m·3m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y) · `candle:today:{code}:1d` legacy · `watchlist:source:{userId}` (HASH 24h) · `kis:approval:{userId}` (TTL 23h)
   - Kafka — `market.tick.v1` · `market.candle.minute.closed.v1` · `market.candle.{interval}.closed.v1` · `watchlist.changed.v1` · `symbol.detail.command.v1` · `market.realtime.demand.v1`
 - **산출물 핵심** (PR-9a backend-core + PR-9b market-data 병렬 — `_workspace/specs/pr-9-dispatch-spec.md` 정합):
