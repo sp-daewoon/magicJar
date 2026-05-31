@@ -133,6 +133,29 @@ KIS WS tick
 
 REST backfill은 닫힌 과거 candle만 채우며, 현재 진행 중 bar는 Redis current가 우선한다.
 
+### §3-9. 실전 운용 시나리오 acceptance matrix
+
+2026-06-01 사용자 지시에 따라 다음 5개 시나리오는 ADR 0105 구현의 acceptance 기준으로 LOCK한다. `DETAIL` TTL은 gap 가능성을 줄이는 완충 장치일 뿐, 캔들 정합성 보장의 본체가 아니다. 정합성은 재진입 gap fill, boot reconciliation, scheduled reconciliation, data readiness gate가 함께 책임진다.
+
+| 상황 | 현재 대비 | 실전 기준 필요한 보강 |
+|---|---|---|
+| 종목 A 보다가 B 갔다가 A 재진입 | `DETAIL` TTL/grace가 있어 짧은 이탈은 완충하지만, EXIT 이후 WS가 끊긴 구간의 닫힌 1m candle은 비어 있을 수 있다 | `SymbolDetail ENTER`마다 해당 종목의 마지막 DB 1m 이후부터 현재 직전분까지 REST gap fill을 queue에 넣고, 동시에 KIS WS 현재가·호가를 구독한다 |
+| 시스템 꺼짐 후 3일 뒤 부팅 | watchlist는 `CandleBootstrapRunner`가 stale 감지 가능하지만, watchlist 외 상세 진입 종목·전략 후보·자동매매 대상 universe는 누락될 수 있다 | boot 시 managed universe를 재산정한다. 최소 대상은 보유/미체결, ACTIVE 전략 universe, 최근 상세 진입 종목, watchlist, screener/strategy 후보 TTL snapshot이다 |
+| 3일간 빠진 1분봉 | KIS `FHKST03010230`로 KIS 보관 1년 안의 지난 1m을 복구할 수 있다 | boot/scheduled reconciliation이 1m gap을 자동 채우고, 성공 후 3m·5m·15m·30m·90m·1h·4h·12h 합산봉을 재생성한다 |
+| 1년 넘게 꺼짐 | KIS 표준 API의 1m 보관 한도를 넘어선 구간은 복구할 수 없다 | DB 백업/장기 보관/외부 유료 데이터가 없으면 1m 구멍을 인정한다. UI와 readiness 상태는 `UNRECOVERABLE` 또는 `FAILED`로 표시하고, 필요한 전략 window 안에 있으면 자동매매를 허용하지 않는다 |
+| 자동매매 | stale candle 상태에서 전략 평가와 주문 발행이 가능하면 자본 손실 위험이 있다 | data readiness가 `READY`가 아니면 전략 평가는 `SIGNAL_SKIPPED_DATA_NOT_READY`로 skip하고 주문 발행은 fail-closed로 차단한다 |
+
+### §3-10. Progress streaming 원칙
+
+장기 1m backfill/recollection은 candle row 자체를 STOMP로 대량 전송하지 않는다. 6개월~1년 1m은 종목당 수만~십수만 row가 될 수 있으므로, STOMP는 진행 상태만 전송한다.
+
+| 경로 | 정책 |
+|---|---|
+| 캔들 데이터 본문 | DB 확정 candle + REST pagination (`GET /api/symbols/{code}/candles`) |
+| 진행 중 현재봉 | KIS WS tick → Redis `candle:current:{code}:{interval}` → API merge |
+| backfill/recollect 진행률 | Kafka/STOMP progress event (`jobId`, `code`, `interval`, `status`, `targetFrom`, `targetTo`, `processedDays`, `insertedCount`, `failedCount`, `lastCompletedAt`) |
+| UI 반응 | 기존 캔들을 유지한 채 `데이터 보정 중` 상태를 표시하고, chunk 완료 또는 DONE 때 REST query를 invalidate/re-fetch |
+
 ## §4. 구현 계획
 
 ### §4-1. Phase 1: 1m lookback 확장
@@ -154,6 +177,15 @@ REST backfill은 닫힌 과거 candle만 채우며, 현재 진행 중 bar는 Red
 | `CandleReconciliationState` | code·interval·targetFrom·targetTo·status·gapCount·lastCheckedAt·batchId 기록 |
 | `TodayMinuteGapFillService` | SymbolDetail ENTER 시 오늘/최근 gap 빠른 보정 |
 | `DataReadinessService` | 전략 평가 전 `READY` 여부 확인 |
+
+Phase 2는 다음 순서로 구현한다.
+
+| Phase | 범위 | 완료 조건 |
+|---|---|---|
+| 2-A | async reconciliation job + progress event | 수동 재수집/장기 1m backfill은 HTTP 동기 대기 대신 `jobId`를 반환하고, STOMP는 progress만 push한다 |
+| 2-B | SymbolDetail ENTER gap fill | A→B→A 재진입 시 마지막 DB 1m 이후부터 현재 직전분까지 gap fill이 자동 queue 된다 |
+| 2-C | boot managed universe reconciliation | 재기동 시 watchlist 외 보유/미체결·ACTIVE 전략·최근 상세·후보 TTL snapshot까지 reconciliation 대상에 포함한다 |
+| 2-D | 1m gap fill 후 합산봉 재생성 | 1m 보정 성공 구간의 3m~12h 합산봉이 재생성된다 |
 
 ### §4-3. Phase 3: Strategy gate
 
@@ -201,4 +233,5 @@ REST backfill은 닫힌 과거 candle만 채우며, 현재 진행 중 bar는 Red
 
 | 일자 | 변경 |
 |---|---|
+| 2026-06-01 | 사용자 실전 운용 시나리오 5건을 acceptance matrix로 추가. A→B→A 재진입 gap fill, 3일 off 후 boot managed universe reconciliation, 3일 1m gap 자동 복구+합산봉 재생성, 1년 초과 1m 복구 불가 명시, 자동매매 data readiness fail-closed를 LOCK. 장기 backfill/recollect는 candle row streaming이 아니라 progress event streaming으로 처리하는 원칙을 추가. |
 | 2026-05-31 | ADR 0105 신설. KIS `FHKST03010230` 최대 1년 보관분을 활용한 1m 장기 복구, 기본 6개월 1m retention, boot/re-entry/scheduled reconciliation, data readiness gate, 4h·12h 전략용 합산봉 재생성 정책을 Accepted로 LOCK. |

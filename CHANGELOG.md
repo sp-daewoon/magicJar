@@ -3,6 +3,8 @@
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 
+| 2026-06-01 | **docs(adr): ADR 0105 실전 reconciliation 시나리오 명확화** — A→B→A 재진입 시 last DB 1m 이후 REST gap fill, 시스템 3일 off 후 boot managed universe reconciliation, 3일 1m gap 자동 복구+합산봉 재생성, KIS 1년 초과 1m 복구 불가 인정, 자동매매 data readiness fail-closed를 acceptance matrix로 추가. 장기 backfill/recollect는 candle row streaming이 아니라 progress event만 STOMP로 push하고, row 본문은 DB+REST pagination으로 읽는 원칙을 문서화. | ADR · candle policy · master architecture · task | 실전 자동매매 전 데이터 공백·사용자 대기·watchlist 의존 회귀를 정책 단계에서 차단 |
+
 | 2026-05-31 | **feat(market): ADR 0105 Phase 1 — 1m backfill lookback 설정화** — `KisRestCandleAdapter`의 직전 30거래일 hardcode를 `magicjar.candle.one-minute.*` 설정으로 교체하고, 기본 126거래일/최대 252거래일/일자별 8 page cap을 테스트로 고정. `FHKST03010230` 날짜+시간 cursor helper를 분리해 기본 6개월 1m retention 구현의 첫 단계를 반영. | consumer · candle policy · task | 4h·12h 전략 기준봉과 재기동/화면 이탈 후 1m gap 복구를 30거래일 한도에 묶지 않기 위함 |
 
 | 2026-05-31 | **docs(adr): ADR 0105 — 캔들 Reconciliation + 장기 1m 보관/복구 정책** — KIS `FHKST03010230`을 지난 1m gap 복구 source로 LOCK하고, 1m retention을 기본 6개월·최대 1년으로 정리. boot/re-entry/scheduled reconciliation, SymbolDetail grace TTL, managed universe 우선순위, data readiness gate(`READY/RECONCILING/STALE/FAILED`), stale data 자동매매 fail-closed, KIS 10 TPS budget과 NXT 1년 row/call estimate를 문서화. | ADR · candle policy · external API policy · roadmap · task | 시스템 재기동/화면 이탈/장기 기준봉 전략에서 발생할 수 있는 캔들 누락을 정책 수준에서 먼저 고정 |

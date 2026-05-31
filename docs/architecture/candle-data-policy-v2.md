@@ -9,6 +9,7 @@
 - 2026-05-31 갱신: **3m·4h·12h 합산 interval 정규 편입 + 사용자 재수집(recollect) path 추가**. 스크리닝은 야간 전용이 아니라 사용자가 언제든 실행하는 기능이며, 1차 broad screening 기본 기준봉은 1d, 2차/사용자 선택 기준봉은 1m·3m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y 중 선택 가능. 잘못 모인 캔들은 mock 보정 없이 DB row 삭제 후 KIS 원천 재수집, 합산봉은 1m 재수집 후 `CandleAggregator` 재생성.
 - 2026-05-31 갱신: **실시간 수요 owner 분리**. Watchlist는 사용자 고정 목록, SymbolDetail은 `DETAIL` owner, Screener/Strategy 후보는 `STRATEGY` owner TTL 수요다. 후보군을 watchlist에 자동 합치지 않는다. 장중 현재가·호가·모든 기준봉 마지막 close는 KIS WS tick 기반 Redis current candle이 권위다.
 - 2026-05-31 갱신 (ADR 0105): **캔들 Reconciliation + 장기 1m 보관/복구 정책**. 1m은 기본 최근 6개월 거래일, admin/manual 최대 1년을 목표로 하고, 지난 gap은 KIS `FHKST03010230`로 복구한다. 자동매매는 data readiness `READY`가 아니면 전략 평가와 주문 발행을 skip/fail-closed 한다.
+- 2026-06-01 갱신 (ADR 0105 amend): **실전 운용 시나리오 acceptance matrix 추가**. A→B→A 재진입 gap fill, 3일 off 후 boot managed universe reconciliation, 3일 1m gap 자동 복구+합산봉 재생성, 1년 초과 1m 복구 불가, 자동매매 data readiness fail-closed, 장기 backfill progress streaming 원칙을 LOCK.
 - 본 문서는 운영 가이드. 결정 본문은 **ADR 0057 (KIS OpenAPI 단일 데이터 출처)** + **ADR 0062 (합산 interval 백엔드 precomputed)** + **ADR 0063 (NXT/통합거래 cover)** + **ADR 0019 (Accepted, 2026-05-12 §2 재통합)** + **ADR 0028 (Watchlist Ingestion)** + **ADR 0029 (당일 진행 중 캔들 Redis 캐시)** + **ADR 0048 (KIS WS 41 slot + polling fallback)** + **ADR 0105 (캔들 Reconciliation + 장기 1m retention)** 참조.
 
 ## 1. 정책 한 줄 요약
@@ -204,6 +205,42 @@ flowchart LR
 - 10초 heartbeat 무신호 또는 onClose → 지수 백오프 1·2·5·10·30s 재연결 시도
 - 30초 안에 재연결 못하면 모든 종목 5초 polling 활성 (KIS REST `FHKST01010100`)
 - WS 복구 시 polling 즉시 stop + 모든 stream 재구독
+
+### 6-B. Reconciliation 실전 운용 acceptance matrix (ADR 0105 amend 2026-06-01)
+
+| 상황 | 이전/현재 한계 | 실전 기준 |
+|---|---|---|
+| 종목 A → B → A 재진입 | `DETAIL` grace TTL은 짧은 이탈을 완충하지만, WS가 빠진 구간의 닫힌 1m은 보장하지 못한다 | 재진입 시 `TodayMinuteGapFillService`가 마지막 DB 1m 이후부터 현재 직전분까지 REST gap fill을 queue하고, 차트는 기존 DB+Redis current로 즉시 표시한다 |
+| 시스템 3일 off 후 boot | watchlist stale 감지는 가능하지만 watchlist 밖의 최근 상세·전략 후보·자동매매 대상은 누락될 수 있다 | boot에서 managed universe를 재산정해 보유/미체결, ACTIVE 전략, 최근 상세, watchlist, screener/strategy 후보 TTL snapshot을 reconciliation 대상에 넣는다 |
+| 3일간 빠진 1m | KIS `FHKST03010230`로 1년 안의 1m 복구 가능 | boot/scheduled reconciliation이 1m gap을 채우고, 성공한 구간의 3m·5m·15m·30m·90m·1h·4h·12h를 재생성한다 |
+| 1년 초과 off | KIS 1m 보관 한도 밖은 표준 API로 복구 불가 | DB 백업/장기 보관/외부 유료 데이터가 없으면 구멍을 인정하고, 필요한 전략 window에 포함되면 readiness를 `FAILED`/`UNRECOVERABLE`로 둔다 |
+| 자동매매 | stale candle 기반 평가·주문은 자본 위험 | data readiness가 `READY`가 아니면 전략 평가는 `SIGNAL_SKIPPED_DATA_NOT_READY`, 주문 발행은 fail-closed |
+
+### 6-C. 장기 backfill/recollect UI 진행 흐름
+
+장기 1m 수집은 candle row를 STOMP로 직접 흘리지 않는다. row 본문은 DB에 저장하고, 프론트는 REST pagination으로 조회한다. STOMP는 진행률만 push한다.
+
+```mermaid
+sequenceDiagram
+    participant UI as SymbolChart
+    participant API as api-app
+    participant Q as Kafka / job queue
+    participant C as consumer
+    participant KIS as KIS REST
+    participant DB as PostgreSQL
+    participant WS as STOMP progress
+
+    UI->>API: POST /candles/recollect
+    API-->>UI: 202 Accepted + jobId
+    API->>Q: candle.reconcile.request.v1
+    C->>KIS: FHKST03010230 page fetch
+    C->>DB: upsert 1m chunk
+    C->>DB: regenerate 3m~12h chunks
+    C->>WS: progress(jobId, processedDays, insertedCount)
+    WS-->>UI: 데이터 보정 중 상태 갱신
+    C->>WS: DONE / FAILED
+    UI->>API: invalidate + GET /candles
+```
 
 ## 7. 당일 진행 중 캔들 흐름 (ADR 0029·0062·0063 정합)
 
