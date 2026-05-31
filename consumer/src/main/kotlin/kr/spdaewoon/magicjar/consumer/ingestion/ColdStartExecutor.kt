@@ -5,6 +5,7 @@ import kr.spdaewoon.magicjar.consumer.aggregation.AggregateBackfillRunner
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepository
+import kr.spdaewoon.magicjar.consumer.reconciliation.CandleReconciliationStateStore
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import kr.spdaewoon.magicjar.domain.market.port.KisRestPort
@@ -42,6 +43,7 @@ class ColdStartExecutor(
     private val auditRepository: ConsumerAuditTrailJpaRepository,
     private val aggregateBackfillRunner: AggregateBackfillRunner,
     private val instrumentJpaRepository: ConsumerInstrumentJpaRepository,
+    private val reconciliationStateStore: CandleReconciliationStateStore,
 ) {
     private val log = LoggerFactory.getLogger(ColdStartExecutor::class.java)
 
@@ -84,6 +86,7 @@ class ColdStartExecutor(
     }
 
     private fun runColdStart(code: String) {
+        reconciliationStateStore.markReconciling(code, CandleInterval.ONE_MIN, "cold-start")
         // 거래정지·정리매매 종목 early exit — KIS API 응답 0 (외부 결함, 재시도 무의미)
         // instrument 조회 실패(stub/UNKNOWN) 시에는 cold-start 시도 (안전 기본값)
         val instrument = instrumentJpaRepository.findById(code).orElse(null)
@@ -110,12 +113,14 @@ class ColdStartExecutor(
             } catch (e: Exception) {
                 log.warn("cold-start skip audit 저장 실패: code={} err={}", code, e.message)
             }
+            reconciliationStateStore.markFailed(code, CandleInterval.ONE_MIN, "cold-start-trading-halt")
             return
         }
 
         log.info("KIS cold-start 시작: code={}", code)
         var successCount = 0
         var failCount = 0
+        var oneMinReady = false
 
         for ((interval, count) in KIS_COLD_START_INTERVALS) {
             try {
@@ -130,6 +135,7 @@ class ColdStartExecutor(
                         inserted,
                     )
                     successCount++
+                    if (interval == CandleInterval.ONE_MIN) oneMinReady = true
                 } else {
                     log.warn("KIS cold-start 빈 응답: code={} interval={}", code, interval.code)
                     failCount++
@@ -171,6 +177,12 @@ class ColdStartExecutor(
             )
         } catch (e: Exception) {
             log.warn("cold-start audit 저장 실패: code={} err={}", code, e.message)
+        }
+
+        if (oneMinReady) {
+            reconciliationStateStore.markReady(code, CandleInterval.ONE_MIN, "cold-start-$auditAction")
+        } else {
+            reconciliationStateStore.markFailed(code, CandleInterval.ONE_MIN, "cold-start-$auditAction")
         }
 
         log.info(

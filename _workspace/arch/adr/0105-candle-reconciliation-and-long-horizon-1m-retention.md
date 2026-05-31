@@ -175,7 +175,7 @@ REST backfill은 닫힌 과거 candle만 채우며, 현재 진행 중 bar는 Red
 |---|---|
 | `CandleReconciliationWorker` | managed universe 산정, gap 검사, backfill queue 등록 |
 | `CandleReconciliationState` | code·interval·targetFrom·targetTo·status·gapCount·lastCheckedAt·batchId 기록 |
-| `TodayMinuteGapFillService` | SymbolDetail ENTER 시 오늘/최근 gap 빠른 보정 |
+| `SymbolDetailMinuteGapFillService` | SymbolDetail ENTER 시 마지막 DB 1m 이후 현재 직전분까지 빠른 보정 큐잉 |
 | `DataReadinessService` | 전략 평가 전 `READY` 여부 확인 |
 
 Phase 2는 다음 순서로 구현한다.
@@ -186,6 +186,8 @@ Phase 2는 다음 순서로 구현한다.
 | 2-B | SymbolDetail ENTER gap fill | A→B→A 재진입 시 마지막 DB 1m 이후부터 현재 직전분까지 gap fill이 자동 queue 된다 |
 | 2-C | boot managed universe reconciliation | 재기동 시 watchlist 외 보유/미체결·ACTIVE 전략·최근 상세·후보 TTL snapshot까지 reconciliation 대상에 포함한다 |
 | 2-D | 1m gap fill 후 합산봉 재생성 | 1m 보정 성공 구간의 3m~12h 합산봉이 재생성된다 |
+
+2026-06-01 1차 구현은 위 Phase 2-B/2-C/2-D와 Phase 3의 핵심 gate를 코드에 연결했다. `SymbolDetailMinuteGapFillService`는 Kafka `symbol.detail.command.v1`의 `ENTER`에서 비동기 gap fill을 큐잉하고, `ManagedCandleUniverseProvider`는 보유/미체결·ACTIVE 명시 전략·현재 realtime 수요·최근 상세·watchlist·strategy 후보 TTL snapshot을 boot reconciliation 대상으로 합친다. 1m gap fill 성공 시 `AggregateBackfillRunner`가 3m~12h를 upsert로 재생성하고, `RealtimeSignalGenerator`는 `DataReadinessService`가 `READY`가 아닐 때 `SIGNAL_SKIPPED_DATA_NOT_READY` audit 후 signal 생성을 중단한다.
 
 ### §4-3. Phase 3: Strategy gate
 
@@ -234,4 +236,5 @@ Phase 2는 다음 순서로 구현한다.
 | 일자 | 변경 |
 |---|---|
 | 2026-06-01 | 사용자 실전 운용 시나리오 5건을 acceptance matrix로 추가. A→B→A 재진입 gap fill, 3일 off 후 boot managed universe reconciliation, 3일 1m gap 자동 복구+합산봉 재생성, 1년 초과 1m 복구 불가 명시, 자동매매 data readiness fail-closed를 LOCK. 장기 backfill/recollect는 candle row streaming이 아니라 progress event streaming으로 처리하는 원칙을 추가. |
+| 2026-06-01 | ADR 0105 1차 구현 연결. SymbolDetail ENTER 1m gap fill queue, boot managed universe provider, 1m gap fill 후 aggregate upsert 재생성, realtime signal data readiness gate를 반영. |
 | 2026-05-31 | ADR 0105 신설. KIS `FHKST03010230` 최대 1년 보관분을 활용한 1m 장기 복구, 기본 6개월 1m retention, boot/re-entry/scheduled reconciliation, data readiness gate, 4h·12h 전략용 합산봉 재생성 정책을 Accepted로 LOCK. |

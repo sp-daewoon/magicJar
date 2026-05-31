@@ -15,6 +15,16 @@ interface CandleRepository {
      */
     fun saveAll(candles: List<Candle>): Int
 
+    /**
+     * 캔들 일괄 upsert (ON CONFLICT DO UPDATE).
+     *
+     * 1m gap fill 이후 3m~12h 합산봉을 재생성할 때 기존 aggregate candle 값도
+     * 교정되어야 하므로, 일반 KIS raw 적재와 분리된 명시적 경로로만 사용한다.
+     *
+     * @return INSERT 또는 UPDATE 된 row 수
+     */
+    fun upsertAll(candles: List<Candle>): Int
+
     fun countByCodeAndInterval(
         code: String,
         interval: CandleInterval,

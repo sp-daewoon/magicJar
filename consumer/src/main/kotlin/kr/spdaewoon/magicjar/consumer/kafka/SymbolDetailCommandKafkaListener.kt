@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.consumer.ingestion.OrderbookSubscriptionRouter
 import kr.spdaewoon.magicjar.consumer.ingestion.RealtimeDemandOwner
 import kr.spdaewoon.magicjar.consumer.ingestion.RealtimeSubscriptionRouter
+import kr.spdaewoon.magicjar.consumer.reconciliation.ManagedCandleUniverseCache
+import kr.spdaewoon.magicjar.consumer.reconciliation.SymbolDetailMinuteGapFillService
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -29,6 +31,8 @@ class SymbolDetailCommandKafkaListener(
     private val objectMapper: ObjectMapper,
     private val realtimeSubscriptionRouter: RealtimeSubscriptionRouter,
     private val orderbookSubscriptionRouter: OrderbookSubscriptionRouter,
+    private val universeCache: ManagedCandleUniverseCache,
+    private val minuteGapFillService: SymbolDetailMinuteGapFillService,
 ) {
     private val log = LoggerFactory.getLogger(SymbolDetailCommandKafkaListener::class.java)
 
@@ -67,6 +71,8 @@ class SymbolDetailCommandKafkaListener(
                         code = code,
                     )
                     orderbookSubscriptionRouter.onSymbolDetailEntered(code)
+                    universeCache.recordDetail(code)
+                    minuteGapFillService.submitIfNeeded(code)
                 }
                 "EXIT" -> {
                     orderbookSubscriptionRouter.onSymbolDetailExited(code)

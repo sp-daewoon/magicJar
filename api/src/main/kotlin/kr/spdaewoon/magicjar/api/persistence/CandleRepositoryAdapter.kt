@@ -45,6 +45,30 @@ class CandleRepositoryAdapter(
         return inserted
     }
 
+    @Transactional
+    override fun upsertAll(candles: List<Candle>): Int {
+        if (candles.isEmpty()) return 0
+        var affected = 0
+        for (candle in candles) {
+            val ts = Instant.ofEpochSecond(candle.ts.epochSeconds)
+            val count =
+                candleJpaRepository.insertOrUpdate(
+                    code = candle.code,
+                    interval = candle.interval.code,
+                    ts = ts,
+                    openRaw = candle.openRaw,
+                    highRaw = candle.highRaw,
+                    lowRaw = candle.lowRaw,
+                    closeRaw = candle.closeRaw,
+                    volume = candle.volume,
+                    source = candle.source,
+                )
+            affected += count
+        }
+        log.debug("candle upsert: total={} affected={}", candles.size, affected)
+        return affected
+    }
+
     @Transactional(readOnly = true)
     override fun countByCodeAndInterval(
         code: String,

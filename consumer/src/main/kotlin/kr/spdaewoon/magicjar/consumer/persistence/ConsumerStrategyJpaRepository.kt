@@ -22,6 +22,15 @@ interface ConsumerStrategyJpaRepository : JpaRepository<ConsumerStrategyJpaEntit
         @Param("intervalJson") intervalJson: String,
     ): List<ConsumerStrategyJpaEntity>
 
+    @Query(
+        value =
+            "SELECT * FROM strategy " +
+                "WHERE status = 'ACTIVE' " +
+                "AND codes IS NOT NULL",
+        nativeQuery = true,
+    )
+    fun findActiveWithExplicitCodes(): List<ConsumerStrategyJpaEntity>
+
     @Modifying
     @Query(
         value =

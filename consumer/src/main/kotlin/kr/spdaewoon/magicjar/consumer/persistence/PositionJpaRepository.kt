@@ -9,6 +9,9 @@ import org.springframework.transaction.annotation.Transactional
  * position Spring Data JPA Repository (consumer 모듈 — ADR 0042).
  */
 interface PositionJpaRepository : JpaRepository<PositionJpaEntity, Long> {
+    @Query("SELECT DISTINCT p.code FROM PositionJpaEntity p WHERE p.quantity > 0")
+    fun findDistinctCodesWithPositiveQuantity(): List<String>
+
     fun findByUserId(userId: String): List<PositionJpaEntity>
 
     fun findByUserIdAndQuantityGreaterThan(

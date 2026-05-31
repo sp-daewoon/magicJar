@@ -526,6 +526,8 @@ class ScreenerEngineImplTest {
 
         override fun saveAll(candles: List<Candle>): Int = 0
 
+        override fun upsertAll(candles: List<Candle>): Int = 0
+
         override fun countByCodeAndInterval(
             code: String,
             interval: CandleInterval,

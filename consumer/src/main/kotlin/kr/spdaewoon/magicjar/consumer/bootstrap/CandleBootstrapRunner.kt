@@ -5,7 +5,7 @@ import kr.spdaewoon.magicjar.consumer.ingestion.ColdStartExecutor
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepository
-import kr.spdaewoon.magicjar.consumer.persistence.ConsumerWatchlistJpaRepository
+import kr.spdaewoon.magicjar.consumer.reconciliation.ManagedCandleUniverseProvider
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import org.slf4j.LoggerFactory
@@ -18,7 +18,7 @@ import org.springframework.stereotype.Component
  * 부팅 시 candle 공백·부족 종목 KIS cold-start 자동 보충 (2026-05-11 — KIS-only 정책).
  *
  * 목적:
- *   - Yahoo 삭제 또는 신규 배포 후 DB에 1d candle이 없는 watchlist 종목 자동 감지
+ *   - Yahoo 삭제 또는 신규 배포 후 DB에 1d candle이 없는 managed universe 종목 자동 감지
  *   - 1m candle이 부족한 종목(MIN_1M_CANDLE_THRESHOLD 미만) cold-start 트리거
  *   - 1m 충분하나 합산봉(3m·5m·15m·30m·90m·1h·4h·12h) 미생성 종목 — aggregateBackfillRunner 직접 트리거
  *   - ColdStartExecutor.submit(code)로 비동기 KIS backfill 트리거
@@ -39,7 +39,7 @@ import org.springframework.stereotype.Component
 @Component
 @Order(10)
 class CandleBootstrapRunner(
-    private val watchlistJpaRepository: ConsumerWatchlistJpaRepository,
+    private val managedUniverseProvider: ManagedCandleUniverseProvider,
     private val candleRepository: CandleRepository,
     private val coldStartExecutor: ColdStartExecutor,
     private val aggregateBackfillRunner: AggregateBackfillRunner,
@@ -66,10 +66,10 @@ class CandleBootstrapRunner(
     }
 
     override fun run(args: ApplicationArguments) {
-        log.info("CandleBootstrapRunner 시작 — 1d/1m candle 공백·부족 종목 감지")
-        val watchlistEntries = watchlistJpaRepository.findAllByOrderByPriorityAscCreatedAtDesc()
-        if (watchlistEntries.isEmpty()) {
-            log.info("CandleBootstrapRunner — watchlist 종목 없음, 건너뜀")
+        log.info("CandleBootstrapRunner 시작 — managed universe 1d/1m candle 공백·부족 종목 감지")
+        val universeEntries = managedUniverseProvider.resolve()
+        if (universeEntries.isEmpty()) {
+            log.info("CandleBootstrapRunner — managed universe 종목 없음, 건너뜀")
             return
         }
 
@@ -77,7 +77,7 @@ class CandleBootstrapRunner(
         var aggregateOnlyCount = 0
         var skippedCount = 0
 
-        for (entry in watchlistEntries) {
+        for (entry in universeEntries) {
             val code = entry.code
 
             // 거래정지·정리매매 종목 skip (KIS API 응답 0 — 외부 결함, 시스템 보강 불가)
@@ -196,11 +196,11 @@ class CandleBootstrapRunner(
             }
         }
         log.info(
-            "CandleBootstrapRunner 완료 — cold-start 트리거 {}건 / aggregate-only {}건 / skip {}건 (total watchlist={}건)",
+            "CandleBootstrapRunner 완료 — cold-start 트리거 {}건 / aggregate-only {}건 / skip {}건 (total universe={}건)",
             coldStartCount,
             aggregateOnlyCount,
             skippedCount,
-            watchlistEntries.size,
+            universeEntries.size,
         )
     }
 }

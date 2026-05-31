@@ -13,6 +13,7 @@ import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaRepositor
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.KillSwitchJpaRepository
+import kr.spdaewoon.magicjar.consumer.reconciliation.CandleReconciliationStateStore
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleGapDetectorPort
@@ -47,6 +48,8 @@ class CandleBackfillWorkerTest {
     private val kisRestPort = mockk<KisRestPort>()
     private val instrumentJpaRepository = mockk<ConsumerInstrumentJpaRepository>()
     private val auditRepository = mockk<ConsumerAuditTrailJpaRepository>()
+    private val aggregateBackfillRunner = mockk<AggregateBackfillRunner>()
+    private val reconciliationStateStore = mockk<CandleReconciliationStateStore>(relaxed = true)
     private val slackSender = mockk<SlackWebhookSender>()
     private val killSwitchRepo = mockk<KillSwitchJpaRepository>()
 
@@ -69,6 +72,8 @@ class CandleBackfillWorkerTest {
             kisRestPort = kisRestPort,
             instrumentJpaRepository = instrumentJpaRepository,
             auditRepository = auditRepository,
+            aggregateBackfillRunner = aggregateBackfillRunner,
+            reconciliationStateStore = reconciliationStateStore,
             slackSenderProvider = slackProvider,
             killSwitchJpaRepositoryProvider = ksProvider,
             objectMapper = objectMapper,
@@ -84,10 +89,11 @@ class CandleBackfillWorkerTest {
         l: String = "95",
         c: String = "105",
         volume: Long = 1000L,
+        interval: CandleInterval = CandleInterval.ONE_DAY,
     ): Candle =
         Candle(
             code = code,
-            interval = CandleInterval.ONE_DAY,
+            interval = interval,
             ts = KtInstant.fromEpochSeconds(tsEpochSec),
             openRaw = BigDecimal(o),
             highRaw = BigDecimal(h),
@@ -234,6 +240,24 @@ class CandleBackfillWorkerTest {
         verify(exactly = 1) { candleRepository.saveAll(any()) }
         assertThat(result.insertedCount).isEqualTo(1)
         assertThat(saveSlot.captured).hasSize(1)
+    }
+
+    @Test
+    fun `ADR0105 1m backfill 성공 시 합산봉을 upsert 재생성한다`() {
+        val worker = newWorker()
+        setupNoInstrument()
+        setupAuditCapture()
+        val gapTs = Instant.ofEpochSecond(1_700_000_000L)
+        every { candleGapDetector.detectGaps("004090", CandleInterval.ONE_MIN, 30) } returns listOf(gapTs)
+        every { kisRestPort.fetchCandles("004090", CandleInterval.ONE_MIN, 1) } returns
+            listOf(candle(tsEpochSec = 1_700_000_000L, interval = CandleInterval.ONE_MIN))
+        every { candleRepository.saveAll(any()) } returns 1
+        every { aggregateBackfillRunner.backfill("004090") } returns mapOf("3m" to 1, "5m" to 1)
+
+        val result = worker.runBackfill("004090", CandleInterval.ONE_MIN, dryRun = false)
+
+        assertThat(result.status).isEqualTo(CandleBackfillWorker.BackfillStatus.SUCCESS)
+        verify(exactly = 1) { aggregateBackfillRunner.backfill("004090") }
     }
 
     // ---------- 룰 #5 Source-of-truth ----------

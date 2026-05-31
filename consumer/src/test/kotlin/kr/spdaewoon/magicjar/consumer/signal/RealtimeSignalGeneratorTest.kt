@@ -8,6 +8,9 @@ import io.mockk.slot
 import io.mockk.verify
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import kr.spdaewoon.magicjar.consumer.reconciliation.DataReadinessResult
+import kr.spdaewoon.magicjar.consumer.reconciliation.DataReadinessService
+import kr.spdaewoon.magicjar.consumer.reconciliation.DataReadinessStatus
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
@@ -36,6 +39,7 @@ class RealtimeSignalGeneratorTest {
     private val strategyLookup = mockk<StrategyLookupPort>()
     private val signalRepository = mockk<SignalRepository>()
     private val candleRepository = mockk<CandleRepository>()
+    private val readinessService = mockk<DataReadinessService>()
     private val evaluator = mockk<JvmStrategyEvaluator>()
     private val dedupeGuard = mockk<SignalDedupeGuard>()
     private val signalKafkaProducer = mockk<SignalKafkaProducer>()
@@ -157,6 +161,41 @@ class RealtimeSignalGeneratorTest {
     }
 
     @Test
+    fun `data readiness READY가 아니면 dedupe와 strategy 평가 전에 signal 생성을 fail-closed 한다`() {
+        val buyAst = ast("1", Operator.GT, "0")
+        val boundaryTs = Instant.parse("2026-05-20T00:50:00Z")
+        val readiness =
+            DataReadinessResult(
+                status = DataReadinessStatus.RECONCILING,
+                reason = "symbol-detail-enter",
+                code = "005930",
+                interval = CandleInterval.FIVE_MIN,
+                boundaryTs = boundaryTs,
+                latestIntervalTs = null,
+                latestOneMinTs = null,
+            )
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(strategy(buyAst = buyAst))
+        every { readinessService.check("005930", CandleInterval.FIVE_MIN, boundaryTs) } returns readiness
+        every { readinessService.auditSkip(readiness, listOf(42L)) } just Runs
+
+        generator(dataReadinessService = readinessService).onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.FIVE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "160"),
+        )
+
+        verify(exactly = 1) { readinessService.check("005930", CandleInterval.FIVE_MIN, boundaryTs) }
+        verify(exactly = 1) { readinessService.auditSkip(readiness, listOf(42L)) }
+        verify(exactly = 0) { dedupeGuard.tryAcquire(any(), any(), any(), any()) }
+        verify(exactly = 0) { evaluator.evaluate(any(), any(), any()) }
+        verify(exactly = 0) { signalRepository.save(any()) }
+        verify(exactly = 0) { signalKafkaProducer.publish(any()) }
+    }
+
+    @Test
     fun `signalRepository save 예외 발생 시 Kafka publish 0 + listener thread 살아 있다`() {
         val buyAst = ast("1", Operator.GT, "0")
         val boundaryTs = Instant.parse("2026-05-20T01:00:00Z")
@@ -230,11 +269,18 @@ class RealtimeSignalGeneratorTest {
         assertThat(publishedSignal.captured.side).isEqualTo(SignalSide.SELL)
     }
 
-    private fun generator(evalLookbackCandles: Int = 500): RealtimeSignalGenerator =
+    private fun generator(
+        evalLookbackCandles: Int = 500,
+        dataReadinessService: DataReadinessService? = null,
+    ): RealtimeSignalGenerator =
         RealtimeSignalGenerator(
             strategyLookupProvider = providerOf(strategyLookup),
             signalRepositoryProvider = providerOf(signalRepository),
             candleRepositoryProvider = providerOf(candleRepository),
+            dataReadinessServiceProvider =
+                dataReadinessService
+                    ?.let { providerOf(it) }
+                    ?: emptyProvider(),
             jvmStrategyEvaluator = evaluator,
             signalDedupeGuard = dedupeGuard,
             signalKafkaProducer = signalKafkaProducer,
@@ -318,5 +364,10 @@ class RealtimeSignalGeneratorTest {
     private fun <T : Any> providerOf(value: T): ObjectProvider<T> =
         mockk<ObjectProvider<T>>().also {
             every { it.getIfAvailable() } returns value
+        }
+
+    private fun <T : Any> emptyProvider(): ObjectProvider<T> =
+        mockk<ObjectProvider<T>>().also {
+            every { it.getIfAvailable() } returns null
         }
 }

@@ -31,6 +31,12 @@ interface ConsumerOrderRequestJpaRepository : JpaRepository<ConsumerOrderRequest
         @Param("userId") userId: String,
     ): List<ConsumerOrderRequestJpaEntity>
 
+    @Query(
+        "SELECT DISTINCT e.code FROM ConsumerOrderRequestJpaEntity e " +
+            "WHERE e.status IN ('REQUESTED', 'ACK', 'PARTIALLY_FILLED', 'PENDING_RECONCILE')",
+    )
+    fun findOpenCodes(): List<String>
+
     /**
      * ADR 0084 P0-2 — OrderReconciliationWorker cron 1분 lookup.
      *

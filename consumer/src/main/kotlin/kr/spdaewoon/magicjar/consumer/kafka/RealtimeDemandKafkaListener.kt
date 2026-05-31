@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.consumer.kafka
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.consumer.ingestion.RealtimeDemandOwner
 import kr.spdaewoon.magicjar.consumer.ingestion.RealtimeSubscriptionRouter
+import kr.spdaewoon.magicjar.consumer.reconciliation.ManagedCandleUniverseCache
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Component
 class RealtimeDemandKafkaListener(
     private val objectMapper: ObjectMapper,
     private val realtimeSubscriptionRouter: RealtimeSubscriptionRouter,
+    private val universeCache: ManagedCandleUniverseCache,
 ) {
     private val log = LoggerFactory.getLogger(RealtimeDemandKafkaListener::class.java)
 
@@ -56,6 +58,9 @@ class RealtimeDemandKafkaListener(
                 "ENTER" ->
                     codes.forEach { code ->
                         realtimeSubscriptionRouter.request(owner, ownerId, code, priority, ttlSeconds)
+                        if (owner == RealtimeDemandOwner.STRATEGY) {
+                            universeCache.recordStrategyCandidate(code, ttlSeconds)
+                        }
                     }
                 "EXIT" ->
                     codes.forEach { code ->

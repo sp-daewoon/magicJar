@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.consumer.signal
 
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import kr.spdaewoon.magicjar.consumer.reconciliation.DataReadinessService
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
@@ -54,6 +55,7 @@ class RealtimeSignalGenerator(
     private val strategyLookupProvider: ObjectProvider<StrategyLookupPort>,
     private val signalRepositoryProvider: ObjectProvider<SignalRepository>,
     private val candleRepositoryProvider: ObjectProvider<CandleRepository>,
+    private val dataReadinessServiceProvider: ObjectProvider<DataReadinessService>,
     private val jvmStrategyEvaluator: JvmStrategyEvaluator,
     private val signalDedupeGuard: SignalDedupeGuard,
     private val signalKafkaProducer: SignalKafkaProducer,
@@ -108,6 +110,24 @@ class RealtimeSignalGenerator(
                 interval.code,
             )
             return
+        }
+
+        val readinessService = dataReadinessServiceProvider.ifAvailable
+        if (readinessService != null) {
+            val readiness = readinessService.check(code, interval, boundaryTs)
+            if (!readiness.ready) {
+                log.warn(
+                    "RealtimeSignalGenerator data readiness skip: code={} interval={} ts={} status={} reason={} strategies={}",
+                    code,
+                    interval.code,
+                    boundaryTs,
+                    readiness.status,
+                    readiness.reason,
+                    activeStrategies.mapNotNull { it.id },
+                )
+                readinessService.auditSkip(readiness, activeStrategies.mapNotNull { it.id })
+                return
+            }
         }
 
         log.debug(

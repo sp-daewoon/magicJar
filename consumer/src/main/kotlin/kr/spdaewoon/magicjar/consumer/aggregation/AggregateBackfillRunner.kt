@@ -16,7 +16,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 
 /**
- * 1m candle 베이스를 3m·5m·15m·30m·90m·1h·4h·12h 로 일괄 합산 + DB INSERT.
+ * 1m candle 베이스를 3m·5m·15m·30m·90m·1h·4h·12h 로 일괄 합산 + DB UPSERT.
  *
  * 사용 시점:
  *   - [kr.spdaewoon.magicjar.consumer.ingestion.ColdStartExecutor] 1m 적재 직후 (cold-start 확장)
@@ -33,7 +33,7 @@ import org.springframework.stereotype.Component
  *
  * 원칙:
  *   - in-memory aggregation (외부 호출 0, ~100ms/종목 예상).
- *   - DB INSERT 는 ON CONFLICT DO NOTHING 멱등 보장 (UQ code+interval+ts).
+ *   - DB UPSERT 는 1m gap fill 이후 기존 합산봉 교정을 허용한다.
  *   - 1m 0건 종목은 즉시 반환 (guard).
  *   - mock 합성 금지 (feedback_no_mock_data 정합) — CandleAggregator boundary 내 1m 0건 시 bar 생략.
  *
@@ -69,12 +69,12 @@ class AggregateBackfillRunner(
     )
 
     /**
-     * 종목 1m candle 전량을 3m·5m·15m·30m·90m·1h·4h·12h 로 합산 + DB INSERT.
+     * 종목 1m candle 전량을 3m·5m·15m·30m·90m·1h·4h·12h 로 합산 + DB UPSERT.
      *
      * 흐름:
      *   1. DB 에서 해당 종목의 1m candle 전량 조회 (ADR 0105 기본 6개월 기준 KRX ~49k/NXT ~91k row)
      *   2. [CandleAggregator.aggregate] 로 각 target interval 합산
-     *   3. [CandleRepository.saveAll] 로 DB upsert (ON CONFLICT DO NOTHING)
+     *   3. [CandleRepository.upsertAll] 로 DB upsert (ON CONFLICT DO UPDATE)
      *   4. 결과 로그
      *
      * @param code 종목 코드 (KIS 6자리, 예: "000660")
@@ -101,7 +101,7 @@ class AggregateBackfillRunner(
             try {
                 val aggregated = CandleAggregator.aggregate(oneMinCandles, target)
                 if (aggregated.isNotEmpty()) {
-                    val inserted = candleRepository.saveAll(aggregated)
+                    val inserted = candleRepository.upsertAll(aggregated)
                     result[target.code] = IntervalBackfillResult(inserted = inserted, latestBar = aggregated.last())
                     log.debug(
                         "AggregateBackfillRunner interval 완료: code={} interval={} aggregated={} inserted={}",

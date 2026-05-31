@@ -7,6 +7,7 @@ import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.KillSwitchJpaRepository
+import kr.spdaewoon.magicjar.consumer.reconciliation.CandleReconciliationStateStore
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleGapDetectorPort
@@ -56,6 +57,8 @@ class CandleBackfillWorker(
     private val kisRestPort: KisRestPort,
     private val instrumentJpaRepository: ConsumerInstrumentJpaRepository,
     private val auditRepository: ConsumerAuditTrailJpaRepository,
+    private val aggregateBackfillRunner: AggregateBackfillRunner,
+    private val reconciliationStateStore: CandleReconciliationStateStore,
     private val slackSenderProvider: ObjectProvider<SlackWebhookSender>,
     private val killSwitchJpaRepositoryProvider: ObjectProvider<KillSwitchJpaRepository>,
     private val objectMapper: ObjectMapper,
@@ -126,10 +129,27 @@ class CandleBackfillWorker(
         interval: CandleInterval = CandleInterval.ONE_DAY,
         reason: String = "auto",
     ) {
+        reconciliationStateStore.markReconciling(code, interval, reason)
         executor.submit {
             try {
-                runBackfill(code, interval, dryRun = dryRunPropertyDefault, windowDays = windowDaysDefault, reason = reason)
+                val result =
+                    runBackfill(
+                        code,
+                        interval,
+                        dryRun = dryRunPropertyDefault,
+                        windowDays = windowDaysDefault,
+                        reason = reason,
+                    )
+                when (result.status) {
+                    BackfillStatus.SUCCESS,
+                    BackfillStatus.SKIPPED,
+                    -> reconciliationStateStore.markReady(code, interval, "backfill-${result.status}")
+                    BackfillStatus.PARTIAL_FAIL,
+                    BackfillStatus.FAILED_KILLSWITCH,
+                    -> reconciliationStateStore.markFailed(code, interval, "backfill-${result.status}")
+                }
             } catch (t: Throwable) {
+                reconciliationStateStore.markFailed(code, interval, "backfill-exception")
                 log.warn(
                     "CandleBackfillWorker 비동기 실행 예외: code={} interval={} err={}",
                     code,
@@ -454,6 +474,10 @@ class CandleBackfillWorker(
             backfillBatchId,
         )
 
+        if (interval == CandleInterval.ONE_MIN && insertedTotal > 0) {
+            rebuildAggregatesAfterOneMinBackfill(code, backfillBatchId)
+        }
+
         return BackfillResult(
             code = code,
             interval = interval,
@@ -466,6 +490,38 @@ class CandleBackfillWorker(
             durationMs = durationMs,
             status = status,
         )
+    }
+
+    private fun rebuildAggregatesAfterOneMinBackfill(
+        code: String,
+        backfillBatchId: String,
+    ) {
+        try {
+            val result = aggregateBackfillRunner.backfill(code)
+            persistAudit(
+                action = "CANDLE_AGGREGATE_REBUILD_AFTER_1M_BACKFILL",
+                entityId = code,
+                detail =
+                    mapOf(
+                        "code" to code,
+                        "backfillBatchId" to backfillBatchId,
+                        "result" to result,
+                    ),
+            )
+            log.info("1m backfill 후 합산봉 재생성 완료: code={} result={}", code, result)
+        } catch (e: Exception) {
+            persistAudit(
+                action = "CANDLE_AGGREGATE_REBUILD_FAIL_AFTER_1M_BACKFILL",
+                entityId = code,
+                detail =
+                    mapOf(
+                        "code" to code,
+                        "backfillBatchId" to backfillBatchId,
+                        "error" to e.message,
+                    ),
+            )
+            log.warn("1m backfill 후 합산봉 재생성 실패: code={} err={}", code, e.message)
+        }
     }
 
     /**
