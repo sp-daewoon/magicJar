@@ -6,6 +6,7 @@ import kr.spdaewoon.magicjar.api.controller.CandlesResponseDto
 import kr.spdaewoon.magicjar.api.controller.SymbolController
 import kr.spdaewoon.magicjar.api.controller.SymbolDto
 import kr.spdaewoon.magicjar.api.service.CandleQueryService
+import kr.spdaewoon.magicjar.api.service.CandleRecollectJobService
 import kr.spdaewoon.magicjar.api.service.CandleRefreshService
 import kr.spdaewoon.magicjar.api.service.SymbolMetaService
 import org.assertj.core.api.Assertions.assertThat
@@ -56,6 +57,9 @@ class SymbolControllerTest {
 
     @MockBean
     lateinit var candleRefreshService: CandleRefreshService
+
+    @MockBean
+    lateinit var candleRecollectJobService: CandleRecollectJobService
 
     @MockBean
     lateinit var kafkaTemplate: KafkaTemplate<String, String>

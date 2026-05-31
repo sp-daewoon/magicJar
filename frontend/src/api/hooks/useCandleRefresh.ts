@@ -7,7 +7,9 @@
  * 사용처: SymbolChart 헤더 "갱신" 버튼 onClick
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { symbolApi } from '../symbol'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useStompTopic } from '../../lib/stomp'
+import { symbolApi, type CandleRecollectJobResponseDto, type CandleRecollectProgressDto } from '../symbol'
 
 export interface UseCandleRefreshOptions {
   code: string
@@ -84,5 +86,120 @@ export function useCandleRecollect({
     recollect: mutation.mutate,
     isPending: mutation.isPending,
     isError: mutation.isError,
+  }
+}
+
+export interface UseCandleRecollectJobOptions {
+  code: string
+  intervals: string[]
+  onStarted?: (job: CandleRecollectJobResponseDto) => void
+  onProgress?: (event: CandleRecollectProgressDto) => void
+  onSuccess?: (deleted: number, inserted: number, event: CandleRecollectProgressDto) => void
+  onError?: (msg: string, event?: CandleRecollectProgressDto) => void
+}
+
+function isTerminal(status: string | undefined | null): boolean {
+  return status === 'SUCCEEDED' || status === 'FAILED'
+}
+
+function isRunning(status: string | undefined | null): boolean {
+  return status === 'QUEUED' || status === 'RUNNING'
+}
+
+export function useCandleRecollectJob({
+  code,
+  intervals,
+  onStarted,
+  onProgress,
+  onSuccess,
+  onError,
+}: UseCandleRecollectJobOptions) {
+  const queryClient = useQueryClient()
+  const [job, setJob] = useState<CandleRecollectJobResponseDto | null>(null)
+  const [progress, setProgress] = useState<CandleRecollectProgressDto | null>(null)
+  const completedJobIdsRef = useRef<Set<string>>(new Set())
+
+  const finishJob = useCallback(
+    (event: CandleRecollectProgressDto) => {
+      if (completedJobIdsRef.current.has(event.jobId)) return
+      completedJobIdsRef.current.add(event.jobId)
+      void queryClient.invalidateQueries({ queryKey: ['symbolCandles', code] })
+      if (event.status === 'SUCCEEDED') {
+        onSuccess?.(event.deletedCount, event.insertedCount + event.rebuiltCount, event)
+      } else {
+        onError?.(event.error ?? event.message ?? '캔들 재수집 중 오류가 발생했습니다.', event)
+      }
+    },
+    [code, onError, onSuccess, queryClient],
+  )
+
+  const applyProgress = useCallback(
+    (event: CandleRecollectProgressDto) => {
+      if (event.code !== code) return
+      setProgress(event)
+      onProgress?.(event)
+      if (isTerminal(event.status)) {
+        finishJob(event)
+      }
+    },
+    [code, finishJob, onProgress],
+  )
+
+  const mutation = useMutation({
+    mutationFn: () => symbolApi.startCandleRecollectJob(code, intervals),
+    onSuccess: (data) => {
+      completedJobIdsRef.current.delete(data.jobId)
+      setJob(data)
+      const queued: CandleRecollectProgressDto = {
+        jobId: data.jobId,
+        code: data.code,
+        intervals: data.intervals,
+        status: data.status,
+        stage: 'QUEUED',
+        processedDays: null,
+        totalDays: null,
+        deletedCount: 0,
+        insertedCount: 0,
+        rebuiltCount: 0,
+        message: '캔들 재수집 대기 중',
+        elapsedMs: null,
+        error: null,
+        updatedAt: data.submittedAt,
+      }
+      setProgress(queued)
+      onStarted?.(data)
+    },
+    onError: (err) => {
+      const msg =
+        err instanceof Error ? err.message : '캔들 재수집 중 오류가 발생했습니다.'
+      onError?.(msg)
+    },
+  })
+
+  useStompTopic<CandleRecollectProgressDto>(
+    job?.topic ?? '',
+    applyProgress,
+    Boolean(job && !isTerminal(progress?.status)),
+  )
+
+  useEffect(() => {
+    if (!job || !isRunning(progress?.status)) return
+    const timer = window.setInterval(() => {
+      void symbolApi
+        .getCandleRecollectJob(code, job.jobId)
+        .then(applyProgress)
+        .catch(() => {
+          // STOMP가 주 경로다. poll 실패 1회는 다음 tick에서 재시도한다.
+        })
+    }, 1500)
+    return () => window.clearInterval(timer)
+  }, [applyProgress, code, job, progress?.status])
+
+  return {
+    recollect: mutation.mutate,
+    isPending: mutation.isPending || isRunning(progress?.status),
+    isError: mutation.isError || progress?.status === 'FAILED',
+    job,
+    progress,
   }
 }

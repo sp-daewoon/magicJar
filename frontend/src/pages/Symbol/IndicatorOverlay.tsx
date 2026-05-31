@@ -49,6 +49,16 @@ const SUB_COLORS: string[] = [
   '#c4b5fd', // violet-300
 ]
 
+function formatRightPrice(value: number): string {
+  return value.toLocaleString('ko-KR')
+}
+
+const RIGHT_PRICE_FORMAT = {
+  type: 'custom' as const,
+  minMove: 1,
+  formatter: formatRightPrice,
+}
+
 // ──────────────────────────────────────────────
 // 단일 지표 오버레이 훅
 // ──────────────────────name──────────────────────
@@ -171,12 +181,14 @@ function SingleIndicatorOverlay({
           lineWidth: 1,
           lineStyle: 1, // dashed
           priceScaleId: 'right',
+          priceFormat: RIGHT_PRICE_FORMAT,
           title: 'BB Upper',
         })
         const middleSeries = chart.addLineSeries({
           color: primaryColor,
           lineWidth: 1,
           priceScaleId: 'right',
+          priceFormat: RIGHT_PRICE_FORMAT,
           title: 'BB Middle',
         })
         const lowerSeries = chart.addLineSeries({
@@ -184,6 +196,7 @@ function SingleIndicatorOverlay({
           lineWidth: 1,
           lineStyle: 1, // dashed
           priceScaleId: 'right',
+          priceFormat: RIGHT_PRICE_FORMAT,
           title: 'BB Lower',
         })
 
@@ -206,6 +219,7 @@ function SingleIndicatorOverlay({
           color: primaryColor,
           lineWidth: 2,
           priceScaleId: 'right',
+          priceFormat: RIGHT_PRICE_FORMAT,
           title: 'SuperTrend',
         })
         const stData = data.series
@@ -265,6 +279,7 @@ function SingleIndicatorOverlay({
             lineWidth: 1,
             lineStyle: 1, // dashed
             priceScaleId: 'right',
+            priceFormat: RIGHT_PRICE_FORMAT,
             title: key.toUpperCase(),
           })
           const pivotData = data.series
@@ -296,6 +311,7 @@ function SingleIndicatorOverlay({
           color: primaryColor,
           lineWidth: 1,
           priceScaleId,
+          ...(needsSeparateScale ? {} : { priceFormat: RIGHT_PRICE_FORMAT }),
           title: catalogInfo?.name.split('(')[0] ?? indicatorId,
         })
 

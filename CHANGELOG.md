@@ -3,6 +3,8 @@
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 
+| 2026-06-01 | **fix(candle): 상위봉 현재가 보정 + 재수집 progress UX** — LG전자 `066570` 사례에서 `1d`만 `quote:last` 보정으로 293,000을 표시하고 `1wk`/`1mo`/`1y`는 Redis current 부재 시 DB stale close(240,000/239,750)를 그대로 보여주던 흐름을 수정. `CandleQueryService`가 `1d`·`1wk`·`1mo`·`1y` 최신 요청에서 같은 현재 기간일 때만 `quote:last`로 마지막 candle close/high/low를 보정하고, api-app 1m 재수집도 ADR 0105 one-minute 설정(기본 126거래일/최대 252거래일)을 사용하도록 맞춤. 캔들 재수집은 비동기 job endpoint + STOMP progress + REST poll fallback을 추가해 긴 `FHKST03010230` 수집 중 진행 상태를 화면에 표시하며, 차트 가격축/주문 가격 입력은 천 단위 쉼표와 `.00` 제거 표시로 정리. | api · frontend · docs · task | 상위봉/일봉 현재가 불일치, 긴 재수집 대기 UX, 가격 표시 가독성 문제를 실제 데이터 흐름을 유지한 채 보정 |
+
 | 2026-06-01 | **docs(adr): ADR 0105 실전 reconciliation 시나리오 명확화** — A→B→A 재진입 시 last DB 1m 이후 REST gap fill, 시스템 3일 off 후 boot managed universe reconciliation, 3일 1m gap 자동 복구+합산봉 재생성, KIS 1년 초과 1m 복구 불가 인정, 자동매매 data readiness fail-closed를 acceptance matrix로 추가. 장기 backfill/recollect는 candle row streaming이 아니라 progress event만 STOMP로 push하고, row 본문은 DB+REST pagination으로 읽는 원칙을 문서화. | ADR · candle policy · master architecture · task | 실전 자동매매 전 데이터 공백·사용자 대기·watchlist 의존 회귀를 정책 단계에서 차단 |
 
 | 2026-05-31 | **feat(market): ADR 0105 Phase 1 — 1m backfill lookback 설정화** — `KisRestCandleAdapter`의 직전 30거래일 hardcode를 `magicjar.candle.one-minute.*` 설정으로 교체하고, 기본 126거래일/최대 252거래일/일자별 8 page cap을 테스트로 고정. `FHKST03010230` 날짜+시간 cursor helper를 분리해 기본 6개월 1m retention 구현의 첫 단계를 반영. | consumer · candle policy · task | 4h·12h 전략 기준봉과 재기동/화면 이탈 후 1m gap 복구를 30거래일 한도에 묶지 않기 위함 |

@@ -143,6 +143,10 @@ magicjar:
       "[1y]": 6
     default-max-pages: 6
     max-response-limit: 5000
+    one-minute:
+      default-lookback-trading-days: ${MAGICJAR_CANDLE_1M_DEFAULT_LOOKBACK_TRADING_DAYS:126}
+      max-lookback-trading-days: ${MAGICJAR_CANDLE_1M_MAX_LOOKBACK_TRADING_DAYS:252}
+      max-pages-per-day: ${MAGICJAR_CANDLE_1M_MAX_PAGES_PER_DAY:8}
 
   # ─────────────────────────────────────────────────
   # MCP 서버 (ADR 0027 — W4 R2 T-MCP Phase 1)

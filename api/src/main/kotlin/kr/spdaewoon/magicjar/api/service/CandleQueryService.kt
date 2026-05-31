@@ -12,8 +12,10 @@ import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Service
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.time.DayOfWeek
 import java.time.Instant
 import java.time.ZoneId
+import java.time.temporal.TemporalAdjusters
 
 /**
  * 캔들 시계열 조회 서비스 — DB candle + Redis live current 합류 (spec §3-3, ADR 0019·0029).
@@ -148,8 +150,8 @@ class CandleQueryService(
             }
         }
 
-        if (effectiveInterval == "1d" && beforeInstant == null) {
-            mergeQuoteLastDailyCandle(code, candleDtos)
+        if (effectiveInterval in QUOTE_CURRENT_CANDLE_INTERVALS && beforeInstant == null) {
+            mergeQuoteLastCurrentCandle(code, effectiveInterval, candleDtos)
         }
 
         val hasMore = dbRows.size == effectiveLimit
@@ -221,8 +223,9 @@ class CandleQueryService(
         )
     }
 
-    private fun mergeQuoteLastDailyCandle(
+    private fun mergeQuoteLastCurrentCandle(
         code: String,
+        interval: String,
         candleDtos: MutableList<CandleDto>,
     ) {
         val latest = candleDtos.lastOrNull() ?: return
@@ -230,21 +233,65 @@ class CandleQueryService(
         val metrics = resolveQuoteChangeMetrics(quoteMap) ?: return
         val quoteTs = quoteMap["ts"]?.toString()?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: return
         val latestTs = runCatching { Instant.parse(latest.ts) }.getOrNull() ?: return
-        if (quoteTs.atZone(kst).toLocalDate() != latestTs.atZone(kst).toLocalDate()) return
+        if (!isSameQuotePeriod(interval, quoteTs, latestTs)) return
 
         val price = metrics.price
         val high = maxOf(latest.high.toBigDecimalOrNull() ?: price, price)
         val low = minOf(latest.low.toBigDecimalOrNull() ?: price, price)
+        val quoteMetrics =
+            if (interval == "1d") {
+                QuoteDisplayMetrics(
+                    previousClose = metrics.previousClose,
+                    change = metrics.signedChange,
+                    changeRate = metrics.signedChangeRate.setScale(2, RoundingMode.HALF_UP),
+                )
+            } else {
+                resolvePeriodChangeMetrics(price, latest.previousClose)
+            }
         candleDtos[candleDtos.lastIndex] =
             latest.copy(
                 high = high.toPlainString(),
                 low = low.toPlainString(),
                 close = price.toPlainString(),
-                previousClose = metrics.previousClose.toPlainString(),
-                change = metrics.signedChange.toPlainString(),
-                changeRate = metrics.signedChangeRate.setScale(2, RoundingMode.HALF_UP).toPlainString(),
+                previousClose = quoteMetrics?.previousClose?.toPlainString() ?: latest.previousClose,
+                change = quoteMetrics?.change?.toPlainString() ?: latest.change,
+                changeRate = quoteMetrics?.changeRate?.toPlainString() ?: latest.changeRate,
             )
     }
+
+    private fun isSameQuotePeriod(
+        interval: String,
+        quoteTs: Instant,
+        latestTs: Instant,
+    ): Boolean {
+        val quoteDate = quoteTs.atZone(kst).toLocalDate()
+        val latestDate = latestTs.atZone(kst).toLocalDate()
+        return when (interval) {
+            "1d" -> quoteDate == latestDate
+            "1wk" -> weekStart(quoteDate) == weekStart(latestDate)
+            "1mo" -> quoteDate.year == latestDate.year && quoteDate.month == latestDate.month
+            "1y" -> quoteDate.year == latestDate.year
+            else -> false
+        }
+    }
+
+    private fun weekStart(date: java.time.LocalDate): java.time.LocalDate = date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+
+    private fun resolvePeriodChangeMetrics(
+        price: BigDecimal,
+        previousCloseRaw: String?,
+    ): QuoteDisplayMetrics? {
+        val previousClose = previousCloseRaw?.toBigDecimalOrNull() ?: return null
+        val change = price - previousClose
+        val changeRate = formatChangeRate(change, previousClose)?.toBigDecimalOrNull()
+        return QuoteDisplayMetrics(previousClose, change, changeRate)
+    }
+
+    private data class QuoteDisplayMetrics(
+        val previousClose: BigDecimal,
+        val change: BigDecimal,
+        val changeRate: BigDecimal?,
+    )
 
     private fun readQuoteLast(code: String): Map<String, Any?> {
         val quoteJson =
@@ -283,4 +330,8 @@ class CandleQueryService(
             log.debug("Redis candle hash 조회 실패: key={} err={}", key, e.message)
             null
         }
+
+    private companion object {
+        val QUOTE_CURRENT_CANDLE_INTERVALS = setOf("1d", "1wk", "1mo", "1y")
+    }
 }

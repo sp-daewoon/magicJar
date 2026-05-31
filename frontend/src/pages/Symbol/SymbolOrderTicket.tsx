@@ -94,6 +94,16 @@ function normalizeNumericText(value: string): string {
   return value.replace(/,/g, '').trim()
 }
 
+function formatNumericInput(value: string): string {
+  const normalized = normalizeNumericText(value)
+  if (!normalized) return ''
+  const [integerPart, decimalPart] = normalized.split('.', 2)
+  const integer = Number(integerPart)
+  if (!Number.isFinite(integer)) return value
+  const formattedInteger = integer.toLocaleString('ko-KR', { maximumFractionDigits: 0 })
+  return decimalPart === undefined ? formattedInteger : `${formattedInteger}.${decimalPart}`
+}
+
 function sideLabel(side: OrderSide): string {
   return side === 'BUY' ? '매수' : '매도'
 }
@@ -444,7 +454,7 @@ export function SymbolOrderTicket({
               id="symbolOrderLimitPrice"
               type="text"
               inputMode="decimal"
-              value={selectedLimitPrice}
+              value={formatNumericInput(selectedLimitPrice)}
               onChange={(e) => handleLimitPriceChange(e.target.value)}
               className="h-10 w-full rounded-lg border border-gray-700 bg-gray-950 px-3 text-sm font-semibold text-white tabular-nums focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
               placeholder="0"

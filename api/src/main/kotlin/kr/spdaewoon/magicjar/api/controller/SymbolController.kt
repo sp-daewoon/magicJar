@@ -10,8 +10,11 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
 import kr.spdaewoon.magicjar.api.persistence.UserAccountJpaRepository
 import kr.spdaewoon.magicjar.api.service.CandleQueryService
+import kr.spdaewoon.magicjar.api.service.CandleRecollectJobService
 import kr.spdaewoon.magicjar.api.service.CandleRefreshService
 import kr.spdaewoon.magicjar.api.service.SymbolMetaService
+import kr.spdaewoon.magicjar.api.service.dto.CandleRecollectJobResponse
+import kr.spdaewoon.magicjar.api.service.dto.CandleRecollectProgressEvent
 import kr.spdaewoon.magicjar.api.service.dto.CandleRecollectResponse
 import kr.spdaewoon.magicjar.api.service.dto.CandleRefreshResponse
 import org.slf4j.LoggerFactory
@@ -22,6 +25,7 @@ import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
+import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.server.ResponseStatusException
 import java.time.Instant
@@ -47,6 +51,7 @@ class SymbolController(
     private val symbolMetaService: SymbolMetaService,
     private val candleQueryService: CandleQueryService,
     private val candleRefreshService: CandleRefreshService,
+    private val candleRecollectJobService: CandleRecollectJobService,
     private val kafkaTemplate: KafkaTemplate<String, String>,
     private val userAccountJpaRepository: UserAccountJpaRepository,
     private val objectMapper: ObjectMapper,
@@ -239,6 +244,63 @@ class SymbolController(
             log.error("recollectCandles 오류: code={} intervals={} err={}", code, intervals, e.message)
             throw ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "캔들 재수집 중 오류가 발생했습니다")
         }
+    }
+
+    @Operation(
+        summary = "캔들 초기화 후 재수집 job 시작",
+        description =
+            "긴 1m/합산봉 재수집을 HTTP 동기 대기 없이 수행합니다. 응답의 topic을 STOMP로 구독하면 " +
+                "진행 상태를 받을 수 있고, 같은 jobId를 REST로 조회해 STOMP 누락을 보완할 수 있습니다.",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "202", description = "재수집 job 접수"),
+        ApiResponse(
+            responseCode = "400",
+            description = "잘못된 종목코드",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+    )
+    @PostMapping("/{code}/candles/recollect/jobs")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    fun startRecollectJob(
+        @Parameter(description = "KIS 종목코드 6자리", example = "005930")
+        @PathVariable code: String,
+        @Parameter(
+            description = "재수집 대상 interval CSV. 합산봉(3m~12h)은 1m도 함께 재수집 후 재생성",
+            example = "3m",
+        )
+        @RequestParam(defaultValue = "") intervals: String,
+    ): CandleRecollectJobResponse {
+        validateCode(code)
+        val intervalList = intervals.split(",").map { it.trim() }.filter { it.isNotBlank() }
+        if (intervalList.isEmpty()) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "재수집할 interval을 지정해 주세요")
+        }
+        return candleRecollectJobService.submitRecollect(code, intervalList)
+    }
+
+    @Operation(
+        summary = "캔들 재수집 job 상태 조회",
+        description = "STOMP progress 누락 시 같은 jobId의 마지막 상태를 조회합니다.",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "200", description = "job 상태 조회 성공"),
+        ApiResponse(
+            responseCode = "404",
+            description = "job 없음",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+    )
+    @GetMapping("/{code}/candles/recollect/jobs/{jobId}")
+    fun getRecollectJob(
+        @Parameter(description = "KIS 종목코드 6자리", example = "005930")
+        @PathVariable code: String,
+        @Parameter(description = "재수집 job id")
+        @PathVariable jobId: String,
+    ): CandleRecollectProgressEvent {
+        validateCode(code)
+        return candleRecollectJobService.find(code, jobId)
+            ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "캔들 재수집 job을 찾을 수 없습니다: $jobId")
     }
 
     @Operation(

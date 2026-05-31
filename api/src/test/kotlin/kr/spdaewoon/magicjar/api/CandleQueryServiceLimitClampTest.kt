@@ -9,6 +9,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.argumentCaptor
+import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
@@ -173,6 +174,93 @@ class CandleQueryServiceLimitClampTest {
         assertThat(last.previousClose).isEqualTo("235000")
         assertThat(last.change).isEqualTo("2000")
         assertThat(last.changeRate).isEqualTo("0.85")
+    }
+
+    @Test
+    fun `getCandles 상위봉 최신 요청은 같은 진행 기간이면 quote last로 마지막 close를 보정한다`() {
+        val intervals = listOf("1wk", "1mo", "1y")
+
+        for (interval in intervals) {
+            val repository = mock<CandleJpaRepository>()
+            val redisTemplate = mock<StringRedisTemplate>()
+            val hashOps = mock<HashOperations<String, String, String>>()
+            val valueOps = mock<ValueOperations<String, String>>()
+            whenever(redisTemplate.opsForHash<String, String>()).thenReturn(hashOps)
+            whenever(redisTemplate.opsForValue()).thenReturn(valueOps)
+            whenever(hashOps.entries(any())).thenReturn(emptyMap())
+            whenever(valueOps.get("quote:last:066570")).thenReturn(
+                """{"price":"293000","ts":"2026-05-29T10:59:54Z","source":"live-nxt","priceChange":"67500","changeRate":"29.93","changeSign":"1"}""",
+            )
+            whenever(repository.findByCodeAndIntervalLatest(eq("066570"), eq(interval), any())).thenReturn(
+                listOf(
+                    candle(
+                        ts = "2026-05-25T15:00:00Z",
+                        open = 241_500,
+                        high = 254_000,
+                        low = 228_000,
+                        close = 240_000,
+                        volume = 4_299_799L,
+                    ),
+                    candle(
+                        ts = "2026-05-18T15:00:00Z",
+                        open = 240_500,
+                        high = 254_500,
+                        low = 175_200,
+                        close = 184_400,
+                        volume = 27_943_337L,
+                    ),
+                ),
+            )
+            val service =
+                CandleQueryService(
+                    candleJpaRepository = repository,
+                    redisTemplate = redisTemplate,
+                    objectMapper = ObjectMapper(),
+                    chartCandleProperties = ChartCandleProperties(maxResponseLimit = 5000),
+                )
+
+            val response = service.getCandles(code = "066570", interval = interval, before = null, limit = 10)
+            val last = response.candles.last()
+
+            assertThat(last.close).isEqualTo("293000")
+            assertThat(last.high).isEqualTo("293000")
+            assertThat(last.previousClose).isEqualTo("184400")
+            assertThat(last.change).isEqualTo("108600")
+            assertThat(last.changeRate).isEqualTo("58.89")
+        }
+    }
+
+    @Test
+    fun `getCandles 상위봉 최신 요청은 quote last와 다른 기간이면 DB 값을 유지한다`() {
+        val repository = mock<CandleJpaRepository>()
+        val redisTemplate = mock<StringRedisTemplate>()
+        val hashOps = mock<HashOperations<String, String, String>>()
+        val valueOps = mock<ValueOperations<String, String>>()
+        whenever(redisTemplate.opsForHash<String, String>()).thenReturn(hashOps)
+        whenever(redisTemplate.opsForValue()).thenReturn(valueOps)
+        whenever(hashOps.entries(any())).thenReturn(emptyMap())
+        whenever(valueOps.get("quote:last:066570")).thenReturn(
+            """{"price":"293000","ts":"2026-05-29T10:59:54Z","source":"live-nxt","priceChange":"67500","changeRate":"29.93","changeSign":"1"}""",
+        )
+        whenever(repository.findByCodeAndIntervalLatest(eq("066570"), eq("1wk"), any())).thenReturn(
+            listOf(
+                candle(ts = "2026-05-18T15:00:00Z", open = 240_500, high = 254_500, low = 175_200, close = 184_400, volume = 27_943_337L),
+                candle(ts = "2026-05-11T15:00:00Z", open = 154_100, high = 269_500, low = 152_000, close = 238_500, volume = 62_427_168L),
+            ),
+        )
+        val service =
+            CandleQueryService(
+                candleJpaRepository = repository,
+                redisTemplate = redisTemplate,
+                objectMapper = ObjectMapper(),
+                chartCandleProperties = ChartCandleProperties(maxResponseLimit = 5000),
+            )
+
+        val response = service.getCandles(code = "066570", interval = "1wk", before = null, limit = 10)
+        val last = response.candles.last()
+
+        assertThat(last.close).isEqualTo("184400")
+        assertThat(last.high).isEqualTo("254500")
     }
 
     private fun candle(

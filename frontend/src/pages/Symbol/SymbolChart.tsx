@@ -33,7 +33,7 @@
 import { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import type { IChartApi, ISeriesApi } from 'lightweight-charts'
 import { useSymbolCandles } from '../../api/hooks/useSymbolCandles'
-import { useCandleRecollect, useCandleRefresh } from '../../api/hooks/useCandleRefresh'
+import { useCandleRecollectJob, useCandleRefresh } from '../../api/hooks/useCandleRefresh'
 import type { CandleInterval, CandleDto, CandleMinutePayload } from '../../api/symbol'
 import type { ChartPriceTimePoint, LiveTick } from './LightweightChart'
 import type {
@@ -172,7 +172,7 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
       showToast(`캔들 갱신 실패: ${msg}`, 'error')
     },
   })
-  const { recollect: recollectCandles, isPending: isRecollecting } = useCandleRecollect({
+  const { recollect: recollectCandles, isPending: isRecollecting, progress: recollectProgress } = useCandleRecollectJob({
     code,
     intervals: [interval],
     onSuccess: (deleted, inserted) => {
@@ -193,6 +193,17 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
     if (!ok) return
     recollectCandles()
   }, [code, interval, recollectCandles])
+
+  const activeRecollectProgress =
+    recollectProgress && (recollectProgress.status === 'QUEUED' || recollectProgress.status === 'RUNNING')
+      ? recollectProgress
+      : null
+  const recollectProgressPercent =
+    activeRecollectProgress?.processedDays != null &&
+    activeRecollectProgress.totalDays != null &&
+    activeRecollectProgress.totalDays > 0
+      ? Math.min(100, Math.round((activeRecollectProgress.processedDays / activeRecollectProgress.totalDays) * 100))
+      : null
 
   // 지표 관련 상태
   const [isPanelOpen, setIsPanelOpen] = useState(false)
@@ -801,6 +812,23 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
               </button>
             </span>
           ))}
+        </div>
+      )}
+
+      {activeRecollectProgress && (
+        <div className="mb-3 rounded-md border border-amber-800/50 bg-amber-950/20 px-3 py-2" role="status" aria-live="polite">
+          <div className="flex items-center justify-between gap-3 text-xs">
+            <span className="min-w-0 truncate text-amber-200">{activeRecollectProgress.message}</span>
+            {recollectProgressPercent !== null && (
+              <span className="shrink-0 font-mono text-amber-300">{recollectProgressPercent}%</span>
+            )}
+          </div>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-800">
+            <div
+              className="h-full rounded-full bg-amber-400 transition-all"
+              style={{ width: `${recollectProgressPercent ?? 18}%` }}
+            />
+          </div>
         </div>
       )}
 

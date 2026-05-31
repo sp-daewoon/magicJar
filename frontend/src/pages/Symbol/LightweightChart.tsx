@@ -333,6 +333,12 @@ function fmtPrice(v: number): string {
   return v.toLocaleString('ko-KR')
 }
 
+const KRW_PRICE_FORMAT = {
+  type: 'custom' as const,
+  minMove: 1,
+  formatter: fmtPrice,
+}
+
 /** 거래량 포맷 */
 function fmtVolume(v: number): string {
   if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}백만`
@@ -508,6 +514,7 @@ export function LightweightChart({
       },
       localization: {
         locale: 'ko-KR',
+        priceFormatter: fmtPrice,
         timeFormatter: (time: UTCTimestamp | { year: number; month: number; day: number }) => {
           return formatKstTime(time, isIntradayInterval(intervalRef.current))
         },
@@ -527,6 +534,7 @@ export function LightweightChart({
       borderUpColor: '#26a69a',
       wickDownColor: '#ef5350',
       wickUpColor: '#26a69a',
+      priceFormat: KRW_PRICE_FORMAT,
     })
     candleSeriesRef.current = candleSeries
     // PatternMarker 연동 콜백 (T-PAT PR-40)

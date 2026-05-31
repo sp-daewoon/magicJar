@@ -7,6 +7,7 @@ import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.api.service.dto.CandleRecollectResponse
+import kr.spdaewoon.magicjar.api.service.dto.CandleRefreshProgressUpdate
 import kr.spdaewoon.magicjar.api.service.dto.CandleRefreshResponse
 import kr.spdaewoon.magicjar.api.service.dto.IntervalRefreshResult
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
@@ -170,6 +171,7 @@ class CandleRefreshService(
         code: String,
         intervals: List<String>,
         priority: KisCallPriority = KisCallPriority.USER_PATH,
+        progress: ((CandleRefreshProgressUpdate) -> Unit)? = null,
     ): CandleRefreshResponse {
         val startMs = System.currentTimeMillis()
 
@@ -197,14 +199,48 @@ class CandleRefreshService(
         // priority 전파: 사용자 path = USER_PATH (default) / scheduler path = BACKFILL (LiveDailyCandleScheduler)
         val results = mutableListOf<IntervalRefreshResult>()
         for (intervalCode in effectiveIntervals) {
+            progress?.invoke(
+                CandleRefreshProgressUpdate(
+                    stage = "FETCHING",
+                    interval = intervalCode,
+                    message = "$intervalCode 캔들 KIS 원천 수집 중",
+                ),
+            )
             val result =
                 when (intervalCode) {
-                    "1m" -> refreshOneMinCandlesWithFallback(code, mrktDivCodes, accessToken, appKey, secretKey, priority)
+                    "1m" ->
+                        refreshOneMinCandlesWithFallback(
+                            code,
+                            mrktDivCodes,
+                            accessToken,
+                            appKey,
+                            secretKey,
+                            priority,
+                            progress,
+                        )
                     in DAILY_INTERVALS ->
-                        refreshDailyCandlesWithFallback(code, intervalCode, mrktDivCodes, accessToken, appKey, secretKey, priority)
+                        refreshDailyCandlesWithFallback(
+                            code,
+                            intervalCode,
+                            mrktDivCodes,
+                            accessToken,
+                            appKey,
+                            secretKey,
+                            priority,
+                            progress,
+                        )
                     else -> IntervalRefreshResult(intervalCode, 0, 0, null, "SKIPPED")
                 }
             results.add(result)
+            progress?.invoke(
+                CandleRefreshProgressUpdate(
+                    stage = "FETCHED",
+                    interval = intervalCode,
+                    fetchedCount = result.fetchedCount,
+                    insertedCount = result.insertedCount,
+                    message = "$intervalCode 캔들 수집 완료 (${result.status})",
+                ),
+            )
         }
 
         val elapsedMs = System.currentTimeMillis() - startMs
@@ -229,6 +265,7 @@ class CandleRefreshService(
         code: String,
         intervals: List<String>,
         priority: KisCallPriority = KisCallPriority.USER_PATH,
+        progress: ((CandleRefreshProgressUpdate) -> Unit)? = null,
     ): CandleRecollectResponse {
         val startMs = System.currentTimeMillis()
 
@@ -276,15 +313,30 @@ class CandleRefreshService(
         }
         val refreshIntervals = refreshIntervalSet.toList()
 
+        progress?.invoke(
+            CandleRefreshProgressUpdate(
+                stage = "DELETING",
+                interval = null,
+                message = "기존 캔들 삭제 중",
+            ),
+        )
         val deletedCount = candleJpaRepository.deleteByCodeAndIntervalIn(code, resetIntervals)
-        val refreshResponse = refresh(code, refreshIntervals, priority)
+        progress?.invoke(
+            CandleRefreshProgressUpdate(
+                stage = "DELETED",
+                interval = null,
+                insertedCount = 0,
+                message = "기존 캔들 $deletedCount 건 삭제 완료",
+            ),
+        )
+        val refreshResponse = refresh(code, refreshIntervals, priority, progress)
 
         val rebuildTargets =
             when {
                 CandleInterval.ONE_MIN.code in requestedSet -> AGGREGATE_INTERVALS
                 else -> aggregateRequested.map { CandleInterval.fromCode(it) }.toSet()
             }.sortedBy { it.code }
-        val rebuiltIntervals = rebuildAggregateIntervals(code, rebuildTargets)
+        val rebuiltIntervals = rebuildAggregateIntervals(code, rebuildTargets, progress)
 
         val elapsedMs = System.currentTimeMillis() - startMs
         log.info(
@@ -343,6 +395,7 @@ class CandleRefreshService(
         appKey: String,
         secretKey: String,
         priority: KisCallPriority,
+        progress: ((CandleRefreshProgressUpdate) -> Unit)?,
     ): IntervalRefreshResult {
         for ((index, mrktDivCode) in mrktDivCodes.withIndex()) {
             val result = refreshDailyCandles(code, intervalCode, mrktDivCode, accessToken, appKey, secretKey, priority)
@@ -366,9 +419,10 @@ class CandleRefreshService(
         appKey: String,
         secretKey: String,
         priority: KisCallPriority,
+        progress: ((CandleRefreshProgressUpdate) -> Unit)?,
     ): IntervalRefreshResult {
         for ((index, mrktDivCode) in mrktDivCodes.withIndex()) {
-            val result = refreshOneMinCandles(code, mrktDivCode, accessToken, appKey, secretKey, priority)
+            val result = refreshOneMinCandles(code, mrktDivCode, accessToken, appKey, secretKey, priority, progress)
             if (result.fetchedCount > 0 || result.status != "OK" || index == mrktDivCodes.lastIndex) {
                 return result
             }
@@ -675,7 +729,7 @@ class CandleRefreshService(
     }
 
     /**
-     * 1m 분봉 갱신 (FHKST03010230) — 직전 30 거래일 역방향 페이지네이션.
+     * 1m 분봉 갱신 (FHKST03010230) — ADR 0105 one-minute 설정 기반 역방향 페이지네이션.
      *
      * raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
      * - fid_cond_mrkt_div_code: J(KRX주식) 또는 UN(통합 — ADR 0091 종목 단위 후보만)
@@ -685,7 +739,7 @@ class CandleRefreshService(
      * - fid_pw_data_incu_yn: N
      * - fid_fake_tick_incu_yn: (빈 문자열)
      *
-     * Rate Limit (ADR 0037): 50ms 간격 유지.
+     * Rate Limit (ADR 0037): [PAGE_INTERVAL_MS] 간격 유지.
      */
     private fun refreshOneMinCandles(
         code: String,
@@ -694,32 +748,32 @@ class CandleRefreshService(
         appKey: String,
         secretKey: String,
         priority: KisCallPriority,
+        progress: ((CandleRefreshProgressUpdate) -> Unit)?,
     ): IntervalRefreshResult {
         val allRows = mutableListOf<Map<String, Any>>()
         val seenTs = mutableSetOf<Long>()
 
-        // 직전 30 거래일 수집 (주말 제외 — 약 45 달력일 커버)
-        val targetDays = mutableListOf<LocalDate>()
-        var d = LocalDate.now(KST_ZONE)
-        var checked = 0
-        while (targetDays.size < 30 && checked < 60) {
-            val dow = d.dayOfWeek
-            if (dow != java.time.DayOfWeek.SATURDAY && dow != java.time.DayOfWeek.SUNDAY) {
-                targetDays.add(d)
-            }
-            d = d.minusDays(1)
-            checked++
-        }
+        val targetDays = oneMinuteTargetDays()
+        val maxPagesPerDay = chartCandleProperties.oneMinute.normalizedMaxPagesPerDay()
+        progress?.invoke(
+            CandleRefreshProgressUpdate(
+                stage = "FETCHING_1M",
+                interval = "1m",
+                processedDays = 0,
+                totalDays = targetDays.size,
+                fetchedCount = 0,
+                message = "1m 캔들 ${targetDays.size}거래일 수집 시작",
+            ),
+        )
 
         // H4 1m path 1회 재시도 게이트 (2026-05-22 KIS_TPS_EXCEEDED 종합 fix §B).
         // 메서드 단위 LOCK — 30 거래일 × 8 페이지 max 전체에서 최대 1회 backoff + retry 보장.
         var oneMinRateLimitRetried = false
 
-        for (targetDate in targetDays) {
+        for ((dayIndex, targetDate) in targetDays.withIndex()) {
             val dateStr = targetDate.format(DATE_FMT)
             var currentHour = "200000"
             var pageCount = 0
-            val maxPagesPerDay = 8
             var dayDone = false
 
             while (!dayDone && pageCount < maxPagesPerDay) {
@@ -901,6 +955,16 @@ class CandleRefreshService(
                     }
                 }
             }
+            progress?.invoke(
+                CandleRefreshProgressUpdate(
+                    stage = "FETCHING_1M",
+                    interval = "1m",
+                    processedDays = dayIndex + 1,
+                    totalDays = targetDays.size,
+                    fetchedCount = allRows.size,
+                    message = "1m 캔들 수집 중 (${dayIndex + 1}/${targetDays.size} 거래일)",
+                ),
+            )
         }
 
         // 수집된 raw rows → DB upsert
@@ -908,6 +972,23 @@ class CandleRefreshService(
         val latestTs = queryLatestTs(code, "1m")
         log.info("1m 캔들 갱신 완료: code={} fetched={} inserted={}", code, allRows.size, inserted)
         return IntervalRefreshResult("1m", allRows.size, inserted, latestTs, "OK")
+    }
+
+    private fun oneMinuteTargetDays(anchorDate: LocalDate = LocalDate.now(KST_ZONE)): List<LocalDate> {
+        val lookbackTradingDays = chartCandleProperties.oneMinute.normalizedLookbackTradingDays()
+        val maxCalendarScanDays = (lookbackTradingDays * 2).coerceAtLeast(lookbackTradingDays + 14)
+        val targetDays = mutableListOf<LocalDate>()
+        var date = anchorDate
+        var checked = 0
+        while (targetDays.size < lookbackTradingDays && checked < maxCalendarScanDays) {
+            val dow = date.dayOfWeek
+            if (dow != java.time.DayOfWeek.SATURDAY && dow != java.time.DayOfWeek.SUNDAY) {
+                targetDays.add(date)
+            }
+            date = date.minusDays(1)
+            checked++
+        }
+        return targetDays
     }
 
     /**
@@ -1045,6 +1126,7 @@ class CandleRefreshService(
     private fun rebuildAggregateIntervals(
         code: String,
         targets: Collection<CandleInterval>,
+        progress: ((CandleRefreshProgressUpdate) -> Unit)? = null,
     ): List<IntervalRefreshResult> {
         if (targets.isEmpty()) return emptyList()
 
@@ -1059,17 +1141,39 @@ class CandleRefreshService(
             }
         }
 
-        return targets.map { target ->
+        return targets.mapIndexed { index, target ->
             runCatching {
+                progress?.invoke(
+                    CandleRefreshProgressUpdate(
+                        stage = "REBUILDING",
+                        interval = target.code,
+                        processedDays = index,
+                        totalDays = targets.size,
+                        message = "${target.code} 합산봉 재생성 중",
+                    ),
+                )
                 val aggregated = CandleAggregator.aggregate(oneMinCandles, target)
                 val inserted = upsertAggregateCandles(aggregated)
-                IntervalRefreshResult(
-                    interval = target.code,
-                    fetchedCount = aggregated.size,
-                    insertedCount = inserted,
-                    latestTs = queryLatestTs(code, target.code),
-                    status = "OK",
+                val result =
+                    IntervalRefreshResult(
+                        interval = target.code,
+                        fetchedCount = aggregated.size,
+                        insertedCount = inserted,
+                        latestTs = queryLatestTs(code, target.code),
+                        status = "OK",
+                    )
+                progress?.invoke(
+                    CandleRefreshProgressUpdate(
+                        stage = "REBUILT",
+                        interval = target.code,
+                        processedDays = index + 1,
+                        totalDays = targets.size,
+                        fetchedCount = aggregated.size,
+                        insertedCount = inserted,
+                        message = "${target.code} 합산봉 재생성 완료",
+                    ),
                 )
+                result
             }.getOrElse { ex ->
                 log.warn(
                     "합산봉 재생성 실패: code={} interval={} err={}",

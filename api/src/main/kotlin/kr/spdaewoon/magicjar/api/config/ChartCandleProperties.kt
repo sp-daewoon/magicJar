@@ -35,6 +35,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties
  *         "1m": 48
  *         ...
  *       max-response-limit: 5000
+ *       one-minute:
+ *         default-lookback-trading-days: 126
+ *         max-lookback-trading-days: 252
+ *         max-pages-per-day: 8
  *   ```
  *
  * 진보 페르소나 결정 메모 (ADR 0087):
@@ -62,6 +66,10 @@ data class ChartCandleProperties(
      * default 5000 = ADR 0093 §3-1 일봉 max cap 정합.
      */
     val maxResponseLimit: Int = 5000,
+    /**
+     * KIS `FHKST03010230` 기반 1m 장기 backfill/recollection 설정.
+     */
+    val oneMinute: OneMinuteBackfillProperties = OneMinuteBackfillProperties(),
 ) {
     /**
      * Interval code → max pages 안전 lookup (fallback 정합).
@@ -70,4 +78,24 @@ data class ChartCandleProperties(
      * @return 매트릭스 명시 값 또는 [defaultMaxPages]
      */
     fun getMaxPagesFor(interval: String): Int = maxPagesByInterval[interval] ?: defaultMaxPages
+}
+
+/**
+ * 1m backfill/recollection 전용 설정 (ADR 0105).
+ */
+data class OneMinuteBackfillProperties(
+    val defaultLookbackTradingDays: Int = 126,
+    val maxLookbackTradingDays: Int = 252,
+    val maxPagesPerDay: Int = 8,
+) {
+    fun normalizedLookbackTradingDays(): Int {
+        val maxTradingDays = maxLookbackTradingDays.coerceAtLeast(1)
+        return defaultLookbackTradingDays.coerceIn(1, maxTradingDays)
+    }
+
+    fun normalizedMaxPagesPerDay(): Int = maxPagesPerDay.coerceIn(1, MAX_PAGES_PER_DAY_CAP)
+
+    companion object {
+        const val MAX_PAGES_PER_DAY_CAP: Int = 8
+    }
 }

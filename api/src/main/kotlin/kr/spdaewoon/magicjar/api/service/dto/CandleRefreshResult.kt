@@ -29,6 +29,55 @@ data class CandleRecollectResponse(
 )
 
 /**
+ * 캔들 재수집 비동기 job 시작 응답.
+ *
+ * HTTP는 jobId만 즉시 반환하고, 진행 상태는 STOMP topic + REST poll fallback으로 확인한다.
+ */
+data class CandleRecollectJobResponse(
+    val jobId: String,
+    val code: String,
+    val intervals: List<String>,
+    val status: String,
+    val topic: String,
+    val submittedAt: String,
+)
+
+/**
+ * 캔들 재수집 progress event.
+ *
+ * topic: /topic/candle.recollect.{code}.{jobId}
+ */
+data class CandleRecollectProgressEvent(
+    val jobId: String,
+    val code: String,
+    val intervals: List<String>,
+    val status: String,
+    val stage: String,
+    val processedDays: Int?,
+    val totalDays: Int?,
+    val deletedCount: Int,
+    val insertedCount: Int,
+    val rebuiltCount: Int,
+    val message: String,
+    val elapsedMs: Long?,
+    val error: String?,
+    val updatedAt: String,
+)
+
+/**
+ * CandleRefreshService 내부 진행 상황 콜백 payload.
+ */
+data class CandleRefreshProgressUpdate(
+    val stage: String,
+    val interval: String?,
+    val processedDays: Int? = null,
+    val totalDays: Int? = null,
+    val fetchedCount: Int? = null,
+    val insertedCount: Int? = null,
+    val message: String,
+)
+
+/**
  * interval 별 갱신 결과.
  *
  * @param interval 인터벌 코드 (예: "1d", "1wk", "1mo", "1y", "1m")

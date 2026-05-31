@@ -204,6 +204,32 @@ export interface CandleRecollectResponseDto {
   elapsedMs: number
 }
 
+export interface CandleRecollectJobResponseDto {
+  jobId: string
+  code: string
+  intervals: string[]
+  status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | string
+  topic: string
+  submittedAt: string
+}
+
+export interface CandleRecollectProgressDto {
+  jobId: string
+  code: string
+  intervals: string[]
+  status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | string
+  stage: string
+  processedDays: number | null
+  totalDays: number | null
+  deletedCount: number
+  insertedCount: number
+  rebuiltCount: number
+  message: string
+  elapsedMs: number | null
+  error: string | null
+  updatedAt: string
+}
+
 // ──────────────────────────────────────────────
 // axios API 함수
 // ──────────────────────────────────────────────
@@ -317,6 +343,35 @@ export const symbolApi = {
     const params = new URLSearchParams({ intervals: intervals.join(',') })
     const res = await apiClient.post<CandleRecollectResponseDto>(
       `/symbols/${encodeURIComponent(code)}/candles/recollect?${params.toString()}`,
+    )
+    return res.data
+  },
+
+  /**
+   * POST /api/symbols/{code}/candles/recollect/jobs?intervals=3m
+   * 긴 재수집을 비동기 job으로 시작하고 STOMP topic을 반환한다.
+   */
+  startCandleRecollectJob: async (
+    code: string,
+    intervals: string[],
+  ): Promise<CandleRecollectJobResponseDto> => {
+    const params = new URLSearchParams({ intervals: intervals.join(',') })
+    const res = await apiClient.post<CandleRecollectJobResponseDto>(
+      `/symbols/${encodeURIComponent(code)}/candles/recollect/jobs?${params.toString()}`,
+    )
+    return res.data
+  },
+
+  /**
+   * GET /api/symbols/{code}/candles/recollect/jobs/{jobId}
+   * STOMP progress 누락 보완용 poll fallback.
+   */
+  getCandleRecollectJob: async (
+    code: string,
+    jobId: string,
+  ): Promise<CandleRecollectProgressDto> => {
+    const res = await apiClient.get<CandleRecollectProgressDto>(
+      `/symbols/${encodeURIComponent(code)}/candles/recollect/jobs/${encodeURIComponent(jobId)}`,
     )
     return res.data
   },
