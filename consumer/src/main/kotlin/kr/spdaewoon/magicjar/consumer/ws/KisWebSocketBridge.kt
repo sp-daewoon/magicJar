@@ -9,6 +9,7 @@ import kr.spdaewoon.magicjar.domain.event.SystemEvent
 import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
 import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
 import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
+import kr.spdaewoon.magicjar.domain.market.candle.CandleSession
 import kr.spdaewoon.magicjar.domain.market.port.KisWsPort
 import kr.spdaewoon.magicjar.domain.market.port.QuoteCachePort
 import kr.spdaewoon.magicjar.domain.market.tick.TickEvent
@@ -24,6 +25,7 @@ import org.springframework.stereotype.Component
 import org.springframework.web.reactive.socket.WebSocketMessage
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient
 import reactor.core.Disposable
+import reactor.core.publisher.SignalType
 import reactor.core.publisher.Sinks
 import reactor.util.concurrent.Queues
 import java.net.URI
@@ -39,6 +41,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -134,8 +137,8 @@ class KisWebSocketBridge(
 
         private val LIVE_CANDLE_INTERVALS =
             listOf("1m", "3m", "5m", "15m", "30m", "90m", "1h", "4h", "12h", "1d", "1wk", "1mo", "1y")
-        private const val KRX_REGULAR_OPEN_MIN = 9 * 60
-        private val NINETY_MIN_BOUNDARY_STARTS = listOf(9 * 60, 10 * 60 + 30, 12 * 60, 13 * 60 + 30, 15 * 60)
+        private const val NXT_INTEGRATED_OPEN_MIN = CandleSession.NXT_INTEGRATED_OPEN_MIN
+        private val NINETY_MIN_BOUNDARY_STARTS = CandleSession.NINETY_MIN_START_MIN.toList()
     }
 
     private val log = LoggerFactory.getLogger(KisWebSocketBridge::class.java)
@@ -194,6 +197,7 @@ class KisWebSocketBridge(
 
     // 재연결 중복 방지 guard — watchdog 트리거 후 doFinally 완료 전 중복 dispose 차단.
     private val reconnecting = AtomicBoolean(false)
+    private val gracefulReconnectSuppressUntilEpochMillis = AtomicLong(0L)
 
     /**
      * P1 spec §6.1 emit point #4·#5 — WS_DISCONNECTED·WS_RECONNECTED·WS_CONNECTED correlationId 묶기.
@@ -628,6 +632,12 @@ class KisWebSocketBridge(
                             .then()
 
                     wsSession.send(sendFlux).mergeWith(receiveFlux).then()
+                }.doOnError { err ->
+                    log.warn(
+                        "KIS WS 연결 실패 — reconnect scheduled by doFinally: type={} message={}",
+                        err.javaClass.simpleName,
+                        err.message,
+                    )
                 }.doFinally { signal ->
                     // doFinally: onComplete·onError·cancel(dispose) 모두 처리.
                     // 이전 doOnTerminate는 cancel(dispose) 시 미호출 → watchdog dispose 후
@@ -648,7 +658,11 @@ class KisWebSocketBridge(
                     // fix: getAndSet으로 이전 cid 회수 → 있으면 그 cid에 대해 강제 RECONNECTED emit으로 짝 맞춤
                     //      (WS는 실제 종료된 상태이지만 이전 disconnect-reconnect 쌍 audit 닫기 의무 + emit point #5에서
                     //      재진입 후 새 cid emit 보장).
-                    if (!session.shuttingDown) {
+                    val gracefulReconnectCancel =
+                        signal == SignalType.CANCEL &&
+                            System.currentTimeMillis() <= gracefulReconnectSuppressUntilEpochMillis.get()
+
+                    if (!session.shuttingDown && !gracefulReconnectCancel) {
                         val correlationId = UUID.randomUUID().toString()
                         val stalePrevCid = currentDisconnectCorrelationId.getAndSet(correlationId)
                         if (stalePrevCid != null) {
@@ -675,8 +689,19 @@ class KisWebSocketBridge(
                             detailJson = """{"reason":"$signal"}""",
                         )
                         scheduleReconnect()
+                    } else if (gracefulReconnectCancel) {
+                        log.info("KIS WS graceful reconnect cancel signal — direct reconnect path가 처리하므로 scheduleReconnect skip")
                     }
-                }.subscribe()
+                }.subscribe(
+                    { },
+                    { err ->
+                        log.warn(
+                            "KIS WS 연결 오류 처리 완료 — Reactor onErrorDropped 차단: type={} message={}",
+                            err.javaClass.simpleName,
+                            err.message,
+                        )
+                    },
+                )
     }
 
     private fun handleMessage(raw: String) {
@@ -1095,8 +1120,8 @@ class KisWebSocketBridge(
             "30m" -> floorKstMinute(dayStart, minOfDay, 30)
             "90m" -> dayStart.plusMinutes(ninetyMinuteStart(minOfDay).toLong()).toInstant()
             "1h" -> zdt.truncatedTo(ChronoUnit.HOURS).toInstant()
-            "4h" -> anchoredKrxStart(dayStart, minOfDay, 4 * 60)
-            "12h" -> dayStart.plusMinutes(KRX_REGULAR_OPEN_MIN.toLong()).toInstant()
+            "4h" -> anchoredIntegratedStart(dayStart, minOfDay, 4 * 60)
+            "12h" -> dayStart.plusMinutes(NXT_INTEGRATED_OPEN_MIN.toLong()).toInstant()
             "1d" -> dayStart.toInstant()
             "1wk" -> {
                 val monday = zdt.toLocalDate().minusDays((zdt.dayOfWeek.value - 1).toLong())
@@ -1117,15 +1142,15 @@ class KisWebSocketBridge(
         return dayStart.plusMinutes(startMinute.toLong()).toInstant()
     }
 
-    private fun anchoredKrxStart(
+    private fun anchoredIntegratedStart(
         dayStart: java.time.ZonedDateTime,
         minOfDay: Int,
         intervalMinutes: Int,
     ): Instant {
-        val boundedMinute = minOfDay.coerceAtLeast(KRX_REGULAR_OPEN_MIN)
+        val boundedMinute = minOfDay.coerceAtLeast(NXT_INTEGRATED_OPEN_MIN)
         val startMinute =
-            KRX_REGULAR_OPEN_MIN +
-                ((boundedMinute - KRX_REGULAR_OPEN_MIN) / intervalMinutes) * intervalMinutes
+            NXT_INTEGRATED_OPEN_MIN +
+                ((boundedMinute - NXT_INTEGRATED_OPEN_MIN) / intervalMinutes) * intervalMinutes
         return dayStart.plusMinutes(startMinute.toLong()).toInstant()
     }
 
@@ -1279,6 +1304,7 @@ class KisWebSocketBridge(
         // 1. 기존 연결 종료 (shuttingDown은 false 유지)
         reconnecting.set(false) // graceful reconnect는 독립 경로 — watchdog guard 초기화
         stopHeartbeatWatchdog()
+        gracefulReconnectSuppressUntilEpochMillis.set(System.currentTimeMillis() + 2000L)
         wsDisposable?.dispose()
         sendSink?.tryEmitComplete()
         session.onDisconnected()

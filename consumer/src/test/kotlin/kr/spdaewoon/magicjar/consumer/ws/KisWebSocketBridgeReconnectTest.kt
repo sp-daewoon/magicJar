@@ -108,6 +108,19 @@ class KisWebSocketBridgeReconnectTest {
     }
 
     @Test
+    fun `reconnectGracefully cancel doFinally does not schedule duplicate reconnect`() {
+        every { wsClient.execute(any<URI>(), any()) } returns Mono.never()
+
+        bridge.connect()
+        TimeUnit.MILLISECONDS.sleep(100L)
+
+        bridge.reconnectGracefully("user001")
+        TimeUnit.MILLISECONDS.sleep(200L)
+
+        verify(exactly = 2) { wsClient.execute(any<URI>(), any()) }
+    }
+
+    @Test
     fun `shuttingDown true 시 reconnectGracefully 스킵`() {
         // given: shutdown 상태
         val session = getSession(bridge)

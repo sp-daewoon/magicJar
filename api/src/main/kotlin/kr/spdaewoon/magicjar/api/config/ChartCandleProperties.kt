@@ -14,7 +14,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties
  * | `1m`     | 48       | 4800             | KIS 분봉 distinct 30 거래일 LOCK 이내 |
  * | `3m`·`5m`·`15m`·`30m`·`90m`·`1h` | 38 | 3800 | 합산 가공 정합 |
  * | `4h`     | 20       | 2000             | 고타임프레임 합산 |
- * | `12h`    | 12       | 1200             | 정규장 전체 합산 |
+ * | `12h`    | 12       | 1200             | NXT 통합 세션 전체 합산 |
  * | `1d`     | 50       | 5000             | ≈ 20년 일봉 (일반 증권앱 표준) |
  * | `1wk`    | 20       | 2000             | ≈ 38년 주봉 |
  * | `1mo`    | 12       | 1200             | ≈ 100년 월봉 |

@@ -24,7 +24,8 @@ import org.springframework.stereotype.Component
  *   - admin REST endpoint 수동 트리거 (단발 운영)
  *
  * TradingView 정합:
- *   - 입력 1m 중 KRX 정규장(KST 09:00~15:30)만 합산한다.
+ *   - 입력 1m 중 NXT 통합 세션(KST 08:00~20:00)을 합산한다.
+ *   - KRX-only 종목은 해당 시간대 1m 데이터가 없으므로 자연스럽게 정규장만 남는다.
  *   - boundary 정렬은 CandleAggregator 내부 처리 — 본 클래스는 위임만.
  *
  * ADR 0019 §2-5 합성 폐기 결정 **revoke** (ADR 0062 채택 — 2026-05-11):

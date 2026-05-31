@@ -7,11 +7,15 @@ import kr.spdaewoon.magicjar.domain.account.AccountBalance
 import kr.spdaewoon.magicjar.domain.account.AccountHolding
 import kr.spdaewoon.magicjar.domain.account.KisAccountBalance
 import kr.spdaewoon.magicjar.domain.account.port.KisBalanceQueryPort
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimitTimeoutException
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.argumentCaptor
+import org.mockito.kotlin.atLeastOnce
+import org.mockito.kotlin.doAnswer
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
@@ -22,6 +26,11 @@ import org.springframework.data.redis.core.ValueOperations
 import java.math.BigDecimal
 import java.time.Duration
 import java.time.Instant
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * AccountQueryService 단위 테스트 — T-ACCT Phase 2 (ADR 0081 + spec §13).
@@ -133,7 +142,7 @@ class AccountQueryServiceTest {
         sut.getBalance(userId, AccountType.REAL)
 
         // REAL key 만 read·write 검증 (MOCK key 무관)
-        verify(valueOps).get(eq("account:balance:$userId:REAL"))
+        verify(valueOps, atLeastOnce()).get(eq("account:balance:$userId:REAL"))
         val keyCap = argumentCaptor<String>()
         verify(valueOps).set(keyCap.capture(), any<String>(), any<Duration>())
         assertThat(keyCap.firstValue).isEqualTo("account:balance:$userId:REAL")
@@ -149,7 +158,7 @@ class AccountQueryServiceTest {
 
         sut.getBalance(userId, AccountType.MOCK)
 
-        verify(valueOps).get(eq("account:balance:$userId:MOCK"))
+        verify(valueOps, atLeastOnce()).get(eq("account:balance:$userId:MOCK"))
         // REAL key 미접근 검증 (cross-contamination 차단)
         verify(valueOps, never()).get(eq("account:balance:$userId:REAL"))
     }
@@ -226,13 +235,95 @@ class AccountQueryServiceTest {
     @Test
     fun `cache 역직렬화 실패 — cache 삭제 후 KIS 재조회 (graceful)`() {
         whenever(redis.opsForValue()).thenReturn(valueOps)
-        whenever(valueOps.get(eq(cacheKey))).thenReturn("not-a-valid-json{")
+        whenever(valueOps.get(eq(cacheKey))).thenReturn("not-a-valid-json{", null)
         whenever(kisPort.fetchFullBalance(userId, accountType)).thenReturn(fixtureSnapshot())
 
         val response = sut.getBalance(userId, accountType)
 
         assertThat(response.cashBalance).isEqualByComparingTo("10000000.00")
         verify(redis).delete(eq(cacheKey))
+        verify(kisPort).fetchFullBalance(userId, accountType)
+    }
+
+    @Test
+    fun `concurrent cache miss — same account coalesces into one KIS call`() {
+        val backingCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+        val fetchCount = AtomicInteger(0)
+        val pool = Executors.newFixedThreadPool(3)
+        val start = CountDownLatch(1)
+        val done = CountDownLatch(3)
+
+        whenever(redis.opsForValue()).thenReturn(valueOps)
+        whenever(valueOps.get(any())).thenAnswer { invocation ->
+            backingCache[invocation.arguments[0] as String]
+        }
+        doAnswer { invocation ->
+            backingCache[invocation.arguments[0] as String] = invocation.arguments[1] as String
+            null
+        }.whenever(valueOps).set(any<String>(), any<String>(), any<Duration>())
+        whenever(kisPort.fetchFullBalance(userId, accountType)).thenAnswer {
+            fetchCount.incrementAndGet()
+            TimeUnit.MILLISECONDS.sleep(50)
+            fixtureSnapshot()
+        }
+
+        repeat(3) {
+            pool.submit {
+                try {
+                    start.await()
+                    sut.getSummary(userId, accountType)
+                } finally {
+                    done.countDown()
+                }
+            }
+        }
+
+        start.countDown()
+        assertThat(done.await(2, TimeUnit.SECONDS)).isTrue()
+        pool.shutdownNow()
+
+        assertThat(fetchCount.get()).isEqualTo(1)
+        verify(kisPort).fetchFullBalance(userId, accountType)
+    }
+
+    @Test
+    fun `concurrent rate-limit failure — same account shares short failure without serial KIS retry`() {
+        val fetchCount = AtomicInteger(0)
+        val errors = ConcurrentLinkedQueue<Throwable>()
+        val pool = Executors.newFixedThreadPool(3)
+        val start = CountDownLatch(1)
+        val done = CountDownLatch(3)
+
+        whenever(redis.opsForValue()).thenReturn(valueOps)
+        whenever(valueOps.get(any())).thenReturn(null)
+        whenever(kisPort.fetchFullBalance(userId, accountType)).thenAnswer {
+            fetchCount.incrementAndGet()
+            TimeUnit.MILLISECONDS.sleep(50)
+            throw KisRateLimitTimeoutException(KisCallPriority.USER_PATH, 3000L)
+        }
+
+        repeat(3) {
+            pool.submit {
+                try {
+                    start.await()
+                    sut.getSummary(userId, accountType)
+                } catch (ex: Throwable) {
+                    errors.add(ex)
+                } finally {
+                    done.countDown()
+                }
+            }
+        }
+
+        start.countDown()
+        assertThat(done.await(2, TimeUnit.SECONDS)).isTrue()
+        pool.shutdownNow()
+
+        assertThat(errors).hasSize(3)
+        assertThat(errors).allSatisfy { ex ->
+            assertThat(ex).isInstanceOf(KisRateLimitTimeoutException::class.java)
+        }
+        assertThat(fetchCount.get()).isEqualTo(1)
         verify(kisPort).fetchFullBalance(userId, accountType)
     }
 

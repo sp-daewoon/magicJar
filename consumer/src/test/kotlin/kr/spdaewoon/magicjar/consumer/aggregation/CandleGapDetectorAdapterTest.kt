@@ -219,6 +219,30 @@ class CandleGapDetectorAdapterTest {
         assertThat(gaps).hasSize(390)
     }
 
+    @Test
+    fun `1m interval — NXT candidate expected ts 8_00 ~ 19_59 720 bar per 일`() {
+        every { instrumentJpaRepository.findById("005930") } returns
+            Optional.of(
+                ConsumerInstrumentJpaEntity(
+                    code = "005930",
+                    name = "삼성전자",
+                    isKospi200 = true,
+                ),
+            )
+        every {
+            candleRepository.findAllTsByCodeAndIntervalBetween(
+                code = "005930",
+                interval = CandleInterval.ONE_MIN,
+                from = any(),
+                to = any(),
+            )
+        } returns emptyList()
+
+        val gaps = adapter.detectGaps("005930", CandleInterval.ONE_MIN, windowDays = 1)
+
+        assertThat(gaps).hasSize(720)
+    }
+
     // ──────────────────────────────────────────────────────────
     // §12 4축 교차 검증 (ADR 0086 §2-7 amend, 2026-05-19)
     // ──────────────────────────────────────────────────────────

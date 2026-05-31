@@ -8,6 +8,7 @@ import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepositor
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentStatusHistoryJpaRepository
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentStatus
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.market.candle.CandleSession
 import kr.spdaewoon.magicjar.domain.market.port.CandleGapDetectorPort
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import kr.spdaewoon.magicjar.domain.market.session.BusinessDayCalendar
@@ -31,7 +32,8 @@ import java.time.ZonedDateTime
  *   - 룰 #6 false positive 가드 (passive):
  *       * 거래정지·정리매매 종목 → empty list 반환 (ColdStartExecutor KIS_COLD_START_SKIPPED 정합)
  *       * 휴장일 제외 (BusinessDayCalendar.isBusinessDay() 호출)
- *       * 시간외(NXT) — Phase 2-A 1차 MVP 1m 갭은 정규장 09:00~15:30 KST만 cover (NXT cover는 Phase 후속)
+ *       * NXT 후보(`is_kospi200` 또는 `is_kosdaq150`)는 08:00~20:00 KST expected sequence 사용
+ *       * 그 외 종목은 KIS `J` fallback 정합상 KRX 정규장 09:00~15:30 KST expected sequence 사용
  *   - 룰 #7 false negative 가드: actual 0건이면 expected 전체 = 갭 list (last_ts null Phase 1 패턴 정합)
  *   - **룰 §12 Active gap detection 4축 교차 검증 (ADR 0090 Phase 2 정밀화, 2026-05-19)**:
  *       1축: `market_calendar.is_business_day=TRUE` (BusinessDayCalendar 권위 — 위 #6과 동일 호출)
@@ -70,13 +72,11 @@ class CandleGapDetectorAdapter(
     companion object {
         private val KST: ZoneId = ZoneId.of("Asia/Seoul")
 
-        /** KRX 정규장 시작 시각 (KST) — 1m expected sequence 시작점 */
-        private const val MARKET_OPEN_HOUR = 9
-        private const val MARKET_OPEN_MIN = 0
+        /** KRX-only fallback 시작 시각 (KST) — NXT 후보가 아닌 종목 expected sequence 시작점 */
+        private const val KRX_OPEN_MIN_OF_DAY = 9 * 60
 
-        /** KRX 정규장 마감 시각 (KST) — 15:30 → 1m expected sequence 종료점 (15:29 마지막) */
-        private const val MARKET_CLOSE_HOUR = 15
-        private const val MARKET_CLOSE_MIN = 30
+        /** KRX-only fallback 마감 시각 (KST) — 15:30 → 1m expected sequence 종료점 (15:29 마지막) */
+        private const val KRX_CLOSE_MIN_OF_DAY = 15 * 60 + 30
 
         /** 1d expected ts 정규화 — 00:00 KST (Candle.ts 정합 baseline) */
         private const val DAILY_TS_HOUR = 0
@@ -112,7 +112,7 @@ class CandleGapDetectorAdapter(
         val expected: List<Instant> =
             when (interval) {
                 CandleInterval.ONE_DAY -> expectedDailyTs(expectedDates)
-                CandleInterval.ONE_MIN -> expectedMinuteTs(expectedDates)
+                CandleInterval.ONE_MIN -> expectedMinuteTs(expectedDates, isNxtIntegratedCandidate(instrument))
                 else -> {
                     log.warn(
                         "CandleGapDetector — interval={} 미지원 (Phase 2-A는 1d·1m만 LOCK)",
@@ -395,24 +395,38 @@ class CandleGapDetectorAdapter(
         }
 
     /**
-     * 1분봉 expected ts — 각 거래일 09:00~15:29 KST (390 bar/일, 6.5h × 60분).
+     * 1분봉 expected ts.
      *
-     * NXT cover (08:00~20:00) Phase 후속 — 1차 MVP는 정규장만 LOCK
-     * (false positive 가드 — NXT 미시드 종목 무의미 호출 회피).
-     *
-     * 윈도우 30 거래일 × 390 = 11,700 ts/종목 (in-memory HashSet diff O(1)).
+     * - NXT 후보(KOSPI200/KOSDAQ150): 08:00~19:59 KST (720 bar/일)
+     * - 그 외 J fallback 종목: 09:00~15:29 KST (390 bar/일)
      */
-    private fun expectedMinuteTs(dates: List<LocalDate>): List<Instant> {
-        val result = ArrayList<Instant>(dates.size * 390)
+    private fun expectedMinuteTs(
+        dates: List<LocalDate>,
+        nxtIntegrated: Boolean,
+    ): List<Instant> {
+        val openMin =
+            if (nxtIntegrated) {
+                CandleSession.NXT_INTEGRATED_OPEN_MIN
+            } else {
+                KRX_OPEN_MIN_OF_DAY
+            }
+        val closeMin =
+            if (nxtIntegrated) {
+                CandleSession.NXT_INTEGRATED_CLOSE_MIN
+            } else {
+                KRX_CLOSE_MIN_OF_DAY
+            }
+        val totalBars = closeMin - openMin
+        val result = ArrayList<Instant>(dates.size * totalBars)
         for (d in dates) {
-            val open = ZonedDateTime.of(d, java.time.LocalTime.of(MARKET_OPEN_HOUR, MARKET_OPEN_MIN), KST)
-            // 09:00 ~ 15:29 → 391 bar (정규장)
-            // 15:30 정각은 마감 시각 → 마감 직전까지만 expected (마감 bar는 KIS 적재 정책에 따라 미생성 가능)
-            val totalBars = (MARKET_CLOSE_HOUR - MARKET_OPEN_HOUR) * 60 + (MARKET_CLOSE_MIN - MARKET_OPEN_MIN)
+            val open = ZonedDateTime.of(d, java.time.LocalTime.of(openMin / 60, openMin % 60), KST)
             for (i in 0 until totalBars) {
                 result.add(open.plusMinutes(i.toLong()).toInstant())
             }
         }
         return result
     }
+
+    private fun isNxtIntegratedCandidate(instrument: ConsumerInstrumentJpaEntity?): Boolean =
+        instrument?.let { it.isKospi200 || it.isKosdaq150 } ?: false
 }

@@ -11,7 +11,7 @@ import kotlinx.datetime.toLocalDateTime
  *   - ADR 0019 §2-5 "합성 폐기" 결정 **revoke** (ADR 0062 채택 — 2026-05-11).
  *     사용자(최고 관리자) 결정: 합산 위치 = A-1 백엔드 precomputed,
  *     source 시간 범위 = 옵션 2 과거 30 거래일, UI 매트릭스 = 합산 interval 활성화.
- *   - 2026-05-30 TradingView 정합 패치 — boundary 정렬은 KRX 정규장(KST 09:00~15:30) 기준.
+ *   - 2026-06-01 NXT policy patch — boundary 정렬은 NXT 통합(KST 08:00~20:00) 기준.
  *
  * 원칙:
  *   - Spring·JPA 의존 0 (도메인 모듈 ADR 0004 헥사고날 정합).
@@ -27,21 +27,20 @@ import kotlinx.datetime.toLocalDateTime
  *   vol   = sum(volume)
  *   source = first.source (원천 출처 유지, 보통 "KIS")
  *
- * boundary 정렬 (KST = UTC+9, KRX 정규장 09:00~15:30 기준):
- *   3m  : 09:00, 09:03, ..., 15:27  (130 bars/일)
- *   5m  : 09:00, 09:05, ..., 15:25  (78 bars/일)
- *   15m : 09:00, 09:15, ..., 15:15  (26 bars/일)
- *   30m : 09:00, 09:30, ..., 15:00  (13 bars/일)
- *   90m : 09:00, 10:30, 12:00, 13:30, 15:00  (마지막 30분 partial)
- *   1h  : 09:00, 10:00, ..., 15:00  (마지막 30분 partial)
- *   4h  : 09:00, 13:00  (마지막 2시간 30분 partial)
- *   12h : 09:00  (정규장 전체 1 bar, TradingView 세션 truncation 정합)
+ * boundary 정렬 (KST = UTC+9, NXT 통합 08:00~20:00 기준):
+ *   3m  : 08:00, 08:03, ..., 19:57  (240 bars/일)
+ *   5m  : 08:00, 08:05, ..., 19:55  (144 bars/일)
+ *   15m : 08:00, 08:15, ..., 19:45  (48 bars/일)
+ *   30m : 08:00, 08:30, ..., 19:30  (24 bars/일)
+ *   90m : 08:00, 09:30, 11:00, 12:30, 14:00, 15:30, 17:00, 18:30
+ *   1h  : 08:00, 09:00, ..., 19:00  (12 bars/일)
+ *   4h  : 08:00, 12:00, 16:00  (3 bars/일)
+ *   12h : 08:00  (NXT 통합 세션 전체 1 bar)
  *
- * 3m·5m·15m·30m·1h 는 KST 자정 기준의 단순 modulo 로도 자연스럽게 09:00·09:03·... 등에 정렬됨
- * (자정 기준 540분 = 09:00, 540/3·540/5·540/15·540/30·540/60 모두 정수).
+ * 3m·5m·15m·30m·1h 는 KST 자정 기준의 단순 modulo 로도 자연스럽게 08:00·08:03·... 등에 정렬됨
+ * (자정 기준 480분 = 08:00, 480/3·480/5·480/15·480/30·480/60 모두 정수).
  *
- * 90m 는 09:00 anchor 기준 90분 간격이지만 15:00~15:30 partial bar가 있어
- * 별도 boundary 테이블을 두고 lower_bound 매핑.
+ * 90m 는 08:00 anchor 기준 90분 간격이며 18:30~20:00으로 세션이 닫힌다.
  *
  * 경계 케이스:
  *   - candles 빈 list           → 빈 list 반환
@@ -56,22 +55,6 @@ import kotlinx.datetime.toLocalDateTime
  */
 object CandleAggregator {
     private val KST: TimeZone = TimeZone.of("Asia/Seoul")
-
-    /** KRX 정규장 시작 = KST 09:00. 자정으로부터 540분. */
-    private const val REGULAR_OPEN_MIN: Int = 9 * 60
-
-    /** KRX 정규장 종료 = KST 15:30. 자정으로부터 930분. */
-    private const val REGULAR_CLOSE_MIN: Int = 15 * 60 + 30
-
-    /** KRX 정규장 90m boundary anchor (KST hour·minute, 자정 기준 분 단위). */
-    private val NINETY_MIN_BOUNDARIES_KST_MIN: IntArray =
-        intArrayOf(
-            9 * 60 + 0, // 09:00
-            10 * 60 + 30, // 10:30
-            12 * 60 + 0, // 12:00
-            13 * 60 + 30, // 13:30
-            15 * 60 + 0, // 15:00 (정규장 종료 15:30 때문에 30분 partial)
-        )
 
     /** 지원 target interval 8종 (ADR 0062 UI 매트릭스 + FVG/OB 고타임프레임). */
     private val SUPPORTED_TARGETS: Set<CandleInterval> =
@@ -118,7 +101,7 @@ object CandleAggregator {
         val sorted =
             candles
                 .asSequence()
-                .filter { isRegularSessionMinute(it.ts) }
+                .filter { isIntegratedSessionMinute(it.ts) }
                 .sortedBy { it.ts.epochSeconds }
                 .toList()
         if (sorted.isEmpty()) return emptyList()
@@ -169,10 +152,10 @@ object CandleAggregator {
      *   3. target 별 boundary 분 단위 오프셋 산출.
      *   4. KST 자정의 epoch second + (boundary 분 × 60) 으로 복원.
      *
-     * 3m·5m·15m·30m·1h 는 (분 / 간격) × 간격 의 단순 modulo. 540(=09:00) 도 정수 배수라
-     * 09:00·09:03·09:05 등 KRX 정규장 boundary 에 자연 정렬.
+     * 3m·5m·15m·30m·1h 는 (분 / 간격) × 간격 의 단순 modulo. 480(=08:00) 도 정수 배수라
+     * 08:00·08:03·08:05 등 NXT 통합 boundary 에 자연 정렬.
      *
-     * 90m 는 09:00 anchor 기준 90분 간격이며, 마지막 15:00~15:30은 세션 종료로 잘리는 partial bar.
+     * 90m 는 08:00 anchor 기준 90분 간격이다.
      */
     internal fun computeBoundaryEpochSec(
         ts: Instant,
@@ -190,9 +173,9 @@ object CandleAggregator {
                 CandleInterval.FIFTEEN_MIN -> (minOfDay / 15) * 15
                 CandleInterval.THIRTY_MIN -> (minOfDay / 30) * 30
                 CandleInterval.ONE_HOUR -> (minOfDay / 60) * 60
-                CandleInterval.FOUR_HOUR -> fourHourBoundaryMin(minOfDay)
-                CandleInterval.TWELVE_HOUR -> REGULAR_OPEN_MIN
-                CandleInterval.NINETY_MIN -> ninetyMinBoundaryMin(minOfDay)
+                CandleInterval.FOUR_HOUR -> CandleSession.anchoredStart(minOfDay, 4 * 60)
+                CandleInterval.TWELVE_HOUR -> CandleSession.NXT_INTEGRATED_OPEN_MIN
+                CandleInterval.NINETY_MIN -> CandleSession.ninetyMinuteStart(minOfDay)
                 else ->
                     throw IllegalArgumentException(
                         "computeBoundaryEpochSec: 지원하지 않는 target=$target",
@@ -202,37 +185,9 @@ object CandleAggregator {
         return midnightEpochSec + boundaryMin * 60L
     }
 
-    private fun isRegularSessionMinute(ts: Instant): Boolean {
+    private fun isIntegratedSessionMinute(ts: Instant): Boolean {
         val kstLdt = ts.toLocalDateTime(KST)
         val minOfDay = kstLdt.hour * 60 + kstLdt.minute
-        return minOfDay >= REGULAR_OPEN_MIN && minOfDay < REGULAR_CLOSE_MIN
-    }
-
-    /**
-     * 자정 기준 분 [minOfDay] 가 속하는 90m anchor 분 단위 오프셋을 반환.
-     *
-     * lower_bound: 8개 anchor 중 minOfDay 이하 최대 anchor.
-     * minOfDay < 첫 anchor(540) 인 경우 → 정규장 밖이므로 실제 합산에서는 호출되지 않지만,
-     * 안전 default 로 첫 anchor 를 반환한다.
-     */
-    private fun ninetyMinBoundaryMin(minOfDay: Int): Int {
-        if (minOfDay < NINETY_MIN_BOUNDARIES_KST_MIN.first()) {
-            return NINETY_MIN_BOUNDARIES_KST_MIN.first()
-        }
-        var picked = NINETY_MIN_BOUNDARIES_KST_MIN.first()
-        for (anchor in NINETY_MIN_BOUNDARIES_KST_MIN) {
-            if (anchor <= minOfDay) picked = anchor else break
-        }
-        return picked
-    }
-
-    /**
-     * 4h boundary는 KRX 정규장 시작(09:00)을 anchor로 09:00·13:00 두 구간에 매핑한다.
-     * 실제 1m 데이터가 없는 분은 만들지 않으므로 종목별 조기 종료 시 마지막 구간은 자연스럽게 partial bar가 된다.
-     */
-    private fun fourHourBoundaryMin(minOfDay: Int): Int {
-        if (minOfDay < REGULAR_OPEN_MIN) return REGULAR_OPEN_MIN
-        val offset = minOfDay - REGULAR_OPEN_MIN
-        return REGULAR_OPEN_MIN + (offset / 240) * 240
+        return CandleSession.isInIntegratedSession(minOfDay)
     }
 }

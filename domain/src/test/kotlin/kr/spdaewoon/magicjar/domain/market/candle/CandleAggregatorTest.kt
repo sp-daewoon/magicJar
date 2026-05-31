@@ -13,14 +13,14 @@ import java.math.BigDecimal
 /**
  * CandleAggregator 단위 테스트.
  *
- * 검증 시나리오 (TradingView + KRX 정규장 boundary 정합):
+ * 검증 시나리오 (TradingView + NXT 통합 boundary 정합):
  *   1. 3m·5m·15m·30m·1h·90m 합산 — 각 interval boundary 정합
  *   2. OHLCV 정합 — open=first, close=last, high=max, low=min, vol=sum
  *   3. 빈 입력 / 잘못된 target / 비-1m 섞임 → IllegalArgumentException
  *   4. 다중 boundary 분산
  *   5. 거래정지 시뮬 (boundary 내 1m 0건 → bar 생략, mock 0 정합)
  *   6. ts 무정렬 입력 정렬·합산
- *   7. KRX 정규장 boundary sample (09:00 / 09:05 / 15:00 / 15:25)
+ *   7. NXT 통합 boundary sample (08:00 / 09:05 / 15:00 / 19:55)
  */
 class CandleAggregatorTest {
     private val kst = TimeZone.of("Asia/Seoul")
@@ -157,19 +157,19 @@ class CandleAggregatorTest {
     }
 
     @Test
-    fun `4h aggregate uses 0900 anchor and allows final session partial`() {
+    fun `4h aggregate uses 0800 NXT integrated anchor`() {
         val candles =
             (0 until 30).map { i ->
                 oneMin(kstTs(2026, 5, 11, 15, i), 100L, 105L, 95L, 101L, 1L)
             }
         val result = CandleAggregator.aggregate(candles, CandleInterval.FOUR_HOUR)
         result shouldHaveSize 1
-        result[0].ts shouldBe kstTs(2026, 5, 11, 13, 0)
+        result[0].ts shouldBe kstTs(2026, 5, 11, 12, 0)
         result[0].volume shouldBe 30L
     }
 
     @Test
-    fun `12h aggregate uses fixed 0900 regular-session anchor like TradingView style time bucket`() {
+    fun `12h aggregate uses fixed 0800 NXT integrated session anchor`() {
         val candles =
             (0 until 30).map { i ->
                 val totalMin = 9 * 60 + 30 + i
@@ -177,24 +177,24 @@ class CandleAggregatorTest {
             }
         val result = CandleAggregator.aggregate(candles, CandleInterval.TWELVE_HOUR)
         result shouldHaveSize 1
-        result[0].ts shouldBe kstTs(2026, 5, 11, 9, 0)
+        result[0].ts shouldBe kstTs(2026, 5, 11, 8, 0)
         result[0].closeRaw shouldBe BigDecimal(129)
         result[0].volume shouldBe 30L
     }
 
     @Test
-    fun `90m aggregate 0900 anchor ninety ones`() {
-        // 09:00 anchor 그룹 = 09:00 ~ 10:29 (90 분).
+    fun `90m aggregate 0800 anchor ninety ones`() {
+        // 08:00 anchor 그룹 = 08:00 ~ 09:29 (90 분).
         val candles =
             (0 until 90).map { i ->
-                val totalMin = 9 * 60 + i
+                val totalMin = 8 * 60 + i
                 val hh = totalMin / 60
                 val mm = totalMin % 60
                 oneMin(kstTs(2026, 5, 11, hh, mm), 100L, 100L, 100L, 100L, 1L)
             }
         val result = CandleAggregator.aggregate(candles, CandleInterval.NINETY_MIN)
         result shouldHaveSize 1
-        result[0].ts shouldBe kstTs(2026, 5, 11, 9, 0)
+        result[0].ts shouldBe kstTs(2026, 5, 11, 8, 0)
         result[0].volume shouldBe 90L
     }
 
@@ -330,7 +330,7 @@ class CandleAggregatorTest {
     }
 
     @Test
-    fun `KRX regular boundary 0900 epoch alignment`() {
+    fun `NXT integrated boundary 0900 epoch alignment`() {
         val expectedEpoch = kstTs(2026, 5, 11, 9, 0).epochSeconds
         val candles =
             listOf(oneMin(kstTs(2026, 5, 11, 9, 0), 100L, 100L, 100L, 100L, 1L))
@@ -339,7 +339,7 @@ class CandleAggregatorTest {
     }
 
     @Test
-    fun `KRX regular boundary samples 0905 1500 5m and 90m`() {
+    fun `NXT integrated boundary samples 0905 1500 5m and 90m`() {
         // 5m 09:05 (입력 09:07 -> 09:05 boundary)
         val r5 =
             CandleAggregator.aggregate(
@@ -364,18 +364,18 @@ class CandleAggregatorTest {
             )
         r1h[0].ts shouldBe kstTs(2026, 5, 11, 15, 0)
 
-        // 90m 15:00 anchor (입력 15:20 -> 15:00 anchor)
+        // 90m 14:00 anchor (입력 15:20 -> 14:00 anchor)
         val r90 =
             CandleAggregator.aggregate(
                 listOf(oneMin(kstTs(2026, 5, 11, 15, 20), 100L, 100L, 100L, 100L, 1L)),
                 CandleInterval.NINETY_MIN,
             )
-        r90[0].ts shouldBe kstTs(2026, 5, 11, 15, 0)
+        r90[0].ts shouldBe kstTs(2026, 5, 11, 14, 0)
     }
 
     @Test
-    fun `KRX regular last boundary 1525 five ones`() {
-        // KRX 정규장 마감 15:30. 15:25~15:29 1m 5건이 마지막 5m bar 형성.
+    fun `NXT integrated 1525 five minute bar remains valid before after-hour continuation`() {
+        // 15:25~15:29는 KRX 정규장 마지막 5m bar지만, NXT 통합 세션은 20:00까지 계속된다.
         val candles =
             (0 until 5).map { i ->
                 oneMin(kstTs(2026, 5, 11, 15, 25 + i), 100L, 100L, 100L, 100L, 1L)
@@ -387,20 +387,35 @@ class CandleAggregatorTest {
     }
 
     @Test
-    fun `off-session one minute candles are ignored for TradingView regular session`() {
+    fun `off-session one minute candles are ignored outside NXT integrated session`() {
         val candles =
             listOf(
-                oneMin(kstTs(2026, 5, 11, 8, 59), 50L, 50L, 50L, 50L, 100L),
-                oneMin(kstTs(2026, 5, 11, 9, 0), 100L, 110L, 95L, 105L, 1L),
-                oneMin(kstTs(2026, 5, 11, 15, 30), 200L, 200L, 200L, 200L, 100L),
+                oneMin(kstTs(2026, 5, 11, 7, 59), 50L, 50L, 50L, 50L, 100L),
+                oneMin(kstTs(2026, 5, 11, 8, 0), 100L, 110L, 95L, 105L, 1L),
+                oneMin(kstTs(2026, 5, 11, 20, 0), 200L, 200L, 200L, 200L, 100L),
             )
 
         val result = CandleAggregator.aggregate(candles, CandleInterval.FIVE_MIN)
 
         result shouldHaveSize 1
-        result[0].ts shouldBe kstTs(2026, 5, 11, 9, 0)
+        result[0].ts shouldBe kstTs(2026, 5, 11, 8, 0)
         result[0].openRaw shouldBe BigDecimal(100)
         result[0].closeRaw shouldBe BigDecimal(105)
         result[0].volume shouldBe 1L
+    }
+
+    @Test
+    fun `NXT after-hour 1955 to 1959 creates final 5m bar`() {
+        val candles =
+            (0 until 5).map { i ->
+                oneMin(kstTs(2026, 5, 11, 19, 55 + i), 100L, 100L, 100L, 100L + i, 1L)
+            }
+
+        val result = CandleAggregator.aggregate(candles, CandleInterval.FIVE_MIN)
+
+        result shouldHaveSize 1
+        result[0].ts shouldBe kstTs(2026, 5, 11, 19, 55)
+        result[0].closeRaw shouldBe BigDecimal(104)
+        result[0].volume shouldBe 5L
     }
 }

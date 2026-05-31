@@ -107,7 +107,7 @@ class KafkaTopicConfig {
 
     /**
      * 3분봉 boundary closing 이벤트.
-     * KRX 정규장 09:03~15:30 KST 130건/일 (TradingView 정합).
+     * NXT 통합 08:03~20:00 KST 240건/일 (TradingView 정합).
      * api StompCandleClosedForwarder → /topic/market.candle.3m.{code} STOMP fanout.
      * retention: 1d (하루 배치·fallback 충분)
      */
@@ -122,7 +122,7 @@ class KafkaTopicConfig {
 
     /**
      * 5분봉 boundary closing 이벤트 (ADR 0064 §4-5 C-1 채택).
-     * KRX 정규장 09:05~15:30 KST 78건/일 (TradingView 정합).
+     * NXT 통합 08:05~20:00 KST 144건/일 (TradingView 정합).
      * api StompCandleClosedForwarder → /topic/market.candle.5m.{code} STOMP fanout.
      * retention: 1d (하루 배치·fallback 충분)
      */
@@ -137,7 +137,7 @@ class KafkaTopicConfig {
 
     /**
      * 15분봉 boundary closing 이벤트 (ADR 0064 §4-5 C-1 채택).
-     * KRX 정규장 09:15~15:30 KST 26건/일.
+     * NXT 통합 08:15~20:00 KST 48건/일.
      * retention: 1d
      */
     @Bean
@@ -151,7 +151,7 @@ class KafkaTopicConfig {
 
     /**
      * 30분봉 boundary closing 이벤트 (ADR 0064 §4-5 C-1 채택).
-     * KRX 정규장 09:30~15:30 KST 13건/일.
+     * NXT 통합 08:30~20:00 KST 24건/일.
      * retention: 1d
      */
     @Bean
@@ -165,7 +165,7 @@ class KafkaTopicConfig {
 
     /**
      * 90분봉 boundary closing 이벤트 (ADR 0064 §4-5 C-1 채택).
-     * KRX 정규장 10:30·12:00·13:30·15:00·15:30 KST 5건/일.
+     * NXT 통합 09:30·11:00·12:30·14:00·15:30·17:00·18:30·20:00 KST 8건/일.
      * retention: 1d
      */
     @Bean
@@ -179,7 +179,7 @@ class KafkaTopicConfig {
 
     /**
      * 1시간봉 boundary closing 이벤트 (ADR 0064 §4-5 C-1 채택).
-     * KRX 정규장 10:00~15:30 KST 7건/일.
+     * NXT 통합 09:00~20:00 KST 12건/일.
      * retention: 1d
      */
     @Bean
@@ -193,7 +193,7 @@ class KafkaTopicConfig {
 
     /**
      * 4시간봉 boundary closing 이벤트.
-     * KRX 정규장 09:00 anchor 기준 13:00·15:30 KST 마감.
+     * NXT 통합 08:00 anchor 기준 12:00·16:00·20:00 KST 마감.
      * retention: 1d
      */
     @Bean
@@ -206,8 +206,8 @@ class KafkaTopicConfig {
             .build()
 
     /**
-     * 12h(정규장 전체) boundary closing 이벤트.
-     * KRX 정규장 09:00 anchor 기준 15:30 KST 마감.
+     * 12h(NXT 통합 세션 전체) boundary closing 이벤트.
+     * NXT 통합 08:00 anchor 기준 20:00 KST 마감.
      * retention: 1d
      */
     @Bean

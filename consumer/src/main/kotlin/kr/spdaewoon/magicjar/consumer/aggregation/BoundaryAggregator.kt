@@ -42,7 +42,7 @@ import kotlinx.datetime.Instant as KtInstant
  *
  * 흐름 (ADR 0064 §4-3):
  *   1m tick 마감 ts → BoundaryDetector.isBoundaryClosed(ts, target) → 도달한 interval 각각:
- *     1. DB 1m fetch (boundary 내 최근 N건 — 3m=3건, 5m=5건, 15m=15건, 30m=30건, 90m=90건, 1h=60건, 4h=240건, 12h=390건)
+ *     1. DB 1m fetch (boundary 시작~마감분 inclusive — NXT 12h=08:00~19:59 720건)
  *     2. CandleAggregator.aggregate(1m list, target) → bar 생성
  *     3. RedisCandleCache.putBoundaryCandle(code, interval, bar) (ADR 0064 A-1)
  *     4. ConsumerCandleJpaRepository.insertIgnore (ON CONFLICT DO NOTHING 멱등)
@@ -90,19 +90,6 @@ class BoundaryAggregator(
                 ONE_HOUR to "market.candle.1h.closed.v1",
                 FOUR_HOUR to "market.candle.4h.closed.v1",
                 TWELVE_HOUR to "market.candle.12h.closed.v1",
-            )
-
-        /** interval → 직전 N건 1m fetch 건수 (ADR 0064 §4-3 정합) */
-        private val INTERVAL_FETCH_COUNT =
-            mapOf(
-                THREE_MIN to 3,
-                FIVE_MIN to 5,
-                FIFTEEN_MIN to 15,
-                THIRTY_MIN to 30,
-                NINETY_MIN to 90,
-                ONE_HOUR to 60,
-                FOUR_HOUR to 240,
-                TWELVE_HOUR to 390,
             )
     }
 
@@ -184,12 +171,12 @@ class BoundaryAggregator(
             tickTs,
         )
 
-        // 3. 직전 1m N건 fetch (DB)
-        val fetchCount = INTERVAL_FETCH_COUNT[target] ?: return
+        // 3. boundary 시작~마감분 1m fetch (DB)
         val boundaryStartTs = BoundaryDetector.boundaryStartTs(tickTs, target)
         val boundaryStartInstant = Instant.ofEpochSecond(boundaryStartTs.epochSeconds)
+        val boundaryCloseInstant = Instant.ofEpochSecond(tickTs.epochSeconds)
 
-        val oneMinCandles = fetchRecentOneMinutes(code, boundaryStartInstant, fetchCount)
+        val oneMinCandles = fetchBoundaryOneMinutes(code, boundaryStartInstant, boundaryCloseInstant)
         if (oneMinCandles.isEmpty()) {
             log.warn(
                 "BoundaryAggregator 1m data 없음: code={} interval={} boundaryStart={}",
@@ -237,36 +224,24 @@ class BoundaryAggregator(
 
     /**
      * boundary 내 1m candle DB fetch.
-     * boundary 시작 ts 이후의 1m candle을 ts ASC로 조회.
+     * boundary 시작 ts부터 boundary 마감 1m ts까지의 candle을 ts ASC로 조회.
      * (DB는 TickToMinuteAggregator가 1m closing 시 INSERT → 이 시점에는 이미 존재)
-     *
-     * fetchCount 초과 시 최신 N건만 사용 (방어 — 실제로는 interval과 fetchCount가 1:1 대응).
      */
-    private fun fetchRecentOneMinutes(
+    private fun fetchBoundaryOneMinutes(
         code: String,
         boundaryStartInstant: Instant,
-        fetchCount: Int,
+        boundaryCloseInstant: Instant,
     ): List<Candle> {
         // ConsumerCandleJpaRepository.findByCodeAndIntervalOrderByTsAsc 전량 조회 후 boundary 필터
-        // ADR 0064 §4-3: "직전 1m N건 fetch (해당 boundary 내 1m candles)"
+        // ADR 0064 §4-3 + ADR 0105: 해당 boundary 내 1m candles만 사용.
         val allOneMin =
             candleJpaRepository.findByCodeAndIntervalOrderByTsAsc(code, "1m")
 
-        // boundary 시작 ts 이후의 1m candle만 필터 (boundary 내 데이터)
-        val filtered =
-            allOneMin.filter { entity ->
-                !entity.ts.isBefore(boundaryStartInstant)
-            }
-
-        // fetchCount 초과 방어 — 최신 N건
-        val result =
-            if (filtered.size > fetchCount) {
-                filtered.takeLast(fetchCount)
-            } else {
-                filtered
-            }
-
-        return result.mapNotNull { entity -> entity.toDomain() }
+        return allOneMin
+            .filter { entity ->
+                !entity.ts.isBefore(boundaryStartInstant) &&
+                    !entity.ts.isAfter(boundaryCloseInstant)
+            }.mapNotNull { entity -> entity.toDomain() }
     }
 
     private fun insertBarToDb(

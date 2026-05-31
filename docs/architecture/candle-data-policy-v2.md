@@ -10,6 +10,7 @@
 - 2026-05-31 갱신: **실시간 수요 owner 분리**. Watchlist는 사용자 고정 목록, SymbolDetail은 `DETAIL` owner, Screener/Strategy 후보는 `STRATEGY` owner TTL 수요다. 후보군을 watchlist에 자동 합치지 않는다. 장중 현재가·호가·모든 기준봉 마지막 close는 KIS WS tick 기반 Redis current candle이 권위다.
 - 2026-05-31 갱신 (ADR 0105): **캔들 Reconciliation + 장기 1m 보관/복구 정책**. 1m은 기본 최근 6개월 거래일, admin/manual 최대 1년을 목표로 하고, 지난 gap은 KIS `FHKST03010230`로 복구한다. 자동매매는 data readiness `READY`가 아니면 전략 평가와 주문 발행을 skip/fail-closed 한다.
 - 2026-06-01 갱신 (ADR 0105 amend): **실전 운용 시나리오 acceptance matrix 추가**. A→B→A 재진입 gap fill, 3일 off 후 boot managed universe reconciliation, 3일 1m gap 자동 복구+합산봉 재생성, 1년 초과 1m 복구 불가, 자동매매 data readiness fail-closed, 장기 backfill progress streaming 원칙을 LOCK.
+- 2026-06-01 갱신: **합산 interval boundary 문서/구현 NXT 통합 재정렬**. 3m·5m·15m·30m·90m·1h·4h·12h boundary는 KRX 09:00~15:30 고정이 아니라 NXT 통합 08:00~20:00 기준이다. KRX-only 종목은 해당 구간에 실제 1m tick/bar가 없으면 빈 구간으로 남기며 mock 합성하지 않는다.
 - 본 문서는 운영 가이드. 결정 본문은 **ADR 0057 (KIS OpenAPI 단일 데이터 출처)** + **ADR 0062 (합산 interval 백엔드 precomputed)** + **ADR 0063 (NXT/통합거래 cover)** + **ADR 0019 (Accepted, 2026-05-12 §2 재통합)** + **ADR 0028 (Watchlist Ingestion)** + **ADR 0029 (당일 진행 중 캔들 Redis 캐시)** + **ADR 0048 (KIS WS 41 slot + polling fallback)** + **ADR 0105 (캔들 Reconciliation + 장기 1m retention)** 참조.
 
 ## 1. 정책 한 줄 요약
@@ -36,7 +37,7 @@
 | **틱** | KIS WS `H0STCNT0` + `H0NXCNT0` + 시간외 `H0STOUP0` | Redis `quote:last:{code}` + Kafka/STOMP | X | NXT 통합 08:00~20:00 KST + 시간외 단일가 | quote TTL 7d |
 | **1m (1분봉) — 당일** | KIS WS tick → Redis current, closing 시 DB INSERT. REST `FHKST03010200`은 backfill/검증 | Redis `candle:current:{code}:1m` | DB INSERT (분 단위 closing) | NXT 통합 08:00~20:00 KST (720 bar/일) | Redis: 2m |
 | **1m (1분봉) — 장기 backfill/reconciliation** | KIS REST `FHKST03010230` (NXT 후보=`UN`→`J`, 그 외=`J` — ADR 0091) | Redis (당일 current) | **DB 영속 (기본 6개월, 최대 1년; `magicjar.candle.one-minute.*`)** | NXT 통합 08:00~20:00 KST | — |
-| **3m·5m·15m·30m·90m·1h·4h·12h** | **백엔드 precomputed 합산** + 장중 KIS WS tick current candle | Redis `candle:current:{code}:{interval}` | **DB 영속 (1m retention 기준 재생성)** | KRX 정규장 09:00~15:30 KST boundary 정렬 | Redis: 24h |
+| **3m·5m·15m·30m·90m·1h·4h·12h** | **백엔드 precomputed 합산** + 장중 KIS WS tick current candle | Redis `candle:current:{code}:{interval}` | **DB 영속 (1m retention 기준 재생성)** | NXT 통합 08:00~20:00 KST boundary 정렬 | Redis: 24h |
 | **1d (일봉)** | KIS REST `FHKST03010100` (period='D', NXT 후보=`UN`→`J`, 그 외=`J`) | Redis cache (옵션) | **DB 영속** | NXT 종가 통합 (20:00 KST 마감 기준) | — |
 | **1wk (주봉)** | KIS REST `FHKST03010100` (period='W', NXT 후보=`UN`→`J`, 그 외=`J`) | Redis cache (옵션) | **DB 영속** | — | — |
 | **1mo (월봉)** | KIS REST `FHKST03010100` (period='M', NXT 후보=`UN`→`J`, 그 외=`J`) | Redis cache (옵션) | **DB 영속** | — | — |
@@ -47,15 +48,15 @@
 
 | Interval | 1m 합산 단위 | NXT cover bar/일 | 30 거래일 legacy row 추정 |
 |---|---|---|---|
-| 3m | 3건 | 130 (09:00~15:27) | ~3,900 / 종목 |
-| 5m | 5건 | 78 (09:00~15:25) | ~2,340 / 종목 |
-| 15m | 15건 | 26 (09:00~15:15) | ~780 / 종목 |
-| 30m | 30건 | 13 (09:00~15:00) | ~390 / 종목 |
-| 90m | 90건 | 5 (09:00·10:30·12:00·13:30·15:00) | ~150 / 종목 |
-| 1h | 60건 | 7 (09:00~15:00) | ~210 / 종목 |
-| 4h | 240건 | 2 (09:00·13:00) | ~60 / 종목 |
-| 12h | 390건 | 1 (09:00) | ~30 / 종목 |
-| **합계 합산 8종** | — | — | **~7.9K rows / 종목** |
+| 3m | 3건 | 240 (08:00~19:57) | ~7,200 / 종목 |
+| 5m | 5건 | 144 (08:00~19:55) | ~4,320 / 종목 |
+| 15m | 15건 | 48 (08:00~19:45) | ~1,440 / 종목 |
+| 30m | 30건 | 24 (08:00~19:30) | ~720 / 종목 |
+| 90m | 90건 | 8 (08:00·09:30·11:00·12:30·14:00·15:30·17:00·18:30) | ~240 / 종목 |
+| 1h | 60건 | 12 (08:00~19:00) | ~360 / 종목 |
+| 4h | 240건 | 3 (08:00·12:00·16:00) | ~90 / 종목 |
+| 12h | 720건 | 1 (08:00) | ~30 / 종목 |
+| **합계 합산 8종** | — | — | **~14.4K rows / 종목** |
 
 위 표는 ADR 0062 당시 30거래일 legacy 산출 기준이며, 합산봉 overhead를 보기 위한 참고치다. ADR 0105 이후 장기 1m 보관 규모는 아래 §3-B를 기준으로 한다.
 
@@ -268,11 +269,11 @@ KIS WS tick 도달 (08:00~20:00 KST NXT cover)
   ├─ candle table INSERT (interval=target)
   └─ Redis publish market.candle.{target}.closed.v1 → STOMP fanout
        ↓
-15:30 (KRX 정규장 마감)
+15:30 (KRX 정규장 마감 — NXT 통합 캔들은 계속 진행)
        ↓
 15:30~20:00 (NXT after-hour 거래)
        ↓
-20:00 DailyCloseFinalizer (Spring @Scheduled, ADR 0063 NXT 마감 정합 — PR #303)
+20:10 DailyCloseFinalizer (Spring @Scheduled, ADR 0063 NXT 마감 + 10분 여유)
   ├─ Redis candle:today:{code}:1d → candle table INSERT (interval='1d')
   ├─ KIS REST FHKST03010100 종가 재검증
   ├─ flushAggregations() — watchlist 전 종목 1m → 3m·5m·15m·30m·90m·1h·4h·12h 합산 갱신

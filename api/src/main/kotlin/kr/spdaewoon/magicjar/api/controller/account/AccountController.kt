@@ -9,6 +9,10 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
 import kr.spdaewoon.magicjar.api.controller.ErrorResponse
 import kr.spdaewoon.magicjar.api.service.account.AccountQueryService
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCircuitOpenException
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimitTimeoutException
+import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
@@ -184,6 +188,8 @@ class AccountController(
      * KIS 호출 예외를 HTTP 상태 코드로 변환 (spec §4-4 매트릭스 LOCK).
      *
      * - 자격증명 부재 (IllegalStateException) → 412 PRECONDITION_FAILED
+     * - KIS rate limiter timeout → 429 TOO_MANY_REQUESTS
+     * - KIS rate limiter circuit open → 503 SERVICE_UNAVAILABLE
      * - KIS upstream 실패 (WebClientResponseException) → 502 BAD_GATEWAY
      * - 기타 → 500 (Spring default ResponseStatusException 변환)
      */
@@ -196,8 +202,32 @@ class AccountController(
                 HttpStatus.PRECONDITION_FAILED,
                 ex.message ?: "KIS 자격증명 부재",
             )
+        } catch (ex: KisRateLimitTimeoutException) {
+            log.warn(
+                "account KIS local rate limit timeout: priority={} timeoutMillis={}",
+                ex.priority,
+                ex.timeoutMillis,
+            )
+            throw ResponseStatusException(
+                HttpStatus.TOO_MANY_REQUESTS,
+                "KIS 호출량이 많아 잠시 후 다시 시도해주세요.",
+            )
+        } catch (ex: KisCircuitOpenException) {
+            log.warn("account KIS rate limit circuit open: openUntil={}", ex.openUntilEpochMillis)
+            throw ResponseStatusException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "KIS 호출 제한 회로가 열려 잠시 후 다시 시도해주세요.",
+            )
         } catch (ex: WebClientResponseException) {
-            log.error("account KIS upstream 실패: status={} body={}", ex.statusCode, ex.responseBodyAsString.take(200))
+            val body = ex.responseBodyAsString
+            if (classifyKisError(ex.statusCode.value(), body) is KisErrorClass.RateLimit) {
+                log.warn("account KIS rate limit: status={} body={}", ex.statusCode, body.take(200))
+                throw ResponseStatusException(
+                    HttpStatus.TOO_MANY_REQUESTS,
+                    "KIS 호출량이 많아 잠시 후 다시 시도해주세요.",
+                )
+            }
+            log.error("account KIS upstream 실패: status={} body={}", ex.statusCode, body.take(200))
             throw ResponseStatusException(
                 HttpStatus.BAD_GATEWAY,
                 "KIS upstream 실패 (status=${ex.statusCode.value()})",

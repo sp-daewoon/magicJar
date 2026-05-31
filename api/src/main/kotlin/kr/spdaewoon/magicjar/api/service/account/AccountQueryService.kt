@@ -7,15 +7,20 @@ import kr.spdaewoon.magicjar.api.controller.account.AccountHoldingResponse
 import kr.spdaewoon.magicjar.api.controller.account.AccountSummaryResponse
 import kr.spdaewoon.magicjar.domain.account.KisAccountBalance
 import kr.spdaewoon.magicjar.domain.account.port.KisBalanceQueryPort
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimitException
+import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Service
+import org.springframework.web.reactive.function.client.WebClientResponseException
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.Duration
 import java.time.Instant
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 계좌 잔고 쿼리 서비스 — T-ACCT Phase 2 (ADR 0081 §2-1 + spec §4-1 LOCK).
@@ -51,6 +56,8 @@ class AccountQueryService(
     private val objectMapper: ObjectMapper,
 ) {
     private val log = LoggerFactory.getLogger(AccountQueryService::class.java)
+    private val loadLocks = ConcurrentHashMap<String, Any>()
+    private val rateLimitFailures = ConcurrentHashMap<String, LoadFailure>()
 
     companion object {
         const val CACHE_KEY_PREFIX = "account:balance"
@@ -68,7 +75,13 @@ class AccountQueryService(
          *     * 신선도 손실은 사용자 toggle 시 invalidateQueries 가 즉시 refetch trigger 로 흡수
          */
         val CACHE_TTL: Duration = Duration.ofSeconds(10)
+        private val RATE_LIMIT_FAILURE_TTL: Duration = Duration.ofSeconds(2)
     }
+
+    private data class LoadFailure(
+        val at: Instant,
+        val exception: RuntimeException,
+    )
 
     /**
      * 잔고 응답 — output2 11 필드.
@@ -166,6 +179,70 @@ class AccountQueryService(
         }
 
         // 2. cache miss 또는 refresh=true → KIS REST 직접 호출
+        val lock = loadLocks.computeIfAbsent(cacheKey) { Any() }
+        return synchronized(lock) {
+            if (!refresh) {
+                val coalesced = redisTemplate.opsForValue().get(cacheKey)
+                if (coalesced != null) {
+                    runCatching { objectMapper.readValue<KisAccountBalance>(coalesced) }
+                        .onSuccess { snapshot ->
+                            log.debug("account cache HIT after single-flight wait: userId={}", maskUserId(userId))
+                            return@synchronized snapshot
+                        }.onFailure { ex ->
+                            log.warn(
+                                "account cache 역직렬화 실패(single-flight 재확인) — KIS 재조회: userId={} err={}",
+                                maskUserId(userId),
+                                ex.message,
+                            )
+                            redisTemplate.delete(cacheKey)
+                        }
+                }
+            }
+
+            recentRateLimitFailure(cacheKey)?.let { failure ->
+                log.warn(
+                    "account KIS rate-limit single-flight 실패 공유: userId={} type={}",
+                    maskUserId(userId),
+                    accountType.name,
+                )
+                throw failure
+            }
+
+            try {
+                loadFromKisAndCache(userId, accountType, cacheKey)
+                    .also { rateLimitFailures.remove(cacheKey) }
+            } catch (ex: RuntimeException) {
+                if (isRateLimitFailure(ex)) {
+                    rateLimitFailures[cacheKey] = LoadFailure(Instant.now(), ex)
+                } else {
+                    rateLimitFailures.remove(cacheKey)
+                }
+                throw ex
+            }
+        }
+    }
+
+    private fun recentRateLimitFailure(cacheKey: String): RuntimeException? {
+        val failure = rateLimitFailures[cacheKey] ?: return null
+        if (Duration.between(failure.at, Instant.now()) <= RATE_LIMIT_FAILURE_TTL) {
+            return failure.exception
+        }
+        rateLimitFailures.remove(cacheKey, failure)
+        return null
+    }
+
+    private fun isRateLimitFailure(ex: RuntimeException): Boolean =
+        ex is KisRateLimitException ||
+            (
+                ex is WebClientResponseException &&
+                    classifyKisError(ex.statusCode.value(), ex.responseBodyAsString) is KisErrorClass.RateLimit
+            )
+
+    private fun loadFromKisAndCache(
+        userId: String,
+        accountType: AccountType,
+        cacheKey: String,
+    ): KisAccountBalance {
         val snapshot = kisBalanceQueryPort.fetchFullBalance(userId, accountType)
         log.info(
             "account KIS 잔고조회 성공: userId={} type={} holdings={}건 cash={} netAsset={}",
