@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * Yahoo Finance 의존성 완전 제거. KIS OpenAPI 단일 출처.
  *
  * cold-start 5 interval:
- *   - 1m  : FHKST03010230 — 직전 30 거래일 1m 분봉 (KisRestCandleAdapter 내부 페이지네이션)
+ *   - 1m  : FHKST03010230 — ADR 0105 one-minute lookback 설정 기반 1m 분봉 (KisRestCandleAdapter 내부 페이지네이션)
  *   - 1d  : FHKST03010100 — 일봉 200건
  *   - 1wk : FHKST03010100 — 주봉 200건
  *   - 1mo : FHKST03010100 — 월봉 120건
@@ -49,13 +49,13 @@ class ColdStartExecutor(
         /**
          * KIS cold-start interval 정의.
          * (interval, count) — count는 fetchCandles 에 전달되는 상한 힌트.
-         * 1m은 KisRestCandleAdapter 내부에서 30 거래일 페이지네이션으로 처리 (count 무시).
+         * 1m은 KisRestCandleAdapter 내부에서 ADR 0105 one-minute lookback 설정으로 처리 (count 무시).
          *
          * KIS 미제공 합산봉(3m·5m·15m·30m·90m·1h·4h·12h)은 제외 — 1m 적재 후 AggregateBackfillRunner가 생성.
          */
         val KIS_COLD_START_INTERVALS =
             listOf(
-                CandleInterval.ONE_MIN to 1, // KisRestCandleAdapter 내부 30일치 페이지네이션
+                CandleInterval.ONE_MIN to 1, // KisRestCandleAdapter 내부 one-minute lookback 페이지네이션
                 CandleInterval.ONE_DAY to 200,
                 CandleInterval.ONE_WEEK to 200,
                 CandleInterval.ONE_MONTH to 120,

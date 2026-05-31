@@ -34,7 +34,7 @@
 |---|---|---|---|---|---|
 | **틱** | KIS WS `H0STCNT0` + `H0NXCNT0` + 시간외 `H0STOUP0` | Redis `quote:last:{code}` + Kafka/STOMP | X | NXT 통합 08:00~20:00 KST + 시간외 단일가 | quote TTL 7d |
 | **1m (1분봉) — 당일** | KIS WS tick → Redis current, closing 시 DB INSERT. REST `FHKST03010200`은 backfill/검증 | Redis `candle:current:{code}:1m` | DB INSERT (분 단위 closing) | NXT 통합 08:00~20:00 KST (720 bar/일) | Redis: 2m |
-| **1m (1분봉) — 장기 backfill/reconciliation** | KIS REST `FHKST03010230` (NXT 후보=`UN`→`J`, 그 외=`J` — ADR 0091) | Redis (당일 current) | **DB 영속 (기본 6개월, 최대 1년; Phase 1 전 legacy 30거래일)** | NXT 통합 08:00~20:00 KST | — |
+| **1m (1분봉) — 장기 backfill/reconciliation** | KIS REST `FHKST03010230` (NXT 후보=`UN`→`J`, 그 외=`J` — ADR 0091) | Redis (당일 current) | **DB 영속 (기본 6개월, 최대 1년; `magicjar.candle.one-minute.*`)** | NXT 통합 08:00~20:00 KST | — |
 | **3m·5m·15m·30m·90m·1h·4h·12h** | **백엔드 precomputed 합산** + 장중 KIS WS tick current candle | Redis `candle:current:{code}:{interval}` | **DB 영속 (1m retention 기준 재생성)** | KRX 정규장 09:00~15:30 KST boundary 정렬 | Redis: 24h |
 | **1d (일봉)** | KIS REST `FHKST03010100` (period='D', NXT 후보=`UN`→`J`, 그 외=`J`) | Redis cache (옵션) | **DB 영속** | NXT 종가 통합 (20:00 KST 마감 기준) | — |
 | **1wk (주봉)** | KIS REST `FHKST03010100` (period='W', NXT 후보=`UN`→`J`, 그 외=`J`) | Redis cache (옵션) | **DB 영속** | — | — |
@@ -118,7 +118,7 @@ consumer WatchlistChangedKafkaListener → ColdStartExecutor.submit(code) (PR #3
     │    ├─ slot 여유 → KIS WS subscribe(code) — H0STCNT0 체결가
     │    └─ slot 가득 + priority 낮음 → WatchlistPollingWorker 진입 (5초 주기 KIS REST inquire-price)
     ├─ KIS_COLD_START_INTERVALS 5종 fetch (prod credential 단일 채널):
-    │    ├─ 1m  : FHKST03010230 — legacy 30거래일 → ADR 0105 Phase 1 기본 6개월/최대 1년 → DB INSERT
+    │    ├─ 1m  : FHKST03010230 — ADR 0105 Phase 1 기본 6개월/최대 1년 설정 → DB INSERT
     │    ├─ 1d  : FHKST03010100 period='D' → DB INSERT (200건)
     │    ├─ 1wk : FHKST03010100 period='W' → DB INSERT (200건)
     │    ├─ 1mo : FHKST03010100 period='M' → DB INSERT (120건)

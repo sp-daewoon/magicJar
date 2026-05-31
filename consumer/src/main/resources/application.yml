@@ -99,8 +99,9 @@ magicjar:
   # 차트 캔들 페이지네이션 매트릭스 (ADR 0093 §3-1 LOCK · api 모듈 mirror)
   #   key 매트릭스 = api/application.yml 1:1 (spec PR #609 §5 정합)
   #   timeframe별 max-pages × KIS 100건/page = max 봉 cover
-  #     1m=48(4800봉), 3m·5m·15m·30m·90m·1h=38(3800봉), 4h=20(2000봉), 12h=12(1200봉), 1d=50(5000봉),
+  #     1m=48(4800봉 chart fallback), 3m·5m·15m·30m·90m·1h=38(3800봉), 4h=20(2000봉), 12h=12(1200봉), 1d=50(5000봉),
   #     1wk=20(2000봉), 1mo=12(1200봉), 1y=6(600봉)
+  #   ADR 0105: KIS FHKST03010230 1m 장기 backfill/reconciliation은 one-minute 설정 사용.
   #   default-max-pages: 누락 키 fallback (회귀 안전)
   # ─────────────────────────────────────────────────
   candle:
@@ -119,6 +120,10 @@ magicjar:
       "[1mo]": 12
       "[1y]": 6
     default-max-pages: 6
+    one-minute:
+      default-lookback-trading-days: ${MAGICJAR_CANDLE_1M_DEFAULT_LOOKBACK_TRADING_DAYS:126}
+      max-lookback-trading-days: ${MAGICJAR_CANDLE_1M_MAX_LOOKBACK_TRADING_DAYS:252}
+      max-pages-per-day: ${MAGICJAR_CANDLE_1M_MAX_PAGES_PER_DAY:8}
 
   # MarketSession 설정 (ADR 0013 §2-2, PR-29a 본격 교체)
   session:

@@ -52,7 +52,7 @@ class CandleBootstrapRunner(
         /**
          * 1m candle 최소 임계치.
          * ADR 0063 threshold=700 정합: NXT cover(08:00~19:55) 기준 1일 최대 720건.
-         * 700건 미만이면 30 거래일치 1m 미완료 판단 → cold-start 재트리거.
+         * 700건 미만이면 최소 1거래일치 1m도 부족한 상태로 판단 → cold-start 재트리거.
          */
         private const val MIN_1M_CANDLE_THRESHOLD = 700L
 

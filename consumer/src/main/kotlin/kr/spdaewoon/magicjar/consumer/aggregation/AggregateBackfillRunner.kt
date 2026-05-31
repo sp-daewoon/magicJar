@@ -71,7 +71,7 @@ class AggregateBackfillRunner(
      * 종목 1m candle 전량을 3m·5m·15m·30m·90m·1h·4h·12h 로 합산 + DB INSERT.
      *
      * 흐름:
-     *   1. DB 에서 해당 종목의 1m candle 전량 조회 (30 거래일 기준 ~10k~20k row)
+     *   1. DB 에서 해당 종목의 1m candle 전량 조회 (ADR 0105 기본 6개월 기준 KRX ~49k/NXT ~91k row)
      *   2. [CandleAggregator.aggregate] 로 각 target interval 합산
      *   3. [CandleRepository.saveAll] 로 DB upsert (ON CONFLICT DO NOTHING)
      *   4. 결과 로그

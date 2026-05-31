@@ -4,6 +4,7 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.datetime.Instant
 import kr.spdaewoon.magicjar.consumer.config.ChartCandleProperties
+import kr.spdaewoon.magicjar.consumer.config.OneMinuteBackfillProperties
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
@@ -99,6 +100,31 @@ class KisRestCandleAdapterPaginationTest {
             )
         method.isAccessible = true
         return method.invoke(adapter, code) as List<String>
+    }
+
+    /** private oneMinuteTargetDays(anchorDate) reflection 호출 */
+    @Suppress("UNCHECKED_CAST")
+    private fun invokeOneMinuteTargetDays(
+        adapter: KisRestCandleAdapter,
+        anchorDate: LocalDate,
+    ): List<LocalDate> {
+        val method =
+            KisRestCandleAdapter::class.java.getDeclaredMethod(
+                "oneMinuteTargetDays",
+                LocalDate::class.java,
+            )
+        method.isAccessible = true
+        return method.invoke(adapter, anchorDate) as List<LocalDate>
+    }
+
+    /** private oneMinuteMaxPagesPerDay() reflection 호출 */
+    private fun invokeOneMinuteMaxPagesPerDay(adapter: KisRestCandleAdapter): Int {
+        val method =
+            KisRestCandleAdapter::class.java.getDeclaredMethod(
+                "oneMinuteMaxPagesPerDay",
+            )
+        method.isAccessible = true
+        return method.invoke(adapter) as Int
     }
 
     private fun instrument(
@@ -198,6 +224,41 @@ class KisRestCandleAdapterPaginationTest {
         assertThat(invokeResolveMrktDivCodeCandidates(adapter, "091990")).containsExactly("UN", "J")
         assertThat(invokeResolveMrktDivCode(adapter, "123456")).isEqualTo("J")
         assertThat(invokeResolveMrktDivCode(adapter, "999999")).isEqualTo("J")
+    }
+
+    @Test
+    fun `one-minute-lookback default는 126 거래일이며 주말을 제외한다`() {
+        val adapter = buildAdapter()
+
+        val targetDays = invokeOneMinuteTargetDays(adapter, LocalDate.of(2026, 5, 31))
+
+        assertThat(targetDays).hasSize(126)
+        assertThat(targetDays.first()).isEqualTo(LocalDate.of(2026, 5, 29))
+        assertThat(targetDays).allSatisfy { day ->
+            assertThat(day.dayOfWeek)
+                .isNotIn(java.time.DayOfWeek.SATURDAY, java.time.DayOfWeek.SUNDAY)
+        }
+    }
+
+    @Test
+    fun `one-minute-lookback property는 최대 252 거래일과 일자별 8 page cap을 넘지 않는다`() {
+        val adapter =
+            buildAdapter(
+                chartCandleProperties =
+                    ChartCandleProperties(
+                        oneMinute =
+                            OneMinuteBackfillProperties(
+                                defaultLookbackTradingDays = 400,
+                                maxLookbackTradingDays = 252,
+                                maxPagesPerDay = 99,
+                            ),
+                    ),
+            )
+
+        val targetDays = invokeOneMinuteTargetDays(adapter, LocalDate.of(2026, 5, 29))
+
+        assertThat(targetDays).hasSize(252)
+        assertThat(invokeOneMinuteMaxPagesPerDay(adapter)).isEqualTo(8)
     }
 
     @Test

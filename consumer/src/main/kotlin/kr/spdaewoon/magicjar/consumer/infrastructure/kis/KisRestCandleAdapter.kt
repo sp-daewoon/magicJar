@@ -33,7 +33,7 @@ import kotlinx.datetime.Instant as KtInstant
  * 지원 interval:
  *   - 1d·1wk·1mo·1y: FHKST03010100 (inquire-daily-itemchartprice) — 4 PERIOD_DIV_CODE 공통 endpoint
  *     raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
- *   - 1m: FHKST03010230 (inquire-time-dailychartprice) — 최대 120건/call, 1일치 분봉
+ *   - 1m: FHKST03010230 (inquire-time-dailychartprice) — 최대 120건/call, 날짜+시간 cursor, KIS 보관 최대 1년
  *     raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
  *
  * Yahoo Finance 의존성 전면 제거 (2026-05-11 — KIS-only 정책 적용).
@@ -88,6 +88,8 @@ class KisRestCandleAdapter(
         private const val SOURCE = "KIS"
         private val DATE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd")
         private val KST_ZONE = ZoneId.of("Asia/Seoul")
+        private const val ONE_MINUTE_INITIAL_CURSOR_HOUR = "200000"
+        private val ONE_MINUTE_MARKET_OPEN = LocalTime.of(8, 0, 0)
 
         /**
          * KIS HTTP 500 exponential backoff 대기 시간 (ms).
@@ -144,6 +146,11 @@ class KisRestCandleAdapter(
             }
     }
 
+    private data class OneMinuteCursorStep(
+        val earliestTime: LocalTime,
+        val nextHour: String?,
+    )
+
     /**
      * 다음 페이지 cursor 산정 — `oldestDate - 1day` 단순 패턴 (PR 2cbd4e8 검증된 패턴 1:1).
      *
@@ -158,6 +165,48 @@ class KisRestCandleAdapter(
      *     1day 차감으로도 충분히 새 윈도우 확보. 더 큰 차감은 데이터 누락 위험.
      */
     private fun nextCursor(oldestDate: LocalDate): LocalDate = oldestDate.minusDays(1)
+
+    /**
+     * ADR 0105 Phase 1 — 1m backfill 대상 거래일 산정.
+     *
+     * KIS `FHKST03010230`은 날짜+시간 cursor로 과거 분봉을 가져온다. 실제 휴장일은 응답 0건으로
+     * 방어하고, 여기서는 주말만 제외해 property 기반 lookback 범위를 안정적으로 만든다.
+     */
+    private fun oneMinuteTargetDays(anchorDate: LocalDate = LocalDate.now(KST_ZONE)): List<LocalDate> {
+        val lookbackTradingDays = chartCandleProperties.oneMinute.normalizedLookbackTradingDays()
+        val maxCalendarScanDays = (lookbackTradingDays * 2).coerceAtLeast(lookbackTradingDays + 14)
+        val targetDays = mutableListOf<LocalDate>()
+        var current = anchorDate
+        var checked = 0
+        while (targetDays.size < lookbackTradingDays && checked < maxCalendarScanDays) {
+            val dow = current.dayOfWeek
+            if (dow != java.time.DayOfWeek.SATURDAY && dow != java.time.DayOfWeek.SUNDAY) {
+                targetDays.add(current)
+            }
+            current = current.minusDays(1)
+            checked++
+        }
+        return targetDays
+    }
+
+    private fun oneMinuteMaxPagesPerDay(): Int = chartCandleProperties.oneMinute.normalizedMaxPagesPerDay()
+
+    private fun nextOneMinuteCursor(earliestCandle: Candle): OneMinuteCursorStep {
+        val earliestTime =
+            java.time.Instant
+                .ofEpochSecond(earliestCandle.ts.epochSeconds)
+                .atZone(KST_ZONE)
+                .toLocalTime()
+        if (!earliestTime.isAfter(ONE_MINUTE_MARKET_OPEN)) {
+            return OneMinuteCursorStep(earliestTime = earliestTime, nextHour = null)
+        }
+
+        val nextTime = earliestTime.minus(1, ChronoUnit.MINUTES)
+        return OneMinuteCursorStep(
+            earliestTime = earliestTime,
+            nextHour = "%02d%02d%02d".format(nextTime.hour, nextTime.minute, nextTime.second),
+        )
+    }
 
     /**
      * 종목코드 → KIS fid_cond_mrkt_div_code 결정.
@@ -226,15 +275,16 @@ class KisRestCandleAdapter(
      *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
      *
      * 1 call = 최대 120건. 정규장 9:00~15:30 ≈ 390건 → 일자당 ~4 call 필요.
+     * NXT 통합 08:00~20:00 ≈ 720건 → 일자당 ~6 call 필요.
      *
      * 페이지네이션 알고리즘 (KIS-first raw fetch 의무 — 헌법 §3):
-     *   1. fid_input_hour_1="153000" (장마감) → 해당 시각 이전 최신 120건 반환 (내림차순)
+     *   1. fid_input_hour_1="200000" (통합 장마감) → 해당 시각 이전 최신 120건 반환 (내림차순)
      *   2. 응답 목록의 마지막 row(가장 이른 시각)의 stck_cntg_hour - 1분 → 다음 fid_input_hour_1
      *   3. 가장 이른 ts 가 09:00 KST 이전이면 해당 일자 종료
-     *   4. 응답 0건 또는 일자당 최대 MAX_PAGES_PER_DAY(=6) call 초과 시 안전 종료
+     *   4. 응답 0건 또는 일자당 max-pages-per-day call 초과 시 안전 종료
      *
      * Rate Limit (ADR 0037): 초당 10건. 50ms 마진 유지.
-     * 11종목 × 4 call × 30일 = 1320 calls × 50ms = ~66s — 안전.
+     * ADR 0105 Phase 1: 기본 최근 6개월 거래일, 최대 1년 거래일을 property로 제어.
      *
      * in-memory dedup: (code, interval, ts epoch second) Set으로 중복 경계 row 방지.
      */
@@ -288,27 +338,15 @@ class KisRestCandleAdapter(
                 mrktDivCode,
             )
 
-            // 직전 30 거래일 (주말 제외 — 약 45 달력일 커버)
-            val targetDays = mutableListOf<LocalDate>()
-            var d = LocalDate.now(KST_ZONE)
-            var checked = 0
-            while (targetDays.size < 30 && checked < 60) {
-                val dow = d.dayOfWeek
-                if (dow != java.time.DayOfWeek.SATURDAY && dow != java.time.DayOfWeek.SUNDAY) {
-                    targetDays.add(d)
-                }
-                d = d.minusDays(1)
-                checked++
-            }
+            val targetDays = oneMinuteTargetDays()
+            val maxPagesPerDay = oneMinuteMaxPagesPerDay()
 
             for (targetDate in targetDays) {
                 val dateStr = targetDate.format(DATE_FMT)
-                // 일자별 페이지네이션 시작: 장마감(153000) 기준 역순 백워크
+                // 일자별 페이지네이션 시작: 통합 장마감(20:00) 기준 역순 백워크
                 // raw: FHKST03010230 fid_input_hour_1 = 이 시각 이전 120건 반환
-                var currentHour = "200000"
+                var currentHour = ONE_MINUTE_INITIAL_CURSOR_HOUR
                 var pageCount = 0
-                // 무한루프 방지: 일자당 최대 6 pages (120건 × 6 = 720건 한도 — 정규장 390건의 약 2배)
-                val maxPagesPerDay = 8
                 var dayDone = false
 
                 while (!dayDone && pageCount < maxPagesPerDay) {
@@ -397,32 +435,17 @@ class KisRestCandleAdapter(
                                 // KIS 응답은 내림차순(최신→과거) — 마지막 row가 가장 이른 시각
                                 val earliestCandle = parsed.minByOrNull { it.ts.epochSeconds }
                                 if (earliestCandle != null) {
-                                    // kotlinx.datetime.Instant → java.time 변환 (epochSeconds 경유)
-                                    val earliestLt =
-                                        java.time.Instant
-                                            .ofEpochSecond(earliestCandle.ts.epochSeconds)
-                                            .atZone(KST_ZONE)
-                                            .toLocalTime()
-
-                                    // 09:00:00 KST 이전 = 정규장 시작 전 → 해당 일자 전체 수집 완료
-                                    val marketOpen = LocalTime.of(8, 0, 0)
-                                    if (!earliestLt.isAfter(marketOpen)) {
+                                    val cursorStep = nextOneMinuteCursor(earliestCandle)
+                                    if (cursorStep.nextHour == null) {
                                         log.debug(
                                             "KIS 1m fetch 장시작 도달 — 일자 완료: code={} date={} earliestTime={}",
                                             code,
                                             dateStr,
-                                            earliestLt,
+                                            cursorStep.earliestTime,
                                         )
                                         dayDone = true
                                     } else {
-                                        // 1분 앞으로 백워크 (HHmmss 형식)
-                                        val nextLt = earliestLt.minus(1, ChronoUnit.MINUTES)
-                                        currentHour =
-                                            "%02d%02d%02d".format(
-                                                nextLt.hour,
-                                                nextLt.minute,
-                                                nextLt.second,
-                                            )
+                                        currentHour = cursorStep.nextHour
                                     }
                                 } else {
                                     dayDone = true
@@ -539,22 +562,11 @@ class KisRestCandleAdapter(
                                             val earliestCandle =
                                                 parsed.minByOrNull { it.ts.epochSeconds }
                                             if (earliestCandle != null) {
-                                                val earliestLt =
-                                                    java.time.Instant
-                                                        .ofEpochSecond(earliestCandle.ts.epochSeconds)
-                                                        .atZone(KST_ZONE)
-                                                        .toLocalTime()
-                                                if (!earliestLt.isAfter(LocalTime.of(8, 0, 0))) {
+                                                val cursorStep = nextOneMinuteCursor(earliestCandle)
+                                                if (cursorStep.nextHour == null) {
                                                     dayDone = true
                                                 } else {
-                                                    val nextLt =
-                                                        earliestLt.minus(1, ChronoUnit.MINUTES)
-                                                    currentHour =
-                                                        "%02d%02d%02d".format(
-                                                            nextLt.hour,
-                                                            nextLt.minute,
-                                                            nextLt.second,
-                                                        )
+                                                    currentHour = cursorStep.nextHour
                                                 }
                                             } else {
                                                 dayDone = true

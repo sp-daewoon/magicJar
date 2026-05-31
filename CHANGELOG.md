@@ -3,6 +3,8 @@
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 
+| 2026-05-31 | **feat(market): ADR 0105 Phase 1 — 1m backfill lookback 설정화** — `KisRestCandleAdapter`의 직전 30거래일 hardcode를 `magicjar.candle.one-minute.*` 설정으로 교체하고, 기본 126거래일/최대 252거래일/일자별 8 page cap을 테스트로 고정. `FHKST03010230` 날짜+시간 cursor helper를 분리해 기본 6개월 1m retention 구현의 첫 단계를 반영. | consumer · candle policy · task | 4h·12h 전략 기준봉과 재기동/화면 이탈 후 1m gap 복구를 30거래일 한도에 묶지 않기 위함 |
+
 | 2026-05-31 | **docs(adr): ADR 0105 — 캔들 Reconciliation + 장기 1m 보관/복구 정책** — KIS `FHKST03010230`을 지난 1m gap 복구 source로 LOCK하고, 1m retention을 기본 6개월·최대 1년으로 정리. boot/re-entry/scheduled reconciliation, SymbolDetail grace TTL, managed universe 우선순위, data readiness gate(`READY/RECONCILING/STALE/FAILED`), stale data 자동매매 fail-closed, KIS 10 TPS budget과 NXT 1년 row/call estimate를 문서화. | ADR · candle policy · external API policy · roadmap · task | 시스템 재기동/화면 이탈/장기 기준봉 전략에서 발생할 수 있는 캔들 누락을 정책 수준에서 먼저 고정 |
 
 | 2026-05-31 | **release: v3.10.1 — FVG/OrderBlock 프리셋·차트 overlay patch** — Strategy Builder에 FVG/OrderBlock 매수·매도 후보 프리셋 4종을 추가하고, Symbol Chart 위에 TradingView-like FVG/OB zone overlay를 실제 indicator 결과와 candle 좌표 기준으로 표시. indicator cache key는 조회 range를 포함하도록 보강해 차트 구간별 FVG/OB 박스가 오래된 제한 데이터에 묶이지 않게 했고, Claude/Codex 작업 가드에는 계산-only가 아니라 전략 후보·스크리너·차트 검증까지 이어야 한다는 기준을 고정. 주문·리스크·실계좌 자본 path 변경은 0. | release · strategy · indicator · frontend · docs | v3.10.0 이후 FVG/오더블럭 계산 자원을 사용자가 프리셋 후보와 차트 박스로 검증할 수 있게 하는 patch 1 |
