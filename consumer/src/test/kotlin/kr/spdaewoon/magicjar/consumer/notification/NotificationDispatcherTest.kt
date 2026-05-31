@@ -98,6 +98,8 @@ class NotificationDispatcherTest {
         val slot = slot<NotificationOutbox>()
         verify { outboxRepository.save(capture(slot)) }
         assertThat(slot.captured.priority).isEqualTo(NotificationPriority.P0)
+        assertThat(slot.captured.payloadJson).contains("D. 거래 빈도 한도 도달 - 일별 최대 거래")
+        assertThat(slot.captured.payloadJson).contains("오늘 허용 주문 수 50회")
         // P0 즉시 발송 시도 → sender 호출
         verify { slackSender.sendOutbox(any()) }
     }
@@ -159,7 +161,21 @@ class NotificationDispatcherTest {
     ) = """{"eventId":"${UUID.randomUUID()}","orderId":"O3","userId":"$userId","code":"$code","side":"SELL","kisOrderNo":"K123"}"""
 
     private fun riskViolationPayload(userId: String) =
-        """{"eventId":"${UUID.randomUUID()}","signalId":"S1","userId":"$userId","code":"005930","rule":"MAX_LOSS_PER_TRADE","reason":"손실 한도 초과"}"""
+        """
+        {
+          "eventId":"${UUID.randomUUID()}",
+          "signalId":"S1",
+          "userId":"$userId",
+          "code":"005930",
+          "rule":"TRADE_FREQUENCY_DAY",
+          "reason":"오늘 이 전략에서 허용된 주문 횟수를 모두 사용해 추가 자동 주문을 차단했습니다.",
+          "rawReason":"Strategy daily trade count 50 >= limit 50",
+          "alertTitle":"D. 거래 빈도 한도 도달 - 일별 최대 거래",
+          "alertMessage":"오늘 이 전략에서 허용된 주문 횟수를 모두 사용해 추가 자동 주문을 차단했습니다.",
+          "alertFormula":"오늘 허용 주문 수 50회 >= 일별 최대 거래 50회/일",
+          "alertSetting":"D. 거래 빈도 한도 - 일별 최대 거래"
+        }
+        """.trimIndent()
 
     private fun driftPayload(userId: String) =
         """{"eventId":"${UUID.randomUUID()}","runId":101,"userId":"$userId","symbol":"005930","kisQty":100,"internalQty":99,"qtyDiff":1}"""

@@ -35,7 +35,7 @@ object NotificationFormatter {
         return buildString {
             appendLine("$emoji *[$typeLabel]* $kst KST")
             appendLine("사용자: $maskedUser")
-            appendLine("내용: $reason")
+            appendContent(eventType, reason, meta)
             if (action.isNotBlank()) {
                 appendLine("즉시 조치: $action")
             }
@@ -67,4 +67,32 @@ object NotificationFormatter {
             NotificationEventType.SYSTEM_EVENT -> "시스템 이벤트 상세와 Dozzle 로그를 함께 확인"
             else -> ""
         }
+
+    private fun StringBuilder.appendContent(
+        eventType: NotificationEventType,
+        reason: String,
+        meta: Map<String, String?>,
+    ) {
+        if (eventType != NotificationEventType.RISK_VIOLATION) {
+            appendLine("내용: $reason")
+            return
+        }
+
+        val title = meta["alertTitle"]?.takeIf { it.isNotBlank() }
+        val message = meta["alertMessage"]?.takeIf { it.isNotBlank() }
+        val formula = meta["alertFormula"]?.takeIf { it.isNotBlank() }
+        val setting = meta["alertSetting"]?.takeIf { it.isNotBlank() }
+
+        if (title == null && message == null && formula == null && setting == null) {
+            appendLine("내용: $reason")
+            return
+        }
+
+        appendLine("내용: ${title ?: "리스크 차단"}")
+        appendLine("설명: ${message ?: reason}")
+        formula?.lineSequence()?.forEachIndexed { index, line ->
+            appendLine(if (index == 0) "수식: $line" else "      $line")
+        }
+        setting?.let { appendLine("설정: $it") }
+    }
 }

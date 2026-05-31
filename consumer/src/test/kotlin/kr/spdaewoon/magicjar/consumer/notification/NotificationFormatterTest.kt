@@ -67,9 +67,19 @@ class NotificationFormatterTest {
                 userId = "12345678",
                 eventType = NotificationEventType.RISK_VIOLATION,
                 reason = "리스크 위반: 005930 rule=MAX_LOSS_PER_TRADE",
-                meta = emptyMap(),
+                meta =
+                    mapOf(
+                        "alertTitle" to "D. 거래 빈도 한도 도달 - 일별 최대 거래",
+                        "alertMessage" to "오늘 이 전략에서 허용된 주문 횟수를 모두 사용해 추가 자동 주문을 차단했습니다.",
+                        "alertFormula" to "오늘 허용 주문 수 50회 >= 일별 최대 거래 50회/일",
+                        "alertSetting" to "D. 거래 빈도 한도 - 일별 최대 거래",
+                    ),
             )
         assertThat(msg).contains("리스크 위반")
+        assertThat(msg).contains("내용: D. 거래 빈도 한도 도달 - 일별 최대 거래")
+        assertThat(msg).contains("설명: 오늘 이 전략")
+        assertThat(msg).contains("수식: 오늘 허용 주문 수 50회 >= 일별 최대 거래 50회/일")
+        assertThat(msg).contains("설정: D. 거래 빈도 한도 - 일별 최대 거래")
         assertThat(msg).contains("즉시 조치")
         assertThat(msg).contains("리스크 한도")
     }

@@ -89,7 +89,13 @@ class StompRiskNotifier(
             strategyId = toLong(raw["strategyId"]),
             rule = raw["rule"]?.toString() ?: "",
             verdict = raw["verdict"]?.toString() ?: "BLOCKED",
-            reason = raw["reason"]?.toString() ?: "",
+            reason = raw["alertMessage"]?.toString() ?: raw["reason"]?.toString() ?: "",
+            rawReason = raw["rawReason"]?.toString(),
+            alertTitle = raw["alertTitle"]?.toString(),
+            alertMessage = raw["alertMessage"]?.toString(),
+            alertFormula = raw["alertFormula"]?.toString(),
+            alertSetting = raw["alertSetting"]?.toString(),
+            alertAction = raw["alertAction"]?.toString(),
             ts = raw["ts"]?.toString() ?: "",
         )
 
@@ -114,5 +120,11 @@ data class RiskEventDto(
     val rule: String,
     val verdict: String,
     val reason: String,
+    val rawReason: String? = null,
+    val alertTitle: String? = null,
+    val alertMessage: String? = null,
+    val alertFormula: String? = null,
+    val alertSetting: String? = null,
+    val alertAction: String? = null,
     val ts: String,
 )

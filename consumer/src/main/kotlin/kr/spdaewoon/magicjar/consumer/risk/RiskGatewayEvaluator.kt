@@ -204,6 +204,7 @@ class RiskGatewayEvaluator {
                             "absLimit" to positionBudget.absoluteLimit.toPlainString(),
                             "percentBudget" to positionBudget.percentBudget.toPlainString(),
                             "currentCapital" to context.currentCapital.toPlainString(),
+                            "maxPositionPercent" to context.config.maxPositionPercent.toPlainString(),
                         ),
                 )
             }
