@@ -26,13 +26,14 @@ data class Candle(
 )
 
 /**
- * 캔들 인터벌 (ADR 0019 §candle.interval CHECK 11종).
+ * 캔들 인터벌 (ADR 0019 §candle.interval CHECK).
  */
 enum class CandleInterval(
     val code: String,
 ) {
     ONE_MIN("1m"),
     TWO_MIN("2m"),
+    THREE_MIN("3m"),
     FIVE_MIN("5m"),
     FIFTEEN_MIN("15m"),
     THIRTY_MIN("30m"),

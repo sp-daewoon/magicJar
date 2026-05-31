@@ -9,6 +9,7 @@
  * 룰 5: anthropic·openai import 0건
  */
 import apiClient from '../../../lib/axios'
+import type { CandleInterval } from '../../../api/symbol'
 
 // ──────────────────────────────────────────────
 // Request 타입
@@ -30,6 +31,8 @@ export interface ScreenerEvaluateRequest {
   strategyId: number
   /** universe 필터 (기본: KOSPI+KOSDAQ active STOCK+ETF) */
   filters?: ScreenerFilterDto
+  /** 평가 기준봉 (기본: 1d) */
+  interval?: CandleInterval
   /** 랭킹 최대 결과 수 (1~500, default 50) */
   limit?: number
 }

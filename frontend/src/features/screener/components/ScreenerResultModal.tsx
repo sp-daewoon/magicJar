@@ -5,7 +5,7 @@
  * SettingsModal 닫기 패턴 정합 (Esc·X·overlay click).
  *
  * 흐름:
- *   마운트 → useScreenerEvaluate mutation 즉시 호출 (inline 평가)
+ *   마운트/기준봉 변경 → useScreenerEvaluate mutation 호출 (inline 평가)
  *   loading: Spinner 표시
  *   error: 에러 메시지 + 재시도 버튼
  *   data: ScreenerSummary + ScreenerSkipReasonsBadge + ScreenerMatchTable
@@ -19,6 +19,7 @@ import { useBulkAddWatchlist } from '../hooks/useBulkAddWatchlist'
 import { ScreenerMatchTable } from './ScreenerMatchTable'
 import { ScreenerSkipReasonsBadge } from './ScreenerSkipReasonsBadge'
 import { WatchlistBulkRegisterButton } from './WatchlistBulkRegisterButton'
+import type { CandleInterval } from '../../../api/symbol'
 
 interface Props {
   strategyId: number
@@ -57,6 +58,26 @@ function Spinner() {
       </p>
     </div>
   )
+}
+
+const BASIS_INTERVAL_OPTIONS: { value: CandleInterval; label: string }[] = [
+  { value: '1d', label: '일봉' },
+  { value: '1m', label: '1분' },
+  { value: '3m', label: '3분' },
+  { value: '5m', label: '5분' },
+  { value: '15m', label: '15분' },
+  { value: '30m', label: '30분' },
+  { value: '90m', label: '90분' },
+  { value: '1h', label: '1시간' },
+  { value: '4h', label: '4시간' },
+  { value: '12h', label: '장전체' },
+  { value: '1wk', label: '주봉' },
+  { value: '1mo', label: '월봉' },
+  { value: '1y', label: '년봉' },
+]
+
+function hasCandleDataSkips(skippedReasons: Record<string, number>): boolean {
+  return Object.keys(skippedReasons).some((reason) => reason.includes('캔들') || reason.includes('Candle'))
 }
 
 /** 통계 요약 row */
@@ -106,6 +127,7 @@ function ScreenerSummary({
 
 export function ScreenerResultModal({ strategyId, userId, onClose }: Props) {
   const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set())
+  const [basisInterval, setBasisInterval] = useState<CandleInterval>('1d')
 
   const { mutate, data, isPending, error, reset } = useScreenerEvaluate()
   const bulkAdd = useBulkAddWatchlist()
@@ -113,9 +135,10 @@ export function ScreenerResultModal({ strategyId, userId, onClose }: Props) {
   // 마운트 시 즉시 평가 호출 (ADR 0071 §2-1 동기 inline — 마운트 폴링 0)
   useEffect(() => {
     if (userId === null) return
-    mutate({ userId, strategyId, limit: 50 })
+    setSelectedCodes(new Set())
+    mutate({ userId, strategyId, interval: basisInterval, limit: 50 })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [strategyId, userId])
+  }, [strategyId, userId, basisInterval])
 
   // Esc 닫기 (SettingsModal 패턴 정합)
   useEffect(() => {
@@ -142,7 +165,8 @@ export function ScreenerResultModal({ strategyId, userId, onClose }: Props) {
   function handleRetry() {
     if (userId === null) return
     reset()
-    mutate({ userId, strategyId, limit: 50 })
+    setSelectedCodes(new Set())
+    mutate({ userId, strategyId, interval: basisInterval, limit: 50 })
   }
 
   function handleBulkRegister() {
@@ -173,21 +197,38 @@ export function ScreenerResultModal({ strategyId, userId, onClose }: Props) {
         onClick={(e) => e.stopPropagation()}
       >
         {/* 헤더 */}
-        <header className="flex flex-shrink-0 items-center justify-between border-b border-gray-800 px-6 py-4">
-          <div>
+        <header className="flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-b border-gray-800 px-6 py-4">
+          <div className="min-w-0">
             <h2 className="text-lg font-semibold text-white">이 전략으로 종목 찾기</h2>
-            <p className="mt-0.5 text-xs text-gray-500">
-              Strategy #{strategyId} — KOSPI·KOSDAQ universe 평가
+            <p className="mt-0.5 truncate text-xs text-gray-500">
+              Strategy #{strategyId} — KOSPI·KOSDAQ universe · 기준봉 {basisInterval}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="닫기"
-            className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-600"
-          >
-            <XIcon />
-          </button>
+          <div className="flex flex-shrink-0 items-center gap-3">
+            <label className="flex items-center gap-2 text-xs text-gray-400">
+              기준봉
+              <select
+                aria-label="기준봉"
+                value={basisInterval}
+                onChange={(e) => setBasisInterval(e.target.value as CandleInterval)}
+                className="rounded border border-gray-700 bg-gray-950 px-2 py-1 text-xs text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              >
+                {BASIS_INTERVAL_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="닫기"
+              className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-600"
+            >
+              <XIcon />
+            </button>
+          </div>
         </header>
 
         {/* 본문 */}
@@ -254,7 +295,9 @@ export function ScreenerResultModal({ strategyId, userId, onClose }: Props) {
                 />
               ) : (
                 <div className="py-8 text-center text-sm text-gray-500">
-                  매칭된 종목이 없습니다. DSL 조건을 완화해 보세요.
+                  {hasCandleDataSkips(data.skippedReasons)
+                    ? `기준봉 ${basisInterval} 캔들 데이터 준비 중인 종목이 제외되었습니다.`
+                    : '매칭된 종목이 없습니다. DSL 조건을 완화해 보세요.'}
                 </div>
               )}
             </div>

@@ -6,10 +6,10 @@
  * - useInfiniteQuery + before cursor 페이지네이션
  * - getNextPageParam: lastPage.hasMore ? lastPage.nextBefore : undefined
  *
- * ADR 0019 §2-2: interval 확장 (1m·5m·15m·30m·90m·1h·4h·12h·1d...)
+ * ADR 0019 §2-2: interval 확장 (1m·3m·5m·15m·30m·90m·1h·4h·12h·1d...)
  * ADR 0029 §2-1: 1m = DB + Redis candle:current 합류, 1d = DB + Redis candle:today 합류
  *
- * ADR 0064 §2-C: 합산 interval(5m·15m·30m·90m·1h·4h·12h) — boundary 마감 시점 STOMP 실시간 갱신
+ * ADR 0064 §2-C: 합산 interval(3m·5m·15m·30m·90m·1h·4h·12h) — boundary 마감 시점 STOMP 실시간 갱신
  *   interval이 BOUNDARY_INTERVALS 중 하나일 때 /topic/market.candle.{interval}.{code} 구독
  *   interval 변경 시 기존 구독 해제 → 새 interval 구독
  *   boundary candle 수신 시 onBoundaryCandle 콜백 호출

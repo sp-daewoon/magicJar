@@ -20,7 +20,7 @@ import type { CandleInterval } from '../symbol'
 
 /** 인터벌이 분봉인지 여부 */
 function isIntradayInterval(interval: string): boolean {
-  return ['1m', '5m', '15m', '30m', '1h', '90m', '4h', '12h'].includes(interval)
+  return ['1m', '3m', '5m', '15m', '30m', '1h', '90m', '4h', '12h'].includes(interval)
 }
 
 /** 인터벌별 staleTime (backend Redis TTL 정합) */

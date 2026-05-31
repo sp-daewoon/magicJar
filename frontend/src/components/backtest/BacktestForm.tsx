@@ -4,7 +4,7 @@
  * 입력 항목:
  *   - 전략 선택 (GET /api/strategy → strategyId)
  *   - 종목코드 (복수 쉼표 구분)
- *   - 인터벌 (1d · 1h · 30m · 15m · 5m · 1m)
+ *   - 인터벌 (1d · 12h · 4h · 1h · 90m · 30m · 15m · 5m · 3m · 1m)
  *   - 기간 (from · to, yyyy-MM-dd)
  *   - 초기자본 (KRW)
  *
@@ -30,9 +30,11 @@ const INTERVAL_OPTIONS = [
   { value: '12h', label: '정규장 전체 (12h)' },
   { value: '4h', label: '4시간 (4h)' },
   { value: '1h', label: '1시간 (1h)' },
+  { value: '90m', label: '90분 (90m)' },
   { value: '30m', label: '30분 (30m)' },
   { value: '15m', label: '15분 (15m)' },
   { value: '5m', label: '5분 (5m)' },
+  { value: '3m', label: '3분 (3m)' },
   { value: '1m', label: '1분 (1m)' },
 ]
 

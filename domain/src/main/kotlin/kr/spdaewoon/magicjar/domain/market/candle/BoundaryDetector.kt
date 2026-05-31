@@ -8,6 +8,7 @@ import kotlinx.datetime.toLocalDateTime
  * 1m tick ts 기준 boundary 마감 검사 — Pure Kotlin 도메인 (Spring 의존 0).
  *
  * TradingView 정합 boundary 시각 매트릭스 (KRX 정규장 09:00~15:30 KST):
+ *   3m  : 09:03·09:06·...·15:27·15:30                         → 130 bar/일
  *   5m  : 09:05·09:10·...·15:25·15:30 (boundary = bar 마감 ts)  → 78 bar/일
  *   15m : 09:15·09:30·...·15:15·15:30                          → 26 bar/일
  *   30m : 09:30·10:00·...·15:00·15:30                          → 13 bar/일
@@ -76,7 +77,7 @@ object BoundaryDetector {
      *   = 다음 분(ts+1m)이 새 boundary 시작점.
      *
      * @param ts 1m tick의 시작 ts (Instant — KST 기준 분 단위로 추출)
-     * @param target 검사 대상 interval (FIVE_MIN·FIFTEEN_MIN·THIRTY_MIN·NINETY_MIN·ONE_HOUR·FOUR_HOUR·TWELVE_HOUR)
+     * @param target 검사 대상 interval (THREE_MIN·FIVE_MIN·FIFTEEN_MIN·THIRTY_MIN·NINETY_MIN·ONE_HOUR·FOUR_HOUR·TWELVE_HOUR)
      * @return true = 이 분이 boundary 마감분 (합산·갱신 실행 필요)
      */
     fun isBoundaryClosed(
@@ -93,6 +94,9 @@ object BoundaryDetector {
         val nextMin = minOfDay + 1
 
         return when (target) {
+            // 3m: 다음 분이 3의 배수이면 이 분이 마감 (09:02→09:03, 09:05→09:06, ...)
+            CandleInterval.THREE_MIN -> nextMin % 3 == 0 && nextMin > REGULAR_OPEN_MIN
+
             // 5m: 다음 분이 5의 배수이면 이 분이 마감 (09:04→09:05, 09:09→09:10, ...)
             // 단, REGULAR_OPEN_MIN 자체는 5의 배수이므로 nextMin==REGULAR_OPEN_MIN이면 false.
             CandleInterval.FIVE_MIN -> nextMin % 5 == 0 && nextMin > REGULAR_OPEN_MIN
@@ -144,6 +148,7 @@ object BoundaryDetector {
 
         val boundaryMin =
             when (target) {
+                CandleInterval.THREE_MIN -> (minOfDay / 3) * 3
                 CandleInterval.FIVE_MIN -> (minOfDay / 5) * 5
                 CandleInterval.FIFTEEN_MIN -> (minOfDay / 15) * 15
                 CandleInterval.THIRTY_MIN -> (minOfDay / 30) * 30

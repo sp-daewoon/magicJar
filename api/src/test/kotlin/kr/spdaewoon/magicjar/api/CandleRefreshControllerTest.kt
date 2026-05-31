@@ -5,6 +5,7 @@ import kr.spdaewoon.magicjar.api.controller.SymbolController
 import kr.spdaewoon.magicjar.api.service.CandleQueryService
 import kr.spdaewoon.magicjar.api.service.CandleRefreshService
 import kr.spdaewoon.magicjar.api.service.SymbolMetaService
+import kr.spdaewoon.magicjar.api.service.dto.CandleRecollectResponse
 import kr.spdaewoon.magicjar.api.service.dto.CandleRefreshResponse
 import kr.spdaewoon.magicjar.api.service.dto.IntervalRefreshResult
 import org.junit.jupiter.api.Test
@@ -28,6 +29,7 @@ import org.springframework.web.server.ResponseStatusException
  * 검증 3: intervals 빈 문자열 → default 적용 200 OK
  * 검증 4: 종목 없음 → 404
  * 검증 5: KIS 인증 실패 (500) → 500
+ * 검증 6: 재수집 endpoint → resetIntervals + rebuiltIntervals 응답
  *
  * OnboardingGuardFilter mock: @MockBean UserAccountJpaRepository + existsAny()=true.
  * DB·Redis·KIS 실호출 없이 @MockBean으로 검증.
@@ -153,6 +155,37 @@ class CandleRefreshControllerTest {
             .post("/api/symbols/005930/candles/refresh?intervals=1d")
             .andExpect {
                 status { isInternalServerError() }
+            }
+    }
+
+    /** 검증 6: 재수집 endpoint — 합산봉 요청 시 reset/rebuild 결과 반환 */
+    @Test
+    fun `POST candles recollect 3m 200 OK`() {
+        whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
+        whenever(candleRefreshService.recollect(eq("005930"), any(), any())).thenReturn(
+            CandleRecollectResponse(
+                deletedCount = 3900,
+                resetIntervals = listOf("3m", "1m"),
+                refreshedIntervals =
+                    listOf(
+                        IntervalRefreshResult("1m", 3600, 3600, "2026-05-29T06:29:00Z", "OK"),
+                    ),
+                rebuiltIntervals =
+                    listOf(
+                        IntervalRefreshResult("3m", 1200, 1200, "2026-05-29T06:27:00Z", "OK"),
+                    ),
+                elapsedMs = 4567L,
+            ),
+        )
+
+        mockMvc
+            .post("/api/symbols/005930/candles/recollect?intervals=3m")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$.deletedCount") { value(3900) }
+                jsonPath("$.resetIntervals[0]") { value("3m") }
+                jsonPath("$.refreshedIntervals[0].interval") { value("1m") }
+                jsonPath("$.rebuiltIntervals[0].interval") { value("3m") }
             }
     }
 }

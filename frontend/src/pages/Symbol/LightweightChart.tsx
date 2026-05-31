@@ -115,6 +115,7 @@ interface LightweightChartProps {
 function isIntradayInterval(interval?: CandleInterval): boolean {
   return (
     interval === '1m' ||
+    interval === '3m' ||
     interval === '5m' ||
     interval === '15m' ||
     interval === '30m' ||
@@ -177,6 +178,10 @@ function barBoundaryTimestamp(isoString: string, interval: CandleInterval | unde
     case '1m': {
       // 현재 분 floor (초·밀리초 제거)
       boundaryKstMs = Math.floor(kstMs / (60 * 1000)) * (60 * 1000)
+      break
+    }
+    case '3m': {
+      boundaryKstMs = Math.floor(kstMs / (3 * 60 * 1000)) * (3 * 60 * 1000)
       break
     }
     case '5m': {

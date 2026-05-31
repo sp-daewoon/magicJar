@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>01-architecture — magicJar v3.10.0 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">📁 인덱스</a><a href="01-architecture.html" class="active">01 Architecture</a><a href="02-data-flow.html">02 Data Flow</a><a href="03-use-sequences.html">03 Use Sequences</a><a href="04-feature-spec.html">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html">06 History</a><a href="07-policy-evolution.html">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.10.0 Baseline · 2026-05-31 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># v3.10.0 Architecture — Candle/Orderblock Screening Boundary
+
+- baseline: v3.10.0
+- 작성일: 2026-05-31
+- 작성자: architect/orchestrator
+- 범위: 캔들 interval 확장, screener 기준봉 선택, 차트 재수집 UX
+
+## 현재 방향
+
+magicJar의 자동매매 본체는 캔들 → 지표/패턴/전략 → 시그널 → 리스크 → 주문으로 흐른다. v3.10.0은 이 중 앞단의 캔들 품질과 후보 탐색만 보강한다. 주문/리스크/실계좌 게이트는 건드리지 않고, FVG/오더블럭 후보를 더 안정적으로 찾을 수 있도록 기준봉과 재수집 도구를 추가한다.
+
+## 아키텍처 경계
+
+```mermaid
+flowchart LR
+    KIS["KIS REST candles\nregular-session 1m source"] --> API["api\nCandleRefreshService"]
+    API --> DB[("candle table\ninterval + code + time")]
+    DB --> AGG["domain\nCandleAggregator"]
+    AGG --> DB
+    DB --> QUERY["api\nCandleQueryService"]
+    QUERY --> CHART["frontend\nSymbolChart"]
+    QUERY --> SCREENER["api/frontend\nScreener"]
+    SCREENER --> USER["사용자 후보군 판단"]
+```
+
+## 모듈 영향
+
+| 모듈 | 영향 | 방향성 |
+|------|------|--------|
+| `domain` | `3m`, `4h`, `12h` 경계/집계 지원 | 순수 도메인 유지 |
+| `api` | 캔들 refresh/recollect, screener basis interval | REST 계약 확장 |
+| `consumer` | Kafka/Redis/경계 마감 interval 목록 확장 | 기존 topic family 유지 |
+| `frontend` | interval selector, screener basis selector, 재수집 버튼 | 기존 Symbol/Screener 화면 안에서 보강 |
+| `batch` | 직접 변경 없음 | 전종목 넓은 수집 기본은 `1d` 정책 유지 |
+
+## 자본 흐름 영향
+
+자본 path에는 변경이 없다.
+
+| path | 변경 |
+|------|------|
+| `order.intent.v1` | 없음 |
+| 리스크 게이트 | 없음 |
+| 실계좌 3중 게이트 | 없음 |
+| KIS 주문 REST | 없음 |
+| 체결 동기화 | 없음 |
+
+## 새 계약
+
+| 계약 | 내용 |
+|------|------|
+| Candle interval | `3m` 추가. UI/REST/MCP/consumer config 목록 정합 |
+| Screener request | `interval` 기준봉을 명시 가능. 미지정 기본 `1d` |
+| Recollect endpoint | `POST /api/symbols/{code}/candles/recollect?intervals=...` |
+| DB migration | `candle.interval` check/constraint에 `3m` 포함 |
+| Mock policy | 결측 데이터는 결측으로 둔다. 합성 캔들 금지 |
+
+## 변경 후에도 유지되는 제약
+
+KIS 1분봉은 장중/정규장 제약을 가진다. 따라서 장외 시간에 1분봉을 새로 촘촘히 만들 수 없고, 장기 기준 후보 탐색은 `1d` 또는 이미 저장된 집계봉을 우선 사용한다. 이 제약을 UX에서 숨기지 않는다.
+
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>

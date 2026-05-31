@@ -14,7 +14,7 @@ data class BacktestRunRequest(
     val strategyId: Long,
     @field:Schema(description = "유니버스 종목코드 리스트", example = "[\"005930\",\"000660\"]", required = true)
     val universe: List<String>,
-    @field:Schema(description = "캔들 인터벌 (1d · 1m · 5m · 15m · 1h)", example = "1d")
+    @field:Schema(description = "캔들 인터벌 (1m · 3m · 5m · 15m · 30m · 90m · 1h · 4h · 12h · 1d · 1wk · 1mo · 1y)", example = "1d")
     val interval: String = "1d",
     @field:Schema(description = "시작일 (포함, yyyy-MM-dd)", example = "2024-01-01", required = true)
     val from: String,

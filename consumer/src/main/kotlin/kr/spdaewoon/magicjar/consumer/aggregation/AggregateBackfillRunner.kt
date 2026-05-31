@@ -9,13 +9,14 @@ import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.NINETY_MIN
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.ONE_HOUR
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.ONE_MIN
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.THIRTY_MIN
+import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.THREE_MIN
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.TWELVE_HOUR
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 
 /**
- * 1m candle 베이스를 5m·15m·30m·90m·1h·4h·12h 로 일괄 합산 + DB INSERT.
+ * 1m candle 베이스를 3m·5m·15m·30m·90m·1h·4h·12h 로 일괄 합산 + DB INSERT.
  *
  * 사용 시점:
  *   - [kr.spdaewoon.magicjar.consumer.ingestion.ColdStartExecutor] 1m 적재 직후 (cold-start 확장)
@@ -49,7 +50,16 @@ class AggregateBackfillRunner(
          * (ONE_DAY·ONE_WEEK·ONE_MONTH·ONE_YEAR 는 KIS 직접 수집이므로 합산 제외)
          */
         val TARGET_INTERVALS =
-            listOf(FIVE_MIN, FIFTEEN_MIN, THIRTY_MIN, NINETY_MIN, ONE_HOUR, FOUR_HOUR, TWELVE_HOUR)
+            listOf(
+                THREE_MIN,
+                FIVE_MIN,
+                FIFTEEN_MIN,
+                THIRTY_MIN,
+                NINETY_MIN,
+                ONE_HOUR,
+                FOUR_HOUR,
+                TWELVE_HOUR,
+            )
     }
 
     data class IntervalBackfillResult(
@@ -58,7 +68,7 @@ class AggregateBackfillRunner(
     )
 
     /**
-     * 종목 1m candle 전량을 5m·15m·30m·90m·1h·4h·12h 로 합산 + DB INSERT.
+     * 종목 1m candle 전량을 3m·5m·15m·30m·90m·1h·4h·12h 로 합산 + DB INSERT.
      *
      * 흐름:
      *   1. DB 에서 해당 종목의 1m candle 전량 조회 (30 거래일 기준 ~10k~20k row)

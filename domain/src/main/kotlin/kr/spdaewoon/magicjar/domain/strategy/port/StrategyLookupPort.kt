@@ -29,7 +29,7 @@ interface StrategyLookupPort {
      * 실시간 시그널 평가 — 종목·인터벌 매칭 + status=ACTIVE 전략 목록 조회.
      *
      * @param code 종목 코드 (KIS 6자리)
-     * @param interval 평가 인터벌 (1m·5m·15m·30m·90m·1h·4h·12h 등)
+     * @param interval 평가 인터벌 (1m·3m·5m·15m·30m·90m·1h·4h·12h 등)
      * @return 활성 전략 목록 (status=ACTIVE만)
      */
     fun findActiveByCodeAndInterval(

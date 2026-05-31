@@ -5,15 +5,23 @@
  *   1. loading 상태 — Spinner + 평가 중 메시지
  *   2. matches 렌더 — 테이블 + 종목 표시
  *   3. skip badge — skippedReasons 표시
- *   4. userId null — setup 안내 메시지 (graceful)
+ *   4. 기준봉 선택 — default 1d, 변경 시 3m로 재평가 요청
+ *   5. userId null — setup 안내 메시지 (graceful)
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, it, expect, beforeAll, afterEach, afterAll } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { ScreenerResultModal } from '../components/ScreenerResultModal'
 import type { ScreenerRunResponse } from '../api/screenerApi'
+
+type EvaluateBody = {
+  userId: number
+  strategyId: number
+  interval?: string
+  limit: number
+}
 
 // MSW 서버
 const mockResult: ScreenerRunResponse = {
@@ -55,14 +63,20 @@ const mockResult: ScreenerRunResponse = {
   cacheHit: false,
 }
 
+const evaluateBodies: EvaluateBody[] = []
+
 const server = setupServer(
-  http.post('/api/screener/evaluate', () => {
+  http.post('/api/screener/evaluate', async ({ request }) => {
+    evaluateBodies.push(await request.json() as EvaluateBody)
     return HttpResponse.json(mockResult)
   }),
 )
 
 beforeAll(() => server.listen())
-afterEach(() => server.resetHandlers())
+afterEach(() => {
+  evaluateBodies.length = 0
+  server.resetHandlers()
+})
 afterAll(() => server.close())
 
 function Wrapper({ children }: { children: React.ReactNode }) {
@@ -123,7 +137,24 @@ describe('ScreenerResultModal', () => {
     expect(screen.getByText('캔들 부족')).toBeInTheDocument()
   })
 
-  it('4. userId null — setup 안내 메시지 (graceful)', () => {
+  it('4. 기준봉 default 1d, 변경 시 3m로 재평가 요청', async () => {
+    render(
+      <ScreenerResultModal strategyId={42} userId={12345678} onClose={() => {}} />,
+      { wrapper: Wrapper },
+    )
+
+    await waitFor(() => {
+      expect(evaluateBodies[0]?.interval).toBe('1d')
+    })
+
+    fireEvent.change(screen.getByLabelText('기준봉'), { target: { value: '3m' } })
+
+    await waitFor(() => {
+      expect(evaluateBodies.some((body) => body.interval === '3m')).toBe(true)
+    })
+  })
+
+  it('5. userId null — setup 안내 메시지 (graceful)', () => {
     render(
       <ScreenerResultModal strategyId={42} userId={null} onClose={() => {}} />,
       { wrapper: Wrapper },

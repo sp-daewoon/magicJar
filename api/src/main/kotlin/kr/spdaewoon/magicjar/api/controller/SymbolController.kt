@@ -12,6 +12,7 @@ import kr.spdaewoon.magicjar.api.persistence.UserAccountJpaRepository
 import kr.spdaewoon.magicjar.api.service.CandleQueryService
 import kr.spdaewoon.magicjar.api.service.CandleRefreshService
 import kr.spdaewoon.magicjar.api.service.SymbolMetaService
+import kr.spdaewoon.magicjar.api.service.dto.CandleRecollectResponse
 import kr.spdaewoon.magicjar.api.service.dto.CandleRefreshResponse
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
@@ -93,7 +94,7 @@ class SymbolController(
         summary = "종목 캔들(차트) 시계열 조회",
         description =
             "interval 인터벌의 캔들 시계열을 반환합니다 (DB candle + Redis current·today 합류). " +
-                "interval: 1m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y. " +
+                "interval: 1m·3m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y. " +
                 "before: 페이지네이션 cursor (ISO8601, 미지정 시 최신). " +
                 "limit: 1 ≤ limit ≤ 5000 (default 600 — ADR 0093 §3-1 LOCK). " +
                 "응답 candles는 ts ASC 정렬 (LWC v4 setData 기대). " +
@@ -117,7 +118,7 @@ class SymbolController(
     fun getCandles(
         @Parameter(description = "KIS 종목코드 6자리", example = "005930")
         @PathVariable code: String,
-        @Parameter(description = "인터벌 (1m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y)", example = "1d")
+        @Parameter(description = "인터벌 (1m·3m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y)", example = "1d")
         @RequestParam(defaultValue = "1d") interval: String,
         @Parameter(description = "페이지네이션 cursor — 이 시각 이전 candle 반환 (ISO8601)", example = "2026-05-07T15:30:00Z")
         @RequestParam(required = false) before: String?,
@@ -128,7 +129,7 @@ class SymbolController(
         if (interval !in candleQueryService.supportedIntervals) {
             throw ResponseStatusException(
                 HttpStatus.BAD_REQUEST,
-                "지원하지 않는 interval: $interval (허용: 1m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y)",
+                "지원하지 않는 interval: $interval (허용: 1m·3m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y)",
             )
         }
         return candleQueryService.getCandles(code, interval, before, limit)
@@ -186,6 +187,55 @@ class SymbolController(
         } catch (e: Exception) {
             log.error("refreshCandles 오류: code={} err={}", code, e.message)
             throw ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "캔들 갱신 중 오류가 발생했습니다")
+        }
+    }
+
+    @Operation(
+        summary = "캔들 초기화 후 재수집",
+        description =
+            "차트 캔들 데이터가 잘못 수집된 것으로 보일 때 사용자가 명시적으로 실행하는 복구 endpoint입니다. " +
+                "지정 interval의 기존 DB candle을 삭제한 뒤 KIS OpenAPI에서 다시 수집합니다. " +
+                "3m·5m·15m·30m·90m·1h·4h·12h는 KIS 직접 제공 interval이 아니므로 1m을 함께 재수집한 뒤 서버에서 합산 재생성합니다. " +
+                "Mock·합성 보정 없이 KIS/DB 기준 데이터만 사용합니다.",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "200", description = "재수집 완료 (일부 interval 실패 시 status 필드로 구분)"),
+        ApiResponse(
+            responseCode = "400",
+            description = "잘못된 interval 또는 파라미터",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+        ApiResponse(
+            responseCode = "404",
+            description = "종목 없음",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+        ApiResponse(
+            responseCode = "500",
+            description = "KIS 인증 실패 또는 내부 오류",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+    )
+    @PostMapping("/{code}/candles/recollect")
+    fun recollectCandles(
+        @Parameter(description = "KIS 종목코드 6자리", example = "005930")
+        @PathVariable code: String,
+        @Parameter(
+            description = "재수집 대상 interval CSV. 합산봉(3m~12h)은 1m도 함께 재수집 후 재생성",
+            example = "3m",
+        )
+        @RequestParam(defaultValue = "") intervals: String,
+    ): CandleRecollectResponse {
+        validateCode(code)
+        val intervalList =
+            intervals.split(",").map { it.trim() }.filter { it.isNotBlank() }
+        return try {
+            candleRefreshService.recollect(code, intervalList)
+        } catch (e: ResponseStatusException) {
+            throw e
+        } catch (e: Exception) {
+            log.error("recollectCandles 오류: code={} intervals={} err={}", code, intervals, e.message)
+            throw ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "캔들 재수집 중 오류가 발생했습니다")
         }
     }
 

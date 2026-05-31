@@ -32,7 +32,8 @@ export function useCandleRefresh({
     onSuccess: (data) => {
       // symbolCandles 캐시 invalidate → useSymbolCandles re-fetch → 차트 자동 갱신
       void queryClient.invalidateQueries({ queryKey: ['symbolCandles', code] })
-      onSuccess?.(data.added)
+      const added = data.refreshedIntervals.reduce((sum, item) => sum + item.insertedCount, 0)
+      onSuccess?.(added)
     },
     onError: (err) => {
       const msg =
@@ -43,6 +44,44 @@ export function useCandleRefresh({
 
   return {
     refresh: mutation.mutate,
+    isPending: mutation.isPending,
+    isError: mutation.isError,
+  }
+}
+
+export interface UseCandleRecollectOptions {
+  code: string
+  intervals: string[]
+  onSuccess?: (deleted: number, inserted: number) => void
+  onError?: (msg: string) => void
+}
+
+export function useCandleRecollect({
+  code,
+  intervals,
+  onSuccess,
+  onError,
+}: UseCandleRecollectOptions) {
+  const queryClient = useQueryClient()
+
+  const mutation = useMutation({
+    mutationFn: () => symbolApi.recollectCandles(code, intervals),
+    onSuccess: (data) => {
+      void queryClient.invalidateQueries({ queryKey: ['symbolCandles', code] })
+      const inserted =
+        data.refreshedIntervals.reduce((sum, item) => sum + item.insertedCount, 0) +
+        data.rebuiltIntervals.reduce((sum, item) => sum + item.insertedCount, 0)
+      onSuccess?.(data.deletedCount, inserted)
+    },
+    onError: (err) => {
+      const msg =
+        err instanceof Error ? err.message : '캔들 재수집 중 오류가 발생했습니다.'
+      onError?.(msg)
+    },
+  })
+
+  return {
+    recollect: mutation.mutate,
     isPending: mutation.isPending,
     isError: mutation.isError,
   }

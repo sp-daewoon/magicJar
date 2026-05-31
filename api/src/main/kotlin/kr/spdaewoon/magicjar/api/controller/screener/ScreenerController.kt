@@ -34,7 +34,7 @@ import org.springframework.web.server.ResponseStatusException
  * - GET /api/screener/runs/{id} — 단건 상세 (옵션 영속 ON 시)
  *
  * AI 호출 0 LOCK (ADR 0071 §2-9 + 개발 룰 5).
- * KIS endpoint 호출 0 LOCK.
+ * KIS endpoint 호출 0 LOCK. 요청 interval은 DB에 있는 기준봉을 선택하며, 결손은 skip 사유로 노출한다.
  */
 @Tag(name = "Screener", description = "종목 발굴 (universe × DSL → 후보 + 랭킹) — ADR 0071 T-SC Phase 2")
 @RestController
@@ -54,7 +54,8 @@ class ScreenerController(
         summary = "전략으로 종목 찾기 (inline 평가)",
         description = """
             등록된 Strategy DSL을 universe(KOSPI·KOSDAQ active instrument)에 적용해 매수 후보 + 랭킹 반환.
-            30분 내 동일 DSL + 동일 필터 재호출 시 캐시 반환 (idempotency).
+            요청 interval(기본 1d)을 기준봉으로 사용하며, 분봉/일봉/주봉/월봉/년봉 모두 DB 데이터가 있으면 평가할 수 있습니다.
+            30분 내 동일 strategy + 동일 interval + 동일 필터 재호출 시 캐시 반환 (idempotency).
             universe size ~3000 × DSL eval 500ms timeout = 최대 inline ~25s.
             동시 호출은 분산락 + 캐시 fetch 또는 409 Conflict.
         """,

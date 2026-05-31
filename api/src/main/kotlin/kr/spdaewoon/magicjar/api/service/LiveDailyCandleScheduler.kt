@@ -15,7 +15,7 @@ import java.time.ZoneId
  * 장중 일/주/월/년봉 자동 갱신 cron.
  *
  * 결함 배경 (2026-05-15 hotfix):
- *   - 분봉(1m·5m·15m·30m·90m)은 KIS WS + BoundaryAggregator로 실시간 OK
+ *   - 분봉/시간봉(1m·3m·5m·15m·30m·90m·1h·4h·12h)은 KIS WS + BoundaryAggregator로 실시간 OK
  *   - 일/주/월/년봉은 ColdStartExecutor 1회 backfill 후 polling 부재 → stale
  *   - 사용자가 장중 SymbolDetail 진입 시 캔들이 며칠 전 데이터로 표시되는 결함
  *

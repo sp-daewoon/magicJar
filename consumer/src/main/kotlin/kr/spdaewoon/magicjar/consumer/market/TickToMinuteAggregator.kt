@@ -22,7 +22,7 @@ import java.time.temporal.ChronoUnit
  * 2. OHLCV → ConsumerCandleJpaEntity DB INSERT (ON CONFLICT DO NOTHING — idempotent)
  * 3. Kafka `market.candle.minute.closed.v1` publish
  * 4. Redis `candle:current:{code}:1m` DEL (다음 분봉 시작 준비)
- * 5. BoundaryAggregator.onTickClosed(code, closingTs) 호출 (ADR 0064 B-1 — 5m~1h boundary 검사)
+ * 5. BoundaryAggregator.onTickClosed(code, closingTs) 호출 (ADR 0064 B-1 — 합산 interval boundary 검사)
  *
  * PR-9b market-data 담당 (dispatch §3-2-F — KIS WS handler 연관성).
  * ADR 0064 §4-3 BoundaryAggregator 연동 — 1m closing 완료 직후 boundary 검사 trigger.

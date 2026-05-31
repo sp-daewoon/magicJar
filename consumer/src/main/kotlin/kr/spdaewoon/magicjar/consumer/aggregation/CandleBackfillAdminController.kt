@@ -74,7 +74,7 @@ class CandleBackfillAdminController(
                 )
             }
 
-        // Phase 2-A LOCK — 1d / 1m 만 지원 (5m·15m·30m·90m·1h는 AggregateBackfillRunner 위임)
+        // Phase 2-A LOCK — 1d / 1m 만 지원 (3m·5m·15m·30m·90m·1h·4h·12h는 AggregateBackfillRunner 위임)
         if (candleInterval != CandleInterval.ONE_DAY && candleInterval != CandleInterval.ONE_MIN) {
             return ResponseEntity.badRequest().body(
                 BackfillResponse(
@@ -88,7 +88,7 @@ class CandleBackfillAdminController(
                     failedGapsCount = 0,
                     durationMs = 0L,
                     status = "BAD_REQUEST",
-                    error = "Phase 2-A는 1d·1m만 지원 (interval=$interval). 5m·15m·30m·90m·1h는 AggregateBackfillRunner 위임.",
+                    error = "Phase 2-A는 1d·1m만 지원 (interval=$interval). 3m·5m·15m·30m·90m·1h·4h·12h는 AggregateBackfillRunner 위임.",
                 ),
             )
         }

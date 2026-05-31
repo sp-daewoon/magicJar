@@ -33,7 +33,7 @@ class IndicatorController(
         summary = "지표 시계열 계산",
         description =
             "KIS 80지표 + magicJar 확장 지표 중 하나를 candle 시계열 위에서 계산하여 반환합니다. " +
-                "결과는 Redis 캐시 적용 — 분봉/시간봉(1m·5m·15m·30m·90m·1h·4h·12h) 5분 TTL, 일봉 이상(1d·1wk·1mo·1y) 1일 TTL. " +
+                "결과는 Redis 캐시 적용 — 분봉/시간봉(1m·3m·5m·15m·30m·90m·1h·4h·12h) 5분 TTL, 일봉 이상(1d·1wk·1mo·1y) 1일 TTL. " +
                 "미지원 지표 요청 시 400 에러. " +
                 "캔들 데이터 부족(기간 < 필요 최소) 시 400 에러. " +
                 "source 필드로 계산에 사용된 구현체 확인 가능 (native · smart-money · kis-strategy-builder).",
@@ -57,7 +57,7 @@ class IndicatorController(
         @RequestParam code: String,
         @Parameter(description = "지표 ID (예: rsi · macd · bb · adx · ma · ema · ...)", example = "rsi", required = true)
         @RequestParam name: String,
-        @Parameter(description = "캔들 인터벌 (1m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y)", example = "1d", required = true)
+        @Parameter(description = "캔들 인터벌 (1m·3m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y)", example = "1d", required = true)
         @RequestParam interval: String,
         @Parameter(
             description = "지표 파라미터 (key=value 쉼표 구분, 예: period=14 / fast=12,slow=26,signal=9)",

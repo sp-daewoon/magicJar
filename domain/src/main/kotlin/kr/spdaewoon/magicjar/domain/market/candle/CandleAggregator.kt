@@ -10,7 +10,7 @@ import kotlinx.datetime.toLocalDateTime
  * 결정 이력:
  *   - ADR 0019 §2-5 "합성 폐기" 결정 **revoke** (ADR 0062 채택 — 2026-05-11).
  *     사용자(최고 관리자) 결정: 합산 위치 = A-1 백엔드 precomputed,
- *     source 시간 범위 = 옵션 2 과거 30 거래일, UI 매트릭스 = 5종 활성화.
+ *     source 시간 범위 = 옵션 2 과거 30 거래일, UI 매트릭스 = 합산 interval 활성화.
  *   - 2026-05-30 TradingView 정합 패치 — boundary 정렬은 KRX 정규장(KST 09:00~15:30) 기준.
  *
  * 원칙:
@@ -28,6 +28,7 @@ import kotlinx.datetime.toLocalDateTime
  *   source = first.source (원천 출처 유지, 보통 "KIS")
  *
  * boundary 정렬 (KST = UTC+9, KRX 정규장 09:00~15:30 기준):
+ *   3m  : 09:00, 09:03, ..., 15:27  (130 bars/일)
  *   5m  : 09:00, 09:05, ..., 15:25  (78 bars/일)
  *   15m : 09:00, 09:15, ..., 15:15  (26 bars/일)
  *   30m : 09:00, 09:30, ..., 15:00  (13 bars/일)
@@ -36,8 +37,8 @@ import kotlinx.datetime.toLocalDateTime
  *   4h  : 09:00, 13:00  (마지막 2시간 30분 partial)
  *   12h : 09:00  (정규장 전체 1 bar, TradingView 세션 truncation 정합)
  *
- * 5m·15m·30m·1h 는 KST 자정 기준의 단순 modulo 로도 자연스럽게 09:00·09:05·... 등에 정렬됨
- * (자정 기준 540분 = 09:00, 540/5·540/15·540/30·540/60 모두 정수).
+ * 3m·5m·15m·30m·1h 는 KST 자정 기준의 단순 modulo 로도 자연스럽게 09:00·09:03·... 등에 정렬됨
+ * (자정 기준 540분 = 09:00, 540/3·540/5·540/15·540/30·540/60 모두 정수).
  *
  * 90m 는 09:00 anchor 기준 90분 간격이지만 15:00~15:30 partial bar가 있어
  * 별도 boundary 테이블을 두고 lower_bound 매핑.
@@ -45,7 +46,7 @@ import kotlinx.datetime.toLocalDateTime
  * 경계 케이스:
  *   - candles 빈 list           → 빈 list 반환
  *   - target == ONE_MIN         → IllegalArgumentException
- *   - target ∉ 지원 7종         → IllegalArgumentException
+ *   - target ∉ 지원 합산 interval → IllegalArgumentException
  *   - 입력 candle 의 interval 이 ONE_MIN 이 아님 → IllegalArgumentException
  *   - 한 boundary 내 1m 0건     → 해당 bar 생략 (mock 합성 금지)
  *   - 거래정지·중단 일자        → 자연스럽게 boundary 내 1m 0건이라 생략
@@ -72,9 +73,10 @@ object CandleAggregator {
             15 * 60 + 0, // 15:00 (정규장 종료 15:30 때문에 30분 partial)
         )
 
-    /** 지원 target interval 7종 (ADR 0062 UI 매트릭스 + FVG/OB 고타임프레임). */
+    /** 지원 target interval 8종 (ADR 0062 UI 매트릭스 + FVG/OB 고타임프레임). */
     private val SUPPORTED_TARGETS: Set<CandleInterval> =
         setOf(
+            CandleInterval.THREE_MIN,
             CandleInterval.FIVE_MIN,
             CandleInterval.FIFTEEN_MIN,
             CandleInterval.THIRTY_MIN,
@@ -90,7 +92,7 @@ object CandleAggregator {
      * 입력 candles 는 정렬 무관 (내부에서 ts ASC 정렬). 모든 candle 의 interval 은 ONE_MIN 이어야 함.
      *
      * @param candles 1m candle list
-     * @param target  목표 합산 interval (FIVE_MIN·FIFTEEN_MIN·THIRTY_MIN·NINETY_MIN·ONE_HOUR·FOUR_HOUR·TWELVE_HOUR)
+     * @param target  목표 합산 interval (THREE_MIN·FIVE_MIN·FIFTEEN_MIN·THIRTY_MIN·NINETY_MIN·ONE_HOUR·FOUR_HOUR·TWELVE_HOUR)
      * @return 합산된 candle list (ts ASC 정렬, target boundary 정합)
      * @throws IllegalArgumentException target 이 ONE_MIN 이거나 지원 대상 외이거나, 입력에 비-1m candle 포함
      */
@@ -102,7 +104,7 @@ object CandleAggregator {
             "target=$target — ONE_MIN 합산 불가 (1m → 1m 항등)"
         }
         require(target in SUPPORTED_TARGETS) {
-            "target=$target — 지원하지 않는 interval (지원: 5m·15m·30m·90m·1h·4h·12h)"
+            "target=$target — 지원하지 않는 interval (지원: 3m·5m·15m·30m·90m·1h·4h·12h)"
         }
         if (candles.isEmpty()) return emptyList()
 
@@ -167,8 +169,8 @@ object CandleAggregator {
      *   3. target 별 boundary 분 단위 오프셋 산출.
      *   4. KST 자정의 epoch second + (boundary 분 × 60) 으로 복원.
      *
-     * 5m·15m·30m·1h 는 (분 / 간격) × 간격 의 단순 modulo. 540(=09:00) 도 정수 배수라
-     * 09:00·09:05 등 KRX 정규장 boundary 에 자연 정렬.
+     * 3m·5m·15m·30m·1h 는 (분 / 간격) × 간격 의 단순 modulo. 540(=09:00) 도 정수 배수라
+     * 09:00·09:03·09:05 등 KRX 정규장 boundary 에 자연 정렬.
      *
      * 90m 는 09:00 anchor 기준 90분 간격이며, 마지막 15:00~15:30은 세션 종료로 잘리는 partial bar.
      */
@@ -183,6 +185,7 @@ object CandleAggregator {
 
         val boundaryMin =
             when (target) {
+                CandleInterval.THREE_MIN -> (minOfDay / 3) * 3
                 CandleInterval.FIVE_MIN -> (minOfDay / 5) * 5
                 CandleInterval.FIFTEEN_MIN -> (minOfDay / 15) * 15
                 CandleInterval.THIRTY_MIN -> (minOfDay / 30) * 30

@@ -9,7 +9,7 @@
  *
  * ADR 0019 §2-3 cold-start: 0건이면 "데이터 수집 중 — 잠시 후 새로고침"
  * ADR 0029 §2-3: 1m interval STOMP candle.minute 실시간 갱신
- * ADR 0062 채택 (2026-05-11): 5m·15m·30m·90m·1h 합산 5종 활성화
+ * ADR 0062 채택 (2026-05-11): 3m·5m·15m·30m·90m·1h·4h·12h 합산 활성화
  *   - AggregateBackfillRunner 작동 전까지 빈 배열 → 합산별 전용 안내 표시
  *   - feedback_no_mock_data.md 정합 — mock 합성 절대 금지
  *
@@ -33,7 +33,7 @@
 import { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import type { IChartApi, ISeriesApi } from 'lightweight-charts'
 import { useSymbolCandles } from '../../api/hooks/useSymbolCandles'
-import { useCandleRefresh } from '../../api/hooks/useCandleRefresh'
+import { useCandleRecollect, useCandleRefresh } from '../../api/hooks/useCandleRefresh'
 import type { CandleInterval, CandleDto, CandleMinutePayload } from '../../api/symbol'
 import type { ChartPriceTimePoint, LiveTick } from './LightweightChart'
 import type {
@@ -68,6 +68,7 @@ import {
 
 /** ADR 0062: 합산(precomputed) 인터벌 여부 — 빈 응답 시 전용 안내 메시지 구분 */
 const AGGREGATED_INTERVALS: ReadonlySet<CandleInterval> = new Set<CandleInterval>([
+  '3m',
   '5m',
   '15m',
   '30m',
@@ -170,6 +171,27 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
       showToast(`캔들 갱신 실패: ${msg}`, 'error')
     },
   })
+  const { recollect: recollectCandles, isPending: isRecollecting } = useCandleRecollect({
+    code,
+    intervals: [interval],
+    onSuccess: (deleted, inserted) => {
+      showToast(
+        `캔들 재수집 완료: 삭제 ${deleted.toLocaleString('ko-KR')}건 · 재적재 ${inserted.toLocaleString('ko-KR')}건`,
+        'success',
+      )
+    },
+    onError: (msg) => {
+      showToast(`캔들 재수집 실패: ${msg}`, 'error')
+    },
+  })
+
+  const handleRecollectCandles = useCallback(() => {
+    const ok = window.confirm(
+      `${code} ${interval} 캔들을 삭제하고 KIS에서 다시 수집합니다. 진행할까요?`,
+    )
+    if (!ok) return
+    recollectCandles()
+  }, [code, interval, recollectCandles])
 
   // 지표 관련 상태
   const [isPanelOpen, setIsPanelOpen] = useState(false)
@@ -227,9 +249,9 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
   }, [data])
 
   // STOMP 실시간 캔들을 CandleDto로 변환
-  // 우선순위: boundary closed candle(합산 5종) > 1m minute candle
+  // 우선순위: boundary closed candle(합산 인터벌) > 1m minute candle
   const realtimeCandleDto = useMemo<CandleDto | null>(() => {
-    // ADR 0064 §2-C: 합산 5종 boundary closed candle
+    // ADR 0064 §2-C: 합산 interval boundary closed candle
     if (latestBoundaryCandle) {
       return {
         ts: latestBoundaryCandle.ts,
@@ -617,7 +639,7 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
           <button
             type="button"
             onClick={() => refreshCandles()}
-            disabled={isRefreshing || isLoading}
+            disabled={isRefreshing || isRecollecting || isLoading}
             className="flex items-center gap-1.5 rounded-md bg-gray-800 px-2.5 py-1 text-xs text-gray-400 hover:bg-gray-700 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400"
             aria-label="최신 캔들 데이터 갱신"
             title="KIS에서 최신 일/주/월/년봉을 재수집합니다"
@@ -647,6 +669,39 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
                   />
                 </svg>
                 갱신
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleRecollectCandles}
+            disabled={isRefreshing || isRecollecting || isLoading}
+            className="flex items-center gap-1.5 rounded-md border border-amber-700/60 bg-amber-950/30 px-2.5 py-1 text-xs text-amber-300 hover:bg-amber-900/40 hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500"
+            aria-label="캔들 데이터 초기화 후 재수집"
+            title="현재 선택한 캔들을 삭제하고 KIS에서 다시 수집합니다"
+          >
+            {isRecollecting ? (
+              <>
+                <span
+                  className="h-3 w-3 animate-spin rounded-full border-2 border-amber-900 border-t-amber-300 shrink-0"
+                  aria-hidden="true"
+                />
+                재수집 중...
+              </>
+            ) : (
+              <>
+                <svg
+                  className="h-3.5 w-3.5 shrink-0"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v6h6M20 20v-6h-6M5 19A8 8 0 0 0 19 8m0 0V4m0 4h-4" />
+                </svg>
+                재수집
               </>
             )}
           </button>

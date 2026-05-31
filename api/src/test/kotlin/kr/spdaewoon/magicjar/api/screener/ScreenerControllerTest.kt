@@ -2,13 +2,17 @@ package kr.spdaewoon.magicjar.api.screener
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.controller.screener.ScreenerController
+import kr.spdaewoon.magicjar.api.controller.screener.ScreenerEvaluateRequest
 import kr.spdaewoon.magicjar.api.controller.screener.ScreenerMatchDto
 import kr.spdaewoon.magicjar.api.controller.screener.ScreenerResultDto
 import kr.spdaewoon.magicjar.api.controller.screener.ScreeningRunDetailDto
 import kr.spdaewoon.magicjar.api.service.screener.ScreenerService
+import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.eq
+import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest
@@ -81,7 +85,8 @@ class ScreenerControllerTest {
     private fun evaluateRequestBody(
         userId: Long = 1L,
         strategyId: Long = 42L,
-    ): String = """{"userId":$userId,"strategyId":$strategyId,"limit":50}"""
+        interval: String = "1d",
+    ): String = """{"userId":$userId,"strategyId":$strategyId,"interval":"$interval","limit":50}"""
 
     // ── 1. POST evaluate 200 ──────────────────────────────────────────
 
@@ -93,7 +98,7 @@ class ScreenerControllerTest {
         mockMvc
             .post("/api/screener/evaluate") {
                 contentType = MediaType.APPLICATION_JSON
-                content = evaluateRequestBody()
+                content = evaluateRequestBody(interval = "3m")
             }.andExpect {
                 status { isOk() }
                 jsonPath("$.matchedCount") { value(3) }
@@ -101,6 +106,10 @@ class ScreenerControllerTest {
                 jsonPath("$.cacheHit") { value(false) }
                 jsonPath("$.matches[0].instrumentCode") { value("005930") }
             }
+
+        val captor = argumentCaptor<ScreenerEvaluateRequest>()
+        verify(screenerService).evaluate(captor.capture())
+        assertThat(captor.firstValue.interval).isEqualTo("3m")
     }
 
     // ── 2. POST evaluate 409 — 분산락 충돌 ───────────────────────────

@@ -14,6 +14,15 @@ Spring Boot 3.3 + Spring AI + 한국투자증권 KIS OpenAPI 기반 **개인 맞
 
 **위치:** `.claude/agents/*.md`, `.claude/skills/magicjar-*/SKILL.md`. `.claude/agents/_archive/chart-curator.md`는 역사 보존(dispatch 대상 X). **전체 에이전트 opus 4.7 통일** (ADR 0080, 2026-05-18 — ADR 0035 supersede + ADR 0094 amend 2026-05-21 — 8→7 actor reshuffle 적용 + opus 4.7 LOCK 유지). 사유: W3 종착 + W4 진입 직전 단계 + 운영 단계 진입에서 코드 한 줄 수정도 룰 본체·자본 흐름 결합으로 진화하므로 sonnet 패턴화 추론 risk 회피.
 
+## 방향성 보존 가드 (최고 관리자 지시)
+
+코드 완성도가 올라간 상태에서는 새 변경이 기존 방향을 갑자기 틀어버리는 것이 가장 큰 리스크다. **모든 비트리비얼 코드 변경·설계 변경·리팩터링·캔들/오더블록/자동매매 흐름 변경 전에는 `magicjar-direction-guard` 스킬을 먼저 적용**한다.
+
+- 기존 SoT/ADR/정책/현재 구현을 먼저 읽고, "왜 지금 이렇게 되어 있는가"를 파악한다.
+- 변경 전/후 방향 차이, 데이터 흐름, 자본 흐름, API 계약, 사이트/화면 UX, 운영 스케줄, 검증 범위를 함께 비교한다.
+- 기존 방향을 바꾸는 변경은 작은 버그 수정처럼 처리하지 않는다. 대안·위험·마이그레이션·롤백 가능성을 정리하고 사용자 확인 또는 ADR/spec 갱신을 거친다.
+- 불필요한 대규모 재작성보다 현 구조 위에 보수적으로 보강하는 경로를 우선한다.
+
 ## 핵심 명령
 
 빌드 도구는 호스트 Gradle wrapper 기반. `package.json`은 husky 호스트 + 상태 스크립트 전용이며 앱 코드와 무관.

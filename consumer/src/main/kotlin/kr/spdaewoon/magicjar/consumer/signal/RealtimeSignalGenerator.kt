@@ -23,7 +23,7 @@ import java.math.BigDecimal
 /**
  * 실시간 시그널 생성기 (ADR 0066 §7-1 RealtimeSignalGenerator + §7-2 평가 흐름 본체).
  *
- * Phase 1 본체 — BoundaryClosingKafkaListener가 5종 Kafka 토픽 수신 시 호출.
+ * Phase 1 본체 — BoundaryClosingKafkaListener가 boundary Kafka 토픽 수신 시 호출.
  *
  * ### 흐름 (ADR 0066 §7-2 1:1 매핑)
  * 1. `StrategyLookupPort.findActiveByCodeAndInterval(code, interval)` — 활성 strategy 조회
@@ -66,7 +66,7 @@ class RealtimeSignalGenerator(
      * Kafka boundary closed payload 수신 시 호출.
      *
      * @param code 종목 코드
-     * @param interval 평가 인터벌 (1m·5m·15m·30m·90m·1h·4h·12h 중 하나)
+     * @param interval 평가 인터벌 (1m·3m·5m·15m·30m·90m·1h·4h·12h 중 하나)
      * @param boundaryTs boundary closing ts (deterministic — ADR 0064 §4-2)
      * @param candle 마감된 boundary 캔들 (payload에서 변환)
      */

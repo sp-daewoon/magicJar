@@ -22,7 +22,8 @@ describe('candleCountMaxByInterval — ADR 0093 §3-1 LOCK', () => {
     expect(getCandleCountMax('1m')).toBe(4800)
   })
 
-  it('합산 5종 (5m·15m·30m·90m·1h) max cap = 3840', () => {
+  it('합산 6종 (3m·5m·15m·30m·90m·1h) max cap = 3840', () => {
+    expect(getCandleCountMax('3m')).toBe(3840)
     expect(getCandleCountMax('5m')).toBe(3840)
     expect(getCandleCountMax('15m')).toBe(3840)
     expect(getCandleCountMax('30m')).toBe(3840)
@@ -46,7 +47,7 @@ describe('candleCountMaxByInterval — ADR 0093 §3-1 LOCK', () => {
   })
 
   it('모든 timeframe에 양수 cap 존재', () => {
-    const intervals: CandleInterval[] = ['1m', '5m', '15m', '30m', '90m', '1h', '4h', '12h', '1d', '1wk', '1mo', '1y']
+    const intervals: CandleInterval[] = ['1m', '3m', '5m', '15m', '30m', '90m', '1h', '4h', '12h', '1d', '1wk', '1mo', '1y']
     intervals.forEach((i) => {
       expect(getCandleCountMax(i)).toBeGreaterThan(0)
     })

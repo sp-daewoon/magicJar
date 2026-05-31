@@ -17,7 +17,7 @@ import org.springframework.stereotype.Component
  *
  * ## input
  * - `code`: 6자리 종목코드 (예: "005930")
- * - `interval`: 인터벌 (1m·5m·15m·30m·1h·1d·1wk·1mo·1y 중)
+ * - `interval`: 인터벌 (1m·3m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y 중)
  * - `before`: ISO8601 cursor (옵션 · 페이지네이션)
  * - `limit`: 1~5000 (옵션 · default 600)
  *

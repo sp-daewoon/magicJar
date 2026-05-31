@@ -24,6 +24,11 @@ data class ScreenerEvaluateRequest(
     val strategyId: Long,
     @Schema(description = "universe 필터 (옵션 — 기본 KOSPI+KOSDAQ active STOCK+ETF)")
     val filters: ScreenerFilterDto? = null,
+    @Schema(
+        description = "평가 기준봉 (기본 1d; 1m·3m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y)",
+        example = "1d",
+    )
+    val interval: String = "1d",
     @Schema(description = "랭킹 최대 결과 수 (1~500, default 50)", example = "50")
     @field:Min(1)
     @field:Max(500)

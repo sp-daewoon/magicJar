@@ -27,7 +27,7 @@ import java.time.ZoneId
  *   1. 현재 날짜가 영업일인지 확인 (비영업일 → skip)
  *   2. Redis candle:today:{code}:1d Hash 키 스캔 → 1d candle DB INSERT (ON CONFLICT DO NOTHING)
  *   3. KIS WS tick 집계 값 직접 사용 — 자체 계산 0 (ADR 0013 §3-7 §6 정합)
- *   4. watchlist 전 종목 당일 정규장 1m → 5m·15m·30m·90m·1h·4h·12h 합산 갱신
+ *   4. watchlist 전 종목 당일 정규장 1m → 3m·5m·15m·30m·90m·1h·4h·12h 합산 갱신
  *      (cold-start 합산 이후 당일 1m 추가 수집분이 있어 갱신 필요)
  *
  * T3 fallback source: 이 파이널라이저가 영속한 1d candle은 candle-data-policy-v2 §6 T3 소스.
@@ -156,7 +156,7 @@ class DailyCloseFinalizer(
     }
 
     /**
-     * watchlist 전 종목 당일 1m → 5m·15m·30m·90m·1h·4h·12h 합산 갱신.
+     * watchlist 전 종목 당일 1m → 3m·5m·15m·30m·90m·1h·4h·12h 합산 갱신.
      * TradingView 정합 — 16:00 KST에 당일 정규장 분봉 전량 합산.
      */
     private fun flushAggregations(today: LocalDate) {

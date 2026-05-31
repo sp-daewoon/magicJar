@@ -32,7 +32,8 @@ import org.springframework.test.web.servlet.get
  * 검증 4: GET /api/symbols/005930/candles?interval=1wk → 200 OK (화이트리스트 8종 확장)
  * 검증 5: GET /api/symbols/005930/candles?interval=1mo → 200 OK
  * 검증 6: GET /api/symbols/005930/candles?interval=1y → 200 OK
- * 검증 7: GET /api/symbols/005930/candles?interval=INVALID → 400
+ * 검증 7: GET /api/symbols/005930/candles?interval=3m → 200 OK
+ * 검증 8: GET /api/symbols/005930/candles?interval=INVALID → 400
  *
  * OnboardingGuardFilter mock 의무:
  *   @MockBean UserAccountJpaRepository + existsAny()=true (backlog §11 — InstrumentControllerTest 동일 패턴).
@@ -61,6 +62,23 @@ class SymbolControllerTest {
 
     @MockBean
     lateinit var userAccountJpaRepository: kr.spdaewoon.magicjar.api.persistence.UserAccountJpaRepository
+
+    private val allSupportedIntervals =
+        setOf(
+            "1m",
+            "3m",
+            "5m",
+            "15m",
+            "30m",
+            "90m",
+            "1h",
+            "4h",
+            "12h",
+            "1d",
+            "1wk",
+            "1mo",
+            "1y",
+        )
 
     @Test
     fun `GET symbol 200 OK`() {
@@ -104,7 +122,7 @@ class SymbolControllerTest {
     @Test
     fun `GET candles 200 OK`() {
         whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
-        whenever(candleQueryService.supportedIntervals).thenReturn(setOf("1m", "5m", "30m", "1h", "1d", "1wk", "1mo", "1y"))
+        whenever(candleQueryService.supportedIntervals).thenReturn(allSupportedIntervals)
         whenever(candleQueryService.getCandles(any(), any(), anyOrNull(), any())).thenReturn(
             CandlesResponseDto(
                 code = "005930",
@@ -139,7 +157,7 @@ class SymbolControllerTest {
     @Test
     fun `GET candles 1wk 200 OK`() {
         whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
-        whenever(candleQueryService.supportedIntervals).thenReturn(setOf("1m", "5m", "30m", "1h", "1d", "1wk", "1mo", "1y"))
+        whenever(candleQueryService.supportedIntervals).thenReturn(allSupportedIntervals)
         whenever(candleQueryService.getCandles(any(), any(), anyOrNull(), any())).thenReturn(
             CandlesResponseDto(
                 code = "005930",
@@ -172,7 +190,7 @@ class SymbolControllerTest {
     @Test
     fun `GET candles 1mo 200 OK`() {
         whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
-        whenever(candleQueryService.supportedIntervals).thenReturn(setOf("1m", "5m", "30m", "1h", "1d", "1wk", "1mo", "1y"))
+        whenever(candleQueryService.supportedIntervals).thenReturn(allSupportedIntervals)
         whenever(candleQueryService.getCandles(any(), any(), anyOrNull(), any())).thenReturn(
             CandlesResponseDto(
                 code = "005930",
@@ -204,7 +222,7 @@ class SymbolControllerTest {
     @Test
     fun `GET candles 1y 200 OK`() {
         whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
-        whenever(candleQueryService.supportedIntervals).thenReturn(setOf("1m", "5m", "30m", "1h", "1d", "1wk", "1mo", "1y"))
+        whenever(candleQueryService.supportedIntervals).thenReturn(allSupportedIntervals)
         whenever(candleQueryService.getCandles(any(), any(), anyOrNull(), any())).thenReturn(
             CandlesResponseDto(
                 code = "005930",
@@ -234,9 +252,42 @@ class SymbolControllerTest {
     }
 
     @Test
+    fun `GET candles 3m 200 OK`() {
+        whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
+        whenever(candleQueryService.supportedIntervals).thenReturn(allSupportedIntervals)
+        whenever(candleQueryService.getCandles(any(), any(), anyOrNull(), any())).thenReturn(
+            CandlesResponseDto(
+                code = "005930",
+                interval = "3m",
+                candles =
+                    listOf(
+                        CandleDto(
+                            ts = "2026-05-29T00:00:00Z",
+                            open = "60800",
+                            high = "61000",
+                            low = "60750",
+                            close = "60900",
+                            volume = 12345678L,
+                        ),
+                    ),
+                hasMore = false,
+                nextBefore = null,
+            ),
+        )
+
+        mockMvc
+            .get("/api/symbols/005930/candles?interval=3m&limit=100")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$.interval") { value("3m") }
+                jsonPath("$.candles.length()") { value(1) }
+            }
+    }
+
+    @Test
     fun `GET candles 지원하지 않는 interval 400`() {
         whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
-        whenever(candleQueryService.supportedIntervals).thenReturn(setOf("1m", "5m", "30m", "1h", "1d", "1wk", "1mo", "1y"))
+        whenever(candleQueryService.supportedIntervals).thenReturn(allSupportedIntervals)
 
         mockMvc
             .get("/api/symbols/005930/candles?interval=INVALID")
@@ -264,7 +315,7 @@ class SymbolControllerTest {
     @Test
     fun `GET candles limit 파라미터 미지정 시 default 600 — ADR 0093 §3-1`() {
         whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
-        whenever(candleQueryService.supportedIntervals).thenReturn(setOf("1m", "5m", "30m", "1h", "1d", "1wk", "1mo", "1y"))
+        whenever(candleQueryService.supportedIntervals).thenReturn(allSupportedIntervals)
         whenever(candleQueryService.getCandles(any(), any(), anyOrNull(), any())).thenReturn(
             CandlesResponseDto(code = "005930", interval = "1d", candles = emptyList(), hasMore = false, nextBefore = null),
         )
@@ -288,7 +339,7 @@ class SymbolControllerTest {
     @Test
     fun `GET candles limit 5000 — controller가 그대로 전달 (clamp는 service)`() {
         whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
-        whenever(candleQueryService.supportedIntervals).thenReturn(setOf("1m", "5m", "30m", "1h", "1d", "1wk", "1mo", "1y"))
+        whenever(candleQueryService.supportedIntervals).thenReturn(allSupportedIntervals)
         whenever(candleQueryService.getCandles(any(), any(), anyOrNull(), any())).thenReturn(
             CandlesResponseDto(code = "005930", interval = "1d", candles = emptyList(), hasMore = false, nextBefore = null),
         )
@@ -311,7 +362,7 @@ class SymbolControllerTest {
     @Test
     fun `GET candles limit 99999 cap 초과 — controller 거부 X, service clamp 위임`() {
         whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
-        whenever(candleQueryService.supportedIntervals).thenReturn(setOf("1m", "5m", "30m", "1h", "1d", "1wk", "1mo", "1y"))
+        whenever(candleQueryService.supportedIntervals).thenReturn(allSupportedIntervals)
         whenever(candleQueryService.getCandles(any(), any(), anyOrNull(), any())).thenReturn(
             CandlesResponseDto(code = "005930", interval = "1d", candles = emptyList(), hasMore = false, nextBefore = null),
         )

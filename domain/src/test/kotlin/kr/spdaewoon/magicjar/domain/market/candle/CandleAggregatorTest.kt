@@ -14,7 +14,7 @@ import java.math.BigDecimal
  * CandleAggregator 단위 테스트.
  *
  * 검증 시나리오 (TradingView + KRX 정규장 boundary 정합):
- *   1. 5m·15m·30m·1h·90m 합산 — 각 interval boundary 정합
+ *   1. 3m·5m·15m·30m·1h·90m 합산 — 각 interval boundary 정합
  *   2. OHLCV 정합 — open=first, close=last, high=max, low=min, vol=sum
  *   3. 빈 입력 / 잘못된 target / 비-1m 섞임 → IllegalArgumentException
  *   4. 다중 boundary 분산
@@ -61,6 +61,35 @@ class CandleAggregatorTest {
             volume = v,
             source = src,
         )
+
+    @Test
+    fun `3m aggregate from KRX regular open boundary 0900 to 0902`() {
+        val candles =
+            (0 until 3).map { i ->
+                oneMin(
+                    ts = kstTs(2026, 5, 11, 9, i),
+                    o = 100L + i,
+                    h = 110L + i,
+                    l = 90L + i,
+                    c = 105L + i,
+                    v = 1000L + i,
+                )
+            }
+
+        val result = CandleAggregator.aggregate(candles, CandleInterval.THREE_MIN)
+
+        result shouldHaveSize 1
+        val bar = result[0]
+        bar.interval shouldBe CandleInterval.THREE_MIN
+        bar.ts shouldBe kstTs(2026, 5, 11, 9, 0)
+        bar.openRaw shouldBe BigDecimal(100)
+        bar.highRaw shouldBe BigDecimal(112)
+        bar.lowRaw shouldBe BigDecimal(90)
+        bar.closeRaw shouldBe BigDecimal(107)
+        bar.volume shouldBe 3003L
+        bar.code shouldBe code
+        bar.source shouldBe src
+    }
 
     @Test
     fun `5m aggregate from KRX regular open boundary 0900 to 0904`() {

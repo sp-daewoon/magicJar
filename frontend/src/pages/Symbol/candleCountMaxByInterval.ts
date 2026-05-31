@@ -3,7 +3,7 @@
  *
  * ADR 0093 §3-1 결정 LOCK (timeframe별 max cap 매트릭스):
  *   - 1m: 4800 (약 13 거래일 — KIS 분봉 distinct 한도 30 거래일 정합)
- *   - 5m·15m·30m·90m·1h: 3840 (합산 가공 — ADR 0062)
+ *   - 3m·5m·15m·30m·90m·1h: 3840 (합산 가공 — ADR 0062)
  *   - 1d: 5000 (약 20년)
  *   - 1wk: 2000 (약 38년)
  *   - 1mo: 1200 (약 100년)
@@ -30,6 +30,7 @@ export const DEFAULT_CANDLE_COUNT = 600
  */
 export const CANDLE_COUNT_MAX_BY_INTERVAL: Readonly<Record<CandleInterval, number>> = Object.freeze({
   '1m': 4800,
+  '3m': 3840,
   '5m': 3840,
   '15m': 3840,
   '30m': 3840,

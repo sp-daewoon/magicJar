@@ -42,7 +42,7 @@ class WatchlistChangedKafkaListener(
     companion object {
         /**
          * cold-start 존재 여부 판단용 interval 목록.
-         * KIS 미제공 interval(5m·15m·30m·90m·1h)은 제외 (2026-05-11 Yahoo 폐기 — KIS-only 정책).
+         * KIS 미제공 합산 interval(3m·5m·15m·30m·90m·1h·4h·12h)은 제외 (2026-05-11 Yahoo 폐기 — KIS-only 정책).
          * KIS 제공: 1m·1d·1wk·1mo·1y
          */
         private val COLD_START_INTERVALS =
