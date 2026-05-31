@@ -433,6 +433,7 @@ GitHub 방문자가 한 번에 진입할 수 있도록 release notes(📋) + bas
 
 | 버전 | 날짜 | 미러스톤 | Release | Baseline |
 |------|------|----------|---------|----------|
+| **v3.10.0** | 2026-05-31 | 캔들/오더블럭 후보 스크리닝 minor | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.10.0) | [📊](_workspace/baseline/v3.10.0/html/index.html) |
 | **v3.9.1** | 2026-05-30 | 자동매매 dogfooding patch | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.9.1) | [📊](_workspace/baseline/v3.9.0/html/index.html) |
 | **v3.9.0** | 2026-05-24 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.9.0) | [📊](_workspace/baseline/v3.9.0/html/index.html) |
 | **v3.8.1** | 2026-05-22 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.8.1) | [📊](_workspace/baseline/v3.8.0/html/index.html) |
