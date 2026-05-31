@@ -70,6 +70,12 @@ export interface RiskEventDto {
   verdict: RiskVerdict
   rule: string
   reason: string
+  rawReason?: string
+  alertTitle?: string
+  alertMessage?: string
+  alertFormula?: string
+  alertSetting?: string
+  alertAction?: string
   signalId?: string
   strategyId?: string
   strategyName?: string
@@ -171,7 +177,13 @@ function normalizeRiskEvent(raw: RiskEventBackendDto): RiskEventDto {
     userId: Number(raw.userId),
     verdict: raw.verdict ?? 'BLOCKED',
     rule: raw.rule ?? 'UNKNOWN',
-    reason: raw.reason ?? '',
+    reason: raw.alertMessage ?? raw.reason ?? '',
+    rawReason: raw.rawReason,
+    alertTitle: raw.alertTitle,
+    alertMessage: raw.alertMessage,
+    alertFormula: raw.alertFormula,
+    alertSetting: raw.alertSetting,
+    alertAction: raw.alertAction,
     signalId: raw.signalId === null || raw.signalId === undefined ? undefined : String(raw.signalId),
     strategyId: raw.strategyId,
     strategyName: raw.strategyName,

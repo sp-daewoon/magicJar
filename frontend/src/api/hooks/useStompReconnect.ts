@@ -35,6 +35,7 @@ import {
 import type { OrderStompPayload } from './useStompOrder'
 import type { SignalDto } from '../signal'
 import type { RiskEventDto } from '../risk'
+import { buildRiskToastMessage } from '../riskAlertMessage'
 import { getStompClient } from '../../lib/stomp'
 
 // ──────────────────────────────────────────────
@@ -170,14 +171,14 @@ function buildBackfillSignalToast(s: SignalDto, createdAt?: string): ToastSpec {
 
 function buildBackfillRiskToast(r: RiskEventDto, createdAt?: string): ToastSpec {
   const prefix = backfillTimePrefix(createdAt)
-  if (r.verdict === 'BLOCKED') {
-    return { message: `${prefix}[차단] ${r.reason}`, type: 'error' }
+  const message = buildRiskToastMessage(r)
+  if (r.verdict === 'BLOCKED' || r.verdict === 'AUTO_PAUSED') {
+    return {
+      message: prefix ? `${prefix}${message}` : message,
+      type: r.verdict === 'AUTO_PAUSED' ? 'warning' : 'error',
+    }
   }
-  if (r.verdict === 'AUTO_PAUSED') {
-    const strat = r.strategyName ?? r.strategyId ?? '전략'
-    return { message: `${prefix}[자동 정지] ${strat} — ${r.reason}`, type: 'warning' }
-  }
-  return { message: `${prefix}[${r.verdict}] ${r.reason}`, type: 'info' }
+  return { message: prefix ? `${prefix}${message}` : message, type: 'info' }
 }
 
 // 100건 초과 누락 경고 임계치

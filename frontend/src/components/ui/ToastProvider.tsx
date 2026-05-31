@@ -92,7 +92,7 @@ function ToastItem({ item, onClose }: { item: ToastItem; onClose: (id: string) =
       <span className="mt-0.5 text-base leading-none" aria-hidden>
         {TYPE_ICONS[item.type]}
       </span>
-      <span className="flex-1 text-sm leading-snug">{item.message}</span>
+      <span className="flex-1 whitespace-pre-line text-sm leading-snug">{item.message}</span>
       <button
         onClick={() => onClose(item.id)}
         className="ml-2 shrink-0 text-current opacity-60 hover:opacity-100 focus:outline-none"

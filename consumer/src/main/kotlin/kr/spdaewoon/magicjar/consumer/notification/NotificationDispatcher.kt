@@ -152,7 +152,7 @@ class NotificationDispatcher(
                 log.warn("NotificationOutboxRepository 미등록 — outbox INSERT skip. topic={} userId={}****", record.topic(), userId.take(4))
                 // P0는 outbox 없어도 직접 Slack 시도
                 if (eventType.defaultPriority == NotificationPriority.P0) {
-                    tryDirectSlack(userId, reason, eventType)
+                    tryDirectSlack(userId, reason, eventType, meta)
                 }
                 return
             }
@@ -233,10 +233,11 @@ class NotificationDispatcher(
         userId: String,
         reason: String,
         eventType: NotificationEventType,
+        meta: Map<String, String?>,
     ) {
         val sender = slackSenderProvider.getIfAvailable() ?: return
         try {
-            val message = NotificationFormatter.format(userId, eventType, reason, emptyMap())
+            val message = NotificationFormatter.format(userId, eventType, reason, meta)
             sender.sendDirect(message)
         } catch (e: Exception) {
             log.error("direct Slack 발송 예외: userId={}**** err={}", userId.take(4), e.message)
@@ -255,7 +256,7 @@ class NotificationDispatcher(
             NotificationEventType.ORDER_CANCELLED ->
                 "주문 취소: ${raw["code"]} ${raw["side"]} (주문번호 ${raw["kisOrderNo"]})"
             NotificationEventType.RISK_VIOLATION ->
-                "리스크 위반: ${raw["code"]} rule=${raw["rule"]} — ${raw["reason"]}"
+                buildRiskReason(raw)
             NotificationEventType.RECONCILE_DRIFT ->
                 "포지션 불일치: ${raw["symbol"]} KIS=${raw["kisQty"]}주 내부=${raw["internalQty"]}주 diff=${raw["qtyDiff"]}"
             NotificationEventType.KILLSWITCH_ENGAGED ->
@@ -272,4 +273,20 @@ class NotificationDispatcher(
         raw: Map<String, Any?>,
         eventType: NotificationEventType,
     ): Map<String, String?> = raw.mapKeys { it.key }.mapValues { it.value?.toString() }
+
+    private fun buildRiskReason(raw: Map<String, Any?>): String {
+        val code =
+            raw["code"]
+                ?.toString()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { "$it " }
+                .orEmpty()
+        val title = raw["alertTitle"]?.toString()?.takeIf { it.isNotBlank() }
+        val message = raw["alertMessage"]?.toString()?.takeIf { it.isNotBlank() }
+        return if (title != null || message != null) {
+            "리스크 차단: $code${title ?: raw["rule"]} — ${message ?: raw["reason"]}"
+        } else {
+            "리스크 위반: ${raw["code"]} rule=${raw["rule"]} — ${raw["reason"]}"
+        }
+    }
 }
