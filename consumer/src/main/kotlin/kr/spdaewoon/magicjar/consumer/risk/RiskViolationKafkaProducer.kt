@@ -1,11 +1,14 @@
 package kr.spdaewoon.magicjar.consumer.risk
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.risk.RiskAlertMessage
 import kr.spdaewoon.magicjar.domain.risk.RiskGatewayResult
+import kr.spdaewoon.magicjar.domain.risk.RiskVerdict
 import kr.spdaewoon.magicjar.domain.signal.Signal
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Component
+import java.time.Instant
 
 /**
  * Risk 위반(risk.violation.v1) Kafka publish 어댑터 (ADR 0067 §7-1 RiskViolationKafkaProducer + F-1 정합).
@@ -16,7 +19,8 @@ import org.springframework.stereotype.Component
  * partition key = `userId` — 사용자별 ordering 보장.
  *
  * ### payload schema (ADR 0067 §11-4 ADR 0044 row + Phase 1 자체 정의)
- * { signalId, strategyId, userId, code, rule, reason, contextJson, blockedAt(epochSeconds) }
+ * { type, signalId, strategyId, userId, code, rule, verdict, reason, rawReason,
+ *   contextJson, blockedAt(epochSeconds), ts, alertTitle, alertMessage, alertFormula, alertSetting, alertAction }
  *
  * ### 호출 시점 (ADR 0067 §7-2 단계 4 BLOCKED 분기)
  *  SignalGeneratedKafkaListener BLOCKED:
@@ -50,22 +54,26 @@ class RiskViolationKafkaProducer(
         blocked: RiskGatewayResult.Blocked,
     ) {
         try {
-            val now =
-                java.time.Instant
-                    .now()
-                    .epochSecond
+            val now = Instant.now()
+            val alert = RiskAlertMessage.from(blocked.rule, blocked.reason, blocked.context, signal.code)
             val payload =
                 objectMapper.writeValueAsString(
-                    mapOf(
+                    mutableMapOf<String, Any?>(
+                        "type" to "BLOCKED",
                         "signalId" to signal.id,
                         "strategyId" to signal.strategyId,
                         "userId" to signal.userId,
                         "code" to signal.code,
                         "rule" to blocked.rule.name,
-                        "reason" to blocked.reason,
+                        "verdict" to RiskVerdict.BLOCKED.name,
+                        "reason" to alert.message,
+                        "rawReason" to blocked.reason,
                         "contextJson" to blocked.context.mapValues { it.value?.toString() },
-                        "blockedAt" to now,
-                    ),
+                        "blockedAt" to now.epochSecond,
+                        "ts" to now.toString(),
+                    ).apply {
+                        putAll(alert.toPayloadFields())
+                    },
                 )
             kafkaTemplate.send(TOPIC, signal.userId, payload)
             log.debug(

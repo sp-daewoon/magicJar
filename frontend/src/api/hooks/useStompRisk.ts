@@ -17,6 +17,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { useStompTopic } from '../../lib/stomp'
 import type { RiskEventDto, RiskVerdict } from '../risk'
+import { buildRiskToastMessage } from '../riskAlertMessage'
 import { useToast } from '../../components/ui/ToastProvider'
 
 export interface UseStompRiskOptions {
@@ -41,18 +42,6 @@ function verdictToToastType(verdict: RiskVerdict) {
   if (verdict === 'BLOCKED') return 'error' as const
   if (verdict === 'AUTO_PAUSED') return 'warning' as const
   return 'info' as const
-}
-
-/** 리스크 이벤트 토스트 메시지 조립 */
-function buildRiskToastMessage(event: RiskEventDto): string {
-  if (event.verdict === 'BLOCKED') {
-    return `[차단] ${event.reason}`
-  }
-  if (event.verdict === 'AUTO_PAUSED') {
-    const stratName = event.strategyName ?? event.strategyId ?? '전략'
-    return `[자동 정지] ${stratName} — ${event.reason}`
-  }
-  return `[${event.verdict}] ${event.reason}`
 }
 
 const MAX_QUEUE = 20
