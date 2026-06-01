@@ -39,6 +39,8 @@ export function InstrumentSearchInput({
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [isComposing, setIsComposing] = useState(false)
   const [isOpen, setIsOpen] = useState(false)
+  const [isFocused, setIsFocused] = useState(false)
+  const [hasUserEdited, setHasUserEdited] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(-1)
   const [serverErrorCount, setServerErrorCount] = useState(0)
   const [rawInputMode, setRawInputMode] = useState(false)
@@ -46,10 +48,24 @@ export function InstrumentSearchInput({
   const inputRef = useRef<HTMLInputElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const suppressNextDebounceRef = useRef(false)
+  const inputValueRef = useRef(inputValue)
+
+  useEffect(() => {
+    inputValueRef.current = inputValue
+  }, [inputValue])
 
   // debounce 200ms (IME 조합 중에는 스킵)
   useEffect(() => {
     if (isComposing) return
+    if (suppressNextDebounceRef.current) {
+      suppressNextDebounceRef.current = false
+      return
+    }
+    if (!hasUserEdited && isInstrumentDisplayLabel(inputValue)) {
+      setDebouncedQuery('')
+      return
+    }
     if (debounceTimer.current) clearTimeout(debounceTimer.current)
     debounceTimer.current = setTimeout(() => {
       setDebouncedQuery(inputValue.trim())
@@ -57,7 +73,7 @@ export function InstrumentSearchInput({
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current)
     }
-  }, [inputValue, isComposing])
+  }, [inputValue, isComposing, hasUserEdited])
 
   const { results, isLoading, isServerError } = useInstrumentSearch({
     query: debouncedQuery,
@@ -78,15 +94,19 @@ export function InstrumentSearchInput({
     }
   }, [isServerError])
 
-  // 검색 결과가 있으면 dropdown 열기
+  // 사용자가 입력 필드에 머무르는 동안에만 dropdown을 연다.
   useEffect(() => {
+    if (!isFocused) {
+      setIsOpen(false)
+      return
+    }
     if (results.length > 0 && debouncedQuery.length >= 1) {
       setIsOpen(true)
       setHighlightedIndex(-1)
     } else if (!isLoading && debouncedQuery.length >= 1) {
       setIsOpen(false)
     }
-  }, [results, debouncedQuery, isLoading])
+  }, [results, debouncedQuery, isLoading, isFocused])
 
   // 외부 클릭 시 dropdown 닫기
   useEffect(() => {
@@ -97,6 +117,7 @@ export function InstrumentSearchInput({
         inputRef.current &&
         !inputRef.current.contains(e.target as Node)
       ) {
+        setIsFocused(false)
         setIsOpen(false)
       }
     }
@@ -106,12 +127,42 @@ export function InstrumentSearchInput({
 
   // 부모 value 변경 시 inputValue 동기화
   useEffect(() => {
-    setInputValue(value)
+    const nextValue = value.trim()
+    const currentInputValue = inputValueRef.current
+    const currentCode = extractInstrumentCode(currentInputValue)
+    if (/^\d{6}$/.test(nextValue) && currentCode === nextValue && isInstrumentDisplayLabel(currentInputValue)) {
+      setHasUserEdited(false)
+      setIsOpen(false)
+      return
+    }
+    setInputValue(nextValue)
+    setHasUserEdited(false)
+    setIsOpen(false)
+    setHighlightedIndex(-1)
+    if (!nextValue || isInstrumentDisplayLabel(nextValue)) {
+      suppressNextDebounceRef.current = true
+      setDebouncedQuery('')
+    }
   }, [value])
+
+  useEffect(() => {
+    if (hasUserEdited || isFocused) return
+    const code = extractInstrumentCode(value)
+    if (!code || isInstrumentDisplayLabel(inputValue)) return
+    const match = results.find((result) => result.code === code)
+    if (!match) return
+    suppressNextDebounceRef.current = true
+    setInputValue(formatInstrumentDisplay(match))
+    setDebouncedQuery('')
+    setIsOpen(false)
+  }, [results, value, inputValue, hasUserEdited, isFocused])
 
   const handleSelect = useCallback(
     (result: InstrumentSearchResultDto) => {
-      setInputValue(`${result.name} (${result.code})`)
+      suppressNextDebounceRef.current = true
+      setInputValue(formatInstrumentDisplay(result))
+      setDebouncedQuery('')
+      setHasUserEdited(false)
       setIsOpen(false)
       setHighlightedIndex(-1)
       onSelect(result)
@@ -121,6 +172,7 @@ export function InstrumentSearchInput({
 
   function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
     const next = e.target.value
+    setHasUserEdited(true)
     setInputValue(next)
     onRawChange?.(next)
     setServerErrorCount(0) // 새 입력 시 오류 카운터 리셋
@@ -133,6 +185,7 @@ export function InstrumentSearchInput({
 
   function handleCompositionEnd(e: React.CompositionEvent<HTMLInputElement>) {
     setIsComposing(false)
+    setHasUserEdited(true)
     // IME 조합 완료 후 즉시 검색 (debounce 없이)
     const finalValue = e.currentTarget.value
     setDebouncedQuery(finalValue.trim())
@@ -213,6 +266,7 @@ export function InstrumentSearchInput({
         onCompositionEnd={handleCompositionEnd}
         onKeyDown={handleKeyDown}
         onFocus={() => {
+          setIsFocused(true)
           if (results.length > 0 && debouncedQuery.length >= 1) {
             setIsOpen(true)
           }
@@ -283,4 +337,19 @@ export function InstrumentSearchInput({
       )}
     </div>
   )
+}
+
+function formatInstrumentDisplay(result: InstrumentSearchResultDto): string {
+  return `${result.name} (${result.code})`
+}
+
+function isInstrumentDisplayLabel(value: string): boolean {
+  return /\(\d{6}\)\s*$/.test(value.trim())
+}
+
+function extractInstrumentCode(value: string): string | null {
+  const trimmed = value.trim()
+  const labelMatch = trimmed.match(/\((\d{6})\)\s*$/)
+  if (labelMatch) return labelMatch[1]
+  return /^\d{6}$/.test(trimmed) ? trimmed : null
 }

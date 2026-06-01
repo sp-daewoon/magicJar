@@ -16,9 +16,17 @@ describe('riskPlanDisplay', () => {
     })
   })
 
-  it('익절 기준이 손절 기준 이하이면 preview levels를 만들지 않는다', () => {
-    expect(buildRiskPlanLevels(100_000, 5, 5)).toBeNull()
-    expect(buildRiskPlanLevels(100_000, 5, 3)).toBeNull()
+  it('단타형 RiskPlan은 익절 기준이 손절 기준 이하라도 preview levels를 만든다', () => {
+    expect(buildRiskPlanLevels(100_000, 5, 5)).toMatchObject({
+      stopPrice: 95_000,
+      takePrice: 105_000,
+      rewardRiskRatio: 1,
+    })
+    expect(buildRiskPlanLevels(100_000, 5, 3)).toMatchObject({
+      stopPrice: 95_000,
+      takePrice: 103_000,
+      rewardRiskRatio: 0.6,
+    })
   })
 
   it('숫자와 가격을 한국어 표시 형식으로 정리한다', () => {

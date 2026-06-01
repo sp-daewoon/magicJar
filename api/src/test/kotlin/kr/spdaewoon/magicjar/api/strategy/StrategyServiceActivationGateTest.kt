@@ -20,6 +20,7 @@ import kr.spdaewoon.magicjar.domain.strategy.dsl.IndicatorRef
 import kr.spdaewoon.magicjar.domain.strategy.dsl.LiteralValue
 import kr.spdaewoon.magicjar.domain.strategy.dsl.Operator
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyRepositoryPort
+import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.springframework.web.server.ResponseStatusException
@@ -83,12 +84,14 @@ class StrategyServiceActivationGateTest {
     }
 
     @Test
-    fun `익절 기준이 손절 기준 이하이면 전략 저장을 차단한다`() {
-        assertThatThrownBy {
+    fun `단타형 RiskPlan은 익절 기준이 손절 기준 이하라도 전략 저장을 허용한다`() {
+        every { strategyRepositoryPort.save(any()) } answers { firstArg() }
+
+        val saved =
             service.create(
                 userId = 1234L,
-                name = "risk_reward_invalid",
-                nameKo = "손익비 오류",
+                name = "scalping_risk_plan",
+                nameKo = "단타 손익비",
                 entryAst = sampleEntryAst(),
                 exitAst = null,
                 universe = Universe("KOSPI"),
@@ -98,13 +101,13 @@ class StrategyServiceActivationGateTest {
                 codes = listOf("005930"),
                 intervals = listOf("1m"),
                 stopLossPct = BigDecimal("5.00"),
-                takeProfitPct = BigDecimal("5.00"),
+                takeProfitPct = BigDecimal("3.00"),
                 requireCodes = true,
             )
-        }.isInstanceOf(ResponseStatusException::class.java)
-            .hasMessageContaining("takeProfitPct")
 
-        verify(exactly = 0) { strategyRepositoryPort.save(any()) }
+        assertThat(saved.definition.fixedStopLoss).isEqualByComparingTo("5.00")
+        assertThat(saved.definition.takeProfitPct).isEqualByComparingTo("3.00")
+        verify(exactly = 1) { strategyRepositoryPort.save(any()) }
     }
 
     @Test

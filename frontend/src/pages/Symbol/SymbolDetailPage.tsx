@@ -119,7 +119,7 @@ export function SymbolDetailPage() {
     const stopLossPct = Number(searchParams.get('stopLossPct'))
     const takeProfitPct = Number(searchParams.get('takeProfitPct'))
     if (!Number.isFinite(stopLossPct) || !Number.isFinite(takeProfitPct)) return null
-    if (stopLossPct <= 0 || takeProfitPct <= stopLossPct) return null
+    if (stopLossPct <= 0 || takeProfitPct <= 0) return null
     return {
       strategyId: searchParams.get('strategyId') ?? undefined,
       stopLossPct,

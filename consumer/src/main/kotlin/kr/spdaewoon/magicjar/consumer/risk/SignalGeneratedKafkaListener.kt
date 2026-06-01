@@ -311,9 +311,6 @@ class SignalGeneratedKafkaListener(
         if (stopLossPct <= BigDecimal.ZERO || takeProfitPct <= BigDecimal.ZERO) {
             return riskPlanBlocked(signal, "INVALID_STOP_OR_TAKE_PROFIT")
         }
-        if (takeProfitPct <= stopLossPct) {
-            return riskPlanBlocked(signal, "REWARD_RISK_TOO_LOW")
-        }
         return null
     }
 

@@ -22,7 +22,7 @@
 
 1. 자동매매 BUY는 RiskPlan이 없으면 fail-closed로 차단한다.
 2. 1차 RiskPlan 필수 항목은 `fixed_stop_loss_pct`와 `take_profit_pct`다.
-3. `take_profit_pct`는 `fixed_stop_loss_pct`보다 커야 한다.
+3. `fixed_stop_loss_pct`와 `take_profit_pct`는 모두 0보다 커야 한다. 단타형/스캘핑 전략은 `take_profit_pct <= fixed_stop_loss_pct`도 허용하며, 손익비는 차단 조건이 아니라 관리자 판단 지표로 표시한다.
 4. 전략 ACTIVE 전환은 대상 종목, 인터벌, RiskPlan, 성공 백테스트가 모두 준비된 경우에만 허용한다.
 5. consumer 실행 중에도 BUY 신호는 전략 RiskPlan preflight를 통과해야 주문 의도로 넘어간다.
 6. SELL 주문 수량은 `보유 수량 - 미체결 SELL 주문 수량`으로 계산한다.
@@ -32,7 +32,7 @@
 
 - 기존 ACTIVE 전략 중 RiskPlan이 없는 전략은 BUY 신호가 발생해도 주문으로 이어지지 않는다.
 - 내부 position에는 보유가 있어도 KIS 잔고에 해당 종목/수량이 없으면 SELL 주문 요청이 KIS로 나가지 않는다.
-- 새 전략 저장 UX는 기본 손절 5%, 익절 10%를 제안한다.
+- 새 전략 저장 UX는 기본 손절 5%, 익절 10%를 제안하되, 손절 5%·익절 3% 같은 단타형 RiskPlan도 저장/자동매매 진입을 허용한다.
 - 차트 범위 손절, FVG/OB 무효화 손절, ATR 손절은 후속 확장으로 RiskPlan source를 넓힌다.
 - KIS 국내주식 서버사이드 stop 지원 여부와 무관하게, 1차 구현은 내부 WS 감시 기반 보호 플랜의 전제 데이터를 저장한다.
 

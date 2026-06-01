@@ -21,7 +21,7 @@ export function buildRiskPlanLevels(
   const entry = parsePositiveNumber(entryPrice)
   const stop = parsePositiveNumber(stopLossPct)
   const take = parsePositiveNumber(takeProfitPct)
-  if (entry === null || stop === null || take === null || take <= stop) return null
+  if (entry === null || stop === null || take === null) return null
 
   return {
     entryPrice: entry,

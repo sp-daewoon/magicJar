@@ -26,10 +26,13 @@ export function RiskPlanPreviewPanel({
   const levels = buildRiskPlanLevels(entryPrice, stopLossPct, takeProfitPct)
   const stopPct = parsePositiveNumber(stopLossPct)
   const takePct = parsePositiveNumber(takeProfitPct)
-  const hasPlan =
-    stopPct !== null &&
-    takePct !== null &&
-    takePct > stopPct
+  const hasPlan = stopPct !== null && takePct !== null
+  const ratioLabel =
+    levels && levels.rewardRiskRatio < 1
+      ? `손익비 1:${levels.rewardRiskRatio.toFixed(2)} · 단타형`
+      : levels
+        ? `손익비 1:${levels.rewardRiskRatio.toFixed(2)}`
+        : '매수 체결가 기준'
 
   return (
     <section className={['space-y-3', className].filter(Boolean).join(' ')} aria-label={title}>
@@ -37,7 +40,7 @@ export function RiskPlanPreviewPanel({
         <div>
           <div className="text-xs font-semibold text-gray-200">{title}</div>
           <div className="mt-0.5 text-[11px] text-gray-500">
-            {levels ? `손익비 1:${levels.rewardRiskRatio.toFixed(2)}` : '매수 체결가 기준'}
+            {ratioLabel}
           </div>
         </div>
         {actionSlot}
@@ -73,7 +76,7 @@ export function RiskPlanPreviewPanel({
 
       {!hasPlan && (
         <p className="text-xs text-red-300" role="alert">
-          손절과 익절을 0보다 크게 입력하고, 익절은 손절보다 크게 설정해야 합니다.
+          손절과 익절을 0보다 크게 입력해야 합니다.
         </p>
       )}
     </section>
