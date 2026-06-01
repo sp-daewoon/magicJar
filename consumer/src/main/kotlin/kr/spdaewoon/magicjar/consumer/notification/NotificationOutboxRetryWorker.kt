@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
+import java.time.Instant
 
 /**
  * notification_outbox PENDING 재시도 worker (ADR 0044 + spec §2-4 LOCK).
@@ -40,6 +41,7 @@ class NotificationOutboxRetryWorker(
     companion object {
         private const val MAX_RETRY = 5
         private const val BATCH_SIZE = 50
+        private const val RECENT_PENDING_GRACE_SECONDS = 30L
     }
 
     @Scheduled(fixedDelay = 5 * 60 * 1000L)
@@ -50,7 +52,11 @@ class NotificationOutboxRetryWorker(
             return
         }
 
-        val pending = outboxRepository.findPending(limit = BATCH_SIZE)
+        val cutoff = Instant.now().minusSeconds(RECENT_PENDING_GRACE_SECONDS)
+        val pending =
+            outboxRepository
+                .findPending(limit = BATCH_SIZE)
+                .filter { !it.createdAt.isAfter(cutoff) }
         if (pending.isEmpty()) {
             log.debug("retry worker: PENDING 0건 — skip")
             return
