@@ -52,6 +52,7 @@ class RiskViolationKafkaProducer(
     fun publish(
         signal: Signal,
         blocked: RiskGatewayResult.Blocked,
+        riskEventId: Long? = null,
     ) {
         try {
             val now = Instant.now()
@@ -60,16 +61,19 @@ class RiskViolationKafkaProducer(
                 objectMapper.writeValueAsString(
                     mutableMapOf<String, Any?>(
                         "type" to "BLOCKED",
+                        "riskEventId" to riskEventId,
                         "signalId" to signal.id,
                         "strategyId" to signal.strategyId,
                         "userId" to signal.userId,
                         "code" to signal.code,
                         "rule" to blocked.rule.name,
+                        "ruleType" to blocked.rule.name,
                         "verdict" to RiskVerdict.BLOCKED.name,
                         "reason" to alert.message,
                         "rawReason" to blocked.reason,
                         "contextJson" to blocked.context.mapValues { it.value?.toString() },
                         "blockedAt" to now.epochSecond,
+                        "violatedAt" to now.epochSecond,
                         "ts" to now.toString(),
                     ).apply {
                         putAll(alert.toPayloadFields())

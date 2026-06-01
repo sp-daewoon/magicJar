@@ -71,4 +71,24 @@ class NotificationRateLimiter(
             true // fail-open: Redis 장애 시 발송 허용
         }
     }
+
+    override fun shouldEmitOncePerWindow(
+        userId: String,
+        topicHash: String,
+        windowMin: Int,
+    ): Boolean {
+        val key = "notification:once:$userId:$topicHash"
+        return try {
+            val acquired =
+                redisTemplate
+                    .opsForValue()
+                    .setIfAbsent(key, Instant.now().toEpochMilli().toString(), Duration.ofMinutes(windowMin.toLong()))
+                    ?: false
+            log.debug("once-per-window check: key={} windowMin={} emit={}", key, windowMin, acquired)
+            acquired
+        } catch (e: Exception) {
+            log.warn("Redis once-per-window 체크 실패 — graceful allow: key={} err={}", key, e.message)
+            true
+        }
+    }
 }

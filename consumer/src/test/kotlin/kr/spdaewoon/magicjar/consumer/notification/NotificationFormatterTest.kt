@@ -25,12 +25,13 @@ class NotificationFormatterTest {
             NotificationFormatter.format(
                 userId = "12345678",
                 eventType = NotificationEventType.ORDER_FILLED,
-                reason = "체결: 005930 BUY 10주 @ 75000",
+                reason = "체결: [MOCK] 삼성전자(005930) 매수 10주 @ 75,000원",
                 meta = emptyMap(),
             )
         assertThat(msg).contains("주문 체결")
         assertThat(msg).contains("1234****") // 마스킹
-        assertThat(msg).contains("체결: 005930")
+        assertThat(msg).contains("삼성전자(005930)")
+        assertThat(msg).contains("75,000원")
         assertThat(msg).doesNotContain("즉시 조치")
     }
 
@@ -70,14 +71,17 @@ class NotificationFormatterTest {
                 meta =
                     mapOf(
                         "alertTitle" to "D. 거래 빈도 한도 도달 - 일별 최대 거래",
-                        "alertMessage" to "오늘 이 전략에서 허용된 주문 횟수를 모두 사용해 추가 자동 주문을 차단했습니다.",
+                        "alertMessage" to "종목 005930 주문이 오늘 이 전략에서 허용된 주문 횟수를 모두 사용해 차단됐습니다.",
                         "alertFormula" to "오늘 허용 주문 수 50회 >= 일별 최대 거래 50회/일",
                         "alertSetting" to "D. 거래 빈도 한도 - 일별 최대 거래",
+                        "code" to "005930",
+                        "instrumentName" to "삼성전자",
                     ),
             )
         assertThat(msg).contains("리스크 위반")
+        assertThat(msg).contains("종목: 삼성전자(005930)")
         assertThat(msg).contains("내용: D. 거래 빈도 한도 도달 - 일별 최대 거래")
-        assertThat(msg).contains("설명: 오늘 이 전략")
+        assertThat(msg).contains("설명: 종목 삼성전자(005930)")
         assertThat(msg).contains("수식: 오늘 허용 주문 수 50회 >= 일별 최대 거래 50회/일")
         assertThat(msg).contains("설정: D. 거래 빈도 한도 - 일별 최대 거래")
         assertThat(msg).contains("즉시 조치")

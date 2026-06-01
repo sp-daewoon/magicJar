@@ -26,4 +26,16 @@ interface NotificationRateLimiterPort {
         threshold: Int,
         windowMin: Int = 60,
     ): Boolean
+
+    /**
+     * 동일 키에 대해 윈도우당 1회만 발송한다.
+     *
+     * 반복되는 보호 차단(POSITION_LIMIT 등)은 risk_event DB에는 모두 남기되,
+     * Slack은 첫 1회 이후 윈도우가 만료될 때까지 묶어 알림 피로도를 낮춘다.
+     */
+    fun shouldEmitOncePerWindow(
+        userId: String,
+        topicHash: String,
+        windowMin: Int,
+    ): Boolean
 }

@@ -287,7 +287,7 @@ class SignalGeneratedKafkaListener(
         }
 
         // 4. risk.violation.v1 publish
-        riskViolationKafkaProducer.publish(signal, blocked)
+        riskViolationKafkaProducer.publish(signal, blocked, savedEvent?.id)
 
         // 5. AutoPauseGuard — 연속 BLOCKED 임계 도달 검사
         val config =

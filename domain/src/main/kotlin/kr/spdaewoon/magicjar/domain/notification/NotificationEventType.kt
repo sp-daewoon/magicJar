@@ -7,7 +7,7 @@ package kr.spdaewoon.magicjar.domain.notification
  * - ORDER_FILLED       → order.filled.v1       (P0, TRADE 즉시)
  * - ORDER_REJECTED     → order.rejected.v1     (P0, TRADE 즉시)
  * - ORDER_CANCELLED    → order.cancelled.v1    (P2)
- * - RISK_VIOLATION     → risk.violation.v1     (P0)
+ * - RISK_VIOLATION     → risk.violation.v1     (P0, 반복 보호 차단 일부는 Slack dedupe)
  * - RECONCILE_DRIFT    → reconcile.drift.v1    (P0)
  * - KILLSWITCH_ENGAGED → killswitch.engaged.v1 (P0)
  * - RECONCILE_RUN      → reconcile.run.v1      (P2 — audit only)

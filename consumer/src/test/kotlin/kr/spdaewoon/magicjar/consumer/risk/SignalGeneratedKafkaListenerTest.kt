@@ -83,7 +83,7 @@ class SignalGeneratedKafkaListenerTest {
         verify(exactly = 1) {
             signalRiskStatusUpdater.markBlocked(77L, RiskRule.KILL_SWITCH_ON, match { it.contains("KillSwitch") })
         }
-        verify(exactly = 1) { riskViolationKafkaProducer.publish(any(), match { it.rule == RiskRule.KILL_SWITCH_ON }) }
+        verify(exactly = 1) { riskViolationKafkaProducer.publish(any(), match { it.rule == RiskRule.KILL_SWITCH_ON }, any()) }
         verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any()) }
     }
 
@@ -122,7 +122,9 @@ class SignalGeneratedKafkaListenerTest {
         verify(exactly = 1) {
             signalRiskStatusUpdater.markBlocked(77L, RiskRule.KIS_EXECUTION_SYNC_STALE, match { it.contains("KIS_EXECUTION_SYNC_STALE") })
         }
-        verify(exactly = 1) { riskViolationKafkaProducer.publish(any(), match { it.rule == RiskRule.KIS_EXECUTION_SYNC_STALE }) }
+        verify(exactly = 1) {
+            riskViolationKafkaProducer.publish(any(), match { it.rule == RiskRule.KIS_EXECUTION_SYNC_STALE }, any())
+        }
         verify(exactly = 0) { dailyPnlCalculator.getDailyPnl(any(), any()) }
         verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any()) }
     }
