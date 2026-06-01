@@ -323,6 +323,31 @@ class KisRestCandleAdapter(
 
     private fun formatHourCursor(time: LocalTime): String = "%02d%02d%02d".format(time.hour, time.minute, time.second)
 
+    private fun oneMinuteRangeFetchUnavailable(
+        message: String,
+        cause: Throwable? = null,
+    ): Nothing = throw IllegalStateException(message, cause)
+
+    private fun assertOneMinuteRangeResponseOk(
+        body: Map<*, *>,
+        code: String,
+        dateStr: String,
+        currentHour: String,
+    ) {
+        val rtCd = body["rt_cd"]?.toString()
+        if (rtCd == "0") return
+
+        val msgCd = body["msg_cd"]?.toString()
+        val msg = body["msg1"]?.toString() ?: body["message"]?.toString()
+        if (msgCd == "EGW00201" || msg?.contains("초당 거래건수") == true) {
+            kisRateLimiterPort.onTpsExceeded()
+        }
+        oneMinuteRangeFetchUnavailable(
+            "KIS 1m range candle rt_cd != 0 — code=$code date=$dateStr hour=$currentHour " +
+                "rt_cd=$rtCd msg_cd=$msgCd msg=$msg",
+        )
+    }
+
     private fun maxInstant(
         a: java.time.Instant,
         b: java.time.Instant,
@@ -344,21 +369,18 @@ class KisRestCandleAdapter(
                 .findAllByAccountType(AccountType.REAL.name)
                 .firstOrNull()
                 ?: run {
-                    log.warn("KIS REST 1m range candle: REAL credential 없음 — code={}", code)
-                    return emptyList()
+                    oneMinuteRangeFetchUnavailable("KIS REST 1m range candle: REAL credential 없음 — code=$code")
                 }
 
         val userId = cred.id.userId
         if (userId.isBlank()) {
-            log.warn("KIS REST 1m range candle: credential userId 빈 문자열 — code={} DB 결함", code)
-            return emptyList()
+            oneMinuteRangeFetchUnavailable("KIS REST 1m range candle: credential userId 빈 문자열 — code=$code DB 결함")
         }
         val accessToken =
             try {
                 kisAuthAdapter.getAccessToken(userId, AccountType.REAL)
             } catch (e: Exception) {
-                log.warn("KIS REST 1m range candle: 토큰 발급 실패 — code={}: {}", code, e.message)
-                return emptyList()
+                oneMinuteRangeFetchUnavailable("KIS REST 1m range candle: 토큰 발급 실패 — code=$code", e)
             }
 
         var appKey: ByteArray? = null
@@ -521,9 +543,16 @@ class KisRestCandleAdapter(
                         .timeout(Duration.ofSeconds(10))
                         .block()
 
+                if (body == null) {
+                    oneMinuteRangeFetchUnavailable(
+                        "KIS 1m range candle 빈 body — code=$code date=$dateStr hour=$currentHour",
+                    )
+                }
+                assertOneMinuteRangeResponseOk(body, code, dateStr, currentHour)
+                val parsed = parseKis1mResponse(body, code, targetDate)
                 kisRateLimiterPort.onSuccess()
                 signalSent = true
-                return body?.let { parseKis1mResponse(it, code, targetDate) } ?: emptyList()
+                return parsed
             } catch (e: WebClientResponseException) {
                 val errorClass = classifyKisError(e.statusCode.value(), e.responseBodyAsString)
                 if (errorClass is KisErrorClass.RateLimit) {
@@ -537,7 +566,11 @@ class KisRestCandleAdapter(
                         e.statusCode.value(),
                     )
                     Thread.sleep(1000L)
-                    return emptyList()
+                    oneMinuteRangeFetchUnavailable(
+                        "KIS 1m range candle Rate Limit — code=$code date=$dateStr hour=$currentHour " +
+                            "status=${e.statusCode.value()}",
+                        e,
+                    )
                 }
                 if (e.statusCode.value() == 500 && attempt < RETRY_MAX_ATTEMPTS - 1) {
                     lastException = e
@@ -550,10 +583,17 @@ class KisRestCandleAdapter(
                     currentHour,
                     e.statusCode.value(),
                 )
-                return emptyList()
+                oneMinuteRangeFetchUnavailable(
+                    "KIS 1m range candle 실패 — code=$code date=$dateStr hour=$currentHour " +
+                        "status=${e.statusCode.value()}",
+                    e,
+                )
             } catch (e: Exception) {
                 log.warn("KIS 1m range candle 오류: code={} date={} hour={} err={}", code, dateStr, currentHour, e.message)
-                return emptyList()
+                oneMinuteRangeFetchUnavailable(
+                    "KIS 1m range candle 오류 — code=$code date=$dateStr hour=$currentHour",
+                    e,
+                )
             } finally {
                 if (acquired && !signalSent) {
                     log.warn(
@@ -576,7 +616,10 @@ class KisRestCandleAdapter(
         if (lastException != null) {
             log.debug("마지막 예외: {}", lastException.message)
         }
-        return emptyList()
+        oneMinuteRangeFetchUnavailable(
+            "KIS 1m range candle 500 retry 소진 — code=$code date=$dateStr hour=$currentHour",
+            lastException,
+        )
     }
 
     /**

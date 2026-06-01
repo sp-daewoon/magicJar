@@ -3,6 +3,8 @@
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 
+| 2026-06-01 | **fix(market): SymbolDetail range gap fill fail-closed 보강** — `KisOneMinuteCandleRangePort` range 조회 중 credential/token/rate-limit/HTTP 실패가 `emptyList()`로 눌리지 않도록 예외로 전파하고, `SymbolDetailMinuteGapFillService`가 upstream 실패와 합산봉 재생성 실패를 `range-gapfill-failed` readiness로 닫게 했다. | domain · consumer · docs · task | KIS upstream 실패나 stale aggregate를 “캔들 없음/삽입 0건 완료”로 오인해 자동매매 data readiness가 READY가 되는 위험을 차단하기 위함 |
+
 | 2026-06-01 | **fix(market): SymbolDetail 1m gap fill range 정밀화** — 상세 진입 시 기존 장기 lookback backfill worker를 직접 호출하던 흐름을 `KisOneMinuteCandleRangePort.fetchOneMinuteCandlesBetween`로 분리해 `lastDb+1m ~ 현재 직전분` 범위만 KIS `FHKST03010230` cursor로 조회. `lastDb`가 없으면 당일 NXT 통합 세션 시작부터만 빠르게 채우고, 삽입된 row는 `KIS-RANGE-GAPFILL` source로 저장 후 3m~12h 합산봉을 재생성한다. | domain · consumer · docs · task | SymbolDetail A→B→A 재진입 보정이 6개월/장기 backfill처럼 무겁게 돌지 않도록 KIS TPS와 사용자 path 리스크를 낮추기 위함 |
 
 | 2026-06-01 | **feat(market): ADR 0105 candle reconciliation gate 1차 구현** — SymbolDetail 진입 시 KIS WS 현재가·호가 수요와 별개로 마지막 DB 1m 이후 현재 직전분까지 gap fill을 큐잉하고, boot candle reconciliation 대상을 watchlist 단독에서 보유/미체결·ACTIVE 명시 전략·현재 realtime 수요·최근 상세·watchlist·strategy 후보 TTL snapshot으로 확장. 1m gap fill 성공 후 3m~12h 합산봉은 insert-only가 아니라 upsert 재생성되며, `RealtimeSignalGenerator`는 data readiness가 `READY`가 아니면 `SIGNAL_SKIPPED_DATA_NOT_READY` audit 후 signal 생성을 fail-closed 한다. | consumer · api · domain · docs · task | 재기동/상세 화면 이탈/전략 후보 universe에서 생기는 캔들 공백이 자동매매 주문으로 이어지지 않도록 ADR 0105 acceptance를 코드 경로에 연결 |

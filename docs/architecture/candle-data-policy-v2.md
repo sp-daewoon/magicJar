@@ -13,6 +13,7 @@
 - 2026-06-01 갱신: **합산 interval boundary 문서/구현 NXT 통합 재정렬**. 3m·5m·15m·30m·90m·1h·4h·12h boundary는 KRX 09:00~15:30 고정이 아니라 NXT 통합 08:00~20:00 기준이다. KRX-only 종목은 해당 구간에 실제 1m tick/bar가 없으면 빈 구간으로 남기며 mock 합성하지 않는다.
 - 2026-06-01 구현 반영: **ADR 0105 1차 reconciliation 코드 연결**. `SymbolDetailMinuteGapFillService`가 상세 진입 시 1m gap fill을 큐잉하고, `CandleBootstrapRunner`는 managed universe를 대상으로 reconciliation을 시작한다. 1m gap fill 성공 후 합산봉은 `AggregateBackfillRunner`가 upsert로 재생성하며, `RealtimeSignalGenerator`는 data readiness `READY`가 아니면 `SIGNAL_SKIPPED_DATA_NOT_READY`로 fail-closed 한다.
 - 2026-06-01 보강 구현: **SymbolDetail 1m range gap fill 정밀화**. 상세 진입 path는 더 이상 장기 lookback backfill worker를 직접 호출하지 않고, `KisOneMinuteCandleRangePort.fetchOneMinuteCandlesBetween(code, lastDb+1m, previousMinute)`로 필요한 범위만 조회한다. 저장 source는 `KIS-RANGE-GAPFILL`, 삽입 발생 시 3m~12h 합산봉을 재생성한다.
+- 2026-06-01 보강 구현: **range gap fill fail-closed**. `KisOneMinuteCandleRangePort`의 credential/token/rate-limit/HTTP 실패는 empty candle이 아니라 upstream 실패로 보고 예외로 전파한다. `SymbolDetailMinuteGapFillService`는 upstream 실패 또는 합산봉 재생성 실패를 `FAILED` readiness로 닫아 자동매매 평가/주문이 준비되지 않은 데이터 위에서 진행되지 않게 한다.
 - 본 문서는 운영 가이드. 결정 본문은 **ADR 0057 (KIS OpenAPI 단일 데이터 출처)** + **ADR 0062 (합산 interval 백엔드 precomputed)** + **ADR 0063 (NXT/통합거래 cover)** + **ADR 0019 (Accepted, 2026-05-12 §2 재통합)** + **ADR 0028 (Watchlist Ingestion)** + **ADR 0029 (당일 진행 중 캔들 Redis 캐시)** + **ADR 0048 (KIS WS 41 slot + polling fallback)** + **ADR 0105 (캔들 Reconciliation + 장기 1m retention)** 참조.
 
 ## 1. 정책 한 줄 요약

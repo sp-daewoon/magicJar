@@ -191,6 +191,8 @@ Phase 2는 다음 순서로 구현한다.
 
 2026-06-01 보강 구현은 SymbolDetail gap fill을 장기 lookback worker에서 분리했다. `KisOneMinuteCandleRangePort`가 `FHKST03010230` 날짜+시간 cursor를 `from..to` 범위로 제한하고, 상세 진입 path는 `lastDb1m + 1분`부터 현재 직전분까지만 조회한다. `lastDb1m`이 없으면 당일 NXT 통합 세션 시작(08:00 KST)부터만 빠르게 복구하고, 장기 cold-start는 boot/managed universe reconciliation이 책임진다.
 
+추가 보강으로 range path의 upstream 실패는 empty candle과 구분한다. credential/token/rate-limit/HTTP 실패는 `KisOneMinuteCandleRangePort`에서 예외로 전파하고, SymbolDetail path는 readiness를 `FAILED`로 닫는다. KIS가 정상 응답했지만 해당 구간에 체결 candle이 없는 경우만 empty result로 처리할 수 있다. 1m 삽입 후 3m~12h 합산봉 재생성 중 하나라도 실패하면 stale aggregate로 전략이 평가되지 않도록 같은 `FAILED` readiness로 닫는다.
+
 ### §4-3. Phase 3: Strategy gate
 
 `RealtimeSignalGenerator`와 Screener/Backtest path는 필요한 interval의 data readiness를 확인한다. `READY`가 아니면 HOLD가 아니라 skip이다. HOLD는 정상 평가 결과이고, 데이터 미준비는 운영 상태다.
@@ -240,4 +242,5 @@ Phase 2는 다음 순서로 구현한다.
 | 2026-06-01 | 사용자 실전 운용 시나리오 5건을 acceptance matrix로 추가. A→B→A 재진입 gap fill, 3일 off 후 boot managed universe reconciliation, 3일 1m gap 자동 복구+합산봉 재생성, 1년 초과 1m 복구 불가 명시, 자동매매 data readiness fail-closed를 LOCK. 장기 backfill/recollect는 candle row streaming이 아니라 progress event streaming으로 처리하는 원칙을 추가. |
 | 2026-06-01 | ADR 0105 1차 구현 연결. SymbolDetail ENTER 1m gap fill queue, boot managed universe provider, 1m gap fill 후 aggregate upsert 재생성, realtime signal data readiness gate를 반영. |
 | 2026-06-01 | SymbolDetail 1m gap fill 보강. 장기 lookback worker 호출 대신 `KisOneMinuteCandleRangePort`로 `lastDb+1m..previousMinute`만 조회하는 range path를 추가하고, source `KIS-RANGE-GAPFILL` 및 삽입 시 aggregate rebuild 정책을 반영. |
+| 2026-06-01 | SymbolDetail range gap fill fail-closed 보강. KIS upstream/rate-limit/credential 실패 및 aggregate rebuild 실패를 empty/READY로 숨기지 않고 readiness `FAILED`로 닫는 정책을 반영. |
 | 2026-05-31 | ADR 0105 신설. KIS `FHKST03010230` 최대 1년 보관분을 활용한 1m 장기 복구, 기본 6개월 1m retention, boot/re-entry/scheduled reconciliation, data readiness gate, 4h·12h 전략용 합산봉 재생성 정책을 Accepted로 LOCK. |

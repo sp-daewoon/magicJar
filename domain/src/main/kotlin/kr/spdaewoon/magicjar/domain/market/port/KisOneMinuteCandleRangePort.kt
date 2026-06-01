@@ -12,6 +12,9 @@ import java.time.Instant
 interface KisOneMinuteCandleRangePort {
     /**
      * [from] 이상 [to] 이하의 KIS 1m candle을 ASC로 반환한다.
+     *
+     * KIS upstream/rate-limit/credential 실패는 empty result로 숨기지 않고 예외로 전파한다.
+     * 호출자는 data readiness를 fail-closed로 닫아야 한다.
      */
     fun fetchOneMinuteCandlesBetween(
         code: String,

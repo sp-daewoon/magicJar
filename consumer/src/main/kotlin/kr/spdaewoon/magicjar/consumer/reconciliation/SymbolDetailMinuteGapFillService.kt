@@ -115,6 +115,10 @@ class SymbolDetailMinuteGapFillService(
                 )
             if (inserted > 0) {
                 val aggregateResult = aggregateBackfillRunner.backfill(code)
+                val failedAggregates = aggregateResult.filterValues { it < 0 }
+                if (failedAggregates.isNotEmpty()) {
+                    throw IllegalStateException("aggregate rebuild failed: $failedAggregates")
+                }
                 log.info(
                     "SymbolDetail 1m range gap fill 완료 + 합산봉 재생성: code={} range={}..{} fetched={} inserted={} aggregate={}",
                     code,

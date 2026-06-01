@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.consumer.infrastructure.kis
 
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.datetime.Instant
 import kr.spdaewoon.magicjar.consumer.config.ChartCandleProperties
 import kr.spdaewoon.magicjar.consumer.config.OneMinuteBackfillProperties
@@ -13,6 +14,7 @@ import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.springframework.web.reactive.function.client.WebClient
 import java.math.BigDecimal
@@ -45,15 +47,17 @@ import java.util.Optional
 class KisRestCandleAdapterPaginationTest {
     private fun buildAdapter(
         instrumentRepository: ConsumerInstrumentJpaRepository = mockk<ConsumerInstrumentJpaRepository>(relaxed = true),
+        credentialRepository: ConsumerUserKisCredentialJpaRepository = mockk<ConsumerUserKisCredentialJpaRepository>(relaxed = true),
+        kisRateLimiterPort: KisRateLimiterPort = mockk<KisRateLimiterPort>(relaxed = true),
         chartCandleProperties: ChartCandleProperties = ChartCandleProperties(),
     ): KisRestCandleAdapter =
         KisRestCandleAdapter(
             webClient = mockk<WebClient>(relaxed = true),
             kisAuthAdapter = mockk<KisAuthAdapter>(relaxed = true),
             secretCipher = mockk<SecretCipher>(relaxed = true),
-            credentialRepository = mockk<ConsumerUserKisCredentialJpaRepository>(relaxed = true),
+            credentialRepository = credentialRepository,
             instrumentRepository = instrumentRepository,
-            kisRateLimiterPort = mockk<KisRateLimiterPort>(relaxed = true),
+            kisRateLimiterPort = kisRateLimiterPort,
             chartCandleProperties = chartCandleProperties,
             kisBaseProd = "https://openapi.koreainvestment.com:9443",
             kisBaseVps = "https://openapivts.koreainvestment.com:29443",
@@ -158,6 +162,22 @@ class KisRestCandleAdapterPaginationTest {
             )
         method.isAccessible = true
         return method.invoke(adapter, from, to) as Int
+    }
+
+    private fun invokeAssertOneMinuteRangeResponseOk(
+        adapter: KisRestCandleAdapter,
+        body: Map<String, Any>,
+    ) {
+        val method =
+            KisRestCandleAdapter::class.java.getDeclaredMethod(
+                "assertOneMinuteRangeResponseOk",
+                Map::class.java,
+                String::class.java,
+                String::class.java,
+                String::class.java,
+            )
+        method.isAccessible = true
+        method.invoke(adapter, body, "005930", "20260601", "090000")
     }
 
     private fun instrument(
@@ -346,6 +366,58 @@ class KisRestCandleAdapterPaginationTest {
         assertThat(invokeOneMinuteRangeMaxPages(adapter, fullFrom, fullTo)).isEqualTo(7)
         assertThat(invokeOneMinuteRangeMaxPages(adapter, fullFrom, fullTo))
             .isLessThanOrEqualTo(invokeOneMinuteMaxPagesPerDay(adapter))
+    }
+
+    @Test
+    fun `one-minute-range fetch는 upstream 설정 실패를 empty가 아니라 예외로 전파한다`() {
+        val instrumentRepository = mockk<ConsumerInstrumentJpaRepository>()
+        val credentialRepository = mockk<ConsumerUserKisCredentialJpaRepository>()
+        every { instrumentRepository.findById("005930") } returns
+            Optional.of(instrument("005930", "KOSPI", isKospi200 = true))
+        every { credentialRepository.findAllByAccountType("REAL") } returns emptyList()
+        val adapter =
+            buildAdapter(
+                instrumentRepository = instrumentRepository,
+                credentialRepository = credentialRepository,
+            )
+        val zone = java.time.ZoneId.of("Asia/Seoul")
+        val from =
+            java.time.LocalDateTime
+                .of(2026, 6, 1, 9, 0)
+                .atZone(zone)
+                .toInstant()
+        val to =
+            java.time.LocalDateTime
+                .of(2026, 6, 1, 9, 1)
+                .atZone(zone)
+                .toInstant()
+
+        assertThatThrownBy {
+            adapter.fetchOneMinuteCandlesBetween("005930", from, to)
+        }.isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("REAL credential 없음")
+    }
+
+    @Test
+    fun `one-minute-range fetch는 HTTP 200 EGW00201을 success가 아니라 TPS 실패로 처리한다`() {
+        val kisRateLimiterPort = mockk<KisRateLimiterPort>(relaxed = true)
+        val adapter = buildAdapter(kisRateLimiterPort = kisRateLimiterPort)
+        val body =
+            mapOf(
+                "rt_cd" to "1",
+                "msg_cd" to "EGW00201",
+                "msg1" to "초당 거래건수를 초과하였습니다.",
+            )
+
+        assertThatThrownBy {
+            invokeAssertOneMinuteRangeResponseOk(adapter, body)
+        }.hasCauseInstanceOf(IllegalStateException::class.java)
+            .hasRootCauseMessage(
+                "KIS 1m range candle rt_cd != 0 — code=005930 date=20260601 hour=090000 " +
+                    "rt_cd=1 msg_cd=EGW00201 msg=초당 거래건수를 초과하였습니다.",
+            )
+        verify(exactly = 1) { kisRateLimiterPort.onTpsExceeded() }
+        verify(exactly = 0) { kisRateLimiterPort.onSuccess() }
     }
 
     @Test
