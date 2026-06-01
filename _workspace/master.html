@@ -70,8 +70,8 @@
   <div class="banner-cards">
     <div class="banner-card release">
       <div class="label">현재 Release</div>
-      <div class="value">v3.10.0</div>
-      <div class="sub">2026-05-31</div>
+      <div class="value">v3.10.1</div>
+      <div class="sub">2026-06-01</div>
     </div>
     <div class="banner-card cycle">
       <div class="label">현재 사이클 단계</div>
@@ -86,7 +86,7 @@
   </div>
   <div class="banner-timeline">
     <div class="label">📍 이번 작업 사이클 timeline</div>
-    <div>feat: add smart money high timeframe strategy supp → fix: align 12h candles to fixed session boundary → fix: align intraday candles to krx regular session → chore(release): prepare v3.10.0 candle screening</div>
+    <div>release: v3.10.1 autotrading risk plan patch</div>
   </div>
 </div>
 
@@ -112,25 +112,25 @@
       <div class="card">
         <div class="card-title">📄 README.md</div>
         <div class="card-sub">🪄 magicJar Master Index</div>
-        <div class="card-meta">500 lines · 갱신 2026-05-31</div>
+        <div class="card-meta">501 lines · 갱신 2026-06-01</div>
       </div>
 
       <div class="card">
         <div class="card-title">📄 CLAUDE.md</div>
         <div class="card-sub">프로젝트: magicJar (마법의항아리)</div>
-        <div class="card-meta">176 lines · 갱신 2026-05-31</div>
+        <div class="card-meta">184 lines · 갱신 2026-05-31</div>
       </div>
 
       <div class="card">
         <div class="card-title">📄 _workspace/INDEX.md</div>
         <div class="card-sub">🧭 의도별 진입 경로</div>
-        <div class="card-meta">130 lines · 갱신 2026-05-31</div>
+        <div class="card-meta">131 lines · 갱신 2026-06-01</div>
       </div>
 
       <div class="card">
         <div class="card-title">📄 docs/architecture/master-architecture.md</div>
         <div class="card-sub">§1. 시스템 비전 (사용자 정정 2026-05-02 반영)</div>
-        <div class="card-meta">769 lines · 갱신 2026-05-25</div>
+        <div class="card-meta">772 lines · 갱신 2026-05-31</div>
       </div>
 
   </div>
@@ -141,6 +141,18 @@
 
     <h3>최근 ADR 5건</h3>
     <div class="adr-recent">
+
+        <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0106</div>
+          <div class="adr-title">자동매매 BUY 전 손절/익절 RiskPlan 필수화</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
+
+        <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0105</div>
+          <div class="adr-title">캔들 Reconciliation + 장기 1m 보관/복구 정책</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
 
         <div class="adr-card" style="border-left:3px solid #4caf50">
           <div class="adr-number">0104</div>
@@ -160,26 +172,28 @@
           <div class="adr-meta">Accepted · -</div>
         </div>
 
-        <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0101</div>
-          <div class="adr-title">TrendPreference 1급 도메인 + `user_preference` 표 (forward-compat 확장 슬롯 단일 진입점)</div>
-          <div class="adr-meta">Accepted · -</div>
-        </div>
-
-        <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0100</div>
-          <div class="adr-title">T-MARKET 트랙 — 지수·섹터 추세 분석 모듈 (market-trend-engine 신설 + KIS endpoint 5 LOCK)</div>
-          <div class="adr-meta">Accepted · -</div>
-        </div>
-
     </div>
-    <h3>전체 100건 (검색·정렬 가능)</h3>
+    <h3>전체 102건 (검색·정렬 가능)</h3>
     <input class="cat-search" data-cat="C" placeholder="ADR 검색…" />
     <table class="adr-table" data-sortable>
       <thead>
         <tr><th data-sort="number">번호</th><th data-sort="title">제목</th><th data-sort="status">status</th><th data-sort="date">날짜</th></tr>
       </thead>
       <tbody>
+
+          <tr data-search="106 자동매매 buy 전 손절/익절 riskplan 필수화 accepted">
+            <td>0106</td>
+            <td><a href="_workspace/arch/adr/0106-autotrading-risk-plan-required.md">자동매매 BUY 전 손절/익절 RiskPlan 필수화</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+
+          <tr data-search="105 캔들 reconciliation + 장기 1m 보관/복구 정책 accepted">
+            <td>0105</td>
+            <td><a href="_workspace/arch/adr/0105-candle-reconciliation-and-long-horizon-1m-retention.md">캔들 Reconciliation + 장기 1m 보관/복구 정책</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
 
           <tr data-search="104 시장 캘린더 이벤트 표면 + krx 휴장일 배치 게이트 accepted">
             <td>0104</td>
@@ -891,6 +905,12 @@
     <div class="cat-cards">
 
         <div class="card">
+          <div class="card-title">📍 autotrading-risk-plan</div>
+          <div class="card-sub">> **권위**: 본 문서. 변경 시 직접 갱신. > **결정 이력**: ADR-0106 (도입), ADR-0067 (Risk Gateway), ADR-0068 (Order Execution) > **마지막 갱신**…</div>
+          <div class="card-meta">📄 docs/architecture/policies/autotrading-risk-plan.md · 갱신 2026-06-01</div>
+        </div>
+
+        <div class="card">
           <div class="card-title">📍 kis-credential-identity</div>
           <div class="card-sub">> **권위**: 본 문서. 변경 시 직접 갱신. > **결정 이력**: ADR-0046 (Onboarding 도입), backlog §23 (REAL/MOCK 불일치 의제), PR #246 (firstOrNull …</div>
           <div class="card-meta">📄 docs/architecture/policies/kis-credential-identity.md · 갱신 2026-05-08</div>
@@ -905,7 +925,7 @@
         <div class="card">
           <div class="card-title">📍 logging-levels</div>
           <div class="card-sub">> **권위**: 본 문서 + `application.yml` `logging.level` section. > **결정 이력**: PR #245 (3 모듈 일괄 추가), PR #244 (nginx access_log…</div>
-          <div class="card-meta">📄 docs/architecture/policies/logging-levels.md · 갱신 2026-05-08</div>
+          <div class="card-meta">📄 docs/architecture/policies/logging-levels.md · 갱신 2026-05-31</div>
         </div>
 
         <div class="card">
@@ -935,7 +955,7 @@
         <div class="card">
           <div class="card-title">📍 candle-data-policy-v2</div>
           <div class="card-sub">- 작성일: TBD - 2026-05-11 갱신: **ADR 0057 KIS-only data source 정합** — Yahoo Finance 전면 폐기. 본 문서 §3·§4·§5·§6 매트릭스 KIS-only로 …</div>
-          <div class="card-meta">📄 docs/architecture/candle-data-policy-v2.md · 갱신 2026-05-31</div>
+          <div class="card-meta">📄 docs/architecture/candle-data-policy-v2.md · 갱신 2026-06-01</div>
         </div>
 
         <div class="card">
@@ -947,7 +967,7 @@
         <div class="card">
           <div class="card-title">📍 tracks-roadmap</div>
           <div class="card-sub">> **선행**: `docs/architecture/master-architecture.md` > **작성일**: TBD</div>
-          <div class="card-meta">📄 docs/architecture/tracks-roadmap.md · 갱신 2026-05-25</div>
+          <div class="card-meta">📄 docs/architecture/tracks-roadmap.md · 갱신 2026-05-31</div>
         </div>
 
     </div>
@@ -1894,6 +1914,12 @@
     <div class="adr-recent">
 
         <div class="adr-card" style="border-left:3px solid #ff9800">
+          <div class="adr-number">v3.10.1</div>
+          <div class="adr-title">v3.10.1 — 자동매매 RiskPlan·캔들 reconciliation 운영 패치</div>
+          <div class="adr-meta">2026-06-01</div>
+        </div>
+
+        <div class="adr-card" style="border-left:3px solid #ff9800">
           <div class="adr-number">v3.10.0</div>
           <div class="adr-title">v3.10.0 — 캔들/오더블럭 후보 스크리닝 minor</div>
           <div class="adr-meta">2026-05-31</div>
@@ -1917,17 +1943,13 @@
           <div class="adr-meta">2026-05-22</div>
         </div>
 
-        <div class="adr-card" style="border-left:3px solid #ff9800">
-          <div class="adr-number">v3.8.0</div>
-          <div class="adr-title">v3.8.0 — v3.8.0 릴리즈</div>
-          <div class="adr-meta">2026-05-22</div>
-        </div>
-
     </div>
     <h3>전체 30건</h3>
     <table>
       <thead><tr><th>tag</th><th>날짜</th><th>title</th></tr></thead>
       <tbody>
+
+          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.10.1">v3.10.1</a></td><td>2026-06-01</td><td>v3.10.1 — 자동매매 RiskPlan·캔들 reconciliation 운영 패치</td></tr>
 
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.10.0">v3.10.0</a></td><td>2026-05-31</td><td>v3.10.0 — 캔들/오더블럭 후보 스크리닝 minor</td></tr>
 
@@ -1987,8 +2009,6 @@
 
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.3.0">v3.3.0</a></td><td>2026-05-12</td><td>magicJar v3.3.0 Baseline — 실시간 boundary fanout 미러스톤 종합 기능 정의서</td></tr>
 
-          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.2.3">v3.2.3</a></td><td>2026-05-12</td><td>v3.2.3 — ADR 0019·0028·0029 §2 매트릭스 NXT/합산 5종 보강 + KIS 500 retry 3회 exponential backoff (orchestrator)</td></tr>
-
       </tbody>
     </table>
 
@@ -1996,63 +2016,63 @@
 
   <div class="cat-content" data-cat="I" data-group-content-cat="시계열" data-active="false">
 
-    <h3>전체 315건 · status별 분포</h3>
+    <h3>전체 335건 · status별 분포</h3>
     <div class="cat-cards">
 
-        <div class="card"><div class="card-title">DONE</div><div class="card-sub">315건</div></div>
+        <div class="card"><div class="card-title">DONE</div><div class="card-sub">335건</div></div>
 
     </div>
     <h3>최근 10건</h3>
     <div class="spec-list">
 
         <div class="card">
-          <div class="card-title">T-20260530-2137-v3-9-1-patch.md</div>
-          <div class="card-meta">DONE · orchestrator · PR #696</div>
-        </div>
-
-        <div class="card">
-          <div class="card-title">T-20260525-1509-market-calendar-holiday.md</div>
+          <div class="card-title">T-20260601-1439-autotrading-risk-plan-gate.md</div>
           <div class="card-meta">DONE · orchestrator </div>
         </div>
 
         <div class="card">
-          <div class="card-title">T-20260524-2046-pr-2-market-data.md</div>
-          <div class="card-meta">DONE · market-data · PR #690</div>
+          <div class="card-title">T-20260601-1315-autotrading-risk-plan-gate.md</div>
+          <div class="card-meta">DONE · backend-core </div>
         </div>
 
         <div class="card">
-          <div class="card-title">T-20260524-2045-pr-2-backend-core.md</div>
-          <div class="card-meta">DONE · backend-core · PR #691</div>
+          <div class="card-title">T-20260601-1306-autotrading-risk-plan-html.md</div>
+          <div class="card-meta">DONE · architect </div>
         </div>
 
         <div class="card">
-          <div class="card-title">T-20260524-1737-worktree-agent-a8e70a5bcae3f447d.md</div>
-          <div class="card-meta">DONE · market-data · PR #684</div>
+          <div class="card-title">T-20260601-1233-strategy-autotrade-conflict-name.md</div>
+          <div class="card-meta">DONE · frontend </div>
         </div>
 
         <div class="card">
-          <div class="card-title">T-20260524-1737-worktree-agent-a05344e3c11923217.md</div>
-          <div class="card-meta">DONE · ai · PR #685</div>
+          <div class="card-title">T-20260601-1226-alerts-outbox-race.md</div>
+          <div class="card-meta">DONE · backend-core </div>
         </div>
 
         <div class="card">
-          <div class="card-title">T-20260524-1737-w4-p1-graceful-handlers.md</div>
-          <div class="card-meta">DONE · backend-core · PR #686</div>
+          <div class="card-title">T-20260601-1218-alerts-risk-readable-dedupe.md</div>
+          <div class="card-meta">DONE · backend-core </div>
         </div>
 
         <div class="card">
-          <div class="card-title">T-20260524-1704-w4-p1-adr-amend.md</div>
-          <div class="card-meta">DONE · architect · PR #682</div>
+          <div class="card-title">T-20260601-1150-main.md</div>
+          <div class="card-meta">DONE · frontend </div>
         </div>
 
         <div class="card">
-          <div class="card-title">T-20260524-1702-w4-p1-evidence.md</div>
-          <div class="card-meta">DONE · qa · PR #683</div>
+          <div class="card-title">T-20260601-1105-strategy-builder-ops.md</div>
+          <div class="card-meta">DONE · frontend </div>
         </div>
 
         <div class="card">
-          <div class="card-title">T-20260524-1626-w4-r3-visual-regression.md</div>
-          <div class="card-meta">DONE · qa · PR #681</div>
+          <div class="card-title">T-20260601-1012-adr0105-range-gapfill-failclosed.md</div>
+          <div class="card-meta">DONE · backend-core </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">T-20260601-0232-adr0105-range-gapfill.md</div>
+          <div class="card-meta">DONE · backend-core </div>
         </div>
 
     </div>
