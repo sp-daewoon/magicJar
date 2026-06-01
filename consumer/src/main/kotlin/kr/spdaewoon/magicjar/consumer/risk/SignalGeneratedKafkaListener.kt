@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kr.spdaewoon.magicjar.consumer.order.KisExecutionBackfillService
+import kr.spdaewoon.magicjar.domain.account.port.KisBalanceQueryPort
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.order.execution.port.KillSwitchQueryPort
+import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import kr.spdaewoon.magicjar.domain.risk.RiskContext
 import kr.spdaewoon.magicjar.domain.risk.RiskEvent
 import kr.spdaewoon.magicjar.domain.risk.RiskGatewayResult
@@ -19,6 +21,7 @@ import kr.spdaewoon.magicjar.domain.risk.port.SignalRiskStatusUpdater
 import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import kr.spdaewoon.magicjar.domain.signal.Signal
 import kr.spdaewoon.magicjar.domain.signal.SignalSide
+import kr.spdaewoon.magicjar.domain.strategy.port.StrategyLookupPort
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
@@ -77,6 +80,9 @@ class SignalGeneratedKafkaListener(
     private val signalRiskStatusUpdaterProvider: ObjectProvider<SignalRiskStatusUpdater>,
     private val riskNotifierProvider: ObjectProvider<RiskNotifier>,
     private val killSwitchQueryPortProvider: ObjectProvider<KillSwitchQueryPort>,
+    private val orderRequestRepositoryProvider: ObjectProvider<OrderRequestRepository>,
+    private val strategyLookupPortProvider: ObjectProvider<StrategyLookupPort>,
+    private val kisBalanceQueryPortProvider: ObjectProvider<KisBalanceQueryPort>,
     private val executionBackfillServiceProvider: ObjectProvider<KisExecutionBackfillService>,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String = "MOCK",
@@ -108,6 +114,13 @@ class SignalGeneratedKafkaListener(
             // HOLD 시그널은 risk 검사 무관 (T-O 진입 X)
             if (signal.side == SignalSide.HOLD) {
                 log.debug("SignalGeneratedKafkaListener HOLD skip: signalId={}", signal.id)
+                ack.acknowledge()
+                return
+            }
+
+            val riskPlanBlocked = ensureRiskPlanIfBuy(signal)
+            if (riskPlanBlocked != null) {
+                handleBlocked(signal, riskPlanBlocked)
                 ack.acknowledge()
                 return
             }
@@ -169,6 +182,12 @@ class SignalGeneratedKafkaListener(
             return
         }
 
+        val sellableBlocked = ensureKisHoldingIfSell(signal, quantity)
+        if (sellableBlocked != null) {
+            handleBlocked(signal, sellableBlocked)
+            return
+        }
+
         // 1. signal.risk_status = ALLOWED 갱신 (Phase 2 어댑터 부재 시 skip)
         signalRiskStatusUpdaterProvider.getIfAvailable()?.let {
             try {
@@ -184,6 +203,61 @@ class SignalGeneratedKafkaListener(
         // 3. order.intent.v1 publish — T-O 진입
         orderIntentKafkaProducer.publish(signal, quantity)
     }
+
+    private fun ensureKisHoldingIfSell(
+        signal: Signal,
+        requestedQuantity: Int,
+    ): RiskGatewayResult.Blocked? {
+        if (signal.side != SignalSide.SELL) return null
+        val port =
+            kisBalanceQueryPortProvider.getIfAvailable()
+                ?: return kisSellQuantityBlocked(signal, requestedQuantity, 0, "KIS_BALANCE_LOOKUP_UNAVAILABLE")
+        val accountType = RuntimeModeParser.accountTypeOrMock(magicjarMode)
+        val snapshot =
+            try {
+                port.fetchFullBalance(signal.userId, accountType)
+            } catch (e: Exception) {
+                log.warn("KIS SELL 잔고 검증 실패: userId={} code={} err={}", signal.userId, signal.code, e.message)
+                return kisSellQuantityBlocked(
+                    signal = signal,
+                    requestedQuantity = requestedQuantity,
+                    kisHoldingQty = 0,
+                    reasonCode = "KIS_BALANCE_LOOKUP_FAILED:${e.message ?: "UNKNOWN"}",
+                )
+            }
+        val kisHoldingQty = snapshot.holdings.firstOrNull { it.code == signal.code }?.quantity ?: 0
+        if (kisHoldingQty < requestedQuantity) {
+            return kisSellQuantityBlocked(
+                signal = signal,
+                requestedQuantity = requestedQuantity,
+                kisHoldingQty = kisHoldingQty,
+                reasonCode = "KIS_HOLDING_QTY_INSUFFICIENT",
+            )
+        }
+        return null
+    }
+
+    private fun kisSellQuantityBlocked(
+        signal: Signal,
+        requestedQuantity: Int,
+        kisHoldingQty: Int,
+        reasonCode: String,
+    ): RiskGatewayResult.Blocked =
+        RiskGatewayResult.Blocked(
+            signalId = signal.id ?: 0L,
+            rule = RiskRule.SELL_QUANTITY_UNAVAILABLE,
+            reason = "SELL_QUANTITY_UNAVAILABLE:$reasonCode",
+            context =
+                mapOf(
+                    "source" to "KIS_BALANCE",
+                    "code" to signal.code,
+                    "side" to signal.side.name,
+                    "requestedQty" to requestedQuantity,
+                    "kisHoldingQty" to kisHoldingQty,
+                    "accountType" to RuntimeModeParser.accountTypeOrMock(magicjarMode).name,
+                    "reasonCode" to reasonCode,
+                ),
+        )
 
     private fun ensureKisExecutionSyncIfReal(signal: Signal): RiskGatewayResult.Blocked? {
         if (!RuntimeModeParser.isRealMode(magicjarMode)) return null
@@ -213,6 +287,52 @@ class SignalGeneratedKafkaListener(
 
         return syncBlocked(signal, result.reasonCode)
     }
+
+    private fun ensureRiskPlanIfBuy(signal: Signal): RiskGatewayResult.Blocked? {
+        if (signal.side != SignalSide.BUY) return null
+        val lookup =
+            strategyLookupPortProvider.getIfAvailable()
+                ?: return riskPlanBlocked(signal, "STRATEGY_LOOKUP_UNAVAILABLE")
+        val strategy =
+            try {
+                lookup
+                    .findActiveByCodeAndInterval(signal.code, signal.interval)
+                    .firstOrNull { it.id == signal.strategyId }
+            } catch (e: Exception) {
+                log.warn("RiskPlan strategy lookup 실패: userId={} strategyId={} err={}", signal.userId, signal.strategyId, e.message)
+                return riskPlanBlocked(signal, "STRATEGY_LOOKUP_FAILED:${e.message ?: "UNKNOWN"}")
+            } ?: return riskPlanBlocked(signal, "ACTIVE_STRATEGY_NOT_FOUND")
+
+        val stopLossPct = strategy.definition.fixedStopLoss
+        val takeProfitPct = strategy.definition.takeProfitPct
+        if (stopLossPct == null || takeProfitPct == null) {
+            return riskPlanBlocked(signal, "MISSING_STOP_OR_TAKE_PROFIT")
+        }
+        if (stopLossPct <= BigDecimal.ZERO || takeProfitPct <= BigDecimal.ZERO) {
+            return riskPlanBlocked(signal, "INVALID_STOP_OR_TAKE_PROFIT")
+        }
+        if (takeProfitPct <= stopLossPct) {
+            return riskPlanBlocked(signal, "REWARD_RISK_TOO_LOW")
+        }
+        return null
+    }
+
+    private fun riskPlanBlocked(
+        signal: Signal,
+        reasonCode: String,
+    ): RiskGatewayResult.Blocked =
+        RiskGatewayResult.Blocked(
+            signalId = signal.id ?: 0L,
+            rule = RiskRule.RISK_PLAN_REQUIRED,
+            reason = "RISK_PLAN_REQUIRED:$reasonCode",
+            context =
+                mapOf(
+                    "code" to signal.code,
+                    "side" to signal.side.name,
+                    "strategyId" to signal.strategyId,
+                    "reasonCode" to reasonCode,
+                ),
+        )
 
     private fun syncBlocked(
         signal: Signal,
@@ -287,7 +407,7 @@ class SignalGeneratedKafkaListener(
         }
 
         // 4. risk.violation.v1 publish
-        riskViolationKafkaProducer.publish(signal, blocked)
+        riskViolationKafkaProducer.publish(signal, blocked, savedEvent?.id)
 
         // 5. AutoPauseGuard — 연속 BLOCKED 임계 도달 검사
         val config =
@@ -359,6 +479,19 @@ class SignalGeneratedKafkaListener(
         val recentMinute = tradeFrequencyGuard.countRecentMinute(signal.strategyId, signal.userId, nowKst)
         val recentDay = tradeFrequencyGuard.countRecentDay(signal.strategyId, signal.userId, nowKst)
 
+        val openOrders =
+            orderRequestRepositoryProvider.getIfAvailable()?.let {
+                try {
+                    it.findOpenByUserId(signal.userId)
+                } catch (e: Exception) {
+                    if (realMode) {
+                        throw RealRiskContextUnavailableException("OPEN_ORDER_UNAVAILABLE:${e.message ?: "UNKNOWN"}")
+                    }
+                    log.warn("OrderRequestRepository.findOpenByUserId 실패 (fallback empty): userId={} err={}", signal.userId, e.message)
+                    emptyList()
+                }
+            } ?: emptyList()
+
         val killSwitchOn =
             killSwitchQueryPortProvider.getIfAvailable()?.let {
                 try {
@@ -374,6 +507,7 @@ class SignalGeneratedKafkaListener(
             config = config,
             currentCapital = capital,
             currentPositions = positions,
+            openOrders = openOrders,
             dailyRealizedPnl = dailyPnl,
             recentTradesMinute = recentMinute,
             recentTradesDay = recentDay,
@@ -390,11 +524,7 @@ class SignalGeneratedKafkaListener(
             SignalSide.BUY -> {
                 riskGatewayEvaluator.resolveBuyQuantity(signal, context)
             }
-            SignalSide.SELL ->
-                context.currentPositions
-                    .firstOrNull { it.code == signal.code && it.quantity > 0 }
-                    ?.quantity
-                    ?: 0
+            SignalSide.SELL -> riskGatewayEvaluator.resolveSellQuantity(signal, context)
             SignalSide.HOLD -> 0
         }
 

@@ -18,6 +18,7 @@
 | KIS Credential 식별 규약 | [policies/kis-credential-identity.md](../docs/architecture/policies/kis-credential-identity.md) |
 | 로그 레벨 정책 | [policies/logging-levels.md](../docs/architecture/policies/logging-levels.md) |
 | KIS-first raw fetch | [policies/kis-first-raw-fetch.md](../docs/architecture/policies/kis-first-raw-fetch.md) |
+| 자동매매 RiskPlan | [policies/autotrading-risk-plan.md](../docs/architecture/policies/autotrading-risk-plan.md) |
 | Task 사이클 | [policies/task-cycle.md](../docs/architecture/policies/task-cycle.md) |
 | Mermaid 작성 규약 | [policies/mermaid-conventions.md](../docs/architecture/policies/mermaid-conventions.md) |
 | (추가는 policies/README.md) | |

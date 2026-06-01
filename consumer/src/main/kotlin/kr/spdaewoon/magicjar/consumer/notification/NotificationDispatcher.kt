@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.notification
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepository
 import kr.spdaewoon.magicjar.domain.notification.NotificationChannel
 import kr.spdaewoon.magicjar.domain.notification.NotificationEventType
 import kr.spdaewoon.magicjar.domain.notification.NotificationOutbox
@@ -13,6 +14,8 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
+import java.math.BigDecimal
+import java.text.DecimalFormat
 import java.time.Instant
 import java.util.UUID
 
@@ -25,7 +28,7 @@ import java.util.UUID
  * | 1 | order.filled.v1        | P0       | 즉시 (TRADE, REAL/MOCK/PAPER 공통) |
  * | 2 | order.rejected.v1      | P0       | 즉시 (TRADE, REAL/MOCK/PAPER 공통) |
  * | 3 | order.cancelled.v1     | P2       | 60분 윈도 ≥ 5건 시 1회   |
- * | 4 | risk.violation.v1      | P0       | 즉시 (rate limit 0)     |
+ * | 4 | risk.violation.v1      | P0       | 즉시, 반복 보호 차단은 사용자·종목·규칙별 15분 dedupe |
  * | 5 | reconcile.drift.v1     | P0       | 즉시                     |
  * | 6 | killswitch.engaged.v1  | P0       | 즉시                     |
  * | 7 | reconcile.run.v1       | P2       | 즉시 (audit only)        |
@@ -44,6 +47,7 @@ class NotificationDispatcher(
     private val outboxRepositoryProvider: ObjectProvider<NotificationOutboxRepository>,
     private val rateLimiterProvider: ObjectProvider<NotificationRateLimiterPort>,
     private val slackSenderProvider: ObjectProvider<SlackWebhookSender>,
+    private val instrumentRepositoryProvider: ObjectProvider<ConsumerInstrumentJpaRepository>,
     private val objectMapper: ObjectMapper,
 ) {
     private val log = LoggerFactory.getLogger(NotificationDispatcher::class.java)
@@ -55,6 +59,10 @@ class NotificationDispatcher(
         const val WINDOW_60_MIN = 60
 
         const val MAX_RETRY_COUNT = 5
+
+        const val RISK_REPEAT_COOLDOWN_WINDOW_MIN = 15
+
+        private val RISK_REPEAT_COOLDOWN_RULES = setOf("POSITION_LIMIT", "SELL_WITHOUT_POSITION")
     }
 
     // --- 7 @KafkaListener ---
@@ -109,9 +117,10 @@ class NotificationDispatcher(
                 raw["eventId"]?.toString()?.let {
                     runCatching { UUID.fromString(it) }.getOrNull()
                 } ?: UUID.randomUUID()
+            val enrichedRaw = enrichInstrument(raw)
 
             // P1/P2 rate limit 체크
-            if (!shouldEmit(userId, topicHash, eventType.defaultPriority)) {
+            if (!shouldEmit(userId, topicHash, eventType.defaultPriority, eventType, enrichedRaw)) {
                 log.debug(
                     "NotificationDispatcher rate limit skip — userId={} type={} topicHash={}",
                     userId.take(4) + "****",
@@ -121,8 +130,8 @@ class NotificationDispatcher(
                 return
             }
 
-            val reason = buildReason(raw, eventType)
-            val meta = buildMeta(raw, eventType)
+            val reason = buildReason(enrichedRaw, eventType)
+            val meta = buildMeta(enrichedRaw, eventType)
             val payloadJson =
                 objectMapper.writeValueAsString(
                     mapOf(
@@ -185,7 +194,14 @@ class NotificationDispatcher(
         userId: String,
         topicHash: String,
         priority: NotificationPriority,
+        eventType: NotificationEventType,
+        raw: Map<String, Any?>,
     ): Boolean {
+        if (eventType == NotificationEventType.RISK_VIOLATION && isCooldownRisk(raw)) {
+            val rateLimiter = rateLimiterProvider.getIfAvailable() ?: return true
+            val cooldownKey = riskCooldownTopicHash(raw)
+            return rateLimiter.shouldEmitOncePerWindow(userId, cooldownKey, RISK_REPEAT_COOLDOWN_WINDOW_MIN)
+        }
         if (priority == NotificationPriority.P0) return true
 
         val rateLimiter = rateLimiterProvider.getIfAvailable() ?: return true // graceful: limiter 미등록 시 허용
@@ -246,11 +262,17 @@ class NotificationDispatcher(
     ): String =
         when (eventType) {
             NotificationEventType.ORDER_FILLED ->
-                "체결: ${accountModeLabel(raw)}${raw["code"]} ${raw["side"]} ${executedQuantity(raw)}주 @ ${raw["executedPrice"]}"
+                listOf(
+                    "체결:",
+                    "${accountModeLabel(raw)}${instrumentLabel(raw)}",
+                    sideKorean(raw["side"]),
+                    "${executedQuantity(raw)}주",
+                    "@ ${formatWon(raw["executedPrice"])}",
+                ).joinToString(" ")
             NotificationEventType.ORDER_REJECTED ->
-                "주문 거절: ${accountModeLabel(raw)}${raw["code"]} ${raw["side"]} — ${raw["reason"]}"
+                "주문 거절: ${accountModeLabel(raw)}${instrumentLabel(raw)} ${sideKorean(raw["side"])} — ${rejectReason(raw)}"
             NotificationEventType.ORDER_CANCELLED ->
-                "주문 취소: ${accountModeLabel(raw)}${raw["code"]} ${raw["side"]} (주문번호 ${raw["kisOrderNo"]})"
+                "주문 취소: ${accountModeLabel(raw)}${instrumentLabel(raw)} ${sideKorean(raw["side"])} (주문번호 ${raw["kisOrderNo"]})"
             NotificationEventType.RISK_VIOLATION ->
                 buildRiskReason(raw)
             NotificationEventType.RECONCILE_DRIFT ->
@@ -278,18 +300,19 @@ class NotificationDispatcher(
             ?: raw["filledQuantity"]
             ?: raw["filledQty"]
 
+    private fun rejectReason(raw: Map<String, Any?>): Any? =
+        raw["reason"]
+            ?: raw["rejectReason"]
+            ?: raw["errorMessage"]
+            ?: raw["message"]
+
     private fun buildMeta(
         raw: Map<String, Any?>,
         eventType: NotificationEventType,
     ): Map<String, String?> = raw.mapKeys { it.key }.mapValues { it.value?.toString() }
 
     private fun buildRiskReason(raw: Map<String, Any?>): String {
-        val code =
-            raw["code"]
-                ?.toString()
-                ?.takeIf { it.isNotBlank() }
-                ?.let { "$it " }
-                .orEmpty()
+        val code = instrumentLabel(raw).takeIf { it != "?" }?.let { "$it " }.orEmpty()
         val title = raw["alertTitle"]?.toString()?.takeIf { it.isNotBlank() }
         val message = raw["alertMessage"]?.toString()?.takeIf { it.isNotBlank() }
         return if (title != null || message != null) {
@@ -298,4 +321,67 @@ class NotificationDispatcher(
             "리스크 위반: ${raw["code"]} rule=${raw["rule"]} — ${raw["reason"]}"
         }
     }
+
+    private fun enrichInstrument(raw: Map<String, Any?>): Map<String, Any?> {
+        val code = codeOf(raw) ?: return raw
+        if (!raw["instrumentName"]?.toString().isNullOrBlank()) return raw
+        val repository = instrumentRepositoryProvider.getIfAvailable() ?: return raw
+        val name =
+            runCatching { repository.findById(code).orElse(null) }
+                .getOrNull()
+                ?.name
+                ?.takeIf { it.isNotBlank() && it != code }
+                ?: return raw
+        return raw + ("instrumentName" to name)
+    }
+
+    private fun codeOf(raw: Map<String, Any?>): String? =
+        raw["code"]?.toString()?.takeIf { it.isNotBlank() }
+            ?: raw["symbol"]?.toString()?.takeIf { it.isNotBlank() }
+
+    private fun instrumentLabel(raw: Map<String, Any?>): String {
+        val code = codeOf(raw)
+        val name = raw["instrumentName"]?.toString()?.takeIf { it.isNotBlank() && it != code }
+        return when {
+            name != null && code != null -> "$name($code)"
+            code != null -> code
+            name != null -> name
+            else -> "?"
+        }
+    }
+
+    private fun sideKorean(side: Any?): String =
+        when (side?.toString()?.uppercase()) {
+            "BUY" -> "매수"
+            "SELL" -> "매도"
+            else -> side?.toString() ?: "?"
+        }
+
+    private fun formatWon(value: Any?): String {
+        if (value == null) return "?원"
+        val formatted =
+            value
+                .toString()
+                .toBigDecimalOrNull()
+                ?.let { DecimalFormat("#,##0.####").format(it) }
+                ?: value.toString()
+        return "${formatted}원"
+    }
+
+    private fun String.toBigDecimalOrNull(): BigDecimal? = runCatching { BigDecimal(this) }.getOrNull()
+
+    private fun isCooldownRisk(raw: Map<String, Any?>): Boolean =
+        raw["rule"]
+            ?.toString()
+            ?.uppercase()
+            ?.let { it in RISK_REPEAT_COOLDOWN_RULES }
+            ?: false
+
+    private fun riskCooldownTopicHash(raw: Map<String, Any?>): String =
+        listOf(
+            "risk.violation",
+            raw["rule"]?.toString()?.lowercase().orEmpty(),
+            codeOf(raw).orEmpty(),
+            raw["strategyId"]?.toString().orEmpty(),
+        ).joinToString(".")
 }

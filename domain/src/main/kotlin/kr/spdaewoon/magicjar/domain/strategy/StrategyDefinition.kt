@@ -14,8 +14,9 @@ import java.math.BigDecimal
  * @param tf 기준 타임프레임 (default: D1)
  * @param timeFilter 시간 필터 (장 시간 제한 등)
  * @param sizing 포지션 사이징
- * @param trailingStop 트레일링 스탑 비율 (0.0~1.0)
- * @param fixedStopLoss 고정 손절 비율 (0.0~1.0)
+ * @param trailingStop 트레일링 스탑 비율 (%)
+ * @param fixedStopLoss 고정 손절 비율 (%). 차트 범위 손절이 없을 때 자동매매 BUY hard stop으로 사용한다.
+ * @param takeProfitPct 보유 포지션 평가 수익률 기준 익절 비율 (%). 캔들 DSL이 아닌 계좌/포지션 기반 exit policy.
  */
 data class StrategyDefinition(
     val dsl: DslStrategyDefinition,
@@ -25,6 +26,7 @@ data class StrategyDefinition(
     val sizing: Sizing? = null,
     val trailingStop: BigDecimal? = null,
     val fixedStopLoss: BigDecimal? = null,
+    val takeProfitPct: BigDecimal? = null,
 )
 
 /**

@@ -5,6 +5,8 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaEntity
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepository
 import kr.spdaewoon.magicjar.domain.notification.NotificationOutbox
 import kr.spdaewoon.magicjar.domain.notification.NotificationPriority
 import kr.spdaewoon.magicjar.domain.notification.NotificationStatus
@@ -15,6 +17,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.ObjectProvider
 import java.time.Instant
+import java.util.Optional
 import java.util.UUID
 
 /**
@@ -36,28 +39,34 @@ class NotificationDispatcherTest {
     private val outboxRepository = mockk<NotificationOutboxRepository>(relaxed = true)
     private val rateLimiter = mockk<NotificationRateLimiterPort>()
     private val slackSender = mockk<SlackWebhookSender>(relaxed = true)
+    private val instrumentRepository = mockk<ConsumerInstrumentJpaRepository>()
 
     private val outboxProvider = mockk<ObjectProvider<NotificationOutboxRepository>>()
     private val rateLimiterProvider = mockk<ObjectProvider<NotificationRateLimiterPort>>()
     private val slackSenderProvider = mockk<ObjectProvider<SlackWebhookSender>>()
+    private val instrumentRepositoryProvider = mockk<ObjectProvider<ConsumerInstrumentJpaRepository>>()
 
     private val dispatcher: NotificationDispatcher =
         run {
             every { outboxProvider.getIfAvailable() } returns outboxRepository
             every { rateLimiterProvider.getIfAvailable() } returns rateLimiter
             every { slackSenderProvider.getIfAvailable() } returns slackSender
+            every { instrumentRepositoryProvider.getIfAvailable() } returns instrumentRepository
             // rate limit: P1/P2는 기본 emit 허용
             every { rateLimiter.shouldEmit(any(), any(), any(), any()) } returns true
+            every { rateLimiter.shouldEmitOncePerWindow(any(), any(), any()) } returns true
+            every { instrumentRepository.findById(any()) } returns Optional.empty()
             // outbox save: eventId 포함 응답
             every { outboxRepository.save(any()) } answers {
                 val arg = it.invocation.args[0] as NotificationOutbox
                 arg.copy(id = 100L)
             }
-            NotificationDispatcher(outboxProvider, rateLimiterProvider, slackSenderProvider, objectMapper)
+            NotificationDispatcher(outboxProvider, rateLimiterProvider, slackSenderProvider, instrumentRepositoryProvider, objectMapper)
         }
 
     @Test
     fun `(1) ORDER_FILLED — outbox INSERT PENDING plus immediate Slack (P0 TRADE)`() {
+        every { instrumentRepository.findById("005930") } returns Optional.of(ConsumerInstrumentJpaEntity(code = "005930", name = "삼성전자"))
         val record = record("order.filled.v1", filledPayload("U1", "005930"))
         dispatcher.onOrderFilled(record)
 
@@ -65,6 +74,9 @@ class NotificationDispatcherTest {
         verify { outboxRepository.save(capture(slot)) }
         assertThat(slot.captured.priority).isEqualTo(NotificationPriority.P0)
         assertThat(slot.captured.status).isEqualTo(NotificationStatus.PENDING)
+        assertThat(slot.captured.payloadJson).contains("삼성전자(005930)")
+        assertThat(slot.captured.payloadJson).contains("매수")
+        assertThat(slot.captured.payloadJson).contains("75,000원")
         verify { slackSender.sendOutbox(any()) }
     }
 
@@ -137,6 +149,19 @@ class NotificationDispatcherTest {
         verify { rateLimiter.shouldEmit("U1", "reconcile.run", any(), any()) }
     }
 
+    @Test
+    fun `POSITION_LIMIT 반복 리스크는 동일 사용자 종목 규칙 전략 기준으로 Slack dedupe 한다`() {
+        every {
+            rateLimiter.shouldEmitOncePerWindow("U1", "risk.violation.position_limit.005930.8", 15)
+        } returns false
+
+        val record = record("risk.violation.v1", positionLimitPayload("U1"))
+        dispatcher.onRiskViolation(record)
+
+        verify(exactly = 0) { outboxRepository.save(any()) }
+        verify(exactly = 0) { slackSender.sendOutbox(any()) }
+    }
+
     // --- payload builders ---
 
     private fun record(
@@ -174,6 +199,25 @@ class NotificationDispatcherTest {
           "alertMessage":"오늘 이 전략에서 허용된 주문 횟수를 모두 사용해 추가 자동 주문을 차단했습니다.",
           "alertFormula":"오늘 허용 주문 수 50회 >= 일별 최대 거래 50회/일",
           "alertSetting":"D. 거래 빈도 한도 - 일별 최대 거래"
+        }
+        """.trimIndent()
+
+    private fun positionLimitPayload(userId: String) =
+        """
+        {
+          "eventId":"${UUID.randomUUID()}",
+          "signalId":190,
+          "strategyId":8,
+          "userId":"$userId",
+          "code":"005930",
+          "rule":"POSITION_LIMIT",
+          "verdict":"BLOCKED",
+          "reason":"종목 005930 주문이 종목당 최대 투자금액을 넘어서 자동 주문을 내보내지 않았습니다.",
+          "rawReason":"Unit price 347750 exceeds remaining position budget 304500",
+          "alertTitle":"A. 포지션 한도 초과 - 종목당 최대 투자금액 차단",
+          "alertMessage":"종목 005930 주문이 종목당 최대 투자금액을 넘어서 자동 주문을 내보내지 않았습니다.",
+          "alertFormula":"신호 단가 347,750원 > 남은 종목 한도 304,500원",
+          "alertSetting":"A. 포지션 한도 - 절대 한도와 비율 한도 중 작은 값 적용"
         }
         """.trimIndent()
 

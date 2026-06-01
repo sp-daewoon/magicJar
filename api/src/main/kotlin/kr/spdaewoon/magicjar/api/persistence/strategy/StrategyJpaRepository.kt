@@ -66,14 +66,15 @@ interface StrategyJpaRepository : JpaRepository<StrategyJpaEntity, Long> {
 
     /**
      * ACTIVE 전략 중 codes JSONB에 특정 code를 포함하고 intervals JSONB에 특정 interval을 포함하는 목록 조회.
+     * 운영 전략은 명시 종목/인터벌 매핑이 있어야 실시간 평가 대상이 된다.
      * native query — PostgreSQL jsonb @> 연산자 사용.
      */
     @Query(
         value =
             "SELECT * FROM strategy " +
                 "WHERE status = 'ACTIVE' " +
-                "AND (codes IS NULL OR codes @> CAST(:codeJson AS jsonb)) " +
-                "AND (intervals IS NULL OR intervals @> CAST(:intervalJson AS jsonb))",
+                "AND codes @> CAST(:codeJson AS jsonb) " +
+                "AND intervals @> CAST(:intervalJson AS jsonb)",
         nativeQuery = true,
     )
     fun findActiveByCodeAndInterval(

@@ -6,7 +6,7 @@ import { useRiskConfig } from '../../api/hooks/useRiskConfig'
 import { useRiskEvents } from '../../api/hooks/useRiskEvents'
 import { useSignals } from '../../api/hooks/useSignal'
 import { useSigStrategies } from '../../api/hooks/useSigStrategy'
-import { type SigStrategyDto } from '../../api/strategy'
+import { formatStrategyTargetLabel } from './strategyDisplay'
 
 interface StrategyRunStatusSummaryProps {
   userId: number
@@ -38,12 +38,6 @@ function formatKst(value: string | null | undefined): string {
     minute: '2-digit',
     hour12: false,
   })
-}
-
-function strategyTargetLabel(strategy: SigStrategyDto): string {
-  const codes = strategy.codes.length > 0 ? strategy.codes.join(', ') : '종목 미지정'
-  const intervals = strategy.intervals.length > 0 ? strategy.intervals.join(', ') : strategy.tf ?? '-'
-  return `${codes} / ${intervals}`
 }
 
 export function StrategyRunStatusSummary({ userId }: StrategyRunStatusSummaryProps) {
@@ -131,9 +125,9 @@ export function StrategyRunStatusSummary({ userId }: StrategyRunStatusSummaryPro
           <p className="mt-1 text-sm font-semibold text-white">
             {activeStrategies.length.toLocaleString('ko-KR')}개
           </p>
-          <p className="mt-1 truncate text-xs text-gray-500" title={primaryStrategy ? strategyTargetLabel(primaryStrategy) : undefined}>
+          <p className="mt-1 truncate text-xs text-gray-500" title={primaryStrategy ? formatStrategyTargetLabel(primaryStrategy) : undefined}>
             {primaryStrategy
-              ? `#${primaryStrategy.id} ${strategyTargetLabel(primaryStrategy)}`
+              ? `#${primaryStrategy.id} ${formatStrategyTargetLabel(primaryStrategy)}`
               : '전략을 자동매매 시작해야 신호를 평가합니다'}
           </p>
         </div>

@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.domain.risk
 
 import kotlinx.datetime.Instant
+import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.position.Position
 import java.math.BigDecimal
 
@@ -18,6 +19,7 @@ data class RiskContext(
     val config: RiskConfig,
     val currentCapital: BigDecimal,
     val currentPositions: List<Position>,
+    val openOrders: List<OrderRequest> = emptyList(),
     val dailyRealizedPnl: BigDecimal,
     val recentTradesMinute: Int,
     val recentTradesDay: Int,

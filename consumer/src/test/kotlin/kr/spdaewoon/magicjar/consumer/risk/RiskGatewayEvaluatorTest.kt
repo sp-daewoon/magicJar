@@ -2,6 +2,11 @@ package kr.spdaewoon.magicjar.consumer.risk
 
 import kotlinx.datetime.Instant
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
+import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
+import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.position.Position
 import kr.spdaewoon.magicjar.domain.risk.RiskConfig
 import kr.spdaewoon.magicjar.domain.risk.RiskContext
@@ -96,6 +101,33 @@ class RiskGatewayEvaluatorTest {
 
         assertThat(result).isInstanceOf(RiskGatewayResult.Blocked::class.java)
         assertThat((result as RiskGatewayResult.Blocked).rule).isEqualTo(RiskRule.SELL_WITHOUT_POSITION)
+    }
+
+    @Test
+    fun `SELL_QUANTITY_UNAVAILABLE BLOCKED — 미체결 매도 주문이 보유 수량을 모두 예약하면 추가 매도 차단`() {
+        val signal = sampleSignal(side = SignalSide.SELL)
+        val context =
+            sampleContext(
+                currentPositions = listOf(samplePosition("005930", quantity = 4)),
+                openOrders = listOf(sampleOpenOrder(code = "005930", side = OrderSide.SELL, quantity = 4)),
+            )
+
+        val result = evaluator.evaluate(signal, context)
+
+        assertThat(result).isInstanceOf(RiskGatewayResult.Blocked::class.java)
+        assertThat((result as RiskGatewayResult.Blocked).rule).isEqualTo(RiskRule.SELL_QUANTITY_UNAVAILABLE)
+    }
+
+    @Test
+    fun `resolveSellQuantity — 미체결 매도 주문 수량을 뺀 가용 수량만 반환한다`() {
+        val signal = sampleSignal(side = SignalSide.SELL)
+        val context =
+            sampleContext(
+                currentPositions = listOf(samplePosition("005930", quantity = 4)),
+                openOrders = listOf(sampleOpenOrder(code = "005930", side = OrderSide.SELL, quantity = 2)),
+            )
+
+        assertThat(evaluator.resolveSellQuantity(signal, context)).isEqualTo(2)
     }
 
     @Test
@@ -297,6 +329,7 @@ class RiskGatewayEvaluatorTest {
         config: RiskConfig = sampleConfig(),
         currentCapital: BigDecimal = BigDecimal("10000000"),
         currentPositions: List<Position> = emptyList(),
+        openOrders: List<OrderRequest> = emptyList(),
         dailyRealizedPnl: BigDecimal = BigDecimal.ZERO,
         recentTradesMinute: Int = 0,
         recentTradesDay: Int = 0,
@@ -307,10 +340,32 @@ class RiskGatewayEvaluatorTest {
             config = config,
             currentCapital = currentCapital,
             currentPositions = currentPositions,
+            openOrders = openOrders,
             dailyRealizedPnl = dailyRealizedPnl,
             recentTradesMinute = recentTradesMinute,
             recentTradesDay = recentTradesDay,
             killSwitchOn = killSwitchOn,
             nowKst = now,
+        )
+
+    private fun sampleOpenOrder(
+        code: String,
+        side: OrderSide,
+        quantity: Int,
+    ): OrderRequest =
+        OrderRequest(
+            id = 10L,
+            userId = "user-A",
+            signalId = 1L,
+            strategyId = 100L,
+            code = code,
+            side = side,
+            priceType = OrderPriceType.MARKET,
+            quantity = quantity,
+            limitPrice = null,
+            status = OrderStatus.ACK,
+            mode = TradingMode.MOCK,
+            idempotencyKey = "test-$code-$side-$quantity",
+            requestedAt = java.time.Instant.EPOCH,
         )
 }

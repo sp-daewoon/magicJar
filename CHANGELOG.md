@@ -3,6 +3,8 @@
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 
+| 2026-06-01 | **release: v3.10.1 — 자동매매 RiskPlan·캔들 reconciliation 운영 패치** — FVG/OrderBlock 프리셋·차트 overlay 이후 누적된 실전 dogfooding 보강을 패치 컷. 캔들 reconciliation readiness·SymbolDetail 1m gap fill·NXT 합산봉 boundary·상위봉 현재가 보정·재수집 progress UX·Slack/Dozzle 알림 라우팅·전략 빌더 운영 UX를 포함하고, 이번 컷에서 자동매매 BUY 전 손절/익절 RiskPlan 필수 게이트와 AUTO SELL KIS 잔고 preflight를 추가해 손절/익절 계획 없는 매수와 KIS 잔고 없는 매도를 주문 경로 전 단계에서 차단한다. 신규 ADR 0105·0106과 living policy를 갱신했으며 주문·리스크 경로는 fail-closed 원칙을 유지한다. | release · candle · strategy · risk · order · frontend · docs | v3.10.0 이후 FVG/오더블럭 실사용과 실전 자동매매 진입 전 데이터·리스크·알림·운영 UX를 patch로 고정 |
+
 | 2026-06-01 | **fix(market): SymbolDetail range gap fill fail-closed 보강** — `KisOneMinuteCandleRangePort` range 조회 중 credential/token/rate-limit/HTTP 실패가 `emptyList()`로 눌리지 않도록 예외로 전파하고, `SymbolDetailMinuteGapFillService`가 upstream 실패와 합산봉 재생성 실패를 `range-gapfill-failed` readiness로 닫게 했다. | domain · consumer · docs · task | KIS upstream 실패나 stale aggregate를 “캔들 없음/삽입 0건 완료”로 오인해 자동매매 data readiness가 READY가 되는 위험을 차단하기 위함 |
 
 | 2026-06-01 | **fix(market): SymbolDetail 1m gap fill range 정밀화** — 상세 진입 시 기존 장기 lookback backfill worker를 직접 호출하던 흐름을 `KisOneMinuteCandleRangePort.fetchOneMinuteCandlesBetween`로 분리해 `lastDb+1m ~ 현재 직전분` 범위만 KIS `FHKST03010230` cursor로 조회. `lastDb`가 없으면 당일 NXT 통합 세션 시작부터만 빠르게 채우고, 삽입된 row는 `KIS-RANGE-GAPFILL` source로 저장 후 3m~12h 합산봉을 재생성한다. | domain · consumer · docs · task | SymbolDetail A→B→A 재진입 보정이 6개월/장기 backfill처럼 무겁게 돌지 않도록 KIS TPS와 사용자 path 리스크를 낮추기 위함 |
@@ -20,8 +22,6 @@
 | 2026-05-31 | **feat(market): ADR 0105 Phase 1 — 1m backfill lookback 설정화** — `KisRestCandleAdapter`의 직전 30거래일 hardcode를 `magicjar.candle.one-minute.*` 설정으로 교체하고, 기본 126거래일/최대 252거래일/일자별 8 page cap을 테스트로 고정. `FHKST03010230` 날짜+시간 cursor helper를 분리해 기본 6개월 1m retention 구현의 첫 단계를 반영. | consumer · candle policy · task | 4h·12h 전략 기준봉과 재기동/화면 이탈 후 1m gap 복구를 30거래일 한도에 묶지 않기 위함 |
 
 | 2026-05-31 | **docs(adr): ADR 0105 — 캔들 Reconciliation + 장기 1m 보관/복구 정책** — KIS `FHKST03010230`을 지난 1m gap 복구 source로 LOCK하고, 1m retention을 기본 6개월·최대 1년으로 정리. boot/re-entry/scheduled reconciliation, SymbolDetail grace TTL, managed universe 우선순위, data readiness gate(`READY/RECONCILING/STALE/FAILED`), stale data 자동매매 fail-closed, KIS 10 TPS budget과 NXT 1년 row/call estimate를 문서화. | ADR · candle policy · external API policy · roadmap · task | 시스템 재기동/화면 이탈/장기 기준봉 전략에서 발생할 수 있는 캔들 누락을 정책 수준에서 먼저 고정 |
-
-| 2026-05-31 | **release: v3.10.1 — FVG/OrderBlock 프리셋·차트 overlay patch** — Strategy Builder에 FVG/OrderBlock 매수·매도 후보 프리셋 4종을 추가하고, Symbol Chart 위에 TradingView-like FVG/OB zone overlay를 실제 indicator 결과와 candle 좌표 기준으로 표시. indicator cache key는 조회 range를 포함하도록 보강해 차트 구간별 FVG/OB 박스가 오래된 제한 데이터에 묶이지 않게 했고, Claude/Codex 작업 가드에는 계산-only가 아니라 전략 후보·스크리너·차트 검증까지 이어야 한다는 기준을 고정. 주문·리스크·실계좌 자본 path 변경은 0. | release · strategy · indicator · frontend · docs | v3.10.0 이후 FVG/오더블럭 계산 자원을 사용자가 프리셋 후보와 차트 박스로 검증할 수 있게 하는 patch 1 |
 
 | 2026-05-31 | **release: v3.10.0 — 캔들/오더블럭 후보 스크리닝 minor** — FVG·오더블럭 후보 탐색을 위해 `3m` interval을 정식 추가하고 `4h`·`12h` 주요 기준봉을 chart/screener/boundary 흐름에 연결. 스크리너는 특정 시간대가 아니라 사용자가 언제든 실행하는 후보군 탐색 기능으로 정리하고 기본 기준봉을 `1d`로 LOCK. Symbol Chart에는 현재 interval 캔들이 이상할 때 삭제 후 재수집하는 `재수집` UX와 `POST /api/symbols/{code}/candles/recollect` 경로를 추가. KIS 1분봉 정규장 제약과 mock 합성 금지 정책을 문서화하고, `magicjar-direction-guard`를 Claude/Codex 양쪽 스킬로 남겨 후속 캔들·오더블럭 변경의 방향 전환 리스크를 줄임. | release · candle · screener · frontend · docs | v3.9.1 이후 FVG/오더블럭 실사용 전 캔들 coverage·기준봉·재수집 운영 도구를 minor로 고정 |
 

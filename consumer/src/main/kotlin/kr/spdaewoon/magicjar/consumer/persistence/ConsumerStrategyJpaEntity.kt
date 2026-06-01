@@ -8,6 +8,7 @@ import jakarta.persistence.Id
 import jakarta.persistence.Table
 import org.hibernate.annotations.JdbcTypeCode
 import org.hibernate.type.SqlTypes
+import java.math.BigDecimal
 import java.time.Instant
 
 /**
@@ -36,6 +37,10 @@ class ConsumerStrategyJpaEntity(
     val universeMarket: String = "KOSPI",
     @Column(name = "tf", length = 10, nullable = false)
     val tf: String = "D1",
+    @Column(name = "fixed_stop_loss_pct", precision = 9, scale = 4)
+    val fixedStopLossPct: BigDecimal? = null,
+    @Column(name = "take_profit_pct", precision = 9, scale = 4)
+    val takeProfitPct: BigDecimal? = null,
     @Column(name = "ast_depth", nullable = false)
     val astDepth: Int = 0,
     @Column(name = "node_count", nullable = false)

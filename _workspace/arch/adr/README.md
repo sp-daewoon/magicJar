@@ -65,7 +65,7 @@
 | **0104** | **시장 캘린더 이벤트 표면 + KRX 휴장일 배치 게이트 — Accepted (2026-05-25, 2026-05-25 부처님오신날 대체휴무일 실측 정합 + `market_calendar_event` 확장 테이블 + `/market/calendar` 웹 캘린더 + batch KRX 휴장일 skip + 지수 데이터 부족 원인 분리)** |
 | **0105** | **캔들 Reconciliation + 장기 1m 보관/복구 정책 — Accepted (2026-05-31, 2026-06-01 실전 시나리오 amend: A→B→A 재진입 gap fill + boot managed universe reconciliation + data readiness fail-closed)** |
 
-## §6. 전략·신호·리스크 (10건)
+## §6. 전략·신호·리스크 (11건)
 
 | 번호 | 제목 |
 |------|------|
@@ -78,6 +78,7 @@
 | 0066 | T-SIG 실시간 시그널 엔진 — Accepted (룰 매칭 + Kafka boundary listen + 영속 + STOMP fanout) |
 | 0067 | T-RISK 리스크 관리 — Accepted (Signal → Risk Gateway consumer → Order intent 의무 게이트 + 4 도메인 영속 + auto-PAUSE) |
 | 0068 | T-O 주문 실행 — **Accepted (2026-05-18 본 트랙 마감 — Phase 1·2·3 합류 종결 + dogfooding 케이스 5 GREEN + KIS WS H0STCNI9 MOCK subscribe emit=OK)** (Risk ALLOWED → KIS REST + WS H0STCNI0/H0STCNI9 체결 추적 + 3 테이블 영속 + 실계좌 3중 게이트) |
+| 0106 | 자동매매 BUY 전 손절/익절 RiskPlan 필수화 — Accepted (2026-06-01, fixed stop-loss + take-profit activation gate + SELL 가용 수량 계산) |
 | 0071 | T-SC Screener — Accepted (universe × DSL → 후보 + 랭킹 + Redis cache 30m + 옵션 영속 V28) |
 | 0072 | T-J + T-PERF 묶음 — Accepted (Trading Journal 영속 + Performance 통계 + Flyway V29·V30 + batch DailyPerformanceJob) |
 

@@ -58,4 +58,24 @@ class RiskAlertMessageTest {
         alert.title shouldBe "C. 동시 보유 종목 한도 도달"
         alert.formula shouldBe "현재 보유 종목 수 5종목 >= 최대 보유 종목 수 5종목"
     }
+
+    @Test
+    fun `SELL_QUANTITY_UNAVAILABLE - KIS 잔고 검증 실패는 KIS 정합성 메시지로 설명한다`() {
+        val alert =
+            RiskAlertMessage.from(
+                rule = RiskRule.SELL_QUANTITY_UNAVAILABLE,
+                reason = "SELL_QUANTITY_UNAVAILABLE:KIS_HOLDING_QTY_INSUFFICIENT",
+                context =
+                    mapOf(
+                        "source" to "KIS_BALANCE",
+                        "code" to "005930",
+                        "kisHoldingQty" to 0,
+                        "requestedQty" to 7,
+                    ),
+            )
+
+        alert.title shouldBe "KIS 잔고 매도 가능 수량 부족"
+        alert.message shouldContain "KIS 계좌 보유 수량"
+        alert.formula shouldBe "KIS 보유 수량 0주 < 주문 예정 수량 7주"
+    }
 }

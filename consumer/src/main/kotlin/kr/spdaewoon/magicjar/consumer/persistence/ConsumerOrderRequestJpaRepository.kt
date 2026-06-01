@@ -25,7 +25,7 @@ interface ConsumerOrderRequestJpaRepository : JpaRepository<ConsumerOrderRequest
 
     @Query(
         "SELECT e FROM ConsumerOrderRequestJpaEntity e WHERE e.userId = :userId " +
-            "AND e.status IN ('REQUESTED', 'ACK', 'PARTIALLY_FILLED')",
+            "AND e.status IN ('REQUESTED', 'ACK', 'PARTIALLY_FILLED', 'PENDING_RECONCILE')",
     )
     fun findOpenByUserId(
         @Param("userId") userId: String,

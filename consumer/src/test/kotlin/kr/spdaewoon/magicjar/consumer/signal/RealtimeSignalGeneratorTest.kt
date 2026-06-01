@@ -14,6 +14,8 @@ import kr.spdaewoon.magicjar.consumer.reconciliation.DataReadinessStatus
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
+import kr.spdaewoon.magicjar.domain.position.Position
+import kr.spdaewoon.magicjar.domain.risk.port.RiskPositionPort
 import kr.spdaewoon.magicjar.domain.signal.SignalSide
 import kr.spdaewoon.magicjar.domain.signal.port.SignalRepository
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
@@ -40,6 +42,7 @@ class RealtimeSignalGeneratorTest {
     private val signalRepository = mockk<SignalRepository>()
     private val candleRepository = mockk<CandleRepository>()
     private val readinessService = mockk<DataReadinessService>()
+    private val riskPositionPort = mockk<RiskPositionPort>()
     private val evaluator = mockk<JvmStrategyEvaluator>()
     private val dedupeGuard = mockk<SignalDedupeGuard>()
     private val signalKafkaProducer = mockk<SignalKafkaProducer>()
@@ -269,9 +272,49 @@ class RealtimeSignalGeneratorTest {
         assertThat(publishedSignal.captured.side).isEqualTo(SignalSide.SELL)
     }
 
+    @Test
+    fun `takeProfitPct 도달 시 보유 포지션 기준 SELL 시그널을 저장하고 발행한다`() {
+        val buyAst = ast("0", Operator.GT, "1")
+        val boundaryTs = Instant.parse("2026-05-20T00:20:00Z")
+        val savedSignal = slot<GeneratedSignal>()
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(strategy(buyAst = buyAst, takeProfitPct = BigDecimal("5.00")))
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
+        every { candleRepository.findByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(candle("2026-05-20T00:15:00Z", "100"))
+        every { evaluator.evaluate(42L, buyAst, any()) } returns holdResult()
+        every { riskPositionPort.findCurrentByUser("1234") } returns
+            listOf(
+                Position(
+                    userId = "1234",
+                    code = "005930",
+                    quantity = 3,
+                    avgPrice = BigDecimal("100"),
+                    updatedAt = fixedNow,
+                ),
+            )
+        every { signalRepository.save(capture(savedSignal)) } answers { savedSignal.captured.copy(id = 99L) }
+        every { signalKafkaProducer.publish(any()) } just Runs
+
+        generator(riskPositionPort = riskPositionPort).onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.FIVE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "106"),
+        )
+
+        assertThat(savedSignal.captured.side).isEqualTo(SignalSide.SELL)
+        assertThat(savedSignal.captured.strength).isEqualTo(100)
+        assertThat(savedSignal.captured.reason).isEqualTo("TAKE_PROFIT")
+        verify(exactly = 1) { riskPositionPort.findCurrentByUser("1234") }
+        verify(exactly = 1) { signalKafkaProducer.publish(any()) }
+    }
+
     private fun generator(
         evalLookbackCandles: Int = 500,
         dataReadinessService: DataReadinessService? = null,
+        riskPositionPort: RiskPositionPort? = null,
     ): RealtimeSignalGenerator =
         RealtimeSignalGenerator(
             strategyLookupProvider = providerOf(strategyLookup),
@@ -279,6 +322,10 @@ class RealtimeSignalGeneratorTest {
             candleRepositoryProvider = providerOf(candleRepository),
             dataReadinessServiceProvider =
                 dataReadinessService
+                    ?.let { providerOf(it) }
+                    ?: emptyProvider(),
+            riskPositionPortProvider =
+                riskPositionPort
                     ?.let { providerOf(it) }
                     ?: emptyProvider(),
             jvmStrategyEvaluator = evaluator,
@@ -291,6 +338,7 @@ class RealtimeSignalGeneratorTest {
     private fun strategy(
         buyAst: DslNode,
         sellAst: DslNode? = null,
+        takeProfitPct: BigDecimal? = null,
     ): Strategy =
         Strategy(
             id = 42L,
@@ -303,6 +351,7 @@ class RealtimeSignalGeneratorTest {
                             buyCondition = buyAst,
                             sellCondition = sellAst,
                         ),
+                    takeProfitPct = takeProfitPct,
                 ),
             complexity =
                 StrategyComplexity(

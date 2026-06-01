@@ -6,6 +6,7 @@ import kr.spdaewoon.magicjar.consumer.reconciliation.DataReadinessService
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
+import kr.spdaewoon.magicjar.domain.risk.port.RiskPositionPort
 import kr.spdaewoon.magicjar.domain.signal.Signal
 import kr.spdaewoon.magicjar.domain.signal.SignalContext
 import kr.spdaewoon.magicjar.domain.signal.SignalSide
@@ -20,6 +21,7 @@ import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
+import java.math.RoundingMode
 
 /**
  * 실시간 시그널 생성기 (ADR 0066 §7-1 RealtimeSignalGenerator + §7-2 평가 흐름 본체).
@@ -56,6 +58,7 @@ class RealtimeSignalGenerator(
     private val signalRepositoryProvider: ObjectProvider<SignalRepository>,
     private val candleRepositoryProvider: ObjectProvider<CandleRepository>,
     private val dataReadinessServiceProvider: ObjectProvider<DataReadinessService>,
+    private val riskPositionPortProvider: ObjectProvider<RiskPositionPort>,
     private val jvmStrategyEvaluator: JvmStrategyEvaluator,
     private val signalDedupeGuard: SignalDedupeGuard,
     private val signalKafkaProducer: SignalKafkaProducer,
@@ -197,7 +200,7 @@ class RealtimeSignalGenerator(
                 )
                 return
             }
-        val decision = evaluateDecision(strategyId, code, buyAst, strategy.definition.dsl.sellCondition, candles) ?: return
+        val decision = evaluateDecision(strategy, code, buyAst, strategy.definition.dsl.sellCondition, candles, candle.closeRaw) ?: return
         val side = decision.side
         val evalResult = decision.result
 
@@ -299,13 +302,16 @@ class RealtimeSignalGenerator(
     )
 
     private fun evaluateDecision(
-        strategyId: Long,
+        strategy: Strategy,
         code: String,
         buyAst: DslNode,
         sellAst: DslNode?,
         candles: List<Candle>,
+        currentPrice: BigDecimal,
     ): SignalDecision? {
+        val strategyId = strategy.id ?: return null
         val buyResult = evaluateAst(strategyId, code, "BUY", buyAst, candles) ?: return null
+        evaluateTakeProfitExit(strategy, code, currentPrice, buyResult)?.let { return it }
         if (mapToSignalSide(buyResult.signal) == SignalSide.BUY) {
             return SignalDecision(SignalSide.BUY, buyResult)
         }
@@ -324,6 +330,65 @@ class RealtimeSignalGenerator(
         }
 
         return SignalDecision(SignalSide.HOLD, buyResult)
+    }
+
+    private fun evaluateTakeProfitExit(
+        strategy: Strategy,
+        code: String,
+        currentPrice: BigDecimal,
+        baseResult: StrategyEvalResult,
+    ): SignalDecision? {
+        val takeProfitPct = strategy.definition.takeProfitPct ?: return null
+        val positionPort = riskPositionPortProvider.ifAvailable
+        if (positionPort == null) {
+            log.warn(
+                "takeProfitPct 설정 전략의 position 조회 port 부재 — exit skip: strategyId={} code={}",
+                strategy.id,
+                code,
+            )
+            return null
+        }
+        val position =
+            try {
+                positionPort
+                    .findCurrentByUser(strategy.userId.toString())
+                    .firstOrNull { it.code == code && it.quantity > 0 }
+            } catch (e: Exception) {
+                log.warn(
+                    "takeProfitPct position 조회 실패 — exit skip: strategyId={} code={} err={}",
+                    strategy.id,
+                    code,
+                    e.message,
+                )
+                null
+            } ?: return null
+
+        if (position.avgPrice <= BigDecimal.ZERO) return null
+        val profitPct =
+            currentPrice
+                .subtract(position.avgPrice)
+                .divide(position.avgPrice, 6, RoundingMode.HALF_UP)
+                .multiply(BigDecimal("100"))
+
+        if (profitPct < takeProfitPct) return null
+
+        return SignalDecision(
+            SignalSide.SELL,
+            baseResult.copy(
+                signal = kr.spdaewoon.magicjar.domain.strategy.Signal.SELL,
+                strength = BigDecimal.ONE,
+                reason =
+                    baseResult.reason +
+                        mapOf(
+                            "trigger" to "TAKE_PROFIT",
+                            "condition" to "POSITION_PROFIT_PCT",
+                            "profitPct" to profitPct.setScale(4, RoundingMode.HALF_UP).toPlainString(),
+                            "takeProfitPct" to takeProfitPct.toPlainString(),
+                            "avgPrice" to position.avgPrice.toPlainString(),
+                            "currentPrice" to currentPrice.toPlainString(),
+                        ),
+            ),
+        )
     }
 
     private fun evaluateAst(

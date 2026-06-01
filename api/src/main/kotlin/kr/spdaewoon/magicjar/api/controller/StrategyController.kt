@@ -92,6 +92,8 @@ class StrategyController(
                 tf = req.tf,
                 entryText = req.entry,
                 exitText = req.exit,
+                stopLossPct = req.stopLossPct,
+                takeProfitPct = req.takeProfitPct,
             )
         return CreateStrategyResponse(
             strategyId = strategy.id ?: 0L,
@@ -276,6 +278,8 @@ class StrategyController(
             nameKo = strategy.definition.dsl.nameKo ?: "",
             universe = strategy.definition.universe.market,
             tf = strategy.definition.tf,
+            stopLossPct = strategy.definition.fixedStopLoss,
+            takeProfitPct = strategy.definition.takeProfitPct,
             complexity = toComplexityDto(strategy.complexity),
             disabledReason = strategy.disabledReason.name,
             lastDisabledAt = strategy.lastDisabledAt?.toString(),
@@ -314,6 +318,10 @@ data class CreateStrategyRequest(
     val universe: String = "KOSPI",
     @field:Schema(description = "타임프레임 (D1·60m·1d 등)", example = "D1")
     val tf: String = "D1",
+    @field:Schema(description = "자동매매 hard stop 손절 비율 (%)", example = "5.00")
+    val stopLossPct: BigDecimal? = null,
+    @field:Schema(description = "보유 포지션 평가 수익률 기준 익절 비율 (%)", example = "5.00")
+    val takeProfitPct: BigDecimal? = null,
 )
 
 @Schema(description = "전략 등록 응답")
@@ -338,6 +346,10 @@ data class StrategyResponse(
     val universe: String,
     @field:Schema(description = "타임프레임", example = "D1")
     val tf: String,
+    @field:Schema(description = "자동매매 hard stop 손절 비율 (%)", example = "5.00")
+    val stopLossPct: BigDecimal? = null,
+    @field:Schema(description = "보유 포지션 평가 수익률 기준 익절 비율 (%)", example = "5.00")
+    val takeProfitPct: BigDecimal? = null,
     @field:Schema(description = "DSL 복잡도 메타")
     val complexity: StrategyComplexityDto,
     @field:Schema(description = "비활성화 사유 (NULL=정상)", example = "NULL")

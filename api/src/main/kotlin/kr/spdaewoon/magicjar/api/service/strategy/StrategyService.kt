@@ -28,6 +28,8 @@ import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.server.ResponseStatusException
+import java.math.BigDecimal
+import java.time.Instant
 
 /**
  * 전략 서비스 — 등록·검증·조회·status 전환·auto-disable.
@@ -100,10 +102,18 @@ class StrategyService(
         tf: String,
         entryText: String,
         exitText: String?,
+        codes: List<String> = emptyList(),
+        intervals: List<String> = emptyList(),
+        stopLossPct: BigDecimal? = null,
+        takeProfitPct: BigDecimal? = null,
+        requireCodes: Boolean = false,
     ): Strategy {
         val entryComplexity = validateAndComputeComplexity(entryAst)
         val exitComplexity = exitAst?.let { validateAndComputeComplexity(it) }
         val combinedComplexity = mergeComplexity(entryComplexity, exitComplexity)
+        val normalizedStopLossPct = normalizeStopLossPct(stopLossPct)
+        val normalizedTakeProfitPct = normalizeTakeProfitPct(takeProfitPct)
+        validateRiskReward(normalizedStopLossPct, normalizedTakeProfitPct)
 
         val dsl =
             DslStrategyDefinition(
@@ -119,23 +129,107 @@ class StrategyService(
                 dsl = dsl,
                 universe = universe,
                 tf = tf,
+                fixedStopLoss = normalizedStopLossPct,
+                takeProfitPct = normalizedTakeProfitPct,
             )
+        val normalizedCodes = normalizeCodes(codes, requireCodes)
         val strategy =
             Strategy(
                 userId = userId,
                 definition = definition,
                 complexity = combinedComplexity,
                 status = StrategyStatus.PAUSED,
-                intervals = listOf(tf),
+                codes = normalizedCodes,
+                intervals = normalizeIntervals(intervals, tf),
             )
         val saved = strategyRepositoryPort.save(strategy)
         log.info("전략 등록 완료: id={} userId={} complexity={}", saved.id, userId, combinedComplexity.complexityClass)
         return saved
     }
 
+    fun update(
+        id: Long,
+        userId: Long,
+        name: String,
+        nameKo: String?,
+        entryAst: DslNode,
+        exitAst: DslNode?,
+        universe: Universe,
+        tf: String,
+        entryText: String,
+        exitText: String?,
+        codes: List<String> = emptyList(),
+        intervals: List<String> = emptyList(),
+        stopLossPct: BigDecimal? = null,
+        takeProfitPct: BigDecimal? = null,
+        requireCodes: Boolean = false,
+    ): Strategy {
+        val existing =
+            strategyRepositoryPort.findById(id)
+                ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
+        if (existing.userId != userId) {
+            throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
+        }
+
+        val entryComplexity = validateAndComputeComplexity(entryAst)
+        val exitComplexity = exitAst?.let { validateAndComputeComplexity(it) }
+        val combinedComplexity = mergeComplexity(entryComplexity, exitComplexity)
+        val normalizedStopLossPct = normalizeStopLossPct(stopLossPct)
+        val normalizedTakeProfitPct = normalizeTakeProfitPct(takeProfitPct)
+        validateRiskReward(normalizedStopLossPct, normalizedTakeProfitPct)
+        val dsl =
+            DslStrategyDefinition(
+                name = name,
+                nameKo = nameKo ?: "",
+                buyCondition = entryAst,
+                sellCondition = exitAst,
+                buyConditionText = entryText,
+                sellConditionText = exitText,
+            )
+        val normalizedCodes = normalizeCodes(codes, requireCodes)
+        val updated =
+            existing.copy(
+                definition =
+                    StrategyDefinition(
+                        dsl = dsl,
+                        universe = universe,
+                        tf = tf,
+                        fixedStopLoss = normalizedStopLossPct,
+                        takeProfitPct = normalizedTakeProfitPct,
+                    ),
+                complexity = combinedComplexity,
+                codes = normalizedCodes,
+                intervals = normalizeIntervals(intervals, tf),
+                updatedAt = Instant.now(),
+            )
+        val saved = strategyRepositoryPort.save(updated)
+        redisStrategyCache.invalidateAll()
+        log.info("전략 수정 완료: id={} userId={} complexity={}", saved.id, userId, combinedComplexity.complexityClass)
+        return saved
+    }
+
     fun findById(id: Long): Strategy? = strategyRepositoryPort.findById(id)
 
     fun findAllByUserId(userId: Long): List<Strategy> = strategyRepositoryPort.findAllByUserId(userId)
+
+    fun activationBlockedReason(strategy: Strategy): String? {
+        if (normalizeCodes(strategy.codes).isEmpty()) {
+            return "자동매매 대상 종목이 없는 전략은 ACTIVE로 전환할 수 없습니다"
+        }
+        if (normalizeIntervals(strategy.intervals, strategy.definition.tf).isEmpty()) {
+            return "평가 인터벌이 없는 전략은 ACTIVE로 전환할 수 없습니다"
+        }
+        if (strategy.definition.fixedStopLoss == null || strategy.definition.takeProfitPct == null) {
+            return "손절/익절 RiskPlan이 없어 자동매매를 시작할 수 없습니다. 손절가와 익절가를 먼저 설정하세요"
+        }
+        val strategyId = strategy.id ?: return "저장되지 않은 전략은 ACTIVE로 전환할 수 없습니다"
+        val ready = backtestRunJpaRepository.existsAutoActivationReadyRun(strategyId, strategy.userId.toString())
+        return if (ready) {
+            null
+        } else {
+            "성공한 백테스트가 있어야 전략을 ACTIVE로 전환할 수 있습니다"
+        }
+    }
 
     /**
      * 전략 목록 페이징 조회 (DELETED 제외).
@@ -195,7 +289,12 @@ class StrategyService(
         val currentStatus = runCatching { StrategyStatus.valueOf(entity.status) }.getOrDefault(StrategyStatus.ACTIVE)
         validateTransition(id, currentStatus, newStatus)
         if (newStatus == StrategyStatus.ACTIVE) {
-            validateActivationReady(id, entity.userId)
+            val strategy =
+                strategyRepositoryPort.findById(id)
+                    ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
+            activationBlockedReason(strategy)?.let { reason ->
+                throw ResponseStatusException(HttpStatus.CONFLICT, "$reason: id=$id")
+            }
             strategyRepositoryPort.enable(id)
         } else {
             strategyJpaRepository.updateStatus(id, newStatus.name)
@@ -229,10 +328,14 @@ class StrategyService(
      * 전략 재활성화 — 사용자 명시 활성화 (DISABLED → ACTIVE).
      */
     fun enable(strategyId: Long) {
-        val entity =
-            strategyJpaRepository.findByIdAndStatusNot(strategyId, StrategyStatus.DELETED.name)
+        strategyJpaRepository.findByIdAndStatusNot(strategyId, StrategyStatus.DELETED.name)
+            ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$strategyId")
+        val strategy =
+            strategyRepositoryPort.findById(strategyId)
                 ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$strategyId")
-        validateActivationReady(strategyId, entity.userId)
+        activationBlockedReason(strategy)?.let { reason ->
+            throw ResponseStatusException(HttpStatus.CONFLICT, "$reason: id=$strategyId")
+        }
         strategyRepositoryPort.enable(strategyId)
         redisStrategyCache.invalidateAll()
         log.info("전략 재활성화: id={}", strategyId)
@@ -264,16 +367,53 @@ class StrategyService(
         }
     }
 
-    private fun validateActivationReady(
-        strategyId: Long,
-        userId: Long,
+    private fun normalizeCodes(
+        codes: List<String>,
+        requireNonEmpty: Boolean = false,
+    ): List<String> {
+        val normalized =
+            codes
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+        if (requireNonEmpty && normalized.isEmpty()) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "자동매매 대상 종목을 1개 이상 지정해야 합니다")
+        }
+        return normalized
+    }
+
+    private fun normalizeIntervals(
+        intervals: List<String>,
+        tf: String,
+    ): List<String> =
+        intervals
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .ifEmpty { listOf(tf) }
+            .distinct()
+
+    private fun normalizeTakeProfitPct(value: BigDecimal?): BigDecimal? {
+        if (value == null) return null
+        if (value <= BigDecimal.ZERO) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "takeProfitPct는 0보다 커야 합니다")
+        }
+        return value
+    }
+
+    private fun normalizeStopLossPct(value: BigDecimal?): BigDecimal? {
+        if (value == null) return null
+        if (value <= BigDecimal.ZERO) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "stopLossPct는 0보다 커야 합니다")
+        }
+        return value
+    }
+
+    private fun validateRiskReward(
+        stopLossPct: BigDecimal?,
+        takeProfitPct: BigDecimal?,
     ) {
-        val ready = backtestRunJpaRepository.existsAutoActivationReadyRun(strategyId, userId.toString())
-        if (!ready) {
-            throw ResponseStatusException(
-                HttpStatus.CONFLICT,
-                "성공한 백테스트가 있어야 전략을 ACTIVE로 전환할 수 있습니다: id=$strategyId",
-            )
+        if (stopLossPct != null && takeProfitPct != null && takeProfitPct <= stopLossPct) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "takeProfitPct는 stopLossPct보다 커야 합니다")
         }
     }
 

@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.media.Schema
 import io.swagger.v3.oas.annotations.responses.ApiResponse
 import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
+import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.service.strategy.StrategyService
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
@@ -29,6 +30,7 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.server.ResponseStatusException
+import java.math.BigDecimal
 
 /**
  * 전략 REST 컨트롤러 Phase 2 — CRUD + status 토글 + reactivate (ADR 0066 §2-6 F-1).
@@ -48,6 +50,7 @@ import org.springframework.web.server.ResponseStatusException
 class StrategiesController(
     private val strategyService: StrategyService,
     private val kisYamlDslParser: KisYamlDslParser,
+    private val instrumentJpaRepository: InstrumentJpaRepository,
 ) {
     private val log = LoggerFactory.getLogger(StrategiesController::class.java)
 
@@ -58,7 +61,7 @@ class StrategiesController(
         description =
             "텍스트 DSL 1줄(예: `ma(5) crosses_above ma(20)`)을 등록합니다. " +
                 "ADR 0047 정합 — static 검증 후 complexity 응답. " +
-                "등록 후 status=ACTIVE 자동 설정.",
+                "등록 후 status=PAUSED로 시작하며 백테스트 준비 후 사용자가 ACTIVE로 전환합니다.",
     )
     @ApiResponses(
         ApiResponse(responseCode = "201", description = "전략 등록 성공 — strategyId + complexity 반환"),
@@ -86,6 +89,11 @@ class StrategiesController(
                 tf = req.tf,
                 entryText = req.entry,
                 exitText = req.exit,
+                codes = req.codes,
+                intervals = req.intervals,
+                stopLossPct = req.stopLossPct,
+                takeProfitPct = req.takeProfitPct,
+                requireCodes = true,
             )
         return toDetailResponse(strategy)
     }
@@ -176,7 +184,8 @@ class StrategiesController(
 
         val (entryAst, exitAst) = parseDslTexts(req.entry, req.exit)
         val strategy =
-            strategyService.create(
+            strategyService.update(
+                id = id,
                 userId = req.userId,
                 name = req.name,
                 nameKo = req.nameKo,
@@ -186,8 +195,13 @@ class StrategiesController(
                 tf = req.tf,
                 entryText = req.entry,
                 exitText = req.exit,
+                codes = req.codes,
+                intervals = req.intervals,
+                stopLossPct = req.stopLossPct,
+                takeProfitPct = req.takeProfitPct,
+                requireCodes = true,
             )
-        log.info("전략 수정: id={} → newId={}", id, strategy.id)
+        log.info("전략 수정: id={}", id)
         return toDetailResponse(strategy)
     }
 
@@ -281,15 +295,19 @@ class StrategiesController(
         return ast
     }
 
-    private fun toDetailResponse(strategy: Strategy): StrategyDetailResponse =
-        StrategyDetailResponse(
+    private fun toDetailResponse(strategy: Strategy): StrategyDetailResponse {
+        val activationBlockedReason = strategyService.activationBlockedReason(strategy)
+        return StrategyDetailResponse(
             id = strategy.id ?: 0L,
             userId = strategy.userId,
             name = strategy.definition.dsl.name,
             nameKo = strategy.definition.dsl.nameKo ?: "",
             universe = strategy.definition.universe.market,
             tf = strategy.definition.tf,
+            stopLossPct = strategy.definition.fixedStopLoss,
+            takeProfitPct = strategy.definition.takeProfitPct,
             codes = strategy.codes,
+            codeNames = codeNamesFor(strategy.codes),
             intervals = strategy.intervals.ifEmpty { listOf(strategy.definition.tf) },
             buyCondition = strategy.definition.dsl.buyConditionText,
             sellCondition = strategy.definition.dsl.sellConditionText,
@@ -298,9 +316,19 @@ class StrategiesController(
             lastDisabledAt = strategy.lastDisabledAt?.toString(),
             enabled = strategy.isEnabled(),
             status = strategy.status.name,
+            activationReady = activationBlockedReason == null,
+            activationBlockedReason = activationBlockedReason,
             createdAt = strategy.createdAt.toString(),
             updatedAt = strategy.updatedAt.toString(),
         )
+    }
+
+    private fun codeNamesFor(codes: List<String>): Map<String, String> {
+        if (codes.isEmpty()) return emptyMap()
+        return instrumentJpaRepository
+            .findAllById(codes)
+            .associate { it.code to it.name }
+    }
 
     private fun toComplexityDto(complexity: StrategyComplexity): StrategyComplexityResponse =
         StrategyComplexityResponse(
@@ -337,6 +365,14 @@ data class StrategyCreateRequest(
     val universe: String = "KOSPI",
     @field:Schema(description = "타임프레임 (D1·5m·15m 등)", example = "D1")
     val tf: String = "D1",
+    @field:Schema(description = "자동매매 hard stop 손절 비율 (%)", example = "5.00")
+    val stopLossPct: BigDecimal? = null,
+    @field:Schema(description = "보유 포지션 평가 수익률 기준 익절 비율 (%)", example = "5.00")
+    val takeProfitPct: BigDecimal? = null,
+    @field:Schema(description = "감시 종목 코드 목록", example = "[\"005930\"]")
+    val codes: List<String> = emptyList(),
+    @field:Schema(description = "감시 인터벌 목록", example = "[\"5m\"]")
+    val intervals: List<String> = emptyList(),
 )
 
 @Schema(description = "전략 수정 요청 (Phase 2)")
@@ -355,6 +391,14 @@ data class StrategyUpdateRequest(
     val universe: String = "KOSPI",
     @field:Schema(description = "타임프레임", example = "D1")
     val tf: String = "D1",
+    @field:Schema(description = "자동매매 hard stop 손절 비율 (%)", example = "5.00")
+    val stopLossPct: BigDecimal? = null,
+    @field:Schema(description = "보유 포지션 평가 수익률 기준 익절 비율 (%)", example = "5.00")
+    val takeProfitPct: BigDecimal? = null,
+    @field:Schema(description = "감시 종목 코드 목록", example = "[\"005930\"]")
+    val codes: List<String> = emptyList(),
+    @field:Schema(description = "감시 인터벌 목록", example = "[\"5m\"]")
+    val intervals: List<String> = emptyList(),
 )
 
 @Schema(description = "전략 상태 전환 요청")
@@ -382,8 +426,14 @@ data class StrategyDetailResponse(
     val universe: String,
     @field:Schema(description = "타임프레임", example = "D1")
     val tf: String,
+    @field:Schema(description = "자동매매 hard stop 손절 비율 (%)", example = "5.00")
+    val stopLossPct: BigDecimal? = null,
+    @field:Schema(description = "보유 포지션 평가 수익률 기준 익절 비율 (%)", example = "5.00")
+    val takeProfitPct: BigDecimal? = null,
     @field:Schema(description = "감시 종목 코드 목록", example = "[\"005930\"]")
     val codes: List<String> = emptyList(),
+    @field:Schema(description = "종목 코드별 종목명", example = "{\"005930\":\"삼성전자\"}")
+    val codeNames: Map<String, String> = emptyMap(),
     @field:Schema(description = "감시 인터벌 목록", example = "[\"5m\"]")
     val intervals: List<String> = emptyList(),
     @field:Schema(description = "매수 조건 DSL 텍스트", example = "ma(5) crosses_above ma(20)")
@@ -404,6 +454,10 @@ data class StrategyDetailResponse(
         allowableValues = ["ACTIVE", "PAUSED", "DISABLED", "DELETED"],
     )
     val status: String,
+    @field:Schema(description = "자동매매 시작 가능 여부", example = "false")
+    val activationReady: Boolean = false,
+    @field:Schema(description = "자동매매 시작 차단 사유", example = "성공한 백테스트가 있어야 전략을 ACTIVE로 전환할 수 있습니다")
+    val activationBlockedReason: String? = null,
     @field:Schema(description = "생성 시각", example = "2026-05-29T03:51:36Z")
     val createdAt: String,
     @field:Schema(description = "수정 시각", example = "2026-05-29T03:51:36Z")

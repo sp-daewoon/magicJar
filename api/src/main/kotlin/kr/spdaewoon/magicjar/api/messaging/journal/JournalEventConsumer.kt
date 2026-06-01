@@ -180,15 +180,19 @@ class JournalEventConsumer(
      * risk.violation.v1 listen — 리스크 위반 이벤트 → trading_journal INSERT.
      *
      * payload 필드: riskEventId·userId·ruleType·code(nullable)·violatedAt
+     * 이전 producer 호환: signalId·rule·blockedAt 도 허용한다.
      */
     @KafkaListener(topics = ["risk.violation.v1"], groupId = GROUP)
     fun onRiskViolation(record: ConsumerRecord<String, String>) {
         processEvent(record, "risk.violation.v1") { payload ->
             val userId = parseUserId(payload) ?: return@processEvent null
-            val riskEventId = (payload["riskEventId"] as? Number)?.toLong() ?: return@processEvent null
-            val ruleType = payload["ruleType"]?.toString() ?: "UNKNOWN"
+            val riskEventId = (payload["riskEventId"] as? Number)?.toLong()
+            val signalId = (payload["signalId"] as? Number)?.toLong()
+            val sourceId = riskEventId ?: signalId ?: return@processEvent null
+            val ruleType = payload["ruleType"]?.toString() ?: payload["rule"]?.toString() ?: "UNKNOWN"
             val code = payload["code"]?.toString()
-            val violatedAt = parseInstant(payload, "violatedAt") ?: Instant.now()
+            val violatedAt = parseInstant(payload, "violatedAt") ?: parseInstant(payload, "blockedAt") ?: Instant.now()
+            val instrumentName = payload["instrumentName"]?.toString()
 
             val summary = summaryComposer.composeRiskViolation(ruleType, code)
 
@@ -196,11 +200,12 @@ class JournalEventConsumer(
                 userId = userId,
                 eventType = JournalEventType.RISK_VIOLATION,
                 instrumentCode = code,
+                instrumentName = instrumentName,
                 occurredAt = violatedAt,
                 summary = summary,
                 payload = objectMapper.writeValueAsString(payload),
-                sourceTable = "risk_event",
-                sourceId = riskEventId,
+                sourceTable = if (riskEventId != null) "risk_event" else "signal",
+                sourceId = sourceId,
             )
         }
     }

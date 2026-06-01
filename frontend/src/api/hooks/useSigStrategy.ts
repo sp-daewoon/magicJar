@@ -1,7 +1,7 @@
 /**
  * SigStrategy TanStack Query hooks (T-SIG Phase 3 — ADR 0066)
  *
- * ADR 0066 /api/strategies (신규 endpoint — DSL /api/strategy 와 별개)
+ * ADR 0066 /api/strategies (전략 목록·자동매매 운영 endpoint)
  *
  * hooks:
  *   useSigStrategies(page, size) — useInfiniteQuery

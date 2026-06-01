@@ -6,6 +6,7 @@
  * 실제 데이터만 표시 (feedback_no_mock_data 정합)
  */
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   type SigStrategyDto,
   type StrategyStatus,
@@ -14,6 +15,11 @@ import { useDeleteSigStrategy, useToggleSigStrategyStatus } from '../../api/hook
 import { AiExplainEntry } from '../../features/ai/components/AiExplainEntry'
 import { useOnboardingStore } from '../../stores/onboarding'
 import { useToast } from '../ui/ToastProvider'
+import {
+  formatStrategyCodeLabel,
+  resolveStrategyMutationErrorMessage,
+  strategyActivationBlockedReason,
+} from './strategyDisplay'
 
 // ──────────────────────────────────────────────
 // 상태 배지 스타일
@@ -52,10 +58,20 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
 
   const toggleMutation = useToggleSigStrategyStatus()
   const deleteMutation = useDeleteSigStrategy()
+  const isMissingOperationalTargets = codes.length === 0 || intervals.length === 0
+  const activationBlockedReason = strategyActivationBlockedReason(strategy)
 
   function handleToggle() {
     const nextStatus: StrategyStatus =
       strategy.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE'
+    if (nextStatus === 'ACTIVE' && isMissingOperationalTargets) {
+      showToast('자동매매 대상 종목과 평가 인터벌을 먼저 지정해 주세요.', 'error')
+      return
+    }
+    if (nextStatus === 'ACTIVE' && activationBlockedReason) {
+      showToast(activationBlockedReason, 'error')
+      return
+    }
     toggleMutation.mutate(
       { id: strategy.id, status: nextStatus },
       {
@@ -63,7 +79,7 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
           showToast(statusSuccessMessage(nextStatus), 'success')
         },
         onError: (error) => {
-          showToast(resolveMutationErrorMessage(error), 'error')
+          showToast(resolveStrategyMutationErrorMessage(error), 'error')
         },
       },
     )
@@ -85,6 +101,7 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
     ? DISABLED_REASON_LABEL[strategy.disabledReason] ?? strategy.disabledReason
     : null
   const disabledAtLabel = formatKst(strategy.lastDisabledAt)
+  const activeNeedsAttention = strategy.status === 'ACTIVE' && activationBlockedReason
 
   return (
     <article className="flex flex-col gap-3 rounded-xl border border-gray-800 bg-gray-900 p-5 transition-colors hover:border-gray-700">
@@ -108,9 +125,10 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
             {codes.slice(0, 4).map((code) => (
               <span
                 key={code}
-                className="rounded bg-gray-800 px-1.5 py-0.5 text-xs font-medium text-gray-300"
+                title={formatStrategyCodeLabel(code, strategy.codeNames)}
+                className="max-w-[12rem] truncate rounded bg-gray-800 px-1.5 py-0.5 text-xs font-medium text-gray-300"
               >
-                {code}
+                {formatStrategyCodeLabel(code, strategy.codeNames)}
               </span>
             ))}
             {codes.length > 4 && (
@@ -165,6 +183,13 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
         </div>
       )}
 
+      {activeNeedsAttention && (
+        <div className="border-l-2 border-red-400 bg-red-950/30 px-3 py-2 text-xs leading-5 text-red-100">
+          <p className="font-semibold">자동매매 점검 필요</p>
+          <p>{activationBlockedReason}</p>
+        </div>
+      )}
+
       {/* DSL 미리보기 — 매수 / 매도 조건 */}
       {strategy.buyCondition && (
         <p className="truncate rounded bg-gray-800/60 px-3 py-1.5 font-mono text-xs text-gray-300" title={strategy.buyCondition}>
@@ -174,6 +199,16 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
       {strategy.sellCondition && (
         <p className="truncate rounded bg-gray-800/60 px-3 py-1.5 font-mono text-xs text-gray-300" title={strategy.sellCondition}>
           <span className="text-orange-300">매도:</span> {strategy.sellCondition}
+        </p>
+      )}
+      {strategy.takeProfitPct !== null && strategy.takeProfitPct !== undefined && (
+        <p className="truncate rounded bg-gray-800/60 px-3 py-1.5 text-xs text-gray-300">
+          <span className="text-orange-300">익절:</span> {Number(strategy.takeProfitPct).toLocaleString('ko-KR')}%
+        </p>
+      )}
+      {strategy.stopLossPct !== null && strategy.stopLossPct !== undefined && (
+        <p className="truncate rounded bg-gray-800/60 px-3 py-1.5 text-xs text-gray-300">
+          <span className="text-red-300">손절:</span> {Number(strategy.stopLossPct).toLocaleString('ko-KR')}%
         </p>
       )}
 
@@ -186,15 +221,31 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
       )}
 
       {/* 액션 버튼 */}
-      <div className="flex items-center gap-2 pt-1">
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        <Link
+          to={`/strategy/builder?strategyId=${strategy.id}`}
+          className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs font-medium text-blue-300 transition-colors hover:bg-blue-950/60 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-900"
+        >
+          빌더에서 수정
+        </Link>
+
         {/* 상태 토글 */}
         {isToggleable && (
           <button
             onClick={handleToggle}
-            disabled={isBusy}
+            disabled={isBusy || (strategy.status !== 'ACTIVE' && isMissingOperationalTargets)}
+            title={
+              strategy.status !== 'ACTIVE' && isMissingOperationalTargets
+                ? '빌더에서 수정 후 자동매매 대상 종목과 평가 인터벌을 지정하세요'
+                : strategy.status !== 'ACTIVE' && activationBlockedReason
+                ? activationBlockedReason
+                : undefined
+            }
             className={[
               'rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-offset-gray-900',
               strategy.status === 'ACTIVE'
+                ? 'bg-amber-700 text-white hover:bg-amber-600 focus:ring-amber-300'
+                : activationBlockedReason
                 ? 'bg-amber-700 text-white hover:bg-amber-600 focus:ring-amber-300'
                 : 'bg-emerald-600 text-white hover:bg-emerald-500 focus:ring-emerald-300',
             ].join(' ')}
@@ -203,6 +254,12 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
               ? '처리 중...'
               : strategy.status === 'ACTIVE'
               ? '자동매매 중지'
+              : isMissingOperationalTargets
+              ? '종목 지정 필요'
+              : activationBlockedReason
+              ? activationBlockedReason.includes('손절') || activationBlockedReason.includes('익절')
+                ? 'RiskPlan 필요'
+                : '백테스트 필요'
               : '자동매매 시작'}
           </button>
         )}
@@ -231,7 +288,7 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
         {(toggleMutation.isError || deleteMutation.isError) && (
           <p className="text-xs text-red-400">
             {toggleMutation.isError
-              ? resolveMutationErrorMessage(toggleMutation.error)
+              ? resolveStrategyMutationErrorMessage(toggleMutation.error)
               : '요청 실패. 다시 시도해 주세요.'}
           </p>
         )}
@@ -250,6 +307,8 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
             status: strategy.status,
             buyCondition: strategy.buyCondition ?? null,
             sellCondition: strategy.sellCondition ?? null,
+            stopLossPct: strategy.stopLossPct ?? null,
+            takeProfitPct: strategy.takeProfitPct ?? null,
             recentSignalCount: strategy.recentSignalCount ?? 0,
           }}
         />
@@ -296,19 +355,4 @@ function formatKst(value: string | null | undefined): string | null {
     minute: '2-digit',
     hour12: false,
   })
-}
-
-function resolveMutationErrorMessage(error: unknown): string {
-  const fallback = '상태 변경 실패. 다시 시도해 주세요.'
-  if (error && typeof error === 'object' && 'response' in error) {
-    const data = (error as { response?: { data?: unknown } }).response?.data
-    if (typeof data === 'string' && data.trim()) return data
-    if (data && typeof data === 'object') {
-      const record = data as Record<string, unknown>
-      const message = record.message ?? record.error ?? record.detail
-      if (message) return String(message)
-    }
-  }
-  if (error instanceof Error && error.message) return error.message
-  return fallback
 }

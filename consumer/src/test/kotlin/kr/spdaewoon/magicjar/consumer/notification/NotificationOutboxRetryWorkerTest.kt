@@ -40,6 +40,7 @@ class NotificationOutboxRetryWorkerTest {
     private fun pendingOutbox(
         id: Long,
         retryCount: Int = 0,
+        createdAt: Instant = Instant.now().minusSeconds(60),
     ): NotificationOutbox =
         NotificationOutbox(
             id = id,
@@ -49,7 +50,7 @@ class NotificationOutboxRetryWorkerTest {
             payloadJson = """{"eventId":"${UUID.randomUUID()}","eventType":"ORDER_FILLED","userId":"U1","reason":"체결","meta":{}}""",
             status = NotificationStatus.PENDING,
             retryCount = retryCount,
-            createdAt = Instant.now(),
+            createdAt = createdAt,
         )
 
     @Test
@@ -82,6 +83,18 @@ class NotificationOutboxRetryWorkerTest {
     @Test
     fun `(3) PENDING 0건 — 작업 skip findPending 이후 markSent 호출 없음`() {
         every { outboxRepository.findPending(any()) } returns emptyList()
+
+        val worker = newWorker()
+        worker.retryPending()
+
+        verify(exactly = 0) { slackSender.sendOutbox(any()) }
+        verify(exactly = 0) { outboxRepository.markSent(any()) }
+    }
+
+    @Test
+    fun `(4) 방금 생성된 PENDING row는 즉시 발송 경로와 중복되지 않도록 유예한다`() {
+        val outbox = pendingOutbox(id = 3L, createdAt = Instant.now())
+        every { outboxRepository.findPending(any()) } returns listOf(outbox)
 
         val worker = newWorker()
         worker.retryPending()

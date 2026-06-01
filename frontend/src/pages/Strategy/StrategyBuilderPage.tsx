@@ -9,7 +9,7 @@
  * 플로우:
  *   1. 팔레트에서 블록 선택 → 현재 탭(entry/exit) 트리에 추가
  *   2. "검증" → POST /api/strategy/validate → ComplexityCard 표시
- *   3. "저장" → StrategySaveModal → POST /api/strategy → strategyId 획득
+ *   3. "저장" → StrategySaveModal → POST /api/strategies → strategyId 획득
  *   4. "평가" → POST /api/strategy/{id}/evaluate → EvaluationResultCard 표시
  *   5. "관심종목 추가" → POST /api/watchlist
  *   6. "이 전략으로 종목 찾기" → ScreenerResultModal → T-SC Phase 3 (ADR 0071 §8 H-1)
@@ -18,7 +18,8 @@
  * DoD #26 반응형 — 768px 이하 안내 메시지 (mobile 후속 PR)
  * 룰 5: LLM provider import 0건
  */
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { usePaletteResize } from '../../hooks/usePaletteResize'
 import { BlockPalette } from '../../components/strategy/BlockPalette'
 import { StrategyBuilderCanvas } from '../../components/strategy/StrategyBuilderCanvas'
@@ -36,10 +37,13 @@ import {
 } from '../../lib/dsl/smartMoneyPresets'
 import { kisYamlExport, kisYamlImport } from '../../lib/dsl/yaml'
 import { useStrategyValidate, useStrategyEvaluate } from '../../api/hooks/useStrategy'
+import { useSigStrategy } from '../../api/hooks/useSigStrategy'
 import type { StrategyComplexityDto, EvaluateResponse } from '../../api/strategy'
-import { parseDslText } from '../../lib/dsl/parser'
+import { symbolApi, type CandleInterval } from '../../api/symbol'
+import { parseDslText, parseDslTextToTree } from '../../lib/dsl/parser'
 import { ScreenerResultModal } from '../../features/screener/components/ScreenerResultModal'
 import { useOnboardingStore } from '../../stores/onboarding'
+import { InstrumentSearchInput } from '../../components/InstrumentSearchInput'
 
 // 평가 폼 상태
 interface EvaluateForm {
@@ -64,11 +68,16 @@ const EVAL_INTERVAL_OPTIONS = [
 ]
 
 export function StrategyBuilderPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const routeStrategyId = searchParams.get('strategyId') ?? undefined
+  const loadedStrategyIdRef = useRef<string | null>(null)
   const [tree, setTree] = useState<BlockTree>({})
   const [strategyId, setStrategyId] = useState<string | undefined>()
   const [complexity, setComplexity] = useState<StrategyComplexityDto | null>(null)
   const [evalResult, setEvalResult] = useState<EvaluateResponse | null>(null)
   const [evalForm, setEvalForm] = useState<EvaluateForm>({ code: '005930', interval: '1d' })
+  const [evalPrepMessage, setEvalPrepMessage] = useState<string | null>(null)
+  const [isPreparingEvaluation, setIsPreparingEvaluation] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
 
@@ -85,16 +94,46 @@ export function StrategyBuilderPage() {
 
   // userId: onboarding store (feedback_no_mock_data 정합)
   const registeredUserId = useOnboardingStore((s) => s.registeredUserId)
+  const { data: loadedStrategy, isError: isLoadStrategyError, error: loadStrategyError } = useSigStrategy(routeStrategyId)
 
   const { mutate: validateMutate, isPending: isValidating } = useStrategyValidate()
-  const { mutate: evaluateMutate, isPending: isEvaluating } = useStrategyEvaluate()
+  const { mutateAsync: evaluateAsync, isPending: isEvaluating } = useStrategyEvaluate()
   const { width: paletteWidth, handleMouseDown: handlePaletteResizeDown, isDragging: isPaletteResizing } = usePaletteResize()
 
-  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
+  const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
     setToast(msg)
     setToastType(type)
     setTimeout(() => setToast(null), 3000)
-  }
+  }, [])
+
+  useEffect(() => {
+    if (!loadedStrategy || loadedStrategyIdRef.current === loadedStrategy.id) return
+    if (!loadedStrategy.buyCondition) {
+      showToast('불러온 전략에 매수 조건이 없습니다', 'error')
+      return
+    }
+    try {
+      setTree(parseDslTextToTree(loadedStrategy.buyCondition, loadedStrategy.sellCondition))
+      setStrategyId(loadedStrategy.id)
+      setComplexity(loadedStrategy.complexity ?? null)
+      setEvalResult(null)
+      setValidateError(null)
+      setEvalForm((prev) => ({
+        code: loadedStrategy.codes[0] ?? prev.code,
+        interval: loadedStrategy.intervals[0] ?? loadedStrategy.tf ?? prev.interval,
+      }))
+      loadedStrategyIdRef.current = loadedStrategy.id
+      showToast(`${loadedStrategy.nameKo || loadedStrategy.name} 불러옴`)
+    } catch (err) {
+      showToast(`전략 DSL 불러오기 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`, 'error')
+    }
+  }, [loadedStrategy, showToast])
+
+  useEffect(() => {
+    if (isLoadStrategyError && loadStrategyError) {
+      showToast(`전략 조회 실패: ${loadStrategyError.message}`, 'error')
+    }
+  }, [isLoadStrategyError, loadStrategyError, showToast])
 
   // 팔레트에서 블록 선택 → 캔버스 현재 탭 루트에 추가
   // hotfix 2026-05-14: canvasTab 인식 — 매수/매도 탭에 따라 분기 (이전 결함: 항상 entry 에만 추가)
@@ -145,25 +184,50 @@ export function StrategyBuilderPage() {
   // 저장 완료
   const handleSaved = (id: string) => {
     setStrategyId(id)
+    setSearchParams({ strategyId: id })
     showToast('전략이 저장되었습니다')
   }
 
   // 평가
-  const handleEvaluate = () => {
+  const ensureEvaluationCandles = async (code: string, interval: string) => {
+    const candleInterval = interval as CandleInterval
+    setEvalPrepMessage('캔들 데이터 확인 중...')
+    const current = await symbolApi.getCandles(code, candleInterval, undefined, 1)
+    if (current.candles.length > 0) return
+
+    setEvalPrepMessage('캔들 데이터가 없어 KIS에서 갱신 중...')
+    await symbolApi.refreshCandles(code, [interval])
+
+    setEvalPrepMessage('갱신된 캔들 확인 중...')
+    const refreshed = await symbolApi.getCandles(code, candleInterval, undefined, 1)
+    if (refreshed.candles.length === 0) {
+      throw new Error('캔들 갱신 후에도 평가 가능한 차트 데이터가 없습니다. 잠시 후 다시 실행하거나 종목 상세에서 재수집을 실행해 주세요.')
+    }
+  }
+
+  const handleEvaluate = async () => {
     if (!strategyId) return
-    evaluateMutate(
-      { strategyId, req: evalForm },
-      {
-        onSuccess: (result) => {
-          setEvalResult(result)
-          showToast(`평가 완료 — 신호: ${result.signal}`)
-        },
-        onError: (err) => {
-          setEvalResult(null)
-          showToast(`평가 실패: ${err.message}`, 'error')
-        },
-      },
-    )
+    const code = evalForm.code.trim()
+    if (!/^\d{6}$/.test(code)) {
+      showToast('평가 종목은 6자리 종목코드로 선택해 주세요', 'error')
+      return
+    }
+    setIsPreparingEvaluation(true)
+    setEvalResult(null)
+    try {
+      await ensureEvaluationCandles(code, evalForm.interval)
+      setEvalPrepMessage('전략 평가 중...')
+      const result = await evaluateAsync({ strategyId, req: { code, interval: evalForm.interval } })
+      setEvalResult(result)
+      showToast(`평가 완료 — 신호: ${result.signal}`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '알 수 없는 오류'
+      setEvalResult(null)
+      showToast(`평가 실패: ${msg}`, 'error')
+    } finally {
+      setEvalPrepMessage(null)
+      setIsPreparingEvaluation(false)
+    }
   }
 
   // 자연어 변환 결과 적용
@@ -300,12 +364,11 @@ export function StrategyBuilderPage() {
             <div className="rounded-xl border border-gray-800 bg-gray-900 p-3">
               <div className="mb-2 text-xs text-gray-500">평가 설정</div>
               <div className="space-y-2">
-                <input
-                  type="text"
+                <InstrumentSearchInput
                   value={evalForm.code}
-                  onChange={(e) => setEvalForm((f) => ({ ...f, code: e.target.value }))}
-                  placeholder="종목코드 (예: 005930)"
-                  className="w-full rounded border border-gray-700 bg-gray-950 px-2 py-1 text-sm text-white placeholder-gray-600 focus:outline-none"
+                  onRawChange={(value) => setEvalForm((f) => ({ ...f, code: value.trim() }))}
+                  onSelect={(result) => setEvalForm((f) => ({ ...f, code: result.code }))}
+                  placeholder="종목명 또는 코드 검색"
                 />
                 <select
                   value={evalForm.interval}
@@ -319,10 +382,15 @@ export function StrategyBuilderPage() {
                 <button
                   className="w-full rounded bg-emerald-600 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
                   onClick={handleEvaluate}
-                  disabled={isEvaluating || !evalForm.code}
+                  disabled={isEvaluating || isPreparingEvaluation || !evalForm.code}
                 >
-                  {isEvaluating ? '평가 중...' : '평가 실행'}
+                  {isEvaluating || isPreparingEvaluation ? '평가 중...' : '평가 실행'}
                 </button>
+                {evalPrepMessage && (
+                  <p className="text-xs text-emerald-300" role="status">
+                    {evalPrepMessage}
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -343,7 +411,7 @@ export function StrategyBuilderPage() {
               result={evalResult}
               code={evalForm.code}
             />
-          ) : strategyId && !isEvaluating ? (
+          ) : strategyId && !isEvaluating && !isPreparingEvaluation ? (
             <EvaluationEmptyCard />
           ) : null}
 
@@ -378,8 +446,17 @@ export function StrategyBuilderPage() {
       {/* 저장 모달 */}
       {showSaveModal && (
         <StrategySaveModal
+          strategyId={strategyId}
+          userId={registeredUserId}
           entry={entryDsl}
           exit={exitDsl}
+          initialName={loadedStrategy?.name}
+          initialNameKo={loadedStrategy?.nameKo}
+          initialUniverse={loadedStrategy?.universe}
+          initialTf={loadedStrategy?.intervals[0] ?? loadedStrategy?.tf}
+          initialCode={loadedStrategy?.codes[0] ?? evalForm.code}
+          initialStopLossPct={loadedStrategy?.stopLossPct}
+          initialTakeProfitPct={loadedStrategy?.takeProfitPct}
           onSaved={handleSaved}
           onClose={() => setShowSaveModal(false)}
         />

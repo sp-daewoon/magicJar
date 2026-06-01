@@ -42,7 +42,14 @@ object NotificationFormatter {
         }.trimEnd()
     }
 
-    private fun maskUserId(userId: String): String = if (userId.length > 4) userId.take(4) + "****" else "****"
+    private fun maskUserId(userId: String): String =
+        if (userId == "broadcast") {
+            "시스템"
+        } else if (userId.length > 4) {
+            userId.take(4) + "****"
+        } else {
+            "****"
+        }
 
     private fun eventLabel(eventType: NotificationEventType): Pair<String, String> =
         when (eventType) {
@@ -82,17 +89,39 @@ object NotificationFormatter {
         val message = meta["alertMessage"]?.takeIf { it.isNotBlank() }
         val formula = meta["alertFormula"]?.takeIf { it.isNotBlank() }
         val setting = meta["alertSetting"]?.takeIf { it.isNotBlank() }
+        val instrumentLabel = instrumentLabel(meta)
 
         if (title == null && message == null && formula == null && setting == null) {
             appendLine("내용: $reason")
             return
         }
 
+        instrumentLabel?.let { appendLine("종목: $it") }
         appendLine("내용: ${title ?: "리스크 차단"}")
-        appendLine("설명: ${message ?: reason}")
-        formula?.lineSequence()?.forEachIndexed { index, line ->
+        appendLine("설명: ${withInstrumentLabel(message ?: reason, meta)}")
+        withInstrumentLabel(formula, meta)?.lineSequence()?.forEachIndexed { index, line ->
             appendLine(if (index == 0) "수식: $line" else "      $line")
         }
         setting?.let { appendLine("설정: $it") }
+    }
+
+    private fun instrumentLabel(meta: Map<String, String?>): String? {
+        val code = meta["code"]?.takeIf { it.isNotBlank() }
+        val name = meta["instrumentName"]?.takeIf { it.isNotBlank() && it != code }
+        return when {
+            name != null && code != null -> "$name($code)"
+            code != null -> code
+            name != null -> name
+            else -> null
+        }
+    }
+
+    private fun withInstrumentLabel(
+        value: String?,
+        meta: Map<String, String?>,
+    ): String? {
+        val code = meta["code"]?.takeIf { it.isNotBlank() } ?: return value
+        val label = instrumentLabel(meta) ?: return value
+        return value?.replace("종목 $code", "종목 $label")
     }
 }

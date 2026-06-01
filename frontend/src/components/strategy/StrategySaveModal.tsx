@@ -9,18 +9,30 @@
  *
  * 저장 후:
  *   onSaved(strategyId) 콜백 호출
- *   invalidateQueries(['strategy','list']) — useCreateStrategy 내부
+ *   invalidateQueries(['sig-strategies','list']) — useCreateSigStrategy/useUpdateSigStrategy 내부
  *
  * 룰 5: LLM provider import 0건
  */
 import { useState, useEffect, FormEvent } from 'react'
-import { useCreateStrategy } from '../../api/hooks/useStrategy'
+import { useCreateSigStrategy, useUpdateSigStrategy } from '../../api/hooks/useSigStrategy'
+import { InstrumentSearchInput } from '../InstrumentSearchInput'
 
 interface StrategySaveModalProps {
+  /** 기존 전략 ID — 있으면 수정, 없으면 신규 생성 */
+  strategyId?: string
+  /** 소유자 사용자 ID */
+  userId: number | null
   /** 매수 조건 DSL 텍스트 */
   entry: string
   /** 매도 조건 DSL 텍스트 (optional) */
   exit?: string
+  initialName?: string
+  initialNameKo?: string
+  initialUniverse?: string
+  initialTf?: string
+  initialCode?: string
+  initialStopLossPct?: number | string | null
+  initialTakeProfitPct?: number | string | null
   /** 저장 완료 콜백 — strategyId 반환 */
   onSaved: (strategyId: string) => void
   /** 모달 닫기 */
@@ -50,25 +62,69 @@ const TF_OPTIONS = [
   { value: '1y', label: '년봉' },
 ]
 
-export function StrategySaveModal({ entry, exit, onSaved, onClose }: StrategySaveModalProps) {
-  const [name, setName] = useState('')
-  const [nameKo, setNameKo] = useState('')
-  const [universe, setUniverse] = useState('KOSPI')
-  const [tf, setTf] = useState('1d')
+export function StrategySaveModal({
+  strategyId,
+  userId,
+  entry,
+  exit,
+  initialName,
+  initialNameKo,
+  initialUniverse,
+  initialTf,
+  initialCode,
+  initialStopLossPct,
+  initialTakeProfitPct,
+  onSaved,
+  onClose,
+}: StrategySaveModalProps) {
+  const [name, setName] = useState(initialName ?? '')
+  const [nameKo, setNameKo] = useState(initialNameKo ?? '')
+  const [universe, setUniverse] = useState(initialUniverse ?? 'KOSPI')
+  const [tf, setTf] = useState(initialTf ?? '1d')
+  const [targetCode, setTargetCode] = useState(initialCode ?? '')
+  const [stopLossPct, setStopLossPct] = useState(initialStopLossPct?.toString() ?? '5')
+  const [takeProfitPct, setTakeProfitPct] = useState(initialTakeProfitPct?.toString() ?? '10')
   const [formError, setFormError] = useState<string | null>(null)
 
-  const { mutate: createStrategy, isPending, isError, error } = useCreateStrategy()
+  const createMutation = useCreateSigStrategy()
+  const updateMutation = useUpdateSigStrategy()
+  const isPending = createMutation.isPending || updateMutation.isPending
+  const mutationError = createMutation.error ?? updateMutation.error
+  const isError = createMutation.isError || updateMutation.isError
 
   useEffect(() => {
-    if (isError && error) {
-      setFormError(`저장 실패: ${error.message}`)
+    if (isError && mutationError) {
+      setFormError(`저장 실패: ${mutationError.message}`)
     }
-  }, [isError, error])
+  }, [isError, mutationError])
+
+  useEffect(() => {
+    setName(initialName ?? '')
+    setNameKo(initialNameKo ?? '')
+    setUniverse(initialUniverse ?? 'KOSPI')
+    setTf(initialTf ?? '1d')
+    setTargetCode(initialCode ?? '')
+    setStopLossPct(initialStopLossPct?.toString() ?? '5')
+    setTakeProfitPct(initialTakeProfitPct?.toString() ?? '10')
+  }, [
+    strategyId,
+    initialName,
+    initialNameKo,
+    initialUniverse,
+    initialTf,
+    initialCode,
+    initialStopLossPct,
+    initialTakeProfitPct,
+  ])
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
     setFormError(null)
 
+    if (userId === null) {
+      setFormError('계좌 등록 후 전략을 저장할 수 있습니다')
+      return
+    }
     if (!name.trim()) {
       setFormError('전략 식별자(영문)를 입력하세요')
       return
@@ -81,26 +137,64 @@ export function StrategySaveModal({ entry, exit, onSaved, onClose }: StrategySav
       setFormError('매수 조건(Entry)이 없습니다')
       return
     }
+    const normalizedCode = targetCode.trim()
+    if (!normalizedCode) {
+      setFormError('자동매매 대상 종목을 선택하세요')
+      return
+    }
+    if (!/^\d{6}$/.test(normalizedCode)) {
+      setFormError('자동매매 대상 종목은 6자리 종목코드로 저장됩니다')
+      return
+    }
+    const parsedStopLossPct = Number(stopLossPct.trim())
+    if (!Number.isFinite(parsedStopLossPct) || parsedStopLossPct <= 0) {
+      setFormError('손절 기준은 0보다 큰 숫자로 입력하세요')
+      return
+    }
+    const parsedTakeProfitPct = Number(takeProfitPct.trim())
+    if (!Number.isFinite(parsedTakeProfitPct) || parsedTakeProfitPct <= 0) {
+      setFormError('익절 기준은 0보다 큰 숫자로 입력하세요')
+      return
+    }
+    if (parsedTakeProfitPct <= parsedStopLossPct) {
+      setFormError('익절 기준은 손절 기준보다 커야 합니다')
+      return
+    }
 
-    createStrategy(
-      {
-        name: name.trim(),
-        nameKo: nameKo.trim() || undefined,
-        entry: entry.trim(),
-        exit: exit?.trim() || undefined,
-        universe,
-        tf,
+    const payload = {
+      userId,
+      name: name.trim(),
+      nameKo: nameKo.trim() || undefined,
+      entry: entry.trim(),
+      exit: exit?.trim() || undefined,
+      universe,
+      tf,
+      stopLossPct: parsedStopLossPct,
+      takeProfitPct: parsedTakeProfitPct,
+      codes: [normalizedCode],
+      intervals: [tf],
+    }
+    const callbacks = {
+      onSuccess: (resp: { id: string }) => {
+        onSaved(resp.id)
+        onClose()
       },
-      {
-        onSuccess: (resp) => {
-          onSaved(resp.strategyId)
-          onClose()
-        },
-        onError: (err) => {
-          setFormError(`저장 실패: ${err.message}`)
-        },
+      onError: (err: Error) => {
+        setFormError(`저장 실패: ${err.message}`)
       },
-    )
+    }
+
+    if (strategyId) {
+      updateMutation.mutate(
+        {
+          id: strategyId,
+          req: payload,
+        },
+        callbacks,
+      )
+    } else {
+      createMutation.mutate(payload, callbacks)
+    }
   }
 
   return (
@@ -113,10 +207,10 @@ export function StrategySaveModal({ entry, exit, onSaved, onClose }: StrategySav
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className="w-full max-w-md rounded-xl border border-gray-700 bg-gray-900 p-6 shadow-2xl">
+      <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-xl border border-gray-700 bg-gray-900 p-6 shadow-2xl">
         {/* 헤더 */}
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-white">전략 저장</h2>
+          <h2 className="text-lg font-semibold text-white">{strategyId ? '전략 수정' : '전략 저장'}</h2>
           <button
             className="rounded p-1 text-gray-500 hover:text-gray-300 focus:outline-none"
             onClick={onClose}
@@ -171,7 +265,7 @@ export function StrategySaveModal({ entry, exit, onSaved, onClose }: StrategySav
           </div>
 
           {/* universe + tf */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-400">유니버스</label>
               <select
@@ -202,6 +296,62 @@ export function StrategySaveModal({ entry, exit, onSaved, onClose }: StrategySav
             </div>
           </div>
 
+          {/* target code */}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-400">
+              자동매매 대상 종목 <span className="text-red-400">*</span>
+            </label>
+            <span className="mb-1 block text-xs text-gray-600">
+              전략 목록과 자동매매는 이 종목 매핑을 기준으로 평가됩니다.
+            </span>
+            <InstrumentSearchInput
+              value={targetCode}
+              onRawChange={(value) => setTargetCode(value.trim())}
+              onSelect={(result) => setTargetCode(result.code)}
+              placeholder="종목명 또는 코드 검색"
+            />
+          </div>
+
+          {/* mandatory risk plan */}
+          <div className="rounded-lg border border-amber-900/60 bg-amber-950/20 p-3">
+            <div className="mb-2 text-xs font-semibold text-amber-200">자동매매 RiskPlan</div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-400">
+                  손절 기준 <span className="text-red-400">*</span>
+                  <span className="ml-1 font-normal text-gray-600">(%)</span>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={stopLossPct}
+                  onChange={(e) => setStopLossPct(e.target.value)}
+                  placeholder="예: 5"
+                  className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-400">
+                  익절 기준 <span className="text-red-400">*</span>
+                  <span className="ml-1 font-normal text-gray-600">(%)</span>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={takeProfitPct}
+                  onChange={(e) => setTakeProfitPct(e.target.value)}
+                  placeholder="예: 10"
+                  className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-amber-100/70">
+              자동매매는 손절과 익절이 모두 있어야 시작됩니다. 차트 범위 손절은 후속 단계에서 이 기본 손절을 대체합니다.
+            </p>
+          </div>
+
           {/* 에러 */}
           {formError && (
             <div className="rounded bg-red-900/20 px-3 py-2 text-sm text-red-400" role="alert">
@@ -223,7 +373,7 @@ export function StrategySaveModal({ entry, exit, onSaved, onClose }: StrategySav
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-400"
               disabled={isPending}
             >
-              {isPending ? '저장 중...' : '저장'}
+              {isPending ? '저장 중...' : strategyId ? '수정' : '저장'}
             </button>
           </div>
         </form>
