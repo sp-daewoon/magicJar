@@ -52,13 +52,17 @@ import {
   type CandlestickData,
   type HistogramData,
   type IChartApi,
+  type IPriceLine,
   type ISeriesApi,
+  type LineData,
+  LineStyle,
   type SeriesType,
   type UTCTimestamp,
   type MouseEventParams,
 } from 'lightweight-charts'
 import { useEffect, useRef, useState, useCallback } from 'react'
 import type { CandleDto, CandleInterval } from '../../api/symbol'
+import type { RiskPlanLevels } from '../../components/strategy/riskPlanDisplay'
 
 /** STOMP tick에서 추출한 실시간 가격·시각 */
 export interface LiveTick {
@@ -83,6 +87,7 @@ interface LightweightChartProps {
    * SymbolDetailPage가 /topic/market.tick.{code} 구독 후 price·ts 전달
    */
   liveTick?: LiveTick | null
+  riskPlanLevels?: RiskPlanLevels | null
   onScrollLeft?: () => void
   /**
    * 가드 3 cap — candles.length >= maxCandles 이면 onScrollLeft 호출 차단 (ADR 0093 §3-2).
@@ -373,6 +378,7 @@ export function LightweightChart({
   interval,
   realtimeCandle,
   liveTick,
+  riskPlanLevels,
   onScrollLeft,
   maxCandles,
   onMaxCapReached,
@@ -387,6 +393,8 @@ export function LightweightChart({
   const chartRef = useRef<IChartApi | null>(null)
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const volumeSeriesRef = useRef<ISeriesApi<SeriesType> | null>(null)
+  const riskPlanPriceLinesRef = useRef<IPriceLine[]>([])
+  const riskPlanLineSeriesRef = useRef<ISeriesApi<'Line'>[]>([])
   const onScrollLeftRef = useRef(onScrollLeft)
   onScrollLeftRef.current = onScrollLeft
   const onChartReadyRef = useRef(onChartReady)
@@ -477,6 +485,39 @@ export function LightweightChart({
 
   // dispose 플래그 — cleanup 후 async callback에서 stale 참조 방지
   const isDisposedRef = useRef(false)
+
+  const clearRiskPlanPriceLines = useCallback(() => {
+    const series = candleSeriesRef.current
+    const lines = riskPlanPriceLinesRef.current
+    riskPlanPriceLinesRef.current = []
+    if (!series || lines.length === 0) return
+    lines.forEach((line) => {
+      try {
+        series.removePriceLine(line)
+      } catch {
+        // disposed series — graceful cleanup
+      }
+    })
+  }, [])
+
+  const clearRiskPlanLineSeries = useCallback(() => {
+    const chart = chartRef.current
+    const seriesList = riskPlanLineSeriesRef.current
+    riskPlanLineSeriesRef.current = []
+    if (!chart || seriesList.length === 0) return
+    seriesList.forEach((series) => {
+      try {
+        chart.removeSeries(series)
+      } catch {
+        // disposed chart — graceful cleanup
+      }
+    })
+  }, [])
+
+  const clearRiskPlanOverlay = useCallback(() => {
+    clearRiskPlanPriceLines()
+    clearRiskPlanLineSeries()
+  }, [clearRiskPlanLineSeries, clearRiskPlanPriceLines])
 
   // 차트 생성 (마운트 1회)
   useEffect(() => {
@@ -713,6 +754,7 @@ export function LightweightChart({
       resizeObserver.disconnect()
       // series ref를 먼저 null 처리 — IndicatorOverlay cleanup이 removeSeries 호출 전에
       // chartRef.current가 유효하더라도 이미 dispose 예정임을 알 수 있도록 순서 보장
+      clearRiskPlanOverlay()
       candleSeriesRef.current = null
       volumeSeriesRef.current = null
       // 콜백 알림 (IndicatorOverlay·PatternMarker가 ref 정리 가능하도록)
@@ -731,7 +773,87 @@ export function LightweightChart({
       }
       chartRef.current = null
     }
-  }, [hideTooltip])
+  }, [clearRiskPlanOverlay, hideTooltip])
+
+  useEffect(() => {
+    const series = candleSeriesRef.current
+    const chart = chartRef.current
+    if (!series || !chart) return
+
+    clearRiskPlanOverlay()
+    if (!riskPlanLevels) return
+
+    const firstCandle = candles[0]
+    const lastCandle = candles[candles.length - 1]
+    const makeLineData = (price: number): LineData[] => {
+      if (!firstCandle) return []
+      const firstTime = toUTCTimestamp(firstCandle.ts)
+      const lastTime = lastCandle ? toUTCTimestamp(lastCandle.ts) : firstTime
+      if (firstTime === lastTime) {
+        return [{ time: firstTime, value: price }]
+      }
+      return [
+        { time: firstTime, value: price },
+        { time: lastTime, value: price },
+      ]
+    }
+
+    const riskLines = [
+      { price: riskPlanLevels.stopPrice, color: '#ef4444', width: 2 },
+      { price: riskPlanLevels.entryPrice, color: '#f59e0b', width: 1 },
+      { price: riskPlanLevels.takePrice, color: '#22c55e', width: 2 },
+    ] as const
+    riskPlanLineSeriesRef.current = riskLines
+      .map((line) => {
+        const lineSeries = chart.addLineSeries({
+          color: line.color,
+          lineWidth: line.width,
+          lineStyle: LineStyle.Dashed,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          priceFormat: KRW_PRICE_FORMAT,
+        })
+        lineSeries.setData(makeLineData(line.price))
+        return lineSeries
+      })
+
+    riskPlanPriceLinesRef.current = [
+      series.createPriceLine({
+        price: riskPlanLevels.stopPrice,
+        color: '#ef4444',
+        lineWidth: 2,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: `손절 -${riskPlanLevels.stopLossPct.toLocaleString('ko-KR')}%`,
+      }),
+      series.createPriceLine({
+        price: riskPlanLevels.entryPrice,
+        color: '#f59e0b',
+        lineWidth: 1,
+        lineStyle: LineStyle.Solid,
+        axisLabelVisible: true,
+        title: '진입 기준',
+      }),
+      series.createPriceLine({
+        price: riskPlanLevels.takePrice,
+        color: '#22c55e',
+        lineWidth: 2,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: `익절 +${riskPlanLevels.takeProfitPct.toLocaleString('ko-KR')}%`,
+      }),
+    ]
+
+    return clearRiskPlanOverlay
+  }, [
+    candles,
+    clearRiskPlanOverlay,
+    riskPlanLevels?.entryPrice,
+    riskPlanLevels?.stopPrice,
+    riskPlanLevels?.takePrice,
+    riskPlanLevels?.stopLossPct,
+    riskPlanLevels?.takeProfitPct,
+  ])
 
   // interval 변경 시 timeScale 옵션 재적용 (tickMarkFormatter 갱신)
   useEffect(() => {

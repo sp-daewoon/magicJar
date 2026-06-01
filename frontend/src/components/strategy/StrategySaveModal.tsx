@@ -16,6 +16,7 @@
 import { useState, useEffect, FormEvent } from 'react'
 import { useCreateSigStrategy, useUpdateSigStrategy } from '../../api/hooks/useSigStrategy'
 import { InstrumentSearchInput } from '../InstrumentSearchInput'
+import { RiskPlanPreviewPanel } from './RiskPlanPreviewPanel'
 
 interface StrategySaveModalProps {
   /** 기존 전략 ID — 있으면 수정, 없으면 신규 생성 */
@@ -84,6 +85,7 @@ export function StrategySaveModal({
   const [targetCode, setTargetCode] = useState(initialCode ?? '')
   const [stopLossPct, setStopLossPct] = useState(initialStopLossPct?.toString() ?? '5')
   const [takeProfitPct, setTakeProfitPct] = useState(initialTakeProfitPct?.toString() ?? '10')
+  const [previewEntryPrice, setPreviewEntryPrice] = useState('100000')
   const [formError, setFormError] = useState<string | null>(null)
 
   const createMutation = useCreateSigStrategy()
@@ -347,8 +349,30 @@ export function StrategySaveModal({
                 />
               </div>
             </div>
+            <div className="mt-3">
+              <label className="mb-1 block text-xs font-medium text-gray-400">
+                미리보기 기준가
+                <span className="ml-1 font-normal text-gray-600">(저장 안 됨)</span>
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={previewEntryPrice}
+                onChange={(e) => setPreviewEntryPrice(e.target.value)}
+                placeholder="예: 100000"
+                className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <RiskPlanPreviewPanel
+              className="mt-3"
+              title="저장 전 손절·익절 미리보기"
+              stopLossPct={stopLossPct}
+              takeProfitPct={takeProfitPct}
+              entryPrice={previewEntryPrice}
+            />
             <p className="mt-2 text-xs leading-5 text-amber-100/70">
-              자동매매는 손절과 익절이 모두 있어야 시작됩니다. 차트 범위 손절은 후속 단계에서 이 기본 손절을 대체합니다.
+              자동매매는 이 기준이 모두 있어야 시작됩니다. 실제 주문 감시는 BUY 체결가 기준으로 계산됩니다.
             </p>
           </div>
 
