@@ -13,8 +13,8 @@ interface ConsumerStrategyJpaRepository : JpaRepository<ConsumerStrategyJpaEntit
         value =
             "SELECT * FROM strategy " +
                 "WHERE status = 'ACTIVE' " +
-                "AND (codes IS NULL OR codes @> CAST(:codeJson AS jsonb)) " +
-                "AND (intervals IS NULL OR intervals @> CAST(:intervalJson AS jsonb))",
+                "AND codes @> CAST(:codeJson AS jsonb) " +
+                "AND intervals @> CAST(:intervalJson AS jsonb)",
         nativeQuery = true,
     )
     fun findActiveByCodeAndInterval(

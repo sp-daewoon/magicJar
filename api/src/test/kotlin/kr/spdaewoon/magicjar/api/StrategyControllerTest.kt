@@ -168,6 +168,7 @@ class StrategyControllerTest {
                 codes = any(),
                 intervals = any(),
                 takeProfitPct = anyOrNull(),
+                requireCodes = any(),
             ),
         ).thenReturn(makeStrategy(1L))
 

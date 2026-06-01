@@ -90,6 +90,7 @@ class StrategiesController(
                 codes = req.codes,
                 intervals = req.intervals,
                 takeProfitPct = req.takeProfitPct,
+                requireCodes = true,
             )
         return toDetailResponse(strategy)
     }
@@ -194,6 +195,7 @@ class StrategiesController(
                 codes = req.codes,
                 intervals = req.intervals,
                 takeProfitPct = req.takeProfitPct,
+                requireCodes = true,
             )
         log.info("전략 수정: id={}", id)
         return toDetailResponse(strategy)

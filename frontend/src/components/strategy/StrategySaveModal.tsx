@@ -116,7 +116,11 @@ export function StrategySaveModal({
       return
     }
     const normalizedCode = targetCode.trim()
-    if (normalizedCode && !/^\d{6}$/.test(normalizedCode)) {
+    if (!normalizedCode) {
+      setFormError('자동매매 대상 종목을 선택하세요')
+      return
+    }
+    if (!/^\d{6}$/.test(normalizedCode)) {
       setFormError('자동매매 대상 종목은 6자리 종목코드로 저장됩니다')
       return
     }
@@ -136,7 +140,7 @@ export function StrategySaveModal({
       universe,
       tf,
       takeProfitPct: parsedTakeProfitPct,
-      codes: normalizedCode ? [normalizedCode] : [],
+      codes: [normalizedCode],
       intervals: [tf],
     }
     const callbacks = {
@@ -263,7 +267,12 @@ export function StrategySaveModal({
 
           {/* target code */}
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-400">자동매매 대상 종목</label>
+            <label className="mb-1 block text-xs font-medium text-gray-400">
+              자동매매 대상 종목 <span className="text-red-400">*</span>
+            </label>
+            <span className="mb-1 block text-xs text-gray-600">
+              전략 목록과 자동매매는 이 종목 매핑을 기준으로 평가됩니다.
+            </span>
             <InstrumentSearchInput
               value={targetCode}
               onRawChange={(value) => setTargetCode(value.trim())}

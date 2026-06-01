@@ -9,7 +9,7 @@
  * - T-SC Phase 3: "이 전략으로 종목 찾기" 버튼 — strategyId 없을 때 미표시
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, expect, it, beforeAll, afterAll, afterEach } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { http, HttpResponse } from 'msw'
@@ -56,6 +56,19 @@ function Wrapper({ children }: { children: React.ReactNode }) {
   )
 }
 
+function renderWithRoute(initialEntry: string) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <StrategyBuilderPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
+
 describe('StrategyBuilderPage', () => {
   it('데스크톱 레이아웃 — 팔레트 + 캔버스 렌더', () => {
     render(<StrategyBuilderPage />, { wrapper: Wrapper })
@@ -93,5 +106,61 @@ describe('StrategyBuilderPage', () => {
     render(<StrategyBuilderPage />, { wrapper: Wrapper })
     // strategyId가 없으면 버튼이 렌더되지 않아야 함 (ADR 0071 §8 H-1)
     expect(screen.queryByText('이 전략으로 종목 찾기')).not.toBeInTheDocument()
+  })
+
+  it('평가 실행 전 캔들이 없으면 refresh 후 평가한다', async () => {
+    let candleReads = 0
+    let refreshCalls = 0
+    let evaluateCalls = 0
+
+    server.use(
+      http.get('/api/strategies/:id', () =>
+        HttpResponse.json({
+          id: 42,
+          userId: 1,
+          name: 'candle_refresh_test',
+          nameKo: '캔들 갱신 테스트',
+          entry: 'close > ma(20)',
+          exit: null,
+          codes: ['005930'],
+          intervals: ['1d'],
+          status: 'PAUSED',
+          createdAt: '2026-06-01T00:00:00+09:00',
+        }),
+      ),
+      http.get('/api/symbols/:code/candles', () => {
+        candleReads += 1
+        return HttpResponse.json({
+          candles:
+            candleReads === 1
+              ? []
+              : [{ code: '005930', interval: '1d', ts: '2026-06-01T00:00:00+09:00', close: 293000 }],
+        })
+      }),
+      http.post('/api/symbols/:code/candles/refresh', ({ request }) => {
+        refreshCalls += 1
+        expect(new URL(request.url).searchParams.get('intervals')).toBe('1d')
+        return HttpResponse.json({ code: '005930', results: [] })
+      }),
+      http.post('/api/strategy/:id/evaluate', () => {
+        evaluateCalls += 1
+        return HttpResponse.json({
+          strategyId: 42,
+          signal: 'HOLD',
+          strength: 0,
+          reason: {},
+          evalTimeMs: 1,
+        })
+      }),
+    )
+
+    renderWithRoute('/strategy/builder?strategyId=42')
+
+    fireEvent.click(await screen.findByRole('button', { name: '평가 실행' }))
+
+    await waitFor(() => {
+      expect(refreshCalls).toBe(1)
+      expect(evaluateCalls).toBe(1)
+    })
   })
 })

@@ -2,7 +2,7 @@
  * BacktestForm — 백테스트 실행 폼 (T-BT R3)
  *
  * 입력 항목:
- *   - 전략 선택 (GET /api/strategy → strategyId)
+ *   - 전략 선택 (GET /api/strategies → strategyId)
  *   - 종목코드 (복수 쉼표 구분)
  *   - 인터벌 (1d · 12h · 4h · 1h · 90m · 30m · 15m · 5m · 3m · 1m)
  *   - 기간 (from · to, yyyy-MM-dd)
@@ -15,7 +15,7 @@
  */
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { strategyApi } from '../../api/strategy'
+import { sigStrategyApi, type SigStrategyDto } from '../../api/strategy'
 import { backtestApi } from '../../api/backtest'
 import type { BacktestRunPersistResponse } from '../../api/backtest'
 
@@ -70,11 +70,13 @@ export function BacktestForm({ userId, onSuccess }: BacktestFormProps) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   // 전략 목록 조회
-  const { data: strategies, isLoading: isStrategiesLoading } = useQuery({
-    queryKey: ['strategies'],
-    queryFn: () => strategyApi.list(),
+  const { data: strategyPage, isLoading: isStrategiesLoading } = useQuery({
+    queryKey: ['sig-strategies', 'backtest-select', userId],
+    queryFn: () => sigStrategyApi.list(userId, 0, 100),
     staleTime: 30_000,
   })
+  const strategies: SigStrategyDto[] =
+    strategyPage?.content.filter((strategy) => strategy.status !== 'DELETED') ?? []
 
   const { mutate: runBacktest, isPending: isRunning } = useMutation({
     mutationFn: () => {
@@ -136,13 +138,13 @@ export function BacktestForm({ userId, onSuccess }: BacktestFormProps) {
           >
             <option value="">-- 전략을 선택하세요 --</option>
             {isStrategiesLoading && <option disabled>불러오는 중...</option>}
-            {strategies?.map((s) => (
+            {strategies.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.nameKo ?? s.name} ({s.tf ?? '1d'})
+                {s.nameKo ?? s.name} ({s.intervals[0] ?? s.tf ?? '1d'})
               </option>
             ))}
           </select>
-          {!isStrategiesLoading && strategies?.length === 0 && (
+          {!isStrategiesLoading && strategies.length === 0 && (
             <p className="text-xs text-amber-500">
               저장된 전략이 없습니다. 전략 빌더에서 먼저 전략을 저장해주세요.
             </p>

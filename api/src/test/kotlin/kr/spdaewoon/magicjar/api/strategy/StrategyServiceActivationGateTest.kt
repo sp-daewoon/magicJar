@@ -39,6 +39,7 @@ class StrategyServiceActivationGateTest {
     @Test
     fun `PAUSED to ACTIVE는 성공한 백테스트 없으면 차단한다`() {
         every { strategyJpaRepository.findByIdAndStatusNot(1L, StrategyStatus.DELETED.name) } returns entity(status = "PAUSED")
+        every { strategyRepositoryPort.findById(1L) } returns strategy(status = StrategyStatus.PAUSED)
         every { backtestRunJpaRepository.existsAutoActivationReadyRun(1L, "1234") } returns false
 
         assertThatThrownBy { service.toggleStatus(1L, StrategyStatus.ACTIVE) }
@@ -46,6 +47,19 @@ class StrategyServiceActivationGateTest {
             .hasMessageContaining("성공한 백테스트")
 
         verify(exactly = 0) { strategyJpaRepository.updateStatus(1L, StrategyStatus.ACTIVE.name) }
+        verify(exactly = 0) { strategyRepositoryPort.enable(1L) }
+    }
+
+    @Test
+    fun `대상 종목 없는 전략은 ACTIVE 전환을 차단한다`() {
+        every { strategyJpaRepository.findByIdAndStatusNot(1L, StrategyStatus.DELETED.name) } returns entity(status = "PAUSED")
+        every { strategyRepositoryPort.findById(1L) } returns strategy(status = StrategyStatus.PAUSED, codes = emptyList())
+
+        assertThatThrownBy { service.toggleStatus(1L, StrategyStatus.ACTIVE) }
+            .isInstanceOf(ResponseStatusException::class.java)
+            .hasMessageContaining("자동매매 대상 종목")
+
+        verify(exactly = 0) { backtestRunJpaRepository.existsAutoActivationReadyRun(1L, "1234") }
         verify(exactly = 0) { strategyRepositoryPort.enable(1L) }
     }
 
@@ -78,24 +92,28 @@ class StrategyServiceActivationGateTest {
             status = status,
         )
 
-    private fun strategy(status: StrategyStatus) =
-        Strategy(
-            id = 1L,
-            userId = 1234L,
-            definition =
-                StrategyDefinition(
-                    dsl = DslStrategyDefinition(name = "test", buyCondition = null),
-                    universe = Universe("KOSPI"),
-                    tf = "D1",
-                ),
-            complexity =
-                StrategyComplexity(
-                    astDepth = 1,
-                    nodeCount = 1,
-                    indicatorCallCount = 1,
-                    estimatedEvalTimeMs = 1,
-                    complexityClass = ComplexityClass.LOW,
-                ),
-            status = status,
-        )
+    private fun strategy(
+        status: StrategyStatus,
+        codes: List<String> = listOf("005930"),
+    ) = Strategy(
+        id = 1L,
+        userId = 1234L,
+        definition =
+            StrategyDefinition(
+                dsl = DslStrategyDefinition(name = "test", buyCondition = null),
+                universe = Universe("KOSPI"),
+                tf = "D1",
+            ),
+        complexity =
+            StrategyComplexity(
+                astDepth = 1,
+                nodeCount = 1,
+                indicatorCallCount = 1,
+                estimatedEvalTimeMs = 1,
+                complexityClass = ComplexityClass.LOW,
+            ),
+        status = status,
+        codes = codes,
+        intervals = listOf("1d"),
+    )
 }

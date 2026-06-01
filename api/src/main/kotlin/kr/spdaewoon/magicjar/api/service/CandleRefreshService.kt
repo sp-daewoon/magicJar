@@ -47,8 +47,7 @@ import kotlinx.datetime.Instant as KtInstant
  *     raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
  *
  * 합산봉(3m·5m·15m·30m·90m·1h·4h·12h) 처리:
- *   KIS 미제공 — 1m 갱신 시 ON CONFLICT DO NOTHING으로 upsert만 수행.
- *   합산 재계산은 향후 별도 trigger (현재 consumer AggregateBackfillRunner 전용).
+ *   KIS 미제공 — 요청 시 1m을 먼저 갱신한 뒤 서버에서 합산봉을 재생성한다.
  *
  * Rate Limit (ADR 0037 + 본 PR 종합 fix 2026-05-22 — KIS_TPS_EXCEEDED LIVE evidence 7 cycle ok=0 fail=6 매트릭스):
  *   - 초당 10건 KisRateLimiterPort.acquire 강제 (spec PR #564 §2-2 LOCK)
@@ -153,6 +152,7 @@ class CandleRefreshService(
             )
 
         private val AGGREGATE_INTERVAL_CODES = AGGREGATE_INTERVALS.map { it.code }.toSet()
+        private val REFRESH_SUPPORTED_INTERVALS = SUPPORTED_INTERVALS + AGGREGATE_INTERVAL_CODES
         private val RECOLLECT_SUPPORTED_INTERVALS = SUPPORTED_INTERVALS + AGGREGATE_INTERVAL_CODES
     }
 
@@ -185,8 +185,23 @@ class CandleRefreshService(
             if (intervals.isEmpty()) {
                 DEFAULT_INTERVALS
             } else {
-                intervals.filter { it in SUPPORTED_INTERVALS }.ifEmpty { DEFAULT_INTERVALS }
+                intervals.filter { it in REFRESH_SUPPORTED_INTERVALS }.ifEmpty { DEFAULT_INTERVALS }
             }
+        val aggregateTargets =
+            effectiveIntervals
+                .filter { it in AGGREGATE_INTERVAL_CODES }
+                .distinct()
+                .map { CandleInterval.fromCode(it) }
+        val fetchIntervals =
+            effectiveIntervals
+                .fold(linkedSetOf<String>()) { acc, interval ->
+                    if (interval in AGGREGATE_INTERVAL_CODES) {
+                        acc.add(CandleInterval.ONE_MIN.code)
+                    } else {
+                        acc.add(interval)
+                    }
+                    acc
+                }
 
         // 3. KIS 인증 (api 모듈 패턴 — KisRestPriceMetricsAdapter 정합)
         val (accessToken, appKey, secretKey) = resolveAccessTokenAndKeys()
@@ -198,7 +213,7 @@ class CandleRefreshService(
         // 5. interval 별 순차 갱신 (Rate Limit ADR 0037 초당 10건 + spec PR #564 §2-2 LOCK)
         // priority 전파: 사용자 path = USER_PATH (default) / scheduler path = BACKFILL (LiveDailyCandleScheduler)
         val results = mutableListOf<IntervalRefreshResult>()
-        for (intervalCode in effectiveIntervals) {
+        for (intervalCode in fetchIntervals) {
             progress?.invoke(
                 CandleRefreshProgressUpdate(
                     stage = "FETCHING",
@@ -241,6 +256,9 @@ class CandleRefreshService(
                     message = "$intervalCode 캔들 수집 완료 (${result.status})",
                 ),
             )
+        }
+        if (aggregateTargets.isNotEmpty()) {
+            results.addAll(rebuildAggregateIntervals(code, aggregateTargets, progress))
         }
 
         val elapsedMs = System.currentTimeMillis() - startMs

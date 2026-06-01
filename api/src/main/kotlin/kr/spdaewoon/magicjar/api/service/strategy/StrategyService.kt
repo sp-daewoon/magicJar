@@ -105,6 +105,7 @@ class StrategyService(
         codes: List<String> = emptyList(),
         intervals: List<String> = emptyList(),
         takeProfitPct: BigDecimal? = null,
+        requireCodes: Boolean = false,
     ): Strategy {
         val entryComplexity = validateAndComputeComplexity(entryAst)
         val exitComplexity = exitAst?.let { validateAndComputeComplexity(it) }
@@ -126,13 +127,14 @@ class StrategyService(
                 tf = tf,
                 takeProfitPct = normalizeTakeProfitPct(takeProfitPct),
             )
+        val normalizedCodes = normalizeCodes(codes, requireCodes)
         val strategy =
             Strategy(
                 userId = userId,
                 definition = definition,
                 complexity = combinedComplexity,
                 status = StrategyStatus.PAUSED,
-                codes = normalizeCodes(codes),
+                codes = normalizedCodes,
                 intervals = normalizeIntervals(intervals, tf),
             )
         val saved = strategyRepositoryPort.save(strategy)
@@ -154,6 +156,7 @@ class StrategyService(
         codes: List<String> = emptyList(),
         intervals: List<String> = emptyList(),
         takeProfitPct: BigDecimal? = null,
+        requireCodes: Boolean = false,
     ): Strategy {
         val existing =
             strategyRepositoryPort.findById(id)
@@ -174,6 +177,7 @@ class StrategyService(
                 buyConditionText = entryText,
                 sellConditionText = exitText,
             )
+        val normalizedCodes = normalizeCodes(codes, requireCodes)
         val updated =
             existing.copy(
                 definition =
@@ -184,7 +188,7 @@ class StrategyService(
                         takeProfitPct = normalizeTakeProfitPct(takeProfitPct),
                     ),
                 complexity = combinedComplexity,
-                codes = normalizeCodes(codes),
+                codes = normalizedCodes,
                 intervals = normalizeIntervals(intervals, tf),
                 updatedAt = Instant.now(),
             )
@@ -256,6 +260,10 @@ class StrategyService(
         val currentStatus = runCatching { StrategyStatus.valueOf(entity.status) }.getOrDefault(StrategyStatus.ACTIVE)
         validateTransition(id, currentStatus, newStatus)
         if (newStatus == StrategyStatus.ACTIVE) {
+            val strategy =
+                strategyRepositoryPort.findById(id)
+                    ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
+            validateOperationalTargets(strategy.codes, strategy.intervals, strategy.definition.tf)
             validateActivationReady(id, entity.userId)
             strategyRepositoryPort.enable(id)
         } else {
@@ -338,11 +346,20 @@ class StrategyService(
         }
     }
 
-    private fun normalizeCodes(codes: List<String>): List<String> =
-        codes
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .distinct()
+    private fun normalizeCodes(
+        codes: List<String>,
+        requireNonEmpty: Boolean = false,
+    ): List<String> {
+        val normalized =
+            codes
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+        if (requireNonEmpty && normalized.isEmpty()) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "자동매매 대상 종목을 1개 이상 지정해야 합니다")
+        }
+        return normalized
+    }
 
     private fun normalizeIntervals(
         intervals: List<String>,
@@ -360,6 +377,19 @@ class StrategyService(
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "takeProfitPct는 0보다 커야 합니다")
         }
         return value
+    }
+
+    private fun validateOperationalTargets(
+        codes: List<String>,
+        intervals: List<String>,
+        tf: String,
+    ) {
+        if (normalizeCodes(codes).isEmpty()) {
+            throw ResponseStatusException(HttpStatus.CONFLICT, "자동매매 대상 종목이 없는 전략은 ACTIVE로 전환할 수 없습니다")
+        }
+        if (normalizeIntervals(intervals, tf).isEmpty()) {
+            throw ResponseStatusException(HttpStatus.CONFLICT, "평가 인터벌이 없는 전략은 ACTIVE로 전환할 수 없습니다")
+        }
     }
 
     private data class AstStats(

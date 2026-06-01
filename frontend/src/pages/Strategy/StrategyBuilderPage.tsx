@@ -39,6 +39,7 @@ import { kisYamlExport, kisYamlImport } from '../../lib/dsl/yaml'
 import { useStrategyValidate, useStrategyEvaluate } from '../../api/hooks/useStrategy'
 import { useSigStrategy } from '../../api/hooks/useSigStrategy'
 import type { StrategyComplexityDto, EvaluateResponse } from '../../api/strategy'
+import { symbolApi, type CandleInterval } from '../../api/symbol'
 import { parseDslText, parseDslTextToTree } from '../../lib/dsl/parser'
 import { ScreenerResultModal } from '../../features/screener/components/ScreenerResultModal'
 import { useOnboardingStore } from '../../stores/onboarding'
@@ -75,6 +76,8 @@ export function StrategyBuilderPage() {
   const [complexity, setComplexity] = useState<StrategyComplexityDto | null>(null)
   const [evalResult, setEvalResult] = useState<EvaluateResponse | null>(null)
   const [evalForm, setEvalForm] = useState<EvaluateForm>({ code: '005930', interval: '1d' })
+  const [evalPrepMessage, setEvalPrepMessage] = useState<string | null>(null)
+  const [isPreparingEvaluation, setIsPreparingEvaluation] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
 
@@ -94,7 +97,7 @@ export function StrategyBuilderPage() {
   const { data: loadedStrategy, isError: isLoadStrategyError, error: loadStrategyError } = useSigStrategy(routeStrategyId)
 
   const { mutate: validateMutate, isPending: isValidating } = useStrategyValidate()
-  const { mutate: evaluateMutate, isPending: isEvaluating } = useStrategyEvaluate()
+  const { mutateAsync: evaluateAsync, isPending: isEvaluating } = useStrategyEvaluate()
   const { width: paletteWidth, handleMouseDown: handlePaletteResizeDown, isDragging: isPaletteResizing } = usePaletteResize()
 
   const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
@@ -186,21 +189,45 @@ export function StrategyBuilderPage() {
   }
 
   // 평가
-  const handleEvaluate = () => {
+  const ensureEvaluationCandles = async (code: string, interval: string) => {
+    const candleInterval = interval as CandleInterval
+    setEvalPrepMessage('캔들 데이터 확인 중...')
+    const current = await symbolApi.getCandles(code, candleInterval, undefined, 1)
+    if (current.candles.length > 0) return
+
+    setEvalPrepMessage('캔들 데이터가 없어 KIS에서 갱신 중...')
+    await symbolApi.refreshCandles(code, [interval])
+
+    setEvalPrepMessage('갱신된 캔들 확인 중...')
+    const refreshed = await symbolApi.getCandles(code, candleInterval, undefined, 1)
+    if (refreshed.candles.length === 0) {
+      throw new Error('캔들 갱신 후에도 평가 가능한 차트 데이터가 없습니다. 잠시 후 다시 실행하거나 종목 상세에서 재수집을 실행해 주세요.')
+    }
+  }
+
+  const handleEvaluate = async () => {
     if (!strategyId) return
-    evaluateMutate(
-      { strategyId, req: evalForm },
-      {
-        onSuccess: (result) => {
-          setEvalResult(result)
-          showToast(`평가 완료 — 신호: ${result.signal}`)
-        },
-        onError: (err) => {
-          setEvalResult(null)
-          showToast(`평가 실패: ${err.message}`, 'error')
-        },
-      },
-    )
+    const code = evalForm.code.trim()
+    if (!/^\d{6}$/.test(code)) {
+      showToast('평가 종목은 6자리 종목코드로 선택해 주세요', 'error')
+      return
+    }
+    setIsPreparingEvaluation(true)
+    setEvalResult(null)
+    try {
+      await ensureEvaluationCandles(code, evalForm.interval)
+      setEvalPrepMessage('전략 평가 중...')
+      const result = await evaluateAsync({ strategyId, req: { code, interval: evalForm.interval } })
+      setEvalResult(result)
+      showToast(`평가 완료 — 신호: ${result.signal}`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '알 수 없는 오류'
+      setEvalResult(null)
+      showToast(`평가 실패: ${msg}`, 'error')
+    } finally {
+      setEvalPrepMessage(null)
+      setIsPreparingEvaluation(false)
+    }
   }
 
   // 자연어 변환 결과 적용
@@ -355,10 +382,15 @@ export function StrategyBuilderPage() {
                 <button
                   className="w-full rounded bg-emerald-600 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
                   onClick={handleEvaluate}
-                  disabled={isEvaluating || !evalForm.code}
+                  disabled={isEvaluating || isPreparingEvaluation || !evalForm.code}
                 >
-                  {isEvaluating ? '평가 중...' : '평가 실행'}
+                  {isEvaluating || isPreparingEvaluation ? '평가 중...' : '평가 실행'}
                 </button>
+                {evalPrepMessage && (
+                  <p className="text-xs text-emerald-300" role="status">
+                    {evalPrepMessage}
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -379,7 +411,7 @@ export function StrategyBuilderPage() {
               result={evalResult}
               code={evalForm.code}
             />
-          ) : strategyId && !isEvaluating ? (
+          ) : strategyId && !isEvaluating && !isPreparingEvaluation ? (
             <EvaluationEmptyCard />
           ) : null}
 
@@ -422,7 +454,7 @@ export function StrategyBuilderPage() {
           initialNameKo={loadedStrategy?.nameKo}
           initialUniverse={loadedStrategy?.universe}
           initialTf={loadedStrategy?.intervals[0] ?? loadedStrategy?.tf}
-          initialCode={loadedStrategy?.codes[0]}
+          initialCode={loadedStrategy?.codes[0] ?? evalForm.code}
           initialTakeProfitPct={loadedStrategy?.takeProfitPct}
           onSaved={handleSaved}
           onClose={() => setShowSaveModal(false)}

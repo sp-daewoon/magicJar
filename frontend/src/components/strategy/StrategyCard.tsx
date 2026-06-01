@@ -53,10 +53,15 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
 
   const toggleMutation = useToggleSigStrategyStatus()
   const deleteMutation = useDeleteSigStrategy()
+  const isMissingOperationalTargets = codes.length === 0 || intervals.length === 0
 
   function handleToggle() {
     const nextStatus: StrategyStatus =
       strategy.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE'
+    if (nextStatus === 'ACTIVE' && isMissingOperationalTargets) {
+      showToast('자동매매 대상 종목과 평가 인터벌을 먼저 지정해 주세요.', 'error')
+      return
+    }
     toggleMutation.mutate(
       { id: strategy.id, status: nextStatus },
       {
@@ -204,7 +209,12 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
         {isToggleable && (
           <button
             onClick={handleToggle}
-            disabled={isBusy}
+            disabled={isBusy || (strategy.status !== 'ACTIVE' && isMissingOperationalTargets)}
+            title={
+              strategy.status !== 'ACTIVE' && isMissingOperationalTargets
+                ? '빌더에서 수정 후 자동매매 대상 종목과 평가 인터벌을 지정하세요'
+                : undefined
+            }
             className={[
               'rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-offset-gray-900',
               strategy.status === 'ACTIVE'
@@ -216,6 +226,8 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
               ? '처리 중...'
               : strategy.status === 'ACTIVE'
               ? '자동매매 중지'
+              : isMissingOperationalTargets
+              ? '종목 지정 필요'
               : '자동매매 시작'}
           </button>
         )}
