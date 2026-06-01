@@ -15,11 +15,13 @@ import { useDeleteSigStrategy, useToggleSigStrategyStatus } from '../../api/hook
 import { AiExplainEntry } from '../../features/ai/components/AiExplainEntry'
 import { useOnboardingStore } from '../../stores/onboarding'
 import { useToast } from '../ui/ToastProvider'
+import { RiskPlanPreviewPanel } from './RiskPlanPreviewPanel'
 import {
   formatStrategyCodeLabel,
   resolveStrategyMutationErrorMessage,
   strategyActivationBlockedReason,
 } from './strategyDisplay'
+import { parsePositiveNumber } from './riskPlanDisplay'
 
 // ──────────────────────────────────────────────
 // 상태 배지 스타일
@@ -102,6 +104,17 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
     : null
   const disabledAtLabel = formatKst(strategy.lastDisabledAt)
   const activeNeedsAttention = strategy.status === 'ACTIVE' && activationBlockedReason
+  const stopLossPct = parsePositiveNumber(strategy.stopLossPct)
+  const takeProfitPct = parsePositiveNumber(strategy.takeProfitPct)
+  const primaryCode = codes[0]
+  const riskPlanChartPath =
+    primaryCode && stopLossPct !== null && takeProfitPct !== null && takeProfitPct > stopLossPct
+      ? `/symbol/${primaryCode}?${new URLSearchParams({
+          strategyId: strategy.id,
+          stopLossPct: String(stopLossPct),
+          takeProfitPct: String(takeProfitPct),
+        }).toString()}`
+      : null
 
   return (
     <article className="flex flex-col gap-3 rounded-xl border border-gray-800 bg-gray-900 p-5 transition-colors hover:border-gray-700">
@@ -201,15 +214,28 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
           <span className="text-orange-300">매도:</span> {strategy.sellCondition}
         </p>
       )}
-      {strategy.takeProfitPct !== null && strategy.takeProfitPct !== undefined && (
-        <p className="truncate rounded bg-gray-800/60 px-3 py-1.5 text-xs text-gray-300">
-          <span className="text-orange-300">익절:</span> {Number(strategy.takeProfitPct).toLocaleString('ko-KR')}%
-        </p>
-      )}
-      {strategy.stopLossPct !== null && strategy.stopLossPct !== undefined && (
-        <p className="truncate rounded bg-gray-800/60 px-3 py-1.5 text-xs text-gray-300">
-          <span className="text-red-300">손절:</span> {Number(strategy.stopLossPct).toLocaleString('ko-KR')}%
-        </p>
+      {(strategy.stopLossPct !== null && strategy.stopLossPct !== undefined) ||
+      (strategy.takeProfitPct !== null && strategy.takeProfitPct !== undefined) ? (
+        <RiskPlanPreviewPanel
+          className="border-y border-gray-800 py-3"
+          title="자동매매 손절·익절"
+          stopLossPct={strategy.stopLossPct}
+          takeProfitPct={strategy.takeProfitPct}
+          actionSlot={
+            riskPlanChartPath ? (
+              <Link
+                to={riskPlanChartPath}
+                className="rounded-md bg-gray-800 px-2 py-1 text-[11px] font-medium text-emerald-300 transition-colors hover:bg-emerald-950/60 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              >
+                차트에서 보기
+              </Link>
+            ) : null
+          }
+        />
+      ) : (
+        <div className="border-y border-red-900/50 py-3 text-xs text-red-200">
+          손절·익절 미설정
+        </div>
       )}
 
       {/* 시그널 카운트 */}

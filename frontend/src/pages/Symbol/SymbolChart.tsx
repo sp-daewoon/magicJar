@@ -51,6 +51,12 @@ import {
 } from '../../api/hooks/useTrendlines'
 import { usePatterns } from '../../api/hooks/usePatterns'
 import { useToast } from '../../components/ui/ToastProvider'
+import { RiskPlanPreviewPanel } from '../../components/strategy/RiskPlanPreviewPanel'
+import {
+  buildRiskPlanLevels,
+  formatRiskPlanPrice,
+  type RiskPlanLevels,
+} from '../../components/strategy/riskPlanDisplay'
 import { PatternMarker } from '../../components/chart/PatternMarker'
 import { PatternToggleMenu, usePatternSelection } from '../../components/chart/PatternToggleMenu'
 import { getCandleCountMax } from '../../components/chart/candleCountMaxByInterval'
@@ -113,6 +119,11 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
 interface SymbolChartProps {
   code: string
   realtimeCandle?: CandleMinutePayload | null
+  riskPlanPreview?: {
+    strategyId?: string
+    stopLossPct: number
+    takeProfitPct: number
+  } | null
   /**
    * STOMP tick — 마지막 bar close·high·low 실시간 update
    * SymbolDetailPage에서 /topic/market.tick.{code} 수신 후 전달
@@ -120,7 +131,7 @@ interface SymbolChartProps {
   liveTick?: LiveTick | null
 }
 
-export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps) {
+export function SymbolChart({ code, realtimeCandle, riskPlanPreview, liveTick }: SymbolChartProps) {
   const [interval, setInterval] = useState<CandleInterval>('1d')
   // ADR 0093 §결정 LOCK Phase 4-B (2026-05-20):
   //   사용자가 선택한 차트 표시 봉수. localStorage 전역 1개 키(magicjar:chart:candleCount)로
@@ -286,6 +297,25 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
       volume: realtimeCandle.volume,
     } satisfies CandleDto
   }, [latestBoundaryCandle, realtimeCandle, interval])
+  const riskPlanReferencePrice = useMemo(() => {
+    const tickPrice = liveTick?.price ? Number(liveTick.price) : NaN
+    if (Number.isFinite(tickPrice) && tickPrice > 0) return tickPrice
+
+    const realtimeClose = realtimeCandleDto?.close ? Number(realtimeCandleDto.close) : NaN
+    if (Number.isFinite(realtimeClose) && realtimeClose > 0) return realtimeClose
+
+    const last = allCandles[allCandles.length - 1]
+    const lastClose = last?.close ? Number(last.close) : NaN
+    return Number.isFinite(lastClose) && lastClose > 0 ? lastClose : null
+  }, [allCandles, liveTick?.price, realtimeCandleDto])
+  const riskPlanLevels = useMemo<RiskPlanLevels | null>(() => {
+    if (!riskPlanPreview || riskPlanReferencePrice === null) return null
+    return buildRiskPlanLevels(
+      riskPlanReferencePrice,
+      riskPlanPreview.stopLossPct,
+      riskPlanPreview.takeProfitPct,
+    )
+  }, [riskPlanPreview, riskPlanReferencePrice])
 
   const handleIntervalChange = useCallback((newInterval: CandleInterval) => {
     setInterval(newInterval)
@@ -886,6 +916,28 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
         </div>
       )}
 
+      {riskPlanPreview && (
+        <div className="mb-3 border-y border-gray-800 py-3">
+          <RiskPlanPreviewPanel
+            title={
+              riskPlanPreview.strategyId
+                ? `전략 ${riskPlanPreview.strategyId} 손절·익절 미리보기`
+                : '손절·익절 미리보기'
+            }
+            stopLossPct={riskPlanPreview.stopLossPct}
+            takeProfitPct={riskPlanPreview.takeProfitPct}
+            entryPrice={riskPlanReferencePrice}
+            actionSlot={
+              riskPlanLevels ? (
+                <span className="text-[11px] text-gray-500">
+                  기준가 {formatRiskPlanPrice(riskPlanLevels.entryPrice)}
+                </span>
+              ) : null
+            }
+          />
+        </div>
+      )}
+
       {/* 3열 레이아웃: 차트(좌) + 지표 패널(중) + 패턴 패널(우) */}
       <div className={`flex gap-4 ${isPanelOpen || isPatternPanelOpen ? 'items-start' : ''}`}>
         {/* 차트 본체 */}
@@ -949,6 +1001,7 @@ export function SymbolChart({ code, realtimeCandle, liveTick }: SymbolChartProps
                 interval={interval}
                 realtimeCandle={realtimeCandleDto}
                 liveTick={liveTick}
+                riskPlanLevels={riskPlanLevels}
                 onScrollLeft={handleScrollLeft}
                 maxCandles={maxCandles}
                 onMaxCapReached={handleMaxCapReached}

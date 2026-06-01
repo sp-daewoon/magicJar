@@ -23,7 +23,7 @@
  * - 호가 slot 가득(queued) → "polling fallback 중" 배지 (SymbolOrderbook)
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { useAccountPositions } from '../../api/hooks/useAccountPositions'
 import { useInstrument } from '../../api/hooks/useInstrument'
 import { usePreferredAccountType } from '../../api/hooks/usePreferredAccountType'
@@ -70,6 +70,7 @@ function isBEError(status: number | undefined): boolean {
 
 export function SymbolDetailPage() {
   const { code = '' } = useParams<{ code: string }>()
+  const [searchParams] = useSearchParams()
   const { data: instrument, isLoading: isInstrumentLoading } = useInstrument(code)
   const isDelisted = instrument?.active === false
   // W4 R2 AI 진입점 — userId 1일 토큰 한도 키
@@ -114,6 +115,17 @@ export function SymbolDetailPage() {
     () => accountHoldings?.find((holding) => holding.code === code) ?? null,
     [accountHoldings, code],
   )
+  const riskPlanPreview = useMemo(() => {
+    const stopLossPct = Number(searchParams.get('stopLossPct'))
+    const takeProfitPct = Number(searchParams.get('takeProfitPct'))
+    if (!Number.isFinite(stopLossPct) || !Number.isFinite(takeProfitPct)) return null
+    if (stopLossPct <= 0 || takeProfitPct <= stopLossPct) return null
+    return {
+      strategyId: searchParams.get('strategyId') ?? undefined,
+      stopLossPct,
+      takeProfitPct,
+    }
+  }, [searchParams])
 
   // 상장폐지 종목은 가격 조회 의미 없음 — useSymbol 비활성으로 polling 차단.
   // 정상 실시간 수신 중에는 HTTP polling 0건, STOMP 장애·tick 지연 시에만 30s fallback.
@@ -343,6 +355,7 @@ export function SymbolDetailPage() {
           <SymbolChart
             code={code}
             realtimeCandle={realtimeCandle}
+            riskPlanPreview={riskPlanPreview}
             liveTick={
               realtimeTick
                 ? {

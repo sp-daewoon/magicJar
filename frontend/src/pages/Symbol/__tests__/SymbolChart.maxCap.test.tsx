@@ -14,7 +14,8 @@
  *   - STOMP·CandleRefresh·Patterns: graceful mock
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, act } from '@testing-library/react'
+import { render, act, screen } from '@testing-library/react'
+import type { ComponentProps } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../../../components/ui/ToastProvider'
 import { SymbolChart } from '../SymbolChart'
@@ -26,6 +27,11 @@ import { SymbolChart } from '../SymbolChart'
 interface CapturedProps {
   maxCandles?: number
   onMaxCapReached?: () => void
+  riskPlanLevels?: {
+    entryPrice: number
+    stopPrice: number
+    takePrice: number
+  } | null
 }
 
 let lastChartProps: CapturedProps | null = null
@@ -94,14 +100,14 @@ vi.mock('../../../lib/stomp', () => ({
 // 헬퍼
 // ──────────────────────────────────────────────
 
-function renderSymbolChart(code: string) {
+function renderSymbolChart(code: string, props: Partial<ComponentProps<typeof SymbolChart>> = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   return render(
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <SymbolChart code={code} />
+        <SymbolChart code={code} {...props} />
       </ToastProvider>
     </QueryClientProvider>,
   )
@@ -157,5 +163,23 @@ describe('SymbolChart — Phase 5 가드 3 + max cap toast (ADR 0093 §3-2)', ()
     const toasts = document.querySelectorAll('[role="alert"]')
     // ToastProvider는 최대 5개까지 stack하지만 본 lock은 1회만 호출 → 1개 expected
     expect(toasts.length).toBe(1)
+  })
+
+  it('RiskPlan 미리보기 기준가를 price line props로 전달한다', () => {
+    renderSymbolChart('005930', {
+      liveTick: { price: '100000', ts: '2026-06-01T01:00:00Z' },
+      riskPlanPreview: {
+        strategyId: '43',
+        stopLossPct: 5,
+        takeProfitPct: 10,
+      },
+    })
+
+    expect(screen.getByText('전략 43 손절·익절 미리보기')).toBeInTheDocument()
+    expect(lastChartProps?.riskPlanLevels).toMatchObject({
+      entryPrice: 100_000,
+      stopPrice: 95_000,
+      takePrice: 110_000,
+    })
   })
 })
