@@ -155,6 +155,24 @@ class SignalGeneratedKafkaListenerTest {
     }
 
     @Test
+    fun `BUY ALLOWED — 단타형 RiskPlan은 익절 기준이 손절 기준 이하라도 차단하지 않는다`() {
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.record(100L, "user-A", 77L, now) } just Runs
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+
+        listener(strategies = listOf(sampleStrategy(stopLossPct = BigDecimal("5.00"), takeProfitPct = BigDecimal("3.00"))))
+            .onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+
+        verify(exactly = 1) { signalRiskStatusUpdater.markAllowed(77L) }
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 20) }
+    }
+
+    @Test
     fun `REAL 모드 KIS 체결 sync 실패 — risk 단계에서 BLOCKED 처리하고 order intent를 발행하지 않는다`() {
         every { executionBackfillService.syncUserTodayExecutions("user-A", AccountType.REAL) } returns
             KisExecutionSyncResult.failure(

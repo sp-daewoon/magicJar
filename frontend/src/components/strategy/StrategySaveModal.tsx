@@ -158,10 +158,6 @@ export function StrategySaveModal({
       setFormError('익절 기준은 0보다 큰 숫자로 입력하세요')
       return
     }
-    if (parsedTakeProfitPct <= parsedStopLossPct) {
-      setFormError('익절 기준은 손절 기준보다 커야 합니다')
-      return
-    }
 
     const payload = {
       userId,

@@ -113,7 +113,6 @@ class StrategyService(
         val combinedComplexity = mergeComplexity(entryComplexity, exitComplexity)
         val normalizedStopLossPct = normalizeStopLossPct(stopLossPct)
         val normalizedTakeProfitPct = normalizeTakeProfitPct(takeProfitPct)
-        validateRiskReward(normalizedStopLossPct, normalizedTakeProfitPct)
 
         val dsl =
             DslStrategyDefinition(
@@ -176,7 +175,6 @@ class StrategyService(
         val combinedComplexity = mergeComplexity(entryComplexity, exitComplexity)
         val normalizedStopLossPct = normalizeStopLossPct(stopLossPct)
         val normalizedTakeProfitPct = normalizeTakeProfitPct(takeProfitPct)
-        validateRiskReward(normalizedStopLossPct, normalizedTakeProfitPct)
         val dsl =
             DslStrategyDefinition(
                 name = name,
@@ -406,15 +404,6 @@ class StrategyService(
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "stopLossPct는 0보다 커야 합니다")
         }
         return value
-    }
-
-    private fun validateRiskReward(
-        stopLossPct: BigDecimal?,
-        takeProfitPct: BigDecimal?,
-    ) {
-        if (stopLossPct != null && takeProfitPct != null && takeProfitPct <= stopLossPct) {
-            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "takeProfitPct는 stopLossPct보다 커야 합니다")
-        }
     }
 
     private data class AstStats(

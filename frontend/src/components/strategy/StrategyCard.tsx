@@ -108,7 +108,7 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
   const takeProfitPct = parsePositiveNumber(strategy.takeProfitPct)
   const primaryCode = codes[0]
   const riskPlanChartPath =
-    primaryCode && stopLossPct !== null && takeProfitPct !== null && takeProfitPct > stopLossPct
+    primaryCode && stopLossPct !== null && takeProfitPct !== null
       ? `/symbol/${primaryCode}?${new URLSearchParams({
           strategyId: strategy.id,
           stopLossPct: String(stopLossPct),

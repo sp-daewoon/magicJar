@@ -22,6 +22,7 @@ const mockResults = [
   { code: '005930', name: '삼성전자', market: 'KOSPI', sector: '전기전자', score: 1.0 },
   { code: '009150', name: '삼성전기', market: 'KOSPI', sector: '전기전자', score: 0.95 },
 ]
+const wonikResult = { code: '240810', name: '원익IPS', market: 'KOSDAQ', sector: '반도체', score: 1.0 }
 
 describe('InstrumentSearchInput', () => {
   const onSelect = vi.fn()
@@ -84,5 +85,22 @@ describe('InstrumentSearchInput', () => {
     // onSelect callback: code="005930" 확인
     expect(onSelect).toHaveBeenCalledTimes(1)
     expect(onSelect).toHaveBeenCalledWith(mockResults[0])
+  })
+
+  it('선택된 코드로 마운트되면 종목명 라벨만 표시하고 dropdown은 열지 않는다', async () => {
+    vi.mocked(useInstrumentSearch).mockReturnValue({
+      results: [wonikResult],
+      isLoading: false,
+      isError: false,
+      isServerError: false,
+    })
+
+    render(<InstrumentSearchInput value="240810" onSelect={onSelect} />)
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('원익IPS (240810)')).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    expect(onSelect).not.toHaveBeenCalled()
   })
 })

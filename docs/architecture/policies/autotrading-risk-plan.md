@@ -12,7 +12,7 @@
 |------|------|
 | 손절 | 전략은 `fixed_stop_loss_pct`를 가져야 한다. 차트 범위 손절이 없는 1차 구현에서는 매수가 기준 고정 손절 %를 hard stop으로 사용한다. |
 | 익절 | 전략은 `take_profit_pct`를 가져야 한다. 1차 구현에서는 보유 포지션 평가 수익률 기준 익절 %로 사용한다. |
-| 최소 손익비 | `take_profit_pct > fixed_stop_loss_pct` 여야 한다. 같거나 작으면 저장/자동매매 진입을 차단한다. |
+| 손익비 | `fixed_stop_loss_pct`와 `take_profit_pct`는 모두 0보다 커야 한다. 단타형/스캘핑 전략은 `take_profit_pct <= fixed_stop_loss_pct`도 허용하며, UI는 손익비를 표시하되 저장/자동매매 진입을 차단하지 않는다. |
 | 자동매매 시작 | 대상 종목, 인터벌, RiskPlan, 성공 백테스트가 모두 준비되어야 ACTIVE 전환 가능하다. |
 | 실행 중 보호 | ACTIVE 전략이라도 BUY 시점에 RiskPlan이 없거나 비정상이면 Risk Gateway 이전 preflight에서 fail-closed로 차단한다. |
 | 매도 수량 | SELL 주문 수량은 내부 보유 수량에서 미체결 매도 주문 수량을 뺀 가용 수량만 사용한다. |
@@ -31,3 +31,4 @@
 ## 변경 이력
 
 - 2026-06-01: 자동매매 BUY 전 손절/익절 RiskPlan 필수화, SELL 가용 수량 게이트, AUTO SELL KIS 잔고 preflight 도입 (ADR-0106).
+- 2026-06-01: 단타형/스캘핑 운용을 위해 익절 기준이 손절 기준 이하인 RiskPlan도 허용. 손절/익절 양수 필수와 실행 중 RiskPlan fail-closed는 유지.
