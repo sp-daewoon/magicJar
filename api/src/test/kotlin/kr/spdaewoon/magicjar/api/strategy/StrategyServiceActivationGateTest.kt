@@ -14,11 +14,16 @@ import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.Universe
+import kr.spdaewoon.magicjar.domain.strategy.dsl.Condition
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslStrategyDefinition
+import kr.spdaewoon.magicjar.domain.strategy.dsl.IndicatorRef
+import kr.spdaewoon.magicjar.domain.strategy.dsl.LiteralValue
+import kr.spdaewoon.magicjar.domain.strategy.dsl.Operator
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyRepositoryPort
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.springframework.web.server.ResponseStatusException
+import java.math.BigDecimal
 
 class StrategyServiceActivationGateTest {
     private val strategyRepositoryPort = mockk<StrategyRepositoryPort>(relaxed = true)
@@ -64,6 +69,45 @@ class StrategyServiceActivationGateTest {
     }
 
     @Test
+    fun `손절 익절 RiskPlan 없는 전략은 ACTIVE 전환을 차단한다`() {
+        every { strategyJpaRepository.findByIdAndStatusNot(1L, StrategyStatus.DELETED.name) } returns entity(status = "PAUSED")
+        every { strategyRepositoryPort.findById(1L) } returns
+            strategy(status = StrategyStatus.PAUSED, stopLossPct = null, takeProfitPct = null)
+
+        assertThatThrownBy { service.toggleStatus(1L, StrategyStatus.ACTIVE) }
+            .isInstanceOf(ResponseStatusException::class.java)
+            .hasMessageContaining("손절/익절 RiskPlan")
+
+        verify(exactly = 0) { backtestRunJpaRepository.existsAutoActivationReadyRun(1L, "1234") }
+        verify(exactly = 0) { strategyRepositoryPort.enable(1L) }
+    }
+
+    @Test
+    fun `익절 기준이 손절 기준 이하이면 전략 저장을 차단한다`() {
+        assertThatThrownBy {
+            service.create(
+                userId = 1234L,
+                name = "risk_reward_invalid",
+                nameKo = "손익비 오류",
+                entryAst = sampleEntryAst(),
+                exitAst = null,
+                universe = Universe("KOSPI"),
+                tf = "1m",
+                entryText = "close > 0",
+                exitText = null,
+                codes = listOf("005930"),
+                intervals = listOf("1m"),
+                stopLossPct = BigDecimal("5.00"),
+                takeProfitPct = BigDecimal("5.00"),
+                requireCodes = true,
+            )
+        }.isInstanceOf(ResponseStatusException::class.java)
+            .hasMessageContaining("takeProfitPct")
+
+        verify(exactly = 0) { strategyRepositoryPort.save(any()) }
+    }
+
+    @Test
     fun `성공한 백테스트가 있으면 ACTIVE 전환 시 비활성 사유를 함께 지운다`() {
         every { strategyJpaRepository.findByIdAndStatusNot(1L, StrategyStatus.DELETED.name) } returns entity(status = "PAUSED")
         every { backtestRunJpaRepository.existsAutoActivationReadyRun(1L, "1234") } returns true
@@ -95,6 +139,8 @@ class StrategyServiceActivationGateTest {
     private fun strategy(
         status: StrategyStatus,
         codes: List<String> = listOf("005930"),
+        stopLossPct: BigDecimal? = BigDecimal("5.00"),
+        takeProfitPct: BigDecimal? = BigDecimal("10.00"),
     ) = Strategy(
         id = 1L,
         userId = 1234L,
@@ -103,6 +149,8 @@ class StrategyServiceActivationGateTest {
                 dsl = DslStrategyDefinition(name = "test", buyCondition = null),
                 universe = Universe("KOSPI"),
                 tf = "D1",
+                fixedStopLoss = stopLossPct,
+                takeProfitPct = takeProfitPct,
             ),
         complexity =
             StrategyComplexity(
@@ -116,4 +164,11 @@ class StrategyServiceActivationGateTest {
         codes = codes,
         intervals = listOf("1d"),
     )
+
+    private fun sampleEntryAst() =
+        Condition(
+            left = IndicatorRef("close"),
+            operator = Operator.GT,
+            right = LiteralValue(BigDecimal.ZERO),
+        )
 }

@@ -62,4 +62,20 @@ describe('strategyDisplay', () => {
       }),
     ).toBe('성공한 백테스트가 있어야 전략을 ACTIVE로 전환할 수 있습니다')
   })
+
+  it('RiskPlan 차단 사유도 그대로 표시한다', () => {
+    expect(
+      strategyActivationBlockedReason({
+        id: '43',
+        userId: 74683223,
+        name: '1',
+        codes: ['005930'],
+        intervals: ['1m'],
+        status: 'ACTIVE',
+        createdAt: '',
+        activationReady: false,
+        activationBlockedReason: '손절/익절 RiskPlan이 없어 자동매매를 시작할 수 없습니다',
+      }),
+    ).toBe('손절/익절 RiskPlan이 없어 자동매매를 시작할 수 없습니다')
+  })
 })

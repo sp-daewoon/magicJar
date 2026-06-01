@@ -37,6 +37,8 @@ class ConsumerStrategyJpaEntity(
     val universeMarket: String = "KOSPI",
     @Column(name = "tf", length = 10, nullable = false)
     val tf: String = "D1",
+    @Column(name = "fixed_stop_loss_pct", precision = 9, scale = 4)
+    val fixedStopLossPct: BigDecimal? = null,
     @Column(name = "take_profit_pct", precision = 9, scale = 4)
     val takeProfitPct: BigDecimal? = null,
     @Column(name = "ast_depth", nullable = false)

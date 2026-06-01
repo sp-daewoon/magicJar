@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.risk
 
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.risk.RiskContext
 import kr.spdaewoon.magicjar.domain.risk.RiskGatewayResult
 import kr.spdaewoon.magicjar.domain.risk.RiskRule
@@ -128,11 +129,7 @@ class RiskGatewayEvaluator {
         }
 
         if (signal.side == SignalSide.SELL) {
-            val holdingQty =
-                context.currentPositions
-                    .firstOrNull { it.code == signal.code && it.quantity > 0 }
-                    ?.quantity
-                    ?: 0
+            val holdingQty = holdingQuantity(signal, context)
             if (holdingQty <= 0) {
                 return blocked(
                     signalId,
@@ -142,6 +139,28 @@ class RiskGatewayEvaluator {
                         mapOf(
                             "code" to signal.code,
                             "currentCodes" to context.currentPositions.map { it.code },
+                        ),
+                )
+            }
+            val reservedSellQty = reservedSellQuantity(signal, context)
+            val availableSellQty = (holdingQty - reservedSellQty).coerceAtLeast(0)
+            if (availableSellQty <= 0) {
+                return blocked(
+                    signalId,
+                    RiskRule.SELL_QUANTITY_UNAVAILABLE,
+                    reason =
+                        "SELL signal has no sellable quantity for code=${signal.code} " +
+                            "(holding=$holdingQty, reservedSell=$reservedSellQty)",
+                    context =
+                        mapOf(
+                            "code" to signal.code,
+                            "holdingQty" to holdingQty,
+                            "reservedSellQty" to reservedSellQty,
+                            "availableSellQty" to availableSellQty,
+                            "openOrderIds" to
+                                context.openOrders
+                                    .filter { it.code == signal.code && it.side == OrderSide.SELL }
+                                    .mapNotNull { it.id },
                         ),
                 )
             }
@@ -233,6 +252,11 @@ class RiskGatewayEvaluator {
             .toInt()
     }
 
+    fun resolveSellQuantity(
+        signal: Signal,
+        context: RiskContext,
+    ): Int = (holdingQuantity(signal, context) - reservedSellQuantity(signal, context)).coerceAtLeast(0)
+
     private fun resolvePositionBudget(context: RiskContext): PositionBudget {
         val absoluteLimit = context.config.maxPositionAmount
         val percentBudget =
@@ -260,6 +284,23 @@ class RiskGatewayEvaluator {
             .fold(BigDecimal.ZERO) { acc, position ->
                 acc + signal.priceAtSignal.multiply(BigDecimal(position.quantity))
             }
+
+    private fun holdingQuantity(
+        signal: Signal,
+        context: RiskContext,
+    ): Int =
+        context.currentPositions
+            .firstOrNull { it.code == signal.code && it.quantity > 0 }
+            ?.quantity
+            ?: 0
+
+    private fun reservedSellQuantity(
+        signal: Signal,
+        context: RiskContext,
+    ): Int =
+        context.openOrders
+            .filter { it.code == signal.code && it.side == OrderSide.SELL }
+            .sumOf { it.quantity }
 
     private data class PositionBudget(
         val absoluteLimit: BigDecimal,

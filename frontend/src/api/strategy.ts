@@ -76,6 +76,8 @@ export interface CreateStrategyRequest {
   exit?: string
   universe?: string
   tf?: string
+  stopLossPct?: number | string | null
+  takeProfitPct?: number | string | null
 }
 
 /** POST /api/strategy 응답 */
@@ -94,6 +96,8 @@ export interface StrategyDto {
   exit?: string
   universe?: string
   tf?: string
+  stopLossPct?: number | string | null
+  takeProfitPct?: number | string | null
   enabled: boolean
   createdAt: string
   complexity?: StrategyComplexityDto
@@ -192,6 +196,8 @@ export interface SigStrategyDto {
   buyCondition?: string
   /** sell_condition DSL */
   sellCondition?: string
+  /** 자동매매 hard stop 손절 비율 (%) */
+  stopLossPct?: number | string | null
   /** 보유 포지션 평가 수익률 기준 익절 비율 (%) */
   takeProfitPct?: number | string | null
   complexity?: StrategyComplexityDto
@@ -239,6 +245,7 @@ export interface CreateSigStrategyRequest {
   exit?: string
   universe?: string
   tf?: string
+  stopLossPct?: number | string | null
   takeProfitPct?: number | string | null
   codes?: string[]
   intervals?: string[]
@@ -255,6 +262,7 @@ export interface UpdateSigStrategyRequest {
   exit?: string
   universe?: string
   tf?: string
+  stopLossPct?: number | string | null
   takeProfitPct?: number | string | null
   codes?: string[]
   intervals?: string[]
@@ -332,6 +340,7 @@ function toSigStrategyRequestBody(req: CreateSigStrategyRequest | UpdateSigStrat
     exit: req.exit ?? req.sellCondition,
     universe: req.universe ?? 'KOSPI',
     tf: req.tf ?? req.intervals?.[0] ?? '1d',
+    stopLossPct: req.stopLossPct ?? null,
     takeProfitPct: req.takeProfitPct ?? null,
     codes: req.codes ?? [],
     intervals: req.intervals ?? (req.tf ? [req.tf] : []),
@@ -385,6 +394,7 @@ function normalizeSigStrategy(raw: SigStrategyBackendDto): SigStrategyDto {
     nameKo: raw.nameKo,
     universe: raw.universe,
     tf,
+    stopLossPct: raw.stopLossPct ?? null,
     takeProfitPct: raw.takeProfitPct ?? null,
     codes,
     codeNames: asCodeNames(raw.codeNames),

@@ -88,6 +88,7 @@ class StrategyJpaAdapter(
             dslExit = dsl.sellConditionText?.takeIf { it.isNotBlank() } ?: dsl.sellCondition?.let { extractDslText(it) },
             universeMarket = strategy.definition.universe.market,
             tf = strategy.definition.tf,
+            fixedStopLossPct = strategy.definition.fixedStopLoss,
             takeProfitPct = strategy.definition.takeProfitPct,
             astDepth = strategy.complexity.astDepth,
             nodeCount = strategy.complexity.nodeCount,

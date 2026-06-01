@@ -31,6 +31,7 @@ interface StrategySaveModalProps {
   initialUniverse?: string
   initialTf?: string
   initialCode?: string
+  initialStopLossPct?: number | string | null
   initialTakeProfitPct?: number | string | null
   /** 저장 완료 콜백 — strategyId 반환 */
   onSaved: (strategyId: string) => void
@@ -71,6 +72,7 @@ export function StrategySaveModal({
   initialUniverse,
   initialTf,
   initialCode,
+  initialStopLossPct,
   initialTakeProfitPct,
   onSaved,
   onClose,
@@ -80,7 +82,8 @@ export function StrategySaveModal({
   const [universe, setUniverse] = useState(initialUniverse ?? 'KOSPI')
   const [tf, setTf] = useState(initialTf ?? '1d')
   const [targetCode, setTargetCode] = useState(initialCode ?? '')
-  const [takeProfitPct, setTakeProfitPct] = useState(initialTakeProfitPct?.toString() ?? '')
+  const [stopLossPct, setStopLossPct] = useState(initialStopLossPct?.toString() ?? '5')
+  const [takeProfitPct, setTakeProfitPct] = useState(initialTakeProfitPct?.toString() ?? '10')
   const [formError, setFormError] = useState<string | null>(null)
 
   const createMutation = useCreateSigStrategy()
@@ -94,6 +97,25 @@ export function StrategySaveModal({
       setFormError(`저장 실패: ${mutationError.message}`)
     }
   }, [isError, mutationError])
+
+  useEffect(() => {
+    setName(initialName ?? '')
+    setNameKo(initialNameKo ?? '')
+    setUniverse(initialUniverse ?? 'KOSPI')
+    setTf(initialTf ?? '1d')
+    setTargetCode(initialCode ?? '')
+    setStopLossPct(initialStopLossPct?.toString() ?? '5')
+    setTakeProfitPct(initialTakeProfitPct?.toString() ?? '10')
+  }, [
+    strategyId,
+    initialName,
+    initialNameKo,
+    initialUniverse,
+    initialTf,
+    initialCode,
+    initialStopLossPct,
+    initialTakeProfitPct,
+  ])
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
@@ -124,10 +146,18 @@ export function StrategySaveModal({
       setFormError('자동매매 대상 종목은 6자리 종목코드로 저장됩니다')
       return
     }
-    const normalizedTakeProfitPct = takeProfitPct.trim()
-    const parsedTakeProfitPct = normalizedTakeProfitPct ? Number(normalizedTakeProfitPct) : null
-    if (parsedTakeProfitPct !== null && (!Number.isFinite(parsedTakeProfitPct) || parsedTakeProfitPct <= 0)) {
-      setFormError('보유 수익률 매도 기준은 0보다 큰 숫자로 입력하세요')
+    const parsedStopLossPct = Number(stopLossPct.trim())
+    if (!Number.isFinite(parsedStopLossPct) || parsedStopLossPct <= 0) {
+      setFormError('손절 기준은 0보다 큰 숫자로 입력하세요')
+      return
+    }
+    const parsedTakeProfitPct = Number(takeProfitPct.trim())
+    if (!Number.isFinite(parsedTakeProfitPct) || parsedTakeProfitPct <= 0) {
+      setFormError('익절 기준은 0보다 큰 숫자로 입력하세요')
+      return
+    }
+    if (parsedTakeProfitPct <= parsedStopLossPct) {
+      setFormError('익절 기준은 손절 기준보다 커야 합니다')
       return
     }
 
@@ -139,6 +169,7 @@ export function StrategySaveModal({
       exit: exit?.trim() || undefined,
       universe,
       tf,
+      stopLossPct: parsedStopLossPct,
       takeProfitPct: parsedTakeProfitPct,
       codes: [normalizedCode],
       intervals: [tf],
@@ -176,7 +207,7 @@ export function StrategySaveModal({
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className="w-full max-w-md rounded-xl border border-gray-700 bg-gray-900 p-6 shadow-2xl">
+      <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-xl border border-gray-700 bg-gray-900 p-6 shadow-2xl">
         {/* 헤더 */}
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-white">{strategyId ? '전략 수정' : '전략 저장'}</h2>
@@ -234,7 +265,7 @@ export function StrategySaveModal({
           </div>
 
           {/* universe + tf */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-400">유니버스</label>
               <select
@@ -281,21 +312,44 @@ export function StrategySaveModal({
             />
           </div>
 
-          {/* position-aware take profit */}
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-400">
-              보유 수익률 매도
-              <span className="ml-1 font-normal text-gray-600">(optional, %)</span>
-            </label>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={takeProfitPct}
-              onChange={(e) => setTakeProfitPct(e.target.value)}
-              placeholder="예: 5"
-              className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
+          {/* mandatory risk plan */}
+          <div className="rounded-lg border border-amber-900/60 bg-amber-950/20 p-3">
+            <div className="mb-2 text-xs font-semibold text-amber-200">자동매매 RiskPlan</div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-400">
+                  손절 기준 <span className="text-red-400">*</span>
+                  <span className="ml-1 font-normal text-gray-600">(%)</span>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={stopLossPct}
+                  onChange={(e) => setStopLossPct(e.target.value)}
+                  placeholder="예: 5"
+                  className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-400">
+                  익절 기준 <span className="text-red-400">*</span>
+                  <span className="ml-1 font-normal text-gray-600">(%)</span>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={takeProfitPct}
+                  onChange={(e) => setTakeProfitPct(e.target.value)}
+                  placeholder="예: 10"
+                  className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-amber-100/70">
+              자동매매는 손절과 익절이 모두 있어야 시작됩니다. 차트 범위 손절은 후속 단계에서 이 기본 손절을 대체합니다.
+            </p>
           </div>
 
           {/* 에러 */}

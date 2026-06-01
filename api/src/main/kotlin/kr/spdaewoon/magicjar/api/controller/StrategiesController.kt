@@ -91,6 +91,7 @@ class StrategiesController(
                 exitText = req.exit,
                 codes = req.codes,
                 intervals = req.intervals,
+                stopLossPct = req.stopLossPct,
                 takeProfitPct = req.takeProfitPct,
                 requireCodes = true,
             )
@@ -196,6 +197,7 @@ class StrategiesController(
                 exitText = req.exit,
                 codes = req.codes,
                 intervals = req.intervals,
+                stopLossPct = req.stopLossPct,
                 takeProfitPct = req.takeProfitPct,
                 requireCodes = true,
             )
@@ -294,12 +296,7 @@ class StrategiesController(
     }
 
     private fun toDetailResponse(strategy: Strategy): StrategyDetailResponse {
-        val activationBlockedReason =
-            if (strategy.status == StrategyStatus.ACTIVE) {
-                null
-            } else {
-                strategyService.activationBlockedReason(strategy)
-            }
+        val activationBlockedReason = strategyService.activationBlockedReason(strategy)
         return StrategyDetailResponse(
             id = strategy.id ?: 0L,
             userId = strategy.userId,
@@ -307,6 +304,7 @@ class StrategiesController(
             nameKo = strategy.definition.dsl.nameKo ?: "",
             universe = strategy.definition.universe.market,
             tf = strategy.definition.tf,
+            stopLossPct = strategy.definition.fixedStopLoss,
             takeProfitPct = strategy.definition.takeProfitPct,
             codes = strategy.codes,
             codeNames = codeNamesFor(strategy.codes),
@@ -367,6 +365,8 @@ data class StrategyCreateRequest(
     val universe: String = "KOSPI",
     @field:Schema(description = "타임프레임 (D1·5m·15m 등)", example = "D1")
     val tf: String = "D1",
+    @field:Schema(description = "자동매매 hard stop 손절 비율 (%)", example = "5.00")
+    val stopLossPct: BigDecimal? = null,
     @field:Schema(description = "보유 포지션 평가 수익률 기준 익절 비율 (%)", example = "5.00")
     val takeProfitPct: BigDecimal? = null,
     @field:Schema(description = "감시 종목 코드 목록", example = "[\"005930\"]")
@@ -391,6 +391,8 @@ data class StrategyUpdateRequest(
     val universe: String = "KOSPI",
     @field:Schema(description = "타임프레임", example = "D1")
     val tf: String = "D1",
+    @field:Schema(description = "자동매매 hard stop 손절 비율 (%)", example = "5.00")
+    val stopLossPct: BigDecimal? = null,
     @field:Schema(description = "보유 포지션 평가 수익률 기준 익절 비율 (%)", example = "5.00")
     val takeProfitPct: BigDecimal? = null,
     @field:Schema(description = "감시 종목 코드 목록", example = "[\"005930\"]")
@@ -424,6 +426,8 @@ data class StrategyDetailResponse(
     val universe: String,
     @field:Schema(description = "타임프레임", example = "D1")
     val tf: String,
+    @field:Schema(description = "자동매매 hard stop 손절 비율 (%)", example = "5.00")
+    val stopLossPct: BigDecimal? = null,
     @field:Schema(description = "보유 포지션 평가 수익률 기준 익절 비율 (%)", example = "5.00")
     val takeProfitPct: BigDecimal? = null,
     @field:Schema(description = "감시 종목 코드 목록", example = "[\"005930\"]")

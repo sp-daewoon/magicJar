@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>부자될꼬야 자동매매 RiskPlan 설계도</title>
+<style>
+  :root {
+    --bg: #0b0f17;
+    --panel: #121826;
+    --panel2: #182033;
+    --panel3: #0f1624;
+    --line: #273247;
+    --line2: #38465f;
+    --text: #edf2ff;
+    --muted: #9ba8bf;
+    --dim: #748198;
+    --buy: #21c17a;
+    --sell: #f87171;
+    --warn: #f5b84b;
+    --info: #64a6ff;
+    --purple: #b794f4;
+    --cyan: #40d9d0;
+    --danger: #ff5b6e;
+    --okbg: rgba(33, 193, 122, .12);
+    --dangerbg: rgba(255, 91, 110, .12);
+    --warnbg: rgba(245, 184, 75, .12);
+    --infobg: rgba(100, 166, 255, .12);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Segoe UI", sans-serif;
+    line-height: 1.62;
+    font-size: 15px;
+  }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 34px 22px 88px; }
+  h1 { margin: 0 0 8px; font-size: 30px; letter-spacing: 0; line-height: 1.25; }
+  h2 { margin: 44px 0 16px; padding-bottom: 9px; border-bottom: 1px solid var(--line); font-size: 21px; letter-spacing: 0; }
+  h3 { margin: 0 0 9px; font-size: 16px; letter-spacing: 0; }
+  p { margin: 8px 0; }
+  code {
+    background: #090d14;
+    border: 1px solid var(--line);
+    color: #d9e4ff;
+    border-radius: 6px;
+    padding: 2px 6px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+  }
+  .sub { color: var(--muted); font-size: 13.5px; }
+  .lede { max-width: 980px; color: #cbd5e8; font-size: 16px; }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .pill.ok { color: #72e8ad; background: var(--okbg); border-color: rgba(33, 193, 122, .25); }
+  .pill.danger { color: #ff9ba7; background: var(--dangerbg); border-color: rgba(255, 91, 110, .25); }
+  .pill.warn { color: #ffd58a; background: var(--warnbg); border-color: rgba(245, 184, 75, .25); }
+  .pill.info { color: #a9cfff; background: var(--infobg); border-color: rgba(100, 166, 255, .25); }
+  .grid { display: grid; gap: 14px; }
+  .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  @media (max-width: 980px) {
+    .grid.two, .grid.three, .grid.four { grid-template-columns: 1fr; }
+  }
+  .card, .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 17px 18px;
+  }
+  .card.strong { border-color: rgba(183, 148, 244, .42); background: #17182b; }
+  .card.danger { border-color: rgba(255, 91, 110, .42); background: #1d1420; }
+  .card.ok { border-color: rgba(33, 193, 122, .38); background: #102019; }
+  .k { color: var(--muted); font-size: 12px; margin-bottom: 5px; }
+  .v { font-size: 24px; font-weight: 800; line-height: 1.2; letter-spacing: 0; }
+  .note {
+    margin: 13px 0;
+    padding: 12px 14px;
+    border-left: 3px solid var(--purple);
+    background: rgba(183, 148, 244, .07);
+    border-radius: 0 9px 9px 0;
+    color: #d5dcf0;
+  }
+  .note.warn { border-left-color: var(--warn); background: rgba(245, 184, 75, .08); }
+  .note.danger { border-left-color: var(--danger); background: rgba(255, 91, 110, .08); }
+  .flow {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(128px, 1fr));
+    gap: 9px;
+    align-items: stretch;
+    margin-top: 15px;
+  }
+  .flow .box {
+    position: relative;
+    background: var(--panel2);
+    border: 1px solid var(--line2);
+    border-radius: 10px;
+    padding: 13px 12px 14px;
+    min-height: 138px;
+  }
+  .flow .box:after {
+    content: ">";
+    position: absolute;
+    right: -9px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--dim);
+    font-family: "SF Mono", Menlo, monospace;
+    font-weight: 800;
+  }
+  .flow .box:last-child:after { content: ""; }
+  .flow .num { color: var(--dim); font-size: 11px; font-weight: 800; letter-spacing: 1px; }
+  .flow .title { margin-top: 4px; font-size: 14px; font-weight: 800; }
+  .flow .desc { margin-top: 6px; color: var(--muted); font-size: 12.5px; }
+  @media (max-width: 1100px) {
+    .flow { grid-template-columns: 1fr; }
+    .flow .box:after { content: "v"; right: 50%; top: auto; bottom: -19px; transform: translateX(50%); }
+  }
+  .chart {
+    position: relative;
+    height: 360px;
+    margin: 8px 0 2px;
+    background:
+      linear-gradient(to bottom, transparent 0, transparent 19%, rgba(255,255,255,.05) 19%, rgba(255,255,255,.05) 20%, transparent 20%, transparent 39%, rgba(255,255,255,.05) 39%, rgba(255,255,255,.05) 40%, transparent 40%, transparent 59%, rgba(255,255,255,.05) 59%, rgba(255,255,255,.05) 60%, transparent 60%, transparent 79%, rgba(255,255,255,.05) 79%, rgba(255,255,255,.05) 80%, transparent 80%),
+      linear-gradient(180deg, #111a2b, #0c111b);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .axis { position: absolute; right: 12px; color: var(--dim); font-size: 12px; font-family: "SF Mono", Menlo, monospace; }
+  .axis.a1 { top: 24px; } .axis.a2 { top: 102px; } .axis.a3 { top: 180px; } .axis.a4 { top: 258px; }
+  .line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    border-top: 2px dashed;
+  }
+  .line.entry { top: 150px; border-color: var(--info); }
+  .line.stop { top: 238px; border-color: var(--danger); }
+  .line.tp { top: 61px; border-color: var(--buy); }
+  .line.range { top: 214px; border-color: var(--warn); opacity: .95; }
+  .label {
+    position: absolute;
+    left: 18px;
+    transform: translateY(-50%);
+    padding: 5px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 800;
+    border: 1px solid;
+    background: rgba(10, 14, 22, .88);
+  }
+  .label.entry { top: 150px; color: #afd1ff; border-color: rgba(100,166,255,.55); }
+  .label.stop { top: 238px; color: #ffb1ba; border-color: rgba(255,91,110,.55); }
+  .label.tp { top: 61px; color: #8df0bb; border-color: rgba(33,193,122,.55); }
+  .label.range { top: 214px; color: #ffd58a; border-color: rgba(245,184,75,.55); }
+  .zone {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 214px;
+    height: 24px;
+    background: rgba(245,184,75,.11);
+    border-top: 1px solid rgba(245,184,75,.35);
+    border-bottom: 1px solid rgba(245,184,75,.35);
+  }
+  .candle {
+    position: absolute;
+    bottom: 0;
+    width: 11px;
+    border-radius: 3px 3px 2px 2px;
+  }
+  .candle:before {
+    content: "";
+    position: absolute;
+    left: 5px;
+    width: 1px;
+    top: -18px;
+    height: calc(100% + 36px);
+    background: currentColor;
+    opacity: .8;
+  }
+  .candle.g { background: var(--buy); color: var(--buy); }
+  .candle.r { background: var(--sell); color: var(--sell); }
+  .entry-dot {
+    position: absolute;
+    left: 45%;
+    top: 140px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--info);
+    box-shadow: 0 0 0 7px rgba(100,166,255,.16);
+  }
+  .riskbox {
+    position: absolute;
+    left: 48%;
+    top: 61px;
+    width: 22%;
+    height: 177px;
+    border-left: 2px solid rgba(255,255,255,.25);
+    border-right: 2px solid rgba(255,255,255,.25);
+  }
+  .riskbox .up, .riskbox .down {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 800;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+  .riskbox .up { top: 28px; color: #86efac; }
+  .riskbox .down { bottom: 24px; color: #ff9ba7; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13.5px; }
+  th, td { text-align: left; padding: 10px 11px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-size: 12.5px; background: var(--panel2); font-weight: 700; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: "SF Mono", Menlo, monospace; }
+  .formula {
+    margin: 12px 0;
+    background: #090d14;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 15px 17px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13.5px;
+    line-height: 1.9;
+    color: #dbe6ff;
+  }
+  .formula .res { color: #75e6ad; font-weight: 800; }
+  .formula .warn { color: #ffd58a; font-weight: 800; }
+  .stack { display: flex; flex-direction: column; gap: 9px; }
+  .rule {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 10px;
+    align-items: start;
+    padding: 11px 12px;
+    background: var(--panel3);
+    border: 1px solid var(--line);
+    border-radius: 9px;
+  }
+  .rule .name { font-weight: 800; color: #dfe7fa; }
+  .rule .body { color: var(--muted); font-size: 13.5px; }
+  @media (max-width: 720px) {
+    .rule { grid-template-columns: 1fr; }
+    .chart { height: 420px; }
+  }
+  .ladder { display: grid; gap: 10px; }
+  .ladder .item {
+    display: grid;
+    grid-template-columns: 34px 1fr auto;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--panel2);
+    border: 1px solid var(--line);
+  }
+  .badge {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-weight: 900;
+    background: rgba(100,166,255,.13);
+    color: #a9cfff;
+    border: 1px solid rgba(100,166,255,.28);
+  }
+  .decision {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .decision .yes { border-color: rgba(33,193,122,.42); }
+  .decision .no { border-color: rgba(255,91,110,.45); }
+  @media (max-width: 900px) { .decision { grid-template-columns: 1fr; } }
+  .footer { margin-top: 52px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--dim); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>부자될꼬야 자동매매 RiskPlan 설계도</h1>
+  <p class="sub">작성일: 2026-06-01 KST · 목적: 자동매매가 매수하기 전에 손절가·익절가·위험금액을 반드시 확정하도록 만드는 정책/화면/엔진 설계</p>
+  <p class="lede">
+    자동매매에서 제일 위험한 순간은 <b>매수 버튼이 눌리는 순간</b>입니다.
+    매수 조건이 아무리 좋아도, 그 주문이 틀렸을 때 어디서 나올지 정해져 있지 않으면 시스템은 돈을 버는 장치가 아니라 손실을 방치하는 장치가 됩니다.
+    이 문서는 magicJar가 가져야 할 최소 안정성과 수익 확장성을 함께 만족하는 RiskPlan 구조를 눈으로 볼 수 있게 정리합니다.
+  </p>
+
+  <div class="grid four" style="margin-top:18px">
+    <div class="card danger">
+      <div class="k">현재 위험</div>
+      <div class="v">BUY 먼저</div>
+      <p class="sub">신호가 좋으면 주문이 먼저 나가고, 손절/익절은 전략별 옵션처럼 뒤따르는 구조가 될 수 있음.</p>
+    </div>
+    <div class="card strong">
+      <div class="k">목표 정책</div>
+      <div class="v">Plan 먼저</div>
+      <p class="sub">손절가, 익절가, 1회 손실금액, 수량 계산이 끝나야 매수 주문 생성.</p>
+    </div>
+    <div class="card ok">
+      <div class="k">최소 방어선</div>
+      <div class="v">-5%</div>
+      <p class="sub">전략이 별도 손절 기준을 못 만들면 매수가 기준 -5% hard stop을 기본 적용.</p>
+    </div>
+    <div class="card">
+      <div class="k">수익 확장</div>
+      <div class="v">2R+</div>
+      <p class="sub">손절폭 1R 대비 최소 1.5~2R 이상의 익절 후보가 있을 때만 진입.</p>
+    </div>
+  </div>
+
+  <div class="note danger">
+    <b>결론:</b> 자동매매의 BUY는 더 이상 단순히 "조건이 맞았다"로 실행되면 안 됩니다.
+    <b>조건이 맞았다 + 손절 위치가 있다 + 익절 위치가 있다 + 손실 허용금액으로 수량이 계산됐다 + 실시간 데이터가 살아 있다</b>가 모두 참일 때만 주문을 내야 합니다.
+  </div>
+
+  <h2>1. 바뀌어야 할 핵심 흐름</h2>
+  <div class="flow">
+    <div class="box">
+      <div class="num">STEP 1</div>
+      <div class="title">매수 신호</div>
+      <div class="desc">FVG, OB, MA, RSI, 스크리너 후보 등 기존 전략 엔진이 BUY 후보를 만듭니다.</div>
+    </div>
+    <div class="box">
+      <div class="num">STEP 2</div>
+      <div class="title">데이터 준비</div>
+      <div class="desc">KIS WS 현재가/호가/진행봉 close, 캔들 gap fill, stale 여부를 먼저 확인합니다.</div>
+    </div>
+    <div class="box">
+      <div class="num">STEP 3</div>
+      <div class="title">손절가 확정</div>
+      <div class="desc">차트 범위 이탈, OB/FVG 무효화, ATR, 또는 기본 -5% 중 하나로 hard stop을 정합니다.</div>
+    </div>
+    <div class="box">
+      <div class="num">STEP 4</div>
+      <div class="title">익절가 확정</div>
+      <div class="desc">최소 R:R을 만족하는 목표가, 부분익절, trailing plan을 정합니다.</div>
+    </div>
+    <div class="box">
+      <div class="num">STEP 5</div>
+      <div class="title">수량 계산</div>
+      <div class="desc">투입금 기준이 아니라 "손절 맞으면 얼마 잃나" 기준으로 수량을 계산합니다.</div>
+    </div>
+    <div class="box">
+      <div class="num">STEP 6</div>
+      <div class="title">주문 게이트</div>
+      <div class="desc">포지션 한도, 중복 주문, 가용 수량, KIS rate limit, killswitch를 통과해야 합니다.</div>
+    </div>
+    <div class="box">
+      <div class="num">STEP 7</div>
+      <div class="title">보호 플랜 감시</div>
+      <div class="desc">체결 후 stop/take-profit/OCO 상태를 만들고 WS tick으로 계속 감시합니다.</div>
+    </div>
+  </div>
+
+  <h2>2. 차트에서 손절가가 생기는 모습</h2>
+  <div class="grid two">
+    <div class="panel">
+      <div class="chart">
+        <div class="zone"></div>
+        <div class="line tp"></div><div class="label tp">익절 목표 +10% 또는 2R</div>
+        <div class="line entry"></div><div class="label entry">매수 예정가 100,000</div>
+        <div class="line range"></div><div class="label range">사용자 지정 지지 범위 하단</div>
+        <div class="line stop"></div><div class="label stop">Hard Stop 95,000</div>
+        <div class="axis a1">110,000</div>
+        <div class="axis a2">100,000</div>
+        <div class="axis a3">95,000</div>
+        <div class="axis a4">90,000</div>
+        <div class="entry-dot"></div>
+        <div class="riskbox"><div class="up">+2R</div><div class="down">-1R</div></div>
+        <div class="candle g" style="left:7%; height:64px; bottom:128px"></div>
+        <div class="candle g" style="left:13%; height:78px; bottom:140px"></div>
+        <div class="candle r" style="left:19%; height:51px; bottom:124px"></div>
+        <div class="candle g" style="left:25%; height:92px; bottom:132px"></div>
+        <div class="candle r" style="left:31%; height:60px; bottom:112px"></div>
+        <div class="candle g" style="left:37%; height:88px; bottom:124px"></div>
+        <div class="candle g" style="left:43%; height:72px; bottom:136px"></div>
+        <div class="candle r" style="left:49%; height:58px; bottom:118px"></div>
+        <div class="candle g" style="left:55%; height:96px; bottom:138px"></div>
+        <div class="candle g" style="left:61%; height:86px; bottom:152px"></div>
+        <div class="candle r" style="left:67%; height:70px; bottom:142px"></div>
+        <div class="candle g" style="left:73%; height:104px; bottom:158px"></div>
+      </div>
+      <p class="sub">차트 범위 손절은 사용자가 지지 구간, OB 하단, FVG 하단, 전저점 같은 범위를 지정했을 때 사용합니다. 이 범위 하단을 깨면 "이 매수 아이디어가 틀렸다"고 판단합니다.</p>
+    </div>
+    <div class="panel">
+      <h3>손절가 결정 우선순위</h3>
+      <div class="stack">
+        <div class="rule">
+          <div class="name"><span class="pill info">1순위</span></div>
+          <div class="body"><b>차트 범위 이탈</b>: 사용자가 드래그한 지지/수요/OB/FVG 범위 하단을 hard stop으로 사용. "이 범위를 깨면 내 매수 근거가 사라진다"는 기준.</div>
+        </div>
+        <div class="rule">
+          <div class="name"><span class="pill info">2순위</span></div>
+          <div class="body"><b>전략 무효화 지점</b>: FVG 매수면 FVG 하단 이탈, OrderBlock 매수면 OB 하단 이탈, 추세선 매수면 추세선 이탈 등.</div>
+        </div>
+        <div class="rule">
+          <div class="name"><span class="pill info">3순위</span></div>
+          <div class="body"><b>변동성 손절</b>: ATR 기반. 변동성이 큰 종목은 너무 짧은 -5%가 노이즈일 수 있으므로 ATR x N으로 보정.</div>
+        </div>
+        <div class="rule">
+          <div class="name"><span class="pill warn">기본값</span></div>
+          <div class="body"><b>매수가 기준 -5%</b>: 어떤 지표도 손절 위치를 못 만들면 자동으로 적용. 단, 사용자가 전략별로 -3%, -7% 등 변경 가능.</div>
+        </div>
+      </div>
+      <div class="note warn">
+        <b>중요:</b> 모든 지표가 "차트 범위"를 갖지는 않습니다. 그래서 magicJar는 범위형 지표에는 범위 이탈 손절을 쓰고, 범위가 없는 전략에는 최소 percent stop을 강제해야 합니다.
+      </div>
+    </div>
+  </div>
+
+  <h2>3. RiskPlan 필수 항목</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>항목</th>
+        <th>필수 여부</th>
+        <th>예시</th>
+        <th>없을 때 동작</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><b>Entry Basis</b><br><span class="sub">진입 기준가</span></td>
+        <td><span class="pill ok">필수</span></td>
+        <td>현재가, 지정가, 다음 1분봉 시가, 돌파가</td>
+        <td><span class="pill danger">BUY 차단</span></td>
+      </tr>
+      <tr>
+        <td><b>Stop Loss</b><br><span class="sub">손절 기준</span></td>
+        <td><span class="pill ok">필수</span></td>
+        <td>차트 범위 하단, OB/FVG 무효화, ATR, -5%</td>
+        <td><span class="pill danger">BUY 차단</span></td>
+      </tr>
+      <tr>
+        <td><b>Take Profit</b><br><span class="sub">익절 기준</span></td>
+        <td><span class="pill ok">필수</span></td>
+        <td>2R 목표가, +8%, 저항선, 부분익절 + trailing</td>
+        <td><span class="pill danger">BUY 차단</span></td>
+      </tr>
+      <tr>
+        <td><b>Risk Per Trade</b><br><span class="sub">1회 최대 손실</span></td>
+        <td><span class="pill ok">필수</span></td>
+        <td>총 자산의 0.5%, 1%, 또는 50,000원</td>
+        <td><span class="pill danger">BUY 차단</span></td>
+      </tr>
+      <tr>
+        <td><b>Min Reward/Risk</b><br><span class="sub">최소 손익비</span></td>
+        <td><span class="pill ok">필수</span></td>
+        <td>1.5R 이상, 권장 2R 이상</td>
+        <td><span class="pill danger">BUY 차단</span></td>
+      </tr>
+      <tr>
+        <td><b>Protection Mode</b><br><span class="sub">감시 방식</span></td>
+        <td><span class="pill ok">필수</span></td>
+        <td>tick hard stop, 1m close stop, trailing, OCO</td>
+        <td><span class="pill danger">BUY 차단</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>4. 수량은 "투입금"이 아니라 "손실 허용금액"으로 계산</h2>
+  <div class="grid two">
+    <div class="panel">
+      <h3>예시 A: 기본 -5% 손절</h3>
+      <div class="formula">
+entry = 100,000원<br>
+stop = 95,000원 <span class="warn">(-5%)</span><br>
+risk_per_share = 100,000 - 95,000 = <span class="res">5,000원</span><br>
+max_loss_per_trade = 50,000원<br>
+qty = floor(50,000 / 5,000) = <span class="res">10주</span><br>
+capital_used = 100,000 * 10 = 1,000,000원
+      </div>
+      <p class="sub">이 경우 손절이 맞아도 최대 손실은 약 50,000원입니다. 포지션 한도 1,000,000원과도 자연스럽게 맞습니다.</p>
+    </div>
+    <div class="panel">
+      <h3>예시 B: 차트 범위 손절</h3>
+      <div class="formula">
+entry = 100,000원<br>
+chart_range_low = 97,500원<br>
+stop = 97,300원 <span class="warn">(범위 하단 - buffer)</span><br>
+risk_per_share = 2,700원<br>
+max_loss_per_trade = 50,000원<br>
+qty = floor(50,000 / 2,700) = <span class="res">18주</span><br>
+단, position_limit = 1,000,000원 이면 최종 qty = <span class="res">10주</span>
+      </div>
+      <p class="sub">손절폭이 좁으면 이론상 수량은 커지지만, 종목당 포지션 한도와 KIS 주문 가능금액이 다시 상한을 잡습니다.</p>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>핵심 공식:</b> <code>수량 = min(포지션한도기반수량, floor(1회허용손실 / |진입가 - 손절가|))</code>.
+    이 방식은 "얼마 살 수 있나"가 아니라 "틀렸을 때 얼마 잃나"를 먼저 정합니다.
+  </div>
+
+  <h2>5. 안정성과 수익성을 동시에 잡는 출구 설계</h2>
+  <div class="grid three">
+    <div class="card danger">
+      <h3>Hard Stop</h3>
+      <p>생존용 손절입니다. KIS WS 현재가/호가/tick 기준으로 감시하고, 가격이 손절선을 닿으면 즉시 시장가 또는 보수적 지정가 매도를 냅니다.</p>
+      <p class="sub">목표: 큰 손실 차단. 이건 선택이 아니라 필수.</p>
+    </div>
+    <div class="card ok">
+      <h3>Take Profit</h3>
+      <p>수익 실현 계획입니다. 최소 1.5R~2R 이상이어야 진입 허용. 예: 손절폭 5%면 익절 목표는 최소 +7.5~10%.</p>
+      <p class="sub">목표: 이기는 거래가 지는 거래를 충분히 덮도록 설계.</p>
+    </div>
+    <div class="card strong">
+      <h3>Trailing / Partial</h3>
+      <p>수익을 더 키우는 장치입니다. 1R 도달 시 절반 익절, 나머지는 손절가를 본전으로 올리고 trailing stop으로 따라갑니다.</p>
+      <p class="sub">목표: 안정성과 큰 수익 가능성을 동시에 확보.</p>
+    </div>
+  </div>
+
+  <h2>6. 주문 전 게이트: 이 중 하나라도 실패하면 매수 금지</h2>
+  <div class="ladder">
+    <div class="item"><div class="badge">1</div><div><b>데이터 신뢰</b><br><span class="sub">KIS WS 현재가/호가/진행봉 close가 stale이면 진입 금지. REST는 보강이고 장중 권위는 WS.</span></div><span class="pill danger">fail-closed</span></div>
+    <div class="item"><div class="badge">2</div><div><b>손절가 존재</b><br><span class="sub">차트 범위, 전략 무효화, ATR, 기본 -5% 중 하나가 반드시 계산되어야 함.</span></div><span class="pill danger">fail-closed</span></div>
+    <div class="item"><div class="badge">3</div><div><b>익절가 존재</b><br><span class="sub">고정 %, 2R 목표, 저항선, 부분익절/trailing 등 최소 수익 계획이 있어야 함.</span></div><span class="pill danger">fail-closed</span></div>
+    <div class="item"><div class="badge">4</div><div><b>손익비 통과</b><br><span class="sub">익절까지 기대수익 / 손절까지 위험이 최소 1.5 이상, 권장 2.0 이상.</span></div><span class="pill warn">BLOCK</span></div>
+    <div class="item"><div class="badge">5</div><div><b>수량 계산 가능</b><br><span class="sub">손절폭이 0이거나 너무 작아 비정상 수량이면 진입 금지. 최종 수량은 1주 이상이어야 함.</span></div><span class="pill warn">BLOCK</span></div>
+    <div class="item"><div class="badge">6</div><div><b>포지션/주문 정합</b><br><span class="sub">이미 같은 종목/전략의 미체결 주문이 있으면 중복 진입 금지. 매도는 가용수량 기준.</span></div><span class="pill warn">BLOCK</span></div>
+    <div class="item"><div class="badge">7</div><div><b>운영 게이트</b><br><span class="sub">killswitch, KIS rate limit, 계좌 조회 실패, gap fill 미완료, 자동매매 readiness 미완료 시 진입 금지.</span></div><span class="pill danger">fail-closed</span></div>
+  </div>
+
+  <h2>7. 전략빌더 화면에서 사용자가 보게 될 구조</h2>
+  <div class="grid two">
+    <div class="panel">
+      <h3>전략 저장 화면</h3>
+      <div class="stack">
+        <div class="rule"><div class="name">매수 조건</div><div class="body">예: <code>fvg_bullish_active(50) == 1 AND close &gt; ma(20)</code></div></div>
+        <div class="rule"><div class="name">손절 설정</div><div class="body">기본: <b>매수가 -5%</b>. 선택: 차트 범위 하단, FVG/OB 무효화, ATR x 2, 전저점 이탈.</div></div>
+        <div class="rule"><div class="name">익절 설정</div><div class="body">기본: <b>2R</b>. 선택: +5%, +10%, 저항선, 1R 절반 익절 + trailing.</div></div>
+        <div class="rule"><div class="name">손실 한도</div><div class="body">1회 거래당 총 자산 0.5~1% 또는 고정금액. 예: 50,000원.</div></div>
+        <div class="rule"><div class="name">미리보기</div><div class="body">현재가 기준 예상 진입가, 손절가, 익절가, 예상 수량, 최대 손실, 예상 수익을 표시.</div></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>전략 목록 / 자동매매 시작 버튼</h3>
+      <div class="decision">
+        <div class="card yes">
+          <p><span class="pill ok">시작 가능</span></p>
+          <p><b>삼성전자(005930)</b></p>
+          <p class="sub">손절: 95,000원 (-5%)<br>익절: 110,000원 (2R)<br>1회 위험: 50,000원<br>예상 수량: 10주</p>
+        </div>
+        <div class="card no">
+          <p><span class="pill danger">자동매매 차단</span></p>
+          <p><b>SK하이닉스(000660)</b></p>
+          <p class="sub">손절가 없음<br>익절가 없음<br>백테스트 미검증<br>데이터 readiness 미완료</p>
+        </div>
+      </div>
+      <div class="note warn">
+        사용자가 "자동매매 시작"을 눌렀는데 RiskPlan이 없으면 모호한 Conflict가 아니라
+        <b>"손절/익절 설정이 없어 자동매매를 시작할 수 없습니다"</b>처럼 명확히 보여야 합니다.
+      </div>
+    </div>
+  </div>
+
+  <h2>8. 구현 단위 제안</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>순서</th>
+        <th>구현</th>
+        <th>이유</th>
+        <th>검증</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><b>1</b></td>
+        <td>SELL 가용수량 게이트</td>
+        <td>현재 발견된 반복 매도 거절 문제부터 막음. 보유수량 - 미체결 매도수량 기준.</td>
+        <td>ACK 매도 주문 존재 시 추가 SELL 차단</td>
+      </tr>
+      <tr>
+        <td><b>2</b></td>
+        <td>RiskPlan 도메인/ADR</td>
+        <td>손절/익절 필수 정책은 자동매매 방향을 바꾸는 결정이라 기록 필요.</td>
+        <td>정책 문서 + ADR + task 완료</td>
+      </tr>
+      <tr>
+        <td><b>3</b></td>
+        <td>전략 저장 시 RiskPlan 필드</td>
+        <td>fixed %, chart range, ATR, OB/FVG invalidation, R-multiple을 저장.</td>
+        <td>전략 저장/조회 API, migration</td>
+      </tr>
+      <tr>
+        <td><b>4</b></td>
+        <td>자동매매 activation gate</td>
+        <td>RiskPlan이 없는 전략은 ACTIVE/자동매매 시작 불가.</td>
+        <td>명확한 UI 사유 표시</td>
+      </tr>
+      <tr>
+        <td><b>5</b></td>
+        <td>진입 전 수량 계산 교체</td>
+        <td>포지션 한도만이 아니라 1회 허용손실/손절폭 기준 수량 계산.</td>
+        <td>예상 최대손실이 설정값 이하인지 테스트</td>
+      </tr>
+      <tr>
+        <td><b>6</b></td>
+        <td>체결 후 보호 플랜 감시</td>
+        <td>KIS 국내주식에서 서버사이드 stop이 제한적일 수 있어 내부 WS trigger/OCO 관리 필요.</td>
+        <td>WS tick 도달 시 stop/TP 매도 1회만 발행</td>
+      </tr>
+      <tr>
+        <td><b>7</b></td>
+        <td>차트 RiskPlan 편집 UX</td>
+        <td>사용자가 차트에서 범위를 지정하고 "이탈 시 손절"로 저장할 수 있어야 함.</td>
+        <td>모바일/데스크톱 차트 overlay 검증</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>9. 최종 정책 문장</h2>
+  <div class="panel">
+    <p><b>magicJar 자동매매는 손절가와 익절가가 없는 BUY 주문을 생성하지 않는다.</b></p>
+    <p class="sub">
+      모든 BUY intent는 RiskPlan을 가져야 하며, RiskPlan은 진입가, 손절가, 익절가, 1회 허용손실, 최소 손익비, 보호 감시 방식을 포함한다.
+      RiskPlan이 불완전하거나 실시간 데이터가 stale이면 전략 평가는 가능하지만 주문은 fail-closed로 차단한다.
+      체결 이후에는 stop-loss와 take-profit이 OCO 성격의 보호 플랜으로 추적되어, 하나가 발동되면 반대편 계획은 무효화된다.
+    </p>
+  </div>
+
+  <div class="footer">
+    Source context: ADR 0067 Risk Gateway, position-aware exit policy, current strategy/order flow investigation on 2026-06-01.
+  </div>
+</div>
+</body>
+</html>

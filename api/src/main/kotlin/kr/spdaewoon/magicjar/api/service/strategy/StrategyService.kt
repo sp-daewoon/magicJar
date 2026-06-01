@@ -104,12 +104,16 @@ class StrategyService(
         exitText: String?,
         codes: List<String> = emptyList(),
         intervals: List<String> = emptyList(),
+        stopLossPct: BigDecimal? = null,
         takeProfitPct: BigDecimal? = null,
         requireCodes: Boolean = false,
     ): Strategy {
         val entryComplexity = validateAndComputeComplexity(entryAst)
         val exitComplexity = exitAst?.let { validateAndComputeComplexity(it) }
         val combinedComplexity = mergeComplexity(entryComplexity, exitComplexity)
+        val normalizedStopLossPct = normalizeStopLossPct(stopLossPct)
+        val normalizedTakeProfitPct = normalizeTakeProfitPct(takeProfitPct)
+        validateRiskReward(normalizedStopLossPct, normalizedTakeProfitPct)
 
         val dsl =
             DslStrategyDefinition(
@@ -125,7 +129,8 @@ class StrategyService(
                 dsl = dsl,
                 universe = universe,
                 tf = tf,
-                takeProfitPct = normalizeTakeProfitPct(takeProfitPct),
+                fixedStopLoss = normalizedStopLossPct,
+                takeProfitPct = normalizedTakeProfitPct,
             )
         val normalizedCodes = normalizeCodes(codes, requireCodes)
         val strategy =
@@ -155,6 +160,7 @@ class StrategyService(
         exitText: String?,
         codes: List<String> = emptyList(),
         intervals: List<String> = emptyList(),
+        stopLossPct: BigDecimal? = null,
         takeProfitPct: BigDecimal? = null,
         requireCodes: Boolean = false,
     ): Strategy {
@@ -168,6 +174,9 @@ class StrategyService(
         val entryComplexity = validateAndComputeComplexity(entryAst)
         val exitComplexity = exitAst?.let { validateAndComputeComplexity(it) }
         val combinedComplexity = mergeComplexity(entryComplexity, exitComplexity)
+        val normalizedStopLossPct = normalizeStopLossPct(stopLossPct)
+        val normalizedTakeProfitPct = normalizeTakeProfitPct(takeProfitPct)
+        validateRiskReward(normalizedStopLossPct, normalizedTakeProfitPct)
         val dsl =
             DslStrategyDefinition(
                 name = name,
@@ -185,7 +194,8 @@ class StrategyService(
                         dsl = dsl,
                         universe = universe,
                         tf = tf,
-                        takeProfitPct = normalizeTakeProfitPct(takeProfitPct),
+                        fixedStopLoss = normalizedStopLossPct,
+                        takeProfitPct = normalizedTakeProfitPct,
                     ),
                 complexity = combinedComplexity,
                 codes = normalizedCodes,
@@ -208,6 +218,9 @@ class StrategyService(
         }
         if (normalizeIntervals(strategy.intervals, strategy.definition.tf).isEmpty()) {
             return "평가 인터벌이 없는 전략은 ACTIVE로 전환할 수 없습니다"
+        }
+        if (strategy.definition.fixedStopLoss == null || strategy.definition.takeProfitPct == null) {
+            return "손절/익절 RiskPlan이 없어 자동매매를 시작할 수 없습니다. 손절가와 익절가를 먼저 설정하세요"
         }
         val strategyId = strategy.id ?: return "저장되지 않은 전략은 ACTIVE로 전환할 수 없습니다"
         val ready = backtestRunJpaRepository.existsAutoActivationReadyRun(strategyId, strategy.userId.toString())
@@ -385,6 +398,23 @@ class StrategyService(
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "takeProfitPct는 0보다 커야 합니다")
         }
         return value
+    }
+
+    private fun normalizeStopLossPct(value: BigDecimal?): BigDecimal? {
+        if (value == null) return null
+        if (value <= BigDecimal.ZERO) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "stopLossPct는 0보다 커야 합니다")
+        }
+        return value
+    }
+
+    private fun validateRiskReward(
+        stopLossPct: BigDecimal?,
+        takeProfitPct: BigDecimal?,
+    ) {
+        if (stopLossPct != null && takeProfitPct != null && takeProfitPct <= stopLossPct) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "takeProfitPct는 stopLossPct보다 커야 합니다")
+        }
     }
 
     private data class AstStats(

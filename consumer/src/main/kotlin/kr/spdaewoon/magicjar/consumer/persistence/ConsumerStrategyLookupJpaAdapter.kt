@@ -65,6 +65,7 @@ class ConsumerStrategyLookupJpaAdapter(
                 dsl = dsl,
                 universe = Universe(market = entity.universeMarket),
                 tf = entity.tf,
+                fixedStopLoss = entity.fixedStopLossPct,
                 takeProfitPct = entity.takeProfitPct,
             )
         val complexity =

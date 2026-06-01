@@ -30,6 +30,7 @@ magicJar는 **메타 룰**을 두 층위로 분리한다:
 | **운영** | 모듈별 로그 레벨 | [logging-levels.md](logging-levels.md) | 중간 |
 | **운영** | Task 사이클 (start·check·done·archive) | [task-cycle.md](task-cycle.md) | 낮음 |
 | **운영** | Mermaid 작성 규약 (mermaid 10 호환) | [mermaid-conventions.md](mermaid-conventions.md) | 낮음 |
+| **자동매매** | BUY 전 손절/익절 RiskPlan 필수화 | [autotrading-risk-plan.md](autotrading-risk-plan.md) | 중간 |
 
 이후 추가 영역:
 

@@ -455,6 +455,7 @@ export function StrategyBuilderPage() {
           initialUniverse={loadedStrategy?.universe}
           initialTf={loadedStrategy?.intervals[0] ?? loadedStrategy?.tf}
           initialCode={loadedStrategy?.codes[0] ?? evalForm.code}
+          initialStopLossPct={loadedStrategy?.stopLossPct}
           initialTakeProfitPct={loadedStrategy?.takeProfitPct}
           onSaved={handleSaved}
           onClose={() => setShowSaveModal(false)}

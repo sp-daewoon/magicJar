@@ -57,12 +57,22 @@ data class RiskAlertMessage(
                         formula = "현재 보유 수량 0주 <= 0주",
                         setting = "포지션 정합성 가드",
                     )
+                RiskRule.SELL_QUANTITY_UNAVAILABLE ->
+                    sellQuantityUnavailable(context, code)
                 RiskRule.INVALID_SIGNAL_PRICE ->
                     RiskAlertMessage(
                         title = "비정상 신호 가격 차단",
                         message = "신호 가격이 0 이하라 주문 수량과 한도를 계산할 수 없습니다.",
                         formula = "신호 가격 ${money(contextText(context, "priceAtSignal"))} <= 0원",
                         setting = "시그널 가격 유효성 가드",
+                    )
+                RiskRule.RISK_PLAN_REQUIRED ->
+                    RiskAlertMessage(
+                        title = "손절/익절 RiskPlan 미설정 - 매수 주문 차단",
+                        message = "${codeLabel(code, context)} 자동매매 매수 전에 손절가와 익절가를 먼저 설정해야 합니다.",
+                        formula = "RiskPlan(stopLossPct, takeProfitPct) 모두 필요",
+                        setting = "전략 자동매매 RiskPlan",
+                        action = "전략 빌더에서 손절 기준과 익절 기준을 설정한 뒤 다시 자동매매를 시작하세요.",
                     )
                 RiskRule.INVALID_ORDER_INTENT ->
                     RiskAlertMessage(
@@ -114,6 +124,33 @@ data class RiskAlertMessage(
                 formula = formula,
                 setting = "A. 포지션 한도 - 절대 한도와 비율 한도 중 작은 값 적용",
                 action = "종목당 투자 한도를 높이거나, 신호 가격/보유 수량/총 자산 기준을 확인하세요.",
+            )
+        }
+
+        private fun sellQuantityUnavailable(
+            context: Map<String, Any?>,
+            code: String?,
+        ): RiskAlertMessage {
+            if (contextText(context, "source") == "KIS_BALANCE") {
+                return RiskAlertMessage(
+                    title = "KIS 잔고 매도 가능 수량 부족",
+                    message = "${codeLabel(code, context)} KIS 계좌 보유 수량이 주문 수량보다 적어 매도 주문을 내보내지 않았습니다.",
+                    formula =
+                        "KIS 보유 수량 ${contextText(context, "kisHoldingQty")}주 < " +
+                            "주문 예정 수량 ${contextText(context, "requestedQty")}주",
+                    setting = "KIS 잔고 정합성 가드",
+                    action = "KIS 잔고와 미체결 주문을 확인한 뒤 전략을 다시 실행하세요.",
+                )
+            }
+            return RiskAlertMessage(
+                title = "매도 가능 수량 부족 - 미체결 매도 주문 보호",
+                message = "${codeLabel(code, context)} 기존 미체결 매도 주문이 있어 추가 매도 주문을 내보내지 않았습니다.",
+                formula =
+                    "매도 가능 수량 = 보유 ${contextText(context, "holdingQty")}주 - " +
+                        "미체결 매도 ${contextText(context, "reservedSellQty")}주 = " +
+                        "${contextText(context, "availableSellQty")}주",
+                setting = "포지션 정합성 가드 - 미체결 주문 차감",
+                action = "기존 미체결 주문 체결/취소 상태를 확인한 뒤 다시 실행하세요.",
             )
         }
 
