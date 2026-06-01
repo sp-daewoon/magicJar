@@ -28,6 +28,8 @@ import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.server.ResponseStatusException
+import java.math.BigDecimal
+import java.time.Instant
 
 /**
  * 전략 서비스 — 등록·검증·조회·status 전환·auto-disable.
@@ -100,6 +102,9 @@ class StrategyService(
         tf: String,
         entryText: String,
         exitText: String?,
+        codes: List<String> = emptyList(),
+        intervals: List<String> = emptyList(),
+        takeProfitPct: BigDecimal? = null,
     ): Strategy {
         val entryComplexity = validateAndComputeComplexity(entryAst)
         val exitComplexity = exitAst?.let { validateAndComputeComplexity(it) }
@@ -119,6 +124,7 @@ class StrategyService(
                 dsl = dsl,
                 universe = universe,
                 tf = tf,
+                takeProfitPct = normalizeTakeProfitPct(takeProfitPct),
             )
         val strategy =
             Strategy(
@@ -126,10 +132,65 @@ class StrategyService(
                 definition = definition,
                 complexity = combinedComplexity,
                 status = StrategyStatus.PAUSED,
-                intervals = listOf(tf),
+                codes = normalizeCodes(codes),
+                intervals = normalizeIntervals(intervals, tf),
             )
         val saved = strategyRepositoryPort.save(strategy)
         log.info("전략 등록 완료: id={} userId={} complexity={}", saved.id, userId, combinedComplexity.complexityClass)
+        return saved
+    }
+
+    fun update(
+        id: Long,
+        userId: Long,
+        name: String,
+        nameKo: String?,
+        entryAst: DslNode,
+        exitAst: DslNode?,
+        universe: Universe,
+        tf: String,
+        entryText: String,
+        exitText: String?,
+        codes: List<String> = emptyList(),
+        intervals: List<String> = emptyList(),
+        takeProfitPct: BigDecimal? = null,
+    ): Strategy {
+        val existing =
+            strategyRepositoryPort.findById(id)
+                ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
+        if (existing.userId != userId) {
+            throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
+        }
+
+        val entryComplexity = validateAndComputeComplexity(entryAst)
+        val exitComplexity = exitAst?.let { validateAndComputeComplexity(it) }
+        val combinedComplexity = mergeComplexity(entryComplexity, exitComplexity)
+        val dsl =
+            DslStrategyDefinition(
+                name = name,
+                nameKo = nameKo ?: "",
+                buyCondition = entryAst,
+                sellCondition = exitAst,
+                buyConditionText = entryText,
+                sellConditionText = exitText,
+            )
+        val updated =
+            existing.copy(
+                definition =
+                    StrategyDefinition(
+                        dsl = dsl,
+                        universe = universe,
+                        tf = tf,
+                        takeProfitPct = normalizeTakeProfitPct(takeProfitPct),
+                    ),
+                complexity = combinedComplexity,
+                codes = normalizeCodes(codes),
+                intervals = normalizeIntervals(intervals, tf),
+                updatedAt = Instant.now(),
+            )
+        val saved = strategyRepositoryPort.save(updated)
+        redisStrategyCache.invalidateAll()
+        log.info("전략 수정 완료: id={} userId={} complexity={}", saved.id, userId, combinedComplexity.complexityClass)
         return saved
     }
 
@@ -275,6 +336,30 @@ class StrategyService(
                 "성공한 백테스트가 있어야 전략을 ACTIVE로 전환할 수 있습니다: id=$strategyId",
             )
         }
+    }
+
+    private fun normalizeCodes(codes: List<String>): List<String> =
+        codes
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+
+    private fun normalizeIntervals(
+        intervals: List<String>,
+        tf: String,
+    ): List<String> =
+        intervals
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .ifEmpty { listOf(tf) }
+            .distinct()
+
+    private fun normalizeTakeProfitPct(value: BigDecimal?): BigDecimal? {
+        if (value == null) return null
+        if (value <= BigDecimal.ZERO) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "takeProfitPct는 0보다 커야 합니다")
+        }
+        return value
     }
 
     private data class AstStats(

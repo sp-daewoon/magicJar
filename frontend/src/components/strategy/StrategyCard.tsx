@@ -6,6 +6,7 @@
  * 실제 데이터만 표시 (feedback_no_mock_data 정합)
  */
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   type SigStrategyDto,
   type StrategyStatus,
@@ -176,6 +177,11 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
           <span className="text-orange-300">매도:</span> {strategy.sellCondition}
         </p>
       )}
+      {strategy.takeProfitPct !== null && strategy.takeProfitPct !== undefined && (
+        <p className="truncate rounded bg-gray-800/60 px-3 py-1.5 text-xs text-gray-300">
+          <span className="text-orange-300">보유 수익률 매도:</span> {Number(strategy.takeProfitPct).toLocaleString('ko-KR')}%
+        </p>
+      )}
 
       {/* 시그널 카운트 */}
       {strategy.recentSignalCount !== undefined && (
@@ -186,7 +192,14 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
       )}
 
       {/* 액션 버튼 */}
-      <div className="flex items-center gap-2 pt-1">
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        <Link
+          to={`/strategy/builder?strategyId=${strategy.id}`}
+          className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs font-medium text-blue-300 transition-colors hover:bg-blue-950/60 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-900"
+        >
+          빌더에서 수정
+        </Link>
+
         {/* 상태 토글 */}
         {isToggleable && (
           <button
@@ -250,6 +263,7 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
             status: strategy.status,
             buyCondition: strategy.buyCondition ?? null,
             sellCondition: strategy.sellCondition ?? null,
+            takeProfitPct: strategy.takeProfitPct ?? null,
             recentSignalCount: strategy.recentSignalCount ?? 0,
           }}
         />

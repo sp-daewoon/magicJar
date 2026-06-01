@@ -29,6 +29,7 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.server.ResponseStatusException
+import java.math.BigDecimal
 
 /**
  * 전략 REST 컨트롤러 Phase 2 — CRUD + status 토글 + reactivate (ADR 0066 §2-6 F-1).
@@ -58,7 +59,7 @@ class StrategiesController(
         description =
             "텍스트 DSL 1줄(예: `ma(5) crosses_above ma(20)`)을 등록합니다. " +
                 "ADR 0047 정합 — static 검증 후 complexity 응답. " +
-                "등록 후 status=ACTIVE 자동 설정.",
+                "등록 후 status=PAUSED로 시작하며 백테스트 준비 후 사용자가 ACTIVE로 전환합니다.",
     )
     @ApiResponses(
         ApiResponse(responseCode = "201", description = "전략 등록 성공 — strategyId + complexity 반환"),
@@ -86,6 +87,9 @@ class StrategiesController(
                 tf = req.tf,
                 entryText = req.entry,
                 exitText = req.exit,
+                codes = req.codes,
+                intervals = req.intervals,
+                takeProfitPct = req.takeProfitPct,
             )
         return toDetailResponse(strategy)
     }
@@ -176,7 +180,8 @@ class StrategiesController(
 
         val (entryAst, exitAst) = parseDslTexts(req.entry, req.exit)
         val strategy =
-            strategyService.create(
+            strategyService.update(
+                id = id,
                 userId = req.userId,
                 name = req.name,
                 nameKo = req.nameKo,
@@ -186,8 +191,11 @@ class StrategiesController(
                 tf = req.tf,
                 entryText = req.entry,
                 exitText = req.exit,
+                codes = req.codes,
+                intervals = req.intervals,
+                takeProfitPct = req.takeProfitPct,
             )
-        log.info("전략 수정: id={} → newId={}", id, strategy.id)
+        log.info("전략 수정: id={}", id)
         return toDetailResponse(strategy)
     }
 
@@ -289,6 +297,7 @@ class StrategiesController(
             nameKo = strategy.definition.dsl.nameKo ?: "",
             universe = strategy.definition.universe.market,
             tf = strategy.definition.tf,
+            takeProfitPct = strategy.definition.takeProfitPct,
             codes = strategy.codes,
             intervals = strategy.intervals.ifEmpty { listOf(strategy.definition.tf) },
             buyCondition = strategy.definition.dsl.buyConditionText,
@@ -337,6 +346,12 @@ data class StrategyCreateRequest(
     val universe: String = "KOSPI",
     @field:Schema(description = "타임프레임 (D1·5m·15m 등)", example = "D1")
     val tf: String = "D1",
+    @field:Schema(description = "보유 포지션 평가 수익률 기준 익절 비율 (%)", example = "5.00")
+    val takeProfitPct: BigDecimal? = null,
+    @field:Schema(description = "감시 종목 코드 목록", example = "[\"005930\"]")
+    val codes: List<String> = emptyList(),
+    @field:Schema(description = "감시 인터벌 목록", example = "[\"5m\"]")
+    val intervals: List<String> = emptyList(),
 )
 
 @Schema(description = "전략 수정 요청 (Phase 2)")
@@ -355,6 +370,12 @@ data class StrategyUpdateRequest(
     val universe: String = "KOSPI",
     @field:Schema(description = "타임프레임", example = "D1")
     val tf: String = "D1",
+    @field:Schema(description = "보유 포지션 평가 수익률 기준 익절 비율 (%)", example = "5.00")
+    val takeProfitPct: BigDecimal? = null,
+    @field:Schema(description = "감시 종목 코드 목록", example = "[\"005930\"]")
+    val codes: List<String> = emptyList(),
+    @field:Schema(description = "감시 인터벌 목록", example = "[\"5m\"]")
+    val intervals: List<String> = emptyList(),
 )
 
 @Schema(description = "전략 상태 전환 요청")
@@ -382,6 +403,8 @@ data class StrategyDetailResponse(
     val universe: String,
     @field:Schema(description = "타임프레임", example = "D1")
     val tf: String,
+    @field:Schema(description = "보유 포지션 평가 수익률 기준 익절 비율 (%)", example = "5.00")
+    val takeProfitPct: BigDecimal? = null,
     @field:Schema(description = "감시 종목 코드 목록", example = "[\"005930\"]")
     val codes: List<String> = emptyList(),
     @field:Schema(description = "감시 인터벌 목록", example = "[\"5m\"]")

@@ -165,6 +165,9 @@ class StrategyControllerTest {
                 tf = any(),
                 entryText = any(),
                 exitText = anyOrNull(),
+                codes = any(),
+                intervals = any(),
+                takeProfitPct = anyOrNull(),
             ),
         ).thenReturn(makeStrategy(1L))
 

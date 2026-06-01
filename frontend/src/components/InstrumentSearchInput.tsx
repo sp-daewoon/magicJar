@@ -20,6 +20,8 @@ interface InstrumentSearchInputProps {
   value: string
   /** 종목 선택 콜백 */
   onSelect: (result: InstrumentSearchResultDto) => void
+  /** 직접 입력 중인 원문 콜백 */
+  onRawChange?: (value: string) => void
   /** 비활성화 여부 */
   disabled?: boolean
   /** placeholder 텍스트 */
@@ -29,6 +31,7 @@ interface InstrumentSearchInputProps {
 export function InstrumentSearchInput({
   value,
   onSelect,
+  onRawChange,
   disabled = false,
   placeholder = '종목명 또는 코드 검색',
 }: InstrumentSearchInputProps) {
@@ -117,7 +120,9 @@ export function InstrumentSearchInput({
   )
 
   function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
-    setInputValue(e.target.value)
+    const next = e.target.value
+    setInputValue(next)
+    onRawChange?.(next)
     setServerErrorCount(0) // 새 입력 시 오류 카운터 리셋
   }
 
@@ -167,7 +172,10 @@ export function InstrumentSearchInput({
           ref={inputRef}
           type="text"
           value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
+          onChange={(e) => {
+            setInputValue(e.target.value)
+            onRawChange?.(e.target.value)
+          }}
           onBlur={() => {
             // raw mode에서 6자리 숫자면 fake result로 onSelect 호출
             const trimmed = inputValue.trim()

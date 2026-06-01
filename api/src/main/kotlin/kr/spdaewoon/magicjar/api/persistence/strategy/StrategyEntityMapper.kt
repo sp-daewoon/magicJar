@@ -61,6 +61,7 @@ object StrategyEntityMapper {
                 dsl = dsl,
                 universe = Universe(market = entity.universeMarket),
                 tf = entity.tf,
+                takeProfitPct = entity.takeProfitPct,
             )
         val complexity =
             StrategyComplexity(

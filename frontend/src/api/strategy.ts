@@ -18,7 +18,7 @@
  *   DELETE /api/strategies/{id}          soft 삭제 (status=DELETED)
  *   PUT    /api/strategies/{id}/status   ACTIVE/PAUSED/DISABLED 토글
  *
- * spec §3-3 모듈 인터페이스 동결 — backend 변경 0건
+ * 빌더 저장은 /api/strategies로 정렬해 전략 목록·자동매매 운영 흐름과 같은 저장소를 사용한다.
  * 룰 5: LLM provider import 0건
  */
 import apiClient from '../lib/axios'
@@ -190,6 +190,9 @@ export interface SigStrategyDto {
   buyCondition?: string
   /** sell_condition DSL */
   sellCondition?: string
+  /** 보유 포지션 평가 수익률 기준 익절 비율 (%) */
+  takeProfitPct?: number | string | null
+  complexity?: StrategyComplexityDto
   status: StrategyStatus
   /** 최근 7일 시그널 카운트 */
   recentSignalCount?: number
@@ -223,16 +226,30 @@ type SigStrategyBackendPage = Omit<Partial<SigStrategyPage>, 'content'> & {
 
 /** POST /api/strategies 요청 */
 export interface CreateSigStrategyRequest {
+  userId: number
   name: string
-  codes: string[]
-  intervals: string[]
+  nameKo?: string
+  entry?: string
+  exit?: string
+  universe?: string
+  tf?: string
+  takeProfitPct?: number | string | null
+  codes?: string[]
+  intervals?: string[]
   buyCondition?: string
   sellCondition?: string
 }
 
 /** PUT /api/strategies/{id} 요청 */
 export interface UpdateSigStrategyRequest {
-  name?: string
+  userId: number
+  name: string
+  nameKo?: string
+  entry?: string
+  exit?: string
+  universe?: string
+  tf?: string
+  takeProfitPct?: number | string | null
   codes?: string[]
   intervals?: string[]
   buyCondition?: string
@@ -265,7 +282,7 @@ export const sigStrategyApi = {
    * 신규 전략 생성
    */
   create: async (req: CreateSigStrategyRequest): Promise<SigStrategyDto> => {
-    const res = await apiClient.post<SigStrategyBackendDto>('/strategies', req)
+    const res = await apiClient.post<SigStrategyBackendDto>('/strategies', toSigStrategyRequestBody(req))
     return normalizeSigStrategy(res.data)
   },
 
@@ -274,7 +291,7 @@ export const sigStrategyApi = {
    * 전략 수정
    */
   update: async (id: string, req: UpdateSigStrategyRequest): Promise<SigStrategyDto> => {
-    const res = await apiClient.put<SigStrategyBackendDto>(`/strategies/${id}`, req)
+    const res = await apiClient.put<SigStrategyBackendDto>(`/strategies/${id}`, toSigStrategyRequestBody(req))
     return normalizeSigStrategy(res.data)
   },
 
@@ -294,6 +311,25 @@ export const sigStrategyApi = {
     const res = await apiClient.put<SigStrategyBackendDto>(`/strategies/${id}/status`, { status })
     return normalizeSigStrategy(res.data)
   },
+}
+
+function toSigStrategyRequestBody(req: CreateSigStrategyRequest | UpdateSigStrategyRequest) {
+  const entry = req.entry ?? req.buyCondition
+  if (!entry) {
+    throw new Error('매수 조건이 없습니다')
+  }
+  return {
+    userId: req.userId,
+    name: req.name,
+    nameKo: req.nameKo,
+    entry,
+    exit: req.exit ?? req.sellCondition,
+    universe: req.universe ?? 'KOSPI',
+    tf: req.tf ?? req.intervals?.[0] ?? '1d',
+    takeProfitPct: req.takeProfitPct ?? null,
+    codes: req.codes ?? [],
+    intervals: req.intervals ?? (req.tf ? [req.tf] : []),
+  }
 }
 
 function asStringArray(value: unknown): string[] {
@@ -334,10 +370,12 @@ function normalizeSigStrategy(raw: SigStrategyBackendDto): SigStrategyDto {
     nameKo: raw.nameKo,
     universe: raw.universe,
     tf,
+    takeProfitPct: raw.takeProfitPct ?? null,
     codes,
     intervals: intervals.length > 0 ? intervals : tf ? [tf] : [],
     buyCondition: raw.buyCondition ?? raw.entry,
     sellCondition: raw.sellCondition ?? raw.exit,
+    complexity: raw.complexity,
     status: normalizeStatus(raw),
     createdAt: raw.createdAt ?? '',
     updatedAt: raw.updatedAt,
