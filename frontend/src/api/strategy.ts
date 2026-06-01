@@ -184,6 +184,8 @@ export interface SigStrategyDto {
   tf?: string
   /** 감시 종목 코드 배열 (JSONB) */
   codes: string[]
+  /** 종목 코드별 종목명 */
+  codeNames?: Record<string, string>
   /** 감시 인터벌 배열 (JSONB) */
   intervals: string[]
   /** buy_condition DSL */
@@ -194,6 +196,10 @@ export interface SigStrategyDto {
   takeProfitPct?: number | string | null
   complexity?: StrategyComplexityDto
   status: StrategyStatus
+  /** 자동매매 시작 가능 여부 */
+  activationReady?: boolean
+  /** 자동매매 시작 차단 사유 */
+  activationBlockedReason?: string | null
   /** 최근 7일 시그널 카운트 */
   recentSignalCount?: number
   createdAt: string
@@ -351,6 +357,15 @@ function asStringArray(value: unknown): string[] {
   return []
 }
 
+function asCodeNames(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .map(([code, name]) => [code, String(name)])
+      .filter(([code, name]) => code.trim() && name.trim()),
+  )
+}
+
 function normalizeStatus(raw: SigStrategyBackendDto): StrategyStatus {
   if (raw.status === 'ACTIVE' || raw.status === 'PAUSED' || raw.status === 'DISABLED' || raw.status === 'DELETED') {
     return raw.status
@@ -372,11 +387,14 @@ function normalizeSigStrategy(raw: SigStrategyBackendDto): SigStrategyDto {
     tf,
     takeProfitPct: raw.takeProfitPct ?? null,
     codes,
+    codeNames: asCodeNames(raw.codeNames),
     intervals: intervals.length > 0 ? intervals : tf ? [tf] : [],
     buyCondition: raw.buyCondition ?? raw.entry,
     sellCondition: raw.sellCondition ?? raw.exit,
     complexity: raw.complexity,
     status: normalizeStatus(raw),
+    activationReady: raw.activationReady,
+    activationBlockedReason: raw.activationBlockedReason ?? null,
     createdAt: raw.createdAt ?? '',
     updatedAt: raw.updatedAt,
     enabled: raw.enabled,

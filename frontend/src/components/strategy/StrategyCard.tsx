@@ -15,6 +15,11 @@ import { useDeleteSigStrategy, useToggleSigStrategyStatus } from '../../api/hook
 import { AiExplainEntry } from '../../features/ai/components/AiExplainEntry'
 import { useOnboardingStore } from '../../stores/onboarding'
 import { useToast } from '../ui/ToastProvider'
+import {
+  formatStrategyCodeLabel,
+  resolveStrategyMutationErrorMessage,
+  strategyActivationBlockedReason,
+} from './strategyDisplay'
 
 // ──────────────────────────────────────────────
 // 상태 배지 스타일
@@ -54,12 +59,17 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
   const toggleMutation = useToggleSigStrategyStatus()
   const deleteMutation = useDeleteSigStrategy()
   const isMissingOperationalTargets = codes.length === 0 || intervals.length === 0
+  const activationBlockedReason = strategyActivationBlockedReason(strategy)
 
   function handleToggle() {
     const nextStatus: StrategyStatus =
       strategy.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE'
     if (nextStatus === 'ACTIVE' && isMissingOperationalTargets) {
       showToast('자동매매 대상 종목과 평가 인터벌을 먼저 지정해 주세요.', 'error')
+      return
+    }
+    if (nextStatus === 'ACTIVE' && activationBlockedReason) {
+      showToast(activationBlockedReason, 'error')
       return
     }
     toggleMutation.mutate(
@@ -69,7 +79,7 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
           showToast(statusSuccessMessage(nextStatus), 'success')
         },
         onError: (error) => {
-          showToast(resolveMutationErrorMessage(error), 'error')
+          showToast(resolveStrategyMutationErrorMessage(error), 'error')
         },
       },
     )
@@ -114,9 +124,10 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
             {codes.slice(0, 4).map((code) => (
               <span
                 key={code}
-                className="rounded bg-gray-800 px-1.5 py-0.5 text-xs font-medium text-gray-300"
+                title={formatStrategyCodeLabel(code, strategy.codeNames)}
+                className="max-w-[12rem] truncate rounded bg-gray-800 px-1.5 py-0.5 text-xs font-medium text-gray-300"
               >
-                {code}
+                {formatStrategyCodeLabel(code, strategy.codeNames)}
               </span>
             ))}
             {codes.length > 4 && (
@@ -213,11 +224,15 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
             title={
               strategy.status !== 'ACTIVE' && isMissingOperationalTargets
                 ? '빌더에서 수정 후 자동매매 대상 종목과 평가 인터벌을 지정하세요'
+                : strategy.status !== 'ACTIVE' && activationBlockedReason
+                ? activationBlockedReason
                 : undefined
             }
             className={[
               'rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-offset-gray-900',
               strategy.status === 'ACTIVE'
+                ? 'bg-amber-700 text-white hover:bg-amber-600 focus:ring-amber-300'
+                : activationBlockedReason
                 ? 'bg-amber-700 text-white hover:bg-amber-600 focus:ring-amber-300'
                 : 'bg-emerald-600 text-white hover:bg-emerald-500 focus:ring-emerald-300',
             ].join(' ')}
@@ -228,6 +243,8 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
               ? '자동매매 중지'
               : isMissingOperationalTargets
               ? '종목 지정 필요'
+              : activationBlockedReason
+              ? '백테스트 필요'
               : '자동매매 시작'}
           </button>
         )}
@@ -256,7 +273,7 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
         {(toggleMutation.isError || deleteMutation.isError) && (
           <p className="text-xs text-red-400">
             {toggleMutation.isError
-              ? resolveMutationErrorMessage(toggleMutation.error)
+              ? resolveStrategyMutationErrorMessage(toggleMutation.error)
               : '요청 실패. 다시 시도해 주세요.'}
           </p>
         )}
@@ -322,19 +339,4 @@ function formatKst(value: string | null | undefined): string | null {
     minute: '2-digit',
     hour12: false,
   })
-}
-
-function resolveMutationErrorMessage(error: unknown): string {
-  const fallback = '상태 변경 실패. 다시 시도해 주세요.'
-  if (error && typeof error === 'object' && 'response' in error) {
-    const data = (error as { response?: { data?: unknown } }).response?.data
-    if (typeof data === 'string' && data.trim()) return data
-    if (data && typeof data === 'object') {
-      const record = data as Record<string, unknown>
-      const message = record.message ?? record.error ?? record.detail
-      if (message) return String(message)
-    }
-  }
-  if (error instanceof Error && error.message) return error.message
-  return fallback
 }

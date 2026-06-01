@@ -202,6 +202,22 @@ class StrategyService(
 
     fun findAllByUserId(userId: Long): List<Strategy> = strategyRepositoryPort.findAllByUserId(userId)
 
+    fun activationBlockedReason(strategy: Strategy): String? {
+        if (normalizeCodes(strategy.codes).isEmpty()) {
+            return "자동매매 대상 종목이 없는 전략은 ACTIVE로 전환할 수 없습니다"
+        }
+        if (normalizeIntervals(strategy.intervals, strategy.definition.tf).isEmpty()) {
+            return "평가 인터벌이 없는 전략은 ACTIVE로 전환할 수 없습니다"
+        }
+        val strategyId = strategy.id ?: return "저장되지 않은 전략은 ACTIVE로 전환할 수 없습니다"
+        val ready = backtestRunJpaRepository.existsAutoActivationReadyRun(strategyId, strategy.userId.toString())
+        return if (ready) {
+            null
+        } else {
+            "성공한 백테스트가 있어야 전략을 ACTIVE로 전환할 수 있습니다"
+        }
+    }
+
     /**
      * 전략 목록 페이징 조회 (DELETED 제외).
      */
@@ -263,8 +279,9 @@ class StrategyService(
             val strategy =
                 strategyRepositoryPort.findById(id)
                     ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
-            validateOperationalTargets(strategy.codes, strategy.intervals, strategy.definition.tf)
-            validateActivationReady(id, entity.userId)
+            activationBlockedReason(strategy)?.let { reason ->
+                throw ResponseStatusException(HttpStatus.CONFLICT, "$reason: id=$id")
+            }
             strategyRepositoryPort.enable(id)
         } else {
             strategyJpaRepository.updateStatus(id, newStatus.name)
@@ -298,10 +315,14 @@ class StrategyService(
      * 전략 재활성화 — 사용자 명시 활성화 (DISABLED → ACTIVE).
      */
     fun enable(strategyId: Long) {
-        val entity =
-            strategyJpaRepository.findByIdAndStatusNot(strategyId, StrategyStatus.DELETED.name)
+        strategyJpaRepository.findByIdAndStatusNot(strategyId, StrategyStatus.DELETED.name)
+            ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$strategyId")
+        val strategy =
+            strategyRepositoryPort.findById(strategyId)
                 ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$strategyId")
-        validateActivationReady(strategyId, entity.userId)
+        activationBlockedReason(strategy)?.let { reason ->
+            throw ResponseStatusException(HttpStatus.CONFLICT, "$reason: id=$strategyId")
+        }
         strategyRepositoryPort.enable(strategyId)
         redisStrategyCache.invalidateAll()
         log.info("전략 재활성화: id={}", strategyId)
@@ -329,19 +350,6 @@ class StrategyService(
             throw ResponseStatusException(
                 HttpStatus.BAD_REQUEST,
                 "전략 상태 전환 불가: id=$id $current → $next",
-            )
-        }
-    }
-
-    private fun validateActivationReady(
-        strategyId: Long,
-        userId: Long,
-    ) {
-        val ready = backtestRunJpaRepository.existsAutoActivationReadyRun(strategyId, userId.toString())
-        if (!ready) {
-            throw ResponseStatusException(
-                HttpStatus.CONFLICT,
-                "성공한 백테스트가 있어야 전략을 ACTIVE로 전환할 수 있습니다: id=$strategyId",
             )
         }
     }
@@ -377,19 +385,6 @@ class StrategyService(
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "takeProfitPct는 0보다 커야 합니다")
         }
         return value
-    }
-
-    private fun validateOperationalTargets(
-        codes: List<String>,
-        intervals: List<String>,
-        tf: String,
-    ) {
-        if (normalizeCodes(codes).isEmpty()) {
-            throw ResponseStatusException(HttpStatus.CONFLICT, "자동매매 대상 종목이 없는 전략은 ACTIVE로 전환할 수 없습니다")
-        }
-        if (normalizeIntervals(intervals, tf).isEmpty()) {
-            throw ResponseStatusException(HttpStatus.CONFLICT, "평가 인터벌이 없는 전략은 ACTIVE로 전환할 수 없습니다")
-        }
     }
 
     private data class AstStats(

@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.media.Schema
 import io.swagger.v3.oas.annotations.responses.ApiResponse
 import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
+import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.service.strategy.StrategyService
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
@@ -49,6 +50,7 @@ import java.math.BigDecimal
 class StrategiesController(
     private val strategyService: StrategyService,
     private val kisYamlDslParser: KisYamlDslParser,
+    private val instrumentJpaRepository: InstrumentJpaRepository,
 ) {
     private val log = LoggerFactory.getLogger(StrategiesController::class.java)
 
@@ -291,8 +293,14 @@ class StrategiesController(
         return ast
     }
 
-    private fun toDetailResponse(strategy: Strategy): StrategyDetailResponse =
-        StrategyDetailResponse(
+    private fun toDetailResponse(strategy: Strategy): StrategyDetailResponse {
+        val activationBlockedReason =
+            if (strategy.status == StrategyStatus.ACTIVE) {
+                null
+            } else {
+                strategyService.activationBlockedReason(strategy)
+            }
+        return StrategyDetailResponse(
             id = strategy.id ?: 0L,
             userId = strategy.userId,
             name = strategy.definition.dsl.name,
@@ -301,6 +309,7 @@ class StrategiesController(
             tf = strategy.definition.tf,
             takeProfitPct = strategy.definition.takeProfitPct,
             codes = strategy.codes,
+            codeNames = codeNamesFor(strategy.codes),
             intervals = strategy.intervals.ifEmpty { listOf(strategy.definition.tf) },
             buyCondition = strategy.definition.dsl.buyConditionText,
             sellCondition = strategy.definition.dsl.sellConditionText,
@@ -309,9 +318,19 @@ class StrategiesController(
             lastDisabledAt = strategy.lastDisabledAt?.toString(),
             enabled = strategy.isEnabled(),
             status = strategy.status.name,
+            activationReady = activationBlockedReason == null,
+            activationBlockedReason = activationBlockedReason,
             createdAt = strategy.createdAt.toString(),
             updatedAt = strategy.updatedAt.toString(),
         )
+    }
+
+    private fun codeNamesFor(codes: List<String>): Map<String, String> {
+        if (codes.isEmpty()) return emptyMap()
+        return instrumentJpaRepository
+            .findAllById(codes)
+            .associate { it.code to it.name }
+    }
 
     private fun toComplexityDto(complexity: StrategyComplexity): StrategyComplexityResponse =
         StrategyComplexityResponse(
@@ -409,6 +428,8 @@ data class StrategyDetailResponse(
     val takeProfitPct: BigDecimal? = null,
     @field:Schema(description = "감시 종목 코드 목록", example = "[\"005930\"]")
     val codes: List<String> = emptyList(),
+    @field:Schema(description = "종목 코드별 종목명", example = "{\"005930\":\"삼성전자\"}")
+    val codeNames: Map<String, String> = emptyMap(),
     @field:Schema(description = "감시 인터벌 목록", example = "[\"5m\"]")
     val intervals: List<String> = emptyList(),
     @field:Schema(description = "매수 조건 DSL 텍스트", example = "ma(5) crosses_above ma(20)")
@@ -429,6 +450,10 @@ data class StrategyDetailResponse(
         allowableValues = ["ACTIVE", "PAUSED", "DISABLED", "DELETED"],
     )
     val status: String,
+    @field:Schema(description = "자동매매 시작 가능 여부", example = "false")
+    val activationReady: Boolean = false,
+    @field:Schema(description = "자동매매 시작 차단 사유", example = "성공한 백테스트가 있어야 전략을 ACTIVE로 전환할 수 있습니다")
+    val activationBlockedReason: String? = null,
     @field:Schema(description = "생성 시각", example = "2026-05-29T03:51:36Z")
     val createdAt: String,
     @field:Schema(description = "수정 시각", example = "2026-05-29T03:51:36Z")
