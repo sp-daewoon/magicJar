@@ -31,9 +31,11 @@
  * - interval 변경 시 maxCapReachedLockRef 초기화 (재무장)
  */
 import { useMemo, useState, useCallback, useEffect, useRef } from 'react'
-import type { IChartApi, ISeriesApi } from 'lightweight-charts'
+import { useQuery } from '@tanstack/react-query'
+import type { IChartApi, ISeriesApi, SeriesMarker, UTCTimestamp } from 'lightweight-charts'
 import { useSymbolCandles } from '../../api/hooks/useSymbolCandles'
 import { useCandleRecollectJob, useCandleRefresh } from '../../api/hooks/useCandleRefresh'
+import { signalApi, type SignalDto } from '../../api/signal'
 import type { CandleInterval, CandleDto, CandleMinutePayload } from '../../api/symbol'
 import type { ChartPriceTimePoint, LiveTick } from './LightweightChart'
 import type {
@@ -97,6 +99,29 @@ function trendlineColor(type: TrendlineType): string {
   return type === 'SUPPORT' ? '#10b981' : '#ef4444'
 }
 
+function signalMarkerTimestamp(isoString: string): UTCTimestamp | null {
+  const time = new Date(isoString).getTime()
+  if (!Number.isFinite(time)) return null
+  return Math.floor(time / 1000) as UTCTimestamp
+}
+
+function strategySellMarkerText(signal: SignalDto): string {
+  return (signal.reason ?? '').includes('TAKE_PROFIT') ? '익절' : '매도'
+}
+
+function toStrategySellMarker(signal: SignalDto): SeriesMarker<UTCTimestamp> | null {
+  const time = signalMarkerTimestamp(signal.ts)
+  if (time === null) return null
+  return {
+    time,
+    position: 'aboveBar',
+    color: '#fb923c',
+    shape: 'arrowDown',
+    text: strategySellMarkerText(signal),
+    size: 1,
+  }
+}
+
 function resolveTrendlineError(error: unknown): string {
   const err = error as {
     response?: { data?: { message?: string; error?: string } }
@@ -118,6 +143,7 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
 
 interface SymbolChartProps {
   code: string
+  userId?: number | null
   realtimeCandle?: CandleMinutePayload | null
   riskPlanPreview?: {
     strategyId?: string
@@ -131,7 +157,7 @@ interface SymbolChartProps {
   liveTick?: LiveTick | null
 }
 
-export function SymbolChart({ code, realtimeCandle, riskPlanPreview, liveTick }: SymbolChartProps) {
+export function SymbolChart({ code, userId, realtimeCandle, riskPlanPreview, liveTick }: SymbolChartProps) {
   const [interval, setInterval] = useState<CandleInterval>('1d')
   // ADR 0093 §결정 LOCK Phase 4-B (2026-05-20):
   //   사용자가 선택한 차트 표시 봉수. localStorage 전역 1개 키(magicjar:chart:candleCount)로
@@ -271,6 +297,61 @@ export function SymbolChart({ code, realtimeCandle, riskPlanPreview, liveTick }:
     if (!data) return []
     return [...data.pages].reverse().flatMap((page) => page.candles)
   }, [data])
+
+  const strategySignalRange = useMemo(() => {
+    if (!riskPlanPreview?.strategyId || userId === null || userId === undefined || allCandles.length === 0) {
+      return null
+    }
+    const first = allCandles[0]?.ts
+    const last = allCandles[allCandles.length - 1]?.ts
+    const firstMs = first ? new Date(first).getTime() : NaN
+    const lastMs = last ? new Date(last).getTime() : NaN
+    if (!Number.isFinite(firstMs) || !Number.isFinite(lastMs)) return null
+    return {
+      from: new Date(firstMs).toISOString(),
+      to: new Date(Math.max(lastMs, Date.now())).toISOString(),
+    }
+  }, [allCandles, riskPlanPreview?.strategyId, userId])
+
+  const strategySellSignalsQuery = useQuery({
+    queryKey: [
+      'signals',
+      'chart-sell-markers',
+      userId,
+      code,
+      interval,
+      riskPlanPreview?.strategyId,
+      strategySignalRange?.from,
+      strategySignalRange?.to,
+    ],
+    queryFn: () =>
+      signalApi.list({
+        userId: userId!,
+        code,
+        interval,
+        side: 'SELL',
+        strategyId: riskPlanPreview!.strategyId,
+        from: strategySignalRange!.from,
+        to: strategySignalRange!.to,
+        page: 0,
+        size: 200,
+      }),
+    enabled:
+      userId !== null &&
+      userId !== undefined &&
+      Boolean(riskPlanPreview?.strategyId) &&
+      strategySignalRange !== null,
+    staleTime: 15_000,
+  })
+  const strategySellSignals = strategySellSignalsQuery.data?.content ?? []
+  const strategySellMarkers = useMemo<SeriesMarker<UTCTimestamp>[]>(
+    () =>
+      strategySellSignals
+        .map(toStrategySellMarker)
+        .filter((marker): marker is SeriesMarker<UTCTimestamp> => marker !== null)
+        .sort((a, b) => (a.time as number) - (b.time as number)),
+    [strategySellSignals],
+  )
 
   // STOMP 실시간 캔들을 CandleDto로 변환
   // 우선순위: boundary closed candle(합산 인터벌) > 1m minute candle
@@ -935,6 +1016,16 @@ export function SymbolChart({ code, realtimeCandle, riskPlanPreview, liveTick }:
               ) : null
             }
           />
+          {riskPlanPreview.strategyId && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
+              <span>
+                매도 신호 {strategySellSignals.length.toLocaleString('ko-KR')}건
+              </span>
+              {strategySellSignalsQuery.isError && (
+                <span className="text-red-300">매도 신호 조회 실패</span>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -1083,6 +1174,7 @@ export function SymbolChart({ code, realtimeCandle, riskPlanPreview, liveTick }:
       <PatternMarker
         series={candleSeries}
         matches={patternData?.matches ?? []}
+        extraMarkers={strategySellMarkers}
       />
     </div>
   )
