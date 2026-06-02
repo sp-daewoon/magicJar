@@ -51,7 +51,7 @@ data class ConsumerKisRateLimitProperties(
      * acquire() polling 간격 (token 부족 시 재시도 sleep).
      *
      * Phase 1 단순화: BucketProxy는 `tryConsume` non-blocking 위주 → timeout 내 short sleep polling.
-     * 50ms = KIS 한도 0.5 token 회복 기다림 (정확한 ceiling 도달 시 즉시 진입).
+     * interval refill 전환 후에는 다음 1초 윈도우 진입을 짧게 확인한다.
      */
     val acquirePollIntervalMillis: Long = 50L,
 )

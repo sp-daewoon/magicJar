@@ -61,6 +61,7 @@ class OrderRejectedKafkaProducer(
                         "quantity" to request.quantity,
                         "rejectReason" to reason,
                         "mode" to request.mode.name,
+                        "source" to request.source.name,
                         "rejectedAt" to (request.completedAt?.epochSecond ?: request.requestedAt.epochSecond),
                     ),
                 )

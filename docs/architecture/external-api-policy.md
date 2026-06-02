@@ -52,7 +52,8 @@ magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공
 | **공통 진입점** | `domain/.../market/ratelimit/KisRateLimiterPort` — 모든 KIS REST 호출 직전 `acquire()` 의무 |
 | **우회 금지** | 어댑터별 직접 RestClient 호출 금지. ArchUnit/ktlint 빌드 게이트로 강제 |
 | **우선순위 큐** | 사용자 path(현재가·차트·주문) > Watchlist Ingestion > backfill·corp action |
-| **EGW00201 / 429** | 1초 대기 + 1회 재시도. 연속 5분 50% 이상 fail 시 5분 circuit breaker |
+| **refill 방식** | Redis 단일 bucket + interval refill. greedy refill은 한 초 안 burst를 키워 KIS EGW00201을 유발할 수 있어 사용하지 않는다. |
+| **EGW00201 / 429** | 1초 대기 + 1회 재시도. 주문 전 잔고조회는 재시도 후에도 실패하면 주문 미전송 fail-closed로 보류한다. 연속 5분 50% 이상 fail 시 5분 circuit breaker |
 
 ### 2-3. OAuth 토큰 (ADR 0038)
 

@@ -61,6 +61,16 @@ magicjar:
   kis:
     base-url-prod: ${MAGICJAR_KIS_BASE_URL_PROD:https://openapi.koreainvestment.com:9443}
     base-url-vps: ${MAGICJAR_KIS_BASE_URL_VPS:https://openapivts.koreainvestment.com:29443}
+    # KIS REST rate limiter — api·batch·consumer 동일 Redis bucket share.
+    # interval refill로 burst를 완화해 EGW00201 빈도를 낮춘다.
+    rate-limiter:
+      enabled: ${MAGICJAR_KIS_RATE_LIMIT_ENABLED:true}
+      bucket-capacity: ${MAGICJAR_KIS_RATE_LIMIT_BURST:10}
+      bucket-refill-tokens: 10
+      bucket-refill-period-seconds: 1
+      bucket-key: kis-rate-limit:global
+      bucket-ttl-seconds: 10
+      acquire-poll-interval-millis: 50
     index:
       # static env credential 이 없으면 DB REAL credential 로 자동 fallback.
       # 시장지수는 시세·캔들과 같은 REAL quotation 정책을 따른다.

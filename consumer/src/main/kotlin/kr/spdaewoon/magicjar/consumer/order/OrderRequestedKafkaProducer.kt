@@ -58,6 +58,7 @@ class OrderRequestedKafkaProducer(
                         "limitPrice" to request.limitPrice?.toPlainString(),
                         "status" to request.status.name,
                         "mode" to request.mode.name,
+                        "source" to request.source.name,
                         "requestedAt" to request.requestedAt.epochSecond,
                     ),
                 )

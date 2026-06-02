@@ -7,6 +7,8 @@ import io.mockk.slot
 import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepository
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaEntity
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaRepository
 import kr.spdaewoon.magicjar.domain.notification.NotificationOutbox
 import kr.spdaewoon.magicjar.domain.notification.NotificationPriority
 import kr.spdaewoon.magicjar.domain.notification.NotificationStatus
@@ -40,11 +42,13 @@ class NotificationDispatcherTest {
     private val rateLimiter = mockk<NotificationRateLimiterPort>()
     private val slackSender = mockk<SlackWebhookSender>(relaxed = true)
     private val instrumentRepository = mockk<ConsumerInstrumentJpaRepository>()
+    private val strategyRepository = mockk<ConsumerStrategyJpaRepository>()
 
     private val outboxProvider = mockk<ObjectProvider<NotificationOutboxRepository>>()
     private val rateLimiterProvider = mockk<ObjectProvider<NotificationRateLimiterPort>>()
     private val slackSenderProvider = mockk<ObjectProvider<SlackWebhookSender>>()
     private val instrumentRepositoryProvider = mockk<ObjectProvider<ConsumerInstrumentJpaRepository>>()
+    private val strategyRepositoryProvider = mockk<ObjectProvider<ConsumerStrategyJpaRepository>>()
 
     private val dispatcher: NotificationDispatcher =
         run {
@@ -52,21 +56,41 @@ class NotificationDispatcherTest {
             every { rateLimiterProvider.getIfAvailable() } returns rateLimiter
             every { slackSenderProvider.getIfAvailable() } returns slackSender
             every { instrumentRepositoryProvider.getIfAvailable() } returns instrumentRepository
+            every { strategyRepositoryProvider.getIfAvailable() } returns strategyRepository
             // rate limit: P1/P2는 기본 emit 허용
             every { rateLimiter.shouldEmit(any(), any(), any(), any()) } returns true
             every { rateLimiter.shouldEmitOncePerWindow(any(), any(), any()) } returns true
             every { instrumentRepository.findById(any()) } returns Optional.empty()
+            every { strategyRepository.findById(any()) } returns Optional.empty()
             // outbox save: eventId 포함 응답
             every { outboxRepository.save(any()) } answers {
                 val arg = it.invocation.args[0] as NotificationOutbox
                 arg.copy(id = 100L)
             }
-            NotificationDispatcher(outboxProvider, rateLimiterProvider, slackSenderProvider, instrumentRepositoryProvider, objectMapper)
+            NotificationDispatcher(
+                outboxProvider,
+                rateLimiterProvider,
+                slackSenderProvider,
+                instrumentRepositoryProvider,
+                strategyRepositoryProvider,
+                objectMapper,
+            )
         }
 
     @Test
     fun `(1) ORDER_FILLED — outbox INSERT PENDING plus immediate Slack (P0 TRADE)`() {
         every { instrumentRepository.findById("005930") } returns Optional.of(ConsumerInstrumentJpaEntity(code = "005930", name = "삼성전자"))
+        every { strategyRepository.findById(43L) } returns
+            Optional.of(
+                ConsumerStrategyJpaEntity(
+                    id = 43L,
+                    userId = 1L,
+                    name = "222",
+                    nameKo = "익절 전략",
+                    dslEntry = "close > 0",
+                    dslExit = null,
+                ),
+            )
         val record = record("order.filled.v1", filledPayload("U1", "005930"))
         dispatcher.onOrderFilled(record)
 
@@ -77,6 +101,7 @@ class NotificationDispatcherTest {
         assertThat(slot.captured.payloadJson).contains("삼성전자(005930)")
         assertThat(slot.captured.payloadJson).contains("매수")
         assertThat(slot.captured.payloadJson).contains("75,000원")
+        assertThat(slot.captured.payloadJson).contains("익절 전략")
         verify { slackSender.sendOutbox(any()) }
     }
 
@@ -173,7 +198,7 @@ class NotificationDispatcherTest {
         userId: String,
         code: String,
     ) =
-        """{"eventId":"${UUID.randomUUID()}","orderId":"O1","userId":"$userId","code":"$code","side":"BUY","executedQuantity":10,"executedPrice":"75000","executedAt":${Instant.now().epochSecond}}"""
+        """{"eventId":"${UUID.randomUUID()}","orderId":"O1","userId":"$userId","strategyId":43,"source":"AUTO","code":"$code","side":"BUY","executedQuantity":10,"executedPrice":"75000","executedAt":${Instant.now().epochSecond}}"""
 
     private fun rejectedPayload(
         userId: String,

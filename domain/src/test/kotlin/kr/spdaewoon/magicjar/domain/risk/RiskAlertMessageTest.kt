@@ -78,4 +78,25 @@ class RiskAlertMessageTest {
         alert.message shouldContain "KIS 계좌 보유 수량"
         alert.formula shouldBe "KIS 보유 수량 0주 < 주문 예정 수량 7주"
     }
+
+    @Test
+    fun `SELL_QUANTITY_UNAVAILABLE - KIS 잔고 조회 실패는 실제 0주 부족처럼 설명하지 않는다`() {
+        val alert =
+            RiskAlertMessage.from(
+                rule = RiskRule.SELL_QUANTITY_UNAVAILABLE,
+                reason = "SELL_QUANTITY_UNAVAILABLE:KIS_BALANCE_LOOKUP_FAILED:EGW00201",
+                context =
+                    mapOf(
+                        "source" to "KIS_BALANCE",
+                        "code" to "000660",
+                        "requestedQty" to 1,
+                        "reasonCode" to "KIS_BALANCE_LOOKUP_FAILED:EGW00201",
+                    ),
+            )
+
+        alert.title shouldBe "KIS 잔고 조회 실패 - 매도 주문 보류"
+        alert.message shouldContain "KIS 잔고를 확인하지 못해"
+        alert.formula shouldBe "KIS 잔고 조회 상태 = 실패, 주문 예정 수량 1주"
+        alert.action shouldContain "실제 보유 수량 부족으로 확정된 알림은 아닙니다"
+    }
 }

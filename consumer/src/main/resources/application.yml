@@ -90,6 +90,17 @@ magicjar:
       user-id: ${MAGICJAR_KIS_WS_USER_ID:}       # KIS WS approval_key 발급 사용자 ID
       heartbeat-timeout-seconds: ${MAGICJAR_KIS_WS_HEARTBEAT_TIMEOUT:10}
       polling-fallback-timeout-seconds: ${MAGICJAR_KIS_WS_POLLING_FALLBACK_TIMEOUT:30}
+    # KIS REST rate limiter — api·batch·consumer 동일 Redis bucket share.
+    # interval refill로 burst를 완화해 EGW00201 빈도를 낮춘다.
+    rate-limiter:
+      enabled: ${MAGICJAR_KIS_RATE_LIMIT_ENABLED:true}
+      bucket-capacity: ${MAGICJAR_KIS_RATE_LIMIT_BURST:10}
+      bucket-refill-tokens: 10
+      bucket-refill-period-seconds: 1
+      bucket-key: kis-rate-limit:global
+      bucket-ttl-seconds: 10
+      acquire-poll-interval-millis: 50
+    balance-rate-limit-backoff-millis: ${MAGICJAR_KIS_BALANCE_RATE_LIMIT_BACKOFF_MS:1000}
   # Yahoo Finance cold-start 설정 (ADR 0048 §2-7 + external-api-policy.md §3)
   yahoo:
     base-url: ${MAGICJAR_YAHOO_BASE_URL:https://query1.finance.yahoo.com}

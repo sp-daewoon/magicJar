@@ -31,11 +31,12 @@ object NotificationFormatter {
         val kst = formatKst(displayInstant)
         val maskedUser = maskUserId(userId)
         val (emoji, typeLabel) = eventLabel(eventType)
-        val action = immediateAction(eventType)
+        val action = immediateAction(eventType, meta)
 
         return buildString {
             appendLine("$emoji *[$typeLabel]* $kst KST")
             appendLine("사용자: $maskedUser")
+            strategyLine(eventType, meta)?.let { appendLine(it) }
             appendContent(eventType, reason, meta)
             if (action.isNotBlank()) {
                 appendLine("즉시 조치: $action")
@@ -65,11 +66,15 @@ object NotificationFormatter {
             NotificationEventType.SYSTEM_EVENT -> ":rotating_light:" to "시스템 이벤트"
         }
 
-    private fun immediateAction(eventType: NotificationEventType): String =
+    private fun immediateAction(
+        eventType: NotificationEventType,
+        meta: Map<String, String?>,
+    ): String =
         when (eventType) {
             NotificationEventType.RECONCILE_DRIFT -> "KIS HTS 직접 확인 후 수동 KillSwitch OFF 토글 필요"
             NotificationEventType.KILLSWITCH_ENGAGED -> "자동매매 일시 중단됨. KIS 잔고 확인 후 수동 재활성화 필요"
-            NotificationEventType.RISK_VIOLATION -> "리스크 한도 점검 후 필요 시 전략 비활성화"
+            NotificationEventType.RISK_VIOLATION ->
+                meta["alertAction"]?.takeIf { it.isNotBlank() } ?: "리스크 한도 점검 후 필요 시 전략 비활성화"
             NotificationEventType.DLT_RECEIVED ->
                 "DLT 토픽 record 검토 후 수동 replay 또는 운영 결함 fix. KIS 주문 영향 시 HTS 직접 확인."
             NotificationEventType.SYSTEM_EVENT -> "시스템 이벤트 상세와 Dozzle 로그를 함께 확인"
@@ -133,6 +138,38 @@ object NotificationFormatter {
         val code = meta["code"]?.takeIf { it.isNotBlank() } ?: return value
         val label = instrumentLabel(meta) ?: return value
         return value?.replace("종목 $code", "종목 $label")
+    }
+
+    private fun strategyLine(
+        eventType: NotificationEventType,
+        meta: Map<String, String?>,
+    ): String? {
+        val strategyId = meta["strategyId"]?.toLongOrNull()
+        val source = meta["source"]?.uppercase()
+        val manual = source == "MANUAL" || strategyId == 0L
+        return when (eventType) {
+            NotificationEventType.ORDER_FILLED,
+            NotificationEventType.ORDER_REJECTED,
+            NotificationEventType.ORDER_CANCELLED,
+            -> {
+                if (manual) {
+                    "주문출처: 수동 주문"
+                } else {
+                    strategyDisplay(strategyId, meta)?.let { "주문출처: 자동 전략 $it" }
+                }
+            }
+            NotificationEventType.RISK_VIOLATION -> strategyDisplay(strategyId, meta)?.let { "전략: $it" }
+            else -> null
+        }
+    }
+
+    private fun strategyDisplay(
+        strategyId: Long?,
+        meta: Map<String, String?>,
+    ): String? {
+        if (strategyId == null || strategyId <= 0L) return null
+        val name = meta["strategyName"]?.takeIf { it.isNotBlank() }
+        return if (name != null) "$name (#$strategyId)" else "#$strategyId"
     }
 
     private fun eventInstant(

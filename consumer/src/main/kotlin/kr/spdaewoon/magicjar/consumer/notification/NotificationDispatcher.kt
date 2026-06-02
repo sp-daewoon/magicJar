@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.consumer.notification
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepository
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaRepository
 import kr.spdaewoon.magicjar.domain.notification.NotificationChannel
 import kr.spdaewoon.magicjar.domain.notification.NotificationEventType
 import kr.spdaewoon.magicjar.domain.notification.NotificationOutbox
@@ -48,6 +49,7 @@ class NotificationDispatcher(
     private val rateLimiterProvider: ObjectProvider<NotificationRateLimiterPort>,
     private val slackSenderProvider: ObjectProvider<SlackWebhookSender>,
     private val instrumentRepositoryProvider: ObjectProvider<ConsumerInstrumentJpaRepository>,
+    private val strategyRepositoryProvider: ObjectProvider<ConsumerStrategyJpaRepository>,
     private val objectMapper: ObjectMapper,
 ) {
     private val log = LoggerFactory.getLogger(NotificationDispatcher::class.java)
@@ -117,7 +119,7 @@ class NotificationDispatcher(
                 raw["eventId"]?.toString()?.let {
                     runCatching { UUID.fromString(it) }.getOrNull()
                 } ?: UUID.randomUUID()
-            val enrichedRaw = enrichInstrument(raw)
+            val enrichedRaw = enrichStrategy(enrichInstrument(raw))
 
             // P1/P2 rate limit 체크
             if (!shouldEmit(userId, topicHash, eventType.defaultPriority, eventType, enrichedRaw)) {
@@ -333,6 +335,22 @@ class NotificationDispatcher(
                 ?.takeIf { it.isNotBlank() && it != code }
                 ?: return raw
         return raw + ("instrumentName" to name)
+    }
+
+    private fun enrichStrategy(raw: Map<String, Any?>): Map<String, Any?> {
+        val strategyId = raw["strategyId"]?.toString()?.toLongOrNull()?.takeIf { it > 0L } ?: return raw
+        if (!raw["strategyName"]?.toString().isNullOrBlank()) return raw
+        val repository = strategyRepositoryProvider.getIfAvailable() ?: return raw
+        val strategy =
+            runCatching { repository.findById(strategyId).orElse(null) }
+                .getOrNull()
+                ?: return raw
+        val displayName =
+            strategy.nameKo
+                ?.takeIf { it.isNotBlank() }
+                ?: strategy.name.takeIf { it.isNotBlank() }
+                ?: return raw
+        return raw + ("strategyName" to displayName)
     }
 
     private fun codeOf(raw: Map<String, Any?>): String? =

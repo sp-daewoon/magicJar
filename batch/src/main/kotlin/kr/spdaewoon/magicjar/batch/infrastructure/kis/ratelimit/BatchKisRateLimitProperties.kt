@@ -35,6 +35,6 @@ data class BatchKisRateLimitProperties(
     val bucketKey: String = "kis-rate-limit:global",
     /** Bucket4j Redis backend TTL (refill 윈도의 10배 — 안전 마진). */
     val bucketTtlSeconds: Long = 10L,
-    /** acquire() polling 간격 (token 부족 시 재시도 sleep). */
+    /** acquire() polling 간격 (token 부족 시 다음 interval refill 윈도우를 확인하는 sleep). */
     val acquirePollIntervalMillis: Long = 50L,
 )

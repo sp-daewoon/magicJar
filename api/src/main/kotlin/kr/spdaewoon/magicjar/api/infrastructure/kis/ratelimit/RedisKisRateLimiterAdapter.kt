@@ -77,11 +77,11 @@ class RedisKisRateLimiterAdapter(
     }
 
     /**
-     * Bucket4j BucketConfiguration — Greedy refill (capacity 도달 시 일정 간격 회복).
+     * Bucket4j BucketConfiguration — interval refill (KIS 서버의 초당 윈도우에 맞춰 burst 완화).
      *
-     * Phase 1 LOCK: 10 token / 1 sec greedy.
-     *   - greedy = "1초에 10번 작은 step refill" (10 token이 1초마다 한 번에 한 게 아니라 100ms마다 1 token)
-     *   - KIS 한도 정합 + smooth burst 흡수 (사용자 path 단발 호출 시 즉시 acquire 성공)
+     * Phase 1 LOCK: 10 token / 1 sec interval.
+     *   - greedy refill은 초기 burst 뒤 100ms마다 토큰을 보충해 KIS가 같은 초 안에 11건 이상으로 볼 수 있음.
+     *   - interval refill은 한 윈도우를 소진하면 다음 refill까지 대기해 EGW00201 빈도를 낮춘다.
      */
     private val bucketConfiguration: BucketConfiguration =
         BucketConfiguration
@@ -89,7 +89,7 @@ class RedisKisRateLimiterAdapter(
             .addLimit { limit ->
                 limit
                     .capacity(props.bucketCapacity)
-                    .refillGreedy(
+                    .refillIntervally(
                         props.bucketRefillTokens,
                         Duration.ofSeconds(props.bucketRefillPeriodSeconds),
                     )

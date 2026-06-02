@@ -161,6 +161,33 @@ class SignalGeneratedKafkaListenerTest {
     }
 
     @Test
+    fun `SELL BLOCKED — KIS 잔고 조회 실패는 주문 전 차단하되 전략 auto-pause 누적은 제외한다`() {
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { riskPositionPort.findCurrentByUser("user-A") } returns
+            listOf(Position(userId = "user-A", code = "005930", quantity = 7, avgPrice = BigDecimal("70000"), updatedAt = now))
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+        every { riskEventRepository.save(any()) } answers { firstArg<RiskEvent>() }
+        every { kisBalanceQueryPort.fetchFullBalance(any(), any()) } throws IllegalStateException("EGW00201 초당 거래건수를 초과하였습니다")
+
+        listener(kisBalance = null)
+            .onSignalGenerated(record(payload(side = "SELL", price = "72000")), ack())
+
+        verify(exactly = 1) {
+            signalRiskStatusUpdater.markBlocked(
+                77L,
+                RiskRule.SELL_QUANTITY_UNAVAILABLE,
+                match { it.contains("KIS_BALANCE_LOOKUP_FAILED") },
+            )
+        }
+        verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any()) }
+        verify(exactly = 0) { autoPauseGuard.checkAndPauseIfNeeded(any(), any()) }
+    }
+
+    @Test
     fun `BUY BLOCKED — RiskPlan 없는 전략은 risk context 구성 전 차단한다`() {
         every { riskEventRepository.save(any()) } answers { firstArg<RiskEvent>() }
 
@@ -253,11 +280,13 @@ class SignalGeneratedKafkaListenerTest {
         executionBackfillProvider: ObjectProvider<KisExecutionBackfillService> = nullableProvider(),
         killSwitchProvider: ObjectProvider<KillSwitchQueryPort> = providerOf(killSwitchQueryPort),
         strategies: List<Strategy> = listOf(sampleStrategy()),
-        kisBalance: KisAccountBalance = sampleKisBalance(quantity = 100),
+        kisBalance: KisAccountBalance? = sampleKisBalance(quantity = 100),
     ): SignalGeneratedKafkaListener {
         every { strategyLookupPort.findActiveByCodeAndInterval(any(), any()) } returns strategies
         every { orderRequestRepository.findOpenByUserId(any()) } returns emptyList()
-        every { kisBalanceQueryPort.fetchFullBalance(any(), any()) } returns kisBalance
+        if (kisBalance != null) {
+            every { kisBalanceQueryPort.fetchFullBalance(any(), any()) } returns kisBalance
+        }
         return SignalGeneratedKafkaListener(
             objectMapper = objectMapper,
             riskGatewayEvaluator = RiskGatewayEvaluator(),

@@ -55,6 +55,42 @@ class NotificationFormatterTest {
     }
 
     @Test
+    fun `(1-3) ORDER_FILLED — 자동 전략 주문은 전략명과 ID를 표시한다`() {
+        val msg =
+            NotificationFormatter.format(
+                userId = "12345678",
+                eventType = NotificationEventType.ORDER_FILLED,
+                reason = "체결: [MOCK] SK하이닉스(000660) 매도 1주 @ 2,337,000원",
+                meta =
+                    mapOf(
+                        "strategyId" to "43",
+                        "strategyName" to "익절 전략",
+                        "source" to "AUTO",
+                    ),
+            )
+
+        assertThat(msg).contains("주문출처: 자동 전략 익절 전략 (#43)")
+    }
+
+    @Test
+    fun `(1-4) ORDER_FILLED — 수동 주문은 전략 대신 수동 주문으로 표시한다`() {
+        val msg =
+            NotificationFormatter.format(
+                userId = "12345678",
+                eventType = NotificationEventType.ORDER_FILLED,
+                reason = "체결: [MOCK] 삼성전자(005930) 매수 1주 @ 70,000원",
+                meta =
+                    mapOf(
+                        "strategyId" to "0",
+                        "source" to "MANUAL",
+                    ),
+            )
+
+        assertThat(msg).contains("주문출처: 수동 주문")
+        assertThat(msg).doesNotContain("자동 전략")
+    }
+
+    @Test
     fun `(2) ORDER_REJECTED — 거절 메시지 + 마스킹`() {
         val msg =
             NotificationFormatter.format(
@@ -93,6 +129,7 @@ class NotificationFormatterTest {
                         "alertMessage" to "종목 005930 주문이 오늘 이 전략에서 허용된 주문 횟수를 모두 사용해 차단됐습니다.",
                         "alertFormula" to "오늘 허용 주문 수 50회 >= 일별 최대 거래 50회/일",
                         "alertSetting" to "D. 거래 빈도 한도 - 일별 최대 거래",
+                        "alertAction" to "오늘 주문 횟수와 전략 실행 빈도를 확인하세요.",
                         "code" to "005930",
                         "instrumentName" to "삼성전자",
                     ),
@@ -104,7 +141,34 @@ class NotificationFormatterTest {
         assertThat(msg).contains("수식: 오늘 허용 주문 수 50회 >= 일별 최대 거래 50회/일")
         assertThat(msg).contains("설정: D. 거래 빈도 한도 - 일별 최대 거래")
         assertThat(msg).contains("즉시 조치")
-        assertThat(msg).contains("리스크 한도")
+        assertThat(msg).contains("오늘 주문 횟수와 전략 실행 빈도를 확인하세요.")
+    }
+
+    @Test
+    fun `(4-2) RISK_VIOLATION — KIS 잔고 조회 실패 action은 전략 비활성화 문구로 뭉개지지 않는다`() {
+        val msg =
+            NotificationFormatter.format(
+                userId = "12345678",
+                eventType = NotificationEventType.RISK_VIOLATION,
+                reason = "리스크 차단: SK하이닉스(000660) KIS 잔고 조회 실패",
+                meta =
+                    mapOf(
+                        "strategyId" to "44",
+                        "strategyName" to "OB 익절",
+                        "alertTitle" to "KIS 잔고 조회 실패 - 매도 주문 보류",
+                        "alertMessage" to "종목 000660 KIS 잔고를 확인하지 못해 매도 주문을 내보내지 않았습니다.",
+                        "alertFormula" to "KIS 잔고 조회 상태 = 실패, 주문 예정 수량 1주",
+                        "alertSetting" to "KIS 잔고 정합성 가드",
+                        "alertAction" to "KIS rate limit 또는 계좌 연결 상태를 확인하세요. 실제 보유 수량 부족으로 확정된 알림은 아닙니다.",
+                        "code" to "000660",
+                        "instrumentName" to "SK하이닉스",
+                    ),
+            )
+
+        assertThat(msg).contains("전략: OB 익절 (#44)")
+        assertThat(msg).contains("내용: KIS 잔고 조회 실패 - 매도 주문 보류")
+        assertThat(msg).contains("즉시 조치: KIS rate limit")
+        assertThat(msg).doesNotContain("전략 비활성화")
     }
 
     @Test

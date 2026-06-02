@@ -132,6 +132,16 @@ data class RiskAlertMessage(
             code: String?,
         ): RiskAlertMessage {
             if (contextText(context, "source") == "KIS_BALANCE") {
+                val reasonCode = contextText(context, "reasonCode")
+                if (reasonCode.startsWith("KIS_BALANCE_LOOKUP_FAILED") || reasonCode == "KIS_BALANCE_LOOKUP_UNAVAILABLE") {
+                    return RiskAlertMessage(
+                        title = "KIS 잔고 조회 실패 - 매도 주문 보류",
+                        message = "${codeLabel(code, context)} KIS 잔고를 확인하지 못해 매도 주문을 내보내지 않았습니다.",
+                        formula = "KIS 잔고 조회 상태 = 실패, 주문 예정 수량 ${contextText(context, "requestedQty")}주",
+                        setting = "KIS 잔고 정합성 가드",
+                        action = "KIS rate limit 또는 계좌 연결 상태를 확인하세요. 실제 보유 수량 부족으로 확정된 알림은 아닙니다.",
+                    )
+                }
                 return RiskAlertMessage(
                     title = "KIS 잔고 매도 가능 수량 부족",
                     message = "${codeLabel(code, context)} KIS 계좌 보유 수량이 주문 수량보다 적어 매도 주문을 내보내지 않았습니다.",

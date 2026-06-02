@@ -39,6 +39,8 @@ class ConsumerKisBalanceQueryAdapter(
     private val kisBaseProd: String,
     @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
     private val kisBaseVps: String,
+    @Value("\${magicjar.kis.balance-rate-limit-backoff-millis:1000}")
+    private val rateLimitBackoffMillis: Long = 1000L,
 ) : KisBalanceQueryPort {
     private val log = LoggerFactory.getLogger(ConsumerKisBalanceQueryAdapter::class.java)
 
@@ -53,7 +55,6 @@ class ConsumerKisBalanceQueryAdapter(
 
         var appKey: ByteArray? = null
         var secretKey: ByteArray? = null
-        var signalSent = false
 
         return try {
             appKey = secretCipher.decrypt(cred.appKeyEnc)
@@ -61,9 +62,57 @@ class ConsumerKisBalanceQueryAdapter(
             val appKeyStr = String(appKey)
             val secretKeyStr = String(secretKey)
 
-            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
+            val response =
+                requestBalanceResponse(
+                    cred = cred,
+                    accessToken = accessToken,
+                    appKey = appKeyStr,
+                    secretKey = secretKeyStr,
+                    trId = trId,
+                    baseUrl = baseUrl,
+                    userId = userId,
+                    retryAttempt = 0,
+                )
 
-            @Suppress("UNCHECKED_CAST")
+            val snapshot =
+                KisAccountBalance(
+                    userId = userId,
+                    accountType = accountType,
+                    balance = parseOutput2(response),
+                    holdings = parseOutput1(response),
+                    fetchedAt = Instant.now(),
+                )
+            log.info(
+                "consumer KIS 잔고조회 성공: user={} type={} holdings={}건 netAsset={}",
+                maskUserId(userId),
+                accountType.name,
+                snapshot.holdings.size,
+                snapshot.balance.netAssetValue,
+            )
+            snapshot
+        } finally {
+            appKey?.fill(0)
+            secretKey?.fill(0)
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun requestBalanceResponse(
+        cred: ConsumerUserKisCredentialJpaEntity,
+        accessToken: String,
+        appKey: String,
+        secretKey: String,
+        trId: String,
+        baseUrl: String,
+        userId: String,
+        retryAttempt: Int,
+    ): Map<String, Any> {
+        var acquiredToken = false
+        var signalSent = false
+        return try {
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = RATE_LIMIT_ACQUIRE_TIMEOUT_MS)
+            acquiredToken = true
+
             val response =
                 webClient
                     .get()
@@ -86,38 +135,42 @@ class ConsumerKisBalanceQueryAdapter(
                             .queryParam("CTX_AREA_NK100", "")
                             .build()
                     }.header("authorization", "Bearer $accessToken")
-                    .header("appkey", appKeyStr)
-                    .header("appsecret", secretKeyStr)
+                    .header("appkey", appKey)
+                    .header("appsecret", secretKey)
                     .header("tr_id", trId)
                     .header("custtype", "P")
                     .retrieve()
                     .bodyToMono(Map::class.java)
                     .timeout(TIMEOUT)
                     .block() as? Map<String, Any>
-                    ?: error("KIS 잔고조회 응답 없음 — userId=$userId")
 
-            val snapshot =
-                KisAccountBalance(
-                    userId = userId,
-                    accountType = accountType,
-                    balance = parseOutput2(response),
-                    holdings = parseOutput1(response),
-                    fetchedAt = Instant.now(),
-                )
             kisRateLimiterPort.onSuccess()
             signalSent = true
-            log.info(
-                "consumer KIS 잔고조회 성공: user={} type={} holdings={}건 netAsset={}",
-                maskUserId(userId),
-                accountType.name,
-                snapshot.holdings.size,
-                snapshot.balance.netAssetValue,
-            )
-            snapshot
+            response ?: error("KIS 잔고조회 응답 없음 — userId=$userId")
         } catch (e: WebClientResponseException) {
-            if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
+            val errorClass = classifyKisError(e.statusCode.value(), e.responseBodyAsString)
+            if (errorClass is KisErrorClass.RateLimit) {
                 kisRateLimiterPort.onTpsExceeded()
                 signalSent = true
+                if (retryAttempt == 0) {
+                    log.warn(
+                        "consumer KIS 잔고조회 Rate Limit — {}ms backoff 후 1회 재시도: user={} status={}",
+                        rateLimitBackoffMillis,
+                        maskUserId(userId),
+                        e.statusCode.value(),
+                    )
+                    sleepBeforeRateLimitRetry()
+                    return requestBalanceResponse(
+                        cred = cred,
+                        accessToken = accessToken,
+                        appKey = appKey,
+                        secretKey = secretKey,
+                        trId = trId,
+                        baseUrl = baseUrl,
+                        userId = userId,
+                        retryAttempt = 1,
+                    )
+                }
             }
             log.error(
                 "consumer KIS 잔고조회 실패: user={} status={} body={}",
@@ -127,14 +180,20 @@ class ConsumerKisBalanceQueryAdapter(
             )
             throw e
         } finally {
-            appKey?.fill(0)
-            secretKey?.fill(0)
-            if (!signalSent) {
+            if (acquiredToken && !signalSent) {
                 log.warn(
-                    "[KisRateLimit] ConsumerKisBalanceQuery acquire 후 통계 시그널 미발행 — drift risk: user={}",
+                    "[KisRateLimit] ConsumerKisBalanceQuery acquire 후 통계 시그널 미발행 — drift risk: user={} retryAttempt={}",
                     maskUserId(userId),
+                    retryAttempt,
                 )
             }
+        }
+    }
+
+    private fun sleepBeforeRateLimitRetry() {
+        val sleepMillis = rateLimitBackoffMillis.coerceAtLeast(0L)
+        if (sleepMillis > 0L) {
+            Thread.sleep(sleepMillis)
         }
     }
 
@@ -208,6 +267,7 @@ class ConsumerKisBalanceQueryAdapter(
 
     companion object {
         private val TIMEOUT = Duration.ofSeconds(10)
+        private const val RATE_LIMIT_ACQUIRE_TIMEOUT_MS = 3000L
         private const val INQUIRE_BALANCE_PATH = "/uapi/domestic-stock/v1/trading/inquire-balance"
         private const val TR_ID_REAL = "TTTC8434R"
         private const val TR_ID_MOCK = "VTTC8434R"

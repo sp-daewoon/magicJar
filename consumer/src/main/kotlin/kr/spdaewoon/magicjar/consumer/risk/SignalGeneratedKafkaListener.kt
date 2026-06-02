@@ -406,7 +406,7 @@ class SignalGeneratedKafkaListener(
         // 4. risk.violation.v1 publish
         riskViolationKafkaProducer.publish(signal, blocked, savedEvent?.id)
 
-        if (!blocked.rule.countsTowardStrategyAutoPause()) {
+        if (!blocked.countsTowardStrategyAutoPause()) {
             log.debug(
                 "AutoPauseGuard skip: rule={} userId={} strategyId={} signalId={}",
                 blocked.rule,
@@ -426,9 +426,13 @@ class SignalGeneratedKafkaListener(
         autoPauseGuard.checkAndPauseIfNeeded(signal.strategyId, threshold)
     }
 
-    private fun RiskRule.countsTowardStrategyAutoPause(): Boolean =
-        when (this) {
+    private fun RiskGatewayResult.Blocked.countsTowardStrategyAutoPause(): Boolean =
+        when (rule) {
             RiskRule.KILL_SWITCH_ON -> false
+            RiskRule.SELL_QUANTITY_UNAVAILABLE -> {
+                val reasonCode = context["reasonCode"]?.toString().orEmpty()
+                !(reasonCode.startsWith("KIS_BALANCE_LOOKUP_FAILED") || reasonCode == "KIS_BALANCE_LOOKUP_UNAVAILABLE")
+            }
             else -> true
         }
 

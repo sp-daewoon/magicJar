@@ -62,8 +62,8 @@ class BatchRedisKisRateLimiterAdapter(
     }
 
     /**
-     * Bucket4j BucketConfiguration — Greedy refill (capacity 도달 시 일정 간격 회복).
-     * Phase 1 LOCK: 10 token / 1 sec greedy.
+     * Bucket4j BucketConfiguration — interval refill (KIS 서버의 초당 윈도우에 맞춰 burst 완화).
+     * Phase 1 LOCK: 10 token / 1 sec interval.
      */
     private val bucketConfiguration: BucketConfiguration =
         BucketConfiguration
@@ -71,7 +71,7 @@ class BatchRedisKisRateLimiterAdapter(
             .addLimit { limit ->
                 limit
                     .capacity(props.bucketCapacity)
-                    .refillGreedy(
+                    .refillIntervally(
                         props.bucketRefillTokens,
                         Duration.ofSeconds(props.bucketRefillPeriodSeconds),
                     )

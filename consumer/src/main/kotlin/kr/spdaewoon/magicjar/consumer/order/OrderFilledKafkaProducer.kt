@@ -71,6 +71,7 @@ class OrderFilledKafkaProducer(
                         "fillSource" to fillSource(execution),
                         "partial" to partial,
                         "mode" to request.mode.name,
+                        "source" to request.source.name,
                     ),
                 )
             } catch (e: Exception) {
