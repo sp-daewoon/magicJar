@@ -46,10 +46,12 @@ Scenario Replay는 전략 QA 환경이다. 실제 투자와 같은 전략 DSL, c
 ## 적용 위치 (코드·설정)
 
 - `domain/.../scenario/` — 리플레이 도메인 모델과 pure engine
-- `api/.../scenario/` — 리플레이 API, persistence, report
+- `api/.../scenario/` — 리플레이 API, execution orchestration, report
+- `api/.../persistence/scenario/` — `scenario_*` entity/repository만
 - `api/src/main/resources/db/migration/V63__scenario_replay.sql` 이후 — `scenario_*` 테이블
 - `MAGICJAR_SCENARIO_REPLAY_ENABLED` — endpoint enable gate
 
 ## 변경 이력
 
+- 2026-06-03: Phase 2 API/DB 구현 반영. `api/scenario`와 `api/persistence/scenario`는 live order/KIS/Kafka/Slack adapter 참조 없이 `scenario_*`만 사용한다.
 - 2026-06-03: ADR 0107에 따라 Scenario Replay Sandbox 현행 권위 정책 도입.
