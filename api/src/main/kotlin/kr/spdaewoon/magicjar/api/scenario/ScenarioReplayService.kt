@@ -93,7 +93,7 @@ class ScenarioReplayService(
         if (!enabled) {
             throw ResponseStatusException(
                 HttpStatus.SERVICE_UNAVAILABLE,
-                "Scenario Replay는 비활성 상태입니다. MAGICJAR_SCENARIO_REPLAY_ENABLED=true 설정 후 local QA에서 실행하세요.",
+                "Scenario Replay는 비활성 상태입니다. MAGICJAR_SCENARIO_REPLAY_ENABLED=true 설정 후 API를 재기동하세요.",
             )
         }
     }

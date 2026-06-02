@@ -33,7 +33,7 @@ class ScenarioReplayController(
         summary = "시나리오 리플레이 실행",
         description =
             "과거 candle을 virtual clock으로 재생해 전략 신호·리스크·가상 주문·가상 체결·오류 이벤트를 저장합니다. " +
-                "기본 feature gate는 꺼져 있으며 local QA에서만 명시적으로 켭니다.",
+                "기본 feature gate는 꺼져 있으며 Scenario Replay 실행을 명시적으로 켠 경우에만 동작합니다.",
     )
     @ApiResponses(
         ApiResponse(responseCode = "201", description = "리플레이 실행 및 저장 성공"),

@@ -1,11 +1,9 @@
 # dev profile 오버라이드
 # PR-6+ 활성화 예정: KIS endpoint, base URL, dev-specific 설정 등
-
-magicjar:
-  # T-SIM Scenario Replay Sandbox는 dev/local QA에서 메뉴 접근만으로 실행 가능하게 기본 ON.
-  # non-dev baseline은 application.yml의 false가 권위이며, dev에서도 env로 false override 가능.
-  scenario-replay:
-    enabled: ${MAGICJAR_SCENARIO_REPLAY_ENABLED:true}
+#
+# 주의: dev profile은 거래 모드가 아니다. 기본 profile이 dev,real-kis 이므로
+# 자본/QA 기능 권한을 dev profile 기본값으로 열지 않는다.
+# Scenario Replay 실행은 application.yml의 MAGICJAR_SCENARIO_REPLAY_ENABLED 명시값이 권위다.
 
 # 예시 (PR-6에서 채움):
 # magicjar:
