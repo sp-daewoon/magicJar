@@ -3,6 +3,18 @@
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 
+| 2026-06-03 | **chore(meta): PR-4 v3.11.0 baseline 폴더 신설 + sub-agent 슬롯 4 anchor 발행** — `_workspace/baseline/v3.11.0/` 폴더 신설(README skeleton + 7 파일 인덱스). CHANGELOG sub-agent 슬롯 4 anchor(architect/backend-core/market-data/frontend). 4 sub-agent 병렬 디스패치 add-only LOCK. (orchestrator) | meta/baseline | PR-4 v3.11.0 baseline 슬롯 발행 |
+<!-- pr-4-slot-orchestrator -->
+| 2026-06-03 | **docs(architect): ADR 0107 Scenario Replay Sandbox + living policy + T-SIM spec** — 장중이 아니어도 전략 신호·리스크·가상 주문·가상 체결·오류 이벤트를 QA처럼 재현하는 `T-SIM` 트랙을 신설하되, `order.intent.v1`, `OrderRouterKafkaListener`, `KisOrderHttpAdapter`, KIS 주문 TR, live 주문·리스크 테이블, Slack TRADE 알림과 분리하도록 금지 목록을 LOCK. 리플레이 영속은 `scenario_*`, 후속 event stream은 `scenario.*` prefix만 허용한다. README version badge와 release table을 v3.11.0 baseline으로 올리고, master/tracks/ADR README/policies/INDEX를 동시 정합. | ADR · policy · spec · baseline · README | 실제 투자와 같은 전략 QA 시나리오를 만들되 실주문 경로와 충돌하지 않는 별도 환경을 먼저 고정하기 위함 |
+| 2026-06-?? | **TBD — PR-4 architect: 01-architecture + 06-history + 07-policy + README** | baseline/v3.11.0 | PR-4 architect 4 파일 |
+<!-- pr-4-slot-architect -->
+| 2026-06-?? | **TBD — PR-4 backend-core: 02-data-flow + 04-feature-spec** | baseline/v3.11.0 | PR-4 backend-core 2 파일 |
+<!-- pr-4-slot-backend-core -->
+| 2026-06-?? | **TBD — PR-4 market-data: 03-use-sequences (KIS-first raw 출처)** | baseline/v3.11.0 | PR-4 market-data 1 파일 |
+<!-- pr-4-slot-market-data -->
+| 2026-06-?? | **TBD — PR-4 frontend: 05-ui-inventory** | baseline/v3.11.0 | PR-4 frontend 1 파일 |
+<!-- pr-4-slot-frontend -->
+
 | 2026-06-02 | **fix(risk): KillSwitch·BUY_BLOCKED 제어 계층 정합** — KillSwitch를 `user_id` 전체 하드 스톱, `BUY_BLOCKED`를 `strategy_id` 단위 신규 BUY 차단으로 명시 분리. 자본 경로 KillSwitch 조회는 기존 사용자 V62 seed + 신규 온보딩 OFF row 생성 후 row 없음·조회 실패·포트 미합류 시 fail-closed ON으로 처리하도록 api/consumer adapter와 SignalGeneratedKafkaListener를 보강하고, RuntimeFlags userId 조회도 row 없음·조회 실패를 `killSwitchActive=true`로 표시한다. `KILL_SWITCH_ON` BLOCKED는 strategy AutoPause 누적에서 제외해 사용자 전체 비상정지가 특정 전략 상태를 바꾸지 않도록 수정. ADR 0043·0067·0098 및 living policy 동시 정합. | risk · order · onboarding · api · consumer · domain · docs | 킬스위치와 전략별 자동매수 차단 정책이 섞여 전체 정지/전략 정지 의미가 흔들리는 위험을 제거하고, KillSwitch 조회 실패 시 주문 경로가 열리는 fail-open 여지를 닫기 위함 |
 
 | 2026-06-02 | **fix(risk): 리스크 자동정지 BUY_BLOCKED 분리 + RiskConfig DLL 저장 정합** — 연속 BLOCKED 임계 도달 시 전략 전체 DISABLED/PAUSED가 아니라 해당 `strategy_id`만 `BUY_BLOCKED`로 전환해 신규 BUY만 차단하고 기존 포지션의 SELL·익절·손절 평가는 계속 유지하도록 수정. 같은 사용자의 다른 전략은 각자의 상태대로 계속 동작한다. Strategy 상태 enum·Flyway V61·api/consumer repository·RealtimeSignalGenerator·전략 카드 UI·리스크 이력 문구를 함께 갱신하고, RiskConfig 저장은 `isDailyLossLimitActive=false`를 명시적 DLL 비활성화로 처리하며 DLL 금액/비율 XOR 요청을 프론트·백엔드 양쪽에서 고정. 실제 dogfooding DB evidence: 2026-06-02 13:21~13:30 KST 전략 id 8 `모의 학습용 1분봉 MA10 터치 삼성전자`에서 `POSITION_LIMIT`·`SELL_QUANTITY_UNAVAILABLE` BLOCKED 10건 누적으로 임계 10회 도달. ADR 0067 amend + master/tracks/ADR README/living policy 동시 정합. | risk · strategy · consumer · api · frontend · docs | 자동매수로 진입한 포지션이 리스크 자동정지 후 청산 평가 없이 방치되는 위험을 막고, 리스크 설정 저장 오류(DLL 금액·비율 동시 전송 / DLL off 불가)를 닫기 위함 |

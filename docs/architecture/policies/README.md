@@ -31,6 +31,7 @@ magicJar는 **메타 룰**을 두 층위로 분리한다:
 | **운영** | Task 사이클 (start·check·done·archive) | [task-cycle.md](task-cycle.md) | 낮음 |
 | **운영** | Mermaid 작성 규약 (mermaid 10 호환) | [mermaid-conventions.md](mermaid-conventions.md) | 낮음 |
 | **자동매매** | BUY 전 손절/익절 RiskPlan 필수화 | [autotrading-risk-plan.md](autotrading-risk-plan.md) | 중간 |
+| **자동매매 QA** | Scenario Replay Sandbox 분리 규약 | [scenario-replay-sandbox.md](scenario-replay-sandbox.md) | 높음 |
 
 이후 추가 영역:
 
