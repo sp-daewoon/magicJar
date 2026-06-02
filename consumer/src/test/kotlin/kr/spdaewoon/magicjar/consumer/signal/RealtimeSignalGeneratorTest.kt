@@ -168,6 +168,47 @@ class RealtimeSignalGeneratorTest {
     }
 
     @Test
+    fun `BUY_BLOCKED는 해당 strategy_id의 신규 BUY만 막고 다른 ACTIVE 전략은 계속 BUY를 발행한다`() {
+        val buyAst = ast("1", Operator.GT, "0")
+        val boundaryTs = Instant.parse("2026-05-20T00:36:00Z")
+        val savedSignal = slot<GeneratedSignal>()
+        val publishedSignal = slot<GeneratedSignal>()
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(
+                strategy(id = 42L, buyAst = buyAst, status = StrategyStatus.BUY_BLOCKED),
+                strategy(id = 77L, buyAst = buyAst, status = StrategyStatus.ACTIVE),
+            )
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
+        every { dedupeGuard.tryAcquire(77L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
+        every { candleRepository.findByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(candle("2026-05-20T00:30:00Z", "100"))
+        every { evaluator.evaluate(any(), buyAst, any()) } returns
+            StrategyEvalResult(
+                signal = StrategySignal.BUY,
+                strength = BigDecimal("0.80"),
+                reason = mapOf("trigger" to "BUY_CONDITION"),
+                evaluatedAt = fixedNow,
+                evalTimeMs = 1L,
+            )
+        every { signalRepository.save(capture(savedSignal)) } answers { savedSignal.captured.copy(id = 101L) }
+        every { signalKafkaProducer.publish(capture(publishedSignal)) } just Runs
+
+        generator().onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.FIVE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "150"),
+        )
+
+        assertThat(savedSignal.captured.strategyId).isEqualTo(77L)
+        assertThat(savedSignal.captured.side).isEqualTo(SignalSide.BUY)
+        assertThat(publishedSignal.captured.strategyId).isEqualTo(77L)
+        verify(exactly = 1) { signalRepository.save(any()) }
+        verify(exactly = 1) { signalKafkaProducer.publish(any()) }
+    }
+
+    @Test
     fun `dedupeGuard tryAcquire false 시 evaluator 호출과 signal save를 모두 skip 한다`() {
         val buyAst = ast("1", Operator.GT, "0")
         val sellAst = ast("1", Operator.GT, "0")
@@ -404,13 +445,14 @@ class RealtimeSignalGeneratorTest {
         )
 
     private fun strategy(
+        id: Long = 42L,
         buyAst: DslNode,
         sellAst: DslNode? = null,
         takeProfitPct: BigDecimal? = null,
         status: StrategyStatus = StrategyStatus.ACTIVE,
     ): Strategy =
         Strategy(
-            id = 42L,
+            id = id,
             userId = 1234L,
             status = status,
             definition =
