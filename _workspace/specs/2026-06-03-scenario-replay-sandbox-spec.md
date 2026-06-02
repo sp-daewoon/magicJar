@@ -1,7 +1,7 @@
 # Scenario Replay Sandbox Spec — v3.11.0 이후 T-SIM
 
 > 작성일: 2026-06-03 KST
-> 상태: Phase 0 spec locked, 구현 전
+> 상태: Phase 1 pure domain skeleton 구현 완료, API/DB/UI 구현 전
 > 관계: ADR 0107, policy `scenario-replay-sandbox`
 
 ---
@@ -213,7 +213,7 @@ UI/API 응답의 status text는 "리플레이", "가상", "시나리오" 중 하
 | Phase | 산출물 | 검증 |
 |---|---|---|
 | 0 | ADR 0107 + policy + 본 spec + v3.11.0 baseline | 문서 only |
-| 1 | `domain/scenario` model + `ScenarioReplayEngine` pure skeleton + forbidden import test | `:domain:check`, grep |
+| 1 | `domain/scenario` model + `ScenarioReplayEngine` pure skeleton + forbidden import test | `:domain:test --tests "*Scenario*"`, grep |
 | 2 | V63 `scenario_*` tables + api persistence + controller | `:api:check`, migration audit |
 | 3 | frontend `/qa/scenario-replay` timeline | Playwright screenshot |
 | 4 | optional `scenario.*` progress stream | live topic grep 0 |
@@ -237,4 +237,5 @@ UI/API 응답의 status text는 "리플레이", "가상", "시나리오" 중 하
 
 | 날짜 | 변경 |
 |---|---|
+| 2026-06-03 | Phase 1 pure domain skeleton + forbidden boundary test 구현. API/DB/UI/Kafka/KIS adapter는 아직 미구현. |
 | 2026-06-03 | Phase 0 spec 신설. |
