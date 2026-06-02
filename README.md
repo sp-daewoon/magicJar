@@ -137,31 +137,38 @@ open http://localhost:3000
 
 v3.11.0의 Scenario Replay는 장중이 아니어도 저장된 전략을 과거 candle로 재생하는 **QA 전용 기능**이다. 실제 KIS 주문, live 주문 Kafka topic, live 주문·리스크·포지션 테이블, Slack TRADE 알림을 사용하지 않고 `scenario_*` 테이블에만 기록한다.
 
-기본값은 꺼짐이다. local QA에서만 명시적으로 켠다.
+dev/local profile에서는 메뉴 접근만으로 실행할 수 있도록 기본 ON이다. non-dev profile에서는 기본 OFF이며, 강제로 끄거나 켤 때만 env를 명시한다.
 
 ```bash
 # .env
-MAGICJAR_SCENARIO_REPLAY_ENABLED=true
+# dev/local에서 강제로 끄려면 주석 해제
+# MAGICJAR_SCENARIO_REPLAY_ENABLED=false
+
+# non-dev에서 명시적으로 켜기
+# MAGICJAR_SCENARIO_REPLAY_ENABLED=true
 
 # optional guardrail
 MAGICJAR_SCENARIO_REPLAY_MAX_CANDLES=5000
 MAGICJAR_SCENARIO_REPLAY_MAX_EVENTS=20000
 ```
 
-설정 후 API를 재기동한다.
+env를 바꿨다면 API를 재기동한다.
 
 ```bash
 # Docker 통합 기동/재기동
 scripts/build-and-deploy.sh api-app
 
-# 또는 IDE/bootRun
+# 또는 IDE/bootRun(dev profile 기본 ON)
+./gradlew :api:bootRun
+
+# non-dev에서 명시적으로 켜야 하는 경우
 MAGICJAR_SCENARIO_REPLAY_ENABLED=true ./gradlew :api:bootRun
 ```
 
 사용 순서:
 
-1. `MAGICJAR_SCENARIO_REPLAY_ENABLED=true` 설정 후 API 재기동
-2. Frontend에서 `/qa/scenario-replay` 접속
+1. dev/local이면 API 기동 후 Frontend에서 `/qa/scenario-replay` 접속
+2. non-dev에서 테스트해야 한다면 `MAGICJAR_SCENARIO_REPLAY_ENABLED=true` 설정 후 API 재기동
 3. 전략, 종목코드, interval, KST 기준 가상 시작·종료 시각, 가상 시작 현금 입력
 4. 매도 흐름을 보려면 `가상 시작 보유수량`을 입력하고, 보유 부족 차단을 보려면 0주로 둔다
 5. rate limit·잔고조회 실패·장종료·data not ready를 확인하려면 `장애 주입` 선택
@@ -176,7 +183,7 @@ MAGICJAR_SCENARIO_REPLAY_ENABLED=true ./gradlew :api:bootRun
 | `리플레이 리스크 차단` | `scenario_*` 포지션·전략 상태 기준으로 가상 주문 생성 전 차단 |
 | `가상 주문 거절` | 장종료 등 리플레이 세션 규칙으로 거절. 실제 주문 거절 알림 아님 |
 
-꺼져 있으면 실행 API는 `503 Scenario Replay는 비활성 상태입니다`를 반환한다. 이 경우 `.env` 값과 API 재기동 여부를 먼저 확인한다.
+꺼져 있으면 실행 API는 `503 Scenario Replay는 비활성 상태입니다`를 반환한다. 이 경우 active profile, `.env` 값, API 재기동 여부를 먼저 확인한다.
 
 ### 개발 모드 (IDE bootRun + Infra 컨테이너)
 
