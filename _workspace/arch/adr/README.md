@@ -65,7 +65,7 @@
 | **0104** | **시장 캘린더 이벤트 표면 + KRX 휴장일 배치 게이트 — Accepted (2026-05-25, 2026-05-25 부처님오신날 대체휴무일 실측 정합 + `market_calendar_event` 확장 테이블 + `/market/calendar` 웹 캘린더 + batch KRX 휴장일 skip + 지수 데이터 부족 원인 분리)** |
 | **0105** | **캔들 Reconciliation + 장기 1m 보관/복구 정책 — Accepted (2026-05-31, 2026-06-01 실전 시나리오 amend: A→B→A 재진입 gap fill + boot managed universe reconciliation + data readiness fail-closed)** |
 
-## §6. 전략·신호·리스크 (11건)
+## §6. 전략·신호·리스크 (13건)
 
 | 번호 | 제목 |
 |------|------|
@@ -79,6 +79,7 @@
 | 0067 | T-RISK 리스크 관리 — Accepted (Signal → Risk Gateway consumer → Order intent 의무 게이트 + 4 도메인 영속 + auto-PAUSE, 2026-06-02 amend: `strategy_id` 단위 `BUY_BLOCKED` 신규 BUY 차단 + SELL·익절·손절 평가 유지 + KillSwitch 상위 제어 분리) |
 | 0068 | T-O 주문 실행 — **Accepted (2026-05-18 본 트랙 마감 — Phase 1·2·3 합류 종결 + dogfooding 케이스 5 GREEN + KIS WS H0STCNI9 MOCK subscribe emit=OK)** (Risk ALLOWED → KIS REST + WS H0STCNI0/H0STCNI9 체결 추적 + 3 테이블 영속 + 실계좌 3중 게이트) |
 | 0106 | 자동매매 BUY 전 손절/익절 RiskPlan 필수화 — Accepted (2026-06-01, fixed stop-loss + take-profit activation gate + SELL 가용 수량 계산) |
+| 0107 | Scenario Replay Sandbox — Accepted (2026-06-03, 실주문 경로·KIS 주문 adapter·live Kafka topic·live 주문/리스크 테이블과 분리된 전략 QA 리플레이) |
 | 0071 | T-SC Screener — Accepted (universe × DSL → 후보 + 랭킹 + Redis cache 30m + 옵션 영속 V28) |
 | 0072 | T-J + T-PERF 묶음 — Accepted (Trading Journal 영속 + Performance 통계 + Flyway V29·V30 + batch DailyPerformanceJob) |
 
@@ -183,7 +184,7 @@
 
 - **새 ADR 발행 시** — 본 README + `master-architecture.md` §10 + `tracks-roadmap.md` §3 동시 갱신.
 - **Superseded 처리 시** — 본문 상단 헤더 + 본 README 행 supersede 표기. `_archive/` 이동은 v3.3.0 cycle에 일괄.
-- **신규 진입 시 후속 ADR 번호** — **0106부터 sequential**. 0082(T-MAN)·0083(indicator-impl)·0084(주문 path 안정성)·0085(chart-curator 영입)·0086(T-CC Phase 2 데이터 햇징 룰)·0087(sub-agent 페르소나 매트릭스)·0088(persistence-shared 모듈)·0089(userId 타입 정합)·0090(instrument_status_history)·0091(NXT resolver)·0092(strategy-engine 모듈)·0093(차트 캔들 히스토리 limit + lazy backfill)·0094(운영 단계 transition + qa Visual 격상)·0095(P0-OPS-3 SLO/SLA + alert routing)·0096(P0-OPS-4 DR/backup 절차)·0097(ExecutionPositionUpdatePort)·0098(KillSwitchQueryPort + Strategy 활성화 게이트)·0099(Reactor `.block()` non-blocking 계약)·**0100(T-MARKET 트랙)·0101(TrendPreference + user_preference)·0102(spec audit 5단계 절차)·0103(JpaScanConfiguration 패키지 누락 차단)·0104(시장 캘린더 이벤트 + 휴장일 게이트)·0105(캔들 Reconciliation + 장기 1m retention)** 점유 완료. 예약 슬롯은 §12 참조.
+- **신규 진입 시 후속 ADR 번호** — **0108부터 sequential**. 0082(T-MAN)·0083(indicator-impl)·0084(주문 path 안정성)·0085(chart-curator 영입)·0086(T-CC Phase 2 데이터 햇징 룰)·0087(sub-agent 페르소나 매트릭스)·0088(persistence-shared 모듈)·0089(userId 타입 정합)·0090(instrument_status_history)·0091(NXT resolver)·0092(strategy-engine 모듈)·0093(차트 캔들 히스토리 limit + lazy backfill)·0094(운영 단계 transition + qa Visual 격상)·0095(P0-OPS-3 SLO/SLA + alert routing)·0096(P0-OPS-4 DR/backup 절차)·0097(ExecutionPositionUpdatePort)·0098(KillSwitchQueryPort + Strategy 활성화 게이트)·0099(Reactor `.block()` non-blocking 계약)·**0100(T-MARKET 트랙)·0101(TrendPreference + user_preference)·0102(spec audit 5단계 절차)·0103(JpaScanConfiguration 패키지 누락 차단)·0104(시장 캘린더 이벤트 + 휴장일 게이트)·0105(캔들 Reconciliation + 장기 1m retention)·0106(RiskPlan 필수화)·0107(Scenario Replay Sandbox)** 점유 완료. 예약 슬롯은 §12 참조.
 - **변경 이력 기록 의무** — 의미 있는 ADR 발행·재발행·supersede·예약 해제 시 §14에 한 줄 추가.
 
 ## §12. 예약 슬롯 (Reserved)
@@ -222,6 +223,7 @@
 
 | 일자 | 사이클 | 변경 |
 |------|--------|------|
+| 2026-06-03 | **ADR 0107 신설 — Scenario Replay Sandbox** | v3.11.0 이후 장외/비장중에도 전략을 QA처럼 재현하기 위해 `T-SIM` 트랙을 신설했다. 리플레이는 strategy/risk 순수 계산만 재사용하고 `order.intent.v1`, `OrderRouterKafkaListener`, `KisOrderHttpAdapter`, live 주문·리스크 테이블, Slack TRADE 알림과 분리한다. |
 | 2026-06-02 | **ADR 0043·0067·0098 amend — KillSwitch·`BUY_BLOCKED` 제어 계층 정합** | KillSwitch는 `user_id` 전체 하드 스톱으로 BUY·SELL·AUTO·MANUAL 주문 경로를 차단하되 strategy.status를 변경하지 않고, `BUY_BLOCKED`는 `strategy_id` 단위 신규 BUY 차단으로 분리. `KILL_SWITCH_ON` BLOCKED는 strategy AutoPause 누적에서 제외하고, KillSwitch query row 없음·조회 실패·포트 미합류는 fail-closed ON으로 처리하도록 ADR 본문, README §6/§10-1 row, master architecture, tracks-roadmap, living policy, CHANGELOG를 동시 정합. |
 | 2026-06-02 | **ADR 0067 amend — 리스크 자동정지 `BUY_BLOCKED` 정책 정합** | 동일 `strategy_id` 연속 BLOCKED 임계 도달 시 해당 전략만 `BUY_BLOCKED`로 전환해 신규 BUY만 막고, 다른 전략은 각자의 상태대로 계속 동작하며 기존 포지션 SELL·익절·손절 평가는 유지하도록 T-RISK F-1 위반 처리 정책을 갱신. ADR 0067 본문, 본 README §6 row, master architecture, tracks-roadmap, living policy, CHANGELOG 동시 정합. |
 | 2026-06-01 | **ADR 0105 amend — 실전 운용 시나리오 acceptance matrix 추가** | 사용자 표 기준으로 A→B→A 재진입 시 last 1m 이후 REST gap fill, 시스템 3일 off 후 boot managed universe reconciliation, 3일 1m gap 자동 복구와 합산봉 재생성, 1년 초과 1m 복구 불가, 자동매매 data readiness fail-closed를 LOCK. 장기 backfill/recollect는 candle row가 아니라 progress event만 STOMP로 전송하는 원칙을 추가. |

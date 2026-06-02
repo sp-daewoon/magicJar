@@ -68,6 +68,12 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    label: 'QA',
+    items: [
+      { to: '/qa/scenario-replay', label: '시나리오 리플레이' },
+    ],
+  },
+  {
     label: '리스크',
     items: [
       { to: '/risk-config', label: '리스크 설정' },

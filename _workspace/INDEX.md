@@ -19,6 +19,7 @@
 | 로그 레벨 정책 | [policies/logging-levels.md](../docs/architecture/policies/logging-levels.md) |
 | KIS-first raw fetch | [policies/kis-first-raw-fetch.md](../docs/architecture/policies/kis-first-raw-fetch.md) |
 | 자동매매 RiskPlan | [policies/autotrading-risk-plan.md](../docs/architecture/policies/autotrading-risk-plan.md) |
+| Scenario Replay Sandbox | [policies/scenario-replay-sandbox.md](../docs/architecture/policies/scenario-replay-sandbox.md) |
 | Task 사이클 | [policies/task-cycle.md](../docs/architecture/policies/task-cycle.md) |
 | Mermaid 작성 규약 | [policies/mermaid-conventions.md](../docs/architecture/policies/mermaid-conventions.md) |
 | (추가는 policies/README.md) | |
@@ -37,7 +38,7 @@
 
 ### "그때 시스템이 어떻게 생겼었나?" (시점별 snapshot)
 
-→ **`_workspace/baseline/<version>/`** ([최신 v3.1.0](baseline/v3.1.0/README.md))
+→ **`_workspace/baseline/<version>/`** ([최신 v3.11.0](baseline/v3.11.0/README.md))
 
 immutable. 변경 X. 새 버전 = 새 폴더. `/baseline init <version>` slash command.
 
@@ -68,6 +69,7 @@ PR 머지마다 row 추가. anchor 기반 슬롯 (ADR 0050).
 - **외부 API 정책**: [docs/architecture/external-api-policy.md](../docs/architecture/external-api-policy.md)
 - **캔들 데이터 정책**: [docs/architecture/candle-data-policy-v2.md](../docs/architecture/candle-data-policy-v2.md)
 - **캔들/오더블럭 스크리닝 baseline**: [_workspace/baseline/v3.10.0/](baseline/v3.10.0/) — `3m`·`4h`·`12h`, 사용자 실행형 screener, 캔들 재수집 UX
+- **시나리오 리플레이 sandbox baseline**: [_workspace/baseline/v3.11.0/](baseline/v3.11.0/) — 실주문 경로와 분리된 전략 QA 리플레이 진입점
 
 ### 운영
 

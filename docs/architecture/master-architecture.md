@@ -526,11 +526,11 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 |---|---|---|
 | **W1** — 데이터 기반 (오프라인 1순위) | 종목 마스터·시세 fallback·세션·corp action | T-MS1 (트랙2) · T-IM1 · T-CA1 |
 | **W2** — 분석 도구 | 80지표·57패턴·DSL·Strategy Builder UI | T-IND · T-PAT · T-DSL · T-SB |
-| **W3** — 자동 매매 본체 (룰만, AI 호출 0) | 백테스트·screener·signal·risk·order 통합·perf | T-BT · T-SC · T-SIG · T-RISK (T-O 트랙1 완료 + 통합) · T-PERF |
+| **W3** — 자동 매매 본체 (룰만, AI 호출 0) | 백테스트·시나리오 리플레이 QA·screener·signal·risk·order 통합·perf | T-BT · T-SIM · T-SC · T-SIG · T-RISK (T-O 트랙1 완료 + 통합) · T-PERF |
 | **W4** — 시장 추세 + AI 옵션 + MCP 서버 | 시장 지수·섹터 추세·시장 캘린더 + 사용자 트리거 AI 코멘트·기업 분석·MCP server expose | T-MARKET · T-AI · T-MCP |
 | **W5** — 사용자 학습 + 일원화 | 데이터 흐름·아키 의도 검증·교육·LWC 확장 시각화 | T-LWC (LWC 확장) · T-LEARN (사용자 학습) |
 
-총 24 트랙. 본 마스터의 W1~W3 완료 시점이 "룰 기반 본체 풀 가동". W4·W5는 시장 추세 UX + 옵션 + 마무리.
+총 25 트랙. 본 마스터의 W1~W3 완료 시점이 "룰 기반 본체 풀 가동". W4·W5는 시장 추세 UX + 옵션 + 마무리.
 
 ---
 
@@ -551,7 +551,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 
 ---
 
-## §10. 핵심 ADR 인덱스 (0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069·0070·0071·0072·0074·0075·0079·0080·0081·0083·0086·0087·0091·0092·**0094**·**0095**·**0096**·**0097**·**0098**·**0099**·**0100**·**0101**·**0102**·**0103**·**0104**·**0105** Accepted + 0084 Accepted P0 baseline + 0064·0076·0077·0078·0082·0088·0089·0090·0093 Proposed + 0073 Superseded by 0075 + 0035 Superseded by 0080 + **0085 Superseded by 0094**)
+## §10. 핵심 ADR 인덱스 (0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069·0070·0071·0072·0074·0075·0079·0080·0081·0083·0086·0087·0091·0092·**0094**·**0095**·**0096**·**0097**·**0098**·**0099**·**0100**·**0101**·**0102**·**0103**·**0104**·**0105**·**0106**·**0107** Accepted + 0084 Accepted P0 baseline + 0064·0076·0077·0078·0082·0088·0089·0090·0093 Proposed + 0073 Superseded by 0075 + 0035 Superseded by 0080 + **0085 Superseded by 0094**)
 
 상세 본문은 `_workspace/arch/adr/<NNNN>-*.md`. 분류 카테고리는 `_workspace/arch/adr/README.md` §1~§10-4 정합. 본 §10은 한 줄 요약 인덱스 — 신규 ADR 발행 시 본 표 + README 동시 갱신 (ADR 0030 SoT 운영 규약).
 
@@ -680,6 +680,8 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | **0103** | **JpaScanConfiguration 신규 패키지 누락 차단 (장기 fix 옵션 3건 매트릭스 + 채택안 옵션 A 단일화 + 옵션 C-lite smoke test 하이브리드 + 운영 ADR 양식 3 슬롯 + 후속 사이클 6 슬롯) — Accepted (2026-05-24 W4 P1)** — 2026-05-24 W4 R3 qa PR #681 commit 062abecd 부팅 차단 결함 hotfix 1줄 직후 architect amend dispatch. R2 backend-core T-MCP Phase 1 (PR #679) 신규 `kr.spdaewoon.magicjar.api.mcp.persistence` 패키지 신설 시 `JpaScanConfiguration.kt` 화이트리스트 갱신 누락 → `UnsatisfiedDependencyException — McpAuditService 의존성 McpAuditJpaRepository bean 미발견` → exit code 1 → api·batch·consumer 3 컨테이너 dependency RED → R3 qa 자율 hotfix 1줄 add-only (`api.mcp.persistence` basePackages + entityScan 동시 + KDoc 7줄 사유). 본 ADR이 R3 hotfix 후속 재발 방지 본문 LOCK + 장기 fix 옵션 매트릭스 본문화. 채택안: 옵션 A (모든 JPA 패키지 단일화 basePackages = `kr.spdaewoon.magicjar`) + 옵션 C-lite (Spring context load smoke test 1건 add-only · pre-push 자동 RED 차단 안전망) 하이브리드. 임시 baseline: R3 hotfix 화이트리스트 3건 명시 유지 (옵션 A 적용은 옵션 C 안정 운영 1 사이클 후 P2 dispatch). SLO 영향 S-1·S-2·S-3 부팅 차단 직접 RED + S-OPS-1 (api·batch·consumer 3 컨테이너 부팅 성공률 100%) 신규 SLO 후보. rollback < 50분 RTO LOCK 안. ADR 0088 cross-ref (옵션 A 적용 시 amend 동반 의무). 후속 6 슬롯 (P1 옵션 C smoke test · P2 옵션 A 적용 · P3 본 ADR amend · S-OPS-1 발행 · Bean missing 자동 진단 · visual 회귀 spec). 운영 코드 0 touch (md only). 메타·운영·하네스 카테고리. | 운영 단계 횡단 (W4 P1 — R3 qa 부팅 차단 hotfix 후속 재발 방지) |
 | **0104** | **시장 캘린더 이벤트 표면 + KRX 휴장일 배치 게이트 — Accepted (2026-05-25)** — 2026-05-25 부처님오신날 대체휴무일 실측에서 `market_calendar.is_business_day=false` 권위는 정상이나 batch 일부 path가 weekday 기반으로 남아 있던 결함을 보강. `market_calendar`는 KRX 영업일 SoT로 유지하고 `market_calendar_event`를 별도 확장 테이블로 신설해 IPO·FOMC·실적·상장폐지 등 사용자/자동 일정 입력을 add-only로 수용. `/api/market/calendar`와 `/market/calendar`는 휴장일·사용자 일정 CRUD를 함께 표면화. 국내 지수·종목 마스터 batch는 KRX 휴장일 skip, 해외 지수 daily는 KRX 캘린더와 분리. 시장 지수 `dataInsufficient=true`는 휴장일 수집 차단이 아니라 `market_index_snapshot`·`sector_index_snapshot`·지수 candle 0건인 초기 데이터 부재로 판정. | T-MARKET 보강 (W4 v3.9.0 이후 운영 UX + 데이터 신뢰성) |
 | **0105** | **캔들 Reconciliation + 장기 1m 보관/복구 정책 — Accepted (2026-05-31, 2026-06-01 실전 시나리오 amend)** — KIS `FHKST03010230` 최대 1년 보관분을 지나간 1m gap 복구 source로 LOCK하고, 기본 6개월 1m retention을 4h·12h 전략 기준봉 최소 요건으로 채택. boot/re-entry/scheduled reconciliation + SymbolDetail grace TTL + managed universe(priority: 보유/미체결 > ACTIVE 전략 > detail > watchlist > screener 후보) + data readiness gate(`READY/RECONCILING/STALE/FAILED`)를 도입해 stale candle 상태에서는 전략 평가와 주문 발행을 fail-closed로 막는다. 2026-06-01 amend로 A→B→A 재진입 last 1m 이후 REST gap fill, 시스템 3일 off 후 boot managed universe reconciliation, 3일 1m gap 자동 복구+합산봉 재생성, 1년 초과 1m 복구 불가 인정, progress event streaming 원칙을 acceptance matrix로 추가했다. | 시장 데이터·외부 API + 캔들 정합성 + 자동매매 data readiness |
+| **0106** | **자동매매 BUY 전 손절/익절 RiskPlan 필수화 — Accepted (2026-06-01)** — 자동매매 신규 BUY는 fixed stop-loss와 take-profit activation plan이 없으면 주문 의도 발행 전 fail-closed로 차단한다. SELL은 기존 포지션 청산·손절·익절 평가를 계속 수행하되 KIS 잔고 preflight로 매도 가능 수량을 확인하고, 조회 실패와 실제 보유 부족을 사용자 메시지에서 분리한다. | 전략·신호·리스크 + 자동매매 자본 보호 |
+| **0107** | **Scenario Replay Sandbox — Accepted (2026-06-03)** — 장중이 아니어도 과거 KIS candle을 virtual clock으로 재생해 strategy signal, risk decision, scenario order, scenario fill/reject/held, 오류 이벤트를 한 timeline에서 확인하는 `T-SIM` 트랙. strategy-engine evaluator와 risk rule의 순수 계산만 재사용하고, `order.intent.v1`, `OrderRouterKafkaListener`, `KisOrderHttpAdapter`, KIS 주문 TR, live 주문·리스크 테이블, Slack TRADE 알림은 금지한다. 영속은 `scenario_*`, 후속 event stream은 `scenario.*` prefix만 허용한다. | 전략·신호·리스크 + 운영 QA |
 
 ---
 
@@ -720,6 +722,7 @@ v1·v2 검토 시점에 누적된 결정 항목과 v3.0.0 베이스라인 컷(20
 
 | 날짜 | 변경 |
 |------|------|
+| 2026-06-03 (ADR 0107) | **Scenario Replay Sandbox Accepted**. v3.11.0 이후 `T-SIM` 트랙을 신설해 장중이 아니어도 전략 신호·리스크·가상 주문·가상 체결·오류를 QA처럼 재현한다. live 주문 Kafka, KIS 주문 adapter, live 주문·리스크 테이블, Slack TRADE 알림과 분리하고, `scenario_*` namespace만 허용한다. |
 | 2026-06-02 (ADR 0043·0067·0098 amend) | **KillSwitch·`BUY_BLOCKED` 제어 계층 정합**. KillSwitch는 `user_id` 전체 하드 스톱으로 BUY·SELL·AUTO·MANUAL 주문 경로를 차단하되 strategy.status를 변경하지 않고, `BUY_BLOCKED`는 `strategy_id` 단위 신규 BUY 차단으로 분리한다. `KILL_SWITCH_ON` BLOCKED는 strategy AutoPause 누적에서 제외하고, KillSwitch query row 없음·조회 실패·포트 미합류는 fail-closed ON으로 처리한다. |
 | 2026-06-02 (ADR 0067 amend) | **T-RISK 리스크 자동정지 `BUY_BLOCKED` 정책 정합**. §10 ADR 0067 row에 2026-06-02 amend를 추가. 동일 `strategy_id` 연속 BLOCKED 임계 도달 시 해당 전략만 `BUY_BLOCKED`로 신규 BUY를 차단하고, 다른 전략은 각자의 상태대로 계속 동작하며 기존 포지션 SELL·익절·손절 평가는 계속 유지한다. CHANGELOG·ADR README·tracks-roadmap·living policy와 동시 정합. |
 | 2026-06-01 (ADR 0105 amend) | **실전 운용 시나리오 acceptance matrix 추가**. A→B→A 재진입 시 last DB 1m 이후~현재 직전분 REST gap fill, 시스템 3일 off 후 boot managed universe reconciliation, 3일 1m gap 자동 복구와 3m~12h 합산봉 재생성, KIS 1년 초과 1m 복구 불가 인정, 자동매매 data readiness fail-closed, 장기 backfill/recollect progress event streaming 원칙을 LOCK. |
