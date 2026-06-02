@@ -49,9 +49,11 @@ Scenario Replay는 전략 QA 환경이다. 실제 투자와 같은 전략 DSL, c
 - `api/.../scenario/` — 리플레이 API, execution orchestration, report
 - `api/.../persistence/scenario/` — `scenario_*` entity/repository만
 - `api/src/main/resources/db/migration/V63__scenario_replay.sql` 이후 — `scenario_*` 테이블
+- `frontend/src/pages/QA/ScenarioReplayPage.tsx` — `/qa/scenario-replay` 전용 QA 화면
 - `MAGICJAR_SCENARIO_REPLAY_ENABLED` — endpoint enable gate
 
 ## 변경 이력
 
+- 2026-06-03: Phase 3 QA UI 구현 반영. 화면은 live 주문 메뉴가 아니라 QA 그룹 `/qa/scenario-replay`에 두고, 주문·체결·거절 이벤트는 `가상`·`리플레이`로 표기한다.
 - 2026-06-03: Phase 2 API/DB 구현 반영. `api/scenario`와 `api/persistence/scenario`는 live order/KIS/Kafka/Slack adapter 참조 없이 `scenario_*`만 사용한다.
 - 2026-06-03: ADR 0107에 따라 Scenario Replay Sandbox 현행 권위 정책 도입.

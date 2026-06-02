@@ -14,6 +14,7 @@
  *   /symbol/:code     -> 종목 상세 (T-S1 — ADR 0040 §2-2 진입점)
  *   /strategy/backtest -> 백테스트 (T-BT R3 — ADR 0061 §4 D-1)
  *   /strategy/list    -> 전략 목록 + 시그널 내역 (T-SIG Phase 3 — ADR 0066)
+ *   /qa/scenario-replay -> 시나리오 리플레이 QA (T-SIM Phase 3 — ADR 0107)
  *   /risk-config      -> 리스크 설정 (T-RISK Phase 3 — ADR 0067)
  *   /risk-events      -> 리스크 위반 이력 (T-RISK Phase 3 — ADR 0067)
  *   /positions        -> 보유 포지션 (T-RISK Phase 3 — ADR 0067)
@@ -43,6 +44,7 @@ import { WatchlistPage } from './pages/Watchlist/WatchlistPage'
 import { StrategyBuilderPage } from './pages/Strategy/StrategyBuilderPage'
 import { BacktestPage } from './pages/Strategy/BacktestPage'
 import { StrategyListPage } from './pages/Strategy/StrategyListPage'
+import { ScenarioReplayPage } from './pages/QA/ScenarioReplayPage'
 import { RiskConfigPage } from './pages/Risk/RiskConfigPage'
 import { RiskEventsPage } from './pages/Risk/RiskEventsPage'
 import { PositionsPage } from './pages/Risk/PositionsPage'
@@ -132,6 +134,8 @@ export function App() {
           <Route path="/strategy/backtest" element={<BacktestPage />} />
           {/* T-SIG Phase 3: 전략 목록 + 시그널 내역 — ADR 0066 */}
           <Route path="/strategy/list" element={<StrategyListPage />} />
+          {/* T-SIM Phase 3: 실제 주문과 분리된 시나리오 리플레이 QA — ADR 0107 */}
+          <Route path="/qa/scenario-replay" element={<ScenarioReplayPage />} />
           {/* T-RISK Phase 3: 리스크 설정·위반 이력·포지션 — ADR 0067 */}
           <Route path="/risk-config" element={<RiskConfigPage />} />
           <Route path="/risk-events" element={<RiskEventsPage />} />
