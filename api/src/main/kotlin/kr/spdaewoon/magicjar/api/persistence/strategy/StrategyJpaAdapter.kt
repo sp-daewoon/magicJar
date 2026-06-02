@@ -16,7 +16,7 @@ import org.springframework.transaction.annotation.Transactional
  * 전략 JPA 어댑터 — StrategyRepositoryPort 구현.
  *
  * 헌법 §6 (ADR 0051) 준수: 헬퍼 메서드는 interface 0건, 이 클래스 private fun 위치.
- * V14 확장: status 4단 + codes/intervals JSONB (ADR 0066 §2-6 F-1).
+ * V14 확장: status + codes/intervals JSONB (ADR 0066 §2-6 F-1).
  *
  * ### P2-4 진보 페르소나 refactor (ADR 0087, 2026-05-19)
  * - `toDomain`·`safeComplexityClass`·`safeDisabledReason` → [StrategyEntityMapper] 추출
@@ -65,8 +65,12 @@ class StrategyJpaAdapter(
         strategyId: Long,
         reason: StrategyDisabledReason,
     ) {
-        strategyJpaRepository.updateDisabledReason(strategyId, reason.name)
-        strategyJpaRepository.updateStatus(strategyId, StrategyStatus.DISABLED.name)
+        if (reason == StrategyDisabledReason.RISK_VIOLATION) {
+            strategyJpaRepository.markBuyBlocked(strategyId, reason.name)
+        } else {
+            strategyJpaRepository.updateDisabledReason(strategyId, reason.name)
+            strategyJpaRepository.updateStatus(strategyId, StrategyStatus.DISABLED.name)
+        }
     }
 
     @Transactional

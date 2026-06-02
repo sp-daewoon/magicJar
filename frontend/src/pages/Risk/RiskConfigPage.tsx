@@ -35,7 +35,7 @@ export function RiskConfigPage() {
         <h1 className="text-2xl font-bold text-white">리스크 설정</h1>
         <p className="mt-2 text-sm text-gray-500">
           자동매매 전략의 손실 한도·포지션 한도·거래 빈도를 설정합니다.
-          설정값 초과 시 전략 실행이 차단되거나 자동 정지됩니다.
+          설정값 초과 시 주문이 차단되거나 해당 전략의 신규 BUY가 자동 차단됩니다.
         </p>
       </div>
 

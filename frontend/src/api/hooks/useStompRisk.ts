@@ -8,7 +8,7 @@
  * - BLOCKED event: 토스트 (빨강)
  *   "[차단] 000660 — 포지션 한도 초과"
  * - AUTO_PAUSED event: 토스트 (회색=warning)
- *   "[자동 정지] strategy XXX — 연속 BLOCKED 10회"
+ *   "[자동 매수차단] strategy XXX — 연속 BLOCKED 10회"
  * - 연결 실패 시 toast 에러 표시
  *
  * 사용 예:

@@ -175,8 +175,8 @@ export const strategyApi = {
 // T-SIG Phase 3 — ADR 0066 신규 타입 & API
 // ──────────────────────────────────────────────
 
-/** 전략 상태 4단 (ADR 0066 §3-A) */
-export type StrategyStatus = 'ACTIVE' | 'PAUSED' | 'DISABLED' | 'DELETED'
+/** 전략 상태 (ADR 0066 §3-A + BUY_BLOCKED risk 보호 상태) */
+export type StrategyStatus = 'ACTIVE' | 'BUY_BLOCKED' | 'PAUSED' | 'DISABLED' | 'DELETED'
 
 /** ADR 0066 전략 상세 DTO (signal tracking 포함, ADR 0089 — userId number) */
 export interface SigStrategyDto {
@@ -319,7 +319,7 @@ export const sigStrategyApi = {
 
   /**
    * PUT /api/strategies/{id}/status
-   * 상태 토글 (ACTIVE·PAUSED·DISABLED)
+   * 상태 토글 (ACTIVE·PAUSED·DELETED, BUY_BLOCKED·DISABLED는 시스템 보호 상태)
    */
   toggleStatus: async (id: string, status: StrategyStatus): Promise<SigStrategyDto> => {
     const res = await apiClient.put<SigStrategyBackendDto>(`/strategies/${id}/status`, { status })
@@ -376,7 +376,13 @@ function asCodeNames(value: unknown): Record<string, string> {
 }
 
 function normalizeStatus(raw: SigStrategyBackendDto): StrategyStatus {
-  if (raw.status === 'ACTIVE' || raw.status === 'PAUSED' || raw.status === 'DISABLED' || raw.status === 'DELETED') {
+  if (
+    raw.status === 'ACTIVE' ||
+    raw.status === 'BUY_BLOCKED' ||
+    raw.status === 'PAUSED' ||
+    raw.status === 'DISABLED' ||
+    raw.status === 'DELETED'
+  ) {
     return raw.status
   }
   return raw.enabled === false ? 'DISABLED' : 'ACTIVE'

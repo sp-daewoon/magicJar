@@ -25,11 +25,20 @@ class ConsumerStrategyAutoDisableCallback(
         strategyId: Long,
         reason: StrategyDisabledReason,
     ) {
-        val updated = strategyJpaRepository.autoDisable(strategyId, reason.name)
+        val updated =
+            if (reason == StrategyDisabledReason.RISK_VIOLATION) {
+                strategyJpaRepository.autoBuyBlock(strategyId, reason.name)
+            } else {
+                strategyJpaRepository.autoDisable(strategyId, reason.name)
+            }
         if (updated == 0) {
             log.warn("consumer strategy auto-disable 대상 없음: strategyId={} reason={}", strategyId, reason)
             return
         }
-        log.warn("consumer strategy auto-disable 완료: strategyId={} reason={}", strategyId, reason)
+        if (reason == StrategyDisabledReason.RISK_VIOLATION) {
+            log.warn("consumer strategy 신규 BUY 차단 완료: strategyId={} reason={}", strategyId, reason)
+        } else {
+            log.warn("consumer strategy auto-disable 완료: strategyId={} reason={}", strategyId, reason)
+        }
     }
 }

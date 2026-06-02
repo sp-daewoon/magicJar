@@ -22,7 +22,7 @@ import org.springframework.stereotype.Component
  *
  * ### 이벤트 type 2건
  * - `BLOCKED` — 즉시 위반 차단
- * - `AUTO_PAUSED` — strategy 연속 BLOCKED N회 → AUTO_PAUSE 전환
+ * - `AUTO_PAUSED` — strategy 연속 BLOCKED N회 → 신규 BUY 차단 전환
  *
  * ### 에러 처리
  * 역직렬화 실패 시 log.error + skip (메시지 손실 허용 — risk_event DB 재조회 가능).
@@ -110,7 +110,7 @@ class StompRiskNotifier(
 /**
  * Risk 위반 이벤트 STOMP 전달 DTO.
  *
- * type: BLOCKED(즉시 위반) · AUTO_PAUSED(strategy 연속 N회 AUTO_PAUSE 전환).
+ * type: BLOCKED(즉시 위반) · AUTO_PAUSED(strategy 연속 N회 신규 BUY 차단 전환).
  */
 data class RiskEventDto(
     val type: String,

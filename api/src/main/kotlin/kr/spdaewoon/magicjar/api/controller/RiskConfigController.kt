@@ -78,7 +78,8 @@ class RiskConfigController(
         description =
             "사용자의 risk 설정을 갱신합니다. " +
                 "null 필드는 기존 값을 유지합니다. " +
-                "dllAbs XOR dllPct (둘 다 null=DLL 비활성, 둘 다 non-null=오류). " +
+                "isDailyLossLimitActive=false이면 DLL을 비활성화합니다. " +
+                "활성 상태에서는 dllAbs XOR dllPct (둘 다 non-null=오류). " +
                 "ADR 0067 A-1·B-1·C-1·D-1·F-1 정합.",
     )
     @ApiResponses(
@@ -100,6 +101,7 @@ class RiskConfigController(
             RiskConfigUpdateRequest(
                 maxPositionAmount = request.maxPositionAmount,
                 maxPositionPercent = request.maxPositionPercent,
+                isDailyLossLimitActive = request.isDailyLossLimitActive,
                 dllAbs = request.dllAbs,
                 dllPct = request.dllPct,
                 maxConcurrentPositions = request.maxConcurrentPositions,
@@ -186,7 +188,7 @@ data class RiskConfigResponse(
     val maxTradesPerMinute: Int,
     @Schema(description = "일별 최대 거래 수", example = "50")
     val maxTradesPerDay: Int,
-    @Schema(description = "연속 BLOCKED 시 AUTO_PAUSE 임계", example = "10")
+    @Schema(description = "연속 BLOCKED 시 신규 BUY 차단 임계", example = "10")
     val autoPauseThreshold: Int,
     @Schema(description = "마지막 갱신 시각 (ISO-8601 UTC)", example = "2026-05-12T12:00:00Z")
     val updatedAt: String,
@@ -205,12 +207,14 @@ data class RiskConfigUpdateBody(
     val dllAbs: BigDecimal? = null,
     @Schema(description = "일일 손실 한도 비율 (%) — dllAbs XOR", example = "5.00")
     val dllPct: BigDecimal? = null,
+    @Schema(description = "일일 손실 한도 활성 여부. false이면 dllAbs·dllPct를 모두 비활성화", example = "true")
+    val isDailyLossLimitActive: Boolean? = null,
     @Schema(description = "동시 보유 포지션 최대 수 (1~50)", example = "7")
     val maxConcurrentPositions: Int? = null,
     @Schema(description = "분당 최대 거래 수 (1~60)", example = "5")
     val maxTradesPerMinute: Int? = null,
     @Schema(description = "일별 최대 거래 수 (1~1000)", example = "100")
     val maxTradesPerDay: Int? = null,
-    @Schema(description = "연속 BLOCKED AUTO_PAUSE 임계 (1~100)", example = "15")
+    @Schema(description = "연속 BLOCKED 신규 BUY 차단 임계 (1~100)", example = "15")
     val autoPauseThreshold: Int? = null,
 )

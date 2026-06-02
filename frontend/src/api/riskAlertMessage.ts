@@ -15,7 +15,7 @@ export function buildRiskToastMessage(event: RiskEventDto): string {
 }
 
 export function buildRiskAlertMessageParts(event: RiskEventDto): RiskAlertMessageParts {
-  const prefix = event.verdict === 'AUTO_PAUSED' ? '[자동 정지]' : event.verdict === 'BLOCKED' ? '[차단]' : `[${event.verdict}]`
+  const prefix = event.verdict === 'AUTO_PAUSED' ? '[자동 매수차단]' : event.verdict === 'BLOCKED' ? '[차단]' : `[${event.verdict}]`
   const title = event.alertTitle ?? fallbackTitle(event.rule)
   const message = event.alertMessage ?? fallbackMessage(event)
   const formula = event.alertFormula ?? fallbackFormula(event)

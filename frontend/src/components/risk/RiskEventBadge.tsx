@@ -21,7 +21,7 @@ const VERDICT_STYLES: Record<RiskVerdict, string> = {
 const VERDICT_LABELS: Record<RiskVerdict, string> = {
   ALLOWED:     '허용',
   BLOCKED:     '차단',
-  AUTO_PAUSED: '자동 정지',
+  AUTO_PAUSED: '자동 매수차단',
 }
 
 export function RiskEventBadge({ verdict, className = '' }: RiskEventBadgeProps) {

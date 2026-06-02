@@ -71,11 +71,11 @@ export function RiskEventList({ userId, verdictFilter, from, to }: RiskEventList
     return (
       <div className="rounded-lg border border-gray-800 bg-gray-900/40 py-12 text-center">
         <p className="text-gray-500">
-          {isAutoPauseFilter ? '자동 정지 이력이 없습니다.' : '리스크 위반 이력이 없습니다.'}
+          {isAutoPauseFilter ? '자동 매수차단 이력이 없습니다.' : '리스크 위반 이력이 없습니다.'}
         </p>
         <p className="mt-1 text-xs text-gray-600">
           {isAutoPauseFilter
-            ? '자동 정지는 최근 차단 이벤트 누적 결과이므로, 차단 필터에서 직전 원인을 확인하세요.'
+            ? '자동 매수차단은 최근 차단 이벤트 누적 결과이므로, 차단 필터에서 직전 원인을 확인하세요.'
             : '선택한 기간의 모든 시그널이 리스크 정책을 통과했습니다.'}
         </p>
       </div>

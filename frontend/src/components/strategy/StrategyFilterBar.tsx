@@ -1,7 +1,7 @@
 /**
  * StrategyFilterBar — 전략 목록 필터 바 (T-SIG Phase 3 — ADR 0066)
  *
- * - status 4단 필터 탭 (전체·ACTIVE·PAUSED·DISABLED·DELETED)
+ * - status 필터 탭 (전체·ACTIVE·BUY_BLOCKED·PAUSED·DISABLED)
  * - 키보드 네비게이션 (ArrowLeft/ArrowRight)
  */
 import { useRef } from 'react'
@@ -17,6 +17,7 @@ interface StrategyFilterBarProps {
 const OPTIONS: { value: StrategyFilterOption; label: string }[] = [
   { value: 'ALL',      label: '전체' },
   { value: 'ACTIVE',   label: '자동매매중' },
+  { value: 'BUY_BLOCKED', label: '매수차단' },
   { value: 'PAUSED',   label: '중지' },
   { value: 'DISABLED', label: '보호중지' },
 ]

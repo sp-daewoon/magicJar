@@ -7,7 +7,7 @@ package kr.spdaewoon.magicjar.domain.strategy
  * - TIMEOUT: evaluation timeout 1회 발생 → 자동 disable
  * - CPU_BUDGET_EXCEEDED: CPU budget 50ms 초과 N회 누적
  * - MANUAL: 사용자 수동 비활성
- * - RISK_VIOLATION: risk 위반 연속 N회 → AUTO_PAUSED 전환 (ADR 0067 §5-3 F-1 AutoPauseGuard)
+ * - RISK_VIOLATION: risk 위반 연속 N회 → 신규 BUY 차단(BUY_BLOCKED), SELL/청산 평가는 유지
  *
  * spec §6-2 LOCK.
  * ADR 0067 Phase 1 AutoPauseGuard 주석 인용: [RISK_VIOLATION] 신규 추가.

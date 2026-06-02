@@ -15,7 +15,7 @@ import org.springframework.transaction.annotation.Transactional
  * 실시간 시그널 평가용 전략 조회 어댑터 (ADR 0066 §5-3 + §2-5 D-1).
  *
  * ### Redis cache 1차 조회 → miss 시 DB 조회 + cache put
- * key: `strategy:active:by_code:{code}:{interval}` (TTL 5분)
+ * key: `strategy:active:by_code:{code}:{interval}` (TTL 5분, ACTIVE·BUY_BLOCKED 평가 가능 전략)
  * value: JSON 배열 [strategyId, strategyId, ...]
  *
  * ### 헌법 §6 (ADR 0051) 준수

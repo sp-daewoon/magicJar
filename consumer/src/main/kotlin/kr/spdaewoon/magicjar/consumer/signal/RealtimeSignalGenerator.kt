@@ -13,6 +13,7 @@ import kr.spdaewoon.magicjar.domain.signal.SignalSide
 import kr.spdaewoon.magicjar.domain.signal.port.SignalRepository
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyEvalResult
+import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyLookupPort
 import kr.spdaewoon.magicjar.strategy.JvmStrategyEvaluator
@@ -29,9 +30,9 @@ import java.math.RoundingMode
  * Phase 1 본체 — BoundaryClosingKafkaListener가 boundary Kafka 토픽 수신 시 호출.
  *
  * ### 흐름 (ADR 0066 §7-2 1:1 매핑)
- * 1. `StrategyLookupPort.findActiveByCodeAndInterval(code, interval)` — 활성 strategy 조회
+ * 1. `StrategyLookupPort.findActiveByCodeAndInterval(code, interval)` — 평가 가능 strategy 조회
  *    (Phase 2에서 Redis cache 적용 — 본 단계는 단순 stub 가능)
- * 2. 활성 strategy 별:
+ * 2. 평가 가능 strategy 별:
  *    a. `SignalDedupeGuard.tryAcquire(...)` — Redis SETNX 30s (ADR 0066 §2-5 E-1)
  *       └─ 이미 처리됨 → skip
  *    b. `JvmStrategyEvaluator.evaluate(...)` — sandbox 평가 (ADR 0047 §2-2)
@@ -208,6 +209,16 @@ class RealtimeSignalGenerator(
         if (side == SignalSide.HOLD) {
             log.trace(
                 "RealtimeSignalGenerator HOLD skip: strategyId={} code={} interval={} ts={}",
+                strategyId,
+                code,
+                interval.code,
+                boundaryTs,
+            )
+            return
+        }
+        if (strategy.status == StrategyStatus.BUY_BLOCKED && side == SignalSide.BUY) {
+            log.warn(
+                "RealtimeSignalGenerator BUY_BLOCKED 신규 BUY skip: strategyId={} code={} interval={} ts={}",
                 strategyId,
                 code,
                 interval.code,

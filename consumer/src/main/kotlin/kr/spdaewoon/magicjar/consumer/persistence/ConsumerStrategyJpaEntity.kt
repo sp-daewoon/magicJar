@@ -58,7 +58,7 @@ class ConsumerStrategyJpaEntity(
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "eval_metric_summary", columnDefinition = "jsonb")
     val evalMetricSummary: String? = null,
-    @Column(name = "status", nullable = false, length = 10)
+    @Column(name = "status", nullable = false, length = 16)
     val status: String = "ACTIVE",
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "codes", columnDefinition = "jsonb")

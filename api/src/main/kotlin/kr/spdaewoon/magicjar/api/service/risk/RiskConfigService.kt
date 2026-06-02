@@ -52,16 +52,13 @@ class RiskConfigService(
     ): RiskConfig {
         val now = Clock.System.now()
         val existing = riskConfigJpaAdapter.findByUserId(userId) ?: RiskConfig.defaultFor(userId, now)
+        val dailyLossLimit = resolveDailyLossLimit(existing, request)
         val updated =
             existing.copy(
                 maxPositionAmount = request.maxPositionAmount ?: existing.maxPositionAmount,
                 maxPositionPercent = request.maxPositionPercent ?: existing.maxPositionPercent,
-                dailyLossLimitAmount =
-                    request.dllAbs.takeIf { request.dllAbs != null || request.dllPct != null }
-                        ?: if (request.dllAbs == null && request.dllPct == null) existing.dailyLossLimitAmount else null,
-                dailyLossLimitPercent =
-                    request.dllPct.takeIf { request.dllAbs != null || request.dllPct != null }
-                        ?: if (request.dllAbs == null && request.dllPct == null) existing.dailyLossLimitPercent else null,
+                dailyLossLimitAmount = dailyLossLimit.amount,
+                dailyLossLimitPercent = dailyLossLimit.percent,
                 maxConcurrentPositions = request.maxConcurrentPositions ?: existing.maxConcurrentPositions,
                 maxTradesPerMinute = request.maxTradesPerMinute ?: existing.maxTradesPerMinute,
                 maxTradesPerDay = request.maxTradesPerDay ?: existing.maxTradesPerDay,
@@ -72,6 +69,43 @@ class RiskConfigService(
         log.info("risk_config 저장: userId={}", userId)
         return saved
     }
+
+    private fun resolveDailyLossLimit(
+        existing: RiskConfig,
+        request: RiskConfigUpdateRequest,
+    ): DailyLossLimitUpdate =
+        when (request.isDailyLossLimitActive) {
+            false -> DailyLossLimitUpdate(amount = null, percent = null)
+            true -> {
+                require(!(request.dllAbs != null && request.dllPct != null)) {
+                    "dailyLossLimit: amount or percent (xor) — both non-null is invalid"
+                }
+                when {
+                    request.dllAbs != null -> DailyLossLimitUpdate(amount = request.dllAbs, percent = null)
+                    request.dllPct != null -> DailyLossLimitUpdate(amount = null, percent = request.dllPct)
+                    existing.isDailyLossLimitActive ->
+                        DailyLossLimitUpdate(
+                            amount = existing.dailyLossLimitAmount,
+                            percent = existing.dailyLossLimitPercent,
+                        )
+                    else -> DailyLossLimitUpdate(amount = null, percent = DEFAULT_DLL_PERCENT)
+                }
+            }
+            null -> {
+                require(!(request.dllAbs != null && request.dllPct != null)) {
+                    "dailyLossLimit: amount or percent (xor) — both non-null is invalid"
+                }
+                when {
+                    request.dllAbs != null -> DailyLossLimitUpdate(amount = request.dllAbs, percent = null)
+                    request.dllPct != null -> DailyLossLimitUpdate(amount = null, percent = request.dllPct)
+                    else ->
+                        DailyLossLimitUpdate(
+                            amount = existing.dailyLossLimitAmount,
+                            percent = existing.dailyLossLimitPercent,
+                        )
+                }
+            }
+        }
 
     /**
      * risk 설정 default seed로 reset.
@@ -92,10 +126,18 @@ class RiskConfigService(
 data class RiskConfigUpdateRequest(
     val maxPositionAmount: BigDecimal? = null,
     val maxPositionPercent: BigDecimal? = null,
+    val isDailyLossLimitActive: Boolean? = null,
     val dllAbs: BigDecimal? = null,
     val dllPct: BigDecimal? = null,
     val maxConcurrentPositions: Int? = null,
     val maxTradesPerMinute: Int? = null,
     val maxTradesPerDay: Int? = null,
     val autoPauseThreshold: Int? = null,
+)
+
+private val DEFAULT_DLL_PERCENT = BigDecimal("3.00")
+
+private data class DailyLossLimitUpdate(
+    val amount: BigDecimal?,
+    val percent: BigDecimal?,
 )

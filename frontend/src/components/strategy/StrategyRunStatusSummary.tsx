@@ -63,7 +63,9 @@ export function StrategyRunStatusSummary({ userId }: StrategyRunStatusSummaryPro
 
   const strategies = strategyPages?.pages.flatMap((page) => page.content) ?? []
   const activeStrategies = strategies.filter((strategy) => strategy.status === 'ACTIVE')
-  const primaryStrategy = activeStrategies[0] ?? strategies[0]
+  const buyBlockedStrategies = strategies.filter((strategy) => strategy.status === 'BUY_BLOCKED')
+  const monitoringStrategies = [...activeStrategies, ...buyBlockedStrategies]
+  const primaryStrategy = monitoringStrategies[0] ?? strategies[0]
   const latestSignal = signalPages?.pages[0]?.content[0]
   const latestRiskEvent = riskEventPages?.pages[0]?.content[0]
   const latestAutoOrder = autoOrders?.content[0]
@@ -74,15 +76,19 @@ export function StrategyRunStatusSummary({ userId }: StrategyRunStatusSummaryPro
     ? '상태 확인 중'
     : killSwitchOn
       ? '주문 정지'
-      : activeStrategies.length > 0
-        ? '자동매매 감시 중'
-        : '자동매매중 전략 없음'
+    : activeStrategies.length > 0
+      ? '자동매매 감시 중'
+    : buyBlockedStrategies.length > 0
+      ? '매수차단 감시 중'
+    : '자동매매중 전략 없음'
 
   const statusClass = killSwitchOn
     ? 'border-gray-700 bg-gray-800 text-gray-300'
     : activeStrategies.length > 0
       ? 'border-emerald-700 bg-emerald-950/50 text-emerald-300'
-      : 'border-amber-700 bg-amber-950/50 text-amber-300'
+      : buyBlockedStrategies.length > 0
+        ? 'border-sky-700 bg-sky-950/50 text-sky-300'
+        : 'border-amber-700 bg-amber-950/50 text-amber-300'
 
   return (
     <section
@@ -121,13 +127,15 @@ export function StrategyRunStatusSummary({ userId }: StrategyRunStatusSummaryPro
         </div>
 
         <div className="rounded-md border border-gray-800 bg-gray-950/60 p-3">
-          <p className="text-xs text-gray-500">자동매매중 전략</p>
+          <p className="text-xs text-gray-500">감시 중 전략</p>
           <p className="mt-1 text-sm font-semibold text-white">
-            {activeStrategies.length.toLocaleString('ko-KR')}개
+            {monitoringStrategies.length.toLocaleString('ko-KR')}개
           </p>
           <p className="mt-1 truncate text-xs text-gray-500" title={primaryStrategy ? formatStrategyTargetLabel(primaryStrategy) : undefined}>
             {primaryStrategy
-              ? `#${primaryStrategy.id} ${formatStrategyTargetLabel(primaryStrategy)}`
+              ? `#${primaryStrategy.id} ${formatStrategyTargetLabel(primaryStrategy)}${
+                  buyBlockedStrategies.length > 0 ? ` · 매수차단 ${buyBlockedStrategies.length}개` : ''
+                }`
               : '전략을 자동매매 시작해야 신호를 평가합니다'}
           </p>
         </div>

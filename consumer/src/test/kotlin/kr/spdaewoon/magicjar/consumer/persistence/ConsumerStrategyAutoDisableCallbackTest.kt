@@ -17,5 +17,16 @@ class ConsumerStrategyAutoDisableCallbackTest {
         callback.onAutoDisable(42L, StrategyDisabledReason.CPU_BUDGET_EXCEEDED)
 
         verify(exactly = 1) { strategyJpaRepository.autoDisable(42L, "CPU_BUDGET_EXCEEDED") }
+        verify(exactly = 0) { strategyJpaRepository.autoBuyBlock(any(), any()) }
+    }
+
+    @Test
+    fun `risk violation auto-pause switches to buy blocked instead of full disable`() {
+        every { strategyJpaRepository.autoBuyBlock(42L, "RISK_VIOLATION") } returns 1
+
+        callback.onAutoDisable(42L, StrategyDisabledReason.RISK_VIOLATION)
+
+        verify(exactly = 1) { strategyJpaRepository.autoBuyBlock(42L, "RISK_VIOLATION") }
+        verify(exactly = 0) { strategyJpaRepository.autoDisable(any(), any()) }
     }
 }

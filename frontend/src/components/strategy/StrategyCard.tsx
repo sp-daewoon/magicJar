@@ -29,6 +29,7 @@ import { parsePositiveNumber } from './riskPlanDisplay'
 
 const STATUS_BADGE: Record<StrategyStatus, { label: string; cls: string }> = {
   ACTIVE:   { label: '자동매매중', cls: 'bg-emerald-900/80 text-emerald-300 border border-emerald-700' },
+  BUY_BLOCKED: { label: '매수차단', cls: 'bg-sky-950/80 text-sky-300 border border-sky-700' },
   PAUSED:   { label: '중지됨',     cls: 'bg-amber-900/80 text-amber-300 border border-amber-700' },
   DISABLED: { label: '보호중지',   cls: 'bg-gray-700/80 text-gray-400 border border-gray-600' },
   DELETED:  { label: '삭제됨',     cls: 'bg-red-900/80 text-red-400 border border-red-800' },
@@ -87,6 +88,20 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
     )
   }
 
+  function handlePauseAll() {
+    toggleMutation.mutate(
+      { id: strategy.id, status: 'PAUSED' },
+      {
+        onSuccess: () => {
+          showToast(statusSuccessMessage('PAUSED'), 'success')
+        },
+        onError: (error) => {
+          showToast(resolveStrategyMutationErrorMessage(error), 'error')
+        },
+      },
+    )
+  }
+
   function handleDelete() {
     if (!confirmDelete) {
       setConfirmDelete(true)
@@ -96,13 +111,17 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
     setConfirmDelete(false)
   }
 
-  const isToggleable = strategy.status === 'ACTIVE' || strategy.status === 'PAUSED' || strategy.status === 'DISABLED'
+  const isToggleable =
+    strategy.status === 'ACTIVE' ||
+    strategy.status === 'BUY_BLOCKED' ||
+    strategy.status === 'PAUSED' ||
+    strategy.status === 'DISABLED'
   const isDeletable = strategy.status !== 'DELETED'
   const isBusy = toggleMutation.isPending || deleteMutation.isPending
   const disabledReasonLabel = strategy.disabledReason && strategy.disabledReason !== 'NULL'
     ? DISABLED_REASON_LABEL[strategy.disabledReason] ?? strategy.disabledReason
     : null
-  const isRiskViolationDisabled = strategy.disabledReason === 'RISK_VIOLATION'
+  const isRiskViolationProtected = strategy.disabledReason === 'RISK_VIOLATION'
   const disabledAtLabel = formatKst(strategy.lastDisabledAt)
   const activeNeedsAttention = strategy.status === 'ACTIVE' && activationBlockedReason
   const stopLossPct = parsePositiveNumber(strategy.stopLossPct)
@@ -194,7 +213,7 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
               ? `${disabledAtLabel}에 자동매매 보호 장치가 전략을 멈췄습니다.`
               : '자동매매 보호 장치가 전략을 멈췄습니다.'}
           </p>
-          {isRiskViolationDisabled && (
+          {isRiskViolationProtected && (
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <span className="text-amber-200/80">
                 최근 차단 횟수가 자동정지 기준에 도달했습니다.
@@ -207,6 +226,26 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
               </Link>
             </div>
           )}
+        </div>
+      )}
+
+      {strategy.status === 'BUY_BLOCKED' && (
+        <div className="border-l-2 border-sky-400 bg-sky-950/30 px-3 py-2 text-xs leading-5 text-sky-100">
+          <p className="font-semibold">신규 매수 차단</p>
+          <p className="text-sky-100/80">
+            {disabledAtLabel
+              ? `${disabledAtLabel}에 리스크 차단 누적이 기준에 도달해 신규 BUY만 막았습니다.`
+              : '리스크 차단 누적이 기준에 도달해 신규 BUY만 막았습니다.'}
+          </p>
+          <p className="text-sky-100/80">
+            기존 포지션의 매도·익절·손절 평가는 계속 유지됩니다.
+          </p>
+          <Link
+            to="/risk-events?verdict=BLOCKED&range=7d"
+            className="mt-1 inline-flex font-semibold text-blue-200 underline-offset-2 hover:text-blue-100 hover:underline"
+          >
+            최근 차단 이력 보기
+          </Link>
         </div>
       )}
 
@@ -294,6 +333,8 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
               ? '처리 중...'
               : strategy.status === 'ACTIVE'
               ? '자동매매 중지'
+              : strategy.status === 'BUY_BLOCKED'
+              ? '매수 재개'
               : isMissingOperationalTargets
               ? '종목 지정 필요'
               : activationBlockedReason
@@ -301,6 +342,16 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
                 ? 'RiskPlan 필요'
                 : '백테스트 필요'
               : '자동매매 시작'}
+          </button>
+        )}
+
+        {strategy.status === 'BUY_BLOCKED' && (
+          <button
+            onClick={handlePauseAll}
+            disabled={isBusy}
+            className="rounded-lg bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-amber-300 focus:ring-offset-1 focus:ring-offset-gray-900"
+          >
+            전체 중지
           </button>
         )}
 
@@ -361,6 +412,8 @@ function strategyStatusDescription(status: StrategyStatus): string {
   switch (status) {
     case 'ACTIVE':
       return '자동매매 수행 중'
+    case 'BUY_BLOCKED':
+      return '신규 매수 차단'
     case 'PAUSED':
       return '자동매매 중지됨'
     case 'DISABLED':
@@ -374,6 +427,8 @@ function statusSuccessMessage(status: StrategyStatus): string {
   switch (status) {
     case 'ACTIVE':
       return '자동매매가 시작되었습니다.'
+    case 'BUY_BLOCKED':
+      return '신규 매수가 차단되었습니다.'
     case 'PAUSED':
       return '자동매매가 중지되었습니다.'
     case 'DELETED':

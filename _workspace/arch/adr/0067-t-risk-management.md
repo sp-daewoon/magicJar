@@ -185,16 +185,16 @@ architect 권장안 8건 + 각 의제 대안 매트릭스. 본 ADR `Accepted` �
 
 | 옵션 | 설명 | Pro | Con |
 |---|---|---|---|
-| **F-1 signal에 `risk_status` 컬럼 + risk_event INSERT + STOMP 알림 + auto-PAUSE strategy (반복 위반 시)** ⭐ | (a) signal.risk_status = ALLOWED·BLOCKED 컬럼 갱신 (b) risk_event INSERT (verdict 이력) (c) STOMP `/topic/risk.user.{userId}` BLOCKED payload (d) 동일 strategy 연속 N=10회 BLOCKED 시 auto-PAUSED + STOMP 알림 | 명시적 audit + 사용자 즉시 인지 + 폭주 strategy 자동 보호 (사용자 부재 시에도 자본 보호) | signal 컬럼 추가 + risk_event 테이블 + auto-PAUSE 로직 — 구현 행수 ~150 LOC (가벼움) |
+| **F-1 signal에 `risk_status` 컬럼 + risk_event INSERT + STOMP 알림 + auto-PAUSE strategy (반복 위반 시)** ⭐ | (a) signal.risk_status = ALLOWED·BLOCKED 컬럼 갱신 (b) risk_event INSERT (verdict 이력) (c) STOMP `/topic/risk.user.{userId}` BLOCKED payload (d) 동일 strategy 연속 N=10회 BLOCKED 시 `BUY_BLOCKED`로 신규 BUY만 차단 + STOMP 알림 | 명시적 audit + 사용자 즉시 인지 + 폭주 strategy 자동 보호 + 기존 포지션 청산 평가 유지 (사용자 부재 시에도 자본 보호) | signal 컬럼 추가 + risk_event 테이블 + auto-PAUSE 로직 — 구현 행수 ~150 LOC (가벼움) |
 | F-2 silent skip (시그널 무시, 알림 0) | risk_event 영속도 0 | 코드 최소 | audit 부재 + 사용자 인지 불가 — 안전망 본질 위반 |
 | F-3 strategy 자동 DISABLED (auto-PAUSED보다 강한 처리) | 단 1회 BLOCKED 시 strategy DISABLED + 사용자 명시 [다시 활성화] 의무 | 폭주 강제 차단 | over-reaction risk (시장 변동 시 정상 BLOCKED 패턴도 즉시 DISABLED → 사용자 혼란) |
 
-**architect 권장 = F-1 4단 처리 (signal column + risk_event + STOMP + auto-PAUSE 반복 시)**
+**architect 권장 = F-1 4단 처리 (signal column + risk_event + STOMP + auto-PAUSE 반복 시 신규 BUY 차단)**
 
 사유:
 1. **명시적 audit** — risk_event 시계열 영속 + signal.risk_status 컬럼 (signal 시계열 조회 시 risk verdict 함께)
 2. **사용자 즉시 인지** — STOMP `/topic/risk.user.{userId}` 토스트 + risk_event 시계열 페이지
-3. **auto-PAUSE 반복 시** — 연속 10회 BLOCKED 시 strategy 자동 PAUSED (DISABLED 아님 — 사용자 즉시 재활성화 가능) + STOMP 알림. 폭주 strategy 자동 격리
+3. **auto-PAUSE 반복 시** — 연속 10회 BLOCKED 시 strategy `BUY_BLOCKED` 전환 (신규 BUY만 금지, SELL·익절·손절 평가는 유지) + STOMP 알림. 폭주 strategy 매수만 격리
 4. **F-2 폐기** — silent 처리 시 사용자 자본 손실 인지 불가 — 안전망 본질 위반
 5. **F-3 폐기** — over-reaction — 단 1회 BLOCKED는 정상 패턴(예: 일일 한도 도달 후 마감 시점 시그널). 반복(N=10)이 폭주 신호
 
@@ -566,7 +566,7 @@ CREATE INDEX idx_signal_user_risk_ts ON signal (user_id, risk_status, ts DESC);
 | **TradeFrequencyRedisGuard** | `consumer/.../risk/TradeFrequencyRedisGuard.kt` | 의제 D Redis sliding window (`trades:freq:{strategyId}:{userId}:minute` ZSET + `trades:freq:{strategyId}:{userId}:day` ZSET). `tryConsume(strategyId, userId, signalId, ts)` 반환 true/false |
 | **DailyPnlCalculator** | `consumer/.../risk/DailyPnlCalculator.kt` | 의제 B — `PositionRepository.sumDailyRealizedPnl(userId, kstMidnight)` 호출 + Redis cache(`daily_pnl:{userId}:{date}` TTL 자정까지) |
 | **CapitalSnapshotProvider** | `consumer/.../risk/CapitalSnapshotProvider.kt` | 사용자 잔고 fetch (ADR 0042 `balance:user:{userId}` cache 우선 → miss 시 DB) |
-| **AutoPauseGuard** | `consumer/.../risk/AutoPauseGuard.kt` | 의제 F — strategy 연속 BLOCKED 검사. `RiskEventRepository.countRecentBlockedByStrategy(strategyId, windowMinutes=10)` ≥ autoPauseThreshold 시 strategy.status=PAUSED 전환 |
+| **AutoPauseGuard** | `consumer/.../risk/AutoPauseGuard.kt` | 의제 F — strategy 연속 BLOCKED 검사. `RiskEventRepository.countRecentBlockedByStrategy(strategyId, windowMinutes=10)` ≥ autoPauseThreshold 시 strategy.status=`BUY_BLOCKED` 전환(신규 BUY 차단, SELL·익절·손절 평가 유지) |
 | **RiskEventPersister** | `api/.../persistence/risk/RiskEventJpaAdapter.kt` | risk_event INSERT |
 | **RiskConfigPersister** | `api/.../persistence/risk/RiskConfigJpaAdapter.kt` | risk_config upsert (사용자별 1 row) |
 | **PositionPersister** | `api/.../persistence/position/PositionJpaAdapter.kt` | position 영속 (closedAt NULL = 보유 중) |
@@ -714,7 +714,7 @@ W4 트랙(T-AI) 진입 전까지 동일 정책 유지.
 ### 10-1. 본 ADR Supersede 또는 Revoke case
 
 1. **false positive BLOCKED 누적** — risk_config default가 너무 보수적 시 정상 시그널 다수 BLOCKED → 사용자 부담 → default 완화 후속 ADR (예: 분당 3 → 5)
-2. **auto-PAUSE over-reaction** — autoPauseThreshold=10 너무 낮아 정상 strategy 자동 PAUSED 누적 → 사용자 설정 override 가이드 + threshold 상향 검토
+2. **auto-PAUSE over-reaction** — autoPauseThreshold=10 너무 낮아 정상 strategy `BUY_BLOCKED` 누적 → 사용자 설정 override 가이드 + threshold 상향 검토
 3. **end-to-end latency 초과** — signal → risk → order intent > 200ms 도달 시 RiskContext 빌드 최적화 의무 (Redis cache TTL 연장 + parallel fetch)
 4. **위반 사례 0 (over-conservative)** — 1주일 사용자 dogfooding 시 BLOCKED 0건 → default 룰 무력화 검증 후 사용자 input 의제 재검토
 
@@ -740,7 +740,7 @@ W4 트랙(T-AI) 진입 전까지 동일 정책 유지.
 
 | Phase | sub-agent | 영역 | 산출물 | 의존성 |
 |---|---|---|---|---|
-| **Phase 1** | **strategy-engine** | (1) `domain/.../risk/RiskConfig.kt` · `RiskEvent.kt` · `RiskRule` enum · `RiskVerdict` enum · `RiskGatewayResult` sealed · `RiskContext.kt` · port 6건(RiskConfigRepository · RiskEventRepository · RiskGateway · RiskNotifier · SignalRiskStatusUpdater + ADR 0066 SignalRepository 정합 확장). (2) `domain/.../position/Position.kt` · `TradingMode` enum · `PositionRepository.kt` port. (3) `consumer/.../risk/RiskGatewayEvaluator.kt` — 6 룰 순차 short-circuit 평가 본체. (4) `consumer/.../risk/TradeFrequencyRedisGuard.kt` — Redis sliding window ZSET. (5) `consumer/.../risk/DailyPnlCalculator.kt` + cache. (6) `consumer/.../risk/CapitalSnapshotProvider.kt` — ADR 0042 cache 활용. (7) `consumer/.../risk/AutoPauseGuard.kt` — 연속 BLOCKED 검사 + strategy.status=PAUSED 전환 + ADR 0066 StrategyCache evict. (8) `consumer/.../risk/kafka/SignalGeneratedKafkaListener.kt` — `signal.generated.v1` listen → RiskGatewayEvaluator 위임. (9) `consumer/.../risk/kafka/RiskViolationKafkaProducer.kt` + `OrderIntentKafkaProducer.kt`. (10) 단위 테스트 — RiskGatewayEvaluator 6 룰 each (POSITION_LIMIT BLOCKED · DAILY_LOSS_LIMIT BLOCKED · MAX_CONCURRENT BLOCKED · TRADE_FREQ_MINUTE BLOCKED · TRADE_FREQ_DAY BLOCKED · KILL_SWITCH BLOCKED · ALLOWED happy path) + AutoPauseGuard 임계 도달 시 PAUSED 검증 | 본 ADR §5·§7 1:1 매핑 + AI 호출 0 grep 검증 inline 주석 의무 |
+| **Phase 1** | **strategy-engine** | (1) `domain/.../risk/RiskConfig.kt` · `RiskEvent.kt` · `RiskRule` enum · `RiskVerdict` enum · `RiskGatewayResult` sealed · `RiskContext.kt` · port 6건(RiskConfigRepository · RiskEventRepository · RiskGateway · RiskNotifier · SignalRiskStatusUpdater + ADR 0066 SignalRepository 정합 확장). (2) `domain/.../position/Position.kt` · `TradingMode` enum · `PositionRepository.kt` port. (3) `consumer/.../risk/RiskGatewayEvaluator.kt` — 6 룰 순차 short-circuit 평가 본체. (4) `consumer/.../risk/TradeFrequencyRedisGuard.kt` — Redis sliding window ZSET. (5) `consumer/.../risk/DailyPnlCalculator.kt` + cache. (6) `consumer/.../risk/CapitalSnapshotProvider.kt` — ADR 0042 cache 활용. (7) `consumer/.../risk/AutoPauseGuard.kt` — 연속 BLOCKED 검사 + strategy.status=`BUY_BLOCKED` 전환 + ADR 0066 StrategyCache evict. (8) `consumer/.../risk/kafka/SignalGeneratedKafkaListener.kt` — `signal.generated.v1` listen → RiskGatewayEvaluator 위임. (9) `consumer/.../risk/kafka/RiskViolationKafkaProducer.kt` + `OrderIntentKafkaProducer.kt`. (10) 단위 테스트 — RiskGatewayEvaluator 6 룰 each (POSITION_LIMIT BLOCKED · DAILY_LOSS_LIMIT BLOCKED · MAX_CONCURRENT BLOCKED · TRADE_FREQ_MINUTE BLOCKED · TRADE_FREQ_DAY BLOCKED · KILL_SWITCH BLOCKED · ALLOWED happy path) + AutoPauseGuard 임계 도달 시 신규 BUY 차단 검증 | 본 ADR §5·§7 1:1 매핑 + AI 호출 0 grep 검증 inline 주석 의무 |
 | **Phase 2** | **backend-core** | (1) `api/.../persistence/risk/RiskConfigJpaEntity.kt`·`RiskConfigJpaRepository.kt`·`RiskConfigJpaAdapter.kt` (ADR 0051 default fun 함정 회피 의무). (2) `api/.../persistence/risk/RiskEventJpaEntity.kt`·`RiskEventJpaRepository.kt`·`RiskEventJpaAdapter.kt`. (3) `api/.../persistence/position/PositionJpaEntity.kt`·`PositionJpaRepository.kt`·`PositionJpaAdapter.kt`. (4) `api/.../persistence/signal/SignalJpaEntity.kt` 확장 (risk_status 컬럼) + `SignalRiskStatusJpaAdapter.kt` 신규. (5) `api/.../controller/RiskConfigController.kt` 3 endpoint + `RiskEventController.kt` 2 endpoint + `PositionController.kt` 2 endpoint (Swagger 4단 어노테이션 + 한국어 설명). (6) `api/.../application/risk/RiskConfigService.kt` — getOrDefault · save · reset. (7) `api/.../application/risk/RiskEventQueryService.kt` · `api/.../application/position/PositionQueryService.kt`. (8) `api/.../stomp/StompRiskNotifier.kt` — `/topic/risk.user.{userId}` STOMP fanout (BLOCKED · AUTO_PAUSED 2 event type). (9) Flyway V16(risk_config) · V17(risk_event) · V18(position) · V19(signal.risk_status 컬럼 + index). (10) 통합 테스트 — REST 7 endpoint + RiskConfig upsert + RiskEvent 페이징 + Position current/history + signal.risk_status 갱신 검증 | 본 ADR §4·§5·§6·§7 1:1 매핑 + AI 호출 0 inline 주석 의무 |
 | **Phase 3** | **frontend** | (1) `frontend/src/pages/risk/RiskConfigPage.tsx` — `/risk-config` 페이지 (8 입력 필드 + safe default + 변경 사항 미리보기). (2) `frontend/src/pages/risk/RiskEventListPage.tsx` — `/risk-events` (시계열 테이블 + rule 필터 + verdict 필터 + 페이징). (3) `frontend/src/pages/position/PositionPage.tsx` — `/positions` (현재 보유 + 청산 이력 탭). (4) `frontend/src/components/risk/RiskConfigForm.tsx` (의제 A·B 택1 UI + slider C·D). (5) `frontend/src/components/risk/RiskEventBadge.tsx` (BLOCKED 색상 + rule 아이콘). (6) `frontend/src/components/position/PositionCard.tsx` + `PnlBadge.tsx` (수익 녹색 / 손실 빨강). (7) `frontend/src/hooks/useStompRisk.ts` — STOMP `/topic/risk.user.{userId}` subscribe + 토스트 (BLOCKED type + AUTO_PAUSED type 분기). (8) `frontend/src/hooks/useRiskConfig.ts` · `useRiskEvents.ts` · `usePositions.ts` — REST hook (TanStack Query). (9) routing 확장 (`/risk-config` · `/risk-events` · `/positions`) + AppHeader 메뉴 3건 추가. (10) frontend test 7건 (RiskConfig PUT · 택1 검증 · RiskEvent 페이징 · Position 현재 · STOMP BLOCKED 토스트 · AUTO_PAUSED 토스트 · default seed 첫 진입) | 본 ADR §4 REST 7 endpoint + F-1 STOMP 2 event type 1:1 매핑 |
 | (선택) **qa** | sample 위반 시나리오 dogfooding 검증 — 6 룰 each BLOCKED evidence(DB SELECT + Kafka log inspect + STOMP log) + auto-PAUSE 임계 도달 evidence + ALLOWED happy path order.intent.v1 publish evidence | spec test 또는 dogfooding evidence 보고 |
@@ -801,7 +801,7 @@ W4 트랙(T-AI) 진입 전까지 동일 정책 유지.
 - **ADR 0044 Notification 진입** — `risk.violation.v1` publish + Slack 통지 정합
 - **T-O 후행 의존 자산 LOCK** — `order.intent.v1` Kafka topic이 T-O 트랙 진입점
 - **사용자 UX** — `/risk-config` 페이지 + `/risk-events` 시계열 + `/positions` 현재 보유 + STOMP BLOCKED 토스트
-- **strategy 폭주 자동 격리** — 연속 BLOCKED 10회 시 strategy auto-PAUSED + 사용자 알림
+- **strategy 폭주 자동 격리** — 연속 BLOCKED 10회 시 strategy `BUY_BLOCKED` 전환 + 신규 BUY 차단 + 사용자 알림. 기존 포지션 SELL·익절·손절 평가는 유지
 - **MCP 외부 client 정합 후속** — risk_event 시계열 + position endpoint를 후행 ADR 0027(MCP)에서 노출 가능
 
 ---

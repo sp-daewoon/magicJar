@@ -44,7 +44,7 @@ import java.math.BigDecimal
  *
  * // AI 호출 0 — T-SIG 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8)
  */
-@Tag(name = "Strategies v2", description = "전략 CRUD + status 4단 토글 — T-SIG Phase 2 (ADR 0066 §2-6 F-1)")
+@Tag(name = "Strategies v2", description = "전략 CRUD + status 토글 — T-SIG Phase 2 (ADR 0066 §2-6 F-1)")
 @RestController
 @RequestMapping("/api/strategies")
 class StrategiesController(
@@ -241,9 +241,11 @@ class StrategiesController(
                 "허용 전환:\n" +
                 "- `ACTIVE → PAUSED` (일시 중지)\n" +
                 "- `PAUSED → ACTIVE` (재개)\n" +
+                "- `BUY_BLOCKED → ACTIVE` (신규 매수 재개)\n" +
+                "- `BUY_BLOCKED → PAUSED` (전체 자동매매 중지)\n" +
                 "- `DISABLED → ACTIVE` (사용자 명시 reactivate)\n" +
                 "- `ANY → DELETED` (soft delete — DELETE /api/strategies/{id} 권장)\n\n" +
-                "DISABLED 직접 설정 불가 (시스템 auto-disable 전용).",
+                "DISABLED·BUY_BLOCKED 직접 설정 불가 (시스템 보호 장치 전용).",
     )
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "상태 전환 성공"),
@@ -404,7 +406,7 @@ data class StrategyUpdateRequest(
 @Schema(description = "전략 상태 전환 요청")
 data class StrategyStatusRequest(
     @field:Schema(
-        description = "새 status (ACTIVE·PAUSED·DELETED — DISABLED 직접 설정 불가)",
+        description = "새 status (ACTIVE·PAUSED·DELETED — DISABLED·BUY_BLOCKED 직접 설정 불가)",
         example = "PAUSED",
         required = true,
         allowableValues = ["ACTIVE", "PAUSED", "DELETED"],
@@ -449,9 +451,9 @@ data class StrategyDetailResponse(
     @field:Schema(description = "전략 활성 여부", example = "true")
     val enabled: Boolean,
     @field:Schema(
-        description = "전략 상태 4단 (ACTIVE·PAUSED·DISABLED·DELETED)",
+        description = "전략 상태 (ACTIVE·BUY_BLOCKED·PAUSED·DISABLED·DELETED)",
         example = "ACTIVE",
-        allowableValues = ["ACTIVE", "PAUSED", "DISABLED", "DELETED"],
+        allowableValues = ["ACTIVE", "BUY_BLOCKED", "PAUSED", "DISABLED", "DELETED"],
     )
     val status: String,
     @field:Schema(description = "자동매매 시작 가능 여부", example = "false")

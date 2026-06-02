@@ -17,7 +17,7 @@ const VERDICT_OPTIONS: { value: RiskVerdict | ''; label: string }[] = [
   { value: '', label: '전체' },
   { value: 'ALLOWED', label: '허용' },
   { value: 'BLOCKED', label: '차단' },
-  { value: 'AUTO_PAUSED', label: '자동 정지' },
+  { value: 'AUTO_PAUSED', label: '자동 매수차단' },
 ]
 
 const RANGE_OPTIONS = [
@@ -92,7 +92,7 @@ export function RiskEventsPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-white">리스크 위반 이력</h1>
         <p className="mt-2 text-sm text-gray-500">
-          시그널이 리스크 정책에 의해 차단되거나 자동 정지된 이벤트 목록입니다. 기본은 최근 30일입니다.
+          시그널이 리스크 정책에 의해 차단되거나 자동 매수차단된 이벤트 목록입니다. 기본은 최근 30일입니다.
         </p>
       </div>
 
