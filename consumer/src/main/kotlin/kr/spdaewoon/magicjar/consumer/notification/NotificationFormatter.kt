@@ -27,7 +27,8 @@ object NotificationFormatter {
         reason: String,
         meta: Map<String, String?>,
     ): String {
-        val kst = Instant.now().atZone(KST_ZONE).format(DATE_FMT)
+        val displayInstant = eventInstant(eventType, meta) ?: Instant.now()
+        val kst = formatKst(displayInstant)
         val maskedUser = maskUserId(userId)
         val (emoji, typeLabel) = eventLabel(eventType)
         val action = immediateAction(eventType)
@@ -80,6 +81,15 @@ object NotificationFormatter {
         reason: String,
         meta: Map<String, String?>,
     ) {
+        if (eventType == NotificationEventType.ORDER_FILLED) {
+            appendLine("내용: $reason")
+            eventInstant(eventType, meta)?.let { appendLine("체결시각: ${formatKst(it)} KST") }
+            if (meta["fillSource"] == "REST_BACKFILL") {
+                appendLine("반영: KIS REST backfill")
+            }
+            return
+        }
+
         if (eventType != NotificationEventType.RISK_VIOLATION) {
             appendLine("내용: $reason")
             return
@@ -124,4 +134,28 @@ object NotificationFormatter {
         val label = instrumentLabel(meta) ?: return value
         return value?.replace("종목 $code", "종목 $label")
     }
+
+    private fun eventInstant(
+        eventType: NotificationEventType,
+        meta: Map<String, String?>,
+    ): Instant? =
+        when (eventType) {
+            NotificationEventType.ORDER_FILLED -> parseInstant(meta["executedAt"])
+            NotificationEventType.RISK_VIOLATION -> parseInstant(meta["violatedAt"] ?: meta["blockedAt"] ?: meta["ts"])
+            else -> null
+        }
+
+    private fun parseInstant(value: String?): Instant? {
+        val raw = value?.takeIf { it.isNotBlank() } ?: return null
+        raw.toLongOrNull()?.let { epoch ->
+            return if (epoch > 100_000_000_000L) {
+                Instant.ofEpochMilli(epoch)
+            } else {
+                Instant.ofEpochSecond(epoch)
+            }
+        }
+        return runCatching { Instant.parse(raw) }.getOrNull()
+    }
+
+    private fun formatKst(instant: Instant): String = instant.atZone(KST_ZONE).format(DATE_FMT)
 }

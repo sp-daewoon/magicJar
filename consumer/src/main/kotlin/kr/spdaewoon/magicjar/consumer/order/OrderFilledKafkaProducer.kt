@@ -68,6 +68,7 @@ class OrderFilledKafkaProducer(
                         "executedQty" to execution.executedQuantity,
                         "executedPrice" to execution.executedPrice.toPlainString(),
                         "executedAt" to execution.executedAt.epochSecond,
+                        "fillSource" to fillSource(execution),
                         "partial" to partial,
                         "mode" to request.mode.name,
                     ),
@@ -142,4 +143,11 @@ class OrderFilledKafkaProducer(
             )
         }
     }
+
+    private fun fillSource(execution: OrderExecution): String =
+        if (execution.eventId?.startsWith(KisExecutionBackfillService.BACKFILL_EVENT_ID_PREFIX) == true) {
+            "REST_BACKFILL"
+        } else {
+            "WS"
+        }
 }

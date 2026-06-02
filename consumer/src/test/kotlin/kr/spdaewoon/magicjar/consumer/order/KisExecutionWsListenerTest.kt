@@ -15,6 +15,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderAuditEventRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderExecutionRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
+import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.ObjectProvider
@@ -58,6 +59,11 @@ class KisExecutionWsListenerTest {
     private val positionUpdater =
         mockk<kr.spdaewoon.magicjar.domain.order.execution.port.ExecutionPositionUpdatePort>(relaxed = true)
     private val executionPersistenceService = ExecutionPersistenceService(execRepo, positionUpdater)
+    private val executionBackfillService = mockk<KisExecutionBackfillService>(relaxed = true)
+    private val executionBackfillServiceProvider =
+        mockk<ObjectProvider<KisExecutionBackfillService>>().also {
+            every { it.getIfAvailable() } returns executionBackfillService
+        }
 
     private val listener =
         KisExecutionWsListener(
@@ -69,6 +75,7 @@ class KisExecutionWsListenerTest {
             orderCancelledKafkaProducer = cancelledProducer,
             accountBalanceChangedKafkaProducer = accountBalanceChangedProducer,
             executionPersistenceService = executionPersistenceService,
+            executionBackfillServiceProvider = executionBackfillServiceProvider,
             objectMapper = ObjectMapper(),
         )
 
@@ -246,6 +253,7 @@ class KisExecutionWsListenerTest {
         every { orderRepo.findByKisOrderNo("ODNO_DUP") } returns request
         // existsByEventId true — 이미 합류한 체결
         every { execRepo.existsByEventId(any()) } returns true
+        every { execRepo.sumExecutedQuantityByOrder(99L) } returns 10
 
         val msg = stubExecMessage(odno = "ODNO_DUP", cntgYn = "2", cntgQty = 5)
         listener.processMessage(msg)
@@ -256,6 +264,33 @@ class KisExecutionWsListenerTest {
         verify(exactly = 0) { filledProducer.publish(any(), any(), any()) }
         verify(exactly = 0) { orderRepo.updateStatus(any(), any(), any()) }
         verify(exactly = 0) { orderRepo.markCompleted(any(), any(), any()) }
+    }
+
+    @Test
+    fun `(P0-3 i-2) event_id dedup but open order — 동일초 분할 collision 가능성은 REST sync 예약`() {
+        val request = stubRequest(quantity = 2)
+        every { orderRepo.findByKisOrderNo("ODNO_COLLIDE") } returns request
+        every { execRepo.existsByEventId(any()) } returns true
+        every { execRepo.sumExecutedQuantityByOrder(99L) } returns 1
+        every { executionBackfillService.syncUserTodayExecutions("12345678", AccountType.MOCK) } returns
+            KisExecutionSyncResult(
+                userId = "12345678",
+                accountType = AccountType.MOCK,
+                fetched = 1,
+                inserted = 1,
+                alreadySynced = 0,
+                failed = 0,
+                error = null,
+                syncedAt = Instant.parse("2026-05-13T00:00:02Z"),
+            )
+
+        val msg = stubExecMessage(odno = "ODNO_COLLIDE", cntgYn = "2", cntgQty = 1)
+        listener.processMessage(msg)
+
+        verify(exactly = 0) { execRepo.save(any()) }
+        verify(timeout = 1_000, exactly = 1) {
+            executionBackfillService.syncUserTodayExecutions("12345678", AccountType.MOCK)
+        }
     }
 
     @Test

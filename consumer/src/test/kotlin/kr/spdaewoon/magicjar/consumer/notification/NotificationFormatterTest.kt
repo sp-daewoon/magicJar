@@ -36,6 +36,25 @@ class NotificationFormatterTest {
     }
 
     @Test
+    fun `(1-2) ORDER_FILLED — executedAt 기준 시각과 backfill 반영 경로 표시`() {
+        val msg =
+            NotificationFormatter.format(
+                userId = "12345678",
+                eventType = NotificationEventType.ORDER_FILLED,
+                reason = "체결: [MOCK] 삼성전자(005930) 매도 1주 @ 353,000원",
+                meta =
+                    mapOf(
+                        "executedAt" to "1780373478",
+                        "fillSource" to "REST_BACKFILL",
+                    ),
+            )
+
+        assertThat(msg).contains("[주문 체결]* 2026-06-02 13:11:18 KST")
+        assertThat(msg).contains("체결시각: 2026-06-02 13:11:18 KST")
+        assertThat(msg).contains("반영: KIS REST backfill")
+    }
+
+    @Test
     fun `(2) ORDER_REJECTED — 거절 메시지 + 마스킹`() {
         val msg =
             NotificationFormatter.format(

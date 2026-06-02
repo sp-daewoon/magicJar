@@ -12,9 +12,11 @@ import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderAuditEventRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderExecutionRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
+import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.stereotype.Component
+import reactor.core.scheduler.Schedulers
 import java.math.BigDecimal
 import java.time.Clock
 import java.time.Instant
@@ -58,6 +60,7 @@ import java.time.format.DateTimeFormatter
  *     - 후속 REST ACK 응답이 도착하면 [OrderRouterKafkaListener] step 8이 동일 kisOrderNo로 update 갱신 (idempotency 정합)
  *     - 또는 [KisOrderInquireCcldHttpAdapter] REST backfill이 동일 kisOrderNo row를 cross-ref
  *  3. event_id 멱등 가드 ─ `{kisOrderNo}:{stckCntgHour}:{cntgQty}` 합성 후 [OrderExecutionRepository.existsByEventId] true 시 skip
+ *     - 단, 주문이 아직 미체결 상태라면 동일 초·동일 가격·동일 수량 부분체결 collision 가능성이 있어 REST 체결 동기화를 즉시 예약
  *
  * ### eventId 합성 규칙 (ADR 0084 §2-3 V35 정합)
  * `{odno}:{stckCntgHour}:{cntgQty}` — WS + REST inquire-daily-ccld backfill 양 경로 동일 합성.
@@ -84,6 +87,7 @@ class KisExecutionWsListener(
     private val orderCancelledKafkaProducer: OrderCancelledKafkaProducer,
     private val accountBalanceChangedKafkaProducer: AccountBalanceChangedKafkaProducer,
     private val executionPersistenceService: ExecutionPersistenceService,
+    private val executionBackfillServiceProvider: ObjectProvider<KisExecutionBackfillService>,
     private val objectMapper: ObjectMapper,
     private val clock: Clock = Clock.system(ZoneId.of("Asia/Seoul")),
 ) {
@@ -490,6 +494,7 @@ class KisExecutionWsListener(
                 false
             }
         if (alreadyPersisted) {
+            handleDuplicateExecutionEvent(request, requestId, eventId, execRepo)
             log.info(
                 "KisExecutionWsListener — 중복 체결 skip (event_id dedup): orderId={} eventId={}",
                 requestId,
@@ -632,6 +637,75 @@ class KisExecutionWsListener(
                     requestId,
                     sum,
                     request.quantity,
+                )
+            }
+        }
+    }
+
+    private fun handleDuplicateExecutionEvent(
+        request: OrderRequest,
+        requestId: Long,
+        eventId: String,
+        execRepo: OrderExecutionRepository,
+    ) {
+        val currentExecutedQty =
+            try {
+                execRepo.sumExecutedQuantityByOrder(requestId)
+            } catch (e: Exception) {
+                log.warn(
+                    "KisExecutionWsListener duplicate event sum 조회 실패 — REST sync 생략: orderId={} eventId={} err={}",
+                    requestId,
+                    eventId,
+                    e.message,
+                )
+                return
+            }
+        if (currentExecutedQty >= request.quantity) return
+
+        val service = executionBackfillServiceProvider.getIfAvailable()
+        if (service == null) {
+            log.warn(
+                "KisExecutionWsListener duplicate event on open order — backfill service 미합류: orderId={} eventId={} sum={}/{}",
+                requestId,
+                eventId,
+                currentExecutedQty,
+                request.quantity,
+            )
+            return
+        }
+
+        val accountType =
+            if (request.mode == TradingMode.REAL) {
+                AccountType.REAL
+            } else {
+                AccountType.MOCK
+            }
+        log.warn(
+            "KisExecutionWsListener duplicate event on open order — KIS REST execution sync 예약: orderId={} eventId={} sum={}/{}",
+            requestId,
+            eventId,
+            currentExecutedQty,
+            request.quantity,
+        )
+        Schedulers.boundedElastic().schedule {
+            val result =
+                runCatching {
+                    service.syncUserTodayExecutions(request.userId, accountType)
+                }.onFailure { e ->
+                    log.error(
+                        "KisExecutionWsListener duplicate event REST sync 실패: orderId={} eventId={} err={}",
+                        requestId,
+                        eventId,
+                        e.message,
+                    )
+                }.getOrNull()
+
+            if (result != null && !result.isComplete) {
+                log.warn(
+                    "KisExecutionWsListener duplicate event REST sync 불완전: orderId={} eventId={} reason={}",
+                    requestId,
+                    eventId,
+                    result.reasonCode,
                 )
             }
         }
