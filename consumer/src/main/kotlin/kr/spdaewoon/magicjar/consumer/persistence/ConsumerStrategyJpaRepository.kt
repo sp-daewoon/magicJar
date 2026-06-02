@@ -12,7 +12,7 @@ interface ConsumerStrategyJpaRepository : JpaRepository<ConsumerStrategyJpaEntit
     @Query(
         value =
             "SELECT * FROM strategy " +
-                "WHERE status = 'ACTIVE' " +
+                "WHERE status IN ('ACTIVE', 'BUY_BLOCKED') " +
                 "AND codes @> CAST(:codeJson AS jsonb) " +
                 "AND intervals @> CAST(:intervalJson AS jsonb)",
         nativeQuery = true,
@@ -25,7 +25,7 @@ interface ConsumerStrategyJpaRepository : JpaRepository<ConsumerStrategyJpaEntit
     @Query(
         value =
             "SELECT * FROM strategy " +
-                "WHERE status = 'ACTIVE' " +
+                "WHERE status IN ('ACTIVE', 'BUY_BLOCKED') " +
                 "AND codes IS NOT NULL",
         nativeQuery = true,
     )
@@ -44,6 +44,22 @@ interface ConsumerStrategyJpaRepository : JpaRepository<ConsumerStrategyJpaEntit
         nativeQuery = true,
     )
     fun autoDisable(
+        @Param("id") id: Long,
+        @Param("reason") reason: String,
+    ): Int
+
+    @Modifying
+    @Query(
+        value =
+            "UPDATE strategy " +
+                "SET status = 'BUY_BLOCKED', " +
+                "disabled_reason = :reason, " +
+                "last_disabled_at = CURRENT_TIMESTAMP, " +
+                "updated_at = CURRENT_TIMESTAMP " +
+                "WHERE id = :id AND status <> 'DELETED'",
+        nativeQuery = true,
+    )
+    fun autoBuyBlock(
         @Param("id") id: Long,
         @Param("reason") reason: String,
     ): Int

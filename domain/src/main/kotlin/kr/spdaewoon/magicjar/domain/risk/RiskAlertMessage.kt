@@ -171,7 +171,7 @@ data class RiskAlertMessage(
                 message = "오늘 누적 손실이 설정한 DLL 한도에 도달해 신규 자동 주문을 내보내지 않았습니다.",
                 formula = formula,
                 setting = "B. 일일 손실 한도 (DLL)",
-                action = "오늘 손익과 DLL 설정을 확인하세요. 연속 BLOCKED가 임계치에 도달하면 전략이 자동 정지됩니다.",
+                action = "오늘 손익과 DLL 설정을 확인하세요. 연속 BLOCKED가 임계치에 도달하면 해당 전략의 신규 BUY가 차단됩니다.",
             )
         }
 

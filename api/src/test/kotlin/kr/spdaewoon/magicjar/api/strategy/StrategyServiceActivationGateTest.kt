@@ -123,6 +123,30 @@ class StrategyServiceActivationGateTest {
         verify(exactly = 1) { redisStrategyCache.invalidateAll() }
     }
 
+    @Test
+    fun `BUY_BLOCKED to ACTIVE는 사용자 명시 재개로 비활성 사유를 지운다`() {
+        every { strategyJpaRepository.findByIdAndStatusNot(1L, StrategyStatus.DELETED.name) } returns entity(status = "BUY_BLOCKED")
+        every { backtestRunJpaRepository.existsAutoActivationReadyRun(1L, "1234") } returns true
+        every { strategyRepositoryPort.findById(1L) } returns strategy(status = StrategyStatus.ACTIVE)
+
+        service.toggleStatus(1L, StrategyStatus.ACTIVE)
+
+        verify(exactly = 1) { strategyRepositoryPort.enable(1L) }
+        verify(exactly = 0) { strategyJpaRepository.updateStatus(1L, StrategyStatus.ACTIVE.name) }
+        verify(exactly = 1) { redisStrategyCache.invalidateAll() }
+    }
+
+    @Test
+    fun `BUY_BLOCKED to PAUSED는 전체 자동매매 중지로 허용한다`() {
+        every { strategyJpaRepository.findByIdAndStatusNot(1L, StrategyStatus.DELETED.name) } returns entity(status = "BUY_BLOCKED")
+        every { strategyRepositoryPort.findById(1L) } returns strategy(status = StrategyStatus.PAUSED)
+
+        service.toggleStatus(1L, StrategyStatus.PAUSED)
+
+        verify(exactly = 1) { strategyJpaRepository.updateStatus(1L, StrategyStatus.PAUSED.name) }
+        verify(exactly = 1) { redisStrategyCache.invalidateAll() }
+    }
+
     private fun entity(status: String) =
         StrategyJpaEntity(
             id = 1L,

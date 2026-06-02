@@ -16,7 +16,7 @@ import java.time.Instant
  *
  * ADR 0051 주의: no-arg constructor 필요 — kotlin-jpa 플러그인(api 모듈 적용) 의존.
  * ADR 0047 §2-6 정합 — disabled_reason·last_disabled_at·eval_metric_summary 컬럼.
- * ADR 0066 §2-6 F-1 정합 — status 4단 + codes/intervals JSONB.
+ * ADR 0066 §2-6 F-1 정합 — status + codes/intervals JSONB.
  *
  * 헌법 §6: body 가진 fun 0건.
  */
@@ -63,8 +63,8 @@ class StrategyJpaEntity(
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "eval_metric_summary", columnDefinition = "jsonb")
     val evalMetricSummary: String? = null,
-    // V14 추가 컬럼 — ADR 0066 §2-6 F-1 status 4단
-    @Column(name = "status", nullable = false, length = 10)
+    // V14 추가 컬럼 — ADR 0066 §2-6 F-1 status, V61 BUY_BLOCKED 추가
+    @Column(name = "status", nullable = false, length = 16)
     val status: String = "ACTIVE",
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "codes", columnDefinition = "jsonb")

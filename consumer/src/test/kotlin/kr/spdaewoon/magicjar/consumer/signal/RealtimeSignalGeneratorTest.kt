@@ -23,6 +23,7 @@ import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.StrategyEvalResult
+import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.dsl.Condition
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslStrategyDefinition
@@ -133,6 +134,77 @@ class RealtimeSignalGeneratorTest {
         // Kafka publish는 저장 후 id가 채번된 signal로 호출되어야 한다
         assertThat(publishedSignal.captured.id).isEqualTo(88L)
         assertThat(publishedSignal.captured.side).isEqualTo(SignalSide.BUY)
+        verify(exactly = 1) { signalKafkaProducer.publish(any()) }
+    }
+
+    @Test
+    fun `BUY_BLOCKED 전략은 신규 BUY 시그널을 저장하거나 발행하지 않는다`() {
+        val buyAst = ast("1", Operator.GT, "0")
+        val boundaryTs = Instant.parse("2026-05-20T00:35:00Z")
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(strategy(buyAst = buyAst, status = StrategyStatus.BUY_BLOCKED))
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
+        every { candleRepository.findByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(candle("2026-05-20T00:30:00Z", "100"))
+        every { evaluator.evaluate(42L, buyAst, any()) } returns
+            StrategyEvalResult(
+                signal = StrategySignal.BUY,
+                strength = BigDecimal("0.80"),
+                reason = mapOf("trigger" to "BUY_CONDITION"),
+                evaluatedAt = fixedNow,
+                evalTimeMs = 1L,
+            )
+
+        generator().onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.FIVE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "150"),
+        )
+
+        verify(exactly = 0) { signalRepository.save(any()) }
+        verify(exactly = 0) { signalKafkaProducer.publish(any()) }
+    }
+
+    @Test
+    fun `BUY_BLOCKED는 해당 strategy_id의 신규 BUY만 막고 다른 ACTIVE 전략은 계속 BUY를 발행한다`() {
+        val buyAst = ast("1", Operator.GT, "0")
+        val boundaryTs = Instant.parse("2026-05-20T00:36:00Z")
+        val savedSignal = slot<GeneratedSignal>()
+        val publishedSignal = slot<GeneratedSignal>()
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(
+                strategy(id = 42L, buyAst = buyAst, status = StrategyStatus.BUY_BLOCKED),
+                strategy(id = 77L, buyAst = buyAst, status = StrategyStatus.ACTIVE),
+            )
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
+        every { dedupeGuard.tryAcquire(77L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
+        every { candleRepository.findByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(candle("2026-05-20T00:30:00Z", "100"))
+        every { evaluator.evaluate(any(), buyAst, any()) } returns
+            StrategyEvalResult(
+                signal = StrategySignal.BUY,
+                strength = BigDecimal("0.80"),
+                reason = mapOf("trigger" to "BUY_CONDITION"),
+                evaluatedAt = fixedNow,
+                evalTimeMs = 1L,
+            )
+        every { signalRepository.save(capture(savedSignal)) } answers { savedSignal.captured.copy(id = 101L) }
+        every { signalKafkaProducer.publish(capture(publishedSignal)) } just Runs
+
+        generator().onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.FIVE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "150"),
+        )
+
+        assertThat(savedSignal.captured.strategyId).isEqualTo(77L)
+        assertThat(savedSignal.captured.side).isEqualTo(SignalSide.BUY)
+        assertThat(publishedSignal.captured.strategyId).isEqualTo(77L)
+        verify(exactly = 1) { signalRepository.save(any()) }
         verify(exactly = 1) { signalKafkaProducer.publish(any()) }
     }
 
@@ -273,6 +345,43 @@ class RealtimeSignalGeneratorTest {
     }
 
     @Test
+    fun `BUY_BLOCKED 전략도 sellCondition 충족 시 SELL 시그널은 저장하고 발행한다`() {
+        val buyAst = ast("1", Operator.LT, "0")
+        val sellAst = ast("1", Operator.GT, "0")
+        val boundaryTs = Instant.parse("2026-05-20T00:16:00Z")
+        val savedSignal = slot<GeneratedSignal>()
+        val publishedSignal = slot<GeneratedSignal>()
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(strategy(buyAst = buyAst, sellAst = sellAst, status = StrategyStatus.BUY_BLOCKED))
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
+        every { candleRepository.findByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(candle("2026-05-20T00:10:00Z", "100"))
+        every { evaluator.evaluate(42L, buyAst, any()) } returns holdResult()
+        every { evaluator.evaluate(42L, sellAst, any()) } returns
+            StrategyEvalResult(
+                signal = StrategySignal.BUY,
+                strength = BigDecimal("0.70"),
+                reason = mapOf("trigger" to "SELL_CONDITION"),
+                evaluatedAt = fixedNow,
+                evalTimeMs = 1L,
+            )
+        every { signalRepository.save(capture(savedSignal)) } answers { savedSignal.captured.copy(id = 78L) }
+        every { signalKafkaProducer.publish(capture(publishedSignal)) } just Runs
+
+        generator().onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.FIVE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "120"),
+        )
+
+        assertThat(savedSignal.captured.side).isEqualTo(SignalSide.SELL)
+        assertThat(publishedSignal.captured.id).isEqualTo(78L)
+        assertThat(publishedSignal.captured.side).isEqualTo(SignalSide.SELL)
+    }
+
+    @Test
     fun `takeProfitPct 도달 시 보유 포지션 기준 SELL 시그널을 저장하고 발행한다`() {
         val buyAst = ast("0", Operator.GT, "1")
         val boundaryTs = Instant.parse("2026-05-20T00:20:00Z")
@@ -336,13 +445,16 @@ class RealtimeSignalGeneratorTest {
         )
 
     private fun strategy(
+        id: Long = 42L,
         buyAst: DslNode,
         sellAst: DslNode? = null,
         takeProfitPct: BigDecimal? = null,
+        status: StrategyStatus = StrategyStatus.ACTIVE,
     ): Strategy =
         Strategy(
-            id = 42L,
+            id = id,
             userId = 1234L,
+            status = status,
             definition =
                 StrategyDefinition(
                     dsl =

@@ -47,7 +47,7 @@ class ConsumerStrategyLookupJpaAdapter(
     private fun toDomainOrNull(entity: ConsumerStrategyJpaEntity): Strategy? {
         val buy = parseDslOrNull(entity.id, "buy", entity.dslEntry)
         if (buy == null) {
-            log.warn("ACTIVE strategy 매수 DSL 파싱 실패로 realtime 평가 제외: strategyId={}", entity.id)
+            log.warn("평가 가능 strategy 매수 DSL 파싱 실패로 realtime 평가 제외: strategyId={}", entity.id)
             return null
         }
         val sell = entity.dslExit?.let { parseDslOrNull(entity.id, "sell", it) }

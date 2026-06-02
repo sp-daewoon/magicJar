@@ -354,6 +354,7 @@ export function SymbolDetailPage() {
           </div>
           <SymbolChart
             code={code}
+            userId={userId}
             realtimeCandle={realtimeCandle}
             riskPlanPreview={riskPlanPreview}
             liveTick={

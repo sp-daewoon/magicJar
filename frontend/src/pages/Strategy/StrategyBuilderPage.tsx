@@ -18,7 +18,7 @@
  * DoD #26 반응형 — 768px 이하 안내 메시지 (mobile 후속 PR)
  * 룰 5: LLM provider import 0건
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { usePaletteResize } from '../../hooks/usePaletteResize'
 import { BlockPalette } from '../../components/strategy/BlockPalette'
@@ -28,13 +28,14 @@ import { EvaluationResultCard, EvaluationEmptyCard } from '../../components/stra
 import { StrategySaveModal } from '../../components/strategy/StrategySaveModal'
 import { NaturalLanguageInput } from '../../components/strategy/NaturalLanguageInput'
 import { DslTextEditor } from '../../components/strategy/DslTextEditor'
-import type { BlockNode, BlockTree } from '../../lib/dsl/blockTree'
+import { cloneNode, type BlockNode, type BlockTree } from '../../lib/dsl/blockTree'
 import { serializeBlockTree } from '../../lib/dsl/serializer'
 import {
   clonePresetTree,
   SMART_MONEY_STRATEGY_PRESETS,
   type SmartMoneyStrategyPreset,
 } from '../../lib/dsl/smartMoneyPresets'
+import { MINERVINI_STRATEGY_FAVORITES } from '../../lib/dsl/minerviniFavorites'
 import { kisYamlExport, kisYamlImport } from '../../lib/dsl/yaml'
 import { useStrategyValidate, useStrategyEvaluate } from '../../api/hooks/useStrategy'
 import { useSigStrategy } from '../../api/hooks/useSigStrategy'
@@ -67,6 +68,92 @@ const EVAL_INTERVAL_OPTIONS = [
   { value: '1y', label: '1y' },
 ]
 
+const STRATEGY_FAVORITES_STORAGE_KEY = 'magicjar.strategyBuilder.customFavorites.v1'
+const STRATEGY_HIDDEN_DEFAULT_FAVORITES_STORAGE_KEY = 'magicjar.strategyBuilder.hiddenDefaultFavorites.v1'
+
+function loadCustomFavorites(): SmartMoneyStrategyPreset[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(STRATEGY_FAVORITES_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((item): item is SmartMoneyStrategyPreset => {
+      if (!item || typeof item !== 'object') return false
+      const candidate = item as Partial<SmartMoneyStrategyPreset>
+      return (
+        typeof candidate.id === 'string' &&
+        typeof candidate.label === 'string' &&
+        typeof candidate.description === 'string' &&
+        typeof candidate.suggestedInterval === 'string' &&
+        !!candidate.tree
+      )
+    })
+  } catch {
+    return []
+  }
+}
+
+function saveCustomFavorites(favorites: SmartMoneyStrategyPreset[]) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(STRATEGY_FAVORITES_STORAGE_KEY, JSON.stringify(favorites))
+}
+
+function loadHiddenDefaultFavoriteIds(): string[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(STRATEGY_HIDDEN_DEFAULT_FAVORITES_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed) ? parsed.map((id) => String(id)).filter(Boolean) : []
+  } catch {
+    return []
+  }
+}
+
+function saveHiddenDefaultFavoriteIds(ids: string[]) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(STRATEGY_HIDDEN_DEFAULT_FAVORITES_STORAGE_KEY, JSON.stringify(ids))
+}
+
+function insertBlockIntoFirstEmptySlot(root: BlockNode, block: BlockNode): BlockNode | null {
+  const freshBlock = () => cloneNode(block)
+
+  switch (root.kind) {
+    case 'comparison': {
+      if (!root.left) return { ...root, left: freshBlock() }
+      const updatedLeft = insertBlockIntoFirstEmptySlot(root.left, block)
+      if (updatedLeft) return { ...root, left: updatedLeft }
+      if (!root.right) return { ...root, right: freshBlock() }
+      const updatedRight = insertBlockIntoFirstEmptySlot(root.right, block)
+      return updatedRight ? { ...root, right: updatedRight } : null
+    }
+    case 'logical': {
+      if (!root.left) return { ...root, left: freshBlock() }
+      const updatedLeft = insertBlockIntoFirstEmptySlot(root.left, block)
+      if (updatedLeft) return { ...root, left: updatedLeft }
+      if (!root.right) return { ...root, right: freshBlock() }
+      const updatedRight = insertBlockIntoFirstEmptySlot(root.right, block)
+      return updatedRight ? { ...root, right: updatedRight } : null
+    }
+    case 'arithmetic': {
+      if (!root.left) return { ...root, left: freshBlock() }
+      const updatedLeft = insertBlockIntoFirstEmptySlot(root.left, block)
+      if (updatedLeft) return { ...root, left: updatedLeft }
+      if (!root.right) return { ...root, right: freshBlock() }
+      const updatedRight = insertBlockIntoFirstEmptySlot(root.right, block)
+      return updatedRight ? { ...root, right: updatedRight } : null
+    }
+    case 'not': {
+      if (!root.operand) return { ...root, operand: freshBlock() }
+      const updatedOperand = insertBlockIntoFirstEmptySlot(root.operand, block)
+      return updatedOperand ? { ...root, operand: updatedOperand } : null
+    }
+    default:
+      return null
+  }
+}
+
 export function StrategyBuilderPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const routeStrategyId = searchParams.get('strategyId') ?? undefined
@@ -80,6 +167,8 @@ export function StrategyBuilderPage() {
   const [isPreparingEvaluation, setIsPreparingEvaluation] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
+  const [customFavorites, setCustomFavorites] = useState<SmartMoneyStrategyPreset[]>(loadCustomFavorites)
+  const [hiddenDefaultFavoriteIds, setHiddenDefaultFavoriteIds] = useState<string[]>(loadHiddenDefaultFavoriteIds)
 
   // 모달 상태
   const [showSaveModal, setShowSaveModal] = useState(false)
@@ -99,6 +188,18 @@ export function StrategyBuilderPage() {
   const { mutate: validateMutate, isPending: isValidating } = useStrategyValidate()
   const { mutateAsync: evaluateAsync, isPending: isEvaluating } = useStrategyEvaluate()
   const { width: paletteWidth, handleMouseDown: handlePaletteResizeDown, isDragging: isPaletteResizing } = usePaletteResize()
+
+  const defaultFavoritePresets = useMemo(
+    () => [...SMART_MONEY_STRATEGY_PRESETS, ...MINERVINI_STRATEGY_FAVORITES],
+    [],
+  )
+  const favoritePresets = useMemo(() => {
+    const hiddenIds = new Set(hiddenDefaultFavoriteIds)
+    return [
+      ...defaultFavoritePresets.filter((preset) => !hiddenIds.has(preset.id)),
+      ...customFavorites,
+    ]
+  }, [customFavorites, defaultFavoritePresets, hiddenDefaultFavoriteIds])
 
   const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
     setToast(msg)
@@ -138,14 +239,25 @@ export function StrategyBuilderPage() {
   // 팔레트에서 블록 선택 → 캔버스 현재 탭 루트에 추가
   // hotfix 2026-05-14: canvasTab 인식 — 매수/매도 탭에 따라 분기 (이전 결함: 항상 entry 에만 추가)
   const handlePaletteSelect = (block: BlockNode) => {
-    setTree((prev) =>
+    const applyBlock = (current?: BlockNode): BlockNode | undefined => {
+      if (!current) return cloneNode(block)
+      const inserted = insertBlockIntoFirstEmptySlot(current, block)
+      if (inserted) return inserted
+      const ok = window.confirm('현재 조건에 빈 슬롯이 없습니다. 선택한 블록으로 현재 조건을 교체할까요?')
+      return ok ? cloneNode(block) : current
+    }
+
+    setTree((prev) => (
       canvasTab === 'entry'
-        ? { ...prev, entry: prev.entry ?? block }
-        : { ...prev, exit: prev.exit ?? block },
-    )
+        ? { ...prev, entry: applyBlock(prev.entry) }
+        : { ...prev, exit: applyBlock(prev.exit) }
+    ))
   }
 
-  const handlePresetApply = (preset: SmartMoneyStrategyPreset) => {
+  const applyPresetTree = (
+    preset: SmartMoneyStrategyPreset,
+    options: { useSuggestedInterval: boolean },
+  ) => {
     if (tree.entry || tree.exit) {
       const ok = window.confirm('현재 조건을 프리셋 후보로 교체할까요?')
       if (!ok) return
@@ -156,8 +268,49 @@ export function StrategyBuilderPage() {
     setComplexity(null)
     setEvalResult(null)
     setValidateError(null)
-    setEvalForm((prev) => ({ ...prev, interval: preset.suggestedInterval }))
+    if (options.useSuggestedInterval) {
+      setEvalForm((prev) => ({ ...prev, interval: preset.suggestedInterval }))
+    }
     showToast(`${preset.label} 적용됨`)
+  }
+
+  const handleFavoriteApply = (preset: SmartMoneyStrategyPreset) => {
+    applyPresetTree(preset, { useSuggestedInterval: false })
+  }
+
+  const handleAddFavorite = () => {
+    const { entry } = serializeBlockTree(tree)
+    if (!entry) {
+      showToast('즐겨찾기에 추가할 매수 조건이 없습니다', 'error')
+      return
+    }
+    const label = window.prompt('즐겨찾기 이름을 입력하세요', '나의 전략 후보')?.trim()
+    if (!label) return
+    const nextFavorite: SmartMoneyStrategyPreset = {
+      id: `custom-${Date.now()}`,
+      label,
+      description: entry.length > 72 ? `${entry.slice(0, 72)}...` : entry,
+      suggestedInterval: evalForm.interval,
+      tree: clonePresetTree(tree),
+    }
+    const next = [nextFavorite, ...customFavorites]
+    setCustomFavorites(next)
+    saveCustomFavorites(next)
+    showToast(`${label} 즐겨찾기 추가됨`)
+  }
+
+  const handleRemoveFavorite = (id: string) => {
+    if (customFavorites.some((favorite) => favorite.id === id)) {
+      const next = customFavorites.filter((favorite) => favorite.id !== id)
+      setCustomFavorites(next)
+      saveCustomFavorites(next)
+      showToast('즐겨찾기에서 삭제했습니다')
+      return
+    }
+    const next = Array.from(new Set([...hiddenDefaultFavoriteIds, id]))
+    setHiddenDefaultFavoriteIds(next)
+    saveHiddenDefaultFavoriteIds(next)
+    showToast('즐겨찾기에서 삭제했습니다')
   }
 
   // 검증
@@ -240,7 +393,7 @@ export function StrategyBuilderPage() {
 
   // DSL 편집 열기
   const handleEditDsl = () => {
-    setDslEditorTab('entry')
+    setDslEditorTab(canvasTab)
     setShowDslEditor(true)
   }
 
@@ -311,7 +464,15 @@ export function StrategyBuilderPage() {
       {/* 데스크톱 레이아웃 */}
       <div className="hidden min-h-0 flex-1 lg:flex">
         {/* 좌: 팔레트 + 드래그 리사이즈 핸들 */}
-        <BlockPalette onSelect={handlePaletteSelect} width={paletteWidth} />
+        <BlockPalette
+          onSelect={handlePaletteSelect}
+          favorites={favoritePresets}
+          hasFavoriteSource={!!entryDsl}
+          onFavoriteApply={handleFavoriteApply}
+          onFavoriteAddCurrent={handleAddFavorite}
+          onFavoriteRemove={handleRemoveFavorite}
+          width={paletteWidth}
+        />
         {/* ResizeHandle — col-resize 핸들 */}
         <div
           role="separator"
@@ -348,8 +509,6 @@ export function StrategyBuilderPage() {
           onValidate={handleValidate}
           onSave={() => setShowSaveModal(true)}
           onEvaluate={handleEvaluate}
-          presets={SMART_MONEY_STRATEGY_PRESETS}
-          onPresetApply={handlePresetApply}
           strategyId={strategyId}
           isValidating={isValidating}
           isSaving={false}
@@ -357,43 +516,42 @@ export function StrategyBuilderPage() {
 
         {/* 우: 결과 영역 */}
         <aside className="flex w-72 flex-shrink-0 flex-col gap-4 overflow-y-auto border-l border-gray-800 p-4">
-          <h2 className="text-sm font-semibold text-gray-300">결과</h2>
+          <h2 className="text-sm font-semibold text-gray-300">전략 실행</h2>
 
-          {/* 평가 입력 */}
-          {strategyId && (
-            <div className="rounded-xl border border-gray-800 bg-gray-900 p-3">
-              <div className="mb-2 text-xs text-gray-500">평가 설정</div>
-              <div className="space-y-2">
-                <InstrumentSearchInput
-                  value={evalForm.code}
-                  onRawChange={(value) => setEvalForm((f) => ({ ...f, code: value.trim() }))}
-                  onSelect={(result) => setEvalForm((f) => ({ ...f, code: result.code }))}
-                  placeholder="종목명 또는 코드 검색"
-                />
-                <select
-                  value={evalForm.interval}
-                  onChange={(e) => setEvalForm((f) => ({ ...f, interval: e.target.value }))}
-                  className="w-full rounded border border-gray-700 bg-gray-950 px-2 py-1 text-sm text-white focus:outline-none"
-                >
-                  {EVAL_INTERVAL_OPTIONS.map((i) => (
-                    <option key={i.value} value={i.value}>{i.label}</option>
-                  ))}
-                </select>
-                <button
-                  className="w-full rounded bg-emerald-600 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-                  onClick={handleEvaluate}
-                  disabled={isEvaluating || isPreparingEvaluation || !evalForm.code}
-                >
-                  {isEvaluating || isPreparingEvaluation ? '평가 중...' : '평가 실행'}
-                </button>
-                {evalPrepMessage && (
-                  <p className="text-xs text-emerald-300" role="status">
-                    {evalPrepMessage}
-                  </p>
-                )}
-              </div>
+          <div className="rounded-lg border border-gray-800 bg-gray-900 p-3">
+            <div className="mb-2 text-xs text-gray-500">종목·기준봉</div>
+            <div className="space-y-2">
+              <InstrumentSearchInput
+                value={evalForm.code}
+                onRawChange={(value) => setEvalForm((f) => ({ ...f, code: value.trim() }))}
+                onSelect={(result) => setEvalForm((f) => ({ ...f, code: result.code }))}
+                placeholder="종목명 또는 코드 검색"
+              />
+              <select
+                aria-label="평가 기준봉"
+                value={evalForm.interval}
+                onChange={(e) => setEvalForm((f) => ({ ...f, interval: e.target.value }))}
+                className="w-full rounded-md border border-gray-700 bg-gray-950 px-2 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+              >
+                {EVAL_INTERVAL_OPTIONS.map((i) => (
+                  <option key={i.value} value={i.value}>{i.label}</option>
+                ))}
+              </select>
+              <button
+                className="w-full rounded-md bg-emerald-600 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={handleEvaluate}
+                disabled={!strategyId || isEvaluating || isPreparingEvaluation || !evalForm.code}
+                title={!strategyId ? '먼저 전략을 저장하세요' : undefined}
+              >
+                {isEvaluating || isPreparingEvaluation ? '평가 중...' : '평가 실행'}
+              </button>
+              {evalPrepMessage && (
+                <p className="text-xs text-emerald-300" role="status">
+                  {evalPrepMessage}
+                </p>
+              )}
             </div>
-          )}
+          </div>
 
           {/* 복잡도 카드 */}
           {complexity && <ComplexityCard complexity={complexity} />}
@@ -453,8 +611,8 @@ export function StrategyBuilderPage() {
           initialName={loadedStrategy?.name}
           initialNameKo={loadedStrategy?.nameKo}
           initialUniverse={loadedStrategy?.universe}
-          initialTf={loadedStrategy?.intervals[0] ?? loadedStrategy?.tf}
-          initialCode={loadedStrategy?.codes[0] ?? evalForm.code}
+          initialTf={evalForm.interval}
+          initialCode={evalForm.code}
           initialStopLossPct={loadedStrategy?.stopLossPct}
           initialTakeProfitPct={loadedStrategy?.takeProfitPct}
           onSaved={handleSaved}

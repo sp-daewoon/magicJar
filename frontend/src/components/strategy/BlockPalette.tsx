@@ -1,8 +1,9 @@
 /**
  * BlockPalette — 블록 팔레트 (좌측 사이드바)
  *
- * 4 탭:
+ * 5 탭:
  *   지표 — INDICATOR_CATALOG 80건 (카테고리 6종 섹션)
+ *   즐겨찾기 — 전략 프리셋·사용자 저장 후보
  *   패턴 — PATTERN_CATALOG 57건 (single/double/triple 섹션, R1 active ★)
  *   캔들 — OHLCV 5종 직접 참조
  *   연산자/상수 — 비교·논리·산술·상수·패턴 함수
@@ -14,12 +15,24 @@ import { useState, useMemo } from 'react'
 import { INDICATOR_CATALOG, type IndicatorCatalogItem } from '../../api/indicator'
 import { PATTERN_CATALOG, type PatternCatalogItem } from '../../api/patterns'
 import type { BlockNode } from '../../lib/dsl/blockTree'
+import type { SmartMoneyStrategyPreset } from '../../lib/dsl/smartMoneyPresets'
+import { StrategyFavoritePanel } from './StrategyFavoritePanel'
 
-type PaletteTab = 'indicator' | 'pattern' | 'candle' | 'operator'
+type PaletteTab = 'indicator' | 'favorite' | 'pattern' | 'candle' | 'operator'
 
 interface BlockPaletteProps {
   /** 블록 선택 시 콜백 — 선택된 BlockNode 반환 */
   onSelect: (block: BlockNode) => void
+  /** 전략 즐겨찾기 후보 */
+  favorites?: SmartMoneyStrategyPreset[]
+  /** 현재 트리를 즐겨찾기에 추가할 수 있는지 */
+  hasFavoriteSource?: boolean
+  /** 즐겨찾기 적용 */
+  onFavoriteApply?: (preset: SmartMoneyStrategyPreset) => void
+  /** 현재 전략을 즐겨찾기에 추가 */
+  onFavoriteAddCurrent?: () => void
+  /** 즐겨찾기 삭제 */
+  onFavoriteRemove?: (id: string) => void
   /** 패널 폭(px) — usePaletteResize hook에서 주입. 미전달 시 224px(w-56) 기본값 */
   width?: number
 }
@@ -125,7 +138,15 @@ const NAV_LINK_INACTIVE = 'text-gray-400 hover:bg-gray-800/60 hover:text-gray-20
 const ITEM_BTN =
   'w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-gray-800 transition-colors focus:outline-none focus:ring-1 focus:ring-blue-400 flex items-center justify-between gap-2'
 
-export function BlockPalette({ onSelect, width = 224 }: BlockPaletteProps) {
+export function BlockPalette({
+  onSelect,
+  favorites = [],
+  hasFavoriteSource = false,
+  onFavoriteApply,
+  onFavoriteAddCurrent,
+  onFavoriteRemove,
+  width = 224,
+}: BlockPaletteProps) {
   const [tab, setTab] = useState<PaletteTab>('indicator')
   const [query, setQuery] = useState('')
 
@@ -194,8 +215,8 @@ export function BlockPalette({ onSelect, width = 224 }: BlockPaletteProps) {
       aria-label="블록 팔레트"
     >
       {/* 탭 */}
-      <nav className="flex gap-1 border-b border-gray-800 p-2" aria-label="팔레트 탭">
-        {(['indicator', 'pattern', 'candle', 'operator'] as PaletteTab[]).map((t) => (
+      <nav className="flex flex-wrap gap-1 border-b border-gray-800 p-2" aria-label="팔레트 탭">
+        {(['indicator', 'favorite', 'pattern', 'candle', 'operator'] as PaletteTab[]).map((t) => (
           <button
             key={t}
             className={[NAV_LINK_BASE, tab === t ? NAV_LINK_ACTIVE : NAV_LINK_INACTIVE].join(' ')}
@@ -207,14 +228,24 @@ export function BlockPalette({ onSelect, width = 224 }: BlockPaletteProps) {
             aria-label={
               t === 'indicator'
                 ? '지표'
+                : t === 'favorite'
+                  ? '즐겨찾기'
+                  : t === 'pattern'
+                    ? '패턴'
+                    : t === 'candle'
+                      ? '캔들'
+                      : '연산자/상수'
+            }
+          >
+            {t === 'indicator'
+              ? '지표'
+              : t === 'favorite'
+                ? '즐겨'
                 : t === 'pattern'
                   ? '패턴'
                   : t === 'candle'
                     ? '캔들'
-                    : '연산자/상수'
-            }
-          >
-            {t === 'indicator' ? '지표' : t === 'pattern' ? '패턴' : t === 'candle' ? '캔들' : '연산자'}
+                    : '연산자'}
           </button>
         ))}
       </nav>
@@ -235,6 +266,17 @@ export function BlockPalette({ onSelect, width = 224 }: BlockPaletteProps) {
 
       {/* 내용 */}
       <div className="flex-1 overflow-y-auto py-1">
+        {/* 즐겨찾기 탭 */}
+        {tab === 'favorite' && (
+          <StrategyFavoritePanel
+            favorites={favorites}
+            hasEntry={hasFavoriteSource}
+            onApply={(preset) => onFavoriteApply?.(preset)}
+            onAddCurrent={() => onFavoriteAddCurrent?.()}
+            onRemove={(id) => onFavoriteRemove?.(id)}
+          />
+        )}
+
         {/* 지표 탭 */}
         {tab === 'indicator' && (
           <>

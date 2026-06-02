@@ -32,11 +32,30 @@ ADR 0024 §2 Guard chain의 `@Order(100) KillSwitchGuard`는 "사용자 KillSwit
 
 | # | 행동 | 책임 컨테이너 | 구현 |
 |---|---|---|---|
-| 1 | **신규 시그널 emit 즉시 정지** | `consumer` | `SignalGenerator`가 user_id별 KillSwitch 상태를 Redis 캐시에서 read → ON이면 시그널 evaluate skip. Kafka `signal.generated.v1` publish 0건. |
+| 1 | **신규 자동 주문 의도 즉시 정지** | `consumer` | RiskGateway가 user_id별 KillSwitch 상태를 read → ON이면 `KILL_SWITCH_ON`으로 BLOCKED. Kafka `order.intent.v1` publish 0건. T-SIG signal audit은 남을 수 있으나 주문 의도는 생성하지 않는다. |
 | 2 | **Pending 주문 cancel** | `consumer` | DB `orders` 중 status=PENDING\|PARTIAL_FILLED 행을 KIS REST `order-rvsecncl` 호출로 일괄 취소. 취소 실패는 `order_reject_audit` row + 사용자 통지. |
 | 3 | **STOMP push** | `api` | `risk.killswitch.v1` Kafka topic sub → `/topic/risk/{userId}` fanout. frontend Banner ON. |
 | 4 | **신규 주문 ingestion 차단** | `api` | REST `POST /api/orders` controller 진입 직전에 user_id KillSwitch 상태 확인 → ON이면 422 Unprocessable Entity 반환 + 에러 메시지 "KillSwitch 활성화 — 사용자 명시 OFF 필요". |
 | 5 | **체결통보는 정상 수신·기록** | `consumer` | KIS WS `H0STCNI0` 체결통보는 KillSwitch와 무관하게 정상 수신 + DB·Redis 갱신. (이미 발사된 주문의 체결까지 막을 수는 없음 — audit 의무) |
+
+### 2-12. KillSwitch와 strategy `BUY_BLOCKED` 관계 (2026-06-02 amend)
+
+| 항목 | KillSwitch | `BUY_BLOCKED` |
+|---|---|---|
+| 제어 레벨 | `user_id` 전체 하드 스톱 | 해당 `strategy_id` 신규 BUY 차단 |
+| 적용 경로 | AUTO·MANUAL 주문 경로 전체 | 자동매매 전략 평가 경로 |
+| BUY | 차단 | 차단 |
+| SELL·청산 | 차단 | 유지 |
+| strategy.status 변경 | 없음 | 해당 strategy만 `BUY_BLOCKED` |
+| 해제 | 사용자 수동 OFF만 | 사용자 해당 전략 재개 |
+
+정책 LOCK:
+- KillSwitch가 ON이면 RiskGateway의 첫 룰 `KILL_SWITCH_ON`이 BUY·SELL 모두를 차단한다.
+- OrderRouter는 RiskGateway 통과 후에도 KIS 전송 직전 KillSwitch를 재검증한다. RiskGateway 이후 ON 된 경우에도 KIS 주문은 나가지 않는다.
+- KillSwitch ON·조회 실패·query port 미합류는 자본 경로에서 fail-closed ON으로 처리한다.
+- 정상 등록 사용자는 `kill_switch_state(enabled=false)` row를 명시 보유한다. row 없음은 "OFF"가 아니라 상태 확인 불가로 본다.
+- KillSwitch로 발생한 `KILL_SWITCH_ON` BLOCKED는 strategy AutoPause 누적에 포함하지 않는다. 사용자 전체 비상정지가 특정 strategy 상태를 바꾸면 제어 계층이 섞이기 때문이다.
+- KillSwitch OFF는 `BUY_BLOCKED` 전략을 자동으로 ACTIVE로 돌리지 않는다. 상위 비상정지 해제와 전략별 신규 매수 재개는 별도 사용자 결정이다.
 
 ### 2-2. KIS endpoint (open-trading-api 정합) — Pending cancel 용
 
@@ -237,7 +256,7 @@ fun onDriftDetected(userId: Long, symbol: String): Boolean {
 
 - **T-RISK (W3)** — Guard chain의 KillSwitchGuard 외에 본 ADR 5대 행동 명세 의무 통합. T-RISK 결정 항목 #7(default: 종목당 10%·일일 -3%) + 본 ADR 정합.
 - **T-O (W3)** — Pending cancel 흐름 합류 — KisOrderCancelAdapter 신규.
-- **T-SIG (W3)** — SignalGenerator의 KillSwitch read 의무.
+- **T-SIG (W3)** — Signal audit은 남을 수 있으나 RiskGateway가 `KILL_SWITCH_ON`으로 주문 의도를 차단한다.
 
 ### 3-2. 컨테이너 영향
 

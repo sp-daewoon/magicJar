@@ -7,7 +7,7 @@ import kr.spdaewoon.magicjar.domain.strategy.Strategy
  * 실시간 시그널 평가용 전략 조회 port (ADR 0066 §5-3 채택).
  *
  * RealtimeSignalGenerator가 boundary 마감 payload 수신 시
- * `findActiveByCodeAndInterval(code, interval)` 호출로 활성(status=ACTIVE) 전략 목록 조회.
+ * `findActiveByCodeAndInterval(code, interval)` 호출로 평가 가능(status=ACTIVE 또는 BUY_BLOCKED) 전략 목록 조회.
  *
  * ### 기존 [StrategyRepositoryPort]와 분리
  * 기존 port는 사용자 CRUD 본체 (save · findById · findAllByUserId · deleteById · autoDisable · enable).
@@ -26,11 +26,11 @@ import kr.spdaewoon.magicjar.domain.strategy.Strategy
  */
 interface StrategyLookupPort {
     /**
-     * 실시간 시그널 평가 — 종목·인터벌 매칭 + status=ACTIVE 전략 목록 조회.
+     * 실시간 시그널 평가 — 종목·인터벌 매칭 + 평가 가능 전략 목록 조회.
      *
      * @param code 종목 코드 (KIS 6자리)
      * @param interval 평가 인터벌 (1m·3m·5m·15m·30m·90m·1h·4h·12h 등)
-     * @return 활성 전략 목록 (status=ACTIVE만)
+     * @return 평가 가능 전략 목록 (status=ACTIVE 또는 BUY_BLOCKED)
      */
     fun findActiveByCodeAndInterval(
         code: String,

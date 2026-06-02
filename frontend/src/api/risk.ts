@@ -41,8 +41,8 @@ export interface RiskConfigDto {
   maxPositionPercent: number
   /** 일일 손실 한도 절대값 (원). null = 미설정 */
   dllAbs: number | null
-  /** 일일 손실 한도 비율 (퍼센트, 예: 3 = 3%) */
-  dllPct: number
+  /** 일일 손실 한도 비율 (퍼센트, 예: 3 = 3%). null = 미설정 */
+  dllPct: number | null
   /** DLL 활성 여부 */
   isDailyLossLimitActive: boolean
   /** 동시 보유 가능 최대 종목 수 */
@@ -51,7 +51,7 @@ export interface RiskConfigDto {
   maxTradesPerMinute: number
   /** 일별 최대 거래 횟수 */
   maxTradesPerDay: number
-  /** 연속 BLOCKED → 자동 정지 임계치 (default 10) */
+  /** 연속 BLOCKED → 신규 BUY 차단 임계치 (default 10) */
   autoPauseThreshold: number
   updatedAt: string
 }

@@ -10,7 +10,7 @@
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { describe, expect, it, beforeAll, afterAll, afterEach } from 'vitest'
+import { describe, expect, it, beforeAll, afterAll, afterEach, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
@@ -18,6 +18,16 @@ import { StrategyBuilderPage } from '../StrategyBuilderPage'
 
 // MSW 서버 설정
 const server = setupServer(
+  http.get('/api/instruments/search', () =>
+    HttpResponse.json({
+      query: '005930',
+      results: [
+        { code: '005930', name: '삼성전자', market: 'KOSPI', sector: '전기전자', score: 1.0 },
+      ],
+      totalMatched: 1,
+      limit: 10,
+    }),
+  ),
   http.post('/api/strategy/validate', () => {
     return HttpResponse.json({
       astDepth: 2,
@@ -42,7 +52,11 @@ const server = setupServer(
 )
 
 beforeAll(() => server.listen())
-afterEach(() => server.resetHandlers())
+afterEach(() => {
+  server.resetHandlers()
+  window.localStorage.clear()
+  vi.restoreAllMocks()
+})
 afterAll(() => server.close())
 
 function Wrapper({ children }: { children: React.ReactNode }) {
@@ -89,6 +103,19 @@ describe('StrategyBuilderPage', () => {
     expect(screen.getByLabelText('지표')).toBeInTheDocument()
   })
 
+  it('팔레트 선택은 현재 트리의 첫 빈 슬롯을 채운다', () => {
+    render(<StrategyBuilderPage />, { wrapper: Wrapper })
+
+    fireEvent.click(screen.getByLabelText('연산자/상수'))
+    fireEvent.click(screen.getByText('비교: >'))
+    fireEvent.click(screen.getByLabelText('지표'))
+    fireEvent.click(screen.getByText('이동평균(MA)'))
+    fireEvent.click(screen.getByLabelText('캔들'))
+    fireEvent.click(screen.getByText('종가 (Close)'))
+
+    expect((screen.getByLabelText('DSL 미리보기 (읽기 전용)') as HTMLTextAreaElement).value).toBe('ma(20) > close')
+  })
+
   it('자연어 입력 버튼 클릭 → 모달 오픈', () => {
     render(<StrategyBuilderPage />, { wrapper: Wrapper })
     const nlBtn = screen.getByText('자연어로 입력하기')
@@ -106,6 +133,66 @@ describe('StrategyBuilderPage', () => {
     render(<StrategyBuilderPage />, { wrapper: Wrapper })
     // strategyId가 없으면 버튼이 렌더되지 않아야 함 (ADR 0071 §8 H-1)
     expect(screen.queryByText('이 전략으로 종목 찾기')).not.toBeInTheDocument()
+  })
+
+  it('미너비니 4가지 전략 즐겨찾기를 기본 표시한다', () => {
+    render(<StrategyBuilderPage />, { wrapper: Wrapper })
+
+    fireEvent.click(screen.getByLabelText('즐겨찾기'))
+
+    expect(screen.getByRole('button', { name: 'FVG 매수 후보 적용' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'OB 매수 후보 적용' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'FVG 매도 후보 적용' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'OB 매도 후보 적용' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '미너비니 추세 템플릿 적용' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '미너비니 신고가 근접 적용' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '미너비니 VCP 수축 적용' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '미너비니 돌파 거래량 적용' })).toBeInTheDocument()
+  })
+
+  it('즐겨찾기 적용 시 사용자가 고른 기준봉을 유지한다', () => {
+    render(<StrategyBuilderPage />, { wrapper: Wrapper })
+
+    const intervalSelect = screen.getByLabelText('평가 기준봉') as HTMLSelectElement
+    fireEvent.change(intervalSelect, { target: { value: '4h' } })
+    fireEvent.click(screen.getByLabelText('즐겨찾기'))
+    fireEvent.click(screen.getByRole('button', { name: '미너비니 VCP 수축 적용' }))
+
+    expect(intervalSelect.value).toBe('4h')
+    expect((screen.getByLabelText('DSL 미리보기 (읽기 전용)') as HTMLTextAreaElement).value).toContain('natr(14)')
+  })
+
+  it('완성 즐겨찾기 이후 빈 슬롯이 없으면 팔레트 선택 시 교체 확인 후 반영한다', () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<StrategyBuilderPage />, { wrapper: Wrapper })
+
+    fireEvent.click(screen.getByLabelText('즐겨찾기'))
+    fireEvent.click(screen.getByRole('button', { name: 'OB 매수 후보 적용' }))
+    fireEvent.click(screen.getByLabelText('지표'))
+    fireEvent.click(screen.getByText('이동평균(MA)'))
+
+    expect(confirmSpy).toHaveBeenCalled()
+    expect((screen.getByLabelText('DSL 미리보기 (읽기 전용)') as HTMLTextAreaElement).value).toBe('ma(20)')
+  })
+
+  it('즐겨찾기 탭에서 OB 매수 후보 만들기 가이드를 연다', () => {
+    render(<StrategyBuilderPage />, { wrapper: Wrapper })
+
+    fireEvent.click(screen.getByLabelText('즐겨찾기'))
+    fireEvent.click(screen.getByRole('button', { name: '가이드' }))
+
+    expect(screen.getByRole('dialog', { name: 'OB 매수 후보 만들기 가이드' })).toBeInTheDocument()
+    expect(screen.getByText(/ob_bullish_active/)).toBeInTheDocument()
+    expect(screen.getByText(/FVG와 OB는 재료/)).toBeInTheDocument()
+  })
+
+  it('기본 즐겨찾기도 삭제하면 목록에서 숨긴다', () => {
+    render(<StrategyBuilderPage />, { wrapper: Wrapper })
+
+    fireEvent.click(screen.getByLabelText('즐겨찾기'))
+    fireEvent.click(screen.getByRole('button', { name: 'FVG 매수 후보 즐겨찾기 삭제' }))
+
+    expect(screen.queryByRole('button', { name: 'FVG 매수 후보 적용' })).not.toBeInTheDocument()
   })
 
   it('평가 실행 전 캔들이 없으면 refresh 후 평가한다', async () => {
@@ -156,7 +243,9 @@ describe('StrategyBuilderPage', () => {
 
     renderWithRoute('/strategy/builder?strategyId=42')
 
-    fireEvent.click(await screen.findByRole('button', { name: '평가 실행' }))
+    const evaluateButton = await screen.findByRole('button', { name: '평가 실행' })
+    await waitFor(() => expect(evaluateButton).not.toBeDisabled())
+    fireEvent.click(evaluateButton)
 
     await waitFor(() => {
       expect(refreshCalls).toBe(1)

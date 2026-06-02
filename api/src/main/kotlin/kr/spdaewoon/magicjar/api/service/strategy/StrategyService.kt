@@ -41,7 +41,7 @@ import java.time.Instant
  *
  * spec §6-1 호출 시퀀스 LOCK.
  * ADR 0047 §2-1-B complexity 계산 + §2-2-D auto-disable 정합.
- * ADR 0066 §2-6 F-1 status 4단 전환 정합.
+ * ADR 0066 §2-6 F-1 status 전환 정합.
  * 룰 5 위반 금지: LLM provider import 0건.
  *
  * // AI 호출 0 — T-SIG 트랙 정책
@@ -306,7 +306,7 @@ class StrategyService(
 
     /**
      * auto-disable — ADR 0047 §2-2-D.
-     * strategy-engine JvmStrategyEvaluator timeout 발생 시 호출.
+     * timeout/CPU budget은 DISABLED, RISK_VIOLATION은 기존 포지션 방어를 위해 BUY_BLOCKED로 전환한다.
      */
     fun autoDisable(
         strategyId: Long,
@@ -314,7 +314,11 @@ class StrategyService(
     ) {
         strategyRepositoryPort.autoDisable(strategyId, reason)
         redisStrategyCache.invalidateAll()
-        log.warn("전략 auto-disable: id={} reason={}", strategyId, reason)
+        if (reason == StrategyDisabledReason.RISK_VIOLATION) {
+            log.warn("전략 신규 BUY 차단: id={} reason={}", strategyId, reason)
+        } else {
+            log.warn("전략 auto-disable: id={} reason={}", strategyId, reason)
+        }
     }
 
     override fun onAutoDisable(
@@ -348,13 +352,18 @@ class StrategyService(
     ) {
         val allowed =
             when (next) {
-                StrategyStatus.ACTIVE -> current == StrategyStatus.PAUSED || current == StrategyStatus.DISABLED
-                StrategyStatus.PAUSED -> current == StrategyStatus.ACTIVE
+                StrategyStatus.ACTIVE ->
+                    current == StrategyStatus.PAUSED ||
+                        current == StrategyStatus.DISABLED ||
+                        current == StrategyStatus.BUY_BLOCKED
+                StrategyStatus.PAUSED -> current == StrategyStatus.ACTIVE || current == StrategyStatus.BUY_BLOCKED
                 StrategyStatus.DELETED -> true
-                StrategyStatus.DISABLED ->
+                StrategyStatus.DISABLED,
+                StrategyStatus.BUY_BLOCKED,
+                ->
                     throw ResponseStatusException(
                         HttpStatus.BAD_REQUEST,
-                        "DISABLED 전환은 시스템 auto-disable 전용 — /enable API 사용",
+                        "${next.name} 전환은 시스템 보호 장치 전용 — 사용자 전환은 ACTIVE·PAUSED·DELETED만 허용",
                     )
             }
         if (!allowed) {

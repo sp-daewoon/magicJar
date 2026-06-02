@@ -8,13 +8,12 @@ import org.springframework.beans.factory.ObjectProvider
 import org.springframework.stereotype.Component
 
 /**
- * Auto-pause 가드 — 연속 BLOCKED N회 시 strategy AUTO_PAUSED (ADR 0067 §7-1 + F-1 정합).
+ * Auto-pause 가드 — 연속 BLOCKED N회 시 strategy 신규 BUY 차단(BUY_BLOCKED).
  *
- * 임계 도달 시 [EvaluatorAutoDisableCallback.onAutoDisable] 호출 — Phase 2 backend-core가
- * strategy.status=PAUSED + StrategyCache evict + STOMP AUTO_PAUSED 알림. Phase 2 미합류 시
- * [kr.spdaewoon.magicjar.strategy.NoopAutoDisableCallback] graceful no-op.
+ * 임계 도달 시 [EvaluatorAutoDisableCallback.onAutoDisable] 호출. RISK_VIOLATION은 전체 평가 중지가 아니라
+ * BUY_BLOCKED 상태로 전환되어 SELL/익절/손절 평가는 계속 유지한다.
  *
- * spec 인용: ADR 0067 §7-1 AutoPauseGuard + §7-2 단계 5 + F-1 4단 처리.
+ * spec 인용: ADR 0067 §7-1 AutoPauseGuard + §7-2 단계 5 + F-1 보호 처리.
  *
  * // AI 호출 0 — T-RISK 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8)
  */
@@ -31,7 +30,7 @@ class AutoPauseGuard(
     }
 
     /**
-     * strategy 연속 BLOCKED 임계 검사 + 도달 시 AUTO_PAUSE callback 호출.
+     * strategy 연속 BLOCKED 임계 검사 + 도달 시 신규 BUY 차단 callback 호출.
      *
      * @return true — AUTO_PAUSE 발동 · false — 미발동
      */
@@ -62,7 +61,7 @@ class AutoPauseGuard(
 
         if (recentBlocked >= autoPauseThreshold) {
             log.warn(
-                "AutoPauseGuard threshold 도달 — AUTO_PAUSE 발동: strategyId={} recentBlocked={} threshold={}",
+                "AutoPauseGuard threshold 도달 — 신규 BUY 차단 발동: strategyId={} recentBlocked={} threshold={}",
                 strategyId,
                 recentBlocked,
                 autoPauseThreshold,

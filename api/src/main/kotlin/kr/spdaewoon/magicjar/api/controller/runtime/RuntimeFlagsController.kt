@@ -25,7 +25,7 @@ import org.springframework.web.bind.annotation.RestController
  * ### Source
  * - magicjarMode      : application.yml `magicjar.mode` (env MAGICJAR_MODE)
  * - magicjarAllowReal : application.yml `magicjar.allow-real` (env MAGICJAR_ALLOW_REAL)
- * - killSwitchActive  : kill_switch_state DB row (userId 있으면 사용자별, 없으면 모든 사용자 OR)
+ * - killSwitchActive  : kill_switch_state DB row (userId 있으면 사용자별 fail-closed, 없으면 모든 사용자 OR)
  * - userConsented     : user_account.real_trading_consent_at (userId 있을 때만 조회)
  *
  * ### 3중 게이트 (ADR 0068 §14-3)
@@ -98,14 +98,25 @@ class RuntimeFlagsController(
     /**
      * KillSwitch active 여부 해석.
      *
-     * - userId 지정: 해당 row enabled (없으면 false)
-     * - userId null: 모든 사용자 OR — 한 명이라도 enabled=true면 true (다중 사용자 미래 대응)
+     * - userId 지정: 해당 row enabled. row 없음·조회 실패는 주문 경로와 동일하게 true(fail-closed)
+     * - userId null: 모든 사용자 OR — 한 명이라도 enabled=true면 true (조회 실패는 true)
      */
     private fun resolveKillSwitchActive(userId: String?): Boolean =
-        if (userId.isNullOrBlank()) {
-            killSwitchWriteJpaRepository.findAll().any { it.enabled }
-        } else {
-            killSwitchWriteJpaRepository.findById(userId).map { it.enabled }.orElse(false)
+        try {
+            if (userId.isNullOrBlank()) {
+                killSwitchWriteJpaRepository.findAll().any { it.enabled }
+            } else {
+                killSwitchWriteJpaRepository
+                    .findById(userId)
+                    .map { it.enabled }
+                    .orElseGet {
+                        log.error("RuntimeFlags KillSwitch row 없음 — fail-closed ON: userId={}****", userId.take(4))
+                        true
+                    }
+            }
+        } catch (e: Exception) {
+            log.error("RuntimeFlags KillSwitch 조회 실패 — fail-closed ON: userId={} err={}", userId?.take(4), e.message)
+            true
         }
 
     /**

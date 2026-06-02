@@ -76,7 +76,7 @@
 | 0024 | Risk Guard chain 6단 |
 | 0056 | Backtest Engine Architecture (룩어헤드 slice-by-time 가드 + 세·수수료·슬리피지 모델 + ADR 0047 sandbox + abort quota 50) |
 | 0066 | T-SIG 실시간 시그널 엔진 — Accepted (룰 매칭 + Kafka boundary listen + 영속 + STOMP fanout) |
-| 0067 | T-RISK 리스크 관리 — Accepted (Signal → Risk Gateway consumer → Order intent 의무 게이트 + 4 도메인 영속 + auto-PAUSE) |
+| 0067 | T-RISK 리스크 관리 — Accepted (Signal → Risk Gateway consumer → Order intent 의무 게이트 + 4 도메인 영속 + auto-PAUSE, 2026-06-02 amend: `strategy_id` 단위 `BUY_BLOCKED` 신규 BUY 차단 + SELL·익절·손절 평가 유지 + KillSwitch 상위 제어 분리) |
 | 0068 | T-O 주문 실행 — **Accepted (2026-05-18 본 트랙 마감 — Phase 1·2·3 합류 종결 + dogfooding 케이스 5 GREEN + KIS WS H0STCNI9 MOCK subscribe emit=OK)** (Risk ALLOWED → KIS REST + WS H0STCNI0/H0STCNI9 체결 추적 + 3 테이블 영속 + 실계좌 3중 게이트) |
 | 0106 | 자동매매 BUY 전 손절/익절 RiskPlan 필수화 — Accepted (2026-06-01, fixed stop-loss + take-profit activation gate + SELL 가용 수량 계산) |
 | 0071 | T-SC Screener — Accepted (universe × DSL → 후보 + 랭킹 + Redis cache 30m + 옵션 영속 V28) |
@@ -142,9 +142,9 @@
 |------|------|------|
 | 0041 | Broker Reconciliation Job (KIS 잔고 ↔ 내부 position 정합) — **ADR 0070 묶음 spec 정밀화** | W1·W3 |
 | 0042 | Position Bootstrap & Recovery (앱 시작·WS 재연결 시 잔고 복구) | W1 |
-| 0043 | KillSwitch 행동 정의 (ON 시 신호·주문·통지·재시작 정책) — **Amended 2026-05-21 §2-11 race-safe auto-ON A+B+C + 2026-05-23 ADR 0098 query path port 위임** | W3 |
+| 0043 | KillSwitch 행동 정의 (ON 시 주문·통지·재시작 정책) — **Amended 2026-05-21 §2-11 race-safe auto-ON A+B+C + 2026-05-23 ADR 0098 query path port 위임 + 2026-06-02 KillSwitch·`BUY_BLOCKED` 제어 계층 분리** | W3 |
 | 0097 | **ExecutionPositionUpdatePort — 체결 직후 내부 position 갱신 도메인 port 신설 (reconcile 5분 cron "사이" 빈틈 cover + WS H0STCNI / REST inquire-ccnl 양 path 일관성 LOCK) — Accepted (2026-05-23 · 코덱스 협업 P0 4건 사이클 PR-2)** | W3 (T-O 보강) |
-| 0098 | **KillSwitchQueryPort + Strategy 활성화 게이트 (fail-closed default=true · 신규 전략 status=PAUSED default · PAUSED→ACTIVE 백테스트 통과 의무 — `BacktestRunJpaRepository.existsAutoActivationReadyRun`) — Accepted (2026-05-23 · 코덱스 협업 P0 4건 사이클 PR-2)** | W3 (T-RISK·T-SIG 보강) |
+| 0098 | **KillSwitchQueryPort + Strategy 활성화 게이트 (fail-closed default=true · V62/온보딩 OFF row seed · row 없음/조회 실패/포트 미합류 ON · 신규 전략 status=PAUSED default · PAUSED→ACTIVE 백테스트 통과 의무 — `BacktestRunJpaRepository.existsAutoActivationReadyRun`) — Accepted (2026-05-23 · 2026-06-02 amend · 코덱스 협업 P0 4건 사이클 PR-2)** | W3 (T-RISK·T-SIG 보강) |
 
 ## §10-2. 운영·UX Fitness 갭 (5건)
 
@@ -222,6 +222,8 @@
 
 | 일자 | 사이클 | 변경 |
 |------|--------|------|
+| 2026-06-02 | **ADR 0043·0067·0098 amend — KillSwitch·`BUY_BLOCKED` 제어 계층 정합** | KillSwitch는 `user_id` 전체 하드 스톱으로 BUY·SELL·AUTO·MANUAL 주문 경로를 차단하되 strategy.status를 변경하지 않고, `BUY_BLOCKED`는 `strategy_id` 단위 신규 BUY 차단으로 분리. `KILL_SWITCH_ON` BLOCKED는 strategy AutoPause 누적에서 제외하고, KillSwitch query row 없음·조회 실패·포트 미합류는 fail-closed ON으로 처리하도록 ADR 본문, README §6/§10-1 row, master architecture, tracks-roadmap, living policy, CHANGELOG를 동시 정합. |
+| 2026-06-02 | **ADR 0067 amend — 리스크 자동정지 `BUY_BLOCKED` 정책 정합** | 동일 `strategy_id` 연속 BLOCKED 임계 도달 시 해당 전략만 `BUY_BLOCKED`로 전환해 신규 BUY만 막고, 다른 전략은 각자의 상태대로 계속 동작하며 기존 포지션 SELL·익절·손절 평가는 유지하도록 T-RISK F-1 위반 처리 정책을 갱신. ADR 0067 본문, 본 README §6 row, master architecture, tracks-roadmap, living policy, CHANGELOG 동시 정합. |
 | 2026-06-01 | **ADR 0105 amend — 실전 운용 시나리오 acceptance matrix 추가** | 사용자 표 기준으로 A→B→A 재진입 시 last 1m 이후 REST gap fill, 시스템 3일 off 후 boot managed universe reconciliation, 3일 1m gap 자동 복구와 합산봉 재생성, 1년 초과 1m 복구 불가, 자동매매 data readiness fail-closed를 LOCK. 장기 backfill/recollect는 candle row가 아니라 progress event만 STOMP로 전송하는 원칙을 추가. |
 | 2026-05-31 | **ADR 0105 신설 — 캔들 Reconciliation + 장기 1m 보관/복구 정책** | 사용자 지적한 종목 상세 이탈/재진입 gap, 시스템 3일 off 후 재기동 gap, 4h·12h 전략 기준봉 최소 6개월 필요성을 본문화. KIS `FHKST03010230`은 실전계좌 1회 최대 120건 + 날짜/시간 cursor + 최대 1년 보관분 조회 source로 LOCK하고, 당일 `FHKST03010200`은 30건/호출·당일 전용 replay/검증 path로 분리. 기본 6개월 1m retention, admin/manual 최대 1년 backfill, boot/re-entry/scheduled reconciliation, managed universe(priority: 보유/미체결 > ACTIVE 전략 > detail > watchlist > screener 후보), data readiness gate(`READY/RECONCILING/STALE/FAILED`)를 채택. 1년 1m row/call 추정과 KIS 10 TPS budget, 20:10 NXT daily close 검증, 합산봉 재생성, 자동매매 fail-closed 정책을 LOCK. |
 | 2026-05-25 | **ADR 0104 신설 — 시장 캘린더 이벤트 표면 + KRX 휴장일 배치 게이트** | 2026-05-25 부처님오신날 대체휴무일에 `market_calendar`는 `is_business_day=false`였지만 batch 일부 path가 weekday 기반으로 동작하던 결함을 정리. `BatchBusinessDayCalendar`와 scheduler gate로 국내 지수·종목 마스터 수집을 KRX 휴장일에 skip하고, 해외 지수 daily path는 KRX 캘린더에 묶지 않도록 분리. `market_calendar_event` + `/api/market/calendar` + `/market/calendar`를 신설해 IPO 등 확장 가능한 시장 중요 일정을 웹에서 확인·입력·수정·삭제 가능하게 함. 시장 지수 대시보드의 `dataInsufficient=true`는 휴장일 때문이 아니라 `market_index_snapshot`·`sector_index_snapshot`·지수 candle 0건인 초기 데이터 부재로 판정. 후속은 지수 초기 backfill과 미국 휴장일 캘린더 분리. |

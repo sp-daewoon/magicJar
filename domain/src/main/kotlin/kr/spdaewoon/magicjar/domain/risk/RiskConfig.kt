@@ -11,7 +11,7 @@ import java.math.BigDecimal
  * - **B-1**: `dailyLossLimitAmount` OR `dailyLossLimitPercent` xor 택1 (또는 둘 다 NULL=비활성) + KST 자정 reset
  * - **C-1**: `maxConcurrentPositions` default 5 (1~50)
  * - **D-1**: `maxTradesPerMinute`(default 3) + `maxTradesPerDay`(default 50) strategy당
- * - **F-1**: `autoPauseThreshold` default 10 (연속 BLOCKED N회 시 strategy AUTO_PAUSED)
+ * - **F-1**: `autoPauseThreshold` default 10 (연속 BLOCKED N회 시 strategy 신규 BUY 차단)
  * - **H-1**: 사용자별 (`userId` PK) + 부재 시 `defaultFor` seed
  *
  * spec 인용: ADR 0067 §5-1.

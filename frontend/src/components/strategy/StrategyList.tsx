@@ -14,6 +14,7 @@ import { StrategyCard } from './StrategyCard'
 
 const FILTER_EMPTY_LABEL: Record<StrategyStatus, string> = {
   ACTIVE: '자동매매중',
+  BUY_BLOCKED: '매수차단',
   PAUSED: '중지',
   DISABLED: '보호중지',
   DELETED: '삭제됨',

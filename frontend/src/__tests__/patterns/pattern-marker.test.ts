@@ -14,10 +14,11 @@
  * 주의: LWC v4 canvas jsdom 미지원 — series API mock 사용
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
-import { useEffect } from 'react'
+import { render, renderHook, act } from '@testing-library/react'
+import { createElement, useEffect } from 'react'
 import type { ISeriesApi, SeriesMarker, UTCTimestamp } from 'lightweight-charts'
 import type { PatternMatch } from '../../api/patterns'
+import { PatternMarker } from '../../components/chart/PatternMarker'
 
 // ──────────────────────────────────────────────
 // ISeriesApi mock
@@ -188,5 +189,29 @@ describe('PatternMarker setMarkers 호출', () => {
 
     callIfNotNull(safeSeries as unknown as ISeriesApi<'Candlestick'>, [])
     expect(setMarkersMock).toHaveBeenCalledWith([])
+  })
+
+  it('패턴 마커와 추가 전략 마커를 같은 setMarkers 호출로 합성한다', () => {
+    const matches: PatternMatch[] = [
+      { id: 'hammer', name: '해머', time: '2026-01-01T00:00:00Z', direction: 'BULL' },
+    ]
+    const extraMarkers: SeriesMarker<UTCTimestamp>[] = [
+      {
+        time: toUTCTimestamp('2026-01-01T00:05:00Z'),
+        position: 'aboveBar',
+        color: '#fb923c',
+        shape: 'arrowDown',
+        text: '익절',
+      },
+    ]
+
+    render(createElement(PatternMarker, { series: mockSeries, matches, extraMarkers }))
+
+    expect(mockSeries.setMarkers).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ shape: 'arrowUp', color: '#26a69a' }),
+        expect.objectContaining({ shape: 'arrowDown', text: '익절', color: '#fb923c' }),
+      ]),
+    )
   })
 })

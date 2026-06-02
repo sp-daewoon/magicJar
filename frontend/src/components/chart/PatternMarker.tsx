@@ -74,6 +74,8 @@ export interface PatternMarkerProps {
   series: ISeriesApi<'Candlestick'> | null
   /** 패턴 인식 결과 — NEUTRAL direction은 자동 제외 */
   matches: PatternMatch[]
+  /** 패턴 외 차트 마커. 같은 candle series의 setMarkers 충돌을 피하기 위해 함께 합성한다. */
+  extraMarkers?: SeriesMarker<UTCTimestamp>[]
 }
 
 /**
@@ -83,14 +85,15 @@ export interface PatternMarkerProps {
  * - 언마운트 또는 series null 시 마커 제거
  * - DOM 렌더링 없음 (null 반환)
  */
-export function PatternMarker({ series, matches }: PatternMarkerProps) {
+export function PatternMarker({ series, matches, extraMarkers = [] }: PatternMarkerProps) {
   useEffect(() => {
     if (!series) return
 
     // NEUTRAL direction 제외 후 마커 변환
-    const markers: SeriesMarker<UTCTimestamp>[] = matches
+    const patternMarkers: SeriesMarker<UTCTimestamp>[] = matches
       .map(toSeriesMarker)
       .filter((m): m is SeriesMarker<UTCTimestamp> => m !== null)
+    const markers: SeriesMarker<UTCTimestamp>[] = [...patternMarkers, ...extraMarkers]
       // LWC v4 정합: time ASC 정렬 필요
       .sort((a, b) => (a.time as number) - (b.time as number))
 
@@ -108,7 +111,7 @@ export function PatternMarker({ series, matches }: PatternMarkerProps) {
         // graceful
       }
     }
-  }, [series, matches])
+  }, [series, matches, extraMarkers])
 
   return null // DOM 렌더링 없음 — LWC API 직접 호출
 }

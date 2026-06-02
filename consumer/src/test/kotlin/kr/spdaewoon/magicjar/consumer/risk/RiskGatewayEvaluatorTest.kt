@@ -51,6 +51,17 @@ class RiskGatewayEvaluatorTest {
     }
 
     @Test
+    fun `1b KILL_SWITCH_ON은 SELL 청산 신호도 차단한다`() {
+        val signal = sampleSignal(side = SignalSide.SELL, priceAtSignal = BigDecimal("1000"))
+        val context = sampleContext(killSwitchOn = true, currentPositions = listOf(samplePosition("005930")))
+
+        val result = evaluator.evaluate(signal, context)
+
+        assertThat(result).isInstanceOf(RiskGatewayResult.Blocked::class.java)
+        assertThat((result as RiskGatewayResult.Blocked).rule).isEqualTo(RiskRule.KILL_SWITCH_ON)
+    }
+
+    @Test
     fun `2 DAILY_LOSS_LIMIT percent BLOCKED — 일일 손실 한도 도달`() {
         val signal = sampleSignal(side = SignalSide.BUY)
         // capital 100만, dailyPnl -5만 = -5% (한도 -3%)
