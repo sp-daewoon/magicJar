@@ -102,6 +102,7 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
   const disabledReasonLabel = strategy.disabledReason && strategy.disabledReason !== 'NULL'
     ? DISABLED_REASON_LABEL[strategy.disabledReason] ?? strategy.disabledReason
     : null
+  const isRiskViolationDisabled = strategy.disabledReason === 'RISK_VIOLATION'
   const disabledAtLabel = formatKst(strategy.lastDisabledAt)
   const activeNeedsAttention = strategy.status === 'ACTIVE' && activationBlockedReason
   const stopLossPct = parsePositiveNumber(strategy.stopLossPct)
@@ -193,6 +194,19 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
               ? `${disabledAtLabel}에 자동매매 보호 장치가 전략을 멈췄습니다.`
               : '자동매매 보호 장치가 전략을 멈췄습니다.'}
           </p>
+          {isRiskViolationDisabled && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="text-amber-200/80">
+                최근 차단 횟수가 자동정지 기준에 도달했습니다.
+              </span>
+              <Link
+                to="/risk-events?verdict=BLOCKED&range=7d"
+                className="font-semibold text-blue-300 underline-offset-2 hover:text-blue-200 hover:underline"
+              >
+                최근 차단 이력 보기
+              </Link>
+            </div>
+          )}
         </div>
       )}
 
