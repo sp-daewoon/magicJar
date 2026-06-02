@@ -7,6 +7,7 @@ import {
   type ScenarioFaultType,
   type ScenarioRunDetailDto,
 } from '../../api/scenarioReplay'
+import { defaultKstInput, kstInputToIso } from './scenarioReplayTime'
 
 interface ScenarioReplayFormProps {
   userId: number
@@ -43,25 +44,6 @@ const DEFAULT_FAULT_MESSAGE: Record<ScenarioFaultType, string> = {
   STRATEGY_TIMEOUT: '전략 평가 timeout으로 리플레이 중단',
 }
 
-function toLocalInput(date: Date): string {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-  return local.toISOString().slice(0, 16)
-}
-
-function defaultFrom(): string {
-  const d = new Date()
-  d.setDate(d.getDate() - 1)
-  d.setHours(13, 0, 0, 0)
-  return toLocalInput(d)
-}
-
-function defaultTo(): string {
-  const d = new Date()
-  d.setDate(d.getDate() - 1)
-  d.setHours(14, 10, 0, 0)
-  return toLocalInput(d)
-}
-
 function parseMoney(value: string): string {
   return value.replace(/,/g, '').trim()
 }
@@ -70,12 +52,6 @@ function formatMoneyInput(value: string): string {
   const numeric = value.replace(/[^0-9]/g, '')
   if (!numeric) return ''
   return Number(numeric).toLocaleString('ko-KR')
-}
-
-function localInputToIso(value: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) throw new Error('시각 형식이 올바르지 않습니다')
-  return date.toISOString()
 }
 
 function firstCode(strategy: SigStrategyDto | undefined): string | null {
@@ -92,13 +68,13 @@ export function ScenarioReplayForm({ userId, onSuccess }: ScenarioReplayFormProp
   const [strategyId, setStrategyId] = useState('')
   const [code, setCode] = useState('005930')
   const [interval, setInterval] = useState('1m')
-  const [from, setFrom] = useState(defaultFrom())
-  const [to, setTo] = useState(defaultTo())
+  const [from, setFrom] = useState(defaultKstInput(1, 13, 0))
+  const [to, setTo] = useState(defaultKstInput(1, 14, 10))
   const [initialCash, setInitialCash] = useState('1,000,000')
   const [positionQuantity, setPositionQuantity] = useState('0')
   const [positionAveragePrice, setPositionAveragePrice] = useState('0')
   const [faultType, setFaultType] = useState<ScenarioFaultType | 'NONE'>('NONE')
-  const [faultAt, setFaultAt] = useState(defaultTo())
+  const [faultAt, setFaultAt] = useState(defaultKstInput(1, 14, 10))
   const [faultMessage, setFaultMessage] = useState('')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
@@ -118,8 +94,8 @@ export function ScenarioReplayForm({ userId, onSuccess }: ScenarioReplayFormProp
     mutationFn: () => {
       if (!strategyId) throw new Error('전략을 선택해주세요')
       if (!/^\d{6}$/.test(code.trim())) throw new Error('종목코드는 6자리 숫자여야 합니다')
-      const fromIso = localInputToIso(from)
-      const toIso = localInputToIso(to)
+      const fromIso = kstInputToIso(from)
+      const toIso = kstInputToIso(to)
       if (fromIso > toIso) throw new Error('시작 시각은 종료 시각보다 이전이어야 합니다')
       const cash = parseMoney(initialCash)
       if (!cash || Number(cash) < 0) throw new Error('가상 시작 현금을 입력해주세요')
@@ -135,7 +111,7 @@ export function ScenarioReplayForm({ userId, onSuccess }: ScenarioReplayFormProp
           ? []
           : [
               {
-                at: localInputToIso(faultAt),
+                at: kstInputToIso(faultAt),
                 type: faultType,
                 message: faultMessage.trim() || DEFAULT_FAULT_MESSAGE[faultType],
               },
@@ -239,7 +215,7 @@ export function ScenarioReplayForm({ userId, onSuccess }: ScenarioReplayFormProp
         </div>
 
         <div className="flex flex-col gap-1">
-          <label htmlFor="scenario-from" className="text-xs text-gray-500">시작 시각</label>
+          <label htmlFor="scenario-from" className="text-xs text-gray-500">시작 시각 (KST)</label>
           <input
             id="scenario-from"
             type="datetime-local"
@@ -251,7 +227,7 @@ export function ScenarioReplayForm({ userId, onSuccess }: ScenarioReplayFormProp
         </div>
 
         <div className="flex flex-col gap-1">
-          <label htmlFor="scenario-to" className="text-xs text-gray-500">종료 시각</label>
+          <label htmlFor="scenario-to" className="text-xs text-gray-500">종료 시각 (KST)</label>
           <input
             id="scenario-to"
             type="datetime-local"
@@ -317,7 +293,7 @@ export function ScenarioReplayForm({ userId, onSuccess }: ScenarioReplayFormProp
         {faultType !== 'NONE' && (
           <>
             <div className="flex flex-col gap-1">
-              <label htmlFor="scenario-fault-at" className="text-xs text-gray-500">장애 시각</label>
+              <label htmlFor="scenario-fault-at" className="text-xs text-gray-500">장애 시각 (KST)</label>
               <input
                 id="scenario-fault-at"
                 type="datetime-local"
