@@ -57,7 +57,7 @@ interface KillSwitchQueryPort {
      * @return true=ON(주문 차단) / false=OFF(주문 허용)
      * @throws 결코 throws 하지 않음 — 모든 예외는 adapter 내부에서 catch + ERROR log + true 반환
      */
-    fun isKillSwitchOn(userId: Long): Boolean
+    fun isOn(userId: String): Boolean
 }
 ```
 
@@ -75,7 +75,7 @@ interface KillSwitchQueryPort {
 adapter 내부 흐름:
 
 ```kotlin
-override fun isKillSwitchOn(userId: Long): Boolean {
+override fun isOn(userId: String): Boolean {
     return try {
         killSwitchJpaRepository.findByUserId(userId)
             ?.let { it.engagedAt != null }
@@ -86,6 +86,13 @@ override fun isKillSwitchOn(userId: Long): Boolean {
     }
 }
 ```
+
+2026-06-02 구현 정합:
+- 기존 `user_account` row에는 Flyway V62가 `kill_switch_state(enabled=false)` row를 seed한다.
+- 신규 온보딩 사용자는 KIS REAL 계좌 등록 시 `kill_switch_state(enabled=false)` row를 함께 생성한다.
+- 따라서 capital path query에서 row 없음은 정상 OFF가 아니라 상태 확인 불가이며, `KillSwitchQueryPort.isOn()`은 true를 반환한다.
+- 주문 화면이 참조하는 `GET /api/runtime/flags?userId=...`도 row 없음·조회 실패를 `killSwitchActive=true`로 표시한다.
+- API 설정 조회(`GET /api/system-config/kill-switch`)의 row 없음 초기 표시와 자본 경로 권위 조회는 구분한다. 주문 차단 권위는 `KillSwitchQueryPort`다.
 
 ### 2-3. 결정 3 — Strategy 활성화 게이트 (PAUSED → ACTIVE 백테스트 통과 의무)
 
@@ -225,3 +232,4 @@ private fun validateActivationReadiness(strategyId: Long, userId: Long) {
 | 일자 | 변경 |
 |------|------|
 | 2026-05-23 | 초안 + Accepted (architect, opus 4.7 1M) — 코덱스 협업 P0 4건 일괄 fix 사이클 PR-2 |
+| 2026-06-02 | 구현 정합 amend — `isOn(userId: String)` 실제 포트 시그니처, V62 seed, 온보딩 OFF row 생성, row 없음·조회 실패 fail-closed ON을 명시 |

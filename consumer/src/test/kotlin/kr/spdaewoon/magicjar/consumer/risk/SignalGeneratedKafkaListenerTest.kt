@@ -99,6 +99,27 @@ class SignalGeneratedKafkaListenerTest {
         }
         verify(exactly = 1) { riskViolationKafkaProducer.publish(any(), match { it.rule == RiskRule.KILL_SWITCH_ON }, any()) }
         verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any()) }
+        verify(exactly = 0) { autoPauseGuard.checkAndPauseIfNeeded(any(), any()) }
+    }
+
+    @Test
+    fun `KillSwitchQueryPort 미합류 — fail closed로 BLOCKED 처리한다`() {
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { riskEventRepository.save(any()) } answers { firstArg<RiskEvent>() }
+
+        listener(killSwitchProvider = nullableProvider())
+            .onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+
+        verify(exactly = 1) {
+            signalRiskStatusUpdater.markBlocked(77L, RiskRule.KILL_SWITCH_ON, match { it.contains("KillSwitch") })
+        }
+        verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any()) }
+        verify(exactly = 0) { autoPauseGuard.checkAndPauseIfNeeded(any(), any()) }
     }
 
     @Test
@@ -230,6 +251,7 @@ class SignalGeneratedKafkaListenerTest {
     private fun listener(
         magicjarMode: String = "MOCK",
         executionBackfillProvider: ObjectProvider<KisExecutionBackfillService> = nullableProvider(),
+        killSwitchProvider: ObjectProvider<KillSwitchQueryPort> = providerOf(killSwitchQueryPort),
         strategies: List<Strategy> = listOf(sampleStrategy()),
         kisBalance: KisAccountBalance = sampleKisBalance(quantity = 100),
     ): SignalGeneratedKafkaListener {
@@ -250,7 +272,7 @@ class SignalGeneratedKafkaListenerTest {
             riskPositionPortProvider = providerOf(riskPositionPort),
             signalRiskStatusUpdaterProvider = providerOf(signalRiskStatusUpdater),
             riskNotifierProvider = providerOf(riskNotifier),
-            killSwitchQueryPortProvider = providerOf(killSwitchQueryPort),
+            killSwitchQueryPortProvider = killSwitchProvider,
             orderRequestRepositoryProvider = providerOf(orderRequestRepository),
             strategyLookupPortProvider = providerOf(strategyLookupPort),
             kisBalanceQueryPortProvider = providerOf(kisBalanceQueryPort),

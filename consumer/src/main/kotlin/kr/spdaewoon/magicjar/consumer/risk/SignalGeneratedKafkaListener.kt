@@ -406,7 +406,18 @@ class SignalGeneratedKafkaListener(
         // 4. risk.violation.v1 publish
         riskViolationKafkaProducer.publish(signal, blocked, savedEvent?.id)
 
-        // 5. AutoPauseGuard — 연속 BLOCKED 임계 도달 검사
+        if (!blocked.rule.countsTowardStrategyAutoPause()) {
+            log.debug(
+                "AutoPauseGuard skip: rule={} userId={} strategyId={} signalId={}",
+                blocked.rule,
+                signal.userId,
+                signal.strategyId,
+                blocked.signalId,
+            )
+            return
+        }
+
+        // 5. AutoPauseGuard — strategy-local 연속 BLOCKED 임계 도달 검사
         val config =
             riskConfigRepositoryProvider
                 .getIfAvailable()
@@ -414,6 +425,12 @@ class SignalGeneratedKafkaListener(
         val threshold = config?.autoPauseThreshold ?: 10
         autoPauseGuard.checkAndPauseIfNeeded(signal.strategyId, threshold)
     }
+
+    private fun RiskRule.countsTowardStrategyAutoPause(): Boolean =
+        when (this) {
+            RiskRule.KILL_SWITCH_ON -> false
+            else -> true
+        }
 
     private fun buildContext(signal: Signal): RiskContext {
         val nowKst = clock.now()
@@ -497,7 +514,10 @@ class SignalGeneratedKafkaListener(
                     log.warn("KillSwitchQueryPort.isOn 실패 (fallback true): userId={} err={}", signal.userId, e.message)
                     true
                 }
-            } ?: false
+            } ?: run {
+                log.error("KillSwitchQueryPort 미합류 (fallback true): userId={} signalId={}", signal.userId, signal.id)
+                true
+            }
 
         return RiskContext(
             userId = signal.userId,

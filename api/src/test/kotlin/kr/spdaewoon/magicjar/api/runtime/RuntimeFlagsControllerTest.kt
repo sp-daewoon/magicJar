@@ -16,14 +16,16 @@ import java.util.Optional
 /**
  * RuntimeFlagsController 단위 테스트 — ADR 0084 P2-2 (frontend SettingsModal·StatusBar 표시 prereq).
  *
- * 7 케이스:
+ * 9 케이스:
  *  (1) MOCK 모드 + allowReal=false + userId 없음 — raw env 값 echo + userConsented=null
  *  (2) REAL 모드 + allowReal=true + userId 없음 — env 값 echo + 사용자 무관 응답
  *  (3) userId 지정 + KillSwitch ON — 사용자별 row enabled=true 반환
- *  (4) userId 지정 + KillSwitch OFF (row 없음) — false 반환 (합성 합의)
+ *  (4) userId 지정 + KillSwitch row 없음 — true 반환 (fail-closed)
  *  (5) userId 지정 + userConsented true — realTradingConsentAt 존재 시 true
  *  (6) userId 지정 + userConsented false — realTradingConsentAt null 시 false
  *  (7) userId 없음 + KillSwitch OR — 한 row라도 enabled=true면 true
+ *  (8) magicjarMode 비정상 값 — MOCK으로 정규화
+ *  (9) KillSwitch 조회 실패 — true 반환 (fail-closed)
  *
  * AI 호출 0 — ADR 0023 §2-4 정합.
  */
@@ -106,20 +108,20 @@ class RuntimeFlagsControllerTest {
     }
 
     @Test
-    fun `(4) userId 지정 + KillSwitch row 없음 — false 반환 (합성 합의)`() {
+    fun `(4) userId 지정 + KillSwitch row 없음 — true 반환 (fail closed)`() {
         every { killSwitchRepo.findById("99999999") } returns Optional.empty()
         every { userAccountRepo.findById("99999999") } returns Optional.empty()
 
         val response = controller(mode = "MOCK", allowReal = false).getFlags(userId = "99999999")
 
-        assertThat(response.killSwitchActive).isFalse
+        assertThat(response.killSwitchActive).isTrue
         // user_account row 없음 → orElse(false) — null이 아닌 false (지정된 userId가 있으므로)
         assertThat(response.userConsented).isFalse
     }
 
     @Test
     fun `(5) userId 지정 + userConsented true — realTradingConsentAt 존재 시 true`() {
-        every { killSwitchRepo.findById("12345678") } returns Optional.empty()
+        every { killSwitchRepo.findById("12345678") } returns Optional.of(killSwitchRow("12345678", enabled = false))
         every { userAccountRepo.findById("12345678") } returns
             Optional.of(
                 userAccountRow("12345678", consentAt = Instant.parse("2026-05-13T09:00:00Z")),
@@ -132,7 +134,7 @@ class RuntimeFlagsControllerTest {
 
     @Test
     fun `(6) userId 지정 + userConsented false — realTradingConsentAt null 시 false`() {
-        every { killSwitchRepo.findById("12345678") } returns Optional.empty()
+        every { killSwitchRepo.findById("12345678") } returns Optional.of(killSwitchRow("12345678", enabled = false))
         every { userAccountRepo.findById("12345678") } returns
             Optional.of(userAccountRow("12345678", consentAt = null))
 
@@ -161,5 +163,16 @@ class RuntimeFlagsControllerTest {
         val response = controller(mode = "garbage-value", allowReal = false).getFlags(userId = null)
 
         assertThat(response.magicjarMode).isEqualTo("MOCK")
+    }
+
+    @Test
+    fun `(9) KillSwitch 조회 실패 — true 반환 fail closed`() {
+        every { killSwitchRepo.findById("12345678") } throws IllegalStateException("db down")
+        every { userAccountRepo.findById("12345678") } returns Optional.empty()
+
+        val response = controller(mode = "REAL", allowReal = true).getFlags(userId = "12345678")
+
+        assertThat(response.killSwitchActive).isTrue
+        assertThat(response.userConsented).isFalse
     }
 }

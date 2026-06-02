@@ -17,6 +17,8 @@ import kr.spdaewoon.magicjar.api.persistence.UserAccountJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialId
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.api.persistence.killswitch.KillSwitchWriteEntity
+import kr.spdaewoon.magicjar.api.persistence.killswitch.KillSwitchWriteJpaRepository
 import kr.spdaewoon.magicjar.api.secret.AesGcmCipher
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import kr.spdaewoon.magicjar.domain.user.UserOnboardedEvent
@@ -45,6 +47,7 @@ import java.time.Instant
 class OnboardingService(
     private val userAccountJpaRepository: UserAccountJpaRepository,
     private val userKisCredentialJpaRepository: UserKisCredentialJpaRepository,
+    private val killSwitchWriteJpaRepository: KillSwitchWriteJpaRepository,
     private val systemConfigJpaRepository: SystemConfigJpaRepository,
     private val auditTrailJpaRepository: AuditTrailJpaRepository,
     private val kisAuthValidator: KisAuthValidator,
@@ -165,6 +168,8 @@ class OnboardingService(
                 )
             // JPA는 GENERATED 컬럼을 저장 후 refresh가 필요 — refresh하거나 직접 계산
             val maskedAccount = request.accountNumber.take(4) + "****"
+
+            seedKillSwitchOffRow(request.accountNumber, now)
 
             // user_kis_credential (account_type='REAL') INSERT
             userKisCredentialJpaRepository.save(
@@ -372,6 +377,29 @@ class OnboardingService(
         }.onFailure {
             log.warn("system_config {} 복호화 실패 — 응답에서는 null 처리: err={}", fieldName, it.message)
         }.getOrNull()
+    }
+
+    /**
+     * KillSwitchQueryPort fail-closed 정책 정합.
+     *
+     * 자본 경로에서는 row 없음이 ON으로 해석되므로, 정상 온보딩 사용자는 명시적 OFF row를 보유해야 한다.
+     */
+    private fun seedKillSwitchOffRow(
+        userId: String,
+        now: Instant,
+    ) {
+        if (killSwitchWriteJpaRepository.existsById(userId)) {
+            return
+        }
+        killSwitchWriteJpaRepository.save(
+            KillSwitchWriteEntity(
+                userId = userId,
+                enabled = false,
+                reason = null,
+                updatedAt = now,
+                updatedBy = "ONBOARDING",
+            ),
+        )
     }
 
     /**

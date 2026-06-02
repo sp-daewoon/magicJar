@@ -619,6 +619,12 @@ SignalGeneratedKafkaListener.onMessage(signalPayload)
              └─ ADR 0066 StrategyCache evict
 ```
 
+KillSwitch 관계 LOCK (2026-06-02 amend):
+- `KILL_SWITCH_ON`은 사용자 전체 하드 스톱이며 BUY·SELL 모두를 차단한다.
+- `KILL_SWITCH_ON`으로 발생한 BLOCKED는 strategy AutoPause 누적에 포함하지 않는다. 사용자 전체 제어가 특정 `strategy_id` 상태를 바꾸면 제어 계층이 섞인다.
+- RiskGateway 이후 KillSwitch가 ON 될 수 있으므로 OrderRouter가 KIS 전송 직전 한 번 더 재검증한다.
+- `BUY_BLOCKED`는 KillSwitch보다 낮은 계층의 strategy-local 상태이며, KillSwitch OFF가 `BUY_BLOCKED`를 자동 해제하지 않는다.
+
 ### 7-3. latency 예측
 
 | 단계 | 예상 latency |
