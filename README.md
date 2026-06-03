@@ -137,21 +137,18 @@ open http://localhost:3000
 
 v3.11.0의 Scenario Replay는 장중이 아니어도 저장된 전략을 과거 candle로 재생하는 **QA 전용 기능**이다. 실제 KIS 주문, live 주문 Kafka topic, live 주문·리스크·포지션 테이블, Slack TRADE 알림을 사용하지 않고 `scenario_*` 테이블에만 기록한다.
 
-profile은 거래 모드가 아니다. 이 프로젝트의 기본 profile은 `dev,real-kis`이고, 실전/모의 주문 경계는 `MAGICJAR_MODE`, `MAGICJAR_ALLOW_REAL`, 사용자 실거래 동의, 계좌 `REAL/MOCK` 선택이 맡는다. 따라서 Scenario Replay 실행 권한을 dev/local profile 기본값으로 열지 않는다.
+profile은 거래 모드가 아니다. 이 프로젝트의 기본 profile은 `dev,real-kis`이고, 실전/모의 주문 경계는 `MAGICJAR_MODE`, `MAGICJAR_ALLOW_REAL`, 사용자 실거래 동의, 계좌 `REAL/MOCK` 선택이 맡는다.
 
-Frontend 메뉴 진입은 가능하지만 실행 API는 서버 게이트가 최종 권위다. 리플레이를 실행하려면 명시적으로 `MAGICJAR_SCENARIO_REPLAY_ENABLED=true`를 설정하고 API를 재기동한다.
+Scenario Replay는 실전/모의 주문 설정과 별개인 QA 메뉴다. `/qa/scenario-replay`에서 바로 실행할 수 있으며, 안전 경계는 실행 토글이 아니라 KIS 주문 포트·live 주문 Kafka topic·live 주문/리스크/포지션 테이블을 사용하지 않는 코드 분리다.
 
 ```bash
 # .env
-# 시나리오 리플레이 실행 API 열기
-# MAGICJAR_SCENARIO_REPLAY_ENABLED=true
-
 # optional guardrail
 MAGICJAR_SCENARIO_REPLAY_MAX_CANDLES=5000
 MAGICJAR_SCENARIO_REPLAY_MAX_EVENTS=20000
 ```
 
-env를 바꿨다면 API를 재기동한다.
+한도 env를 바꿨다면 API를 재기동한다.
 
 ```bash
 # Docker 통합 기동/재기동
@@ -163,8 +160,8 @@ scripts/build-and-deploy.sh api-app
 
 사용 순서:
 
-1. `.env` 또는 실행 환경에 `MAGICJAR_SCENARIO_REPLAY_ENABLED=true` 설정
-2. API 재기동 후 Frontend에서 `/qa/scenario-replay` 접속
+1. Frontend에서 `/qa/scenario-replay` 접속
+2. 신규 실행 탭에서 리플레이 조건 입력
 3. 전략, 종목코드, interval, KST 기준 가상 시작·종료 시각, 가상 시작 현금 입력
 4. 매도 흐름을 보려면 `가상 시작 보유수량`을 입력하고, 보유 부족 차단을 보려면 0주로 둔다
 5. rate limit·잔고조회 실패·장종료·data not ready를 확인하려면 `장애 주입` 선택
@@ -178,8 +175,6 @@ scripts/build-and-deploy.sh api-app
 | `가상 주문 보류` | rate limit, 잔고조회 실패 등으로 리플레이 주문을 보류. 실제 매도 실패 아님 |
 | `리플레이 리스크 차단` | `scenario_*` 포지션·전략 상태 기준으로 가상 주문 생성 전 차단 |
 | `가상 주문 거절` | 장종료 등 리플레이 세션 규칙으로 거절. 실제 주문 거절 알림 아님 |
-
-꺼져 있으면 실행 API는 `503 Scenario Replay는 비활성 상태입니다`를 반환한다. 이 경우 active profile, `.env` 값, API 재기동 여부를 먼저 확인한다.
 
 ### 개발 모드 (IDE bootRun + Infra 컨테이너)
 

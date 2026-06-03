@@ -70,6 +70,8 @@ class ScenarioReplayBoundaryTest {
                 "TTTC0011U",
                 "VTTC0012U",
                 "VTTC0011U",
+                "magicjar.scenario-replay.enabled",
+                "MAGICJAR_SCENARIO_REPLAY_ENABLED",
             )
 
         private val SQL_FORBIDDEN_TABLES =

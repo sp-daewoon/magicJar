@@ -40,14 +40,12 @@ class ScenarioReplayService(
     private val persister: ScenarioReplayPersister,
     private val queryService: ScenarioReplayQueryService,
     private val objectMapper: ObjectMapper,
-    @Value("\${magicjar.scenario-replay.enabled:false}") private val enabled: Boolean,
     @Value("\${magicjar.scenario-replay.max-candles-per-run:5000}") private val maxCandlesPerRun: Int,
     @Value("\${magicjar.scenario-replay.max-events-per-run:20000}") private val maxEventsPerRun: Int,
 ) {
     private val log = LoggerFactory.getLogger(ScenarioReplayService::class.java)
 
     fun runAndPersist(requestDto: ScenarioReplayRunRequestDto): ScenarioRunDetailDto {
-        ensureEnabled()
         val request = requestDto.toDomainRequest()
         val strategy = loadStrategy(request)
         val replayRequest = request.copy(strategyName = strategy.displayName())
@@ -87,15 +85,6 @@ class ScenarioReplayService(
             events = events,
             positions = positions,
         )
-    }
-
-    private fun ensureEnabled() {
-        if (!enabled) {
-            throw ResponseStatusException(
-                HttpStatus.SERVICE_UNAVAILABLE,
-                "Scenario Replay는 비활성 상태입니다. MAGICJAR_SCENARIO_REPLAY_ENABLED=true 설정 후 API를 재기동하세요.",
-            )
-        }
     }
 
     private fun loadStrategy(request: ScenarioReplayRequest): Strategy {

@@ -2,8 +2,8 @@
 # PR-6+ 활성화 예정: KIS endpoint, base URL, dev-specific 설정 등
 #
 # 주의: dev profile은 거래 모드가 아니다. 기본 profile이 dev,real-kis 이므로
-# 자본/QA 기능 권한을 dev profile 기본값으로 열지 않는다.
-# Scenario Replay 실행은 application.yml의 MAGICJAR_SCENARIO_REPLAY_ENABLED 명시값이 권위다.
+# 실전/모의 주문 경계는 MAGICJAR_MODE, MAGICJAR_ALLOW_REAL, 사용자 동의, 계좌 선택이 맡는다.
+# Scenario Replay는 별도 QA 메뉴이며 KIS/order 경로를 사용하지 않는다.
 
 # 예시 (PR-6에서 채움):
 # magicjar:

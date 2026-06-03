@@ -116,9 +116,8 @@ magicjar:
     # universe screening 전용 DSL eval timeout (ADR 0071 §2-3 C-1 LOCK)
     eval-timeout-ms: ${MAGICJAR_SCREENER_EVAL_TIMEOUT_MS:500}
   # T-SIM Scenario Replay Sandbox (ADR 0107)
-  # 기본 false — Scenario Replay 실행을 명시적으로 켠 경우에만 API 실행.
+  # 별도 QA 메뉴에서 즉시 실행 가능하다. 안전 경계는 KIS/order 경로 미사용 + scenario_* 저장소 분리.
   scenario-replay:
-    enabled: ${MAGICJAR_SCENARIO_REPLAY_ENABLED:false}
     max-candles-per-run: ${MAGICJAR_SCENARIO_REPLAY_MAX_CANDLES:5000}
     max-events-per-run: ${MAGICJAR_SCENARIO_REPLAY_MAX_EVENTS:20000}
   # ─────────────────────────────────────────────────
