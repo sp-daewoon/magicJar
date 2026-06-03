@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { scenarioReplayApi } from '../../api/scenarioReplay'
 import type { ScenarioEventDto } from '../../api/scenarioReplay'
+import { ScenarioReplayChart } from './ScenarioReplayChart'
 import {
   compactPayload,
   eventClass,
@@ -16,6 +18,12 @@ interface ScenarioReplayDetailProps {
   runId: number
   userId: string
   onBack: () => void
+}
+
+const DIAGNOSTIC_EVENT_TYPES = new Set(['CANDLE', 'SIGNAL_HOLD'])
+
+function isDiagnosticEvent(event: ScenarioEventDto): boolean {
+  return DIAGNOSTIC_EVENT_TYPES.has(event.type)
 }
 
 function EventNode({ event }: { event: ScenarioEventDto }) {
@@ -46,9 +54,28 @@ function EventNode({ event }: { event: ScenarioEventDto }) {
 }
 
 export function ScenarioReplayDetail({ runId, userId, onBack }: ScenarioReplayDetailProps) {
+  const [showDiagnosticEvents, setShowDiagnosticEvents] = useState(false)
+
+  useEffect(() => {
+    setShowDiagnosticEvents(false)
+  }, [runId])
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ['scenario-replay-run', runId, userId],
     queryFn: () => scenarioReplayApi.get(runId, userId),
+    staleTime: 10_000,
+  })
+  const eventPageCount = data ? Math.ceil(data.run.eventCount / 500) : 0
+  const shouldFetchAllEvents = data ? data.run.eventCount > data.events.length : false
+  const allEventsQuery = useQuery({
+    queryKey: ['scenario-replay-run-events-all', runId, userId, data?.run.eventCount],
+    enabled: shouldFetchAllEvents,
+    queryFn: async () => {
+      const pages = await Promise.all(
+        Array.from({ length: eventPageCount }, (_, page) => scenarioReplayApi.listEvents(runId, userId, page, 500)),
+      )
+      return pages.flatMap((page) => page.content)
+    },
     staleTime: 10_000,
   })
 
@@ -74,7 +101,11 @@ export function ScenarioReplayDetail({ runId, userId, onBack }: ScenarioReplayDe
     )
   }
 
-  const { run, events, positions } = data
+  const { run, positions } = data
+  const events = allEventsQuery.data ?? data.events
+  const diagnosticEventCount = events.filter(isDiagnosticEvent).length
+  const visibleEvents = showDiagnosticEvents ? events : events.filter((event) => !isDiagnosticEvent(event))
+  const isEventPageLoading = shouldFetchAllEvents && allEventsQuery.isLoading
 
   return (
     <div className="space-y-4">
@@ -123,21 +154,48 @@ export function ScenarioReplayDetail({ runId, userId, onBack }: ScenarioReplayDe
         )}
       </div>
 
+      {diagnosticEventCount > 0 && (
+        <div className="flex justify-end">
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded border border-gray-800 bg-gray-950 px-3 py-2 text-xs text-gray-400 hover:border-gray-700 hover:text-gray-200">
+            <input
+              type="checkbox"
+              aria-label="보류·캔들 평가 표시"
+              className="h-4 w-4 rounded border-gray-700 bg-gray-950 text-blue-500 focus:ring-blue-500"
+              checked={showDiagnosticEvents}
+              onChange={(event) => setShowDiagnosticEvents(event.target.checked)}
+            />
+            <span>보류·캔들 평가 표시</span>
+            <span aria-hidden="true" className="text-gray-600">
+              {showDiagnosticEvents ? '표시 중' : `숨김 ${diagnosticEventCount.toLocaleString('ko-KR')}`}
+            </span>
+          </label>
+        </div>
+      )}
+
+      <ScenarioReplayChart run={run} events={events} showDiagnosticEvents={showDiagnosticEvents} />
+
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
         <section aria-labelledby="scenario-timeline-heading" className="rounded-lg border border-gray-800 bg-gray-950 p-4">
           <div className="mb-3 flex items-center justify-between">
             <h2 id="scenario-timeline-heading" className="text-sm font-semibold text-gray-200">
               가상 이벤트 타임라인
             </h2>
-            <span className="text-xs text-gray-600">{events.length.toLocaleString('ko-KR')}건 표시</span>
+            <span className="text-xs text-gray-600">
+              {visibleEvents.length.toLocaleString('ko-KR')} / {run.eventCount.toLocaleString('ko-KR')}건 표시
+            </span>
           </div>
-          {events.length === 0 ? (
+          {isEventPageLoading && (
+            <div className="mb-3 rounded border border-blue-900/60 bg-blue-950/30 px-3 py-2 text-xs text-blue-300">
+              전체 리플레이 이벤트 불러오는 중...
+            </div>
+          )}
+          {visibleEvents.length === 0 ? (
             <div className="flex h-28 items-center justify-center rounded border border-gray-800 bg-gray-900">
-              <p className="text-sm text-gray-500">표시할 리플레이 이벤트가 없습니다</p>
+              <p className="text-sm text-gray-500">표시할 핵심 이벤트가 없습니다</p>
             </div>
           ) : (
             <ol className="relative space-y-3 before:absolute before:left-[10px] before:top-2 before:h-[calc(100%-16px)] before:w-px before:bg-gray-800">
-              {events.map((event) => (
+              {visibleEvents.map((event) => (
                 <EventNode key={`${event.sequenceNo}-${event.type}-${event.virtualTime}`} event={event} />
               ))}
             </ol>

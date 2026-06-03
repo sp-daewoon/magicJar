@@ -136,7 +136,8 @@ class ScenarioReplayService(
 
             if (holdingQty > 0 && sellAst != null) {
                 val sellResult = evaluatorBridge.evaluateBacktest(strategyId, sellAst, domainCandles)
-                if (sellResult.signal == Signal.SELL) {
+                // DSL evaluator returns BUY when the provided condition is true; sellAst truth maps to a replay SELL.
+                if (sellResult.signal == Signal.BUY) {
                     return@ScenarioStrategyEvaluator ScenarioSignalDecision.sell(
                         quantity = 1,
                         reason = reasonText("SELL", sellResult.reason),
