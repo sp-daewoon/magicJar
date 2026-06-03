@@ -1,0 +1,80 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>magicJar devlog · 2026-05-14 (목)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--brown:#5b3a1f;--cream:#fff8ed;--paper:#fafaf7;--line:#d8d4c8;--ok:#2f7a3a;--warn:#b58606;--pending:#1c5fa6;--todo:#b03060;--mute:#6a6a6a}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Pretendard","Apple SD Gothic Neo",sans-serif;background:var(--paper);color:#222;max-width:1080px;margin:0 auto;padding:36px 24px 80px;line-height:1.65}
+h1{color:var(--brown);border-bottom:2px solid var(--brown);padding-bottom:8px;margin-bottom:6px;font-size:1.55rem}
+.subtitle{color:var(--mute);font-size:.95rem;margin-bottom:24px}
+h2{color:var(--brown);margin-top:34px;border-left:4px solid var(--brown);padding-left:10px;font-size:1.15rem}
+table{width:100%;border-collapse:collapse;margin:12px 0 18px;font-size:.88rem}
+th,td{padding:6px 10px;border:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--cream);color:var(--brown);font-weight:600}
+tr:nth-child(even) td{background:#fcfcf8}
+code{background:#f3efe6;padding:1px 6px;border-radius:3px;font-size:.85em;color:#333}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.72rem;font-weight:600;margin:0 2px}
+.b-ok{background:#e3f1e6;color:var(--ok);border:1px solid var(--ok)}
+.b-pending{background:#e3edf7;color:var(--pending);border:1px solid var(--pending)}
+.b-todo{background:#fce6ec;color:var(--todo);border:1px solid var(--todo)}
+.b-mute{background:#f0f0f0;color:var(--mute);border:1px solid var(--mute)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:14px 0}
+.card{background:var(--cream);border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.card .n{font-size:1.5rem;font-weight:700;color:var(--brown)} .card .l{font-size:.82rem;color:var(--mute)}
+.nav-back{display:inline-block;margin-bottom:18px;color:var(--brown);text-decoration:none;font-size:.9rem}
+.nav-back:hover{text-decoration:underline}
+.cmt{font-size:.86rem;margin:3px 0;padding-left:4px}
+.cmt code{font-size:.8em}
+ul.bare{list-style:none;padding:0}</style></head><body>
+<a class="nav-back" href="index.html">← 개발일지 목록</a>
+<h1>2026-05-14 (목)</h1>
+<div class="subtitle">커밋 로그 기반 자동 재구성 (backfill) · magicJar 한국 주식 자동매매 시스템</div>
+
+<div class="grid">
+  <div class="card"><div class="n">29</div><div class="l">커밋</div></div>
+  <div class="card"><div class="n">6</div><div class="l">활동 에이전트</div></div>
+  <div class="card"><div class="n">0</div><div class="l">머지 PR</div></div>
+  <div class="card"><div class="n">257</div><div class="l">변경 파일</div></div>
+  <div class="card"><div class="n" style="color:var(--ok)">+23,623</div><div class="l">추가 라인</div></div>
+  <div class="card"><div class="n" style="color:var(--todo)">−660</div><div class="l">삭제 라인</div></div>
+</div>
+
+<h2>👥 에이전트별 작업</h2>
+<table><thead><tr><th>에이전트</th><th>역할</th><th>커밋</th><th>대표 작업</th></tr></thead><tbody>
+<tr><td><code>backend-core</code></td><td>백엔드 코어</td><td>10</td><td>fix(backend-core): OnboardingStatus 응답에 userId 포함 (dogfooding qa #2·#3</td></tr>
+<tr><td><code>frontend</code></td><td>프런트</td><td>7</td><td>fix(frontend): 차트 캔들 갱신 버튼 + LWC Object disposed lifecycle 가드 (dogfood</td></tr>
+<tr><td><code>architect</code></td><td>수석 설계</td><td>6</td><td>chore(task): T-20260514-2124-settings-kis-change-v2 DONE (PR #416)</td></tr>
+<tr><td><code>orchestrator</code></td><td>오케스트라</td><td>3</td><td>chore(release): v3.6.4 README releases 매트릭스 자동 갱신 — W3 종착</td></tr>
+<tr><td><code>strategy</code></td><td>전략 엔진</td><td>2</td><td>feat(strategy): T-SC Phase 1 — Screener engine + multi-criteria ranker</td></tr>
+<tr><td><code>market-data</code></td><td>시세 데이터</td><td>1</td><td>feat(market-data): 캔들 수동 갱신 endpoint POST /api/symbols/{code}/candles/</td></tr>
+</tbody></table>
+
+<h2>📐 아키텍처 결정 (ADR)</h2><p><span class="badge b-pending">ADR 0071</span> <span class="badge b-pending">ADR 0072</span> <span class="badge b-pending">ADR 0073</span> <span class="badge b-pending">ADR 0074</span></p>
+
+<h2>🗄️ DB 스키마 (Flyway)</h2><p><code>V25__reconcile_run.sql</code> · <code>V26__risk_event_position_drift_type.sql</code> · <code>V27__notification_outbox.sql</code> · <code>V28__screening_run_and_match.sql</code> · <code>V29__trading_journal_and_note.sql</code> · <code>V30__performance_summary_and_pnl_daily.sql</code> · <code>V31__order_execution_realized_pnl.sql</code></p>
+
+<h2>🧩 모듈별 변경 파일</h2>
+<p><span class="badge b-mute">api · 90</span> <span class="badge b-mute">frontend · 54</span> <span class="badge b-mute">domain · 42</span> <span class="badge b-mute">consumer · 33</span> <span class="badge b-mute">_workspace · 29</span> <span class="badge b-mute">root · 19</span> <span class="badge b-mute">batch · 12</span> <span class="badge b-mute">docs · 9</span> <span class="badge b-mute">{consumer · 4</span></p>
+
+<h2>📝 주요 커밋 (변경량 상위)</h2>
+<ul class="bare">
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(backend-core): T-PERF Phase 2 — 5 지표 + Flyway V30 + batch DailyPerformanceJob + REST 2 endpoint + Redis c <code>118a666</code> <span style="color:var(--mute)">+2529/−1</span></li>
+<li class="cmt"><span class="badge b-mute">strategy</span> feat(strategy): T-RECON Phase 1 — KIS 잔고 cron + drift 검출 + KillSwitch auto-ON (ADR 0070 Phase 1) <code>491f2ff</code> <span style="color:var(--mute)">+2312/−0</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(backend-core): T-J Phase 1 — Trading Journal Flyway V29 + 5 Kafka listener + REST 3 endpoint (ADR 0072 Ph <code>b437749</code> <span style="color:var(--mute)">+2300/−1</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> feat(frontend): T-J + T-PERF Phase 3 — TradingJournalPage + PerformanceDashboardPage + LWC v4 차트 (ADR 0072 Pha <code>82a9f23</code> <span style="color:var(--mute)">+2101/−2</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(backend-core): T-NOTIFY Phase 1 — Slack webhook + 7 Kafka listener + outbox + 5분 retry worker (ADR 0070 P <code>8ef0e4e</code> <span style="color:var(--mute)">+1916/−10</span></li>
+<li class="cmt"><span class="badge b-mute">strategy</span> feat(strategy): T-SC Phase 1 — Screener engine + multi-criteria ranker + strategy-eval-pool reuse (ADR 0071 Ph <code>a30e918</code> <span style="color:var(--mute)">+1904/−0</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(backend-core): T-SC Phase 2 — REST 3 endpoint + Redis cache + 옵션 Flyway V28 (ADR 0071 Phase 2) <code>3512091</code> <span style="color:var(--mute)">+1796/−0</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(backend-core): T-RECON Phase 2 — REST 3 endpoint + Flyway V25·V26·V27 + JPA + STOMP fanout (ADR 0070 Phas <code>e77a995</code> <span style="color:var(--mute)">+1676/−0</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> feat(frontend): T-SC Phase 3 — Strategy Builder 합류 + ScreenerResultModal + Watchlist 일괄 등록 (ADR 0071 Phase 3) <code>8882b4f</code> <span style="color:var(--mute)">+1376/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> arch(journal+perf): T-J + T-PERF 묶음 spec/plan (ADR 0072) — W3 마지막 사이클 <code>747978a</code> <span style="color:var(--mute)">+1331/−21</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> arch(screener): T-SC Screener spec/plan 발행 (ADR 0071 신규 — W3 v3.6.3 patch) <code>663a55f</code> <span style="color:var(--mute)">+1308/−25</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> arch(settings): backlog §44+§45 묶음 spec/plan 재발행 (ADR 0074) — KIS 키 변경 + KillSwitch + AI 키 카테고리 <code>a21c1a5</code> <span style="color:var(--mute)">+1074/−12</span></li>
+<li class="cmt"><span class="badge b-mute">market-data</span> feat(market-data): 캔들 수동 갱신 endpoint POST /api/symbols/{code}/candles/refresh (dogfooding qa #5) <code>8df8207</code> <span style="color:var(--mute)">+870/−2</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> fix(backend-core): ScreenerEngine 구현체 consumer → api 모듈 이동 (docker 부팅 hotfix) <code>0761b03</code> <span style="color:var(--mute)">+118/−367</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> arch(news): T-NEWS 뉴스·공시 실시간 인입 트랙 feasibility 분석 (ADR 0073) <code>6b3f3dd</code> <span style="color:var(--mute)">+443/−6</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> fix(frontend): RiskConfigDto backend flat 구조 정합 — undefined absoluteLimit 결함 (dogfooding qa #4) <code>04bcdf8</code> <span style="color:var(--mute)">+146/−143</span></li>
+</ul>
+
+
+
+<footer style="margin-top:40px;padding-top:14px;border-top:1px solid var(--line);color:#888;font-size:.82rem">
+자동 생성 · <code>scripts/gen-devlogs.mjs</code> · 비공개 레포 커밋 메타데이터 집계 (소스·시크릿 미포함)
+</footer></body></html>

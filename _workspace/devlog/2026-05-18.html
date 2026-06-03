@@ -1,0 +1,79 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>magicJar devlog · 2026-05-18 (월)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--brown:#5b3a1f;--cream:#fff8ed;--paper:#fafaf7;--line:#d8d4c8;--ok:#2f7a3a;--warn:#b58606;--pending:#1c5fa6;--todo:#b03060;--mute:#6a6a6a}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Pretendard","Apple SD Gothic Neo",sans-serif;background:var(--paper);color:#222;max-width:1080px;margin:0 auto;padding:36px 24px 80px;line-height:1.65}
+h1{color:var(--brown);border-bottom:2px solid var(--brown);padding-bottom:8px;margin-bottom:6px;font-size:1.55rem}
+.subtitle{color:var(--mute);font-size:.95rem;margin-bottom:24px}
+h2{color:var(--brown);margin-top:34px;border-left:4px solid var(--brown);padding-left:10px;font-size:1.15rem}
+table{width:100%;border-collapse:collapse;margin:12px 0 18px;font-size:.88rem}
+th,td{padding:6px 10px;border:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--cream);color:var(--brown);font-weight:600}
+tr:nth-child(even) td{background:#fcfcf8}
+code{background:#f3efe6;padding:1px 6px;border-radius:3px;font-size:.85em;color:#333}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.72rem;font-weight:600;margin:0 2px}
+.b-ok{background:#e3f1e6;color:var(--ok);border:1px solid var(--ok)}
+.b-pending{background:#e3edf7;color:var(--pending);border:1px solid var(--pending)}
+.b-todo{background:#fce6ec;color:var(--todo);border:1px solid var(--todo)}
+.b-mute{background:#f0f0f0;color:var(--mute);border:1px solid var(--mute)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:14px 0}
+.card{background:var(--cream);border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.card .n{font-size:1.5rem;font-weight:700;color:var(--brown)} .card .l{font-size:.82rem;color:var(--mute)}
+.nav-back{display:inline-block;margin-bottom:18px;color:var(--brown);text-decoration:none;font-size:.9rem}
+.nav-back:hover{text-decoration:underline}
+.cmt{font-size:.86rem;margin:3px 0;padding-left:4px}
+.cmt code{font-size:.8em}
+ul.bare{list-style:none;padding:0}</style></head><body>
+<a class="nav-back" href="index.html">← 개발일지 목록</a>
+<h1>2026-05-18 (월)</h1>
+<div class="subtitle">커밋 로그 기반 자동 재구성 (backfill) · magicJar 한국 주식 자동매매 시스템</div>
+
+<div class="grid">
+  <div class="card"><div class="n">68</div><div class="l">커밋</div></div>
+  <div class="card"><div class="n">5</div><div class="l">활동 에이전트</div></div>
+  <div class="card"><div class="n">0</div><div class="l">머지 PR</div></div>
+  <div class="card"><div class="n">206</div><div class="l">변경 파일</div></div>
+  <div class="card"><div class="n" style="color:var(--ok)">+15,315</div><div class="l">추가 라인</div></div>
+  <div class="card"><div class="n" style="color:var(--todo)">−597</div><div class="l">삭제 라인</div></div>
+</div>
+
+<h2>👥 에이전트별 작업</h2>
+<table><thead><tr><th>에이전트</th><th>역할</th><th>커밋</th><th>대표 작업</th></tr></thead><tbody>
+<tr><td><code>backend-core</code></td><td>백엔드 코어</td><td>19</td><td>chore(tasks): T-20260518-2333-hotfix-p0-4-kafka-consumer-factory DONE </td></tr>
+<tr><td><code>architect</code></td><td>수석 설계</td><td>19</td><td>chore(tasks): T-20260518-2005-main DONE — PR #497 (architect spec orde</td></tr>
+<tr><td><code>frontend</code></td><td>프런트</td><td>11</td><td>spec(arch): T-ACCT 신규 트랙 — 잔액·예수금·계좌 잔고 사용자 노출 endpoint + UI spec/plan</td></tr>
+<tr><td><code>market-data</code></td><td>시세 데이터</td><td>10</td><td>chore(tasks): T-20260518-2241-p0-2-pending-reconcile DONE — PR #503</td></tr>
+<tr><td><code>orchestrator</code></td><td>오케스트라</td><td>9</td><td>chore(session): 2026-05-18 세션 종료 정리 — settings.json force-push 권한 + ta</td></tr>
+</tbody></table>
+
+<h2>📐 아키텍처 결정 (ADR)</h2><p><span class="badge b-pending">ADR 0004</span> <span class="badge b-pending">ADR 0021</span> <span class="badge b-pending">ADR 0035</span> <span class="badge b-pending">ADR 0054</span> <span class="badge b-pending">ADR 0068</span> <span class="badge b-pending">ADR 0080</span> <span class="badge b-pending">ADR 0081</span> <span class="badge b-pending">ADR 0082</span> <span class="badge b-pending">ADR 0083</span> <span class="badge b-pending">ADR 0084</span></p>
+
+<h2>🗄️ DB 스키마 (Flyway)</h2><p><code>V35__order_execution_event_id.sql</code> · <code>V36__order_request_pending_reconcile.sql</code></p>
+
+<h2>🧩 모듈별 변경 파일</h2>
+<p><span class="badge b-mute">_workspace · 111</span> <span class="badge b-mute">consumer · 57</span> <span class="badge b-mute">root · 34</span> <span class="badge b-mute">api · 21</span> <span class="badge b-mute">{consumer · 21</span> <span class="badge b-mute">.claude · 16</span> <span class="badge b-mute">frontend · 11</span> <span class="badge b-mute">domain · 10</span> <span class="badge b-mute">indicator-impl · 9</span> <span class="badge b-mute">docs · 7</span> <span class="badge b-mute">scripts · 1</span></p>
+
+<h2>📝 주요 커밋 (변경량 상위)</h2>
+<ul class="bare">
+<li class="cmt"><span class="badge b-mute">backend-core</span> fix(consumer): ADR 0084 P0-3 — KIS WS race condition 가드 + 재연결 backfill <code>a7ea63e</code> <span style="color:var(--mute)">+1699/−20</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> feat(api): T-ACCT Phase 1·2 — domain port + api controller·service·adapter (잔액·예수금·잔고) <code>aeabb73</code> <span style="color:var(--mute)">+1422/−0</span></li>
+<li class="cmt"><span class="badge b-mute">market-data</span> feat(consumer): ADR 0084 P0-2 — PENDING_RECONCILE 상태 + KIS 주문조회 reconciliation worker <code>95e5a8e</code> <span style="color:var(--mute)">+1318/−15</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> spec(arch): T-MAN 신규 트랙 — 사용자 수동 주문 발행 UI + endpoint spec/plan 발행 + ADR 0082 Proposed <code>0a68031</code> <span style="color:var(--mute)">+1143/−4</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> spec(arch): 주문 path 안정성 종합 — 외부 코드 리뷰 13 코멘트 흡수 + P0·P1·P2 트랙 + ADR 0084 Proposed <code>33d3446</code> <span style="color:var(--mute)">+955/−1</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> spec(arch): T-ACCT 신규 트랙 — 잔액·예수금·계좌 잔고 사용자 노출 endpoint + UI spec/plan 발행 + ADR 0081 Proposed <code>f831d34</code> <span style="color:var(--mute)">+877/−3</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> fix(consumer): ADR 0084 P0-4 — Kafka DLQ + 재시도 정책 + DLT 모니터링 <code>1f005ec</code> <span style="color:var(--mute)">+762/−1</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> spec(arch): 결함 3 — indicator-impl 모듈 신설 spec/plan + ADR 0083 Proposed (IndicatorSource 모듈 경계 fix) <code>7f94ec2</code> <span style="color:var(--mute)">+702/−7</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> spec(arch): T-O 진입 prereq — MOCK/PRD 주문 분기 정합성 검증 spec <code>4c8c6f2</code> <span style="color:var(--mute)">+673/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> fix(consumer): T-O Phase 2 OrderRouterKafkaListener Repository 합류 (backlog §61 처리) <code>fc01306</code> <span style="color:var(--mute)">+582/−1</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> spec(arch): T-O 본 트랙 진입 — Phase 매트릭스 + sub-agent dispatch 계획 발행 <code>1360b18</code> <span style="color:var(--mute)">+530/−1</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> fix(consumer): ADR 0084 P0-1 — KIS API hashkey 헤더 합류 (KisHashKeyAdapter 신규) <code>f917c54</code> <span style="color:var(--mute)">+413/−1</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> spec(fix): T-MAN orderType 데이터 구분 — B-1 폐기 → B-2-extended 채택 (사용자 결정 정합) <code>1668aa5</code> <span style="color:var(--mute)">+288/−86</span></li>
+<li class="cmt"><span class="badge b-mute">orchestrator</span> chore(meta): 백로그·W4·W5 종합 분석 보고서 HTML 발행 (2026-05-18) <code>4b7058c</code> <span style="color:var(--mute)">+351/−0</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> chore(stability): SetupWizard K-1 게이트 가이드 — REAL 자격증명 미등록 dashboard 배너 (backlog §58 / ADR 0077 K-1) <code>db9f25a</code> <span style="color:var(--mute)">+329/−0</span></li>
+<li class="cmt"><span class="badge b-mute">market-data</span> fix(consumer): T-O Phase 1 B-2 ConsumerOrderExecutionRepositoryAdapter 합류 (PR #481 패턴) <code>3d8c1bb</code> <span style="color:var(--mute)">+327/−1</span></li>
+</ul>
+
+
+
+<footer style="margin-top:40px;padding-top:14px;border-top:1px solid var(--line);color:#888;font-size:.82rem">
+자동 생성 · <code>scripts/gen-devlogs.mjs</code> · 비공개 레포 커밋 메타데이터 집계 (소스·시크릿 미포함)
+</footer></body></html>

@@ -1,0 +1,80 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>magicJar devlog · 2026-04-27 (월)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--brown:#5b3a1f;--cream:#fff8ed;--paper:#fafaf7;--line:#d8d4c8;--ok:#2f7a3a;--warn:#b58606;--pending:#1c5fa6;--todo:#b03060;--mute:#6a6a6a}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Pretendard","Apple SD Gothic Neo",sans-serif;background:var(--paper);color:#222;max-width:1080px;margin:0 auto;padding:36px 24px 80px;line-height:1.65}
+h1{color:var(--brown);border-bottom:2px solid var(--brown);padding-bottom:8px;margin-bottom:6px;font-size:1.55rem}
+.subtitle{color:var(--mute);font-size:.95rem;margin-bottom:24px}
+h2{color:var(--brown);margin-top:34px;border-left:4px solid var(--brown);padding-left:10px;font-size:1.15rem}
+table{width:100%;border-collapse:collapse;margin:12px 0 18px;font-size:.88rem}
+th,td{padding:6px 10px;border:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--cream);color:var(--brown);font-weight:600}
+tr:nth-child(even) td{background:#fcfcf8}
+code{background:#f3efe6;padding:1px 6px;border-radius:3px;font-size:.85em;color:#333}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.72rem;font-weight:600;margin:0 2px}
+.b-ok{background:#e3f1e6;color:var(--ok);border:1px solid var(--ok)}
+.b-pending{background:#e3edf7;color:var(--pending);border:1px solid var(--pending)}
+.b-todo{background:#fce6ec;color:var(--todo);border:1px solid var(--todo)}
+.b-mute{background:#f0f0f0;color:var(--mute);border:1px solid var(--mute)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:14px 0}
+.card{background:var(--cream);border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.card .n{font-size:1.5rem;font-weight:700;color:var(--brown)} .card .l{font-size:.82rem;color:var(--mute)}
+.nav-back{display:inline-block;margin-bottom:18px;color:var(--brown);text-decoration:none;font-size:.9rem}
+.nav-back:hover{text-decoration:underline}
+.cmt{font-size:.86rem;margin:3px 0;padding-left:4px}
+.cmt code{font-size:.8em}
+ul.bare{list-style:none;padding:0}</style></head><body>
+<a class="nav-back" href="index.html">← 개발일지 목록</a>
+<h1>2026-04-27 (월)</h1>
+<div class="subtitle">커밋 로그 기반 자동 재구성 (backfill) · magicJar 한국 주식 자동매매 시스템</div>
+
+<div class="grid">
+  <div class="card"><div class="n">29</div><div class="l">커밋</div></div>
+  <div class="card"><div class="n">6</div><div class="l">활동 에이전트</div></div>
+  <div class="card"><div class="n">0</div><div class="l">머지 PR</div></div>
+  <div class="card"><div class="n">501</div><div class="l">변경 파일</div></div>
+  <div class="card"><div class="n" style="color:var(--ok)">+20,044</div><div class="l">추가 라인</div></div>
+  <div class="card"><div class="n" style="color:var(--todo)">−1,346</div><div class="l">삭제 라인</div></div>
+</div>
+
+<h2>👥 에이전트별 작업</h2>
+<table><thead><tr><th>에이전트</th><th>역할</th><th>커밋</th><th>대표 작업</th></tr></thead><tbody>
+<tr><td><code>architect</code></td><td>수석 설계</td><td>9</td><td>feat(p4): docker compose 3 모드 + smoke.sh 5 시나리오 + 9 컨테이너 healthy</td></tr>
+<tr><td><code>ai</code></td><td>AI</td><td>6</td><td>test(p3-py): 5개 테스트 모듈 — 외부 의존 없는 결정론 검증</td></tr>
+<tr><td><code>orchestrator</code></td><td>오케스트라</td><td>5</td><td>docs(plan): Phase E-P1 plan — P0 hotfix(REST 컨트롤러 + 각 앱 자체 JpaAdapter)</td></tr>
+<tr><td><code>backend-core</code></td><td>백엔드 코어</td><td>4</td><td>feat(api,batch,consumer): Phase E-P1 — REST 컨트롤러 4종 + 각 앱 JpaAdapter (</td></tr>
+<tr><td><code>human-lead</code></td><td>사람(지휘)</td><td>4</td><td>docs: 패키지 prefix com.magicjar → com.mj 축약</td></tr>
+<tr><td><code>frontend</code></td><td>프런트</td><td>1</td><td>feat(p3-fe): React SPA 골격 — 5 페이지·LWC 차트·Zustand·STOMP·Vitest 20건 PASS</td></tr>
+</tbody></table>
+
+<h2>📐 아키텍처 결정 (ADR)</h2><p><span class="badge b-pending">ADR 0011</span> <span class="badge b-pending">ADR 0012</span> <span class="badge b-pending">ADR 0014</span> <span class="badge b-pending">ADR 0019</span> <span class="badge b-pending">ADR 0020</span> <span class="badge b-pending">ADR 0021</span> <span class="badge b-pending">ADR 0022</span> <span class="badge b-pending">ADR 0023</span> <span class="badge b-pending">ADR 0024</span> <span class="badge b-pending">ADR 0025</span> <span class="badge b-pending">ADR 0026</span></p>
+
+<h2>🗄️ DB 스키마 (Flyway)</h2><p><code>V0__init.sql</code> · <code>V1__market_data.sql</code> · <code>V2__strategy_journal.sql</code> · <code>V3__seed_instruments.sql</code> · <code>V4__chart_snapshot.sql</code> · <code>V5__backtest_run.sql</code> · <code>V6__order_position.sql</code></p>
+
+<h2>🧩 모듈별 변경 파일</h2>
+<p><span class="badge b-mute">consumer · 79</span> <span class="badge b-mute">api · 64</span> <span class="badge b-mute">{strategy · 48</span> <span class="badge b-mute">frontend · 46</span> <span class="badge b-mute">domain · 44</span> <span class="badge b-mute">pyworker · 34</span> <span class="badge b-mute">batch · 33</span> <span class="badge b-mute">{core · 33</span> <span class="badge b-mute">{web · 32</span> <span class="badge b-mute">{market-data · 27</span> <span class="badge b-mute">{ai · 19</span> <span class="badge b-mute">_workspace · 18</span> <span class="badge b-mute">root · 12</span> <span class="badge b-mute">{app · 11</span> <span class="badge b-mute">docs · 10</span> <span class="badge b-mute">market-data · 8</span> <span class="badge b-mute">core · 5</span> <span class="badge b-mute">{ai => domain} · 5</span> <span class="badge b-mute">docker · 4</span> <span class="badge b-mute">scripts · 1</span> <span class="badge b-mute">ai · 1</span> <span class="badge b-mute">app · 1</span> <span class="badge b-mute">order-exec · 1</span> <span class="badge b-mute">strategy · 1</span> <span class="badge b-mute">web · 1</span> <span class="badge b-mute">{order-exec · 1</span> <span class="badge b-mute">{strategy => domain} · 1</span></p>
+
+<h2>📝 주요 커밋 (변경량 상위)</h2>
+<ul class="bare">
+<li class="cmt"><span class="badge b-mute">frontend</span> feat(p3-fe): React SPA 골격 — 5 페이지·LWC 차트·Zustand·STOMP·Vitest 20건 PASS <code>4af15f9</code> <span style="color:var(--mute)">+5231/−0</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(p2): 3앱 build.gradle.kts 본격화 + main 클래스 + _legacy 이전 1차 <code>62a45e8</code> <span style="color:var(--mute)">+3177/−0</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(api,batch,consumer): Phase E-P1 — REST 컨트롤러 4종 + 각 앱 JpaAdapter (P0 hotfix) <code>0f9d288</code> <span style="color:var(--mute)">+2246/−165</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> feat(p4): docker compose 3 모드 + smoke.sh 5 시나리오 + 9 컨테이너 healthy <code>2470af8</code> <span style="color:var(--mute)">+1819/−138</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(p2): application.yml 3종 + Kafka 토폴로지 + Dockerfile + 도메인 이벤트 + TickRoundtripIT <code>d6fef31</code> <span style="color:var(--mute)">+1551/−0</span></li>
+<li class="cmt"><span class="badge b-mute">human-lead</span> docs(plan): MSA 재구성 Phase 1 상세 + Phase 2~4 개요 <code>1cf6064</code> <span style="color:var(--mute)">+1116/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> docs(arch): ADR 0019~0026 발행 + 0011·0012·0014 갱신 — MSA 재구성 결정 정식화 <code>1c1d0e4</code> <span style="color:var(--mute)">+820/−34</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> refactor(p1): port 영역별 분배 + market-data/{kis,persistence} 백업 + dart 삭제 <code>e405f34</code> <span style="color:var(--mute)">+100/−452</span></li>
+<li class="cmt"><span class="badge b-mute">orchestrator</span> docs(plan): Phase 2 plan — JVM 3 앱 + Kafka + _legacy 영구 이전 매핑표 <code>4a0f78b</code> <span style="color:var(--mute)">+492/−0</span></li>
+<li class="cmt"><span class="badge b-mute">human-lead</span> docs(spec): MSA 재구성 설계안 — 5 모듈+pyworker+frontend, Kafka, React, Docker <code>e5b2e76</code> <span style="color:var(--mute)">+417/−0</span></li>
+<li class="cmt"><span class="badge b-mute">ai</span> test(p3-py): 5개 테스트 모듈 — 외부 의존 없는 결정론 검증 <code>646e6a7</code> <span style="color:var(--mute)">+372/−0</span></li>
+<li class="cmt"><span class="badge b-mute">ai</span> feat(p3-py): FastAPI app + routers — health/scrape/screenshot <code>233d138</code> <span style="color:var(--mute)">+362/−0</span></li>
+<li class="cmt"><span class="badge b-mute">ai</span> feat(p3-py): config + Kafka producer + Pydantic schemas (Kotlin 호환) <code>f94bd50</code> <span style="color:var(--mute)">+361/−0</span></li>
+<li class="cmt"><span class="badge b-mute">orchestrator</span> docs(plan): Phase 4 plan + ScreenshotCapturedEvent + CLAUDE.md P3 완료/P4 시작 <code>10314c7</code> <span style="color:var(--mute)">+345/−1</span></li>
+<li class="cmt"><span class="badge b-mute">ai</span> feat(p3-py): scrapers — naver_news + DART + APScheduler <code>2bbefc7</code> <span style="color:var(--mute)">+242/−0</span></li>
+<li class="cmt"><span class="badge b-mute">human-lead</span> docs: 패키지 prefix com.magicjar → com.mj 축약 <code>bc6a199</code> <span style="color:var(--mute)">+121/−121</span></li>
+</ul>
+
+
+
+<footer style="margin-top:40px;padding-top:14px;border-top:1px solid var(--line);color:#888;font-size:.82rem">
+자동 생성 · <code>scripts/gen-devlogs.mjs</code> · 비공개 레포 커밋 메타데이터 집계 (소스·시크릿 미포함)
+</footer></body></html>

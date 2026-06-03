@@ -1,0 +1,79 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>magicJar devlog · 2026-05-07 (목)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--brown:#5b3a1f;--cream:#fff8ed;--paper:#fafaf7;--line:#d8d4c8;--ok:#2f7a3a;--warn:#b58606;--pending:#1c5fa6;--todo:#b03060;--mute:#6a6a6a}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Pretendard","Apple SD Gothic Neo",sans-serif;background:var(--paper);color:#222;max-width:1080px;margin:0 auto;padding:36px 24px 80px;line-height:1.65}
+h1{color:var(--brown);border-bottom:2px solid var(--brown);padding-bottom:8px;margin-bottom:6px;font-size:1.55rem}
+.subtitle{color:var(--mute);font-size:.95rem;margin-bottom:24px}
+h2{color:var(--brown);margin-top:34px;border-left:4px solid var(--brown);padding-left:10px;font-size:1.15rem}
+table{width:100%;border-collapse:collapse;margin:12px 0 18px;font-size:.88rem}
+th,td{padding:6px 10px;border:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--cream);color:var(--brown);font-weight:600}
+tr:nth-child(even) td{background:#fcfcf8}
+code{background:#f3efe6;padding:1px 6px;border-radius:3px;font-size:.85em;color:#333}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.72rem;font-weight:600;margin:0 2px}
+.b-ok{background:#e3f1e6;color:var(--ok);border:1px solid var(--ok)}
+.b-pending{background:#e3edf7;color:var(--pending);border:1px solid var(--pending)}
+.b-todo{background:#fce6ec;color:var(--todo);border:1px solid var(--todo)}
+.b-mute{background:#f0f0f0;color:var(--mute);border:1px solid var(--mute)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:14px 0}
+.card{background:var(--cream);border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.card .n{font-size:1.5rem;font-weight:700;color:var(--brown)} .card .l{font-size:.82rem;color:var(--mute)}
+.nav-back{display:inline-block;margin-bottom:18px;color:var(--brown);text-decoration:none;font-size:.9rem}
+.nav-back:hover{text-decoration:underline}
+.cmt{font-size:.86rem;margin:3px 0;padding-left:4px}
+.cmt code{font-size:.8em}
+ul.bare{list-style:none;padding:0}</style></head><body>
+<a class="nav-back" href="index.html">← 개발일지 목록</a>
+<h1>2026-05-07 (목)</h1>
+<div class="subtitle">커밋 로그 기반 자동 재구성 (backfill) · magicJar 한국 주식 자동매매 시스템</div>
+
+<div class="grid">
+  <div class="card"><div class="n">179</div><div class="l">커밋</div></div>
+  <div class="card"><div class="n">5</div><div class="l">활동 에이전트</div></div>
+  <div class="card"><div class="n">0</div><div class="l">머지 PR</div></div>
+  <div class="card"><div class="n">427</div><div class="l">변경 파일</div></div>
+  <div class="card"><div class="n" style="color:var(--ok)">+39,244</div><div class="l">추가 라인</div></div>
+  <div class="card"><div class="n" style="color:var(--todo)">−1,343</div><div class="l">삭제 라인</div></div>
+</div>
+
+<h2>👥 에이전트별 작업</h2>
+<table><thead><tr><th>에이전트</th><th>역할</th><th>커밋</th><th>대표 작업</th></tr></thead><tbody>
+<tr><td><code>architect</code></td><td>수석 설계</td><td>59</td><td>chore(task): PR-21 task 파일 + 결과물 6건 체크 + done 마킹</td></tr>
+<tr><td><code>backend-core</code></td><td>백엔드 코어</td><td>49</td><td>chore(lint): ktlintFormat 자동 정정 (import ordering) + task 체크리스트 완료 표시</td></tr>
+<tr><td><code>frontend</code></td><td>프런트</td><td>29</td><td>chore(task): PR-10a task 파일 + stomp.ts debug 로그 정정</td></tr>
+<tr><td><code>market-data</code></td><td>시세 데이터</td><td>28</td><td>chore(task): PR-11a task 파일 체크리스트 완료</td></tr>
+<tr><td><code>orchestrator</code></td><td>오케스트라</td><td>14</td><td>fix(batch+api+frontend): PR-20 EUC-KR 파싱 + watchlist 종목명 join</td></tr>
+</tbody></table>
+
+<h2>📐 아키텍처 결정 (ADR)</h2><p><span class="badge b-pending">ADR 0001</span> <span class="badge b-pending">ADR 0004</span> <span class="badge b-pending">ADR 0005</span> <span class="badge b-pending">ADR 0006</span> <span class="badge b-pending">ADR 0007</span> <span class="badge b-pending">ADR 0009</span> <span class="badge b-pending">ADR 0010</span> <span class="badge b-pending">ADR 0013</span> <span class="badge b-pending">ADR 0014</span> <span class="badge b-pending">ADR 0015</span> <span class="badge b-pending">ADR 0016</span> <span class="badge b-pending">ADR 0018</span> <span class="badge b-pending">ADR 0019</span> <span class="badge b-pending">ADR 0020</span> <span class="badge b-pending">ADR 0021</span> <span class="badge b-pending">ADR 0022</span> <span class="badge b-pending">ADR 0023</span> <span class="badge b-pending">ADR 0024</span> <span class="badge b-pending">ADR 0025</span> <span class="badge b-pending">ADR 0026</span> <span class="badge b-pending">ADR 0027</span> <span class="badge b-pending">ADR 0028</span> <span class="badge b-pending">ADR 0030</span> <span class="badge b-pending">ADR 0031</span> <span class="badge b-pending">ADR 0032</span> <span class="badge b-pending">ADR 0033</span> <span class="badge b-pending">ADR 0034</span> <span class="badge b-pending">ADR 0035</span> <span class="badge b-pending">ADR 0036</span> <span class="badge b-pending">ADR 0038</span> <span class="badge b-pending">ADR 0040</span> <span class="badge b-pending">ADR 0041</span> <span class="badge b-pending">ADR 0042</span> <span class="badge b-pending">ADR 0043</span> <span class="badge b-pending">ADR 0044</span> <span class="badge b-pending">ADR 0045</span> <span class="badge b-pending">ADR 0046</span> <span class="badge b-pending">ADR 0047</span> <span class="badge b-pending">ADR 0048</span> <span class="badge b-pending">ADR 0049</span> <span class="badge b-pending">ADR 0050</span></p>
+
+<h2>🗄️ DB 스키마 (Flyway)</h2><p><code>V1__baseline.sql</code> · <code>V2__onboarding_refinements.sql</code> · <code>V3__watchlist_position_refinements.sql</code> · <code>V4__instrument_master_search.sql</code></p>
+
+<h2>🧩 모듈별 변경 파일</h2>
+<p><span class="badge b-mute">_workspace · 179</span> <span class="badge b-mute">api · 100</span> <span class="badge b-mute">consumer · 91</span> <span class="badge b-mute">frontend · 80</span> <span class="badge b-mute">domain · 54</span> <span class="badge b-mute">root · 36</span> <span class="badge b-mute">batch · 21</span> <span class="badge b-mute">docs · 20</span> <span class="badge b-mute">.claude · 9</span> <span class="badge b-mute">docker · 4</span> <span class="badge b-mute">.claire · 4</span> <span class="badge b-mute">scripts · 3</span> <span class="badge b-mute">.github · 2</span> <span class="badge b-mute">{consumer · 1</span> <span class="badge b-mute">.husky · 1</span> <span class="badge b-mute">gradle · 1</span></p>
+
+<h2>📝 주요 커밋 (변경량 상위)</h2>
+<ul class="bare">
+<li class="cmt"><span class="badge b-mute">frontend</span> feat(frontend): Vite SPA 스캐폴드 — React 19 + TS + pnpm + Tailwind + LWC v4 <code>dabc3aa</code> <span style="color:var(--mute)">+2025/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> docs(specs): PR-9 T-W2 설계 가이드 + sub-agent 분배 + 충돌 행렬 <code>bac9639</code> <span style="color:var(--mute)">+1998/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> docs(specs): PR-10 T-S1 설계 + sub-agent 분배 + 충돌 행렬 <code>d1573e6</code> <span style="color:var(--mute)">+1897/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> docs(specs): PR-6 T-ONBOARD 설계 가이드 + sub-agent 분배 + 충돌 행렬 <code>c7e8eea</code> <span style="color:var(--mute)">+1654/−0</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> feat(frontend): axios 추가 + onboarding API 클라이언트 5 endpoint <code>b3ea623</code> <span style="color:var(--mute)">+1631/−17</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> docs(spec): PR-21 instrument 테이블 KIS-first 본격 재설계 main spec <code>fda2bec</code> <span style="color:var(--mute)">+991/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> docs(specs): PR-11 T-IM1 (Instrument Master) 설계 가이드 v1 <code>cd6c05d</code> <span style="color:var(--mute)">+987/−0</span></li>
+<li class="cmt"><span class="badge b-mute">market-data</span> feat(api): WebSocketConfig + 3 STOMP forwarder + SymbolController 4 endpoint + SymbolMetaService + CandleQuery <code>eae2644</code> <span style="color:var(--mute)">+973/−0</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(api): OnboardingController 5 endpoint + Service + DTO + JPA persistence <code>955e62a</code> <span style="color:var(--mute)">+959/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> docs(specs): PR-7 T-W1 설계 가이드 — Watchlist CRUD + Position Bootstrap <code>a4d16ba</code> <span style="color:var(--mute)">+957/−0</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> feat(frontend): SetupWizard 7-step 본격 구현 + 5개 step 컴포넌트 <code>36a62b0</code> <span style="color:var(--mute)">+873/−74</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> docs(specs): PR-7 sub-agent 분배 + 충돌 행렬 — 완전 병렬 권장 <code>9ea3003</code> <span style="color:var(--mute)">+894/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> docs(spec): PR-21 dispatch + conflict-matrix (병렬 디스패치 LOCK) <code>6039b58</code> <span style="color:var(--mute)">+883/−0</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(domain): 도메인 모듈 골격 + port 인터페이스 stub <code>03f3320</code> <span style="color:var(--mute)">+748/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> docs(specs): PR-11 sub-agent 분배 명세 (병렬 권장) <code>09a0ce0</code> <span style="color:var(--mute)">+739/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> docs(specs): PR-5 W1 모듈 부트스트랩 설계 가이드 (4 모듈 + Flyway V1 + Docker 정합) <code>20c3404</code> <span style="color:var(--mute)">+713/−0</span></li>
+</ul>
+
+
+
+<footer style="margin-top:40px;padding-top:14px;border-top:1px solid var(--line);color:#888;font-size:.82rem">
+자동 생성 · <code>scripts/gen-devlogs.mjs</code> · 비공개 레포 커밋 메타데이터 집계 (소스·시크릿 미포함)
+</footer></body></html>

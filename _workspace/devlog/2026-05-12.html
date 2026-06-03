@@ -1,0 +1,80 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>magicJar devlog · 2026-05-12 (화)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--brown:#5b3a1f;--cream:#fff8ed;--paper:#fafaf7;--line:#d8d4c8;--ok:#2f7a3a;--warn:#b58606;--pending:#1c5fa6;--todo:#b03060;--mute:#6a6a6a}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Pretendard","Apple SD Gothic Neo",sans-serif;background:var(--paper);color:#222;max-width:1080px;margin:0 auto;padding:36px 24px 80px;line-height:1.65}
+h1{color:var(--brown);border-bottom:2px solid var(--brown);padding-bottom:8px;margin-bottom:6px;font-size:1.55rem}
+.subtitle{color:var(--mute);font-size:.95rem;margin-bottom:24px}
+h2{color:var(--brown);margin-top:34px;border-left:4px solid var(--brown);padding-left:10px;font-size:1.15rem}
+table{width:100%;border-collapse:collapse;margin:12px 0 18px;font-size:.88rem}
+th,td{padding:6px 10px;border:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--cream);color:var(--brown);font-weight:600}
+tr:nth-child(even) td{background:#fcfcf8}
+code{background:#f3efe6;padding:1px 6px;border-radius:3px;font-size:.85em;color:#333}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.72rem;font-weight:600;margin:0 2px}
+.b-ok{background:#e3f1e6;color:var(--ok);border:1px solid var(--ok)}
+.b-pending{background:#e3edf7;color:var(--pending);border:1px solid var(--pending)}
+.b-todo{background:#fce6ec;color:var(--todo);border:1px solid var(--todo)}
+.b-mute{background:#f0f0f0;color:var(--mute);border:1px solid var(--mute)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:14px 0}
+.card{background:var(--cream);border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.card .n{font-size:1.5rem;font-weight:700;color:var(--brown)} .card .l{font-size:.82rem;color:var(--mute)}
+.nav-back{display:inline-block;margin-bottom:18px;color:var(--brown);text-decoration:none;font-size:.9rem}
+.nav-back:hover{text-decoration:underline}
+.cmt{font-size:.86rem;margin:3px 0;padding-left:4px}
+.cmt code{font-size:.8em}
+ul.bare{list-style:none;padding:0}</style></head><body>
+<a class="nav-back" href="index.html">← 개발일지 목록</a>
+<h1>2026-05-12 (화)</h1>
+<div class="subtitle">커밋 로그 기반 자동 재구성 (backfill) · magicJar 한국 주식 자동매매 시스템</div>
+
+<div class="grid">
+  <div class="card"><div class="n">62</div><div class="l">커밋</div></div>
+  <div class="card"><div class="n">6</div><div class="l">활동 에이전트</div></div>
+  <div class="card"><div class="n">0</div><div class="l">머지 PR</div></div>
+  <div class="card"><div class="n">301</div><div class="l">변경 파일</div></div>
+  <div class="card"><div class="n" style="color:var(--ok)">+47,969</div><div class="l">추가 라인</div></div>
+  <div class="card"><div class="n" style="color:var(--todo)">−1,120</div><div class="l">삭제 라인</div></div>
+</div>
+
+<h2>👥 에이전트별 작업</h2>
+<table><thead><tr><th>에이전트</th><th>역할</th><th>커밋</th><th>대표 작업</th></tr></thead><tbody>
+<tr><td><code>orchestrator</code></td><td>오케스트라</td><td>23</td><td>feat(scripts): sync-readme-releases.mjs — README 매트릭스 자동 갱신 (사용자 결정 정합</td></tr>
+<tr><td><code>frontend</code></td><td>프런트</td><td>13</td><td>docs(market-data): v3.5.0 baseline 03-use-sequences — T-RISK 시나리오 13·1</td></tr>
+<tr><td><code>architect</code></td><td>수석 설계</td><td>11</td><td>docs(architect): ADR 0068 plan — T-O 주문 실행 (W3 네 번째 트랙)</td></tr>
+<tr><td><code>backend-core</code></td><td>백엔드 코어</td><td>7</td><td>chore(baseline): PR-53 backend-core — v3.5.0 baseline 02-data-flow + 0</td></tr>
+<tr><td><code>strategy</code></td><td>전략 엔진</td><td>5</td><td>chore(changelog): T-RISK Phase 1 strategy-engine 슬롯 in-place edit (헌법 </td></tr>
+<tr><td><code>market-data</code></td><td>시세 데이터</td><td>3</td><td>docs(market-data): v3.4.0 baseline 03-use-sequences + CHANGELOG slot (</td></tr>
+</tbody></table>
+
+<h2>📐 아키텍처 결정 (ADR)</h2><p><span class="badge b-pending">ADR 0049</span> <span class="badge b-pending">ADR 0052</span> <span class="badge b-pending">ADR 0061</span> <span class="badge b-pending">ADR 0064</span> <span class="badge b-pending">ADR 0066</span> <span class="badge b-pending">ADR 0067</span> <span class="badge b-pending">ADR 0068</span></p>
+
+<h2>🗄️ DB 스키마 (Flyway)</h2><p><code>V12__backtest_run.sql</code> · <code>V13__backtest_trade_position.sql</code> · <code>V14__strategy_status_codes_intervals.sql</code> · <code>V15__signal.sql</code> · <code>V16__risk_config.sql</code> · <code>V17__risk_event.sql</code> · <code>V18__position.sql</code> · <code>V19__signal_risk_status.sql</code></p>
+
+<h2>🧩 모듈별 변경 파일</h2>
+<p><span class="badge b-mute">_workspace · 198</span> <span class="badge b-mute">api · 52</span> <span class="badge b-mute">frontend · 44</span> <span class="badge b-mute">root · 39</span> <span class="badge b-mute">domain · 24</span> <span class="badge b-mute">consumer · 23</span> <span class="badge b-mute">docs · 13</span> <span class="badge b-mute">scripts · 5</span> <span class="badge b-mute">.github · 1</span></p>
+
+<h2>📝 주요 커밋 (변경량 상위)</h2>
+<ul class="bare">
+<li class="cmt"><span class="badge b-mute">orchestrator</span> chore(baseline): v3.5.0 html 변환 + task archive <code>d5414aa</code> <span style="color:var(--mute)">+5444/−36</span></li>
+<li class="cmt"><span class="badge b-mute">orchestrator</span> chore(baseline): v3.4.0 html 변환 + task archive 4건 <code>bc3a910</code> <span style="color:var(--mute)">+5247/−0</span></li>
+<li class="cmt"><span class="badge b-mute">orchestrator</span> chore(baseline): v3.3.0 html 변환 + task archive 4건 <code>b7b629d</code> <span style="color:var(--mute)">+4238/−6</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> chore(baseline): PR-53 backend-core — v3.5.0 baseline 02-data-flow + 04-feature-spec <code>60ac6ab</code> <span style="color:var(--mute)">+1612/−1</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(api): T-BT R2 — 백테스트 결과 영속 + REST 5 endpoint + ADR 0061 (backend-core) <code>14f8226</code> <span style="color:var(--mute)">+1591/−5</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> feat(frontend): T-BT R3 — /strategy/backtest 페이지 + 6 컴포넌트 + LWC equity curve <code>71fdb75</code> <span style="color:var(--mute)">+1589/−1</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(api): T-RISK Phase 2 — Flyway V16~V19 + JPA 3쌍 + REST 7 + StompRiskNotifier <code>da1c9c4</code> <span style="color:var(--mute)">+1568/−2</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(api): T-SIG Phase 2 — Flyway V14·V15 + JPA + REST 8 endpoint + RedisStrategyCache + StompSignalDispatcher <code>bcd31a9</code> <span style="color:var(--mute)">+1537/−11</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> feat(frontend): T-RISK Phase 3 — /risk-config + /risk-events + /positions 3 페이지 + useStompRisk 토스트 (ADR 0067 F <code>1bb1269</code> <span style="color:var(--mute)">+1537/−2</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> feat(frontend): T-SIG Phase 3 — /strategy/list + 5 컴포넌트 + REST hook + useStompSignal 토스트 (ADR 0066 D-1 채택) <code>f91c182</code> <span style="color:var(--mute)">+1458/−1</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> docs(baseline): PR-51 architect — v3.4.0 baseline 4 파일 (README + 01 + 06 + 07) <code>2d403b4</code> <span style="color:var(--mute)">+1431/−24</span></li>
+<li class="cmt"><span class="badge b-mute">orchestrator</span> docs(baseline): PR-53 architect — v3.5.0 baseline 4 파일 (README + 01-architecture + 06-history + 07-policy) <code>9ca402e</code> <span style="color:var(--mute)">+1382/−16</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> chore(baseline): PR-51 backend-core — v3.4.0 baseline 02-data-flow + 04-feature-spec <code>454ceb9</code> <span style="color:var(--mute)">+1369/−1</span></li>
+<li class="cmt"><span class="badge b-mute">market-data</span> feat(market-data): ADR 0064 §34 boundary fanout + STOMP 실시간 합산 갱신 구현 <code>d6f0249</code> <span style="color:var(--mute)">+1296/−0</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> docs(market-data): v3.5.0 baseline 03-use-sequences — T-RISK 시나리오 13·14 신규 추가 <code>1be6b70</code> <span style="color:var(--mute)">+1252/−1</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> docs(baseline): PR-49 architect — v3.3.0 baseline 4 파일 (README + 01-architecture + 06-history + 07-policy) <code>edc16de</code> <span style="color:var(--mute)">+1181/−24</span></li>
+</ul>
+
+
+
+<footer style="margin-top:40px;padding-top:14px;border-top:1px solid var(--line);color:#888;font-size:.82rem">
+자동 생성 · <code>scripts/gen-devlogs.mjs</code> · 비공개 레포 커밋 메타데이터 집계 (소스·시크릿 미포함)
+</footer></body></html>

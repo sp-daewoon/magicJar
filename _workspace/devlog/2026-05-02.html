@@ -1,0 +1,76 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>magicJar devlog · 2026-05-02 (토)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--brown:#5b3a1f;--cream:#fff8ed;--paper:#fafaf7;--line:#d8d4c8;--ok:#2f7a3a;--warn:#b58606;--pending:#1c5fa6;--todo:#b03060;--mute:#6a6a6a}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Pretendard","Apple SD Gothic Neo",sans-serif;background:var(--paper);color:#222;max-width:1080px;margin:0 auto;padding:36px 24px 80px;line-height:1.65}
+h1{color:var(--brown);border-bottom:2px solid var(--brown);padding-bottom:8px;margin-bottom:6px;font-size:1.55rem}
+.subtitle{color:var(--mute);font-size:.95rem;margin-bottom:24px}
+h2{color:var(--brown);margin-top:34px;border-left:4px solid var(--brown);padding-left:10px;font-size:1.15rem}
+table{width:100%;border-collapse:collapse;margin:12px 0 18px;font-size:.88rem}
+th,td{padding:6px 10px;border:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--cream);color:var(--brown);font-weight:600}
+tr:nth-child(even) td{background:#fcfcf8}
+code{background:#f3efe6;padding:1px 6px;border-radius:3px;font-size:.85em;color:#333}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.72rem;font-weight:600;margin:0 2px}
+.b-ok{background:#e3f1e6;color:var(--ok);border:1px solid var(--ok)}
+.b-pending{background:#e3edf7;color:var(--pending);border:1px solid var(--pending)}
+.b-todo{background:#fce6ec;color:var(--todo);border:1px solid var(--todo)}
+.b-mute{background:#f0f0f0;color:var(--mute);border:1px solid var(--mute)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:14px 0}
+.card{background:var(--cream);border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.card .n{font-size:1.5rem;font-weight:700;color:var(--brown)} .card .l{font-size:.82rem;color:var(--mute)}
+.nav-back{display:inline-block;margin-bottom:18px;color:var(--brown);text-decoration:none;font-size:.9rem}
+.nav-back:hover{text-decoration:underline}
+.cmt{font-size:.86rem;margin:3px 0;padding-left:4px}
+.cmt code{font-size:.8em}
+ul.bare{list-style:none;padding:0}</style></head><body>
+<a class="nav-back" href="index.html">← 개발일지 목록</a>
+<h1>2026-05-02 (토)</h1>
+<div class="subtitle">커밋 로그 기반 자동 재구성 (backfill) · magicJar 한국 주식 자동매매 시스템</div>
+
+<div class="grid">
+  <div class="card"><div class="n">25</div><div class="l">커밋</div></div>
+  <div class="card"><div class="n">2</div><div class="l">활동 에이전트</div></div>
+  <div class="card"><div class="n">0</div><div class="l">머지 PR</div></div>
+  <div class="card"><div class="n">93</div><div class="l">변경 파일</div></div>
+  <div class="card"><div class="n" style="color:var(--ok)">+9,041</div><div class="l">추가 라인</div></div>
+  <div class="card"><div class="n" style="color:var(--todo)">−150</div><div class="l">삭제 라인</div></div>
+</div>
+
+<h2>👥 에이전트별 작업</h2>
+<table><thead><tr><th>에이전트</th><th>역할</th><th>커밋</th><th>대표 작업</th></tr></thead><tbody>
+<tr><td><code>architect</code></td><td>수석 설계</td><td>24</td><td>chore(harness): 1번 트랙 dogfooding 1차 시도 + 일시 중단 기록</td></tr>
+<tr><td><code>human-lead</code></td><td>사람(지휘)</td><td>1</td><td>chore(harness): ISSUE-008 hotfix 기록 — presigned URL SignatureDoesNotMa</td></tr>
+</tbody></table>
+
+<h2>📐 아키텍처 결정 (ADR)</h2><p><span class="badge b-pending">ADR 0011</span></p>
+
+<h2>🗄️ DB 스키마 (Flyway)</h2><p><code>V9__track1_orders.sql</code></p>
+
+<h2>🧩 모듈별 변경 파일</h2>
+<p><span class="badge b-mute">consumer · 54</span> <span class="badge b-mute">domain · 11</span> <span class="badge b-mute">api · 9</span> <span class="badge b-mute">_workspace · 6</span> <span class="badge b-mute">frontend · 5</span> <span class="badge b-mute">root · 4</span> <span class="badge b-mute">docker · 4</span> <span class="badge b-mute">pyworker · 3</span> <span class="badge b-mute">batch · 2</span> <span class="badge b-mute">docs · 2</span></p>
+
+<h2>📝 주요 커밋 (변경량 상위)</h2>
+<ul class="bare">
+<li class="cmt"><span class="badge b-mute">architect</span> docs(track1): spec + plan 작성 — KIS 주문 어댑터 1차 사이클 <code>890270a</code> <span style="color:var(--mute)">+3302/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> feat(track1): 6 JpaAdapter — Order/OrderEvent/User/UserTradingConfig/DailyCounter/KillSwitch (T9/20) <code>8cd3a93</code> <span style="color:var(--mute)">+636/−74</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> feat(track1): WS Listener + REST Sweep + 멱등 dedup (T15/20) <code>d5b12ad</code> <span style="color:var(--mute)">+649/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> feat(track1): RealKisOrderAdapter — 5 메서드 + WireMock IT 6 시나리오 (T8/20) <code>a89751b</code> <span style="color:var(--mute)">+627/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> feat(track1): /api/orders + /orders 페이지 + Dashboard 수동 주문 패널 (T16/20) <code>3bb4528</code> <span style="color:var(--mute)">+626/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> feat(track1): MockOrderSender + KisOrderSender + Profile 분기 + BootLogger (T12/20) <code>7139836</code> <span style="color:var(--mute)">+437/−23</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> feat(track1): Guard chain — KillSwitch + DailyLimit + PriceSanity (T11/20) <code>2537cbf</code> <span style="color:var(--mute)">+387/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> feat(track1): domain — KisOrderPort·OrderRepository·User·KisCredentialProvider (T7/20) <code>0b1a2af</code> <span style="color:var(--mute)">+298/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> feat(track1): V9 Flyway — orders·events·user_trading_config·guards (T1/20) <code>993c165</code> <span style="color:var(--mute)">+295/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> feat(track1): KisWsSession + AES256 decoder + 체결통보 raw 26-col (T5/20) <code>6017626</code> <span style="color:var(--mute)">+281/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> feat(track1): MasterKeyValidator + InitialUserSeeder + ConsumerKisConfig (T3/20) <code>52a4bcd</code> <span style="color:var(--mute)">+279/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> fix(pyworker): ISSUE-008 — presigned URL SignatureDoesNotMatch hotfix <code>c18c3e7</code> <span style="color:var(--mute)">+188/−37</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> feat(track1): KisHttpSession — REST 토큰 캐시·재발급·executeWithRetry (T4/20) <code>fcdba99</code> <span style="color:var(--mute)">+208/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> docs(track1): 운영 가이드 — order-policy.md (T18/20) <code>372e0d5</code> <span style="color:var(--mute)">+181/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> feat(track1): OrderDispatcherListener — BrokerGateway → OrderSender (T14/20) <code>a2adcd1</code> <span style="color:var(--mute)">+115/−11</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> feat(track1): SecretCipher 도메인 추상 + AES-GCM 구현 (T2/20) <code>2f53dca</code> <span style="color:var(--mute)">+105/−0</span></li>
+</ul>
+
+
+
+<footer style="margin-top:40px;padding-top:14px;border-top:1px solid var(--line);color:#888;font-size:.82rem">
+자동 생성 · <code>scripts/gen-devlogs.mjs</code> · 비공개 레포 커밋 메타데이터 집계 (소스·시크릿 미포함)
+</footer></body></html>

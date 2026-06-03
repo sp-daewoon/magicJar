@@ -1,0 +1,77 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>magicJar devlog · 2026-05-17 (일)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--brown:#5b3a1f;--cream:#fff8ed;--paper:#fafaf7;--line:#d8d4c8;--ok:#2f7a3a;--warn:#b58606;--pending:#1c5fa6;--todo:#b03060;--mute:#6a6a6a}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Pretendard","Apple SD Gothic Neo",sans-serif;background:var(--paper);color:#222;max-width:1080px;margin:0 auto;padding:36px 24px 80px;line-height:1.65}
+h1{color:var(--brown);border-bottom:2px solid var(--brown);padding-bottom:8px;margin-bottom:6px;font-size:1.55rem}
+.subtitle{color:var(--mute);font-size:.95rem;margin-bottom:24px}
+h2{color:var(--brown);margin-top:34px;border-left:4px solid var(--brown);padding-left:10px;font-size:1.15rem}
+table{width:100%;border-collapse:collapse;margin:12px 0 18px;font-size:.88rem}
+th,td{padding:6px 10px;border:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--cream);color:var(--brown);font-weight:600}
+tr:nth-child(even) td{background:#fcfcf8}
+code{background:#f3efe6;padding:1px 6px;border-radius:3px;font-size:.85em;color:#333}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.72rem;font-weight:600;margin:0 2px}
+.b-ok{background:#e3f1e6;color:var(--ok);border:1px solid var(--ok)}
+.b-pending{background:#e3edf7;color:var(--pending);border:1px solid var(--pending)}
+.b-todo{background:#fce6ec;color:var(--todo);border:1px solid var(--todo)}
+.b-mute{background:#f0f0f0;color:var(--mute);border:1px solid var(--mute)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:14px 0}
+.card{background:var(--cream);border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.card .n{font-size:1.5rem;font-weight:700;color:var(--brown)} .card .l{font-size:.82rem;color:var(--mute)}
+.nav-back{display:inline-block;margin-bottom:18px;color:var(--brown);text-decoration:none;font-size:.9rem}
+.nav-back:hover{text-decoration:underline}
+.cmt{font-size:.86rem;margin:3px 0;padding-left:4px}
+.cmt code{font-size:.8em}
+ul.bare{list-style:none;padding:0}</style></head><body>
+<a class="nav-back" href="index.html">← 개발일지 목록</a>
+<h1>2026-05-17 (일)</h1>
+<div class="subtitle">커밋 로그 기반 자동 재구성 (backfill) · magicJar 한국 주식 자동매매 시스템</div>
+
+<div class="grid">
+  <div class="card"><div class="n">17</div><div class="l">커밋</div></div>
+  <div class="card"><div class="n">3</div><div class="l">활동 에이전트</div></div>
+  <div class="card"><div class="n">0</div><div class="l">머지 PR</div></div>
+  <div class="card"><div class="n">76</div><div class="l">변경 파일</div></div>
+  <div class="card"><div class="n" style="color:var(--ok)">+6,165</div><div class="l">추가 라인</div></div>
+  <div class="card"><div class="n" style="color:var(--todo)">−444</div><div class="l">삭제 라인</div></div>
+</div>
+
+<h2>👥 에이전트별 작업</h2>
+<table><thead><tr><th>에이전트</th><th>역할</th><th>커밋</th><th>대표 작업</th></tr></thead><tbody>
+<tr><td><code>orchestrator</code></td><td>오케스트라</td><td>11</td><td>chore(meta): T-20260517-2047 archive — PR #465 머지 후속 (헌법 §2 4단계)</td></tr>
+<tr><td><code>market-data</code></td><td>시세 데이터</td><td>4</td><td>chore(release): v3.6.11 cut 후속 — README releases 매트릭스 + master.html 첫 </td></tr>
+<tr><td><code>architect</code></td><td>수석 설계</td><td>2</td><td>arch(adr): ADR 0077 발행 — OPSP8996 ERROR 재발 deep dive (v3.6.11 hotfix)</td></tr>
+</tbody></table>
+
+<h2>📐 아키텍처 결정 (ADR)</h2><p><span class="badge b-pending">ADR 0077</span> <span class="badge b-pending">ADR 0079</span></p>
+
+
+
+<h2>🧩 모듈별 변경 파일</h2>
+<p><span class="badge b-mute">_workspace · 70</span> <span class="badge b-mute">root · 11</span> <span class="badge b-mute">scripts · 5</span> <span class="badge b-mute">consumer · 4</span> <span class="badge b-mute">docs · 1</span> <span class="badge b-mute">.claude · 1</span></p>
+
+<h2>📝 주요 커밋 (변경량 상위)</h2>
+<ul class="bare">
+<li class="cmt"><span class="badge b-mute">orchestrator</span> feat(meta): master HTML Phase 1 — 뼈대 + 6 카테고리 + layout + slash command <code>7e7f652</code> <span style="color:var(--mute)">+1756/−0</span></li>
+<li class="cmt"><span class="badge b-mute">orchestrator</span> docs(plan): magicJar master HTML implementation plan — Phase 1·2·3 task 매트릭스 <code>640a0f9</code> <span style="color:var(--mute)">+1752/−0</span></li>
+<li class="cmt"><span class="badge b-mute">orchestrator</span> feat(meta): master HTML Phase 2 — 나머지 6 카테고리 + banner + 인터랙션 <code>ffc8891</code> <span style="color:var(--mute)">+847/−12</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> arch(adr): ADR 0077 발행 — OPSP8996 ERROR 재발 deep dive (v3.6.11 hotfix) <code>02ce15e</code> <span style="color:var(--mute)">+477/−2</span></li>
+<li class="cmt"><span class="badge b-mute">orchestrator</span> chore(meta): task 파일 일괄 archive 43건 — v3.6.10 patch 정리 <code>865862b</code> <span style="color:var(--mute)">+70/−291</span></li>
+<li class="cmt"><span class="badge b-mute">orchestrator</span> docs(spec): magicJar master HTML 설계 명세 — Q1~Q8 사용자 결정 8회 종합 <code>cc1e9a6</code> <span style="color:var(--mute)">+307/−0</span></li>
+<li class="cmt"><span class="badge b-mute">market-data</span> fix(market-data): OPSP8996 ERROR 재발 fix (ADR 0077 G-1+H-1+I-1+J-1) <code>52ac40c</code> <span style="color:var(--mute)">+229/−25</span></li>
+<li class="cmt"><span class="badge b-mute">market-data</span> chore(market-data): CHANGELOG v3.6.11 hotfix row + task 파일 + OpspFix 신규 테스트 <code>8da3c4e</code> <span style="color:var(--mute)">+247/−0</span></li>
+<li class="cmt"><span class="badge b-mute">orchestrator</span> feat(meta): master HTML Phase 3 — unit test 9건 + release.sh 통합 + ADR 0079 발행 <code>988bb71</code> <span style="color:var(--mute)">+192/−13</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> arch(meta): ADR README 큰 정리 (v3.6.10 patch) <code>48333a2</code> <span style="color:var(--mute)">+114/−55</span></li>
+<li class="cmt"><span class="badge b-mute">market-data</span> chore(release): v3.6.11 cut 후속 — README releases 매트릭스 + master.html 첫 자동 갱신 evidence + task archive <code>c4a45e9</code> <span style="color:var(--mute)">+53/−38</span></li>
+<li class="cmt"><span class="badge b-mute">orchestrator</span> chore(release): v3.6.10 patch cut 정리 — CHANGELOG row + backlog §56·§57 <code>9b55071</code> <span style="color:var(--mute)">+68/−0</span></li>
+<li class="cmt"><span class="badge b-mute">market-data</span> chore(release): v3.6.11 cut prep — CHANGELOG row + backlog §56 Done + §58 신규 <code>804fb3f</code> <span style="color:var(--mute)">+31/−2</span></li>
+<li class="cmt"><span class="badge b-mute">orchestrator</span> docs(readme): 최상단 master.html link 박스 추가 — ADR 0079 마스터 시각화 진입점 <code>a8aa2fa</code> <span style="color:var(--mute)">+15/−0</span></li>
+<li class="cmt"><span class="badge b-mute">orchestrator</span> chore(meta): T-20260517-2047 archive — PR #465 머지 후속 (헌법 §2 4단계) <code>66b3a1a</code> <span style="color:var(--mute)">+4/−4</span></li>
+<li class="cmt"><span class="badge b-mute">orchestrator</span> chore(meta): task T-20260517-1138 통합 archive — PR #455 후속 정리 <code>3532a19</code> <span style="color:var(--mute)">+2/−2</span></li>
+</ul>
+
+
+
+<footer style="margin-top:40px;padding-top:14px;border-top:1px solid var(--line);color:#888;font-size:.82rem">
+자동 생성 · <code>scripts/gen-devlogs.mjs</code> · 비공개 레포 커밋 메타데이터 집계 (소스·시크릿 미포함)
+</footer></body></html>

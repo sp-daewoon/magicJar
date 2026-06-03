@@ -1,0 +1,80 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>magicJar devlog · 2026-05-20 (수)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--brown:#5b3a1f;--cream:#fff8ed;--paper:#fafaf7;--line:#d8d4c8;--ok:#2f7a3a;--warn:#b58606;--pending:#1c5fa6;--todo:#b03060;--mute:#6a6a6a}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Pretendard","Apple SD Gothic Neo",sans-serif;background:var(--paper);color:#222;max-width:1080px;margin:0 auto;padding:36px 24px 80px;line-height:1.65}
+h1{color:var(--brown);border-bottom:2px solid var(--brown);padding-bottom:8px;margin-bottom:6px;font-size:1.55rem}
+.subtitle{color:var(--mute);font-size:.95rem;margin-bottom:24px}
+h2{color:var(--brown);margin-top:34px;border-left:4px solid var(--brown);padding-left:10px;font-size:1.15rem}
+table{width:100%;border-collapse:collapse;margin:12px 0 18px;font-size:.88rem}
+th,td{padding:6px 10px;border:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--cream);color:var(--brown);font-weight:600}
+tr:nth-child(even) td{background:#fcfcf8}
+code{background:#f3efe6;padding:1px 6px;border-radius:3px;font-size:.85em;color:#333}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.72rem;font-weight:600;margin:0 2px}
+.b-ok{background:#e3f1e6;color:var(--ok);border:1px solid var(--ok)}
+.b-pending{background:#e3edf7;color:var(--pending);border:1px solid var(--pending)}
+.b-todo{background:#fce6ec;color:var(--todo);border:1px solid var(--todo)}
+.b-mute{background:#f0f0f0;color:var(--mute);border:1px solid var(--mute)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:14px 0}
+.card{background:var(--cream);border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.card .n{font-size:1.5rem;font-weight:700;color:var(--brown)} .card .l{font-size:.82rem;color:var(--mute)}
+.nav-back{display:inline-block;margin-bottom:18px;color:var(--brown);text-decoration:none;font-size:.9rem}
+.nav-back:hover{text-decoration:underline}
+.cmt{font-size:.86rem;margin:3px 0;padding-left:4px}
+.cmt code{font-size:.8em}
+ul.bare{list-style:none;padding:0}</style></head><body>
+<a class="nav-back" href="index.html">← 개발일지 목록</a>
+<h1>2026-05-20 (수)</h1>
+<div class="subtitle">커밋 로그 기반 자동 재구성 (backfill) · magicJar 한국 주식 자동매매 시스템</div>
+
+<div class="grid">
+  <div class="card"><div class="n">72</div><div class="l">커밋</div></div>
+  <div class="card"><div class="n">6</div><div class="l">활동 에이전트</div></div>
+  <div class="card"><div class="n">1</div><div class="l">머지 PR</div></div>
+  <div class="card"><div class="n">270</div><div class="l">변경 파일</div></div>
+  <div class="card"><div class="n" style="color:var(--ok)">+18,225</div><div class="l">추가 라인</div></div>
+  <div class="card"><div class="n" style="color:var(--todo)">−1,274</div><div class="l">삭제 라인</div></div>
+</div>
+
+<h2>👥 에이전트별 작업</h2>
+<table><thead><tr><th>에이전트</th><th>역할</th><th>커밋</th><th>대표 작업</th></tr></thead><tbody>
+<tr><td><code>backend-core</code></td><td>백엔드 코어</td><td>29</td><td>hotfix(backend-core): order FILLED stomp_event qty/executedQty 매핑 누락 f</td></tr>
+<tr><td><code>frontend</code></td><td>프런트</td><td>15</td><td>feat(frontend): KIS WS health indicator + 끊김 toast (STOMP indicator와 분</td></tr>
+<tr><td><code>orchestrator</code></td><td>오케스트라</td><td>11</td><td>Archive mock reconcile backfill task</td></tr>
+<tr><td><code>strategy</code></td><td>전략 엔진</td><td>7</td><td>test(strategy-engine): RealtimeSignalGenerator + ConsumerStrategyLooku</td></tr>
+<tr><td><code>architect</code></td><td>수석 설계</td><td>5</td><td>docs(architect): system event log P3 implementation plan (재정의 — 의제 B +</td></tr>
+<tr><td><code>chart-curator</code></td><td>차트</td><td>5</td><td>feat(chart-curator): Phase 5 LWC 가드 3단 + max cap toast + 한국석유 dogfoodi</td></tr>
+</tbody></table>
+
+<h2>📐 아키텍처 결정 (ADR)</h2><p><span class="badge b-pending">ADR 0019</span> <span class="badge b-pending">ADR 0028</span> <span class="badge b-pending">ADR 0063</span> <span class="badge b-pending">ADR 0091</span> <span class="badge b-pending">ADR 0092</span> <span class="badge b-pending">ADR 0093</span></p>
+
+<h2>🗄️ DB 스키마 (Flyway)</h2><p><code>V43__order_request_add_strategy_id.sql</code> · <code>V44__system_event.sql</code></p>
+
+<h2>🧩 모듈별 변경 파일</h2>
+<p><span class="badge b-mute">consumer · 99</span> <span class="badge b-mute">api · 89</span> <span class="badge b-mute">frontend · 67</span> <span class="badge b-mute">_workspace · 48</span> <span class="badge b-mute">{consumer · 14</span> <span class="badge b-mute">root · 13</span> <span class="badge b-mute">persistence-shared · 13</span> <span class="badge b-mute">domain · 10</span> <span class="badge b-mute">batch · 10</span> <span class="badge b-mute">docs · 5</span> <span class="badge b-mute">strategy-engine · 2</span></p>
+
+<h2>📝 주요 커밋 (변경량 상위)</h2>
+<ul class="bare">
+<li class="cmt"><span class="badge b-mute">strategy</span> fix(orchestrator): harden autotrading and cancel flows <code>7c1b59a</code> <span style="color:var(--mute)">+1287/−42</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> docs(architect): system event log P2 implementation plan (writing-plans) <code>7fbef5a</code> <span style="color:var(--mute)">+991/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> docs(architect): system event log P1 implementation plan (writing-plans output) <code>c8a8f0f</code> <span style="color:var(--mute)">+938/−0</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> fix(api): T-1·2·3·4 KIS 토큰 cache prefix 통합 + 동적 TTL + 분산락 + C-2 Account cache 5s 단축 (502 root cause fix) <code>e15ee31</code> <span style="color:var(--mute)">+637/−288</span></li>
+<li class="cmt"><span class="badge b-mute">strategy</span> fix(market-data): D Rate Limit Phase 2 마감 + try-finally drift 차단 <code>7013711</code> <span style="color:var(--mute)">+724/−49</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> docs(architect): system event log P3 implementation plan (재정의 — 의제 B + Gap 1 + catalog) <code>2d05472</code> <span style="color:var(--mute)">+768/−0</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(backend-core): Phase 3 chart MAX_PAGES property + /candles limit cap 5000 (ADR 0093) <code>5c4df02</code> <span style="color:var(--mute)">+690/−31</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> feat(frontend): KIS WS health indicator + 끊김 toast (STOMP indicator와 분리) <code>368555e</code> <span style="color:var(--mute)">+679/−1</span></li>
+<li class="cmt"><span class="badge b-mute">strategy</span> test(strategy-engine): RealtimeSignalGenerator + ConsumerStrategyLookup + ConsumerSignal test coverage <code>399e474</code> <span style="color:var(--mute)">+584/−0</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> feat(frontend): account balance STOMP subscribe (polling → push 전환 frontend) <code>c958135</code> <span style="color:var(--mute)">+546/−26</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> feat(frontend): Phase 4 chart CandleCountSelector UI + localStorage (ADR 0093) <code>6f9d669</code> <span style="color:var(--mute)">+562/−10</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> feat(frontend): WS 접속 상태 indicator + 끊김 toast (헤더 영구 표시) <code>ac5d927</code> <span style="color:var(--mute)">+544/−0</span></li>
+<li class="cmt"><span class="badge b-mute">chart-curator</span> docs(chart-curator): Chart Candle History Limit + Lazy Backfill spec 발행 <code>ed0ed5a</code> <span style="color:var(--mute)">+539/−0</span></li>
+<li class="cmt"><span class="badge b-mute">chart-curator</span> fix(chart-curator): resolve KIS candle market div by instrument <code>d1eb233</code> <span style="color:var(--mute)">+444/−91</span></li>
+<li class="cmt"><span class="badge b-mute">orchestrator</span> Fix mock account reconcile backfill <code>32f4a51</code> <span style="color:var(--mute)">+493/−38</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(backend-core): account balance STOMP push (polling → push 전환 backend) <code>66d6d09</code> <span style="color:var(--mute)">+481/−0</span></li>
+</ul>
+
+<h2>🔀 머지된 PR (1)</h2><p><a class="badge b-ok" href="https://github.com/sp-daewoon/magicJar/pull/594" style="text-decoration:none">#594</a></p>
+
+<footer style="margin-top:40px;padding-top:14px;border-top:1px solid var(--line);color:#888;font-size:.82rem">
+자동 생성 · <code>scripts/gen-devlogs.mjs</code> · 비공개 레포 커밋 메타데이터 집계 (소스·시크릿 미포함)
+</footer></body></html>
