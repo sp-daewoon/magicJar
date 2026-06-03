@@ -2,12 +2,30 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { ScenarioReplayPage } from '../ScenarioReplayPage'
 import { useOnboardingStore } from '../../../stores/onboarding'
 import type { ScenarioReplayRunRequestDto } from '../../../api/scenarioReplay'
+
+vi.mock('lightweight-charts', () => ({
+  createChart: () => ({
+    addCandlestickSeries: () => ({
+      setData: vi.fn(),
+      setMarkers: vi.fn(),
+    }),
+    addLineSeries: () => ({
+      setData: vi.fn(),
+    }),
+    applyOptions: vi.fn(),
+    remove: vi.fn(),
+    subscribeCrosshairMove: vi.fn(),
+    timeScale: () => ({
+      fitContent: vi.fn(),
+    }),
+  }),
+}))
 
 let lastCreateBody: ScenarioReplayRunRequestDto | null = null
 
@@ -24,7 +42,7 @@ const detailResponse = {
     initialCash: '1000000.0000',
     fillModel: 'NEXT_CANDLE_OPEN',
     status: 'SUCCESS',
-    eventCount: 3,
+    eventCount: 5,
     finalCash: '646000.0000',
     abortReason: null,
     createdAt: '2026-06-03T01:00:00Z',
@@ -34,6 +52,32 @@ const detailResponse = {
       id: 1,
       sequenceNo: 0,
       virtualTime: '2026-06-02T04:00:00Z',
+      type: 'CANDLE',
+      severity: 'INFO',
+      title: '리플레이 candle',
+      message: '가상 시각 2026-06-02T04:00:00Z candle을 평가했습니다.',
+      strategyId: 43,
+      strategyName: '모의 학습용 1분봉 MA10 터치 삼성전자',
+      code: '005930',
+      payload: { open: 351500, high: 352000, low: 351000, close: 351500 },
+    },
+    {
+      id: 2,
+      sequenceNo: 1,
+      virtualTime: '2026-06-02T04:00:00Z',
+      type: 'SIGNAL_HOLD',
+      severity: 'INFO',
+      title: '리플레이 보류 신호',
+      message: '전략 상태가 BUY_HOLD라 리플레이 가상 BUY 주문을 만들지 않았습니다.',
+      strategyId: 43,
+      strategyName: '모의 학습용 1분봉 MA10 터치 삼성전자',
+      code: '005930',
+      payload: {},
+    },
+    {
+      id: 3,
+      sequenceNo: 2,
+      virtualTime: '2026-06-02T04:01:00Z',
       type: 'SIGNAL_BUY',
       severity: 'INFO',
       title: '리플레이 매수 신호',
@@ -44,9 +88,9 @@ const detailResponse = {
       payload: {},
     },
     {
-      id: 2,
-      sequenceNo: 1,
-      virtualTime: '2026-06-02T04:01:00Z',
+      id: 4,
+      sequenceNo: 3,
+      virtualTime: '2026-06-02T04:02:00Z',
       type: 'ORDER_FILLED',
       severity: 'INFO',
       title: '가상 주문 체결',
@@ -57,9 +101,9 @@ const detailResponse = {
       payload: { side: 'BUY', quantity: 1, fillPrice: '353000' },
     },
     {
-      id: 3,
-      sequenceNo: 2,
-      virtualTime: '2026-06-02T04:02:00Z',
+      id: 5,
+      sequenceNo: 4,
+      virtualTime: '2026-06-02T04:03:00Z',
       type: 'POSITION_UPDATED',
       severity: 'INFO',
       title: '가상 포지션 갱신',
@@ -161,7 +205,26 @@ describe('ScenarioReplayPage', () => {
     expect(lastCreateBody?.faults).toEqual([])
 
     expect(await screen.findByText('가상 체결')).toBeInTheDocument()
+    expect(screen.getByText('리플레이 차트')).toBeInTheDocument()
     expect(screen.getByText(/리플레이 가상 BUY 주문/)).toBeInTheDocument()
     expect(screen.getByText('가상 포지션')).toBeInTheDocument()
+    expect(screen.queryByText('리플레이 candle')).not.toBeInTheDocument()
+    expect(screen.queryByText(/BUY_HOLD/)).not.toBeInTheDocument()
+    expect(screen.queryByText('HOLD 1')).not.toBeInTheDocument()
+    expect(screen.queryByText('보류 요약')).not.toBeInTheDocument()
+
+    await user.click(screen.getByLabelText('보류·캔들 평가 표시'))
+
+    expect(screen.getByText('리플레이 candle')).toBeInTheDocument()
+    expect(screen.getByText(/BUY_HOLD/)).toBeInTheDocument()
+    expect(screen.getByText('HOLD 1')).toBeInTheDocument()
+    expect(screen.getByText('보류 요약')).toBeInTheDocument()
+
+    await user.click(screen.getByLabelText('보류·캔들 평가 표시'))
+
+    expect(screen.queryByText('리플레이 candle')).not.toBeInTheDocument()
+    expect(screen.queryByText(/BUY_HOLD/)).not.toBeInTheDocument()
+    expect(screen.queryByText('HOLD 1')).not.toBeInTheDocument()
+    expect(screen.queryByText('보류 요약')).not.toBeInTheDocument()
   })
 })
