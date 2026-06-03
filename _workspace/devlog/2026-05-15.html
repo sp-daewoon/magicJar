@@ -1,0 +1,80 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>magicJar devlog · 2026-05-15 (금)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--brown:#5b3a1f;--cream:#fff8ed;--paper:#fafaf7;--line:#d8d4c8;--ok:#2f7a3a;--warn:#b58606;--pending:#1c5fa6;--todo:#b03060;--mute:#6a6a6a}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Pretendard","Apple SD Gothic Neo",sans-serif;background:var(--paper);color:#222;max-width:1080px;margin:0 auto;padding:36px 24px 80px;line-height:1.65}
+h1{color:var(--brown);border-bottom:2px solid var(--brown);padding-bottom:8px;margin-bottom:6px;font-size:1.55rem}
+.subtitle{color:var(--mute);font-size:.95rem;margin-bottom:24px}
+h2{color:var(--brown);margin-top:34px;border-left:4px solid var(--brown);padding-left:10px;font-size:1.15rem}
+table{width:100%;border-collapse:collapse;margin:12px 0 18px;font-size:.88rem}
+th,td{padding:6px 10px;border:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--cream);color:var(--brown);font-weight:600}
+tr:nth-child(even) td{background:#fcfcf8}
+code{background:#f3efe6;padding:1px 6px;border-radius:3px;font-size:.85em;color:#333}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.72rem;font-weight:600;margin:0 2px}
+.b-ok{background:#e3f1e6;color:var(--ok);border:1px solid var(--ok)}
+.b-pending{background:#e3edf7;color:var(--pending);border:1px solid var(--pending)}
+.b-todo{background:#fce6ec;color:var(--todo);border:1px solid var(--todo)}
+.b-mute{background:#f0f0f0;color:var(--mute);border:1px solid var(--mute)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:14px 0}
+.card{background:var(--cream);border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.card .n{font-size:1.5rem;font-weight:700;color:var(--brown)} .card .l{font-size:.82rem;color:var(--mute)}
+.nav-back{display:inline-block;margin-bottom:18px;color:var(--brown);text-decoration:none;font-size:.9rem}
+.nav-back:hover{text-decoration:underline}
+.cmt{font-size:.86rem;margin:3px 0;padding-left:4px}
+.cmt code{font-size:.8em}
+ul.bare{list-style:none;padding:0}</style></head><body>
+<a class="nav-back" href="index.html">← 개발일지 목록</a>
+<h1>2026-05-15 (금)</h1>
+<div class="subtitle">커밋 로그 기반 자동 재구성 (backfill) · magicJar 한국 주식 자동매매 시스템</div>
+
+<div class="grid">
+  <div class="card"><div class="n">38</div><div class="l">커밋</div></div>
+  <div class="card"><div class="n">6</div><div class="l">활동 에이전트</div></div>
+  <div class="card"><div class="n">0</div><div class="l">머지 PR</div></div>
+  <div class="card"><div class="n">116</div><div class="l">변경 파일</div></div>
+  <div class="card"><div class="n" style="color:var(--ok)">+12,432</div><div class="l">추가 라인</div></div>
+  <div class="card"><div class="n" style="color:var(--todo)">−504</div><div class="l">삭제 라인</div></div>
+</div>
+
+<h2>👥 에이전트별 작업</h2>
+<table><thead><tr><th>에이전트</th><th>역할</th><th>커밋</th><th>대표 작업</th></tr></thead><tbody>
+<tr><td><code>market-data</code></td><td>시세 데이터</td><td>17</td><td>feat(market-data): ADR 0076 Phase 3 B-2 — H0STOUP0 시간외 단일가 16:00~18:00</td></tr>
+<tr><td><code>backend-core</code></td><td>백엔드 코어</td><td>6</td><td>fix(backend-core): SymbolDisclosure·SymbolNews from/to LocalDate 수신 — </td></tr>
+<tr><td><code>orchestrator</code></td><td>오케스트라</td><td>5</td><td>chore(release): v3.6.9 README releases 매트릭스 — ADR 0076 Phase 1·2·3</td></tr>
+<tr><td><code>frontend</code></td><td>프런트</td><td>5</td><td>fix(frontend): 뉴스·공시 panel useInfiniteQuery 누적 append + 스크롤 (dogfoodin</td></tr>
+<tr><td><code>architect</code></td><td>수석 설계</td><td>4</td><td>chore(meta): task done — ADR 0076 KIS WS NXT/시간외 표준 정합 분석 (PR #447)</td></tr>
+<tr><td><code>strategy</code></td><td>전략 엔진</td><td>1</td><td>fix(strategy): IndicatorSource Redis live 1d 합류 — 자동매매 sync critical h</td></tr>
+</tbody></table>
+
+<h2>📐 아키텍처 결정 (ADR)</h2><p><span class="badge b-pending">ADR 0075</span> <span class="badge b-pending">ADR 0076</span></p>
+
+<h2>🗄️ DB 스키마 (Flyway)</h2><p><code>V32__t_news_disclosure_table.sql</code> · <code>V33__t_news_article_table.sql</code></p>
+
+<h2>🧩 모듈별 변경 파일</h2>
+<p><span class="badge b-mute">api · 49</span> <span class="badge b-mute">consumer · 43</span> <span class="badge b-mute">frontend · 35</span> <span class="badge b-mute">root · 24</span> <span class="badge b-mute">_workspace · 21</span> <span class="badge b-mute">domain · 3</span> <span class="badge b-mute">docs · 3</span></p>
+
+<h2>📝 주요 커밋 (변경량 상위)</h2>
+<ul class="bare">
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(backend-core): ADR 0074 Phase 1 — KIS 키 변경 PUT/GET/DELETE + KillSwitch 수동 토글 + Kafka system.kis-key-chang <code>d39f481</code> <span style="color:var(--mute)">+1777/−2</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(backend-core): T-NEWS Phase 2 — Naver Open API + Flyway V33 news_article + Kafka news.collected.v1 + REST <code>6837b91</code> <span style="color:var(--mute)">+1608/−3</span></li>
+<li class="cmt"><span class="badge b-mute">market-data</span> feat(market-data): T-NEWS Phase 1 — DART 1분 폴링 강화 + Flyway V32 disclosure + Kafka disclosure.new.v1 + REST /di <code>4d87a15</code> <span style="color:var(--mute)">+1269/−1</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> arch(news): T-NEWS 트랙 진입 spec/plan (ADR 0075) — 사용자 결정 8 의제 채택 + v3.6.7 patch <code>add4393</code> <span style="color:var(--mute)">+1253/−15</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> feat(frontend): ADR 0074 Phase 2 — SettingsModal KIS 키 변경 활성화 + KillSwitch Section + ConfirmDangerToggle 실구현 <code>1e557b4</code> <span style="color:var(--mute)">+965/−89</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> feat(frontend): T-NEWS Phase 3 — 종목 상세 sidebar 뉴스/공시 panel + 60s polling (ADR 0075 Phase 3) — T-NEWS 종착 <code>c5b0c8c</code> <span style="color:var(--mute)">+1023/−1</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> arch(kis-ws): NXT/시간외 시세 sync KIS 표준 패턴 분석 (ADR 0076) — 누적 hotfix root cause 정합 <code>bce55b2</code> <span style="color:var(--mute)">+631/−4</span></li>
+<li class="cmt"><span class="badge b-mute">market-data</span> feat(market-data): ADR 0076 Phase 3 B-2 — H0STOUP0 시간외 단일가 16:00~18:00 dynamic subscribe <code>659ccda</code> <span style="color:var(--mute)">+606/−4</span></li>
+<li class="cmt"><span class="badge b-mute">market-data</span> fix(market-data): KisAuthAdapter in-process mutex — EGW00133 1분 1회 한도 hotfix <code>f489af6</code> <span style="color:var(--mute)">+438/−83</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> fix(frontend): 뉴스·공시 panel useInfiniteQuery 누적 append + 스크롤 (dogfooding hotfix) <code>ff1a001</code> <span style="color:var(--mute)">+331/−169</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(consumer): ADR 0074 Phase 3 — KIS 키 변경 Kafka listener + WS graceful reconnect <code>9ec4f19</code> <span style="color:var(--mute)">+444/−1</span></li>
+<li class="cmt"><span class="badge b-mute">strategy</span> fix(strategy): IndicatorSource Redis live 1d 합류 — 자동매매 sync critical hotfix <code>2eb0887</code> <span style="color:var(--mute)">+380/−3</span></li>
+<li class="cmt"><span class="badge b-mute">market-data</span> fix(market-data): KIS WS H0NXCNT0 NXT 구독 추가 — 장외 sync 결함 hotfix (ADR 0063 정합) <code>8871e67</code> <span style="color:var(--mute)">+283/−16</span></li>
+<li class="cmt"><span class="badge b-mute">market-data</span> fix(market-data): ADR 0076 Phase 1 A-1+F-1 — approval_key 24h reuse 복원 + OPSP8996 self-heal retry <code>089045a</code> <span style="color:var(--mute)">+239/−41</span></li>
+<li class="cmt"><span class="badge b-mute">market-data</span> fix(market-data): ADR 0076 Phase 2 D-1+E-1 — heartbeat 30s/60s + destroy unsubscribe ACK 2s <code>3315c75</code> <span style="color:var(--mute)">+233/−8</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> fix(frontend): 차트 STOMP tick → 마지막 bar 실시간 update — 자본 보호 critical sync hotfix <code>7f2bdf1</code> <span style="color:var(--mute)">+180/−2</span></li>
+</ul>
+
+
+
+<footer style="margin-top:40px;padding-top:14px;border-top:1px solid var(--line);color:#888;font-size:.82rem">
+자동 생성 · <code>scripts/gen-devlogs.mjs</code> · 비공개 레포 커밋 메타데이터 집계 (소스·시크릿 미포함)
+</footer></body></html>

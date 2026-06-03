@@ -1,0 +1,80 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>magicJar devlog · 2026-05-03 (일)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--brown:#5b3a1f;--cream:#fff8ed;--paper:#fafaf7;--line:#d8d4c8;--ok:#2f7a3a;--warn:#b58606;--pending:#1c5fa6;--todo:#b03060;--mute:#6a6a6a}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Pretendard","Apple SD Gothic Neo",sans-serif;background:var(--paper);color:#222;max-width:1080px;margin:0 auto;padding:36px 24px 80px;line-height:1.65}
+h1{color:var(--brown);border-bottom:2px solid var(--brown);padding-bottom:8px;margin-bottom:6px;font-size:1.55rem}
+.subtitle{color:var(--mute);font-size:.95rem;margin-bottom:24px}
+h2{color:var(--brown);margin-top:34px;border-left:4px solid var(--brown);padding-left:10px;font-size:1.15rem}
+table{width:100%;border-collapse:collapse;margin:12px 0 18px;font-size:.88rem}
+th,td{padding:6px 10px;border:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--cream);color:var(--brown);font-weight:600}
+tr:nth-child(even) td{background:#fcfcf8}
+code{background:#f3efe6;padding:1px 6px;border-radius:3px;font-size:.85em;color:#333}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.72rem;font-weight:600;margin:0 2px}
+.b-ok{background:#e3f1e6;color:var(--ok);border:1px solid var(--ok)}
+.b-pending{background:#e3edf7;color:var(--pending);border:1px solid var(--pending)}
+.b-todo{background:#fce6ec;color:var(--todo);border:1px solid var(--todo)}
+.b-mute{background:#f0f0f0;color:var(--mute);border:1px solid var(--mute)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:14px 0}
+.card{background:var(--cream);border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.card .n{font-size:1.5rem;font-weight:700;color:var(--brown)} .card .l{font-size:.82rem;color:var(--mute)}
+.nav-back{display:inline-block;margin-bottom:18px;color:var(--brown);text-decoration:none;font-size:.9rem}
+.nav-back:hover{text-decoration:underline}
+.cmt{font-size:.86rem;margin:3px 0;padding-left:4px}
+.cmt code{font-size:.8em}
+ul.bare{list-style:none;padding:0}</style></head><body>
+<a class="nav-back" href="index.html">← 개발일지 목록</a>
+<h1>2026-05-03 (일)</h1>
+<div class="subtitle">커밋 로그 기반 자동 재구성 (backfill) · magicJar 한국 주식 자동매매 시스템</div>
+
+<div class="grid">
+  <div class="card"><div class="n">49</div><div class="l">커밋</div></div>
+  <div class="card"><div class="n">6</div><div class="l">활동 에이전트</div></div>
+  <div class="card"><div class="n">0</div><div class="l">머지 PR</div></div>
+  <div class="card"><div class="n">644</div><div class="l">변경 파일</div></div>
+  <div class="card"><div class="n" style="color:var(--ok)">+52,275</div><div class="l">추가 라인</div></div>
+  <div class="card"><div class="n" style="color:var(--todo)">−1,382</div><div class="l">삭제 라인</div></div>
+</div>
+
+<h2>👥 에이전트별 작업</h2>
+<table><thead><tr><th>에이전트</th><th>역할</th><th>커밋</th><th>대표 작업</th></tr></thead><tbody>
+<tr><td><code>architect</code></td><td>수석 설계</td><td>22</td><td>fix(api): ETF 필터 보강 — UNICORN·KIWOOM·액티브·합성·커버드콜 등 추가</td></tr>
+<tr><td><code>backend-core</code></td><td>백엔드 코어</td><td>10</td><td>chore(task): T-20260503-2052-main DONE — PR #103</td></tr>
+<tr><td><code>market-data</code></td><td>시세 데이터</td><td>6</td><td>feat(market-data): T20·T21 백엔드 R1 — 종목 상세 + 시장 지수 API</td></tr>
+<tr><td><code>frontend</code></td><td>프런트</td><td>5</td><td>feat(frontend): T20-T6·T7 헤더 검색창 + SymbolDetail 메타 패널, T21-T4 Dashboar</td></tr>
+<tr><td><code>strategy</code></td><td>전략 엔진</td><td>5</td><td>feat(track11-r1): Signal Engine 룰 매칭 + Kafka 발행 + STOMP fanout (ADR 00</td></tr>
+<tr><td><code>ai</code></td><td>AI</td><td>1</td><td>feat(track16-r1): AI 분석 보조 (사용자 트리거 한정, ADR 0046)</td></tr>
+</tbody></table>
+
+<h2>📐 아키텍처 결정 (ADR)</h2><p><span class="badge b-pending">ADR 0031</span> <span class="badge b-pending">ADR 0032</span> <span class="badge b-pending">ADR 0033</span> <span class="badge b-pending">ADR 0034</span> <span class="badge b-pending">ADR 0035</span> <span class="badge b-pending">ADR 0036</span> <span class="badge b-pending">ADR 0037</span> <span class="badge b-pending">ADR 0038</span> <span class="badge b-pending">ADR 0039</span> <span class="badge b-pending">ADR 0040</span> <span class="badge b-pending">ADR 0041</span> <span class="badge b-pending">ADR 0042</span> <span class="badge b-pending">ADR 0043</span> <span class="badge b-pending">ADR 0044</span> <span class="badge b-pending">ADR 0045</span> <span class="badge b-pending">ADR 0046</span> <span class="badge b-pending">ADR 0047</span> <span class="badge b-pending">ADR 0048</span></p>
+
+<h2>🗄️ DB 스키마 (Flyway)</h2><p><code>V0__init.sql</code> · <code>V10__market_calendar.sql</code> · <code>V11__order_reject_audit.sql</code> · <code>V12__instrument_master.sql</code> · <code>V13__corp_action.sql</code> · <code>V14__candle_adjusted_columns.sql</code> · <code>V15__backtest_trade_and_equity.sql</code> · <code>V16__screener.sql</code> · <code>V17__ai_analysis_log.sql</code> · <code>V18__mcp_call_log.sql</code> · <code>V19__instrument_cache_meta.sql</code> · <code>V1__market_data.sql</code> · <code>V2__strategy_journal.sql</code> · <code>V3__seed_instruments.sql</code></p>
+
+<h2>🧩 모듈별 변경 파일</h2>
+<p><span class="badge b-mute">_workspace · 221</span> <span class="badge b-mute">api · 193</span> <span class="badge b-mute">domain · 92</span> <span class="badge b-mute">frontend · 90</span> <span class="badge b-mute">consumer · 58</span> <span class="badge b-mute">batch · 36</span> <span class="badge b-mute">docs · 13</span> <span class="badge b-mute">docker · 4</span> <span class="badge b-mute">root · 4</span> <span class="badge b-mute">.claude · 2</span></p>
+
+<h2>📝 주요 커밋 (변경량 상위)</h2>
+<ul class="bare">
+<li class="cmt"><span class="badge b-mute">architect</span> feat(v2-baseline): 마스터 아키텍처 v2 + ADR 17건 발행 + legacy 청소 <code>d72e8ea</code> <span style="color:var(--mute)">+6698/−538</span></li>
+<li class="cmt"><span class="badge b-mute">strategy</span> feat(track7-r1): Strategy DSL .kis.yaml superset + parser/validator/evaluator + 10 프리셋 (ADR 0040) <code>d22ea86</code> <span style="color:var(--mute)">+3856/−0</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> feat(track8-r1): Strategy Builder UI GUI 블록 빌더 1차 (ADR 0036 대안 D) <code>fbd3eb2</code> <span style="color:var(--mute)">+3017/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> feat(track17-r1): MCP 서버 노출 — read·analysis tool 5종 (ADR 0045) <code>51da315</code> <span style="color:var(--mute)">+2790/−0</span></li>
+<li class="cmt"><span class="badge b-mute">market-data</span> feat(track4-r1): KIS Corp Action + raw/adjusted price + 룩어헤드 차단 (ADR 0038) <code>3048107</code> <span style="color:var(--mute)">+2554/−0</span></li>
+<li class="cmt"><span class="badge b-mute">strategy</span> feat(track9-r1): Backtest Engine 강화 + 비용 모델 + 성과 지표 (ADR 0040·0041) <code>84ccca9</code> <span style="color:var(--mute)">+2547/−2</span></li>
+<li class="cmt"><span class="badge b-mute">ai</span> feat(track16-r1): AI 분석 보조 (사용자 트리거 한정, ADR 0046) <code>998ca2a</code> <span style="color:var(--mute)">+2541/−2</span></li>
+<li class="cmt"><span class="badge b-mute">market-data</span> feat(track5-r1): 80지표 + IndicatorSource Pluggability + Native 14지표 (ADR 0039) <code>fa7595d</code> <span style="color:var(--mute)">+2519/−0</span></li>
+<li class="cmt"><span class="badge b-mute">strategy</span> feat(track6-r1): 57 캔들스틱 패턴 카탈로그 + PatternRecognizer (KIS 정합) <code>417907f</code> <span style="color:var(--mute)">+2455/−0</span></li>
+<li class="cmt"><span class="badge b-mute">strategy</span> feat(track11-r1): Signal Engine 룰 매칭 + Kafka 발행 + STOMP fanout (ADR 0041) <code>496eed1</code> <span style="color:var(--mute)">+2312/−0</span></li>
+<li class="cmt"><span class="badge b-mute">market-data</span> feat(market-data): T3 트랙 R1 — KIS 종목 마스터 + Redis 검색 인덱스 + REST 검색 API <code>3714792</code> <span style="color:var(--mute)">+2027/−64</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(track2-r2): Guard chain MarketSessionGuard + REJECTED audit trail + QuoteCache Redis (ADR 0033/0034/0042) <code>aa82cbb</code> <span style="color:var(--mute)">+1610/−113</span></li>
+<li class="cmt"><span class="badge b-mute">market-data</span> feat(market-data): T20·T21 백엔드 R1 — 종목 상세 + 시장 지수 API <code>eeb58a0</code> <span style="color:var(--mute)">+1601/−0</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> feat(frontend): T20-T6·T7 헤더 검색창 + SymbolDetail 메타 패널, T21-T4 Dashboard 지수 카드 교체 <code>1fe2e0c</code> <span style="color:var(--mute)">+1412/−183</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(track18a-r1): KIS 인증 UI backend endpoint (T18a) <code>ad23b62</code> <span style="color:var(--mute)">+1502/−0</span></li>
+<li class="cmt"><span class="badge b-mute">market-data</span> feat(market-data): T19 1차 — 분봉 캐시 백엔드 (T1·T2·T3·T4) <code>4181b55</code> <span style="color:var(--mute)">+1374/−3</span></li>
+</ul>
+
+
+
+<footer style="margin-top:40px;padding-top:14px;border-top:1px solid var(--line);color:#888;font-size:.82rem">
+자동 생성 · <code>scripts/gen-devlogs.mjs</code> · 비공개 레포 커밋 메타데이터 집계 (소스·시크릿 미포함)
+</footer></body></html>

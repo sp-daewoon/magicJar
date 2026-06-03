@@ -1,0 +1,80 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>magicJar devlog · 2026-05-01 (금)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--brown:#5b3a1f;--cream:#fff8ed;--paper:#fafaf7;--line:#d8d4c8;--ok:#2f7a3a;--warn:#b58606;--pending:#1c5fa6;--todo:#b03060;--mute:#6a6a6a}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Pretendard","Apple SD Gothic Neo",sans-serif;background:var(--paper);color:#222;max-width:1080px;margin:0 auto;padding:36px 24px 80px;line-height:1.65}
+h1{color:var(--brown);border-bottom:2px solid var(--brown);padding-bottom:8px;margin-bottom:6px;font-size:1.55rem}
+.subtitle{color:var(--mute);font-size:.95rem;margin-bottom:24px}
+h2{color:var(--brown);margin-top:34px;border-left:4px solid var(--brown);padding-left:10px;font-size:1.15rem}
+table{width:100%;border-collapse:collapse;margin:12px 0 18px;font-size:.88rem}
+th,td{padding:6px 10px;border:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--cream);color:var(--brown);font-weight:600}
+tr:nth-child(even) td{background:#fcfcf8}
+code{background:#f3efe6;padding:1px 6px;border-radius:3px;font-size:.85em;color:#333}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.72rem;font-weight:600;margin:0 2px}
+.b-ok{background:#e3f1e6;color:var(--ok);border:1px solid var(--ok)}
+.b-pending{background:#e3edf7;color:var(--pending);border:1px solid var(--pending)}
+.b-todo{background:#fce6ec;color:var(--todo);border:1px solid var(--todo)}
+.b-mute{background:#f0f0f0;color:var(--mute);border:1px solid var(--mute)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:14px 0}
+.card{background:var(--cream);border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.card .n{font-size:1.5rem;font-weight:700;color:var(--brown)} .card .l{font-size:.82rem;color:var(--mute)}
+.nav-back{display:inline-block;margin-bottom:18px;color:var(--brown);text-decoration:none;font-size:.9rem}
+.nav-back:hover{text-decoration:underline}
+.cmt{font-size:.86rem;margin:3px 0;padding-left:4px}
+.cmt code{font-size:.8em}
+ul.bare{list-style:none;padding:0}</style></head><body>
+<a class="nav-back" href="index.html">← 개발일지 목록</a>
+<h1>2026-05-01 (금)</h1>
+<div class="subtitle">커밋 로그 기반 자동 재구성 (backfill) · magicJar 한국 주식 자동매매 시스템</div>
+
+<div class="grid">
+  <div class="card"><div class="n">43</div><div class="l">커밋</div></div>
+  <div class="card"><div class="n">6</div><div class="l">활동 에이전트</div></div>
+  <div class="card"><div class="n">0</div><div class="l">머지 PR</div></div>
+  <div class="card"><div class="n">91</div><div class="l">변경 파일</div></div>
+  <div class="card"><div class="n" style="color:var(--ok)">+8,117</div><div class="l">추가 라인</div></div>
+  <div class="card"><div class="n" style="color:var(--todo)">−438</div><div class="l">삭제 라인</div></div>
+</div>
+
+<h2>👥 에이전트별 작업</h2>
+<table><thead><tr><th>에이전트</th><th>역할</th><th>커밋</th><th>대표 작업</th></tr></thead><tbody>
+<tr><td><code>human-lead</code></td><td>사람(지휘)</td><td>19</td><td>chore(harness): 5번 트랙 1차 완료 기록 — QA 디펙 순환 루프 + ISSUE-008 DEFERRED</td></tr>
+<tr><td><code>architect</code></td><td>수석 설계</td><td>9</td><td>fix(ops): compose env_file 추가 — KIS·NAVER·MOCK 변수 컨테이너 주입</td></tr>
+<tr><td><code>frontend</code></td><td>프런트</td><td>8</td><td>feat(frontend): 장외 모드 가드 — KRX 정규장 시간 기반 시장 상태 배지</td></tr>
+<tr><td><code>backend-core</code></td><td>백엔드 코어</td><td>3</td><td>fix(chart): 분봉 time을 epoch second Long(JSON number)으로 직렬화</td></tr>
+<tr><td><code>ai</code></td><td>AI</td><td>2</td><td>feat(frontend+consumer): AI 종목 카드 — STOMP /topic/news 구독 + Mock 발행기</td></tr>
+<tr><td><code>market-data</code></td><td>시세 데이터</td><td>2</td><td>feat(data): V8 분봉 시드 (005930·000660 H1·M30·M5·M1)</td></tr>
+</tbody></table>
+
+<h2>📐 아키텍처 결정 (ADR)</h2><p><span class="badge b-pending">ADR 0011</span> <span class="badge b-pending">ADR 0016</span> <span class="badge b-pending">ADR 0028</span> <span class="badge b-pending">ADR 0029</span> <span class="badge b-pending">ADR 0030</span></p>
+
+<h2>🗄️ DB 스키마 (Flyway)</h2><p><code>V7__seed_candles_005930.sql</code> · <code>V8__seed_intraday_candles.sql</code></p>
+
+<h2>🧩 모듈별 변경 파일</h2>
+<p><span class="badge b-mute">frontend · 38</span> <span class="badge b-mute">_workspace · 37</span> <span class="badge b-mute">pyworker · 15</span> <span class="badge b-mute">root · 11</span> <span class="badge b-mute">consumer · 11</span> <span class="badge b-mute">api · 11</span> <span class="badge b-mute">docs · 6</span> <span class="badge b-mute">docker · 4</span> <span class="badge b-mute">scripts · 3</span> <span class="badge b-mute">.claude · 2</span> <span class="badge b-mute">.husky · 2</span> <span class="badge b-mute">batch · 1</span></p>
+
+<h2>📝 주요 커밋 (변경량 상위)</h2>
+<ul class="bare">
+<li class="cmt"><span class="badge b-mute">human-lead</span> docs(plan): 5번 QA 디펙 순환 루프 implementation plan (16 task / 6 phase) <code>dd458f5</code> <span style="color:var(--mute)">+1885/−0</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> feat(frontend): 트레이딩뷰 스타일 통합 차트 + 봉단위 + STOMP 토픽 정합 <code>ef08402</code> <span style="color:var(--mute)">+701/−87</span></li>
+<li class="cmt"><span class="badge b-mute">ai</span> feat(frontend+consumer): AI 종목 카드 — STOMP /topic/news 구독 + Mock 발행기 <code>08ffdd9</code> <span style="color:var(--mute)">+771/−1</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> feat(frontend): 보조지표 토글 (SMA·EMA·BB·RSI) <code>ca2eb97</code> <span style="color:var(--mute)">+530/−7</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> feat(frontend): 장외 모드 가드 — KRX 정규장 시간 기반 시장 상태 배지 <code>d629234</code> <span style="color:var(--mute)">+361/−6</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> feat(frontend): 틱 차트 — STOMP 실시간 LineSeries <code>e37cade</code> <span style="color:var(--mute)">+326/−18</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> fix(ops): jar staleness 가드 + build-and-deploy 헬퍼 + QA 리포트 <code>075cae1</code> <span style="color:var(--mute)">+310/−3</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(api): GET /api/instruments/{code}/candles + V7 005930 시드 <code>e1f23a4</code> <span style="color:var(--mute)">+302/−0</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> feat(frontend): 백테스트 실 연결 — POST /api/backtest + 폴링 <code>532d70b</code> <span style="color:var(--mute)">+221/−70</span></li>
+<li class="cmt"><span class="badge b-mute">human-lead</span> feat(scripts): qa-run.mjs CLI — QA 디펙 순환 루프 5명령 (new·scenario·close·wontfix·list) <code>b1609fb</code> <span style="color:var(--mute)">+281/−0</span></li>
+<li class="cmt"><span class="badge b-mute">human-lead</span> feat(pyworker): POST /screenshot/scenario 라우터 + MINIO_PUBLIC_HOST 와이어링 <code>69b59fa</code> <span style="color:var(--mute)">+264/−6</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> fix(ws): STOMP raw WebSocket 정합 — withSockJS mismatch 해소 <code>378bcdc</code> <span style="color:var(--mute)">+197/−61</span></li>
+<li class="cmt"><span class="badge b-mute">market-data</span> feat(consumer): MockTickGenerator — KIS 연동 전 dev 시세 흐름 <code>ff6a31f</code> <span style="color:var(--mute)">+226/−1</span></li>
+<li class="cmt"><span class="badge b-mute">human-lead</span> feat(pyworker): ScenarioRunner — Playwright 단계별 실행 + 단계 fail 추적 <code>4d8b723</code> <span style="color:var(--mute)">+212/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> chore(harness): Phase F R1 완료 기록 + R2 후보 정리 <code>afe8e5e</code> <span style="color:var(--mute)">+172/−30</span></li>
+<li class="cmt"><span class="badge b-mute">human-lead</span> feat(pyworker): RealPlaywrightRunner — in-process Python async + screenshot monkey-patch <code>a6fdaab</code> <span style="color:var(--mute)">+197/−0</span></li>
+</ul>
+
+
+
+<footer style="margin-top:40px;padding-top:14px;border-top:1px solid var(--line);color:#888;font-size:.82rem">
+자동 생성 · <code>scripts/gen-devlogs.mjs</code> · 비공개 레포 커밋 메타데이터 집계 (소스·시크릿 미포함)
+</footer></body></html>

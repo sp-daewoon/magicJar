@@ -1,0 +1,79 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>magicJar devlog · 2026-05-21 (목)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--brown:#5b3a1f;--cream:#fff8ed;--paper:#fafaf7;--line:#d8d4c8;--ok:#2f7a3a;--warn:#b58606;--pending:#1c5fa6;--todo:#b03060;--mute:#6a6a6a}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Pretendard","Apple SD Gothic Neo",sans-serif;background:var(--paper);color:#222;max-width:1080px;margin:0 auto;padding:36px 24px 80px;line-height:1.65}
+h1{color:var(--brown);border-bottom:2px solid var(--brown);padding-bottom:8px;margin-bottom:6px;font-size:1.55rem}
+.subtitle{color:var(--mute);font-size:.95rem;margin-bottom:24px}
+h2{color:var(--brown);margin-top:34px;border-left:4px solid var(--brown);padding-left:10px;font-size:1.15rem}
+table{width:100%;border-collapse:collapse;margin:12px 0 18px;font-size:.88rem}
+th,td{padding:6px 10px;border:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--cream);color:var(--brown);font-weight:600}
+tr:nth-child(even) td{background:#fcfcf8}
+code{background:#f3efe6;padding:1px 6px;border-radius:3px;font-size:.85em;color:#333}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.72rem;font-weight:600;margin:0 2px}
+.b-ok{background:#e3f1e6;color:var(--ok);border:1px solid var(--ok)}
+.b-pending{background:#e3edf7;color:var(--pending);border:1px solid var(--pending)}
+.b-todo{background:#fce6ec;color:var(--todo);border:1px solid var(--todo)}
+.b-mute{background:#f0f0f0;color:var(--mute);border:1px solid var(--mute)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:14px 0}
+.card{background:var(--cream);border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.card .n{font-size:1.5rem;font-weight:700;color:var(--brown)} .card .l{font-size:.82rem;color:var(--mute)}
+.nav-back{display:inline-block;margin-bottom:18px;color:var(--brown);text-decoration:none;font-size:.9rem}
+.nav-back:hover{text-decoration:underline}
+.cmt{font-size:.86rem;margin:3px 0;padding-left:4px}
+.cmt code{font-size:.8em}
+ul.bare{list-style:none;padding:0}</style></head><body>
+<a class="nav-back" href="index.html">← 개발일지 목록</a>
+<h1>2026-05-21 (목)</h1>
+<div class="subtitle">커밋 로그 기반 자동 재구성 (backfill) · magicJar 한국 주식 자동매매 시스템</div>
+
+<div class="grid">
+  <div class="card"><div class="n">27</div><div class="l">커밋</div></div>
+  <div class="card"><div class="n">5</div><div class="l">활동 에이전트</div></div>
+  <div class="card"><div class="n">0</div><div class="l">머지 PR</div></div>
+  <div class="card"><div class="n">146</div><div class="l">변경 파일</div></div>
+  <div class="card"><div class="n" style="color:var(--ok)">+10,493</div><div class="l">추가 라인</div></div>
+  <div class="card"><div class="n" style="color:var(--todo)">−487</div><div class="l">삭제 라인</div></div>
+</div>
+
+<h2>👥 에이전트별 작업</h2>
+<table><thead><tr><th>에이전트</th><th>역할</th><th>커밋</th><th>대표 작업</th></tr></thead><tbody>
+<tr><td><code>backend-core</code></td><td>백엔드 코어</td><td>9</td><td>feat(backend-core): P0-OPS-6 — persistence monitoring + SLO 측정 source </td></tr>
+<tr><td><code>architect</code></td><td>수석 설계</td><td>8</td><td>chore(tasks): T-20260521-2258-stage2-cleanup DONE — PR #655</td></tr>
+<tr><td><code>market-data</code></td><td>시세 데이터</td><td>4</td><td>chore(tasks): T-20260521-1323-ws-first-connect-emit DONE — PR #645</td></tr>
+<tr><td><code>frontend</code></td><td>프런트</td><td>4</td><td>chore(tasks): T-20260521-1125-positions-page-data-source DONE — PR #64</td></tr>
+<tr><td><code>qa</code></td><td>품질</td><td>2</td><td>docs(qa): 첫 실전 임무 보고서 — 종목상세 현재가 결함 hunt (Visual QA 첫 가동)</td></tr>
+</tbody></table>
+
+<h2>📐 아키텍처 결정 (ADR)</h2><p><span class="badge b-pending">ADR 0043</span> <span class="badge b-pending">ADR 0070</span> <span class="badge b-pending">ADR 0080</span> <span class="badge b-pending">ADR 0085</span> <span class="badge b-pending">ADR 0087</span> <span class="badge b-pending">ADR 0094</span> <span class="badge b-pending">ADR 0095</span> <span class="badge b-pending">ADR 0096</span></p>
+
+
+
+<h2>🧩 모듈별 변경 파일</h2>
+<p><span class="badge b-mute">_workspace · 47</span> <span class="badge b-mute">frontend · 31</span> <span class="badge b-mute">consumer · 26</span> <span class="badge b-mute">api · 18</span> <span class="badge b-mute">docs · 16</span> <span class="badge b-mute">root · 13</span> <span class="badge b-mute">persistence-shared · 8</span> <span class="badge b-mute">batch · 8</span> <span class="badge b-mute">docker · 6</span> <span class="badge b-mute">domain · 4</span> <span class="badge b-mute">.claude · 3</span> <span class="badge b-mute">scripts · 3</span></p>
+
+<h2>📝 주요 커밋 (변경량 상위)</h2>
+<ul class="bare">
+<li class="cmt"><span class="badge b-mute">backend-core</span> docs(backend-core): P0-OPS-5 — runbook 5 시나리오 (v3.8.0 운영 baseline P0) <code>49f1bc3</code> <span style="color:var(--mute)">+1578/−0</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> docs(architect): P0-OPS-4 — DR/backup ADR 0096 + pg_dump cron (v3.8.0 운영 baseline P0) <code>b1aab9e</code> <span style="color:var(--mute)">+1022/−33</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> docs(architect): ADR 0094 amend (orchestrator 자율 결재 — 8→7 + qa visual 격상) <code>22182b0</code> <span style="color:var(--mute)">+803/−195</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(backend-core): P0-OPS-1·2 — logback JSON + Actuator/Prometheus + Grafana (v3.8.0 운영 baseline P0) <code>26f83f3</code> <span style="color:var(--mute)">+776/−25</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> feat(backend-core): P0-OPS-6 — persistence monitoring + SLO 측정 source wiring + Grafana SLO dashboard (v3.8.0 운 <code>60045dc</code> <span style="color:var(--mute)">+706/−15</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> docs(architect): Stage 2 종합 정리 (ADR audit + 헌법 + SoT + 메모리 보고서 + CHANGELOG drift + backlog + qa.md 등록 + chart- <code>5472a30</code> <span style="color:var(--mute)">+699/−17</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> hotfix(backend-core): KIS EGW00201 분기 + SystemEvent KIS_RATELIMIT P1 활성 (502 root cause fix) <code>ad5fcc8</code> <span style="color:var(--mute)">+659/−47</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> docs(architect): 운영 단계 transition master plan (audit + agent reshuffle + transition) <code>7ba7cda</code> <span style="color:var(--mute)">+628/−1</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> hotfix(consumer): KillSwitch race-safe guard (A+B+C — pending+grace+strike) <code>3ef5cb7</code> <span style="color:var(--mute)">+440/−24</span></li>
+<li class="cmt"><span class="badge b-mute">qa</span> docs(qa): 첫 실전 임무 보고서 — 종목상세 현재가 결함 hunt (Visual QA 첫 가동) <code>026e16e</code> <span style="color:var(--mute)">+419/−0</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> hotfix(frontend): PositionsPage data source 정합 (account/positions 사용, 사용자 dogfooding 빈 화면) <code>362e808</code> <span style="color:var(--mute)">+378/−32</span></li>
+<li class="cmt"><span class="badge b-mute">architect</span> docs(architect): P0-OPS-3 — SLO/SLA + alert routing ADR 0095 (v3.8.0 운영 baseline P0) <code>b89eed6</code> <span style="color:var(--mute)">+399/−4</span></li>
+<li class="cmt"><span class="badge b-mute">backend-core</span> hotfix(api): KIS 토큰 EGW00123 self-heal (cache evict + 1회 재발급) <code>775c87f</code> <span style="color:var(--mute)">+398/−1</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> hotfix(frontend): 지연 데이터 라벨 fall-through 결함 + KRX 운영 시간 매트릭스 확장 (사용자 dogfooding) <code>c1f37fe</code> <span style="color:var(--mute)">+363/−17</span></li>
+<li class="cmt"><span class="badge b-mute">qa</span> feat(qa): Visual QA 첫 셋업 — Playwright + 5 시나리오 baseline (v3.8.0 운영 baseline P0) <code>8544ba2</code> <span style="color:var(--mute)">+309/−1</span></li>
+<li class="cmt"><span class="badge b-mute">frontend</span> hotfix(frontend): backfill toast 결함 3건 (qty=null skip + copy 정정 + lastSeenAt 갱신) <code>828e7a7</code> <span style="color:var(--mute)">+225/−19</span></li>
+</ul>
+
+
+
+<footer style="margin-top:40px;padding-top:14px;border-top:1px solid var(--line);color:#888;font-size:.82rem">
+자동 생성 · <code>scripts/gen-devlogs.mjs</code> · 비공개 레포 커밋 메타데이터 집계 (소스·시크릿 미포함)
+</footer></body></html>

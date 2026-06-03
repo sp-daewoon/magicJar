@@ -1,0 +1,71 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>magicJar devlog · 2026-04-25 (토)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--brown:#5b3a1f;--cream:#fff8ed;--paper:#fafaf7;--line:#d8d4c8;--ok:#2f7a3a;--warn:#b58606;--pending:#1c5fa6;--todo:#b03060;--mute:#6a6a6a}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Pretendard","Apple SD Gothic Neo",sans-serif;background:var(--paper);color:#222;max-width:1080px;margin:0 auto;padding:36px 24px 80px;line-height:1.65}
+h1{color:var(--brown);border-bottom:2px solid var(--brown);padding-bottom:8px;margin-bottom:6px;font-size:1.55rem}
+.subtitle{color:var(--mute);font-size:.95rem;margin-bottom:24px}
+h2{color:var(--brown);margin-top:34px;border-left:4px solid var(--brown);padding-left:10px;font-size:1.15rem}
+table{width:100%;border-collapse:collapse;margin:12px 0 18px;font-size:.88rem}
+th,td{padding:6px 10px;border:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--cream);color:var(--brown);font-weight:600}
+tr:nth-child(even) td{background:#fcfcf8}
+code{background:#f3efe6;padding:1px 6px;border-radius:3px;font-size:.85em;color:#333}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.72rem;font-weight:600;margin:0 2px}
+.b-ok{background:#e3f1e6;color:var(--ok);border:1px solid var(--ok)}
+.b-pending{background:#e3edf7;color:var(--pending);border:1px solid var(--pending)}
+.b-todo{background:#fce6ec;color:var(--todo);border:1px solid var(--todo)}
+.b-mute{background:#f0f0f0;color:var(--mute);border:1px solid var(--mute)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:14px 0}
+.card{background:var(--cream);border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.card .n{font-size:1.5rem;font-weight:700;color:var(--brown)} .card .l{font-size:.82rem;color:var(--mute)}
+.nav-back{display:inline-block;margin-bottom:18px;color:var(--brown);text-decoration:none;font-size:.9rem}
+.nav-back:hover{text-decoration:underline}
+.cmt{font-size:.86rem;margin:3px 0;padding-left:4px}
+.cmt code{font-size:.8em}
+ul.bare{list-style:none;padding:0}</style></head><body>
+<a class="nav-back" href="index.html">← 개발일지 목록</a>
+<h1>2026-04-25 (토)</h1>
+<div class="subtitle">커밋 로그 기반 자동 재구성 (backfill) · magicJar 한국 주식 자동매매 시스템</div>
+
+<div class="grid">
+  <div class="card"><div class="n">12</div><div class="l">커밋</div></div>
+  <div class="card"><div class="n">1</div><div class="l">활동 에이전트</div></div>
+  <div class="card"><div class="n">1</div><div class="l">머지 PR</div></div>
+  <div class="card"><div class="n">282</div><div class="l">변경 파일</div></div>
+  <div class="card"><div class="n" style="color:var(--ok)">+16,506</div><div class="l">추가 라인</div></div>
+  <div class="card"><div class="n" style="color:var(--todo)">−469</div><div class="l">삭제 라인</div></div>
+</div>
+
+<h2>👥 에이전트별 작업</h2>
+<table><thead><tr><th>에이전트</th><th>역할</th><th>커밋</th><th>대표 작업</th></tr></thead><tbody>
+<tr><td><code>human-lead</code></td><td>사람(지휘)</td><td>12</td><td>fix(app,market-data,web): bootRun 5건 통합 hotfix — Spring Boot 정상 부팅 (#1</td></tr>
+</tbody></table>
+
+<h2>📐 아키텍처 결정 (ADR)</h2><p><span class="badge b-pending">ADR 0001</span> <span class="badge b-pending">ADR 0002</span> <span class="badge b-pending">ADR 0003</span> <span class="badge b-pending">ADR 0004</span> <span class="badge b-pending">ADR 0005</span> <span class="badge b-pending">ADR 0006</span> <span class="badge b-pending">ADR 0007</span> <span class="badge b-pending">ADR 0008</span> <span class="badge b-pending">ADR 0009</span> <span class="badge b-pending">ADR 0010</span> <span class="badge b-pending">ADR 0011</span> <span class="badge b-pending">ADR 0012</span> <span class="badge b-pending">ADR 0013</span> <span class="badge b-pending">ADR 0014</span> <span class="badge b-pending">ADR 0015</span> <span class="badge b-pending">ADR 0016</span> <span class="badge b-pending">ADR 0017</span> <span class="badge b-pending">ADR 0018</span></p>
+
+<h2>🗄️ DB 스키마 (Flyway)</h2><p><code>V0__init.sql</code> · <code>V1__market_data.sql</code> · <code>V2__strategy_journal.sql</code></p>
+
+<h2>🧩 모듈별 변경 파일</h2>
+<p><span class="badge b-mute">strategy · 53</span> <span class="badge b-mute">_workspace · 51</span> <span class="badge b-mute">market-data · 39</span> <span class="badge b-mute">.claude · 38</span> <span class="badge b-mute">core · 38</span> <span class="badge b-mute">web · 36</span> <span class="badge b-mute">ai · 28</span> <span class="badge b-mute">root · 25</span> <span class="badge b-mute">app · 15</span> <span class="badge b-mute">.husky · 4</span> <span class="badge b-mute">.github · 3</span> <span class="badge b-mute">scripts · 3</span> <span class="badge b-mute">gradle · 2</span> <span class="badge b-mute">order-exec · 2</span> <span class="badge b-mute">.kotlin · 1</span></p>
+
+<h2>📝 주요 커밋 (변경량 상위)</h2>
+<ul class="bare">
+<li class="cmt"><span class="badge b-mute">human-lead</span> feat(strategy): Phase B-2 지표·DSL·백테스트·매매일지 (#7) <code>fa4628a</code> <span style="color:var(--mute)">+3592/−6</span></li>
+<li class="cmt"><span class="badge b-mute">human-lead</span> feat(market-data): Phase B-2 KIS/DART/뉴스 어댑터 (#6) <code>fb4cb02</code> <span style="color:var(--mute)">+2326/−6</span></li>
+<li class="cmt"><span class="badge b-mute">human-lead</span> feat(web): Phase B-2 대시보드 + 매매일지 + /harness 운영 페이지 (#5) <code>18a0dfd</code> <span style="color:var(--mute)">+2146/−1</span></li>
+<li class="cmt"><span class="badge b-mute">human-lead</span> chore(harness): v2 — 단일 worktree·모델 차등·머지 단순화·QA on-demand·git author·task system (#harness-v2) (#9) <code>e3300ab</code> <span style="color:var(--mute)">+1778/−333</span></li>
+<li class="cmt"><span class="badge b-mute">human-lead</span> feat(scaffold): Phase B-1 Gradle 멀티모듈 뼈대 (#2) <code>7644320</code> <span style="color:var(--mute)">+1651/−7</span></li>
+<li class="cmt"><span class="badge b-mute">human-lead</span> chore(harness): add branching strategy, Husky hooks, QA screenshot gate (ADR 0009/0010/0011) (#1) <code>fa9e5e3</code> <span style="color:var(--mute)">+1568/−26</span></li>
+<li class="cmt"><span class="badge b-mute">human-lead</span> chore: bootstrap magicJar harness (7 agents, 9 skills, orchestrator) <code>cc43c0f</code> <span style="color:var(--mute)">+1447/−0</span></li>
+<li class="cmt"><span class="badge b-mute">human-lead</span> feat(ai): Phase B-2 Spring AI 통합 — 5개 서비스 + 클라이언트 + 폴백 (#4) <code>d451bee</code> <span style="color:var(--mute)">+1377/−4</span></li>
+<li class="cmt"><span class="badge b-mute">human-lead</span> chore(harness): settings.json auto-allow + 2-stage merge flow (ADR 0012) (#3) <code>1efbcdc</code> <span style="color:var(--mute)">+334/−36</span></li>
+<li class="cmt"><span class="badge b-mute">human-lead</span> docs: Phase B 종료 회고 + harness-state 갱신 + 변경이력 추가 <code>5fa717f</code> <span style="color:var(--mute)">+242/−29</span></li>
+<li class="cmt"><span class="badge b-mute">human-lead</span> fix(app,market-data,web): bootRun 5건 통합 hotfix — Spring Boot 정상 부팅 (#10) <code>b4553a8</code> <span style="color:var(--mute)">+43/−21</span></li>
+<li class="cmt"><span class="badge b-mute">human-lead</span> Initial commit <code>468f296</code> <span style="color:var(--mute)">+2/−0</span></li>
+</ul>
+
+<h2>🔀 머지된 PR (1)</h2><p><a class="badge b-ok" href="https://github.com/sp-daewoon/magicJar/pull/8" style="text-decoration:none">#8</a></p>
+
+<footer style="margin-top:40px;padding-top:14px;border-top:1px solid var(--line);color:#888;font-size:.82rem">
+자동 생성 · <code>scripts/gen-devlogs.mjs</code> · 비공개 레포 커밋 메타데이터 집계 (소스·시크릿 미포함)
+</footer></body></html>
