@@ -3,10 +3,10 @@ id: T-20260605-0405-replay-live-gate-parity
 agent: strategy
 model: opus
 branch: agent/strategy/replay-live-gate-parity
-status: RUNNING
+status: DONE
 startedAt: 2026-06-05T04:05:15.061+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-05T04:20:13.579+09:00
+pr: #730
 parentPhase: ?
 ---
 
