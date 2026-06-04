@@ -3,10 +3,10 @@ id: T-20260605-0404-candle-stale-reason-model
 agent: market-data
 model: opus
 branch: agent/market-data/candle-stale-reason-model
-status: RUNNING
+status: DONE
 startedAt: 2026-06-05T04:04:33.106+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-05T04:17:12.778+09:00
+pr: #729
 parentPhase: ?
 ---
 
