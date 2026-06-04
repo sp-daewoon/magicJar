@@ -231,6 +231,53 @@ export interface CandleRecollectProgressDto {
 }
 
 // ──────────────────────────────────────────────
+// 캔들 수집 건강도 (readiness P1 — candle-health)
+//
+// GET /api/symbols/{code}/candle-health
+//   → "왜 캔들 수집이 안 됐는지"를 종목별 1줄로 노출.
+//
+// orchestrator LOCK 계약 (market-data 병렬 구현 중):
+//   { code, interval, lastCandleAt, staleSeconds, status, reason, reasonDetail, checkedAt }
+//
+// 방어적 파싱 의무: reason/status가 enum 밖 값이어도 throw하지 않고 원문 보존.
+//   알 수 없는 reason은 UNKNOWN으로 분류하되 reasonDetail 원문을 그대로 표시한다.
+//   API 404/에러는 호출부(hook)에서 "수집 상태 확인 불가"로 graceful 처리 — 가짜 FRESH 금지.
+// ──────────────────────────────────────────────
+
+/** candle-health status — 계약 LOCK 3종 (그 외 값은 원문 보존) */
+export type CandleHealthStatus = 'FRESH' | 'STALE' | 'NO_DATA' | (string & {})
+
+/** candle-health reason — 계약 LOCK 8종 (그 외 값은 UNKNOWN 취급 + 원문 표시) */
+export type CandleHealthReason =
+  | 'OK_REALTIME'
+  | 'MARKET_CLOSED'
+  | 'WS_NOT_SUBSCRIBED'
+  | 'NO_TICK'
+  | 'INSERT_FAILED'
+  | 'BACKFILL_FAILED'
+  | 'BACKFILL_PERMANENT_GAP'
+  | 'UNKNOWN'
+  | (string & {})
+
+/** GET /api/symbols/{code}/candle-health 응답 */
+export interface CandleHealthDto {
+  code: string
+  interval: string
+  lastCandleAt: string | null
+  staleSeconds: number
+  status: CandleHealthStatus
+  reason: CandleHealthReason
+  /** 한국어 1줄 설명 (백엔드 권위 — 모르는 reason도 이 값을 그대로 표시) */
+  reasonDetail: string
+  checkedAt: string
+}
+
+/** GET /api/symbols/candle-health?codes=A,B 배치 응답 */
+export interface CandleHealthBatchDto {
+  items: CandleHealthDto[]
+}
+
+// ──────────────────────────────────────────────
 // axios API 함수
 // ──────────────────────────────────────────────
 
@@ -241,6 +288,30 @@ export const symbolApi = {
    */
   getSymbol: async (code: string): Promise<SymbolDto> => {
     const res = await apiClient.get<SymbolDto>(`/symbols/${encodeURIComponent(code)}`)
+    return res.data
+  },
+
+  /**
+   * GET /api/symbols/{code}/candle-health
+   * 캔들 수집 건강도 — stale 시 "왜 안 됐는지" 1줄 사유.
+   * 404/에러는 throw → hook에서 "수집 상태 확인 불가"로 graceful 표시.
+   */
+  getCandleHealth: async (code: string): Promise<CandleHealthDto> => {
+    const res = await apiClient.get<CandleHealthDto>(
+      `/symbols/${encodeURIComponent(code)}/candle-health`,
+    )
+    return res.data
+  },
+
+  /**
+   * GET /api/symbols/candle-health?codes=A,B
+   * 배치 조회 (watchlist 등 다종목 인디케이터용).
+   */
+  getCandleHealthBatch: async (codes: string[]): Promise<CandleHealthBatchDto> => {
+    const params = new URLSearchParams({ codes: codes.join(',') })
+    const res = await apiClient.get<CandleHealthBatchDto>(
+      `/symbols/candle-health?${params.toString()}`,
+    )
     return res.data
   },
 

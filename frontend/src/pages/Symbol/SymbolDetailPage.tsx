@@ -33,12 +33,14 @@ import {
   useSymbol,
 } from '../../api/hooks/useSymbol'
 import { useStompConnectionState } from '../../api/hooks/useStompConnectionState'
+import { useCandleHealth } from '../../api/hooks/useCandleHealth'
 import {
   symbolApi,
   type CandleMinutePayload,
   type OrderbookPayload,
   type TickPayload,
 } from '../../api/symbol'
+import { CandleHealthBadge } from './CandleHealthBadge'
 import { DisclosurePanel } from '../../features/disclosure/components/DisclosurePanel'
 import { NewsPanel } from '../../features/news/components/NewsPanel'
 import { AiExplainEntry } from '../../features/ai/components/AiExplainEntry'
@@ -134,6 +136,14 @@ export function SymbolDetailPage() {
     pollingEnabled: symbolPollingEnabled,
   })
   const isLoading = isInstrumentLoading || (!isDelisted && isSymbolLoading)
+
+  // 캔들 수집 건강도 (readiness P1) — 상세 진입 시 1회 + 60s 폴링.
+  // 상장폐지 종목은 캔들 수집 의미 없으므로 비활성.
+  const {
+    data: candleHealth,
+    isError: isCandleHealthError,
+    isLoading: isCandleHealthLoading,
+  } = useCandleHealth(code, { enabled: Boolean(code) && !isDelisted })
 
   // 네트워크가 아닌 화면 상태용 clock: tick stale·장 상태 badge 계산에만 사용.
   useEffect(() => {
@@ -352,6 +362,12 @@ export function SymbolDetailPage() {
               }}
             />
           </div>
+          {/* 캔들 수집 건강도 1줄 (readiness P1) — stale 시 사유, 정상 시 작은 점 */}
+          <CandleHealthBadge
+            data={candleHealth}
+            isError={isCandleHealthError}
+            isLoading={isCandleHealthLoading}
+          />
           <SymbolChart
             code={code}
             userId={userId}
