@@ -471,6 +471,8 @@ class CandleBackfillWorkerTest {
         // uncovered 갭은 실패 아님 → SUCCESS
         assertThat(result.status).isEqualTo(CandleBackfillWorker.BackfillStatus.SUCCESS)
         assertThat(result.insertedCount).isEqualTo(1)
+        // 3분류 (readiness P0-2) — gap2는 uncovered, gap1은 inserted, failed 0
+        assertThat(result.uncoveredCount).isEqualTo(1)
         assertThat(result.failedGapsCount).isEqualTo(0)
         // KillSwitch 미발동 (자본 영향 0)
         verify(exactly = 0) {
@@ -643,5 +645,65 @@ class CandleBackfillWorkerTest {
         assertThat(node.get("detectedGapCount").asInt()).isEqualTo(6000)
         assertThat(node.get("gapCapApplied").asBoolean()).isTrue
         assertThat(node.get("gapCount").asInt()).isEqualTo(5000)
+    }
+
+    // ---------- 3분류 + sanity monotonic 정정 (2026-06-05 readiness P0-2) ----------
+
+    @Test
+    fun `(P0-2) SUCCESS인데 insertedCount 0 — 전부 uncovered이며 SUCCESS audit에 uncoveredCount 명시`() {
+        val worker = newWorker()
+        setupNoInstrument()
+        setupAuditCapture()
+        val captured = mutableListOf<ConsumerAuditTrailJpaEntity>()
+        every { auditRepository.save(capture(captured)) } answers { firstArg<ConsumerAuditTrailJpaEntity>() }
+        val gap1 = Instant.ofEpochSecond(1_700_000_000L)
+        val gap2 = Instant.ofEpochSecond(1_700_086_400L)
+        every { candleGapDetector.detectGaps("004090", CandleInterval.ONE_DAY, 30) } returns listOf(gap1, gap2)
+        // KIS가 캔들을 반환하지만 어느 gap과도 매칭 안 됨 (전부 uncovered) — 다른 ts
+        every { kisRestPort.fetchCandles("004090", CandleInterval.ONE_DAY, 200) } returns
+            listOf(candle(tsEpochSec = 1_699_900_000L))
+        every { candleRepository.saveAll(any()) } returns 0
+
+        val result = worker.runBackfill("004090", CandleInterval.ONE_DAY, dryRun = false)
+
+        // KIS 응답 정상 + 매칭 0 → inserted 0, uncovered 2, failed 0 → SUCCESS
+        assertThat(result.status).isEqualTo(CandleBackfillWorker.BackfillStatus.SUCCESS)
+        assertThat(result.insertedCount).isEqualTo(0)
+        assertThat(result.uncoveredCount).isEqualTo(2)
+        assertThat(result.failedGapsCount).isEqualTo(0)
+        // SUCCESS audit에 3분류 명시 — "SUCCESS + insertedCount=0" 설명 가능
+        val success = captured.first { it.action == "CANDLE_BACKFILL_SUCCESS" }
+        val node = objectMapper.readTree(success.detailJson)
+        assertThat(node.get("insertedCount").asInt()).isEqualTo(0)
+        assertThat(node.get("uncoveredCount").asInt()).isEqualTo(2)
+        assertThat(node.get("failedGapsCount").asInt()).isEqualTo(0)
+    }
+
+    @Test
+    fun `(P0-2) sanity monotonic — 정상 ASC 응답은 monotonic 위반 0건 (어댑터 정규화 정합)`() {
+        // 어댑터가 전역 ASC 정규화한 응답을 sanityCheck에 통과시키면 monotonic 위반 0.
+        val worker = newWorker()
+        val asc =
+            (0 until 50).map { candle(tsEpochSec = 1_700_000_000L + it * 60L, interval = CandleInterval.ONE_MIN) }
+        val result = worker.sanityCheck(asc, "test-batch")
+        // ASC 정렬된 50건 전부 통과 (monotonic reject 0)
+        assertThat(result).hasSize(50)
+        assertThat(result.map { it.ts.epochSeconds }).isSorted
+    }
+
+    @Test
+    fun `(P0-2) sanity monotonic — 비단조 응답은 위반 candle만 reject (로그 cap 무관 정확성)`() {
+        // 진짜 비단조 응답(역순 1건)은 해당 candle만 reject, 나머지 유지.
+        val worker = newWorker()
+        val candles =
+            listOf(
+                candle(tsEpochSec = 1_700_000_060L),
+                candle(tsEpochSec = 1_700_000_000L), // 역순 위반
+                candle(tsEpochSec = 1_700_000_120L),
+            )
+        val result = worker.sanityCheck(candles, "test-batch")
+        // 위반 1건 reject → 2건 유지 + ASC
+        assertThat(result).hasSize(2)
+        assertThat(result.map { it.ts.epochSeconds }).containsExactly(1_700_000_060L, 1_700_000_120L)
     }
 }

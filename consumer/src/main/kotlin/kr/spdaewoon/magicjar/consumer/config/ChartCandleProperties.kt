@@ -101,6 +101,12 @@ data class OneMinuteBackfillProperties(
  * | acquire-timeout-millis | 60000 | throttle permit 획득 대기 한도. 초과 시 run skip(다음 사이클) |
  * | guard-ttl-hours | 72 | 연속 miss 카운터 TTL(시간). 이 기간 안 연속 miss만 누적 |
  * | unrecoverable-ttl-hours | 168 | 회복 불가 마킹 TTL(시간, 7일). 만료 후 1회 재확인 허용 |
+ * | circuit-consecutive-trips | 3 | KIS rate-limit 압박(전건 미반환·throttle 거부) run이 연속 N회면 circuit OPEN → 이후 run 즉시 중단·다음 윈도 이월 |
+ * | circuit-open-millis | 60000 | circuit OPEN 유지(ms). 이 기간 throttle gate 진입 run은 즉시 skip(다음 윈도 이월) |
+ *
+ * ## admin 경로 일원화 (2026-06-05 readiness P0-1 fix)
+ * admin 동기 백필도 [maxConcurrentBackfills]·[minIntervalMillis]·circuit breaker를 통과한다(운영자 우회 폐기).
+ * 운영 evidence: admin 1m 8종목 연속 실행 시 ConsumerRedisKisRateLimiterAdapter tpsExceededCount 1→155→337.
  */
 data class BackfillGuardProperties(
     val consecutiveTotalMissThreshold: Long = 2L,
@@ -110,4 +116,7 @@ data class BackfillGuardProperties(
     val acquireTimeoutMillis: Long = 60_000L,
     val guardTtlHours: Int = 72,
     val unrecoverableTtlHours: Int = 168,
+    // rate-limit circuit breaker (2026-06-05 readiness P0-1) — admin·auto 공통 적용.
+    val circuitConsecutiveTrips: Int = 3,
+    val circuitOpenMillis: Long = 60_000L,
 )

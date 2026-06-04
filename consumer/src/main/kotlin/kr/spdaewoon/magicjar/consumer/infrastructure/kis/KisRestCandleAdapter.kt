@@ -58,6 +58,13 @@ import kotlinx.datetime.Instant as KtInstant
  *   2 parse 함수 단일 LOCK으로 ASC 정규화 cover. 향후 추가 timeframe(예: 시간외 FHPST02320000)은
  *   별도 parse 함수 추가 + ADR 0086 §11 매트릭스 행 추가 + 본 KDoc 갱신 의무.
  *
+ *   ⚠ 2026-06-05 readiness P0-2 — **parse 단위 ASC ≠ fetch 단위 ASC**:
+ *     parseKis1mResponse는 페이지 단위로만 ASC 정렬한다. fetchOneMinCandles는 최근일→과거일 +
+ *     일자 내 장마감→장시작 역순 페이지네이션으로 페이지를 누적하므로, 페이지 합산 결과(allCandles)는
+ *     경계마다 ts가 뒤로 점프하는 비단조 시퀀스가 된다. 따라서 fetch path 3종 모두 **반환 직전 전역
+ *     `.distinctBy { ts }.sortedBy { ts }` 정규화 의무** — fetchDailyCandles·fetchOneMinCandlesBetween은
+ *     이미 적용, fetchOneMinCandles는 본 fix로 추가(sanity monotonic 41만 줄 폭주 root cause 제거).
+ *
  *   evidence: 한국석유(004090) PR #535·#537·#N — KIS DESC 응답 + sanity check reject → 5개월 갭 누적.
  */
 @Component
@@ -1024,8 +1031,30 @@ class KisRestCandleAdapter(
                 )
             }
 
-            log.info("KIS 1m backfill 전체 완료: code={} total={}", code, allCandles.size)
-            allCandles
+            // ⚠ 전역 ASC 정규화 LOCK (2026-06-05 readiness P0-2 fix — sanity monotonic 폭주 root cause).
+            //
+            // 배경(2026-06-04 실측): admin 1m 백필 8종목 연속 실행 시 `CandleBackfillWorker sanity 실패 monotonic`
+            //   WARN 418,567줄 발생. parseKis1mResponse는 페이지 단위로만 ASC 정렬하지만, 본 함수는
+            //   oneMinuteTargetDays()가 최근일→과거일 역순으로 반환하고 각 일자 내부도 장마감(20:00)→장시작(09:00)
+            //   역방향 페이지네이션이므로, allCandles는 [day0 page0 ASC][day0 page1(더 이른 시각) ASC][day1 …]
+            //   형태로 페이지·일자 경계마다 ts가 뒤로 점프하는 비단조 시퀀스. 햇징 룰 §1 sanity가 ASC를 강제하므로
+            //   row마다 monotonic WARN 폭발.
+            //
+            // fetchDailyCandles(일봉 path)·fetchOneMinCandlesBetween(range path)는 이미 반환 직전
+            //   `.distinctBy { ts }.sortedBy { ts }`로 전역 ASC 정규화하지만, 본 1m fetch path만 누락되어 있었다.
+            //   동일 정규화를 적용해 어댑터 layer가 ASC source-of-truth 단일 책임을 진다(ADR 0086 §11 정합).
+            //   진짜 비단조 KIS 응답이 아니라 페이지 합산 순서 결함이므로 정렬 후 monotonic 위반은 0이 되어야 한다.
+            val normalized =
+                allCandles
+                    .distinctBy { it.ts.epochSeconds }
+                    .sortedBy { it.ts.epochSeconds }
+            log.info(
+                "KIS 1m backfill 전체 완료: code={} total={} (전역 ASC 정규화 — raw_accumulated={})",
+                code,
+                normalized.size,
+                allCandles.size,
+            )
+            normalized
         } finally {
             appKey?.fill(0)
             secretKey?.fill(0)
