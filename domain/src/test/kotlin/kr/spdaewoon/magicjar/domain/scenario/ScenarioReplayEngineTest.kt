@@ -88,6 +88,35 @@ class ScenarioReplayEngineTest {
     }
 
     @Test
+    fun `repeated buy after insufficient replay cash is folded until the signal clears`() {
+        val engine = ScenarioReplayEngine(strategyEvaluator = ScenarioStrategyEvaluator { ScenarioSignalDecision.buy(quantity = 1) })
+        val request =
+            baseRequest(
+                initialCash = bd("1000"),
+                to = t("2026-06-02T07:18:00Z"),
+            )
+
+        val result =
+            engine.run(
+                request,
+                candles =
+                    listOf(
+                        candle(code = "005930", openedAt = "2026-06-02T07:14:00Z", closedAt = "2026-06-02T07:15:00Z", open = "70000"),
+                        candle(code = "005930", openedAt = "2026-06-02T07:15:00Z", closedAt = "2026-06-02T07:16:00Z", open = "71000"),
+                        candle(code = "005930", openedAt = "2026-06-02T07:16:00Z", closedAt = "2026-06-02T07:17:00Z", open = "72000"),
+                        candle(code = "005930", openedAt = "2026-06-02T07:17:00Z", closedAt = "2026-06-02T07:18:00Z", open = "73000"),
+                    ),
+            )
+
+        val success = result as ScenarioReplayResult.Success
+        success.events.count { it.type == ScenarioEventType.SIGNAL_BUY } shouldBe 1
+        success.events.count { it.type == ScenarioEventType.ORDER_REQUESTED } shouldBe 1
+        success.events.count { it.title == "리플레이 현금 부족" } shouldBe 1
+        success.events.count { it.title == "리플레이 반복 BUY 접힘" } shouldBe 3
+        success.events.map { it.type } shouldNotContain ScenarioEventType.ORDER_FILLED
+    }
+
+    @Test
     fun `market closed fault is shown as replay order rejected`() {
         val faultTime = t("2026-06-02T07:15:00Z")
         val engine = ScenarioReplayEngine(strategyEvaluator = ScenarioStrategyEvaluator { ScenarioSignalDecision.buy(quantity = 1) })
@@ -108,6 +137,7 @@ class ScenarioReplayEngineTest {
         initialCash: BigDecimal = bd("1000000"),
         initialPositions: List<ScenarioPositionSeed> = emptyList(),
         faults: List<ScenarioFault> = emptyList(),
+        to: Instant = t("2026-06-02T07:17:00Z"),
     ): ScenarioReplayRequest =
         ScenarioReplayRequest(
             userId = "7468",
@@ -116,7 +146,7 @@ class ScenarioReplayEngineTest {
             code = code,
             interval = "1m",
             from = t("2026-06-02T07:15:00Z"),
-            to = t("2026-06-02T07:17:00Z"),
+            to = to,
             initialCash = initialCash,
             initialPositions = initialPositions,
             faults = faults,

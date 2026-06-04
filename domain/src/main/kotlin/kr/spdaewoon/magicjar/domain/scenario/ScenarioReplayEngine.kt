@@ -30,6 +30,7 @@ class ScenarioReplayEngine(
         }
 
         val ledger = ScenarioLedger(request.initialCash, request.initialPositions)
+        var cashBlockedBuy: CashBlockedBuy? = null
         replayCandles.forEachIndexed { index, candle ->
             events += candleEvent(request, candle)
 
@@ -41,8 +42,13 @@ class ScenarioReplayEngine(
                         return@forEachIndexed
                     }
 
-            events += signalEvent(request, candle.closedAt, signal)
-            if (signal.side == ScenarioSignalSide.HOLD) return@forEachIndexed
+            if (signal.side != ScenarioSignalSide.BUY) {
+                cashBlockedBuy = null
+            }
+            if (signal.side == ScenarioSignalSide.HOLD) {
+                events += signalEvent(request, candle.closedAt, signal)
+                return@forEachIndexed
+            }
 
             val fault = request.faults.firstOrNull { it.at == candle.closedAt }
             if (fault != null) {
@@ -64,18 +70,38 @@ class ScenarioReplayEngine(
                 return@forEachIndexed
             }
 
+            val nextCandle = replayCandles.getOrNull(index + 1)
+            val fillPrice = nextCandle?.let { fillPrice(signal, it) }
+            val repeatedCashBlockedBuy = cashBlockedBuy
+            if (
+                repeatedCashBlockedBuy != null &&
+                signal.side == ScenarioSignalSide.BUY &&
+                (fillPrice == null || !canAfford(ledger, quantity, fillPrice))
+            ) {
+                events +=
+                    repeatedBuyFoldedEvent(
+                        request,
+                        candle.closedAt,
+                        repeatedCashBlockedBuy,
+                        quantity,
+                        fillPrice ?: candle.close,
+                        ledger.cash(),
+                    )
+                return@forEachIndexed
+            }
+
+            events += signalEvent(request, candle.closedAt, signal)
+
             val risk = riskEvaluator.evaluate(ScenarioRiskContext(request, candle, signal, quantity, ledger.snapshot(candle.closedAt)))
             events += riskEvent(request, candle.closedAt, risk)
             if (risk is ScenarioRiskDecision.Blocked) return@forEachIndexed
 
             events += orderRequestedEvent(request, candle.closedAt, signal, quantity)
-            val nextCandle = replayCandles.getOrNull(index + 1)
             if (nextCandle == null) {
                 events += fillNotDecidableEvent(request, candle.closedAt)
                 return@forEachIndexed
             }
 
-            val fillPrice = fillPrice(signal, nextCandle)
             if (fillPrice == null) {
                 events += fillNotDecidableEvent(request, nextCandle.openedAt)
                 return@forEachIndexed
@@ -83,8 +109,10 @@ class ScenarioReplayEngine(
 
             if (signal.side == ScenarioSignalSide.BUY && !canAfford(ledger, quantity, fillPrice)) {
                 events += insufficientCashEvent(request, nextCandle.openedAt, quantity, fillPrice, ledger.cash())
+                cashBlockedBuy = CashBlockedBuy(nextCandle.openedAt, quantity, fillPrice, ledger.cash())
                 return@forEachIndexed
             }
+            cashBlockedBuy = null
 
             val snapshot =
                 when (signal.side) {
@@ -217,6 +245,32 @@ class ScenarioReplayEngine(
                     payload = risk.payload + ("reasonCode" to risk.reasonCode),
                 )
         }
+
+    private fun repeatedBuyFoldedEvent(
+        request: ScenarioReplayRequest,
+        virtualTime: Instant,
+        blocked: CashBlockedBuy,
+        quantity: Long,
+        fillPrice: BigDecimal,
+        cash: BigDecimal,
+    ): ScenarioEvent =
+        request.event(
+            virtualTime = virtualTime,
+            type = ScenarioEventType.SIGNAL_HOLD,
+            severity = ScenarioSeverity.INFO,
+            title = "리플레이 반복 BUY 접힘",
+            message = "직전 BUY가 리플레이 현금 부족으로 미체결되어, 같은 BUY 조건이 계속되는 동안 반복 가상 BUY 주문을 접었습니다.",
+            payload =
+                mapOf(
+                    "reasonCode" to "REPEATED_BUY_AFTER_CASH_BLOCK",
+                    "firstBlockedAt" to blocked.at.toString(),
+                    "firstRequiredCash" to blocked.requiredCash(),
+                    "quantity" to quantity,
+                    "fillPrice" to fillPrice,
+                    "cash" to cash,
+                    "requiredCash" to fillPrice.multiply(BigDecimal.valueOf(quantity)),
+                ),
+        )
 
     private fun orderRequestedEvent(
         request: ScenarioReplayRequest,
@@ -392,6 +446,15 @@ class ScenarioReplayEngine(
             code = code,
             payload = payload,
         )
+}
+
+private data class CashBlockedBuy(
+    val at: Instant,
+    val quantity: Long,
+    val fillPrice: BigDecimal,
+    val cash: BigDecimal,
+) {
+    fun requiredCash(): BigDecimal = fillPrice.multiply(BigDecimal.valueOf(quantity))
 }
 
 fun interface ScenarioStrategyEvaluator {
