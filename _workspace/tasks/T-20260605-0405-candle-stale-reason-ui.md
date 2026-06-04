@@ -3,10 +3,10 @@ id: T-20260605-0405-candle-stale-reason-ui
 agent: frontend
 model: opus
 branch: agent/frontend/candle-stale-reason-ui
-status: RUNNING
+status: DONE
 startedAt: 2026-06-05T04:05:33.569+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-05T04:16:17.885+09:00
+pr: #727
 parentPhase: ?
 ---
 
