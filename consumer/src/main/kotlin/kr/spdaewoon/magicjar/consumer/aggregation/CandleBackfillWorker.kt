@@ -62,6 +62,10 @@ class CandleBackfillWorker(
     private val slackSenderProvider: ObjectProvider<SlackWebhookSender>,
     private val killSwitchJpaRepositoryProvider: ObjectProvider<KillSwitchJpaRepository>,
     private val objectMapper: ObjectMapper,
+    // rate-limit safety #1·#2·#3 (2026-06-04 dogfooding fix) — 회복 불가 갭 가드 + 갭 cap + 동시 throttle.
+    private val backfillGapGuardStore: BackfillGapGuardStore,
+    private val backfillThrottleGate: BackfillThrottleGate,
+    private val chartCandleProperties: kr.spdaewoon.magicjar.consumer.config.ChartCandleProperties,
     @Value("\${magicjar.chart-curator.backfill.dry-run:false}")
     private val dryRunPropertyDefault: Boolean,
     @Value("\${magicjar.chart-curator.backfill.window-days:30}")
@@ -116,9 +120,10 @@ class CandleBackfillWorker(
 
     enum class BackfillStatus {
         SUCCESS, // 모든 갭 성공
-        SKIPPED, // 거래정지·정리매매·갭 0건
+        SKIPPED, // 거래정지·정리매매·갭 0건·회복 불가 마킹(재시도 중단)·throttle skip
         PARTIAL_FAIL, // 일부 갭 실패 (warn + Slack notice)
         FAILED_KILLSWITCH, // 전체 갭 실패 (KillSwitch on)
+        UNRECOVERABLE, // KIS 보관 한도 밖·연속 전건 미반환 → 영구 회복 불가 마킹 + 재시도 중단 (rate-limit safety #1·#4)
     }
 
     /**
@@ -129,20 +134,41 @@ class CandleBackfillWorker(
         interval: CandleInterval = CandleInterval.ONE_DAY,
         reason: String = "auto",
     ) {
+        // rate-limit safety #1·#4 — 회복 불가 영구 마킹된 (code, interval)은 KIS 재시도 0 (무한 재시도 루프 차단).
+        // 매 부팅 반복 알림 회피: 마킹 시점 1회 terminal 알림 발화 후 본 path는 조용히 skip.
+        if (backfillGapGuardStore.isUnrecoverable(code, interval)) {
+            log.info(
+                "CandleBackfillWorker submit skip — 회복 불가 마킹(재시도 중단): code={} interval={} reason={}",
+                code,
+                interval.code,
+                reason,
+            )
+            reconciliationStateStore.markReady(code, interval, "backfill-unrecoverable-skip")
+            return
+        }
         reconciliationStateStore.markReconciling(code, interval, reason)
         executor.submit {
             try {
+                // rate-limit safety #3 — 직렬화 + run 간 간격 (부팅 N종목 동시 폭주 차단).
                 val result =
-                    runBackfill(
-                        code,
-                        interval,
-                        dryRun = dryRunPropertyDefault,
-                        windowDays = windowDaysDefault,
-                        reason = reason,
-                    )
+                    backfillThrottleGate.runThrottled(code) {
+                        runBackfill(
+                            code,
+                            interval,
+                            dryRun = dryRunPropertyDefault,
+                            windowDays = windowDaysDefault,
+                            reason = reason,
+                        )
+                    }
+                if (result == null) {
+                    // throttle permit timeout → 다음 사이클로 미룸 (재시도 자체는 차단하지 않음)
+                    reconciliationStateStore.markReady(code, interval, "backfill-throttle-skip")
+                    return@submit
+                }
                 when (result.status) {
                     BackfillStatus.SUCCESS,
                     BackfillStatus.SKIPPED,
+                    BackfillStatus.UNRECOVERABLE,
                     -> reconciliationStateStore.markReady(code, interval, "backfill-${result.status}")
                     BackfillStatus.PARTIAL_FAIL,
                     BackfillStatus.FAILED_KILLSWITCH,
@@ -221,8 +247,42 @@ class CandleBackfillWorker(
             )
         }
 
+        // rate-limit safety #1·#4 — 회복 불가 영구 마킹 종목은 KIS fetch 0 (admin path 방어 포함).
+        // submit()에서 이미 skip하지만, admin 동기 호출·재진입 시에도 무한 재시도 차단.
+        if (backfillGapGuardStore.isUnrecoverable(code, interval)) {
+            persistAudit(
+                action = "CANDLE_BACKFILL_SKIPPED",
+                entityId = code,
+                detail =
+                    mapOf(
+                        "code" to code,
+                        "interval" to interval.code,
+                        "reason" to "UNRECOVERABLE_GAP",
+                        "backfillBatchId" to backfillBatchId,
+                    ),
+            )
+            log.info(
+                "CandleBackfillWorker — 회복 불가 마킹 skip(재시도 중단): code={} interval={} batchId={}",
+                code,
+                interval.code,
+                backfillBatchId,
+            )
+            return BackfillResult(
+                code = code,
+                interval = interval,
+                backfillBatchId = backfillBatchId,
+                dryRun = dryRun,
+                gapCount = 0,
+                gapsSample = emptyList(),
+                insertedCount = 0,
+                failedGapsCount = 0,
+                durationMs = System.currentTimeMillis() - startMs,
+                status = BackfillStatus.UNRECOVERABLE,
+            )
+        }
+
         // CandleGapDetector — 룰 #6·#7 false positive·negative 가드 내장
-        val gaps =
+        val detectedGaps =
             try {
                 candleGapDetector.detectGaps(code, interval, windowDays)
             } catch (e: Exception) {
@@ -235,7 +295,27 @@ class CandleBackfillWorker(
                 emptyList()
             }
 
-        // 룰 #3 — audit CANDLE_BACKFILL_START (gapCount·dryRun 포함)
+        // rate-limit safety #2 — 갭 상한 cap (1회 run당 최대 봉 수).
+        // 초과 시 가장 최근 구간부터 cap만큼만 처리하고 나머지는 다음 사이클로 미룸 (KIS 폭주 차단).
+        val maxGapsPerRun = chartCandleProperties.backfillGuard.maxGapsPerRun.coerceAtLeast(1)
+        val gaps =
+            if (detectedGaps.size > maxGapsPerRun) {
+                // detectGaps는 ASC(과거→최근) 반환 → takeLast가 가장 최근 cap건
+                val capped = detectedGaps.takeLast(maxGapsPerRun)
+                log.warn(
+                    "CandleBackfillWorker 갭 cap 적용: code={} interval={} detected={} cap={} 나머지={} (다음 사이클)",
+                    code,
+                    interval.code,
+                    detectedGaps.size,
+                    maxGapsPerRun,
+                    detectedGaps.size - maxGapsPerRun,
+                )
+                capped
+            } else {
+                detectedGaps
+            }
+
+        // 룰 #3 — audit CANDLE_BACKFILL_START (gapCount·dryRun 포함 + detected/cap evidence — safety #2)
         persistAudit(
             action = "CANDLE_BACKFILL_START",
             entityId = code,
@@ -245,6 +325,8 @@ class CandleBackfillWorker(
                     "interval" to interval.code,
                     "backfillBatchId" to backfillBatchId,
                     "gapCount" to gaps.size,
+                    "detectedGapCount" to detectedGaps.size,
+                    "gapCapApplied" to (detectedGaps.size > maxGapsPerRun),
                     "dryRun" to dryRun,
                     "reason" to reason,
                 ),
@@ -342,9 +424,42 @@ class CandleBackfillWorker(
             }
 
         if (fetchedCandles.isEmpty()) {
-            // 전체 실패 → KillSwitch + audit FAIL (룰 #8)
+            // KIS 전건 미반환(total-miss). rate-limit safety #1·#4:
+            //   연속 total-miss가 임계치(consecutiveTotalMissThreshold) 도달 시 → 회복 불가 영구 마킹 +
+            //   1회 terminal 알림 + UNRECOVERABLE 반환 (다음 부팅/사이클 재시도 0 — 무한 루프 차단).
+            //   임계치 미만이면 기존 fatal 경로 보존 (일시 장애일 수 있으므로 다음 사이클 재시도 허용).
             failedGapsCount = gaps.size
             failedGapsSample.addAll(gapsSample)
+            val shouldGiveUp = backfillGapGuardStore.recordTotalMissAndShouldGiveUp(code, interval)
+            if (shouldGiveUp) {
+                backfillGapGuardStore.markUnrecoverable(
+                    code,
+                    interval,
+                    reason = "CONSECUTIVE_TOTAL_MISS:gaps=${gaps.size}",
+                )
+                handleUnrecoverable(
+                    code = code,
+                    interval = interval,
+                    backfillBatchId = backfillBatchId,
+                    gapsTotal = gaps.size,
+                    gapsSample = gapsSample,
+                    durationMs = System.currentTimeMillis() - startMs,
+                    reason = "KIS 연속 전건 미반환 임계치 도달",
+                )
+                return BackfillResult(
+                    code = code,
+                    interval = interval,
+                    backfillBatchId = backfillBatchId,
+                    dryRun = false,
+                    gapCount = gaps.size,
+                    gapsSample = gapsSample,
+                    insertedCount = 0,
+                    failedGapsCount = failedGapsCount,
+                    durationMs = System.currentTimeMillis() - startMs,
+                    status = BackfillStatus.UNRECOVERABLE,
+                )
+            }
+            // 임계치 미만 — 일시 장애 가능. 기존 fatal 경로 (KillSwitch + 1회 alert) 보존.
             handleFailure(
                 code = code,
                 interval = interval,
@@ -368,6 +483,9 @@ class CandleBackfillWorker(
                 status = BackfillStatus.FAILED_KILLSWITCH,
             )
         }
+
+        // KIS가 캔들을 반환함 → total-miss 연속 카운터 reset (회복 신호 — false positive 영구 마킹 방지).
+        backfillGapGuardStore.recordRecovery(code, interval)
 
         // 룰 #1 — 이중 검증 sanity check
         val sane = sanityCheck(fetchedCandles, backfillBatchId)
@@ -409,16 +527,39 @@ class CandleBackfillWorker(
             failedGapsCount = gaps.size
         }
 
-        // 매칭되지 않은 갭은 실패로 집계
+        // rate-limit safety #1 핵심 fix — unmatched 갭 ≠ 실패 (failed=5008/5008 무한 루프 root cause).
+        //
+        // 배경(2026-06-04 evidence): 1m detectGaps는 영업일 expected 분봉 전수(390~720/일)를 enumerate.
+        //   거래 없는 분(illiquid minute)은 KIS가 영원히 bar를 반환하지 않음 → 그 expected ts는 영구 unmatched.
+        //   기존 로직은 모든 unmatched expected ts를 "실패"로 집계 → failureRatio=1.0 → FAILED_KILLSWITCH(fatal)
+        //   → 매 부팅 재시도 → KIS TPS_EXCEEDED 폭주. 하지만 KIS가 정상 응답한 이상 이는 upstream 실패가 아님.
+        //
+        // 처리: KIS가 캔들을 반환(fetchedCandles 비어있지 않음)한 경우, unmatched 갭은 "uncovered"(거래 없는 분
+        //   또는 KIS 미보유 구간)로 간주하고 fatal 집계에서 제외. saveAll 자체가 실패한 경우만 실패로 본다.
+        //   갭은 mock 합성 없이 갭으로 남기되(feedback_no_mock_data.md) 재시도만 종결.
         val matchedTsSet: Set<Instant> = HashSet(matched.map { Instant.ofEpochSecond(it.ts.epochSeconds) })
-        val unmatchedGaps = gaps.filterNot { it in matchedTsSet }
-        failedGapsCount += unmatchedGaps.size
-        unmatchedGaps.take(10 - failedGapsSample.size).forEach { failedGapsSample.add(it) }
+        val uncoveredGaps = gaps.filterNot { it in matchedTsSet }
+        if (uncoveredGaps.isNotEmpty()) {
+            log.info(
+                "CandleBackfillWorker — KIS 응답 정상이나 일부 expected 미커버(거래 없는 분/미보유): " +
+                    "code={} interval={} gaps={} matched={} uncovered={} (실패 아님, 갭은 갭으로 남김)",
+                code,
+                interval.code,
+                gaps.size,
+                matched.size,
+                uncoveredGaps.size,
+            )
+        }
+        // saveAll 예외 시에만 failedGapsCount가 gaps.size로 설정됨(위 catch). 그 외에는 uncovered를 실패로 보지 않음.
+        if (failedGapsCount > 0) {
+            uncoveredGaps.take(10 - failedGapsSample.size).forEach { failedGapsSample.add(it) }
+        }
 
         val durationMs = System.currentTimeMillis() - startMs
         val failureRatio = if (gaps.isNotEmpty()) failedGapsCount.toDouble() / gaps.size.toDouble() else 0.0
         val status =
             when {
+                // saveAll 자체가 전건 실패한 경우만 fatal (KIS 응답은 정상이었으므로 흔치 않음 — DB 결함 path)
                 failureRatio >= KILLSWITCH_FAILURE_RATIO -> BackfillStatus.FAILED_KILLSWITCH
                 failedGapsCount > 0 -> BackfillStatus.PARTIAL_FAIL
                 else -> BackfillStatus.SUCCESS
@@ -459,7 +600,9 @@ class CandleBackfillWorker(
                     durationMs = durationMs,
                     fatal = true,
                 )
-            BackfillStatus.SKIPPED -> { /* unreachable in this branch */ }
+            BackfillStatus.SKIPPED,
+            BackfillStatus.UNRECOVERABLE,
+            -> { /* unreachable in this branch — early return 처리됨 */ }
         }
 
         log.info(
@@ -675,6 +818,56 @@ class CandleBackfillWorker(
         throw IllegalStateException(
             "CandleBackfillWorker 3회 retry 실패: code=$code interval=${interval.code} batchId=$backfillBatchId",
             lastErr,
+        )
+    }
+
+    /**
+     * rate-limit safety #1·#4 — 회복 불가 영구 마킹 terminal 알림 (1회만, 매 부팅 반복 알림 차단).
+     *
+     * KillSwitch는 발동하지 않는다 — 회복 불가 갭은 자본 결함이 아니라 KIS 보관 한도/거래 부재로 인한
+     * 정상 데이터 부재이며, 갭은 mock 합성 없이 갭으로 남긴다(feedback_no_mock_data.md). 재시도만 종결.
+     */
+    private fun handleUnrecoverable(
+        code: String,
+        interval: CandleInterval,
+        backfillBatchId: String,
+        gapsTotal: Int,
+        gapsSample: List<Instant>,
+        durationMs: Long,
+        reason: String,
+    ) {
+        val detail =
+            mapOf(
+                "code" to code,
+                "interval" to interval.code,
+                "backfillBatchId" to backfillBatchId,
+                "gapsTotal" to gapsTotal,
+                "gapsSample" to gapsSample.take(5).map { it.toString() },
+                "durationMs" to durationMs,
+                "reason" to reason,
+                "retryStopped" to true,
+            )
+        persistAudit(action = "CANDLE_BACKFILL_UNRECOVERABLE", entityId = code, detail = detail)
+
+        val sender = slackSenderProvider.getIfAvailable()
+        if (sender != null) {
+            val msg =
+                "[magicJar] CandleBackfill 회복 불가 — 재시도 중단(terminal) — code=$code interval=${interval.code} " +
+                    "gaps=$gapsTotal reason=$reason. KIS 보관 한도(최대 1년)/거래 없는 분 구간으로 추정. " +
+                    "갭은 그대로 남기고 자동 재시도를 종결합니다. batchId=$backfillBatchId"
+            try {
+                sender.sendDirect(msg)
+            } catch (e: Exception) {
+                log.warn("CandleBackfillWorker UNRECOVERABLE Slack 발화 실패: err={}", e.message)
+            }
+        }
+        log.warn(
+            "CandleBackfillWorker UNRECOVERABLE terminal — 재시도 중단: code={} interval={} gaps={} reason={} batchId={}",
+            code,
+            interval.code,
+            gapsTotal,
+            reason,
+            backfillBatchId,
         )
     }
 

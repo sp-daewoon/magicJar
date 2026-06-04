@@ -53,6 +53,13 @@ class CandleBackfillWorkerTest {
     private val slackSender = mockk<SlackWebhookSender>()
     private val killSwitchRepo = mockk<KillSwitchJpaRepository>()
 
+    // rate-limit safety #1·#2·#3 (2026-06-04) — 가드/throttle/properties mock.
+    private val backfillGapGuardStore = mockk<BackfillGapGuardStore>(relaxed = true)
+    private val backfillThrottleGate = mockk<BackfillThrottleGate>(relaxed = true)
+    private val chartCandleProperties =
+        kr.spdaewoon.magicjar.consumer.config
+            .ChartCandleProperties()
+
     private val slackProvider =
         mockk<ObjectProvider<SlackWebhookSender>>().also {
             every { it.getIfAvailable() } returns slackSender
@@ -65,8 +72,11 @@ class CandleBackfillWorkerTest {
 
     private val objectMapper = jacksonObjectMapper()
 
-    private fun newWorker(dryRun: Boolean = false): CandleBackfillWorker =
-        CandleBackfillWorker(
+    private fun newWorker(dryRun: Boolean = false): CandleBackfillWorker {
+        // 가드 default: 회복 불가 아님 + give-up 아님 (기존 동작 보존 — 회귀 0)
+        every { backfillGapGuardStore.isUnrecoverable(any(), any()) } returns false
+        every { backfillGapGuardStore.recordTotalMissAndShouldGiveUp(any(), any()) } returns false
+        return CandleBackfillWorker(
             candleGapDetector = candleGapDetector,
             candleRepository = candleRepository,
             kisRestPort = kisRestPort,
@@ -77,9 +87,13 @@ class CandleBackfillWorkerTest {
             slackSenderProvider = slackProvider,
             killSwitchJpaRepositoryProvider = ksProvider,
             objectMapper = objectMapper,
+            backfillGapGuardStore = backfillGapGuardStore,
+            backfillThrottleGate = backfillThrottleGate,
+            chartCandleProperties = chartCandleProperties,
             dryRunPropertyDefault = dryRun,
             windowDaysDefault = 30,
         )
+    }
 
     private fun candle(
         code: String = "004090",
@@ -437,28 +451,55 @@ class CandleBackfillWorkerTest {
     }
 
     @Test
-    fun `룰 #8 retry — 부분 실패는 PARTIAL_FAIL + KillSwitch 미발동`() {
+    fun `(safety-1) KIS 응답 정상 + 일부 expected 미커버는 실패 아님 SUCCESS + KillSwitch 미발동`() {
+        // rate-limit safety #1 핵심 — failed=5008/5008 무한 루프 root cause fix.
+        // 거래 없는 분(illiquid)이나 KIS 미보유 expected ts는 영원히 unmatched이지만 실패가 아니다.
+        // KIS가 캔들을 반환한 이상 upstream 실패가 아니므로 SUCCESS + KillSwitch 미발동.
         val worker = newWorker()
         setupNoInstrument()
         setupAuditCapture()
-        // 2개 갭 중 1개만 KIS 응답 match
         val gap1 = Instant.ofEpochSecond(1_700_000_000L)
-        val gap2 = Instant.ofEpochSecond(1_700_086_400L)
+        val gap2 = Instant.ofEpochSecond(1_700_086_400L) // KIS가 반환하지 않는 expected (거래 없는 분 가정)
         every { candleGapDetector.detectGaps("004090", CandleInterval.ONE_DAY, 30) } returns listOf(gap1, gap2)
         every { kisRestPort.fetchCandles("004090", CandleInterval.ONE_DAY, 200) } returns
-            listOf(candle(tsEpochSec = 1_700_000_000L)) // gap1만 매칭
+            listOf(candle(tsEpochSec = 1_700_000_000L)) // gap1만 매칭, gap2는 uncovered
         every { candleRepository.saveAll(any()) } returns 1
         every { slackSender.sendDirect(any()) } returns true
 
         val result = worker.runBackfill("004090", CandleInterval.ONE_DAY, dryRun = false)
 
-        assertThat(result.status).isEqualTo(CandleBackfillWorker.BackfillStatus.PARTIAL_FAIL)
+        // uncovered 갭은 실패 아님 → SUCCESS
+        assertThat(result.status).isEqualTo(CandleBackfillWorker.BackfillStatus.SUCCESS)
         assertThat(result.insertedCount).isEqualTo(1)
-        assertThat(result.failedGapsCount).isEqualTo(1)
-        // KillSwitch 미발동 (부분 실패 — 자본 영향 0 LOCK)
+        assertThat(result.failedGapsCount).isEqualTo(0)
+        // KillSwitch 미발동 (자본 영향 0)
         verify(exactly = 0) {
             killSwitchRepo.enableKillSwitch(any(), any(), any())
         }
+        // 회복 신호 reset 호출 (KIS 응답 정상이므로 연속 miss 카운터 0으로)
+        verify { backfillGapGuardStore.recordRecovery("004090", CandleInterval.ONE_DAY) }
+    }
+
+    @Test
+    fun `(safety-1) saveAll 자체 실패는 PARTIAL_FAIL 또는 FAILED 집계`() {
+        // KIS 응답은 정상이나 DB saveAll이 예외로 전건 실패 → 이때만 실패 집계 (DB 결함 path).
+        val worker = newWorker()
+        setupNoInstrument()
+        setupAuditCapture()
+        val gap1 = Instant.ofEpochSecond(1_700_000_000L)
+        every { candleGapDetector.detectGaps("004090", CandleInterval.ONE_DAY, 30) } returns listOf(gap1)
+        every { kisRestPort.fetchCandles("004090", CandleInterval.ONE_DAY, 200) } returns
+            listOf(candle(tsEpochSec = 1_700_000_000L))
+        every { candleRepository.saveAll(any()) } throws RuntimeException("DB down")
+        every { slackSender.sendDirect(any()) } returns true
+        every { killSwitchRepo.existsUserAccount(CandleBackfillWorker.SYSTEM_USER_ID) } returns true
+        every { killSwitchRepo.enableKillSwitch(any(), any(), any()) } just Runs
+
+        val result = worker.runBackfill("004090", CandleInterval.ONE_DAY, dryRun = false)
+
+        // 단일 갭 전건 실패 → failureRatio 1.0 → FAILED_KILLSWITCH
+        assertThat(result.status).isEqualTo(CandleBackfillWorker.BackfillStatus.FAILED_KILLSWITCH)
+        assertThat(result.failedGapsCount).isEqualTo(1)
     }
 
     // ---------- 룰 #9 Audit trail (5 path) ----------
@@ -500,5 +541,107 @@ class CandleBackfillWorkerTest {
         assertThat(captured.captured.actor).isEqualTo("chart-curator")
         assertThat(captured.captured.entityType).isEqualTo("candle")
         assertThat(captured.captured.entityId).isEqualTo("004090")
+    }
+
+    // ---------- rate-limit safety #1·#4 — 회복 불가 영구 마킹 + 재시도 중단 ----------
+
+    @Test
+    fun `(safety-1) KIS 전건 미반환 연속 임계 도달 시 UNRECOVERABLE 마킹 + terminal 알림 + KillSwitch 미발동`() {
+        val worker = newWorker()
+        setupNoInstrument()
+        setupAuditCapture()
+        val captured = mutableListOf<ConsumerAuditTrailJpaEntity>()
+        every { auditRepository.save(capture(captured)) } answers { firstArg<ConsumerAuditTrailJpaEntity>() }
+        every { candleGapDetector.detectGaps("004090", CandleInterval.ONE_MIN, 30) } returns
+            listOf(Instant.ofEpochSecond(1_700_000_000L))
+        // KIS 전건 미반환 (3회 retry 모두 빈 응답)
+        every { kisRestPort.fetchCandles("004090", CandleInterval.ONE_MIN, 1) } returns emptyList()
+        every { slackSender.sendDirect(any()) } returns true
+        // 연속 임계치 도달 → give-up
+        every { backfillGapGuardStore.recordTotalMissAndShouldGiveUp("004090", CandleInterval.ONE_MIN) } returns true
+
+        val result = worker.runBackfill("004090", CandleInterval.ONE_MIN, dryRun = false)
+
+        assertThat(result.status).isEqualTo(CandleBackfillWorker.BackfillStatus.UNRECOVERABLE)
+        // 영구 마킹 호출
+        verify(exactly = 1) {
+            backfillGapGuardStore.markUnrecoverable("004090", CandleInterval.ONE_MIN, any())
+        }
+        // terminal audit 발행
+        assertThat(captured.map { it.action }).contains("CANDLE_BACKFILL_UNRECOVERABLE")
+        // terminal Slack 알림 (재시도 중단 명시)
+        verify { slackSender.sendDirect(match { it.contains("회복 불가") && it.contains("재시도 중단") }) }
+        // KillSwitch 미발동 (자본 결함 아님)
+        verify(exactly = 0) { killSwitchRepo.enableKillSwitch(any(), any(), any()) }
+    }
+
+    @Test
+    fun `(safety-1) 임계치 미만 전건 미반환은 기존 fatal 경로 보존 (재시도 허용)`() {
+        val worker = newWorker()
+        setupNoInstrument()
+        setupAuditCapture()
+        every { candleGapDetector.detectGaps("004090", CandleInterval.ONE_DAY, 30) } returns
+            listOf(Instant.ofEpochSecond(1_700_000_000L))
+        every { kisRestPort.fetchCandles("004090", CandleInterval.ONE_DAY, 200) } returns emptyList()
+        every { slackSender.sendDirect(any()) } returns true
+        every { killSwitchRepo.existsUserAccount(CandleBackfillWorker.SYSTEM_USER_ID) } returns true
+        every { killSwitchRepo.enableKillSwitch(any(), any(), any()) } just Runs
+        // 임계치 미만 → give-up 아님
+        every { backfillGapGuardStore.recordTotalMissAndShouldGiveUp("004090", CandleInterval.ONE_DAY) } returns false
+
+        val result = worker.runBackfill("004090", CandleInterval.ONE_DAY, dryRun = false)
+
+        assertThat(result.status).isEqualTo(CandleBackfillWorker.BackfillStatus.FAILED_KILLSWITCH)
+        // 영구 마킹 미호출 (다음 사이클 재시도 허용)
+        verify(exactly = 0) { backfillGapGuardStore.markUnrecoverable(any(), any(), any()) }
+    }
+
+    @Test
+    fun `(safety-4) 회복 불가 마킹된 종목은 KIS fetch 0 + SKIPPED 반환`() {
+        val worker = newWorker()
+        setupNoInstrument()
+        setupAuditCapture()
+        // 이미 회복 불가 마킹됨
+        every { backfillGapGuardStore.isUnrecoverable("004090", CandleInterval.ONE_MIN) } returns true
+
+        val result = worker.runBackfill("004090", CandleInterval.ONE_MIN, dryRun = false)
+
+        assertThat(result.status).isEqualTo(CandleBackfillWorker.BackfillStatus.UNRECOVERABLE)
+        // detectGaps·KIS fetch 호출 0 (무한 재시도 차단)
+        verify(exactly = 0) { candleGapDetector.detectGaps(any(), any(), any()) }
+        verify(exactly = 0) { kisRestPort.fetchCandles(any(), any(), any()) }
+    }
+
+    // ---------- rate-limit safety #2 — 갭 상한 cap ----------
+
+    @Test
+    fun `(safety-2) detectGaps가 cap 초과 시 가장 최근 cap건만 처리`() {
+        // chartCandleProperties.backfillGuard.maxGapsPerRun default=5000.
+        // detected 6000건 → 가장 최근 5000건만 (ASC takeLast).
+        val worker = newWorker()
+        setupNoInstrument()
+        setupAuditCapture()
+        val captured = mutableListOf<ConsumerAuditTrailJpaEntity>()
+        every { auditRepository.save(capture(captured)) } answers { firstArg<ConsumerAuditTrailJpaEntity>() }
+        // 6000개 갭 (ASC) — base + i*60s
+        val base = 1_700_000_000L
+        val detected = (0 until 6000).map { Instant.ofEpochSecond(base + it * 60L) }
+        every { candleGapDetector.detectGaps("004090", CandleInterval.ONE_MIN, 30) } returns detected
+        // KIS 응답은 임의 1건 (cap 동작만 검증)
+        every { kisRestPort.fetchCandles("004090", CandleInterval.ONE_MIN, 1) } returns
+            listOf(candle(tsEpochSec = base + 5999L * 60L, interval = CandleInterval.ONE_MIN))
+        every { candleRepository.saveAll(any()) } returns 1
+        every { aggregateBackfillRunner.backfill("004090") } returns emptyMap()
+
+        val result = worker.runBackfill("004090", CandleInterval.ONE_MIN, dryRun = false)
+
+        // gapCount는 cap된 5000 (detected 6000 아님)
+        assertThat(result.gapCount).isEqualTo(5000)
+        // START audit에 cap evidence
+        val start = captured.first { it.action == "CANDLE_BACKFILL_START" }
+        val node = objectMapper.readTree(start.detailJson)
+        assertThat(node.get("detectedGapCount").asInt()).isEqualTo(6000)
+        assertThat(node.get("gapCapApplied").asBoolean()).isTrue
+        assertThat(node.get("gapCount").asInt()).isEqualTo(5000)
     }
 }

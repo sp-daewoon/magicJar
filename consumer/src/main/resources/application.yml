@@ -143,6 +143,21 @@ magicjar:
       default-lookback-trading-days: ${MAGICJAR_CANDLE_1M_DEFAULT_LOOKBACK_TRADING_DAYS:126}
       max-lookback-trading-days: ${MAGICJAR_CANDLE_1M_MAX_LOOKBACK_TRADING_DAYS:252}
       max-pages-per-day: ${MAGICJAR_CANDLE_1M_MAX_PAGES_PER_DAY:8}
+    # 캔들 백필 rate-limit safety 가드 (2026-06-04 dogfooding fix — KIS 폭주·전건실패 무한재시도 차단)
+    #   evidence: 부팅 시 8종목 1m 2일 stale → 백필 전건 실패(failed=5008/5008) → 매 부팅 재시도 → TPS_EXCEEDED 폭주
+    #   - consecutive-total-miss-threshold: KIS 전건 미반환(0건) run 연속 N회 → 회복 불가 영구 마킹 + 재시도 중단
+    #   - max-gaps-per-run: 1회 run당 처리 갭 상한 (초과분은 가장 최근 cap건 + 나머지 다음 사이클)
+    #   - max-concurrent-backfills: 동시 백필 run 직렬화 (부팅 N종목 동시 폭주 차단)
+    #   - min-interval-millis: 백필 run 간 최소 간격
+    #   - unrecoverable-ttl-hours: 회복 불가 마킹 TTL (만료 후 1회 재확인 허용)
+    backfill-guard:
+      consecutive-total-miss-threshold: ${MAGICJAR_CANDLE_BACKFILL_MISS_THRESHOLD:2}
+      max-gaps-per-run: ${MAGICJAR_CANDLE_BACKFILL_MAX_GAPS_PER_RUN:5000}
+      max-concurrent-backfills: ${MAGICJAR_CANDLE_BACKFILL_MAX_CONCURRENT:1}
+      min-interval-millis: ${MAGICJAR_CANDLE_BACKFILL_MIN_INTERVAL_MS:1500}
+      acquire-timeout-millis: ${MAGICJAR_CANDLE_BACKFILL_ACQUIRE_TIMEOUT_MS:60000}
+      guard-ttl-hours: ${MAGICJAR_CANDLE_BACKFILL_GUARD_TTL_HOURS:72}
+      unrecoverable-ttl-hours: ${MAGICJAR_CANDLE_BACKFILL_UNRECOVERABLE_TTL_HOURS:168}
 
   # MarketSession 설정 (ADR 0013 §2-2, PR-29a 본격 교체)
   session:
