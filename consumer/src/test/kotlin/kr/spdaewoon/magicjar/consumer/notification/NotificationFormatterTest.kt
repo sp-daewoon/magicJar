@@ -104,6 +104,58 @@ class NotificationFormatterTest {
     }
 
     @Test
+    fun `(2-2) ORDER_REJECTED — KILLSWITCH_ON 코드는 사람어 사유 1줄로 풀어준다`() {
+        val msg =
+            NotificationFormatter.format(
+                userId = "12345678",
+                eventType = NotificationEventType.ORDER_REJECTED,
+                reason = "주문 거절: [REAL] 삼성전자(005930) 매수 — KILLSWITCH_ON",
+                meta = mapOf("rejectReason" to "KILLSWITCH_ON"),
+            )
+        assertThat(msg).contains("주문 거절")
+        assertThat(msg).contains("사유: KillSwitch가 켜져 있어")
+    }
+
+    @Test
+    fun `(2-3) ORDER_REJECTED — REAL_GATE_DENIED는 조건을 포함해 풀어준다`() {
+        val msg =
+            NotificationFormatter.format(
+                userId = "12345678",
+                eventType = NotificationEventType.ORDER_REJECTED,
+                reason = "주문 거절: [REAL] 삼성전자(005930) 매수 — REAL_GATE_DENIED:allowReal",
+                meta = mapOf("rejectReason" to "REAL_GATE_DENIED:allowReal"),
+            )
+        assertThat(msg).contains("사유: 실계좌 이중 게이트")
+        assertThat(msg).contains("조건: allowReal")
+    }
+
+    @Test
+    fun `(2-4) ORDER_REJECTED — KIS rt_cd 코드 패턴은 KIS 거절 코드로 풀어준다`() {
+        val msg =
+            NotificationFormatter.format(
+                userId = "12345678",
+                eventType = NotificationEventType.ORDER_REJECTED,
+                reason = "주문 거절: [REAL] 삼성전자(005930) 매수 — 40310000:초과 주문",
+                meta = mapOf("rejectReason" to "40310000:초과 주문"),
+            )
+        assertThat(msg).contains("사유: KIS 거절 (코드 40310000)")
+        assertThat(msg).contains("초과 주문")
+    }
+
+    @Test
+    fun `(2-5) ORDER_REJECTED — 미등록 코드는 사유 줄 없이 기술 내용만 (graceful 회귀 보호)`() {
+        val msg =
+            NotificationFormatter.format(
+                userId = "12345678",
+                eventType = NotificationEventType.ORDER_REJECTED,
+                reason = "주문 거절: [REAL] 삼성전자(005930) 매수 — SOME_UNMAPPED",
+                meta = mapOf("rejectReason" to "SOME_UNMAPPED"),
+            )
+        assertThat(msg).contains("주문 거절")
+        assertThat(msg).doesNotContain("사유:")
+    }
+
+    @Test
     fun `(3) ORDER_CANCELLED — 취소 메시지`() {
         val msg =
             NotificationFormatter.format(
