@@ -21,12 +21,16 @@ import org.junit.jupiter.api.Test
  * WatchlistIngestionWorker 단위 테스트.
  *
  * 핵심 검증:
- * - 부팅 시 watchlist 있으면 connect() 호출 후 recompute() 호출 (순서 보장)
+ * - 부팅 시 watchlist 있으면 recompute() 호출 후 connect() 호출 (순서 보장 — 2026-06-04 race fix)
  * - 부팅 시 watchlist 없으면 connect() 미호출
- * - connect() → subscribe() 순서 보장 (sendSink null 방지)
+ * - recompute() → connect() 순서 보장 (onConnected 재구독이 전체 종목 set 스냅샷 — 1m stale race fix)
  * - [ADR 0077 J-1] REAL 자격증명 미등록 시 connect() skip + WARN 로그 (onStartup 사전 검증)
  *
  * hotfix 배경: KIS WS connect() 누락으로 실시간 시세 0건 (사용자 dogfooding 2026-05-11).
+ * race fix 배경 (2026-06-04 점검 사이클 #3): connect()는 비동기(scheduleConnect)이므로
+ *   기존 순서(connect → recompute)는 doConnect handshake 스레드와 recompute(main) 스레드가 race했다.
+ *   onConnected 재구독이 recompute보다 먼저 진입하면 일부 종목만 재구독되어 나머지 watchlist 종목
+ *   1m candle stale. recompute를 먼저 호출해 session.subscribedCodes를 전부 등록한 뒤 connect.
  * ADR 0028 §2-1: WatchlistIngestionWorker가 KIS WS 연결·구독의 단일 책임자.
  * ADR 0077 J-1: onStartup 시 REAL 자격증명 사전 검증 — 미등록 시 connect skip.
  */
@@ -63,7 +67,7 @@ class WatchlistIngestionWorkerTest {
     }
 
     @Test
-    fun `watchlist 있으면 onStartup 시 connect() 호출 후 recompute() 호출`() {
+    fun `watchlist 있으면 onStartup 시 recompute() 호출 후 connect() 호출`() {
         // given
         val entries =
             listOf(
@@ -85,7 +89,7 @@ class WatchlistIngestionWorkerTest {
     }
 
     @Test
-    fun `connect() 는 recompute() 보다 반드시 먼저 호출된다`() {
+    fun `recompute() 는 connect() 보다 반드시 먼저 호출된다 — 1m stale race fix`() {
         // given
         val entries = listOf(WatchlistEntry(userId = "user002", code = "035720", priority = 100, createdAt = Instant.fromEpochSeconds(0)))
         every { watchlistRepository.findAll() } returns entries
@@ -96,10 +100,12 @@ class WatchlistIngestionWorkerTest {
         // when
         worker.onStartup()
 
-        // then — 순서 검증 (connect → recompute, sendSink null 방지)
+        // then — 순서 검증 (recompute → connect):
+        //   recompute가 session.subscribedCodes를 전부 등록한 뒤 connect → onConnected 재구독이
+        //   전체 종목을 스냅샷 → race로 인한 부분 재구독(watchlist 1m stale) 차단.
         verifyOrder {
-            kisWsPort.connect()
             subscriptionRouter.recompute("user002")
+            kisWsPort.connect()
         }
     }
 
