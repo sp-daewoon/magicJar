@@ -3,10 +3,10 @@ id: T-20260604-1706-ws-subscription-stale-rootcause
 agent: market-data
 model: opus
 branch: agent/market-data/ws-subscription-stale-rootcause
-status: RUNNING
+status: DONE
 startedAt: 2026-06-04T17:06:52.866+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-04T17:21:10.877+09:00
+pr: #722
 parentPhase: ?
 ---
 
