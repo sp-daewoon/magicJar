@@ -3,10 +3,10 @@ id: T-20260605-0405-notification-friendliness
 agent: backend-core
 model: opus
 branch: agent/backend-core/notification-friendliness
-status: RUNNING
+status: DONE
 startedAt: 2026-06-05T04:05:38.722+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-05T04:16:58.117+09:00
+pr: #728
 parentPhase: ?
 ---
 
