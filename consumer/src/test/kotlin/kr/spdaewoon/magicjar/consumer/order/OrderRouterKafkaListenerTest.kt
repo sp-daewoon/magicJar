@@ -5,7 +5,9 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import kr.spdaewoon.magicjar.consumer.infrastructure.session.SimpleMarketSessionResolver
 import kr.spdaewoon.magicjar.consumer.persistence.KillSwitchJpaRepository
+import kr.spdaewoon.magicjar.domain.market.session.BusinessDayCalendar
 import kr.spdaewoon.magicjar.domain.order.execution.DenyReason
 import kr.spdaewoon.magicjar.domain.order.execution.KisOrderAck
 import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEvent
@@ -78,7 +80,18 @@ class OrderRouterKafkaListenerTest {
         mockk<ObjectProvider<KillSwitchJpaRepository>>().also {
             every { it.getIfAvailable() } returns killSwitchJpaRepository
         }
+    private val marketSessionResolver = SimpleMarketSessionResolver()
+    private val businessDayCalendar =
+        mockk<BusinessDayCalendar>().also {
+            every { it.isBusinessDay(any()) } returns true
+        }
+    private val businessDayCalendarProvider =
+        mockk<ObjectProvider<BusinessDayCalendar>>().also {
+            every { it.getIfAvailable() } returns businessDayCalendar
+        }
 
+    // 기존 12 step 흐름 테스트는 장운영시간 게이트를 비활성(enabled=false)으로 격리한다.
+    // 게이트 자체 동작은 isWithinTradingHours 단위 테스트 + AUTO/MANUAL 분기 테스트로 별도 검증.
     private val listener =
         OrderRouterKafkaListener(
             orderRequestRepositoryProvider = orderRepoProvider,
@@ -92,7 +105,10 @@ class OrderRouterKafkaListenerTest {
             accountBalanceChangedKafkaProducer = accountBalanceChangedProducer,
             executionBackfillServiceProvider = executionBackfillProvider,
             killSwitchJpaRepositoryProvider = killSwitchJpaRepositoryProvider,
+            marketSessionResolver = marketSessionResolver,
+            businessDayCalendarProvider = businessDayCalendarProvider,
             objectMapper = objectMapper,
+            marketHoursGateEnabled = false,
         )
 
     @Test
@@ -213,8 +229,11 @@ class OrderRouterKafkaListenerTest {
                 accountBalanceChangedKafkaProducer = accountBalanceChangedProducer,
                 executionBackfillServiceProvider = syncProvider,
                 killSwitchJpaRepositoryProvider = killSwitchJpaRepositoryProvider,
+                marketSessionResolver = marketSessionResolver,
+                businessDayCalendarProvider = businessDayCalendarProvider,
                 objectMapper = objectMapper,
                 magicjarMode = "REAL",
+                marketHoursGateEnabled = false,
             )
 
         val ack = mockk<Acknowledgment>(relaxed = true)
@@ -331,7 +350,10 @@ class OrderRouterKafkaListenerTest {
                 accountBalanceChangedKafkaProducer = accountBalanceChangedProducer,
                 executionBackfillServiceProvider = executionBackfillProvider,
                 killSwitchJpaRepositoryProvider = killSwitchJpaRepositoryProvider,
+                marketSessionResolver = marketSessionResolver,
+                businessDayCalendarProvider = businessDayCalendarProvider,
                 objectMapper = objectMapper,
+                marketHoursGateEnabled = false,
             )
 
         val ack = mockk<Acknowledgment>(relaxed = true)
@@ -465,6 +487,119 @@ class OrderRouterKafkaListenerTest {
         // backward compat — source 필드 부재 시 AUTO default
         assertThat(savedSlot.captured.source).isEqualTo(OrderSource.AUTO)
         verify(exactly = 1) { ack.acknowledge() }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 장운영시간 게이트 (2026-06-04 dogfooding 결함 fix) — AUTO 차단 / MANUAL 통과 / 토글
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** 게이트 활성 + isWithinTradingHours를 결정론적으로 stub한 spy listener. */
+    private fun gatedListener(withinHours: Boolean): OrderRouterKafkaListener {
+        val gated =
+            io.mockk.spyk(
+                OrderRouterKafkaListener(
+                    orderRequestRepositoryProvider = orderRepoProvider,
+                    orderAuditEventRepositoryProvider = auditRepoProvider,
+                    killSwitchQueryPortProvider = killSwitchProvider,
+                    tradingModeGate = tradingModeGate,
+                    orderIdempotencyGuard = idempotencyGuard,
+                    kisOrderPort = kisOrderPort,
+                    orderRequestedKafkaProducer = requestedProducer,
+                    orderRejectedKafkaProducer = rejectedProducer,
+                    accountBalanceChangedKafkaProducer = accountBalanceChangedProducer,
+                    executionBackfillServiceProvider = executionBackfillProvider,
+                    killSwitchJpaRepositoryProvider = killSwitchJpaRepositoryProvider,
+                    marketSessionResolver = marketSessionResolver,
+                    businessDayCalendarProvider = businessDayCalendarProvider,
+                    objectMapper = objectMapper,
+                    marketHoursGateEnabled = true,
+                ),
+            )
+        every { gated.isWithinTradingHours(any()) } returns withinHours
+        return gated
+    }
+
+    @Test
+    fun `AUTO 주문이 장외 시각이면 KIS submit 전에 MARKET_CLOSED로 REJECTED`() {
+        every { idempotencyGuard.acquire(any(), any()) } returns true
+        every { tradingModeGate.resolveMode("12345678") } returns OrderResult.Right(TradingMode.MOCK)
+        every { killSwitchPort.isOn("12345678") } returns false
+        every { orderRepo.save(any()) } answers { firstArg<OrderRequest>().copy(id = 99L) }
+
+        val ack = mockk<Acknowledgment>(relaxed = true)
+        gatedListener(withinHours = false).onOrderIntent(buildRecord(payloadWithSource("AUTO")), ack)
+
+        verify(exactly = 1) { orderRepo.save(match { it.status == OrderStatus.REJECTED && it.source == OrderSource.AUTO }) }
+        verify(exactly = 1) { rejectedProducer.publish(any(), match { it.startsWith("MARKET_CLOSED") }) }
+        verify(exactly = 0) { kisOrderPort.submit(any(), any()) }
+        verify(exactly = 1) { ack.acknowledge() }
+    }
+
+    @Test
+    fun `MANUAL 주문은 장외 시각이어도 게이트를 통과해 KIS submit까지 진행한다`() {
+        every { idempotencyGuard.acquire(any(), any()) } returns true
+        every { tradingModeGate.resolveMode("12345678") } returns OrderResult.Right(TradingMode.MOCK)
+        every { killSwitchPort.isOn("12345678") } returns false
+        every { orderRepo.save(any()) } answers { firstArg<OrderRequest>().copy(id = 99L) }
+        every { kisOrderPort.submit(any(), TradingMode.MOCK) } returns
+            OrderResult.Right(
+                KisOrderAck(kisOrderNo = "ODNO999", kisFwdgOrgno = "ORG009", rtCd = "0", msg = "OK"),
+            )
+
+        val ack = mockk<Acknowledgment>(relaxed = true)
+        gatedListener(withinHours = false).onOrderIntent(buildRecord(manualPayload()), ack)
+
+        // MANUAL은 게이트 제외 — KIS submit 진행
+        verify(exactly = 1) { kisOrderPort.submit(any(), TradingMode.MOCK) }
+        verify(exactly = 0) { rejectedProducer.publish(any(), match { it.startsWith("MARKET_CLOSED") }) }
+        verify(exactly = 1) { ack.acknowledge() }
+    }
+
+    @Test
+    fun `AUTO 주문이 정규장 안이면 게이트를 통과해 KIS submit까지 진행한다`() {
+        every { idempotencyGuard.acquire(any(), any()) } returns true
+        every { tradingModeGate.resolveMode("12345678") } returns OrderResult.Right(TradingMode.MOCK)
+        every { killSwitchPort.isOn("12345678") } returns false
+        every { orderRepo.save(any()) } answers { firstArg<OrderRequest>().copy(id = 99L) }
+        every { kisOrderPort.submit(any(), TradingMode.MOCK) } returns
+            OrderResult.Right(
+                KisOrderAck(kisOrderNo = "ODNO888", kisFwdgOrgno = "ORG008", rtCd = "0", msg = "OK"),
+            )
+
+        val ack = mockk<Acknowledgment>(relaxed = true)
+        gatedListener(withinHours = true).onOrderIntent(buildRecord(payloadWithSource("AUTO")), ack)
+
+        verify(exactly = 1) { kisOrderPort.submit(any(), TradingMode.MOCK) }
+        verify(exactly = 0) { rejectedProducer.publish(any(), match { it.startsWith("MARKET_CLOSED") }) }
+        verify(exactly = 1) { ack.acknowledge() }
+    }
+
+    @Test
+    fun `isWithinTradingHours — KST 정규장 10시는 true, 장전 08시30분은 false`() {
+        val gated =
+            OrderRouterKafkaListener(
+                orderRequestRepositoryProvider = orderRepoProvider,
+                orderAuditEventRepositoryProvider = auditRepoProvider,
+                killSwitchQueryPortProvider = killSwitchProvider,
+                tradingModeGate = tradingModeGate,
+                orderIdempotencyGuard = idempotencyGuard,
+                kisOrderPort = kisOrderPort,
+                orderRequestedKafkaProducer = requestedProducer,
+                orderRejectedKafkaProducer = rejectedProducer,
+                accountBalanceChangedKafkaProducer = accountBalanceChangedProducer,
+                executionBackfillServiceProvider = executionBackfillProvider,
+                killSwitchJpaRepositoryProvider = killSwitchJpaRepositoryProvider,
+                marketSessionResolver = marketSessionResolver,
+                businessDayCalendarProvider = businessDayCalendarProvider,
+                objectMapper = objectMapper,
+            )
+
+        // KST 2026-05-20(수) 10:00 = UTC 2026-05-20T01:00:00Z
+        assertThat(gated.isWithinTradingHours(java.time.Instant.parse("2026-05-20T01:00:00Z"))).isTrue()
+        // KST 2026-05-20(수) 08:30 = UTC 2026-05-19T23:30:00Z (장전)
+        assertThat(gated.isWithinTradingHours(java.time.Instant.parse("2026-05-19T23:30:00Z"))).isFalse()
+        // KST 2026-05-23(토) 10:00 = UTC 2026-05-23T01:00:00Z (주말 — resolver Closed)
+        assertThat(gated.isWithinTradingHours(java.time.Instant.parse("2026-05-23T01:00:00Z"))).isFalse()
     }
 
     // ─────────────────────────────────────────────────────────────────────────

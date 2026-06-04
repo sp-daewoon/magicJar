@@ -2,6 +2,7 @@
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+| 2026-06-04 | **FIX: 시그널 평가·AUTO 주문 dispatch 장운영시간(영업일+정규장) 게이트 신설 — 장전 시그널 발화·주문 거부 사태 차단 (작성: strategy-engine)** — `RealtimeSignalGenerator.onBoundaryClosed()`에 boundaryTs 정규장(09:00~15:30 KST)+영업일 게이트, `OrderRouterKafkaListener`에 AUTO 주문 최후 방어선(장외 시 `MARKET_CLOSED` REJECTED, MANUAL 제외) 추가. `magicjar.signal.market-hours-gate.enabled`(default true) 토글. 캔들 적재 파이프라인 0 touch. | consumer/signal · consumer/order · application.yml · test | 08:00~08:51 NXT pre-hour 캔들로 장전 시그널 발화 → KIS REJECT 6건·동시호가 접수·시가 -8000 괴리 사태 차단 (defense in depth 2층) |
 
 | 2026-06-04 | **FIX: 백필 이미 FILLED 주문 재마킹(completed_at 덮어쓰기 + FULL_FILL audit 중복) 차단 (작성: backend-core)** — `KisExecutionBackfillService.syncOrderStatusAfterBackfill()`에 종결 상태(FILLED·CANCELLED·REJECTED·EXPIRED) 가드 추가. 신규 execution INSERT 없는 ALREADY_SYNCED 재진입(매시 정각 WS 재연결 backfill)에서 종결 주문이면 markCompleted·FULL_FILL audit no-op. PARTIALLY_FILLED→FILLED 정상 전환·EXECUTION_OVERFLOW·PENDING_RECONCILE 후속 경로는 보존. 회귀 테스트 2건 + completed_at 복원 SQL(`scripts/ops/2026-06-04-restore-completed-at.sql`). backlog §82-1. | consumer/order · test · ops | dogfooding evidence: FILLED 11건 completed_at 13:00:11 동일 오염 + FULL_FILL audit 53건(정상 11건) — backfill 재마킹이 종결 시각 권위 훼손 |
 

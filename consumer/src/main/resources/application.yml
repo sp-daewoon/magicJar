@@ -72,6 +72,14 @@ magicjar:
   # default true — 회귀 안전. dev/staging 환경은 magicjar.mode=MOCK 또는 allow-real=false 로 자동 skip.
   bootstrap:
     position-on-startup: ${MAGICJAR_BOOTSTRAP_POSITION_ON_STARTUP:true}
+  # 시그널·주문 게이트 (2026-06-04 dogfooding 결함 fix — 장운영시간 게이트).
+  #   market-hours-gate.enabled=true (default) — 시그널 평가(RealtimeSignalGenerator)와
+  #     AUTO 주문 dispatch(OrderRouterKafkaListener) 를 영업일+정규장(09:00~15:30 KST) 안에서만 진행.
+  #   08:00~09:00 NXT pre-hour 캔들(정책상 의도된 적재)로 장전 시그널 발화·KIS 주문 거부 사태를 차단한다.
+  #   MANUAL 주문은 게이트 제외(사용자 의도 존중). rollback: false 로 게이트 비활성.
+  signal:
+    market-hours-gate:
+      enabled: ${MAGICJAR_SIGNAL_MARKET_HOURS_GATE_ENABLED:true}
   # NOTE: magicjar.ai.* 는 consumer 모듈에서 미사용 (W4 미진입).
   #   T-DSL helper(`NaturalLanguageDslTranslator`)는 api 모듈 한정 — `api/.../application.yml` 단일 위치 LOCK.
   #   W4 진입 시 ai-engineer가 단일 모듈(api)에만 binding 발행 — consumer 합류 시점은 ADR 0026 후속에서 별도 결정.

@@ -1,7 +1,12 @@
 package kr.spdaewoon.magicjar.consumer.order
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import kr.spdaewoon.magicjar.consumer.persistence.KillSwitchJpaRepository
+import kr.spdaewoon.magicjar.domain.market.session.BusinessDayCalendar
+import kr.spdaewoon.magicjar.domain.market.session.MarketSession
+import kr.spdaewoon.magicjar.domain.market.session.MarketSessionResolver
 import kr.spdaewoon.magicjar.domain.order.execution.DenyReason
 import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEvent
 import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEventType
@@ -85,11 +90,17 @@ class OrderRouterKafkaListener(
     private val accountBalanceChangedKafkaProducer: AccountBalanceChangedKafkaProducer,
     private val executionBackfillServiceProvider: ObjectProvider<KisExecutionBackfillService>,
     private val killSwitchJpaRepositoryProvider: ObjectProvider<KillSwitchJpaRepository>,
+    private val marketSessionResolver: MarketSessionResolver,
+    private val businessDayCalendarProvider: ObjectProvider<BusinessDayCalendar>,
     private val objectMapper: ObjectMapper,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String = "MOCK",
+    @Value("\${magicjar.signal.market-hours-gate.enabled:true}")
+    private val marketHoursGateEnabled: Boolean = true,
 ) {
     private val log = LoggerFactory.getLogger(OrderRouterKafkaListener::class.java)
+
+    private val kstZone = TimeZone.of("Asia/Seoul")
 
     companion object {
         const val TOPIC = "order.intent.v1"
@@ -221,6 +232,24 @@ class OrderRouterKafkaListener(
 
             if (killSwitchOn) {
                 handleRejected(intent, mode, "KILLSWITCH_ON", OrderAuditEventType.KILLSWITCH_DENIED)
+                ack.acknowledge()
+                return
+            }
+
+            // 장운영시간 게이트 — 최후 방어선 (2026-06-04 dogfooding 결함 fix).
+            // AUTO 주문만 검사 — 현재 시각이 영업일+정규장 밖이면 KIS submit 전 REJECTED.
+            // MANUAL 주문은 게이트 제외 (사용자 의도 존중 — KIS가 자체 거부 메시지 반환).
+            // 장전 시그널 발화로 발생한 AUTO order.intent.v1 을 KIS 요청 직전에 차단 (defense in depth 2층).
+            if (marketHoursGateEnabled &&
+                intent.source == OrderSource.AUTO &&
+                !isWithinTradingHours(Instant.now())
+            ) {
+                handleRejected(
+                    intent,
+                    mode,
+                    "MARKET_CLOSED:NOT_REGULAR_SESSION_OR_HOLIDAY",
+                    OrderAuditEventType.INVALID_ORDER_INTENT,
+                )
                 ack.acknowledge()
                 return
             }
@@ -520,6 +549,34 @@ class OrderRouterKafkaListener(
         }
 
         return SyncGateResult(false, "KIS_EXECUTION_SYNC_STALE:${result.reasonCode}")
+    }
+
+    /**
+     * 현재 시각(`java.time.Instant`)이 영업일 + 정규장(09:00~15:30 KST) 안인지 판정 (장운영시간 게이트 — 최후 방어선).
+     *
+     * - 정규장 판정: [MarketSessionResolver.resolve] 가 [MarketSession.Regular] 반환 시 (KST 변환은 resolver 내부).
+     * - 영업일 판정: [BusinessDayCalendar] (market_calendar DB 권위) 우선, bean 부재·예외 시 resolver businessDayOf fallback.
+     */
+    internal fun isWithinTradingHours(now: Instant): Boolean {
+        val kotlinNow = kotlinx.datetime.Instant.fromEpochMilliseconds(now.toEpochMilli())
+        val session = marketSessionResolver.resolve(kotlinNow)
+        if (session !is MarketSession.Regular) return false
+
+        val calendar = businessDayCalendarProvider.getIfAvailable()
+        val kstDate =
+            kotlinNow.toLocalDateTime(kstZone).date.let {
+                java.time.LocalDate.of(it.year, it.monthNumber, it.dayOfMonth)
+            }
+        return if (calendar != null) {
+            try {
+                calendar.isBusinessDay(kstDate)
+            } catch (e: Exception) {
+                log.warn("OrderRouterKafkaListener BusinessDayCalendar 조회 실패 — resolver fallback: date={} err={}", kstDate, e.message)
+                marketSessionResolver.businessDayOf(kotlinNow) != null
+            }
+        } else {
+            marketSessionResolver.businessDayOf(kotlinNow) != null
+        }
     }
 
     /**

@@ -2,10 +2,16 @@ package kr.spdaewoon.magicjar.consumer.signal
 
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toJavaLocalDate
+import kotlinx.datetime.toLocalDateTime
 import kr.spdaewoon.magicjar.consumer.reconciliation.DataReadinessService
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
+import kr.spdaewoon.magicjar.domain.market.session.BusinessDayCalendar
+import kr.spdaewoon.magicjar.domain.market.session.MarketSession
+import kr.spdaewoon.magicjar.domain.market.session.MarketSessionResolver
 import kr.spdaewoon.magicjar.domain.risk.port.RiskPositionPort
 import kr.spdaewoon.magicjar.domain.signal.Signal
 import kr.spdaewoon.magicjar.domain.signal.SignalContext
@@ -63,10 +69,15 @@ class RealtimeSignalGenerator(
     private val jvmStrategyEvaluator: JvmStrategyEvaluator,
     private val signalDedupeGuard: SignalDedupeGuard,
     private val signalKafkaProducer: SignalKafkaProducer,
+    private val marketSessionResolver: MarketSessionResolver,
+    private val businessDayCalendarProvider: ObjectProvider<BusinessDayCalendar>,
     @Value("\${magicjar.signal.eval-lookback-candles:500}") private val evalLookbackCandles: Int = 500,
+    @Value("\${magicjar.signal.market-hours-gate.enabled:true}") private val marketHoursGateEnabled: Boolean = true,
     private val clock: Clock = Clock.System,
 ) {
     private val log = LoggerFactory.getLogger(RealtimeSignalGenerator::class.java)
+
+    private val kstZone = TimeZone.of("Asia/Seoul")
 
     /**
      * Kafka boundary closed payload 수신 시 호출.
@@ -111,6 +122,18 @@ class RealtimeSignalGenerator(
             log.trace(
                 "RealtimeSignalGenerator 활성 strategy 0건 — skip: code={} interval={}",
                 code,
+                interval.code,
+            )
+            return
+        }
+
+        // 장운영시간 게이트 (2026-06-04 dogfooding 결함 fix) — boundaryTs가 영업일+정규장 안일 때만 평가 진행.
+        // 08:00~09:00 NXT pre-hour 캔들(정책상 의도된 적재)로 시그널 발화 → 장전 주문 거부 사태 차단.
+        // 캔들 적재 파이프라인은 불변 — 여기서 평가 게이트만 적용 (defense in depth 1층).
+        if (marketHoursGateEnabled && !isWithinTradingHours(boundaryTs)) {
+            log.info(
+                "RealtimeSignalGenerator market-hours-gate skip: boundaryTs={} interval={} reason=NOT_REGULAR_SESSION_OR_HOLIDAY",
+                boundaryTs,
                 interval.code,
             )
             return
@@ -461,6 +484,37 @@ class RealtimeSignalGenerator(
         return (persisted + boundaryCandle)
             .sortedBy { it.ts }
             .takeLast(lookback)
+    }
+
+    /**
+     * boundaryTs(캔들 마감 UTC Instant)가 영업일 + 정규장(09:00~15:30 KST) 안인지 판정.
+     *
+     * - 영업일 판정: [BusinessDayCalendar] (market_calendar DB 권위) 우선, bean 부재 시 resolver 주말 가드 fallback.
+     * - 정규장 판정: [MarketSessionResolver.resolve] 가 [MarketSession.Regular] 반환 시.
+     *   resolver는 KST 변환 후 09:00~15:29(분 단위) 을 Regular로 본다.
+     *   09:00 정각 boundary(=08:59 1m 캔들 마감) 는 Regular 진입, 15:30 boundary(=15:29 캔들 마감) 는 경계.
+     */
+    private fun isWithinTradingHours(boundaryTs: Instant): Boolean {
+        val session = marketSessionResolver.resolve(boundaryTs)
+        if (session !is MarketSession.Regular) return false
+
+        val calendar = businessDayCalendarProvider.ifAvailable
+        val kstDate = boundaryTs.toLocalDateTime(kstZone).date.toJavaLocalDate()
+        return if (calendar != null) {
+            try {
+                calendar.isBusinessDay(kstDate)
+            } catch (e: Exception) {
+                log.warn(
+                    "RealtimeSignalGenerator BusinessDayCalendar 조회 실패 — resolver 영업일 판정 fallback: date={} err={}",
+                    kstDate,
+                    e.message,
+                )
+                marketSessionResolver.businessDayOf(boundaryTs) != null
+            }
+        } else {
+            // BusinessDayCalendar bean 부재 — resolver businessDayOf (주말 가드) fallback.
+            marketSessionResolver.businessDayOf(boundaryTs) != null
+        }
     }
 
     /** StrategyEvalResult.reason Map → 한 줄 reason string. */
