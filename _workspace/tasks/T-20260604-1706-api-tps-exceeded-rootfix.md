@@ -3,10 +3,10 @@ id: T-20260604-1706-api-tps-exceeded-rootfix
 agent: backend-core
 model: opus
 branch: agent/backend-core/api-tps-exceeded-rootfix
-status: RUNNING
+status: DONE
 startedAt: 2026-06-04T17:06:08.465+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-04T17:16:30.005+09:00
+pr: #720
 parentPhase: ?
 ---
 
