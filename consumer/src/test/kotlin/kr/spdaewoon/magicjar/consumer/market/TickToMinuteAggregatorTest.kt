@@ -14,6 +14,9 @@ import org.junit.jupiter.api.Test
 import org.springframework.data.redis.core.HashOperations
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.kafka.core.KafkaTemplate
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.SimpleTransactionStatus
+import org.springframework.transaction.support.TransactionTemplate
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -37,6 +40,13 @@ class TickToMinuteAggregatorTest {
     private val hashOps = mockk<HashOperations<String, String, String>>(relaxed = true)
     private val objectMapper = jacksonObjectMapper()
 
+    // TransactionTemplate — mock txManager 위 실제 인스턴스 (execute 콜백을 그대로 실행).
+    private val txManager =
+        mockk<PlatformTransactionManager>(relaxed = true) {
+            every { getTransaction(any()) } returns SimpleTransactionStatus()
+        }
+    private val transactionTemplate = TransactionTemplate(txManager)
+
     // 고정 시계: 2026-06-04 14:23:00 KST = 05:23:00Z. closingTs 기대값 = 05:22:00Z, nowMinute = 05:23:00Z.
     private val fixedNow = Instant.parse("2026-06-04T05:23:00Z")
     private val clock = Clock.fixed(fixedNow, ZoneOffset.UTC)
@@ -52,6 +62,7 @@ class TickToMinuteAggregatorTest {
             objectMapper = objectMapper,
             kisWebSocketBridge = kisWebSocketBridge,
             boundaryAggregator = boundaryAggregator,
+            transactionTemplate = transactionTemplate,
             clock = clock,
         )
 
