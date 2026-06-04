@@ -3253,3 +3253,50 @@ QA 첫 임무 evidence (2026-05-21 보고서 `_workspace/reports/2026-05-21-qa-f
 - QA 첫 임무 보고서: `_workspace/reports/2026-05-21-qa-first-mission-symbol-detail.md` §6 옵션 B
 - PR #682 (본 옵션 A 즉시 fix · QA 첫 임무 P0 hotfix)
 - 보강 테스트: `api/src/test/.../SymbolMetaServiceNxtStaleTest.kt` (62% 경계 case명시 — venue 분리 P1 정당화 evidence)
+
+---
+
+## §82. 2026-06-04 주문내역 dogfooding 결함 3건 (시그널↔주문 전수 대조)
+
+> 2026-06-04 dogfooding — 실전 주문내역과 시그널/체결을 전수 대조하여 발견. P1 결함 3건 + 후속 ADR 의제 + 정상 확인 3건. 결함 1은 본 § 발화 PR(backend-core)에서 fix, 결함 2·3은 병렬 에이전트 PR에서 처리.
+
+### 결함 1 — 백필이 이미 FILLED 주문을 재마킹 (completed_at 덮어쓰기 + FULL_FILL audit 중복) · P1 · ✅ 본 PR fix (backend-core)
+
+**근본 원인** — `consumer/src/main/kotlin/kr/spdaewoon/magicjar/consumer/order/KisExecutionBackfillService.kt`:
+- KIS WS가 매시 정각 끊기고 재연결 → `onReconnect` hook이 매시간 backfill 실행
+- `persistBackfillRowDetailed()`가 skip 판정(ALREADY_SYNCED — event_id dedup 라인 333~337, 누적 이하 라인 347~357)을 내려도 **`syncOrderStatusAfterBackfill()`을 무조건 호출**
+- `syncOrderStatusAfterBackfill()`이 이미 FILLED인지 가드 없이 `orderRepo.markCompleted(orderId, now, FILLED)`(라인 460) 재실행 → **completed_at을 now로 덮어씀** + FULL_FILL audit(라인 466~476) 재발행
+
+**evidence** — FILLED 주문 11건의 `completed_at`이 전부 13:00:11로 동일(실체결 09:00:26~10:02:05는 `order_execution.executed_at`에 보존). FULL_FILL audit 53건(정상이라면 11건).
+
+**fix (보수적 최소 변경 — ADR 0084 P0-3 백필 설계 보존)**:
+- `syncOrderStatusAfterBackfill()`에서 신규 execution INSERT 없는 호출(execution == null, ALREADY_SYNCED 경로)이고 status가 이미 종결(FILLED·CANCELLED·REJECTED·EXPIRED)이면 no-op (markCompleted·audit 0). PENDING_RECONCILE은 의도적으로 제외 — 후속 정상화 경로 보존.
+- 보존: (a) PARTIALLY_FILLED→FILLED 정상 전환(신규 execution 합류 시), (b) WS 누락 체결 backfill 보정(ord 126 사례), (c) EXECUTION_OVERFLOW 분기, (d) PENDING_RECONCILE 후속 정상화
+- 데이터 보정 스크립트: `scripts/ops/2026-06-04-restore-completed-at.sql` (orchestrator 머지 후 실행)
+- 회귀 테스트: `KisExecutionBackfillServiceTest` (j)(k) 케이스 추가
+
+### 결함 2 — 장운영시간 게이트 누락 · P1 · strategy-engine 병렬 PR
+
+- `consumer/.../RealtimeSignalGenerator` 계열이 장 마감 후에도 시그널을 평가·발행할 여지. 장운영시간(09:00~15:30 KST + 동시호가 경계) 게이트 정합 필요.
+- 후속: ADR 0066·0068 amend로 장운영시간 게이트 본문화 (architect).
+
+### 결함 3 — TickToMinuteAggregator 분 경계 race · P1 · market-data 병렬 PR
+
+- `consumer/.../TickToMinuteAggregator` 분 경계 전환 시점 race condition으로 마지막 tick이 다음 분봉으로 새거나 누락될 여지.
+
+### 후속 의제 (architect)
+
+- ADR 0066·0068 amend — 장운영시간 게이트 본문화 (결함 2 정합).
+
+### 정상 확인 3건 (전수 대조 결과 정상)
+
+- 전략 8건 PAUSED — 사용자 직접 조작(자동정지 아님). 정상.
+- ord 126 — WS 누락 체결을 backfill이 보정한 정상 흐름 (결함 1 fix가 이 흐름을 보존해야 함).
+- ord 124 — gap 발생 후 롤백 정상 처리.
+
+### 영향 모듈
+
+- backend-core (lead 결함 1 — KisExecutionBackfillService 종결 상태 재마킹 가드)
+- strategy-engine (결함 2 — 장운영시간 게이트)
+- market-data (결함 3 — TickToMinuteAggregator 분 경계 race)
+- architect (후속 — ADR 0066·0068 amend)
