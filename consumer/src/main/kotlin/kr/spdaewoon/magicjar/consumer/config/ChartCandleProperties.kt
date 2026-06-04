@@ -49,6 +49,10 @@ data class ChartCandleProperties(
      * KIS `FHKST03010230` 기반 1m 장기 backfill/reconciliation 설정.
      */
     val oneMinute: OneMinuteBackfillProperties = OneMinuteBackfillProperties(),
+    /**
+     * 캔들 백필 rate-limit safety 가드 설정 (2026-06-04 dogfooding fix).
+     */
+    val backfillGuard: BackfillGuardProperties = BackfillGuardProperties(),
 ) {
     /**
      * Interval code → max pages 안전 lookup.
@@ -81,3 +85,29 @@ data class OneMinuteBackfillProperties(
         const val MAX_PAGES_PER_DAY_CAP: Int = 8
     }
 }
+
+/**
+ * 캔들 백필 rate-limit safety 가드 설정 (2026-06-04 dogfooding fix — `magicjar.candle.backfill-guard`).
+ *
+ * 운영 evidence: 부팅 시 watchlist 8종목 1m 2일 stale → 백필 8건 동시 트리거 → 전건 실패(failed=5008/5008)
+ * → last_candle_at 미충족 → 매 부팅 재시도 → KIS TPS_EXCEEDED 폭주. 보수적 default로 폭주 차단.
+ *
+ * | key | default | 의미 |
+ * |-----|---------|------|
+ * | consecutive-total-miss-threshold | 2 | KIS 전건 미반환(0건) run이 연속 N회면 회복 불가 영구 마킹 + 재시도 중단 |
+ * | max-gaps-per-run | 5000 | 1회 백필 run당 처리 갭(봉) 상한. 초과 시 가장 최근 구간부터 cap만큼 + 나머지 다음 사이클 |
+ * | max-concurrent-backfills | 1 | 동시 백필 run 수(직렬화). 부팅 N종목 동시 폭주 차단 |
+ * | min-interval-millis | 1500 | 백필 run 간 최소 간격(ms). burst 분산 |
+ * | acquire-timeout-millis | 60000 | throttle permit 획득 대기 한도. 초과 시 run skip(다음 사이클) |
+ * | guard-ttl-hours | 72 | 연속 miss 카운터 TTL(시간). 이 기간 안 연속 miss만 누적 |
+ * | unrecoverable-ttl-hours | 168 | 회복 불가 마킹 TTL(시간, 7일). 만료 후 1회 재확인 허용 |
+ */
+data class BackfillGuardProperties(
+    val consecutiveTotalMissThreshold: Long = 2L,
+    val maxGapsPerRun: Int = 5000,
+    val maxConcurrentBackfills: Int = 1,
+    val minIntervalMillis: Long = 1_500L,
+    val acquireTimeoutMillis: Long = 60_000L,
+    val guardTtlHours: Int = 72,
+    val unrecoverableTtlHours: Int = 168,
+)
