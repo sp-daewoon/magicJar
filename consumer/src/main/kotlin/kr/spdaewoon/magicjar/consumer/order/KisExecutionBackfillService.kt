@@ -420,6 +420,22 @@ class KisExecutionBackfillService(
         emitFilledEvent: Boolean,
     ) {
         val orderId = request.id ?: return
+
+        // ADR 0084 P0-3 결함 fix (backlog §82-1, 2026-06-04) —
+        // 신규 execution INSERT 없는 재진입(execution == null, ALREADY_SYNCED 경로)이고
+        // 이미 종결 상태면 no-op. markCompleted 재실행으로 completed_at을 now로 덮어쓰는 결함 차단
+        // (실체결 시각은 order_execution.executed_at 보존, completed_at은 종결 시점 1회만 권위).
+        // 보존: 신규 execution 합류(execution != null)는 PARTIALLY_FILLED→FILLED 정상 전환·
+        //       EXECUTION_OVERFLOW·PENDING_RECONCILE 후속 정상화 경로 모두 종전대로 통과.
+        if (execution == null && request.status.isTerminalForBackfill()) {
+            log.debug(
+                "backfill status sync skip — 이미 종결 상태 + 신규 체결 0: orderId={} status={}",
+                orderId,
+                request.status,
+            )
+            return
+        }
+
         val totalExecuted =
             try {
                 execRepo.sumExecutedQuantityByOrder(orderId)
@@ -573,6 +589,18 @@ class KisExecutionBackfillService(
     }
 
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"
+
+    /**
+     * backfill 재마킹 가드용 종결 상태 판정 (backlog §82-1).
+     *
+     * FILLED·CANCELLED·REJECTED·EXPIRED 는 더 이상 상태·completed_at·audit를 건드리면 안 되는 최종 상태.
+     * PENDING_RECONCILE 는 의도적으로 제외 — reconciliation worker / backfill 후속 정상화 경로가 필요 (ADR 0084 P0-2).
+     */
+    private fun OrderStatus.isTerminalForBackfill(): Boolean =
+        this == OrderStatus.FILLED ||
+            this == OrderStatus.CANCELLED ||
+            this == OrderStatus.REJECTED ||
+            this == OrderStatus.EXPIRED
 
     private enum class BackfillRowStatus {
         INSERTED,

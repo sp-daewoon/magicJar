@@ -3,6 +3,8 @@
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 
+| 2026-06-04 | **FIX: 백필 이미 FILLED 주문 재마킹(completed_at 덮어쓰기 + FULL_FILL audit 중복) 차단 (작성: backend-core)** — `KisExecutionBackfillService.syncOrderStatusAfterBackfill()`에 종결 상태(FILLED·CANCELLED·REJECTED·EXPIRED) 가드 추가. 신규 execution INSERT 없는 ALREADY_SYNCED 재진입(매시 정각 WS 재연결 backfill)에서 종결 주문이면 markCompleted·FULL_FILL audit no-op. PARTIALLY_FILLED→FILLED 정상 전환·EXECUTION_OVERFLOW·PENDING_RECONCILE 후속 경로는 보존. 회귀 테스트 2건 + completed_at 복원 SQL(`scripts/ops/2026-06-04-restore-completed-at.sql`). backlog §82-1. | consumer/order · test · ops | dogfooding evidence: FILLED 11건 completed_at 13:00:11 동일 오염 + FULL_FILL audit 53건(정상 11건) — backfill 재마킹이 종결 시각 권위 훼손 |
+
 | 2026-06-03 | **chore(meta): PR-4 v3.11.0 baseline 폴더 신설 + sub-agent 슬롯 4 anchor 발행** — `_workspace/baseline/v3.11.0/` 폴더 신설(README skeleton + 7 파일 인덱스). CHANGELOG sub-agent 슬롯 4 anchor(architect/backend-core/market-data/frontend). 4 sub-agent 병렬 디스패치 add-only LOCK. (orchestrator) | meta/baseline | PR-4 v3.11.0 baseline 슬롯 발행 |
 <!-- pr-4-slot-orchestrator -->
 | 2026-06-03 | **feat(frontend): T-SIM Phase 3 scenario replay QA timeline** — `/qa/scenario-replay` 화면을 추가해 전략 선택, 종목·interval·KST 가상 기간, 가상 시작 현금/포지션, 장애 주입(rate limit·잔고조회 실패·장종료·data not ready·strategy timeout)을 입력하고 `POST /api/scenario-replay/runs`를 실행할 수 있게 했다. 실행 이력·삭제·상세 타임라인·가상 포지션을 제공하며 모든 주문/체결/거절 문구는 `가상`·`리플레이`로 표기한다. 헤더에는 별도 QA 그룹으로 연결해 live 주문 화면과 섞이지 않게 했고, MSW 테스트 + 타입체크 + 빌드 + Playwright desktop/mobile overflow 검증을 통과했다. | frontend/qa · scenario UI · test | v3.11.x Scenario Replay를 사용자가 장외에도 QA 화면에서 실행하고 원인별 이벤트 흐름을 볼 수 있게 하기 위함 |
