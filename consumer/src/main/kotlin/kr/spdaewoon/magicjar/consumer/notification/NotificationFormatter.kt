@@ -95,6 +95,14 @@ object NotificationFormatter {
             return
         }
 
+        if (eventType == NotificationEventType.ORDER_REJECTED) {
+            appendLine("내용: $reason")
+            // 친절도 보강 (2026-06-04 점검 사이클): reject_reason 코드 → 사람어 1줄.
+            // "Slack 알림만 봐도 왜 막혔는지" 추적 가능하게 — 코드(KILLSWITCH_ON 등)만으론 사용자가 사유를 모름.
+            rejectReasonKorean(meta)?.let { appendLine("사유: $it") }
+            return
+        }
+
         if (eventType != NotificationEventType.RISK_VIOLATION) {
             appendLine("내용: $reason")
             return
@@ -118,6 +126,43 @@ object NotificationFormatter {
             appendLine(if (index == 0) "수식: $line" else "      $line")
         }
         setting?.let { appendLine("설정: $it") }
+    }
+
+    /**
+     * reject_reason 코드 → 사람어 1줄 (2026-06-04 점검 사이클 — readiness P2 알림 친절도).
+     *
+     * 주문 거절 Slack 알림은 코드(KILLSWITCH_ON·REAL_GATE_DENIED:cond·{rt_cd}:{msg}·KIS_5XX 등)만 노출돼
+     * 사용자가 "왜 막혔는지"를 즉시 알기 어렵다. 자주 발생하는 사유를 사람어로 매핑한다.
+     *
+     * 출처: OrderRouterKafkaListener / OrderRejectedKafkaProducer payload rejectReason 포맷.
+     * 미등록 코드는 null 반환 → "사유" 줄 생략(기술 내용 줄은 보존, graceful).
+     */
+    private fun rejectReasonKorean(meta: Map<String, String?>): String? {
+        val raw =
+            (meta["rejectReason"] ?: meta["reason"] ?: meta["errorMessage"] ?: meta["message"])
+                ?.takeIf { it.isNotBlank() } ?: return null
+        val code = raw.substringBefore(":").trim().uppercase()
+        val detail = raw.substringAfter(":", "").trim().takeIf { it.isNotBlank() }
+        return when {
+            code == "KILLSWITCH_ON" || code == "KILL_SWITCH_ACTIVE" ->
+                "KillSwitch가 켜져 있어 신규 주문이 차단됐습니다. 잔고 확인 후 KillSwitch를 끄면 재개됩니다."
+            code == "REAL_GATE_DENIED" ->
+                "실계좌 이중 게이트 미충족으로 차단됐습니다${detail?.let { " (조건: $it)" } ?: ""}. MAGICJAR_MODE=REAL + MAGICJAR_ALLOW_REAL=true 확인 필요."
+            code == "DAILY_LOSS_LIMIT" ->
+                "일별 손실 한도 도달로 주문이 차단됐습니다. 리스크 설정을 점검하세요."
+            code == "POSITION_LIMIT" ->
+                "포지션 한도 초과로 주문이 차단됐습니다. 보유 수량/전략 한도를 점검하세요."
+            code == "PRICE_GUARD" ->
+                "가격 가드(상하한/괴리율) 위반으로 주문이 차단됐습니다."
+            code == "KIS_5XX" ->
+                "KIS 서버 오류(5XX)로 주문이 실패했습니다. 일시적 장애일 수 있으니 잠시 후 재확인하세요."
+            code == "KIS_API_ERROR" ->
+                "KIS API 오류로 주문이 거절됐습니다${detail?.let { " ($it)" } ?: ""}."
+            code.toIntOrNull() != null || code.matches(Regex("^[0-9]+$")) ->
+                // {rt_cd}:{msg} 패턴 — KIS 응답 코드:메시지
+                "KIS 거절 (코드 $code)${detail?.let { ": $it" } ?: ""}."
+            else -> null
+        }
     }
 
     private fun instrumentLabel(meta: Map<String, String?>): String? {

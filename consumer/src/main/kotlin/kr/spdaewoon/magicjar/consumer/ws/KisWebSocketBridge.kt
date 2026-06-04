@@ -705,14 +705,13 @@ class KisWebSocketBridge(
                                 correlationId,
                                 signal,
                             )
-                            // 이전 cid에 대한 RECONNECT_LOST emit — UI 그룹 닫기 + audit 보존.
-                            emitWsEvent(
-                                severity = SystemEventSeverity.WARN,
-                                action = "WS_RECONNECT_LOST",
-                                correlationId = stalePrevCid,
-                                detailJson =
-                                    """{"reason":"doFinally 중복 발생 — 이전 cid stale (onComplete+onError 연속 패턴)"}""",
-                            )
+                            // ★ WS_RECONNECT_LOST 오탐 정정 (2026-06-04 점검 사이클 #5):
+                            //   이전엔 stale cid 감지 즉시 WARN emit → 매시 정각 onComplete+onError 이중 단절 시
+                            //   1~2초 내 재구독 성공(회복)인데도 WARN이 남아 Slack 노이즈 재발(18:00·22:00 evidence 3건).
+                            //   fix: WS_DISCONNECTED와 동일 grace window 후 재평가 — 회복 시 INFO 강등(LOST 판정 취소),
+                            //        진짜 미회복(grace 초과 + 재구독 실패)만 WARN 유지(S-2 SLO 감시 보존).
+                            //   재구독 완료 신호 = grace window 시점의 session.connected (onConnected 진입 시 true 전환).
+                            scheduleReconnectLostAlert(stalePrevCid, signal.toString())
                         }
                         // ★ WS_DISCONNECTED 알림 강등 (2026-06-04 점검 사이클 #4):
                         //   즉시 WARN emit 대신 grace window 후 재연결 여부를 재평가해 severity를 조건화.
@@ -1695,6 +1694,62 @@ class KisWebSocketBridge(
                     "KIS WS disconnect — grace {}ms 후 미회복 → WARN 발사 (S-2 SLO 감시): cid={}",
                     graceMs,
                     correlationId,
+                )
+            }
+        }, graceMs.coerceAtLeast(1L), TimeUnit.MILLISECONDS)
+    }
+
+    /**
+     * WS_RECONNECT_LOST 오탐 정정 — 이중 단절(onComplete 직후 onError) 회복 재평가 (2026-06-04 점검 사이클 #5).
+     *
+     * ### 배경 (운영 evidence)
+     * 매시 정각 KIS 서버는 onComplete로 연결을 끊지만, 드물게 onComplete 직후 onError가 연달아 와
+     * doFinally가 2번 진입한다(이중 단절). 두 번째 진입은 첫 번째 disconnect cid를 stale로 감지하고
+     * 기존엔 즉시 WARN `WS_RECONNECT_LOST`를 발사했다. 그러나 실측(18:00·22:00)에서 동일 시각 재구독은
+     * 1~2초 내 성공("재구독 완료: 종목 10건")한다 — 즉 회복됐는데 WARN이 남아 Slack 노이즈가 재발했다.
+     *
+     * ### fix
+     * WS_DISCONNECTED 강등([scheduleDisconnectAlert])과 동일하게 grace window 후 재평가:
+     *   - grace 내 재연결 성공(session.connected=true) → INFO emit → dispatcher priorityOf(INFO)=null → Slack 0.
+     *     즉 이중 단절이지만 재구독 성공으로 회복됐으므로 LOST 판정을 취소(INFO로 강등)한다.
+     *   - grace 후에도 미회복(session.connected=false) → WARN emit (진짜 reconnect 유실 — S-2 SLO 감시 보존).
+     *
+     * grace 판정 신호 = session.connected. onConnected() 진입(=재구독 발사 직전)에서 true로 전환되므로,
+     * 재구독 완료 이벤트를 grace 판정의 회복 신호로 정확히 연결한다.
+     *
+     * correlationId 그룹화 유지: emit point #5(onConnected)에서 새 cid를 회수하므로, 이전(stale) cid에 대한
+     * 본 emit은 INFO든 WARN이든 해당 disconnect↔reconnect 1쌍 audit을 닫는다.
+     *
+     * shuttingDown 진입 시 평가 skip (graceful shutdown 중 이중 단절은 사고 아님).
+     */
+    private fun scheduleReconnectLostAlert(
+        stalePrevCid: String,
+        signal: String,
+    ) {
+        val graceMs = disconnectAlertGraceMs
+        scheduler.schedule({
+            if (session.shuttingDown) return@schedule
+            val recovered = session.connected
+            val severity = if (recovered) SystemEventSeverity.INFO else SystemEventSeverity.WARN
+            emitWsEvent(
+                severity = severity,
+                action = "WS_RECONNECT_LOST",
+                correlationId = stalePrevCid,
+                detailJson =
+                    """{"reason":"doFinally 중복 발생 — 이전 cid stale (onComplete+onError 연속 패턴)",""" +
+                        """"signal":"$signal","recoveredWithinGrace":$recovered,"graceMs":$graceMs}""",
+            )
+            if (recovered) {
+                log.info(
+                    "KIS WS 이중 단절 — grace {}ms 내 재구독 회복 → WS_RECONNECT_LOST INFO 강등 (오탐 정정, Slack 노이즈 0): prevCid={}",
+                    graceMs,
+                    stalePrevCid,
+                )
+            } else {
+                log.warn(
+                    "KIS WS 이중 단절 — grace {}ms 후 미회복 → WS_RECONNECT_LOST WARN 발사 (S-2 SLO 감시): prevCid={}",
+                    graceMs,
+                    stalePrevCid,
                 )
             }
         }, graceMs.coerceAtLeast(1L), TimeUnit.MILLISECONDS)

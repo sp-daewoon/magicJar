@@ -72,6 +72,68 @@ class SystemEventNotificationDispatcherTest {
         verify(exactly = 0) { slackSender.sendOutbox(any()) }
     }
 
+    @Test
+    fun `친절도 — KIS_TPS_EXCEEDED 알림 본문에 모듈·원인·조치 가이드 1줄 부착`() {
+        val tps =
+            event(SystemEventSeverity.WARN).copy(
+                category = SystemEventCategory.KIS_RATELIMIT,
+                actor = "ConsumerRedisKisRateLimiterAdapter",
+                action = "KIS_TPS_EXCEEDED",
+                detailJson = """{"tpsExceededCount":12,"module":"consumer"}""",
+            )
+        dispatcher.onSystemEvent(record(tps))
+
+        val slot = slot<NotificationOutbox>()
+        verify { outboxRepository.save(capture(slot)) }
+        val reason = reasonFrom(slot.captured)
+        // 기술 1줄 보존 + 사람어 가이드 1줄 add-only
+        assertThat(reason).contains("KIS_RATELIMIT/KIS_TPS_EXCEEDED")
+        assertThat(reason).contains("모듈: KIS rate limiter")
+        assertThat(reason).contains("조치:")
+        assertThat(reason).contains("자동 backoff")
+    }
+
+    @Test
+    fun `친절도 — CANDLE_BACKFILL_FAIL 알림 본문에 백필 모듈·재시도 조치 가이드 부착`() {
+        val backfill =
+            event(SystemEventSeverity.WARN).copy(
+                category = SystemEventCategory.OTHER,
+                actor = "CandleBackfillWorker",
+                action = "CANDLE_BACKFILL_FAIL",
+                detailJson = """{"code":"005930","attempt":1}""",
+            )
+        dispatcher.onSystemEvent(record(backfill))
+
+        val slot = slot<NotificationOutbox>()
+        verify { outboxRepository.save(capture(slot)) }
+        val reason = reasonFrom(slot.captured)
+        assertThat(reason).contains("CANDLE_BACKFILL_FAIL")
+        assertThat(reason).contains("모듈: 캔들 백필 워커")
+        assertThat(reason).contains("자동 재시도")
+    }
+
+    @Test
+    fun `친절도 — 미등록 action은 가이드 없이 기술 1줄만 (graceful 회귀 보호)`() {
+        val unknown =
+            event(SystemEventSeverity.WARN).copy(
+                category = SystemEventCategory.DB,
+                action = "SOME_UNMAPPED_ACTION",
+            )
+        dispatcher.onSystemEvent(record(unknown))
+
+        val slot = slot<NotificationOutbox>()
+        verify { outboxRepository.save(capture(slot)) }
+        val reason = reasonFrom(slot.captured)
+        assertThat(reason).contains("DB/SOME_UNMAPPED_ACTION")
+        assertThat(reason).doesNotContain("조치:")
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun reasonFrom(outbox: NotificationOutbox): String {
+        val payload = objectMapper.readValue(outbox.payloadJson, Map::class.java) as Map<String, Any?>
+        return payload["reason"] as String
+    }
+
     private fun record(event: SystemEvent): ConsumerRecord<String, String> =
         ConsumerRecord("system.event.v1", 0, 0L, "broadcast", objectMapper.writeValueAsString(event))
 

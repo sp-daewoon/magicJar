@@ -620,7 +620,7 @@ class KisWebSocketBridgeReconnectTest {
      * Mono.error로 doFinally 즉시 트리거 + 첫번째 emit 후 두번째 emit 시 stale 감지).
      */
     @Test
-    fun `hotfix — doFinally 중복(이전 cid stale) 시 WS_RECONNECT_LOST emit + 새 cid set`() {
+    fun `hotfix — doFinally 중복(이전 cid stale) + grace 후 미회복 시 WS_RECONNECT_LOST WARN emit`() {
         // given: AtomicReference에 stale cid 강제 주입 (이전 disconnect cid 미회수 상태 시뮬레이션)
         val cidField = KisWebSocketBridge::class.java.getDeclaredField("currentDisconnectCorrelationId")
         cidField.isAccessible = true
@@ -630,21 +630,83 @@ class KisWebSocketBridgeReconnectTest {
         val stalePrevCid = "stale-prev-cid-c7ce1e03"
         cidRef.set(stalePrevCid)
 
-        // when: connect → Mono.empty → doFinally(ON_COMPLETE) → emit point #4 진입
+        // grace 단축 — mock 환경은 재연결 handshake 미실행 → grace 후에도 session.connected=false → WARN.
+        setDisconnectGraceMs(100L)
+
+        // when: connect → Mono.empty → doFinally(ON_COMPLETE) → emit point #4 진입 → scheduleReconnectLostAlert
         every { wsClient.execute(any<URI>(), any()) } returns Mono.empty()
         bridge.connect()
-        TimeUnit.MILLISECONDS.sleep(200L) // doFinally + scheduleReconnect 1회 cycle 실행 시간
+        TimeUnit.MILLISECONDS.sleep(500L) // grace(100ms) 평가 + 재시도 cycle 시간 충분 허용
 
-        // then: stale cid 감지 → WS_RECONNECT_LOST emit 발사 (해당 stalePrevCid로)
+        // then: stale cid + grace 후 미회복 → WS_RECONNECT_LOST WARN emit (진짜 reconnect 유실 — S-2 SLO 감시)
         val eventSlot = mutableListOf<SystemEvent>()
         verify(atLeast = 1) { systemEventLogger.emit(capture(eventSlot)) }
         val lostEvent = eventSlot.firstOrNull { it.action == "WS_RECONNECT_LOST" }
         assertThat(lostEvent)
-            .describedAs("이전 cid stale 감지 시 WS_RECONNECT_LOST emit 1건 의무")
+            .describedAs("이전 cid stale + grace 미회복 시 WS_RECONNECT_LOST WARN emit 1건 의무")
             .isNotNull()
         assertThat(lostEvent!!.correlationId).isEqualTo(stalePrevCid)
         assertThat(lostEvent.severity).isEqualTo(SystemEventSeverity.WARN)
         assertThat(lostEvent.detailJson).contains("doFinally 중복")
+        assertThat(lostEvent.detailJson).contains("\"recoveredWithinGrace\":false")
+    }
+
+    /**
+     * [오탐 정정 — 점검 사이클 #5] 이중 단절(onComplete+onError) 후 grace 내 재구독 회복 →
+     * WS_RECONNECT_LOST가 INFO로 강등(LOST 판정 취소) → dispatcher priorityOf(INFO)=null → Slack 0.
+     *
+     * 운영 evidence (18:00·22:00 — signal=onError 이중 단절): 재구독은 1~2초 내 성공("재구독 완료: 종목 10건")인데도
+     * 기존엔 즉시 WARN이 남아 Slack 노이즈 재발. fix 후 grace 시점 session.connected=true면 INFO 강등.
+     *
+     * 시나리오: scheduleReconnectLostAlert를 직접 호출(reflection)하기 전 session을 connected=true로 둬
+     * 재구독 회복 상태를 시뮬레이션 — grace 분기(회복→INFO)만 순수 검증.
+     */
+    @Test
+    fun `오탐정정 — 이중 단절 후 grace 내 재구독 회복이면 WS_RECONNECT_LOST INFO 강등 (Slack 노이즈 0)`() {
+        // given: 재구독 회복 상태 (session.connected=true) + grace 단축
+        getSession(bridge).onConnected()
+        setDisconnectGraceMs(50L)
+
+        // when: scheduleReconnectLostAlert 직접 호출 (doFinally 이중 진입 시 호출하는 경로)
+        invokeScheduleReconnectLostAlert("cid-double-disconnect-recover", "onError")
+        TimeUnit.MILLISECONDS.sleep(300L) // grace(50ms) 평가 시간 허용
+
+        // then: WS_RECONNECT_LOST emit이 INFO severity (회복 → LOST 판정 취소 → Slack 0)
+        val eventSlot = mutableListOf<SystemEvent>()
+        verify(atLeast = 1) { systemEventLogger.emit(capture(eventSlot)) }
+        val lostEvent = eventSlot.first { it.action == "WS_RECONNECT_LOST" }
+        assertThat(lostEvent.severity)
+            .describedAs("이중 단절이지만 grace 내 재구독 회복 → INFO 강등 (오탐 정정, Slack 0)")
+            .isEqualTo(SystemEventSeverity.INFO)
+        assertThat(lostEvent.correlationId).isEqualTo("cid-double-disconnect-recover")
+        assertThat(lostEvent.detailJson).contains("\"recoveredWithinGrace\":true")
+        assertThat(lostEvent.detailJson).contains("doFinally 중복")
+    }
+
+    /**
+     * [오탐 정정 — 점검 사이클 #5] 진짜 미회복(이중 단절 + grace 초과 + 재구독 실패) → WS_RECONNECT_LOST WARN 유지.
+     *
+     * S-2 KIS WS 연결률 SLO 감시 보존 — 회복 신호(session.connected) 없으면 WARN 발사.
+     */
+    @Test
+    fun `오탐정정 — 이중 단절 후 grace 초과 미회복이면 WS_RECONNECT_LOST WARN 유지 (S-2 SLO 감시)`() {
+        // given: 미회복 상태 (session.connected=false 유지) + grace 단축
+        // (getSession.onConnected() 호출 안 함 → connected=false)
+        setDisconnectGraceMs(50L)
+
+        // when: scheduleReconnectLostAlert 직접 호출
+        invokeScheduleReconnectLostAlert("cid-double-disconnect-lost", "onError")
+        TimeUnit.MILLISECONDS.sleep(300L)
+
+        // then: 미회복 → WARN (진짜 reconnect 유실 감시)
+        val eventSlot = mutableListOf<SystemEvent>()
+        verify(atLeast = 1) { systemEventLogger.emit(capture(eventSlot)) }
+        val lostEvent = eventSlot.first { it.action == "WS_RECONNECT_LOST" }
+        assertThat(lostEvent.severity)
+            .describedAs("grace 초과 미회복 → WARN (S-2 SLO 위반 감시 보존)")
+            .isEqualTo(SystemEventSeverity.WARN)
+        assertThat(lostEvent.correlationId).isEqualTo("cid-double-disconnect-lost")
+        assertThat(lostEvent.detailJson).contains("\"recoveredWithinGrace\":false")
     }
 
     /**
@@ -933,6 +995,24 @@ class KisWebSocketBridgeReconnectTest {
             )
         method.isAccessible = true
         method.invoke(bridge, correlationId, signal)
+    }
+
+    /**
+     * scheduleReconnectLostAlert(private) 직접 호출 (reflection) — 점검 사이클 #5 이중 단절 grace 분기 순수 검증용.
+     * doFinally 이중 진입 시 stale cid에 대해 호출하는 경로를 production race 없이 단독 검증.
+     */
+    private fun invokeScheduleReconnectLostAlert(
+        stalePrevCid: String,
+        signal: String,
+    ) {
+        val method =
+            KisWebSocketBridge::class.java.getDeclaredMethod(
+                "scheduleReconnectLostAlert",
+                String::class.java,
+                String::class.java,
+            )
+        method.isAccessible = true
+        method.invoke(bridge, stalePrevCid, signal)
     }
 
     /**

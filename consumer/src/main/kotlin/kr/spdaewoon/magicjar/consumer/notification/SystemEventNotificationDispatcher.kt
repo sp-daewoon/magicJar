@@ -171,8 +171,19 @@ class SystemEventNotificationDispatcher(
         sender.sendDirect(message)
     }
 
-    private fun buildReason(event: SystemEvent): String =
-        "[${event.severity}] ${event.category}/${event.action} actor=${event.actor} detail=${event.detailJson.take(500)}"
+    /**
+     * SystemEvent → Slack 본문.
+     *
+     * 친절도 보강 (2026-06-04 점검 사이클 — readiness P2):
+     * "Slack 알림만 봐도 '어느 모듈에서 왜, 무엇을 해야 하는지' 추적 가능"이 완료 기준.
+     * 기존 기술 1줄(severity/category/action/actor/detail) 위에 모듈·원인 추정·조치 가이드 1줄을
+     * [SystemEventGuidance] 매핑으로 add-only 부착한다(발송 경로·priority 라우팅 변경 0).
+     */
+    private fun buildReason(event: SystemEvent): String {
+        val technical = "[${event.severity}] ${event.category}/${event.action} actor=${event.actor} detail=${event.detailJson.take(500)}"
+        val guide = SystemEventGuidance.guideFor(event.category, event.action)
+        return if (guide != null) "$technical\n$guide" else technical
+    }
 
     private fun eventIdOf(event: SystemEvent): UUID {
         val seed =
