@@ -10,6 +10,7 @@
  * - T-O Phase 3 (ADR 0068): "주문" 메뉴 추가
  * - T-J Phase 3 (ADR 0072): "매매일지" 메뉴 추가
  * - T-PERF Phase 3 (ADR 0072): "성과" 메뉴 추가
+ * - T-SIM Phase 3 (ADR 0107): "시나리오 리플레이"를 전략 메뉴 하위로 배치
  * - ADR 0069 §6: ⚙️ SettingsModal 진입점 추가
  * - backlog §58 / ADR 0077 K-1: KisRealCredentialBanner — REAL 미등록 시 안내
  * - P2-2 frontend: RuntimeFlagsIndicator — 로고 옆 dot LED + 모드 라벨 (MOCK/REAL/Stop)
@@ -65,12 +66,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/strategy/builder', label: '전략 빌더' },
       { to: '/strategy/list', label: '전략 목록' },
       { to: '/strategy/backtest', label: '백테스트' },
-    ],
-  },
-  {
-    label: 'QA',
-    items: [
-      { to: '/qa/scenario-replay', label: '시나리오 리플레이' },
+      { to: '/strategy/scenario-replay', label: '시나리오 리플레이' },
     ],
   },
   {

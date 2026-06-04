@@ -215,7 +215,7 @@ UI/API 응답의 status text는 "리플레이", "가상", "시나리오" 중 하
 | 0 | ADR 0107 + policy + 본 spec + v3.11.0 baseline | 문서 only |
 | 1 | `domain/scenario` model + `ScenarioReplayEngine` pure skeleton + forbidden import test | `:domain:test --tests "*Scenario*"`, grep |
 | 2 | V63 `scenario_*` tables + api persistence + controller | `:api:check`, migration audit, `ScenarioReplayBoundaryTest` |
-| 3 | frontend `/qa/scenario-replay` timeline | `pnpm typecheck`, `pnpm test -- ScenarioReplayPage`, `pnpm build`, Playwright desktop/mobile screenshot |
+| 3 | frontend `/strategy/scenario-replay` timeline | `pnpm typecheck`, `pnpm test -- ScenarioReplayPage`, `pnpm build`, Playwright desktop/mobile screenshot |
 | 4 | optional `scenario.*` progress stream | live topic grep 0 |
 
 ---
@@ -237,6 +237,7 @@ UI/API 응답의 status text는 "리플레이", "가상", "시나리오" 중 하
 
 | 날짜 | 변경 |
 |---|---|
+| 2026-06-05 | QA 대메뉴를 제거하고 시나리오 리플레이를 전략 메뉴의 백테스트 아래로 이동. 새 route는 `/strategy/scenario-replay`, 기존 `/qa/scenario-replay`는 redirect로 유지. |
 | 2026-06-03 | Phase 3 QA UI 구현. `/qa/scenario-replay` route, 전용 API client, 실행 폼, 이력, 상세 timeline, 가상 포지션 panel, MSW 테스트를 추가. 헤더는 QA 그룹으로 분리하고 화면 문구는 `가상`·`리플레이` 중심으로 유지. |
 | 2026-06-03 | Phase 2 API/DB 구현. `V63__scenario_replay.sql`, `api/scenario` controller/service/query/persister, `api/persistence/scenario` entity/repository를 추가하고 feature gate 기본 false를 유지. UI/Kafka/KIS adapter는 아직 미구현이며 live 주문 경로 참조는 boundary test로 차단. |
 | 2026-06-03 | Phase 1 pure domain skeleton + forbidden boundary test 구현. API/DB/UI/Kafka/KIS adapter는 아직 미구현. |

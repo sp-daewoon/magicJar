@@ -139,7 +139,7 @@ v3.11.0의 Scenario Replay는 장중이 아니어도 저장된 전략을 과거 
 
 profile은 거래 모드가 아니다. 이 프로젝트의 기본 profile은 `dev,real-kis`이고, 실전/모의 주문 경계는 `MAGICJAR_MODE`, `MAGICJAR_ALLOW_REAL`, 사용자 실거래 동의, 계좌 `REAL/MOCK` 선택이 맡는다.
 
-Scenario Replay는 실전/모의 주문 설정과 별개인 QA 메뉴다. `/qa/scenario-replay`에서 바로 실행할 수 있으며, 안전 경계는 실행 토글이 아니라 KIS 주문 포트·live 주문 Kafka topic·live 주문/리스크/포지션 테이블을 사용하지 않는 코드 분리다.
+Scenario Replay는 실전/모의 주문 설정과 별개인 리플레이 기능이다. 전략 메뉴의 `/strategy/scenario-replay`에서 바로 실행할 수 있으며, 안전 경계는 실행 토글이 아니라 KIS 주문 포트·live 주문 Kafka topic·live 주문/리스크/포지션 테이블을 사용하지 않는 코드 분리다.
 
 ```bash
 # .env
@@ -160,7 +160,7 @@ scripts/build-and-deploy.sh api-app
 
 사용 순서:
 
-1. Frontend에서 `/qa/scenario-replay` 접속
+1. Frontend에서 `/strategy/scenario-replay` 접속
 2. 신규 실행 탭에서 리플레이 조건 입력
 3. 전략, 종목코드, interval, KST 기준 가상 시작·종료 시각, 가상 시작 현금 입력
 4. 매도 흐름을 보려면 `가상 시작 보유수량`을 입력하고, 보유 부족 차단을 보려면 0주로 둔다
