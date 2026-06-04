@@ -124,6 +124,20 @@ const server = setupServer(
     return HttpResponse.json(mockCandlesData)
   }),
 
+  // 캔들 수집 건강도 (readiness P1) — STALE/NO_TICK 1줄 표시
+  http.get('/api/symbols/005930/candle-health', () => {
+    return HttpResponse.json({
+      code: '005930',
+      interval: '1m',
+      lastCandleAt: '2026-05-26T10:05:00+09:00',
+      staleSeconds: 320,
+      status: 'STALE',
+      reason: 'NO_TICK',
+      reasonDetail: '최근 체결이 수신되지 않아 캔들이 갱신되지 않았습니다',
+      checkedAt: '2026-05-26T10:10:20+09:00',
+    })
+  }),
+
   // orderbook subscribe — graceful (백엔드 미완 시 무시)
   http.post('/api/symbols/005930/orderbook/subscribe', () => {
     return HttpResponse.json({ subscribed: true, slot: 'live' })
@@ -271,6 +285,16 @@ describe('SymbolDetailPage smoke', () => {
 
     // [관심종목으로] 버튼 (aria-label: "관심종목 목록으로 돌아가기")
     expect(screen.getByRole('button', { name: /관심종목 목록으로 돌아가기/ })).toBeInTheDocument()
+  })
+
+  it('캔들이 stale일 때 차트 영역에 수집 사유 1줄이 표시된다 (readiness P1)', async () => {
+    renderSymbolDetailPage('005930')
+
+    await waitFor(() => {
+      const badge = screen.getByTestId('candle-health-badge')
+      expect(badge).toHaveAttribute('data-tone', 'amber')
+      expect(badge).toHaveTextContent('최근 체결이 수신되지 않아 캔들이 갱신되지 않았습니다')
+    })
   })
 
   it('잘못된 종목 코드 진입 시 SymbolError가 표시된다 (DoD #12)', async () => {
