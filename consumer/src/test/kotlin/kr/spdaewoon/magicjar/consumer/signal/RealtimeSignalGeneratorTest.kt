@@ -8,12 +8,14 @@ import io.mockk.slot
 import io.mockk.verify
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import kr.spdaewoon.magicjar.consumer.infrastructure.session.SimpleMarketSessionResolver
 import kr.spdaewoon.magicjar.consumer.reconciliation.DataReadinessResult
 import kr.spdaewoon.magicjar.consumer.reconciliation.DataReadinessService
 import kr.spdaewoon.magicjar.consumer.reconciliation.DataReadinessStatus
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
+import kr.spdaewoon.magicjar.domain.market.session.BusinessDayCalendar
 import kr.spdaewoon.magicjar.domain.position.Position
 import kr.spdaewoon.magicjar.domain.risk.port.RiskPositionPort
 import kr.spdaewoon.magicjar.domain.signal.SignalSide
@@ -47,6 +49,11 @@ class RealtimeSignalGeneratorTest {
     private val evaluator = mockk<JvmStrategyEvaluator>()
     private val dedupeGuard = mockk<SignalDedupeGuard>()
     private val signalKafkaProducer = mockk<SignalKafkaProducer>()
+    private val marketSessionResolver = SimpleMarketSessionResolver()
+    private val businessDayCalendar =
+        mockk<BusinessDayCalendar>().also {
+            every { it.isBusinessDay(any()) } returns true
+        }
     private val fixedNow = Instant.parse("2026-05-20T06:00:00Z")
     private val clock =
         object : Clock {
@@ -420,10 +427,122 @@ class RealtimeSignalGeneratorTest {
         verify(exactly = 1) { signalKafkaProducer.publish(any()) }
     }
 
+    @Test
+    fun `장전 08시30분 boundary는 정규장 밖이라 strategy 평가를 skip 한다`() {
+        val buyAst = ast("1", Operator.GT, "0")
+        // KST 2026-05-20(수) 08:30 = UTC 2026-05-19T23:30:00Z (NXT pre-hour 캔들 마감 — 정책상 의도된 적재)
+        val boundaryTs = Instant.parse("2026-05-19T23:30:00Z")
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.ONE_MIN) } returns
+            listOf(strategy(buyAst = buyAst))
+
+        generator().onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.ONE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "150"),
+        )
+
+        // 게이트 차단 — dedupe·evaluate·save·publish 모두 0
+        verify(exactly = 0) { dedupeGuard.tryAcquire(any(), any(), any(), any()) }
+        verify(exactly = 0) { evaluator.evaluate(any(), any(), any()) }
+        verify(exactly = 0) { signalRepository.save(any()) }
+        verify(exactly = 0) { signalKafkaProducer.publish(any()) }
+    }
+
+    @Test
+    fun `정규장 10시 boundary는 평가를 진행한다`() {
+        val buyAst = ast("1", Operator.GT, "0")
+        // KST 2026-05-20(수) 10:00 = UTC 2026-05-20T01:00:00Z (정규장)
+        val boundaryTs = Instant.parse("2026-05-20T01:00:00Z")
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.ONE_MIN) } returns
+            listOf(strategy(buyAst = buyAst))
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.ONE_MIN, boundaryTs) } returns true
+        every { candleRepository.findByCodeAndInterval("005930", CandleInterval.ONE_MIN) } returns emptyList()
+        every { evaluator.evaluate(42L, buyAst, any()) } returns holdResult()
+
+        generator().onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.ONE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "150"),
+        )
+
+        // 게이트 통과 — 정상 평가 진입
+        verify(exactly = 1) { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.ONE_MIN, boundaryTs) }
+        verify(exactly = 1) { evaluator.evaluate(42L, buyAst, any()) }
+    }
+
+    @Test
+    fun `09시 정각 boundary는 정규장 진입으로 평가를 진행한다 (off-by-one 경계)`() {
+        val buyAst = ast("1", Operator.GT, "0")
+        // KST 2026-05-20(수) 09:00 정각 = UTC 2026-05-20T00:00:00Z (=08:59 1m 캔들 마감 boundary)
+        val boundaryTs = Instant.parse("2026-05-20T00:00:00Z")
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.ONE_MIN) } returns
+            listOf(strategy(buyAst = buyAst))
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.ONE_MIN, boundaryTs) } returns true
+        every { candleRepository.findByCodeAndInterval("005930", CandleInterval.ONE_MIN) } returns emptyList()
+        every { evaluator.evaluate(42L, buyAst, any()) } returns holdResult()
+
+        generator().onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.ONE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "150"),
+        )
+
+        verify(exactly = 1) { evaluator.evaluate(42L, buyAst, any()) }
+    }
+
+    @Test
+    fun `15시 30분 boundary는 정규장 종료 경계라 평가를 skip 한다 (off-by-one 경계)`() {
+        val buyAst = ast("1", Operator.GT, "0")
+        // KST 2026-05-20(수) 15:30 = UTC 2026-05-20T06:30:00Z (resolver 정규장 09:00~15:29 — 15:30은 Closed)
+        val boundaryTs = Instant.parse("2026-05-20T06:30:00Z")
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.ONE_MIN) } returns
+            listOf(strategy(buyAst = buyAst))
+
+        generator().onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.ONE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "150"),
+        )
+
+        verify(exactly = 0) { evaluator.evaluate(any(), any(), any()) }
+    }
+
+    @Test
+    fun `게이트 토글 off 시 장전 boundary도 평가를 진행한다`() {
+        val buyAst = ast("1", Operator.GT, "0")
+        // KST 08:30 장전 boundary — 토글 off면 게이트 우회
+        val boundaryTs = Instant.parse("2026-05-19T23:30:00Z")
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.ONE_MIN) } returns
+            listOf(strategy(buyAst = buyAst))
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.ONE_MIN, boundaryTs) } returns true
+        every { candleRepository.findByCodeAndInterval("005930", CandleInterval.ONE_MIN) } returns emptyList()
+        every { evaluator.evaluate(42L, buyAst, any()) } returns holdResult()
+
+        generator(marketHoursGateEnabled = false).onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.ONE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "150"),
+        )
+
+        // 게이트 비활성 — 평가 진입
+        verify(exactly = 1) { evaluator.evaluate(42L, buyAst, any()) }
+    }
+
     private fun generator(
         evalLookbackCandles: Int = 500,
         dataReadinessService: DataReadinessService? = null,
         riskPositionPort: RiskPositionPort? = null,
+        marketHoursGateEnabled: Boolean = true,
     ): RealtimeSignalGenerator =
         RealtimeSignalGenerator(
             strategyLookupProvider = providerOf(strategyLookup),
@@ -440,7 +559,10 @@ class RealtimeSignalGeneratorTest {
             jvmStrategyEvaluator = evaluator,
             signalDedupeGuard = dedupeGuard,
             signalKafkaProducer = signalKafkaProducer,
+            marketSessionResolver = marketSessionResolver,
+            businessDayCalendarProvider = providerOf(businessDayCalendar),
             evalLookbackCandles = evalLookbackCandles,
+            marketHoursGateEnabled = marketHoursGateEnabled,
             clock = clock,
         )
 
