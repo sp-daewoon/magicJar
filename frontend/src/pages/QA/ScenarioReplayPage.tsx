@@ -43,7 +43,7 @@ export function ScenarioReplayPage() {
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-lg font-bold text-gray-100">시나리오 리플레이 QA</h1>
+          <h1 className="text-lg font-bold text-gray-100">시나리오 리플레이</h1>
           <p className="mt-0.5 text-xs text-gray-500">전략 신호·리스크·가상 주문 타임라인</p>
         </div>
         <Link
@@ -57,7 +57,7 @@ export function ScenarioReplayPage() {
       <div className="mb-4 grid gap-2 rounded-lg border border-sky-900/60 bg-sky-950/20 p-3 text-xs text-sky-200 sm:grid-cols-3">
         <div>
           <span className="font-semibold text-sky-100">리플레이 전용</span>
-          <span className="ml-2 text-sky-400">/qa/scenario-replay</span>
+          <span className="ml-2 text-sky-400">/strategy/scenario-replay</span>
         </div>
         <div>
           <span className="font-semibold text-sky-100">가상 주문</span>

@@ -178,7 +178,7 @@ function renderPage() {
   })
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/qa/scenario-replay']}>
+      <MemoryRouter initialEntries={['/strategy/scenario-replay']}>
         <ScenarioReplayPage />
       </MemoryRouter>
     </QueryClientProvider>,
