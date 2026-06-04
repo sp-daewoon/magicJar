@@ -132,6 +132,67 @@ class ScenarioReplayEngineTest {
         rejected.message shouldContain "리플레이 시장 세션 규칙상"
     }
 
+    @Test
+    fun `out of session boundary is gate skipped and not evaluated (live parity)`() {
+        // closedAt 07:15Z = 16:15 KST (정규장 마감 이후) → 라이브와 동일하게 평가 skip.
+        val engine =
+            ScenarioReplayEngine(
+                strategyEvaluator = ScenarioStrategyEvaluator { ScenarioSignalDecision.buy(quantity = 1) },
+                marketHoursGate = ScenarioMarketHoursGate { false },
+            )
+
+        val result = engine.run(baseRequest(initialCash = bd("1000000")), candles = candles())
+
+        val success = result as ScenarioReplayResult.Success
+        success.events.map { it.type } shouldContain ScenarioEventType.GATE_SKIPPED
+        success.events.map { it.type } shouldNotContain ScenarioEventType.SIGNAL_BUY
+        success.events.map { it.type } shouldNotContain ScenarioEventType.ORDER_REQUESTED
+        success.events.map { it.type } shouldNotContain ScenarioEventType.ORDER_FILLED
+        val skipped = success.events.first { it.type == ScenarioEventType.GATE_SKIPPED }
+        skipped.message shouldContain "정규장"
+        skipped.payload["reasonCode"] shouldBe "GATE_SKIPPED:MARKET_HOURS"
+    }
+
+    @Test
+    fun `not simulated gates are honestly recorded at run start instead of silently passing`() {
+        val engine =
+            ScenarioReplayEngine(
+                strategyEvaluator = ScenarioStrategyEvaluator { ScenarioSignalDecision.hold() },
+                notSimulatedGates =
+                    listOf(
+                        ScenarioNotSimulatedGate("KILL_SWITCH_ON"),
+                        ScenarioNotSimulatedGate("DAILY_LOSS_LIMIT"),
+                    ),
+            )
+
+        val result = engine.run(baseRequest(), candles = candles())
+
+        val success = result as ScenarioReplayResult.Success
+        val notSimulated = success.events.filter { it.type == ScenarioEventType.GATE_NOT_SIMULATED }
+        notSimulated.map { it.payload["gate"] } shouldBe listOf("KILL_SWITCH_ON", "DAILY_LOSS_LIMIT")
+        notSimulated.first().payload["reasonCode"] shouldBe "GATE_NOT_SIMULATED:KILL_SWITCH_ON"
+    }
+
+    @Test
+    fun `gate all-pass replay is identical to legacy default engine (zero regression)`() {
+        val request = baseRequest(initialCash = bd("1000000"))
+        val legacy =
+            ScenarioReplayEngine(
+                strategyEvaluator = ScenarioStrategyEvaluator { ScenarioSignalDecision.buy(quantity = 1) },
+            ).run(request, candles = candles())
+        val gated =
+            ScenarioReplayEngine(
+                strategyEvaluator = ScenarioStrategyEvaluator { ScenarioSignalDecision.buy(quantity = 1) },
+                marketHoursGate = ScenarioMarketHoursGate { true },
+            ).run(request, candles = candles())
+
+        val legacyTypes = (legacy as ScenarioReplayResult.Success).events.map { it.type }
+        val gatedTypes = (gated as ScenarioReplayResult.Success).events.map { it.type }
+        gatedTypes shouldBe legacyTypes
+        gatedTypes shouldNotContain ScenarioEventType.GATE_SKIPPED
+        gated.ledger.positions shouldBe legacy.ledger.positions
+    }
+
     private fun baseRequest(
         code: String = "005930",
         initialCash: BigDecimal = bd("1000000"),

@@ -6,6 +6,8 @@ import kr.spdaewoon.magicjar.api.persistence.CandleJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.scenario.ScenarioRunJpaEntity
 import kr.spdaewoon.magicjar.api.service.backtest.BacktestEvaluatorBridge
+import kr.spdaewoon.magicjar.domain.market.session.MarketCalendarEntry
+import kr.spdaewoon.magicjar.domain.market.session.port.MarketCalendarRepository
 import kr.spdaewoon.magicjar.domain.scenario.ScenarioReplayResult
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
 import kr.spdaewoon.magicjar.domain.strategy.Signal
@@ -24,6 +26,7 @@ import org.mockito.kotlin.whenever
 import org.springframework.data.domain.PageImpl
 import java.math.BigDecimal
 import java.time.Instant
+import java.time.LocalDate
 
 class ScenarioReplayServiceTest {
     private val strategyRepository: StrategyRepositoryPort = mock()
@@ -31,6 +34,7 @@ class ScenarioReplayServiceTest {
     private val evaluatorBridge: BacktestEvaluatorBridge = mock()
     private val persister: ScenarioReplayPersister = mock()
     private val queryService: ScenarioReplayQueryService = mock()
+    private val marketCalendarRepository: MarketCalendarRepository = mock()
     private val service =
         ScenarioReplayService(
             strategyRepository = strategyRepository,
@@ -39,8 +43,10 @@ class ScenarioReplayServiceTest {
             persister = persister,
             queryService = queryService,
             objectMapper = ObjectMapper(),
+            marketCalendarRepository = marketCalendarRepository,
             maxCandlesPerRun = 100,
             maxEventsPerRun = 500,
+            marketHoursGateEnabled = true,
         )
 
     @Test
@@ -90,6 +96,51 @@ class ScenarioReplayServiceTest {
         assertTrue(result.events.any { it.type.name == "SIGNAL_SELL" })
         assertTrue(result.events.any { it.type.name == "ORDER_FILLED" && it.payload["side"] == "SELL" })
         assertTrue(result.ledger.positions.none { it.code == "005930" && it.quantity > 0 })
+    }
+
+    @Test
+    fun `holiday boundary is gate skipped and not evaluated while not-simulated gates are recorded`() {
+        var captured: ScenarioReplayResult? = null
+        whenever(strategyRepository.findById(8L)).thenReturn(sampleStrategy())
+        whenever(candleRepository.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(sampleCandles())
+        // 2026-06-02를 휴장으로 판정 → 정규장 게이트가 모든 boundary를 skip.
+        whenever(marketCalendarRepository.findByDate(LocalDate.of(2026, 6, 2)))
+            .thenReturn(
+                MarketCalendarEntry(
+                    LocalDate.of(2026, 6, 2),
+                    isBusinessDay = false,
+                    isHoliday = true,
+                    holidayName = "테스트 임시휴장",
+                    source = "MANUAL",
+                ),
+            )
+        whenever(persister.persist(any())).thenAnswer { invocation ->
+            captured = invocation.arguments[0] as ScenarioReplayResult
+            sampleRunEntity()
+        }
+        whenever(queryService.listEvents(100L, "74683223", 0, 500)).thenReturn(PageImpl(emptyList()))
+        whenever(queryService.listPositions(100L, "74683223")).thenReturn(emptyList())
+
+        service.runAndPersist(
+            ScenarioReplayRunRequestDto(
+                userId = "74683223",
+                strategyId = 8L,
+                code = "005930",
+                interval = "1m",
+                from = "2026-06-02T04:23:00Z",
+                to = "2026-06-02T04:24:00Z",
+                initialCash = BigDecimal("1000000"),
+            ),
+        )
+
+        val result = captured as ScenarioReplayResult.Success
+        // 모든 boundary가 게이트 skip → 평가/주문 0.
+        assertTrue(result.events.any { it.type.name == "GATE_SKIPPED" })
+        assertTrue(result.events.none { it.type.name == "SIGNAL_BUY" || it.type.name == "ORDER_FILLED" })
+        // 재현 불가 게이트는 정직 표기.
+        val notSimulated = result.events.filter { it.type.name == "GATE_NOT_SIMULATED" }.mapNotNull { it.payload["gate"] }
+        assertTrue(notSimulated.containsAll(listOf("KILL_SWITCH_ON", "DAILY_LOSS_LIMIT", "TRADE_FREQUENCY_MINUTE", "TRADE_FREQUENCY_DAY")))
     }
 
     private fun sampleStrategy(): Strategy {

@@ -2,16 +2,13 @@ package kr.spdaewoon.magicjar.consumer.signal
 
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toJavaLocalDate
-import kotlinx.datetime.toLocalDateTime
 import kr.spdaewoon.magicjar.consumer.reconciliation.DataReadinessService
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import kr.spdaewoon.magicjar.domain.market.session.BusinessDayCalendar
-import kr.spdaewoon.magicjar.domain.market.session.MarketSession
 import kr.spdaewoon.magicjar.domain.market.session.MarketSessionResolver
+import kr.spdaewoon.magicjar.domain.market.session.TradingHoursGate
 import kr.spdaewoon.magicjar.domain.risk.port.RiskPositionPort
 import kr.spdaewoon.magicjar.domain.signal.Signal
 import kr.spdaewoon.magicjar.domain.signal.SignalContext
@@ -76,8 +73,6 @@ class RealtimeSignalGenerator(
     private val clock: Clock = Clock.System,
 ) {
     private val log = LoggerFactory.getLogger(RealtimeSignalGenerator::class.java)
-
-    private val kstZone = TimeZone.of("Asia/Seoul")
 
     /**
      * Kafka boundary closed payload 수신 시 호출.
@@ -494,28 +489,18 @@ class RealtimeSignalGenerator(
      *   resolver는 KST 변환 후 09:00~15:29(분 단위) 을 Regular로 본다.
      *   09:00 정각 boundary(=08:59 1m 캔들 마감) 는 Regular 진입, 15:30 boundary(=15:29 캔들 마감) 는 경계.
      */
-    private fun isWithinTradingHours(boundaryTs: Instant): Boolean {
-        val session = marketSessionResolver.resolve(boundaryTs)
-        if (session !is MarketSession.Regular) return false
-
-        val calendar = businessDayCalendarProvider.ifAvailable
-        val kstDate = boundaryTs.toLocalDateTime(kstZone).date.toJavaLocalDate()
-        return if (calendar != null) {
-            try {
-                calendar.isBusinessDay(kstDate)
-            } catch (e: Exception) {
+    private fun isWithinTradingHours(boundaryTs: Instant): Boolean =
+        TradingHoursGate(
+            sessionResolver = marketSessionResolver,
+            businessDayCalendar = businessDayCalendarProvider.ifAvailable,
+            onCalendarError = { date, e ->
                 log.warn(
                     "RealtimeSignalGenerator BusinessDayCalendar 조회 실패 — resolver 영업일 판정 fallback: date={} err={}",
-                    kstDate,
+                    date,
                     e.message,
                 )
-                marketSessionResolver.businessDayOf(boundaryTs) != null
-            }
-        } else {
-            // BusinessDayCalendar bean 부재 — resolver businessDayOf (주말 가드) fallback.
-            marketSessionResolver.businessDayOf(boundaryTs) != null
-        }
-    }
+            },
+        ).isWithinTradingHours(boundaryTs)
 
     /** StrategyEvalResult.reason Map → 한 줄 reason string. */
     private fun buildReason(result: StrategyEvalResult): String {
