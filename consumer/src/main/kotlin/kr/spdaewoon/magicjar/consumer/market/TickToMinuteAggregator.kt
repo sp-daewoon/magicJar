@@ -9,6 +9,7 @@ import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
+import org.springframework.transaction.support.TransactionTemplate
 import java.math.BigDecimal
 import java.time.Clock
 import java.time.Instant
@@ -51,6 +52,7 @@ class TickToMinuteAggregator(
     private val objectMapper: ObjectMapper,
     private val kisWebSocketBridge: KisWebSocketBridge,
     private val boundaryAggregator: BoundaryAggregator,
+    private val transactionTemplate: TransactionTemplate,
     private val clock: Clock = Clock.systemUTC(),
 ) {
     private val log = LoggerFactory.getLogger(TickToMinuteAggregator::class.java)
@@ -141,18 +143,23 @@ class TickToMinuteAggregator(
             val ts = barTs
 
             // idempotent INSERT — ON CONFLICT DO NOTHING. 신규 INSERT(rows==1) 일 때만 발행.
+            // @Modifying native query 는 트랜잭션 필수 (TransactionRequiredException 방지 —
+            // 본 클래스는 @Scheduled 진입이라 BoundaryAggregator 와 달리 @Transactional 프록시가 없음.
+            // private 자기호출이므로 메서드 어노테이션 대신 TransactionTemplate 로 INSERT 만 정밀 래핑).
             val inserted =
-                candleRepository.insertIgnore(
-                    code = code,
-                    interval = "1m",
-                    ts = ts,
-                    openRaw = openRaw,
-                    highRaw = highRaw,
-                    lowRaw = lowRaw,
-                    closeRaw = closeRaw,
-                    volume = volume,
-                    source = "KIS",
-                )
+                transactionTemplate.execute {
+                    candleRepository.insertIgnore(
+                        code = code,
+                        interval = "1m",
+                        ts = ts,
+                        openRaw = openRaw,
+                        highRaw = highRaw,
+                        lowRaw = lowRaw,
+                        closeRaw = closeRaw,
+                        volume = volume,
+                        source = "KIS",
+                    )
+                } ?: 0
 
             if (inserted < 1) {
                 // 이미 존재 = 같은 ts 이중 처리. 발행 skip (중복 Kafka 발행 차단).
