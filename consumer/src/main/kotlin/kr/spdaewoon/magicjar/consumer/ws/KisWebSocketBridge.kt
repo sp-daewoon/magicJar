@@ -135,6 +135,19 @@ class KisWebSocketBridge(
         /** SystemEvent actor — P1 catalog (spec §6.1 emit point #4·#5). */
         private const val SYSTEM_EVENT_ACTOR = "KisWebSocketBridge"
 
+        /**
+         * WS_DISCONNECTED 알림 강등 grace window (초) — 2026-06-04 점검 사이클 #4.
+         *
+         * KIS 서버는 매시 정각(11:00·12:00·…) onComplete로 연결을 끊지만 시스템은 0~2초 내
+         * 재연결+재구독에 성공한다(운영 evidence). 이 정상 회복 패턴이 매시 WARN→P2 Slack 알림으로
+         * 노이즈화되던 것을 막기 위해, disconnect 발생 시 즉시 WARN을 발사하지 않고 이 window 후
+         * 재연결 여부를 재평가한다:
+         *   - window 내 재연결 성공(session.connected=true) → INFO severity emit (S-2 SLO 관측·audit 보존, Slack 0)
+         *   - window 후에도 미회복 → WARN severity emit (정상 P2 알림)
+         * grace window는 watchdog 백오프 1·2차(0s·2s)보다 충분히 길고, 운영 회복 관측(0~2초)을 cover한다.
+         */
+        private const val DISCONNECT_ALERT_GRACE_SECONDS = 10L
+
         private val LIVE_CANDLE_INTERVALS =
             listOf("1m", "3m", "5m", "15m", "30m", "90m", "1h", "4h", "12h", "1d", "1wk", "1mo", "1y")
         private const val NXT_INTEGRATED_OPEN_MIN = CandleSession.NXT_INTEGRATED_OPEN_MIN
@@ -154,6 +167,12 @@ class KisWebSocketBridge(
     private val kstZone = ZoneId.of("Asia/Seoul")
 
     private val pollingFallbackTimeoutSeconds = 30L
+
+    // WS_DISCONNECTED 알림 강등 grace window (ms) — 2026-06-04 점검 사이클 #4 (companion 상수 default).
+    // @Volatile var: 단위 테스트에서 reflection으로 단축(예: 100ms)해 분기 동작만 검증 가능하도록 인스턴스 필드화.
+    // 운영 값은 DISCONNECT_ALERT_GRACE_SECONDS(10초)→ms 고정 — 매시 정각 자동 회복(0~2초)을 충분히 cover.
+    @Volatile
+    private var disconnectAlertGraceMs = DISCONNECT_ALERT_GRACE_SECONDS * 1000L
 
     // E-1: unsubscribe ACK 대기용 latch (destroy 시 2s 대기)
     // ADR 0076 E-1 — unsubscribe 메시지 send 후 ACK 수신 or 2s timeout 후 close
@@ -293,21 +312,34 @@ class KisWebSocketBridge(
                 log.warn("KIS WS subscribe skip — approval_key 발급 불가 (REAL 자격증명 미등록): codes={}", codes)
                 return
             }
+        // ★ watchlist 1m stale race fix (2026-06-04 점검 사이클 #3):
+        //   handshake 완료 전(session.connected=false 또는 sendSink null)에는 KIS로 즉시 emit하지 않는다.
+        //   미연결 윈도우에 tryEmitNext한 메시지는 sink 미생성/미구독 상태에서 폐기될 수 있고,
+        //   그 경우 onConnected 재구독 스냅샷 타이밍에 따라 해당 종목이 KIS에 영구 미발사 → 1m candle stale.
+        //   부팅 시 subscribedCodes 등록만 수행하고 실제 발사는 onConnected 재구독에 단일 위임한다.
+        //   연결 후(런타임 add — watchlist 추가·promotion 등)에는 즉시 emit (sink live).
+        val live = session.connected && sendSink != null
         codes.forEach { code ->
             if (!session.subscribedCodes.contains(code)) {
-                val msg = buildSubscribeMessage(approvalKey, code, trType = "1")
-                sendSink?.tryEmitNext(msg)
                 session.subscribedCodes.add(code)
-                log.info("KIS WS subscribe: code={} trId=H0STCNT0", code)
+                if (live) {
+                    val msg = buildSubscribeMessage(approvalKey, code, trType = "1")
+                    sendSink?.tryEmitNext(msg)
+                    log.info("KIS WS subscribe: code={} trId=H0STCNT0", code)
+                } else {
+                    log.info("KIS WS subscribe 등록(연결 전 — onConnected 재구독 위임): code={} trId=H0STCNT0", code)
+                }
             }
             // H0NXCNT0 NXT 대체거래소 동시 구독 — ADR 0063 NXT 08:00~20:00 KST cover
             // KIS-first: open-trading-api ccnl_nxt() tr_id=H0NXCNT0
             // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
             if (!nxtSubscribedCodes.contains(code)) {
-                val nxtMsg = buildSubscribeMessage(approvalKey, code, trType = "1", trId = "H0NXCNT0")
-                sendSink?.tryEmitNext(nxtMsg)
                 nxtSubscribedCodes.add(code)
-                log.info("KIS WS subscribe: code={} trId=H0NXCNT0", code)
+                if (live) {
+                    val nxtMsg = buildSubscribeMessage(approvalKey, code, trType = "1", trId = "H0NXCNT0")
+                    sendSink?.tryEmitNext(nxtMsg)
+                    log.info("KIS WS subscribe: code={} trId=H0NXCNT0", code)
+                }
             }
         }
     }
@@ -682,12 +714,11 @@ class KisWebSocketBridge(
                                     """{"reason":"doFinally 중복 발생 — 이전 cid stale (onComplete+onError 연속 패턴)"}""",
                             )
                         }
-                        emitWsEvent(
-                            severity = SystemEventSeverity.WARN,
-                            action = "WS_DISCONNECTED",
-                            correlationId = correlationId,
-                            detailJson = """{"reason":"$signal"}""",
-                        )
+                        // ★ WS_DISCONNECTED 알림 강등 (2026-06-04 점검 사이클 #4):
+                        //   즉시 WARN emit 대신 grace window 후 재연결 여부를 재평가해 severity를 조건화.
+                        //   매시 정각 단절은 0~2초 내 회복되므로 INFO로 강등 → Slack 노이즈 0.
+                        //   S-2 SLO 관측을 위해 disconnect 사건 자체는 항상 emit(severity만 분기) — metric/audit 보존.
+                        scheduleDisconnectAlert(correlationId, signal.toString())
                         scheduleReconnect()
                     } else if (gracefulReconnectCancel) {
                         log.info("KIS WS graceful reconnect cancel signal — direct reconnect path가 처리하므로 scheduleReconnect skip")
@@ -1618,6 +1649,55 @@ class KisWebSocketBridge(
         }.onFailure { e ->
             log.debug("KIS WS AES key 추출 skip: err={}", e.message)
         }
+    }
+
+    /**
+     * WS_DISCONNECTED 알림 강등 지연 평가 (2026-06-04 점검 사이클 #4).
+     *
+     * disconnect 발생 직후 즉시 WARN을 발사하면 매시 정각 KIS 서버 onComplete(0~2초 내 자동 회복)가
+     * 매번 P2 Slack 알림으로 노이즈화된다. grace window 후 재연결 여부를 재평가해 severity를 분기한다:
+     *   - session.connected=true (회복) → INFO emit → dispatcher priorityOf(INFO)=null → Slack 0 (audit·UI만)
+     *   - 미회복 → WARN emit → dispatcher P2 → 정상 알림 (S-2 SLO 위반 감시)
+     *
+     * S-2 KIS WS 연결률 SLO 관측 보존: 어느 분기든 WS_DISCONNECTED 사건은 반드시 1회 emit한다.
+     * severity만 조건화 — metric/이벤트 기록 자체는 제거하지 않는다 (디스패치 명세 제약).
+     *
+     * correlationId 그룹화 유지: emit point #5(onConnected)에서 동일 cid를 회수하면 INFO든 WARN이든
+     * disconnect↔reconnect 1쌍 audit이 정합하게 닫힌다.
+     *
+     * scheduler 사용 사유: doFinally는 Reactor thread 위 — Thread.sleep 블록 회피.
+     * shuttingDown 진입 시 평가 skip (graceful shutdown 중 disconnect는 사고 아님).
+     */
+    private fun scheduleDisconnectAlert(
+        correlationId: String,
+        signal: String,
+    ) {
+        val graceMs = disconnectAlertGraceMs
+        scheduler.schedule({
+            if (session.shuttingDown) return@schedule
+            val recovered = session.connected
+            val severity = if (recovered) SystemEventSeverity.INFO else SystemEventSeverity.WARN
+            emitWsEvent(
+                severity = severity,
+                action = "WS_DISCONNECTED",
+                correlationId = correlationId,
+                detailJson =
+                    """{"reason":"$signal","recoveredWithinGrace":$recovered,"graceMs":$graceMs}""",
+            )
+            if (recovered) {
+                log.info(
+                    "KIS WS disconnect — grace {}ms 내 재연결 회복 → INFO 강등 (Slack 노이즈 억제): cid={}",
+                    graceMs,
+                    correlationId,
+                )
+            } else {
+                log.warn(
+                    "KIS WS disconnect — grace {}ms 후 미회복 → WARN 발사 (S-2 SLO 감시): cid={}",
+                    graceMs,
+                    correlationId,
+                )
+            }
+        }, graceMs.coerceAtLeast(1L), TimeUnit.MILLISECONDS)
     }
 
     /**

@@ -484,32 +484,68 @@ class KisWebSocketBridgeReconnectTest {
     // ===== SystemEvent emit (P1 spec §6.1 emit point #4·#5) =====
 
     /**
-     * [P1 spec §6.1 #4] connect 후 doFinally 경로에서 WS_DISCONNECTED emit 발사 검증.
+     * [P1 spec §6.1 #4 + 점검 사이클 #4 알림 강등] disconnect 후 grace window 미회복 → WARN emit 검증.
      *
      * wsClient.execute()가 Mono.empty() 반환 → handshake handler 람다는 미호출(reconnect 측 emit 0),
-     * 하지만 doFinally(ON_COMPLETE)는 실행 → WS_DISCONNECTED emit + correlationId AtomicReference set.
+     * 하지만 doFinally(ON_COMPLETE)는 실행 → scheduleDisconnectAlert(grace) 등록.
+     * mock 환경은 재연결 handshake가 실행되지 않으므로 session.connected는 grace 후에도 false → WARN emit.
      *
-     * 검증: emit slot capture → category·severity·actor·correlationId·detailJson 정합.
+     * grace window는 단위 테스트 부담을 줄이기 위해 reflection으로 50ms로 단축 — 분기 동작(미회복→WARN)만 검증.
+     * 검증: emit slot capture → category·severity(WARN)·actor·correlationId·detailJson 정합.
      */
     @Test
-    fun `P1 #4 — connect 후 doFinally 경로에서 WS_DISCONNECTED emit (WARN + correlationId + reason)`() {
+    fun `점검4 — disconnect 후 grace 미회복이면 WS_DISCONNECTED WARN emit (correlationId + reason)`() {
         // given: Mono.empty() — connect 즉시 complete → doFinally(ON_COMPLETE) 트리거
         every { wsClient.execute(any<URI>(), any()) } returns Mono.empty()
+        setDisconnectGraceMs(100L)
 
-        // when: connect() 호출 — doConnect → execute → Mono.empty() → doFinally → emit + scheduleReconnect
+        // when: connect() 호출 → doFinally → scheduleDisconnectAlert(grace 100ms) → 미회복 → WARN
         bridge.connect()
-        TimeUnit.MILLISECONDS.sleep(100L) // doFinally 실행 시간 허용
+        TimeUnit.MILLISECONDS.sleep(500L) // grace(100ms) + 재시도 cycle + 평가 시간 충분 허용
 
         // then: WS_DISCONNECTED emit 1건 이상 (재시도 cycle마다 1회씩 발사 가능)
         val eventSlot = mutableListOf<SystemEvent>()
         verify(atLeast = 1) { systemEventLogger.emit(capture(eventSlot)) }
         val disconnectEvent = eventSlot.first { it.action == "WS_DISCONNECTED" }
         assertThat(disconnectEvent.category).isEqualTo(SystemEventCategory.WEBSOCKET)
-        assertThat(disconnectEvent.severity).isEqualTo(SystemEventSeverity.WARN)
+        assertThat(disconnectEvent.severity)
+            .describedAs("grace 후 미회복 → WARN (S-2 SLO 위반 감시)")
+            .isEqualTo(SystemEventSeverity.WARN)
         assertThat(disconnectEvent.actor).isEqualTo("KisWebSocketBridge")
         assertThat(disconnectEvent.userId).isNull() // broadcast — system-wide
         assertThat(disconnectEvent.correlationId).isNotNull() // UUID 생성됨
         assertThat(disconnectEvent.detailJson).contains("\"reason\":")
+        assertThat(disconnectEvent.detailJson).contains("\"recoveredWithinGrace\":false")
+    }
+
+    /**
+     * [점검 사이클 #4 알림 강등] disconnect 후 grace window 내 재연결 회복 → INFO 강등 emit 검증.
+     *
+     * 매시 정각 KIS 서버 onComplete(0~2초 내 자동 회복) 정상 패턴 → INFO severity → Slack 노이즈 0.
+     * 시나리오: 재연결 성공 상태(session.connected=true)에서 scheduleDisconnectAlert를 직접 호출(reflection) →
+     *   grace 평가 시점 connected=true → INFO emit. (production doConnect 재연결 cycle의 disconnect↔connect
+     *   race를 배제하고 grace 분기 동작만 순수 검증 — 미회복→WARN은 위 통합형 테스트가 cover.)
+     * S-2 SLO 관측 보존: 회복돼도 WS_DISCONNECTED 사건 1건은 반드시 emit (severity만 INFO).
+     */
+    @Test
+    fun `점검4 — disconnect 후 grace 내 재연결 회복이면 WS_DISCONNECTED INFO 강등 emit (Slack 노이즈 억제)`() {
+        // given: 재연결 회복 상태 (session.connected=true) + grace 단축
+        getSession(bridge).onConnected()
+        setDisconnectGraceMs(50L)
+
+        // when: scheduleDisconnectAlert 직접 호출 (doFinally가 disconnect 시 호출하는 경로)
+        invokeScheduleDisconnectAlert("cid-recover-test", "onComplete")
+        TimeUnit.MILLISECONDS.sleep(300L) // grace(50ms) 평가 시간 허용
+
+        // then: WS_DISCONNECTED emit이 INFO severity (회복 → Slack 노이즈 억제)
+        val eventSlot = mutableListOf<SystemEvent>()
+        verify(atLeast = 1) { systemEventLogger.emit(capture(eventSlot)) }
+        val disconnectEvent = eventSlot.first { it.action == "WS_DISCONNECTED" }
+        assertThat(disconnectEvent.severity)
+            .describedAs("grace 내 재연결 회복 → INFO 강등 (dispatcher priorityOf(INFO)=null → Slack 0)")
+            .isEqualTo(SystemEventSeverity.INFO)
+        assertThat(disconnectEvent.correlationId).isEqualTo("cid-recover-test")
+        assertThat(disconnectEvent.detailJson).contains("\"recoveredWithinGrace\":true")
     }
 
     /**
@@ -869,6 +905,34 @@ class KisWebSocketBridgeReconnectTest {
         assertThat(action).isEqualTo("WS_RECONNECTED")
         assertThat(emittedCid).describedAs("cid 회수 성공 시 fresh UUID 생성 안 함 — 동일 cid 재사용").isEqualTo(pairedCid)
         assertThat(cidRef.get()).describedAs("회수 후 AtomicReference clear").isNull()
+    }
+
+    /**
+     * disconnectAlertGraceMs 필드 단축 (reflection) — 점검 사이클 #4 grace window 테스트용.
+     * 운영 default(10초)는 단위 테스트 부담 → ms 단위로 단축해 분기 동작만 검증.
+     */
+    private fun setDisconnectGraceMs(ms: Long) {
+        val field = KisWebSocketBridge::class.java.getDeclaredField("disconnectAlertGraceMs")
+        field.isAccessible = true
+        field.setLong(bridge, ms)
+    }
+
+    /**
+     * scheduleDisconnectAlert(private) 직접 호출 (reflection) — 점검 사이클 #4 grace 분기 순수 검증용.
+     * doFinally가 disconnect 시 호출하는 경로를 production doConnect race 없이 단독 검증.
+     */
+    private fun invokeScheduleDisconnectAlert(
+        correlationId: String,
+        signal: String,
+    ) {
+        val method =
+            KisWebSocketBridge::class.java.getDeclaredMethod(
+                "scheduleDisconnectAlert",
+                String::class.java,
+                String::class.java,
+            )
+        method.isAccessible = true
+        method.invoke(bridge, correlationId, signal)
     }
 
     /**
