@@ -3,10 +3,10 @@ id: T-20260604-1506-tick-minute-aggregator-race-fix
 agent: market-data
 model: opus
 branch: agent/market-data/tick-minute-aggregator-race-fix
-status: RUNNING
+status: DONE
 startedAt: 2026-06-04T15:06:55.542+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-04T15:13:36.249+09:00
+pr: #716
 parentPhase: ?
 ---
 
