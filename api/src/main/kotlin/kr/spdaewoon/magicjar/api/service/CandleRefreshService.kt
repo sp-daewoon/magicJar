@@ -164,6 +164,11 @@ class CandleRefreshService(
      * @param priority 호출 path 우선순위 (default USER_PATH — 사용자 트리거 path 보존).
      *                 LiveDailyCandleScheduler 등 백그라운드 cron은 BACKFILL 명시 의무
      *                 (2026-05-22 KIS_TPS_EXCEEDED LIVE 종합 fix — H1+H4 합류 §C).
+     * @param incremental true 시 일/주/월/년봉 페이지네이션을 DB 최신 봉까지만 fetch (delta-only).
+     *                 (2026-06-04 KIS_TPS_EXCEEDED 점검 #2 fix — 5분 cron이 매 cycle 30년 전수
+     *                 재fetch(최대 50 페이지)하던 burst를 종목당 ~1 페이지로 제한. 과거 봉은 immutable +
+     *                 ON CONFLICT DO NOTHING upsert라 재fetch는 순수 낭비.) 사용자 트리거(default false)는
+     *                 전수 backfill 보존 — cold-start·gap 복구 path 회귀 0.
      * @return CandleRefreshResponse (interval 별 결과 + 경과 시간)
      * @throws ResponseStatusException 404 (종목 없음) | 500 (KIS 인증 실패)
      */
@@ -171,6 +176,7 @@ class CandleRefreshService(
         code: String,
         intervals: List<String>,
         priority: KisCallPriority = KisCallPriority.USER_PATH,
+        incremental: Boolean = false,
         progress: ((CandleRefreshProgressUpdate) -> Unit)? = null,
     ): CandleRefreshResponse {
         val startMs = System.currentTimeMillis()
@@ -242,6 +248,7 @@ class CandleRefreshService(
                             appKey,
                             secretKey,
                             priority,
+                            incremental,
                             progress,
                         )
                     else -> IntervalRefreshResult(intervalCode, 0, 0, null, "SKIPPED")
@@ -347,7 +354,8 @@ class CandleRefreshService(
                 message = "기존 캔들 $deletedCount 건 삭제 완료",
             ),
         )
-        val refreshResponse = refresh(code, refreshIntervals, priority, progress)
+        // recollect는 기존 row 삭제 후 전수 재fetch가 본질 → incremental=false 명시 (delta-only 적용 금지).
+        val refreshResponse = refresh(code, refreshIntervals, priority, incremental = false, progress = progress)
 
         val rebuildTargets =
             when {
@@ -413,10 +421,12 @@ class CandleRefreshService(
         appKey: String,
         secretKey: String,
         priority: KisCallPriority,
+        incremental: Boolean,
         progress: ((CandleRefreshProgressUpdate) -> Unit)?,
     ): IntervalRefreshResult {
         for ((index, mrktDivCode) in mrktDivCodes.withIndex()) {
-            val result = refreshDailyCandles(code, intervalCode, mrktDivCode, accessToken, appKey, secretKey, priority)
+            val result =
+                refreshDailyCandles(code, intervalCode, mrktDivCode, accessToken, appKey, secretKey, priority, incremental)
             if (result.fetchedCount > 0 || result.status != "OK" || index == mrktDivCodes.lastIndex) {
                 return result
             }
@@ -482,6 +492,7 @@ class CandleRefreshService(
         appKey: String,
         secretKey: String,
         priority: KisCallPriority,
+        incremental: Boolean = false,
         retryAttempt: Int = 0,
     ): IntervalRefreshResult {
         val periodDivCode = DAILY_INTERVALS[intervalCode] ?: return IntervalRefreshResult(intervalCode, 0, 0, null, "SKIPPED")
@@ -492,6 +503,21 @@ class CandleRefreshService(
         // ADR 0093 §3-1 LOCK — property 외부화 매트릭스 lookup (1d=50, 1wk=20, 1mo=12, 1y=6).
         // 기존 hardcode `DAILY_MAX_PAGES = 6` 폐기 — fallback 6 유지 (회귀 안전).
         val maxPages = chartCandleProperties.getMaxPagesFor(intervalCode)
+
+        // 2026-06-04 KIS_TPS_EXCEEDED 점검 #2 fix — incremental(delta-only) 경계.
+        //
+        // 결함 인과 (`_workspace/reports/2026-06-04-api-tps-exceeded-investigation.md`):
+        //   - LiveDailyCandleScheduler(5분 cron)가 watchlist 종목마다 `refresh(["1d"])` 호출
+        //   - refreshDailyCandles는 cursor=today에서 30년 전까지 maxPages(1d=50)를 무조건 페이지네이션
+        //   - 과거 일봉은 immutable + upsert ON CONFLICT DO NOTHING → 첫 페이지(최근 100봉) 외에는 순수 낭비
+        //   - 6 종목 × 50 페이지 = 매 cycle 최대 300 KIS 호출 burst → KIS server-side EGW00201 차단
+        //     → tpsExceededCount 단조 증가(57→126/일, 점검 #2 evidence)
+        //
+        // fix: incremental=true 시 DB 최신 봉 epochSec를 경계로 잡고, 한 페이지의 oldest 봉이
+        //   경계 이하(이미 DB에 있음)면 페이지네이션 중단 → 종목당 ~1 페이지로 제한.
+        //   incremental=false(사용자 트리거)는 전수 backfill 보존 — cold-start·gap 복구 회귀 0.
+        val incrementalBoundaryEpochSec: Long? =
+            if (incremental) latestEpochSec(code, intervalCode) else null
 
         val allCandles = mutableListOf<KisDailyRow>()
         var cursor: LocalDate = LocalDate.now(KST_ZONE)
@@ -614,6 +640,22 @@ class CandleRefreshService(
                 // cursor advance — oldest epochSec → LocalDate.minusDays(1)
                 // parseKisDailyOutput2가 이미 ASC 정렬이므로 first() = oldest.
                 val oldestEpochSec = pageCandles.first().epochSec
+
+                // incremental(delta-only) 경계 도달 — 이 페이지 oldest 봉이 DB 최신 봉 이하면
+                // 이후 페이지는 전부 DB에 이미 존재(immutable 과거 봉) → 페이지네이션 중단.
+                // 5분 cron이 매 cycle 종목당 ~1 페이지만 fetch하도록 burst 제거 (점검 #2 fix).
+                if (incrementalBoundaryEpochSec != null && oldestEpochSec <= incrementalBoundaryEpochSec) {
+                    log.debug(
+                        "캔들 갱신 incremental 경계 도달 — 페이지네이션 중단: code={} interval={} page={} oldestEpochSec={} boundaryEpochSec={}",
+                        code,
+                        intervalCode,
+                        pageCount,
+                        oldestEpochSec,
+                        incrementalBoundaryEpochSec,
+                    )
+                    break
+                }
+
                 val oldestDate =
                     Instant
                         .ofEpochSecond(oldestEpochSec)
@@ -709,6 +751,7 @@ class CandleRefreshService(
                         appKey,
                         secretKey,
                         priority,
+                        incremental = incremental,
                         retryAttempt = 1,
                     )
                 }
@@ -1262,6 +1305,31 @@ class CandleRefreshService(
             rows.firstOrNull()?.ts?.toString()
         } catch (e: Exception) {
             log.debug("latestTs 조회 실패: code={} interval={} err={}", code, intervalCode, e.message)
+            null
+        }
+
+    /**
+     * DB 최신 봉 epochSec (incremental delta-only 경계) — 부재 시 null(전수 fetch fallback).
+     *
+     * 2026-06-04 KIS_TPS_EXCEEDED 점검 #2 fix — [refreshDailyCandles] incremental 경계 lookup.
+     * 봉이 0건(cold-start)이면 null 반환 → incremental 모드라도 전수 backfill 진행(회귀 0).
+     */
+    private fun latestEpochSec(
+        code: String,
+        intervalCode: String,
+    ): Long? =
+        try {
+            candleJpaRepository
+                .findByCodeAndIntervalLatest(
+                    code,
+                    intervalCode,
+                    org.springframework.data.domain.PageRequest
+                        .of(0, 1),
+                ).firstOrNull()
+                ?.ts
+                ?.epochSecond
+        } catch (e: Exception) {
+            log.debug("latestEpochSec 조회 실패: code={} interval={} err={}", code, intervalCode, e.message)
             null
         }
 
