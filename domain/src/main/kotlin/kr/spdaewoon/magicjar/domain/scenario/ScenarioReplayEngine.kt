@@ -7,6 +7,17 @@ import java.math.BigDecimal
 class ScenarioReplayEngine(
     private val strategyEvaluator: ScenarioStrategyEvaluator,
     private val riskEvaluator: ScenarioRiskEvaluator = ScenarioRiskEvaluator { ScenarioRiskDecision.Allowed },
+    /**
+     * 정규장 게이트 (readiness P1) — 라이브와 동일 boundary 판정.
+     * boundaryTs(=candle.closedAt)가 영업일+정규장 안이 아니면 평가 skip + [ScenarioEventType.GATE_SKIPPED] 기록.
+     * default = 항상 통과(게이트 미적용) — 기존 호출부·테스트 동작 보존.
+     */
+    private val marketHoursGate: ScenarioMarketHoursGate = ScenarioMarketHoursGate { true },
+    /**
+     * 라이브에는 있으나 리플레이 가상 상태로 재현 불가능한 게이트 목록 (readiness P1).
+     * run 시작 시 1회 [ScenarioEventType.GATE_NOT_SIMULATED] 이벤트로 정직 표기 — 조용히 통과 금지.
+     */
+    private val notSimulatedGates: List<ScenarioNotSimulatedGate> = emptyList(),
     private val clock: Clock = Clock.System,
 ) {
     fun run(
@@ -16,6 +27,8 @@ class ScenarioReplayEngine(
         val startedAt = clock.now()
         val events = mutableListOf<ScenarioEvent>()
         val replayCandles = candles.filterFor(request)
+
+        notSimulatedGates.forEach { gate -> events += gateNotSimulatedEvent(request, request.from, gate) }
 
         if (replayCandles.isEmpty()) {
             events +=
@@ -33,6 +46,12 @@ class ScenarioReplayEngine(
         var cashBlockedBuy: CashBlockedBuy? = null
         replayCandles.forEachIndexed { index, candle ->
             events += candleEvent(request, candle)
+
+            // 정규장 게이트 (readiness P1) — 라이브와 동일 boundary 판정. 장외/휴장 boundary는 평가 skip.
+            if (!marketHoursGate.isWithinTradingHours(candle.closedAt)) {
+                events += gateSkippedEvent(request, candle.closedAt)
+                return@forEachIndexed
+            }
 
             val context = ScenarioEvaluationContext(request, candle, replayCandles.take(index + 1), ledger.snapshot(candle.closedAt))
             val signal =
@@ -414,6 +433,38 @@ class ScenarioReplayEngine(
             message = "다음 candle이 없어 리플레이 가상 체결을 보수적으로 보류했습니다.",
         )
 
+    private fun gateSkippedEvent(
+        request: ScenarioReplayRequest,
+        virtualTime: Instant,
+    ): ScenarioEvent =
+        request.event(
+            virtualTime = virtualTime,
+            type = ScenarioEventType.GATE_SKIPPED,
+            severity = ScenarioSeverity.INFO,
+            title = "리플레이 정규장 게이트 skip",
+            message =
+                "가상 시각 ${virtualTime}은 영업일+정규장(09:00~15:30 KST)이 아니라 " +
+                    "라이브와 동일하게 평가를 건너뛰었습니다. 이 boundary는 라이브에서도 시그널이 발화되지 않습니다.",
+            payload = mapOf("gate" to "MARKET_HOURS", "reasonCode" to "GATE_SKIPPED:MARKET_HOURS"),
+        )
+
+    private fun gateNotSimulatedEvent(
+        request: ScenarioReplayRequest,
+        virtualTime: Instant,
+        gate: ScenarioNotSimulatedGate,
+    ): ScenarioEvent =
+        request.event(
+            virtualTime = virtualTime,
+            type = ScenarioEventType.GATE_NOT_SIMULATED,
+            severity = ScenarioSeverity.WARN,
+            title = "리플레이 미재현 게이트: ${gate.rule}",
+            message =
+                gate.note
+                    ?: "라이브 게이트 ${gate.rule}는 실계좌 상태에 의존해 리플레이 가상 상태로 재현할 수 없습니다. " +
+                    "리플레이 decision은 이 게이트를 통과한 것으로 가정하므로 라이브와 차이가 날 수 있습니다.",
+            payload = mapOf("gate" to gate.rule, "reasonCode" to "GATE_NOT_SIMULATED:${gate.rule}"),
+        )
+
     private fun strategyErrorEvent(
         request: ScenarioReplayRequest,
         virtualTime: Instant,
@@ -463,6 +514,27 @@ fun interface ScenarioStrategyEvaluator {
 
 fun interface ScenarioRiskEvaluator {
     fun evaluate(context: ScenarioRiskContext): ScenarioRiskDecision
+}
+
+/**
+ * 리플레이 정규장 게이트 (readiness P1) — 라이브 [kr.spdaewoon.magicjar.domain.market.session.TradingHoursGate] 위임.
+ * boundaryTs(=candle.closedAt)가 영업일+정규장 안인지 라이브와 동일하게 판정한다.
+ */
+fun interface ScenarioMarketHoursGate {
+    fun isWithinTradingHours(boundaryTs: kotlinx.datetime.Instant): Boolean
+}
+
+/**
+ * 리플레이 가상 상태로 재현 불가능한 라이브 게이트 표기 (readiness P1).
+ * 조용히 통과시키지 않고 [ScenarioEventType.GATE_NOT_SIMULATED]로 정직 노출하기 위한 메타.
+ */
+data class ScenarioNotSimulatedGate(
+    val rule: String,
+    val note: String? = null,
+) {
+    init {
+        require(rule.isNotBlank()) { "rule must be non-blank" }
+    }
 }
 
 data class ScenarioEvaluationContext(

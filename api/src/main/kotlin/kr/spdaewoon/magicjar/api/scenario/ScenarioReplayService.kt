@@ -9,9 +9,14 @@ import kr.spdaewoon.magicjar.api.service.backtest.BacktestEvaluatorBridge
 import kr.spdaewoon.magicjar.domain.backtest.LookaheadGuard
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.market.session.PerInstantMarketSessionResolver
+import kr.spdaewoon.magicjar.domain.market.session.TradingHoursGate
+import kr.spdaewoon.magicjar.domain.market.session.port.MarketCalendarRepository
 import kr.spdaewoon.magicjar.domain.scenario.ScenarioCandle
 import kr.spdaewoon.magicjar.domain.scenario.ScenarioFault
 import kr.spdaewoon.magicjar.domain.scenario.ScenarioFaultType
+import kr.spdaewoon.magicjar.domain.scenario.ScenarioMarketHoursGate
+import kr.spdaewoon.magicjar.domain.scenario.ScenarioNotSimulatedGate
 import kr.spdaewoon.magicjar.domain.scenario.ScenarioPositionSeed
 import kr.spdaewoon.magicjar.domain.scenario.ScenarioReplayEngine
 import kr.spdaewoon.magicjar.domain.scenario.ScenarioReplayRequest
@@ -40,8 +45,10 @@ class ScenarioReplayService(
     private val persister: ScenarioReplayPersister,
     private val queryService: ScenarioReplayQueryService,
     private val objectMapper: ObjectMapper,
+    private val marketCalendarRepository: MarketCalendarRepository,
     @Value("\${magicjar.scenario-replay.max-candles-per-run:5000}") private val maxCandlesPerRun: Int,
     @Value("\${magicjar.scenario-replay.max-events-per-run:20000}") private val maxEventsPerRun: Int,
+    @Value("\${magicjar.signal.market-hours-gate.enabled:true}") private val marketHoursGateEnabled: Boolean = true,
 ) {
     private val log = LoggerFactory.getLogger(ScenarioReplayService::class.java)
 
@@ -59,6 +66,8 @@ class ScenarioReplayService(
             ScenarioReplayEngine(
                 strategyEvaluator = buildStrategyEvaluator(strategy, buyAst, sellAst),
                 riskEvaluator = buildRiskEvaluator(strategy),
+                marketHoursGate = buildMarketHoursGate(),
+                notSimulatedGates = NOT_SIMULATED_GATES,
             )
         val result = engine.run(replayRequest, candles)
 
@@ -156,6 +165,36 @@ class ScenarioReplayService(
                 ScenarioSignalDecision.hold(reasonText("BUY_HOLD", buyResult.reason))
             }
         }
+
+    /**
+     * 리플레이 정규장 게이트 (readiness P1) — 라이브와 동일한 [TradingHoursGate] 로직 재사용.
+     *
+     * 라이브 [kr.spdaewoon.magicjar.api.market.session.KrxMarketSessionResolver]는 Redis로 "현재" 세션을
+     * 캐싱하므로 과거 boundary 판정에 부적합하다. 대신 동일한 KST FSM을 Redis 없이 적용하는
+     * [PerInstantMarketSessionResolver]에 market_calendar 영업일 판정을 위임해 결정론적으로 판정한다.
+     *
+     * `magicjar.signal.market-hours-gate.enabled=false`(라이브와 동일 플래그)면 게이트를 끈다 — 라이브 정합.
+     */
+    private fun buildMarketHoursGate(): ScenarioMarketHoursGate {
+        if (!marketHoursGateEnabled) {
+            return ScenarioMarketHoursGate { true }
+        }
+        val resolver = PerInstantMarketSessionResolver(isBusinessDay = ::isBusinessDay)
+        val gate = TradingHoursGate(sessionResolver = resolver)
+        return ScenarioMarketHoursGate { boundaryTs -> gate.isWithinTradingHours(boundaryTs) }
+    }
+
+    private fun isBusinessDay(date: java.time.LocalDate): Boolean {
+        val entry =
+            runCatching { marketCalendarRepository.findByDate(date) }
+                .getOrElse { e ->
+                    log.warn("Scenario Replay market_calendar 조회 실패 — 주말 fallback: date={} err={}", date, e.message)
+                    null
+                }
+        if (entry != null) return entry.isBusinessDay
+        val dow = date.dayOfWeek
+        return dow != java.time.DayOfWeek.SATURDAY && dow != java.time.DayOfWeek.SUNDAY
+    }
 
     private fun buildRiskEvaluator(strategy: Strategy): ScenarioRiskEvaluator =
         ScenarioRiskEvaluator { context ->
@@ -268,4 +307,36 @@ class ScenarioReplayService(
     ): String =
         runCatching { "리플레이 전략 평가 $prefix: ${objectMapper.writeValueAsString(reason)}" }
             .getOrDefault("리플레이 전략 평가 $prefix")
+
+    companion object {
+        /**
+         * 라이브 Risk Gateway(ADR 0067) 룰 중 리플레이 가상 상태로 재현 불가능한 게이트 (readiness P1).
+         * 조용히 통과시키지 않고 run 시작 시 GATE_NOT_SIMULATED 이벤트로 정직 표기해 라이브 차이를 설명한다.
+         *
+         * 재현 가능 룰(리플레이에서 동일 적용)은 표기 대상 아님:
+         *  - BUY_BLOCKED·전략 상태 게이트 → 리플레이 risk evaluator가 동일 적용
+         *  - POSITION_LIMIT 예산·MAX_CONCURRENT·SELL_WITHOUT_POSITION → 가상 ledger로 재현(현금/포지션 검사)
+         *  - 정규장 게이트 → TradingHoursGate 재사용(GATE_SKIPPED)
+         *  - RISK_PLAN_REQUIRED(ADR 0106) → 전략 정의 stopLoss/takeProfit는 정적이라 재현 가능 (향후 보강 여지)
+         */
+        private val NOT_SIMULATED_GATES =
+            listOf(
+                ScenarioNotSimulatedGate(
+                    rule = "KILL_SWITCH_ON",
+                    note = "킬스위치는 실시간 사용자/운영 상태라 리플레이로 재현하지 않습니다. 라이브는 킬스위치 ON이면 모든 주문이 차단됩니다.",
+                ),
+                ScenarioNotSimulatedGate(
+                    rule = "DAILY_LOSS_LIMIT",
+                    note = "일일 실현손익은 실계좌 체결 이력에 의존해 리플레이 가상 상태로 재현하지 않습니다. 라이브는 일일 손실 한도 도달 시 신규 주문이 차단됩니다.",
+                ),
+                ScenarioNotSimulatedGate(
+                    rule = "TRADE_FREQUENCY_MINUTE",
+                    note = "분당 거래 빈도는 실계좌 주문 카운트에 의존해 리플레이로 재현하지 않습니다. 라이브는 분당 한도 초과 시 차단됩니다.",
+                ),
+                ScenarioNotSimulatedGate(
+                    rule = "TRADE_FREQUENCY_DAY",
+                    note = "일별 거래 빈도는 실계좌 주문 카운트에 의존해 리플레이로 재현하지 않습니다. 라이브는 일별 한도 초과 시 차단됩니다.",
+                ),
+            )
+    }
 }
