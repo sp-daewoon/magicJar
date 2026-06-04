@@ -158,6 +158,12 @@ magicjar:
       acquire-timeout-millis: ${MAGICJAR_CANDLE_BACKFILL_ACQUIRE_TIMEOUT_MS:60000}
       guard-ttl-hours: ${MAGICJAR_CANDLE_BACKFILL_GUARD_TTL_HOURS:72}
       unrecoverable-ttl-hours: ${MAGICJAR_CANDLE_BACKFILL_UNRECOVERABLE_TTL_HOURS:168}
+      # rate-limit circuit breaker (2026-06-05 readiness P0-1) — admin·auto 공통.
+      #   evidence: admin 1m 8종목 연속 실행 시 tpsExceededCount 1→155→337.
+      #   - circuit-consecutive-trips: KIS rate-limit 압박(전건 미반환) run 연속 N회 → circuit OPEN(다음 윈도 이월)
+      #   - circuit-open-millis: circuit OPEN 유지(ms). 이 기간 throttle gate 진입 run 즉시 skip
+      circuit-consecutive-trips: ${MAGICJAR_CANDLE_BACKFILL_CIRCUIT_TRIPS:3}
+      circuit-open-millis: ${MAGICJAR_CANDLE_BACKFILL_CIRCUIT_OPEN_MS:60000}
 
   # MarketSession 설정 (ADR 0013 §2-2, PR-29a 본격 교체)
   session:

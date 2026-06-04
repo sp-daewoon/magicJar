@@ -22,6 +22,8 @@ class BackfillThrottleGateTest {
         maxConcurrent: Int = 1,
         minIntervalMillis: Long = 0L,
         acquireTimeoutMillis: Long = 60_000L,
+        circuitConsecutiveTrips: Int = 3,
+        circuitOpenMillis: Long = 60_000L,
     ): BackfillThrottleGate {
         val props =
             ChartCandleProperties(
@@ -30,6 +32,8 @@ class BackfillThrottleGateTest {
                         maxConcurrentBackfills = maxConcurrent,
                         minIntervalMillis = minIntervalMillis,
                         acquireTimeoutMillis = acquireTimeoutMillis,
+                        circuitConsecutiveTrips = circuitConsecutiveTrips,
+                        circuitOpenMillis = circuitOpenMillis,
                     ),
             )
         return BackfillThrottleGate(props)
@@ -96,5 +100,50 @@ class BackfillThrottleGateTest {
         val elapsed = System.currentTimeMillis() - t0
         // 최소 간격 200ms 이상 (timing 마진 고려 150ms 하한)
         assertThat(elapsed).isGreaterThanOrEqualTo(150L)
+    }
+
+    // ---------- circuit breaker (2026-06-05 readiness P0-1) ----------
+
+    @Test
+    fun `(circuit) 연속 rate-limit trip 임계 도달 시 circuit OPEN — 이후 run 즉시 중단(이월)`() {
+        val gate = gate(maxConcurrent = 1, circuitConsecutiveTrips = 3, circuitOpenMillis = 60_000L)
+        // 3회 연속 rate-limit 압박 보고 → circuit OPEN
+        repeat(3) { gate.recordRunOutcome(rateLimited = true) }
+        assertThat(gate.isCircuitOpen()).isTrue
+
+        // circuit OPEN 동안 run은 block 실행 0 + null 반환 (KIS 추가 호출 0)
+        val executed = AtomicInteger(0)
+        val result = gate.runThrottled("code") { executed.incrementAndGet() }
+        assertThat(result).isNull()
+        assertThat(executed.get()).isEqualTo(0)
+    }
+
+    @Test
+    fun `(circuit) 정상 회복(rateLimited=false) 보고 시 trip 카운터 reset — circuit OPEN 안 됨`() {
+        val gate = gate(maxConcurrent = 1, circuitConsecutiveTrips = 3)
+        gate.recordRunOutcome(rateLimited = true)
+        gate.recordRunOutcome(rateLimited = true)
+        // 회복 보고로 카운터 reset
+        gate.recordRunOutcome(rateLimited = false)
+        // reset 후 다시 2회 압박 → 임계(3) 미달이므로 circuit CLOSED
+        gate.recordRunOutcome(rateLimited = true)
+        gate.recordRunOutcome(rateLimited = true)
+        assertThat(gate.isCircuitOpen()).isFalse
+
+        val executed = AtomicInteger(0)
+        gate.runThrottled("code") { executed.incrementAndGet() }
+        assertThat(executed.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun `(circuit) circuit OPEN 만료 후 half-open 재진입 허용`() {
+        // circuitOpenMillis=0 → 즉시 만료 (만료 직후 half-open 재진입 검증)
+        val gate = gate(maxConcurrent = 1, circuitConsecutiveTrips = 1, circuitOpenMillis = 0L)
+        gate.recordRunOutcome(rateLimited = true) // trip 1/1 → OPEN(즉시 만료)
+        // openUntil = now + 0 → 다음 runThrottled에서 만료로 판정 → 재진입 허용
+        val executed = AtomicInteger(0)
+        val result = gate.runThrottled("code") { executed.incrementAndGet() }
+        assertThat(result).isNotNull
+        assertThat(executed.get()).isEqualTo(1)
     }
 }

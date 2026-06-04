@@ -457,6 +457,66 @@ class KisRestCandleAdapterPaginationTest {
     }
 
     // -------------------------------------------------------------------------
+    // 시나리오 1-b: one-minute 전역 ASC 정규화 (2026-06-05 readiness P0-2)
+    //   fetchOneMinCandles는 최근일→과거일 역순 + 일자 내 장마감→장시작 역순 페이지네이션으로
+    //   allCandles를 누적한다. 반환 직전 전역 ASC 정규화(.distinctBy.sortedBy)가 없으면 페이지·일자
+    //   경계마다 ts가 뒤로 점프 → sanity monotonic WARN 폭주(41만 줄 evidence). 정규화 invariant 검증.
+    // -------------------------------------------------------------------------
+
+    private fun candleMinute(
+        code: String,
+        epochSec: Long,
+    ): Candle =
+        Candle(
+            code = code,
+            interval = CandleInterval.ONE_MIN,
+            ts = Instant.fromEpochSeconds(epochSec),
+            openRaw = BigDecimal("13000"),
+            highRaw = BigDecimal("13500"),
+            lowRaw = BigDecimal("12800"),
+            closeRaw = BigDecimal("13200"),
+            openAdj = null,
+            highAdj = null,
+            lowAdj = null,
+            closeAdj = null,
+            volume = 1000L,
+            source = "KIS",
+        )
+
+    @Test
+    fun `one-minute 전역 ASC 정규화 — 일자·페이지 역순 누적 시퀀스를 monotonic ASC로 정렬`() {
+        // given — fetchOneMinCandles 누적 순서 시뮬레이션:
+        //   day0(최근) page0: 14:00,14:01 (ASC 내부)
+        //   day0 page1(더 이른 시각): 09:00,09:01
+        //   day1(과거) page0: 14:00,14:01
+        // → allCandles는 [day0:14:00,14:01][day0:09:00,09:01][day1:14:00,14:01] 비단조 시퀀스.
+        val base = 1_700_000_000L
+        val day = 86_400L
+        val allCandles =
+            mutableListOf<Candle>().apply {
+                // day0 page0 (최신 시각)
+                add(candleMinute("005930", base + day + 5L * 3600L)) // day0 14:00
+                add(candleMinute("005930", base + day + 5L * 3600L + 60L)) // day0 14:01
+                // day0 page1 (더 이른 시각 — 뒤로 점프)
+                add(candleMinute("005930", base + day)) // day0 09:00
+                add(candleMinute("005930", base + day + 60L)) // day0 09:01
+                // day1 (과거 일자 — 다시 뒤로 점프)
+                add(candleMinute("005930", base + 5L * 3600L)) // day1 14:00
+                add(candleMinute("005930", base + 5L * 3600L + 60L)) // day1 14:01
+            }
+
+        // when — 반환 직전 전역 ASC 정규화 (fetchOneMinCandles 반환부와 동일 invariant).
+        val normalized = allCandles.distinctBy { it.ts.epochSeconds }.sortedBy { it.ts.epochSeconds }
+
+        // then — 전역 monotonic ASC 보장 (페이지·일자 경계 역순 0).
+        assertThat(normalized).hasSize(6)
+        assertThat(normalized.map { it.ts.epochSeconds }).isSorted
+        // 첫 row = day1 09:00 아님 — 가장 과거(day1 14:00), 마지막 = day0 14:01.
+        assertThat(normalized.first().ts.epochSeconds).isEqualTo(base + 5L * 3600L)
+        assertThat(normalized.last().ts.epochSeconds).isEqualTo(base + day + 5L * 3600L + 60L)
+    }
+
+    // -------------------------------------------------------------------------
     // 시나리오 2: weekly-monthly-yearly-pagination
     //   4 timeframe (D/W/M/Y) 동일 algorithm cover 검증
     // -------------------------------------------------------------------------

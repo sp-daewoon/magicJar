@@ -90,6 +90,9 @@ class CandleBackfillWorker(
         /** thread pool — backfill submit 비동기 */
         private const val POOL_SIZE = 2
 
+        /** sanity monotonic WARN 샘플링 cap (per batch) — 로그 폭주(2026-06-05 readiness P0-2 41만 줄) 방지 */
+        const val MONOTONIC_WARN_SAMPLE_CAP = 20
+
         /** 호출자가 expected/dryRun 인자 명시 — 룰 #5 source-of-truth */
         private const val SOURCE_KIS_BACKFILL = "KIS-BACKFILL"
     }
@@ -105,6 +108,16 @@ class CandleBackfillWorker(
             },
         )
 
+    /**
+     * 백필 결과 — 갭을 3분류로 명시 (2026-06-05 readiness P0-2):
+     *   - [insertedCount]: 실제 DB에 적재된 봉 수 (KIS 반환 + sanity 통과 + gap 매칭 + saveAll 성공)
+     *   - [uncoveredCount]: 거래 없는 분(illiquid) 또는 KIS 미보유 구간 — KIS가 정상 응답했으나 해당 expected ts를
+     *     반환하지 않음. 실패 아님. "SUCCESS + insertedCount=0"이 설명되는 분류(전부 uncovered).
+     *   - [failedGapsCount]: KIS 통신 실패(전건 미반환) 또는 saveAll 저장 오류 — 진짜 실패.
+     *
+     * gapCount = insertedCount + uncoveredCount + (failedGapsCount 중 매칭 대상) 관계는 근사이며
+     * (KIS 1건이 여러 expected를 cover하거나 cap 적용 가능), 운영자 audit·응답에서 3분류를 명시 기록한다.
+     */
     data class BackfillResult(
         val code: String,
         val interval: CandleInterval,
@@ -113,6 +126,7 @@ class CandleBackfillWorker(
         val gapCount: Int,
         val gapsSample: List<Instant>,
         val insertedCount: Int,
+        val uncoveredCount: Int,
         val failedGapsCount: Int,
         val durationMs: Long,
         val status: BackfillStatus,
@@ -161,10 +175,12 @@ class CandleBackfillWorker(
                         )
                     }
                 if (result == null) {
-                    // throttle permit timeout → 다음 사이클로 미룸 (재시도 자체는 차단하지 않음)
+                    // throttle permit timeout 또는 circuit OPEN → 다음 사이클로 미룸 (재시도 자체는 차단하지 않음)
                     reconciliationStateStore.markReady(code, interval, "backfill-throttle-skip")
                     return@submit
                 }
+                // circuit breaker outcome 보고 — 연속 rate-limit 압박 run N회면 circuit OPEN(다음 윈도 이월).
+                backfillThrottleGate.recordRunOutcome(isRateLimitPressure(result))
                 when (result.status) {
                     BackfillStatus.SUCCESS,
                     BackfillStatus.SKIPPED,
@@ -184,6 +200,44 @@ class CandleBackfillWorker(
                 )
             }
         }
+    }
+
+    /**
+     * run 1건이 KIS rate-limit 압박을 시사하는가 (circuit breaker 판정용 — 2026-06-05 readiness P0-1).
+     *
+     * KIS 전건 미반환(FAILED_KILLSWITCH·UNRECOVERABLE 중 total-miss 경로)은 throttle 거부·TPS 폭주의 직접 증상이므로
+     * rate-limit 압박으로 본다. SUCCESS·PARTIAL_FAIL(일부라도 적재)·SKIPPED는 KIS가 응답했으므로 압박 아님(reset).
+     */
+    private fun isRateLimitPressure(result: BackfillResult): Boolean =
+        when (result.status) {
+            BackfillStatus.FAILED_KILLSWITCH,
+            BackfillStatus.UNRECOVERABLE,
+            -> result.insertedCount == 0 && result.uncoveredCount == 0
+            else -> false
+        }
+
+    /**
+     * throttle gate + circuit breaker를 통과하는 동기 backfill 실행 — admin endpoint 용도
+     * (2026-06-05 readiness P0-1 — 운영자 우회 폐기, admin도 KIS 단일 bucket throttle 통과).
+     *
+     * @return [runBackfill] 결과, 또는 throttle permit timeout·circuit OPEN 시 null
+     *   (호출자가 queued/skip 상태로 응답 — KIS 추가 호출 0).
+     */
+    fun runBackfillThrottled(
+        code: String,
+        interval: CandleInterval,
+        dryRun: Boolean = dryRunPropertyDefault,
+        windowDays: Int = windowDaysDefault,
+        reason: String = "admin",
+    ): BackfillResult? {
+        val result =
+            backfillThrottleGate.runThrottled(code) {
+                runBackfill(code, interval, dryRun, windowDays, reason)
+            }
+        if (result != null) {
+            backfillThrottleGate.recordRunOutcome(isRateLimitPressure(result))
+        }
+        return result
     }
 
     /**
@@ -241,6 +295,7 @@ class CandleBackfillWorker(
                 gapCount = 0,
                 gapsSample = emptyList(),
                 insertedCount = 0,
+                uncoveredCount = 0,
                 failedGapsCount = 0,
                 durationMs = System.currentTimeMillis() - startMs,
                 status = BackfillStatus.SKIPPED,
@@ -275,6 +330,7 @@ class CandleBackfillWorker(
                 gapCount = 0,
                 gapsSample = emptyList(),
                 insertedCount = 0,
+                uncoveredCount = 0,
                 failedGapsCount = 0,
                 durationMs = System.currentTimeMillis() - startMs,
                 status = BackfillStatus.UNRECOVERABLE,
@@ -351,6 +407,7 @@ class CandleBackfillWorker(
                 gapCount = 0,
                 gapsSample = emptyList(),
                 insertedCount = 0,
+                uncoveredCount = 0,
                 failedGapsCount = 0,
                 durationMs = System.currentTimeMillis() - startMs,
                 status = BackfillStatus.SKIPPED,
@@ -389,6 +446,7 @@ class CandleBackfillWorker(
                 gapCount = gaps.size,
                 gapsSample = gapsSample,
                 insertedCount = 0,
+                uncoveredCount = 0,
                 failedGapsCount = 0,
                 durationMs = System.currentTimeMillis() - startMs,
                 status = BackfillStatus.SUCCESS,
@@ -454,6 +512,7 @@ class CandleBackfillWorker(
                     gapCount = gaps.size,
                     gapsSample = gapsSample,
                     insertedCount = 0,
+                    uncoveredCount = 0,
                     failedGapsCount = failedGapsCount,
                     durationMs = System.currentTimeMillis() - startMs,
                     status = BackfillStatus.UNRECOVERABLE,
@@ -478,6 +537,7 @@ class CandleBackfillWorker(
                 gapCount = gaps.size,
                 gapsSample = gapsSample,
                 insertedCount = 0,
+                uncoveredCount = 0,
                 failedGapsCount = failedGapsCount,
                 durationMs = System.currentTimeMillis() - startMs,
                 status = BackfillStatus.FAILED_KILLSWITCH,
@@ -539,6 +599,7 @@ class CandleBackfillWorker(
         //   갭은 mock 합성 없이 갭으로 남기되(feedback_no_mock_data.md) 재시도만 종결.
         val matchedTsSet: Set<Instant> = HashSet(matched.map { Instant.ofEpochSecond(it.ts.epochSeconds) })
         val uncoveredGaps = gaps.filterNot { it in matchedTsSet }
+        val uncoveredCount = uncoveredGaps.size
         if (uncoveredGaps.isNotEmpty()) {
             log.info(
                 "CandleBackfillWorker — KIS 응답 정상이나 일부 expected 미커버(거래 없는 분/미보유): " +
@@ -566,6 +627,8 @@ class CandleBackfillWorker(
             }
 
         when (status) {
+            // 3분류 명시 (2026-06-05 readiness P0-2) — "SUCCESS + insertedCount=0"이 uncoveredCount로
+            // 설명됨(거래 없는 분/미보유). failedGapsCount=0이 진짜 성공 신호.
             BackfillStatus.SUCCESS ->
                 persistAudit(
                     action = "CANDLE_BACKFILL_SUCCESS",
@@ -575,6 +638,9 @@ class CandleBackfillWorker(
                             "code" to code,
                             "backfillBatchId" to backfillBatchId,
                             "insertedCount" to insertedTotal,
+                            "uncoveredCount" to uncoveredCount,
+                            "failedGapsCount" to failedGapsCount,
+                            "gapCount" to gaps.size,
                             "durationMs" to durationMs,
                         ),
                 )
@@ -606,12 +672,13 @@ class CandleBackfillWorker(
         }
 
         log.info(
-            "CandleBackfillWorker done: code={} interval={} status={} gaps={} inserted={} failed={} durationMs={} batchId={}",
+            "CandleBackfillWorker done: code={} interval={} status={} gaps={} inserted={} uncovered={} failed={} durationMs={} batchId={}",
             code,
             interval.code,
             status,
             gaps.size,
             insertedTotal,
+            uncoveredCount,
             failedGapsCount,
             durationMs,
             backfillBatchId,
@@ -629,6 +696,7 @@ class CandleBackfillWorker(
             gapCount = gaps.size,
             gapsSample = gapsSample,
             insertedCount = insertedTotal,
+            uncoveredCount = uncoveredCount,
             failedGapsCount = failedGapsCount,
             durationMs = durationMs,
             status = status,
@@ -684,6 +752,10 @@ class CandleBackfillWorker(
         val valid = mutableListOf<Candle>()
         var prevTsSec: Long = Long.MIN_VALUE
         var monotonicViolation = false
+        // monotonic WARN 샘플링 cap — 동일 batch 내 최대 MONOTONIC_WARN_SAMPLE_CAP 줄까지만 per-row WARN.
+        // 배경(2026-06-05 readiness P0-2): 어댑터 정규화 결함으로 41만 줄 로그 폭주 발생. 어댑터 ASC 정규화로
+        // root cause는 제거했으나, 진짜 비단조 KIS 응답이 들어와도 로그 폭주는 재발하지 않도록 방어.
+        var monotonicWarnCount = 0
         for ((idx, c) in candles.withIndex()) {
             // 가격 range
             if (c.openRaw <= PRICE_MIN ||
@@ -738,25 +810,41 @@ class CandleBackfillWorker(
             val tsSec = c.ts.epochSeconds
             if (idx > 0 && tsSec <= prevTsSec) {
                 monotonicViolation = true
+                monotonicWarnCount++
                 // 위반 시 해당 candle skip (이전 candle은 이미 valid 추가됨 — 1차 MVP 보존)
-                log.warn(
-                    "CandleBackfillWorker sanity 실패 monotonic: code={} idx={} ts={} prev={} batchId={}",
-                    c.code,
-                    idx,
-                    c.ts,
-                    prevTsSec,
-                    backfillBatchId,
-                )
+                // 샘플링 cap 초과분은 debug로 강등 — 로그 폭주(41만 줄) 재발 방지.
+                if (monotonicWarnCount <= MONOTONIC_WARN_SAMPLE_CAP) {
+                    log.warn(
+                        "CandleBackfillWorker sanity 실패 monotonic: code={} idx={} ts={} prev={} batchId={} (sample {}/{})",
+                        c.code,
+                        idx,
+                        c.ts,
+                        prevTsSec,
+                        backfillBatchId,
+                        monotonicWarnCount,
+                        MONOTONIC_WARN_SAMPLE_CAP,
+                    )
+                } else {
+                    log.debug(
+                        "CandleBackfillWorker sanity monotonic 위반(샘플 cap 초과 — debug 강등): code={} idx={} batchId={}",
+                        c.code,
+                        idx,
+                        backfillBatchId,
+                    )
+                }
                 continue
             }
             prevTsSec = tsSec
             valid.add(c)
         }
         if (monotonicViolation) {
+            // 어댑터 ASC 정규화(KisRestCandleAdapter) 이후에도 위반이 남으면 진짜 비단조 KIS 응답 — 1회 집계 WARN.
             log.warn(
-                "CandleBackfillWorker — monotonic violation 감지 (KIS 응답 정렬 결함 의심): total={} valid={} batchId={}",
+                "CandleBackfillWorker — monotonic violation 감지 (어댑터 정규화 후에도 비단조 — 진짜 KIS 응답 결함): " +
+                    "total={} valid={} violations={} batchId={}",
                 candles.size,
                 valid.size,
+                monotonicWarnCount,
                 backfillBatchId,
             )
         }

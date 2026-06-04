@@ -24,9 +24,14 @@ import org.springframework.web.bind.annotation.RestController
  *   - gapsSample: 갭 ts list (top 10)
  *   - backfillBatchId: 추적 ID (룰 #3 rollback baseline)
  *   - insertedCount: 실 적재된 row 수 (dryRun=true 시 0)
- *   - failedGapsCount: KIS fetch 실패한 갭 수
+ *   - uncoveredCount: 거래 없는 분/KIS 미보유 expected (실패 아님 — 2026-06-05 readiness P0-2 3분류)
+ *   - failedGapsCount: KIS 통신/저장 실패한 갭 수 (진짜 실패)
  *   - durationMs: 소요 ms
- *   - status: SUCCESS / SKIPPED / PARTIAL_FAIL / FAILED_KILLSWITCH
+ *   - status: SUCCESS / SKIPPED / PARTIAL_FAIL / FAILED_KILLSWITCH / THROTTLED
+ *
+ * ## throttle 일원화 (2026-06-05 readiness P0-1)
+ * admin 동기 백필도 BackfillThrottleGate(직렬화·run 간격·circuit breaker)를 통과한다(운영자 우회 폐기).
+ * throttle permit timeout 또는 circuit OPEN 시 status=THROTTLED + queued=true로 응답하며 KIS 추가 호출 0.
  *
  * 자본 영향 0 — 데이터 정합 보강만 수행.
  * dry-run path는 KIS fetch만 + DB 변경 0건 (룰 #2 LOCK).
@@ -129,14 +134,40 @@ class CandleBackfillAdminController(
             )
         }
 
+        // throttle 일원화 (readiness P0-1) — admin도 BackfillThrottleGate 통과. null = throttle/circuit skip.
         val result =
-            candleBackfillWorker.runBackfill(
+            candleBackfillWorker.runBackfillThrottled(
                 code = code,
                 interval = candleInterval,
                 dryRun = dryRun,
                 windowDays = windowDays,
                 reason = "admin",
             )
+
+        if (result == null) {
+            log.warn(
+                "admin candle backfill throttle/circuit skip — 다음 윈도 이월: code={} interval={}",
+                code,
+                interval,
+            )
+            return ResponseEntity.status(202).body(
+                BackfillResponse(
+                    code = code,
+                    interval = interval,
+                    dryRun = dryRun,
+                    gapCount = 0,
+                    gapsSample = emptyList(),
+                    backfillBatchId = "",
+                    insertedCount = 0,
+                    uncoveredCount = 0,
+                    failedGapsCount = 0,
+                    durationMs = 0L,
+                    status = "THROTTLED",
+                    queued = true,
+                    error = "throttle permit timeout 또는 circuit OPEN — KIS 폭주 방어로 run 이월. 잠시 후 재시도하세요.",
+                ),
+            )
+        }
 
         return ResponseEntity.ok(
             BackfillResponse(
@@ -147,9 +178,11 @@ class CandleBackfillAdminController(
                 gapsSample = result.gapsSample.map { it.toString() },
                 backfillBatchId = result.backfillBatchId,
                 insertedCount = result.insertedCount,
+                uncoveredCount = result.uncoveredCount,
                 failedGapsCount = result.failedGapsCount,
                 durationMs = result.durationMs,
                 status = result.status.name,
+                queued = false,
                 error = null,
             ),
         )
@@ -163,9 +196,13 @@ class CandleBackfillAdminController(
         val gapsSample: List<String>,
         val backfillBatchId: String,
         val insertedCount: Int,
+        // 3분류 (2026-06-05 readiness P0-2) — uncovered = 거래 없는 분/KIS 미보유 (실패 아님).
+        val uncoveredCount: Int = 0,
         val failedGapsCount: Int,
         val durationMs: Long,
         val status: String,
+        // throttle/circuit OPEN 이월 시 true (2026-06-05 readiness P0-1).
+        val queued: Boolean = false,
         val error: String?,
     )
 }
