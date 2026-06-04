@@ -3,10 +3,10 @@ id: T-20260604-1506-market-hours-gate
 agent: strategy
 model: opus
 branch: agent/strategy/market-hours-gate
-status: RUNNING
+status: DONE
 startedAt: 2026-06-04T15:06:48.264+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-04T15:27:15.106+09:00
+pr: #717
 parentPhase: ?
 ---
 
