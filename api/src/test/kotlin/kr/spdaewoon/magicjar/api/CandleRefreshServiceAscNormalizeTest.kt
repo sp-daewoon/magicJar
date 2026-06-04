@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.api
 
 import kr.spdaewoon.magicjar.api.config.ChartCandleProperties
 import kr.spdaewoon.magicjar.api.infrastructure.kis.KisTokenCacheHelper
+import kr.spdaewoon.magicjar.api.persistence.CandleJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
@@ -9,9 +10,12 @@ import kr.spdaewoon.magicjar.api.service.CandleRefreshService
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
+import org.springframework.data.domain.Pageable
 import org.springframework.web.reactive.function.client.WebClient
+import java.time.Instant
 import java.util.Optional
 
 /**
@@ -52,6 +56,7 @@ class CandleRefreshServiceAscNormalizeTest {
     private fun buildService(
         instrumentJpaRepository: InstrumentJpaRepository = mock<InstrumentJpaRepository>(),
         chartCandleProperties: ChartCandleProperties = ChartCandleProperties(),
+        candleJpaRepository: CandleJpaRepository = mock<CandleJpaRepository>(),
     ): CandleRefreshService {
         // ASC 정규화는 외부 의존성 0이므로 모든 dependency mock 가능.
         // T-4 통합 (2026-05-20) — credential·cipher·redis 는 KisTokenCacheHelper 위임으로 이전.
@@ -59,7 +64,7 @@ class CandleRefreshServiceAscNormalizeTest {
         return CandleRefreshService(
             webClient = mock<WebClient>(),
             instrumentJpaRepository = instrumentJpaRepository,
-            candleJpaRepository = mock<CandleJpaRepository>(),
+            candleJpaRepository = candleJpaRepository,
             tokenHelper = mock<KisTokenCacheHelper>(),
             // P0 hotfix 2026-05-20 — credentialRepository 추가 (빈 userId 차단을 위한 1순위 REAL row userId 추출)
             credentialRepository = mock<kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaRepository>(),
@@ -378,5 +383,72 @@ class CandleRefreshServiceAscNormalizeTest {
         // distinctBy { epochSec } simulation — 동일 epochSec은 1건만 남는지 검증.
         val dedup = epochSecs.distinct()
         assertThat(dedup).hasSize(2) // 12-26 1건 + 12-24 1건
+    }
+
+    /**
+     * private fun latestEpochSec(code, intervalCode) — reflection 호출.
+     * 2026-06-04 KIS_TPS_EXCEEDED 점검 #2 fix — incremental(delta-only) 경계 lookup 회귀 가드.
+     */
+    private fun invokeLatestEpochSec(
+        service: CandleRefreshService,
+        code: String,
+        intervalCode: String,
+    ): Long? {
+        val method =
+            CandleRefreshService::class.java.getDeclaredMethod(
+                "latestEpochSec",
+                String::class.java,
+                String::class.java,
+            )
+        method.isAccessible = true
+        return method.invoke(service, code, intervalCode) as Long?
+    }
+
+    @Test
+    fun `incremental-boundary latestEpochSec DB 최신 봉 epochSec 반환 (점검 #2 KIS_TPS burst 제거 경계)`() {
+        // given — DB에 1d 최신 봉(2025-12-30 KST 00:00) 1건 존재.
+        // incremental 경계 = 이 봉의 epochSecond. 한 페이지 oldest 봉이 이 값 이하면 페이지네이션 중단.
+        val candleRepo = mock<CandleJpaRepository>()
+        val latestTs = Instant.parse("2025-12-29T15:00:00Z") // 2025-12-30 00:00 KST
+        whenever(candleRepo.findByCodeAndIntervalLatest(any(), any(), any<Pageable>()))
+            .thenReturn(
+                listOf(
+                    CandleJpaEntity(code = "004090", interval = "1d", ts = latestTs, source = "KIS"),
+                ),
+            )
+        val service = buildService(candleJpaRepository = candleRepo)
+
+        // when
+        val boundary = invokeLatestEpochSec(service, "004090", "1d")
+
+        // then — DB 최신 봉 epochSecond 정확 반환.
+        assertThat(boundary).isEqualTo(latestTs.epochSecond)
+    }
+
+    @Test
+    fun `incremental-boundary 봉 0건 cold-start은 null 반환 (전수 backfill fallback — 회귀 0)`() {
+        // given — DB candle 0건 (cold-start 종목).
+        val candleRepo = mock<CandleJpaRepository>()
+        whenever(candleRepo.findByCodeAndIntervalLatest(any(), any(), any<Pageable>()))
+            .thenReturn(emptyList())
+        val service = buildService(candleJpaRepository = candleRepo)
+
+        // when
+        val boundary = invokeLatestEpochSec(service, "999999", "1d")
+
+        // then — null → refreshDailyCandles incremental 경계 미적용 → 전수 backfill 진행 (회귀 0).
+        assertThat(boundary).isNull()
+    }
+
+    @Test
+    fun `incremental-boundary 조회 예외는 null로 graceful (전수 backfill fallback)`() {
+        // given — repository 조회 예외 (DB 장애 등).
+        val candleRepo = mock<CandleJpaRepository>()
+        whenever(candleRepo.findByCodeAndIntervalLatest(any(), any(), any<Pageable>()))
+            .thenThrow(RuntimeException("DB down"))
+        val service = buildService(candleJpaRepository = candleRepo)
+
+        // when / then — 예외 삼키고 null 반환 (incremental 경계 미적용 → 전수 fetch 안전).
+        assertThat(invokeLatestEpochSec(service, "004090", "1d")).isNull()
     }
 }

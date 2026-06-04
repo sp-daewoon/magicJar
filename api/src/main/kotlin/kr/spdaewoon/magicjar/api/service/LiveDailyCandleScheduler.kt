@@ -104,7 +104,14 @@ class LiveDailyCandleScheduler(
                 // 본 fix: priority=BACKFILL 전달 → CandleRefreshService 내부 acquire가 BACKFILL 라벨로 호출
                 //   - Phase 1 단계는 단일 bucket이므로 효과는 정보 수집만 (Phase 2 priority queue 활성화 시 사용자 path 우선)
                 //   - 그럼에도 본 PR에서 priority 분리는 architect spec 권한 — Phase 2 활성화 전 사전 합류 의무
-                val response = candleRefreshService.refresh(code, listOf("1d"), KisCallPriority.BACKFILL)
+                //
+                // incremental=true (2026-06-04 KIS_TPS_EXCEEDED 점검 #2 root fix):
+                //   - 기존: 매 5분 cycle 종목마다 cursor=today에서 30년 전까지 maxPages(1d=50) 전수 재fetch
+                //     → 6 종목 × 50 페이지 = cycle당 최대 300 KIS 호출 burst → EGW00201 단조 증가(57→126/일)
+                //   - 신규: DB 최신 봉까지만 fetch(delta-only) → 종목당 ~1 페이지 → cron burst 제거
+                //   - 과거 일봉은 immutable + upsert ON CONFLICT DO NOTHING → 재fetch는 순수 낭비였음
+                //   - 사용자 트리거(SymbolController.refresh)는 incremental=false default → 전수 backfill 보존
+                val response = candleRefreshService.refresh(code, listOf("1d"), KisCallPriority.BACKFILL, incremental = true)
                 val ok = response.refreshedIntervals.all { it.status == "OK" }
                 if (ok) okCount++ else failCount++
             } catch (e: Exception) {
