@@ -3,10 +3,10 @@ id: T-20260605-0329-admin-backfill-throttle-sanity
 agent: market-data
 model: opus
 branch: agent/market-data/admin-backfill-throttle-sanity
-status: RUNNING
+status: DONE
 startedAt: 2026-06-05T03:29:02.218+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-05T03:44:42.775+09:00
+pr: #726
 parentPhase: ?
 ---
 
