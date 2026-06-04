@@ -3,10 +3,10 @@ id: T-20260604-1705-backfill-rate-limit-safety
 agent: market-data
 model: opus
 branch: agent/market-data/backfill-rate-limit-safety
-status: RUNNING
+status: DONE
 startedAt: 2026-06-04T17:05:49.672+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-04T17:18:33.599+09:00
+pr: #721
 parentPhase: ?
 ---
 
