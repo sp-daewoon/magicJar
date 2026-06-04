@@ -3,10 +3,10 @@ id: T-20260604-1505-fix-backfill-refilled-remark
 agent: backend-core
 model: opus
 branch: agent/backend-core/fix-backfill-refilled-remark
-status: RUNNING
+status: DONE
 startedAt: 2026-06-04T15:05:46.208+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-04T15:10:48.113+09:00
+pr: #715
 parentPhase: ?
 ---
 
