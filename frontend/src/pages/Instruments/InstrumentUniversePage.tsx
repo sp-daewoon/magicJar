@@ -5,9 +5,11 @@
  * 종목 타일은 상세 화면(/symbol/:code)으로 연결한다.
  */
 import { useMemo, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useInstrumentUniverse } from '../../api/hooks/useInstrumentUniverse'
 import type { InstrumentUniverseItemDto } from '../../api/instrument'
+import { WatchlistToggleButton } from '../../components/watchlist/WatchlistToggleButton'
+import { useWatchlistToggle } from '../../components/watchlist/useWatchlistToggle'
 
 const MARKET_OPTIONS = [
   { value: '', label: '전체' },
@@ -64,6 +66,9 @@ export function InstrumentUniversePage() {
   const [activeOnly, setActiveOnly] = useState(true)
   const [limit, setLimit] = useState(5000)
   const [offset, setOffset] = useState(0)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
+  const watchlistOnly = searchParams.get('watchlist') === '1'
 
   const { data, isLoading, isError, error } = useInstrumentUniverse({
     q: query || undefined,
@@ -72,11 +77,28 @@ export function InstrumentUniversePage() {
     limit,
     offset,
   })
+  const {
+    watchlistCodes,
+    isWatched,
+    isLoading: isWatchlistLoading,
+    isError: isWatchlistError,
+    isMutating: isWatchlistMutating,
+    pendingCode,
+    addToWatchlist,
+    removeFromWatchlist,
+  } = useWatchlistToggle()
 
-  const sectorGroups = useMemo(() => groupBySector(data?.items ?? []), [data?.items])
+  const visibleItems = useMemo(() => {
+    const items = data?.items ?? []
+    if (!watchlistOnly) return items
+    return items.filter((item) => watchlistCodes.has(item.code))
+  }, [data?.items, watchlistCodes, watchlistOnly])
+
+  const sectorGroups = useMemo(() => groupBySector(visibleItems), [visibleItems])
   const total = data?.total ?? 0
   const totalPages = Math.ceil(total / limit)
   const currentPage = totalPages === 0 ? 0 : Math.floor(offset / limit) + 1
+  const returnTo = `${location.pathname}${location.search}`
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -92,13 +114,29 @@ export function InstrumentUniversePage() {
     setOffset(0)
   }
 
+  function setWatchlistFilter(next: boolean) {
+    const nextParams = new URLSearchParams(searchParams)
+    if (next) {
+      nextParams.set('watchlist', '1')
+      setLimit(5000)
+    } else {
+      nextParams.delete('watchlist')
+    }
+    setOffset(0)
+    setSearchParams(nextParams)
+  }
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-6">
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">종목검색</h1>
           <p className="mt-1 text-sm text-gray-400">
-            전체 {total.toLocaleString('ko-KR')}종목 · 섹터 {sectorGroups.length.toLocaleString('ko-KR')}개
+            {watchlistOnly
+              ? `관심 ${watchlistCodes.size.toLocaleString('ko-KR')}종목 · 표시 ${visibleItems.length.toLocaleString('ko-KR')}종목`
+              : `전체 ${total.toLocaleString('ko-KR')}종목`}
+            {' · '}
+            섹터 {sectorGroups.length.toLocaleString('ko-KR')}개
           </p>
         </div>
         <form onSubmit={handleSubmit} className="grid gap-2 sm:grid-cols-[minmax(220px,1fr)_auto_auto]">
@@ -126,6 +164,36 @@ export function InstrumentUniversePage() {
       </div>
 
       <div className="mb-5 flex flex-wrap items-center gap-2 border-y border-gray-800 py-3">
+        <span className="text-xs text-gray-500">보기</span>
+        <button
+          type="button"
+          onClick={() => setWatchlistFilter(false)}
+          className={[
+            'h-8 rounded-lg px-3 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400',
+            !watchlistOnly
+              ? 'bg-blue-600 text-white'
+              : 'border border-gray-700 text-gray-400 hover:bg-gray-800',
+          ].join(' ')}
+        >
+          전체
+        </button>
+        <button
+          type="button"
+          onClick={() => setWatchlistFilter(true)}
+          disabled={isWatchlistLoading}
+          className={[
+            'h-8 rounded-lg px-3 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:cursor-not-allowed disabled:opacity-50',
+            watchlistOnly
+              ? 'bg-amber-600 text-white'
+              : 'border border-gray-700 text-gray-400 hover:bg-gray-800',
+          ].join(' ')}
+        >
+          관심종목
+          {watchlistCodes.size > 0 && (
+            <span className="ml-1 font-mono">{watchlistCodes.size.toLocaleString('ko-KR')}</span>
+          )}
+        </button>
+        <span className="mx-1 h-5 w-px bg-gray-800" aria-hidden />
         <span className="text-xs text-gray-500">시장</span>
         {MARKET_OPTIONS.map((opt) => (
           <button
@@ -176,6 +244,12 @@ export function InstrumentUniversePage() {
         </label>
       </div>
 
+      {watchlistOnly && isWatchlistError && (
+        <div className="mb-4 rounded-xl border border-red-900/50 bg-red-950/20 px-4 py-3 text-sm text-red-400" role="alert">
+          관심종목 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
+        </div>
+      )}
+
       {isLoading && (
         <div className="flex items-center justify-center py-16">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-800 border-t-blue-500" />
@@ -191,7 +265,13 @@ export function InstrumentUniversePage() {
 
       {!isLoading && !isError && sectorGroups.length === 0 && (
         <div className="rounded-xl border border-gray-800 bg-gray-900/50 px-4 py-12 text-center">
-          <p className="text-base text-gray-400">조건에 맞는 종목이 없습니다.</p>
+          <p className="text-base text-gray-400">
+            {watchlistOnly
+              ? watchlistCodes.size === 0
+                ? '관심등록된 종목이 없습니다.'
+                : '현재 조건에 맞는 관심종목이 없습니다.'
+              : '조건에 맞는 종목이 없습니다.'}
+          </p>
         </div>
       )}
 
@@ -207,37 +287,58 @@ export function InstrumentUniversePage() {
                 <span className="text-xs text-gray-400">{group.items.length.toLocaleString('ko-KR')}종목</span>
               </div>
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {group.items.map((item) => (
-                  <Link
+                {group.items.map((item) => {
+                  const watched = isWatched(item.code)
+                  const togglePending = pendingCode === item.code && isWatchlistMutating
+                  return (
+                  <article
                     key={item.code}
-                    to={`/symbol/${item.code}`}
-                    className="min-h-24 rounded-lg border border-gray-800 bg-gray-950/80 p-3 transition-colors hover:border-gray-600 hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    className="flex min-h-32 flex-col rounded-lg border border-gray-800 bg-gray-950/80 p-3 transition-colors hover:border-gray-600 hover:bg-gray-900"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-semibold text-white">{item.name}</p>
-                        <p className="mt-0.5 font-mono text-xs text-gray-500">{item.code}</p>
+                    <Link
+                      to={`/symbol/${item.code}`}
+                      state={{ returnTo, returnLabel: '종목검색' }}
+                      className="flex flex-1 flex-col rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold text-white">{item.name}</p>
+                          <p className="mt-0.5 font-mono text-xs text-gray-500">{item.code}</p>
+                        </div>
+                        <span className="rounded bg-gray-800 px-1.5 py-0.5 text-[11px] text-gray-400">
+                          {item.market}
+                        </span>
                       </div>
-                      <span className="rounded bg-gray-800 px-1.5 py-0.5 text-[11px] text-gray-400">
-                        {item.market}
-                      </span>
+                      <div className="mt-3 flex flex-wrap gap-1 text-[11px]">
+                        <span className="rounded bg-gray-900 px-1.5 py-0.5 text-gray-500">
+                          {formatMarketCap(item.marketCapPrev)}
+                        </span>
+                        {item.tradingHalt && (
+                          <span className="rounded bg-red-950 px-1.5 py-0.5 text-red-300">거래정지</span>
+                        )}
+                        {item.managementStock && (
+                          <span className="rounded bg-amber-950 px-1.5 py-0.5 text-amber-300">관리</span>
+                        )}
+                        {!item.active && (
+                          <span className="rounded bg-gray-800 px-1.5 py-0.5 text-gray-500">비활성</span>
+                        )}
+                      </div>
+                    </Link>
+                    <div className="mt-3 flex justify-end">
+                      <WatchlistToggleButton
+                        code={item.code}
+                        name={item.name}
+                        isWatched={watched}
+                        isPending={togglePending}
+                        disabled={isWatchlistLoading || isWatchlistMutating}
+                        compact
+                        onAdd={addToWatchlist}
+                        onRemove={removeFromWatchlist}
+                      />
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-1 text-[11px]">
-                      <span className="rounded bg-gray-900 px-1.5 py-0.5 text-gray-500">
-                        {formatMarketCap(item.marketCapPrev)}
-                      </span>
-                      {item.tradingHalt && (
-                        <span className="rounded bg-red-950 px-1.5 py-0.5 text-red-300">거래정지</span>
-                      )}
-                      {item.managementStock && (
-                        <span className="rounded bg-amber-950 px-1.5 py-0.5 text-amber-300">관리</span>
-                      )}
-                      {!item.active && (
-                        <span className="rounded bg-gray-800 px-1.5 py-0.5 text-gray-500">비활성</span>
-                      )}
-                    </div>
-                  </Link>
-                ))}
+                  </article>
+                  )
+                })}
               </div>
             </section>
           ))}

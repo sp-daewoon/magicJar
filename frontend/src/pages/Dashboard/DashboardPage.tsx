@@ -44,13 +44,13 @@ import { PerformancePanel } from '../../features/performance/components/Performa
 type DashboardView = 'account' | 'performance'
 
 /**
- * 빠른 진입 링크 목록 (ADR 0040 Watchlist-first 정합).
+ * 빠른 진입 링크 목록.
  *
  * A-2 (2026-05-20): 5중 Link DRY 위반 해소 — 동일 className 30 line 중복 → 단일 정의 + map.
  * 신규 빠른 링크 추가 시 본 배열에 객체 한 줄 push.
  */
 const QUICK_LINKS = [
-  { to: '/watchlist', label: '관심종목' },
+  { to: '/instruments?watchlist=1', label: '관심종목' },
   { to: '/market/trend', label: '시장 추세' },
   { to: '/positions', label: '보유 포지션' },
   { to: '/orders', label: '주문 내역' },
@@ -241,7 +241,7 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {/* 빠른 진입 링크 (ADR 0040 Watchlist-first 정합) — A-2 DRY: QUICK_LINKS map */}
+      {/* 빠른 진입 링크 — A-2 DRY: QUICK_LINKS map */}
       <div className="mb-5 flex flex-wrap gap-2">
         {QUICK_LINKS.map((link) => (
           <QuickLink key={link.to} to={link.to} label={link.label} />

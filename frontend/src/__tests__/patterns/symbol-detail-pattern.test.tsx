@@ -92,6 +92,8 @@ const server = setupServer(
 
   http.get('/api/symbols/005930/candles', () => HttpResponse.json(mockCandlesData)),
 
+  http.get('/api/watchlists', () => HttpResponse.json([])),
+
   http.post('/api/symbols/005930/orderbook/subscribe', () =>
     HttpResponse.json({ subscribed: true, slot: 'live' }),
   ),
@@ -160,7 +162,7 @@ function renderSymbolDetailPage(code = '005930') {
         <MemoryRouter initialEntries={[`/symbol/${code}`]}>
           <Routes>
             <Route path="/symbol/:code" element={<SymbolDetailPage />} />
-            <Route path="/watchlist" element={<div>관심종목 페이지</div>} />
+            <Route path="/instruments" element={<div>종목검색 페이지</div>} />
           </Routes>
         </MemoryRouter>
       </ToastProvider>

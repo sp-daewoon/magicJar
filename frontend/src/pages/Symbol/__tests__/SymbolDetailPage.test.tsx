@@ -124,6 +124,10 @@ const server = setupServer(
     return HttpResponse.json(mockCandlesData)
   }),
 
+  http.get('/api/watchlists', () => {
+    return HttpResponse.json([])
+  }),
+
   // 캔들 수집 건강도 (readiness P1) — STALE/NO_TICK 1줄 표시
   http.get('/api/symbols/005930/candle-health', () => {
     return HttpResponse.json({
@@ -245,7 +249,7 @@ function renderSymbolDetailPage(code: string) {
         <MemoryRouter initialEntries={[`/symbol/${code}`]}>
           <Routes>
             <Route path="/symbol/:code" element={<SymbolDetailPage />} />
-            <Route path="/watchlist" element={<div>관심종목 페이지</div>} />
+            <Route path="/instruments" element={<div>종목검색 페이지</div>} />
           </Routes>
         </MemoryRouter>
       </ToastProvider>
@@ -283,8 +287,8 @@ describe('SymbolDetailPage smoke', () => {
     expect(screen.getByText('PER')).toBeInTheDocument()
     expect(screen.getByText('12.5')).toBeInTheDocument()
 
-    // [관심종목으로] 버튼 (aria-label: "관심종목 목록으로 돌아가기")
-    expect(screen.getByRole('button', { name: /관심종목 목록으로 돌아가기/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /종목검색 화면으로 돌아가기/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /삼성전자 관심종목 등록/ })).toBeInTheDocument()
   })
 
   it('캔들이 stale일 때 차트 영역에 수집 사유 1줄이 표시된다 (readiness P1)', async () => {
@@ -327,8 +331,7 @@ describe('SymbolDetailPage smoke', () => {
     // 상장폐지일 표시
     expect(screen.getByText('2024-03-15')).toBeInTheDocument()
 
-    // "관심종목으로" 복귀 버튼 표시
-    expect(screen.getByRole('button', { name: /관심종목으로/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /종목검색으로/ })).toBeInTheDocument()
   })
 
   it('호가 가격을 지정가로 가져와 종목상세에서 BUY LIMIT 주문을 접수한다', async () => {

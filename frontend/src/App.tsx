@@ -9,8 +9,8 @@
  *
  * 라우트 (PR-5b 구조 유지 + PR-6 확장 + PR-7 추가 + PR-10 추가 + PR-RISK Phase 3 + T-O Phase 3 + T-J·T-PERF Phase 3 + T-ACCT Phase 4):
  *   /                 -> 대시보드 (T-ACCT Phase 4 — AccountSummary + Holdings + Balance, ADR 0081)
- *   /watchlist        -> 관심종목 (T-W1 1순위 진입점 — ADR 0040)
- *   /instruments      -> 전체 종목검색 + 섹터 그룹
+ *   /watchlist        -> /instruments?watchlist=1 리다이렉트 (기존 URL 호환)
+ *   /instruments      -> 전체 종목검색 + 관심종목 필터 + 섹터 그룹
  *   /symbol/:code     -> 종목 상세 (T-S1 — ADR 0040 §2-2 진입점)
  *   /strategy/backtest -> 백테스트 (T-BT R3 — ADR 0061 §4 D-1)
  *   /strategy/research -> 전략 리서치 (QA 전용 후보 생성)
@@ -41,7 +41,6 @@ import { DashboardPage } from './pages/Dashboard/DashboardPage'
 import { SetupWizard } from './pages/SetupWizard'
 import { SymbolDetailPage } from './pages/Symbol/SymbolDetailPage'
 import { InstrumentUniversePage } from './pages/Instruments/InstrumentUniversePage'
-import { WatchlistPage } from './pages/Watchlist/WatchlistPage'
 import { StrategyBuilderPage } from './pages/Strategy/StrategyBuilderPage'
 import { BacktestPage } from './pages/Strategy/BacktestPage'
 import { StrategyResearchPage } from './pages/Strategy/StrategyResearchPage'
@@ -126,7 +125,7 @@ export function App() {
         <Routes>
           {/* T-ACCT Phase 4: 대시보드 격상 — AccountSummary + HoldingsTable + BalanceCard (ADR 0081) */}
           <Route path="/" element={<DashboardPage />} />
-          <Route path="/watchlist" element={<WatchlistPage />} />
+          <Route path="/watchlist" element={<Navigate to="/instruments?watchlist=1" replace />} />
           <Route path="/instruments" element={<InstrumentUniversePage />} />
           {/* T-S1: 종목 상세 — ADR 0040 §2-2 진입점 */}
           <Route path="/symbol/:code" element={<SymbolDetailPage />} />

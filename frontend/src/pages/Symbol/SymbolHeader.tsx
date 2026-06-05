@@ -1,20 +1,41 @@
 /**
- * SymbolHeader — 종목명·코드·시장·산업 헤더 + [관심종목으로] 버튼
+ * SymbolHeader — 종목명·코드·시장·산업 헤더 + 관심종목 토글 + [종목검색으로] 버튼
  *
  * spec §6-2 정합:
  * - 종목명 부재 시 code 그대로 표시 (graceful — spec §10-10)
  * - 산업 부재 시 표시 생략 (instrument 테이블 T-IM1 미완 graceful)
- * - [관심종목으로] 버튼 → useNavigate('/watchlist')
+ * - [종목검색으로] 버튼 → 상세 진입 state.returnTo 또는 /instruments
  */
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import type { SymbolDto } from '../../api/symbol'
+import { WatchlistToggleButton } from '../../components/watchlist/WatchlistToggleButton'
+import { useWatchlistToggle } from '../../components/watchlist/useWatchlistToggle'
 
 interface SymbolHeaderProps {
   symbol: Pick<SymbolDto, 'code' | 'name' | 'market' | 'industry'>
 }
 
+interface SymbolLocationState {
+  returnTo?: string
+  returnLabel?: string
+}
+
 export function SymbolHeader({ symbol }: SymbolHeaderProps) {
   const navigate = useNavigate()
+  const location = useLocation()
+  const locationState = location.state as SymbolLocationState | null
+  const returnTo = locationState?.returnTo?.startsWith('/') ? locationState.returnTo : '/instruments'
+  const returnLabel = locationState?.returnLabel || '종목검색'
+  const {
+    isWatched,
+    isLoading: isWatchlistLoading,
+    isMutating: isWatchlistMutating,
+    pendingCode,
+    addToWatchlist,
+    removeFromWatchlist,
+  } = useWatchlistToggle()
+  const watched = isWatched(symbol.code)
+  const togglePending = pendingCode === symbol.code && isWatchlistMutating
 
   return (
     <div className="flex items-start justify-between gap-4">
@@ -46,29 +67,39 @@ export function SymbolHeader({ symbol }: SymbolHeaderProps) {
         </div>
       </div>
 
-      {/* 관심종목으로 복귀 버튼 */}
-      <button
-        type="button"
-        onClick={() => navigate('/watchlist')}
-        className="flex items-center gap-1.5 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-300 transition-colors hover:border-gray-600 hover:bg-gray-700 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-950"
-        aria-label="관심종목 목록으로 돌아가기"
-      >
-        <svg
-          className="h-4 w-4"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-          aria-hidden="true"
+      <div className="flex shrink-0 flex-wrap justify-end gap-2">
+        <WatchlistToggleButton
+          code={symbol.code}
+          name={symbol.name}
+          isWatched={watched}
+          isPending={togglePending}
+          disabled={isWatchlistLoading || isWatchlistMutating}
+          onAdd={addToWatchlist}
+          onRemove={removeFromWatchlist}
+        />
+        <button
+          type="button"
+          onClick={() => navigate(returnTo)}
+          className="flex h-9 items-center gap-1.5 rounded-lg border border-gray-700 bg-gray-800 px-3 text-sm text-gray-300 transition-colors hover:border-gray-600 hover:bg-gray-700 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-950"
+          aria-label={`${returnLabel} 화면으로 돌아가기`}
         >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"
-          />
-        </svg>
-        관심종목으로
-      </button>
+          <svg
+            className="h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"
+            />
+          </svg>
+          {returnLabel}으로
+        </button>
+      </div>
     </div>
   )
 }

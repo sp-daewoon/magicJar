@@ -4,7 +4,7 @@
  * spec §6-5 + DoD #12 정합:
  * - HTTP 503/404 → "종목 정보를 찾을 수 없습니다" 명시
  * - mock 합성 0 (사용자 메모리 feedback_no_mock_data.md 정합)
- * - [관심종목으로] 버튼 표시
+ * - [종목검색으로] 버튼 표시
  *
  * variant:
  * - 'not-found' (default): 404·503 또는 미등록 종목
@@ -75,7 +75,7 @@ export function SymbolError({ code, message, variant = 'not-found', delistedAt }
             <p className="mt-1 text-xs text-gray-500">
               실시간 가격·차트·호가는 제공되지 않습니다.
               <br />
-              관심종목 화면에서 휴지통 버튼으로 직접 정리할 수 있습니다.
+              종목검색의 관심종목 필터에서 직접 정리할 수 있습니다.
             </p>
           )}
           {message && (
@@ -83,10 +83,10 @@ export function SymbolError({ code, message, variant = 'not-found', delistedAt }
           )}
         </div>
 
-        {/* 관심종목으로 복귀 버튼 */}
+        {/* 종목검색으로 복귀 버튼 */}
         <button
           type="button"
-          onClick={() => navigate('/watchlist')}
+          onClick={() => navigate('/instruments')}
           className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 focus:ring-offset-gray-950"
         >
           <svg
@@ -103,7 +103,7 @@ export function SymbolError({ code, message, variant = 'not-found', delistedAt }
               d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"
             />
           </svg>
-          관심종목으로
+          종목검색으로
         </button>
       </div>
     </div>

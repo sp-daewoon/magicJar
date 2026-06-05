@@ -2,7 +2,7 @@
  * 앱 상단 네비게이션 헤더
  *
  * spec §3-2 E 정합:
- * - "magicJar" 로고 + "대시보드" + "관심종목" 메뉴
+ * - "magicJar" 로고 + "대시보드" + 시장/전략/리스크 메뉴
  * - <NavLink> — 활성 메뉴 highlight (aria-current 기반)
  * - SetupWizard(/setup)에서는 미표시 (App.tsx에서 제어)
  * - T-SIG Phase 3 (ADR 0066): "전략 목록" 메뉴 추가
@@ -44,10 +44,9 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: '시장',
     items: [
-      { to: '/watchlist', label: '관심종목' },
+      { to: '/instruments', label: '종목검색' },
       { to: '/positions', label: '포지션' },
       { to: '/orders', label: '주문 내역' },
-      { to: '/instruments', label: '종목검색' },
       { to: '/market/trend', label: '시장 추세' },
       { to: '/market/calendar', label: '시장 캘린더' },
     ],
@@ -73,6 +72,7 @@ const NAV_GROUPS: NavGroup[] = [
 
 function isActivePath(pathname: string, item: NavItem): boolean {
   if (item.end) return pathname === item.to
+  if (item.to === '/instruments' && pathname.startsWith('/symbol/')) return true
   return pathname === item.to || pathname.startsWith(`${item.to}/`)
 }
 
