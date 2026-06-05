@@ -169,6 +169,8 @@ class StrategyControllerTest {
                 intervals = any(),
                 stopLossPct = anyOrNull(),
                 takeProfitPct = anyOrNull(),
+                scaleIn = anyOrNull(),
+                partialExits = anyOrNull(),
                 requireCodes = any(),
             ),
         ).thenReturn(makeStrategy(1L))

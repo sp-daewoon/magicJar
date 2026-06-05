@@ -671,6 +671,8 @@ export function StrategyBuilderPage() {
           initialCode={evalForm.code}
           initialStopLossPct={loadedStrategy?.stopLossPct ?? researchDraftMeta?.stopLossPct}
           initialTakeProfitPct={loadedStrategy?.takeProfitPct ?? researchDraftMeta?.takeProfitPct}
+          initialScaleIn={loadedStrategy?.scaleIn}
+          initialPartialExits={loadedStrategy?.partialExits}
           onSaved={handleSaved}
           onClose={() => setShowSaveModal(false)}
         />

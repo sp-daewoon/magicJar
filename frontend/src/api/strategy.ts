@@ -178,6 +178,35 @@ export const strategyApi = {
 /** 전략 상태 (ADR 0066 §3-A + BUY_BLOCKED risk 보호 상태) */
 export type StrategyStatus = 'ACTIVE' | 'BUY_BLOCKED' | 'PAUSED' | 'DISABLED' | 'DELETED'
 
+// ──────────────────────────────────────────────
+// 분할 매수(scale-in) / 분할 익절(partial-exit) DTO — ADR 0111 (분할매수 R3-a)
+// ──────────────────────────────────────────────
+
+/** 추가 진입 트리거 (ADR 0111 §2-1) */
+export type ReentryTrigger = 'SIGNAL_REPEAT' | 'PRICE_DROP_PCT'
+
+/** 분할 매수 설정 — null이면 단일 진입(현행 하위호환) */
+export interface ScaleInDto {
+  /** 분할 회수 N (1~10) */
+  totalSlices: number
+  /** 회당 비중%(합 100±0.01). null이면 균등 분할 */
+  sliceWeights?: Array<number | string> | null
+  /** 추가 진입 트리거 (default SIGNAL_REPEAT) */
+  reentryTrigger?: ReentryTrigger
+  /** PRICE_DROP_PCT 시 직전 회차 체결가 대비 하락폭%(음수) */
+  priceDropPct?: number | string | null
+  /** 회차 간 최소 간격(초). default 60 */
+  minSliceIntervalSec?: number | null
+}
+
+/** 분할 익절 단계 — 평단 대비 triggerProfitPct% 도달 시 보유분의 exitWeightPct% 청산 */
+export interface PartialExitDto {
+  /** 평단 대비 수익률%(양수) */
+  triggerProfitPct: number | string
+  /** 보유 수량의 청산 비율%((0, 100]) */
+  exitWeightPct: number | string
+}
+
 /** ADR 0066 전략 상세 DTO (signal tracking 포함, ADR 0089 — userId number) */
 export interface SigStrategyDto {
   id: string
@@ -201,6 +230,10 @@ export interface SigStrategyDto {
   /** 보유 포지션 평가 수익률 기준 익절 비율 (%) */
   takeProfitPct?: number | string | null
   complexity?: StrategyComplexityDto
+  /** 분할 매수 설정 (ADR 0111 · null이면 단일 진입) */
+  scaleIn?: ScaleInDto | null
+  /** 분할 익절 단계 (ADR 0111 · null이면 전량 익절) */
+  partialExits?: PartialExitDto[] | null
   status: StrategyStatus
   /** 자동매매 시작 가능 여부 */
   activationReady?: boolean
@@ -251,6 +284,10 @@ export interface CreateSigStrategyRequest {
   intervals?: string[]
   buyCondition?: string
   sellCondition?: string
+  /** 분할 매수 설정 (ADR 0111 · null이면 단일 진입) */
+  scaleIn?: ScaleInDto | null
+  /** 분할 익절 단계 (ADR 0111 · null이면 전량 익절) */
+  partialExits?: PartialExitDto[] | null
 }
 
 /** PUT /api/strategies/{id} 요청 */
@@ -268,6 +305,10 @@ export interface UpdateSigStrategyRequest {
   intervals?: string[]
   buyCondition?: string
   sellCondition?: string
+  /** 분할 매수 설정 (ADR 0111 · null이면 단일 진입) */
+  scaleIn?: ScaleInDto | null
+  /** 분할 익절 단계 (ADR 0111 · null이면 전량 익절) */
+  partialExits?: PartialExitDto[] | null
 }
 
 export const sigStrategyApi = {
@@ -344,6 +385,9 @@ function toSigStrategyRequestBody(req: CreateSigStrategyRequest | UpdateSigStrat
     takeProfitPct: req.takeProfitPct ?? null,
     codes: req.codes ?? [],
     intervals: req.intervals ?? (req.tf ? [req.tf] : []),
+    // ADR 0111 — null(미사용)이면 키 생략(현행 단일 진입 + 전량 익절 하위호환)
+    ...(req.scaleIn ? { scaleIn: req.scaleIn } : {}),
+    ...(req.partialExits && req.partialExits.length > 0 ? { partialExits: req.partialExits } : {}),
   }
 }
 
@@ -408,6 +452,8 @@ function normalizeSigStrategy(raw: SigStrategyBackendDto): SigStrategyDto {
     buyCondition: raw.buyCondition ?? raw.entry,
     sellCondition: raw.sellCondition ?? raw.exit,
     complexity: raw.complexity,
+    scaleIn: raw.scaleIn ?? null,
+    partialExits: raw.partialExits && raw.partialExits.length > 0 ? raw.partialExits : null,
     status: normalizeStatus(raw),
     activationReady: raw.activationReady,
     activationBlockedReason: raw.activationBlockedReason ?? null,

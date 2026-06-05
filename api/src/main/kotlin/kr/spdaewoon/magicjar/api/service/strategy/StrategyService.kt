@@ -4,6 +4,8 @@ import kr.spdaewoon.magicjar.api.cache.RedisStrategyCache
 import kr.spdaewoon.magicjar.api.persistence.backtest.BacktestRunJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyJpaRepository
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
+import kr.spdaewoon.magicjar.domain.strategy.PartialExit
+import kr.spdaewoon.magicjar.domain.strategy.ScaleInPlan
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
@@ -107,6 +109,8 @@ class StrategyService(
         intervals: List<String> = emptyList(),
         stopLossPct: BigDecimal? = null,
         takeProfitPct: BigDecimal? = null,
+        scaleIn: ScaleInPlan? = null,
+        partialExits: List<PartialExit>? = null,
         requireCodes: Boolean = false,
     ): Strategy {
         val entryComplexity = validateAndComputeComplexity(entryAst)
@@ -131,6 +135,9 @@ class StrategyService(
                 tf = tf,
                 fixedStopLoss = normalizedStopLossPct,
                 takeProfitPct = normalizedTakeProfitPct,
+                // ADR 0111 scale-in/partial-exit — 도메인 init이 cap·weight 검증(분할매수 R3-a).
+                scaleIn = scaleIn,
+                partialExits = partialExits?.takeIf { it.isNotEmpty() },
             )
         val normalizedCodes = normalizeCodes(codes, requireCodes)
         val strategy =
@@ -162,6 +169,8 @@ class StrategyService(
         intervals: List<String> = emptyList(),
         stopLossPct: BigDecimal? = null,
         takeProfitPct: BigDecimal? = null,
+        scaleIn: ScaleInPlan? = null,
+        partialExits: List<PartialExit>? = null,
         requireCodes: Boolean = false,
     ): Strategy {
         val existing =
@@ -195,6 +204,9 @@ class StrategyService(
                         tf = tf,
                         fixedStopLoss = normalizedStopLossPct,
                         takeProfitPct = normalizedTakeProfitPct,
+                        // ADR 0111 scale-in/partial-exit (분할매수 R3-a).
+                        scaleIn = scaleIn,
+                        partialExits = partialExits?.takeIf { it.isNotEmpty() },
                     ),
                 complexity = combinedComplexity,
                 codes = normalizedCodes,

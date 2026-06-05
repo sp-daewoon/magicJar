@@ -16,12 +16,14 @@ import { AiExplainEntry } from '../../features/ai/components/AiExplainEntry'
 import { useOnboardingStore } from '../../stores/onboarding'
 import { useToast } from '../ui/ToastProvider'
 import { RiskPlanPreviewPanel } from './RiskPlanPreviewPanel'
+import { StrategyPositionPanel } from './StrategyPositionPanel'
 import {
   formatStrategyCodeLabel,
   resolveStrategyMutationErrorMessage,
   strategyActivationBlockedReason,
 } from './strategyDisplay'
 import { parsePositiveNumber } from './riskPlanDisplay'
+import { describeScaleIn } from './scaleInExitDisplay'
 
 // ──────────────────────────────────────────────
 // 상태 배지 스타일
@@ -126,6 +128,12 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
   const activeNeedsAttention = strategy.status === 'ACTIVE' && activationBlockedReason
   const stopLossPct = parsePositiveNumber(strategy.stopLossPct)
   const takeProfitPct = parsePositiveNumber(strategy.takeProfitPct)
+  const scaleInLabel = describeScaleIn(strategy.scaleIn)
+  const partialExitCount = strategy.partialExits?.length ?? 0
+  // 보유 현황은 운영(자동매매) 상태에서만 의미 — 종목 매핑이 있을 때만 조회
+  const showPositionPanel =
+    (strategy.status === 'ACTIVE' || strategy.status === 'BUY_BLOCKED' || strategy.status === 'PAUSED') &&
+    codes.length > 0
   const primaryCode = codes[0]
   const riskPlanChartPath =
     primaryCode && stopLossPct !== null && takeProfitPct !== null
@@ -289,6 +297,27 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
         <div className="border-y border-red-900/50 py-3 text-xs text-red-200">
           손절·익절 미설정
         </div>
+      )}
+
+      {/* 분할 매수 / 분할 익절 요약 (ADR 0111) */}
+      {(scaleInLabel || partialExitCount > 0) && (
+        <div className="flex flex-wrap gap-1.5">
+          {scaleInLabel && (
+            <span className="rounded bg-indigo-950/60 px-2 py-0.5 text-xs text-indigo-300">
+              분할매수 {scaleInLabel}
+            </span>
+          )}
+          {partialExitCount > 0 && (
+            <span className="rounded bg-emerald-950/60 px-2 py-0.5 text-xs text-emerald-300">
+              분할익절 {partialExitCount}단계
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* 전략별 보유 현황 (ADR 0110) */}
+      {showPositionPanel && (
+        <StrategyPositionPanel strategyId={strategy.id} scaleIn={strategy.scaleIn} />
       )}
 
       {/* 시그널 카운트 */}
