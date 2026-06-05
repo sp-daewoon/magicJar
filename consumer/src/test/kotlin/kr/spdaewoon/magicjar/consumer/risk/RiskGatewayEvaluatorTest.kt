@@ -276,6 +276,88 @@ class RiskGatewayEvaluatorTest {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // ADR 0110 — SELL 2룰 전략별 분기 + user+code fallback (분할매수 R2-2)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `SELL_WITHOUT_POSITION — strategyPosition 행 존재 + 전략 보유 0이면 차단(다전략 교차 청산 방지)`() {
+        val signal = sampleSignal(side = SignalSide.SELL, priceAtSignal = BigDecimal("10000"))
+        // user+code 합산엔 다른 전략 물량이 있어도(currentPositions), 이 전략의 strategy_position quantity=0이면 차단.
+        val context =
+            sampleContext(
+                currentPositions = listOf(samplePosition("005930", quantity = 50)),
+                strategyPosition = sampleStrategyPosition(quantity = 0),
+            )
+
+        val result = evaluator.evaluate(signal, context)
+
+        assertThat(result).isInstanceOf(RiskGatewayResult.Blocked::class.java)
+        assertThat((result as RiskGatewayResult.Blocked).rule).isEqualTo(RiskRule.SELL_WITHOUT_POSITION)
+    }
+
+    @Test
+    fun `SELL ALLOWED — strategyPosition 보유 있으면 그 전략 물량 기준 통과`() {
+        val signal = sampleSignal(side = SignalSide.SELL, priceAtSignal = BigDecimal("10000"))
+        val context =
+            sampleContext(
+                currentPositions = listOf(samplePosition("005930", quantity = 50)),
+                strategyPosition = sampleStrategyPosition(quantity = 30),
+            )
+
+        val result = evaluator.evaluate(signal, context)
+
+        assertThat(result).isInstanceOf(RiskGatewayResult.Allowed::class.java)
+    }
+
+    @Test
+    fun `SELL fallback — strategyPosition null(분할매수 미사용)이면 user+code 합산 기준(zero-regression)`() {
+        val signal = sampleSignal(side = SignalSide.SELL, priceAtSignal = BigDecimal("10000"))
+        // strategyPosition null → 기존 user+code 합산 보유로 평가(하위호환).
+        val context =
+            sampleContext(
+                currentPositions = listOf(samplePosition("005930", quantity = 50)),
+                strategyPosition = null,
+            )
+
+        val result = evaluator.evaluate(signal, context)
+
+        assertThat(result).isInstanceOf(RiskGatewayResult.Allowed::class.java)
+    }
+
+    @Test
+    fun `SELL_QUANTITY_UNAVAILABLE — 전략 보유 전량이 그 전략 open SELL로 예약되면 차단`() {
+        val signal = sampleSignal(side = SignalSide.SELL, priceAtSignal = BigDecimal("10000"))
+        val context =
+            sampleContext(
+                currentPositions = listOf(samplePosition("005930", quantity = 50)),
+                strategyPosition = sampleStrategyPosition(quantity = 10),
+                // 같은 전략(strategyId=100) open SELL 10주 → 가용 0.
+                openOrders = listOf(sampleOpenOrder("005930", OrderSide.SELL, 10)),
+            )
+
+        val result = evaluator.evaluate(signal, context)
+
+        assertThat(result).isInstanceOf(RiskGatewayResult.Blocked::class.java)
+        assertThat((result as RiskGatewayResult.Blocked).rule).isEqualTo(RiskRule.SELL_QUANTITY_UNAVAILABLE)
+    }
+
+    @Test
+    fun `SELL ALLOWED — 다른 전략 open SELL은 이 전략 예약 수량에 합산되지 않는다`() {
+        val signal = sampleSignal(side = SignalSide.SELL, priceAtSignal = BigDecimal("10000"))
+        val context =
+            sampleContext(
+                currentPositions = listOf(samplePosition("005930", quantity = 50)),
+                strategyPosition = sampleStrategyPosition(strategyId = 100L, quantity = 10),
+                // 다른 전략(strategyId=999) open SELL은 strategy 분기에서 차감 제외.
+                openOrders = listOf(sampleOpenOrderForStrategy("005930", OrderSide.SELL, 10, strategyId = 999L)),
+            )
+
+        val result = evaluator.evaluate(signal, context)
+
+        assertThat(result).isInstanceOf(RiskGatewayResult.Allowed::class.java)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // fixtures
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -345,6 +427,7 @@ class RiskGatewayEvaluatorTest {
         recentTradesMinute: Int = 0,
         recentTradesDay: Int = 0,
         killSwitchOn: Boolean = false,
+        strategyPosition: kr.spdaewoon.magicjar.domain.position.StrategyPosition? = null,
     ): RiskContext =
         RiskContext(
             userId = "user-A",
@@ -357,18 +440,42 @@ class RiskGatewayEvaluatorTest {
             recentTradesDay = recentTradesDay,
             killSwitchOn = killSwitchOn,
             nowKst = now,
+            strategyPosition = strategyPosition,
+        )
+
+    private fun sampleStrategyPosition(
+        code: String = "005930",
+        strategyId: Long = 100L,
+        quantity: Int,
+    ): kr.spdaewoon.magicjar.domain.position.StrategyPosition =
+        kr.spdaewoon.magicjar.domain.position.StrategyPosition(
+            id = 1L,
+            userId = "user-A",
+            strategyId = strategyId,
+            code = code,
+            quantity = quantity,
+            avgPrice = BigDecimal("10000"),
+            openedAt = now,
+            updatedAt = now,
         )
 
     private fun sampleOpenOrder(
         code: String,
         side: OrderSide,
         quantity: Int,
+    ): OrderRequest = sampleOpenOrderForStrategy(code, side, quantity, strategyId = 100L)
+
+    private fun sampleOpenOrderForStrategy(
+        code: String,
+        side: OrderSide,
+        quantity: Int,
+        strategyId: Long,
     ): OrderRequest =
         OrderRequest(
             id = 10L,
             userId = "user-A",
             signalId = 1L,
-            strategyId = 100L,
+            strategyId = strategyId,
             code = code,
             side = side,
             priceType = OrderPriceType.MARKET,
@@ -376,7 +483,7 @@ class RiskGatewayEvaluatorTest {
             limitPrice = null,
             status = OrderStatus.ACK,
             mode = TradingMode.MOCK,
-            idempotencyKey = "test-$code-$side-$quantity",
+            idempotencyKey = "test-$code-$side-$quantity-$strategyId",
             requestedAt = java.time.Instant.EPOCH,
         )
 }

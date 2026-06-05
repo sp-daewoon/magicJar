@@ -50,7 +50,12 @@ class KisExecutionBackfillServiceTest {
     private val accountBalanceChangedKafkaProducer = mockk<AccountBalanceChangedKafkaProducer>(relaxed = true)
     private val positionUpdater =
         mockk<kr.spdaewoon.magicjar.domain.order.execution.port.ExecutionPositionUpdatePort>(relaxed = true)
-    private val executionPersistenceService = ExecutionPersistenceService(execRepo, positionUpdater)
+    private val strategyPositionUpdaterProvider =
+        mockk<ObjectProvider<kr.spdaewoon.magicjar.domain.order.execution.port.ExecutionStrategyPositionUpdatePort>>().also {
+            every { it.ifAvailable } returns null
+        }
+    private val executionPersistenceService =
+        ExecutionPersistenceService(execRepo, positionUpdater, strategyPositionUpdaterProvider)
     private val webSocketBridge = mockk<KisWebSocketBridge>(relaxed = true)
     private val orderRepoProvider =
         mockk<ObjectProvider<OrderRequestRepository>>().also {

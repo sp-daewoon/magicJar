@@ -285,22 +285,40 @@ class RiskGatewayEvaluator {
                 acc + signal.priceAtSignal.multiply(BigDecimal(position.quantity))
             }
 
+    /**
+     * SELL 가용 수량 평가용 보유 수량 (ADR 0110 §2-4 SELL 전략별 분기).
+     *
+     * - `context.strategyPosition != null`(분할매수 전략 lot 존재) → **그 전략 보유 수량**(다전략 교차 청산 방지).
+     * - null(분할매수 미사용 전략·과거 보유) → 기존 user+code 합산 보유(하위호환 fallback — zero-regression).
+     */
     private fun holdingQuantity(
         signal: Signal,
         context: RiskContext,
     ): Int =
-        context.currentPositions
-            .firstOrNull { it.code == signal.code && it.quantity > 0 }
+        context.strategyPosition
+            ?.takeIf { it.code == signal.code && it.strategyId == signal.strategyId }
             ?.quantity
+            ?: context.currentPositions
+                .firstOrNull { it.code == signal.code && it.quantity > 0 }
+                ?.quantity
             ?: 0
 
+    /**
+     * 미체결 SELL 예약 수량 (ADR 0110 §2-4).
+     *
+     * - 전략 lot 기준 평가 시(`strategyPosition != null`) → **그 전략의** open SELL 만 합산(교차 차감 방지).
+     * - null fallback → 기존 user+code 전체 open SELL 합산(하위호환).
+     */
     private fun reservedSellQuantity(
         signal: Signal,
         context: RiskContext,
-    ): Int =
-        context.openOrders
+    ): Int {
+        val byStrategy = context.strategyPosition?.let { it.code == signal.code && it.strategyId == signal.strategyId } == true
+        return context.openOrders
             .filter { it.code == signal.code && it.side == OrderSide.SELL }
+            .filter { !byStrategy || it.strategyId == signal.strategyId }
             .sumOf { it.quantity }
+    }
 
     private data class PositionBudget(
         val absoluteLimit: BigDecimal,

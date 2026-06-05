@@ -8,6 +8,7 @@ import kr.spdaewoon.magicjar.domain.account.port.KisBalanceQueryPort
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.order.execution.port.KillSwitchQueryPort
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
+import kr.spdaewoon.magicjar.domain.position.port.StrategyPositionPort
 import kr.spdaewoon.magicjar.domain.risk.RiskContext
 import kr.spdaewoon.magicjar.domain.risk.RiskEvent
 import kr.spdaewoon.magicjar.domain.risk.RiskGatewayResult
@@ -77,6 +78,7 @@ class SignalGeneratedKafkaListener(
     private val riskConfigRepositoryProvider: ObjectProvider<RiskConfigRepository>,
     private val riskEventRepositoryProvider: ObjectProvider<RiskEventRepository>,
     private val riskPositionPortProvider: ObjectProvider<RiskPositionPort>,
+    private val strategyPositionPortProvider: ObjectProvider<StrategyPositionPort>,
     private val signalRiskStatusUpdaterProvider: ObjectProvider<SignalRiskStatusUpdater>,
     private val riskNotifierProvider: ObjectProvider<RiskNotifier>,
     private val killSwitchQueryPortProvider: ObjectProvider<KillSwitchQueryPort>,
@@ -523,6 +525,25 @@ class SignalGeneratedKafkaListener(
                 true
             }
 
+        // 전략별 포지션 귀속 (ADR 0110 §2-4) — SELL 시그널에 한해 전략 lot snapshot 조회.
+        // 행 부재(분할매수 미사용·과거 보유) 또는 port/조회 실패 → null 유지 → user+code 합산 fallback(하위호환).
+        val strategyPosition =
+            if (signal.side == SignalSide.SELL && signal.strategyId != 0L) {
+                strategyPositionPortProvider.ifAvailable
+                    ?.runCatching { findByUserStrategyCode(signal.userId, signal.strategyId, signal.code) }
+                    ?.onFailure { e ->
+                        log.warn(
+                            "StrategyPositionPort 조회 실패 — user+code fallback: userId={} strategyId={} code={} err={}",
+                            signal.userId,
+                            signal.strategyId,
+                            signal.code,
+                            e.message,
+                        )
+                    }?.getOrNull()
+            } else {
+                null
+            }
+
         return RiskContext(
             userId = signal.userId,
             config = config,
@@ -534,6 +555,7 @@ class SignalGeneratedKafkaListener(
             recentTradesDay = recentDay,
             killSwitchOn = killSwitchOn,
             nowKst = nowKst,
+            strategyPosition = strategyPosition,
         )
     }
 
