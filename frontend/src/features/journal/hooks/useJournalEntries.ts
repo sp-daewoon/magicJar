@@ -13,6 +13,7 @@ interface UseJournalEntriesParams {
   from?: string
   to?: string
   instrumentCode?: string
+  instrumentQuery?: string
   eventType?: JournalEventType
   page?: number
   size?: number
@@ -23,18 +24,20 @@ export function useJournalEntries({
   from,
   to,
   instrumentCode,
+  instrumentQuery,
   eventType,
   page = 0,
   size = 20,
 }: UseJournalEntriesParams) {
   return useQuery({
-    queryKey: ['journal', 'entries', { userId, from, to, instrumentCode, eventType, page, size }],
+    queryKey: ['journal', 'entries', { userId, from, to, instrumentCode, instrumentQuery, eventType, page, size }],
     queryFn: () =>
       journalApi.listEntries({
         userId: userId!,
         from,
         to,
         instrumentCode,
+        instrumentQuery,
         eventType,
         page,
         size,

@@ -50,13 +50,17 @@ class JournalEventConsumer(
 
     companion object {
         const val GROUP = "journal-event-consumer"
+        private val ORDER_FILLED_QTY_KEYS =
+            arrayOf("executedQty", "executedQuantity", "filledQuantity", "filledQty", "quantity")
+        private val ORDER_FILLED_PRICE_KEYS =
+            arrayOf("executedPrice", "filledPrice", "price")
     }
 
     /**
      * order.filled.v1 listen — 체결 이벤트 → trading_journal INSERT.
      *
-     * payload 필드: orderId·userId·code·side·executedQty/executedQuantity·executedPrice·executedAt·
-     *               signalId·strategyId·kisOrderNo·partial·mode·instrumentName(nullable)
+     * payload 필드: orderId·userId·code·side·executedQty/executedQuantity/filledQty/quantity·
+     *               executedPrice·executedAt·signalId·strategyId·kisOrderNo·partial·mode·instrumentName(nullable)
      */
     @KafkaListener(topics = ["order.filled.v1"], groupId = GROUP)
     fun onOrderFilled(record: ConsumerRecord<String, String>) {
@@ -65,15 +69,16 @@ class JournalEventConsumer(
             val orderId = (payload["orderId"] as? Number)?.toLong() ?: return@processEvent null
             val code = payload["code"]?.toString() ?: return@processEvent null
             val side = payload["side"]?.toString() ?: "BUY"
-            val qty = payloadBigDecimalAnyOf(payload, "executedQty", "executedQuantity") ?: BigDecimal.ONE
-            val price = payloadBigDecimal(payload, "executedPrice") ?: BigDecimal.ZERO
-            val executedAt = parseInstant(payload, "executedAt") ?: Instant.now()
             val executionId = payloadLong(payload, "executionId")
+            val payloadExecutedAt = parseInstant(payload, "executedAt")
+            val execution = resolveExecution(orderId, executionId, payloadExecutedAt)
+            val qty = payloadBigDecimalAnyOf(payload, *ORDER_FILLED_QTY_KEYS) ?: execution?.executedQty ?: return@processEvent null
+            val price = payloadBigDecimalAnyOf(payload, *ORDER_FILLED_PRICE_KEYS) ?: execution?.executedPrice ?: BigDecimal.ZERO
+            val executedAt = payloadExecutedAt ?: execution?.executedAt ?: Instant.now()
             val signalId = payloadLong(payload, "signalId")
             val strategyId = payloadLong(payload, "strategyId")
             val signal = signalId?.let { signalJpaRepository?.findById(it)?.orElse(null) }
             val strategy = strategyId?.let { strategyJpaRepository?.findById(it)?.orElse(null) }
-            val execution = executionId?.let { orderExecutionJpaRepository?.findById(it)?.orElse(null) }
             val realizedSnapshot =
                 resolveRealizedPnlSnapshot(
                     payload = payload,
@@ -83,9 +88,7 @@ class JournalEventConsumer(
                     executedAt = executedAt,
                     execution = execution,
                 )
-            val instrumentName =
-                payload["instrumentName"]?.toString()
-                    ?: instrumentJpaRepository?.findById(code)?.orElse(null)?.name
+            val instrumentName = resolveInstrumentName(code, payload["instrumentName"]?.toString())
 
             val enrichedPayload =
                 enrichOrderFilledPayload(
@@ -130,6 +133,38 @@ class JournalEventConsumer(
         var qty: BigDecimal = BigDecimal.ZERO,
         var avgPrice: BigDecimal = BigDecimal.ZERO,
     )
+
+    private fun resolveExecution(
+        orderId: Long,
+        executionId: Long?,
+        payloadExecutedAt: Instant?,
+    ): OrderExecutionJpaEntity? {
+        val repository = orderExecutionJpaRepository ?: return null
+        executionId?.let { id ->
+            repository.findById(id).orElse(null)?.let { return it }
+        }
+        return repository
+            .findByOrderIdOrderByExecutedAtAsc(orderId)
+            .takeIf { it.isNotEmpty() }
+            ?.let { executions ->
+                payloadExecutedAt?.let { executedAt ->
+                    executions.firstOrNull { it.executedAt == executedAt }
+                } ?: executions.maxWithOrNull(compareBy<OrderExecutionJpaEntity> { it.executedAt }.thenBy { it.id ?: Long.MIN_VALUE })
+            }
+    }
+
+    private fun resolveInstrumentName(
+        code: String,
+        payloadName: String?,
+    ): String? {
+        payloadName?.trim()?.takeIf { it.isNotBlank() && it != code }?.let { return it }
+        return instrumentJpaRepository
+            ?.findById(code)
+            ?.orElse(null)
+            ?.name
+            ?.trim()
+            ?.takeIf { it.isNotBlank() && it != code }
+    }
 
     private fun enrichOrderFilledPayload(
         payload: Map<String, Any?>,

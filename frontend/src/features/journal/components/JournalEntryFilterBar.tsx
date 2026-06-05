@@ -3,10 +3,9 @@
  *
  * ADR 0072 §8 + spec §3-3 Phase 3 정합:
  * - 기간 picker (from · to ISO date string)
- * - 종목명/코드 자동완성 검색
+ * - 종목명/코드 텍스트 검색
  */
-import { InstrumentSearchInput } from '../../../components/InstrumentSearchInput'
-import type { InstrumentSearchResultDto } from '../../../api/instrument'
+import { useEffect, useState, type FormEvent } from 'react'
 import type { JournalEventType } from '../api/journalApi'
 
 export const EVENT_TYPE_LABELS: Record<JournalEventType, string> = {
@@ -27,23 +26,29 @@ interface JournalEntryFilterBarProps {
 }
 
 export function JournalEntryFilterBar({ filter, onChange, onReset }: JournalEntryFilterBarProps) {
-  const inputClass =
-    'rounded-md border border-gray-700 bg-gray-900 px-3 py-1.5 text-sm text-gray-200 placeholder:text-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500'
+  const [draftInstrumentInput, setDraftInstrumentInput] = useState(filter.instrumentInput)
+  const dateInputClass =
+    'h-10 rounded-lg border border-gray-700 bg-gray-900 px-3 text-sm text-gray-200 placeholder:text-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500'
+  const searchInputClass =
+    'h-10 rounded-lg border border-gray-700 bg-gray-900 px-3 text-sm text-white placeholder-gray-600 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500'
 
-  function handleInstrumentRawChange(value: string) {
+  useEffect(() => {
+    setDraftInstrumentInput(filter.instrumentInput)
+  }, [filter.instrumentInput])
+
+  function handleInstrumentSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    const trimmed = draftInstrumentInput.trim()
     onChange({
       ...filter,
-      instrumentInput: value,
-      instrumentCode: extractInstrumentCode(value),
+      instrumentCode: extractInstrumentCode(trimmed),
+      instrumentInput: trimmed,
     })
   }
 
-  function handleInstrumentSelect(result: InstrumentSearchResultDto) {
-    onChange({
-      ...filter,
-      instrumentCode: result.code,
-      instrumentInput: formatInstrumentDisplay(result),
-    })
+  function handleReset() {
+    setDraftInstrumentInput('')
+    onReset()
   }
 
   return (
@@ -55,7 +60,7 @@ export function JournalEntryFilterBar({ filter, onChange, onReset }: JournalEntr
           type="date"
           value={filter.from}
           onChange={(e) => onChange({ ...filter, from: e.target.value })}
-          className={inputClass}
+          className={dateInputClass}
         />
       </label>
 
@@ -66,35 +71,35 @@ export function JournalEntryFilterBar({ filter, onChange, onReset }: JournalEntr
           type="date"
           value={filter.to}
           onChange={(e) => onChange({ ...filter, to: e.target.value })}
-          className={inputClass}
+          className={dateInputClass}
         />
       </label>
 
-      {/* 종목명/코드 */}
-      <label className="flex w-60 flex-col gap-1">
-        <span className="text-xs font-medium text-gray-400">종목</span>
-        <InstrumentSearchInput
-          value={filter.instrumentInput}
-          onRawChange={handleInstrumentRawChange}
-          onSelect={handleInstrumentSelect}
-          placeholder="종목명 또는 코드 검색"
+      <form onSubmit={handleInstrumentSubmit} className="grid flex-1 gap-2 sm:grid-cols-[minmax(220px,1fr)_auto_auto]">
+        <input
+          type="search"
+          value={draftInstrumentInput}
+          onChange={(e) => setDraftInstrumentInput(e.target.value)}
+          placeholder="종목명 또는 코드"
+          aria-label="종목 검색"
+          className={searchInputClass}
         />
-      </label>
-
-      {/* 초기화 */}
-      <button
-        type="button"
-        onClick={onReset}
-        className="rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-400 transition-colors hover:border-gray-600 hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-400"
-      >
-        초기화
-      </button>
+        <button
+          type="submit"
+          className="h-10 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition-colors hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-950"
+        >
+          검색
+        </button>
+        <button
+          type="button"
+          onClick={handleReset}
+          className="h-10 rounded-lg border border-gray-700 px-3 text-sm text-gray-400 transition-colors hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
+        >
+          초기화
+        </button>
+      </form>
     </div>
   )
-}
-
-function formatInstrumentDisplay(result: InstrumentSearchResultDto): string {
-  return `${result.name} (${result.code})`
 }
 
 function extractInstrumentCode(value: string): string {

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { act } from 'react'
@@ -69,6 +69,20 @@ describe('TradingJournalPage', () => {
     })
     await waitFor(() => {
       expect(screen.getByText('매매일지가 비어있습니다.')).toBeInTheDocument()
+    })
+  })
+
+  it('종목 검색어는 검색 버튼 클릭 시 instrumentQuery 파라미터로 적용한다', async () => {
+    renderPage()
+
+    fireEvent.change(screen.getByRole('searchbox', { name: '종목 검색' }), {
+      target: { value: '에코' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '검색' }))
+
+    await waitFor(() => {
+      expect(lastJournalParams?.get('instrumentQuery')).toBe('에코')
+      expect(lastJournalParams?.get('instrumentCode')).toBeNull()
     })
   })
 })

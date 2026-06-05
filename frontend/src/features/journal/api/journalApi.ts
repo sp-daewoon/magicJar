@@ -61,6 +61,7 @@ export interface JournalEntriesParams {
   from?: string
   to?: string
   instrumentCode?: string
+  instrumentQuery?: string
   eventType?: JournalEventType
   page?: number
   size?: number

@@ -127,6 +127,10 @@ describe('InstrumentUniversePage 관심종목 필터', () => {
 
     expect(screen.getByRole('button', { name: '삼성전자 관심종목 해제' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'SK하이닉스 관심종목 등록' })).toBeInTheDocument()
+    expect(screen.queryByText('☆ 관심등록')).not.toBeInTheDocument()
+    expect(screen.queryByText('★ 관심해제')).not.toBeInTheDocument()
+    expect(screen.getAllByText('★')).toHaveLength(1)
+    expect(screen.getAllByText('☆')).toHaveLength(2)
 
     await user.click(screen.getByRole('button', { name: '관심종목 1' }))
 

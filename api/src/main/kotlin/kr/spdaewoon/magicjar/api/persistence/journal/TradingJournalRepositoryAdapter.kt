@@ -64,11 +64,13 @@ class TradingJournalRepositoryAdapter(
         to: Instant?,
         eventTypes: List<JournalEventType>?,
         instrumentCode: String?,
+        instrumentQuery: String?,
+        instrumentCodes: Set<String>?,
         page: Int,
         size: Int,
     ): List<TradingJournalEntry> {
         val pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "occurredAt"))
-        val jpaPage = selectQuery(userId, from, to, eventTypes, instrumentCode, pageable)
+        val jpaPage = selectQuery(userId, from, to, eventTypes, instrumentCode, instrumentQuery, instrumentCodes, pageable)
         return jpaPage.content.map { entity ->
             val notes =
                 noteJpaRepository
@@ -85,9 +87,11 @@ class TradingJournalRepositoryAdapter(
         to: Instant?,
         eventTypes: List<JournalEventType>?,
         instrumentCode: String?,
+        instrumentQuery: String?,
+        instrumentCodes: Set<String>?,
     ): Long {
         val pageable = PageRequest.of(0, 1)
-        return selectQuery(userId, from, to, eventTypes, instrumentCode, pageable).totalElements
+        return selectQuery(userId, from, to, eventTypes, instrumentCode, instrumentQuery, instrumentCodes, pageable).totalElements
     }
 
     @Transactional(readOnly = true)
@@ -120,10 +124,13 @@ class TradingJournalRepositoryAdapter(
         to: Instant?,
         eventTypes: List<JournalEventType>?,
         instrumentCode: String?,
+        instrumentQuery: String?,
+        instrumentCodes: Set<String>?,
         pageable: org.springframework.data.domain.Pageable,
     ): org.springframework.data.domain.Page<TradingJournalJpaEntity> {
         val typeNames = eventTypes?.map { it.name }
         val normalizedCode = instrumentCode?.trim()?.takeIf { it.isNotBlank() }
+        val normalizedQuery = instrumentQuery?.trim()?.takeIf { it.isNotBlank() }
         val spec =
             Specification<TradingJournalJpaEntity> { root, _, cb ->
                 val predicates = mutableListOf<Predicate>()
@@ -133,7 +140,19 @@ class TradingJournalRepositoryAdapter(
                 if (!typeNames.isNullOrEmpty()) {
                     predicates += root.get<String>("eventType").`in`(typeNames)
                 }
-                normalizedCode?.let { predicates += cb.equal(root.get<String>("instrumentCode"), it) }
+                if (normalizedCode != null) {
+                    predicates += cb.equal(root.get<String>("instrumentCode"), normalizedCode)
+                } else if (normalizedQuery != null) {
+                    val queryPredicates = mutableListOf<Predicate>()
+                    val codePattern = "%$normalizedQuery%"
+                    val namePattern = "%${normalizedQuery.lowercase()}%"
+                    queryPredicates += cb.like(root.get<String>("instrumentCode"), codePattern)
+                    queryPredicates += cb.like(cb.lower(root.get<String>("instrumentName")), namePattern)
+                    instrumentCodes?.takeIf { it.isNotEmpty() }?.let { codes ->
+                        queryPredicates += root.get<String>("instrumentCode").`in`(codes)
+                    }
+                    predicates += cb.or(*queryPredicates.toTypedArray())
+                }
                 cb.and(*predicates.toTypedArray())
             }
         return journalJpaRepository.findAll(spec, pageable)

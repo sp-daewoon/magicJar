@@ -34,6 +34,17 @@ const mockEntries: TradingJournalEntryDto[] = [
     payload: { side: 'SELL', executedQty: 10, executedPrice: 150000 },
     notes: [{ id: 501, noteText: '확인', createdAt: '2026-05-14T10:20:00+09:00', updatedAt: '2026-05-14T10:20:00+09:00' }],
   },
+  {
+    id: 1003,
+    eventType: 'ORDER_FILLED',
+    instrumentCode: '038110',
+    instrumentName: null,
+    occurredAt: '2026-05-14T09:15:00+09:00',
+    summary: '체결: 038110 매수 1주 @ 1,000원',
+    realizedPnl: null,
+    payload: { side: 'BUY', executedQty: 1, executedPrice: 1000 },
+    notes: [],
+  },
 ]
 
 describe('JournalEntryList', () => {
@@ -66,11 +77,13 @@ describe('JournalEntryList', () => {
       />,
     )
     // 체결 구분 label
-    expect(screen.getByText('매수')).toBeInTheDocument()
+    expect(screen.getAllByText('매수')).toHaveLength(2)
     expect(screen.getByText('매도')).toBeInTheDocument()
     // 종목명
     expect(screen.getByText('삼성전자')).toBeInTheDocument()
     expect(screen.getByText('SK하이닉스')).toBeInTheDocument()
+    expect(screen.getByText('038110')).toBeInTheDocument()
+    expect(screen.queryByText('(038110)')).not.toBeInTheDocument()
     // 요약
     expect(screen.getByText('체결: 삼성전자 매수 100주 @ 75,000원')).toBeInTheDocument()
     // 메모 indicator

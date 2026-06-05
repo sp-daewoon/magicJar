@@ -20,6 +20,7 @@ import java.time.format.DateTimeParseException
  * - `from`: ISO8601 (옵션)
  * - `to`: ISO8601 (옵션)
  * - `code`: 종목 코드 필터 (옵션)
+ * - `query`: 종목명 또는 코드 조각 검색어 (옵션)
  * - `eventTypes`: 이벤트 타입 필터 (옵션 · ORDER_FILLED만 노출)
  * - `page`: 0-base (옵션 · default 0)
  * - `size`: 1~100 (옵션 · default 20)
@@ -43,6 +44,7 @@ class GetJournalTool(
                     "from" to mapOf("type" to "string", "format" to "date-time", "description" to "기간 시작 (옵션)"),
                     "to" to mapOf("type" to "string", "format" to "date-time", "description" to "기간 종료 (옵션)"),
                     "code" to mapOf("type" to "string", "description" to "종목 코드 필터 (옵션)"),
+                    "query" to mapOf("type" to "string", "description" to "종목명 또는 코드 조각 검색어 (옵션)"),
                     "eventTypes" to
                         mapOf(
                             "type" to "array",
@@ -66,11 +68,12 @@ class GetJournalTool(
         val from = parseOffsetDateTime(params.optionalString("from"), "from")
         val to = parseOffsetDateTime(params.optionalString("to"), "to")
         val code = params.optionalString("code")
+        val query = params.optionalString("query")
         val eventTypes = (params["eventTypes"] as? List<*>)?.map { it?.toString() ?: "" }?.filter { it.isNotBlank() }
         val page = params.optionalInt("page", default = 0, min = 0) ?: 0
         val size = params.optionalInt("size", default = 20, min = 1, max = 100) ?: 20
 
-        val pageResult = journalService.listEntries(userIdLong, from, to, eventTypes, code, page, size)
+        val pageResult = journalService.listEntries(userIdLong, from, to, eventTypes, code, query, page, size)
         val entries = pageResult.content
 
         return mapOf(

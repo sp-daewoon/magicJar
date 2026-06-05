@@ -46,7 +46,7 @@ interface InstrumentJpaRepository :
 
     /**
      * JPQL fallback 검색 (pg_trgm 미가용 시 LIKE 기반).
-     * name·nameNorm·code prefix 부분 일치.
+     * name·nameNorm 부분 일치 + code prefix/contains 부분 일치.
      * 정규화: 공백·점 제거 + lowercase는 InstrumentSearchService에서 전처리.
      *
      * 사용자 요청: 보통주+우선주만 검색 (KIS scrt_grp_cls_code='ST').
@@ -60,15 +60,17 @@ interface InstrumentJpaRepository :
         AND (
             LOWER(i.name) LIKE LOWER(CONCAT('%', :query, '%'))
             OR i.code LIKE CONCAT(:query, '%')
+            OR i.code LIKE CONCAT('%', :query, '%')
             OR (i.nameNorm IS NOT NULL AND LOWER(i.nameNorm) LIKE LOWER(CONCAT('%', :query, '%')))
         )
         AND (:market IS NULL OR i.market = :market)
         ORDER BY
             CASE WHEN LOWER(i.code) = LOWER(:query) THEN 0
                  WHEN i.code LIKE CONCAT(:query, '%') THEN 1
-                 WHEN LOWER(i.name) = LOWER(:query) THEN 2
-                 WHEN LOWER(i.name) LIKE LOWER(CONCAT(:query, '%')) THEN 3
-                 ELSE 4 END,
+                 WHEN i.code LIKE CONCAT('%', :query, '%') THEN 2
+                 WHEN LOWER(i.name) = LOWER(:query) THEN 3
+                 WHEN LOWER(i.name) LIKE LOWER(CONCAT(:query, '%')) THEN 4
+                 ELSE 5 END,
             i.name ASC
         """,
     )

@@ -28,6 +28,7 @@ interface TradingJournalRepository {
      * [from], [to] 미지정 시 전체 기간.
      * [eventTypes] 미지정 시 모든 타입.
      * [instrumentCode] 미지정 시 모든 종목.
+     * [instrumentQuery]는 종목명/코드 조각 검색 원문, [instrumentCodes]는 종목 마스터에서 매칭된 코드 후보.
      * [page] 0-base 페이지 번호, [size] 페이지당 row 수.
      */
     fun findEntries(
@@ -36,6 +37,8 @@ interface TradingJournalRepository {
         to: Instant?,
         eventTypes: List<JournalEventType>?,
         instrumentCode: String?,
+        instrumentQuery: String?,
+        instrumentCodes: Set<String>?,
         page: Int,
         size: Int,
     ): List<TradingJournalEntry>
@@ -49,6 +52,8 @@ interface TradingJournalRepository {
         to: Instant?,
         eventTypes: List<JournalEventType>?,
         instrumentCode: String?,
+        instrumentQuery: String?,
+        instrumentCodes: Set<String>?,
     ): Long
 
     /**

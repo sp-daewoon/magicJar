@@ -17,6 +17,8 @@ import java.util.Locale
 @Component
 class JournalSummaryComposer {
     private val numberFormat: NumberFormat = NumberFormat.getNumberInstance(Locale.KOREA)
+    private val orderFilledQtyKeys = listOf("executedQty", "executedQuantity", "filledQuantity", "filledQty", "quantity")
+    private val orderFilledPriceKeys = listOf("executedPrice", "filledPrice", "price")
 
     /**
      * ORDER_FILLED summary 합성.
@@ -112,11 +114,11 @@ class JournalSummaryComposer {
     ): String =
         when (eventType) {
             JournalEventType.ORDER_FILLED -> {
-                val name = payload["instrumentName"]?.toString()
                 val code = payload["code"]?.toString() ?: "미지정"
+                val name = payload["instrumentName"]?.toString()?.takeIf { it.isNotBlank() && it != code }
                 val side = payload["side"]?.toString() ?: "BUY"
-                val qty = payloadBigDecimal(payload, "executedQty") ?: payloadBigDecimal(payload, "executedQuantity") ?: BigDecimal.ONE
-                val price = payloadBigDecimal(payload, "executedPrice") ?: BigDecimal.ZERO
+                val qty = payloadBigDecimalAnyOf(payload, orderFilledQtyKeys) ?: BigDecimal.ONE
+                val price = payloadBigDecimalAnyOf(payload, orderFilledPriceKeys) ?: BigDecimal.ZERO
                 val strategyName =
                     payload["strategyDisplayName"]?.toString()
                         ?: payload["strategyNameKo"]?.toString()
@@ -185,4 +187,9 @@ class JournalSummaryComposer {
             is String -> v.toBigDecimalOrNull()
             else -> null
         }
+
+    private fun payloadBigDecimalAnyOf(
+        payload: Map<String, Any?>,
+        keys: List<String>,
+    ): BigDecimal? = keys.firstNotNullOfOrNull { key -> payloadBigDecimal(payload, key) }
 }

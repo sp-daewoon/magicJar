@@ -3,6 +3,8 @@ package kr.spdaewoon.magicjar.api.journal
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.messaging.journal.JournalEventConsumer
 import kr.spdaewoon.magicjar.api.messaging.journal.JournalSummaryComposer
+import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaEntity
+import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.signal.SignalJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.signal.SignalJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyJpaEntity
@@ -38,6 +40,7 @@ class JournalEventConsumerTest {
     private val objectMapper = ObjectMapper().apply { findAndRegisterModules() }
     private val signalJpaRepository: SignalJpaRepository = mock()
     private val strategyJpaRepository: StrategyJpaRepository = mock()
+    private val instrumentJpaRepository: InstrumentJpaRepository = mock()
     private val sut =
         JournalEventConsumer(
             journalRepository,
@@ -45,6 +48,7 @@ class JournalEventConsumerTest {
             objectMapper,
             signalJpaRepository,
             strategyJpaRepository,
+            instrumentJpaRepository = instrumentJpaRepository,
         )
 
     private fun makeRecord(
@@ -98,6 +102,36 @@ class JournalEventConsumerTest {
         assertThat(entry.summary).contains("체결")
         assertThat(entry.summary).contains("삼성전자")
         assertThat(entry.realizedPnl).isEqualByComparingTo(BigDecimal("150000"))
+    }
+
+    @Test
+    fun `onOrderFilled — filledQty 키와 instrument 마스터 이름으로 매매일지를 생성한다`() {
+        val payload =
+            mapOf(
+                "orderId" to 101L,
+                "userId" to 12345678L,
+                "code" to "038110",
+                "side" to "BUY",
+                "filledQty" to 5,
+                "executedPrice" to "1000",
+                "executedAt" to Instant.now().epochSecond,
+                "instrumentName" to "038110",
+            )
+        whenever(instrumentJpaRepository.findById("038110"))
+            .thenReturn(Optional.of(InstrumentJpaEntity(code = "038110", name = "에코플라스틱", market = "KOSDAQ", type = "STOCK")))
+        val savedEntry = makeSavedEntry(JournalEventType.ORDER_FILLED, 101L)
+        whenever(journalRepository.saveEntry(any())).thenReturn(savedEntry)
+
+        sut.onOrderFilled(makeRecord("order.filled.v1", objectMapper.writeValueAsString(payload)))
+
+        val captor = argumentCaptor<TradingJournalEntry>()
+        verify(journalRepository).saveEntry(captor.capture())
+        val entry = captor.firstValue
+        val storedPayload = objectMapper.readValue(entry.payload, Map::class.java)
+        assertThat(entry.instrumentName).isEqualTo("에코플라스틱")
+        assertThat(entry.summary).contains("에코플라스틱 매수 5주")
+        assertThat(BigDecimal(storedPayload["executedQty"].toString())).isEqualByComparingTo(BigDecimal("5"))
+        assertThat(BigDecimal(storedPayload["executedQuantity"].toString())).isEqualByComparingTo(BigDecimal("5"))
     }
 
     @Test

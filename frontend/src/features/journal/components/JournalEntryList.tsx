@@ -8,6 +8,7 @@
  * - 페이지네이션 (prev/next)
  */
 import type { TradingJournalEntryDto } from '../api/journalApi'
+import { resolveJournalInstrumentDisplay } from './journalInstrumentDisplay'
 
 const SIDE_COLORS: Record<string, string> = {
   BUY: 'bg-blue-900/50 text-blue-300 border-blue-700',
@@ -128,6 +129,7 @@ export function JournalEntryList({
             {entries.map((entry) => {
               const pnlNum = entry.realizedPnl !== null ? Number(entry.realizedPnl) : null
               const side = tradeSide(entry)
+              const instrumentDisplay = resolveJournalInstrumentDisplay(entry.instrumentCode, entry.instrumentName)
               const pnlColor =
                 pnlNum === null
                   ? 'text-gray-500'
@@ -156,10 +158,12 @@ export function JournalEntryList({
                     </span>
                   </td>
                   <td className="px-3 py-2.5">
-                    {entry.instrumentCode ? (
+                    {instrumentDisplay ? (
                       <span className="text-gray-200">
-                        {entry.instrumentName ?? entry.instrumentCode}
-                        <span className="ml-1 text-xs text-gray-500">({entry.instrumentCode})</span>
+                        {instrumentDisplay.primary}
+                        {instrumentDisplay.code && (
+                          <span className="ml-1 text-xs text-gray-500">({instrumentDisplay.code})</span>
+                        )}
                       </span>
                     ) : (
                       <span className="text-gray-600">-</span>

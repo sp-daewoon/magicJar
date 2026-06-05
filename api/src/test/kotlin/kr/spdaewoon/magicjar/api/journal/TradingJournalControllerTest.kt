@@ -90,6 +90,7 @@ class TradingJournalControllerTest {
                 eq(null),
                 eq(null),
                 eq(null),
+                eq(null),
                 eq(0),
                 eq(20),
             ),

@@ -52,7 +52,7 @@ class TradingJournalController(
         summary = "매매일지 체결 조회 (페이징, 최신순)",
         description = """
             실제 주문 체결 ORDER_FILLED만 조회한다. 최신순(occurredAt DESC).
-            필터: from·to(기간) + instrumentCode(종목) + eventTypes(ORDER_FILLED 호환 파라미터).
+            필터: from·to(기간) + instrumentCode/instrumentQuery(종목) + eventTypes(ORDER_FILLED 호환 파라미터).
             trading_journal 0 row 환경에서 "매매일지가 비어있습니다" 빈 페이지 반환 (mock 합성 0).
         """,
     )
@@ -77,6 +77,8 @@ class TradingJournalController(
         @RequestParam(required = false) eventTypes: List<String>?,
         @Parameter(description = "종목 코드 필터 (옵션)", example = "005930")
         @RequestParam(required = false) instrumentCode: String?,
+        @Parameter(description = "종목명 또는 코드 조각 검색어 (옵션)", example = "삼성")
+        @RequestParam(required = false) instrumentQuery: String?,
         @Parameter(description = "페이지 번호 (0-base)", example = "0")
         @RequestParam(defaultValue = "0") page: Int,
         @Parameter(description = "페이지당 row 수 (최대 100)", example = "20")
@@ -85,16 +87,17 @@ class TradingJournalController(
         val safePage = page.coerceAtLeast(0)
         val safeSize = size.coerceIn(1, 100)
         log.debug(
-            "listEntries: userId={} from={} to={} eventTypes={} code={} page={} size={}",
+            "listEntries: userId={} from={} to={} eventTypes={} code={} query={} page={} size={}",
             userId,
             from,
             to,
             eventTypes,
             instrumentCode,
+            instrumentQuery,
             safePage,
             safeSize,
         )
-        return journalService.listEntries(userId, from, to, eventTypes, instrumentCode, safePage, safeSize)
+        return journalService.listEntries(userId, from, to, eventTypes, instrumentCode, instrumentQuery, safePage, safeSize)
     }
 
     // ─── GET /api/journal/entries/{id} — entry 단건 상세 ───────────────────

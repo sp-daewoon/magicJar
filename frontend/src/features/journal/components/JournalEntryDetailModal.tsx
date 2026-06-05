@@ -10,6 +10,7 @@ import { useEffect } from 'react'
 import { useJournalEntry } from '../hooks/useJournalEntry'
 import { useWriteJournalNote } from '../hooks/useWriteJournalNote'
 import { JournalNoteForm } from './JournalNoteForm'
+import { resolveJournalInstrumentDisplay } from './journalInstrumentDisplay'
 
 interface JournalEntryDetailModalProps {
   entryId: number
@@ -66,9 +67,30 @@ function firstText(payload: Record<string, unknown>, keys: string[]): string | n
   return null
 }
 
+function firstValue(payload: Record<string, unknown>, keys: string[]): unknown {
+  for (const key of keys) {
+    const value = payload[key]
+    if (value !== null && value !== undefined && value !== '') return value
+  }
+  return null
+}
+
+function tradeQuantity(payload: Record<string, unknown>): unknown {
+  return firstValue(payload, [
+    'executedQty',
+    'executedQuantity',
+    'filledQuantity',
+    'filledQty',
+    'quantity',
+  ])
+}
+
 export function JournalEntryDetailModal({ entryId, userId, onClose }: JournalEntryDetailModalProps) {
   const { data: entry, isLoading, isError } = useJournalEntry(entryId, userId)
   const writeNote = useWriteJournalNote()
+  const instrumentDisplay = entry
+    ? resolveJournalInstrumentDisplay(entry.instrumentCode, entry.instrumentName)
+    : null
 
   // ESC 키 닫기
   useEffect(() => {
@@ -135,11 +157,14 @@ export function JournalEntryDetailModal({ entryId, userId, onClose }: JournalEnt
                   <span className="text-xs text-gray-500">체결 시각</span>
                   <p className="mt-0.5 text-gray-200">{formatKst(entry.occurredAt)}</p>
                 </div>
-                {entry.instrumentCode && (
+                {instrumentDisplay && (
                   <div>
                     <span className="text-xs text-gray-500">종목</span>
                     <p className="mt-0.5 text-gray-200">
-                      {entry.instrumentName ?? ''} ({entry.instrumentCode})
+                      {instrumentDisplay.primary}
+                      {instrumentDisplay.code && (
+                        <span className="ml-1 text-xs text-gray-500">({instrumentDisplay.code})</span>
+                      )}
                     </p>
                   </div>
                 )}
@@ -172,7 +197,7 @@ export function JournalEntryDetailModal({ entryId, userId, onClose }: JournalEnt
                   <div>
                     <span className="text-xs text-gray-600">수량</span>
                     <p className="mt-0.5 text-gray-200">
-                      {formatNumber(entry.payload.executedQty ?? entry.payload.executedQuantity)}주
+                      {`${formatNumber(tradeQuantity(entry.payload))}주`}
                     </p>
                   </div>
                   <div>

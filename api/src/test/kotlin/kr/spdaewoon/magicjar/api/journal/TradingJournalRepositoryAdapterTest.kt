@@ -130,6 +130,8 @@ class TradingJournalRepositoryAdapterTest {
                 to = null,
                 eventTypes = listOf(JournalEventType.ORDER_FILLED),
                 instrumentCode = null,
+                instrumentQuery = null,
+                instrumentCodes = null,
                 page = 0,
                 size = 20,
             )

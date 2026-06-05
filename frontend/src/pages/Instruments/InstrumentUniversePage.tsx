@@ -291,52 +291,59 @@ export function InstrumentUniversePage() {
                   const watched = isWatched(item.code)
                   const togglePending = pendingCode === item.code && isWatchlistMutating
                   return (
-                  <article
-                    key={item.code}
-                    className="flex min-h-32 flex-col rounded-lg border border-gray-800 bg-gray-950/80 p-3 transition-colors hover:border-gray-600 hover:bg-gray-900"
-                  >
-                    <Link
-                      to={`/symbol/${item.code}`}
-                      state={{ returnTo, returnLabel: '종목검색' }}
-                      className="flex flex-1 flex-col rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    <article
+                      key={item.code}
+                      className="flex min-h-32 flex-col rounded-lg border border-gray-800 bg-gray-950/80 p-3 transition-colors hover:border-gray-600 hover:bg-gray-900"
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-semibold text-white">{item.name}</p>
-                          <p className="mt-0.5 font-mono text-xs text-gray-500">{item.code}</p>
+                        <Link
+                          to={`/symbol/${item.code}`}
+                          state={{ returnTo, returnLabel: '종목검색' }}
+                          className="min-w-0 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-white">{item.name}</p>
+                            <p className="mt-0.5 font-mono text-xs text-gray-500">{item.code}</p>
+                          </div>
+                        </Link>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <span className="rounded bg-gray-800 px-1.5 py-0.5 text-[11px] text-gray-400">
+                            {item.market}
+                          </span>
+                          <WatchlistToggleButton
+                            code={item.code}
+                            name={item.name}
+                            isWatched={watched}
+                            isPending={togglePending}
+                            disabled={isWatchlistLoading || isWatchlistMutating}
+                            compact
+                            iconOnly
+                            onAdd={addToWatchlist}
+                            onRemove={removeFromWatchlist}
+                          />
                         </div>
-                        <span className="rounded bg-gray-800 px-1.5 py-0.5 text-[11px] text-gray-400">
-                          {item.market}
-                        </span>
                       </div>
-                      <div className="mt-3 flex flex-wrap gap-1 text-[11px]">
-                        <span className="rounded bg-gray-900 px-1.5 py-0.5 text-gray-500">
-                          {formatMarketCap(item.marketCapPrev)}
-                        </span>
-                        {item.tradingHalt && (
-                          <span className="rounded bg-red-950 px-1.5 py-0.5 text-red-300">거래정지</span>
-                        )}
-                        {item.managementStock && (
-                          <span className="rounded bg-amber-950 px-1.5 py-0.5 text-amber-300">관리</span>
-                        )}
-                        {!item.active && (
-                          <span className="rounded bg-gray-800 px-1.5 py-0.5 text-gray-500">비활성</span>
-                        )}
-                      </div>
-                    </Link>
-                    <div className="mt-3 flex justify-end">
-                      <WatchlistToggleButton
-                        code={item.code}
-                        name={item.name}
-                        isWatched={watched}
-                        isPending={togglePending}
-                        disabled={isWatchlistLoading || isWatchlistMutating}
-                        compact
-                        onAdd={addToWatchlist}
-                        onRemove={removeFromWatchlist}
-                      />
-                    </div>
-                  </article>
+                      <Link
+                        to={`/symbol/${item.code}`}
+                        state={{ returnTo, returnLabel: '종목검색' }}
+                        className="mt-3 flex flex-1 flex-col rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      >
+                        <div className="flex flex-wrap gap-1 text-[11px]">
+                          <span className="rounded bg-gray-900 px-1.5 py-0.5 text-gray-500">
+                            {formatMarketCap(item.marketCapPrev)}
+                          </span>
+                          {item.tradingHalt && (
+                            <span className="rounded bg-red-950 px-1.5 py-0.5 text-red-300">거래정지</span>
+                          )}
+                          {item.managementStock && (
+                            <span className="rounded bg-amber-950 px-1.5 py-0.5 text-amber-300">관리</span>
+                          )}
+                          {!item.active && (
+                            <span className="rounded bg-gray-800 px-1.5 py-0.5 text-gray-500">비활성</span>
+                          )}
+                        </div>
+                      </Link>
+                    </article>
                   )
                 })}
               </div>

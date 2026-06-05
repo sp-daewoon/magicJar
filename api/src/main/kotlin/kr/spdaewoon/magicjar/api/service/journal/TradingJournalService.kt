@@ -4,8 +4,14 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.controller.dto.journal.JournalNoteDto
 import kr.spdaewoon.magicjar.api.controller.dto.journal.JournalNoteRequest
 import kr.spdaewoon.magicjar.api.controller.dto.journal.TradingJournalEntryDto
+import kr.spdaewoon.magicjar.api.messaging.journal.JournalSummaryComposer
+import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaEntity
+import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
+import kr.spdaewoon.magicjar.api.persistence.order.OrderExecutionJpaEntity
+import kr.spdaewoon.magicjar.api.persistence.order.OrderExecutionJpaRepository
 import kr.spdaewoon.magicjar.domain.journal.JournalEventType
 import kr.spdaewoon.magicjar.domain.journal.JournalNote
+import kr.spdaewoon.magicjar.domain.journal.TradingJournalEntry
 import kr.spdaewoon.magicjar.domain.journal.port.TradingJournalRepository
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageImpl
@@ -34,8 +40,20 @@ import java.time.ZoneId
 class TradingJournalService(
     private val journalRepository: TradingJournalRepository,
     private val objectMapper: ObjectMapper,
+    private val instrumentJpaRepository: InstrumentJpaRepository,
+    private val orderExecutionJpaRepository: OrderExecutionJpaRepository,
+    private val summaryComposer: JournalSummaryComposer,
 ) {
     private val kstZone = ZoneId.of("Asia/Seoul")
+    private val orderFilledQtyKeys =
+        listOf("executedQty", "executedQuantity", "filledQuantity", "filledQty", "quantity")
+    private val orderFilledPriceKeys = listOf("executedPrice", "filledPrice", "price")
+
+    private data class JournalDisplayData(
+        val instrumentName: String?,
+        val summary: String,
+        val payload: Map<String, Any?>,
+    )
 
     /**
      * 매매일지 체결 페이징 조회.
@@ -48,27 +66,55 @@ class TradingJournalService(
         to: OffsetDateTime?,
         eventTypeNames: List<String>?,
         instrumentCode: String?,
+        instrumentQuery: String?,
         page: Int,
         size: Int,
     ): Page<TradingJournalEntryDto> {
         val fromInstant = from?.toInstant()
         val toInstant = to?.toInstant()
         val eventTypes = parseEventTypes(eventTypeNames)
+        val instrumentCodes = findInstrumentCodesByQuery(instrumentCode, instrumentQuery)
 
-        val total = journalRepository.countEntries(userId, fromInstant, toInstant, eventTypes, instrumentCode)
-        val entries = journalRepository.findEntries(userId, fromInstant, toInstant, eventTypes, instrumentCode, page, size)
+        val total =
+            journalRepository.countEntries(
+                userId,
+                fromInstant,
+                toInstant,
+                eventTypes,
+                instrumentCode,
+                instrumentQuery,
+                instrumentCodes,
+            )
+        val entries =
+            journalRepository.findEntries(
+                userId,
+                fromInstant,
+                toInstant,
+                eventTypes,
+                instrumentCode,
+                instrumentQuery,
+                instrumentCodes,
+                page,
+                size,
+            )
+        val instrumentMap = findInstrumentMap(entries.mapNotNull { it.instrumentCode }.toSet())
 
         val dtos =
             entries.map { entry ->
+                val displayData =
+                    buildJournalDisplayData(
+                        entry = entry,
+                        instrument = instrumentMap[entry.instrumentCode],
+                    )
                 toDto(
                     id = entry.id!!,
                     eventType = entry.eventType.name,
                     instrumentCode = entry.instrumentCode,
-                    instrumentName = entry.instrumentName,
+                    instrumentName = displayData.instrumentName,
                     occurredAt = OffsetDateTime.ofInstant(entry.occurredAt, kstZone),
-                    summary = entry.summary,
+                    summary = displayData.summary,
                     realizedPnl = entry.realizedPnl,
-                    payloadJson = entry.payload,
+                    payload = displayData.payload,
                     notes =
                         entry.notes.map { note ->
                             JournalNoteDto(
@@ -100,15 +146,20 @@ class TradingJournalService(
             throw ResponseStatusException(HttpStatus.NOT_FOUND, "매매일지 체결 entry가 아닙니다. id=$id, userId=$userId")
         }
 
+        val displayData =
+            buildJournalDisplayData(
+                entry = entry,
+                instrument = findInstrument(entry.instrumentCode),
+            )
         return toDto(
             id = entry.id!!,
             eventType = entry.eventType.name,
             instrumentCode = entry.instrumentCode,
-            instrumentName = entry.instrumentName,
+            instrumentName = displayData.instrumentName,
             occurredAt = OffsetDateTime.ofInstant(entry.occurredAt, kstZone),
-            summary = entry.summary,
+            summary = displayData.summary,
             realizedPnl = entry.realizedPnl,
-            payloadJson = entry.payload,
+            payload = displayData.payload,
             notes =
                 entry.notes.map { note ->
                     JournalNoteDto(
@@ -159,6 +210,134 @@ class TradingJournalService(
 
     // --- private helpers ---
 
+    private fun buildJournalDisplayData(
+        entry: TradingJournalEntry,
+        instrument: InstrumentJpaEntity?,
+    ): JournalDisplayData {
+        val payload = parsePayload(entry.payload)
+        val instrumentName = resolveInstrumentName(entry.instrumentCode, entry.instrumentName, instrument)
+        if (entry.eventType != JournalEventType.ORDER_FILLED) {
+            return JournalDisplayData(instrumentName = instrumentName, summary = entry.summary, payload = payload)
+        }
+        val execution = findOrderExecution(entry, payload)
+        val enrichedPayload =
+            enrichOrderFilledPayloadForRead(
+                entry = entry,
+                payload = payload,
+                instrumentName = instrumentName,
+                execution = execution,
+            )
+        return JournalDisplayData(
+            instrumentName = instrumentName,
+            summary = summaryComposer.compose(JournalEventType.ORDER_FILLED, enrichedPayload),
+            payload = enrichedPayload,
+        )
+    }
+
+    private fun findInstrumentMap(codes: Set<String>): Map<String, InstrumentJpaEntity> {
+        if (codes.isEmpty()) return emptyMap()
+        return runCatching {
+            instrumentJpaRepository
+                .findAllById(codes)
+                .associateBy { it.code }
+        }.getOrDefault(emptyMap())
+    }
+
+    private fun findInstrumentCodesByQuery(
+        instrumentCode: String?,
+        instrumentQuery: String?,
+    ): Set<String>? {
+        if (!instrumentCode.isNullOrBlank()) return null
+        val query = instrumentQuery?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        return runCatching {
+            instrumentJpaRepository
+                .searchByNameOrCode(query, null, PageRequest.of(0, 200))
+                .map { it.code }
+                .toSet()
+        }.getOrDefault(emptySet())
+    }
+
+    private fun findInstrument(code: String?): InstrumentJpaEntity? {
+        if (code.isNullOrBlank()) return null
+        return runCatching {
+            instrumentJpaRepository.findById(code).orElse(null)
+        }.getOrNull()
+    }
+
+    private fun resolveInstrumentName(
+        code: String?,
+        storedName: String?,
+        instrument: InstrumentJpaEntity?,
+    ): String? {
+        val normalizedCode = code?.trim()
+        val normalizedStoredName = storedName?.trim()?.takeIf { it.isNotBlank() && it != normalizedCode }
+        if (normalizedStoredName != null) return normalizedStoredName
+        return instrument?.name?.trim()?.takeIf { it.isNotBlank() && it != normalizedCode }
+    }
+
+    private fun findOrderExecution(
+        entry: TradingJournalEntry,
+        payload: Map<String, Any?>,
+    ): OrderExecutionJpaEntity? {
+        val payloadOrderId = payloadLong(payload, "orderId")
+        payloadLong(payload, "executionId")?.let { executionId ->
+            findOrderExecutionById(executionId)?.let { return it }
+        }
+        if (entry.sourceTable == "order_execution") {
+            findOrderExecutionById(entry.sourceId)?.let { execution ->
+                if (payloadOrderId == null || execution.orderId == payloadOrderId) return execution
+            }
+        }
+        return payloadOrderId
+            ?.let { orderId -> findOrderExecutionByOrderId(orderId, entry.occurredAt) }
+    }
+
+    private fun findOrderExecutionById(id: Long): OrderExecutionJpaEntity? =
+        runCatching {
+            orderExecutionJpaRepository.findById(id).orElse(null)
+        }.getOrNull()
+
+    private fun findOrderExecutionByOrderId(
+        orderId: Long,
+        occurredAt: Instant,
+    ): OrderExecutionJpaEntity? =
+        runCatching {
+            pickOrderExecution(orderExecutionJpaRepository.findByOrderIdOrderByExecutedAtAsc(orderId), occurredAt)
+        }.getOrNull()
+
+    private fun pickOrderExecution(
+        executions: List<OrderExecutionJpaEntity>,
+        occurredAt: Instant,
+    ): OrderExecutionJpaEntity? {
+        if (executions.isEmpty()) return null
+        return executions.firstOrNull { it.executedAt == occurredAt }
+            ?: executions.maxWithOrNull(compareBy<OrderExecutionJpaEntity> { it.executedAt }.thenBy { it.id ?: Long.MIN_VALUE })
+    }
+
+    private fun enrichOrderFilledPayloadForRead(
+        entry: TradingJournalEntry,
+        payload: Map<String, Any?>,
+        instrumentName: String?,
+        execution: OrderExecutionJpaEntity?,
+    ): Map<String, Any?> {
+        val code = payload["code"]?.toString()?.takeIf { it.isNotBlank() } ?: entry.instrumentCode
+        val side = payload["side"]?.toString()?.takeIf { it.isNotBlank() } ?: "BUY"
+        val qty = execution?.executedQty ?: payloadBigDecimalAnyOf(payload, orderFilledQtyKeys)
+        val price = execution?.executedPrice ?: payloadBigDecimalAnyOf(payload, orderFilledPriceKeys)
+        val extra = mutableMapOf<String, Any?>("side" to side)
+        code?.let { extra["code"] = it }
+        instrumentName?.let { extra["instrumentName"] = it }
+        qty?.let {
+            extra["executedQty"] = it
+            extra["executedQuantity"] = it
+        }
+        price?.let { extra["executedPrice"] = it }
+        execution?.id?.let { extra["executionId"] = it }
+        execution?.orderId?.let { extra["orderId"] = it }
+        execution?.executedAt?.let { extra["executedAt"] = it.toString() }
+        return payload + extra
+    }
+
     private fun parseEventTypes(names: List<String>?): List<JournalEventType>? {
         if (names.isNullOrEmpty()) return listOf(JournalEventType.ORDER_FILLED)
         val parsed =
@@ -169,7 +348,6 @@ class TradingJournalService(
         return parsed.ifEmpty { listOf(JournalEventType.ORDER_FILLED) }
     }
 
-    @Suppress("UNCHECKED_CAST")
     private fun toDto(
         id: Long,
         eventType: String,
@@ -178,16 +356,10 @@ class TradingJournalService(
         occurredAt: OffsetDateTime,
         summary: String,
         realizedPnl: BigDecimal?,
-        payloadJson: String,
+        payload: Map<String, Any?>,
         notes: List<JournalNoteDto>,
-    ): TradingJournalEntryDto {
-        val payloadMap: Map<String, Any?> =
-            try {
-                objectMapper.readValue(payloadJson, Map::class.java) as Map<String, Any?>
-            } catch (e: Exception) {
-                mapOf("raw" to payloadJson)
-            }
-        return TradingJournalEntryDto(
+    ): TradingJournalEntryDto =
+        TradingJournalEntryDto(
             id = id,
             eventType = eventType,
             instrumentCode = instrumentCode,
@@ -195,8 +367,40 @@ class TradingJournalService(
             occurredAt = occurredAt,
             summary = summary,
             realizedPnl = realizedPnl,
-            payload = payloadMap,
+            payload = payload,
             notes = notes,
         )
-    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun parsePayload(payloadJson: String): Map<String, Any?> =
+        try {
+            objectMapper.readValue(payloadJson, Map::class.java) as Map<String, Any?>
+        } catch (e: Exception) {
+            mapOf("raw" to payloadJson)
+        }
+
+    private fun payloadLong(
+        payload: Map<String, Any?>,
+        key: String,
+    ): Long? =
+        when (val v = payload[key]) {
+            is Number -> v.toLong()
+            is String -> v.toLongOrNull()
+            else -> null
+        }
+
+    private fun payloadBigDecimalAnyOf(
+        payload: Map<String, Any?>,
+        keys: List<String>,
+    ): BigDecimal? = keys.firstNotNullOfOrNull { key -> payloadBigDecimal(payload, key) }
+
+    private fun payloadBigDecimal(
+        payload: Map<String, Any?>,
+        key: String,
+    ): BigDecimal? =
+        when (val v = payload[key]) {
+            is Number -> BigDecimal.valueOf(v.toDouble())
+            is String -> v.toBigDecimalOrNull()
+            else -> null
+        }
 }

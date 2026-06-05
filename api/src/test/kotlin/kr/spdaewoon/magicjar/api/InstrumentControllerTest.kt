@@ -89,6 +89,32 @@ class InstrumentControllerTest {
     }
 
     @Test
+    fun `GET instruments search 앞자리 0 제외 코드 조각 200 OK`() {
+        whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
+        whenever(instrumentSearchService.search(any(), any(), anyOrNull())).thenReturn(
+            listOf(
+                InstrumentSearchResult(
+                    code = "038110",
+                    name = "에코플라스틱",
+                    market = InstrumentMarket.KOSDAQ,
+                    sector = "운송장비·부품",
+                    score = 0.8,
+                ),
+            ),
+        )
+
+        mockMvc
+            .get("/api/instruments/search?q=38110&limit=10")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$.query") { value("38110") }
+                jsonPath("$.results.length()") { value(1) }
+                jsonPath("$.results[0].code") { value("038110") }
+                jsonPath("$.results[0].name") { value("에코플라스틱") }
+            }
+    }
+
+    @Test
     fun `GET instruments search 빈 q 400 Bad Request`() {
         whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
 

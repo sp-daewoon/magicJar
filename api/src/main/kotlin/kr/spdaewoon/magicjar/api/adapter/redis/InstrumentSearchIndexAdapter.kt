@@ -81,14 +81,15 @@ class InstrumentSearchIndexAdapter(
                     )
             }
 
-            // code 2자 prefix 버킷 (코드 검색용)
-            if (instrument.code.length >= 2) {
-                val codePrefixKey = "code:${instrument.code.take(2)}"
+            // code prefix/contains 검색용. 예: 038110은 "038110", "38110" 둘 다 인덱싱.
+            codeSearchTokens(instrument.code).forEach { codeToken ->
+                val codePrefixKey = "code:${if (codeToken.length >= 2) codeToken.take(2) else codeToken}"
+                val codeMember = "$codeToken\t${instrument.code}"
                 prefixBuckets
                     .getOrPut(codePrefixKey) { mutableSetOf() }
                     .add(
                         org.springframework.data.redis.core
-                            .DefaultTypedTuple(member, 0.0),
+                            .DefaultTypedTuple(codeMember, 0.0),
                     )
             }
 
@@ -155,12 +156,13 @@ class InstrumentSearchIndexAdapter(
 
         // 1. 이름 prefix 버킷 검색
         val nameKey = "$SEARCH_KEY_PREFIX$prefix"
+        val codeQuery = normalizedQuery
         val codeKey =
             "$SEARCH_KEY_PREFIX" + "code:${
-                if (query.length >= 2) {
-                    query.take(2)
+                if (codeQuery.length >= 2) {
+                    codeQuery.take(2)
                 } else {
-                    query
+                    codeQuery
                 }
             }"
 
@@ -198,8 +200,8 @@ class InstrumentSearchIndexAdapter(
                 codeKey,
                 org.springframework.data.redis.connection.RedisZSetCommands.Range
                     .range()
-                    .gte("[${query.lowercase()}")
-                    .lte("[${query.lowercase()}￿"),
+                    .gte("[$codeQuery")
+                    .lte("[$codeQuery￿"),
             ) ?: emptySet()
 
         codeMembers.forEach { member ->
@@ -234,6 +236,14 @@ class InstrumentSearchIndexAdapter(
 
     /** 종목명 정규화: 공백·점·괄호 제거 + lowercase. design §6-5. */
     private fun normalizeForIndex(name: String): String = name.replace(Regex("[\\s.·()（）]"), "").lowercase()
+
+    private fun codeSearchTokens(code: String): Set<String> {
+        val normalizedCode = normalizeForIndex(code)
+        val withoutLeadingZeros = normalizedCode.trimStart('0')
+        return setOf(normalizedCode, withoutLeadingZeros)
+            .filter { it.isNotBlank() }
+            .toSet()
+    }
 
     /** JSON 이스케이프 (단순 구현 — 큰따옴표만). */
     private fun escapeJson(s: String): String = s.replace("\"", "\\\"")

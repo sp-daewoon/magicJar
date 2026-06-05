@@ -89,6 +89,7 @@ export function TradingJournalPage() {
     from: queryDateRange.from || undefined,
     to: queryDateRange.to || undefined,
     instrumentCode: filter.instrumentCode || undefined,
+    instrumentQuery: filter.instrumentCode ? undefined : filter.instrumentInput.trim() || undefined,
     page,
     size: 20,
   })
