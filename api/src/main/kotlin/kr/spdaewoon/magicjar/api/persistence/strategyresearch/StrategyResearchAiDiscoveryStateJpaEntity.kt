@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.api.strategyresearch
+package kr.spdaewoon.magicjar.api.persistence.strategyresearch
 
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
