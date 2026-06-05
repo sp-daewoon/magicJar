@@ -3,10 +3,10 @@ id: T-20260605-1422-r2-scale-in-exit-eng
 agent: strategy
 model: opus
 branch: agent/strategy/r2-scale-in-exit-eng
-status: RUNNING
+status: DONE
 startedAt: 2026-06-05T14:22:48.060+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-05T14:31:00.745+09:00
+pr: #744
 parentPhase: ?
 ---
 
