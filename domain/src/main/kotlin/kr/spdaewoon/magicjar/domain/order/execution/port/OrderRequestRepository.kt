@@ -67,4 +67,19 @@ interface OrderRequestRepository {
         completedAt: Instant,
         finalStatus: OrderStatus,
     ): OrderRequest?
+
+    /**
+     * ADR 0109 GAP-3 — canary 일일 REAL 주문 횟수 전역 cap 용 카운트.
+     *
+     * `requestedAt`이 `[fromInclusive, toExclusive)` 범위이며 `mode = REAL`인 order_request 건수.
+     * 당일 KST 경계를 caller가 UTC Instant 범위로 변환해 전달한다(단일 권위 = order_request DB · Redis 미사용,
+     * ADR 0109 §2-4 drift 회피). REJECTED·PENDING·ACK·FILLED 등 모든 status 포함 —
+     * "REAL 주문 시도 횟수" 자체를 세는 안전선이므로 reject도 카운트한다.
+     *
+     * 헌법 §6 — interface body 0건(abstract만). 구현은 JPA 어댑터 @Query count.
+     */
+    fun countRealOrdersBetween(
+        fromInclusive: Instant,
+        toExclusive: Instant,
+    ): Long
 }

@@ -112,6 +112,17 @@ class ConsumerOrderRequestRepositoryAdapter(
         return toDomain(jpa.save(entity))
     }
 
+    /**
+     * ADR 0109 GAP-3 — canary 일일 REAL 주문 횟수 전역 cap 카운트 (consumer 자본 path caller).
+     *
+     * order_request 단일 권위 count (Redis 미사용 — drift 회피, ADR 0109 §2-4).
+     */
+    @Transactional(readOnly = true)
+    override fun countRealOrdersBetween(
+        fromInclusive: Instant,
+        toExclusive: Instant,
+    ): Long = jpa.countRealOrdersBetween(TradingMode.REAL, fromInclusive, toExclusive)
+
     // --- private helper ---
 
     private fun mergeWsPreinsertIfPresent(

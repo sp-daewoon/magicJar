@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.api.persistence.order
 
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
+import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
@@ -84,6 +85,22 @@ interface OrderRequestJpaRepository :
     fun findLastFilledAtByUserId(
         @Param("userId") userId: String,
     ): Instant?
+
+    /**
+     * ADR 0109 GAP-3 — canary 일일 REAL 주문 횟수 전역 cap 카운트 (consumer/api 모듈 공통 port 구현).
+     *
+     * `mode = :mode` AND `requestedAt ∈ [from, to)` 건수. caller(adapter)가 REAL + KST 당일 UTC 경계 전달.
+     * 헌법 §6 — interface body 0건, @Query 만 사용.
+     */
+    @Query(
+        "SELECT COUNT(e) FROM OrderRequestJpaEntity e " +
+            "WHERE e.mode = :mode AND e.requestedAt >= :fromInclusive AND e.requestedAt < :toExclusive",
+    )
+    fun countRealOrdersBetween(
+        @Param("mode") mode: TradingMode,
+        @Param("fromInclusive") fromInclusive: Instant,
+        @Param("toExclusive") toExclusive: Instant,
+    ): Long
 
     @Modifying
     @Query(

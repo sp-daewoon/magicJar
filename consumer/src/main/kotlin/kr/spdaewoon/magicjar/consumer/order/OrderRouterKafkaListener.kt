@@ -97,6 +97,14 @@ class OrderRouterKafkaListener(
     private val magicjarMode: String = "MOCK",
     @Value("\${magicjar.signal.market-hours-gate.enabled:true}")
     private val marketHoursGateEnabled: Boolean = true,
+    // ADR 0109 — REAL canary 전용 hard cap (fail-open: 0 또는 미설정 = 비활성).
+    // ENV: MAGICJAR_CANARY_MAX_ORDER_QTY / _MAX_ORDER_NOTIONAL_KRW / _MAX_ORDERS_PER_DAY.
+    @Value("\${magicjar.canary.max-order-qty:0}")
+    private val canaryMaxOrderQty: Int = 0,
+    @Value("\${magicjar.canary.max-order-notional-krw:0}")
+    private val canaryMaxOrderNotionalKrw: Long = 0,
+    @Value("\${magicjar.canary.max-orders-per-day:0}")
+    private val canaryMaxOrdersPerDay: Int = 0,
 ) {
     private val log = LoggerFactory.getLogger(OrderRouterKafkaListener::class.java)
 
@@ -257,6 +265,15 @@ class OrderRouterKafkaListener(
             val syncResult = ensureKisExecutionSyncIfReal(intent, mode)
             if (!syncResult.allowed) {
                 handleRejected(intent, mode, syncResult.reason, OrderAuditEventType.KIS_EXECUTION_SYNC_STALE)
+                ack.acknowledge()
+                return
+            }
+
+            // ADR 0109 — canary 전역 hard cap (3중게이트·KillSwitch·장운영시간·KIS sync 통과 후, INSERT 이전).
+            // REAL 모드 + ENV>0 일 때만 활성 (fail-open). RiskConfig·전략 설정과 독립된 마지막 자본 안전선.
+            val canaryDeny = evaluateCanaryHardCap(intent, mode)
+            if (canaryDeny != null) {
+                handleRejected(intent, mode, canaryDeny, OrderAuditEventType.INVALID_ORDER_INTENT)
                 ack.acknowledge()
                 return
             }
@@ -549,6 +566,106 @@ class OrderRouterKafkaListener(
         }
 
         return SyncGateResult(false, "KIS_EXECUTION_SYNC_STALE:${result.reasonCode}")
+    }
+
+    /**
+     * ADR 0109 — REAL canary 전역 hard cap 게이트.
+     *
+     * RiskConfig·전략 설정과 **독립적인** 마지막 자본 안전선. canary 1회 동안 전략 설정 오류·budget 오산·
+     * 다전략 누적으로 실수해도 이 cap 이상은 절대 나가지 않도록 OrderRouter 단에서 강제 차단한다.
+     *
+     * ### 활성 조건 (fail-open)
+     * - MOCK 모드: 전체 비활성 (ENV 무관) — canary는 REAL 안전선이므로.
+     * - REAL 모드: 각 ENV `> 0` 일 때만 해당 cap 활성. `≤ 0`(미설정 포함)이면 통과 = 일반 REAL 운용.
+     *
+     * ### 3 cap (ADR 0109 §2 표)
+     * 1. `MAGICJAR_CANARY_MAX_ORDER_QTY` — 주문 1건 수량 절대 상한 → reason `CANARY_QTY_CAP`
+     * 2. `MAGICJAR_CANARY_MAX_ORDER_NOTIONAL_KRW` — 주문 1건 notional(qty × price) 절대 상한 → `CANARY_NOTIONAL_CAP`
+     *    - price source: LIMIT은 `limitPrice`, MARKET은 `priceAtSignal` (ADR 0109 §2-5).
+     *    - 둘 다 null/0 이하면 notional 산정 불가 → fail-closed로 차단(`CANARY_NOTIONAL_CAP:PRICE_UNAVAILABLE`).
+     * 3. `MAGICJAR_CANARY_MAX_ORDERS_PER_DAY` — 당일(KST) REAL 주문 횟수 전역 상한 → `CANARY_DAILY_ORDER_CAP`
+     *    - order_request `mode=REAL` 당일 count(DB 단일 권위, ADR 0109 §2-4) ≥ cap 이면 차단.
+     *
+     * @return 차단 시 reject reason 문자열, 통과(또는 비활성) 시 null.
+     */
+    internal fun evaluateCanaryHardCap(
+        intent: OrderIntent,
+        mode: TradingMode,
+    ): String? {
+        if (mode != TradingMode.REAL) return null
+
+        // cap 1 — 수량 상한
+        if (canaryMaxOrderQty > 0 && intent.quantity > canaryMaxOrderQty) {
+            return "CANARY_QTY_CAP:${intent.quantity}>$canaryMaxOrderQty"
+        }
+
+        // cap 2 — notional 상한 (qty × price)
+        if (canaryMaxOrderNotionalKrw > 0) {
+            val unitPrice = canaryNotionalPrice(intent)
+            if (unitPrice == null || unitPrice <= BigDecimal.ZERO) {
+                // notional cap 활성인데 가격을 못 구하면 안전선 무력화 위험 → fail-closed.
+                return "CANARY_NOTIONAL_CAP:PRICE_UNAVAILABLE"
+            }
+            val notional = unitPrice.multiply(BigDecimal.valueOf(intent.quantity.toLong()))
+            val cap = BigDecimal.valueOf(canaryMaxOrderNotionalKrw)
+            if (notional > cap) {
+                return "CANARY_NOTIONAL_CAP:${notional.toPlainString()}>$canaryMaxOrderNotionalKrw"
+            }
+        }
+
+        // cap 3 — 당일 REAL 주문 횟수 전역 상한 (DB 단일 권위)
+        if (canaryMaxOrdersPerDay > 0) {
+            val repo = orderRequestRepositoryProvider.getIfAvailable()
+            if (repo == null) {
+                // 카운트 권위(DB) 미합류 시 cap을 셀 수 없음 → fail-closed (canary 안전선 보존).
+                log.error(
+                    "CanaryHardCap — OrderRequestRepository 미합류로 일일 count 불가 (fail-closed): userId={} signalId={}",
+                    intent.userId,
+                    intent.signalId,
+                )
+                return "CANARY_DAILY_ORDER_CAP:COUNT_UNAVAILABLE"
+            }
+            val (from, to) = kstDayBoundsUtc(Instant.now())
+            val todayRealCount =
+                try {
+                    repo.countRealOrdersBetween(from, to)
+                } catch (e: Exception) {
+                    log.error(
+                        "CanaryHardCap — 일일 REAL count 조회 실패 (fail-closed): userId={} signalId={} err={}",
+                        intent.userId,
+                        intent.signalId,
+                        e.message,
+                    )
+                    return "CANARY_DAILY_ORDER_CAP:COUNT_FAILED"
+                }
+            if (todayRealCount >= canaryMaxOrdersPerDay) {
+                return "CANARY_DAILY_ORDER_CAP:$todayRealCount>=$canaryMaxOrdersPerDay"
+            }
+        }
+
+        return null
+    }
+
+    /**
+     * canary notional cap용 단가 산정 — LIMIT은 [OrderIntent.limitPrice], MARKET은 [OrderIntent.priceAtSignal]
+     * (ADR 0109 §2-5). 가격 부재 시 null (caller가 fail-closed 처리).
+     */
+    private fun canaryNotionalPrice(intent: OrderIntent): BigDecimal? =
+        when (intent.priceType) {
+            OrderPriceType.LIMIT -> intent.limitPrice ?: intent.priceAtSignal
+            else -> intent.priceAtSignal ?: intent.limitPrice
+        }
+
+    /**
+     * 주어진 시각이 속한 KST 당일 `[00:00, 다음날 00:00)` 경계를 UTC [Instant] 범위로 변환.
+     * canary 일일 count 조회용 (order_request.requested_at은 UTC Instant 영속).
+     */
+    private fun kstDayBoundsUtc(now: Instant): Pair<Instant, Instant> {
+        val zone = java.time.ZoneId.of("Asia/Seoul")
+        val today = now.atZone(zone).toLocalDate()
+        val from = today.atStartOfDay(zone).toInstant()
+        val to = today.plusDays(1).atStartOfDay(zone).toInstant()
+        return from to to
     }
 
     /**
@@ -853,6 +970,13 @@ class OrderRouterKafkaListener(
             // 비정상 값(예: "FOO")은 IllegalArgumentException → outer catch에서 poison pill skip.
             val sourceStr = payload["source"]?.toString() ?: "AUTO"
             val source = OrderSource.valueOf(sourceStr)
+            // ADR 0109 §2-5 — canary notional cap MARKET price source (T-RISK publisher가 발행, 미발행 시 null)
+            val priceAtSignal =
+                when (val raw = payload["priceAtSignal"]) {
+                    is Number -> BigDecimal.valueOf(raw.toDouble())
+                    is String -> raw.toBigDecimalOrNull()
+                    else -> null
+                }
             OrderIntent(
                 id = signalId,
                 userId = userId,
@@ -866,6 +990,7 @@ class OrderRouterKafkaListener(
                 idempotencyKey = idempotencyKey,
                 requestedAt = Instant.ofEpochSecond(emittedAtSec),
                 source = source,
+                priceAtSignal = priceAtSignal,
             )
         } catch (e: Exception) {
             log.error("OrderRouterKafkaListener.deserialize 실패: err={}", e.message)

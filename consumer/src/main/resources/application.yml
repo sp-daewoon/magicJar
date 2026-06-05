@@ -80,6 +80,16 @@ magicjar:
   signal:
     market-hours-gate:
       enabled: ${MAGICJAR_SIGNAL_MARKET_HOURS_GATE_ENABLED:true}
+  # ADR 0109 — REAL canary 전용 hard cap (RiskConfig·전략 설정과 독립된 마지막 자본 안전선).
+  #   REAL 모드 + 각 값 > 0 일 때만 활성 (fail-open: 0/미설정 = 비활성 = 일반 REAL 운용). MOCK은 항상 비활성.
+  #   초과 시 OrderRouter REJECTED + audit(reason=CANARY_*_CAP). canary 종료 후 ENV 제거로 즉시 비활성.
+  #   max-order-qty           : 주문 1건 수량 절대 상한
+  #   max-order-notional-krw  : 주문 1건 notional(qty × price) 절대 상한 (price: LIMIT=limitPrice, MARKET=priceAtSignal)
+  #   max-orders-per-day      : 당일(KST) REAL 주문 횟수 전역 상한 (order_request DB 단일 권위 count)
+  canary:
+    max-order-qty: ${MAGICJAR_CANARY_MAX_ORDER_QTY:0}
+    max-order-notional-krw: ${MAGICJAR_CANARY_MAX_ORDER_NOTIONAL_KRW:0}
+    max-orders-per-day: ${MAGICJAR_CANARY_MAX_ORDERS_PER_DAY:0}
   # NOTE: magicjar.ai.* 는 consumer 모듈에서 미사용 (W4 미진입).
   #   T-DSL helper(`NaturalLanguageDslTranslator`)는 api 모듈 한정 — `api/.../application.yml` 단일 위치 LOCK.
   #   W4 진입 시 ai-engineer가 단일 모듈(api)에만 binding 발행 — consumer 합류 시점은 ADR 0026 후속에서 별도 결정.
