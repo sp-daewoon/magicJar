@@ -31,6 +31,9 @@ import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyRepositoryPort
+import kr.spdaewoon.magicjar.strategy.scalein.ScaleInExitDecision
+import kr.spdaewoon.magicjar.strategy.scalein.ScaleInExitSimulation
+import kr.spdaewoon.magicjar.strategy.scalein.VirtualStrategyPosition
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatus
@@ -135,14 +138,17 @@ class ScenarioReplayService(
     ): ScenarioStrategyEvaluator =
         ScenarioStrategyEvaluator { context ->
             val strategyId = requireNotNull(strategy.id)
-            val holdingQty =
-                context.ledger.positions
-                    .firstOrNull { it.code == context.request.code }
-                    ?.quantity
-                    ?: 0L
+            val snapshot = context.ledger.positions.firstOrNull { it.code == context.request.code }
+            val holdingQty = snapshot?.quantity ?: 0L
             val domainCandles = context.candlesUntilNow.map { it.toStrategyCandle() }
             LookaheadGuard.safeSlice(domainCandles, domainCandles.lastIndex)
 
+            // scale-in/exit 활성 전략(spec §6-3) — live·백테스트와 동일하게 ScaleInExitCalculator 단일 함수 경유.
+            if (ScaleInExitSimulation.isActive(strategy.definition.scaleIn, strategy.definition.partialExits)) {
+                return@ScenarioStrategyEvaluator evaluateScaleInExit(strategy, strategyId, buyAst, domainCandles, snapshot, context)
+            }
+
+            // ── 현행 단일 진입/전량 청산 경로 (zero-regression — scale-in/partialExits 미설정) ──
             if (holdingQty > 0 && sellAst != null) {
                 val sellResult = evaluatorBridge.evaluateBacktest(strategyId, sellAst, domainCandles)
                 // DSL evaluator returns BUY when the provided condition is true; sellAst truth maps to a replay SELL.
@@ -165,6 +171,76 @@ class ScenarioReplayService(
                 ScenarioSignalDecision.hold(reasonText("BUY_HOLD", buyResult.reason))
             }
         }
+
+    /**
+     * scale-in/exit 활성 전략의 리플레이 가상 lot 평가 (분할매수 R3 · spec §6-3 LOCK).
+     *
+     * 가상 [ScenarioPositionSnapshot](평단·filledLots·executedExitStages)을 [VirtualStrategyPosition]으로 감싸
+     * **live·백테스트와 동일한 [ScaleInExitSimulation.evaluate]→[ScaleInExitCalculator]** 를 호출하고, sealed 결정을
+     * 리플레이 [ScenarioSignalDecision]으로 매핑한다. 회차 수량은 가상 ledger가 budget으로 산정하므로 여기선
+     * `quantity=1` 단위(엔진 defaultQuantity·가용 수량 가드와 정합)로 발행하되, PartialTakeProfit는 보유분×weight%
+     * 수량을 명시하고 단계 인덱스를 함께 실어 엔진이 체결 후 `recordExitStage`로 중복 발화를 차단한다.
+     */
+    private fun evaluateScaleInExit(
+        strategy: Strategy,
+        strategyId: Long,
+        buyAst: DslNode,
+        domainCandles: List<Candle>,
+        snapshot: kr.spdaewoon.magicjar.domain.scenario.ScenarioPositionSnapshot?,
+        context: kr.spdaewoon.magicjar.domain.scenario.ScenarioEvaluationContext,
+    ): ScenarioSignalDecision {
+        val buyResult = evaluatorBridge.evaluateBacktest(strategyId, buyAst, domainCandles)
+        val buyFired = buyResult.signal == Signal.BUY
+        val virtual =
+            snapshot?.takeIf { it.quantity > 0 }?.let {
+                VirtualStrategyPosition(
+                    code = it.code,
+                    quantity = it.quantity.toInt(),
+                    avgPrice = it.averagePrice,
+                    filledLots = it.filledLots,
+                    executedExitStages = it.executedExitStages,
+                )
+            }
+        val decision =
+            ScaleInExitSimulation.evaluate(
+                position = virtual,
+                currentPrice = context.candle.close,
+                scaleIn = strategy.definition.scaleIn,
+                fixedStopLossPct = strategy.definition.fixedStopLoss,
+                takeProfitPct = strategy.definition.takeProfitPct,
+                partialExits = strategy.definition.partialExits,
+                buySignalFired = buyFired,
+            )
+        return when (decision) {
+            is ScaleInExitDecision.EnterSlice ->
+                ScenarioSignalDecision.buy(
+                    quantity = 1,
+                    reason = reasonText("SCALE_IN_SLICE#${decision.sliceIndex + 1}", buyResult.reason),
+                )
+
+            is ScaleInExitDecision.StopLoss ->
+                ScenarioSignalDecision.sell(
+                    quantity = decision.quantity.toLong().coerceAtLeast(1),
+                    reason = "리플레이 전략 평가 STOP_LOSS: 평단 기준 전량 손절",
+                )
+
+            is ScaleInExitDecision.PartialTakeProfit ->
+                ScenarioSignalDecision(
+                    side = ScenarioSignalSide.SELL,
+                    quantity = decision.quantity.toLong().coerceAtLeast(1),
+                    reason = "리플레이 전략 평가 PARTIAL_TAKE_PROFIT#${decision.stageIndex}: 보유분 ${decision.weightPct}% 청산",
+                    partialExitStageIndex = decision.stageIndex,
+                )
+
+            is ScaleInExitDecision.TakeProfit ->
+                ScenarioSignalDecision.sell(
+                    quantity = decision.quantity.toLong().coerceAtLeast(1),
+                    reason = "리플레이 전략 평가 TAKE_PROFIT: 평단 기준 잔량 전량 익절",
+                )
+
+            ScaleInExitDecision.Hold -> ScenarioSignalDecision.hold(reasonText("SCALE_IN_HOLD", buyResult.reason))
+        }
+    }
 
     /**
      * 리플레이 정규장 게이트 (readiness P1) — 라이브와 동일한 [TradingHoursGate] 로직 재사용.

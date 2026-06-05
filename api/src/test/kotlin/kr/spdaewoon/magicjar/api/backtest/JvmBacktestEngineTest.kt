@@ -19,7 +19,11 @@ import kr.spdaewoon.magicjar.domain.backtest.BacktestRequest
 import kr.spdaewoon.magicjar.domain.backtest.BacktestResult
 import kr.spdaewoon.magicjar.domain.backtest.PriceAdjustmentMode
 import kr.spdaewoon.magicjar.domain.backtest.SizingPolicy
+import kr.spdaewoon.magicjar.domain.backtest.TradeSide
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
+import kr.spdaewoon.magicjar.domain.strategy.PartialExit
+import kr.spdaewoon.magicjar.domain.strategy.ReentryTrigger
+import kr.spdaewoon.magicjar.domain.strategy.ScaleInPlan
 import kr.spdaewoon.magicjar.domain.strategy.Signal
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
@@ -278,5 +282,173 @@ class JvmBacktestEngineTest {
         assertInstanceOf(BacktestResult.Success::class.java, result)
         val success = result as BacktestResult.Success
         assertTrue(success.trades.isEmpty(), "HOLD만이면 매매 기록 0건이어야 합니다")
+    }
+
+    // =====================================================================
+    // 분할매수 R3 — scale-in/exit가 ScaleInExitCalculator 단일 함수 경유 (spec §6-3)
+    // =====================================================================
+
+    /** 종가 시퀀스를 그대로 캔들로 만든다(scale-in/exit 가격 기반 분기 검증용). */
+    private fun candlesWithCloses(closes: List<String>): List<CandleJpaEntity> {
+        val base = Instant.parse("2024-01-01T00:00:00Z")
+        return closes.mapIndexed { i, c ->
+            val price = BigDecimal(c)
+            CandleJpaEntity(
+                id = i.toLong(),
+                code = "005930",
+                interval = "1d",
+                ts = base.plusSeconds(i.toLong() * 86400),
+                openRaw = price,
+                highRaw = price,
+                lowRaw = price,
+                closeRaw = price,
+                openAdj = price,
+                highAdj = price,
+                lowAdj = price,
+                closeAdj = price,
+                volume = 10000L,
+                source = "TEST",
+            )
+        }
+    }
+
+    private fun makeScaleInStrategy(
+        buyCondition: kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode,
+        scaleIn: ScaleInPlan? = null,
+        partialExits: List<PartialExit>? = null,
+        fixedStopLoss: BigDecimal? = null,
+        takeProfitPct: BigDecimal? = null,
+    ): Strategy {
+        val baseDef = makeStrategy(buyCondition).definition
+        return makeStrategy(buyCondition).copy(
+            definition =
+                baseDef.copy(
+                    scaleIn = scaleIn,
+                    partialExits = partialExits,
+                    fixedStopLoss = fixedStopLoss,
+                    takeProfitPct = takeProfitPct,
+                ),
+        )
+    }
+
+    @Test
+    fun `R3 backtest - three slice scale-in averages across rounds via calculator`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        val plan = ScaleInPlan(totalSlices = 3, sliceWeights = null, reentryTrigger = ReentryTrigger.SIGNAL_REPEAT, minSliceIntervalSec = 0)
+        whenever(strategyRepo.findById(1L)).thenReturn(
+            makeScaleInStrategy(buyNode, scaleIn = plan, fixedStopLoss = BigDecimal("20"), takeProfitPct = BigDecimal("50")),
+        )
+        // 3 boundary 모두 BUY 발화 + 마지막 강제청산 → 진입 3회 + 청산 1회
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(candlesWithCloses(listOf("1000", "1000", "1000")))
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any()))
+            .thenReturn(StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L))
+
+        val result = engine.run(makeRequest())
+        val success = assertInstanceOf(BacktestResult.Success::class.java, result)
+        val buys = success.trades.filter { it.side == TradeSide.BUY }
+        assertEquals(3, buys.size, "3분할 진입 = BUY 3건")
+        // 균등 분할이므로 회차 인덱스 0/1/2가 reason에 기록됨
+        assertEquals(
+            listOf(0, 1, 2),
+            buys.map { it.signalReason["sliceIndex"] },
+        )
+        // 강제청산 SELL 1건
+        assertEquals(1, success.trades.count { it.side == TradeSide.SELL })
+    }
+
+    @Test
+    fun `R3 backtest - stop-loss exits full position`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        whenever(strategyRepo.findById(1L)).thenReturn(
+            makeScaleInStrategy(
+                buyNode,
+                partialExits = listOf(PartialExit(BigDecimal("10"), BigDecimal("50"))),
+                fixedStopLoss = BigDecimal("5"),
+            ),
+        )
+        // t0 1000(진입), t1 940(-6% → stop 발화 전량 청산), t2 940
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(candlesWithCloses(listOf("1000", "940", "940")))
+        // 진입만 BUY, 이후 HOLD(추가 진입 없음 — scale-in null이라 신규 진입은 미보유 시 1회)
+        var idx = 0
+        val results =
+            listOf(
+                StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+            )
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any())).thenAnswer { results[idx++.coerceAtMost(results.size - 1)] }
+
+        val result = engine.run(makeRequest())
+        val success = assertInstanceOf(BacktestResult.Success::class.java, result)
+        val sells = success.trades.filter { it.side == TradeSide.SELL }
+        assertEquals(1, sells.size, "stop-loss 전량 청산 1건")
+        assertEquals("STOP_LOSS", sells.single().signalReason["trigger"])
+    }
+
+    @Test
+    fun `R3 backtest - partial-tp fires once even while price stays above trigger`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        whenever(strategyRepo.findById(1L)).thenReturn(
+            makeScaleInStrategy(
+                buyNode,
+                partialExits = listOf(PartialExit(BigDecimal("3"), BigDecimal("50"))),
+                fixedStopLoss = BigDecimal("20"),
+                takeProfitPct = BigDecimal("50"),
+            ),
+        )
+        // t0 1000(진입), t1 1040(+4% → 단계0 부분 청산), t2 1040(+4% 여전 → 중복 0), t3 1040
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(candlesWithCloses(listOf("1000", "1040", "1040", "1040")))
+        var idx = 0
+        val results =
+            listOf(
+                StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+            )
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any())).thenAnswer { results[idx++.coerceAtMost(results.size - 1)] }
+
+        val result = engine.run(makeRequest())
+        val success = assertInstanceOf(BacktestResult.Success::class.java, result)
+        // 분할 익절 1건(단계0) + 강제청산 1건 = SELL 2건. 중복 partial-tp 0건.
+        val partialTps = success.trades.filter { it.signalReason["trigger"] == "PARTIAL_TAKE_PROFIT#0" }
+        assertEquals(1, partialTps.size, "partial-tp 단계0은 1회만 발화")
+    }
+
+    @Test
+    fun `R3 backtest - scale-in null is identical to legacy path (zero regression)`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        // scale-in/partialExits 모두 null → isActive=false → 기존 경로
+        val legacyStrategy =
+            makeStrategy(buyNode).let { s ->
+                s.copy(
+                    definition =
+                        s.definition.copy(
+                            dsl = DslStrategyDefinition(name = "t", buyCondition = buyNode, sellCondition = buyNode),
+                        ),
+                )
+            }
+        whenever(strategyRepo.findById(1L)).thenReturn(legacyStrategy)
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(makeCandleEntities(5))
+        var idx = 0
+        val results =
+            listOf(
+                StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.SELL, BigDecimal.ONE, mapOf("trigger" to "SELL"), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+            )
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any())).thenAnswer { results[idx++.coerceAtMost(results.size - 1)] }
+
+        val result = engine.run(makeRequest())
+        val success = assertInstanceOf(BacktestResult.Success::class.java, result)
+        // 기존 동작: BUY 1 + SELL 1(= AllCapital 전액). slice reason 없음.
+        assertEquals(1, success.trades.count { it.side == TradeSide.BUY })
+        assertTrue(success.trades.none { it.signalReason.containsKey("sliceIndex") }, "legacy 경로엔 scale-in reason 없음")
     }
 }
