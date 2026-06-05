@@ -42,6 +42,10 @@ import { useSigStrategy } from '../../api/hooks/useSigStrategy'
 import type { StrategyComplexityDto, EvaluateResponse } from '../../api/strategy'
 import { symbolApi, type CandleInterval } from '../../api/symbol'
 import { parseDslText, parseDslTextToTree } from '../../lib/dsl/parser'
+import {
+  consumeStrategyResearchDraft,
+  type StrategyResearchBuilderDraft,
+} from '../../lib/strategyResearch/builderDraft'
 import { ScreenerResultModal } from '../../features/screener/components/ScreenerResultModal'
 import { useOnboardingStore } from '../../stores/onboarding'
 import { InstrumentSearchInput } from '../../components/InstrumentSearchInput'
@@ -169,6 +173,8 @@ export function StrategyBuilderPage() {
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [customFavorites, setCustomFavorites] = useState<SmartMoneyStrategyPreset[]>(loadCustomFavorites)
   const [hiddenDefaultFavoriteIds, setHiddenDefaultFavoriteIds] = useState<string[]>(loadHiddenDefaultFavoriteIds)
+  const [researchDraftMeta, setResearchDraftMeta] = useState<StrategyResearchBuilderDraft | null>(null)
+  const importedResearchDraftIdRef = useRef<string | null>(null)
 
   // 모달 상태
   const [showSaveModal, setShowSaveModal] = useState(false)
@@ -229,6 +235,39 @@ export function StrategyBuilderPage() {
       showToast(`전략 DSL 불러오기 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`, 'error')
     }
   }, [loadedStrategy, showToast])
+
+  useEffect(() => {
+    const draftId = searchParams.get('researchDraftId')
+    if (!draftId || importedResearchDraftIdRef.current === draftId) return
+    importedResearchDraftIdRef.current = draftId
+
+    const nextParams = new URLSearchParams(searchParams)
+    nextParams.delete('researchDraftId')
+    setSearchParams(nextParams, { replace: true })
+
+    const draft = consumeStrategyResearchDraft(draftId)
+    if (!draft) {
+      showToast('전략 리서치 draft를 찾을 수 없습니다', 'error')
+      return
+    }
+    if ((tree.entry || tree.exit) && !window.confirm('현재 작성 중인 조건을 리서치 후보로 교체할까요?')) {
+      return
+    }
+    try {
+      setTree(parseDslTextToTree(draft.entryDsl, draft.exitDsl))
+      setResearchDraftMeta(draft)
+      setStrategyId(undefined)
+      setComplexity(null)
+      setEvalResult(null)
+      setValidateError(null)
+      setCanvasTab('entry')
+      setEvalForm({ code: draft.code, interval: draft.interval })
+      loadedStrategyIdRef.current = null
+      showToast(`${draft.candidateTitle} draft 불러옴`)
+    } catch (err) {
+      showToast(`리서치 draft 변환 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`, 'error')
+    }
+  }, [searchParams, setSearchParams, showToast, tree.entry, tree.exit])
 
   useEffect(() => {
     if (isLoadStrategyError && loadStrategyError) {
@@ -518,6 +557,23 @@ export function StrategyBuilderPage() {
         <aside className="flex w-72 flex-shrink-0 flex-col gap-4 overflow-y-auto border-l border-gray-800 p-4">
           <h2 className="text-sm font-semibold text-gray-300">전략 실행</h2>
 
+          {researchDraftMeta && !strategyId && (
+            <div className="rounded-lg border border-blue-900/60 bg-blue-950/20 p-3">
+              <div className="text-xs font-semibold text-blue-200">리서치 draft</div>
+              <div className="mt-1 text-sm text-gray-200">{researchDraftMeta.candidateTitle}</div>
+              <div className="mt-1 text-xs text-gray-500">
+                {researchDraftMeta.code} · {researchDraftMeta.interval} · 익절 {researchDraftMeta.takeProfitPct}% · 손절 {researchDraftMeta.stopLossPct}%
+              </div>
+              {researchDraftMeta.conversionNotes.length > 0 && (
+                <div className="mt-2 space-y-1 text-xs text-amber-300">
+                  {researchDraftMeta.conversionNotes.map((note) => (
+                    <p key={note}>{note}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="rounded-lg border border-gray-800 bg-gray-900 p-3">
             <div className="mb-2 text-xs text-gray-500">종목·기준봉</div>
             <div className="space-y-2">
@@ -608,13 +664,13 @@ export function StrategyBuilderPage() {
           userId={registeredUserId}
           entry={entryDsl}
           exit={exitDsl}
-          initialName={loadedStrategy?.name}
-          initialNameKo={loadedStrategy?.nameKo}
+          initialName={loadedStrategy?.name ?? researchDraftMeta?.name}
+          initialNameKo={loadedStrategy?.nameKo ?? researchDraftMeta?.nameKo}
           initialUniverse={loadedStrategy?.universe}
           initialTf={evalForm.interval}
           initialCode={evalForm.code}
-          initialStopLossPct={loadedStrategy?.stopLossPct}
-          initialTakeProfitPct={loadedStrategy?.takeProfitPct}
+          initialStopLossPct={loadedStrategy?.stopLossPct ?? researchDraftMeta?.stopLossPct}
+          initialTakeProfitPct={loadedStrategy?.takeProfitPct ?? researchDraftMeta?.takeProfitPct}
           onSaved={handleSaved}
           onClose={() => setShowSaveModal(false)}
         />
