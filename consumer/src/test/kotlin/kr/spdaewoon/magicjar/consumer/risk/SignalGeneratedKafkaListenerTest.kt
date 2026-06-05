@@ -45,6 +45,7 @@ class SignalGeneratedKafkaListenerTest {
     private val riskConfigRepository = mockk<RiskConfigRepository>()
     private val riskEventRepository = mockk<RiskEventRepository>(relaxed = true)
     private val riskPositionPort = mockk<RiskPositionPort>()
+    private val strategyPositionPort = mockk<kr.spdaewoon.magicjar.domain.position.port.StrategyPositionPort>(relaxed = true)
     private val signalRiskStatusUpdater = mockk<SignalRiskStatusUpdater>(relaxed = true)
     private val riskNotifier = mockk<RiskNotifier>(relaxed = true)
     private val killSwitchQueryPort = mockk<KillSwitchQueryPort>()
@@ -299,6 +300,7 @@ class SignalGeneratedKafkaListenerTest {
             riskConfigRepositoryProvider = providerOf(riskConfigRepository),
             riskEventRepositoryProvider = providerOf(riskEventRepository),
             riskPositionPortProvider = providerOf(riskPositionPort),
+            strategyPositionPortProvider = providerOf(strategyPositionPort),
             signalRiskStatusUpdaterProvider = providerOf(signalRiskStatusUpdater),
             riskNotifierProvider = providerOf(riskNotifier),
             killSwitchQueryPortProvider = killSwitchProvider,
