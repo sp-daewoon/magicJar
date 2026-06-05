@@ -41,7 +41,7 @@ OR < AND < 비교 < 산술 < 단항 마이너스. 괄호 `(...)`로 강제 가�
 
 ### 캔들 직접 접근
 
-`close` · `prev_close` · `high` · `low` · `volume` · `change` (일변동률)
+`open` (시가) · `close` · `prev_close` · `high` · `low` · `volume` · `change` (일변동률)
 
 ### 추세 (TREND)
 
