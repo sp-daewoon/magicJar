@@ -219,6 +219,42 @@ class KisWebSocketBridge(
     private val gracefulReconnectSuppressUntilEpochMillis = AtomicLong(0L)
 
     /**
+     * ★ 유령 재연결 루프 단일화 guard (2026-06-05 P0 — KIS WS 유령 재연결 루프 fix).
+     *
+     * ### 운영 evidence (2026-06-05 라이브 실측)
+     * - OPSP8996/ALREADY IN USE 128건 + reconnect attempt 115까지 누적 후 재카운트 반복.
+     * - 핵심 모순: 재연결 스케줄 "delay=30000ms"인데 attempt가 1~5초 간격으로 증가.
+     * - 동시에 1m 캔들은 FRESH(실시간 수신 정상) — 살아있는 데이터 연결과 별개로 유령 세션들이
+     *   각자 connect 시도 → 매 시도마다 동일 appkey로 KIS 접속 → OPSP8996 거부 → doFinally → 또 스케줄.
+     *
+     * ### root cause (메커니즘)
+     * 기존 [reconnecting] guard는 watchdog dispose 경로만 보호한다. 다음 두 경로는 무방비:
+     * 1. doFinally가 reconnecting.set(false)를 **scheduleReconnect() 호출 직전**에 해제 → 동시 진입한
+     *    여러 doFinally(onComplete+onError 쌍 또는 다수 stale 세션)가 각자 scheduleReconnect()를
+     *    독립 발사 → 각 발사가 새 doConnect()로 새 Disposable+Sink+WS 세션 생성(같은 appkey).
+     * 2. doConnect()·scheduleConnect()에 "살아있는 세션 존재" 차단 가드 부재 → 정상 세션이 살아있어도
+     *    stale doFinally가 새 connect를 발사 → KIS OPSP8996 → handleOpsp8996 dispose → doFinally → 증식.
+     *
+     * ### fix (단일화)
+     * doConnect() 진입을 CAS(false→true)로 단일화한다. 동시에 단 1개의 connect/reconnect attempt만
+     * in-flight 허용. terminal(doFinally)에서 false 해제 → 다음 attempt 가능.
+     * 추가로 [connect]·[scheduleReconnect]·[doConnect]는 살아있는 세션(session.connected) 존재 시
+     * 신규 connect 시도 자체를 차단해 유령 세션 발사를 원천 봉쇄한다.
+     *
+     * AtomicBoolean 사용 사유: scheduler thread + Reactor doFinally thread 다중 진입 — 가시성·원자성 의무.
+     */
+    private val connectInFlight = AtomicBoolean(false)
+
+    /**
+     * ★ scheduleReconnect 단일 발사 guard (2026-06-05 P0 — 유령 루프 fix).
+     *
+     * 동시 진입한 여러 doFinally(이중 단절·다수 stale 세션)가 각자 scheduleReconnect()를 발사하면
+     * pending reconnect future가 N개 누적된다(유령 루프 증식의 직접 원인). CAS(false→true)로 단 1개의
+     * pending reconnect만 허용하고, scheduleConnect 직전 false 해제한다(다음 terminal에서 재무장).
+     */
+    private val reconnectScheduled = AtomicBoolean(false)
+
+    /**
      * P1 spec §6.1 emit point #4·#5 — WS_DISCONNECTED·WS_RECONNECTED·WS_CONNECTED correlationId 묶기.
      *
      * disconnect handler 진입 시 UUID 생성·set, reconnect handler 진입 시 getAndSet(null)로 회수.
@@ -494,6 +530,13 @@ class KisWebSocketBridge(
      */
     override fun connect() {
         if (session.connected || session.shuttingDown) return
+        // ★ 유령 루프 fix (2026-06-05 P0): connect attempt 이미 in-flight면 중복 connect 차단.
+        // session.connected는 handshake 완료 후 true이므로, handshake 진행 중(in-flight) 윈도우는
+        // connectInFlight로 별도 차단해야 동일 appkey 다중 connect 발사를 막는다.
+        if (connectInFlight.get()) {
+            log.debug("KIS WS connect skip — connect attempt 이미 in-flight (유령 connect 차단)")
+            return
+        }
         log.info("KIS WS 연결 시작: url={}", getWsUrl())
         scheduleConnect(delayMs = 0L)
     }
@@ -501,6 +544,10 @@ class KisWebSocketBridge(
     private fun scheduleConnect(delayMs: Long) {
         if (session.shuttingDown) return
         scheduler.schedule({
+            // ★ 유령 루프 fix (2026-06-05 P0): pending reconnect future가 실행 직전 단계에 진입했으므로
+            // reconnectScheduled를 해제해 다음 terminal에서 새 재연결 예약이 가능하게 한다(단일성은
+            // doConnect()의 connectInFlight CAS + session.connected 가드가 계속 보장).
+            reconnectScheduled.set(false)
             if (!session.shuttingDown) {
                 doConnect()
             }
@@ -508,6 +555,21 @@ class KisWebSocketBridge(
     }
 
     private fun doConnect() {
+        // ★ 유령 루프 단일화 fix (2026-06-05 P0):
+        // 1) 살아있는 세션 존재 시 신규 connect 발사 차단 — stale doFinally가 정상 세션과 별개로
+        //    동일 appkey 재접속을 시도해 OPSP8996(ALREADY IN USE)을 유발하던 유령 루프 원천 봉쇄.
+        if (session.connected) {
+            log.warn("KIS WS doConnect skip — 이미 살아있는 세션 존재 (유령 connect 차단, OPSP8996 회피)")
+            return
+        }
+        // 2) connect attempt CAS — 동시에 단 1개의 connect/reconnect만 in-flight 허용.
+        //    여러 doFinally가 각자 scheduleReconnect→doConnect를 발사해도 CAS 실패분은 즉시 무효화.
+        //    terminal(doFinally) 또는 아래 early-return 경로에서 false 해제.
+        if (!connectInFlight.compareAndSet(false, true)) {
+            log.debug("KIS WS doConnect skip — connect attempt 이미 in-flight (유령 connect 단일화 차단)")
+            return
+        }
+
         // ADR 0076 A-1 복원: approval_key invalidate 제거 — 24h TTL Redis cache reuse 의무.
         //
         // [취소된 이전 접근] PR #444 에서 doConnect() 진입마다 invalidate() 호출하여
@@ -536,6 +598,7 @@ class KisWebSocketBridge(
             // 자격증명 미등록 시 scheduleReconnect를 통한 무한 retry 차단:
             // doConnect()는 return하고 doFinally(→scheduleReconnect)를 거치지 않으므로
             // 자격증명 등록 전까지 재시도 없이 WARN 1회로 종료. (J-1 보완 역할)
+            connectInFlight.set(false) // ★ in-flight guard 해제 — early-return (유령 루프 fix 정합)
             return
         }
 
@@ -675,6 +738,7 @@ class KisWebSocketBridge(
                     // 이전 doOnTerminate는 cancel(dispose) 시 미호출 → watchdog dispose 후
                     // scheduleReconnect() 0건 결함 원인 (PR #444 후속 hotfix).
                     reconnecting.set(false) // 재연결 중복 방지 guard 해제
+                    connectInFlight.set(false) // ★ in-flight guard 해제 (유령 루프 fix) — terminal 시 다음 attempt 허용
                     session.onDisconnected()
                     stopHeartbeatWatchdog()
                     log.warn("KIS WS 연결 종료: signal={}", signal)
@@ -1236,6 +1300,19 @@ class KisWebSocketBridge(
      * 1차: 즉시, 2차: 2s, 3차: 5s, 4차: 10s, 5차+: 30s
      */
     private fun scheduleReconnect() {
+        // ★ 유령 루프 fix (2026-06-05 P0):
+        // 1) 살아있는 세션 존재 시 재연결 스케줄 자체를 차단 — stale doFinally가 정상 세션이 살아있는데도
+        //    재연결을 발사해 유령 세션을 증식시키던 직접 원인 봉쇄.
+        if (session.connected) {
+            log.debug("KIS WS scheduleReconnect skip — 이미 살아있는 세션 존재 (유령 재연결 차단)")
+            return
+        }
+        // 2) 단일 발사 CAS — 동시에 진입한 여러 doFinally(이중 단절·다수 stale 세션) 중 단 1개만 통과.
+        //    CAS 실패분은 즉시 무효화 → pending reconnect future N개 누적(유령 루프 증식) 차단.
+        if (!reconnectScheduled.compareAndSet(false, true)) {
+            log.debug("KIS WS scheduleReconnect skip — 재연결 이미 예약됨 (유령 루프 단일화 차단)")
+            return
+        }
         val attempt = session.incrementReconnect()
         val delayIdx = (attempt - 1).coerceIn(0, reconnectDelaysMs.size - 1)
         val delayMs = reconnectDelaysMs[delayIdx]

@@ -969,6 +969,130 @@ class KisWebSocketBridgeReconnectTest {
         assertThat(cidRef.get()).describedAs("회수 후 AtomicReference clear").isNull()
     }
 
+    // ===== 유령 재연결 루프 단일화 fix (2026-06-05 P0) =====
+
+    /**
+     * [유령 루프 fix] 살아있는 세션(connected=true) 존재 시 connect() 신규 발사 차단.
+     *
+     * 운영 evidence: 1m 캔들 FRESH(정상 데이터 연결 생존)인데 유령 세션들이 별개로 connect 시도 →
+     * 동일 appkey OPSP8996 거부 → doFinally → 또 스케줄. session.connected 가드로 원천 봉쇄.
+     *
+     * 검증: session.onConnected()로 살아있는 세션 시뮬레이션 후 connect() → wsClient.execute 0건.
+     */
+    @Test
+    fun `유령루프 — connected 상태에서 connect 호출 시 신규 connect 차단 (execute 0건)`() {
+        every { wsClient.execute(any<URI>(), any()) } returns Mono.never()
+
+        // given: 살아있는 세션 (handshake 완료 시뮬레이션)
+        getSession(bridge).onConnected()
+
+        // when: connect() 재호출 (유령 트리거 시뮬레이션)
+        bridge.connect()
+        TimeUnit.MILLISECONDS.sleep(100L)
+
+        // then: 살아있는 세션 존재 → 신규 connect 발사 0건 (connect()의 session.connected early-return)
+        verify(exactly = 0) { wsClient.execute(any<URI>(), any()) }
+    }
+
+    /**
+     * [유령 루프 fix] doConnect 진입을 connectInFlight CAS로 단일화 — 동시 다수 connect 발사 차단.
+     *
+     * root cause: 여러 doFinally가 각자 scheduleReconnect→doConnect를 발사 → 각자 새 Disposable+WS 세션
+     * 생성(같은 appkey) → OPSP8996 증식. connectInFlight CAS(false→true)로 단 1개만 in-flight 허용.
+     *
+     * 검증: connectInFlight=true 강제 후 doConnect 직접 호출 → execute 0건 (CAS 실패 → skip).
+     */
+    @Test
+    fun `유령루프 — connectInFlight true 상태에서 doConnect 직접 호출 시 단일화 차단 (execute 0건)`() {
+        every { wsClient.execute(any<URI>(), any()) } returns Mono.never()
+
+        // given: connect attempt 이미 in-flight 강제
+        val field = KisWebSocketBridge::class.java.getDeclaredField("connectInFlight")
+        field.isAccessible = true
+        val inFlight = field.get(bridge) as java.util.concurrent.atomic.AtomicBoolean
+        inFlight.set(true)
+
+        // when: doConnect 직접 호출 (reflection — stale doFinally 경유 재진입 시뮬레이션)
+        val doConnect = KisWebSocketBridge::class.java.getDeclaredMethod("doConnect")
+        doConnect.isAccessible = true
+        doConnect.invoke(bridge)
+
+        // then: in-flight CAS 실패 → execute 0건 (유령 connect 단일화 차단)
+        verify(exactly = 0) { wsClient.execute(any<URI>(), any()) }
+    }
+
+    /**
+     * [유령 루프 fix] 동시 다발 scheduleReconnect → 단일 발사 (reconnectScheduled CAS).
+     *
+     * root cause: 이중 단절(onComplete+onError)·다수 stale 세션의 doFinally가 각자 scheduleReconnect를
+     * 발사 → pending reconnect future N개 누적 → attempt 폭증(delay=30000ms인데 1~5초 간격 증가).
+     * reconnectScheduled CAS(false→true)로 단 1개만 통과.
+     *
+     * 검증: scheduleReconnect를 3회 연속 직접 호출(reflection) → session.incrementReconnect는 1회만 호출됨
+     *       (attempt=1 단 1회 — 나머지 2회는 CAS 실패로 skip).
+     */
+    @Test
+    fun `유령루프 — 동시 다발 scheduleReconnect 3회 호출 시 단일 발사 (attempt 1회만 증가)`() {
+        // given: 미연결 상태 (session.connected=false — 재연결 허용 조건)
+        val scheduleReconnect = KisWebSocketBridge::class.java.getDeclaredMethod("scheduleReconnect")
+        scheduleReconnect.isAccessible = true
+
+        // when: 3회 연속 발사 (이중 단절·다수 stale 세션 doFinally 시뮬레이션)
+        scheduleReconnect.invoke(bridge)
+        scheduleReconnect.invoke(bridge)
+        scheduleReconnect.invoke(bridge)
+
+        // then: reconnectCount는 1회만 증가 (단일 발사 — 나머지 CAS 실패 skip)
+        val session = getSession(bridge)
+        assertThat(session.reconnectCount.get())
+            .describedAs("동시 다발 scheduleReconnect 중 단 1개만 통과 (유령 루프 증식 차단)")
+            .isEqualTo(1)
+    }
+
+    /**
+     * [유령 루프 fix] 살아있는 세션(connected=true) 존재 시 scheduleReconnect 자체 차단.
+     *
+     * stale doFinally가 정상 세션 생존 중에도 재연결을 발사하던 유령 세션 증식 봉쇄.
+     *
+     * 검증: connected=true 상태에서 scheduleReconnect 호출 → reconnectCount 증가 0건.
+     */
+    @Test
+    fun `유령루프 — connected 상태에서 scheduleReconnect 호출 시 재연결 차단 (attempt 증가 0)`() {
+        // given: 살아있는 세션
+        getSession(bridge).onConnected()
+        val before = getSession(bridge).reconnectCount.get()
+
+        // when: stale doFinally 경유 scheduleReconnect 시뮬레이션
+        val scheduleReconnect = KisWebSocketBridge::class.java.getDeclaredMethod("scheduleReconnect")
+        scheduleReconnect.isAccessible = true
+        scheduleReconnect.invoke(bridge)
+
+        // then: 살아있는 세션 존재 → 재연결 스케줄 차단 (attempt 증가 0)
+        assertThat(getSession(bridge).reconnectCount.get())
+            .describedAs("살아있는 세션 존재 시 유령 재연결 차단")
+            .isEqualTo(before)
+    }
+
+    /**
+     * [유령 루프 fix — 회귀 보존] 정상 단절→재연결 1회 동작 보존 (매시 정각 패턴).
+     *
+     * 단일화 가드가 정상 재연결(미연결 상태에서 1회 doConnect)까지 막지 않는지 회귀 보호.
+     * Mono.empty() → connect 즉시 onComplete → doFinally(connectInFlight·reconnectScheduled 해제)
+     * → scheduleReconnect(attempt=1) → doConnect 재시도 → execute 2회 이상.
+     */
+    @Test
+    fun `유령루프 회귀 — 정상 단절 후 재연결 1회 정상 동작 보존 (execute 재시도 발생)`() {
+        // given: Mono.empty() — connect 즉시 complete → doFinally → scheduleReconnect → doConnect 재시도
+        every { wsClient.execute(any<URI>(), any()) } returns Mono.empty()
+
+        // when
+        bridge.connect()
+        TimeUnit.MILLISECONDS.sleep(300L)
+
+        // then: 정상 재연결 동작 — execute 2회 이상 (단일화 가드가 정상 흐름을 막지 않음)
+        verify(atLeast = 2) { wsClient.execute(any<URI>(), any()) }
+    }
+
     /**
      * disconnectAlertGraceMs 필드 단축 (reflection) — 점검 사이클 #4 grace window 테스트용.
      * 운영 default(10초)는 단위 테스트 부담 → ms 단위로 단축해 분기 동작만 검증.
