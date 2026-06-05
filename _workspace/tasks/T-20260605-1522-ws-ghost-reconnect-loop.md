@@ -3,10 +3,10 @@ id: T-20260605-1522-ws-ghost-reconnect-loop
 agent: market-data
 model: opus
 branch: agent/market-data/ws-ghost-reconnect-loop
-status: RUNNING
+status: DONE
 startedAt: 2026-06-05T15:22:01.975+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-05T15:29:50.100+09:00
+pr: #748
 parentPhase: ?
 ---
 
