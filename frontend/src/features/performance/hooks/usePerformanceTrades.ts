@@ -5,12 +5,14 @@
  */
 import { useQuery } from '@tanstack/react-query'
 import { performanceApi, type PerformancePeriod } from '../api/performanceApi'
+import type { AccountType } from '../../../api/account'
 
 interface UsePerformanceTradesParams {
   userId: number | null
   period: PerformancePeriod
   periodStart?: string
   periodEnd?: string
+  mode?: AccountType
   enabled?: boolean
 }
 
@@ -19,11 +21,12 @@ export function usePerformanceTrades({
   period,
   periodStart,
   periodEnd,
+  mode,
   enabled = true,
 }: UsePerformanceTradesParams) {
   return useQuery({
-    queryKey: ['performance', 'trades', { userId, period, periodStart, periodEnd }],
-    queryFn: () => performanceApi.getTrades(userId!, period, periodStart, periodEnd),
+    queryKey: ['performance', 'trades', { userId, period, periodStart, periodEnd, mode }],
+    queryFn: () => performanceApi.getTrades(userId!, period, periodStart, periodEnd, mode),
     enabled: enabled && userId !== null,
     staleTime: 5 * 60_000,
     refetchInterval: false,

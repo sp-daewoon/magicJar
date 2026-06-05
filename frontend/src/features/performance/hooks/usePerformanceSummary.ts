@@ -7,12 +7,14 @@
  */
 import { useQuery } from '@tanstack/react-query'
 import { performanceApi, type PerformancePeriod } from '../api/performanceApi'
+import type { AccountType } from '../../../api/account'
 
 interface UsePerformanceSummaryParams {
   userId: number | null
   period: PerformancePeriod
   periodStart?: string
   periodEnd?: string
+  mode?: AccountType
 }
 
 export function usePerformanceSummary({
@@ -20,10 +22,11 @@ export function usePerformanceSummary({
   period,
   periodStart,
   periodEnd,
+  mode,
 }: UsePerformanceSummaryParams) {
   return useQuery({
-    queryKey: ['performance', 'summary', { userId, period, periodStart, periodEnd }],
-    queryFn: () => performanceApi.getSummary(userId!, period, periodStart, periodEnd),
+    queryKey: ['performance', 'summary', { userId, period, periodStart, periodEnd, mode }],
+    queryFn: () => performanceApi.getSummary(userId!, period, periodStart, periodEnd, mode),
     enabled: userId !== null,
     staleTime: 5 * 60_000,
     refetchInterval: false,

@@ -103,4 +103,26 @@ describe('InstrumentSearchInput', () => {
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
     expect(onSelect).not.toHaveBeenCalled()
   })
+
+  it('검색 결과가 1개뿐이면 Enter로 바로 선택한다', async () => {
+    vi.mocked(useInstrumentSearch).mockReturnValue({
+      results: [mockResults[0]],
+      isLoading: false,
+      isError: false,
+      isServerError: false,
+    })
+
+    render(<InstrumentSearchInput value="" onSelect={onSelect} />)
+
+    const input = screen.getByRole('combobox', { name: '종목 검색' })
+    await userEvent.type(input, '삼성전자')
+
+    await waitFor(() => {
+      expect(screen.getByText('삼성전자')).toBeInTheDocument()
+    })
+    await userEvent.keyboard('{Enter}')
+
+    expect(onSelect).toHaveBeenCalledTimes(1)
+    expect(onSelect).toHaveBeenCalledWith(mockResults[0])
+  })
 })

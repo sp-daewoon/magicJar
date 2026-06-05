@@ -82,14 +82,25 @@ function addDays(date: Date, amount: number): Date {
   return next
 }
 
-function rangeLabel(from: Date, to: Date): string {
-  const start = from.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })
-  const end = to.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' })
-  return `${start} - ${end}`
+function addMonths(date: Date, amount: number): Date {
+  return new Date(date.getFullYear(), date.getMonth() + amount, 1)
 }
 
-function weekdayLabel(date: Date): string {
-  return date.toLocaleDateString('ko-KR', { weekday: 'short' })
+function startOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1)
+}
+
+function startOfWeek(date: Date): Date {
+  return addDays(date, -date.getDay())
+}
+
+function monthLabel(date: Date): string {
+  return `${date.getFullYear()}년 ${date.getMonth() + 1}월`
+}
+
+function dayCellLabel(date: Date): string {
+  if (date.getDate() === 1) return `${date.getMonth() + 1}월 1일`
+  return `${date.getDate()}일`
 }
 
 function instrumentDisplay(result: InstrumentSearchResultDto): string {
@@ -134,24 +145,28 @@ function makeEmptyForm(date: string): EventFormState {
   }
 }
 
+const WEEKDAY_LABELS = ['일', '월', '화', '수', '목', '금', '토']
+
 export function MarketCalendarPage() {
   const today = formatIsoDate(new Date())
-  const [viewStart, setViewStart] = useState(() => parseIsoDate(today))
+  const [viewMonth, setViewMonth] = useState(() => startOfMonth(parseIsoDate(today)))
   const [selectedDate, setSelectedDate] = useState(today)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [form, setForm] = useState<EventFormState>(() => makeEmptyForm(today))
   const queryClient = useQueryClient()
 
   const calendarFrame = useMemo(() => {
-    const gridStart = parseIsoDate(formatIsoDate(viewStart))
-    const gridEnd = addDays(gridStart, 6)
+    const monthStart = startOfMonth(viewMonth)
+    const gridStart = startOfWeek(monthStart)
+    const gridEnd = addDays(gridStart, 41)
     return {
+      monthStart,
       gridStart,
       gridEnd,
       from: formatIsoDate(gridStart),
       to: formatIsoDate(gridEnd),
     }
-  }, [viewStart])
+  }, [viewMonth])
 
   const gridDates = useMemo(() => {
     const dates: Date[] = []
@@ -218,15 +233,15 @@ export function MarketCalendarPage() {
     setForm((prev) => ({ ...prev, date }))
   }
 
-  function moveWeek(amount: number) {
-    const nextStart = addDays(calendarFrame.gridStart, amount * 7)
-    const nextDate = formatIsoDate(nextStart)
-    setViewStart(nextStart)
+  function moveMonth(amount: number) {
+    const nextMonth = addMonths(calendarFrame.monthStart, amount)
+    const nextDate = formatIsoDate(nextMonth)
+    setViewMonth(nextMonth)
     selectDate(nextDate)
   }
 
   function moveToday() {
-    setViewStart(parseIsoDate(today))
+    setViewMonth(startOfMonth(parseIsoDate(today)))
     selectDate(today)
   }
 
@@ -250,7 +265,7 @@ export function MarketCalendarPage() {
       setForm((prev) => ({ ...prev, date }))
       return
     }
-    setViewStart(parseIsoDate(date))
+    setViewMonth(startOfMonth(parseIsoDate(date)))
     selectDate(date)
   }
 
@@ -301,20 +316,20 @@ export function MarketCalendarPage() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => moveWeek(-1)}
+            onClick={() => moveMonth(-1)}
             className="h-9 rounded-lg border border-gray-700 px-3 text-sm text-gray-200 transition-colors hover:border-gray-500 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
-            aria-label="이전 주"
+            aria-label="이전 달"
           >
             ‹
           </button>
-          <div className="min-w-56 text-center text-base font-semibold">
-            {rangeLabel(calendarFrame.gridStart, calendarFrame.gridEnd)}
+          <div className="min-w-36 text-center text-xl font-semibold">
+            {monthLabel(calendarFrame.monthStart)}
           </div>
           <button
             type="button"
-            onClick={() => moveWeek(1)}
+            onClick={() => moveMonth(1)}
             className="h-9 rounded-lg border border-gray-700 px-3 text-sm text-gray-200 transition-colors hover:border-gray-500 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
-            aria-label="다음 주"
+            aria-label="다음 달"
           >
             ›
           </button>
@@ -329,53 +344,61 @@ export function MarketCalendarPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <section aria-label="주간 시장 캘린더" className="min-w-0">
-          <div className="grid grid-cols-7 border-y border-gray-800 bg-gray-900/70 text-center text-xs font-medium text-gray-400">
-            {gridDates.map((date) => (
-              <div key={formatIsoDate(date)} className="px-2 py-2">
-                <div>{weekdayLabel(date)}</div>
-                <div className="mt-0.5 font-mono text-[11px] text-gray-600">{formatIsoDate(date)}</div>
+        <section aria-label="월간 시장 캘린더" className="min-w-0">
+          <div className="grid grid-cols-7 border-y border-gray-800 bg-gray-900/70 text-center text-sm font-semibold text-gray-300">
+            {WEEKDAY_LABELS.map((weekday) => (
+              <div key={weekday} className="px-2 py-2">
+                {weekday}
               </div>
             ))}
           </div>
 
-          <div className="grid grid-cols-7 border-l border-gray-800">
+          <div className="grid grid-cols-7 overflow-hidden rounded-b-lg border-l border-gray-800 bg-gray-950">
             {gridDates.map((date) => {
               const isoDate = formatIsoDate(date)
               const day = daysByDate.get(isoDate)
               const events = day?.events ?? []
-              const isSelected = isoDate === selectedDate
               const isToday = isoDate === today
               const isClosed = day ? !day.isBusinessDay : date.getDay() === 0 || date.getDay() === 6
+              const isCurrentMonth = date.getMonth() === calendarFrame.monthStart.getMonth()
+              const isSelected = isoDate === selectedDate
 
               return (
                 <div
                   key={isoDate}
+                  data-testid={`calendar-day-${isoDate}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={isSelected}
+                  onClick={() => selectDate(isoDate)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      selectDate(isoDate)
+                    }
+                  }}
                   className={[
-                    'min-h-[132px] border-b border-r border-gray-800 bg-gray-950 p-2',
-                    'text-gray-100',
-                    isSelected ? 'ring-1 ring-inset ring-blue-500' : '',
+                    'min-h-[118px] cursor-pointer border-b border-r border-gray-800 p-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-400',
+                    isCurrentMonth ? 'bg-gray-950 text-gray-100' : 'bg-gray-950/70 text-gray-600',
+                    isSelected ? 'ring-2 ring-inset ring-blue-500' : '',
                   ].join(' ')}
                 >
-                  <button
-                    type="button"
-                    onClick={() => selectDate(isoDate)}
-                    className="flex w-full items-start justify-between gap-2 text-left focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  >
+                  <div className="flex w-full items-start justify-between gap-2 text-left">
                     <span
                       className={[
-                        'flex h-7 w-7 items-center justify-center rounded-lg text-sm font-semibold',
+                        'flex min-h-7 min-w-7 items-center justify-center rounded-lg px-1 text-sm font-semibold',
                         isToday ? 'bg-blue-600 text-white' : '',
+                        !isToday && !isCurrentMonth ? 'text-gray-600' : '',
                       ].join(' ')}
                     >
-                      {date.getDate()}
+                      {dayCellLabel(date)}
                     </span>
                     {isClosed && (
                       <span className="truncate rounded bg-red-950/70 px-1.5 py-0.5 text-[10px] text-red-200">
                         {day?.holidayName ?? '휴장'}
                       </span>
                     )}
-                  </button>
+                  </div>
 
                   <div className="mt-2 space-y-1">
                     {events.slice(0, 3).map((calendarEvent) => (
@@ -386,6 +409,7 @@ export function MarketCalendarPage() {
                         className={[
                           'block w-full rounded-md border px-2 py-1 text-left text-[11px] leading-tight transition-opacity hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-blue-400',
                           eventTypeClass(calendarEvent.eventType),
+                          !isCurrentMonth ? 'opacity-55' : '',
                         ].join(' ')}
                       >
                         <span className="mr-1 font-semibold">

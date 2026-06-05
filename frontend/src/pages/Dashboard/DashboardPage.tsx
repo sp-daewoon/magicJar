@@ -7,6 +7,7 @@
  *   2. AccountSummaryCard — 총자산·예수금·평가손익·종목 수 4 셀
  *   3. HoldingsTable — KIS 실시간 보유 종목 8 컬럼
  *   4. BalanceCard — 예수금·자산·매입평가 3 그룹 상세
+ *   5. 성과 탭 — 선택 시에만 성과 API 훅 마운트
  *
  * userId 미등록 → /setup 안내 (PerformanceDashboardPage 패턴 정합).
  * 모든 위젯은 STOMP push 시 즉시 invalidate + 30s polling fallback (KIS rate limit 보호).
@@ -27,7 +28,7 @@
  */
 import { useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useOnboardingStore } from '../../stores/onboarding'
 import type { AccountType } from '../../api/account'
 import { useStompAccountBalance } from '../../api/hooks/useStompAccountBalance'
@@ -38,6 +39,9 @@ import { AccountSummaryCard } from './AccountSummaryCard'
 import { HoldingsTable } from './HoldingsTable'
 import { BalanceCard } from './BalanceCard'
 import { AccountTypeToggle } from './AccountTypeToggle'
+import { PerformancePanel } from '../../features/performance/components/PerformancePanel'
+
+type DashboardView = 'account' | 'performance'
 
 /**
  * 빠른 진입 링크 목록 (ADR 0040 Watchlist-first 정합).
@@ -50,7 +54,7 @@ const QUICK_LINKS = [
   { to: '/market/trend', label: '시장 추세' },
   { to: '/positions', label: '보유 포지션' },
   { to: '/orders', label: '주문 내역' },
-  { to: '/performance', label: '성과 대시보드' },
+  { to: '/?view=performance', label: '성과' },
   { to: '/journal', label: '매매일지' },
 ] as const
 
@@ -66,10 +70,56 @@ function QuickLink({ to, label }: { to: string; label: string }) {
   )
 }
 
+function resolveDashboardView(value: string | null): DashboardView {
+  return value === 'performance' ? 'performance' : 'account'
+}
+
+function DashboardViewTabs({
+  value,
+  onChange,
+}: {
+  value: DashboardView
+  onChange: (view: DashboardView) => void
+}) {
+  const tabs: { value: DashboardView; label: string }[] = [
+    { value: 'account', label: '계좌 현황' },
+    { value: 'performance', label: '성과' },
+  ]
+
+  return (
+    <div
+      className="flex h-9 items-center gap-1 rounded-lg border border-gray-800 bg-gray-900/60 p-1"
+      role="tablist"
+      aria-label="대시보드 보기"
+    >
+      {tabs.map((tab) => (
+        <button
+          key={tab.value}
+          type="button"
+          role="tab"
+          aria-selected={value === tab.value}
+          onClick={() => onChange(tab.value)}
+          className={[
+            'h-7 rounded-md px-3 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-950',
+            value === tab.value
+              ? 'bg-gray-700 text-white'
+              : 'text-gray-400 hover:bg-gray-800/60 hover:text-gray-200',
+          ].join(' ')}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export function DashboardPage() {
   const userId = useOnboardingStore((s) => s.registeredUserId)
   const { accountType, setAccountType, isReady: accountTypeReady } = usePreferredAccountType()
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const dashboardView = resolveDashboardView(searchParams.get('view'))
+  const isAccountView = dashboardView === 'account'
 
   /**
    * STOMP push 구독 (polling → push 전환 / 2026-05-20).
@@ -79,13 +129,16 @@ export function DashboardPage() {
    *   ['account', kind, userId, accountType] 구조 → prefix invalidate 시 둘 다 cover).
    * STOMP 끊김 시 useAccountSummary 등 3 hook 의 refetchInterval 30s 가 fallback.
    */
-  useStompAccountBalance({ userId, enabled: userId !== null && userId !== undefined })
+  useStompAccountBalance({
+    userId,
+    enabled: isAccountView && userId !== null && userId !== undefined,
+  })
 
   /**
    * W4 R2: TrendPreference 다중 탭 sync.
    * 다른 탭에서 추세 설정 변경 시 본 탭 query 자동 invalidate → MarketIndexStrip 즉시 재계산.
    */
-  useTrendPreferenceSubscription(userId)
+  useTrendPreferenceSubscription(isAccountView ? userId : null)
 
   /**
    * C-5: 토글 클릭 시 invalidate trigger.
@@ -105,6 +158,19 @@ export function DashboardPage() {
       })
     },
     [accountType, queryClient],
+  )
+
+  const handleDashboardViewChange = useCallback(
+    (nextView: DashboardView) => {
+      const nextParams = new URLSearchParams(searchParams)
+      if (nextView === 'account') {
+        nextParams.delete('view')
+      } else {
+        nextParams.set('view', nextView)
+      }
+      setSearchParams(nextParams)
+    },
+    [searchParams, setSearchParams],
   )
 
   // userId 미등록 → 셋업 안내
@@ -150,15 +216,29 @@ export function DashboardPage() {
         <div>
           <h1 className="text-xl font-bold text-gray-100">대시보드</h1>
           <p className="mt-0.5 text-sm text-gray-500">
-            KIS 실시간 잔고·보유 종목·평가손익 (실시간 push + 30초 fallback)
-            <span className="ml-1 text-gray-600">
-              · 현재 {accountType === 'REAL' ? '실전' : '모의'} 계좌
-            </span>
+            {isAccountView ? (
+              <>
+                KIS 실시간 잔고·보유 종목·평가손익 (실시간 push + 30초 fallback)
+                <span className="ml-1 text-gray-600">
+                  · 현재 {accountType === 'REAL' ? '실전' : '모의'} 계좌
+                </span>
+              </>
+            ) : (
+              <>
+                실현손익과 전략 매매 성과를 한 화면에서 확인합니다.
+                <span className="ml-1 text-gray-600">
+                  · 현재 {accountType === 'REAL' ? '실전' : '모의'} 기준
+                </span>
+              </>
+            )}
           </p>
         </div>
-        {/* B-1: 실전/모의 토글 — 클릭 시 모든 하위 카드 동시 전환 */}
-        {/* C-5: handleAccountTypeChange 가 invalidateQueries 로 즉시 refetch 강제 */}
-        <AccountTypeToggle value={accountType} onChange={handleAccountTypeChange} />
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <DashboardViewTabs value={dashboardView} onChange={handleDashboardViewChange} />
+          {/* B-1: 실전/모의 토글 — 계좌 현황과 성과 기준을 함께 전환 */}
+          {/* C-5: handleAccountTypeChange 가 invalidateQueries 로 즉시 refetch 강제 */}
+          <AccountTypeToggle value={accountType} onChange={handleAccountTypeChange} />
+        </div>
       </div>
 
       {/* 빠른 진입 링크 (ADR 0040 Watchlist-first 정합) — A-2 DRY: QUICK_LINKS map */}
@@ -168,25 +248,31 @@ export function DashboardPage() {
         ))}
       </div>
 
-      {/* 0. 시장 지수 strip — W4 T-MARKET (4 카드 가로 + 상세 추세 링크) */}
-      <div className="mb-5">
-        <MarketIndexStrip enabled={userId != null} />
-      </div>
+      {isAccountView ? (
+        <>
+          {/* 0. 시장 지수 strip — W4 T-MARKET (4 카드 가로 + 상세 추세 링크) */}
+          <div className="mb-5">
+            <MarketIndexStrip enabled={userId != null} />
+          </div>
 
-      {/* 1. 계좌 요약 카드 (4 셀) */}
-      <div className="mb-5">
-        <AccountSummaryCard userId={userId} accountType={accountType} />
-      </div>
+          {/* 1. 계좌 요약 카드 (4 셀) */}
+          <div className="mb-5">
+            <AccountSummaryCard userId={userId} accountType={accountType} />
+          </div>
 
-      {/* 2. 보유 종목 테이블 */}
-      <div className="mb-5">
-        <HoldingsTable userId={userId} accountType={accountType} />
-      </div>
+          {/* 2. 보유 종목 테이블 */}
+          <div className="mb-5">
+            <HoldingsTable userId={userId} accountType={accountType} />
+          </div>
 
-      {/* 3. 잔고 상세 카드 */}
-      <div>
-        <BalanceCard userId={userId} accountType={accountType} />
-      </div>
+          {/* 3. 잔고 상세 카드 */}
+          <div>
+            <BalanceCard userId={userId} accountType={accountType} />
+          </div>
+        </>
+      ) : (
+        <PerformancePanel userId={userId} accountType={accountType} />
+      )}
     </div>
   )
 }

@@ -222,9 +222,41 @@ class PerformanceServiceTest {
         assertThat(result.items.first().realizedPnl).isEqualByComparingTo(BigDecimal("2000.00"))
     }
 
+    @Test
+    fun `mode 필터 — 실전과 모의 성과를 분리해서 계산한다`() {
+        val from = LocalDate.of(2026, 5, 1)
+        val to = LocalDate.of(2026, 5, 22)
+        val mockBuyOrder = makeOrderRequest(id = 1L, side = OrderSide.BUY, mode = TradingMode.MOCK)
+        val mockSellOrder = makeOrderRequest(id = 2L, side = OrderSide.SELL, mode = TradingMode.MOCK)
+        val realBuyOrder = makeOrderRequest(id = 3L, side = OrderSide.BUY, mode = TradingMode.REAL)
+        val realSellOrder = makeOrderRequest(id = 4L, side = OrderSide.SELL, mode = TradingMode.REAL)
+        val executions =
+            listOf(
+                makeExecution(1L, 1L, LocalDate.of(2026, 5, 20), BigDecimal.ONE, BigDecimal("10000")),
+                makeExecution(2L, 2L, LocalDate.of(2026, 5, 21), BigDecimal.ONE, BigDecimal("12000")),
+                makeExecution(3L, 3L, LocalDate.of(2026, 5, 20), BigDecimal.ONE, BigDecimal("20000")),
+                makeExecution(4L, 4L, LocalDate.of(2026, 5, 21), BigDecimal.ONE, BigDecimal("25000")),
+            )
+
+        whenever(orderExecutionJpaRepository.findByUserIdAndExecutedAtBefore(eq(userId), any()))
+            .thenReturn(executions)
+        whenever(orderRequestJpaRepository.findAllById(listOf(1L, 2L, 3L, 4L)))
+            .thenReturn(listOf(mockBuyOrder, mockSellOrder, realBuyOrder, realSellOrder))
+        whenever(instrumentJpaRepository.findAllById(listOf("005930"))).thenReturn(emptyList())
+
+        val mockSummary = sut.getSummary(userId, "MONTH", from, to, TradingMode.MOCK)
+        val realSummary = sut.getSummary(userId, "MONTH", from, to, TradingMode.REAL)
+        val mockTrades = sut.getTradeBreakdown(userId, "MONTH", from, to, TradingMode.MOCK)
+
+        assertThat(mockSummary.totalPnl).isEqualByComparingTo(BigDecimal("2000.00"))
+        assertThat(realSummary.totalPnl).isEqualByComparingTo(BigDecimal("5000.00"))
+        assertThat(mockTrades.items).allSatisfy { item -> assertThat(item.mode).isEqualTo("MOCK") }
+    }
+
     private fun makeOrderRequest(
         id: Long,
         side: OrderSide,
+        mode: TradingMode = TradingMode.MOCK,
     ): OrderRequestJpaEntity =
         OrderRequestJpaEntity(
             id = id,
@@ -236,7 +268,7 @@ class PerformanceServiceTest {
             qty = BigDecimal.ONE,
             priceType = OrderPriceType.MARKET,
             status = OrderStatus.FILLED,
-            mode = TradingMode.MOCK,
+            mode = mode,
             idempotencyKey = "test-$id",
             requestedAt = LocalDate.of(2026, 5, 20).atStartOfDay(kst).toInstant(),
             source = OrderSource.MANUAL,

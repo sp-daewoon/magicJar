@@ -9,47 +9,85 @@
  */
 import { useState } from 'react'
 import { useOnboardingStore } from '../stores/onboarding'
-import { JournalEntryFilterBar } from '../features/journal/components/JournalEntryFilterBar'
+import {
+  JournalEntryFilterBar,
+  type JournalEntryFilterState,
+} from '../features/journal/components/JournalEntryFilterBar'
 import { JournalEntryList } from '../features/journal/components/JournalEntryList'
 import { JournalEntryDetailModal } from '../features/journal/components/JournalEntryDetailModal'
 import { useJournalEntries } from '../features/journal/hooks/useJournalEntries'
 import type { TradingJournalEntryDto } from '../features/journal/api/journalApi'
 
-interface FilterState {
-  from: string
-  to: string
-  instrumentCode: string
+const DEFAULT_FILTER_LOOKBACK_DAYS = 7
+
+export function createDefaultJournalFilter(today = new Date()): JournalEntryFilterState {
+  return {
+    from: formatJournalDate(today),
+    to: formatJournalDate(addDays(today, -DEFAULT_FILTER_LOOKBACK_DAYS)),
+    instrumentCode: '',
+    instrumentInput: '',
+  }
 }
 
-const DEFAULT_FILTER: FilterState = {
-  from: '',
-  to: '',
-  instrumentCode: '',
+export function normalizeJournalDateRange(from: string, to: string): { from: string; to: string } {
+  if (!from && !to) return { from: '', to: '' }
+  if (!from) return { from: '', to: toKstDayEnd(to) }
+  if (!to) return { from: toKstDayStart(from), to: '' }
+
+  const oldest = from <= to ? from : to
+  const newest = from <= to ? to : from
+  return {
+    from: toKstDayStart(oldest),
+    to: toKstDayEnd(newest),
+  }
+}
+
+function toKstDayStart(date: string): string {
+  return `${date}T00:00:00+09:00`
+}
+
+function toKstDayEnd(date: string): string {
+  return `${date}T23:59:59+09:00`
+}
+
+function formatJournalDate(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date)
+  next.setDate(next.getDate() + days)
+  return next
 }
 
 export function TradingJournalPage() {
   // ADR 0089 Phase 2 — registeredUserId now number, no conversion needed
   const userId = useOnboardingStore((s) => s.registeredUserId)
 
-  const [filter, setFilter] = useState<FilterState>(DEFAULT_FILTER)
+  const [filter, setFilter] = useState<JournalEntryFilterState>(() => createDefaultJournalFilter())
   const [page, setPage] = useState(0)
   const [selectedEntry, setSelectedEntry] = useState<TradingJournalEntryDto | null>(null)
 
   // 필터 변경 시 page 리셋
-  function handleFilterChange(next: FilterState) {
+  function handleFilterChange(next: JournalEntryFilterState) {
     setFilter(next)
     setPage(0)
   }
 
   function handleFilterReset() {
-    setFilter(DEFAULT_FILTER)
+    setFilter(createDefaultJournalFilter())
     setPage(0)
   }
 
+  const queryDateRange = normalizeJournalDateRange(filter.from, filter.to)
+
   const { data, isLoading, isError } = useJournalEntries({
     userId,
-    from: filter.from || undefined,
-    to: filter.to || undefined,
+    from: queryDateRange.from || undefined,
+    to: queryDateRange.to || undefined,
     instrumentCode: filter.instrumentCode || undefined,
     page,
     size: 20,

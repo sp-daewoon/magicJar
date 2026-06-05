@@ -208,6 +208,8 @@ export function InstrumentSearchInput({
         e.preventDefault()
         if (highlightedIndex >= 0 && highlightedIndex < results.length) {
           handleSelect(results[highlightedIndex])
+        } else if (results.length === 1) {
+          handleSelect(results[0])
         }
         break
       case 'Escape':

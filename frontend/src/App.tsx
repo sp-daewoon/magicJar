@@ -22,7 +22,7 @@
  *   /orders           -> 주문 내역 (T-O Phase 3 — ADR 0068)
  *   /orders/:id       -> 주문 상세 (T-O Phase 3 — ADR 0068)
  *   /journal          -> 매매일지 시계열 (T-J Phase 3 — ADR 0072)
- *   /performance      -> 성과 대시보드 (T-PERF Phase 3 — ADR 0072)
+ *   /performance      -> /?view=performance 리다이렉트 (대시보드 성과 탭)
  *   /system           -> 시스템 이벤트 운영 대시보드 (P2 Task 7 — ADR 0084 P0 system_event_log)
  *   /market/trend     -> 시장 추세 분석 (W4 T-MARKET R2 — ADR 0100·0101)
  *   /market/calendar  -> 시장 캘린더 (KRX 휴장일 + 사용자 시장 이벤트)
@@ -152,7 +152,7 @@ export function App() {
           <Route path="/orders/:id" element={<OrderDetailPage />} />
           {/* T-J Phase 3: 매매일지 — ADR 0072 */}
           <Route path="/journal" element={<TradingJournalPage />} />
-          {/* T-PERF Phase 3: 성과 대시보드 — ADR 0072 */}
+          {/* T-PERF Phase 3: 성과는 대시보드 탭으로 통합 — 기존 URL 호환 */}
           <Route path="/performance" element={<PerformanceDashboardPage />} />
           {/* P2 Task 7: 시스템 이벤트 운영 대시보드 — ADR 0084 P0 system_event_log */}
           <Route path="/system" element={<SystemEventPage />} />

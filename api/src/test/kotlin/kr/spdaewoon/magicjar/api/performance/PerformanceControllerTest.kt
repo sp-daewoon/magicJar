@@ -69,7 +69,7 @@ class PerformanceControllerTest {
                 computedAt = OffsetDateTime.now(kst),
                 cacheHit = false,
             )
-        whenever(performanceService.getSummary(eq(userId), any(), anyOrNull(), anyOrNull())).thenReturn(dto)
+        whenever(performanceService.getSummary(eq(userId), any(), anyOrNull(), anyOrNull(), anyOrNull())).thenReturn(dto)
         whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
 
         mockMvc
@@ -98,7 +98,7 @@ class PerformanceControllerTest {
                         EquityPointDto(LocalDate.of(2026, 5, 8), BigDecimal("150000"), BigDecimal("250000"), 2),
                     ),
             )
-        whenever(performanceService.getEquityCurve(eq(userId), anyOrNull(), anyOrNull())).thenReturn(dto)
+        whenever(performanceService.getEquityCurve(eq(userId), anyOrNull(), anyOrNull(), anyOrNull())).thenReturn(dto)
         whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
 
         mockMvc
@@ -141,7 +141,7 @@ class PerformanceControllerTest {
                         ),
                     ),
             )
-        whenever(performanceService.getTradeBreakdown(eq(userId), any(), anyOrNull(), anyOrNull())).thenReturn(dto)
+        whenever(performanceService.getTradeBreakdown(eq(userId), any(), anyOrNull(), anyOrNull(), anyOrNull())).thenReturn(dto)
         whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
 
         mockMvc
@@ -159,7 +159,7 @@ class PerformanceControllerTest {
 
     @Test
     fun `GET summary 400 — invalid period`() {
-        whenever(performanceService.getSummary(any(), any(), anyOrNull(), anyOrNull()))
+        whenever(performanceService.getSummary(any(), any(), anyOrNull(), anyOrNull(), anyOrNull()))
             .thenThrow(ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "지원하지 않는 period"))
         whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
 
@@ -188,7 +188,7 @@ class PerformanceControllerTest {
                 computedAt = OffsetDateTime.now(kst),
                 cacheHit = false,
             )
-        whenever(performanceService.getSummary(eq(userId), any(), anyOrNull(), anyOrNull())).thenReturn(dto)
+        whenever(performanceService.getSummary(eq(userId), any(), anyOrNull(), anyOrNull(), anyOrNull())).thenReturn(dto)
         whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
 
         mockMvc

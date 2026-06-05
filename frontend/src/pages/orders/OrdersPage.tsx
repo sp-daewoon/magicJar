@@ -18,7 +18,9 @@ import { useStompOrder } from '../../api/hooks/useStompOrder'
 import { useRealTradingConsent } from '../../api/hooks/useUpdateRealTradingConsent'
 import { useRuntimeFlags } from '../../api/hooks/useRuntimeFlags'
 import { OrderCard } from '../../components/order/OrderCard'
+import { InstrumentSearchInput } from '../../components/InstrumentSearchInput'
 import type { OrderStatus, OrderSource } from '../../api/order'
+import type { InstrumentSearchResultDto } from '../../api/instrument'
 
 const STATUS_FILTER_OPTIONS: { value: OrderStatus | ''; label: string }[] = [
   { value: '', label: '전체' },
@@ -39,11 +41,61 @@ const SOURCE_FILTER_OPTIONS: { value: OrderSource | ''; label: string }[] = [
 ]
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
+const DEFAULT_FILTER_LOOKBACK_DAYS = 7
+
+interface OrderDateFilter {
+  fromDate: string
+  toDate: string
+}
+
+function createDefaultOrderDateFilter(today = new Date()): OrderDateFilter {
+  return {
+    fromDate: formatOrderDate(today),
+    toDate: formatOrderDate(addDays(today, -DEFAULT_FILTER_LOOKBACK_DAYS)),
+  }
+}
 
 function toKstDayIso(date: string, boundary: 'start' | 'end'): string | undefined {
   if (!date) return undefined
   const time = boundary === 'start' ? '00:00:00.000' : '23:59:59.999'
   return new Date(`${date}T${time}+09:00`).toISOString()
+}
+
+function normalizeOrderDateRange(fromDate: string, toDate: string): { from?: string; to?: string } {
+  if (!fromDate && !toDate) return {}
+  if (!fromDate) return { to: toKstDayIso(toDate, 'end') }
+  if (!toDate) return { from: toKstDayIso(fromDate, 'start') }
+
+  const oldest = fromDate <= toDate ? fromDate : toDate
+  const newest = fromDate <= toDate ? toDate : fromDate
+  return {
+    from: toKstDayIso(oldest, 'start'),
+    to: toKstDayIso(newest, 'end'),
+  }
+}
+
+function formatOrderDate(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date)
+  next.setDate(next.getDate() + days)
+  return next
+}
+
+function formatInstrumentDisplay(result: InstrumentSearchResultDto): string {
+  return `${result.name} (${result.code})`
+}
+
+function extractInstrumentCode(value: string): string {
+  const trimmed = value.trim()
+  const labelMatch = trimmed.match(/\((\d{6})\)\s*$/)
+  if (labelMatch) return labelMatch[1]
+  return /^\d{6}$/.test(trimmed) ? trimmed : ''
 }
 
 function pageWindow(current: number, totalPages: number): number[] {
@@ -56,20 +108,20 @@ export function OrdersPage() {
   const userId = useOnboardingStore((s) => s.registeredUserId)
   const [statusFilter, setStatusFilter] = useState<OrderStatus | ''>('')
   const [sourceFilter, setSourceFilter] = useState<OrderSource | ''>('')
-  const [codeInput, setCodeInput] = useState('')
+  const [instrumentInput, setInstrumentInput] = useState('')
   const [codeFilter, setCodeFilter] = useState('')
-  const [fromDate, setFromDate] = useState('')
-  const [toDate, setToDate] = useState('')
+  const [dateFilter, setDateFilter] = useState<OrderDateFilter>(() => createDefaultOrderDateFilter())
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(20)
+  const queryDateRange = normalizeOrderDateRange(dateFilter.fromDate, dateFilter.toDate)
 
   const { data, isLoading, isError, error } = useOrders({
     userId: userId ?? undefined,
     status: statusFilter || undefined,
     source: sourceFilter || undefined,
     code: codeFilter || undefined,
-    from: toKstDayIso(fromDate, 'start'),
-    to: toKstDayIso(toDate, 'end'),
+    from: queryDateRange.from,
+    to: queryDateRange.to,
     page,
     size: pageSize,
   })
@@ -88,17 +140,28 @@ export function OrdersPage() {
 
   function handleSearchSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    setCodeFilter(codeInput.trim())
+    setCodeFilter(extractInstrumentCode(instrumentInput))
+    setPage(0)
+  }
+
+  function handleInstrumentRawChange(value: string) {
+    setInstrumentInput(value)
+    setCodeFilter(extractInstrumentCode(value))
+    setPage(0)
+  }
+
+  function handleInstrumentSelect(result: InstrumentSearchResultDto) {
+    setInstrumentInput(formatInstrumentDisplay(result))
+    setCodeFilter(result.code)
     setPage(0)
   }
 
   function clearFilters() {
     setStatusFilter('')
     setSourceFilter('')
-    setCodeInput('')
+    setInstrumentInput('')
     setCodeFilter('')
-    setFromDate('')
-    setToDate('')
+    setDateFilter(createDefaultOrderDateFilter())
     setPage(0)
   }
 
@@ -166,36 +229,34 @@ export function OrdersPage() {
       <section className="mb-4 rounded-xl border border-gray-800 bg-gray-900/60 p-4">
         <form onSubmit={handleSearchSubmit} className="grid gap-3 lg:grid-cols-[1.3fr_1fr_auto]">
           <label className="flex flex-col gap-1 text-xs text-gray-500">
-            종목코드
-            <input
-              type="search"
-              value={codeInput}
-              onChange={(e) => setCodeInput(e.target.value)}
-              placeholder="005930"
-              inputMode="numeric"
-              className="h-9 rounded-lg border border-gray-700 bg-gray-950 px-3 text-sm text-white placeholder-gray-600 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            종목
+            <InstrumentSearchInput
+              value={instrumentInput}
+              onRawChange={handleInstrumentRawChange}
+              onSelect={handleInstrumentSelect}
+              placeholder="종목명 또는 코드 검색"
             />
           </label>
           <div className="grid grid-cols-2 gap-2">
             <label className="flex flex-col gap-1 text-xs text-gray-500">
-              시작일
+              기간 시작
               <input
                 type="date"
-                value={fromDate}
+                value={dateFilter.fromDate}
                 onChange={(e) => {
-                  setFromDate(e.target.value)
+                  setDateFilter((prev) => ({ ...prev, fromDate: e.target.value }))
                   setPage(0)
                 }}
                 className="h-9 rounded-lg border border-gray-700 bg-gray-950 px-3 text-sm text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </label>
             <label className="flex flex-col gap-1 text-xs text-gray-500">
-              종료일
+              기간 종료
               <input
                 type="date"
-                value={toDate}
+                value={dateFilter.toDate}
                 onChange={(e) => {
-                  setToDate(e.target.value)
+                  setDateFilter((prev) => ({ ...prev, toDate: e.target.value }))
                   setPage(0)
                 }}
                 className="h-9 rounded-lg border border-gray-700 bg-gray-950 px-3 text-sm text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -311,7 +372,7 @@ export function OrdersPage() {
             <div className="rounded-xl border border-gray-800 bg-gray-900/50 px-4 py-12 text-center">
               <p className="text-base text-gray-400">주문 내역이 없습니다.</p>
               <p className="mt-2 text-sm text-gray-600">
-                {statusFilter || sourceFilter || codeFilter || fromDate || toDate
+                {statusFilter || sourceFilter || codeFilter || dateFilter.fromDate || dateFilter.toDate
                   ? '선택한 조건에 맞는 주문이 없습니다.'
                   : '자동매매 시스템이 주문을 발행하면 이 목록에 표시됩니다.'}
               </p>

@@ -13,6 +13,8 @@ import kr.spdaewoon.magicjar.api.persistence.order.OrderExecutionJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.order.OrderRequestJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.order.OrderRequestJpaRepository
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
+import kr.spdaewoon.magicjar.domain.performance.PnlDaily
 import kr.spdaewoon.magicjar.domain.performance.port.PerformanceCalculator
 import kr.spdaewoon.magicjar.domain.performance.port.PerformanceRepository
 import org.slf4j.LoggerFactory
@@ -69,9 +71,15 @@ class PerformanceService(
         period: String,
         periodStart: LocalDate?,
         periodEnd: LocalDate?,
+        mode: TradingMode? = null,
     ): PerformanceSummaryDto {
         val validPeriod = validatePeriod(period)
         val (from, to) = resolvePeriodRange(userId, validPeriod, periodStart, periodEnd)
+
+        if (mode != null) {
+            val pnlDailyList = buildPnlDailyFromTrades(userId, from, to, mode)
+            return buildSummaryDto(validPeriod, from, to, pnlDailyList, cacheHit = false)
+        }
 
         // Redis HIT check
         val cached = cache.getSummaryJson(userId, validPeriod, from, to)
@@ -83,27 +91,7 @@ class PerformanceService(
 
         // MISS → 계산
         val pnlDailyList = performanceRepository.findPnlDailyRange(userId, from, to)
-        val equityCurve = performanceCalculator.buildEquityCurve(pnlDailyList, from, to)
-
-        val totalPnl = performanceCalculator.totalPnl(pnlDailyList)
-        val mddPct = performanceCalculator.maxDrawdown(equityCurve)
-        val winRatePct = performanceCalculator.winRate(pnlDailyList)
-        val plRatio = performanceCalculator.profitLossRatio(pnlDailyList)
-        val tradeCount = pnlDailyList.sumOf { it.tradeCount }
-
-        val dto =
-            PerformanceSummaryDto(
-                period = validPeriod,
-                periodStart = from,
-                periodEnd = to,
-                totalPnl = totalPnl,
-                mddPct = mddPct,
-                winRatePct = winRatePct,
-                profitLossRatio = plRatio,
-                tradeCount = tradeCount,
-                computedAt = OffsetDateTime.ofInstant(Instant.now(), kst),
-                cacheHit = false,
-            )
+        val dto = buildSummaryDto(validPeriod, from, to, pnlDailyList, cacheHit = false)
 
         // Redis SET
         cache.putSummary(userId, validPeriod, from, to, dto)
@@ -119,10 +107,16 @@ class PerformanceService(
         userId: String,
         from: LocalDate?,
         to: LocalDate?,
+        mode: TradingMode? = null,
     ): EquityCurveDto {
         val today = LocalDate.now(kst)
         val resolvedTo = to ?: today
         val resolvedFrom = from ?: resolvedTo.minusDays(30)
+
+        if (mode != null) {
+            val pnlDailyList = buildPnlDailyFromTrades(userId, resolvedFrom, resolvedTo, mode)
+            return buildEquityCurveDto(resolvedFrom, resolvedTo, pnlDailyList)
+        }
 
         // Redis HIT check
         val cached = cache.getEquityCurveJson(userId, resolvedFrom, resolvedTo)
@@ -133,22 +127,7 @@ class PerformanceService(
 
         // MISS → 집계
         val pnlDailyList = performanceRepository.findPnlDailyRange(userId, resolvedFrom, resolvedTo)
-        val equityPoints = performanceCalculator.buildEquityCurve(pnlDailyList, resolvedFrom, resolvedTo)
-
-        val dto =
-            EquityCurveDto(
-                from = resolvedFrom,
-                to = resolvedTo,
-                points =
-                    equityPoints.map { point ->
-                        EquityPointDto(
-                            tradeDate = point.tradeDate,
-                            dailyPnl = point.dailyPnl,
-                            cumulativePnl = point.cumulativePnl,
-                            tradeCount = point.tradeCount,
-                        )
-                    },
-            )
+        val dto = buildEquityCurveDto(resolvedFrom, resolvedTo, pnlDailyList)
 
         // Redis SET
         cache.putEquityCurve(userId, resolvedFrom, resolvedTo, dto)
@@ -166,29 +145,11 @@ class PerformanceService(
         period: String,
         periodStart: LocalDate?,
         periodEnd: LocalDate?,
+        mode: TradingMode? = null,
     ): PerformanceTradeBreakdownDto {
         val validPeriod = validatePeriod(period)
         val (from, to) = resolvePeriodRange(userId, validPeriod, periodStart, periodEnd)
-        val toInstant = to.plusDays(1).atStartOfDay(kst).toInstant()
-
-        val executions = orderExecutionJpaRepository.findByUserIdAndExecutedAtBefore(userId, toInstant)
-        if (executions.isEmpty()) {
-            return emptyTradeBreakdown(validPeriod, from, to)
-        }
-
-        val requestById =
-            orderRequestJpaRepository
-                .findAllById(executions.map { it.orderId }.distinct())
-                .associateBy { it.id }
-        val namesByCode =
-            instrumentJpaRepository
-                .findAllById(requestById.values.map { it.code }.distinct())
-                .asSequence()
-                .filter { it.market != "UNKNOWN" }
-                .filter { it.name.isNotBlank() && it.name != it.code }
-                .associate { it.code to it.name }
-
-        val items = replayTradeBreakdown(executions, requestById, namesByCode, from, to)
+        val items = loadTradeItems(userId, from, to, mode)
         val totalRealizedPnl = items.fold(BigDecimal.ZERO) { acc, item -> acc + item.realizedPnl }.setScale(2, RoundingMode.HALF_UP)
 
         return PerformanceTradeBreakdownDto(
@@ -208,19 +169,114 @@ class PerformanceService(
         var avgPrice: BigDecimal = BigDecimal.ZERO,
     )
 
-    private fun emptyTradeBreakdown(
+    private fun buildSummaryDto(
         period: String,
         from: LocalDate,
         to: LocalDate,
-    ): PerformanceTradeBreakdownDto =
-        PerformanceTradeBreakdownDto(
+        pnlDailyList: List<PnlDaily>,
+        cacheHit: Boolean,
+    ): PerformanceSummaryDto {
+        val equityCurve = performanceCalculator.buildEquityCurve(pnlDailyList, from, to)
+        return PerformanceSummaryDto(
             period = period,
             periodStart = from,
             periodEnd = to,
-            totalRealizedPnl = BigDecimal.ZERO.setScale(2),
-            tradeCount = 0,
-            items = emptyList(),
+            totalPnl = performanceCalculator.totalPnl(pnlDailyList),
+            mddPct = performanceCalculator.maxDrawdown(equityCurve),
+            winRatePct = performanceCalculator.winRate(pnlDailyList),
+            profitLossRatio = performanceCalculator.profitLossRatio(pnlDailyList),
+            tradeCount = pnlDailyList.sumOf { it.tradeCount },
+            computedAt = OffsetDateTime.ofInstant(Instant.now(), kst),
+            cacheHit = cacheHit,
         )
+    }
+
+    private fun buildEquityCurveDto(
+        from: LocalDate,
+        to: LocalDate,
+        pnlDailyList: List<PnlDaily>,
+    ): EquityCurveDto {
+        val equityPoints = performanceCalculator.buildEquityCurve(pnlDailyList, from, to)
+        return EquityCurveDto(
+            from = from,
+            to = to,
+            points =
+                equityPoints.map { point ->
+                    EquityPointDto(
+                        tradeDate = point.tradeDate,
+                        dailyPnl = point.dailyPnl,
+                        cumulativePnl = point.cumulativePnl,
+                        tradeCount = point.tradeCount,
+                    )
+                },
+        )
+    }
+
+    private fun buildPnlDailyFromTrades(
+        userId: String,
+        from: LocalDate,
+        to: LocalDate,
+        mode: TradingMode,
+    ): List<PnlDaily> =
+        loadTradeItems(userId, from, to, mode)
+            .groupBy { it.tradeDate }
+            .entries
+            .sortedBy { it.key }
+            .map { (tradeDate, items) ->
+                val wins = items.filter { it.realizedPnl > BigDecimal.ZERO }
+                val losses = items.filter { it.realizedPnl < BigDecimal.ZERO }
+                PnlDaily(
+                    userId = userId,
+                    tradeDate = tradeDate,
+                    realizedPnl = items.fold(BigDecimal.ZERO) { acc, item -> acc + item.realizedPnl }.setScale(2, RoundingMode.HALF_UP),
+                    winCount = wins.size,
+                    lossCount = losses.size,
+                    tradeCount = items.size,
+                    avgProfit = averagePnl(wins),
+                    avgLoss = averagePnl(losses),
+                    equityAtClose = null,
+                )
+            }
+
+    private fun averagePnl(items: List<PerformanceTradeDto>): BigDecimal? {
+        if (items.isEmpty()) return null
+        return items
+            .fold(BigDecimal.ZERO) { acc, item -> acc + item.realizedPnl }
+            .divide(BigDecimal(items.size), 2, RoundingMode.HALF_UP)
+    }
+
+    private fun loadTradeItems(
+        userId: String,
+        from: LocalDate,
+        to: LocalDate,
+        mode: TradingMode?,
+    ): List<PerformanceTradeDto> {
+        val toInstant = to.plusDays(1).atStartOfDay(kst).toInstant()
+        val executions = orderExecutionJpaRepository.findByUserIdAndExecutedAtBefore(userId, toInstant)
+        if (executions.isEmpty()) return emptyList()
+
+        val requestById =
+            orderRequestJpaRepository
+                .findAllById(executions.map { it.orderId }.distinct())
+                .associateBy { it.id }
+        val filteredExecutions =
+            if (mode == null) {
+                executions
+            } else {
+                executions.filter { execution -> requestById[execution.orderId]?.mode == mode }
+            }
+        if (filteredExecutions.isEmpty()) return emptyList()
+
+        val namesByCode =
+            instrumentJpaRepository
+                .findAllById(filteredExecutions.mapNotNull { requestById[it.orderId]?.code }.distinct())
+                .asSequence()
+                .filter { it.market != "UNKNOWN" }
+                .filter { it.name.isNotBlank() && it.name != it.code }
+                .associate { it.code to it.name }
+
+        return replayTradeBreakdown(filteredExecutions, requestById, namesByCode, from, to)
+    }
 
     private fun replayTradeBreakdown(
         executions: List<OrderExecutionJpaEntity>,

@@ -26,24 +26,24 @@ function buildDays(from: string, to: string) {
     const isWeekend = cursor.getDay() === 0 || cursor.getDay() === 6
     days.push({
       date,
-      isBusinessDay: date === '2026-05-25' ? false : !isWeekend,
-      isHoliday: date === '2026-05-25',
-      holidayName: date === '2026-05-25' ? '부처님오신날' : null,
-      source: date === '2026-05-25' ? 'STATIC_SEED' : null,
+      isBusinessDay: date === '2026-06-03' ? false : !isWeekend,
+      isHoliday: date === '2026-06-03',
+      holidayName: date === '2026-06-03' ? '지방선거일' : null,
+      source: date === '2026-06-03' ? 'STATIC_SEED' : null,
       events:
-        date === '2026-05-25'
+        date === '2026-06-03'
           ? [
               {
                 id: 1,
                 date,
                 market: 'KRX',
                 eventType: 'IPO',
-                title: '신규 상장',
+                title: '지방 선거일',
                 instrumentCode: '123456',
                 description: null,
                 source: 'MANUAL',
-                createdAt: '2026-05-25T00:00:00Z',
-                updatedAt: '2026-05-25T00:00:00Z',
+                createdAt: '2026-06-03T00:00:00Z',
+                updatedAt: '2026-06-03T00:00:00Z',
               },
             ]
           : [],
@@ -67,7 +67,7 @@ function renderPage() {
 describe('MarketCalendarPage', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date(2026, 4, 25, 9, 0, 0))
+    vi.setSystemTime(new Date(2026, 5, 6, 9, 0, 0))
     vi.mocked(useInstrumentSearch).mockReturnValue({
       results: [],
       isLoading: false,
@@ -81,7 +81,7 @@ describe('MarketCalendarPage', () => {
     vi.restoreAllMocks()
   })
 
-  it('오늘부터 일주일 범위로 휴장일과 사용자 시장 이벤트를 표시한다', async () => {
+  it('일요일 시작 월간 그리드로 휴장일과 사용자 시장 이벤트를 표시한다', async () => {
     vi.spyOn(apiClient, 'get').mockImplementation(async (_url, config) => {
       const params = config?.params as { from: string; to: string }
       return {
@@ -96,15 +96,45 @@ describe('MarketCalendarPage', () => {
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getAllByText('부처님오신날').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('지방선거일').length).toBeGreaterThan(0)
     })
-    expect(screen.getAllByText('신규 상장').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('지방 선거일').length).toBeGreaterThan(0)
     expect(screen.getByRole('heading', { name: '시장 캘린더' })).toBeInTheDocument()
+    expect(screen.getByText('2026년 6월')).toBeInTheDocument()
     expect(apiClient.get).toHaveBeenCalledWith('/market/calendar', {
-      params: { from: '2026-05-25', to: '2026-05-31' },
+      params: { from: '2026-05-31', to: '2026-07-11' },
     })
-    expect(screen.getByRole('button', { name: '이전 주' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '다음 주' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '이전 달' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '다음 달' })).toBeInTheDocument()
+    expect(screen.getByTestId('calendar-day-2026-05-31')).toHaveClass('text-gray-600')
+    expect(screen.getByTestId('calendar-day-2026-07-01')).toHaveClass('text-gray-600')
+  })
+
+  it('날짜 칸 클릭으로 선택 상태와 폼 날짜를 변경한다', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(apiClient, 'get').mockImplementation(async (_url, config) => {
+      const params = config?.params as { from: string; to: string }
+      return {
+        data: {
+          from: params.from,
+          to: params.to,
+          days: buildDays(params.from, params.to),
+        },
+      }
+    })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('2026년 6월')).toBeInTheDocument()
+    })
+
+    const dateInput = screen.getByLabelText('날짜')
+    const dayCell = screen.getByTestId('calendar-day-2026-06-03')
+    await user.click(dayCell)
+
+    expect(dateInput).toHaveValue('2026-06-03')
+    expect(dayCell.className).toContain('ring-blue')
   })
 
   it('한글 종목명 자동완성 선택 후 이벤트 저장 시 6자리 코드만 보낸다', async () => {
@@ -122,7 +152,7 @@ describe('MarketCalendarPage', () => {
     const postSpy = vi.spyOn(apiClient, 'post').mockResolvedValue({
       data: {
         id: 2,
-        date: '2026-05-25',
+        date: '2026-06-06',
         market: 'KRX',
         eventType: 'EARNINGS',
         title: '삼성전자 실적',

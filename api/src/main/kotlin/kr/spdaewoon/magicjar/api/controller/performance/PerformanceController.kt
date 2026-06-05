@@ -9,6 +9,7 @@ import kr.spdaewoon.magicjar.api.controller.dto.performance.EquityCurveDto
 import kr.spdaewoon.magicjar.api.controller.dto.performance.PerformanceSummaryDto
 import kr.spdaewoon.magicjar.api.controller.dto.performance.PerformanceTradeBreakdownDto
 import kr.spdaewoon.magicjar.api.service.performance.PerformanceService
+import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
@@ -77,7 +78,9 @@ class PerformanceController(
         @RequestParam(required = false) periodStart: LocalDate?,
         @Parameter(description = "기간 종료 일자 (옵션 — 미지정 시 오늘)", example = "2026-05-14")
         @RequestParam(required = false) periodEnd: LocalDate?,
-    ): PerformanceSummaryDto = performanceService.getSummary(userId, period, periodStart, periodEnd)
+        @Parameter(description = "거래 모드 필터 (REAL·MOCK). 미지정 시 전체", example = "MOCK")
+        @RequestParam(required = false) mode: TradingMode?,
+    ): PerformanceSummaryDto = performanceService.getSummary(userId, period, periodStart, periodEnd, mode)
 
     /**
      * GET /api/performance/equity-curve
@@ -110,7 +113,9 @@ class PerformanceController(
         @RequestParam(required = false) from: LocalDate?,
         @Parameter(description = "조회 종료 일자 (옵션 — 미지정 시 오늘)", example = "2026-05-14")
         @RequestParam(required = false) to: LocalDate?,
-    ): EquityCurveDto = performanceService.getEquityCurve(userId, from, to)
+        @Parameter(description = "거래 모드 필터 (REAL·MOCK). 미지정 시 전체", example = "MOCK")
+        @RequestParam(required = false) mode: TradingMode?,
+    ): EquityCurveDto = performanceService.getEquityCurve(userId, from, to, mode)
 
     /**
      * GET /api/performance/trades
@@ -144,5 +149,7 @@ class PerformanceController(
         @RequestParam(required = false) periodStart: LocalDate?,
         @Parameter(description = "기간 종료 일자 (옵션 — 미지정 시 오늘)", example = "2026-05-22")
         @RequestParam(required = false) periodEnd: LocalDate?,
-    ): PerformanceTradeBreakdownDto = performanceService.getTradeBreakdown(userId, period, periodStart, periodEnd)
+        @Parameter(description = "거래 모드 필터 (REAL·MOCK). 미지정 시 전체", example = "MOCK")
+        @RequestParam(required = false) mode: TradingMode?,
+    ): PerformanceTradeBreakdownDto = performanceService.getTradeBreakdown(userId, period, periodStart, periodEnd, mode)
 }

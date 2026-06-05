@@ -9,6 +9,7 @@
  * mock 합성 0 — 영속 부재 시 backend 응답 그대로
  */
 import apiClient from '../../../lib/axios'
+import type { AccountType } from '../../../api/account'
 
 // ──────────────────────────────────────────────
 // 기간 단위 (ADR 0072 §2-3 C-1)
@@ -99,9 +100,10 @@ export const performanceApi = {
     period: PerformancePeriod,
     periodStart?: string,
     periodEnd?: string,
+    mode?: AccountType,
   ): Promise<PerformanceSummaryDto> => {
     const res = await apiClient.get<PerformanceSummaryDto>('/performance/summary', {
-      params: { userId, period, periodStart, periodEnd },
+      params: { userId, period, periodStart, periodEnd, mode },
     })
     return res.data
   },
@@ -114,9 +116,10 @@ export const performanceApi = {
     userId: number,
     from?: string,
     to?: string,
+    mode?: AccountType,
   ): Promise<EquityCurveDto> => {
     const res = await apiClient.get<EquityCurveDto>('/performance/equity-curve', {
-      params: { userId, from, to },
+      params: { userId, from, to, mode },
     })
     return res.data
   },
@@ -130,9 +133,10 @@ export const performanceApi = {
     period: PerformancePeriod,
     periodStart?: string,
     periodEnd?: string,
+    mode?: AccountType,
   ): Promise<PerformanceTradeBreakdownDto> => {
     const res = await apiClient.get<PerformanceTradeBreakdownDto>('/performance/trades', {
-      params: { userId, period, periodStart, periodEnd },
+      params: { userId, period, periodStart, periodEnd, mode },
     })
     return res.data
   },
