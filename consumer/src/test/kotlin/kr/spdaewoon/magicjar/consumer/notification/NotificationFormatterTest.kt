@@ -224,7 +224,7 @@ class NotificationFormatterTest {
     }
 
     @Test
-    fun `(5) RECONCILE_DRIFT — 경보 + 즉시 KillSwitch OFF 조치 포함`() {
+    fun `(5) RECONCILE_DRIFT — 경보 + 즉시 조치 (KillSwitch 발동 단정 제거 · 2026-06-05 fix)`() {
         val msg =
             NotificationFormatter.format(
                 userId = "12345678",
@@ -234,7 +234,11 @@ class NotificationFormatterTest {
             )
         assertThat(msg).contains("포지션 불일치")
         assertThat(msg).contains("즉시 조치")
-        assertThat(msg).contains("KillSwitch OFF")
+        // 2026-06-05 fix — drift 검출 ≠ KillSwitch 발동. "OFF 토글 필요" 단정 대신 실제 보유 확인 + 자동 평가 안내.
+        assertThat(msg).contains("KIS HTS 에서 실제 보유 수량 확인")
+        assertThat(msg).contains("KillSwitch 는 반복 drift 시 자동 발동")
+        // 발동을 단정하는 옛 문구는 더 이상 노출하지 않는다.
+        assertThat(msg).doesNotContain("수동 KillSwitch OFF 토글 필요")
     }
 
     @Test

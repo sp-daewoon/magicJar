@@ -278,7 +278,11 @@ class NotificationDispatcher(
             NotificationEventType.RISK_VIOLATION ->
                 buildRiskReason(raw)
             NotificationEventType.RECONCILE_DRIFT ->
-                "포지션 불일치: ${raw["symbol"]} KIS=${raw["kisQty"]}주 내부=${raw["internalQty"]}주 diff=${raw["qtyDiff"]}"
+                // 2026-06-05 알림 친절도 fix — internalQty 는 drift 검출 시점(보정 직전) 스냅샷이다.
+                // reconcile 은 KIS 기준(kisQty)으로 내부 position 을 upsert 하므로 보정 후 내부 = KIS 수량이 된다.
+                // "보정 전 내부=N → 보정 후 내부=M(KIS)" 로 표기해 사용자가 스냅샷/보정 결과를 혼동하지 않게 한다.
+                "포지션 불일치: ${raw["symbol"]} KIS=${raw["kisQty"]}주 " +
+                    "(보정 전 내부=${raw["internalQty"]}주 → 보정 후 내부=${raw["kisQty"]}주) diff=${raw["qtyDiff"]}"
             NotificationEventType.KILLSWITCH_ENGAGED ->
                 "KillSwitch 발동: reason=${raw["reason"]} triggeredBy=${raw["triggeredBy"]}"
             NotificationEventType.RECONCILE_RUN ->

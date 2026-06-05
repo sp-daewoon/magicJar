@@ -530,7 +530,15 @@ class KisExecutionBackfillService(
     /**
      * backfill 시점 OrderRequest stub row 생성 — KisExecutionWsListener.preInsertOrderRequest 동일 정합.
      *
-     * sentinel: signalId=0L, strategyId=0L, priceType=MARKET, status=ACK
+     * sentinel: signalId=0L, strategyId=0L, priceType=MARKET, status=ACK, source=EXTERNAL.
+     *
+     * ### user/mode 정합 (WS path 와 다른 점)
+     * backfill 은 credential enumeration 으로 진입하므로 `userId`(내부) + `accountType` 이 이미 정확하다
+     * (WS path 처럼 ACNT_NO 역조회 불필요). 따라서 mode 는 accountType 에서 직접 환산.
+     *
+     * ### source = EXTERNAL (2026-06-05 fix)
+     * 본 메서드는 `findByKisOrderNo == null` 일 때만 호출 — 내부 order_request 가 없는 KIS 체결은
+     * 우리가 발의하지 않은 외부(HTS·MTS) 주문이므로 EXTERNAL 분류 (구 default AUTO 결함 정정).
      */
     internal fun preInsertOrderRequestForBackfill(
         orderRepo: OrderRequestRepository,
@@ -579,6 +587,9 @@ class KisExecutionBackfillService(
                 idempotencyKey = sentinelKey,
                 requestedAt = now,
                 acknowledgedAt = now,
+                // 2026-06-05 fix — 내부 order_request 부재(findByKisOrderNo == null)인 KIS 일별체결은
+                // 우리 시스템이 발의하지 않은 외부(HTS·MTS) 주문 → AUTO 가 아니라 EXTERNAL 로 분류 (감사 명확성).
+                source = kr.spdaewoon.magicjar.domain.order.execution.OrderSource.EXTERNAL,
             )
         return try {
             orderRepo.save(stub)

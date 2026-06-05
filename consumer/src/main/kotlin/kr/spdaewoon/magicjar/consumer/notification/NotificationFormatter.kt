@@ -71,7 +71,12 @@ object NotificationFormatter {
         meta: Map<String, String?>,
     ): String =
         when (eventType) {
-            NotificationEventType.RECONCILE_DRIFT -> "KIS HTS 직접 확인 후 수동 KillSwitch OFF 토글 필요"
+            NotificationEventType.RECONCILE_DRIFT ->
+                // 2026-06-05 fix — drift 검출 ≠ KillSwitch 발동. KillSwitch 는 strike N회(기본 2회)·grace window
+                // 규칙으로 자동 평가되며 미달이면 발동하지 않는다. 따라서 "OFF 토글 필요"를 단정하면 실상과 불일치.
+                // 실제 발동 시에만 별도 KILLSWITCH_ENGAGED 알림이 오므로, 그 경우에 한해 수동 OFF 안내한다.
+                "KIS HTS 에서 실제 보유 수량 확인 (자동 보정은 KIS 기준으로 적용됨). " +
+                    "KillSwitch 는 반복 drift 시 자동 발동되며, 발동되면 별도 알림이 오니 그때 수동 OFF 필요."
             NotificationEventType.KILLSWITCH_ENGAGED -> "자동매매 일시 중단됨. KIS 잔고 확인 후 수동 재활성화 필요"
             NotificationEventType.RISK_VIOLATION ->
                 meta["alertAction"]?.takeIf { it.isNotBlank() } ?: "리스크 한도 점검 후 필요 시 전략 비활성화"
