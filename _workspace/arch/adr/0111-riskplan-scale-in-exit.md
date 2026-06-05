@@ -35,7 +35,7 @@ ADR 0106 RiskPlan을 깨지 않고 add-only로 확장한다. 미설정 전략은
 ### 2-2. 평단 기준 exit 확장
 
 - **stop-loss exit 신규**: `evaluateStopLossExit` — 현재가 ≤ `strategy_position.avgPrice` × (1 - `fixedStopLossPct`/100) → 전량 SELL(reason `STOP_LOSS`).
-- **분할 익절 신규**: `partialExits: List<PartialExit>?`(StrategyDefinition 신규, nullable). 각 `PartialExit(triggerProfitPct, exitWeightPct)` 도달 시 보유분 weight%만 SELL(reason `PARTIAL_TAKE_PROFIT`, slice index). weight 합 ≤ 100.
+- **분할 익절 신규**: `partialExits: List<PartialExit>?`(StrategyDefinition 신규, nullable). 각 `PartialExit(triggerProfitPct, exitWeightPct)` 도달 시 보유분 weight%만 SELL(reason `PARTIAL_TAKE_PROFIT`, slice index). weight 합 ≤ 100. **단계당 1회만 발화** — `strategy_position.executed_exit_stages`(ADR 0110 §2)에 기록된 단계는 재발화 금지(가격이 trigger 위에 머물러도 중복 SELL 0). 체결 확정 시 단계 인덱스 마킹.
 - **전량 익절(기존)**: `takeProfitPct` 도달 시 잔량 전량 SELL.
 - **평단 권위**: 모든 exit는 `strategy_position.avgPrice`(전략 평단) 기준 — ADR 0110 토대.
 
@@ -55,12 +55,21 @@ scale-in/exit는 **포지션 사이징·리스크 정책**(Sizing·RiskPlan 레�
 
 `strategy` 테이블 add-only — `scale_in_config JSONB NULL`·`partial_exits JSONB NULL`(spec §4 LOCK). 가변 리스트 → JSONB(ADR 0101 user_preference 패턴 정합). 조회 항상 strategy 단위.
 
+### 2-7. "리플레이 먼저" 활성화 게이트 (amend — Codex 원칙 정합)
+
+리플레이 정합 통과 전 실주문 경로 미연결을 LOCK한다. R2 라이브 엔진 구현 시 `magicjar.strategy.scale-in.enabled`(default **false**) feature toggle + scale-in 설정 전략의 ACTIVE 전이 차단 게이트(`SCALE_IN_NOT_ENABLED`)를 둔다. DRAFT 저장은 허용(리플레이/백테스트 검증 대상)하되 **활성화는 toggle OFF면 API 레벨에서도 거부**(UI 미노출이 아니라 서버 검증 — 직접 API 호출 방어). R3 리플레이 = 라이브 decision 회귀 + qa 시나리오 통과 후에만 toggle 해제 + 게이트 해제. (spec §8-1)
+
+### 2-8. leg idempotency 권위 (amend)
+
+scale-in/분할 익절 leg 중복 방지 권위는 V38에서 완화된 `uq_order_signal_user`가 아니라 **`idempotency_key` UQ + Redis SETNX**(실측). PRICE_DROP_PCT 회차·분할 익절 SELL 모두 시그널을 발행하고(reason에 회차/단계 명시) 기존 AUTO 경로(시그널→OrderIntent)를 통과 — 시그널 없이 OrderIntent 생성하는 우회 경로 0. idempotencyKey에 `slice#N`·`ptp#k`·`exit#...` suffix add(단일 진입 전략은 기존 키 불변·하위호환). (spec §5-3)
+
 ## 3. Consequences
 
 - 사용자가 전략당 N회 분할 + 회당 비중 + 평단 기준 손절/익절 + 분할 익절을 설정·실행 가능.
 - 손절가 없는 BUY는 ADR 0106 fail-closed 유지 — 분할 추가 회차도 매번 검증.
 - scale-in `null` + partialExits `null` → 현행 단일 진입 + 전량 익절(하위호환 — 기존 전략 0 변경).
 - canary 시 분할 N회 = REAL 주문 N건 → ADR 0109 일일 횟수 cap 빠르게 소진(spec §6-1 runbook 가이드 — 코드 0 변경).
+- **post-MVP 확장 슬롯**: 전략 리서치 화면(머지 완료)의 "추천 실행 계획"이 `ScaleInPlan`·`ExitPlan`(PartialExit)을 builderDraft 출력 DTO로 재사용 → 사용자가 빌더에서 검증·저장하는 출발점(자동매매 결정 대체 X). 본 사이클 구현 X(모델만 정의·spec §1-3).
 
 ## 4. 운영 ADR 양식 3 슬롯 (헌법 §9-5)
 
@@ -99,3 +108,4 @@ scale-in/exit는 **포지션 사이징·리스크 정책**(Sizing·RiskPlan 레�
 | 날짜 | 변경 | 결정자 |
 |------|------|--------|
 | 2026-06-05 | **ADR 0111 Accepted (ADR 0106 amend)** — ScaleInPlan(N회·회당 비중·재진입 트리거, V66 JSONB) + 평단 기준 stop-loss exit 신규 + 분할 익절(PartialExit) + ScaleInExitCalculator 단일 순수 함수(live·리플레이·백테스트 공유) + 동시 터치 stop 우선(ADR 0107 정합) + DSL 미확장(정책 레이어). 하위호환(scale-in null=현행). 운영 코드 0 touch. | architect (사용자 분할매수 요구) |
+| 2026-06-05 | **amend (PR #741 검수 4건)** — 분할 익절 단계당 1회 발화 불변식(executed_exit_stages·§2-2) + "리플레이 먼저" 활성화 게이트(scale-in.enabled default false·ACTIVE 차단·API 직접 호출 차단·§2-7) + leg idempotency 권위 명문화(idempotency_key UQ + SETNX·시그널 발행 경로·suffix·§2-8) + 리서치 추천 실행 계획 post-MVP 슬롯(Consequences). spec §3-1·§5-3·§8-1·§1-3 정합. | architect (orchestrator 검수) |

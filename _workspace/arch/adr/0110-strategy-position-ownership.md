@@ -26,7 +26,9 @@ readiness 재평가(2026-06-05)는 REAL 무인 운용의 잔여 P1 게이트 둘
 
 기존 `position`(user+code 합산, KIS 잔고 권위)은 **유지**하고, 그 아래에 전략별 lot ledger `strategy_position`을 1급 도메인으로 신설한다.
 
-1. **`strategy_position` 테이블** — `UNIQUE(user_id, strategy_id, code)`. 컬럼: `quantity`·`avg_price`·`filled_lots`·`realized_pnl`·`opened_at`·`updated_at`. FK(user_account·strategy·instrument). Flyway **V65**(spec §4 LOCK).
+1. **`strategy_position` 테이블** — `UNIQUE(user_id, strategy_id, code)`. 컬럼: `quantity`·`avg_price`·`filled_lots`·`realized_pnl`·`opened_at`·`updated_at` + **`executed_exit_stages JSONB`**(발화된 PartialExit 단계 인덱스 — 부분 익절 중복 발화 방지·ADR 0111 §2-2 정합). FK(user_account·strategy·instrument). Flyway **V65**(spec §4 LOCK).
+   - **부분 익절 1회 발화 불변식 (amend)**: 각 PartialExit 단계는 `executed_exit_stages`로 1회만 발화(가격이 trigger 위에 머물러도 중복 SELL 0). 체결 확정 시 단계 인덱스 마킹(발행 시점 아님 — 미체결 reject 재시도 보존). `filledLots`(진입 단조 증가)와 대칭. 전량 청산 시 `filled_lots=0`·`executed_exit_stages` reset.
+   - **leg idempotency 권위 (amend)**: order_request의 자본 중복 보호 권위는 V38에서 완화된 `uq_order_signal_user`가 아니라 **`idempotency_key` UQ + Redis SETNX**(V20 §5·V38 §22 실측). scale-in/분할 익절 leg는 idempotencyKey에 회차/단계 suffix를 add해 중복 차단(spec §5-3).
 2. **불변식**: `sum(strategy_position.quantity WHERE user+code) == position.quantity`. drift 시 **KIS 잔고(position)가 상위 권위** — `STRATEGY_POSITION_DRIFT` SystemEvent(WARN) 발사 + 보수적으로 position 우선.
 3. **귀속 키**: `OrderIntent`·`order_execution`이 이미 보유한 `strategy_id`로 체결 listener가 `strategy_position` upsert(평단 가중평균 갱신 + `filled_lots` 증가 / SELL 시 `realized_pnl` 누적 + quantity 감소).
 4. **RiskGateway SELL 계열 2룰만 전략별 분기**:
@@ -74,3 +76,4 @@ readiness 재평가(2026-06-05)는 REAL 무인 운용의 잔여 P1 게이트 둘
 | 날짜 | 변경 | 결정자 |
 |------|------|--------|
 | 2026-06-05 | **ADR 0110 Accepted** — `strategy_position` 1급 도메인 신설(UNIQUE user+strategy+code, V65). position(KIS 잔고 권위) 유지 + 전략별 lot ledger. 불변식(KIS 권위 우선) + RiskGateway SELL 2룰 전략별 분기(SELL_WITHOUT_POSITION·SELL_QUANTITY_UNAVAILABLE) + 합산 룰 유지(KIS게이트·POSITION_LIMIT·동시보유). StrategyPositionPort. 운영 코드 0 touch. | architect (readiness C-2) |
+| 2026-06-05 | **amend (PR #741 검수 4건)** — V65에 `executed_exit_stages JSONB` 추가(부분 익절 1회 발화 불변식·체결 시 마킹). leg idempotency 권위 명문화(V38 실측: `uq_order_signal_user` DROP → `idempotency_key` UQ + Redis SETNX가 단일 권위). spec §3-1·§5-3 정합. | architect (orchestrator 검수) |
