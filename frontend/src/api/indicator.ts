@@ -176,7 +176,15 @@ export const INDICATOR_CATALOG: IndicatorCatalogItem[] = [
     id: 'order_block',
     name: '오더블록(Order Block)',
     category: 'OTHER',
-    defaultParams: { swingLookback: 20, searchLookback: 20, mitigationPct: 50 },
+    // detection ∈ {bos(default), engulfing}, range ∈ {wick(default), body}
+    // backend IndicatorCatalog와 동일 계약 (위치 직렬화 순서 유지)
+    defaultParams: {
+      swingLookback: 20,
+      searchLookback: 20,
+      mitigationPct: 50,
+      detection: 'bos',
+      range: 'wick',
+    },
     multiOutput: true,
     outputKeys: [
       'order_block',

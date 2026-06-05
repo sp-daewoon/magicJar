@@ -453,6 +453,17 @@ class Parser {
         this.lex.consume()
         params[`p${idx}`] = t.value.includes('.') ? parseFloat(t.value) : parseInt(t.value)
         idx++
+      } else if (t.type === 'IDENT') {
+        // IDENTIFIER 인자 (order_block detection/range 등: engulfing·body·bos·wick)
+        // backend KisYamlDslParser IDENTIFIER 인자 지원 정합 (up·down 선례)
+        this.lex.consume()
+        params[`p${idx}`] = t.value
+        idx++
+      } else if (t.type === 'STRING' || t.type === 'BOOLEAN') {
+        // 문자열·불리언 리터럴 인자
+        this.lex.consume()
+        params[`p${idx}`] = t.value
+        idx++
       } else if (t.type === 'COMMA') {
         this.lex.consume()
       } else {
