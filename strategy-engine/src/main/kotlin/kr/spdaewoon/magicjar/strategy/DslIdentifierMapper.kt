@@ -120,7 +120,17 @@ class DslIdentifierMapper {
         val swingLookback = ref.params.getOrNull(0)?.toIntOrDefault(20) ?: 20
         val searchLookback = ref.params.getOrNull(1)?.toIntOrDefault(20) ?: 20
         val mitigationPct = ref.params.getOrNull(2)?.toBigDecimalOrDefault(BigDecimal("50")) ?: BigDecimal("50")
-        return mapOf("swingLookback" to swingLookback, "searchLookback" to searchLookback, "mitigationPct" to mitigationPct)
+        // position 3 = detection ∈ {"bos"(default), "engulfing"}, position 4 = range ∈ {"wick"(default), "body"}
+        // 위치 직렬화 계약 (frontend serializer Object.values().join) 정합 — add-only.
+        val detection = ref.params.getOrNull(3)?.toEnumOrDefault(setOf("bos", "engulfing"), "bos") ?: "bos"
+        val range = ref.params.getOrNull(4)?.toEnumOrDefault(setOf("wick", "body"), "wick") ?: "wick"
+        return mapOf(
+            "swingLookback" to swingLookback,
+            "searchLookback" to searchLookback,
+            "mitigationPct" to mitigationPct,
+            "detection" to detection,
+            "range" to range,
+        )
     }
 
     private fun Any.toIntOrDefault(default: Int): Int =
@@ -138,6 +148,17 @@ class DslIdentifierMapper {
             is String -> toBigDecimalOrNull() ?: default
             else -> default
         }
+
+    /**
+     * enum-like 문자열 파라미터 검증. allowed set(소문자) 비포함·비문자열 → default fallback.
+     */
+    private fun Any.toEnumOrDefault(
+        allowed: Set<String>,
+        default: String,
+    ): String {
+        val normalized = (this as? String)?.lowercase() ?: return default
+        return if (normalized in allowed) normalized else default
+    }
 
     companion object {
         /**

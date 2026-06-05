@@ -71,4 +71,20 @@ data class IndicatorSpec(
             is String -> v.toBigDecimalOrNull() ?: default
             else -> default
         }
+
+    /**
+     * 파라미터 값을 String으로 추출 (없으면 default).
+     *
+     * order_block `detection`("bos"/"engulfing") · `range`("wick"/"body") 같은
+     * 열거형(enum-like) 문자열 파라미터 추출용. null·blank → default.
+     */
+    fun stringParam(
+        key: String,
+        default: String,
+    ): String =
+        when (val v = params[key]) {
+            null -> default
+            is String -> v.ifBlank { default }
+            else -> v.toString()
+        }
 }

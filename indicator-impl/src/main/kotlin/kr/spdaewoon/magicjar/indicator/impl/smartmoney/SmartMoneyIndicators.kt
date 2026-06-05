@@ -73,13 +73,44 @@ internal object SmartMoneyIndicators {
         return IndicatorResult(spec, series, "smart-money")
     }
 
+    /**
+     * 오더블록(Order Block) 탐지.
+     *
+     * 파라미터 (add-only — ADR add-only, 위치 직렬화 계약 정합):
+     * - `detection` ∈ {"bos"(default), "engulfing"} — 탐지 방식
+     *   - `"bos"`: swing 돌파(Break of Structure) 후 반대색 캔들을 OB로 채택 (기존 동작 LOCK)
+     *   - `"engulfing"`: 유튜버 장악형 — 직전 캔들 몸통을 완전히 감싸는(engulf) 캔들 패턴을
+     *     기준봉(=장악당한 직전 캔들)으로 OB 채택. swingLookback/searchLookback은 무시
+     * - `range` ∈ {"wick"(default), "body"} — zone 범위 산정
+     *   - `"wick"`: top=기준봉.high, bottom=기준봉.low (기존 동작 LOCK)
+     *   - `"body"`: top=max(open,close), bottom=min(open,close) — "장악당한 캔들의 몸통"
+     *
+     * 출력 스키마(12 키)·소멸 로직(mitigationPct + invalidation)은 무변경.
+     * `bos_direction` 키는 detection="engulfing"일 때 BOS가 아닌 "장악 방향"을 의미한다
+     * (+1=bullish 장악, -1=bearish 장악). 키 이름은 하위호환을 위해 유지.
+     */
     fun orderBlock(
         spec: IndicatorSpec,
         candles: List<Candle>,
     ): IndicatorResult {
+        val detection = spec.stringParam("detection", "bos").lowercase()
+        val rangeMode = spec.stringParam("range", "wick").lowercase()
+        val mitigationPct = pctParam(spec, "mitigationPct", BigDecimal("50"))
+
+        return when (detection) {
+            "engulfing" -> orderBlockEngulfing(spec, candles, rangeMode, mitigationPct)
+            else -> orderBlockBos(spec, candles, rangeMode, mitigationPct)
+        }
+    }
+
+    private fun orderBlockBos(
+        spec: IndicatorSpec,
+        candles: List<Candle>,
+        rangeMode: String,
+        mitigationPct: BigDecimal,
+    ): IndicatorResult {
         val swingLookback = spec.intParam("swingLookback", 20).coerceAtLeast(2)
         val searchLookback = spec.intParam("searchLookback", 20).coerceAtLeast(1)
-        val mitigationPct = pctParam(spec, "mitigationPct", BigDecimal("50"))
         var bullish: Zone? = null
         var bearish: Zone? = null
         val series = mutableListOf<IndicatorPoint>()
@@ -100,13 +131,13 @@ internal object SmartMoneyIndicators {
                 if (current.closeRaw > swingHigh) {
                     val ob = searchWindow.asReversed().firstOrNull { it.closeRaw < it.openRaw }
                     if (ob != null) {
-                        bullish = Zone(Side.BULLISH, top = ob.highRaw, bottom = ob.lowRaw, originIndex = i)
+                        bullish = zoneOf(Side.BULLISH, ob, rangeMode, i)
                         bosDirection = ONE
                     }
                 } else if (current.closeRaw < swingLow) {
                     val ob = searchWindow.asReversed().firstOrNull { it.closeRaw > it.openRaw }
                     if (ob != null) {
-                        bearish = Zone(Side.BEARISH, top = ob.highRaw, bottom = ob.lowRaw, originIndex = i)
+                        bearish = zoneOf(Side.BEARISH, ob, rangeMode, i)
                         bosDirection = BigDecimal("-1")
                     }
                 }
@@ -122,6 +153,76 @@ internal object SmartMoneyIndicators {
 
         return IndicatorResult(spec, series, "smart-money")
     }
+
+    private fun orderBlockEngulfing(
+        spec: IndicatorSpec,
+        candles: List<Candle>,
+        rangeMode: String,
+        mitigationPct: BigDecimal,
+    ): IndicatorResult {
+        var bullish: Zone? = null
+        var bearish: Zone? = null
+        val series = mutableListOf<IndicatorPoint>()
+
+        for (i in candles.indices) {
+            val current = candles[i]
+            bullish = bullish?.takeUnless { i > it.originIndex && (isInvalidated(it, current) || isMitigated(it, current, mitigationPct)) }
+            bearish = bearish?.takeUnless { i > it.originIndex && (isInvalidated(it, current) || isMitigated(it, current, mitigationPct)) }
+
+            var bosDirection = ZERO
+            if (i >= 1) {
+                val prev = candles[i - 1]
+                val curr = current
+                val prevBearish = prev.closeRaw < prev.openRaw
+                val prevBullish = prev.closeRaw > prev.openRaw
+                val currBullish = curr.closeRaw > curr.openRaw
+                val currBearish = curr.closeRaw < curr.openRaw
+
+                // Bullish OB: 직전 음봉을 현재 양봉의 몸통이 완전히 감쌈 (경계 동등 허용)
+                val bullishEngulf =
+                    prevBearish && currBullish && curr.openRaw <= prev.closeRaw && curr.closeRaw >= prev.openRaw
+                // Bearish OB: 직전 양봉을 현재 음봉의 몸통이 완전히 감쌈
+                val bearishEngulf =
+                    prevBullish && currBearish && curr.openRaw >= prev.closeRaw && curr.closeRaw <= prev.openRaw
+
+                if (bullishEngulf) {
+                    bullish = zoneOf(Side.BULLISH, prev, rangeMode, i)
+                    bosDirection = ONE
+                } else if (bearishEngulf) {
+                    bearish = zoneOf(Side.BEARISH, prev, rangeMode, i)
+                    bosDirection = BigDecimal("-1")
+                }
+            }
+
+            series.add(
+                IndicatorPoint(
+                    time = current.ts,
+                    values = orderBlockValues(bullish, bearish, current, bosDirection),
+                ),
+            )
+        }
+
+        return IndicatorResult(spec, series, "smart-money")
+    }
+
+    /**
+     * 기준봉(origin candle) → Zone. range 모드에 따라 top/bottom 산정.
+     * - "body": 몸통(max/min of open,close)
+     * - 그 외("wick" default): 고가/저가 (full wick)
+     */
+    private fun zoneOf(
+        side: Side,
+        origin: Candle,
+        rangeMode: String,
+        originIndex: Int,
+    ): Zone =
+        if (rangeMode == "body") {
+            val top = origin.openRaw.max(origin.closeRaw)
+            val bottom = origin.openRaw.min(origin.closeRaw)
+            Zone(side, top = top, bottom = bottom, originIndex = originIndex)
+        } else {
+            Zone(side, top = origin.highRaw, bottom = origin.lowRaw, originIndex = originIndex)
+        }
 
     private fun fvgValues(
         bullish: Zone?,
