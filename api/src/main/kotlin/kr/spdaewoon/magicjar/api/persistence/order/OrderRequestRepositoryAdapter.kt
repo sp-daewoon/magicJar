@@ -107,6 +107,18 @@ class OrderRequestRepositoryAdapter(
     }
 
     /**
+     * ADR 0109 GAP-3 — canary 일일 REAL 주문 횟수 전역 cap 카운트 (port 정합 — api 모듈 공통 구현).
+     *
+     * 자본 path 게이트 caller는 consumer 모듈이나, port 구현 의무로 api 어댑터도 동일 동작 보장.
+     * order_request 단일 권위 count (Redis 미사용 — drift 회피, ADR 0109 §2-4).
+     */
+    @Transactional(readOnly = true)
+    override fun countRealOrdersBetween(
+        fromInclusive: Instant,
+        toExclusive: Instant,
+    ): Long = jpa.countRealOrdersBetween(TradingMode.REAL, fromInclusive, toExclusive)
+
+    /**
      * 사용자 시계열 주문 페이징 — OrderQueryService에서 직접 호출.
      */
     @Transactional(readOnly = true)

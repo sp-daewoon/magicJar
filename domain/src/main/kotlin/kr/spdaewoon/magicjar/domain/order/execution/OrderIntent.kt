@@ -22,6 +22,8 @@ import java.time.Instant
  *   idempotencyKey  — AUTO: "{signalId}:{userId}" / MANUAL: "manual:{userId}:{code}:{side}:{UUID}" (FIX B-1 P0 강화 — 동일 초 다중 주문 충돌 해소)
  *   requestedAt     — T-RISK publish 시각 (Kafka producer 채번)
  *   source          — AUTO(자동 path, default) / MANUAL(POST /api/orders/manual 진입) — ADR 0082 B-2-extended LOCK
+ *   priceAtSignal   — 평가 시점 종가 (order.intent.v1 payload `priceAtSignal`). MARKET 주문 notional 산정 source
+ *                     (ADR 0109 §2-5 — LIMIT는 limitPrice, MARKET은 priceAtSignal). 미발행 시 null (backward compat)
  *
  * AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8 + ADR 0082)
  */
@@ -38,4 +40,6 @@ data class OrderIntent(
     val idempotencyKey: String,
     val requestedAt: Instant,
     val source: OrderSource = OrderSource.AUTO,
+    // ADR 0109 §2-5 — canary notional hard cap MARKET price source (add-only, default null = backward compat)
+    val priceAtSignal: BigDecimal? = null,
 )
