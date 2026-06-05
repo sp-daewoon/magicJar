@@ -556,6 +556,7 @@ class RealtimeSignalGeneratorTest {
                 riskPositionPort
                     ?.let { providerOf(it) }
                     ?: emptyProvider(),
+            strategyPositionPortProvider = emptyProvider(),
             jvmStrategyEvaluator = evaluator,
             signalDedupeGuard = dedupeGuard,
             signalKafkaProducer = signalKafkaProducer,

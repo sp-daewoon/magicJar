@@ -56,6 +56,7 @@ class StrategyService(
     @Value("\${magicjar.dsl.ast-depth-limit:32}") private val astDepthLimit: Int,
     @Value("\${magicjar.dsl.node-count-limit:10000}") private val nodeCountLimit: Int,
     @Value("\${magicjar.dsl.indicator-call-limit:50}") private val indicatorCallLimit: Int,
+    @Value("\${magicjar.strategy.scale-in.enabled:false}") private val scaleInEnabled: Boolean = false,
 ) : EvaluatorAutoDisableCallback {
     private val log = LoggerFactory.getLogger(StrategyService::class.java)
 
@@ -219,6 +220,14 @@ class StrategyService(
         }
         if (strategy.definition.fixedStopLoss == null || strategy.definition.takeProfitPct == null) {
             return "손절/익절 RiskPlan이 없어 자동매매를 시작할 수 없습니다. 손절가와 익절가를 먼저 설정하세요"
+        }
+        // scale-in/exit "리플레이 먼저" 활성화 게이트 (spec §8-1 · ADR 0111 §2-7).
+        // toggle(`magicjar.strategy.scale-in.enabled`) OFF 동안 scaleIn/partialExits 설정 전략의 ACTIVE 전이를
+        // 서버 검증에서 거부(SCALE_IN_NOT_ENABLED). DRAFT/PAUSED 저장은 허용(리플레이/백테스트 검증 대상) —
+        // UI 미노출이 아니라 서버 검증으로 막아 직접 API 호출도 방어.
+        val hasScaleInExit = strategy.definition.scaleIn != null || !strategy.definition.partialExits.isNullOrEmpty()
+        if (!scaleInEnabled && hasScaleInExit) {
+            return "SCALE_IN_NOT_ENABLED: 분할매수/분할익절 전략은 리플레이·백테스트 정합 검증 후 활성화됩니다 (현재 비활성)"
         }
         val strategyId = strategy.id ?: return "저장되지 않은 전략은 ACTIVE로 전환할 수 없습니다"
         val ready = backtestRunJpaRepository.existsAutoActivationReadyRun(strategyId, strategy.userId.toString())

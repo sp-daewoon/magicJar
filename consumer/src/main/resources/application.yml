@@ -80,6 +80,13 @@ magicjar:
   signal:
     market-hours-gate:
       enabled: ${MAGICJAR_SIGNAL_MARKET_HOURS_GATE_ENABLED:true}
+  # 분할매수(scale-in) / 분할익절 "리플레이 먼저" 게이트 (spec §8-1 · ADR 0111 §2-7).
+  #   default false — toggle OFF면 RealtimeSignalGenerator가 scaleIn/partialExits 설정 전략도 현행 단일
+  #   진입 + 전량 익절 경로로 평가(ScaleInExitCalculator 미사용). R3 리플레이/백테스트 정합 GREEN 후 true 해제.
+  #   ACTIVE 전이 차단은 api StrategyService(SCALE_IN_NOT_ENABLED)가 별도로 막는다(자본 경로 원천 차단).
+  strategy:
+    scale-in:
+      enabled: ${MAGICJAR_STRATEGY_SCALE_IN_ENABLED:false}
   # ADR 0109 — REAL canary 전용 hard cap (RiskConfig·전략 설정과 독립된 마지막 자본 안전선).
   #   REAL 모드 + 각 값 > 0 일 때만 활성 (fail-open: 0/미설정 = 비활성 = 일반 REAL 운용). MOCK은 항상 비활성.
   #   초과 시 OrderRouter REJECTED + audit(reason=CANARY_*_CAP). canary 종료 후 ENV 제거로 즉시 비활성.

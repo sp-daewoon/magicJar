@@ -9,6 +9,8 @@ import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import kr.spdaewoon.magicjar.domain.market.session.BusinessDayCalendar
 import kr.spdaewoon.magicjar.domain.market.session.MarketSessionResolver
 import kr.spdaewoon.magicjar.domain.market.session.TradingHoursGate
+import kr.spdaewoon.magicjar.domain.position.StrategyPosition
+import kr.spdaewoon.magicjar.domain.position.port.StrategyPositionPort
 import kr.spdaewoon.magicjar.domain.risk.port.RiskPositionPort
 import kr.spdaewoon.magicjar.domain.signal.Signal
 import kr.spdaewoon.magicjar.domain.signal.SignalContext
@@ -20,6 +22,9 @@ import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyLookupPort
 import kr.spdaewoon.magicjar.strategy.JvmStrategyEvaluator
+import kr.spdaewoon.magicjar.strategy.scalein.ScaleInExitCalculator
+import kr.spdaewoon.magicjar.strategy.scalein.ScaleInExitDecision
+import kr.spdaewoon.magicjar.strategy.scalein.ScaleInExitInput
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Value
@@ -63,6 +68,7 @@ class RealtimeSignalGenerator(
     private val candleRepositoryProvider: ObjectProvider<CandleRepository>,
     private val dataReadinessServiceProvider: ObjectProvider<DataReadinessService>,
     private val riskPositionPortProvider: ObjectProvider<RiskPositionPort>,
+    private val strategyPositionPortProvider: ObjectProvider<StrategyPositionPort>,
     private val jvmStrategyEvaluator: JvmStrategyEvaluator,
     private val signalDedupeGuard: SignalDedupeGuard,
     private val signalKafkaProducer: SignalKafkaProducer,
@@ -70,6 +76,7 @@ class RealtimeSignalGenerator(
     private val businessDayCalendarProvider: ObjectProvider<BusinessDayCalendar>,
     @Value("\${magicjar.signal.eval-lookback-candles:500}") private val evalLookbackCandles: Int = 500,
     @Value("\${magicjar.signal.market-hours-gate.enabled:true}") private val marketHoursGateEnabled: Boolean = true,
+    @Value("\${magicjar.strategy.scale-in.enabled:false}") private val scaleInEnabled: Boolean = false,
     private val clock: Clock = Clock.System,
 ) {
     private val log = LoggerFactory.getLogger(RealtimeSignalGenerator::class.java)
@@ -340,9 +347,20 @@ class RealtimeSignalGenerator(
     ): SignalDecision? {
         val strategyId = strategy.id ?: return null
         val buyResult = evaluateAst(strategyId, code, "BUY", buyAst, candles) ?: return null
-        evaluateTakeProfitExit(strategy, code, currentPrice, buyResult)?.let { return it }
-        if (mapToSignalSide(buyResult.signal) == SignalSide.BUY) {
-            return SignalDecision(SignalSide.BUY, buyResult)
+        val buyFired = mapToSignalSide(buyResult.signal) == SignalSide.BUY
+
+        // scale-in/exit 활성 게이트 (spec §8-1) — toggle ON + scaleIn|partialExits 설정 전략만 신규 경로.
+        // 그 외(toggle OFF · 미설정 전략)는 현행 단일 진입 + 전량 익절 경로(zero-regression LOCK).
+        if (isScaleInExitActive(strategy)) {
+            evaluateScaleInExit(strategy, code, currentPrice, buyResult, buyFired)?.let { return it }
+            if (buyFired) {
+                return SignalDecision(SignalSide.BUY, buyResult)
+            }
+        } else {
+            evaluateTakeProfitExit(strategy, code, currentPrice, buyResult)?.let { return it }
+            if (buyFired) {
+                return SignalDecision(SignalSide.BUY, buyResult)
+            }
         }
 
         if (sellAst != null) {
@@ -419,6 +437,155 @@ class RealtimeSignalGenerator(
             ),
         )
     }
+
+    /**
+     * scale-in/exit 신규 경로 활성 여부 (spec §8-1 ★ feature toggle 게이트).
+     *
+     * `magicjar.strategy.scale-in.enabled`(default false) ON **AND** 전략이 `scaleIn` 또는 `partialExits`를
+     * 설정한 경우에만 [ScaleInExitCalculator] 경로를 탄다. toggle OFF거나 미설정 전략은 현행 단일 경로(zero-regression).
+     *
+     * 라이브 자본 경로 진입은 추가로 StrategyService ACTIVE 전이 게이트(`SCALE_IN_NOT_ENABLED`)가 막는다 —
+     * 본 게이트는 그 위의 평가 단(엔진은 들어왔으나 toggle OFF면 평가 자체를 현행 경로로).
+     */
+    private fun isScaleInExitActive(strategy: Strategy): Boolean {
+        if (!scaleInEnabled) return false
+        val def = strategy.definition
+        return def.scaleIn != null || !def.partialExits.isNullOrEmpty()
+    }
+
+    /**
+     * scale-in 회차 진입 + 평단 기준 stop-loss/분할 익절/전량 익절 단일 평가 (spec §5 · ADR 0111 §2-4).
+     *
+     * [ScaleInExitCalculator] 순수 함수를 호출하고 그 sealed 결정을 시그널 [SignalDecision]으로 매핑한다.
+     * 모든 leg는 **시그널 경로**로만 발행 — OrderIntent 직접 생성 0(spec §5-3 LOCK). 회차 수량·체결가 기반
+     * idempotency suffix·StrategyPosition upsert는 R2-2 backend-core(어댑터·체결 listener) 책임.
+     *
+     * StrategyPositionPort bean 부재(R2-2 어댑터 머지 전)면 graceful no-op — 신규 경로 평가를 건너뛰고
+     * null을 반환해 호출부가 BUY/HOLD 현행 경로로 이어간다.
+     */
+    private fun evaluateScaleInExit(
+        strategy: Strategy,
+        code: String,
+        currentPrice: BigDecimal,
+        baseResult: StrategyEvalResult,
+        buyFired: Boolean,
+    ): SignalDecision? {
+        val strategyId = strategy.id ?: return null
+        val positionPort = strategyPositionPortProvider.ifAvailable
+        if (positionPort == null) {
+            log.warn(
+                "scale-in/exit 활성 전략의 StrategyPositionPort bean 부재 (R2-2 어댑터 의존) — 신규 경로 skip: strategyId={} code={}",
+                strategyId,
+                code,
+            )
+            return null
+        }
+
+        val position: StrategyPosition? =
+            try {
+                positionPort.findByUserStrategyCode(strategy.userId.toString(), strategyId, code)
+            } catch (e: Exception) {
+                log.warn(
+                    "scale-in/exit StrategyPosition 조회 실패 — 신규 경로 skip: strategyId={} code={} err={}",
+                    strategyId,
+                    code,
+                    e.message,
+                )
+                return null
+            }
+
+        val input =
+            ScaleInExitInput(
+                position = position,
+                currentPrice = currentPrice,
+                scaleIn = strategy.definition.scaleIn,
+                fixedStopLossPct = strategy.definition.fixedStopLoss,
+                takeProfitPct = strategy.definition.takeProfitPct,
+                partialExits = strategy.definition.partialExits,
+                buySignalFired = buyFired,
+                // 회차 수량(budget 산정)·직전 체결가·회차 epoch 은 R2-2 어댑터(체결 listener)가 채운다.
+                // R2-1 시그널 단계에서는 진입 여부·청산 판정만 수행하고 수량은 0(어댑터가 budget으로 확정).
+                sliceBudgetQuantity = 0,
+            )
+
+        return when (val decision = ScaleInExitCalculator.evaluate(input)) {
+            is ScaleInExitDecision.StopLoss ->
+                sellSignal(
+                    baseResult = baseResult,
+                    reasonExtras =
+                        mapOf(
+                            "trigger" to "STOP_LOSS",
+                            "condition" to "POSITION_AVG_STOP_LOSS",
+                            "quantity" to decision.quantity.toString(),
+                            "currentPrice" to currentPrice.toPlainString(),
+                        ) + avgPriceReason(position),
+                )
+
+            is ScaleInExitDecision.PartialTakeProfit ->
+                sellSignal(
+                    baseResult = baseResult,
+                    reasonExtras =
+                        mapOf(
+                            "trigger" to "PARTIAL_TAKE_PROFIT#${decision.stageIndex}",
+                            "condition" to "POSITION_PARTIAL_TP",
+                            "stageIndex" to decision.stageIndex.toString(),
+                            "exitWeightPct" to decision.weightPct.toPlainString(),
+                            "quantity" to decision.quantity.toString(),
+                            "profitPct" to decision.profitPct.setScale(4, RoundingMode.HALF_UP).toPlainString(),
+                            "currentPrice" to currentPrice.toPlainString(),
+                        ) + avgPriceReason(position),
+                )
+
+            is ScaleInExitDecision.TakeProfit ->
+                sellSignal(
+                    baseResult = baseResult,
+                    reasonExtras =
+                        mapOf(
+                            "trigger" to "TAKE_PROFIT",
+                            "condition" to "POSITION_PROFIT_PCT",
+                            "quantity" to decision.quantity.toString(),
+                            "profitPct" to decision.profitPct.setScale(4, RoundingMode.HALF_UP).toPlainString(),
+                            "takeProfitPct" to (strategy.definition.takeProfitPct?.toPlainString() ?: ""),
+                            "currentPrice" to currentPrice.toPlainString(),
+                        ) + avgPriceReason(position),
+                )
+
+            is ScaleInExitDecision.EnterSlice ->
+                SignalDecision(
+                    SignalSide.BUY,
+                    baseResult.copy(
+                        signal = kr.spdaewoon.magicjar.domain.strategy.Signal.BUY,
+                        reason =
+                            baseResult.reason +
+                                mapOf(
+                                    "trigger" to "SCALE_IN_SLICE#${decision.sliceIndex + 1}:${decision.trigger.name}",
+                                    "condition" to "SCALE_IN",
+                                    "sliceIndex" to decision.sliceIndex.toString(),
+                                    "sliceWeightPct" to decision.weightPct.toPlainString(),
+                                    "reentryTrigger" to decision.trigger.name,
+                                ),
+                    ),
+                )
+
+            ScaleInExitDecision.Hold -> null
+        }
+    }
+
+    private fun avgPriceReason(position: StrategyPosition?): Map<String, Any> =
+        position?.let { mapOf("avgPrice" to it.avgPrice.toPlainString()) } ?: emptyMap()
+
+    private fun sellSignal(
+        baseResult: StrategyEvalResult,
+        reasonExtras: Map<String, Any>,
+    ): SignalDecision =
+        SignalDecision(
+            SignalSide.SELL,
+            baseResult.copy(
+                signal = kr.spdaewoon.magicjar.domain.strategy.Signal.SELL,
+                strength = BigDecimal.ONE,
+                reason = baseResult.reason + reasonExtras,
+            ),
+        )
 
     private fun evaluateAst(
         strategyId: Long,
