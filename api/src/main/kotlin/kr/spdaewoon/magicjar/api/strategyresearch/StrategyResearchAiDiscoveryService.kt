@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.api.strategyresearch
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.kotlin.readValue
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import org.slf4j.LoggerFactory
@@ -18,23 +19,75 @@ class StrategyResearchAiDiscoveryService(
     private val instrumentJpaRepository: InstrumentJpaRepository,
     private val aiTextClient: StrategyResearchAiTextClient,
     private val objectMapper: ObjectMapper,
+    private val stateRepository: StrategyResearchAiDiscoveryStateJpaRepository,
 ) {
     private val log = LoggerFactory.getLogger(StrategyResearchAiDiscoveryService::class.java)
 
+    fun latest(userId: String): StrategyResearchAiDiscoveryResponseDto? = stateRepository.findById(userId).orElse(null)?.toResponse()
+
+    fun clear(userId: String) {
+        if (stateRepository.existsById(userId)) {
+            stateRepository.deleteById(userId)
+        }
+    }
+
+    fun updateItemStatus(request: StrategyResearchAiDiscoveryItemStatusRequestDto): StrategyResearchAiDiscoveryResponseDto {
+        val entity =
+            stateRepository
+                .findById(request.userId)
+                .orElseThrow { ResponseStatusException(HttpStatus.NOT_FOUND, "저장된 AI 종목발굴 결과가 없습니다.") }
+        val items = entity.items()
+        var found = false
+        val updatedItems =
+            items.map { item ->
+                if (item.itemKey == request.itemKey) {
+                    found = true
+                    item.copy(status = request.status)
+                } else {
+                    item
+                }
+            }
+        if (!found) {
+            throw ResponseStatusException(HttpStatus.NOT_FOUND, "AI 종목발굴 후보를 찾지 못했습니다.")
+        }
+        entity.itemsJson = objectMapper.writeValueAsString(updatedItems)
+        entity.updatedAt = Instant.now()
+        return stateRepository.save(entity).toResponse()
+    }
+
     fun discover(request: StrategyResearchAiDiscoveryRequestDto): StrategyResearchAiDiscoveryResponseDto {
-        val prompt = buildPrompt(request)
+        val previous = stateRepository.findById(request.userId).orElse(null)
+        val previousItems = previous?.items() ?: emptyList()
+        val keptItems = previousItems.filter { it.status == StrategyResearchAiDiscoveryItemStatus.KEPT }
+        val dismissedItems = previousItems.filter { it.status == StrategyResearchAiDiscoveryItemStatus.DISMISSED }
+        val dismissedKeys = dismissedItems.map { it.itemKey }.toSet()
+        val keptKeys = keptItems.map { it.itemKey }.toSet()
+
+        val prompt = buildPrompt(request, keptItems, dismissedItems)
         val aiResult = aiTextClient.complete(prompt)
-        val rawItems = parseItems(aiResult.text).take(request.limit)
+        val rawItems = parseItems(aiResult.text).take(12)
         if (rawItems.isEmpty()) {
             throw ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Claude 응답에서 종목 후보를 읽지 못했습니다.")
         }
 
         val marketFilter = request.market?.uppercase()
-        val items = rawItems.map { it.toDto(marketFilter) }
+        val freshItems =
+            rawItems
+                .map { it.toDto(marketFilter) }
+                .filterNot { it.itemKey in dismissedKeys || it.itemKey in keptKeys }
+        val availableSlots = (request.limit - keptItems.size).coerceAtLeast(0)
+        val visibleItems = keptItems + freshItems.take(availableSlots)
+        val items = visibleItems + dismissedItems
         val unmatchedCount = items.count { !it.matched }
         val warnings =
             buildList {
                 add("AI 후보는 종목 마스터 매핑 후 검증용으로만 표시됩니다.")
+                if (keptItems.isNotEmpty()) {
+                    add("유지 후보 ${keptItems.size}건은 재발굴 결과에 고정했습니다.")
+                }
+                if (dismissedItems.isNotEmpty()) {
+                    add("제외 후보 ${dismissedItems.size}건은 초기화 전까지 숨깁니다.")
+                }
                 if (unmatchedCount > 0) {
                     add("종목 마스터와 매칭되지 않은 후보 ${unmatchedCount}건이 있습니다.")
                 }
@@ -48,16 +101,75 @@ class StrategyResearchAiDiscoveryService(
             items.count { it.matched },
         )
 
-        return StrategyResearchAiDiscoveryResponseDto(
-            query = request.query,
-            provider = aiResult.provider,
-            generatedAt = Instant.now().toString(),
-            warnings = warnings,
-            items = items,
+        return saveState(
+            request = request,
+            response =
+                StrategyResearchAiDiscoveryResponseDto(
+                    query = request.query,
+                    market = request.market,
+                    limit = request.limit,
+                    provider = aiResult.provider,
+                    generatedAt = Instant.now().toString(),
+                    warnings = warnings,
+                    items = items,
+                ),
         )
     }
 
-    private fun buildPrompt(request: StrategyResearchAiDiscoveryRequestDto): String {
+    private fun saveState(
+        request: StrategyResearchAiDiscoveryRequestDto,
+        response: StrategyResearchAiDiscoveryResponseDto,
+    ): StrategyResearchAiDiscoveryResponseDto {
+        val now = Instant.now()
+        val generatedAt = Instant.parse(response.generatedAt)
+        val entity =
+            stateRepository.findById(request.userId).orElse(
+                StrategyResearchAiDiscoveryStateJpaEntity(
+                    userId = request.userId,
+                    query = request.query,
+                    market = request.market,
+                    candidateLimit = request.limit,
+                    provider = response.provider,
+                    generatedAt = generatedAt,
+                    warningsJson = "[]",
+                    itemsJson = "[]",
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
+        entity.query = request.query
+        entity.market = request.market
+        entity.candidateLimit = request.limit
+        entity.provider = response.provider
+        entity.generatedAt = generatedAt
+        entity.warningsJson = objectMapper.writeValueAsString(response.warnings)
+        entity.itemsJson = objectMapper.writeValueAsString(response.items)
+        entity.updatedAt = now
+        return stateRepository.save(entity).toResponse()
+    }
+
+    private fun StrategyResearchAiDiscoveryStateJpaEntity.toResponse(): StrategyResearchAiDiscoveryResponseDto =
+        StrategyResearchAiDiscoveryResponseDto(
+            query = query,
+            market = market,
+            limit = candidateLimit,
+            provider = provider,
+            generatedAt = generatedAt.toString(),
+            warnings = warnings(),
+            items = items(),
+        )
+
+    private fun StrategyResearchAiDiscoveryStateJpaEntity.warnings(): List<String> =
+        runCatching { objectMapper.readValue<List<String>>(warningsJson) }.getOrDefault(emptyList())
+
+    private fun StrategyResearchAiDiscoveryStateJpaEntity.items(): List<StrategyResearchAiDiscoveryItemDto> =
+        runCatching { objectMapper.readValue<List<StrategyResearchAiDiscoveryItemDto>>(itemsJson) }.getOrDefault(emptyList())
+
+    private fun buildPrompt(
+        request: StrategyResearchAiDiscoveryRequestDto,
+        keptItems: List<StrategyResearchAiDiscoveryItemDto>,
+        dismissedItems: List<StrategyResearchAiDiscoveryItemDto>,
+    ): String {
         val today = LocalDate.now(ZoneId.of("Asia/Seoul"))
         val marketText = request.market ?: "KOSPI/KOSDAQ/KONEX 전체"
         return listOf(
@@ -71,6 +183,16 @@ class StrategyResearchAiDiscoveryService(
             "사용자 요청: ${request.query}",
             "시장 필터: $marketText",
             "후보 수: ${request.limit}",
+            if (keptItems.isNotEmpty()) {
+                "이미 사용자가 유지하기로 한 후보(중복 제안 금지): ${keptItems.joinToString { it.nameWithCode() }}"
+            } else {
+                null
+            },
+            if (dismissedItems.isNotEmpty()) {
+                "사용자가 제외한 후보(다시 제안 금지): ${dismissedItems.joinToString { it.nameWithCode() }}"
+            } else {
+                null
+            },
             "",
             "아래 JSON 형식만 출력하세요. 마크다운, 설명문, 코드블록은 출력하지 마세요.",
             "{",
@@ -85,7 +207,7 @@ class StrategyResearchAiDiscoveryService(
             "    }",
             "  ]",
             "}",
-        ).joinToString("\n")
+        ).filterNotNull().joinToString("\n")
     }
 
     private fun parseItems(text: String): List<ClaudeDiscoveryRawItem> {
@@ -138,14 +260,17 @@ class StrategyResearchAiDiscoveryService(
 
     private fun ClaudeDiscoveryRawItem.toDto(marketFilter: String?): StrategyResearchAiDiscoveryItemDto {
         val instrument = resolveInstrument(this, marketFilter)
+        val resolvedCode = instrument?.code
+        val resolvedName = instrument?.name ?: name ?: code ?: "미확인 후보"
         val normalizedConfidence =
             when {
                 confidence > 1.0 && confidence <= 100.0 -> confidence / 100.0
                 else -> confidence
             }.coerceIn(0.0, 1.0)
         return StrategyResearchAiDiscoveryItemDto(
-            code = instrument?.code,
-            name = instrument?.name ?: name ?: code ?: "미확인 후보",
+            itemKey = discoveryItemKey(resolvedCode, code, resolvedName),
+            code = resolvedCode,
+            name = resolvedName,
             market = instrument?.market ?: market?.uppercase(),
             sector = instrument?.sector,
             theme = instrument?.theme,
@@ -157,6 +282,7 @@ class StrategyResearchAiDiscoveryService(
             rawCode = code,
             tradingHalt = instrument?.tradingHalt ?: false,
             managementStock = instrument?.managementStock ?: false,
+            status = StrategyResearchAiDiscoveryItemStatus.NEW,
         )
     }
 
@@ -197,6 +323,19 @@ class StrategyResearchAiDiscoveryService(
     private fun normalizeQuery(value: String): String = value.replace(Regex("[\\s.·()（）]"), "").lowercase()
 
     private fun sixDigitCode(value: String): String? = Regex("\\d{6}").find(value)?.value
+
+    private fun discoveryItemKey(
+        code: String?,
+        rawCode: String?,
+        name: String,
+    ): String =
+        when {
+            !code.isNullOrBlank() -> "CODE:$code"
+            !rawCode.isNullOrBlank() -> "RAW:${sixDigitCode(rawCode) ?: normalizeQuery(rawCode)}"
+            else -> "NAME:${normalizeQuery(name).take(80)}"
+        }
+
+    private fun StrategyResearchAiDiscoveryItemDto.nameWithCode(): String = if (code.isNullOrBlank()) name else "$name($code)"
 
     private fun JsonNode.text(fieldName: String): String? =
         get(fieldName)

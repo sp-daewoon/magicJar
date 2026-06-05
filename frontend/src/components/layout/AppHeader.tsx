@@ -55,10 +55,10 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: '전략',
     items: [
+      { to: '/strategy/research', label: '전략 리서치' },
       { to: '/strategy/builder', label: '전략 빌더' },
       { to: '/strategy/list', label: '전략 목록' },
       { to: '/strategy/backtest', label: '백테스트' },
-      { to: '/strategy/research', label: '전략 리서치' },
       { to: '/strategy/scenario-replay', label: '시나리오 리플레이' },
     ],
   },

@@ -23,13 +23,28 @@ export interface StrategyResearchAiDiscoveryRequestDto {
 
 export interface StrategyResearchAiDiscoveryResponseDto {
   query: string
+  market: 'KOSPI' | 'KOSDAQ' | 'KONEX' | '' | null
+  limit: number
   provider: string
   generatedAt: string
   warnings: string[]
   items: StrategyResearchAiDiscoveryItemDto[]
 }
 
+export interface StrategyResearchAiDiscoveryLatestDto {
+  report: StrategyResearchAiDiscoveryResponseDto | null
+}
+
+export type StrategyResearchAiDiscoveryItemStatus = 'NEW' | 'KEPT' | 'DISMISSED'
+
+export interface StrategyResearchAiDiscoveryItemStatusRequestDto {
+  userId: string
+  itemKey: string
+  status: StrategyResearchAiDiscoveryItemStatus
+}
+
 export interface StrategyResearchAiDiscoveryItemDto {
+  itemKey: string
   code: string | null
   name: string
   market: string | null
@@ -43,6 +58,7 @@ export interface StrategyResearchAiDiscoveryItemDto {
   rawCode: string | null
   tradingHalt: boolean
   managementStock: boolean
+  status: StrategyResearchAiDiscoveryItemStatus
 }
 
 export interface StrategyResearchReportDto {
@@ -138,6 +154,26 @@ export const strategyResearchApi = {
       timeout: AI_DISCOVERY_TIMEOUT_MS,
     })
     return res.data
+  },
+  getLatestAiDiscovery: async (userId: string): Promise<StrategyResearchAiDiscoveryResponseDto | null> => {
+    const res = await apiClient.get<StrategyResearchAiDiscoveryLatestDto>('/strategy-research/ai-discovery/latest', {
+      params: { userId },
+    })
+    return res.data.report
+  },
+  updateAiDiscoveryItemStatus: async (
+    req: StrategyResearchAiDiscoveryItemStatusRequestDto,
+  ): Promise<StrategyResearchAiDiscoveryResponseDto> => {
+    const res = await apiClient.patch<StrategyResearchAiDiscoveryResponseDto>(
+      '/strategy-research/ai-discovery/item-status',
+      req,
+    )
+    return res.data
+  },
+  clearAiDiscovery: async (userId: string): Promise<void> => {
+    await apiClient.delete('/strategy-research/ai-discovery/latest', {
+      params: { userId },
+    })
   },
 }
 

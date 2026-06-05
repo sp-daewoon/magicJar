@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   strategyResearchApi,
   strategyResearchErrorMessage,
   type StrategyResearchAiDiscoveryItemDto,
+  type StrategyResearchAiDiscoveryItemStatus,
   type StrategyResearchAiDiscoveryRequestDto,
   type StrategyResearchAiDiscoveryResponseDto,
   type StrategyResearchCandidateDto,
@@ -60,6 +61,12 @@ function candidateTone(candidate: StrategyResearchCandidateDto): string {
   return 'border-amber-800 bg-amber-950/20'
 }
 
+function aiDiscoveryStatusLabel(status: StrategyResearchAiDiscoveryItemStatus): string {
+  if (status === 'KEPT') return '유지'
+  if (status === 'DISMISSED') return '제외'
+  return '신규'
+}
+
 function instrumentDisplay(result: InstrumentSearchResultDto): string {
   return `${result.name} (${result.code})`
 }
@@ -74,6 +81,7 @@ function extractInstrumentCode(value: string): string | null {
 export function StrategyResearchPage() {
   const navigate = useNavigate()
   const registeredUserId = useOnboardingStore((s) => s.registeredUserId)
+  const userIdText = registeredUserId == null ? null : String(registeredUserId)
   const [code, setCode] = useState('038110')
   const [instrumentInput, setInstrumentInput] = useState('038110')
   const [selectedInstrumentName, setSelectedInstrumentName] = useState<string | null>(null)
@@ -89,6 +97,8 @@ export function StrategyResearchPage() {
   const [discoveryMarket, setDiscoveryMarket] = useState<(typeof AI_DISCOVERY_MARKETS)[number]>('')
   const [discoveryLimit, setDiscoveryLimit] = useState(6)
   const [discoveryError, setDiscoveryError] = useState<string | null>(null)
+  const [discoveryReport, setDiscoveryReport] = useState<StrategyResearchAiDiscoveryResponseDto | null>(null)
+  const [discoveryTouched, setDiscoveryTouched] = useState(false)
 
   const mutation = useMutation<StrategyResearchReportDto, unknown, StrategyResearchRequestDto>({
     mutationFn: strategyResearchApi.propose,
@@ -105,16 +115,83 @@ export function StrategyResearchPage() {
     StrategyResearchAiDiscoveryRequestDto
   >({
     mutationFn: strategyResearchApi.discoverWithAi,
-    onSuccess: () => setDiscoveryError(null),
+    onSuccess: (report) => {
+      setDiscoveryReport(report)
+      setDiscoveryQuery(report.query)
+      setDiscoveryMarket((report.market ?? '') as (typeof AI_DISCOVERY_MARKETS)[number])
+      setDiscoveryLimit(report.limit)
+      setDiscoveryError(null)
+    },
+    onError: (error) => setDiscoveryError(strategyResearchErrorMessage(error)),
+  })
+
+  const latestDiscoveryQuery = useQuery({
+    queryKey: ['strategy-research', 'ai-discovery', 'latest', userIdText],
+    queryFn: () => strategyResearchApi.getLatestAiDiscovery(userIdText!),
+    enabled: userIdText !== null,
+    retry: false,
+    staleTime: 30_000,
+  })
+
+  const discoveryStatusMutation = useMutation<
+    StrategyResearchAiDiscoveryResponseDto,
+    unknown,
+    { itemKey: string; status: StrategyResearchAiDiscoveryItemStatus }
+  >({
+    mutationFn: ({ itemKey, status }) =>
+      strategyResearchApi.updateAiDiscoveryItemStatus({
+        userId: userIdText!,
+        itemKey,
+        status,
+      }),
+    onSuccess: (report) => {
+      setDiscoveryReport(report)
+      setDiscoveryError(null)
+    },
+    onError: (error) => setDiscoveryError(strategyResearchErrorMessage(error)),
+  })
+
+  const clearDiscoveryMutation = useMutation<void, unknown>({
+    mutationFn: () => strategyResearchApi.clearAiDiscovery(userIdText!),
+    onSuccess: () => {
+      setDiscoveryReport(null)
+      setDiscoveryQuery(AI_DISCOVERY_DEFAULT_QUERY)
+      setDiscoveryMarket('')
+      setDiscoveryLimit(6)
+      setDiscoveryError(null)
+    },
     onError: (error) => setDiscoveryError(strategyResearchErrorMessage(error)),
   })
 
   const report = mutation.data
-  const discoveryReport = discoveryMutation.data
+  const visibleDiscoveryItems = useMemo(
+    () => discoveryReport?.items.filter((item) => item.status !== 'DISMISSED') ?? [],
+    [discoveryReport],
+  )
+  const keptDiscoveryCount = useMemo(
+    () => discoveryReport?.items.filter((item) => item.status === 'KEPT').length ?? 0,
+    [discoveryReport],
+  )
+  const dismissedDiscoveryCount = useMemo(
+    () => discoveryReport?.items.filter((item) => item.status === 'DISMISSED').length ?? 0,
+    [discoveryReport],
+  )
   const selectedCandidate = useMemo(() => {
     if (!report) return null
     return report.candidates.find((candidate) => candidate.key === selectedKey) ?? report.candidates[0] ?? null
   }, [report, selectedKey])
+
+  useEffect(() => {
+    if (latestDiscoveryQuery.data === undefined) return
+    if (discoveryTouched) return
+    const latest = latestDiscoveryQuery.data
+    setDiscoveryReport(latest)
+    if (latest) {
+      setDiscoveryQuery(latest.query)
+      setDiscoveryMarket((latest.market ?? '') as (typeof AI_DISCOVERY_MARKETS)[number])
+      setDiscoveryLimit(latest.limit)
+    }
+  }, [discoveryTouched, latestDiscoveryQuery.data])
 
   const handleInstrumentRawChange = (value: string) => {
     setInstrumentInput(value)
@@ -135,12 +212,21 @@ export function StrategyResearchPage() {
       return
     }
     setDiscoveryError(null)
+    setDiscoveryTouched(true)
     discoveryMutation.mutate({
-      userId: String(registeredUserId),
+      userId: userIdText!,
       query,
       market: discoveryMarket,
       limit: discoveryLimit,
     })
+  }
+
+  const updateDiscoveryItemStatus = (
+    item: StrategyResearchAiDiscoveryItemDto,
+    status: StrategyResearchAiDiscoveryItemStatus,
+  ) => {
+    setDiscoveryTouched(true)
+    discoveryStatusMutation.mutate({ itemKey: item.itemKey, status })
   }
 
   const selectDiscoveryItem = (item: StrategyResearchAiDiscoveryItemDto) => {
@@ -256,11 +342,34 @@ export function StrategyResearchPage() {
             </h2>
             <p className="mt-0.5 text-xs text-gray-500">Claude CLI 후보 · 종목 마스터 매핑</p>
           </div>
-          {discoveryReport && (
-            <span className="rounded border border-gray-700 px-2 py-1 text-xs text-gray-400">
-              {discoveryReport.provider}
-            </span>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {latestDiscoveryQuery.isLoading && (
+              <span className="rounded border border-gray-700 px-2 py-1 text-xs text-gray-500">
+                저장된 결과 확인 중
+              </span>
+            )}
+            {discoveryReport && (
+              <>
+                <span className="rounded border border-gray-700 px-2 py-1 text-xs text-gray-400">
+                  {discoveryReport.provider}
+                </span>
+                <span className="rounded border border-gray-800 px-2 py-1 text-xs text-gray-500">
+                  유지 {keptDiscoveryCount} · 제외 {dismissedDiscoveryCount}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDiscoveryTouched(true)
+                    clearDiscoveryMutation.mutate()
+                  }}
+                  disabled={clearDiscoveryMutation.isPending || discoveryMutation.isPending}
+                  className="rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  초기화
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         <div className="mt-4 grid gap-3 lg:grid-cols-12">
@@ -335,15 +444,23 @@ export function StrategyResearchPage() {
 
         {discoveryReport && (
           <div className="mt-4 space-y-3">
+            <div className="rounded border border-gray-800 bg-gray-950/60 px-3 py-2 text-xs text-gray-400">
+              유지한 후보는 재발굴 후에도 남고, 제외한 후보는 초기화 전까지 숨겨집니다.
+            </div>
             {discoveryReport.warnings.length > 0 && (
               <div className="rounded border border-amber-900 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">
                 {discoveryReport.warnings.join(' · ')}
               </div>
             )}
-            <div className="grid gap-3 lg:grid-cols-3">
-              {discoveryReport.items.map((item, index) => (
+            {visibleDiscoveryItems.length === 0 ? (
+              <div className="rounded border border-gray-800 bg-gray-950 px-4 py-8 text-center text-sm text-gray-500">
+                표시할 후보가 없습니다. 제외 목록까지 비우려면 초기화 후 다시 발굴하세요.
+              </div>
+            ) : (
+              <div className="grid gap-3 lg:grid-cols-3">
+                {visibleDiscoveryItems.map((item, index) => (
                 <div
-                  key={`${item.rawCode ?? item.code ?? item.name}-${index}`}
+                  key={`${item.itemKey}-${index}`}
                   className="rounded border border-gray-800 bg-gray-950 p-4"
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -355,13 +472,24 @@ export function StrategyResearchPage() {
                         {item.sector && <span>{item.sector}</span>}
                       </div>
                     </div>
-                    <span className={[
-                      'rounded border px-2 py-0.5 text-xs',
-                      item.matched ? 'border-emerald-800 text-emerald-300' : 'border-amber-800 text-amber-300',
-                    ].join(' ')}
-                    >
-                      {item.matched ? '매칭' : '확인필요'}
-                    </span>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className={[
+                        'rounded border px-2 py-0.5 text-xs',
+                        item.matched ? 'border-emerald-800 text-emerald-300' : 'border-amber-800 text-amber-300',
+                      ].join(' ')}
+                      >
+                        {item.matched ? '매칭' : '확인필요'}
+                      </span>
+                      <span className={[
+                        'rounded border px-2 py-0.5 text-xs',
+                        item.status === 'KEPT'
+                          ? 'border-blue-800 text-blue-300'
+                          : 'border-gray-800 text-gray-500',
+                      ].join(' ')}
+                      >
+                        {aiDiscoveryStatusLabel(item.status)}
+                      </span>
+                    </div>
                   </div>
                   <p className="mt-3 text-sm leading-6 text-gray-300">{item.aiReason}</p>
                   {item.themes.length > 0 && (
@@ -378,7 +506,28 @@ export function StrategyResearchPage() {
                       신뢰 {Math.round(item.confidence * 100)}%
                       {(item.tradingHalt || item.managementStock) && ' · 가드 확인'}
                     </span>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateDiscoveryItemStatus(item, item.status === 'KEPT' ? 'NEW' : 'KEPT')}
+                        disabled={discoveryStatusMutation.isPending}
+                        className={[
+                          'rounded border px-2.5 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50',
+                          item.status === 'KEPT'
+                            ? 'border-blue-700 text-blue-300 hover:bg-blue-950/40'
+                            : 'border-gray-700 text-gray-300 hover:bg-gray-800',
+                        ].join(' ')}
+                      >
+                        {item.status === 'KEPT' ? '유지 해제' : '유지'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateDiscoveryItemStatus(item, 'DISMISSED')}
+                        disabled={discoveryStatusMutation.isPending}
+                        className="rounded border border-red-900 px-2.5 py-1 text-xs text-red-300 hover:bg-red-950/30 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        제외
+                      </button>
                       {item.code && (
                         <Link
                           to={`/symbol/${item.code}`}
@@ -398,8 +547,9 @@ export function StrategyResearchPage() {
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </section>

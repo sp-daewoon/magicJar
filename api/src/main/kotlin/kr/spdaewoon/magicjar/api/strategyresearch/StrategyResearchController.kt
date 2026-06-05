@@ -6,9 +6,13 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
 import jakarta.validation.Valid
 import org.slf4j.LoggerFactory
+import org.springframework.web.bind.annotation.DeleteMapping
+import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 
 @Tag(name = "Strategy Research", description = "전략 후보 리서치 QA API")
@@ -68,5 +72,34 @@ class StrategyResearchController(
             request.query.length,
         )
         return strategyResearchAiDiscoveryService.discover(request)
+    }
+
+    @Operation(
+        summary = "최근 AI 종목발굴 상태 조회",
+        description = "사용자별 마지막 AI 종목발굴 조건과 후보 상태를 조회합니다.",
+    )
+    @GetMapping("/ai-discovery/latest")
+    fun latestAiDiscovery(
+        @RequestParam userId: String,
+    ): StrategyResearchAiDiscoveryLatestDto = StrategyResearchAiDiscoveryLatestDto(strategyResearchAiDiscoveryService.latest(userId))
+
+    @Operation(
+        summary = "AI 종목발굴 후보 상태 변경",
+        description = "후보를 NEW·KEPT·DISMISSED 상태로 변경합니다. KEPT는 재발굴 시 유지되고 DISMISSED는 제외됩니다.",
+    )
+    @PatchMapping("/ai-discovery/item-status")
+    fun updateAiDiscoveryItemStatus(
+        @RequestBody @Valid request: StrategyResearchAiDiscoveryItemStatusRequestDto,
+    ): StrategyResearchAiDiscoveryResponseDto = strategyResearchAiDiscoveryService.updateItemStatus(request)
+
+    @Operation(
+        summary = "AI 종목발굴 상태 초기화",
+        description = "사용자별 마지막 AI 종목발굴 조건과 후보 상태를 삭제합니다.",
+    )
+    @DeleteMapping("/ai-discovery/latest")
+    fun clearAiDiscovery(
+        @RequestParam userId: String,
+    ) {
+        strategyResearchAiDiscoveryService.clear(userId)
     }
 }

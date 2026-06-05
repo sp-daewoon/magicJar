@@ -136,15 +136,39 @@ data class StrategyResearchAiDiscoveryRequestDto(
     val limit: Int = 6,
 )
 
+data class StrategyResearchAiDiscoveryLatestDto(
+    val report: StrategyResearchAiDiscoveryResponseDto?,
+)
+
 data class StrategyResearchAiDiscoveryResponseDto(
     val query: String,
+    val market: String?,
+    val limit: Int,
     val provider: String,
     val generatedAt: String,
     val warnings: List<String>,
     val items: List<StrategyResearchAiDiscoveryItemDto>,
 )
 
+enum class StrategyResearchAiDiscoveryItemStatus {
+    NEW,
+    KEPT,
+    DISMISSED,
+}
+
+data class StrategyResearchAiDiscoveryItemStatusRequestDto(
+    @field:Schema(description = "사용자 ID", example = "74683223")
+    @field:NotBlank
+    val userId: String,
+    @field:Schema(description = "후보 식별 키", example = "CODE:005930")
+    @field:NotBlank
+    val itemKey: String,
+    @field:Schema(description = "후보 상태", example = "KEPT")
+    val status: StrategyResearchAiDiscoveryItemStatus,
+)
+
 data class StrategyResearchAiDiscoveryItemDto(
+    val itemKey: String,
     val code: String?,
     val name: String,
     val market: String?,
@@ -158,4 +182,5 @@ data class StrategyResearchAiDiscoveryItemDto(
     val rawCode: String?,
     val tradingHalt: Boolean,
     val managementStock: Boolean,
+    val status: StrategyResearchAiDiscoveryItemStatus = StrategyResearchAiDiscoveryItemStatus.NEW,
 )

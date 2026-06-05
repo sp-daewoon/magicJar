@@ -71,11 +71,14 @@ const server = setupServer(
     lastDiscoveryBody = await request.json() as StrategyResearchAiDiscoveryRequestDto
     return HttpResponse.json({
       query: lastDiscoveryBody.query,
+      market: lastDiscoveryBody.market ?? null,
+      limit: lastDiscoveryBody.limit,
       provider: 'claude-cli-bridge',
       generatedAt: '2026-06-06T00:00:00Z',
       warnings: ['AI 후보는 검증용입니다.'],
       items: [
         {
+          itemKey: 'CODE:005930',
           code: '005930',
           name: '삼성전자',
           market: 'KOSPI',
@@ -89,9 +92,46 @@ const server = setupServer(
           rawCode: '005930',
           tradingHalt: false,
           managementStock: false,
+          status: 'NEW',
         },
       ],
     })
+  }),
+  http.get('/api/strategy-research/ai-discovery/latest', () => {
+    return HttpResponse.json({ report: null })
+  }),
+  http.patch('/api/strategy-research/ai-discovery/item-status', async ({ request }) => {
+    const body = await request.json() as { itemKey: string; status: 'NEW' | 'KEPT' | 'DISMISSED' }
+    return HttpResponse.json({
+      query: '반도체 후보',
+      market: null,
+      limit: 6,
+      provider: 'claude-cli-bridge',
+      generatedAt: '2026-06-06T00:00:00Z',
+      warnings: [],
+      items: [
+        {
+          itemKey: body.itemKey,
+          code: '005930',
+          name: '삼성전자',
+          market: 'KOSPI',
+          sector: '전기전자',
+          theme: '반도체',
+          aiReason: '반도체와 AI 인프라 후보',
+          themes: ['반도체', 'AI 인프라'],
+          confidence: 0.82,
+          matched: true,
+          rawName: '삼성전자',
+          rawCode: '005930',
+          tradingHalt: false,
+          managementStock: false,
+          status: body.status,
+        },
+      ],
+    })
+  }),
+  http.delete('/api/strategy-research/ai-discovery/latest', () => {
+    return new HttpResponse(null, { status: 204 })
   }),
 )
 
@@ -171,11 +211,14 @@ describe('StrategyResearchPage', () => {
         await new Promise((resolve) => window.setTimeout(resolve, 80))
         return HttpResponse.json({
           query: lastDiscoveryBody.query,
+          market: lastDiscoveryBody.market ?? null,
+          limit: lastDiscoveryBody.limit,
           provider: 'claude-cli-bridge',
           generatedAt: '2026-06-06T00:00:00Z',
           warnings: [],
           items: [
             {
+              itemKey: 'CODE:005930',
               code: '005930',
               name: '삼성전자',
               market: 'KOSPI',
@@ -189,6 +232,7 @@ describe('StrategyResearchPage', () => {
               rawCode: '005930',
               tradingHalt: false,
               managementStock: false,
+              status: 'NEW',
             },
           ],
         })
@@ -205,5 +249,23 @@ describe('StrategyResearchPage', () => {
 
     await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument())
     expect(await screen.findByText('반도체와 AI 인프라 후보')).toBeInTheDocument()
+  })
+
+  it('AI 종목발굴 후보를 유지하거나 제외할 수 있다', async () => {
+    const user = userEvent.setup()
+    act(() => {
+      useOnboardingStore.setState({ registeredUserId: 74683223 })
+    })
+
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: '발굴' }))
+    expect(await screen.findByText('반도체와 AI 인프라 후보')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '유지' }))
+    expect(await screen.findByText('유지 해제')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '제외' }))
+    await waitFor(() => expect(screen.queryByText('반도체와 AI 인프라 후보')).not.toBeInTheDocument())
   })
 })
