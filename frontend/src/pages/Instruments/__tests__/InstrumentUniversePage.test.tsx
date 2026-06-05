@@ -76,6 +76,18 @@ const server = setupServer(
       },
     ]),
   ),
+
+  http.post('/api/watchlists', () =>
+    HttpResponse.json({
+      id: 2,
+      userId: 1,
+      code: '000660',
+      name: 'SK하이닉스',
+      market: 'KOSPI',
+      priority: 100,
+      createdAt: '2026-06-06T00:00:00Z',
+    }),
+  ),
 )
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
@@ -136,5 +148,34 @@ describe('InstrumentUniversePage 관심종목 필터', () => {
 
     expect(screen.getByText('삼성전자')).toBeInTheDocument()
     expect(screen.queryByText('SK하이닉스')).not.toBeInTheDocument()
+  })
+
+  it('카드 본문(버튼·이름 링크 외 영역)을 클릭하면 종목 상세로 이동한다', async () => {
+    renderPage()
+    const user = userEvent.setup()
+
+    await waitFor(() => {
+      expect(screen.getByText('카카오')).toBeInTheDocument()
+    })
+
+    // 카드 어디든(관심버튼/이름 링크 제외) 클릭 시 상세로 이동
+    await user.click(screen.getByRole('link', { name: '카카오 상세 보기' }))
+
+    expect(screen.getByText('종목 상세')).toBeInTheDocument()
+  })
+
+  it('관심 버튼 클릭은 카드 네비게이션으로 전파되지 않는다', async () => {
+    renderPage()
+    const user = userEvent.setup()
+
+    await waitFor(() => {
+      expect(screen.getByText('SK하이닉스')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'SK하이닉스 관심종목 등록' }))
+
+    // 여전히 종목검색 화면에 머문다 (상세로 이동하지 않음)
+    expect(screen.queryByText('종목 상세')).not.toBeInTheDocument()
+    expect(screen.getByText('SK하이닉스')).toBeInTheDocument()
   })
 })

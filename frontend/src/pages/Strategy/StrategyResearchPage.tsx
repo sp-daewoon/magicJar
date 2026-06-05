@@ -408,12 +408,13 @@ export function StrategyResearchPage() {
               className="mt-1 w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
             />
           </label>
-          <div className="flex items-end lg:col-span-2">
+          <div className="flex flex-col self-start lg:col-span-2">
+            <span className="text-xs text-gray-500" aria-hidden>&nbsp;</span>
             <button
               type="button"
               onClick={submitDiscovery}
               disabled={discoveryMutation.isPending}
-              className="h-10 w-full rounded bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-1 h-10 w-full rounded bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {discoveryMutation.isPending ? '발굴 중' : '발굴'}
             </button>
@@ -576,12 +577,12 @@ export function StrategyResearchPage() {
               </p>
             )}
           </label>
-          <label className="lg:col-span-2">
-            <span className="text-xs text-gray-500">캔들 interval</span>
+          <label className="lg:col-span-1">
+            <span className="text-xs text-gray-500">캔들</span>
             <select
               value={interval}
               onChange={(event) => setInterval(event.target.value)}
-              className="mt-1 w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+              className="mt-1 w-full rounded border border-gray-700 bg-gray-950 px-2 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
             >
               {INTERVALS.map((item) => (
                 <option key={item} value={item}>{item}</option>
@@ -594,7 +595,7 @@ export function StrategyResearchPage() {
               type="datetime-local"
               value={fromKst}
               onChange={(event) => setFromKst(event.target.value)}
-              className="mt-1 w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+              className="mt-1 w-full rounded border border-gray-700 bg-gray-950 px-2 py-2 text-xs text-gray-100 focus:border-blue-500 focus:outline-none"
             />
           </label>
           <label className="lg:col-span-2">
@@ -603,7 +604,7 @@ export function StrategyResearchPage() {
               type="datetime-local"
               value={toKst}
               onChange={(event) => setToKst(event.target.value)}
-              className="mt-1 w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+              className="mt-1 w-full rounded border border-gray-700 bg-gray-950 px-2 py-2 text-xs text-gray-100 focus:border-blue-500 focus:outline-none"
             />
           </label>
           <label className="lg:col-span-1">
@@ -641,12 +642,13 @@ export function StrategyResearchPage() {
               className="mt-1 w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
             />
           </label>
-          <div className="flex items-end lg:col-span-1">
+          <div className="flex flex-col self-start lg:col-span-2">
+            <span className="text-xs text-gray-500" aria-hidden>&nbsp;</span>
             <button
               type="button"
               onClick={submit}
               disabled={mutation.isPending}
-              className="h-10 w-full rounded bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-1 h-10 w-full rounded bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {mutation.isPending ? '분석 중' : '리서치'}
             </button>
