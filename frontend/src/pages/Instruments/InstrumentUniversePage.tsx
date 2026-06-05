@@ -4,8 +4,8 @@
  * 첨부 heatmap처럼 섹터가 1차 구획이 되도록 sectorName 기준으로 묶고,
  * 종목 타일은 상세 화면(/symbol/:code)으로 연결한다.
  */
-import { useMemo, useState, type FormEvent } from 'react'
-import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { useMemo, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useInstrumentUniverse } from '../../api/hooks/useInstrumentUniverse'
 import type { InstrumentUniverseItemDto } from '../../api/instrument'
 import { WatchlistToggleButton } from '../../components/watchlist/WatchlistToggleButton'
@@ -68,6 +68,7 @@ export function InstrumentUniversePage() {
   const [offset, setOffset] = useState(0)
   const [searchParams, setSearchParams] = useSearchParams()
   const location = useLocation()
+  const navigate = useNavigate()
   const watchlistOnly = searchParams.get('watchlist') === '1'
 
   const { data, isLoading, isError, error } = useInstrumentUniverse({
@@ -99,6 +100,18 @@ export function InstrumentUniversePage() {
   const totalPages = Math.ceil(total / limit)
   const currentPage = totalPages === 0 ? 0 : Math.floor(offset / limit) + 1
   const returnTo = `${location.pathname}${location.search}`
+
+  function openDetail(code: string) {
+    navigate(`/symbol/${code}`, { state: { returnTo, returnLabel: '종목검색' } })
+  }
+
+  function handleCardKeyDown(e: KeyboardEvent<HTMLElement>, code: string) {
+    if (e.target !== e.currentTarget) return
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      openDetail(code)
+    }
+  }
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -293,12 +306,18 @@ export function InstrumentUniversePage() {
                   return (
                     <article
                       key={item.code}
-                      className="flex min-h-32 flex-col rounded-lg border border-gray-800 bg-gray-950/80 p-3 transition-colors hover:border-gray-600 hover:bg-gray-900"
+                      role="link"
+                      tabIndex={0}
+                      aria-label={`${item.name} 상세 보기`}
+                      onClick={() => openDetail(item.code)}
+                      onKeyDown={(e) => handleCardKeyDown(e, item.code)}
+                      className="flex min-h-32 cursor-pointer flex-col rounded-lg border border-gray-800 bg-gray-950/80 p-3 transition-colors hover:border-gray-600 hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <Link
                           to={`/symbol/${item.code}`}
                           state={{ returnTo, returnLabel: '종목검색' }}
+                          onClick={(e) => e.stopPropagation()}
                           className="min-w-0 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
                         >
                           <div className="min-w-0">
@@ -323,11 +342,7 @@ export function InstrumentUniversePage() {
                           />
                         </div>
                       </div>
-                      <Link
-                        to={`/symbol/${item.code}`}
-                        state={{ returnTo, returnLabel: '종목검색' }}
-                        className="mt-3 flex flex-1 flex-col rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
-                      >
+                      <div className="mt-3 flex flex-1 flex-col">
                         <div className="flex flex-wrap gap-1 text-[11px]">
                           <span className="rounded bg-gray-900 px-1.5 py-0.5 text-gray-500">
                             {formatMarketCap(item.marketCapPrev)}
@@ -342,7 +357,7 @@ export function InstrumentUniversePage() {
                             <span className="rounded bg-gray-800 px-1.5 py-0.5 text-gray-500">비활성</span>
                           )}
                         </div>
-                      </Link>
+                      </div>
                     </article>
                   )
                 })}
