@@ -17,6 +17,8 @@ import java.math.BigDecimal
  * @param trailingStop 트레일링 스탑 비율 (%)
  * @param fixedStopLoss 고정 손절 비율 (%). 차트 범위 손절이 없을 때 자동매매 BUY hard stop으로 사용한다.
  * @param takeProfitPct 보유 포지션 평가 수익률 기준 익절 비율 (%). 캔들 DSL이 아닌 계좌/포지션 기반 exit policy.
+ * @param scaleIn 분할 매수(scale-in) 정책 (spec §3-2 · ADR 0111). null이면 현행 단일 진입(하위호환 LOCK).
+ * @param partialExits 분할 익절 단계 리스트 (spec §3-3 · ADR 0111). null이면 현행 전량 익절(하위호환 LOCK). 단계 ≤ 5 · weight 합 ≤ 100.
  */
 data class StrategyDefinition(
     val dsl: DslStrategyDefinition,
@@ -27,7 +29,15 @@ data class StrategyDefinition(
     val trailingStop: BigDecimal? = null,
     val fixedStopLoss: BigDecimal? = null,
     val takeProfitPct: BigDecimal? = null,
-)
+    val scaleIn: ScaleInPlan? = null,
+    val partialExits: List<PartialExit>? = null,
+) {
+    init {
+        // 개별 ScaleInPlan·PartialExit 단일 검증은 각 클래스 init 책임.
+        // 여기선 StrategyDefinition 수준의 교차 검증(분할 익절 단계 cap·weight 합)만 수행한다.
+        partialExits?.let { ExitLimits.validatePartialExits(it) }
+    }
+}
 
 /**
  * 유니버스 — 매매 대상 시장 + 필터.
