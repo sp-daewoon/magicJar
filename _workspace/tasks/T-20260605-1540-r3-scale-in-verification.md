@@ -3,10 +3,10 @@ id: T-20260605-1540-r3-scale-in-verification
 agent: qa
 model: opus
 branch: agent/qa/r3-scale-in-verification
-status: RUNNING
+status: DONE
 startedAt: 2026-06-05T15:40:19.415+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-05T15:45:06.413+09:00
+pr: #750
 parentPhase: ?
 ---
 
