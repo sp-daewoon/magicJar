@@ -3,10 +3,10 @@ id: T-20260606-0630-ui-fix-universe-research-layout
 agent: frontend
 model: opus
 branch: agent/frontend/ui-fix-universe-research-layout
-status: RUNNING
+status: DONE
 startedAt: 2026-06-06T06:30:57.910+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-06T06:38:06.723+09:00
+pr: #760
 parentPhase: ?
 ---
 
