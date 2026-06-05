@@ -1,0 +1,81 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>magicJar devlog · 2026-06-05 qa S9 분할매수 fill 재검증</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--brown:#5b3a1f;--cream:#fff8ed;--paper:#fafaf7;--line:#d8d4c8;--ok:#2f7a3a;--warn:#b58606;--pending:#1c5fa6;--todo:#b03060;--mute:#6a6a6a}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Pretendard","Apple SD Gothic Neo",sans-serif;background:var(--paper);color:#222;max-width:1080px;margin:0 auto;padding:36px 24px 80px;line-height:1.65}
+h1{color:var(--brown);border-bottom:2px solid var(--brown);padding-bottom:8px;margin-bottom:6px;font-size:1.55rem}
+.subtitle{color:var(--mute);font-size:.95rem;margin-bottom:24px}
+h2{color:var(--brown);margin-top:34px;border-left:4px solid var(--brown);padding-left:10px;font-size:1.15rem}
+table{width:100%;border-collapse:collapse;margin:12px 0 18px;font-size:.88rem}
+th,td{padding:6px 10px;border:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--cream);color:var(--brown);font-weight:600}
+tr:nth-child(even) td{background:#fcfcf8}
+code{background:#f3efe6;padding:1px 6px;border-radius:3px;font-size:.85em;color:#333}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.72rem;font-weight:600;margin:0 2px}
+.b-ok{background:#e3f1e6;color:var(--ok);border:1px solid var(--ok)}
+.b-pending{background:#e3edf7;color:var(--pending);border:1px solid var(--pending)}
+.b-todo{background:#fce6ec;color:var(--todo);border:1px solid var(--todo)}
+.b-mute{background:#f0f0f0;color:var(--mute);border:1px solid var(--mute)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:14px 0}
+.card{background:var(--cream);border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.card .n{font-size:1.5rem;font-weight:700;color:var(--brown)} .card .l{font-size:.82rem;color:var(--mute)}
+.nav-back{display:inline-block;margin-bottom:18px;color:var(--brown);text-decoration:none;font-size:.9rem}
+.nav-back:hover{text-decoration:underline}
+.cmt{font-size:.86rem;margin:3px 0;padding-left:4px}
+ul.bare{list-style:none;padding:0}</style></head><body>
+<a class="nav-back" href="index.html">← 개발일지 목록</a>
+<h1>2026-06-05 (금) · qa S9 — 분할매수 fill 레이어 재검증</h1>
+<div class="subtitle">품질 헌터 dispatch · 직전 qa F-1 검증 공백 마감 · toggle ON 상태 fill end-to-end</div>
+
+<div class="grid">
+  <div class="card"><div class="n">7</div><div class="l">시나리오 (S9)</div></div>
+  <div class="card"><div class="n" style="color:var(--ok)">7</div><div class="l">PASS</div></div>
+  <div class="card"><div class="n" style="color:var(--todo)">0</div><div class="l">결함·회귀</div></div>
+  <div class="card"><div class="n" style="color:var(--ok)">GREEN</div><div class="l">종합 판정</div></div>
+  <div class="card"><div class="n">7</div><div class="l">Playwright 회귀 가드</div></div>
+</div>
+
+<h2>🎯 dispatch 배경</h2>
+<p>직전 qa(S8, PR #750)는 6/7 PASS + <b>F-1 검증 공백</b>을 남겼다 — toggle OFF + DRAFT(PAUSED)라 리플레이 가상 BUY가 전부 RISK_BLOCKED → fill 레이어(분할 체결→평단 변화→부분 익절→손절)를 관측 불가했다. 현재 <code>MAGICJAR_STRATEGY_SCALE_IN_ENABLED=true</code> 배포(consumer·api 실측). 본 S9 GREEN이 yml default true 영구화의 전제.</p>
+
+<h2>🔍 F-1 원인 구조 규명</h2>
+<p>리플레이 fill은 scale-in <b>toggle</b>이 아니라 전략 <b>status.isEvaluable()</b>(ACTIVE|BUY_BLOCKED) 하위였다. toggle OFF → ACTIVE 전이 차단(<code>SCALE_IN_NOT_ENABLED</code>) → 영구 PAUSED → fill 0. toggle ON이면 게이트가 사라지고 표준 "성공 백테스트" 게이트만 남아, 백테스트 후 ACTIVE 허용 → 리플레이 fill 관측 가능.</p>
+
+<h2>📸 시나리오 판정</h2>
+<table><thead><tr><th>시나리오</th><th>판정</th><th>핵심 evidence</th></tr></thead><tbody>
+<tr><td>S9-1 ACTIVE 전이 허용</td><td><span class="badge b-ok">PASS</span></td><td>toggle ON → SCALE_IN_NOT_ENABLED 소멸. 성공 백테스트 후 PUT ACTIVE → HTTP 200</td></tr>
+<tr><td>S9-2a 다슬라이스+평단 가중평균</td><td><span class="badge b-ok">PASS</span></td><td>SIGNAL_REPEAT(47) → SLICE#1·#2·#3, 가상 평단 347666.67 = (347000+347000+349000)/3</td></tr>
+<tr><td>S9-2b partial-tp 1단계·중복 0</td><td><span class="badge b-ok">PASS</span></td><td>PARTIAL_TAKE_PROFIT#0 1건(50% 청산), 단계 중복 0</td></tr>
+<tr><td>S9-2c STOP_LOSS 전량·stop&gt;tp</td><td><span class="badge b-ok">PASS</span></td><td>PRICE_DROP(46) → STOP_LOSS "전량 손절" 2건, tp 경쟁 0</td></tr>
+<tr><td>S9-2d 백테스트 fill 정합</td><td><span class="badge b-ok">PASS</span></td><td>run 6 105 trades/33 cycle, 전 분기 + 평단·청산 수량 산식 일치</td></tr>
+<tr><td>S9-3 라이브 신호 경로 스모크</td><td><span class="badge b-ok">PASS</span></td><td>Calculator 경로·MOCK 게이트(실주문 0)·scale-in 예외 0 (장외 실발화 0 기대대로)</td></tr>
+<tr><td>S9-4 하위호환</td><td><span class="badge b-ok">PASS</span></td><td>scale-in null(44) 리플레이 SCALE_IN/PARTIAL 마커 0</td></tr>
+</tbody></table>
+
+<h2>✅ fill 레이어 산식 교차 검증 (backtest cycle 1)</h2>
+<ul class="bare">
+<li class="cmt">slice1 45주@109454.70 + slice2 28주@105352.65(직전 대비 -3.75% → PRICE_DROP -3% 충족) → 가중평단 <b>107881.31</b>, 보유 73주</li>
+<li class="cmt">PARTIAL#0 = floor(73×50%)=<b>36주</b>@111344(+3.21%) → 잔량 37주</li>
+<li class="cmt">PARTIAL#1 = floor(37×30%)=<b>11주</b>@114942 → 잔량 26주</li>
+<li class="cmt">TAKE_PROFIT 전량 <b>26주</b>@119640 — 실측 trade 수량과 완전 일치. 33 cycle 단계 중복 발화 0건.</li>
+</ul>
+
+<h2>🚨 발견 사항</h2>
+<table><thead><tr><th>#</th><th>분류</th><th>내용</th></tr></thead><tbody>
+<tr><td>F-1</td><td><span class="badge b-ok">마감</span></td><td>직전 fill 미관측 공백 — toggle ON + 성공 백테스트 → ACTIVE → fill 전 분기 정합 확인. 종결.</td></tr>
+<tr><td>F-1-OBS</td><td><span class="badge b-mute">관찰</span></td><td>리플레이 path는 lastSliceFillPrice 미주입 → PRICE_DROP_PCT 재진입(SLICE#2+) 리플레이 inert. 단 live도 동일(R2-2 어댑터 미연결) → live·리플레이 parity 보존(결함 아님). 백테스트만 완전 wiring. PRICE_DROP live 다회차는 R2-2 후 재검증 권고.</td></tr>
+<tr><td>F-2</td><td><span class="badge b-ok">해소</span></td><td>직전 backtest 400 — 올바른 date 포맷+유효 구간이면 정상 SUCCESS(runId 6·7). backend 결함 아님.</td></tr>
+</tbody></table>
+
+<h2>🛡️ 정리·제약 준수</h2>
+<ul class="bare">
+<li class="cmt">운영 코드 0 touch — <code>frontend/qa</code> spec + baseline PNG + 보고서만.</li>
+<li class="cmt">실주문 0 — 리플레이/백테스트 sandbox만. MOCK + ALLOW_REAL=false 이중 게이트 닫힘.</li>
+<li class="cmt">검증 후 qa 전략 46·47 <b>PAUSED 복귀 확인</b> — 다음 장중 자동 평가 차단. 기존 사용자 전략(8·44) 상태 변경 0.</li>
+</ul>
+
+<h2>🧾 결론</h2>
+<p><b>종합 GREEN</b> — 직전 F-1 공백 완전 마감(7/7), scale-in 결함 0·회귀 0. <code>magicjar.strategy.scale-in.enabled</code> yml default true <b>영구화 전제 충족</b>. 영구화 적용은 사용자 결재로 진행하되, PRICE_DROP_PCT live 다회차는 R2-2 체결 listener 어댑터 완료 시 qa 재dispatch로 마지막 parity 확인 권고.</p>
+
+<footer style="margin-top:40px;padding-top:14px;border-top:1px solid var(--line);color:#888;font-size:.82rem">
+qa (품질 헌터) dispatch · S9 분할매수 fill 재검증 · 보고서 <code>_workspace/reports/2026-06-05-qa-scale-in-fill.md</code> · spec <code>frontend/tests/e2e/s9-scale-in-fill.spec.ts</code>
+</footer></body></html>
