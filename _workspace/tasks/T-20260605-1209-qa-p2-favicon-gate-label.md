@@ -3,10 +3,10 @@ id: T-20260605-1209-qa-p2-favicon-gate-label
 agent: frontend
 model: opus
 branch: agent/frontend/qa-p2-favicon-gate-label
-status: RUNNING
+status: DONE
 startedAt: 2026-06-05T12:09:00.651+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-05T12:13:23.195+09:00
+pr: #736
 parentPhase: ?
 ---
 
