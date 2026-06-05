@@ -159,6 +159,16 @@ class JvmStrategyEvaluatorTest {
         assertEquals(Signal.BUY, result.signal)
     }
 
+    @Test
+    fun `direct candle access — open greater than close fixture`() {
+        // openRaw = 100 고정, closeRaw = 100 + i → 마지막 캔들에서 open < close
+        val ast = parser.parse("open < close")
+        val candles = candleSeries(20, closeStart = BigDecimal("100"))
+
+        val result = evaluator.evaluate(strategyId = 7L, ast = ast, candles = candles)
+        assertEquals(Signal.BUY, result.signal)
+    }
+
     // =====================================================================
     // Fixtures
     // =====================================================================

@@ -532,7 +532,7 @@ class JvmStrategyEvaluator(
         ref: IndicatorRef,
         candles: List<Candle>,
     ): EvalValue {
-        // 캔들 직접 접근 5종 (특수 케이스)
+        // 캔들 직접 접근 6종 (특수 케이스)
         val direct = directCandleAccess(ref, candles)
         if (direct != null) return direct
 
@@ -557,7 +557,7 @@ class JvmStrategyEvaluator(
     }
 
     /**
-     * 캔들 직접 접근 (5종) — close · prev_close · high · low · volume.
+     * 캔들 직접 접근 (6종) — open · close · prev_close · high · low · volume.
      */
     private fun directCandleAccess(
         ref: IndicatorRef,
@@ -565,6 +565,9 @@ class JvmStrategyEvaluator(
     ): EvalValue? {
         val last = candles.lastOrNull() ?: return null
         return when (ref.name) {
+            "open" -> {
+                if (ref.params.isEmpty()) NumEval(last.openAdj ?: last.openRaw, label = "open") else null
+            }
             "close" -> NumEval(last.closeAdj ?: last.closeRaw, label = "close")
             "prev_close" -> {
                 val prev = candles.getOrNull(candles.size - 2) ?: return NumEval(BigDecimal.ZERO, label = "prev_close")
