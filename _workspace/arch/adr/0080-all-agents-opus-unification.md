@@ -40,6 +40,8 @@ ADR 0035 (2025-Q4 PoC 단계) 결정 — 작업 성격별 모델 차등:
 | qa | **opus** | ★ 경계면 교차 검증 (sonnet → opus, 메타 표기) — **ADR 0094 amend: "품질 헌터" Visual 격상 (Playwright + 스크린샷 + 시각 회귀 + E2E)** |
 
 > **ADR 0094 amend (2026-05-21)**: chart-curator 해고 + sre 영입 거절 → 7 actor 매트릭스로 정합. ai-engineer는 유지(W4 진입 시 active dispatch 재개). opus 4.7 LOCK은 모든 7 actor 유지.
+>
+> **사용자 직접 지시 amend (2026-06-05)**: 7 actor 전원 **opus 4.7 → opus 4.8 상향**. 최고 관리자 원문 "지금 에이전트들 모델 낮춰져있는거 다 opus 4.8로 상향시켜줘 내가 내리기 전까지 올려줘" — 사용자가 하향 지시할 때까지 4.8 유지. agent frontmatter `model: opus` 별칭(최신 opus 추종) 구조는 불변, 문서 LOCK 표기만 4.8로 갱신.
 
 > Haiku 미채택 정책 유지 (ADR 0035 §결과 정합 — 절약보다 재작업 비용이 큼).
 

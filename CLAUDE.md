@@ -12,7 +12,7 @@ Spring Boot 3.3 + Spring AI + 한국투자증권 KIS OpenAPI 기반 **개인 맞
 
 **트리거:** magicJar 관련 모든 비트리비얼 작업은 `magicjar-orchestrator` 스킬 사용. 단순 질문(설명·조회) 또는 단일 파일 소소한 편집은 직접 응답 가능. **모듈 추가·전략 추가·AI 기능·화면 추가·차트/캔들 작업·frontend 핵심 화면 변경(헌법 §9-2 qa Visual 자동 의무)·부분 재실행은 반드시 오케스트레이터.**
 
-**위치:** `.claude/agents/*.md`, `.claude/skills/magicjar-*/SKILL.md`. `.claude/agents/_archive/chart-curator.md`는 역사 보존(dispatch 대상 X). **전체 에이전트 opus 4.7 통일** (ADR 0080, 2026-05-18 — ADR 0035 supersede + ADR 0094 amend 2026-05-21 — 8→7 actor reshuffle 적용 + opus 4.7 LOCK 유지). 사유: W3 종착 + W4 진입 직전 단계 + 운영 단계 진입에서 코드 한 줄 수정도 룰 본체·자본 흐름 결합으로 진화하므로 sonnet 패턴화 추론 risk 회피.
+**위치:** `.claude/agents/*.md`, `.claude/skills/magicjar-*/SKILL.md`. `.claude/agents/_archive/chart-curator.md`는 역사 보존(dispatch 대상 X). **전체 에이전트 opus 4.8 통일** (ADR 0080, 2026-05-18 — ADR 0035 supersede + ADR 0094 amend 2026-05-21 8→7 actor + **2026-06-05 사용자 직접 지시로 opus 4.7 → 4.8 상향, 사용자가 내리기 전까지 유지**. frontmatter `model: opus` 별칭이 최신 opus 추종). 사유: 운영 단계에서 코드 한 줄 수정도 룰 본체·자본 흐름 결합으로 진화하므로 하위 모델 패턴화 추론 risk 회피.
 
 ## 방향성 보존 가드 (최고 관리자 지시)
 

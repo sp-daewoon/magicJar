@@ -27,7 +27,7 @@ description: magicJar의 에이전트 통솔자. 사용자(최고 관리자) 위
 | frontend | opus | Dashboard·Watchlist·매매일지·일반 UI + **TradingView LWC v4 차트 컴포넌트 단일 owner (chart-curator 이관)** | 보수 — "안정빌드" |
 | **qa (격상)** ★ | opus | **Visual QA "품질 헌터"** — Playwright + 스크린샷 + 시각 회귀 + E2E + 사용자 시나리오 자동 검증 + incident response 자동 재현 (ADR 0094 §2-2-B) | 방어 — "품질 헌터" |
 
-전체 opus 4.7 통일은 ADR 0080 (2026-05-18, ADR 0035 supersede). ADR 0094 amend 후 7 actor 모두 opus 4.7 LOCK 유지. 에스컬레이션 규칙 폐기 — 부족 시 작업 분할 또는 사용자 의사결정 요청.
+전체 opus 통일은 ADR 0080 (2026-05-18, ADR 0035 supersede). **2026-06-05 사용자 직접 지시 — 7 actor 전원 opus 4.8 상향 (사용자가 내리기 전까지 유지·frontmatter `model: opus` 별칭이 최신 opus 추종)**. 에스컬레이션 규칙 폐기 — 부족 시 작업 분할 또는 사용자 의사결정 요청.
 
 **해고/영입 거절 매트릭스** (ADR 0094 amend):
 - **chart-curator 해고** — 책임 이관: LWC v4 컴포넌트 → **frontend** / 캔들 SLA → **market-data** (spec: `_workspace/specs/2026-05-21-chart-curator-handover.md`)
