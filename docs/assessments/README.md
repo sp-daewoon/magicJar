@@ -17,4 +17,5 @@
 
 | 날짜 | slug | 종합 판정 | 핵심 스코어 | 파일 |
 |------|------|-----------|-------------|------|
+| 2026-06-05 | autotrading-readiness | MOCK 안정 운영 가능 · REAL canary 게이트 대기 | 종합 87(+16) · MOCK 95(+13) · REAL 78(+14) | [2026-06-05-autotrading-readiness.html](2026-06-05-autotrading-readiness.html) |
 | 2026-06-04 | autotrading-readiness | 조건부 정상 | 종합 71 · MOCK 82 · REAL 64 | [2026-06-04-autotrading-readiness.html](2026-06-04-autotrading-readiness.html) |
