@@ -3,10 +3,10 @@ id: T-20260605-1522-order-path-ratelimit-priority
 agent: backend-core
 model: opus
 branch: agent/backend-core/order-path-ratelimit-priority
-status: RUNNING
+status: DONE
 startedAt: 2026-06-05T15:22:42.622+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-05T15:40:42.179+09:00
+pr: #749
 parentPhase: ?
 ---
 
