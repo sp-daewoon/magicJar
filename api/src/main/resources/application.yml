@@ -126,6 +126,13 @@ magicjar:
   scenario-replay:
     max-candles-per-run: ${MAGICJAR_SCENARIO_REPLAY_MAX_CANDLES:5000}
     max-events-per-run: ${MAGICJAR_SCENARIO_REPLAY_MAX_EVENTS:20000}
+  strategy-research:
+    max-candles-per-run: ${MAGICJAR_STRATEGY_RESEARCH_MAX_CANDLES:20000}
+    ai-discovery:
+      enabled: ${MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_ENABLED:true}
+      command: ${MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_COMMAND:claude}
+      bridge-url: ${MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_BRIDGE_URL:}
+      timeout-seconds: ${MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_TIMEOUT_SECONDS:45}
   # ─────────────────────────────────────────────────
   # 차트 캔들 페이지네이션 매트릭스 (ADR 0093 §3-1 LOCK)
   #   key 매트릭스 = spec PR #609 §5 정합 — chart-curator + backend-core 공동 LOCK

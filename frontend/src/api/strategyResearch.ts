@@ -12,6 +12,37 @@ export interface StrategyResearchRequestDto {
   maxHoldBars: number
 }
 
+export interface StrategyResearchAiDiscoveryRequestDto {
+  userId: string
+  query: string
+  market?: 'KOSPI' | 'KOSDAQ' | 'KONEX' | ''
+  limit: number
+}
+
+export interface StrategyResearchAiDiscoveryResponseDto {
+  query: string
+  provider: string
+  generatedAt: string
+  warnings: string[]
+  items: StrategyResearchAiDiscoveryItemDto[]
+}
+
+export interface StrategyResearchAiDiscoveryItemDto {
+  code: string | null
+  name: string
+  market: string | null
+  sector: string | null
+  theme: string | null
+  aiReason: string
+  themes: string[]
+  confidence: number
+  matched: boolean
+  rawName: string | null
+  rawCode: string | null
+  tradingHalt: boolean
+  managementStock: boolean
+}
+
 export interface StrategyResearchReportDto {
   request: StrategyResearchRequestEchoDto
   candleCount: number
@@ -92,6 +123,16 @@ export interface StrategyResearchTradeDto {
 export const strategyResearchApi = {
   propose: async (req: StrategyResearchRequestDto): Promise<StrategyResearchReportDto> => {
     const res = await apiClient.post<StrategyResearchReportDto>('/strategy-research/proposals', req)
+    return res.data
+  },
+  discoverWithAi: async (
+    req: StrategyResearchAiDiscoveryRequestDto,
+  ): Promise<StrategyResearchAiDiscoveryResponseDto> => {
+    const body = {
+      ...req,
+      market: req.market || null,
+    }
+    const res = await apiClient.post<StrategyResearchAiDiscoveryResponseDto>('/strategy-research/ai-discovery', body)
     return res.data
   },
 }

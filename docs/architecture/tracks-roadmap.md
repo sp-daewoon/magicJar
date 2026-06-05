@@ -12,7 +12,7 @@
 | **W1 — Watchlist + 데이터 기반** (오프라인 1순위) | **관심종목 등록·Ingestion (최우선)** + 종목 마스터·시세 fallback·세션·corp action | **T-W1·T-W2·T-S1** + T-MS1·T-IM1·T-CA1 | 0 | 필수 |
 | **W2 — 분석 도구** | 80지표·57패턴·DSL·Strategy Builder UI | T-IND·T-PAT·T-DSL·T-SB | 0 | 필수 |
 | **W3 — 자동 매매 본체** (룰만) | 백테스트·시나리오 리플레이 QA·screener·signal·risk·order 통합·**reconcile**·**notify**·perf | T-BT·**T-SIM**·T-SC·T-SIG·T-RISK·T-O·**T-RECON**·**T-NOTIFY**·T-PERF | 0 | 필수 |
-| **W4 — 시장 추세 + AI 옵션 + MCP 서버** | 시장 지수·섹터 추세·시장 캘린더 + 사용자 트리거 AI 코멘트·기업 분석·MCP server | T-MARKET·T-AI·T-MCP | 옵션 (사용자 트리거만) | 필수 (AI 끊겨도 본체 영향 0) |
+| **W4 — 시장 추세 + AI 옵션 + MCP 서버** | 시장 지수·섹터 추세·시장 캘린더 + 사용자 트리거 AI 코멘트·기업 분석·AI 종목발굴·MCP server | T-MARKET·T-AI·T-MCP | 옵션 (사용자 트리거만) | 필수 (AI 끊겨도 본체 영향 0) |
 | **W5 — 사용자 학습 + 일원화** | LWC 확장 시각화·사용자 학습 시나리오·데이터 정합성 검증 | T-LWC·T-LEARN | 0 | 필수 |
 
 **핵심**:
@@ -51,7 +51,7 @@
 | **T-ACCT** ★ | **계좌 잔고·예수금·평가금 사용자 노출 endpoint + UI (ADR 0081 Proposed 2026-05-18 · 사용자 결함 진단 위임)** | §C.X (master §10 row 0081) | 3 endpoint(`GET /api/account/balance·positions·summary` Swagger 4단) + 신규 port `KisBalanceQueryPort` + 신규 adapter `ApiKisBalanceQueryAdapter`(api 직접 KIS REST 호출 · consumer 0 touch 관심사 분리) + KIS `inquire-balance` output2 11 필드 LOCK(`dnca_tot_amt`·`nxdy_excc_amt`·`prvs_rcdl_excc_amt`·`cma_evlu_amt`·`tot_evlu_amt`·`nass_amt`·`pchs_amt_smtl_amt`·`evlu_amt_smtl_amt`·`evlu_pfls_smtl_amt`·`asst_icdc_amt`·`asst_icdc_erng_rt`) + Redis cache `account:balance:{userId}` TTL 30s + DTO 3건(`AccountBalanceResponse`·`AccountHoldingResponse`·`AccountSummaryResponse`) + frontend Dashboard 격상(`DashboardPlaceholder → DashboardPage` + `AccountSummaryCard` + `HoldingsTable` + TanStack Query 30s auto-refresh) + `KisCapitalSnapshotProviderAdapter` 실제 어댑터 교체(ADR 0067 §7-1 `@ConditionalOnMissingBean` cross-ref · POSITION_LIMIT 룰 활성화) + KIS endpoint 호출 0 추가(ADR 0037 정합 — `inquire-balance` 1건 재사용) + AI 호출 0 LOCK(룰 5) + mock 합성 0 LOCK + KIS-first raw 4건 inline KDoc 의무(`inquire_balance.py` + `chk_inquire_balance.py` raw URL + 영문 key + 한글 의미 + TR_ID `TTTC8434R`/`VTTC8434R` 분기) | **W3 마감 (T-O·T-RECON·T-NOTIFY·T-J·T-PERF·T-NEWS)** · 사용자 결함 진단 dogfooding evidence 2026-05-18 14:50 KST | T-RISK §7-1 결합(CapitalSnapshotProvider 활성화 → POSITION_LIMIT 룰 실효) · W4 T-AI 후보(잔고 변동 분석 코멘트 backlog) | **W3 보강 v3.6.14 patch (T-ACCT 신규 트랙 — 자동매매 fitness gap 신규 · `feedback_release_policy_patch_first` 정합)** | M (Phase 1·2 backend-core 단일 PR · Phase 3 consumer/risk · Phase 4 frontend 직렬 · Phase 5 옵션) | backend-core + frontend |
 | **T-MARKET** ★ | **시장 지수·섹터 추세 + 시장 캘린더 (ADR 0100 + 0104 Accepted)** | §A.2 · master §10 row 0100/0104 | KOSPI·KOSDAQ·NASDAQ·S&P500 지수와 KRX 섹터 추세를 KIS-first로 수집·계산·표시하고, KRX 휴장일 게이트와 웹 시장 캘린더(`/market/calendar`)에서 IPO 등 확장 가능한 중요 일정을 CRUD로 관리. 휴장일에는 국내 수집을 skip하되 기존 snapshot/candle 기반 마지막 추세는 표시해야 하며, `dataInsufficient=true`는 mock 합성이 아니라 초기 지수 데이터 부재를 명시. | T-MS1 · ADR 0013 · ADR 0100 | T-AI · T-MCP · T-LEARN | **W4 ★ (v3.9.0 이후 보강)** | M | market-data + backend-core + frontend + qa |
 | T-LWC | LWC 확장 + 자체 도형/주석/패턴 | §D.17 | TradingView Advanced 의존 0 + 자체 overlay layer | T-PAT·T-SIG | - | W5 | M | frontend |
-| T-AI | AI Option Console (W4) | §D.18 | 사용자 트리거 LLM 호출 — 종목 코멘트·기업 분석·차트 해석·지표 의미 | W3 완료 | T-MCP | W4 | L | ai-engineer+frontend |
+| T-AI | AI Option Console (W4) | §D.18 | 사용자 트리거 LLM 호출 — 종목 코멘트·기업 분석·차트 해석·지표 의미 + 전략 리서치 AI 종목발굴(Claude CLI bridge) | W3 완료 | T-MCP | W4 | L | ai-engineer+frontend |
 | T-MCP | MCP Server expose (W4) | §D.19 | magicJar MCP server + tool 5종 | T-AI | - | W4 | M | architect+backend-core |
 | T-LEARN | 사용자 학습 + 데이터 정합성 검증 (W5) | §운영 | 사용자와 데이터 흐름·아키 의도·표시 의미 검증 | W4 완료 | - | W5 | M | architect+사용자 |
 
@@ -503,14 +503,18 @@
 
 ### T-AI — AI Option Console (W4 — 사용자 트리거 LLM 호출)
 
-- **마스터 §위치**: §D.17
-- **목표**: **사용자 버튼 클릭 시** LLM 호출 — 종목 코멘트·기업 분석·차트 해석·지표 의미 설명. **매매 트리거 0**
+- **마스터 §위치**: §D.18
+- **목표**: **사용자 버튼 클릭 시** LLM 호출 — 종목 코멘트·기업 분석·차트 해석·지표 의미 설명 + 전략 리서치 AI 종목발굴. **매매 트리거 0**
 - **선행/후행**: W3 완료 / T-MCP
 - **오프라인 동작**: **필수 (AI 끊겨도 본체 흐름 영향 0)** — frontend는 "AI 응답 없음" 표시 + 본체 데이터는 그대로 표시
 - **KIS 흡수**: 없음
-- **ADR**: 0026 (AI 옵션 보조 — 사용자 트리거 한정)
+- **ADR**: 0026 (AI 옵션 보조 — 사용자 트리거 한정) + **0112 (AI 종목발굴 Claude CLI bridge)**
 - **데이터**: `ai_comment_log` (V20) · `prompt_template` (V20). Kafka `ai.comment.requested.v1`·`ai.comment.responded.v1`. Redis `ai:prompt:cache:{hash}` TTL 5분
 - **산출물**:
+  - `api/.../strategyresearch/StrategyResearchAiDiscoveryService.kt` — 자연어 조건 → 후보 JSON → instrument master 매핑
+  - `api/.../strategyresearch/StrategyResearchAiTextClient.kt` — `claude -p` 직접 실행 또는 bridge 호출
+  - `scripts/claude-discovery-bridge.mjs` — Docker dev용 host Claude CLI bridge
+  - `frontend/src/pages/Strategy/StrategyResearchPage.tsx` — AI 종목발굴 패널 + matched 후보 선택
   - `domain/.../ai/AiCommentRequest·Response.kt` (코멘트만, 의사결정 X)
   - `domain/.../ai/port/AiCommentProvider.kt`
   - `consumer/.../application/ai/AnthropicCommentAdapter.kt`
@@ -524,6 +528,7 @@
 - **비범위**:
   - **자동 호출** — 사용자 트리거만, 자동 X
   - **AI 의사결정** — 매매 트리거 절대 X
+  - AI 후보 자동 전략 저장, Watchlist 자동 등록, KIS 주문 adapter 호출
   - 자연어 → DSL 번역 (post-W4)
   - RAG·fine-tune (post-MVP)
 
@@ -629,7 +634,7 @@ W4는 W3 완료 후 진입. W5는 옵션 (T-LWC는 W3와 병렬 가능).
 | **W1 — 데이터 기반** | **T-ONBOARD ★★ (최우선)** → T-W1·T-W2·T-S1 → T-MS1 + T-IM1 (병렬) → T-CA1 | ~4주 | 셋업 마법사 7-step 완료 + 토요일 dogfooding 통과 + 종목 검색·universe 정상 + 차트 adjusted 정확 |
 | **W2 — 분석 도구** | T-IND + T-PAT (병렬) → T-DSL → T-SB | ~5주 | 80지표 정확성·차트 overlay + GUI 블록 빌더 yaml export/import 동작 |
 | **W3 — 자동 매매 본체** (룰 only) | T-BT + T-SC (병렬) → T-SIG → T-RISK → T-O → **T-RECON** → **T-NOTIFY** → T-PERF | ~6주 | 시그널 → 주문 e2e 1사이클 + reconcile drift 검출 1사이클 + KillSwitch ON 시 5대 행동 검증 + Slack 통지 7 trigger 검증 + 일별 perf 기록 + AI 호출 0 검증 |
-| **W4 — AI 옵션 + MCP** | T-AI → T-MCP | ~3주 | 사용자 클릭 시 AI 응답 + MCP tool 5종 외부 호출 가능 |
+| **W4 — AI 옵션 + MCP** | T-AI → T-MCP | ~3주 | 사용자 클릭 시 AI 응답 + AI 종목발굴 후보 매핑 + MCP tool 5종 외부 호출 가능 |
 | **W5 — 사용자 학습 + LWC 확장** | T-LWC + T-LEARN (병렬) | ~3주 | 사용자 시스템 투어 완료 + 데이터 정합성 체크리스트 통과 |
 
 총 추정: ~21주 (5.5개월) — T-ONBOARD·T-NOTIFY 합류 정합. 단일 인력 + 사용자 검증 시간 + 외부 자원 발급 시간 별도.
@@ -664,7 +669,7 @@ W4는 W3 완료 후 진입. W5는 옵션 (T-LWC는 W3와 병렬 가능).
 | T-DSL | 파서 + AST | 평가기 + 프리셋 10 | 사용자 import + 검증 + **테스트 일괄** |
 | T-SB | GUI 블록 빌더 1차 골격 (지표 5종 + 진입/청산 1줄) | 지표 picker 80개 + 패턴 + 다중 TF | 풀 GUI + **테스트 일괄** |
 | T-SIG | 룰 매칭 흐름 | watch list × 활성 전략 + Kafka | UI 패널 + **테스트 일괄** |
-| T-AI | Anthropic adapter + ai_comment_log | Gemini·OpenAI dual + 5분 cache | AI Card UI + **테스트 일괄** |
+| T-AI | Claude CLI bridge 기반 AI 종목발굴 + instrument master 매핑 | Anthropic/Gemini/OpenAI 코멘트 provider + 5분 cache | AI Card UI + 종목발굴 회귀 + **테스트 일괄** |
 
 ---
 
@@ -687,6 +692,7 @@ W4는 W3 완료 후 진입. W5는 옵션 (T-LWC는 W3와 병렬 가능).
 
 | 날짜 | 변경 |
 |---|---|
+| 2026-06-06 (ADR 0112) | **T-AI 첫 구현 형태로 AI 종목발굴을 편입** — Strategy Research에서 자연어 조건 → Claude CLI bridge → instrument master 매핑 → 후보 카드 흐름을 Accepted로 기록. 자동매매 본체 AI 0건, 주문·전략 저장·watchlist 자동 등록 0 경계를 유지한다. |
 | 2026-06-03 (ADR 0107) | **T-SIM Scenario Replay Sandbox 트랙 신설** — v3.11.0 이후 장중이 아니어도 전략 신호·리스크·가상 주문·가상 체결·오류 이벤트를 QA처럼 재현하기 위한 W3 보강 트랙. 실전과 같은 strategy/risk 시나리오를 사용하되 live 주문 Kafka, `OrderRouterKafkaListener`, `KisOrderHttpAdapter`, live 주문·리스크 테이블, Slack TRADE 알림과 분리한다. |
 | 2026-06-02 (ADR 0043·0067·0098 amend) | **KillSwitch·`BUY_BLOCKED` 제어 계층 정합** — §2 T-RISK row를 갱신해 KillSwitch를 `user_id` 전체 하드 스톱, `BUY_BLOCKED`를 `strategy_id` 단위 신규 BUY 차단으로 분리했다. KillSwitch는 BUY·SELL 모두를 차단하지만 strategy.status를 바꾸지 않고, `KILL_SWITCH_ON` BLOCKED는 strategy AutoPause 누적에서 제외한다. |
 | 2026-06-02 (ADR 0067 amend) | **T-RISK 리스크 자동정지 `BUY_BLOCKED` 정책 정합** — §2 T-RISK row를 갱신해 auto-PAUSE 반복 BLOCKED 10회가 strategy 전체 PAUSED/DISABLED가 아니라 `strategy_id` 단위 `BUY_BLOCKED` 신규 BUY 차단으로 작동하도록 명시. 다른 strategy는 각자의 상태대로 계속 동작하며 기존 포지션 SELL·익절·손절 평가는 유지한다. |

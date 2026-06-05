@@ -7,6 +7,7 @@ import jakarta.validation.constraints.Max
 import jakarta.validation.constraints.Min
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Pattern
+import jakarta.validation.constraints.Size
 import java.math.BigDecimal
 
 @Schema(description = "전략 리서치 후보 생성 요청")
@@ -115,4 +116,46 @@ data class StrategyResearchTradeDto(
     val exitReason: String,
     val barsHeld: Int,
     val reason: String,
+)
+
+@Schema(description = "Claude CLI 기반 AI 종목발굴 요청")
+data class StrategyResearchAiDiscoveryRequestDto(
+    @field:Schema(description = "사용자 ID", example = "74683223")
+    @field:NotBlank
+    val userId: String,
+    @field:Schema(description = "찾고 싶은 종목/테마 자연어", example = "반도체 중 거래량이 붙을 만한 국내주")
+    @field:NotBlank
+    @field:Size(max = 500)
+    val query: String,
+    @field:Schema(description = "시장 필터", example = "KOSPI")
+    @field:Pattern(regexp = "KOSPI|KOSDAQ|KONEX")
+    val market: String? = null,
+    @field:Schema(description = "후보 수", example = "6")
+    @field:Min(1)
+    @field:Max(12)
+    val limit: Int = 6,
+)
+
+data class StrategyResearchAiDiscoveryResponseDto(
+    val query: String,
+    val provider: String,
+    val generatedAt: String,
+    val warnings: List<String>,
+    val items: List<StrategyResearchAiDiscoveryItemDto>,
+)
+
+data class StrategyResearchAiDiscoveryItemDto(
+    val code: String?,
+    val name: String,
+    val market: String?,
+    val sector: String?,
+    val theme: String?,
+    val aiReason: String,
+    val themes: List<String>,
+    val confidence: Double,
+    val matched: Boolean,
+    val rawName: String?,
+    val rawCode: String?,
+    val tradingHalt: Boolean,
+    val managementStock: Boolean,
 )

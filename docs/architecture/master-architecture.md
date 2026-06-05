@@ -108,7 +108,7 @@ magicJar는 미래에 **MCP 서버를 외부에 노출**해 Claude/Cursor 등 AI
 | D.15 | **Watchlist (관심종목)** | 사용자가 고정해서 지켜보는 목록. Strategy Builder 발굴 결과를 사용자가 명시적으로 고정할 때만 등록한다. 실시간 시세 수요의 유일한 단위가 아니며, SymbolDetail은 `DETAIL`, Screener/Strategy 후보는 `STRATEGY` owner로 KIS WS 수요를 별도 관리한다. | 가능 (DB only) | T-W1 (최우선) |
 | D.16 | **Trading Journal (매매일지)** | order·signal·risk·reconcile·position 5 Kafka 이벤트 통합 시계열 영속(trading_journal 테이블) + 사용자 메모(journal_note 1:N) + 멱등성 UQ(source_table+source_id+event_type). 차트 스냅샷 자동 영속은 backlog §60 (post-MVP). **AI 호출 0 LOCK** + W4 회고 코멘트 backlog §62. ADR 0072 정밀 명세 정합. | 가능 (영속 only) | T-J (ADR 0072 Accepted 2026-05-14) |
 | D.17 | **Chart UI (LWC + 자체 도형/주석/패턴)** | 다중 timeframe·지표 overlay·패턴 마커·자체 도형/주석/패턴 시각화. **TradingView Advanced 의존 0**. | 가능 (frontend in-browser) | T-LWC |
-| D.18 | **AI Option Console (W4)** | 사용자 버튼 클릭 시 LLM 호출 — 종목 코멘트·기업 분석·차트 해석·지표 의미 설명. **매매 트리거 0**. dev에선 5분 prompt cache. | 부분 (LLM endpoint 끊겨도 본체 흐름 영향 0) | W4 |
+| D.18 | **AI Option Console (W4)** | 사용자 버튼 클릭 시 LLM 호출 — 종목 코멘트·기업 분석·차트 해석·지표 의미 설명 + 전략 리서치 AI 종목발굴(Claude CLI bridge). **매매 트리거 0**. dev에선 5분 prompt cache 또는 `claude -p` local bridge. | 부분 (LLM/bridge 끊겨도 본체 흐름 영향 0) | W4 |
 | D.19 | **MCP Server (W4 미래)** | magicJar가 외부 AI 클라이언트(Claude·Cursor 등)에 도메인 노출. tool 5종. | 가능 (read 전용 — DB·캐시 직접 접근) | W4 |
 
 총 19 컴포넌트.
@@ -193,6 +193,22 @@ api STOMP `/topic/ai.explain.{requestId}` → frontend AI Card 표시
 - 사용자 명시 클릭만 (자동 호출 0)
 - LLM 응답 실패·타임아웃 시 frontend "AI 응답 없음" 표시 + **본체 흐름 영향 0**
 - dev profile은 prompt cache 5분 + `MAGICJAR_AI_ENABLED=false` 기본 (비용 통제)
+
+전략 리서치 AI 종목발굴(ADR 0112)은 같은 원칙을 다른 entry point로 적용한다.
+
+```
+사용자 입력 [전략 리서치 > AI 종목발굴]
+   ↓
+api `POST /api/strategy-research/ai-discovery`
+   ↓
+Claude CLI 직접 실행 또는 local bridge `POST /discover` (`claude -p`)
+   ↓
+JSON 후보 파싱 → instrument master code/name/market 매핑
+   ↓
+frontend 후보 카드 표시 → 사용자가 matched 후보만 선택
+```
+
+**금지 경계**: KIS 주문 adapter 호출 0 · `order.intent.v1` 발행 0 · 전략 자동 저장 0 · Watchlist 자동 등록 0.
 
 ### 3-4. MCP 서버 흐름 (W4 미래)
 
@@ -370,6 +386,7 @@ strategy-engine/src/main/kotlin/kr/spdaewoon/magicjar/strategy/
 | Performance | 조회 REST | 일/주 통계 job | (없음) | 성과 페이지 |
 | News | 네이버·DART scrape 어댑터 + Kafka publish | (없음) | AI 분석 listener | 뉴스 패널 |
 | **AI Option** | trigger REST · STOMP | (없음) | LLM 호출 (5분 cache) | AI Card (사용자 클릭) |
+| **Strategy Research AI Discovery** | `POST /api/strategy-research/ai-discovery` + Claude CLI bridge + instrument master 매핑 | (없음) | `claude -p` 사용자 트리거 호출 | AI 종목발굴 후보 카드 |
 | **MCP Server (W4)** | sidecar endpoint | (없음) | (없음) | (없음) |
 
 ---
@@ -551,7 +568,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 
 ---
 
-## §10. 핵심 ADR 인덱스 (0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069·0070·0071·0072·0074·0075·0079·0080·0081·0083·0086·0087·0091·0092·**0094**·**0095**·**0096**·**0097**·**0098**·**0099**·**0100**·**0101**·**0102**·**0103**·**0104**·**0105**·**0106**·**0107**·**0108**·**0109**·**0110**·**0111** Accepted + 0084 Accepted P0 baseline + 0064·0076·0077·0078·0082·0088·0089·0090·0093 Proposed + 0073 Superseded by 0075 + 0035 Superseded by 0080 + **0085 Superseded by 0094**)
+## §10. 핵심 ADR 인덱스 (0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069·0070·0071·0072·0074·0075·0079·0080·0081·0083·0086·0087·0091·0092·**0094**·**0095**·**0096**·**0097**·**0098**·**0099**·**0100**·**0101**·**0102**·**0103**·**0104**·**0105**·**0106**·**0107**·**0108**·**0109**·**0110**·**0111**·**0112** Accepted + 0084 Accepted P0 baseline + 0064·0076·0077·0078·0082·0088·0089·0090·0093 Proposed + 0073 Superseded by 0075 + 0035 Superseded by 0080 + **0085 Superseded by 0094**)
 
 상세 본문은 `_workspace/arch/adr/<NNNN>-*.md`. 분류 카테고리는 `_workspace/arch/adr/README.md` §1~§10-4 정합. 본 §10은 한 줄 요약 인덱스 — 신규 ADR 발행 시 본 표 + README 동시 갱신 (ADR 0030 SoT 운영 규약).
 
@@ -685,6 +702,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | **0109** | **REAL canary hard cap ENV 게이트 — Accepted (2026-06-05)** — 실계좌 소액 1일 canary 전용 hard cap ENV 3건(`MAGICJAR_CANARY_MAX_ORDER_QTY`·`_MAX_ORDER_NOTIONAL_KRW`·`_MAX_ORDERS_PER_DAY`). RiskConfig·POSITION_LIMIT와 독립한 운영 안전선 — REAL 모드 + ENV>0 활성 / fail-open. OrderRouter CanaryHardCapGate 후속 구현. | 운영 안전 게이트 + 자본 path |
 | **0110** | **전략별 포지션 귀속 — `strategy_position` 1급 도메인 — Accepted (2026-06-05)** — position(KIS 잔고 권위, UNIQUE user+code) 유지 + 전략별 lot ledger `strategy_position`(UNIQUE user+strategy+code, V65). 불변식 합=position(KIS 권위 우선·drift 시 WARN). RiskGateway SELL 2룰(SELL_WITHOUT_POSITION·SELL_QUANTITY_UNAVAILABLE) 전략별 분기 + KIS게이트·POSITION_LIMIT·동시보유는 합산 유지. StrategyPositionPort. readiness C-2. | 전략·신호·리스크 + 자본 path |
 | **0111** | **RiskPlan scale-in / 평단 기준 exit 확장 (ADR 0106 amend) — Accepted (2026-06-05)** — ScaleInPlan(N회 분할·회당 비중%·재진입 트리거 SIGNAL_REPEAT\|PRICE_DROP_PCT, V66 JSONB) + 평단 기준 stop-loss exit 신규 + 분할 익절(PartialExit) + ScaleInExitCalculator 단일 순수 함수(live·리플레이·백테스트 공유 — PR #730 패턴) + 동시 터치 stop 우선(ADR 0107 §2-6) + DSL 미확장(정책 레이어) + 하위호환(scale-in null=현행 단일 진입). | 전략·신호·리스크 + 자본 path |
+| **0112** | **AI 종목발굴 Claude CLI bridge + 전략 리서치 후보 탐색 — Accepted (2026-06-06)** — `POST /api/strategy-research/ai-discovery` 사용자 트리거 endpoint. Anthropic API 대신 `claude -p` 직접 실행 또는 local bridge(`/discover`)를 사용하고, 후보 JSON을 instrument master에 code/name/market으로 매핑한다. matched 후보만 기존 리서치 form/chart로 이동 가능. KIS 주문 adapter·주문 Kafka·전략 자동 저장·watchlist 자동 등록 0. | 시각화·AI·MCP + 전략 리서치 |
 
 ---
 
@@ -725,6 +743,7 @@ v1·v2 검토 시점에 누적된 결정 항목과 v3.0.0 베이스라인 컷(20
 
 | 날짜 | 변경 |
 |------|------|
+| 2026-06-06 (ADR 0112) | **AI 종목발굴 Claude CLI bridge + 전략 리서치 후보 탐색 Accepted**. 전략 리서치 화면에서 자연어 조건을 입력하면 api가 `claude -p` 직접 실행 또는 local bridge를 호출하고, 응답 후보를 instrument master에 매핑해 matched 후보만 기존 리서치 form/chart로 연결한다. AI는 검증 후보를 제안할 뿐 주문, 전략 저장, watchlist 등록, 실시간 수요 등록을 수행하지 않는다. |
 | 2026-06-05 (ADR 0110·0111) | **분할 매수(scale-in) + 비중 조절 + 익절/손절 청산 + 전략별 포지션 귀속 통합 Accepted**. ADR 0110 — `strategy_position` 1급 도메인(UNIQUE user+strategy+code, V65) 신설로 동일 종목 다전략 시 "이 전략이 산 물량"만 추적·청산(readiness C-2). position(KIS 잔고 권위)은 유지하고 drift 시 KIS 우선. RiskGateway SELL 2룰만 전략별 분기. ADR 0111(0106 amend) — ScaleInPlan(N회·회당 비중·재진입 트리거, V66 JSONB) + 평단 기준 stop-loss exit 신규 + 분할 익절(PartialExit) + ScaleInExitCalculator 단일 순수 함수(live·리플레이·백테스트 공유). DSL 미확장(정책 레이어). 하위호환(scale-in null=현행). canary cap 3종 분할 자동 정합. spec `2026-06-05-scale-in-exit-ownership-spec.md`(R1→R2→R3). |
 | 2026-06-03 (ADR 0107) | **Scenario Replay Sandbox Accepted**. v3.11.0 이후 `T-SIM` 트랙을 신설해 장중이 아니어도 전략 신호·리스크·가상 주문·가상 체결·오류를 QA처럼 재현한다. live 주문 Kafka, KIS 주문 adapter, live 주문·리스크 테이블, Slack TRADE 알림과 분리하고, `scenario_*` namespace만 허용한다. |
 | 2026-06-02 (ADR 0043·0067·0098 amend) | **KillSwitch·`BUY_BLOCKED` 제어 계층 정합**. KillSwitch는 `user_id` 전체 하드 스톱으로 BUY·SELL·AUTO·MANUAL 주문 경로를 차단하되 strategy.status를 변경하지 않고, `BUY_BLOCKED`는 `strategy_id` 단위 신규 BUY 차단으로 분리한다. `KILL_SWITCH_ON` BLOCKED는 strategy AutoPause 누적에서 제외하고, KillSwitch query row 없음·조회 실패·포트 미합류는 fail-closed ON으로 처리한다. |

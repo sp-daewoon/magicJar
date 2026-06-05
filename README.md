@@ -5,7 +5,7 @@
 **개인 맞춤형 한국 주식 자동매매 시스템**
 _룰 기반 quant trading 본체 + AI 옵션 보조 + MCP 서버 미래 노출_
 
-[![Version](https://img.shields.io/badge/version-v3.11.0-blue)](https://github.com/sp-daewoon/magicJar/releases)
+[![Version](https://img.shields.io/badge/version-v3.12.0-blue)](https://github.com/sp-daewoon/magicJar/releases)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0_(K2)-purple)](https://kotlinlang.org/)
 [![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.3-6db33f)](https://spring.io/projects/spring-boot)
 [![React](https://img.shields.io/badge/React-19-61dafb)](https://react.dev/)
@@ -100,7 +100,8 @@ sequenceDiagram
 - **JDK 21** (Gradle wrapper 내장)
 - **Docker** + **Docker Compose** v2
 - **KIS OpenAPI 키** — [한국투자증권 API 포털](https://apiportal.koreainvestment.com/) 가입 후 prod(조회용) + vps(주문용) 2쌍 발급
-- (옵션) **Anthropic API 키** — AI 분석 보조 활성화 시
+- (옵션) **Claude CLI** — 전략 리서치 AI 종목발굴은 API 키 대신 로컬 `claude -p` 또는 bridge 사용
+- (옵션) **Anthropic API 키** — 기존 AI 분석 코멘트 provider 활성화 시
 
 ### 3 명령으로 기동
 
@@ -176,6 +177,49 @@ scripts/build-and-deploy.sh api-app
 | `리플레이 리스크 차단` | `scenario_*` 포지션·전략 상태 기준으로 가상 주문 생성 전 차단 |
 | `가상 주문 거절` | 장종료 등 리플레이 세션 규칙으로 거절. 실제 주문 거절 알림 아님 |
 
+### AI 종목발굴 사용
+
+v3.12.0의 전략 리서치 AI 종목발굴은 사용자가 자연어로 "이런 조건의 국내주를 찾아줘"라고 입력하면 Claude CLI가 후보를 만들고, api가 종목 마스터에 매칭된 후보만 전략 리서치 입력값으로 넘기는 **검증 보조 기능**이다. 자동 주문, 전략 자동 저장, Watchlist 자동 등록, Kafka 주문 topic 발행은 하지 않는다.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as 사용자
+    participant FE as Strategy Research UI
+    participant API as api
+    participant C as Claude CLI bridge
+    participant M as instrument master
+
+    U->>FE: 자연어 조건 입력
+    FE->>API: POST /api/strategy-research/ai-discovery
+    API->>C: claude -p(JSON 후보 요청)
+    C-->>API: 후보 JSON
+    API->>M: code/name/market 매핑
+    API-->>FE: matched/unmatched 후보 카드
+    FE-->>U: 사용자가 선택한 후보만 차트/리서치로 이동
+```
+
+Docker dev에서는 컨테이너가 host의 Claude CLI를 직접 실행할 수 없으므로 로컬 bridge를 먼저 켠다.
+
+```bash
+tmux new-session -d -s magicjar-claude-bridge -c "$PWD" 'node scripts/claude-discovery-bridge.mjs'
+curl http://127.0.0.1:8787/health
+
+# Docker api-app은 기본값으로 host bridge를 사용한다.
+MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_BRIDGE_URL=http://host.docker.internal:8787
+```
+
+주요 env:
+
+| env | 기본값 | 의미 |
+|---|---|---|
+| `MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_ENABLED` | `true` | AI 종목발굴 endpoint 활성화 |
+| `MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_COMMAND` | `claude` | host/IDE 직접 실행 시 사용할 CLI |
+| `MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_BRIDGE_URL` | empty | 설정 시 bridge `/discover` 호출 |
+| `MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_TIMEOUT_SECONDS` | `45` | Claude 응답 제한 |
+| `CLAUDE_DISCOVERY_BRIDGE_PORT` | `8787` | local bridge 포트 |
+| `CLAUDE_DISCOVERY_BRIDGE_TOKEN` | empty | bridge 선택 인증 토큰 |
+
 ### 개발 모드 (IDE bootRun + Infra 컨테이너)
 
 ```bash
@@ -216,6 +260,7 @@ graph TB
         DART[DART 공시]
         NEWS[Naver RSS + Yahoo]
         LLM[Anthropic LLM<br/>옵션 only]
+        CLAUDE[Claude CLI bridge<br/>claude -p]
     end
 
     UI -->|REST + STOMP| API
@@ -235,6 +280,7 @@ graph TB
     API -->|disclosure| DART
     API -->|news| NEWS
     API -.옵션 트리거.-> LLM
+    API -.AI 종목발굴.-> CLAUDE
 ```
 
 ### E2E 데이터 흐름 — 시세 → 시그널 → 리스크 → 주문
@@ -274,7 +320,7 @@ sequenceDiagram
 | **Backend** | Spring Boot · Spring AI · Spring Batch · Gradle KTS | 3.3 · 8.5 |
 | **Frontend** | React · Vite · Tailwind CSS · LWC v4 (TradingView Lightweight Charts) · pnpm | 19 · 6 · 3 · 4 · 9 |
 | **DB / Messaging / Cache** | PostgreSQL · Kafka KRaft · Redis | 16 · 3.7 · 7 |
-| **외부 API** | KIS OpenAPI (prod + vps) · DART · Yahoo Finance · Naver RSS · Anthropic | — |
+| **외부 API** | KIS OpenAPI (prod + vps) · DART · Yahoo Finance · Naver RSS · Anthropic · Claude CLI(`claude -p`) | — |
 | **배포** | Docker Compose 7 컨테이너 (인프라 3 + 앱 4) | — |
 | **개발 도구** | husky pre-commit/pre-push · task.mjs CLI · ktlint | — |
 
@@ -476,6 +522,7 @@ GitHub 방문자가 한 번에 진입할 수 있도록 release notes(📋) + bas
 
 | 버전 | 날짜 | 미러스톤 | Release | Baseline |
 |------|------|----------|---------|----------|
+| **v3.12.0** | 2026-06-06 | AI 종목발굴 + 전략 리서치 확장 minor | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.12.0) | — |
 | **v3.11.0** | 2026-06-03 | Scenario Replay Sandbox baseline | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.11.0) | [📊](_workspace/baseline/v3.11.0/README.md) |
 | **v3.10.1** | 2026-06-01 | 자동매매 RiskPlan·캔들 reconciliation 운영 패치 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.10.1) | [📊](_workspace/baseline/v3.10.0/html/index.html) |
 | **v3.10.0** | 2026-05-31 | 캔들/오더블럭 후보 스크리닝 minor | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.10.0) | [📊](_workspace/baseline/v3.10.0/html/index.html) |

@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController
 @RequestMapping("/api/strategy-research")
 class StrategyResearchController(
     private val strategyResearchService: StrategyResearchService,
+    private val strategyResearchAiDiscoveryService: StrategyResearchAiDiscoveryService,
 ) {
     private val log = LoggerFactory.getLogger(StrategyResearchController::class.java)
 
@@ -42,5 +43,30 @@ class StrategyResearchController(
             request.to,
         )
         return strategyResearchService.propose(request)
+    }
+
+    @Operation(
+        summary = "AI 종목발굴",
+        description =
+            "사용자 자연어를 Claude CLI 기반 후보 목록으로 변환한 뒤, 종목 마스터와 매핑합니다. " +
+                "KIS 주문, 전략 저장, live order Kafka topic을 호출하지 않습니다.",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "200", description = "AI 종목발굴 성공"),
+        ApiResponse(responseCode = "400", description = "요청 파라미터 검증 실패"),
+        ApiResponse(responseCode = "503", description = "Claude CLI 또는 브릿지 사용 불가"),
+    )
+    @PostMapping("/ai-discovery")
+    fun discoverWithAi(
+        @RequestBody @Valid request: StrategyResearchAiDiscoveryRequestDto,
+    ): StrategyResearchAiDiscoveryResponseDto {
+        log.info(
+            "POST /api/strategy-research/ai-discovery: userId={} market={} limit={} queryLength={}",
+            request.userId,
+            request.market,
+            request.limit,
+            request.query.length,
+        )
+        return strategyResearchAiDiscoveryService.discover(request)
     }
 }

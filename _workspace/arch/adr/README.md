@@ -85,7 +85,7 @@
 | 0071 | T-SC Screener — Accepted (universe × DSL → 후보 + 랭킹 + Redis cache 30m + 옵션 영속 V28) |
 | 0072 | T-J + T-PERF 묶음 — Accepted (Trading Journal 영속 + Performance 통계 + Flyway V29·V30 + batch DailyPerformanceJob) |
 
-## §7. 시각화·AI·MCP (5건 — 2026-05-24 amend +2)
+## §7. 시각화·AI·MCP (6건 — 2026-06-06 amend +1)
 
 | 번호 | 제목 |
 |------|------|
@@ -94,6 +94,7 @@
 | 0027 | MCP 서버 미래 노출 — **Accepted (2026-05-24 amend — tool 5 → 6 `get_market_trend` 신규 · JSON Schema 본문 추가 · V52 LOCK (R0 결함 fix amend V45 → V52 shift · ADR 0102 정합) · MCP 분당 100 초과 alert)** |
 | **0100** | **T-MARKET 트랙 — 지수·섹터 추세 분석 모듈 (market-trend-engine 신설 + KIS endpoint 5 LOCK + cron 매트릭스 + Flyway V47·V48 (R0 결함 fix amend V40·V41 → V47·V48 shift · ADR 0102 정합) + REST 6 endpoint + STOMP 3 topic + KIS-first raw fetch 5 evidence) — Accepted (2026-05-24 — architect R0 spec 발행, 사용자 brainstorming 결재 cec6a4d6 정합)** |
 | **0101** | **TrendPreference 1급 도메인 + `user_preference` 표 (forward-compat 확장 슬롯 단일 진입점 — V51 (R0 결함 fix amend V44 → V51 shift · ADR 0102 정합) + extra JSONB + 시드 SQL idempotent + Bean Validation + REST 2 endpoint Swagger 4단) — Accepted (2026-05-24 — architect R0 spec 발행, 사용자 brainstorming §0-2 추가 의제 결재)** |
+| **0112** | **AI 종목발굴 — Claude CLI bridge + 전략 리서치 후보 탐색 — Accepted (2026-06-06, `claude -p` local bridge, 종목 마스터 매핑 필수, 주문·전략 저장·watchlist 자동 등록 0)** |
 
 ## §8. Watchlist · 차트 데이터 흐름 (3건)
 
@@ -188,7 +189,7 @@
 
 - **새 ADR 발행 시** — 본 README + `master-architecture.md` §10 + `tracks-roadmap.md` §3 동시 갱신.
 - **Superseded 처리 시** — 본문 상단 헤더 + 본 README 행 supersede 표기. `_archive/` 이동은 v3.3.0 cycle에 일괄.
-- **신규 진입 시 후속 ADR 번호** — **0110부터 sequential**. 0082(T-MAN)·0083(indicator-impl)·0084(주문 path 안정성)·0085(chart-curator 영입)·0086(T-CC Phase 2 데이터 햇징 룰)·0087(sub-agent 페르소나 매트릭스)·0088(persistence-shared 모듈)·0089(userId 타입 정합)·0090(instrument_status_history)·0091(NXT resolver)·0092(strategy-engine 모듈)·0093(차트 캔들 히스토리 limit + lazy backfill)·0094(운영 단계 transition + qa Visual 격상)·0095(P0-OPS-3 SLO/SLA + alert routing)·0096(P0-OPS-4 DR/backup 절차)·0097(ExecutionPositionUpdatePort)·0098(KillSwitchQueryPort + Strategy 활성화 게이트)·0099(Reactor `.block()` non-blocking 계약)·**0100(T-MARKET 트랙)·0101(TrendPreference + user_preference)·0102(spec audit 5단계 절차)·0103(JpaScanConfiguration 패키지 누락 차단)·0104(시장 캘린더 이벤트 + 휴장일 게이트)·0105(캔들 Reconciliation + 장기 1m retention)·0106(RiskPlan 필수화)·0107(Scenario Replay Sandbox)·0108(assessment 문서 구조)·0109(REAL canary hard cap ENV)** 점유 완료. 예약 슬롯은 §12 참조.
+- **신규 진입 시 후속 ADR 번호** — **0110부터 sequential**. 0082(T-MAN)·0083(indicator-impl)·0084(주문 path 안정성)·0085(chart-curator 영입)·0086(T-CC Phase 2 데이터 햇징 룰)·0087(sub-agent 페르소나 매트릭스)·0088(persistence-shared 모듈)·0089(userId 타입 정합)·0090(instrument_status_history)·0091(NXT resolver)·0092(strategy-engine 모듈)·0093(차트 캔들 히스토리 limit + lazy backfill)·0094(운영 단계 transition + qa Visual 격상)·0095(P0-OPS-3 SLO/SLA + alert routing)·0096(P0-OPS-4 DR/backup 절차)·0097(ExecutionPositionUpdatePort)·0098(KillSwitchQueryPort + Strategy 활성화 게이트)·0099(Reactor `.block()` non-blocking 계약)·**0100(T-MARKET 트랙)·0101(TrendPreference + user_preference)·0102(spec audit 5단계 절차)·0103(JpaScanConfiguration 패키지 누락 차단)·0104(시장 캘린더 이벤트 + 휴장일 게이트)·0105(캔들 Reconciliation + 장기 1m retention)·0106(RiskPlan 필수화)·0107(Scenario Replay Sandbox)·0108(assessment 문서 구조)·0109(REAL canary hard cap ENV)·0110(전략별 포지션 귀속)·0111(RiskPlan scale-in / exit)·0112(AI 종목발굴 Claude CLI bridge)** 점유 완료. 후속은 0113부터, 예약 슬롯은 §12 참조.
 - **변경 이력 기록 의무** — 의미 있는 ADR 발행·재발행·supersede·예약 해제 시 §14에 한 줄 추가.
 
 ## §12. 예약 슬롯 (Reserved)
@@ -226,6 +227,7 @@
 본 README 자체 + ADR 발행/supersede 시계열. minor cut 단위로 누적.
 
 | 일자 | 사이클 | 변경 |
+| 2026-06-06 | **ADR 0112 신설 — AI 종목발굴 Claude CLI bridge + 전략 리서치 후보 탐색** | 사용자(최고 관리자) 명시 — AI API 대신 `claude -p` 사용. Strategy Research UI 상단에 AI 종목발굴 패널을 두고 `POST /api/strategy-research/ai-discovery`로 자연어 조건을 보낸다. api는 `StrategyResearchAiTextClient`로 Claude CLI 직접 실행 또는 local bridge(`/discover`)를 호출하고, 응답 JSON 후보를 instrument master에 code/name/market으로 매핑한다. matched 후보만 기존 리서치 form/chart로 이동 가능하며 unmatched 후보는 표시만 한다. 주문 adapter 호출 0, `order.intent.v1` 발행 0, 전략 자동 저장 0, watchlist 자동 등록 0. README 사용법, master architecture, tracks-roadmap 동시 정합. |
 | 2026-06-05 | **ADR 0110·0111 신설 — 분할 매수(scale-in) + 비중 조절 + 익절/손절 청산 + 전략별 포지션 귀속 통합** | 사용자(최고 관리자) 원문 — "분할 매수 해서 익절가랑 손절가 정해서 터는 게 필요해. 분할 매수할 땐 비중 조절도 되어야 하고." ADR 0110: `strategy_position` 1급 도메인(UNIQUE user+strategy+code, V65) — position(KIS 잔고 권위) 유지 + 전략별 lot ledger + 불변식(KIS 권위 우선) + RiskGateway SELL 2룰(SELL_WITHOUT_POSITION·SELL_QUANTITY_UNAVAILABLE) 전략별 분기 + 합산 룰 유지(KIS게이트·POSITION_LIMIT·동시보유). ADR 0111(0106 amend): ScaleInPlan(N회·회당 비중·재진입 트리거, V66 JSONB) + 평단 기준 stop-loss exit 신규 + 분할 익절(PartialExit) + ScaleInExitCalculator 단일 순수 함수(live·리플레이·백테스트 공유 — PR #730 패턴) + DSL 미확장(정책 레이어) + 하위호환(scale-in null=현행). 상호작용 매트릭스: canary cap 3종 분할 자동 정합(코드 0 변경, 일일 횟수 cap runbook 가이드만). 자원 audit(ADR 0102): Flyway V65·V66(main 최신 V63·작업트리 V64 별 브랜치 점유 가정), Kafka·Redis·STOMP·ENV 신설 0. 동반 spec `2026-06-05-scale-in-exit-ownership-spec.md`(R1 도메인+스키마 → R2 엔진/주문 → R3 UI+리플레이·백테스트 정합). 운영 코드 0 touch (md only). (architect — readiness C-2) |
 | 2026-06-05 | **ADR 0109 신설 — REAL canary hard cap ENV 게이트** | readiness 재평가(2026-06-05 종합 87·REAL 78) 잔여 P1 게이트(REAL canary evidence +5) 정합. 실계좌 소액 1일 canary 전용 hard cap ENV 3건(`MAGICJAR_CANARY_MAX_ORDER_QTY`·`_MAX_ORDER_NOTIONAL_KRW`·`_MAX_ORDERS_PER_DAY`) — RiskConfig·POSITION_LIMIT와 독립한 운영 안전선. 현행 코드 갭(spec §3 실측): OrderRouter 수량 상한 0 + notional 사용자 budget 기준만 + 일일 REAL 전역 cap 0 → CanaryHardCapGate 후속 구현(backend-core, ~90 LOC). fail-open(미설정 시 일반 운용). 자원 audit(ADR 0102): ENV add-only, Flyway·Kafka·Redis·STOMP·REST 신설 0. 동반: `docs/operations/real-canary-runbook.md` + spec `2026-06-05-real-canary-spec.md`. 운영 코드 0 touch (md only). (architect) |
 | 2026-06-05 | **ADR 0108 신설 — 평가(assessment) 문서 docs/assessments 관리 구조** | 사용자 명시(2026-06-05) "평가 또는 가이드 문서들을 docs 밑에서 관리 + 평가는 주기적으로 요청" 정합. `docs/assessments/` 신설 — 점수화·판정형 주기 평가(HTML)의 단일 위치. 네이밍 `YYYY-MM-DD-<slug>.html` (같은 slug 반복 = 시계열), 표준 템플릿 9 섹션(판정 헤더·스코어·결론·흐름·개선·evidence·위험 P0/P1/P2·우선순위 표·직전 대비 diff), 인덱스 `docs/assessments/README.md` row prepend 의무. 분류 권위: 주기 평가=docs/assessments / 일회성 조사·audit=_workspace/reports / 운영 가이드=docs/operations / 작업 일지=_workspace/devlog. 첫 사례 `2026-06-04-autotrading-readiness.html` 이동(종합 71·MOCK 82·REAL 64). 운영 코드 0 touch (md·html 이동 only). (architect) |
