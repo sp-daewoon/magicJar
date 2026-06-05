@@ -3,10 +3,10 @@ id: T-20260605-1454-r3-replay-backtest-scale-in
 agent: strategy
 model: opus
 branch: agent/strategy/r3-replay-backtest-scale-in
-status: RUNNING
+status: DONE
 startedAt: 2026-06-05T14:54:12.862+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-05T15:09:39.499+09:00
+pr: #746
 parentPhase: ?
 ---
 
