@@ -48,12 +48,13 @@ magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공
 
 | 항목 | 정책 |
 |---|---|
-| **메커니즘** | 토큰 버킷 (Bucket4j Redis 분산 모드 권장) — 모든 JVM이 단일 bucket share |
-| **공통 진입점** | `domain/.../market/ratelimit/KisRateLimiterPort` — 모든 KIS REST 호출 직전 `acquire()` 의무 |
-| **우회 금지** | 어댑터별 직접 RestClient 호출 금지. ArchUnit/ktlint 빌드 게이트로 강제 |
-| **우선순위 큐** | 사용자 path(현재가·차트·주문) > Watchlist Ingestion > backfill·corp action |
-| **refill 방식** | Redis 단일 bucket + interval refill. greedy refill은 한 초 안 burst를 키워 KIS EGW00201을 유발할 수 있어 사용하지 않는다. |
-| **EGW00201 / 429** | 1초 대기 + 1회 재시도. 주문 전 잔고조회는 재시도 후에도 실패하면 주문 미전송 fail-closed로 보류한다. 연속 5분 50% 이상 fail 시 5분 circuit breaker |
+| **메커니즘** | 토큰 버킷 (Bucket4j Redis 분산 모드) — 모든 JVM이 동일 Redis bucket key share |
+| **공통 진입점** | `domain/.../market/ratelimit/KisRateLimiterPort` — 모든 KIS REST 호출 직전 `acquire(priority)` 의무 |
+| **우회 금지** | 어댑터별 직접 RestClient 호출 금지. WebSocket approval(`/oauth2/Approval`)도 limiter 경유(INGESTION) 의무. 단 OAuth 토큰(`/oauth2/tokenP`)은 EGW00133(1분 1회) 별도 한도라 TPS bucket 미합류(Redis 23h cache·분산락 가드) |
+| **우선순위 차등 라우팅 (ADR 0112 의제 — 2026-06-05)** | 단일 bucket → **2-bucket reserve**. shared pool(capacity = bucketCapacity − `userPathReserveTokens`, default 7)은 모든 priority 1차 소비. **USER_PATH 전용 reserve**(`{bucketKey}:user-reserve`, capacity = `userPathReserveTokens`, default 3)는 USER_PATH(주문 hashkey·order-cash·order-rvsecncl + 현재가·차트·잔고)가 shared 소진 시 fallback. 비주문(INGESTION·BACKFILL·INGESTION_LOW)은 reserve 미접근 → 비주문 burst가 shared를 전부 소진해도 주문 묶음이 굶지 않음. 두 bucket 합 = bucketCapacity(KIS 초당 10건 절대 미초과·증설 0). `userPathReserveTokens=0` 시 단일 bucket 회귀(rollback) |
+| **우선순위 순서** | 사용자 path(현재가·차트·주문 = USER_PATH, reserve fallback 보유) > Watchlist Ingestion·approval(INGESTION) > backfill·corp action(BACKFILL) > 시장 추세 cron(INGESTION_LOW) |
+| **refill 방식** | Redis bucket + interval refill. greedy refill은 한 초 안 burst를 키워 KIS EGW00201을 유발할 수 있어 사용하지 않는다. shared·reserve 두 bucket 모두 동일 1초 interval refill |
+| **EGW00201 / 429** | 1초 대기 + 1회 재시도. 주문 전 잔고조회는 재시도 후에도 실패하면 주문 미전송 fail-closed로 보류한다. 주문 직후 account 강제 새로고침은 single-flight + debounce(3s)로 KIS 재조회 burst 차단(`AccountQueryService`). 연속 5분 50% 이상 fail 시 5분 circuit breaker(Phase 3 후속) |
 
 ### 2-3. OAuth 토큰 (ADR 0038)
 

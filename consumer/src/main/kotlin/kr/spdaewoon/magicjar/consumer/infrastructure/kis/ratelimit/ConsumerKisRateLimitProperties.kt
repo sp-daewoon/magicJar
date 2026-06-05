@@ -36,6 +36,20 @@ data class ConsumerKisRateLimitProperties(
      */
     val bucketRefillTokens: Long = 10L,
     /**
+     * USER_PATH 전용 예약 토큰 수 (ADR 0112 의제 — 주문 path 우선권 보호).
+     *
+     * ★ api·batch Properties와 동일 default·동일 의미 LOCK (multi-JVM 동일 Redis bucket 분할 정합).
+     *
+     * 차등 라우팅:
+     *   - shared pool = bucketCapacity - userPathReserveTokens (비주문: INGESTION·BACKFILL·INGESTION_LOW)
+     *   - reserve pool = userPathReserveTokens (USER_PATH 전용 — shared 소진 시 fallback)
+     *   - 총합 = bucketCapacity (KIS 초당 한도 미초과)
+     *
+     * consumer 모듈은 주문 본주문(KisOrderHttpAdapter USER_PATH)이 흐르는 핵심 경로 — reserve 보호 직접 수혜.
+     * 0 설정 시 단일 bucket 회귀 (rollback path).
+     */
+    val userPathReserveTokens: Long = 3L,
+    /**
      * refill 윈도 초 (KIS 한도 = 1초).
      */
     val bucketRefillPeriodSeconds: Long = 1L,

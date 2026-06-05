@@ -29,6 +29,15 @@ data class BatchKisRateLimitProperties(
     val bucketCapacity: Long = 10L,
     /** refill 1회 토큰 수 (= capacity → 매 refill 윈도 100% 회복). */
     val bucketRefillTokens: Long = 10L,
+    /**
+     * USER_PATH 전용 예약 토큰 수 (ADR 0112 의제 — 주문 path 우선권 보호).
+     *
+     * ★ api·consumer Properties와 동일 default·동일 의미 LOCK (multi-JVM 동일 Redis bucket 분할 정합).
+     *
+     * batch 모듈은 BACKFILL·INGESTION 호출만 발행 (USER_PATH 0) → 항상 shared pool 만 소비.
+     * reserve 분할 정합을 위해 동일 prop 보유 (shared capacity = bucketCapacity - reserve 동일 계산).
+     */
+    val userPathReserveTokens: Long = 3L,
     /** refill 윈도 초 (KIS 한도 = 1초). */
     val bucketRefillPeriodSeconds: Long = 1L,
     /** Redis ZSET 키 (★ api·consumer Properties와 동일 LOCK — multi-JVM 단일 bucket share). */

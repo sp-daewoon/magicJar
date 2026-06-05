@@ -28,18 +28,25 @@ import java.util.concurrent.atomic.AtomicReference
  *   - `acquire(priority, timeoutMillis)` blocking polling 패턴 (tryConsume non-blocking + short sleep retry)
  *   - EGW00201/HTTP 429 시그널 누적 (Phase 1 log 카운터만 — Phase 3 Circuit Breaker 합류 후속)
  *
- * Phase 1 LOCK:
- *   - 모든 priority 동일 bucket (USER_PATH > INGESTION > BACKFILL 라우팅 0)
+ * priority 차등 라우팅 (ADR 0112 의제 — 2026-06-05 주문 path 보호):
+ *   - shared bucket (capacity = bucketCapacity - userPathReserveTokens): 모든 priority 1차 소비
+ *   - reserve bucket (capacity = userPathReserveTokens): USER_PATH 전용 fallback (shared 소진 시)
+ *   - 비주문(INGESTION·BACKFILL·INGESTION_LOW)은 shared 만 소비 → 주문(USER_PATH) reserve 굶지 않음
+ *   - 두 bucket 합 = bucketCapacity (KIS 초당 한도 절대 미초과)
+ *   - userPathReserveTokens=0 시 단일 bucket 회귀 (reserve 비활성 — rollback path)
+ *
+ * Circuit Breaker LOCK:
  *   - Circuit Breaker OPEN 차단 미구현 (Phase 3 후속)
  *
  * 자본 영향:
- *   - 본 adapter 발행만으로 직접 자본 영향 0 (caller adapter가 `acquire()` 미호출 시 우회 — Phase 2 합류 후 강제)
- *   - Phase 2 어댑터 통합 후 KIS 차단 risk 영구 차단
+ *   - 본 adapter 발행만으로 직접 자본 영향 0 (caller adapter가 `acquire()` 미호출 시 우회)
+ *   - reserve 라우팅으로 비주문 burst 가 주문 path 를 굶기는 EGW00201 직격 risk 차단 (14:59 evidence)
  *
  * 진보 페르소나 결정 메모 (ADR 0087):
  *   - 💡 `tryConsume(1)` non-blocking + polling 패턴 — BlockingBucket 미지원 distributed proxy 회피
  *   - 🔄 Bucket4j 8.x ProxyManager Lettuce backend 채택 (Redisson 의존 0 — bundle bloat 회피)
  *   - ✨ 통계 카운터는 AtomicLong (Phase 3 Resilience4j Circuit Breaker 합류 시 위임)
+ *   - ✨ 2-bucket reserve 모델 — capacity 증설 0 (KIS 한도 분할), 차등 라우팅을 `tryConsume` 2단 fallback 으로 표현
  */
 class RedisKisRateLimiterAdapter(
     private val proxyManager: ProxyManager<String>,
@@ -74,48 +81,72 @@ class RedisKisRateLimiterAdapter(
 
         const val ACTOR = "RedisKisRateLimiterAdapter"
         const val ACTION_TPS_EXCEEDED = "KIS_TPS_EXCEEDED"
+
+        /** USER_PATH 전용 reserve bucket key suffix (shared bucketKey 와 동일 prefix + ":user-reserve"). */
+        const val RESERVE_KEY_SUFFIX = ":user-reserve"
     }
 
     /**
-     * Bucket4j BucketConfiguration — interval refill (KIS 서버의 초당 윈도우에 맞춰 burst 완화).
-     *
-     * Phase 1 LOCK: 10 token / 1 sec interval.
-     *   - greedy refill은 초기 burst 뒤 100ms마다 토큰을 보충해 KIS가 같은 초 안에 11건 이상으로 볼 수 있음.
-     *   - interval refill은 한 윈도우를 소진하면 다음 refill까지 대기해 EGW00201 빈도를 낮춘다.
+     * reserve 토큰 수 — bucketCapacity 로 clamp (음수·초과 방지).
+     *   - 0 ≤ reserve ≤ bucketCapacity
+     *   - 0 이면 차등 라우팅 비활성 (단일 bucket 회귀 — rollback path)
      */
-    private val bucketConfiguration: BucketConfiguration =
+    private val reserveTokens: Long = props.userPathReserveTokens.coerceIn(0L, props.bucketCapacity)
+
+    /** shared pool capacity = bucketCapacity - reserve (비주문·USER_PATH 1차 공용). */
+    private val sharedCapacity: Long = props.bucketCapacity - reserveTokens
+
+    /** reserve 라우팅 활성 여부 (reserve > 0 이고 shared > 0 일 때만 의미 — 둘 중 하나 0 이면 단일 bucket 동작). */
+    private val reserveEnabled: Boolean = reserveTokens > 0L && sharedCapacity > 0L
+
+    private fun bucketConfigFor(
+        capacity: Long,
+        refill: Long,
+    ): BucketConfiguration =
         BucketConfiguration
             .builder()
             .addLimit { limit ->
                 limit
-                    .capacity(props.bucketCapacity)
-                    .refillIntervally(
-                        props.bucketRefillTokens,
-                        Duration.ofSeconds(props.bucketRefillPeriodSeconds),
-                    )
+                    .capacity(capacity)
+                    .refillIntervally(refill, Duration.ofSeconds(props.bucketRefillPeriodSeconds))
             }.build()
 
     /**
-     * 단일 글로벌 bucket — Redis backend Lettuce ProxyManager가 share 보장.
+     * shared bucket — 모든 priority 1차 소비.
+     *   - reserve 활성 시 capacity = bucketCapacity - reserve
+     *   - reserve 비활성(reserveTokens=0) 시 capacity = bucketCapacity (기존 단일 bucket 동작 그대로)
      *
-     * lazy 초기화: ProxyManager Bean이 ApplicationContext 부팅 후 가용해야 함.
+     * Redis backend Lettuce ProxyManager 가 multi-JVM share 보장. lazy 초기화 (ProxyManager Bean 부팅 후 가용).
      */
-    private val bucket: BucketProxy by lazy {
-        proxyManager.builder().build(props.bucketKey) { bucketConfiguration }
+    private val sharedBucket: BucketProxy by lazy {
+        val cap = if (reserveEnabled) sharedCapacity else props.bucketCapacity
+        proxyManager.builder().build(props.bucketKey) { bucketConfigFor(cap, cap) }
+    }
+
+    /**
+     * reserve bucket — USER_PATH 전용 fallback (shared 소진 시).
+     *   - capacity = reserveTokens, 동일 1s interval refill
+     *   - reserve 비활성 시 미발행 (lazy — 접근 0)
+     */
+    private val reserveBucket: BucketProxy by lazy {
+        proxyManager.builder().build(props.bucketKey + RESERVE_KEY_SUFFIX) {
+            bucketConfigFor(reserveTokens, reserveTokens)
+        }
     }
 
     /**
      * KIS REST 호출 직전 token 1개 acquire (blocking polling).
      *
-     * 알고리즘 (Phase 1 단순화 LOCK):
-     *   1. `bucket.tryConsume(1)` non-blocking 호출
-     *   2. 성공 → 즉시 return
-     *   3. 실패 → polling interval(50ms) sleep 후 재시도
+     * 차등 라우팅 알고리즘 (ADR 0112 의제):
+     *   1. shared bucket `tryConsume(1)` 시도 → 성공 시 즉시 return
+     *   2. (USER_PATH + reserve 활성) shared 실패 → reserve bucket `tryConsume(1)` → 성공 시 return
+     *   3. 둘 다 실패 → polling interval(50ms) sleep 후 재시도
      *   4. timeoutMillis 누적 초과 → throw [KisRateLimitTimeoutException]
+     *
+     * 비주문(INGESTION·BACKFILL·INGESTION_LOW)은 reserve 접근 0 → shared 소진 시 reserve 가 USER_PATH 를 위해 보존됨.
      *
      * Phase 3 후속 최적화 후보:
      *   - BucketProxy `asScheduler().tryConsume(1, maxWait, scheduler)` 합류 (ScheduledExecutorService 의존)
-     *   - 우선순위 큐 합류 (USER_PATH 즉시 / INGESTION 100ms / BACKFILL 500ms polling)
      */
     override fun acquire(
         priority: KisCallPriority,
@@ -126,7 +157,7 @@ class RedisKisRateLimiterAdapter(
 
         while (true) {
             attempts++
-            if (bucket.tryConsume(1L)) {
+            if (tryConsumeRouted(priority)) {
                 if (attempts > 1) {
                     log.debug(
                         "[KisRateLimit] acquire OK after polling — priority={} attempts={} elapsedMs={}",
@@ -141,11 +172,12 @@ class RedisKisRateLimiterAdapter(
             val remainingNanos = deadlineNanos - System.nanoTime()
             if (remainingNanos <= 0L) {
                 log.warn(
-                    "[KisRateLimit] acquire TIMEOUT — priority={} timeoutMs={} attempts={} bucketKey={}",
+                    "[KisRateLimit] acquire TIMEOUT — priority={} timeoutMs={} attempts={} bucketKey={} reserveEnabled={}",
                     priority,
                     timeoutMillis,
                     attempts,
                     props.bucketKey,
+                    reserveEnabled,
                 )
                 throw KisRateLimitTimeoutException(priority, timeoutMillis)
             }
@@ -158,6 +190,19 @@ class RedisKisRateLimiterAdapter(
                 Thread.sleep(sleepMillis)
             }
         }
+    }
+
+    /**
+     * priority 차등 단발 소비 (non-blocking) — shared 1차, USER_PATH 는 reserve fallback.
+     *
+     * 진보 페르소나 (ADR 0087): 💡 USER_PATH 만 reserve 접근 — when 분기 exhaustive 로 신규 priority 추가 시 기본 shared-only.
+     */
+    private fun tryConsumeRouted(priority: KisCallPriority): Boolean {
+        if (sharedBucket.tryConsume(1L)) return true
+        if (reserveEnabled && priority == KisCallPriority.USER_PATH) {
+            return reserveBucket.tryConsume(1L)
+        }
+        return false
     }
 
     /**

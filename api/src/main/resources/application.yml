@@ -178,6 +178,9 @@ magicjar:
       enabled: ${MAGICJAR_KIS_RATE_LIMIT_ENABLED:true}
       bucket-capacity: ${MAGICJAR_KIS_RATE_LIMIT_BURST:10}        # rollback: 12·15 임시 ↑ 가능 (KIS 차단 risk 동반)
       bucket-refill-tokens: 10
+      # USER_PATH(주문 hashkey·order-cash·order-rvsecncl + 현재가·차트·잔고) 전용 예약 토큰 (ADR 0112 의제).
+      # shared pool = bucket-capacity − 이 값 (비주문). 0 시 단일 bucket 회귀(rollback).
+      user-path-reserve-tokens: ${MAGICJAR_KIS_USER_PATH_RESERVE:3}
       bucket-refill-period-seconds: 1
       bucket-key: kis-rate-limit:global
       bucket-ttl-seconds: 10

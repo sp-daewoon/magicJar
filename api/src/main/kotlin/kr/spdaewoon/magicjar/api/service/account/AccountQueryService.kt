@@ -59,6 +59,15 @@ class AccountQueryService(
     private val loadLocks = ConcurrentHashMap<String, Any>()
     private val rateLimitFailures = ConcurrentHashMap<String, LoadFailure>()
 
+    /**
+     * 직전 강제 새로고침(refresh=true) 완료 시각 — refresh debounce single-flight (ADR 0112 의제).
+     *
+     * 결함 evidence (2026-06-05 14:59): 주문 직후 frontend 가 account 강제 새로고침 3연발(36/40/44s)
+     *   → 각 refresh=true 가 single-flight 코얼레싱을 우회 → KIS 잔고조회 3회 burst → EGW00201 직격.
+     * fix: refresh=true 도 직전 refresh 가 [REFRESH_DEBOUNCE] 이내면 그 결과(cache)를 공유 → KIS 1회로 수렴.
+     */
+    private val lastRefreshAt = ConcurrentHashMap<String, Instant>()
+
     companion object {
         const val CACHE_KEY_PREFIX = "account:balance"
 
@@ -76,6 +85,14 @@ class AccountQueryService(
          */
         val CACHE_TTL: Duration = Duration.ofSeconds(10)
         private val RATE_LIMIT_FAILURE_TTL: Duration = Duration.ofSeconds(2)
+
+        /**
+         * 강제 새로고침 debounce 윈도 — 직전 refresh 후 이 시간 내 추가 refresh 는 KIS 재호출 0, 직전 결과 공유 (ADR 0112 의제).
+         *
+         * 3s 사유: 14:59 evidence 의 36/40/44s 3연발(간격 ~4s) 흡수 + 주문 직후 UI 갱신은 order event 기반이 1차.
+         * 사용자가 의도적으로 3s 이상 간격으로 새로고침하면 그때는 KIS 재호출 허용 (신선도 보존).
+         */
+        private val REFRESH_DEBOUNCE: Duration = Duration.ofSeconds(3)
     }
 
     private data class LoadFailure(
@@ -181,12 +198,25 @@ class AccountQueryService(
         // 2. cache miss 또는 refresh=true → KIS REST 직접 호출
         val lock = loadLocks.computeIfAbsent(cacheKey) { Any() }
         return synchronized(lock) {
-            if (!refresh) {
+            // 일반(refresh=false) single-flight 코얼레싱 — 락 대기 중 다른 thread 가 이미 채웠나?
+            // refresh=true single-flight debounce — 직전 refresh 가 debounce 이내면 그 결과(cache) 공유 (ADR 0112 의제).
+            //   주문 직후 강제 새로고침 3연발(14:59 evidence)이 KIS 잔고조회 burst 로 번지는 것을 1회로 수렴.
+            val coalesceCache = !refresh || withinRefreshDebounce(cacheKey)
+            if (coalesceCache) {
                 val coalesced = redisTemplate.opsForValue().get(cacheKey)
                 if (coalesced != null) {
                     runCatching { objectMapper.readValue<KisAccountBalance>(coalesced) }
                         .onSuccess { snapshot ->
-                            log.debug("account cache HIT after single-flight wait: userId={}", maskUserId(userId))
+                            if (refresh) {
+                                log.info(
+                                    "account 강제 새로고침 debounce 공유 — KIS 미호출(직전 refresh {} 이내): userId={} type={}",
+                                    REFRESH_DEBOUNCE,
+                                    maskUserId(userId),
+                                    accountType.name,
+                                )
+                            } else {
+                                log.debug("account cache HIT after single-flight wait: userId={}", maskUserId(userId))
+                            }
                             return@synchronized snapshot
                         }.onFailure { ex ->
                             log.warn(
@@ -210,7 +240,10 @@ class AccountQueryService(
 
             try {
                 loadFromKisAndCache(userId, accountType, cacheKey)
-                    .also { rateLimitFailures.remove(cacheKey) }
+                    .also {
+                        rateLimitFailures.remove(cacheKey)
+                        lastRefreshAt[cacheKey] = Instant.now() // debounce 마커 — 직후 refresh 연발 흡수
+                    }
             } catch (ex: RuntimeException) {
                 if (isRateLimitFailure(ex)) {
                     rateLimitFailures[cacheKey] = LoadFailure(Instant.now(), ex)
@@ -220,6 +253,14 @@ class AccountQueryService(
                 throw ex
             }
         }
+    }
+
+    /**
+     * 직전 강제 새로고침이 [REFRESH_DEBOUNCE] 이내인지 — true 면 KIS 재호출 없이 cache 공유 (ADR 0112 의제).
+     */
+    private fun withinRefreshDebounce(cacheKey: String): Boolean {
+        val prev = lastRefreshAt[cacheKey] ?: return false
+        return Duration.between(prev, Instant.now()) < REFRESH_DEBOUNCE
     }
 
     private fun recentRateLimitFailure(cacheKey: String): RuntimeException? {

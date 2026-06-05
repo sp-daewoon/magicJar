@@ -30,6 +30,23 @@ data class KisRateLimitProperties(
     /** refill 1회 토큰 수 (= capacity → 매 refill 윈도 100% 회복). */
     val bucketRefillTokens: Long = 10L,
     /**
+     * USER_PATH 전용 예약 토큰 수 (ADR 0112 의제 — 주문 path 우선권 보호).
+     *
+     * 차등 라우팅 LOCK:
+     *   - shared pool capacity = bucketCapacity - userPathReserveTokens (비주문: INGESTION·BACKFILL·INGESTION_LOW)
+     *   - reserve pool capacity = userPathReserveTokens (USER_PATH 전용 — shared 소진 시 fallback)
+     *   - 총합 = bucketCapacity (KIS 초당 한도 절대 미초과 — reserve는 분할이지 증설 아님)
+     *
+     * default 3 사유 (자율 조정 — spec 권장):
+     *   - 주문 1건 = hashkey(USER_PATH) + order-cash(USER_PATH) 묶음 → reserve 3 이면 한 묶음 + 잔여 1 여유
+     *   - 비주문 트래픽이 shared 7 토큰을 전부 소진해도 주문 묶음이 굶지 않음
+     *   - 14:59 evidence(주문 1건 EGW00201) 직격 — 비주문 burst 와 동일 bucket 경쟁이 원인
+     *
+     * 0 설정 시 차등 라우팅 비활성 (단일 bucket 회귀 — rollback path).
+     * bucketCapacity 이상 설정 시 캡(clamp)되어 reserve = capacity, shared = 0 (전량 USER_PATH 전용).
+     */
+    val userPathReserveTokens: Long = 3L,
+    /**
      * refill 윈도 초 (KIS 한도 = 1초).
      */
     val bucketRefillPeriodSeconds: Long = 1L,
