@@ -1,6 +1,10 @@
 package kr.spdaewoon.magicjar.consumer.infrastructure.kis
 
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
+import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
@@ -29,6 +33,12 @@ import kotlin.concurrent.withLock
  * in-process ReentrantLock (per userId:accountType):
  * - cold-start 시 동시 thread가 KIS /oauth2/Approval 중복 호출하는 문제 차단
  * - EGW00133 (1분 1회 제한) 위반 방지 — KisAuthAdapter와 동일 패턴
+ *
+ * Rate limiter 합류 (ADR 0112 의제 — 2026-06-05):
+ * - 기존: limiter 미경유 → WS 재연결 루프가 /oauth2/Approval REST 를 우회 발사 → TPS bucket 미집계 → 주문 path 와 KIS 한도 충돌
+ * - 변경: 실 KIS 호출(issueApprovalKey) 직전 [KisRateLimiterPort.acquire] (INGESTION priority — 주문보다 후순위)
+ * - cache hit / 분산락 대기 path 는 KIS 호출 0 이라 acquire 0 (불필요한 토큰 소비 회피)
+ * - INGESTION 은 shared pool 만 소비 → USER_PATH(주문) reserve 굶지 않음
  */
 @Component
 class KisApprovalAdapter(
@@ -36,6 +46,7 @@ class KisApprovalAdapter(
     private val redisTemplate: StringRedisTemplate,
     private val secretCipher: SecretCipher,
     private val credentialRepository: ConsumerUserKisCredentialJpaRepository,
+    private val kisRateLimiterPort: KisRateLimiterPort,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseProd: String,
     @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
@@ -165,6 +176,10 @@ class KisApprovalAdapter(
 
             val baseUrl = if (accountType == AccountType.REAL) kisBaseProd else kisBaseVps
 
+            // Rate limiter acquire (ADR 0112 의제 — INGESTION priority, 주문 path 보다 후순위 shared pool).
+            // 실 KIS 호출 직전에만 acquire → cache hit·분산락 대기 path 는 토큰 소비 0.
+            kisRateLimiterPort.acquire(KisCallPriority.INGESTION, timeoutMillis = 3000L)
+
             @Suppress("UNCHECKED_CAST")
             val response =
                 webClient
@@ -181,11 +196,18 @@ class KisApprovalAdapter(
                     .bodyToMono(Map::class.java)
                     .timeout(Duration.ofSeconds(10))
                     .block() as? Map<String, Any>
-                    ?: error("KIS /oauth2/Approval 응답 없음")
+                    ?: run {
+                        kisRateLimiterPort.onSuccess() // HTTP 정상이나 body null — token 소비 정상 집계
+                        error("KIS /oauth2/Approval 응답 없음")
+                    }
 
+            kisRateLimiterPort.onSuccess()
             response["approval_key"]?.toString()
                 ?: error("KIS /oauth2/Approval 응답에 approval_key 없음")
         } catch (e: WebClientResponseException) {
+            if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
+                kisRateLimiterPort.onTpsExceeded()
+            }
             log.error(
                 "KIS approval_key 발급 실패 (인증 실패 — 재시도 금지): user={} status={} body={}",
                 maskUserId(userId),

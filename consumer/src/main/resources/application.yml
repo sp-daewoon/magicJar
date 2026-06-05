@@ -121,6 +121,8 @@ magicjar:
       enabled: ${MAGICJAR_KIS_RATE_LIMIT_ENABLED:true}
       bucket-capacity: ${MAGICJAR_KIS_RATE_LIMIT_BURST:10}
       bucket-refill-tokens: 10
+      # USER_PATH(본주문 hashkey·order-cash) 전용 예약 토큰 (ADR 0112 의제) — api 모듈과 동일 LOCK.
+      user-path-reserve-tokens: ${MAGICJAR_KIS_USER_PATH_RESERVE:3}
       bucket-refill-period-seconds: 1
       bucket-key: kis-rate-limit:global
       bucket-ttl-seconds: 10

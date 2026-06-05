@@ -196,6 +196,30 @@ class AccountQueryServiceTest {
         verify(valueOps).set(eq(cacheKey), any<String>(), eq(Duration.ofSeconds(10)))
     }
 
+    /**
+     * ★ 강제 새로고침 debounce single-flight 회귀 (ADR 0112 의제, 14:59 evidence 직격).
+     *
+     * 주문 직후 frontend 강제 새로고침 3연발 → 첫 refresh 만 KIS 호출, 이후 debounce(3s) 이내 refresh 는
+     * 직전 결과(cache) 공유 → KIS 잔고조회 1회로 수렴 (EGW00201 burst 차단).
+     */
+    @Test
+    fun `refresh 3연발 — debounce 이내면 KIS 1회로 수렴 (single-flight)`() {
+        whenever(redis.opsForValue()).thenReturn(valueOps)
+        val freshSnapshot = fixtureSnapshot()
+        // 첫 KIS 호출 후 cache 에 기록된 JSON 을 이후 get 이 반환하도록 stub (cache write → read 모사).
+        val cachedJson = objectMapper.writeValueAsString(freshSnapshot)
+        whenever(kisPort.fetchFullBalance(userId, accountType)).thenReturn(freshSnapshot)
+        whenever(valueOps.get(eq(cacheKey))).thenReturn(cachedJson)
+
+        // 3연발 강제 새로고침 (간격 0 — burst 가정)
+        sut.getSummary(userId, accountType, refresh = true)
+        sut.getSummary(userId, accountType, refresh = true)
+        sut.getSummary(userId, accountType, refresh = true)
+
+        // KIS 잔고조회는 정확히 1회 (2·3번째는 debounce 공유)
+        verify(kisPort, org.mockito.kotlin.times(1)).fetchFullBalance(userId, accountType)
+    }
+
     @Test
     fun `summary — 수익률 = totalProfitLoss div totalPurchaseAmount times 100, 보유 종목 수 정합`() {
         whenever(redis.opsForValue()).thenReturn(valueOps)
