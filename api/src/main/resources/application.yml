@@ -111,10 +111,10 @@ magicjar:
       queue: ${MAGICJAR_DSL_EVAL_POOL_QUEUE:100}
   # 분할매수(scale-in) / 분할익절 "리플레이 먼저" 활성화 게이트 (spec §8-1 · ADR 0111 §2-7)
   # default false — scaleIn/partialExits 설정 전략의 ACTIVE 전이를 서버 검증에서 거부(SCALE_IN_NOT_ENABLED).
-  # R3 리플레이·백테스트 정합 GREEN 후에만 true 해제. toggle 자체가 rollback.
+  # qa 2라운드 GREEN(PR #750 S8 6/7 + PR #753 S9 7/7 fill 레이어)으로 2026-06-05 default true 영구화. rollback = ENV false 또는 본 값 false.
   strategy:
     scale-in:
-      enabled: ${MAGICJAR_STRATEGY_SCALE_IN_ENABLED:false}
+      enabled: ${MAGICJAR_STRATEGY_SCALE_IN_ENABLED:true}
   # T-SC Screener 설정 (ADR 0071 §2-4 D-2)
   screener:
     # 옵션 영속 — true 시 screening_run + screening_match INSERT (default false = Redis cache-only)
