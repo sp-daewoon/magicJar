@@ -3,10 +3,10 @@ id: T-20260605-1410-r1-strategy-position
 agent: backend-core
 model: opus
 branch: agent/backend-core/r1-strategy-position
-status: RUNNING
+status: DONE
 startedAt: 2026-06-05T14:10:49.590+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-05T14:16:56.735+09:00
+pr: #742
 parentPhase: ?
 ---
 
