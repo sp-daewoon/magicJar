@@ -65,7 +65,7 @@
 | **0104** | **시장 캘린더 이벤트 표면 + KRX 휴장일 배치 게이트 — Accepted (2026-05-25, 2026-05-25 부처님오신날 대체휴무일 실측 정합 + `market_calendar_event` 확장 테이블 + `/market/calendar` 웹 캘린더 + batch KRX 휴장일 skip + 지수 데이터 부족 원인 분리)** |
 | **0105** | **캔들 Reconciliation + 장기 1m 보관/복구 정책 — Accepted (2026-05-31, 2026-06-01 실전 시나리오 amend: A→B→A 재진입 gap fill + boot managed universe reconciliation + data readiness fail-closed)** |
 
-## §6. 전략·신호·리스크 (13건)
+## §6. 전략·신호·리스크 (15건 — 2026-06-05 amend +2)
 
 | 번호 | 제목 |
 |------|------|
@@ -80,6 +80,8 @@
 | 0068 | T-O 주문 실행 — **Accepted (2026-05-18 본 트랙 마감 — Phase 1·2·3 합류 종결 + dogfooding 케이스 5 GREEN + KIS WS H0STCNI9 MOCK subscribe emit=OK)** (Risk ALLOWED → KIS REST + WS H0STCNI0/H0STCNI9 체결 추적 + 3 테이블 영속 + 실계좌 3중 게이트) |
 | 0106 | 자동매매 BUY 전 손절/익절 RiskPlan 필수화 — Accepted (2026-06-01, fixed stop-loss + take-profit activation gate + SELL 가용 수량 계산) |
 | 0107 | Scenario Replay Sandbox — Accepted (2026-06-03, 실주문 경로·KIS 주문 adapter·live Kafka topic·live 주문/리스크 테이블과 분리된 전략 QA 리플레이) |
+| **0110** | **전략별 포지션 귀속 — `strategy_position` 1급 도메인 — Accepted (2026-06-05, position(KIS 잔고 권위) 유지 + UNIQUE(user,strategy,code) lot ledger + 불변식 KIS 권위 우선 + RiskGateway SELL 2룰 전략별 분기 + StrategyPositionPort + V65 — readiness C-2)** |
+| **0111** | **RiskPlan scale-in / 평단 기준 exit 확장 (ADR 0106 amend) — Accepted (2026-06-05, ScaleInPlan N회·회당 비중·재진입 트리거 + 평단 stop-loss exit 신규 + 분할 익절 PartialExit + ScaleInExitCalculator 단일 순수 함수(live·리플레이·백테스트 공유) + DSL 미확장 + V66 JSONB + 하위호환)** |
 | 0071 | T-SC Screener — Accepted (universe × DSL → 후보 + 랭킹 + Redis cache 30m + 옵션 영속 V28) |
 | 0072 | T-J + T-PERF 묶음 — Accepted (Trading Journal 영속 + Performance 통계 + Flyway V29·V30 + batch DailyPerformanceJob) |
 
@@ -224,6 +226,7 @@
 본 README 자체 + ADR 발행/supersede 시계열. minor cut 단위로 누적.
 
 | 일자 | 사이클 | 변경 |
+| 2026-06-05 | **ADR 0110·0111 신설 — 분할 매수(scale-in) + 비중 조절 + 익절/손절 청산 + 전략별 포지션 귀속 통합** | 사용자(최고 관리자) 원문 — "분할 매수 해서 익절가랑 손절가 정해서 터는 게 필요해. 분할 매수할 땐 비중 조절도 되어야 하고." ADR 0110: `strategy_position` 1급 도메인(UNIQUE user+strategy+code, V65) — position(KIS 잔고 권위) 유지 + 전략별 lot ledger + 불변식(KIS 권위 우선) + RiskGateway SELL 2룰(SELL_WITHOUT_POSITION·SELL_QUANTITY_UNAVAILABLE) 전략별 분기 + 합산 룰 유지(KIS게이트·POSITION_LIMIT·동시보유). ADR 0111(0106 amend): ScaleInPlan(N회·회당 비중·재진입 트리거, V66 JSONB) + 평단 기준 stop-loss exit 신규 + 분할 익절(PartialExit) + ScaleInExitCalculator 단일 순수 함수(live·리플레이·백테스트 공유 — PR #730 패턴) + DSL 미확장(정책 레이어) + 하위호환(scale-in null=현행). 상호작용 매트릭스: canary cap 3종 분할 자동 정합(코드 0 변경, 일일 횟수 cap runbook 가이드만). 자원 audit(ADR 0102): Flyway V65·V66(main 최신 V63·작업트리 V64 별 브랜치 점유 가정), Kafka·Redis·STOMP·ENV 신설 0. 동반 spec `2026-06-05-scale-in-exit-ownership-spec.md`(R1 도메인+스키마 → R2 엔진/주문 → R3 UI+리플레이·백테스트 정합). 운영 코드 0 touch (md only). (architect — readiness C-2) |
 | 2026-06-05 | **ADR 0109 신설 — REAL canary hard cap ENV 게이트** | readiness 재평가(2026-06-05 종합 87·REAL 78) 잔여 P1 게이트(REAL canary evidence +5) 정합. 실계좌 소액 1일 canary 전용 hard cap ENV 3건(`MAGICJAR_CANARY_MAX_ORDER_QTY`·`_MAX_ORDER_NOTIONAL_KRW`·`_MAX_ORDERS_PER_DAY`) — RiskConfig·POSITION_LIMIT와 독립한 운영 안전선. 현행 코드 갭(spec §3 실측): OrderRouter 수량 상한 0 + notional 사용자 budget 기준만 + 일일 REAL 전역 cap 0 → CanaryHardCapGate 후속 구현(backend-core, ~90 LOC). fail-open(미설정 시 일반 운용). 자원 audit(ADR 0102): ENV add-only, Flyway·Kafka·Redis·STOMP·REST 신설 0. 동반: `docs/operations/real-canary-runbook.md` + spec `2026-06-05-real-canary-spec.md`. 운영 코드 0 touch (md only). (architect) |
 | 2026-06-05 | **ADR 0108 신설 — 평가(assessment) 문서 docs/assessments 관리 구조** | 사용자 명시(2026-06-05) "평가 또는 가이드 문서들을 docs 밑에서 관리 + 평가는 주기적으로 요청" 정합. `docs/assessments/` 신설 — 점수화·판정형 주기 평가(HTML)의 단일 위치. 네이밍 `YYYY-MM-DD-<slug>.html` (같은 slug 반복 = 시계열), 표준 템플릿 9 섹션(판정 헤더·스코어·결론·흐름·개선·evidence·위험 P0/P1/P2·우선순위 표·직전 대비 diff), 인덱스 `docs/assessments/README.md` row prepend 의무. 분류 권위: 주기 평가=docs/assessments / 일회성 조사·audit=_workspace/reports / 운영 가이드=docs/operations / 작업 일지=_workspace/devlog. 첫 사례 `2026-06-04-autotrading-readiness.html` 이동(종합 71·MOCK 82·REAL 64). 운영 코드 0 touch (md·html 이동 only). (architect) |
 |------|--------|------|
