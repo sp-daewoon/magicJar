@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import {
   strategyResearchApi,
@@ -12,6 +12,10 @@ import {
 import { StrategyResearchChart } from '../../components/strategyResearch/StrategyResearchChart'
 import { formatKst, formatMoney } from '../../components/scenario/scenarioReplayFormat'
 import { kstInputToIso } from '../../components/scenario/scenarioReplayTime'
+import {
+  buildStrategyResearchDraft,
+  storeStrategyResearchDraft,
+} from '../../lib/strategyResearch/builderDraft'
 import { useOnboardingStore } from '../../stores/onboarding'
 
 const DEFAULT_FROM_KST = '2026-04-28T09:00'
@@ -50,6 +54,7 @@ function candidateTone(candidate: StrategyResearchCandidateDto): string {
 }
 
 export function StrategyResearchPage() {
+  const navigate = useNavigate()
   const registeredUserId = useOnboardingStore((s) => s.registeredUserId)
   const [code, setCode] = useState('038110')
   const [interval, setInterval] = useState('1m')
@@ -109,6 +114,17 @@ export function StrategyResearchPage() {
     } catch (error) {
       setFormError(error instanceof Error ? error.message : '입력값을 확인해주세요')
     }
+  }
+
+  const openBuilderDraft = (candidate: StrategyResearchCandidateDto) => {
+    if (!report) return
+    const result = buildStrategyResearchDraft(report, candidate)
+    if (!result.draft) {
+      setFormError(result.reason ?? '이 후보는 전략 빌더로 가져올 수 없습니다.')
+      return
+    }
+    const draftId = storeStrategyResearchDraft(result.draft)
+    navigate(`/strategy/builder?researchDraftId=${encodeURIComponent(draftId)}`)
   }
 
   return (
@@ -336,10 +352,23 @@ export function StrategyResearchPage() {
                   <h2 className="text-base font-semibold text-gray-100">{selectedCandidate.title}</h2>
                   <p className="mt-1 text-sm text-gray-500">{selectedCandidate.summary}</p>
                 </div>
-                <div className="flex flex-wrap gap-2 text-xs">
-                  <span className="rounded border border-gray-700 px-2 py-1 text-gray-300">MDD {selectedCandidate.stats.maxDrawdownPct}%</span>
-                  <span className="rounded border border-gray-700 px-2 py-1 text-gray-300">평균 {formatPct(selectedCandidate.stats.avgTradeReturnPct)}</span>
-                  <span className="rounded border border-gray-700 px-2 py-1 text-gray-300">연속손실 {selectedCandidate.stats.maxConsecutiveLosses}</span>
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="rounded border border-gray-700 px-2 py-1 text-gray-300">
+                    MDD {selectedCandidate.stats.maxDrawdownPct}%
+                  </span>
+                  <span className="rounded border border-gray-700 px-2 py-1 text-gray-300">
+                    평균 {formatPct(selectedCandidate.stats.avgTradeReturnPct)}
+                  </span>
+                  <span className="rounded border border-gray-700 px-2 py-1 text-gray-300">
+                    연속손실 {selectedCandidate.stats.maxConsecutiveLosses}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => openBuilderDraft(selectedCandidate)}
+                    className="rounded bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+                  >
+                    전략 빌더로 가져오기
+                  </button>
                 </div>
               </div>
 
