@@ -3,10 +3,10 @@ id: T-20260605-1715-external-order-user-mapping
 agent: backend-core
 model: opus
 branch: agent/backend-core/external-order-user-mapping
-status: RUNNING
+status: DONE
 startedAt: 2026-06-05T17:15:56.528+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-05T17:34:30.088+09:00
+pr: #752
 parentPhase: ?
 ---
 
