@@ -3,10 +3,10 @@ id: T-20260605-1410-r1-scale-in-exit-domain
 agent: strategy
 model: opus
 branch: agent/strategy/r1-scale-in-exit-domain
-status: RUNNING
+status: DONE
 startedAt: 2026-06-05T14:10:52.748+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-05T14:17:31.239+09:00
+pr: #743
 parentPhase: ?
 ---
 
