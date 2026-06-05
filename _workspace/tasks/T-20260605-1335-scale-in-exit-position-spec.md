@@ -3,10 +3,10 @@ id: T-20260605-1335-scale-in-exit-position-spec
 agent: architect
 model: opus
 branch: agent/architect/scale-in-exit-position-spec
-status: RUNNING
+status: DONE
 startedAt: 2026-06-05T13:35:41.316+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-05T13:46:46.317+09:00
+pr: #741
 parentPhase: ?
 ---
 
