@@ -3,10 +3,10 @@ id: T-20260605-1453-r3-scale-in-builder-ui
 agent: frontend
 model: opus
 branch: agent/frontend/r3-scale-in-builder-ui
-status: RUNNING
+status: DONE
 startedAt: 2026-06-05T14:53:56.116+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-05T15:21:27.516+09:00
+pr: #747
 parentPhase: ?
 ---
 
