@@ -82,6 +82,39 @@ class DslIdentifierMapperTest {
     }
 
     @Test
+    fun `order_block defaults — detection bos and range wick when positions 3 4 absent`() {
+        val spec = mapper.toIndicatorSpec(IndicatorRef("order_block", listOf(20, 20, 50)))
+        assertEquals("order_block", spec.name)
+        assertEquals("bos", spec.params["detection"])
+        assertEquals("wick", spec.params["range"])
+    }
+
+    @Test
+    fun `order_block — detection engulfing and range body from positions 3 4`() {
+        val spec = mapper.toIndicatorSpec(IndicatorRef("order_block", listOf(20, 20, 100, "engulfing", "body")))
+        assertEquals("order_block", spec.name)
+        assertEquals(20, spec.params["swingLookback"])
+        assertEquals(20, spec.params["searchLookback"])
+        assertEquals(0, BigDecimal("100").compareTo(spec.params["mitigationPct"] as BigDecimal))
+        assertEquals("engulfing", spec.params["detection"])
+        assertEquals("body", spec.params["range"])
+    }
+
+    @Test
+    fun `order_block — invalid detection range fall back to defaults`() {
+        val spec = mapper.toIndicatorSpec(IndicatorRef("order_block", listOf(20, 20, 50, "nonsense", "garbage")))
+        assertEquals("bos", spec.params["detection"])
+        assertEquals("wick", spec.params["range"])
+    }
+
+    @Test
+    fun `order_block — detection engulfing case-insensitive`() {
+        val spec = mapper.toIndicatorSpec(IndicatorRef("order_block", listOf(20, 20, 50, "ENGULFING", "BODY")))
+        assertEquals("engulfing", spec.params["detection"])
+        assertEquals("body", spec.params["range"])
+    }
+
+    @Test
     fun `unknown identifier — UnknownDslSymbolException`() {
         assertThrows(StrategyException.UnknownDslSymbolException::class.java) {
             mapper.toIndicatorSpec(IndicatorRef("definitely_not_an_indicator", emptyList()))

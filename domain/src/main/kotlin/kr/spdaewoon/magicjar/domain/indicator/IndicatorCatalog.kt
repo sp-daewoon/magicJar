@@ -261,7 +261,13 @@ object IndicatorCatalog {
                     "order_block",
                     "오더블록(Order Block)",
                     IndicatorCategory.OTHER,
-                    mapOf("swingLookback" to 20, "searchLookback" to 20, "mitigationPct" to 50),
+                    mapOf(
+                        "swingLookback" to 20,
+                        "searchLookback" to 20,
+                        "mitigationPct" to 50,
+                        "detection" to "bos",
+                        "range" to "wick",
+                    ),
                     listOf(
                         "order_block",
                         "bullish_active",

@@ -156,4 +156,26 @@ class KisDslParserFixtureTest {
         assertEquals("open", left.name)
         assertEquals(0, left.params.size)
     }
+
+    @Test
+    fun `order_block accepts identifier args engulfing body — round-trip to IndicatorRef params`() {
+        // NUMBER | IDENTIFIER 인자 혼합 — `up`·`down` 선례 정합 (parseArg L424)
+        val ast = parser.parse("ob_bullish_active(20, 20, 100, engulfing, body) > 0")
+        parser.validateStatic(ast)
+        val cond = assertInstanceOf(Condition::class.java, ast)
+        val left = assertInstanceOf(IndicatorRef::class.java, cond.left)
+        assertEquals("ob_bullish_active", left.name)
+        assertEquals(5, left.params.size)
+        assertEquals(20, left.params[0])
+        assertEquals(20, left.params[1])
+        assertEquals(100, left.params[2])
+        assertEquals("engulfing", left.params[3])
+        assertEquals("body", left.params[4])
+
+        // mapper 매핑까지 round-trip — detection/range 반영
+        val spec = DslIdentifierMapper().toIndicatorSpec(left)
+        assertEquals("order_block", spec.name)
+        assertEquals("engulfing", spec.params["detection"])
+        assertEquals("body", spec.params["range"])
+    }
 }
