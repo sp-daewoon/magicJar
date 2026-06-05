@@ -3,10 +3,10 @@ id: T-20260605-1433-r2-position-upsert-riskgate
 agent: backend-core
 model: opus
 branch: agent/backend-core/r2-position-upsert-riskgate
-status: RUNNING
+status: DONE
 startedAt: 2026-06-05T14:33:43.408+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-05T14:51:29.478+09:00
+pr: #745
 parentPhase: ?
 ---
 
