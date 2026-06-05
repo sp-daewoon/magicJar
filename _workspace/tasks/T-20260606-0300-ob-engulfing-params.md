@@ -3,10 +3,10 @@ id: T-20260606-0300-ob-engulfing-params
 agent: strategy
 model: opus
 branch: agent/strategy/ob-engulfing-params
-status: RUNNING
+status: DONE
 startedAt: 2026-06-06T03:00:53.738+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-06T03:09:51.088+09:00
+pr: #758
 parentPhase: ?
 ---
 
