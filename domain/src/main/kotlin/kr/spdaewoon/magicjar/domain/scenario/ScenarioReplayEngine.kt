@@ -136,7 +136,15 @@ class ScenarioReplayEngine(
             val snapshot =
                 when (signal.side) {
                     ScenarioSignalSide.BUY -> ledger.buy(request.code, quantity, fillPrice, nextCandle.openedAt)
-                    ScenarioSignalSide.SELL -> ledger.sell(request.code, quantity, fillPrice, nextCandle.openedAt)
+                    ScenarioSignalSide.SELL -> {
+                        val sold = ledger.sell(request.code, quantity, fillPrice, nextCandle.openedAt)
+                        // 분할 익절 체결 확정 시 단계 마킹(가격이 trigger 위에 머물러도 중복 발화 0 — spec §3-1·ADR 0111 §2-2).
+                        // 부분 청산으로 보유분이 남았을 때만 의미 — 전량 청산은 reset되어 자동으로 단계 초기화.
+                        signal.partialExitStageIndex?.let { stage ->
+                            if (sold.quantity > 0) ledger.recordExitStage(request.code, stage)
+                        }
+                        sold
+                    }
                     ScenarioSignalSide.HOLD -> null
                 }
             events += orderFilledEvent(request, nextCandle.openedAt, signal, quantity, fillPrice)

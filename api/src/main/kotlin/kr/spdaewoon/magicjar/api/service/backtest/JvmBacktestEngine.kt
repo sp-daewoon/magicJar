@@ -26,10 +26,14 @@ import kr.spdaewoon.magicjar.domain.backtest.port.BacktestTaxModel
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.strategy.Signal
+import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.StrategyException
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslStrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyRepositoryPort
+import kr.spdaewoon.magicjar.strategy.scalein.ScaleInExitDecision
+import kr.spdaewoon.magicjar.strategy.scalein.ScaleInExitSimulation
+import kr.spdaewoon.magicjar.strategy.scalein.VirtualStrategyPosition
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
@@ -102,6 +106,10 @@ class JvmBacktestEngine(
                 ?: throw BacktestException.InvalidStrategyDslException(request.strategyId, "buyCondition (진입 조건)이 없습니다.")
         val sellAst: DslNode? = dslDef.sellCondition
 
+        // scale-in/exit 활성 전략(spec §6-3) — live·리플레이와 동일하게 ScaleInExitCalculator 단일 함수 경유.
+        val scaleInExitActive =
+            ScaleInExitSimulation.isActive(definition.scaleIn, definition.partialExits)
+
         // 2. 모델 lookup
         val taxModel: BacktestTaxModel = modelRegistry.taxModel(request.taxModel)
         val commissionModel: BacktestCommissionModel = modelRegistry.commissionModel(request.commissionModel)
@@ -128,6 +136,10 @@ class JvmBacktestEngine(
 
         // 포지션 상태 (code → BacktestPosition, 1차: 단일 포지션)
         val openPositions = mutableMapOf<String, BacktestPosition>()
+
+        // scale-in/exit 가상 lot 상태 (code → filledLots·executedExitStages·직전 회차 체결가) — 분할매수 R3.
+        // ScaleInExitCalculator가 읽는 평단/진행도/발화단계를 백테스트 동안 추적한다(BacktestPosition은 단일 평단만 보유).
+        val lotStates = mutableMapOf<String, ScaleInLotState>()
 
         // 5. universe 순회 시뮬레이션
         for (code in request.universe) {
@@ -214,8 +226,33 @@ class JvmBacktestEngine(
 
                 val candleTs = currentCandle.ts
 
-                // SELL 처리 (sellCondition 있을 때)
-                if (sellResult?.signal == Signal.SELL && openPositions.containsKey(code)) {
+                if (scaleInExitActive) {
+                    // ── scale-in/exit 경로 (spec §6-3) — ScaleInExitCalculator 단일 함수로 진입/청산 평가 ──
+                    val step =
+                        evaluateScaleInExitSlice(
+                            request = request,
+                            definition = definition,
+                            code = code,
+                            buyFired = buyResult?.signal == Signal.BUY,
+                            buyReason = buyResult?.reason ?: emptyMap(),
+                            evalPrice = evalPrice,
+                            rawPrice = rawPrice,
+                            candleTs = candleTs,
+                            cash = cash,
+                            openPositions = openPositions,
+                            lotStates = lotStates,
+                            taxModel = taxModel,
+                            commissionModel = commissionModel,
+                            slippageModel = slippageModel,
+                        )
+                    step?.let {
+                        it.trade?.let { trade -> trades.add(trade) }
+                        cash = it.cash
+                        it.closedPosition?.let { closed -> positions.add(closed) }
+                        equityCurve.add(cash)
+                    }
+                } else if (sellResult?.signal == Signal.SELL && openPositions.containsKey(code)) {
+                    // SELL 처리 (sellCondition 있을 때)
                     val pos = openPositions.getValue(code)
                     val result =
                         executeSell(
@@ -431,6 +468,249 @@ class JvmBacktestEngine(
             )
 
         return SellResult(trade = trade, proceeds = proceeds, realizedPnl = realizedPnl)
+    }
+
+    // =====================================================================
+    // scale-in/exit 슬라이스 평가 (spec §6-3 — ScaleInExitCalculator 단일 함수 경유)
+    // =====================================================================
+
+    /** scale-in/exit 가상 lot 상태 — calculator가 읽는 진행도/발화단계 + PRICE_DROP_PCT용 직전 회차 체결가. */
+    private data class ScaleInLotState(
+        val filledLots: Int = 0,
+        val executedExitStages: Set<Int> = emptySet(),
+        val lastSliceFillPrice: BigDecimal? = null,
+    )
+
+    /** 한 t 시점 scale-in/exit 평가 결과 — 호출부가 trades/cash/positions/equityCurve에 반영. */
+    private data class ScaleInExitStep(
+        val trade: BacktestTrade?,
+        val cash: BigDecimal,
+        val closedPosition: BacktestPosition?,
+    )
+
+    /**
+     * scale-in/exit 활성 전략의 백테스트 한 t 시점 평가 (분할매수 R3 · spec §6-3 LOCK).
+     *
+     * live·리플레이와 **동일한 [ScaleInExitSimulation.evaluate]→[ScaleInExitCalculator]** 를 호출해 다음 lot 액션을
+     * 산출하고, EnterSlice→가상 분할 매수, StopLoss/PartialTP/TakeProfit→가상 청산으로 평단·진행도·발화단계를 갱신한다.
+     * 룩어헤드 가드는 호출부의 slice-by-time 평가가 보장한다(여기선 t 시점 평가가만 사용).
+     *
+     * 회차 수량: `floor(초기자본 × sliceWeight%/100 / executedPrice)`(spec §3-2 — 비중은 종목 예산 분배).
+     * 백테스트는 1 universe × 1 종목 가정이라 초기자본을 종목 예산으로 본다.
+     */
+    private fun evaluateScaleInExitSlice(
+        request: BacktestRequest,
+        definition: StrategyDefinition,
+        code: String,
+        buyFired: Boolean,
+        buyReason: Map<String, Any>,
+        evalPrice: BigDecimal,
+        rawPrice: BigDecimal,
+        candleTs: kotlinx.datetime.Instant,
+        cash: BigDecimal,
+        openPositions: MutableMap<String, BacktestPosition>,
+        lotStates: MutableMap<String, ScaleInLotState>,
+        taxModel: BacktestTaxModel,
+        commissionModel: BacktestCommissionModel,
+        slippageModel: BacktestSlippageModel,
+    ): ScaleInExitStep? {
+        val pos = openPositions[code]
+        val lot = lotStates[code] ?: ScaleInLotState()
+        val virtual =
+            pos?.takeIf { it.quantity > 0 }?.let {
+                VirtualStrategyPosition(
+                    code = code,
+                    quantity = it.quantity.toInt(),
+                    avgPrice = it.avgEntryPrice,
+                    filledLots = lot.filledLots,
+                    executedExitStages = lot.executedExitStages,
+                )
+            }
+
+        val decision =
+            ScaleInExitSimulation.evaluate(
+                position = virtual,
+                currentPrice = evalPrice,
+                scaleIn = definition.scaleIn,
+                fixedStopLossPct = definition.fixedStopLoss,
+                takeProfitPct = definition.takeProfitPct,
+                partialExits = definition.partialExits,
+                buySignalFired = buyFired,
+                lastSliceFillPrice = lot.lastSliceFillPrice,
+            )
+
+        return when (decision) {
+            is ScaleInExitDecision.EnterSlice -> {
+                val weight = decision.weightPct
+                val executedPrice = slippageModel.apply(TradeSide.BUY, evalPrice)
+                if (executedPrice.compareTo(ZERO) == 0) return null
+                // 회차 예산 = 초기자본 × weight% (종목 예산 분배). 보유 현금으로 clamp.
+                val sliceBudget =
+                    request.initialCapital
+                        .multiply(weight)
+                        .divide(BigDecimal(100), 0, RoundingMode.DOWN)
+                        .min(cash)
+                val quantity = sliceBudget.divide(executedPrice, 0, RoundingMode.FLOOR).toLong()
+                if (quantity <= 0) return null
+
+                val notional = executedPrice.multiply(BigDecimal(quantity))
+                val commission = commissionModel.calculate(TradeSide.BUY, notional)
+                val slippageAmt = executedPrice.subtract(evalPrice).abs().multiply(BigDecimal(quantity))
+                val totalCost = notional.add(commission)
+                if (totalCost > cash) return null
+
+                val trade =
+                    BacktestTrade(
+                        code = code,
+                        side = TradeSide.BUY,
+                        quantity = quantity,
+                        executedPrice = executedPrice,
+                        rawPrice = rawPrice,
+                        executedAt = candleTs,
+                        commission = commission,
+                        tax = ZERO,
+                        slippage = slippageAmt,
+                        signalReason =
+                            buyReason +
+                                mapOf(
+                                    "trigger" to "SCALE_IN_SLICE#${decision.sliceIndex + 1}",
+                                    "sliceIndex" to decision.sliceIndex,
+                                    "sliceWeightPct" to weight.toPlainString(),
+                                    "reentryTrigger" to decision.trigger.name,
+                                ),
+                    )
+
+                // 평단 가중평균 갱신 (StrategyPosition 평단 규칙 정합).
+                val nextPosition =
+                    if (pos == null) {
+                        BacktestPosition(code = code, quantity = quantity, avgEntryPrice = executedPrice, openedAt = candleTs)
+                    } else {
+                        val prevCost = pos.avgEntryPrice.multiply(BigDecimal(pos.quantity))
+                        val nextQty = pos.quantity + quantity
+                        val nextAvg = prevCost.add(notional).divide(BigDecimal(nextQty), 6, RoundingMode.HALF_UP)
+                        pos.copy(quantity = nextQty, avgEntryPrice = nextAvg)
+                    }
+                openPositions[code] = nextPosition
+                lotStates[code] = lot.copy(filledLots = lot.filledLots + 1, lastSliceFillPrice = executedPrice)
+                ScaleInExitStep(trade = trade, cash = cash.subtract(totalCost), closedPosition = null)
+            }
+
+            is ScaleInExitDecision.StopLoss ->
+                fullExit(
+                    code,
+                    openPositions,
+                    lotStates,
+                    rawPrice,
+                    evalPrice,
+                    candleTs,
+                    "STOP_LOSS",
+                    cash,
+                    taxModel,
+                    commissionModel,
+                    slippageModel,
+                )
+
+            is ScaleInExitDecision.TakeProfit ->
+                fullExit(
+                    code,
+                    openPositions,
+                    lotStates,
+                    rawPrice,
+                    evalPrice,
+                    candleTs,
+                    "TAKE_PROFIT",
+                    cash,
+                    taxModel,
+                    commissionModel,
+                    slippageModel,
+                )
+
+            is ScaleInExitDecision.PartialTakeProfit -> {
+                val pos0 = openPositions[code] ?: return null
+                val sellQty = decision.quantity.toLong().coerceIn(1, pos0.quantity)
+                val executedPrice = slippageModel.apply(TradeSide.SELL, evalPrice)
+                val notional = executedPrice.multiply(BigDecimal(sellQty))
+                val commission = commissionModel.calculate(TradeSide.SELL, notional)
+                val tax = taxModel.calculate(TradeSide.SELL, executedPrice, sellQty, DEFAULT_MARKET)
+                val slippageAmt = evalPrice.subtract(executedPrice).abs().multiply(BigDecimal(sellQty))
+                val proceeds = notional.subtract(commission).subtract(tax)
+                val realizedPnl = proceeds.subtract(pos0.avgEntryPrice.multiply(BigDecimal(sellQty)))
+
+                val trade =
+                    BacktestTrade(
+                        code = code,
+                        side = TradeSide.SELL,
+                        quantity = sellQty,
+                        executedPrice = executedPrice,
+                        rawPrice = rawPrice,
+                        executedAt = candleTs,
+                        commission = commission,
+                        tax = tax,
+                        slippage = slippageAmt,
+                        signalReason =
+                            mapOf(
+                                "trigger" to "PARTIAL_TAKE_PROFIT#${decision.stageIndex}",
+                                "stageIndex" to decision.stageIndex,
+                                "exitWeightPct" to decision.weightPct.toPlainString(),
+                                "realizedPnl" to realizedPnl,
+                            ),
+                    )
+
+                val remaining = pos0.quantity - sellQty
+                if (remaining == 0L) {
+                    openPositions.remove(code)
+                    lotStates.remove(code)
+                    ScaleInExitStep(
+                        trade = trade,
+                        cash = cash.add(proceeds),
+                        closedPosition = pos0.copy(closedAt = candleTs, realizedPnl = realizedPnl),
+                    )
+                } else {
+                    // 부분 청산 — 평단 보존, 단계 발화 마킹(중복 발화 차단 — 가격이 trigger 위에 머물러도 0건).
+                    openPositions[code] = pos0.copy(quantity = remaining)
+                    lotStates[code] = lot.copy(executedExitStages = lot.executedExitStages + decision.stageIndex)
+                    ScaleInExitStep(trade = trade, cash = cash.add(proceeds), closedPosition = null)
+                }
+            }
+
+            ScaleInExitDecision.Hold -> null
+        }
+    }
+
+    /** 평단 기준 전량 청산(STOP_LOSS·TAKE_PROFIT 공용) — 보유분 전량 SELL + lot 상태 reset. */
+    private fun fullExit(
+        code: String,
+        openPositions: MutableMap<String, BacktestPosition>,
+        lotStates: MutableMap<String, ScaleInLotState>,
+        rawPrice: BigDecimal,
+        evalPrice: BigDecimal,
+        candleTs: kotlinx.datetime.Instant,
+        trigger: String,
+        cash: BigDecimal,
+        taxModel: BacktestTaxModel,
+        commissionModel: BacktestCommissionModel,
+        slippageModel: BacktestSlippageModel,
+    ): ScaleInExitStep? {
+        val pos = openPositions[code] ?: return null
+        val result =
+            executeSell(
+                code = code,
+                pos = pos,
+                rawPrice = rawPrice,
+                evalPrice = evalPrice,
+                candleTs = candleTs,
+                signalReason = mapOf("trigger" to trigger),
+                taxModel = taxModel,
+                commissionModel = commissionModel,
+                slippageModel = slippageModel,
+            )
+        openPositions.remove(code)
+        lotStates.remove(code)
+        return ScaleInExitStep(
+            trade = result.trade,
+            cash = cash.add(result.proceeds),
+            closedPosition = pos.copy(closedAt = candleTs, realizedPnl = result.realizedPnl),
+        )
     }
 
     // =====================================================================

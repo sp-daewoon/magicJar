@@ -19,12 +19,21 @@ data class ScenarioSignalDecision(
     val priceType: ScenarioOrderPriceType = ScenarioOrderPriceType.MARKET,
     val limitPrice: BigDecimal? = null,
     val reason: String? = null,
+    /**
+     * 이 SELL이 분할 익절(PARTIAL_TAKE_PROFIT)이면 발화 단계 인덱스 (분할매수 R3).
+     * 비-null이면 체결 확정 직후 [ScenarioLedger.recordExitStage]로 마킹 → 같은 단계 중복 발화 차단.
+     * scale-in/분할 익절 미사용 리플레이는 항상 null(하위호환 — 기존 동작 보존).
+     */
+    val partialExitStageIndex: Int? = null,
 ) {
     init {
         require(quantity == null || quantity > 0) { "quantity must be positive when present: $quantity" }
         require(limitPrice == null || limitPrice > BigDecimal.ZERO) { "limitPrice must be positive when present: $limitPrice" }
         require(priceType == ScenarioOrderPriceType.MARKET || limitPrice != null) {
             "limitPrice is required for LIMIT scenario orders"
+        }
+        require(partialExitStageIndex == null || (side == ScenarioSignalSide.SELL && partialExitStageIndex >= 0)) {
+            "partialExitStageIndex is only valid for SELL with index >= 0: side=$side, index=$partialExitStageIndex"
         }
     }
 
