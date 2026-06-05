@@ -70,7 +70,7 @@ const server = http.createServer(async (req, res) => {
   try {
     const body = JSON.parse(await readBody(req))
     const prompt = typeof body.prompt === 'string' ? body.prompt : ''
-    const timeoutSeconds = Number(body.timeoutSeconds ?? 45)
+    const timeoutSeconds = Number(body.timeoutSeconds ?? 180)
     if (!prompt.trim()) {
       json(res, 400, { error: 'prompt is required' })
       return

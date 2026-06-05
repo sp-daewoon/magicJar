@@ -8,6 +8,8 @@ import {
   type MarketCalendarEvent,
   type MarketCalendarEventRequest,
 } from '../../../api/marketCalendar'
+import type { InstrumentSearchResultDto } from '../../../api/instrument'
+import { InstrumentSearchInput } from '../../../components/InstrumentSearchInput'
 
 const EVENT_TYPE_OPTIONS = [
   { code: 'IPO', label: 'IPO' },
@@ -58,6 +60,7 @@ interface EventFormState {
   eventType: string
   title: string
   instrumentCode: string
+  instrumentInput: string
   description: string
 }
 
@@ -73,28 +76,31 @@ function parseIsoDate(isoDate: string): Date {
   return new Date(year, month - 1, day)
 }
 
-function startOfWeekMonday(date: Date): Date {
-  const next = new Date(date)
-  const day = next.getDay()
-  const diff = day === 0 ? -6 : 1 - day
-  next.setDate(next.getDate() + diff)
-  return next
-}
-
-function endOfWeekMonday(date: Date): Date {
-  const next = startOfWeekMonday(date)
-  next.setDate(next.getDate() + 6)
-  return next
-}
-
 function addDays(date: Date, amount: number): Date {
   const next = new Date(date)
   next.setDate(next.getDate() + amount)
   return next
 }
 
-function monthLabel(date: Date): string {
-  return date.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long' })
+function rangeLabel(from: Date, to: Date): string {
+  const start = from.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })
+  const end = to.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' })
+  return `${start} - ${end}`
+}
+
+function weekdayLabel(date: Date): string {
+  return date.toLocaleDateString('ko-KR', { weekday: 'short' })
+}
+
+function instrumentDisplay(result: InstrumentSearchResultDto): string {
+  return `${result.name} (${result.code})`
+}
+
+function extractInstrumentCode(value: string): string | null {
+  const trimmed = value.trim()
+  const labelMatch = trimmed.match(/\((\d{6})\)\s*$/)
+  if (labelMatch) return labelMatch[1]
+  return /^\d{6}$/.test(trimmed) ? trimmed : null
 }
 
 function eventTypeLabel(eventType: string): string {
@@ -123,34 +129,29 @@ function makeEmptyForm(date: string): EventFormState {
     eventType: 'IPO',
     title: '',
     instrumentCode: '',
+    instrumentInput: '',
     description: '',
   }
 }
 
 export function MarketCalendarPage() {
   const today = formatIsoDate(new Date())
-  const [viewMonth, setViewMonth] = useState(() => {
-    const now = new Date()
-    return new Date(now.getFullYear(), now.getMonth(), 1)
-  })
+  const [viewStart, setViewStart] = useState(() => parseIsoDate(today))
   const [selectedDate, setSelectedDate] = useState(today)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [form, setForm] = useState<EventFormState>(() => makeEmptyForm(today))
   const queryClient = useQueryClient()
 
   const calendarFrame = useMemo(() => {
-    const monthStart = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1)
-    const monthEnd = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 0)
-    const gridStart = startOfWeekMonday(monthStart)
-    const gridEnd = endOfWeekMonday(monthEnd)
+    const gridStart = parseIsoDate(formatIsoDate(viewStart))
+    const gridEnd = addDays(gridStart, 6)
     return {
-      monthStart,
       gridStart,
       gridEnd,
       from: formatIsoDate(gridStart),
       to: formatIsoDate(gridEnd),
     }
-  }, [viewMonth])
+  }, [viewStart])
 
   const gridDates = useMemo(() => {
     const dates: Date[] = []
@@ -217,13 +218,15 @@ export function MarketCalendarPage() {
     setForm((prev) => ({ ...prev, date }))
   }
 
-  function moveMonth(amount: number) {
-    setViewMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + amount, 1))
+  function moveWeek(amount: number) {
+    const nextStart = addDays(calendarFrame.gridStart, amount * 7)
+    const nextDate = formatIsoDate(nextStart)
+    setViewStart(nextStart)
+    selectDate(nextDate)
   }
 
   function moveToday() {
-    const parsedToday = parseIsoDate(today)
-    setViewMonth(new Date(parsedToday.getFullYear(), parsedToday.getMonth(), 1))
+    setViewStart(parseIsoDate(today))
     selectDate(today)
   }
 
@@ -236,8 +239,35 @@ export function MarketCalendarPage() {
       eventType: event.eventType,
       title: event.title,
       instrumentCode: event.instrumentCode ?? '',
+      instrumentInput: event.instrumentCode ?? '',
       description: event.description ?? '',
     })
+  }
+
+  function handleFormDateChange(date: string) {
+    if (!date) {
+      setSelectedDate(date)
+      setForm((prev) => ({ ...prev, date }))
+      return
+    }
+    setViewStart(parseIsoDate(date))
+    selectDate(date)
+  }
+
+  function handleInstrumentRawChange(value: string) {
+    setForm((prev) => ({
+      ...prev,
+      instrumentInput: value,
+      instrumentCode: extractInstrumentCode(value) ?? '',
+    }))
+  }
+
+  function handleInstrumentSelect(result: InstrumentSearchResultDto) {
+    setForm((prev) => ({
+      ...prev,
+      instrumentCode: result.code,
+      instrumentInput: instrumentDisplay(result),
+    }))
   }
 
   function cancelEdit() {
@@ -271,20 +301,20 @@ export function MarketCalendarPage() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => moveMonth(-1)}
+            onClick={() => moveWeek(-1)}
             className="h-9 rounded-lg border border-gray-700 px-3 text-sm text-gray-200 transition-colors hover:border-gray-500 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
-            aria-label="이전 달"
+            aria-label="이전 주"
           >
             ‹
           </button>
-          <div className="min-w-36 text-center text-base font-semibold">
-            {monthLabel(calendarFrame.monthStart)}
+          <div className="min-w-56 text-center text-base font-semibold">
+            {rangeLabel(calendarFrame.gridStart, calendarFrame.gridEnd)}
           </div>
           <button
             type="button"
-            onClick={() => moveMonth(1)}
+            onClick={() => moveWeek(1)}
             className="h-9 rounded-lg border border-gray-700 px-3 text-sm text-gray-200 transition-colors hover:border-gray-500 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
-            aria-label="다음 달"
+            aria-label="다음 주"
           >
             ›
           </button>
@@ -299,11 +329,12 @@ export function MarketCalendarPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <section aria-label="월간 시장 캘린더" className="min-w-0">
+        <section aria-label="주간 시장 캘린더" className="min-w-0">
           <div className="grid grid-cols-7 border-y border-gray-800 bg-gray-900/70 text-center text-xs font-medium text-gray-400">
-            {['월', '화', '수', '목', '금', '토', '일'].map((weekday) => (
-              <div key={weekday} className="px-2 py-2">
-                {weekday}
+            {gridDates.map((date) => (
+              <div key={formatIsoDate(date)} className="px-2 py-2">
+                <div>{weekdayLabel(date)}</div>
+                <div className="mt-0.5 font-mono text-[11px] text-gray-600">{formatIsoDate(date)}</div>
               </div>
             ))}
           </div>
@@ -313,7 +344,6 @@ export function MarketCalendarPage() {
               const isoDate = formatIsoDate(date)
               const day = daysByDate.get(isoDate)
               const events = day?.events ?? []
-              const isCurrentMonth = date.getMonth() === calendarFrame.monthStart.getMonth()
               const isSelected = isoDate === selectedDate
               const isToday = isoDate === today
               const isClosed = day ? !day.isBusinessDay : date.getDay() === 0 || date.getDay() === 6
@@ -323,7 +353,7 @@ export function MarketCalendarPage() {
                   key={isoDate}
                   className={[
                     'min-h-[132px] border-b border-r border-gray-800 bg-gray-950 p-2',
-                    isCurrentMonth ? 'text-gray-100' : 'text-gray-600',
+                    'text-gray-100',
                     isSelected ? 'ring-1 ring-inset ring-blue-500' : '',
                   ].join(' ')}
                 >
@@ -408,10 +438,7 @@ export function MarketCalendarPage() {
                 <input
                   type="date"
                   value={form.date}
-                  onChange={(e) => {
-                    setForm((prev) => ({ ...prev, date: e.target.value }))
-                    setSelectedDate(e.target.value)
-                  }}
+                  onChange={(e) => handleFormDateChange(e.target.value)}
                   className="h-10 w-full rounded-lg border border-gray-700 bg-gray-950 px-3 text-sm text-gray-100 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </label>
@@ -465,15 +492,12 @@ export function MarketCalendarPage() {
               </label>
 
               <label className="block">
-                <span className="mb-1 block text-xs font-medium text-gray-400">종목 코드</span>
-                <input
-                  type="text"
-                  value={form.instrumentCode}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, instrumentCode: e.target.value }))
-                  }
-                  maxLength={16}
-                  className="h-10 w-full rounded-lg border border-gray-700 bg-gray-950 px-3 text-sm uppercase text-gray-100 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                <span className="mb-1 block text-xs font-medium text-gray-400">종목</span>
+                <InstrumentSearchInput
+                  value={form.instrumentInput}
+                  onRawChange={handleInstrumentRawChange}
+                  onSelect={handleInstrumentSelect}
+                  placeholder="종목명 또는 코드 검색"
                 />
               </label>
 

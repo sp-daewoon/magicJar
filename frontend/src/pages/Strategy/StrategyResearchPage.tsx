@@ -269,8 +269,9 @@ export function StrategyResearchPage() {
             <textarea
               value={discoveryQuery}
               onChange={(event) => setDiscoveryQuery(event.target.value)}
+              disabled={discoveryMutation.isPending}
               rows={3}
-              className="mt-1 w-full resize-none rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:border-blue-500 focus:outline-none"
+              className="mt-1 w-full resize-none rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
             />
           </label>
           <label className="lg:col-span-2">
@@ -278,7 +279,8 @@ export function StrategyResearchPage() {
             <select
               value={discoveryMarket}
               onChange={(event) => setDiscoveryMarket(event.target.value as (typeof AI_DISCOVERY_MARKETS)[number])}
-              className="mt-1 w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+              disabled={discoveryMutation.isPending}
+              className="mt-1 w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
             >
               {AI_DISCOVERY_MARKETS.map((item) => (
                 <option key={item || 'ALL'} value={item}>{item || '전체'}</option>
@@ -293,7 +295,8 @@ export function StrategyResearchPage() {
               max="12"
               value={discoveryLimit}
               onChange={(event) => setDiscoveryLimit(Number(event.target.value))}
-              className="mt-1 w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+              disabled={discoveryMutation.isPending}
+              className="mt-1 w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
             />
           </label>
           <div className="flex items-end lg:col-span-2">
@@ -307,6 +310,22 @@ export function StrategyResearchPage() {
             </button>
           </div>
         </div>
+
+        {discoveryMutation.isPending && (
+          <div
+            className="mt-4 rounded border border-indigo-900 bg-indigo-950/20 px-3 py-3"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className="font-medium text-indigo-100">Claude CLI가 후보를 찾는 중입니다</span>
+              <span className="text-indigo-300">최대 3분까지 기다립니다</span>
+            </div>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-gray-800">
+              <div className="ai-discovery-loading-bar h-full w-1/3 rounded-full bg-indigo-400" />
+            </div>
+          </div>
+        )}
 
         {discoveryError && (
           <div className="mt-4 rounded border border-red-900 bg-red-950/30 px-3 py-2 text-sm text-red-200">

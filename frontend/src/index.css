@@ -21,3 +21,21 @@
     font-variant-numeric: tabular-nums;
   }
 }
+
+@layer components {
+  @keyframes ai-discovery-loading {
+    0% {
+      transform: translateX(-120%);
+    }
+    50% {
+      transform: translateX(90%);
+    }
+    100% {
+      transform: translateX(320%);
+    }
+  }
+
+  .ai-discovery-loading-bar {
+    animation: ai-discovery-loading 1.8s ease-in-out infinite;
+  }
+}

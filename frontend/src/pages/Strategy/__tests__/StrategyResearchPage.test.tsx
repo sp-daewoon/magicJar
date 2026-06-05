@@ -159,4 +159,51 @@ describe('StrategyResearchPage', () => {
     expect(lastDiscoveryBody?.userId).toBe('74683223')
     expect(lastResearchBody?.code).toBe('005930')
   })
+
+  it('AI 종목발굴 진행 중 로딩 상태를 보여준다', async () => {
+    const user = userEvent.setup()
+    act(() => {
+      useOnboardingStore.setState({ registeredUserId: 74683223 })
+    })
+    server.use(
+      http.post('/api/strategy-research/ai-discovery', async ({ request }) => {
+        lastDiscoveryBody = await request.json() as StrategyResearchAiDiscoveryRequestDto
+        await new Promise((resolve) => window.setTimeout(resolve, 80))
+        return HttpResponse.json({
+          query: lastDiscoveryBody.query,
+          provider: 'claude-cli-bridge',
+          generatedAt: '2026-06-06T00:00:00Z',
+          warnings: [],
+          items: [
+            {
+              code: '005930',
+              name: '삼성전자',
+              market: 'KOSPI',
+              sector: '전기전자',
+              theme: '반도체',
+              aiReason: '반도체와 AI 인프라 후보',
+              themes: ['반도체'],
+              confidence: 0.82,
+              matched: true,
+              rawName: '삼성전자',
+              rawCode: '005930',
+              tradingHalt: false,
+              managementStock: false,
+            },
+          ],
+        })
+      }),
+    )
+
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: '발굴' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Claude CLI가 후보를 찾는 중입니다')
+    expect(screen.getByRole('button', { name: '발굴 중' })).toBeDisabled()
+    expect(screen.getByLabelText('찾을 조건')).toBeDisabled()
+
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument())
+    expect(await screen.findByText('반도체와 AI 인프라 후보')).toBeInTheDocument()
+  })
 })

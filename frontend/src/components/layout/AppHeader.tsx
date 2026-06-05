@@ -8,7 +8,7 @@
  * - T-SIG Phase 3 (ADR 0066): "전략 목록" 메뉴 추가
  * - T-RISK Phase 3 (ADR 0067): "리스크 설정"·"위반 이력"·"포지션" 메뉴 추가
  * - T-O Phase 3 (ADR 0068): "주문" 메뉴 추가
- * - T-J Phase 3 (ADR 0072): "매매일지" 메뉴 추가
+ * - T-J Phase 3 (ADR 0072): "매매일지" 메뉴를 전략 그룹 하위로 배치
  * - T-PERF Phase 3 (ADR 0072): "성과" 메뉴 추가
  * - T-SIM Phase 3 (ADR 0107): "시나리오 리플레이"를 전략 메뉴 하위로 배치
  * - ADR 0069 §6: ⚙️ SettingsModal 진입점 추가
@@ -48,7 +48,6 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/orders', label: '주문' },
       { to: '/positions', label: '포지션' },
       { to: '/performance', label: '성과' },
-      { to: '/journal', label: '매매일지' },
     ],
   },
   {
@@ -67,6 +66,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/strategy/list', label: '전략 목록' },
       { to: '/strategy/backtest', label: '백테스트' },
       { to: '/strategy/research', label: '전략 리서치' },
+      { to: '/journal', label: '매매일지' },
       { to: '/strategy/scenario-replay', label: '시나리오 리플레이' },
     ],
   },

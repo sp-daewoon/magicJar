@@ -28,7 +28,7 @@ class ClaudeCliStrategyResearchAiTextClient(
     @Value("\${magicjar.strategy-research.ai-discovery.enabled:true}") private val enabled: Boolean,
     @Value("\${magicjar.strategy-research.ai-discovery.command:claude}") private val command: String,
     @Value("\${magicjar.strategy-research.ai-discovery.bridge-url:}") private val bridgeUrl: String,
-    @Value("\${magicjar.strategy-research.ai-discovery.timeout-seconds:45}") private val timeoutSeconds: Long,
+    @Value("\${magicjar.strategy-research.ai-discovery.timeout-seconds:180}") private val timeoutSeconds: Long,
 ) : StrategyResearchAiTextClient {
     override fun complete(prompt: String): StrategyResearchAiTextResult {
         if (!enabled) {
@@ -90,7 +90,7 @@ class ClaudeCliStrategyResearchAiTextClient(
         val finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
         if (!finished) {
             process.destroyForcibly()
-            throw ResponseStatusException(HttpStatus.GATEWAY_TIMEOUT, "Claude CLI 응답 시간이 초과되었습니다.")
+            throw ResponseStatusException(HttpStatus.GATEWAY_TIMEOUT, "Claude CLI 응답 시간이 초과되었습니다. timeout=${timeoutSeconds}s")
         }
         val output =
             try {

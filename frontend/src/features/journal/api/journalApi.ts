@@ -2,7 +2,7 @@
  * Trading Journal REST API 클라이언트
  *
  * ADR 0072 §6 REST 3 endpoint 정합:
- *   GET  /api/journal/entries         — 시계열 list 페이징
+ *   GET  /api/journal/entries         — 실제 체결 list 페이징
  *   GET  /api/journal/entries/{id}    — entry 단건 상세
  *   POST /api/journal/notes           — 사용자 메모 작성
  *
@@ -12,15 +12,10 @@
 import apiClient from '../../../lib/axios'
 
 // ──────────────────────────────────────────────
-// 이벤트 타입 enum (ADR 0072 §2-1)
+// 이벤트 타입 enum
 // ──────────────────────────────────────────────
 
-export type JournalEventType =
-  | 'ORDER_FILLED'
-  | 'SIGNAL_GENERATED'
-  | 'RISK_VIOLATION'
-  | 'RECONCILE_DRIFT'
-  | 'POSITION_UPDATED'
+export type JournalEventType = 'ORDER_FILLED'
 
 // ──────────────────────────────────────────────
 // Response 타입
@@ -88,7 +83,13 @@ export const journalApi = {
    * 매매일지 시계열 조회 (페이징, 최신순)
    */
   listEntries: async (params: JournalEntriesParams): Promise<JournalPageResponse> => {
-    const res = await apiClient.get<JournalPageResponse>('/journal/entries', { params })
+    const { eventType, ...rest } = params
+    const res = await apiClient.get<JournalPageResponse>('/journal/entries', {
+      params: {
+        ...rest,
+        eventTypes: eventType,
+      },
+    })
     return res.data
   },
 

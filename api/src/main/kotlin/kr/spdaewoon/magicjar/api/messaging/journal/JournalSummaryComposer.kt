@@ -7,14 +7,10 @@ import java.text.NumberFormat
 import java.util.Locale
 
 /**
- * 매매일지 한국어 summary 합성기 — ADR 0072 §9-2 Phase 1 산출물 (spec §3-1 JournalSummaryComposer).
+ * 매매일지 한국어 summary 합성기 — 실제 체결 복기장.
  *
- * 5 이벤트 타입별 한국어 요약 문자열 생성.
- * - ORDER_FILLED: "체결: {name} {side} {qty}주 @ {price}원"
- * - ORDER_REJECTED: "주문 거부: {name} {side} {qty}주 — {reason}"
- * - ORDER_CANCELLED: "주문 취소: {name} {side} {qty}주"
- * - SIGNAL_GENERATED: "시그널: {name} {side} 강도 {strength}"
- * - RISK_VIOLATION: "리스크 차단: {ruleType}"
+ * 매매일지는 ORDER_FILLED 중심으로 사용한다.
+ * 과거 row 호환을 위해 기존 이벤트 helper는 유지하지만 신규 listener는 체결만 쓴다.
  *
  * // AI 호출 0 — T-J 트랙 정책 (ADR 0072 §2-8 H-1 LOCK)
  */
@@ -35,12 +31,16 @@ class JournalSummaryComposer {
         side: String,
         qty: BigDecimal,
         price: BigDecimal,
+        strategyName: String? = null,
+        realizedPnl: BigDecimal? = null,
     ): String {
         val displayName = name ?: code
         val sideKr = sideKorean(side)
         val qtyInt = qty.toLong()
         val priceStr = numberFormat.format(price)
-        return "체결: $displayName $sideKr ${qtyInt}주 @ ${priceStr}원"
+        val strategyPart = strategyName?.takeIf { it.isNotBlank() }?.let { " · 전략: $it" } ?: ""
+        val pnlPart = realizedPnl?.let { " · 실현손익 ${formatPnl(it)}원" } ?: ""
+        return "체결: $displayName $sideKr ${qtyInt}주 @ ${priceStr}원$strategyPart$pnlPart"
     }
 
     /**
@@ -115,9 +115,14 @@ class JournalSummaryComposer {
                 val name = payload["instrumentName"]?.toString()
                 val code = payload["code"]?.toString() ?: "미지정"
                 val side = payload["side"]?.toString() ?: "BUY"
-                val qty = payloadBigDecimal(payload, "executedQuantity") ?: BigDecimal.ONE
+                val qty = payloadBigDecimal(payload, "executedQty") ?: payloadBigDecimal(payload, "executedQuantity") ?: BigDecimal.ONE
                 val price = payloadBigDecimal(payload, "executedPrice") ?: BigDecimal.ZERO
-                composeOrderFilled(name, code, side, qty, price)
+                val strategyName =
+                    payload["strategyDisplayName"]?.toString()
+                        ?: payload["strategyNameKo"]?.toString()
+                        ?: payload["strategyName"]?.toString()
+                val realizedPnl = payloadBigDecimal(payload, "realizedPnl")
+                composeOrderFilled(name, code, side, qty, price, strategyName, realizedPnl)
             }
             JournalEventType.ORDER_REJECTED -> {
                 val name = payload["instrumentName"]?.toString()
@@ -165,6 +170,11 @@ class JournalSummaryComposer {
             "KILLSWITCH" -> "킬스위치 차단"
             else -> ruleType
         }
+
+    private fun formatPnl(value: BigDecimal): String {
+        val sign = if (value.signum() > 0) "+" else ""
+        return sign + numberFormat.format(value)
+    }
 
     private fun payloadBigDecimal(
         payload: Map<String, Any?>,

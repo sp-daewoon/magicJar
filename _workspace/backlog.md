@@ -3300,3 +3300,54 @@ QA 첫 임무 evidence (2026-05-21 보고서 `_workspace/reports/2026-05-21-qa-f
 - strategy-engine (결함 2 — 장운영시간 게이트)
 - market-data (결함 3 — TickToMinuteAggregator 분 경계 race)
 - architect (후속 — ADR 0066·0068 amend)
+
+---
+
+## §83. Gemini 연동 하이브리드 — MCP protocol 승격 + Gemini 웹 export 팩 (2026-06-06 신설 · 사용자 A안 결재)
+
+> 2026-06-06 사용자 의제 — "Gemini한테 프로젝트를 연동시키고 싶다. 우리 프로젝트가 MCP로 데이터 넘겨줄 때가 됐다." brainstorming으로 A안(하이브리드) 결재 후 백로그 보존 (사용자: "A로 할건데 일단 백로그에 남기자").
+
+### 사유 (현황 갭)
+
+- T-MCP는 이미 상당 부분 구현 — `api/.../api/mcp/` McpController + tool 6종(get_candles · run_screener · get_journal · explain_indicator · backtest_strategy · get_market_trend) + ApiKeyAuthFilter + mcp_audit(V52) 전부 존재 (ADR 0027 정합).
+- **그러나 현 구현은 "MCP 정합 simplified HTTP REST"** (`GET /api/mcp/tools` + `POST /api/mcp/tools/{name}`) — 진짜 MCP protocol(JSON-RPC 2.0 over stdio / Streamable HTTP)이 아니라서 **Gemini CLI·Claude Desktop·Cursor 등 MCP 클라이언트가 직접 붙을 수 없음** (McpController.kt 주석 명시 "MCP `tools/list` 정합 simplified").
+- Gemini 웹/앱(gemini.google.com)은 **커스텀 MCP 커넥터 자체가 미지원** (2026-06 실측 — Gemini Enterprise StreamableHTTP Preview는 유료 엔터프라이즈 전용·기각). 따라서 웹용은 별도 우회 경로 필요.
+
+### 사용자 목적 3건 (브레인스토밍 확인)
+
+1. 매매 데이터 분석 세컨드 오피니언 (매매일지·백테스트·시그널 이력)
+2. 프로젝트 아키/코드 질문 상대 (Claude Projects 유사 용도)
+3. 실시간 시세/스크리너 온디맨드 조회 — **MCP 클라이언트(CLI)에서만 가능** (웹 제약)
+
+### 보강 안 (A안 — 하이브리드 2갈래)
+
+**갈래 1 — T-MCP protocol 승격 (실시간 조회 + ADR 0027 비전 완성):**
+
+- 현 simplified REST 위에 **진짜 MCP protocol 어댑터 층** 추가 — 기존 tool 6종·ApiKeyAuthFilter·McpAuditService 그대로 재활용, protocol 어댑터만 신규.
+- 구현 옵션 (W4 본격 진입 시 architect 결정): (a) Spring AI MCP server starter 기반 Streamable HTTP endpoint, (b) 얇은 stdio bridge 스크립트(`scripts/*-mcp-bridge.mjs`)가 stdio MCP ↔ 기존 REST proxy — 기존 `scripts/claude-discovery-bridge.mjs` 패턴 참고.
+- 클라이언트: Gemini CLI(2026-06-18부터 Antigravity CLI 승계) + Claude Desktop/Code + Cursor — ADR 0027 "우리가 server, AI가 client" 원문 비전 그대로.
+- read-only 6종 유지·write tool 금지·localhost 한정·API key 인증 — ADR 0027 §2-2·§2-4 LOCK 불변.
+
+**갈래 2 — Gemini 웹용 export 팩 (세컨드 오피니언 + 아키 질문):**
+
+- `scripts/gemini-export.mjs` (가칭) — 매매일지 digest + 백테스트 성과 + 시그널/주문 이력 요약 + 아키텍처 요약(기존 baseline html·master.html 재활용)을 한 묶음으로 생성.
+- 사용자가 Gemini 웹 **Gem**(커스텀 지식 파일)에 업로드 → 갱신 시 재업로드. live 연결 아님(snapshot 기준)을 사용자 인지 완료.
+- mock 합성 금지 — 데이터 없으면 "데이터 없음" 명시 (기존 정책 정합).
+
+### 트리거
+
+- 사용자 "Gemini 연동 시작하자" / "MCP 마무리하자" 발화 시
+- 또는 W4 T-MCP 잔여 마감 사이클 진입 시
+
+### 영향 모듈
+
+- architect (protocol 어댑터 위치 결정 — ADR 0027 amend 가능성: api 내 Streamable HTTP vs stdio bridge 스크립트)
+- backend-core (갈래 1 — MCP protocol 어댑터 층)
+- ai-engineer (갈래 2 — export 팩 digest 구성)
+- qa (MCP 클라이언트 실연동 검증 — Gemini CLI/Claude Code 실측)
+
+### evidence
+
+- 기존 구현: `api/src/main/kotlin/kr/spdaewoon/magicjar/api/mcp/` (tool 6종 + auth + audit), `V52__mcp_audit.sql`
+- ADR 0027 (Accepted · 2026-05-24 amend — tool 6종 + V52 LOCK)
+- Gemini 웹 MCP 미지원 확인: Gemini Apps Community 스레드 + Gemini Enterprise custom MCP docs (2026-06-06 WebSearch 실측)

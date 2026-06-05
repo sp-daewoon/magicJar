@@ -7,15 +7,11 @@
  * - 행 클릭 → 상세 모달
  * - 페이지네이션 (prev/next)
  */
-import { EVENT_TYPE_LABELS } from './JournalEntryFilterBar'
-import type { TradingJournalEntryDto, JournalEventType } from '../api/journalApi'
+import type { TradingJournalEntryDto } from '../api/journalApi'
 
-const EVENT_TYPE_COLORS: Record<JournalEventType, string> = {
-  ORDER_FILLED: 'bg-blue-900/50 text-blue-300 border-blue-700',
-  SIGNAL_GENERATED: 'bg-emerald-900/50 text-emerald-300 border-emerald-700',
-  RISK_VIOLATION: 'bg-red-900/50 text-red-300 border-red-700',
-  RECONCILE_DRIFT: 'bg-yellow-900/50 text-yellow-300 border-yellow-700',
-  POSITION_UPDATED: 'bg-purple-900/50 text-purple-300 border-purple-700',
+const SIDE_COLORS: Record<string, string> = {
+  BUY: 'bg-blue-900/50 text-blue-300 border-blue-700',
+  SELL: 'bg-red-900/50 text-red-300 border-red-700',
 }
 
 interface JournalEntryListProps {
@@ -45,6 +41,23 @@ function formatPnl(pnl: string | null): string {
   const n = Number(pnl)
   const sign = n > 0 ? '+' : ''
   return `${sign}${n.toLocaleString('ko-KR')}원`
+}
+
+function payloadText(entry: TradingJournalEntryDto, key: string): string | null {
+  const value = entry.payload[key]
+  if (value === null || value === undefined || value === '') return null
+  return String(value)
+}
+
+function tradeSide(entry: TradingJournalEntryDto): 'BUY' | 'SELL' | string {
+  const side = payloadText(entry, 'side')?.toUpperCase()
+  return side === 'SELL' ? 'SELL' : side === 'BUY' ? 'BUY' : side ?? 'ORDER_FILLED'
+}
+
+function tradeSideLabel(side: string): string {
+  if (side === 'BUY') return '매수'
+  if (side === 'SELL') return '매도'
+  return '체결'
 }
 
 export function JournalEntryList({
@@ -79,7 +92,7 @@ export function JournalEntryList({
       <div className="py-16 text-center">
         <p className="text-sm text-gray-500">매매일지가 비어있습니다.</p>
         <p className="mt-1 text-xs text-gray-600">
-          자동매매 시그널·체결·리스크 이벤트가 발생하면 여기에 기록됩니다.
+          실제 매수·매도 체결이 발생하면 여기에 기록됩니다.
         </p>
       </div>
     )
@@ -95,7 +108,7 @@ export function JournalEntryList({
                 시각
               </th>
               <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
-                이벤트
+                구분
               </th>
               <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
                 종목
@@ -114,6 +127,7 @@ export function JournalEntryList({
           <tbody className="divide-y divide-gray-800">
             {entries.map((entry) => {
               const pnlNum = entry.realizedPnl !== null ? Number(entry.realizedPnl) : null
+              const side = tradeSide(entry)
               const pnlColor =
                 pnlNum === null
                   ? 'text-gray-500'
@@ -135,10 +149,10 @@ export function JournalEntryList({
                   <td className="px-3 py-2.5">
                     <span
                       className={`inline-flex items-center rounded border px-1.5 py-0.5 text-xs font-medium ${
-                        EVENT_TYPE_COLORS[entry.eventType]
+                        SIDE_COLORS[side] ?? 'bg-gray-800 text-gray-300 border-gray-700'
                       }`}
                     >
-                      {EVENT_TYPE_LABELS[entry.eventType]}
+                      {tradeSideLabel(side)}
                     </span>
                   </td>
                   <td className="px-3 py-2.5">

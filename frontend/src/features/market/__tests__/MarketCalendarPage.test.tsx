@@ -1,8 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import apiClient from '../../../lib/axios'
+import { useInstrumentSearch } from '../../../api/hooks/useInstrumentSearch'
 import { MarketCalendarPage } from '../pages/MarketCalendarPage'
+
+vi.mock('../../../api/hooks/useInstrumentSearch', () => ({
+  useInstrumentSearch: vi.fn(),
+}))
 
 function iso(date: Date): string {
   const year = date.getFullYear()
@@ -62,6 +68,12 @@ describe('MarketCalendarPage', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date(2026, 4, 25, 9, 0, 0))
+    vi.mocked(useInstrumentSearch).mockReturnValue({
+      results: [],
+      isLoading: false,
+      isError: false,
+      isServerError: false,
+    })
   })
 
   afterEach(() => {
@@ -69,7 +81,7 @@ describe('MarketCalendarPage', () => {
     vi.restoreAllMocks()
   })
 
-  it('휴장일과 사용자 시장 이벤트를 월간 캘린더에 표시한다', async () => {
+  it('오늘부터 일주일 범위로 휴장일과 사용자 시장 이벤트를 표시한다', async () => {
     vi.spyOn(apiClient, 'get').mockImplementation(async (_url, config) => {
       const params = config?.params as { from: string; to: string }
       return {
@@ -88,5 +100,57 @@ describe('MarketCalendarPage', () => {
     })
     expect(screen.getAllByText('신규 상장').length).toBeGreaterThan(0)
     expect(screen.getByRole('heading', { name: '시장 캘린더' })).toBeInTheDocument()
+    expect(apiClient.get).toHaveBeenCalledWith('/market/calendar', {
+      params: { from: '2026-05-25', to: '2026-05-31' },
+    })
+    expect(screen.getByRole('button', { name: '이전 주' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '다음 주' })).toBeInTheDocument()
+  })
+
+  it('한글 종목명 자동완성 선택 후 이벤트 저장 시 6자리 코드만 보낸다', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(apiClient, 'get').mockImplementation(async (_url, config) => {
+      const params = config?.params as { from: string; to: string }
+      return {
+        data: {
+          from: params.from,
+          to: params.to,
+          days: buildDays(params.from, params.to),
+        },
+      }
+    })
+    const postSpy = vi.spyOn(apiClient, 'post').mockResolvedValue({
+      data: {
+        id: 2,
+        date: '2026-05-25',
+        market: 'KRX',
+        eventType: 'EARNINGS',
+        title: '삼성전자 실적',
+        instrumentCode: '005930',
+        description: null,
+        source: 'MANUAL',
+        createdAt: '2026-05-25T00:00:00Z',
+        updatedAt: '2026-05-25T00:00:00Z',
+      },
+    })
+    vi.mocked(useInstrumentSearch).mockReturnValue({
+      results: [{ code: '005930', name: '삼성전자', market: 'KOSPI', sector: '전기전자', score: 1 }],
+      isLoading: false,
+      isError: false,
+      isServerError: false,
+    })
+
+    renderPage()
+
+    await user.type(screen.getByLabelText('제목'), '삼성전자 실적')
+    await user.type(screen.getByRole('combobox', { name: '종목 검색' }), '삼성전자')
+    await user.click(await screen.findByRole('option', { name: /삼성전자/ }))
+    await user.click(screen.getByRole('button', { name: '추가' }))
+
+    await waitFor(() => expect(postSpy).toHaveBeenCalled())
+    expect(postSpy.mock.calls[0][1]).toMatchObject({
+      title: '삼성전자 실적',
+      instrumentCode: '005930',
+    })
   })
 })

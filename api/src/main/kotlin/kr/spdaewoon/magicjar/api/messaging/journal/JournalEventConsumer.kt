@@ -1,30 +1,37 @@
 package kr.spdaewoon.magicjar.api.messaging.journal
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
+import kr.spdaewoon.magicjar.api.persistence.order.OrderExecutionJpaEntity
+import kr.spdaewoon.magicjar.api.persistence.order.OrderExecutionJpaRepository
+import kr.spdaewoon.magicjar.api.persistence.order.OrderRequestJpaRepository
+import kr.spdaewoon.magicjar.api.persistence.signal.SignalJpaEntity
+import kr.spdaewoon.magicjar.api.persistence.signal.SignalJpaRepository
+import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyJpaEntity
+import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyJpaRepository
 import kr.spdaewoon.magicjar.domain.journal.JournalEventType
 import kr.spdaewoon.magicjar.domain.journal.TradingJournalEntry
 import kr.spdaewoon.magicjar.domain.journal.port.TradingJournalRepository
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.Instant
 
 /**
- * 매매일지 Kafka 이벤트 소비자 — ADR 0072 §4·§9-2 Phase 1 (G-1 5 토픽 listen LOCK).
+ * 매매일지 Kafka 이벤트 소비자 — 실제 체결 복기장.
  *
- * 5 토픽 listen:
+ * listen:
  * - order.filled.v1 → ORDER_FILLED entry INSERT
- * - order.rejected.v1 → ORDER_REJECTED entry INSERT
- * - order.cancelled.v1 → ORDER_CANCELLED entry INSERT
- * - signal.generated.v1 → SIGNAL_GENERATED entry INSERT
- * - risk.violation.v1 → RISK_VIOLATION entry INSERT
  *
  * 멱등성: DB UQ `ux_trading_journal_source` (source_table, source_id, event_type) 위반 시
  * [TradingJournalRepositoryAdapter]가 null 반환 → log.warn + skip. Kafka at-least-once 안전.
  *
- * Kafka 신규 publish 0 LOCK (기존 5 토픽 listen만 — ADR 0072 §4).
+ * 주문 거절·취소·시그널·리스크 차단은 감사/운영 로그 영역으로 남기고,
+ * 매매일지에는 실제 매수/매도 체결과 그 전략 근거만 남긴다.
  *
  * // AI 호출 0 — T-J 트랙 정책 (ADR 0072 §2-8 H-1 LOCK)
  */
@@ -33,6 +40,11 @@ class JournalEventConsumer(
     private val journalRepository: TradingJournalRepository,
     private val summaryComposer: JournalSummaryComposer,
     private val objectMapper: ObjectMapper,
+    private val signalJpaRepository: SignalJpaRepository? = null,
+    private val strategyJpaRepository: StrategyJpaRepository? = null,
+    private val orderExecutionJpaRepository: OrderExecutionJpaRepository? = null,
+    private val orderRequestJpaRepository: OrderRequestJpaRepository? = null,
+    private val instrumentJpaRepository: InstrumentJpaRepository? = null,
 ) {
     private val log = LoggerFactory.getLogger(JournalEventConsumer::class.java)
 
@@ -43,7 +55,7 @@ class JournalEventConsumer(
     /**
      * order.filled.v1 listen — 체결 이벤트 → trading_journal INSERT.
      *
-     * payload 필드: orderId·userId·code·side·executedQuantity·executedPrice·executedAt·
+     * payload 필드: orderId·userId·code·side·executedQty/executedQuantity·executedPrice·executedAt·
      *               signalId·strategyId·kisOrderNo·partial·mode·instrumentName(nullable)
      */
     @KafkaListener(topics = ["order.filled.v1"], groupId = GROUP)
@@ -53,12 +65,40 @@ class JournalEventConsumer(
             val orderId = (payload["orderId"] as? Number)?.toLong() ?: return@processEvent null
             val code = payload["code"]?.toString() ?: return@processEvent null
             val side = payload["side"]?.toString() ?: "BUY"
-            val qty = payloadBigDecimal(payload, "executedQuantity") ?: BigDecimal.ONE
+            val qty = payloadBigDecimalAnyOf(payload, "executedQty", "executedQuantity") ?: BigDecimal.ONE
             val price = payloadBigDecimal(payload, "executedPrice") ?: BigDecimal.ZERO
             val executedAt = parseInstant(payload, "executedAt") ?: Instant.now()
-            val instrumentName = payload["instrumentName"]?.toString()
+            val executionId = payloadLong(payload, "executionId")
+            val signalId = payloadLong(payload, "signalId")
+            val strategyId = payloadLong(payload, "strategyId")
+            val signal = signalId?.let { signalJpaRepository?.findById(it)?.orElse(null) }
+            val strategy = strategyId?.let { strategyJpaRepository?.findById(it)?.orElse(null) }
+            val execution = executionId?.let { orderExecutionJpaRepository?.findById(it)?.orElse(null) }
+            val realizedSnapshot =
+                resolveRealizedPnlSnapshot(
+                    payload = payload,
+                    side = side,
+                    userId = userId,
+                    executionId = executionId,
+                    executedAt = executedAt,
+                    execution = execution,
+                )
+            val instrumentName =
+                payload["instrumentName"]?.toString()
+                    ?: instrumentJpaRepository?.findById(code)?.orElse(null)?.name
 
-            val enrichedPayload = payload + mapOf("instrumentName" to instrumentName)
+            val enrichedPayload =
+                enrichOrderFilledPayload(
+                    payload = payload,
+                    code = code,
+                    side = side,
+                    qty = qty,
+                    price = price,
+                    instrumentName = instrumentName,
+                    signal = signal,
+                    strategy = strategy,
+                    realizedSnapshot = realizedSnapshot,
+                )
             val summary = summaryComposer.compose(JournalEventType.ORDER_FILLED, enrichedPayload)
 
             TradingJournalEntry(
@@ -70,147 +110,174 @@ class JournalEventConsumer(
                 summary = summary,
                 payload = objectMapper.writeValueAsString(enrichedPayload),
                 sourceTable = "order_execution",
-                sourceId = orderId,
-                realizedPnl = payloadBigDecimal(payload, "realizedPnl"),
-            )
-        }
-    }
-
-    /**
-     * order.rejected.v1 listen — 주문 거부 이벤트 → trading_journal INSERT.
-     *
-     * payload 필드: orderId·userId·code·side·quantity·rejectReason·rejectedAt·instrumentName(nullable)
-     */
-    @KafkaListener(topics = ["order.rejected.v1"], groupId = GROUP)
-    fun onOrderRejected(record: ConsumerRecord<String, String>) {
-        processEvent(record, "order.rejected.v1") { payload ->
-            val userId = parseUserId(payload) ?: return@processEvent null
-            val orderId = (payload["orderId"] as? Number)?.toLong() ?: return@processEvent null
-            val code = payload["code"]?.toString() ?: return@processEvent null
-            val side = payload["side"]?.toString() ?: "BUY"
-            val qty = payloadBigDecimal(payload, "quantity")
-            val reason = payload["rejectReason"]?.toString()
-            val rejectedAt = parseInstant(payload, "rejectedAt") ?: Instant.now()
-            val instrumentName = payload["instrumentName"]?.toString()
-
-            val enrichedPayload = payload + mapOf("instrumentName" to instrumentName)
-            val summary = summaryComposer.composeOrderRejected(instrumentName, code, side, qty, reason)
-
-            TradingJournalEntry(
-                userId = userId,
-                eventType = JournalEventType.ORDER_REJECTED,
-                instrumentCode = code,
-                instrumentName = instrumentName,
-                occurredAt = rejectedAt,
-                summary = summary,
-                payload = objectMapper.writeValueAsString(enrichedPayload),
-                sourceTable = "order_request",
-                sourceId = orderId,
-            )
-        }
-    }
-
-    /**
-     * order.cancelled.v1 listen — 주문 취소 이벤트 → trading_journal INSERT.
-     *
-     * payload 필드: orderId·userId·code·side·quantity·cancelledAt·instrumentName(nullable)
-     */
-    @KafkaListener(topics = ["order.cancelled.v1"], groupId = GROUP)
-    fun onOrderCancelled(record: ConsumerRecord<String, String>) {
-        processEvent(record, "order.cancelled.v1") { payload ->
-            val userId = parseUserId(payload) ?: return@processEvent null
-            val orderId = (payload["orderId"] as? Number)?.toLong() ?: return@processEvent null
-            val code = payload["code"]?.toString() ?: return@processEvent null
-            val side = payload["side"]?.toString() ?: "BUY"
-            val qty = payloadBigDecimal(payload, "quantity")
-            val cancelledAt = parseInstant(payload, "cancelledAt") ?: Instant.now()
-            val instrumentName = payload["instrumentName"]?.toString()
-
-            val enrichedPayload = payload + mapOf("instrumentName" to instrumentName)
-            val summary = summaryComposer.composeOrderCancelled(instrumentName, code, side, qty)
-
-            TradingJournalEntry(
-                userId = userId,
-                eventType = JournalEventType.ORDER_CANCELLED,
-                instrumentCode = code,
-                instrumentName = instrumentName,
-                occurredAt = cancelledAt,
-                summary = summary,
-                payload = objectMapper.writeValueAsString(enrichedPayload),
-                sourceTable = "order_request",
-                sourceId = orderId,
-            )
-        }
-    }
-
-    /**
-     * signal.generated.v1 listen — 시그널 발생 이벤트 → trading_journal INSERT.
-     *
-     * payload 필드: signalId·userId·code·side·strength·ts·strategyId·instrumentName(nullable)
-     */
-    @KafkaListener(topics = ["signal.generated.v1"], groupId = GROUP)
-    fun onSignalGenerated(record: ConsumerRecord<String, String>) {
-        processEvent(record, "signal.generated.v1") { payload ->
-            val userId = parseUserId(payload) ?: return@processEvent null
-            val signalId = (payload["signalId"] as? Number)?.toLong() ?: return@processEvent null
-            val code = payload["code"]?.toString() ?: return@processEvent null
-            val side = payload["side"]?.toString() ?: "BUY"
-            val strength = (payload["strength"] as? Number)?.toInt() ?: 0
-            val ts = parseInstant(payload, "ts") ?: Instant.now()
-            val instrumentName = payload["instrumentName"]?.toString()
-
-            val enrichedPayload = payload + mapOf("instrumentName" to instrumentName)
-            val summary = summaryComposer.composeSignalGenerated(instrumentName, code, side, strength)
-
-            TradingJournalEntry(
-                userId = userId,
-                eventType = JournalEventType.SIGNAL_GENERATED,
-                instrumentCode = code,
-                instrumentName = instrumentName,
-                occurredAt = ts,
-                summary = summary,
-                payload = objectMapper.writeValueAsString(enrichedPayload),
-                sourceTable = "signal",
-                sourceId = signalId,
-            )
-        }
-    }
-
-    /**
-     * risk.violation.v1 listen — 리스크 위반 이벤트 → trading_journal INSERT.
-     *
-     * payload 필드: riskEventId·userId·ruleType·code(nullable)·violatedAt
-     * 이전 producer 호환: signalId·rule·blockedAt 도 허용한다.
-     */
-    @KafkaListener(topics = ["risk.violation.v1"], groupId = GROUP)
-    fun onRiskViolation(record: ConsumerRecord<String, String>) {
-        processEvent(record, "risk.violation.v1") { payload ->
-            val userId = parseUserId(payload) ?: return@processEvent null
-            val riskEventId = (payload["riskEventId"] as? Number)?.toLong()
-            val signalId = (payload["signalId"] as? Number)?.toLong()
-            val sourceId = riskEventId ?: signalId ?: return@processEvent null
-            val ruleType = payload["ruleType"]?.toString() ?: payload["rule"]?.toString() ?: "UNKNOWN"
-            val code = payload["code"]?.toString()
-            val violatedAt = parseInstant(payload, "violatedAt") ?: parseInstant(payload, "blockedAt") ?: Instant.now()
-            val instrumentName = payload["instrumentName"]?.toString()
-
-            val summary = summaryComposer.composeRiskViolation(ruleType, code)
-
-            TradingJournalEntry(
-                userId = userId,
-                eventType = JournalEventType.RISK_VIOLATION,
-                instrumentCode = code,
-                instrumentName = instrumentName,
-                occurredAt = violatedAt,
-                summary = summary,
-                payload = objectMapper.writeValueAsString(payload),
-                sourceTable = if (riskEventId != null) "risk_event" else "signal",
-                sourceId = sourceId,
+                sourceId = executionId ?: orderId,
+                realizedPnl = realizedSnapshot?.realizedPnl,
             )
         }
     }
 
     // --- private helpers ---
+
+    private data class RealizedPnlSnapshot(
+        val realizedPnl: BigDecimal,
+        val avgBuyPrice: BigDecimal? = null,
+        val closedQuantity: BigDecimal? = null,
+        val fee: BigDecimal? = null,
+        val tax: BigDecimal? = null,
+    )
+
+    private data class PositionState(
+        var qty: BigDecimal = BigDecimal.ZERO,
+        var avgPrice: BigDecimal = BigDecimal.ZERO,
+    )
+
+    private fun enrichOrderFilledPayload(
+        payload: Map<String, Any?>,
+        code: String,
+        side: String,
+        qty: BigDecimal,
+        price: BigDecimal,
+        instrumentName: String?,
+        signal: SignalJpaEntity?,
+        strategy: StrategyJpaEntity?,
+        realizedSnapshot: RealizedPnlSnapshot?,
+    ): Map<String, Any?> {
+        val strategyDisplayName = strategy?.nameKo?.takeIf { it.isNotBlank() } ?: strategy?.name
+        val extra =
+            mutableMapOf<String, Any?>(
+                "code" to code,
+                "side" to side,
+                "instrumentName" to instrumentName,
+                "executedQty" to qty,
+                "executedQuantity" to qty,
+                "executedPrice" to price,
+                "realizedPnl" to realizedSnapshot?.realizedPnl,
+                "avgBuyPrice" to realizedSnapshot?.avgBuyPrice,
+                "closedQuantity" to realizedSnapshot?.closedQuantity,
+                "strategyName" to strategy?.name,
+                "strategyNameKo" to strategy?.nameKo,
+                "strategyDisplayName" to strategyDisplayName,
+                "strategyTimeframe" to strategy?.tf,
+                "strategyEntryDsl" to strategy?.dslEntry,
+                "strategyExitDsl" to strategy?.dslExit,
+                "strategyStopLossPct" to strategy?.fixedStopLossPct,
+                "strategyTakeProfitPct" to strategy?.takeProfitPct,
+                "signalReason" to signal?.reason,
+                "signalStrength" to signal?.strength,
+                "signalPrice" to signal?.price,
+                "signalInterval" to signal?.interval,
+                "signalOccurredAt" to signal?.ts?.toString(),
+                "ruleSignal" to signal?.ruleSignal,
+                "signalContext" to parseJsonValue(signal?.contextJson),
+            )
+        realizedSnapshot?.fee?.let { extra["realizedFee"] = it }
+        realizedSnapshot?.tax?.let { extra["realizedTax"] = it }
+        return payload + extra
+    }
+
+    private fun resolveRealizedPnlSnapshot(
+        payload: Map<String, Any?>,
+        side: String,
+        userId: Long,
+        executionId: Long?,
+        executedAt: Instant,
+        execution: OrderExecutionJpaEntity?,
+    ): RealizedPnlSnapshot? {
+        payloadBigDecimal(payload, "realizedPnl")?.let { return RealizedPnlSnapshot(realizedPnl = it) }
+        execution?.realizedPnl?.let { return RealizedPnlSnapshot(realizedPnl = it) }
+        if (!side.equals("SELL", ignoreCase = true)) return null
+        return replayRealizedPnlSnapshot(userId, executionId, executedAt)
+    }
+
+    private fun replayRealizedPnlSnapshot(
+        userId: Long,
+        executionId: Long?,
+        executedAt: Instant,
+    ): RealizedPnlSnapshot? {
+        if (executionId == null) return null
+        val executionRepository = orderExecutionJpaRepository ?: return null
+        val requestRepository = orderRequestJpaRepository ?: return null
+        val executions =
+            executionRepository
+                .findByUserIdAndExecutedAtBefore(userId.toString(), executedAt.plusNanos(1))
+                .sortedWith(compareBy<OrderExecutionJpaEntity> { it.executedAt }.thenBy { it.id ?: Long.MAX_VALUE })
+        if (executions.none { it.id == executionId }) return null
+
+        val requestById = requestRepository.findAllById(executions.map { it.orderId }.distinct()).associateBy { it.id }
+        val positions = mutableMapOf<String, PositionState>()
+
+        for (execution in executions) {
+            val request = requestById[execution.orderId] ?: continue
+            val state = positions.getOrPut(request.code) { PositionState() }
+            val snapshot =
+                when (request.side) {
+                    OrderSide.BUY -> {
+                        applyBuy(state, execution)
+                        null
+                    }
+                    OrderSide.SELL -> applySell(state, execution)
+                }
+            if (execution.id == executionId) return snapshot
+        }
+        return null
+    }
+
+    private fun applyBuy(
+        state: PositionState,
+        execution: OrderExecutionJpaEntity,
+    ) {
+        if (execution.executedQty <= BigDecimal.ZERO) return
+
+        val currentCost = state.qty.multiply(state.avgPrice)
+        val addedCost =
+            execution.executedQty
+                .multiply(execution.executedPrice)
+                .add(execution.fee)
+                .add(execution.tax)
+        val nextQty = state.qty.add(execution.executedQty)
+
+        state.qty = nextQty
+        state.avgPrice =
+            if (nextQty.signum() > 0) {
+                currentCost.add(addedCost).divide(nextQty, 8, RoundingMode.HALF_UP)
+            } else {
+                BigDecimal.ZERO
+            }
+    }
+
+    private fun applySell(
+        state: PositionState,
+        execution: OrderExecutionJpaEntity,
+    ): RealizedPnlSnapshot? {
+        if (execution.executedQty <= BigDecimal.ZERO || state.qty <= BigDecimal.ZERO) return null
+
+        val closedQty = minOf(execution.executedQty, state.qty)
+        val avgBuyPrice = state.avgPrice
+        val expenseRatio = closedQty.divide(execution.executedQty, 8, RoundingMode.HALF_UP)
+        val fee = execution.fee.multiply(expenseRatio).setScale(4, RoundingMode.HALF_UP)
+        val tax = execution.tax.multiply(expenseRatio).setScale(4, RoundingMode.HALF_UP)
+        val realizedPnl =
+            execution.executedPrice
+                .subtract(avgBuyPrice)
+                .multiply(closedQty)
+                .subtract(fee)
+                .subtract(tax)
+                .setScale(2, RoundingMode.HALF_UP)
+
+        state.qty = state.qty.subtract(closedQty)
+        if (state.qty <= BigDecimal.ZERO) {
+            state.qty = BigDecimal.ZERO
+            state.avgPrice = BigDecimal.ZERO
+        }
+
+        return RealizedPnlSnapshot(
+            realizedPnl = realizedPnl,
+            avgBuyPrice = avgBuyPrice.setScale(4, RoundingMode.HALF_UP),
+            closedQuantity = closedQty.stripTrailingZeros(),
+            fee = fee.stripTrailingZeros(),
+            tax = tax.stripTrailingZeros(),
+        )
+    }
 
     /**
      * 공통 이벤트 처리 템플릿.
@@ -296,6 +363,21 @@ class JournalEventConsumer(
         }
     }
 
+    private fun payloadLong(
+        payload: Map<String, Any?>,
+        key: String,
+    ): Long? =
+        when (val v = payload[key]) {
+            is Number -> v.toLong()
+            is String -> v.toLongOrNull()
+            else -> null
+        }
+
+    private fun payloadBigDecimalAnyOf(
+        payload: Map<String, Any?>,
+        vararg keys: String,
+    ): BigDecimal? = keys.firstNotNullOfOrNull { key -> payloadBigDecimal(payload, key) }
+
     private fun payloadBigDecimal(
         payload: Map<String, Any?>,
         key: String,
@@ -305,4 +387,13 @@ class JournalEventConsumer(
             is String -> v.toBigDecimalOrNull()
             else -> null
         }
+
+    private fun parseJsonValue(value: String?): Any? {
+        if (value.isNullOrBlank()) return null
+        return try {
+            objectMapper.readValue(value, Any::class.java)
+        } catch (e: Exception) {
+            value
+        }
+    }
 }

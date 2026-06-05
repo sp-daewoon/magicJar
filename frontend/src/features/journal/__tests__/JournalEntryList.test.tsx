@@ -3,7 +3,7 @@
  *
  * ADR 0072 §9-4 + spec §3-3 정합:
  *   1. loading state — 스켈레톤 role="status"
- *   2. entries render — 이벤트 타입 label + 종목명 + 요약 표시
+ *   2. entries render — 매수/매도 label + 종목명 + 요약 표시
  *   3. empty state — "매매일지가 비어있습니다" 표시 (mock 합성 0 LOCK)
  */
 import { render, screen, fireEvent } from '@testing-library/react'
@@ -25,25 +25,14 @@ const mockEntries: TradingJournalEntryDto[] = [
   },
   {
     id: 1002,
-    eventType: 'SIGNAL_GENERATED',
+    eventType: 'ORDER_FILLED',
     instrumentCode: '000660',
     instrumentName: 'SK하이닉스',
     occurredAt: '2026-05-14T10:15:00+09:00',
-    summary: '시그널: SK하이닉스 BUY 강도 0.78',
-    realizedPnl: null,
-    payload: { strength: 0.78 },
+    summary: '체결: SK하이닉스 매도 10주 @ 150,000원 · 실현손익 +20,000원',
+    realizedPnl: '20000.00',
+    payload: { side: 'SELL', executedQty: 10, executedPrice: 150000 },
     notes: [{ id: 501, noteText: '확인', createdAt: '2026-05-14T10:20:00+09:00', updatedAt: '2026-05-14T10:20:00+09:00' }],
-  },
-  {
-    id: 1003,
-    eventType: 'RISK_VIOLATION',
-    instrumentCode: null,
-    instrumentName: null,
-    occurredAt: '2026-05-14T09:00:00+09:00',
-    summary: '리스크 차단: POSITION_LIMIT 초과',
-    realizedPnl: null,
-    payload: { reason: 'POSITION_LIMIT' },
-    notes: [],
   },
 ]
 
@@ -64,7 +53,7 @@ describe('JournalEntryList', () => {
     expect(status).toBeInTheDocument()
   })
 
-  it('2. entries render — 이벤트 label + 종목명 + 요약 표시', () => {
+  it('2. entries render — 매수 매도 label + 종목명 + 요약 표시', () => {
     render(
       <JournalEntryList
         entries={mockEntries}
@@ -76,10 +65,9 @@ describe('JournalEntryList', () => {
         onEntryClick={vi.fn()}
       />,
     )
-    // 이벤트 label
-    expect(screen.getByText('체결')).toBeInTheDocument()
-    expect(screen.getByText('시그널')).toBeInTheDocument()
-    expect(screen.getByText('리스크 차단')).toBeInTheDocument()
+    // 체결 구분 label
+    expect(screen.getByText('매수')).toBeInTheDocument()
+    expect(screen.getByText('매도')).toBeInTheDocument()
     // 종목명
     expect(screen.getByText('삼성전자')).toBeInTheDocument()
     expect(screen.getByText('SK하이닉스')).toBeInTheDocument()

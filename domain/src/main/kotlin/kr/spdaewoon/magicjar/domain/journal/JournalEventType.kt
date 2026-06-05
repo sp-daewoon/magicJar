@@ -1,9 +1,10 @@
 package kr.spdaewoon.magicjar.domain.journal
 
 /**
- * 매매일지 이벤트 타입 enum — ADR 0072 §3-1 (G-1 5 토픽 listen 매트릭스 정합).
+ * 매매일지 이벤트 타입 enum.
  *
- * Kafka 5 토픽 → trading_journal row 변환 시 event_type 컬럼 값.
+ * 신규 매매일지는 ORDER_FILLED만 저장/노출한다.
+ * 나머지 값은 과거 row와 DB 호환을 위해 유지한다.
  *
  * // AI 호출 0 — T-J 트랙 정책 (ADR 0072 §2-8 H-1 LOCK)
  */

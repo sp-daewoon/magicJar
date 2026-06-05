@@ -19,10 +19,10 @@ import java.time.OffsetDateTime
 import java.time.ZoneId
 
 /**
- * 매매일지 REST 서비스 — ADR 0072 §9-2 Phase 1 산출물.
+ * 매매일지 REST 서비스 — 실제 체결 복기장.
  *
  * REST endpoint backing:
- * - listEntries: 시계열 페이징 + 필터
+ * - listEntries: 체결 페이징 + 필터
  * - findEntry: 단건 + notes 포함
  * - writeNote: 메모 작성
  *
@@ -38,8 +38,8 @@ class TradingJournalService(
     private val kstZone = ZoneId.of("Asia/Seoul")
 
     /**
-     * 매매일지 시계열 페이징 조회.
-     * [eventTypeNames] null 또는 빈 리스트 시 전체 타입.
+     * 매매일지 체결 페이징 조회.
+     * [eventTypeNames] null 또는 빈 리스트 시 ORDER_FILLED만 조회한다.
      * [from]/[to] null 시 기간 제한 없음.
      */
     fun listEntries(
@@ -96,6 +96,9 @@ class TradingJournalService(
         val entry =
             journalRepository.findEntryById(id, userId)
                 ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "매매일지 entry를 찾을 수 없습니다. id=$id, userId=$userId")
+        if (entry.eventType != JournalEventType.ORDER_FILLED) {
+            throw ResponseStatusException(HttpStatus.NOT_FOUND, "매매일지 체결 entry가 아닙니다. id=$id, userId=$userId")
+        }
 
         return toDto(
             id = entry.id!!,
@@ -128,8 +131,12 @@ class TradingJournalService(
         val noteText = request.noteText!!
 
         // entry 소유권 검증
-        journalRepository.findEntryById(entryId, userId)
-            ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "매매일지 entry를 찾을 수 없습니다. entryId=$entryId, userId=$userId")
+        val entry =
+            journalRepository.findEntryById(entryId, userId)
+                ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "매매일지 entry를 찾을 수 없습니다. entryId=$entryId, userId=$userId")
+        if (entry.eventType != JournalEventType.ORDER_FILLED) {
+            throw ResponseStatusException(HttpStatus.NOT_FOUND, "매매일지 체결 entry가 아닙니다. entryId=$entryId, userId=$userId")
+        }
 
         val now = Instant.now()
         val note =
@@ -153,11 +160,13 @@ class TradingJournalService(
     // --- private helpers ---
 
     private fun parseEventTypes(names: List<String>?): List<JournalEventType>? {
-        if (names.isNullOrEmpty()) return null
-        return names
-            .mapNotNull { name ->
-                runCatching { JournalEventType.valueOf(name.uppercase()) }.getOrNull()
-            }.ifEmpty { null }
+        if (names.isNullOrEmpty()) return listOf(JournalEventType.ORDER_FILLED)
+        val parsed =
+            names
+                .mapNotNull { name ->
+                    runCatching { JournalEventType.valueOf(name.uppercase()) }.getOrNull()
+                }.filter { it == JournalEventType.ORDER_FILLED }
+        return parsed.ifEmpty { listOf(JournalEventType.ORDER_FILLED) }
     }
 
     @Suppress("UNCHECKED_CAST")

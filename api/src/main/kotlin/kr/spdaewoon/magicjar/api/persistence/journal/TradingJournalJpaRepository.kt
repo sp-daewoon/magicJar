@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.api.persistence.journal
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
 import java.time.Instant
@@ -15,7 +16,9 @@ import java.time.Instant
  *
  * // AI 호출 0 — T-J 트랙 정책 (ADR 0072 §2-8 H-1 LOCK)
  */
-interface TradingJournalJpaRepository : JpaRepository<TradingJournalJpaEntity, Long> {
+interface TradingJournalJpaRepository :
+    JpaRepository<TradingJournalJpaEntity, Long>,
+    JpaSpecificationExecutor<TradingJournalJpaEntity> {
     /** 사용자별 시계열 페이징 (occurred_at DESC) — 필터 없음 */
     fun findByUserIdOrderByOccurredAtDesc(
         userId: Long,

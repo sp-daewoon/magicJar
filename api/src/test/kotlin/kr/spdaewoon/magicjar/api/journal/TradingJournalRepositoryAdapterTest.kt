@@ -14,6 +14,9 @@ import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import org.springframework.dao.DataIntegrityViolationException
+import org.springframework.data.domain.PageImpl
+import org.springframework.data.domain.Pageable
+import org.springframework.data.jpa.domain.Specification
 import java.math.BigDecimal
 import java.time.Instant
 
@@ -107,5 +110,32 @@ class TradingJournalRepositoryAdapterTest {
 
         assertThat(result).isNull()
         verify(noteJpaRepository, never()).findByJournalEntryIdOrderByCreatedAtAsc(any())
+    }
+
+    @Test
+    fun `findEntries — 날짜 필터가 없어도 동적 Specification 조회를 사용한다`() {
+        val entity = makeJpaEntity(id = 1001L, userId = 12345678L)
+        whenever(
+            journalJpaRepository.findAll(
+                any<Specification<TradingJournalJpaEntity>>(),
+                any<Pageable>(),
+            ),
+        ).thenReturn(PageImpl(listOf(entity)))
+        whenever(noteJpaRepository.findByJournalEntryIdOrderByCreatedAtAsc(1001L)).thenReturn(emptyList())
+
+        val result =
+            sut.findEntries(
+                userId = 12345678L,
+                from = null,
+                to = null,
+                eventTypes = listOf(JournalEventType.ORDER_FILLED),
+                instrumentCode = null,
+                page = 0,
+                size = 20,
+            )
+
+        assertThat(result).hasSize(1)
+        assertThat(result[0].eventType).isEqualTo(JournalEventType.ORDER_FILLED)
+        verify(journalJpaRepository).findAll(any<Specification<TradingJournalJpaEntity>>(), any<Pageable>())
     }
 }

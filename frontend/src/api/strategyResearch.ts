@@ -1,6 +1,8 @@
 import axios from 'axios'
 import apiClient from '../lib/axios'
 
+const AI_DISCOVERY_TIMEOUT_MS = 180_000
+
 export interface StrategyResearchRequestDto {
   userId: string
   code: string
@@ -132,7 +134,9 @@ export const strategyResearchApi = {
       ...req,
       market: req.market || null,
     }
-    const res = await apiClient.post<StrategyResearchAiDiscoveryResponseDto>('/strategy-research/ai-discovery', body)
+    const res = await apiClient.post<StrategyResearchAiDiscoveryResponseDto>('/strategy-research/ai-discovery', body, {
+      timeout: AI_DISCOVERY_TIMEOUT_MS,
+    })
     return res.data
   },
 }

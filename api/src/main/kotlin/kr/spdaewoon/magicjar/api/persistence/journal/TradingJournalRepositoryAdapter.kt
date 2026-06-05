@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.api.persistence.journal
 
+import jakarta.persistence.criteria.Predicate
 import kr.spdaewoon.magicjar.domain.journal.JournalEventType
 import kr.spdaewoon.magicjar.domain.journal.JournalNote
 import kr.spdaewoon.magicjar.domain.journal.TradingJournalEntry
@@ -8,6 +9,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
+import org.springframework.data.jpa.domain.Specification
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -121,18 +123,20 @@ class TradingJournalRepositoryAdapter(
         pageable: org.springframework.data.domain.Pageable,
     ): org.springframework.data.domain.Page<TradingJournalJpaEntity> {
         val typeNames = eventTypes?.map { it.name }
-        return when {
-            typeNames != null && instrumentCode != null ->
-                journalJpaRepository.findByUserIdAndRangeAndEventTypesAndCode(userId, from, to, typeNames, instrumentCode, pageable)
-            typeNames != null ->
-                journalJpaRepository.findByUserIdAndRangeAndEventTypes(userId, from, to, typeNames, pageable)
-            instrumentCode != null ->
-                journalJpaRepository.findByUserIdAndRangeAndCode(userId, from, to, instrumentCode, pageable)
-            from != null || to != null ->
-                journalJpaRepository.findByUserIdAndRange(userId, from, to, pageable)
-            else ->
-                journalJpaRepository.findByUserIdOrderByOccurredAtDesc(userId, pageable)
-        }
+        val normalizedCode = instrumentCode?.trim()?.takeIf { it.isNotBlank() }
+        val spec =
+            Specification<TradingJournalJpaEntity> { root, _, cb ->
+                val predicates = mutableListOf<Predicate>()
+                predicates += cb.equal(root.get<Long>("userId"), userId)
+                from?.let { predicates += cb.greaterThanOrEqualTo(root.get("occurredAt"), it) }
+                to?.let { predicates += cb.lessThanOrEqualTo(root.get("occurredAt"), it) }
+                if (!typeNames.isNullOrEmpty()) {
+                    predicates += root.get<String>("eventType").`in`(typeNames)
+                }
+                normalizedCode?.let { predicates += cb.equal(root.get<String>("instrumentCode"), it) }
+                cb.and(*predicates.toTypedArray())
+            }
+        return journalJpaRepository.findAll(spec, pageable)
     }
 
     private fun toEntity(entry: TradingJournalEntry): TradingJournalJpaEntity =

@@ -21,9 +21,17 @@ vi.mock('../hooks/useJournalEntry', () => ({
       instrumentCode: '005930',
       instrumentName: '삼성전자',
       occurredAt: '2026-05-14T14:32:18+09:00',
-      summary: '체결: 삼성전자 매수 100주 @ 75,000원',
+      summary: '체결: 삼성전자 매수 100주 @ 75,000원 · 전략: 이동평균 돌파',
       realizedPnl: '150000.00',
-      payload: { side: 'BUY' },
+      payload: {
+        side: 'BUY',
+        executedQty: 100,
+        executedPrice: 75000,
+        strategyDisplayName: '이동평균 돌파',
+        strategyEntryDsl: 'cross(close, sma(20))',
+        signalReason: '종가가 20일선을 상향 돌파',
+        signalPrice: 75000,
+      },
       notes: [
         {
           id: 501,
@@ -62,10 +70,13 @@ describe('JournalEntryDetailModal', () => {
 
   it('1. entry 기본 정보 + 메모 표시', () => {
     renderModal()
-    // 이벤트 타입 label
-    expect(screen.getByText('체결')).toBeInTheDocument()
+    // 체결 구분 label
+    expect(screen.getByText('매수')).toBeInTheDocument()
     // 요약
-    expect(screen.getByText('체결: 삼성전자 매수 100주 @ 75,000원')).toBeInTheDocument()
+    expect(screen.getByText('체결: 삼성전자 매수 100주 @ 75,000원 · 전략: 이동평균 돌파')).toBeInTheDocument()
+    // 전략/시그널 근거
+    expect(screen.getByText('이동평균 돌파')).toBeInTheDocument()
+    expect(screen.getByText('종가가 20일선을 상향 돌파')).toBeInTheDocument()
     // 메모
     expect(screen.getByText('이번 매매는 RSI 과매도 진입')).toBeInTheDocument()
     // 손익

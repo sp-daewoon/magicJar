@@ -36,6 +36,8 @@ class OrderExecutionJpaEntity(
     val fee: BigDecimal = BigDecimal.ZERO,
     @Column(name = "tax", nullable = false, precision = 19, scale = 4)
     val tax: BigDecimal = BigDecimal.ZERO,
+    @Column(name = "realized_pnl", precision = 18, scale = 2)
+    val realizedPnl: BigDecimal? = null,
     @Column(name = "kis_execution_no", length = 20)
     val kisExecutionNo: String? = null,
     /**

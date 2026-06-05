@@ -10,7 +10,6 @@ import { useEffect } from 'react'
 import { useJournalEntry } from '../hooks/useJournalEntry'
 import { useWriteJournalNote } from '../hooks/useWriteJournalNote'
 import { JournalNoteForm } from './JournalNoteForm'
-import { EVENT_TYPE_LABELS } from './JournalEntryFilterBar'
 
 interface JournalEntryDetailModalProps {
   entryId: number
@@ -29,6 +28,42 @@ function formatKst(isoString: string): string {
     minute: '2-digit',
     second: '2-digit',
   })
+}
+
+function payloadText(payload: Record<string, unknown>, key: string): string | null {
+  const value = payload[key]
+  if (value === null || value === undefined || value === '') return null
+  return String(value)
+}
+
+function formatNumber(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '-'
+  const n = Number(value)
+  if (!Number.isFinite(n)) return String(value)
+  return n.toLocaleString('ko-KR')
+}
+
+function formatMoney(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '-'
+  const n = Number(value)
+  if (!Number.isFinite(n)) return String(value)
+  const sign = n > 0 ? '+' : ''
+  return `${sign}${n.toLocaleString('ko-KR')}원`
+}
+
+function tradeSide(payload: Record<string, unknown>): string {
+  const side = payloadText(payload, 'side')?.toUpperCase()
+  if (side === 'SELL') return '매도'
+  if (side === 'BUY') return '매수'
+  return '체결'
+}
+
+function firstText(payload: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = payloadText(payload, key)
+    if (value) return value
+  }
+  return null
 }
 
 export function JournalEntryDetailModal({ entryId, userId, onClose }: JournalEntryDetailModalProps) {
@@ -93,13 +128,11 @@ export function JournalEntryDetailModal({ entryId, userId, onClose }: JournalEnt
               {/* 기본 정보 */}
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <span className="text-xs text-gray-500">이벤트</span>
-                  <p className="mt-0.5 font-medium text-gray-200">
-                    {EVENT_TYPE_LABELS[entry.eventType]}
-                  </p>
+                  <span className="text-xs text-gray-500">구분</span>
+                  <p className="mt-0.5 font-medium text-gray-200">{tradeSide(entry.payload)}</p>
                 </div>
                 <div>
-                  <span className="text-xs text-gray-500">발생 시각</span>
+                  <span className="text-xs text-gray-500">체결 시각</span>
                   <p className="mt-0.5 text-gray-200">{formatKst(entry.occurredAt)}</p>
                 </div>
                 {entry.instrumentCode && (
@@ -110,19 +143,20 @@ export function JournalEntryDetailModal({ entryId, userId, onClose }: JournalEnt
                     </p>
                   </div>
                 )}
-                {entry.realizedPnl !== null && (
-                  <div>
-                    <span className="text-xs text-gray-500">실현 손익</span>
-                    <p
-                      className={`mt-0.5 font-mono font-semibold ${
-                        Number(entry.realizedPnl) > 0 ? 'text-emerald-400' : 'text-red-400'
-                      }`}
-                    >
-                      {Number(entry.realizedPnl) > 0 ? '+' : ''}
-                      {Number(entry.realizedPnl).toLocaleString('ko-KR')}원
-                    </p>
-                  </div>
-                )}
+                <div>
+                  <span className="text-xs text-gray-500">실현 손익</span>
+                  <p
+                    className={`mt-0.5 font-mono font-semibold ${
+                      Number(entry.realizedPnl ?? entry.payload.realizedPnl ?? 0) > 0
+                        ? 'text-emerald-400'
+                        : Number(entry.realizedPnl ?? entry.payload.realizedPnl ?? 0) < 0
+                          ? 'text-red-400'
+                          : 'text-gray-400'
+                    }`}
+                  >
+                    {formatMoney(entry.realizedPnl ?? entry.payload.realizedPnl)}
+                  </p>
+                </div>
               </div>
 
               {/* 요약 */}
@@ -131,12 +165,112 @@ export function JournalEntryDetailModal({ entryId, userId, onClose }: JournalEnt
                 <p className="mt-1 text-sm text-gray-200">{entry.summary}</p>
               </div>
 
+              {/* 체결 정보 */}
+              <div className="rounded-md border border-gray-800 bg-gray-900/70 p-3">
+                <span className="text-xs text-gray-500">체결 정보</span>
+                <div className="mt-2 grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-xs text-gray-600">수량</span>
+                    <p className="mt-0.5 text-gray-200">
+                      {formatNumber(entry.payload.executedQty ?? entry.payload.executedQuantity)}주
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-xs text-gray-600">체결가</span>
+                    <p className="mt-0.5 text-gray-200">{formatNumber(entry.payload.executedPrice)}원</p>
+                  </div>
+                  {entry.payload.avgBuyPrice !== null && entry.payload.avgBuyPrice !== undefined && (
+                    <div>
+                      <span className="text-xs text-gray-600">매도 기준 평단</span>
+                      <p className="mt-0.5 text-gray-200">{formatNumber(entry.payload.avgBuyPrice)}원</p>
+                    </div>
+                  )}
+                  {entry.payload.closedQuantity !== null && entry.payload.closedQuantity !== undefined && (
+                    <div>
+                      <span className="text-xs text-gray-600">청산 수량</span>
+                      <p className="mt-0.5 text-gray-200">{formatNumber(entry.payload.closedQuantity)}주</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* 전략 */}
+              {(firstText(entry.payload, ['strategyDisplayName', 'strategyNameKo', 'strategyName']) ||
+                payloadText(entry.payload, 'strategyEntryDsl') ||
+                payloadText(entry.payload, 'strategyExitDsl')) && (
+                <div className="rounded-md border border-gray-800 bg-gray-900/70 p-3">
+                  <span className="text-xs text-gray-500">전략</span>
+                  <div className="mt-2 text-sm text-gray-200">
+                    <p className="font-medium">
+                      {firstText(entry.payload, ['strategyDisplayName', 'strategyNameKo', 'strategyName']) ?? '-'}
+                      {payloadText(entry.payload, 'strategyTimeframe') && (
+                        <span className="ml-2 text-xs font-normal text-gray-500">
+                          {payloadText(entry.payload, 'strategyTimeframe')}
+                        </span>
+                      )}
+                    </p>
+                    {payloadText(entry.payload, 'strategyEntryDsl') && (
+                      <pre className="mt-2 overflow-x-auto rounded border border-gray-800 bg-gray-950 p-2 text-xs text-gray-400">
+                        {payloadText(entry.payload, 'strategyEntryDsl')}
+                      </pre>
+                    )}
+                    {payloadText(entry.payload, 'strategyExitDsl') && (
+                      <pre className="mt-2 overflow-x-auto rounded border border-gray-800 bg-gray-950 p-2 text-xs text-gray-400">
+                        {payloadText(entry.payload, 'strategyExitDsl')}
+                      </pre>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* 시그널 근거 */}
+              {(payloadText(entry.payload, 'signalReason') ||
+                payloadText(entry.payload, 'ruleSignal') ||
+                payloadText(entry.payload, 'signalPrice')) && (
+                <div className="rounded-md border border-gray-800 bg-gray-900/70 p-3">
+                  <span className="text-xs text-gray-500">시그널 근거</span>
+                  <div className="mt-2 space-y-2 text-sm">
+                    {payloadText(entry.payload, 'signalReason') && (
+                      <p className="text-gray-200">{payloadText(entry.payload, 'signalReason')}</p>
+                    )}
+                    <div className="grid grid-cols-2 gap-3">
+                      {payloadText(entry.payload, 'ruleSignal') && (
+                        <div>
+                          <span className="text-xs text-gray-600">룰</span>
+                          <p className="mt-0.5 text-gray-300">{payloadText(entry.payload, 'ruleSignal')}</p>
+                        </div>
+                      )}
+                      {payloadText(entry.payload, 'signalPrice') && (
+                        <div>
+                          <span className="text-xs text-gray-600">시그널 가격</span>
+                          <p className="mt-0.5 text-gray-300">{formatNumber(entry.payload.signalPrice)}원</p>
+                        </div>
+                      )}
+                      {payloadText(entry.payload, 'signalStrength') && (
+                        <div>
+                          <span className="text-xs text-gray-600">강도</span>
+                          <p className="mt-0.5 text-gray-300">{payloadText(entry.payload, 'signalStrength')}</p>
+                        </div>
+                      )}
+                      {payloadText(entry.payload, 'signalInterval') && (
+                        <div>
+                          <span className="text-xs text-gray-600">봉</span>
+                          <p className="mt-0.5 text-gray-300">{payloadText(entry.payload, 'signalInterval')}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* payload */}
               <div>
-                <span className="text-xs text-gray-500">원본 페이로드</span>
-                <pre className="mt-1 max-h-36 overflow-y-auto rounded-md border border-gray-800 bg-gray-900 p-3 text-xs text-gray-400">
-                  {JSON.stringify(entry.payload, null, 2)}
-                </pre>
+                <details>
+                  <summary className="cursor-pointer text-xs text-gray-500">원본 페이로드</summary>
+                  <pre className="mt-1 max-h-36 overflow-y-auto rounded-md border border-gray-800 bg-gray-900 p-3 text-xs text-gray-400">
+                    {JSON.stringify(entry.payload, null, 2)}
+                  </pre>
+                </details>
               </div>
 
               {/* 메모 목록 */}

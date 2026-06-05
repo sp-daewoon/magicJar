@@ -12,7 +12,7 @@ import java.time.OffsetDateTime
 import java.time.format.DateTimeParseException
 
 /**
- * MCP tool `get_journal` — 매매일지 시계열 + summary (ADR 0027 §2-2).
+ * MCP tool `get_journal` — 실제 체결 매매일지 + summary.
  *
  * 기존 [TradingJournalService] reuse — modify 0 (영역 침범 0 LOCK).
  *
@@ -20,7 +20,7 @@ import java.time.format.DateTimeParseException
  * - `from`: ISO8601 (옵션)
  * - `to`: ISO8601 (옵션)
  * - `code`: 종목 코드 필터 (옵션)
- * - `eventTypes`: 이벤트 타입 필터 (옵션 · 복수)
+ * - `eventTypes`: 이벤트 타입 필터 (옵션 · ORDER_FILLED만 노출)
  * - `page`: 0-base (옵션 · default 0)
  * - `size`: 1~100 (옵션 · default 20)
  *
@@ -33,7 +33,7 @@ class GetJournalTool(
 ) : McpTool {
     override val name: String = "get_journal"
     override val description: String =
-        "매매일지 시계열 페이징 조회 + summary (총 row 수 · 실현 손익 합계 · 이벤트 타입 distribution)."
+        "실제 매수/매도 체결 매매일지 조회 + summary (총 row 수 · 실현 손익 합계)."
 
     override val inputSchema: Map<String, Any?> =
         mapOf(
@@ -47,7 +47,7 @@ class GetJournalTool(
                         mapOf(
                             "type" to "array",
                             "items" to mapOf("type" to "string"),
-                            "description" to "이벤트 타입 필터 (예: ORDER_FILLED · SIGNAL_GENERATED · RISK_VIOLATION)",
+                            "description" to "이벤트 타입 필터 (ORDER_FILLED만 노출)",
                         ),
                     "page" to mapOf("type" to "integer", "minimum" to 0, "default" to 0),
                     "size" to mapOf("type" to "integer", "minimum" to 1, "maximum" to 100, "default" to 20),

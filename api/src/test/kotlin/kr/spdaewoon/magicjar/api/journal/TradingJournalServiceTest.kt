@@ -22,6 +22,7 @@ import java.time.Instant
  * TradingJournalServiceTest — 4건 GREEN 의무 (spec §3-1).
  *
  * - list 페이징 조회
+ * - 기본 조회 ORDER_FILLED 한정
  * - entry 단건 + notes 포함
  * - note 작성
  * - userId 격리 (404)
@@ -76,7 +77,7 @@ class TradingJournalServiceTest {
                 eq(12345678L),
                 eq(null),
                 eq(null),
-                eq(null),
+                eq(listOf(JournalEventType.ORDER_FILLED)),
                 eq(null),
             ),
         ).thenReturn(3L)
@@ -85,7 +86,7 @@ class TradingJournalServiceTest {
                 eq(12345678L),
                 eq(null),
                 eq(null),
-                eq(null),
+                eq(listOf(JournalEventType.ORDER_FILLED)),
                 eq(null),
                 eq(0),
                 eq(20),

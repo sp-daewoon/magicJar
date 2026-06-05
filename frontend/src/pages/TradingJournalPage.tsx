@@ -13,20 +13,18 @@ import { JournalEntryFilterBar } from '../features/journal/components/JournalEnt
 import { JournalEntryList } from '../features/journal/components/JournalEntryList'
 import { JournalEntryDetailModal } from '../features/journal/components/JournalEntryDetailModal'
 import { useJournalEntries } from '../features/journal/hooks/useJournalEntries'
-import type { TradingJournalEntryDto, JournalEventType } from '../features/journal/api/journalApi'
+import type { TradingJournalEntryDto } from '../features/journal/api/journalApi'
 
 interface FilterState {
   from: string
   to: string
   instrumentCode: string
-  eventType: JournalEventType | ''
 }
 
 const DEFAULT_FILTER: FilterState = {
   from: '',
   to: '',
   instrumentCode: '',
-  eventType: '',
 }
 
 export function TradingJournalPage() {
@@ -53,7 +51,6 @@ export function TradingJournalPage() {
     from: filter.from || undefined,
     to: filter.to || undefined,
     instrumentCode: filter.instrumentCode || undefined,
-    eventType: (filter.eventType as JournalEventType) || undefined,
     page,
     size: 20,
   })
@@ -81,7 +78,7 @@ export function TradingJournalPage() {
       <div className="mb-5">
         <h1 className="text-xl font-bold text-gray-100">매매일지</h1>
         <p className="mt-0.5 text-sm text-gray-500">
-          시그널·체결·리스크·포지션 이벤트 통합 시계열
+          실제 매수·매도 체결과 전략 근거를 남기는 복기장
         </p>
       </div>
 

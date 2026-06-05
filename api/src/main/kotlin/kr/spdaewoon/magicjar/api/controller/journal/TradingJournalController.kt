@@ -26,10 +26,10 @@ import org.springframework.web.bind.annotation.RestController
 import java.time.OffsetDateTime
 
 /**
- * 매매일지 REST 컨트롤러 — ADR 0072 §6-1·§6-2·§6-3 Swagger 4단 LOCK.
+ * 매매일지 REST 컨트롤러 — 실제 체결 복기장.
  *
  * ### 엔드포인트 3건
- * - GET  /api/journal/entries          — 시계열 페이징 + 필터
+ * - GET  /api/journal/entries          — 체결 페이징 + 필터
  * - GET  /api/journal/entries/{id}     — entry 단건 상세 (notes 포함)
  * - POST /api/journal/notes            — 사용자 메모 작성
  *
@@ -38,7 +38,7 @@ import java.time.OffsetDateTime
  *
  * // AI 호출 0 — T-J 트랙 정책 (ADR 0072 §2-8 H-1 LOCK)
  */
-@Tag(name = "Trading Journal", description = "매매일지 시계열 영속 + 사용자 메모 — ADR 0072")
+@Tag(name = "Trading Journal", description = "실제 매수/매도 체결 복기장 + 사용자 메모")
 @RestController
 @RequestMapping("/api/journal")
 class TradingJournalController(
@@ -49,10 +49,10 @@ class TradingJournalController(
     // ─── GET /api/journal/entries — 시계열 페이징 조회 ─────────────────────
 
     @Operation(
-        summary = "매매일지 시계열 조회 (페이징, 최신순)",
+        summary = "매매일지 체결 조회 (페이징, 최신순)",
         description = """
-            order·signal·risk 5 이벤트 source 통합 시계열. 최신순(occurredAt DESC).
-            필터: from·to(기간) + instrumentCode(종목) + eventTypes(이벤트 타입 복수 지정).
+            실제 주문 체결 ORDER_FILLED만 조회한다. 최신순(occurredAt DESC).
+            필터: from·to(기간) + instrumentCode(종목) + eventTypes(ORDER_FILLED 호환 파라미터).
             trading_journal 0 row 환경에서 "매매일지가 비어있습니다" 빈 페이지 반환 (mock 합성 0).
         """,
     )
@@ -71,7 +71,7 @@ class TradingJournalController(
         @Parameter(description = "기간 종료 (ISO 8601, 옵션)", example = "2026-05-14T23:59:59+09:00")
         @RequestParam(required = false) to: OffsetDateTime?,
         @Parameter(
-            description = "이벤트 타입 필터 (복수 가능 — ORDER_FILLED·ORDER_REJECTED·ORDER_CANCELLED·SIGNAL_GENERATED·RISK_VIOLATION)",
+            description = "이벤트 타입 필터 (ORDER_FILLED만 노출)",
             example = "ORDER_FILLED",
         )
         @RequestParam(required = false) eventTypes: List<String>?,
