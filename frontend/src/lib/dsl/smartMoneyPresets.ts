@@ -33,6 +33,30 @@ const orderBlock = (outputKey: string): BlockNode => ({
   outputKey,
 })
 
+/**
+ * 장악형(Engulfing) Order Block 헬퍼.
+ *
+ * order_block 신규 파라미터 detection/range를 위치 기반 직렬화 계약대로 노출한다.
+ * params 객체 key 삽입 순서 = 직렬화 위치 (serializer.ts Object.values 의존):
+ *   swingLookback → searchLookback → mitigationPct → detection → range
+ * 결과: order_block(20, 20, 100, engulfing, body)
+ *
+ * mitigationPct=100: 유튜버 정의(종가 완전 관통 시 소멸)에 근사 —
+ * 50% 침투 소멸을 비활성화한다.
+ */
+const orderBlockEngulfing = (outputKey: string): BlockNode => ({
+  kind: 'indicator',
+  id: 'order_block',
+  params: {
+    swingLookback: 20,
+    searchLookback: 20,
+    mitigationPct: 100,
+    detection: 'engulfing',
+    range: 'body',
+  },
+  outputKey,
+})
+
 const compare = (left: BlockNode, op: '>' | '<' | '==', right: BlockNode): BlockNode => ({
   kind: 'comparison',
   op,
@@ -102,6 +126,32 @@ export const SMART_MONEY_STRATEGY_PRESETS: SmartMoneyStrategyPreset[] = [
         compare(candle('close'), '<', orderBlock('bearish_mid')),
       ),
       exit: compare(candle('close'), '>', orderBlock('bearish_top')),
+    },
+  },
+  {
+    id: 'order-block-engulfing-bullish-retest',
+    label: 'OB 장악형 매수 후보',
+    description: '상승 장악형 발생 후 직전 음봉 몸통 OB가 살아 있고 종가가 OB 중간값 위인 후보',
+    suggestedInterval: '3m',
+    tree: {
+      entry: and(
+        compare(orderBlockEngulfing('bullish_active'), '==', intLiteral(1)),
+        compare(candle('close'), '>', orderBlockEngulfing('bullish_mid')),
+      ),
+      exit: compare(candle('close'), '<', orderBlockEngulfing('bullish_bottom')),
+    },
+  },
+  {
+    id: 'order-block-engulfing-bearish-retest',
+    label: 'OB 장악형 매도 후보',
+    description: '하락 장악형 발생 후 직전 양봉 몸통 OB가 살아 있고 종가가 OB 중간값 아래인 후보',
+    suggestedInterval: '3m',
+    tree: {
+      entry: and(
+        compare(orderBlockEngulfing('bearish_active'), '==', intLiteral(1)),
+        compare(candle('close'), '<', orderBlockEngulfing('bearish_mid')),
+      ),
+      exit: compare(candle('close'), '>', orderBlockEngulfing('bearish_top')),
     },
   },
 ]
