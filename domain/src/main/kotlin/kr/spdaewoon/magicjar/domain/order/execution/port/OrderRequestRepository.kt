@@ -76,6 +76,9 @@ interface OrderRequestRepository {
      * ADR 0109 §2-4 drift 회피). REJECTED·PENDING·ACK·FILLED 등 모든 status 포함 —
      * "REAL 주문 시도 횟수" 자체를 세는 안전선이므로 reject도 카운트한다.
      *
+     * 단, source=EXTERNAL(외부 HTS·MTS 직접 주문 흡수) row 는 제외한다 — 우리 자동매매 예산이 아님
+     * (2026-06-05 자본 path fix). 구현 어댑터가 @Query 에 `source <> 'EXTERNAL'` 조건을 포함한다.
+     *
      * 헌법 §6 — interface body 0건(abstract만). 구현은 JPA 어댑터 @Query count.
      */
     fun countRealOrdersBetween(

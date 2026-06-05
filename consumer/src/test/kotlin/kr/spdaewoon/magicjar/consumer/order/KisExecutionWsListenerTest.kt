@@ -3,13 +3,16 @@ package kr.spdaewoon.magicjar.consumer.order
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
+import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEvent
 import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEventType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderExecution
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderAuditEventRepository
@@ -70,6 +73,23 @@ class KisExecutionWsListenerTest {
             every { it.getIfAvailable() } returns executionBackfillService
         }
 
+    // 2026-06-05 외부 주문 흡수 fix — ACNT_NO "50000000" → 내부 userId "12345678" / MOCK 매핑 (기본 stub).
+    private val externalOrderAccountResolver =
+        mockk<ExternalOrderAccountResolver>().also {
+            every { it.resolve(any(), any()) } returns
+                ExternalOrderAccountResolver.Resolution.Mapped(
+                    userId = "12345678",
+                    accountType = AccountType.MOCK,
+                    mode = TradingMode.MOCK,
+                    htsId = "USERHTSID",
+                )
+        }
+    private val systemEventLogger = mockk<SystemEventLogger>(relaxed = true)
+    private val systemEventLoggerProvider =
+        mockk<ObjectProvider<SystemEventLogger>>().also {
+            every { it.getIfAvailable() } returns systemEventLogger
+        }
+
     private val listener =
         KisExecutionWsListener(
             orderRequestRepositoryProvider = orderRepoProvider,
@@ -81,6 +101,8 @@ class KisExecutionWsListenerTest {
             accountBalanceChangedKafkaProducer = accountBalanceChangedProducer,
             executionPersistenceService = executionPersistenceService,
             executionBackfillServiceProvider = executionBackfillServiceProvider,
+            externalOrderAccountResolver = externalOrderAccountResolver,
+            systemEventLoggerProvider = systemEventLoggerProvider,
             objectMapper = ObjectMapper(),
         )
 
@@ -207,7 +229,8 @@ class KisExecutionWsListenerTest {
         every { orderRepo.findByIdempotencyKey("WS_PREINSERT:ODNO_LOST") } returns null
 
         val sentinelRow = stubRequest(quantity = 10).copy(id = 777L, kisOrderNo = "ODNO_LOST")
-        every { orderRepo.save(any()) } returns sentinelRow
+        val savedStub = slot<OrderRequest>()
+        every { orderRepo.save(capture(savedStub)) } returns sentinelRow
 
         every { execRepo.existsByEventId(any()) } returns false
         every { execRepo.save(any()) } answers { firstArg<OrderExecution>().copy(id = 12L) }
@@ -223,12 +246,40 @@ class KisExecutionWsListenerTest {
         verify(exactly = 1) { execRepo.save(any()) }
         verify(exactly = 1) { orderRepo.markCompleted(777L, any(), OrderStatus.FILLED) }
 
-        // pre-insert audit 마커 검증 (source=WS_PREINSERT)
+        // 2026-06-05 fix — pre-insert stub 은 매핑된 내부 userId·MOCK·EXTERNAL 로 INSERT (htsId/REAL/AUTO 오기록 제거)
+        assertThat(savedStub.captured.userId).isEqualTo("12345678")
+        assertThat(savedStub.captured.mode).isEqualTo(TradingMode.MOCK)
+        assertThat(savedStub.captured.source).isEqualTo(OrderSource.EXTERNAL)
+
+        // pre-insert audit 마커 검증 (source=WS_PREINSERT + orderSource=EXTERNAL)
         val auditList = mutableListOf<OrderAuditEvent>()
         verify(atLeast = 1) { auditRepo.save(capture(auditList)) }
         val preInsertAudit = auditList.find { it.payloadJson.contains("WS_PREINSERT") }
         assertThat(preInsertAudit).isNotNull
         assertThat(preInsertAudit!!.eventType).isEqualTo(OrderAuditEventType.KIS_ACK)
+        assertThat(preInsertAudit.payloadJson).contains("EXTERNAL")
+    }
+
+    @Test
+    fun `(P0-3 g-2) 외부 주문 흡수 매핑 실패 → FK 폭발 대신 pre-insert 보류 + SystemEvent WARN`() {
+        every { orderRepo.findByKisOrderNo("ODNO_UNMAPPED") } returns null
+        every { orderRepo.findByIdempotencyKey("WS_PREINSERT:ODNO_UNMAPPED") } returns null
+        // 매핑 실패 (계좌번호가 내부 user_account 에 없음)
+        every { externalOrderAccountResolver.resolve(any(), any()) } returns
+            ExternalOrderAccountResolver.Resolution.Unmapped(
+                htsId = "UNKNOWN_HTS",
+                accountNo = "99999999",
+                reason = "ACCOUNT_NOT_REGISTERED",
+            )
+
+        val msg = stubExecMessage(odno = "ODNO_UNMAPPED", cntgYn = "2", cntgQty = 5)
+        listener.processMessage(msg)
+
+        // FK 폭발 회피 — stub INSERT 거부 + execution INSERT 0건 (정직한 실패)
+        verify(exactly = 0) { orderRepo.save(any()) }
+        verify(exactly = 0) { execRepo.save(any()) }
+        // SystemEvent WARN emit 검증
+        verify(exactly = 1) { systemEventLogger.emit(any()) }
     }
 
     @Test

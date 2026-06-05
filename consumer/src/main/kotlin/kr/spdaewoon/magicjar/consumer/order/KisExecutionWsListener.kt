@@ -1,12 +1,17 @@
 package kr.spdaewoon.magicjar.consumer.order
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.event.SystemEvent
+import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
+import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
+import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEvent
 import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEventType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderExecution
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderAuditEventRepository
@@ -88,6 +93,8 @@ class KisExecutionWsListener(
     private val accountBalanceChangedKafkaProducer: AccountBalanceChangedKafkaProducer,
     private val executionPersistenceService: ExecutionPersistenceService,
     private val executionBackfillServiceProvider: ObjectProvider<KisExecutionBackfillService>,
+    private val externalOrderAccountResolver: ExternalOrderAccountResolver,
+    private val systemEventLoggerProvider: ObjectProvider<SystemEventLogger>,
     private val objectMapper: ObjectMapper,
     private val clock: Clock = Clock.system(ZoneId.of("Asia/Seoul")),
 ) {
@@ -229,27 +236,35 @@ class KisExecutionWsListener(
     }
 
     /**
-     * ADR 0084 P0-3 — pre-insert 패턴 (architect 권장 §2-1).
+     * ADR 0084 P0-3 — pre-insert 패턴 (architect 권장 §2-1) + 2026-06-05 외부 주문 흡수 user 매핑·mode·source fix.
      *
      * race fix retry 후에도 OrderRequest 부재 시 — WS 통보를 진실원으로 stub row INSERT.
      * 후속 REST ACK 응답 시 [OrderRouterKafkaListener.updateKisAck] 가 동일 kisOrderNo row를 update 갱신 (idempotency 정합).
      *
+     * ### 2026-06-05 자본 path fix (라이브 실측 — 사용자 KIS HTS 직접 매수 흡수)
+     * 기존 결함 3종:
+     *  1. `userId = msg.custId`("thdeodns" HTS ID) → `user_account` 부재 → position upsert FK 위반.
+     *  2. `mode = REAL` 하드코딩 → 모의 체결인데 REAL 기록 → ADR 0109 canary cap 오염.
+     *  3. `source` 기본값 AUTO → 외부 수동 주문인데 자동매매로 분류 → 감사 혼선.
+     *
+     * fix: [ExternalOrderAccountResolver] 로 계좌번호(ACNT_NO) → 내부 userId·TradingMode 역조회.
+     *  - Mapped   : 내부 userId + 매핑된 mode + source=EXTERNAL 로 정직 INSERT.
+     *  - Unmapped : FK 폭발 회피 위해 stub INSERT 거부(null) + SystemEvent WARN (정직한 실패).
+     *
      * pre-insert sentinel 매핑:
-     *  - signalId = 0L (sentinel — 후속 ACK이 진짜 signalId로 update 또는 audit에서 trace)
-     *  - strategyId = 0L (sentinel)
-     *  - userId = msg.custId (KIS HTS 사용자 ID — credential identity)
+     *  - signalId = 0L · strategyId = 0L (sentinel)
+     *  - userId = 매핑된 내부 userId (구 msg.custId 직접 사용 결함 제거)
      *  - code = msg.code (KIS PDNO)
      *  - side = msg.sellBuyCls "02"=BUY · "01"=SELL (raw L389~L446 정합)
      *  - priceType = MARKET (msg.odKind raw 변환 불완전 — sentinel)
      *  - quantity = msg.orderQty (cross-ref)
-     *  - limitPrice = null (priceType MARKET sentinel)
-     *  - status = OrderStatus.ACK (WS 통보 = KIS 접수 후 단계)
-     *  - mode = REAL or MOCK — 본 sentinel은 REAL (MOCK 환경은 후속 REST ACK이 정정)
-     *  - kisOrderNo = msg.odno
-     *  - idempotencyKey = "WS_PREINSERT:{odno}" (DB UNIQUE 정합 — REST ACK 시 별도 row와 충돌 없음)
-     *  - requestedAt = Instant.now (sentinel — 후속 ACK이 진짜 시각으로 update 못함, audit trace로만 의미)
+     *  - limitPrice = null · status = ACK (WS 통보 = KIS 접수 후 단계)
+     *  - mode = 매핑된 accountType 정합 (구 REAL 하드코딩 결함 제거)
+     *  - source = EXTERNAL (외부 흡수 — 구 AUTO 결함 제거)
+     *  - kisOrderNo = msg.odno · idempotencyKey = "WS_PREINSERT:{odno}"
+     *  - requestedAt = Instant.now (sentinel — audit trace 의미)
      *
-     * **사용자 신뢰 의무**: pre-insert row는 audit에서 KIS_ACK + extra `{"source":"WS_PREINSERT"}` 마커로 trace 가능.
+     * **사용자 신뢰 의무**: pre-insert row는 audit에서 KIS_ACK + extra `{"source":"WS_PREINSERT","htsId":...}` 마커로 trace 가능.
      */
     private fun preInsertOrderRequest(
         orderRepo: OrderRequestRepository,
@@ -271,10 +286,26 @@ class KisExecutionWsListener(
             return existing
         }
 
+        // 2026-06-05 fix — 외부 흡수 주문 user/mode 매핑. 실패 시 FK 폭발 대신 정직한 skip.
+        val mapped =
+            when (val resolution = externalOrderAccountResolver.resolve(msg.acntNo, msg.custId)) {
+                is ExternalOrderAccountResolver.Resolution.Mapped -> resolution
+                is ExternalOrderAccountResolver.Resolution.Unmapped -> {
+                    emitUnmappedExternalOrder(msg, resolution.reason)
+                    log.warn(
+                        "KisExecutionWsListener — 외부 주문 user 매핑 실패, pre-insert 보류 (FK 위반 회피): odno={} htsId={} reason={}",
+                        msg.odno,
+                        maskUserId(msg.custId),
+                        resolution.reason,
+                    )
+                    return null
+                }
+            }
+
         val side = if (msg.sellBuyCls == "01") OrderSide.SELL else OrderSide.BUY
         val stub =
             OrderRequest(
-                userId = msg.custId.ifBlank { "WS_PREINSERT" },
+                userId = mapped.userId,
                 signalId = 0L,
                 strategyId = 0L,
                 code = msg.code,
@@ -283,11 +314,12 @@ class KisExecutionWsListener(
                 quantity = msg.orderQty.coerceAtLeast(1),
                 limitPrice = null,
                 status = OrderStatus.ACK,
-                mode = TradingMode.REAL,
+                mode = mapped.mode,
                 kisOrderNo = msg.odno,
                 idempotencyKey = sentinelIdempotencyKey,
                 requestedAt = now,
                 acknowledgedAt = now,
+                source = OrderSource.EXTERNAL,
             )
 
         val saved =
@@ -304,19 +336,58 @@ class KisExecutionWsListener(
                     orderId = saved.id,
                     userId = saved.userId,
                     eventType = OrderAuditEventType.KIS_ACK,
-                    payloadJson = jsonOf(msg, extra = mapOf("source" to "WS_PREINSERT")),
+                    payloadJson =
+                        jsonOf(
+                            msg,
+                            extra = mapOf("source" to "WS_PREINSERT", "orderSource" to "EXTERNAL", "htsId" to msg.custId),
+                        ),
                     createdAt = now,
                 ),
             )
         }
 
         log.warn(
-            "KisExecutionWsListener — WS_PREINSERT row 합류 (ADR 0084 P0-3 race fix): orderId={} odno={} sentinelUser={}",
+            "KisExecutionWsListener — WS_PREINSERT row 합류 (외부 흡수 EXTERNAL · mode={}): orderId={} odno={} user={}",
+            saved.mode,
             saved.id,
             msg.odno,
             maskUserId(saved.userId),
         )
         return saved
+    }
+
+    /**
+     * 외부 주문 흡수 매핑 실패 SystemEvent WARN — 정직한 실패 audit (2026-06-05 fix).
+     *
+     * graceful: SystemEventLogger 미합류·emit 실패가 listener thread cascade 차단 방지 (runCatching).
+     */
+    private fun emitUnmappedExternalOrder(
+        msg: KisExecutionMessage,
+        reason: String,
+    ) {
+        val logger = systemEventLoggerProvider.getIfAvailable() ?: return
+        runCatching {
+            logger.emit(
+                SystemEvent(
+                    category = SystemEventCategory.OTHER,
+                    severity = SystemEventSeverity.WARN,
+                    actor = "KisExecutionWsListener",
+                    action = "EXTERNAL_ORDER_UNMAPPED",
+                    userId = null,
+                    detailJson =
+                        objectMapper.writeValueAsString(
+                            mapOf(
+                                "odno" to msg.odno,
+                                "acntNo" to msg.acntNo,
+                                "code" to msg.code,
+                                "reason" to reason,
+                            ),
+                        ),
+                ),
+            )
+        }.onFailure { e ->
+            log.error("KisExecutionWsListener — EXTERNAL_ORDER_UNMAPPED SystemEvent emit 실패: odno={} err={}", msg.odno, e.message)
+        }
     }
 
     private fun dispatchByFlag(

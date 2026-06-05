@@ -116,7 +116,7 @@ class OrderRequestRepositoryAdapter(
     override fun countRealOrdersBetween(
         fromInclusive: Instant,
         toExclusive: Instant,
-    ): Long = jpa.countRealOrdersBetween(TradingMode.REAL, fromInclusive, toExclusive)
+    ): Long = jpa.countRealOrdersBetween(TradingMode.REAL, OrderSource.EXTERNAL, fromInclusive, toExclusive)
 
     /**
      * 사용자 시계열 주문 페이징 — OrderQueryService에서 직접 호출.

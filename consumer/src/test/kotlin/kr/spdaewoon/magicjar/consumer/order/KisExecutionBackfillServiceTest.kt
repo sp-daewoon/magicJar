@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.consumer.order
 
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisDailyCcldExecution
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisOrderInquireCcldHttpAdapter
@@ -15,6 +16,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderExecution
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderAuditEventRepository
@@ -145,7 +147,8 @@ class KisExecutionBackfillServiceTest {
         every { orderRepo.findByIdempotencyKey("REST_BACKFILL_PREINSERT:ODNO_NEW") } returns null
 
         val sentinel = stubOrderRequest(id = 60L, kisOrderNo = "ODNO_NEW", userId = "USER999")
-        every { orderRepo.save(any()) } returns sentinel
+        val savedStub = slot<OrderRequest>()
+        every { orderRepo.save(capture(savedStub)) } returns sentinel
 
         every { execRepo.sumExecutedQuantityByOrder(60L) } returns 0 andThen 7
         every { execRepo.save(any()) } answers { firstArg<OrderExecution>().copy(id = 101L) }
@@ -155,6 +158,11 @@ class KisExecutionBackfillServiceTest {
         // pre-insert 진입 evidence + 후속 OrderExecution INSERT
         verify(exactly = 1) { orderRepo.save(any()) }
         verify(exactly = 1) { execRepo.save(any()) }
+        // 2026-06-05 fix — 내부 order_request 부재인 KIS 체결은 외부 흡수 → source=EXTERNAL
+        assertThat(savedStub.captured.source).isEqualTo(OrderSource.EXTERNAL)
+        // userId·mode 는 credential enumeration 정합 (REAL accountType)
+        assertThat(savedStub.captured.userId).isEqualTo("USER999")
+        assertThat(savedStub.captured.mode).isEqualTo(TradingMode.REAL)
     }
 
     @Test

@@ -121,7 +121,7 @@ class ConsumerOrderRequestRepositoryAdapter(
     override fun countRealOrdersBetween(
         fromInclusive: Instant,
         toExclusive: Instant,
-    ): Long = jpa.countRealOrdersBetween(TradingMode.REAL, fromInclusive, toExclusive)
+    ): Long = jpa.countRealOrdersBetween(TradingMode.REAL, OrderSource.EXTERNAL, fromInclusive, toExclusive)
 
     // --- private helper ---
 
