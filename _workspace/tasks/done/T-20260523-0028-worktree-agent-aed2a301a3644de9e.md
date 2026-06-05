@@ -3,9 +3,9 @@ id: T-20260523-0028-worktree-agent-aed2a301a3644de9e
 agent: architect
 model: opus
 branch: docs/architect-pr2-adr-reactor-convention
-status: RUNNING
+status: DONE
 startedAt: 2026-05-23T00:28:38.654+09:00
-completedAt: null
+completedAt: 2026-06-05T12:11:35.532+09:00
 pr: null
 parentPhase: ?
 ---

@@ -3,9 +3,9 @@ id: T-20260524-1456-w4-r1-t-market-phase1-amend
 agent: market-data
 model: opus
 branch: agent/market-data/w4-r1-t-market-phase1-amend
-status: RUNNING
+status: DONE
 startedAt: 2026-05-24T14:56:54.750+09:00
-completedAt: null
+completedAt: 2026-06-05T12:11:35.633+09:00
 pr: null
 parentPhase: ?
 ---
