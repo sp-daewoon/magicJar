@@ -342,7 +342,8 @@ describe('SymbolDetailPage smoke', () => {
     await user.click(await screen.findByRole('button', { name: '60,900원 매수호가 지정가 선택' }))
 
     const priceInput = screen.getByLabelText('주문 가격')
-    expect(priceInput).toHaveValue('60900')
+    // 천단위 콤마 표시 포맷 (2026-06-05 가격 input 포맷팅 도입 정합)
+    expect(priceInput).toHaveValue('60,900')
 
     const quantityInput = screen.getByLabelText('주문 수량')
     await user.clear(quantityInput)
