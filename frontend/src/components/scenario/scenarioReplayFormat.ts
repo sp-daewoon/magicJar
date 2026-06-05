@@ -58,6 +58,8 @@ export function eventLabel(type: ScenarioEventDto['type']): string {
     DATA_NOT_READY: '리플레이 데이터 미준비',
     STRATEGY_ERROR: '전략 평가 오류',
     FAULT_INJECTED: '장애 주입',
+    GATE_SKIPPED: '게이트 차단(장운영시간 외)',
+    GATE_NOT_SIMULATED: '게이트 미재현(실계좌 상태 필요)',
   }
   return labels[type] ?? type
 }
