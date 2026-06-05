@@ -2,6 +2,9 @@ package kr.spdaewoon.magicjar.api.persistence.strategy
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
+import kr.spdaewoon.magicjar.domain.strategy.PartialExit
+import kr.spdaewoon.magicjar.domain.strategy.ReentryTrigger
+import kr.spdaewoon.magicjar.domain.strategy.ScaleInPlan
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
@@ -10,6 +13,7 @@ import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.Universe
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslStrategyDefinition
+import java.math.BigDecimal
 
 /**
  * Strategy JPA Entity ↔ Domain 변환 단일 책임 mapper.
@@ -63,6 +67,9 @@ object StrategyEntityMapper {
                 tf = entity.tf,
                 fixedStopLoss = entity.fixedStopLossPct,
                 takeProfitPct = entity.takeProfitPct,
+                // ADR 0111 scale-in/partial-exit JSONB(V65) → 도메인 wiring (분할매수 R3-a).
+                scaleIn = deserializeScaleIn(entity.scaleInConfig, objectMapper),
+                partialExits = deserializePartialExits(entity.partialExits, objectMapper),
             )
         val complexity =
             StrategyComplexity(
@@ -132,4 +139,70 @@ object StrategyEntityMapper {
                 }.getOrNull()
             }
             ?: emptyList()
+
+    /**
+     * `scale_in_config` JSONB(V65) → [ScaleInPlan] (ADR 0111 분할매수).
+     *
+     * 도메인 모델([ScaleInPlan])의 jackson 어노테이션 없는 평탄 데이터 클래스를 raw map으로 파싱 후 생성한다
+     * (도메인은 Spring·jackson import 금지 — ScaleInPlan.kt KDoc 정합). init 검증 실패·역직렬화 실패 시
+     * null 흡수(invalid DB row가 조회 전체를 down 시키지 않도록 — `safe*` 패턴 정합).
+     */
+    private fun deserializeScaleIn(
+        value: String?,
+        objectMapper: ObjectMapper,
+    ): ScaleInPlan? {
+        if (value.isNullOrBlank()) return null
+        return runCatching {
+            val node = objectMapper.readTree(value)
+            if (!node.isObject) return null
+            val totalSlices = node.get("totalSlices")?.takeIf { it.isNumber }?.asInt() ?: return null
+            val sliceWeights =
+                node
+                    .get("sliceWeights")
+                    ?.takeIf { it.isArray }
+                    ?.mapNotNull { it?.let { w -> BigDecimal(w.asText()) } }
+                    ?.takeIf { it.isNotEmpty() }
+            val reentryTrigger =
+                node
+                    .get("reentryTrigger")
+                    ?.asText()
+                    ?.let { runCatching { ReentryTrigger.valueOf(it) }.getOrNull() }
+                    ?: ReentryTrigger.SIGNAL_REPEAT
+            val priceDropPct = node.get("priceDropPct")?.takeIf { !it.isNull }?.let { BigDecimal(it.asText()) }
+            val minSliceIntervalSec = node.get("minSliceIntervalSec")?.takeIf { it.isNumber }?.asInt()
+            ScaleInPlan(
+                totalSlices = totalSlices,
+                sliceWeights = sliceWeights,
+                reentryTrigger = reentryTrigger,
+                priceDropPct = priceDropPct,
+                minSliceIntervalSec = minSliceIntervalSec,
+            )
+        }.getOrNull()
+    }
+
+    /**
+     * `partial_exits` JSONB(V65) → [List]<[PartialExit]> (ADR 0111 분할익절).
+     *
+     * 단계당 [PartialExit.init] + [StrategyDefinition.init]의 cap·weight 합 검증을 통과해야 한다.
+     * 역직렬화·검증 실패 시 null 흡수(`safe*` 패턴 정합).
+     */
+    private fun deserializePartialExits(
+        value: String?,
+        objectMapper: ObjectMapper,
+    ): List<PartialExit>? {
+        if (value.isNullOrBlank()) return null
+        return runCatching {
+            val node = objectMapper.readTree(value)
+            if (!node.isArray) return null
+            node
+                .mapNotNull { stage ->
+                    if (stage == null || !stage.isObject) return@mapNotNull null
+                    val trigger =
+                        stage.get("triggerProfitPct")?.takeIf { !it.isNull }?.let { BigDecimal(it.asText()) } ?: return@mapNotNull null
+                    val weight =
+                        stage.get("exitWeightPct")?.takeIf { !it.isNull }?.let { BigDecimal(it.asText()) } ?: return@mapNotNull null
+                    PartialExit(triggerProfitPct = trigger, exitWeightPct = weight)
+                }.takeIf { it.isNotEmpty() }
+        }.getOrNull()
+    }
 }

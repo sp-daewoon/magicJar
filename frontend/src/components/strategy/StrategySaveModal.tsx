@@ -15,8 +15,25 @@
  */
 import { useState, useEffect, FormEvent } from 'react'
 import { useCreateSigStrategy, useUpdateSigStrategy } from '../../api/hooks/useSigStrategy'
+import type { PartialExitDto, ScaleInDto } from '../../api/strategy'
 import { InstrumentSearchInput } from '../InstrumentSearchInput'
 import { RiskPlanPreviewPanel } from './RiskPlanPreviewPanel'
+import { ScaleInExitPanel } from './ScaleInExitPanel'
+import {
+  SCALE_IN_LIMITS,
+  SCALE_IN_NOT_ENABLED_NOTICE,
+  isScaleInNotEnabledError,
+  validatePartialExits,
+  validateScaleIn,
+} from './scaleInExitDisplay'
+
+const DEFAULT_SCALE_IN: ScaleInDto = {
+  totalSlices: 3,
+  sliceWeights: null,
+  reentryTrigger: 'SIGNAL_REPEAT',
+  priceDropPct: null,
+  minSliceIntervalSec: SCALE_IN_LIMITS.DEFAULT_MIN_SLICE_INTERVAL_SEC,
+}
 
 interface StrategySaveModalProps {
   /** 기존 전략 ID — 있으면 수정, 없으면 신규 생성 */
@@ -34,6 +51,10 @@ interface StrategySaveModalProps {
   initialCode?: string
   initialStopLossPct?: number | string | null
   initialTakeProfitPct?: number | string | null
+  /** 기존 전략의 분할 매수 설정 (수정 모드) */
+  initialScaleIn?: ScaleInDto | null
+  /** 기존 전략의 분할 익절 단계 (수정 모드) */
+  initialPartialExits?: PartialExitDto[] | null
   /** 저장 완료 콜백 — strategyId 반환 */
   onSaved: (strategyId: string) => void
   /** 모달 닫기 */
@@ -75,6 +96,8 @@ export function StrategySaveModal({
   initialCode,
   initialStopLossPct,
   initialTakeProfitPct,
+  initialScaleIn,
+  initialPartialExits,
   onSaved,
   onClose,
 }: StrategySaveModalProps) {
@@ -87,6 +110,16 @@ export function StrategySaveModal({
   const [takeProfitPct, setTakeProfitPct] = useState(initialTakeProfitPct?.toString() ?? '10')
   const [previewEntryPrice, setPreviewEntryPrice] = useState('100000')
   const [formError, setFormError] = useState<string | null>(null)
+  const [formNotice, setFormNotice] = useState<string | null>(null)
+
+  // ── 분할 매수 / 분할 익절 (ADR 0111 · 분할매수 R3-a) ──
+  const [scaleInEnabled, setScaleInEnabled] = useState<boolean>(!!initialScaleIn)
+  const [scaleIn, setScaleIn] = useState<ScaleInDto>(initialScaleIn ?? DEFAULT_SCALE_IN)
+  const [manualWeights, setManualWeights] = useState<boolean>(!!initialScaleIn?.sliceWeights)
+  const [partialExitsEnabled, setPartialExitsEnabled] = useState<boolean>(
+    !!initialPartialExits && initialPartialExits.length > 0,
+  )
+  const [partialExits, setPartialExits] = useState<PartialExitDto[]>(initialPartialExits ?? [])
 
   const createMutation = useCreateSigStrategy()
   const updateMutation = useUpdateSigStrategy()
@@ -108,6 +141,11 @@ export function StrategySaveModal({
     setTargetCode(initialCode ?? '')
     setStopLossPct(initialStopLossPct?.toString() ?? '5')
     setTakeProfitPct(initialTakeProfitPct?.toString() ?? '10')
+    setScaleInEnabled(!!initialScaleIn)
+    setScaleIn(initialScaleIn ?? DEFAULT_SCALE_IN)
+    setManualWeights(!!initialScaleIn?.sliceWeights)
+    setPartialExitsEnabled(!!initialPartialExits && initialPartialExits.length > 0)
+    setPartialExits(initialPartialExits ?? [])
   }, [
     strategyId,
     initialName,
@@ -117,11 +155,14 @@ export function StrategySaveModal({
     initialCode,
     initialStopLossPct,
     initialTakeProfitPct,
+    initialScaleIn,
+    initialPartialExits,
   ])
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
     setFormError(null)
+    setFormNotice(null)
 
     if (userId === null) {
       setFormError('계좌 등록 후 전략을 저장할 수 있습니다')
@@ -159,6 +200,38 @@ export function StrategySaveModal({
       return
     }
 
+    // ── 분할 매수 / 분할 익절 검증 + payload 구성 (ADR 0111) ──
+    let scaleInPayload: ScaleInDto | null = null
+    if (scaleInEnabled) {
+      const effectiveScaleIn: ScaleInDto = {
+        ...scaleIn,
+        sliceWeights: manualWeights ? scaleIn.sliceWeights ?? null : null,
+        priceDropPct: scaleIn.reentryTrigger === 'PRICE_DROP_PCT' ? scaleIn.priceDropPct ?? null : null,
+      }
+      const v = validateScaleIn({
+        totalSlices: effectiveScaleIn.totalSlices,
+        sliceWeights: effectiveScaleIn.sliceWeights,
+        reentryTrigger: effectiveScaleIn.reentryTrigger,
+        priceDropPct: effectiveScaleIn.priceDropPct,
+        minSliceIntervalSec: effectiveScaleIn.minSliceIntervalSec,
+      })
+      if (!v.ok) {
+        setFormError(v.error ?? '분할 매수 설정이 올바르지 않습니다')
+        return
+      }
+      scaleInPayload = effectiveScaleIn
+    }
+
+    let partialExitsPayload: PartialExitDto[] | null = null
+    if (partialExitsEnabled && partialExits.length > 0) {
+      const v = validatePartialExits(partialExits)
+      if (!v.ok) {
+        setFormError(v.error ?? '분할 익절 설정이 올바르지 않습니다')
+        return
+      }
+      partialExitsPayload = partialExits
+    }
+
     const payload = {
       userId,
       name: name.trim(),
@@ -171,6 +244,8 @@ export function StrategySaveModal({
       takeProfitPct: parsedTakeProfitPct,
       codes: [normalizedCode],
       intervals: [tf],
+      scaleIn: scaleInPayload,
+      partialExits: partialExitsPayload,
     }
     const callbacks = {
       onSuccess: (resp: { id: string }) => {
@@ -178,6 +253,12 @@ export function StrategySaveModal({
         onClose()
       },
       onError: (err: Error) => {
+        // 활성화 게이트 graceful — 저장은 됐으나 ACTIVE 전이가 막힌 경우 안내(DRAFT 저장 가능)
+        if (isScaleInNotEnabledError(err.message)) {
+          setFormNotice(SCALE_IN_NOT_ENABLED_NOTICE)
+          setFormError(null)
+          return
+        }
         setFormError(`저장 실패: ${err.message}`)
       },
     }
@@ -371,6 +452,27 @@ export function StrategySaveModal({
               자동매매는 이 기준이 모두 있어야 시작됩니다. 실제 주문 감시는 BUY 체결가 기준으로 계산됩니다.
             </p>
           </div>
+
+          {/* 분할 매수 / 분할 익절 (ADR 0111 · 분할매수 R3-a · add-only) */}
+          <ScaleInExitPanel
+            scaleInEnabled={scaleInEnabled}
+            onScaleInEnabledChange={setScaleInEnabled}
+            scaleIn={scaleIn}
+            onScaleInChange={setScaleIn}
+            manualWeights={manualWeights}
+            onManualWeightsChange={setManualWeights}
+            partialExitsEnabled={partialExitsEnabled}
+            onPartialExitsEnabledChange={setPartialExitsEnabled}
+            partialExits={partialExits}
+            onPartialExitsChange={setPartialExits}
+          />
+
+          {/* 활성화 게이트 안내 (SCALE_IN_NOT_ENABLED — 저장 가능, ACTIVE만 차단) */}
+          {formNotice && (
+            <div className="rounded bg-sky-950/40 px-3 py-2 text-sm text-sky-200" role="status">
+              {formNotice}
+            </div>
+          )}
 
           {/* 에러 */}
           {formError && (

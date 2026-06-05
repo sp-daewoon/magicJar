@@ -8,8 +8,13 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse
 import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
+import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyPositionReadJpaRepository
 import kr.spdaewoon.magicjar.api.service.strategy.StrategyService
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
+import kr.spdaewoon.magicjar.domain.strategy.ExitLimits
+import kr.spdaewoon.magicjar.domain.strategy.PartialExit
+import kr.spdaewoon.magicjar.domain.strategy.ReentryTrigger
+import kr.spdaewoon.magicjar.domain.strategy.ScaleInPlan
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
 import kr.spdaewoon.magicjar.domain.strategy.StrategyException
@@ -51,6 +56,7 @@ class StrategiesController(
     private val strategyService: StrategyService,
     private val kisYamlDslParser: KisYamlDslParser,
     private val instrumentJpaRepository: InstrumentJpaRepository,
+    private val strategyPositionReadJpaRepository: StrategyPositionReadJpaRepository,
 ) {
     private val log = LoggerFactory.getLogger(StrategiesController::class.java)
 
@@ -93,6 +99,8 @@ class StrategiesController(
                 intervals = req.intervals,
                 stopLossPct = req.stopLossPct,
                 takeProfitPct = req.takeProfitPct,
+                scaleIn = toScaleInDomain(req.scaleIn),
+                partialExits = toPartialExitsDomain(req.partialExits),
                 requireCodes = true,
             )
         return toDetailResponse(strategy)
@@ -199,6 +207,8 @@ class StrategiesController(
                 intervals = req.intervals,
                 stopLossPct = req.stopLossPct,
                 takeProfitPct = req.takeProfitPct,
+                scaleIn = toScaleInDomain(req.scaleIn),
+                partialExits = toPartialExitsDomain(req.partialExits),
                 requireCodes = true,
             )
         log.info("전략 수정: id={}", id)
@@ -277,6 +287,49 @@ class StrategiesController(
         return toDetailResponse(updated)
     }
 
+    // ─── GET /api/strategies/{id}/position ────────────────────────────────────
+
+    @Operation(
+        summary = "전략별 포지션 조회",
+        description =
+            "이 전략이 산 물량(전략별 포지션 귀속 — ADR 0110)을 조회합니다. " +
+                "수량·평단·진행 회차(filledLots)·실현손익을 반환합니다. " +
+                "보유가 없으면 quantity=0(또는 행 없음) — '보유 없음'으로 표시하세요(mock 합성 0건). " +
+                "전략에 종목 1개 매핑이 일반적이므로 단건이지만 다종목 전략 대비 배열로 반환합니다.",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "200", description = "전략별 포지션 조회 성공 (보유 없으면 빈 배열)"),
+        ApiResponse(
+            responseCode = "404",
+            description = "전략 없음",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+    )
+    @GetMapping("/{id}/position")
+    fun getPosition(
+        @Parameter(description = "전략 ID", example = "1", required = true)
+        @PathVariable id: Long,
+    ): List<StrategyPositionResponse> {
+        strategyService.findById(id)
+            ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
+        return strategyPositionReadJpaRepository
+            .findByStrategyId(id)
+            .map { entity ->
+                StrategyPositionResponse(
+                    strategyId = entity.strategyId,
+                    userId = entity.userId,
+                    code = entity.code,
+                    codeName = codeNamesFor(listOf(entity.code))[entity.code],
+                    quantity = entity.quantity,
+                    avgPrice = entity.avgPrice,
+                    filledLots = entity.filledLots,
+                    realizedPnl = entity.realizedPnl,
+                    isClosed = entity.quantity == 0,
+                    updatedAt = entity.updatedAt.toString(),
+                )
+            }
+    }
+
     // ─── private helper ───────────────────────────────────────────────────────
 
     private fun parseDslTexts(
@@ -314,6 +367,8 @@ class StrategiesController(
             buyCondition = strategy.definition.dsl.buyConditionText,
             sellCondition = strategy.definition.dsl.sellConditionText,
             complexity = toComplexityDto(strategy.complexity),
+            scaleIn = toScaleInResponse(strategy.definition.scaleIn),
+            partialExits = toPartialExitsResponse(strategy.definition.partialExits),
             disabledReason = strategy.disabledReason.name,
             lastDisabledAt = strategy.lastDisabledAt?.toString(),
             enabled = strategy.isEnabled(),
@@ -323,6 +378,65 @@ class StrategiesController(
             createdAt = strategy.createdAt.toString(),
             updatedAt = strategy.updatedAt.toString(),
         )
+    }
+
+    /**
+     * 분할 매수 요청 DTO → 도메인 [ScaleInPlan] (ADR 0111 · 분할매수 R3-a).
+     *
+     * 도메인 init이 cap(회수 1~10·비중 합 100±0.01) 검증 — [IllegalArgumentException]을 400으로 변환해
+     * 사용자에게 입력 오류를 그대로 노출한다. null이면 단일 진입(현행 하위호환).
+     */
+    private fun toScaleInDomain(req: ScaleInRequest?): ScaleInPlan? {
+        if (req == null) return null
+        return runCatching {
+            ScaleInPlan(
+                totalSlices = req.totalSlices,
+                sliceWeights = req.sliceWeights?.takeIf { it.isNotEmpty() },
+                reentryTrigger =
+                    req.reentryTrigger
+                        ?.let { ReentryTrigger.valueOf(it.uppercase()) }
+                        ?: ReentryTrigger.SIGNAL_REPEAT,
+                priceDropPct = req.priceDropPct,
+                minSliceIntervalSec = req.minSliceIntervalSec,
+            )
+        }.getOrElse { e ->
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "분할 매수 설정이 올바르지 않습니다: ${e.message}")
+        }
+    }
+
+    /**
+     * 분할 익절 요청 DTO 리스트 → 도메인 [PartialExit] 리스트 (ADR 0111 · 분할매수 R3-a).
+     *
+     * 개별 단계 검증(triggerProfitPct>0·exitWeightPct∈(0,100])은 [PartialExit] init,
+     * 단계 cap(≤5)·weight 합(≤100)은 [StrategyDefinition] init 책임 — 위반 시 400.
+     */
+    private fun toPartialExitsDomain(reqs: List<PartialExitRequest>?): List<PartialExit>? {
+        if (reqs.isNullOrEmpty()) return null
+        return runCatching {
+            val exits = reqs.map { PartialExit(triggerProfitPct = it.triggerProfitPct, exitWeightPct = it.exitWeightPct) }
+            // 단계 cap(≤5)·weight 합(≤100) 교차 검증 — StrategyDefinition init과 동일 규칙을 컨트롤러에서 선검증해
+            // service의 StrategyDefinition 생성 시 IllegalArgumentException(→500)이 아니라 400으로 노출.
+            ExitLimits.validatePartialExits(exits)
+            exits
+        }.getOrElse { e ->
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "분할 익절 설정이 올바르지 않습니다: ${e.message}")
+        }
+    }
+
+    private fun toScaleInResponse(plan: ScaleInPlan?): ScaleInResponse? {
+        if (plan == null) return null
+        return ScaleInResponse(
+            totalSlices = plan.totalSlices,
+            sliceWeights = plan.sliceWeights,
+            reentryTrigger = plan.reentryTrigger.name,
+            priceDropPct = plan.priceDropPct,
+            minSliceIntervalSec = plan.minSliceIntervalSec,
+        )
+    }
+
+    private fun toPartialExitsResponse(exits: List<PartialExit>?): List<PartialExitResponse>? {
+        if (exits.isNullOrEmpty()) return null
+        return exits.map { PartialExitResponse(triggerProfitPct = it.triggerProfitPct, exitWeightPct = it.exitWeightPct) }
     }
 
     private fun codeNamesFor(codes: List<String>): Map<String, String> {
@@ -375,6 +489,10 @@ data class StrategyCreateRequest(
     val codes: List<String> = emptyList(),
     @field:Schema(description = "감시 인터벌 목록", example = "[\"5m\"]")
     val intervals: List<String> = emptyList(),
+    @field:Schema(description = "분할 매수 설정 (ADR 0111 · null이면 단일 진입). toggle OFF 동안 설정 시 ACTIVE 차단(DRAFT 저장 가능)")
+    val scaleIn: ScaleInRequest? = null,
+    @field:Schema(description = "분할 익절 단계 (ADR 0111 · null이면 전량 익절). 단계 ≤ 5 · weight 합 ≤ 100")
+    val partialExits: List<PartialExitRequest>? = null,
 )
 
 @Schema(description = "전략 수정 요청 (Phase 2)")
@@ -401,6 +519,10 @@ data class StrategyUpdateRequest(
     val codes: List<String> = emptyList(),
     @field:Schema(description = "감시 인터벌 목록", example = "[\"5m\"]")
     val intervals: List<String> = emptyList(),
+    @field:Schema(description = "분할 매수 설정 (ADR 0111 · null이면 단일 진입)")
+    val scaleIn: ScaleInRequest? = null,
+    @field:Schema(description = "분할 익절 단계 (ADR 0111 · null이면 전량 익절). 단계 ≤ 5 · weight 합 ≤ 100")
+    val partialExits: List<PartialExitRequest>? = null,
 )
 
 @Schema(description = "전략 상태 전환 요청")
@@ -444,6 +566,10 @@ data class StrategyDetailResponse(
     val sellCondition: String? = null,
     @field:Schema(description = "DSL 복잡도 메타")
     val complexity: StrategyComplexityResponse,
+    @field:Schema(description = "분할 매수 설정 (ADR 0111 · null이면 단일 진입)")
+    val scaleIn: ScaleInResponse? = null,
+    @field:Schema(description = "분할 익절 단계 (ADR 0111 · null이면 전량 익절)")
+    val partialExits: List<PartialExitResponse>? = null,
     @field:Schema(description = "비활성화 사유 (NULL=정상)", example = "NULL")
     val disabledReason: String,
     @field:Schema(description = "마지막 auto-disable 시각", example = "null")
@@ -494,4 +620,76 @@ data class StrategyComplexityResponse(
     val estimatedEvalTimeMs: Int,
     @field:Schema(description = "복잡도 등급 (LOW·MEDIUM·HIGH·CRITICAL)", example = "LOW")
     val complexityClass: String,
+)
+
+@Schema(description = "분할 매수(scale-in) 요청 — ADR 0111 §2-1")
+data class ScaleInRequest(
+    @field:Schema(description = "분할 회수 N (1~10). 1이면 단일 진입(현행)", example = "3", required = true)
+    val totalSlices: Int,
+    @field:Schema(description = "회당 비중%(합 100±0.01). null이면 균등 분할", example = "[50, 30, 20]")
+    val sliceWeights: List<BigDecimal>? = null,
+    @field:Schema(
+        description = "추가 진입 트리거 (SIGNAL_REPEAT·PRICE_DROP_PCT). default SIGNAL_REPEAT",
+        example = "SIGNAL_REPEAT",
+        allowableValues = ["SIGNAL_REPEAT", "PRICE_DROP_PCT"],
+    )
+    val reentryTrigger: String? = null,
+    @field:Schema(description = "PRICE_DROP_PCT 시 직전 회차 체결가 대비 하락폭%(음수)", example = "-3.0")
+    val priceDropPct: BigDecimal? = null,
+    @field:Schema(description = "회차 간 최소 간격(초). default 60", example = "60")
+    val minSliceIntervalSec: Int? = null,
+)
+
+@Schema(description = "분할 매수(scale-in) 응답 — ADR 0111 §2-1")
+data class ScaleInResponse(
+    @field:Schema(description = "분할 회수 N", example = "3")
+    val totalSlices: Int,
+    @field:Schema(description = "회당 비중%(null이면 균등)", example = "[50, 30, 20]")
+    val sliceWeights: List<BigDecimal>? = null,
+    @field:Schema(description = "추가 진입 트리거", example = "SIGNAL_REPEAT")
+    val reentryTrigger: String,
+    @field:Schema(description = "PRICE_DROP_PCT 하락폭%(음수)", example = "-3.0")
+    val priceDropPct: BigDecimal? = null,
+    @field:Schema(description = "회차 간 최소 간격(초)", example = "60")
+    val minSliceIntervalSec: Int? = null,
+)
+
+@Schema(description = "분할 익절(partial take-profit) 단계 요청 — ADR 0111 §2-2")
+data class PartialExitRequest(
+    @field:Schema(description = "평단 대비 수익률%(양수) 도달 시 발화", example = "3.0", required = true)
+    val triggerProfitPct: BigDecimal,
+    @field:Schema(description = "보유 수량의 청산 비율%((0, 100])", example = "50", required = true)
+    val exitWeightPct: BigDecimal,
+)
+
+@Schema(description = "분할 익절(partial take-profit) 단계 응답 — ADR 0111 §2-2")
+data class PartialExitResponse(
+    @field:Schema(description = "평단 대비 수익률%", example = "3.0")
+    val triggerProfitPct: BigDecimal,
+    @field:Schema(description = "보유 수량의 청산 비율%", example = "50")
+    val exitWeightPct: BigDecimal,
+)
+
+@Schema(description = "전략별 포지션 응답 — ADR 0110 전략별 포지션 귀속")
+data class StrategyPositionResponse(
+    @field:Schema(description = "전략 ID", example = "1")
+    val strategyId: Long,
+    @field:Schema(description = "사용자 ID", example = "1")
+    val userId: String,
+    @field:Schema(description = "종목 코드 (KIS 6자리)", example = "005930")
+    val code: String,
+    @field:Schema(description = "종목명", example = "삼성전자")
+    val codeName: String? = null,
+    @field:Schema(description = "이 전략 보유 수량 (분할 누적 - 청산). 0=청산", example = "10")
+    val quantity: Int,
+    @field:Schema(description = "이 전략 평단 (분할 가중평균)", example = "70000.0000")
+    val avgPrice: BigDecimal,
+    @field:Schema(description = "scale-in 진행 회차 (filledLots)", example = "2")
+    val filledLots: Int,
+    @field:Schema(description = "이 전략 누적 실현 손익", example = "15000.0000")
+    val realizedPnl: BigDecimal,
+    @field:Schema(description = "전량 청산 여부 (quantity=0)", example = "false")
+    val isClosed: Boolean,
+    @field:Schema(description = "마지막 갱신 시각 (ISO-8601 UTC)", example = "2026-06-05T09:30:00Z")
+    val updatedAt: String,
 )
