@@ -290,6 +290,470 @@ class StrategyResearchEngine {
                     "직전 투매 ${round(candleReturnPct(candles[index - 1]))}%, 거래량 반등"
                 },
             ),
+            CandidateSpec(
+                key = "MA20_PULLBACK_CONTINUATION",
+                title = "MA20 눌림목 추세 지속",
+                marketFit = "중기 상승 흐름에서 MA20 근처 눌림 후 재상승하는 구간을 노립니다.",
+                entryRules =
+                    listOf(
+                        "MA20이 MA50 위에 있음",
+                        "현재 저가가 MA20 근처까지 눌림",
+                        "현재 종가가 MA20 위로 회복",
+                        "현재 candle이 양봉이고 거래량이 평균의 70% 이상",
+                    ),
+                entryDsl = "ma(20) > ma(50) and close > ma(20) and close > open",
+                exitDslFactory = {
+                    "take_profit(${it.targetProfitPct}%) or stop_loss(${it.stopLossPct}%) or ${it.maxHoldBars} bars timeout"
+                },
+                entrySignal = { candles, index ->
+                    val ma20 = ma(candles, 20, index)
+                    val ma50 = ma(candles, 50, index)
+                    val avgVolume = avgVolume(candles, 20, index)
+                    ma20 != null &&
+                        ma50 != null &&
+                        avgVolume != null &&
+                        ma20 > ma50 &&
+                        candles[index].low.toDouble() <= ma20 * 1.01 &&
+                        candles[index].close.toDouble() >= ma20 &&
+                        candles[index].close > candles[index].open &&
+                        candles[index].volume.toDouble() >= avgVolume * 0.7
+                },
+                reasonFactory = { candles, index ->
+                    "MA20 ${price(ma(candles, 20, index))} 눌림 후 양봉 회복"
+                },
+            ),
+            CandidateSpec(
+                key = "MA5_20_GOLDEN_CROSS",
+                title = "MA5·MA20 골든크로스",
+                marketFit = "짧은 평균선이 중기 평균선을 상향 돌파하는 초기 반전 구간을 평가합니다.",
+                entryRules =
+                    listOf(
+                        "직전 MA5가 MA20 이하",
+                        "현재 MA5가 MA20 위로 돌파",
+                        "현재 candle이 양봉",
+                        "거래량이 최근 20개 평균의 80% 이상",
+                    ),
+                entryDsl = "ma(5) crosses_above ma(20) and close > open",
+                exitDslFactory = {
+                    "take_profit(${it.targetProfitPct}%) or stop_loss(${it.stopLossPct}%) or ${it.maxHoldBars} bars timeout"
+                },
+                entrySignal = { candles, index ->
+                    val previousMa5 = ma(candles, 5, index - 1)
+                    val previousMa20 = ma(candles, 20, index - 1)
+                    val currentMa5 = ma(candles, 5, index)
+                    val currentMa20 = ma(candles, 20, index)
+                    val avgVolume = avgVolume(candles, 20, index)
+                    previousMa5 != null &&
+                        previousMa20 != null &&
+                        currentMa5 != null &&
+                        currentMa20 != null &&
+                        avgVolume != null &&
+                        previousMa5 <= previousMa20 &&
+                        currentMa5 > currentMa20 &&
+                        candles[index].close > candles[index].open &&
+                        candles[index].volume.toDouble() >= avgVolume * 0.8
+                },
+                reasonFactory = { candles, index ->
+                    "MA5 ${price(ma(candles, 5, index))}가 MA20 ${price(ma(candles, 20, index))} 돌파"
+                },
+            ),
+            CandidateSpec(
+                key = "BREAKOUT_20_HIGH_VOLUME",
+                title = "20봉 고점 거래량 돌파",
+                marketFit = "최근 박스권 상단을 거래량과 함께 돌파하는 모멘텀 구간을 봅니다.",
+                entryRules =
+                    listOf(
+                        "현재 종가가 직전 20개 candle 고점 위",
+                        "거래량이 최근 20개 평균의 1.5배 이상",
+                        "현재 candle이 양봉",
+                        "종가가 candle 상단부에 위치",
+                    ),
+                entryDsl = "close > donchian_upper(20) and volume > volume_ma(20) * 1.5",
+                exitDslFactory = {
+                    "take_profit(${it.targetProfitPct}%) or stop_loss(${it.stopLossPct}%) or ${it.maxHoldBars} bars timeout"
+                },
+                entrySignal = { candles, index ->
+                    val previousHigh = rollingHigh(candles, 20, index - 1)
+                    val avgVolume = avgVolume(candles, 20, index)
+                    previousHigh != null &&
+                        avgVolume != null &&
+                        candles[index].close.toDouble() > previousHigh &&
+                        candles[index].volume.toDouble() >= avgVolume * 1.5 &&
+                        candles[index].close > candles[index].open &&
+                        closePosition(candles[index]) >= 0.65
+                },
+                reasonFactory = { candles, index ->
+                    "직전 20봉 고점 ${price(rollingHigh(candles, 20, index - 1))} 거래량 돌파"
+                },
+            ),
+            CandidateSpec(
+                key = "RSI40_TREND_PULLBACK",
+                title = "상승 추세 RSI40 눌림 회복",
+                marketFit = "MA50 위 상승 흐름에서 RSI40을 되찾는 눌림 회복 구간을 노립니다.",
+                entryRules =
+                    listOf(
+                        "현재 종가가 MA50 위",
+                        "직전 RSI14가 40 아래",
+                        "현재 RSI14가 40 위로 회복",
+                        "현재 candle이 양봉",
+                    ),
+                entryDsl = "close > ma(50) and rsi(14) crosses_above 40",
+                exitDslFactory = {
+                    "take_profit(${it.targetProfitPct}%) or stop_loss(${it.stopLossPct}%) or ${it.maxHoldBars} bars timeout"
+                },
+                entrySignal = { candles, index ->
+                    val ma50 = ma(candles, 50, index)
+                    val previousRsi = rsi(candles, 14, index - 1)
+                    val currentRsi = rsi(candles, 14, index)
+                    ma50 != null &&
+                        previousRsi != null &&
+                        currentRsi != null &&
+                        candles[index].close.toDouble() > ma50 &&
+                        previousRsi < 40.0 &&
+                        currentRsi >= 40.0 &&
+                        candles[index].close > candles[index].open
+                },
+                reasonFactory = { candles, index ->
+                    "MA50 위에서 RSI14 ${round(rsi(candles, 14, index) ?: 0.0)}로 40선 회복"
+                },
+            ),
+            CandidateSpec(
+                key = "RSI50_MOMENTUM_RECLAIM",
+                title = "RSI50 모멘텀 회복",
+                marketFit = "중립선을 되찾으며 단기 모멘텀이 살아나는 종목을 평가합니다.",
+                entryRules =
+                    listOf(
+                        "현재 종가가 MA20 위",
+                        "직전 RSI14가 50 아래",
+                        "현재 RSI14가 50 위로 회복",
+                        "거래량이 최근 20개 평균의 80% 이상",
+                    ),
+                entryDsl = "close > ma(20) and rsi(14) crosses_above 50",
+                exitDslFactory = {
+                    "take_profit(${it.targetProfitPct}%) or stop_loss(${it.stopLossPct}%) or ${it.maxHoldBars} bars timeout"
+                },
+                entrySignal = { candles, index ->
+                    val ma20 = ma(candles, 20, index)
+                    val previousRsi = rsi(candles, 14, index - 1)
+                    val currentRsi = rsi(candles, 14, index)
+                    val avgVolume = avgVolume(candles, 20, index)
+                    ma20 != null &&
+                        previousRsi != null &&
+                        currentRsi != null &&
+                        avgVolume != null &&
+                        candles[index].close.toDouble() > ma20 &&
+                        previousRsi < 50.0 &&
+                        currentRsi >= 50.0 &&
+                        candles[index].volume.toDouble() >= avgVolume * 0.8
+                },
+                reasonFactory = { candles, index ->
+                    "RSI14 ${round(rsi(candles, 14, index) ?: 0.0)}로 50선 회복"
+                },
+            ),
+            CandidateSpec(
+                key = "RANGE_SUPPORT_BOUNCE",
+                title = "박스권 하단 지지 반등",
+                marketFit = "최근 저점대 근처에서 저가 방어 후 반등하는 평균회귀 구간을 봅니다.",
+                entryRules =
+                    listOf(
+                        "현재 저가가 직전 20개 candle 저점 근처",
+                        "현재 candle이 양봉",
+                        "현재 종가가 직전 종가보다 높음",
+                        "RSI14가 35 이상 60 이하",
+                    ),
+                entryDsl = "low < donchian_lower(20) * 1.01 and close > open",
+                exitDslFactory = {
+                    "take_profit(${it.targetProfitPct}%) or stop_loss(${it.stopLossPct}%) or ${it.maxHoldBars} bars timeout"
+                },
+                entrySignal = { candles, index ->
+                    val previousLow = rollingLow(candles, 20, index - 1)
+                    val currentRsi = rsi(candles, 14, index)
+                    previousLow != null &&
+                        currentRsi != null &&
+                        candles[index].low.toDouble() <= previousLow * 1.01 &&
+                        candles[index].close > candles[index].open &&
+                        candles[index].close > candles[index - 1].close &&
+                        currentRsi in 35.0..60.0
+                },
+                reasonFactory = { candles, index ->
+                    "20봉 저점 ${price(rollingLow(candles, 20, index - 1))} 근처 지지"
+                },
+            ),
+            CandidateSpec(
+                key = "BB_LOWER_RECLAIM",
+                title = "볼린저 하단 회복 반등",
+                marketFit = "볼린저 하단 이탈 후 다시 밴드 안으로 회복하는 과매도 반등을 봅니다.",
+                entryRules =
+                    listOf(
+                        "직전 종가가 볼린저 하단 아래",
+                        "현재 종가가 볼린저 하단 위로 회복",
+                        "현재 candle이 양봉",
+                        "거래량이 최근 20개 평균의 70% 이상",
+                    ),
+                entryDsl = "close crosses_above bb_lower(20, 2) and close > open",
+                exitDslFactory = {
+                    "take_profit(${it.targetProfitPct}%) or stop_loss(${it.stopLossPct}%) or ${it.maxHoldBars} bars timeout"
+                },
+                entrySignal = { candles, index ->
+                    val previousLower = bollingerLower(candles, 20, index - 1)
+                    val currentLower = bollingerLower(candles, 20, index)
+                    val avgVolume = avgVolume(candles, 20, index)
+                    previousLower != null &&
+                        currentLower != null &&
+                        avgVolume != null &&
+                        candles[index - 1].close.toDouble() < previousLower &&
+                        candles[index].close.toDouble() >= currentLower &&
+                        candles[index].close > candles[index].open &&
+                        candles[index].volume.toDouble() >= avgVolume * 0.7
+                },
+                reasonFactory = { candles, index ->
+                    "볼린저 하단 ${price(bollingerLower(candles, 20, index))} 회복"
+                },
+            ),
+            CandidateSpec(
+                key = "DONCHIAN10_BREAKOUT",
+                title = "10봉 단기 돌파",
+                marketFit = "짧은 박스권을 빠르게 벗어나는 단기 추세 시동을 평가합니다.",
+                entryRules =
+                    listOf(
+                        "현재 종가가 직전 10개 candle 고점 위",
+                        "거래량이 최근 20개 평균의 1.2배 이상",
+                        "현재 candle이 양봉",
+                        "종가가 candle 상단부에 위치",
+                    ),
+                entryDsl = "close > donchian_upper(10) and volume > volume_ma(20) * 1.2",
+                exitDslFactory = {
+                    "take_profit(${it.targetProfitPct}%) or stop_loss(${it.stopLossPct}%) or ${it.maxHoldBars} bars timeout"
+                },
+                entrySignal = { candles, index ->
+                    val previousHigh = rollingHigh(candles, 10, index - 1)
+                    val avgVolume = avgVolume(candles, 20, index)
+                    previousHigh != null &&
+                        avgVolume != null &&
+                        candles[index].close.toDouble() > previousHigh &&
+                        candles[index].volume.toDouble() >= avgVolume * 1.2 &&
+                        candles[index].close > candles[index].open &&
+                        closePosition(candles[index]) >= 0.6
+                },
+                reasonFactory = { candles, index ->
+                    "직전 10봉 고점 ${price(rollingHigh(candles, 10, index - 1))} 돌파"
+                },
+            ),
+            CandidateSpec(
+                key = "VOLUME_SURGE_GREEN",
+                title = "거래량 급증 장대양봉",
+                marketFit = "거래량이 평소보다 크게 터지며 강한 양봉이 나온 구간을 추적합니다.",
+                entryRules =
+                    listOf(
+                        "거래량이 최근 20개 평균의 2배 이상",
+                        "현재 candle 수익률이 0.8% 이상",
+                        "현재 candle이 양봉",
+                        "종가가 candle 상단부에 위치",
+                    ),
+                entryDsl = "close > open and volume > volume_ma(20) * 2",
+                exitDslFactory = {
+                    "take_profit(${it.targetProfitPct}%) or stop_loss(${it.stopLossPct}%) or ${it.maxHoldBars} bars timeout"
+                },
+                entrySignal = { candles, index ->
+                    val avgVolume = avgVolume(candles, 20, index)
+                    avgVolume != null &&
+                        candles[index].volume.toDouble() >= avgVolume * 2.0 &&
+                        candleReturnPct(candles[index]) >= 0.8 &&
+                        candles[index].close > candles[index].open &&
+                        closePosition(candles[index]) >= 0.65
+                },
+                reasonFactory = { candles, index ->
+                    "거래량 ${round(candles[index].volume / (avgVolume(candles, 20, index) ?: 1.0))}배 장대양봉"
+                },
+            ),
+            CandidateSpec(
+                key = "LOW_VOLUME_PULLBACK_BREAK",
+                title = "저거래 눌림 후 전봉 돌파",
+                marketFit = "거래가 말라붙은 눌림 이후 직전 고가를 회복하는 조용한 재시동을 봅니다.",
+                entryRules =
+                    listOf(
+                        "직전 거래량이 최근 20개 평균의 70% 이하",
+                        "현재 종가가 직전 고가 위",
+                        "현재 종가가 MA20 위",
+                        "현재 거래량이 평균의 1.1배 이상",
+                    ),
+                entryDsl = "close > ma(20) and volume > volume_ma(20) * 1.1",
+                exitDslFactory = {
+                    "take_profit(${it.targetProfitPct}%) or stop_loss(${it.stopLossPct}%) or ${it.maxHoldBars} bars timeout"
+                },
+                entrySignal = { candles, index ->
+                    val previousAvgVolume = avgVolume(candles, 20, index - 1)
+                    val currentAvgVolume = avgVolume(candles, 20, index)
+                    val ma20 = ma(candles, 20, index)
+                    previousAvgVolume != null &&
+                        currentAvgVolume != null &&
+                        ma20 != null &&
+                        candles[index - 1].volume.toDouble() <= previousAvgVolume * 0.7 &&
+                        candles[index].close > candles[index - 1].high &&
+                        candles[index].close.toDouble() > ma20 &&
+                        candles[index].volume.toDouble() >= currentAvgVolume * 1.1
+                },
+                reasonFactory = { candles, index ->
+                    "저거래 눌림 후 직전 고가 ${candles[index - 1].high.toPlainString()} 회복"
+                },
+            ),
+            CandidateSpec(
+                key = "THREE_BAR_RECOVERY",
+                title = "3연속 종가 회복",
+                marketFit = "작은 반등이 3개 candle 연속 이어질 때 추세 회복 가능성을 봅니다.",
+                entryRules =
+                    listOf(
+                        "최근 3개 candle 종가가 연속 상승",
+                        "현재 종가가 MA10 위",
+                        "현재 candle이 양봉",
+                        "거래량이 최근 20개 평균의 70% 이상",
+                    ),
+                entryDsl = "close > ma(10) and close > open",
+                exitDslFactory = {
+                    "take_profit(${it.targetProfitPct}%) or stop_loss(${it.stopLossPct}%) or ${it.maxHoldBars} bars timeout"
+                },
+                entrySignal = { candles, index ->
+                    val ma10 = ma(candles, 10, index)
+                    val avgVolume = avgVolume(candles, 20, index)
+                    index >= 2 &&
+                        ma10 != null &&
+                        avgVolume != null &&
+                        candles[index - 2].close < candles[index - 1].close &&
+                        candles[index - 1].close < candles[index].close &&
+                        candles[index].close.toDouble() > ma10 &&
+                        candles[index].close > candles[index].open &&
+                        candles[index].volume.toDouble() >= avgVolume * 0.7
+                },
+                reasonFactory = { _, _ ->
+                    "3개 candle 연속 종가 상승"
+                },
+            ),
+            CandidateSpec(
+                key = "HAMMER_VOLUME_REVERSAL",
+                title = "거래량 동반 망치형 반전",
+                marketFit = "아래꼬리로 매도 압력을 흡수한 뒤 양봉 마감하는 반전 후보입니다.",
+                entryRules =
+                    listOf(
+                        "아래꼬리가 몸통의 2배 이상",
+                        "윗꼬리가 전체 range의 35% 이하",
+                        "현재 candle이 양봉",
+                        "거래량이 최근 20개 평균의 1.2배 이상",
+                    ),
+                entryDsl = "close > open and volume > volume_ma(20) * 1.2",
+                exitDslFactory = {
+                    "take_profit(${it.targetProfitPct}%) or stop_loss(${it.stopLossPct}%) or ${it.maxHoldBars} bars timeout"
+                },
+                entrySignal = { candles, index ->
+                    val avgVolume = avgVolume(candles, 20, index)
+                    val body = candleBody(candles[index])
+                    val range = candleRange(candles[index])
+                    avgVolume != null &&
+                        range > 0.0 &&
+                        lowerWick(candles[index]) >= max(body, range * 0.05) * 2.0 &&
+                        upperWick(candles[index]) <= range * 0.35 &&
+                        candles[index].close > candles[index].open &&
+                        candles[index].volume.toDouble() >= avgVolume * 1.2
+                },
+                reasonFactory = { _, _ ->
+                    "아래꼬리 긴 양봉 반전"
+                },
+            ),
+            CandidateSpec(
+                key = "GAP_DOWN_REVERSAL",
+                title = "갭하락 회복 반전",
+                marketFit = "시초 또는 구간 갭하락을 빠르게 메우는 강한 되돌림을 추적합니다.",
+                entryRules =
+                    listOf(
+                        "현재 시가가 직전 종가보다 2% 이상 낮음",
+                        "현재 종가가 직전 종가 근처까지 회복",
+                        "현재 candle이 양봉",
+                        "거래량이 최근 20개 평균 이상",
+                    ),
+                entryDsl = "close > open and rsi(14) < 45",
+                exitDslFactory = {
+                    "take_profit(${it.targetProfitPct}%) or stop_loss(${it.stopLossPct}%) or ${it.maxHoldBars} bars timeout"
+                },
+                entrySignal = { candles, index ->
+                    val avgVolume = avgVolume(candles, 20, index)
+                    val previousClose = candles[index - 1].close.toDouble()
+                    previousClose > 0.0 &&
+                        avgVolume != null &&
+                        candles[index].open.toDouble() <= previousClose * 0.98 &&
+                        candles[index].close.toDouble() >= previousClose * 0.995 &&
+                        candles[index].close > candles[index].open &&
+                        candles[index].volume.toDouble() >= avgVolume
+                },
+                reasonFactory = { candles, index ->
+                    "갭하락 후 직전 종가 ${candles[index - 1].close.toPlainString()} 근처 회복"
+                },
+            ),
+            CandidateSpec(
+                key = "VOLATILITY_SQUEEZE_BREAKOUT",
+                title = "변동성 수축 후 돌파",
+                marketFit = "거래 범위가 작아진 뒤 단기 고점을 돌파하는 에너지 방출 구간을 봅니다.",
+                entryRules =
+                    listOf(
+                        "최근 10개 평균 range가 최근 50개 평균 range의 75% 이하",
+                        "현재 종가가 직전 10개 candle 고점 위",
+                        "거래량이 최근 20개 평균 이상",
+                        "현재 candle이 양봉",
+                    ),
+                entryDsl = "close > donchian_upper(10) and volume > volume_ma(20)",
+                exitDslFactory = {
+                    "take_profit(${it.targetProfitPct}%) or stop_loss(${it.stopLossPct}%) or ${it.maxHoldBars} bars timeout"
+                },
+                entrySignal = { candles, index ->
+                    val shortRange = avgRangePct(candles, 10, index - 1)
+                    val longRange = avgRangePct(candles, 50, index - 1)
+                    val previousHigh = rollingHigh(candles, 10, index - 1)
+                    val avgVolume = avgVolume(candles, 20, index)
+                    shortRange != null &&
+                        longRange != null &&
+                        previousHigh != null &&
+                        avgVolume != null &&
+                        shortRange <= longRange * 0.75 &&
+                        candles[index].close.toDouble() > previousHigh &&
+                        candles[index].volume.toDouble() >= avgVolume &&
+                        candles[index].close > candles[index].open
+                },
+                reasonFactory = { candles, index ->
+                    "변동성 수축 후 10봉 고점 ${price(rollingHigh(candles, 10, index - 1))} 돌파"
+                },
+            ),
+            CandidateSpec(
+                key = "MA50_TREND_DIP_RECLAIM",
+                title = "MA50 상승 추세 MA20 재회복",
+                marketFit = "큰 추세는 유지된 상태에서 MA20 이탈 후 빠르게 되찾는 눌림목을 평가합니다.",
+                entryRules =
+                    listOf(
+                        "MA20이 MA50 위",
+                        "직전 종가가 MA20 아래",
+                        "현재 종가가 MA20 위로 회복",
+                        "RSI14가 45 이상 65 이하",
+                    ),
+                entryDsl = "ma(20) > ma(50) and close crosses_above ma(20)",
+                exitDslFactory = {
+                    "take_profit(${it.targetProfitPct}%) or stop_loss(${it.stopLossPct}%) or ${it.maxHoldBars} bars timeout"
+                },
+                entrySignal = { candles, index ->
+                    val previousMa20 = ma(candles, 20, index - 1)
+                    val currentMa20 = ma(candles, 20, index)
+                    val currentMa50 = ma(candles, 50, index)
+                    val currentRsi = rsi(candles, 14, index)
+                    previousMa20 != null &&
+                        currentMa20 != null &&
+                        currentMa50 != null &&
+                        currentRsi != null &&
+                        currentMa20 > currentMa50 &&
+                        candles[index - 1].close.toDouble() < previousMa20 &&
+                        candles[index].close.toDouble() >= currentMa20 &&
+                        candles[index].close > candles[index].open &&
+                        currentRsi in 45.0..65.0
+                },
+                reasonFactory = { candles, index ->
+                    "MA50 추세 위에서 MA20 ${price(ma(candles, 20, index))} 재회복"
+                },
+            ),
         ).map { spec ->
             spec.copy(
                 exitRulesFactory = {
@@ -581,6 +1045,84 @@ private fun candleReturnPct(candle: ResearchCandle): Double {
     val open = candle.open.toDouble()
     if (open == 0.0) return 0.0
     return (candle.close.toDouble() - open) / open * 100.0
+}
+
+private fun rollingHigh(
+    candles: List<ResearchCandle>,
+    period: Int,
+    index: Int,
+): Double? {
+    if (index < period - 1) return null
+    return candles
+        .subList(index - period + 1, index + 1)
+        .maxOf { it.high.toDouble() }
+}
+
+private fun rollingLow(
+    candles: List<ResearchCandle>,
+    period: Int,
+    index: Int,
+): Double? {
+    if (index < period - 1) return null
+    return candles
+        .subList(index - period + 1, index + 1)
+        .minOf { it.low.toDouble() }
+}
+
+private fun stdDevClose(
+    candles: List<ResearchCandle>,
+    period: Int,
+    index: Int,
+): Double? {
+    val average = ma(candles, period, index) ?: return null
+    val variance =
+        candles
+            .subList(index - period + 1, index + 1)
+            .sumOf {
+                val diff = it.close.toDouble() - average
+                diff * diff
+            }.div(period.toDouble())
+    return kotlin.math.sqrt(variance)
+}
+
+private fun bollingerLower(
+    candles: List<ResearchCandle>,
+    period: Int,
+    index: Int,
+    multiplier: Double = 2.0,
+): Double? {
+    val middle = ma(candles, period, index) ?: return null
+    val dev = stdDevClose(candles, period, index) ?: return null
+    return middle - dev * multiplier
+}
+
+private fun candleRange(candle: ResearchCandle): Double = candle.high.toDouble() - candle.low.toDouble()
+
+private fun candleBody(candle: ResearchCandle): Double = abs(candle.close.toDouble() - candle.open.toDouble())
+
+private fun lowerWick(candle: ResearchCandle): Double = min(candle.open.toDouble(), candle.close.toDouble()) - candle.low.toDouble()
+
+private fun upperWick(candle: ResearchCandle): Double = candle.high.toDouble() - max(candle.open.toDouble(), candle.close.toDouble())
+
+private fun closePosition(candle: ResearchCandle): Double {
+    val range = candleRange(candle)
+    if (range <= 0.0) return 0.5
+    return (candle.close.toDouble() - candle.low.toDouble()) / range
+}
+
+private fun avgRangePct(
+    candles: List<ResearchCandle>,
+    period: Int,
+    index: Int,
+): Double? {
+    if (index < period - 1) return null
+    return candles
+        .subList(index - period + 1, index + 1)
+        .mapNotNull { candle ->
+            val close = candle.close.toDouble()
+            if (close <= 0.0) null else candleRange(candle) / close * 100.0
+        }.takeIf { it.isNotEmpty() }
+        ?.average()
 }
 
 private fun bd(value: Double): BigDecimal = BigDecimal.valueOf(round(value))

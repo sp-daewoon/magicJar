@@ -20,6 +20,35 @@ describe('buildStrategyResearchDraft', () => {
     expect(result.draft?.conversionNotes.join(' ')).toContain('근사')
   })
 
+  it('확장 후보 전체를 전략 빌더 DSL draft로 변환한다', () => {
+    const keys = [
+      'MA10_RECLAIM_SCALP',
+      'RSI30_REBOUND_SCALP',
+      'VOLUME_WASHOUT_REBOUND',
+      'MA20_PULLBACK_CONTINUATION',
+      'MA5_20_GOLDEN_CROSS',
+      'BREAKOUT_20_HIGH_VOLUME',
+      'RSI40_TREND_PULLBACK',
+      'RSI50_MOMENTUM_RECLAIM',
+      'RANGE_SUPPORT_BOUNCE',
+      'BB_LOWER_RECLAIM',
+      'DONCHIAN10_BREAKOUT',
+      'VOLUME_SURGE_GREEN',
+      'LOW_VOLUME_PULLBACK_BREAK',
+      'THREE_BAR_RECOVERY',
+      'HAMMER_VOLUME_REVERSAL',
+      'GAP_DOWN_REVERSAL',
+      'VOLATILITY_SQUEEZE_BREAKOUT',
+      'MA50_TREND_DIP_RECLAIM',
+    ]
+
+    keys.forEach((key) => {
+      const result = buildStrategyResearchDraft(report(), candidate(key))
+      expect(result.reason, key).toBeUndefined()
+      expect(result.draft?.candidateKey, key).toBe(key)
+    })
+  })
+
   it('알 수 없는 후보는 변환하지 않는다', () => {
     const result = buildStrategyResearchDraft(report(), candidate('UNKNOWN_RESEARCH_PATTERN'))
 

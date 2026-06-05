@@ -1658,7 +1658,14 @@ class KisWebSocketBridge(
         }
     }
 
-    private fun getWsUrl(): String = if (RuntimeModeParser.isRealMode(magicjarMode)) wsUrlProd else wsUrlVps
+    /**
+     * 시세·캔들·호가 WS는 REAL approval_key를 사용하므로 URL도 실전 WS로 고정한다.
+     *
+     * `magicjar.mode=MOCK` 환경에서 URL만 VPS(:31000)로 바뀌면 REAL approval_key와 endpoint가
+     * 불일치해 KIS가 opening handshake 전에 연결을 닫을 수 있다.
+     * 모의/실전 분기는 주문 액션과 체결통보 TR_ID에서만 유지한다.
+     */
+    private fun getWsUrl(): String = wsUrlProd
 
     /**
      * KIS WS subscribe/unsubscribe 메시지 빌드.

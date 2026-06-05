@@ -19,15 +19,17 @@ import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient
 import reactor.core.publisher.Mono
 import java.net.URI
+import java.util.concurrent.TimeUnit
 
 /**
  * ADR 0077 G-1 + H-1 + I-1 + J-1 fix 단위 테스트 (v3.6.11 hotfix).
  *
- * 4건 검증 매트릭스:
+ * 5건 검증 매트릭스:
  * - test 1 (G-1): 자격증명 0건 → getApprovalKey() null → doConnect() skip + OPSP8996 발생 0건
  * - test 2 (H-1): MOCK 자격증명만 있어도 시세 WS는 REAL 키 사용 시도 검증 (REAL 고정)
- * - test 3 (I-1): OPSP8996 attempt > 3 → dispose + 알림 (cap 3 LOCK)
- * - test 4 (I-1): WS subscribe 성공 → opsp8996RetryCount.get() == 0 검증 (reset)
+ * - test 3 (H-1): magicjarMode=MOCK 환경에서도 시세 WS URL은 PROD 고정
+ * - test 4 (I-1): OPSP8996 attempt > 3 → dispose + 알림 (cap 3 LOCK)
+ * - test 5 (I-1): WS subscribe 성공 → opsp8996RetryCount.get() == 0 검증 (reset)
  *
  * KIS-first 출처 (ADR 0077 §13):
  * - auth_ws None 반환 패턴: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
@@ -119,7 +121,32 @@ class KisWebSocketBridgeOpsp8996FixTest {
     }
 
     /**
-     * test 3 (I-1): OPSP8996 attempt=4 → cap 3 초과 → connection dispose + retry counter reset.
+     * test 3 (H-1): 시세 WS URL도 REAL endpoint 고정.
+     *
+     * REAL approval_key를 쓰면서 magicjarMode=MOCK 때문에 VPS(:31000)로 접속하면
+     * KIS가 opening handshake 전에 연결을 닫을 수 있다.
+     */
+    @Test
+    fun `H-1 magicjarMode MOCK 환경에서도 시세 WS URL은 PROD 고정`() {
+        every {
+            approvalAdapter.getApprovalKey("user001", kr.spdaewoon.magicjar.domain.user.AccountType.REAL)
+        } returns "real-approval-key"
+
+        bridge = buildBridge(defaultUserId = "user001", magicjarMode = "MOCK")
+
+        bridge.connect()
+        TimeUnit.MILLISECONDS.sleep(100L)
+
+        verify(exactly = 1) {
+            wsClient.execute(match<URI> { it.toString() == "ws://localhost:21000" }, any())
+        }
+        verify(exactly = 0) {
+            wsClient.execute(match<URI> { it.toString() == "ws://localhost:31000" }, any())
+        }
+    }
+
+    /**
+     * test 4 (I-1): OPSP8996 attempt=4 → cap 3 초과 → connection dispose + retry counter reset.
      *
      * ADR 0077 I-1 cap 3 fix 검증:
      * - opsp8996RetryCount가 4 이상 → KIS 표준 max_retries=3 cap 초과

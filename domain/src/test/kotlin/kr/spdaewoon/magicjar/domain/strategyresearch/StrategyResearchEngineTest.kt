@@ -39,6 +39,36 @@ class StrategyResearchEngineTest {
         report.warnings.joinToString(" ") shouldContain "최소"
     }
 
+    @Test
+    fun `research evaluates expanded candidate pool`() {
+        val engine = StrategyResearchEngine()
+
+        val report = engine.research(request(), washoutCandles(80))
+
+        report.candidates.size shouldBe 18
+        report.candidates.map { it.key }.toSet() shouldBe
+            setOf(
+                "MA10_RECLAIM_SCALP",
+                "RSI30_REBOUND_SCALP",
+                "VOLUME_WASHOUT_REBOUND",
+                "MA20_PULLBACK_CONTINUATION",
+                "MA5_20_GOLDEN_CROSS",
+                "BREAKOUT_20_HIGH_VOLUME",
+                "RSI40_TREND_PULLBACK",
+                "RSI50_MOMENTUM_RECLAIM",
+                "RANGE_SUPPORT_BOUNCE",
+                "BB_LOWER_RECLAIM",
+                "DONCHIAN10_BREAKOUT",
+                "VOLUME_SURGE_GREEN",
+                "LOW_VOLUME_PULLBACK_BREAK",
+                "THREE_BAR_RECOVERY",
+                "HAMMER_VOLUME_REVERSAL",
+                "GAP_DOWN_REVERSAL",
+                "VOLATILITY_SQUEEZE_BREAKOUT",
+                "MA50_TREND_DIP_RECLAIM",
+            )
+    }
+
     private fun request(
         targetProfitPct: Double = 1.5,
         stopLossPct: Double = 0.8,
@@ -55,10 +85,11 @@ class StrategyResearchEngineTest {
             maxHoldBars = maxHoldBars,
         )
 
-    private fun washoutCandles(): List<ResearchCandle> {
+    private fun washoutCandles(size: Int = 45): List<ResearchCandle> {
         val candles = mutableListOf<ResearchCandle>()
-        repeat(45) { index ->
-            val ts = t("2026-04-28T00:${index.toString().padStart(2, '0')}:00Z")
+        val baseTs = t("2026-04-28T00:00:00Z")
+        repeat(size) { index ->
+            val ts = Instant.fromEpochSeconds(baseTs.epochSeconds + index * 60L)
             val open: String
             val high: String
             val low: String
