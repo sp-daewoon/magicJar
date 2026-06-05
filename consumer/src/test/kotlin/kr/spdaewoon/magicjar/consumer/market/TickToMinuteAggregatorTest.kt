@@ -27,7 +27,7 @@ import java.time.ZoneOffset
  *
  * 검증:
  *   (a) 분 경계에서 새 분 tick 유입 시 직전 분 캔들 ts·OHLC 오염 0 (미래 분 bar 복원 후 skip)
- *   (b) 같은 ts 이중 발행 0 (insertIgnore rows==0 이면 publish skip)
+ *   (b) 같은 ts 이중 발행 0 (insertOrUpdateIfGapfill rows==0 이면 publish skip)
  *   (c) tick 없는 분은 발행 0 (RENAME 실패 → skip, mock 합성 0)
  *   (d) RENAME 후 신규 tick 유실 0 (복원 시 live 키 비어있을 때만 되돌림)
  */
@@ -100,14 +100,14 @@ class TickToMinuteAggregatorTest {
         every { hashOps.entries(snapKey) } returns
             barHash(closingTs, "100", "110", "95", "105", 1000L)
         every {
-            candleRepository.insertIgnore("005930", "1m", closingTs, any(), any(), any(), any(), 1000L, "KIS")
+            candleRepository.insertOrUpdateIfGapfill("005930", "1m", closingTs, any(), any(), any(), any(), 1000L, "KIS")
         } returns 1
 
         aggregator.aggregate()
 
         val tsSlot = slot<Instant>()
         verify(exactly = 1) {
-            candleRepository.insertIgnore("005930", "1m", capture(tsSlot), any(), any(), any(), any(), 1000L, "KIS")
+            candleRepository.insertOrUpdateIfGapfill("005930", "1m", capture(tsSlot), any(), any(), any(), any(), 1000L, "KIS")
         }
         // (deterministic) 발행 ts = closingTs (스케줄 시각 기준 직전 분), 해시 ts 무관하게 일관
         assertThat(tsSlot.captured).isEqualTo(closingTs)
@@ -115,15 +115,15 @@ class TickToMinuteAggregatorTest {
     }
 
     @Test
-    fun `같은 ts 이중 발행 차단 — INSERT rows 0이면 publish skip`() {
+    fun `같은 ts 이중 발행 차단 — UPSERT rows 0이면 publish skip`() {
         val liveKey = "candle:current:005930:1m"
         val snapKey = "candle:closing:005930:1m:${closingTs.epochSecond}"
         every { redisTemplate.renameIfAbsent(liveKey, snapKey) } returns true
         every { hashOps.entries(snapKey) } returns
             barHash(closingTs, "100", "110", "95", "105", 1000L)
-        // 이미 DB 에 존재 → ON CONFLICT DO NOTHING → rows 0
+        // 이미 DB 에 존재 → conditional UPSERT → rows 0
         every {
-            candleRepository.insertIgnore("005930", "1m", closingTs, any(), any(), any(), any(), any(), "KIS")
+            candleRepository.insertOrUpdateIfGapfill("005930", "1m", closingTs, any(), any(), any(), any(), any(), "KIS")
         } returns 0
 
         aggregator.aggregate()
@@ -141,7 +141,7 @@ class TickToMinuteAggregatorTest {
 
         aggregator.aggregate()
 
-        verify(exactly = 0) { candleRepository.insertIgnore(any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        verify(exactly = 0) { candleRepository.insertOrUpdateIfGapfill(any(), any(), any(), any(), any(), any(), any(), any(), any()) }
         verify(exactly = 0) { kafkaTemplate.send(any(), any<String>(), any()) }
     }
 
@@ -159,7 +159,7 @@ class TickToMinuteAggregatorTest {
         aggregator.aggregate()
 
         // 미래 분 bar 는 닫힌 분이 아니므로 INSERT·publish 0 (직전 분 ts 로 오염 발행 금지)
-        verify(exactly = 0) { candleRepository.insertIgnore(any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        verify(exactly = 0) { candleRepository.insertOrUpdateIfGapfill(any(), any(), any(), any(), any(), any(), any(), any(), any()) }
         verify(exactly = 0) { kafkaTemplate.send(any(), any<String>(), any()) }
         // live 키로 복원되어야 함 (다음 사이클이 05:23 분을 처리, tick 유실 0)
         verify(exactly = 1) { hashOps.putAll(liveKey, futureBar) }
@@ -194,14 +194,14 @@ class TickToMinuteAggregatorTest {
         every { redisTemplate.renameIfAbsent(liveKey, snapKey) } returns true
         every { hashOps.entries(snapKey) } returns barHash(pastTs, "90", "92", "89", "91", 300L)
         every {
-            candleRepository.insertIgnore("005930", "1m", pastTs, any(), any(), any(), any(), 300L, "KIS")
+            candleRepository.insertOrUpdateIfGapfill("005930", "1m", pastTs, any(), any(), any(), any(), 300L, "KIS")
         } returns 1
 
         aggregator.aggregate()
 
         // 과거 분은 그 bar 의 실제 ts(05:21) 로 발행 — closingTs(05:22) 로 잘못 라벨링하지 않음
         verify(exactly = 1) {
-            candleRepository.insertIgnore("005930", "1m", pastTs, any(), any(), any(), any(), 300L, "KIS")
+            candleRepository.insertOrUpdateIfGapfill("005930", "1m", pastTs, any(), any(), any(), any(), 300L, "KIS")
         }
         val payloadSlot = slot<String>()
         verify(exactly = 1) { kafkaTemplate.send("market.candle.minute.closed.v1", "005930", capture(payloadSlot)) }

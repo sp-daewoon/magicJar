@@ -11,9 +11,15 @@ import {
   type IChartApi,
   type ISeriesApi,
   type LineData,
+  type TickMarkType,
   type UTCTimestamp,
 } from 'lightweight-charts'
 import { toNumberOrNull, type IndexCandleItem, type IndexTrendResponse } from '../../../api/market'
+import {
+  formatKstAxisTick,
+  formatKstCrosshairTime,
+  normalizeChartInterval,
+} from '../../../components/chart/chartTimeLabels'
 
 type IndexCandleInterval = '1m' | '1d'
 
@@ -146,6 +152,8 @@ export function IndexTrendChart({
     if (isLoading || isError || !hasDisplayData) return
     if (!containerRef.current) return
     isDisposedRef.current = false
+    const chartInterval = normalizeChartInterval(interval)
+    let visibleBars = Math.max(1, candleData.length)
 
     const chart = createChart(containerRef.current, {
       width: containerRef.current.clientWidth,
@@ -162,6 +170,10 @@ export function IndexTrendChart({
         borderColor: '#374151',
         timeVisible: interval !== '1d',
         secondsVisible: false,
+        tickMarkFormatter: (
+          time: UTCTimestamp | { year: number; month: number; day: number },
+          tickMarkType: TickMarkType,
+        ) => formatKstAxisTick(time, chartInterval, visibleBars, tickMarkType),
       },
       rightPriceScale: {
         borderColor: '#374151',
@@ -171,10 +183,18 @@ export function IndexTrendChart({
       },
       localization: {
         locale: 'ko-KR',
+        dateFormat: 'yyyy-MM-dd',
+        timeFormatter: (time: UTCTimestamp | { year: number; month: number; day: number } | string) =>
+          formatKstCrosshairTime(time, chartInterval),
       },
     })
 
     chartRef.current = chart
+
+    chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+      if (!range) return
+      visibleBars = Math.max(1, Math.ceil(range.to - range.from))
+    })
 
     const ro = new ResizeObserver((entries) => {
       if (isDisposedRef.current) return
@@ -201,7 +221,7 @@ export function IndexTrendChart({
       }
       chartRef.current = null
     }
-  }, [hasDisplayData, interval, isError, isLoading])
+  }, [candleData.length, hasDisplayData, interval, isError, isLoading])
 
   // 데이터 갱신 — 실제 snapshot 캔들 + MA/lastClose 기준선.
   useEffect(() => {

@@ -20,8 +20,8 @@ import java.time.temporal.ChronoUnit
  *
  * @Scheduled(cron = "0 * * * * ?") 매 분 0초 실행:
  * 1. KIS WS 구독 중인 모든 종목 → Redis `candle:current:{code}:1m` 를 원자 스냅샷(RENAME)으로 분리
- * 2. 스냅샷의 OHLCV → candle DB insertIgnore (ON CONFLICT DO NOTHING — idempotent)
- * 3. INSERT 가 새 row 일 때만 Kafka `market.candle.minute.closed.v1` publish (중복 발행 차단)
+ * 2. 스냅샷의 OHLCV → candle DB upsert (gapfill row 교정 + idempotent)
+ * 3. INSERT/UPDATE 가 실제 반영될 때만 Kafka `market.candle.minute.closed.v1` publish (중복 발행 차단)
  * 4. 스냅샷 임시 키 DEL (다음 분봉 시작 준비)
  * 5. BoundaryAggregator.onTickClosed(code, closingTs) 호출 (ADR 0064 B-1 — 합산 interval boundary 검사)
  *
@@ -36,8 +36,8 @@ import java.time.temporal.ChronoUnit
  *     유실 0. 스냅샷은 임시 키에서만 읽으므로 동시 갱신 오염 0.
  *   - 스냅샷의 bar ts 를 기대 closingTs 와 대조: 미래 분(boundary 직전 새 분 tick 으로 rotate 된 bar)
  *     이면 live 키로 복원 후 skip(다음 사이클이 처리) — bar 유실 0. 과거 분이면 그 ts 로 1회 발행.
- *   - 같은 ts 이중 발행 차단: insertIgnore(rows==1, 즉 신규 INSERT) 일 때만 publish.
- *     Hibernate UQ 충돌 ERROR 노이즈도 제거(예외 대신 ON CONFLICT DO NOTHING rows=0).
+ *   - 같은 ts 이중 발행 차단: insertOrUpdateIfGapfill(rows==1, 신규 INSERT 또는 gapfill 교정) 일 때만 publish.
+ *     이미 처리된 실제 row는 rows=0으로 Kafka 재발행을 막는다.
  *
  * KIS-first raw 출처 (헌법 §3 의무):
  *   H0STCNT0 체결가 STCK_CNTG_HOUR (HHMMSS) → 1m closing ts 산출 기준.
@@ -58,7 +58,7 @@ class TickToMinuteAggregator(
     private val log = LoggerFactory.getLogger(TickToMinuteAggregator::class.java)
 
     /**
-     * 매 분 0초 실행 — 1분봉 closing → DB INSERT + Kafka publish.
+     * 매 분 0초 실행 — 1분봉 closing → DB UPSERT + Kafka publish.
      * KIS WS 구독 종목 전체 처리.
      */
     @Scheduled(cron = "0 * * * * ?")
@@ -142,13 +142,13 @@ class TickToMinuteAggregator(
             // 과거 분이면 그 bar 의 실제 ts 로 발행(보통 closingTs 와 동일).
             val ts = barTs
 
-            // idempotent INSERT — ON CONFLICT DO NOTHING. 신규 INSERT(rows==1) 일 때만 발행.
+            // idempotent UPSERT — 신규 INSERT 또는 KIS-RANGE-GAPFILL 교정(rows==1) 일 때만 발행.
             // @Modifying native query 는 트랜잭션 필수 (TransactionRequiredException 방지 —
             // 본 클래스는 @Scheduled 진입이라 BoundaryAggregator 와 달리 @Transactional 프록시가 없음.
-            // private 자기호출이므로 메서드 어노테이션 대신 TransactionTemplate 로 INSERT 만 정밀 래핑).
-            val inserted =
+            // private 자기호출이므로 메서드 어노테이션 대신 TransactionTemplate 로 UPSERT 만 정밀 래핑).
+            val affected =
                 transactionTemplate.execute {
-                    candleRepository.insertIgnore(
+                    candleRepository.insertOrUpdateIfGapfill(
                         code = code,
                         interval = "1m",
                         ts = ts,
@@ -161,13 +161,13 @@ class TickToMinuteAggregator(
                     )
                 } ?: 0
 
-            if (inserted < 1) {
-                // 이미 존재 = 같은 ts 이중 처리. 발행 skip (중복 Kafka 발행 차단).
-                log.debug("1m candle 이미 존재 (idempotent, 발행 skip): code={} ts={}", code, ts)
+            if (affected < 1) {
+                // 이미 실제 row 존재 = 같은 ts 이중 처리. 발행 skip (중복 Kafka 발행 차단).
+                log.debug("1m candle 이미 처리됨 (idempotent, 발행 skip): code={} ts={}", code, ts)
                 return
             }
 
-            log.debug("1m candle DB INSERT: code={} ts={} close={}", code, ts, closeRaw)
+            log.debug("1m candle DB UPSERT: code={} ts={} close={}", code, ts, closeRaw)
             publishMinuteCandle(code, ts, openRaw, highRaw, lowRaw, closeRaw, volume)
         } finally {
             // 스냅샷 임시 키 DEL — 다음 분봉 준비. 복원 path 에서도 임시 키는 제거.

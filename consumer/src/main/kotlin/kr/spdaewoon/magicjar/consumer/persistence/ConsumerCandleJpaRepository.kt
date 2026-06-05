@@ -83,6 +83,45 @@ interface ConsumerCandleJpaRepository : JpaRepository<ConsumerCandleJpaEntity, L
     ): Int
 
     /**
+     * 실시간/마감 candle 저장용 UPSERT.
+     *
+     * KIS-RANGE-GAPFILL row는 가격 gapfill 목적이라 volume=0일 수 있다.
+     * 같은 ts의 실제 KIS candle이 도착하면 OHLCV를 교정하되, 이미 더 신선한/동일한 row는 건드리지 않는다.
+     *
+     * 반환 rows:
+     * - 1: 신규 INSERT 또는 gapfill/낮은 volume row UPDATE
+     * - 0: 이미 동일하거나 더 큰 volume의 실제 row 존재
+     */
+    @Modifying
+    @Query(
+        nativeQuery = true,
+        value = """
+            INSERT INTO candle (code, interval, ts, open_raw, high_raw, low_raw, close_raw, volume, source)
+            VALUES (:code, :interval, :ts, :openRaw, :highRaw, :lowRaw, :closeRaw, :volume, :source)
+            ON CONFLICT (code, interval, ts) DO UPDATE SET
+                open_raw = EXCLUDED.open_raw,
+                high_raw = EXCLUDED.high_raw,
+                low_raw = EXCLUDED.low_raw,
+                close_raw = EXCLUDED.close_raw,
+                volume = EXCLUDED.volume,
+                source = EXCLUDED.source
+            WHERE candle.source = 'KIS-RANGE-GAPFILL'
+               OR COALESCE(candle.volume, 0) < COALESCE(EXCLUDED.volume, 0)
+        """,
+    )
+    fun insertOrUpdateIfGapfill(
+        @Param("code") code: String,
+        @Param("interval") interval: String,
+        @Param("ts") ts: java.time.Instant,
+        @Param("openRaw") openRaw: java.math.BigDecimal?,
+        @Param("highRaw") highRaw: java.math.BigDecimal?,
+        @Param("lowRaw") lowRaw: java.math.BigDecimal?,
+        @Param("closeRaw") closeRaw: java.math.BigDecimal?,
+        @Param("volume") volume: Long?,
+        @Param("source") source: String,
+    ): Int
+
+    /**
      * 단건 UPSERT (ON CONFLICT DO UPDATE).
      * 1m gap fill 후 aggregate candle 재생성처럼 기존 값을 교정해야 하는 path 전용.
      */

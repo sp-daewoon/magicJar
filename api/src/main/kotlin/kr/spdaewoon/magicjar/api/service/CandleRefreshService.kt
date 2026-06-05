@@ -1141,6 +1141,7 @@ class CandleRefreshService(
     /**
      * 1m raw rows (Map<String, Any>) → DB upsert.
      * stck_bsop_date + stck_cntg_hour → ts epoch second.
+     * FHKST03010230 1m 거래량은 cntg_vol 우선, acml_vol은 호환 fallback.
      * 트랜잭션은 Repository.insertIgnore(@Transactional) 레벨에서 보장.
      * (hotfix: private fun @Transactional은 Spring AOP 프록시를 우회하므로 무효 → 제거)
      */
@@ -1156,7 +1157,10 @@ class CandleRefreshService(
             val open = item["stck_oprc"]?.toString()?.trim()?.toBigDecimalOrNull() ?: BigDecimal.ZERO
             val high = item["stck_hgpr"]?.toString()?.trim()?.toBigDecimalOrNull() ?: BigDecimal.ZERO
             val low = item["stck_lwpr"]?.toString()?.trim()?.toBigDecimalOrNull() ?: BigDecimal.ZERO
-            val volume = item["acml_vol"]?.toString()?.trim()?.toLongOrNull() ?: 0L
+            val volume =
+                item["cntg_vol"]?.toString()?.trim()?.toLongOrNull()
+                    ?: item["acml_vol"]?.toString()?.trim()?.toLongOrNull()
+                    ?: 0L
             val epochSec =
                 runCatching {
                     val ld = if (dateStr.length == 8) LocalDate.parse(dateStr, DATE_FMT) else return@runCatching null

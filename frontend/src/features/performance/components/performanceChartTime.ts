@@ -1,4 +1,9 @@
 import type { BusinessDay, UTCTimestamp } from 'lightweight-charts'
+import {
+  formatKstAxisTick,
+  formatKstCrosshairTime,
+  type ChartTimeInput,
+} from '../../../components/chart/chartTimeLabels'
 
 type ChartTime = UTCTimestamp | BusinessDay | string
 
@@ -8,15 +13,9 @@ export function toBusinessDay(date: string): BusinessDay {
 }
 
 export function formatPerformanceChartDate(time: ChartTime): string {
-  if (typeof time === 'string') return time
-  if (typeof time === 'number') {
-    return new Intl.DateTimeFormat('sv-SE', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      timeZone: 'Asia/Seoul',
-    }).format(new Date(time * 1000))
-  }
+  return formatKstAxisTick(time as ChartTimeInput, '1d', 120)
+}
 
-  return `${time.year}-${String(time.month).padStart(2, '0')}-${String(time.day).padStart(2, '0')}`
+export function formatPerformanceCrosshairDate(time: ChartTime): string {
+  return formatKstCrosshairTime(time as ChartTimeInput, '1d')
 }

@@ -9,6 +9,8 @@ import {
   type StrategyResearchRequestDto,
   type StrategyResearchTradeDto,
 } from '../../api/strategyResearch'
+import type { InstrumentSearchResultDto } from '../../api/instrument'
+import { InstrumentSearchInput } from '../../components/InstrumentSearchInput'
 import { StrategyResearchChart } from '../../components/strategyResearch/StrategyResearchChart'
 import { formatKst, formatMoney } from '../../components/scenario/scenarioReplayFormat'
 import { kstInputToIso } from '../../components/scenario/scenarioReplayTime'
@@ -53,10 +55,23 @@ function candidateTone(candidate: StrategyResearchCandidateDto): string {
   return 'border-amber-800 bg-amber-950/20'
 }
 
+function instrumentDisplay(result: InstrumentSearchResultDto): string {
+  return `${result.name} (${result.code})`
+}
+
+function extractInstrumentCode(value: string): string | null {
+  const trimmed = value.trim()
+  const labelMatch = trimmed.match(/\((\d{6})\)\s*$/)
+  if (labelMatch) return labelMatch[1]
+  return /^\d{6}$/.test(trimmed) ? trimmed : null
+}
+
 export function StrategyResearchPage() {
   const navigate = useNavigate()
   const registeredUserId = useOnboardingStore((s) => s.registeredUserId)
   const [code, setCode] = useState('038110')
+  const [instrumentInput, setInstrumentInput] = useState('038110')
+  const [selectedInstrumentName, setSelectedInstrumentName] = useState<string | null>(null)
   const [interval, setInterval] = useState('1m')
   const [fromKst, setFromKst] = useState(DEFAULT_FROM_KST)
   const [toKst, setToKst] = useState(DEFAULT_TO_KST)
@@ -81,6 +96,18 @@ export function StrategyResearchPage() {
     return report.candidates.find((candidate) => candidate.key === selectedKey) ?? report.candidates[0] ?? null
   }, [report, selectedKey])
 
+  const handleInstrumentRawChange = (value: string) => {
+    setInstrumentInput(value)
+    setSelectedInstrumentName(null)
+    setCode(extractInstrumentCode(value) ?? '')
+  }
+
+  const handleInstrumentSelect = (result: InstrumentSearchResultDto) => {
+    setCode(result.code)
+    setInstrumentInput(instrumentDisplay(result))
+    setSelectedInstrumentName(result.name)
+  }
+
   if (!registeredUserId) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center px-4">
@@ -101,9 +128,14 @@ export function StrategyResearchPage() {
   const submit = () => {
     try {
       setFormError(null)
+      const selectedCode = code || extractInstrumentCode(instrumentInput)
+      if (!selectedCode) {
+        setFormError('종목명을 검색해서 선택하거나 6자리 종목코드를 입력해주세요')
+        return
+      }
       mutation.mutate({
         userId: String(registeredUserId),
-        code: code.trim(),
+        code: selectedCode,
         interval,
         from: kstInputToIso(fromKst),
         to: kstInputToIso(toKst),
@@ -171,14 +203,21 @@ export function StrategyResearchPage() {
         </h2>
         <div className="mt-4 grid gap-4 lg:grid-cols-12">
           <label className="lg:col-span-2">
-            <span className="text-xs text-gray-500">종목코드</span>
-            <input
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-              inputMode="numeric"
-              maxLength={6}
-              className="mt-1 w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
-            />
+            <span className="text-xs text-gray-500">종목</span>
+            <div className="mt-1">
+              <InstrumentSearchInput
+                value={instrumentInput}
+                onRawChange={handleInstrumentRawChange}
+                onSelect={handleInstrumentSelect}
+                placeholder="종목명 또는 코드 검색"
+              />
+            </div>
+            {(code || selectedInstrumentName) && (
+              <p className="mt-1 text-xs text-gray-500">
+                선택: {selectedInstrumentName && <span className="text-gray-300">{selectedInstrumentName}</span>}{' '}
+                {code && <span className="font-mono text-blue-300">{code}</span>}
+              </p>
+            )}
           </label>
           <label className="lg:col-span-2">
             <span className="text-xs text-gray-500">캔들 interval</span>

@@ -1417,7 +1417,7 @@ class KisRestCandleAdapter(
      * FHKST03010230 1m 응답 파싱 — 1분봉 단일 timeframe.
      *
      * output2[]: stck_bsop_date (yyyyMMdd) + stck_cntg_hour (HHmmss) → KST timestamp
-     * stck_oprc·stck_hgpr·stck_lwpr·stck_prpr(현재가=종가)·acml_vol
+     * stck_oprc·stck_hgpr·stck_lwpr·stck_prpr(현재가=종가)·cntg_vol
      *
      * KIS raw spec:
      *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
@@ -1457,7 +1457,10 @@ class KisRestCandleAdapter(
             val open = item["stck_oprc"]?.toString()?.trim()?.toBigDecimalOrNull() ?: BigDecimal.ZERO
             val high = item["stck_hgpr"]?.toString()?.trim()?.toBigDecimalOrNull() ?: BigDecimal.ZERO
             val low = item["stck_lwpr"]?.toString()?.trim()?.toBigDecimalOrNull() ?: BigDecimal.ZERO
-            val volume = item["acml_vol"]?.toString()?.trim()?.toLongOrNull() ?: 0L
+            val volume =
+                item["cntg_vol"]?.toString()?.trim()?.toLongOrNull()
+                    ?: item["acml_vol"]?.toString()?.trim()?.toLongOrNull()
+                    ?: 0L
 
             val ts =
                 runCatching {

@@ -7,9 +7,16 @@ import {
   type LineData,
   type MouseEventParams,
   type SeriesMarker,
+  type TickMarkType,
   type UTCTimestamp,
 } from 'lightweight-charts'
 import type { ScenarioEventDto, ScenarioRunSummaryDto } from '../../api/scenarioReplay'
+import {
+  buildAxisBoundaryTimes,
+  formatKstAxisTick,
+  formatKstCrosshairTime,
+  normalizeChartInterval,
+} from '../chart/chartTimeLabels'
 import { eventLabel, formatKst, formatMoney } from './scenarioReplayFormat'
 
 interface ScenarioReplayChartProps {
@@ -53,41 +60,6 @@ interface TooltipState {
 const MARKER_CAP = 220
 const TOOLTIP_WIDTH = 184
 const TOOLTIP_HEIGHT = 146
-
-function isIntradayInterval(interval: string): boolean {
-  return !['1d', '1wk', '1mo', '1y'].includes(interval)
-}
-
-function lwcTimeToMs(time: UTCTimestamp | { year: number; month: number; day: number } | string): number {
-  if (typeof time === 'number') return time * 1000
-  if (typeof time === 'string') return new Date(time).getTime()
-  return Date.UTC(time.year, time.month - 1, time.day)
-}
-
-function formatKstChartTime(
-  time: UTCTimestamp | { year: number; month: number; day: number } | string,
-  interval: string,
-): string {
-  const ms = lwcTimeToMs(time)
-  if (!Number.isFinite(ms)) return '-'
-  const options: Intl.DateTimeFormatOptions = isIntradayInterval(interval)
-    ? {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-        timeZone: 'Asia/Seoul',
-      }
-    : {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        timeZone: 'Asia/Seoul',
-      }
-  return new Intl.DateTimeFormat('sv-SE', options).format(new Date(ms))
-}
 
 function payloadNumber(payload: Record<string, unknown>, key: string): number | null {
   const value = payload[key]
@@ -242,6 +214,8 @@ export function ScenarioReplayChart({ run, events, showDiagnosticEvents }: Scena
   )
   const maData = useMemo(() => (usesMa10 ? buildMa(candles) : []), [candles, usesMa10])
   const markers = useMemo(() => buildMarkers(events, showDiagnosticEvents), [events, showDiagnosticEvents])
+  const chartInterval = useMemo(() => normalizeChartInterval(run.interval), [run.interval])
+  const axisBoundaryTimes = useMemo(() => buildAxisBoundaryTimes(candleData.map((point) => point.time as UTCTimestamp)), [candleData])
   const summary = useMemo(() => buildSummary(events), [events])
   const keyEvent = useMemo(() => firstKeyEvent(events, showDiagnosticEvents), [events, showDiagnosticEvents])
   const firstFill = useMemo(() => events.find((event) => event.type === 'ORDER_FILLED'), [events])
@@ -249,6 +223,7 @@ export function ScenarioReplayChart({ run, events, showDiagnosticEvents }: Scena
   useEffect(() => {
     const container = containerRef.current
     if (!container || candleData.length === 0) return
+    let visibleBars = candleData.length
 
     const chart = createChart(container, {
       width: container.clientWidth || 800,
@@ -271,16 +246,24 @@ export function ScenarioReplayChart({ run, events, showDiagnosticEvents }: Scena
         borderColor: '#334155',
         timeVisible: true,
         secondsVisible: false,
-        tickMarkFormatter: (time: UTCTimestamp | { year: number; month: number; day: number }) => {
-          return formatKstChartTime(time, run.interval)
-        },
+        tickMarkFormatter: (
+          time: UTCTimestamp | { year: number; month: number; day: number },
+          tickMarkType: TickMarkType,
+        ) => formatKstAxisTick(
+          time,
+          chartInterval,
+          visibleBars,
+          tickMarkType,
+          axisBoundaryTimes.month,
+          axisBoundaryTimes.year,
+          axisBoundaryTimes.day,
+        ),
       },
       localization: {
         locale: 'ko-KR',
         priceFormatter: (price: number) => Math.round(price).toLocaleString('ko-KR'),
-        timeFormatter: (time: UTCTimestamp | { year: number; month: number; day: number }) => {
-          return formatKstChartTime(time, run.interval)
-        },
+        timeFormatter: (time: UTCTimestamp | { year: number; month: number; day: number } | string) =>
+          formatKstCrosshairTime(time, chartInterval),
         dateFormat: 'yyyy-MM-dd',
       },
     })
@@ -303,6 +286,11 @@ export function ScenarioReplayChart({ run, events, showDiagnosticEvents }: Scena
       lastValueVisible: false,
     })
     maSeries.setData(maData)
+
+    chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+      if (!range) return
+      visibleBars = Math.max(1, Math.ceil(range.to - range.from))
+    })
 
     chart.subscribeCrosshairMove((param: MouseEventParams) => {
       if (!param.time || !param.point || param.point.x < 0 || param.point.y < 0) {
@@ -336,7 +324,7 @@ export function ScenarioReplayChart({ run, events, showDiagnosticEvents }: Scena
         visible: true,
         x,
         y,
-        timeLabel: formatKstChartTime(param.time, run.interval),
+        timeLabel: formatKstCrosshairTime(param.time, chartInterval),
         open: candle.open,
         high: candle.high,
         low: candle.low,
@@ -363,7 +351,7 @@ export function ScenarioReplayChart({ run, events, showDiagnosticEvents }: Scena
       candleSeriesRef.current = null
       maSeriesRef.current = null
     }
-  }, [candleData, maData, markers, run.interval])
+  }, [axisBoundaryTimes, candleData, chartInterval, maData, markers])
 
   if (candleData.length === 0) {
     return (

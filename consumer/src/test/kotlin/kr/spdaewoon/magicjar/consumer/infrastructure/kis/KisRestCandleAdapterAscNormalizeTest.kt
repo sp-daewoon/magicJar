@@ -388,7 +388,7 @@ class KisRestCandleAdapterAscNormalizeTest {
                             "stck_hgpr" to "13050",
                             "stck_lwpr" to "12980",
                             "stck_prpr" to "13020",
-                            "acml_vol" to "1000",
+                            "cntg_vol" to "1000",
                         ),
                         mapOf(
                             "stck_bsop_date" to "20260519",
@@ -397,7 +397,7 @@ class KisRestCandleAdapterAscNormalizeTest {
                             "stck_hgpr" to "13010",
                             "stck_lwpr" to "12970",
                             "stck_prpr" to "13000",
-                            "acml_vol" to "950",
+                            "cntg_vol" to "950",
                         ),
                         mapOf(
                             "stck_bsop_date" to "20260519",
@@ -406,7 +406,7 @@ class KisRestCandleAdapterAscNormalizeTest {
                             "stck_hgpr" to "13000",
                             "stck_lwpr" to "12960",
                             "stck_prpr" to "12990",
-                            "acml_vol" to "900",
+                            "cntg_vol" to "900",
                         ),
                     ),
             )
@@ -420,6 +420,7 @@ class KisRestCandleAdapterAscNormalizeTest {
         // 첫 row가 14:28, 마지막 row가 14:30.
         assertThat(candles.first().closeRaw.toLong()).isEqualTo(12990L)
         assertThat(candles.last().closeRaw.toLong()).isEqualTo(13020L)
+        assertThat(candles.map { it.volume }).containsExactly(900L, 950L, 1000L)
         // 모든 row interval = 1m.
         assertThat(candles).allSatisfy { c ->
             assertThat(c.interval).isEqualTo(CandleInterval.ONE_MIN)

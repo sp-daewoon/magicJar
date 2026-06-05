@@ -17,7 +17,7 @@ import { useEffect, useRef } from 'react'
 import { createChart } from 'lightweight-charts'
 import type { IChartApi, ISeriesApi, HistogramData } from 'lightweight-charts'
 import type { EquityPointDto } from '../api/performanceApi'
-import { formatPerformanceChartDate, toBusinessDay } from './performanceChartTime'
+import { formatPerformanceChartDate, formatPerformanceCrosshairDate, toBusinessDay } from './performanceChartTime'
 
 interface DailyPnlBarChartProps {
   points: EquityPointDto[] | undefined
@@ -58,7 +58,7 @@ export function DailyPnlBarChart({ points, isLoading, isError }: DailyPnlBarChar
       localization: {
         locale: 'ko-KR',
         dateFormat: 'yyyy-MM-dd',
-        timeFormatter: formatPerformanceChartDate,
+        timeFormatter: formatPerformanceCrosshairDate,
       },
     })
 

@@ -57,12 +57,22 @@ import {
   type LineData,
   LineStyle,
   type SeriesType,
+  type TickMarkType,
   type UTCTimestamp,
+  type WhitespaceData,
   type MouseEventParams,
 } from 'lightweight-charts'
 import { useEffect, useRef, useState, useCallback } from 'react'
 import type { CandleDto, CandleInterval } from '../../api/symbol'
 import type { RiskPlanLevels } from '../../components/strategy/riskPlanDisplay'
+import {
+  buildAxisBoundaryTimes,
+  buildHourlyFutureWhitespaceTimes,
+  type AxisBoundaryTimes,
+  formatKstAxisTick,
+  formatKstCrosshairTime,
+  isIntradayInterval,
+} from '../../components/chart/chartTimeLabels'
 
 /** STOMP tick에서 추출한 실시간 가격·시각 */
 export interface LiveTick {
@@ -117,20 +127,6 @@ interface LightweightChartProps {
  * 인터벌이 분봉(intraday)인지 여부.
  * KRX 정규장 09:00~15:30 KST 기준 TradingView식 경계로 마지막 bar를 갱신한다.
  */
-function isIntradayInterval(interval?: CandleInterval): boolean {
-  return (
-    interval === '1m' ||
-    interval === '3m' ||
-    interval === '5m' ||
-    interval === '15m' ||
-    interval === '30m' ||
-    interval === '90m' ||
-    interval === '1h' ||
-    interval === '4h' ||
-    interval === '12h'
-  )
-}
-
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000
 const MINUTE_MS = 60 * 1000
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -279,15 +275,6 @@ function toHistogramData(c: CandleDto): HistogramData {
   }
 }
 
-/**
- * UTCTimestamp 또는 BusinessDay {year,month,day}를 밀리초로 변환
- * LWC v4 tickMarkFormatter의 time 인자 타입에 대응.
- */
-function lwcTimeToMs(time: UTCTimestamp | { year: number; month: number; day: number }): number {
-  if (typeof time === 'number') return time * 1000
-  return Date.UTC(time.year, time.month - 1, time.day)
-}
-
 function lwcTimeToIso(time: MouseEventParams['time']): string | null {
   if (!time) return null
   const ms =
@@ -298,39 +285,6 @@ function lwcTimeToIso(time: MouseEventParams['time']): string | null {
       : Date.UTC(time.year, time.month - 1, time.day)
   if (!Number.isFinite(ms)) return null
   return new Date(ms).toISOString()
-}
-
-/**
- * KST 시간 포맷터 — 분봉이면 "2026-01-01 10:20", 일봉 이상은 "2026-01-01"
- */
-function formatKstTime(
-  time: UTCTimestamp | { year: number; month: number; day: number },
-  isIntraday: boolean,
-): string {
-  const ms = lwcTimeToMs(time)
-  const d = new Date(ms)
-
-  if (isIntraday) {
-    // sv-SE locale: "2026-01-01 10:20" 형태 — Asia/Seoul KST
-    return new Intl.DateTimeFormat('sv-SE', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-      timeZone: 'Asia/Seoul',
-    })
-      .format(d)
-      .replace('T', ' ')
-  } else {
-    return new Intl.DateTimeFormat('sv-SE', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      timeZone: 'Asia/Seoul',
-    }).format(d)
-  }
 }
 
 /** 가격 천 단위 콤마 포맷 */
@@ -393,6 +347,7 @@ export function LightweightChart({
   const chartRef = useRef<IChartApi | null>(null)
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const volumeSeriesRef = useRef<ISeriesApi<SeriesType> | null>(null)
+  const timeAxisSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const riskPlanPriceLinesRef = useRef<IPriceLine[]>([])
   const riskPlanLineSeriesRef = useRef<ISeriesApi<'Line'>[]>([])
   const onScrollLeftRef = useRef(onScrollLeft)
@@ -422,6 +377,9 @@ export function LightweightChart({
   // interval ref — tickMarkFormatter 클로저에서 최신 값 참조
   const intervalRef = useRef(interval)
   intervalRef.current = interval
+  // 현재 화면에 노출된 logical bar 수 — 하단 시간축 라벨 밀도 계산용
+  const visibleBarCountRef = useRef(Math.max(1, Math.min(candles.length, 200)))
+  const axisBoundaryTimesRef = useRef<AxisBoundaryTimes>({ day: new Set(), month: new Set(), year: new Set() })
 
   // 툴팁 상태
   const [tooltip, setTooltip] = useState<TooltipState>({
@@ -549,15 +507,25 @@ export function LightweightChart({
         secondsVisible: false,
         tickMarkFormatter: (
           time: UTCTimestamp | { year: number; month: number; day: number },
+          tickMarkType: TickMarkType,
         ) => {
-          return formatKstTime(time, isIntradayInterval(intervalRef.current))
+          const boundaryTimes = axisBoundaryTimesRef.current
+          return formatKstAxisTick(
+            time,
+            intervalRef.current,
+            visibleBarCountRef.current,
+            tickMarkType,
+            boundaryTimes.month,
+            boundaryTimes.year,
+            boundaryTimes.day,
+          )
         },
       },
       localization: {
         locale: 'ko-KR',
         priceFormatter: fmtPrice,
-        timeFormatter: (time: UTCTimestamp | { year: number; month: number; day: number }) => {
-          return formatKstTime(time, isIntradayInterval(intervalRef.current))
+        timeFormatter: (time: UTCTimestamp | { year: number; month: number; day: number } | string) => {
+          return formatKstCrosshairTime(time, intervalRef.current)
         },
         dateFormat: 'yyyy-MM-dd',
       },
@@ -591,6 +559,16 @@ export function LightweightChart({
     })
     volumeSeriesRef.current = volumeSeries
 
+    const timeAxisSeries = chart.addLineSeries({
+      visible: false,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      lineVisible: false,
+      crosshairMarkerVisible: false,
+      priceScaleId: '',
+    })
+    timeAxisSeriesRef.current = timeAxisSeries
+
     const handleClick = (param: MouseEventParams) => {
       if (isDisposedRef.current) return
       if (!param.time || !param.point) return
@@ -616,7 +594,9 @@ export function LightweightChart({
     //         (이전 from > 현재 from = 좌측 이동, zoom·resize·우측 pan은 무시)
     // 가드 3) candles.length >= maxCandles 시 lazy backfill 차단 + toast 1회. (Phase 5 ADR 0093 §3-2)
     chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-      if (!range || !onScrollLeftRef.current) return
+      if (!range) return
+      visibleBarCountRef.current = Math.max(1, Math.ceil(range.to - range.from))
+      if (!onScrollLeftRef.current) return
 
       // 가드 1: setData 직후 1초간은 자동 콜백(fitContent)이므로 무시
       const elapsedMs = Date.now() - setDataReceivedAtRef.current
@@ -731,7 +711,7 @@ export function LightweightChart({
         close: candle.close,
         volume,
         changeRate,
-        timeLabel: formatKstTime(param.time as UTCTimestamp, isIntradayInterval(intervalRef.current)),
+        timeLabel: formatKstCrosshairTime(param.time, intervalRef.current),
       })
     })
 
@@ -757,6 +737,7 @@ export function LightweightChart({
       clearRiskPlanOverlay()
       candleSeriesRef.current = null
       volumeSeriesRef.current = null
+      timeAxisSeriesRef.current = null
       // 콜백 알림 (IndicatorOverlay·PatternMarker가 ref 정리 가능하도록)
       onCandleSeriesDestroyRef.current?.()
       onChartDestroyRef.current?.()
@@ -870,11 +851,13 @@ export function LightweightChart({
   useEffect(() => {
     const candleSeries = candleSeriesRef.current
     const volumeSeries = volumeSeriesRef.current
-    if (!candleSeries || !volumeSeries) return
+    const timeAxisSeries = timeAxisSeriesRef.current
+    if (!candleSeries || !volumeSeries || !timeAxisSeries) return
 
     if (candles.length === 0) {
       candleSeries.setData([])
       volumeSeries.setData([])
+      timeAxisSeries.setData([])
       volumeMapRef.current = new Map()
       changeRateMapRef.current = new Map()
       lastBarRef.current = null
@@ -884,6 +867,10 @@ export function LightweightChart({
     // backend가 ASC 정렬 보장 (spec §3-6 §10-6 정합)
     const candleData = candles.map(toCandlestickData)
     const volumeData = candles.map(toHistogramData)
+    const candleTimes = candleData.map((candle) => candle.time as UTCTimestamp)
+    const futureHourlyTimes = interval === '1h' ? buildHourlyFutureWhitespaceTimes(candleTimes) : []
+    const futureTimeAxisData = futureHourlyTimes.map((time): WhitespaceData => ({ time }))
+    axisBoundaryTimesRef.current = buildAxisBoundaryTimes([...candleTimes, ...futureHourlyTimes])
 
     // volume lookup 맵 갱신
     const vMap = new Map<number, number>()
@@ -900,6 +887,7 @@ export function LightweightChart({
 
     candleSeries.setData(candleData)
     volumeSeries.setData(volumeData)
+    timeAxisSeries.setData(futureTimeAxisData)
     chartRef.current?.timeScale().fitContent()
 
     // backlog §30 fix — setData 시각 기록 (visibleLogicalRange cooldown 가드용)

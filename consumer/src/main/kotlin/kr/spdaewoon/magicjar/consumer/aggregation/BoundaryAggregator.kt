@@ -45,15 +45,15 @@ import kotlinx.datetime.Instant as KtInstant
  *     1. DB 1m fetch (boundary 시작~마감분 inclusive — NXT 12h=08:00~19:59 720건)
  *     2. CandleAggregator.aggregate(1m list, target) → bar 생성
  *     3. RedisCandleCache.putBoundaryCandle(code, interval, bar) (ADR 0064 A-1)
- *     4. ConsumerCandleJpaRepository.insertIgnore (ON CONFLICT DO NOTHING 멱등)
+ *     4. ConsumerCandleJpaRepository.insertOrUpdateIfGapfill (gapfill row 교정 + 멱등)
  *     5. Kafka publish market.candle.{interval}.closed.v1 (ADR 0064 C-1)
  *
  * 멱등 가드 (ADR 0064 §4-6):
  *   in-process lastBoundaryProcessed: Map<Pair<code, interval>, LocalDate(KST)>
  *   같은 boundary 분에 여러 tick 도달 시 첫 번째 처리만 실행.
- *   컨테이너 재기동 시 map 손실 → DB ON CONFLICT DO NOTHING으로 멱등 보장.
+ *   컨테이너 재기동 시 map 손실 → DB conditional UPSERT로 멱등 보장.
  *
- * 헌법 §6 JPA default fun 함정: ConsumerCandleJpaRepository.insertIgnore는 @Query 사용
+ * 헌법 §6 JPA default fun 함정: ConsumerCandleJpaRepository.insertOrUpdateIfGapfill는 @Query 사용
  *   (abstract body 없음) — 함정 회피 확인.
  */
 @Component
@@ -204,7 +204,7 @@ class BoundaryAggregator(
         // 5. Redis candle:current:{code}:{interval} 갱신 (ADR 0064 A-1)
         redisCandleCache.putBoundaryCandle(code, target, bar)
 
-        // 6. DB INSERT (ON CONFLICT DO NOTHING — idempotent)
+        // 6. DB UPSERT (gapfill row 교정 + idempotent)
         insertBarToDb(bar, target)
 
         // 7. Kafka publish market.candle.{interval}.closed.v1 (ADR 0064 C-1)
@@ -250,7 +250,7 @@ class BoundaryAggregator(
     ) {
         try {
             val count =
-                candleJpaRepository.insertIgnore(
+                candleJpaRepository.insertOrUpdateIfGapfill(
                     code = bar.code,
                     interval = interval.code,
                     ts = Instant.ofEpochSecond(bar.ts.epochSeconds),
@@ -262,7 +262,7 @@ class BoundaryAggregator(
                     source = bar.source,
                 )
             log.debug(
-                "BoundaryAggregator DB INSERT: code={} interval={} ts={} inserted={}",
+                "BoundaryAggregator DB UPSERT: code={} interval={} ts={} affected={}",
                 bar.code,
                 interval.code,
                 bar.ts,
@@ -270,7 +270,7 @@ class BoundaryAggregator(
             )
         } catch (e: Exception) {
             log.error(
-                "BoundaryAggregator DB INSERT 실패: code={} interval={} ts={} err={}",
+                "BoundaryAggregator DB UPSERT 실패: code={} interval={} ts={} err={}",
                 bar.code,
                 interval.code,
                 bar.ts,

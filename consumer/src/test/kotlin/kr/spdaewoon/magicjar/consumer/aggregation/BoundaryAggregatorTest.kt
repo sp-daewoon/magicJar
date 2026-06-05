@@ -49,7 +49,7 @@ class BoundaryAggregatorTest {
 
         every { candleJpaRepository.findByCodeAndIntervalOrderByTsAsc("005930", "1m") } returns candles
         every {
-            candleJpaRepository.insertIgnore(
+            candleJpaRepository.insertOrUpdateIfGapfill(
                 code = any(),
                 interval = any(),
                 ts = any(),
@@ -65,7 +65,7 @@ class BoundaryAggregatorTest {
         sut.onTickClosed("005930", kstInstant(19, 59))
 
         verify {
-            candleJpaRepository.insertIgnore(
+            candleJpaRepository.insertOrUpdateIfGapfill(
                 code = "005930",
                 interval = "12h",
                 ts = kstInstant(8, 0),

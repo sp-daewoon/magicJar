@@ -6,12 +6,19 @@ import {
   type ISeriesApi,
   type MouseEventParams,
   type SeriesMarker,
+  type TickMarkType,
   type UTCTimestamp,
 } from 'lightweight-charts'
 import type {
   StrategyResearchCandidateDto,
   StrategyResearchCandleDto,
 } from '../../api/strategyResearch'
+import {
+  buildAxisBoundaryTimes,
+  formatKstAxisTick,
+  formatKstCrosshairTime,
+  normalizeChartInterval,
+} from '../chart/chartTimeLabels'
 import { formatMoney } from '../scenario/scenarioReplayFormat'
 
 interface StrategyResearchChartProps {
@@ -38,25 +45,6 @@ const TOOLTIP_HEIGHT = 124
 function toTime(iso: string): UTCTimestamp | null {
   const value = Math.floor(new Date(iso).getTime() / 1000)
   return Number.isFinite(value) ? (value as UTCTimestamp) : null
-}
-
-function formatKstChartTime(time: UTCTimestamp | { year: number; month: number; day: number } | string): string {
-  const ms =
-    typeof time === 'number'
-      ? time * 1000
-      : typeof time === 'string'
-        ? new Date(time).getTime()
-        : Date.UTC(time.year, time.month - 1, time.day)
-  if (!Number.isFinite(ms)) return '-'
-  return new Intl.DateTimeFormat('sv-SE', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone: 'Asia/Seoul',
-  }).format(new Date(ms))
 }
 
 function candleData(candles: StrategyResearchCandleDto[]): CandlestickData[] {
@@ -120,10 +108,13 @@ export function StrategyResearchChart({ code, interval, candles, candidate }: St
 
   const data = useMemo(() => candleData(candles), [candles])
   const chartMarkers = useMemo(() => markers(candidate), [candidate])
+  const chartInterval = useMemo(() => normalizeChartInterval(interval), [interval])
+  const axisBoundaryTimes = useMemo(() => buildAxisBoundaryTimes(data.map((point) => point.time as UTCTimestamp)), [data])
 
   useEffect(() => {
     const container = containerRef.current
     if (!container || data.length === 0) return
+    let visibleBars = data.length
 
     const chart = createChart(container, {
       width: container.clientWidth || 900,
@@ -143,12 +134,24 @@ export function StrategyResearchChart({ code, interval, candles, candidate }: St
         borderColor: '#334155',
         timeVisible: true,
         secondsVisible: false,
-        tickMarkFormatter: formatKstChartTime,
+        tickMarkFormatter: (
+          time: UTCTimestamp | { year: number; month: number; day: number },
+          tickMarkType: TickMarkType,
+        ) => formatKstAxisTick(
+          time,
+          chartInterval,
+          visibleBars,
+          tickMarkType,
+          axisBoundaryTimes.month,
+          axisBoundaryTimes.year,
+          axisBoundaryTimes.day,
+        ),
       },
       localization: {
         locale: 'ko-KR',
         priceFormatter: (price: number) => Math.round(price).toLocaleString('ko-KR'),
-        timeFormatter: formatKstChartTime,
+        timeFormatter: (time: UTCTimestamp | { year: number; month: number; day: number } | string) =>
+          formatKstCrosshairTime(time, chartInterval),
       },
     })
 
@@ -162,6 +165,11 @@ export function StrategyResearchChart({ code, interval, candles, candidate }: St
     })
     candleSeries.setData(data)
     candleSeries.setMarkers(chartMarkers)
+
+    chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+      if (!range) return
+      visibleBars = Math.max(1, Math.ceil(range.to - range.from))
+    })
 
     chart.subscribeCrosshairMove((param: MouseEventParams) => {
       if (!param.time || !param.point || param.point.x < 0 || param.point.y < 0) {
@@ -185,7 +193,7 @@ export function StrategyResearchChart({ code, interval, candles, candidate }: St
         visible: true,
         x,
         y,
-        timeLabel: formatKstChartTime(param.time),
+        timeLabel: formatKstCrosshairTime(param.time, chartInterval),
         open: candle.open,
         high: candle.high,
         low: candle.low,
@@ -208,7 +216,7 @@ export function StrategyResearchChart({ code, interval, candles, candidate }: St
       chartRef.current = null
       candleSeriesRef.current = null
     }
-  }, [chartMarkers, data])
+  }, [axisBoundaryTimes, chartInterval, chartMarkers, data])
 
   if (data.length === 0) {
     return (

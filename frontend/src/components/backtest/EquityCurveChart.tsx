@@ -18,9 +18,10 @@
  *   - 다만 ResizeObserver async 콜백이 cleanup 후 도달할 race risk → isDisposedRef + try/catch 강화.
  *   - chart.remove() 호출 시 try/catch graceful — StrictMode 이중 mount 시에도 race 차단.
  */
-import { createChart, type IChartApi, type UTCTimestamp } from 'lightweight-charts'
+import { createChart, type IChartApi, type TickMarkType, type UTCTimestamp } from 'lightweight-charts'
 import { useEffect, useRef } from 'react'
 import type { BacktestPositionResultDto } from '../../api/backtest'
+import { formatKstAxisTick, formatKstCrosshairTime } from '../chart/chartTimeLabels'
 
 interface EquityCurveChartProps {
   positions: BacktestPositionResultDto[]
@@ -29,16 +30,6 @@ interface EquityCurveChartProps {
 /** ISO string → UTCTimestamp (초 단위) */
 function toUTCTimestamp(isoString: string): UTCTimestamp {
   return Math.floor(new Date(isoString).getTime() / 1000) as UTCTimestamp
-}
-
-/** KST 날짜 포맷터 */
-function formatKstDate(ms: number): string {
-  return new Intl.DateTimeFormat('sv-SE', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    timeZone: 'Asia/Seoul',
-  }).format(new Date(ms))
 }
 
 export function EquityCurveChart({ positions }: EquityCurveChartProps) {
@@ -56,6 +47,7 @@ export function EquityCurveChart({ positions }: EquityCurveChartProps) {
   useEffect(() => {
     if (!containerRef.current) return
     isDisposedRef.current = false
+    let visibleBars = Math.max(1, closedPositions.length)
 
     const chart = createChart(containerRef.current, {
       layout: {
@@ -75,10 +67,16 @@ export function EquityCurveChart({ positions }: EquityCurveChartProps) {
       },
       timeScale: {
         borderColor: '#334155',
-        tickMarkFormatter: (time: UTCTimestamp | { year: number; month: number; day: number }) => {
-          const ms = typeof time === 'number' ? time * 1000 : Date.UTC((time as { year: number; month: number; day: number }).year, (time as { year: number; month: number; day: number }).month - 1, (time as { year: number; month: number; day: number }).day)
-          return formatKstDate(ms)
-        },
+        tickMarkFormatter: (
+          time: UTCTimestamp | { year: number; month: number; day: number },
+          tickMarkType: TickMarkType,
+        ) => formatKstAxisTick(time, '1d', visibleBars, tickMarkType),
+      },
+      localization: {
+        locale: 'ko-KR',
+        dateFormat: 'yyyy-MM-dd',
+        timeFormatter: (time: UTCTimestamp | { year: number; month: number; day: number } | string) =>
+          formatKstCrosshairTime(time, '1d'),
       },
       width: containerRef.current.clientWidth,
       height: 280,
@@ -126,6 +124,11 @@ export function EquityCurveChart({ positions }: EquityCurveChartProps) {
       lineSeries.setData(points)
       chart.timeScale().fitContent()
     }
+
+    chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+      if (!range) return
+      visibleBars = Math.max(1, Math.ceil(range.to - range.from))
+    })
 
     // ResizeObserver — §13 dispose race 가드 (isDisposedRef + try/catch)
     const ro = new ResizeObserver(() => {

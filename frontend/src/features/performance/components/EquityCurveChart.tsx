@@ -18,7 +18,7 @@ import { useEffect, useRef } from 'react'
 import { createChart } from 'lightweight-charts'
 import type { IChartApi, ISeriesApi, LineData } from 'lightweight-charts'
 import type { EquityPointDto } from '../api/performanceApi'
-import { formatPerformanceChartDate, toBusinessDay } from './performanceChartTime'
+import { formatPerformanceChartDate, formatPerformanceCrosshairDate, toBusinessDay } from './performanceChartTime'
 
 interface EquityCurveChartProps {
   points: EquityPointDto[] | undefined
@@ -60,7 +60,7 @@ export function EquityCurveChart({ points, isLoading, isError }: EquityCurveChar
       localization: {
         locale: 'ko-KR',
         dateFormat: 'yyyy-MM-dd',
-        timeFormatter: formatPerformanceChartDate,
+        timeFormatter: formatPerformanceCrosshairDate,
       },
       crosshair: {
         mode: 1,

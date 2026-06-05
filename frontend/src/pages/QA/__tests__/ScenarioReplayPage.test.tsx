@@ -23,6 +23,7 @@ vi.mock('lightweight-charts', () => ({
     subscribeCrosshairMove: vi.fn(),
     timeScale: () => ({
       fitContent: vi.fn(),
+      subscribeVisibleLogicalRangeChange: vi.fn(),
     }),
   }),
 }))
