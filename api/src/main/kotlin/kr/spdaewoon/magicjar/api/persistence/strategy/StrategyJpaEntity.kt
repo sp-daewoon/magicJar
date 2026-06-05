@@ -17,6 +17,7 @@ import java.time.Instant
  * ADR 0051 주의: no-arg constructor 필요 — kotlin-jpa 플러그인(api 모듈 적용) 의존.
  * ADR 0047 §2-6 정합 — disabled_reason·last_disabled_at·eval_metric_summary 컬럼.
  * ADR 0066 §2-6 F-1 정합 — status + codes/intervals JSONB.
+ * ADR 0111 정합 — V65 scale_in_config·partial_exits JSONB(raw String 보관, 도메인 wiring R2).
  *
  * 헌법 §6: body 가진 fun 0건.
  */
@@ -45,6 +46,13 @@ class StrategyJpaEntity(
     val fixedStopLossPct: BigDecimal? = null,
     @Column(name = "take_profit_pct", precision = 9, scale = 4)
     val takeProfitPct: BigDecimal? = null,
+    // V65 추가 컬럼 — ADR 0111 scale-in/partial-exit 정책 (raw JSON 보관. 도메인 직렬화 wiring은 R2).
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "scale_in_config", columnDefinition = "jsonb")
+    val scaleInConfig: String? = null,
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "partial_exits", columnDefinition = "jsonb")
+    val partialExits: String? = null,
     @Column(name = "ast_depth", nullable = false)
     val astDepth: Int = 0,
     @Column(name = "node_count", nullable = false)
