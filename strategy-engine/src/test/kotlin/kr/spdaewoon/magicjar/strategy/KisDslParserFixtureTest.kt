@@ -146,4 +146,14 @@ class KisDslParserFixtureTest {
         assertEquals("close", left.name)
         assertEquals(0, left.params.size)
     }
+
+    @Test
+    fun `bare open identifier passes validateStatic — Strategy Builder OHLCV contract`() {
+        val ast = parser.parse("open > 0")
+        parser.validateStatic(ast)
+        val cond = assertInstanceOf(Condition::class.java, ast)
+        val left = assertInstanceOf(IndicatorRef::class.java, cond.left)
+        assertEquals("open", left.name)
+        assertEquals(0, left.params.size)
+    }
 }

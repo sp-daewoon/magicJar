@@ -50,7 +50,7 @@ import java.math.BigDecimal
  * - DSL alias 8종 (`macd_signal`·`macd_hist`·`bb_upper`·`bb_lower`·`bb_middle`·`stoch_k`·`stoch_d`·`volume_ma`)
  * - 패턴 함수 3종 (`consecutive`·`pattern`·`pattern_detected`) — T-PAT JvmPatternRecognizer 호출
  *   - `pattern_detected("name")` — magicJar 자체 alias (T-PAT PR-39 추가). KIS DSL `pattern("name")`과 동치 라우팅.
- * - 캔들 직접 접근 5종 (`close`·`prev_close`·`high`·`low`·`volume`)
+ * - 캔들 직접 접근 6종 (`open`·`close`·`prev_close`·`high`·`low`·`volume`)
  * - 자체 함수 4종 (`change`·`highest`·`lowest`·`returns`)
  *
  * Repository default fun 함정 — ADR 0051 §3 정합. 본 클래스는 stateless `@Component` (Spring bean).
@@ -583,7 +583,8 @@ class KisYamlDslParser(
                 add("ob_bearish_mid")
                 add("ob_bearish_fill_pct")
                 add("ob_bos_direction")
-                // 캔들 직접 접근 5종 (특수 케이스)
+                // 캔들 직접 접근 6종 (특수 케이스 — Strategy Builder OHLCV 계약 정합)
+                add("open")
                 add("close")
                 add("prev_close")
                 add("high")
