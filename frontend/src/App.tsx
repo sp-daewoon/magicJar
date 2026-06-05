@@ -13,6 +13,7 @@
  *   /instruments      -> 전체 종목검색 + 섹터 그룹
  *   /symbol/:code     -> 종목 상세 (T-S1 — ADR 0040 §2-2 진입점)
  *   /strategy/backtest -> 백테스트 (T-BT R3 — ADR 0061 §4 D-1)
+ *   /strategy/research -> 전략 리서치 (QA 전용 후보 생성)
  *   /strategy/scenario-replay -> 시나리오 리플레이 (T-SIM Phase 3 — ADR 0107)
  *   /strategy/list    -> 전략 목록 + 시그널 내역 (T-SIG Phase 3 — ADR 0066)
  *   /risk-config      -> 리스크 설정 (T-RISK Phase 3 — ADR 0067)
@@ -43,6 +44,7 @@ import { InstrumentUniversePage } from './pages/Instruments/InstrumentUniversePa
 import { WatchlistPage } from './pages/Watchlist/WatchlistPage'
 import { StrategyBuilderPage } from './pages/Strategy/StrategyBuilderPage'
 import { BacktestPage } from './pages/Strategy/BacktestPage'
+import { StrategyResearchPage } from './pages/Strategy/StrategyResearchPage'
 import { StrategyListPage } from './pages/Strategy/StrategyListPage'
 import { ScenarioReplayPage } from './pages/QA/ScenarioReplayPage'
 import { RiskConfigPage } from './pages/Risk/RiskConfigPage'
@@ -132,6 +134,8 @@ export function App() {
           <Route path="/strategy/builder" element={<StrategyBuilderPage />} />
           {/* T-BT R3: 백테스트 — ADR 0061 §4 D-1 결정 */}
           <Route path="/strategy/backtest" element={<BacktestPage />} />
+          {/* QA: candle 기반 전략 후보 리서치 — 저장/주문 path 미사용 */}
+          <Route path="/strategy/research" element={<StrategyResearchPage />} />
           {/* T-SIG Phase 3: 전략 목록 + 시그널 내역 — ADR 0066 */}
           <Route path="/strategy/list" element={<StrategyListPage />} />
           {/* T-SIM Phase 3: 실제 주문과 분리된 시나리오 리플레이 — ADR 0107 */}
