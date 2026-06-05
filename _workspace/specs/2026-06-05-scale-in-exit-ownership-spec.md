@@ -41,6 +41,7 @@
 - **KIS 서버사이드 stop/OCO 주문** — 1차는 내부 WS 감시 기반 보호(ADR 0106 §37 정합).
 - **분할 매수 시점의 추가 진입을 위한 신규 DSL 연산자** — §6-4에서 "DSL 확장 불요" 판정. 추가 진입 트리거는 설정값(가격 하락폭·재시그널)으로 충분.
 - **운영 코드 touch** — 본 PR은 spec/ADR md only(spec 사이클).
+- **전략 리서치 "추천 실행 계획" 자동 출력 연결 (item-4 post-MVP 확장 슬롯)** — 오늘 머지된 전략 리서치 화면(`frontend/src/pages/Strategy/StrategyResearchPage.tsx` + `api/strategyResearch.ts` `StrategyResearchCandidateDto.{entryRules,exitRules,riskRules,entryDslDraft,exitDslDraft}` + `lib/strategyResearch/builderDraft.ts`가 이미 `stopLossPct·takeProfitPct·maxHoldBars`를 빌더 draft로 주입)이, 향후 "추천 실행 계획"(예: 3분할 진입·짧은 익절·타이트한 손절)까지 출력하는 연결 고리를 **post-MVP 확장 슬롯**으로 명시한다. 본 spec의 **`ScaleInPlan`·`ExitPlan`(PartialExit 포함) 도메인 모델이 리서치 출력 DTO로 그대로 재사용 가능**하다 — 리서치 후보가 `scaleIn`(분할 회수·회당 비중)·`partialExits`(분할 익절 단계)를 builderDraft에 주입하면 사용자가 빌더에서 검증·저장하는 출발점이 된다(자동매매 결정을 대신하지 않음 — 방향성 가드 정합). 본 사이클은 모델만 정의하고 리서치 연결은 구현 X.
 
 ---
 
@@ -80,10 +81,14 @@ StrategyPosition  (도메인, 신규)
   quantity      Int           // 이 전략이 현재 보유한 수량 (분할 누적 - 청산)
   avgPrice      BigDecimal    // 이 전략의 평단 (분할 매수로 가중평균 갱신)
   filledLots    Int           // 지금까지 체결된 분할 회차 수 (scale-in 진행도)
+  executedExitStages  Set<Int>  // 이미 발화된 PartialExit 단계 인덱스 집합 (부분 익절 중복 발화 방지 — scale-in filledLots와 대칭)
   realizedPnl   BigDecimal    // 이 전략의 누적 실현 손익 (부분 청산 누적)
   openedAt      Instant
   updatedAt     Instant
 ```
+
+- **부분 익절 중복 발화 방지 불변식 (item-1 보강)**: PartialExit 각 단계는 **1회만 발화**한다. 가격이 trigger 위에 머무는 동안 매 boundary/tick마다 같은 단계 SELL이 재발화되는 risk를 `executedExitStages`로 차단한다. `evaluatePartialTakeProfit`는 `stageIndex !in executedExitStages` AND `profitPct >= partialExits[stageIndex].triggerProfitPct`일 때만 SELL을 발행하고, **체결 확정 시** `executedExitStages += stageIndex`(체결 listener 책임 — 발행 시점이 아니라 체결 시점에 마킹해 미체결 reject 시 재시도 가능). scale-in의 `filledLots`(진입 진행도)와 정확히 대칭 구조다(진입=단조 증가 카운터, 청산=발화 단계 집합).
+- **전량 청산 시 reset**: `quantity==0`(STOP_LOSS·최종 TAKE_PROFIT으로 전량 청산)이면 `filledLots=0`·`executedExitStages={}` reset(행 유지 — 재진입 시 새 사이클). 부분 청산만으로는 reset 안 함(단계 단조 진행 보존).
 
 - **불변식**: `sum(StrategyPosition.quantity WHERE user+code) == Position.quantity` (정합 검증 — drift 시 KIS 잔고가 권위, ADR 0106 §6 SELL 가용 수량 계산 정합). drift 발견 시 `STRATEGY_POSITION_DRIFT` SystemEvent(WARN) + 보수적으로 Position(KIS 권위) 우선.
 - **평단 갱신**: BUY 체결 시 `avgPrice = (avgPrice*quantity + fillPrice*fillQty) / (quantity+fillQty)`, `quantity += fillQty`, `filledLots += 1`.
@@ -129,7 +134,7 @@ PartialExit
 
 - **평단 기준**: stop-loss·take-profit·partialExit 모두 **`StrategyPosition.avgPrice`** 기준(user+code 합산 평단이 아니라 전략 평단). 이것이 ownership을 토대로 하는 이유.
 - **stop-loss exit 신규 구현**: 현행 `evaluateTakeProfitExit`는 익절만. 동일 패턴으로 `evaluateStopLossExit`(현재가 ≤ 평단×(1-stop%) → 전량 SELL, reason `STOP_LOSS`) 추가.
-- **분할 익절**: `partialExits` 설정 시 각 trigger 도달마다 보유분의 weight%만 SELL(reason `PARTIAL_TAKE_PROFIT`, slice index 기록). 마지막 익절·손절은 잔량 전량.
+- **분할 익절**: `partialExits` 설정 시 각 trigger 도달마다 보유분의 weight%만 SELL(reason `PARTIAL_TAKE_PROFIT`, slice index 기록). **단계당 1회만 발화** — `StrategyPosition.executedExitStages`(§3-1)에 기록된 단계는 재발화 금지(가격이 trigger 위에 계속 머물러도 중복 SELL 0). 마지막 익절·손절은 잔량 전량.
 - **우선순위(동시 터치)**: ADR 0107 Fill model §2-6 정합 — **stop-loss 우선**(보수적). 같은 boundary에서 stop·take 동시 조건이면 손절 먼저.
 - **하위호환**: `partialExits == null` → 현행 전량 익절 그대로.
 
@@ -139,7 +144,7 @@ PartialExit
 
 | 번호 | 파일 | 내용 | 모듈 |
 |------|------|------|------|
-| **V65** | `V65__strategy_position.sql` | `strategy_position` 테이블 신설 — `UNIQUE(user_id, strategy_id, code)` + FK(user_account·strategy·instrument) + `quantity·avg_price·filled_lots·realized_pnl·opened_at·updated_at`. 인덱스 `(user_id, code)`(정합 검증용)·`(strategy_id)` | api (db/migration) |
+| **V65** | `V65__strategy_position.sql` | `strategy_position` 테이블 신설 — `UNIQUE(user_id, strategy_id, code)` + FK(user_account·strategy·instrument) + `quantity·avg_price·filled_lots·realized_pnl·opened_at·updated_at` + **`executed_exit_stages JSONB NOT NULL DEFAULT '[]'`**(발화된 PartialExit 단계 인덱스 배열 — 부분 익절 중복 발화 방지·§3-1 item-1). 인덱스 `(user_id, code)`(정합 검증용)·`(strategy_id)` | api (db/migration) |
 | **V66** | `V66__strategy_scale_in_exit.sql` | `strategy` 테이블 add-only — `scale_in_config JSONB NULL`(ScaleInPlan 직렬화)·`partial_exits JSONB NULL`(PartialExit 리스트). 기존 `fixed_stop_loss_pct`·`take_profit_pct` 유지 | api (db/migration) |
 
 **LOCK 근거**: main 최신 V63 + 작업트리 V64(market_calendar, 별 브랜치) 점유 가정 → V65·V66. R1 dispatch 시점 `git ls-tree origin/main --name-only | grep 'db/migration/V6[4-9]'` 재확인 의무. V64가 main 미머지면 V64·V65로 당김(orchestrator 판단).
@@ -180,6 +185,36 @@ boundary close / tick (RealtimeSignalGenerator)
 ```
 
 - **자본 보호 불변**: 손절가 없는 BUY는 ADR 0106 fail-closed 유지. scale-in 추가 회차도 RiskPlan preflight 통과 의무(매 회차 손절/익절 유효).
+
+### 5-3. leg(회차/단계) 단위 idempotency 정합 ★ (item-2 보강)
+
+분할 매수 N회·분할 익절 M단계는 **하나의 전략당 다건 주문**을 만든다. 각 leg가 자본 중복(같은 회차 2번 체결) 없이, 그러나 정당한 다음 회차는 막히지 않게 발행되는 경로를 명문화한다.
+
+**(0) 현행 idempotency 권위 실측 (추측 0)** — 본 spec 설계는 아래 main 코드 실측 위에 선다:
+
+| 자원 | V20 본문(최초) | **V38 현행(LOCK)** | 권위 |
+|------|---------------|-------------------|------|
+| `order_request.signal_id` | `NOT NULL REFERENCES signal(id)` FK | **FK DROP** (manual sentinel 0L 허용) | FK 강제 없음. AUTO는 여전히 실제 signal_id 채움 |
+| `uq_order_signal_user (signal_id, user_id)` | UNIQUE 제약 | **DROP** (manual 다건 허용) | **더 이상 자본 중복 보호 권위 아님** |
+| `uq_order_idempotency (idempotency_key)` | UNIQUE | **유지** | ★ **자본 중복 보호 단일 권위** (Redis SETNX 60s + DB UQ 이중 — V20 §5·V38 §22 LOCK) |
+
+→ dispatch 지시 전제("`uq_order_signal_user` 제약 정합 / signal_id NOT NULL FK라 시그널 없이 OrderIntent 못 만든다")는 **V38에서 이미 완화됨**. 따라서 leg 중복 방지의 권위는 `uq_order_signal_user`가 아니라 **`idempotencyKey` UQ + Redis SETNX**다. 본 spec은 이 실측 권위 위에서 leg 경로를 설계한다.
+
+**(a) SIGNAL_REPEAT 회차 = 새 시그널** — BUY 시그널이 다시 발화하면 `signal` UQ `(strategy_id, code, interval, ts)`(V15)에서 **다른 ts → 새 행**이라 자연 통과. 새 signalId → AUTO idempotencyKey가 자연히 distinct. 별도 처리 불요.
+
+**(b) PRICE_DROP_PCT 회차의 발행 경로 확정** — averaging-down 회차는 BUY DSL 재발화 없이 "직전 체결가 대비 X% 하락"으로 트리거된다. 그러나 **현행 AUTO 흐름은 OrderIntent를 시그널 없이 직접 만들지 않는다**(OrderIntent.signalId·order_request.signal_id 컬럼 = AUTO 감사 lineage의 출발점). 따라서:
+  - PRICE_DROP_PCT 트리거도 `RealtimeSignalGenerator`가 **시그널을 발행**하고(reason에 `SCALE_IN_SLICE#{filledLots+1}:PRICE_DROP` 회차 명시), 그 시그널로 주문하는 **기존 AUTO 경로를 그대로 통과**한다(시그널 없이 OrderIntent 생성하는 신규 우회 경로 0 — 흐름 LOCK).
+  - 시그널 UQ `(strategy_id, code, interval, ts)`와의 중복 방지 관계: PRICE_DROP 회차의 `ts`는 트리거가 발생한 boundary/tick의 ts → 직전 회차와 다른 ts라 UQ 자연 통과. 같은 boundary에서 같은 회차가 두 번 평가돼도(중복 tick) **같은 ts → UQ가 시그널 단에서 1차 차단**, 그 뒤 idempotencyKey UQ가 주문 단에서 2차 차단(이중).
+
+**(c) 분할 익절 SELL도 단계별 시그널 발행** — `evaluatePartialTakeProfit`도 SELL **시그널을 발행**하고(reason `PARTIAL_TAKE_PROFIT#{stageIndex}`), 그 시그널로 SELL 주문. STOP_LOSS·최종 TAKE_PROFIT도 동일(reason `STOP_LOSS`·`TAKE_PROFIT`). 즉 모든 leg는 "시그널 → OrderIntent" AUTO 경로 단일.
+
+**(d) idempotencyKey 형식에 회차/단계 포함 결정** — 현행 AUTO 키 `"{signalId}:{userId}"`(OrderIntent.kt L22 실측)는 leg마다 signalId가 달라(b·c) 이미 distinct하다. 다만 **방어적으로 회차/단계를 명시 포함**해 같은 signalId 재사용 사고(예: 시그널 재처리)에도 중복 차단을 보장한다:
+  - scale-in BUY: `"{signalId}:{userId}:slice#{filledLots+1}"`
+  - 분할 익절 SELL: `"{signalId}:{userId}:ptp#{stageIndex}"`
+  - stop/최종 익절: `"{signalId}:{userId}:exit#{STOP_LOSS|TAKE_PROFIT}"`
+  - **하위호환**: scale-in 미설정(단일 진입) 전략은 기존 `"{signalId}:{userId}"` 그대로 유지(suffix 0) — 기존 키 동작 불변. suffix는 scale-in/exit 활성 leg에만 add.
+
+→ **결론**: leg 중복 방지 권위 = `idempotencyKey` UQ + Redis SETNX(V38 실측). PRICE_DROP·분할 익절 모두 시그널 발행 → AUTO 경로 단일(시그널 없이 OrderIntent 생성 0). idempotencyKey에 회차/단계 suffix를 add(하위호환 보존). 신규 Flyway·신규 우회 경로 0.
 
 ---
 
@@ -256,6 +291,17 @@ boundary close / tick (RealtimeSignalGenerator)
 | **R3** | UI + 리플레이/백테스트 정합 + 일괄 테스트 | **frontend** (전략 빌더 scale-in/exit 입력 + 전략별 포지션 표시) + **strategy-engine** (리플레이 ScenarioLedger 전략별 lot + 백테스트 ScaleInExitCalculator 재사용) + **qa** (전 흐름 시나리오 테스트) | UI add-only + 리플레이/백테스트 단일 함수 공유 + 데이터 흐름 시나리오 테스트 일괄(개발 룰 4) | **R3 일괄 테스트** — scale-in 평단 갱신·stop-loss·partial-tp·다전략 교차 청산·canary cap×분할·하위호환(scale-in null=현행) |
 
 **선후행**: R1 → R2 → R3 직렬(스키마·도메인이 엔진의 전제, 엔진이 UI/리플레이의 전제). R1 내부는 backend-core(Flyway·port)와 strategy-engine(도메인 모델)이 **add-only 병렬 가능**(다른 파일). R2·R3는 단일 함수 공유 의존이라 순차.
+
+### 8-1. "리플레이 먼저" 활성화 게이트 ★ (item-3 보강 — Codex 원칙 정합)
+
+Codex 원칙(ADR 0107 sandbox 정합): **리플레이 정합이 통과되기 전에는 실주문 경로에 scale-in/exit가 연결되면 안 된다.** R2에서 라이브 엔진을 구현하더라도 R3 리플레이 정합 + qa 시나리오가 통과하기 전까지는 scale-in/exit 전략이 실제 자본을 움직이지 못하도록 다음 순서를 LOCK한다:
+
+1. **R2 (라이브 엔진 구현 시점)** — `ScaleInExitCalculator` + RealtimeSignalGenerator scale-in/stop-loss/partial-tp 평가를 구현하되, **scale-in 평가 feature toggle**(`magicjar.strategy.scale-in.enabled`, **default `false`**)로 게이트한다. toggle OFF면 scale-in 설정 전략도 현행 단일 진입 + 전량 익절로 평가(엔진은 들어왔으나 자본 경로 미연결). 동시에 **scale-in 설정 전략의 활성화(ACTIVE) 차단 게이트**를 둔다 — scale-in/partialExits가 설정된 전략은 toggle OFF 동안 `status=ACTIVE` 전이를 거부(`SCALE_IN_NOT_ENABLED` reject)하여 라이브 자본 경로 진입을 원천 차단.
+2. **API 직접 호출 구멍 차단 (명시)** — `POST/PUT /api/strategies`로 scale-in 설정 전략을 만들 수는 있으나(DRAFT 저장은 허용 — 리플레이/백테스트 검증 대상), **활성화(ACTIVE)는 toggle OFF면 API 레벨에서도 거부**한다. UI 미노출만으로 막지 않고 서버 검증으로 막는다(UI 우회·직접 API 호출 방어).
+3. **R3 (리플레이/백테스트 정합 + qa)** — ScenarioLedger 전략별 lot + 백테스트 ScaleInExitCalculator 재사용으로 "리플레이 = 라이브 decision" 회귀 테스트 통과 + qa 전 흐름 시나리오(§8 R3 테스트 목록) 통과.
+4. **toggle 해제** — R3 정합이 GREEN인 뒤에야 `magicjar.strategy.scale-in.enabled=true` + 활성화 게이트 해제. 그 이후 scale-in 전략 ACTIVE 전이 허용.
+
+→ 이 게이트로 "엔진은 R2에 있으나 리플레이로 검증되기 전엔 실주문 0" + "API 직접 호출로도 활성화 불가"를 보장한다(readiness P1 "리플레이≠라이브" 의심 + 무검증 실주문 둘 다 차단).
 
 ---
 
