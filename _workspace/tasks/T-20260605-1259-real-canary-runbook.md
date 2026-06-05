@@ -3,10 +3,10 @@ id: T-20260605-1259-real-canary-runbook
 agent: architect
 model: opus
 branch: agent/architect/real-canary-runbook
-status: RUNNING
+status: DONE
 startedAt: 2026-06-05T12:59:13.111+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-05T13:09:44.492+09:00
+pr: #739
 parentPhase: ?
 ---
 
