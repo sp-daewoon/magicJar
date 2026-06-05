@@ -3,10 +3,10 @@ id: T-20260605-1331-canary-hard-caps
 agent: backend-core
 model: opus
 branch: agent/backend-core/canary-hard-caps
-status: RUNNING
+status: DONE
 startedAt: 2026-06-05T13:31:30.960+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-05T13:41:34.979+09:00
+pr: #740
 parentPhase: ?
 ---
 
