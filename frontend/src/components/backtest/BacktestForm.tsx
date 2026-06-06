@@ -3,7 +3,7 @@
  *
  * 입력 항목:
  *   - 전략 선택 (GET /api/strategies → strategyId)
- *   - 종목코드 (복수 쉼표 구분)
+ *   - 종목 검색 (복수 선택)
  *   - 인터벌 (1d · 12h · 4h · 1h · 90m · 30m · 15m · 5m · 3m · 1m)
  *   - 기간 (from · to, yyyy-MM-dd)
  *   - 초기자본 (KRW)
@@ -18,6 +18,8 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { sigStrategyApi, type SigStrategyDto } from '../../api/strategy'
 import { backtestApi } from '../../api/backtest'
 import type { BacktestRunPersistResponse } from '../../api/backtest'
+import type { InstrumentSearchResultDto } from '../../api/instrument'
+import { InstrumentSearchInput } from '../InstrumentSearchInput'
 
 interface BacktestFormProps {
   /** ADR 0089 Phase 2 — userId number */
@@ -37,6 +39,13 @@ const INTERVAL_OPTIONS = [
   { value: '3m', label: '3분 (3m)' },
   { value: '1m', label: '1분 (1m)' },
 ]
+
+interface SelectedInstrument {
+  code: string
+  name?: string
+  market?: string
+  sector?: string | null
+}
 
 /** 기본 from: 오늘 기준 90거래일 전 (약 4.5개월) */
 function defaultFrom(): string {
@@ -62,7 +71,8 @@ function formatCapital(v: string): string {
 
 export function BacktestForm({ userId, onSuccess }: BacktestFormProps) {
   const [strategyId, setStrategyId] = useState<string>('')
-  const [universe, setUniverse] = useState('005930')
+  const [instrumentInput, setInstrumentInput] = useState('')
+  const [selectedInstruments, setSelectedInstruments] = useState<SelectedInstrument[]>([])
   const [interval, setInterval] = useState('1d')
   const [from, setFrom] = useState(defaultFrom())
   const [to, setTo] = useState(defaultTo())
@@ -82,11 +92,8 @@ export function BacktestForm({ userId, onSuccess }: BacktestFormProps) {
     mutationFn: () => {
       const capitalStr = parseCapital(capitalDisplay)
       if (!strategyId) throw new Error('전략을 선택해주세요')
-      const universeList = universe
-        .split(',')
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0)
-      if (universeList.length === 0) throw new Error('종목코드를 입력해주세요')
+      const universeList = selectedInstruments.map((item) => item.code)
+      if (universeList.length === 0) throw new Error('종목을 선택해주세요')
       if (!from || !to) throw new Error('기간을 입력해주세요')
       if (from >= to) throw new Error('시작일은 종료일보다 이전이어야 합니다')
 
@@ -119,6 +126,27 @@ export function BacktestForm({ userId, onSuccess }: BacktestFormProps) {
     runBacktest()
   }
 
+  const handleInstrumentSelect = (result: InstrumentSearchResultDto) => {
+    setSelectedInstruments((prev) => {
+      if (prev.some((item) => item.code === result.code)) return prev
+      return [
+        ...prev,
+        {
+          code: result.code,
+          name: result.name,
+          market: result.market,
+          sector: result.sector,
+        },
+      ]
+    })
+    setInstrumentInput('')
+    setErrorMsg(null)
+  }
+
+  const handleRemoveInstrument = (code: string) => {
+    setSelectedInstruments((prev) => prev.filter((item) => item.code !== code))
+  }
+
   return (
     <form
       onSubmit={handleSubmit}
@@ -133,6 +161,7 @@ export function BacktestForm({ userId, onSuccess }: BacktestFormProps) {
           <select
             value={strategyId}
             onChange={(e) => setStrategyId(e.target.value)}
+            aria-label="전략 선택"
             className="w-full rounded border border-gray-700 bg-gray-950 px-2.5 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
             required
           >
@@ -157,6 +186,7 @@ export function BacktestForm({ userId, onSuccess }: BacktestFormProps) {
           <select
             value={interval}
             onChange={(e) => setInterval(e.target.value)}
+            aria-label="캔들 인터벌"
             className="w-full rounded border border-gray-700 bg-gray-950 px-2.5 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
             {INTERVAL_OPTIONS.map((opt) => (
@@ -167,17 +197,50 @@ export function BacktestForm({ userId, onSuccess }: BacktestFormProps) {
           </select>
         </div>
 
-        {/* 종목코드 */}
-        <div className="flex flex-col gap-1">
-          <label className="text-xs text-gray-500">종목코드 (쉼표로 복수 입력)</label>
-          <input
-            type="text"
-            value={universe}
-            onChange={(e) => setUniverse(e.target.value)}
-            placeholder="005930,000660"
-            className="w-full rounded border border-gray-700 bg-gray-950 px-2.5 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            required
+        {/* 종목 검색 */}
+        <div className="flex flex-col gap-1 sm:col-span-2 lg:col-span-3">
+          <label className="text-xs text-gray-500">종목</label>
+          <InstrumentSearchInput
+            value={instrumentInput}
+            onRawChange={setInstrumentInput}
+            onSelect={handleInstrumentSelect}
+            placeholder="종목명 또는 코드 검색"
+            disabled={isRunning}
           />
+          {selectedInstruments.length > 0 && (
+            <div
+              className="mt-2 flex flex-wrap gap-2"
+              aria-label="선택된 백테스트 종목"
+            >
+              {selectedInstruments.map((item) => (
+                <span
+                  key={item.code}
+                  className="inline-flex min-h-8 max-w-full items-center gap-2 rounded border border-gray-700 bg-gray-950 px-2.5 py-1 text-xs text-gray-200"
+                >
+                  <span className="truncate">{item.name ?? item.code}</span>
+                  {item.name && <span className="font-mono text-gray-500">{item.code}</span>}
+                  {item.market && <span className="text-gray-600">{item.market}</span>}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveInstrument(item.code)}
+                    className="ml-0.5 rounded p-0.5 text-gray-500 hover:bg-gray-800 hover:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    aria-label={`${item.name ?? item.code} 제거`}
+                    disabled={isRunning}
+                  >
+                    <XIcon />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          {selectedInstruments.length > 0 && (
+            <p className="text-xs text-gray-600">
+              {selectedInstruments.length.toLocaleString('ko-KR')}종목 ·{' '}
+              <span className="font-mono">
+                {selectedInstruments.map((item) => item.code).join(',')}
+              </span>
+            </p>
+          )}
         </div>
 
         {/* 시작일 */}
@@ -250,5 +313,22 @@ export function BacktestForm({ userId, onSuccess }: BacktestFormProps) {
         </button>
       </div>
     </form>
+  )
+}
+
+function XIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      className="h-3.5 w-3.5"
+      aria-hidden="true"
+    >
+      <path d="M4 4l8 8M12 4l-8 8" />
+    </svg>
   )
 }

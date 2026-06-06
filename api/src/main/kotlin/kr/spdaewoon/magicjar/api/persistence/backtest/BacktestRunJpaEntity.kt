@@ -30,7 +30,7 @@ class BacktestRunJpaEntity(
     val userId: String,
     @Column(name = "strategy_id")
     val strategyId: Long? = null,
-    @Column(name = "code", nullable = false, length = 8)
+    @Column(name = "code", nullable = false, length = 512)
     val code: String,
     @Column(name = "interval", nullable = false, length = 8)
     val interval: String,
