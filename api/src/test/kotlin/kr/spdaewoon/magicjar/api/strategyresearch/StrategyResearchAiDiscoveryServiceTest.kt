@@ -3,13 +3,16 @@ package kr.spdaewoon.magicjar.api.strategyresearch
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import io.kotest.matchers.collections.shouldHaveSize
+import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
+import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryStateJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryStateJpaRepository
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
 import java.time.Instant
@@ -17,6 +20,7 @@ import java.util.Optional
 
 class StrategyResearchAiDiscoveryServiceTest {
     private val instrumentRepository: InstrumentJpaRepository = mock()
+    private val candleRepository: CandleJpaRepository = mock()
     private val stateRepository: StrategyResearchAiDiscoveryStateJpaRepository = mock()
     private val objectMapper = ObjectMapper().registerKotlinModule()
 
@@ -28,6 +32,7 @@ class StrategyResearchAiDiscoveryServiceTest {
         val service =
             StrategyResearchAiDiscoveryService(
                 instrumentJpaRepository = instrumentRepository,
+                candleJpaRepository = candleRepository,
                 aiTextClient =
                     StrategyResearchAiTextClient {
                         StrategyResearchAiTextResult(
@@ -101,6 +106,7 @@ class StrategyResearchAiDiscoveryServiceTest {
         val service =
             StrategyResearchAiDiscoveryService(
                 instrumentJpaRepository = instrumentRepository,
+                candleJpaRepository = candleRepository,
                 aiTextClient =
                     StrategyResearchAiTextClient {
                         StrategyResearchAiTextResult(
@@ -163,6 +169,7 @@ class StrategyResearchAiDiscoveryServiceTest {
         val service =
             StrategyResearchAiDiscoveryService(
                 instrumentJpaRepository = instrumentRepository,
+                candleJpaRepository = candleRepository,
                 aiTextClient =
                     StrategyResearchAiTextClient {
                         calledClaude = true
@@ -189,10 +196,137 @@ class StrategyResearchAiDiscoveryServiceTest {
         response.warnings.any { it.contains("Claude 호출은 건너뛰었습니다") } shouldBe true
     }
 
+    @Test
+    fun `discover state-cache path recomputes candle count so stale zero is refreshed`() {
+        // 이전 state에는 candle 수집 전이라 candleCount=0(차트 없음)으로 저장돼 있었다.
+        val previous =
+            StrategyResearchAiDiscoveryStateJpaEntity(
+                userId = "74683223",
+                query = "반도체 후보",
+                market = null,
+                candidateLimit = 2,
+                provider = "state-cache",
+                generatedAt = Instant.parse("2026-06-05T00:00:00Z"),
+                warningsJson = "[]",
+                itemsJson =
+                    objectMapper.writeValueAsString(
+                        listOf(
+                            item(
+                                code = "005930",
+                                name = "삼성전자",
+                                status = StrategyResearchAiDiscoveryItemStatus.KEPT,
+                                candleCount = 0L,
+                                hasResearchCandles = false,
+                            ),
+                            item(
+                                code = "042700",
+                                name = "한미반도체",
+                                status = StrategyResearchAiDiscoveryItemStatus.KEPT,
+                                candleCount = 0L,
+                                hasResearchCandles = false,
+                            ),
+                        ),
+                    ),
+            )
+        whenever(stateRepository.findById("74683223")).thenReturn(Optional.of(previous))
+        whenever(stateRepository.save(any())).thenAnswer { it.arguments[0] }
+        // 사용자가 캔들을 수집 완료 → 이제 두 후보 모두 candle 보유.
+        whenever(
+            candleRepository.countByCodeAndIntervalAndTsBetween(
+                eq("005930"),
+                eq("1m"),
+                any(),
+                any(),
+            ),
+        ).thenReturn(390L)
+        whenever(
+            candleRepository.countByCodeAndIntervalAndTsBetween(
+                eq("042700"),
+                eq("1m"),
+                any(),
+                any(),
+            ),
+        ).thenReturn(0L)
+
+        val service = newService { StrategyResearchAiTextResult(provider = "test-claude", text = """{"items":[]}""") }
+
+        val response =
+            service.discover(
+                StrategyResearchAiDiscoveryRequestDto(
+                    userId = "74683223",
+                    query = "반도체 후보",
+                    market = null,
+                    limit = 2,
+                    interval = "1m",
+                    from = "2026-04-28T00:00:00Z",
+                    to = "2026-06-02T06:30:00Z",
+                ),
+            )
+
+        response.provider shouldBe "state-cache"
+        val samsung = response.items.first { it.code == "005930" }
+        samsung.candleCount shouldBe 390L
+        samsung.hasResearchCandles shouldBe true
+        val hanmi = response.items.first { it.code == "042700" }
+        hanmi.candleCount shouldBe 0L
+        hanmi.hasResearchCandles shouldBe false
+        response.warnings.any { it.contains("저장된 candle이 없는 후보") } shouldBe true
+    }
+
+    @Test
+    fun `discover state-cache path leaves candle count null when interval window absent`() {
+        val previous =
+            StrategyResearchAiDiscoveryStateJpaEntity(
+                userId = "74683223",
+                query = "반도체 후보",
+                market = null,
+                candidateLimit = 1,
+                provider = "state-cache",
+                generatedAt = Instant.parse("2026-06-05T00:00:00Z"),
+                warningsJson = "[]",
+                itemsJson =
+                    objectMapper.writeValueAsString(
+                        listOf(
+                            item(code = "005930", name = "삼성전자", status = StrategyResearchAiDiscoveryItemStatus.KEPT),
+                        ),
+                    ),
+            )
+        whenever(stateRepository.findById("74683223")).thenReturn(Optional.of(previous))
+        whenever(stateRepository.save(any())).thenAnswer { it.arguments[0] }
+
+        val service = newService { StrategyResearchAiTextResult(provider = "test-claude", text = """{"items":[]}""") }
+
+        val response =
+            service.discover(
+                StrategyResearchAiDiscoveryRequestDto(
+                    userId = "74683223",
+                    query = "반도체 후보",
+                    market = null,
+                    limit = 1,
+                ),
+            )
+
+        response.provider shouldBe "state-cache"
+        val samsung = response.items.first { it.code == "005930" }
+        samsung.candleCount.shouldBeNull()
+        samsung.hasResearchCandles.shouldBeNull()
+    }
+
+    private fun newService(complete: () -> StrategyResearchAiTextResult): StrategyResearchAiDiscoveryService =
+        StrategyResearchAiDiscoveryService(
+            instrumentJpaRepository = instrumentRepository,
+            candleJpaRepository = candleRepository,
+            aiTextClient = StrategyResearchAiTextClient { complete() },
+            objectMapper = objectMapper,
+            stateRepository = stateRepository,
+        )
+
     private fun item(
         code: String,
         name: String,
         status: StrategyResearchAiDiscoveryItemStatus,
+        candleCount: Long? = null,
+        hasResearchCandles: Boolean? = null,
     ): StrategyResearchAiDiscoveryItemDto =
         StrategyResearchAiDiscoveryItemDto(
             itemKey = "CODE:$code",
@@ -210,6 +344,8 @@ class StrategyResearchAiDiscoveryServiceTest {
             tradingHalt = false,
             managementStock = false,
             status = status,
+            candleCount = candleCount,
+            hasResearchCandles = hasResearchCandles,
         )
 
     private fun instrument(

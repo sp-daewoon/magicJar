@@ -30,6 +30,17 @@ interface CandleJpaRepository : JpaRepository<CandleJpaEntity, Long> {
     ): Long
 
     /**
+     * 종목·interval·범위 내 candle 보유 수 — AI 종목발굴 후보 candle 가용량 판정용.
+     * Spring Data query inference — body 없음 (헌법 §6 JPA default fun 함정 회피).
+     */
+    fun countByCodeAndIntervalAndTsBetween(
+        code: String,
+        interval: String,
+        fromTs: Instant,
+        toTs: Instant,
+    ): Long
+
+    /**
      * 종목·interval 목록 기준 candle 삭제.
      * 사용자 재수집(recollect) path에서만 사용한다.
      */
