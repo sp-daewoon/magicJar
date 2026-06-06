@@ -1,6 +1,10 @@
+-- Drop the unused duplicate candle lookup index.
 -- =============================================================================
 -- V69: candle 중복 인덱스 정리 (1/2) — scan 0회 사장 인덱스 drop
 --
+-- Keep:
+-- - uq_candle_code_interval_ts: uniqueness and ON CONFLICT target
+-- - idx_candle_code_interval_ts_v8: active DESC lookup index for latest candle reads
 -- 배경 (2026-06-06 DB 전수 감사 — docs/assessments/2026-06-06-db-usage-contention-audit.html):
 --   candle 인덱스 4개 중 3개가 (code, interval, ts) 동일 컬럼 조합.
 --     uq_candle_code_interval_ts      (code, interval, ts)      167MB — 23.2M scans (주력, ON CONFLICT 본체)
