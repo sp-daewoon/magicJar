@@ -822,22 +822,19 @@ export function StrategyResearchPage() {
               className="mt-1 w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
             />
           </label>
-          {/*
-            발굴 버튼 — 옆 입력 필드(label)들과 같은 행 높이·베이스라인으로 평행 정렬.
-            상단에 빈 라벨 텍스트 줄(aria-hidden nbsp)을 두고 그 아래 input과 같은 높이(h-10)로 버튼을 배치.
-            button을 <label>로 감싸면 접근성 이름이 비어버려 <div>로 둔다(레이아웃은 label 컬럼과 동일).
-          */}
-          <div className="flex flex-col self-start lg:col-span-2">
-            <span className="text-xs text-gray-500" aria-hidden>&nbsp;</span>
+          {/* 발굴 버튼 — 옆 입력 필드와 동일한 label 패턴(빈 라벨 줄 + mt-1 h-10)으로 평행 정렬 (사용자 지정 마크업) */}
+          <label className="lg:col-span-2">
+            <span className="text-xs text-gray-500">&nbsp;</span>
             <button
               type="button"
               onClick={submitDiscovery}
               disabled={discoveryMutation.isPending}
+              aria-label={discoveryMutation.isPending ? '발굴 중' : '발굴'}
               className="mt-1 h-10 w-full rounded bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {discoveryMutation.isPending ? '발굴 중' : '발굴'}
             </button>
-          </div>
+          </label>
         </div>
 
         {discoveryMutation.isPending && (
@@ -1022,18 +1019,19 @@ export function StrategyResearchPage() {
               className="mt-1 w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
             />
           </label>
-          {/* 리서치 버튼 — 발굴 버튼과 동일 패턴: input 컬럼과 평행 정렬(빈 라벨 줄 + h-10) */}
-          <div className="flex flex-col self-start lg:col-span-2">
-            <span className="text-xs text-gray-500" aria-hidden>&nbsp;</span>
+          {/* 리서치 버튼 — 발굴 버튼과 동일한 label 패턴(빈 라벨 줄 + mt-1 h-10)으로 평행 정렬 (사용자 지정 마크업) */}
+          <label className="lg:col-span-2">
+            <span className="text-xs text-gray-500">&nbsp;</span>
             <button
               type="button"
               onClick={submit}
               disabled={mutation.isPending}
+              aria-label={mutation.isPending ? '분석 중' : '리서치'}
               className="mt-1 h-10 w-full rounded bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {mutation.isPending ? '분석 중' : '리서치'}
             </button>
-          </div>
+          </label>
         </div>
         {formError && (
           <div className="mt-4 rounded border border-red-900 bg-red-950/30 px-3 py-2 text-sm text-red-200">
