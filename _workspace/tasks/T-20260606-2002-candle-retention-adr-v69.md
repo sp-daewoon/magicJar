@@ -3,10 +3,10 @@ id: T-20260606-2002-candle-retention-adr-v69
 agent: architect
 model: opus
 branch: agent/architect/candle-retention-adr-v69
-status: RUNNING
+status: DONE
 startedAt: 2026-06-06T20:02:28.229+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-06T20:06:47.407+09:00
+pr: #761
 parentPhase: ?
 ---
 
