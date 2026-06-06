@@ -3,10 +3,10 @@ id: T-20260606-2143-codex-absorb-preset-readiness
 agent: backend-core
 model: opus
 branch: agent/backend-core/codex-absorb-preset-readiness
-status: RUNNING
+status: DONE
 startedAt: 2026-06-06T21:43:53.640+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-06T21:55:21.183+09:00
+pr: #765
 parentPhase: ?
 ---
 
