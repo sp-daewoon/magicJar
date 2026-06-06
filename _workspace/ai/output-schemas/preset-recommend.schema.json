@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://magicjar.local/ai/output-schemas/preset-recommend.schema.json",
+  "title": "AI 프리셋 추천 출력 스키마",
+  "description": "POST /api/strategy-research/ai-discovery/presets/recommend 의 Claude 응답(JSON only) 스키마. 발굴 프리셋 후보 가설 템플릿. 매수 추천이 아니며 Screener+Backtest 검증 대상.",
+  "type": "object",
+  "required": ["items"],
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["label", "description", "promptText", "rationale"],
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 20,
+            "description": "프리셋 노출명. 핵심 컨셉이 드러나게. 서비스에서 20자 초과 시 clip."
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 80,
+            "description": "프리셋 설명. '~를 찾습니다' 톤. 서비스에서 80자 초과 시 clip."
+          },
+          "promptText": {
+            "type": "string",
+            "minLength": 10,
+            "description": "core wrapper 뒤에 주입될 발굴 지시문. 2~4문장 명령형('~한 종목을 탐색해라')."
+          },
+          "rationale": {
+            "type": "string",
+            "description": "이 프리셋이 magicJar 지표·캔들·백테스트 구조로 왜 검증 가능한지 1문장."
+          }
+        }
+      }
+    }
+  }
+}

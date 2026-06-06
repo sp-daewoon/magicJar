@@ -12,6 +12,8 @@ import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAi
 import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryPresetJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryStateJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryStateJpaRepository
+import kr.spdaewoon.magicjar.domain.indicator.IndicatorCatalog
+import kr.spdaewoon.magicjar.domain.indicator.IndicatorCategory
 import org.slf4j.LoggerFactory
 import org.springframework.data.domain.PageRequest
 import org.springframework.http.HttpStatus
@@ -188,6 +190,56 @@ class StrategyResearchAiDiscoveryService(
                     if (keptItems.isNotEmpty()) add("유지 후보 ${keptItems.size}건이 중복 금지 문맥에 포함됩니다.")
                     if (dismissedItems.isNotEmpty()) add("제외 후보 ${dismissedItems.size}건이 재제안 금지 문맥에 포함됩니다.")
                 },
+        )
+    }
+
+    /**
+     * AI 프리셋 추천. magicJar 구조(core wrapper·기존 프리셋 전체·실제 시스템 능력·사용자 hint)를
+     * 하나의 메타 프롬프트로 묶어 Claude에게 신규 발굴 프리셋 후보를 받아온다.
+     *
+     * - 저장하지 않는다. 추천만 반환하며, 사용자가 검토 후 기존 createPreset 으로 저장한다.
+     * - AI 실패/타임아웃은 discover 와 동일하게 ResponseStatusException 으로 전파(mock 합성 금지).
+     */
+    fun recommendPresets(
+        request: StrategyResearchAiDiscoveryPresetRecommendRequestDto,
+    ): StrategyResearchAiDiscoveryPresetRecommendResponseDto {
+        val count = request.count.coerceIn(1, 5)
+        val existingPresets = presetRepository.findAllByOrderBySortOrderAscIdAsc()
+        val hint = request.hint?.trim()?.takeIf { it.isNotBlank() }
+
+        val prompt = buildPresetRecommendPrompt(count = count, hint = hint, existingPresets = existingPresets)
+        val aiResult = aiTextClient.complete(prompt)
+        val items = parsePresetRecommendations(aiResult.text).take(count)
+        if (items.isEmpty()) {
+            throw ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Claude 응답에서 추천 프리셋을 읽지 못했습니다.")
+        }
+
+        log.info(
+            "StrategyResearch AI 프리셋 추천: userId={} hintLength={} requested={} existing={} returned={}",
+            request.userId,
+            hint?.length ?: 0,
+            count,
+            existingPresets.size,
+            items.size,
+        )
+
+        val existingLabels = existingPresets.map { it.label.trim() }.toSet()
+        return StrategyResearchAiDiscoveryPresetRecommendResponseDto(
+            provider = aiResult.provider,
+            generatedAt = Instant.now().toString(),
+            warnings =
+                buildList {
+                    add("추천 프리셋은 매수 추천이 아니라 Screener·Backtest 검증용 후보 가설 템플릿입니다.")
+                    add("추천은 저장되지 않습니다. 검토 후 '프리셋 추가'로 직접 저장하세요.")
+                    if (items.size < count) {
+                        add("요청한 ${count}건 중 ${items.size}건만 추천되었습니다.")
+                    }
+                    val dup = items.count { it.label.trim() in existingLabels }
+                    if (dup > 0) {
+                        add("기존 프리셋과 이름이 겹치는 후보 ${dup}건이 있어 저장 전 이름 조정이 필요할 수 있습니다.")
+                    }
+                },
+            items = items,
         )
     }
 
@@ -533,6 +585,149 @@ class StrategyResearchAiDiscoveryService(
             "}",
         ).filterNotNull().joinToString("\n")
     }
+
+    /**
+     * AI 프리셋 추천 메타 프롬프트.
+     *
+     * 이 메서드가 이 기능의 본체다. "magicJar 구조에 맞는" 추천 품질은 다음 컨텍스트를 모두
+     * 프롬프트에 넣느냐에 달려 있다:
+     *  1. 역할 — 발굴 프리셋 설계 전문가. 프리셋은 매수 추천이 아니라 Screener+Backtest 검증용 후보 가설 템플릿.
+     *  2. 현재 core wrapper 풀텍스트 — 추천 프리셋이 이 wrapper 뒤에 주입됨을 명시.
+     *  3. 기존 프리셋 전체(label+description+promptText) — 중복/유사 컨셉 회피.
+     *  4. magicJar 시스템 능력 요약(실제 IndicatorCatalog·candle interval 기반) — 검증 가능한 프리셋만 추천하게.
+     *  5. 사용자 hint(있으면 반영, 없으면 시장 보편 + 차별화).
+     *  6. 출력 JSON 스키마 + 필드 길이·톤 제약.
+     */
+    private fun buildPresetRecommendPrompt(
+        count: Int,
+        hint: String?,
+        existingPresets: List<StrategyResearchAiDiscoveryPresetJpaEntity>,
+    ): String {
+        val today = LocalDate.now(ZoneId.of("Asia/Seoul"))
+        val existingBlock =
+            if (existingPresets.isEmpty()) {
+                "현재 등록된 프리셋 없음. 자유롭게 서로 다른 컨셉을 제안하되 아래 시스템 능력으로 검증 가능해야 한다."
+            } else {
+                existingPresets.joinToString("\n\n") { p ->
+                    listOf(
+                        "- 이름: ${p.label}",
+                        "  설명: ${p.description}",
+                        "  지시문: ${p.promptText}",
+                    ).joinToString("\n")
+                }
+            }
+        return listOf(
+            "너는 한국 주식 자동매매 시스템 magicJar의 '종목 발굴 프리셋 설계 전문가'다.",
+            "발굴 프리셋이란, 사용자의 발굴 의도를 한 문단의 intent prompt로 담아둔 재사용 템플릿이다.",
+            "프리셋은 절대 매수 추천이 아니다. 프리셋으로 받은 후보는 반드시 magicJar의 자체 Screener(조건식 필터)와",
+            "과거 캔들 Backtest 검증을 거쳐야 하는 '가설 후보'다. 아래 [core wrapper]의 [분석 원칙] 제약을 그대로 따른다.",
+            "",
+            "[core wrapper — 네가 설계한 프리셋의 지시문은 아래 wrapper 바로 뒤에 그대로 주입되어 Claude 발굴에 사용된다]",
+            corePromptText(),
+            "",
+            "[이미 등록된 프리셋 — 컨셉/이름/지시문이 겹치거나 매우 유사한 추천은 금지한다. 빈 영역을 채우는 새로운 각도를 제안하라]",
+            existingBlock,
+            "",
+            "[magicJar 시스템 능력 — 아래 능력으로 '검증 가능한' 프리셋만 추천하라. 보유하지 않은 데이터/지표에 의존하는 프리셋은 금지]",
+            systemCapabilitySummary(),
+            "",
+            if (hint != null) {
+                "[사용자 추천 방향 힌트 — 아래 요청을 최우선 반영하되, 위 제약과 검증 가능성을 지켜라]\n$hint"
+            } else {
+                "[사용자 추천 방향 힌트]\n없음. 현재 한국 시장에서 보편적으로 유효하면서 위 기존 프리셋과 뚜렷이 차별화되는 컨셉을 제안하라."
+            },
+            "",
+            "[작업]",
+            "오늘 날짜: $today KST",
+            "위 능력으로 검증 가능하고 기존 프리셋과 겹치지 않는 신규 발굴 프리셋 ${count}건을 설계하라.",
+            "각 프리셋은 구체적인 지표/캔들 interval/수급·차트 근거를 지시문에 담아, 발굴 후보가 무엇을 만족해야 하는지 분명히 하라.",
+            "단순 '시총 상위주 나열', '인기주' 같은 모호한 프리셋은 금지한다.",
+            "",
+            "[출력 — 아래 JSON만 출력하라. 마크다운, 설명문, 코드블록 펜스는 출력하지 마라.]",
+            "필드 제약:",
+            "- label: 프리셋 노출명, 20자 이내, 핵심 컨셉이 드러나게.",
+            "- description: 80자 이내, '~를 찾습니다' 톤(예: '20일선 눌림목에서 거래량이 붙는 스윙 후보를 찾습니다').",
+            "- promptText: core wrapper 뒤에 주입될 발굴 지시문, 2~4문장 명령형(예: '~한 종목을 탐색해라', '~를 제안해라').",
+            "- rationale: 이 프리셋이 magicJar의 지표·캔들·백테스트 구조로 왜 검증 가능한지 1문장.",
+            "{",
+            "  \"items\": [",
+            "    {",
+            "      \"label\": \"장초반 수급 폭발\",",
+            "      \"description\": \"장 초반 거래대금이 급증하며 단기 모멘텀이 붙는 후보를 찾습니다.\",",
+            "      \"promptText\": \"장 초반 거래대금이 직전 평균 대비 급증하고 5분봉에서 장대양봉으로 강하게 출발한 종목을 탐색해라. ...\",",
+            "      \"rationale\": \"거래량 이동평균·ATR·5분봉 캔들로 스크리너와 백테스트 모두 검증 가능하기 때문이다.\"",
+            "    }",
+            "  ]",
+            "}",
+        ).joinToString("\n")
+    }
+
+    /**
+     * magicJar가 '실제로' 보유한 발굴/검증 능력 요약.
+     * IndicatorCatalog(도메인 권위)에서 카테고리별 지표를 직접 읽어 구성하므로,
+     * 지표가 추가/삭제되면 이 요약도 자동으로 따라간다(메타 프롬프트가 코드 권위와 정합 유지).
+     */
+    private fun systemCapabilitySummary(): String {
+        fun names(
+            category: IndicatorCategory,
+            take: Int,
+        ): String =
+            IndicatorCatalog
+                .byCategory(category)
+                .take(take)
+                .joinToString(", ") { it.displayName }
+        val total = IndicatorCatalog.ALL.size
+        val smartMoney =
+            IndicatorCatalog.ALL
+                .filter { it.id == "fvg" || it.id == "order_block" }
+                .joinToString(", ") { it.displayName }
+        return listOf(
+            "- 캔들 interval 13종: 1m·3m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y (단타~중장기 스윙 모두 검증 가능).",
+            "- 보유 지표 총 ${total}종(DSL 조건식·스크리너·백테스트 공용):",
+            "  · 추세: ${names(IndicatorCategory.TREND, 6)} 등",
+            "  · 모멘텀: ${names(IndicatorCategory.MOMENTUM, 6)} 등",
+            "  · 거래량/수급: ${names(IndicatorCategory.VOLUME, 6)} 등",
+            "  · 변동성: ${names(IndicatorCategory.VOLATILITY, 5)} 등",
+            "  · 오실레이터: ${names(IndicatorCategory.OSCILLATOR, 5)} 등",
+            "  · 스마트머니(구조): $smartMoney — FVG, 오더블록(BOS·장악형 detection), 스윙 기준봉 지지/저항.",
+            "- 발굴 흐름: 자연어/프리셋 → 후보 종목 → 종목 마스터 매핑 → Screener 조건식 필터 → 특정 기준봉 선택 → 과거 캔들 Backtest 검증.",
+            "- 종목 범위: KRX 상장 보통주/우선주(ST)만. ETF·ETN·ELW·리츠·해외주식·파생은 제외.",
+        ).joinToString("\n")
+    }
+
+    private fun parsePresetRecommendations(text: String): List<StrategyResearchAiDiscoveryPresetRecommendItemDto> {
+        val json = extractJson(text)
+        val root =
+            runCatching { objectMapper.readTree(json) }
+                .getOrElse {
+                    throw ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Claude 추천 JSON 파싱 실패: ${it.message}", it)
+                }
+        val itemsNode =
+            when {
+                root.has("items") -> root["items"]
+                root.isArray -> root
+                else -> null
+            }
+        if (itemsNode == null || !itemsNode.isArray) return emptyList()
+        return itemsNode.mapNotNull { node ->
+            val label = node.text("label")?.let { clip(it, 20) }
+            val description = node.text("description")?.let { clip(it, 80) }
+            val promptText = node.text("promptText") ?: node.text("prompt") ?: node.text("intent")
+            val rationale = node.text("rationale") ?: node.text("reason") ?: "magicJar의 지표·캔들·백테스트 구조로 검증 가능한 발굴 가설."
+            if (label.isNullOrBlank() || promptText.isNullOrBlank()) return@mapNotNull null
+            StrategyResearchAiDiscoveryPresetRecommendItemDto(
+                label = label,
+                description = description ?: "$label 검증용 발굴 후보를 찾습니다.",
+                promptText = promptText,
+                rationale = rationale,
+            )
+        }
+    }
+
+    private fun clip(
+        value: String,
+        max: Int,
+    ): String = if (value.length <= max) value else value.take(max)
 
     private fun parseItems(text: String): List<ClaudeDiscoveryRawItem> {
         val json = extractJson(text)

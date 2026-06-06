@@ -566,6 +566,201 @@ class StrategyResearchAiDiscoveryServiceTest {
         }
     }
 
+    // ───────────────────────── AI 프리셋 추천 ─────────────────────────
+
+    @Test
+    fun `recommendPresets meta prompt includes core wrapper existing presets capabilities and hint`() {
+        whenever(corePromptRepository.findById(StrategyResearchAiDiscoveryCorePromptJpaEntity.SINGLETON_ID))
+            .thenReturn(Optional.of(StrategyResearchAiDiscoveryCorePromptJpaEntity(promptText = "DB-CORE-MARKER")))
+        whenever(presetRepository.findAllByOrderBySortOrderAscIdAsc())
+            .thenReturn(listOf(preset("scalping_momentum")))
+        var capturedPrompt = ""
+        val capturingService =
+            StrategyResearchAiDiscoveryService(
+                instrumentJpaRepository = instrumentRepository,
+                candleJpaRepository = candleRepository,
+                aiTextClient =
+                    StrategyResearchAiTextClient { prompt ->
+                        capturedPrompt = prompt
+                        StrategyResearchAiTextResult(
+                            provider = "test-claude",
+                            text =
+                                """
+                                {"items":[{"label":"장초반 수급 폭발","description":"단기 모멘텀 후보를 찾습니다.",
+                                "promptText":"장 초반 거래대금이 급증한 종목을 탐색해라.","rationale":"거래량 지표로 검증 가능."}]}
+                                """.trimIndent(),
+                        )
+                    },
+                objectMapper = objectMapper,
+                stateRepository = stateRepository,
+                presetRepository = presetRepository,
+                corePromptRepository = corePromptRepository,
+            )
+
+        val response =
+            capturingService.recommendPresets(
+                StrategyResearchAiDiscoveryPresetRecommendRequestDto(
+                    userId = "74683223",
+                    hint = "수급 기반으로 단타",
+                    count = 1,
+                ),
+            )
+
+        // 메타 프롬프트가 4대 컨텍스트를 모두 포함하는지 검증
+        capturedPrompt.contains("DB-CORE-MARKER") shouldBe true // core wrapper 풀텍스트
+        capturedPrompt.contains("단기 거래대금 폭발") shouldBe true // 기존 프리셋 label
+        capturedPrompt.contains("거래대금 집중 종목을 탐색해라") shouldBe true // 기존 프리셋 promptText
+        capturedPrompt.contains("수급 기반으로 단타") shouldBe true // hint
+        capturedPrompt.contains("Fair Value Gap(FVG)") shouldBe true // 실제 IndicatorCatalog 능력
+        capturedPrompt.contains("오더블록(Order Block)") shouldBe true
+        capturedPrompt.contains("1m·3m·5m") shouldBe true // candle interval
+
+        response.items shouldHaveSize 1
+        response.items[0].label shouldBe "장초반 수급 폭발"
+        response.items[0].promptText shouldBe "장 초반 거래대금이 급증한 종목을 탐색해라."
+        response.provider shouldBe "test-claude"
+    }
+
+    @Test
+    fun `recommendPresets uses no-hint placeholder when hint blank`() {
+        whenever(corePromptRepository.findById(StrategyResearchAiDiscoveryCorePromptJpaEntity.SINGLETON_ID))
+            .thenReturn(Optional.empty())
+        whenever(presetRepository.findAllByOrderBySortOrderAscIdAsc()).thenReturn(emptyList())
+        var capturedPrompt = ""
+        val service =
+            StrategyResearchAiDiscoveryService(
+                instrumentJpaRepository = instrumentRepository,
+                candleJpaRepository = candleRepository,
+                aiTextClient =
+                    StrategyResearchAiTextClient { prompt ->
+                        capturedPrompt = prompt
+                        StrategyResearchAiTextResult(
+                            provider = "test-claude",
+                            text =
+                                """{"items":[{"label":"테스트","description":"x","promptText":"y한 종목을 찾아라.","rationale":"z"}]}""",
+                        )
+                    },
+                objectMapper = objectMapper,
+                stateRepository = stateRepository,
+                presetRepository = presetRepository,
+                corePromptRepository = corePromptRepository,
+            )
+
+        service.recommendPresets(
+            StrategyResearchAiDiscoveryPresetRecommendRequestDto(userId = "u", hint = "   ", count = 2),
+        )
+
+        capturedPrompt.contains("없음. 현재 한국 시장에서 보편적으로 유효") shouldBe true
+        capturedPrompt.contains("현재 등록된 프리셋 없음") shouldBe true
+    }
+
+    @Test
+    fun `recommendPresets parses json and clips label and description to limits`() {
+        whenever(corePromptRepository.findById(StrategyResearchAiDiscoveryCorePromptJpaEntity.SINGLETON_ID))
+            .thenReturn(Optional.empty())
+        whenever(presetRepository.findAllByOrderBySortOrderAscIdAsc()).thenReturn(emptyList())
+        val longLabel = "가".repeat(40)
+        val longDesc = "나".repeat(120)
+        val service =
+            newServiceWithText(
+                """
+                ```json
+                {"items":[{"label":"$longLabel","description":"$longDesc",
+                "promptText":"거래량이 붙는 종목을 탐색해라.","rationale":"거래량 지표로 검증 가능."}]}
+                ```
+                """.trimIndent(),
+            )
+
+        val response =
+            service.recommendPresets(
+                StrategyResearchAiDiscoveryPresetRecommendRequestDto(userId = "u", count = 3),
+            )
+
+        response.items shouldHaveSize 1
+        response.items[0].label.length shouldBe 20
+        response.items[0].description.length shouldBe 80
+    }
+
+    @Test
+    fun `recommendPresets caps returned items at requested count`() {
+        whenever(corePromptRepository.findById(StrategyResearchAiDiscoveryCorePromptJpaEntity.SINGLETON_ID))
+            .thenReturn(Optional.empty())
+        whenever(presetRepository.findAllByOrderBySortOrderAscIdAsc()).thenReturn(emptyList())
+        val service =
+            newServiceWithText(
+                """
+                {"items":[
+                  {"label":"A","description":"a","promptText":"a한 종목.","rationale":"r"},
+                  {"label":"B","description":"b","promptText":"b한 종목.","rationale":"r"},
+                  {"label":"C","description":"c","promptText":"c한 종목.","rationale":"r"}
+                ]}
+                """.trimIndent(),
+            )
+
+        val response =
+            service.recommendPresets(
+                StrategyResearchAiDiscoveryPresetRecommendRequestDto(userId = "u", count = 2),
+            )
+
+        response.items shouldHaveSize 2
+        response.items.map { it.label } shouldBe listOf("A", "B")
+    }
+
+    @Test
+    fun `recommendPresets throws 503 when claude returns no usable items`() {
+        whenever(corePromptRepository.findById(StrategyResearchAiDiscoveryCorePromptJpaEntity.SINGLETON_ID))
+            .thenReturn(Optional.empty())
+        whenever(presetRepository.findAllByOrderBySortOrderAscIdAsc()).thenReturn(emptyList())
+        // label/promptText 가 없는 항목만 → 모두 버려져 empty
+        val service = newServiceWithText("""{"items":[{"description":"근거만 있음"}]}""")
+
+        shouldThrow<ResponseStatusException> {
+            service.recommendPresets(
+                StrategyResearchAiDiscoveryPresetRecommendRequestDto(userId = "u", count = 3),
+            )
+        }
+    }
+
+    @Test
+    fun `recommendPresets propagates ai client error`() {
+        whenever(corePromptRepository.findById(StrategyResearchAiDiscoveryCorePromptJpaEntity.SINGLETON_ID))
+            .thenReturn(Optional.empty())
+        whenever(presetRepository.findAllByOrderBySortOrderAscIdAsc()).thenReturn(emptyList())
+        val service =
+            StrategyResearchAiDiscoveryService(
+                instrumentJpaRepository = instrumentRepository,
+                candleJpaRepository = candleRepository,
+                aiTextClient =
+                    StrategyResearchAiTextClient {
+                        throw ResponseStatusException(
+                            org.springframework.http.HttpStatus.GATEWAY_TIMEOUT,
+                            "Claude CLI 응답 시간이 초과되었습니다.",
+                        )
+                    },
+                objectMapper = objectMapper,
+                stateRepository = stateRepository,
+                presetRepository = presetRepository,
+                corePromptRepository = corePromptRepository,
+            )
+
+        shouldThrow<ResponseStatusException> {
+            service.recommendPresets(
+                StrategyResearchAiDiscoveryPresetRecommendRequestDto(userId = "u", count = 3),
+            )
+        }
+    }
+
+    private fun newServiceWithText(text: String): StrategyResearchAiDiscoveryService =
+        StrategyResearchAiDiscoveryService(
+            instrumentJpaRepository = instrumentRepository,
+            candleJpaRepository = candleRepository,
+            aiTextClient = StrategyResearchAiTextClient { StrategyResearchAiTextResult(provider = "test-claude", text = text) },
+            objectMapper = objectMapper,
+            stateRepository = stateRepository,
+            presetRepository = presetRepository,
+            corePromptRepository = corePromptRepository,
+        )
+
     private fun preset(id: String): StrategyResearchAiDiscoveryPresetJpaEntity =
         StrategyResearchAiDiscoveryPresetJpaEntity(
             id = id,

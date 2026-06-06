@@ -145,10 +145,50 @@ env 토글: `MAGICJAR_AI_PROVIDER=anthropic|gemini|openai`.
 
 ---
 
+## §2-6. AI 프리셋 추천 메타 프롬프트 (2026-06-06 발행)
+
+> **위치**: `StrategyResearchAiDiscoveryService.buildPresetRecommendPrompt()` (인라인 빌더 — core wrapper·기존 프리셋·시스템 능력을 런타임 조합하므로 정적 리소스 파일이 아니라 코드 빌더).
+> **엔드포인트**: `POST /api/strategy-research/ai-discovery/presets/recommend`
+> **provider**: `StrategyResearchAiTextClient`(claude-cli / claude-cli-bridge) 재사용. timeout = `magicjar.strategy-research.ai-discovery.timeout-seconds`(기본 300s) 재사용.
+> **저장 안 함** — 추천만 반환. 저장은 사용자가 기존 `createPreset`(POST .../presets)으로.
+
+### 2-6-1. 메타 프롬프트 6 컨텍스트 (이 기능의 본체)
+
+| # | 컨텍스트 | 출처(권위) | 목적 |
+|---|---|---|---|
+| 1 | 역할 정의 | 인라인 | 프리셋 = 매수 추천 X, Screener+Backtest 검증용 후보 가설 템플릿. core wrapper [분석 원칙] 제약 인용 |
+| 2 | core wrapper 풀텍스트 | `corePromptText()` (DB 권위, 없으면 `DEFAULT_CORE_PROMPT`) | 추천 프리셋이 이 wrapper 뒤에 주입됨을 명시 |
+| 3 | 기존 프리셋 전체 | `presetRepository.findAllByOrderBySortOrderAscIdAsc()` (label+description+promptText) | 중복/유사 컨셉 회피, 빈 영역 채우기 |
+| 4 | magicJar 시스템 능력 | `systemCapabilitySummary()` ← `IndicatorCatalog`(도메인 권위) + candle interval 13종 | 보유 지표/캔들로 '검증 가능한' 프리셋만 추천 |
+| 5 | 사용자 hint | request.hint (옵션) | 있으면 최우선 반영, 없으면 시장 보편 + 기존과 차별화 |
+| 6 | 출력 스키마 + 필드 제약 | 인라인 JSON | label≤20·description≤80('~를 찾습니다')·promptText 2~4문장 명령형·rationale 1문장 |
+
+**시스템 능력 요약은 `IndicatorCatalog`를 직접 읽어 생성** — 지표가 추가/삭제되면 메타 프롬프트도 자동 정합(코드 권위 추종). FVG·오더블록(BOS/장악형)·스윙은 스마트머니 그룹으로 별도 강조.
+
+### 2-6-2. 입출력 스키마
+
+- 요청: `{userId, hint?, count?}` — count 1~5 검증(서비스에서 coerceIn 추가 방어), DTO `@Min(1)@Max(5)`
+- 응답: `{provider, generatedAt, warnings[], items:[{label, description, promptText, rationale}]}`
+- 파싱: `parsePresetRecommendations()` — `extractJson`(코드블록/객체 추출) 재사용 + label·promptText 누락 항목 폐기, label/description 길이 clip. 빈 결과 → 503.
+- output schema 파일: `_workspace/ai/output-schemas/preset-recommend.schema.json`
+- sample: `_workspace/ai/sample-outputs/2026-06-06-preset-recommend.md`
+
+### 2-6-3. 에러 처리
+
+| 상황 | 동작 |
+|---|---|
+| Claude CLI/브릿지 비활성·실패·타임아웃 | `StrategyResearchAiTextClient`가 던진 `ResponseStatusException`(503/504/429) 그대로 전파 (mock 합성 금지) |
+| JSON 파싱 실패 | 503 "Claude 추천 JSON 파싱 실패" |
+| 사용 가능한 item 0건 | 503 "Claude 응답에서 추천 프리셋을 읽지 못했습니다" |
+| count 범위 밖(0·6) | DTO bean validation 400 |
+
+---
+
 ## §5. 변경 이력
 
 | 날짜 | 변경 | 비고 |
 |---|---|---|
+| 2026-06-06 | **AI 프리셋 추천 메타 프롬프트 발행** — §2-6 신설. core wrapper·기존 프리셋 전체·IndicatorCatalog 기반 시스템 능력·hint 6 컨텍스트 조합. `recommendPresets()` + `POST .../presets/recommend`. 추천만 반환(저장 X) | agent/ai · T-20260606-2247 |
 | 2026-05-03 | 초기 v1 — 5종 분석 프롬프트 작성 명시(드리프트 진입) | ADR 0026 (이후 사이클에서 분석 5종은 발행 보류 — W4 T-AI baseline까지 미발행) |
 | 2026-05-24 | **W4 R1 T-AI Phase 1 발행** — §2-5 신설 (5 진입점 prompt seed V50 · 3 provider plug-in · KillSwitch / 1일 한도 / 월 임계 alert / Redis cache 5분) | ADR 0026 amend · ADR 0094 §4-4-B · ADR 0095 amend S-AI-1 · Flyway V49·V50 (R0 amend shift · ADR 0102 정합) |
 | 2026-05-19 | **드리프트 정정** — §1 현행 1건(`dsl-translate.md`) 단독 LOCK + §3 미래 의제(W4 진입 시 발행)로 5종 분리 | PR #552 cross-validation evidence (ai-engineer audit 보고서 `_workspace/reports/2026-05-19-system-audit-ai-engineer.md` §). 광고-실재 매트릭스 정합 회복. |
