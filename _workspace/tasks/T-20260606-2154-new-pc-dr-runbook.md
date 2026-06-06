@@ -3,10 +3,10 @@ id: T-20260606-2154-new-pc-dr-runbook
 agent: backend-core
 model: opus
 branch: agent/backend-core/new-pc-dr-runbook
-status: RUNNING
+status: DONE
 startedAt: 2026-06-06T21:54:53.495+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-06T22:06:33.384+09:00
+pr: #766
 parentPhase: ?
 ---
 
