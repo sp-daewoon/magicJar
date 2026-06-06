@@ -2,12 +2,16 @@ package kr.spdaewoon.magicjar.api.strategyresearch
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
+import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryCorePromptJpaEntity
+import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryCorePromptJpaRepository
+import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryPresetJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryPresetJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryStateJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryStateJpaRepository
@@ -16,6 +20,7 @@ import org.mockito.kotlin.any
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
+import org.springframework.web.server.ResponseStatusException
 import java.time.Instant
 import java.util.Optional
 
@@ -24,6 +29,7 @@ class StrategyResearchAiDiscoveryServiceTest {
     private val candleRepository: CandleJpaRepository = mock()
     private val stateRepository: StrategyResearchAiDiscoveryStateJpaRepository = mock()
     private val presetRepository: StrategyResearchAiDiscoveryPresetJpaRepository = mock()
+    private val corePromptRepository: StrategyResearchAiDiscoveryCorePromptJpaRepository = mock()
     private val objectMapper = ObjectMapper().registerKotlinModule()
 
     @Test
@@ -61,6 +67,7 @@ class StrategyResearchAiDiscoveryServiceTest {
                 objectMapper = objectMapper,
                 stateRepository = stateRepository,
                 presetRepository = presetRepository,
+                corePromptRepository = corePromptRepository,
             )
 
         val response =
@@ -104,6 +111,7 @@ class StrategyResearchAiDiscoveryServiceTest {
                 objectMapper = objectMapper,
                 stateRepository = stateRepository,
                 presetRepository = presetRepository,
+                corePromptRepository = corePromptRepository,
             )
 
         val response =
@@ -171,6 +179,7 @@ class StrategyResearchAiDiscoveryServiceTest {
                 objectMapper = objectMapper,
                 stateRepository = stateRepository,
                 presetRepository = presetRepository,
+                corePromptRepository = corePromptRepository,
             )
 
         val response =
@@ -225,6 +234,7 @@ class StrategyResearchAiDiscoveryServiceTest {
                 objectMapper = objectMapper,
                 stateRepository = stateRepository,
                 presetRepository = presetRepository,
+                corePromptRepository = corePromptRepository,
             )
 
         val response =
@@ -360,6 +370,213 @@ class StrategyResearchAiDiscoveryServiceTest {
         samsung.hasResearchCandles.shouldBeNull()
     }
 
+    // ───────────────────────── core(wrapper) prompt 편집 ─────────────────────────
+
+    @Test
+    fun `corePrompt falls back to service default when db row absent`() {
+        whenever(corePromptRepository.findById(StrategyResearchAiDiscoveryCorePromptJpaEntity.SINGLETON_ID))
+            .thenReturn(Optional.empty())
+        val service = newService { StrategyResearchAiTextResult(provider = "test-claude", text = """{"items":[]}""") }
+
+        val dto = service.corePrompt()
+
+        dto.promptText shouldBe StrategyResearchAiDiscoveryService.DEFAULT_CORE_PROMPT
+        dto.isDefault shouldBe true
+        dto.updatedAt.shouldBeNull()
+    }
+
+    @Test
+    fun `corePrompt returns db value as authority when row exists`() {
+        val edited = "사용자가 편집한 발굴 원칙"
+        val now = Instant.parse("2026-06-06T12:00:00Z")
+        whenever(corePromptRepository.findById(StrategyResearchAiDiscoveryCorePromptJpaEntity.SINGLETON_ID))
+            .thenReturn(Optional.of(StrategyResearchAiDiscoveryCorePromptJpaEntity(promptText = edited, updatedAt = now)))
+        val service = newService { StrategyResearchAiTextResult(provider = "test-claude", text = """{"items":[]}""") }
+
+        val dto = service.corePrompt()
+
+        dto.promptText shouldBe edited
+        dto.isDefault shouldBe false
+        dto.updatedAt shouldBe now.toString()
+    }
+
+    @Test
+    fun `updateCorePrompt persists trimmed text and reports not default`() {
+        whenever(corePromptRepository.findById(StrategyResearchAiDiscoveryCorePromptJpaEntity.SINGLETON_ID))
+            .thenReturn(Optional.empty())
+        whenever(corePromptRepository.save(any())).thenAnswer { it.arguments[0] }
+        val service = newService { StrategyResearchAiTextResult(provider = "test-claude", text = """{"items":[]}""") }
+
+        // save 이후 GET 은 DB 행을 다시 반영해야 하므로 stub 을 갱신한다.
+        whenever(corePromptRepository.findById(StrategyResearchAiDiscoveryCorePromptJpaEntity.SINGLETON_ID))
+            .thenReturn(Optional.of(StrategyResearchAiDiscoveryCorePromptJpaEntity(promptText = "내 발굴 톤")))
+
+        val dto =
+            service.updateCorePrompt(
+                StrategyResearchAiDiscoveryCorePromptUpdateRequestDto(promptText = "  내 발굴 톤  "),
+            )
+
+        dto.promptText shouldBe "내 발굴 톤"
+        dto.isDefault shouldBe false
+    }
+
+    @Test
+    fun `updateCorePrompt rejects blank text with 400`() {
+        val service = newService { StrategyResearchAiTextResult(provider = "test-claude", text = """{"items":[]}""") }
+
+        shouldThrow<ResponseStatusException> {
+            service.updateCorePrompt(StrategyResearchAiDiscoveryCorePromptUpdateRequestDto(promptText = "   "))
+        }
+    }
+
+    @Test
+    fun `resetCorePrompt restores service default`() {
+        whenever(corePromptRepository.findById(StrategyResearchAiDiscoveryCorePromptJpaEntity.SINGLETON_ID))
+            .thenReturn(Optional.of(StrategyResearchAiDiscoveryCorePromptJpaEntity(promptText = "편집본")))
+        whenever(corePromptRepository.save(any())).thenAnswer { it.arguments[0] }
+        val service = newService { StrategyResearchAiTextResult(provider = "test-claude", text = """{"items":[]}""") }
+
+        // reset 후 GET 은 기본값 행을 반영.
+        whenever(corePromptRepository.findById(StrategyResearchAiDiscoveryCorePromptJpaEntity.SINGLETON_ID))
+            .thenReturn(
+                Optional.of(
+                    StrategyResearchAiDiscoveryCorePromptJpaEntity(
+                        promptText = StrategyResearchAiDiscoveryService.DEFAULT_CORE_PROMPT,
+                    ),
+                ),
+            )
+
+        val dto = service.resetCorePrompt()
+
+        dto.promptText shouldBe StrategyResearchAiDiscoveryService.DEFAULT_CORE_PROMPT
+        dto.isDefault shouldBe true
+    }
+
+    @Test
+    fun `buildPrompt uses db core prompt as authority`() {
+        whenever(corePromptRepository.findById(StrategyResearchAiDiscoveryCorePromptJpaEntity.SINGLETON_ID))
+            .thenReturn(Optional.of(StrategyResearchAiDiscoveryCorePromptJpaEntity(promptText = "DB-CORE-MARKER")))
+        whenever(stateRepository.findById("74683223")).thenReturn(Optional.empty())
+        val service = newService { StrategyResearchAiTextResult(provider = "test-claude", text = """{"items":[]}""") }
+
+        val preview =
+            service.previewPrompt(
+                StrategyResearchAiDiscoveryPromptPreviewRequestDto(
+                    userId = "74683223",
+                    query = "반도체 후보",
+                    limit = 6,
+                ),
+            )
+
+        preview.systemPrompt shouldBe "DB-CORE-MARKER"
+        preview.finalPrompt.contains("DB-CORE-MARKER") shouldBe true
+    }
+
+    // ───────────────────────── query 옵션화 ─────────────────────────
+
+    @Test
+    fun `discover allows blank query when valid preset selected`() {
+        whenever(presetRepository.findById("scalping_momentum"))
+            .thenReturn(Optional.of(preset("scalping_momentum")))
+        whenever(instrumentRepository.findById("005930")).thenReturn(Optional.of(instrument("005930", "삼성전자")))
+        whenever(stateRepository.findById("74683223")).thenReturn(Optional.empty())
+        whenever(stateRepository.save(any())).thenAnswer { it.arguments[0] }
+        val service =
+            newService {
+                StrategyResearchAiTextResult(
+                    provider = "test-claude",
+                    text = """{"items":[{"name":"삼성전자","code":"005930","market":"KOSPI","reason":"AI 후보","confidence":0.8}]}""",
+                )
+            }
+
+        val response =
+            service.discover(
+                StrategyResearchAiDiscoveryRequestDto(
+                    userId = "74683223",
+                    query = null,
+                    presetId = "scalping_momentum",
+                    limit = 6,
+                ),
+            )
+
+        response.items shouldHaveSize 1
+        response.presetId shouldBe "scalping_momentum"
+        response.query.shouldBeNull()
+    }
+
+    @Test
+    fun `discover rejects blank query without preset as 400`() {
+        whenever(stateRepository.findById("74683223")).thenReturn(Optional.empty())
+        val service = newService { StrategyResearchAiTextResult(provider = "test-claude", text = """{"items":[]}""") }
+
+        shouldThrow<ResponseStatusException> {
+            service.discover(
+                StrategyResearchAiDiscoveryRequestDto(
+                    userId = "74683223",
+                    query = null,
+                    presetId = null,
+                    limit = 6,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `buildPrompt replaces empty user input with preset-driven placeholder`() {
+        whenever(presetRepository.findById("scalping_momentum"))
+            .thenReturn(Optional.of(preset("scalping_momentum")))
+        whenever(stateRepository.findById("74683223")).thenReturn(Optional.empty())
+        val service = newService { StrategyResearchAiTextResult(provider = "test-claude", text = """{"items":[]}""") }
+
+        val preview =
+            service.previewPrompt(
+                StrategyResearchAiDiscoveryPromptPreviewRequestDto(
+                    userId = "74683223",
+                    query = null,
+                    presetId = "scalping_momentum",
+                    limit = 6,
+                ),
+            )
+
+        preview.finalPrompt.contains("없음. 프리셋 지시문을 기준으로 후보를 제안한다.") shouldBe true
+        preview.userQuery.shouldBeNull()
+    }
+
+    // ───────────────────────── 프리셋 삭제 ─────────────────────────
+
+    @Test
+    fun `deletePreset removes existing preset including builtin`() {
+        whenever(presetRepository.existsById("scalping_momentum")).thenReturn(true)
+        val service = newService { StrategyResearchAiTextResult(provider = "test-claude", text = """{"items":[]}""") }
+
+        service.deletePreset("scalping_momentum")
+
+        org.mockito.kotlin
+            .verify(presetRepository)
+            .deleteById("scalping_momentum")
+    }
+
+    @Test
+    fun `deletePreset throws 404 when preset missing`() {
+        whenever(presetRepository.existsById("ghost")).thenReturn(false)
+        val service = newService { StrategyResearchAiTextResult(provider = "test-claude", text = """{"items":[]}""") }
+
+        shouldThrow<ResponseStatusException> {
+            service.deletePreset("ghost")
+        }
+    }
+
+    private fun preset(id: String): StrategyResearchAiDiscoveryPresetJpaEntity =
+        StrategyResearchAiDiscoveryPresetJpaEntity(
+            id = id,
+            label = "단기 거래대금 폭발",
+            description = "스캘핑 검증용",
+            promptText = "거래대금 집중 종목을 탐색해라.",
+            sortOrder = 10,
+            active = true,
+            builtIn = true,
+        )
+
     private fun newService(complete: () -> StrategyResearchAiTextResult): StrategyResearchAiDiscoveryService =
         StrategyResearchAiDiscoveryService(
             instrumentJpaRepository = instrumentRepository,
@@ -368,6 +585,7 @@ class StrategyResearchAiDiscoveryServiceTest {
             objectMapper = objectMapper,
             stateRepository = stateRepository,
             presetRepository = presetRepository,
+            corePromptRepository = corePromptRepository,
         )
 
     private fun item(

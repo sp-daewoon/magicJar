@@ -70,11 +70,12 @@ class StrategyResearchController(
         @RequestBody @Valid request: StrategyResearchAiDiscoveryRequestDto,
     ): StrategyResearchAiDiscoveryResponseDto {
         log.info(
-            "POST /api/strategy-research/ai-discovery: userId={} market={} limit={} queryLength={}",
+            "POST /api/strategy-research/ai-discovery: userId={} market={} limit={} presetId={} queryLength={}",
             request.userId,
             request.market,
             request.limit,
-            request.query.length,
+            request.presetId,
+            request.query?.length ?: 0,
         )
         return strategyResearchAiDiscoveryService.discover(request)
     }
@@ -104,6 +105,53 @@ class StrategyResearchController(
         @PathVariable presetId: String,
         @RequestBody @Valid request: StrategyResearchAiDiscoveryPresetUpdateRequestDto,
     ): StrategyResearchAiDiscoveryPresetDto = strategyResearchAiDiscoveryService.updatePreset(presetId, request)
+
+    @Operation(
+        summary = "AI 종목발굴 프리셋 삭제",
+        description =
+            "프리셋을 삭제합니다(204). builtin 프리셋도 삭제할 수 있으며, V70 seed 는 ON CONFLICT DO NOTHING " +
+                "이라 재배포해도 부활하지 않습니다(영구 삭제). 존재하지 않는 id 는 404 입니다.",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "204", description = "프리셋 삭제 성공"),
+        ApiResponse(responseCode = "404", description = "프리셋 미존재"),
+    )
+    @DeleteMapping("/ai-discovery/presets/{presetId}")
+    fun deleteAiDiscoveryPreset(
+        @PathVariable presetId: String,
+    ): ResponseEntity<Void> {
+        strategyResearchAiDiscoveryService.deletePreset(presetId)
+        return ResponseEntity.noContent().build()
+    }
+
+    @Operation(
+        summary = "AI 종목발굴 core(wrapper) 프롬프트 조회",
+        description =
+            "발굴 전역 system prompt(core wrapper)를 조회합니다. DB 행이 있으면 그 값이, 없으면 서비스 코드 기본값이 " +
+                "반환되며 isDefault 로 사용자 편집 여부를 구분합니다.",
+    )
+    @GetMapping("/ai-discovery/core-prompt")
+    fun aiDiscoveryCorePrompt(): StrategyResearchAiDiscoveryCorePromptDto = strategyResearchAiDiscoveryService.corePrompt()
+
+    @Operation(
+        summary = "AI 종목발굴 core(wrapper) 프롬프트 수정",
+        description = "발굴 전역 system prompt 를 교체합니다. 공백만으로는 저장할 수 없습니다(400).",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "200", description = "core 프롬프트 갱신 성공"),
+        ApiResponse(responseCode = "400", description = "promptText 공백"),
+    )
+    @PutMapping("/ai-discovery/core-prompt")
+    fun updateAiDiscoveryCorePrompt(
+        @RequestBody @Valid request: StrategyResearchAiDiscoveryCorePromptUpdateRequestDto,
+    ): StrategyResearchAiDiscoveryCorePromptDto = strategyResearchAiDiscoveryService.updateCorePrompt(request)
+
+    @Operation(
+        summary = "AI 종목발굴 core(wrapper) 프롬프트 기본값 복원",
+        description = "발굴 전역 system prompt 를 서비스 코드 기본값으로 복원합니다.",
+    )
+    @PostMapping("/ai-discovery/core-prompt/reset")
+    fun resetAiDiscoveryCorePrompt(): StrategyResearchAiDiscoveryCorePromptDto = strategyResearchAiDiscoveryService.resetCorePrompt()
 
     @Operation(
         summary = "AI 종목발굴 프롬프트 미리보기",

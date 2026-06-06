@@ -6,6 +6,8 @@ import com.fasterxml.jackson.module.kotlin.readValue
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
+import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryCorePromptJpaEntity
+import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryCorePromptJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryPresetJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryPresetJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryStateJpaEntity
@@ -27,21 +29,72 @@ class StrategyResearchAiDiscoveryService(
     private val objectMapper: ObjectMapper,
     private val stateRepository: StrategyResearchAiDiscoveryStateJpaRepository,
     private val presetRepository: StrategyResearchAiDiscoveryPresetJpaRepository,
+    private val corePromptRepository: StrategyResearchAiDiscoveryCorePromptJpaRepository,
 ) {
     private val log = LoggerFactory.getLogger(StrategyResearchAiDiscoveryService::class.java)
-    private val coreSystemPrompt =
-        """
-        너는 한국 주식 자동매매 시스템 magicJar의 '종목 발굴 전문 퀀트 리서처'다.
-        사용자의 요청을 분석하여 조건에 부합하는 한국 주식 후보를 제안하라.
-        단, 너의 제안은 절대적인 매수 추천이 아니며, 이후 magicJar의 자체 Screener와 과거 캔들 Backtest 검증을 거쳐야 하는 '가설 후보'다.
 
-        [분석 원칙]
-        1. 단순 시총 상위주 나열을 금지한다. 사용자의 조건에 맞는 구체적인 모멘텀, 수급, 차트 패턴적 근거를 reason에 작성하라.
-        2. 종목의 섹터와 테마 트렌드를 반영하라. 예: HBM, 전력설비, 조선, 방산, AI 인프라 등.
-        3. KRX 상장 보통주/우선주 후보만 제안한다. ETF, ETN, ELW, 펀드, 리츠, 해외주식, 파생상품은 제외한다.
-        4. 최신 가격·뉴스를 확정적으로 단정하지 말고, 검증이 필요한 후보 가설로 표현한다.
-        5. 매수/매도 권유, 확정 수익, 자동 주문을 암시하는 표현을 금지한다.
-        """.trimIndent()
+    companion object {
+        /**
+         * core wrapper 기본값(서비스 코드 seed). DB 행이 없으면 이 값으로 fallback 하며,
+         * reset API 는 이 값으로 복원한다. V71 seed 와 동일 본문이어야 한다.
+         */
+        val DEFAULT_CORE_PROMPT =
+            """
+            너는 한국 주식 자동매매 시스템 magicJar의 '종목 발굴 전문 퀀트 리서처'다.
+            사용자의 요청을 분석하여 조건에 부합하는 한국 주식 후보를 제안하라.
+            단, 너의 제안은 절대적인 매수 추천이 아니며, 이후 magicJar의 자체 Screener와 과거 캔들 Backtest 검증을 거쳐야 하는 '가설 후보'다.
+
+            [분석 원칙]
+            1. 단순 시총 상위주 나열을 금지한다. 사용자의 조건에 맞는 구체적인 모멘텀, 수급, 차트 패턴적 근거를 reason에 작성하라.
+            2. 종목의 섹터와 테마 트렌드를 반영하라. 예: HBM, 전력설비, 조선, 방산, AI 인프라 등.
+            3. KRX 상장 보통주/우선주 후보만 제안한다. ETF, ETN, ELW, 펀드, 리츠, 해외주식, 파생상품은 제외한다.
+            4. 최신 가격·뉴스를 확정적으로 단정하지 말고, 검증이 필요한 후보 가설로 표현한다.
+            5. 매수/매도 권유, 확정 수익, 자동 주문을 암시하는 표현을 금지한다.
+            """.trimIndent()
+    }
+
+    /** DB 행이 있으면 DB 가 권위, 없으면 서비스 코드 기본값으로 fallback. */
+    private fun corePromptText(): String =
+        corePromptRepository
+            .findById(StrategyResearchAiDiscoveryCorePromptJpaEntity.SINGLETON_ID)
+            .orElse(null)
+            ?.promptText
+            ?.takeIf { it.isNotBlank() }
+            ?: DEFAULT_CORE_PROMPT
+
+    fun corePrompt(): StrategyResearchAiDiscoveryCorePromptDto {
+        val entity = corePromptRepository.findById(StrategyResearchAiDiscoveryCorePromptJpaEntity.SINGLETON_ID).orElse(null)
+        val text = entity?.promptText?.takeIf { it.isNotBlank() } ?: DEFAULT_CORE_PROMPT
+        return StrategyResearchAiDiscoveryCorePromptDto(
+            promptText = text,
+            isDefault = text.trim() == DEFAULT_CORE_PROMPT.trim(),
+            updatedAt = entity?.updatedAt?.toString(),
+        )
+    }
+
+    fun updateCorePrompt(request: StrategyResearchAiDiscoveryCorePromptUpdateRequestDto): StrategyResearchAiDiscoveryCorePromptDto {
+        val text = request.promptText.trim()
+        if (text.isBlank()) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "core 프롬프트는 비워둘 수 없습니다.")
+        }
+        saveCorePrompt(text)
+        return corePrompt()
+    }
+
+    fun resetCorePrompt(): StrategyResearchAiDiscoveryCorePromptDto {
+        saveCorePrompt(DEFAULT_CORE_PROMPT)
+        return corePrompt()
+    }
+
+    private fun saveCorePrompt(text: String) {
+        val entity =
+            corePromptRepository
+                .findById(StrategyResearchAiDiscoveryCorePromptJpaEntity.SINGLETON_ID)
+                .orElse(StrategyResearchAiDiscoveryCorePromptJpaEntity(promptText = text))
+        entity.promptText = text
+        entity.updatedAt = Instant.now()
+        corePromptRepository.save(entity)
+    }
 
     fun latest(userId: String): StrategyResearchAiDiscoveryResponseDto? = stateRepository.findById(userId).orElse(null)?.toResponse()
 
@@ -94,6 +147,21 @@ class StrategyResearchAiDiscoveryService(
         return presetRepository.save(entity).toDto()
     }
 
+    /**
+     * 프리셋 삭제. builtin(is_builtin=TRUE)도 삭제를 허용한다.
+     *
+     * V70 seed 는 ON CONFLICT DO NOTHING 이므로, builtin 을 삭제한 뒤 재배포해도 부활하지 않는다(영구 삭제).
+     * state.preset_id 가 삭제된 id 를 참조 중이면 다음 discover 의 resolveActivePreset 이
+     * NOT FOUND(BAD_REQUEST)를 던지지 않도록 — 단 resolveActivePreset 은 명시 요청 presetId 만 검증하므로,
+     * state 에만 남은 stale id 는 새 요청 presetId 가 null 이면 자연히 null 로 취급된다.
+     */
+    fun deletePreset(presetId: String) {
+        if (!presetRepository.existsById(presetId)) {
+            throw ResponseStatusException(HttpStatus.NOT_FOUND, "AI 종목발굴 프리셋을 찾지 못했습니다: $presetId")
+        }
+        presetRepository.deleteById(presetId)
+    }
+
     fun previewPrompt(request: StrategyResearchAiDiscoveryPromptPreviewRequestDto): StrategyResearchAiDiscoveryPromptPreviewDto {
         val discoveryRequest =
             StrategyResearchAiDiscoveryRequestDto(
@@ -107,8 +175,9 @@ class StrategyResearchAiDiscoveryService(
         val keptItems = previous?.items()?.filter { it.status == StrategyResearchAiDiscoveryItemStatus.KEPT } ?: emptyList()
         val dismissedItems = previous?.items()?.filter { it.status == StrategyResearchAiDiscoveryItemStatus.DISMISSED } ?: emptyList()
         val preset = resolveActivePreset(request.presetId)
+        requireQueryOrPreset(request.query, preset)
         return StrategyResearchAiDiscoveryPromptPreviewDto(
-            systemPrompt = coreSystemPrompt,
+            systemPrompt = corePromptText(),
             preset = preset?.toDto(),
             userQuery = request.query,
             finalPrompt = buildPrompt(discoveryRequest, keptItems, dismissedItems, preset),
@@ -154,6 +223,7 @@ class StrategyResearchAiDiscoveryService(
         val dismissedKeys = dismissedItems.map { it.itemKey }.toSet()
         val keptKeys = keptItems.map { it.itemKey }.toSet()
         val preset = resolveActivePreset(request.presetId)
+        requireQueryOrPreset(request.query, preset)
 
         if (keptItems.size >= request.limit) {
             val items = enrichCandleAvailability(keptItems + dismissedItems, request)
@@ -190,9 +260,10 @@ class StrategyResearchAiDiscoveryService(
         val items = enrichCandleAvailability(visibleItems + dismissedItems, request)
 
         log.info(
-            "StrategyResearch AI 종목발굴: userId={} queryLength={} rawItems={} matched={}",
+            "StrategyResearch AI 종목발굴: userId={} queryLength={} presetId={} rawItems={} matched={}",
             request.userId,
-            request.query.length,
+            request.query?.length ?: 0,
+            preset?.id,
             rawItems.size,
             items.count { it.matched },
         )
@@ -312,11 +383,13 @@ class StrategyResearchAiDiscoveryService(
     ): StrategyResearchAiDiscoveryResponseDto {
         val now = Instant.now()
         val generatedAt = Instant.parse(response.generatedAt)
+        // state.query 컬럼은 NOT NULL 이라 직접 입력 없이 프리셋만 쓴 경우 빈 문자열로 보관한다.
+        val storedQuery = request.query?.trim().orEmpty()
         val entity =
             stateRepository.findById(request.userId).orElse(
                 StrategyResearchAiDiscoveryStateJpaEntity(
                     userId = request.userId,
-                    query = request.query,
+                    query = storedQuery,
                     market = request.market,
                     presetId = response.presetId,
                     candidateLimit = request.limit,
@@ -328,7 +401,7 @@ class StrategyResearchAiDiscoveryService(
                     updatedAt = now,
                 ),
             )
-        entity.query = request.query
+        entity.query = storedQuery
         entity.presetId = response.presetId
         entity.market = request.market
         entity.candidateLimit = request.limit
@@ -342,7 +415,7 @@ class StrategyResearchAiDiscoveryService(
 
     private fun StrategyResearchAiDiscoveryStateJpaEntity.toResponse(): StrategyResearchAiDiscoveryResponseDto =
         StrategyResearchAiDiscoveryResponseDto(
-            query = query,
+            query = query.takeIf { it.isNotBlank() },
             presetId = presetId,
             market = market,
             limit = candidateLimit,
@@ -370,6 +443,24 @@ class StrategyResearchAiDiscoveryService(
         return preset
     }
 
+    /**
+     * 사용자 query 옵션화 검증 규칙.
+     *
+     * - 유효한 프리셋을 선택했으면 query 를 생략할 수 있다(프리셋 지시문 기준으로 발굴).
+     * - 프리셋이 없는 직접 입력 모드에서는 query 가 필수다.
+     */
+    private fun requireQueryOrPreset(
+        query: String?,
+        preset: StrategyResearchAiDiscoveryPresetJpaEntity?,
+    ) {
+        if (preset == null && query.isNullOrBlank()) {
+            throw ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "직접 입력 모드에서는 프롬프트가 필수입니다. 프리셋을 선택하거나 검색어를 입력하세요.",
+            )
+        }
+    }
+
     private fun StrategyResearchAiDiscoveryPresetJpaEntity.toDto(): StrategyResearchAiDiscoveryPresetDto =
         StrategyResearchAiDiscoveryPresetDto(
             id = id,
@@ -390,8 +481,9 @@ class StrategyResearchAiDiscoveryService(
     ): String {
         val today = LocalDate.now(ZoneId.of("Asia/Seoul"))
         val marketText = request.market ?: "KOSPI/KOSDAQ/KONEX 전체"
+        val userQuery = request.query?.trim()?.takeIf { it.isNotBlank() }
         return listOf(
-            coreSystemPrompt,
+            corePromptText(),
             "",
             "[요청 컨텍스트]",
             "오늘 날짜: $today KST",
@@ -412,7 +504,7 @@ class StrategyResearchAiDiscoveryService(
                 "[선택 프리셋]\n없음. 사용자 입력만 바탕으로 검증 후보를 제안한다.\n"
             },
             "[사용자 입력]",
-            request.query,
+            userQuery ?: "없음. 프리셋 지시문을 기준으로 후보를 제안한다.",
             "",
             if (keptItems.isNotEmpty()) {
                 "이미 사용자가 유지하기로 한 후보(중복 제안 금지): ${keptItems.joinToString { it.nameWithCode() }}"
