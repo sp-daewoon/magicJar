@@ -201,6 +201,13 @@ const server = setupServer(
   http.delete('/api/strategy-research/ai-discovery/latest', () => {
     return new HttpResponse(null, { status: 204 })
   }),
+  http.get('/api/strategy-research/ai-discovery/core-prompt', () => {
+    return HttpResponse.json({
+      promptText: '기본 Core Wrapper 지시문',
+      isDefault: true,
+      updatedAt: null,
+    })
+  }),
 )
 
 beforeAll(() => server.listen())
@@ -366,7 +373,7 @@ describe('StrategyResearchPage', () => {
 
     expect(await screen.findByRole('status')).toHaveTextContent('Claude CLI가 후보를 찾는 중입니다')
     expect(screen.getByRole('button', { name: '발굴 중' })).toBeDisabled()
-    expect(screen.getByLabelText('찾을 조건')).toBeDisabled()
+    expect(screen.getByLabelText('프롬프트')).toBeDisabled()
 
     await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument())
     expect(await screen.findByText('반도체와 AI 인프라 후보')).toBeInTheDocument()
@@ -605,5 +612,180 @@ describe('StrategyResearchPage', () => {
     expect(screen.queryByRole('button', { name: '캔들 가져오기' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '캔들 없는 후보 전체 가져오기' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '선택' })).toBeEnabled()
+  })
+
+  it('프리셋 설정 팝업에서 Core Wrapper를 수정·저장하고 사용자 수정본 뱃지를 보여준다', async () => {
+    const user = userEvent.setup()
+    act(() => {
+      useOnboardingStore.setState({ registeredUserId: 74683223 })
+    })
+    const coreBodyRef: { value: { promptText: string } | null } = { value: null }
+    server.use(
+      http.put('/api/strategy-research/ai-discovery/core-prompt', async ({ request }) => {
+        coreBodyRef.value = (await request.json()) as { promptText: string }
+        return HttpResponse.json({
+          promptText: coreBodyRef.value.promptText,
+          isDefault: false,
+          updatedAt: '2026-06-06T01:00:00Z',
+        })
+      }),
+    )
+
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: '프리셋 설정' }))
+    const coreTextarea = await screen.findByLabelText('Core Wrapper 프롬프트')
+    await waitFor(() => expect(coreTextarea).toHaveValue('기본 Core Wrapper 지시문'))
+
+    await user.clear(coreTextarea)
+    await user.type(coreTextarea, '수정된 전역 지시문')
+    await user.click(screen.getByRole('button', { name: 'Core Wrapper 저장' }))
+
+    await waitFor(() => expect(coreBodyRef.value).not.toBeNull())
+    expect(coreBodyRef.value?.promptText).toBe('수정된 전역 지시문')
+    expect(await screen.findByText('사용자 수정본')).toBeInTheDocument()
+    expect(screen.getByText('Core Wrapper를 저장했습니다')).toBeInTheDocument()
+  })
+
+  it('Core Wrapper를 빈 값으로 저장하면 클라이언트에서 차단한다', async () => {
+    const user = userEvent.setup()
+    act(() => {
+      useOnboardingStore.setState({ registeredUserId: 74683223 })
+    })
+    let putCalled = false
+    server.use(
+      http.put('/api/strategy-research/ai-discovery/core-prompt', () => {
+        putCalled = true
+        return HttpResponse.json({ promptText: '', isDefault: false, updatedAt: null })
+      }),
+    )
+
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: '프리셋 설정' }))
+    const coreTextarea = await screen.findByLabelText('Core Wrapper 프롬프트')
+    await waitFor(() => expect(coreTextarea).toHaveValue('기본 Core Wrapper 지시문'))
+
+    await user.clear(coreTextarea)
+    await user.click(screen.getByRole('button', { name: 'Core Wrapper 저장' }))
+
+    expect(await screen.findByText('Core Wrapper 프롬프트를 입력해주세요')).toBeInTheDocument()
+    expect(putCalled).toBe(false)
+  })
+
+  it('Core Wrapper 기본값 복원은 confirm 후 reset을 호출한다', async () => {
+    const user = userEvent.setup()
+    act(() => {
+      useOnboardingStore.setState({ registeredUserId: 74683223 })
+    })
+    let resetCalled = false
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    server.use(
+      http.post('/api/strategy-research/ai-discovery/core-prompt/reset', () => {
+        resetCalled = true
+        return HttpResponse.json({
+          promptText: '기본 Core Wrapper 지시문',
+          isDefault: true,
+          updatedAt: null,
+        })
+      }),
+    )
+
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: '프리셋 설정' }))
+    await screen.findByLabelText('Core Wrapper 프롬프트')
+    await user.click(screen.getByRole('button', { name: '기본값 복원' }))
+
+    await waitFor(() => expect(resetCalled).toBe(true))
+    expect(await screen.findByText('Core Wrapper를 기본값으로 복원했습니다')).toBeInTheDocument()
+    confirmSpy.mockRestore()
+  })
+
+  it('프리셋 삭제는 confirm 후 DELETE를 호출하고 목록을 다시 불러온다', async () => {
+    const user = userEvent.setup()
+    act(() => {
+      useOnboardingStore.setState({ registeredUserId: 74683223 })
+    })
+    const deletedIds: string[] = []
+    let presetsFetchCount = 0
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    server.use(
+      http.get('/api/strategy-research/ai-discovery/presets', () => {
+        presetsFetchCount += 1
+        const items = [
+          {
+            id: 'scalping_momentum',
+            label: '단기 거래대금 폭발',
+            description: '5분봉 검증 후보',
+            promptText: '거래대금과 일중 변동성이 큰 후보를 찾아라.',
+            sortOrder: 10,
+            active: true,
+            builtIn: true,
+            updatedAt: '2026-06-06T00:00:00Z',
+          },
+        ]
+        return HttpResponse.json(
+          deletedIds.includes('scalping_momentum') ? [] : items,
+        )
+      }),
+      http.delete('/api/strategy-research/ai-discovery/presets/:presetId', ({ params }) => {
+        deletedIds.push(String(params.presetId))
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: '프리셋 설정' }))
+    await screen.findByRole('button', { name: '삭제' })
+    const fetchesBeforeDelete = presetsFetchCount
+    await user.click(screen.getByRole('button', { name: '삭제' }))
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      expect.stringContaining("'단기 거래대금 폭발' 프리셋을 삭제합니다. 되돌릴 수 없습니다."),
+    )
+    await waitFor(() => expect(deletedIds).toContain('scalping_momentum'))
+    await waitFor(() => expect(presetsFetchCount).toBeGreaterThan(fetchesBeforeDelete))
+    confirmSpy.mockRestore()
+  })
+
+  it('직접 입력 모드에서 프롬프트가 비면 발굴 요청을 보내지 않는다', async () => {
+    const user = userEvent.setup()
+    act(() => {
+      useOnboardingStore.setState({ registeredUserId: 74683223 })
+    })
+
+    renderPage()
+
+    // 직접 입력 모드로 전환
+    await user.click(screen.getByRole('button', { name: '직접 입력' }))
+    const promptInput = screen.getByLabelText('프롬프트')
+    await user.clear(promptInput)
+    await user.click(screen.getByRole('button', { name: '발굴' }))
+
+    expect(await screen.findByText('직접 입력 모드에서는 프롬프트를 입력해주세요')).toBeInTheDocument()
+    expect(lastDiscoveryBody).toBeNull()
+  })
+
+  it('프리셋 모드에서는 빈 프롬프트로도 발굴 요청을 허용한다', async () => {
+    const user = userEvent.setup()
+    act(() => {
+      useOnboardingStore.setState({ registeredUserId: 74683223 })
+    })
+
+    renderPage()
+
+    // 프리셋이 자동 선택될 때까지 대기
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '단기 거래대금 폭발' })).toHaveClass('border-indigo-500'),
+    )
+    const promptInput = screen.getByLabelText('프롬프트')
+    await user.clear(promptInput)
+    await user.click(screen.getByRole('button', { name: '발굴' }))
+
+    await waitFor(() => expect(lastDiscoveryBody).not.toBeNull())
+    expect(lastDiscoveryBody?.presetId).toBe('scalping_momentum')
+    expect(lastDiscoveryBody?.query).toBe('')
   })
 })
