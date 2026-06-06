@@ -59,6 +59,13 @@ export interface StrategyResearchAiDiscoveryItemDto {
   tradingHalt: boolean
   managementStock: boolean
   status: StrategyResearchAiDiscoveryItemStatus
+  /**
+   * 발굴 요청 interval 기준 보유 캔들 수.
+   * backend가 내려줄 때만 존재(add-only). null/undefined면 "알 수 없음"으로 취급해 캔들 가져오기 UI를 노출하지 않는다.
+   */
+  candleCount?: number | null
+  /** 리서치용 캔들 보유 여부(backend 제공 시). 캔들 0건 후보 판정 보조. */
+  hasResearchCandles?: boolean | null
 }
 
 export interface StrategyResearchReportDto {
