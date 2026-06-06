@@ -774,6 +774,83 @@ describe('StrategyResearchPage', () => {
     expect(lastDiscoveryBody).toBeNull()
   })
 
+  it('AI 프리셋 추천 → 팝업 → 추천 결과 카드 → 추가 클릭 시 createPreset 호출 + 추가됨 상태', async () => {
+    const user = userEvent.setup()
+    act(() => {
+      useOnboardingStore.setState({ registeredUserId: 74683223 })
+    })
+    const recommendRef: { value: { userId: string; hint: string | null; count: number } | null } = {
+      value: null,
+    }
+    const createdBodies: Array<{ label: string; promptText: string; active: boolean }> = []
+    server.use(
+      http.post('/api/strategy-research/ai-discovery/presets/recommend', async ({ request }) => {
+        recommendRef.value = (await request.json()) as {
+          userId: string
+          hint: string | null
+          count: number
+        }
+        return HttpResponse.json({
+          provider: 'claude-cli-bridge',
+          generatedAt: '2026-06-06T00:00:00Z',
+          warnings: [],
+          items: [
+            {
+              label: '수급 집중 단타',
+              description: '기관·외국인 동반 순매수 후보',
+              promptText: '최근 3일 기관·외국인 동반 순매수가 강한 후보를 찾아라.',
+              rationale: 'Screener·Backtest 검증 흐름과 맞물려 단타 검증에 적합',
+            },
+            {
+              label: '낙폭 과대 반등',
+              description: '단기 급락 후 거래량 회복 후보',
+              promptText: '52주 고점 대비 큰 폭으로 하락한 뒤 거래량이 회복되는 후보를 찾아라.',
+              rationale: '기존 모멘텀 프리셋과 겹치지 않는 역추세 방향',
+            },
+          ],
+        })
+      }),
+      http.post('/api/strategy-research/ai-discovery/presets', async ({ request }) => {
+        const body = (await request.json()) as { label: string; promptText: string; active: boolean }
+        createdBodies.push(body)
+        return HttpResponse.json({
+          id: 'custom_recommended',
+          label: body.label,
+          description: '기관·외국인 동반 순매수 후보',
+          promptText: body.promptText,
+          sortOrder: 30,
+          active: body.active,
+          builtIn: false,
+          updatedAt: '2026-06-06T00:00:00Z',
+        })
+      }),
+    )
+
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'AI 프리셋 추천' }))
+
+    const hint = await screen.findByLabelText('원하는 방향 (선택)')
+    await user.type(hint, '수급 기반 단타')
+    await user.click(screen.getByRole('button', { name: '추천받기' }))
+
+    expect(await screen.findByText('수급 집중 단타')).toBeInTheDocument()
+    expect(screen.getByText('낙폭 과대 반등')).toBeInTheDocument()
+    await waitFor(() => expect(recommendRef.value).not.toBeNull())
+    expect(recommendRef.value?.hint).toBe('수급 기반 단타')
+
+    const addButtons = screen.getAllByRole('button', { name: '프리셋으로 추가' })
+    expect(addButtons).toHaveLength(2)
+    await user.click(addButtons[0])
+
+    await waitFor(() => expect(createdBodies).toHaveLength(1))
+    expect(createdBodies[0].label).toBe('수급 집중 단타')
+    expect(createdBodies[0].active).toBe(true)
+    expect(await screen.findByRole('button', { name: '추가됨' })).toBeDisabled()
+    // 나머지 카드는 여전히 추가 가능
+    expect(screen.getByRole('button', { name: '프리셋으로 추가' })).toBeEnabled()
+  })
+
   it('프리셋 모드에서는 빈 프롬프트로도 발굴 요청을 허용한다', async () => {
     const user = userEvent.setup()
     act(() => {

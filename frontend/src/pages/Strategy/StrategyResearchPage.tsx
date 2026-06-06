@@ -10,6 +10,8 @@ import {
   type StrategyResearchAiDiscoveryItemStatus,
   type StrategyResearchAiDiscoveryPresetCreateRequestDto,
   type StrategyResearchAiDiscoveryPresetDto,
+  type StrategyResearchAiDiscoveryPresetRecommendItemDto,
+  type StrategyResearchAiDiscoveryPresetRecommendResponseDto,
   type StrategyResearchAiDiscoveryPresetUpdateRequestDto,
   type StrategyResearchAiDiscoveryPromptPreviewDto,
   type StrategyResearchAiDiscoveryPromptPreviewRequestDto,
@@ -108,6 +110,14 @@ export function StrategyResearchPage() {
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null)
   const [presetDraft, setPresetDraft] = useState<StrategyResearchAiDiscoveryPresetUpdateRequestDto | null>(null)
   const [presetSettingsError, setPresetSettingsError] = useState<string | null>(null)
+  const [recommendOpen, setRecommendOpen] = useState(false)
+  const [recommendHint, setRecommendHint] = useState('')
+  const [recommendError, setRecommendError] = useState<string | null>(null)
+  const [recommendResult, setRecommendResult] =
+    useState<StrategyResearchAiDiscoveryPresetRecommendResponseDto | null>(null)
+  // 추천 항목 중 "프리셋으로 추가" 완료된 인덱스 집합 — 추가됨 상태 + 버튼 비활성
+  const [recommendAddedIndexes, setRecommendAddedIndexes] = useState<number[]>([])
+  const [recommendAddingIndex, setRecommendAddingIndex] = useState<number | null>(null)
   const [corePromptDraft, setCorePromptDraft] = useState('')
   const [corePromptTouched, setCorePromptTouched] = useState(false)
   const [corePromptError, setCorePromptError] = useState<string | null>(null)
@@ -155,6 +165,52 @@ export function StrategyResearchPage() {
     queryKey: ['strategy-research', 'ai-discovery', 'presets'],
     queryFn: strategyResearchApi.getAiDiscoveryPresets,
     staleTime: 60_000,
+  })
+
+  const presetRecommendMutation = useMutation<
+    StrategyResearchAiDiscoveryPresetRecommendResponseDto,
+    unknown,
+    { hint: string | null; count: number }
+  >({
+    mutationFn: ({ hint, count }) =>
+      strategyResearchApi.recommendAiDiscoveryPresets({ userId: userIdText!, hint, count }),
+    onSuccess: (result) => {
+      setRecommendResult(result)
+      setRecommendAddedIndexes([])
+      setRecommendError(null)
+    },
+    onError: (error) => setRecommendError(strategyResearchErrorMessage(error)),
+  })
+
+  // 추천 카드 → 프리셋 추가 전용 mutation (프리셋 설정 편집 상태를 건드리지 않음)
+  const recommendAddMutation = useMutation<
+    StrategyResearchAiDiscoveryPresetDto,
+    unknown,
+    { index: number; item: StrategyResearchAiDiscoveryPresetRecommendItemDto }
+  >({
+    mutationFn: ({ item }) => {
+      const nextSortOrder =
+        (discoveryPresets.reduce((max, preset) => Math.max(max, preset.sortOrder), 0) || 0) + 10
+      return strategyResearchApi.createAiDiscoveryPreset({
+        label: item.label,
+        description: item.description,
+        promptText: item.promptText,
+        sortOrder: nextSortOrder,
+        active: true,
+      })
+    },
+    onSuccess: (_created, variables) => {
+      setRecommendAddedIndexes((prev) =>
+        prev.includes(variables.index) ? prev : [...prev, variables.index],
+      )
+      setRecommendAddingIndex(null)
+      setRecommendError(null)
+      void discoveryPresetQuery.refetch()
+    },
+    onError: (error) => {
+      setRecommendAddingIndex(null)
+      setRecommendError(strategyResearchErrorMessage(error))
+    },
   })
 
   const promptPreviewMutation = useMutation<
@@ -470,6 +526,28 @@ export function StrategyResearchPage() {
     setEditingPresetId(selectedDiscoveryPresetId ?? discoveryPresets[0]?.id ?? null)
   }
 
+  const openRecommend = () => {
+    setRecommendOpen(true)
+    setRecommendError(null)
+  }
+
+  const submitRecommend = () => {
+    setRecommendError(null)
+    presetRecommendMutation.mutate({
+      hint: recommendHint.trim() ? recommendHint.trim() : null,
+      count: 3,
+    })
+  }
+
+  const addRecommendedPreset = (
+    index: number,
+    item: StrategyResearchAiDiscoveryPresetRecommendItemDto,
+  ) => {
+    if (recommendAddedIndexes.includes(index)) return
+    setRecommendAddingIndex(index)
+    recommendAddMutation.mutate({ index, item })
+  }
+
   const createPresetDraft = () => {
     const nextSortOrder = (discoveryPresets.reduce((max, preset) => Math.max(max, preset.sortOrder), 0) || 0) + 10
     presetCreateMutation.mutate({
@@ -715,6 +793,13 @@ export function StrategyResearchPage() {
               className="rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               프리셋 설정
+            </button>
+            <button
+              type="button"
+              onClick={openRecommend}
+              className="rounded border border-violet-700 bg-violet-950/30 px-2 py-1 text-xs font-semibold text-violet-200 hover:bg-violet-900/40"
+            >
+              AI 프리셋 추천
             </button>
             {discoveryReport && (
               <>
@@ -1515,6 +1600,140 @@ export function StrategyResearchPage() {
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {recommendOpen && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="AI 프리셋 추천"
+        >
+          <div className="max-h-[86vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-violet-900/60 bg-gray-900 shadow-xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-800 bg-gray-900 px-4 py-3">
+              <div>
+                <h2 className="text-sm font-semibold text-violet-100">AI 프리셋 추천</h2>
+                <p className="mt-0.5 text-xs text-gray-500">
+                  현재 프리셋 구성과 우리 발굴 구조에 맞는 새 프리셋을 AI가 제안합니다
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRecommendOpen(false)}
+                className="rounded border border-gray-700 px-2.5 py-1 text-xs text-gray-300 hover:bg-gray-800"
+              >
+                닫기
+              </button>
+            </div>
+            <div className="space-y-3 p-4">
+              <label className="block">
+                <span className="text-xs text-gray-500">원하는 방향 (선택)</span>
+                <textarea
+                  value={recommendHint}
+                  onChange={(event) => setRecommendHint(event.target.value)}
+                  disabled={presetRecommendMutation.isPending}
+                  rows={2}
+                  aria-label="원하는 방향 (선택)"
+                  placeholder="예: 수급 기반 단타 / 낙폭 과대 반등 — 비워두면 AI가 현재 프리셋과 겹치지 않는 방향을 제안합니다"
+                  className="mt-1 w-full resize-none rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:border-violet-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                />
+              </label>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={submitRecommend}
+                  disabled={presetRecommendMutation.isPending}
+                  className="rounded bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {presetRecommendMutation.isPending ? '추천 생성 중' : '추천받기'}
+                </button>
+                {recommendResult && (
+                  <span className="text-xs text-gray-500">{recommendResult.provider}</span>
+                )}
+              </div>
+
+              {presetRecommendMutation.isPending && (
+                <div
+                  className="rounded border border-violet-900 bg-violet-950/20 px-3 py-3"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="font-medium text-violet-100">Claude CLI가 추천을 생성 중입니다</span>
+                    <span className="text-violet-300">최대 수 분까지 기다립니다</span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-gray-800">
+                    <div className="ai-discovery-loading-bar h-full w-1/3 rounded-full bg-violet-400" />
+                  </div>
+                </div>
+              )}
+
+              {recommendError && (
+                <div className="rounded border border-red-900 bg-red-950/30 px-3 py-2 text-sm text-red-200">
+                  {recommendError}
+                </div>
+              )}
+
+              {recommendResult && recommendResult.warnings.length > 0 && (
+                <div className="rounded border border-amber-900 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">
+                  {recommendResult.warnings.join(' · ')}
+                </div>
+              )}
+
+              {recommendResult && (
+                recommendResult.items.length === 0 ? (
+                  <div className="rounded border border-gray-800 bg-gray-950 px-4 py-8 text-center text-sm text-gray-500">
+                    추천 결과가 없습니다. 방향을 입력하고 다시 시도해보세요.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {recommendResult.items.map((item, index) => {
+                      const added = recommendAddedIndexes.includes(index)
+                      const adding = recommendAddingIndex === index
+                      return (
+                        <div
+                          key={`${item.label}-${index}`}
+                          className="rounded border border-gray-800 bg-gray-950 p-3"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-gray-100">{item.label}</div>
+                              <p className="mt-1 text-xs leading-5 text-gray-400">{item.description}</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => addRecommendedPreset(index, item)}
+                              disabled={added || adding}
+                              className={[
+                                'shrink-0 rounded px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed',
+                                added
+                                  ? 'border border-emerald-800 bg-emerald-950/30 text-emerald-300'
+                                  : 'bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-60',
+                              ].join(' ')}
+                            >
+                              {added ? '추가됨' : adding ? '추가 중' : '프리셋으로 추가'}
+                            </button>
+                          </div>
+                          <details className="mt-2 rounded border border-gray-800 bg-gray-900/60 px-3 py-2">
+                            <summary className="cursor-pointer text-xs font-medium text-gray-400">
+                              프롬프트 보기
+                            </summary>
+                            <pre className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-5 text-blue-100">
+                              {item.promptText}
+                            </pre>
+                          </details>
+                          {item.rationale && (
+                            <p className="mt-2 text-xs leading-5 text-gray-500">{item.rationale}</p>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              )}
             </div>
           </div>
         </div>

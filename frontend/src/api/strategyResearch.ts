@@ -111,6 +111,26 @@ export interface StrategyResearchAiDiscoveryPresetCreateRequestDto {
   active: boolean
 }
 
+export interface StrategyResearchAiDiscoveryPresetRecommendRequestDto {
+  userId: string
+  hint?: string | null
+  count?: number
+}
+
+export interface StrategyResearchAiDiscoveryPresetRecommendItemDto {
+  label: string
+  description: string
+  promptText: string
+  rationale: string
+}
+
+export interface StrategyResearchAiDiscoveryPresetRecommendResponseDto {
+  provider: string
+  generatedAt: string
+  warnings: string[]
+  items: StrategyResearchAiDiscoveryPresetRecommendItemDto[]
+}
+
 export interface StrategyResearchAiDiscoveryPromptPreviewRequestDto {
   userId: string
   query: string
@@ -287,6 +307,21 @@ export const strategyResearchApi = {
   resetAiDiscoveryCorePrompt: async (): Promise<StrategyResearchAiDiscoveryCorePromptDto> => {
     const res = await apiClient.post<StrategyResearchAiDiscoveryCorePromptDto>(
       '/strategy-research/ai-discovery/core-prompt/reset',
+    )
+    return res.data
+  },
+  recommendAiDiscoveryPresets: async (
+    req: StrategyResearchAiDiscoveryPresetRecommendRequestDto,
+  ): Promise<StrategyResearchAiDiscoveryPresetRecommendResponseDto> => {
+    const body = {
+      userId: req.userId,
+      hint: req.hint?.trim() ? req.hint.trim() : null,
+      count: req.count ?? 3,
+    }
+    const res = await apiClient.post<StrategyResearchAiDiscoveryPresetRecommendResponseDto>(
+      '/strategy-research/ai-discovery/presets/recommend',
+      body,
+      { timeout: AI_DISCOVERY_TIMEOUT_MS },
     )
     return res.data
   },
