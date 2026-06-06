@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   strategyResearchApi,
   strategyResearchErrorMessage,
@@ -230,8 +230,11 @@ export function StrategyResearchPage() {
     onError: (error) => setPresetSettingsError(strategyResearchErrorMessage(error)),
   })
 
+  const queryClient = useQueryClient()
+  const CORE_PROMPT_QUERY_KEY = ['strategy-research', 'ai-discovery', 'core-prompt']
+
   const corePromptQuery = useQuery({
-    queryKey: ['strategy-research', 'ai-discovery', 'core-prompt'],
+    queryKey: CORE_PROMPT_QUERY_KEY,
     queryFn: strategyResearchApi.getAiDiscoveryCorePrompt,
     staleTime: 60_000,
   })
@@ -243,7 +246,10 @@ export function StrategyResearchPage() {
   >({
     mutationFn: strategyResearchApi.updateAiDiscoveryCorePrompt,
     onSuccess: (dto) => {
-      // PUT 응답이 권위 DTO이므로 refetch 없이 meta/draft를 갱신 (refetch가 stale GET으로 뱃지를 덮어쓰는 것 회피)
+      // PUT 응답이 권위 DTO — 쿼리 캐시까지 즉시 동기화해야 한다.
+      // (캐시를 안 갱신하면 touched=false 전환 직후 effect가 stale GET(기본값)으로 draft를 되돌리고,
+      //  그 상태에서 재저장 시 기본값이 DB를 덮어쓰는 수정본 유실 버그 — 2026-06-06 사용자 보고)
+      queryClient.setQueryData(CORE_PROMPT_QUERY_KEY, dto)
       setCorePromptError(null)
       setCorePromptDraft(dto.promptText)
       setCorePromptMeta(dto)
@@ -255,6 +261,7 @@ export function StrategyResearchPage() {
   const corePromptResetMutation = useMutation<StrategyResearchAiDiscoveryCorePromptDto, unknown>({
     mutationFn: strategyResearchApi.resetAiDiscoveryCorePrompt,
     onSuccess: (dto) => {
+      queryClient.setQueryData(CORE_PROMPT_QUERY_KEY, dto)
       setCorePromptError(null)
       setCorePromptDraft(dto.promptText)
       setCorePromptMeta(dto)
