@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.domain.market.port
 
+import kotlinx.datetime.toJavaInstant
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import java.time.Instant
@@ -45,6 +46,37 @@ interface CandleRepository {
         code: String,
         interval: CandleInterval,
     ): List<Candle>
+
+    /**
+     * 특정 종목·interval 의 최신 candle N개 반환 (ts ASC).
+     *
+     * 전략 평가·실시간 신호처럼 최근 lookback만 필요한 path는 전체 시계열을 읽지 말고
+     * DB에서 `ORDER BY ts DESC LIMIT N`으로 제한해야 한다. 기본 구현은 테스트/임시 구현 호환용이며,
+     * 실제 JPA adapter는 native DB limit 조회로 override한다.
+     */
+    fun findLatestByCodeAndInterval(
+        code: String,
+        interval: CandleInterval,
+        limit: Int,
+    ): List<Candle> = findByCodeAndInterval(code, interval).takeLast(limit.coerceAtLeast(1))
+
+    /**
+     * beforeExclusive 이전 candle 중 최신 N개 반환 (ts ASC).
+     *
+     * boundary candle을 별도로 받은 실시간 평가에서 DB에 같은 boundary row가 있더라도 중복하지 않기 위해
+     * `ts < beforeExclusive`로 조회한다.
+     */
+    fun findLatestBeforeByCodeAndInterval(
+        code: String,
+        interval: CandleInterval,
+        beforeExclusive: Instant,
+        limit: Int,
+    ): List<Candle> =
+        findByCodeAndInterval(code, interval)
+            .asSequence()
+            .filter { it.ts.toJavaInstant().isBefore(beforeExclusive) }
+            .toList()
+            .takeLast(limit.coerceAtLeast(1))
 
     /**
      * 특정 종목·interval 의 마지막 candle ts.

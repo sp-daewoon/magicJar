@@ -17,12 +17,17 @@ export interface StrategyResearchRequestDto {
 export interface StrategyResearchAiDiscoveryRequestDto {
   userId: string
   query: string
+  presetId?: string | null
   market?: 'KOSPI' | 'KOSDAQ' | 'KONEX' | ''
   limit: number
+  interval?: string
+  from?: string
+  to?: string
 }
 
 export interface StrategyResearchAiDiscoveryResponseDto {
   query: string
+  presetId: string | null
   market: 'KOSPI' | 'KOSDAQ' | 'KONEX' | '' | null
   limit: number
   provider: string
@@ -66,6 +71,51 @@ export interface StrategyResearchAiDiscoveryItemDto {
   candleCount?: number | null
   /** 리서치용 캔들 보유 여부(backend 제공 시). 캔들 0건 후보 판정 보조. */
   hasResearchCandles?: boolean | null
+}
+
+export interface StrategyResearchAiDiscoveryPresetDto {
+  id: string
+  label: string
+  description: string
+  promptText: string
+  sortOrder: number
+  active: boolean
+  builtIn: boolean
+  updatedAt: string
+}
+
+export interface StrategyResearchAiDiscoveryPresetUpdateRequestDto {
+  label: string
+  description: string
+  promptText: string
+  sortOrder: number
+  active: boolean
+}
+
+export interface StrategyResearchAiDiscoveryPresetCreateRequestDto {
+  id?: string | null
+  label: string
+  description: string
+  promptText: string
+  sortOrder?: number | null
+  active: boolean
+}
+
+export interface StrategyResearchAiDiscoveryPromptPreviewRequestDto {
+  userId: string
+  query: string
+  presetId?: string | null
+  market?: 'KOSPI' | 'KOSDAQ' | 'KONEX' | ''
+  limit: number
+}
+
+export interface StrategyResearchAiDiscoveryPromptPreviewDto {
+  systemPrompt: string
+  preset: StrategyResearchAiDiscoveryPresetDto | null
+  userQuery: string
+  finalPrompt: string
+  generatedAt: string
+  warnings: string[]
 }
 
 export interface StrategyResearchReportDto {
@@ -156,6 +206,7 @@ export const strategyResearchApi = {
     const body = {
       ...req,
       market: req.market || null,
+      presetId: req.presetId || null,
     }
     const res = await apiClient.post<StrategyResearchAiDiscoveryResponseDto>('/strategy-research/ai-discovery', body, {
       timeout: AI_DISCOVERY_TIMEOUT_MS,
@@ -181,6 +232,43 @@ export const strategyResearchApi = {
     await apiClient.delete('/strategy-research/ai-discovery/latest', {
       params: { userId },
     })
+  },
+  getAiDiscoveryPresets: async (): Promise<StrategyResearchAiDiscoveryPresetDto[]> => {
+    const res = await apiClient.get<StrategyResearchAiDiscoveryPresetDto[]>('/strategy-research/ai-discovery/presets')
+    return res.data
+  },
+  createAiDiscoveryPreset: async (
+    req: StrategyResearchAiDiscoveryPresetCreateRequestDto,
+  ): Promise<StrategyResearchAiDiscoveryPresetDto> => {
+    const res = await apiClient.post<StrategyResearchAiDiscoveryPresetDto>(
+      '/strategy-research/ai-discovery/presets',
+      req,
+    )
+    return res.data
+  },
+  updateAiDiscoveryPreset: async (
+    presetId: string,
+    req: StrategyResearchAiDiscoveryPresetUpdateRequestDto,
+  ): Promise<StrategyResearchAiDiscoveryPresetDto> => {
+    const res = await apiClient.put<StrategyResearchAiDiscoveryPresetDto>(
+      `/strategy-research/ai-discovery/presets/${encodeURIComponent(presetId)}`,
+      req,
+    )
+    return res.data
+  },
+  previewAiDiscoveryPrompt: async (
+    req: StrategyResearchAiDiscoveryPromptPreviewRequestDto,
+  ): Promise<StrategyResearchAiDiscoveryPromptPreviewDto> => {
+    const body = {
+      ...req,
+      market: req.market || null,
+      presetId: req.presetId || null,
+    }
+    const res = await apiClient.post<StrategyResearchAiDiscoveryPromptPreviewDto>(
+      '/strategy-research/ai-discovery/prompt-preview',
+      body,
+    )
+    return res.data
   },
 }
 

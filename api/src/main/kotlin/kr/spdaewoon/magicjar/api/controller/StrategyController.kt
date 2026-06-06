@@ -231,7 +231,7 @@ class StrategyController(
             candleRepositoryProvider.ifAvailable
                 ?: throw ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "캔들 저장소 bean 없음")
         val interval = parseInterval(req.interval)
-        val candles = candleRepository.findByCodeAndInterval(req.code, interval).takeLast(evaluateCandleLookback)
+        val candles = candleRepository.findLatestByCodeAndInterval(req.code, interval, evaluateCandleLookback)
         if (candles.isEmpty()) {
             throw StrategyException.InsufficientCandlesException(required = 1, actual = 0)
         }

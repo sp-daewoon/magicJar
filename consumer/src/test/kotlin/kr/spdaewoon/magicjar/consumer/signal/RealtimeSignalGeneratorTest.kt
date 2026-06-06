@@ -8,6 +8,7 @@ import io.mockk.slot
 import io.mockk.verify
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import kotlinx.datetime.toJavaInstant
 import kr.spdaewoon.magicjar.consumer.infrastructure.session.SimpleMarketSessionResolver
 import kr.spdaewoon.magicjar.consumer.reconciliation.DataReadinessResult
 import kr.spdaewoon.magicjar.consumer.reconciliation.DataReadinessService
@@ -70,13 +71,17 @@ class RealtimeSignalGeneratorTest {
         every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
             listOf(strategy(buyAst = buyAst))
         every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
-        every { candleRepository.findByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval(
+                "005930",
+                CandleInterval.FIVE_MIN,
+                boundaryTs.toJavaInstant(),
+                2,
+            )
+        } returns
             listOf(
-                candle("2026-05-20T00:00:00Z", "100"),
                 candle("2026-05-20T00:05:00Z", "101"),
                 candle("2026-05-20T00:10:00Z", "102"),
-                candle(boundaryTs, "999"),
-                candle("2026-05-20T00:20:00Z", "200"),
             )
         every { evaluator.evaluate(42L, buyAst, capture(capturedCandles)) } returns holdResult()
 
@@ -107,7 +112,14 @@ class RealtimeSignalGeneratorTest {
         every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
             listOf(strategy(buyAst = buyAst, sellAst = sellAst))
         every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
-        every { candleRepository.findByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval(
+                "005930",
+                CandleInterval.FIVE_MIN,
+                boundaryTs.toJavaInstant(),
+                499,
+            )
+        } returns
             listOf(candle("2026-05-20T00:25:00Z", "100"))
         every { evaluator.evaluate(42L, buyAst, any()) } returns
             StrategyEvalResult(
@@ -152,7 +164,14 @@ class RealtimeSignalGeneratorTest {
         every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
             listOf(strategy(buyAst = buyAst, status = StrategyStatus.BUY_BLOCKED))
         every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
-        every { candleRepository.findByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval(
+                "005930",
+                CandleInterval.FIVE_MIN,
+                boundaryTs.toJavaInstant(),
+                499,
+            )
+        } returns
             listOf(candle("2026-05-20T00:30:00Z", "100"))
         every { evaluator.evaluate(42L, buyAst, any()) } returns
             StrategyEvalResult(
@@ -188,7 +207,14 @@ class RealtimeSignalGeneratorTest {
             )
         every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
         every { dedupeGuard.tryAcquire(77L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
-        every { candleRepository.findByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval(
+                "005930",
+                CandleInterval.FIVE_MIN,
+                boundaryTs.toJavaInstant(),
+                499,
+            )
+        } returns
             listOf(candle("2026-05-20T00:30:00Z", "100"))
         every { evaluator.evaluate(any(), buyAst, any()) } returns
             StrategyEvalResult(
@@ -237,7 +263,7 @@ class RealtimeSignalGeneratorTest {
         verify(exactly = 0) { evaluator.evaluate(any(), any(), any()) }
         verify(exactly = 0) { signalRepository.save(any()) }
         verify(exactly = 0) { signalKafkaProducer.publish(any()) }
-        verify(exactly = 0) { candleRepository.findByCodeAndInterval(any(), any()) }
+        verify(exactly = 0) { candleRepository.findLatestBeforeByCodeAndInterval(any(), any(), any(), any()) }
         // dedupe guard 자체는 호출되어야 함 (정상 path 진입 evidence)
         verify(exactly = 1) { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) }
     }
@@ -285,7 +311,14 @@ class RealtimeSignalGeneratorTest {
         every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
             listOf(strategy(buyAst = buyAst))
         every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
-        every { candleRepository.findByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval(
+                "005930",
+                CandleInterval.FIVE_MIN,
+                boundaryTs.toJavaInstant(),
+                499,
+            )
+        } returns
             listOf(candle("2026-05-20T00:55:00Z", "100"))
         every { evaluator.evaluate(42L, buyAst, any()) } returns
             StrategyEvalResult(
@@ -322,7 +355,14 @@ class RealtimeSignalGeneratorTest {
         every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
             listOf(strategy(buyAst = buyAst, sellAst = sellAst))
         every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
-        every { candleRepository.findByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval(
+                "005930",
+                CandleInterval.FIVE_MIN,
+                boundaryTs.toJavaInstant(),
+                499,
+            )
+        } returns
             listOf(candle("2026-05-20T00:10:00Z", "100"))
         every { evaluator.evaluate(42L, buyAst, any()) } returns holdResult()
         every { evaluator.evaluate(42L, sellAst, any()) } returns
@@ -362,7 +402,14 @@ class RealtimeSignalGeneratorTest {
         every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
             listOf(strategy(buyAst = buyAst, sellAst = sellAst, status = StrategyStatus.BUY_BLOCKED))
         every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
-        every { candleRepository.findByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval(
+                "005930",
+                CandleInterval.FIVE_MIN,
+                boundaryTs.toJavaInstant(),
+                499,
+            )
+        } returns
             listOf(candle("2026-05-20T00:10:00Z", "100"))
         every { evaluator.evaluate(42L, buyAst, any()) } returns holdResult()
         every { evaluator.evaluate(42L, sellAst, any()) } returns
@@ -397,7 +444,14 @@ class RealtimeSignalGeneratorTest {
         every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
             listOf(strategy(buyAst = buyAst, takeProfitPct = BigDecimal("5.00")))
         every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
-        every { candleRepository.findByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval(
+                "005930",
+                CandleInterval.FIVE_MIN,
+                boundaryTs.toJavaInstant(),
+                499,
+            )
+        } returns
             listOf(candle("2026-05-20T00:15:00Z", "100"))
         every { evaluator.evaluate(42L, buyAst, any()) } returns holdResult()
         every { riskPositionPort.findCurrentByUser("1234") } returns
@@ -459,7 +513,15 @@ class RealtimeSignalGeneratorTest {
         every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.ONE_MIN) } returns
             listOf(strategy(buyAst = buyAst))
         every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.ONE_MIN, boundaryTs) } returns true
-        every { candleRepository.findByCodeAndInterval("005930", CandleInterval.ONE_MIN) } returns emptyList()
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval(
+                "005930",
+                CandleInterval.ONE_MIN,
+                boundaryTs.toJavaInstant(),
+                499,
+            )
+        } returns
+            emptyList()
         every { evaluator.evaluate(42L, buyAst, any()) } returns holdResult()
 
         generator().onBoundaryClosed(
@@ -483,7 +545,15 @@ class RealtimeSignalGeneratorTest {
         every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.ONE_MIN) } returns
             listOf(strategy(buyAst = buyAst))
         every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.ONE_MIN, boundaryTs) } returns true
-        every { candleRepository.findByCodeAndInterval("005930", CandleInterval.ONE_MIN) } returns emptyList()
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval(
+                "005930",
+                CandleInterval.ONE_MIN,
+                boundaryTs.toJavaInstant(),
+                499,
+            )
+        } returns
+            emptyList()
         every { evaluator.evaluate(42L, buyAst, any()) } returns holdResult()
 
         generator().onBoundaryClosed(
@@ -524,7 +594,15 @@ class RealtimeSignalGeneratorTest {
         every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.ONE_MIN) } returns
             listOf(strategy(buyAst = buyAst))
         every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.ONE_MIN, boundaryTs) } returns true
-        every { candleRepository.findByCodeAndInterval("005930", CandleInterval.ONE_MIN) } returns emptyList()
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval(
+                "005930",
+                CandleInterval.ONE_MIN,
+                boundaryTs.toJavaInstant(),
+                499,
+            )
+        } returns
+            emptyList()
         every { evaluator.evaluate(42L, buyAst, any()) } returns holdResult()
 
         generator(marketHoursGateEnabled = false).onBoundaryClosed(

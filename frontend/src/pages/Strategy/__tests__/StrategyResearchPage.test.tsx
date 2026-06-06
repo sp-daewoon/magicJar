@@ -72,10 +72,72 @@ const server = setupServer(
       candidates: [],
     })
   }),
+  http.get('/api/strategy-research/ai-discovery/presets', () => {
+    return HttpResponse.json([
+      {
+        id: 'scalping_momentum',
+        label: '단기 거래대금 폭발',
+        description: '5분봉 검증 후보',
+        promptText: '거래대금과 일중 변동성이 큰 후보를 찾아라.',
+        sortOrder: 10,
+        active: true,
+        builtIn: true,
+        updatedAt: '2026-06-06T00:00:00Z',
+      },
+      {
+        id: 'sector_rotation_swing',
+        label: '섹터 순환매 대기',
+        description: '스윙 검증 후보',
+        promptText: '주도 섹터 후속 순환매 후보를 찾아라.',
+        sortOrder: 20,
+        active: true,
+        builtIn: true,
+        updatedAt: '2026-06-06T00:00:00Z',
+      },
+    ])
+  }),
+  http.post('/api/strategy-research/ai-discovery/prompt-preview', async ({ request }) => {
+    const body = await request.json() as { query: string; presetId?: string | null }
+    return HttpResponse.json({
+      systemPrompt: 'core wrapper',
+      preset: body.presetId
+        ? {
+            id: body.presetId,
+            label: '단기 거래대금 폭발',
+            description: '5분봉 검증 후보',
+            promptText: '거래대금과 일중 변동성이 큰 후보를 찾아라.',
+            sortOrder: 10,
+            active: true,
+            builtIn: true,
+            updatedAt: '2026-06-06T00:00:00Z',
+          }
+        : null,
+      userQuery: body.query,
+      finalPrompt: `core wrapper\n${body.query}`,
+      generatedAt: '2026-06-06T00:00:00Z',
+      warnings: [],
+    })
+  }),
+  http.put('/api/strategy-research/ai-discovery/presets/:presetId', async ({ params, request }) => {
+    const body = await request.json() as {
+      label: string
+      description: string
+      promptText: string
+      sortOrder: number
+      active: boolean
+    }
+    return HttpResponse.json({
+      id: String(params.presetId),
+      ...body,
+      builtIn: true,
+      updatedAt: '2026-06-06T00:00:00Z',
+    })
+  }),
   http.post('/api/strategy-research/ai-discovery', async ({ request }) => {
     lastDiscoveryBody = await request.json() as StrategyResearchAiDiscoveryRequestDto
     return HttpResponse.json({
       query: lastDiscoveryBody.query,
+      presetId: lastDiscoveryBody.presetId ?? null,
       market: lastDiscoveryBody.market ?? null,
       limit: lastDiscoveryBody.limit,
       provider: 'claude-cli-bridge',
@@ -109,6 +171,7 @@ const server = setupServer(
     const body = await request.json() as { itemKey: string; status: 'NEW' | 'KEPT' | 'DISMISSED' }
     return HttpResponse.json({
       query: '반도체 후보',
+      presetId: 'scalping_momentum',
       market: null,
       limit: 6,
       provider: 'claude-cli-bridge',
@@ -202,7 +265,59 @@ describe('StrategyResearchPage', () => {
 
     await waitFor(() => expect(lastResearchBody).not.toBeNull())
     expect(lastDiscoveryBody?.userId).toBe('74683223')
+    expect(lastDiscoveryBody?.interval).toBe('1m')
+    expect(lastDiscoveryBody?.from).toBe('2026-04-28T00:00:00.000Z')
+    expect(lastDiscoveryBody?.to).toBe('2026-06-02T06:30:00.000Z')
     expect(lastResearchBody?.code).toBe('005930')
+  })
+
+  it('AI 종목발굴 후보에 캔들이 없으면 선택을 막는다', async () => {
+    const user = userEvent.setup()
+    act(() => {
+      useOnboardingStore.setState({ registeredUserId: 74683223 })
+    })
+    server.use(
+      http.post('/api/strategy-research/ai-discovery', async ({ request }) => {
+        lastDiscoveryBody = await request.json() as StrategyResearchAiDiscoveryRequestDto
+        return HttpResponse.json({
+          query: lastDiscoveryBody.query,
+          presetId: lastDiscoveryBody.presetId ?? null,
+          market: lastDiscoveryBody.market ?? null,
+          limit: lastDiscoveryBody.limit,
+          provider: 'claude-cli-bridge',
+          generatedAt: '2026-06-06T00:00:00Z',
+          warnings: ['선택한 interval·기간에 저장된 candle이 없는 후보 1건은 차트 수집 후 리서치할 수 있습니다.'],
+          items: [
+            {
+              itemKey: 'CODE:028300',
+              code: '028300',
+              name: 'HLB',
+              market: 'KOSDAQ',
+              sector: '1024',
+              theme: '바이오',
+              aiReason: '검증 후보',
+              themes: ['바이오'],
+              confidence: 0.6,
+              matched: true,
+              rawName: 'HLB',
+              rawCode: '028300',
+              tradingHalt: false,
+              managementStock: false,
+              status: 'NEW',
+              candleCount: 0,
+              hasResearchCandles: false,
+            },
+          ],
+        })
+      }),
+    )
+
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: '발굴' }))
+
+    expect(await screen.findByText('캔들 없음')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '선택' })).toBeDisabled()
   })
 
   it('AI 종목발굴 진행 중 로딩 상태를 보여준다', async () => {
@@ -216,6 +331,7 @@ describe('StrategyResearchPage', () => {
         await new Promise((resolve) => window.setTimeout(resolve, 80))
         return HttpResponse.json({
           query: lastDiscoveryBody.query,
+          presetId: lastDiscoveryBody.presetId ?? null,
           market: lastDiscoveryBody.market ?? null,
           limit: lastDiscoveryBody.limit,
           provider: 'claude-cli-bridge',
@@ -284,6 +400,7 @@ describe('StrategyResearchPage', () => {
         return HttpResponse.json({
           report: {
             query: '한국 주식중 가장 핫한 주식을 찾아줘',
+            presetId: 'scalping_momentum',
             market: null,
             limit: 3,
             provider: 'claude-cli-bridge',

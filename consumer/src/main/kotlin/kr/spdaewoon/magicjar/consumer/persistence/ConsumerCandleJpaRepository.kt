@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.persistence
 
+import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
@@ -27,6 +28,29 @@ interface ConsumerCandleJpaRepository : JpaRepository<ConsumerCandleJpaEntity, L
     fun findByCodeAndIntervalOrderByTsAsc(
         code: String,
         interval: String,
+    ): List<ConsumerCandleJpaEntity>
+
+    @Query(
+        "SELECT c FROM ConsumerCandleJpaEntity c " +
+            "WHERE c.code = :code AND c.interval = :interval " +
+            "ORDER BY c.ts DESC",
+    )
+    fun findByCodeAndIntervalLatest(
+        @Param("code") code: String,
+        @Param("interval") interval: String,
+        pageable: Pageable,
+    ): List<ConsumerCandleJpaEntity>
+
+    @Query(
+        "SELECT c FROM ConsumerCandleJpaEntity c " +
+            "WHERE c.code = :code AND c.interval = :interval AND c.ts < :before " +
+            "ORDER BY c.ts DESC",
+    )
+    fun findByCodeAndIntervalAndTsBefore(
+        @Param("code") code: String,
+        @Param("interval") interval: String,
+        @Param("before") before: java.time.Instant,
+        pageable: Pageable,
     ): List<ConsumerCandleJpaEntity>
 
     /**
