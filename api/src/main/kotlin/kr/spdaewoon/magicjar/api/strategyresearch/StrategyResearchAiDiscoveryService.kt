@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.api.strategyresearch
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
+import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryStateJpaEntity
@@ -19,6 +20,7 @@ import java.time.ZoneId
 @Service
 class StrategyResearchAiDiscoveryService(
     private val instrumentJpaRepository: InstrumentJpaRepository,
+    private val candleJpaRepository: CandleJpaRepository,
     private val aiTextClient: StrategyResearchAiTextClient,
     private val objectMapper: ObjectMapper,
     private val stateRepository: StrategyResearchAiDiscoveryStateJpaRepository,
@@ -66,7 +68,7 @@ class StrategyResearchAiDiscoveryService(
         val keptKeys = keptItems.map { it.itemKey }.toSet()
 
         if (keptItems.size >= request.limit) {
-            val items = keptItems + dismissedItems
+            val items = enrichCandleAvailability(keptItems + dismissedItems, request)
             return saveState(
                 request = request,
                 response =
@@ -96,7 +98,7 @@ class StrategyResearchAiDiscoveryService(
                 .filterNot { it.itemKey in dismissedKeys || it.itemKey in keptKeys }
         val availableSlots = (request.limit - keptItems.size).coerceAtLeast(0)
         val visibleItems = keptItems + freshItems.take(availableSlots)
-        val items = visibleItems + dismissedItems
+        val items = enrichCandleAvailability(visibleItems + dismissedItems, request)
 
         log.info(
             "StrategyResearch AI 종목발굴: userId={} queryLength={} rawItems={} matched={}",
@@ -146,7 +148,72 @@ class StrategyResearchAiDiscoveryService(
             if (unmatchedCount > 0) {
                 add("종목 마스터와 매칭되지 않은 후보 ${unmatchedCount}건이 있습니다.")
             }
+            val candleMissingCount =
+                items.count {
+                    it.status != StrategyResearchAiDiscoveryItemStatus.DISMISSED &&
+                        it.matched &&
+                        it.candleCount == 0L
+                }
+            if (candleMissingCount > 0) {
+                add("선택한 interval·기간에 저장된 candle이 없는 후보 ${candleMissingCount}건은 차트 수집 후 리서치할 수 있습니다.")
+            }
         }
+    }
+
+    /**
+     * 후보별 candle 보유량을 재계산해 candleCount·hasResearchCandles를 채운다.
+     * request에 interval/from/to가 없으면 기존 동작 유지(둘 다 null).
+     * state-cache 반환 경로·신규 발굴 경로 양쪽에서 호출되어 stale candleCount를 예방한다.
+     */
+    private fun enrichCandleAvailability(
+        items: List<StrategyResearchAiDiscoveryItemDto>,
+        request: StrategyResearchAiDiscoveryRequestDto,
+    ): List<StrategyResearchAiDiscoveryItemDto> {
+        val window = candleAvailabilityWindow(request) ?: return items
+        return items.map { item ->
+            val code = item.code
+            if (code.isNullOrBlank()) {
+                item.copy(candleCount = null, hasResearchCandles = null)
+            } else {
+                val count =
+                    runCatching {
+                        candleJpaRepository.countByCodeAndIntervalAndTsBetween(
+                            code = code,
+                            interval = window.interval,
+                            fromTs = window.from,
+                            toTs = window.to,
+                        )
+                    }.onFailure { e ->
+                        log.warn(
+                            "StrategyResearch AI 후보 candle 보유량 조회 실패: code={} interval={} err={}",
+                            code,
+                            window.interval,
+                            e.message,
+                        )
+                    }.getOrNull()
+                if (count == null) {
+                    item.copy(candleCount = null, hasResearchCandles = null)
+                } else {
+                    item.copy(candleCount = count, hasResearchCandles = count > 0)
+                }
+            }
+        }
+    }
+
+    private fun candleAvailabilityWindow(request: StrategyResearchAiDiscoveryRequestDto): CandleAvailabilityWindow? {
+        val interval = request.interval?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        val from =
+            request.from
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: return null
+        val to =
+            request.to
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: return null
+        if (from.isAfter(to)) return null
+        return CandleAvailabilityWindow(interval = interval, from = from, to = to)
     }
 
     private fun saveState(
@@ -402,5 +469,11 @@ class StrategyResearchAiDiscoveryService(
         val themes: List<String>,
         val reason: String,
         val confidence: Double,
+    )
+
+    private data class CandleAvailabilityWindow(
+        val interval: String,
+        val from: Instant,
+        val to: Instant,
     )
 }

@@ -134,6 +134,12 @@ data class StrategyResearchAiDiscoveryRequestDto(
     @field:Min(1)
     @field:Max(12)
     val limit: Int = 6,
+    @field:Schema(description = "후보별 candle 가용량 판정용 interval (옵션). 없으면 candleCount는 null.", example = "1m")
+    val interval: String? = null,
+    @field:Schema(description = "candle 가용량 판정 시작 시각 ISO-8601 (옵션)", example = "2026-04-28T00:00:00Z")
+    val from: String? = null,
+    @field:Schema(description = "candle 가용량 판정 종료 시각 ISO-8601 (옵션)", example = "2026-06-02T06:30:00Z")
+    val to: String? = null,
 )
 
 data class StrategyResearchAiDiscoveryLatestDto(
@@ -183,4 +189,8 @@ data class StrategyResearchAiDiscoveryItemDto(
     val tradingHalt: Boolean,
     val managementStock: Boolean,
     val status: StrategyResearchAiDiscoveryItemStatus = StrategyResearchAiDiscoveryItemStatus.NEW,
+    @field:Schema(description = "선택 interval·기간 내 저장된 candle 수. interval/from/to 미지정이면 null.", example = "390")
+    val candleCount: Long? = null,
+    @field:Schema(description = "선택 interval·기간에 리서치 가능한 candle 보유 여부. candleCount 미산정 시 null.", example = "true")
+    val hasResearchCandles: Boolean? = null,
 )
