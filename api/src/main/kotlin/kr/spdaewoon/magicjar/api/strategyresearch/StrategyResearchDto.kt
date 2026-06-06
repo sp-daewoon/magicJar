@@ -123,10 +123,14 @@ data class StrategyResearchAiDiscoveryRequestDto(
     @field:Schema(description = "사용자 ID", example = "74683223")
     @field:NotBlank
     val userId: String,
-    @field:Schema(description = "찾고 싶은 종목/테마 자연어", example = "반도체 중 거래량이 붙을 만한 국내주")
-    @field:NotBlank
+    @field:Schema(
+        description =
+            "찾고 싶은 종목/테마 자연어. 직접 입력 모드(presetId 없음)에서는 필수, " +
+                "유효한 presetId를 선택하면 생략할 수 있습니다.",
+        example = "반도체 중 거래량이 붙을 만한 국내주",
+    )
     @field:Size(max = 500)
-    val query: String,
+    val query: String? = null,
     @field:Schema(description = "AI 종목발굴 프리셋 ID", example = "scalping_momentum")
     @field:Pattern(regexp = "[a-z0-9_-]{1,64}")
     val presetId: String? = null,
@@ -153,7 +157,7 @@ data class StrategyResearchAiDiscoveryLatestDto(
 )
 
 data class StrategyResearchAiDiscoveryResponseDto(
-    val query: String,
+    val query: String?,
     val presetId: String?,
     val market: String?,
     val limit: Int,
@@ -262,10 +266,14 @@ data class StrategyResearchAiDiscoveryPromptPreviewRequestDto(
     @field:Schema(description = "사용자 ID", example = "74683223")
     @field:NotBlank
     val userId: String,
-    @field:Schema(description = "찾고 싶은 종목/테마 자연어", example = "5분봉 단타치기 좋은 종목")
-    @field:NotBlank
+    @field:Schema(
+        description =
+            "찾고 싶은 종목/테마 자연어. 직접 입력 모드(presetId 없음)에서는 필수, " +
+                "유효한 presetId를 선택하면 생략할 수 있습니다.",
+        example = "5분봉 단타치기 좋은 종목",
+    )
     @field:Size(max = 500)
-    val query: String,
+    val query: String? = null,
     @field:Schema(description = "AI 종목발굴 프리셋 ID", example = "scalping_momentum")
     @field:Pattern(regexp = "[a-z0-9_-]{1,64}")
     val presetId: String? = null,
@@ -281,8 +289,26 @@ data class StrategyResearchAiDiscoveryPromptPreviewRequestDto(
 data class StrategyResearchAiDiscoveryPromptPreviewDto(
     val systemPrompt: String,
     val preset: StrategyResearchAiDiscoveryPresetDto?,
-    val userQuery: String,
+    val userQuery: String?,
     val finalPrompt: String,
     val generatedAt: String,
     val warnings: List<String>,
+)
+
+@Schema(description = "AI 종목발굴 core(wrapper) 전역 프롬프트 응답")
+data class StrategyResearchAiDiscoveryCorePromptDto(
+    @field:Schema(description = "현재 적용 중인 core wrapper 전문")
+    val promptText: String,
+    @field:Schema(description = "기본값(서비스 코드 seed)과 동일한지 여부. true면 사용자가 편집하지 않은 상태", example = "true")
+    val isDefault: Boolean,
+    @field:Schema(description = "DB 갱신 시각 ISO-8601. DB 행이 없으면(코드 기본값 사용) null", example = "2026-06-06T12:00:00Z")
+    val updatedAt: String?,
+)
+
+@Schema(description = "AI 종목발굴 core(wrapper) 전역 프롬프트 수정 요청")
+data class StrategyResearchAiDiscoveryCorePromptUpdateRequestDto(
+    @field:Schema(description = "교체할 core wrapper 전문. 공백만으로는 저장할 수 없습니다.")
+    @field:NotBlank
+    @field:Size(max = 8000)
+    val promptText: String,
 )
