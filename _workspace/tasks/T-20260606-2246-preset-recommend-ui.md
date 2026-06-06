@@ -3,10 +3,10 @@ id: T-20260606-2246-preset-recommend-ui
 agent: frontend
 model: opus
 branch: agent/frontend/preset-recommend-ui
-status: RUNNING
+status: DONE
 startedAt: 2026-06-06T22:46:49.697+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-06T22:51:17.932+09:00
+pr: #774
 parentPhase: ?
 ---
 
