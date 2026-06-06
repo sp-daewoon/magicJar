@@ -15,6 +15,7 @@ import {
 } from '../../api/strategyResearch'
 import type { InstrumentSearchResultDto } from '../../api/instrument'
 import { InstrumentSearchInput } from '../../components/InstrumentSearchInput'
+import { AiDiscoveryCard } from './AiDiscoveryCard'
 import { StrategyResearchChart } from '../../components/strategyResearch/StrategyResearchChart'
 import { formatKst, formatMoney } from '../../components/scenario/scenarioReplayFormat'
 import { kstInputToIso } from '../../components/scenario/scenarioReplayTime'
@@ -61,12 +62,6 @@ function candidateTone(candidate: StrategyResearchCandidateDto): string {
   return 'border-amber-800 bg-amber-950/20'
 }
 
-function aiDiscoveryStatusLabel(status: StrategyResearchAiDiscoveryItemStatus): string {
-  if (status === 'KEPT') return '유지'
-  if (status === 'DISMISSED') return '제외'
-  return '신규'
-}
-
 function instrumentDisplay(result: InstrumentSearchResultDto): string {
   return `${result.name} (${result.code})`
 }
@@ -99,6 +94,16 @@ export function StrategyResearchPage() {
   const [discoveryError, setDiscoveryError] = useState<string | null>(null)
   const [discoveryReport, setDiscoveryReport] = useState<StrategyResearchAiDiscoveryResponseDto | null>(null)
   const [discoveryTouched, setDiscoveryTouched] = useState(false)
+  // 캔들 가져오기 성공 시 code별 candleCount 로컬 override (insertedCount 사용)
+  const [candleOverrides, setCandleOverrides] = useState<Record<string, number>>({})
+  // 전체 가져오기 순차 큐: 처리 대기 code 목록
+  const [bulkQueue, setBulkQueue] = useState<string[]>([])
+  // 전체 가져오기 누적 진행 (성공/실패)
+  const [bulkProgress, setBulkProgress] = useState<{
+    total: number
+    done: number
+    failed: { code: string; name: string; error?: string }[]
+  } | null>(null)
 
   const mutation = useMutation<StrategyResearchReportDto, unknown, StrategyResearchRequestDto>({
     mutationFn: strategyResearchApi.propose,
@@ -165,8 +170,17 @@ export function StrategyResearchPage() {
 
   const report = mutation.data
   const visibleDiscoveryItems = useMemo(
-    () => discoveryReport?.items.filter((item) => item.status !== 'DISMISSED') ?? [],
-    [discoveryReport],
+    () =>
+      (discoveryReport?.items.filter((item) => item.status !== 'DISMISSED') ?? []).map((item) => {
+        const override = item.code ? candleOverrides[item.code] : undefined
+        return override != null ? { ...item, candleCount: override } : item
+      }),
+    [discoveryReport, candleOverrides],
+  )
+  // 캔들 없음(matched && candleCount === 0) 후보 — 전체 가져오기 대상
+  const emptyCandleItems = useMemo(
+    () => visibleDiscoveryItems.filter((item) => item.code && item.matched && item.candleCount === 0),
+    [visibleDiscoveryItems],
   )
   const keptDiscoveryCount = useMemo(
     () => discoveryReport?.items.filter((item) => item.status === 'KEPT').length ?? 0,
@@ -253,6 +267,45 @@ export function StrategyResearchPage() {
     handleInstrumentSelect(result)
     setFormError(null)
   }
+
+  const handleCandlesFetched = (itemCode: string, inserted: number) => {
+    setCandleOverrides((prev) => ({ ...prev, [itemCode]: inserted }))
+  }
+
+  // 순차 큐의 현재 활성 code (큐 맨 앞) — 해당 카드만 자동 시작
+  const activeFetchCode = bulkQueue[0] ?? null
+
+  const handleFetchSettled = (
+    itemCode: string,
+    result: { ok: boolean; inserted: number; error?: string },
+  ) => {
+    setBulkQueue((prev) => {
+      if (prev[0] !== itemCode) return prev
+      return prev.slice(1)
+    })
+    setBulkProgress((prev) => {
+      if (!prev) return prev
+      if (result.ok) return { ...prev, done: prev.done + 1 }
+      const name = visibleDiscoveryItems.find((i) => i.code === itemCode)?.name ?? itemCode
+      return {
+        ...prev,
+        done: prev.done + 1,
+        failed: [...prev.failed, { code: itemCode, name, error: result.error }],
+      }
+    })
+  }
+
+  const startBulkFetch = () => {
+    const codes = emptyCandleItems.map((item) => item.code!).filter(Boolean)
+    if (codes.length === 0) return
+    setBulkProgress({ total: codes.length, done: 0, failed: [] })
+    setBulkQueue(codes)
+  }
+
+  const bulkRunning = bulkQueue.length > 0
+  const bulkActiveItem = activeFetchCode
+    ? visibleDiscoveryItems.find((item) => item.code === activeFetchCode) ?? null
+    : null
 
   if (!registeredUserId) {
     return (
@@ -417,6 +470,11 @@ export function StrategyResearchPage() {
               className="mt-1 w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
             />
           </label>
+          {/*
+            발굴 버튼 — 옆 입력 필드(label)들과 같은 행 높이·베이스라인으로 평행 정렬.
+            상단에 빈 라벨 텍스트 줄(aria-hidden nbsp)을 두고 그 아래 input과 같은 높이(h-10)로 버튼을 배치.
+            button을 <label>로 감싸면 접근성 이름이 비어버려 <div>로 둔다(레이아웃은 label 컬럼과 동일).
+          */}
           <div className="flex flex-col self-start lg:col-span-2">
             <span className="text-xs text-gray-500" aria-hidden>&nbsp;</span>
             <button
@@ -462,6 +520,44 @@ export function StrategyResearchPage() {
                 {discoveryReport.warnings.join(' · ')}
               </div>
             )}
+            {emptyCandleItems.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-amber-900 bg-amber-950/20 px-3 py-2">
+                <span className="text-xs text-amber-200">
+                  캔들이 없는 매칭 후보 {emptyCandleItems.length}건 — KIS에서 {interval} 캔들을 가져올 수 있습니다.
+                </span>
+                <button
+                  type="button"
+                  onClick={startBulkFetch}
+                  disabled={bulkRunning}
+                  className="rounded border border-amber-700 px-2.5 py-1 text-xs font-semibold text-amber-200 hover:bg-amber-950/40 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {bulkRunning ? '캔들 수집 중' : '캔들 없는 후보 전체 가져오기'}
+                </button>
+              </div>
+            )}
+            {bulkProgress && (
+              <div
+                className="rounded border border-amber-900 bg-amber-950/20 px-3 py-2 text-xs text-amber-200"
+                role="status"
+                aria-live="polite"
+              >
+                {bulkRunning ? (
+                  <span>
+                    캔들 수집 중 {bulkProgress.done + 1}/{bulkProgress.total}
+                    {bulkActiveItem ? ` — ${bulkActiveItem.name}` : ''}
+                  </span>
+                ) : (
+                  <span>
+                    캔들 수집 완료 {bulkProgress.done}/{bulkProgress.total}
+                    {bulkProgress.failed.length > 0
+                      ? ` — 실패 ${bulkProgress.failed.length}건: ${bulkProgress.failed
+                          .map((f) => f.name)
+                          .join(', ')}`
+                      : ' — 전체 성공'}
+                  </span>
+                )}
+              </div>
+            )}
             {visibleDiscoveryItems.length === 0 ? (
               <div className="rounded border border-gray-800 bg-gray-950 px-4 py-8 text-center text-sm text-gray-500">
                 표시할 후보가 없습니다. 제외 목록까지 비우려면 초기화 후 다시 발굴하세요.
@@ -469,94 +565,17 @@ export function StrategyResearchPage() {
             ) : (
               <div className="grid gap-3 lg:grid-cols-3">
                 {visibleDiscoveryItems.map((item, index) => (
-                <div
-                  key={`${item.itemKey}-${index}`}
-                  className="rounded border border-gray-800 bg-gray-950 p-4"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-gray-100">{item.name}</div>
-                      <div className="mt-1 flex flex-wrap gap-1 text-xs text-gray-500">
-                        {item.code && <span className="font-mono text-blue-300">{item.code}</span>}
-                        {item.market && <span>{item.market}</span>}
-                        {item.sector && <span>{item.sector}</span>}
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <span className={[
-                        'rounded border px-2 py-0.5 text-xs',
-                        item.matched ? 'border-emerald-800 text-emerald-300' : 'border-amber-800 text-amber-300',
-                      ].join(' ')}
-                      >
-                        {item.matched ? '매칭' : '확인필요'}
-                      </span>
-                      <span className={[
-                        'rounded border px-2 py-0.5 text-xs',
-                        item.status === 'KEPT'
-                          ? 'border-blue-800 text-blue-300'
-                          : 'border-gray-800 text-gray-500',
-                      ].join(' ')}
-                      >
-                        {aiDiscoveryStatusLabel(item.status)}
-                      </span>
-                    </div>
-                  </div>
-                  <p className="mt-3 text-sm leading-6 text-gray-300">{item.aiReason}</p>
-                  {item.themes.length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-1">
-                      {item.themes.map((theme) => (
-                        <span key={theme} className="rounded border border-gray-800 px-2 py-0.5 text-xs text-gray-400">
-                          {theme}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-xs text-gray-500">
-                      신뢰 {Math.round(item.confidence * 100)}%
-                      {(item.tradingHalt || item.managementStock) && ' · 가드 확인'}
-                    </span>
-                    <div className="flex flex-wrap justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => updateDiscoveryItemStatus(item, item.status === 'KEPT' ? 'NEW' : 'KEPT')}
-                        disabled={discoveryStatusMutation.isPending}
-                        className={[
-                          'rounded border px-2.5 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50',
-                          item.status === 'KEPT'
-                            ? 'border-blue-700 text-blue-300 hover:bg-blue-950/40'
-                            : 'border-gray-700 text-gray-300 hover:bg-gray-800',
-                        ].join(' ')}
-                      >
-                        {item.status === 'KEPT' ? '유지 해제' : '유지'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateDiscoveryItemStatus(item, 'DISMISSED')}
-                        disabled={discoveryStatusMutation.isPending}
-                        className="rounded border border-red-900 px-2.5 py-1 text-xs text-red-300 hover:bg-red-950/30 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        제외
-                      </button>
-                      {item.code && (
-                        <Link
-                          to={`/symbol/${item.code}`}
-                          className="rounded border border-gray-700 px-2.5 py-1 text-xs text-gray-300 hover:bg-gray-800"
-                        >
-                          차트
-                        </Link>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => selectDiscoveryItem(item)}
-                        disabled={!item.code}
-                        className="rounded bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        선택
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                  <AiDiscoveryCard
+                    key={`${item.itemKey}-${index}`}
+                    item={item}
+                    interval={interval}
+                    activeFetchCode={activeFetchCode}
+                    statusPending={discoveryStatusMutation.isPending}
+                    onStatusChange={updateDiscoveryItemStatus}
+                    onSelect={selectDiscoveryItem}
+                    onCandlesFetched={handleCandlesFetched}
+                    onFetchSettled={handleFetchSettled}
+                  />
                 ))}
               </div>
             )}
@@ -651,6 +670,7 @@ export function StrategyResearchPage() {
               className="mt-1 w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
             />
           </label>
+          {/* 리서치 버튼 — 발굴 버튼과 동일 패턴: input 컬럼과 평행 정렬(빈 라벨 줄 + h-10) */}
           <div className="flex flex-col self-start lg:col-span-2">
             <span className="text-xs text-gray-500" aria-hidden>&nbsp;</span>
             <button

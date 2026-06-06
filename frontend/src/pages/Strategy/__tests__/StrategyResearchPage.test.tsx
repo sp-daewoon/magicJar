@@ -12,6 +12,11 @@ import type {
   StrategyResearchRequestDto,
 } from '../../../api/strategyResearch'
 
+vi.mock('../../../lib/stomp', () => ({
+  useStompTopic: () => {},
+  getStompClient: () => ({ connected: false, active: false }),
+}))
+
 vi.mock('lightweight-charts', () => ({
   createChart: () => ({
     addCandlestickSeries: () => ({
@@ -352,5 +357,136 @@ describe('StrategyResearchPage', () => {
 
     expect(await screen.findByText(/유지 후보가 3건이라 표시 개수는 최소 3건입니다/)).toBeInTheDocument()
     expect(lastDiscoveryBody).toBeNull()
+  })
+
+  it('매칭 후보에는 "매칭" 뱃지를 표시하지 않고, 비매칭 후보에만 "확인필요"를 표시한다', async () => {
+    act(() => {
+      useOnboardingStore.setState({ registeredUserId: 74683223 })
+    })
+    server.use(
+      http.get('/api/strategy-research/ai-discovery/latest', () => {
+        return HttpResponse.json({
+          report: {
+            query: '반도체 후보',
+            market: null,
+            limit: 6,
+            provider: 'claude-cli-bridge',
+            generatedAt: '2026-06-06T00:00:00Z',
+            warnings: [],
+            items: [
+              {
+                itemKey: 'CODE:005930',
+                code: '005930',
+                name: '삼성전자',
+                market: 'KOSPI',
+                sector: '전기전자',
+                theme: '반도체',
+                aiReason: '매칭된 후보',
+                themes: ['반도체'],
+                confidence: 0.8,
+                matched: true,
+                rawName: '삼성전자',
+                rawCode: '005930',
+                tradingHalt: false,
+                managementStock: false,
+                status: 'NEW',
+                candleCount: 1200,
+              },
+              {
+                itemKey: 'RAW:미상장종목',
+                code: null,
+                name: '미상장종목',
+                market: null,
+                sector: null,
+                theme: null,
+                aiReason: '비매칭 후보',
+                themes: [],
+                confidence: 0.5,
+                matched: false,
+                rawName: '미상장종목',
+                rawCode: null,
+                tradingHalt: false,
+                managementStock: false,
+                status: 'NEW',
+                candleCount: null,
+              },
+            ],
+          },
+        })
+      }),
+    )
+
+    renderPage()
+
+    expect(await screen.findByText('매칭된 후보')).toBeInTheDocument()
+    expect(screen.queryByText('매칭')).not.toBeInTheDocument()
+    expect(screen.getByText('확인필요')).toBeInTheDocument()
+    expect(screen.getByText('캔들 1,200')).toBeInTheDocument()
+  })
+
+  it('캔들 0건 매칭 후보에는 "캔들 가져오기" 버튼과 전체 가져오기 버튼을 노출하고 선택을 막는다', async () => {
+    act(() => {
+      useOnboardingStore.setState({ registeredUserId: 74683223 })
+    })
+    server.use(
+      http.get('/api/strategy-research/ai-discovery/latest', () => {
+        return HttpResponse.json({
+          report: {
+            query: '반도체 후보',
+            market: null,
+            limit: 6,
+            provider: 'claude-cli-bridge',
+            generatedAt: '2026-06-06T00:00:00Z',
+            warnings: [],
+            items: [
+              {
+                itemKey: 'CODE:005930',
+                code: '005930',
+                name: '삼성전자',
+                market: 'KOSPI',
+                sector: '전기전자',
+                theme: '반도체',
+                aiReason: '캔들 없는 후보',
+                themes: ['반도체'],
+                confidence: 0.8,
+                matched: true,
+                rawName: '삼성전자',
+                rawCode: '005930',
+                tradingHalt: false,
+                managementStock: false,
+                status: 'NEW',
+                candleCount: 0,
+              },
+            ],
+          },
+        })
+      }),
+    )
+
+    renderPage()
+
+    expect(await screen.findByText('캔들 없는 후보')).toBeInTheDocument()
+    expect(screen.getByText('캔들 없음')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '캔들 가져오기' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '캔들 없는 후보 전체 가져오기' })).toBeInTheDocument()
+    expect(screen.getByText(/캔들이 없는 매칭 후보 1건/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '선택' })).toBeDisabled()
+  })
+
+  it('candleCount 정보가 없으면(undefined) 캔들 가져오기 UI를 노출하지 않는다', async () => {
+    act(() => {
+      useOnboardingStore.setState({ registeredUserId: 74683223 })
+    })
+
+    renderPage()
+
+    // 기본 ai-discovery POST 핸들러는 candleCount 미포함 → 가져오기 UI 없음, 선택 활성
+    await screen.findByRole('button', { name: '발굴' })
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: '발굴' }))
+    expect(await screen.findByText('반도체와 AI 인프라 후보')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '캔들 가져오기' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '캔들 없는 후보 전체 가져오기' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '선택' })).toBeEnabled()
   })
 })
