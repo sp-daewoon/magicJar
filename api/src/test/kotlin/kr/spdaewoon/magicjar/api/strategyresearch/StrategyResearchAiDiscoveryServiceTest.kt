@@ -136,6 +136,59 @@ class StrategyResearchAiDiscoveryServiceTest {
         response.items.first { it.code == "000660" }.status shouldBe StrategyResearchAiDiscoveryItemStatus.DISMISSED
     }
 
+    @Test
+    fun `discover skips claude when kept items already fill requested limit`() {
+        var calledClaude = false
+        val previous =
+            StrategyResearchAiDiscoveryStateJpaEntity(
+                userId = "74683223",
+                query = "반도체 후보",
+                market = null,
+                candidateLimit = 3,
+                provider = "test-claude",
+                generatedAt = Instant.parse("2026-06-05T00:00:00Z"),
+                warningsJson = "[]",
+                itemsJson =
+                    objectMapper.writeValueAsString(
+                        listOf(
+                            item(code = "005930", name = "삼성전자", status = StrategyResearchAiDiscoveryItemStatus.KEPT),
+                            item(code = "042700", name = "한미반도체", status = StrategyResearchAiDiscoveryItemStatus.KEPT),
+                            item(code = "000660", name = "SK하이닉스", status = StrategyResearchAiDiscoveryItemStatus.DISMISSED),
+                        ),
+                    ),
+            )
+        whenever(stateRepository.findById("74683223")).thenReturn(Optional.of(previous))
+        whenever(stateRepository.save(any())).thenAnswer { it.arguments[0] }
+
+        val service =
+            StrategyResearchAiDiscoveryService(
+                instrumentJpaRepository = instrumentRepository,
+                aiTextClient =
+                    StrategyResearchAiTextClient {
+                        calledClaude = true
+                        StrategyResearchAiTextResult(provider = "test-claude", text = """{"items":[]}""")
+                    },
+                objectMapper = objectMapper,
+                stateRepository = stateRepository,
+            )
+
+        val response =
+            service.discover(
+                StrategyResearchAiDiscoveryRequestDto(
+                    userId = "74683223",
+                    query = "핫한 국내주",
+                    market = null,
+                    limit = 2,
+                ),
+            )
+
+        calledClaude shouldBe false
+        response.provider shouldBe "state-cache"
+        response.items.filter { it.status != StrategyResearchAiDiscoveryItemStatus.DISMISSED }.map { it.code } shouldBe
+            listOf("005930", "042700")
+        response.warnings.any { it.contains("Claude 호출은 건너뛰었습니다") } shouldBe true
+    }
+
     private fun item(
         code: String,
         name: String,

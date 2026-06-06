@@ -176,6 +176,7 @@ export function StrategyResearchPage() {
     () => discoveryReport?.items.filter((item) => item.status === 'DISMISSED').length ?? 0,
     [discoveryReport],
   )
+  const discoveryLimitMin = Math.max(1, keptDiscoveryCount)
   const selectedCandidate = useMemo(() => {
     if (!report) return null
     return report.candidates.find((candidate) => candidate.key === selectedKey) ?? report.candidates[0] ?? null
@@ -211,13 +212,21 @@ export function StrategyResearchPage() {
       setDiscoveryError('찾고 싶은 테마나 조건을 입력해주세요')
       return
     }
+    const normalizedLimit = Math.max(1, Math.min(12, Math.trunc(discoveryLimit || 1)))
+    if (keptDiscoveryCount > normalizedLimit) {
+      setDiscoveryLimit(keptDiscoveryCount)
+      setDiscoveryError(
+        `유지 후보가 ${keptDiscoveryCount}건이라 표시 개수는 최소 ${keptDiscoveryCount}건입니다. ${normalizedLimit}건만 보려면 유지 해제하거나 초기화하세요.`,
+      )
+      return
+    }
     setDiscoveryError(null)
     setDiscoveryTouched(true)
     discoveryMutation.mutate({
       userId: userIdText!,
       query,
       market: discoveryMarket,
-      limit: discoveryLimit,
+      limit: normalizedLimit,
     })
   }
 
@@ -397,10 +406,10 @@ export function StrategyResearchPage() {
             </select>
           </label>
           <label className="lg:col-span-1">
-            <span className="text-xs text-gray-500">개수</span>
+            <span className="text-xs text-gray-500">표시 개수</span>
             <input
               type="number"
-              min="1"
+              min={discoveryLimitMin}
               max="12"
               value={discoveryLimit}
               onChange={(event) => setDiscoveryLimit(Number(event.target.value))}
@@ -429,7 +438,7 @@ export function StrategyResearchPage() {
           >
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
               <span className="font-medium text-indigo-100">Claude CLI가 후보를 찾는 중입니다</span>
-              <span className="text-indigo-300">최대 3분까지 기다립니다</span>
+              <span className="text-indigo-300">최대 5분까지 기다립니다</span>
             </div>
             <div className="mt-2 h-2 overflow-hidden rounded-full bg-gray-800">
               <div className="ai-discovery-loading-bar h-full w-1/3 rounded-full bg-indigo-400" />

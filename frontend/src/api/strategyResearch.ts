@@ -1,7 +1,7 @@
 import axios from 'axios'
 import apiClient from '../lib/axios'
 
-const AI_DISCOVERY_TIMEOUT_MS = 180_000
+const AI_DISCOVERY_TIMEOUT_MS = 310_000
 
 export interface StrategyResearchRequestDto {
   userId: string

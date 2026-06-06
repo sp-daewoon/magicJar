@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.api.strategyresearch
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
@@ -25,10 +26,11 @@ fun interface StrategyResearchAiTextClient {
 @Component
 class ClaudeCliStrategyResearchAiTextClient(
     private val webClient: WebClient,
+    private val objectMapper: ObjectMapper,
     @Value("\${magicjar.strategy-research.ai-discovery.enabled:true}") private val enabled: Boolean,
     @Value("\${magicjar.strategy-research.ai-discovery.command:claude}") private val command: String,
     @Value("\${magicjar.strategy-research.ai-discovery.bridge-url:}") private val bridgeUrl: String,
-    @Value("\${magicjar.strategy-research.ai-discovery.timeout-seconds:180}") private val timeoutSeconds: Long,
+    @Value("\${magicjar.strategy-research.ai-discovery.timeout-seconds:300}") private val timeoutSeconds: Long,
 ) : StrategyResearchAiTextClient {
     override fun complete(prompt: String): StrategyResearchAiTextResult {
         if (!enabled) {
@@ -66,7 +68,18 @@ class ClaudeCliStrategyResearchAiTextClient(
                     response.error?.takeIf { it.isNotBlank() } ?: "Claude 브릿지 응답이 비어 있습니다.",
                 )
         } catch (e: WebClientResponseException) {
-            throw ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Claude 브릿지 호출 실패: ${e.statusCode}", e)
+            val bridgeMessage = bridgeErrorMessage(e.responseBodyAsString)
+            val status =
+                when (e.statusCode.value()) {
+                    429 -> HttpStatus.TOO_MANY_REQUESTS
+                    504 -> HttpStatus.GATEWAY_TIMEOUT
+                    else -> HttpStatus.SERVICE_UNAVAILABLE
+                }
+            throw ResponseStatusException(
+                status,
+                bridgeMessage?.let { "Claude 브릿지 호출 실패: $it" } ?: "Claude 브릿지 호출 실패: ${e.statusCode}",
+                e,
+            )
         } catch (e: ResponseStatusException) {
             throw e
         } catch (e: Exception) {
@@ -113,4 +126,11 @@ class ClaudeCliStrategyResearchAiTextClient(
         val output: String? = null,
         val error: String? = null,
     )
+
+    private fun bridgeErrorMessage(responseBody: String): String? {
+        if (responseBody.isBlank()) return null
+        return runCatching {
+            objectMapper.readValue(responseBody, ClaudeBridgeResponse::class.java).error?.takeIf { it.isNotBlank() }
+        }.getOrNull() ?: responseBody.take(300)
+    }
 }

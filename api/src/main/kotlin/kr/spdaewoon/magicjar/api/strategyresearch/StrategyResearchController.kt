@@ -6,7 +6,9 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
 import jakarta.validation.Valid
 import org.slf4j.LoggerFactory
+import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.DeleteMapping
+import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PostMapping
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
+import org.springframework.web.server.ResponseStatusException
 
 @Tag(name = "Strategy Research", description = "전략 후보 리서치 QA API")
 @RestController
@@ -102,4 +105,13 @@ class StrategyResearchController(
     ) {
         strategyResearchAiDiscoveryService.clear(userId)
     }
+
+    @ExceptionHandler(ResponseStatusException::class)
+    fun handleResponseStatusException(ex: ResponseStatusException): ResponseEntity<Map<String, String>> =
+        ResponseEntity.status(ex.statusCode).body(
+            mapOf(
+                "error" to ex.statusCode.toString(),
+                "message" to (ex.reason ?: "전략 리서치 처리 중 오류가 발생했습니다."),
+            ),
+        )
 }

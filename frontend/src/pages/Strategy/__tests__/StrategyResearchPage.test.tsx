@@ -268,4 +268,89 @@ describe('StrategyResearchPage', () => {
     await user.click(screen.getByRole('button', { name: '제외' }))
     await waitFor(() => expect(screen.queryByText('반도체와 AI 인프라 후보')).not.toBeInTheDocument())
   })
+
+  it('유지 후보가 표시 개수보다 많으면 AI 발굴 요청을 보내지 않는다', async () => {
+    const user = userEvent.setup()
+    act(() => {
+      useOnboardingStore.setState({ registeredUserId: 74683223 })
+    })
+    server.use(
+      http.get('/api/strategy-research/ai-discovery/latest', () => {
+        return HttpResponse.json({
+          report: {
+            query: '한국 주식중 가장 핫한 주식을 찾아줘',
+            market: null,
+            limit: 3,
+            provider: 'claude-cli-bridge',
+            generatedAt: '2026-06-06T00:00:00Z',
+            warnings: [],
+            items: [
+              {
+                itemKey: 'CODE:005930',
+                code: '005930',
+                name: '삼성전자',
+                market: 'KOSPI',
+                sector: '전기전자',
+                theme: '반도체',
+                aiReason: '첫 번째 유지 후보',
+                themes: ['반도체'],
+                confidence: 0.8,
+                matched: true,
+                rawName: '삼성전자',
+                rawCode: '005930',
+                tradingHalt: false,
+                managementStock: false,
+                status: 'KEPT',
+              },
+              {
+                itemKey: 'CODE:042700',
+                code: '042700',
+                name: '한미반도체',
+                market: 'KOSPI',
+                sector: '기계',
+                theme: 'HBM',
+                aiReason: '두 번째 유지 후보',
+                themes: ['HBM'],
+                confidence: 0.8,
+                matched: true,
+                rawName: '한미반도체',
+                rawCode: '042700',
+                tradingHalt: false,
+                managementStock: false,
+                status: 'KEPT',
+              },
+              {
+                itemKey: 'CODE:058470',
+                code: '058470',
+                name: '리노공업',
+                market: 'KOSDAQ',
+                sector: '반도체',
+                theme: '테스트',
+                aiReason: '세 번째 유지 후보',
+                themes: ['테스트'],
+                confidence: 0.8,
+                matched: true,
+                rawName: '리노공업',
+                rawCode: '058470',
+                tradingHalt: false,
+                managementStock: false,
+                status: 'KEPT',
+              },
+            ],
+          },
+        })
+      }),
+    )
+
+    renderPage()
+
+    expect(await screen.findByText('첫 번째 유지 후보')).toBeInTheDocument()
+    const limitInput = screen.getByLabelText('표시 개수')
+    await user.clear(limitInput)
+    await user.type(limitInput, '2')
+    await user.click(screen.getByRole('button', { name: '발굴' }))
+
+    expect(await screen.findByText(/유지 후보가 3건이라 표시 개수는 최소 3건입니다/)).toBeInTheDocument()
+    expect(lastDiscoveryBody).toBeNull()
+  })
 })

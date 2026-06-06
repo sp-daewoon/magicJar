@@ -199,14 +199,28 @@ sequenceDiagram
     FE-->>U: 사용자가 선택한 후보만 차트/리서치로 이동
 ```
 
-Docker dev에서는 컨테이너가 host의 Claude CLI를 직접 실행할 수 없으므로 로컬 bridge를 먼저 켠다.
+Docker dev에서는 컨테이너가 host의 Claude CLI를 직접 실행할 수 없으므로 `scripts/claude-discovery-bridge.mjs`가 host에서 `claude -p`를 대신 실행한다. `api-app`은 `docker-compose.dev.yml` 기본값으로 `http://host.docker.internal:8787` bridge를 호출한다. Bridge는 한 번에 한 요청만 실행하며, 이미 Claude 호출이 진행 중이면 다음 요청은 busy 응답으로 돌려보낸다. timeout이 지나면 Claude 하위 프로세스를 종료하고 `_workspace/logs/claude-discovery-bridge.log`에 request id, pid, elapsedMs를 남긴다.
 
 ```bash
-tmux new-session -d -s magicjar-claude-bridge -c "$PWD" 'node scripts/claude-discovery-bridge.mjs'
-curl http://127.0.0.1:8787/health
+# 전체 배포 또는 api-app 배포 시 bridge health check 후 자동 기동
+scripts/build-and-deploy.sh
+scripts/build-and-deploy.sh api-app
 
-# Docker api-app은 기본값으로 host bridge를 사용한다.
-MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_BRIDGE_URL=http://host.docker.internal:8787
+# Docker 서비스는 건드리지 않고 Claude bridge만 단독 기동
+scripts/build-and-deploy.sh claude-bridge
+
+# bridge 상태 확인
+curl http://127.0.0.1:8787/health
+docker exec magicjar-api sh -c 'wget -qO- http://host.docker.internal:8787/health'
+```
+
+수동 실행이 필요하면 다음처럼 띄울 수 있다. 자동 기동 로그와 pid는 `_workspace/logs/claude-discovery-bridge.log`, `_workspace/run/claude-discovery-bridge.pid`에 남는다.
+
+```bash
+CLAUDE_DISCOVERY_BRIDGE_HOST=127.0.0.1 \
+CLAUDE_DISCOVERY_BRIDGE_PORT=8787 \
+CLAUDE_DISCOVERY_COMMAND=claude \
+node scripts/claude-discovery-bridge.mjs
 ```
 
 주요 env:
@@ -215,10 +229,18 @@ MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_BRIDGE_URL=http://host.docker.internal:8
 |---|---|---|
 | `MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_ENABLED` | `true` | AI 종목발굴 endpoint 활성화 |
 | `MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_COMMAND` | `claude` | host/IDE 직접 실행 시 사용할 CLI |
-| `MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_BRIDGE_URL` | empty | 설정 시 bridge `/discover` 호출 |
-| `MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_TIMEOUT_SECONDS` | `180` | Claude 응답 제한 |
+| `MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_BRIDGE_URL` | Docker dev: `http://host.docker.internal:8787` | 설정 시 bridge `/discover` 호출 |
+| `MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_TIMEOUT_SECONDS` | Docker dev: `300` | API가 Claude 응답을 기다리는 제한 |
 | `CLAUDE_DISCOVERY_BRIDGE_PORT` | `8787` | local bridge 포트 |
-| `CLAUDE_DISCOVERY_BRIDGE_TOKEN` | empty | bridge 선택 인증 토큰 |
+| `CLAUDE_DISCOVERY_COMMAND` | `claude` | bridge가 실행할 CLI |
+| `CLAUDE_DISCOVERY_MAX_TIMEOUT_SECONDS` | `300` | bridge가 Claude CLI를 강제 종료하는 최대 시간 |
+| `CLAUDE_DISCOVERY_BRIDGE_TOKEN` | empty | api-app 연동 시 비워둔다. 설정하면 bridge가 `x-claude-discovery-token`을 요구한다 |
+
+`build-and-deploy.sh`에서 bridge를 띄우고 싶지 않으면 `--no-claude-bridge`를 붙인다.
+
+```bash
+scripts/build-and-deploy.sh --no-claude-bridge
+```
 
 ### 개발 모드 (IDE bootRun + Infra 컨테이너)
 
@@ -470,6 +492,8 @@ graph TB
 # 통합 기동
 scripts/build-and-deploy.sh             # 전체
 scripts/build-and-deploy.sh api-app     # 특정 서비스만
+scripts/build-and-deploy.sh claude-bridge # Claude 종목발굴 bridge만
+scripts/build-and-deploy.sh --no-claude-bridge # bridge 자동 기동 제외
 
 # 통합 스모크 (3 시나리오)
 scripts/smoke.sh

@@ -65,6 +65,23 @@ class StrategyResearchAiDiscoveryService(
         val dismissedKeys = dismissedItems.map { it.itemKey }.toSet()
         val keptKeys = keptItems.map { it.itemKey }.toSet()
 
+        if (keptItems.size >= request.limit) {
+            val items = keptItems + dismissedItems
+            return saveState(
+                request = request,
+                response =
+                    StrategyResearchAiDiscoveryResponseDto(
+                        query = request.query,
+                        market = request.market,
+                        limit = request.limit,
+                        provider = "state-cache",
+                        generatedAt = Instant.now().toString(),
+                        warnings = discoveryWarnings(keptItems, dismissedItems, items, request.limit, aiSkipped = true),
+                        items = items,
+                    ),
+            )
+        }
+
         val prompt = buildPrompt(request, keptItems, dismissedItems)
         val aiResult = aiTextClient.complete(prompt)
         val rawItems = parseItems(aiResult.text).take(12)
@@ -80,20 +97,6 @@ class StrategyResearchAiDiscoveryService(
         val availableSlots = (request.limit - keptItems.size).coerceAtLeast(0)
         val visibleItems = keptItems + freshItems.take(availableSlots)
         val items = visibleItems + dismissedItems
-        val unmatchedCount = items.count { !it.matched }
-        val warnings =
-            buildList {
-                add("AI 후보는 종목 마스터 매핑 후 검증용으로만 표시됩니다.")
-                if (keptItems.isNotEmpty()) {
-                    add("유지 후보 ${keptItems.size}건은 재발굴 결과에 고정했습니다.")
-                }
-                if (dismissedItems.isNotEmpty()) {
-                    add("제외 후보 ${dismissedItems.size}건은 초기화 전까지 숨깁니다.")
-                }
-                if (unmatchedCount > 0) {
-                    add("종목 마스터와 매칭되지 않은 후보 ${unmatchedCount}건이 있습니다.")
-                }
-            }
 
         log.info(
             "StrategyResearch AI 종목발굴: userId={} queryLength={} rawItems={} matched={}",
@@ -112,10 +115,38 @@ class StrategyResearchAiDiscoveryService(
                     limit = request.limit,
                     provider = aiResult.provider,
                     generatedAt = Instant.now().toString(),
-                    warnings = warnings,
+                    warnings = discoveryWarnings(keptItems, dismissedItems, items, request.limit),
                     items = items,
                 ),
         )
+    }
+
+    private fun discoveryWarnings(
+        keptItems: List<StrategyResearchAiDiscoveryItemDto>,
+        dismissedItems: List<StrategyResearchAiDiscoveryItemDto>,
+        items: List<StrategyResearchAiDiscoveryItemDto>,
+        requestedLimit: Int,
+        aiSkipped: Boolean = false,
+    ): List<String> {
+        val unmatchedCount = items.count { !it.matched }
+        return buildList {
+            add("AI 후보는 종목 마스터 매핑 후 검증용으로만 표시됩니다.")
+            if (keptItems.isNotEmpty()) {
+                add("유지 후보 ${keptItems.size}건은 재발굴 결과에 고정했습니다.")
+            }
+            if (keptItems.size > requestedLimit) {
+                add("유지 후보가 요청 개수 ${requestedLimit}건보다 많아 ${keptItems.size}건을 표시합니다.")
+            }
+            if (aiSkipped) {
+                add("표시 슬롯이 유지 후보로 이미 채워져 Claude 호출은 건너뛰었습니다.")
+            }
+            if (dismissedItems.isNotEmpty()) {
+                add("제외 후보 ${dismissedItems.size}건은 초기화 전까지 숨깁니다.")
+            }
+            if (unmatchedCount > 0) {
+                add("종목 마스터와 매칭되지 않은 후보 ${unmatchedCount}건이 있습니다.")
+            }
+        }
     }
 
     private fun saveState(

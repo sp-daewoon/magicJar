@@ -79,6 +79,7 @@ start_claude_bridge() {
   local host="${CLAUDE_DISCOVERY_BRIDGE_HOST:-127.0.0.1}"
   local port="${CLAUDE_DISCOVERY_BRIDGE_PORT:-8787}"
   local command="${CLAUDE_DISCOVERY_COMMAND:-claude}"
+  local max_timeout="${CLAUDE_DISCOVERY_MAX_TIMEOUT_SECONDS:-300}"
   local health_url="http://${host}:${port}/health"
   local log_dir="$PWD/_workspace/logs"
   local run_dir="$PWD/_workspace/run"
@@ -106,8 +107,11 @@ start_claude_bridge() {
   CLAUDE_DISCOVERY_BRIDGE_HOST="$host" \
     CLAUDE_DISCOVERY_BRIDGE_PORT="$port" \
     CLAUDE_DISCOVERY_COMMAND="$command" \
-    nohup node scripts/claude-discovery-bridge.mjs >> "$log_file" 2>&1 &
-  echo $! > "$pid_file"
+    CLAUDE_DISCOVERY_MAX_TIMEOUT_SECONDS="$max_timeout" \
+    nohup node scripts/claude-discovery-bridge.mjs >> "$log_file" 2>&1 < /dev/null &
+  local bridge_pid=$!
+  echo "$bridge_pid" > "$pid_file"
+  disown "$bridge_pid" 2>/dev/null || true
 
   for _ in {1..20}; do
     if curl -fsS "$health_url" >/dev/null 2>&1; then
@@ -124,13 +128,15 @@ start_claude_bridge() {
 # 1) gradle bootJar — JVM 모듈만 (api-app→api, batch-app→batch, consumer-app→consumer)
 if [[ $GRADLE -eq 1 ]]; then
   jvm_modules=()
-  for s in "${SERVICES[@]}"; do
-    case "$s" in
-      api-app)      jvm_modules+=(:api:bootJar) ;;
-      batch-app)    jvm_modules+=(:batch:bootJar) ;;
-      consumer-app) jvm_modules+=(:consumer:bootJar) ;;
-    esac
-  done
+  if [[ ${#SERVICES[@]} -gt 0 ]]; then
+    for s in "${SERVICES[@]}"; do
+      case "$s" in
+        api-app)      jvm_modules+=(:api:bootJar) ;;
+        batch-app)    jvm_modules+=(:batch:bootJar) ;;
+        consumer-app) jvm_modules+=(:consumer:bootJar) ;;
+      esac
+    done
+  fi
   if [[ ${#jvm_modules[@]} -gt 0 ]]; then
     echo "▶ gradle: ${jvm_modules[*]}"
     ./gradlew "${jvm_modules[@]}"
