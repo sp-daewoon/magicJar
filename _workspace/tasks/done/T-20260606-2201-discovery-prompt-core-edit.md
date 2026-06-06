@@ -3,9 +3,9 @@ id: T-20260606-2201-discovery-prompt-core-edit
 agent: ai
 model: opus
 branch: agent/ai/discovery-prompt-core-edit
-status: RUNNING
+status: DONE
 startedAt: 2026-06-06T22:01:23.316+09:00
-completedAt: null
+completedAt: 2026-06-06T22:27:33.126+09:00
 pr: null
 parentPhase: ?
 ---

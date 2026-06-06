@@ -3,9 +3,9 @@ id: T-20260606-2201-discovery-prompt-ux
 agent: frontend
 model: opus
 branch: agent/frontend/discovery-prompt-ux
-status: RUNNING
+status: DONE
 startedAt: 2026-06-06T22:01:01.193+09:00
-completedAt: null
+completedAt: 2026-06-06T22:27:33.177+09:00
 pr: null
 parentPhase: ?
 ---
