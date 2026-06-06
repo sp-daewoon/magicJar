@@ -6,6 +6,11 @@ import {
   strategyResearchErrorMessage,
   type StrategyResearchAiDiscoveryItemDto,
   type StrategyResearchAiDiscoveryItemStatus,
+  type StrategyResearchAiDiscoveryPresetCreateRequestDto,
+  type StrategyResearchAiDiscoveryPresetDto,
+  type StrategyResearchAiDiscoveryPresetUpdateRequestDto,
+  type StrategyResearchAiDiscoveryPromptPreviewDto,
+  type StrategyResearchAiDiscoveryPromptPreviewRequestDto,
   type StrategyResearchAiDiscoveryRequestDto,
   type StrategyResearchAiDiscoveryResponseDto,
   type StrategyResearchCandidateDto,
@@ -93,6 +98,14 @@ export function StrategyResearchPage() {
   const [discoveryLimit, setDiscoveryLimit] = useState(6)
   const [discoveryError, setDiscoveryError] = useState<string | null>(null)
   const [discoveryReport, setDiscoveryReport] = useState<StrategyResearchAiDiscoveryResponseDto | null>(null)
+  const [selectedDiscoveryPresetId, setSelectedDiscoveryPresetId] = useState<string | null>(null)
+  const [discoveryPresetTouched, setDiscoveryPresetTouched] = useState(false)
+  const [promptPreviewOpen, setPromptPreviewOpen] = useState(false)
+  const [promptPreview, setPromptPreview] = useState<StrategyResearchAiDiscoveryPromptPreviewDto | null>(null)
+  const [presetSettingsOpen, setPresetSettingsOpen] = useState(false)
+  const [editingPresetId, setEditingPresetId] = useState<string | null>(null)
+  const [presetDraft, setPresetDraft] = useState<StrategyResearchAiDiscoveryPresetUpdateRequestDto | null>(null)
+  const [presetSettingsError, setPresetSettingsError] = useState<string | null>(null)
   const [discoveryTouched, setDiscoveryTouched] = useState(false)
   // 캔들 가져오기 성공 시 code별 candleCount 로컬 override (insertedCount 사용)
   const [candleOverrides, setCandleOverrides] = useState<Record<string, number>>({})
@@ -123,11 +136,75 @@ export function StrategyResearchPage() {
     onSuccess: (report) => {
       setDiscoveryReport(report)
       setDiscoveryQuery(report.query)
+      setSelectedDiscoveryPresetId(report.presetId ?? null)
       setDiscoveryMarket((report.market ?? '') as (typeof AI_DISCOVERY_MARKETS)[number])
       setDiscoveryLimit(report.limit)
       setDiscoveryError(null)
     },
     onError: (error) => setDiscoveryError(strategyResearchErrorMessage(error)),
+  })
+
+  const discoveryPresetQuery = useQuery({
+    queryKey: ['strategy-research', 'ai-discovery', 'presets'],
+    queryFn: strategyResearchApi.getAiDiscoveryPresets,
+    staleTime: 60_000,
+  })
+
+  const promptPreviewMutation = useMutation<
+    StrategyResearchAiDiscoveryPromptPreviewDto,
+    unknown,
+    StrategyResearchAiDiscoveryPromptPreviewRequestDto
+  >({
+    mutationFn: strategyResearchApi.previewAiDiscoveryPrompt,
+    onSuccess: (preview) => {
+      setPromptPreview(preview)
+      setDiscoveryError(null)
+    },
+    onError: (error) => setDiscoveryError(strategyResearchErrorMessage(error)),
+  })
+
+  const presetCreateMutation = useMutation<
+    StrategyResearchAiDiscoveryPresetDto,
+    unknown,
+    StrategyResearchAiDiscoveryPresetCreateRequestDto
+  >({
+    mutationFn: strategyResearchApi.createAiDiscoveryPreset,
+    onSuccess: (created) => {
+      setPresetSettingsError(null)
+      setEditingPresetId(created.id)
+      setSelectedDiscoveryPresetId(created.id)
+      setDiscoveryPresetTouched(true)
+      setPresetDraft({
+        label: created.label,
+        description: created.description,
+        promptText: created.promptText,
+        sortOrder: created.sortOrder,
+        active: created.active,
+      })
+      void discoveryPresetQuery.refetch()
+    },
+    onError: (error) => setPresetSettingsError(strategyResearchErrorMessage(error)),
+  })
+
+  const presetUpdateMutation = useMutation<
+    StrategyResearchAiDiscoveryPresetDto,
+    unknown,
+    { presetId: string; body: StrategyResearchAiDiscoveryPresetUpdateRequestDto }
+  >({
+    mutationFn: ({ presetId, body }) => strategyResearchApi.updateAiDiscoveryPreset(presetId, body),
+    onSuccess: (updated) => {
+      setPresetSettingsError(null)
+      setEditingPresetId(updated.id)
+      setPresetDraft({
+        label: updated.label,
+        description: updated.description,
+        promptText: updated.promptText,
+        sortOrder: updated.sortOrder,
+        active: updated.active,
+      })
+      void discoveryPresetQuery.refetch()
+    },
+    onError: (error) => setPresetSettingsError(strategyResearchErrorMessage(error)),
   })
 
   const latestDiscoveryQuery = useQuery({
@@ -163,12 +240,27 @@ export function StrategyResearchPage() {
       setDiscoveryQuery(AI_DISCOVERY_DEFAULT_QUERY)
       setDiscoveryMarket('')
       setDiscoveryLimit(6)
+      setSelectedDiscoveryPresetId(activeDiscoveryPresets[0]?.id ?? null)
+      setDiscoveryPresetTouched(false)
       setDiscoveryError(null)
     },
     onError: (error) => setDiscoveryError(strategyResearchErrorMessage(error)),
   })
 
   const report = mutation.data
+  const discoveryPresets = discoveryPresetQuery.data ?? []
+  const activeDiscoveryPresets = useMemo(
+    () => discoveryPresets.filter((preset) => preset.active),
+    [discoveryPresets],
+  )
+  const selectedDiscoveryPreset = useMemo(
+    () => discoveryPresets.find((preset) => preset.id === selectedDiscoveryPresetId) ?? null,
+    [discoveryPresets, selectedDiscoveryPresetId],
+  )
+  const editingPreset = useMemo(
+    () => discoveryPresets.find((preset) => preset.id === editingPresetId) ?? discoveryPresets[0] ?? null,
+    [discoveryPresets, editingPresetId],
+  )
   const visibleDiscoveryItems = useMemo(
     () =>
       (discoveryReport?.items.filter((item) => item.status !== 'DISMISSED') ?? []).map((item) => {
@@ -203,10 +295,38 @@ export function StrategyResearchPage() {
     setDiscoveryReport(latest)
     if (latest) {
       setDiscoveryQuery(latest.query)
+      setSelectedDiscoveryPresetId(latest.presetId ?? null)
       setDiscoveryMarket((latest.market ?? '') as (typeof AI_DISCOVERY_MARKETS)[number])
       setDiscoveryLimit(latest.limit)
     }
   }, [discoveryTouched, latestDiscoveryQuery.data])
+
+  useEffect(() => {
+    if (discoveryPresetTouched) return
+    if (selectedDiscoveryPresetId !== null) return
+    if (latestDiscoveryQuery.data && latestDiscoveryQuery.data.presetId == null) return
+    const firstPreset = activeDiscoveryPresets[0]
+    if (firstPreset) {
+      setSelectedDiscoveryPresetId(firstPreset.id)
+    }
+  }, [activeDiscoveryPresets, discoveryPresetTouched, latestDiscoveryQuery.data, selectedDiscoveryPresetId])
+
+  useEffect(() => {
+    if (!presetSettingsOpen) return
+    const preset = editingPreset
+    if (!preset) {
+      setPresetDraft(null)
+      return
+    }
+    setEditingPresetId(preset.id)
+    setPresetDraft({
+      label: preset.label,
+      description: preset.description,
+      promptText: preset.promptText,
+      sortOrder: preset.sortOrder,
+      active: preset.active,
+    })
+  }, [editingPreset, presetSettingsOpen])
 
   const handleInstrumentRawChange = (value: string) => {
     setInstrumentInput(value)
@@ -239,8 +359,72 @@ export function StrategyResearchPage() {
     discoveryMutation.mutate({
       userId: userIdText!,
       query,
+      presetId: selectedDiscoveryPresetId,
       market: discoveryMarket,
       limit: normalizedLimit,
+      interval,
+      from: kstInputToIso(fromKst),
+      to: kstInputToIso(toKst),
+    })
+  }
+
+  const selectDiscoveryPreset = (presetId: string | null) => {
+    setSelectedDiscoveryPresetId(presetId)
+    setDiscoveryPresetTouched(true)
+    setDiscoveryTouched(true)
+  }
+
+  const openPromptPreview = () => {
+    const query = discoveryQuery.trim()
+    if (!query) {
+      setDiscoveryError('프롬프트를 보려면 찾을 조건을 먼저 입력해주세요')
+      return
+    }
+    const normalizedLimit = Math.max(1, Math.min(12, Math.trunc(discoveryLimit || 1)))
+    setPromptPreviewOpen(true)
+    setPromptPreview(null)
+    setDiscoveryError(null)
+    promptPreviewMutation.mutate({
+      userId: userIdText!,
+      query,
+      presetId: selectedDiscoveryPresetId,
+      market: discoveryMarket,
+      limit: normalizedLimit,
+    })
+  }
+
+  const openPresetSettings = () => {
+    setPresetSettingsOpen(true)
+    setPresetSettingsError(null)
+    setEditingPresetId(selectedDiscoveryPresetId ?? discoveryPresets[0]?.id ?? null)
+  }
+
+  const createPresetDraft = () => {
+    const nextSortOrder = (discoveryPresets.reduce((max, preset) => Math.max(max, preset.sortOrder), 0) || 0) + 10
+    presetCreateMutation.mutate({
+      label: '새 발굴 프리셋',
+      description: '검증하고 싶은 발굴 로직을 설명하세요',
+      promptText: '현재 시장에서 사용자가 입력한 조건과 결합해 Screener와 Backtest로 검증할 후보 종목을 제안해라.',
+      sortOrder: nextSortOrder,
+      active: true,
+    })
+  }
+
+  const savePresetDraft = () => {
+    if (!editingPreset || !presetDraft) return
+    if (!presetDraft.label.trim() || !presetDraft.description.trim() || !presetDraft.promptText.trim()) {
+      setPresetSettingsError('프리셋 이름, 설명, 프롬프트를 모두 입력해주세요')
+      return
+    }
+    presetUpdateMutation.mutate({
+      presetId: editingPreset.id,
+      body: {
+        label: presetDraft.label.trim(),
+        description: presetDraft.description.trim(),
+        promptText: presetDraft.promptText.trim(),
+        sortOrder: presetDraft.sortOrder,
+        active: presetDraft.active,
+      },
     })
   }
 
@@ -255,6 +439,10 @@ export function StrategyResearchPage() {
   const selectDiscoveryItem = (item: StrategyResearchAiDiscoveryItemDto) => {
     if (!item.code) {
       setDiscoveryError('종목 마스터와 매칭된 후보만 선택할 수 있습니다')
+      return
+    }
+    if (item.candleCount === 0) {
+      setDiscoveryError('선택한 interval·기간에 저장된 candle이 없습니다. 차트에서 캔들을 수집한 뒤 다시 선택해주세요')
       return
     }
     const result: InstrumentSearchResultDto = {
@@ -410,6 +598,22 @@ export function StrategyResearchPage() {
                 저장된 결과 확인 중
               </span>
             )}
+            <button
+              type="button"
+              onClick={openPromptPreview}
+              disabled={promptPreviewMutation.isPending || discoveryMutation.isPending}
+              className="rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              프롬프트 보기
+            </button>
+            <button
+              type="button"
+              onClick={openPresetSettings}
+              disabled={discoveryPresetQuery.isLoading}
+              className="rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              프리셋 설정
+            </button>
             {discoveryReport && (
               <>
                 <span className="rounded border border-gray-700 px-2 py-1 text-xs text-gray-400">
@@ -432,6 +636,46 @@ export function StrategyResearchPage() {
               </>
             )}
           </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-gray-500">프리셋</span>
+          {activeDiscoveryPresets.map((preset) => {
+            const active = preset.id === selectedDiscoveryPresetId
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                title={preset.description}
+                onClick={() => selectDiscoveryPreset(preset.id)}
+                disabled={discoveryMutation.isPending}
+                className={[
+                  'rounded border px-2.5 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50',
+                  active
+                    ? 'border-indigo-500 bg-indigo-950/40 text-indigo-100'
+                    : 'border-gray-700 text-gray-300 hover:bg-gray-800',
+                ].join(' ')}
+              >
+                {preset.label}
+              </button>
+            )
+          })}
+          <button
+            type="button"
+            onClick={() => selectDiscoveryPreset(null)}
+            disabled={discoveryMutation.isPending}
+            className={[
+              'rounded border px-2.5 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50',
+              selectedDiscoveryPresetId === null
+                ? 'border-blue-500 bg-blue-950/40 text-blue-100'
+                : 'border-gray-700 text-gray-300 hover:bg-gray-800',
+            ].join(' ')}
+          >
+            직접 입력
+          </button>
+          {selectedDiscoveryPreset && (
+            <span className="text-xs text-gray-500">{selectedDiscoveryPreset.description}</span>
+          )}
         </div>
 
         <div className="mt-4 grid gap-3 lg:grid-cols-12">
@@ -881,6 +1125,204 @@ export function StrategyResearchPage() {
               </div>
             </section>
           )}
+        </div>
+      )}
+      {promptPreviewOpen && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="AI 종목발굴 프롬프트 보기"
+        >
+          <div className="max-h-[86vh] w-full max-w-4xl overflow-y-auto rounded-lg border border-gray-800 bg-gray-900 shadow-xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-800 bg-gray-900 px-4 py-3">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-100">AI 종목발굴 프롬프트</h2>
+                <p className="mt-0.5 text-xs text-gray-500">
+                  {promptPreview?.preset?.label ?? '직접 입력'} · {promptPreview?.generatedAt ? formatKst(promptPreview.generatedAt) : '생성 중'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPromptPreviewOpen(false)}
+                className="rounded border border-gray-700 px-2.5 py-1 text-xs text-gray-300 hover:bg-gray-800"
+              >
+                닫기
+              </button>
+            </div>
+            <div className="space-y-3 p-4">
+              {promptPreviewMutation.isPending && (
+                <div className="rounded border border-indigo-900 bg-indigo-950/20 px-3 py-2 text-sm text-indigo-100">
+                  최종 프롬프트를 조립하는 중입니다
+                </div>
+              )}
+              {promptPreview?.warnings.length ? (
+                <div className="rounded border border-amber-900 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">
+                  {promptPreview.warnings.join(' · ')}
+                </div>
+              ) : null}
+              {promptPreview && (
+                <>
+                  <div className="rounded border border-gray-800 bg-gray-950 p-3">
+                    <div className="text-xs font-semibold text-gray-400">Core Wrapper</div>
+                    <pre className="mt-2 whitespace-pre-wrap break-words text-xs leading-5 text-gray-300">
+                      {promptPreview.systemPrompt}
+                    </pre>
+                  </div>
+                  <div className="rounded border border-gray-800 bg-gray-950 p-3">
+                    <div className="text-xs font-semibold text-gray-400">Final Prompt</div>
+                    <pre className="mt-2 whitespace-pre-wrap break-words text-xs leading-5 text-blue-100">
+                      {promptPreview.finalPrompt}
+                    </pre>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {presetSettingsOpen && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="AI 종목발굴 프리셋 설정"
+        >
+          <div className="max-h-[86vh] w-full max-w-5xl overflow-y-auto rounded-lg border border-gray-800 bg-gray-900 shadow-xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-800 bg-gray-900 px-4 py-3">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-100">AI 종목발굴 프리셋 설정</h2>
+                <p className="mt-0.5 text-xs text-gray-500">Core wrapper는 고정하고 intent prompt만 관리합니다</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={createPresetDraft}
+                  disabled={presetCreateMutation.isPending}
+                  className="rounded border border-blue-700 px-2.5 py-1 text-xs text-blue-200 hover:bg-blue-950/30 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {presetCreateMutation.isPending ? '추가 중' : '새 프리셋'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPresetSettingsOpen(false)}
+                  className="rounded border border-gray-700 px-2.5 py-1 text-xs text-gray-300 hover:bg-gray-800"
+                >
+                  닫기
+                </button>
+              </div>
+            </div>
+            <div className="grid gap-4 p-4 lg:grid-cols-12">
+              <div className="space-y-2 lg:col-span-4">
+                {discoveryPresets.map((preset) => {
+                  const active = preset.id === editingPreset?.id
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => setEditingPresetId(preset.id)}
+                      className={[
+                        'w-full rounded border px-3 py-2 text-left',
+                        active
+                          ? 'border-indigo-500 bg-indigo-950/30'
+                          : 'border-gray-800 bg-gray-950 hover:bg-gray-800/70',
+                      ].join(' ')}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-semibold text-gray-100">{preset.label}</span>
+                        <span className={preset.active ? 'text-xs text-emerald-300' : 'text-xs text-gray-500'}>
+                          {preset.active ? '활성' : '비활성'}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs leading-5 text-gray-500">{preset.description}</p>
+                    </button>
+                  )
+                })}
+                {discoveryPresetQuery.isLoading && (
+                  <div className="rounded border border-gray-800 bg-gray-950 px-3 py-6 text-center text-sm text-gray-500">
+                    프리셋을 불러오는 중입니다
+                  </div>
+                )}
+              </div>
+
+              <div className="lg:col-span-8">
+                {editingPreset && presetDraft ? (
+                  <div className="space-y-3">
+                    <label className="block">
+                      <span className="text-xs text-gray-500">프리셋 이름</span>
+                      <input
+                        value={presetDraft.label}
+                        onChange={(event) => setPresetDraft({ ...presetDraft, label: event.target.value })}
+                        className="mt-1 w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-xs text-gray-500">설명</span>
+                      <input
+                        value={presetDraft.description}
+                        onChange={(event) => setPresetDraft({ ...presetDraft, description: event.target.value })}
+                        className="mt-1 w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-xs text-gray-500">Intent Prompt</span>
+                      <textarea
+                        value={presetDraft.promptText}
+                        onChange={(event) => setPresetDraft({ ...presetDraft, promptText: event.target.value })}
+                        rows={10}
+                        className="mt-1 w-full resize-y rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm leading-6 text-gray-100 focus:border-blue-500 focus:outline-none"
+                      />
+                    </label>
+                    <div className="flex flex-wrap items-end gap-3">
+                      <label>
+                        <span className="text-xs text-gray-500">정렬</span>
+                        <input
+                          type="number"
+                          min="0"
+                          max="1000"
+                          value={presetDraft.sortOrder}
+                          onChange={(event) => setPresetDraft({ ...presetDraft, sortOrder: Number(event.target.value) })}
+                          className="mt-1 w-28 rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+                        />
+                      </label>
+                      <label className="flex items-center gap-2 rounded border border-gray-800 bg-gray-950 px-3 py-2 text-sm text-gray-300">
+                        <input
+                          type="checkbox"
+                          checked={presetDraft.active}
+                          onChange={(event) => setPresetDraft({ ...presetDraft, active: event.target.checked })}
+                          className="h-4 w-4 accent-blue-600"
+                        />
+                        활성
+                      </label>
+                      <button
+                        type="button"
+                        onClick={savePresetDraft}
+                        disabled={presetUpdateMutation.isPending}
+                        className="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {presetUpdateMutation.isPending ? '저장 중' : '저장'}
+                      </button>
+                    </div>
+                    {presetSettingsError && (
+                      <div className="rounded border border-red-900 bg-red-950/30 px-3 py-2 text-sm text-red-200">
+                        {presetSettingsError}
+                      </div>
+                    )}
+                    {presetUpdateMutation.isSuccess && !presetSettingsError && (
+                      <div className="rounded border border-emerald-900 bg-emerald-950/20 px-3 py-2 text-sm text-emerald-200">
+                        프리셋을 저장했습니다
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="rounded border border-gray-800 bg-gray-950 px-3 py-10 text-center text-sm text-gray-500">
+                    설정할 프리셋이 없습니다
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -324,7 +324,7 @@ class StrategyControllerTest {
     fun `POST strategy evaluate 실평가기 결과 반환 200`() {
         stubOnboarding()
         whenever(strategyService.findById(eq(1L))).thenReturn(makeStrategy(1L))
-        whenever(candleRepository.findByCodeAndInterval(eq("005930"), eq(CandleInterval.ONE_DAY)))
+        whenever(candleRepository.findLatestByCodeAndInterval(eq("005930"), eq(CandleInterval.ONE_DAY), any()))
             .thenReturn(
                 listOf(
                     makeCandle("70000", "2026-05-18T00:00:00Z"),

@@ -8,6 +8,7 @@ import io.kotest.matchers.shouldBe
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
+import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryPresetJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryStateJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryStateJpaRepository
 import org.junit.jupiter.api.Test
@@ -22,6 +23,7 @@ class StrategyResearchAiDiscoveryServiceTest {
     private val instrumentRepository: InstrumentJpaRepository = mock()
     private val candleRepository: CandleJpaRepository = mock()
     private val stateRepository: StrategyResearchAiDiscoveryStateJpaRepository = mock()
+    private val presetRepository: StrategyResearchAiDiscoveryPresetJpaRepository = mock()
     private val objectMapper = ObjectMapper().registerKotlinModule()
 
     @Test
@@ -58,6 +60,7 @@ class StrategyResearchAiDiscoveryServiceTest {
                     },
                 objectMapper = objectMapper,
                 stateRepository = stateRepository,
+                presetRepository = presetRepository,
             )
 
         val response =
@@ -76,6 +79,49 @@ class StrategyResearchAiDiscoveryServiceTest {
         response.items[0].name shouldBe "삼성전자"
         response.items[0].matched shouldBe true
         response.items[0].themes shouldBe listOf("반도체", "AI 인프라")
+    }
+
+    @Test
+    fun `discover attaches candle availability for selected research window`() {
+        val fromTs = Instant.parse("2026-04-28T00:00:00Z")
+        val toTs = Instant.parse("2026-06-02T06:30:00Z")
+        whenever(instrumentRepository.findById("005930")).thenReturn(Optional.of(instrument("005930", "삼성전자")))
+        whenever(candleRepository.countByCodeAndIntervalAndTsBetween(eq("005930"), eq("5m"), eq(fromTs), eq(toTs)))
+            .thenReturn(0L)
+        whenever(stateRepository.findById("74683223")).thenReturn(Optional.empty())
+        whenever(stateRepository.save(any())).thenAnswer { it.arguments[0] }
+        val service =
+            StrategyResearchAiDiscoveryService(
+                instrumentJpaRepository = instrumentRepository,
+                candleJpaRepository = candleRepository,
+                aiTextClient =
+                    StrategyResearchAiTextClient {
+                        StrategyResearchAiTextResult(
+                            provider = "test-claude",
+                            text = """{"items":[{"name":"삼성전자","code":"005930","market":"KOSPI","reason":"AI 후보","confidence":0.8}]}""",
+                        )
+                    },
+                objectMapper = objectMapper,
+                stateRepository = stateRepository,
+                presetRepository = presetRepository,
+            )
+
+        val response =
+            service.discover(
+                StrategyResearchAiDiscoveryRequestDto(
+                    userId = "74683223",
+                    query = "반도체 후보",
+                    market = "KOSPI",
+                    limit = 6,
+                    interval = "5m",
+                    from = fromTs.toString(),
+                    to = toTs.toString(),
+                ),
+            )
+
+        response.items[0].candleCount shouldBe 0L
+        response.items[0].hasResearchCandles shouldBe false
+        response.warnings.any { it.contains("candle이 없는 후보 1건") } shouldBe true
     }
 
     @Test
@@ -124,6 +170,7 @@ class StrategyResearchAiDiscoveryServiceTest {
                     },
                 objectMapper = objectMapper,
                 stateRepository = stateRepository,
+                presetRepository = presetRepository,
             )
 
         val response =
@@ -177,6 +224,7 @@ class StrategyResearchAiDiscoveryServiceTest {
                     },
                 objectMapper = objectMapper,
                 stateRepository = stateRepository,
+                presetRepository = presetRepository,
             )
 
         val response =
@@ -319,6 +367,7 @@ class StrategyResearchAiDiscoveryServiceTest {
             aiTextClient = StrategyResearchAiTextClient { complete() },
             objectMapper = objectMapper,
             stateRepository = stateRepository,
+            presetRepository = presetRepository,
         )
 
     private fun item(

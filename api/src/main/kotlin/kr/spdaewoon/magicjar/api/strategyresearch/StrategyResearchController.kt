@@ -11,7 +11,9 @@ import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PatchMapping
+import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
@@ -76,6 +78,41 @@ class StrategyResearchController(
         )
         return strategyResearchAiDiscoveryService.discover(request)
     }
+
+    @Operation(
+        summary = "AI 종목발굴 프리셋 목록",
+        description = "AI 종목발굴 UI에 노출할 intent preset과 prompt 본문을 조회합니다.",
+    )
+    @GetMapping("/ai-discovery/presets")
+    fun aiDiscoveryPresets(): List<StrategyResearchAiDiscoveryPresetDto> = strategyResearchAiDiscoveryService.presets()
+
+    @Operation(
+        summary = "AI 종목발굴 프리셋 생성",
+        description = "사용자 정의 intent preset을 추가합니다. 정렬값을 비우면 기존 최대 정렬값 + 10으로 생성합니다.",
+    )
+    @PostMapping("/ai-discovery/presets")
+    fun createAiDiscoveryPreset(
+        @RequestBody @Valid request: StrategyResearchAiDiscoveryPresetCreateRequestDto,
+    ): StrategyResearchAiDiscoveryPresetDto = strategyResearchAiDiscoveryService.createPreset(request)
+
+    @Operation(
+        summary = "AI 종목발굴 프리셋 수정",
+        description = "프리셋 노출명, 설명, intent prompt, 활성 여부를 수정합니다. Core wrapper는 서비스 코드 권위로 유지됩니다.",
+    )
+    @PutMapping("/ai-discovery/presets/{presetId}")
+    fun updateAiDiscoveryPreset(
+        @PathVariable presetId: String,
+        @RequestBody @Valid request: StrategyResearchAiDiscoveryPresetUpdateRequestDto,
+    ): StrategyResearchAiDiscoveryPresetDto = strategyResearchAiDiscoveryService.updatePreset(presetId, request)
+
+    @Operation(
+        summary = "AI 종목발굴 프롬프트 미리보기",
+        description = "Claude 호출 없이 현재 조건, 선택 프리셋, 유지/제외 후보를 합성한 최종 프롬프트를 반환합니다.",
+    )
+    @PostMapping("/ai-discovery/prompt-preview")
+    fun previewAiDiscoveryPrompt(
+        @RequestBody @Valid request: StrategyResearchAiDiscoveryPromptPreviewRequestDto,
+    ): StrategyResearchAiDiscoveryPromptPreviewDto = strategyResearchAiDiscoveryService.previewPrompt(request)
 
     @Operation(
         summary = "최근 AI 종목발굴 상태 조회",

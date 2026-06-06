@@ -6,6 +6,8 @@ import com.fasterxml.jackson.module.kotlin.readValue
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
+import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryPresetJpaEntity
+import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryPresetJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryStateJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchAiDiscoveryStateJpaRepository
 import org.slf4j.LoggerFactory
@@ -24,8 +26,22 @@ class StrategyResearchAiDiscoveryService(
     private val aiTextClient: StrategyResearchAiTextClient,
     private val objectMapper: ObjectMapper,
     private val stateRepository: StrategyResearchAiDiscoveryStateJpaRepository,
+    private val presetRepository: StrategyResearchAiDiscoveryPresetJpaRepository,
 ) {
     private val log = LoggerFactory.getLogger(StrategyResearchAiDiscoveryService::class.java)
+    private val coreSystemPrompt =
+        """
+        너는 한국 주식 자동매매 시스템 magicJar의 '종목 발굴 전문 퀀트 리서처'다.
+        사용자의 요청을 분석하여 조건에 부합하는 한국 주식 후보를 제안하라.
+        단, 너의 제안은 절대적인 매수 추천이 아니며, 이후 magicJar의 자체 Screener와 과거 캔들 Backtest 검증을 거쳐야 하는 '가설 후보'다.
+
+        [분석 원칙]
+        1. 단순 시총 상위주 나열을 금지한다. 사용자의 조건에 맞는 구체적인 모멘텀, 수급, 차트 패턴적 근거를 reason에 작성하라.
+        2. 종목의 섹터와 테마 트렌드를 반영하라. 예: HBM, 전력설비, 조선, 방산, AI 인프라 등.
+        3. KRX 상장 보통주/우선주 후보만 제안한다. ETF, ETN, ELW, 펀드, 리츠, 해외주식, 파생상품은 제외한다.
+        4. 최신 가격·뉴스를 확정적으로 단정하지 말고, 검증이 필요한 후보 가설로 표현한다.
+        5. 매수/매도 권유, 확정 수익, 자동 주문을 암시하는 표현을 금지한다.
+        """.trimIndent()
 
     fun latest(userId: String): StrategyResearchAiDiscoveryResponseDto? = stateRepository.findById(userId).orElse(null)?.toResponse()
 
@@ -33,6 +49,77 @@ class StrategyResearchAiDiscoveryService(
         if (stateRepository.existsById(userId)) {
             stateRepository.deleteById(userId)
         }
+    }
+
+    fun presets(): List<StrategyResearchAiDiscoveryPresetDto> = presetRepository.findAllByOrderBySortOrderAscIdAsc().map { it.toDto() }
+
+    fun createPreset(request: StrategyResearchAiDiscoveryPresetCreateRequestDto): StrategyResearchAiDiscoveryPresetDto {
+        val id = request.id?.trim()?.takeIf { it.isNotBlank() } ?: "custom_${Instant.now().toEpochMilli()}"
+        if (presetRepository.existsById(id)) {
+            throw ResponseStatusException(HttpStatus.CONFLICT, "이미 존재하는 AI 종목발굴 프리셋 ID입니다: $id")
+        }
+        val sortOrder =
+            request.sortOrder
+                ?: ((presetRepository.findAllByOrderBySortOrderAscIdAsc().maxOfOrNull { it.sortOrder } ?: 0) + 10)
+        val now = Instant.now()
+        val entity =
+            StrategyResearchAiDiscoveryPresetJpaEntity(
+                id = id,
+                label = request.label.trim(),
+                description = request.description.trim(),
+                promptText = request.promptText.trim(),
+                sortOrder = sortOrder,
+                active = request.active,
+                builtIn = false,
+                createdAt = now,
+                updatedAt = now,
+            )
+        return presetRepository.save(entity).toDto()
+    }
+
+    fun updatePreset(
+        presetId: String,
+        request: StrategyResearchAiDiscoveryPresetUpdateRequestDto,
+    ): StrategyResearchAiDiscoveryPresetDto {
+        val entity =
+            presetRepository
+                .findById(presetId)
+                .orElseThrow { ResponseStatusException(HttpStatus.NOT_FOUND, "AI 종목발굴 프리셋을 찾지 못했습니다: $presetId") }
+        entity.label = request.label.trim()
+        entity.description = request.description.trim()
+        entity.promptText = request.promptText.trim()
+        entity.sortOrder = request.sortOrder
+        entity.active = request.active
+        entity.updatedAt = Instant.now()
+        return presetRepository.save(entity).toDto()
+    }
+
+    fun previewPrompt(request: StrategyResearchAiDiscoveryPromptPreviewRequestDto): StrategyResearchAiDiscoveryPromptPreviewDto {
+        val discoveryRequest =
+            StrategyResearchAiDiscoveryRequestDto(
+                userId = request.userId,
+                query = request.query,
+                presetId = request.presetId,
+                market = request.market,
+                limit = request.limit,
+            )
+        val previous = stateRepository.findById(request.userId).orElse(null)
+        val keptItems = previous?.items()?.filter { it.status == StrategyResearchAiDiscoveryItemStatus.KEPT } ?: emptyList()
+        val dismissedItems = previous?.items()?.filter { it.status == StrategyResearchAiDiscoveryItemStatus.DISMISSED } ?: emptyList()
+        val preset = resolveActivePreset(request.presetId)
+        return StrategyResearchAiDiscoveryPromptPreviewDto(
+            systemPrompt = coreSystemPrompt,
+            preset = preset?.toDto(),
+            userQuery = request.query,
+            finalPrompt = buildPrompt(discoveryRequest, keptItems, dismissedItems, preset),
+            generatedAt = Instant.now().toString(),
+            warnings =
+                buildList {
+                    add("이 프롬프트는 후보 가설 생성을 위한 미리보기이며 Claude 호출을 실행하지 않습니다.")
+                    if (keptItems.isNotEmpty()) add("유지 후보 ${keptItems.size}건이 중복 금지 문맥에 포함됩니다.")
+                    if (dismissedItems.isNotEmpty()) add("제외 후보 ${dismissedItems.size}건이 재제안 금지 문맥에 포함됩니다.")
+                },
+        )
     }
 
     fun updateItemStatus(request: StrategyResearchAiDiscoveryItemStatusRequestDto): StrategyResearchAiDiscoveryResponseDto {
@@ -66,6 +153,7 @@ class StrategyResearchAiDiscoveryService(
         val dismissedItems = previousItems.filter { it.status == StrategyResearchAiDiscoveryItemStatus.DISMISSED }
         val dismissedKeys = dismissedItems.map { it.itemKey }.toSet()
         val keptKeys = keptItems.map { it.itemKey }.toSet()
+        val preset = resolveActivePreset(request.presetId)
 
         if (keptItems.size >= request.limit) {
             val items = enrichCandleAvailability(keptItems + dismissedItems, request)
@@ -74,6 +162,7 @@ class StrategyResearchAiDiscoveryService(
                 response =
                     StrategyResearchAiDiscoveryResponseDto(
                         query = request.query,
+                        presetId = preset?.id,
                         market = request.market,
                         limit = request.limit,
                         provider = "state-cache",
@@ -84,7 +173,7 @@ class StrategyResearchAiDiscoveryService(
             )
         }
 
-        val prompt = buildPrompt(request, keptItems, dismissedItems)
+        val prompt = buildPrompt(request, keptItems, dismissedItems, preset)
         val aiResult = aiTextClient.complete(prompt)
         val rawItems = parseItems(aiResult.text).take(12)
         if (rawItems.isEmpty()) {
@@ -113,6 +202,7 @@ class StrategyResearchAiDiscoveryService(
             response =
                 StrategyResearchAiDiscoveryResponseDto(
                     query = request.query,
+                    presetId = preset?.id,
                     market = request.market,
                     limit = request.limit,
                     provider = aiResult.provider,
@@ -228,6 +318,7 @@ class StrategyResearchAiDiscoveryService(
                     userId = request.userId,
                     query = request.query,
                     market = request.market,
+                    presetId = response.presetId,
                     candidateLimit = request.limit,
                     provider = response.provider,
                     generatedAt = generatedAt,
@@ -238,6 +329,7 @@ class StrategyResearchAiDiscoveryService(
                 ),
             )
         entity.query = request.query
+        entity.presetId = response.presetId
         entity.market = request.market
         entity.candidateLimit = request.limit
         entity.provider = response.provider
@@ -251,6 +343,7 @@ class StrategyResearchAiDiscoveryService(
     private fun StrategyResearchAiDiscoveryStateJpaEntity.toResponse(): StrategyResearchAiDiscoveryResponseDto =
         StrategyResearchAiDiscoveryResponseDto(
             query = query,
+            presetId = presetId,
             market = market,
             limit = candidateLimit,
             provider = provider,
@@ -265,24 +358,62 @@ class StrategyResearchAiDiscoveryService(
     private fun StrategyResearchAiDiscoveryStateJpaEntity.items(): List<StrategyResearchAiDiscoveryItemDto> =
         runCatching { objectMapper.readValue<List<StrategyResearchAiDiscoveryItemDto>>(itemsJson) }.getOrDefault(emptyList())
 
+    private fun resolveActivePreset(presetId: String?): StrategyResearchAiDiscoveryPresetJpaEntity? {
+        val normalized = presetId?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        val preset =
+            presetRepository
+                .findById(normalized)
+                .orElseThrow { ResponseStatusException(HttpStatus.BAD_REQUEST, "AI 종목발굴 프리셋을 찾지 못했습니다: $normalized") }
+        if (!preset.active) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "비활성 AI 종목발굴 프리셋은 사용할 수 없습니다: $normalized")
+        }
+        return preset
+    }
+
+    private fun StrategyResearchAiDiscoveryPresetJpaEntity.toDto(): StrategyResearchAiDiscoveryPresetDto =
+        StrategyResearchAiDiscoveryPresetDto(
+            id = id,
+            label = label,
+            description = description,
+            promptText = promptText,
+            sortOrder = sortOrder,
+            active = active,
+            builtIn = builtIn,
+            updatedAt = updatedAt.toString(),
+        )
+
     private fun buildPrompt(
         request: StrategyResearchAiDiscoveryRequestDto,
         keptItems: List<StrategyResearchAiDiscoveryItemDto>,
         dismissedItems: List<StrategyResearchAiDiscoveryItemDto>,
+        preset: StrategyResearchAiDiscoveryPresetJpaEntity?,
     ): String {
         val today = LocalDate.now(ZoneId.of("Asia/Seoul"))
         val marketText = request.market ?: "KOSPI/KOSDAQ/KONEX 전체"
         return listOf(
-            "당신은 한국 주식 종목 탐색 보조자입니다.",
-            "오늘 날짜는 $today KST입니다.",
-            "사용자의 문장을 KRX 상장 보통주/우선주 후보로 바꿔주세요.",
-            "ETF, ETN, ELW, 펀드, 리츠, 해외주식, 파생상품은 제외하세요.",
-            "매수/매도 추천이나 확정적 수익 표현은 쓰지 말고, 사용자가 전략 리서치에서 검증할 후보만 제시하세요.",
-            "가능한 경우 KRX 6자리 종목코드를 함께 적고, 모르면 code는 null로 두세요.",
+            coreSystemPrompt,
             "",
-            "사용자 요청: ${request.query}",
+            "[요청 컨텍스트]",
+            "오늘 날짜: $today KST",
             "시장 필터: $marketText",
             "후보 수: ${request.limit}",
+            "",
+            if (preset != null) {
+                listOf(
+                    "[선택 프리셋]",
+                    "프리셋 ID: ${preset.id}",
+                    "프리셋 이름: ${preset.label}",
+                    "프리셋 설명: ${preset.description}",
+                    "프리셋 지시문:",
+                    preset.promptText,
+                    "",
+                ).joinToString("\n")
+            } else {
+                "[선택 프리셋]\n없음. 사용자 입력만 바탕으로 검증 후보를 제안한다.\n"
+            },
+            "[사용자 입력]",
+            request.query,
+            "",
             if (keptItems.isNotEmpty()) {
                 "이미 사용자가 유지하기로 한 후보(중복 제안 금지): ${keptItems.joinToString { it.nameWithCode() }}"
             } else {
@@ -294,6 +425,7 @@ class StrategyResearchAiDiscoveryService(
                 null
             },
             "",
+            "가능한 경우 KRX 6자리 종목코드를 함께 적고, 모르면 code는 null로 두세요.",
             "아래 JSON 형식만 출력하세요. 마크다운, 설명문, 코드블록은 출력하지 마세요.",
             "{",
             "  \"items\": [",

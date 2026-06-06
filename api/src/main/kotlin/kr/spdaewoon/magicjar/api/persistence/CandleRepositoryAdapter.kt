@@ -4,6 +4,7 @@ import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import org.slf4j.LoggerFactory
+import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
@@ -93,6 +94,29 @@ class CandleRepositoryAdapter(
     ): List<Candle> =
         candleJpaRepository
             .findByCodeAndIntervalOrderByTsAsc(code, interval.code)
+            .map { it.toDomain(interval) }
+
+    @Transactional(readOnly = true)
+    override fun findLatestByCodeAndInterval(
+        code: String,
+        interval: CandleInterval,
+        limit: Int,
+    ): List<Candle> =
+        candleJpaRepository
+            .findByCodeAndIntervalLatest(code, interval.code, PageRequest.of(0, limit.coerceAtLeast(1)))
+            .sortedBy { it.ts }
+            .map { it.toDomain(interval) }
+
+    @Transactional(readOnly = true)
+    override fun findLatestBeforeByCodeAndInterval(
+        code: String,
+        interval: CandleInterval,
+        beforeExclusive: java.time.Instant,
+        limit: Int,
+    ): List<Candle> =
+        candleJpaRepository
+            .findByCodeAndIntervalAndTsBefore(code, interval.code, beforeExclusive, PageRequest.of(0, limit.coerceAtLeast(1)))
+            .sortedBy { it.ts }
             .map { it.toDomain(interval) }
 
     @Transactional(readOnly = true)

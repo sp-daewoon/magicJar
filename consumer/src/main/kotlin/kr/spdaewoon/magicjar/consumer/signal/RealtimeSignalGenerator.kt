@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.consumer.signal
 
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import kotlinx.datetime.toJavaInstant
 import kr.spdaewoon.magicjar.consumer.reconciliation.DataReadinessService
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
@@ -624,14 +625,15 @@ class RealtimeSignalGenerator(
             return listOf(boundaryCandle)
         }
 
+        val lookback = evalLookbackCandles.coerceAtLeast(1)
+        val historyLimit = (lookback - 1).coerceAtLeast(0)
         val persisted =
             try {
-                repo
-                    .findByCodeAndInterval(code, interval)
-                    .asSequence()
-                    .filter { it.ts <= boundaryTs }
-                    .filterNot { it.ts == boundaryTs }
-                    .toList()
+                if (historyLimit == 0) {
+                    emptyList()
+                } else {
+                    repo.findLatestBeforeByCodeAndInterval(code, interval, boundaryTs.toJavaInstant(), historyLimit)
+                }
             } catch (e: Exception) {
                 log.warn(
                     "RealtimeSignalGenerator candle history 조회 실패 — boundary candle 1건으로 평가: code={} interval={} err={}",
@@ -642,7 +644,6 @@ class RealtimeSignalGenerator(
                 return listOf(boundaryCandle)
             }
 
-        val lookback = evalLookbackCandles.coerceAtLeast(1)
         return (persisted + boundaryCandle)
             .sortedBy { it.ts }
             .takeLast(lookback)

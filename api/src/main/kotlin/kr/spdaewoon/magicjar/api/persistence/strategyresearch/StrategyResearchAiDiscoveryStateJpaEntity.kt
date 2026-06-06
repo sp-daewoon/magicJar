@@ -23,6 +23,8 @@ class StrategyResearchAiDiscoveryStateJpaEntity(
     var query: String,
     @Column(name = "market", length = 16)
     var market: String? = null,
+    @Column(name = "preset_id", length = 64)
+    var presetId: String? = null,
     @Column(name = "candidate_limit", nullable = false)
     var candidateLimit: Int,
     @Column(name = "provider", nullable = false, length = 64)

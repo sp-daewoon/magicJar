@@ -134,8 +134,9 @@ class ScreenerEngineImpl(
             return emptyResult(elapsed = System.currentTimeMillis() - started)
         }
 
+        val candleFetchLimit = maxOf(candleLookbackDays, minCandles).coerceAtLeast(1)
         for (instrument in universe) {
-            val candles = candleRepository.findByCodeAndInterval(instrument.code, criteria.interval)
+            val candles = candleRepository.findLatestByCodeAndInterval(instrument.code, criteria.interval, candleFetchLimit)
             // step 3a: candle 결손 graceful skip
             if (candles.isEmpty()) {
                 incrementSkip(skipCounts, SkipReason.CandleMissing.label)
