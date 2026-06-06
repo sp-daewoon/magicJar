@@ -201,6 +201,8 @@ sequenceDiagram
 
 Docker dev에서는 컨테이너가 host의 Claude CLI를 직접 실행할 수 없으므로 `scripts/claude-discovery-bridge.mjs`가 host에서 `claude -p`를 대신 실행한다. `api-app`은 `docker-compose.dev.yml` 기본값으로 `http://host.docker.internal:8787` bridge를 호출한다. Bridge는 한 번에 한 요청만 실행하며, 이미 Claude 호출이 진행 중이면 다음 요청은 busy 응답으로 돌려보낸다. timeout이 지나면 Claude 하위 프로세스를 종료하고 `_workspace/logs/claude-discovery-bridge.log`에 request id, pid, elapsedMs를 남긴다.
 
+Docker frontend(`http://localhost:3000`)는 nginx가 `/api/`를 `api-app:8080`으로 프록시한다. AI 종목발굴은 최대 300초까지 기다릴 수 있으므로 `frontend/nginx.conf`의 `proxy_read_timeout`/`proxy_send_timeout`은 310초로 맞춘다.
+
 ```bash
 # 전체 배포 또는 api-app 배포 시 bridge health check 후 자동 기동
 scripts/build-and-deploy.sh
