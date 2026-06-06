@@ -3,9 +3,9 @@ id: T-20260606-2128-ai-discovery-candle-fetch
 agent: frontend
 model: opus
 branch: agent/frontend/ai-discovery-candle-fetch
-status: RUNNING
+status: DONE
 startedAt: 2026-06-06T21:28:06.911+09:00
-completedAt: null
+completedAt: 2026-06-06T22:27:33.068+09:00
 pr: null
 parentPhase: ?
 ---
