@@ -88,6 +88,31 @@ class StrategyResearchController(
     fun aiDiscoveryPresets(): List<StrategyResearchAiDiscoveryPresetDto> = strategyResearchAiDiscoveryService.presets()
 
     @Operation(
+        summary = "AI 프리셋 추천",
+        description =
+            "현재 core wrapper·등록된 프리셋 전체·magicJar 실제 시스템 능력(지표/캔들 interval/백테스트 흐름)을 " +
+                "메타 프롬프트로 묶어 Claude에게 신규 발굴 프리셋 후보를 받아옵니다. 추천만 반환하며 저장하지 않습니다. " +
+                "사용자가 검토 후 프리셋 추가(POST /ai-discovery/presets)로 직접 저장합니다.",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "200", description = "AI 프리셋 추천 성공"),
+        ApiResponse(responseCode = "400", description = "요청 파라미터 검증 실패(count 범위 등)"),
+        ApiResponse(responseCode = "503", description = "Claude CLI/브릿지 사용 불가 또는 추천 파싱 실패"),
+    )
+    @PostMapping("/ai-discovery/presets/recommend")
+    fun recommendAiDiscoveryPresets(
+        @RequestBody @Valid request: StrategyResearchAiDiscoveryPresetRecommendRequestDto,
+    ): StrategyResearchAiDiscoveryPresetRecommendResponseDto {
+        log.info(
+            "POST /api/strategy-research/ai-discovery/presets/recommend: userId={} count={} hintLength={}",
+            request.userId,
+            request.count,
+            request.hint?.length ?: 0,
+        )
+        return strategyResearchAiDiscoveryService.recommendPresets(request)
+    }
+
+    @Operation(
         summary = "AI 종목발굴 프리셋 생성",
         description = "사용자 정의 intent preset을 추가합니다. 정렬값을 비우면 기존 최대 정렬값 + 10으로 생성합니다.",
     )

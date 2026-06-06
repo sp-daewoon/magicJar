@@ -312,3 +312,48 @@ data class StrategyResearchAiDiscoveryCorePromptUpdateRequestDto(
     @field:Size(max = 8000)
     val promptText: String,
 )
+
+@Schema(
+    description =
+        "AI 프리셋 추천 요청. magicJar 구조(core wrapper·기존 프리셋·시스템 능력)를 메타 프롬프트로 묶어 " +
+            "Claude에게 신규 발굴 프리셋 후보를 받아온다. 저장하지 않고 추천만 반환한다.",
+)
+data class StrategyResearchAiDiscoveryPresetRecommendRequestDto(
+    @field:Schema(description = "사용자 ID", example = "74683223")
+    @field:NotBlank
+    val userId: String,
+    @field:Schema(
+        description = "추천 방향 힌트(옵션). 사용자가 팝업에 적는 선택 요청. 없으면 시장 보편 + 기존 프리셋과 차별화한 후보를 받는다.",
+        example = "수급 기반으로 단타 위주 프리셋",
+    )
+    @field:Size(max = 500)
+    val hint: String? = null,
+    @field:Schema(description = "추천 받을 프리셋 개수(1~5)", example = "3")
+    @field:Min(1)
+    @field:Max(5)
+    val count: Int = 3,
+)
+
+@Schema(description = "AI 프리셋 추천 응답. items는 사용자가 검토 후 기존 createPreset으로 저장한다.")
+data class StrategyResearchAiDiscoveryPresetRecommendResponseDto(
+    @field:Schema(description = "추천을 생성한 provider", example = "claude-cli")
+    val provider: String,
+    @field:Schema(description = "생성 시각 ISO-8601", example = "2026-06-06T12:00:00Z")
+    val generatedAt: String,
+    @field:Schema(description = "주의 사항·안내 문구")
+    val warnings: List<String>,
+    @field:Schema(description = "추천 프리셋 후보 목록")
+    val items: List<StrategyResearchAiDiscoveryPresetRecommendItemDto>,
+)
+
+@Schema(description = "추천된 발굴 프리셋 후보 1건. 그대로 createPreset 입력으로 매핑할 수 있다.")
+data class StrategyResearchAiDiscoveryPresetRecommendItemDto(
+    @field:Schema(description = "프리셋 노출명(≤20자)", example = "장초반 수급 폭발")
+    val label: String,
+    @field:Schema(description = "프리셋 설명(≤80자, '~를 찾습니다' 톤)", example = "장 초반 거래대금이 급증하며 외국인 순매수가 들어오는 단기 모멘텀 후보를 찾습니다.")
+    val description: String,
+    @field:Schema(description = "Core wrapper 뒤에 주입되는 intent prompt(2~4문장 명령형)")
+    val promptText: String,
+    @field:Schema(description = "이 프리셋이 magicJar 검증 구조에 맞는 이유 1문장")
+    val rationale: String,
+)
