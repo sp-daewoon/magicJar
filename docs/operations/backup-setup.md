@@ -1,6 +1,7 @@
 # magicJar backup cron 셋업 가이드
 
 > ADR 0096 §2·§3 정합 — 사용자 단독 운영자(macOS) cron 등록 절차
+> **★ 시각 가이드(HTML)**: [`backup-and-restore-guide.html`](backup-and-restore-guide.html) — 무슨 파일이 어떻게 남는지·외부 매체 복사·복원 한눈에 보기
 
 ## ★ 실태 이력 (2026-06-06)
 
