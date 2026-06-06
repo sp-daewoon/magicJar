@@ -2,6 +2,16 @@
 
 > ADR 0096 §2·§3 정합 — 사용자 단독 운영자(macOS) cron 등록 절차
 
+## ★ 실태 이력 (2026-06-06)
+
+> **2026-06-06 실태**: 본 가이드·스크립트(`pg-dump-daily.sh`·`redis-snapshot.sh`)는 2026-05-21 발행됐으나, **cron 미등록 + 백업 0회 실행** 상태였다(ADR 0096 §1-3 baseline이 "cron wiring 0건 — ADR 자체로는 backup 활성 0"이라 경고한 risk가 그대로 잔존).
+>
+> 2026-06-06 **첫 수동 백업 실행 + 검증 완료**: pg dump 56MB(custom format `-Fc`, TABLE DATA 56건, flyway V70 포함) + redis snapshot 71K. 추가로 `scripts/backup/pg-restore.sh`(신규, dump 짝)로 임시 DB `magicjar_restore_test`에 복원해 테이블 56건·flyway V70·candle 254만 row·user_kis_credential 2건이 운영 DB와 row-level 일치함을 실증.
+>
+> → **이번 강화 산출물**: ① `scripts/backup/pg-restore.sh`(복원 + dry-run + 검증) ② `docs/operations/new-pc-migration-runbook.md`(새 PC 완전 복원 3계층 런북) ③ 본 가이드 갱신(실태 이력 + 외부 매체 동기화 + 런북 cross-link).
+>
+> ⚠️ **아직 cron 등록은 사용자 1회 작업이 필요하다** — §2 절차로 등록해야 자동 백업이 활성화된다.
+
 ## 0. 사전 조건
 
 - macOS 환경 (Linux 사용자는 §5 참조)
@@ -126,6 +136,19 @@ find _workspace/backups/redis/snapshots -name "*.rdb" -mtime +3
 
 ---
 
+## 3-4. 외부 매체 동기화 (권고 — 호스트 손상 대비)
+
+`_workspace/backups/`는 `.gitignore`(59행)라 repo에 **절대 안 올라간다**. 즉 호스트 디스크가 손상되면 backup도 함께 소실된다(ADR 0096 §10-2 "호스트 디스크 단일 의존" risk). **외부 매체(클라우드 폴더·USB·외장 SSD)로 1줄 rsync 동기화 권고**:
+
+```bash
+# 예: 클라우드 동기화 폴더로 backup 복사 (cron 03:40 KST — pg/redis dump 후)
+40 3 * * * rsync -a --delete /Users/ak-song/magic_ch1/_workspace/backups/ ~/Library/Mobile\ Documents/com~apple~CloudDocs/magicjar-backups/ >> /Users/ak-song/magic_ch1/_workspace/backups/rsync.log 2>&1
+```
+
+> ★ **`.env`도 같은 매체에 함께 보관** — `.env`(특히 AES 마스터 키 `MAGICJAR_SECRET_MASTER_KEY`)와 pg dump는 "한 세트"다. AES 키가 없으면 dump를 복원해도 `user_kis_credential`(KIS 키)이 복호화되지 않는다. 자세한 경고는 [`new-pc-migration-runbook.md`](new-pc-migration-runbook.md) §B-1.
+
+---
+
 ## 4. 진단 매트릭스 (cron 실패 시)
 
 | 증상 | 진단 명령 | root cause |
@@ -205,7 +228,10 @@ rm -rf _workspace/backups/redis/snapshots/*.rdb
 
 | 문서 | 위치 |
 |------|------|
+| **새 PC 마이그레이션 런북** (완전 복원 3계층) | `docs/operations/new-pc-migration-runbook.md` |
+| **restore 스크립트** (dump 짝 — 복원·dry-run·검증) | `scripts/backup/pg-restore.sh` |
 | ADR 0096 (DR/backup 단일 권위) | `_workspace/arch/adr/0096-dr-backup-procedure.md` |
+| ADR 0105 (장기 1m 보관/복구 — dump 유일 복원원) | `_workspace/arch/adr/0105-candle-reconciliation-and-long-horizon-1m-retention.md` |
 | R-4 runbook (복구 절차 LOCK) | `docs/operations/runbook/R4-db-recovery.md` |
 | backup 스크립트 README | `scripts/backup/README.md` |
 | 운영 헌법 §9-4 (backup·DR 본문) | `_workspace/arch/agent-charter.md` |
@@ -218,3 +244,4 @@ rm -rf _workspace/backups/redis/snapshots/*.rdb
 | 날짜 | 변경 |
 |------|------|
 | 2026-05-21 | 신규 발행 — ADR 0096 §2·§3 정합 + macOS crontab 등록 + 진단 매트릭스 + DR drill 분기 의무 cross-link (architect) |
+| 2026-06-06 | 실태 이력(cron 미등록·백업 0회 → 첫 백업 + 강화) + §3-4 외부 매체 동기화 권고 + new-pc-migration-runbook·pg-restore.sh cross-link 추가 (backend-core) |

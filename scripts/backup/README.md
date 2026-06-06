@@ -8,6 +8,23 @@
 |---------|------|--------|----------|
 | `pg-dump-daily.sh` | 매일 03:00 KST | `_workspace/backups/postgres/daily/YYYY-MM-DD.dump` | 7일 |
 | `redis-snapshot.sh` | 매일 03:30 KST | `_workspace/backups/redis/snapshots/dump-YYYY-MM-DD-HHMM.rdb` | 3일 |
+| `pg-restore.sh` | on-demand (DR·새 PC 복원·검증) | — (dump 복원 + dry-run + 복원 후 검증) | — |
+
+## 복원 (pg-restore.sh — dump 짝)
+
+```bash
+# 1) dry-run — 실제 복원 0, dump 내용 미리보기
+bash scripts/backup/pg-restore.sh --dry-run
+
+# 2) 검증/연습 — 임시 DB(운영 무손상)에 복원 + 정리
+bash scripts/backup/pg-restore.sh --target-db magicjar_restore_test --drop-after
+
+# 3) 운영 DB 전체 복구 (DR — R-4 runbook §2 앱 정지 선행 의무)
+bash scripts/backup/pg-restore.sh --target-db magicjar --confirm-prod
+```
+
+★ default target-db = `magicjar_restore_test` (운영 보호). 운영 복원은 `--confirm-prod` 이중 게이트 필수.
+새 PC 완전 복원 절차: [`docs/operations/new-pc-migration-runbook.md`](../../docs/operations/new-pc-migration-runbook.md).
 
 ## 사용
 
