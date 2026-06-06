@@ -645,6 +645,12 @@ describe('StrategyResearchPage', () => {
     expect(coreBodyRef.value?.promptText).toBe('수정된 전역 지시문')
     expect(await screen.findByText('사용자 수정본')).toBeInTheDocument()
     expect(screen.getByText('Core Wrapper를 저장했습니다')).toBeInTheDocument()
+
+    // 회귀(2026-06-06 사용자 보고): 저장 직후 stale GET 캐시가 draft를 기본값으로 되돌려
+    // textarea에 기본값이 다시 보이고, 그 상태로 재저장하면 수정본이 유실되던 버그.
+    // 저장 후에도 textarea는 저장본을 유지해야 한다.
+    await waitFor(() => expect(coreTextarea).toHaveValue('수정된 전역 지시문'))
+    expect(coreTextarea).not.toHaveValue('기본 Core Wrapper 지시문')
   })
 
   it('Core Wrapper를 빈 값으로 저장하면 클라이언트에서 차단한다', async () => {
