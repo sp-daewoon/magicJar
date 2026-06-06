@@ -4,6 +4,8 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   strategyResearchApi,
   strategyResearchErrorMessage,
+  type StrategyResearchAiDiscoveryCorePromptDto,
+  type StrategyResearchAiDiscoveryCorePromptUpdateRequestDto,
   type StrategyResearchAiDiscoveryItemDto,
   type StrategyResearchAiDiscoveryItemStatus,
   type StrategyResearchAiDiscoveryPresetCreateRequestDto,
@@ -106,6 +108,11 @@ export function StrategyResearchPage() {
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null)
   const [presetDraft, setPresetDraft] = useState<StrategyResearchAiDiscoveryPresetUpdateRequestDto | null>(null)
   const [presetSettingsError, setPresetSettingsError] = useState<string | null>(null)
+  const [corePromptDraft, setCorePromptDraft] = useState('')
+  const [corePromptTouched, setCorePromptTouched] = useState(false)
+  const [corePromptError, setCorePromptError] = useState<string | null>(null)
+  // GET/PUT/reset 중 가장 최근 권위 DTO — 뱃지(isDefault) 표시 단일 출처
+  const [corePromptMeta, setCorePromptMeta] = useState<StrategyResearchAiDiscoveryCorePromptDto | null>(null)
   const [discoveryTouched, setDiscoveryTouched] = useState(false)
   // 캔들 가져오기 성공 시 code별 candleCount 로컬 override (insertedCount 사용)
   const [candleOverrides, setCandleOverrides] = useState<Record<string, number>>({})
@@ -205,6 +212,55 @@ export function StrategyResearchPage() {
       void discoveryPresetQuery.refetch()
     },
     onError: (error) => setPresetSettingsError(strategyResearchErrorMessage(error)),
+  })
+
+  const presetDeleteMutation = useMutation<void, unknown, string>({
+    mutationFn: (presetId) => strategyResearchApi.deleteAiDiscoveryPreset(presetId),
+    onSuccess: (_data, presetId) => {
+      setPresetSettingsError(null)
+      if (selectedDiscoveryPresetId === presetId) {
+        setSelectedDiscoveryPresetId(null)
+        setDiscoveryPresetTouched(true)
+      }
+      if (editingPresetId === presetId) {
+        setEditingPresetId(null)
+      }
+      void discoveryPresetQuery.refetch()
+    },
+    onError: (error) => setPresetSettingsError(strategyResearchErrorMessage(error)),
+  })
+
+  const corePromptQuery = useQuery({
+    queryKey: ['strategy-research', 'ai-discovery', 'core-prompt'],
+    queryFn: strategyResearchApi.getAiDiscoveryCorePrompt,
+    staleTime: 60_000,
+  })
+
+  const corePromptUpdateMutation = useMutation<
+    StrategyResearchAiDiscoveryCorePromptDto,
+    unknown,
+    StrategyResearchAiDiscoveryCorePromptUpdateRequestDto
+  >({
+    mutationFn: strategyResearchApi.updateAiDiscoveryCorePrompt,
+    onSuccess: (dto) => {
+      // PUT 응답이 권위 DTO이므로 refetch 없이 meta/draft를 갱신 (refetch가 stale GET으로 뱃지를 덮어쓰는 것 회피)
+      setCorePromptError(null)
+      setCorePromptDraft(dto.promptText)
+      setCorePromptMeta(dto)
+      setCorePromptTouched(false)
+    },
+    onError: (error) => setCorePromptError(strategyResearchErrorMessage(error)),
+  })
+
+  const corePromptResetMutation = useMutation<StrategyResearchAiDiscoveryCorePromptDto, unknown>({
+    mutationFn: strategyResearchApi.resetAiDiscoveryCorePrompt,
+    onSuccess: (dto) => {
+      setCorePromptError(null)
+      setCorePromptDraft(dto.promptText)
+      setCorePromptMeta(dto)
+      setCorePromptTouched(false)
+    },
+    onError: (error) => setCorePromptError(strategyResearchErrorMessage(error)),
   })
 
   const latestDiscoveryQuery = useQuery({
@@ -312,6 +368,13 @@ export function StrategyResearchPage() {
   }, [activeDiscoveryPresets, discoveryPresetTouched, latestDiscoveryQuery.data, selectedDiscoveryPresetId])
 
   useEffect(() => {
+    if (corePromptQuery.data === undefined) return
+    setCorePromptMeta((prev) => prev ?? corePromptQuery.data)
+    if (corePromptTouched) return
+    setCorePromptDraft(corePromptQuery.data.promptText)
+  }, [corePromptQuery.data, corePromptTouched])
+
+  useEffect(() => {
     if (!presetSettingsOpen) return
     const preset = editingPreset
     if (!preset) {
@@ -342,8 +405,9 @@ export function StrategyResearchPage() {
 
   const submitDiscovery = () => {
     const query = discoveryQuery.trim()
-    if (!query) {
-      setDiscoveryError('찾고 싶은 테마나 조건을 입력해주세요')
+    // 직접 입력 모드(presetId 없음)에서는 프롬프트 필수. 프리셋 선택 시 추가 요청은 선택.
+    if (!query && selectedDiscoveryPresetId === null) {
+      setDiscoveryError('직접 입력 모드에서는 프롬프트를 입력해주세요')
       return
     }
     const normalizedLimit = Math.max(1, Math.min(12, Math.trunc(discoveryLimit || 1)))
@@ -376,8 +440,8 @@ export function StrategyResearchPage() {
 
   const openPromptPreview = () => {
     const query = discoveryQuery.trim()
-    if (!query) {
-      setDiscoveryError('프롬프트를 보려면 찾을 조건을 먼저 입력해주세요')
+    if (!query && selectedDiscoveryPresetId === null) {
+      setDiscoveryError('직접 입력 모드에서는 프롬프트를 먼저 입력해주세요')
       return
     }
     const normalizedLimit = Math.max(1, Math.min(12, Math.trunc(discoveryLimit || 1)))
@@ -426,6 +490,37 @@ export function StrategyResearchPage() {
         active: presetDraft.active,
       },
     })
+  }
+
+  const presetIsBuiltin = (preset: StrategyResearchAiDiscoveryPresetDto): boolean => {
+    if (typeof preset.builtIn === 'boolean') return preset.builtIn
+    return !preset.id.startsWith('custom_')
+  }
+
+  const deletePreset = (preset: StrategyResearchAiDiscoveryPresetDto) => {
+    const builtinNote = presetIsBuiltin(preset)
+      ? '\n기본 제공 프리셋은 삭제 후 자동 복구되지 않습니다.'
+      : ''
+    if (!window.confirm(`'${preset.label}' 프리셋을 삭제합니다. 되돌릴 수 없습니다.${builtinNote}`)) {
+      return
+    }
+    presetDeleteMutation.mutate(preset.id)
+  }
+
+  const saveCorePrompt = () => {
+    const text = corePromptDraft.trim()
+    if (!text) {
+      setCorePromptError('Core Wrapper 프롬프트를 입력해주세요')
+      return
+    }
+    corePromptUpdateMutation.mutate({ promptText: text })
+  }
+
+  const resetCorePrompt = () => {
+    if (!window.confirm('Core Wrapper를 기본값으로 복원합니다. 현재 수정본은 사라집니다.')) {
+      return
+    }
+    corePromptResetMutation.mutate()
   }
 
   const updateDiscoveryItemStatus = (
@@ -680,12 +775,25 @@ export function StrategyResearchPage() {
 
         <div className="mt-4 grid gap-3 lg:grid-cols-12">
           <label className="lg:col-span-7">
-            <span className="text-xs text-gray-500">찾을 조건</span>
+            <span className="text-xs text-gray-500">
+              프롬프트{' '}
+              {selectedDiscoveryPresetId === null ? (
+                <span className="text-red-300">(필수)</span>
+              ) : (
+                <span className="text-gray-600">(선택)</span>
+              )}
+            </span>
             <textarea
               value={discoveryQuery}
               onChange={(event) => setDiscoveryQuery(event.target.value)}
               disabled={discoveryMutation.isPending}
               rows={3}
+              placeholder={
+                selectedDiscoveryPresetId === null
+                  ? '발굴할 테마·조건을 입력하세요 (필수)'
+                  : '(선택) 프리셋에 더할 추가 요청 — 비워두면 프리셋 지시문만 사용'
+              }
+              aria-label="프롬프트"
               className="mt-1 w-full resize-none rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
             />
           </label>
@@ -1193,7 +1301,7 @@ export function StrategyResearchPage() {
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-800 bg-gray-900 px-4 py-3">
               <div>
                 <h2 className="text-sm font-semibold text-gray-100">AI 종목발굴 프리셋 설정</h2>
-                <p className="mt-0.5 text-xs text-gray-500">Core wrapper는 고정하고 intent prompt만 관리합니다</p>
+                <p className="mt-0.5 text-xs text-gray-500">Core Wrapper(전역 프롬프트)와 프리셋 intent prompt를 함께 관리합니다</p>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -1211,6 +1319,79 @@ export function StrategyResearchPage() {
                 >
                   닫기
                 </button>
+              </div>
+            </div>
+            <div className="border-b border-gray-800 p-4">
+              <div className="rounded border border-indigo-900/60 bg-indigo-950/20 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-indigo-100">Core Wrapper (전역 프롬프트)</h3>
+                    {corePromptMeta && corePromptMeta.isDefault === false && (
+                      <span className="rounded border border-amber-700 bg-amber-950/30 px-2 py-0.5 text-xs text-amber-200">
+                        사용자 수정본
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={saveCorePrompt}
+                      disabled={
+                        corePromptQuery.isLoading ||
+                        corePromptUpdateMutation.isPending ||
+                        corePromptResetMutation.isPending
+                      }
+                      className="rounded bg-indigo-600 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {corePromptUpdateMutation.isPending ? '저장 중' : 'Core Wrapper 저장'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetCorePrompt}
+                      disabled={
+                        corePromptQuery.isLoading ||
+                        corePromptUpdateMutation.isPending ||
+                        corePromptResetMutation.isPending
+                      }
+                      className="rounded border border-gray-700 px-3 py-1 text-xs text-gray-300 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {corePromptResetMutation.isPending ? '복원 중' : '기본값 복원'}
+                    </button>
+                  </div>
+                </div>
+                <p className="mt-1 text-xs text-gray-500">
+                  모든 프리셋·직접 입력 위에 공통으로 적용되는 전역 지시문입니다. 계속 개선해 나가는 자산이므로 직접 편집할 수 있습니다.
+                </p>
+                <label className="mt-2 block">
+                  <span className="sr-only">Core Wrapper 프롬프트</span>
+                  <textarea
+                    value={corePromptDraft}
+                    onChange={(event) => {
+                      setCorePromptDraft(event.target.value)
+                      setCorePromptTouched(true)
+                    }}
+                    disabled={corePromptQuery.isLoading}
+                    rows={8}
+                    aria-label="Core Wrapper 프롬프트"
+                    placeholder={corePromptQuery.isLoading ? 'Core Wrapper를 불러오는 중입니다' : 'Core Wrapper 프롬프트'}
+                    className="w-full resize-y rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm leading-6 text-gray-100 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                  />
+                </label>
+                {corePromptError && (
+                  <div className="mt-2 rounded border border-red-900 bg-red-950/30 px-3 py-2 text-sm text-red-200">
+                    {corePromptError}
+                  </div>
+                )}
+                {corePromptUpdateMutation.isSuccess && !corePromptTouched && !corePromptError && (
+                  <div className="mt-2 rounded border border-emerald-900 bg-emerald-950/20 px-3 py-2 text-sm text-emerald-200">
+                    Core Wrapper를 저장했습니다
+                  </div>
+                )}
+                {corePromptResetMutation.isSuccess && !corePromptTouched && !corePromptError && (
+                  <div className="mt-2 rounded border border-emerald-900 bg-emerald-950/20 px-3 py-2 text-sm text-emerald-200">
+                    Core Wrapper를 기본값으로 복원했습니다
+                  </div>
+                )}
               </div>
             </div>
             <div className="grid gap-4 p-4 lg:grid-cols-12">
@@ -1302,6 +1483,14 @@ export function StrategyResearchPage() {
                         className="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {presetUpdateMutation.isPending ? '저장 중' : '저장'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deletePreset(editingPreset)}
+                        disabled={presetDeleteMutation.isPending}
+                        className="rounded border border-red-800 px-4 py-2 text-sm font-semibold text-red-200 hover:bg-red-950/40 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {presetDeleteMutation.isPending ? '삭제 중' : '삭제'}
                       </button>
                     </div>
                     {presetSettingsError && (

@@ -92,6 +92,16 @@ export interface StrategyResearchAiDiscoveryPresetUpdateRequestDto {
   active: boolean
 }
 
+export interface StrategyResearchAiDiscoveryCorePromptDto {
+  promptText: string
+  isDefault: boolean
+  updatedAt: string | null
+}
+
+export interface StrategyResearchAiDiscoveryCorePromptUpdateRequestDto {
+  promptText: string
+}
+
 export interface StrategyResearchAiDiscoveryPresetCreateRequestDto {
   id?: string | null
   label: string
@@ -253,6 +263,30 @@ export const strategyResearchApi = {
     const res = await apiClient.put<StrategyResearchAiDiscoveryPresetDto>(
       `/strategy-research/ai-discovery/presets/${encodeURIComponent(presetId)}`,
       req,
+    )
+    return res.data
+  },
+  deleteAiDiscoveryPreset: async (presetId: string): Promise<void> => {
+    await apiClient.delete(`/strategy-research/ai-discovery/presets/${encodeURIComponent(presetId)}`)
+  },
+  getAiDiscoveryCorePrompt: async (): Promise<StrategyResearchAiDiscoveryCorePromptDto> => {
+    const res = await apiClient.get<StrategyResearchAiDiscoveryCorePromptDto>(
+      '/strategy-research/ai-discovery/core-prompt',
+    )
+    return res.data
+  },
+  updateAiDiscoveryCorePrompt: async (
+    req: StrategyResearchAiDiscoveryCorePromptUpdateRequestDto,
+  ): Promise<StrategyResearchAiDiscoveryCorePromptDto> => {
+    const res = await apiClient.put<StrategyResearchAiDiscoveryCorePromptDto>(
+      '/strategy-research/ai-discovery/core-prompt',
+      req,
+    )
+    return res.data
+  },
+  resetAiDiscoveryCorePrompt: async (): Promise<StrategyResearchAiDiscoveryCorePromptDto> => {
+    const res = await apiClient.post<StrategyResearchAiDiscoveryCorePromptDto>(
+      '/strategy-research/ai-discovery/core-prompt/reset',
     )
     return res.data
   },
