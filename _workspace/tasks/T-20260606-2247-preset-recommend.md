@@ -3,10 +3,10 @@ id: T-20260606-2247-preset-recommend
 agent: ai
 model: opus
 branch: agent/ai/preset-recommend
-status: RUNNING
+status: DONE
 startedAt: 2026-06-06T22:47:11.796+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-06T22:54:04.953+09:00
+pr: #776
 parentPhase: ?
 ---
 
