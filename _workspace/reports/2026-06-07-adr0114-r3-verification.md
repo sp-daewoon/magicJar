@@ -127,3 +127,57 @@ C2b 8 시나리오는 **consumer Kafka 리스너의 발화/멱등/취소 동작*
   분봉 호가 스냅샷 적재가 생기면 근사 → 실측으로 승격 가능(데이터 정책 의제, market-data 협의 필요).
 - **entrySkip API/UI 노출**: domain result까지 add-only 노출 완료. 컨트롤러 DTO·백테스트 리포트 화면 표시는
   frontend 라운드 위임(`backtest-report-schema.json`에 `entrySkip` 필드 추가 권장).
+
+---
+
+## 6. 적대 리뷰 결과 (R3 추가 — backend-core 2026-06-08, "코드를 깨뜨리는 자세")
+
+> 사용자(최고 관리자) 직접 지시 — 머지 직전 마지막 적대 셀프 리뷰 + Codex 최신 커밋 디테일 흡수.
+> 브랜치 전체 diff(`git diff origin/main...HEAD`) 10 공격 지점 + Codex `647b435d`(scale-in TP 수정) 항목별 비교.
+
+### 6-1. Codex 647b435d 항목별 비교 (우열 — 우리 우세 확정)
+
+| 항목 | Codex 647b435d | 우리(`AutoExitOrderCoordinator`) | 판정 |
+|------|----------------|----------------------------------|------|
+| ① position 권위 평단/수량 | `strategyPositionRepository.findBy...` + event fallback | 동일 (`position?.quantity?.takeIf{>0} ?: event.executedQty`) | 동등 |
+| ② ALREADY_ALIGNED (정합 시 취소·재발행 0) | 有 | 有 (`matchesTakeProfit` qty+`compareTo`) | 동등 |
+| ③ position null event fallback | 有 | 有 | 동등 |
+| ④ 취소 후 `OrderCancelledKafkaProducer` 발행 | 有 (`publishCancelled`) | 有 + tick watcher·EntryTimeoutCancelWorker 취소도 audit/이벤트 발행 검증 | **우세** (취소 경로 3종 모두 누락 0) |
+| ⑤ matchesTakeProfit 비교 | `compareTo` (scale 안전) | `compareTo` 동일 | 동등 |
+| 계산 단일 출처 | 인라인 `KrxTickSize.floor` | `EntryPricePolicy.takeProfitLimitPrice`(R1 단일 출처, 백테스트·리플레이 공유) | **우세** (중복 0) |
+| 멱등 키 | userId·strategyId·code·qty·avgPrice·updatedAt | 동일 입력 + `avgPrice.toPlainString()`(scale 안정 직렬화) + prefix 격리 KDoc LOCK | **우세** |
+| scale-in 평단 변동 재발행 | 단순 교체 | 평단 변동 시 합산 수량·새 평단 재발행 + 1m PartialExit 위임 분기 | **우세** |
+
+→ 흡수할 Codex 디테일 0건(우리가 모든 항목에서 동등 또는 우세). 작업 1 결론: **머지 우위 우리 브랜치 확정.**
+
+### 6-2. 적대 공격 10 지점 발견 매트릭스
+
+| # | 공격 지점 | 심각도 | 결과 |
+|---|-----------|--------|------|
+| 1 | `HoldingPositionIndex` refresh↔onFillRefresh race | **High** | **FIX** — writeLock + 단조 시퀀스(mutationSeq) retain 보존. 신규 BUY code가 refresh retainAll로 누락되던 창 제거. 회귀 테스트 2건 추가 |
+| 2 | Kafka 신규 리스너 poison pill·offset·예외 누수 | — | 검토 후 문제없음 — `parse()` 전부 try/catch→null skip(역직렬화 실패 흡수), `ack-mode: RECORD` + `enable-auto-commit:false`(MANUAL 정합), forEach 내 runCatching로 예외 격리(컨테이너 정지 0). groupId 신규 분리(`-position-stop-loss`/`-auto-exit`) 충돌 0 |
+| 3 | 멱등 키 재기동 안정성 / tick·1m 손절 TOCTOU | Med | 검토 후 수용 — `auto-sl:`/`auto-tp:` 키는 position.updatedAt epoch 기반(평단 불변이면 키 불변). open SELL 검사 + OrderRouter `idem:order:` SETNX 2중 가드로 동시 발화 흡수 |
+| 4 | 취소(KIS)→DB 전환 순서 / SKIP LOCKED·다중 인스턴스 | Med | 검토 후 수용 — KIS 성공 후 markCompleted 실패 시 status 유지(거짓 CANCELLED 금지) + audit + OrderReconciliationWorker가 후속 수렴. 배포는 단일 consumer(concurrency:1)이라 SKIP LOCKED 불요(다중 시 중복 cancel은 2번째가 Left로 무해) |
+| 5 | EvalGate P1/P4 부울 반전·HOLD·기존 테스트 의미 충돌 | — | 검토 후 문제없음 — `buySuppressed && !sellAllowed`만 조기 return, BUY는 status≠ACTIVE 가드로 DISABLED 신규 진입 차단, HOLD는 영속 0 경로 유지. 기존 RealtimeSignalGeneratorTest 단언 무수정 통과 |
+| 6 | BigDecimal scale·compareTo·qty 가드·KrxTickSize 경계 | — | 검토 후 문제없음 — 가격 비교 전부 `compareTo`, KRX 가격은 정수 won이라 `BigDecimal.valueOf(double)` 정밀 손실 0, `executedQty<=0` 가드, KrxTickSize 2,000원 경계 `price<upperExclusive`로 정확(테스트 KrxTickSizeTest 커버) |
+| 7 | EXTERNAL/수동 주문 간섭 | — | 검토 후 문제없음 — tick watcher가 수동/타전략 open SELL 발견 시 fail-closed 중단(P0 로그). 수동 매수 포지션(strategy_position 無)은 인덱스 미등재→watcher 평가 0(간섭 0). EXTERNAL은 source 필터로 auto-tp 재발행 대상 제외 |
+| 8 | V72 idempotent·entry_policy serde 방어 | — | 검토 후 문제없음 — `ADD COLUMN jsonb`(null default·add-only, 기존 행 0 변경). 역직렬화는 `EntryPolicySerde.fromMap` + caller runCatching→null fallback(전역 default)로 전략 로드 전체 down 회피 |
+| 9 | yml/.env 기본값 불일치 | — | 검토 후 문제없음 — `magicjar.order.entry.*`·`autotrading.*` 코드 default(`:0.2`·`:15`·`true`)와 yml·.env.example 1:1 정합 |
+| 10 | HOLDING 해제 누락(전량 청산 인지 실패 시 영구 잔류) | — | 검토 후 문제없음 — `RealtimeSubscriptionRouter` HOLDING demand는 `holdingTtlMs=5분` TTL + `cleanupExpiredLocked`. 60초 refresh가 인덱스에서 빠진 code를 재요청 안 하면 5분 후 자동 만료(영구 잔류 경로 0) |
+
+### 6-3. 정정 커밋
+
+- `HoldingPositionIndex` race fix(#1 High) — writeLock + `mutationSeq`(AtomicLong) 단조 시퀀스 보존.
+  벽시계 ms 동률 회피 위해 epochMillis→시퀀스 엄밀 비교로 설계(동일 ms 내 fill→refresh 보존 오류 차단).
+- 회귀 테스트 `HoldingPositionIndexConcurrencyTest` 2건: ① 동시 신규 BUY 보존 ② 전량청산 code 제거.
+
+### 6-4. 재검증 (적대 fix 후)
+
+| 게이트 | 결과 |
+|--------|------|
+| `:consumer:test` 전체 | **GREEN** (race 회귀 2건 포함) |
+| `./gradlew check` (전체 모듈) | **GREEN** (exit 0) |
+| `:api:bootJar`·`:batch:bootJar`·`:consumer:bootJar` | **GREEN** (3종) |
+| `ktlintCheck`/`ktlintFormat` | **GREEN** |
+
+신규 테스트 누계: 기존 9 + 적대 race 회귀 2 = **11건**. 단언 반전·삭제 0.
