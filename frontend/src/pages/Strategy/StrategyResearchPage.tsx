@@ -160,6 +160,47 @@ function bumpRecentPresetIds(prev: string[], presetId: string): string[] {
   return next.slice(0, DISCOVERY_PRESET_RECENT_MAX)
 }
 
+function sameStringList(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
+function mergeAiDiscoveryCandleAvailability(
+  current: StrategyResearchAiDiscoveryResponseDto,
+  latest: StrategyResearchAiDiscoveryResponseDto,
+): StrategyResearchAiDiscoveryResponseDto {
+  const latestByItemKey = new Map(latest.items.map((item) => [item.itemKey, item]))
+  const latestByCode = new Map(latest.items.filter((item) => item.code).map((item) => [item.code, item]))
+  let changed = false
+
+  const items = current.items.map((item) => {
+    const refreshed = latestByItemKey.get(item.itemKey) ?? (item.code ? latestByCode.get(item.code) : undefined)
+    if (!refreshed) return item
+
+    const hasCount = Object.prototype.hasOwnProperty.call(refreshed, 'candleCount')
+    const hasAvailability = Object.prototype.hasOwnProperty.call(refreshed, 'hasResearchCandles')
+    if (!hasCount && !hasAvailability) return item
+
+    const nextCandleCount = hasCount ? refreshed.candleCount ?? null : item.candleCount
+    const nextHasResearchCandles = hasAvailability ? refreshed.hasResearchCandles ?? null : item.hasResearchCandles
+    if (nextCandleCount === item.candleCount && nextHasResearchCandles === item.hasResearchCandles) return item
+
+    changed = true
+    return {
+      ...item,
+      candleCount: nextCandleCount,
+      hasResearchCandles: nextHasResearchCandles,
+    }
+  })
+
+  const warningsChanged = !sameStringList(current.warnings, latest.warnings)
+  if (!changed && !warningsChanged) return current
+  return {
+    ...current,
+    warnings: latest.warnings,
+    items,
+  }
+}
+
 function formatPct(value: number): string {
   const sign = value > 0 ? '+' : ''
   return `${sign}${value.toFixed(2)}%`
@@ -605,8 +646,12 @@ export function StrategyResearchPage() {
 
   useEffect(() => {
     if (latestDiscoveryQuery.data === undefined) return
-    if (discoveryTouched) return
     const latest = latestDiscoveryQuery.data
+    if (discoveryTouched) {
+      if (!latest) return
+      setDiscoveryReport((current) => (current ? mergeAiDiscoveryCandleAvailability(current, latest) : current))
+      return
+    }
     setDiscoveryReport(latest)
     if (latest) {
       setDiscoveryQuery(latest.query)

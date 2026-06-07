@@ -769,6 +769,64 @@ describe('StrategyResearchPage', () => {
     expect(screen.getByRole('button', { name: '선택' })).toBeDisabled()
   })
 
+  it('발굴 영역을 사용자가 건드린 뒤 interval을 바꿔도 최신 캔들 가용 여부만 병합한다', async () => {
+    const user = userEvent.setup()
+    act(() => {
+      useOnboardingStore.setState({ registeredUserId: 74683223 })
+    })
+    server.use(
+      http.get('/api/strategy-research/ai-discovery/latest', ({ request }) => {
+        const interval = new URL(request.url).searchParams.get('interval')
+        const hasResearchCandles = interval === '5m'
+        return HttpResponse.json({
+          report: {
+            query: '전력기기 후보',
+            market: null,
+            limit: 6,
+            provider: 'claude-cli-bridge',
+            generatedAt: '2026-06-06T00:00:00Z',
+            warnings: hasResearchCandles ? [] : ['선택한 interval·기간에 리서치 가능한 candle이 부족한 후보 1건은 캔들 가져오기 후 리서치할 수 있습니다.'],
+            items: [
+              {
+                itemKey: 'CODE:267260',
+                code: '267260',
+                name: 'HD현대일렉트릭',
+                market: 'KOSPI',
+                sector: '전기전자',
+                theme: '전력기기',
+                aiReason: '전력기기 검증 후보',
+                themes: ['전력기기'],
+                confidence: 0.8,
+                matched: true,
+                rawName: 'HD현대일렉트릭',
+                rawCode: '267260',
+                tradingHalt: false,
+                managementStock: false,
+                status: 'NEW',
+                candleCount: hasResearchCandles ? 556 : 0,
+                hasResearchCandles,
+              },
+            ],
+          },
+        })
+      }),
+    )
+
+    renderPage()
+
+    expect(await screen.findByText('HD현대일렉트릭')).toBeInTheDocument()
+    expect(screen.getByText('캔들 없음')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '부족 후보 전체 가져오기' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '직접 입력' }))
+    await user.selectOptions(screen.getByLabelText('캔들'), '5m')
+
+    await waitFor(() => expect(screen.queryByText('캔들 없음')).not.toBeInTheDocument())
+    expect(screen.queryByText('캔들 부족')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '부족 후보 전체 가져오기' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '선택' })).toBeEnabled()
+  })
+
   it('candleCount 정보가 없으면(undefined) 캔들 가져오기 UI를 노출하지 않는다', async () => {
     act(() => {
       useOnboardingStore.setState({ registeredUserId: 74683223 })
