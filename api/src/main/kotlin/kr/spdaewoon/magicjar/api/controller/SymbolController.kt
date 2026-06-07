@@ -15,6 +15,7 @@ import kr.spdaewoon.magicjar.api.service.CandleRefreshService
 import kr.spdaewoon.magicjar.api.service.SymbolMetaService
 import kr.spdaewoon.magicjar.api.service.dto.CandleRecollectJobResponse
 import kr.spdaewoon.magicjar.api.service.dto.CandleRecollectProgressEvent
+import kr.spdaewoon.magicjar.api.service.dto.CandleRecollectRangeRequest
 import kr.spdaewoon.magicjar.api.service.dto.CandleRecollectResponse
 import kr.spdaewoon.magicjar.api.service.dto.CandleRefreshResponse
 import org.slf4j.LoggerFactory
@@ -232,12 +233,19 @@ class SymbolController(
             example = "3m",
         )
         @RequestParam(defaultValue = "") intervals: String,
+        @Parameter(description = "범위 재수집 시작 시각 ISO-8601. to와 함께 지정하면 전체 삭제 대신 범위만 재수집합니다.")
+        @RequestParam(required = false) from: String?,
+        @Parameter(description = "범위 재수집 종료 시각 ISO-8601")
+        @RequestParam(required = false) to: String?,
+        @Parameter(description = "from/to 앞뒤 거래일 padding. 리서치 기본값은 5.")
+        @RequestParam(defaultValue = "0") paddingTradingDays: Int,
     ): CandleRecollectResponse {
         validateCode(code)
         val intervalList =
             intervals.split(",").map { it.trim() }.filter { it.isNotBlank() }
+        val range = parseRecollectRange(from, to, paddingTradingDays)
         return try {
-            candleRefreshService.recollect(code, intervalList)
+            candleRefreshService.recollect(code, intervalList, rangeRequest = range)
         } catch (e: ResponseStatusException) {
             throw e
         } catch (e: Exception) {
@@ -270,13 +278,19 @@ class SymbolController(
             example = "3m",
         )
         @RequestParam(defaultValue = "") intervals: String,
+        @Parameter(description = "범위 재수집 시작 시각 ISO-8601. to와 함께 지정하면 전체 삭제 대신 범위만 재수집합니다.")
+        @RequestParam(required = false) from: String?,
+        @Parameter(description = "범위 재수집 종료 시각 ISO-8601")
+        @RequestParam(required = false) to: String?,
+        @Parameter(description = "from/to 앞뒤 거래일 padding. 리서치 기본값은 5.")
+        @RequestParam(defaultValue = "0") paddingTradingDays: Int,
     ): CandleRecollectJobResponse {
         validateCode(code)
         val intervalList = intervals.split(",").map { it.trim() }.filter { it.isNotBlank() }
         if (intervalList.isEmpty()) {
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "재수집할 interval을 지정해 주세요")
         }
-        return candleRecollectJobService.submitRecollect(code, intervalList)
+        return candleRecollectJobService.submitRecollect(code, intervalList, parseRecollectRange(from, to, paddingTradingDays))
     }
 
     @Operation(
@@ -417,5 +431,30 @@ class SymbolController(
                 "종목 코드는 6자리 숫자여야 합니다 (예: 005930)",
             )
         }
+    }
+
+    private fun parseRecollectRange(
+        from: String?,
+        to: String?,
+        paddingTradingDays: Int,
+    ): CandleRecollectRangeRequest? {
+        if (from.isNullOrBlank() && to.isNullOrBlank()) return null
+        if (from.isNullOrBlank() || to.isNullOrBlank()) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "범위 재수집은 from과 to를 함께 지정해야 합니다")
+        }
+        val parsedFrom =
+            runCatching { Instant.parse(from) }
+                .getOrElse { throw ResponseStatusException(HttpStatus.BAD_REQUEST, "from 시각 형식이 올바르지 않습니다: $from") }
+        val parsedTo =
+            runCatching { Instant.parse(to) }
+                .getOrElse { throw ResponseStatusException(HttpStatus.BAD_REQUEST, "to 시각 형식이 올바르지 않습니다: $to") }
+        if (parsedFrom.isAfter(parsedTo)) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "from은 to보다 이전이어야 합니다")
+        }
+        return CandleRecollectRangeRequest(
+            from = parsedFrom,
+            to = parsedTo,
+            paddingTradingDays = paddingTradingDays.coerceIn(0, 20),
+        )
     }
 }

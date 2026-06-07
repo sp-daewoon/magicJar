@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useCandleRecollectJob } from '../../api/hooks/useCandleRefresh'
+import type { CandleRecollectOptions } from '../../api/symbol'
 import type {
   StrategyResearchAiDiscoveryItemDto,
   StrategyResearchAiDiscoveryItemStatus,
@@ -21,6 +22,8 @@ export interface AiDiscoveryCardProps {
   item: StrategyResearchAiDiscoveryItemDto
   /** 발굴 요청에 사용한 interval (candleCount 계산 기준과 동일) */
   interval: string
+  /** 발굴 기간 기준 재수집 범위 옵션. 없으면 full 재수집 방지를 위해 가져오기를 막는다. */
+  recollectOptions: CandleRecollectOptions | null
   /** 전체 가져오기에서 page가 현재 처리 대상으로 지정한 code (자동 시작 트리거) */
   activeFetchCode: string | null
   statusPending: boolean
@@ -44,6 +47,7 @@ function aiDiscoveryStatusLabel(status: StrategyResearchAiDiscoveryItemStatus): 
 export function AiDiscoveryCard({
   item,
   interval,
+  recollectOptions,
   activeFetchCode,
   statusPending,
   onStatusChange,
@@ -55,7 +59,7 @@ export function AiDiscoveryCard({
   const candleCount = item.candleCount
   // backend가 candleCount를 내려줄 때만 "캔들 없음" 판정 가능 (add-only graceful)
   const isEmptyCandles = candleCount === 0
-  const canFetch = Boolean(code) && item.matched && isEmptyCandles
+  const canFetch = Boolean(code) && item.matched && isEmptyCandles && Boolean(recollectOptions)
   const settledRef = useRef(false)
 
   const {
@@ -65,6 +69,7 @@ export function AiDiscoveryCard({
   } = useCandleRecollectJob({
     code: code ?? '',
     intervals: [interval],
+    recollectOptions: recollectOptions ?? undefined,
     onSuccess: (_deleted, inserted) => {
       if (inserted > 0 && code) onCandlesFetched(code, inserted)
       if (code && !settledRef.current) {

@@ -65,6 +65,7 @@ class CandleRefreshServiceAscNormalizeTest {
             webClient = mock<WebClient>(),
             instrumentJpaRepository = instrumentJpaRepository,
             candleJpaRepository = candleJpaRepository,
+            jdbcTemplate = mock<org.springframework.jdbc.core.JdbcTemplate>(),
             tokenHelper = mock<KisTokenCacheHelper>(),
             // P0 hotfix 2026-05-20 — credentialRepository 추가 (빈 userId 차단을 위한 1순위 REAL row userId 추출)
             credentialRepository = mock<kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaRepository>(),

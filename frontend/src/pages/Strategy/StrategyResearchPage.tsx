@@ -37,6 +37,7 @@ import { useOnboardingStore } from '../../stores/onboarding'
 const DEFAULT_FROM_KST = '2026-04-28T09:00'
 const DEFAULT_TO_KST = '2026-06-02T15:30'
 const INTERVALS = ['1m', '3m', '5m', '15m', '30m', '1h', '1d']
+const RESEARCH_CANDLE_PADDING_TRADING_DAYS = 5
 const AI_DISCOVERY_DEFAULT_QUERY = '요즘 반도체와 AI 인프라 쪽에서 전략 리서치로 검증해볼 국내주'
 const AI_DISCOVERY_MARKETS = ['', 'KOSPI', 'KOSDAQ', 'KONEX'] as const
 
@@ -89,7 +90,7 @@ export function StrategyResearchPage() {
   const [code, setCode] = useState('038110')
   const [instrumentInput, setInstrumentInput] = useState('038110')
   const [selectedInstrumentName, setSelectedInstrumentName] = useState<string | null>(null)
-  const [interval, setInterval] = useState('1m')
+  const [interval, setInterval] = useState('1d')
   const [fromKst, setFromKst] = useState(DEFAULT_FROM_KST)
   const [toKst, setToKst] = useState(DEFAULT_TO_KST)
   const [targetProfitPct, setTargetProfitPct] = useState(1.5)
@@ -118,6 +119,17 @@ export function StrategyResearchPage() {
   // 추천 항목 중 "프리셋으로 추가" 완료된 인덱스 집합 — 추가됨 상태 + 버튼 비활성
   const [recommendAddedIndexes, setRecommendAddedIndexes] = useState<number[]>([])
   const [recommendAddingIndex, setRecommendAddingIndex] = useState<number | null>(null)
+  const candleRecollectOptions = useMemo(() => {
+    try {
+      return {
+        from: kstInputToIso(fromKst),
+        to: kstInputToIso(toKst),
+        paddingTradingDays: RESEARCH_CANDLE_PADDING_TRADING_DAYS,
+      }
+    } catch {
+      return null
+    }
+  }, [fromKst, toKst])
   const [corePromptDraft, setCorePromptDraft] = useState('')
   const [corePromptTouched, setCorePromptTouched] = useState(false)
   const [corePromptError, setCorePromptError] = useState<string | null>(null)
@@ -664,6 +676,10 @@ export function StrategyResearchPage() {
   }
 
   const startBulkFetch = () => {
+    if (!candleRecollectOptions) {
+      setDiscoveryError('시작/종료 시각 형식이 올바르지 않아 캔들을 가져올 수 없습니다')
+      return
+    }
     const codes = emptyCandleItems.map((item) => item.code!).filter(Boolean)
     if (codes.length === 0) return
     setBulkProgress({ total: codes.length, done: 0, failed: [] })
@@ -964,12 +980,12 @@ export function StrategyResearchPage() {
             {emptyCandleItems.length > 0 && (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-amber-900 bg-amber-950/20 px-3 py-2">
                 <span className="text-xs text-amber-200">
-                  캔들이 없는 매칭 후보 {emptyCandleItems.length}건 — KIS에서 {interval} 캔들을 가져올 수 있습니다.
+                  캔들이 없는 매칭 후보 {emptyCandleItems.length}건 — KIS에서 {interval} 캔들을 앞뒤 5거래일 포함해 가져옵니다.
                 </span>
                 <button
                   type="button"
                   onClick={startBulkFetch}
-                  disabled={bulkRunning}
+                  disabled={bulkRunning || !candleRecollectOptions}
                   className="rounded border border-amber-700 px-2.5 py-1 text-xs font-semibold text-amber-200 hover:bg-amber-950/40 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {bulkRunning ? '캔들 수집 중' : '캔들 없는 후보 전체 가져오기'}
@@ -1010,6 +1026,7 @@ export function StrategyResearchPage() {
                     key={`${item.itemKey}-${index}`}
                     item={item}
                     interval={interval}
+                    recollectOptions={candleRecollectOptions}
                     activeFetchCode={activeFetchCode}
                     statusPending={discoveryStatusMutation.isPending}
                     onStatusChange={updateDiscoveryItemStatus}

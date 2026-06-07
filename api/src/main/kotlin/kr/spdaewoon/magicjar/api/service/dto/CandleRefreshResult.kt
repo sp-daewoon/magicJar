@@ -1,5 +1,7 @@
 package kr.spdaewoon.magicjar.api.service.dto
 
+import java.time.Instant
+
 /**
  * 캔들 수동 갱신 endpoint 응답 DTO.
  *
@@ -40,6 +42,18 @@ data class CandleRecollectJobResponse(
     val status: String,
     val topic: String,
     val submittedAt: String,
+)
+
+/**
+ * 재수집 범위 옵션.
+ *
+ * from/to는 사용자가 검증하려는 원래 리서치 구간이고, service layer가 paddingTradingDays를
+ * 거래일 기준으로 적용한 뒤 KIS 수집/DB 삭제 범위를 결정한다.
+ */
+data class CandleRecollectRangeRequest(
+    val from: Instant,
+    val to: Instant,
+    val paddingTradingDays: Int = 0,
 )
 
 /**

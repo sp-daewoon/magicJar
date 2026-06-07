@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.api.service
 import jakarta.annotation.PreDestroy
 import kr.spdaewoon.magicjar.api.service.dto.CandleRecollectJobResponse
 import kr.spdaewoon.magicjar.api.service.dto.CandleRecollectProgressEvent
+import kr.spdaewoon.magicjar.api.service.dto.CandleRecollectRangeRequest
 import kr.spdaewoon.magicjar.api.service.dto.CandleRefreshProgressUpdate
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
 import org.slf4j.LoggerFactory
@@ -38,6 +39,7 @@ class CandleRecollectJobService(
     fun submitRecollect(
         code: String,
         intervals: List<String>,
+        rangeRequest: CandleRecollectRangeRequest? = null,
     ): CandleRecollectJobResponse {
         val jobId = UUID.randomUUID().toString()
         val now = Instant.now().toString()
@@ -61,7 +63,7 @@ class CandleRecollectJobService(
         publish(initial)
 
         executor.submit {
-            runRecollectJob(initial)
+            runRecollectJob(initial, rangeRequest)
         }
 
         return CandleRecollectJobResponse(
@@ -79,7 +81,10 @@ class CandleRecollectJobService(
         jobId: String,
     ): CandleRecollectProgressEvent? = jobs[jobId]?.takeIf { it.code == code }
 
-    private fun runRecollectJob(initial: CandleRecollectProgressEvent) {
+    private fun runRecollectJob(
+        initial: CandleRecollectProgressEvent,
+        rangeRequest: CandleRecollectRangeRequest?,
+    ) {
         val startedAt = System.currentTimeMillis()
         var latest =
             initial.copy(
@@ -96,6 +101,7 @@ class CandleRecollectJobService(
                     code = initial.code,
                     intervals = initial.intervals,
                     priority = KisCallPriority.USER_PATH,
+                    rangeRequest = rangeRequest,
                 ) { update ->
                     latest = latest.merge(update)
                     publish(latest)

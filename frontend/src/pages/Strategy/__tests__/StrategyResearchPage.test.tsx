@@ -34,6 +34,7 @@ vi.mock('lightweight-charts', () => ({
 
 let lastResearchBody: StrategyResearchRequestDto | null = null
 let lastDiscoveryBody: StrategyResearchAiDiscoveryRequestDto | null = null
+let lastRecollectJobUrl: string | null = null
 
 const server = setupServer(
   http.get('/api/instruments/search', ({ request }) => {
@@ -208,6 +209,38 @@ const server = setupServer(
       updatedAt: null,
     })
   }),
+  http.post('/api/symbols/:code/candles/recollect/jobs', ({ request, params }) => {
+    lastRecollectJobUrl = request.url
+    return HttpResponse.json(
+      {
+        jobId: 'job-1',
+        code: String(params.code),
+        intervals: ['1d'],
+        status: 'QUEUED',
+        topic: `/topic/candle.recollect.${String(params.code)}.job-1`,
+        submittedAt: '2026-06-06T00:00:00Z',
+      },
+      { status: 202 },
+    )
+  }),
+  http.get('/api/symbols/:code/candles/recollect/jobs/:jobId', ({ params }) => {
+    return HttpResponse.json({
+      jobId: String(params.jobId),
+      code: String(params.code),
+      intervals: ['1d'],
+      status: 'SUCCEEDED',
+      stage: 'SUCCEEDED',
+      processedDays: null,
+      totalDays: null,
+      deletedCount: 0,
+      insertedCount: 1,
+      rebuiltCount: 0,
+      message: '캔들 재수집 완료',
+      elapsedMs: 100,
+      error: null,
+      updatedAt: '2026-06-06T00:00:01Z',
+    })
+  }),
 )
 
 beforeAll(() => server.listen())
@@ -215,6 +248,7 @@ afterEach(() => {
   server.resetHandlers()
   lastResearchBody = null
   lastDiscoveryBody = null
+  lastRecollectJobUrl = null
   window.localStorage.clear()
   act(() => {
     useOnboardingStore.setState({ registeredUserId: null })
@@ -272,7 +306,7 @@ describe('StrategyResearchPage', () => {
 
     await waitFor(() => expect(lastResearchBody).not.toBeNull())
     expect(lastDiscoveryBody?.userId).toBe('74683223')
-    expect(lastDiscoveryBody?.interval).toBe('1m')
+    expect(lastDiscoveryBody?.interval).toBe('1d')
     expect(lastDiscoveryBody?.from).toBe('2026-04-28T00:00:00.000Z')
     expect(lastDiscoveryBody?.to).toBe('2026-06-02T06:30:00.000Z')
     expect(lastResearchBody?.code).toBe('005930')
@@ -549,6 +583,7 @@ describe('StrategyResearchPage', () => {
   })
 
   it('캔들 0건 매칭 후보에는 "캔들 가져오기" 버튼과 전체 가져오기 버튼을 노출하고 선택을 막는다', async () => {
+    const user = userEvent.setup()
     act(() => {
       useOnboardingStore.setState({ registeredUserId: 74683223 })
     })
@@ -595,6 +630,14 @@ describe('StrategyResearchPage', () => {
     expect(screen.getByRole('button', { name: '캔들 없는 후보 전체 가져오기' })).toBeInTheDocument()
     expect(screen.getByText(/캔들이 없는 매칭 후보 1건/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '선택' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: '캔들 가져오기' }))
+    await waitFor(() => expect(lastRecollectJobUrl).not.toBeNull())
+    const url = new URL(lastRecollectJobUrl!)
+    expect(url.searchParams.get('intervals')).toBe('1d')
+    expect(url.searchParams.get('from')).toBe('2026-04-28T00:00:00.000Z')
+    expect(url.searchParams.get('to')).toBe('2026-06-02T06:30:00.000Z')
+    expect(url.searchParams.get('paddingTradingDays')).toBe('5')
   })
 
   it('candleCount 정보가 없으면(undefined) 캔들 가져오기 UI를 노출하지 않는다', async () => {

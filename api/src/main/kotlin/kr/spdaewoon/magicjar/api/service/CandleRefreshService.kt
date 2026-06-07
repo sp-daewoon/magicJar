@@ -6,6 +6,7 @@ import kr.spdaewoon.magicjar.api.persistence.CandleJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.api.service.dto.CandleRecollectRangeRequest
 import kr.spdaewoon.magicjar.api.service.dto.CandleRecollectResponse
 import kr.spdaewoon.magicjar.api.service.dto.CandleRefreshProgressUpdate
 import kr.spdaewoon.magicjar.api.service.dto.CandleRefreshResponse
@@ -21,11 +22,14 @@ import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatus
+import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.WebClientResponseException
 import org.springframework.web.server.ResponseStatusException
 import java.math.BigDecimal
+import java.sql.Timestamp
+import java.time.DayOfWeek
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -64,6 +68,7 @@ class CandleRefreshService(
     private val webClient: WebClient,
     private val instrumentJpaRepository: InstrumentJpaRepository,
     private val candleJpaRepository: CandleJpaRepository,
+    private val jdbcTemplate: JdbcTemplate,
     private val tokenHelper: KisTokenCacheHelper,
     private val credentialRepository: UserKisCredentialJpaRepository,
     private val kisRateLimiterPort: KisRateLimiterPort,
@@ -110,6 +115,10 @@ class CandleRefreshService(
          * KIS server-side window가 1초 단위라면 가장 안전한 reset point.
          */
         private const val RATE_LIMIT_BACKOFF_MS = 1000L
+        private const val BATCH_SIZE = 500
+        private const val RESEARCH_PADDING_TRADING_DAYS_MAX = 20
+        private val ONE_MINUTE_MARKET_OPEN: LocalTime = LocalTime.of(8, 0, 0)
+        private val ONE_MINUTE_MARKET_CLOSE: LocalTime = LocalTime.of(20, 0, 0)
 
         // FHKST03010100 cursor 페이지네이션 최대 페이지 수 — **property 외부화** (ADR 0093 §3-1 LOCK).
         //
@@ -290,6 +299,7 @@ class CandleRefreshService(
         code: String,
         intervals: List<String>,
         priority: KisCallPriority = KisCallPriority.USER_PATH,
+        rangeRequest: CandleRecollectRangeRequest? = null,
         progress: ((CandleRefreshProgressUpdate) -> Unit)? = null,
     ): CandleRecollectResponse {
         val startMs = System.currentTimeMillis()
@@ -321,11 +331,9 @@ class CandleRefreshService(
 
         val requestedSet = requested.toSet()
         val aggregateRequested = requestedSet.intersect(AGGREGATE_INTERVAL_CODES)
+        val effectiveRange = rangeRequest?.toEffectiveRange()
         val resetIntervalSet = linkedSetOf<String>()
         resetIntervalSet.addAll(requested)
-        if (CandleInterval.ONE_MIN.code in requestedSet) {
-            resetIntervalSet.addAll(AGGREGATE_INTERVAL_CODES)
-        }
         if (aggregateRequested.isNotEmpty()) {
             resetIntervalSet.add(CandleInterval.ONE_MIN.code)
         }
@@ -342,10 +350,25 @@ class CandleRefreshService(
             CandleRefreshProgressUpdate(
                 stage = "DELETING",
                 interval = null,
-                message = "기존 캔들 삭제 중",
+                message =
+                    if (effectiveRange == null) {
+                        "기존 캔들 삭제 중"
+                    } else {
+                        "기존 캔들 범위 삭제 중 (${effectiveRange.from}~${effectiveRange.to})"
+                    },
             ),
         )
-        val deletedCount = candleJpaRepository.deleteByCodeAndIntervalIn(code, resetIntervals)
+        val deletedCount =
+            if (effectiveRange == null) {
+                candleJpaRepository.deleteByCodeAndIntervalIn(code, resetIntervals)
+            } else {
+                candleJpaRepository.deleteByCodeAndIntervalInAndTsBetween(
+                    code = code,
+                    intervals = resetIntervals,
+                    fromTs = effectiveRange.from,
+                    toTs = effectiveRange.to,
+                )
+            }
         progress?.invoke(
             CandleRefreshProgressUpdate(
                 stage = "DELETED",
@@ -354,15 +377,18 @@ class CandleRefreshService(
                 message = "기존 캔들 $deletedCount 건 삭제 완료",
             ),
         )
-        // recollect는 기존 row 삭제 후 전수 재fetch가 본질 → incremental=false 명시 (delta-only 적용 금지).
-        val refreshResponse = refresh(code, refreshIntervals, priority, incremental = false, progress = progress)
+        // recollect는 기존 row 삭제 후 재fetch가 본질 → incremental=false 명시 (delta-only 적용 금지).
+        // 다만 리서치 path는 range 옵션으로 필요한 구간만 다시 채운다.
+        val refreshResponse =
+            if (effectiveRange == null) {
+                refresh(code, refreshIntervals, priority, incremental = false, progress = progress)
+            } else {
+                refreshRange(code, refreshIntervals, priority, effectiveRange, progress)
+            }
 
         val rebuildTargets =
-            when {
-                CandleInterval.ONE_MIN.code in requestedSet -> AGGREGATE_INTERVALS
-                else -> aggregateRequested.map { CandleInterval.fromCode(it) }.toSet()
-            }.sortedBy { it.code }
-        val rebuiltIntervals = rebuildAggregateIntervals(code, rebuildTargets, progress)
+            aggregateRequested.map { CandleInterval.fromCode(it) }.toSet().sortedBy { it.code }
+        val rebuiltIntervals = rebuildAggregateIntervals(code, rebuildTargets, progress, effectiveRange)
 
         val elapsedMs = System.currentTimeMillis() - startMs
         log.info(
@@ -381,6 +407,53 @@ class CandleRefreshService(
             rebuiltIntervals = rebuiltIntervals,
             elapsedMs = elapsedMs,
         )
+    }
+
+    private data class EffectiveCandleRange(
+        val from: Instant,
+        val to: Instant,
+        val paddingTradingDays: Int,
+    )
+
+    private fun CandleRecollectRangeRequest.toEffectiveRange(): EffectiveCandleRange {
+        if (from.isAfter(to)) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "재수집 from은 to보다 이전이어야 합니다.")
+        }
+        val padding = paddingTradingDays.coerceIn(0, RESEARCH_PADDING_TRADING_DAYS_MAX)
+        val fromDate = from.atZone(KST_ZONE).toLocalDate()
+        val toDate = to.atZone(KST_ZONE).toLocalDate()
+        val paddedFromDate = shiftTradingDate(fromDate, -padding)
+        val paddedToDate = shiftTradingDate(toDate, padding)
+        val paddedFrom = paddedFromDate.atStartOfDay(KST_ZONE).toInstant()
+        val paddedTo =
+            paddedToDate
+                .plusDays(1)
+                .atStartOfDay(KST_ZONE)
+                .minusNanos(1)
+                .toInstant()
+        val now = Instant.now()
+        val clampedTo = if (paddedTo.isAfter(now)) now else paddedTo
+        if (paddedFrom.isAfter(clampedTo)) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "재수집 범위가 현재 시각 이후입니다.")
+        }
+        return EffectiveCandleRange(from = paddedFrom, to = clampedTo, paddingTradingDays = padding)
+    }
+
+    private fun shiftTradingDate(
+        date: LocalDate,
+        tradingDays: Int,
+    ): LocalDate {
+        if (tradingDays == 0) return date
+        val step = if (tradingDays > 0) 1L else -1L
+        var shifted = date
+        var remaining = kotlin.math.abs(tradingDays)
+        while (remaining > 0) {
+            shifted = shifted.plusDays(step)
+            if (shifted.dayOfWeek != DayOfWeek.SATURDAY && shifted.dayOfWeek != DayOfWeek.SUNDAY) {
+                remaining--
+            }
+        }
+        return shifted
     }
 
     /**
@@ -456,6 +529,136 @@ class CandleRefreshService(
             }
             log.warn(
                 "1m 캔들 갱신 UN 응답 0건 — J fallback 재시도: code={} mrktDivCode={}",
+                code,
+                mrktDivCode,
+            )
+        }
+        return IntervalRefreshResult("1m", 0, 0, null, "FAILED")
+    }
+
+    private fun refreshRange(
+        code: String,
+        intervals: List<String>,
+        priority: KisCallPriority,
+        range: EffectiveCandleRange,
+        progress: ((CandleRefreshProgressUpdate) -> Unit)?,
+    ): CandleRefreshResponse {
+        val startMs = System.currentTimeMillis()
+        val (accessToken, appKey, secretKey) = resolveAccessTokenAndKeys()
+        val mrktDivCodes = resolveMrktDivCodeCandidates(code)
+        val results = mutableListOf<IntervalRefreshResult>()
+
+        for (intervalCode in intervals) {
+            progress?.invoke(
+                CandleRefreshProgressUpdate(
+                    stage = "FETCHING_RANGE",
+                    interval = intervalCode,
+                    message = "$intervalCode 캔들 범위 수집 중 (${range.from}~${range.to})",
+                ),
+            )
+            val result =
+                when (intervalCode) {
+                    "1m" ->
+                        refreshOneMinCandlesInRangeWithFallback(
+                            code = code,
+                            mrktDivCodes = mrktDivCodes,
+                            accessToken = accessToken,
+                            appKey = appKey,
+                            secretKey = secretKey,
+                            priority = priority,
+                            range = range,
+                            progress = progress,
+                        )
+                    in DAILY_INTERVALS ->
+                        refreshDailyCandlesInRangeWithFallback(
+                            code = code,
+                            intervalCode = intervalCode,
+                            mrktDivCodes = mrktDivCodes,
+                            accessToken = accessToken,
+                            appKey = appKey,
+                            secretKey = secretKey,
+                            priority = priority,
+                            range = range,
+                        )
+                    else -> IntervalRefreshResult(intervalCode, 0, 0, null, "SKIPPED")
+                }
+            results += result
+            progress?.invoke(
+                CandleRefreshProgressUpdate(
+                    stage = "FETCHED",
+                    interval = intervalCode,
+                    fetchedCount = result.fetchedCount,
+                    insertedCount = result.insertedCount,
+                    message = "$intervalCode 캔들 범위 수집 완료 (${result.status})",
+                ),
+            )
+        }
+
+        return CandleRefreshResponse(refreshedIntervals = results, elapsedMs = System.currentTimeMillis() - startMs)
+    }
+
+    private fun refreshDailyCandlesInRangeWithFallback(
+        code: String,
+        intervalCode: String,
+        mrktDivCodes: List<String>,
+        accessToken: String,
+        appKey: String,
+        secretKey: String,
+        priority: KisCallPriority,
+        range: EffectiveCandleRange,
+    ): IntervalRefreshResult {
+        for ((index, mrktDivCode) in mrktDivCodes.withIndex()) {
+            val result =
+                refreshDailyCandlesInRange(
+                    code = code,
+                    intervalCode = intervalCode,
+                    mrktDivCode = mrktDivCode,
+                    accessToken = accessToken,
+                    appKey = appKey,
+                    secretKey = secretKey,
+                    priority = priority,
+                    range = range,
+                )
+            if (result.fetchedCount > 0 || result.status != "OK" || index == mrktDivCodes.lastIndex) {
+                return result
+            }
+            log.warn(
+                "캔들 range 갱신 UN 응답 0건 — J fallback 재시도: code={} interval={} mrktDivCode={}",
+                code,
+                intervalCode,
+                mrktDivCode,
+            )
+        }
+        return IntervalRefreshResult(intervalCode, 0, 0, null, "FAILED")
+    }
+
+    private fun refreshOneMinCandlesInRangeWithFallback(
+        code: String,
+        mrktDivCodes: List<String>,
+        accessToken: String,
+        appKey: String,
+        secretKey: String,
+        priority: KisCallPriority,
+        range: EffectiveCandleRange,
+        progress: ((CandleRefreshProgressUpdate) -> Unit)?,
+    ): IntervalRefreshResult {
+        for ((index, mrktDivCode) in mrktDivCodes.withIndex()) {
+            val result =
+                refreshOneMinCandlesInRange(
+                    code = code,
+                    mrktDivCode = mrktDivCode,
+                    accessToken = accessToken,
+                    appKey = appKey,
+                    secretKey = secretKey,
+                    priority = priority,
+                    range = range,
+                    progress = progress,
+                )
+            if (result.fetchedCount > 0 || result.status != "OK" || index == mrktDivCodes.lastIndex) {
+                return result
+            }
+            log.warn(
+                "1m range 갱신 UN 응답 0건 — J fallback 재시도: code={} mrktDivCode={}",
                 code,
                 mrktDivCode,
             )
@@ -789,6 +992,172 @@ class CandleRefreshService(
         }
     }
 
+    private fun refreshDailyCandlesInRange(
+        code: String,
+        intervalCode: String,
+        mrktDivCode: String,
+        accessToken: String,
+        appKey: String,
+        secretKey: String,
+        priority: KisCallPriority,
+        range: EffectiveCandleRange,
+        retryAttempt: Int = 0,
+    ): IntervalRefreshResult {
+        val periodDivCode = DAILY_INTERVALS[intervalCode] ?: return IntervalRefreshResult(intervalCode, 0, 0, null, "SKIPPED")
+        val fromDate = range.from.atZone(KST_ZONE).toLocalDate()
+        val toDate = range.to.atZone(KST_ZONE).toLocalDate()
+        val startDateStr = fromDate.format(DATE_FMT)
+        val maxPages = chartCandleProperties.getMaxPagesFor(intervalCode)
+        val allCandles = mutableListOf<KisDailyRow>()
+        var cursor: LocalDate = toDate
+        var pageCount = 0
+        var pageStatus = "OK"
+        val canRetry = retryAttempt == 0
+        var lastPageSignalSent = true
+        var lastPageAcquired = false
+
+        try {
+            while (pageCount < maxPages) {
+                if (cursor < fromDate) break
+                if (pageCount > 0) {
+                    try {
+                        Thread.sleep(PAGE_INTERVAL_MS)
+                    } catch (e: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        break
+                    }
+                }
+
+                kisRateLimiterPort.acquire(priority, timeoutMillis = 3000L)
+                lastPageSignalSent = false
+                lastPageAcquired = true
+
+                val cursorStr = cursor.format(DATE_FMT)
+
+                @Suppress("UNCHECKED_CAST")
+                val body =
+                    webClient
+                        .get()
+                        .uri { builder ->
+                            builder
+                                .scheme("https")
+                                .host(kisBaseProd.removePrefix("https://").substringBefore(":"))
+                                .port(kisBaseProd.substringAfterLast(":").toIntOrNull() ?: 9443)
+                                .path(ENDPOINT_DAILY)
+                                .queryParam("fid_cond_mrkt_div_code", mrktDivCode)
+                                .queryParam("fid_input_iscd", code)
+                                .queryParam("fid_input_date_1", startDateStr)
+                                .queryParam("fid_input_date_2", cursorStr)
+                                .queryParam("fid_period_div_code", periodDivCode)
+                                .queryParam("fid_org_adj_prc", "0")
+                                .build()
+                        }.header("authorization", "Bearer $accessToken")
+                        .header("appkey", appKey)
+                        .header("appsecret", secretKey)
+                        .header("tr_id", TR_ID_DAILY)
+                        .header("custtype", "P")
+                        .retrieve()
+                        .bodyToMono(Map::class.java)
+                        .timeout(Duration.ofSeconds(10))
+                        .block()
+
+                pageCount++
+                if (body == null) break
+
+                val rtCd = body["rt_cd"]?.toString()
+                if (rtCd != "0") {
+                    pageStatus = "FAILED"
+                    break
+                }
+
+                @Suppress("UNCHECKED_CAST")
+                val output2 = body["output2"] as? List<*>
+                if (output2.isNullOrEmpty()) {
+                    kisRateLimiterPort.onSuccess()
+                    lastPageSignalSent = true
+                    break
+                }
+
+                val pageCandles =
+                    parseKisDailyOutput2(output2, code, intervalCode)
+                        .filter { it.epochSec >= range.from.epochSecond && it.epochSec <= range.to.epochSecond }
+                if (pageCandles.isEmpty()) {
+                    kisRateLimiterPort.onSuccess()
+                    lastPageSignalSent = true
+                } else {
+                    allCandles.addAll(pageCandles)
+                    kisRateLimiterPort.onSuccess()
+                    lastPageSignalSent = true
+                }
+
+                val oldestEpochSec =
+                    parseKisDailyOutput2(output2, code, intervalCode)
+                        .firstOrNull()
+                        ?.epochSec ?: break
+                val oldestDate =
+                    Instant
+                        .ofEpochSecond(oldestEpochSec)
+                        .atZone(KST_ZONE)
+                        .toLocalDate()
+                val newCursor = oldestDate.minusDays(1)
+                if (newCursor >= cursor) break
+                cursor = newCursor
+            }
+
+            val dedupedCandles =
+                allCandles
+                    .distinctBy { it.epochSec }
+                    .sortedBy { it.epochSec }
+            val inserted = upsertCandles(dedupedCandles, intervalCode)
+            val latestTs = queryLatestTs(code, intervalCode)
+            log.info(
+                "캔들 range 갱신 완료: code={} interval={} pages={} fetched={} inserted={} range={}..{}",
+                code,
+                intervalCode,
+                pageCount,
+                dedupedCandles.size,
+                inserted,
+                range.from,
+                range.to,
+            )
+            return IntervalRefreshResult(intervalCode, dedupedCandles.size, inserted, latestTs, pageStatus)
+        } catch (e: WebClientResponseException) {
+            if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
+                kisRateLimiterPort.onTpsExceeded()
+                lastPageSignalSent = true
+                if (canRetry) {
+                    Thread.sleep(RATE_LIMIT_BACKOFF_MS)
+                    return refreshDailyCandlesInRange(
+                        code,
+                        intervalCode,
+                        mrktDivCode,
+                        accessToken,
+                        appKey,
+                        secretKey,
+                        priority,
+                        range,
+                        retryAttempt = 1,
+                    )
+                }
+                return IntervalRefreshResult(intervalCode, allCandles.size, 0, null, "RATE_LIMITED")
+            }
+            log.warn("캔들 range 갱신 KIS 오류: code={} interval={} pages={} status={}", code, intervalCode, pageCount, e.statusCode.value())
+            return IntervalRefreshResult(intervalCode, allCandles.size, 0, null, "FAILED")
+        } catch (e: Exception) {
+            log.warn("캔들 range 갱신 오류: code={} interval={} pages={} err={}", code, intervalCode, pageCount, e.message)
+            return IntervalRefreshResult(intervalCode, allCandles.size, 0, null, "FAILED")
+        } finally {
+            if (lastPageAcquired && !lastPageSignalSent) {
+                log.warn(
+                    "[KisRateLimit] CandleRefresh daily range acquire 후 통계 시그널 미발행 — drift risk: code={} interval={} page={}",
+                    code,
+                    intervalCode,
+                    pageCount,
+                )
+            }
+        }
+    }
+
     /**
      * 1m 분봉 갱신 (FHKST03010230) — ADR 0105 one-minute 설정 기반 역방향 페이지네이션.
      *
@@ -1035,6 +1404,268 @@ class CandleRefreshService(
         return IntervalRefreshResult("1m", allRows.size, inserted, latestTs, "OK")
     }
 
+    private fun refreshOneMinCandlesInRange(
+        code: String,
+        mrktDivCode: String,
+        accessToken: String,
+        appKey: String,
+        secretKey: String,
+        priority: KisCallPriority,
+        range: EffectiveCandleRange,
+        progress: ((CandleRefreshProgressUpdate) -> Unit)?,
+    ): IntervalRefreshResult {
+        val allRows = mutableListOf<Map<String, Any>>()
+        val seenTs = mutableSetOf<Long>()
+        val targetDays = oneMinuteRangeTargetDays(range.from, range.to)
+        progress?.invoke(
+            CandleRefreshProgressUpdate(
+                stage = "FETCHING_1M_RANGE",
+                interval = "1m",
+                processedDays = 0,
+                totalDays = targetDays.size,
+                fetchedCount = 0,
+                message = "1m 캔들 ${targetDays.size}거래일 범위 수집 시작",
+            ),
+        )
+
+        var oneMinRateLimitRetried = false
+
+        for ((dayIndex, targetDate) in targetDays.withIndex()) {
+            val dayStart = targetDate.atStartOfDay(KST_ZONE).toInstant()
+            val dayEnd =
+                targetDate
+                    .plusDays(1)
+                    .atStartOfDay(KST_ZONE)
+                    .minusNanos(1)
+                    .toInstant()
+            val dayFrom = maxInstant(range.from, dayStart)
+            val dayTo = minInstant(range.to, dayEnd)
+            if (dayFrom.isAfter(dayTo)) continue
+
+            val dayToTime = dayTo.atZone(KST_ZONE).toLocalTime()
+            if (dayToTime.isBefore(ONE_MINUTE_MARKET_OPEN)) continue
+
+            val dateStr = targetDate.format(DATE_FMT)
+            val cursorTime =
+                if (dayToTime.isAfter(ONE_MINUTE_MARKET_CLOSE)) {
+                    ONE_MINUTE_MARKET_CLOSE
+                } else {
+                    dayToTime.truncatedTo(ChronoUnit.SECONDS)
+                }
+            var currentHour = formatHourCursor(cursorTime)
+            val maxPages = oneMinuteRangeMaxPages(dayFrom, dayTo)
+            var pageCount = 0
+            var dayDone = false
+
+            while (!dayDone && pageCount < maxPages) {
+                if (pageCount > 0) {
+                    try {
+                        Thread.sleep(PAGE_INTERVAL_MS)
+                    } catch (e: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        dayDone = true
+                        continue
+                    }
+                }
+
+                var pageSignalSent = false
+                var pageAcquired = false
+                try {
+                    kisRateLimiterPort.acquire(priority, timeoutMillis = 3000L)
+                    pageAcquired = true
+
+                    @Suppress("UNCHECKED_CAST")
+                    val body =
+                        webClient
+                            .get()
+                            .uri { builder ->
+                                builder
+                                    .scheme("https")
+                                    .host(kisBaseProd.removePrefix("https://").substringBefore(":"))
+                                    .port(kisBaseProd.substringAfterLast(":").toIntOrNull() ?: 9443)
+                                    .path(ENDPOINT_1MIN)
+                                    .queryParam("fid_cond_mrkt_div_code", mrktDivCode)
+                                    .queryParam("fid_input_iscd", code)
+                                    .queryParam("fid_input_hour_1", currentHour)
+                                    .queryParam("fid_input_date_1", dateStr)
+                                    .queryParam("fid_pw_data_incu_yn", "N")
+                                    .queryParam("fid_fake_tick_incu_yn", "")
+                                    .build()
+                            }.header("authorization", "Bearer $accessToken")
+                            .header("appkey", appKey)
+                            .header("appsecret", secretKey)
+                            .header("tr_id", TR_ID_1MIN)
+                            .header("custtype", "P")
+                            .retrieve()
+                            .bodyToMono(Map::class.java)
+                            .timeout(Duration.ofSeconds(10))
+                            .block()
+
+                    pageCount++
+                    kisRateLimiterPort.onSuccess()
+                    pageSignalSent = true
+                    if (body == null) {
+                        dayDone = true
+                        continue
+                    }
+
+                    val rtCd = body["rt_cd"]?.toString()
+                    if (rtCd != "0") {
+                        dayDone = true
+                        continue
+                    }
+
+                    @Suppress("UNCHECKED_CAST")
+                    val output2 = body["output2"] as? List<*>
+                    if (output2.isNullOrEmpty()) {
+                        dayDone = true
+                        continue
+                    }
+
+                    var earliestEpochSec = Long.MAX_VALUE
+                    var latestEpochSec = Long.MIN_VALUE
+                    for (row in output2) {
+                        @Suppress("UNCHECKED_CAST")
+                        val item = row as? Map<String, Any> ?: continue
+                        val epochSec = parseOneMinEpochSec(item, targetDate) ?: continue
+                        if (epochSec < earliestEpochSec) earliestEpochSec = epochSec
+                        if (epochSec > latestEpochSec) latestEpochSec = epochSec
+                        if (epochSec >= dayFrom.epochSecond && epochSec <= dayTo.epochSecond && seenTs.add(epochSec)) {
+                            allRows.add(item)
+                        }
+                    }
+
+                    if (earliestEpochSec == Long.MAX_VALUE || latestEpochSec < dayFrom.epochSecond) {
+                        dayDone = true
+                        continue
+                    }
+                    val earliestLt =
+                        Instant
+                            .ofEpochSecond(earliestEpochSec)
+                            .atZone(KST_ZONE)
+                            .toLocalTime()
+                    if (!earliestLt.isAfter(ONE_MINUTE_MARKET_OPEN) || earliestEpochSec <= dayFrom.epochSecond) {
+                        dayDone = true
+                    } else {
+                        currentHour = formatHourCursor(earliestLt.minus(1, ChronoUnit.MINUTES))
+                    }
+                } catch (e: WebClientResponseException) {
+                    if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
+                        kisRateLimiterPort.onTpsExceeded()
+                        pageSignalSent = true
+                        if (!oneMinRateLimitRetried) {
+                            oneMinRateLimitRetried = true
+                            Thread.sleep(RATE_LIMIT_BACKOFF_MS)
+                            continue
+                        }
+                    }
+                    log.warn("1m range 갱신 페이지 HTTP 오류: code={} date={} status={}", code, dateStr, e.statusCode.value())
+                    dayDone = true
+                } catch (e: Exception) {
+                    log.warn("1m range 갱신 페이지 오류: code={} date={} err={}", code, dateStr, e.message)
+                    dayDone = true
+                } finally {
+                    if (pageAcquired && !pageSignalSent) {
+                        log.warn(
+                            "[KisRateLimit] CandleRefresh 1m range page acquire 후 통계 시그널 미발행 — drift risk: code={} date={}",
+                            code,
+                            dateStr,
+                        )
+                    }
+                }
+            }
+
+            progress?.invoke(
+                CandleRefreshProgressUpdate(
+                    stage = "FETCHING_1M_RANGE",
+                    interval = "1m",
+                    processedDays = dayIndex + 1,
+                    totalDays = targetDays.size,
+                    fetchedCount = allRows.size,
+                    message = "1m 캔들 범위 수집 중 (${dayIndex + 1}/${targetDays.size} 거래일)",
+                ),
+            )
+        }
+
+        progress?.invoke(
+            CandleRefreshProgressUpdate(
+                stage = "SAVING",
+                interval = "1m",
+                fetchedCount = allRows.size,
+                message = "1m 캔들 ${allRows.size}건 저장 중",
+            ),
+        )
+        val inserted = upsertOneMinRows(allRows, code)
+        val latestTs = queryLatestTs(code, "1m")
+        log.info(
+            "1m range 캔들 갱신 완료: code={} fetched={} inserted={} range={}..{} paddingTradingDays={}",
+            code,
+            allRows.size,
+            inserted,
+            range.from,
+            range.to,
+            range.paddingTradingDays,
+        )
+        return IntervalRefreshResult("1m", allRows.size, inserted, latestTs, "OK")
+    }
+
+    private fun parseOneMinEpochSec(
+        item: Map<String, Any>,
+        fallbackDate: LocalDate,
+    ): Long? {
+        val dateStr = item["stck_bsop_date"]?.toString()?.trim() ?: return null
+        val hourStr = item["stck_cntg_hour"]?.toString()?.trim() ?: return null
+        if (hourStr.length < 6) return null
+        return runCatching {
+            val ld = if (dateStr.length == 8) LocalDate.parse(dateStr, DATE_FMT) else fallbackDate
+            val lt =
+                LocalTime.of(
+                    hourStr.substring(0, 2).toInt(),
+                    hourStr.substring(2, 4).toInt(),
+                    hourStr.substring(4, 6).toInt(),
+                )
+            ld.atTime(lt).atZone(KST_ZONE).toEpochSecond()
+        }.getOrNull()
+    }
+
+    private fun oneMinuteRangeTargetDays(
+        from: Instant,
+        to: Instant,
+    ): List<LocalDate> {
+        val startDate = from.atZone(KST_ZONE).toLocalDate()
+        val endDate = to.atZone(KST_ZONE).toLocalDate()
+        val days = mutableListOf<LocalDate>()
+        var current = endDate
+        while (!current.isBefore(startDate)) {
+            if (current.dayOfWeek != DayOfWeek.SATURDAY && current.dayOfWeek != DayOfWeek.SUNDAY) {
+                days.add(current)
+            }
+            current = current.minusDays(1)
+        }
+        return days
+    }
+
+    private fun oneMinuteRangeMaxPages(
+        from: Instant,
+        to: Instant,
+    ): Int {
+        val minutes = Duration.between(from, to).toMinutes().coerceAtLeast(0L) + 1L
+        val estimatedPages = ((minutes + 119L) / 120L + 1L).toInt()
+        return estimatedPages.coerceAtLeast(1).coerceAtMost(chartCandleProperties.oneMinute.normalizedMaxPagesPerDay())
+    }
+
+    private fun formatHourCursor(time: LocalTime): String = "%02d%02d%02d".format(time.hour, time.minute, time.second)
+
+    private fun maxInstant(
+        a: Instant,
+        b: Instant,
+    ): Instant = if (a.isAfter(b)) a else b
+
+    private fun minInstant(
+        a: Instant,
+        b: Instant,
+    ): Instant = if (a.isBefore(b)) a else b
+
     private fun oneMinuteTargetDays(anchorDate: LocalDate = LocalDate.now(KST_ZONE)): List<LocalDate> {
         val lookbackTradingDays = chartCandleProperties.oneMinute.normalizedLookbackTradingDays()
         val maxCalendarScanDays = (lookbackTradingDays * 2).coerceAtLeast(lookbackTradingDays + 14)
@@ -1112,44 +1743,43 @@ class CandleRefreshService(
 
     /**
      * KisDailyRow 목록을 ON CONFLICT DO NOTHING upsert.
-     * CandleJpaRepository.insertIgnore 재사용 (ADR 0051 compliance).
-     * 트랜잭션은 Repository.insertIgnore(@Transactional) 레벨에서 보장.
-     * (hotfix: private fun @Transactional은 Spring AOP 프록시를 우회하므로 무효 → 제거)
+     * JdbcTemplate batch insert로 페이지별 row 저장 병목을 줄인다.
      */
     private fun upsertCandles(
         rows: List<KisDailyRow>,
         intervalCode: String,
     ): Int {
-        var total = 0
-        for (row in rows) {
-            total +=
-                candleJpaRepository.insertIgnore(
-                    code = row.code,
-                    interval = intervalCode,
-                    ts = Instant.ofEpochSecond(row.epochSec),
-                    openRaw = row.open,
-                    highRaw = row.high,
-                    lowRaw = row.low,
-                    closeRaw = row.close,
-                    volume = row.volume,
-                    source = SOURCE,
-                )
-        }
-        return total
+        if (rows.isEmpty()) return 0
+        val sql =
+            """
+            INSERT INTO candle (code, interval, ts, open_raw, high_raw, low_raw, close_raw, volume, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (code, interval, ts) DO NOTHING
+            """.trimIndent()
+        return jdbcTemplate
+            .batchUpdate(sql, rows, BATCH_SIZE) { ps, row ->
+                ps.setString(1, row.code)
+                ps.setString(2, intervalCode)
+                ps.setTimestamp(3, Timestamp.from(Instant.ofEpochSecond(row.epochSec)))
+                ps.setBigDecimal(4, row.open)
+                ps.setBigDecimal(5, row.high)
+                ps.setBigDecimal(6, row.low)
+                ps.setBigDecimal(7, row.close)
+                ps.setLong(8, row.volume)
+                ps.setString(9, SOURCE)
+            }.sumPositiveBatchCounts()
     }
 
     /**
      * 1m raw rows (Map<String, Any>) → DB upsert.
      * stck_bsop_date + stck_cntg_hour → ts epoch second.
      * FHKST03010230 1m 거래량은 cntg_vol 우선, acml_vol은 호환 fallback.
-     * 트랜잭션은 Repository.insertIgnore(@Transactional) 레벨에서 보장.
-     * (hotfix: private fun @Transactional은 Spring AOP 프록시를 우회하므로 무효 → 제거)
      */
     private fun upsertOneMinRows(
         rows: List<Map<String, Any>>,
         code: String,
     ): Int {
-        var total = 0
+        val parsedRows = mutableListOf<KisDailyRow>()
         for (item in rows) {
             val dateStr = item["stck_bsop_date"]?.toString()?.trim() ?: continue
             val hourStr = item["stck_cntg_hour"]?.toString()?.trim() ?: continue
@@ -1172,33 +1802,33 @@ class CandleRefreshService(
                         )
                     ld.atTime(lt).atZone(KST_ZONE).toEpochSecond()
                 }.getOrNull() ?: continue
-            total +=
-                candleJpaRepository.insertIgnore(
-                    code = code,
-                    interval = CandleInterval.ONE_MIN.code,
-                    ts = Instant.ofEpochSecond(epochSec),
-                    openRaw = open,
-                    highRaw = high,
-                    lowRaw = low,
-                    closeRaw = close,
-                    volume = volume,
-                    source = SOURCE,
-                )
+            parsedRows += KisDailyRow(code, CandleInterval.ONE_MIN.code, epochSec, open, high, low, close, volume)
         }
-        return total
+        return upsertCandles(parsedRows, CandleInterval.ONE_MIN.code)
     }
 
     private fun rebuildAggregateIntervals(
         code: String,
         targets: Collection<CandleInterval>,
         progress: ((CandleRefreshProgressUpdate) -> Unit)? = null,
+        range: EffectiveCandleRange? = null,
     ): List<IntervalRefreshResult> {
         if (targets.isEmpty()) return emptyList()
 
         val oneMinCandles =
-            candleJpaRepository
-                .findByCodeAndIntervalOrderByTsAsc(code, CandleInterval.ONE_MIN.code)
-                .mapNotNull { it.toOneMinCandleOrNull() }
+            if (range == null) {
+                candleJpaRepository
+                    .findByCodeAndIntervalOrderByTsAsc(code, CandleInterval.ONE_MIN.code)
+                    .mapNotNull { it.toOneMinCandleOrNull() }
+            } else {
+                candleJpaRepository
+                    .findByCodeAndIntervalAndTsBetween(
+                        code = code,
+                        interval = CandleInterval.ONE_MIN.code,
+                        fromTs = range.from,
+                        toTs = range.to,
+                    ).mapNotNull { it.toOneMinCandleOrNull() }
+            }
 
         if (oneMinCandles.isEmpty()) {
             return targets.map { target ->
@@ -1252,23 +1882,34 @@ class CandleRefreshService(
     }
 
     private fun upsertAggregateCandles(candles: List<Candle>): Int {
-        var total = 0
-        for (candle in candles) {
-            total +=
-                candleJpaRepository.insertIgnore(
-                    code = candle.code,
-                    interval = candle.interval.code,
-                    ts = Instant.ofEpochSecond(candle.ts.epochSeconds),
-                    openRaw = candle.openRaw,
-                    highRaw = candle.highRaw,
-                    lowRaw = candle.lowRaw,
-                    closeRaw = candle.closeRaw,
-                    volume = candle.volume,
-                    source = candle.source,
-                )
-        }
-        return total
+        if (candles.isEmpty()) return 0
+        val sql =
+            """
+            INSERT INTO candle (code, interval, ts, open_raw, high_raw, low_raw, close_raw, volume, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (code, interval, ts) DO UPDATE SET
+                open_raw = EXCLUDED.open_raw,
+                high_raw = EXCLUDED.high_raw,
+                low_raw = EXCLUDED.low_raw,
+                close_raw = EXCLUDED.close_raw,
+                volume = EXCLUDED.volume,
+                source = EXCLUDED.source
+            """.trimIndent()
+        return jdbcTemplate
+            .batchUpdate(sql, candles, BATCH_SIZE) { ps, candle ->
+                ps.setString(1, candle.code)
+                ps.setString(2, candle.interval.code)
+                ps.setTimestamp(3, Timestamp.from(Instant.ofEpochSecond(candle.ts.epochSeconds)))
+                ps.setBigDecimal(4, candle.openRaw)
+                ps.setBigDecimal(5, candle.highRaw)
+                ps.setBigDecimal(6, candle.lowRaw)
+                ps.setBigDecimal(7, candle.closeRaw)
+                ps.setLong(8, candle.volume)
+                ps.setString(9, candle.source)
+            }.sumPositiveBatchCounts()
     }
+
+    private fun Array<IntArray>.sumPositiveBatchCounts(): Int = sumOf { batch -> batch.sumOf { count -> count.coerceAtLeast(0) } }
 
     private fun CandleJpaEntity.toOneMinCandleOrNull(): Candle? {
         val open = openRaw ?: return null

@@ -9,7 +9,12 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useStompTopic } from '../../lib/stomp'
-import { symbolApi, type CandleRecollectJobResponseDto, type CandleRecollectProgressDto } from '../symbol'
+import {
+  symbolApi,
+  type CandleRecollectJobResponseDto,
+  type CandleRecollectOptions,
+  type CandleRecollectProgressDto,
+} from '../symbol'
 
 export interface UseCandleRefreshOptions {
   code: string
@@ -54,6 +59,7 @@ export function useCandleRefresh({
 export interface UseCandleRecollectOptions {
   code: string
   intervals: string[]
+  recollectOptions?: CandleRecollectOptions
   onSuccess?: (deleted: number, inserted: number) => void
   onError?: (msg: string) => void
 }
@@ -61,13 +67,14 @@ export interface UseCandleRecollectOptions {
 export function useCandleRecollect({
   code,
   intervals,
+  recollectOptions,
   onSuccess,
   onError,
 }: UseCandleRecollectOptions) {
   const queryClient = useQueryClient()
 
   const mutation = useMutation({
-    mutationFn: () => symbolApi.recollectCandles(code, intervals),
+    mutationFn: () => symbolApi.recollectCandles(code, intervals, recollectOptions),
     onSuccess: (data) => {
       void queryClient.invalidateQueries({ queryKey: ['symbolCandles', code] })
       const inserted =
@@ -92,6 +99,7 @@ export function useCandleRecollect({
 export interface UseCandleRecollectJobOptions {
   code: string
   intervals: string[]
+  recollectOptions?: CandleRecollectOptions
   onStarted?: (job: CandleRecollectJobResponseDto) => void
   onProgress?: (event: CandleRecollectProgressDto) => void
   onSuccess?: (deleted: number, inserted: number, event: CandleRecollectProgressDto) => void
@@ -109,6 +117,7 @@ function isRunning(status: string | undefined | null): boolean {
 export function useCandleRecollectJob({
   code,
   intervals,
+  recollectOptions,
   onStarted,
   onProgress,
   onSuccess,
@@ -146,7 +155,7 @@ export function useCandleRecollectJob({
   )
 
   const mutation = useMutation({
-    mutationFn: () => symbolApi.startCandleRecollectJob(code, intervals),
+    mutationFn: () => symbolApi.startCandleRecollectJob(code, intervals, recollectOptions),
     onSuccess: (data) => {
       completedJobIdsRef.current.delete(data.jobId)
       setJob(data)

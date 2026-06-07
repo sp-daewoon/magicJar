@@ -230,6 +230,12 @@ export interface CandleRecollectProgressDto {
   updatedAt: string
 }
 
+export interface CandleRecollectOptions {
+  from?: string
+  to?: string
+  paddingTradingDays?: number
+}
+
 // ──────────────────────────────────────────────
 // 캔들 수집 건강도 (readiness P1 — candle-health)
 //
@@ -410,8 +416,12 @@ export const symbolApi = {
   recollectCandles: async (
     code: string,
     intervals: string[],
+    options?: CandleRecollectOptions,
   ): Promise<CandleRecollectResponseDto> => {
     const params = new URLSearchParams({ intervals: intervals.join(',') })
+    if (options?.from) params.set('from', options.from)
+    if (options?.to) params.set('to', options.to)
+    if (options?.paddingTradingDays != null) params.set('paddingTradingDays', String(options.paddingTradingDays))
     const res = await apiClient.post<CandleRecollectResponseDto>(
       `/symbols/${encodeURIComponent(code)}/candles/recollect?${params.toString()}`,
     )
@@ -425,8 +435,12 @@ export const symbolApi = {
   startCandleRecollectJob: async (
     code: string,
     intervals: string[],
+    options?: CandleRecollectOptions,
   ): Promise<CandleRecollectJobResponseDto> => {
     const params = new URLSearchParams({ intervals: intervals.join(',') })
+    if (options?.from) params.set('from', options.from)
+    if (options?.to) params.set('to', options.to)
+    if (options?.paddingTradingDays != null) params.set('paddingTradingDays', String(options.paddingTradingDays))
     const res = await apiClient.post<CandleRecollectJobResponseDto>(
       `/symbols/${encodeURIComponent(code)}/candles/recollect/jobs?${params.toString()}`,
     )
