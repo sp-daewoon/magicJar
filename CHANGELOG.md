@@ -7,7 +7,7 @@
 <!-- pr-5-slot-orchestrator -->
 | 2026-05-?? | **TBD — PR-5 architect: 01-architecture + 06-history + 07-policy + README** | baseline/v3.12.0 | PR-5 architect 4 파일 |
 <!-- pr-5-slot-architect -->
-| 2026-05-?? | **TBD — PR-5 backend-core: 02-data-flow + 04-feature-spec** | baseline/v3.12.0 | PR-5 backend-core 2 파일 |
+| 2026-06-08 | **PR-5 backend-core: baseline v3.12.0 — 02-data-flow + 04-feature-spec** — v3.9.0 → v3.12.0 진화 종합. **02-data-flow**: 주문 집행 흐름(EntryPricePolicy 순수 계산기 → EntryQuotePort(Redis orderbook:top write-through + KIS REST FHKST01010200 fallback) → marketable limit LIMIT intent / entryTimeoutSec 미체결 취소·시장가 fallback 0 / tick 손절 watcher(PositionStopLossTickWatcher · HoldingPositionIndex 인메모리 hit-only · 4중 게이트 우회) → RestingSellOrderCanceller open SELL 선취소 → MARKET / AutoExitOrderCoordinator 익절 LIMIT 선주문 lifecycle + scale-in 평단 정합 / HOLDING owner evict 금지 — ADR 0114) + AI 4종 Claude CLI bridge 흐름(ADR 0112) + 백업 흐름(pg-dump cron → restore — ADR 0096) + Flyway V53~V74 + Kafka(market.tick.v1·order.filled.v1 신규 소비 · topic 신설 0). **04-feature-spec**: 신규 4 트랙(T-EXEC·T-SCALE·T-AIDISC·T-SIM) + entry_policy(V72)·min_hold_bars(V73)·strategy_position(V64)·scale_in(V65)·Core Wrapper(V71)·캔들 3m/4h/12h(V57·V58)·marketable limit 진입·청산 보장 4장치·모달 공통(ESC/scroll lock) 정합. | baseline/v3.12.0 | PR-5 backend-core 2 파일 |
 <!-- pr-5-slot-backend-core -->
 | 2026-05-?? | **TBD — PR-5 market-data: 03-use-sequences (KIS-first raw 출처)** | baseline/v3.12.0 | PR-5 market-data 1 파일 |
 <!-- pr-5-slot-market-data -->
