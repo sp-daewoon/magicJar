@@ -19,6 +19,7 @@ import java.math.BigDecimal
  * @param takeProfitPct 보유 포지션 평가 수익률 기준 익절 비율 (%). 캔들 DSL이 아닌 계좌/포지션 기반 exit policy.
  * @param scaleIn 분할 매수(scale-in) 정책 (spec §3-2 · ADR 0111). null이면 현행 단일 진입(하위호환 LOCK).
  * @param partialExits 분할 익절 단계 리스트 (spec §3-3 · ADR 0111). null이면 현행 전량 익절(하위호환 LOCK). 단계 ≤ 5 · weight 합 ≤ 100.
+ * @param entryPolicy 진입(BUY) 집행 정책 (ADR 0114 §3·§5 · U-1 묶음 객체). null이면 전역 default(env `magicjar.order.entry.*`) — 기존 전략 0 변경(하위호환 LOCK).
  */
 data class StrategyDefinition(
     val dsl: DslStrategyDefinition,
@@ -31,6 +32,7 @@ data class StrategyDefinition(
     val takeProfitPct: BigDecimal? = null,
     val scaleIn: ScaleInPlan? = null,
     val partialExits: List<PartialExit>? = null,
+    val entryPolicy: EntryPolicy? = null,
 ) {
     init {
         // 개별 ScaleInPlan·PartialExit 단일 검증은 각 클래스 init 책임.
