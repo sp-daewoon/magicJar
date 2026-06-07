@@ -150,6 +150,16 @@ class KisWebSocketBridge(
 
         private val LIVE_CANDLE_INTERVALS =
             listOf("1m", "3m", "5m", "15m", "30m", "90m", "1h", "4h", "12h", "1d", "1wk", "1mo", "1y")
+
+        /**
+         * ADR 0114 §10-3 R2-C1 — `orderbook:top:{code}` 1호가 캐시 TTL(보수적 짧게).
+         *
+         * 호가는 H0STASP0 tick으로 초 단위 갱신되므로 TTL을 짧게 둬 stale 캐시가 진입가에 쓰이는 risk를 줄인다.
+         * EntryPricePolicy가 quoteAsOf(=ts) 기반 stale(default 3초)을 한 번 더 거르므로, TTL은 그보다 약간 긴
+         * 10초로 둔다(WS 잠깐 끊김에도 직전 호가 1회 fallback 여지 + 그래도 EntryPricePolicy stale gate가 최종 차단).
+         */
+        private val ORDERBOOK_TOP_TTL: Duration = Duration.ofSeconds(10)
+
         private const val NXT_INTEGRATED_OPEN_MIN = CandleSession.NXT_INTEGRATED_OPEN_MIN
         private val NINETY_MIN_BOUNDARY_STARTS = CandleSession.NINETY_MIN_START_MIN.toList()
     }
@@ -892,6 +902,11 @@ class KisWebSocketBridge(
     private fun handleOrderbookData(rawData: String) {
         val snapshot = KisWsOrderbookParser.parseH0Stasp0(rawData) ?: return
         log.debug("KIS WS orderbook: code={} bids={} asks={}", snapshot.code, snapshot.bids.size, snapshot.asks.size)
+
+        // ADR 0114 §10-3 R2-C1 — 진입 marketable limit 동기 read source(orderbook:top:{code}) write-through.
+        // 기존 Kafka/STOMP 흐름 무변경(add-only). EntryQuotePort(RedisEntryQuoteAdapter)가 이 키를 읽는다.
+        writeOrderbookTopToRedis(snapshot)
+
         // Kafka market.orderbook.v1 publish
         try {
             val payload =
@@ -1121,6 +1136,42 @@ class KisWebSocketBridge(
                 )
         } catch (e: Exception) {
             log.error("KIS WS Redis 쓰기 실패: code={} error={}", tick.code, e.message)
+        }
+    }
+
+    /**
+     * ADR 0114 §10-3 R2-C1 — H0STASP0 1호가(매도1·매수1·매도잔량1)를 `orderbook:top:{code}` Redis write-through.
+     *
+     * 진입(BUY) marketable limit 산정의 **동기 read source**다(`EntryQuotePort` → `RedisEntryQuoteAdapter`가 소비).
+     * 전체 10단계는 Kafka `market.orderbook.v1`로 계속 흐르고(무변경), 본 캐시는 진입 산정에 필요한 1호가만 담는다.
+     *
+     * TTL은 보수적으로 짧게(`ORDERBOOK_TOP_TTL`) 둔다 — 호가는 H0STASP0 tick으로 초 단위 갱신되므로 stale 캐시가
+     * 진입가에 쓰이는 risk를 줄인다. EntryPricePolicy가 quoteAsOf(=ts)로 stale을 한 번 더 거른다(default 3초).
+     * 호가 WS 미구독 종목(ADR 0048 LRU·§10-3 NXT slot 포화)은 이 키가 없어 EntryQuotePort가 REST fallback으로 넘어간다.
+     *
+     * bids/asks가 비면(파싱상 0건) write skip — 빈 호가로 진입가 산정 오염 방지.
+     */
+    private fun writeOrderbookTopToRedis(snapshot: kr.spdaewoon.magicjar.domain.market.OrderbookSnapshot) {
+        try {
+            val ask1 = snapshot.asks.firstOrNull() ?: return
+            val bid1 = snapshot.bids.firstOrNull() ?: return
+            val data =
+                mapOf(
+                    "ask1" to ask1.price.toPlainString(),
+                    "bid1" to bid1.price.toPlainString(),
+                    "askQty1" to ask1.quantity.toString(),
+                    "bidQty1" to bid1.quantity.toString(),
+                    "ts" to snapshot.ts.toString(),
+                )
+            redisTemplate
+                .opsForValue()
+                .set(
+                    "orderbook:top:${snapshot.code}",
+                    objectMapper.writeValueAsString(data),
+                    ORDERBOOK_TOP_TTL,
+                )
+        } catch (e: Exception) {
+            log.error("KIS WS orderbook:top Redis 쓰기 실패: code={} error={}", snapshot.code, e.message)
         }
     }
 
