@@ -3,12 +3,7 @@ package kr.spdaewoon.magicjar.consumer.order
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.consumer.risk.OrderIntentKafkaProducer
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
-import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
-import kr.spdaewoon.magicjar.domain.order.execution.OrderResult
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
-import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
-import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
-import kr.spdaewoon.magicjar.domain.order.execution.port.KisOrderPort
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import kr.spdaewoon.magicjar.strategy.entry.KrxTickSize
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -19,7 +14,6 @@ import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
 import java.math.RoundingMode
-import java.time.Instant
 
 /**
  * tick 기반 손절 안전망 watcher — ADR 0114 R2-C2b ① (★핵심 — P1·P2·P4 구조적 해소 · Codex 흡수+성능 보강).
@@ -35,10 +29,11 @@ import java.time.Instant
  *   [HoldingPositionIndex] 인메모리 hit일 때만 평가 진행(보유 0 종목 tick은 즉시 return, DB 접근 0).
  * - **손절가 단일 출처**: strategy-engine [KrxTickSize](R1) 재사용 — Codex가 domain에 만든 KrxTickSize와 중복 금지.
  *
- * ## fail-closed open SELL 가드 (Codex 흡수)
- * 손절 발동 전 같은 종목 open SELL 검사:
+ * ## fail-closed open SELL 가드 ([RestingSellOrderCanceller] 공용 — DRY)
+ * 손절 발동 전 같은 종목 open SELL 검사를 매도 시그널 listener와 **공용 컴포넌트로 공유**한다:
  * - AUTO + 같은 전략 SELL → KIS 취소 시도(ACK 미확정이면 보류). 취소 성공해야 손절 진행(이중 SELL 회피).
  * - 수동(MANUAL)/타전략 SELL 존재 → **중단** + P0 로그(우리가 모르는 SELL 의도 침범 금지).
+ * - 자기 자신의 기존 `auto-sl:` open SELL → 중복 발행 skip(excludeIdempotencyPrefix).
  *
  * ## 이중 발화 멱등 (1m 경로 ScaleInExit 손절과 충돌 방지)
  * `auto-sl:` 멱등 키([AutoOrderIdempotencyKeys.stopLoss]) + open SELL 검사 2중 — OrderRouter `idem:order:{key}`가
@@ -54,8 +49,7 @@ class PositionStopLossTickWatcher(
     private val objectMapper: ObjectMapper,
     private val holdingPositionIndex: HoldingPositionIndex,
     private val orderRequestRepositoryProvider: ObjectProvider<OrderRequestRepository>,
-    private val kisOrderPort: KisOrderPort,
-    private val orderCancelledKafkaProducer: OrderCancelledKafkaProducer,
+    private val restingSellOrderCanceller: RestingSellOrderCanceller,
     private val orderIntentKafkaProducer: OrderIntentKafkaProducer,
     @Value("\${magicjar.autotrading.stop-loss.tick-watch-enabled:true}")
     private val enabled: Boolean = true,
@@ -105,8 +99,16 @@ class PositionStopLossTickWatcher(
             return
         }
 
-        // 이미 같은 손절 intent가 발행돼 OPEN이면 중복 금지(멱등 1차 — open SELL 검사 안에서 함께 처리).
-        if (!cancelOrAbortOpenSells(orderRepo, position)) return
+        // 같은 종목 open SELL(익절 TP 등) 선취소 — 공용 [RestingSellOrderCanceller]. 자신의 기존 auto-sl이면 중복 skip.
+        val cancelResult =
+            restingSellOrderCanceller.cancelRestingSells(
+                orderRepo = orderRepo,
+                userId = position.userId,
+                strategyId = position.strategyId,
+                code = position.code,
+                excludeIdempotencyPrefix = AutoOrderIdempotencyKeys.PREFIX_STOP_LOSS,
+            )
+        if (!cancelResult.canProceed) return
 
         val idempotencyKey =
             AutoOrderIdempotencyKeys.stopLoss(
@@ -139,90 +141,6 @@ class PositionStopLossTickWatcher(
             position.quantity,
             idempotencyKey,
         )
-    }
-
-    /**
-     * 같은 종목 open SELL 처리. 손절 진행 가능 여부 반환.
-     * - 손절 자신의 기존 `auto-sl:` open SELL → 이미 발행됨 → false(중복 금지, 멱등).
-     * - AUTO + 같은 전략 SELL(익절 TP 등) → KIS 취소(ACK 미확정이면 보류=false). 취소 성공 시 계속.
-     * - 수동/타전략 SELL → false + P0(우리가 모르는 SELL 침범 금지).
-     */
-    private fun cancelOrAbortOpenSells(
-        orderRepo: OrderRequestRepository,
-        position: HoldingPositionIndex.HeldPosition,
-    ): Boolean {
-        val openSells =
-            orderRepo
-                .findOpenByUserId(position.userId)
-                .filter { it.code == position.code && it.side == OrderSide.SELL && it.status in OPEN_STATUSES }
-        if (openSells.isEmpty()) return true
-
-        // 이미 같은 손절 intent가 OPEN → 중복 발행 금지.
-        if (openSells.any { it.idempotencyKey.startsWith("${AutoOrderIdempotencyKeys.PREFIX_STOP_LOSS}:") }) {
-            log.info(
-                "stop-loss skip: 이미 open auto-sl SELL 존재 userId={} strategyId={} code={}",
-                position.userId,
-                position.strategyId,
-                position.code,
-            )
-            return false
-        }
-
-        for (order in openSells) {
-            if (order.source != OrderSource.AUTO || order.strategyId != position.strategyId) {
-                log.error(
-                    "stop-loss fail-closed: cancel 대상 아닌 open SELL 존재(수동/타전략) — 손절 중단 userId={} code={} orderId={} source={} strategyId={}",
-                    position.userId,
-                    position.code,
-                    order.id,
-                    order.source,
-                    order.strategyId,
-                )
-                return false
-            }
-            if (order.kisOrderNo.isNullOrBlank() || order.kisFwdgOrgno.isNullOrBlank()) {
-                log.warn(
-                    "stop-loss 보류: KIS ACK 미확정 open SELL 존재(다음 tick 재평가) userId={} code={} orderId={} status={}",
-                    position.userId,
-                    position.code,
-                    order.id,
-                    order.status,
-                )
-                return false
-            }
-            when (val cancelResult = kisOrderPort.cancel(order, order.mode)) {
-                is OrderResult.Right -> publishCancelled(orderRepo, order)
-                is OrderResult.Left -> {
-                    log.warn(
-                        "stop-loss 보류: open SELL 취소 실패(다음 tick 재시도) userId={} code={} orderId={} reason={}",
-                        position.userId,
-                        position.code,
-                        order.id,
-                        cancelResult.value,
-                    )
-                    return false
-                }
-            }
-        }
-        return true
-    }
-
-    private fun publishCancelled(
-        orderRepo: OrderRequestRepository,
-        order: OrderRequest,
-    ) {
-        val orderId = order.id
-        val cancelled =
-            (
-                if (orderId != null) {
-                    runCatching { orderRepo.markCompleted(orderId, Instant.now(), OrderStatus.CANCELLED) }
-                        .onFailure { e -> log.error("stop-loss SELL cancel markCompleted 실패: orderId={} err={}", orderId, e.message) }
-                        .getOrNull()
-                } else {
-                    null
-                }
-            ) ?: order.copy(status = OrderStatus.CANCELLED, completedAt = Instant.now())
-        orderCancelledKafkaProducer.publish(cancelled)
     }
 
     private fun parse(record: ConsumerRecord<String, String>): TickPayload? {
@@ -262,8 +180,6 @@ class PositionStopLossTickWatcher(
 
     companion object {
         const val GROUP = "magicjar-consumer-position-stop-loss"
-        private val OPEN_STATUSES =
-            setOf(OrderStatus.REQUESTED, OrderStatus.ACK, OrderStatus.PARTIALLY_FILLED, OrderStatus.PENDING_RECONCILE)
 
         /**
          * 손절가 = 평단 × (1 - stopLossPct/100) → KRX 호가단위 내림(R1 [KrxTickSize] 단일 출처).

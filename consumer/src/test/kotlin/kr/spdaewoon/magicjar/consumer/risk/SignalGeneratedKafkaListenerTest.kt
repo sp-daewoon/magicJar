@@ -10,6 +10,8 @@ import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kr.spdaewoon.magicjar.consumer.order.KisExecutionBackfillService
 import kr.spdaewoon.magicjar.consumer.order.KisExecutionSyncResult
+import kr.spdaewoon.magicjar.consumer.order.OrderCancelledKafkaProducer
+import kr.spdaewoon.magicjar.consumer.order.RestingSellOrderCanceller
 import kr.spdaewoon.magicjar.domain.account.AccountBalance
 import kr.spdaewoon.magicjar.domain.account.AccountHolding
 import kr.spdaewoon.magicjar.domain.account.KisAccountBalance
@@ -63,6 +65,11 @@ class SignalGeneratedKafkaListenerTest {
     private val orderRequestRepository = mockk<OrderRequestRepository>()
     private val strategyLookupPort = mockk<StrategyLookupPort>()
     private val kisBalanceQueryPort = mockk<KisBalanceQueryPort>()
+
+    // 자본 path hotfix — resting auto-tp 선취소 공용 컴포넌트(watcher와 DRY). cancel 검증은 wrapped kisOrderPort로.
+    private val kisOrderPort = mockk<kr.spdaewoon.magicjar.domain.order.execution.port.KisOrderPort>(relaxed = true)
+    private val orderCancelledKafkaProducer = mockk<OrderCancelledKafkaProducer>(relaxed = true)
+    private val restingSellOrderCanceller = RestingSellOrderCanceller(kisOrderPort, orderCancelledKafkaProducer)
 
     // ADR 0114 — BUY marketable limit 가격 산정 (진입 호가 source + system_event audit).
     private val entryQuotePort = mockk<EntryQuotePort>()
@@ -188,6 +195,73 @@ class SignalGeneratedKafkaListenerTest {
         listener().onSignalGenerated(record(payload(side = "SELL", price = "68000", contextJson = exitCtx)), ack())
 
         verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 7, OrderPriceType.MARKET, null) }
+    }
+
+    @Test
+    fun `SELL + resting auto-tp 존재 — 취소 선행 후 MARKET 발행 (먼저 오는 쪽이 이긴다)`() {
+        sellContext()
+        every { kisOrderPort.cancel(any(), any()) } returns
+            kr.spdaewoon.magicjar.domain.order.execution.OrderResult
+                .Right(Unit)
+
+        listener(openOrders = listOf(restingAutoTp()))
+            .onSignalGenerated(record(payload(side = "SELL", price = "72000")), ack())
+
+        // resting auto-tp 취소 선행 → 그다음 MARKET SELL 발행.
+        verify(exactly = 1) { kisOrderPort.cancel(any(), any()) }
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 7, OrderPriceType.MARKET, null) }
+    }
+
+    @Test
+    fun `SELL + 수동 open SELL 존재 — fail-closed로 발행 중단 (취소 0)`() {
+        sellContext()
+
+        listener(openOrders = listOf(restingAutoTp(source = kr.spdaewoon.magicjar.domain.order.execution.OrderSource.MANUAL)))
+            .onSignalGenerated(record(payload(side = "SELL", price = "72000")), ack())
+
+        verify(exactly = 0) { kisOrderPort.cancel(any(), any()) }
+        verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `SELL + resting auto-tp ACK 미확정 — 발행 보류 (취소 0)`() {
+        sellContext()
+
+        listener(openOrders = listOf(restingAutoTp(ackPresent = false)))
+            .onSignalGenerated(record(payload(side = "SELL", price = "72000")), ack())
+
+        verify(exactly = 0) { kisOrderPort.cancel(any(), any()) }
+        verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `SELL 익절 LIMIT + 동일가 동일수량 auto-tp 이미 존재 — 발행 skip (중복 회피)`() {
+        sellContext()
+
+        val exitCtx = objectMapper.writeValueAsString(mapOf("exitPriceType" to "LIMIT", "exitLimitPrice" to "73500"))
+        listener(openOrders = listOf(restingAutoTp(quantity = 7, limitPrice = "73500")))
+            .onSignalGenerated(record(payload(side = "SELL", price = "72000", contextJson = exitCtx)), ack())
+
+        // 동일가·동일수량 auto-tp 정합 → 취소 0 · 발행 0(coordinator ALREADY_ALIGNED 정합).
+        verify(exactly = 0) { kisOrderPort.cancel(any(), any()) }
+        verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `SELL 익절 LIMIT + 다른가 auto-tp 존재 — 취소 후 새 LIMIT 발행`() {
+        sellContext()
+        every { kisOrderPort.cancel(any(), any()) } returns
+            kr.spdaewoon.magicjar.domain.order.execution.OrderResult
+                .Right(Unit)
+
+        val exitCtx = objectMapper.writeValueAsString(mapOf("exitPriceType" to "LIMIT", "exitLimitPrice" to "73500"))
+        listener(openOrders = listOf(restingAutoTp(quantity = 7, limitPrice = "73000")))
+            .onSignalGenerated(record(payload(side = "SELL", price = "72000", contextJson = exitCtx)), ack())
+
+        verify(exactly = 1) { kisOrderPort.cancel(any(), any()) }
+        verify(exactly = 1) {
+            orderIntentKafkaProducer.publish(match { it.id == 77L }, 7, OrderPriceType.LIMIT, BigDecimal("73500"))
+        }
     }
 
     @Test
@@ -334,6 +408,7 @@ class SignalGeneratedKafkaListenerTest {
         killSwitchProvider: ObjectProvider<KillSwitchQueryPort> = providerOf(killSwitchQueryPort),
         strategies: List<Strategy> = listOf(sampleStrategy()),
         kisBalance: KisAccountBalance? = sampleKisBalance(quantity = 100),
+        openOrders: List<kr.spdaewoon.magicjar.domain.order.execution.OrderRequest> = emptyList(),
         entryQuote: EntryQuote? =
             EntryQuote(
                 ask1 = BigDecimal("50000"),
@@ -343,7 +418,7 @@ class SignalGeneratedKafkaListenerTest {
             ),
     ): SignalGeneratedKafkaListener {
         every { strategyLookupPort.findActiveByCodeAndInterval(any(), any()) } returns strategies
-        every { orderRequestRepository.findOpenByUserId(any()) } returns emptyList()
+        every { orderRequestRepository.findOpenByUserId(any()) } returns openOrders
         if (kisBalance != null) {
             every { kisBalanceQueryPort.fetchFullBalance(any(), any()) } returns kisBalance
         }
@@ -374,11 +449,53 @@ class SignalGeneratedKafkaListenerTest {
             kisBalanceQueryPortProvider = providerOf(kisBalanceQueryPort),
             executionBackfillServiceProvider = executionBackfillProvider,
             entryOrderPriceResolver = entryOrderPriceResolver,
+            restingSellOrderCanceller = restingSellOrderCanceller,
             systemEventLoggerProvider = providerOf(systemEventLogger),
             magicjarMode = magicjarMode,
             clock = clock,
         )
     }
+
+    /** SELL 경로 공통 stub — 보유 7주 + ALLOWED 통과(resting SELL 시나리오 전용). */
+    private fun sellContext() {
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { riskPositionPort.findCurrentByUser("user-A") } returns
+            listOf(Position(userId = "user-A", code = "005930", quantity = 7, avgPrice = BigDecimal("70000"), updatedAt = now))
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.record(100L, "user-A", 77L, now) } just Runs
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+    }
+
+    /** resting `auto-tp:` open SELL(같은 종목·전략) — 보유 수량을 잠그는 익절 LIMIT 선주문. */
+    private fun restingAutoTp(
+        source: kr.spdaewoon.magicjar.domain.order.execution.OrderSource =
+            kr.spdaewoon.magicjar.domain.order.execution.OrderSource.AUTO,
+        ackPresent: Boolean = true,
+        quantity: Int = 7,
+        limitPrice: String = "73500",
+        strategyId: Long = 100L,
+    ): kr.spdaewoon.magicjar.domain.order.execution.OrderRequest =
+        kr.spdaewoon.magicjar.domain.order.execution.OrderRequest(
+            id = 9L,
+            userId = "user-A",
+            signalId = 0L,
+            strategyId = strategyId,
+            code = "005930",
+            side = kr.spdaewoon.magicjar.domain.order.execution.OrderSide.SELL,
+            priceType = OrderPriceType.LIMIT,
+            quantity = quantity,
+            limitPrice = BigDecimal(limitPrice),
+            status = kr.spdaewoon.magicjar.domain.order.execution.OrderStatus.ACK,
+            mode = kr.spdaewoon.magicjar.domain.order.execution.TradingMode.MOCK,
+            kisOrderNo = if (ackPresent) "0001234567" else null,
+            kisFwdgOrgno = if (ackPresent) "00950" else null,
+            idempotencyKey = "auto-tp:xyz",
+            requestedAt = java.time.Instant.parse("2026-05-22T01:00:00Z"),
+            source = source,
+        )
 
     private fun sampleConfig(): RiskConfig =
         RiskConfig(
