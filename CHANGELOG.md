@@ -2,6 +2,17 @@
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+
+| 2026-06-07 | **chore(meta): PR-5 v3.12.0 baseline 폴더 신설 + sub-agent 슬롯 4 anchor 발행** — `_workspace/baseline/v3.12.0/` 폴더 신설(README skeleton + 7 파일 인덱스). CHANGELOG sub-agent 슬롯 4 anchor(architect/backend-core/market-data/frontend). 4 sub-agent 병렬 디스패치 add-only LOCK. (orchestrator) | meta/baseline | PR-5 v3.12.0 baseline 슬롯 발행 |
+<!-- pr-5-slot-orchestrator -->
+| 2026-05-?? | **TBD — PR-5 architect: 01-architecture + 06-history + 07-policy + README** | baseline/v3.12.0 | PR-5 architect 4 파일 |
+<!-- pr-5-slot-architect -->
+| 2026-05-?? | **TBD — PR-5 backend-core: 02-data-flow + 04-feature-spec** | baseline/v3.12.0 | PR-5 backend-core 2 파일 |
+<!-- pr-5-slot-backend-core -->
+| 2026-05-?? | **TBD — PR-5 market-data: 03-use-sequences (KIS-first raw 출처)** | baseline/v3.12.0 | PR-5 market-data 1 파일 |
+<!-- pr-5-slot-market-data -->
+| 2026-05-?? | **TBD — PR-5 frontend: 05-ui-inventory** | baseline/v3.12.0 | PR-5 frontend 1 파일 |
+<!-- pr-5-slot-frontend -->
 | 2026-06-08 | **FEAT: 종목상세 AI 차트해석 Claude CLI provider 연동 (작성: ai)** — 발굴(ADR 0112)·프리셋 추천·전략 생성이 쓰는 Claude CLI bridge 를 코멘트 dispatcher 의 `claude-cli` provider 로 추가. **① `ClaudeCliCommentAdapter`(consumer)**: bridge-url(`magicjar.ai.claude-cli.bridge-url`) POST `/discover` 또는 로컬 `claude -p` CLI fallback — api `ClaudeCliStrategyResearchAiTextClient` 패턴을 consumer 맥락으로 동등 구현(모듈 경계상 import 불가). provider id=`claude-cli`. **② 게이트 정정**: `decideMockMode()` 순수 함수 추출 + `provider=claude-cli` 는 키 불요(구독 기반)라 `auto` 모드에서 "키 없음=mock 강등" 제외 — `MAGICJAR_AI_ENABLED=true`+`MAGICJAR_AI_PROVIDER=claude-cli` 가 실해석 경로. **③ 비용 0**: CLI 토큰 미제공 → `ai_comment_log` tokens 0·cost 0 정직 기록(`AiCostCalculator` claude-cli=$0 매핑). **④ prompt_template(type=chart) 흐름·응답 계약 무변경** — frontend 0 touch. 신규 env 3종(BRIDGE_URL·COMMAND·TIMEOUT_SECONDS, default 미설정=현행 동작 보존). 테스트: 어댑터 4건(bridge 정상·error 전파·공백 예외·HTTP 500)·게이트 5건·cost 1건·registry 1건. `./gradlew check`+ktlint GREEN, api·batch·consumer bootJar GREEN. | consumer/ai(ClaudeCliCommentAdapter·AiCommentDispatcherListener·AiCostCalculator) · application.yml · .env.example | 사용자 지시 — 종목상세 AI 차트해석을 우리 AI API(Claude CLI bridge)와 연동 |
 | 2026-06-08 | **FIX: AI 발굴 프리셋 버튼 3개 표시 글자순 고정 (UI-only, 작성: frontend)** — 선정은 최근 사용 순 유지하되 표시를 라벨 `localeCompare(ko)` 고정 정렬로 분리 — 클릭마다 버튼이 재배열되던 불편 제거(같은 3개 구성이면 위치 불변, 새 프리셋 진입 시만 재배열). 회귀 테스트 1건 add(셋 내 클릭 2회 순서 불변) + 기존 4건 무수정, typecheck·build GREEN. | frontend/pages/Strategy(StrategyResearchPage) · test | 사용자 dogfooding — 클릭마다 버튼 순서 변경 불편 |
 | 2026-06-08 | **리서치 후보 라이브러리 인라인→팝업 전환 + 내 전략 우선 정렬 (작성: frontend · 사용자 dogfooding 정정)** — 사용자 보고: PR #792 `ResearchCandidateLibraryCard`가 전략 리서치 화면 진입 시 18종 builtin + 내 후보를 전부 인라인 노출해 화면 전체를 가림. **① 인라인 = 컴팩트 진입 버튼 + 요약 한 줄만** ("후보 전략 라이브러리 · 내 전략 N개 · 기본 M개" + "후보 라이브러리 관리" 버튼) — 후보 카드·entry DSL은 모달 열기 전 미노출. **② 전체 목록·관리(추가/삭제)는 모달로 이동**: `useModalBehavior` 의무(ESC 닫기 + body scroll lock) + overlay 클릭 닫기 + max-height 88vh·헤더/추가행/푸터 고정 + 후보 목록 내부 스크롤(프리셋 6개 초과 스크롤 선례 정합). **③ 정렬**: 내 전략(builtIn=false)이 최상단(최신 updatedAt 순) → builtin(sortOrder 오름차순) + 섹션 헤더("내 후보"·"기본 제공") + 카운트 뱃지로 구분. **리서치 실행(후보 평가) 흐름 무변경** — 표시/관리 위치만 이동. 테스트 5건(인라인 요약만 노출·후보 카드 감춤 / 진입 버튼→모달 오픈→ESC 닫기 / 추가→내 후보 섹션 최상단 정렬 / 모달 내 삭제 유지 / 사용자 미등록 추가 비활성) — 기존 3건은 모달 진입 전제로 최소 수정(목록이 모달 안으로 이동했으므로 openModal 헬퍼 경유). `pnpm typecheck`+`pnpm build` GREEN · vitest 5건 GREEN. `*.kt` 0 touch. | frontend(ResearchCandidateLibraryCard·테스트) | 18종 후보 인라인 노출이 리서치 화면을 가리는 dogfooding 결함 → 컴팩트 진입 + 모달 관리 + 내 전략 우선 정렬 |
