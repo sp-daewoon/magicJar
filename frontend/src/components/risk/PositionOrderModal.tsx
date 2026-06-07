@@ -9,6 +9,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import type { AccountHoldingDto, AccountType } from '../../api/account'
 import type { OrderSide, TradingMode } from '../../api/order'
 import { useManualOrderMutation } from '../../api/hooks/useManualOrderMutation'
+import { useModalBehavior } from '../../hooks/useModalBehavior'
 
 const MAX_BUY_QUANTITY = 999_999
 
@@ -113,14 +114,8 @@ export function PositionOrderModal({
     setConfirmed(false)
   }, [holding, initialQuantity, side])
 
-  useEffect(() => {
-    if (!holding || !side) return
-    function handleEsc(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handleEsc)
-    return () => document.removeEventListener('keydown', handleEsc)
-  }, [holding, onClose, side])
+  // ESC 닫기 + body scroll lock (holding·side 둘 다 있을 때만 활성)
+  useModalBehavior({ open: Boolean(holding && side), onClose })
 
   if (!holding || !side) return null
 
