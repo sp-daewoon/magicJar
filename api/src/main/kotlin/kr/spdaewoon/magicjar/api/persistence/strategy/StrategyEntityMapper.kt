@@ -2,6 +2,8 @@ package kr.spdaewoon.magicjar.api.persistence.strategy
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
+import kr.spdaewoon.magicjar.domain.strategy.EntryPolicy
+import kr.spdaewoon.magicjar.domain.strategy.EntryPolicySerde
 import kr.spdaewoon.magicjar.domain.strategy.PartialExit
 import kr.spdaewoon.magicjar.domain.strategy.ReentryTrigger
 import kr.spdaewoon.magicjar.domain.strategy.ScaleInPlan
@@ -70,6 +72,8 @@ object StrategyEntityMapper {
                 // ADR 0111 scale-in/partial-exit JSONB(V65) → 도메인 wiring (분할매수 R3-a).
                 scaleIn = deserializeScaleIn(entity.scaleInConfig, objectMapper),
                 partialExits = deserializePartialExits(entity.partialExits, objectMapper),
+                // ADR 0114 진입 정책 JSONB(V72) → 도메인 wiring (EntryPolicySerde 단일 codec).
+                entryPolicy = deserializeEntryPolicy(entity.entryPolicy, objectMapper),
             )
         val complexity =
             StrategyComplexity(
@@ -177,6 +181,24 @@ object StrategyEntityMapper {
                 priceDropPct = priceDropPct,
                 minSliceIntervalSec = minSliceIntervalSec,
             )
+        }.getOrNull()
+    }
+
+    /**
+     * `entry_policy` JSONB(V72) → [EntryPolicy] (ADR 0114 진입 집행 정책).
+     *
+     * [EntryPolicySerde]가 도메인 변환 단일 책임 — 본 mapper는 JSON String → Map 변환만 담당하고 codec에 위임한다.
+     * 역직렬화·init 범위 검증 실패 시 null 흡수(현행 = 전역 default MARKET 진입. `safe*` 패턴 정합).
+     */
+    private fun deserializeEntryPolicy(
+        value: String?,
+        objectMapper: ObjectMapper,
+    ): EntryPolicy? {
+        if (value.isNullOrBlank()) return null
+        return runCatching {
+            @Suppress("UNCHECKED_CAST")
+            val map = objectMapper.readValue(value, Map::class.java) as Map<String, Any?>
+            EntryPolicySerde.fromMap(map)
         }.getOrNull()
     }
 

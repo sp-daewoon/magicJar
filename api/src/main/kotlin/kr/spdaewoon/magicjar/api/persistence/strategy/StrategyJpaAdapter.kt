@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.api.persistence.strategy
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.strategy.EntryPolicySerde
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
 import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
@@ -99,6 +100,12 @@ class StrategyJpaAdapter(
             scaleInConfig = strategy.definition.scaleIn?.let { objectMapper.writeValueAsString(it) },
             partialExits =
                 strategy.definition.partialExits
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { objectMapper.writeValueAsString(it) },
+            // ADR 0114 진입 정책 도메인 → JSONB(V72) (EntryPolicySerde 단일 codec). 모든 필드 null이면 컬럼 미기록(현행 = 전역 default).
+            entryPolicy =
+                strategy.definition.entryPolicy
+                    ?.let { EntryPolicySerde.toMap(it) }
                     ?.takeIf { it.isNotEmpty() }
                     ?.let { objectMapper.writeValueAsString(it) },
             astDepth = strategy.complexity.astDepth,

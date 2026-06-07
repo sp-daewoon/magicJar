@@ -3,6 +3,8 @@ package kr.spdaewoon.magicjar.api.strategy
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyEntityMapper
 import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyJpaEntity
+import kr.spdaewoon.magicjar.domain.strategy.EntryPolicy
+import kr.spdaewoon.magicjar.domain.strategy.EntryPolicySerde
 import kr.spdaewoon.magicjar.domain.strategy.PartialExit
 import kr.spdaewoon.magicjar.domain.strategy.ReentryTrigger
 import kr.spdaewoon.magicjar.domain.strategy.ScaleInPlan
@@ -24,6 +26,7 @@ class StrategyScaleInExitMappingTest {
     private fun entity(
         scaleInConfig: String? = null,
         partialExits: String? = null,
+        entryPolicy: String? = null,
     ) = StrategyJpaEntity(
         id = 1L,
         userId = 1L,
@@ -33,6 +36,7 @@ class StrategyScaleInExitMappingTest {
         dslExit = null,
         scaleInConfig = scaleInConfig,
         partialExits = partialExits,
+        entryPolicy = entryPolicy,
     )
 
     @Test
@@ -109,5 +113,50 @@ class StrategyScaleInExitMappingTest {
         val exitsJson = objectMapper.writeValueAsString(exits)
         val restoredExits = StrategyEntityMapper.toDomain(entity(partialExits = exitsJson), objectMapper).definition.partialExits
         assertThat(restoredExits).isEqualTo(exits)
+    }
+
+    // === ADR 0114 — entry_policy JSONB(V72) round-trip ===
+
+    @Test
+    fun `entry_policy JSONB를 EntryPolicy로 역직렬화한다`() {
+        val json = """{"maxEntrySlippagePct":"0.25","entryTimeoutSec":20,"maxSpreadPct":"0.4"}"""
+        val entryPolicy = StrategyEntityMapper.toDomain(entity(entryPolicy = json), objectMapper).definition.entryPolicy
+
+        assertThat(entryPolicy).isNotNull
+        assertThat(entryPolicy!!.maxEntrySlippagePct).isEqualByComparingTo("0.25")
+        assertThat(entryPolicy.entryTimeoutSec).isEqualTo(20)
+        assertThat(entryPolicy.maxSpreadPct).isEqualByComparingTo("0.4")
+    }
+
+    @Test
+    fun `entry_policy null이면 현행 전역 default 진입 (하위호환 LOCK)`() {
+        val strategy = StrategyEntityMapper.toDomain(entity(), objectMapper)
+        assertThat(strategy.definition.entryPolicy).isNull()
+    }
+
+    @Test
+    fun `EntryPolicySerde toMap 직렬화 → 매퍼 역직렬화 round-trip 동치`() {
+        // 어댑터 save 경로(EntryPolicySerde.toMap → JSON) → load 경로(매퍼 fromMap) 계약 고정.
+        val policy = EntryPolicy(maxEntrySlippagePct = BigDecimal("0.2"), entryTimeoutSec = 15, maxSpreadPct = BigDecimal("0.3"))
+        val json = objectMapper.writeValueAsString(EntryPolicySerde.toMap(policy))
+        val restored = StrategyEntityMapper.toDomain(entity(entryPolicy = json), objectMapper).definition.entryPolicy
+        assertThat(restored).isEqualTo(policy)
+    }
+
+    @Test
+    fun `entry_policy 부분 override(maxSpreadPct만) round-trip`() {
+        val policy = EntryPolicy(maxSpreadPct = BigDecimal("0.6"))
+        val json = objectMapper.writeValueAsString(EntryPolicySerde.toMap(policy))
+        val restored = StrategyEntityMapper.toDomain(entity(entryPolicy = json), objectMapper).definition.entryPolicy
+        assertThat(restored).isEqualTo(policy)
+        assertThat(restored!!.maxEntrySlippagePct).isNull()
+    }
+
+    @Test
+    fun `invalid entry_policy(슬리피지 cap 위반)는 null 흡수해 조회를 down 시키지 않는다`() {
+        // maxEntrySlippagePct=99 → EntryPolicy init sanity cap(<=5) 위반 → null 흡수(safe* 패턴).
+        val json = """{"maxEntrySlippagePct":99}"""
+        val entryPolicy = StrategyEntityMapper.toDomain(entity(entryPolicy = json), objectMapper).definition.entryPolicy
+        assertThat(entryPolicy).isNull()
     }
 }

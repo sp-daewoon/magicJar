@@ -72,6 +72,15 @@ class ConsumerOrderRequestRepositoryAdapter(
             .findByStatusAndRequestedAtBefore(status, cutoff, PageRequest.of(0, limit))
             .map { toDomain(it) }
 
+    @Transactional(readOnly = true)
+    override fun findOpenBuyLimitBefore(
+        cutoff: Instant,
+        limit: Int,
+    ): List<OrderRequest> =
+        jpa
+            .findOpenBuyLimitBefore(cutoff, PageRequest.of(0, limit))
+            .map { toDomain(it) }
+
     @Transactional
     override fun updateStatus(
         id: Long,

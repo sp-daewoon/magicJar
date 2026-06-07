@@ -4,12 +4,14 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.domain.order.event.OrderEventOutbox
 import kr.spdaewoon.magicjar.domain.order.event.OrderOutboxEventType
 import kr.spdaewoon.magicjar.domain.order.event.port.OrderEventOutboxRepository
+import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.signal.Signal
 import kr.spdaewoon.magicjar.persistence.shared.metric.PersistenceMetrics
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Component
+import java.math.BigDecimal
 import java.util.concurrent.TimeUnit
 
 /**
@@ -46,14 +48,26 @@ class OrderIntentKafkaProducer(
         private const val KAFKA_SEND_TIMEOUT_SECONDS = 5L
     }
 
+    /**
+     * order.intent.v1 발행.
+     *
+     * ADR 0114 §3-1 — 진입(BUY)이 marketable limit이면 [priceType] = [OrderPriceType.LIMIT] + [limitPrice]를 전달한다.
+     * SELL·미산정(현행)은 default([OrderPriceType.MARKET]·null) 유지(하위호환 LOCK — 손절은 §3-3 MARKET 정합).
+     *
+     * @param priceType 주문 가격 유형(default MARKET — 현행 동작 보존).
+     * @param limitPrice LIMIT 시 not null(MARKET이면 무시 — null 권장).
+     */
     fun publish(
         signal: Signal,
         quantity: Int = 1,
+        priceType: OrderPriceType = OrderPriceType.MARKET,
+        limitPrice: BigDecimal? = null,
     ) {
         val now =
             java.time.Instant
                 .now()
                 .epochSecond
+        val effectiveLimitPrice = limitPrice?.takeIf { priceType == OrderPriceType.LIMIT }
         val payload =
             try {
                 objectMapper.writeValueAsString(
@@ -67,9 +81,9 @@ class OrderIntentKafkaProducer(
                         "side" to signal.side.name,
                         "strength" to signal.strength,
                         "priceAtSignal" to signal.priceAtSignal.toPlainString(),
-                        "priceType" to "MARKET",
+                        "priceType" to priceType.name,
                         "quantity" to quantity,
-                        "limitPrice" to null,
+                        "limitPrice" to effectiveLimitPrice?.toPlainString(),
                         "idempotencyKey" to "${signal.id}:${signal.userId}",
                         "source" to "AUTO",
                         "riskVerdict" to "ALLOWED",
@@ -128,13 +142,15 @@ class OrderIntentKafkaProducer(
                 .getIfAvailable()
                 ?.recordSignalToOrderLatency(signal.ts.epochSeconds, now)
             log.debug(
-                "OrderIntentKafkaProducer publish: topic={} userId={} signalId={} code={} side={} quantity={}",
+                "OrderIntentKafkaProducer publish: topic={} userId={} signalId={} code={} side={} quantity={} priceType={} limitPrice={}",
                 TOPIC,
                 signal.userId,
                 signal.id,
                 signal.code,
                 signal.side,
                 quantity,
+                priceType,
+                effectiveLimitPrice,
             )
         } catch (e: Exception) {
             if (outboxId != null) {
