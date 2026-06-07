@@ -35,13 +35,15 @@ class PositionStopLossTickWatcherTest {
     private val cancelledProducer = mockk<OrderCancelledKafkaProducer>(relaxed = true)
     private val intentProducer = mockk<OrderIntentKafkaProducer>(relaxed = true)
 
+    // 실제 공용 컴포넌트를 그대로 사용(DRY — listener와 동일 취소 경로 검증). cancel 검증은 wrapped kisOrderPort로 유지.
+    private val restingSellOrderCanceller = RestingSellOrderCanceller(kisOrderPort, cancelledProducer)
+
     private fun watcher(enabled: Boolean = true) =
         PositionStopLossTickWatcher(
             objectMapper = objectMapper,
             holdingPositionIndex = index,
             orderRequestRepositoryProvider = providerOf(orderRepo),
-            kisOrderPort = kisOrderPort,
-            orderCancelledKafkaProducer = cancelledProducer,
+            restingSellOrderCanceller = restingSellOrderCanceller,
             orderIntentKafkaProducer = intentProducer,
             enabled = enabled,
         )

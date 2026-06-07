@@ -1,6 +1,8 @@
 package kr.spdaewoon.magicjar.consumer.risk
 
+import kr.spdaewoon.magicjar.consumer.order.AutoOrderIdempotencyKeys
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
 import kr.spdaewoon.magicjar.domain.risk.RiskContext
 import kr.spdaewoon.magicjar.domain.risk.RiskGatewayResult
 import kr.spdaewoon.magicjar.domain.risk.RiskRule
@@ -304,10 +306,17 @@ class RiskGatewayEvaluator {
             ?: 0
 
     /**
-     * 미체결 SELL 예약 수량 (ADR 0110 §2-4).
+     * 미체결 SELL 예약 수량 (ADR 0110 §2-4 + 자본 path hotfix — "먼저 오는 쪽이 이긴다").
      *
      * - 전략 lot 기준 평가 시(`strategyPosition != null`) → **그 전략의** open SELL 만 합산(교차 차감 방지).
      * - null fallback → 기존 user+code 전체 open SELL 합산(하위호환).
+     *
+     * ## auto-tp/auto-sl 선주문 제외 (hotfix — 매도 시그널 무력화 방지)
+     * 우리가 건 `auto-tp:`/`auto-sl:` 같은 전략 AUTO 선주문은 매도 시그널/손절 발행 직전 [RestingSellOrderCanceller]가
+     * **선취소**해 수량을 풀어준다. 따라서 이 자가 관리 SELL은 예약 수량에서 제외해야 새 청산 시그널이 ALLOWED 된다
+     * (제외하지 않으면 익절 선주문이 보유 전량을 예약 → availableSell=0 → 매도 시그널이 SELL_QUANTITY_UNAVAILABLE로
+     * 무력화되던 결함). 실제 KIS 매도가능수량은 [SignalGeneratedKafkaListener.ensureKisHoldingIfSell] + KIS 자체가 보증.
+     * 수동(MANUAL)/타전략 open SELL은 그대로 합산(침범 금지 — 취소 대상 아님).
      */
     private fun reservedSellQuantity(
         signal: Signal,
@@ -317,8 +326,18 @@ class RiskGatewayEvaluator {
         return context.openOrders
             .filter { it.code == signal.code && it.side == OrderSide.SELL }
             .filter { !byStrategy || it.strategyId == signal.strategyId }
+            .filterNot { it.isCancellableAutoExit(signal.strategyId) }
             .sumOf { it.quantity }
     }
+
+    /** 같은 전략 AUTO 자가 관리 청산 선주문(auto-tp/auto-sl) — 발행 직전 우리가 취소하므로 예약 수량 제외 대상. */
+    private fun kr.spdaewoon.magicjar.domain.order.execution.OrderRequest.isCancellableAutoExit(signalStrategyId: Long): Boolean =
+        source == OrderSource.AUTO &&
+            strategyId == signalStrategyId &&
+            (
+                idempotencyKey.startsWith("${AutoOrderIdempotencyKeys.PREFIX_TAKE_PROFIT}:") ||
+                    idempotencyKey.startsWith("${AutoOrderIdempotencyKeys.PREFIX_STOP_LOSS}:")
+            )
 
     private data class PositionBudget(
         val absoluteLimit: BigDecimal,

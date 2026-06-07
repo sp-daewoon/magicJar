@@ -3,7 +3,9 @@ package kr.spdaewoon.magicjar.consumer.risk
 import com.fasterxml.jackson.databind.ObjectMapper
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import kr.spdaewoon.magicjar.consumer.order.AutoOrderIdempotencyKeys
 import kr.spdaewoon.magicjar.consumer.order.KisExecutionBackfillService
+import kr.spdaewoon.magicjar.consumer.order.RestingSellOrderCanceller
 import kr.spdaewoon.magicjar.domain.account.port.KisBalanceQueryPort
 import kr.spdaewoon.magicjar.domain.event.SystemEvent
 import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
@@ -11,6 +13,10 @@ import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
 import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
+import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
+import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import kr.spdaewoon.magicjar.domain.order.execution.port.KillSwitchQueryPort
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import kr.spdaewoon.magicjar.domain.position.port.StrategyPositionPort
@@ -93,6 +99,8 @@ class SignalGeneratedKafkaListener(
     private val executionBackfillServiceProvider: ObjectProvider<KisExecutionBackfillService>,
     // ADR 0114 §3-1 — BUY marketable limit 가격 산정 배선.
     private val entryOrderPriceResolver: EntryOrderPriceResolver,
+    // 자본 path hotfix — SELL 발행 전 resting auto-tp 선취소 공용 컴포넌트(watcher와 DRY 공유).
+    private val restingSellOrderCanceller: RestingSellOrderCanceller,
     // ADR 0114 §3-1 — 진입 스킵 audit(SIGNAL_SKIPPED_*) 발사 (audit_trail = system_event).
     private val systemEventLoggerProvider: ObjectProvider<SystemEventLogger>,
     @Value("\${magicjar.mode:MOCK}")
@@ -226,26 +234,79 @@ class SignalGeneratedKafkaListener(
      *
      * generator([RealtimeSignalGenerator.buildExitContextJson])가 `signal.contextJson`에 실은
      * `exitPriceType`(MARKET 손절 / LIMIT 익절) + `exitLimitPrice`를 읽어 분기한다.
-     * - 손절(MARKET)·contextJson 부재(하위호환·1m 외 경로) → 현행 MARKET 발행.
+     * - 손절(MARKET)·contextJson 부재(하위호환·1m 외 경로) → MARKET 발행.
      * - 익절(LIMIT) + limitPrice 유효 → LIMIT 발행.
      *
-     * ## 이중 발화 방지 (§5 — 체결 즉시 TP 선주문과의 관계)
-     * 익절 LIMIT은 [kr.spdaewoon.magicjar.consumer.order.AutoExitOrderCoordinator]가 BUY 체결 즉시 `auto-tp:` 키로
-     * 선주문할 수 있다. 1m 경로 익절 신호는 멱등 키(`{signalId}:{userId}`)가 달라 OrderRouter에서 별도로 보이나,
-     * 같은 종목 open SELL이 이미 있으면 KIS_HOLDING_QTY 가드/체결로 자연 수렴한다(중복 SELL은 잔고 가드가 차단).
+     * ## resting 익절 선주문 선취소 — "먼저 오는 쪽이 이긴다" (자본 path hotfix · ADR 0114 §5 보강)
+     * [kr.spdaewoon.magicjar.consumer.order.AutoExitOrderCoordinator]가 BUY 체결 즉시 `auto-tp:` 키로 걸어둔
+     * 익절 LIMIT 선주문이 KIS에서 **보유 수량을 잠근다**. 그 상태에서 DSL 매도/손절 SELL을 그대로 발행하면 KIS가
+     * "매도가능수량 부족"으로 거부 → 매도 시그널이 무력화된다(과거 주석의 "잔고 가드로 자연 수렴"은 잘못된 가정).
+     * 매도 시그널·손절은 **먼저 와서 청산을 의도한 쪽**이므로, 발행 전 같은 종목 resting auto SELL을 **선취소**한다
+     * ([RestingSellOrderCanceller] — [kr.spdaewoon.magicjar.consumer.order.PositionStopLossTickWatcher]와 공용 컴포넌트로 DRY).
+     * - 수동(MANUAL)/타전략 open SELL 존재 → fail-closed(발행 중단 — 사용자 수동 주문 침범 금지).
+     * - KIS ACK 미확정 → 보류(발행 중단, 다음 시그널 재평가).
+     * - 취소 성공/open SELL 없음 → 발행 진행.
+     *
+     * ## 예외 — 자기 자신이 익절 LIMIT 재발행이면 정합 시 skip (coordinator ALREADY_ALIGNED 정합)
+     * 이번 SELL 자체가 익절 LIMIT(exitPriceType=LIMIT) 경로면, 동일가·동일수량 `auto-tp:` open SELL이 이미 있으면
+     * 취소 없이 **발행 skip**(중복 회피). 다르면 취소 후 재발행.
      */
     private fun publishSell(
         signal: Signal,
         quantity: Int,
     ) {
         val exit = parseExitContext(signal.contextJson)
-        if (exit != null && exit.priceType == OrderPriceType.LIMIT && exit.limitPrice != null && exit.limitPrice > BigDecimal.ZERO) {
+        val isTakeProfitLimit =
+            exit != null && exit.priceType == OrderPriceType.LIMIT && exit.limitPrice != null && exit.limitPrice > BigDecimal.ZERO
+
+        val orderRepo = orderRequestRepositoryProvider.getIfAvailable()
+        if (orderRepo == null) {
+            // fail-closed — resting SELL 검사 불가 시 SELL 발행 보류(이중 SELL·수량 잠금 충돌 회피).
+            log.error(
+                "SELL 발행 보류 (fail-closed): OrderRequestRepository 미합류 — resting SELL 검사 불가 signalId={} code={}",
+                signal.id,
+                signal.code,
+            )
+            return
+        }
+
+        // 익절 LIMIT 재발행 경로 — 동일가·동일수량 auto-tp가 이미 있으면 발행 skip(중복 회피).
+        if (isTakeProfitLimit && hasAlignedTakeProfit(orderRepo, signal, quantity, exit!!.limitPrice!!)) {
+            log.info(
+                "SELL 익절 LIMIT skip (이미 정합 auto-tp open): signalId={} code={} qty={} limitPrice={}",
+                signal.id,
+                signal.code,
+                quantity,
+                exit.limitPrice,
+            )
+            return
+        }
+
+        // resting auto SELL(익절 TP 등) 선취소 — 발행 가능해야 진행("먼저 오는 쪽이 이긴다").
+        val cancelResult =
+            restingSellOrderCanceller.cancelRestingSells(
+                orderRepo = orderRepo,
+                userId = signal.userId,
+                strategyId = signal.strategyId,
+                code = signal.code,
+            )
+        if (!cancelResult.canProceed) {
+            log.warn(
+                "SELL 발행 보류: resting SELL 선취소 미완료 signalId={} code={} result={}",
+                signal.id,
+                signal.code,
+                cancelResult::class.simpleName,
+            )
+            return
+        }
+
+        if (isTakeProfitLimit) {
             log.info(
                 "SELL 익절 LIMIT 발행: signalId={} code={} qty={} limitPrice={}",
                 signal.id,
                 signal.code,
                 quantity,
-                exit.limitPrice,
+                exit!!.limitPrice,
             )
             orderIntentKafkaProducer.publish(signal, quantity, OrderPriceType.LIMIT, exit.limitPrice)
             return
@@ -253,6 +314,35 @@ class SignalGeneratedKafkaListener(
         // 손절(MARKET) 또는 exit 정보 부재 — 체결 확실성 우선 MARKET(§3-3).
         orderIntentKafkaProducer.publish(signal, quantity, OrderPriceType.MARKET, null)
     }
+
+    /**
+     * 이번 익절 LIMIT 재발행과 동일가·동일수량 `auto-tp:` open SELL이 이미 존재하는가
+     * ([kr.spdaewoon.magicjar.consumer.order.AutoExitOrderCoordinator]의 ALREADY_ALIGNED 의미 정합 — 단일 정합 1건만 skip 대상).
+     */
+    private fun hasAlignedTakeProfit(
+        orderRepo: OrderRequestRepository,
+        signal: Signal,
+        quantity: Int,
+        limitPrice: BigDecimal,
+    ): Boolean {
+        val openTakeProfits =
+            orderRepo
+                .findOpenByUserId(signal.userId)
+                .filter { it.isOpenAutoTakeProfitFor(signal.code, signal.strategyId) }
+        return openTakeProfits.size == 1 &&
+            openTakeProfits.single().let { it.quantity == quantity && it.limitPrice?.compareTo(limitPrice) == 0 }
+    }
+
+    private fun OrderRequest.isOpenAutoTakeProfitFor(
+        code: String,
+        strategyId: Long,
+    ): Boolean =
+        this.code == code &&
+            this.strategyId == strategyId &&
+            side == OrderSide.SELL &&
+            source == OrderSource.AUTO &&
+            idempotencyKey.startsWith("${AutoOrderIdempotencyKeys.PREFIX_TAKE_PROFIT}:") &&
+            status in OPEN_STATUSES
 
     private data class SellExit(
         val priceType: OrderPriceType,
@@ -784,4 +874,9 @@ class SignalGeneratedKafkaListener(
     private class RealRiskContextUnavailableException(
         val reasonCode: String,
     ) : RuntimeException(reasonCode)
+
+    private companion object {
+        val OPEN_STATUSES =
+            setOf(OrderStatus.REQUESTED, OrderStatus.ACK, OrderStatus.PARTIALLY_FILLED, OrderStatus.PENDING_RECONCILE)
+    }
 }
