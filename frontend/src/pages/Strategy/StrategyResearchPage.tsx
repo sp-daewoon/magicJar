@@ -33,6 +33,7 @@ import {
   storeStrategyResearchDraft,
 } from '../../lib/strategyResearch/builderDraft'
 import { useOnboardingStore } from '../../stores/onboarding'
+import { useModalBehavior } from '../../hooks/useModalBehavior'
 
 const DEFAULT_FROM_KST = '2026-04-28T09:00'
 const DEFAULT_TO_KST = '2026-06-02T15:30'
@@ -134,6 +135,12 @@ export function StrategyResearchPage() {
     done: number
     failed: { code: string; name: string; error?: string }[]
   } | null>(null)
+
+  // 3종 팝업 공용 동작 — ESC 닫기 + body scroll lock (사용자 보고 진원지: 프리셋 설정·AI 추천·프롬프트 보기)
+  // AI 추천 모달은 닫아도 mutation은 백그라운드 지속 — 기존 닫기 버튼과 동일 동작.
+  useModalBehavior({ open: promptPreviewOpen, onClose: () => setPromptPreviewOpen(false) })
+  useModalBehavior({ open: presetSettingsOpen, onClose: () => setPresetSettingsOpen(false) })
+  useModalBehavior({ open: recommendOpen, onClose: () => setRecommendOpen(false) })
 
   const mutation = useMutation<StrategyResearchReportDto, unknown, StrategyResearchRequestDto>({
     mutationFn: strategyResearchApi.propose,

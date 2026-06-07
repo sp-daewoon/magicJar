@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useModalBehavior } from '../../hooks/useModalBehavior'
 import type { SmartMoneyStrategyPreset } from '../../lib/dsl/smartMoneyPresets'
 
 interface StrategyFavoritePanelProps {
@@ -17,6 +18,9 @@ export function StrategyFavoritePanel({
   onRemove,
 }: StrategyFavoritePanelProps) {
   const [showGuide, setShowGuide] = useState(false)
+
+  // ESC 닫기 + body scroll lock (가이드 모달 표시 중에만)
+  useModalBehavior({ open: showGuide, onClose: () => setShowGuide(false) })
 
   return (
     <section className="p-2" aria-label="전략 즐겨찾기">

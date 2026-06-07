@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { usePaletteResize } from '../../hooks/usePaletteResize'
+import { useModalBehavior } from '../../hooks/useModalBehavior'
 import { BlockPalette } from '../../components/strategy/BlockPalette'
 import { StrategyBuilderCanvas } from '../../components/strategy/StrategyBuilderCanvas'
 import { ComplexityCard } from '../../components/strategy/ComplexityCard'
@@ -186,6 +187,10 @@ export function StrategyBuilderPage() {
   const [showScreener, setShowScreener] = useState(false)
   // Canvas 탭 state — BlockPalette 클릭 흐름 정합 (hotfix 2026-05-14)
   const [canvasTab, setCanvasTab] = useState<'entry' | 'exit'>('entry')
+
+  // DSL 직접 편집 모달 — ESC 닫기 + body scroll lock (공용 훅)
+  // SaveModal·NaturalLanguageInput·ScreenerResultModal 은 각 컴포넌트 내부에서 훅 적용.
+  useModalBehavior({ open: showDslEditor, onClose: () => setShowDslEditor(false) })
 
   // userId: onboarding store (feedback_no_mock_data 정합)
   const registeredUserId = useOnboardingStore((s) => s.registeredUserId)

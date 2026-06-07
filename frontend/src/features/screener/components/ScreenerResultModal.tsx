@@ -14,6 +14,7 @@
  * userId 누락 시 setup 안내 graceful (feedback_no_mock_data 정합).
  */
 import { useEffect, useState } from 'react'
+import { useModalBehavior } from '../../../hooks/useModalBehavior'
 import { useScreenerEvaluate } from '../hooks/useScreenerEvaluate'
 import { useBulkAddWatchlist } from '../hooks/useBulkAddWatchlist'
 import { ScreenerMatchTable } from './ScreenerMatchTable'
@@ -140,23 +141,8 @@ export function ScreenerResultModal({ strategyId, userId, onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [strategyId, userId, basisInterval])
 
-  // Esc 닫기 (SettingsModal 패턴 정합)
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
-
-  // body scroll lock
-  useEffect(() => {
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.body.style.overflow = prev
-    }
-  }, [])
+  // Esc 닫기 + body scroll lock (공용 훅 — useModalBehavior)
+  useModalBehavior({ open: true, onClose })
 
   function handleOverlayClick(e: React.MouseEvent<HTMLDivElement>) {
     if (e.target === e.currentTarget) onClose()

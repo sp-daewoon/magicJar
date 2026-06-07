@@ -14,6 +14,7 @@
  * AI 호출 0 — 룰 5 (W3 LLM provider import 0건).
  */
 import { useEffect, useState } from 'react'
+import { useModalBehavior } from '../../hooks/useModalBehavior'
 import type { OrderSide, OrderPriceType, TradingMode } from '../../api/order'
 
 export interface OrderPreviewModalProps {
@@ -87,15 +88,8 @@ export function OrderPreviewModal(props: OrderPreviewModalProps) {
     }
   }, [open])
 
-  // ESC 키로 닫기
-  useEffect(() => {
-    if (!open) return
-    function handleEsc(e: KeyboardEvent) {
-      if (e.key === 'Escape') onCancel()
-    }
-    document.addEventListener('keydown', handleEsc)
-    return () => document.removeEventListener('keydown', handleEsc)
-  }, [open, onCancel])
+  // ESC 닫기 + body scroll lock (공용 훅 — open=false면 비활성)
+  useModalBehavior({ open, onClose: onCancel })
 
   if (!open) return null
 

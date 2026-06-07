@@ -653,6 +653,29 @@ describe('StrategyResearchPage', () => {
     expect(coreTextarea).not.toHaveValue('기본 Core Wrapper 지시문')
   })
 
+  it('프리셋 설정 팝업을 ESC로 닫는다 (useModalBehavior 공용 훅 — 2026-06-07 모달 UX 통일)', async () => {
+    const user = userEvent.setup()
+    act(() => {
+      useOnboardingStore.setState({ registeredUserId: 74683223 })
+    })
+
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: '프리셋 설정' }))
+    const dialog = await screen.findByRole('dialog', { name: 'AI 종목발굴 프리셋 설정' })
+    expect(dialog).toBeInTheDocument()
+    // 팝업 열림 동안 배경 스크롤 잠금
+    expect(document.body.style.overflow).toBe('hidden')
+
+    await user.keyboard('{Escape}')
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'AI 종목발굴 프리셋 설정' })).not.toBeInTheDocument(),
+    )
+    // 닫힌 뒤 스크롤 잠금 해제
+    expect(document.body.style.overflow).toBe('')
+  })
+
   it('Core Wrapper를 빈 값으로 저장하면 클라이언트에서 차단한다', async () => {
     const user = userEvent.setup()
     act(() => {
