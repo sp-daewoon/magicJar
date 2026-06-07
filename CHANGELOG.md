@@ -5,7 +5,7 @@
 
 | 2026-06-07 | **chore(meta): PR-5 v3.12.0 baseline 폴더 신설 + sub-agent 슬롯 4 anchor 발행** — `_workspace/baseline/v3.12.0/` 폴더 신설(README skeleton + 7 파일 인덱스). CHANGELOG sub-agent 슬롯 4 anchor(architect/backend-core/market-data/frontend). 4 sub-agent 병렬 디스패치 add-only LOCK. (orchestrator) | meta/baseline | PR-5 v3.12.0 baseline 슬롯 발행 |
 <!-- pr-5-slot-orchestrator -->
-| 2026-05-?? | **TBD — PR-5 architect: 01-architecture + 06-history + 07-policy + README** | baseline/v3.12.0 | PR-5 architect 4 파일 |
+| 2026-06-07 | **docs(architect): PR-5 v3.12.0 baseline — README + 01-architecture + 06-history-traceability + 07-policy-evolution** — 실매매(REAL canary) 진입 직전 자본 path 완성 baseline 본문화. v3.9.0(W4 마감) → v3.10.0(캔들/오더블럭 스크리닝) → v3.10.1(RiskPlan·reconciliation patch) → v3.11.0(Scenario Replay) → v3.12.0 증분 갱신. ADR 0109(canary hard cap ENV 3종·RiskConfig 독립 운영 안전선)·0110(strategy_position 전략별 lot ledger V64·SELL 2룰 분기)·0111(scale-in/평단 stop·take·분할 익절 V65·ScaleInExitCalculator 순수 함수)·0112(AI 종목발굴 Claude CLI bridge V67·V70·V71·V74·API key 없이 claude -p)·0113(캔들 retention 케이스 분석 Proposed 보류·V69 중복 인덱스 drop)·0114(주문 집행 marketable limit·미체결 취소·시장가 전환 금지·청산 "항상" 보장 P1~P4 게이트 분화·EntryPricePolicy·HOLDING owner V72·V73) 본문화. Flyway V64~V74 매트릭스(실 파일 권위·ADR 본문 V65 표기 → V64로 당김 정합) + 자본 path chain 정밀화 + KIS 서버 스탑로스 부재(KIS-first raw)·backup/DR 실증(pg-restore 임시 DB candle 254만 row row-level 일치)·AI 4종 CLI 통일·잔익절 방어 min_hold_bars 정책 어필. 운영 코드 0 touch(md only). | baseline/v3.12.0 | PR-5 architect 4 파일 |
 <!-- pr-5-slot-architect -->
 | 2026-05-?? | **TBD — PR-5 backend-core: 02-data-flow + 04-feature-spec** | baseline/v3.12.0 | PR-5 backend-core 2 파일 |
 <!-- pr-5-slot-backend-core -->

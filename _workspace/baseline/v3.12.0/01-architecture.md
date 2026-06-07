@@ -1,0 +1,337 @@
+# 01 — magicJar v3.12.0 아키텍처 (시각화)
+
+> **작성자**: architect (baseline v3.12.0)
+> **시점**: 2026-06-07 v3.12.0 태그 컷 직후 (release commit `<TBD>`)
+> **권위**: `docs/architecture/master-architecture.md` v2 §5·§6 + ADR 0002·0004·0005·0006·0007·0023·0026·0028·0029·0030·0037·0042·0043·0048·0056·0066·0067·0068·0080·0083·0088·0092·0094·0095·0096·0102·0105·0106·0107 + **0109·0110·0111·0112·0113·0114** + v3.12.0 시점 코드 inspection 결과
+
+본 문서는 v3.12.0 시점 magicJar 시스템의 **시각화 가능 수준 그림**이다. SoT는 `docs/architecture/master-architecture.md`이며, 본 문서는 그 하위 구체화 — v3.12.0 시점 실체(현재 발행된 컨테이너·테이블·KIS endpoint·Kafka topic·STOMP 토픽·9 JVM 모듈·7 sub-agent hierarchy·운영 헌법 §9·§10 LOCK·**실매매 직전 자본 path 완성 — ADR 0109~0114**)만 인용한다. v1/v2 잔재 0건.
+
+**v3.9.0 → v3.12.0 핵심 변경 (실매매 직전 자본 path 완성)**:
+
+- **REAL canary hard cap (ADR 0109)** — ENV 3종(`MAGICJAR_CANARY_MAX_ORDER_QTY`·`_MAX_ORDER_NOTIONAL_KRW`·`_MAX_ORDERS_PER_DAY`)을 OrderRouter에서 RiskConfig와 독립 강제. fail-open. Flyway·Kafka·Redis·STOMP·REST 신설 0(ENV add-only).
+- **전략별 포지션 귀속 (ADR 0110 — Flyway V64 `strategy_position`)** — `UNIQUE(user_id, strategy_id, code)` lot ledger 신설. `position`(KIS 잔고 권위) 유지 + 그 아래 전략별 평단/lot 추적. `StrategyPositionPort`(domain) + `StrategyPositionJpaEntity`(consumer) + `StrategyPositionReadJpaEntity`(api read). 불변식 drift 시 KIS 권위 우선.
+- **RiskPlan scale-in / 평단 exit (ADR 0111 — Flyway V65 `strategy_scale_in_exit`)** — `ScaleInPlan` + `PartialExit` + `ScaleInExitCalculator`(strategy-engine 순수 함수 — live·리플레이·백테스트 공유). stop-loss exit 신규. 하위호환(null=현행).
+- **주문 집행 정책 + 청산 "항상" 보장 (ADR 0114 — Flyway V72 `entry_policy` + V73 `min_hold_bars`)** — 진입 marketable limit(`EntryPricePolicy` domain 순수 계산기) + 스프레드 게이트 + 미체결 취소. 청산 게이트 분화 P1~P4 + `RealtimeDemandOwner.HOLDING` 신설(`RealtimeSubscriptionRouter` evict 절대 금지) + `HoldingPositionIndex` + `HoldingDemandRegistrar` + `AutoExitOrderCoordinator`.
+- **AI 종목발굴 Claude CLI bridge (ADR 0112 — Flyway V67·V70·V71)** — `StrategyResearchAiDiscoveryService` + `StrategyResearchAiTextClient`(`claude -p` 직접 또는 bridge) + `scripts/claude-discovery-bridge.mjs`. AI 4종 Claude CLI 통일(`ClaudeCliCommentAdapter` consumer).
+- **캔들 retention 케이스 분석 (ADR 0113 — Proposed 보류)** — V69 중복 인덱스 drop만 즉시 집행. source 전략(ADR 0062) 재확인.
+- **Flyway 누적**: V52 → V74 (+22).
+
+---
+
+## §1. 시스템 전경 (9 JVM 모듈 + frontend + docker + 외부 + 인프라 3 + 자본 path 완성 ADR 0109~0114)
+
+```mermaid
+graph TD
+    subgraph EXTERNAL["외부 통합 (옵션 + fallback)"]
+        KISREST["KIS REST<br/>openapi.koreainvestment.com:9443 (real)<br/>openapivts.koreainvestment.com:29443 (vps)<br/>order-cash · order-rvsecncl(TTTC0013U/VTTC0013U 취소) · inquire-balance<br/>· inquire-daily-itemchartprice · inquire-ccld<br/>+ Bucket4j-Redis 단일 bucket LOCK (ADR 0037)"]
+        KISREST_QUOTE["KIS REST 호가 (ADR 0114 §10-3 R2 검토)<br/>inquire-asking-price FHKST01010200<br/>(marketable limit 진입 시점 동기 호가 — 신설 후보)"]
+        KISWS["KIS WebSocket<br/>wss://ops.koreainvestment.com:21000<br/>H0STCNT0 체결가 + H0STASP0 호가<br/>+ H0STCNI0/H0STCNI9 체결통보 (T-O)<br/>+ AES-256-CBC 복호화"]
+        KISINDEX["KIS REST Index/Overseas (v3.9.0 — T-MARKET ADR 0100)<br/>inquire-index-price · price(overseas)"]
+        KISMASTER["KIS 종목마스터 ZIP<br/>new.real.download.dws.co.kr"]
+        DART["DART OPENDART<br/>opendart.fss.or.kr (T-NEWS)"]
+        NAVER["Naver Open API<br/>openapi.naver.com (T-NEWS)"]
+        CLAUDECLI["Claude CLI (ADR 0112 — v3.12.0)<br/>claude -p (host 직접 실행)<br/>+ scripts/claude-discovery-bridge.mjs (Docker dev bridge :8787)<br/>+ AI API key 없이 — provider=claude-cli/claude-cli-bridge"]
+    end
+
+    subgraph FRONTEND["frontend (React 19 + Vite + Tailwind + LWC v4 — pnpm)"]
+        FE_DASH["/<br/>DashboardPage<br/>+ AccountSummary + Holdings + Balance + MarketIndexStrip"]
+        FE_SYM["/symbol/:code<br/>+ STOMP boundary + LWC chart<br/>+ AiCard 진입점 (Claude CLI)"]
+        FE_SB["/strategy/builder<br/>+ ScreenerResultModal<br/>+ RiskPlan 설정 (scale-in·손절·익절·entry 정책)"]
+        FE_RESEARCH["/strategy/research (ADR 0112 — v3.12.0)<br/>+ AI 종목발굴 패널 상단<br/>+ 자연어 조건·시장·후보 수 입력<br/>+ matched/unmatched 후보 카드<br/>+ matched만 form/chart 이동"]
+        FE_BT["/strategy/backtest<br/>+ multi-symbol universe (V68)"]
+        FE_RC["/risk-config"]
+        FE_POS["/positions"]
+        FE_ORD["/orders + /orders/new (T-MAN)"]
+        FE_JNL["/journal"]
+        FE_QA_SIM["/qa/scenario-replay (T-SIM v3.11.0)<br/>+ 가상 주문/체결/거절 — 실주문 분리"]
+        FE_SET["SettingsModal<br/>+ KIS 키 + KillSwitch + RealTradingConsent 이중 confirm<br/>+ canary hard cap ENV 가이드 (runbook)"]
+    end
+
+    subgraph API["api (Spring Boot 3.3 / 8080)"]
+        API_REST["REST controllers (Account·Order·Screener·Journal·Performance·News·ManualOrder·Market·Mcp ...)"]
+        API_RESEARCH["StrategyResearchAiDiscoveryService (ADR 0112)<br/>+ POST /api/strategy-research/ai-discovery<br/>+ StrategyResearchAiTextClient (claude -p 직접 또는 bridge)<br/>+ instrument master code/name/market 매핑<br/>+ ai_discovery_state(V67)·preset(V70)·core_prompt(V71) 영속"]
+        API_STRATEGY["Strategy CRUD + RiskPlan<br/>+ scale_in_config·partial_exits(V65)<br/>+ entry_policy(V72)·min_hold_bars(V73)<br/>+ EntryPolicySerde"]
+        API_POS_READ["StrategyPositionReadJpaRepository (ADR 0110)<br/>+ 전략별 포지션 read view"]
+        API_FLY["Flyway V1~V74 적용기<br/>(v3.12.0: V64~V74 +11 · JpaScanConfiguration 화이트리스트 LOCK ADR 0103)"]
+        API_SCENARIO["Scenario Replay API (T-SIM v3.11.0)<br/>+ scenario_* 분리 (live 주문 경로 차단)"]
+        API_KIS["KisTokenService + KisRateLimiterPort + ReconcileService"]
+    end
+
+    subgraph BATCH["batch (Spring Batch / 8081)"]
+        B_INSTR["InstrumentSyncJob + InstrumentMasterRefreshJob (NXT resolver)"]
+        B_PERF["DailyPerformanceJob + DailyScreenerJob"]
+        B_MARKET["MarketIndexSyncJob + MarketIndexDailyCloseJob (T-MARKET)"]
+        B_CANDLE["캔들 backfill (1m 수집 → 합산 ADR 0062)<br/>+ V69 중복 인덱스 drop 정합 (ADR 0113)"]
+    end
+
+    subgraph CONSUMER["consumer (Kafka + KIS WS / 8082)"]
+        C_KIS_WS["KisWebSocketBridge<br/>H0STCNT0 + H0STASP0 + H0STCNI0/H0STCNI9<br/>+ AES-256-CBC 복호화"]
+        C_SUBROUTER["RealtimeSubscriptionRouter (ADR 0114 §4-3 P3)<br/>+ owner enum: DETAIL·STRATEGY·**HOLDING(신규)**<br/>+ HOLDING evict 절대 금지 (findEvictionCandidateLocked 제외)<br/>+ 41 slot 경합에서도 보유 종목 구독 유지"]
+        C_HOLDING["HoldingPositionIndex + HoldingDemandRegistrar (ADR 0114 P3)<br/>+ 체결 시 HOLDING owner 자동 등록<br/>+ 전량 청산 시 demand·인덱스 해제"]
+        C_SIG["RealtimeSignalGenerator (T-SIG ADR 0066)<br/>+ P1 readiness BUY 한정 fail-closed (SELL 현재가 가용 시 진행)<br/>+ P2 position-driven 청산 (전략 status 무관)<br/>+ P4 market-hours-gate.sell-enabled<br/>+ min_hold_bars DSL SELL 가드 (V73)<br/>+ ScaleInExitCalculator 호출 (StopLoss/PartialTP/TakeProfit)"]
+        C_ENTRY["EntryPricePolicy 호출 (ADR 0114 §3·§6)<br/>+ marketable limit 산정 (ask1 ≤ cap)<br/>+ 스프레드 게이트 + 호가 미가용 스킵<br/>+ OrderIntent priceType=LIMIT/limitPrice 발행"]
+        C_RISK["RiskGateway (T-RISK ADR 0067)<br/>+ SELL 2룰 strategy_position 분기 (ADR 0110)<br/>+ KillSwitch fail-closed (ADR 0098)"]
+        C_ORDER["OrderRouterKafkaListener (T-O ADR 0068)<br/>+ 12 step LOCK (자본 path 단일)<br/>+ **CanaryHardCap 게이트 (ADR 0109)** Step 3~5 사이<br/>+ strategy_position upsert (ADR 0110)<br/>+ ExecutionPositionUpdatePort (ADR 0097)"]
+        C_EXIT["AutoExitOrderCoordinator (ADR 0114)<br/>+ 손절 MARKET / 익절 LIMIT 발행<br/>+ 체결 시 HOLDING 등록 / 전량 청산 시 해제"]
+        C_AI["ClaudeCliCommentAdapter (ADR 0112 — AI 4종 통일)<br/>+ 사용자 옵션 트리거 코멘트 (자본 path AI 호출 0)"]
+    end
+
+    subgraph INFRA["인프라 (3 컨테이너)"]
+        PG["PostgreSQL 16<br/>+ V1~V74 누적 (v3.12.0 +11)<br/>+ strategy_position(V64) + scale-in/exit(V65)<br/>+ entry_policy(V72) + min_hold_bars(V73)"]
+        REDIS["Redis 7<br/>+ kis token unified prefix<br/>+ canary 일일 카운트는 DB 권위 (Redis 미사용 — drift 회피 ADR 0109)<br/>+ 호가 Redis cache (ADR 0114 §10-3 R2 신설 의제)"]
+        KAFKA["Kafka 3.7 KRaft<br/>+ order.intent.v1 (priceType/limitPrice add-only)<br/>+ market.orderbook.v1 (H0STASP0 — 호가 source 재사용 검토)<br/>+ scenario.* (T-SIM 분리)"]
+    end
+
+    subgraph OBS["관측 + DR (P0 OPS LOCK)"]
+        PROM["Prometheus 5 SLO × 2 임계 + Grafana"]
+        BACKUP["DR/backup (ADR 0096 — v3.12.0 실증)<br/>+ scripts/backup/pg-dump-daily.sh<br/>+ scripts/backup/pg-restore.sh (복구 실증)<br/>+ scripts/backup/redis-snapshot.sh<br/>+ docs/operations/backup-and-restore-guide.html"]
+    end
+
+    FE_RESEARCH -->|POST /api/strategy-research/ai-discovery| API_RESEARCH
+    API_RESEARCH -->|claude -p 또는 bridge /discover| CLAUDECLI
+    FE_SB -->|RiskPlan scale-in/exit/entry 설정| API_STRATEGY
+    FE_POS -->|전략별 포지션 view| API_POS_READ
+
+    C_KIS_WS -->|H0STCNI0/H0STCNI9 체결| C_ORDER
+    C_SIG -->|ScaleInExitCalculator 출력| C_ENTRY
+    C_ENTRY -->|OrderIntent priceType=LIMIT| C_RISK
+    C_RISK -->|verdict ALLOWED| C_ORDER
+    C_ORDER -->|CanaryHardCap 통과 + INSERT| KISREST
+    C_ORDER -->|strategy_position upsert| PG
+    C_ORDER -->|체결 시 HOLDING 등록| C_HOLDING
+    C_HOLDING -->|HOLDING owner 등록| C_SUBROUTER
+    C_EXIT -->|손절 MARKET/익절 LIMIT| KISREST
+    C_ENTRY -->|진입 호가 조회| KISREST_QUOTE
+```
+
+본 그림 명시 사실:
+
+- **9 JVM 모듈 보존** — domain · pattern-engine · indicator-impl · persistence-shared · strategy-engine · market-trend-engine · api · batch · consumer (신규 모듈 0)
+- **자본 path 완성** — RealtimeSignalGenerator(P1·P2·P4 게이트 분화 + ScaleInExitCalculator) → EntryPricePolicy(marketable limit) → RiskGateway(SELL strategy_position 분기) → OrderRouter(CanaryHardCap + strategy_position upsert) → KIS REST/WS 체결 → AutoExitOrderCoordinator(손절 MARKET/익절 LIMIT) → HOLDING owner 등록
+- **AI 옵션 보조 Claude CLI bridge** — StrategyResearchAiDiscoveryService → claude -p 또는 bridge → matched 후보 (매매 결정권 0)
+- **backup/DR 실증** — pg-dump-daily·pg-restore·redis-snapshot cron + 복구 가이드 HTML
+
+---
+
+## §2. ADR 0109~0114 자본 path 배치도 (실코드 path 인용)
+
+```mermaid
+graph LR
+    SIG["RealtimeSignalGenerator.kt<br/>(consumer/.../signal)"]
+    EXIT_CALC["ScaleInExitCalculator.kt<br/>(strategy-engine/.../scalein)<br/>ADR 0111"]
+    ENTRY_POL["EntryPricePolicy.kt<br/>(strategy-engine/.../entry)<br/>ADR 0114 §6"]
+    RISK["RiskGateway<br/>ADR 0067 + SELL strategy_position 분기 ADR 0110"]
+    ROUTER["OrderRouterKafkaListener.kt<br/>(consumer/.../order)<br/>12 step LOCK"]
+    CANARY["CanaryHardCap 게이트<br/>ADR 0109 (Step 3~5)"]
+    SPOS["StrategyPositionPort.kt (domain)<br/>StrategyPositionJpaEntity.kt (consumer)<br/>ADR 0110 — V64"]
+    HOLD["HoldingPositionIndex.kt<br/>HoldingDemandRegistrar.kt<br/>RealtimeSubscriptionRouter.kt (HOLDING owner)<br/>ADR 0114 P3"]
+    AUTOEXIT["AutoExitOrderCoordinator.kt<br/>손절 MARKET/익절 LIMIT<br/>ADR 0114 §3-3"]
+    KIS["KIS REST/WS 체결"]
+
+    SIG --> EXIT_CALC
+    EXIT_CALC --> ENTRY_POL
+    ENTRY_POL -->|priceType=LIMIT/limitPrice| RISK
+    RISK -->|ALLOWED| ROUTER
+    ROUTER --> CANARY
+    CANARY -->|통과| KIS
+    KIS -->|체결통보| SPOS
+    SPOS -->|quantity>0| HOLD
+    SIG -->|보유분 청산 평가| AUTOEXIT
+    AUTOEXIT --> KIS
+    KIS -->|전량 청산 quantity=0| HOLD
+```
+
+**실코드 path 인용 (v3.12.0 inspection — 추정 0)**:
+
+| 컴포넌트 | 파일 path | ADR |
+|---|---|---|
+| 전략별 포지션 도메인 | `domain/.../position/StrategyPosition.kt` · `StrategyPositionPort.kt` | 0110 |
+| 전략별 포지션 영속 | `consumer/.../persistence/StrategyPositionJpaEntity.kt` · `StrategyPositionJpaRepository.kt` | 0110 |
+| 전략별 포지션 read | `api/.../persistence/strategy/StrategyPositionReadJpaEntity.kt` | 0110 |
+| scale-in/exit 계산기 | `strategy-engine/.../scalein/ScaleInExitCalculator.kt` · `ScaleInExitSimulation.kt` | 0111 |
+| 진입 가격 계산기 | `strategy-engine/.../entry/EntryPricePolicy.kt` | 0114 §6 |
+| 진입 정책 도메인 | `domain/.../strategy/EntryPolicy.kt` · `EntryPolicySerde.kt` | 0114 §5 |
+| HOLDING owner | `consumer/.../ingestion/RealtimeSubscriptionRouter.kt` (HOLDING evict 제외 L182·233·236·244) · `HoldingDemandRegistrar.kt` | 0114 §4-3 P3 |
+| HOLDING 인덱스 | `consumer/.../order/HoldingPositionIndex.kt` (L27·204) | 0114 §4-3 |
+| 자동 청산 주문 | `consumer/.../order/AutoExitOrderCoordinator.kt` (L259 전량 청산 해제) | 0114 |
+| canary cap 게이트 | `consumer/.../order/OrderRouterKafkaListener.kt` (canary cap 분기) | 0109 |
+| AI 종목발굴 | `api/.../strategyresearch/StrategyResearchAiDiscoveryService.kt` · `StrategyResearchAiTextClient.kt` | 0112 |
+| AI 코멘트 통일 | `consumer/.../ai/ClaudeCliCommentAdapter.kt` | 0112 |
+| AI bridge | `scripts/claude-discovery-bridge.mjs` | 0112 |
+
+---
+
+## §3. Flyway V1~V74 시계열 매트릭스 (v3.12.0 cut 시점 baseline)
+
+```mermaid
+gantt
+    title Flyway V52~V74 시계열 (v3.12.0 누적 74 마이그레이션 — v3.9.0 V52 이후 +22)
+    dateFormat YYYY-MM-DD
+    section v3.9.0 baseline
+    V47~V52 market/ai/mcp/preference :done, 2026-05-24, 1d
+    section v3.10~v3.11 사이 (캔들/리스크/시나리오)
+    V53~V62 candle/risk/reconciliation :done, 2026-05-31, 4d
+    V63__scenario_replay.sql (T-SIM) :done, 2026-06-03, 1d
+    section v3.12.0 자본 path 완성
+    V64__strategy_position.sql (ADR 0110) :crit, 2026-06-05, 1d
+    V65__strategy_scale_in_exit.sql (ADR 0111) :crit, 2026-06-05, 1d
+    V66__order_request_source_external.sql :crit, 2026-06-05, 1d
+    V67__strategy_research_ai_discovery_state.sql (ADR 0112) :crit, 2026-06-06, 1d
+    V68__backtest_run_code_multi_symbol.sql :crit, 2026-06-06, 1d
+    V69__drop_duplicate_candle_index.sql (ADR 0113) :crit, 2026-06-06, 1d
+    V70__strategy_research_ai_discovery_preset.sql (ADR 0112) :crit, 2026-06-06, 1d
+    V71__strategy_research_ai_discovery_core_prompt.sql (ADR 0112) :crit, 2026-06-06, 1d
+    V72__strategy_entry_policy.sql (ADR 0114) :crit, 2026-06-07, 1d
+    V73__strategy_min_hold_bars.sql (잔익절 방어 B안) :crit, 2026-06-07, 1d
+    V74__strategy_research_candidate.sql :crit, 2026-06-07, 1d
+```
+
+**v3.12.0 신규 마이그레이션 11건 (V64~V74 — 실 파일 권위)**:
+
+| version | 표/변경 | ADR | 비고 |
+|---|---|---|---|
+| **V64** | `strategy_position` (UNIQUE user+strategy+code · quantity·avg_price·filled_lots·realized_pnl·executed_exit_stages JSONB) | 0110 | ADR 본문 V65 표기 → 실제 V64로 당김(별 브랜치 점유 정합) |
+| **V65** | `strategy` scale-in/partial-exit 정책 컬럼 add-only (`scale_in_config`·`partial_exits` JSONB) | 0111 | spec 본문 V66 → orchestrator 확정 V65 |
+| **V66** | `order_request.source` — EXTERNAL 값 허용 (CHECK 제약 확장 — 외부 HTS 주문 흡수) | (자본 path fix) | — |
+| **V67** | `strategy_research_ai_discovery_state` (사용자별 마지막 조건·후보 상태) | 0112 | — |
+| **V68** | `backtest_run.code` 다종목 universe 저장 허용 (VARCHAR(8) → 확장) | 0056 정합 | universe=["005930","000660"] 500 fix |
+| **V69** | `idx_candle_code_interval_ts` drop (V1 출생 중복 인덱스 · scan 0회 · 167MB) | 0113 | 무위험 결함 정정 (사용자 승인) |
+| **V70** | `strategy_research_ai_discovery_preset` (사용자 선택/수정 intent prompt) | 0112 | core wrapper는 코드 권위 |
+| **V71** | `strategy_research_ai_discovery_core_prompt` (core wrapper 사용자 편집 DB화) | 0112 | — |
+| **V72** | `strategy.entry_policy` JSONB add-only (maxEntrySlippagePct·entryTimeoutSec·maxSpreadPct) | 0114 §5 | null=현행 MARKET 진입(하위호환 LOCK) |
+| **V73** | `strategy.min_hold_bars` integer add-only (잔익절 방어 B안 — 진입 후 N캔들 DSL SELL 무시, 손절/익절 항상 작동) | (ADR 0114 인접) | null=비활성(현행) |
+| **V74** | `strategy_research_candidate` (코드 하드코딩 18 리서치 후보 DB화) | 0112 정합 | — |
+
+> **Flyway 번호 정합 주의**: ADR 0110/0111 본문은 strategy_position=V65·scale-in=V66으로 적었으나 별 브랜치 점유로 orchestrator가 **V64·V65로 당겨 확정**했다. 실 파일(`api/src/main/resources/db/migration/`)이 권위 — 06-history §Flyway 매트릭스 정합.
+
+---
+
+## §4. ADR 0114 진입(marketable limit) 흐름 — "먼저 오는 쪽이 이긴다"
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant SIG as RealtimeSignalGenerator (BUY)
+    participant POL as EntryPricePolicy (strategy-engine 순수)
+    participant Quote as 호가 source (Redis cache / KIS REST asking-price)
+    participant INTENT as OrderIntent
+    participant ROUTER as OrderRouterKafkaListener
+    participant KIS as KIS REST
+
+    SIG->>Quote: ask1·bid1·askQty1·quoteAsOf 조회
+    Quote-->>SIG: 호가 (미가용/stale면 NoQuote)
+    SIG->>POL: evaluate(EntryPriceInput: priceAtSignal·ask1·bid1·maxEntrySlippctPct·maxSpreadPct)
+    alt ask1 ≤ cap & 스프레드 OK & 잔량 OK
+        POL-->>SIG: Enter(limitPrice=ask1)
+        SIG->>INTENT: priceType=LIMIT + limitPrice
+        INTENT->>ROUTER: order.intent.v1
+        ROUTER->>KIS: LIMIT 주문 (marketable)
+        Note over ROUTER,KIS: entryTimeoutSec(15s) 미체결 → 취소 (시장가 전환 금지)<br/>재시도 0회 (재시도해도 기준가=원 신호 가격 불변 — 추격 금지)
+    else ask1 > cap
+        POL-->>SIG: Skip.PriceCapExceeded → SIGNAL_SKIPPED_ENTRY_PRICE_CAP audit
+    else 스프레드 > maxSpreadPct
+        POL-->>SIG: Skip.SpreadTooWide → SIGNAL_SKIPPED_SPREAD audit
+    else 호가 미가용/stale
+        POL-->>SIG: Skip.NoQuote → SIGNAL_SKIPPED_NO_QUOTE (시장가 fallback 금지)
+    end
+```
+
+**진입 정책 핵심 (ADR 0114 §3 — 사용자 결재 룰)**:
+
+- **marketable limit** — 매도1호가에 걸되 상한(`기준가 × (1+maxEntrySlippctPct/100)`, default 0.2%) 초과면 스킵. 체결 노리되 슬리피지 보호.
+- **시장가 fallback 0** — 어떤 Skip 사유에서도 MARKET 발행 0(캡 자기 부정 회피).
+- **미체결 취소** — `entryTimeoutSec`(15s) 후 취소(`ApiKisOrderCancelAdapter` 재사용 — `TTTC0013U`/`VTTC0013U`). 시장가 전환 금지.
+- **추격 금지** — 재시도 0회. 재시도 허용 시에도 기준가는 원 신호 가격 고정(현재가 재산정 = 추격).
+- **순수 계산기 공유** — EntryPricePolicy는 live·백테스트·리플레이 단일 함수("리플레이≠라이브" 의심 차단 — ScaleInExitCalculator 선례).
+
+---
+
+## §5. ADR 0114 청산 "항상" 보장 게이트 분화 (P1~P4)
+
+```mermaid
+graph TD
+    BOUNDARY["boundary 마감 → onBoundaryClosed()"]
+    P2["P2: position-driven 청산 진입점<br/>strategy_position 보유 종목(quantity>0)은<br/>전략 status 무관 청산 평가 대상<br/>(DISABLED 보유분도 청산)"]
+    P1{"P1: readiness gate (BUY/SELL 분화)"}
+    BUY_GATE["BUY(신규 투입): READY만 (fail-closed 유지)"]
+    SELL_GATE["SELL(보유 청산): RECONCILING/STALE 진행<br/>FAILED는 현재가(tick/quote) 가용 시 진행"]
+    P4{"P4: market-hours gate (sell-enabled env)"}
+    P4_NXT["sell-enabled=false면 NXT 시간대 SELL 평가 허용<br/>(default true 보수)"]
+    EXIT["ScaleInExitCalculator.evaluate()<br/>StopLoss(MARKET) / PartialTP(LIMIT) / TakeProfit(LIMIT)"]
+    P3["P3: HOLDING owner (RealtimeSubscriptionRouter)<br/>보유 종목 KIS WS 구독 evict 절대 금지<br/>(41 slot 경합에서도 청산 재료 유지)"]
+
+    BOUNDARY --> P2
+    P2 --> P1
+    P1 -->|BUY| BUY_GATE
+    P1 -->|SELL| SELL_GATE
+    SELL_GATE --> P4
+    P4 --> P4_NXT
+    P4 --> EXIT
+    EXIT --> P3
+```
+
+**핵심 불변식 (ADR 0114 §4-1)**: **fail-closed는 "신규 자본 투입(BUY) 차단"에만 적용한다. 이미 투입된 자본의 회수(SELL)는 막지 않는다.** readiness가 아니라 "청산 트리거에 쓸 현재가가 있는가"가 SELL 평가의 진짜 게이트다.
+
+**KIS 국내주식 OpenAPI 구조적 함의 (ADR 0114 §1-2 — KIS-first raw fetch 정합)**: KIS에 **서버 예약형 가격 트리거 스탑로스가 없다**(주식예약주문 `CTSC0008U`=시간 예약 / 조건부지정가 `ORD_DVSN=02`=15:20 시장가 전환 / HTS 자동감시주문=단말 전용·OpenAPI 미노출). → magicJar consumer 자체가 스탑로스 장치이고, consumer가 멈추면 손절도 멈춘다. 따라서 P1~P4 게이트 분화는 부가 기능이 아니라 자본 안전의 본체다.
+
+---
+
+## §6. ADR 0112 AI 종목발굴 Claude CLI bridge 흐름
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant User as 사용자
+    participant FE as /strategy/research AI 종목발굴 패널
+    participant API as StrategyResearchAiDiscoveryService
+    participant Client as StrategyResearchAiTextClient
+    participant CLI as claude -p (host) / bridge :8787
+    participant Master as instrument master
+
+    User->>FE: 자연어 조건 + 시장 + 후보 수
+    FE->>API: POST /api/strategy-research/ai-discovery
+    API->>Client: prompt 조립 (core wrapper V71 + intent preset V70)
+    alt BRIDGE_URL 비어있음 (IDE/host bootRun)
+        Client->>CLI: ProcessBuilder(command, "-p", prompt) 직접 실행 → provider=claude-cli
+    else Docker dev
+        Client->>CLI: POST http://host.docker.internal:8787/discover → provider=claude-cli-bridge
+    end
+    CLI-->>Client: JSON 후보 stdout
+    Client->>Master: code/name/market 매핑
+    Master-->>API: matched / unmatched 분류
+    API-->>FE: 후보 카드 (state V67 저장)
+    FE-->>User: matched만 form/chart 이동 (unmatched 표시만)
+    Note over API,FE: 주문 adapter 호출 0 · order.intent.v1 발행 0<br/>전략 자동 저장 0 · watchlist 자동 등록 0 (direction-guard 정합)
+```
+
+**AI 옵션 보조 원칙 보존 (ADR 0001·0026·0112)**: AI는 자동매매 의사결정권 0. AI 종목발굴은 "전략 리서치로 검증할 후보를 찾는 사용자 트리거 옵션"일 뿐 매수/매도 추천·주문 트리거가 아니다. matched 후보는 사용자가 검증·저장·스크리닝을 실행하는 후보 출발점.
+
+---
+
+## §7. 모듈 경계 (ADR 0004 — 9 모듈 보존)
+
+```
+domain/                  순수 도메인 + port (Spring·JPA 의존 0)
+  ├─ position/StrategyPosition.kt · port/StrategyPositionPort.kt  (ADR 0110)
+  └─ strategy/EntryPolicy.kt · EntryPolicySerde.kt                (ADR 0114 §5)
+strategy-engine/         DSL parser + 순수 계산기 (api·consumer 공유 — ADR 0092)
+  ├─ scalein/ScaleInExitCalculator.kt · ScaleInExitSimulation.kt  (ADR 0111)
+  └─ entry/EntryPricePolicy.kt                                    (ADR 0114 §6)
+api/                     REST/STOMP + 외부 어댑터 + Strategy CRUD + AI discovery
+  └─ strategyresearch/StrategyResearchAiDiscoveryService.kt       (ADR 0112)
+consumer/                Kafka 소비 + KIS WS + 시그널·주문 + 청산
+  ├─ order/OrderRouterKafkaListener.kt (canary cap + strategy_position upsert)
+  ├─ order/HoldingPositionIndex.kt · AutoExitOrderCoordinator.kt  (ADR 0114)
+  ├─ ingestion/RealtimeSubscriptionRouter.kt (HOLDING owner)      (ADR 0114 P3)
+  └─ ai/ClaudeCliCommentAdapter.kt                                (ADR 0112)
+batch/ · persistence-shared/ · indicator-impl/ · pattern-engine/ · market-trend-engine/  (보존)
+frontend/                React 19 + Vite + LWC v4 (HTTP/STOMP only — JVM 그래프 밖)
+docker/                  인프라 3 + 앱 4 = 7 컨테이너 (docker-compose 통합)
+```
+
+- **순수성 LOCK**: `EntryPricePolicy`·`ScaleInExitCalculator`는 Spring·JPA·IO·Clock·AI 의존 0 — 입력→출력 결정론(백테스트/리플레이 재현성). ADR 0083 indicator-impl · ADR 0088 persistence-shared · ADR 0092 strategy-engine 패턴 정합.
+- `strategy_position` 도메인 port(domain)의 impl은 consumer(write)·api(read)에 분리.
+
+---
+
+본 01-architecture는 v3.12.0 시점 magicJar 시스템의 시각화 가능 수준 그림이다. 본 baseline 폴더의 02-data-flow(backend-core) · 03-use-sequences(market-data KIS-first raw) · 04-feature-spec(backend-core) · 05-ui-inventory(frontend) · 06-history-traceability · 07-policy-evolution 본문은 본 문서를 횡단 인용한다.
