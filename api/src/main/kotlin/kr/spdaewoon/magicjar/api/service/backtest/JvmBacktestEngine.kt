@@ -10,6 +10,7 @@ import kotlinx.datetime.toJavaInstant
 import kotlinx.datetime.toKotlinInstant
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
+import kr.spdaewoon.magicjar.domain.backtest.BacktestEntrySkip
 import kr.spdaewoon.magicjar.domain.backtest.BacktestException
 import kr.spdaewoon.magicjar.domain.backtest.BacktestPerformance
 import kr.spdaewoon.magicjar.domain.backtest.BacktestPosition
@@ -25,12 +26,16 @@ import kr.spdaewoon.magicjar.domain.backtest.port.BacktestSlippageModel
 import kr.spdaewoon.magicjar.domain.backtest.port.BacktestTaxModel
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.strategy.ResolvedEntryPolicy
 import kr.spdaewoon.magicjar.domain.strategy.Signal
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.StrategyException
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslStrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyRepositoryPort
+import kr.spdaewoon.magicjar.strategy.entry.EntryPriceDecision
+import kr.spdaewoon.magicjar.strategy.entry.EntryPriceInput
+import kr.spdaewoon.magicjar.strategy.entry.EntryPricePolicy
 import kr.spdaewoon.magicjar.strategy.scalein.ScaleInExitDecision
 import kr.spdaewoon.magicjar.strategy.scalein.ScaleInExitSimulation
 import kr.spdaewoon.magicjar.strategy.scalein.VirtualStrategyPosition
@@ -110,6 +115,12 @@ class JvmBacktestEngine(
         val scaleInExitActive =
             ScaleInExitSimulation.isActive(definition.scaleIn, definition.partialExits)
 
+        // 진입 정책(ADR 0114 R3) — 전략에 entryPolicy가 있으면 백테스트 진입도 live와 동일한
+        // EntryPricePolicy.evaluate 순수 함수로 캡 판정한다(호가 부재로 캡 게이트만 의미 있음 — 근사 한계 LOCK).
+        // 미설정 전략은 null → 기존 즉시 체결 모델 그대로(하위호환 LOCK, 스킵 0).
+        val resolvedEntryPolicy: ResolvedEntryPolicy? =
+            definition.entryPolicy?.resolved(ResolvedEntryPolicy.DEFAULTS)
+
         // 2. 모델 lookup
         val taxModel: BacktestTaxModel = modelRegistry.taxModel(request.taxModel)
         val commissionModel: BacktestCommissionModel = modelRegistry.commissionModel(request.commissionModel)
@@ -133,6 +144,8 @@ class JvmBacktestEngine(
         val equityCurve = mutableListOf<BigDecimal>(request.initialCapital)
         var cash = request.initialCapital
         var timeoutCount = 0
+        // 진입 정책 스킵 집계(ADR 0114 R3) — 사유별 누적. add-only 결과 노출.
+        var entrySkip = BacktestEntrySkip.NONE
 
         // 포지션 상태 (code → BacktestPosition, 1차: 단일 포지션)
         val openPositions = mutableMapOf<String, BacktestPosition>()
@@ -241,10 +254,12 @@ class JvmBacktestEngine(
                             cash = cash,
                             openPositions = openPositions,
                             lotStates = lotStates,
+                            resolvedEntryPolicy = resolvedEntryPolicy,
                             taxModel = taxModel,
                             commissionModel = commissionModel,
                             slippageModel = slippageModel,
                         )
+                    step?.entrySkip?.let { entrySkip = entrySkip.accumulate(it) }
                     step?.let {
                         it.trade?.let { trade -> trades.add(trade) }
                         cash = it.cash
@@ -273,23 +288,29 @@ class JvmBacktestEngine(
                     positions.add(closedPos)
                     openPositions.remove(code)
                 } else if (buyResult?.signal == Signal.BUY && !openPositions.containsKey(code) && cash > ZERO) {
-                    // BUY 처리 — AllCapital 기준 전액 투입
-                    val result =
-                        executeBuy(
-                            code = code,
-                            cash = cash,
-                            rawPrice = rawPrice,
-                            evalPrice = evalPrice,
-                            candleTs = candleTs,
-                            signalReason = buyResult.reason,
-                            commissionModel = commissionModel,
-                            slippageModel = slippageModel,
-                        )
-                    if (result != null) {
-                        trades.add(result.trade)
-                        cash = cash.subtract(result.cost)
-                        equityCurve.add(cash)
-                        openPositions[code] = result.position
+                    // 진입 정책 게이트(ADR 0114 R3) — 스킵이면 이 봉의 진입 기회 소멸로 기록, 매수 0.
+                    val skipReason = entryPolicySkip(resolvedEntryPolicy, evalPrice, candleTs, slippageModel)
+                    if (skipReason != null) {
+                        entrySkip = entrySkip.accumulate(skipReason)
+                    } else {
+                        // BUY 처리 — AllCapital 기준 전액 투입
+                        val result =
+                            executeBuy(
+                                code = code,
+                                cash = cash,
+                                rawPrice = rawPrice,
+                                evalPrice = evalPrice,
+                                candleTs = candleTs,
+                                signalReason = buyResult.reason,
+                                commissionModel = commissionModel,
+                                slippageModel = slippageModel,
+                            )
+                        if (result != null) {
+                            trades.add(result.trade)
+                            cash = cash.subtract(result.cost)
+                            equityCurve.add(cash)
+                            openPositions[code] = result.position
+                        }
                     }
                 }
             }
@@ -347,6 +368,15 @@ class JvmBacktestEngine(
             durationMs,
         )
 
+        if (resolvedEntryPolicy != null && entrySkip.total > 0) {
+            log.info(
+                "백테스트 진입 정책 스킵: strategyId={} total={} priceCapExceeded={} (백테스트 근사 — 캡 게이트만 평가)",
+                request.strategyId,
+                entrySkip.total,
+                entrySkip.priceCapExceeded,
+            )
+        }
+
         return BacktestResult.Success(
             request = request,
             trades = trades.toList(),
@@ -355,8 +385,58 @@ class JvmBacktestEngine(
             performance = performance,
             executedAt = executedAt,
             durationMs = durationMs,
+            entrySkip = entrySkip,
         )
     }
+
+    // =====================================================================
+    // 진입 정책 게이트 (ADR 0114 R3 — live EntryPricePolicy 단일 함수 공유)
+    // =====================================================================
+
+    /**
+     * 백테스트 진입 정책 판정 — live·리플레이와 **동일한** [EntryPricePolicy.evaluate] 순수 함수 호출.
+     *
+     * ## 호가 부재 근사 (정직 한계 — ADR 0114 R3 LOCK)
+     * 백테스트에는 호가(ask1/bid1) 시계열이 없다. 보수 근사로 ask1 ≈ **슬리피지 적용 BUY 체결가**(시장 진입 시 실제
+     * 지불가에 가장 가까움), bid1 ≈ ask1(spread 0 — 스프레드 게이트 사실상 no-op), quoteAsOf=evalAt(stale 0)로 주입한다.
+     * 따라서 백테스트는 진입 정책 중 **슬리피지 캡 게이트만** 의미 있게 재현하고, 스프레드/stale 스킵은 0이다(live 전용).
+     *
+     * @return 스킵 사유([EntryPriceDecision.Skip]) 또는 null(진입 허용 — Enter).
+     */
+    private fun entryPolicySkip(
+        resolvedEntryPolicy: ResolvedEntryPolicy?,
+        evalPrice: BigDecimal,
+        candleTs: kotlinx.datetime.Instant,
+        slippageModel: BacktestSlippageModel,
+    ): EntryPriceDecision.Skip? {
+        val policy = resolvedEntryPolicy ?: return null
+        if (evalPrice <= ZERO) return null // 가격 결측은 executeBuy가 별도 가드(스킵 집계 대상 아님).
+        // ask1 ≈ 슬리피지 적용 체결가(시장 진입 실제 지불가 근사). bid1 ≈ ask1(spread 0 — 게이트 no-op).
+        val askApprox = slippageModel.apply(TradeSide.BUY, evalPrice)
+        val decision =
+            EntryPricePolicy.evaluate(
+                EntryPriceInput(
+                    priceAtSignal = evalPrice,
+                    ask1 = askApprox,
+                    bid1 = askApprox,
+                    maxEntrySlippagePct = policy.maxEntrySlippagePct,
+                    maxSpreadPct = policy.maxSpreadPct,
+                    quoteAsOf = candleTs, // stale 게이트 no-op(호가 신선도 시계열 부재 — evalAt=quoteAsOf 근사).
+                    evalAt = candleTs,
+                ),
+            )
+        return decision as? EntryPriceDecision.Skip
+    }
+
+    /** 스킵 사유를 [BacktestEntrySkip]에 누적한다(사유별 카운트 — add-only 결과 노출). */
+    private fun BacktestEntrySkip.accumulate(skip: EntryPriceDecision.Skip): BacktestEntrySkip =
+        when (skip) {
+            EntryPriceDecision.Skip.NoQuote -> copy(noQuote = noQuote + 1)
+            EntryPriceDecision.Skip.QuoteStale -> copy(quoteStale = quoteStale + 1)
+            EntryPriceDecision.Skip.SpreadTooWide -> copy(spreadTooWide = spreadTooWide + 1)
+            EntryPriceDecision.Skip.PriceCapExceeded -> copy(priceCapExceeded = priceCapExceeded + 1)
+            EntryPriceDecision.Skip.ThinLiquidity -> this // R2 예약 — 백테스트 미발화.
+        }
 
     // =====================================================================
     // 매수 실행
@@ -486,6 +566,7 @@ class JvmBacktestEngine(
         val trade: BacktestTrade?,
         val cash: BigDecimal,
         val closedPosition: BacktestPosition?,
+        val entrySkip: EntryPriceDecision.Skip? = null,
     )
 
     /**
@@ -510,6 +591,7 @@ class JvmBacktestEngine(
         cash: BigDecimal,
         openPositions: MutableMap<String, BacktestPosition>,
         lotStates: MutableMap<String, ScaleInLotState>,
+        resolvedEntryPolicy: ResolvedEntryPolicy?,
         taxModel: BacktestTaxModel,
         commissionModel: BacktestCommissionModel,
         slippageModel: BacktestSlippageModel,
@@ -541,6 +623,10 @@ class JvmBacktestEngine(
 
         return when (decision) {
             is ScaleInExitDecision.EnterSlice -> {
+                // 진입 정책 게이트(ADR 0114 R3) — 각 분할 회차 진입도 live와 동일 EntryPricePolicy 캡 판정.
+                entryPolicySkip(resolvedEntryPolicy, evalPrice, candleTs, slippageModel)?.let {
+                    return ScaleInExitStep(trade = null, cash = cash, closedPosition = null, entrySkip = it)
+                }
                 val weight = decision.weightPct
                 val executedPrice = slippageModel.apply(TradeSide.BUY, evalPrice)
                 if (executedPrice.compareTo(ZERO) == 0) return null

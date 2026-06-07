@@ -179,6 +179,45 @@ class PositionStopLossTickWatcherTest {
     }
 
     @Test
+    fun `R3 시나리오8 — watcher는 readiness·market-hours·전략status 게이트와 무관하게 tick만으로 발동`() {
+        // tick watcher는 1m 경로의 4중 게이트(readiness·market-hours·status·캔들마감)를 일절 참조하지 않는다.
+        // 입력은 index hit + tick 가격뿐 — readiness FAILED 상황(1m 경로 BUY/SELL 억제 중)에도 손절은 발동한다.
+        // (1m 경로 readiness 억제는 RealtimeSignalGeneratorTest가 별도 커버 — 본 테스트는 watcher 우회 보장만.)
+        every { index.heldBy("005930") } returns listOf(held(avgPrice = "50000", stopLossPct = "3"))
+        every { orderRepo.findOpenByUserId("user-A") } returns emptyList()
+        watcher().onTick(tickRecord(price = "48000")) // 48,000 ≤ 48,500 stop → 발동
+
+        verify(exactly = 1) {
+            intentProducer.publishExitIntent(
+                any(),
+                any(),
+                any(),
+                any(),
+                OrderSide.SELL,
+                OrderPriceType.MARKET,
+                any(),
+                null,
+                any(),
+                any(),
+                any(),
+            )
+        }
+    }
+
+    @Test
+    fun `R3 시나리오1 — 손절 발동은 단일 MARKET SELL 멱등(1m 경로 auto-sl 존재 시 중복 0)`() {
+        // 1m 경로가 이미 auto-sl SELL을 걸어둔 상태에서 tick이 손절가에 또 닿아도 tick watcher는 재발행하지 않는다.
+        every { index.heldBy("005930") } returns listOf(held(avgPrice = "50000", stopLossPct = "3"))
+        every { orderRepo.findOpenByUserId("user-A") } returns listOf(openSell(idempotencyKey = "auto-sl:1m-path"))
+        watcher().onTick(tickRecord(price = "47000"))
+        // 이미 open auto-sl 존재 → 중복 발화 0 (멱등 — 단일 MARKET SELL 보장).
+        verify(exactly = 0) { kisOrderPort.cancel(any(), any()) }
+        verify(
+            exactly = 0,
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
     fun `stopPriceOf — 평단 50000 3퍼센트 = 48500 (호가단위 정렬)`() {
         // 48,500 → 5,000~19,999 구간 10원 단위 → 48,500 그대로.
         val stop = PositionStopLossTickWatcher.stopPriceOf(BigDecimal("50000"), BigDecimal("3"))

@@ -228,6 +228,130 @@ class AutoExitOrderCoordinatorTest {
         verify(exactly = 0) { registrar.onFullyExited(any()) }
     }
 
+    // =====================================================================
+    // ADR 0114 R3 시나리오 4 — 분할매수 TP 재정렬 (사용자 직접 지정 숫자 검증 ★)
+    // 익절 +3% 전략. 1차 BUY 10@100,000 → TP 10@103,000. 2차 BUY 10@95,000(평단 97,500)
+    //   → 기존 TP 취소 + 신규 TP 20@100,400(=floor(97,500×1.03)=floor(100,425)). 부분체결/정합 변형 포함.
+    // =====================================================================
+
+    @Test
+    fun `R3 시나리오4-A — 1차 BUY 10주@100,000 → auto-tp LIMIT 10주@103,000 발행`() {
+        every { strategyRepo.findById(100L) } returns Optional.of(strategyEntity(takeProfitPct = "3"))
+        every { positionRepo.findByUserIdAndStrategyIdAndCode("user-A", 100L, "005930") } returns
+            position(qty = 10, avgPrice = "100000")
+        every { orderRepo.findOpenByUserId("user-A") } returns emptyList()
+        val priceSlot = slot<BigDecimal>()
+        val qtySlot = slot<Int>()
+
+        coordinator().onOrderFilled(filledRecord(qty = 10, price = "100000"))
+
+        verify(exactly = 1) {
+            intentProducer.publishExitIntent(
+                userId = "user-A",
+                strategyId = 100L,
+                code = "005930",
+                intervalCode = any(),
+                side = OrderSide.SELL,
+                priceType = OrderPriceType.LIMIT,
+                quantity = capture(qtySlot),
+                limitPrice = capture(priceSlot),
+                priceAtSignal = BigDecimal("100000"),
+                idempotencyKey = any(),
+                signalId = any(),
+            )
+        }
+        // 100,000 × 1.03 = 103,000 → 50,000~199,999 구간 100원 단위 → 103,000 그대로.
+        assertThat(qtySlot.captured).isEqualTo(10)
+        assertThat(priceSlot.captured).isEqualByComparingTo("103000")
+    }
+
+    @Test
+    fun `R3 시나리오4-B — 2차 BUY 10주@95,000(평단 97,500) → 기존 TP 취소 + 신규 TP 20주@100,400`() {
+        every { strategyRepo.findById(100L) } returns Optional.of(strategyEntity(takeProfitPct = "3"))
+        // 2차 체결 반영 후 포지션 — 평단 97,500·수량 20.
+        every { positionRepo.findByUserIdAndStrategyIdAndCode("user-A", 100L, "005930") } returns
+            position(qty = 20, avgPrice = "97500")
+        // 기존 TP(1차 기준 10주@103,000)가 open 상태.
+        every { orderRepo.findOpenByUserId("user-A") } returns listOf(openTp(qty = 10, limitPrice = "103000"))
+        every { kisOrderPort.cancel(any(), any()) } returns OrderResult.Right(Unit)
+        val priceSlot = slot<BigDecimal>()
+        val qtySlot = slot<Int>()
+
+        coordinator().onOrderFilled(filledRecord(qty = 10, price = "95000"))
+
+        // 기존 TP 취소 1건.
+        verify(exactly = 1) { kisOrderPort.cancel(any(), any()) }
+        verify(exactly = 1) { cancelledProducer.publish(any()) }
+        // 신규 TP — 평단 97,500 × 1.03 = 100,425 → 호가단위 100원 내림 = 100,400. 수량 20.
+        verify(exactly = 1) {
+            intentProducer.publishExitIntent(
+                userId = "user-A",
+                strategyId = 100L,
+                code = "005930",
+                intervalCode = any(),
+                side = OrderSide.SELL,
+                priceType = OrderPriceType.LIMIT,
+                quantity = capture(qtySlot),
+                limitPrice = capture(priceSlot),
+                priceAtSignal = BigDecimal("97500"),
+                idempotencyKey = any(),
+                signalId = any(),
+            )
+        }
+        assertThat(qtySlot.captured).isEqualTo(20)
+        assertThat(priceSlot.captured).isEqualByComparingTo("100400")
+    }
+
+    @Test
+    fun `R3 시나리오4-C — 2차 부분체결(10중 4주 = 14주 평단 98,571_428571) → 신규 TP 14주@101,500`() {
+        every { strategyRepo.findById(100L) } returns Optional.of(strategyEntity(takeProfitPct = "3"))
+        // 부분체결 4주 반영 후 — 수량 14, 평단 (10×100,000+4×95,000)/14 = 98,571.428571.
+        every { positionRepo.findByUserIdAndStrategyIdAndCode("user-A", 100L, "005930") } returns
+            position(qty = 14, avgPrice = "98571.428571")
+        every { orderRepo.findOpenByUserId("user-A") } returns listOf(openTp(qty = 10, limitPrice = "103000"))
+        every { kisOrderPort.cancel(any(), any()) } returns OrderResult.Right(Unit)
+        val priceSlot = slot<BigDecimal>()
+        val qtySlot = slot<Int>()
+
+        coordinator().onOrderFilled(filledRecord(qty = 4, price = "95000"))
+
+        verify(exactly = 1) { kisOrderPort.cancel(any(), any()) }
+        // 98,571.428571 × 1.03 = 101,528.57… → 호가단위 100원 내림 = 101,500. 수량 14.
+        verify(exactly = 1) {
+            intentProducer.publishExitIntent(
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                OrderPriceType.LIMIT,
+                capture(qtySlot),
+                capture(priceSlot),
+                any(),
+                any(),
+                any(),
+            )
+        }
+        assertThat(qtySlot.captured).isEqualTo(14)
+        assertThat(priceSlot.captured).isEqualByComparingTo("101500")
+    }
+
+    @Test
+    fun `R3 시나리오4-D — 평단 변동 없음(정합) → 취소·재발행 0`() {
+        every { strategyRepo.findById(100L) } returns Optional.of(strategyEntity(takeProfitPct = "3"))
+        every { positionRepo.findByUserIdAndStrategyIdAndCode("user-A", 100L, "005930") } returns
+            position(qty = 10, avgPrice = "100000")
+        // 이미 평단 100,000·10주 기준 정합 TP(10@103,000)가 open.
+        every { orderRepo.findOpenByUserId("user-A") } returns listOf(openTp(qty = 10, limitPrice = "103000"))
+
+        coordinator().onOrderFilled(filledRecord(qty = 10, price = "100000"))
+
+        verify(exactly = 0) { kisOrderPort.cancel(any(), any()) }
+        verify(
+            exactly = 0,
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
     @Test
     fun `MANUAL 체결 — 무시(TP·HOLDING 0)`() {
         coordinator().onOrderFilled(filledRecord(source = OrderSource.MANUAL))
