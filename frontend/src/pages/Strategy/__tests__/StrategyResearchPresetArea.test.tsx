@@ -174,4 +174,34 @@ describe('StrategyResearchPage 프리셋 선택 영역', () => {
     expect(screen.getByRole('button', { name: '감마 프리셋' })).toBeInTheDocument()
     expect(screen.queryByRole('combobox', { name: '다른 프리셋' })).not.toBeInTheDocument()
   })
+
+  it('버튼 3개는 라벨 글자순으로 고정 — 셋 안에서 클릭해도 순서가 바뀌지 않는다 (2026-06-08 사용자 지시)', async () => {
+    const user = userEvent.setup()
+    act(() => {
+      useOnboardingStore.setState({ registeredUserId: 74683223 })
+    })
+    // 최근 사용 이력: 감마 → 알파 → 베타 (recency 순서가 뒤죽박죽이어도)
+    window.localStorage.setItem(RECENT_KEY, JSON.stringify(['p_c', 'p_a', 'p_b']))
+
+    renderPage()
+
+    const labelsOf = () => {
+      const row = presetRow()
+      return within(row)
+        .getAllByRole('button')
+        .map((b) => b.textContent)
+        .filter((t) => t !== '직접 입력')
+    }
+
+    await screen.findByRole('button', { name: '알파 프리셋' })
+    // 표시는 recency가 아니라 라벨 글자순(ko) 고정
+    const initial = labelsOf()
+    expect(initial).toEqual([...initial].sort((a, b) => (a ?? '').localeCompare(b ?? '', 'ko')))
+
+    // 셋 안의 프리셋을 클릭(최근 이력 bump)해도 버튼 순서 불변
+    await user.click(screen.getByRole('button', { name: '베타 프리셋' }))
+    expect(labelsOf()).toEqual(initial)
+    await user.click(screen.getByRole('button', { name: '감마 프리셋' }))
+    expect(labelsOf()).toEqual(initial)
+  })
 })
