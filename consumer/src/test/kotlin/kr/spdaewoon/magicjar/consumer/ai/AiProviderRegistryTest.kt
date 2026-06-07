@@ -52,6 +52,16 @@ class AiProviderRegistryTest {
     }
 
     @Test
+    fun `configured provider 매칭 - claude-cli`() {
+        val registry =
+            AiProviderRegistry(
+                providers = listOf(stubProvider("anthropic"), stubProvider("claude-cli")),
+                configuredProvider = "claude-cli",
+            )
+        registry.resolve().name shouldBe "claude-cli"
+    }
+
+    @Test
     fun `미존재 provider - anthropic fallback`() {
         val registry =
             AiProviderRegistry(

@@ -17,6 +17,7 @@ import java.math.RoundingMode
  * - gemini:gemini-1.5-flash     → input $0.075 / output $0.30 (free tier 한도 내 무료)
  * - openai:gpt-4o-mini          → input $0.15 / output $0.60
  * - mock:*                      → $0
+ * - claude-cli:*                → $0 (구독 기반 Claude CLI/bridge — 별도 토큰 과금 0, ADR 0112 정합)
  */
 @Component
 class AiCostCalculator {
@@ -27,6 +28,8 @@ class AiCostCalculator {
         tokensOut: Int,
     ): BigDecimal {
         if (provider.equals("mock", ignoreCase = true)) return BigDecimal.ZERO
+        // claude-cli (구독 기반): 토큰 카운트 미제공 + 별도 과금 0 → 항상 $0 정직 기록.
+        if (provider.equals("claude-cli", ignoreCase = true)) return BigDecimal.ZERO
         val (inputPerMillion, outputPerMillion) = lookupRate(provider, model)
         val inputCost = BigDecimal(tokensIn).multiply(inputPerMillion).divide(MILLION, 6, RoundingMode.HALF_UP)
         val outputCost = BigDecimal(tokensOut).multiply(outputPerMillion).divide(MILLION, 6, RoundingMode.HALF_UP)
