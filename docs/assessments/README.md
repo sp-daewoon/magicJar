@@ -16,11 +16,14 @@
 | `candle-storage-capacity` | 캔들 데이터 저장 용량 점검 (interval 분포·용량 추정·보존 정책 권고) |
 | `candle-operating-policy-options` | 캔들 유니버스·보존·AI 후보 readiness 운영 정책 케이스 |
 | `candle-readiness-change-summary` | 캔들 readiness 워크플로 변경 요약 (AI 후보 카드·캔들 조회·DB 인덱스) |
+| `order-execution-vigilance` | 주문 집행 정책(룰 비교·기본값) + 포지션 긴장 상태 8축 코드 검증 (autotrading-order-position-watch의 심층판) |
 
 ## 발행 이력
 
 | 날짜 | slug | 종합 판정 | 핵심 스코어 | 파일 |
 |------|------|-----------|-------------|------|
+| 2026-06-07 | order-execution-vigilance | Critical 2건 (readiness가 손절도 skip · DISABLED 전략 포지션 방치) — 실매매 전 필수 조치 | 감시구조 88 · 항상보장 52 · 가격보호 15 · 체결정합 85 | [2026-06-07-order-execution-policy-and-position-vigilance.html](2026-06-07-order-execution-policy-and-position-vigilance.html) |
+| 2026-06-07 | autotrading-order-position-watch | 진입 가격 보호 + 포지션 tick 긴급 감시 필요 | 정책 보고 (BUY 지정가·손절 시장가·POSITION owner 권장) | [2026-06-07-autotrading-order-position-watch.html](2026-06-07-autotrading-order-position-watch.html) |
 | 2026-06-06 | candle-readiness-change-summary | 캔들 readiness 강화 변경 요약 (후보 카드·조회 방식·인덱스) | 점수형 아님 (변경 요약 보고) | [2026-06-06-candle-readiness-change-summary.html](2026-06-06-candle-readiness-change-summary.html) |
 | 2026-06-06 | candle-operating-policy-options | 전체 일봉 + 관리 유니버스 intraday 권장 | 점수형 아님 (정책 옵션 보고) | [2026-06-06-candle-operating-policy-options.md](2026-06-06-candle-operating-policy-options.md) |
 | 2026-06-06 | candle-storage-capacity | 분봉 보존 정책·정리 권고 — 자동매매 전 선행 권장 | 점수형 아님 (용량 점검 보고) | [2026-06-06-candle-storage-capacity.html](2026-06-06-candle-storage-capacity.html) |
