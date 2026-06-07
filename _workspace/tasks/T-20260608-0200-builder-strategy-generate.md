@@ -3,10 +3,10 @@ id: T-20260608-0200-builder-strategy-generate
 agent: ai
 model: opus
 branch: agent/ai/builder-strategy-generate
-status: RUNNING
+status: DONE
 startedAt: 2026-06-08T02:00:09.126+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-08T02:10:48.593+09:00
+pr: #793
 parentPhase: ?
 ---
 
