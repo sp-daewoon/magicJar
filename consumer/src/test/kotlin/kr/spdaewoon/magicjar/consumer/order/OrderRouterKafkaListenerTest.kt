@@ -95,6 +95,12 @@ class OrderRouterKafkaListenerTest {
             every { it.getIfAvailable() } returns businessDayCalendar
         }
 
+    // ADR 0114 §4-3 P3 — PENDING_BUY watch는 부재(getIfAvailable null) → 기존 흐름 무영향(graceful skip 검증).
+    private val holdingDemandRegistrarProvider =
+        mockk<ObjectProvider<kr.spdaewoon.magicjar.consumer.ingestion.HoldingDemandRegistrar>>().also {
+            every { it.getIfAvailable() } returns null
+        }
+
     // 기존 12 step 흐름 테스트는 장운영시간 게이트를 비활성(enabled=false)으로 격리한다.
     // 게이트 자체 동작은 isWithinTradingHours 단위 테스트 + AUTO/MANUAL 분기 테스트로 별도 검증.
     private val listener =
@@ -113,6 +119,7 @@ class OrderRouterKafkaListenerTest {
             marketSessionResolver = marketSessionResolver,
             businessDayCalendarProvider = businessDayCalendarProvider,
             objectMapper = objectMapper,
+            holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
             marketHoursGateEnabled = false,
         )
 
@@ -237,6 +244,7 @@ class OrderRouterKafkaListenerTest {
                 marketSessionResolver = marketSessionResolver,
                 businessDayCalendarProvider = businessDayCalendarProvider,
                 objectMapper = objectMapper,
+                holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
                 magicjarMode = "REAL",
                 marketHoursGateEnabled = false,
             )
@@ -358,6 +366,7 @@ class OrderRouterKafkaListenerTest {
                 marketSessionResolver = marketSessionResolver,
                 businessDayCalendarProvider = businessDayCalendarProvider,
                 objectMapper = objectMapper,
+                holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
                 marketHoursGateEnabled = false,
             )
 
@@ -517,6 +526,7 @@ class OrderRouterKafkaListenerTest {
                     marketSessionResolver = marketSessionResolver,
                     businessDayCalendarProvider = businessDayCalendarProvider,
                     objectMapper = objectMapper,
+                    holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
                     marketHoursGateEnabled = true,
                 ),
             )
@@ -597,6 +607,7 @@ class OrderRouterKafkaListenerTest {
                 marketSessionResolver = marketSessionResolver,
                 businessDayCalendarProvider = businessDayCalendarProvider,
                 objectMapper = objectMapper,
+                holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
             )
 
         // KST 2026-05-20(수) 10:00 = UTC 2026-05-20T01:00:00Z
@@ -733,6 +744,7 @@ class OrderRouterKafkaListenerTest {
             marketSessionResolver = marketSessionResolver,
             businessDayCalendarProvider = businessDayCalendarProvider,
             objectMapper = objectMapper,
+            holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
             marketHoursGateEnabled = false,
             canaryMaxOrderQty = qty,
             canaryMaxOrderNotionalKrw = notional,

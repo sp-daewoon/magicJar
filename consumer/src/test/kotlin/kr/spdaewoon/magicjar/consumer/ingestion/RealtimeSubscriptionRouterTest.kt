@@ -83,6 +83,50 @@ class RealtimeSubscriptionRouterTest {
         verify { pollingWorker.add(any()) }
     }
 
+    @Test
+    fun `HOLDING 등록은 가격 WS를 구독하고 최우선 demand로 추적한다 (ADR 0114 P3)`() {
+        router.request(RealtimeDemandOwner.HOLDING, "holding:005930", "005930")
+
+        assertTrue(kisWsPort.priceSubscribed.contains("005930"))
+        assertTrue(router.isExternallyDemanded("005930"))
+        // priority 0 (최우선).
+        org.junit.jupiter.api.Assertions
+            .assertEquals(0, router.priorityOf("005930"))
+    }
+
+    @Test
+    fun `slot 포화 + 신규 진입 시 HOLDING 종목은 evict 후보에서 제외된다 (ADR 0114 P3 LOCK)`() {
+        // 30 slot 중 1개를 HOLDING(보유 종목), 나머지는 낮은 우선순위 watchlist로 채운다.
+        val holdingCode = "0HOLD0"
+        val watchlistCodes = (1 until SubscriptionPolicy.PRICE_TICK_MAX).map { "1%05d".format(it) }
+        kisWsPort.priceSubscribed.add(holdingCode)
+        kisWsPort.priceSubscribed.addAll(watchlistCodes)
+        val now = Clock.System.now()
+        every { watchlistRepository.findAll() } returns
+            watchlistCodes.mapIndexed { index, code ->
+                WatchlistEntry(id = index.toLong() + 1L, userId = "user001", code = code, priority = 200 + index, createdAt = now)
+            }
+
+        // HOLDING demand 등록(이미 구독 중이라 재구독 X, demand만 추적).
+        router.request(RealtimeDemandOwner.HOLDING, "holding:$holdingCode", holdingCode)
+        // slot 포화 상태에서 신규 STRATEGY 진입 → evict가 일어나도 HOLDING은 절대 victim 아님.
+        router.request(RealtimeDemandOwner.STRATEGY, "strategy:42", "005930", priority = 40)
+
+        assertTrue(kisWsPort.priceSubscribed.contains(holdingCode))
+        assertFalse(kisWsPort.priceUnsubscribed.contains(holdingCode))
+    }
+
+    @Test
+    fun `HOLDING release는 즉시 demand를 제거한다 (전량 청산)`() {
+        router.request(RealtimeDemandOwner.HOLDING, "holding:005930", "005930")
+        assertTrue(router.isExternallyDemanded("005930"))
+
+        router.release(RealtimeDemandOwner.HOLDING, "holding:005930", "005930")
+
+        assertFalse(router.isExternallyDemanded("005930"))
+        assertTrue(kisWsPort.priceUnsubscribed.contains("005930"))
+    }
+
     class TestKisWsPort : KisWsPort {
         var connected = false
         val priceSubscribed: MutableSet<String> = CopyOnWriteArraySet()

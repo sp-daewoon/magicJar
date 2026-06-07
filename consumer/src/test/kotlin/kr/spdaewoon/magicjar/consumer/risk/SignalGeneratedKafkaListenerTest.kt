@@ -148,7 +148,45 @@ class SignalGeneratedKafkaListenerTest {
 
         listener().onSignalGenerated(record(payload(side = "SELL", price = "72000")), ack())
 
-        // ADR 0114 §3-3 — SELL은 본 phase 무변경(MARKET, limitPrice=null). 진입 가격 산정 미적용.
+        // ADR 0114 §3-3·§5 — exit contextJson 부재(손절·일반 SELL) → MARKET(체결 확실성 우선, 하위호환).
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 7, OrderPriceType.MARKET, null) }
+    }
+
+    @Test
+    fun `SELL 익절(contextJson LIMIT) — LIMIT 발행 (ADR 0114 §3-3·§5)`() {
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { riskPositionPort.findCurrentByUser("user-A") } returns
+            listOf(Position(userId = "user-A", code = "005930", quantity = 7, avgPrice = BigDecimal("70000"), updatedAt = now))
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.record(100L, "user-A", 77L, now) } just Runs
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+
+        val exitCtx = objectMapper.writeValueAsString(mapOf("exitPriceType" to "LIMIT", "exitLimitPrice" to "73500"))
+        listener().onSignalGenerated(record(payload(side = "SELL", price = "72000", contextJson = exitCtx)), ack())
+
+        verify(exactly = 1) {
+            orderIntentKafkaProducer.publish(match { it.id == 77L }, 7, OrderPriceType.LIMIT, BigDecimal("73500"))
+        }
+    }
+
+    @Test
+    fun `SELL 손절(contextJson MARKET) — MARKET 발행`() {
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { riskPositionPort.findCurrentByUser("user-A") } returns
+            listOf(Position(userId = "user-A", code = "005930", quantity = 7, avgPrice = BigDecimal("70000"), updatedAt = now))
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.record(100L, "user-A", 77L, now) } just Runs
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+
+        val exitCtx = objectMapper.writeValueAsString(mapOf("exitPriceType" to "MARKET"))
+        listener().onSignalGenerated(record(payload(side = "SELL", price = "68000", contextJson = exitCtx)), ack())
+
         verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 7, OrderPriceType.MARKET, null) }
     }
 
@@ -419,20 +457,22 @@ class SignalGeneratedKafkaListenerTest {
     private fun payload(
         side: String,
         price: String,
+        contextJson: String? = null,
     ): String =
         objectMapper.writeValueAsString(
-            mapOf(
-                "id" to 77,
-                "strategyId" to 100,
-                "userId" to "user-A",
-                "code" to "005930",
-                "interval" to CandleInterval.FIVE_MIN.code,
-                "ts" to now.epochSeconds,
-                "side" to side,
-                "strength" to 80,
-                "reason" to "test",
-                "priceAtSignal" to price,
-            ),
+            buildMap<String, Any?> {
+                put("id", 77)
+                put("strategyId", 100)
+                put("userId", "user-A")
+                put("code", "005930")
+                put("interval", CandleInterval.FIVE_MIN.code)
+                put("ts", now.epochSeconds)
+                put("side", side)
+                put("strength", 80)
+                put("reason", "test")
+                put("priceAtSignal", price)
+                contextJson?.let { put("contextJson", it) }
+            },
         )
 
     private fun record(value: String) = ConsumerRecord("signal.generated.v1", 0, 0L, "user-A", value)

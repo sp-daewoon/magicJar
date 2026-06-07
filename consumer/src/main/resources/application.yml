@@ -103,6 +103,20 @@ magicjar:
   strategy:
     scale-in:
       enabled: ${MAGICJAR_STRATEGY_SCALE_IN_ENABLED:true}
+  # ADR 0114 R2-C2b — 청산 "항상" 보장 안전망 (시그널 경로 우회).
+  #   stop-loss.tick-watch-enabled : market.tick.v1 직접 listen → 보유분 손절 MARKET 안전망(P1·P2·P4 구조적 해소).
+  #     인메모리 보유 인덱스(index-refresh-ms 주기 + 체결 즉시 갱신)로 매 tick DB 조회 0. false면 1m 경로 손절만(안전망 비활성).
+  #   exit.take-profit-limit-enabled: BUY 체결 즉시 익절 LIMIT 선주문(시스템 다운 중에도 KIS 서버에 익절 유지). scale-in 평단 변동 시 재발행.
+  #   holding-watch.enabled        : 보유 종목 HOLDING owner KIS WS 구독 보장(evict 절대 금지 — 청산 재료 공백 0).
+  autotrading:
+    stop-loss:
+      tick-watch-enabled: ${MAGICJAR_AUTOTRADING_STOP_LOSS_TICK_WATCH_ENABLED:true}
+      index-refresh-ms: ${MAGICJAR_AUTOTRADING_STOP_LOSS_INDEX_REFRESH_MS:60000}
+    exit:
+      take-profit-limit-enabled: ${MAGICJAR_AUTOTRADING_EXIT_TAKE_PROFIT_LIMIT_ENABLED:true}
+    holding-watch:
+      enabled: ${MAGICJAR_AUTOTRADING_HOLDING_WATCH_ENABLED:true}
+      refresh-delay-ms: ${MAGICJAR_AUTOTRADING_HOLDING_WATCH_REFRESH_DELAY_MS:60000}
   # ADR 0109 — REAL canary 전용 hard cap (RiskConfig·전략 설정과 독립된 마지막 자본 안전선).
   #   REAL 모드 + 각 값 > 0 일 때만 활성 (fail-open: 0/미설정 = 비활성 = 일반 REAL 운용). MOCK은 항상 비활성.
   #   초과 시 OrderRouter REJECTED + audit(reason=CANARY_*_CAP). canary 종료 후 ENV 제거로 즉시 비활성.

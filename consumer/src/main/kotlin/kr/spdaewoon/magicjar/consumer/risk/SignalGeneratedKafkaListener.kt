@@ -212,12 +212,72 @@ class SignalGeneratedKafkaListener(
         tradeFrequencyGuard.record(signal.strategyId, signal.userId, allowed.signalId, context.nowKst)
 
         // 3. order.intent.v1 publish — T-O 진입.
-        //    ADR 0114 §3-1 — BUY는 marketable limit 산정(Enter→LIMIT / Skip→주문 0+audit). SELL은 현행 MARKET(§3-3 손절 정합).
+        //    ADR 0114 §3-1 — BUY는 marketable limit 산정(Enter→LIMIT / Skip→주문 0+audit).
+        //    §3-3·§5 — SELL은 청산 trigger별 분기: 손절=MARKET / 익절(TP·PartialExit)=LIMIT(generator가 contextJson에 실음).
         if (signal.side == SignalSide.BUY) {
             publishBuyOrSkip(signal, quantity)
         } else {
-            orderIntentKafkaProducer.publish(signal, quantity, OrderPriceType.MARKET, null)
+            publishSell(signal, quantity)
         }
+    }
+
+    /**
+     * SELL 청산 OrderIntent 발행 — 가격 유형 분기 (ADR 0114 §3-3·§5 / R2-C2b 계약 마무리).
+     *
+     * generator([RealtimeSignalGenerator.buildExitContextJson])가 `signal.contextJson`에 실은
+     * `exitPriceType`(MARKET 손절 / LIMIT 익절) + `exitLimitPrice`를 읽어 분기한다.
+     * - 손절(MARKET)·contextJson 부재(하위호환·1m 외 경로) → 현행 MARKET 발행.
+     * - 익절(LIMIT) + limitPrice 유효 → LIMIT 발행.
+     *
+     * ## 이중 발화 방지 (§5 — 체결 즉시 TP 선주문과의 관계)
+     * 익절 LIMIT은 [kr.spdaewoon.magicjar.consumer.order.AutoExitOrderCoordinator]가 BUY 체결 즉시 `auto-tp:` 키로
+     * 선주문할 수 있다. 1m 경로 익절 신호는 멱등 키(`{signalId}:{userId}`)가 달라 OrderRouter에서 별도로 보이나,
+     * 같은 종목 open SELL이 이미 있으면 KIS_HOLDING_QTY 가드/체결로 자연 수렴한다(중복 SELL은 잔고 가드가 차단).
+     */
+    private fun publishSell(
+        signal: Signal,
+        quantity: Int,
+    ) {
+        val exit = parseExitContext(signal.contextJson)
+        if (exit != null && exit.priceType == OrderPriceType.LIMIT && exit.limitPrice != null && exit.limitPrice > BigDecimal.ZERO) {
+            log.info(
+                "SELL 익절 LIMIT 발행: signalId={} code={} qty={} limitPrice={}",
+                signal.id,
+                signal.code,
+                quantity,
+                exit.limitPrice,
+            )
+            orderIntentKafkaProducer.publish(signal, quantity, OrderPriceType.LIMIT, exit.limitPrice)
+            return
+        }
+        // 손절(MARKET) 또는 exit 정보 부재 — 체결 확실성 우선 MARKET(§3-3).
+        orderIntentKafkaProducer.publish(signal, quantity, OrderPriceType.MARKET, null)
+    }
+
+    private data class SellExit(
+        val priceType: OrderPriceType,
+        val limitPrice: BigDecimal?,
+    )
+
+    /** contextJson에서 SELL 청산 가격 라우팅 파싱. 미가용·파싱 실패 시 null(MARKET fallback — 하위호환). */
+    private fun parseExitContext(contextJson: String?): SellExit? {
+        if (contextJson.isNullOrBlank()) return null
+        return runCatching {
+            @Suppress("UNCHECKED_CAST")
+            val map = objectMapper.readValue(contextJson, Map::class.java) as Map<String, Any?>
+            val priceType =
+                map["exitPriceType"]?.toString()?.let { name -> OrderPriceType.values().firstOrNull { it.name == name } }
+                    ?: return@runCatching null
+            val limitPrice =
+                when (val raw = map["exitLimitPrice"]) {
+                    is Number -> BigDecimal.valueOf(raw.toDouble())
+                    is String -> raw.toBigDecimalOrNull()
+                    else -> null
+                }
+            SellExit(priceType, limitPrice)
+        }.onFailure { e ->
+            log.warn("SELL exit contextJson 파싱 실패 — MARKET fallback: signalContext err={}", e.message)
+        }.getOrNull()
     }
 
     /**

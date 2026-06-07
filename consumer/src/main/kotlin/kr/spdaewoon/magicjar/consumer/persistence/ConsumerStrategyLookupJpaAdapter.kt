@@ -44,6 +44,25 @@ class ConsumerStrategyLookupJpaAdapter(
         return entities.mapNotNull { toDomainOrNull(it) }
     }
 
+    /**
+     * ADR 0114 §4-2 P2 — 청산 평가 대상: ACTIVE/BUY_BLOCKED ∪ DISABLED-with-position.
+     * DISABLED여도 strategy_position 보유분이 있으면 청산 평가(손절/익절)를 받게 한다(자본 방치 해소).
+     */
+    @Transactional(readOnly = true)
+    override fun findSellEvalByCodeAndInterval(
+        code: String,
+        interval: CandleInterval,
+    ): List<Strategy> {
+        val codeJson = objectMapper.writeValueAsString(listOf(code))
+        val intervalJson = objectMapper.writeValueAsString(listOf(interval.code))
+        val active = strategyJpaRepository.findActiveByCodeAndInterval(codeJson, intervalJson)
+        val disabledHolding = strategyJpaRepository.findDisabledWithPositionByCodeAndInterval(codeJson, intervalJson)
+        // id 기준 dedup(합집합 — DISABLED-with-position이 추가분). DELETED는 native 쿼리에서 이미 제외.
+        return (active + disabledHolding)
+            .distinctBy { it.id }
+            .mapNotNull { toDomainOrNull(it) }
+    }
+
     private fun toDomainOrNull(entity: ConsumerStrategyJpaEntity): Strategy? {
         val buy = parseDslOrNull(entity.id, "buy", entity.dslEntry)
         if (buy == null) {
