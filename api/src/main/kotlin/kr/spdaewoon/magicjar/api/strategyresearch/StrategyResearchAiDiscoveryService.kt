@@ -405,10 +405,17 @@ class StrategyResearchAiDiscoveryService(
                 items.count {
                     it.status != StrategyResearchAiDiscoveryItemStatus.DISMISSED &&
                         it.matched &&
-                        (it.hasResearchCandles == false || (it.hasResearchCandles == null && it.candleCount == 0L))
+                        (
+                            it.hasResearchCandles == false ||
+                                (
+                                    it.hasResearchCandles == null &&
+                                        it.candleCount != null &&
+                                        it.candleCount < MIN_RESEARCH_CANDLES
+                                )
+                        )
                 }
             if (candleMissingCount > 0) {
-                add("선택한 interval·기간에 저장된 candle이 없는 후보 ${candleMissingCount}건은 차트 수집 후 리서치할 수 있습니다.")
+                add("선택한 interval·기간에 리서치 가능한 candle이 부족한 후보 ${candleMissingCount}건은 캔들 가져오기 후 리서치할 수 있습니다.")
             }
         }
     }
@@ -469,7 +476,7 @@ class StrategyResearchAiDiscoveryService(
         }
     }
 
-    private fun candleAvailabilityWindow(request: StrategyResearchAiDiscoveryRequestDto): CandleAvailabilityWindow? {
+    private fun candleAvailabilityWindow(request: StrategyResearchAiDiscoveryRequestDto): StrategyResearchCandleWindow? {
         val interval = request.interval?.trim()?.takeIf { it.isNotBlank() } ?: return null
         val from =
             request.from
@@ -482,7 +489,7 @@ class StrategyResearchAiDiscoveryService(
                 ?.takeIf { it.isNotBlank() }
                 ?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: return null
         if (from.isAfter(to)) return null
-        return CandleAvailabilityWindow(interval = interval, from = from, to = to)
+        return StrategyResearchCandleWindows.of(interval, from, to)
     }
 
     private fun saveState(
@@ -944,11 +951,5 @@ class StrategyResearchAiDiscoveryService(
         val themes: List<String>,
         val reason: String,
         val confidence: Double,
-    )
-
-    private data class CandleAvailabilityWindow(
-        val interval: String,
-        val from: Instant,
-        val to: Instant,
     )
 }

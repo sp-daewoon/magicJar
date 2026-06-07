@@ -18,6 +18,8 @@ import type {
   StrategyResearchAiDiscoveryItemStatus,
 } from '../../api/strategyResearch'
 
+const MIN_RESEARCH_CANDLES = 40
+
 export interface AiDiscoveryCardProps {
   item: StrategyResearchAiDiscoveryItemDto
   /** 발굴 요청에 사용한 interval (candleCount 계산 기준과 동일) */
@@ -61,10 +63,11 @@ export function AiDiscoveryCard({
       ? item.hasResearchCandles
       : item.candleCount == null
         ? null
-        : item.candleCount > 0
-  // backend가 가용 여부를 내려줄 때만 "캔들 없음" 판정 가능 (add-only graceful)
-  const isEmptyCandles = hasResearchCandles === false
-  const canFetch = Boolean(code) && item.matched && isEmptyCandles && Boolean(recollectOptions)
+        : item.candleCount >= MIN_RESEARCH_CANDLES
+  // backend가 가용 여부를 내려줄 때만 리서치 불가 판정 가능 (add-only graceful)
+  const lacksResearchCandles = hasResearchCandles === false
+  const hasSomeCandles = (item.candleCount ?? 0) > 0
+  const canFetch = Boolean(code) && item.matched && lacksResearchCandles && Boolean(recollectOptions)
   const settledRef = useRef(false)
 
   const {
@@ -124,6 +127,11 @@ export function AiDiscoveryCard({
 
   const candleBadge = (() => {
     if (hasResearchCandles !== false) return null
+    if (hasSomeCandles) {
+      return (
+        <span className="rounded border border-amber-800 px-2 py-0.5 text-xs text-amber-300">캔들 부족</span>
+      )
+    }
     return (
       <span className="rounded border border-gray-700 px-2 py-0.5 text-xs text-gray-400">캔들 없음</span>
     )
@@ -247,7 +255,7 @@ export function AiDiscoveryCard({
           <button
             type="button"
             onClick={() => onSelect(item)}
-            disabled={!item.code || isEmptyCandles}
+            disabled={!item.code || lacksResearchCandles}
             className="rounded bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             선택

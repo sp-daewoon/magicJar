@@ -88,7 +88,38 @@ class StrategyResearchServiceTest {
         report.warnings.any { it.contains("최소 40개 candle") } shouldBe false
     }
 
-    private fun washoutEntities(): List<CandleJpaEntity> {
+    @Test
+    fun `propose expands daily candle query to full KST days`() {
+        val fromTs = Instant.parse("2026-03-02T00:00:00Z")
+        val toTs = Instant.parse("2026-06-02T06:30:00Z")
+        whenever(
+            candleRepository.findByCodeAndIntervalAndTsBetween(
+                code = "038110",
+                interval = "1d",
+                fromTs = Instant.parse("2026-03-01T15:00:00Z"),
+                toTs = Instant.parse("2026-06-02T14:59:59.999999999Z"),
+            ),
+        ).thenReturn(washoutEntities(interval = "1d"))
+
+        val report =
+            service.propose(
+                StrategyResearchRequestDto(
+                    userId = "74683223",
+                    code = "038110",
+                    interval = "1d",
+                    from = fromTs.toString(),
+                    to = toTs.toString(),
+                    targetProfitPct = 1.0,
+                    stopLossPct = 0.8,
+                    maxHoldBars = 4,
+                ),
+            )
+
+        report.candleCount shouldBe 45
+        report.warnings.any { it.contains("최소 40개 candle") } shouldBe false
+    }
+
+    private fun washoutEntities(interval: String = "1m"): List<CandleJpaEntity> {
         val candles = mutableListOf<CandleJpaEntity>()
         repeat(45) { index ->
             val ts = Instant.parse("2026-04-28T00:${index.toString().padStart(2, '0')}:00Z")
@@ -127,7 +158,7 @@ class StrategyResearchServiceTest {
                     volume = 1000
                 }
             }
-            candles += candle(ts, open, high, low, close, volume)
+            candles += candle(ts, open, high, low, close, volume, interval = interval)
         }
         return candles
     }
@@ -139,10 +170,11 @@ class StrategyResearchServiceTest {
         low: String,
         close: String,
         volume: Long,
+        interval: String = "1m",
     ): CandleJpaEntity =
         CandleJpaEntity(
             code = "038110",
-            interval = "1m",
+            interval = interval,
             ts = ts,
             openRaw = BigDecimal(open),
             highRaw = BigDecimal(high),

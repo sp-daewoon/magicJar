@@ -38,14 +38,15 @@ class StrategyResearchService(
                 }
         val fromTs = request.from.toJavaInstant()
         val toTs = request.to.toJavaInstant()
+        val candleWindow = StrategyResearchCandleWindows.of(intervalCode, fromTs, toTs)
         val rangeEntities =
             candleRepository.findByCodeAndIntervalAndTsBetween(
                 code = request.code,
-                interval = intervalCode,
-                fromTs = fromTs,
-                toTs = toTs,
+                interval = candleWindow.interval,
+                fromTs = candleWindow.from,
+                toTs = candleWindow.to,
             )
-        val entities = rangeEntities.withWarmupCandles(request.code, intervalCode, fromTs)
+        val entities = rangeEntities.withWarmupCandles(request.code, candleWindow.interval, candleWindow.from)
         if (entities.size > maxCandlesPerRun) {
             throw ResponseStatusException(
                 HttpStatus.BAD_REQUEST,

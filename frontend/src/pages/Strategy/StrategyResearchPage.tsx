@@ -35,16 +35,113 @@ import {
 import { useOnboardingStore } from '../../stores/onboarding'
 import { useModalBehavior } from '../../hooks/useModalBehavior'
 
-const DEFAULT_FROM_KST = '2026-03-02T09:00'
-const DEFAULT_TO_KST = '2026-06-02T15:30'
 const INTERVALS = ['1m', '3m', '5m', '15m', '30m', '1h', '1d']
+const MAX_RESEARCH_CANDLES_PER_RUN = 20_000
+const MIN_RESEARCH_CANDLES = 40
 const RESEARCH_CANDLE_PADDING_TRADING_DAYS = 5
+const RESEARCH_FORM_STORAGE_KEY = 'magicjar.strategyResearch.form.v1'
 const AI_DISCOVERY_DEFAULT_QUERY = '요즘 반도체와 AI 인프라 쪽에서 전략 리서치로 검증해볼 국내주'
 const AI_DISCOVERY_MARKETS = ['', 'KOSPI', 'KOSDAQ', 'KONEX'] as const
 // 발굴 프리셋 최근 사용 추적 — 최신순, 최대 5 보관. 상위 3개를 버튼으로 노출하고 나머지는 콤보로 넘긴다.
 const DISCOVERY_PRESET_RECENT_KEY = 'magicjar.discovery.presetRecentIds'
 const DISCOVERY_PRESET_RECENT_MAX = 5
 const DISCOVERY_PRESET_BUTTON_COUNT = 3
+const ONE_DAY_MS = 24 * 60 * 60 * 1000
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000
+const CANDLES_PER_TRADING_DAY: Record<string, number> = {
+  '1m': 391,
+  '3m': 131,
+  '5m': 79,
+  '15m': 27,
+  '30m': 14,
+  '1h': 7,
+  '1d': 1,
+}
+
+interface ResearchFormSettings {
+  interval: string
+  fromKst: string
+  toKst: string
+  targetProfitPct: number
+  stopLossPct: number
+  maxHoldBars: number
+}
+
+function formatDatePart(date: Date): string {
+  const year = date.getUTCFullYear()
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(date.getUTCDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function defaultResearchFormSettings(now: Date = new Date()): ResearchFormSettings {
+  const kstNow = new Date(now.getTime() + KST_OFFSET_MS)
+  const toDayUtc = Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate())
+  const fromDayUtc = toDayUtc - 7 * ONE_DAY_MS
+  return {
+    interval: '1d',
+    fromKst: `${formatDatePart(new Date(fromDayUtc))}T09:00`,
+    toKst: `${formatDatePart(new Date(toDayUtc))}T15:30`,
+    targetProfitPct: 3,
+    stopLossPct: 3,
+    maxHoldBars: 12,
+  }
+}
+
+function readResearchFormSettings(): ResearchFormSettings {
+  const defaults = defaultResearchFormSettings()
+  try {
+    const raw = window.localStorage.getItem(RESEARCH_FORM_STORAGE_KEY)
+    if (!raw) return defaults
+    const parsed = JSON.parse(raw) as Partial<ResearchFormSettings>
+    return {
+      interval: typeof parsed.interval === 'string' && INTERVALS.includes(parsed.interval) ? parsed.interval : defaults.interval,
+      fromKst: typeof parsed.fromKst === 'string' && parsed.fromKst ? parsed.fromKst : defaults.fromKst,
+      toKst: typeof parsed.toKst === 'string' && parsed.toKst ? parsed.toKst : defaults.toKst,
+      targetProfitPct: readStoredNumber(parsed.targetProfitPct, defaults.targetProfitPct),
+      stopLossPct: readStoredNumber(parsed.stopLossPct, defaults.stopLossPct),
+      maxHoldBars: readStoredNumber(parsed.maxHoldBars, defaults.maxHoldBars),
+    }
+  } catch {
+    return defaults
+  }
+}
+
+function readStoredNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+function storeResearchFormSettings(settings: ResearchFormSettings) {
+  try {
+    window.localStorage.setItem(RESEARCH_FORM_STORAGE_KEY, JSON.stringify(settings))
+  } catch {
+    // localStorage 비가용 환경에서는 입력값 저장만 생략한다.
+  }
+}
+
+function datePartToUtcDay(value: string): number | null {
+  const [year, month, day] = value.slice(0, 10).split('-').map(Number)
+  if (!year || !month || !day) return null
+  return Date.UTC(year, month - 1, day)
+}
+
+function estimateResearchCandles(
+  interval: string,
+  fromKst: string,
+  toKst: string,
+): number | null {
+  const fromDay = datePartToUtcDay(fromKst)
+  const toDay = datePartToUtcDay(toKst)
+  const candlesPerTradingDay = CANDLES_PER_TRADING_DAY[interval]
+  if (fromDay == null || toDay == null || !candlesPerTradingDay || fromDay > toDay) return null
+
+  let tradingDays = 0
+  for (let day = fromDay; day <= toDay; day += ONE_DAY_MS) {
+    const dow = new Date(day).getUTCDay()
+    if (dow !== 0 && dow !== 6) tradingDays += 1
+  }
+  return tradingDays * candlesPerTradingDay
+}
 
 function readRecentPresetIds(): string[] {
   try {
@@ -109,15 +206,16 @@ export function StrategyResearchPage() {
   const navigate = useNavigate()
   const registeredUserId = useOnboardingStore((s) => s.registeredUserId)
   const userIdText = registeredUserId == null ? null : String(registeredUserId)
-  const [code, setCode] = useState('038110')
-  const [instrumentInput, setInstrumentInput] = useState('038110')
+  const [initialResearchForm] = useState(() => readResearchFormSettings())
+  const [code, setCode] = useState('')
+  const [instrumentInput, setInstrumentInput] = useState('')
   const [selectedInstrumentName, setSelectedInstrumentName] = useState<string | null>(null)
-  const [interval, setInterval] = useState('1d')
-  const [fromKst, setFromKst] = useState(DEFAULT_FROM_KST)
-  const [toKst, setToKst] = useState(DEFAULT_TO_KST)
-  const [targetProfitPct, setTargetProfitPct] = useState(1.5)
-  const [stopLossPct, setStopLossPct] = useState(0.8)
-  const [maxHoldBars, setMaxHoldBars] = useState(12)
+  const [interval, setInterval] = useState(initialResearchForm.interval)
+  const [fromKst, setFromKst] = useState(initialResearchForm.fromKst)
+  const [toKst, setToKst] = useState(initialResearchForm.toKst)
+  const [targetProfitPct, setTargetProfitPct] = useState(initialResearchForm.targetProfitPct)
+  const [stopLossPct, setStopLossPct] = useState(initialResearchForm.stopLossPct)
+  const [maxHoldBars, setMaxHoldBars] = useState(initialResearchForm.maxHoldBars)
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [discoveryQuery, setDiscoveryQuery] = useState(AI_DISCOVERY_DEFAULT_QUERY)
@@ -477,14 +575,17 @@ export function StrategyResearchPage() {
     () => discoveryReport?.items.filter((item) => item.status !== 'DISMISSED') ?? [],
     [discoveryReport],
   )
-  // 캔들 없음 후보 — 정확한 수량보다 리서치 가능 여부만 사용한다.
+  // 리서치 캔들 부족 후보 — 정확한 수량보다 리서치 가능 여부만 사용한다.
   const emptyCandleItems = useMemo(
     () =>
       visibleDiscoveryItems.filter(
         (item) =>
           item.code &&
           item.matched &&
-          (item.hasResearchCandles === false || (item.hasResearchCandles == null && item.candleCount === 0)),
+          (item.hasResearchCandles === false ||
+            (item.hasResearchCandles == null &&
+              item.candleCount != null &&
+              item.candleCount < MIN_RESEARCH_CANDLES)),
       ),
     [visibleDiscoveryItems],
   )
@@ -531,6 +632,17 @@ export function StrategyResearchPage() {
     if (corePromptTouched) return
     setCorePromptDraft(corePromptQuery.data.promptText)
   }, [corePromptQuery.data, corePromptTouched])
+
+  useEffect(() => {
+    storeResearchFormSettings({
+      interval,
+      fromKst,
+      toKst,
+      targetProfitPct,
+      stopLossPct,
+      maxHoldBars,
+    })
+  }, [fromKst, interval, maxHoldBars, stopLossPct, targetProfitPct, toKst])
 
   useEffect(() => {
     if (!presetSettingsOpen) return
@@ -729,8 +841,11 @@ export function StrategyResearchPage() {
       setDiscoveryError('종목 마스터와 매칭된 후보만 선택할 수 있습니다')
       return
     }
-    if (item.hasResearchCandles === false || (item.hasResearchCandles == null && item.candleCount === 0)) {
-      setDiscoveryError('선택한 interval·기간에 저장된 candle이 없습니다. 차트에서 캔들을 수집한 뒤 다시 선택해주세요')
+    if (
+      item.hasResearchCandles === false ||
+      (item.hasResearchCandles == null && item.candleCount != null && item.candleCount < MIN_RESEARCH_CANDLES)
+    ) {
+      setDiscoveryError('선택한 interval·기간에 리서치 가능한 candle이 부족합니다. 캔들 가져오기 후 다시 선택해주세요')
       return
     }
     const result: InstrumentSearchResultDto = {
@@ -814,6 +929,13 @@ export function StrategyResearchPage() {
       const selectedCode = code || extractInstrumentCode(instrumentInput)
       if (!selectedCode) {
         setFormError('종목명을 검색해서 선택하거나 6자리 종목코드를 입력해주세요')
+        return
+      }
+      const estimatedCandles = estimateResearchCandles(interval, fromKst, toKst)
+      if (estimatedCandles != null && estimatedCandles > MAX_RESEARCH_CANDLES_PER_RUN) {
+        setFormError(
+          `선택 기간의 예상 candle 수가 너무 많습니다: ${estimatedCandles.toLocaleString('ko-KR')} > ${MAX_RESEARCH_CANDLES_PER_RUN.toLocaleString('ko-KR')}. 기간을 줄이거나 더 큰 interval을 선택해주세요.`,
+        )
         return
       }
       mutation.mutate({
@@ -1112,7 +1234,7 @@ export function StrategyResearchPage() {
             {emptyCandleItems.length > 0 && (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-amber-900 bg-amber-950/20 px-3 py-2">
                 <span className="text-xs text-amber-200">
-                  캔들이 없는 매칭 후보 {emptyCandleItems.length}건 — KIS에서 {interval} 캔들을 앞뒤 5거래일 포함해 가져옵니다.
+                  리서치 캔들이 부족한 매칭 후보 {emptyCandleItems.length}건 — KIS에서 {interval} 캔들을 앞뒤 5거래일 포함해 가져옵니다.
                 </span>
                 <button
                   type="button"
@@ -1120,7 +1242,7 @@ export function StrategyResearchPage() {
                   disabled={bulkRunning || !candleRecollectOptions}
                   className="rounded border border-amber-700 px-2.5 py-1 text-xs font-semibold text-amber-200 hover:bg-amber-950/40 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {bulkRunning ? '캔들 수집 중' : '캔들 없는 후보 전체 가져오기'}
+                  {bulkRunning ? '캔들 수집 중' : '부족 후보 전체 가져오기'}
                 </button>
               </div>
             )}

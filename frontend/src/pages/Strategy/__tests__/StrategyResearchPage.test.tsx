@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -7,6 +7,7 @@ import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { StrategyResearchPage } from '../StrategyResearchPage'
 import { useOnboardingStore } from '../../../stores/onboarding'
+import { kstInputToIso } from '../../../components/scenario/scenarioReplayTime'
 import type {
   StrategyResearchAiDiscoveryRequestDto,
   StrategyResearchRequestDto,
@@ -35,6 +36,8 @@ vi.mock('lightweight-charts', () => ({
 let lastResearchBody: StrategyResearchRequestDto | null = null
 let lastDiscoveryBody: StrategyResearchAiDiscoveryRequestDto | null = null
 let lastRecollectJobUrl: string | null = null
+const ONE_DAY_MS = 24 * 60 * 60 * 1000
+const RESEARCH_FORM_STORAGE_KEY = 'magicjar.strategyResearch.form.v1'
 
 const server = setupServer(
   http.get('/api/instruments/search', ({ request }) => {
@@ -269,7 +272,56 @@ function renderPage() {
   )
 }
 
+function datePartToUtcDay(value: string): number {
+  const [year, month, day] = value.slice(0, 10).split('-').map(Number)
+  return Date.UTC(year, month - 1, day)
+}
+
 describe('StrategyResearchPage', () => {
+  it('리서치 종목 입력은 비어 있고 기본 리서치 조건은 1주일·익절 3%·손절 3%로 시작한다', async () => {
+    act(() => {
+      useOnboardingStore.setState({ registeredUserId: 74683223 })
+    })
+
+    renderPage()
+
+    expect(await screen.findByRole('combobox', { name: '종목 검색' })).toHaveValue('')
+    expect(screen.queryByText(/선택:/)).not.toBeInTheDocument()
+    const fromInput = screen.getByLabelText('시작 시각 (KST)') as HTMLInputElement
+    const toInput = screen.getByLabelText('종료 시각 (KST)') as HTMLInputElement
+    expect((datePartToUtcDay(toInput.value) - datePartToUtcDay(fromInput.value)) / ONE_DAY_MS).toBe(7)
+    expect(fromInput.value.endsWith('T09:00')).toBe(true)
+    expect(toInput.value.endsWith('T15:30')).toBe(true)
+    expect(screen.getByLabelText('익절 %')).toHaveValue(3)
+    expect(screen.getByLabelText('손절 %')).toHaveValue(3)
+  })
+
+  it('저장된 리서치 조건을 다음 진입 때 복원한다', async () => {
+    act(() => {
+      useOnboardingStore.setState({ registeredUserId: 74683223 })
+    })
+    window.localStorage.setItem(
+      RESEARCH_FORM_STORAGE_KEY,
+      JSON.stringify({
+        interval: '5m',
+        fromKst: '2026-06-01T09:00',
+        toKst: '2026-06-05T15:30',
+        targetProfitPct: 4,
+        stopLossPct: 2.5,
+        maxHoldBars: 8,
+      }),
+    )
+
+    renderPage()
+
+    expect(await screen.findByLabelText('캔들')).toHaveValue('5m')
+    expect(screen.getByLabelText('시작 시각 (KST)')).toHaveValue('2026-06-01T09:00')
+    expect(screen.getByLabelText('종료 시각 (KST)')).toHaveValue('2026-06-05T15:30')
+    expect(screen.getByLabelText('익절 %')).toHaveValue(4)
+    expect(screen.getByLabelText('손절 %')).toHaveValue(2.5)
+    expect(screen.getByLabelText('보유')).toHaveValue(8)
+  })
+
   it('종목명 자동완성 선택 후 리서치 요청에는 6자리 코드만 보낸다', async () => {
     const user = userEvent.setup()
     act(() => {
@@ -305,11 +357,33 @@ describe('StrategyResearchPage', () => {
     await user.click(screen.getByRole('button', { name: '리서치' }))
 
     await waitFor(() => expect(lastResearchBody).not.toBeNull())
+    const fromInput = screen.getByLabelText('시작 시각 (KST)') as HTMLInputElement
+    const toInput = screen.getByLabelText('종료 시각 (KST)') as HTMLInputElement
     expect(lastDiscoveryBody?.userId).toBe('74683223')
     expect(lastDiscoveryBody?.interval).toBe('1d')
-    expect(lastDiscoveryBody?.from).toBe('2026-03-02T00:00:00.000Z')
-    expect(lastDiscoveryBody?.to).toBe('2026-06-02T06:30:00.000Z')
+    expect(lastDiscoveryBody?.from).toBe(kstInputToIso(fromInput.value))
+    expect(lastDiscoveryBody?.to).toBe(kstInputToIso(toInput.value))
     expect(lastResearchBody?.code).toBe('005930')
+  })
+
+  it('예상 candle 수가 2만 개를 넘으면 리서치 요청 전에 차단한다', async () => {
+    const user = userEvent.setup()
+    act(() => {
+      useOnboardingStore.setState({ registeredUserId: 74683223 })
+    })
+
+    renderPage()
+
+    const input = screen.getByRole('combobox', { name: '종목 검색' })
+    await user.type(input, '삼성전자')
+    await user.click(await screen.findByRole('option', { name: /삼성전자/ }))
+    await user.selectOptions(screen.getByLabelText('캔들'), '1m')
+    fireEvent.change(screen.getByLabelText('시작 시각 (KST)'), { target: { value: '2026-03-02T09:00' } })
+    fireEvent.change(screen.getByLabelText('종료 시각 (KST)'), { target: { value: '2026-06-02T15:30' } })
+    await user.click(screen.getByRole('button', { name: '리서치' }))
+
+    expect(await screen.findByText(/예상 candle 수가 너무 많습니다/)).toBeInTheDocument()
+    expect(lastResearchBody).toBeNull()
   })
 
   it('AI 종목발굴 후보에 캔들이 없으면 선택을 막는다', async () => {
@@ -327,7 +401,7 @@ describe('StrategyResearchPage', () => {
           limit: lastDiscoveryBody.limit,
           provider: 'claude-cli-bridge',
           generatedAt: '2026-06-06T00:00:00Z',
-          warnings: ['선택한 interval·기간에 저장된 candle이 없는 후보 1건은 차트 수집 후 리서치할 수 있습니다.'],
+          warnings: ['선택한 interval·기간에 리서치 가능한 candle이 부족한 후보 1건은 캔들 가져오기 후 리서치할 수 있습니다.'],
           items: [
             {
               itemKey: 'CODE:028300',
@@ -631,17 +705,68 @@ describe('StrategyResearchPage', () => {
     expect(await screen.findByText('캔들 없는 후보')).toBeInTheDocument()
     expect(screen.getByText('캔들 없음')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '캔들 가져오기' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '캔들 없는 후보 전체 가져오기' })).toBeInTheDocument()
-    expect(screen.getByText(/캔들이 없는 매칭 후보 1건/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '부족 후보 전체 가져오기' })).toBeInTheDocument()
+    expect(screen.getByText(/리서치 캔들이 부족한 매칭 후보 1건/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '선택' })).toBeDisabled()
 
+    const fromInput = screen.getByLabelText('시작 시각 (KST)') as HTMLInputElement
+    const toInput = screen.getByLabelText('종료 시각 (KST)') as HTMLInputElement
     await user.click(screen.getByRole('button', { name: '캔들 가져오기' }))
     await waitFor(() => expect(lastRecollectJobUrl).not.toBeNull())
     const url = new URL(lastRecollectJobUrl!)
     expect(url.searchParams.get('intervals')).toBe('1d')
-    expect(url.searchParams.get('from')).toBe('2026-03-02T00:00:00.000Z')
-    expect(url.searchParams.get('to')).toBe('2026-06-02T06:30:00.000Z')
+    expect(url.searchParams.get('from')).toBe(kstInputToIso(fromInput.value))
+    expect(url.searchParams.get('to')).toBe(kstInputToIso(toInput.value))
     expect(url.searchParams.get('paddingTradingDays')).toBe('5')
+  })
+
+  it('캔들이 일부 있지만 40개 미만이면 "캔들 부족"으로 표시한다', async () => {
+    act(() => {
+      useOnboardingStore.setState({ registeredUserId: 74683223 })
+    })
+    server.use(
+      http.get('/api/strategy-research/ai-discovery/latest', () => {
+        return HttpResponse.json({
+          report: {
+            query: '부족 후보',
+            market: null,
+            limit: 6,
+            provider: 'claude-cli-bridge',
+            generatedAt: '2026-06-06T00:00:00Z',
+            warnings: [],
+            items: [
+              {
+                itemKey: 'CODE:038110',
+                code: '038110',
+                name: '에코플라스틱',
+                market: 'KOSDAQ',
+                sector: '운송장비·부품',
+                theme: '자동차 부품',
+                aiReason: '일부 캔들은 있지만 리서치 최소 수량은 부족한 후보',
+                themes: ['자동차 부품'],
+                confidence: 0.8,
+                matched: true,
+                rawName: '에코플라스틱',
+                rawCode: '038110',
+                tradingHalt: false,
+                managementStock: false,
+                status: 'NEW',
+                candleCount: 30,
+                hasResearchCandles: false,
+              },
+            ],
+          },
+        })
+      }),
+    )
+
+    renderPage()
+
+    expect(await screen.findByText('에코플라스틱')).toBeInTheDocument()
+    expect(screen.getByText('캔들 부족')).toBeInTheDocument()
+    expect(screen.queryByText('캔들 없음')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '캔들 가져오기' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '선택' })).toBeDisabled()
   })
 
   it('candleCount 정보가 없으면(undefined) 캔들 가져오기 UI를 노출하지 않는다', async () => {
@@ -657,7 +782,7 @@ describe('StrategyResearchPage', () => {
     await user.click(screen.getByRole('button', { name: '발굴' }))
     expect(await screen.findByText('반도체와 AI 인프라 후보')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '캔들 가져오기' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '캔들 없는 후보 전체 가져오기' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '부족 후보 전체 가져오기' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '선택' })).toBeEnabled()
   })
 

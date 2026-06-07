@@ -133,7 +133,7 @@ class StrategyResearchAiDiscoveryServiceTest {
 
         response.items[0].candleCount shouldBe 0L
         response.items[0].hasResearchCandles shouldBe false
-        response.warnings.any { it.contains("candle이 없는 후보 1건") } shouldBe true
+        response.warnings.any { it.contains("리서치 가능한 candle이 부족한 후보 1건") } shouldBe true
     }
 
     @Test
@@ -334,7 +334,7 @@ class StrategyResearchAiDiscoveryServiceTest {
         val hanmi = response.items.first { it.code == "042700" }
         hanmi.candleCount shouldBe 0L
         hanmi.hasResearchCandles shouldBe false
-        response.warnings.any { it.contains("저장된 candle이 없는 후보") } shouldBe true
+        response.warnings.any { it.contains("리서치 가능한 candle이 부족한 후보") } shouldBe true
     }
 
     @Test
@@ -386,7 +386,7 @@ class StrategyResearchAiDiscoveryServiceTest {
                 candidateLimit = 1,
                 provider = "claude-cli-bridge",
                 generatedAt = Instant.parse("2026-06-05T00:00:00Z"),
-                warningsJson = """["선택한 interval·기간에 저장된 candle이 없는 후보 1건은 차트 수집 후 리서치할 수 있습니다."]""",
+                warningsJson = """["선택한 interval·기간에 리서치 가능한 candle이 부족한 후보 1건은 캔들 가져오기 후 리서치할 수 있습니다."]""",
                 itemsJson =
                     objectMapper.writeValueAsString(
                         listOf(
@@ -402,21 +402,23 @@ class StrategyResearchAiDiscoveryServiceTest {
             )
         val fromTs = Instant.parse("2026-04-28T00:00:00Z")
         val toTs = Instant.parse("2026-06-02T06:30:00Z")
+        val normalizedFromTs = Instant.parse("2026-04-27T15:00:00Z")
+        val normalizedToTs = Instant.parse("2026-06-02T14:59:59.999999999Z")
         whenever(stateRepository.findById("74683223")).thenReturn(Optional.of(previous))
         whenever(stateRepository.save(any())).thenAnswer { it.arguments[0] }
         whenever(
             candleRepository.countByCodeAndIntervalAndTsBetween(
                 eq("267260"),
                 eq("1d"),
-                eq(fromTs),
-                eq(toTs),
+                eq(normalizedFromTs),
+                eq(normalizedToTs),
             ),
         ).thenReturn(22L)
         whenever(
             candleRepository.findByCodeAndIntervalAndTsBefore(
                 eq("267260"),
                 eq("1d"),
-                eq(fromTs),
+                eq(normalizedFromTs),
                 eq(PageRequest.of(0, 18)),
             ),
         ).thenReturn(List(18) { mock<CandleJpaEntity>() })
@@ -434,7 +436,7 @@ class StrategyResearchAiDiscoveryServiceTest {
         val item = response.items.first { it.code == "267260" }
         item.candleCount shouldBe 40L
         item.hasResearchCandles shouldBe true
-        response.warnings.any { it.contains("저장된 candle이 없는 후보") } shouldBe false
+        response.warnings.any { it.contains("리서치 가능한 candle이 부족한 후보") } shouldBe false
     }
 
     // ───────────────────────── core(wrapper) prompt 편집 ─────────────────────────
