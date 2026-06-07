@@ -21,6 +21,7 @@ import kr.spdaewoon.magicjar.domain.backtest.PriceAdjustmentMode
 import kr.spdaewoon.magicjar.domain.backtest.SizingPolicy
 import kr.spdaewoon.magicjar.domain.backtest.TradeSide
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
+import kr.spdaewoon.magicjar.domain.strategy.EntryPolicy
 import kr.spdaewoon.magicjar.domain.strategy.PartialExit
 import kr.spdaewoon.magicjar.domain.strategy.ReentryTrigger
 import kr.spdaewoon.magicjar.domain.strategy.ScaleInPlan
@@ -450,5 +451,77 @@ class JvmBacktestEngineTest {
         // 기존 동작: BUY 1 + SELL 1(= AllCapital 전액). slice reason 없음.
         assertEquals(1, success.trades.count { it.side == TradeSide.BUY })
         assertTrue(success.trades.none { it.signalReason.containsKey("sliceIndex") }, "legacy 경로엔 scale-in reason 없음")
+    }
+
+    // =====================================================================
+    // ADR 0114 R3 — 백테스트 진입 정책 정합 (EntryPricePolicy 단일 함수 공유)
+    // 호가 부재 근사: ask1 ≈ 슬리피지 적용 체결가, priceAtSignal = 봉 평가가 → 캡 게이트만 의미.
+    // =====================================================================
+
+    /** 슬리피지 적용(fixed_0.05 = 0.05%) 요청 — 진입 정책 캡 게이트가 발화하려면 ask1>priceAtSignal이어야 함. */
+    private fun makeSlippageRequest(): BacktestRequest = makeRequest().copy(slippageModel = "fixed_0.05")
+
+    private fun makeEntryPolicyStrategy(
+        buyCondition: kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode,
+        entryPolicy: EntryPolicy,
+    ): Strategy {
+        val baseDef = makeStrategy(buyCondition).definition
+        return makeStrategy(buyCondition).copy(definition = baseDef.copy(entryPolicy = entryPolicy))
+    }
+
+    @Test
+    fun `R3 backtest - entryPolicy 캡 0퍼센트면 슬리피지 체결가가 상한 초과 → 진입 스킵 집계`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        // maxEntrySlippagePct=0 → cap=priceAtSignal. ask1=price×1.0005 > cap → PriceCapExceeded.
+        whenever(strategyRepo.findById(1L)).thenReturn(
+            makeEntryPolicyStrategy(buyNode, EntryPolicy(maxEntrySlippagePct = BigDecimal.ZERO)),
+        )
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(makeCandleEntities(3))
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any()))
+            .thenReturn(StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L))
+
+        val result = engine.run(makeSlippageRequest())
+        val success = assertInstanceOf(BacktestResult.Success::class.java, result)
+        // 모든 BUY 기회가 캡 초과로 스킵 → 매매 0건, priceCapExceeded 집계.
+        assertTrue(success.trades.isEmpty(), "캡 초과로 진입 0건이어야 합니다")
+        assertTrue(success.entrySkip.priceCapExceeded >= 1, "priceCapExceeded 스킵이 집계되어야 합니다")
+        assertEquals(0, success.entrySkip.spreadTooWide, "호가 부재로 스프레드 게이트는 0(근사 한계)")
+        assertEquals(0, success.entrySkip.quoteStale, "quoteAsOf=evalAt 근사로 stale 게이트는 0")
+        assertEquals(0, success.entrySkip.noQuote, "ask1 항상 주입 — noQuote 0")
+    }
+
+    @Test
+    fun `R3 backtest - entryPolicy 캡 넉넉하면 진입 정상 + 스킵 0`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        // maxEntrySlippagePct=1.0% > 슬리피지 0.05% → 캡 통과 → 정상 진입.
+        whenever(strategyRepo.findById(1L)).thenReturn(
+            makeEntryPolicyStrategy(buyNode, EntryPolicy(maxEntrySlippagePct = BigDecimal("1.0"))),
+        )
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(makeCandleEntities(3))
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any()))
+            .thenReturn(StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L))
+
+        val result = engine.run(makeSlippageRequest())
+        val success = assertInstanceOf(BacktestResult.Success::class.java, result)
+        assertTrue(success.trades.any { it.side == TradeSide.BUY }, "캡 통과 시 진입 BUY가 있어야 합니다")
+        assertEquals(0, success.entrySkip.total, "캡 통과면 스킵 0")
+    }
+
+    @Test
+    fun `R3 backtest - entryPolicy null이면 진입 정책 미적용(스킵 0 · 하위호환)`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        // entryPolicy 없음 → 기존 즉시 체결 모델 그대로. 슬리피지 있어도 스킵 0.
+        whenever(strategyRepo.findById(1L)).thenReturn(makeStrategy(buyNode))
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(makeCandleEntities(3))
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any()))
+            .thenReturn(StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L))
+
+        val result = engine.run(makeSlippageRequest())
+        val success = assertInstanceOf(BacktestResult.Success::class.java, result)
+        assertEquals(0, success.entrySkip.total, "entryPolicy 미설정 전략은 스킵 집계 0")
+        assertTrue(success.trades.any { it.side == TradeSide.BUY }, "정책 없으면 정상 진입")
     }
 }
