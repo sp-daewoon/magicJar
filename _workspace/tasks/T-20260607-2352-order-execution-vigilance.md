@@ -14,9 +14,9 @@ parentPhase: ?
 ADR0114 적대 리뷰 + Codex 디테일 흡수
 
 ## 결과물 체크리스트
-- [ ] 리뷰 발견 정정
-- [ ] Codex 디테일 흡수
-- [ ] 재검증
+- [x] 리뷰 발견 정정 — #1 HoldingPositionIndex race(High) FIX(writeLock+mutationSeq) + 회귀 2건. 나머지 9 지점 검토 후 문제없음(근거 보고)
+- [x] Codex 디테일 흡수 — 647b435d 5항목 비교, 전부 동등/우세 → 흡수 0건, 머지 우위 우리 브랜치 확정(근거 보고 §6-1)
+- [x] 재검증 — ./gradlew check GREEN + 3 bootJar GREEN + ktlint GREEN, 기존 테스트 무수정
 
 ## 의존성
 - (필요 시 기록)
