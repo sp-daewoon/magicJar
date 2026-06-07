@@ -228,10 +228,52 @@ export interface StrategyResearchTradeDto {
   reason: string
 }
 
+export interface StrategyResearchCandidateDefinitionDto {
+  id: number
+  key: string
+  title: string
+  marketFit: string
+  entryRules: string[]
+  entryDsl: string
+  targetProfitPct: string | null
+  stopLossPct: string | null
+  maxHoldBars: number | null
+  sortOrder: number
+  active: boolean
+  builtIn: boolean
+  updatedAt: string
+}
+
+export interface StrategyResearchCandidateFromStrategyRequestDto {
+  userId: string
+  strategyId: number
+  title?: string | null
+  candidateKey?: string | null
+  sortOrder?: number | null
+}
+
 export const strategyResearchApi = {
   propose: async (req: StrategyResearchRequestDto): Promise<StrategyResearchReportDto> => {
     const res = await apiClient.post<StrategyResearchReportDto>('/strategy-research/proposals', req)
     return res.data
+  },
+  getCandidates: async (includeInactive = false): Promise<StrategyResearchCandidateDefinitionDto[]> => {
+    const res = await apiClient.get<StrategyResearchCandidateDefinitionDto[]>('/strategy-research/candidates', {
+      params: { includeInactive },
+    })
+    return res.data
+  },
+  addCandidateFromStrategy: async (
+    req: StrategyResearchCandidateFromStrategyRequestDto,
+  ): Promise<StrategyResearchCandidateDefinitionDto> => {
+    const res = await apiClient.post<StrategyResearchCandidateDefinitionDto>(
+      '/strategy-research/candidates/from-strategy',
+      req,
+    )
+    return res.data
+  },
+  deleteCandidate: async (id: number): Promise<void> => {
+    await apiClient.delete(`/strategy-research/candidates/${id}`)
   },
   discoverWithAi: async (
     req: StrategyResearchAiDiscoveryRequestDto,

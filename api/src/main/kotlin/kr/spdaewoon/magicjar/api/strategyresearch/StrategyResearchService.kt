@@ -24,10 +24,14 @@ import org.springframework.web.server.ResponseStatusException
 @Service
 class StrategyResearchService(
     private val candleRepository: CandleJpaRepository,
+    private val candidateProvider: kr.spdaewoon.magicjar.domain.strategyresearch.ResearchCandidateProvider,
+    private val entryEvaluator: kr.spdaewoon.magicjar.domain.strategyresearch.CandidateEntryEvaluator,
     @Value("\${magicjar.strategy-research.max-candles-per-run:20000}") private val maxCandlesPerRun: Int,
 ) {
     private val log = LoggerFactory.getLogger(StrategyResearchService::class.java)
-    private val engine = StrategyResearchEngine()
+
+    // 후보 목록은 DB(V74), 진입 평가는 strategy-engine DSL 평가기 (research-candidates-db).
+    private val engine = StrategyResearchEngine(entryEvaluator, candidateProvider)
 
     fun propose(requestDto: StrategyResearchRequestDto): StrategyResearchReportDto {
         val request = requestDto.toDomainRequest()

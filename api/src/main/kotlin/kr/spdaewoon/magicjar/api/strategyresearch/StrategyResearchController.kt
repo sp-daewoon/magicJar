@@ -26,8 +26,66 @@ import org.springframework.web.server.ResponseStatusException
 class StrategyResearchController(
     private val strategyResearchService: StrategyResearchService,
     private val strategyResearchAiDiscoveryService: StrategyResearchAiDiscoveryService,
+    private val strategyResearchCandidateService: StrategyResearchCandidateService,
 ) {
     private val log = LoggerFactory.getLogger(StrategyResearchController::class.java)
+
+    @Operation(
+        summary = "리서치 후보 전략 목록",
+        description =
+            "DB(V74 strategy_research_candidate)에 등록된 후보 전략 목록을 sort_order 순으로 조회합니다. " +
+                "리서치 실행은 이 목록을 평가 후보로 사용합니다. includeInactive=true면 비활성 후보도 포함합니다.",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "200", description = "후보 전략 목록 조회 성공"),
+    )
+    @GetMapping("/candidates")
+    fun candidates(
+        @RequestParam(required = false, defaultValue = "false") includeInactive: Boolean,
+    ): List<StrategyResearchCandidateDefinitionDto> = strategyResearchCandidateService.list(includeInactive)
+
+    @Operation(
+        summary = "내 전략을 리서치 후보로 추가",
+        description =
+            "사용자의 저장된 전략(dsl_entry·손절/익절)을 리서치 후보로 승격합니다(is_builtin=false). " +
+                "진입 조건은 전략 dsl_entry를 그대로 후보 entry_dsl로 사용하며, 파싱·화이트리스트 검증을 통과해야 합니다. " +
+                "전략 저장·KIS 주문·live order Kafka topic을 호출하지 않습니다.",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "200", description = "후보 추가 성공"),
+        ApiResponse(responseCode = "400", description = "userId/전략 진입 조건 검증 실패"),
+        ApiResponse(responseCode = "404", description = "전략 미존재 또는 소유자 불일치"),
+        ApiResponse(responseCode = "409", description = "동일 후보 키 중복"),
+    )
+    @PostMapping("/candidates/from-strategy")
+    fun addCandidateFromStrategy(
+        @RequestBody @Valid request: StrategyResearchCandidateFromStrategyRequestDto,
+    ): StrategyResearchCandidateDefinitionDto {
+        log.info(
+            "POST /api/strategy-research/candidates/from-strategy: userId={} strategyId={}",
+            request.userId,
+            request.strategyId,
+        )
+        return strategyResearchCandidateService.addFromStrategy(request)
+    }
+
+    @Operation(
+        summary = "리서치 후보 전략 삭제",
+        description =
+            "후보 전략을 삭제합니다(204). builtin 후보도 삭제할 수 있으며, V74 seed는 ON CONFLICT DO NOTHING " +
+                "이라 재배포해도 부활하지 않습니다(영구 삭제). 존재하지 않는 id는 404입니다.",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "204", description = "후보 삭제 성공"),
+        ApiResponse(responseCode = "404", description = "후보 미존재"),
+    )
+    @DeleteMapping("/candidates/{id}")
+    fun deleteCandidate(
+        @PathVariable id: Long,
+    ): ResponseEntity<Void> {
+        strategyResearchCandidateService.delete(id)
+        return ResponseEntity.noContent().build()
+    }
 
     @Operation(
         summary = "전략 후보 생성",

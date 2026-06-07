@@ -8,10 +8,28 @@ import kotlinx.datetime.Instant
 import org.junit.jupiter.api.Test
 import java.math.BigDecimal
 
+/**
+ * StrategyResearchEngine 도메인 로직 테스트.
+ *
+ * research-candidates-db 전환 후 진입 시그널은 [CandidateEntryEvaluator] 포트로 위임된다.
+ * 도메인 단독 테스트에서는 결정론적 stub evaluator를 주입해 엔진의 시뮬레이션·통계·exit profile 스윕을
+ * DSL 평가기와 분리해 검증한다(DSL 실제 평가 정합은 api 모듈 통합 테스트가 담당).
+ */
 class StrategyResearchEngineTest {
+    /**
+     * VOLUME_WASHOUT_REBOUND 후보가 index 26(직전 투매 음봉 직후 양봉)에서 진입하도록 하는 stub.
+     * 기존 Kotlin 람다의 핵심 의미(투매 후 양봉 회복)를 fixture 한정으로 재현한다.
+     */
+    private val washoutStub =
+        CandidateEntryEvaluator { entryDsl, candles, index ->
+            entryDsl.contains("close > open") &&
+                index == 26 &&
+                candles[index].close > candles[index].open
+        }
+
     @Test
-    fun `volume washout candidate uses next candle open and reports a take profit trade`() {
-        val engine = StrategyResearchEngine()
+    fun `washout candidate uses next candle open and reports a take profit trade`() {
+        val engine = StrategyResearchEngine(entryEvaluator = washoutStub)
         val report =
             engine.research(
                 request = request(targetProfitPct = 1.0, stopLossPct = 0.8, maxHoldBars = 4),
@@ -31,7 +49,7 @@ class StrategyResearchEngineTest {
 
     @Test
     fun `insufficient candles returns warnings without candidates`() {
-        val engine = StrategyResearchEngine()
+        val engine = StrategyResearchEngine(entryEvaluator = washoutStub)
 
         val report = engine.research(request(), washoutCandles().take(10))
 
@@ -40,33 +58,26 @@ class StrategyResearchEngineTest {
     }
 
     @Test
-    fun `research evaluates expanded candidate pool`() {
-        val engine = StrategyResearchEngine()
+    fun `research evaluates the full builtin candidate pool from the provider`() {
+        val engine = StrategyResearchEngine(entryEvaluator = washoutStub)
 
         val report = engine.research(request(), washoutCandles(80))
 
         report.candidates.size shouldBe 18
         report.candidates.map { it.key }.toSet() shouldBe
-            setOf(
-                "MA10_RECLAIM_SCALP",
-                "RSI30_REBOUND_SCALP",
-                "VOLUME_WASHOUT_REBOUND",
-                "MA20_PULLBACK_CONTINUATION",
-                "MA5_20_GOLDEN_CROSS",
-                "BREAKOUT_20_HIGH_VOLUME",
-                "RSI40_TREND_PULLBACK",
-                "RSI50_MOMENTUM_RECLAIM",
-                "RANGE_SUPPORT_BOUNCE",
-                "BB_LOWER_RECLAIM",
-                "DONCHIAN10_BREAKOUT",
-                "VOLUME_SURGE_GREEN",
-                "LOW_VOLUME_PULLBACK_BREAK",
-                "THREE_BAR_RECOVERY",
-                "HAMMER_VOLUME_REVERSAL",
-                "GAP_DOWN_REVERSAL",
-                "VOLATILITY_SQUEEZE_BREAKOUT",
-                "MA50_TREND_DIP_RECLAIM",
-            )
+            BuiltinResearchCandidates.DEFINITIONS.map { it.key }.toSet()
+    }
+
+    @Test
+    fun `entryDsl is exposed as the authoritative draft on every candidate`() {
+        val engine = StrategyResearchEngine(entryEvaluator = washoutStub)
+
+        val report = engine.research(request(), washoutCandles(80))
+
+        val byKey = BuiltinResearchCandidates.DEFINITIONS.associateBy { it.key }
+        report.candidates.forEach { candidate ->
+            candidate.entryDslDraft shouldBe byKey.getValue(candidate.key).entryDsl
+        }
     }
 
     private fun request(
