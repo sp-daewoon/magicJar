@@ -28,7 +28,9 @@ import { ComplexityCard } from '../../components/strategy/ComplexityCard'
 import { EvaluationResultCard, EvaluationEmptyCard } from '../../components/strategy/EvaluationResultCard'
 import { StrategySaveModal } from '../../components/strategy/StrategySaveModal'
 import { NaturalLanguageInput } from '../../components/strategy/NaturalLanguageInput'
+import { StrategyAiGenerateModal } from '../../components/strategy/StrategyAiGenerateModal'
 import { DslTextEditor } from '../../components/strategy/DslTextEditor'
+import type { StrategyBuilderAiGenerateItem } from '../../api/strategyBuilderAiGenerate'
 import { cloneNode, type BlockNode, type BlockTree } from '../../lib/dsl/blockTree'
 import { serializeBlockTree } from '../../lib/dsl/serializer'
 import {
@@ -180,6 +182,9 @@ export function StrategyBuilderPage() {
   // 모달 상태
   const [showSaveModal, setShowSaveModal] = useState(false)
   const [showNaturalLang, setShowNaturalLang] = useState(false)
+  const [showAiGenerate, setShowAiGenerate] = useState(false)
+  // AI 생성 후보를 빌더로 불러올 때 name·riskPlan을 저장 모달 초기값으로 전달 (researchDraftMeta 패턴)
+  const [aiDraftMeta, setAiDraftMeta] = useState<StrategyBuilderAiGenerateItem | null>(null)
   const [showDslEditor, setShowDslEditor] = useState(false)
   const [dslEditorTab, setDslEditorTab] = useState<'entry' | 'exit'>('entry')
   const [validateError, setValidateError] = useState<string | null>(null)
@@ -227,6 +232,7 @@ export function StrategyBuilderPage() {
     try {
       setTree(parseDslTextToTree(loadedStrategy.buyCondition, loadedStrategy.sellCondition))
       setStrategyId(loadedStrategy.id)
+      setAiDraftMeta(null)
       setComplexity(loadedStrategy.complexity ?? null)
       setEvalResult(null)
       setValidateError(null)
@@ -261,6 +267,7 @@ export function StrategyBuilderPage() {
     try {
       setTree(parseDslTextToTree(draft.entryDsl, draft.exitDsl))
       setResearchDraftMeta(draft)
+      setAiDraftMeta(null)
       setStrategyId(undefined)
       setComplexity(null)
       setEvalResult(null)
@@ -309,6 +316,7 @@ export function StrategyBuilderPage() {
     setTree(clonePresetTree(preset.tree))
     setCanvasTab('entry')
     setStrategyId(undefined)
+    setAiDraftMeta(null)
     setComplexity(null)
     setEvalResult(null)
     setValidateError(null)
@@ -424,6 +432,30 @@ export function StrategyBuilderPage() {
     } finally {
       setEvalPrepMessage(null)
       setIsPreparingEvaluation(false)
+    }
+  }
+
+  // AI 생성 후보 → 빌더 폼에 주입 (자동 저장 0 — ADR 0112 매매 결정권 0)
+  // NaturalLanguageInput이 DSL을 트리로 넣는 기존 경로(parseDslTextToTree) 재사용.
+  const handleAiDraftLoad = (item: StrategyBuilderAiGenerateItem) => {
+    if (!item.dslValid) return
+    if ((tree.entry || tree.exit) && !window.confirm('현재 작성 중인 조건을 AI 생성 후보로 교체할까요?')) {
+      return
+    }
+    try {
+      setTree(parseDslTextToTree(item.entryDsl, item.exitDsl ?? undefined))
+      setAiDraftMeta(item)
+      setResearchDraftMeta(null)
+      setStrategyId(undefined)
+      setComplexity(null)
+      setEvalResult(null)
+      setValidateError(null)
+      setCanvasTab('entry')
+      loadedStrategyIdRef.current = null
+      setShowAiGenerate(false)
+      showToast(`${item.name} 후보를 빌더로 불러왔습니다`)
+    } catch (err) {
+      showToast(`AI 후보 변환 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`, 'error')
     }
   }
 
@@ -548,6 +580,7 @@ export function StrategyBuilderPage() {
           onTabChange={setCanvasTab}
           onEditDsl={handleEditDsl}
           onNaturalLanguage={() => setShowNaturalLang(true)}
+          onAiGenerate={() => setShowAiGenerate(true)}
           onYamlExport={handleYamlExport}
           onYamlImport={handleYamlImport}
           onValidate={handleValidate}
@@ -576,6 +609,23 @@ export function StrategyBuilderPage() {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {aiDraftMeta && !strategyId && (
+            <div className="rounded-lg border border-violet-900/60 bg-violet-950/20 p-3">
+              <div className="text-xs font-semibold text-violet-200">AI 생성 후보</div>
+              <div className="mt-1 text-sm text-gray-200">{aiDraftMeta.name}</div>
+              <div className="mt-1 text-xs text-gray-500">
+                {[
+                  aiDraftMeta.riskPlan.takeProfitPct != null ? `익절 ${aiDraftMeta.riskPlan.takeProfitPct}%` : null,
+                  aiDraftMeta.riskPlan.fixedStopLossPct != null ? `손절 ${aiDraftMeta.riskPlan.fixedStopLossPct}%` : null,
+                  aiDraftMeta.riskPlan.minHoldBars != null ? `최소보유 ${aiDraftMeta.riskPlan.minHoldBars}봉` : null,
+                ].filter(Boolean).join(' · ') || '리스크 플랜 미지정'}
+              </div>
+              <p className="mt-2 text-xs text-amber-300">
+                저장하지 않았습니다. 검토·검증·평가 후 직접 저장하세요.
+              </p>
             </div>
           )}
 
@@ -669,14 +719,18 @@ export function StrategyBuilderPage() {
           userId={registeredUserId}
           entry={entryDsl}
           exit={exitDsl}
-          initialName={loadedStrategy?.name ?? researchDraftMeta?.name}
-          initialNameKo={loadedStrategy?.nameKo ?? researchDraftMeta?.nameKo}
+          initialName={loadedStrategy?.name ?? researchDraftMeta?.name ?? aiDraftMeta?.name}
+          initialNameKo={loadedStrategy?.nameKo ?? researchDraftMeta?.nameKo ?? aiDraftMeta?.name}
           initialUniverse={loadedStrategy?.universe}
           initialTf={evalForm.interval}
           initialCode={evalForm.code}
-          initialStopLossPct={loadedStrategy?.stopLossPct ?? researchDraftMeta?.stopLossPct}
-          initialTakeProfitPct={loadedStrategy?.takeProfitPct ?? researchDraftMeta?.takeProfitPct}
-          initialMinHoldBars={loadedStrategy?.minHoldBars ?? null}
+          initialStopLossPct={
+            loadedStrategy?.stopLossPct ?? researchDraftMeta?.stopLossPct ?? aiDraftMeta?.riskPlan.fixedStopLossPct ?? undefined
+          }
+          initialTakeProfitPct={
+            loadedStrategy?.takeProfitPct ?? researchDraftMeta?.takeProfitPct ?? aiDraftMeta?.riskPlan.takeProfitPct ?? undefined
+          }
+          initialMinHoldBars={loadedStrategy?.minHoldBars ?? aiDraftMeta?.riskPlan.minHoldBars ?? null}
           initialScaleIn={loadedStrategy?.scaleIn}
           initialPartialExits={loadedStrategy?.partialExits}
           onSaved={handleSaved}
@@ -689,6 +743,16 @@ export function StrategyBuilderPage() {
         <NaturalLanguageInput
           onResult={handleNaturalResult}
           onClose={() => setShowNaturalLang(false)}
+        />
+      )}
+
+      {/* AI 전략 생성 모달 */}
+      {showAiGenerate && (
+        <StrategyAiGenerateModal
+          userId={registeredUserId}
+          defaultInterval={evalForm.interval}
+          onLoadDraft={handleAiDraftLoad}
+          onClose={() => setShowAiGenerate(false)}
         />
       )}
 

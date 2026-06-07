@@ -15,6 +15,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { StrategyBuilderPage } from '../StrategyBuilderPage'
+import { useOnboardingStore } from '../../../stores/onboarding'
 
 // MSW 서버 설정
 const server = setupServer(
@@ -193,6 +194,61 @@ describe('StrategyBuilderPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'FVG 매수 후보 즐겨찾기 삭제' }))
 
     expect(screen.queryByRole('button', { name: 'FVG 매수 후보 적용' })).not.toBeInTheDocument()
+  })
+
+  it('AI 전략 생성 버튼 → 팝업 오픈 → 생성 → valid 후보 불러오기 시 폼 주입(자동 저장 0)', async () => {
+    let createCalls = 0
+    server.use(
+      http.post('/api/strategies/ai-generate', () =>
+        HttpResponse.json({
+          provider: 'claude-cli',
+          generatedAt: '2026-06-08T12:00:00Z',
+          warnings: [],
+          items: [
+            {
+              name: 'AI 단타 후보',
+              description: '20일선 돌파',
+              entryDsl: 'close > ma(20)',
+              exitDsl: null,
+              riskPlan: { takeProfitPct: 1.5, fixedStopLossPct: 0.8, minHoldBars: 2 },
+              rationale: '추세 확인',
+              dslValid: true,
+              dslError: null,
+            },
+          ],
+        }),
+      ),
+      // 자동 저장 0 검증용 — 호출되면 createCalls 증가
+      http.post('/api/strategies', () => {
+        createCalls += 1
+        return HttpResponse.json({ id: 99 })
+      }),
+    )
+    useOnboardingStore.getState().setRegistered(74683223)
+
+    render(<StrategyBuilderPage />, { wrapper: Wrapper })
+
+    fireEvent.click(screen.getByRole('button', { name: 'AI 전략 생성' }))
+    expect(screen.getByRole('dialog', { name: 'AI 전략 생성' })).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('전략 의도 (필수)'), {
+      target: { value: '거래량 터지며 20일선 돌파 단타' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '생성하기' }))
+
+    const loadButton = await screen.findByRole('button', { name: '빌더로 불러오기' })
+    fireEvent.click(loadButton)
+
+    // 폼 주입 — DSL 미리보기에 entry 반영
+    await waitFor(() => {
+      expect((screen.getByLabelText('DSL 미리보기 (읽기 전용)') as HTMLTextAreaElement).value).toBe(
+        'close > ma(20)',
+      )
+    })
+    // AI 생성 후보 인디케이터 표시
+    expect(screen.getByText('AI 생성 후보')).toBeInTheDocument()
+    // 자동 저장 0 — 저장 endpoint 미호출
+    expect(createCalls).toBe(0)
   })
 
   it('평가 실행 전 캔들이 없으면 refresh 후 평가한다', async () => {

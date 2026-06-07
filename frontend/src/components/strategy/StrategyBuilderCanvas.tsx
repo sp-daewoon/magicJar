@@ -29,6 +29,8 @@ interface StrategyBuilderCanvasProps {
   onEditDsl?: () => void
   /** 자연어 입력 버튼 */
   onNaturalLanguage?: () => void
+  /** AI 전략 생성 버튼 */
+  onAiGenerate?: () => void
   /** YAML 다운로드 버튼 */
   onYamlExport?: () => void
   /** YAML 업로드 */
@@ -58,6 +60,7 @@ export function StrategyBuilderCanvas({
   onTabChange,
   onEditDsl,
   onNaturalLanguage,
+  onAiGenerate,
   onYamlExport,
   onYamlImport,
   onValidate,
@@ -192,6 +195,17 @@ export function StrategyBuilderCanvas({
 
       {/* 액션 버튼 행 */}
       <div className="flex flex-wrap items-center gap-2 border-t border-gray-800 px-4 py-3">
+        {/* AI 전략 생성 — AI 기능 일관 violet 계열 */}
+        {onAiGenerate && (
+          <button
+            type="button"
+            className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-violet-700 focus:outline-none focus:ring-2 focus:ring-violet-400"
+            onClick={onAiGenerate}
+          >
+            AI 전략 생성
+          </button>
+        )}
+
         {/* 자연어 입력 */}
         <button
           className="rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-300 transition-colors hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
