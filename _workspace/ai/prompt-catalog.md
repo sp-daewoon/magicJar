@@ -184,10 +184,62 @@ env 토글: `MAGICJAR_AI_PROVIDER=anthropic|gemini|openai`.
 
 ---
 
+## §2-7. 전략빌더 AI 전략 생성 메타 프롬프트 (2026-06-08 발행)
+
+> **위치**: `StrategyBuilderAiGenerateService.buildGeneratePrompt()` / `buildRegeneratePrompt()` (인라인 빌더 — DSL 문법·지표 카탈로그·기존 전략을 런타임 조합).
+> **엔드포인트**: `POST /api/strategies/ai-generate`
+> **provider**: `StrategyResearchAiTextClient`(claude-cli / claude-cli-bridge) 재사용.
+> **저장 안 함** — 빌더 draft 로드용 제안만 반환. 저장은 기존 전략 저장 API(AI 결정권 0 · ADR 0112 정합).
+> **패턴**: Live-Context Meta-Prompt(AI 프리셋 추천 §2-6 선례)의 2번째 이식. 컨텍스트만 교체("발굴 프리셋 설계" → "DSL 전략 설계").
+
+### 2-7-1. 메타 프롬프트 6 컨텍스트 (이 기능의 본체)
+
+| # | 컨텍스트 | 출처(권위) | 목적 |
+|---|---|---|---|
+| 1 | 역할 정의 | 인라인 (`researchCoreWrapperRolePrefix()`) | 전략 = 매수 추천 X, 백테스트·MOCK 검증 대상 가설. core wrapper [분석 원칙] 톤 인용 |
+| 2 | DSL 문법·지표 카탈로그 | `KisYamlDslParser.SUPPORTED_IDENTIFIERS`(파서 화이트리스트 코드 추출) + `IndicatorCatalog`(카테고리별 id+displayName) | 실제 파싱 가능한 문법·연산자·함수만 노출. `prev_drop`·`volume[1]`·`close[-1]` 금지 명시 |
+| 3 | 기존 사용자 전략 목록 | `strategyRepository.findAllByUserIdAndStatusNot(DELETED)` (name+entryDsl, 최대 30건) | 중복 컨셉 회피 |
+| 4 | RiskPlan 스키마 + 잔익절 규칙 | 인라인 | takeProfitPct·fixedStopLossPct·minHoldBars 의미 + "익절 0.5% 이상 권장, 0.3% 이하 경고" + 손절 권장 |
+| 5 | 사용자 prompt (필수) | request.prompt | 발굴과 달리 빈 값 400. 의도 최우선 반영 |
+| 6 | 출력 JSON 계약 | 인라인 | name≤60·description 1~2문장·entryDsl(허용 문법)·exitDsl|null·riskPlan·rationale |
+
+**DSL 문법 블록은 파서 화이트리스트를 코드에서 직접 추출** — 지표/별칭이 추가되면 메타 프롬프트도 자동 정합(파서 권위 추종). `KisYamlDslParser`에 `SUPPORTED_IDENTIFIERS` 공개 read 접근자 추가.
+
+### 2-7-2. ★ 생성 후 서버측 DSL 검증 게이트 (품질 차별점)
+
+| 단계 | 동작 |
+|---|---|
+| 1차 검증 | 각 item의 entryDsl/exitDsl을 **실제 `KisYamlDslParser.parse()` + `validateStatic()`** 로 검증 → `dslValid`/`dslError` 채움 |
+| 1회 자동 재생성 | invalid item이 있으면 실패 DSL + 파서 에러를 동봉한 `buildRegeneratePrompt()`로 1회 재요청. valid 결과로 invalid 슬롯 순서대로 교체 |
+| invalid 잔존 | 재생성도 실패하면 `dslValid=false`로 응답에 **포함**(frontend가 draft 로드만 비활성). mock 합성 0 |
+| riskPlan 범위 | takeProfitPct ≤ 0.3% → warnings에 잔익절 경고. 손절 null → 손절 권장 경고 |
+
+### 2-7-3. 입출력 스키마
+
+- 요청: `{userId, prompt(필수), interval?, count?(1~3, 기본 1)}` — DTO `@NotBlank prompt` + 서비스 공백 방어 400, `@Min(1)@Max(3)` count
+- 응답: `{provider, generatedAt, warnings[], items:[{name, description, entryDsl, exitDsl|null, riskPlan{takeProfitPct?, fixedStopLossPct?, minHoldBars?}, rationale, dslValid, dslError|null}]}`
+- 파싱: `parseGeneratedStrategies()` — `extractJson` 재사용 + name·entryDsl 누락 항목 폐기. 빈 결과 → 503.
+- output schema 파일(Claude 출력 계약, dslValid/dslError 제외): `_workspace/ai/output-schemas/builder-strategy-generate.schema.json`
+- sample: `_workspace/ai/sample-outputs/builder-ai-generate-meta-prompt.txt`(실 프롬프트 덤프) · `builder-ai-generate-sample-output.json`(valid) · `builder-ai-generate-sample-output-invalid.json`(invalid+재생성)
+
+### 2-7-4. 에러 처리
+
+| 상황 | 동작 |
+|---|---|
+| Claude CLI/브릿지 비활성·실패·타임아웃 | `StrategyResearchAiTextClient`가 던진 `ResponseStatusException`(503/504/429) 그대로 전파 (mock 합성 금지) |
+| JSON 파싱 실패 | 503 "Claude 전략 JSON 파싱 실패" |
+| 사용 가능한 item 0건 | 503 "Claude 응답에서 전략 후보를 읽지 못했습니다" |
+| prompt 빈 값(공백) | 400 (DTO `@NotBlank` + 서비스 trim 방어) |
+| count 범위 밖(0·4) | DTO bean validation 400 (서비스 `coerceIn(1,3)` 추가 방어) |
+| 재생성 호출 실패 | warn 로그 + 원래 invalid 유지(전체 실패로 끌어올리지 않음) |
+
+---
+
 ## §5. 변경 이력
 
 | 날짜 | 변경 | 비고 |
 |---|---|---|
+| 2026-06-08 | **전략빌더 AI 전략 생성 메타 프롬프트 발행** — §2-7 신설. DSL 문법(파서 화이트리스트 코드 추출)·지표 카탈로그·기존 전략·RiskPlan 잔익절 규칙·사용자 prompt(필수) 6 컨텍스트. ★ 생성 후 실제 DSL 파서 검증 게이트 + 1회 자동 재생성. `generate()` + `POST /api/strategies/ai-generate`. 빌더 draft 제안만 반환(저장 X · AI 결정권 0) | agent/ai · T-20260608-0200 |
 | 2026-06-06 | **AI 프리셋 추천 메타 프롬프트 발행** — §2-6 신설. core wrapper·기존 프리셋 전체·IndicatorCatalog 기반 시스템 능력·hint 6 컨텍스트 조합. `recommendPresets()` + `POST .../presets/recommend`. 추천만 반환(저장 X) | agent/ai · T-20260606-2247 |
 | 2026-05-03 | 초기 v1 — 5종 분석 프롬프트 작성 명시(드리프트 진입) | ADR 0026 (이후 사이클에서 분석 5종은 발행 보류 — W4 T-AI baseline까지 미발행) |
 | 2026-05-24 | **W4 R1 T-AI Phase 1 발행** — §2-5 신설 (5 진입점 prompt seed V50 · 3 provider plug-in · KillSwitch / 1일 한도 / 월 임계 alert / Redis cache 5분) | ADR 0026 amend · ADR 0094 §4-4-B · ADR 0095 amend S-AI-1 · Flyway V49·V50 (R0 amend shift · ADR 0102 정합) |

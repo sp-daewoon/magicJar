@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://magicjar.local/ai/output-schemas/builder-strategy-generate.schema.json",
+  "title": "전략빌더 AI 전략 생성 — Claude 출력 스키마",
+  "description": "POST /api/strategies/ai-generate 의 Claude 응답(JSON only) 스키마. magicJar DSL 전략 후보 가설. 매수 추천이 아니며 백테스트·MOCK 검증 대상. dslValid·dslError는 Claude가 채우지 않고 서버 DSL 파서 검증 게이트가 채운다(이 스키마에 미포함).",
+  "type": "object",
+  "required": ["items"],
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["name", "entryDsl", "riskPlan", "rationale"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 60,
+            "description": "전략 노출명. 핵심 컨셉이 드러나게(40자 이내 권장, 서비스에서 60자 초과 시 clip)."
+          },
+          "description": {
+            "type": "string",
+            "description": "전략 설명 1~2문장(무엇을·왜). 누락 시 서비스가 '<name> 전략'으로 채움."
+          },
+          "entryDsl": {
+            "type": "string",
+            "minLength": 1,
+            "description": "진입 조건. magicJar DSL 파서 화이트리스트 문법만(ma(20)·crosses_above·volume_ma 등). 서버가 실제 파서로 검증."
+          },
+          "exitDsl": {
+            "type": ["string", "null"],
+            "description": "청산 조건 DSL. 없으면 null(익절/손절/보유로 청산). 있으면 서버가 파서로 검증."
+          },
+          "riskPlan": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "리스크 플랜. 값을 정할 수 없으면 해당 필드 null. 익절은 0.5% 이상 권장(0.3% 이하 잔익절 경고), 손절 권장.",
+            "properties": {
+              "takeProfitPct": {
+                "type": ["number", "null"],
+                "description": "목표 익절 %. 왕복 비용(~0.2%) 고려 0.5% 이상 권장."
+              },
+              "fixedStopLossPct": {
+                "type": ["number", "null"],
+                "description": "hard stop 손절 %. 자동매매 손실 방어 권장."
+              },
+              "minHoldBars": {
+                "type": ["integer", "null"],
+                "description": "최소 보유 bar 수. 노이즈 조기 청산 방어."
+              }
+            }
+          },
+          "rationale": {
+            "type": "string",
+            "description": "왜 이 지표 조합이 사용자 의도에 맞는지 1~2문장."
+          }
+        }
+      }
+    }
+  }
+}

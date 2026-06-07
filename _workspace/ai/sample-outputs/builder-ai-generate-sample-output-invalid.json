@@ -1,0 +1,27 @@
+{
+  "_note": "DSL 검증 게이트 시연용 — 미지원 식별자(prev_drop)를 1차·재생성 모두 반환한 경우(끝내 invalid). 실제 StrategyBuilderAiGenerateServiceTest의 'regen also fails' 케이스 응답 형태.",
+  "provider": "claude-cli",
+  "generatedAt": "2026-06-08T02:10:00Z",
+  "warnings": [
+    "AI가 생성한 전략은 매수 추천이 아니라 백테스트·MOCK 검증 대상 가설입니다. 저장 전 반드시 검증하세요.",
+    "생성 결과는 저장되지 않습니다. 빌더에서 검토·수정 후 전략 저장으로 직접 저장하세요.",
+    "DSL 파싱에 실패한 전략 1건은 그대로 저장할 수 없습니다(빌더에서 조건식 수정 필요).",
+    "일부 전략은 DSL 검증 실패 후 1회 자동 재생성으로 정정을 시도했습니다."
+  ],
+  "items": [
+    {
+      "name": "잘못된 전략",
+      "description": "잘못된 전략 전략",
+      "entryDsl": "prev_drop > 3 and close > ma(20)",
+      "exitDsl": null,
+      "riskPlan": {
+        "takeProfitPct": 1.5,
+        "fixedStopLossPct": 0.8,
+        "minHoldBars": 2
+      },
+      "rationale": "사용자 의도에 맞춘 지표 조합.",
+      "dslValid": false,
+      "dslError": "진입 조건 파싱 실패: Unknown DSL identifier: prev_drop"
+    }
+  ]
+}

@@ -606,5 +606,13 @@ class KisYamlDslParser(
                 add("disparity")
                 add("volatility")
             }
+
+        /**
+         * 파서가 실제로 파싱·검증을 통과시키는 식별자 화이트리스트(읽기 전용 공개).
+         *
+         * AI 전략 생성 메타 프롬프트가 "실제로 파싱 가능한 문법"만 Claude에게 주입하도록 이 집합을
+         * 코드에서 직접 추출한다. 지표가 추가/삭제되면 [ALLOWED_IDENTIFIERS]와 함께 자동 정합된다.
+         */
+        val SUPPORTED_IDENTIFIERS: Set<String> get() = ALLOWED_IDENTIFIERS
     }
 }
