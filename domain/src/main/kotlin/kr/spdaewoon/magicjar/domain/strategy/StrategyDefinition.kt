@@ -20,6 +20,9 @@ import java.math.BigDecimal
  * @param scaleIn 분할 매수(scale-in) 정책 (spec §3-2 · ADR 0111). null이면 현행 단일 진입(하위호환 LOCK).
  * @param partialExits 분할 익절 단계 리스트 (spec §3-3 · ADR 0111). null이면 현행 전량 익절(하위호환 LOCK). 단계 ≤ 5 · weight 합 ≤ 100.
  * @param entryPolicy 진입(BUY) 집행 정책 (ADR 0114 §3·§5 · U-1 묶음 객체). null이면 전역 default(env `magicjar.order.entry.*`) — 기존 전략 0 변경(하위호환 LOCK).
+ * @param minHoldBars 최소 보유 캔들 수 (잔익절 방어 B안). 진입 체결 후 N캔들(전략 interval 기준) 동안
+ *   **DSL 매도 시그널만 무시**(손절·익절 라인은 절대 차단 안 함 — 안전망 우선). null=비활성(현행). scale-in 재진입 시
+ *   기준 시점은 최초 진입 ts 유지(추가 매수로 리셋하지 않음). 0..[MinHoldLimits.MAX_BARS] 범위.
  */
 data class StrategyDefinition(
     val dsl: DslStrategyDefinition,
@@ -33,11 +36,29 @@ data class StrategyDefinition(
     val scaleIn: ScaleInPlan? = null,
     val partialExits: List<PartialExit>? = null,
     val entryPolicy: EntryPolicy? = null,
+    val minHoldBars: Int? = null,
 ) {
     init {
         // 개별 ScaleInPlan·PartialExit 단일 검증은 각 클래스 init 책임.
         // 여기선 StrategyDefinition 수준의 교차 검증(분할 익절 단계 cap·weight 합)만 수행한다.
         partialExits?.let { ExitLimits.validatePartialExits(it) }
+        minHoldBars?.let { MinHoldLimits.validate(it) }
+    }
+}
+
+/**
+ * 최소 보유 캔들(minHoldBars) 검증 상수 — 잔익절 방어 B안.
+ *
+ * cap은 과실 입력(예: 9999캔들 보유 강제로 손절 외 청산 영구 봉쇄) 방어용 sanity 상한이다.
+ * 손절·익절 라인은 minHoldBars와 무관하게 항상 작동하므로 상한은 "DSL 매도 무시 구간"의 합리적 한계만 둔다.
+ */
+object MinHoldLimits {
+    /** minHoldBars sanity cap — 캔들 단위. interval×500까지면 잔익절 방어 의도를 충분히 커버. */
+    const val MAX_BARS: Int = 500
+
+    fun validate(value: Int) {
+        require(value >= 0) { "minHoldBars must be >= 0: $value" }
+        require(value <= MAX_BARS) { "minHoldBars must be <= $MAX_BARS: $value" }
     }
 }
 

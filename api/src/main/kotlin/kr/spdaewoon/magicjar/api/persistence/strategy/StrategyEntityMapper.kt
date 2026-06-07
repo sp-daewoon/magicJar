@@ -69,6 +69,8 @@ object StrategyEntityMapper {
                 tf = entity.tf,
                 fixedStopLoss = entity.fixedStopLossPct,
                 takeProfitPct = entity.takeProfitPct,
+                // V73 잔익절 방어 B안 — minHoldBars(진입 후 N캔들 DSL 매도 무시). null=비활성(현행).
+                minHoldBars = entity.minHoldBars,
                 // ADR 0111 scale-in/partial-exit JSONB(V65) → 도메인 wiring (분할매수 R3-a).
                 scaleIn = deserializeScaleIn(entity.scaleInConfig, objectMapper),
                 partialExits = deserializePartialExits(entity.partialExits, objectMapper),

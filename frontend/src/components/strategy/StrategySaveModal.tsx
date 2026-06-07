@@ -52,6 +52,8 @@ interface StrategySaveModalProps {
   initialCode?: string
   initialStopLossPct?: number | string | null
   initialTakeProfitPct?: number | string | null
+  /** 기존 전략의 최소 보유 캔들(잔익절 방어 B안) */
+  initialMinHoldBars?: number | null
   /** 기존 전략의 분할 매수 설정 (수정 모드) */
   initialScaleIn?: ScaleInDto | null
   /** 기존 전략의 분할 익절 단계 (수정 모드) */
@@ -97,6 +99,7 @@ export function StrategySaveModal({
   initialCode,
   initialStopLossPct,
   initialTakeProfitPct,
+  initialMinHoldBars,
   initialScaleIn,
   initialPartialExits,
   onSaved,
@@ -109,6 +112,8 @@ export function StrategySaveModal({
   const [targetCode, setTargetCode] = useState(initialCode ?? '')
   const [stopLossPct, setStopLossPct] = useState(initialStopLossPct?.toString() ?? '5')
   const [takeProfitPct, setTakeProfitPct] = useState(initialTakeProfitPct?.toString() ?? '10')
+  // 잔익절 방어 B안 — 최소 보유 캔들(빈 문자열·0 = 비활성 현행)
+  const [minHoldBars, setMinHoldBars] = useState(initialMinHoldBars?.toString() ?? '')
   const [previewEntryPrice, setPreviewEntryPrice] = useState('100000')
   const [formError, setFormError] = useState<string | null>(null)
   const [formNotice, setFormNotice] = useState<string | null>(null)
@@ -145,6 +150,7 @@ export function StrategySaveModal({
     setTargetCode(initialCode ?? '')
     setStopLossPct(initialStopLossPct?.toString() ?? '5')
     setTakeProfitPct(initialTakeProfitPct?.toString() ?? '10')
+    setMinHoldBars(initialMinHoldBars?.toString() ?? '')
     setScaleInEnabled(!!initialScaleIn)
     setScaleIn(initialScaleIn ?? DEFAULT_SCALE_IN)
     setManualWeights(!!initialScaleIn?.sliceWeights)
@@ -159,6 +165,7 @@ export function StrategySaveModal({
     initialCode,
     initialStopLossPct,
     initialTakeProfitPct,
+    initialMinHoldBars,
     initialScaleIn,
     initialPartialExits,
   ])
@@ -204,6 +211,18 @@ export function StrategySaveModal({
       return
     }
 
+    // 잔익절 방어 B안 — minHoldBars(빈 문자열=비활성). 입력 시 0 이상 정수.
+    const minHoldRaw = minHoldBars.trim()
+    let minHoldBarsPayload: number | null = null
+    if (minHoldRaw) {
+      const parsed = Number(minHoldRaw)
+      if (!Number.isInteger(parsed) || parsed < 0) {
+        setFormError('최소 보유 캔들은 0 이상 정수로 입력하세요')
+        return
+      }
+      minHoldBarsPayload = parsed > 0 ? parsed : null
+    }
+
     // ── 분할 매수 / 분할 익절 검증 + payload 구성 (ADR 0111) ──
     let scaleInPayload: ScaleInDto | null = null
     if (scaleInEnabled) {
@@ -246,14 +265,21 @@ export function StrategySaveModal({
       tf,
       stopLossPct: parsedStopLossPct,
       takeProfitPct: parsedTakeProfitPct,
+      minHoldBars: minHoldBarsPayload,
       codes: [normalizedCode],
       intervals: [tf],
       scaleIn: scaleInPayload,
       partialExits: partialExitsPayload,
     }
     const callbacks = {
-      onSuccess: (resp: { id: string }) => {
+      onSuccess: (resp: { id: string; warnings?: string[] }) => {
+        // 잔익절 방어 A안 — 서버 저장 경고가 있으면 모달을 닫지 않고 표시(사용자 확인). 없으면 즉시 닫기.
         onSaved(resp.id)
+        if (resp.warnings && resp.warnings.length > 0) {
+          setFormNotice(resp.warnings.join('\n'))
+          setFormError(null)
+          return
+        }
         onClose()
       },
       onError: (err: Error) => {
@@ -452,6 +478,38 @@ export function StrategySaveModal({
               takeProfitPct={takeProfitPct}
               entryPrice={previewEntryPrice}
             />
+            {/* 잔익절 방어 A안 — 익절 목표가 왕복 거래비용(≈0.2%) 근접·미만이면 사전 경고(비차단) */}
+            {Number.isFinite(Number(takeProfitPct.trim())) &&
+              Number(takeProfitPct.trim()) > 0 &&
+              Number(takeProfitPct.trim()) <= 0.3 && (
+                <div
+                  className="mt-3 rounded bg-amber-900/30 px-3 py-2 text-xs leading-5 text-amber-200"
+                  role="status"
+                >
+                  익절 목표 {takeProfitPct.trim()}%는 왕복 거래비용(수수료+세금 약 0.2%)에 근접·미만입니다. 수수료·세금
+                  차감 후 실현 손익이 음수가 될 수 있어요(잔익절). 익절 목표를 높이거나 아래 최소 보유 캔들로 노이즈 매도를
+                  방어하세요.
+                </div>
+              )}
+            {/* 잔익절 방어 B안 — 최소 보유 캔들(minHoldBars) */}
+            <div className="mt-3">
+              <label className="mb-1 block text-xs font-medium text-gray-400">
+                최소 보유 캔들
+                <span className="ml-1 font-normal text-gray-600">(잔익절 방어 · 0/빈칸=비활성)</span>
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={minHoldBars}
+                onChange={(e) => setMinHoldBars(e.target.value)}
+                placeholder="예: 3"
+                className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <p className="mt-1 text-xs leading-5 text-gray-500">
+                진입 체결 후 이 캔들 수만큼은 차트(DSL) 매도 시그널을 무시합니다. 손절·익절 라인은 항상 작동합니다.
+              </p>
+            </div>
             <p className="mt-2 text-xs leading-5 text-amber-100/70">
               자동매매는 이 기준이 모두 있어야 시작됩니다. 실제 주문 감시는 BUY 체결가 기준으로 계산됩니다.
             </p>
@@ -473,7 +531,7 @@ export function StrategySaveModal({
 
           {/* 활성화 게이트 안내 (SCALE_IN_NOT_ENABLED — 저장 가능, ACTIVE만 차단) */}
           {formNotice && (
-            <div className="rounded bg-sky-950/40 px-3 py-2 text-sm text-sky-200" role="status">
+            <div className="whitespace-pre-line rounded bg-sky-950/40 px-3 py-2 text-sm text-sky-200" role="status">
               {formNotice}
             </div>
           )}

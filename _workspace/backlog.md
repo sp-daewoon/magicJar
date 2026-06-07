@@ -3351,3 +3351,24 @@ QA 첫 임무 evidence (2026-05-21 보고서 `_workspace/reports/2026-05-21-qa-f
 - 기존 구현: `api/src/main/kotlin/kr/spdaewoon/magicjar/api/mcp/` (tool 6종 + auth + audit), `V52__mcp_audit.sql`
 - ADR 0027 (Accepted · 2026-05-24 amend — tool 6종 + V52 LOCK)
 - Gemini 웹 MCP 미지원 확인: Gemini Apps Community 스레드 + Gemini Enterprise custom MCP docs (2026-06-06 WebSearch 실측)
+
+## §84. DSL 포지션 인지 지표 — 수익률 조건 (2026-06-08 신설 · 사용자 D안 과제 지정)
+
+### 사유
+
+잔익절 방어 논의(ADR 0114 후속)에서 사용자 D안: 매도전략 DSL에 "수익 X% 이상일 때만" 같은 포지션 인지 조건을 직접 쓰고 싶음. 현재 DSL은 캔들 기반 지표만 지원 — 포지션 상태(평단·수익률·보유 캔들 수)를 참조하는 식 불가.
+
+### 트리거 조건
+
+- 사용자가 전략 DSL에서 `profit_pct`·`hold_bars`·`avg_price` 류 식별자 요구 시
+- 또는 minHoldBars(B안)로 부족한 케이스 실증 시
+
+### 보강 안
+
+- DSL 평가 컨텍스트에 position snapshot 주입 (`StrategyEvaluator` 입력 확장 — live/백테스트/리플레이 3원 동일 주입 의무)
+- 신규 식별자: `profit_pct`(평단 대비 현재 수익률) · `hold_bars`(보유 캔들 수) · `entry_price`
+- 백테스트는 가상 포지션 state로 동일 재현 — ScaleInExitCalculator와 책임 경계 주의 (라인 청산은 calculator, DSL 조건은 evaluator)
+
+### 예상 처리
+
+strategy-engine 1 사이클 (R1 evaluator 입력 확장 → R2 식별자 3종 → R3 백테스트 정합)

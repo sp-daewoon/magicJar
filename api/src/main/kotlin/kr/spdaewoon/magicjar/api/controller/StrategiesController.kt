@@ -101,6 +101,7 @@ class StrategiesController(
                 takeProfitPct = req.takeProfitPct,
                 scaleIn = toScaleInDomain(req.scaleIn),
                 partialExits = toPartialExitsDomain(req.partialExits),
+                minHoldBars = req.minHoldBars,
                 requireCodes = true,
             )
         return toDetailResponse(strategy)
@@ -209,6 +210,7 @@ class StrategiesController(
                 takeProfitPct = req.takeProfitPct,
                 scaleIn = toScaleInDomain(req.scaleIn),
                 partialExits = toPartialExitsDomain(req.partialExits),
+                minHoldBars = req.minHoldBars,
                 requireCodes = true,
             )
         log.info("전략 수정: id={}", id)
@@ -361,6 +363,8 @@ class StrategiesController(
             tf = strategy.definition.tf,
             stopLossPct = strategy.definition.fixedStopLoss,
             takeProfitPct = strategy.definition.takeProfitPct,
+            minHoldBars = strategy.definition.minHoldBars,
+            warnings = strategyService.exitNoiseWarnings(strategy),
             codes = strategy.codes,
             codeNames = codeNamesFor(strategy.codes),
             intervals = strategy.intervals.ifEmpty { listOf(strategy.definition.tf) },
@@ -485,6 +489,11 @@ data class StrategyCreateRequest(
     val stopLossPct: BigDecimal? = null,
     @field:Schema(description = "보유 포지션 평가 수익률 기준 익절 비율 (%)", example = "5.00")
     val takeProfitPct: BigDecimal? = null,
+    @field:Schema(
+        description = "잔익절 방어 B안 — 최소 보유 캔들 수. 진입 후 N캔들 동안 DSL 매도 시그널만 무시(손절·익절은 항상 작동). null·0=비활성(현행)",
+        example = "3",
+    )
+    val minHoldBars: Int? = null,
     @field:Schema(description = "감시 종목 코드 목록", example = "[\"005930\"]")
     val codes: List<String> = emptyList(),
     @field:Schema(description = "감시 인터벌 목록", example = "[\"5m\"]")
@@ -515,6 +524,11 @@ data class StrategyUpdateRequest(
     val stopLossPct: BigDecimal? = null,
     @field:Schema(description = "보유 포지션 평가 수익률 기준 익절 비율 (%)", example = "5.00")
     val takeProfitPct: BigDecimal? = null,
+    @field:Schema(
+        description = "잔익절 방어 B안 — 최소 보유 캔들 수. 진입 후 N캔들 동안 DSL 매도 시그널만 무시(손절·익절은 항상 작동). null·0=비활성(현행)",
+        example = "3",
+    )
+    val minHoldBars: Int? = null,
     @field:Schema(description = "감시 종목 코드 목록", example = "[\"005930\"]")
     val codes: List<String> = emptyList(),
     @field:Schema(description = "감시 인터벌 목록", example = "[\"5m\"]")
@@ -554,6 +568,13 @@ data class StrategyDetailResponse(
     val stopLossPct: BigDecimal? = null,
     @field:Schema(description = "보유 포지션 평가 수익률 기준 익절 비율 (%)", example = "5.00")
     val takeProfitPct: BigDecimal? = null,
+    @field:Schema(description = "잔익절 방어 B안 — 최소 보유 캔들 수. null=비활성(현행)", example = "3")
+    val minHoldBars: Int? = null,
+    @field:Schema(
+        description = "잔익절 방어 A안 — 저장 경고(비차단). 익절 목표가 왕복 거래비용 근접·미만 시 1건. 빈 배열=경고 없음",
+        example = "[]",
+    )
+    val warnings: List<String> = emptyList(),
     @field:Schema(description = "감시 종목 코드 목록", example = "[\"005930\"]")
     val codes: List<String> = emptyList(),
     @field:Schema(description = "종목 코드별 종목명", example = "{\"005930\":\"삼성전자\"}")

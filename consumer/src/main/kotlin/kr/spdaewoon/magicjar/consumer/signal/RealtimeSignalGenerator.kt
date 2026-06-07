@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.datetime.toJavaInstant
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaEntity
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaRepository
 import kr.spdaewoon.magicjar.consumer.reconciliation.DataReadinessService
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
@@ -25,6 +27,7 @@ import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyLookupPort
 import kr.spdaewoon.magicjar.strategy.JvmStrategyEvaluator
+import kr.spdaewoon.magicjar.strategy.MinHoldGuard
 import kr.spdaewoon.magicjar.strategy.entry.EntryPricePolicy
 import kr.spdaewoon.magicjar.strategy.scalein.ScaleInExitCalculator
 import kr.spdaewoon.magicjar.strategy.scalein.ScaleInExitDecision
@@ -74,6 +77,7 @@ class RealtimeSignalGenerator(
     private val dataReadinessServiceProvider: ObjectProvider<DataReadinessService>,
     private val riskPositionPortProvider: ObjectProvider<RiskPositionPort>,
     private val strategyPositionPortProvider: ObjectProvider<StrategyPositionPort>,
+    private val auditTrailRepositoryProvider: ObjectProvider<ConsumerAuditTrailJpaRepository>,
     private val jvmStrategyEvaluator: JvmStrategyEvaluator,
     private val signalDedupeGuard: SignalDedupeGuard,
     private val signalKafkaProducer: SignalKafkaProducer,
@@ -305,7 +309,17 @@ class RealtimeSignalGenerator(
                 )
                 return
             }
-        val decision = evaluateDecision(strategy, code, buyAst, strategy.definition.dsl.sellCondition, candles, candle.closeRaw) ?: return
+        val decision =
+            evaluateDecision(
+                strategy = strategy,
+                code = code,
+                interval = interval,
+                boundaryTs = boundaryTs,
+                buyAst = buyAst,
+                sellAst = strategy.definition.dsl.sellCondition,
+                candles = candles,
+                currentPrice = candle.closeRaw,
+            ) ?: return
         val side = decision.side
         val evalResult = decision.result
         // ADR 0114 §3-3·§5 — SELL 청산 가격 유형/LIMIT를 contextJson에 실어 listener(SignalGeneratedKafkaListener)가 라우팅.
@@ -455,6 +469,8 @@ class RealtimeSignalGenerator(
     private fun evaluateDecision(
         strategy: Strategy,
         code: String,
+        interval: CandleInterval,
+        boundaryTs: Instant,
         buyAst: DslNode,
         sellAst: DslNode?,
         candles: List<Candle>,
@@ -466,6 +482,7 @@ class RealtimeSignalGenerator(
 
         // scale-in/exit 활성 게이트 (spec §8-1) — toggle ON + scaleIn|partialExits 설정 전략만 신규 경로.
         // 그 외(toggle OFF · 미설정 전략)는 현행 단일 진입 + 전량 익절 경로(zero-regression LOCK).
+        // ★ 손절·익절(StopLoss·TakeProfit·PartialTakeProfit) 경로는 minHoldBars와 무관하게 항상 먼저 평가/발행한다(안전망 우선).
         if (isScaleInExitActive(strategy)) {
             evaluateScaleInExit(strategy, code, currentPrice, buyResult, buyFired)?.let { return it }
             if (buyFired) {
@@ -481,6 +498,11 @@ class RealtimeSignalGenerator(
         if (sellAst != null) {
             val sellResult = evaluateAst(strategyId, code, "SELL", sellAst, candles) ?: return null
             if (mapToSignalSide(sellResult.signal) == SignalSide.BUY) {
+                // 잔익절 방어 B안 — DSL 매도 시그널이 발화했어도 최소 보유 캔들(minHoldBars) 미충족이면 무시한다.
+                //   기준 시점 = 최초 진입 ts(StrategyPosition.openedAt, scale-in 재진입에도 보존). 손절/익절은 위에서 이미 처리됨.
+                if (shouldSkipDslSellForMinHold(strategy, code, interval, boundaryTs)) {
+                    return SignalDecision(SignalSide.HOLD, buyResult)
+                }
                 return SignalDecision(
                     SignalSide.SELL,
                     sellResult.copy(
@@ -492,6 +514,101 @@ class RealtimeSignalGenerator(
         }
 
         return SignalDecision(SignalSide.HOLD, buyResult)
+    }
+
+    /**
+     * 잔익절 방어 B안 — DSL 매도 시그널을 minHoldBars 보유 미충족으로 skip해야 하는지 판정 + audit.
+     *
+     * minHoldBars 미설정(null·0)이면 [MinHoldGuard]가 즉시 false(현행 — 즉시 매도). 설정 시 최초 진입 ts([StrategyPosition.openedAt])
+     * 기준 경과 캔들이 N 미만이면 true. 진입 기록(StrategyPosition) 부재면 보유 미충족 판단 불가 → false(현행 매도 진행).
+     *
+     * skip 시 `SIGNAL_SKIPPED_MIN_HOLD` audit + INFO 로그(추적). StrategyPositionPort bean 부재 시 graceful false.
+     */
+    private fun shouldSkipDslSellForMinHold(
+        strategy: Strategy,
+        code: String,
+        interval: CandleInterval,
+        boundaryTs: Instant,
+    ): Boolean {
+        val minHoldBars = strategy.definition.minHoldBars
+        if (minHoldBars == null || minHoldBars <= 0) return false
+        val strategyId = strategy.id ?: return false
+
+        val positionPort = strategyPositionPortProvider.ifAvailable
+        if (positionPort == null) {
+            log.warn(
+                "minHoldBars 설정 전략의 StrategyPositionPort bean 부재 — DSL 매도 게이트 미적용(현행 매도 진행): strategyId={} code={}",
+                strategyId,
+                code,
+            )
+            return false
+        }
+
+        val openedAt =
+            try {
+                positionPort
+                    .findByUserStrategyCode(strategy.userId.toString(), strategyId, code)
+                    ?.takeIf { it.quantity > 0 }
+                    ?.openedAt
+            } catch (e: Exception) {
+                log.warn(
+                    "minHoldBars StrategyPosition 조회 실패 — DSL 매도 게이트 미적용(현행 매도 진행): strategyId={} code={} err={}",
+                    strategyId,
+                    code,
+                    e.message,
+                )
+                null
+            } ?: return false
+
+        val skip = MinHoldGuard.shouldSkipDslSell(minHoldBars, interval, openedAt, boundaryTs)
+        if (skip) {
+            log.info(
+                "RealtimeSignalGenerator DSL 매도 minHold skip: strategyId={} code={} interval={} openedAt={} boundaryTs={} minHoldBars={}",
+                strategyId,
+                code,
+                interval.code,
+                openedAt,
+                boundaryTs,
+                minHoldBars,
+            )
+            auditMinHoldSkip(strategyId, code, interval, openedAt, boundaryTs, minHoldBars)
+        }
+        return skip
+    }
+
+    /** `SIGNAL_SKIPPED_MIN_HOLD` audit 저장(best-effort — 실패해도 매도 skip 자체는 유효). */
+    private fun auditMinHoldSkip(
+        strategyId: Long,
+        code: String,
+        interval: CandleInterval,
+        openedAt: Instant,
+        boundaryTs: Instant,
+        minHoldBars: Int,
+    ) {
+        val auditRepo = auditTrailRepositoryProvider.ifAvailable ?: return
+        try {
+            auditRepo.save(
+                ConsumerAuditTrailJpaEntity(
+                    actor = "system",
+                    action = "SIGNAL_SKIPPED_MIN_HOLD",
+                    entityType = "signal",
+                    entityId = code,
+                    detailJson =
+                        objectMapper.writeValueAsString(
+                            mapOf(
+                                "strategyId" to strategyId,
+                                "code" to code,
+                                "interval" to interval.code,
+                                "openedAt" to openedAt.toString(),
+                                "boundaryTs" to boundaryTs.toString(),
+                                "minHoldBars" to minHoldBars,
+                            ),
+                        ),
+                ),
+            )
+        } catch (e: Exception) {
+            log.warn("SIGNAL_SKIPPED_MIN_HOLD audit 저장 실패: strategyId={} code={} err={}", strategyId, code, e.message)
+        }
     }
 
     private fun evaluateTakeProfitExit(

@@ -14,10 +14,10 @@ parentPhase: ?
 잔익절 방어 A(저장 경고)+B(minHoldBars)
 
 ## 결과물 체크리스트
-- [ ] 저장 검증 경고
-- [ ] minHoldBars RiskPlan
-- [ ] 시그널 게이트
-- [ ] 테스트
+- [x] 저장 검증 경고
+- [x] minHoldBars RiskPlan
+- [x] 시그널 게이트
+- [x] 테스트
 
 ## 의존성
 - (필요 시 기록)

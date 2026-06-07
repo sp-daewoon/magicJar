@@ -18,6 +18,8 @@ import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import kr.spdaewoon.magicjar.domain.market.session.BusinessDayCalendar
 import kr.spdaewoon.magicjar.domain.position.Position
+import kr.spdaewoon.magicjar.domain.position.StrategyPosition
+import kr.spdaewoon.magicjar.domain.position.port.StrategyPositionPort
 import kr.spdaewoon.magicjar.domain.risk.port.RiskPositionPort
 import kr.spdaewoon.magicjar.domain.signal.SignalSide
 import kr.spdaewoon.magicjar.domain.signal.port.SignalRepository
@@ -511,6 +513,173 @@ class RealtimeSignalGeneratorTest {
         assertThat(publishedSignal.captured.side).isEqualTo(SignalSide.SELL)
     }
 
+    // === 잔익절 방어 B안 — minHoldBars (최소 보유 캔들) ===
+
+    @Test
+    fun `minHoldBars 미충족이면 DSL 매도 시그널을 무시한다(저장·발행 0)`() {
+        val buyAst = ast("1", Operator.LT, "0")
+        val sellAst = ast("1", Operator.GT, "0")
+        // boundaryTs = 진입 60초 후. 5m × 2 = 600초 필요 → 미충족 → skip
+        val openedAt = Instant.parse("2026-05-20T00:14:00Z")
+        val boundaryTs = Instant.parse("2026-05-20T00:15:00Z")
+        val positionPort = mockk<StrategyPositionPort>()
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(strategy(buyAst = buyAst, sellAst = sellAst, minHoldBars = 2))
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval("005930", CandleInterval.FIVE_MIN, boundaryTs.toJavaInstant(), 499)
+        } returns listOf(candle("2026-05-20T00:10:00Z", "100"))
+        every { evaluator.evaluate(42L, buyAst, any()) } returns holdResult()
+        every { evaluator.evaluate(42L, sellAst, any()) } returns
+            StrategyEvalResult(StrategySignal.BUY, BigDecimal("0.70"), mapOf("trigger" to "SELL_CONDITION"), fixedNow, 1L)
+        every { positionPort.findByUserStrategyCode("1234", 42L, "005930") } returns
+            strategyPosition(openedAt = openedAt, quantity = 3)
+
+        generator(strategyPositionPort = positionPort).onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.FIVE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "120"),
+        )
+
+        verify(exactly = 0) { signalRepository.save(any()) }
+        verify(exactly = 0) { signalKafkaProducer.publish(any()) }
+    }
+
+    @Test
+    fun `minHoldBars 경과 후면 DSL 매도 시그널을 발행한다`() {
+        val buyAst = ast("1", Operator.LT, "0")
+        val sellAst = ast("1", Operator.GT, "0")
+        // boundaryTs = 진입 600초(10분) 후. 5m × 2 = 600초 → 충족(경계) → 발행
+        val openedAt = Instant.parse("2026-05-20T00:05:00Z")
+        val boundaryTs = Instant.parse("2026-05-20T00:15:00Z")
+        val positionPort = mockk<StrategyPositionPort>()
+        val savedSignal = slot<GeneratedSignal>()
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(strategy(buyAst = buyAst, sellAst = sellAst, minHoldBars = 2))
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval("005930", CandleInterval.FIVE_MIN, boundaryTs.toJavaInstant(), 499)
+        } returns listOf(candle("2026-05-20T00:10:00Z", "100"))
+        every { evaluator.evaluate(42L, buyAst, any()) } returns holdResult()
+        every { evaluator.evaluate(42L, sellAst, any()) } returns
+            StrategyEvalResult(StrategySignal.BUY, BigDecimal("0.70"), mapOf("trigger" to "SELL_CONDITION"), fixedNow, 1L)
+        every { positionPort.findByUserStrategyCode("1234", 42L, "005930") } returns
+            strategyPosition(openedAt = openedAt, quantity = 3)
+        every { signalRepository.save(capture(savedSignal)) } answers { savedSignal.captured.copy(id = 81L) }
+        every { signalKafkaProducer.publish(any()) } just Runs
+
+        generator(strategyPositionPort = positionPort).onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.FIVE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "120"),
+        )
+
+        assertThat(savedSignal.captured.side).isEqualTo(SignalSide.SELL)
+        verify(exactly = 1) { signalKafkaProducer.publish(any()) }
+    }
+
+    @Test
+    fun `minHoldBars 미충족이어도 takeProfit 익절 라인은 차단하지 않는다(안전망)`() {
+        // DSL 매도가 아닌 takeProfit(포지션 평가익) 경로 — minHoldBars 무관하게 항상 SELL.
+        val buyAst = ast("0", Operator.GT, "1")
+        val openedAt = Instant.parse("2026-05-20T00:19:00Z")
+        val boundaryTs = Instant.parse("2026-05-20T00:20:00Z") // 진입 60초 후(5m×2=600 미충족)
+        val positionPort = mockk<StrategyPositionPort>()
+        val savedSignal = slot<GeneratedSignal>()
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(strategy(buyAst = buyAst, takeProfitPct = BigDecimal("5.00"), minHoldBars = 2))
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval("005930", CandleInterval.FIVE_MIN, boundaryTs.toJavaInstant(), 499)
+        } returns listOf(candle("2026-05-20T00:15:00Z", "100"))
+        every { evaluator.evaluate(42L, buyAst, any()) } returns holdResult()
+        every { riskPositionPort.findCurrentByUser("1234") } returns
+            listOf(Position(userId = "1234", code = "005930", quantity = 3, avgPrice = BigDecimal("100"), updatedAt = fixedNow))
+        // minHold 게이트는 takeProfit 경로 이후 DSL sell에만 적용 — takeProfit가 먼저 SELL을 반환하므로 positionPort 미조회.
+        every { signalRepository.save(capture(savedSignal)) } answers { savedSignal.captured.copy(id = 91L) }
+        every { signalKafkaProducer.publish(any()) } just Runs
+
+        generator(riskPositionPort = riskPositionPort, strategyPositionPort = positionPort).onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.FIVE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "106"),
+        )
+
+        assertThat(savedSignal.captured.side).isEqualTo(SignalSide.SELL)
+        assertThat(savedSignal.captured.reason).isEqualTo("TAKE_PROFIT")
+        verify(exactly = 1) { signalKafkaProducer.publish(any()) }
+    }
+
+    @Test
+    fun `minHoldBars 설정이어도 진입 기록(StrategyPosition) 없으면 DSL 매도를 진행한다`() {
+        val buyAst = ast("1", Operator.LT, "0")
+        val sellAst = ast("1", Operator.GT, "0")
+        val boundaryTs = Instant.parse("2026-05-20T00:15:00Z")
+        val positionPort = mockk<StrategyPositionPort>()
+        val savedSignal = slot<GeneratedSignal>()
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(strategy(buyAst = buyAst, sellAst = sellAst, minHoldBars = 2))
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval("005930", CandleInterval.FIVE_MIN, boundaryTs.toJavaInstant(), 499)
+        } returns listOf(candle("2026-05-20T00:10:00Z", "100"))
+        every { evaluator.evaluate(42L, buyAst, any()) } returns holdResult()
+        every { evaluator.evaluate(42L, sellAst, any()) } returns
+            StrategyEvalResult(StrategySignal.BUY, BigDecimal("0.70"), mapOf("trigger" to "SELL_CONDITION"), fixedNow, 1L)
+        every { positionPort.findByUserStrategyCode("1234", 42L, "005930") } returns null
+        every { signalRepository.save(capture(savedSignal)) } answers { savedSignal.captured.copy(id = 82L) }
+        every { signalKafkaProducer.publish(any()) } just Runs
+
+        generator(strategyPositionPort = positionPort).onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.FIVE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "120"),
+        )
+
+        assertThat(savedSignal.captured.side).isEqualTo(SignalSide.SELL)
+        verify(exactly = 1) { signalKafkaProducer.publish(any()) }
+    }
+
+    @Test
+    fun `minHoldBars null(비활성)이면 DSL 매도를 즉시 진행한다(현행 LOCK)`() {
+        val buyAst = ast("1", Operator.LT, "0")
+        val sellAst = ast("1", Operator.GT, "0")
+        val boundaryTs = Instant.parse("2026-05-20T00:15:00Z")
+        val positionPort = mockk<StrategyPositionPort>(relaxed = true)
+        val savedSignal = slot<GeneratedSignal>()
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(strategy(buyAst = buyAst, sellAst = sellAst, minHoldBars = null))
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval("005930", CandleInterval.FIVE_MIN, boundaryTs.toJavaInstant(), 499)
+        } returns listOf(candle("2026-05-20T00:10:00Z", "100"))
+        every { evaluator.evaluate(42L, buyAst, any()) } returns holdResult()
+        every { evaluator.evaluate(42L, sellAst, any()) } returns
+            StrategyEvalResult(StrategySignal.BUY, BigDecimal("0.70"), mapOf("trigger" to "SELL_CONDITION"), fixedNow, 1L)
+        every { signalRepository.save(capture(savedSignal)) } answers { savedSignal.captured.copy(id = 83L) }
+        every { signalKafkaProducer.publish(any()) } just Runs
+
+        generator(strategyPositionPort = positionPort).onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.FIVE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "120"),
+        )
+
+        assertThat(savedSignal.captured.side).isEqualTo(SignalSide.SELL)
+        // 비활성이면 position 조회조차 하지 않는다(현행 zero-cost LOCK).
+        verify(exactly = 0) { positionPort.findByUserStrategyCode(any(), any(), any()) }
+    }
+
     @Test
     fun `takeProfitPct 도달 시 보유 포지션 기준 SELL 시그널을 저장하고 발행한다`() {
         val buyAst = ast("0", Operator.GT, "1")
@@ -765,6 +934,7 @@ class RealtimeSignalGeneratorTest {
         evalLookbackCandles: Int = 500,
         dataReadinessService: DataReadinessService? = null,
         riskPositionPort: RiskPositionPort? = null,
+        strategyPositionPort: StrategyPositionPort? = null,
         marketHoursGateEnabled: Boolean = true,
         marketHoursSellEnabled: Boolean = true,
     ): RealtimeSignalGenerator =
@@ -783,7 +953,11 @@ class RealtimeSignalGeneratorTest {
                 riskPositionPort
                     ?.let { providerOf(it) }
                     ?: emptyProvider(),
-            strategyPositionPortProvider = emptyProvider(),
+            strategyPositionPortProvider =
+                strategyPositionPort
+                    ?.let { providerOf(it) }
+                    ?: emptyProvider(),
+            auditTrailRepositoryProvider = emptyProvider(),
             jvmStrategyEvaluator = evaluator,
             signalDedupeGuard = dedupeGuard,
             signalKafkaProducer = signalKafkaProducer,
@@ -800,6 +974,7 @@ class RealtimeSignalGeneratorTest {
         buyAst: DslNode,
         sellAst: DslNode? = null,
         takeProfitPct: BigDecimal? = null,
+        minHoldBars: Int? = null,
         status: StrategyStatus = StrategyStatus.ACTIVE,
     ): Strategy =
         Strategy(
@@ -815,6 +990,7 @@ class RealtimeSignalGeneratorTest {
                             sellCondition = sellAst,
                         ),
                     takeProfitPct = takeProfitPct,
+                    minHoldBars = minHoldBars,
                 ),
             complexity =
                 StrategyComplexity(
@@ -824,6 +1000,21 @@ class RealtimeSignalGeneratorTest {
                     estimatedEvalTimeMs = 1,
                     complexityClass = ComplexityClass.LOW,
                 ),
+        )
+
+    private fun strategyPosition(
+        openedAt: Instant,
+        quantity: Int = 3,
+        avgPrice: BigDecimal = BigDecimal("100"),
+    ): StrategyPosition =
+        StrategyPosition(
+            userId = "1234",
+            strategyId = 42L,
+            code = "005930",
+            quantity = quantity,
+            avgPrice = avgPrice,
+            openedAt = openedAt,
+            updatedAt = openedAt,
         )
 
     private fun ast(

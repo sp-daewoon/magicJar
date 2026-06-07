@@ -86,6 +86,8 @@ class ConsumerStrategyLookupJpaAdapter(
                 tf = entity.tf,
                 fixedStopLoss = entity.fixedStopLossPct,
                 takeProfitPct = entity.takeProfitPct,
+                // V73 잔익절 방어 B안 — minHoldBars(진입 후 N캔들 DSL 매도 무시). null=비활성(현행).
+                minHoldBars = entity.minHoldBars,
                 // ADR 0114 진입 정책 JSONB(V72) → 도메인 (BUY 가격 산정 입력). 역직렬화 실패 시 null = 전역 default.
                 entryPolicy = deserializeEntryPolicy(entity.entryPolicy),
             )
