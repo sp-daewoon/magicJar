@@ -1,33 +1,108 @@
-# magicJar v3.12.0 Baseline — (사이클 명) 시점 종합 기능 정의서
+# magicJar v3.12.0 Baseline — 실매매 직전 자본 path 완성 baseline (canary hard cap·전략별 포지션 귀속·scale-in/평단 exit·주문 집행 정책 marketable limit·청산 "항상" 보장·AI 종목발굴 Claude CLI bridge — ADR 0109~0114 + Flyway V64~V74)
 
-> **작성 시점**: 2026-06-07 v3.12.0 태그 컷 (main `<TBD-commit>`, release/<TBD-branch>)
-> **사이클**: PR-? ~ PR-? (? 사이클)
-> **상태**: skeleton — sub-agent 본격 작성 대기
+> **작성 시점**: 2026-06-07 v3.12.0 태그 컷 (main `<TBD-release-commit>`, `release/v3.12.0` immutable LOCK)
+> **사이클**: v3.9.0 → v3.10.0 (캔들/오더블럭 후보 스크리닝 minor) → v3.10.1 (RiskPlan·캔들 reconciliation 운영 patch) → v3.11.0 (Scenario Replay Sandbox T-SIM) → **v3.12.0 (AI 종목발굴 + 실매매 직전 자본 path 완성)**
+> **상태**: architect 영역(README + 01-architecture + 06-history + 07-policy) 본격 작성. backend-core(02·04) · market-data(03 — KIS-first raw) · frontend(05) 영역은 sub-agent 별도 디스패치(orchestrator 통합).
+> **권위**: 본 baseline 폴더는 v3.12.0 시점 **종합 기능 정의서**. SoT는 `docs/architecture/master-architecture.md` v2 (ADR 0030).
 
-## 목적
+---
 
-(이번 Wave 진입 직전 / release 시점에 시스템이 무엇을 할 수 있는지 시각화 가능한 수준으로 종합 정리.)
+## 한 장 요약
+
+magicJar v3.12.0은 **실매매(REAL canary) 진입 직전 자본 path를 완성한 baseline**이다. v3.9.0(W4 마감 — T-MARKET + T-AI + T-MCP)에서 출발해, 캔들/오더블럭 후보 탐색(v3.10.0) → 운영 patch(v3.10.1) → 시나리오 리플레이(v3.11.0)를 거쳐, 이번 사이클은 **자동매매가 "실제로 작게 사고, 항상 청산하고, 멈출 수 있는가"를 코드로 보장**하는 6개 ADR(0109~0114)과 Flyway V64~V74를 본체로 한다.
+
+이 사이클의 본질은 **자본 안전선의 코드화**다. 기존 RiskGateway 룰·3중 게이트(ADR 0067·0068·0043)는 "정책 게이트"였고, 이번 사이클은 그 위에 ① 실수해도 손실이 캡되는 canary hard cap, ② 다전략 교차 청산을 막는 전략별 포지션 귀속, ③ 분할 매수·평단 기준 손절/익절, ④ 슬리피지 보호 진입(marketable limit), ⑤ readiness·전략 상태·구독·시간대 게이트가 막아도 손절은 "항상" 도는 청산 보장을 add-only로 쌓았다.
+
+**v3.12.0 시점 동작하는 핵심 흐름** (v3.9.0 baseline + v3.10.x + v3.11.0 + v3.12.0 자본 path 완성):
+
+1. **W3 자동매매 본체 종착 노드 LOCK 보존 + 정밀화** — boundary 마감 → 시그널 → RiskGateway verdict → OrderIntent → KIS REST → ACK → H0STCNI0/H0STCNI9 체결 → STOMP toast chain 보존. 3중 게이트(env × env × `user_account.real_trading_consent_at`) 자본 보호 LOCK 보존. v3.12.0은 이 chain의 **진입 가격(MARKET → marketable LIMIT)**과 **청산 보장(게이트 분화)**을 보강.
+
+2. **REAL canary hard cap (ADR 0109)** — `MAGICJAR_CANARY_MAX_ORDER_QTY` · `_MAX_ORDER_NOTIONAL_KRW` · `_MAX_ORDERS_PER_DAY` 3 ENV. RiskConfig·POSITION_LIMIT와 **독립한 운영 안전선** — 전략 설정 오류·budget 오산·다전략 누적을 OrderRouter에서 강제 차단(`CANARY_QTY_CAP`·`CANARY_NOTIONAL_CAP`·`CANARY_DAILY_ORDER_CAP` reject). fail-open(미설정 시 일반 운용). ENV add-only — Flyway 0.
+
+3. **전략별 포지션 귀속 (ADR 0110 — `strategy_position` 1급 도메인, Flyway V64)** — 기존 `position`(user+code 합산, KIS 잔고 권위) 유지 + 그 아래 전략별 lot ledger `strategy_position`(`UNIQUE(user_id, strategy_id, code)`) 신설. 익절/손절이 전략별 평단 기준 → 다전략 교차 청산 오염 차단. 불변식 drift 시 KIS 잔고(position) 상위 권위 + `STRATEGY_POSITION_DRIFT` SystemEvent. `StrategyPositionPort` 도메인 port.
+
+4. **RiskPlan scale-in / 평단 기준 exit (ADR 0111 — Flyway V65)** — `ScaleInPlan`(N회 분할 매수·회당 비중·재진입 트리거) + 평단 기준 stop-loss exit 신규 + 분할 익절 `PartialExit` + `ScaleInExitCalculator` 단일 순수 함수(live·리플레이·백테스트 공유). 부분 익절 1회 발화 불변식(`executed_exit_stages`). 미설정 전략은 현행 단일 진입+전량 익절 그대로(하위호환 LOCK).
+
+5. **주문 집행 정책 + 청산 "항상" 보장 (ADR 0114 — Flyway V72 entry_policy + V73 min_hold_bars)** — 진입을 **marketable limit**(매도1호가, 상한 `기준가 × (1+maxEntrySlippctPct)` 초과 시 스킵)으로 전환(MARKET 고정 해소). 스프레드 게이트 + 미체결 `entryTimeoutSec` 취소(시장가 전환 금지) + 재시도 기준가 불변. 손절 MARKET / 익절 LIMIT. `EntryPricePolicy` 순수 계산기(domain). **청산 게이트 분화** — P1 readiness BUY 한정 fail-closed(SELL은 현재가 가용 시 진행) / P2 position-driven 청산(전략 status 무관·DISABLED 보유분도 청산) / P3 `RealtimeDemandOwner.HOLDING` 신설(evict 절대 금지·체결 자동 등록) / P4 `market-hours-gate.sell-enabled` env / P5 1m 폴링 post-MVP. 잔익절 방어 B안 `min_hold_bars`(V73 — 진입 후 N캔들 DSL SELL 무시, 손절/익절은 항상 작동).
+
+6. **AI 종목발굴 Claude CLI bridge (ADR 0112 — Flyway V67·V70·V71)** — 전략 리서치 상단 AI 종목발굴 패널. `POST /api/strategy-research/ai-discovery` → Anthropic API key 없이 `claude -p` CLI 직접 실행 또는 local bridge(`scripts/claude-discovery-bridge.mjs`). 자연어 조건 → JSON 후보 → instrument master code/name/market 매핑 → matched 후보만 기존 리서치 form/chart로 이동. 주문 adapter 호출 0 · `order.intent.v1` 발행 0 · 전략 자동 저장 0 · watchlist 자동 등록 0(direction-guard 정합). AI 4종(종목발굴·전략빌더·시그널/종목 코멘트) Claude CLI bridge 통일.
+
+7. **캔들 retention 계층화 케이스 분석 (ADR 0113 — Proposed, 결정 보류)** — DB 전수 감사(candle 849MB·DB 87%·인덱스 561MB)에서 retention Case A~E 비교 기록. 사용자 지시로 결정 보류, 무위험 결함 정정만 즉시: V69 `idx_candle_code_interval_ts` drop(V1 출생 중복, scan 0회, 167MB). source 전략(1m 수집 → 백엔드 합산 — ADR 0062) 재확인 유지.
+
+**v3.12.0 누적 ADR 114건** (v3.9.0 baseline 103건 + v3.10~v3.11 사이 0104·0105·0106·0107·0108 + v3.12.0 0109·0110·0111·0112·0113·0114 — 자세한 인덱스는 `_workspace/arch/adr/README.md`).
+
+**v3.12.0 시점 자동매매 본체 정합 핵심 충족**:
+
+1. **자동매매 본체 종착 노드 LOCK 유지 + 정밀화** — T-SIG → T-RISK → T-O chain 보존 + 3중 게이트 자본 보호 LOCK + canary hard cap(0109)·전략별 포지션(0110)·scale-in/평단 exit(0111)·marketable limit 진입(0114)·청산 게이트 분화(0114 P1~P4)로 정밀화. AI 호출 0 LOCK 보존(자본 path).
+2. **실매매(REAL canary) 진입 직전 게이트 충족** — readiness 잔여 P1(canary hard cap·전략별 포지션 귀속)을 ADR 0109·0110으로 해소. canary는 "실수해도 손실이 작게 캡됨"이 본질.
+3. **모듈 매트릭스 보존** — domain · pattern-engine · indicator-impl · persistence-shared · strategy-engine · market-trend-engine · api · batch · consumer. 신규 모듈 0(scale-in/exit·entry policy는 strategy-engine 순수 함수, strategy_position은 domain port).
+4. **운영 헌법 §9·§10 LOCK 유지** — SLO + severity routing + on-call + 분기 DR drill + 운영 ADR 양식 3 슬롯(ADR 0109~0114 모두 적용). backup/DR cron(pg-dump-daily·pg-restore·redis-snapshot) + 복구 가이드 실증.
+5. **회귀 0** — v3.10.x·v3.11.0·v3.12.0 변경 모두 add-only 또는 하위호환(scale-in null=현행·entry_policy null=현행 MARKET 진입·min_hold_bars null=비활성). 자본 path 변경은 fail-closed/fail-open 원칙 유지.
+6. **AI 호출 0 LOCK(자본 path) 보존 + AI 옵션 보조 Claude CLI bridge 통일** — 자동매매 본체 AI 호출 0. AI 종목발굴(0112)은 사용자 옵션 트리거 + matched 후보 출발점일 뿐 매매 결정권 0.
+
+---
 
 ## 인덱스
 
 | 파일 | 작성자 | 내용 |
 |------|--------|------|
-| [01-architecture.md](01-architecture.md) | architect | Mermaid 4 모듈 + 외부 통합 + frontend 아키텍처 |
-| [02-data-flow.md](02-data-flow.md) | backend-core | 모듈별 데이터 흐름 + Kafka 토픽 매트릭스 |
-| [03-use-sequences.md](03-use-sequences.md) | market-data | 사용자 유즈 시퀀스 + KIS-first raw 출처 |
-| [04-feature-spec.md](04-feature-spec.md) | backend-core | 트랙 기능 명세 상세 |
-| [05-ui-inventory.md](05-ui-inventory.md) | frontend | 화면·메뉴·버튼 인벤토리 |
-| [06-history-traceability.md](06-history-traceability.md) | architect | PR·ADR·기능 매핑 |
-| [07-policy-evolution.md](07-policy-evolution.md) | architect | 운영 헌법 + ADR 진화 |
+| [01-architecture.md](01-architecture.md) | architect | Mermaid 9 JVM 모듈 + frontend + docker + 외부 통합 + ADR 0109~0114 자본 path 도식(canary cap·strategy_position·scale-in·EntryPricePolicy·HOLDING owner·AI discovery) + Flyway V1~V74 시계열 |
+| [02-data-flow.md](02-data-flow.md) | backend-core | 모듈별 데이터 흐름 + scale-in/exit 흐름 + canary cap 게이트 흐름 + AI discovery 흐름 + Kafka 토픽 매트릭스 |
+| [03-use-sequences.md](03-use-sequences.md) | market-data | 사용자 유즈 시퀀스 + KIS-first raw 출처(호가 source·`inquire-asking-price` 검토) + scale-in 진입·분할 익절 시나리오 |
+| [04-feature-spec.md](04-feature-spec.md) | backend-core | 트랙 기능 명세 + 전략별 포지션 귀속 + scale-in/평단 exit + 주문 집행 정책 + AI 종목발굴 |
+| [05-ui-inventory.md](05-ui-inventory.md) | frontend | 화면·메뉴·버튼 인벤토리 + `/strategy/research` AI 종목발굴 패널 + scale-in/RiskPlan 설정 UI |
+| [06-history-traceability.md](06-history-traceability.md) | architect | PR·ADR·기능 매핑 (v3.9.0 → v3.10.x → v3.11.0 → v3.12.0 시계열 + ADR 0109~0114 + Flyway V64~V74 매트릭스) |
+| [07-policy-evolution.md](07-policy-evolution.md) | architect | 정책 진화 — 주문 집행("먼저 오는 쪽이 이긴다")·청산 "항상" 보장·backup/DR 가동·AI 4종 Claude CLI bridge 통일·잔익절 방어 |
 
-## 한 장 요약 (TBD)
+---
 
-(architect가 본격 작성)
+## v3.9.0 → v3.12.0 통계 매트릭스 (실매매 직전 자본 path 완성 baseline)
+
+| 지표 | v3.9.0 (2026-05-24) | v3.12.0 (2026-06-07) | 증감 |
+|------|---------------------|---------------------|------|
+| Minor 누적 | 9 (v3.0~v3.9) | 12 (v3.10·v3.11·v3.12) | +3 |
+| Patch 누적 (minor 사이) | — | v3.9.1 · v3.10.1 등 | +n |
+| ADR 수 | 103 | **114** (+ 0104~0108 v3.10~v3.11 사이 + 0109·0110·0111·0112·0113·0114 v3.12.0) | **+11** |
+| ADR 신규 (v3.12.0 사이클) | — | **6** (0109·0110·0111·0112·0113·0114) | +6 |
+| ADR Proposed (보류) | 0 | **2** (0113 캔들 retention 결정 보류 · 0114 별 브랜치 Codex 비교 머지 — 코드는 머지됨) | +2 |
+| JVM 모듈 | 9 | 9 (보존 — scale-in/exit·entry policy는 strategy-engine, strategy_position은 domain port) | 0 |
+| sub-agent 수 | 7 | 7 (ADR 0094 hierarchy LOCK) | 0 |
+| Flyway 버전 | V52 | **V74** (V53~V63 v3.10~v3.11 + V64 strategy_position + V65 scale-in/exit + V66 order source EXTERNAL + V67·V70·V71 AI discovery + V68 backtest multi-symbol + V69 candle 중복 인덱스 drop + V72 entry_policy + V73 min_hold_bars + V74 research candidate) | +22 |
+| 자본 path 안전 게이트 | 3중 게이트 + RiskGateway 룰 7종 | **+ canary hard cap 3 ENV + 전략별 포지션 귀속 + 청산 게이트 분화 4(P1~P4)** | +다수 |
+| 진입 가격 정책 | MARKET 고정(default) | **marketable limit(LIMIT 발행) + 스프레드 게이트 + 미체결 취소** | LOCK 전환 |
+| RealtimeDemandOwner | DETAIL · STRATEGY | **+ HOLDING (evict 절대 금지)** | +1 |
+| AI 호출 (자동매매 본체) | 0 LOCK | 0 LOCK 보존 | 0 |
+| AI provider (옵션 보조) | Anthropic API · OpenAI · Mock | **Claude CLI(`claude -p`) bridge 통일 (API key 없이)** | bridge 전환 |
+| backup/DR 가동 | ADR 0096 LOCK(설계) | **pg-dump-daily·pg-restore·redis-snapshot cron + 복구 가이드 실증** | 실증 |
+| 운영 흐름 작동률 | 100% LOCK | 100% LOCK 유지 + 자본 path 완성 | LOCK |
+| GitHub Actions workflow | 0 | 0 (보존) | 0 |
+
+> **Flyway 매핑 주의**: ADR 0110/0111 본문은 strategy_position을 `V65`로 적었으나, orchestrator 확정 시 실제 마이그레이션 번호는 **V64=strategy_position · V65=strategy_scale_in_exit**로 당겨졌다(별 브랜치 점유 정합). 06-history §Flyway 매트릭스가 실 파일 권위.
+
+---
+
+## v3.9.0 → v3.12.0 사이 minor·patch 사이클 인덱스 (요약)
+
+| 버전 | 일자 | 미러스톤 | 관련 ADR |
+|------|------|----------|----------|
+| v3.9.0 | 2026-05-24 | W4 마감 baseline (T-MARKET + T-AI + T-MCP 3 트랙 동시 진입) | 0100·0101·0102·0103 |
+| v3.10.0 | 2026-05-31 | 캔들/오더블럭 후보 스크리닝 minor (3m interval 정식 + 4h·12h 기준봉 + 사용자 실행형 screener + 재수집 UX) | 0104 |
+| v3.10.1 | 2026-06-01 | RiskPlan·캔들 reconciliation 운영 patch (BUY 전 손절/익절 RiskPlan 필수 + AUTO SELL KIS 잔고 preflight) | 0105·0106 |
+| v3.11.0 | 2026-06-03 | Scenario Replay Sandbox T-SIM (장외 전략 QA 재현 — live 주문 경로 분리 LOCK) | 0107·0108 |
+| **v3.12.0** | **2026-06-07** | **실매매 직전 자본 path 완성 (canary hard cap·전략별 포지션 귀속·scale-in/평단 exit·주문 집행 marketable limit·청산 "항상" 보장·AI 종목발굴 Claude CLI bridge)** | **0109·0110·0111·0112·0113·0114** |
+
+---
 
 ## 작성 규약
 
 - 본문 한국어, 코드/명령은 영어 그대로
-- Mermaid 다이어그램 의무
+- Mermaid 다이어그램 의무 (flowchart는 `graph` 명시 — `fix-mermaid-syntax.mjs` 정합)
 - raw 출처 인용 의무 (KIS API · DART · 코드 path)
-- 추측·관념적 서술 금지
+- 추측·관념적 서술 금지 — 실코드·실문서 인용만
 - TBD 표시 — 미작성 영역
+
+---
+
+## v3.12.0 사이클 핵심 메시지
+
+**실매매(REAL canary) 진입 직전 자본 path를 완성한 baseline** — v3.9.0(W4 마감) → v3.10.0(캔들/오더블럭 후보 스크리닝) → v3.10.1(RiskPlan·reconciliation patch) → v3.11.0(Scenario Replay Sandbox) → v3.12.0(자본 path 완성). 이번 사이클은 자동매매가 "실제로 작게 사고(canary hard cap), 전략별로 정확히 귀속하고(strategy_position), 분할 매수·평단 기준으로 익절/손절하고(scale-in/exit), 슬리피지 보호하며 진입하고(marketable limit), readiness·전략 상태·구독·시간대가 막아도 손절은 항상 돌고(청산 게이트 분화 P1~P4), 멈출 수 있는가(KillSwitch·canary cap)"를 코드로 보장한다. AI는 종목발굴 옵션 보조(Claude CLI bridge — API key 없이)로 후보 출발점만 제공하며 매매 결정권 0. 모든 변경 add-only/하위호환 — 회귀 0. **다음 후보** = REAL canary 실행(사용자 결재) + ADR 0114 R2/R3 결정 의제(호가 Redis source·미체결 취소 워커·익절 LIMIT 미체결 처리) + ADR 0113 retention 채택 시점 결정. 자동매매 본체 AI 호출 0 LOCK 지속(ADR 0023·0066·0067·0068·0080·0094 baseline).
