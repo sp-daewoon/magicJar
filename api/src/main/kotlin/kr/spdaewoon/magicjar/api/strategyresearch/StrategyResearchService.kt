@@ -16,6 +16,7 @@ import kr.spdaewoon.magicjar.domain.strategyresearch.StrategyResearchStats
 import kr.spdaewoon.magicjar.domain.strategyresearch.StrategyResearchTrade
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.data.domain.PageRequest
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.web.server.ResponseStatusException
@@ -35,13 +36,16 @@ class StrategyResearchService(
                 .getOrElse {
                     throw ResponseStatusException(HttpStatus.BAD_REQUEST, "지원하지 않는 candle interval입니다: ${request.interval}")
                 }
-        val entities =
+        val fromTs = request.from.toJavaInstant()
+        val toTs = request.to.toJavaInstant()
+        val rangeEntities =
             candleRepository.findByCodeAndIntervalAndTsBetween(
                 code = request.code,
                 interval = intervalCode,
-                fromTs = request.from.toJavaInstant(),
-                toTs = request.to.toJavaInstant(),
+                fromTs = fromTs,
+                toTs = toTs,
             )
+        val entities = rangeEntities.withWarmupCandles(request.code, intervalCode, fromTs)
         if (entities.size > maxCandlesPerRun) {
             throw ResponseStatusException(
                 HttpStatus.BAD_REQUEST,
@@ -59,6 +63,24 @@ class StrategyResearchService(
             report.candidates.size,
         )
         return report.toDto()
+    }
+
+    private fun List<CandleJpaEntity>.withWarmupCandles(
+        code: String,
+        intervalCode: String,
+        fromTs: java.time.Instant,
+    ): List<CandleJpaEntity> {
+        if (size >= MIN_RESEARCH_CANDLES) return this
+        val missing = MIN_RESEARCH_CANDLES - size
+        val previous =
+            candleRepository
+                .findByCodeAndIntervalAndTsBefore(
+                    code = code,
+                    interval = intervalCode,
+                    before = fromTs,
+                    pageable = PageRequest.of(0, missing),
+                ).asReversed()
+        return previous + this
     }
 
     private fun StrategyResearchRequestDto.toDomainRequest(): StrategyResearchRequest {
@@ -186,4 +208,8 @@ class StrategyResearchService(
             barsHeld = barsHeld,
             reason = reason,
         )
+
+    private companion object {
+        const val MIN_RESEARCH_CANDLES = 40
+    }
 }

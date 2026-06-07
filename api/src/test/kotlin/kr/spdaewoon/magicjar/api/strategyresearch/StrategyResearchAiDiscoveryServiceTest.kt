@@ -6,6 +6,7 @@ import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
+import kr.spdaewoon.magicjar.api.persistence.CandleJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
@@ -20,6 +21,7 @@ import org.mockito.kotlin.any
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
+import org.springframework.data.domain.PageRequest
 import org.springframework.web.server.ResponseStatusException
 import java.time.Instant
 import java.util.Optional
@@ -95,6 +97,8 @@ class StrategyResearchAiDiscoveryServiceTest {
         whenever(instrumentRepository.findById("005930")).thenReturn(Optional.of(instrument("005930", "삼성전자")))
         whenever(candleRepository.countByCodeAndIntervalAndTsBetween(eq("005930"), eq("5m"), eq(fromTs), eq(toTs)))
             .thenReturn(0L)
+        whenever(candleRepository.findByCodeAndIntervalAndTsBefore(eq("005930"), eq("5m"), eq(fromTs), any()))
+            .thenReturn(emptyList())
         whenever(stateRepository.findById("74683223")).thenReturn(Optional.empty())
         whenever(stateRepository.save(any())).thenAnswer { it.arguments[0] }
         val service =
@@ -305,6 +309,8 @@ class StrategyResearchAiDiscoveryServiceTest {
                 any(),
             ),
         ).thenReturn(0L)
+        whenever(candleRepository.findByCodeAndIntervalAndTsBefore(eq("042700"), eq("1m"), any(), any()))
+            .thenReturn(emptyList())
 
         val service = newService { StrategyResearchAiTextResult(provider = "test-claude", text = """{"items":[]}""") }
 
@@ -406,6 +412,14 @@ class StrategyResearchAiDiscoveryServiceTest {
                 eq(toTs),
             ),
         ).thenReturn(22L)
+        whenever(
+            candleRepository.findByCodeAndIntervalAndTsBefore(
+                eq("267260"),
+                eq("1d"),
+                eq(fromTs),
+                eq(PageRequest.of(0, 18)),
+            ),
+        ).thenReturn(List(18) { mock<CandleJpaEntity>() })
 
         val service = newService { StrategyResearchAiTextResult(provider = "test-claude", text = """{"items":[]}""") }
 
@@ -418,7 +432,7 @@ class StrategyResearchAiDiscoveryServiceTest {
             )!!
 
         val item = response.items.first { it.code == "267260" }
-        item.candleCount shouldBe 22L
+        item.candleCount shouldBe 40L
         item.hasResearchCandles shouldBe true
         response.warnings.any { it.contains("저장된 candle이 없는 후보") } shouldBe false
     }

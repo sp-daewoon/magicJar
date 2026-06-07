@@ -117,6 +117,7 @@ class CandleRefreshService(
         private const val RATE_LIMIT_BACKOFF_MS = 1000L
         private const val BATCH_SIZE = 500
         private const val RESEARCH_PADDING_TRADING_DAYS_MAX = 20
+        private const val MIN_RESEARCH_TRADING_DAYS = 40
         private val ONE_MINUTE_MARKET_OPEN: LocalTime = LocalTime.of(8, 0, 0)
         private val ONE_MINUTE_MARKET_CLOSE: LocalTime = LocalTime.of(20, 0, 0)
 
@@ -422,7 +423,9 @@ class CandleRefreshService(
         val padding = paddingTradingDays.coerceIn(0, RESEARCH_PADDING_TRADING_DAYS_MAX)
         val fromDate = from.atZone(KST_ZONE).toLocalDate()
         val toDate = to.atZone(KST_ZONE).toLocalDate()
-        val paddedFromDate = shiftTradingDate(fromDate, -padding)
+        val researchTradingDays = countTradingDaysInclusive(fromDate, toDate)
+        val warmupTradingDays = (MIN_RESEARCH_TRADING_DAYS - researchTradingDays).coerceAtLeast(0)
+        val paddedFromDate = shiftTradingDate(fromDate, -(padding + warmupTradingDays))
         val paddedToDate = shiftTradingDate(toDate, padding)
         val paddedFrom = paddedFromDate.atStartOfDay(KST_ZONE).toInstant()
         val paddedTo =
@@ -437,6 +440,21 @@ class CandleRefreshService(
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "재수집 범위가 현재 시각 이후입니다.")
         }
         return EffectiveCandleRange(from = paddedFrom, to = clampedTo, paddingTradingDays = padding)
+    }
+
+    private fun countTradingDaysInclusive(
+        from: LocalDate,
+        to: LocalDate,
+    ): Int {
+        var count = 0
+        var current = from
+        while (!current.isAfter(to)) {
+            if (current.dayOfWeek != DayOfWeek.SATURDAY && current.dayOfWeek != DayOfWeek.SUNDAY) {
+                count++
+            }
+            current = current.plusDays(1)
+        }
+        return count
     }
 
     private fun shiftTradingDate(

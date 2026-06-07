@@ -36,6 +36,8 @@ class StrategyResearchAiDiscoveryService(
     private val log = LoggerFactory.getLogger(StrategyResearchAiDiscoveryService::class.java)
 
     companion object {
+        private const val MIN_RESEARCH_CANDLES = 40
+
         /**
          * core wrapper 기본값(서비스 코드 seed). DB 행이 없으면 이 값으로 fallback 하며,
          * reset API 는 이 값으로 복원한다. V71 seed 와 동일 본문이어야 한다.
@@ -428,12 +430,28 @@ class StrategyResearchAiDiscoveryService(
             } else {
                 val count =
                     runCatching {
-                        candleJpaRepository.countByCodeAndIntervalAndTsBetween(
-                            code = code,
-                            interval = window.interval,
-                            fromTs = window.from,
-                            toTs = window.to,
-                        )
+                        val rangeCount =
+                            candleJpaRepository.countByCodeAndIntervalAndTsBetween(
+                                code = code,
+                                interval = window.interval,
+                                fromTs = window.from,
+                                toTs = window.to,
+                            )
+                        val missing = (MIN_RESEARCH_CANDLES - rangeCount).coerceAtLeast(0L).toInt()
+                        val warmupCount =
+                            if (missing > 0) {
+                                val warmupRows =
+                                    candleJpaRepository.findByCodeAndIntervalAndTsBefore(
+                                        code = code,
+                                        interval = window.interval,
+                                        before = window.from,
+                                        pageable = PageRequest.of(0, missing),
+                                    )
+                                warmupRows.size.toLong()
+                            } else {
+                                0L
+                            }
+                        rangeCount + warmupCount
                     }.onFailure { e ->
                         log.warn(
                             "StrategyResearch AI 후보 candle 보유량 조회 실패: code={} interval={} err={}",
@@ -445,7 +463,7 @@ class StrategyResearchAiDiscoveryService(
                 if (count == null) {
                     item.copy(candleCount = null, hasResearchCandles = null)
                 } else {
-                    item.copy(candleCount = count, hasResearchCandles = count > 0)
+                    item.copy(candleCount = count, hasResearchCandles = count >= MIN_RESEARCH_CANDLES)
                 }
             }
         }

@@ -7,6 +7,7 @@ import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
+import org.springframework.data.domain.PageRequest
 import java.math.BigDecimal
 import java.time.Instant
 
@@ -45,6 +46,46 @@ class StrategyResearchServiceTest {
             .first { it.key == "VOLUME_WASHOUT_REBOUND" }
             .trades
             .shouldNotBeEmpty()
+    }
+
+    @Test
+    fun `propose prepends previous candles when requested window has less than minimum candles`() {
+        val allCandles = washoutEntities().take(40)
+        val fromTs = Instant.parse("2026-04-28T00:18:00Z")
+        val toTs = Instant.parse("2026-04-28T00:39:00Z")
+        whenever(
+            candleRepository.findByCodeAndIntervalAndTsBetween(
+                code = "038110",
+                interval = "1m",
+                fromTs = fromTs,
+                toTs = toTs,
+            ),
+        ).thenReturn(allCandles.drop(18))
+        whenever(
+            candleRepository.findByCodeAndIntervalAndTsBefore(
+                code = "038110",
+                interval = "1m",
+                before = fromTs,
+                pageable = PageRequest.of(0, 18),
+            ),
+        ).thenReturn(allCandles.take(18).asReversed())
+
+        val report =
+            service.propose(
+                StrategyResearchRequestDto(
+                    userId = "74683223",
+                    code = "038110",
+                    interval = "1m",
+                    from = fromTs.toString(),
+                    to = toTs.toString(),
+                    targetProfitPct = 1.0,
+                    stopLossPct = 0.8,
+                    maxHoldBars = 4,
+                ),
+            )
+
+        report.candleCount shouldBe 40
+        report.warnings.any { it.contains("최소 40개 candle") } shouldBe false
     }
 
     private fun washoutEntities(): List<CandleJpaEntity> {
