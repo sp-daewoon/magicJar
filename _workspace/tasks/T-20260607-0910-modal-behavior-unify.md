@@ -3,10 +3,10 @@ id: T-20260607-0910-modal-behavior-unify
 agent: frontend
 model: opus
 branch: agent/frontend/modal-behavior-unify
-status: RUNNING
+status: DONE
 startedAt: 2026-06-07T09:10:26.973+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-07T09:18:24.039+09:00
+pr: #781
 parentPhase: ?
 ---
 
