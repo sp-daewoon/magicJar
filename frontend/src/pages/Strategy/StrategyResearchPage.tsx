@@ -41,6 +41,27 @@ const INTERVALS = ['1m', '3m', '5m', '15m', '30m', '1h', '1d']
 const RESEARCH_CANDLE_PADDING_TRADING_DAYS = 5
 const AI_DISCOVERY_DEFAULT_QUERY = '요즘 반도체와 AI 인프라 쪽에서 전략 리서치로 검증해볼 국내주'
 const AI_DISCOVERY_MARKETS = ['', 'KOSPI', 'KOSDAQ', 'KONEX'] as const
+// 발굴 프리셋 최근 사용 추적 — 최신순, 최대 5 보관. 상위 3개를 버튼으로 노출하고 나머지는 콤보로 넘긴다.
+const DISCOVERY_PRESET_RECENT_KEY = 'magicjar.discovery.presetRecentIds'
+const DISCOVERY_PRESET_RECENT_MAX = 5
+const DISCOVERY_PRESET_BUTTON_COUNT = 3
+
+function readRecentPresetIds(): string[] {
+  try {
+    const raw = window.localStorage.getItem(DISCOVERY_PRESET_RECENT_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((id): id is string => typeof id === 'string')
+  } catch {
+    return []
+  }
+}
+
+function bumpRecentPresetIds(prev: string[], presetId: string): string[] {
+  const next = [presetId, ...prev.filter((id) => id !== presetId)]
+  return next.slice(0, DISCOVERY_PRESET_RECENT_MAX)
+}
 
 function formatPct(value: number): string {
   const sign = value > 0 ? '+' : ''
@@ -106,6 +127,8 @@ export function StrategyResearchPage() {
   const [discoveryReport, setDiscoveryReport] = useState<StrategyResearchAiDiscoveryResponseDto | null>(null)
   const [selectedDiscoveryPresetId, setSelectedDiscoveryPresetId] = useState<string | null>(null)
   const [discoveryPresetTouched, setDiscoveryPresetTouched] = useState(false)
+  // 최근 사용 프리셋 id (최신순) — localStorage 동기화. 상위 3개 버튼 + 나머지 콤보 구성에 사용.
+  const [recentPresetIds, setRecentPresetIds] = useState<string[]>(() => readRecentPresetIds())
   const [promptPreviewOpen, setPromptPreviewOpen] = useState(false)
   const [promptPreview, setPromptPreview] = useState<StrategyResearchAiDiscoveryPromptPreviewDto | null>(null)
   const [presetSettingsOpen, setPresetSettingsOpen] = useState(false)
@@ -395,6 +418,40 @@ export function StrategyResearchPage() {
     () => discoveryPresets.find((preset) => preset.id === selectedDiscoveryPresetId) ?? null,
     [discoveryPresets, selectedDiscoveryPresetId],
   )
+  // 버튼으로 노출할 상위 3개: 최근 사용 순(localStorage) 우선, 이력 없으면 sortOrder(activeDiscoveryPresets는 sortOrder 정렬 가정) fallback.
+  // 현재 선택된 프리셋이 콤보 쪽에 있어도 항상 버튼에 포함시켜 시각 식별을 보장한다.
+  const discoveryPresetButtons = useMemo(() => {
+    const byId = new Map(activeDiscoveryPresets.map((preset) => [preset.id, preset]))
+    const ordered: typeof activeDiscoveryPresets = []
+    const seen = new Set<string>()
+    for (const id of recentPresetIds) {
+      const preset = byId.get(id)
+      if (preset && !seen.has(id)) {
+        ordered.push(preset)
+        seen.add(id)
+      }
+    }
+    for (const preset of activeDiscoveryPresets) {
+      if (!seen.has(preset.id)) {
+        ordered.push(preset)
+        seen.add(preset.id)
+      }
+    }
+    const buttons = ordered.slice(0, DISCOVERY_PRESET_BUTTON_COUNT)
+    // 선택된 프리셋이 버튼 밖(콤보)에 있으면 마지막 버튼과 교체해 항상 버튼에서 식별되게 한다.
+    if (
+      selectedDiscoveryPresetId &&
+      byId.has(selectedDiscoveryPresetId) &&
+      !buttons.some((preset) => preset.id === selectedDiscoveryPresetId)
+    ) {
+      buttons[buttons.length - 1] = byId.get(selectedDiscoveryPresetId)!
+    }
+    return buttons
+  }, [activeDiscoveryPresets, recentPresetIds, selectedDiscoveryPresetId])
+  const discoveryPresetComboItems = useMemo(() => {
+    const buttonIds = new Set(discoveryPresetButtons.map((preset) => preset.id))
+    return activeDiscoveryPresets.filter((preset) => !buttonIds.has(preset.id))
+  }, [activeDiscoveryPresets, discoveryPresetButtons])
   const editingPreset = useMemo(
     () => discoveryPresets.find((preset) => preset.id === editingPresetId) ?? discoveryPresets[0] ?? null,
     [discoveryPresets, editingPresetId],
@@ -514,10 +571,23 @@ export function StrategyResearchPage() {
     })
   }
 
+  const bumpRecentPreset = (presetId: string) => {
+    setRecentPresetIds((prev) => {
+      const next = bumpRecentPresetIds(prev, presetId)
+      try {
+        window.localStorage.setItem(DISCOVERY_PRESET_RECENT_KEY, JSON.stringify(next))
+      } catch {
+        // localStorage 비가용(시크릿 모드 등) — 인메모리 순서만 유지하고 무시한다.
+      }
+      return next
+    })
+  }
+
   const selectDiscoveryPreset = (presetId: string | null) => {
     setSelectedDiscoveryPresetId(presetId)
     setDiscoveryPresetTouched(true)
     setDiscoveryTouched(true)
+    if (presetId) bumpRecentPreset(presetId)
   }
 
   const openPromptPreview = () => {
@@ -850,7 +920,8 @@ export function StrategyResearchPage() {
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <span className="text-xs text-gray-500">프리셋</span>
-          {activeDiscoveryPresets.map((preset) => {
+          {/* 최근 사용 상위 3개를 버튼으로 노출 (이력 없으면 sortOrder 상위 fallback) */}
+          {discoveryPresetButtons.map((preset) => {
             const active = preset.id === selectedDiscoveryPresetId
             return (
               <button
@@ -870,12 +941,46 @@ export function StrategyResearchPage() {
               </button>
             )
           })}
+          {/* 버튼에 안 들어간 나머지 활성 프리셋 — 선택 즉시 활성화 + 최근 이력 bump */}
+          {discoveryPresetComboItems.length > 0 && (
+            <select
+              aria-label="다른 프리셋"
+              value={
+                selectedDiscoveryPresetId &&
+                discoveryPresetComboItems.some((preset) => preset.id === selectedDiscoveryPresetId)
+                  ? selectedDiscoveryPresetId
+                  : ''
+              }
+              onChange={(event) => {
+                if (event.target.value) selectDiscoveryPreset(event.target.value)
+              }}
+              disabled={discoveryMutation.isPending}
+              className={[
+                'rounded border px-2 py-1 text-xs focus:outline-none disabled:cursor-not-allowed disabled:opacity-50',
+                selectedDiscoveryPresetId &&
+                discoveryPresetComboItems.some((preset) => preset.id === selectedDiscoveryPresetId)
+                  ? 'border-indigo-500 bg-indigo-950/40 text-indigo-100'
+                  : 'border-gray-700 bg-gray-950 text-gray-300 hover:bg-gray-800',
+              ].join(' ')}
+            >
+              <option value="">다른 프리셋…</option>
+              {discoveryPresetComboItems.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
+          )}
+          {selectedDiscoveryPreset && (
+            <span className="text-xs text-gray-500">{selectedDiscoveryPreset.description}</span>
+          )}
+          {/* 직접 입력 — 행 최우측 끝으로 밀어낸다 (작업 3) */}
           <button
             type="button"
             onClick={() => selectDiscoveryPreset(null)}
             disabled={discoveryMutation.isPending}
             className={[
-              'rounded border px-2.5 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50',
+              'ml-auto rounded border px-2.5 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50',
               selectedDiscoveryPresetId === null
                 ? 'border-blue-500 bg-blue-950/40 text-blue-100'
                 : 'border-gray-700 text-gray-300 hover:bg-gray-800',
@@ -883,9 +988,6 @@ export function StrategyResearchPage() {
           >
             직접 입력
           </button>
-          {selectedDiscoveryPreset && (
-            <span className="text-xs text-gray-500">{selectedDiscoveryPreset.description}</span>
-          )}
         </div>
 
         <div className="mt-4 grid gap-3 lg:grid-cols-12">
@@ -1509,7 +1611,8 @@ export function StrategyResearchPage() {
               </div>
             </div>
             <div className="grid gap-4 p-4 lg:grid-cols-12">
-              <div className="space-y-2 lg:col-span-4">
+              {/* 6개 초과 시에만 스크롤 — 6행(≈ 84px·py-2 2줄 카드) 기준 max-h. 6개 이하는 자연 높이. */}
+              <div className="max-h-[31rem] space-y-2 overflow-y-auto lg:col-span-4">
                 {discoveryPresets.map((preset) => {
                   const active = preset.id === editingPreset?.id
                   return (
