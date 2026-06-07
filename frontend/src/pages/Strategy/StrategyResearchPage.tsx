@@ -575,7 +575,9 @@ export function StrategyResearchPage() {
     () => discoveryPresets.find((preset) => preset.id === selectedDiscoveryPresetId) ?? null,
     [discoveryPresets, selectedDiscoveryPresetId],
   )
-  // 버튼으로 노출할 상위 3개: 최근 사용 순(localStorage) 우선, 이력 없으면 sortOrder(activeDiscoveryPresets는 sortOrder 정렬 가정) fallback.
+  // 버튼으로 노출할 상위 3개: 선정은 최근 사용 순(localStorage, 이력 없으면 sortOrder fallback),
+  // **표시는 라벨 글자순 고정** — 클릭마다 버튼 순서가 재배열되는 불편 제거(사용자 지시 2026-06-08).
+  // 같은 3개 구성이면 무엇을 클릭해도 위치 불변, 새 프리셋이 셋에 진입할 때만 재배열된다.
   // 현재 선택된 프리셋이 콤보 쪽에 있어도 항상 버튼에 포함시켜 시각 식별을 보장한다.
   const discoveryPresetButtons = useMemo(() => {
     const byId = new Map(activeDiscoveryPresets.map((preset) => [preset.id, preset]))
@@ -603,7 +605,8 @@ export function StrategyResearchPage() {
     ) {
       buttons[buttons.length - 1] = byId.get(selectedDiscoveryPresetId)!
     }
-    return buttons
+    // 선정 결과를 라벨 글자순으로 고정 정렬 (ko locale — 한글/영문 혼용 라벨 안정).
+    return [...buttons].sort((a, b) => a.label.localeCompare(b.label, 'ko'))
   }, [activeDiscoveryPresets, recentPresetIds, selectedDiscoveryPresetId])
   const discoveryPresetComboItems = useMemo(() => {
     const buttonIds = new Set(discoveryPresetButtons.map((preset) => preset.id))
