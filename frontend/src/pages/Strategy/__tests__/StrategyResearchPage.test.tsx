@@ -244,6 +244,26 @@ const server = setupServer(
       updatedAt: '2026-06-06T00:00:01Z',
     })
   }),
+  http.get('/api/strategy-research/candidates', () =>
+    HttpResponse.json([
+      {
+        id: 1,
+        key: 'MA10_RECLAIM_SCALP',
+        title: 'MA10 회복 반등 스캘프',
+        marketFit: '하락 추세 중 단기 평균선 회복',
+        entryRules: ['직전 종가가 MA10 아래'],
+        entryDsl: 'close crosses_above ma(10) and close >= open',
+        targetProfitPct: '1.5000',
+        stopLossPct: '0.8000',
+        maxHoldBars: 12,
+        sortOrder: 10,
+        active: true,
+        builtIn: true,
+        updatedAt: '2026-06-06T00:00:00Z',
+      },
+    ]),
+  ),
+  http.get('/api/strategy', () => HttpResponse.json([])),
 )
 
 beforeAll(() => server.listen())

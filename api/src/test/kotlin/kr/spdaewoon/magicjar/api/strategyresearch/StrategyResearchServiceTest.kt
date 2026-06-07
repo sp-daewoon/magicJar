@@ -4,6 +4,8 @@ import io.kotest.matchers.collections.shouldNotBeEmpty
 import io.kotest.matchers.shouldBe
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
+import kr.spdaewoon.magicjar.domain.strategyresearch.BuiltinResearchCandidates
+import kr.spdaewoon.magicjar.domain.strategyresearch.CandidateEntryEvaluator
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
@@ -13,7 +15,21 @@ import java.time.Instant
 
 class StrategyResearchServiceTest {
     private val candleRepository: CandleJpaRepository = mock()
-    private val service = StrategyResearchService(candleRepository, maxCandlesPerRun = 5000)
+
+    // VOLUME_WASHOUT_REBOUND가 fixture index 26(투매 직후 양봉)에서 진입하도록 하는 stub evaluator.
+    private val washoutEvaluator =
+        CandidateEntryEvaluator { entryDsl, candles, index ->
+            entryDsl.contains("close > open") &&
+                index == 26 &&
+                candles[index].close > candles[index].open
+        }
+    private val service =
+        StrategyResearchService(
+            candleRepository = candleRepository,
+            candidateProvider = BuiltinResearchCandidates,
+            entryEvaluator = washoutEvaluator,
+            maxCandlesPerRun = 5000,
+        )
 
     @Test
     fun `propose returns research candidates without persisting or ordering`() {

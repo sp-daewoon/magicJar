@@ -25,6 +25,7 @@ import {
 import type { InstrumentSearchResultDto } from '../../api/instrument'
 import { InstrumentSearchInput } from '../../components/InstrumentSearchInput'
 import { AiDiscoveryCard } from './AiDiscoveryCard'
+import ResearchCandidateLibraryCard from './ResearchCandidateLibraryCard'
 import { StrategyResearchChart } from '../../components/strategyResearch/StrategyResearchChart'
 import { formatKst, formatMoney } from '../../components/scenario/scenarioReplayFormat'
 import { kstInputToIso } from '../../components/scenario/scenarioReplayTime'
@@ -1046,6 +1047,8 @@ export function StrategyResearchPage() {
           <span className="ml-2 text-sky-400">후보 초안만 표시</span>
         </div>
       </div>
+
+      <ResearchCandidateLibraryCard registeredUserId={registeredUserId} />
 
       <section className="mb-4 rounded-lg border border-gray-800 bg-gray-900 p-4" aria-labelledby="ai-discovery-heading">
         <div className="flex flex-wrap items-start justify-between gap-3">

@@ -357,3 +357,57 @@ data class StrategyResearchAiDiscoveryPresetRecommendItemDto(
     @field:Schema(description = "이 프리셋이 magicJar 검증 구조에 맞는 이유 1문장")
     val rationale: String,
 )
+
+// =====================================================================
+// 후보 전략 DB CRUD DTO (research-candidates-db / V74)
+// =====================================================================
+
+@Schema(description = "전략 리서치 후보 전략(DB 관리)")
+data class StrategyResearchCandidateDefinitionDto(
+    @field:Schema(description = "후보 DB id", example = "12")
+    val id: Long,
+    @field:Schema(description = "후보 고유 키", example = "MA10_RECLAIM_SCALP")
+    val key: String,
+    @field:Schema(description = "후보 노출명", example = "MA10 회복 반등 스캘프")
+    val title: String,
+    @field:Schema(description = "시장 적합성 설명")
+    val marketFit: String,
+    @field:Schema(description = "사람이 읽는 진입 규칙 목록")
+    val entryRules: List<String>,
+    @field:Schema(description = "진입 DSL 식(평가 권위)", example = "close crosses_above ma(10) and close >= open")
+    val entryDsl: String,
+    @field:Schema(description = "기본 익절 %", example = "1.5")
+    val targetProfitPct: BigDecimal?,
+    @field:Schema(description = "기본 손절 %", example = "0.8")
+    val stopLossPct: BigDecimal?,
+    @field:Schema(description = "최대 보유 bar 수", example = "12")
+    val maxHoldBars: Int?,
+    @field:Schema(description = "노출 순서", example = "10")
+    val sortOrder: Int,
+    @field:Schema(description = "활성 여부")
+    val active: Boolean,
+    @field:Schema(description = "코드/시드 기본 후보 여부(false=사용자 추가)")
+    val builtIn: Boolean,
+    @field:Schema(description = "수정 시각(ISO-8601)")
+    val updatedAt: String,
+)
+
+@Schema(description = "내 전략을 리서치 후보로 추가 요청")
+data class StrategyResearchCandidateFromStrategyRequestDto(
+    @field:Schema(description = "전략 소유자 사용자 ID", example = "74683223")
+    @field:NotBlank
+    val userId: String,
+    @field:Schema(description = "후보로 추가할 사용자 전략 id", example = "31")
+    @field:Min(1)
+    val strategyId: Long,
+    @field:Schema(description = "후보 노출명 override. 비우면 전략명 사용", example = "내 눌림목 전략")
+    @field:Size(max = 120)
+    val title: String? = null,
+    @field:Schema(description = "후보 키 override. 비우면 USER_<strategyId> 생성", example = "MY_PULLBACK")
+    @field:Pattern(regexp = "[A-Za-z0-9_]{1,64}")
+    val candidateKey: String? = null,
+    @field:Schema(description = "노출 순서. 비우면 기존 최대값 + 10", example = "200")
+    @field:Min(0)
+    @field:Max(100000)
+    val sortOrder: Int? = null,
+)
