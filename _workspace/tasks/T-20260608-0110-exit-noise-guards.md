@@ -3,10 +3,10 @@ id: T-20260608-0110-exit-noise-guards
 agent: strategy
 model: opus
 branch: agent/strategy/exit-noise-guards
-status: RUNNING
+status: DONE
 startedAt: 2026-06-08T01:10:18.512+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-08T01:29:09.222+09:00
+pr: #791
 parentPhase: ?
 ---
 
