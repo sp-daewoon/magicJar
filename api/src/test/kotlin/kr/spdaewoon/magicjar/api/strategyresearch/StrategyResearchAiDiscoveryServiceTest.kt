@@ -133,7 +133,8 @@ class StrategyResearchAiDiscoveryServiceTest {
 
         response.items[0].candleCount shouldBe 0L
         response.items[0].hasResearchCandles shouldBe false
-        response.warnings.any { it.contains("리서치 가능한 candle이 부족한 후보 1건") } shouldBe true
+        // 상시 안내 warning 제거(2026-06-07 사용자 지시) — 캔들 부족 정보는 candleCount/hasResearchCandles 필드가 전달
+        response.warnings.any { it.contains("리서치 가능한 candle이 부족한 후보") } shouldBe false
     }
 
     @Test
@@ -334,7 +335,8 @@ class StrategyResearchAiDiscoveryServiceTest {
         val hanmi = response.items.first { it.code == "042700" }
         hanmi.candleCount shouldBe 0L
         hanmi.hasResearchCandles shouldBe false
-        response.warnings.any { it.contains("리서치 가능한 candle이 부족한 후보") } shouldBe true
+        // 상시 안내 warning 제거(2026-06-07 사용자 지시) — 필드 기반 전달로 대체
+        response.warnings.any { it.contains("리서치 가능한 candle이 부족한 후보") } shouldBe false
     }
 
     @Test
