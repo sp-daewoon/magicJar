@@ -194,7 +194,18 @@ class StrategyResearchController(
     @GetMapping("/ai-discovery/latest")
     fun latestAiDiscovery(
         @RequestParam userId: String,
-    ): StrategyResearchAiDiscoveryLatestDto = StrategyResearchAiDiscoveryLatestDto(strategyResearchAiDiscoveryService.latest(userId))
+        @RequestParam(required = false) interval: String?,
+        @RequestParam(required = false) from: String?,
+        @RequestParam(required = false) to: String?,
+    ): StrategyResearchAiDiscoveryLatestDto =
+        StrategyResearchAiDiscoveryLatestDto(
+            strategyResearchAiDiscoveryService.latest(
+                userId = userId,
+                interval = interval,
+                from = from,
+                to = to,
+            ),
+        )
 
     @Operation(
         summary = "AI 종목발굴 후보 상태 변경",

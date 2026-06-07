@@ -40,6 +40,12 @@ export interface StrategyResearchAiDiscoveryLatestDto {
   report: StrategyResearchAiDiscoveryResponseDto | null
 }
 
+export interface StrategyResearchAiDiscoveryLatestOptions {
+  interval?: string
+  from?: string
+  to?: string
+}
+
 export type StrategyResearchAiDiscoveryItemStatus = 'NEW' | 'KEPT' | 'DISMISSED'
 
 export interface StrategyResearchAiDiscoveryItemStatusRequestDto {
@@ -64,12 +70,9 @@ export interface StrategyResearchAiDiscoveryItemDto {
   tradingHalt: boolean
   managementStock: boolean
   status: StrategyResearchAiDiscoveryItemStatus
-  /**
-   * 발굴 요청 interval 기준 보유 캔들 수.
-   * backend가 내려줄 때만 존재(add-only). null/undefined면 "알 수 없음"으로 취급해 캔들 가져오기 UI를 노출하지 않는다.
-   */
+  /** 발굴 요청 interval 기준 보유 캔들 수. UI에서는 정확한 수량 대신 hasResearchCandles만 사용한다. */
   candleCount?: number | null
-  /** 리서치용 캔들 보유 여부(backend 제공 시). 캔들 0건 후보 판정 보조. */
+  /** 리서치용 캔들 보유 여부(backend 제공 시). */
   hasResearchCandles?: boolean | null
 }
 
@@ -243,9 +246,17 @@ export const strategyResearchApi = {
     })
     return res.data
   },
-  getLatestAiDiscovery: async (userId: string): Promise<StrategyResearchAiDiscoveryResponseDto | null> => {
+  getLatestAiDiscovery: async (
+    userId: string,
+    options?: StrategyResearchAiDiscoveryLatestOptions,
+  ): Promise<StrategyResearchAiDiscoveryResponseDto | null> => {
     const res = await apiClient.get<StrategyResearchAiDiscoveryLatestDto>('/strategy-research/ai-discovery/latest', {
-      params: { userId },
+      params: {
+        userId,
+        interval: options?.interval,
+        from: options?.from,
+        to: options?.to,
+      },
     })
     return res.data.report
   },

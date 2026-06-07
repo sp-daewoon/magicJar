@@ -98,7 +98,45 @@ class StrategyResearchAiDiscoveryService(
         corePromptRepository.save(entity)
     }
 
-    fun latest(userId: String): StrategyResearchAiDiscoveryResponseDto? = stateRepository.findById(userId).orElse(null)?.toResponse()
+    fun latest(
+        userId: String,
+        interval: String? = null,
+        from: String? = null,
+        to: String? = null,
+    ): StrategyResearchAiDiscoveryResponseDto? {
+        val entity = stateRepository.findById(userId).orElse(null) ?: return null
+        val response = entity.toResponse()
+        val availabilityRequest =
+            StrategyResearchAiDiscoveryRequestDto(
+                userId = userId,
+                query = response.query,
+                market = response.market,
+                limit = response.limit,
+                presetId = response.presetId,
+                interval = interval,
+                from = from,
+                to = to,
+            )
+        if (candleAvailabilityWindow(availabilityRequest) == null) {
+            return response
+        }
+
+        val refreshedItems = enrichCandleAvailability(response.items, availabilityRequest)
+        val keptItems = refreshedItems.filter { it.status == StrategyResearchAiDiscoveryItemStatus.KEPT }
+        val dismissedItems = refreshedItems.filter { it.status == StrategyResearchAiDiscoveryItemStatus.DISMISSED }
+        val warnings =
+            discoveryWarnings(
+                keptItems = keptItems,
+                dismissedItems = dismissedItems,
+                items = refreshedItems,
+                requestedLimit = response.limit,
+                aiSkipped = response.provider == "state-cache",
+            )
+        entity.itemsJson = objectMapper.writeValueAsString(refreshedItems)
+        entity.warningsJson = objectMapper.writeValueAsString(warnings)
+        entity.updatedAt = Instant.now()
+        return stateRepository.save(entity).toResponse()
+    }
 
     fun clear(userId: String) {
         if (stateRepository.existsById(userId)) {
@@ -365,7 +403,7 @@ class StrategyResearchAiDiscoveryService(
                 items.count {
                     it.status != StrategyResearchAiDiscoveryItemStatus.DISMISSED &&
                         it.matched &&
-                        it.candleCount == 0L
+                        (it.hasResearchCandles == false || (it.hasResearchCandles == null && it.candleCount == 0L))
                 }
             if (candleMissingCount > 0) {
                 add("선택한 interval·기간에 저장된 candle이 없는 후보 ${candleMissingCount}건은 차트 수집 후 리서치할 수 있습니다.")

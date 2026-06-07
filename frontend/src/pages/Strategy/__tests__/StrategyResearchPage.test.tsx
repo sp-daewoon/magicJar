@@ -307,7 +307,7 @@ describe('StrategyResearchPage', () => {
     await waitFor(() => expect(lastResearchBody).not.toBeNull())
     expect(lastDiscoveryBody?.userId).toBe('74683223')
     expect(lastDiscoveryBody?.interval).toBe('1d')
-    expect(lastDiscoveryBody?.from).toBe('2026-04-28T00:00:00.000Z')
+    expect(lastDiscoveryBody?.from).toBe('2026-03-02T00:00:00.000Z')
     expect(lastDiscoveryBody?.to).toBe('2026-06-02T06:30:00.000Z')
     expect(lastResearchBody?.code).toBe('005930')
   })
@@ -549,6 +549,7 @@ describe('StrategyResearchPage', () => {
                 managementStock: false,
                 status: 'NEW',
                 candleCount: 1200,
+                hasResearchCandles: true,
               },
               {
                 itemKey: 'RAW:미상장종목',
@@ -579,7 +580,9 @@ describe('StrategyResearchPage', () => {
     expect(await screen.findByText('매칭된 후보')).toBeInTheDocument()
     expect(screen.queryByText('매칭')).not.toBeInTheDocument()
     expect(screen.getByText('확인필요')).toBeInTheDocument()
-    expect(screen.getByText('캔들 1,200')).toBeInTheDocument()
+    expect(screen.queryByText('캔들 1,200')).not.toBeInTheDocument()
+    expect(screen.queryByText('캔들 있음')).not.toBeInTheDocument()
+    expect(screen.queryByText('캔들 없음')).not.toBeInTheDocument()
   })
 
   it('캔들 0건 매칭 후보에는 "캔들 가져오기" 버튼과 전체 가져오기 버튼을 노출하고 선택을 막는다', async () => {
@@ -615,6 +618,7 @@ describe('StrategyResearchPage', () => {
                 managementStock: false,
                 status: 'NEW',
                 candleCount: 0,
+                hasResearchCandles: false,
               },
             ],
           },
@@ -635,7 +639,7 @@ describe('StrategyResearchPage', () => {
     await waitFor(() => expect(lastRecollectJobUrl).not.toBeNull())
     const url = new URL(lastRecollectJobUrl!)
     expect(url.searchParams.get('intervals')).toBe('1d')
-    expect(url.searchParams.get('from')).toBe('2026-04-28T00:00:00.000Z')
+    expect(url.searchParams.get('from')).toBe('2026-03-02T00:00:00.000Z')
     expect(url.searchParams.get('to')).toBe('2026-06-02T06:30:00.000Z')
     expect(url.searchParams.get('paddingTradingDays')).toBe('5')
   })

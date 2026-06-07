@@ -35,7 +35,7 @@ import {
 import { useOnboardingStore } from '../../stores/onboarding'
 import { useModalBehavior } from '../../hooks/useModalBehavior'
 
-const DEFAULT_FROM_KST = '2026-04-28T09:00'
+const DEFAULT_FROM_KST = '2026-03-02T09:00'
 const DEFAULT_TO_KST = '2026-06-02T15:30'
 const INTERVALS = ['1m', '3m', '5m', '15m', '30m', '1h', '1d']
 const RESEARCH_CANDLE_PADDING_TRADING_DAYS = 5
@@ -154,14 +154,23 @@ export function StrategyResearchPage() {
       return null
     }
   }, [fromKst, toKst])
+  const latestDiscoveryOptions = useMemo(
+    () =>
+      candleRecollectOptions
+        ? {
+            interval,
+            from: candleRecollectOptions.from,
+            to: candleRecollectOptions.to,
+          }
+        : undefined,
+    [candleRecollectOptions, interval],
+  )
   const [corePromptDraft, setCorePromptDraft] = useState('')
   const [corePromptTouched, setCorePromptTouched] = useState(false)
   const [corePromptError, setCorePromptError] = useState<string | null>(null)
   // GET/PUT/reset 중 가장 최근 권위 DTO — 뱃지(isDefault) 표시 단일 출처
   const [corePromptMeta, setCorePromptMeta] = useState<StrategyResearchAiDiscoveryCorePromptDto | null>(null)
   const [discoveryTouched, setDiscoveryTouched] = useState(false)
-  // 캔들 가져오기 성공 시 code별 candleCount 로컬 override (insertedCount 사용)
-  const [candleOverrides, setCandleOverrides] = useState<Record<string, number>>({})
   // 전체 가져오기 순차 큐: 처리 대기 code 목록
   const [bulkQueue, setBulkQueue] = useState<string[]>([])
   // 전체 가져오기 누적 진행 (성공/실패)
@@ -369,8 +378,16 @@ export function StrategyResearchPage() {
   })
 
   const latestDiscoveryQuery = useQuery({
-    queryKey: ['strategy-research', 'ai-discovery', 'latest', userIdText],
-    queryFn: () => strategyResearchApi.getLatestAiDiscovery(userIdText!),
+    queryKey: [
+      'strategy-research',
+      'ai-discovery',
+      'latest',
+      userIdText,
+      latestDiscoveryOptions?.interval ?? null,
+      latestDiscoveryOptions?.from ?? null,
+      latestDiscoveryOptions?.to ?? null,
+    ],
+    queryFn: () => strategyResearchApi.getLatestAiDiscovery(userIdText!, latestDiscoveryOptions),
     enabled: userIdText !== null,
     retry: false,
     staleTime: 30_000,
@@ -457,16 +474,18 @@ export function StrategyResearchPage() {
     [discoveryPresets, editingPresetId],
   )
   const visibleDiscoveryItems = useMemo(
-    () =>
-      (discoveryReport?.items.filter((item) => item.status !== 'DISMISSED') ?? []).map((item) => {
-        const override = item.code ? candleOverrides[item.code] : undefined
-        return override != null ? { ...item, candleCount: override } : item
-      }),
-    [discoveryReport, candleOverrides],
+    () => discoveryReport?.items.filter((item) => item.status !== 'DISMISSED') ?? [],
+    [discoveryReport],
   )
-  // 캔들 없음(matched && candleCount === 0) 후보 — 전체 가져오기 대상
+  // 캔들 없음 후보 — 정확한 수량보다 리서치 가능 여부만 사용한다.
   const emptyCandleItems = useMemo(
-    () => visibleDiscoveryItems.filter((item) => item.code && item.matched && item.candleCount === 0),
+    () =>
+      visibleDiscoveryItems.filter(
+        (item) =>
+          item.code &&
+          item.matched &&
+          (item.hasResearchCandles === false || (item.hasResearchCandles == null && item.candleCount === 0)),
+      ),
     [visibleDiscoveryItems],
   )
   const keptDiscoveryCount = useMemo(
@@ -710,7 +729,7 @@ export function StrategyResearchPage() {
       setDiscoveryError('종목 마스터와 매칭된 후보만 선택할 수 있습니다')
       return
     }
-    if (item.candleCount === 0) {
+    if (item.hasResearchCandles === false || (item.hasResearchCandles == null && item.candleCount === 0)) {
       setDiscoveryError('선택한 interval·기간에 저장된 candle이 없습니다. 차트에서 캔들을 수집한 뒤 다시 선택해주세요')
       return
     }
@@ -725,8 +744,12 @@ export function StrategyResearchPage() {
     setFormError(null)
   }
 
-  const handleCandlesFetched = (itemCode: string, inserted: number) => {
-    setCandleOverrides((prev) => ({ ...prev, [itemCode]: inserted }))
+  const handleCandlesFetched = (_itemCode: string, _inserted: number) => {
+    void latestDiscoveryQuery.refetch().then((result) => {
+      if (result.data !== undefined) {
+        setDiscoveryReport(result.data)
+      }
+    })
   }
 
   // 순차 큐의 현재 활성 code (큐 맨 앞) — 해당 카드만 자동 시작

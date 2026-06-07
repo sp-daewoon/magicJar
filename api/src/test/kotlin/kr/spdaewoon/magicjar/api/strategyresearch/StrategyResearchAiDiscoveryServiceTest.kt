@@ -370,6 +370,59 @@ class StrategyResearchAiDiscoveryServiceTest {
         samsung.hasResearchCandles.shouldBeNull()
     }
 
+    @Test
+    fun `latest recomputes candle availability with current research window`() {
+        val previous =
+            StrategyResearchAiDiscoveryStateJpaEntity(
+                userId = "74683223",
+                query = "전력설비 후보",
+                market = null,
+                candidateLimit = 1,
+                provider = "claude-cli-bridge",
+                generatedAt = Instant.parse("2026-06-05T00:00:00Z"),
+                warningsJson = """["선택한 interval·기간에 저장된 candle이 없는 후보 1건은 차트 수집 후 리서치할 수 있습니다."]""",
+                itemsJson =
+                    objectMapper.writeValueAsString(
+                        listOf(
+                            item(
+                                code = "267260",
+                                name = "HD현대일렉트릭",
+                                status = StrategyResearchAiDiscoveryItemStatus.NEW,
+                                candleCount = 0L,
+                                hasResearchCandles = false,
+                            ),
+                        ),
+                    ),
+            )
+        val fromTs = Instant.parse("2026-04-28T00:00:00Z")
+        val toTs = Instant.parse("2026-06-02T06:30:00Z")
+        whenever(stateRepository.findById("74683223")).thenReturn(Optional.of(previous))
+        whenever(stateRepository.save(any())).thenAnswer { it.arguments[0] }
+        whenever(
+            candleRepository.countByCodeAndIntervalAndTsBetween(
+                eq("267260"),
+                eq("1d"),
+                eq(fromTs),
+                eq(toTs),
+            ),
+        ).thenReturn(22L)
+
+        val service = newService { StrategyResearchAiTextResult(provider = "test-claude", text = """{"items":[]}""") }
+
+        val response =
+            service.latest(
+                userId = "74683223",
+                interval = "1d",
+                from = fromTs.toString(),
+                to = toTs.toString(),
+            )!!
+
+        val item = response.items.first { it.code == "267260" }
+        item.candleCount shouldBe 22L
+        item.hasResearchCandles shouldBe true
+        response.warnings.any { it.contains("저장된 candle이 없는 후보") } shouldBe false
+    }
+
     // ───────────────────────── core(wrapper) prompt 편집 ─────────────────────────
 
     @Test

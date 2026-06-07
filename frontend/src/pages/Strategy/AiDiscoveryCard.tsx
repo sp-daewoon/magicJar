@@ -32,7 +32,7 @@ export interface AiDiscoveryCardProps {
     status: StrategyResearchAiDiscoveryItemStatus,
   ) => void
   onSelect: (item: StrategyResearchAiDiscoveryItemDto) => void
-  /** 캔들 가져오기 성공 시 page 로컬 candleCount 갱신용 (inserted 건수 전달) */
+  /** 캔들 가져오기 성공 시 page가 DB 기준 가용 여부를 재조회하도록 알린다. */
   onCandlesFetched: (code: string, inserted: number) => void
   /** 잡 terminal(SUCCEEDED/FAILED) 시 page 순차 큐 진행용 */
   onFetchSettled: (code: string, result: { ok: boolean; inserted: number; error?: string }) => void
@@ -56,9 +56,14 @@ export function AiDiscoveryCard({
   onFetchSettled,
 }: AiDiscoveryCardProps) {
   const code = item.code
-  const candleCount = item.candleCount
-  // backend가 candleCount를 내려줄 때만 "캔들 없음" 판정 가능 (add-only graceful)
-  const isEmptyCandles = candleCount === 0
+  const hasResearchCandles =
+    typeof item.hasResearchCandles === 'boolean'
+      ? item.hasResearchCandles
+      : item.candleCount == null
+        ? null
+        : item.candleCount > 0
+  // backend가 가용 여부를 내려줄 때만 "캔들 없음" 판정 가능 (add-only graceful)
+  const isEmptyCandles = hasResearchCandles === false
   const canFetch = Boolean(code) && item.matched && isEmptyCandles && Boolean(recollectOptions)
   const settledRef = useRef(false)
 
@@ -71,7 +76,7 @@ export function AiDiscoveryCard({
     intervals: [interval],
     recollectOptions: recollectOptions ?? undefined,
     onSuccess: (_deleted, inserted) => {
-      if (inserted > 0 && code) onCandlesFetched(code, inserted)
+      if (code) onCandlesFetched(code, inserted)
       if (code && !settledRef.current) {
         settledRef.current = true
         onFetchSettled(code, { ok: true, inserted })
@@ -118,16 +123,9 @@ export function AiDiscoveryCard({
   const succeededEmpty = progress?.status === 'SUCCEEDED' && progress.insertedCount + progress.rebuiltCount === 0
 
   const candleBadge = (() => {
-    if (candleCount == null) return null
-    if (candleCount === 0) {
-      return (
-        <span className="rounded border border-gray-700 px-2 py-0.5 text-xs text-gray-400">캔들 없음</span>
-      )
-    }
+    if (hasResearchCandles !== false) return null
     return (
-      <span className="rounded border border-sky-800 px-2 py-0.5 text-xs text-sky-300">
-        캔들 {candleCount.toLocaleString('ko-KR')}
-      </span>
+      <span className="rounded border border-gray-700 px-2 py-0.5 text-xs text-gray-400">캔들 없음</span>
     )
   })()
 
