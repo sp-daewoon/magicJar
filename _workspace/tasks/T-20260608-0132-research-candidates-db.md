@@ -3,10 +3,10 @@ id: T-20260608-0132-research-candidates-db
 agent: strategy
 model: opus
 branch: agent/strategy/research-candidates-db
-status: RUNNING
+status: DONE
 startedAt: 2026-06-08T01:32:46.215+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-08T01:56:26.894+09:00
+pr: #792
 parentPhase: ?
 ---
 
