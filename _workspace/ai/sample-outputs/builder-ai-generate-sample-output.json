@@ -1,0 +1,19 @@
+{
+  "provider" : "claude-cli",
+  "generatedAt" : "2026-06-07T17:06:24.681197Z",
+  "warnings" : [ "AI가 생성한 전략은 매수 추천이 아니라 백테스트·MOCK 검증 대상 가설입니다. 저장 전 반드시 검증하세요.", "생성 결과는 저장되지 않습니다. 빌더에서 검토·수정 후 전략 저장으로 직접 저장하세요." ],
+  "items" : [ {
+    "name" : "20일선 눌림목 거래량 반등 스윙",
+    "description" : "20일선 위 눌림목에서 거래량이 동반 회복될 때 진입하는 스윙 전략입니다.",
+    "entryDsl" : "close > ma(20) and close crosses_above ma(5) and volume > volume_ma(20) * 1.5",
+    "exitDsl" : "close crosses_below ma(5)",
+    "riskPlan" : {
+      "takeProfitPct" : 1.5,
+      "fixedStopLossPct" : 0.8,
+      "minHoldBars" : 3
+    },
+    "rationale" : "20일선 추세 필터와 거래량 이동평균 수급 확인을 결합해 의도에 맞습니다.",
+    "dslValid" : true,
+    "dslError" : null
+  } ]
+}
