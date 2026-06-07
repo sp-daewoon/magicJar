@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.signal
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.datetime.toJavaInstant
@@ -10,6 +11,7 @@ import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import kr.spdaewoon.magicjar.domain.market.session.BusinessDayCalendar
 import kr.spdaewoon.magicjar.domain.market.session.MarketSessionResolver
 import kr.spdaewoon.magicjar.domain.market.session.TradingHoursGate
+import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.position.StrategyPosition
 import kr.spdaewoon.magicjar.domain.position.port.StrategyPositionPort
 import kr.spdaewoon.magicjar.domain.risk.port.RiskPositionPort
@@ -23,6 +25,7 @@ import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyLookupPort
 import kr.spdaewoon.magicjar.strategy.JvmStrategyEvaluator
+import kr.spdaewoon.magicjar.strategy.entry.EntryPricePolicy
 import kr.spdaewoon.magicjar.strategy.scalein.ScaleInExitCalculator
 import kr.spdaewoon.magicjar.strategy.scalein.ScaleInExitDecision
 import kr.spdaewoon.magicjar.strategy.scalein.ScaleInExitInput
@@ -64,6 +67,7 @@ import java.math.RoundingMode
  */
 @Component
 class RealtimeSignalGenerator(
+    private val objectMapper: ObjectMapper,
     private val strategyLookupProvider: ObjectProvider<StrategyLookupPort>,
     private val signalRepositoryProvider: ObjectProvider<SignalRepository>,
     private val candleRepositoryProvider: ObjectProvider<CandleRepository>,
@@ -111,9 +115,11 @@ class RealtimeSignalGenerator(
             return
         }
 
+        // ADR 0114 §4-2 P2 — 청산(SELL) 평가는 ACTIVE/BUY_BLOCKED ∪ DISABLED-with-position(position-driven 폴백).
+        //   BUY는 평가기에서 status로 suppress(DISABLED·BUY_BLOCKED 신규 진입 차단). "포지션이 있으면 청산"으로 불변식 전환.
         val activeStrategies =
             try {
-                strategyLookup.findActiveByCodeAndInterval(code, interval)
+                strategyLookup.findSellEvalByCodeAndInterval(code, interval)
             } catch (e: Exception) {
                 log.error(
                     "RealtimeSignalGenerator StrategyLookup 실패: code={} interval={} err={}",
@@ -302,6 +308,8 @@ class RealtimeSignalGenerator(
         val decision = evaluateDecision(strategy, code, buyAst, strategy.definition.dsl.sellCondition, candles, candle.closeRaw) ?: return
         val side = decision.side
         val evalResult = decision.result
+        // ADR 0114 §3-3·§5 — SELL 청산 가격 유형/LIMIT를 contextJson에 실어 listener(SignalGeneratedKafkaListener)가 라우팅.
+        val exitContextJson = buildExitContextJson(decision)
 
         // 4. HOLD는 영속 0 (ADR 0066 §9-2 noise 회피)
         if (side == SignalSide.HOLD) {
@@ -339,9 +347,12 @@ class RealtimeSignalGenerator(
             )
             return
         }
-        if (strategy.status == StrategyStatus.BUY_BLOCKED && side == SignalSide.BUY) {
+        // ADR 0114 §4-2 P2 — BUY는 ACTIVE 전략만. BUY_BLOCKED·DISABLED(position-driven SELL 폴백으로 들어온)의 신규 BUY는 suppress.
+        //   SELL(청산)은 위 게이트만 통과하면 status 무관 진행(보유분 손절/익절 — 자본 회수는 막지 않음).
+        if (side == SignalSide.BUY && strategy.status != StrategyStatus.ACTIVE) {
             log.warn(
-                "RealtimeSignalGenerator BUY_BLOCKED 신규 BUY skip: strategyId={} code={} interval={} ts={}",
+                "RealtimeSignalGenerator 비-ACTIVE 신규 BUY skip(status={}): strategyId={} code={} interval={} ts={}",
+                strategy.status,
                 strategyId,
                 code,
                 interval.code,
@@ -364,7 +375,7 @@ class RealtimeSignalGenerator(
                 strength = strength,
                 reason = reason,
                 priceAtSignal = candle.closeRaw,
-                contextJson = null,
+                contextJson = exitContextJson,
                 createdAt = clock.now(),
             )
 
@@ -430,9 +441,15 @@ class RealtimeSignalGenerator(
             kr.spdaewoon.magicjar.domain.strategy.Signal.HOLD -> SignalSide.HOLD
         }
 
+    /**
+     * @param exitPriceType SELL 청산 가격 유형(ADR 0114 §3-3 — 손절 MARKET / 익절 LIMIT). BUY·HOLD는 null.
+     * @param exitLimitPrice 익절 LIMIT 가격(트리거 가격 = 평단×(1+triggerPct/100), R1 [EntryPricePolicy.takeProfitLimitPrice]). MARKET이면 null.
+     */
     private data class SignalDecision(
         val side: SignalSide,
         val result: StrategyEvalResult,
+        val exitPriceType: kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType? = null,
+        val exitLimitPrice: BigDecimal? = null,
     )
 
     private fun evaluateDecision(
@@ -517,6 +534,8 @@ class RealtimeSignalGenerator(
 
         if (profitPct < takeProfitPct) return null
 
+        // ADR 0114 §3-3 — 익절은 LIMIT(트리거 가격 = 평단×(1+takeProfitPct/100), R1 단일 출처).
+        val exitLimit = EntryPricePolicy.takeProfitLimitPrice(position.avgPrice, takeProfitPct)
         return SignalDecision(
             SignalSide.SELL,
             baseResult.copy(
@@ -533,6 +552,8 @@ class RealtimeSignalGenerator(
                             "currentPrice" to currentPrice.toPlainString(),
                         ),
             ),
+            exitPriceType = OrderPriceType.LIMIT,
+            exitLimitPrice = exitLimit,
         )
     }
 
@@ -617,6 +638,9 @@ class RealtimeSignalGenerator(
                             "quantity" to decision.quantity.toString(),
                             "currentPrice" to currentPrice.toPlainString(),
                         ) + avgPriceReason(position),
+                    // ADR 0114 §3-3 — 손절은 MARKET(체결 확실성 우선).
+                    exitPriceType = OrderPriceType.MARKET,
+                    exitLimitPrice = null,
                 )
 
             is ScaleInExitDecision.PartialTakeProfit ->
@@ -632,6 +656,9 @@ class RealtimeSignalGenerator(
                             "profitPct" to decision.profitPct.setScale(4, RoundingMode.HALF_UP).toPlainString(),
                             "currentPrice" to currentPrice.toPlainString(),
                         ) + avgPriceReason(position),
+                    // ADR 0114 §3-3 — 분할 익절도 LIMIT. 트리거 가격 = 평단×(1+stage triggerProfitPct/100).
+                    exitPriceType = OrderPriceType.LIMIT,
+                    exitLimitPrice = partialExitLimitPrice(strategy, position, decision.stageIndex),
                 )
 
             is ScaleInExitDecision.TakeProfit ->
@@ -646,6 +673,12 @@ class RealtimeSignalGenerator(
                             "takeProfitPct" to (strategy.definition.takeProfitPct?.toPlainString() ?: ""),
                             "currentPrice" to currentPrice.toPlainString(),
                         ) + avgPriceReason(position),
+                    // ADR 0114 §3-3 — 전량 익절 LIMIT.
+                    exitPriceType = OrderPriceType.LIMIT,
+                    exitLimitPrice =
+                        strategy.definition.takeProfitPct?.let { pct ->
+                            position?.avgPrice?.takeIf { it > BigDecimal.ZERO }?.let { EntryPricePolicy.takeProfitLimitPrice(it, pct) }
+                        },
                 )
 
             is ScaleInExitDecision.EnterSlice ->
@@ -672,9 +705,31 @@ class RealtimeSignalGenerator(
     private fun avgPriceReason(position: StrategyPosition?): Map<String, Any> =
         position?.let { mapOf("avgPrice" to it.avgPrice.toPlainString()) } ?: emptyMap()
 
+    /**
+     * SELL 청산 가격 라우팅을 contextJson에 직렬화 (ADR 0114 §3-3·§5).
+     *
+     * listener([SignalGeneratedKafkaListener.handleAllowed])가 `exitPriceType`(MARKET 손절 / LIMIT 익절) + `exitLimitPrice`를
+     * 읽어 OrderIntent 가격 유형을 분기한다. BUY·HOLD 또는 exit 정보 미산정 시 null(현행 MARKET 경로 보존 — 하위호환).
+     * 계산은 모두 [EntryPricePolicy.takeProfitLimitPrice](R1 단일 출처)에서 끝났고 여기선 전달만 한다(중복 0).
+     */
+    private fun buildExitContextJson(decision: SignalDecision): String? {
+        if (decision.side != SignalSide.SELL || decision.exitPriceType == null) return null
+        return runCatching {
+            objectMapper.writeValueAsString(
+                buildMap {
+                    put("exitPriceType", decision.exitPriceType.name)
+                    decision.exitLimitPrice?.let { put("exitLimitPrice", it.toPlainString()) }
+                },
+            )
+        }.onFailure { e -> log.warn("exit contextJson 직렬화 실패 — null fallback(MARKET 경로): err={}", e.message) }
+            .getOrNull()
+    }
+
     private fun sellSignal(
         baseResult: StrategyEvalResult,
         reasonExtras: Map<String, Any>,
+        exitPriceType: kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType? = null,
+        exitLimitPrice: BigDecimal? = null,
     ): SignalDecision =
         SignalDecision(
             SignalSide.SELL,
@@ -683,7 +738,26 @@ class RealtimeSignalGenerator(
                 strength = BigDecimal.ONE,
                 reason = baseResult.reason + reasonExtras,
             ),
+            exitPriceType = exitPriceType,
+            exitLimitPrice = exitLimitPrice,
         )
+
+    /**
+     * 분할 익절 LIMIT 가격 = 평단 × (1 + stage triggerProfitPct/100) → R1 [EntryPricePolicy.takeProfitLimitPrice] (트리거 가격 기준).
+     * stage trigger pct는 [StrategyDefinition.partialExits]\[stageIndex] 에서 읽는다(계산은 R1 단일 출처 — 중복 0).
+     */
+    private fun partialExitLimitPrice(
+        strategy: Strategy,
+        position: StrategyPosition?,
+        stageIndex: Int,
+    ): BigDecimal? {
+        val avgPrice = position?.avgPrice?.takeIf { it > BigDecimal.ZERO } ?: return null
+        val triggerPct =
+            strategy.definition.partialExits
+                ?.getOrNull(stageIndex)
+                ?.triggerProfitPct ?: return null
+        return EntryPricePolicy.takeProfitLimitPrice(avgPrice, triggerPct)
+    }
 
     private fun evaluateAst(
         strategyId: Long,

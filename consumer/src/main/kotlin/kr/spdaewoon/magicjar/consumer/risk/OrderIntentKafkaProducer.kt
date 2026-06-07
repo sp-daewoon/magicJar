@@ -100,6 +100,92 @@ class OrderIntentKafkaProducer(
                 return
             }
 
+        sendWithOutbox(
+            userId = signal.userId,
+            signalId = signal.id,
+            payload = payload,
+            latencyTsEpoch = signal.ts.epochSeconds,
+            emittedAt = now,
+        )
+    }
+
+    /**
+     * 시그널 경로를 우회하는 **청산 안전망 intent** 발행 (ADR 0114 R2-C2b — tick 손절 watcher·TP 선주문).
+     *
+     * 1m 시그널 경로([publish] with [Signal])와 달리 실제 `Signal` 행 없이도 OrderIntent를 발행한다
+     * (tick 손절·체결 즉시 TP 선주문은 시그널 발화·readiness·market-hours 게이트를 구조적으로 우회하는
+     *  독립 안전망 — ADR 0114 §4-1·§4-2). [OrderRouterKafkaListener.deserialize]가 동일 payload schema를
+     * 읽으므로 멱등 키([idempotencyKey])·source(AUTO)가 그대로 흘러 OrderRouter 멱등 가드(`idem:order:{key}`)에 정합한다.
+     *
+     * @param signalId 0L 권장(시그널 비파생). canary notional cap·audit 추적용.
+     * @param priceAtSignal MARKET canary cap 단가 source(현재가/평단). LIMIT이면 [limitPrice]가 우선.
+     * @param idempotencyKey **이중 발화 방지 핵심** — `auto-sl:`/`auto-tp:` prefix(AutoOrderIdempotencyKeys). 동일 키 재발행은 OrderRouter가 흡수.
+     */
+    fun publishExitIntent(
+        userId: String,
+        strategyId: Long,
+        code: String,
+        intervalCode: String,
+        side: kr.spdaewoon.magicjar.domain.order.execution.OrderSide,
+        priceType: OrderPriceType,
+        quantity: Int,
+        limitPrice: BigDecimal?,
+        priceAtSignal: BigDecimal,
+        idempotencyKey: String,
+        signalId: Long = 0L,
+    ) {
+        val now =
+            java.time.Instant
+                .now()
+                .epochSecond
+        val effectiveLimitPrice = limitPrice?.takeIf { priceType == OrderPriceType.LIMIT }
+        val payload =
+            try {
+                objectMapper.writeValueAsString(
+                    mapOf(
+                        "signalId" to signalId,
+                        "strategyId" to strategyId,
+                        "userId" to userId,
+                        "code" to code,
+                        "interval" to intervalCode,
+                        "ts" to now,
+                        "side" to side.name,
+                        "strength" to 100,
+                        "priceAtSignal" to priceAtSignal.toPlainString(),
+                        "priceType" to priceType.name,
+                        "quantity" to quantity,
+                        "limitPrice" to effectiveLimitPrice?.toPlainString(),
+                        "idempotencyKey" to idempotencyKey,
+                        "source" to "AUTO",
+                        "riskVerdict" to "ALLOWED",
+                        "emittedAt" to now,
+                    ),
+                )
+            } catch (e: Exception) {
+                log.error(
+                    "OrderIntentKafkaProducer exit intent 직렬화 실패: userId={} code={} idemKey={} err={}",
+                    userId,
+                    code,
+                    idempotencyKey,
+                    e.message,
+                )
+                return
+            }
+
+        sendWithOutbox(userId = userId, signalId = signalId, payload = payload, latencyTsEpoch = null, emittedAt = now)
+    }
+
+    /**
+     * outbox INSERT → Kafka send → markPublished 공통 경로 (DRY — [publish]·[publishExitIntent] 공유).
+     * latencyTsEpoch 가 not null이면 S-1(signal→order) latency Timer record.
+     */
+    private fun sendWithOutbox(
+        userId: String,
+        signalId: Long?,
+        payload: String,
+        latencyTsEpoch: Long?,
+        emittedAt: Long,
+    ) {
         val outboxRepository = outboxRepositoryProvider.getIfAvailable()
         val outboxId =
             outboxRepository?.let {
@@ -109,15 +195,15 @@ class OrderIntentKafkaProducer(
                             OrderEventOutbox(
                                 eventType = OrderOutboxEventType.ORDER_INTENT,
                                 topic = TOPIC,
-                                partitionKey = signal.userId,
+                                partitionKey = userId,
                                 payloadJson = payload,
                             ),
                         ).id
                 }.onFailure { e ->
                     log.error(
                         "OrderIntentKafkaProducer outbox INSERT 실패 — direct publish fallback: userId={} signalId={} err={}",
-                        signal.userId,
-                        signal.id,
+                        userId,
+                        signalId,
                         e.message,
                     )
                 }.getOrNull()
@@ -125,7 +211,7 @@ class OrderIntentKafkaProducer(
 
         try {
             kafkaTemplate
-                .send(TOPIC, signal.userId, payload)
+                .send(TOPIC, userId, payload)
                 .get(KAFKA_SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             if (outboxId != null) {
                 runCatching { outboxRepository?.markPublished(outboxId) }
@@ -137,20 +223,17 @@ class OrderIntentKafkaProducer(
                         )
                     }
             }
-            // ADR 0095 S-1 측정 — signal.ts(epoch s) → now(epoch s) latency Timer record
-            persistenceMetricsProvider
-                .getIfAvailable()
-                ?.recordSignalToOrderLatency(signal.ts.epochSeconds, now)
+            // ADR 0095 S-1 측정 — signal.ts(epoch s) → now(epoch s) latency Timer record (시그널 파생만)
+            if (latencyTsEpoch != null) {
+                persistenceMetricsProvider
+                    .getIfAvailable()
+                    ?.recordSignalToOrderLatency(latencyTsEpoch, emittedAt)
+            }
             log.debug(
-                "OrderIntentKafkaProducer publish: topic={} userId={} signalId={} code={} side={} quantity={} priceType={} limitPrice={}",
+                "OrderIntentKafkaProducer publish: topic={} userId={} signalId={}",
                 TOPIC,
-                signal.userId,
-                signal.id,
-                signal.code,
-                signal.side,
-                quantity,
-                priceType,
-                effectiveLimitPrice,
+                userId,
+                signalId,
             )
         } catch (e: Exception) {
             if (outboxId != null) {
@@ -160,8 +243,8 @@ class OrderIntentKafkaProducer(
             }
             log.error(
                 "OrderIntentKafkaProducer publish 실패 (outbox retry 예약): userId={} signalId={} outboxId={} err={}",
-                signal.userId,
-                signal.id,
+                userId,
+                signalId,
                 outboxId,
                 e.message,
             )

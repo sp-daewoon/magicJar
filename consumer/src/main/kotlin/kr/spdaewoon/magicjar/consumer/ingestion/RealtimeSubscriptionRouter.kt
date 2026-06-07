@@ -44,6 +44,12 @@ class RealtimeSubscriptionRouter(
     private val detailTtlMs = 5L * 60L * 1000L
     private val strategyTtlMs = 30L * 60L * 1000L
 
+    // ADR 0114 §4-3 P3 — 보유 종목 구독 TTL. 60초 refresh가 갱신하므로 5분 grace로 일시 refresh 실패에도 끊김 방지.
+    private val holdingTtlMs = 5L * 60L * 1000L
+
+    // ADR 0114 §4-3 P3(Codex pending-buy 흡수) — 주문 제출~체결 사이 watch. 체결 이벤트가 release하나 미체결/취소 대비 TTL.
+    private val pendingBuyTtlMs = 30L * 60L * 1000L
+
     fun request(
         owner: RealtimeDemandOwner,
         ownerId: String,
@@ -173,9 +179,12 @@ class RealtimeSubscriptionRouter(
         val demandedCodes = demandsByCode.keys
         val watchlistEntries = watchlistRepository.findAll()
         val watchlistByCode = watchlistEntries.groupBy { it.code }
+        // ADR 0114 §4-3 P3 — HOLDING owner code는 evict 절대 금지(보유 종목 구독 끊김 = 청산 재료 공백 = 자본 risk).
+        // priority 0 비교만으로는 부족(동일 priority 경합 시 후보화 가능) → 명시적 제외 LOCK.
+        val holdingCodes = codesWithHoldingDemandLocked()
 
         return subscribed
-            .filter { it !in demandedCodes }
+            .filter { it !in demandedCodes && it !in holdingCodes }
             .map { code ->
                 val watchlistPriority = watchlistByCode[code]?.maxOfOrNull { it.priority } ?: Int.MAX_VALUE
                 code to watchlistPriority
@@ -221,16 +230,30 @@ class RealtimeSubscriptionRouter(
 
     private fun isWatchlistCodeLocked(code: String): Boolean = watchlistRepository.findAll().any { it.code == code }
 
+    /** HOLDING owner demand가 있는 code 집합 (ADR 0114 §4-3 — evict 후보에서 무조건 제외). 호출자가 lock 보유. */
+    private fun codesWithHoldingDemandLocked(): Set<String> =
+        demandsByCode
+            .filterValues { owners -> owners.keys.any { it.owner == RealtimeDemandOwner.HOLDING } }
+            .keys
+
     private fun RealtimeDemandOwner.defaultTtlMs(): Long =
         when (this) {
             RealtimeDemandOwner.DETAIL -> detailTtlMs
             RealtimeDemandOwner.STRATEGY -> strategyTtlMs
+            // HOLDING은 보유 동안 refresh로 갱신(60초 주기) — 기본 TTL은 refresh 주기보다 넉넉(grace 포함).
+            RealtimeDemandOwner.HOLDING -> holdingTtlMs
+            RealtimeDemandOwner.PENDING_BUY -> pendingBuyTtlMs
         }
 }
 
 enum class RealtimeDemandOwner(
     val defaultPriority: Int,
 ) {
+    // ADR 0114 §4-3 P3 — 보유 종목(체결 후 quantity>0). 최우선·evict 절대 금지(findEvictionCandidateLocked 제외 LOCK).
+    HOLDING(defaultPriority = 0),
+
+    // ADR 0114 §4-3 P3(Codex 흡수) — 주문 제출~체결 사이 pending watch. 체결 전 구독 보장(체결 통보 수신 보장).
+    PENDING_BUY(defaultPriority = 5),
     DETAIL(defaultPriority = 10),
     STRATEGY(defaultPriority = 40),
     ;

@@ -36,4 +36,19 @@ interface StrategyLookupPort {
         code: String,
         interval: CandleInterval,
     ): List<Strategy>
+
+    /**
+     * ADR 0114 §4-2 P2 — 청산(SELL) 평가 대상 전략 (position-driven 폴백).
+     *
+     * [findActiveByCodeAndInterval] 결과(ACTIVE/BUY_BLOCKED) **∪ DISABLED-with-position** 합집합.
+     * "전략 status와 무관하게 보유분이 있으면 청산 평가"(불변식 전환). BUY는 여전히 ACTIVE만 — 평가기가
+     * DISABLED·BUY_BLOCKED 의 BUY를 suppress한다. 보유 0인 DISABLED는 포함하지 않는다(과도 평가 회피).
+     *
+     * default 구현: 하위호환 — 미구현 어댑터(stub)는 [findActiveByCodeAndInterval]로 위임(DISABLED 폴백 없이 현행).
+     * 본 인터페이스는 JPA Repository가 아니라 도메인 port이므로 default 허용(헌법 §6 query-inference 함정 무관).
+     */
+    fun findSellEvalByCodeAndInterval(
+        code: String,
+        interval: CandleInterval,
+    ): List<Strategy> = findActiveByCodeAndInterval(code, interval)
 }

@@ -32,4 +32,20 @@ interface StrategyPositionJpaRepository : JpaRepository<StrategyPositionJpaEntit
         @Param("userId") userId: String,
         @Param("code") code: String,
     ): Int
+
+    /**
+     * 보유 중(quantity>0) 전 strategy_position — ADR 0114 R2-C2b 인메모리 보유 인덱스 60초 refresh·HOLDING owner 등록.
+     * @Query 명시 — 헌법 §6 default-fun 함정 회피(method-name 추론 대신 명시 JPQL).
+     */
+    @Query("SELECT sp FROM StrategyPositionJpaEntity sp WHERE sp.quantity > 0")
+    fun findAllHolding(): List<StrategyPositionJpaEntity>
+
+    /**
+     * 특정 종목 보유(quantity>0) lot — ADR 0114 R2-C2b 인덱스 miss 시 즉시 재확인·drift 가드용.
+     * tick hot path는 인메모리 인덱스를 1차로 쓰고 본 쿼리는 등록/refresh·검증 경로에서만 호출(매 tick DB 조회 금지).
+     */
+    @Query("SELECT sp FROM StrategyPositionJpaEntity sp WHERE sp.code = :code AND sp.quantity > 0")
+    fun findHoldingByCode(
+        @Param("code") code: String,
+    ): List<StrategyPositionJpaEntity>
 }

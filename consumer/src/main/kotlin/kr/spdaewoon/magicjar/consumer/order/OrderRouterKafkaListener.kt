@@ -93,6 +93,8 @@ class OrderRouterKafkaListener(
     private val marketSessionResolver: MarketSessionResolver,
     private val businessDayCalendarProvider: ObjectProvider<BusinessDayCalendar>,
     private val objectMapper: ObjectMapper,
+    // ADR 0114 §4-3 P3 — AUTO BUY 제출 시 PENDING_BUY watch(체결 통보 구독 보장). ObjectProvider — graceful(부재 시 skip).
+    private val holdingDemandRegistrarProvider: ObjectProvider<kr.spdaewoon.magicjar.consumer.ingestion.HoldingDemandRegistrar>,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String = "MOCK",
     @Value("\${magicjar.signal.market-hours-gate.enabled:true}")
@@ -450,6 +452,15 @@ class OrderRouterKafkaListener(
                 intent.side,
                 ackData.kisOrderNo,
             )
+
+            // ADR 0114 §4-3 P3(Codex pending-buy 흡수) — AUTO BUY 제출~체결 사이 PENDING_BUY watch(체결 통보 수신 구독 보장).
+            //   체결 시 AutoExitOrderCoordinator가 release + HOLDING 등록으로 승격. 실패해도 자본 path 무영향(graceful).
+            if (intent.side == OrderSide.BUY && intent.source == OrderSource.AUTO) {
+                holdingDemandRegistrarProvider.getIfAvailable()?.let { registrar ->
+                    runCatching { registrar.watchPendingBuy(saved.id, intent.code) }
+                        .onFailure { e -> log.warn("PENDING_BUY watch 실패(무시): code={} err={}", intent.code, e.message) }
+                }
+            }
 
             // Step 11: Kafka commit
             ack.acknowledge()

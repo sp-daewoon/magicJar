@@ -61,6 +61,14 @@ class RealtimeSignalGeneratorTest {
             override fun now(): Instant = fixedNow
         }
 
+    init {
+        // ADR 0114 §4-2 P2 — 청산 평가 진입점이 findSellEvalByCodeAndInterval로 이동(DISABLED-with-position 합집합).
+        //   기존 테스트는 findActiveByCodeAndInterval를 stub하므로, SELL-eval을 그 결과로 위임(현행 동작 보존 — 정정 사유).
+        every { strategyLookup.findSellEvalByCodeAndInterval(any(), any()) } answers {
+            strategyLookup.findActiveByCodeAndInterval(firstArg(), secondArg())
+        }
+    }
+
     @Test
     fun `평가 시 DB 과거 캔들에 boundary candle을 붙여 lookback 순서로 넘긴다`() {
         val buyAst = ast("1", Operator.GT, "0")
@@ -761,6 +769,9 @@ class RealtimeSignalGeneratorTest {
         marketHoursSellEnabled: Boolean = true,
     ): RealtimeSignalGenerator =
         RealtimeSignalGenerator(
+            objectMapper =
+                com.fasterxml.jackson.databind
+                    .ObjectMapper(),
             strategyLookupProvider = providerOf(strategyLookup),
             signalRepositoryProvider = providerOf(signalRepository),
             candleRepositoryProvider = providerOf(candleRepository),
