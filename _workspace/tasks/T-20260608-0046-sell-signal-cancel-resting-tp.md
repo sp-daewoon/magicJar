@@ -3,10 +3,10 @@ id: T-20260608-0046-sell-signal-cancel-resting-tp
 agent: backend-core
 model: opus
 branch: hotfix/sell-signal-cancel-resting-tp
-status: RUNNING
+status: DONE
 startedAt: 2026-06-08T00:46:11.894+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-08T00:56:24.983+09:00
+pr: #789
 parentPhase: ?
 ---
 
