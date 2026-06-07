@@ -1,0 +1,408 @@
+# v3.12.0 사용자 유즈 시퀀스 + KIS-first raw 출처
+
+> **작성자**: market-data (bot+market-data@magicjar.local)
+> **작성일**: 2026-06-08
+> **기준 시점**: v3.12.0 — **주문 실행 정책 + 청산 보장 baseline** (ADR 0114 — 진입 marketable LIMIT + tick 손절 안전망 + 익절 LIMIT 선주문 + 진입 호가 동기 read source 신설) + 운영·canary 진입 단계 baseline (분할매수 활성 + real-canary 사전점검 — `project_canary_precheck_tracking` 메모리)
+> **KIS-first 의무**: 헌법 §3 정합 — 자체 추론 0, 모든 endpoint·tr_id·필드는 raw 출처 인용 의무 (`docs/architecture/policies/kis-first-raw-fetch.md` 권위)
+> **v3.9.0 대비 변경**: 시나리오 **S-14·S-15·S-16·S-17** 4건 신규 (진입 호가 동기 read — H0STASP0 WS write-through + REST FHKST01010200 fallback + 진입 marketable LIMIT 산정·미체결 취소 + tick 손절 안전망 + 익절 LIMIT 선주문) + raw 출처 인용 인덱스 **R29** 1건 신규 (KIS 호가 REST `inquire-asking-price-exp-ccn` FHKST01010200). v3.9.0 시나리오 1~23 + S-1~S-13 + raw R1~R28은 본 baseline 위에 add-only 보존.
+
+---
+
+## 0. 변경 매트릭스 — v3.9.0 → v3.12.0
+
+| # | 영역 | 트리거 | 시나리오 |
+|---|---|---|---|
+| S-14 | market-data + strategy-engine | ADR 0114 §10-3 (R2-C1) `EntryQuotePort` 신설 — 진입 호가 동기 read source 부재 결함 해소 | KIS WS H0STASP0 1호가 → Redis `orderbook:top:{code}` write-through (1차) + cache miss 시 REST `FHKST01010200` 1회 fallback (2차) + 둘 다 실패 시 null(진입 스킵) |
+| S-15 | market-data + strategy-engine | ADR 0114 §3-1·§3-2·§6 (R2-C2a) BUY marketable LIMIT 산정 + §14-2 order-cash | BUY 시그널 → `EntryOrderPriceResolver` 호가 read → `EntryPricePolicy.evaluate` → LIMIT 발행(`TTTC0012U`/`VTTC0012U`, ORD_DVSN="00") → `entryTimeoutSec` 미체결 시 취소(`TTTC0013U`/`VTTC0013U`) · 시장가 전환 금지 |
+| S-16 | market-data | ADR 0114 §1-2·§4 (R2-C2b ①) tick 손절 안전망 — KIS 국내 서버 예약 스탑로스 부재 보완 | `market.tick.v1` → `PositionStopLossTickWatcher` → 손절가 도달 시 open SELL 선취소 → MARKET SELL intent(ORD_DVSN="01") — 1m 시그널 4중 게이트 우회 fail-safe |
+| S-17 | market-data | ADR 0114 §3-3 (R2-C2b ②) BUY 체결 즉시 익절 LIMIT 선주문 — 시스템 다운에도 KIS 서버 청산 보장 | `order.filled.v1`(BUY) → `AutoExitOrderCoordinator` → 익절 LIMIT SELL 선주문(`TTTC0011U`/`VTTC0011U`) + scale-in 평단 변동 시 기존 `auto-tp:` 취소 후 재발행 |
+
+---
+
+## 1. raw 출처 인용 인덱스 (v3.12.0 추가분)
+
+v3.7.0 baseline raw R1~R20 + v3.8.0 R21~R23 + v3.9.0 R24~R28은 본 baseline 위에 그대로 LOCK. 본 § 1은 v3.12.0 신규 시나리오 S-14~S-17에 필요한 raw 출처 **R29** 1건만 add-only. (S-15·S-16·S-17의 주문·취소 tr_id `TTTC0012U`/`TTTC0011U`/`TTTC0013U` 및 모의 `VTTC*`는 v3.7.0 R12·v3.6.0 시나리오 15 raw에서 이미 LOCK — 본 § 9 매트릭스 cross-ref.)
+
+| # | 출처 | raw URL | tr_id | 사용 시나리오 |
+|---|---|---|---|---|
+| R29 | KIS 주식현재가 호가/예상체결 (inquire_asking_price_exp_ccn) | `https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_asking_price_exp_ccn/inquire_asking_price_exp_ccn.py` | **FHKST01010200** | S-14 — 진입 호가 동기 read 2차 fallback (Redis `orderbook:top:{code}` cache miss·stale 시 1회) |
+
+**v3.12.0 KIS-first 의무 (헌법 §3 + ADR 0114 §10-3 정합 + `docs/architecture/policies/kis-first-raw-fetch.md` 5단계 절차 정합)**:
+
+- 시나리오 S-14 — REST 호가(R29) `FHKST01010200` endpoint `/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn` + params `FID_COND_MRKT_DIV_CODE=J`(KRX)·`FID_INPUT_ISCD={code}` raw 정합. 응답 `output1` 필드 `askp1`(매도호가1)·`bidp1`(매수호가1)·`askp_rsqn1`(매도호가 잔량1)·`aspr_acpt_hour`(호가접수시각 HHMMSS) 4건 raw 컬럼 그대로 보존 → `KisRestAskingPriceAdapter` KDoc inline raw URL + tr_id 명시 (실코드 L30~L42 evidence). 자체 추론 0.
+  - **WS H0STASP0 ↔ REST FHKST01010200 호가 source 1:1 정합** LOCK: WS는 대문자 규약(`ASKP1`/`BIDP1`/`ASKP_RSQN1`), REST는 KIS 공식 lowercase 규약(`askp1`/`bidp1`/`askp_rsqn1`) — 동일 1호가 의미 (실코드 KDoc L37 명시). 진입 marketable LIMIT 산정 입력(`EntryQuote.ask1`/`bid1`/`askQty1`/`asOf`)에 1:1.
+  - 키 정책: 호가 수집은 **실전 키**(`AccountType.REAL`) — 정보 수집은 모두 실전 키 (`feedback_kis_key_realonly_for_data` 메모리 + 실코드 L42·L69).
+- 시나리오 S-15 — 진입 LIMIT은 order-cash `TTTC0012U`(실전 BUY)/`VTTC0012U`(모의 BUY) + `ORD_DVSN="00"`(LIMIT) + `ORD_UNPR=limitPrice`. 미체결 취소는 order-rvsecncl `TTTC0013U`(실전)/`VTTC0013U`(모의) (실코드 `KisOrderHttpAdapter` L42~L59 + `ApiKisOrderCancelAdapter` L59 evidence). **시장가 fallback 0** (ADR 0114 §3-1-5 LOCK — `SIGNAL_SKIPPED_NO_QUOTE`).
+- 시나리오 S-16 — tick 손절은 `market.tick.v1` listen → 손절가 도달 시 MARKET SELL intent (`ORD_DVSN="01"` · `ORD_UNPR="0"`). 주문 발행 자체는 OrderRouter 경유 (기존 `TTTC0011U`/`VTTC0011U` SELL raw reuse). 본 watcher는 intent publish만 (실코드 `PositionStopLossTickWatcher` L122~L133).
+- 시나리오 S-17 — 익절 LIMIT 선주문은 order-cash SELL `TTTC0011U`(실전)/`VTTC0011U`(모의) + `ORD_DVSN="00"`(LIMIT). scale-in 평단 변동 시 기존 `auto-tp:` open SELL 취소(`TTTC0013U`/`VTTC0013U`) 후 재발행 (실코드 `AutoExitOrderCoordinator` L126~L138·L203).
+
+**ADR 0037 rate limit priority 정합 (진입 자본 path)**:
+- S-14 REST 호가 fallback — `KisRateLimiterPort.acquire(USER_PATH)` (진입은 사용자 자본 path · 실코드 L44·L75) + timeout 3000ms. 진입 시점 1회 호출이라 TPS 부담 낮음 (ADR 0037 10 TPS 내).
+- S-15 LIMIT 발행·취소 — `USER_PATH` (실코드 `ApiKisOrderCancelAdapter` L73).
+- S-16·S-17 — OrderRouter 경유 발행 시 `USER_PATH` (기존 자본 path priority reuse).
+
+---
+
+## 2. 시나리오 1~23 + S-1~S-13 (v3.7.0·v3.8.0·v3.9.0 baseline 보존 — add-only 참조)
+
+> 시나리오 1~23 (v3.6.0·v3.7.0) + S-1~S-7 (v3.8.0) + S-8~S-13 (v3.9.0)은 본 v3.12.0 baseline 위에 add-only 보존. 본 v3.12.0은 시나리오 **S-14·S-15·S-16·S-17** 4건만 신규 추가.
+>
+> **참조**:
+> - `_workspace/baseline/v3.9.0/03-use-sequences.md` (S-8~S-13 + raw R24~R28 — 시장 추세 lens · 지수·섹터 + TrendPreference + AI + MCP)
+> - `_workspace/baseline/v3.8.0/03-use-sequences.md` (S-1~S-7 + raw R21~R23)
+> - `_workspace/baseline/v3.7.0/03-use-sequences.md` (시나리오 18~23 + raw R15~R20)
+> - `_workspace/baseline/v3.6.0/03-use-sequences.md` (시나리오 1~17 + raw R1~R14)
+>
+> 핵심 누적 흐름:
+> - v3.6.0 1~17 — 사용자 가입 + KOSPI/KOSDAQ 마스터 + KIS WS H0STCNT0 + REST 현재가/일봉/분봉 + 전략·시그널·백테스트 + T-O 주문 실행 (모의·3중 게이트·분할 체결)
+> - v3.7.0 18~23 — REAL hashkey + Bucket4j rate limit + KIS WS H0STCNI 재연결 backfill + 일봉 DESC→ASC 정규화 + instrument_status_history + 잔고 조회 + Outbox publish chain
+> - v3.8.0 S-1~S-7 — KIS 키 등록 + 23h cache + 종목상세 NXT 분기 + KIS_TPS_EXCEEDED hotfix + 자율 주문 REAL + KIS WS H0STCNI9 AES 복호화 + KillSwitch race-safe + DR drill
+> - v3.9.0 S-8~S-13 — MarketIndexStrip 4 지수 + KRX 21 섹터 ranking + TrendPreference UPSERT + AI 시장 추세 해석 + MCP `get_market_trend` + 1분 cron KIS endpoint 5
+
+---
+
+## 3. 시나리오 S-14: 진입 호가 동기 read — H0STASP0 WS write-through + REST FHKST01010200 fallback (v3.12.0 신규 — ADR 0114 §10-3 R2-C1 `EntryQuotePort` 신설)
+
+**목적**: 진입(BUY) marketable LIMIT 산정의 **동기 read source** 제공. 현행 호가(H0STASP0)는 Kafka `market.orderbook.v1` → STOMP로만 흐르고 **동기 read 캐시가 부재**했다 (ADR 0114 §10-3 발굴 결함). 본 시퀀스가 그 단일 동기 read source를 신설한다: ① KIS WS H0STASP0 1호가 → Redis `orderbook:top:{code}` write-through (1차) → ② cache miss·TTL 만료 시 KIS REST `FHKST01010200` 1회 (2차) → ③ 둘 다 실패 시 **null** (호가 미가용 = 진입 스킵 `SIGNAL_SKIPPED_NO_QUOTE` · 시장가 fallback 금지).
+
+**관련 ADR/실코드**: ADR 0114 §10-3 (R2-C1) · `EntryQuotePort`(domain) · `CompositeEntryQuoteAdapter`·`RedisOrderbookTopCache`·`KisRestAskingPriceAdapter`(consumer) · `KisWebSocketBridge.writeOrderbookTopToRedis` · ADR 0048 호가 WS slot LRU (미구독 종목 cache miss 정상) · ADR 0037 USER_PATH rate limit
+
+**KIS-first raw 출처 (헌법 §3 LOCK)**:
+
+| source | 메커니즘 | tr_id | raw 출처 | 응답 호가 컬럼 |
+|---|---|---|---|---|
+| 1차 (캐시) | KIS WS H0STASP0 실시간 호가 → `orderbook:top:{code}` write-through (TTL 보수적 짧게) | **H0STASP0** (WS) | v3.7.0 R5 계열 WS — `KisWsOrderbookParser` 대문자 `ASKP1`/`BIDP1`/`ASKP_RSQN1` | `ask1`·`bid1`·`askQty1`·`ts` (JSON) |
+| 2차 (fallback) | KIS REST 1호가 조회 1회 | **FHKST01010200** | **R29** `inquire_asking_price_exp_ccn.py` | `output1.askp1`·`bidp1`·`askp_rsqn1`·`aspr_acpt_hour` (lowercase) |
+
+```mermaid
+sequenceDiagram
+    participant WS as KIS WS<br/>(H0STASP0 실시간 호가)
+    participant Bridge as KisWebSocketBridge<br/>(consumer · writeOrderbookTopToRedis)
+    participant Redis as Redis<br/>(orderbook:top:{code} TTL 짧게)
+    participant Resolver as EntryOrderPriceResolver<br/>(consumer risk · BUY 시그널)
+    participant Port as EntryQuotePort<br/>(CompositeEntryQuoteAdapter)
+    participant Cache as RedisOrderbookTopCache<br/>(1차 read)
+    participant RestAdapter as KisRestAskingPriceAdapter<br/>(2차 fallback)
+    participant Limiter as KisRateLimiterPort<br/>(USER_PATH)
+    participant KisREST as KIS REST<br/>(openapi.koreainvestment.com:9443)
+
+    Note over WS,Redis: [상시] H0STASP0 tick write-through (구독 종목 한정)
+    WS->>Bridge: H0STASP0 호가 frame (10단계)
+    Bridge->>Bridge: OrderbookSnapshot 파싱 (asks/bids)
+    alt asks·bids 비어있음 (파싱 0건)
+        Bridge->>Bridge: write skip (빈 호가로 진입가 오염 방지)
+    else 1호가 유효
+        Bridge->>Redis: SET orderbook:top:{code}<br/>{ ask1, bid1, askQty1, bidQty1, ts } EX(짧게)
+    end
+    Note over Bridge: 전체 10단계는 Kafka market.orderbook.v1로 계속 흐름 (무변경)
+
+    Note over Resolver: [진입 시점] BUY 시그널 호가 동기 read
+    Resolver->>Port: latestQuote(code)
+    Port->>Cache: read(code) — orderbook:top:{code}
+    alt cache hit (구독 종목 + TTL 유효)
+        Cache->>Cache: ask1>0 && bid1>0 검증
+        Cache-->>Port: EntryQuote(ask1, bid1, askQty1, asOf=ts)
+        Port-->>Resolver: EntryQuote (1차 hit)
+    else cache miss (미구독·TTL 만료·파싱 실패)
+        Cache-->>Port: null
+        Port->>RestAdapter: fetchTopQuote(code) — 2차 fallback
+        alt userId 미설정 (qa fixture)
+            RestAdapter-->>Port: null (토큰 발급 불가 → 진입 스킵)
+        else userId 설정
+            RestAdapter->>Limiter: acquire(USER_PATH, timeout=3000ms)
+            RestAdapter->>KisREST: GET /quotations/inquire-asking-price-exp-ccn<br/>?FID_COND_MRKT_DIV_CODE=J&FID_INPUT_ISCD={code}<br/>tr_id=FHKST01010200 (R29 raw · 실전 키)
+            alt REST 성공
+                KisREST-->>RestAdapter: { output1: { askp1, bidp1, askp_rsqn1, aspr_acpt_hour } }
+                RestAdapter->>RestAdapter: parseOutput1 — ask1/bid1 >0 검증
+                RestAdapter->>Limiter: onSuccess()
+                RestAdapter-->>Port: EntryQuote(asOf=aspr_acpt_hour 우선)
+            else REST 실패 (5xx·rate limit·빈 호가)
+                RestAdapter->>Limiter: onTpsExceeded() (RateLimit 분류 시)
+                RestAdapter-->>Port: null (throw 0 — 시장가 fallback 금지)
+            end
+        end
+        Port-->>Resolver: EntryQuote 또는 null
+    end
+
+    alt quote == null
+        Note over Resolver: ask1/bid1=null → EntryPricePolicy.NoQuote<br/>→ EntryOrderDecision.Skip(SIGNAL_SKIPPED_NO_QUOTE)<br/>→ 주문 0 (시장가 fallback 절대 0)
+    end
+```
+
+**계약 불변식 (ADR 0114 §10-3 LOCK · 실코드 `EntryQuotePort` KDoc evidence)**:
+- **부수효과 0 (read-only)**: 자본을 움직이지 않는다. 주문 발행은 호출자(S-15 BUY 경로) 책임.
+- **AI 호출 0**: 룰 기반 자본 흐름 데이터 read (ADR 0023 정합).
+- **stale gate 단일 책임**: `CompositeEntryQuoteAdapter`는 stale을 직접 거르지 않는다. `EntryPricePolicy`가 `quoteAsOf`(=EntryQuote.asOf) 기반 stale(default 3초) 판정 단일 책임 (중복 판정 회피). Redis TTL 만료 시 read가 null 반환하므로 자연히 REST로 넘어감.
+- **시장가 fallback 0**: 호가 미가용이면 정직하게 null → 진입 스킵. 슬리피지 캡 자기 부정 회피 (ADR 0114 §3-1-5).
+
+---
+
+## 4. 시나리오 S-15: BUY marketable LIMIT 산정 + 미체결 취소 (v3.12.0 신규 — ADR 0114 §3-1·§3-2·§6 R2-C2a)
+
+**목적**: BUY 시그널 → S-14 호가 동기 read → `EntryPricePolicy.evaluate`(스프레드 게이트·슬리피지 캡·thin-liquidity 게이트) → 진입 가능 시 **marketable LIMIT** 발행(`ORD_DVSN="00"` · `ORD_UNPR=limitPrice`) → `entryTimeoutSec`(전역 default 15초) 경과 미체결 시 **취소**(`TTTC0013U`) · **시장가 전환·재시도 절대 금지**(추격 금지 — 슬리피지 캡 자기 부정 회피).
+
+**관련 ADR/실코드**: ADR 0114 §3-1·§3-2·§6·§14-2 · `EntryOrderPriceResolver`·`EntryOrderDecision`(consumer risk) · `EntryPricePolicy`(strategy-engine) · `KisOrderHttpAdapter`(consumer order) · `EntryTimeoutCancelWorker`(consumer order)
+
+**KIS-first raw 출처 (헌법 §3 LOCK · 실코드 `KisOrderHttpAdapter` tr_id 매트릭스 evidence)**:
+
+| 동작 | tr_id (REAL/MOCK) | endpoint | ORD_DVSN | ORD_UNPR | raw |
+|---|---|---|---|---|---|
+| BUY LIMIT 발행 | `TTTC0012U` / `VTTC0012U` | POST `/uapi/domestic-stock/v1/trading/order-cash` | `"00"` (LIMIT) | `limitPrice` | v3.7.0 R12 |
+| 미체결 취소 | `TTTC0013U` / `VTTC0013U` | POST `/uapi/domestic-stock/v1/trading/order-rvsecncl` | `"00"` | `"0"` (RVSE_CNCL_DVSN_CD=`"02"` 취소 · QTY_ALL_ORD_YN=`"Y"`) | v3.7.0 R12 |
+
+```mermaid
+sequenceDiagram
+    participant Signal as SignalGeneratedKafkaListener<br/>(consumer risk · BUY 시그널)
+    participant Resolver as EntryOrderPriceResolver
+    participant Port as EntryQuotePort (S-14)
+    participant Policy as EntryPricePolicy<br/>(strategy-engine 순수 계산)
+    participant Router as OrderRouter<br/>(3중 게이트 · idem:order:{key})
+    participant OrderAdapter as KisOrderHttpAdapter
+    participant KisREST as KIS REST (order-cash)
+    participant DB as order_request (영속)
+    participant CancelWorker as EntryTimeoutCancelWorker<br/>(fixedDelay 5초 cron)
+    participant CancelAdapter as KIS order-rvsecncl
+
+    Signal->>Resolver: resolve(signal, strategy)
+    Resolver->>Port: latestQuote(code) — S-14 호가 read
+    Port-->>Resolver: EntryQuote 또는 null
+    Resolver->>Policy: evaluate(EntryPriceInput<br/>{ priceAtSignal, ask1, bid1, askQty1, maxEntrySlippagePct, maxSpreadPct, quoteAsOf, evalAt })
+    alt 호가 null / stale / 스프레드 초과 / thin-liquidity
+        Policy-->>Resolver: Skip(NoQuote | StaleQuote | SpreadTooWide | ThinLiquidity)
+        Resolver-->>Signal: EntryOrderDecision.Skip(auditCode=SIGNAL_SKIPPED_*)
+        Note over Signal: 주문 0 + audit (시장가 fallback 0)
+    else 진입 가능
+        Policy-->>Resolver: Enter(limitPrice = marketable LIMIT)
+        Resolver-->>Signal: EntryOrderDecision.Enter(limitPrice, entryTimeoutSec)
+        Signal->>Router: BUY LIMIT intent (priceType=LIMIT, limitPrice)
+        Router->>Router: 3중 게이트 + idem:order:{key} 멱등
+        Router->>OrderAdapter: send(BUY, LIMIT, limitPrice)
+        OrderAdapter->>KisREST: POST order-cash<br/>tr_id=TTTC0012U/VTTC0012U<br/>ORD_DVSN="00" ORD_UNPR=limitPrice (R12 raw)
+        KisREST-->>OrderAdapter: rt_cd=0 + ODNO + KRX_FWDG_ORD_ORGNO (ACK)
+        OrderAdapter->>DB: order_request status=ACK (kisOrderNo·kisFwdgOrgno 저장)
+    end
+
+    Note over CancelWorker: [entryTimeoutSec 경과] 미체결 BUY LIMIT 취소
+    CancelWorker->>DB: status IN (REQUESTED,ACK,PARTIALLY_FILLED) BUY LIMIT 조회
+    alt kisOrderNo·kisFwdgOrgno 둘 다 존재 (ACK 확정)
+        CancelWorker->>CancelAdapter: cancel(order)
+        CancelAdapter->>KisREST: POST order-rvsecncl<br/>tr_id=TTTC0013U/VTTC0013U<br/>RVSE_CNCL_DVSN_CD="02" QTY_ALL_ORD_YN="Y"
+        KisREST-->>CancelAdapter: rt_cd=0 (취소 ACK)
+        CancelAdapter->>DB: status=CANCELLED
+        Note over CancelWorker: 시장가 전환 0 · 재시도 0 (재진입은 다음 시그널이 결정)
+    else ACK 미확정 (REQUESTED·ACK 정보 비어있음)
+        CancelWorker->>CancelWorker: 취소 보류 (다음 tick 재평가 — 자본 audit 불일치 risk 회피)
+    end
+```
+
+**ADR 0114 §3-2 LOCK 불변식 (실코드 `EntryTimeoutCancelWorker` KDoc evidence)**:
+- **시장가 전환 절대 금지** (슬리피지 캡 자기 부정 회피).
+- **재시도 0** (추격 금지 — 취소만 하고 재발행하지 않음. 재진입은 다음 시그널이 결정).
+- **ACK 미확정 가드**: `kisOrderNo`(ODNO) + `kisFwdgOrgno`(KRX_FWDG_ORD_ORGNO) 둘 다 있어야 취소 가능. REQUESTED 상태거나 ACK 정보 비면 취소 불가 → 보류(`OrderReconciliationWorker` 철학 정합 — 단번 REJECTED 마킹 시 KIS 실제 접수 risk).
+
+---
+
+## 5. 시나리오 S-16: tick 손절 안전망 (v3.12.0 신규 — ADR 0114 §1-2·§4 R2-C2b ①)
+
+**목적**: KIS 국내주식 OpenAPI에 **서버 예약형 가격 트리거 스탑로스가 부재**하므로 (ADR 0114 §1-2), magicJar(consumer)가 곧 스탑로스 장치다. 1m 시그널 청산 경로는 ① readiness ② market-hours ③ 전략 status ④ 1m 캔들 마감 타이밍의 **4중 게이트**에 의존하는데, 본 watcher는 `market.tick.v1`을 직접 listen해 **그 모든 게이트를 우회**하는 손절 fail-safe다 — tick 1건이라도 들어오면 손절가 도달 시 즉시 MARKET SELL.
+
+**관련 ADR/실코드**: ADR 0114 §1-2·§4 (R2-C2b ①) · `PositionStopLossTickWatcher`·`HoldingPositionIndex`·`RestingSellOrderCanceller`·`AutoOrderIdempotencyKeys`(consumer order) · `KrxTickSize`(strategy-engine) · env `magicjar.autotrading.stop-loss.tick-watch-enabled`(default true)
+
+**KIS-first raw 출처**: 본 시나리오는 손절 **intent publish**만 (`market.tick.v1` listen → `order.intent.v1` MARKET SELL). 주문 자체는 OrderRouter 경유 발행 (기존 SELL `TTTC0011U`/`VTTC0011U` + ORD_DVSN="01" MARKET raw reuse — v3.7.0 R12). 자체 KIS endpoint 결정 0.
+
+```mermaid
+sequenceDiagram
+    participant Tick as Kafka market.tick.v1<br/>(KIS WS H0STCNT0 체결 tick)
+    participant Watcher as PositionStopLossTickWatcher<br/>(@KafkaListener)
+    participant Index as HoldingPositionIndex<br/>(인메모리 — DB 조회 0)
+    participant Canceller as RestingSellOrderCanceller<br/>(공용 open SELL 선취소)
+    participant CancelAdapter as KIS order-rvsecncl
+    participant Producer as OrderIntentKafkaProducer
+    participant Router as OrderRouter (idem:order:{key})
+
+    Tick->>Watcher: onTick(record)
+    Watcher->>Watcher: parse — stale 또는 price≤0 시 return
+    Watcher->>Index: heldBy(code)
+    alt 보유 0 종목
+        Index-->>Watcher: emptyList → 즉시 return (★ DB 접근 0)
+    else 보유 position 존재
+        Index-->>Watcher: List<HeldPosition>
+        loop 각 position
+            Watcher->>Watcher: stopPrice = avgPrice × (1 - stopLossPct/100)<br/>→ KrxTickSize.floorToTick (R1 단일 출처)
+            alt tickPrice > stopPrice
+                Note over Watcher: 손절 미도달 — skip
+            else tickPrice ≤ stopPrice (손절 도달)
+                Watcher->>Canceller: cancelRestingSells(excludeIdempotencyPrefix=auto-sl)
+                alt AUTO 같은 전략 open SELL (익절 TP 등)
+                    Canceller->>CancelAdapter: KIS 취소 (TTTC0013U/VTTC0013U)
+                    alt 취소 성공
+                        Canceller-->>Watcher: canProceed=true
+                    else 취소 ACK 미확정
+                        Canceller-->>Watcher: canProceed=false → 손절 보류 (이중 SELL 회피)
+                    end
+                else MANUAL·타전략 SELL 존재
+                    Canceller-->>Watcher: canProceed=false + P0 로그 (모르는 SELL 의도 침범 금지)
+                else 자기 기존 auto-sl open SELL
+                    Canceller-->>Watcher: 중복 skip (excludeIdempotencyPrefix)
+                end
+                alt canProceed
+                    Watcher->>Producer: publishExitIntent<br/>SELL · MARKET · idemKey=auto-sl:{...}
+                    Producer->>Router: order.intent.v1 (MARKET SELL · ORD_DVSN="01")
+                    Note over Router: idem:order:{key}가 1m 경로 손절과<br/>동시 발화해도 한 번만 주문 (멱등)
+                end
+            end
+        end
+    end
+```
+
+**Codex 약점 보강 (ADR 0114 비교 머지 승부처 — 실코드 KDoc evidence)**:
+- **매 tick DB 조회 0**: `HoldingPositionIndex` 인메모리 hit일 때만 평가 (보유 0 종목 tick 즉시 return). Codex는 tick마다 `findByCodeAndQuantityGreaterThan` + strategy `findById` (성능 약점).
+- **손절가 단일 출처**: `KrxTickSize`(strategy-engine R1) 재사용 (domain 중복 KrxTickSize 금지).
+- **이중 발화 멱등**: `auto-sl:` 멱등 키 + open SELL 검사 2중 → OrderRouter `idem:order:{key}`가 1m 경로 손절과 동시 발화 흡수.
+
+---
+
+## 6. 시나리오 S-17: 익절 LIMIT 선주문 (v3.12.0 신규 — ADR 0114 §3-3 R2-C2b ②)
+
+**목적**: BUY 체결 시 전략 익절(`takeProfitPct`)이 있으면 **즉시 익절 LIMIT SELL을 KIS 서버에 걸어둔다**. 시스템(consumer)이 다운돼도 익절 주문이 KIS 서버에 살아 있어 익절이 보장된다 (1m 시그널 경로 의존 0 — 자본 보호 강화). 분할매수(scale-in)로 평단이 바뀌면 기존 `auto-tp:` open SELL을 **취소 후 합산 수량·새 평단 기준으로 재발행**(stale TP가 KIS에 남는 risk 제거).
+
+**관련 ADR/실코드**: ADR 0114 §3-3 (R2-C2b ②) · `AutoExitOrderCoordinator`·`HoldingDemandRegistrar`·`HoldingPositionIndex`(consumer order) · `EntryPricePolicy.takeProfitLimitPrice`(strategy-engine R1) · env `magicjar.autotrading.exit.take-profit-limit-enabled`(default true)
+
+**KIS-first raw 출처**: 익절 LIMIT 선주문은 SELL `TTTC0011U`/`VTTC0011U` + `ORD_DVSN="00"`(LIMIT). 재발행 전 기존 TP 취소는 `TTTC0013U`/`VTTC0013U` (v3.7.0 R12 reuse). 자체 KIS endpoint 결정 0.
+
+```mermaid
+sequenceDiagram
+    participant Filled as Kafka order.filled.v1<br/>(BUY 체결통보)
+    participant Coord as AutoExitOrderCoordinator<br/>(@KafkaListener)
+    participant Demand as HoldingDemandRegistrar<br/>(보유 구독 보장)
+    participant Index as HoldingPositionIndex
+    participant StrategyRepo as ConsumerStrategyJpaRepository
+    participant PosRepo as StrategyPositionJpaRepository
+    participant Policy as EntryPricePolicy.takeProfitLimitPrice<br/>(R1 단일 출처)
+    participant OrderRepo as OrderRequestRepository<br/>(기존 auto-tp 조회)
+    participant CancelPort as KisOrderPort.cancel
+    participant Producer as OrderIntentKafkaProducer
+    participant Router as OrderRouter
+
+    Filled->>Coord: onOrderFilled(record)
+    Coord->>Coord: source=AUTO && side=BUY && executedQty>0 검증
+    Coord->>Demand: releasePendingBuy + onBuyFilled (보유 구독 보장 — TP 실패 무관 먼저)
+    Coord->>Index: onFillRefresh(code) — 인덱스 즉시 반영
+    Coord->>StrategyRepo: findById(strategyId)
+    alt takeProfitPct 없음 또는 ≤0
+        Note over Coord: 익절 선주문 skip
+    else takeProfitPct > 0
+        Coord->>PosRepo: findByUserIdAndStrategyIdAndCode (평단·수량)
+        Coord->>Policy: takeProfitLimitPrice(baseAvgPrice, takeProfitPct)<br/>= 평단 × (1+pct/100) → KRX 호가단위 내림
+        Policy-->>Coord: targetPrice
+        Coord->>OrderRepo: findOpenByUserId — 기존 auto-tp open SELL 필터
+        alt 기존 TP 정합 (동일 qty·price)
+            Coord->>Coord: ALREADY_ALIGNED → 재발행 0 (중복 방지)
+        else 기존 TP stale (평단 변동) 또는 없음
+            loop 기존 auto-tp open SELL
+                alt kisOrderNo·kisFwdgOrgno 비어있음 (ACK 미확정)
+                    Coord->>Coord: FAILED_CLOSED → 재발행 보류 (자본 audit 보호)
+                else ACK 확정
+                    Coord->>CancelPort: cancel(order) — TTTC0013U/VTTC0013U
+                    alt 취소 성공
+                        Coord->>OrderRepo: markCompleted status=CANCELLED + publish cancelled
+                    else 취소 실패
+                        Coord->>Coord: FAILED_CLOSED → 재발행 보류
+                    end
+                end
+            end
+            Coord->>Producer: publishExitIntent<br/>SELL · LIMIT · limitPrice=targetPrice · idemKey=auto-tp:{...avgPrice...}
+            Producer->>Router: order.intent.v1 (LIMIT SELL · ORD_DVSN="00")
+            Note over Router: idem:order:{key}가 1m 익절 신호 재발행 흡수<br/>(이미 선주문 걸려 있으면 1m 신호 중복 차단)
+        end
+    end
+```
+
+**ADR 0114 §3-3 경계 (실코드 KDoc evidence)**:
+- **PartialExit(분할 익절 plan) 경계 — 1m 경로 위임**: `partialExits`(다단계 익절)는 stage state(`executedExitStages`)를 `ScaleInExitCalculator`가 소유. 모든 stage를 resting LIMIT 선주문하면 1m 분할 익절 신호와 **이중 발화**하므로, 본 coordinator는 **단일 전량 익절(`takeProfitPct`)만 선주문**한다. 손절은 S-16 tick watcher가 별도 보장.
+- **scale-in 정합**: 추가 체결로 평단 변동 시 기존 `auto-tp:` 취소 후 합산 수량·새 평단 재발행 (stale TP가 KIS에 남는 risk 제거).
+- **계산 단일 출처**: 익절 LIMIT 가격 = `EntryPricePolicy.takeProfitLimitPrice`(R1) 재사용 (중복 산정 금지).
+- **멱등**: `auto-tp:` 키(userId·strategyId·code·qty·avgPrice·epoch) — 평단·수량 불변이면 동일 키 → OrderRouter `idem:order:{key}`가 1m 경로 익절 재발행 흡수.
+
+---
+
+## 7. KIS endpoint 호출 매트릭스 (v3.12.0 종합 — v3.9.0 superset + S-14~S-17 신규)
+
+| tr_id | endpoint | 환경 | raw 인덱스 | v3.9.0 사용 시나리오 | v3.12.0 신규 시나리오 | rate limit priority |
+|---|---|---|---|---|---|---|
+| TTTC0012U / VTTC0012U | order-cash BUY | prod/vps | R12 | S-4 (REAL 매수) | **S-15 (진입 LIMIT · ORD_DVSN="00")** | USER_PATH |
+| TTTC0011U / VTTC0011U | order-cash SELL | prod/vps | R12 | S-4 (REAL 매도) | **S-16 (MARKET 손절 · ORD_DVSN="01") · S-17 (LIMIT 익절 · ORD_DVSN="00")** | USER_PATH |
+| TTTC0013U / VTTC0013U | order-rvsecncl 정정·취소 | prod/vps | R12 | — | **S-15 (미체결 취소) · S-16·S-17 (open SELL 선취소)** | USER_PATH |
+| **FHKST01010200** | **inquire-asking-price-exp-ccn** (호가) | **prod** | **R29** | — | **S-14 (진입 호가 2차 fallback · 1회/진입)** | **USER_PATH** |
+| H0STASP0 (WS) | 실시간 호가 10단계 | prod WS | (v3.7.0 R5 계열) | (시나리오 호가 STOMP) | **S-14 (orderbook:top 1호가 write-through 1차)** | (WS — slot LRU ADR 0048) |
+| FHKST01010100 | inquire-price (현재가) | prod | R6 | S-2 (종목상세) | — | USER_PATH |
+| FHKST03010100 | inquire-daily-itemchartprice (일봉) | prod | R7 | S-3 | — | BACKFILL |
+| getHashKey | /uapi/hashkey | prod·vps | R15 | S-4 (REAL hashkey) | (S-15·S-17 주문·취소 hashkey reuse) | (KIS 한도 별도) |
+| FHPUP02100000 등 5 | 지수·섹터 (v3.9.0) | prod | R24~R28 | S-8·S-9·S-13 | — | INGESTION_LOW |
+
+**v3.12.0 신규 합계**: S-14 진입 호가 REST fallback 1회/진입(cache miss 시만 · 통상 WS 캐시 hit) + S-15·S-16·S-17 주문·취소는 자본 path 사용자 트리거 — 모두 `USER_PATH` priority. 진입 호가 fallback은 진입 시점 1회 호출이라 TPS 부담 낮음 (ADR 0037 10 TPS 내 · 실코드 evidence).
+
+---
+
+## 8. fitness gap 검증 매트릭스 (자동매매 적합성 lens — `feedback_v3_skepticism_no_regression` 메모리 의무)
+
+| 의제 | "자동매매에 필요한가?" 검증 | "v1/v2 잔재 아닌가?" 검증 |
+|---|---|---|
+| S-14 진입 호가 동기 read | ✅ 진입 marketable LIMIT 산정의 핵심 input — 동기 read 캐시 부재가 ADR 0114 §10-3 발굴 결함 (호가 없으면 슬리피지 캡 계산 불가) | ✅ v1/v2에 `EntryQuotePort`·`orderbook:top` 캐시 0건 — v3.12.0 신설 (ADR 0114 §10-3) |
+| S-15 BUY marketable LIMIT + 미체결 취소 | ✅ 시장가 진입의 슬리피지 risk를 LIMIT + 슬리피지 캡으로 통제 — 자본 보호 직결 (추격 금지) | ✅ v1/v2는 단순 시장가 — v3.12.0 marketable LIMIT 정책 신설 (ADR 0114 §3-1·§3-2) |
+| S-16 tick 손절 안전망 | ✅ KIS 서버 예약 스탑로스 부재 → magicJar가 곧 스탑로스 장치 — 1m 4중 게이트 우회 fail-safe (손실 하한 보장) | ✅ v1/v2에 tick 손절 watcher 0건 — v3.12.0 신설 (ADR 0114 §1-2·§4) |
+| S-17 익절 LIMIT 선주문 | ✅ 시스템 다운에도 KIS 서버에 익절 주문 생존 → 익절 보장 (1m 경로 의존 0) · scale-in 평단 변동 정합 | ✅ v1/v2에 TP 선주문·scale-in 정합 0건 — v3.12.0 신설 (ADR 0114 §3-3) |
+
+**자본 path 정합 검증 의무 (R2 sub-agent dispatch 시점 검증)**:
+- S-14 `EntryQuotePort` → read-only (자본 미이동 · `OrderRouter`·`KillSwitch` import 0건). 주문 발행은 S-15 호출자 책임 LOCK.
+- S-16·S-17 모든 주문은 `OrderIntentKafkaProducer` → OrderRouter 3중 게이트 경유 (KillSwitch·idem:order:{key} 멱등 통과). 직접 KIS 발행 우회 0건.
+- AI 호출 0 (S-14~S-17 모두 룰 기반 자본 흐름 — ADR 0023 §2-4 KDoc 명시 evidence).
+
+---
+
+## 9. dogfooding 매트릭스 (v3.12.0 cut 직전 검증 의무 — `feedback_docker_log_verify_before_cut` 메모리)
+
+| 검증 항목 | 검증 path | 기대 결과 |
+|---|---|---|
+| S-14 WS write-through | redis-cli GET orderbook:top:{code} | 구독 종목 호가 tick마다 `{ ask1, bid1, askQty1, bidQty1, ts }` 갱신 |
+| S-14 REST fallback | docker logs consumer-app \| grep "EntryQuote REST fallback" | 미구독 종목 진입 시 FHKST01010200 1회 + cache miss 로그 |
+| S-14 호가 미가용 스킵 | docker logs consumer-app \| grep "SIGNAL_SKIPPED_NO_QUOTE" | 호가 0건 시 진입 스킵 (시장가 fallback 0건 — grep MARKET fallback 0) |
+| S-15 진입 LIMIT | docker logs consumer-app \| grep "ORD_DVSN.*00" + psql order_request | BUY priceType=LIMIT + ACK kisOrderNo 저장 |
+| S-15 미체결 취소 | docker logs consumer-app \| grep "EntryTimeoutCancelWorker" | entryTimeoutSec 경과 BUY LIMIT 취소 (시장가 전환 0건) |
+| S-16 tick 손절 | docker logs consumer-app \| grep "stop-loss MARKET intent (tick watcher)" | 손절가 도달 tick 시 MARKET SELL intent 1건 (보유 0 종목 tick은 DB 조회 0) |
+| S-16 이중 SELL 회피 | grep "auto-sl" + idem:order:{key} | 1m 경로 손절과 동시 발화 시 1건만 주문 |
+| S-17 익절 선주문 | docker logs consumer-app \| grep "auto take-profit LIMIT 선주문" | BUY 체결 직후 LIMIT SELL 선주문 1건 |
+| S-17 scale-in 재발행 | grep "auto take-profit replace(평단 변동)" | 추가 체결 평단 변동 시 기존 TP 취소 후 재발행 (정합 시 재발행 0) |
+| 자본 path 정합 | docker logs consumer-app \| grep -E "(KillSwitch\|idem:order)" | S-15·S-16·S-17 주문 모두 OrderRouter 3중 게이트 경유 |
+
+---
+
+## 10. 출처 검증 매트릭스 (헌법 §3 KIS-first 5단계 절차 정합)
+
+| 단계 | 검증 결과 | evidence |
+|---|---|---|
+| 1. 자체 추론 0 LOCK | ✅ S-14 호가 REST(R29) endpoint·tr_id·params·컬럼 모두 raw URL 인용 + S-15·S-16·S-17 주문·취소 tr_id는 v3.7.0 R12 LOCK reuse | 본 § 1 + 실코드 `KisRestAskingPriceAdapter` KDoc L30~L42 |
+| 2. raw URL inline KDoc 의무 | ✅ `KisRestAskingPriceAdapter` KDoc에 raw URL + tr_id + params + 응답 컬럼 명시 (실코드 evidence) | 실코드 L30~L42 |
+| 3. tr_id 매트릭스 | ✅ FHKST01010200(호가) + TTTC0012U/0011U/0013U + VTTC* (BUY·SELL·취소) | 본 § 7 매트릭스 + `KisOrderHttpAdapter` L42~L59 |
+| 4. WS↔REST 호가 source 1:1 정합 | ✅ H0STASP0 대문자 ASKP1/BIDP1/ASKP_RSQN1 ↔ REST lowercase askp1/bidp1/askp_rsqn1 1:1 | 실코드 KDoc L37 |
+| 5. self-review 의무 | ✅ 본 baseline 작성 후 markdown lint + mermaid render 검증 + grep 자체 추론 0건 | 본 § (cycle complete) |
+
+---
+
+## 11. ADR 0114 cross-link 매트릭스 (운영·청산 보장 lens · v3.12.0 핵심 트랙)
+
+| ADR 0114 § | 적용 시나리오 | 의무 항목 |
+|---|---|---|
+| §10-3 (R2-C1) 진입 호가 동기 read source | S-14 | `EntryQuotePort` 신설 — WS write-through 1차 + REST FHKST01010200 2차 + null = 진입 스킵 (read-only · AI 0) |
+| §3-1·§3-2·§6 (R2-C2a) marketable LIMIT | S-15 | 슬리피지 캡 + 스프레드 게이트 + thin-liquidity + 미체결 취소 (시장가 전환·재시도 0) |
+| §1-2·§4 (R2-C2b ①) tick 손절 안전망 | S-16 | KIS 서버 예약 스탑로스 부재 보완 — 1m 4중 게이트 우회 fail-safe + open SELL 선취소 + 멱등 |
+| §3-3 (R2-C2b ②) 익절 LIMIT 선주문 | S-17 | 시스템 다운에도 KIS 서버 청산 보장 + scale-in 평단 변동 정합 + 단일 전량 익절만 선주문(분할은 1m 위임) |
+| §3-1-5 시장가 fallback 금지 LOCK | S-14·S-15 | 호가 미가용 = 진입 스킵 `SIGNAL_SKIPPED_NO_QUOTE` (슬리피지 캡 자기 부정 회피) |
+
+---
+
+## 12. 변경 이력
+
+| 날짜 | 변경 |
+|---|---|
+| 2026-06-08 | **v3.12.0 baseline 03-use-sequences.md 신규 발행** — 시나리오 S-14·S-15·S-16·S-17 (4건 신규 추가) + raw 인용 R29 (KIS 호가 REST `inquire-asking-price-exp-ccn` FHKST01010200 신규) + KIS endpoint 호출 매트릭스 v3.9.0 superset + fitness gap 검증 매트릭스 (자동매매 적합성 + v1/v2 회귀 lens) + dogfooding 매트릭스 (WS write-through + REST fallback + 진입 LIMIT + 미체결 취소 + tick 손절 + 익절 선주문 + 자본 path 정합) + 출처 검증 매트릭스 (KIS-first 5단계 절차 + WS↔REST 호가 source 1:1 정합) + ADR 0114 cross-link 매트릭스 (진입 호가 동기 read + marketable LIMIT + tick 손절 안전망 + 익절 LIMIT 선주문). v3.9.0 시나리오 1~23 + S-1~S-13은 add-only 보존 + 본 baseline 위에서 참조. **자체 추론 0 LOCK 정합** — S-14 호가 REST 컬럼 매핑 raw URL 인용 (R29) + S-15·S-16·S-17 주문·취소 tr_id v3.7.0 R12 LOCK reuse + 모든 시퀀스 실코드 인용 (`EntryQuotePort`·`CompositeEntryQuoteAdapter`·`KisRestAskingPriceAdapter`·`EntryOrderPriceResolver`·`KisOrderHttpAdapter`·`EntryTimeoutCancelWorker`·`PositionStopLossTickWatcher`·`AutoExitOrderCoordinator` KDoc evidence). **AI 호출 0 검증** — S-14~S-17 모두 룰 기반 자본 흐름 (ADR 0023 §2-4 KDoc 명시). **자본 path 정합 검증** — S-14 read-only + S-15·S-16·S-17 주문 모두 OrderRouter 3중 게이트 경유 (직접 KIS 발행 우회 0건). v3.12.0 ADR 0114 (주문 실행 정책 + 청산 보장) baseline 발행 트리거 (orchestrator dispatch market-data 영역 단독 — 03 use-sequences 1 파일). (market-data, opus 4.8 1M) |

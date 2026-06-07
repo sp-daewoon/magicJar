@@ -9,7 +9,7 @@
 <!-- pr-5-slot-architect -->
 | 2026-05-?? | **TBD — PR-5 backend-core: 02-data-flow + 04-feature-spec** | baseline/v3.12.0 | PR-5 backend-core 2 파일 |
 <!-- pr-5-slot-backend-core -->
-| 2026-05-?? | **TBD — PR-5 market-data: 03-use-sequences (KIS-first raw 출처)** | baseline/v3.12.0 | PR-5 market-data 1 파일 |
+| 2026-06-08 | **docs(baseline): PR-5 market-data v3.12.0 03-use-sequences — 시나리오 S-14·S-15·S-16·S-17 4건 신규 + raw R29** — ADR 0114(주문 실행 정책+청산 보장) lens: S-14 진입 호가 동기 read(H0STASP0 WS→`orderbook:top:{code}` write-through 1차 + REST `FHKST01010200` fallback 2차 + null=진입 스킵 `EntryQuotePort`) · S-15 BUY marketable LIMIT 산정(`ORD_DVSN="00"` `TTTC0012U`)+미체결 취소(`TTTC0013U` · 시장가 전환·재시도 0) · S-16 tick 손절 안전망(`market.tick.v1`→`PositionStopLossTickWatcher`→open SELL 선취소→MARKET SELL · 1m 4중 게이트 우회 fail-safe) · S-17 익절 LIMIT 선주문(BUY 체결→`AutoExitOrderCoordinator`→`TTTC0011U` LIMIT SELL · scale-in 평단 변동 재발행). raw R29(KIS 호가 `inquire-asking-price-exp-ccn` FHKST01010200) 신규. KIS-first 자체 추론 0(실코드 KDoc evidence) + WS↔REST 호가 source 1:1 정합 + 자본 path OrderRouter 3중 게이트 경유 + AI 호출 0. v3.9.0 S-1~S-13 add-only 보존. (market-data) | baseline/v3.12.0 | PR-5 market-data 1 파일 |
 <!-- pr-5-slot-market-data -->
 | 2026-05-?? | **TBD — PR-5 frontend: 05-ui-inventory** | baseline/v3.12.0 | PR-5 frontend 1 파일 |
 <!-- pr-5-slot-frontend -->
