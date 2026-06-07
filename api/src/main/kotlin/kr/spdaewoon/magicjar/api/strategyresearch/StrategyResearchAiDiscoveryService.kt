@@ -384,38 +384,18 @@ class StrategyResearchAiDiscoveryService(
         aiSkipped: Boolean = false,
     ): List<String> {
         val unmatchedCount = items.count { !it.matched }
+        // 상시 안내성 문구 4종(검증용 표시·유지 고정·제외 숨김·캔들 부족 안내)은 노이즈로 제거 —
+        // 카드 뱃지·선택 차단·캔들 가져오기 버튼이 동일 정보를 UI로 전달한다 (사용자 지시 2026-06-07).
+        // 특이 상황 알림 3종(개수 초과·AI skip·미매칭)만 유지.
         return buildList {
-            add("AI 후보는 종목 마스터 매핑 후 검증용으로만 표시됩니다.")
-            if (keptItems.isNotEmpty()) {
-                add("유지 후보 ${keptItems.size}건은 재발굴 결과에 고정했습니다.")
-            }
             if (keptItems.size > requestedLimit) {
                 add("유지 후보가 요청 개수 ${requestedLimit}건보다 많아 ${keptItems.size}건을 표시합니다.")
             }
             if (aiSkipped) {
                 add("표시 슬롯이 유지 후보로 이미 채워져 Claude 호출은 건너뛰었습니다.")
             }
-            if (dismissedItems.isNotEmpty()) {
-                add("제외 후보 ${dismissedItems.size}건은 초기화 전까지 숨깁니다.")
-            }
             if (unmatchedCount > 0) {
                 add("종목 마스터와 매칭되지 않은 후보 ${unmatchedCount}건이 있습니다.")
-            }
-            val candleMissingCount =
-                items.count {
-                    it.status != StrategyResearchAiDiscoveryItemStatus.DISMISSED &&
-                        it.matched &&
-                        (
-                            it.hasResearchCandles == false ||
-                                (
-                                    it.hasResearchCandles == null &&
-                                        it.candleCount != null &&
-                                        it.candleCount < MIN_RESEARCH_CANDLES
-                                )
-                        )
-                }
-            if (candleMissingCount > 0) {
-                add("선택한 interval·기간에 리서치 가능한 candle이 부족한 후보 ${candleMissingCount}건은 캔들 가져오기 후 리서치할 수 있습니다.")
             }
         }
     }
