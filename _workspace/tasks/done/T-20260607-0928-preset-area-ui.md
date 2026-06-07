@@ -3,9 +3,9 @@ id: T-20260607-0928-preset-area-ui
 agent: frontend
 model: opus
 branch: agent/frontend/preset-area-ui
-status: RUNNING
+status: DONE
 startedAt: 2026-06-07T09:28:12.330+09:00
-completedAt: null
+completedAt: 2026-06-07T09:35:00.403+09:00
 pr: null
 parentPhase: ?
 ---
