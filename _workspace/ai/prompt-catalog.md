@@ -63,16 +63,19 @@
 
 모든 prompt 는 한국어 응답 + 매매 추천 표현 금지 + 응답 길이 가이드 (250-600 자).
 
-### 2-5-2. 3 provider 매트릭스
+### 2-5-2. provider 매트릭스 (4 + mock)
 
 | provider | 모델 default | input $/1M | output $/1M | env (key) |
 |---|---|---|---|---|
 | anthropic | claude-3-5-haiku-20241022 | 0.80 | 4.00  | `ANTHROPIC_API_KEY` |
 | gemini    | gemini-1.5-flash          | 0.075 | 0.30 | `MAGICJAR_AI_GEMINI_API_KEY` |
 | openai    | gpt-4o-mini               | 0.15  | 0.60 | `MAGICJAR_AI_OPENAI_API_KEY` |
+| claude-cli | claude-cli / claude-cli-bridge | 0 | 0 | **키 불요** (구독 기반 · `MAGICJAR_AI_CLAUDE_CLI_BRIDGE_URL` 옵션) |
 | mock      | mock-1.0                  | 0     | 0    | (key 미설정 시 auto fallback) |
 
-env 토글: `MAGICJAR_AI_PROVIDER=anthropic|gemini|openai`.
+env 토글: `MAGICJAR_AI_PROVIDER=anthropic|gemini|openai|claude-cli`.
+
+> **claude-cli (2026-06-08 — 종목상세 차트해석 연동)**: ADR 0112 발굴/프리셋/전략생성이 쓰는 Claude CLI bridge 를 코멘트 dispatcher(consumer `ClaudeCliCommentAdapter`)에 재사용. API 키 불요 — `auto` mock 모드에서 "키 없음=mock 강등" 제외(`decideMockMode()`). bridge-url 설정 시 발굴과 동일 `/discover` 호출(같은 bridge 공유 가능), 미설정 시 로컬 `claude -p` CLI 직접 실행. CLI 는 토큰 미제공 → tokens 0·cost 0 정직 기록. prompt_template(type=chart 등 5종)·응답 계약·frontend 무변경.
 
 ### 2-5-3. 비용 통제 (ADR 0026 §2-5 amend · ADR 0095 amend S-AI-1)
 
@@ -239,6 +242,7 @@ env 토글: `MAGICJAR_AI_PROVIDER=anthropic|gemini|openai`.
 
 | 날짜 | 변경 | 비고 |
 |---|---|---|
+| 2026-06-08 | **종목상세 AI 차트해석 claude-cli provider 연동** — §2-5-2 provider 매트릭스에 `claude-cli`(키 불요·구독 기반) 추가. consumer `ClaudeCliCommentAdapter`(bridge `/discover` 또는 로컬 CLI) + `decideMockMode()` 게이트 정정(claude-cli 는 auto 에서 mock 강등 제외) + `AiCostCalculator` claude-cli=$0. prompt_template(type=chart) 흐름·응답 계약·frontend 무변경 | agent/ai · T-20260608-0329 · ADR 0112 bridge 재사용 |
 | 2026-06-08 | **전략빌더 AI 전략 생성 메타 프롬프트 발행** — §2-7 신설. DSL 문법(파서 화이트리스트 코드 추출)·지표 카탈로그·기존 전략·RiskPlan 잔익절 규칙·사용자 prompt(필수) 6 컨텍스트. ★ 생성 후 실제 DSL 파서 검증 게이트 + 1회 자동 재생성. `generate()` + `POST /api/strategies/ai-generate`. 빌더 draft 제안만 반환(저장 X · AI 결정권 0) | agent/ai · T-20260608-0200 |
 | 2026-06-06 | **AI 프리셋 추천 메타 프롬프트 발행** — §2-6 신설. core wrapper·기존 프리셋 전체·IndicatorCatalog 기반 시스템 능력·hint 6 컨텍스트 조합. `recommendPresets()` + `POST .../presets/recommend`. 추천만 반환(저장 X) | agent/ai · T-20260606-2247 |
 | 2026-05-03 | 초기 v1 — 5종 분석 프롬프트 작성 명시(드리프트 진입) | ADR 0026 (이후 사이클에서 분석 5종은 발행 보류 — W4 T-AI baseline까지 미발행) |

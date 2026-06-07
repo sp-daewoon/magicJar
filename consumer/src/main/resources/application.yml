@@ -127,9 +127,22 @@ magicjar:
     max-order-qty: ${MAGICJAR_CANARY_MAX_ORDER_QTY:0}
     max-order-notional-krw: ${MAGICJAR_CANARY_MAX_ORDER_NOTIONAL_KRW:0}
     max-orders-per-day: ${MAGICJAR_CANARY_MAX_ORDERS_PER_DAY:0}
-  # NOTE: magicjar.ai.* 는 consumer 모듈에서 미사용 (W4 미진입).
-  #   T-DSL helper(`NaturalLanguageDslTranslator`)는 api 모듈 한정 — `api/.../application.yml` 단일 위치 LOCK.
-  #   W4 진입 시 ai-engineer가 단일 모듈(api)에만 binding 발행 — consumer 합류 시점은 ADR 0026 후속에서 별도 결정.
+  # magicjar.ai.* — W4 진입(T-AI) 이후 consumer 코멘트 dispatcher/adapter 가 사용.
+  #   대부분의 provider 키(anthropic/gemini/openai)는 adapter @Value 인라인 default 로 binding —
+  #   본 yml 에는 claude-cli provider(키 불요·구독 기반 Claude CLI/bridge) 전용 설정만 명시한다.
+  #   provider 선택은 MAGICJAR_AI_PROVIDER (default anthropic — 현행 동작 보존). 운영 전환은 orchestrator 가 .env 로.
+  ai:
+    # provider 선택: anthropic(default) | gemini | openai | claude-cli
+    provider: ${MAGICJAR_AI_PROVIDER:anthropic}
+    # mock 분기: auto(키 없으면 mock — claude-cli 는 키 불요라 제외) | mock(강제) | real(키 필수)
+    mock-mode: ${MAGICJAR_AI_MOCK_MODE:auto}
+    # claude-cli provider (ADR 0112 발굴 bridge 재사용 — 2026-06-08 종목상세 차트해석 연동)
+    #   bridge-url 설정 시: POST {bridge-url}/discover (발굴과 동일 bridge 공유 가능)
+    #   bridge-url 미설정 시: 로컬 `claude -p` CLI 직접 실행 (command 로 바이너리 경로 override)
+    claude-cli:
+      command: ${MAGICJAR_AI_CLAUDE_CLI_COMMAND:claude}
+      bridge-url: ${MAGICJAR_AI_CLAUDE_CLI_BRIDGE_URL:}
+      timeout-seconds: ${MAGICJAR_AI_CLAUDE_CLI_TIMEOUT_SECONDS:300}
   secret:
     master-key: ${MAGICJAR_SECRET_MASTER_KEY:}  # AES-256-GCM KIS 키 복호화. 부재 시 부팅 거부
   kis:

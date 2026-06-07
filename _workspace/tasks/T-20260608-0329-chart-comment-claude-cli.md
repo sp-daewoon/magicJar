@@ -14,9 +14,9 @@ parentPhase: ?
 차트해석 Claude CLI provider 연동
 
 ## 결과물 체크리스트
-- [ ] ClaudeCli 어댑터
-- [ ] provider 선택 게이트
-- [ ] 테스트
+- [x] ClaudeCli 어댑터
+- [x] provider 선택 게이트
+- [x] 테스트
 
 ## 의존성
 - (필요 시 기록)

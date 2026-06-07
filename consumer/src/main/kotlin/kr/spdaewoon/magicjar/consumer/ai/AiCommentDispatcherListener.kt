@@ -147,20 +147,19 @@ class AiCommentDispatcherListener(
      * - mockMode=mock → 강제 mock
      * - mockMode=real → mock 0 (key 미설정 시 LLM 실패 path)
      * - mockMode=auto → 설정 provider 의 key 미설정 시 mock
+     *
+     * claude-cli (ADR 0112 발굴 bridge 재사용 — 2026-06-08 종목상세 차트해석 연동):
+     * - API key 불요 (구독 기반 Claude CLI/bridge) → "키 없음 = mock 강등" 로직에서 제외.
+     * - auto 모드에서도 claude-cli 는 항상 실해석 경로 (mock 0). bridge-url/CLI 가용성은 adapter 가 판단.
      */
     private fun shouldUseMockMode(): Boolean =
-        when (mockMode.lowercase()) {
-            "mock" -> true
-            "real" -> false
-            "auto" ->
-                when (configuredProvider.lowercase()) {
-                    "anthropic" -> anthropicApiKey.isBlank()
-                    "gemini" -> geminiApiKey.isBlank()
-                    "openai" -> openAiApiKey.isBlank()
-                    else -> true
-                }
-            else -> true
-        }
+        decideMockMode(
+            mockMode = mockMode,
+            provider = configuredProvider,
+            anthropicKeyBlank = anthropicApiKey.isBlank(),
+            geminiKeyBlank = geminiApiKey.isBlank(),
+            openAiKeyBlank = openAiApiKey.isBlank(),
+        )
 
     private fun publishResponse(
         envelope: AiRequestEnvelope,
@@ -199,6 +198,36 @@ class AiCommentDispatcherListener(
         }
     }
 }
+
+/**
+ * mock mode 판정 순수 함수 (테스트 가능 — `AiCommentDispatcherListener.shouldUseMockMode()` 위임 대상).
+ *
+ * - mockMode=mock → 강제 mock
+ * - mockMode=real → mock 0 (key 미설정 시 LLM 실패 path)
+ * - mockMode=auto → 설정 provider 의 key 미설정 시 mock.
+ *   단 claude-cli 는 키 불요(구독 기반) → auto 에서도 mock 0 (실해석 경로).
+ */
+internal fun decideMockMode(
+    mockMode: String,
+    provider: String,
+    anthropicKeyBlank: Boolean,
+    geminiKeyBlank: Boolean,
+    openAiKeyBlank: Boolean,
+): Boolean =
+    when (mockMode.lowercase()) {
+        "mock" -> true
+        "real" -> false
+        "auto" ->
+            when (provider.lowercase()) {
+                "anthropic" -> anthropicKeyBlank
+                "gemini" -> geminiKeyBlank
+                "openai" -> openAiKeyBlank
+                // claude-cli 는 키 불요 — 키 미설정을 mock 트리거로 보지 않는다.
+                "claude-cli" -> false
+                else -> true
+            }
+        else -> true
+    }
 
 /**
  * Kafka `ai.comment.requested.v1` payload v1 (consumer-local schema — api 의 `AiExplainRequestEvent` 와 1:1).
