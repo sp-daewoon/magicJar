@@ -14,6 +14,7 @@
  * 룰 5: LLM provider import 0건
  */
 import { useState, useEffect, FormEvent } from 'react'
+import { useModalBehavior } from '../../hooks/useModalBehavior'
 import { useCreateSigStrategy, useUpdateSigStrategy } from '../../api/hooks/useSigStrategy'
 import type { PartialExitDto, ScaleInDto } from '../../api/strategy'
 import { InstrumentSearchInput } from '../InstrumentSearchInput'
@@ -120,6 +121,9 @@ export function StrategySaveModal({
     !!initialPartialExits && initialPartialExits.length > 0,
   )
   const [partialExits, setPartialExits] = useState<PartialExitDto[]>(initialPartialExits ?? [])
+
+  // ESC 닫기 + body scroll lock (공용 훅 — 저장 form 입력 중에도 ESC 닫기, IME 조합 중 무시)
+  useModalBehavior({ open: true, onClose })
 
   const createMutation = useCreateSigStrategy()
   const updateMutation = useUpdateSigStrategy()

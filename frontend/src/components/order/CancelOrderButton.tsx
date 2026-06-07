@@ -12,6 +12,7 @@
 import { useState } from 'react'
 import type { OrderStatus, OrderSide } from '../../api/order'
 import { useCancelOrder } from '../../api/hooks/useCancelOrder'
+import { useModalBehavior } from '../../hooks/useModalBehavior'
 import { useToast } from '../ui/ToastProvider'
 
 interface CancelOrderButtonProps {
@@ -43,6 +44,14 @@ export function CancelOrderButton({
   const { showToast } = useToast()
 
   const canCancel = CANCELABLE_STATUSES.includes(status)
+
+  // ESC 닫기 + body scroll lock (확인 모달 표시 중에만 · 취소 요청 진행 중엔 닫기 잠금 — 기존 닫기 버튼 disabled 의미 보존)
+  useModalBehavior({
+    open: showModal,
+    onClose: () => {
+      if (!isPending) setShowModal(false)
+    },
+  })
 
   function handleCancelConfirm() {
     mutate(

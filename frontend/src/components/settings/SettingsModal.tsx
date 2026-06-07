@@ -18,7 +18,7 @@
  *
  * ADR 0069 §6 UX 룰 + ADR 0074 §8 UX 매트릭스 정합.
  */
-import { useEffect } from 'react'
+import { useModalBehavior } from '../../hooks/useModalBehavior'
 import { KisCredentialSection } from './sections/KisCredentialSection'
 import { KillSwitchSection } from './sections/KillSwitchSection'
 import { RealTradingConsentSection } from './sections/RealTradingConsentSection'
@@ -48,21 +48,8 @@ function XIcon() {
 }
 
 export function SettingsModal({ onClose }: Props) {
-  // Esc 키 → 닫기 (ADR 0069 §6 UX 룰)
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
-
-  // body scroll lock
-  useEffect(() => {
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = prev }
-  }, [])
+  // Esc 닫기 + body scroll lock (공용 훅 — useModalBehavior · ADR 0069 §6 UX 룰)
+  useModalBehavior({ open: true, onClose })
 
   function handleOverlayClick(e: React.MouseEvent<HTMLDivElement>) {
     // panel 클릭 이벤트가 올라오지 않도록 panel에서 stopPropagation 처리됨

@@ -11,6 +11,7 @@
  * 룰 5: LLM provider import 0건 — backend /api/dsl/translate-from-natural 호출만
  */
 import { useState, useRef, useEffect } from 'react'
+import { useModalBehavior } from '../../hooks/useModalBehavior'
 import { useStrategyTranslate } from '../../api/hooks/useStrategyTranslate'
 import { parseDslTextToTree } from '../../lib/dsl/parser'
 import type { BlockTree } from '../../lib/dsl/blockTree'
@@ -29,6 +30,9 @@ export function NaturalLanguageInput({ onResult, onClose }: NaturalLanguageInput
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const { mutate: translate, isPending } = useStrategyTranslate()
+
+  // ESC 닫기 + body scroll lock (공용 훅 — IME 조합 중 ESC는 무시)
+  useModalBehavior({ open: true, onClose })
 
   useEffect(() => {
     textareaRef.current?.focus()
@@ -150,7 +154,7 @@ export function NaturalLanguageInput({ onResult, onClose }: NaturalLanguageInput
           className="w-full resize-none rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           placeholder="RSI 30 이하이고 거래량이 20일 평균의 1.5배 이상이면 매수"
           onKeyDown={(e) => {
-            if (e.key === 'Escape') onClose()
+            // ESC 닫기는 useModalBehavior 공용 훅이 처리 (IME 조합 중 무시 일관)
             if (e.ctrlKey && e.key === 'Enter') handleTranslate()
           }}
         />

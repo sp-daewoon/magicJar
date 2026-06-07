@@ -6,7 +6,7 @@
  * - 메모 작성 form 포함
  * - ESC 키 닫기 + 배경 클릭 닫기
  */
-import { useEffect } from 'react'
+import { useModalBehavior } from '../../../hooks/useModalBehavior'
 import { useJournalEntry } from '../hooks/useJournalEntry'
 import { useWriteJournalNote } from '../hooks/useWriteJournalNote'
 import { JournalNoteForm } from './JournalNoteForm'
@@ -92,14 +92,8 @@ export function JournalEntryDetailModal({ entryId, userId, onClose }: JournalEnt
     ? resolveJournalInstrumentDisplay(entry.instrumentCode, entry.instrumentName)
     : null
 
-  // ESC 키 닫기
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [onClose])
+  // ESC 닫기 + body scroll lock (공용 훅 — useModalBehavior)
+  useModalBehavior({ open: true, onClose })
 
   function handleNoteSubmit(noteText: string) {
     writeNote.mutate({ userId, journalEntryId: entryId, noteText })
