@@ -77,6 +77,9 @@ class RealtimeSignalGenerator(
     private val businessDayCalendarProvider: ObjectProvider<BusinessDayCalendar>,
     @Value("\${magicjar.signal.eval-lookback-candles:500}") private val evalLookbackCandles: Int = 500,
     @Value("\${magicjar.signal.market-hours-gate.enabled:true}") private val marketHoursGateEnabled: Boolean = true,
+    // ADR 0114 §4-4 P4 — market-hours gate SELL(청산) 분리 env. default true(현행 보존 — NXT 유동성 보수).
+    // false면 NXT 시간대(08~09시·15:30~20시) 보유 포지션 SELL 평가는 시간대 무관 진행(BUY는 항상 게이트).
+    @Value("\${magicjar.signal.market-hours-gate.sell-enabled:true}") private val marketHoursSellEnabled: Boolean = true,
     @Value("\${magicjar.strategy.scale-in.enabled:false}") private val scaleInEnabled: Boolean = false,
     private val clock: Clock = Clock.System,
 ) {
@@ -130,47 +133,29 @@ class RealtimeSignalGenerator(
             return
         }
 
-        // 장운영시간 게이트 (2026-06-04 dogfooding 결함 fix) — boundaryTs가 영업일+정규장 안일 때만 평가 진행.
-        // 08:00~09:00 NXT pre-hour 캔들(정책상 의도된 적재)로 시그널 발화 → 장전 주문 거부 사태 차단.
-        // 캔들 적재 파이프라인은 불변 — 여기서 평가 게이트만 적용 (defense in depth 1층).
-        if (marketHoursGateEnabled && !isWithinTradingHours(boundaryTs)) {
-            log.info(
-                "RealtimeSignalGenerator market-hours-gate skip: boundaryTs={} interval={} reason=NOT_REGULAR_SESSION_OR_HOLIDAY",
-                boundaryTs,
-                interval.code,
-            )
+        // ADR 0114 §4-1·§4-4 — 게이트를 진입(BUY)/청산(SELL) 분화.
+        //   fail-closed("신규 자본 투입 차단")는 BUY에만, 이미 투입된 자본의 회수(SELL=손절/익절)는 막지 않는다.
+        //   gate 결과로 BUY suppress 여부를 산정하고, 양쪽 다 막히면(=SELL도 불가) 조기 return.
+        val gate = resolveEvalGate(code, interval, boundaryTs, activeStrategies)
+        if (gate.buySuppressed && !gate.sellAllowed) {
+            // BUY·SELL 모두 불가 — 평가 자체 skip (현행 fail-closed 동등 경로).
             return
         }
 
-        val readinessService = dataReadinessServiceProvider.ifAvailable
-        if (readinessService != null) {
-            val readiness = readinessService.check(code, interval, boundaryTs)
-            if (!readiness.ready) {
-                log.warn(
-                    "RealtimeSignalGenerator data readiness skip: code={} interval={} ts={} status={} reason={} strategies={}",
-                    code,
-                    interval.code,
-                    boundaryTs,
-                    readiness.status,
-                    readiness.reason,
-                    activeStrategies.mapNotNull { it.id },
-                )
-                readinessService.auditSkip(readiness, activeStrategies.mapNotNull { it.id })
-                return
-            }
-        }
-
         log.debug(
-            "RealtimeSignalGenerator 평가 시작: code={} interval={} ts={} activeCount={}",
+            "RealtimeSignalGenerator 평가 시작: code={} interval={} ts={} activeCount={} buySuppressed={} sellAllowed={} gateReason={}",
             code,
             interval.code,
             boundaryTs,
             activeStrategies.size,
+            gate.buySuppressed,
+            gate.sellAllowed,
+            gate.reason,
         )
 
         for (strategy in activeStrategies) {
             try {
-                processStrategy(strategy, code, interval, boundaryTs, candle)
+                processStrategy(strategy, code, interval, boundaryTs, candle, gate)
             } catch (e: Exception) {
                 log.error(
                     "RealtimeSignalGenerator strategy 평가 실패: strategyId={} code={} interval={} err={}",
@@ -183,12 +168,99 @@ class RealtimeSignalGenerator(
         }
     }
 
+    /**
+     * 진입/청산 평가 허용 게이트 (ADR 0114 §4-1 P1 + §4-4 P4).
+     *
+     * @param buySuppressed true면 BUY(신규 자본 투입) 평가 결과를 발행하지 않는다(audit만).
+     * @param sellAllowed   true면 SELL(보유 청산 — 손절/익절) 평가를 진행한다.
+     * @param reason        skip/분화 사유(로그·audit 추적용).
+     */
+    private data class EvalGate(
+        val buySuppressed: Boolean,
+        val sellAllowed: Boolean,
+        val reason: String,
+    ) {
+        companion object {
+            /** 양쪽 모두 허용 — 정규장·READY 정상 경로. */
+            val ALLOW_ALL = EvalGate(buySuppressed = false, sellAllowed = true, reason = "ALLOW_ALL")
+        }
+    }
+
+    /**
+     * market-hours 게이트(§4-4 P4) + data readiness 게이트(§4-1 P1)를 진입/청산으로 분화 산정한다.
+     *
+     * 핵심 불변식(§4-1): **fail-closed는 "신규 자본 투입(BUY) 차단"에만 적용한다. 이미 투입된 자본의 회수(SELL)는 막지 않는다.**
+     * 청산 트리거에 쓰는 현재가는 boundary 캔들 close(확정값)로 항상 가용하므로, readiness 미충족(RECONCILING/STALE/FAILED)이어도
+     * 손절/익절 평가는 진행한다(현행 fail-closed가 손절까지 막던 P1 Critical 해소).
+     */
+    private fun resolveEvalGate(
+        code: String,
+        interval: CandleInterval,
+        boundaryTs: Instant,
+        activeStrategies: List<Strategy>,
+    ): EvalGate {
+        var buySuppressed = false
+        var sellAllowed = true
+        val reasons = mutableListOf<String>()
+
+        // === P4 — market-hours gate (BUY 한정 + sell-enabled env 분리) ===
+        if (marketHoursGateEnabled && !isWithinTradingHours(boundaryTs)) {
+            buySuppressed = true
+            reasons += "MARKET_HOURS_BUY_SUPPRESSED"
+            // sell-enabled=false 면 NXT 시간대 SELL 평가 허용(시간대 무관). default true → 현행대로 SELL도 정규장만.
+            if (!marketHoursSellEnabled) {
+                reasons += "MARKET_HOURS_SELL_ALLOWED_NXT"
+            } else {
+                sellAllowed = false
+                reasons += "MARKET_HOURS_SELL_SUPPRESSED"
+            }
+            log.info(
+                "RealtimeSignalGenerator market-hours-gate: boundaryTs={} interval={} buySuppressed=true sellAllowed={} reason=NOT_REGULAR_SESSION_OR_HOLIDAY",
+                boundaryTs,
+                interval.code,
+                sellAllowed,
+            )
+        }
+
+        // === P1 — data readiness gate (BUY fail-closed / SELL 진행) ===
+        val readinessService = dataReadinessServiceProvider.ifAvailable
+        if (readinessService != null) {
+            val readiness = readinessService.check(code, interval, boundaryTs)
+            if (!readiness.ready) {
+                // BUY: 신규 자본 투입은 readiness READY 만 허용(현행 fail-closed 유지).
+                buySuppressed = true
+                reasons += "READINESS_${readiness.status}_BUY_SUPPRESSED"
+                // SELL: 보유 청산 평가는 진행(현재가=boundary candle close 가용). FAILED 도 현재가 가용 시 진행(§4-1).
+                reasons += "READINESS_${readiness.status}_SELL_PROCEED"
+                log.warn(
+                    "RealtimeSignalGenerator data readiness BUY suppress / SELL proceed: code={} interval={} ts={} status={} reason={} sellAllowed={} strategies={}",
+                    code,
+                    interval.code,
+                    boundaryTs,
+                    readiness.status,
+                    readiness.reason,
+                    sellAllowed,
+                    activeStrategies.mapNotNull { it.id },
+                )
+                // audit: 진입(BUY) skip 만 기록 — SELL 은 진행하므로 미발행(기존 auditSkip 의미 보존).
+                readinessService.auditSkip(readiness, activeStrategies.mapNotNull { it.id })
+            }
+        }
+
+        return if (!buySuppressed) {
+            EvalGate.ALLOW_ALL
+        } else {
+            EvalGate(buySuppressed = true, sellAllowed = sellAllowed, reason = reasons.joinToString(","))
+        }
+    }
+
     private fun processStrategy(
         strategy: Strategy,
         code: String,
         interval: CandleInterval,
         boundaryTs: Instant,
         candle: Candle,
+        gate: EvalGate,
     ) {
         val strategyId =
             strategy.id ?: run {
@@ -239,6 +311,31 @@ class RealtimeSignalGenerator(
                 code,
                 interval.code,
                 boundaryTs,
+            )
+            return
+        }
+        // ADR 0114 §4-1·§4-4 — 게이트 분화 적용.
+        //   BUY(신규 자본 투입): readiness 미충족·NXT 시간대면 발행 차단(fail-closed).
+        //   SELL(보유 청산): sell-enabled=false 분기로만 차단 — 손절/익절은 막지 않는 것이 본 ADR 핵심.
+        if (side == SignalSide.BUY && gate.buySuppressed) {
+            log.info(
+                "RealtimeSignalGenerator BUY gate suppress (자본 투입 차단): strategyId={} code={} interval={} ts={} reason={}",
+                strategyId,
+                code,
+                interval.code,
+                boundaryTs,
+                gate.reason,
+            )
+            return
+        }
+        if (side == SignalSide.SELL && !gate.sellAllowed) {
+            log.info(
+                "RealtimeSignalGenerator SELL gate suppress: strategyId={} code={} interval={} ts={} reason={}",
+                strategyId,
+                code,
+                interval.code,
+                boundaryTs,
+                gate.reason,
             )
             return
         }

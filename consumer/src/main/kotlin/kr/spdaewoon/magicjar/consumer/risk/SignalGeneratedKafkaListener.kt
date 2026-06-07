@@ -5,7 +5,12 @@ import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kr.spdaewoon.magicjar.consumer.order.KisExecutionBackfillService
 import kr.spdaewoon.magicjar.domain.account.port.KisBalanceQueryPort
+import kr.spdaewoon.magicjar.domain.event.SystemEvent
+import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
+import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
+import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.port.KillSwitchQueryPort
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import kr.spdaewoon.magicjar.domain.position.port.StrategyPositionPort
@@ -86,6 +91,10 @@ class SignalGeneratedKafkaListener(
     private val strategyLookupPortProvider: ObjectProvider<StrategyLookupPort>,
     private val kisBalanceQueryPortProvider: ObjectProvider<KisBalanceQueryPort>,
     private val executionBackfillServiceProvider: ObjectProvider<KisExecutionBackfillService>,
+    // ADR 0114 §3-1 — BUY marketable limit 가격 산정 배선.
+    private val entryOrderPriceResolver: EntryOrderPriceResolver,
+    // ADR 0114 §3-1 — 진입 스킵 audit(SIGNAL_SKIPPED_*) 발사 (audit_trail = system_event).
+    private val systemEventLoggerProvider: ObjectProvider<SystemEventLogger>,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String = "MOCK",
     private val clock: Clock = Clock.System,
@@ -202,8 +211,85 @@ class SignalGeneratedKafkaListener(
         // 2. TradeFrequencyGuard 누적 — 다음 평가 시 sliding window count 반영
         tradeFrequencyGuard.record(signal.strategyId, signal.userId, allowed.signalId, context.nowKst)
 
-        // 3. order.intent.v1 publish — T-O 진입
-        orderIntentKafkaProducer.publish(signal, quantity)
+        // 3. order.intent.v1 publish — T-O 진입.
+        //    ADR 0114 §3-1 — BUY는 marketable limit 산정(Enter→LIMIT / Skip→주문 0+audit). SELL은 현행 MARKET(§3-3 손절 정합).
+        if (signal.side == SignalSide.BUY) {
+            publishBuyOrSkip(signal, quantity)
+        } else {
+            orderIntentKafkaProducer.publish(signal, quantity, OrderPriceType.MARKET, null)
+        }
+    }
+
+    /**
+     * BUY 진입 가격 산정 → marketable limit 발행 또는 스킵 audit (ADR 0114 §3-1·§3-2).
+     *
+     * - [EntryOrderDecision.Enter]: priceType=LIMIT + limitPrice 발행(매도1호가 상한 이내). 미체결 취소 워커가 entryTimeoutSec로 회수.
+     * - [EntryOrderDecision.Skip]: **주문 0** + SIGNAL_SKIPPED_* audit(system_event). 시장가 fallback 절대 금지(§3-1-5).
+     */
+    private fun publishBuyOrSkip(
+        signal: Signal,
+        quantity: Int,
+    ) {
+        val strategy = lookupStrategyOrNull(signal)
+        when (val decision = entryOrderPriceResolver.resolve(signal, strategy)) {
+            is EntryOrderDecision.Enter -> {
+                log.info(
+                    "BUY marketable limit 진입: signalId={} code={} qty={} limitPrice={} entryTimeoutSec={}",
+                    signal.id,
+                    signal.code,
+                    quantity,
+                    decision.limitPrice,
+                    decision.entryTimeoutSec,
+                )
+                orderIntentKafkaProducer.publish(signal, quantity, OrderPriceType.LIMIT, decision.limitPrice)
+            }
+            is EntryOrderDecision.Skip -> {
+                log.info(
+                    "BUY 진입 스킵 (주문 0 — 시장가 fallback 없음): signalId={} code={} auditCode={} ask1={} bid1={} quoteAsOf={}",
+                    signal.id,
+                    signal.code,
+                    decision.auditCode,
+                    decision.ask1,
+                    decision.bid1,
+                    decision.quoteAsOf,
+                )
+                emitEntrySkipAudit(signal, decision)
+            }
+        }
+    }
+
+    /** 진입 스킵 audit — SIGNAL_SKIPPED_* (system_event, category=OTHER, severity=WARN). graceful(emit 실패가 listener thread 안 죽임). */
+    private fun emitEntrySkipAudit(
+        signal: Signal,
+        skip: EntryOrderDecision.Skip,
+    ) {
+        val logger = systemEventLoggerProvider.getIfAvailable() ?: return
+        runCatching {
+            logger.emit(
+                SystemEvent(
+                    category = SystemEventCategory.OTHER,
+                    severity = SystemEventSeverity.WARN,
+                    actor = "SignalGeneratedKafkaListener",
+                    action = skip.auditCode,
+                    userId = signal.userId,
+                    detailJson =
+                        objectMapper.writeValueAsString(
+                            mapOf(
+                                "signalId" to signal.id,
+                                "strategyId" to signal.strategyId,
+                                "code" to signal.code,
+                                "side" to signal.side.name,
+                                "priceAtSignal" to signal.priceAtSignal.toPlainString(),
+                                "ask1" to skip.ask1?.toPlainString(),
+                                "bid1" to skip.bid1?.toPlainString(),
+                                "quoteAsOf" to skip.quoteAsOf?.toString(),
+                            ),
+                        ),
+                ),
+            )
+        }.onFailure { e ->
+            log.error("진입 스킵 audit emit 실패: signalId={} auditCode={} err={}", signal.id, skip.auditCode, e.message)
+        }
     }
 
     private fun ensureKisHoldingIfSell(
@@ -289,6 +375,21 @@ class SignalGeneratedKafkaListener(
 
         return syncBlocked(signal, result.reasonCode)
     }
+
+    /**
+     * 시그널 발행 전략 단건 조회(BUY entryPolicy·RiskPlan 검증 공용). 조회 실패·미발견 시 null.
+     * ADR 0114 — [publishBuyOrSkip]의 entryPolicy override 입력으로도 재사용(DRY — 진보 페르소나).
+     */
+    private fun lookupStrategyOrNull(signal: Signal) =
+        strategyLookupPortProvider.getIfAvailable()?.let { lookup ->
+            runCatching {
+                lookup
+                    .findActiveByCodeAndInterval(signal.code, signal.interval)
+                    .firstOrNull { it.id == signal.strategyId }
+            }.onFailure { e ->
+                log.warn("strategy lookup 실패: userId={} strategyId={} err={}", signal.userId, signal.strategyId, e.message)
+            }.getOrNull()
+        }
 
     private fun ensureRiskPlanIfBuy(signal: Signal): RiskGatewayResult.Blocked? {
         if (signal.side != SignalSide.BUY) return null

@@ -14,7 +14,11 @@ import kr.spdaewoon.magicjar.domain.account.AccountBalance
 import kr.spdaewoon.magicjar.domain.account.AccountHolding
 import kr.spdaewoon.magicjar.domain.account.KisAccountBalance
 import kr.spdaewoon.magicjar.domain.account.port.KisBalanceQueryPort
+import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.market.port.EntryQuote
+import kr.spdaewoon.magicjar.domain.market.port.EntryQuotePort
+import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.port.KillSwitchQueryPort
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import kr.spdaewoon.magicjar.domain.position.Position
@@ -59,6 +63,10 @@ class SignalGeneratedKafkaListenerTest {
     private val orderRequestRepository = mockk<OrderRequestRepository>()
     private val strategyLookupPort = mockk<StrategyLookupPort>()
     private val kisBalanceQueryPort = mockk<KisBalanceQueryPort>()
+
+    // ADR 0114 — BUY marketable limit 가격 산정 (진입 호가 source + system_event audit).
+    private val entryQuotePort = mockk<EntryQuotePort>()
+    private val systemEventLogger = mockk<SystemEventLogger>(relaxed = true)
     private val now = Instant.parse("2026-05-22T01:00:00Z")
     private val clock =
         object : Clock {
@@ -79,7 +87,10 @@ class SignalGeneratedKafkaListenerTest {
         listener().onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
 
         verify(exactly = 1) { signalRiskStatusUpdater.markAllowed(77L) }
-        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 20) }
+        // ADR 0114 — BUY는 marketable limit. ask1=50000 ≤ cap(50000×1.002) → LIMIT 50000 발행.
+        verify(exactly = 1) {
+            orderIntentKafkaProducer.publish(match { it.id == 77L }, 20, OrderPriceType.LIMIT, BigDecimal("50000"))
+        }
     }
 
     @Test
@@ -137,7 +148,8 @@ class SignalGeneratedKafkaListenerTest {
 
         listener().onSignalGenerated(record(payload(side = "SELL", price = "72000")), ack())
 
-        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 7) }
+        // ADR 0114 §3-3 — SELL은 본 phase 무변경(MARKET, limitPrice=null). 진입 가격 산정 미적용.
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 7, OrderPriceType.MARKET, null) }
     }
 
     @Test
@@ -218,7 +230,9 @@ class SignalGeneratedKafkaListenerTest {
             .onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
 
         verify(exactly = 1) { signalRiskStatusUpdater.markAllowed(77L) }
-        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 20) }
+        verify(exactly = 1) {
+            orderIntentKafkaProducer.publish(match { it.id == 77L }, 20, OrderPriceType.LIMIT, BigDecimal("50000"))
+        }
     }
 
     @Test
@@ -282,12 +296,25 @@ class SignalGeneratedKafkaListenerTest {
         killSwitchProvider: ObjectProvider<KillSwitchQueryPort> = providerOf(killSwitchQueryPort),
         strategies: List<Strategy> = listOf(sampleStrategy()),
         kisBalance: KisAccountBalance? = sampleKisBalance(quantity = 100),
+        entryQuote: EntryQuote? =
+            EntryQuote(
+                ask1 = BigDecimal("50000"),
+                bid1 = BigDecimal("49950"),
+                askQty1 = 100L,
+                asOf = now,
+            ),
     ): SignalGeneratedKafkaListener {
         every { strategyLookupPort.findActiveByCodeAndInterval(any(), any()) } returns strategies
         every { orderRequestRepository.findOpenByUserId(any()) } returns emptyList()
         if (kisBalance != null) {
             every { kisBalanceQueryPort.fetchFullBalance(any(), any()) } returns kisBalance
         }
+        every { entryQuotePort.latestQuote(any()) } returns entryQuote
+        val entryOrderPriceResolver =
+            EntryOrderPriceResolver(
+                entryQuotePortProvider = providerOf(entryQuotePort),
+                clock = clock,
+            )
         return SignalGeneratedKafkaListener(
             objectMapper = objectMapper,
             riskGatewayEvaluator = RiskGatewayEvaluator(),
@@ -308,6 +335,8 @@ class SignalGeneratedKafkaListenerTest {
             strategyLookupPortProvider = providerOf(strategyLookupPort),
             kisBalanceQueryPortProvider = providerOf(kisBalanceQueryPort),
             executionBackfillServiceProvider = executionBackfillProvider,
+            entryOrderPriceResolver = entryOrderPriceResolver,
+            systemEventLoggerProvider = providerOf(systemEventLogger),
             magicjarMode = magicjarMode,
             clock = clock,
         )

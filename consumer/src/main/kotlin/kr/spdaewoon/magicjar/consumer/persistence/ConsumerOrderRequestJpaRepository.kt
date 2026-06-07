@@ -57,6 +57,25 @@ interface ConsumerOrderRequestJpaRepository : JpaRepository<ConsumerOrderRequest
     ): List<ConsumerOrderRequestJpaEntity>
 
     /**
+     * ADR 0114 §3-2 — EntryTimeoutCancelWorker 미체결 진입 취소 lookup.
+     *
+     * BUY LIMIT 미종결 주문(REQUESTED·ACK·PARTIALLY_FILLED) 중 requestedAt < cutoff. oldest-first.
+     * 헌법 §6 — interface body 0건, @Query 만 사용.
+     */
+    @Query(
+        "SELECT e FROM ConsumerOrderRequestJpaEntity e " +
+            "WHERE e.side = kr.spdaewoon.magicjar.domain.order.execution.OrderSide.BUY " +
+            "AND e.priceType = kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType.LIMIT " +
+            "AND e.status IN ('REQUESTED', 'ACK', 'PARTIALLY_FILLED') " +
+            "AND e.requestedAt < :cutoff " +
+            "ORDER BY e.requestedAt ASC",
+    )
+    fun findOpenBuyLimitBefore(
+        @Param("cutoff") cutoff: Instant,
+        pageable: Pageable,
+    ): List<ConsumerOrderRequestJpaEntity>
+
+    /**
      * KillSwitch race-safe guard B (Grace Window) — userId의 마지막 FILLED 시각.
      *
      * `completedAt MAX WHERE status=FILLED`. 한 건도 없으면 null.

@@ -67,6 +67,8 @@ class ConsumerStrategyLookupJpaAdapter(
                 tf = entity.tf,
                 fixedStopLoss = entity.fixedStopLossPct,
                 takeProfitPct = entity.takeProfitPct,
+                // ADR 0114 진입 정책 JSONB(V72) → 도메인 (BUY 가격 산정 입력). 역직렬화 실패 시 null = 전역 default.
+                entryPolicy = deserializeEntryPolicy(entity.entryPolicy),
             )
         val complexity =
             StrategyComplexity(
@@ -123,6 +125,21 @@ class ConsumerStrategyLookupJpaAdapter(
 
     private fun safeStatus(value: String): StrategyStatus =
         runCatching { StrategyStatus.valueOf(value) }.getOrDefault(StrategyStatus.ACTIVE)
+
+    /**
+     * `entry_policy` JSONB(V72) → [kr.spdaewoon.magicjar.domain.strategy.EntryPolicy] (ADR 0114).
+     * [kr.spdaewoon.magicjar.domain.strategy.EntryPolicySerde] 단일 codec 위임 — JSON String → Map 변환만 담당.
+     * 역직렬화·범위 검증 실패 시 null(전역 default MARKET 진입 — 실시간 hot path down 회피).
+     */
+    private fun deserializeEntryPolicy(value: String?): kr.spdaewoon.magicjar.domain.strategy.EntryPolicy? {
+        if (value.isNullOrBlank()) return null
+        return runCatching {
+            @Suppress("UNCHECKED_CAST")
+            val map = objectMapper.readValue(value, Map::class.java) as Map<String, Any?>
+            kr.spdaewoon.magicjar.domain.strategy.EntryPolicySerde
+                .fromMap(map)
+        }.getOrNull()
+    }
 
     private fun safeStringList(value: String?): List<String> =
         value

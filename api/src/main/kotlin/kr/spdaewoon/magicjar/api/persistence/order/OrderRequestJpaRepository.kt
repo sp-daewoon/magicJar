@@ -74,6 +74,23 @@ interface OrderRequestJpaRepository :
     ): List<OrderRequestJpaEntity>
 
     /**
+     * ADR 0114 §3-2 — 미체결 진입(BUY LIMIT) 취소 lookup (api 모듈 공통 구현 — admin/조회 caller 재사용).
+     * 헌법 §6 — interface body 0건, @Query 만 사용.
+     */
+    @Query(
+        "SELECT e FROM OrderRequestJpaEntity e " +
+            "WHERE e.side = kr.spdaewoon.magicjar.domain.order.execution.OrderSide.BUY " +
+            "AND e.priceType = kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType.LIMIT " +
+            "AND e.status IN ('REQUESTED', 'ACK', 'PARTIALLY_FILLED') " +
+            "AND e.requestedAt < :cutoff " +
+            "ORDER BY e.requestedAt ASC",
+    )
+    fun findOpenBuyLimitBefore(
+        @Param("cutoff") cutoff: Instant,
+        pageable: Pageable,
+    ): List<OrderRequestJpaEntity>
+
+    /**
      * KillSwitch race-safe guard B (Grace Window) — userId의 마지막 FILLED 시각.
      *
      * `completedAt MAX WHERE status=FILLED`. 한 건도 없으면 null.

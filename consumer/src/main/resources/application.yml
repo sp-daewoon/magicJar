@@ -80,6 +80,22 @@ magicjar:
   signal:
     market-hours-gate:
       enabled: ${MAGICJAR_SIGNAL_MARKET_HOURS_GATE_ENABLED:true}
+      # ADR 0114 §4-4 P4 — SELL(보유 청산) 평가의 market-hours gate 분리.
+      #   true(default): 현행대로 SELL 평가도 정규장(09:00~15:30)만. NXT 유동성 얇음 보수.
+      #   false: NXT 시간대(08~09시·15:30~20시) 보유 포지션 SELL(손절/익절) 평가 허용(시간대 무관). BUY는 항상 게이트.
+      #   사용자가 NXT 유동성·종목 특성 보고 전환(ADR §9 U-9 — 운영 데이터 후 결재).
+      sell-enabled: ${MAGICJAR_SIGNAL_MARKET_HOURS_GATE_SELL_ENABLED:true}
+  # ADR 0114 §3·§5·§10-5 — 진입(BUY) 집행 정책 전역 default (전략별 entry_policy JSONB 미설정 시 적용).
+  #   marketable limit 진입: 매도1호가에 걸되 상한(기준가 × (1+max-slippage-pct/100)) 초과면 스킵(시장가 fallback 0).
+  #   미체결: timeout-sec 경과 시 취소(시장가 전환 금지·재시도 0). 스프레드 max-spread-pct 초과 진입 금지.
+  order:
+    entry:
+      max-slippage-pct: ${MAGICJAR_ORDER_ENTRY_MAX_SLIPPAGE_PCT:0.2}
+      timeout-sec: ${MAGICJAR_ORDER_ENTRY_TIMEOUT_SEC:15}
+      max-spread-pct: ${MAGICJAR_ORDER_ENTRY_MAX_SPREAD_PCT:0.3}
+      # 미체결 진입 취소 워커(EntryTimeoutCancelWorker) toggle — default 활성. false면 미체결 LIMIT 자동 취소 0(수동 취소만).
+      cancel-worker:
+        enabled: ${MAGICJAR_ORDER_ENTRY_CANCEL_WORKER_ENABLED:true}
   # 분할매수(scale-in) / 분할익절 "리플레이 먼저" 게이트 (spec §8-1 · ADR 0111 §2-7).
   #   default false — toggle OFF면 RealtimeSignalGenerator가 scaleIn/partialExits 설정 전략도 현행 단일
   #   진입 + 전량 익절 경로로 평가(ScaleInExitCalculator 미사용). qa 2라운드 GREEN(PR #750·#753)으로 2026-06-05 default true 영구화.

@@ -49,6 +49,20 @@ interface OrderRequestRepository {
         limit: Int = 50,
     ): List<OrderRequest>
 
+    /**
+     * ADR 0114 §3-2 — 미체결 진입(BUY LIMIT) 취소 워커 lookup.
+     *
+     * 아직 종결되지 않은 BUY LIMIT 주문(`side=BUY` AND `priceType=LIMIT` AND `status IN (REQUESTED, ACK, PARTIALLY_FILLED)`)
+     * 중 `requestedAt < cutoff`(= now - 최소 타임아웃) 인 후보를 oldest-first로 조회한다.
+     * 행별 정확한 `entryTimeoutSec`(전략 override) 도달 여부는 워커가 추가 판정한다(cutoff는 1차 필터).
+     *
+     * 헌법 §6 — interface body 0건(abstract만). 구현은 JPA @Query.
+     */
+    fun findOpenBuyLimitBefore(
+        cutoff: Instant,
+        limit: Int = 50,
+    ): List<OrderRequest>
+
     fun updateStatus(
         id: Long,
         status: OrderStatus,

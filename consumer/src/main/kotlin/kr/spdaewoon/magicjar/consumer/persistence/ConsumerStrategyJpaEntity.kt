@@ -41,6 +41,10 @@ class ConsumerStrategyJpaEntity(
     val fixedStopLossPct: BigDecimal? = null,
     @Column(name = "take_profit_pct", precision = 9, scale = 4)
     val takeProfitPct: BigDecimal? = null,
+    // V72 추가 컬럼 — ADR 0114 진입(BUY) 집행 정책 (raw JSON. BUY 가격 산정 입력 — EntryPolicySerde round-trip).
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "entry_policy", columnDefinition = "jsonb")
+    val entryPolicy: String? = null,
     @Column(name = "ast_depth", nullable = false)
     val astDepth: Int = 0,
     @Column(name = "node_count", nullable = false)

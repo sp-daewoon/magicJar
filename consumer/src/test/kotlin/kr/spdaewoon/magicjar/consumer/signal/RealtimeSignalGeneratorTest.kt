@@ -269,8 +269,12 @@ class RealtimeSignalGeneratorTest {
     }
 
     @Test
-    fun `data readiness READY가 아니면 dedupe와 strategy 평가 전에 signal 생성을 fail-closed 한다`() {
-        val buyAst = ast("1", Operator.GT, "0")
+    fun `ADR 0114 P1 — readiness 미충족 시 BUY 시그널은 발행하지 않고 SELL 청산 평가는 진행한다`() {
+        // 변경 사유(ADR 0114 §4-1): 현행은 readiness 미충족 시 손절까지 일괄 skip(P1 Critical).
+        //   본 ADR이 fail-closed를 BUY(신규 자본 투입)에만 적용 — 보유 SELL(손절/익절) 평가는 진행하도록 분화.
+        //   따라서 RECONCILING이어도 dedupe·evaluator·SELL 평가는 호출되며, BUY 결과만 억제된다.
+        val buyAst = ast("1", Operator.LT, "0") // BUY HOLD(미발화) — SELL 경로로 진행
+        val sellAst = ast("1", Operator.GT, "0") // SELL 발화 — 진행되어야 함
         val boundaryTs = Instant.parse("2026-05-20T00:50:00Z")
         val readiness =
             DataReadinessResult(
@@ -284,9 +288,26 @@ class RealtimeSignalGeneratorTest {
             )
 
         every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
-            listOf(strategy(buyAst = buyAst))
+            listOf(strategy(buyAst = buyAst, sellAst = sellAst))
         every { readinessService.check("005930", CandleInterval.FIVE_MIN, boundaryTs) } returns readiness
         every { readinessService.auditSkip(readiness, listOf(42L)) } just Runs
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval("005930", CandleInterval.FIVE_MIN, boundaryTs.toJavaInstant(), 499)
+        } returns emptyList()
+        // buyAst → BUY(억제 대상), sellAst → BUY 매핑(=SELL 발화, 진행 대상)
+        every { evaluator.evaluate(42L, buyAst, any()) } returns holdResult() // BUY HOLD → SELL 경로로 진행
+        every { evaluator.evaluate(42L, sellAst, any()) } returns
+            StrategyEvalResult(
+                signal = StrategySignal.BUY,
+                strength = BigDecimal("0.60"),
+                reason = mapOf("trigger" to "SELL_CONDITION"),
+                evaluatedAt = fixedNow,
+                evalTimeMs = 1L,
+            )
+        val savedSignal = slot<GeneratedSignal>()
+        every { signalRepository.save(capture(savedSignal)) } answers { savedSignal.captured.copy(id = 91L) }
+        every { signalKafkaProducer.publish(any()) } just Runs
 
         generator(dataReadinessService = readinessService).onBoundaryClosed(
             code = "005930",
@@ -295,10 +316,57 @@ class RealtimeSignalGeneratorTest {
             candle = candle(boundaryTs, "160"),
         )
 
+        // readiness 체크 + BUY skip audit는 그대로 발행
         verify(exactly = 1) { readinessService.check("005930", CandleInterval.FIVE_MIN, boundaryTs) }
         verify(exactly = 1) { readinessService.auditSkip(readiness, listOf(42L)) }
-        verify(exactly = 0) { dedupeGuard.tryAcquire(any(), any(), any(), any()) }
-        verify(exactly = 0) { evaluator.evaluate(any(), any(), any()) }
+        // SELL 청산 평가는 진행 — dedupe·evaluator 호출 + SELL 시그널 저장·발행
+        verify(exactly = 1) { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) }
+        verify(exactly = 1) { evaluator.evaluate(42L, sellAst, any()) }
+        assertThat(savedSignal.captured.side).isEqualTo(SignalSide.SELL)
+        verify(exactly = 1) { signalKafkaProducer.publish(match { it.side == SignalSide.SELL }) }
+    }
+
+    @Test
+    fun `ADR 0114 P1 — readiness 미충족 시 BUY 발화는 게이트로 억제되어 발행 0`() {
+        // BUY만 발화하는 전략 — readiness RECONCILING이면 BUY는 억제(주문 0). 평가는 돌지만 publish 0.
+        val buyAst = ast("1", Operator.GT, "0")
+        val boundaryTs = Instant.parse("2026-05-20T00:52:00Z")
+        val readiness =
+            DataReadinessResult(
+                status = DataReadinessStatus.STALE,
+                reason = "interval-candle-missing",
+                code = "005930",
+                interval = CandleInterval.FIVE_MIN,
+                boundaryTs = boundaryTs,
+                latestIntervalTs = null,
+                latestOneMinTs = null,
+            )
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(strategy(buyAst = buyAst))
+        every { readinessService.check("005930", CandleInterval.FIVE_MIN, boundaryTs) } returns readiness
+        every { readinessService.auditSkip(readiness, listOf(42L)) } just Runs
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval("005930", CandleInterval.FIVE_MIN, boundaryTs.toJavaInstant(), 499)
+        } returns emptyList()
+        every { evaluator.evaluate(42L, buyAst, any()) } returns
+            StrategyEvalResult(
+                signal = StrategySignal.BUY,
+                strength = BigDecimal("0.80"),
+                reason = mapOf("trigger" to "RULE"),
+                evaluatedAt = fixedNow,
+                evalTimeMs = 1L,
+            )
+
+        generator(dataReadinessService = readinessService).onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.FIVE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "160"),
+        )
+
+        // BUY 발화했으나 게이트 억제 → 저장·발행 0
         verify(exactly = 0) { signalRepository.save(any()) }
         verify(exactly = 0) { signalKafkaProducer.publish(any()) }
     }
@@ -505,6 +573,75 @@ class RealtimeSignalGeneratorTest {
     }
 
     @Test
+    fun `ADR 0114 P4 — sell-enabled=false면 장전 boundary도 SELL 청산 평가는 진행, BUY는 억제`() {
+        // KST 08:30 NXT pre-hour — market-hours gate active. sell-enabled=false → SELL 평가 진행, BUY 억제.
+        val buyAst = ast("1", Operator.LT, "0") // BUY HOLD → SELL 경로 진입
+        val sellAst = ast("1", Operator.GT, "0") // SELL 발화
+        val boundaryTs = Instant.parse("2026-05-19T23:30:00Z")
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.ONE_MIN) } returns
+            listOf(strategy(buyAst = buyAst, sellAst = sellAst))
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.ONE_MIN, boundaryTs) } returns true
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval("005930", CandleInterval.ONE_MIN, boundaryTs.toJavaInstant(), 499)
+        } returns emptyList()
+        every { evaluator.evaluate(42L, buyAst, any()) } returns holdResult()
+        every { evaluator.evaluate(42L, sellAst, any()) } returns
+            StrategyEvalResult(
+                signal = StrategySignal.BUY,
+                strength = BigDecimal("0.70"),
+                reason = mapOf("trigger" to "SELL_CONDITION"),
+                evaluatedAt = fixedNow,
+                evalTimeMs = 1L,
+            )
+        val savedSignal = slot<GeneratedSignal>()
+        every { signalRepository.save(capture(savedSignal)) } answers { savedSignal.captured.copy(id = 55L) }
+        every { signalKafkaProducer.publish(any()) } just Runs
+
+        generator(marketHoursSellEnabled = false).onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.ONE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "150"),
+        )
+
+        // SELL 청산 평가 진행 — NXT 시간대에도 손절/익절 평가
+        assertThat(savedSignal.captured.side).isEqualTo(SignalSide.SELL)
+        verify(exactly = 1) { signalKafkaProducer.publish(match { it.side == SignalSide.SELL }) }
+    }
+
+    @Test
+    fun `ADR 0114 P4 — sell-enabled=false라도 장전 BUY 발화는 게이트로 억제(발행 0)`() {
+        val buyAst = ast("1", Operator.GT, "0") // BUY 발화
+        val boundaryTs = Instant.parse("2026-05-19T23:30:00Z")
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.ONE_MIN) } returns
+            listOf(strategy(buyAst = buyAst))
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.ONE_MIN, boundaryTs) } returns true
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval("005930", CandleInterval.ONE_MIN, boundaryTs.toJavaInstant(), 499)
+        } returns emptyList()
+        every { evaluator.evaluate(42L, buyAst, any()) } returns
+            StrategyEvalResult(
+                signal = StrategySignal.BUY,
+                strength = BigDecimal("0.90"),
+                reason = mapOf("trigger" to "RULE"),
+                evaluatedAt = fixedNow,
+                evalTimeMs = 1L,
+            )
+
+        generator(marketHoursSellEnabled = false).onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.ONE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "150"),
+        )
+
+        verify(exactly = 0) { signalRepository.save(any()) }
+        verify(exactly = 0) { signalKafkaProducer.publish(any()) }
+    }
+
+    @Test
     fun `정규장 10시 boundary는 평가를 진행한다`() {
         val buyAst = ast("1", Operator.GT, "0")
         // KST 2026-05-20(수) 10:00 = UTC 2026-05-20T01:00:00Z (정규장)
@@ -621,6 +758,7 @@ class RealtimeSignalGeneratorTest {
         dataReadinessService: DataReadinessService? = null,
         riskPositionPort: RiskPositionPort? = null,
         marketHoursGateEnabled: Boolean = true,
+        marketHoursSellEnabled: Boolean = true,
     ): RealtimeSignalGenerator =
         RealtimeSignalGenerator(
             strategyLookupProvider = providerOf(strategyLookup),
@@ -642,6 +780,7 @@ class RealtimeSignalGeneratorTest {
             businessDayCalendarProvider = providerOf(businessDayCalendar),
             evalLookbackCandles = evalLookbackCandles,
             marketHoursGateEnabled = marketHoursGateEnabled,
+            marketHoursSellEnabled = marketHoursSellEnabled,
             clock = clock,
         )
 

@@ -53,6 +53,10 @@ class StrategyJpaEntity(
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "partial_exits", columnDefinition = "jsonb")
     val partialExits: String? = null,
+    // V72 추가 컬럼 — ADR 0114 진입(BUY) 집행 정책 (raw JSON 보관. EntryPolicySerde로 도메인 round-trip).
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "entry_policy", columnDefinition = "jsonb")
+    val entryPolicy: String? = null,
     @Column(name = "ast_depth", nullable = false)
     val astDepth: Int = 0,
     @Column(name = "node_count", nullable = false)
