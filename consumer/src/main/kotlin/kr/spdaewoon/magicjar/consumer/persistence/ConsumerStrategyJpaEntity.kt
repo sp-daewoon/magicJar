@@ -41,6 +41,9 @@ class ConsumerStrategyJpaEntity(
     val fixedStopLossPct: BigDecimal? = null,
     @Column(name = "take_profit_pct", precision = 9, scale = 4)
     val takeProfitPct: BigDecimal? = null,
+    // V73 추가 컬럼 — 잔익절 방어 B안. 진입 후 N캔들 동안 DSL 매도 무시(손절·익절 무관). null=비활성(현행).
+    @Column(name = "min_hold_bars")
+    val minHoldBars: Int? = null,
     // V72 추가 컬럼 — ADR 0114 진입(BUY) 집행 정책 (raw JSON. BUY 가격 산정 입력 — EntryPolicySerde round-trip).
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "entry_policy", columnDefinition = "jsonb")

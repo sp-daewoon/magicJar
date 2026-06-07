@@ -4,6 +4,7 @@ import kr.spdaewoon.magicjar.api.cache.RedisStrategyCache
 import kr.spdaewoon.magicjar.api.persistence.backtest.BacktestRunJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyJpaRepository
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
+import kr.spdaewoon.magicjar.domain.strategy.MinHoldLimits
 import kr.spdaewoon.magicjar.domain.strategy.PartialExit
 import kr.spdaewoon.magicjar.domain.strategy.ScaleInPlan
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
@@ -111,6 +112,7 @@ class StrategyService(
         takeProfitPct: BigDecimal? = null,
         scaleIn: ScaleInPlan? = null,
         partialExits: List<PartialExit>? = null,
+        minHoldBars: Int? = null,
         requireCodes: Boolean = false,
     ): Strategy {
         val entryComplexity = validateAndComputeComplexity(entryAst)
@@ -118,6 +120,7 @@ class StrategyService(
         val combinedComplexity = mergeComplexity(entryComplexity, exitComplexity)
         val normalizedStopLossPct = normalizeStopLossPct(stopLossPct)
         val normalizedTakeProfitPct = normalizeTakeProfitPct(takeProfitPct)
+        val normalizedMinHoldBars = normalizeMinHoldBars(minHoldBars)
 
         val dsl =
             DslStrategyDefinition(
@@ -138,6 +141,7 @@ class StrategyService(
                 // ADR 0111 scale-in/partial-exit — 도메인 init이 cap·weight 검증(분할매수 R3-a).
                 scaleIn = scaleIn,
                 partialExits = partialExits?.takeIf { it.isNotEmpty() },
+                minHoldBars = normalizedMinHoldBars,
             )
         val normalizedCodes = normalizeCodes(codes, requireCodes)
         val strategy =
@@ -171,6 +175,7 @@ class StrategyService(
         takeProfitPct: BigDecimal? = null,
         scaleIn: ScaleInPlan? = null,
         partialExits: List<PartialExit>? = null,
+        minHoldBars: Int? = null,
         requireCodes: Boolean = false,
     ): Strategy {
         val existing =
@@ -185,6 +190,7 @@ class StrategyService(
         val combinedComplexity = mergeComplexity(entryComplexity, exitComplexity)
         val normalizedStopLossPct = normalizeStopLossPct(stopLossPct)
         val normalizedTakeProfitPct = normalizeTakeProfitPct(takeProfitPct)
+        val normalizedMinHoldBars = normalizeMinHoldBars(minHoldBars)
         val dsl =
             DslStrategyDefinition(
                 name = name,
@@ -207,6 +213,7 @@ class StrategyService(
                         // ADR 0111 scale-in/partial-exit (분할매수 R3-a).
                         scaleIn = scaleIn,
                         partialExits = partialExits?.takeIf { it.isNotEmpty() },
+                        minHoldBars = normalizedMinHoldBars,
                     ),
                 complexity = combinedComplexity,
                 codes = normalizedCodes,
@@ -434,6 +441,52 @@ class StrategyService(
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "stopLossPct는 0보다 커야 합니다")
         }
         return value
+    }
+
+    /**
+     * 잔익절 방어 B안 — minHoldBars 정규화.
+     *
+     * 0 또는 null은 비활성(현행 — DSL 매도 즉시 평가)으로 통일(0 저장 노이즈 회피). 음수·cap 초과는 400.
+     * 도메인 [StrategyDefinition] init([MinHoldLimits])도 동일 검증하지만 사용자 입력 오류를 500이 아닌 400으로
+     * 선노출하기 위해 service 진입에서 명시 검증한다(takeProfitPct·stopLossPct 패턴 정합).
+     */
+    private fun normalizeMinHoldBars(value: Int?): Int? {
+        if (value == null || value == 0) return null
+        if (value < 0) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "minHoldBars는 0 이상이어야 합니다")
+        }
+        if (value > MinHoldLimits.MAX_BARS) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "minHoldBars는 ${MinHoldLimits.MAX_BARS} 이하여야 합니다")
+        }
+        return value
+    }
+
+    companion object {
+        /**
+         * 잔익절 방어 A안 임계 — 익절% ≤ 이 값이면 저장 응답에 경고를 첨부한다(차단 아님).
+         *
+         * 왕복 비용(수수료 0.014%×2 + 매도 거래세·농특세 ~0.15%) ≈ 0.18~0.2%. 익절 목표가 이 수준 이하면
+         * 수수료·세금으로 실현 손익이 음수가 될 수 있어 "잔익절(noise exit)" risk를 사용자에게 알린다.
+         */
+        val LOW_TAKE_PROFIT_WARN_THRESHOLD_PCT: BigDecimal = BigDecimal("0.3")
+    }
+
+    /**
+     * 잔익절 방어 A안 — 저장/수정된 전략의 잔익절 risk 경고 목록(비차단).
+     *
+     * 익절%(takeProfitPct) ≤ [LOW_TAKE_PROFIT_WARN_THRESHOLD_PCT]면 경고 1건을 반환한다. 미설정(null)·임계 초과면 빈 목록.
+     * 컨트롤러가 응답 DTO `warnings` 필드에 실어 전략 빌더가 표시한다(저장은 이미 허용됨).
+     */
+    fun exitNoiseWarnings(strategy: Strategy): List<String> {
+        val tp = strategy.definition.takeProfitPct ?: return emptyList()
+        if (tp <= LOW_TAKE_PROFIT_WARN_THRESHOLD_PCT) {
+            return listOf(
+                "익절 목표 ${tp.toPlainString()}%는 왕복 거래비용(수수료+세금 약 0.2%)에 근접·미만입니다. " +
+                    "이 수준의 익절은 수수료·세금 차감 후 실현 손익이 음수가 될 수 있습니다(잔익절). " +
+                    "익절 목표를 0.3% 초과로 높이거나 minHoldBars(최소 보유 캔들)로 노이즈 매도를 방어하세요.",
+            )
+        }
+        return emptyList()
     }
 
     private data class AstStats(

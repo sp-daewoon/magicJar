@@ -229,6 +229,10 @@ export interface SigStrategyDto {
   stopLossPct?: number | string | null
   /** 보유 포지션 평가 수익률 기준 익절 비율 (%) */
   takeProfitPct?: number | string | null
+  /** 잔익절 방어 B안 — 최소 보유 캔들 수. null=비활성(현행) */
+  minHoldBars?: number | null
+  /** 잔익절 방어 A안 — 저장 경고(비차단). 익절 목표가 왕복 거래비용 근접·미만 시 1건 */
+  warnings?: string[]
   complexity?: StrategyComplexityDto
   /** 분할 매수 설정 (ADR 0111 · null이면 단일 진입) */
   scaleIn?: ScaleInDto | null
@@ -280,6 +284,8 @@ export interface CreateSigStrategyRequest {
   tf?: string
   stopLossPct?: number | string | null
   takeProfitPct?: number | string | null
+  /** 잔익절 방어 B안 — 최소 보유 캔들 수. null·0이면 비활성(현행) */
+  minHoldBars?: number | null
   codes?: string[]
   intervals?: string[]
   buyCondition?: string
@@ -301,6 +307,8 @@ export interface UpdateSigStrategyRequest {
   tf?: string
   stopLossPct?: number | string | null
   takeProfitPct?: number | string | null
+  /** 잔익절 방어 B안 — 최소 보유 캔들 수. null·0이면 비활성(현행) */
+  minHoldBars?: number | null
   codes?: string[]
   intervals?: string[]
   buyCondition?: string
@@ -383,6 +391,8 @@ function toSigStrategyRequestBody(req: CreateSigStrategyRequest | UpdateSigStrat
     tf: req.tf ?? req.intervals?.[0] ?? '1d',
     stopLossPct: req.stopLossPct ?? null,
     takeProfitPct: req.takeProfitPct ?? null,
+    // 잔익절 방어 B안 — null·0이면 키 생략(현행 비활성 하위호환)
+    ...(req.minHoldBars ? { minHoldBars: req.minHoldBars } : {}),
     codes: req.codes ?? [],
     intervals: req.intervals ?? (req.tf ? [req.tf] : []),
     // ADR 0111 — null(미사용)이면 키 생략(현행 단일 진입 + 전량 익절 하위호환)
@@ -446,6 +456,8 @@ function normalizeSigStrategy(raw: SigStrategyBackendDto): SigStrategyDto {
     tf,
     stopLossPct: raw.stopLossPct ?? null,
     takeProfitPct: raw.takeProfitPct ?? null,
+    minHoldBars: raw.minHoldBars ?? null,
+    warnings: Array.isArray(raw.warnings) ? raw.warnings.map((w) => String(w)).filter(Boolean) : [],
     codes,
     codeNames: asCodeNames(raw.codeNames),
     intervals: intervals.length > 0 ? intervals : tf ? [tf] : [],

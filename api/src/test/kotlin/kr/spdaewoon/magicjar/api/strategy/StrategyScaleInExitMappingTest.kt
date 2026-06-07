@@ -27,6 +27,7 @@ class StrategyScaleInExitMappingTest {
         scaleInConfig: String? = null,
         partialExits: String? = null,
         entryPolicy: String? = null,
+        minHoldBars: Int? = null,
     ) = StrategyJpaEntity(
         id = 1L,
         userId = 1L,
@@ -37,6 +38,7 @@ class StrategyScaleInExitMappingTest {
         scaleInConfig = scaleInConfig,
         partialExits = partialExits,
         entryPolicy = entryPolicy,
+        minHoldBars = minHoldBars,
     )
 
     @Test
@@ -158,5 +160,19 @@ class StrategyScaleInExitMappingTest {
         val json = """{"maxEntrySlippagePct":99}"""
         val entryPolicy = StrategyEntityMapper.toDomain(entity(entryPolicy = json), objectMapper).definition.entryPolicy
         assertThat(entryPolicy).isNull()
+    }
+
+    // === 잔익절 방어 B안 — min_hold_bars(V73) round-trip ===
+
+    @Test
+    fun `min_hold_bars 컬럼을 minHoldBars로 매핑한다`() {
+        val strategy = StrategyEntityMapper.toDomain(entity(minHoldBars = 3), objectMapper)
+        assertThat(strategy.definition.minHoldBars).isEqualTo(3)
+    }
+
+    @Test
+    fun `min_hold_bars null이면 현행 비활성 (하위호환 LOCK)`() {
+        val strategy = StrategyEntityMapper.toDomain(entity(), objectMapper)
+        assertThat(strategy.definition.minHoldBars).isNull()
     }
 }
