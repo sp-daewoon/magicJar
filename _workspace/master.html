@@ -70,8 +70,8 @@
   <div class="banner-cards">
     <div class="banner-card release">
       <div class="label">현재 Release</div>
-      <div class="value">v3.11.0</div>
-      <div class="sub">2026-06-03</div>
+      <div class="value">v3.12.0</div>
+      <div class="sub">2026-06-08</div>
     </div>
     <div class="banner-card cycle">
       <div class="label">현재 사이클 단계</div>
@@ -86,7 +86,7 @@
   </div>
   <div class="banner-timeline">
     <div class="label">📍 이번 작업 사이클 timeline</div>
-    <div>Merge pull request #707 from sp-daewoon/chore/v3.1 → docs: add scenario replay enable guide → Merge pull request #708 from sp-daewoon/docs/scena → fix(scenario): default replay in dev and use kst i → Merge pull request #709 from sp-daewoon/fix/scenar → fix(scenario): keep replay gate out of dev profile</div>
+    <div>chore(tasks): entry-optin + account-stampede hotfi</div>
   </div>
 </div>
 
@@ -112,13 +112,13 @@
       <div class="card">
         <div class="card-title">📄 README.md</div>
         <div class="card-sub">🪄 magicJar Master Index</div>
-        <div class="card-meta">545 lines · 갱신 2026-06-03</div>
+        <div class="card-meta">618 lines · 갱신 2026-06-08</div>
       </div>
     
       <div class="card">
         <div class="card-title">📄 CLAUDE.md</div>
         <div class="card-sub">프로젝트: magicJar (마법의항아리)</div>
-        <div class="card-meta">184 lines · 갱신 2026-05-31</div>
+        <div class="card-meta">184 lines · 갱신 2026-06-05</div>
       </div>
     
       <div class="card">
@@ -130,7 +130,7 @@
       <div class="card">
         <div class="card-title">📄 docs/architecture/master-architecture.md</div>
         <div class="card-sub">§1. 시스템 비전 (사용자 정정 2026-05-02 반영)</div>
-        <div class="card-meta">777 lines · 갱신 2026-06-02</div>
+        <div class="card-meta">800 lines · 갱신 2026-06-05</div>
       </div>
     
   </div>
@@ -143,43 +143,92 @@
     <div class="adr-recent">
       
         <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0107</div>
-          <div class="adr-title">Scenario Replay Sandbox (실주문 경로와 분리된 전략 QA 리플레이)</div>
+          <div class="adr-number">0114</div>
+          <div class="adr-title">주문 집행 정책(marketable limit) + 포지션 청산 "항상" 보장</div>
           <div class="adr-meta">Accepted · -</div>
         </div>
       
         <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0106</div>
-          <div class="adr-title">자동매매 BUY 전 손절/익절 RiskPlan 필수화</div>
+          <div class="adr-number">0113</div>
+          <div class="adr-title">캔들 retention 계층화 케이스 분석 (결정 보류)</div>
           <div class="adr-meta">Accepted · -</div>
         </div>
       
         <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0105</div>
-          <div class="adr-title">캔들 Reconciliation + 장기 1m 보관/복구 정책</div>
+          <div class="adr-number">0112</div>
+          <div class="adr-title">AI 종목발굴 Claude CLI bridge + 전략 리서치 후보 탐색</div>
           <div class="adr-meta">Accepted · -</div>
         </div>
       
         <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0104</div>
-          <div class="adr-title">시장 캘린더 이벤트 표면 + KRX 휴장일 배치 게이트</div>
+          <div class="adr-number">0111</div>
+          <div class="adr-title">RiskPlan scale-in / 평단 기준 exit 확장 (ADR 0106 amend)</div>
           <div class="adr-meta">Accepted · -</div>
         </div>
       
         <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0103</div>
-          <div class="adr-title">JpaScanConfiguration 신규 패키지 누락 차단 (장기 fix 옵션 매트릭스 + 채택안 LOCK)</div>
+          <div class="adr-number">0110</div>
+          <div class="adr-title">전략별 포지션 귀속 (`strategy_position` 1급 도메인)</div>
           <div class="adr-meta">Accepted · -</div>
         </div>
       
     </div>
-    <h3>전체 103건 (검색·정렬 가능)</h3>
+    <h3>전체 110건 (검색·정렬 가능)</h3>
     <input class="cat-search" data-cat="C" placeholder="ADR 검색…" />
     <table class="adr-table" data-sortable>
       <thead>
         <tr><th data-sort="number">번호</th><th data-sort="title">제목</th><th data-sort="status">status</th><th data-sort="date">날짜</th></tr>
       </thead>
       <tbody>
+        
+          <tr data-search="114 주문 집행 정책(marketable limit) + 포지션 청산 "항상" 보장 accepted">
+            <td>0114</td>
+            <td><a href="_workspace/arch/adr/0114-order-execution-policy-and-exit-guarantee.md">주문 집행 정책(marketable limit) + 포지션 청산 "항상" 보장</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="113 캔들 retention 계층화 케이스 분석 (결정 보류) accepted">
+            <td>0113</td>
+            <td><a href="_workspace/arch/adr/0113-candle-retention-tiering-cases.md">캔들 retention 계층화 케이스 분석 (결정 보류)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="112 ai 종목발굴 claude cli bridge + 전략 리서치 후보 탐색 accepted">
+            <td>0112</td>
+            <td><a href="_workspace/arch/adr/0112-ai-stock-discovery-claude-cli-bridge.md">AI 종목발굴 Claude CLI bridge + 전략 리서치 후보 탐색</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="111 riskplan scale-in / 평단 기준 exit 확장 (adr 0106 amend) accepted">
+            <td>0111</td>
+            <td><a href="_workspace/arch/adr/0111-riskplan-scale-in-exit.md">RiskPlan scale-in / 평단 기준 exit 확장 (ADR 0106 amend)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="110 전략별 포지션 귀속 (`strategy_position` 1급 도메인) accepted">
+            <td>0110</td>
+            <td><a href="_workspace/arch/adr/0110-strategy-position-ownership.md">전략별 포지션 귀속 (`strategy_position` 1급 도메인)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="109 real canary hard cap env 게이트 accepted">
+            <td>0109</td>
+            <td><a href="_workspace/arch/adr/0109-real-canary-hard-cap-env.md">REAL canary hard cap ENV 게이트</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="108 평가(assessment) 문서 docs/assessments 관리 구조 accepted">
+            <td>0108</td>
+            <td><a href="_workspace/arch/adr/0108-assessment-docs-structure.md">평가(assessment) 문서 docs/assessments 관리 구조</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
         
           <tr data-search="107 scenario replay sandbox (실주문 경로와 분리된 전략 qa 리플레이) accepted">
             <td>0107</td>
@@ -974,13 +1023,13 @@
         <div class="card">
           <div class="card-title">📍 external-api-policy</div>
           <div class="card-sub">- 작성일: TBD - 2026-05-11 갱신: **Yahoo Finance §3 전면 제거** — ADR 0057 (KIS OpenAPI 단일 데이터 출처) 정합. 사용자 명시 "kis에 있는 데이터만 사용하라고…</div>
-          <div class="card-meta">📄 docs/architecture/external-api-policy.md · 갱신 2026-06-02</div>
+          <div class="card-meta">📄 docs/architecture/external-api-policy.md · 갱신 2026-06-05</div>
         </div>
       
         <div class="card">
           <div class="card-title">📍 tracks-roadmap</div>
           <div class="card-sub">> **선행**: `docs/architecture/master-architecture.md` > **작성일**: TBD</div>
-          <div class="card-meta">📄 docs/architecture/tracks-roadmap.md · 갱신 2026-06-02</div>
+          <div class="card-meta">📄 docs/architecture/tracks-roadmap.md · 갱신 2026-06-05</div>
         </div>
       
     </div>
@@ -990,8 +1039,8 @@
   <div class="cat-content" data-cat="H" data-group-content-cat="시계열" data-active="false">
     
     <div class="backlog-filters">
-      <button data-filter="all">전체 75</button>
-      <button data-filter="proposed">Proposed 54</button>
+      <button data-filter="all">전체 78</button>
+      <button data-filter="proposed">Proposed 57</button>
       <button data-filter="recent">최근 3건</button>
       <button data-filter="done">완료 21 (toggle)</button>
     </div>
@@ -1373,6 +1422,21 @@
             <div class="backlog-meta">Proposed</div>
           </div>
         
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="82 2026-06-04 주문내역 dogfooding 결함 3건 (시그널↔주문 전수 대조)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§82. 2026-06-04 주문내역 dogfooding 결함 3건 (시그널↔주문 전수 대조)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="83 gemini 연동 하이브리드 — mcp protocol 승격 + gemini 웹 export 팩 (2026-06-06 신설 · 사용자 a안 결재)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§83. Gemini 연동 하이브리드 — MCP protocol 승격 + Gemini 웹 export 팩 (2026-06-06 신설 · 사용자 A안 결재)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
+          <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="84 dsl 포지션 인지 지표 — 수익률 조건 (2026-06-08 신설 · 사용자 d안 과제 지정)" style="border-left:4px solid #ff9800">
+            <div class="backlog-title">§84. DSL 포지션 인지 지표 — 수익률 조건 (2026-06-08 신설 · 사용자 D안 과제 지정)</div>
+            <div class="backlog-meta">Proposed</div>
+          </div>
+        
     </div>
   
   </div>
@@ -1445,6 +1509,13 @@
         </div>
       
         <div class="card baseline-card">
+          <div class="card-title">📊 v3.12.0</div>
+          <div class="card-files">
+            <a href="_workspace/baseline/v3.12.0/html/01-architecture.html">01-architecture</a> · <a href="_workspace/baseline/v3.12.0/html/02-data-flow.html">02-data-flow</a> · <a href="_workspace/baseline/v3.12.0/html/03-use-sequences.html">03-use-sequences</a> · <a href="_workspace/baseline/v3.12.0/html/04-feature-spec.html">04-feature-spec</a> · <a href="_workspace/baseline/v3.12.0/html/05-ui-inventory.html">05-ui-inventory</a> · <a href="_workspace/baseline/v3.12.0/html/06-history-traceability.html">06-history-traceability</a> · <a href="_workspace/baseline/v3.12.0/html/07-policy-evolution.html">07-policy-evolution</a> · <a href="_workspace/baseline/v3.12.0/html/index.html">index</a>
+          </div>
+        </div>
+      
+        <div class="card baseline-card">
           <div class="card-title">📊 v3.11.0</div>
           <div class="card-files">
             
@@ -1471,7 +1542,7 @@
 
   <div class="cat-content" data-cat="D" data-group-content-cat="권위" data-active="false">
     
-    <h3>최근 spec 10건 / 전체 82건</h3>
+    <h3>최근 spec 10건 / 전체 84건</h3>
     <input class="cat-search" data-cat="D" placeholder="spec 검색…" />
     <div class="spec-list">
       
@@ -1770,6 +1841,16 @@
           <div class="card-meta">📄 _workspace/specs/pr-5-w1-bootstrap-design.md </div>
         </div>
       
+        <div class="card" data-search="2026-06-05-real-canary-spec.md spec — real canary (실계좌 소액 1일 canary) + 코드 가드 갭 매트릭스">
+          <div class="card-title">📄 spec — REAL Canary (실계좌 소액 1일 canary) + 코드 가드 갭 매트릭스</div>
+          <div class="card-meta">📄 _workspace/specs/2026-06-05-real-canary-spec.md · 2026-06-05</div>
+        </div>
+      
+        <div class="card" data-search="2026-06-05-scale-in-exit-ownership-spec.md spec — 분할 매수(scale-in) + 비중 조절 + 익절/손절 청산 + 전략별 포지션 귀속 통합">
+          <div class="card-title">📄 spec — 분할 매수(scale-in) + 비중 조절 + 익절/손절 청산 + 전략별 포지션 귀속 통합</div>
+          <div class="card-meta">📄 _workspace/specs/2026-06-05-scale-in-exit-ownership-spec.md · 2026-06-05</div>
+        </div>
+      
         <div class="card" data-search="2026-06-03-scenario-replay-sandbox-spec.md scenario replay sandbox spec — v3.11.0 이후 t-sim">
           <div class="card-title">📄 Scenario Replay Sandbox Spec — v3.11.0 이후 T-SIM</div>
           <div class="card-meta">📄 _workspace/specs/2026-06-03-scenario-replay-sandbox-spec.md · 2026-06-03</div>
@@ -1908,7 +1989,7 @@
       <div class="card">
         <div class="card-title">📚 prompt-catalog</div>
         <div class="card-sub">§1. 현행 실 프롬프트 (PR #552 cross-validation evidence 정합)</div>
-        <div class="card-meta">155 lines · 갱신 2026-05-24</div>
+        <div class="card-meta">251 lines · 갱신 2026-06-07</div>
       </div>
     
   </div>
@@ -1939,6 +2020,12 @@
     <div class="adr-recent">
       
         <div class="adr-card" style="border-left:3px solid #ff9800">
+          <div class="adr-number">v3.12.0</div>
+          <div class="adr-title">v3.12.0 — v3.12.0 릴리즈</div>
+          <div class="adr-meta">2026-06-08</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #ff9800">
           <div class="adr-number">v3.11.0</div>
           <div class="adr-title">v3.11.0 — Scenario Replay Sandbox baseline</div>
           <div class="adr-meta">2026-06-02</div>
@@ -1962,17 +2049,13 @@
           <div class="adr-meta">2026-05-30</div>
         </div>
       
-        <div class="adr-card" style="border-left:3px solid #ff9800">
-          <div class="adr-number">v3.9.0</div>
-          <div class="adr-title">v3.9.0 — v3.9.0 릴리즈</div>
-          <div class="adr-meta">2026-05-24</div>
-        </div>
-      
     </div>
     <h3>전체 30건</h3>
     <table>
       <thead><tr><th>tag</th><th>날짜</th><th>title</th></tr></thead>
       <tbody>
+        
+          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.12.0">v3.12.0</a></td><td>2026-06-08</td><td>v3.12.0 — v3.12.0 릴리즈</td></tr>
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.11.0">v3.11.0</a></td><td>2026-06-02</td><td>v3.11.0 — Scenario Replay Sandbox baseline</td></tr>
         
@@ -2032,8 +2115,6 @@
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.4.0">v3.4.0</a></td><td>2026-05-12</td><td>v3.4.0 — T-SIG W3 두 번째 트랙 마감 미러스톤 (실시간 시그널 엔진) (orchestrator)</td></tr>
         
-          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.3.1">v3.3.1</a></td><td>2026-05-12</td><td>v3.3.1 — T-BT W3 트랙 마감 (영속 R2 + frontend R3) (orchestrator)</td></tr>
-        
       </tbody>
     </table>
   
@@ -2041,63 +2122,63 @@
 
   <div class="cat-content" data-cat="I" data-group-content-cat="시계열" data-active="false">
     
-    <h3>전체 338건 · status별 분포</h3>
+    <h3>전체 403건 · status별 분포</h3>
     <div class="cat-cards">
       
-        <div class="card"><div class="card-title">DONE</div><div class="card-sub">338건</div></div>
+        <div class="card"><div class="card-title">DONE</div><div class="card-sub">403건</div></div>
       
     </div>
     <h3>최근 10건</h3>
     <div class="spec-list">
       
         <div class="card">
-          <div class="card-title">T-20260601-1615-main.md</div>
-          <div class="card-meta">DONE · orchestrator </div>
+          <div class="card-title">T-20260608-1034-account-balance-single-flight.md</div>
+          <div class="card-meta">DONE · backend-core · PR #808</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260601-1532-riskplan-scalping-and-search.md</div>
-          <div class="card-meta">DONE · orchestrator </div>
+          <div class="card-title">T-20260608-1018-entry-policy-optin-gate.md</div>
+          <div class="card-meta">DONE · backend-core · PR #807</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260601-1500-riskplan-visual-ux.md</div>
-          <div class="card-meta">DONE · orchestrator </div>
+          <div class="card-title">T-20260608-0348-baseline-v3-12-0.md</div>
+          <div class="card-meta">DONE · market-data </div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260601-1439-autotrading-risk-plan-gate.md</div>
-          <div class="card-meta">DONE · orchestrator </div>
-        </div>
-      
-        <div class="card">
-          <div class="card-title">T-20260601-1315-autotrading-risk-plan-gate.md</div>
-          <div class="card-meta">DONE · backend-core </div>
-        </div>
-      
-        <div class="card">
-          <div class="card-title">T-20260601-1306-autotrading-risk-plan-html.md</div>
-          <div class="card-meta">DONE · architect </div>
-        </div>
-      
-        <div class="card">
-          <div class="card-title">T-20260601-1233-strategy-autotrade-conflict-name.md</div>
+          <div class="card-title">T-20260608-0347-baseline-v3-12-0.md</div>
           <div class="card-meta">DONE · frontend </div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260601-1226-alerts-outbox-race.md</div>
+          <div class="card-title">T-20260608-0346-baseline-v3-12-0.md</div>
           <div class="card-meta">DONE · backend-core </div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260601-1218-alerts-risk-readable-dedupe.md</div>
-          <div class="card-meta">DONE · backend-core </div>
+          <div class="card-title">T-20260608-0329-chart-comment-claude-cli.md</div>
+          <div class="card-meta">DONE · ai · PR #799</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260601-1150-main.md</div>
+          <div class="card-title">T-20260608-0310-candidate-library-popup.md</div>
+          <div class="card-meta">DONE · frontend · PR #796</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">T-20260608-0216-builder-ai-generate-ui.md</div>
           <div class="card-meta">DONE · frontend </div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">T-20260608-0200-builder-strategy-generate.md</div>
+          <div class="card-meta">DONE · ai · PR #793</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">T-20260608-0132-research-candidates-db.md</div>
+          <div class="card-meta">DONE · strategy · PR #792</div>
         </div>
       
     </div>
