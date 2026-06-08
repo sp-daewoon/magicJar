@@ -1,8 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.risk
 
-import kr.spdaewoon.magicjar.consumer.order.AutoOrderIdempotencyKeys
+import kr.spdaewoon.magicjar.consumer.order.AutoExitReservations.isCancellableAutoExit
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
-import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
 import kr.spdaewoon.magicjar.domain.risk.RiskContext
 import kr.spdaewoon.magicjar.domain.risk.RiskGatewayResult
 import kr.spdaewoon.magicjar.domain.risk.RiskRule
@@ -329,15 +328,6 @@ class RiskGatewayEvaluator {
             .filterNot { it.isCancellableAutoExit(signal.strategyId) }
             .sumOf { it.quantity }
     }
-
-    /** 같은 전략 AUTO 자가 관리 청산 선주문(auto-tp/auto-sl) — 발행 직전 우리가 취소하므로 예약 수량 제외 대상. */
-    private fun kr.spdaewoon.magicjar.domain.order.execution.OrderRequest.isCancellableAutoExit(signalStrategyId: Long): Boolean =
-        source == OrderSource.AUTO &&
-            strategyId == signalStrategyId &&
-            (
-                idempotencyKey.startsWith("${AutoOrderIdempotencyKeys.PREFIX_TAKE_PROFIT}:") ||
-                    idempotencyKey.startsWith("${AutoOrderIdempotencyKeys.PREFIX_STOP_LOSS}:")
-            )
 
     private data class PositionBudget(
         val absoluteLimit: BigDecimal,

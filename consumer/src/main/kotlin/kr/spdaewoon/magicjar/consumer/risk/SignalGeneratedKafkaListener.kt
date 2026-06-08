@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.consumer.risk
 import com.fasterxml.jackson.databind.ObjectMapper
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import kr.spdaewoon.magicjar.consumer.order.AutoExitReservations
 import kr.spdaewoon.magicjar.consumer.order.AutoOrderIdempotencyKeys
 import kr.spdaewoon.magicjar.consumer.order.KisExecutionBackfillService
 import kr.spdaewoon.magicjar.consumer.order.RestingSellOrderCanceller
@@ -201,7 +202,7 @@ class SignalGeneratedKafkaListener(
             return
         }
 
-        val sellableBlocked = ensureKisHoldingIfSell(signal, quantity)
+        val sellableBlocked = ensureKisHoldingIfSell(signal, quantity, context)
         if (sellableBlocked != null) {
             handleBlocked(signal, sellableBlocked)
             return
@@ -452,14 +453,33 @@ class SignalGeneratedKafkaListener(
         }
     }
 
+    /**
+     * KIS 총보유 기준 매도 가용 수량 가드 (자본 path hotfix #789 후속 — auto-tp 예약 인지).
+     *
+     * ## 결함 (이 hotfix가 닫는 것)
+     * KIS 국내주식은 미체결 SELL 선주문이 보유 수량을 잠근다. [kr.spdaewoon.magicjar.consumer.order.AutoExitOrderCoordinator]가
+     * BUY 체결 즉시 건 `auto-tp:` 익절 LIMIT 선주문이 보유 전량을 예약하면 KIS 매도가능수량=0 → DSL 매도 시그널이
+     * 매분 `SELL_QUANTITY_UNAVAILABLE`로 차단(플러딩)됐다. 하지만 그 익절 선주문은 [publishSell]의
+     * [RestingSellOrderCanceller]가 발행 **직전** 선취소해 풀어주므로, 가드가 미리 막으면 취소 로직에 도달조차 못 한다.
+     *
+     * ## 보정 (#789 [RiskGatewayEvaluator.reservedSellQuantity]와 동일 출처 [AutoExitReservations] 재사용)
+     * KIS 스냅샷 보유 수량([AccountHolding.quantity] = KIS `hldg_qty` 총보유)에서 **취소 불가(수동/타전략) open SELL만**
+     * 차감한다. 우리가 선취소할 `auto-tp:`/`auto-sl:` 같은 전략 AUTO 예약은 차감 0(곧 풀려날 분이므로 가용으로 본다).
+     * 판정: `총보유 - 수동·타전략예약 >= requestedQuantity` 이면 ALLOW.
+     *
+     * - 수동(MANUAL)/타전략 SELL 예약 → 그대로 차단 유지(침범 금지).
+     * - 진짜 보유 부족(총보유 < 요청) → 정상 차단 유지.
+     * - 조회 실패(rate limit 등) → fail-closed 보류(본 hotfix 범위 외 — 빈도는 #808 stampede 완화로 별개 추적).
+     */
     private fun ensureKisHoldingIfSell(
         signal: Signal,
         requestedQuantity: Int,
+        context: RiskContext,
     ): RiskGatewayResult.Blocked? {
         if (signal.side != SignalSide.SELL) return null
         val port =
             kisBalanceQueryPortProvider.getIfAvailable()
-                ?: return kisSellQuantityBlocked(signal, requestedQuantity, 0, "KIS_BALANCE_LOOKUP_UNAVAILABLE")
+                ?: return kisSellQuantityBlocked(signal, requestedQuantity, 0, 0, "KIS_BALANCE_LOOKUP_UNAVAILABLE")
         val accountType = RuntimeModeParser.accountTypeOrMock(magicjarMode)
         val snapshot =
             try {
@@ -470,15 +490,26 @@ class SignalGeneratedKafkaListener(
                     signal = signal,
                     requestedQuantity = requestedQuantity,
                     kisHoldingQty = 0,
+                    foreignReservedSellQty = 0,
                     reasonCode = "KIS_BALANCE_LOOKUP_FAILED:${e.message ?: "UNKNOWN"}",
                 )
             }
+        // KIS `hldg_qty` = 총보유(주문가능수량 아님). 우리가 선취소할 auto-tp/auto-sl은 가용으로 보고,
+        // 수동/타전략 open SELL 예약분만 총보유에서 차감 — #789 reservedSellQuantity와 동일 출처(AutoExitReservations).
         val kisHoldingQty = snapshot.holdings.firstOrNull { it.code == signal.code }?.quantity ?: 0
-        if (kisHoldingQty < requestedQuantity) {
+        val foreignReservedSellQty =
+            AutoExitReservations.foreignReservedSellQuantity(
+                openOrders = context.openOrders,
+                code = signal.code,
+                strategyId = signal.strategyId,
+            )
+        val availableSellQty = (kisHoldingQty - foreignReservedSellQty).coerceAtLeast(0)
+        if (availableSellQty < requestedQuantity) {
             return kisSellQuantityBlocked(
                 signal = signal,
                 requestedQuantity = requestedQuantity,
                 kisHoldingQty = kisHoldingQty,
+                foreignReservedSellQty = foreignReservedSellQty,
                 reasonCode = "KIS_HOLDING_QTY_INSUFFICIENT",
             )
         }
@@ -489,6 +520,7 @@ class SignalGeneratedKafkaListener(
         signal: Signal,
         requestedQuantity: Int,
         kisHoldingQty: Int,
+        foreignReservedSellQty: Int,
         reasonCode: String,
     ): RiskGatewayResult.Blocked =
         RiskGatewayResult.Blocked(
@@ -502,6 +534,8 @@ class SignalGeneratedKafkaListener(
                     "side" to signal.side.name,
                     "requestedQty" to requestedQuantity,
                     "kisHoldingQty" to kisHoldingQty,
+                    "foreignReservedSellQty" to foreignReservedSellQty,
+                    "availableSellQty" to (kisHoldingQty - foreignReservedSellQty).coerceAtLeast(0),
                     "accountType" to RuntimeModeParser.accountTypeOrMock(magicjarMode).name,
                     "reasonCode" to reasonCode,
                 ),
