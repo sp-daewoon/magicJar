@@ -177,16 +177,21 @@ magicjar:
     localhost-only: ${MAGICJAR_MCP_LOCALHOST_ONLY:true}
     client-id: ${MAGICJAR_MCP_CLIENT_ID:default-client}
 
-  # P1-4 Bucket4j-Redis KIS Rate Limit (ADR 0037 + spec PR #564 §2-1 옵션 A LOCK)
+  # P1-4 Bucket4j-Redis KIS Rate Limit (ADR 0037 → ADR 0116 Phase 2 priority별 별도 버킷 3-tier)
   # KIS 공식 한도: 초당 10건 (계정·앱키당, EGW00201/HTTP 429 위반 시)
-  # multi-JVM(api·batch·consumer) 단일 bucket share. interval refill로 burst를 완화한다.
+  # multi-JVM(api·batch·consumer) 버킷 share. interval refill로 burst를 완화한다.
   kis:
     rate-limiter:
       enabled: ${MAGICJAR_KIS_RATE_LIMIT_ENABLED:true}
       bucket-capacity: ${MAGICJAR_KIS_RATE_LIMIT_BURST:10}        # rollback: 12·15 임시 ↑ 가능 (KIS 차단 risk 동반)
       bucket-refill-tokens: 10
-      # USER_PATH(주문 hashkey·order-cash·order-rvsecncl + 현재가·차트·잔고) 전용 예약 토큰 (ADR 0112 의제).
-      # shared pool = bucket-capacity − 이 값 (비주문). 0 시 단일 bucket 회귀(rollback).
+      # ADR 0116 §2-B priority별 별도 버킷 (USER 4 / SHARED 3 / BG 3 = 합 10). 합 ≠ capacity면 단일 bucket fallback.
+      # false 시 단일 :global 버킷(capacity) 회귀 (Phase 1 안전 최소 — rollback).
+      priority-buckets-enabled: ${MAGICJAR_KIS_PRIORITY_BUCKETS_ENABLED:true}
+      bucket-user: ${MAGICJAR_KIS_BUCKET_USER:4}       # USER_PATH 1차 (주문·현재가·차트·잔고)
+      bucket-shared: ${MAGICJAR_KIS_BUCKET_SHARED:3}   # INGESTION 1차 (watchlist·approval) + USER_PATH fallback
+      bucket-bg: ${MAGICJAR_KIS_BUCKET_BG:3}           # BACKFILL·INGESTION_LOW 1차 (캔들 backfill·지수/섹터 cron)
+      # deprecated (ADR 0116 — priority-buckets-enabled로 일반화). 하위호환 바인딩 보존.
       user-path-reserve-tokens: ${MAGICJAR_KIS_USER_PATH_RESERVE:3}
       bucket-refill-period-seconds: 1
       bucket-key: kis-rate-limit:global

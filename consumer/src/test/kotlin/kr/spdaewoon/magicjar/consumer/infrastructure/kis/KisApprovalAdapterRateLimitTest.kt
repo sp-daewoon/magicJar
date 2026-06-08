@@ -18,7 +18,7 @@ import reactor.core.publisher.Mono
 import java.time.Duration
 
 /**
- * KisApprovalAdapter rate limiter 합류 회귀 (ADR 0112 의제 — 2026-06-05).
+ * KisApprovalAdapter rate limiter 합류 회귀 (ADR 0116 — 2026-06-05 orphan 정식화).
  *
  * 검증: cache miss → 분산락 획득 → KIS /oauth2/Approval 호출 직전 [KisRateLimiterPort.acquire] (INGESTION) 1회.
  *

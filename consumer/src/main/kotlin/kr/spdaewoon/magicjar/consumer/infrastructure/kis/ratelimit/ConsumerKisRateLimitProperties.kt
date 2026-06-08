@@ -3,20 +3,22 @@ package kr.spdaewoon.magicjar.consumer.infrastructure.kis.ratelimit
 import org.springframework.boot.context.properties.ConfigurationProperties
 
 /**
- * KIS Rate Limit 설정 (consumer 모듈 Bean — spec PR #564 §2-3 옵션 a 정합).
+ * KIS Rate Limit 설정 (consumer 모듈 Bean — ADR 0116 Phase 2 3-tier · api·batch Properties 1:1).
  *
- * 기본값 LOCK (ADR 0037 §1 KIS 공식 한도 — 초당 10건):
+ * 기본값 LOCK (ADR 0037 §1 KIS 공식 한도 — 초당 10건 · ADR 0116 단일 bucket supersede):
  *   - bucketCapacity=10
  *   - bucketRefillTokens=10
  *   - bucketRefillPeriodSeconds=1
- *   - bucketKey="kis-rate-limit:global" (★ api 모듈 KisRateLimitProperties와 동일 LOCK — Redis-level share)
+ *   - bucketKey="kis-rate-limit:global" (★ api·batch 모듈과 동일 LOCK — Redis-level share)
  *
- * Phase 2 옵션 a 정합 (spec §2-3):
- *   - api 모듈 [KisRateLimitProperties] + consumer 모듈 본 Properties 동일 prefix·동일 bucketKey LOCK
- *   - multi-JVM 단일 bucket share = Bucket4j Lettuce backend Redis 단일 ZSET 키 share (api·consumer ApplicationContext 분리 정합)
- *   - 단일 source-of-truth = `magicjar.kis.rate-limiter.*` env keys (api·consumer 동일 application.yml prefix 강제)
+ * Phase 2 priority별 별도 버킷 (ADR 0116 §2-B):
+ *   - api·batch + 본 consumer Properties 동일 prefix·동일 bucketKey·동일 capacity LOCK
+ *   - multi-JVM 버킷 share = Bucket4j Lettuce backend Redis ZSET 키(:user·:shared·:bg) share
+ *   - consumer는 본주문(KisOrderHttpAdapter USER_PATH)이 흐르는 핵심 경로 — USER 버킷 보호 직접 수혜
+ *   - 단일 source-of-truth = `magicjar.kis.rate-limiter.*` env keys (api·consumer 동일 prefix 강제)
  *
- * env override (rollback path — spec §7 정합):
+ * env override (rollback path — ADR 0116 §5-2 정합):
+ *   - MAGICJAR_KIS_PRIORITY_BUCKETS_ENABLED=false → 단일 bucket(capacity 10) 회귀
  *   - MAGICJAR_KIS_RATE_LIMIT_BURST=15 → bucketCapacity=15 (KIS 차단 risk 동반 — 사용자 알림 의무)
  */
 @ConfigurationProperties(prefix = "magicjar.kis.rate-limiter")
@@ -27,8 +29,8 @@ data class ConsumerKisRateLimitProperties(
      */
     val enabled: Boolean = true,
     /**
-     * 단일 bucket 토큰 capacity (KIS 공식 한도 = 10).
-     * 11번째 호출은 1초 윈도 내 timeout.
+     * 전체 bucket 토큰 capacity (KIS 공식 한도 = 10).
+     * priorityBucketsEnabled=false 시 이 capacity의 단일 :global 버킷으로 회귀.
      */
     val bucketCapacity: Long = 10L,
     /**
@@ -36,18 +38,23 @@ data class ConsumerKisRateLimitProperties(
      */
     val bucketRefillTokens: Long = 10L,
     /**
-     * USER_PATH 전용 예약 토큰 수 (ADR 0112 의제 — 주문 path 우선권 보호).
-     *
-     * ★ api·batch Properties와 동일 default·동일 의미 LOCK (multi-JVM 동일 Redis bucket 분할 정합).
-     *
-     * 차등 라우팅:
-     *   - shared pool = bucketCapacity - userPathReserveTokens (비주문: INGESTION·BACKFILL·INGESTION_LOW)
-     *   - reserve pool = userPathReserveTokens (USER_PATH 전용 — shared 소진 시 fallback)
-     *   - 총합 = bucketCapacity (KIS 초당 한도 미초과)
-     *
-     * consumer 모듈은 주문 본주문(KisOrderHttpAdapter USER_PATH)이 흐르는 핵심 경로 — reserve 보호 직접 수혜.
-     * 0 설정 시 단일 bucket 회귀 (rollback path).
+     * priority별 별도 버킷(3-tier) 활성 스위치 (ADR 0116 §2-B · default true).
+     * ★ api·batch Properties와 동일 default LOCK (multi-JVM 동일 Redis 버킷 정합).
      */
+    val priorityBucketsEnabled: Boolean = true,
+    /** USER 버킷 capacity — USER_PATH 1차 (본주문·현재가·잔고). 합 검증: user+shared+bg=bucketCapacity. */
+    val bucketUser: Long = 4L,
+    /** SHARED 버킷 capacity — INGESTION 1차 (approval·watchlist). USER_PATH fallback 2단. */
+    val bucketShared: Long = 3L,
+    /** BG 버킷 capacity — BACKFILL·INGESTION_LOW 1차. USER_PATH·INGESTION fallback 말단. */
+    val bucketBg: Long = 3L,
+    /**
+     * USER_PATH 전용 예약 토큰 수 — **deprecated (ADR 0116 §4 — priorityBucketsEnabled로 일반화)**.
+     *
+     * Phase 1.5 2-bucket reserve 잔재. priorityBucketsEnabled=true(default)면 미사용.
+     * 하위호환 ConfigurationProperties 바인딩 유지를 위해 보존.
+     */
+    @Deprecated("ADR 0116 — priorityBucketsEnabled로 일반화. 미사용(바인딩 호환 보존)")
     val userPathReserveTokens: Long = 3L,
     /**
      * refill 윈도 초 (KIS 한도 = 1초).

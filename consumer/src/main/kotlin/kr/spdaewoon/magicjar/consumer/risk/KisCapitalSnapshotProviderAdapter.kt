@@ -1,137 +1,79 @@
 package kr.spdaewoon.magicjar.consumer.risk
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.kotlin.readValue
-import kr.spdaewoon.magicjar.domain.account.KisAccountBalance
 import kr.spdaewoon.magicjar.domain.account.port.KisBalanceQueryPort
 import kr.spdaewoon.magicjar.domain.risk.port.CapitalSnapshotProvider
 import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
-import java.time.Duration
 
 /**
- * KIS 잔고 기반 [CapitalSnapshotProvider] 실제 어댑터 — T-ACCT Phase 3 (ADR 0081 §2-5 + ADR 0067 §7-1).
+ * KIS 잔고 기반 [CapitalSnapshotProvider] 실제 어댑터 — 주문경로 자본 산정 (ADR 0081 §2-5 + ADR 0116 R1-3).
  *
- * ### 책임
- * 1차로 Redis cache `account:balance:{userId}:{REAL|MOCK}` 를 읽고,
- * cache miss 시 consumer의 [KisBalanceQueryPort] 구현으로 KIS 잔고를 1회 조회해 cache를 보강한다.
- * 이후 `KisAccountBalance.balance.netAssetValue` (순자산금액 = `nass_amt`) 추출 → BigDecimal 반환.
+ * ### 책임 — 주문경로 전용 fresh 조회 (ADR 0116 R1-3 자본캐시 제거)
+ * 본 provider의 유일한 호출처는 [SignalGeneratedKafkaListener.buildContext]의 `currentCapital` —
+ * **주문 수량/한도(POSITION_LIMIT 예산·DAILY_LOSS_LIMIT) 산정 경로**다. stale 잔고는 오버주문 위험이므로
+ * (사용자 지시 — 주문 관련 캐시 제거) Redis cache를 **우회하고 KIS [KisBalanceQueryPort]로 직접 조회**한다.
+ * `KisAccountBalance.balance.netAssetValue` (순자산금액 = `nass_amt`) 추출 → BigDecimal 반환.
+ *
+ * ### 캐시 제거 근거 (ADR 0116 R1-3)
+ * - **이전**: Redis cache `account:balance:{userId}:{REAL|MOCK}` 우선 read (TTL 60s) → miss 시 KIS fallback + cache write.
+ *   주문 직전 자본이 최대 60s stale → 직전 체결로 줄어든 현금을 모르고 오버주문 risk.
+ * - **변경**: cache read/write **0** — 매 주문 평가마다 KIS fresh 조회. 표시용 캐시([AccountQueryService])와 완전 분리.
+ * - **KIS 부하 보호**: 직접 조회는 [KisBalanceQueryPort] 구현([ConsumerKisBalanceQueryAdapter])이 **USER_PATH priority**로
+ *   rate limiter acquire → ADR 0116 §2-B의 USER 버킷(4)이 주문경로 자본조회를 보호 (BG burst에 안 굶음).
  *
  * ### 모듈 경계 정합 (ADR 0004 LOCK)
- * - consumer → domain (`CapitalSnapshotProvider` port + `KisAccountBalance` domain) ✅
- * - consumer → api 의존 0 LOCK ✅ — Redis 직접 access (cache key 양 모듈 공유)
- * - api `AccountQueryService.fetchOrLoad` 가 cache write (`account:balance:{userId}:{accountType}` TTL 10s)
- * - consumer 본 어댑터도 동일 key를 읽고, miss 시 domain port [KisBalanceQueryPort] 로 cache를 보강
+ * - consumer → domain (`CapitalSnapshotProvider` port + `KisBalanceQueryPort` port) ✅
+ * - consumer → api 의존 0 LOCK ✅
  *
- * ### Cache key 매트릭스
- * | 모듈 | 동작 | 위치 |
- * |---|---|---|
- * | api  | write (TTL 10s) | `AccountQueryService.CACHE_KEY_PREFIX = "account:balance"` |
- * | consumer | read + fallback write | 본 어댑터 |
+ * ### 표시용 캐시 분리 (ADR 0116 R1-3)
+ * api `AccountQueryService`(표시용 — `/balance`·`/positions`·`/summary`)는 **캐시 유지** (TTL 10s).
+ * 본 주문경로 provider만 캐시 우회. 두 경로의 신선도 요구가 다름 (표시=즉시성 OK / 주문=오버주문 방지 fresh 필수).
  *
- * cache key prefix는 코드 중복 회피 위해 string literal — api 모듈 의존 회피 (ADR 0004 LOCK).
- * key prefix 변경 시 양 모듈 동시 갱신 의무 (운영 룰).
+ * ### fail-safe 정책 (ADR 0081 §2-5 + 자본 보호 LOCK — 보존)
+ * KIS 직접 조회 실패 케이스는 `BigDecimal.ZERO` 반환 → POSITION_LIMIT 룰 동작:
+ * 1. **fallback bean 부재** → 0 반환
+ * 2. **KIS 조회 실패** (rate limit·upstream·credential) → 0 반환 (graceful)
  *
- * ### fail-safe 정책 (ADR 0081 §2-5 + 자본 보호 LOCK)
- * fallback 까지 실패한 결함 케이스는 `BigDecimal.ZERO` 반환 — POSITION_LIMIT 룰 동작:
- *
- * 1. **cache miss + fallback bean 부재/실패** → 0 반환
- * 2. **Redis exception** (connection 실패 등) → 0 반환 (graceful)
- * 3. **JSON 역직렬화 실패** (cache 오염) → 0 반환 (graceful)
- *
- * **자본 보호 evidence** (RiskGatewayEvaluator L146-179 검증):
+ * **자본 보호 evidence** (RiskGatewayEvaluator 검증):
  * - `currentCapital == 0` → `percentBudget = 0` → `budget = min(absoluteLimit, 0) = 0`
  * - 모든 BUY signal `unitCost > 0 > budget = 0` → POSITION_LIMIT BLOCKED
- * - 결과: cache 결함 시 모든 매수 차단 — 자본 보호 fail-safe 정합 ✅
+ * - 결과: 자본 조회 결함 시 모든 매수 차단 — 자본 보호 fail-safe 정합 ✅ (캐시 제거로도 불변)
  *
  * **revert graceful 정합** (ADR 0067 §7-1):
  * - default no-op bean (`CapitalSnapshotProviderAdapter.defaultCapitalSnapshotProvider`)이
  *   `@ConditionalOnMissingBean(CapitalSnapshotProvider::class)` 보유 → 본 `@Component` 등록 시 자동 비활성
- * - 본 어댑터 revert 시 default 자동 fallback 복귀 (자본 영향 0)
- *
- * ### KIS endpoint 호출 정책 (ADR 0037 정합)
- * 정상 경로는 Redis cache hit로 KIS 호출 0건. cache miss 때만 `inquire-balance` 1건으로 자본을 복구한다.
  *
  * ### mock 합성 0 LOCK (feedback_no_mock_data)
- * fallback 실패 시 0 반환 — fixture 합성 0. 명시적 자본 보호.
+ * 조회 실패 시 0 반환 — fixture 합성 0. 명시적 자본 보호.
  *
  * ### AI 호출 0 LOCK (룰 5 + ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8)
  * LLM provider import 0 — 룰 기반 자본 조회 전용.
- *
- * spec 인용: ADR 0081 §2-5 KisCapitalSnapshotProviderAdapter + ADR 0067 §7-1 CapitalSnapshotProvider.
  */
 @Component
 class KisCapitalSnapshotProviderAdapter(
-    private val redisTemplate: StringRedisTemplate,
-    private val objectMapper: ObjectMapper,
     private val balanceQueryPortProvider: ObjectProvider<KisBalanceQueryPort>? = null,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String = "MOCK",
-    @Value("\${magicjar.risk.capital-cache-ttl-seconds:60}")
-    private val capitalCacheTtlSeconds: Long = 60,
 ) : CapitalSnapshotProvider {
     private val log = LoggerFactory.getLogger(KisCapitalSnapshotProviderAdapter::class.java)
 
     /**
-     * 사용자 자본 (순자산금액) 조회 — Redis cache 우선, miss 시 KIS fallback.
+     * 사용자 자본 (순자산금액) 조회 — KIS 직접 fresh 조회 (캐시 우회 · ADR 0116 R1-3).
+     *
+     * 주문경로 전용 — stale 잔고 오버주문 방지 위해 매 평가마다 KIS 조회.
+     * KIS 호출은 [KisBalanceQueryPort] 구현이 USER_PATH priority로 acquire (USER 버킷 보호).
      *
      * @return `KisAccountBalance.balance.netAssetValue` 또는 fail-safe `BigDecimal.ZERO`
      */
     override fun getCapital(userId: String): BigDecimal {
-        val cacheKey = cacheKeyOf(userId)
-
-        val cached =
-            try {
-                redisTemplate.opsForValue().get(cacheKey)
-            } catch (e: Exception) {
-                log.warn(
-                    "KisCapitalSnapshotProvider Redis 조회 실패 — fail-safe 0 (userId={} err={})",
-                    maskUserId(userId),
-                    e.message,
-                )
-                return BigDecimal.ZERO
-            }
-
-        if (cached == null) {
-            log.debug(
-                "KisCapitalSnapshotProvider cache MISS — KIS fallback 시도 (userId={})",
-                maskUserId(userId),
-            )
-            return fetchAndCache(userId, cacheKey)
-        }
-
-        return try {
-            val snapshot: KisAccountBalance = objectMapper.readValue(cached)
-            val netAsset = snapshot.balance.netAssetValue
-            log.debug(
-                "KisCapitalSnapshotProvider cache HIT — netAsset={} (userId={})",
-                netAsset,
-                maskUserId(userId),
-            )
-            netAsset
-        } catch (e: Exception) {
-            log.warn(
-                "KisCapitalSnapshotProvider JSON 역직렬화 실패 — fail-safe 0 (userId={} err={})",
-                maskUserId(userId),
-                e.message,
-            )
-            BigDecimal.ZERO
-        }
-    }
-
-    private fun fetchAndCache(
-        userId: String,
-        cacheKey: String,
-    ): BigDecimal {
         val port = balanceQueryPortProvider?.getIfAvailable()
         if (port == null) {
             log.warn(
-                "KisCapitalSnapshotProvider KIS fallback bean 부재 — fail-safe 0 (userId={})",
+                "KisCapitalSnapshotProvider KIS 조회 bean 부재 — fail-safe 0 (userId={})",
                 maskUserId(userId),
             )
             return BigDecimal.ZERO
@@ -139,11 +81,11 @@ class KisCapitalSnapshotProviderAdapter(
 
         val accountType = RuntimeModeParser.accountTypeOrMock(magicjarMode)
         return try {
+            // 캐시 우회 — 주문 수량/한도 산정에 stale 잔고 금지 (ADR 0116 R1-3). USER_PATH acquire는 port 구현이 보장.
             val snapshot = port.fetchFullBalance(userId, accountType)
-            cacheSnapshot(cacheKey, snapshot)
             val netAsset = snapshot.balance.netAssetValue
             log.info(
-                "KisCapitalSnapshotProvider KIS fallback HIT — netAsset={} (userId={} type={})",
+                "KisCapitalSnapshotProvider KIS fresh 조회 — netAsset={} (userId={} type={}, 캐시 우회 — 주문경로)",
                 netAsset,
                 maskUserId(userId),
                 accountType.name,
@@ -151,7 +93,7 @@ class KisCapitalSnapshotProviderAdapter(
             netAsset
         } catch (e: Exception) {
             log.warn(
-                "KisCapitalSnapshotProvider KIS fallback 실패 — fail-safe 0 (userId={} err={})",
+                "KisCapitalSnapshotProvider KIS 직접 조회 실패 — fail-safe 0 (userId={} err={})",
                 maskUserId(userId),
                 e.message,
             )
@@ -159,29 +101,5 @@ class KisCapitalSnapshotProviderAdapter(
         }
     }
 
-    private fun cacheSnapshot(
-        cacheKey: String,
-        snapshot: KisAccountBalance,
-    ) {
-        runCatching {
-            val ttl = Duration.ofSeconds(capitalCacheTtlSeconds.coerceAtLeast(1))
-            redisTemplate.opsForValue().set(cacheKey, objectMapper.writeValueAsString(snapshot), ttl)
-        }.onFailure { e ->
-            log.warn("KisCapitalSnapshotProvider cache write 실패: key={} err={}", cacheKey, e.message)
-        }
-    }
-
-    private fun cacheKeyOf(userId: String): String = "$CACHE_KEY_PREFIX:$userId:${RuntimeModeParser.accountTypeOrMock(magicjarMode).name}"
-
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"
-
-    companion object {
-        /**
-         * Redis cache key prefix — api `AccountQueryService.CACHE_KEY_PREFIX` 와 동일.
-         *
-         * 모듈 경계 LOCK (ADR 0004): consumer → api 의존 회피 위해 string literal 중복 보유.
-         * 변경 시 양 모듈 동시 갱신 의무 (운영 룰 — ADR 0081 §2-5).
-         */
-        const val CACHE_KEY_PREFIX = "account:balance"
-    }
 }

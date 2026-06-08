@@ -17,29 +17,32 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * consumer 모듈 KIS Rate Limit Bucket4j-Redis 단일 bucket adapter (spec PR #564 §2-3 옵션 a 정합).
+ * consumer 모듈 KIS Rate Limit Bucket4j-Redis 3-tier priority 버킷 adapter (ADR 0116 §2-B Phase 2).
  *
  * 정합 ADR:
- *   - ADR 0037 — Rate Limit 강제 (본 adapter가 §2-1 메커니즘 권위)
- *   - ADR 0038 — Redis 인프라 재사용 (multi-JVM 단일 bucket share)
+ *   - ADR 0037 — Rate Limit 강제 (ADR 0116이 단일 bucket → 3-tier supersede)
+ *   - ADR 0038 — Redis 인프라 재사용 (multi-JVM 버킷 share)
+ *   - ADR 0116 — priority별 별도 버킷(3-tier) + 역방향 fallback
  *
- * 책임 (api 모듈 RedisKisRateLimiterAdapter와 동일 알고리즘 — 옵션 a 정합):
- *   - Bucket4j 8.10.1 + Lettuce Redis backend로 단일 글로벌 bucket 발행 (api 모듈 Bean과 동일 bucketKey LOCK)
+ * 책임 (api·batch 모듈 RedisKisRateLimiterAdapter와 동일 알고리즘):
+ *   - Bucket4j 8.10.1 + Lettuce Redis backend로 priority별 버킷 발행 (api·batch와 동일 bucketKey LOCK)
  *   - `acquire(priority, timeoutMillis)` blocking polling 패턴 (tryConsume non-blocking + short sleep retry)
  *   - EGW00201/HTTP 429 시그널 누적 (Phase 1 log 카운터만 — Phase 3 Circuit Breaker 합류 후속)
  *
- * priority 차등 라우팅 (ADR 0112 의제 — 2026-06-05 주문 path 보호, api 모듈 RedisKisRateLimiterAdapter 동일):
- *   - shared bucket (capacity = bucketCapacity - userPathReserveTokens): 모든 priority 1차 소비
- *   - reserve bucket (capacity = userPathReserveTokens): USER_PATH 전용 fallback (shared 소진 시)
- *   - consumer 모듈은 본주문(KisOrderHttpAdapter USER_PATH)이 흐르는 핵심 경로 — reserve 직접 수혜
- *   - 두 bucket 합 = bucketCapacity (KIS 초당 한도 미초과). userPathReserveTokens=0 시 단일 bucket 회귀.
+ * priority별 별도 버킷 (3-tier · ADR 0116 §2-B · api·batch 동일):
+ *   - USER 버킷(capacity=bucketUser=4): USER_PATH 1차 — 본주문·현재가·잔고
+ *   - SHARED 버킷(capacity=bucketShared=3): INGESTION 1차 — approval·watchlist
+ *   - BG 버킷(capacity=bucketBg=3): BACKFILL·INGESTION_LOW 1차
+ *   - 역방향 fallback: USER_PATH→[user,shared,bg]·INGESTION→[shared,bg]·BG→[bg]
+ *   - consumer 모듈은 본주문(KisOrderHttpAdapter USER_PATH)이 흐르는 핵심 경로 — USER 버킷 직접 수혜
+ *   - 합 = bucketCapacity (KIS 초당 한도 미초과). priorityBucketsEnabled=false 시 단일 bucket 회귀.
  *
  * Circuit Breaker LOCK:
  *   - Circuit Breaker OPEN 차단 미구현 (Phase 3 후속)
  *
  * 자본 영향:
  *   - 본 adapter 발행만으로 직접 자본 영향 0 (caller adapter가 `acquire()` 미호출 시 우회)
- *   - reserve 라우팅으로 비주문 burst 가 주문 path 를 굶기는 EGW00201 직격 risk 차단 (14:59 evidence)
+ *   - 역방향 fallback으로 비주문 burst가 주문(USER_PATH)을 굶기는 EGW00201 직격 risk 차단 (14:59 evidence)
  */
 class ConsumerRedisKisRateLimiterAdapter(
     private val proxyManager: ProxyManager<String>,
@@ -65,18 +68,36 @@ class ConsumerRedisKisRateLimiterAdapter(
         const val ACTOR = "ConsumerRedisKisRateLimiterAdapter"
         const val ACTION_TPS_EXCEEDED = "KIS_TPS_EXCEEDED"
 
-        /** USER_PATH 전용 reserve bucket key suffix (api 모듈과 동일 LOCK — 동일 Redis key 분할 정합). */
-        const val RESERVE_KEY_SUFFIX = ":user-reserve"
+        /** priority별 버킷 key suffix (api·batch 동일 LOCK — 동일 Redis 3 key 정합 · ADR 0116 §2-B). */
+        const val USER_KEY_SUFFIX = ":user"
+        const val SHARED_KEY_SUFFIX = ":shared"
+        const val BG_KEY_SUFFIX = ":bg"
     }
 
-    /** reserve 토큰 수 — bucketCapacity 로 clamp (음수·초과 방지). 0 이면 단일 bucket 회귀. */
-    private val reserveTokens: Long = props.userPathReserveTokens.coerceIn(0L, props.bucketCapacity)
+    /** priority별 버킷 capacity 합 = bucketCapacity 인지 (ADR 0116 §4 합 검증). 불일치 시 단일 bucket fallback. */
+    private val bucketSumValid: Boolean =
+        (props.bucketUser + props.bucketShared + props.bucketBg) == props.bucketCapacity
 
-    /** shared pool capacity = bucketCapacity - reserve (비주문·USER_PATH 1차 공용). */
-    private val sharedCapacity: Long = props.bucketCapacity - reserveTokens
+    /** 3-tier priority 버킷 활성 여부. 비활성 시 단일 :global 버킷(capacity) 회귀 (Phase 1 안전 최소). */
+    private val priorityBucketsActive: Boolean =
+        props.priorityBucketsEnabled &&
+            bucketSumValid &&
+            props.bucketUser > 0L &&
+            props.bucketShared > 0L &&
+            props.bucketBg > 0L
 
-    /** reserve 라우팅 활성 여부 (reserve > 0 이고 shared > 0 일 때만). */
-    private val reserveEnabled: Boolean = reserveTokens > 0L && sharedCapacity > 0L
+    init {
+        if (props.priorityBucketsEnabled && !bucketSumValid) {
+            log.warn(
+                "[KisRateLimit/consumer] priority 버킷 합 불일치 — 단일 bucket fallback: user={} shared={} bg={} sum={} != capacity={}",
+                props.bucketUser,
+                props.bucketShared,
+                props.bucketBg,
+                props.bucketUser + props.bucketShared + props.bucketBg,
+                props.bucketCapacity,
+            )
+        }
+    }
 
     private fun bucketConfigFor(
         capacity: Long,
@@ -90,30 +111,43 @@ class ConsumerRedisKisRateLimiterAdapter(
                     .refillIntervally(refill, Duration.ofSeconds(props.bucketRefillPeriodSeconds))
             }.build()
 
-    /**
-     * shared bucket — 모든 priority 1차 소비. reserve 활성 시 capacity = bucketCapacity - reserve.
-     * Redis backend Lettuce ProxyManager 가 multi-JVM share 보장 (api·batch 동일 bucketKey).
-     */
-    private val sharedBucket: BucketProxy by lazy {
-        val cap = if (reserveEnabled) sharedCapacity else props.bucketCapacity
-        proxyManager.builder().build(props.bucketKey) { bucketConfigFor(cap, cap) }
+    private fun buildBucket(
+        keySuffix: String,
+        capacity: Long,
+    ): BucketProxy = proxyManager.builder().build(props.bucketKey + keySuffix) { bucketConfigFor(capacity, capacity) }
+
+    /** USER 버킷 — USER_PATH 1차. Redis backend Lettuce ProxyManager 가 multi-JVM share 보장 (api·batch 동일 bucketKey). */
+    private val userBucket: BucketProxy by lazy { buildBucket(USER_KEY_SUFFIX, props.bucketUser) }
+
+    /** SHARED 버킷 — INGESTION 1차 + USER_PATH fallback 2단. */
+    private val sharedBucket: BucketProxy by lazy { buildBucket(SHARED_KEY_SUFFIX, props.bucketShared) }
+
+    /** BG 버킷 — BACKFILL·INGESTION_LOW 1차 + 상위 priority fallback 말단. */
+    private val bgBucket: BucketProxy by lazy { buildBucket(BG_KEY_SUFFIX, props.bucketBg) }
+
+    /** 단일 :global 버킷 — priorityBucketsActive=false 회귀 path (Phase 1). */
+    private val globalBucket: BucketProxy by lazy {
+        proxyManager.builder().build(props.bucketKey) { bucketConfigFor(props.bucketCapacity, props.bucketCapacity) }
     }
 
-    /** reserve bucket — USER_PATH 전용 fallback (shared 소진 시). reserve 비활성 시 미발행. */
-    private val reserveBucket: BucketProxy by lazy {
-        proxyManager.builder().build(props.bucketKey + RESERVE_KEY_SUFFIX) {
-            bucketConfigFor(reserveTokens, reserveTokens)
+    /**
+     * priority → 접근 가능 버킷 리스트 (역방향 fallback · ADR 0116 §2-B).
+     * USER_PATH→[USER,SHARED,BG]·INGESTION→[SHARED,BG]·BACKFILL/INGESTION_LOW→[BG] (when exhaustive).
+     */
+    private fun bucketsFor(priority: KisCallPriority): List<BucketProxy> =
+        when (priority) {
+            KisCallPriority.USER_PATH -> listOf(userBucket, sharedBucket, bgBucket)
+            KisCallPriority.INGESTION -> listOf(sharedBucket, bgBucket)
+            KisCallPriority.BACKFILL, KisCallPriority.INGESTION_LOW -> listOf(bgBucket)
         }
-    }
 
     /**
      * KIS REST 호출 직전 token 1개 acquire (blocking polling).
      *
-     * 차등 라우팅 알고리즘 (ADR 0112 의제):
-     *   1. shared bucket `tryConsume(1)` 시도 → 성공 시 return
-     *   2. (USER_PATH + reserve 활성) shared 실패 → reserve bucket `tryConsume(1)` → 성공 시 return
-     *   3. 둘 다 실패 → polling interval sleep 후 재시도
-     *   4. timeoutMillis 초과 → throw [KisRateLimitTimeoutException]
+     * 라우팅 알고리즘 (ADR 0116 §2-B):
+     *   1. priority별 접근 가능 버킷 리스트 순회 `tryConsume(1)` → 첫 성공 즉시 return
+     *   2. 모든 접근 가능 버킷 소진 → polling interval sleep 후 재시도
+     *   3. timeoutMillis 초과 → throw [KisRateLimitTimeoutException]
      */
     override fun acquire(
         priority: KisCallPriority,
@@ -139,12 +173,12 @@ class ConsumerRedisKisRateLimiterAdapter(
             val remainingNanos = deadlineNanos - System.nanoTime()
             if (remainingNanos <= 0L) {
                 log.warn(
-                    "[KisRateLimit/consumer] acquire TIMEOUT — priority={} timeoutMs={} attempts={} bucketKey={} reserveEnabled={}",
+                    "[KisRateLimit/consumer] acquire TIMEOUT — priority={} timeoutMs={} attempts={} bucketKey={} priorityBucketsActive={}",
                     priority,
                     timeoutMillis,
                     attempts,
                     props.bucketKey,
-                    reserveEnabled,
+                    priorityBucketsActive,
                 )
                 throw KisRateLimitTimeoutException(priority, timeoutMillis)
             }
@@ -160,14 +194,12 @@ class ConsumerRedisKisRateLimiterAdapter(
     }
 
     /**
-     * priority 차등 단발 소비 (non-blocking) — shared 1차, USER_PATH 는 reserve fallback.
+     * priority 라우팅 단발 소비 (non-blocking) — 접근 가능 버킷 리스트 순회 (ADR 0116 §2-B).
+     * priorityBucketsActive=false 시 단일 :global 버킷만 소비 (Phase 1 회귀).
      */
     private fun tryConsumeRouted(priority: KisCallPriority): Boolean {
-        if (sharedBucket.tryConsume(1L)) return true
-        if (reserveEnabled && priority == KisCallPriority.USER_PATH) {
-            return reserveBucket.tryConsume(1L)
-        }
-        return false
+        if (!priorityBucketsActive) return globalBucket.tryConsume(1L)
+        return bucketsFor(priority).any { it.tryConsume(1L) }
     }
 
     /**

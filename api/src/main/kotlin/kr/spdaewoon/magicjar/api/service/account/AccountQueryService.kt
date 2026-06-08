@@ -67,7 +67,7 @@ class AccountQueryService(
     private val rateLimitFailures = ConcurrentHashMap<String, LoadFailure>()
 
     /**
-     * 직전 강제 새로고침(refresh=true) 완료 시각 — refresh debounce single-flight (ADR 0112 의제).
+     * 직전 강제 새로고침(refresh=true) 완료 시각 — refresh debounce single-flight (ADR 0116).
      *
      * 결함 evidence (2026-06-05 14:59): 주문 직후 frontend 가 account 강제 새로고침 3연발(36/40/44s)
      *   → 각 refresh=true 가 single-flight 코얼레싱을 우회 → KIS 잔고조회 3회 burst → EGW00201 직격.
@@ -103,7 +103,7 @@ class AccountQueryService(
         private val RATE_LIMIT_FAILURE_TTL: Duration = Duration.ofSeconds(2)
 
         /**
-         * 강제 새로고침 debounce 윈도 — 직전 refresh 후 이 시간 내 추가 refresh 는 KIS 재호출 0, 직전 결과 공유 (ADR 0112 의제).
+         * 강제 새로고침 debounce 윈도 — 직전 refresh 후 이 시간 내 추가 refresh 는 KIS 재호출 0, 직전 결과 공유 (ADR 0116).
          *
          * 3s 사유: 14:59 evidence 의 36/40/44s 3연발(간격 ~4s) 흡수 + 주문 직후 UI 갱신은 order event 기반이 1차.
          * 사용자가 의도적으로 3s 이상 간격으로 새로고침하면 그때는 KIS 재호출 허용 (신선도 보존).
@@ -236,7 +236,7 @@ class AccountQueryService(
         val lock = loadLocks.computeIfAbsent(cacheKey) { Any() }
         return synchronized(lock) {
             // 일반(refresh=false) single-flight 코얼레싱 — 락 대기 중 다른 thread 가 이미 채웠나?
-            // refresh=true single-flight debounce — 직전 refresh 가 debounce 이내면 그 결과(cache) 공유 (ADR 0112 의제).
+            // refresh=true single-flight debounce — 직전 refresh 가 debounce 이내면 그 결과(cache) 공유 (ADR 0116).
             //   주문 직후 강제 새로고침 3연발(14:59 evidence)이 KIS 잔고조회 burst 로 번지는 것을 1회로 수렴.
             val coalesceCache = !refresh || withinRefreshDebounce(cacheKey)
             if (coalesceCache) {
@@ -354,7 +354,7 @@ class AccountQueryService(
     }
 
     /**
-     * 직전 강제 새로고침이 [REFRESH_DEBOUNCE] 이내인지 — true 면 KIS 재호출 없이 cache 공유 (ADR 0112 의제).
+     * 직전 강제 새로고침이 [REFRESH_DEBOUNCE] 이내인지 — true 면 KIS 재호출 없이 cache 공유 (ADR 0116).
      */
     private fun withinRefreshDebounce(cacheKey: String): Boolean {
         val prev = lastRefreshAt[cacheKey] ?: return false

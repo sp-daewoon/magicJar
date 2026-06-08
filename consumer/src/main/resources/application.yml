@@ -185,13 +185,18 @@ magicjar:
       user-id: ${MAGICJAR_KIS_WS_USER_ID:}       # KIS WS approval_key 발급 사용자 ID
       heartbeat-timeout-seconds: ${MAGICJAR_KIS_WS_HEARTBEAT_TIMEOUT:10}
       polling-fallback-timeout-seconds: ${MAGICJAR_KIS_WS_POLLING_FALLBACK_TIMEOUT:30}
-    # KIS REST rate limiter — api·batch·consumer 동일 Redis bucket share.
+    # KIS REST rate limiter — api·batch·consumer 동일 Redis 버킷 share (ADR 0116 Phase 2 3-tier).
     # interval refill로 burst를 완화해 EGW00201 빈도를 낮춘다.
     rate-limiter:
       enabled: ${MAGICJAR_KIS_RATE_LIMIT_ENABLED:true}
       bucket-capacity: ${MAGICJAR_KIS_RATE_LIMIT_BURST:10}
       bucket-refill-tokens: 10
-      # USER_PATH(본주문 hashkey·order-cash) 전용 예약 토큰 (ADR 0112 의제) — api 모듈과 동일 LOCK.
+      # ADR 0116 §2-B priority별 별도 버킷 (USER 4 / SHARED 3 / BG 3 = 합 10) — api·batch 동일 LOCK.
+      priority-buckets-enabled: ${MAGICJAR_KIS_PRIORITY_BUCKETS_ENABLED:true}
+      bucket-user: ${MAGICJAR_KIS_BUCKET_USER:4}       # USER_PATH 1차 (본주문·현재가·잔고)
+      bucket-shared: ${MAGICJAR_KIS_BUCKET_SHARED:3}   # INGESTION 1차 (approval·watchlist)
+      bucket-bg: ${MAGICJAR_KIS_BUCKET_BG:3}           # BACKFILL·INGESTION_LOW 1차
+      # deprecated (ADR 0116 — priority-buckets-enabled로 일반화). 하위호환 바인딩 보존.
       user-path-reserve-tokens: ${MAGICJAR_KIS_USER_PATH_RESERVE:3}
       bucket-refill-period-seconds: 1
       bucket-key: kis-rate-limit:global
