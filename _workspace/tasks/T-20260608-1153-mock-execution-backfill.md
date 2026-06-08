@@ -3,10 +3,10 @@ id: T-20260608-1153-mock-execution-backfill
 agent: backend-core
 model: opus
 branch: hotfix/mock-execution-backfill
-status: RUNNING
+status: DONE
 startedAt: 2026-06-08T11:53:22.413+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-08T12:07:04.172+09:00
+pr: #814
 parentPhase: ?
 ---
 
