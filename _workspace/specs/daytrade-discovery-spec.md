@@ -1,7 +1,7 @@
 # spec — 단타 발굴(Discovery) 레이어
 
-- 작성: 2026-06-09, architect
-- 상태: **제안 (사용자 결재됨 — 발굴 레이어 구축 결재. 단 본 spec §7 "사용자 결정 필요" 2건은 R 진입 전 확인 필요)**
+- 작성: 2026-06-09, architect (2026-06-09 최고 관리자 결정 2건 정정 — ① 구현 순서 R2 우선 ② 프리셋 권위 V75 Flyway 시드)
+- 상태: **제안 (사용자 결재됨 — 발굴 레이어 구축 결재 + 최고 관리자 결정 2건 LOCK. §7-2 미결 → V75 시드로 확정)**
 - 출발점: `_workspace/strategy/2026-06-08-daytrade-screener-design.md` (결재된 strategy-engine 제안서)
 - 동반 ADR: **ADR 0117** (발굴 레이어 신설 — 본 spec과 1:1)
 - 데이터 계약 LOCK 의무: 본 §3·§4 계약은 R1~R3 sub-agent가 그대로 따른다. 임의 변경 금지.
@@ -49,11 +49,13 @@
 |---|---|---|
 | 소유 | userId 격리 (`strategy.userId`) | 시스템 (`isBuiltin=true`, userId 비귀속) |
 | 작성 | 사용자가 StrategyBuilder로 작성 | architect/strategy-engine이 코드 권위로 정의 |
-| 저장 | `strategy` 테이블 | `strategy_research_candidate` 테이블 (V74 시드 — **기존 재사용**) |
-| entryDsl | 사용자 DSL | `ResearchCandidateDefinition.entryDsl` (§3-R2 단타 프리셋 add) |
+| 저장 | `strategy` 테이블 | `strategy_research_candidate` 테이블 (V74 스키마 + **V75 시드** — 최고 관리자 결정 2 LOCK) |
+| entryDsl | 사용자 DSL | `strategy_research_candidate.entry_dsl` (V75 시드 row) |
 | 발굴 진입 | 사용자가 전략 선택 후 screen | 시스템 빌트인을 즉시 평가 |
 
-→ 발굴 프리셋은 **기존 `BuiltinResearchCandidates` + V74 테이블에 단타 setup 프리셋을 add-only**한다 (신규 테이블 0). 사용자 DSL 전략과 별도 테이블에 공존 — 충돌 0.
+→ 발굴 프리셋은 **기존 V74 `strategy_research_candidate` 테이블에 V75 마이그레이션으로 단타 setup 프리셋 row를 시드**한다 (신규 테이블 0 · DB 권위). 사용자 DSL 전략과 별도 테이블에 공존 — 충돌 0.
+
+> **최고 관리자 결정 2 (2026-06-09 LOCK)**: 직전 spec의 옵션 A(코드 권위 `BuiltinResearchCandidates` add · Flyway 0)를 **폐기**한다. 단타 발굴 프리셋 권위는 **V75 Flyway 시드** = `strategy_research_candidate` 테이블에 row INSERT (V70 preset·V74 18종 후보 시드 선례 정합 — `ON CONFLICT (candidate_key) DO NOTHING`, builtin도 삭제 시 부활 X). 코드는 시드된 row를 `ResearchCandidateProvider` 포트로 read만 한다 (시드 권위 ≠ 코드 권위). §7-2 종결.
 
 **개념·path 충돌 회피 (중요)**: `/api/strategy-research/ai-discovery`(`StrategyResearchController.kt:126`)는 **Claude(LLM) 기반 발굴**(`StrategyResearchAiDiscoveryService.kt:238`)이다. 본 발굴 레이어는 **룰 기반(KIS raw + DSL, LLM 호출 0)**이다. 개념이 다르므로 path를 분리한다 — `discover`/`ai-discovery` 단어 재사용 금지. 본 레이어는 `/api/screener/daytrade-discover`(룰 기반 단타 발굴, AI 0)로 명명한다 (§3-R2).
 
@@ -72,11 +74,11 @@
 
 ## §2. 자원 audit (산출물 3 — main 점유 검증, ADR 0102 정합)
 
-검증 시점 main = `f0df035b` (v3.12.1).
+검증 시점 main = `f0df035b` (v3.12.1). **Flyway 번호 재audit (2026-06-09, 실 디렉토리 ls)**: `api/src/main/resources/db/migration/` 최신 = **V74** (`V74__strategy_research_candidate.sql`). 옆 세션 market-data 브랜치 `agent/market-data/today-candle-seed`(PR #833)는 `git diff --stat main..agent/market-data/today-candle-seed -- .../db/migration/` 결과 **migration 추가 0건**(최신 V74 동일) — V번호 점유 없음. → **다음 가용 = V75 확정** (충돌 0).
 
 | 자원 | 신규 점유 | main 충돌 검증 | 결론 |
 |---|---|---|---|
-| **Flyway** | (선택) V75 — 단타 빌트인 setup 프리셋 seed | 최신 = V74 (`strategy_research_candidate` 시드). 다음 가용 = **V75** | 충돌 0. 단 §7-2 — 프리셋을 코드 권위(`BuiltinResearchCandidates` add)로만 둘지 V75 시드까지 할지 결정 필요 |
+| **Flyway** | **V75 — 단타 빌트인 setup 프리셋 seed (최고 관리자 결정 2 — 권위)** | 최신 = V74 (`V74__strategy_research_candidate.sql`, ls 확인). 옆 세션 PR #833 migration 0건. 다음 가용 = **V75** | 충돌 0 LOCK. `strategy_research_candidate`(V74 스키마)에 INSERT 시드 — §3-R2 계약 |
 | **REST path** | `POST /api/screener/daytrade-discover` (R2) · `BacktestRequest`/`BacktestPerformance` 확장 (R3, 신규 path 0) | `/api/screener/{evaluate,runs,runs/{id}}` 점유 (`ScreenerController.kt`). `discover`는 `/api/strategy-research/ai-discovery`가 LLM 용도로 점유 → **`daytrade-discover` 명명으로 회피** | 충돌 0 (명명 분리) |
 | **Redis key** | `screener:discover:cache:<presetKey>:<filterHash>` (R2, 선택 캐시) | 기존 `screener:cache:*`·`screener:lock:*` (`RedisScreenerCacheAdapterTest.kt:74,135`) | prefix `screener:discover:` 분리 — 충돌 0 |
 | **Kafka topic** | 0 (발굴은 inline 동기 — 기존 ScreenerEngine A-1 패턴) | — | 신규 0 |
@@ -139,11 +141,24 @@ POST /api/screener/daytrade-discover
   - `matches`: 각 후보 = instrumentCode·instrumentName·rank·score·breakdown·reason (기존 `ScreenerMatch` 1:1).
   - **주문 트리거 필드 0** (발굴=후보 출발점, 매매 결정권 0 LOCK — §1-2).
 
-**빌트인 발굴 프리셋 정의 위치 (LOCK)**:
-- `domain/.../strategyresearch/ResearchCandidateDefinition.kt` 의 `BuiltinResearchCandidates.DEFINITIONS`에 **단타 setup 프리셋 add-only** (기존 18종 + 단타 N종). 또는 별도 `BuiltinDaytradeSetups` provider 신설(같은 `ResearchCandidateProvider` 포트 구현) — strategy-engine 재량. **신규 테이블 0** (V74 `strategy_research_candidate` 재사용 또는 코드 권위).
-- 단타 setup DSL 예시 (제안서 §2.1, 전부 기존 화이트리스트 내):
-  `(close > 2000) and (atr(14)/close > 0.015) and (atr(14)/close < 0.06) and (close * volume > 10000000000) and (volume > 1.5 * volume_ma(20))`
-- **`trade_intensity`는 장전 setup 프리셋(일봉)에 넣지 않는다** (tick-only — 일봉 평가 시 false). 장중 확인 경로에서만.
+**빌트인 발굴 프리셋 권위 = V75 Flyway 시드 (최고 관리자 결정 2 — LOCK)**:
+- 권위는 **`V75__daytrade_discovery_setup_seed.sql` 마이그레이션**이 `strategy_research_candidate` 테이블(V74 스키마)에 INSERT하는 row다. 코드(`ResearchCandidateProvider`)는 시드된 row를 **read만** 한다 — 코드에 단타 프리셋을 하드코딩하지 않는다(옵션 A 폐기).
+- **V75 시드 row 계약 (V74 컬럼과 정합 LOCK — `V74__strategy_research_candidate.sql:10-25` 스키마 1:1)**:
+
+| 컬럼 (V74) | V75 단타 시드 값 계약 |
+|---|---|
+| `candidate_key` | `DAYTRADE_*` prefix 단타 setup key (V74 18종 key와 UNIQUE 충돌 0 — 예 `DAYTRADE_GAP_RVOL_TURNOVER`) |
+| `title` | 단타 setup 한국어 제목 (예 "장전 갭·RVOL·거래대금 setup") |
+| `market_fit` | 단타 적합 시장 설명 (사용자 가독 문구) |
+| `entry_rules` | JSONB 배열 — 사람이 읽는 조건 목록 (V74 `entry_rules` 패턴 1:1) |
+| `entry_dsl` | TEXT — strategy-engine 평가 권위 DSL. **전부 기존 화이트리스트 식별자만** (장전=일봉 표현 가능 필터). 예: `(close > 2000) and (atr(14)/close > 0.015) and (atr(14)/close < 0.06) and (close * volume > 10000000000) and (volume > 1.5 * volume_ma(20))` |
+| `target_profit_pct` / `stop_loss_pct` / `max_hold_bars` | 단타 exit 파라미터 (V74 1.5/0.8/12 패턴 참고 — 단타값 strategy-engine 정정 가능) |
+| `sort_order` | V74 18종(10~180) 뒤 — **200부터** 부여 (단타 setup 구간 분리, 충돌 0) |
+| `is_active` | `TRUE` |
+| `is_builtin` | `TRUE` (시스템 소유 — userId 비귀속) |
+
+- 시드 형식 LOCK: `ON CONFLICT (candidate_key) DO NOTHING` (V74:186 선례 — 재배포 부활 X · builtin 삭제 허용). `created_at`/`updated_at`은 DEFAULT NOW() 위임(INSERT 컬럼 목록에서 생략 — V74:40 패턴).
+- **`trade_intensity`는 장전 setup 프리셋(일봉 `entry_dsl`)에 넣지 않는다** (tick-only — 일봉 평가 시 false). 장중 확인 경로에서만. → V75 시드 entry_dsl은 candle 표현 가능 식별자만 사용 의무.
 
 **발굴 결과 → STRATEGY owner WS 수요 연결 계약**:
 - 발굴 응답을 받은 frontend가 사용자 액션(장중 감시 시작)을 트리거하면, 후보 code들을 `RealtimeDemandOwner.STRATEGY` 수요로 등록.
@@ -193,22 +208,25 @@ data class SensitivityPoint(val paramValue: BigDecimal, val performance: Backtes
 
 ---
 
-## §4. R1~R3 라운드 계획 + 영역 매핑 (산출물 4)
+## §4. 라운드 계획 + 영역 매핑 (산출물 4 — 최고 관리자 결정 1: R2 우선 재배치)
 
-오케스트레이터 가설 검증 결과 — **대부분 타당. 1건 정정**(R1 DSL 식별자와 R2 tick 주입 배선의 의존 명확화).
+**최고 관리자 결정 1 (2026-06-09 LOCK)**: 구현 순서를 **R2(장전 일봉 발굴) 먼저**로 재배치한다. 사유: 옆 세션이 **전 종목 일봉을 전수 backfill 중**(분봉은 전수 불가, 일봉만 완비). 따라서 일봉 기반 장전 발굴이 데이터 완비되는 견고한 1차 경로 → 우선순위 최상. 체결강도(이전 R1)·장중 분봉/tick은 **데이터 불완전 전제의 보조(best-effort·graceful)** → 후순위 파도로 재배치. 추가 이점: R2는 candle을 **read만** 하므로 옆 세션 market-data(일봉 ingestion)와 파일 충돌이 R1(WS 파서 — `KisWsMessageParser.kt`)보다 적다.
 
-| 라운드 | 담당 sub-agent | 범위 | 의존 | 병렬 |
-|---|---|---|---|---|
-| **R1-A** | market-data | KisWsMessageParser index 14·18·19·20 흡수 + TickEvent 2필드 add-only + parseH0Nxcnt0 동일 | 없음 (계약 LOCK 후 즉시) | R1-B·R3-검증과 병렬 |
-| **R1-B** | strategy-engine | DSL `trade_intensity` 식별자 화이트리스트 add + 평가기 graceful(tick 부재 시 false, throw 금지) | 없음 (TickEvent 필드는 R1-A 머지 후 import, 식별자 등록은 독립) | R1-A·R3-검증과 병렬 (단 TickEvent import는 R1-A 선머지 권장 — add-only라 충돌 0) |
-| **R3-검증** | strategy-engine | 과최적화 탐지: `BacktestRequest.outOfSampleSplit` add + `OverfitDiagnostics`·`SensitivityRequest/Result` 신규 + 엔진 2-run 래핑 | 없음 (R1과 독립 — candle 백테스트 경로) | R1-A·R1-B와 병렬 ✅ |
-| **R2** | strategy-engine(엔진+프리셋) + frontend(발굴 화면) + qa(Visual) | `/api/screener/daytrade-discover` + 빌트인 단타 setup 프리셋(BuiltinResearchCandidates add) + 발굴 화면 + STRATEGY owner 연결 + Visual 회귀 | **R1 흡수 후** (trade_intensity 식별자 + TickEvent 필드 필요) | R2 내부는 엔진→화면→Visual 순차 권장 |
-| **R3-측정** | strategy-engine | 단타 후보 A(5m) 백테스트 run + IS/OOS 분할 + alpha 판정 리포트(`_workspace/strategy/sample-backtest/`) | **R2 후** (발굴 프리셋이 universe·strategy 제공) + R3-검증(과최적화 탐지) 활용 | R2·R3-검증 후 |
+**새 순서**: `R2(장전 일봉 발굴 — 최우선) → R1(체결강도 tick 흡수 — best-effort 보조) → R3(백테스트 수익측정 + 과최적화 탐지)`.
 
-**의존 그래프**: `{R1-A ∥ R1-B ∥ R3-검증}` → `R2` → `R3-측정`.
+| 순번 | 라운드 | 담당 sub-agent | 범위 | 의존 | 병렬 |
+|---|---|---|---|---|---|
+| **1 (최우선)** | **R2** | strategy-engine(엔진+V75 시드) ∥ frontend(발굴 화면) ∥ qa(Visual) | **V75 시드**(`strategy_research_candidate` 단타 setup row) + `/api/screener/daytrade-discover`(룰 기반·일봉 `interval=1d`) + 엔진(시드 read → ScreenerEngine 재사용 평가) + 발굴 화면(후보 TOP N + STRATEGY owner 등록·watchlist write 0) + Visual 회귀 | **없음** — 일봉 candle 영속만 read, R1(tick) 무관 | R2 내부: V75 시드+엔진(strategy) → 화면(frontend) → Visual(qa) 순차. 단 V75 시드 ∥ 화면 mock 골격은 병렬 착수 가능 |
+| **2 (보조)** | **R1-A** | market-data | KisWsMessageParser index 14·18·19·20 흡수 + TickEvent 2필드 add-only + parseH0Nxcnt0 동일 | **없음**(독립) — best-effort tick, R2와 무관 | R2와 병렬 착수 가능하나 **우선순위는 R2 뒤**. 데이터 불완전 전제 → graceful 흡수만 |
+| **2 (보조)** | **R1-B** | strategy-engine | DSL `trade_intensity` 식별자 화이트리스트 add + 평가기 graceful(tick 부재 시 false·throw 금지) | R1-A 선머지 권장(TickEvent import) — add-only라 rebase 흡수 | R1-A와 병렬. R2 일봉 entry_dsl은 `trade_intensity` 미사용이므로 R2와 독립 |
+| **3** | **R3-검증** | strategy-engine | 과최적화 탐지: `BacktestRequest.outOfSampleSplit` add + `OverfitDiagnostics`·`SensitivityRequest/Result` 신규 + 엔진 2-run 래핑 | **없음**(candle 백테스트 — R1·R2 산식 무관) | R1·R2와 병렬 가능하나 순번상 후순위 배치 |
+| **3** | **R3-측정** | strategy-engine | 단타 후보(일봉/5m) 백테스트 run + IS/OOS 분할 + alpha 판정 리포트(`_workspace/strategy/sample-backtest/`) | **R2 후**(V75 시드 프리셋이 universe·strategy 제공) + R3-검증 활용 | R2·R3-검증 후 |
 
-- **정정 포인트**: 오케 가설은 "R1: market-data + strategy-engine 병렬"인데, R1-B(DSL 식별자)는 R1-A(TickEvent 필드) import 의존이 있으나 **add-only라 실질 병렬 가능** — R1-A를 먼저 머지하면 R1-B는 rebase로 흡수. 식별자 화이트리스트 등록 자체는 TickEvent 무관(독립). → 병렬 OK, R1-A 선머지 권장.
-- R3-검증(과최적화)은 R1 전혀 무관(candle-only 백테스트) → 진짜 병렬.
+**의존 그래프 (R2 우선)**: `R2 (V75 시드 ∥ 엔진 ∥ 화면 ∥ Visual)` → `{R1-A ∥ R1-B (best-effort 보조)}` → `{R3-검증 ∥ R3-측정}`.
+
+- **R2가 R1 의존 0 검증**: R2 장전 발굴 entry_dsl은 일봉 표현 가능 식별자(close·atr·volume·volume_ma 등 — §3-R2 시드 계약)만 사용. `trade_intensity`(tick-only)는 V75 시드에 미포함(§3-R2 LOCK) → R2는 R1(tick 흡수·DSL 식별자) 산출물을 **요구하지 않는다**. 따라서 R2 단독 선행이 데이터·코드 양면에서 성립. ✅
+- **옆 세션 market-data 충돌 회피 검증**: R2는 candle(일봉)을 **read만**(ScreenerEngine candle 영속 reuse·KIS 호출 0 — §1-4·§1-5) → 옆 세션 일봉 ingestion(write 경로)과 파일·자원 충돌 0. 반면 R1-A는 `KisWsMessageParser.kt`(consumer/ws — 옆 세션 WS 구독 시드 PR #833와 인접 가능) touch → 충돌 risk 상대적 ↑ → R1을 R2 뒤로 미루는 것이 충돌 최소화에도 부합. ✅
+- **R1 best-effort 격하**: 분봉/tick 데이터 미완비 전제 → R1 흡수는 graceful(결손 시 필드 null·조건 false·throw 0)로 LOCK(§3-R1). 데이터 완비 전제로 동작 강제 금지.
 
 ---
 
@@ -231,9 +249,8 @@ data class SensitivityPoint(val paramValue: BigDecimal, val performance: Backtes
 ### 7-1. (낮음) DSL 식별자명 — `trade_intensity` 단일 vs `cttr` 병기
 1차 LOCK은 `trade_intensity`(사용자 직관). `cttr` alias 병기 여부는 strategy-engine 재량으로 두되, 사용자가 KIS HTS 용어 `cttr` 선호 시 R1에서 alias add. **기본 진행 OK** (architect 자율 LOCK = `trade_intensity`).
 
-### 7-2. (중간) 빌트인 단타 프리셋 — 코드 권위 vs V75 시드
-- 옵션 A (권장): `BuiltinResearchCandidates.DEFINITIONS`에 코드 권위로 add (V74 시드 패턴과 동일하게 추후 시드 정합). Flyway 0.
-- 옵션 B: V75 `strategy_research_candidate` 시드 INSERT.
-- **기본 진행**: 옵션 A(코드 권위 add-only, Flyway 0)로 R2 진입. 사용자가 DB 시드 일관성 강제 원하면 V75 추가. **R2 진입 전 확인 1건** — orchestrator가 사용자 의향 1회 확인 권장(블로킹 아님, 옵션 A로 진행 가능).
+### 7-2. (종결) 빌트인 단타 프리셋 권위 — **V75 Flyway 시드로 확정 (최고 관리자 결정 2)**
+- ~~옵션 A (코드 권위 `BuiltinResearchCandidates` add · Flyway 0)~~ — **폐기**.
+- **확정 = 옵션 B**: `V75__daytrade_discovery_setup_seed.sql` 마이그레이션이 `strategy_research_candidate`(V74 스키마)에 단타 setup row INSERT (§3-R2 시드 row 계약 LOCK). DB 권위 — 코드는 시드 row를 `ResearchCandidateProvider`로 read만. 사유: V70 preset·V74 후보 18종이 이미 시드 권위 선례 → DB 시드 일관성 통일. 미결 사항 0 — R2 진입 전 추가 확인 불요.
 
 > 그 외 모든 결정(CTTR index·식별자·라운드 분할·과최적화 계약)은 KIS raw + 기존 코드 인용 기반 architect 자율 LOCK — 사용자 결정 불요.
