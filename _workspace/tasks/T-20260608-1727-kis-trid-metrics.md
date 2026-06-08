@@ -3,10 +3,10 @@ id: T-20260608-1727-kis-trid-metrics
 agent: backend-core
 model: opus
 branch: agent/backend-core/kis-trid-metrics
-status: RUNNING
+status: DONE
 startedAt: 2026-06-08T17:27:34.043+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-08T17:41:52.830+09:00
+pr: #827
 parentPhase: ?
 ---
 
