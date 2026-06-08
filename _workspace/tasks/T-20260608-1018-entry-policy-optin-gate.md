@@ -3,10 +3,10 @@ id: T-20260608-1018-entry-policy-optin-gate
 agent: backend-core
 model: opus
 branch: hotfix/entry-policy-optin-gate
-status: RUNNING
+status: DONE
 startedAt: 2026-06-08T10:18:19.914+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-08T10:25:49.789+09:00
+pr: #807
 parentPhase: ?
 ---
 
