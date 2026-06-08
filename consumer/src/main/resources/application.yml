@@ -100,6 +100,12 @@ magicjar:
       # 미체결 진입 취소 워커(EntryTimeoutCancelWorker) toggle — default 활성. false면 미체결 LIMIT 자동 취소 0(수동 취소만).
       cancel-worker:
         enabled: ${MAGICJAR_ORDER_ENTRY_CANCEL_WORKER_ENABLED:true}
+    # ADR 0115 §P2-4 — ACK 정체(WS 체결통보 누락) 주문 timeout 재조회 워커(StuckAckExecutionResyncWorker).
+    #   ACK/PARTIALLY_FILLED 상태가 stale-threshold-seconds 넘게 정체하면 KIS 당일체결 대조로 FILLED/취소 정정.
+    #   enabled=false 면 재연결 트리거 backfill(#815)만 의존(현행). PENDING_RECONCILE은 OrderReconciliationWorker 별도 책임.
+    ack-resync:
+      enabled: ${MAGICJAR_ORDER_ACK_RESYNC_ENABLED:true}
+      stale-threshold-seconds: ${MAGICJAR_ORDER_ACK_RESYNC_STALE_THRESHOLD_SECONDS:180}
   # 분할매수(scale-in) / 분할익절 "리플레이 먼저" 게이트 (spec §8-1 · ADR 0111 §2-7).
   #   default false — toggle OFF면 RealtimeSignalGenerator가 scaleIn/partialExits 설정 전략도 현행 단일
   #   진입 + 전량 익절 경로로 평가(ScaleInExitCalculator 미사용). qa 2라운드 GREEN(PR #750·#753)으로 2026-06-05 default true 영구화.
@@ -116,11 +122,28 @@ magicjar:
     stop-loss:
       tick-watch-enabled: ${MAGICJAR_AUTOTRADING_STOP_LOSS_TICK_WATCH_ENABLED:true}
       index-refresh-ms: ${MAGICJAR_AUTOTRADING_STOP_LOSS_INDEX_REFRESH_MS:60000}
+      # ADR 0115 §P2-1 — auto-sl intent 발행 후 같은 포지션 상태에 대해 재발행 차단 쿨다운(초). 상태(수량/갱신시각) 변화 시 즉시 해제.
+      #   매 tick 손절 intent 폭주(IDEMPOTENCY_SKIPPED 4,920건/30분 incident) 원천 차단. 0이면 현행(매 tick 발행).
+      tick-cooldown-seconds: ${MAGICJAR_AUTOTRADING_STOP_LOSS_TICK_COOLDOWN_SECONDS:30}
     exit:
       take-profit-limit-enabled: ${MAGICJAR_AUTOTRADING_EXIT_TAKE_PROFIT_LIMIT_ENABLED:true}
+    # ADR 0115 §P1-2 — backfill/복구가 재발행한 order.filled.v1 replay 식별 신선도 임계(초).
+    #   executedAt이 평가시각 대비 이 초 초과 과거면 복구 체결로 보고 익절 TP 미발행(중복 익절 차단). fillSource=REST_BACKFILL 1차 식별의 fail-safe.
+    replay:
+      freshness-threshold-seconds: ${MAGICJAR_AUTOTRADING_REPLAY_FRESHNESS_THRESHOLD_SECONDS:120}
     holding-watch:
       enabled: ${MAGICJAR_AUTOTRADING_HOLDING_WATCH_ENABLED:true}
       refresh-delay-ms: ${MAGICJAR_AUTOTRADING_HOLDING_WATCH_REFRESH_DELAY_MS:60000}
+  # ADR 0115 §P1-1 — strategy_position 드리프트 자동 보정. sum(strategy_position) > position(KIS 권위)면 초과분 내림 정렬.
+  #   유령 수량(7 vs 5 incident) 유령 매도 폭주의 뿌리 차단. false면 현행 WARN-only(보정 안 함). realized_pnl 불변(수량 정렬만).
+  position:
+    drift-auto-correct:
+      enabled: ${MAGICJAR_POSITION_DRIFT_AUTO_CORRECT_ENABLED:true}
+  # ADR 0115 §P2-2 — 같은 전략·종목 SELL 거부 N회 누적 시 전략 자동 정지(autoDisable) + 1회 알림(rate limiter 디바운스).
+  #   정지는 drift 자동보정(P1-1)이 정합 회복하면 자연 해소, 사용자가 재활성화. 0이면 자동정지 비활성.
+  notification:
+    reject-auto-pause:
+      threshold: ${MAGICJAR_NOTIFICATION_REJECT_AUTO_PAUSE_THRESHOLD:10}
   # ADR 0109 — REAL canary 전용 hard cap (RiskConfig·전략 설정과 독립된 마지막 자본 안전선).
   #   REAL 모드 + 각 값 > 0 일 때만 활성 (fail-open: 0/미설정 = 비활성 = 일반 REAL 운용). MOCK은 항상 비활성.
   #   초과 시 OrderRouter REJECTED + audit(reason=CANARY_*_CAP). canary 종료 후 ENV 제거로 즉시 비활성.

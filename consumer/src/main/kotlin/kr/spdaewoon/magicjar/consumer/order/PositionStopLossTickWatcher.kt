@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.order
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.consumer.persistence.PositionJpaRepository
 import kr.spdaewoon.magicjar.consumer.risk.OrderIntentKafkaProducer
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
@@ -14,6 +15,8 @@ import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.time.Instant
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * tick 기반 손절 안전망 watcher — ADR 0114 R2-C2b ① (★핵심 — P1·P2·P4 구조적 해소 · Codex 흡수+성능 보강).
@@ -51,10 +54,21 @@ class PositionStopLossTickWatcher(
     private val orderRequestRepositoryProvider: ObjectProvider<OrderRequestRepository>,
     private val restingSellOrderCanceller: RestingSellOrderCanceller,
     private val orderIntentKafkaProducer: OrderIntentKafkaProducer,
+    private val positionJpaRepository: PositionJpaRepository,
     @Value("\${magicjar.autotrading.stop-loss.tick-watch-enabled:true}")
     private val enabled: Boolean = true,
+    @Value("\${magicjar.autotrading.stop-loss.tick-cooldown-seconds:30}")
+    private val tickCooldownSeconds: Long = 30,
 ) {
     private val log = LoggerFactory.getLogger(PositionStopLossTickWatcher::class.java)
+
+    /**
+     * ADR 0115 §P2-1 — auto-sl intent 발행 후 같은 포지션 재발행 차단 인메모리 cooldown.
+     * key = userId:strategyId:code, value = (마지막 발행 시각 epoch, 발행 당시 포지션 상태 signature).
+     * 상태(quantity·updatedAtEpoch) 변화 시 즉시 재발행 허용(정당한 다음 손절은 통과). 같은 상태면 cooldownSeconds 내 1회만.
+     * consumer 단일 인스턴스 가정(현 배포) — 다중 인스턴스 확장 시 Redis SETEX 승격(P2-3 backlog).
+     */
+    private val intentCooldown = ConcurrentHashMap<String, FiredIntent>()
 
     @KafkaListener(topics = ["market.tick.v1"], groupId = GROUP)
     fun onTick(record: ConsumerRecord<String, String>) {
@@ -86,7 +100,37 @@ class PositionStopLossTickWatcher(
     ) {
         val stopLossPct = position.stopLossPct ?: return
         val stopPrice = stopPriceOf(position.avgPrice, stopLossPct) ?: return
-        if (tickPrice > stopPrice) return
+        if (tickPrice > stopPrice) {
+            // 손절가 미도달로 복귀 — 다음 정당한 손절이 즉시 가능하도록 cooldown 해제(상태 기반 clear).
+            intentCooldown.remove(cooldownKey(position))
+            return
+        }
+
+        // ADR 0115 §P2-1 cooldown — 같은 포지션 상태에 대해 이미 발행했고 cooldown 내면 재발행 skip(폭주 원천 차단).
+        if (isCoolingDown(position)) {
+            log.debug(
+                "stop-loss tick cooldown skip(상태 무변·임계 내): userId={} strategyId={} code={} qty={}",
+                position.userId,
+                position.strategyId,
+                position.code,
+                position.quantity,
+            )
+            return
+        }
+
+        // ADR 0115 §P2-3 — position(KIS 권위) 잔량 확인 가드. 인덱스는 strategy_position 기반이라 보정 직전·경합 구간에
+        // 유령(strategy_position>0 인데 position==0)이 남을 수 있다. 실보유 0이면 손절 미발사(유령 손절 폭주 차단).
+        // PAUSED 전략이라도 실보유(position>0)면 발사 유지(보유 보호 의도 보존 — ADR 0115 §P2-3).
+        if (!hasAuthorityHolding(position)) {
+            log.warn(
+                "stop-loss skip(유령 포지션 — position 권위 잔량 0): userId={} strategyId={} code={} ledgerQty={}",
+                position.userId,
+                position.strategyId,
+                position.code,
+                position.quantity,
+            )
+            return
+        }
 
         val orderRepo = orderRequestRepositoryProvider.getIfAvailable()
         if (orderRepo == null) {
@@ -131,6 +175,9 @@ class PositionStopLossTickWatcher(
             priceAtSignal = tickPrice,
             idempotencyKey = idempotencyKey,
         )
+        // 발행 성공 — cooldown 갱신(상태 signature + 발행 시각). 같은 상태 재tick은 임계까지 차단.
+        intentCooldown[cooldownKey(position)] =
+            FiredIntent(firedAtEpoch = Instant.now().epochSecond, stateSignature = stateSignatureOf(position))
         log.warn(
             "stop-loss MARKET intent (tick watcher): userId={} strategyId={} code={} tick={} stopPrice={} qty={} idemKey={}",
             position.userId,
@@ -142,6 +189,41 @@ class PositionStopLossTickWatcher(
             idempotencyKey,
         )
     }
+
+    /**
+     * cooldown 판정 — 같은 포지션 상태(quantity·updatedAtEpoch)로 cooldownSeconds 내 이미 발행했으면 true(skip).
+     * 상태가 바뀌었으면(부분 청산·재진입 등) false(즉시 재발행 허용 — 상태 기반 해제).
+     */
+    private fun isCoolingDown(position: HoldingPositionIndex.HeldPosition): Boolean {
+        val fired = intentCooldown[cooldownKey(position)] ?: return false
+        // 상태 변화(수량/갱신시각) — 정당한 다음 손절. cooldown 무시.
+        if (fired.stateSignature != stateSignatureOf(position)) return false
+        val elapsed = Instant.now().epochSecond - fired.firedAtEpoch
+        return elapsed < tickCooldownSeconds
+    }
+
+    /**
+     * position(KIS 권위) 잔량 > 0 확인 — ADR 0115 §P2-3 유령 포지션 발사 가드.
+     * 조회 실패 시 fail-safe로 true(기존 동작 보존 — 손절 안전망 우선, 조회 결함으로 손절을 막지 않음).
+     */
+    private fun hasAuthorityHolding(position: HoldingPositionIndex.HeldPosition): Boolean =
+        runCatching {
+            (positionJpaRepository.findByUserIdAndCode(position.userId, position.code)?.quantity ?: 0) > 0
+        }.getOrElse { e ->
+            log.warn(
+                "stop-loss position 권위 조회 실패 — fail-safe 발사 진행: userId={} code={} err={}",
+                position.userId,
+                position.code,
+                e.message,
+            )
+            true
+        }
+
+    private fun cooldownKey(position: HoldingPositionIndex.HeldPosition): String =
+        "${position.userId}:${position.strategyId}:${position.code}"
+
+    /** 포지션 상태 signature — 변경 시 cooldown 자연 해제(같은 상태 무한 재발행만 차단). */
+    private fun stateSignatureOf(position: HoldingPositionIndex.HeldPosition): String = "${position.quantity}:${position.updatedAtEpoch}"
 
     private fun parse(record: ConsumerRecord<String, String>): TickPayload? {
         return try {
@@ -176,6 +258,12 @@ class PositionStopLossTickWatcher(
         val code: String,
         val price: BigDecimal,
         val stale: Boolean,
+    )
+
+    /** auto-sl 발행 1건의 cooldown 상태 — 발행 시각 + 발행 당시 포지션 상태 signature(ADR 0115 §P2-1). */
+    private data class FiredIntent(
+        val firedAtEpoch: Long,
+        val stateSignature: String,
     )
 
     companion object {

@@ -14,12 +14,12 @@ parentPhase: ?
 ADR0115 R2 정합 배선
 
 ## 결과물 체크리스트
-- [ ] drift 자동보정 배선
-- [ ] replay 가드
-- [ ] watcher 쿨다운
-- [ ] 거부 자동정지
-- [ ] ENV
-- [ ] 테스트
+- [x] drift 자동보정 배선
+- [x] replay 가드
+- [x] watcher 쿨다운
+- [x] 거부 자동정지
+- [x] ENV
+- [x] 테스트
 
 ## 의존성
 - (필요 시 기록)
