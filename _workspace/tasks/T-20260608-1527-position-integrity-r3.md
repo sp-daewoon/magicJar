@@ -3,10 +3,10 @@ id: T-20260608-1527-position-integrity-r3
 agent: strategy
 model: opus
 branch: agent/strategy/position-integrity-r3
-status: RUNNING
+status: DONE
 startedAt: 2026-06-08T15:27:25.290+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-08T15:32:37.395+09:00
+pr: #821
 parentPhase: ?
 ---
 
