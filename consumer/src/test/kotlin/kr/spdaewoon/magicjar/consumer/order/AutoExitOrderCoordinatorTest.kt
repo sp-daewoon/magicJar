@@ -86,6 +86,9 @@ class AutoExitOrderCoordinatorTest {
         qty: Int = 10,
         price: String = "50000",
         source: OrderSource = OrderSource.AUTO,
+        // ADR 0115 §P1-2 — default 는 실시간 WS 신규 체결(신선 executedAt + fillSource WS) → TP 정상 발행.
+        fillSource: String = "WS",
+        executedAtEpoch: Long = Instant.now().epochSecond,
     ): ConsumerRecord<String, String> {
         val payload =
             objectMapper.writeValueAsString(
@@ -98,7 +101,8 @@ class AutoExitOrderCoordinatorTest {
                     "side" to side.name,
                     "executedQty" to qty,
                     "executedPrice" to price,
-                    "executedAt" to 1_700_000_000L,
+                    "executedAt" to executedAtEpoch,
+                    "fillSource" to fillSource,
                     "source" to source.name,
                 ),
             )
@@ -358,6 +362,53 @@ class AutoExitOrderCoordinatorTest {
         verify(exactly = 0) { registrar.onBuyFilled(any()) }
         verify(
             exactly = 0,
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    // ── ADR 0115 §P1-2 replay 가드 ─────────────────────────────────────────
+
+    @Test
+    fun `P1-2 replay — fillSource REST_BACKFILL BUY 체결은 TP 미발행(인덱스·구독은 유지)`() {
+        every { strategyRepo.findById(100L) } returns Optional.of(strategyEntity())
+        every { positionRepo.findByUserIdAndStrategyIdAndCode("user-A", 100L, "005930") } returns position()
+        every { orderRepo.findOpenByUserId("user-A") } returns emptyList()
+
+        coordinator().onOrderFilled(filledRecord(fillSource = "REST_BACKFILL"))
+
+        // 보유 인덱스·구독 갱신은 유지(청산 의사결정만 skip).
+        verify(exactly = 1) { registrar.onBuyFilled("005930") }
+        verify(exactly = 1) { index.onFillRefresh("005930") }
+        // TP 선주문은 미발행(replay 중복 익절 차단).
+        verify(
+            exactly = 0,
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `P1-2 replay — executedAt이 신선도 임계 초과 과거(WS source여도) TP 미발행`() {
+        every { strategyRepo.findById(100L) } returns Optional.of(strategyEntity())
+        every { positionRepo.findByUserIdAndStrategyIdAndCode("user-A", 100L, "005930") } returns position()
+        every { orderRepo.findOpenByUserId("user-A") } returns emptyList()
+
+        // 1시간 전 체결 — 신선도 120초 초과 → 복구 체결로 보고 skip.
+        val staleEpoch = Instant.now().epochSecond - 3_600
+        coordinator().onOrderFilled(filledRecord(fillSource = "WS", executedAtEpoch = staleEpoch))
+
+        verify(
+            exactly = 0,
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `P1-2 — 신선한 WS 체결은 정상 TP 발행(가드 false negative 0)`() {
+        every { strategyRepo.findById(100L) } returns Optional.of(strategyEntity())
+        every { positionRepo.findByUserIdAndStrategyIdAndCode("user-A", 100L, "005930") } returns position()
+        every { orderRepo.findOpenByUserId("user-A") } returns emptyList()
+
+        coordinator().onOrderFilled(filledRecord(fillSource = "WS")) // default executedAt = now (신선)
+
+        verify(
+            exactly = 1,
         ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 

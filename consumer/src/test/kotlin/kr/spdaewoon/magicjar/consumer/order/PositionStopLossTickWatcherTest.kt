@@ -5,6 +5,8 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import kr.spdaewoon.magicjar.consumer.persistence.PositionJpaEntity
+import kr.spdaewoon.magicjar.consumer.persistence.PositionJpaRepository
 import kr.spdaewoon.magicjar.consumer.risk.OrderIntentKafkaProducer
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
@@ -35,17 +37,36 @@ class PositionStopLossTickWatcherTest {
     private val cancelledProducer = mockk<OrderCancelledKafkaProducer>(relaxed = true)
     private val intentProducer = mockk<OrderIntentKafkaProducer>(relaxed = true)
 
+    // ADR 0115 §P2-3 — position(KIS 권위) 잔량 가드. default 로 보유(quantity>0) 반환해 기존 손절 발사 테스트 보존.
+    private val positionRepo =
+        mockk<PositionJpaRepository>(relaxed = true).also {
+            every { it.findByUserIdAndCode(any(), any()) } returns positionEntity(quantity = 10)
+        }
+
     // 실제 공용 컴포넌트를 그대로 사용(DRY — listener와 동일 취소 경로 검증). cancel 검증은 wrapped kisOrderPort로 유지.
     private val restingSellOrderCanceller = RestingSellOrderCanceller(kisOrderPort, cancelledProducer)
 
-    private fun watcher(enabled: Boolean = true) =
-        PositionStopLossTickWatcher(
-            objectMapper = objectMapper,
-            holdingPositionIndex = index,
-            orderRequestRepositoryProvider = providerOf(orderRepo),
-            restingSellOrderCanceller = restingSellOrderCanceller,
-            orderIntentKafkaProducer = intentProducer,
-            enabled = enabled,
+    private fun watcher(
+        enabled: Boolean = true,
+        tickCooldownSeconds: Long = 30,
+    ) = PositionStopLossTickWatcher(
+        objectMapper = objectMapper,
+        holdingPositionIndex = index,
+        orderRequestRepositoryProvider = providerOf(orderRepo),
+        restingSellOrderCanceller = restingSellOrderCanceller,
+        orderIntentKafkaProducer = intentProducer,
+        positionJpaRepository = positionRepo,
+        enabled = enabled,
+        tickCooldownSeconds = tickCooldownSeconds,
+    )
+
+    private fun positionEntity(quantity: Int) =
+        PositionJpaEntity(
+            userId = "user-A",
+            code = "005930",
+            source = "MOCK",
+            quantity = quantity,
+            avgPrice = BigDecimal("50000"),
         )
 
     private fun held(
@@ -230,6 +251,87 @@ class PositionStopLossTickWatcherTest {
     fun `stopPriceOf — 비정상 입력 null`() {
         assertThat(PositionStopLossTickWatcher.stopPriceOf(BigDecimal.ZERO, BigDecimal("3"))).isNull()
         assertThat(PositionStopLossTickWatcher.stopPriceOf(BigDecimal("50000"), BigDecimal.ZERO)).isNull()
+    }
+
+    // ── ADR 0115 §P2-1 cooldown ───────────────────────────────────────────
+
+    @Test
+    fun `P2-1 cooldown — 같은 포지션 상태 연속 tick은 1회만 intent (재발행 0)`() {
+        val pos = held(avgPrice = "50000", stopLossPct = "3")
+        every { index.heldBy("005930") } returns listOf(pos)
+        every { orderRepo.findOpenByUserId("user-A") } returns emptyList()
+        val w = watcher(tickCooldownSeconds = 30)
+
+        // 매 tick 손절가 도달 — cooldown으로 1회만 발행.
+        repeat(5) { w.onTick(tickRecord(price = "48000")) }
+
+        verify(
+            exactly = 1,
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `P2-1 cooldown — 손절가 미도달 복귀 시 cooldown 해제(다음 도달 즉시 발화)`() {
+        val pos = held(avgPrice = "50000", stopLossPct = "3")
+        every { index.heldBy("005930") } returns listOf(pos)
+        every { orderRepo.findOpenByUserId("user-A") } returns emptyList()
+        val w = watcher(tickCooldownSeconds = 300)
+
+        w.onTick(tickRecord(price = "48000")) // 발화 1
+        w.onTick(tickRecord(price = "49000")) // 미도달 복귀 → cooldown clear
+        w.onTick(tickRecord(price = "48000")) // 재도달 → 즉시 발화 2
+
+        verify(
+            exactly = 2,
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `P2-1 cooldown — 포지션 상태(updatedAtEpoch) 변화 시 즉시 재발화`() {
+        every { orderRepo.findOpenByUserId("user-A") } returns emptyList()
+        val w = watcher(tickCooldownSeconds = 300)
+
+        val posV1 = held(avgPrice = "50000", stopLossPct = "3").copy(updatedAtEpoch = 1_700_000_000L)
+        every { index.heldBy("005930") } returns listOf(posV1)
+        w.onTick(tickRecord(price = "48000")) // 발화 1
+
+        // 부분 청산 등으로 상태(updatedAtEpoch) 변경 — cooldown 무시하고 즉시 발화.
+        val posV2 = held(avgPrice = "50000", stopLossPct = "3").copy(updatedAtEpoch = 1_700_000_999L)
+        every { index.heldBy("005930") } returns listOf(posV2)
+        w.onTick(tickRecord(price = "48000")) // 발화 2
+
+        verify(
+            exactly = 2,
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    // ── ADR 0115 §P2-3 유령 포지션 가드 ────────────────────────────────────
+
+    @Test
+    fun `P2-3 — position(KIS 권위) 잔량 0(유령) 이면 손절 미발사`() {
+        every { index.heldBy("005930") } returns listOf(held(avgPrice = "50000", stopLossPct = "3"))
+        every { orderRepo.findOpenByUserId("user-A") } returns emptyList()
+        // strategy_position 인덱스엔 보유로 잡히지만 KIS position 권위 잔량 0 — 유령.
+        every { positionRepo.findByUserIdAndCode("user-A", "005930") } returns positionEntity(quantity = 0)
+
+        watcher().onTick(tickRecord(price = "48000"))
+
+        verify(
+            exactly = 0,
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `P2-3 — position 권위 잔량 보유면 손절 발사 유지(PAUSED 전략도 실보유 보호)`() {
+        every { index.heldBy("005930") } returns listOf(held(avgPrice = "50000", stopLossPct = "3"))
+        every { orderRepo.findOpenByUserId("user-A") } returns emptyList()
+        every { positionRepo.findByUserIdAndCode("user-A", "005930") } returns positionEntity(quantity = 10)
+
+        watcher().onTick(tickRecord(price = "48000"))
+
+        verify(
+            exactly = 1,
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     private fun openSell(

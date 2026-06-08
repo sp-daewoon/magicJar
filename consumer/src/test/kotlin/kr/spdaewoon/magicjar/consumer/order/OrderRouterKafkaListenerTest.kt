@@ -120,6 +120,9 @@ class OrderRouterKafkaListenerTest {
             every { it.getIfAvailable() } returns null
         }
 
+    // ADR 0115 §P2-2 — SELL 거부 자동정지 tracker. 본 테스트는 12 step 라우팅을 검증하므로 relaxed(부작용 무시).
+    private val sellRejectAutoPauseTracker = mockk<SellRejectAutoPauseTracker>(relaxed = true)
+
     // 기존 12 step 흐름 테스트는 장운영시간 게이트를 비활성(enabled=false)으로 격리한다.
     // 게이트 자체 동작은 isWithinTradingHours 단위 테스트 + AUTO/MANUAL 분기 테스트로 별도 검증.
     private val listener =
@@ -139,6 +142,7 @@ class OrderRouterKafkaListenerTest {
             businessDayCalendarProvider = businessDayCalendarProvider,
             objectMapper = objectMapper,
             holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
+            sellRejectAutoPauseTracker = sellRejectAutoPauseTracker,
             marketHoursGateEnabled = false,
         )
 
@@ -264,6 +268,7 @@ class OrderRouterKafkaListenerTest {
                 businessDayCalendarProvider = businessDayCalendarProvider,
                 objectMapper = objectMapper,
                 holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
+                sellRejectAutoPauseTracker = sellRejectAutoPauseTracker,
                 magicjarMode = "REAL",
                 marketHoursGateEnabled = false,
             )
@@ -386,6 +391,7 @@ class OrderRouterKafkaListenerTest {
                 businessDayCalendarProvider = businessDayCalendarProvider,
                 objectMapper = objectMapper,
                 holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
+                sellRejectAutoPauseTracker = sellRejectAutoPauseTracker,
                 marketHoursGateEnabled = false,
             )
 
@@ -546,6 +552,7 @@ class OrderRouterKafkaListenerTest {
                     businessDayCalendarProvider = businessDayCalendarProvider,
                     objectMapper = objectMapper,
                     holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
+                    sellRejectAutoPauseTracker = sellRejectAutoPauseTracker,
                     marketHoursGateEnabled = true,
                 ),
             )
@@ -627,6 +634,7 @@ class OrderRouterKafkaListenerTest {
                 businessDayCalendarProvider = businessDayCalendarProvider,
                 objectMapper = objectMapper,
                 holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
+                sellRejectAutoPauseTracker = sellRejectAutoPauseTracker,
             )
 
         // KST 2026-05-20(수) 10:00 = UTC 2026-05-20T01:00:00Z
@@ -764,6 +772,7 @@ class OrderRouterKafkaListenerTest {
             businessDayCalendarProvider = businessDayCalendarProvider,
             objectMapper = objectMapper,
             holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
+            sellRejectAutoPauseTracker = sellRejectAutoPauseTracker,
             marketHoursGateEnabled = false,
             canaryMaxOrderQty = qty,
             canaryMaxOrderNotionalKrw = notional,

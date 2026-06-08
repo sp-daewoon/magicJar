@@ -95,6 +95,8 @@ class OrderRouterKafkaListener(
     private val objectMapper: ObjectMapper,
     // ADR 0114 §4-3 P3 — AUTO BUY 제출 시 PENDING_BUY watch(체결 통보 구독 보장). ObjectProvider — graceful(부재 시 skip).
     private val holdingDemandRegistrarProvider: ObjectProvider<kr.spdaewoon.magicjar.consumer.ingestion.HoldingDemandRegistrar>,
+    // ADR 0115 §P2-2 — 같은 전략·종목 SELL 거부 N회 누적 시 자동 정지 + 1회 알림(유령 매도 폭주 차단).
+    private val sellRejectAutoPauseTracker: SellRejectAutoPauseTracker,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String = "MOCK",
     @Value("\${magicjar.signal.market-hours-gate.enabled:true}")
@@ -396,6 +398,8 @@ class OrderRouterKafkaListener(
                     )
                 } else {
                     orderRejectedKafkaProducer.publish(transitioned, rejectReason)
+                    // ADR 0115 §P2-2 — SELL 거부 누적 추적(임계 도달 시 전략 자동 정지 + 1회 알림).
+                    sellRejectAutoPauseTracker.onOrderRejected(transitioned)
                     // Polling → STOMP push (2026-05-20) — REJECTED 시 예약 cash 환원 가능 → 잔고 invalidate trigger.
                     accountBalanceChangedKafkaProducer.publish(
                         userId = transitioned.userId,
@@ -452,6 +456,9 @@ class OrderRouterKafkaListener(
                 intent.side,
                 ackData.kisOrderNo,
             )
+
+            // ADR 0115 §P2-2 — KIS ACK 성공(거부 streak 끊김) → 해당 전략·종목 SELL 거부 카운터 reset.
+            sellRejectAutoPauseTracker.resetOnSuccess(saved)
 
             // ADR 0114 §4-3 P3(Codex pending-buy 흡수) — AUTO BUY 제출~체결 사이 PENDING_BUY watch(체결 통보 수신 구독 보장).
             //   체결 시 AutoExitOrderCoordinator가 release + HOLDING 등록으로 승격. 실패해도 자본 path 무영향(graceful).
@@ -762,6 +769,8 @@ class OrderRouterKafkaListener(
             mapOf("reason" to reason, "source" to intent.source.name),
         )
         orderRejectedKafkaProducer.publish(saved, reason)
+        // ADR 0115 §P2-2 — gate SELL 거부도 누적 추적(임계 도달 시 자동 정지 + 1회 알림).
+        sellRejectAutoPauseTracker.onOrderRejected(saved)
         // Polling → STOMP push (2026-05-20) — gate REJECTED (TradingModeGate · KillSwitch).
         // 게이트 차단은 KIS 요청 자체를 안 보냈으므로 사실상 잔고 변동 없음 — 그러나 frontend "주문 거절" UX 정합으로
         // invalidate trigger를 동일 path로 통일 (사용자가 잔고창 새로고침해도 무해 — cache TTL 10s 내 KIS 0 호출).

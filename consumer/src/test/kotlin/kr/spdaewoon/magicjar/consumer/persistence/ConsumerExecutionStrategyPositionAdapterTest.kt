@@ -43,6 +43,9 @@ class ConsumerExecutionStrategyPositionAdapterTest {
             positionJpaRepository = positionRepo,
             signalJpaRepository = signalRepo,
             systemEventLoggerProvider = systemEventProvider,
+            // 본 테스트는 applyExecution upsert 수식만 검증한다 — drift 보정은 별도 reconcile 테스트(아래 클래스).
+            // 보정 off 로 두어 reconcileDrift 가 lastUpsert 를 덮어쓰지 않게 한다(수식 단언 격리).
+            driftAutoCorrectEnabled = false,
             clock = Clock.System,
         )
 

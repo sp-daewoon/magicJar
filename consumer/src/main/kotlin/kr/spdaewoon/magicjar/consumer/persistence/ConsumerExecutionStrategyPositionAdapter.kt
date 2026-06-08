@@ -11,8 +11,13 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.order.execution.port.ExecutionStrategyPositionUpdatePort
 import kr.spdaewoon.magicjar.domain.position.StrategyPosition
 import kr.spdaewoon.magicjar.domain.position.port.StrategyPositionPort
+import kr.spdaewoon.magicjar.strategy.integrity.DriftCorrectionInput
+import kr.spdaewoon.magicjar.strategy.integrity.DriftCorrectionResult
+import kr.spdaewoon.magicjar.strategy.integrity.PositionDriftCorrection
+import kr.spdaewoon.magicjar.strategy.integrity.StrategyPositionLeg
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
@@ -47,6 +52,8 @@ class ConsumerExecutionStrategyPositionAdapter(
     private val positionJpaRepository: PositionJpaRepository,
     private val signalJpaRepository: ConsumerSignalJpaRepository,
     private val systemEventLoggerProvider: ObjectProvider<SystemEventLogger>,
+    @Value("\${magicjar.position.drift-auto-correct.enabled:true}")
+    private val driftAutoCorrectEnabled: Boolean = true,
     private val clock: Clock = Clock.System,
 ) : ExecutionStrategyPositionUpdatePort {
     private val log = LoggerFactory.getLogger(ConsumerExecutionStrategyPositionAdapter::class.java)
@@ -89,7 +96,7 @@ class ConsumerExecutionStrategyPositionAdapter(
             next.executedExitStages,
         )
 
-        verifyDrift(request)
+        reconcileDrift(request)
     }
 
     private fun applyBuy(
@@ -209,16 +216,25 @@ class ConsumerExecutionStrategyPositionAdapter(
         )
 
     /**
-     * drift 검증 — `sum(strategy_position.quantity WHERE user+code) != position.quantity` 면 WARN SystemEvent.
-     * 보정은 하지 않는다(KIS 잔고 = position 이 상위 권위 — spec §3-1 · ADR 0110 §2-2).
+     * drift 정합 — `sum(strategy_position.quantity WHERE user+code)` 를 `position.quantity`(KIS 잔고 권위)에 정렬한다.
+     *
+     * ADR 0115 §P1-1 (R2 배선). R1 순수 함수 [PositionDriftCorrection.evaluate]가 보정 수량을 산정하고,
+     * 본 메서드가 그 결과를 strategy_position DB 에 반영한다(수량만 — realized_pnl·avgPrice 불변 LOCK).
+     *
+     * - [DriftCorrectionResult.Adjust]: 초과 leg 를 권위 수량에 맞춰 내림 UPDATE + `STRATEGY_POSITION_DRIFT_CORRECTED`
+     *   SystemEvent(WARN, before/after qty). 수량==0 도달 leg 는 avgPrice·filledLots·executedExitStages reset(applySell 정합).
+     * - [DriftCorrectionResult.WarnUnderflow]: 부족 방향 — 보정하지 않고 현행 `STRATEGY_POSITION_DRIFT` WARN 유지(없는 물량 인식 회피).
+     * - [DriftCorrectionResult.NoChange]/[DriftCorrectionResult.Disabled]: 무동작(Disabled 는 ENV off → 현행 WARN-only fallback).
+     *
+     * 모드 무관(REAL/MOCK 동일 — position 권위 공통, ADR 0115 §P1-1). 실주문 액션 게이트는 본 경로와 무관(수량 정렬만).
      */
-    private fun verifyDrift(request: OrderRequest) {
-        val strategySum =
+    private fun reconcileDrift(request: OrderRequest) {
+        val legs =
             try {
-                strategyPositionJpaRepository.sumQuantityByUserAndCode(request.userId, request.code)
+                strategyPositionPort.findByUserCode(request.userId, request.code)
             } catch (e: Exception) {
                 log.warn(
-                    "strategy_position drift sum 조회 실패 — 검증 skip: userId={} code={} err={}",
+                    "strategy_position drift leg 조회 실패 — 정합 skip: userId={} code={} err={}",
                     maskUserId(request.userId),
                     request.code,
                     e.message,
@@ -232,7 +248,7 @@ class ConsumerExecutionStrategyPositionAdapter(
                     ?.quantity ?: 0
             } catch (e: Exception) {
                 log.warn(
-                    "strategy_position drift position 조회 실패 — 검증 skip: userId={} code={} err={}",
+                    "strategy_position drift position 조회 실패 — 정합 skip: userId={} code={} err={}",
                     maskUserId(request.userId),
                     request.code,
                     e.message,
@@ -240,30 +256,145 @@ class ConsumerExecutionStrategyPositionAdapter(
                 return
             }
 
-        if (strategySum != positionQty) {
-            log.warn(
-                "STRATEGY_POSITION_DRIFT: userId={} code={} strategySum={} positionQty={} (KIS/position 권위 우선 — 보정 안 함)",
-                maskUserId(request.userId),
-                request.code,
-                strategySum,
-                positionQty,
+        val result =
+            PositionDriftCorrection.evaluate(
+                DriftCorrectionInput(
+                    code = request.code,
+                    authorityQuantity = positionQty,
+                    legs =
+                        legs.map { leg ->
+                            StrategyPositionLeg(
+                                strategyId = leg.strategyId,
+                                quantity = leg.quantity,
+                                updatedAt = leg.updatedAt,
+                            )
+                        },
+                    enabled = driftAutoCorrectEnabled,
+                ),
             )
-            systemEventLoggerProvider.ifAvailable?.let { logger ->
-                runCatching {
-                    logger.emit(
-                        SystemEvent(
-                            category = SystemEventCategory.RECONCILE,
-                            severity = SystemEventSeverity.WARN,
-                            actor = SYSTEM_EVENT_ACTOR,
-                            action = "STRATEGY_POSITION_DRIFT",
-                            userId = request.userId,
-                            detailJson =
-                                """{"code":"${request.code}","strategySum":$strategySum,"positionQty":$positionQty}""",
-                        ),
+
+        when (result) {
+            is DriftCorrectionResult.Adjust -> applyDriftCorrection(request, legs, result)
+            is DriftCorrectionResult.WarnUnderflow ->
+                emitDriftWarn(request, result.strategySum, result.authorityQuantity)
+            // Disabled(ENV off) — 현행 WARN-only 로 fallback. 일치/정합이면 무동작.
+            is DriftCorrectionResult.Disabled -> warnIfDisabledDrift(request, positionQty)
+            DriftCorrectionResult.NoChange -> Unit
+        }
+    }
+
+    /**
+     * [DriftCorrectionResult.Adjust] 적용 — 보정 leg 별 strategy_position 수량 UPDATE + 감사 이벤트(디바운스 1건).
+     * realized_pnl 절대 미변경. quantity==0 도달 leg 는 전량 청산 reset(applySell nextQty==0 분기 정합).
+     */
+    private fun applyDriftCorrection(
+        request: OrderRequest,
+        legs: List<StrategyPosition>,
+        result: DriftCorrectionResult.Adjust,
+    ) {
+        val legById = legs.associateBy { it.strategyId }
+        val now = clock.now()
+        for (correction in result.corrections) {
+            val leg = legById[correction.strategyId] ?: continue
+            val corrected =
+                if (correction.willBeClosed) {
+                    leg.copy(
+                        quantity = 0,
+                        avgPrice = BigDecimal.ZERO,
+                        filledLots = 0,
+                        executedExitStages = emptySet(),
+                        updatedAt = now,
                     )
-                }.onFailure { e ->
-                    log.error("SystemEventLogger.emit 실패: action=STRATEGY_POSITION_DRIFT err={}", e.message)
+                } else {
+                    leg.copy(quantity = correction.newQuantity, updatedAt = now)
                 }
+            try {
+                strategyPositionPort.upsert(corrected)
+            } catch (e: Exception) {
+                log.error(
+                    "STRATEGY_POSITION_DRIFT_CORRECTED upsert 실패: userId={} strategyId={} code={} err={}",
+                    maskUserId(request.userId),
+                    correction.strategyId,
+                    request.code,
+                    e.message,
+                )
+            }
+        }
+        log.warn(
+            "STRATEGY_POSITION_DRIFT_CORRECTED: userId={} code={} strategySum={}->{} corrections={} (position 권위 정렬)",
+            maskUserId(request.userId),
+            request.code,
+            result.strategySum,
+            result.authorityQuantity,
+            result.corrections.joinToString { "${it.strategyId}:${it.previousQuantity}->${it.newQuantity}" },
+        )
+        // 보정 1건당 감사 이벤트 1건(디바운스 — 보정은 정합 회복 즉시 1회만 발생).
+        emitSystemEvent(
+            request,
+            action = "STRATEGY_POSITION_DRIFT_CORRECTED",
+            detailJson =
+                """{"code":"${request.code}","strategySum":${result.strategySum},"authorityQuantity":${result.authorityQuantity},""" +
+                    """"corrections":[${result.corrections.joinToString(",") {
+                        """{"strategyId":${it.strategyId},"prev":${it.previousQuantity},"next":${it.newQuantity}}"""
+                    }}]}""",
+        )
+    }
+
+    /** 부족 방향 drift — 현행 WARN 유지(보정 안 함). */
+    private fun emitDriftWarn(
+        request: OrderRequest,
+        strategySum: Int,
+        positionQty: Int,
+    ) {
+        log.warn(
+            "STRATEGY_POSITION_DRIFT: userId={} code={} strategySum={} positionQty={} (부족 방향 — position 권위 우선, 보정 안 함)",
+            maskUserId(request.userId),
+            request.code,
+            strategySum,
+            positionQty,
+        )
+        emitSystemEvent(
+            request,
+            action = "STRATEGY_POSITION_DRIFT",
+            detailJson = """{"code":"${request.code}","strategySum":$strategySum,"positionQty":$positionQty}""",
+        )
+    }
+
+    /** ENV 보정 off(Disabled) 시 — 정합 차이가 있으면 현행 WARN-only fallback(보정 안 함). */
+    private fun warnIfDisabledDrift(
+        request: OrderRequest,
+        positionQty: Int,
+    ) {
+        val strategySum =
+            try {
+                strategyPositionJpaRepository.sumQuantityByUserAndCode(request.userId, request.code)
+            } catch (e: Exception) {
+                return
+            }
+        if (strategySum != positionQty) {
+            emitDriftWarn(request, strategySum, positionQty)
+        }
+    }
+
+    private fun emitSystemEvent(
+        request: OrderRequest,
+        action: String,
+        detailJson: String,
+    ) {
+        systemEventLoggerProvider.ifAvailable?.let { logger ->
+            runCatching {
+                logger.emit(
+                    SystemEvent(
+                        category = SystemEventCategory.RECONCILE,
+                        severity = SystemEventSeverity.WARN,
+                        actor = SYSTEM_EVENT_ACTOR,
+                        action = action,
+                        userId = request.userId,
+                        detailJson = detailJson,
+                    ),
+                )
+            }.onFailure { e ->
+                log.error("SystemEventLogger.emit 실패: action={} err={}", action, e.message)
             }
         }
     }

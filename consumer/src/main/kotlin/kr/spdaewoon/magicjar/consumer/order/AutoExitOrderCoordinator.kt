@@ -14,6 +14,8 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import kr.spdaewoon.magicjar.domain.order.execution.port.KisOrderPort
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import kr.spdaewoon.magicjar.strategy.entry.EntryPricePolicy
+import kr.spdaewoon.magicjar.strategy.integrity.ReplayFillInput
+import kr.spdaewoon.magicjar.strategy.integrity.ReplayFillPolicy
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
@@ -68,6 +70,8 @@ class AutoExitOrderCoordinator(
     private val holdingDemandRegistrar: HoldingDemandRegistrar,
     @Value("\${magicjar.autotrading.exit.take-profit-limit-enabled:true}")
     private val takeProfitLimitEnabled: Boolean = true,
+    @Value("\${magicjar.autotrading.replay.freshness-threshold-seconds:120}")
+    private val replayFreshnessThresholdSeconds: Long = 120,
 ) {
     private val log = LoggerFactory.getLogger(AutoExitOrderCoordinator::class.java)
 
@@ -87,6 +91,20 @@ class AutoExitOrderCoordinator(
         holdingDemandRegistrar.releasePendingBuy(event.orderId, event.code)
         holdingDemandRegistrar.onBuyFilled(event.code)
         holdingPositionIndex.onFillRefresh(event.code)
+
+        // ADR 0115 §P1-2 replay 가드 — backfill/복구가 재발행한 과거 체결(REST_BACKFILL 또는 stale executedAt)은
+        // 새 체결로 오인하지 않는다. 보유 인덱스·구독 갱신(위)은 유지하되 신규 TP 선주문은 발행하지 않는다(중복 익절 차단).
+        if (isReplayFill(event)) {
+            log.info(
+                "auto take-profit skip(replay fill) — backfill/복구 재발행 체결 TP 미발행: userId={} strategyId={} code={} fillSource={} executedAt={}",
+                event.userId,
+                event.strategyId,
+                event.code,
+                event.fillSource,
+                event.executedAtEpochSeconds,
+            )
+            return
+        }
 
         if (!takeProfitLimitEnabled) return
         val strategy = runCatching { strategyRepository.findById(event.strategyId).orElse(null) }.getOrNull() ?: return
@@ -269,6 +287,17 @@ class AutoExitOrderCoordinator(
         }
     }
 
+    /** R1 [ReplayFillPolicy] 위임 — fillSource=REST_BACKFILL 1차 + executedAt 신선도 2중 판정. */
+    private fun isReplayFill(event: FilledEvent): Boolean =
+        ReplayFillPolicy.isReplayFill(
+            ReplayFillInput(
+                fillSource = event.fillSource,
+                executedAtEpochSeconds = event.executedAtEpochSeconds,
+                evalEpochSeconds = Instant.now().epochSecond,
+                freshnessThresholdSeconds = replayFreshnessThresholdSeconds,
+            ),
+        )
+
     private fun parse(record: ConsumerRecord<String, String>): FilledEvent? {
         return try {
             @Suppress("UNCHECKED_CAST")
@@ -283,6 +312,7 @@ class AutoExitOrderCoordinator(
                 executedQty = raw.intOrNull("executedQty") ?: 0,
                 executedPrice = raw.decimalOrNull("executedPrice") ?: return null,
                 executedAtEpochSeconds = raw.longOrNull("executedAt"),
+                fillSource = raw["fillSource"]?.toString(),
                 source = raw["source"]?.toString()?.let { runCatching { OrderSource.valueOf(it) }.getOrNull() } ?: OrderSource.AUTO,
             )
         } catch (e: Exception) {
@@ -322,6 +352,8 @@ class AutoExitOrderCoordinator(
         val executedQty: Int,
         val executedPrice: BigDecimal,
         val executedAtEpochSeconds: Long?,
+        /** `order.filled.v1` payload fillSource("REST_BACKFILL"/"WS") — replay 1차 식별(ADR 0115 §P1-2). */
+        val fillSource: String? = null,
         val source: OrderSource,
     )
 
