@@ -1,7 +1,7 @@
 # ADR 0117 — 단타 발굴(Discovery) 레이어 + 체결강도 KIS raw 흡수
 
 - 상태: Proposed (사용자 "발굴 레이어 구축" 결재 — architect spec/plan 발행. 코드 반영 시 Accepted 전환)
-- 작성일: 2026-06-09
+- 작성일: 2026-06-09 (2026-06-09 최고 관리자 결정 2건 정정 — ① 구현 순서 R2 우선 ② 빌트인 프리셋 권위 V75 Flyway 시드)
 - 결정자: architect (orchestrator dispatch · 사용자 "돈 버는 것으로 피벗" 후속)
 - 관계: ADR 0048 정합(KIS WS owner 분리 — STRATEGY owner 재사용, watchlist 비삽입) · ADR 0056 정합(Backtest 엔진 — IS/OOS·민감도 add-only, 코어 산식 무변경) · ADR 0071 정합·책임분리(사용자 DSL 스크리너 vs 본 ADR 시스템 빌트인 룰 발굴) · ADR 0112 무관(AI 종목발굴 LLM — 본 ADR은 룰 기반·LLM 0) · ADR 0047 정합(DSL sandbox — `trade_intensity` add-only 화이트리스트)
 - spec/plan: `_workspace/specs/daytrade-discovery-spec.md` · `_workspace/specs/daytrade-discovery-plan.md` (계약 LOCK 권위)
@@ -43,9 +43,11 @@ raw URL: `https://github.com/koreainvestment/open-trading-api/blob/main/examples
 
 ## §2. 결정 (architect 자율 LOCK)
 
-### 2-1. (A) 발굴 진입 모델 — **시스템 빌트인 룰 발굴 채택** (vs strategyId 필수 ScreenerEngine 재사용 only)
+### 2-1. (A) 발굴 진입 모델 — **시스템 빌트인 룰 발굴 채택, 프리셋 권위 = V75 Flyway 시드** (vs strategyId 필수 ScreenerEngine 재사용 only)
 
-발굴은 `BuiltinResearchCandidates` 인프라(`ResearchCandidateDefinition.kt:46`, `isBuiltin=true`, V74 시드 + `ResearchCandidateProvider` 포트)를 단타 setup 프리셋으로 **확장**한다. 신규 도메인/테이블 신설 0 — 기존 빌트인 후보 18종에 단타 setup add-only. 사용자 DSL 전략(`strategy` 테이블)과 별도 테이블 공존(spec §1-3 매트릭스).
+발굴은 `strategy_research_candidate`(V74 스키마, `isBuiltin=true`) + `ResearchCandidateProvider` 포트 인프라를 단타 setup 프리셋으로 **확장**한다. 신규 테이블 신설 0.
+
+**최고 관리자 결정 2 (2026-06-09 LOCK)**: 단타 발굴 프리셋 권위는 **V75 Flyway 시드** = `V75__daytrade_discovery_setup_seed.sql`이 `strategy_research_candidate` 테이블에 단타 setup row INSERT (V70 preset·V74 후보 18종 시드 선례 정합 — `DAYTRADE_*` key·sort_order 200~·`ON CONFLICT (candidate_key) DO NOTHING`). 코드(`ResearchCandidateProvider`)는 시드 row를 **read만** 한다. 직전 spec의 옵션 A(코드 권위 `BuiltinResearchCandidates` add · Flyway 0)는 **폐기**. 사유: 기존 시드 선례와 DB 권위 일관성 통일. 사용자 DSL 전략(`strategy` 테이블)과 별도 테이블 공존(spec §1-3 매트릭스).
 
 ### 2-2. (B) 체결강도 — **KIS CTTR(index 18) 직흡수 채택** (vs 자체 계산)
 
@@ -73,7 +75,7 @@ CTTR은 과거 candle에 없음 → 백테스트 불가. 수익 검증 = A층(ca
 
 | 자원 | 점유 | 결론 |
 |---|---|---|
-| Flyway | 0 (코드 권위 옵션 A) / 선택 V75 | 다음 가용 V75 (최신 V74). spec §7-2 사용자 확인 |
+| Flyway | **V75** (`V75__daytrade_discovery_setup_seed.sql` — 단타 프리셋 시드, 최고 관리자 결정 2 권위) | 최신 V74(ls 확인). 옆 세션 PR #833 migration 0건 → V75 가용 확정. 충돌 0 |
 | REST | `POST /api/screener/daytrade-discover` 신규 1 | 충돌 0 (`evaluate`/`runs` 점유와 분리) |
 | Kafka/STOMP | 0 | — |
 | Redis | `screener:discover:*` (선택) | prefix 분리 충돌 0 |
@@ -83,16 +85,18 @@ CTTR은 과거 candle에 없음 → 백테스트 불가. 수익 검증 = A층(ca
 
 ---
 
-## §4. 라운드 분할 (plan 권위)
+## §4. 라운드 분할 (plan 권위 — 최고 관리자 결정 1: R2 우선)
 
-`{R1-A market-data ∥ R1-B strategy-engine ∥ R3-검증 strategy-engine}` → `R2 (strategy+frontend+qa)` → `R3-측정 strategy-engine`. 상세 plan 참조.
+**최고 관리자 결정 1 (2026-06-09 LOCK)**: 구현 순서를 **R2(장전 일봉 발굴) 먼저**로 재배치. 사유: 옆 세션이 전 종목 일봉 전수 backfill 중 → 일봉 발굴이 데이터 완비된 견고한 1차 경로. 체결강도(R1 tick)·장중 분봉은 데이터 불완전 전제의 best-effort 보조 → 후순위 파도. R2는 candle read-only라 옆 세션(일봉 ingestion write)·R1(WS 파서)보다 파일 충돌도 적다.
+
+새 순서: `R2 (V75 시드 ∥ strategy-engine 엔진 → frontend 화면 → qa Visual · 일봉 read-only · 최우선)` → `{R1-A market-data ∥ R1-B strategy-engine · 체결강도 tick best-effort 보조}` → `{R3-검증 ∥ R3-측정 strategy-engine}`. R2는 R1 산출물 의존 0(일봉 entry_dsl은 `trade_intensity` 미사용). 상세 plan 참조.
 
 ---
 
 ## §5. 결과 / 트레이드오프
 
-**얻는 것**: 전략 작성 없는 수익 발굴 진입점 · 체결강도 단타 지표 충당(계산 신설 0) · 과최적화 가드. 신규 모듈 0 · 테이블 0(코드 권위) · KIS 호출 증가 0.
+**얻는 것**: 전략 작성 없는 수익 발굴 진입점(일봉 완비 경로 우선) · 체결강도 단타 지표 충당(계산 신설 0 · best-effort 보조) · 과최적화 가드. 신규 모듈 0 · 신규 테이블 0(V74 재사용, V75는 시드 row만) · KIS 호출 증가 0.
 
-**감수**: 체결강도 백테스트 재현 불가(B층 MOCK A/B 보완) · 발굴 후보 STRATEGY WS slot 경합(priority 40으로 보유 구독 보호). time-of-day RVOL·당일 VWAP·ORB는 세션함수 부재로 현 불가 — 수익성 검증 후 별도 ADR(post-R3 backlog).
+**감수**: 체결강도 백테스트 재현 불가(B층 MOCK A/B 보완) · 체결강도/장중 분봉은 데이터 미완비 전제의 best-effort(graceful) · 발굴 후보 STRATEGY WS slot 경합(priority 40으로 보유 구독 보호). time-of-day RVOL·당일 VWAP·ORB는 세션함수 부재로 현 불가 — 수익성 검증 후 별도 ADR(post-R3 backlog).
 
-**롤백**: 모두 add-only — `MAGICJAR_DAYTRADE_DISCOVERY_ENABLED=false`로 endpoint off, DSL 식별자/TickEvent 필드는 미사용 시 무영향.
+**롤백**: V75 시드는 builtin row(`ON CONFLICT DO NOTHING`) — 미사용 시 `is_active=false` UPDATE 또는 row 삭제로 무력화(부활 X). endpoint는 `MAGICJAR_DAYTRADE_DISCOVERY_ENABLED=false`로 off. DSL 식별자/TickEvent 필드는 add-only — 미사용 시 무영향.
