@@ -3,9 +3,9 @@ id: T-20260608-1704-observability-ratelimit-dashboard
 agent: backend-core
 model: opus
 branch: agent/backend-core/observability-ratelimit-dashboard
-status: RUNNING
+status: DONE
 startedAt: 2026-06-08T17:04:27.630+09:00
-completedAt: null
+completedAt: 2026-06-08T23:59:00.000+09:00
 pr: null
 parentPhase: ?
 ---

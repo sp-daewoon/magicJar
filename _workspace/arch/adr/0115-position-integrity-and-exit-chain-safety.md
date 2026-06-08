@@ -1,6 +1,6 @@
 # ADR 0115 — 포지션 단일 권위 + 드리프트 자동보정 + 청산 사슬 replay/cooldown 안전화
 
-- **상태**: Proposed (2026-06-08, canary 전날 — md only 설계 선행, 코드 미반영)
+- **상태**: Accepted (2026-06-08 설계 선행 → **v3.12.1 코드 반영 완료**: R1 드리프트보정·replay-fill 순수함수(`PositionDriftCorrection`·`ReplayFillPolicy`, PR #818) / R2 배선(drift 자동보정·replay 가드·watcher 쿨다운·거부 자동정지·ACK 재조회, PR #820) / R3 incident 재현 e2e 6시나리오(PR #821). 정합·보정은 REAL/MOCK 동일 경로 — 코드 미반영 표기 sunset)
 - **작성**: architect
 - **트랙**: T-O (주문·청산 운영) · 입력: `docs/assessments/2026-06-08-mock-alarm-flood-rootcause.html`
 - **관련 ADR**: 0110(strategy_position 1급 도메인) amend · 0111(RiskPlan scale-in/exit) · 0114(주문집행 정책·청산 보장) 보강 · 0070(알림 rate limit) · 0084(WS 재연결 backfill)
