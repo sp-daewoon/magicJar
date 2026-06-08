@@ -2,6 +2,7 @@
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+| 2026-06-08 | **🔴 fix(consumer): 진입 정책 opt-in 게이트 — 장중 MOCK 거래 복구 (자본 경로 회귀 hotfix)** — `EntryOrderPriceResolver`가 전략 `entry_policy=null`이어도 globalDefault(marketable-limit)를 무조건 적용 → 호가 미구독 종목(H0STASP0 WS 미구독·REST ask1=null) 전부 `SIGNAL_SKIPPED_NO_QUOTE` → BUY 0 → 포지션 0 → SELL 차단(회귀, 실전 D-1 장중 발생). 정정: opt-in 게이트 신설 — marketable-limit은 (전략 `entry_policy` 명시 OR 전역 `magicjar.order.entry.limit-enabled=true`)일 때만 적용. 미적용(default)이면 `EntryOrderDecision.Market`(sealed 분기 신설) → MARKET 주문 즉시 복구 + **호가 조회 자체 0**(REST TPS 0). R1 도메인 주석("null entry_policy=현행 MARKET 하위호환")과 R2 배선 정합화. EntryPricePolicy·EntryQuotePort·취소워커·tick watcher·TP 선주문은 enable=true 시 동작 유지(삭제 0). 단위 테스트 매트릭스(null+false→Market·null+true→limit·명시→limit) + check·bootJar 3종·ktlint GREEN. (backend-core) | consumer/order | 🔴 자본 경로 회귀 — 장중 BUY 전면 스킵 정정 |
 
 | 2026-06-07 | **chore(meta): PR-5 v3.12.0 baseline 폴더 신설 + sub-agent 슬롯 4 anchor 발행** — `_workspace/baseline/v3.12.0/` 폴더 신설(README skeleton + 7 파일 인덱스). CHANGELOG sub-agent 슬롯 4 anchor(architect/backend-core/market-data/frontend). 4 sub-agent 병렬 디스패치 add-only LOCK. (orchestrator) | meta/baseline | PR-5 v3.12.0 baseline 슬롯 발행 |
 <!-- pr-5-slot-orchestrator -->

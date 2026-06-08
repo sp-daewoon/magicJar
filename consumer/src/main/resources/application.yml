@@ -90,6 +90,10 @@ magicjar:
   #   미체결: timeout-sec 경과 시 취소(시장가 전환 금지·재시도 0). 스프레드 max-spread-pct 초과 진입 금지.
   order:
     entry:
+      # opt-in 게이트(자본 경로 회귀 hotfix 2026-06-08) — entry_policy 없는 전략에도 marketable-limit을 전역 적용할지.
+      #   default false = 현행 MARKET 보존. 전략별 entry_policy(JSONB) 명시 행은 본 toggle과 무관하게 항상 marketable-limit 적용.
+      #   false + entry_policy 없음 → MARKET 주문(호가 조회 0 · NO_QUOTE 스킵 0). true → 전 전략 marketable-limit(호가 필요).
+      limit-enabled: ${MAGICJAR_ORDER_ENTRY_LIMIT_ENABLED:false}
       max-slippage-pct: ${MAGICJAR_ORDER_ENTRY_MAX_SLIPPAGE_PCT:0.2}
       timeout-sec: ${MAGICJAR_ORDER_ENTRY_TIMEOUT_SEC:15}
       max-spread-pct: ${MAGICJAR_ORDER_ENTRY_MAX_SPREAD_PCT:0.3}

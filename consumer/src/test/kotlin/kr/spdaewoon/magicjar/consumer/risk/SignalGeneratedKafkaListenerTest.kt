@@ -81,7 +81,7 @@ class SignalGeneratedKafkaListenerTest {
         }
 
     @Test
-    fun `BUY ALLOWED — risk budget 기반 주문 수량을 계산해서 order intent에 싣는다`() {
+    fun `BUY ALLOWED — risk budget 기반 주문 수량을 계산해서 order intent에 싣는다 (limit-enabled opt-in → LIMIT)`() {
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
         every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
         every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
@@ -91,12 +91,37 @@ class SignalGeneratedKafkaListenerTest {
         every { tradeFrequencyGuard.record(100L, "user-A", 77L, now) } just Runs
         every { killSwitchQueryPort.isOn("user-A") } returns false
 
-        listener().onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+        // 동작 변경 사유(hotfix 2026-06-08): entry_policy 없는 sampleStrategy는 default(limit-enabled=false)면 MARKET 경로다.
+        //   marketable-limit LIMIT 발행을 검증하려면 전역 opt-in(entryLimitEnabled=true)이 필요하다.
+        listener(entryLimitEnabled = true).onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
 
         verify(exactly = 1) { signalRiskStatusUpdater.markAllowed(77L) }
-        // ADR 0114 — BUY는 marketable limit. ask1=50000 ≤ cap(50000×1.002) → LIMIT 50000 발행.
+        // ADR 0114 — opt-in 시 BUY는 marketable limit. ask1=50000 ≤ cap(50000×1.002) → LIMIT 50000 발행.
         verify(exactly = 1) {
             orderIntentKafkaProducer.publish(match { it.id == 77L }, 20, OrderPriceType.LIMIT, BigDecimal("50000"))
+        }
+    }
+
+    @Test
+    fun `BUY ALLOWED — entry_policy 없는 전략 + limit-enabled false(default) → MARKET 발행 (자본 경로 회귀 정정)`() {
+        // 회귀 핵심: 과거엔 entry_policy=null이어도 marketable-limit 적용 → 호가 미가용 종목 NO_QUOTE 스킵 → BUY 0.
+        // 정정: entry_policy 없는 전략은 MARKET 발행으로 즉시 진입 복구(NO_QUOTE 스킵 0).
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.record(100L, "user-A", 77L, now) } just Runs
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+
+        // 호가가 없어도(미구독 종목) MARKET 경로는 영향 0 — 호가 조회조차 하지 않는다.
+        listener(entryLimitEnabled = false, entryQuote = null)
+            .onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+
+        verify(exactly = 1) { signalRiskStatusUpdater.markAllowed(77L) }
+        verify(exactly = 1) {
+            orderIntentKafkaProducer.publish(match { it.id == 77L }, 20, OrderPriceType.MARKET, null)
         }
     }
 
@@ -338,8 +363,11 @@ class SignalGeneratedKafkaListenerTest {
         every { tradeFrequencyGuard.record(100L, "user-A", 77L, now) } just Runs
         every { killSwitchQueryPort.isOn("user-A") } returns false
 
-        listener(strategies = listOf(sampleStrategy(stopLossPct = BigDecimal("5.00"), takeProfitPct = BigDecimal("3.00"))))
-            .onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+        // entry pricing은 본 케이스 관심사가 아님(RiskPlan 통과 검증) — opt-in으로 LIMIT 경로 고정해 발행만 확인.
+        listener(
+            strategies = listOf(sampleStrategy(stopLossPct = BigDecimal("5.00"), takeProfitPct = BigDecimal("3.00"))),
+            entryLimitEnabled = true,
+        ).onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
 
         verify(exactly = 1) { signalRiskStatusUpdater.markAllowed(77L) }
         verify(exactly = 1) {
@@ -416,6 +444,8 @@ class SignalGeneratedKafkaListenerTest {
                 askQty1 = 100L,
                 asOf = now,
             ),
+        // opt-in 게이트(hotfix 2026-06-08) — true면 entry_policy 없는 전략도 marketable-limit. default false=MARKET.
+        entryLimitEnabled: Boolean = false,
     ): SignalGeneratedKafkaListener {
         every { strategyLookupPort.findActiveByCodeAndInterval(any(), any()) } returns strategies
         every { orderRequestRepository.findOpenByUserId(any()) } returns openOrders
@@ -426,6 +456,7 @@ class SignalGeneratedKafkaListenerTest {
         val entryOrderPriceResolver =
             EntryOrderPriceResolver(
                 entryQuotePortProvider = providerOf(entryQuotePort),
+                limitEnabled = entryLimitEnabled,
                 clock = clock,
             )
         return SignalGeneratedKafkaListener(
