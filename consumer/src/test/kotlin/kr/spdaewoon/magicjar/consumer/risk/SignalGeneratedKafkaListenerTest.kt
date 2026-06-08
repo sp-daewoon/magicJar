@@ -290,6 +290,51 @@ class SignalGeneratedKafkaListenerTest {
     }
 
     @Test
+    fun `SELL ALLOW — 총보유 3 + 같은 전략 auto-tp 3 예약(보유 전량 잠금) → 선취소 후 발행 (KIS 가드 통과)`() {
+        // 결함 재현 시나리오: auto-tp 익절 선주문이 KIS 매도가능수량을 0으로 잠가도, 그 선주문은 우리가
+        // 발행 직전 취소해 풀어주므로 KIS 가드(총보유 − 수동·타전략예약)는 통과해야 한다.
+        sellContext(positionQty = 3)
+        every { kisOrderPort.cancel(any(), any()) } returns
+            kr.spdaewoon.magicjar.domain.order.execution.OrderResult
+                .Right(Unit)
+
+        listener(
+            kisBalance = sampleKisBalance(quantity = 3),
+            openOrders = listOf(restingAutoTp(quantity = 3, limitPrice = "73500")),
+        ).onSignalGenerated(record(payload(side = "SELL", price = "72000")), ack())
+
+        // KIS 가드 통과(BLOCK 0) → resting auto-tp 선취소 → MARKET SELL 3주 발행.
+        verify(exactly = 0) { signalRiskStatusUpdater.markBlocked(any(), RiskRule.SELL_QUANTITY_UNAVAILABLE, any()) }
+        verify(exactly = 1) { kisOrderPort.cancel(any(), any()) }
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 3, OrderPriceType.MARKET, null) }
+    }
+
+    @Test
+    fun `SELL BLOCKED — 총보유 3 + 수동 SELL 3 예약 → 가용 0 차단 유지 (수동 침범 금지)`() {
+        // 수동/타전략 open SELL은 우리가 취소 대상이 아니므로 예약 차감 유지 → 가용 0 → 차단(발행·취소 0).
+        // (evaluator reservedSellQuantity가 KIS 가드보다 먼저 동일 결론을 내므로 발행 직전 KIS 가드까지 갈 일 없음.)
+        sellContext(positionQty = 3)
+        every { riskEventRepository.save(any()) } answers { firstArg<RiskEvent>() }
+
+        listener(
+            kisBalance = sampleKisBalance(quantity = 3),
+            openOrders =
+                listOf(
+                    restingAutoTp(
+                        quantity = 3,
+                        source = kr.spdaewoon.magicjar.domain.order.execution.OrderSource.MANUAL,
+                    ),
+                ),
+        ).onSignalGenerated(record(payload(side = "SELL", price = "72000")), ack())
+
+        verify(exactly = 1) {
+            signalRiskStatusUpdater.markBlocked(77L, RiskRule.SELL_QUANTITY_UNAVAILABLE, any())
+        }
+        verify(exactly = 0) { kisOrderPort.cancel(any(), any()) }
+        verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any(), any(), any()) }
+    }
+
+    @Test
     fun `SELL BLOCKED — 내부 보유가 있어도 KIS 잔고에 없으면 주문 의도를 발행하지 않는다`() {
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
         every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
@@ -487,12 +532,12 @@ class SignalGeneratedKafkaListenerTest {
         )
     }
 
-    /** SELL 경로 공통 stub — 보유 7주 + ALLOWED 통과(resting SELL 시나리오 전용). */
-    private fun sellContext() {
+    /** SELL 경로 공통 stub — 보유 [positionQty]주(기본 7) + ALLOWED 통과(resting SELL 시나리오 전용). */
+    private fun sellContext(positionQty: Int = 7) {
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
         every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
         every { riskPositionPort.findCurrentByUser("user-A") } returns
-            listOf(Position(userId = "user-A", code = "005930", quantity = 7, avgPrice = BigDecimal("70000"), updatedAt = now))
+            listOf(Position(userId = "user-A", code = "005930", quantity = positionQty, avgPrice = BigDecimal("70000"), updatedAt = now))
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
         every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
         every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
