@@ -6,7 +6,7 @@
  * 실제 데이터만 표시 (feedback_no_mock_data 정합)
  */
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   type SigStrategyDto,
   type StrategyStatus,
@@ -58,6 +58,7 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
   const codes = Array.isArray(strategy.codes) ? strategy.codes : []
   const intervals = Array.isArray(strategy.intervals) ? strategy.intervals : []
   const { showToast } = useToast()
+  const navigate = useNavigate()
   // W4 R2 AI 진입점 — userId 1일 토큰 한도 키
   const userId = useOnboardingStore((s) => s.registeredUserId)
 
@@ -65,6 +66,13 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
   const deleteMutation = useDeleteSigStrategy()
   const isMissingOperationalTargets = codes.length === 0 || intervals.length === 0
   const activationBlockedReason = strategyActivationBlockedReason(strategy)
+  // RiskPlan(손절·익절) 사유는 백테스트 핸드오프 대상이 아님 — 빌더에서 손절/익절 설정 필요
+  const isRiskPlanBlockedReason = Boolean(
+    activationBlockedReason &&
+      (activationBlockedReason.includes('손절') || activationBlockedReason.includes('익절')),
+  )
+  // "성공한 백테스트가 있어야 …" 사유만 백테스트 화면으로 핸드오프
+  const isBacktestBlockedReason = Boolean(activationBlockedReason) && !isRiskPlanBlockedReason
 
   function handleToggle() {
     const nextStatus: StrategyStatus =
@@ -74,6 +82,11 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
       return
     }
     if (nextStatus === 'ACTIVE' && activationBlockedReason) {
+      // 백테스트 사유는 toast 대신 백테스트 화면으로 전환 + 해당 전략 prefill
+      if (isBacktestBlockedReason) {
+        navigate(`/strategy/backtest?strategyId=${strategy.id}`)
+        return
+      }
       showToast(activationBlockedReason, 'error')
       return
     }
@@ -367,7 +380,7 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
               : isMissingOperationalTargets
               ? '종목 지정 필요'
               : activationBlockedReason
-              ? activationBlockedReason.includes('손절') || activationBlockedReason.includes('익절')
+              ? isRiskPlanBlockedReason
                 ? 'RiskPlan 필요'
                 : '백테스트 필요'
               : '자동매매 시작'}

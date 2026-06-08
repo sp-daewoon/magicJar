@@ -14,7 +14,8 @@
  * 룰 5: LLM provider import 0건
  */
 import { useState } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { sigStrategyApi, type SigStrategyDto } from '../../api/strategy'
 import { backtestApi } from '../../api/backtest'
 import type { BacktestRunPersistResponse } from '../../api/backtest'
@@ -70,7 +71,11 @@ function formatCapital(v: string): string {
 }
 
 export function BacktestForm({ userId, onSuccess }: BacktestFormProps) {
-  const [strategyId, setStrategyId] = useState<string>('')
+  const queryClient = useQueryClient()
+  // 전략 카드 "백테스트 필요" 핸드오프 — URL ?strategyId=N prefill (자동 실행은 하지 않음)
+  const [searchParams] = useSearchParams()
+  const prefilledStrategyId = searchParams.get('strategyId') ?? ''
+  const [strategyId, setStrategyId] = useState<string>(prefilledStrategyId)
   const [instrumentInput, setInstrumentInput] = useState('')
   const [selectedInstruments, setSelectedInstruments] = useState<SelectedInstrument[]>([])
   const [interval, setInterval] = useState('1d')
@@ -112,6 +117,12 @@ export function BacktestForm({ userId, onSuccess }: BacktestFormProps) {
     },
     onSuccess: (res) => {
       setErrorMsg(null)
+      // 백테스트 성공 시 전략 활성화준비(activationReady) 상태가 바뀌므로
+      // 전략 목록·단건 캐시를 무효화해 전략 카드가 최신 상태를 반영하도록 한다.
+      void queryClient.invalidateQueries({ queryKey: ['sig-strategies'] })
+      if (strategyId) {
+        void queryClient.invalidateQueries({ queryKey: ['sig-strategies', strategyId] })
+      }
       onSuccess(res)
     },
     onError: (err: unknown) => {

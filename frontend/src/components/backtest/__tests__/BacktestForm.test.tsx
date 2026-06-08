@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
@@ -70,14 +71,16 @@ afterEach(() => {
 })
 afterAll(() => server.close())
 
-function renderForm(onSuccess = vi.fn()) {
+function renderForm(onSuccess = vi.fn(), initialEntry = '/strategy/backtest') {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   render(
-    <QueryClientProvider client={queryClient}>
-      <BacktestForm userId={1} onSuccess={onSuccess} />
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <QueryClientProvider client={queryClient}>
+        <BacktestForm userId={1} onSuccess={onSuccess} />
+      </QueryClientProvider>
+    </MemoryRouter>,
   )
   return { onSuccess }
 }
@@ -107,5 +110,19 @@ describe('BacktestForm', () => {
     expect(lastBacktestBody?.strategyId).toBe(7)
     expect(lastBacktestBody?.universe).toEqual(['005930', '000660'])
     expect(onSuccess).toHaveBeenCalled()
+  })
+
+  it('URL ?strategyId= 로 진입하면 전략이 자동 선택(prefill)되고 자동 실행은 하지 않는다', async () => {
+    const { onSuccess } = renderForm(vi.fn(), '/strategy/backtest?strategyId=7')
+
+    // 전략 옵션 로드 후 select 값이 prefill 되어야 함
+    await screen.findByRole('option', { name: /RSI 돌파/ })
+    await waitFor(() =>
+      expect(screen.getByLabelText('전략 선택')).toHaveValue('7'),
+    )
+
+    // 자동 실행 금지 — 사용자가 "백테스트 실행"을 누르기 전에는 요청 0건
+    expect(lastBacktestBody).toBeNull()
+    expect(onSuccess).not.toHaveBeenCalled()
   })
 })

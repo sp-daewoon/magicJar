@@ -1,0 +1,120 @@
+/**
+ * StrategyCard 핸드오프 단위 테스트
+ *
+ * 검증 (백테스트 핸드오프 — agent/frontend/backtest-handoff-and-refresh):
+ * - PAUSED + activationReady=false(백테스트 사유) "백테스트 필요" 클릭 → navigate('/strategy/backtest?strategyId=N')
+ * - RiskPlan(손절·익절) 사유는 백테스트로 보내지 않고 toast 유지
+ * - 종목/인터벌 미지정 사유는 toast 유지 (버튼 disabled가 아니어도 핸드오프 X)
+ */
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import type { SigStrategyDto } from '../../../api/strategy'
+
+const navigateMock = vi.fn()
+const showToastMock = vi.fn()
+const toggleMutateMock = vi.fn()
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
+  return { ...actual, useNavigate: () => navigateMock }
+})
+
+vi.mock('../../ui/ToastProvider', () => ({
+  useToast: () => ({ showToast: showToastMock }),
+}))
+
+vi.mock('../../../api/hooks/useSigStrategy', () => ({
+  useToggleSigStrategyStatus: () => ({ mutate: toggleMutateMock, isPending: false, isError: false }),
+  useDeleteSigStrategy: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
+}))
+
+vi.mock('../../../stores/onboarding', () => ({
+  useOnboardingStore: () => 1,
+}))
+
+vi.mock('../../../features/ai/components/AiExplainEntry', () => ({
+  AiExplainEntry: () => null,
+}))
+
+vi.mock('../StrategyPositionPanel', () => ({
+  StrategyPositionPanel: () => null,
+}))
+
+import { MemoryRouter } from 'react-router-dom'
+import { StrategyCard } from '../StrategyCard'
+
+const baseStrategy: SigStrategyDto = {
+  id: '48',
+  userId: 1,
+  name: 'xxx',
+  codes: ['005930'],
+  codeNames: { '005930': '삼성전자' },
+  intervals: ['1d'],
+  stopLossPct: 3,
+  takeProfitPct: 5,
+  status: 'PAUSED',
+  activationReady: false,
+  activationBlockedReason: '성공한 백테스트가 있어야 자동매매를 시작할 수 있습니다.',
+  recentSignalCount: 0,
+  createdAt: '2026-06-06T00:00:00Z',
+}
+
+function renderCard(strategy: SigStrategyDto) {
+  render(
+    <MemoryRouter>
+      <StrategyCard strategy={strategy} />
+    </MemoryRouter>,
+  )
+}
+
+describe('StrategyCard 백테스트 핸드오프', () => {
+  beforeEach(() => {
+    navigateMock.mockClear()
+    showToastMock.mockClear()
+    toggleMutateMock.mockClear()
+  })
+
+  it('백테스트 사유 "백테스트 필요" 클릭 시 백테스트 화면으로 전략 prefill 네비게이션', async () => {
+    const user = userEvent.setup()
+    renderCard(baseStrategy)
+
+    await user.click(screen.getByRole('button', { name: '백테스트 필요' }))
+
+    expect(navigateMock).toHaveBeenCalledWith('/strategy/backtest?strategyId=48')
+    expect(showToastMock).not.toHaveBeenCalled()
+    expect(toggleMutateMock).not.toHaveBeenCalled()
+  })
+
+  it('RiskPlan(손절·익절) 사유는 네비게이션 대신 toast 유지', async () => {
+    const user = userEvent.setup()
+    renderCard({
+      ...baseStrategy,
+      stopLossPct: null,
+      takeProfitPct: null,
+      activationBlockedReason: '자동매매를 시작하려면 손절 비율을 설정해 주세요.',
+    })
+
+    await user.click(screen.getByRole('button', { name: 'RiskPlan 필요' }))
+
+    expect(navigateMock).not.toHaveBeenCalled()
+    expect(showToastMock).toHaveBeenCalledWith(
+      '자동매매를 시작하려면 손절 비율을 설정해 주세요.',
+      'error',
+    )
+    expect(toggleMutateMock).not.toHaveBeenCalled()
+  })
+
+  it('종목 미지정 전략의 "종목 지정 필요" 버튼은 비활성화되어 핸드오프하지 않는다', () => {
+    renderCard({
+      ...baseStrategy,
+      codes: [],
+      activationReady: true,
+      activationBlockedReason: null,
+    })
+
+    const btn = screen.getByRole('button', { name: '종목 지정 필요' })
+    expect(btn).toBeDisabled()
+    expect(navigateMock).not.toHaveBeenCalled()
+  })
+})
