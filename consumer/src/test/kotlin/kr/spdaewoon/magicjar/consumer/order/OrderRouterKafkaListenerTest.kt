@@ -77,10 +77,29 @@ class OrderRouterKafkaListenerTest {
         mockk<ObjectProvider<KillSwitchQueryPort>>().also {
             every { it.getIfAvailable() } returns killSwitchPort
         }
+
+    // 자본 정합 hotfix(2026-06-08) — 체결 sync 게이트가 REAL·MOCK 모두 실행되므로 default provider는
+    // service를 합류시키고 MOCK account type 완료(PASS) sync를 stub한다(production wiring 모사).
+    // 과거 REAL-only 게이트 때만 MOCK 흐름이 null provider로도 통과했다.
     private val executionBackfillProvider =
         mockk<ObjectProvider<KisExecutionBackfillService>>().also {
-            every { it.getIfAvailable() } returns null
+            every { it.getIfAvailable() } returns executionBackfillService
         }
+
+    init {
+        every { executionBackfillService.syncUserTodayExecutions("12345678", AccountType.MOCK) } returns
+            KisExecutionSyncResult(
+                userId = "12345678",
+                accountType = AccountType.MOCK,
+                fetched = 0,
+                inserted = 0,
+                alreadySynced = 0,
+                failed = 0,
+                error = null,
+                syncedAt = java.time.Instant.parse("2026-06-08T00:00:00Z"),
+            )
+    }
+
     private val killSwitchJpaRepositoryProvider =
         mockk<ObjectProvider<KillSwitchJpaRepository>>().also {
             every { it.getIfAvailable() } returns killSwitchJpaRepository

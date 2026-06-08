@@ -299,6 +299,41 @@ class KisExecutionBackfillServiceTest {
     }
 
     @Test
+    fun `(l) 자본 정합 hotfix — MOCK 모드 ACK 주문이 누락 체결 backfill로 FILLED 정정된다`() {
+        // 증상 재현(주문 144 — 005930 BUY 2주 AUTO MOCK): KIS_ACK 후 체결통보(WS) 1건 누락 → ACK 영구 정체.
+        // MOCK 모드 sync(account type=MOCK)가 VPS 페이퍼 계좌 당일 체결을 당겨와 ACK → FILLED 정정해야 한다.
+        val service = newService(magicjarMode = "MOCK")
+
+        val exec = stubBackfillExec(kisOrderNo = "0000017311", totCcldQty = 2)
+        every { kisAdapter.fetchTodayExecutions("USER_MOCK_ACK", AccountType.MOCK) } returns listOf(exec)
+
+        val ackRequest =
+            stubOrderRequest(id = 144L, kisOrderNo = "0000017311", userId = "USER_MOCK_ACK")
+                .copy(status = OrderStatus.ACK, quantity = 2)
+        every { orderRepo.findByKisOrderNo("0000017311") } returns ackRequest
+        every { execRepo.existsByEventId(any()) } returns false
+        // 현재 0주 반영(WS 누락) → delta 2 신규 INSERT → 합계 2 = quantity → FILLED.
+        every { execRepo.sumExecutedQuantityByOrder(144L) } returns 0 andThen 2
+        every { execRepo.save(any()) } answers { firstArg<OrderExecution>().copy(id = 301L) }
+        every { orderRepo.markCompleted(144L, any(), OrderStatus.FILLED) } returns
+            ackRequest.copy(status = OrderStatus.FILLED)
+
+        // 신호 시점 sync 경로와 동일 진입점(syncUserTodayExecutions) — MOCK account type으로 직접 호출.
+        val result = service.syncUserTodayExecutions("USER_MOCK_ACK", AccountType.MOCK, verifyCredential = false)
+
+        // ACK → 신규 체결 합류 → FILLED 정정.
+        verify(exactly = 1) { execRepo.save(any()) }
+        verify(exactly = 1) { orderRepo.markCompleted(144L, any(), OrderStatus.FILLED) }
+        verify(exactly = 1) {
+            auditRepo.save(match<OrderAuditEvent> { it.eventType == OrderAuditEventType.FULL_FILL })
+        }
+        // sync 결과 정합(완료) — 신호 시점 가드가 PASS 판정할 수 있어야 한다.
+        assertThat(result.isComplete).isTrue()
+        assertThat(result.inserted).isEqualTo(1)
+        assertThat(result.accountType).isEqualTo(AccountType.MOCK)
+    }
+
+    @Test
     fun `(i) runBackfillSafely — runBackfill 예외 발생해도 propagate 안 함`() {
         val service = newService()
         every { credentialRepo.findAllByAccountType(any()) } throws RuntimeException("DB down")

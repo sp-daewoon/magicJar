@@ -446,6 +446,69 @@ class SignalGeneratedKafkaListenerTest {
     }
 
     @Test
+    fun `MOCK 모드 — KIS 체결 sync가 MOCK account type으로 실행된다 (REAL-only 게이트 제거 · 자본 정합 hotfix)`() {
+        // 결함 재현: 과거 ensureKisExecutionSyncIfReal는 MOCK 모드면 sync 자체를 skip(체결 backfill 0)했다.
+        // 정정: MOCK 모드도 sync 실행 + account type=MOCK 전달(VPS 페이퍼 계좌 당일 체결 조회 → ACK 정체 해소).
+        every { executionBackfillService.syncUserTodayExecutions("user-A", AccountType.MOCK) } returns
+            KisExecutionSyncResult(
+                userId = "user-A",
+                accountType = AccountType.MOCK,
+                fetched = 1,
+                inserted = 1,
+                alreadySynced = 0,
+                failed = 0,
+                error = null,
+                syncedAt = java.time.Instant.parse("2026-05-22T01:00:00Z"),
+            )
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.record(100L, "user-A", 77L, now) } just Runs
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+
+        listener(
+            magicjarMode = "MOCK",
+            executionBackfillProvider = providerOf(executionBackfillService),
+            entryLimitEnabled = true,
+        ).onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+
+        // MOCK 모드도 sync 실행(REAL return 0 결함 정정) + account type=MOCK 전달.
+        verify(exactly = 1) { executionBackfillService.syncUserTodayExecutions("user-A", AccountType.MOCK) }
+        // REAL account type으로는 호출되지 않는다(모드 일관성).
+        verify(exactly = 0) { executionBackfillService.syncUserTodayExecutions("user-A", AccountType.REAL) }
+        // sync 통과 → BLOCKED 없이 정상 주문 발행.
+        verify(exactly = 1) { signalRiskStatusUpdater.markAllowed(77L) }
+        verify(exactly = 0) {
+            signalRiskStatusUpdater.markBlocked(any(), RiskRule.KIS_EXECUTION_SYNC_STALE, any())
+        }
+    }
+
+    @Test
+    fun `MOCK 모드 — KIS 체결 sync 불완전 시 BLOCKED 처리한다 (REAL과 동일 fail-closed)`() {
+        // MOCK 모드도 sync 불완전(failed > 0)이면 REAL과 똑같이 fail-closed로 주문 차단해야 한다.
+        every { executionBackfillService.syncUserTodayExecutions("user-A", AccountType.MOCK) } returns
+            KisExecutionSyncResult.failure(
+                userId = "user-A",
+                accountType = AccountType.MOCK,
+                error = "KIS_FETCH_FAILED:timeout",
+            )
+        every { riskEventRepository.save(any()) } answers { firstArg<RiskEvent>() }
+
+        listener(
+            magicjarMode = "MOCK",
+            executionBackfillProvider = providerOf(executionBackfillService),
+        ).onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+
+        verify(exactly = 1) {
+            signalRiskStatusUpdater.markBlocked(77L, RiskRule.KIS_EXECUTION_SYNC_STALE, match { it.contains("KIS_EXECUTION_SYNC_STALE") })
+        }
+        verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any()) }
+    }
+
+    @Test
     fun `REAL 모드 KIS sync 후 daily PnL 조회 실패도 BLOCKED 처리한다`() {
         every { executionBackfillService.syncUserTodayExecutions("user-A", AccountType.REAL) } returns
             KisExecutionSyncResult(
@@ -477,7 +540,10 @@ class SignalGeneratedKafkaListenerTest {
 
     private fun listener(
         magicjarMode: String = "MOCK",
-        executionBackfillProvider: ObjectProvider<KisExecutionBackfillService> = nullableProvider(),
+        // 자본 정합 hotfix(2026-06-08) — 체결 sync는 REAL·MOCK 모두 실행되므로 default로 PASS sync 제공
+        // (production에서 KisExecutionBackfillService는 @Component로 항상 합류 — 과거 REAL-only 게이트 때만
+        //  MOCK 테스트가 null provider로도 무사했다).
+        executionBackfillProvider: ObjectProvider<KisExecutionBackfillService> = passingSyncProvider(magicjarMode),
         killSwitchProvider: ObjectProvider<KillSwitchQueryPort> = providerOf(killSwitchQueryPort),
         strategies: List<Strategy> = listOf(sampleStrategy()),
         kisBalance: KisAccountBalance? = sampleKisBalance(quantity = 100),
@@ -671,6 +737,29 @@ class SignalGeneratedKafkaListenerTest {
     private fun record(value: String) = ConsumerRecord("signal.generated.v1", 0, 0L, "user-A", value)
 
     private fun ack(): Acknowledgment = mockk(relaxed = true)
+
+    /**
+     * 자본 정합 hotfix(2026-06-08) — 체결 sync가 PASS(완료)로 떨어지는 backfill service provider.
+     * mode에서 파생한 account type(MOCK→MOCK / REAL→REAL)으로 호출돼도 완료 결과를 반환해
+     * sync 가드가 통과하도록 한다(production wiring 모사).
+     */
+    private fun passingSyncProvider(magicjarMode: String): ObjectProvider<KisExecutionBackfillService> {
+        val accountType =
+            kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
+                .accountTypeOrMock(magicjarMode)
+        every { executionBackfillService.syncUserTodayExecutions("user-A", accountType) } returns
+            KisExecutionSyncResult(
+                userId = "user-A",
+                accountType = accountType,
+                fetched = 0,
+                inserted = 0,
+                alreadySynced = 0,
+                failed = 0,
+                error = null,
+                syncedAt = java.time.Instant.parse("2026-05-22T01:00:00Z"),
+            )
+        return providerOf(executionBackfillService)
+    }
 
     private fun <T : Any> providerOf(value: T): ObjectProvider<T> =
         mockk<ObjectProvider<T>>().also {
