@@ -3,6 +3,9 @@ package kr.spdaewoon.magicjar.consumer.infrastructure.kis.ratelimit
 import io.github.bucket4j.BucketConfiguration
 import io.github.bucket4j.distributed.BucketProxy
 import io.github.bucket4j.distributed.proxy.ProxyManager
+import io.micrometer.core.instrument.Counter
+import io.micrometer.core.instrument.MeterRegistry
+import io.micrometer.core.instrument.Tags
 import kr.spdaewoon.magicjar.domain.event.SystemEvent
 import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
 import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
@@ -53,6 +56,13 @@ class ConsumerRedisKisRateLimiterAdapter(
      * nullable LOCK 사유 — 단위 테스트 허용 + Bean wiring 단계 분리.
      */
     private val systemEventLogger: SystemEventLogger? = null,
+    /**
+     * Micrometer 관측 registry (ADR 0116 §2-E · R2 · api·batch 동일 패턴).
+     *
+     * nullable LOCK — 기존 단위 테스트(미주입) 무수정 보존 + Actuator 미존재 fixture 안전.
+     * 노출 metric: `kis_ratelimit_bucket_consumed_total{bucket}`·`_acquire_timeout_total{priority}`·`_tps_exceeded_total{last_bucket}`.
+     */
+    private val meterRegistry: MeterRegistry? = null,
 ) : KisRateLimiterPort {
     private val log = LoggerFactory.getLogger(ConsumerRedisKisRateLimiterAdapter::class.java)
 
@@ -63,6 +73,9 @@ class ConsumerRedisKisRateLimiterAdapter(
     /** SystemEvent emit aggregator — 5분 윈도 1회 LOCK (spam 회피) */
     private val lastEmittedAt = AtomicReference<Instant>(Instant.EPOCH)
 
+    /** 최근 소진 성공 버킷 라벨 — EGW00201 시 last_bucket 추적 (ADR 0116 §2-E). */
+    private val lastConsumedBucket = AtomicReference(BUCKET_NONE)
+
     private companion object {
         val EMIT_AGGREGATOR_WINDOW: Duration = Duration.ofMinutes(5)
         const val ACTOR = "ConsumerRedisKisRateLimiterAdapter"
@@ -72,6 +85,18 @@ class ConsumerRedisKisRateLimiterAdapter(
         const val USER_KEY_SUFFIX = ":user"
         const val SHARED_KEY_SUFFIX = ":shared"
         const val BG_KEY_SUFFIX = ":bg"
+
+        /** Micrometer metric 이름 (api·batch 동일 LOCK · ADR 0116 §2-E). */
+        const val METRIC_BUCKET_CONSUMED = "kis.ratelimit.bucket.consumed"
+        const val METRIC_ACQUIRE_TIMEOUT = "kis.ratelimit.acquire.timeout"
+        const val METRIC_TPS_EXCEEDED = "kis.ratelimit.tps.exceeded"
+
+        /** 버킷 라벨 (metric tag). */
+        const val BUCKET_USER = "user"
+        const val BUCKET_SHARED = "shared"
+        const val BUCKET_BG = "bg"
+        const val BUCKET_GLOBAL = "global"
+        const val BUCKET_NONE = "none"
     }
 
     /** priority별 버킷 capacity 합 = bucketCapacity 인지 (ADR 0116 §4 합 검증). 불일치 시 단일 bucket fallback. */
@@ -99,6 +124,12 @@ class ConsumerRedisKisRateLimiterAdapter(
         }
     }
 
+    /**
+     * 버킷 config — **`refillIntervally` LOCK** (ADR 0116 §2-C · R2 · api·batch 동일 근거).
+     *
+     * `refillGreedy` 금지: idle 후 capacity burst 즉시 허용 → KIS sub-second 한도(추정·미명시) 위반.
+     * `refillIntervally(N, 1s)` = 1초 경계마다 N토큰 일괄 충전(윈도 중간 부분 회복 0) → 균등 발사 강제 + capacity=refill 로 idle burst 0.
+     */
     private fun bucketConfigFor(
         capacity: Long,
         refill: Long,
@@ -134,11 +165,12 @@ class ConsumerRedisKisRateLimiterAdapter(
      * priority → 접근 가능 버킷 리스트 (역방향 fallback · ADR 0116 §2-B).
      * USER_PATH→[USER,SHARED,BG]·INGESTION→[SHARED,BG]·BACKFILL/INGESTION_LOW→[BG] (when exhaustive).
      */
-    private fun bucketsFor(priority: KisCallPriority): List<BucketProxy> =
+    private fun bucketsFor(priority: KisCallPriority): List<Pair<String, BucketProxy>> =
         when (priority) {
-            KisCallPriority.USER_PATH -> listOf(userBucket, sharedBucket, bgBucket)
-            KisCallPriority.INGESTION -> listOf(sharedBucket, bgBucket)
-            KisCallPriority.BACKFILL, KisCallPriority.INGESTION_LOW -> listOf(bgBucket)
+            KisCallPriority.USER_PATH ->
+                listOf(BUCKET_USER to userBucket, BUCKET_SHARED to sharedBucket, BUCKET_BG to bgBucket)
+            KisCallPriority.INGESTION -> listOf(BUCKET_SHARED to sharedBucket, BUCKET_BG to bgBucket)
+            KisCallPriority.BACKFILL, KisCallPriority.INGESTION_LOW -> listOf(BUCKET_BG to bgBucket)
         }
 
     /**
@@ -180,6 +212,7 @@ class ConsumerRedisKisRateLimiterAdapter(
                     props.bucketKey,
                     priorityBucketsActive,
                 )
+                recordAcquireTimeout(priority)
                 throw KisRateLimitTimeoutException(priority, timeoutMillis)
             }
             val sleepMillis = props.acquirePollIntervalMillis.coerceAtMost(remainingNanos / 1_000_000L)
@@ -198,8 +231,23 @@ class ConsumerRedisKisRateLimiterAdapter(
      * priorityBucketsActive=false 시 단일 :global 버킷만 소비 (Phase 1 회귀).
      */
     private fun tryConsumeRouted(priority: KisCallPriority): Boolean {
-        if (!priorityBucketsActive) return globalBucket.tryConsume(1L)
-        return bucketsFor(priority).any { it.tryConsume(1L) }
+        if (!priorityBucketsActive) {
+            val ok = globalBucket.tryConsume(1L)
+            if (ok) onBucketConsumed(BUCKET_GLOBAL)
+            return ok
+        }
+        val consumed = bucketsFor(priority).firstOrNull { (_, bucket) -> bucket.tryConsume(1L) }
+        if (consumed != null) {
+            onBucketConsumed(consumed.first)
+            return true
+        }
+        return false
+    }
+
+    /** 버킷 소비 성공 시 — last_bucket 추적 + Micrometer counter (graceful · ADR 0116 §2-E). */
+    private fun onBucketConsumed(bucketLabel: String) {
+        lastConsumedBucket.set(bucketLabel)
+        recordBucketConsumed(bucketLabel)
     }
 
     /**
@@ -211,17 +259,23 @@ class ConsumerRedisKisRateLimiterAdapter(
      */
     override fun onTpsExceeded() {
         val count = tpsExceededCount.incrementAndGet()
+        val lastBucket = lastConsumedBucket.get()
         log.warn(
-            "[KisRateLimit/consumer] TPS exceeded signal — count={} (Phase 3 Circuit Breaker 합류 대기)",
+            "[KisRateLimit/consumer] TPS exceeded signal — count={} lastBucket={} (Phase 3 Circuit Breaker 합류 대기)",
             count,
+            lastBucket,
         )
-        emitSystemEventIfThresholdReached(count)
+        recordTpsExceeded(lastBucket)
+        emitSystemEventIfThresholdReached(count, lastBucket)
     }
 
     /**
      * SystemEvent emit aggregator — 5분 윈도 1회 LOCK (spam 회피, api·batch 동일 패턴).
      */
-    private fun emitSystemEventIfThresholdReached(currentCount: Long) {
+    private fun emitSystemEventIfThresholdReached(
+        currentCount: Long,
+        lastBucket: String,
+    ) {
         val logger = systemEventLogger ?: return
         val now = Instant.now()
         val prev = lastEmittedAt.get()
@@ -243,7 +297,7 @@ class ConsumerRedisKisRateLimiterAdapter(
                     correlationId = null,
                     detailJson =
                         """{"tpsExceededCount":$currentCount,"bucketKey":"${props.bucketKey}",""" +
-                            """"aggregatorWindowMinutes":5,"module":"consumer"}""",
+                            """"lastBucket":"$lastBucket","aggregatorWindowMinutes":5,"module":"consumer"}""",
                 ),
             )
             log.warn(
@@ -271,8 +325,49 @@ class ConsumerRedisKisRateLimiterAdapter(
         }
     }
 
+    // --- Micrometer 관측 helper (ADR 0116 §2-E · R2 · api·batch 동일 패턴) ---
+
+    private fun recordBucketConsumed(bucketLabel: String) {
+        val registry = meterRegistry ?: return
+        runCatching {
+            Counter
+                .builder(METRIC_BUCKET_CONSUMED)
+                .description("KIS rate limit 버킷별 토큰 소진 (ADR 0116 §2-E 사용률)")
+                .tags(Tags.of("bucket", bucketLabel))
+                .register(registry)
+                .increment()
+        }.onFailure { e -> log.trace("recordBucketConsumed skip: bucket={} err={}", bucketLabel, e.message) }
+    }
+
+    private fun recordAcquireTimeout(priority: KisCallPriority) {
+        val registry = meterRegistry ?: return
+        runCatching {
+            Counter
+                .builder(METRIC_ACQUIRE_TIMEOUT)
+                .description("KIS rate limit acquire timeout (어느 priority 가 굶었는지 · ADR 0116 §2-E)")
+                .tags(Tags.of("priority", priority.name))
+                .register(registry)
+                .increment()
+        }.onFailure { e -> log.trace("recordAcquireTimeout skip: priority={} err={}", priority, e.message) }
+    }
+
+    private fun recordTpsExceeded(lastBucket: String) {
+        val registry = meterRegistry ?: return
+        runCatching {
+            Counter
+                .builder(METRIC_TPS_EXCEEDED)
+                .description("KIS EGW00201 발생 시 직전 소진 버킷 추적 (ADR 0116 §2-E)")
+                .tags(Tags.of("last_bucket", lastBucket))
+                .register(registry)
+                .increment()
+        }.onFailure { e -> log.trace("recordTpsExceeded skip: lastBucket={} err={}", lastBucket, e.message) }
+    }
+
     /** 테스트·모니터링 진입점 (Phase 3 Circuit Breaker에서 권위 위임) */
     internal fun snapshotTpsExceeded(): Long = tpsExceededCount.get()
 
     internal fun snapshotSuccess(): Long = successCount.get()
+
+    /** 테스트 진입점 — 직전 소진 버킷 라벨 (ADR 0116 §2-E last_bucket 검증). */
+    internal fun snapshotLastConsumedBucket(): String = lastConsumedBucket.get()
 }
