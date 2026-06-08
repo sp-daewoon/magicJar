@@ -17,22 +17,25 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * batch 모듈 KIS Rate Limit Bucket4j-Redis 단일 bucket adapter (spec PR #564 §2-3 옵션 a 정합).
+ * batch 모듈 KIS Rate Limit Bucket4j-Redis 3-tier priority 버킷 adapter (ADR 0116 §2-B Phase 2).
  *
  * 정합 ADR:
- *   - ADR 0037 — Rate Limit 강제 (본 adapter가 §2-1 메커니즘 권위)
- *   - ADR 0038 — Redis 인프라 재사용 (multi-JVM 단일 bucket share)
+ *   - ADR 0037 — Rate Limit 강제 (ADR 0116이 단일 bucket → 3-tier supersede)
+ *   - ADR 0038 — Redis 인프라 재사용 (multi-JVM 버킷 share)
+ *   - ADR 0116 — priority별 별도 버킷(3-tier) + 역방향 fallback
  *
- * 책임 (api·consumer 모듈 RedisKisRateLimiterAdapter와 동일 알고리즘 — 옵션 a 정합):
- *   - Bucket4j 8.10.1 + Lettuce Redis backend로 단일 글로벌 bucket 발행 (api·consumer Bean과 동일 bucketKey LOCK)
+ * 책임 (api·consumer 모듈 RedisKisRateLimiterAdapter와 동일 알고리즘):
+ *   - Bucket4j 8.10.1 + Lettuce Redis backend로 priority별 버킷 발행 (api·consumer와 동일 bucketKey LOCK)
  *   - `acquire(priority, timeoutMillis)` blocking polling 패턴 (tryConsume non-blocking + short sleep retry)
  *   - EGW00201/HTTP 429 시그널 누적 (Phase 1 log 카운터만 — Phase 3 Circuit Breaker 합류 후속)
  *
- * priority 차등 라우팅 (ADR 0112 의제 — 2026-06-05 주문 path 보호, api·consumer 동일):
- *   - shared bucket (capacity = bucketCapacity - userPathReserveTokens): batch 호출은 BACKFILL·INGESTION 만 → shared 만 소비
- *   - reserve bucket: USER_PATH 전용 — batch 는 USER_PATH 0 → reserve 접근 0 (보존만)
- *   - ★ shared capacity 를 api·consumer 와 동일하게 맞춰야 동일 Redis bucketKey 의 Bucket4j config 정합 (capacity 불일치 시 first-writer-wins 충돌)
- *   - userPathReserveTokens=0 시 단일 bucket 회귀
+ * priority별 별도 버킷 (3-tier · ADR 0116 §2-B · api·consumer 동일):
+ *   - USER 버킷(capacity=bucketUser): batch는 USER_PATH 0 → 미접근 (보존만)
+ *   - SHARED 버킷(capacity=bucketShared): INGESTION 1차
+ *   - BG 버킷(capacity=bucketBg): BACKFILL·INGESTION_LOW 1차 (batch 캔들 backfill·corp action)
+ *   - 역방향 fallback: USER_PATH→[user,shared,bg]·INGESTION→[shared,bg]·BG→[bg]
+ *   - ★ 각 버킷 capacity를 api·consumer와 동일하게 맞춰야 동일 Redis 버킷 config 정합 (불일치 시 first-writer-wins 충돌)
+ *   - priorityBucketsEnabled=false 시 단일 :global 버킷 회귀
  *
  * Circuit Breaker LOCK:
  *   - Circuit Breaker OPEN 차단 미구현 (Phase 3 후속)
@@ -65,18 +68,36 @@ class BatchRedisKisRateLimiterAdapter(
         const val ACTOR = "BatchRedisKisRateLimiterAdapter"
         const val ACTION_TPS_EXCEEDED = "KIS_TPS_EXCEEDED"
 
-        /** USER_PATH 전용 reserve bucket key suffix (api·consumer 동일 LOCK — 동일 Redis key 분할 정합). */
-        const val RESERVE_KEY_SUFFIX = ":user-reserve"
+        /** priority별 버킷 key suffix (api·consumer 동일 LOCK — 동일 Redis 3 key 정합 · ADR 0116 §2-B). */
+        const val USER_KEY_SUFFIX = ":user"
+        const val SHARED_KEY_SUFFIX = ":shared"
+        const val BG_KEY_SUFFIX = ":bg"
     }
 
-    /** reserve 토큰 수 — bucketCapacity 로 clamp. batch 는 USER_PATH 0 이라 reserve 접근 0 (보존만). */
-    private val reserveTokens: Long = props.userPathReserveTokens.coerceIn(0L, props.bucketCapacity)
+    /** priority별 버킷 capacity 합 = bucketCapacity 인지 (ADR 0116 §4 합 검증). 불일치 시 단일 bucket fallback. */
+    private val bucketSumValid: Boolean =
+        (props.bucketUser + props.bucketShared + props.bucketBg) == props.bucketCapacity
 
-    /** shared pool capacity = bucketCapacity - reserve (★ api·consumer 와 동일 — Redis bucket config 정합). */
-    private val sharedCapacity: Long = props.bucketCapacity - reserveTokens
+    /** 3-tier priority 버킷 활성 여부. 비활성 시 단일 :global 버킷(capacity) 회귀 (Phase 1 안전 최소). */
+    private val priorityBucketsActive: Boolean =
+        props.priorityBucketsEnabled &&
+            bucketSumValid &&
+            props.bucketUser > 0L &&
+            props.bucketShared > 0L &&
+            props.bucketBg > 0L
 
-    /** reserve 라우팅 활성 여부 (reserve > 0 이고 shared > 0 일 때만). */
-    private val reserveEnabled: Boolean = reserveTokens > 0L && sharedCapacity > 0L
+    init {
+        if (props.priorityBucketsEnabled && !bucketSumValid) {
+            log.warn(
+                "[KisRateLimit/batch] priority 버킷 합 불일치 — 단일 bucket fallback: user={} shared={} bg={} sum={} != capacity={}",
+                props.bucketUser,
+                props.bucketShared,
+                props.bucketBg,
+                props.bucketUser + props.bucketShared + props.bucketBg,
+                props.bucketCapacity,
+            )
+        }
+    }
 
     private fun bucketConfigFor(
         capacity: Long,
@@ -90,27 +111,41 @@ class BatchRedisKisRateLimiterAdapter(
                     .refillIntervally(refill, Duration.ofSeconds(props.bucketRefillPeriodSeconds))
             }.build()
 
-    /**
-     * shared bucket — batch 호출(BACKFILL·INGESTION)이 소비. reserve 활성 시 capacity = bucketCapacity - reserve.
-     * Redis backend Lettuce ProxyManager 가 multi-JVM share 보장 (api·consumer 동일 bucketKey).
-     */
-    private val sharedBucket: BucketProxy by lazy {
-        val cap = if (reserveEnabled) sharedCapacity else props.bucketCapacity
-        proxyManager.builder().build(props.bucketKey) { bucketConfigFor(cap, cap) }
+    private fun buildBucket(
+        keySuffix: String,
+        capacity: Long,
+    ): BucketProxy = proxyManager.builder().build(props.bucketKey + keySuffix) { bucketConfigFor(capacity, capacity) }
+
+    /** USER 버킷 — batch는 USER_PATH 0이라 미접근. Redis backend가 multi-JVM share 보장 (api·consumer 동일 bucketKey). */
+    private val userBucket: BucketProxy by lazy { buildBucket(USER_KEY_SUFFIX, props.bucketUser) }
+
+    /** SHARED 버킷 — INGESTION 1차. */
+    private val sharedBucket: BucketProxy by lazy { buildBucket(SHARED_KEY_SUFFIX, props.bucketShared) }
+
+    /** BG 버킷 — BACKFILL·INGESTION_LOW 1차 (batch 주 소비 버킷). */
+    private val bgBucket: BucketProxy by lazy { buildBucket(BG_KEY_SUFFIX, props.bucketBg) }
+
+    /** 단일 :global 버킷 — priorityBucketsActive=false 회귀 path (Phase 1). */
+    private val globalBucket: BucketProxy by lazy {
+        proxyManager.builder().build(props.bucketKey) { bucketConfigFor(props.bucketCapacity, props.bucketCapacity) }
     }
 
-    /** reserve bucket — USER_PATH 전용. batch 는 미접근이지만 config 정합 위해 동일 발행 가능 (lazy — 미사용 시 미발행). */
-    private val reserveBucket: BucketProxy by lazy {
-        proxyManager.builder().build(props.bucketKey + RESERVE_KEY_SUFFIX) {
-            bucketConfigFor(reserveTokens, reserveTokens)
+    /**
+     * priority → 접근 가능 버킷 리스트 (역방향 fallback · ADR 0116 §2-B).
+     * USER_PATH→[USER,SHARED,BG]·INGESTION→[SHARED,BG]·BACKFILL/INGESTION_LOW→[BG] (when exhaustive).
+     */
+    private fun bucketsFor(priority: KisCallPriority): List<BucketProxy> =
+        when (priority) {
+            KisCallPriority.USER_PATH -> listOf(userBucket, sharedBucket, bgBucket)
+            KisCallPriority.INGESTION -> listOf(sharedBucket, bgBucket)
+            KisCallPriority.BACKFILL, KisCallPriority.INGESTION_LOW -> listOf(bgBucket)
         }
-    }
 
     /**
      * KIS REST 호출 직전 token 1개 acquire (blocking polling).
      *
-     * 차등 라우팅 (ADR 0112 의제): shared 1차, USER_PATH 만 reserve fallback.
-     * batch 는 USER_PATH 0 → 항상 shared 만 소비.
+     * 라우팅 (ADR 0116 §2-B): priority별 접근 가능 버킷 리스트 순회.
+     * batch 는 USER_PATH 0 → INGESTION([shared,bg]) 또는 BACKFILL/INGESTION_LOW([bg])만 소비.
      */
     override fun acquire(
         priority: KisCallPriority,
@@ -135,12 +170,12 @@ class BatchRedisKisRateLimiterAdapter(
             val remainingNanos = deadlineNanos - System.nanoTime()
             if (remainingNanos <= 0L) {
                 log.warn(
-                    "[KisRateLimit/batch] acquire TIMEOUT — priority={} timeoutMs={} attempts={} bucketKey={} reserveEnabled={}",
+                    "[KisRateLimit/batch] acquire TIMEOUT — priority={} timeoutMs={} attempts={} bucketKey={} priorityBucketsActive={}",
                     priority,
                     timeoutMillis,
                     attempts,
                     props.bucketKey,
-                    reserveEnabled,
+                    priorityBucketsActive,
                 )
                 throw KisRateLimitTimeoutException(priority, timeoutMillis)
             }
@@ -153,14 +188,12 @@ class BatchRedisKisRateLimiterAdapter(
     }
 
     /**
-     * priority 차등 단발 소비 (non-blocking) — shared 1차, USER_PATH 는 reserve fallback (batch 미해당).
+     * priority 라우팅 단발 소비 (non-blocking) — 접근 가능 버킷 리스트 순회 (ADR 0116 §2-B).
+     * priorityBucketsActive=false 시 단일 :global 버킷만 소비 (Phase 1 회귀).
      */
     private fun tryConsumeRouted(priority: KisCallPriority): Boolean {
-        if (sharedBucket.tryConsume(1L)) return true
-        if (reserveEnabled && priority == KisCallPriority.USER_PATH) {
-            return reserveBucket.tryConsume(1L)
-        }
-        return false
+        if (!priorityBucketsActive) return globalBucket.tryConsume(1L)
+        return bucketsFor(priority).any { it.tryConsume(1L) }
     }
 
     /**

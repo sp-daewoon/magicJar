@@ -34,11 +34,11 @@ import kotlin.concurrent.withLock
  * - cold-start 시 동시 thread가 KIS /oauth2/Approval 중복 호출하는 문제 차단
  * - EGW00133 (1분 1회 제한) 위반 방지 — KisAuthAdapter와 동일 패턴
  *
- * Rate limiter 합류 (ADR 0112 의제 — 2026-06-05):
+ * Rate limiter 합류 (ADR 0116 — 2026-06-05 orphan 정식화):
  * - 기존: limiter 미경유 → WS 재연결 루프가 /oauth2/Approval REST 를 우회 발사 → TPS bucket 미집계 → 주문 path 와 KIS 한도 충돌
  * - 변경: 실 KIS 호출(issueApprovalKey) 직전 [KisRateLimiterPort.acquire] (INGESTION priority — 주문보다 후순위)
  * - cache hit / 분산락 대기 path 는 KIS 호출 0 이라 acquire 0 (불필요한 토큰 소비 회피)
- * - INGESTION 은 shared pool 만 소비 → USER_PATH(주문) reserve 굶지 않음
+ * - INGESTION 은 SHARED·BG 버킷만 소비 → USER_PATH(주문) USER 버킷 굶지 않음 (ADR 0116 §2-B 역방향 fallback)
  */
 @Component
 class KisApprovalAdapter(
@@ -176,7 +176,7 @@ class KisApprovalAdapter(
 
             val baseUrl = if (accountType == AccountType.REAL) kisBaseProd else kisBaseVps
 
-            // Rate limiter acquire (ADR 0112 의제 — INGESTION priority, 주문 path 보다 후순위 shared pool).
+            // Rate limiter acquire (ADR 0116 — INGESTION priority, SHARED·BG 버킷, 주문 USER 버킷 미침범).
             // 실 KIS 호출 직전에만 acquire → cache hit·분산락 대기 path 는 토큰 소비 0.
             kisRateLimiterPort.acquire(KisCallPriority.INGESTION, timeoutMillis = 3000L)
 

@@ -61,13 +61,19 @@ magicjar:
   kis:
     base-url-prod: ${MAGICJAR_KIS_BASE_URL_PROD:https://openapi.koreainvestment.com:9443}
     base-url-vps: ${MAGICJAR_KIS_BASE_URL_VPS:https://openapivts.koreainvestment.com:29443}
-    # KIS REST rate limiter — api·batch·consumer 동일 Redis bucket share.
+    # KIS REST rate limiter — api·batch·consumer 동일 Redis 버킷 share (ADR 0116 Phase 2 3-tier).
     # interval refill로 burst를 완화해 EGW00201 빈도를 낮춘다.
     rate-limiter:
       enabled: ${MAGICJAR_KIS_RATE_LIMIT_ENABLED:true}
       bucket-capacity: ${MAGICJAR_KIS_RATE_LIMIT_BURST:10}
       bucket-refill-tokens: 10
-      # shared pool capacity 정합용 (batch 는 USER_PATH 0 — reserve 미접근, ADR 0112 의제) — api·consumer 동일 LOCK.
+      # ADR 0116 §2-B priority별 별도 버킷 (USER 4 / SHARED 3 / BG 3 = 합 10) — api·consumer 동일 LOCK.
+      # batch 는 USER_PATH 0 (USER 버킷 미접근)이나 합 검증·config 정합 위해 동일 보유.
+      priority-buckets-enabled: ${MAGICJAR_KIS_PRIORITY_BUCKETS_ENABLED:true}
+      bucket-user: ${MAGICJAR_KIS_BUCKET_USER:4}
+      bucket-shared: ${MAGICJAR_KIS_BUCKET_SHARED:3}
+      bucket-bg: ${MAGICJAR_KIS_BUCKET_BG:3}
+      # deprecated (ADR 0116 — priority-buckets-enabled로 일반화). 하위호환 바인딩 보존.
       user-path-reserve-tokens: ${MAGICJAR_KIS_USER_PATH_RESERVE:3}
       bucket-refill-period-seconds: 1
       bucket-key: kis-rate-limit:global

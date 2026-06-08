@@ -3,16 +3,26 @@ package kr.spdaewoon.magicjar.api.infrastructure.kis.ratelimit
 import org.springframework.boot.context.properties.ConfigurationProperties
 
 /**
- * KIS Rate Limit 설정 (spec PR #564 §2-1 LOCK — Bucket4j-Redis 단일 bucket).
+ * KIS Rate Limit 설정 (ADR 0116 Phase 2 — priority별 별도 버킷 3-tier).
  *
- * 기본값 LOCK (ADR 0037 §1 KIS 공식 한도 — 초당 10건):
+ * 기본값 LOCK (ADR 0037 §1 KIS 공식 한도 — 초당 10건 · ADR 0116이 단일 bucket supersede):
  *   - bucketCapacity=10
  *   - bucketRefillTokens=10
  *   - bucketRefillPeriodSeconds=1
  *
+ * Phase 2 priority별 별도 버킷 (ADR 0116 §2-B):
+ *   - USER 버킷(capacity=bucketUser=4): USER_PATH 1차 — 주문·현재가·차트·잔고
+ *   - SHARED 버킷(capacity=bucketShared=3): INGESTION 1차 — watchlist·approval
+ *   - BG 버킷(capacity=bucketBg=3): BACKFILL·INGESTION_LOW 1차 — 캔들 backfill·지수/섹터 cron
+ *   - 합 = 10 (KIS 초당 한도 정확 — 미초과·증설 0)
+ *   - 역방향 fallback: USER_PATH→[user,shared,bg]·INGESTION→[shared,bg]·BG→[bg]
+ *     (상위 priority가 더 많은 버킷 접근 → 하위 burst가 상위를 굶기지 못함)
+ *   - priorityBucketsEnabled=false → 단일 :global 버킷(capacity 10) 회귀 (Phase 1 안전 최소 — rollback)
+ *
  * Phase 1: Circuit Breaker 통계 윈도/임계는 정의만 (실 구현 Phase 3 후속).
  *
- * env override (rollback path — spec §7 정합):
+ * env override (rollback path — ADR 0116 §5-2 정합):
+ *   - MAGICJAR_KIS_PRIORITY_BUCKETS_ENABLED=false → 단일 bucket(capacity 10) 회귀
  *   - MAGICJAR_KIS_RATE_LIMIT_BURST=15 → bucketCapacity=15 (KIS 차단 risk 동반 — 사용자 알림 의무)
  */
 @ConfigurationProperties(prefix = "magicjar.kis.rate-limiter")
@@ -23,28 +33,35 @@ data class KisRateLimitProperties(
      */
     val enabled: Boolean = true,
     /**
-     * 단일 bucket 토큰 capacity (KIS 공식 한도 = 10).
-     * 11번째 호출은 1초 윈도 내 timeout.
+     * 전체 bucket 토큰 capacity (KIS 공식 한도 = 10).
+     * priorityBucketsEnabled=false 시 이 capacity의 단일 :global 버킷으로 회귀.
      */
     val bucketCapacity: Long = 10L,
     /** refill 1회 토큰 수 (= capacity → 매 refill 윈도 100% 회복). */
     val bucketRefillTokens: Long = 10L,
     /**
-     * USER_PATH 전용 예약 토큰 수 (ADR 0112 의제 — 주문 path 우선권 보호).
+     * priority별 별도 버킷(3-tier) 활성 스위치 (ADR 0116 §2-B · default true).
      *
-     * 차등 라우팅 LOCK:
-     *   - shared pool capacity = bucketCapacity - userPathReserveTokens (비주문: INGESTION·BACKFILL·INGESTION_LOW)
-     *   - reserve pool capacity = userPathReserveTokens (USER_PATH 전용 — shared 소진 시 fallback)
-     *   - 총합 = bucketCapacity (KIS 초당 한도 절대 미초과 — reserve는 분할이지 증설 아님)
+     * - true: USER/SHARED/BG 3 버킷 + 역방향 fallback 라우팅.
+     * - false: 단일 :global 버킷(capacity=bucketCapacity) 회귀 — Phase 1 안전 최소 (rollback path).
      *
-     * default 3 사유 (자율 조정 — spec 권장):
-     *   - 주문 1건 = hashkey(USER_PATH) + order-cash(USER_PATH) 묶음 → reserve 3 이면 한 묶음 + 잔여 1 여유
-     *   - 비주문 트래픽이 shared 7 토큰을 전부 소진해도 주문 묶음이 굶지 않음
-     *   - 14:59 evidence(주문 1건 EGW00201) 직격 — 비주문 burst 와 동일 bucket 경쟁이 원인
-     *
-     * 0 설정 시 차등 라우팅 비활성 (단일 bucket 회귀 — rollback path).
-     * bucketCapacity 이상 설정 시 캡(clamp)되어 reserve = capacity, shared = 0 (전량 USER_PATH 전용).
+     * 합(bucketUser+bucketShared+bucketBg) ≠ bucketCapacity 면 부팅 시 WARN + 단일 bucket fallback (fail-safe).
      */
+    val priorityBucketsEnabled: Boolean = true,
+    /** USER 버킷 capacity — USER_PATH 1차 (주문·현재가·차트·잔고). 합 검증: user+shared+bg=bucketCapacity. */
+    val bucketUser: Long = 4L,
+    /** SHARED 버킷 capacity — INGESTION 1차 (watchlist·approval). USER_PATH fallback 2단. */
+    val bucketShared: Long = 3L,
+    /** BG 버킷 capacity — BACKFILL·INGESTION_LOW 1차 (캔들 backfill·지수/섹터 cron). USER_PATH·INGESTION fallback 말단. */
+    val bucketBg: Long = 3L,
+    /**
+     * USER_PATH 전용 예약 토큰 수 — **deprecated (ADR 0116 §4 — priorityBucketsEnabled로 일반화)**.
+     *
+     * Phase 1.5 2-bucket reserve 모델의 잔재. priorityBucketsEnabled=true(default)면 미사용.
+     * priorityBucketsEnabled=false(rollback) 경로는 단일 bucket(capacity)으로 회귀하므로 이 값도 미사용.
+     * 하위호환 ConfigurationProperties 바인딩 유지를 위해 보존 (제거 시 기존 ENV override 깨짐).
+     */
+    @Deprecated("ADR 0116 — priorityBucketsEnabled로 일반화. 미사용(바인딩 호환 보존)")
     val userPathReserveTokens: Long = 3L,
     /**
      * refill 윈도 초 (KIS 한도 = 1초).

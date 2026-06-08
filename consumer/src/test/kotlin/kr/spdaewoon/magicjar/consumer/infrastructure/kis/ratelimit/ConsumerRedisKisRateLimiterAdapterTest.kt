@@ -15,62 +15,62 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.argumentCaptor
+import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.never
 import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 
 /**
- * ConsumerRedisKisRateLimiterAdapter Bucket4j-Redis 단위 테스트 (spec PR #564 §6-1 LOCK · ADR 0037 정합).
+ * ConsumerRedisKisRateLimiterAdapter Bucket4j-Redis 3-tier priority 버킷 단위 테스트 (ADR 0116 §2-B).
  *
  * api 모듈 [kr.spdaewoon.magicjar.api.infrastructure.kis.ratelimit.RedisKisRateLimiterAdapter]와 동일 패턴.
- * spec §2-3 옵션 a 정합 — consumer 모듈 자체 Bean wiring 단위 검증.
+ * consumer 모듈 자체 Bean wiring 단위 검증.
  *
- * 자본 영향 0 — 본 테스트는 mock 단위 (KIS endpoint 호출 0, Redis 호출 0).
+ * 자본 영향 0 — mock 단위 (KIS endpoint·Redis 호출 0).
  */
 @Suppress("UNCHECKED_CAST")
 class ConsumerRedisKisRateLimiterAdapterTest {
     private lateinit var proxyManager: ProxyManager<String>
     private lateinit var remoteBucketBuilder: RemoteBucketBuilder<String>
 
-    /** shared pool bucket — bucketKey 로 발행 (모든 priority 1차 소비). */
-    private lateinit var bucket: BucketProxy
-
-    /** USER_PATH 전용 reserve bucket — bucketKey + ":user-reserve" 로 발행. */
-    private lateinit var reserveBucket: BucketProxy
+    private lateinit var userBucket: BucketProxy
+    private lateinit var sharedBucket: BucketProxy
+    private lateinit var bgBucket: BucketProxy
+    private lateinit var globalBucket: BucketProxy
     private lateinit var props: ConsumerKisRateLimitProperties
     private lateinit var adapter: ConsumerRedisKisRateLimiterAdapter
 
     private companion object {
         const val BUCKET_KEY = "kis-rate-limit:test-consumer"
-        const val RESERVE_KEY = "$BUCKET_KEY:user-reserve"
+        const val USER_KEY = "$BUCKET_KEY:user"
+        const val SHARED_KEY = "$BUCKET_KEY:shared"
+        const val BG_KEY = "$BUCKET_KEY:bg"
     }
 
     @BeforeEach
     fun setUp() {
         proxyManager = mock()
         remoteBucketBuilder = mock()
-        bucket = mock()
-        reserveBucket = mock()
+        userBucket = mock()
+        sharedBucket = mock()
+        bgBucket = mock()
+        globalBucket = mock()
         whenever(proxyManager.builder()).thenReturn(remoteBucketBuilder)
-        // key 분기 — shared(bucketKey) vs reserve(bucketKey:user-reserve) 별도 mock.
-        whenever(
-            remoteBucketBuilder.build(
-                org.mockito.kotlin.eq(BUCKET_KEY),
-                any<java.util.function.Supplier<io.github.bucket4j.BucketConfiguration>>(),
-            ),
-        ).thenReturn(bucket)
-        whenever(
-            remoteBucketBuilder.build(
-                org.mockito.kotlin.eq(RESERVE_KEY),
-                any<java.util.function.Supplier<io.github.bucket4j.BucketConfiguration>>(),
-            ),
-        ).thenReturn(reserveBucket)
+        wireBucket(USER_KEY, userBucket)
+        wireBucket(SHARED_KEY, sharedBucket)
+        wireBucket(BG_KEY, bgBucket)
+        wireBucket(BUCKET_KEY, globalBucket)
         props =
             ConsumerKisRateLimitProperties(
                 enabled = true,
                 bucketCapacity = 10L,
                 bucketRefillTokens = 10L,
+                priorityBucketsEnabled = true,
+                bucketUser = 4L,
+                bucketShared = 3L,
+                bucketBg = 3L,
                 bucketKey = BUCKET_KEY,
                 bucketTtlSeconds = 10L,
                 acquirePollIntervalMillis = 10L,
@@ -78,81 +78,95 @@ class ConsumerRedisKisRateLimiterAdapterTest {
         adapter = ConsumerRedisKisRateLimiterAdapter(proxyManager, props)
     }
 
+    private fun wireBucket(
+        key: String,
+        bucket: BucketProxy,
+    ) {
+        whenever(
+            remoteBucketBuilder.build(
+                eq(key),
+                any<java.util.function.Supplier<io.github.bucket4j.BucketConfiguration>>(),
+            ),
+        ).thenReturn(bucket)
+    }
+
     @Test
-    fun `acquire - 토큰 사용 가능 시 즉시 return`() {
-        whenever(bucket.tryConsume(1L)).thenReturn(true)
+    fun `acquire - USER_PATH 토큰 사용 가능 시 즉시 return`() {
+        whenever(userBucket.tryConsume(1L)).thenReturn(true)
         adapter.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
-        verify(bucket, times(1)).tryConsume(1L)
+        verify(userBucket, times(1)).tryConsume(1L)
     }
 
     @Test
     fun `acquire - polling 후 토큰 회복 시 return`() {
-        whenever(bucket.tryConsume(1L))
+        whenever(bgBucket.tryConsume(1L))
             .thenReturn(false)
             .thenReturn(false)
             .thenReturn(true)
-        adapter.acquire(KisCallPriority.INGESTION, timeoutMillis = 1000L)
-        verify(bucket, times(3)).tryConsume(1L)
+        adapter.acquire(KisCallPriority.BACKFILL, timeoutMillis = 1000L)
+        verify(bgBucket, times(3)).tryConsume(1L)
     }
 
     @Test
     fun `acquire - timeout 초과 시 KisRateLimitTimeoutException throw`() {
-        whenever(bucket.tryConsume(1L)).thenReturn(false)
-        whenever(reserveBucket.tryConsume(1L)).thenReturn(false)
+        whenever(userBucket.tryConsume(1L)).thenReturn(false)
+        whenever(sharedBucket.tryConsume(1L)).thenReturn(false)
+        whenever(bgBucket.tryConsume(1L)).thenReturn(false)
         assertThatThrownBy {
             adapter.acquire(KisCallPriority.BACKFILL, timeoutMillis = 100L)
         }.isInstanceOf(KisRateLimitTimeoutException::class.java)
             .hasMessageContaining("BACKFILL")
             .hasMessageContaining("timeoutMillis=100")
-        verify(bucket, org.mockito.kotlin.atLeast(2)).tryConsume(1L)
-        // BACKFILL 은 reserve 미접근 — 비주문 path 가 USER_PATH reserve 를 소비하지 않음 보장
-        verify(reserveBucket, org.mockito.kotlin.never()).tryConsume(1L)
+        verify(bgBucket, org.mockito.kotlin.atLeast(2)).tryConsume(1L)
+        verify(userBucket, never()).tryConsume(1L)
+        verify(sharedBucket, never()).tryConsume(1L)
     }
 
     /**
-     * ★ 차등 라우팅 회귀 (ADR 0112 의제, 14:59 evidence 직격):
-     * shared pool 이 비주문 트래픽으로 완전 소진(tryConsume RED)되어도 USER_PATH 주문은 reserve 로 통과.
+     * ★ 역방향 fallback (ADR 0116 §2-B, 14:59 evidence 직격):
+     * USER 소진 시 USER_PATH 본주문은 SHARED → BG 로 fallback 통과 (consumer 본주문 핵심 경로).
      */
     @Test
-    fun `acquire - shared 소진 시 USER_PATH 는 reserve fallback 으로 통과`() {
-        whenever(bucket.tryConsume(1L)).thenReturn(false) // shared 완전 소진 (비주문 burst 가정)
-        whenever(reserveBucket.tryConsume(1L)).thenReturn(true) // USER_PATH 전용 reserve 잔여
+    fun `acquire - USER_PATH 는 USER 소진 시 SHARED·BG 로 역방향 fallback`() {
+        whenever(userBucket.tryConsume(1L)).thenReturn(false)
+        whenever(sharedBucket.tryConsume(1L)).thenReturn(false)
+        whenever(bgBucket.tryConsume(1L)).thenReturn(true)
 
         adapter.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
 
-        verify(bucket, times(1)).tryConsume(1L) // shared 1차 시도
-        verify(reserveBucket, times(1)).tryConsume(1L) // reserve fallback 1회로 통과
+        verify(userBucket, times(1)).tryConsume(1L)
+        verify(sharedBucket, times(1)).tryConsume(1L)
+        verify(bgBucket, times(1)).tryConsume(1L)
     }
 
     /**
-     * ★ 비주문 path 가 reserve 를 굶기지 않음 (역방향 회귀):
-     * shared 소진 시 INGESTION 은 reserve 미접근 → timeout (reserve 보존).
+     * ★ INGESTION 은 SHARED·BG 접근 가능하나 USER 버킷 미침범 (주문 보존).
      */
     @Test
-    fun `acquire - shared 소진 시 비주문(INGESTION)은 reserve 미접근 timeout`() {
-        whenever(bucket.tryConsume(1L)).thenReturn(false)
-        whenever(reserveBucket.tryConsume(1L)).thenReturn(true) // reserve 에 토큰 있어도
+    fun `acquire - INGESTION 은 USER 버킷 미접근 (주문 보존)`() {
+        whenever(sharedBucket.tryConsume(1L)).thenReturn(false)
+        whenever(bgBucket.tryConsume(1L)).thenReturn(true)
 
-        assertThatThrownBy {
-            adapter.acquire(KisCallPriority.INGESTION, timeoutMillis = 100L)
-        }.isInstanceOf(KisRateLimitTimeoutException::class.java)
+        adapter.acquire(KisCallPriority.INGESTION, timeoutMillis = 1000L)
 
-        verify(reserveBucket, org.mockito.kotlin.never()).tryConsume(1L) // INGESTION 은 reserve 접근 0
+        verify(userBucket, never()).tryConsume(1L)
+        verify(sharedBucket, times(1)).tryConsume(1L)
+        verify(bgBucket, times(1)).tryConsume(1L)
     }
 
     /**
-     * reserve 비활성(userPathReserveTokens=0) 시 단일 bucket 회귀 — rollback path 회귀.
+     * ★ priorityBucketsEnabled=false → 단일 :global 버킷 회귀 (rollback path).
      */
     @Test
-    fun `acquire - reserve 0 설정 시 USER_PATH 도 reserve 미발행 (단일 bucket 회귀)`() {
-        val singleProps = props.copy(userPathReserveTokens = 0L)
+    fun `acquire - priorityBucketsEnabled false 시 단일 global 버킷 회귀`() {
+        val singleProps = props.copy(priorityBucketsEnabled = false)
         val singleAdapter = ConsumerRedisKisRateLimiterAdapter(proxyManager, singleProps)
-        whenever(bucket.tryConsume(1L)).thenReturn(true)
+        whenever(globalBucket.tryConsume(1L)).thenReturn(true)
 
         singleAdapter.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
 
-        verify(bucket, times(1)).tryConsume(1L)
-        verify(reserveBucket, org.mockito.kotlin.never()).tryConsume(1L)
+        verify(globalBucket, times(1)).tryConsume(1L)
+        verify(userBucket, never()).tryConsume(1L)
     }
 
     @Test
@@ -171,7 +185,6 @@ class ConsumerRedisKisRateLimiterAdapterTest {
 
     /**
      * 진단 PR #639 P0 hotfix — SystemEvent KIS_RATELIMIT emit aggregator 검증.
-     * 첫 호출만 emit, 5분 미만 추가 호출은 skip (사용자 알림 spam 회피).
      */
     @Test
     fun `onTpsExceeded - SystemEvent KIS_RATELIMIT emit (5분 aggregator LOCK)`() {

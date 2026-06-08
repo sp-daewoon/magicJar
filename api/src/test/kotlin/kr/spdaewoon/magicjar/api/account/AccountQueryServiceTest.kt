@@ -225,7 +225,7 @@ class AccountQueryServiceTest {
     }
 
     /**
-     * ★ 강제 새로고침 debounce single-flight 회귀 (ADR 0112 의제, 14:59 evidence 직격).
+     * ★ 강제 새로고침 debounce single-flight 회귀 (ADR 0116, 14:59 evidence 직격).
      *
      * 주문 직후 frontend 강제 새로고침 3연발 → 첫 refresh 만 KIS 호출, 이후 debounce(3s) 이내 refresh 는
      * 직전 결과(cache) 공유 → KIS 잔고조회 1회로 수렴 (EGW00201 burst 차단).
