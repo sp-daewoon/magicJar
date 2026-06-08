@@ -1,12 +1,17 @@
 package kr.spdaewoon.magicjar.consumer.ingestion
 
+import jakarta.annotation.PreDestroy
 import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisSourceTrackerAdapter
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerWatchlistRepositoryAdapter
 import kr.spdaewoon.magicjar.domain.market.port.KisWsPort
 import kr.spdaewoon.magicjar.domain.market.port.SubscriptionPolicy
+import kr.spdaewoon.magicjar.domain.market.port.TodayCandleSeedPort
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.ThreadFactory
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -22,6 +27,7 @@ class RealtimeSubscriptionRouter(
     private val pollingWorker: WatchlistPollingWorker,
     private val watchlistRepository: ConsumerWatchlistRepositoryAdapter,
     private val sourceTracker: RedisSourceTrackerAdapter,
+    private val todayCandleSeedPort: TodayCandleSeedPort,
 ) {
     private val log = LoggerFactory.getLogger(RealtimeSubscriptionRouter::class.java)
     private val lock = ReentrantLock()
@@ -40,6 +46,24 @@ class RealtimeSubscriptionRouter(
     private val demandsByCode: MutableMap<String, MutableMap<OwnerKey, Demand>> = linkedMapOf()
     private val pendingDebounce: MutableMap<String, Long> = mutableMapOf()
 
+    /**
+     * 구독 수립 시점 today-Hash 시드 전용 executor (단일 스레드).
+     *
+     * 시드는 공식 KIS REST 1콜(blocking ~최대 3s)이므로 router lock·caller path를 막지 않도록
+     * lock 해제 후 비동기로 실행한다(자본/시세 path 지연 0). 시드 자체 실패는 graceful — WS 틱 누적으로 fallback.
+     */
+    private val seedExecutor =
+        Executors.newSingleThreadExecutor(
+            ThreadFactory { r -> Thread(r, "today-candle-seed").also { it.isDaemon = true } },
+        )
+
+    /**
+     * 시드 in-flight/최근 완료 dedup — 짧은 시간 내 동일 code 재구독(DETAIL 재진입·STRATEGY 재후보)에
+     * 중복 KIS 호출을 막는다. 값 = 마지막 시드 제출 시각(ms). cooldown 내 재제출 skip.
+     */
+    private val recentSeedMs: MutableMap<String, Long> = ConcurrentHashMap()
+    private val seedCooldownMs = 60_000L
+
     private val detailDebounceMs = 200L
     private val detailTtlMs = 5L * 60L * 1000L
     private val strategyTtlMs = 30L * 60L * 1000L
@@ -56,32 +80,66 @@ class RealtimeSubscriptionRouter(
         code: String,
         priority: Int = owner.defaultPriority,
         ttlSeconds: Long? = null,
-    ) = lock.withLock {
-        val now = System.currentTimeMillis()
-        cleanupExpiredLocked(now)
+    ) {
+        val newlySubscribed =
+            lock.withLock {
+                val now = System.currentTimeMillis()
+                cleanupExpiredLocked(now)
 
-        if (owner == RealtimeDemandOwner.DETAIL) {
-            pendingDebounce.entries.removeIf { (_, until) -> now > until }
-            val pendingUntil = pendingDebounce[code]
-            if (pendingUntil != null && now < pendingUntil) {
-                log.debug("realtime demand debounce skip: owner={} code={}", owner, code)
-                return@withLock
+                if (owner == RealtimeDemandOwner.DETAIL) {
+                    pendingDebounce.entries.removeIf { (_, until) -> now > until }
+                    val pendingUntil = pendingDebounce[code]
+                    if (pendingUntil != null && now < pendingUntil) {
+                        log.debug("realtime demand debounce skip: owner={} code={}", owner, code)
+                        return@withLock false
+                    }
+                    pendingDebounce[code] = now + detailDebounceMs
+                }
+
+                val ownerKey = OwnerKey(owner, ownerId.ifBlank { owner.name })
+                val ttlMs = (ttlSeconds?.coerceAtLeast(1L)?.times(1000L)) ?: owner.defaultTtlMs()
+                val owners = demandsByCode.getOrPut(code) { linkedMapOf() }
+                owners[ownerKey] =
+                    Demand(
+                        priority = priority,
+                        expiresAtMs = now + ttlMs,
+                        lastAccessMs = now,
+                    )
+
+                val subscribed = ensureSubscribedLocked(code, priority)
+                log.info(
+                    "realtime demand enter: owner={} ownerId={} code={} owners={}",
+                    owner,
+                    ownerKey.ownerId,
+                    code,
+                    owners.size,
+                )
+                subscribed
             }
-            pendingDebounce[code] = now + detailDebounceMs
+
+        // ★ 구독 수립 시점 today-Hash 시드 (owner 무관 — DETAIL·HOLDING·WATCHLIST·STRATEGY·PENDING_BUY 균일).
+        //   lock 해제 후 비동기 — KIS REST blocking 호출이 router lock·caller path를 막지 않게 한다.
+        if (newlySubscribed) scheduleSeed(code)
+    }
+
+    /**
+     * today-Hash 시드 비동기 제출. cooldown 내 중복 제출 skip(동일 code 재구독 시 중복 KIS 호출 방지).
+     */
+    private fun scheduleSeed(code: String) {
+        val now = System.currentTimeMillis()
+        val last = recentSeedMs[code]
+        if (last != null && now - last < seedCooldownMs) {
+            log.debug("today-candle seed cooldown skip: code={}", code)
+            return
         }
-
-        val ownerKey = OwnerKey(owner, ownerId.ifBlank { owner.name })
-        val ttlMs = (ttlSeconds?.coerceAtLeast(1L)?.times(1000L)) ?: owner.defaultTtlMs()
-        val owners = demandsByCode.getOrPut(code) { linkedMapOf() }
-        owners[ownerKey] =
-            Demand(
-                priority = priority,
-                expiresAtMs = now + ttlMs,
-                lastAccessMs = now,
-            )
-
-        ensureSubscribedLocked(code, priority)
-        log.info("realtime demand enter: owner={} ownerId={} code={} owners={}", owner, ownerKey.ownerId, code, owners.size)
+        recentSeedMs[code] = now
+        seedExecutor.submit {
+            try {
+                todayCandleSeedPort.seedTodayCandle(code)
+            } catch (e: Exception) {
+                log.warn("today-candle seed 비동기 실패(graceful — WS 틱 fallback): code={} err={}", code, e.message)
+            }
+        }
     }
 
     fun release(
@@ -142,15 +200,26 @@ class RealtimeSubscriptionRouter(
             val expiredCodes = cleanupExpiredLocked(System.currentTimeMillis())
             expiredCodes.forEach { releaseIfUnownedLocked(it) }
         }
+        // 만료된 시드 cooldown 정리 — 재구독 시 fresh 시드 허용.
+        val now = System.currentTimeMillis()
+        recentSeedMs.entries.removeIf { (_, ts) -> now - ts > seedCooldownMs }
     }
 
+    @PreDestroy
+    fun shutdown() {
+        seedExecutor.shutdown()
+    }
+
+    /**
+     * @return WS 구독을 새로 발사했으면 true (→ caller가 today-Hash 시드 트리거). 이미 구독 중·큐잉이면 false.
+     */
     private fun ensureSubscribedLocked(
         code: String,
         priority: Int,
-    ) {
+    ): Boolean {
         kisWsPort.connect()
         val subscribed = kisWsPort.subscribedCodes()
-        if (code in subscribed) return
+        if (code in subscribed) return false
 
         if (subscribed.size >= SubscriptionPolicy.PRICE_TICK_MAX) {
             val victim = findEvictionCandidateLocked(subscribed, priority)
@@ -162,7 +231,7 @@ class RealtimeSubscriptionRouter(
                     subscribed.size,
                     SubscriptionPolicy.PRICE_TICK_MAX,
                 )
-                return
+                return false
             }
             kisWsPort.unsubscribe(listOf(victim))
             demoteWatchlistToPollingLocked(victim)
@@ -170,6 +239,7 @@ class RealtimeSubscriptionRouter(
         }
 
         kisWsPort.subscribe(listOf(code))
+        return true
     }
 
     private fun findEvictionCandidateLocked(

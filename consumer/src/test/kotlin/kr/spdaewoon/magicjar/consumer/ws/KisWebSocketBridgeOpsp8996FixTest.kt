@@ -236,6 +236,9 @@ class KisWebSocketBridgeOpsp8996FixTest {
         // ADR 0068 §14-6 정합 — 미합류 시 graceful skip(log.warn) 패턴.
         val executionListenerProvider = mockk<ObjectProvider<KisExecutionWsListener>>(relaxed = true)
         every { executionListenerProvider.getIfAvailable() } returns null
+        val priceMetricsPortProvider =
+            mockk<ObjectProvider<kr.spdaewoon.magicjar.domain.market.port.KisRestPriceMetricsPort>>(relaxed = true)
+        every { priceMetricsPortProvider.getIfAvailable() } returns null
         return KisWebSocketBridge(
             approvalAdapter = approvalAdapter,
             redisTemplate = redisTemplate,
@@ -249,6 +252,7 @@ class KisWebSocketBridgeOpsp8996FixTest {
             defaultUserId = defaultUserId,
             executionListenerProvider = executionListenerProvider,
             systemEventLogger = systemEventLogger,
+            priceMetricsPortProvider = priceMetricsPortProvider,
         )
     }
 }

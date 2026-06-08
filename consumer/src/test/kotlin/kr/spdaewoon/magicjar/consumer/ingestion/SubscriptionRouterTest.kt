@@ -22,6 +22,7 @@ class SubscriptionRouterTest {
     private val pollingWorker = mockk<WatchlistPollingWorker>(relaxed = true)
     private val watchlistRepository = mockk<ConsumerWatchlistRepositoryAdapter>()
     private val sourceTracker = mockk<RedisSourceTrackerAdapter>(relaxed = true)
+    private val todayCandleSeedPort = mockk<kr.spdaewoon.magicjar.domain.market.port.TodayCandleSeedPort>(relaxed = true)
     private lateinit var realtimeSubscriptionRouter: RealtimeSubscriptionRouter
 
     private lateinit var router: SubscriptionRouter
@@ -34,6 +35,7 @@ class SubscriptionRouterTest {
                 pollingWorker = pollingWorker,
                 watchlistRepository = watchlistRepository,
                 sourceTracker = sourceTracker,
+                todayCandleSeedPort = todayCandleSeedPort,
             )
         router =
             SubscriptionRouter(
