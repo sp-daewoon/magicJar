@@ -70,7 +70,7 @@ class ApiKisOrderCancelAdapter(
 
             var signalSent = false
             try {
-                kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
+                kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L, trId = trId)
                 val response =
                     webClient
                         .post()

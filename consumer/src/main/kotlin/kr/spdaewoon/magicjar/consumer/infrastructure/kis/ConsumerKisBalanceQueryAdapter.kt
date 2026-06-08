@@ -110,7 +110,7 @@ class ConsumerKisBalanceQueryAdapter(
         var acquiredToken = false
         var signalSent = false
         return try {
-            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = RATE_LIMIT_ACQUIRE_TIMEOUT_MS)
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = RATE_LIMIT_ACQUIRE_TIMEOUT_MS, trId = trId)
             acquiredToken = true
 
             val response =

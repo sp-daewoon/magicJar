@@ -128,7 +128,7 @@ class KisOrderHttpAdapterTest {
         assertThat(deny).isInstanceOf(DenyReason.KisException::class.java)
         assertThat((deny as DenyReason.KisException).cause)
             .startsWith("ORDER_NOT_SENT:HASHKEY_RATE_LIMIT_TIMEOUT")
-        verify(exactly = 0) { kisRateLimiterPort.acquire(any(), any()) }
+        verify(exactly = 0) { kisRateLimiterPort.acquire(any(), any(), any()) }
     }
 
     private fun stubCredential() =

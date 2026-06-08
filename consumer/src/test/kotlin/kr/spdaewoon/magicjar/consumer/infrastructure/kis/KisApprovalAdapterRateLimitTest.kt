@@ -77,7 +77,7 @@ class KisApprovalAdapterRateLimitTest {
         adapter.getApprovalKey(userId, accountType)
 
         // KIS 호출 직전 limiter acquire (INGESTION) 정확히 1회 + 정상 시그널.
-        verify(exactly = 1) { rateLimiter.acquire(KisCallPriority.INGESTION, any()) }
+        verify(exactly = 1) { rateLimiter.acquire(KisCallPriority.INGESTION, any(), any()) }
         verify(exactly = 1) { rateLimiter.onSuccess() }
     }
 
@@ -102,7 +102,7 @@ class KisApprovalAdapterRateLimitTest {
 
         adapter.getApprovalKey(userId, accountType)
 
-        verify(exactly = 0) { rateLimiter.acquire(any(), any()) }
+        verify(exactly = 0) { rateLimiter.acquire(any(), any(), any()) }
     }
 
     /**

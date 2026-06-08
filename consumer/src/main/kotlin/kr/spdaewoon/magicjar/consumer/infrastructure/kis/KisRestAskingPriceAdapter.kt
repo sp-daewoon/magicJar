@@ -72,7 +72,7 @@ class KisRestAskingPriceAdapter(
         // D-1 try-finally drift 차단 패턴 — acquire를 try 안으로, signalSent flag로 통계 미발행 path 감시.
         var signalSent = false
         return try {
-            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L, trId = "FHKST01010200")
 
             @Suppress("UNCHECKED_CAST")
             val response =

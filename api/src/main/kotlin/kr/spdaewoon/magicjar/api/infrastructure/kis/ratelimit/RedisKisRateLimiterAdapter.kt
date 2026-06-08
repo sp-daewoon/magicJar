@@ -123,6 +123,19 @@ class RedisKisRateLimiterAdapter(
         const val METRIC_ACQUIRE_TIMEOUT = "kis.ratelimit.acquire.timeout"
         const val METRIC_TPS_EXCEEDED = "kis.ratelimit.tps.exceeded"
 
+        /**
+         * tr_id별 KIS 호출량 counter (ADR 0116 §2-E 연장 — 어느 KIS API가 TPS를 먹는지).
+         * `kis_call_total{tr_id, priority, result}` — Prometheus 노출 시 `_total` suffix.
+         */
+        const val METRIC_KIS_CALL = "kis.call"
+
+        /** tr_id null 시 라벨 (cardinality: tr_id는 유한 상수 집합 — unknown 1 series 추가 안전). */
+        const val TR_ID_UNKNOWN = "unknown"
+
+        /** acquire 결과 라벨 (`result` tag) — counter 분모/분자 분리. */
+        const val RESULT_OK = "ok"
+        const val RESULT_TIMEOUT = "timeout"
+
         /** 버킷 라벨 (metric tag `bucket` / `last_bucket`). */
         const val BUCKET_USER = "user"
         const val BUCKET_SHARED = "shared"
@@ -241,6 +254,7 @@ class RedisKisRateLimiterAdapter(
     override fun acquire(
         priority: KisCallPriority,
         timeoutMillis: Long,
+        trId: String?,
     ) {
         val deadlineNanos = System.nanoTime() + timeoutMillis * 1_000_000L
         var attempts = 0
@@ -256,20 +270,23 @@ class RedisKisRateLimiterAdapter(
                         (System.nanoTime() - (deadlineNanos - timeoutMillis * 1_000_000L)) / 1_000_000L,
                     )
                 }
+                recordKisCall(trId, priority, RESULT_OK)
                 return
             }
             // token 부족 → polling 또는 timeout
             val remainingNanos = deadlineNanos - System.nanoTime()
             if (remainingNanos <= 0L) {
                 log.warn(
-                    "[KisRateLimit] acquire TIMEOUT — priority={} timeoutMs={} attempts={} bucketKey={} priorityBucketsActive={}",
+                    "[KisRateLimit] acquire TIMEOUT — priority={} timeoutMs={} attempts={} bucketKey={} priorityBucketsActive={} trId={}",
                     priority,
                     timeoutMillis,
                     attempts,
                     props.bucketKey,
                     priorityBucketsActive,
+                    trId ?: TR_ID_UNKNOWN,
                 )
                 recordAcquireTimeout(priority)
+                recordKisCall(trId, priority, RESULT_TIMEOUT)
                 throw KisRateLimitTimeoutException(priority, timeoutMillis)
             }
             val sleepMillis = props.acquirePollIntervalMillis.coerceAtMost(remainingNanos / 1_000_000L)
@@ -444,6 +461,36 @@ class RedisKisRateLimiterAdapter(
                 .register(registry)
                 .increment()
         }.onFailure { e -> log.trace("recordTpsExceeded skip: lastBucket={} err={}", lastBucket, e.message) }
+    }
+
+    /**
+     * tr_id별 KIS 호출량 counter — `kis_call_total{tr_id, priority, result}` (ADR 0116 §2-E 연장).
+     *
+     * 어느 KIS API(tr_id)가 TPS를 먹는지·어느 tr_id가 timeout 굶는지 식별.
+     * trId null → `unknown` 라벨. cardinality: tr_id는 유한 KIS 상수 집합 + priority 5 + result 2 → 안전.
+     */
+    private fun recordKisCall(
+        trId: String?,
+        priority: KisCallPriority,
+        result: String,
+    ) {
+        val registry = meterRegistry ?: return
+        runCatching {
+            Counter
+                .builder(METRIC_KIS_CALL)
+                .description("KIS API tr_id별 호출량 (ADR 0116 §2-E 연장 — 어느 API가 TPS 점유)")
+                .tags(
+                    Tags.of(
+                        "tr_id",
+                        trId ?: TR_ID_UNKNOWN,
+                        "priority",
+                        priority.name,
+                        "result",
+                        result,
+                    ),
+                ).register(registry)
+                .increment()
+        }.onFailure { e -> log.trace("recordKisCall skip: trId={} err={}", trId, e.message) }
     }
 
     /** 테스트·모니터링 진입점 (Phase 3 Circuit Breaker에서 권위 위임) */

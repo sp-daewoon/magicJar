@@ -69,7 +69,7 @@ class KisBalanceAdapter(
             val secretKeyStr = String(secretKey)
 
             // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority — 잔고 조회 사용자 path)
-            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L, trId = trId)
 
             @Suppress("UNCHECKED_CAST")
             val response =

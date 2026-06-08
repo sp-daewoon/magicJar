@@ -135,7 +135,7 @@ class ApiKisBalanceQueryAdapter(
             val appKeyStr = String(appKey)
             val secretKeyStr = String(secretKey)
 
-            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L, trId = trId)
 
             @Suppress("UNCHECKED_CAST")
             val response =
