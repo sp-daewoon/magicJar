@@ -3,9 +3,9 @@ id: T-20260608-1139-backtest-handoff-and-refresh
 agent: frontend
 model: opus
 branch: agent/frontend/backtest-handoff-and-refresh
-status: RUNNING
+status: DONE
 startedAt: 2026-06-08T11:39:49.333+09:00
-completedAt: null
+completedAt: 2026-06-08T13:21:41.326+09:00
 pr: null
 parentPhase: ?
 ---
