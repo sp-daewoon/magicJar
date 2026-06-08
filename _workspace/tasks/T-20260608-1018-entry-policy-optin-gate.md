@@ -14,9 +14,9 @@ parentPhase: ?
 진입 정책 opt-in 게이트 — MOCK 거래 복구
 
 ## 결과물 체크리스트
-- [ ] enable 게이트
-- [ ] MARKET fallback 복구
-- [ ] 테스트
+- [x] enable 게이트
+- [x] MARKET fallback 복구
+- [x] 테스트
 
 ## 의존성
 - (필요 시 기록)

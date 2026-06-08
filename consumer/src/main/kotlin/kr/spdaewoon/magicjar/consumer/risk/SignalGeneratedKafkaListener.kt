@@ -371,10 +371,11 @@ class SignalGeneratedKafkaListener(
     }
 
     /**
-     * BUY 진입 가격 산정 → marketable limit 발행 또는 스킵 audit (ADR 0114 §3-1·§3-2).
+     * BUY 진입 가격 산정 → MARKET / marketable limit 발행 또는 스킵 audit (ADR 0114 §3-1·§3-2 · opt-in hotfix 2026-06-08).
      *
+     * - [EntryOrderDecision.Market]: priceType=MARKET 발행(현행 보존 — marketable-limit 미적용 시그널). 호가 조회 0.
      * - [EntryOrderDecision.Enter]: priceType=LIMIT + limitPrice 발행(매도1호가 상한 이내). 미체결 취소 워커가 entryTimeoutSec로 회수.
-     * - [EntryOrderDecision.Skip]: **주문 0** + SIGNAL_SKIPPED_* audit(system_event). 시장가 fallback 절대 금지(§3-1-5).
+     * - [EntryOrderDecision.Skip]: **주문 0** + SIGNAL_SKIPPED_* audit(system_event). 시장가 fallback 절대 금지(§3-1-5, marketable-limit 적용 대상에 한해).
      */
     private fun publishBuyOrSkip(
         signal: Signal,
@@ -382,6 +383,15 @@ class SignalGeneratedKafkaListener(
     ) {
         val strategy = lookupStrategyOrNull(signal)
         when (val decision = entryOrderPriceResolver.resolve(signal, strategy)) {
+            is EntryOrderDecision.Market -> {
+                log.info(
+                    "BUY MARKET 진입 (marketable-limit 미적용 — entry_policy 없음 + limit-enabled=false): signalId={} code={} qty={}",
+                    signal.id,
+                    signal.code,
+                    quantity,
+                )
+                orderIntentKafkaProducer.publish(signal, quantity, OrderPriceType.MARKET, null)
+            }
             is EntryOrderDecision.Enter -> {
                 log.info(
                     "BUY marketable limit 진입: signalId={} code={} qty={} limitPrice={} entryTimeoutSec={}",
