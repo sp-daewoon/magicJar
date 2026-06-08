@@ -3,10 +3,10 @@ id: T-20260608-1404-position-integrity-adr
 agent: architect
 model: opus
 branch: agent/architect/position-integrity-adr
-status: RUNNING
+status: DONE
 startedAt: 2026-06-08T14:04:05.654+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-08T14:09:01.643+09:00
+pr: #818
 parentPhase: ?
 ---
 
