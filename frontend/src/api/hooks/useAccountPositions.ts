@@ -7,16 +7,18 @@
  * ⚠ 주의: 기존 `usePositions` (../api/hooks/usePositions)는 DB `position` 테이블 조회.
  *   본 hook은 KIS 실시간 응답 — 두 데이터 출처가 다름. (spec §2-3 evidence)
  *
- * - 30s polling fallback — STOMP push (useStompAccountBalance) 가 primary
+ * - STOMP push (useStompAccountBalance) 가 primary — 체결·취소·거절 시 즉시 invalidate.
+ * - fallback polling 은 STOMP 끊김 시에만 (60s). STOMP CONNECTED 면 폴링 0.
  * - userId 없으면 쿼리 비활성
  *
- * C-3 polling → push 전환 (2026-05-20): refetchInterval 5s → 30s, staleTime 3s → 25s.
- *   "소켓방식으로 가져와야하는거" (사용자 dogfooding). 5s polling KIS rate limit burst 해소.
- *   STOMP /topic/account.balance.{userId} 가 주문체결·취소·거절 시 즉시 invalidate 트리거.
- *   30s polling 은 STOMP 끊김 시 fallback only.
+ * 폴링 정리 (2026-06-08 — KIS_TPS_EXCEEDED burst 근본 정리, 사용자 dogfooding):
+ *   STOMP 연결 시 폴링 off (useSymbol pollingEnabled 패턴), 끊김 시에만 60s fallback.
+ *   refetchInterval prop 명시 시 STOMP 게이트 무시 강제 override (기존 시그니처 보존).
  *
- * A-3 (2026-05-20): refetchIntervalInBackground=false 명시화 — TanStack Query v5
- *   default이지만 의도 명시 (background tab 시 polling pause).
+ * C-3 polling → push 전환 (2026-05-20): refetchInterval 5s → 30s.
+ *   STOMP /topic/account.balance.{userId} 가 주문체결·취소·거절 시 즉시 invalidate 트리거.
+ *
+ * A-3 (2026-05-20): refetchIntervalInBackground=false 명시화 (background tab 시 polling pause).
  */
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -24,11 +26,20 @@ import {
   type AccountHoldingDto,
   type AccountType,
 } from '../account'
+import {
+  ACCOUNT_STALE_TIME_MS,
+  resolveAccountRefetchInterval,
+  useAccountStompConnected,
+} from './useAccountPollingGate'
 
 interface UseAccountPositionsOptions {
   /** ADR 0089 Phase 2 — userId number */
   userId: number | null | undefined
   accountType?: AccountType
+  /**
+   * 폴링 주기 ms 강제 override. 미지정 시 STOMP 게이트 적용:
+   *   STOMP CONNECTED → 폴링 off, 끊김 시 60s fallback.
+   */
   refetchInterval?: number
   enabled?: boolean
 }
@@ -36,15 +47,22 @@ interface UseAccountPositionsOptions {
 export function useAccountPositions({
   userId,
   accountType = 'REAL',
-  refetchInterval = 30_000,
+  refetchInterval,
   enabled = true,
 }: UseAccountPositionsOptions) {
+  const queryEnabled = enabled && userId !== null && userId !== undefined
+  const stompConnected = useAccountStompConnected(queryEnabled)
+  const effectiveRefetchInterval =
+    refetchInterval !== undefined
+      ? refetchInterval
+      : resolveAccountRefetchInterval(stompConnected)
+
   return useQuery<AccountHoldingDto[], Error>({
     queryKey: ['account', 'positions', userId, accountType],
     queryFn: () => accountApi.getPositions(userId!, accountType),
-    enabled: enabled && userId !== null && userId !== undefined,
-    staleTime: 25_000,
-    refetchInterval,
+    enabled: queryEnabled,
+    staleTime: ACCOUNT_STALE_TIME_MS,
+    refetchInterval: effectiveRefetchInterval,
     refetchIntervalInBackground: false, // A-3: background tab 시 pause (v5 default 명시화)
     refetchOnWindowFocus: true,
   })
