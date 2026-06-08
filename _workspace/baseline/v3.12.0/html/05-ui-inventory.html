@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>05-ui-inventory — magicJar v3.12.0 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">📁 인덱스</a><a href="01-architecture.html">01 Architecture</a><a href="02-data-flow.html">02 Data Flow</a><a href="03-use-sequences.html">03 Use Sequences</a><a href="04-feature-spec.html">04 Feature Spec</a><a href="05-ui-inventory.html" class="active">05 UI Inventory</a><a href="06-history-traceability.html">06 History</a><a href="07-policy-evolution.html">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.12.0 Baseline · 2026-06-08 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># 05 — UI Inventory (frontend SPA · 화면·메뉴·버튼·상태 매트릭스)
+
+> **시점**: v3.12.0 baseline (2026-06-08 cut)
+> **권위 소스**: `frontend/src/App.tsx` (route 정의) · `frontend/src/components/layout/AppHeader.tsx` (메뉴) · `frontend/src/pages/Strategy/**` · `frontend/src/features/market/**` · `frontend/src/features/ai/**` · `frontend/src/features/settings/**` · `frontend/src/components/**` · `frontend/src/api/**` · `frontend/src/hooks/useModalBehavior.ts`
+> **작성자**: frontend (전략 리서치 AI 종목발굴 · 전략 빌더 AI 전략 생성 · 잔익절 경고·minHoldBars · useModalBehavior 공통 모달 · 종목상세 AI 차트해석 Claude CLI 실해석)
+> **이전 판**: `_workspace/baseline/v3.9.0/05-ui-inventory.md`
+
+본 문서는 **v3.12.0 시점에 화면이 무엇을 보여주고, 어떤 메뉴·버튼·상태를 가지며, 어떤 데이터 토픽을 구독하는지**를 SPA 구조 그대로 인벤토리화한다. 화면 추측·미구현 화면 묘사 금지 — `App.tsx` route 정의 + `AppHeader.tsx` nav를 raw 출처로 한다. 본 판은 **v3.9.0 인벤토리를 베이스로 증분**(신규 화면·신규 컴포넌트·신규 동작 패턴만 상세 기술, 무변경 영역은 5-9 안정 영역으로 압축)한다.
+
+---
+
+## 5-0. v3.12.0 변경 요약 (v3.9.0 대비)
+
+| 영역 | v3.9.0 | v3.12.0 | 권위 |
+|------|--------|--------|------|
+| route count | 15 | **19** (`/strategy/research`·`/strategy/scenario-replay`·`/market/calendar` 신규 + `/qa/scenario-replay` redirect alias + `/watchlist`→`/instruments?watchlist=1` redirect 화) | `App.tsx` L127~L163 |
+| nav 구조 | 4 group dropdown (운영·시장·전략·리스크) | **3 group dropdown** (시장·전략·리스크) + 상시 표시 2 (대시보드·매매일지) — "운영" 그룹 해체, item 시장/전략 그룹으로 흡수 | `AppHeader.tsx` L46~L77·L242~L246 |
+| 전략 영역 | builder·backtest·list (3) | + **`/strategy/research` (전략 리서치 · AI 종목발굴)** + **`/strategy/scenario-replay` (시나리오 리플레이)** | `pages/Strategy/StrategyResearchPage.tsx` (2066 LOC) · `pages/QA/ScenarioReplayPage.tsx` |
+| 시장 영역 | trend (1) | + **`/market/calendar` (시장 캘린더 · KRX 휴장일 + 사용자 시장 이벤트)** | `features/market/pages/MarketCalendarPage.tsx` |
+| 전략 빌더 AI | 자연어 DSL 변환 (NaturalLanguageInput) | + **AI 전략 생성 모달 (`StrategyAiGenerateModal`)** + **잔익절 경고(warnings) + minHoldBars(최소보유봉)** | `components/strategy/StrategyAiGenerateModal.tsx` · `pages/Strategy/StrategyBuilderPage.tsx` L733 |
+| 공통 모달 동작 | ad-hoc (scroll lock 2곳·ESC 4곳) | **`useModalBehavior` 단일 훅** — ESC 닫기 + body scroll lock (IME·중첩 안전), **11 컴포넌트 적용** | `hooks/useModalBehavior.ts` |
+| 종목상세 AI 차트해석 | mock/provider 미정착 | **Claude CLI provider 실해석** (frontend 인터페이스 0 touch — backend `claude-cli` provider) | `api/ai.ts` · CHANGELOG 2026-06-08 |
+| API 패밀리 | account·symbol·strategy·risk·order·journal·system·market·ai | + **strategyResearch · strategyBuilderAiGenerate · scenarioReplay · marketCalendar** | `api/strategyResearch.ts` 등 |
+
+> v3.12.0 = **전략 리서치(AI 종목발굴 ADR 0112) + 전략 빌더 AI 전략 생성 + 잔익절 방어 + 공통 모달 UX 표준화 종착 베이스라인**. AI 매매 결정권은 여전히 0 (ADR 0026·0112 정합 — 모든 AI 산출물은 사용자 검토·백테스트·MOCK 검증 전제 후보).
+
+---
+
+## 5-1. SPA 한 장 요약
+
+- **단일 SPA** — React 19 + TS + Vite + Tailwind + TanStack Query + STOMP.js, pnpm, Vite dev `:5173`, 운영 docker `frontend` 컨테이너 (ADR 0009 · ADR 0049)
+- **레이아웃** — `AppHeader` (전 화면 공통 · 3 nav group dropdown + 상시 대시보드·매매일지 + WS/KIS WS indicator 2 + RuntimeFlagsIndicator + NotificationCenter + Settings) + page outlet
+- **데이터 채널** — REST (`/api/**`, axios `apiClient`) + STOMP (`/topic/**`)
+- **상태 관리** — TanStack Query (server state) + zustand (`frontend/src/stores`) + STOMP topic subscription
+- **route count** — **19** · **nav group** — 3 (시장 5 · 전략 5 · 리스크 2 = 12 item) + 상시 2 (대시보드·매매일지) · indicator 2 + RuntimeFlags + NotificationCenter + Settings
+- **공통 모달 표준** — `useModalBehavior` (ESC + body scroll lock · IME·중첩 안전) **11 컴포넌트 적용**
+
+---
+
+## 5-2. 화면 매트릭스 (route × 컴포넌트 × hook × data source × 액션)
+
+> **권위**: `frontend/src/App.tsx` L127~L163 의 `<Route>` 정의 19건 그대로.
+
+### 5-2-A. 안정 영역 (v3.9.0 무변경 — 압축 인용)
+
+다음 화면은 v3.9.0 인벤토리 그대로 유지된다. 상세는 `_workspace/baseline/v3.9.0/05-ui-inventory.md` 참조.
+
+| route | 페이지 컴포넌트 | 비고 |
+|-------|-----------------|------|
+| `/` | `pages/Dashboard/DashboardPage.tsx` | MarketIndexStrip + AccountSummary + Holdings + Balance + QuickLink 6 (`/instruments?watchlist=1`·`/market/trend`·`/positions`·`/orders`·`/?view=performance`·`/journal`) — 권위 `DashboardPage.tsx` L53~L58 |
+| `/symbol/:code` | `pages/Symbol/SymbolDetailPage.tsx` | LWC v4 차트 + 호가 + 지표 + AI SYMBOL/CHART 진입점 (5-2-C·v3.9.0 동일 · 차트해석은 5-2-G 참조) |
+| `/strategy/builder` | `pages/Strategy/StrategyBuilderPage.tsx` | **AI 전략 생성 모달 추가 — 5-2-E 참조** |
+| `/strategy/backtest` | `pages/Strategy/BacktestPage.tsx` | v3.9.0 동일 |
+| `/strategy/list` | `pages/Strategy/StrategyListPage.tsx` | AI STRATEGY/SIGNAL 진입점 (v3.9.0 동일) |
+| `/risk-config`·`/risk-events`·`/positions` | `pages/Risk/*` | v3.9.0 동일 |
+| `/orders`·`/orders/new`·`/orders/:id` | `pages/orders/*` | 3중 게이트 + KillSwitch (v3.9.0 동일) |
+| `/journal` | `pages/TradingJournalPage.tsx` | `JournalEntryDetailModal` 에 `useModalBehavior` 적용 (5-3-D) |
+| `/performance` | `pages/PerformanceDashboardPage.tsx` | `/performance` route 유지 + Dashboard 내부 `?view=performance` 전환 병존 |
+| `/system` | `pages/SystemEvent/SystemEventPage.tsx` | v3.9.0 동일 |
+| `/market/trend` | `features/market/pages/MarketTrendPage.tsx` | v3.9.0 동일 (LWC v4 추세 차트 + 섹터 ranking + AI MARKET) |
+| `/instruments` | `pages/Instruments/InstrumentUniversePage.tsx` | `?watchlist=1` 쿼리로 관심종목 필터 진입 |
+| `/setup` | `pages/SetupWizard.tsx` | 5 step (`SystemConfigStep`·`KisRealStep`·`KisMockStep`·`KisValidatingStep`·`CompleteStep`) |
+| `/watchlist` | `<Navigate to="/instruments?watchlist=1" replace />` | 독립 페이지 폐기 → `/instruments` 통합 (기존 URL 호환 redirect) |
+| `*` | `<Navigate to="/" replace />` | 미정의 URL은 대시보드로 |
+
+### 5-2-B. Strategy Research 영역 ⭐ v3.12.0 신설 (AI 종목발굴 · ADR 0112)
+
+| route | 페이지 컴포넌트 | 주요 child 컴포넌트 | 주요 hook | REST endpoint | 사용자 액션 |
+|-------|-----------------|---------------------|-----------|---------------|------------|
+| **`/strategy/research`** ⭐ | **`pages/Strategy/StrategyResearchPage.tsx`** (2066 LOC) | `AiDiscoveryCard` (후보 1건/카드) · `ResearchCandidateLibraryCard` (후보 라이브러리 팝업) · `StrategyResearchChart` (LWC v4 가상 진입/청산) · `InstrumentSearchInput` | `useQuery`/`useMutation` (strategyResearchApi) · `useCandleRecollectJob` (캔들 재수집) · `useModalBehavior` × 3 (프롬프트 미리보기·프리셋 설정·AI 추천) · `useOnboardingStore` | `POST /strategy-research/proposals` · `POST /strategy-research/ai-discovery` · `GET /strategy-research/ai-discovery/latest` · `PATCH /strategy-research/ai-discovery/item-status` · `DELETE /strategy-research/ai-discovery/latest` · `GET·POST·PUT·DELETE /strategy-research/ai-discovery/presets[/{id}]` · `GET·PUT·POST /strategy-research/ai-discovery/core-prompt[/reset]` · `POST /strategy-research/ai-discovery/presets/recommend` · `POST /strategy-research/ai-discovery/prompt-preview` · `GET·POST·DELETE /strategy-research/candidates[/...]` | 리서치 폼(interval·기간·익절·손절·maxHoldBars) → 후보 평가 · AI 발굴 실행 · 후보 캔들 가져오기 · 후보 → 빌더 draft 로드 |
+
+#### 5-2-B-1. AI 종목발굴 패널 UI 구성 (권위: `StrategyResearchPage.tsx` L1060~L1340)
+
+- **헤더** — "Claude CLI 후보 · 종목 마스터 매핑" (`L1062`), 우측 [프리셋 설정] · [AI 프리셋 추천] 버튼 2 (`L1084·L1091`)
+- **프리셋 선택 행** — **최근 사용 상위 3개를 버튼으로 노출**(`DISCOVERY_PRESET_BUTTON_COUNT = 3`, `DISCOVERY_PRESET_RECENT_KEY = 'magicjar.discovery.presetRecentIds'` localStorage 최신순 최대 5), **나머지는 "다른 프리셋…" 콤보**(`L1162`), **[직접 입력] 토글은 행 최우측 끝으로 배치**(`L1173~L1185`). 선택된 프리셋이 콤보 쪽에 있어도 항상 버튼에 포함(시각 식별 보장 — `L600~L610`).
+  - **버튼 3개 표시 정렬**: 선정은 최근 사용 순이되 **표시는 라벨 `localeCompare(ko)` 고정 정렬** — 클릭마다 버튼 재배열 방지(같은 3개 구성이면 위치 불변, 새 프리셋 진입 시만 재배열). 권위: CHANGELOG 2026-06-08 "AI 발굴 프리셋 버튼 3개 표시 글자순 고정".
+- **프롬프트 입력** — 직접 입력 모드(presetId 없음)에서는 프롬프트 필수(`L729·L776`), 프리셋 선택 시 추가 요청은 선택(`L1207` placeholder "프리셋에 더할 추가 요청 — 비워두면 프리셋 지시문만 사용").
+- **마켓 콤보** — `AI_DISCOVERY_MARKETS = ['', 'KOSPI', 'KOSDAQ', 'KONEX']`(`'' = 전체`).
+- **로딩 표시** — "Claude CLI가 후보를 찾는 중입니다" (`L1260`).
+- **후보 카드 그리드** — `AiDiscoveryCard` (267 LOC). 후보별 status 토글(신규/유지/제외 = NEW/KEPT/DISMISSED), 매칭 + 캔들 0건 후보엔 **[캔들 가져오기]** 개별 버튼(`useCandleRecollectJob` 발굴 interval 재수집), 후보 자체 STOMP 구독(다중 카드 독립).
+- **전체 가져오기** — **[부족 후보 전체 가져오기]** 버튼(`L1296`, 순차 큐 — page가 `activeFetchCode` 하나만 지정 → 카드 자동 시작 → terminal 시 다음 후보 진행). 진행 상태 "캔들 수집 중"·"전체 성공"(`L1318`).
+
+#### 5-2-B-2. Core Wrapper 편집 (권위: `StrategyResearchPage.tsx` L308~L312·L865~L877·L483~L516)
+
+- 프리셋 설정 팝업 내 **Core Wrapper 프롬프트 편집** — `corePromptDraft` textarea + [저장] (`updateAiDiscoveryCorePrompt` → `PUT /strategy-research/ai-discovery/core-prompt`) + [기본값 복원] (`resetAiDiscoveryCorePrompt` → `POST .../core-prompt/reset`, `window.confirm` 가드).
+- 빈 값 클라이언트 검증("Core Wrapper 프롬프트를 입력해주세요" `L867`).
+
+#### 5-2-B-3. AI 프리셋 추천 모달 (권위: `StrategyResearchPage.tsx` L376~L383·L1931~)
+
+- [AI 프리셋 추천] → `recommendOpen` 모달(`useModalBehavior` 적용) → `POST /strategy-research/ai-discovery/presets/recommend` (hint·count). 추천 카드별 [프리셋으로 추가] (`createAiDiscoveryPreset`), 추가됨 인덱스는 비활성 처리(`L283`). **닫아도 mutation은 백그라운드 지속**(`L324` 주석).
+
+#### 5-2-B-4. 후보 라이브러리 팝업 (권위: `ResearchCandidateLibraryCard.tsx` 361 LOC)
+
+- **인라인은 컴팩트 진입 버튼 + 요약 한 줄만** ("후보 전략 라이브러리 · 내 전략 N개 · 기본 M개" + [후보 라이브러리 관리]) — 18종 builtin + 내 후보를 전부 인라인 노출하면 화면 전체를 가리던 dogfooding 결함(2026-06-08) 정정.
+- **전체 목록·관리(추가/삭제)는 모달로 이동** — `useModalBehavior` 의무 + overlay 클릭 닫기 + max-height 88vh + 내부 스크롤.
+- **정렬**: 내 전략(`builtIn=false`) 최상단(최신 `updatedAt` 순) → builtin(`sortOrder` 오름차순) + 섹션 헤더("내 후보"·"기본 제공") + 카운트 뱃지.
+- "내 전략을 후보로 추가" — 전략 선택 드롭다운 + [추가] (`addCandidateFromStrategy` → `POST /strategy-research/candidates/from-strategy`), 후보 삭제(builtin 포함, `deleteCandidate`). 리서치 실행 동작 자체는 무변경.
+
+#### 5-2-B-5. 리서치 폼 / 가드 (권위: `StrategyResearchPage.tsx` L40~L93·L890~L990)
+
+- 폼 설정 — `interval`(`INTERVALS = ['1m','3m','5m','15m','30m','1h','1d']`) · `fromKst`·`toKst`(KST datetime-local) · `targetProfitPct`·`stopLossPct`·`maxHoldBars`. `RESEARCH_FORM_STORAGE_KEY = 'magicjar.strategyResearch.form.v1'` localStorage 보존. default: interval `1d` · 7일 · 익절3%·손절3%·maxHoldBars 12.
+- 가드: candle 부족(`MIN_RESEARCH_CANDLES = 40`) 시 "캔들 가져오기 후 다시 선택"(`L897`), 예상 candle 수 cap(`MAX_RESEARCH_CANDLES_PER_RUN = 20_000`, `L984`).
+
+### 5-2-C. Scenario Replay 영역 ⭐ v3.12.0 신설 (T-SIM Phase 3 · ADR 0107)
+
+| route | 페이지 컴포넌트 | 주요 child 컴포넌트 | 주요 hook | REST endpoint | 사용자 액션 |
+|-------|-----------------|---------------------|-----------|---------------|------------|
+| **`/strategy/scenario-replay`** ⭐ | **`pages/QA/ScenarioReplayPage.tsx`** | `ScenarioReplayForm` · `ScenarioReplayList` · `ScenarioReplayDetail` | `useOnboardingStore` · `useQuery`/`useMutation` (scenarioReplay api) | `POST /scenario-replay/runs` · `GET /scenario-replay/runs[/{id}][/events]` · `DELETE /scenario-replay/runs/{id}` | 탭 전환(new·history) · 리플레이 실행 · run 상세 조회 · 삭제 |
+| `/qa/scenario-replay` | `<Navigate to="/strategy/scenario-replay" replace />` | — | — | — | 구 QA 경로 호환 redirect |
+
+> userId 미등록 시 "셋업 마법사를 완료한 후 이용해주세요" + `/setup` CTA (`ScenarioReplayPage.tsx` L17~L25).
+
+### 5-2-D. Market Calendar 영역 ⭐ v3.12.0 신설
+
+| route | 페이지 컴포넌트 | 주요 hook | REST endpoint | 사용자 액션 |
+|-------|-----------------|-----------|---------------|------------|
+| **`/market/calendar`** ⭐ | **`features/market/pages/MarketCalendarPage.tsx`** | `useQuery`/`useMutation` (marketCalendar api) · `InstrumentSearchInput` | `GET /market/calendar` · `POST·PUT·DELETE /market/calendar/events[/{id}]` | KRX 휴장일 조회 + 사용자 시장 이벤트 등록/수정/삭제 |
+
+> 이벤트 유형 7종 — IPO·EARNINGS(실적)·DIVIDEND(배당)·LOCKUP(보호예수)·MACRO(거시)·FOMC·CUSTOM(기타). 권위: `MarketCalendarPage.tsx` L13~L22.
+
+### 5-2-E. Strategy Builder AI 전략 생성 ⭐ v3.12.0 신설 (ADR 0112)
+
+| 진입점 | 컴포넌트 | 동작 | 권위 |
+|--------|---------|------|------|
+| **[AI 전략 생성] 버튼** | `StrategyBuilderCanvas` 액션 행 상단 (violet 계열 · `whitespace-nowrap`) | → `StrategyAiGenerateModal` 오픈 | `StrategyBuilderPage.tsx` L749~L751 |
+| **`StrategyAiGenerateModal`** | `components/strategy/StrategyAiGenerateModal.tsx` | `useModalBehavior`(ESC+scroll lock) · 전략 의도 textarea(필수·빈 값 클라이언트 검증) + 기준봉(빌더 현재 interval 기본 · `INTERVAL_OPTIONS` 13종) + 제안 수(`COUNT_OPTIONS = [1,2,3]`·기본1) + [생성하기](Ctrl+Enter) → 로딩 "Claude가 전략을 설계 중입니다" | — |
+| 제안 카드 | (모달 내) | name·description·entryDsl/exitDsl 코드 블록·riskPlan 요약(익절/손절/**최소보유 N봉**)·rationale·warnings·[빌더로 불러오기] · `dslValid=false` 카드는 dslError 표시 + 불러오기 비활성 | `StrategyAiGenerateModal.tsx` L36~L40 |
+| [빌더로 불러오기] | `onLoadDraft` | `NaturalLanguageInput`의 기존 `parseDslTextToTree` 경로 재사용 — entryDsl/exitDsl 트리 주입 + name·riskPlan을 저장 모달 초기값 전달(`aiDraftMeta` 패턴). 기존 작성 중 내용 있으면 confirm 후 덮어쓰기 · **자동 저장 0** (ADR 0112 — 우측 "AI 생성 후보" 인디케이터에 "저장하지 않았습니다" 명시) | `StrategyBuilderPage.tsx` L621~L623·L733 |
+
+- API: `useStrategyBuilderAiGenerate` mutation(retry 0·timeout 310s) → `POST /api/strategies/ai-generate`. **룰 5 정합: LLM provider import 0건 — backend endpoint 호출만** (`strategyBuilderAiGenerate.ts`).
+
+### 5-2-F. 잔익절 방어 — warnings + minHoldBars (전략 빌더·전략 저장 · ADR 0112)
+
+| 항목 | 동작 | 권위 |
+|------|------|------|
+| **minHoldBars (B안 · 최소보유봉)** | 저장 요청 본문에 `minHoldBars > 0`이면 포함, 0/미설정이면 키 생략(하위호환) | `api/__tests__/strategyExitNoiseGuard.contract.test.ts` · `StrategyBuilderPage.tsx` L733 `initialMinHoldBars` |
+| **warnings (A안 · 서버 경고)** | 익절 ≤ 0.3% 저장 시 서버 경고 1건 동봉("익절 목표 …는 왕복 거래비용에 근접·미만입니다(잔익절)") → `StrategySaveModal` 표시 | `strategyExitNoiseGuard.contract.test.ts` · `api/strategy.ts` |
+
+### 5-2-G. 종목상세 AI 차트해석 — Claude CLI 실해석 ⭐ v3.12.0 (frontend 0 touch)
+
+- `SymbolDetailPage` 차트 영역 [AI 차트 해석] → `AiExplainEntry type="CHART"` → `POST /api/ai/explain` → STOMP `/topic/ai.explain.{requestId}` → `AiCard RECEIVED` (v3.9.0 인터페이스 무변경).
+- **v3.12.0 변경은 backend-only** — 코멘트 dispatcher 에 `claude-cli` provider 추가(`ClaudeCliCommentAdapter`, consumer). `MAGICJAR_AI_ENABLED=true` + `MAGICJAR_AI_PROVIDER=claude-cli` 가 실해석 경로(구독 기반 키 불요). 비용 0(토큰 미제공 → `ai_comment_log` 0 정직 기록). **frontend 컴포넌트·API·응답 계약 0 touch** — 권위: CHANGELOG 2026-06-08 "종목상세 AI 차트해석 Claude CLI provider 연동".
+
+---
+
+## 5-3. 메뉴 매트릭스 ⭐ v3.12.0 nav 재편 (4 group → 3 group)
+
+### 5-3-A. AppHeader nav (권위: `AppHeader.tsx` L46~L77·L242~L246)
+
+> **★ v3.12.0 변경** — v3.9.0 "운영" 그룹 해체. "대시보드"·"매매일지"는 상시 표시(`TopNavLink`), 나머지 운영 item(주문·포지션)은 "시장" 그룹으로 흡수. 그룹 dropdown은 hover 펼침 + 첫 아이템 click 이동.
+
+| 위치 | 아이템 (label / to) | 비고 |
+|------|----------------------|------|
+| **상시 (좌)** | 대시보드(`/`, `end`) | `TopNavLink` |
+| **시장** (그룹) | 종목검색(`/instruments`) · 포지션(`/positions`) · 주문 내역(`/orders`) · 시장 추세(`/market/trend`) · 시장 캘린더(`/market/calendar`) | 5 item · `/symbol/:code` 는 `/instruments` active 매핑(`isActivePath`) |
+| **전략** (그룹) | 전략 리서치(`/strategy/research`) ⭐ · 전략 빌더(`/strategy/builder`) · 전략 목록(`/strategy/list`) · 백테스트(`/strategy/backtest`) · 시나리오 리플레이(`/strategy/scenario-replay`) ⭐ | 5 item |
+| **리스크** (그룹) | 리스크 설정(`/risk-config`) · 위반 이력(`/risk-events`) | 2 item |
+| **상시 (우)** | 매매일지(`/journal`) | `TopNavLink` |
+
+### 5-3-B. AppHeader 우측 indicator·button (v3.9.0 동일)
+
+`RuntimeFlagsIndicator`(로고 옆) · `WsConnectionIndicator` · `KisWsHealthIndicator` · `NotificationCenter`(벨+badge) · Settings button(톱니→SettingsModal) · 헤더 상단 `KisRealCredentialBanner`(실전 키 미등록 노란 배너).
+
+### 5-3-C. SettingsModal 내부 섹션 (v3.9.0 동일 — 5 섹션)
+
+> 권위: `components/settings/SettingsModal.tsx` L8~L14·L89~L102. **`useModalBehavior` 적용**(L21).
+
+| section | 컴포넌트 | 책임 |
+|---------|---------|------|
+| 1 | `RealTradingConsentSection` | 실거래 동의 — 이중 confirm |
+| 2 | `KisCredentialSection` | KIS 키 등록·교체·삭제 |
+| 3 | `SystemConfigSection` | DART + Slack 시스템 설정 |
+| 4 | `KillSwitchSection` | 자본 보호 수동 토글 |
+| 5 | `TrendPreferenceSection` | 추세 분석 설정 — MA periods·rsPeriod·crossPair·4 프리셋 (ADR 0101) |
+
+### 5-3-D. 공통 모달 동작 — useModalBehavior ⭐ v3.12.0 신설 (권위: `hooks/useModalBehavior.ts`)
+
+> **사용자 보고 결함(2026-06-07)**: 팝업 열린 상태에서 뒤 배경 스크롤됨(body scroll lock 누락) + ESC로 안 닫힘(keydown 핸들러 누락). 13개 모달이 ad-hoc 구현(scroll lock 2곳·ESC 4곳)이라 일관성 없음 → `ScreenerResultModal`·`SettingsModal` 검증 패턴을 단일 훅으로 통일.
+
+**동작**: `open=true` 동안 `document.body.style.overflow = 'hidden'` (모듈 레벨 카운터 — 중첩 모달 안전, 마지막 닫힐 때만 복원) + Escape keydown → `onClose` (input/textarea 포커스 중에도 닫힘 · IME 조합 중 `isComposing`/keyCode 229 시 ESC 무시 — 한글 입력 오닫힘 방지).
+
+**적용 컴포넌트 11종** (권위: `grep useModalBehavior(` — 테스트·hook 자체 제외):
+
+| # | 컴포넌트 |
+|---|---------|
+| 1 | `features/journal/components/JournalEntryDetailModal.tsx` |
+| 2 | `features/screener/components/ScreenerResultModal.tsx` |
+| 3 | `components/order/OrderPreviewModal.tsx` |
+| 4 | `components/order/CancelOrderButton.tsx` |
+| 5 | `components/settings/SettingsModal.tsx` |
+| 6 | `components/risk/PositionOrderModal.tsx` |
+| 7 | `components/strategy/StrategyFavoritePanel.tsx` |
+| 8 | `components/strategy/StrategyAiGenerateModal.tsx` ⭐ v3.12.0 |
+| 9 | `components/strategy/NaturalLanguageInput.tsx` |
+| 10 | `components/strategy/StrategySaveModal.tsx` |
+| 11 | `pages/Strategy/ResearchCandidateLibraryCard.tsx` ⭐ v3.12.0 |
+
+> 추가로 페이지 레벨 적용: `pages/Strategy/StrategyBuilderPage.tsx`(DSL 에디터 모달 1) · `pages/Strategy/StrategyResearchPage.tsx`(프롬프트 미리보기·프리셋 설정·AI 추천 모달 3). 호출 site 총 16건(파일 13 + Research 페이지 +2 + Builder 페이지 +1 추가 인스턴스). 컴포넌트 단위 "모달 컴포넌트" 적용 수 = 11.
+
+### 5-3-E. Symbol Detail 내부 탭 / 토글 (v3.9.0 동일)
+
+Interval(`IntervalToggle`) · CandleCount · Indicator overlay · Pattern · Orderbook 구독 · AI 진입점 SYMBOL/CHART. 상세는 v3.9.0 5-3-C 참조.
+
+---
+
+## 5-4. 상태 매트릭스 (v3.9.0 유지 + 신규)
+
+> Price Card 장 구분 badge(5-4-A) · Tick stale badge(5-4-B) · Order status(5-4-C) · KillSwitch state(5-4-D) · RuntimeFlags/Mode(5-4-E) · AiCard 7 상태(5-4-F) · CrossSignal badge(5-4-G) · TrendLabel badge(5-4-H)는 v3.9.0 인벤토리 그대로 유지. 상세는 `_workspace/baseline/v3.9.0/05-ui-inventory.md` 5-4 참조.
+
+### 5-4-I. AI 발굴 후보 status ⭐ v3.12.0 (권위: `strategyResearch.ts` L49 · `AiDiscoveryCard.tsx`)
+
+| status | 라벨 | 의미 |
+|--------|------|------|
+| NEW | 신규 | 이번 발굴에서 새로 제안된 후보 (default) |
+| KEPT | 유지 | 사용자가 다음 발굴에도 보존 지정 |
+| DISMISSED | 제외 | 사용자가 결과에서 제외 |
+
+> 캔들 0건 매칭 후보(`matched && candleCount === 0`)는 [캔들 가져오기] 버튼 노출 — `useCandleRecollectJob` 비동기 잡(발굴 interval 기준 1m 수집+재생성 내장).
+
+---
+
+## 5-5. STOMP 토픽 패밀리
+
+> v3.9.0 12 토픽(실시간 시세 4 · 시장 추세 3 · 계좌/주문 2 · 시스템 2 · AI 1) 매트릭스 유지. 전략 리서치 AI 발굴 후보 카드는 후보별 독립 STOMP 구독(캔들 재수집 잡 진행 push — `AiDiscoveryCard` 자체 구독). scenario-replay·market-calendar는 REST 폴링 기반(전용 STOMP 토픽 없음). 상세 매트릭스는 v3.9.0 5-5-F 참조.
+
+---
+
+## 5-6. TradingView LWC v4 통합 (frontend 단독 책임 · ADR 0094 §2-2-A / ADR 0085)
+
+v3.9.0 책임 라인 유지 + 확장:
+
+| 컴포넌트 | 위치 | 비고 |
+|----------|------|------|
+| Symbol Detail 차트 | `pages/Symbol/{SymbolChart,LightweightChart,IndicatorOverlay}.tsx` + `components/chart/{PatternMarker,PatternToggleMenu,candleCountMaxByInterval}` | v3.9.0 동일 |
+| MarketTrend 지수 차트 | `features/market/components/IndexTrendChart.tsx` | v3.9.0 동일 |
+| **전략 리서치 차트 ⭐ v3.12.0** | `components/strategyResearch/StrategyResearchChart.tsx` (260 LOC) | LWC v4 candlestick + 가상 진입/청산 marker(`series.setMarkers`) + KST axis tick formatter |
+
+> chart-curator agent 정의는 `.claude/agents/_archive/chart-curator.md` (역사 보존 · dispatch 0).
+
+---
+
+## 5-7. API 패밀리 (v3.9.0 대비 신규 모듈)
+
+| 모듈 | 신규 여부 | 핵심 endpoint prefix |
+|------|----------|----------------------|
+| `api/strategyResearch.ts` | ⭐ v3.12.0 | `/strategy-research/{proposals,ai-discovery,candidates}` |
+| `api/strategyBuilderAiGenerate.ts` | ⭐ v3.12.0 | `/strategies/ai-generate` |
+| `api/scenarioReplay.ts` | ⭐ v3.12.0 | `/scenario-replay/runs` |
+| `api/marketCalendar.ts` | ⭐ v3.12.0 | `/market/calendar[/events]` |
+| `api/ai.ts` | (무변경) | `/ai/explain` + `/topic/ai.explain.{requestId}` |
+| account·symbol·strategy·risk·order·journal·system-event·market·watchlist·position·indicator·patterns·dslTranslate·runtime·onboarding·trendlines·stompBackfill·riskAlertMessage·strategyPosition·instrument | (유지) | v3.9.0 동일 |
+
+---
+
+## 5-8. 본 문서가 의도적으로 다루지 않는 것 (TBD / 차회 baseline)
+
+- **Playwright 시각 baseline 갱신** — v3.12.0 신규 화면(전략 리서치·시나리오 리플레이·시장 캘린더) 및 nav 3 group 재편으로 s1/s4 등 1px diff 발생 가능. spec 추가·snapshot 갱신은 qa Visual 별도 사이클(본 baseline 범위 외).
+- **MCP UI 노출 (T-MCP)** — backend MCP 서버 expose 유지, frontend 전용 진입 화면 미정착 (v3.9.0 동일).
+- **Multipane MTF · LWC plugin** — W5 T-LWC.
+- **screenshot description** (`_workspace/frontend/screenshot-desc/`) — Playwright 시각 baseline이 raw evidence (본 baseline은 5-2~5-3 표가 SoT).
+
+---
+
+## 5-9. 권위 출처 (raw 인용 LOCK)
+
+| 항목 | raw 출처 |
+|------|---------|
+| route 19건 | `frontend/src/App.tsx` L127~L163 |
+| nav 3 group + 상시 2 | `frontend/src/components/layout/AppHeader.tsx` L46~L77·L242~L246 |
+| StrategyResearchPage (AI 발굴 패널) | `frontend/src/pages/Strategy/StrategyResearchPage.tsx` (2066 LOC) — 프리셋 버튼/콤보/직접입력 L1118~L1185 · Core Wrapper L865~L877 · AI 추천 모달 L1931 · 전체 가져오기 L1296 |
+| AiDiscoveryCard | `frontend/src/pages/Strategy/AiDiscoveryCard.tsx` (267 LOC) |
+| 후보 라이브러리 팝업 | `frontend/src/pages/Strategy/ResearchCandidateLibraryCard.tsx` (361 LOC) |
+| 전략 리서치 LWC 차트 | `frontend/src/components/strategyResearch/StrategyResearchChart.tsx` (260 LOC) |
+| strategyResearch API | `frontend/src/api/strategyResearch.ts` L255~L395 |
+| StrategyAiGenerateModal | `frontend/src/components/strategy/StrategyAiGenerateModal.tsx` |
+| 빌더 AI 생성 배선 + minHoldBars | `frontend/src/pages/Strategy/StrategyBuilderPage.tsx` L749~L751·L733·L621~L623 |
+| 잔익절 warnings/minHoldBars 계약 | `frontend/src/api/__tests__/strategyExitNoiseGuard.contract.test.ts` |
+| useModalBehavior | `frontend/src/hooks/useModalBehavior.ts` (11 컴포넌트 적용) |
+| SettingsModal 5 섹션 | `frontend/src/components/settings/SettingsModal.tsx` L8~L14·L89~L102 |
+| ScenarioReplayPage | `frontend/src/pages/QA/ScenarioReplayPage.tsx` + `api/scenarioReplay.ts` |
+| MarketCalendarPage | `frontend/src/features/market/pages/MarketCalendarPage.tsx` + `api/marketCalendar.ts` |
+| AI 차트해석 Claude CLI (backend) | CHANGELOG 2026-06-08 "종목상세 AI 차트해석 Claude CLI provider 연동" (frontend 0 touch) |
+| AI advisory-only 원칙 | ADR 0026 · ADR 0112 |
+| 차트 책임 이관 결정 | ADR 0085 · ADR 0094 amend 2026-05-21 |
+| 시나리오 리플레이 결정 | ADR 0107 |
+
+— frontend baseline v3.12.0 작성 END —
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>
