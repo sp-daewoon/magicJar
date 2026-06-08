@@ -147,7 +147,7 @@ class KisOrderInquireDailyCcldHttpAdapter(
             val secretKeyStr = String(secretKey)
 
             // Rate Limit acquire (spec PR #564 §2-2 LOCK — BACKFILL priority — daily ccld reconcile)
-            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 5000L)
+            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 5000L, trId = trId)
             acquiredToken = true
 
             // raw L141~L155 verbatim — params 매트릭스

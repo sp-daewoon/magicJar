@@ -219,7 +219,7 @@ class KisOrderHttpAdapter(
             // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH 최우선 priority)
             // 주문 path는 자본 직결 — 즉시 acquire 강제 (사용자 path)
             try {
-                kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
+                kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L, trId = trId)
                 acquiredToken = true
             } catch (e: KisRateLimitTimeoutException) {
                 log.warn(
@@ -433,7 +433,7 @@ class KisOrderHttpAdapter(
                 }
 
             // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority — 주문 취소 path)
-            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L, trId = trId)
             acquiredToken = true
 
             val response =

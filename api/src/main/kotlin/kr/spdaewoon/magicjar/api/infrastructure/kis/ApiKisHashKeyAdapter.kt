@@ -47,7 +47,8 @@ class ApiKisHashKeyAdapter(
         val baseUrl = if (accountType == AccountType.REAL) kisBaseProd else kisBaseVps
         var signalSent = false
         return try {
-            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L)
+            // hashkey 엔드포인트는 tr_id 헤더 없음 — 호출 식별 라벨 "hashkey" (ADR 0116 §2-E 연장 metric).
+            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L, trId = "hashkey")
             val response =
                 webClient
                     .post()

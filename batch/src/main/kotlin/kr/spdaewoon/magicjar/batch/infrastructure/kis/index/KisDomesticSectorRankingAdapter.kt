@@ -79,7 +79,7 @@ class KisDomesticSectorRankingAdapter(
             page++
             var signalSent = false
             try {
-                kisRateLimiterPort.acquire(KisCallPriority.INGESTION_LOW, timeoutMillis = 3000L)
+                kisRateLimiterPort.acquire(KisCallPriority.INGESTION_LOW, timeoutMillis = 3000L, trId = TR_ID)
 
                 @Suppress("UNCHECKED_CAST")
                 val response =

@@ -36,6 +36,10 @@ interface KisRateLimiterPort {
      * @param priority 호출 path 우선순위 (Phase 1 정보 수집만, 라우팅 LOCK 없음)
      * @param timeoutMillis acquire 최대 대기 (default 1000ms).
      *                      KIS 한도(10 token/sec) + refill 1s 기준 → 1초 대기로 다음 윈도 진입 가능
+     * @param trId KIS HTTP 헤더 `tr_id` (호출 식별 라벨 · ADR 0116 §2-E 연장).
+     *             add-only default null — 기존 호출부(2-arg) 무변경 컴파일 LOCK.
+     *             어댑터가 acquire 직전 자기 tr_id 상수를 전달하면 `kis_call_total{tr_id}` counter 라벨 부착.
+     *             null이면 `unknown` 라벨로 집계 (cardinality: tr_id는 유한 상수 집합이라 안전).
      * @throws KisRateLimitTimeoutException timeout 초과 시 (사용자 path는 명시 에러로 throw,
      *         backfill은 caller가 catch 후 재시도 또는 skip)
      * @throws KisCircuitOpenException Circuit Breaker OPEN 상태 (Phase 3 합류)
@@ -43,6 +47,7 @@ interface KisRateLimiterPort {
     fun acquire(
         priority: KisCallPriority = KisCallPriority.INGESTION,
         timeoutMillis: Long = 1000L,
+        trId: String? = null,
     )
 
     /**

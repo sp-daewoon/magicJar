@@ -210,7 +210,7 @@ class KisOrderInquireCcldHttpAdapter(
                 }
 
             // Rate Limit acquire (spec PR #564 §2-2 LOCK — BACKFILL priority — reconcile cron ccld 조회)
-            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 5000L)
+            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 5000L, trId = trId)
             acquiredToken = true
 
             val response =

@@ -49,6 +49,7 @@ class RedisKisRateLimiterAdapterMetricsTest {
         const val METRIC_CONSUMED = "kis.ratelimit.bucket.consumed"
         const val METRIC_TIMEOUT = "kis.ratelimit.acquire.timeout"
         const val METRIC_TPS = "kis.ratelimit.tps.exceeded"
+        const val METRIC_KIS_CALL = "kis.call"
     }
 
     @BeforeEach
@@ -112,6 +113,19 @@ class RedisKisRateLimiterAdapterMetricsTest {
         registry
             .find(METRIC_TPS)
             .tag("last_bucket", lastBucket)
+            .counter()
+            ?.count() ?: 0.0
+
+    private fun kisCallCount(
+        trId: String,
+        priority: String,
+        result: String,
+    ): Double =
+        registry
+            .find(METRIC_KIS_CALL)
+            .tag("tr_id", trId)
+            .tag("priority", priority)
+            .tag("result", result)
             .counter()
             ?.count() ?: 0.0
 
@@ -179,6 +193,39 @@ class RedisKisRateLimiterAdapterMetricsTest {
         singleAdapter.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
 
         assertThat(consumedCount("global")).isEqualTo(1.0)
+    }
+
+    @Test
+    fun `kis_call metric - trId 전달 시 tr_id+priority+result=ok 라벨 누적 (ADR 0116 §2-E 연장)`() {
+        whenever(userBucket.tryConsume(1L)).thenReturn(true)
+
+        adapter.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L, trId = "FHKST03010100")
+        adapter.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L, trId = "FHKST03010100")
+
+        assertThat(kisCallCount("FHKST03010100", "USER_PATH", "ok")).isEqualTo(2.0)
+        assertThat(kisCallCount("FHKST03010100", "USER_PATH", "timeout")).isEqualTo(0.0)
+    }
+
+    @Test
+    fun `kis_call metric - trId null 시 tr_id=unknown 라벨 (하위호환 2-arg)`() {
+        whenever(userBucket.tryConsume(1L)).thenReturn(true)
+
+        // 기존 호출부(2-arg, trId default null) 무변경 컴파일 + unknown 라벨 집계
+        adapter.acquire(KisCallPriority.USER_PATH, timeoutMillis = 1000L)
+
+        assertThat(kisCallCount("unknown", "USER_PATH", "ok")).isEqualTo(1.0)
+    }
+
+    @Test
+    fun `kis_call metric - timeout 시 result=timeout 라벨 + trId 보존`() {
+        whenever(bgBucket.tryConsume(1L)).thenReturn(false)
+
+        assertThatThrownBy {
+            adapter.acquire(KisCallPriority.BACKFILL, timeoutMillis = 80L, trId = "CTCA0903R")
+        }.isInstanceOf(KisRateLimitTimeoutException::class.java)
+
+        assertThat(kisCallCount("CTCA0903R", "BACKFILL", "timeout")).isEqualTo(1.0)
+        assertThat(kisCallCount("CTCA0903R", "BACKFILL", "ok")).isEqualTo(0.0)
     }
 
     @Test

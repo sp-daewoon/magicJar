@@ -781,7 +781,7 @@ class CandleRefreshService(
                 // Rate Limit acquire (spec PR #564 §2-2 LOCK — caller priority 전파)
                 // ADR 0037 초당 10건 한도 강제. 페이지마다 acquire.
                 // 사용자 트리거 = USER_PATH(즉시) / scheduler cron = BACKFILL(USER_PATH 양보 — H1 보완 §C)
-                kisRateLimiterPort.acquire(priority, timeoutMillis = 3000L)
+                kisRateLimiterPort.acquire(priority, timeoutMillis = 3000L, trId = TR_ID_DAILY)
                 lastPageSignalSent = false
                 lastPageAcquired = true
 
@@ -1046,7 +1046,7 @@ class CandleRefreshService(
                     }
                 }
 
-                kisRateLimiterPort.acquire(priority, timeoutMillis = 3000L)
+                kisRateLimiterPort.acquire(priority, timeoutMillis = 3000L, trId = TR_ID_DAILY)
                 lastPageSignalSent = false
                 lastPageAcquired = true
 
@@ -1249,7 +1249,7 @@ class CandleRefreshService(
                 try {
                     // Rate Limit acquire (spec PR #564 §2-2 LOCK — caller priority 전파)
                     // 사용자 트리거 = USER_PATH(즉시) / scheduler cron = BACKFILL(USER_PATH 양보)
-                    kisRateLimiterPort.acquire(priority, timeoutMillis = 3000L)
+                    kisRateLimiterPort.acquire(priority, timeoutMillis = 3000L, trId = TR_ID_1MIN)
                     pageAcquired = true
 
                     @Suppress("UNCHECKED_CAST")
@@ -1489,7 +1489,7 @@ class CandleRefreshService(
                 var pageSignalSent = false
                 var pageAcquired = false
                 try {
-                    kisRateLimiterPort.acquire(priority, timeoutMillis = 3000L)
+                    kisRateLimiterPort.acquire(priority, timeoutMillis = 3000L, trId = TR_ID_1MIN)
                     pageAcquired = true
 
                     @Suppress("UNCHECKED_CAST")

@@ -185,7 +185,7 @@ class KisReconcileBalanceAdapter(
         var acquiredToken = false
         try {
             // Rate Limit acquire (spec PR #564 §2-2 LOCK — BACKFILL priority — cron reconcile path)
-            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 5000L)
+            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 5000L, trId = trId)
             acquiredToken = true
 
             @Suppress("UNCHECKED_CAST")

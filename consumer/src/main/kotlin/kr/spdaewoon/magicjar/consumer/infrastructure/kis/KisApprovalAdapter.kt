@@ -178,7 +178,7 @@ class KisApprovalAdapter(
 
             // Rate limiter acquire (ADR 0116 — INGESTION priority, SHARED·BG 버킷, 주문 USER 버킷 미침범).
             // 실 KIS 호출 직전에만 acquire → cache hit·분산락 대기 path 는 토큰 소비 0.
-            kisRateLimiterPort.acquire(KisCallPriority.INGESTION, timeoutMillis = 3000L)
+            kisRateLimiterPort.acquire(KisCallPriority.INGESTION, timeoutMillis = 3000L, trId = "approval")
 
             @Suppress("UNCHECKED_CAST")
             val response =

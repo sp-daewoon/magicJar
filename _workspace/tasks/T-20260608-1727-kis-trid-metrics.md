@@ -14,12 +14,12 @@ parentPhase: ?
 KIS API tr_id별 호출 통계 metric + Grafana 패널 (ADR 0116 §2-E 연장)
 
 ## 결과물 체크리스트
-- [ ] port trId add-only
-- [ ] 3 adapter kis_call_total 계측
-- [ ] ~28 어댑터 trId 전달
-- [ ] Grafana 패널
-- [ ] 단위테스트
-- [ ] CHANGELOG
+- [x] port trId add-only
+- [x] 3 adapter kis_call_total 계측
+- [x] ~28 어댑터 trId 전달
+- [x] Grafana 패널
+- [x] 단위테스트
+- [x] CHANGELOG
 
 ## 의존성
 - (필요 시 기록)

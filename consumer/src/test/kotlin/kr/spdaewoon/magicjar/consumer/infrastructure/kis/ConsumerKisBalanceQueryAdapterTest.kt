@@ -33,7 +33,7 @@ class ConsumerKisBalanceQueryAdapterTest {
         stubCredential()
         every { secretCipher.decrypt(any()) } answers { "plain-key".toByteArray() }
         every { kisAuthAdapter.getAccessToken("u-001", AccountType.MOCK) } returns "valid-token"
-        every { kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, 3000L) } just Runs
+        every { kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, 3000L, any()) } just Runs
         every { kisRateLimiterPort.onTpsExceeded() } just Runs
         every { kisRateLimiterPort.onSuccess() } just Runs
 
@@ -77,7 +77,7 @@ class ConsumerKisBalanceQueryAdapterTest {
         assertThat(callCount.get()).isEqualTo(2)
         assertThat(result.holdings).hasSize(1)
         assertThat(result.holdings[0].code).isEqualTo("005930")
-        verify(exactly = 2) { kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, 3000L) }
+        verify(exactly = 2) { kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, 3000L, any()) }
         verify(exactly = 1) { kisRateLimiterPort.onTpsExceeded() }
         verify(exactly = 1) { kisRateLimiterPort.onSuccess() }
     }

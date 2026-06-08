@@ -495,7 +495,8 @@ class ApiKisBalanceQueryAdapterTest {
 
         testSut.fetchFullBalance(userId = "u-001", accountType = AccountType.REAL)
 
-        verify(testRateLimiter).acquire(eq(KisCallPriority.USER_PATH), eq(3000L))
+        // trId 라벨 합류 (ADR 0116 §2-E 연장) — REAL accountType → TTTC8434R.
+        verify(testRateLimiter).acquire(eq(KisCallPriority.USER_PATH), eq(3000L), eq("TTTC8434R"))
         verify(testRateLimiter).onSuccess()
     }
 }
