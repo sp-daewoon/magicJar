@@ -264,7 +264,7 @@ class OrderRouterKafkaListener(
                 return
             }
 
-            val syncResult = ensureKisExecutionSyncIfReal(intent, mode)
+            val syncResult = ensureKisExecutionSync(intent, mode)
             if (!syncResult.allowed) {
                 handleRejected(intent, mode, syncResult.reason, OrderAuditEventType.KIS_EXECUTION_SYNC_STALE)
                 ack.acknowledge()
@@ -543,23 +543,31 @@ class OrderRouterKafkaListener(
     }
 
     /**
-     * REAL 신규 주문 직전 KIS 당일 체결조회와 DB backfill 완결성을 확인한다.
+     * 신규 주문 직전 KIS 당일 체결조회와 DB backfill 완결성을 확인한다 (자본 정합 hotfix 2026-06-08 — REAL·MOCK 동일화).
      *
      * 이 검사는 "DB와 KIS가 영구적으로 완전히 같다"를 증명하려는 검사가 아니다. 주문 직전 KIS 체결 원장을
      * 방금 읽고, DB 손익 계산 재료로 반영 가능한 상태인지 확인하는 fail-closed 게이트다.
+     *
+     * ## REAL·MOCK 동일화 (과거 `ensureKisExecutionSyncIfReal` REAL-only 게이트 제거)
+     * 과거 `if (mode != REAL) return ALLOWED`로 MOCK(VPS 페이퍼) 주문은 sync 게이트를 건너뛰어, WS 체결통보
+     * 누락 시 backfill 보정이 돌지 않아 ACK 주문이 정체했다. 체결 보정 정합은 실돈 여부와 무관하므로 두 모드 모두
+     * 실행한다(메모리 `feedback_kis_key_realonly_for_data` — 모드 분기는 실제 주문 액션에만).
+     * account type은 주문 [mode]에서 파생 — REAL → [AccountType.REAL](실계좌), MOCK → [AccountType.MOCK](VPS 페이퍼).
+     * KIS endpoint tr_id·base-url 분기는 [kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisOrderInquireCcldHttpAdapter]가
+     * accountType 기반으로 이미 처리한다.
      */
-    private fun ensureKisExecutionSyncIfReal(
+    private fun ensureKisExecutionSync(
         intent: OrderIntent,
         mode: TradingMode,
     ): SyncGateResult {
-        if (mode != TradingMode.REAL) return SyncGateResult.ALLOWED
+        val accountType = if (mode == TradingMode.REAL) AccountType.REAL else AccountType.MOCK
         val syncService =
             executionBackfillServiceProvider.getIfAvailable()
                 ?: return SyncGateResult(false, "KIS_EXECUTION_SYNC_STALE:SYNC_SERVICE_UNAVAILABLE")
 
         val result =
             try {
-                syncService.syncUserTodayExecutions(intent.userId, AccountType.REAL)
+                syncService.syncUserTodayExecutions(intent.userId, accountType)
             } catch (e: Exception) {
                 log.error("KIS execution sync guard 예외 — userId={} signalId={} err={}", intent.userId, intent.signalId, e.message, e)
                 return SyncGateResult(false, "KIS_EXECUTION_SYNC_STALE:SYNC_EXCEPTION:${e.message ?: "UNKNOWN"}")
@@ -567,8 +575,9 @@ class OrderRouterKafkaListener(
 
         if (result.isComplete) {
             log.info(
-                "KIS execution sync guard PASS — userId={} fetched={} inserted={} alreadySynced={}",
+                "KIS execution sync guard PASS — userId={} accountType={} fetched={} inserted={} alreadySynced={}",
                 intent.userId,
+                accountType.name,
                 result.fetched,
                 result.inserted,
                 result.alreadySynced,
