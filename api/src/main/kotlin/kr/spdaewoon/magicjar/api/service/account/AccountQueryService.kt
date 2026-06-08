@@ -30,6 +30,13 @@ import java.util.concurrent.ConcurrentHashMap
  * - cache miss → [KisBalanceQueryPort] 1회 호출 (output1 + output2 동시 흡수)
  * - 응답 cache write + 3 endpoint별 응답 매핑
  *
+ * ### cache stampede 완화 — 2단 single-flight (TPS 완화 hotfix 2026-06-08)
+ * - 1단 in-JVM `synchronized(loadLocks[cacheKey])` — 동일 인스턴스 내 동시 요청 코얼레싱
+ *   - evidence: 같은 ms(10:30:24.920~936) http-nio exec 3~4개가 /balance·/positions·/summary 동시 폴링 → 셋 다 cache miss → KIS burst
+ * - 2단 Redis SETNX 분산락 `account:balance:lock:{userId}:{accountType}` (TTL 8s) — 다중 인스턴스 전역 코얼레싱
+ *   - 락 보유자만 KIS 호출, 나머지는 50ms×20 backoff 동안 cache 재read (KisTokenCacheHelper ADR 0038 패턴 정합)
+ *   - 분산락 미해제 방지: TTL 만료 + finally DEL 이중 안전
+ *
  * ### KIS 호출 빈도 (ADR 0037 정합)
  * - cache hit = KIS 0 호출
  * - cache miss = KIS 1 호출 (`inquire-balance` 1건만 — 추가 endpoint 0)
@@ -72,6 +79,15 @@ class AccountQueryService(
         const val CACHE_KEY_PREFIX = "account:balance"
 
         /**
+         * 잔고 KIS 조회 분산 single-flight 락 prefix — cache stampede 완화 (TPS 완화 hotfix 2026-06-08).
+         *
+         * 기존 in-JVM `synchronized(lock)` 코얼레싱은 **단일 인스턴스 내부**만 보호한다.
+         * api 모듈이 다중 인스턴스로 확장되면 인스턴스 수 N = KIS `inquire-balance` 동시 호출 N → KIS rate limit(EGW00201/500).
+         * KisTokenCacheHelper(ADR 0038) 분산락 패턴을 잔고 조회에도 적용해 **클러스터 전역 1 호출**로 수렴한다.
+         */
+        const val LOAD_LOCK_KEY_PREFIX = "account:balance:lock"
+
+        /**
          * Account 잔고 cache TTL — EGW00201 burst hotfix (2026-05-20, 5s → 10s 재조정).
          *
          * 변경 이력:
@@ -93,6 +109,27 @@ class AccountQueryService(
          * 사용자가 의도적으로 3s 이상 간격으로 새로고침하면 그때는 KIS 재호출 허용 (신선도 보존).
          */
         private val REFRESH_DEBOUNCE: Duration = Duration.ofSeconds(3)
+
+        /**
+         * 분산 single-flight 락 TTL — KIS `inquire-balance` 평균 응답 + 안전여유 (TPS 완화 hotfix 2026-06-08).
+         *
+         * 락 보유자가 죽어도 TTL 만료로 자동 해제(deadlock 방지). 정상 경로는 finally 즉시 DEL.
+         */
+        private val LOAD_LOCK_TTL: Duration = Duration.ofSeconds(8)
+
+        /**
+         * 분산락 미획득 시 backoff 재시도 — 50ms × 20회 = 최대 1s 대기.
+         *
+         * 락 보유 thread/instance 가 KIS 조회·cache write 완료할 때까지 짧게 polling 후 cache 재read.
+         * 1s 내 채워지지 않으면 단일 JVM fallback(직접 조회) — 무한 대기 회피.
+         */
+        private const val LOAD_LOCK_WAIT_MS = 50L
+        private const val LOAD_LOCK_MAX_RETRIES = 20
+
+        fun loadLockKey(
+            userId: String,
+            accountType: AccountType,
+        ): String = "$LOAD_LOCK_KEY_PREFIX:$userId:${accountType.name}"
     }
 
     private data class LoadFailure(
@@ -239,7 +276,9 @@ class AccountQueryService(
             }
 
             try {
-                loadFromKisAndCache(userId, accountType, cacheKey)
+                // 분산 single-flight — in-JVM 코얼레싱을 통과한 thread 만 여기 도달.
+                // 다중 인스턴스 환경에서 클러스터 전역 1 KIS 호출로 수렴 (cache stampede 완화).
+                loadWithDistributedSingleFlight(userId, accountType, cacheKey)
                     .also {
                         rateLimitFailures.remove(cacheKey)
                         lastRefreshAt[cacheKey] = Instant.now() // debounce 마커 — 직후 refresh 연발 흡수
@@ -253,6 +292,65 @@ class AccountQueryService(
                 throw ex
             }
         }
+    }
+
+    /**
+     * Redis SETNX 분산 single-flight — 잔고 KIS 조회 cache stampede 완화 (TPS 완화 hotfix 2026-06-08).
+     *
+     * in-JVM `synchronized(lock)` 통과 thread(인스턴스당 1) 가 호출. KisTokenCacheHelper(ADR 0038) 패턴 정합.
+     * 1. SETNX `account:balance:lock:{userId}:{accountType}` (TTL [LOAD_LOCK_TTL]) 시도
+     *    - 획득 → KIS 조회·cache write 후 finally 에서 락 DEL (락 보유자만 KIS 호출)
+     *    - 미획득 → 다른 인스턴스가 조회 중 → 50ms×20 backoff 동안 cache 재read (coalesce)
+     *      - cache 채워지면 그 결과 공유 (KIS 미호출)
+     *      - 1s 내 미충족 → 단일 JVM fallback 직접 조회 (무한 대기 회피)
+     *
+     * Redis 장애(SETNX 실패) 시 graceful: 락 없이 직접 조회 (가용성 우선 — in-JVM 락은 여전히 보호).
+     */
+    private fun loadWithDistributedSingleFlight(
+        userId: String,
+        accountType: AccountType,
+        cacheKey: String,
+    ): KisAccountBalance {
+        val lockKey = loadLockKey(userId, accountType)
+        val lockAcquired =
+            runCatching { redisTemplate.opsForValue().setIfAbsent(lockKey, "1", LOAD_LOCK_TTL) == true }
+                .getOrDefault(false)
+
+        if (lockAcquired) {
+            return try {
+                loadFromKisAndCache(userId, accountType, cacheKey)
+            } finally {
+                runCatching { redisTemplate.delete(lockKey) }
+                    .onFailure { ex ->
+                        log.warn("account 분산락 해제 실패 — TTL 만료 의존: key={} err={}", lockKey, ex.message)
+                    }
+            }
+        }
+
+        // 분산락 미획득 — 다른 인스턴스가 조회 중. backoff 동안 cache 재read 로 coalesce.
+        log.debug("account 분산 single-flight 대기: userId={} type={}", maskUserId(userId), accountType.name)
+        repeat(LOAD_LOCK_MAX_RETRIES) {
+            Thread.sleep(LOAD_LOCK_WAIT_MS)
+            readSnapshotFromCache(cacheKey)?.let { return it }
+        }
+
+        // 1s 대기 후에도 cache 미충족 → 단일 JVM fallback 직접 조회 (락 보유자 지연·사망 대비).
+        log.warn(
+            "account 분산 single-flight 타임아웃 — 직접 조회 fallback: userId={} type={}",
+            maskUserId(userId),
+            accountType.name,
+        )
+        return loadFromKisAndCache(userId, accountType, cacheKey)
+    }
+
+    /**
+     * Redis cache 에서 스냅샷 역직렬화 — 분산락 대기 중 coalesce read 용. 실패/부재 시 null (graceful).
+     */
+    private fun readSnapshotFromCache(cacheKey: String): KisAccountBalance? {
+        val cached =
+            runCatching { redisTemplate.opsForValue().get(cacheKey) }
+                .getOrNull() ?: return null
+        return runCatching { objectMapper.readValue<KisAccountBalance>(cached) }.getOrNull()
     }
 
     /**
