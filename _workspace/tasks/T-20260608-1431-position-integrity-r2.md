@@ -3,10 +3,10 @@ id: T-20260608-1431-position-integrity-r2
 agent: backend-core
 model: opus
 branch: agent/backend-core/position-integrity-r2
-status: RUNNING
+status: DONE
 startedAt: 2026-06-08T14:31:00.380+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-08T14:51:23.913+09:00
+pr: #820
 parentPhase: ?
 ---
 
