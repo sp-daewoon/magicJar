@@ -3,10 +3,10 @@ id: T-20260608-1123-kis-sell-guard-resting-tp-aware
 agent: backend-core
 model: opus
 branch: hotfix/kis-sell-guard-resting-tp-aware
-status: RUNNING
+status: DONE
 startedAt: 2026-06-08T11:23:35.412+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-08T11:29:33.269+09:00
+pr: #811
 parentPhase: ?
 ---
 
