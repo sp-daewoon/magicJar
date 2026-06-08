@@ -74,6 +74,11 @@ class KisWebSocketBridgeReconnectTest {
         val executionListenerProvider = mockk<ObjectProvider<KisExecutionWsListener>>(relaxed = true)
         every { executionListenerProvider.getIfAvailable() } returns null
 
+        // today-candle 시드 REST 어댑터 — 본 테스트는 시드 영역 아님 → null 반환 stub (시드 no-op).
+        val priceMetricsPortProvider =
+            mockk<ObjectProvider<kr.spdaewoon.magicjar.domain.market.port.KisRestPriceMetricsPort>>(relaxed = true)
+        every { priceMetricsPortProvider.getIfAvailable() } returns null
+
         bridge =
             KisWebSocketBridge(
                 approvalAdapter = approvalAdapter,
@@ -88,6 +93,7 @@ class KisWebSocketBridgeReconnectTest {
                 defaultUserId = "user001",
                 executionListenerProvider = executionListenerProvider,
                 systemEventLogger = systemEventLogger,
+                priceMetricsPortProvider = priceMetricsPortProvider,
             )
     }
 

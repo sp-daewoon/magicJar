@@ -10,8 +10,10 @@ import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
 import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
 import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.candle.CandleSession
+import kr.spdaewoon.magicjar.domain.market.port.KisRestPriceMetricsPort
 import kr.spdaewoon.magicjar.domain.market.port.KisWsPort
 import kr.spdaewoon.magicjar.domain.market.port.QuoteCachePort
+import kr.spdaewoon.magicjar.domain.market.port.TodayCandleSeedPort
 import kr.spdaewoon.magicjar.domain.market.tick.TickEvent
 import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import kr.spdaewoon.magicjar.domain.user.AccountType
@@ -125,7 +127,20 @@ class KisWebSocketBridge(
      * graceful 정책 (헌법 §6 + spec §6.1): emit 실패가 WS 흐름 cascade 차단 방지 — runCatching wrap 의무.
      */
     private val systemEventLogger: SystemEventLogger,
-) : KisWsPort {
+    /**
+     * 당일 1d Hash 시드용 공식 KIS OHLCV 조회 포트 ([TodayCandleSeedPort.seedTodayCandle]).
+     *
+     * 구현 = KisRestPriceAdapter.fetchPriceMetrics (inquire-daily-itemchartprice FHKST03010100 output1).
+     * 2026-05-20 NXT 시간외 contamination 회피 사유로 inquire-price(FHKST01010100) stck_prpr 대신
+     * 이 endpoint를 정규장 source로 채택 — candle DB·MTS와 동일 정규장 시가·고저·누적거래량 반환.
+     * output1: stck_oprc(시가)·stck_hgpr(고가)·stck_lwpr(저가)·stck_prpr(현재가)·acml_vol(누적거래량).
+     *
+     * ObjectProvider 사용 사유: KisWsPort 구현은 qa fixture 등 REST 어댑터 부재 환경에서도 부팅 보장
+     * (체결통보 listener와 동일 graceful 패턴) — 부재 시 시드 no-op.
+     */
+    private val priceMetricsPortProvider: ObjectProvider<KisRestPriceMetricsPort>,
+) : KisWsPort,
+    TodayCandleSeedPort {
     companion object {
         // backlog §29 #4 — Sinks unicast bounded buffer 사이즈 (reconnect 폭주 hardcap).
         // 정상 시 send queue ~6 KB(50 종목 × ~120 byte) 대비 충분한 여유.
@@ -1215,7 +1230,18 @@ class KisWebSocketBridge(
         val sameBar = (existing["startTs"] ?: existing["ts"]) == startTs
         val priceStr = tick.price.toPlainString()
 
-        val open = if (sameBar) existing["open"] ?: priceStr else priceStr
+        // 공식 KIS 시드(TodayCandleSeedPort.seedTodayCandle)가 먼저 Hash를 채웠는지 — 같은 bar 한정 유효.
+        // seeded=true 이면 open은 공식 9시 시가로 LOCK(틱으로 덮어쓰지 않음), 고/저는 공식 baseline 위 확장만,
+        // volume은 공식 누적거래량(acmlBase) + 시드 이후 WS 체결량(CNTG_VOL) 델타 — 이중계상 차단.
+        val seeded = sameBar && existing["seeded"] == "true"
+
+        val open =
+            if (sameBar) {
+                // seeded든 아니든 기존 open 보존(첫 틱/공식 시가). 새 bar면 첫 틱이 open.
+                existing["open"] ?: priceStr
+            } else {
+                priceStr
+            }
         val high =
             if (sameBar) {
                 existing["high"]?.let { h -> maxOf(h.toBigDecimalOrNull() ?: tick.price, tick.price).toPlainString() } ?: priceStr
@@ -1228,7 +1254,21 @@ class KisWebSocketBridge(
             } else {
                 priceStr
             }
-        val volume = (if (sameBar) existing["volume"]?.toLongOrNull() ?: 0L else 0L) + tick.volume
+
+        // volume 권위 분기:
+        //  - seeded: volume = acmlBase(공식 ACML_VOL) + wsVolDelta(시드 이후 CNTG_VOL 누적). 공식값 이중계상 0.
+        //  - 미시드(시드 실패/구독 안 됨 legacy): 기존 동작 — CNTG_VOL 단순 누적(차선, graceful).
+        val baseFields: Map<String, String>
+        val volume: Long
+        if (seeded) {
+            val acmlBase = existing["acmlBase"]?.toLongOrNull() ?: 0L
+            val wsVolDelta = (existing["wsVolDelta"]?.toLongOrNull() ?: 0L) + tick.volume
+            volume = acmlBase + wsVolDelta
+            baseFields = mapOf("seeded" to "true", "acmlBase" to acmlBase.toString(), "wsVolDelta" to wsVolDelta.toString())
+        } else {
+            volume = (if (sameBar) existing["volume"]?.toLongOrNull() ?: 0L else 0L) + tick.volume
+            baseFields = emptyMap()
+        }
 
         redisTemplate.opsForHash<String, String>().putAll(
             key,
@@ -1243,6 +1283,107 @@ class KisWebSocketBridge(
                 "ts" to startTs,
                 "source" to tick.source,
                 "updatedAt" to tick.ts.toString(),
+            ) + baseFields,
+        )
+        redisTemplate.expire(key, ttl)
+    }
+
+    /**
+     * 구독 수립 시점 호출 — `candle:today:{code}:1d`(+`candle:current:{code}:1d`) Hash를 공식 KIS 당일값으로 시드/재보정.
+     *
+     * [TodayCandleSeedPort] 계약 구현. RealtimeSubscriptionRouter가 owner(DETAIL·HOLDING·WATCHLIST·STRATEGY·PENDING_BUY)
+     * 무관하게 WS 구독이 새로 수립되는 지점에서 호출 → 늦은/간헐 구독에도 open=공식 9시 시가, 고/저·거래량=공식 당일값.
+     *
+     * 시드 후 WS 틱은 [updateLiveCandleHash]에서 seeded=true 분기로 합류:
+     *  - open LOCK(공식 시가 보존), 고/저는 공식 baseline 위 확장만, volume = acmlBase + WS CNTG_VOL 델타.
+     *
+     * graceful:
+     *  - REST 어댑터 부재(fixture)·magicjar.kis.ws.user-id 미설정·공식값 결손 시 시드 no-op (mock 합성 금지).
+     *  - 다른 bar(어제 stale)이면 시드값으로 새 bar 세팅(open/고저/거래량 공식값으로 교체).
+     */
+    override fun seedTodayCandle(code: String) {
+        val metricsPort =
+            priceMetricsPortProvider.ifAvailable
+                ?: run {
+                    log.debug("[TodayCandleSeed] REST metrics 어댑터 부재 — 시드 skip: code={}", code)
+                    return
+                }
+        if (defaultUserId.isBlank()) {
+            log.debug("[TodayCandleSeed] magicjar.kis.ws.user-id 미설정 — 시드 skip: code={}", code)
+            return
+        }
+        try {
+            val metrics = metricsPort.fetchPriceMetrics(defaultUserId, code)
+            val open = metrics.open
+            val high = metrics.high
+            val low = metrics.low
+            val close = metrics.currentPrice
+            val acmlVol = metrics.volume
+            // 공식 OHLC 결손 시 시드 skip — mock·부분 합성 금지(헌법 가드). 다음 시드/틱에 재시도.
+            if (open == null || high == null || low == null || close == null) {
+                log.warn(
+                    "[TodayCandleSeed] 공식 OHLC 결손 — 시드 skip: code={} open={} high={} low={} close={}",
+                    code,
+                    open,
+                    high,
+                    low,
+                    close,
+                )
+                return
+            }
+            val startTs =
+                LocalDate
+                    .now(kstZone)
+                    .atStartOfDay(kstZone)
+                    .toInstant()
+                    .toString()
+            writeSeedHash("candle:today:$code:1d", startTs, open, high, low, close, acmlVol ?: 0L, Duration.ofHours(24))
+            writeSeedHash("candle:current:$code:1d", startTs, open, high, low, close, acmlVol ?: 0L, liveCandleTtl("1d"))
+            log.info(
+                "[TodayCandleSeed] 공식 KIS 당일값 시드: code={} open={} high={} low={} close={} acmlVol={}",
+                code,
+                open.toPlainString(),
+                high.toPlainString(),
+                low.toPlainString(),
+                close.toPlainString(),
+                acmlVol,
+            )
+        } catch (e: Exception) {
+            // 시드 실패는 graceful — WS 틱 누적 legacy path로 자연 fallback (구독 자체는 정상).
+            log.warn("[TodayCandleSeed] 시드 실패(WS 틱 누적 fallback): code={} err={}", code, e.message)
+        }
+    }
+
+    /**
+     * 시드 Hash write — [updateLiveCandleHash] 필드 포맷 정합 + seeded 마커.
+     * seeded=true / acmlBase=공식 누적거래량 / wsVolDelta=0 (이후 WS 틱이 델타 누적).
+     */
+    private fun writeSeedHash(
+        key: String,
+        startTs: String,
+        open: java.math.BigDecimal,
+        high: java.math.BigDecimal,
+        low: java.math.BigDecimal,
+        close: java.math.BigDecimal,
+        acmlVol: Long,
+        ttl: Duration,
+    ) {
+        redisTemplate.opsForHash<String, String>().putAll(
+            key,
+            mapOf(
+                "interval" to "1d",
+                "open" to open.toPlainString(),
+                "high" to high.toPlainString(),
+                "low" to low.toPlainString(),
+                "close" to close.toPlainString(),
+                "volume" to acmlVol.toString(),
+                "startTs" to startTs,
+                "ts" to startTs,
+                "source" to "kis-seed",
+                "updatedAt" to Instant.now().toString(),
+                "seeded" to "true",
+                "acmlBase" to acmlVol.toString(),
+                "wsVolDelta" to "0",
             ),
         )
         redisTemplate.expire(key, ttl)

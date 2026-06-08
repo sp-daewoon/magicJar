@@ -168,8 +168,11 @@ class KisWebSocketBridgeExecutionWiringTest {
         defaultUserId: String = "user001",
         magicjarMode: String = "REAL",
         executionListenerProvider: ObjectProvider<KisExecutionWsListener>,
-    ): KisWebSocketBridge =
-        KisWebSocketBridge(
+    ): KisWebSocketBridge {
+        val priceMetricsPortProvider =
+            mockk<ObjectProvider<kr.spdaewoon.magicjar.domain.market.port.KisRestPriceMetricsPort>>(relaxed = true)
+        every { priceMetricsPortProvider.getIfAvailable() } returns null
+        return KisWebSocketBridge(
             approvalAdapter = approvalAdapter,
             redisTemplate = redisTemplate,
             kafkaTemplate = kafkaTemplate,
@@ -182,5 +185,7 @@ class KisWebSocketBridgeExecutionWiringTest {
             defaultUserId = defaultUserId,
             executionListenerProvider = executionListenerProvider,
             systemEventLogger = systemEventLogger,
+            priceMetricsPortProvider = priceMetricsPortProvider,
         )
+    }
 }
