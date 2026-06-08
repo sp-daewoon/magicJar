@@ -3,10 +3,10 @@ id: T-20260608-1034-account-balance-single-flight
 agent: backend-core
 model: opus
 branch: hotfix/account-balance-single-flight
-status: RUNNING
+status: DONE
 startedAt: 2026-06-08T10:34:27.380+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-08T10:40:45.664+09:00
+pr: #808
 parentPhase: ?
 ---
 
