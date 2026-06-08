@@ -3,10 +3,10 @@ id: T-20260609-0418-today-candle-seed
 agent: market-data
 model: opus
 branch: agent/market-data/today-candle-seed
-status: RUNNING
+status: DONE
 startedAt: 2026-06-09T04:18:47.696+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-09T04:31:25.798+09:00
+pr: #833
 parentPhase: ?
 ---
 
