@@ -14,10 +14,10 @@ parentPhase: ?
 ADR0115 R1 드리프트보정+replay 순수함수
 
 ## 결과물 체크리스트
-- [ ] drift 보정 산정
-- [ ] isReplayFill 판정
-- [ ] ENV 3키
-- [ ] 단위테스트
+- [x] drift 보정 산정
+- [x] isReplayFill 판정
+- [x] ENV 3키
+- [x] 단위테스트
 
 ## 의존성
 - (필요 시 기록)
