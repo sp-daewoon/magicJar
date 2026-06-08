@@ -1,8 +1,8 @@
 # ADR 0116 — KIS Rate Limit Phase 2 — priority별 별도 버킷 + KIS 실제 한도 정합
 
-- 상태: **Proposed (2026-06-08, 별도 브랜치 전용 · 자본경로/인프라 — 설계 검증 후 구현 · canary 전 급반영 금지)**
+- 상태: **Accepted (2026-06-08 설계 → 사용자 인지 배포 → v3.12.1 코드 반영 완료)** — R1 priority 3-tier 버킷(user/shared/bg)·refillIntervally·orphan 주석 정정·주문경로 자본캐시 제거(PR #824) / R2 refill 정합·스케줄러 분산·priority 버킷 관측 metric(PR #825) / tr_id별 호출 통계 metric + Grafana 패널(PR #827) / SLO S-4 버킷별 소진율 패널 분리. `별도 브랜치 전용·급반영 금지` 표기는 배포 완료로 sunset.
 - 작성일: 2026-06-08 KST
-- 결정자: architect (사용자 결재 대기)
+- 결정자: architect (사용자 인지 배포 — 2026-06-08 세션 마감 "ADR 0115/0116 배포 완료" 정합)
 - 관계: **ADR 0037 amend** (KIS Rate Limit 강제 — 단일 bucket LOCK → 본 ADR이 priority별 별도 버킷으로 supersede), ADR 0044(Notification — alert path), ADR 0083·0088·0092(공유 모듈 패턴), ADR 0094·0095(운영 단계 SLO S-4), ADR 0100(T-MARKET cron INGESTION_LOW caller), ADR 0105(1m backfill TPS budget), ADR 0112(AI 종목발굴 — **번호 충돌 정정 대상**, 본 ADR과 무관)
 - 참조 보고서: `_workspace/reports/2026-05-22-kis-tps-exceeded-root-cause.md` · `_workspace/reports/2026-06-04-api-tps-exceeded-investigation.md`
 - 참조 정책: `docs/architecture/external-api-policy.md` §2-1·§2-2 (SoT 정합 갱신 동반)
