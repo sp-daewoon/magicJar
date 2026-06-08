@@ -9,6 +9,7 @@ import io.lettuce.core.api.StatefulRedisConnection
 import io.lettuce.core.codec.ByteArrayCodec
 import io.lettuce.core.codec.RedisCodec
 import io.lettuce.core.codec.StringCodec
+import io.micrometer.core.instrument.MeterRegistry
 import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import org.springframework.beans.factory.annotation.Autowired
@@ -100,5 +101,6 @@ class ConsumerKisRateLimiterConfiguration {
         consumerKisRateLimitProxyManager: ProxyManager<String>,
         props: ConsumerKisRateLimitProperties,
         @Autowired(required = false) systemEventLogger: SystemEventLogger?,
-    ): KisRateLimiterPort = ConsumerRedisKisRateLimiterAdapter(consumerKisRateLimitProxyManager, props, systemEventLogger)
+        @Autowired(required = false) meterRegistry: MeterRegistry?,
+    ): KisRateLimiterPort = ConsumerRedisKisRateLimiterAdapter(consumerKisRateLimitProxyManager, props, systemEventLogger, meterRegistry)
 }

@@ -52,6 +52,13 @@ class MarketIndexSyncJob(
     private val objectMapper: ObjectMapper,
     @Value("\${magicjar.market.index.sync.enabled:true}")
     private val enabled: Boolean,
+    /**
+     * 지수·섹터 호출 간 gap (ms · ADR 0116 §2-D 스케줄러 호출 분산).
+     *
+     * 26 req/min burst 를 시간 분산하여 BG 버킷(refillIntervally 3/s) 순간 소진 + EGW00201 방지.
+     * 250ms × 26 ≈ 6.5초 분산 → 1분 윈도 안 균등 발사. 토큰 버킷은 순간 차단만 할 뿐
+     * 순간 burst 의 시간 분산은 caller(본 Job) 책임 (ADR 0116 §2-D 원칙).
+     */
     @Value("\${magicjar.market.index.sync.inter-request-delay-ms:250}")
     private val interRequestDelayMs: Long = 0L,
 ) {
