@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse
 import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
 import jakarta.validation.Valid
+import kr.spdaewoon.magicjar.api.service.screener.DaytradeDiscoverService
 import kr.spdaewoon.magicjar.api.service.screener.ScreenerService
 import org.springframework.data.domain.Page
 import org.springframework.http.HttpStatus
@@ -28,19 +29,21 @@ import org.springframework.web.server.ResponseStatusException
  * - @Parameter: 파라미터 레벨
  * - DTO @Schema: DTO 필드 레벨
  *
- * 3 endpoint:
- * - POST /api/screener/evaluate — 동기 inline 평가 (A-1 채택)
+ * 4 endpoint:
+ * - POST /api/screener/evaluate — 동기 inline 평가 (A-1 채택, strategyId 필수)
+ * - POST /api/screener/daytrade-discover — 룰 기반 단타 발굴 (strategyId 없이 빌트인 프리셋, ADR 0117 R2)
  * - GET /api/screener/runs — 이력 조회 (옵션 영속 ON 시)
  * - GET /api/screener/runs/{id} — 단건 상세 (옵션 영속 ON 시)
  *
- * AI 호출 0 LOCK (ADR 0071 §2-9 + 개발 룰 5).
+ * AI 호출 0 LOCK (ADR 0071 §2-9 + ADR 0117 §2-3 + 개발 룰 5). daytrade-discover는 룰 기반 — `ai-discovery`(LLM)와 분리.
  * KIS endpoint 호출 0 LOCK. 요청 interval은 DB에 있는 기준봉을 선택하며, 결손은 skip 사유로 노출한다.
  */
-@Tag(name = "Screener", description = "종목 발굴 (universe × DSL → 후보 + 랭킹) — ADR 0071 T-SC Phase 2")
+@Tag(name = "Screener", description = "종목 발굴 (universe × DSL → 후보 + 랭킹) — ADR 0071 T-SC Phase 2 + ADR 0117 단타 발굴")
 @RestController
 @RequestMapping("/api/screener")
 class ScreenerController(
     private val screenerService: ScreenerService,
+    private val daytradeDiscoverService: DaytradeDiscoverService,
 ) {
     /**
      * 전략으로 종목 찾기 (inline 동기 평가).
@@ -73,6 +76,43 @@ class ScreenerController(
         @Valid @RequestBody request: ScreenerEvaluateRequest,
     ): ResponseEntity<ScreenerResultDto> {
         val result = screenerService.evaluate(request)
+        return ResponseEntity.ok(result)
+    }
+
+    /**
+     * 단타 발굴 (룰 기반 — 전략 없이 시스템 빌트인 프리셋으로 오늘의 후보 TOP N).
+     *
+     * 사용자가 전략을 미리 작성하지 않아도, 시스템 빌트인 단타 setup 프리셋(V75 시드 `DAYTRADE_*`)의
+     * entry_dsl을 universe(KOSPI·KOSDAQ active instrument)에 적용해 후보 + 랭킹을 반환합니다.
+     * 장전 setup = 일봉(interval=1d) 기준 — candle 영속 reuse, KIS 호출 0.
+     *
+     * `startRealtimeWatch=true`면 후보를 STRATEGY owner WS 수요로 등록합니다 (watchlist 자동 삽입 0 — 후보 출발점).
+     * 룰 기반 발굴이며 LLM 호출 0 — `/api/strategy-research/ai-discovery`(LLM 발굴)와 개념·path가 분리됩니다.
+     */
+    @Operation(
+        summary = "단타 발굴 (룰 기반 — 전략 없이 빌트인 프리셋으로 후보 TOP N)",
+        description = """
+            시스템 빌트인 단타 setup 프리셋(V75 시드 DAYTRADE_*)으로 universe를 평가해 오늘의 단타 후보 + 랭킹 반환.
+            presetKey null이면 활성 DAYTRADE_* 프리셋 전체 합집합으로 발굴합니다.
+            장전 setup = 일봉(interval=1d) 기준. candle 영속 reuse — KIS 호출 0. 결손은 skip 사유로 정직 노출(mock 0).
+            startRealtimeWatch=true면 후보를 STRATEGY owner 실시간 관찰 수요로 등록(watchlist write 0 — 후보 출발점, 매매 결정권 0).
+            룰 기반 발굴 — LLM 호출 0 (ai-discovery 와 구분).
+        """,
+    )
+    @ApiResponses(
+        value = [
+            ApiResponse(responseCode = "200", description = "발굴 후보 + 랭킹 + 프리셋 메타"),
+            ApiResponse(responseCode = "400", description = "요청 파라미터 오류 (userId·interval·limit 검증 실패)"),
+            ApiResponse(responseCode = "404", description = "presetKey에 해당하는 발굴 프리셋 미존재"),
+            ApiResponse(responseCode = "422", description = "프리셋 entry_dsl 파싱 실패 (전 프리셋)"),
+            ApiResponse(responseCode = "503", description = "단타 발굴 비활성 (MAGICJAR_DAYTRADE_DISCOVERY_ENABLED=false)"),
+        ],
+    )
+    @PostMapping("/daytrade-discover")
+    fun daytradeDiscover(
+        @Valid @RequestBody request: DaytradeDiscoverRequest,
+    ): ResponseEntity<DaytradeDiscoverResultDto> {
+        val result = daytradeDiscoverService.discover(request)
         return ResponseEntity.ok(result)
     }
 
