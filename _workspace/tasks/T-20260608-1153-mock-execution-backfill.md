@@ -14,9 +14,9 @@ parentPhase: ?
 체결 backfill REAL·MOCK 동일화
 
 ## 결과물 체크리스트
-- [ ] mode-aware 동기화
-- [ ] account type 분기
-- [ ] 테스트
+- [x] mode-aware 동기화
+- [x] account type 분기
+- [x] 테스트
 
 ## 의존성
 - (필요 시 기록)

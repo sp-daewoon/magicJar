@@ -35,7 +35,6 @@ import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import kr.spdaewoon.magicjar.domain.signal.Signal
 import kr.spdaewoon.magicjar.domain.signal.SignalSide
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyLookupPort
-import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
@@ -145,7 +144,7 @@ class SignalGeneratedKafkaListener(
                 return
             }
 
-            val syncBlocked = ensureKisExecutionSyncIfReal(signal)
+            val syncBlocked = ensureKisExecutionSync(signal)
             if (syncBlocked != null) {
                 handleBlocked(signal, syncBlocked)
                 ack.acknowledge()
@@ -541,15 +540,33 @@ class SignalGeneratedKafkaListener(
                 ),
         )
 
-    private fun ensureKisExecutionSyncIfReal(signal: Signal): RiskGatewayResult.Blocked? {
-        if (!RuntimeModeParser.isRealMode(magicjarMode)) return null
+    /**
+     * 주문 발행 전 KIS 체결 동기화 가드 (자본 정합 hotfix 2026-06-08 — REAL·MOCK 동일화).
+     *
+     * ## 결함 (이 hotfix가 닫는 것)
+     * 과거 `ensureKisExecutionSyncIfReal`는 `if (!isRealMode) return null`로 **REAL 모드에서만** 체결 backfill을
+     * 발사했다. MOCK(VPS 페이퍼) 모드에서는 KIS WS 체결통보 누락 시 `KisExecutionBackfillService`의 보정이
+     * 돌지 않아 ACK 주문이 영구 정체(증상: 주문 144 — 005930 BUY 2주 AUTO MOCK이 KIS_ACK 후 체결통보 누락 →
+     * 30분+ ACK 정체)했다. 체결 보정 같은 정합은 실돈 여부와 무관하므로 두 모드 모두 동일하게 돌려야 한다
+     * (메모리 `feedback_kis_key_realonly_for_data` — 모드 분기는 실제 주문 액션에만).
+     *
+     * ## 보정 (정합은 동일, account type만 모드에서 파생)
+     * - REAL-only 게이트 제거 → 두 모드 모두 실행.
+     * - `AccountType.REAL` 하드코딩 → [RuntimeModeParser.accountTypeOrMock] (MOCK 모드 → VPS 페이퍼 계좌 체결 조회,
+     *   REAL 모드 → 실계좌). [ensureKisHoldingIfSell]와 동일 출처 재사용(DRY).
+     * - KIS 조회 endpoint(inquire-daily-ccld) tr_id·base-url 분기는 [KisOrderInquireCcldHttpAdapter]가
+     *   accountType 기반으로 이미 처리(REAL=TTTC0081R/prod, MOCK=VTTC0081R/vps — raw WebFetch LOCK).
+     * - 실제 주문 발행/취소 액션의 MOCK/REAL 분기(실돈 게이트)는 무변경 — 본 함수는 "조회·상태 보정"만.
+     */
+    private fun ensureKisExecutionSync(signal: Signal): RiskGatewayResult.Blocked? {
+        val accountType = RuntimeModeParser.accountTypeOrMock(magicjarMode)
         val syncService =
             executionBackfillServiceProvider.getIfAvailable()
                 ?: return syncBlocked(signal, "SYNC_SERVICE_UNAVAILABLE")
 
         val result =
             try {
-                syncService.syncUserTodayExecutions(signal.userId, AccountType.REAL)
+                syncService.syncUserTodayExecutions(signal.userId, accountType)
             } catch (e: Exception) {
                 log.error("risk KIS execution sync 예외: userId={} signalId={} err={}", signal.userId, signal.id, e.message, e)
                 return syncBlocked(signal, "SYNC_EXCEPTION:${e.message ?: "UNKNOWN"}")
@@ -557,9 +574,10 @@ class SignalGeneratedKafkaListener(
 
         if (result.isComplete) {
             log.info(
-                "risk KIS execution sync PASS: userId={} signalId={} fetched={} inserted={} alreadySynced={}",
+                "risk KIS execution sync PASS: userId={} signalId={} accountType={} fetched={} inserted={} alreadySynced={}",
                 signal.userId,
                 signal.id,
+                accountType.name,
                 result.fetched,
                 result.inserted,
                 result.alreadySynced,
