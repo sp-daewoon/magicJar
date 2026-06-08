@@ -14,8 +14,8 @@ parentPhase: ?
 잔고 조회 cache stampede 완화 (single-flight)
 
 ## 결과물 체크리스트
-- [ ] single-flight 락
-- [ ] 테스트
+- [x] single-flight 락
+- [x] 테스트
 
 ## 의존성
 - (필요 시 기록)

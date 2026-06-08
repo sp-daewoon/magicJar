@@ -59,7 +59,31 @@ class AccountQueryServiceTest {
 
     // hotfix 2026-05-20 — cache key 에 accountType 포함 (REAL/MOCK 분리)
     private val cacheKey = "account:balance:$userId:REAL"
+    private val lockKey = "account:balance:lock:$userId:REAL"
     private val now: Instant = Instant.parse("2026-05-18T05:30:00Z")
+
+    /**
+     * 분산락 SETNX 기본 stub — 단일 thread 테스트는 락을 즉시 획득(true)해 backoff 없이 KIS 직행.
+     * 동시성 테스트는 backing map 기반 atomic SETNX 로 별도 override.
+     */
+    private fun stubLockAcquired() {
+        whenever(valueOps.setIfAbsent(any<String>(), any<String>(), any<Duration>())).thenReturn(true)
+    }
+
+    /**
+     * 실제 Redis SETNX 분산락을 모사 — backing map 으로 atomic putIfAbsent / DEL 구현.
+     * 동시성 테스트에서 단 1 thread/instance 만 락을 획득하고 KIS 를 호출하는지 검증한다.
+     */
+    private fun stubAtomicLock(lockMap: java.util.concurrent.ConcurrentHashMap<String, String>) {
+        whenever(valueOps.setIfAbsent(any<String>(), any<String>(), any<Duration>())).thenAnswer { inv ->
+            val key = inv.arguments[0] as String
+            lockMap.putIfAbsent(key, inv.arguments[1] as String) == null
+        }
+        doAnswer { inv ->
+            lockMap.remove(inv.arguments[0] as String)
+            true
+        }.whenever(redis).delete(any<String>())
+    }
 
     private fun fixtureSnapshot(): KisAccountBalance =
         KisAccountBalance(
@@ -108,6 +132,7 @@ class AccountQueryServiceTest {
     @Test
     fun `cache miss — KIS 호출 1회 + cache SETEX TTL 10s (EGW00201 burst hotfix 정합)`() {
         whenever(redis.opsForValue()).thenReturn(valueOps)
+        stubLockAcquired()
         whenever(valueOps.get(eq(cacheKey))).thenReturn(null)
         whenever(kisPort.fetchFullBalance(userId, accountType)).thenReturn(fixtureSnapshot())
 
@@ -136,6 +161,7 @@ class AccountQueryServiceTest {
     @Test
     fun `cache key — REAL accountType 별도 key (account-balance-userId-REAL)`() {
         whenever(redis.opsForValue()).thenReturn(valueOps)
+        stubLockAcquired()
         whenever(valueOps.get(eq("account:balance:$userId:REAL"))).thenReturn(null)
         whenever(kisPort.fetchFullBalance(userId, AccountType.REAL)).thenReturn(fixtureSnapshot())
 
@@ -151,6 +177,7 @@ class AccountQueryServiceTest {
     @Test
     fun `cache key — MOCK accountType 별도 key (account-balance-userId-MOCK) — REAL cache 무관`() {
         whenever(redis.opsForValue()).thenReturn(valueOps)
+        stubLockAcquired()
         whenever(valueOps.get(eq("account:balance:$userId:MOCK"))).thenReturn(null)
         // MOCK fixture
         val mockSnapshot = fixtureSnapshot().copy(accountType = AccountType.MOCK)
@@ -179,6 +206,7 @@ class AccountQueryServiceTest {
     @Test
     fun `refresh true — Redis cache hit 무시하고 KIS 재조회 후 cache overwrite`() {
         whenever(redis.opsForValue()).thenReturn(valueOps)
+        stubLockAcquired()
         val staleJson = objectMapper.writeValueAsString(fixtureSnapshot())
         whenever(valueOps.get(eq(cacheKey))).thenReturn(staleJson)
         val freshSnapshot =
@@ -205,6 +233,7 @@ class AccountQueryServiceTest {
     @Test
     fun `refresh 3연발 — debounce 이내면 KIS 1회로 수렴 (single-flight)`() {
         whenever(redis.opsForValue()).thenReturn(valueOps)
+        stubLockAcquired()
         val freshSnapshot = fixtureSnapshot()
         // 첫 KIS 호출 후 cache 에 기록된 JSON 을 이후 get 이 반환하도록 stub (cache write → read 모사).
         val cachedJson = objectMapper.writeValueAsString(freshSnapshot)
@@ -223,6 +252,7 @@ class AccountQueryServiceTest {
     @Test
     fun `summary — 수익률 = totalProfitLoss div totalPurchaseAmount times 100, 보유 종목 수 정합`() {
         whenever(redis.opsForValue()).thenReturn(valueOps)
+        stubLockAcquired()
         whenever(valueOps.get(eq(cacheKey))).thenReturn(null)
         whenever(kisPort.fetchFullBalance(userId, accountType)).thenReturn(fixtureSnapshot())
 
@@ -239,6 +269,7 @@ class AccountQueryServiceTest {
     @Test
     fun `positions — output1 향상판 매핑 (8 컬럼 정합)`() {
         whenever(redis.opsForValue()).thenReturn(valueOps)
+        stubLockAcquired()
         whenever(valueOps.get(eq(cacheKey))).thenReturn(null)
         whenever(kisPort.fetchFullBalance(userId, accountType)).thenReturn(fixtureSnapshot())
 
@@ -259,6 +290,7 @@ class AccountQueryServiceTest {
     @Test
     fun `cache 역직렬화 실패 — cache 삭제 후 KIS 재조회 (graceful)`() {
         whenever(redis.opsForValue()).thenReturn(valueOps)
+        stubLockAcquired()
         whenever(valueOps.get(eq(cacheKey))).thenReturn("not-a-valid-json{", null)
         whenever(kisPort.fetchFullBalance(userId, accountType)).thenReturn(fixtureSnapshot())
 
@@ -272,12 +304,14 @@ class AccountQueryServiceTest {
     @Test
     fun `concurrent cache miss — same account coalesces into one KIS call`() {
         val backingCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+        val backingLocks = java.util.concurrent.ConcurrentHashMap<String, String>()
         val fetchCount = AtomicInteger(0)
         val pool = Executors.newFixedThreadPool(3)
         val start = CountDownLatch(1)
         val done = CountDownLatch(3)
 
         whenever(redis.opsForValue()).thenReturn(valueOps)
+        stubAtomicLock(backingLocks)
         whenever(valueOps.get(any())).thenAnswer { invocation ->
             backingCache[invocation.arguments[0] as String]
         }
@@ -312,6 +346,7 @@ class AccountQueryServiceTest {
 
     @Test
     fun `concurrent rate-limit failure — same account shares short failure without serial KIS retry`() {
+        val backingLocks = java.util.concurrent.ConcurrentHashMap<String, String>()
         val fetchCount = AtomicInteger(0)
         val errors = ConcurrentLinkedQueue<Throwable>()
         val pool = Executors.newFixedThreadPool(3)
@@ -319,6 +354,7 @@ class AccountQueryServiceTest {
         val done = CountDownLatch(3)
 
         whenever(redis.opsForValue()).thenReturn(valueOps)
+        stubAtomicLock(backingLocks)
         whenever(valueOps.get(any())).thenReturn(null)
         whenever(kisPort.fetchFullBalance(userId, accountType)).thenAnswer {
             fetchCount.incrementAndGet()
@@ -351,6 +387,66 @@ class AccountQueryServiceTest {
         verify(kisPort).fetchFullBalance(userId, accountType)
     }
 
+    /**
+     * ★ 분산 single-flight 핵심 — 락 미획득 instance 는 KIS 미호출, backoff 중 cache 재read 로 결과 공유.
+     *
+     * 다른 instance(또는 thread)가 이미 SETNX 락을 잡은 상황 모사: 본 호출은 setIfAbsent=false →
+     * backoff polling → 락 보유자가 cache write 완료 시점에 cache hit → KIS 0 호출 (cluster 전역 coalesce).
+     */
+    @Test
+    fun `distributed lock 미획득 — backoff 중 cache 채워지면 KIS 미호출 (cluster coalesce)`() {
+        whenever(redis.opsForValue()).thenReturn(valueOps)
+        // 다른 instance 가 락 선점 — 본 호출은 분산락 획득 실패.
+        whenever(valueOps.setIfAbsent(any<String>(), any<String>(), any<Duration>())).thenReturn(false)
+        // cache: 첫 lookup·coalesce 재확인 시 miss → backoff 2회째에 락 보유자가 write 한 것처럼 hit.
+        val cachedJson = objectMapper.writeValueAsString(fixtureSnapshot())
+        whenever(valueOps.get(eq(cacheKey))).thenReturn(null, null, null, cachedJson)
+
+        val response = sut.getBalance(userId, accountType)
+
+        assertThat(response.cashBalance).isEqualByComparingTo("10000000.00")
+        // 락 보유자(타 instance)가 KIS 호출 — 본 instance 는 0 호출.
+        verify(kisPort, never()).fetchFullBalance(any(), any())
+        // 락 미보유이므로 lock DEL 도 하지 않음.
+        verify(redis, never()).delete(eq(lockKey))
+    }
+
+    /**
+     * 분산락 보유자는 finally 에서 락을 반드시 해제 — KIS 실패(rate limit) 시에도 deadlock 방지.
+     */
+    @Test
+    fun `distributed lock 보유 — KIS 실패해도 finally 에서 락 해제`() {
+        whenever(redis.opsForValue()).thenReturn(valueOps)
+        whenever(valueOps.get(eq(cacheKey))).thenReturn(null)
+        stubLockAcquired()
+        whenever(kisPort.fetchFullBalance(userId, accountType))
+            .thenThrow(KisRateLimitTimeoutException(KisCallPriority.USER_PATH, 3000L))
+
+        try {
+            sut.getBalance(userId, accountType)
+        } catch (_: KisRateLimitTimeoutException) {
+            // expected
+        }
+
+        // 락 보유자이므로 finally 에서 lock DEL 1회 — TTL 만료 전에도 즉시 해제.
+        verify(redis).delete(eq(lockKey))
+    }
+
+    /**
+     * cache hit fast path 는 분산락을 건드리지 않음 — KIS·SETNX 모두 0 (불필요 락 회피).
+     */
+    @Test
+    fun `cache hit — 분산락 SETNX 미사용 (fast path)`() {
+        whenever(redis.opsForValue()).thenReturn(valueOps)
+        val json = objectMapper.writeValueAsString(fixtureSnapshot())
+        whenever(valueOps.get(eq(cacheKey))).thenReturn(json)
+
+        sut.getBalance(userId, accountType)
+
+        verify(kisPort, never()).fetchFullBalance(any(), any())
+        verify(valueOps, never()).setIfAbsent(any<String>(), any<String>(), any<Duration>())
+    }
+
     @Test
     fun `summary — totalPurchaseAmount 0 시 수익률 0 fallback (divide by zero 회피)`() {
         val snapshot =
@@ -363,6 +459,7 @@ class AccountQueryServiceTest {
                 holdings = emptyList(),
             )
         whenever(redis.opsForValue()).thenReturn(valueOps)
+        stubLockAcquired()
         whenever(valueOps.get(eq(cacheKey))).thenReturn(null)
         whenever(kisPort.fetchFullBalance(userId, accountType)).thenReturn(snapshot)
 
