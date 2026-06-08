@@ -1,6 +1,8 @@
 # ADR 0037 — KIS API Rate Limit 강제 (초당 10건 + 토큰 버킷)
 
-- 상태: **Accepted (2026-05-19 amend — Bucket4j-Redis 단일 bucket + KisRateLimiterPort domain port + EGW00201/HTTP 429 backoff 매트릭스 LOCK · Phase 1 backend-core 후 운영 코드 통합)**
+- 상태: **Accepted (2026-05-19 amend — Bucket4j-Redis 단일 bucket + KisRateLimiterPort domain port + EGW00201/HTTP 429 backoff 매트릭스 LOCK · Phase 1 backend-core 후 운영 코드 통합) · §2-1 단일 bucket LOCK + §2-3 share 분할(api 5/batch 3/consumer 2)은 2026-06-08 ADR 0116으로 supersede (priority별 별도 버킷 3-tier — USER 4/SHARED 3/BG 3 합 10). 본 ADR §1·§2-2 backoff·§2-4 빌드 게이트는 현행 권위 유지.**
+
+> **⚠️ supersede 마커 (2026-06-08 — ADR 0116)**: 본 ADR §2-1 "단일 bucket LOCK" + §2-3 "멀티 JVM share 분할(5/3/2)"은 운영 진화로 **ADR 0116 (priority별 별도 버킷 3-tier)** 가 supersede 한다. commit `2837b2cf`(2026-06-05)가 단일→2-bucket reserve로 진화시켰고, ADR 0116이 이를 정식화 + 3-tier(USER/SHARED/BG)로 확장한다. 본 §2-1·§2-3 본문은 historical evidence로 보존(읽기 전용). **현행 rate limit 권위는 ADR 0116 + external-api-policy.md §2-2.** 본 ADR §1(KIS 한도 컨텍스트)·§2-2(EGW00201 backoff)·§2-4(빌드 게이트)·`KisCallPriority` enum(0100 amend INGESTION_LOW 포함)은 현행 유지.
 - 작성일: TBD
 - 결정자: architect
 - 관계: ADR 0003(KIS OpenAPI), ADR 0028(Watchlist Ingestion), ADR 0036(KIS OAuth 분산락), ADR 0038(KIS Token store), ADR 0044(Notification), ADR 0083(indicator-impl 모듈 패턴), ADR 0085·0087(cross-review 페르소나), ADR 0088(persistence-shared 패턴 — 본 ADR 어댑터 모듈 위치 옵션 b 1:1 재사용)

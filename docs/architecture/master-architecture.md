@@ -568,7 +568,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 
 ---
 
-## §10. 핵심 ADR 인덱스 (0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069·0070·0071·0072·0074·0075·0079·0080·0081·0083·0086·0087·0091·0092·**0094**·**0095**·**0096**·**0097**·**0098**·**0099**·**0100**·**0101**·**0102**·**0103**·**0104**·**0105**·**0106**·**0107**·**0108**·**0109**·**0110**·**0111**·**0112** Accepted + 0084 Accepted P0 baseline + 0064·0076·0077·0078·0082·0088·0089·0090·0093 Proposed + 0073 Superseded by 0075 + 0035 Superseded by 0080 + **0085 Superseded by 0094**)
+## §10. 핵심 ADR 인덱스 (0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069·0070·0071·0072·0074·0075·0079·0080·0081·0083·0086·0087·0091·0092·**0094**·**0095**·**0096**·**0097**·**0098**·**0099**·**0100**·**0101**·**0102**·**0103**·**0104**·**0105**·**0106**·**0107**·**0108**·**0109**·**0110**·**0111**·**0112** Accepted + 0084 Accepted P0 baseline + 0064·0076·0077·0078·0082·0088·0089·0090·0093·**0114·0115·0116** Proposed + 0073 Superseded by 0075 + 0035 Superseded by 0080 + **0085 Superseded by 0094**)
 
 상세 본문은 `_workspace/arch/adr/<NNNN>-*.md`. 분류 카테고리는 `_workspace/arch/adr/README.md` §1~§10-4 정합. 본 §10은 한 줄 요약 인덱스 — 신규 ADR 발행 시 본 표 + README 동시 갱신 (ADR 0030 SoT 운영 규약).
 
@@ -610,7 +610,8 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | 0034 | 머지 흐름 단순화 (`agent/* → main` rebase) | 메타·운영·하네스 | 베이스 |
 | 0035 | 에이전트별 모델 차등 + 에스컬레이션 | 메타·운영·하네스 | 베이스 |
 | 0036 | Orchestrator Meta Rules (git-author + task-file-system + architect-as-orchestrator) | 메타·운영·하네스 | 베이스 |
-| 0037 | **KIS API Rate Limit 강제 (초당 10건 + 토큰 버킷) — Accepted (2026-05-19 amend: Bucket4j-Redis 단일 bucket LOCK + KisRateLimiterPort domain port + EGW00201/HTTP 429 backoff 매트릭스 정밀화 + Phase 1·2·3 분리 LOCK · P1-4 market-data PR #555 system audit 통합 · spec drift "20 req/s" 코드 주석 15+ 위치 vs "초당 10건" ADR §1 권위 정합 의무)** | 외부 API·UI 흐름 | W1 (2026-05-19 amend · Phase 1 backend-core 대기) |
+| 0037 | **KIS API Rate Limit 강제 (초당 10건 + 토큰 버킷) — Accepted (2026-05-19 amend: Bucket4j-Redis 단일 bucket LOCK + KisRateLimiterPort domain port + EGW00201/HTTP 429 backoff 매트릭스 정밀화 + Phase 1·2·3 분리 LOCK · P1-4 market-data PR #555 system audit 통합) · §2-1 단일 bucket·§2-3 share 분할은 2026-06-08 ADR 0116으로 supersede** | 외부 API·UI 흐름 | W1 (2026-05-19 amend · §2-1 ADR 0116 supersede) |
+| 0116 | **KIS Rate Limit Phase 2 — priority별 별도 버킷(3-tier USER 4/SHARED 3/BG 3 합 10) + KIS 실제 한도 정합(refillIntervally burst 억제) — Proposed (2026-06-08, 별도 브랜치·canary 전 급반영 금지 · commit 2837b2cf 2-bucket reserve orphan 정식화 + 잘못된 `ADR 0112 의제` 17파일 정정 + ADR 0037 단일 bucket supersede + 역방향 fallback + MarketIndexScheduler jitter 분산 + priority별 metric · Redis 3 key + ENV 4 add-only · Flyway/Kafka 0)** | 외부 API·UI 흐름 | 운영 고도화 (2026-06-08 별도 브랜치) |
 | 0038 | KIS OAuth 24h 토큰 + Redis 분산락 공통 모듈 | 외부 API·UI 흐름 | W1 |
 | 0039 | 종목 마스터 갱신 Cron (KIS 갱신 시각 +5분) | 외부 API·UI 흐름 | W1 |
 | 0040 | 관심종목 우선 UI 흐름 (Strategy Builder → 발굴 → Watchlist → 상세) | 외부 API·UI 흐름 | W1 |
