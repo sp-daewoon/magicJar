@@ -15,7 +15,21 @@ ADR 0094 P0-OPS-1·2·6 정합 + ADR 0095 SLO 5건 측정 · backend-core 단일
 
 ## 2. 기동 방법
 
-### 2.1 관측 스택만 (Prometheus + Grafana)
+### 2.0 한 줄 헬퍼 (권장 — `scripts/observability.sh`)
+```bash
+scripts/observability.sh up       # Prometheus + Grafana 기동 (-d)
+scripts/observability.sh status   # 컨테이너 / healthcheck 상태
+scripts/observability.sh down      # 중지 + 컨테이너 제거 (볼륨 유지)
+```
+
+`--env-file <절대경로 .env>` 를 강제해 cwd 가 `docker/` 로 바뀌어 `.env` 를 못 찾는
+운영 함정 가드 §2 를 회피한다(`build-and-deploy.sh` 와 동일 정책). `up` 후 Prometheus :9090 ·
+Grafana :3001 접속 URL + scrape 전제(api·batch·consumer 기동 필요)를 함께 출력한다.
+
+> scrape 대상(api·batch·consumer)이 떠 있어야 metric 이 채워진다 —
+> `scripts/build-and-deploy.sh`(docker 통합) 또는 `docker-compose.infra.yml up` + `./gradlew :api:bootRun`(IDE).
+
+### 2.1 관측 스택만 (Prometheus + Grafana) — 수동
 ```bash
 docker compose -f docker/docker-compose.observability.yml --env-file ./.env up -d
 ```
@@ -120,9 +134,40 @@ JSON 출력 시 자동 부착, Plain 출력 시 `[%X{traceId:--}]` 패턴으로 
 | P0-OPS-6 | Outbox drain lag | timeseries (order·notification, 임계 30s/60s) |
 | audit | SystemEvent emit rate | timeseries (category·severity 분포) |
 
+### 5.4 KIS Rate Limit dashboard (`magicJar — KIS Rate Limit`)
+
+ADR 0116 R2 §2-E 의 priority 버킷 관측 metric 시각화 (`magicjar-kis-ratelimit.json`,
+uid `magicjar-kis-ratelimit`). Grafana 부팅 직후 `magicJar` 폴더에 자동 등록. KIS 초당 한도(EGW00201/`KIS_TPS_EXCEEDED`)
+근접·초과를 주문 path vs 백그라운드 cron 으로 분리해 본다.
+
+| panel | metric | 표현 |
+|-------|--------|------|
+| 버킷별 토큰 소진율 | `rate(kis_ratelimit_bucket_consumed_total[1m])` by `bucket` | timeseries (user/shared/bg 분리 — 주문 vs 백그라운드 한눈에) |
+| 버킷별 누적 소진 | `increase(kis_ratelimit_bucket_consumed_total[5m])` by `bucket` | stacked bars |
+| Acquire timeout by priority | `increase(kis_ratelimit_acquire_timeout_total[5m])` by `priority` | timeseries (어느 priority 가 굶었는지 — USER_PATH timeout=주문 지연 직결) |
+| TPS 초과 직격 버킷 | `increase(kis_ratelimit_tps_exceeded_total[5m])` by `last_bucket` | stacked bars (EGW00201 직전 소진 버킷 root cause) |
+| TPS 초과 총 카운트 | `sum(increase(kis_ratelimit_tps_exceeded_total[5m]))` | stat (임계 1/5 — SLO S-4) |
+| SystemEvent KIS_RATELIMIT | `increase(magicjar_system_events_total{event_type="KIS_RATELIMIT"}[5m])` | stat (S-4 source 교차 검증) |
+
+3-tier 버킷 라벨: `user`(주문 USER_PATH) · `shared`(approval·watchlist INGESTION) · `bg`(cron BACKFILL).
+`user` 가 지속 포화면 주문 지연 risk, `bg` burst 가 EGW00201 direct hit 면 cron 분산(ADR 0116 §2-D) 점검.
+api `/actuator/prometheus` 노출 실증: `kis_ratelimit_bucket_consumed_total{bucket="bg"} 42`·`{bucket="user"} 28`.
+
 ## 6. 검증 시나리오
 
 ```bash
+# 0. 관측 스택 기동 + 헬스
+scripts/observability.sh up
+curl -s http://localhost:9090/-/healthy          # Prometheus Server is Healthy.
+curl -s http://localhost:3001/api/health         # {"database":"ok",...}
+
+# 0.1 rate-limit 대시보드 provisioning 로드 확인
+curl -s -u admin:admin http://localhost:3001/api/search | grep kis-ratelimit
+# → magicjar-kis-ratelimit | magicJar — KIS Rate Limit
+
+# 0.2 rate-limit metric 수집 확인 (api·consumer·batch 기동 시)
+curl -s 'http://localhost:9090/api/v1/query?query=kis_ratelimit_bucket_consumed_total'
+
 # 1. Actuator prometheus 응답 확인 (3 모듈)
 curl -s http://localhost:8080/actuator/prometheus | head -5
 curl -s http://localhost:8081/actuator/prometheus | head -5
