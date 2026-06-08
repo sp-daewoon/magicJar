@@ -186,10 +186,20 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "description": "S-4 KIS rate limit 초과 빈도 (5분 sliding). SLO < 1건/5분 · SLA < 5건/5분. critical ≥ 5건 → KIS 차단 risk 가속 (P2 ERROR).",
+      "description": "S-4 KIS rate limit — 버킷별(user/shared/bg) 토큰 소진율(rate 5m) + RATELIMIT 알람 카운트(5분 sliding). SLO 알람 < 1건/5분 · SLA < 5건/5분. critical ≥ 5건 → KIS 차단 risk 가속 (P2 ERROR). 버킷 분리로 주문(user) vs 백그라운드(bg) 소진 path 한눈 비교.",
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "thresholds" },
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "line" }
+          },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -201,17 +211,18 @@
           },
           "unit": "short"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "RATELIMIT 알람 / 5m" },
+            "properties": [{ "id": "custom.lineWidth", "value": 2 }]
+          }
+        ]
       },
       "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
       "id": 4,
       "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "textMode": "auto"
+        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
       },
       "pluginVersion": "11.2.0",
       "targets": [
@@ -219,13 +230,21 @@
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "editorMode": "code",
           "expr": "sum(increase(magicjar_system_events_total{event_type=\"KIS_RATELIMIT\"}[5m]))",
-          "legendFormat": "rate limit / 5m",
+          "legendFormat": "RATELIMIT 알람 / 5m",
           "range": true,
           "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "editorMode": "code",
+          "expr": "sum by (bucket) (rate(kis_ratelimit_bucket_consumed_total[5m]))",
+          "legendFormat": "{{bucket}}",
+          "range": true,
+          "refId": "B"
         }
       ],
-      "title": "S-4 KIS Rate Limit (5m count)",
-      "type": "stat"
+      "title": "S-4 KIS Rate Limit (버킷별 소진율 + 알람 5m)",
+      "type": "timeseries"
     },
     {
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
