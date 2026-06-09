@@ -3,10 +3,10 @@ id: T-20260609-1407-market-daily-backfill-completion-gap-awa
 agent: market-data
 model: opus
 branch: hotfix/market-daily-backfill-completion-gap-aware
-status: RUNNING
+status: DONE
 startedAt: 2026-06-09T14:07:24.383+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-09T14:19:30.308+09:00
+pr: #842
 parentPhase: ?
 ---
 
