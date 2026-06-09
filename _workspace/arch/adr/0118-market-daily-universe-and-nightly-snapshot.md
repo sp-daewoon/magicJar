@@ -1,6 +1,6 @@
 # ADR 0118 — 전종목 일봉 universe(MARKET_DAILY) + 야간 멀티시세 snapshot + today 공식 보정
 
-- 상태: **Proposed (2026-06-09 작성, 2026-06-09 결재 완료)** — "전종목 일봉 universe + 야간 갱신" 사용자 깊이 논의 결과를 설계로 확정. 신규 코드 최소·기존 자산 재사용 원칙. **3개 미결 사용자(최고 관리자) 결재 완료: ① universe=보통주 ~3,000(ETF·ETN 제외) ② 이력 깊이=10년(architect 권고 1년에서 상향 — 사용자 직접 결정) ③ today 종가=NXT 통합 권위(ADR 0063 정합·멀티시세 NXT 반환 여부 R2 실측 의무).** 결정은 LOCK이나 status는 구현 전이므로 **Proposed 유지** — R1 구현 완료 시 Accepted 전환 예정.
+- 상태: **Accepted (2026-06-09 — R1·R2 구현 완료)** — "전종목 일봉 universe + 야간 갱신" 사용자 깊이 논의 결과를 설계로 확정 후 R1(멀티시세 어댑터·universe provider)·R-BF(10년 backfill 캠페인·J 채널 amend)·**R2(야간 23:00 today snapshot 스케줄러 — 본 §10)** 구현 완료로 Accepted 전환. 신규 코드 최소·기존 자산 재사용 원칙. **3개 미결 사용자(최고 관리자) 결재 완료: ① universe=보통주 ~3,000(ETF·ETN 제외, 실측 ~2,517) ② 이력 깊이=10년(architect 권고 1년에서 상향 — 사용자 직접 결정) ③ today 종가=~~NXT 통합 권위~~ → amend §9-B 로 J 정규장 권위(UN/NX stale 동결 실측).** R3(gap catch-up)·R-BF full run 은 운영 단계 후속.
 - 작성: architect
 - 영역: 데이터(A) — candle ingestion / universe / 야간 batch. 자본 결정권 0.
 - 관계:
@@ -159,7 +159,7 @@ batch 모듈에 신규 스케줄러 1개(가칭 `MarketDailySnapshotScheduler`)�
 |--------|------|------|----------------|
 | **R0 (본 PR)** | architect | 본 ADR + candle-data-policy 보강 + README 인덱스 + master §10 + 3개 결재 확정 + 10년 재산정 | 설계만 (코드 0) |
 | **R1** | domain + market-data | `intstock-multprice` 멀티시세 어댑터(신규 1) + MARKET_DAILY universe provider(신규 1, `instrument` 보통주 조회) + **KIS-first raw 응답 실측(결재 ③ NXT 통합 반환 여부 검증 — R2 배선 전 의무)** | 신규 어댑터 1 + provider 1. KisRestPort 시그니처는 가능하면 재사용 |
-| **R2** | batch | `MarketDailySnapshotScheduler`(신규 1, 23:00 cron) + `upsertAll` today 보정 배선(결재 ③ NXT/정규장 분기 적용) | 스케줄러 패턴(`MarketIndexScheduler`) 재사용. UPSERT 경로(`upsertAll`) 재사용 |
+| **R2 ✅ 구현 완료(2026-06-09)** | consumer(batch 대신 — 실제 부품 위치) | `MarketDailyNightlySnapshotScheduler`(신규 1, cron ENV 외부화 default 23:00) + `MarketDailyNightlySnapshotService`(신규 1) + `MarketDailySnapshotProperties`(신규 1) + `upsertAll` today 보정 배선(J 채널 — amend §9-B) | 스케줄러 패턴(`MarketIndexScheduler` 영업일 가드) 재사용. UPSERT 경로(`upsertAll`)·universe provider(R1)·멀티시세 어댑터(R1) 재사용. 상세 §10 |
 | **R-BF (별도 캠페인 라운드 — 10년 backfill)** | batch + market-data | `MarketDailyBackfillJob`(신규 1, 멱등 캠페인) + 종목별 progress 체크포인트 + 밤당 콜 예산 cap + listed_at clamp + circuit breaker/재시도 재사용. **여러 밤/주말 분산 적재(~75,000콜·8~12h 실효)** | 신규 job 1 + progress 추적. `CandleBackfillWorker` sanity/retry/circuit 재사용. snapshot(R2)과 별도 트리거·운영 |
 | **R3** | consumer + 일괄 테스트 | gap 복구 universe 확장 배선(1d=MARKET_DAILY catch-up, listed_at axis) + 데이터 흐름 시나리오 테스트 일괄 | `CandleGapDetectorAdapter`·`CandleBackfillWorker` 100% 재사용. universe 주입만 변경 |
 
@@ -305,3 +305,66 @@ MAGICJAR_MARKET_DAILY_BACKFILL_CONCURRENCY=10       # 동시 처리 종목 수(c
 MAGICJAR_MARKET_DAILY_BACKFILL_LAUNCH_DELAY_MS=100  # 종목 launch 간 지연(ms) — burst 분산
 ```
 (직전 머지된 `..._ENABLED`·`..._HISTORY_YEARS`·`..._NIGHTLY_CALL_CAP` example 누락분도 본 사이클에 동기.)
+
+---
+
+## 10. R2 구현 완료 (2026-06-09 — market-data) — 야간 전종목 일봉 today snapshot 스케줄러
+
+> R1(멀티시세 어댑터·MARKET_DAILY universe provider)·R-BF(10년 backfill 캠페인)는 머지됐으나
+> **23:00 R2 스케줄러+caller+today upsert 가 미배선**이라(주석/ADR엔 있으나 `@Scheduled` 미구현),
+> 비-managed ~2,480 종목 today 일봉이 매일 자동 전진하지 못하는 공백이 있었다. 본 §가 그 공백을 메운다.
+> 오케스트라 실측: managed 잡(DailyCloseFinalizer 20:10·LastCandleAtMonitor 18:00)은 watchlist/보유/전략/상세
+> 수십개만 커버 → 전종목 today 갱신 권위 부재.
+
+### 10-A. 구현 부품 (신규 3 · consumer 모듈)
+
+배선 위치는 ADR §4 표가 "batch"라 적었으나 **R1·R-BF 부품이 모두 consumer 모듈에 있고**(`KisMultiPriceAdapter`·
+`MarketDailyUniverseProvider`·`MarketDailyBackfillCampaign`), consumer 가 이미 `@EnableScheduling` +
+DailyCloseFinalizer 등 다수 `@Scheduled` 워커를 보유하므로 **consumer 에 배선**(영역 침범 0·부품 인접).
+
+| 신규 클래스 | 책임 |
+|------------|------|
+| `MarketDailyNightlySnapshotScheduler` | `@Scheduled(cron=ENV, zone="Asia/Seoul")` 트리거. 영업일 가드(`BusinessDayCalendar`) + best-effort(예외 graceful) |
+| `MarketDailyNightlySnapshotService` | universe → 30 chunk → `KisMultiPricePort.fetchMultiPrice("J")` → today 1d Candle 매핑 → `upsertAll`(DO UPDATE) + audit |
+| `MarketDailySnapshotProperties` | `enabled`(kill-switch)·`cron`(ENV 외부화)·`chunkSpacingMs`. `ChartCandleConfiguration` 에 등록 |
+
+### 10-B. 동작 매트릭스
+
+- **cron**: `@Scheduled(cron = "${magicjar.market-daily-snapshot.cron:0 0 23 * * *}", zone = "Asia/Seoul")` —
+  ENV `MAGICJAR_MARKET_DAILY_SNAPSHOT_CRON` 외부화(default 23:00). `@Scheduled` 가 SpEL placeholder 만 받는
+  제약 때문에 cron 은 property placeholder 로 주입(메서드 호출 불가).
+- **거래일 가드**: `BusinessDayCalendar.isBusinessDay(today)` — market_calendar DB 기반(공휴일·임시휴장 skip),
+  `MarketIndexScheduler`·`InstrumentMasterSyncScheduler` 와 동일 KRX 영업일 판정 재사용.
+- **universe**: `MarketDailyUniverseProvider.resolveCodes()`(보통주 ~2,517) → **30종목 chunk**(~84콜).
+- **멀티시세**: `KisMultiPricePort.fetchMultiPrice(chunk, "J")` chunk 단위 호출 + chunk 간 `chunkSpacingMs`(120ms
+  default) spacing(burst 분산 — 2026-06-09 wipe→재적재 교훈). rate-limiter(`BACKFILL` BG 버킷)는 어댑터 내부 유효.
+- **today upsert**: 응답 OHLC+volume → `ts=today 00:00 KST`(DailyCloseFinalizer·`stck_bsop_date` 관행 정합)
+  1d Candle → `candleRepository.upsertAll`(ON CONFLICT DO UPDATE). source=`KIS-MKT-DAILY-SNAP`(18자 ≤ varchar(20)).
+  OHLC 4필드 중 하나라도 결손이면 skip(부분 봉 적재 금지·mock 0). 멱등 — 같은 (code,1d,today) 키 중복 호출 시 행 안 늘고 값만 갱신.
+- **kill-switch**: `MAGICJAR_MARKET_DAILY_SNAPSHOT_ENABLED`(default true) — off 시 서비스 DISABLED 즉시 종료(콜 0).
+- **관측**: 처리 종목수·chunk·quotes·candlesMapped·upsertedRows·skipped·durationMs 로그 + audit(START·DONE·EMPTY).
+
+### 10-C. R-BF / R2 / managed 3자 분업 (LOCK)
+
+| 잡 | 시각 | universe | interval | 경로 / 충돌 처리 | 권위 |
+|----|------|----------|----------|------------------|------|
+| DailyCloseFinalizer | 20:10 | managed(watchlist) | today 1d | Redis WS 집계 → `insertIgnore`(ON CONFLICT DO NOTHING) | WS tick 집계(선행) |
+| **R2 snapshot** | **23:00** | **전종목 ~2,517** | **today 1d** | 멀티시세 → `upsertAll`(ON CONFLICT **DO UPDATE**) | **KIS 공식 종가(권위·후행 교정)** |
+| R-BF backfill | admin /run·여러 밤 | 전종목 | 과거 1d(10년) | range fetch → `saveAll`(ON CONFLICT DO NOTHING) | 과거봉 immutable |
+
+- **R2 는 today 1봉만 전진**(과거 gap 채우기 아님 — R-BF 소관). 시스템 며칠 down 시 누락 과거분은
+  `POST /admin/market-daily-backfill/run`(R-BF)으로 메운다.
+- **같은 (code,1d,today) 키 충돌 0**: DailyCloseFinalizer 가 20:10 INSERT(DO NOTHING)한 today 봉을, R2 가
+  23:00 에 **나중에 돌아** 멀티시세 공식 종가로 `upsertAll`(DO UPDATE) 하여 권위 확정(§2-D 정합). R-BF 는 today 미적재(어제까지)라 R2 와 시간 축 분리.
+
+### 10-D. SLO 영향 · rollback · 관측 (운영 단계 ADR 양식 §9-5)
+
+- **SLO 영향**: 사용자·자본 path 영향 0(BG 버킷 한정, ~84콜/일 · 야간 23:00). 자동매매 시그널·주문 path 미접촉.
+- **rollback**: `MAGICJAR_MARKET_DAILY_SNAPSHOT_ENABLED=false` → 야간 갱신 즉시 중단(기존 active universe·DailyCloseFinalizer
+  흐름 무영향). today 봉 잘못 덮을 위험 → OHLC 결손 quote skip + upsert 예외 graceful(다음 chunk 진행).
+- **관측 매트릭스**: 로그 `MarketDailyNightlySnapshot 종료: ... upserted={} durationMs={}` + audit_trail
+  `entity_type=market_daily_snapshot`(action START/DONE/EMPTY). frontend 영향 0(Visual 회귀 N/A).
+
+### 10-E. status 전환
+
+R1·R2 구현 완료로 본 ADR status **Proposed → Accepted** 전환 (R3 gap catch-up·R-BF full run 은 운영 단계 후속).
