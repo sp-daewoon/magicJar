@@ -3,10 +3,10 @@ id: T-20260609-1225-adr0118-r2-nightly-snapshot
 agent: market-data
 model: opus
 branch: agent/market-data/adr0118-r2-nightly-snapshot
-status: RUNNING
+status: DONE
 startedAt: 2026-06-09T12:25:38.079+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-09T12:36:04.804+09:00
+pr: #839
 parentPhase: ?
 ---
 
