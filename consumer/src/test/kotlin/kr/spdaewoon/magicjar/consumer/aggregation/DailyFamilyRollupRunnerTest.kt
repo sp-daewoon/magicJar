@@ -68,6 +68,64 @@ class DailyFamilyRollupRunnerTest {
     }
 
     @Test
+    fun `incremental(recentDays) — findLatest 경유 + 윈도우 잘리면 경계 부분 그룹 drop`() {
+        // 1y 경계 정확성 검증: 3개 연도(2024·2025·2026) 1d 입력, 윈도우가 잘린 상태(size >= recentDays)면
+        // 가장 이른 그룹(2024 연봉 — 윈도우 밖 더 이른 1d 포함 가능)은 upsert 제외, 2025·2026 만 갱신.
+        val oneDays =
+            listOf(
+                oneDay(dayTs(2024, 12, 30), o = 50000, h = 51000, l = 49000, c = 50500, v = 1000),
+                oneDay(dayTs(2025, 6, 10), o = 60000, h = 62000, l = 59000, c = 61000, v = 2000),
+                oneDay(dayTs(2025, 12, 30), o = 70000, h = 71000, l = 69000, c = 70500, v = 1500),
+                oneDay(dayTs(2026, 6, 9), o = 80000, h = 82000, l = 79000, c = 81000, v = 2500),
+            )
+        val repo = mockk<CandleRepository>()
+        // recentDays=3 로 findLatest 호출 — size(4) >= 3 → windowTruncated=true (경계 drop 작동).
+        every { repo.findLatestByCodeAndInterval(code, CandleInterval.ONE_DAY, 3) } returns oneDays
+        val upsertSlot = mutableListOf<List<Candle>>()
+        every { repo.upsertAll(capture(upsertSlot)) } answers { firstArg<List<Candle>>().size }
+        val runner = DailyFamilyRollupRunner(repo)
+
+        runner.rollupDetailed(code, recentDays = 3)
+
+        // findByCodeAndInterval(전량) 은 호출 안 됨 — incremental 은 findLatest 경유.
+        verify(exactly = 0) { repo.findByCodeAndInterval(code, CandleInterval.ONE_DAY) }
+        verify(exactly = 1) { repo.findLatestByCodeAndInterval(code, CandleInterval.ONE_DAY, 3) }
+
+        // 1y 롤업: 3개 연도 그룹(2024·2025·2026) → 가장 이른 2024 drop → 2025·2026 만 upsert.
+        val yearly = upsertSlot.first { it.firstOrNull()?.interval == CandleInterval.ONE_YEAR }
+        val yearlyYears =
+            yearly.map { it.ts.epochSeconds }.map { sec ->
+                java.time.Instant
+                    .ofEpochSecond(sec)
+                    .atZone(zone)
+                    .year
+            }
+        assertThat(yearlyYears).containsExactly(2025, 2026) // 2024(부분 그룹) 제외
+    }
+
+    @Test
+    fun `incremental — 윈도우 안에 전량 들어오면(size less than recentDays) drop 0 — full-regen 동일`() {
+        // 신규 상장 등 1d 가 윈도우보다 적으면 부분 그룹 없음 → 가장 이른 그룹도 완전 → drop 0.
+        val oneDays =
+            listOf(
+                oneDay(dayTs(2026, 6, 8), o = 293000, h = 315500, l = 292500, c = 295500, v = 38_929_682),
+                oneDay(dayTs(2026, 6, 9), o = 310000, h = 324000, l = 300000, c = 322000, v = 30_124_249),
+            )
+        val repo = mockk<CandleRepository>()
+        every { repo.findLatestByCodeAndInterval(code, CandleInterval.ONE_DAY, 400) } returns oneDays
+        val upsertSlot = mutableListOf<List<Candle>>()
+        every { repo.upsertAll(capture(upsertSlot)) } answers { firstArg<List<Candle>>().size }
+        val runner = DailyFamilyRollupRunner(repo)
+
+        runner.rollupDetailed(code, recentDays = 400)
+
+        // size(2) < 400 → drop 0 → full-regen 과 동일하게 1봉씩 모두 upsert.
+        val weekly = upsertSlot.first { it.firstOrNull()?.interval == CandleInterval.ONE_WEEK }
+        assertThat(weekly).hasSize(1)
+        assertThat(weekly.first().closeRaw).isEqualByComparingTo(BigDecimal(322000))
+    }
+
+    @Test
     fun `1d 전량 → 1wk·1mo·1y upsert (KIS 콜 0) + OHLCV 위임 정합`() {
         val oneDays =
             listOf(
