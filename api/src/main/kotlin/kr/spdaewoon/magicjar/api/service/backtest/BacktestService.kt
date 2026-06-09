@@ -4,7 +4,10 @@ import kotlinx.datetime.toKotlinLocalDate
 import kr.spdaewoon.magicjar.domain.backtest.BacktestException
 import kr.spdaewoon.magicjar.domain.backtest.BacktestRequest
 import kr.spdaewoon.magicjar.domain.backtest.BacktestResult
+import kr.spdaewoon.magicjar.domain.backtest.OverfitDiagnostics
 import kr.spdaewoon.magicjar.domain.backtest.PriceAdjustmentMode
+import kr.spdaewoon.magicjar.domain.backtest.SensitivityRequest
+import kr.spdaewoon.magicjar.domain.backtest.SensitivityResult
 import kr.spdaewoon.magicjar.domain.backtest.SizingPolicy
 import kr.spdaewoon.magicjar.domain.backtest.port.BacktestEngine
 import org.slf4j.LoggerFactory
@@ -30,6 +33,8 @@ import java.time.format.DateTimeParseException
 @Service
 class BacktestService(
     private val backtestEngine: BacktestEngine,
+    private val overfitDetector: OverfitDetector,
+    private val sensitivityAnalyzer: SensitivityAnalyzer,
 ) {
     private val log = LoggerFactory.getLogger(BacktestService::class.java)
 
@@ -103,6 +108,138 @@ class BacktestService(
         log.info("백테스트 서비스 요청: strategyId={}, universe={}, interval={}, from={}, to={}", strategyId, universe, interval, from, to)
 
         return backtestEngine.run(request)
+    }
+
+    /**
+     * 과최적화 탐지(IS/OOS 분할)를 실행한다 (ADR 0117 §2-6 · spec §3-R3).
+     *
+     * 백테스트 기간을 학습/검증 두 구간으로 나눠 각각 백테스트하고, 검증 구간에서도 돈이 되는지(과최적화 아닌지)를 판정한다.
+     */
+    fun detectOverfit(
+        strategyId: Long,
+        universe: List<String>,
+        interval: String,
+        fromStr: String,
+        toStr: String,
+        outOfSampleSplitStr: String,
+        initialCapital: BigDecimal,
+        taxModel: String = "korean_default",
+        commissionModel: String = "kis_direct",
+        slippageModel: String = "fixed_0.05",
+        priceAdjustmentMode: String = "ADJUSTED",
+    ): OverfitDiagnostics {
+        val request =
+            buildRequest(
+                strategyId = strategyId,
+                universe = universe,
+                interval = interval,
+                fromStr = fromStr,
+                toStr = toStr,
+                initialCapital = initialCapital,
+                taxModel = taxModel,
+                commissionModel = commissionModel,
+                slippageModel = slippageModel,
+                priceAdjustmentMode = priceAdjustmentMode,
+                outOfSampleSplit = parseDate(outOfSampleSplitStr),
+            )
+        log.info("과최적화 탐지 요청: strategyId={}, split={}", strategyId, outOfSampleSplitStr)
+        return overfitDetector.detect(request)
+    }
+
+    /**
+     * 파라미터 민감도 분석을 실행한다 (ADR 0117 §2-6 · spec §3-R3).
+     *
+     * 청산 파라미터 1개를 그리드로 sweep해 수익률 분포·고원(plateau) 안정성을 측정한다.
+     */
+    fun analyzeSensitivity(
+        strategyId: Long,
+        universe: List<String>,
+        interval: String,
+        fromStr: String,
+        toStr: String,
+        initialCapital: BigDecimal,
+        paramName: String,
+        grid: List<BigDecimal>,
+        taxModel: String = "korean_default",
+        commissionModel: String = "kis_direct",
+        slippageModel: String = "fixed_0.05",
+        priceAdjustmentMode: String = "ADJUSTED",
+    ): SensitivityResult {
+        val base =
+            buildRequest(
+                strategyId = strategyId,
+                universe = universe,
+                interval = interval,
+                fromStr = fromStr,
+                toStr = toStr,
+                initialCapital = initialCapital,
+                taxModel = taxModel,
+                commissionModel = commissionModel,
+                slippageModel = slippageModel,
+                priceAdjustmentMode = priceAdjustmentMode,
+                outOfSampleSplit = null,
+            )
+        val sensitivityRequest =
+            try {
+                SensitivityRequest(base = base, paramName = paramName, grid = grid)
+            } catch (e: IllegalArgumentException) {
+                throw BacktestException.InvalidRequestException(e.message ?: "민감도 요청이 올바르지 않습니다.")
+            }
+        log.info("민감도 분석 요청: strategyId={}, paramName={}, gridSize={}", strategyId, paramName, grid.size)
+        return sensitivityAnalyzer.analyze(sensitivityRequest)
+    }
+
+    /** 공통 [BacktestRequest] 빌더 — 파라미터 검증 + 문자열 파싱(단일 run·과최적화·민감도 공유). */
+    private fun buildRequest(
+        strategyId: Long,
+        universe: List<String>,
+        interval: String,
+        fromStr: String,
+        toStr: String,
+        initialCapital: BigDecimal,
+        taxModel: String,
+        commissionModel: String,
+        slippageModel: String,
+        priceAdjustmentMode: String,
+        outOfSampleSplit: kotlinx.datetime.LocalDate?,
+    ): BacktestRequest {
+        if (universe.isEmpty()) {
+            throw BacktestException.InvalidRequestException("universe는 비어있을 수 없습니다.")
+        }
+        if (initialCapital <= BigDecimal.ZERO) {
+            throw BacktestException.InvalidRequestException("initialCapital은 0보다 커야 합니다: $initialCapital")
+        }
+        val from = parseDate(fromStr)
+        val to = parseDate(toStr)
+        if (from > to) {
+            throw BacktestException.InvalidRequestException("from($fromStr)은 to($toStr)보다 클 수 없습니다.")
+        }
+        val adjMode =
+            try {
+                PriceAdjustmentMode.valueOf(priceAdjustmentMode.uppercase())
+            } catch (e: IllegalArgumentException) {
+                throw BacktestException.InvalidRequestException(
+                    "priceAdjustmentMode 값이 올바르지 않습니다: '$priceAdjustmentMode'. 허용 값: ${PriceAdjustmentMode.entries.map { it.name }}",
+                )
+            }
+        return try {
+            BacktestRequest(
+                strategyId = strategyId,
+                universe = universe,
+                interval = interval,
+                from = from,
+                to = to,
+                initialCapital = initialCapital,
+                taxModel = taxModel,
+                commissionModel = commissionModel,
+                slippageModel = slippageModel,
+                priceAdjustmentMode = adjMode,
+                sizingPolicy = SizingPolicy.AllCapital,
+                outOfSampleSplit = outOfSampleSplit,
+            )
+        } catch (e: IllegalArgumentException) {
+            throw BacktestException.InvalidRequestException(e.message ?: "백테스트 요청이 올바르지 않습니다.")
+        }
     }
 
     private fun parseDate(dateStr: String): kotlinx.datetime.LocalDate =

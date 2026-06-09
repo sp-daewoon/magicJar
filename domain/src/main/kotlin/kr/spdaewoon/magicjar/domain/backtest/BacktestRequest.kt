@@ -19,6 +19,13 @@ import java.math.BigDecimal
  * @param slippageModel 슬리피지 모델 키 ("fixed_0.05" · "none")
  * @param priceAdjustmentMode 가격 모드 (RAW · ADJUSTED)
  * @param sizingPolicy 포지션 사이징 정책 (1차: AllCapital)
+ * @param outOfSampleSplit IS/OOS 분할일 (ADR 0117 §2-6 · spec §3-R3 LOCK). **null이면 단일 run(현행 동작 무변경)**.
+ *   지정 시 과최적화 탐지 orchestrator([kr.spdaewoon.magicjar.api.service.backtest.OverfitDetector])가 이 날짜를 경계로
+ *   from~splitDate=In-Sample(학습)·splitDate~to=Out-of-Sample(검증) 2 run으로 분할 실행한다. from < splitDate ≤ to 이어야 한다.
+ *   엔진 [run]은 이 필드를 **무시**한다(단일 run만 수행) — 분할은 전적으로 orchestrator 책임(코어 산식 무변경 LOCK).
+ * @param exitParamOverride 청산 파라미터 1개 override (spec §3-R3 민감도 sweep 전용 · add-only). **null이면 전략 정의 그대로(현행)**.
+ *   지정 시 엔진이 조회한 전략 정의의 손절%·익절%·트레일링% 중 1개를 이 값으로 치환해 시뮬레이션한다(DB write 0 — 메모리 override).
+ *   민감도 분석([SensitivityRequest])이 그리드 각 점마다 이 필드만 바꿔 [run]을 반복 호출하는 용도.
  */
 data class BacktestRequest(
     val strategyId: Long,
@@ -32,11 +39,59 @@ data class BacktestRequest(
     val slippageModel: String = "fixed_0.05",
     val priceAdjustmentMode: PriceAdjustmentMode = PriceAdjustmentMode.ADJUSTED,
     val sizingPolicy: SizingPolicy = SizingPolicy.AllCapital,
+    val outOfSampleSplit: LocalDate? = null,
+    val exitParamOverride: ExitParamOverride? = null,
 ) {
     init {
         require(from <= to) { "from must be <= to: from=$from, to=$to" }
         require(initialCapital > BigDecimal.ZERO) { "initialCapital must be positive: $initialCapital" }
         require(universe.isNotEmpty()) { "universe must be non-empty" }
+        outOfSampleSplit?.let {
+            require(it in from..to) { "outOfSampleSplit must be within [from, to]: split=$it, from=$from, to=$to" }
+        }
+    }
+}
+
+/**
+ * 청산 파라미터 override (spec §3-R3 민감도 sweep 전용 · add-only).
+ *
+ * 민감도 분석은 전략의 **핵심 청산 파라미터 1개**를 그리드로 sweep해 수익률 분포·안정성을 측정한다.
+ * 전략 정의는 DB 영속이므로, sweep 매 점마다 DB를 건드리지 않고 **메모리에서만** 해당 파라미터를 치환하기 위해
+ * 이 객체를 [BacktestRequest.exitParamOverride]로 주입한다. 엔진은 조회한 [kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition]의
+ * 대응 필드를 이 값으로 copy해 시뮬레이션한다(buy/sell DSL AST는 불변 — 청산 knob만 영향).
+ *
+ * 백테스트로 재현 가능한 candle-only knob(손절·익절·트레일링)만 대상이다(spec §3-R3 — 체결강도/CTTR 제외).
+ *
+ * @param target 치환 대상 파라미터
+ * @param value 치환 값 (%) — 예: 손절 3.0 → fixedStopLoss=3.0%
+ */
+data class ExitParamOverride(
+    val target: ExitParam,
+    val value: BigDecimal,
+)
+
+/**
+ * 민감도 sweep 대상 청산 파라미터 식별자 (spec §3-R3 `paramName` LOCK 정합).
+ *
+ * 식별자 문자열([paramName])은 [SensitivityRequest.paramName]·[OverfitDiagnostics] 리포트에 그대로 노출된다.
+ */
+enum class ExitParam(
+    val paramName: String,
+) {
+    /** 고정 손절 비율 (%) — [kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition.fixedStopLoss]. */
+    FIXED_STOP_LOSS("fixed_stop_loss_pct"),
+
+    /** 익절 비율 (%) — [kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition.takeProfitPct]. */
+    TAKE_PROFIT("take_profit_pct"),
+
+    /** 트레일링 스탑 비율 (%) — [kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition.trailingStop]. */
+    TRAILING_STOP("trailing_stop_pct"),
+
+    ;
+
+    companion object {
+        /** [paramName] 문자열 → enum (대소문자 무시). 미일치 시 null. */
+        fun fromParamName(name: String): ExitParam? = entries.firstOrNull { it.paramName.equals(name, ignoreCase = true) }
     }
 }
 
