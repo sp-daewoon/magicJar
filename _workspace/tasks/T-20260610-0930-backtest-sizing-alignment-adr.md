@@ -6,7 +6,7 @@ branch: agent/architect/backtest-sizing-alignment-adr
 status: DONE
 startedAt: 2026-06-10T09:30:00.000+09:00
 completedAt: 2026-06-10T09:55:00.000+09:00
-pr: TBD
+pr: #868
 parentPhase: ?
 ---
 
