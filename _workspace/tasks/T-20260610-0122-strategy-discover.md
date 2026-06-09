@@ -3,10 +3,10 @@ id: T-20260610-0122-strategy-discover
 agent: strategy
 model: opus
 branch: agent/strategy-engine/discover-perf-atr-fix
-status: RUNNING
+status: DONE
 startedAt: 2026-06-10T01:22:10.403+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-10T01:32:23.583+09:00
+pr: #856
 parentPhase: 발굴 스크리너 성능·ATR
 ---
 
@@ -14,10 +14,10 @@ parentPhase: 발굴 스크리너 성능·ATR
 발굴 스크리너 2건 — (A) `POST /api/screener/daytrade-discover` 응답 ~28s 성능 개선 + (B) ATR 점수 0.0 점검·수정. 둘 다 스크리너 scoring 경로라 한 PR.
 
 ## 결과물 체크리스트
-- [ ] (B) ATR 점수 0.0 원인 규명 (버그 여부 단정 + 실측 근거)
-- [ ] (B) ATR scoring 수정 (smoothed NATR + 단타 적합 sweet-spot 재보정)
-- [ ] (A) perf 진단 + 캐싱 최적화 (presetKey·filter·interval·limit·tradingDay 키, userId 무관)
-- [ ] 테스트 (캐시 동작 + ATR 비-0 검증)
+- [x] (B) ATR 점수 0.0 원인 규명 (버그 여부 단정 + 실측 근거)
+- [x] (B) ATR scoring 수정 (smoothed NATR + 단타 적합 sweet-spot 재보정)
+- [x] (A) perf 진단 + 캐싱 최적화 (presetKey·filter·interval·limit·tradingDay 키, userId 무관)
+- [x] 테스트 (캐시 동작 + ATR 비-0 검증)
 
 ## 의존성
 - ScreenerEngineImpl / DaytradeDiscoverService / MultiCriteriaRanker / IndicatorVolatility 읽음
