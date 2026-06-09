@@ -3,10 +3,10 @@ id: T-20260609-1507-worktree-agent-a3f148abd9defb35d
 agent: market-data
 model: opus
 branch: agent/market-data/market-daily-channel-fix-migration
-status: RUNNING
+status: DONE
 startedAt: 2026-06-09T15:07:39.890+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-09T15:30:57.036+09:00
+pr: #844
 parentPhase: ?
 ---
 
