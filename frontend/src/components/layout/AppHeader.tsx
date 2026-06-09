@@ -54,6 +54,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: '전략',
     items: [
+      { to: '/strategy/daytrade-discover', label: '단타 발굴' },
       { to: '/strategy/research', label: '전략 리서치' },
       { to: '/strategy/builder', label: '전략 빌더' },
       { to: '/strategy/list', label: '전략 목록' },
