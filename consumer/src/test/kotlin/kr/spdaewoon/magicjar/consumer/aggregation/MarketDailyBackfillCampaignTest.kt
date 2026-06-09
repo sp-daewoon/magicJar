@@ -6,6 +6,7 @@ import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.config.MarketDailyBackfillProperties
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerMarketDailyUniverseJpaRepository
 import kr.spdaewoon.magicjar.consumer.reconciliation.MarketDailyUniverseProvider
@@ -66,12 +67,14 @@ class MarketDailyBackfillCampaignTest {
         completionMinRows: Int = 200,
         historyYears: Int = 10,
         recencyGraceDays: Int = 7,
+        noAdvanceCooldownDays: Int = 7,
     ) = MarketDailyBackfillProperties(
         enabled = enabled,
         historyYears = historyYears,
         nightlyCallCap = nightlyCallCap,
         completionMinRows = completionMinRows,
         recencyGraceDays = recencyGraceDays,
+        noAdvanceCooldownDays = noAdvanceCooldownDays,
     )
 
     private fun newCampaign(
@@ -81,11 +84,11 @@ class MarketDailyBackfillCampaignTest {
         candleRepo: CandleRepository,
         universeRepo: ConsumerMarketDailyUniverseJpaRepository = mockk(relaxed = true),
         throttle: BackfillThrottleGate = passThroughThrottle(),
+        audit: ConsumerAuditTrailJpaRepository = mockk(relaxed = true),
     ): MarketDailyBackfillCampaign {
         val worker = mockk<CandleBackfillWorker>()
         // sanity check 재사용 — 본 테스트는 통과 candle을 그대로 반환(정합성 검증은 CandleBackfillWorkerTest 책임).
         every { worker.sanityCheck(any(), any()) } answers { firstArg() }
-        val audit = mockk<ConsumerAuditTrailJpaRepository>(relaxed = true)
         return MarketDailyBackfillCampaign(
             universeProvider = provider,
             universeRepository = universeRepo,
@@ -335,5 +338,144 @@ class MarketDailyBackfillCampaignTest {
 
         verify(exactly = 0) { rangePort.fetchDailyCandlesInRange(any(), any(), any()) }
         assertThat(r.processedSymbols).isEqualTo(1)
+    }
+
+    // ---- ★ gap-aware 완료 판정 + no-advance cooldown (2026-06-09 hotfix) ----------------------
+
+    @Test
+    fun `gap-aware - stale-but-rowful(5000행·max_ts 4개월 전) INCOMPLETE → 재시도(OR 버그 회귀 차단)`() {
+        // 036930 재현: 일봉 5,000행(≥ minRows 200) 이나 max_ts=4개월 전(recent=false).
+        // 직전 OR 구현은 row 수 만으로 "완료" 오판 → 영구 skip. gap-aware 는 recency 필수 → INCOMPLETE → fetch.
+        val rangePort = mockk<KisDailyCandleRangePort>()
+        val candleRepo = mockk<CandleRepository>(relaxed = true)
+        val universeRepo = mockk<ConsumerMarketDailyUniverseJpaRepository>(relaxed = true)
+        every { candleRepo.countByCodeAndInterval("036930", CandleInterval.ONE_DAY) } returns 5000L
+        // max_ts 4개월 전 — recencyGraceDays(7) 밖 → recent=false.
+        val staleMaxTs = today.minusMonths(4).atStartOfDay(zone).toInstant()
+        every { candleRepo.findMaxTsByCodeAndInterval("036930", CandleInterval.ONE_DAY) } returns staleMaxTs
+        every { universeRepo.findListedAtByCode("036930") } returns today.minusYears(15)
+        // 재시도 시 KIS 가 새 데이터를 줌(max_ts 전진) — fetch 후 적재.
+        val newCandle = candle("036930", today.minusDays(1))
+        every { rangePort.fetchDailyCandlesInRange("036930", any(), any()) } returns listOf(newCandle)
+        every { candleRepo.saveAll(any()) } returns 1
+
+        val campaign = newCampaign(props(), provider(listOf("036930")), rangePort, candleRepo, universeRepo)
+        val r = campaign.runCampaign()
+
+        // OR 버그였다면 alreadyComplete=1·fetch 0 이었을 것. gap-aware 는 fetch 시도함.
+        assertThat(r.alreadyComplete).isEqualTo(0)
+        verify(exactly = 1) { rangePort.fetchDailyCandlesInRange("036930", any(), any()) }
+    }
+
+    @Test
+    fun `gap-aware - 신규단기상장(거래일 전수 보유·recent) COMPLETE → 매 run 재fetch 안 함`() {
+        // 상장 20일 전, clamp 구간 거래일(~14 평일) 전수 보유 + max_ts=어제(recent) → COMPLETE.
+        val rangePort = mockk<KisDailyCandleRangePort>()
+        val candleRepo = mockk<CandleRepository>(relaxed = true)
+        val universeRepo = mockk<ConsumerMarketDailyUniverseJpaRepository>(relaxed = true)
+        val listedAt = today.minusDays(20)
+        every { universeRepo.findListedAtByCode("900900") } returns listedAt
+        // 상장~어제 평일 수 전수 보유(coverage ≥ 0.90). rows < minRows(200) 이지만 clamp 전수.
+        var expectedWeekdays = 0L
+        var cur = listedAt
+        while (!cur.isAfter(toDate)) {
+            if (cur.dayOfWeek.value <= 5) expectedWeekdays++
+            cur = cur.plusDays(1)
+        }
+        every { candleRepo.countByCodeAndInterval("900900", CandleInterval.ONE_DAY) } returns expectedWeekdays
+        every { candleRepo.findMaxTsByCodeAndInterval("900900", CandleInterval.ONE_DAY) } returns
+            toDate.atStartOfDay(zone).toInstant()
+
+        val campaign = newCampaign(props(), provider(listOf("900900")), rangePort, candleRepo, universeRepo)
+        val r = campaign.runCampaign()
+
+        assertThat(r.alreadyComplete).isEqualTo(1)
+        verify(exactly = 0) { rangePort.fetchDailyCandlesInRange(any(), any(), any()) }
+    }
+
+    @Test
+    fun `no-advance cooldown - KIS 0전진 시 마킹 + 다음 run 재fetch 안 함(over-fetch 닫기)`() {
+        val rangePort = mockk<KisDailyCandleRangePort>()
+        val candleRepo = mockk<CandleRepository>(relaxed = true)
+        val universeRepo = mockk<ConsumerMarketDailyUniverseJpaRepository>(relaxed = true)
+        val audit = mockk<ConsumerAuditTrailJpaRepository>(relaxed = true)
+        // run1: 미완료(stale). fetch 했으나 max_ts 전진 0(pre==post) → no-advance 마킹.
+        val staleMaxTs = today.minusMonths(4).atStartOfDay(zone).toInstant()
+        every { candleRepo.countByCodeAndInterval("036930", CandleInterval.ONE_DAY) } returns 5000L
+        every { candleRepo.findMaxTsByCodeAndInterval("036930", CandleInterval.ONE_DAY) } returns staleMaxTs
+        every { universeRepo.findListedAtByCode("036930") } returns today.minusYears(15)
+        // KIS 가 (이미 보유한) 과거봉만 반환 → saveAll DO NOTHING 0 INSERT, max_ts 불변.
+        every { rangePort.fetchDailyCandlesInRange("036930", any(), any()) } returns
+            listOf(candle("036930", today.minusMonths(5)))
+        every { candleRepo.saveAll(any()) } returns 0
+        // cooldown 조회 — run1 시점엔 마킹 없음(null).
+        every { audit.findLatestOccurredAt(any(), eq("036930"), any()) } returns null
+        val savedActions = mutableListOf<ConsumerAuditTrailJpaEntity>()
+        every { audit.save(capture(savedActions)) } answers { firstArg() }
+
+        val campaign = newCampaign(props(), provider(listOf("036930")), rangePort, candleRepo, universeRepo, audit = audit)
+        campaign.runCampaign()
+
+        // run1: no-advance 마킹 1건(entity_id=code, ≤40).
+        val noAdvance = savedActions.filter { it.action == MarketDailyBackfillCampaign.ACTION_NO_ADVANCE }
+        assertThat(noAdvance).hasSize(1)
+        assertThat(noAdvance.first().entityId).isEqualTo("036930")
+        assertThat(noAdvance.first().entityId.length).isLessThanOrEqualTo(40)
+
+        // run2: cooldown 마킹이 어제(7일 cooldown 이내) → fetch skip(over-fetch 닫기).
+        every { audit.findLatestOccurredAt(any(), eq("036930"), eq(MarketDailyBackfillCampaign.ACTION_NO_ADVANCE)) } returns
+            today.minusDays(1).atStartOfDay(zone).toInstant()
+        val r2 = campaign.runCampaign()
+
+        assertThat(r2.coolingDownSymbols).isEqualTo(1)
+        // run1 1회만 fetch, run2 는 cooldown skip → 누적 정확히 1회.
+        verify(exactly = 1) { rangePort.fetchDailyCandlesInRange("036930", any(), any()) }
+    }
+
+    @Test
+    fun `no-advance cooldown 만료 - cooldownDays 경과 후 재시도(영구 skip 아님)`() {
+        val rangePort = mockk<KisDailyCandleRangePort>()
+        val candleRepo = mockk<CandleRepository>(relaxed = true)
+        val universeRepo = mockk<ConsumerMarketDailyUniverseJpaRepository>(relaxed = true)
+        val audit = mockk<ConsumerAuditTrailJpaRepository>(relaxed = true)
+        every { candleRepo.countByCodeAndInterval("036930", CandleInterval.ONE_DAY) } returns 5000L
+        every { candleRepo.findMaxTsByCodeAndInterval("036930", CandleInterval.ONE_DAY) } returns
+            today.minusMonths(4).atStartOfDay(zone).toInstant()
+        every { universeRepo.findListedAtByCode("036930") } returns today.minusYears(15)
+        every { rangePort.fetchDailyCandlesInRange("036930", any(), any()) } returns emptyList()
+        // 직전 마킹이 cooldown(7일) 보다 오래됨(10일 전) → cooldown 만료 → 재시도.
+        every { audit.findLatestOccurredAt(any(), eq("036930"), eq(MarketDailyBackfillCampaign.ACTION_NO_ADVANCE)) } returns
+            today.minusDays(10).atStartOfDay(zone).toInstant()
+
+        val campaign =
+            newCampaign(props(noAdvanceCooldownDays = 7), provider(listOf("036930")), rangePort, candleRepo, universeRepo, audit = audit)
+        val r = campaign.runCampaign()
+
+        assertThat(r.coolingDownSymbols).isEqualTo(0)
+        verify(exactly = 1) { rangePort.fetchDailyCandlesInRange("036930", any(), any()) }
+    }
+
+    @Test
+    fun `audit entity_id - 캠페인 run audit entity_id ≤40 (varchar(40) overflow 회귀 차단)`() {
+        val rangePort = mockk<KisDailyCandleRangePort>()
+        val candleRepo = mockk<CandleRepository>(relaxed = true)
+        val universeRepo = mockk<ConsumerMarketDailyUniverseJpaRepository>(relaxed = true)
+        val audit = mockk<ConsumerAuditTrailJpaRepository>(relaxed = true)
+        // 완료 종목 1개 → START·RUN_DONE audit 발생(runId ~60자였던 결함 entity_id).
+        every { candleRepo.countByCodeAndInterval(any(), any()) } returns 5000L
+        every { candleRepo.findMaxTsByCodeAndInterval(any(), any()) } returns toDate.atStartOfDay(zone).toInstant()
+        val saved = mutableListOf<ConsumerAuditTrailJpaEntity>()
+        every { audit.save(capture(saved)) } answers { firstArg() }
+
+        val campaign = newCampaign(props(), provider(listOf("005930")), rangePort, candleRepo, universeRepo, audit = audit)
+        campaign.runCampaign()
+
+        // 모든 audit row 의 entity_id 가 audit_trail.entity_id VARCHAR(40) 이내(START·RUN_DONE 포함).
+        assertThat(saved).isNotEmpty
+        assertThat(saved).allSatisfy { row ->
+            assertThat(row.entityId.length).isLessThanOrEqualTo(40)
+        }
+        // START·RUN_DONE 은 짧은 고정 식별자(runId 아님).
+        assertThat(saved.map { it.entityId }).contains(MarketDailyBackfillCampaign.CAMPAIGN_ENTITY_ID)
     }
 }
