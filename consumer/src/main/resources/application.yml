@@ -270,6 +270,9 @@ magicjar:
     nightly-call-cap: ${MAGICJAR_MARKET_DAILY_BACKFILL_NIGHTLY_CALL_CAP:6000}
     completion-min-rows: ${MAGICJAR_MARKET_DAILY_BACKFILL_COMPLETION_MIN_ROWS:200}
     recency-grace-days: ${MAGICJAR_MARKET_DAILY_BACKFILL_RECENCY_GRACE_DAYS:7}
+    # fetch 했으나 max_ts 전진 0(KIS-unavailable·corporate action 미해소) 종목 재시도 cooldown 일수.
+    # 0=cooldown 비활성(매 run 재시도). over-fetch 가드 — cooldown 만료 후 재진입(데이터 출현 시 복구).
+    no-advance-cooldown-days: ${MAGICJAR_MARKET_DAILY_BACKFILL_NO_ADVANCE_COOLDOWN_DAYS:7}
 
   # MarketSession 설정 (ADR 0013 §2-2, PR-29a 본격 교체)
   session:

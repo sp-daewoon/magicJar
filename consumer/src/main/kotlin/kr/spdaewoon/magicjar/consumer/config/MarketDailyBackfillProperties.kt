@@ -17,6 +17,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties
  * | nightly-call-cap | MAGICJAR_MARKET_DAILY_BACKFILL_NIGHTLY_CALL_CAP | 6000 | 한 실행당 KIS 콜 상한. 초과분 다음 실행 이연 |
  * | completion-min-rows | MAGICJAR_MARKET_DAILY_BACKFILL_COMPLETION_MIN_ROWS | 200 | 종목 완료 판정 최소 row 수(candle-row 기반 progress) |
  * | recency-grace-days | MAGICJAR_MARKET_DAILY_BACKFILL_RECENCY_GRACE_DAYS | 7 | 최신 봉이 today 로부터 이 일수 이내면 "최근까지 적재됨"으로 본다 |
+ * | no-advance-cooldown-days | MAGICJAR_MARKET_DAILY_BACKFILL_NO_ADVANCE_COOLDOWN_DAYS | 7 | fetch 했으나 max_ts 전진 0(KIS-unavailable) 종목 재시도 cooldown 일수(over-fetch 가드) |
  *
  * ## nightly-call-cap 산정 근거 (ADR 0118 §2-B·§5-1)
  *   전종목 10년 ≈ 75,000콜. 야간 윈도(snapshot 100콜 선소비 후 잔여)에서 밤당 일정 예산만 소비.
@@ -37,6 +38,7 @@ data class MarketDailyBackfillProperties(
     val nightlyCallCap: Int = 6_000,
     val completionMinRows: Int = 200,
     val recencyGraceDays: Int = 7,
+    val noAdvanceCooldownDays: Int = 7,
 ) {
     fun normalizedHistoryYears(): Int = historyYears.coerceIn(1, 30)
 
@@ -45,4 +47,7 @@ data class MarketDailyBackfillProperties(
     fun normalizedCompletionMinRows(): Int = completionMinRows.coerceAtLeast(1)
 
     fun normalizedRecencyGraceDays(): Long = recencyGraceDays.coerceAtLeast(0).toLong()
+
+    /** no-advance cooldown 일수 — 0 이면 cooldown 비활성(매 run 재시도). */
+    fun normalizedNoAdvanceCooldownDays(): Long = noAdvanceCooldownDays.coerceAtLeast(0).toLong()
 }

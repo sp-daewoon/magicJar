@@ -13,6 +13,7 @@ import kr.spdaewoon.magicjar.domain.market.port.KisDailyCandleRangePort
 import kr.spdaewoon.magicjar.domain.market.port.KisDailyRangeUnavailableException
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
@@ -74,6 +75,25 @@ class MarketDailyBackfillCampaign(
          * (직전 `"KIS-MARKET-DAILY-BACKFILL"` = 25자 → varchar(20) overflow 결함, hotfix).
          */
         const val BACKFILL_SOURCE = "KIS-MKT-DAILY-BF"
+
+        /**
+         * 신규/단기 상장 종목 완료 판정 — clamp 구간 기대 거래일 대비 보유 비율 임계.
+         * 0.90 = 주말 제외 평일 수(공휴일 포함 과대 추정) 대비 90% 이상 보유면 "전수 적재"로 본다.
+         * (공휴일·거래정지일로 실제 거래일 < 평일 수 이므로 100% 요구는 영구 미완료 risk → 0.90 보수).
+         */
+        const val COVERAGE_RATIO = 0.90
+
+        /**
+         * audit_trail.entity_id VARCHAR(40) 한계 (api/V1__baseline.sql:215).
+         * runId(`mkt-daily-bf:<epoch>-<uuid>` ~60자)를 그대로 entity_id 에 넣으면 22001 overflow →
+         * audit 미기록("value too long for varying(40)" 로그). 캠페인 run audit 의 entity_id 는
+         * 짧은 식별자([CAMPAIGN_ENTITY_ID])로 고정하고, 전체 runId 는 detail_json 에 보존한다.
+         */
+        const val AUDIT_ENTITY_ID_MAX_LEN = 40
+        const val CAMPAIGN_ENTITY_ID = "mkt-daily-bf"
+
+        /** no-advance cooldown audit action — 종목별 entity_id=code(6자, ≤40 안전)로 마킹. */
+        const val ACTION_NO_ADVANCE = "MARKET_DAILY_BACKFILL_NO_ADVANCE"
     }
 
     init {
@@ -104,6 +124,7 @@ class MarketDailyBackfillCampaign(
         val callCap: Int,
         val failedSymbols: Int,
         val skippedThrottle: Int,
+        val coolingDownSymbols: Int,
         val remainingSymbols: Int,
         val durationMs: Long,
     )
@@ -125,7 +146,7 @@ class MarketDailyBackfillCampaign(
         val codes = universeProvider.resolveCodes()
         if (codes.isEmpty()) {
             log.warn("MarketDailyBackfillCampaign EMPTY_UNIVERSE — 보통주 0종목 (데이터 없음 — mock 합성 0)")
-            audit("MARKET_DAILY_BACKFILL_EMPTY", runId, mapOf("runId" to runId))
+            audit("MARKET_DAILY_BACKFILL_EMPTY", campaignAuditEntityId(runId), mapOf("runId" to runId))
             return emptyResult(runId, CampaignStatus.EMPTY_UNIVERSE, startMs)
         }
 
@@ -146,7 +167,7 @@ class MarketDailyBackfillCampaign(
         )
         audit(
             "MARKET_DAILY_BACKFILL_START",
-            runId,
+            campaignAuditEntityId(runId),
             mapOf(
                 "runId" to runId,
                 "universeSize" to codes.size,
@@ -164,12 +185,22 @@ class MarketDailyBackfillCampaign(
         var callsConsumed = 0
         var failed = 0
         var skippedThrottle = 0
+        var coolingDown = 0
         var capReached = false
 
         for (code in codes) {
-            // 멱등 — 이미 완료된 종목 skip (candle-row 기반 progress).
-            if (isSymbolComplete(code, toDate)) {
+            // 멱등 — 이미 완료된 종목 skip (candle-row 기반 progress, gap-aware).
+            if (isSymbolComplete(code, historyFloor, toDate)) {
                 alreadyComplete++
+                continue
+            }
+
+            // ★ KIS-unavailable 무한 재fetch 가드 (over-fetch 닫기) — 직전 run 들이 fetch 했으나 max_ts 가
+            //   전진하지 못한(KIS 가 신규 데이터 0) 종목은 cooldown 기간 동안 skip. corporate action 해소 후
+            //   데이터 출현 대비 주기적 재시도는 유지(cooldown 만료 후 재진입). audit 기반 마킹(Flyway 0).
+            //   완료(alreadyComplete)와 분리 집계 — 미완료지만 이번 run 만 의도적 이연.
+            if (isInNoAdvanceCooldown(code, today)) {
+                coolingDown++
                 continue
             }
 
@@ -179,7 +210,7 @@ class MarketDailyBackfillCampaign(
                 break
             }
 
-            val outcome = processSymbol(code, historyFloor, toDate, runId)
+            val outcome = processSymbol(code, historyFloor, toDate, runId, today)
             when (outcome) {
                 is SymbolOutcome.Throttled -> {
                     skippedThrottle++
@@ -205,8 +236,9 @@ class MarketDailyBackfillCampaign(
             }
         }
 
-        val remaining = countRemaining(codes, toDate)
-        // 잔여 0 = 전종목 완주(COMPLETED). 잔여>0 = 콜 cap·throttle 이월·루프 break 로 미완료분 다음 실행 이연(CAP_REACHED).
+        val remaining = countRemaining(codes, historyFloor, toDate)
+        // 잔여 0 = 전종목 완주(COMPLETED). 잔여>0 = 콜 cap·throttle 이월·cooldown 이연·루프 break 로
+        // 미완료분 다음 실행 이연(CAP_REACHED). cooldown 종목은 미완료지만 KIS 가 새 데이터 줄 때까지 의도적 이연.
         val status = if (remaining == 0) CampaignStatus.COMPLETED else CampaignStatus.CAP_REACHED
 
         val durationMs = System.currentTimeMillis() - startMs
@@ -223,13 +255,14 @@ class MarketDailyBackfillCampaign(
                 callCap = callCap,
                 failedSymbols = failed,
                 skippedThrottle = skippedThrottle,
+                coolingDownSymbols = coolingDown,
                 remainingSymbols = remaining,
                 durationMs = durationMs,
             )
 
         log.info(
             "MarketDailyBackfillCampaign 종료: runId={} status={} universe={} alreadyComplete={} processed={} " +
-                "newlyComplete={} inserted={} calls={}/{} failed={} remaining={} durationMs={}",
+                "newlyComplete={} inserted={} calls={}/{} failed={} coolingDown={} remaining={} durationMs={}",
             runId,
             status,
             codes.size,
@@ -240,12 +273,13 @@ class MarketDailyBackfillCampaign(
             callsConsumed,
             callCap,
             failed,
+            coolingDown,
             remaining,
             durationMs,
         )
         audit(
             "MARKET_DAILY_BACKFILL_RUN_DONE",
-            runId,
+            campaignAuditEntityId(runId),
             mapOf(
                 "runId" to runId,
                 "status" to status.name,
@@ -257,6 +291,7 @@ class MarketDailyBackfillCampaign(
                 "callsConsumed" to callsConsumed,
                 "callCap" to callCap,
                 "failed" to failed,
+                "coolingDown" to coolingDown,
                 "remaining" to remaining,
                 "durationMs" to durationMs,
             ),
@@ -285,6 +320,7 @@ class MarketDailyBackfillCampaign(
             callCap = properties.normalizedNightlyCallCap(),
             failedSymbols = 0,
             skippedThrottle = 0,
+            coolingDownSymbols = 0,
             remainingSymbols = 0,
             durationMs = System.currentTimeMillis() - startMs,
         )
@@ -313,6 +349,7 @@ class MarketDailyBackfillCampaign(
         historyFloor: LocalDate,
         toDate: LocalDate,
         runId: String,
+        today: LocalDate,
     ): SymbolOutcome {
         // listed_at clamp — 상장 이전 구간 원천 제외(false fetch 0). listed_at null 이면 historyFloor 사용.
         val listedAt: LocalDate? =
@@ -329,6 +366,9 @@ class MarketDailyBackfillCampaign(
             return SymbolOutcome.Done(callsUsed = 0, inserted = 0, complete = true)
         }
 
+        // ★ no-advance 가드 baseline — fetch 직전 max_ts 캡처. fetch 후 전진 안 하면 cooldown 마킹.
+        val preFetchMaxTs = safeMaxTs(code)
+
         val throttledResult =
             backfillThrottleGate.runThrottled(code) {
                 fetchAndStore(code, fromDate, toDate, runId)
@@ -338,15 +378,42 @@ class MarketDailyBackfillCampaign(
         }
         // circuit breaker outcome 보고 — fetch 실패(rate-limit 압박)면 trip 누적.
         backfillThrottleGate.recordRunOutcome(throttledResult.rateLimitPressure)
-        return if (throttledResult.failed) {
-            SymbolOutcome.Failed(callsUsed = throttledResult.callsUsed)
-        } else {
-            SymbolOutcome.Done(
-                callsUsed = throttledResult.callsUsed,
-                inserted = throttledResult.inserted,
-                complete = isSymbolComplete(code, toDate),
-            )
+        if (throttledResult.failed) {
+            return SymbolOutcome.Failed(callsUsed = throttledResult.callsUsed)
         }
+
+        val complete = isSymbolComplete(code, historyFloor, toDate)
+        if (!complete) {
+            // fetch 는 성공(fail-closed 아님)했으나 여전히 미완료. max_ts 가 전진했는지 확인.
+            // 전진 0 = KIS 가 새 데이터를 안 줌(KIS-unavailable) → cooldown 마킹(over-fetch 닫기).
+            val postFetchMaxTs = safeMaxTs(code)
+            if (!advanced(preFetchMaxTs, postFetchMaxTs)) {
+                markNoAdvanceCooldown(code, runId, today, preFetchMaxTs, postFetchMaxTs)
+            }
+        }
+        return SymbolOutcome.Done(
+            callsUsed = throttledResult.callsUsed,
+            inserted = throttledResult.inserted,
+            complete = complete,
+        )
+    }
+
+    private fun safeMaxTs(code: String): Instant? =
+        try {
+            candleRepository.findMaxTsByCodeAndInterval(code, INTERVAL)
+        } catch (e: Exception) {
+            log.warn("MarketDailyBackfillCampaign maxTs 조회 실패(no-advance 판정): code={} err={}", code, e.message)
+            null
+        }
+
+    /** post 가 pre 보다 더 최신이면 전진. pre==null 인데 post 가 생기면 전진(첫 적재). 둘 다 null 이면 전진 0. */
+    private fun advanced(
+        pre: Instant?,
+        post: Instant?,
+    ): Boolean {
+        if (post == null) return false
+        if (pre == null) return true
+        return post.isAfter(pre)
     }
 
     private data class FetchStoreResult(
@@ -419,18 +486,28 @@ class MarketDailyBackfillCampaign(
     }
 
     /**
-     * candle-row 기반 progress — 종목이 10년 backfill 완료되었는가.
+     * candle-row 기반 progress — 종목이 10년 backfill 완료되었는가 (★ gap-aware, 2026-06-09 hotfix).
      *
-     * 완료 판정 (둘 다 충족):
-     *   (a) row 수 ≥ completionMinRows (충분한 이력 적재), 또는
-     *   (b) 최신 봉이 toDate 로부터 recencyGraceDays 이내(최근까지 적재됨)
-     *   → (a) OR (b) 충족 시 완료. 신규/단기 상장 종목은 거래일이 적어 (a)를 못 채울 수 있으므로 (b)로 보정.
+     * ## 직전 결함 (root cause) — OR 오판으로 stale-but-rowful 영구 skip
+     *   직전 구현은 `rows >= minRows OR recent` 였다(KDoc 은 "둘 다 충족"이라 적혀 모순). 효과:
+     *   036930(일봉 5,000행 ≥ 200, max_ts=2026-02-11 로 4개월 stale)이 **row 수 조건만으로 "완료" 오판**
+     *   → 루프 `continue` skip → R-BF 가 fetch 시도조차 안 함 → 갭 자력 복구 불가(영구 누락).
      *
-     * 보수적: 둘 다 미충족이면 미완료(재처리 대상). 과도 재fetch 는 DO NOTHING 이라 데이터 손상 0이나,
-     * 콜 낭비 방지를 위해 (b) 최신성으로 1차 skip.
+     * ## gap-aware 판정 (over-skip 닫기) — recency 를 필수 조건으로 승격
+     *   - `recent` = 최신 봉이 toDate 로부터 [recencyGraceDays] 이내. **모든 경우 필수**(OR 의 빠져나갈 구멍 제거).
+     *     → 036930 처럼 row 는 많으나 stale 한 종목은 recent=false → **INCOMPLETE** → 재시도.
+     *   - `hasEnoughRows` = rows ≥ [completionMinRows]. 정상 장수명 종목의 충분한 이력.
+     *   - `coversListedWindow` = listed_at clamp 구간 [max(historyFloor, listed_at)..toDate] 기대 거래일을
+     *     [COVERAGE_RATIO] 이상 보유. **신규/단기 상장**(거래일<minRows)이 매 run 영구 재fetch 되는 것을 방지
+     *     (직전 OR 의 (b) 가 보호하던 케이스를 recency 필수 하에서 정확히 복원).
+     *   - 완료 = `recent AND (hasEnoughRows OR coversListedWindow)`.
+     *
+     *   신규/단기 상장: 어제까지 거래(recent=true) + clamp 구간 거래일 전수 보유(coversListedWindow=true)
+     *   → COMPLETE(매 run 재fetch 안 함). stale-but-rowful: recent=false → INCOMPLETE(재시도). 둘 다 정확.
      */
     fun isSymbolComplete(
         code: String,
+        historyFloor: LocalDate,
         toDate: LocalDate,
     ): Boolean {
         val rows =
@@ -446,23 +523,42 @@ class MarketDailyBackfillCampaign(
             try {
                 candleRepository.findMaxTsByCodeAndInterval(code, INTERVAL)
             } catch (e: Exception) {
-                log.warn("MarketDailyBackfillCampaign maxTs 실패 — row 수만으로 판정: code={} err={}", code, e.message)
-                null
+                log.warn("MarketDailyBackfillCampaign maxTs 실패 — 미완료 간주(보수): code={} err={}", code, e.message)
+                return false
             }
-        val recentEnough =
+        // ★ recency 필수 — stale-but-rowful(036930) 을 row 수 만으로 완료 처리하던 OR 구멍 제거.
+        val recent =
             maxTs?.let {
                 val latestDate = it.atZone(KST_ZONE).toLocalDate()
                 !latestDate.isBefore(toDate.minusDays(properties.normalizedRecencyGraceDays()))
             } ?: false
+        if (!recent) return false
 
-        return rows >= properties.normalizedCompletionMinRows() || recentEnough
+        val hasEnoughRows = rows >= properties.normalizedCompletionMinRows()
+        if (hasEnoughRows) return true
+
+        // 신규/단기 상장 보정 — clamp 구간 기대 거래일 전수(COVERAGE_RATIO) 보유 시 완료(매 run 재fetch 방지).
+        val clampStart = maxOf(historyFloor, safeListedAt(code) ?: historyFloor)
+        val expectedTradingDays = countWeekdaysInclusive(clampStart, toDate)
+        if (expectedTradingDays <= 0L) return true
+        return rows.toDouble() >= expectedTradingDays.toDouble() * COVERAGE_RATIO
     }
 
-    /** 미완료 종목 수 — run 종료 후 잔여 산출 (status·이연 판단). */
+    /** listed_at 조회 (no-throw — 실패 시 null → historyFloor clamp). */
+    private fun safeListedAt(code: String): LocalDate? =
+        try {
+            universeRepository.findListedAtByCode(code)
+        } catch (e: Exception) {
+            log.warn("MarketDailyBackfillCampaign listed_at 조회 실패(완료 판정): code={} err={}", code, e.message)
+            null
+        }
+
+    /** 미완료 종목 수 — run 종료 후 잔여 산출 (status·이연 판단). cooldown 종목도 미완료로 집계(실태 반영). */
     private fun countRemaining(
         codes: List<String>,
+        historyFloor: LocalDate,
         toDate: LocalDate,
-    ): Int = codes.count { !isSymbolComplete(it, toDate) }
+    ): Int = codes.count { !isSymbolComplete(it, historyFloor, toDate) }
 
     /** range 콜 수 보수 추정 — 거래일/100건 페이지 + 1. 실제 페이지네이션은 어댑터 내부. */
     private fun estimateCalls(
@@ -488,6 +584,77 @@ class MarketDailyBackfillCampaign(
         return count
     }
 
+    // ---- no-advance cooldown (over-fetch 가드 · audit 기반 · Flyway 0) -------------------------
+
+    /**
+     * 종목이 no-advance cooldown 중인가 — 직전 [ACTION_NO_ADVANCE] 마킹이 cooldown 일수 이내면 true.
+     *
+     * fetch 했으나 KIS 가 새 데이터를 안 준(max_ts 전진 0) 종목은 cooldown 동안 fetch skip(콜 낭비 방지).
+     * cooldown 만료 후 재진입(corporate action 해소 등으로 데이터 출현 시 복구 — 주기적 재확인 유지).
+     * cooldownDays=0 또는 마킹 없음 → cooldown 아님(즉시 재시도 가능).
+     */
+    private fun isInNoAdvanceCooldown(
+        code: String,
+        today: LocalDate,
+    ): Boolean {
+        val cooldownDays = properties.normalizedNoAdvanceCooldownDays()
+        if (cooldownDays <= 0L) return false
+        val lastMarked =
+            try {
+                auditRepository.findLatestOccurredAt("market_daily_backfill", code, ACTION_NO_ADVANCE)
+            } catch (e: Exception) {
+                log.warn("MarketDailyBackfillCampaign no-advance 조회 실패 — cooldown 미적용: code={} err={}", code, e.message)
+                return false
+            } ?: return false
+        val lastDate = lastMarked.atZone(KST_ZONE).toLocalDate()
+        // 마킹일 + cooldownDays 가 today 보다 미래면(아직 cooldown 구간) skip.
+        return !today.isAfter(lastDate.plusDays(cooldownDays))
+    }
+
+    /** no-advance 마킹 — fetch 성공·미완료·max_ts 전진 0(KIS-unavailable) 종목 cooldown 등록. */
+    private fun markNoAdvanceCooldown(
+        code: String,
+        runId: String,
+        today: LocalDate,
+        preMaxTs: Instant?,
+        postMaxTs: Instant?,
+    ) {
+        log.info(
+            "MarketDailyBackfillCampaign no-advance cooldown 마킹 — KIS 신규 데이터 0(전진 없음): " +
+                "code={} preMaxTs={} postMaxTs={} cooldownDays={} runId={}",
+            code,
+            preMaxTs,
+            postMaxTs,
+            properties.normalizedNoAdvanceCooldownDays(),
+            runId,
+        )
+        // entity_id=code(6자, ≤40 안전). 전체 runId·max_ts 는 detail_json 보존.
+        audit(
+            ACTION_NO_ADVANCE,
+            code,
+            mapOf(
+                "runId" to runId,
+                "code" to code,
+                "today" to today.toString(),
+                "preMaxTs" to preMaxTs?.toString(),
+                "postMaxTs" to postMaxTs?.toString(),
+                "cooldownDays" to properties.normalizedNoAdvanceCooldownDays(),
+            ),
+        )
+    }
+
+    /**
+     * 캠페인 run audit 의 entity_id — runId(~60자) 대신 짧은 고정 식별자([CAMPAIGN_ENTITY_ID], ≤40).
+     * runId 전체는 detail_json 에 보존(추적 가능). audit_trail.entity_id VARCHAR(40) overflow 회귀 방지.
+     */
+    private fun campaignAuditEntityId(runId: String): String {
+        require(CAMPAIGN_ENTITY_ID.length <= AUDIT_ENTITY_ID_MAX_LEN) {
+            "CAMPAIGN_ENTITY_ID exceeds audit_trail.entity_id VARCHAR($AUDIT_ENTITY_ID_MAX_LEN)"
+        }
+        // runId 는 detail_json 으로 들어가므로 entity_id 는 고정 식별자만 사용(run 별 구분은 detail.runId).
+        return CAMPAIGN_ENTITY_ID
+    }
+
     private fun audit(
         action: String,
         entityId: String,
@@ -500,13 +667,17 @@ class MarketDailyBackfillCampaign(
                 log.warn("MarketDailyBackfillCampaign audit JSON 직렬화 실패: action={} err={}", action, e.message)
                 "{}"
             }
+        // 방어적 truncate — entity_id 가 VARCHAR(40) 를 넘으면 22001 로 audit 전건 실패(audit 미기록).
+        // 정상 경로(campaignAuditEntityId·code)는 이미 ≤40 이나, 회귀 가드로 한 번 더 절단.
+        val safeEntityId =
+            if (entityId.length > AUDIT_ENTITY_ID_MAX_LEN) entityId.substring(0, AUDIT_ENTITY_ID_MAX_LEN) else entityId
         try {
             auditRepository.save(
                 ConsumerAuditTrailJpaEntity(
                     actor = "market-data",
                     action = action,
                     entityType = "market_daily_backfill",
-                    entityId = entityId,
+                    entityId = safeEntityId,
                     detailJson = detailJson,
                 ),
             )
