@@ -183,26 +183,43 @@ internal object IndicatorVolatility {
         return IndicatorResult(spec, series, SOURCE)
     }
 
-    /** calc_donchian_upper indicators.py:858-862 */
+    /**
+     * 돈치안 채널 상단 — **직전 N봉(현재 봉 제외)의 최고가**.
+     *
+     * 표준 Donchian breakout 정의: `donchian_upper(n)[i] = max(high[i-n .. i-1])`.
+     * 현재 봉을 포함하면 `high[i]`가 max에 들어가 `close[i] > donchian_upper(n)`이
+     * 항상 false가 되어(close ≤ high ≤ max) 돌파 비교가 무력화된다(V76 검증 #860 실측).
+     * `rollingMax`(현재 봉 포함) 결과를 1봉 shift 하여 현재 봉을 제외한다.
+     * 현재 봉 제외 = 미래 미참조이므로 룩어헤드 가드와도 정합.
+     */
     fun donchianUpper(
         spec: IndicatorSpec,
         candles: List<Candle>,
     ): IndicatorResult {
         val period = spec.intParam("period", 20)
-        if (candles.size < period) throw IndicatorException.InsufficientCandlesException(period, candles.size)
+        // 직전 N봉을 보려면 (현재 봉 제외) 캔들이 N+1개 이상 필요.
+        if (candles.size < period + 1) throw IndicatorException.InsufficientCandlesException(period + 1, candles.size)
         val highMax = KisIndicatorMath.rollingMax(KisIndicatorMath.highs(candles), period)
-        return IndicatorResult(spec, KisIndicatorMath.toSeries(candles, highMax, "upper"), SOURCE)
+        // 1봉 shift → donchian_upper(n)[i] = rollingMax[i-1] = max(high[i-n .. i-1]) (현재 봉 제외).
+        val priorMax: List<BigDecimal?> = KisIndicatorMath.shift(highMax, 1)
+        return IndicatorResult(spec, KisIndicatorMath.toSeries(candles, priorMax, "upper"), SOURCE)
     }
 
-    /** calc_donchian_lower indicators.py:865-869 */
+    /**
+     * 돈치안 채널 하단 — **직전 N봉(현재 봉 제외)의 최저가**.
+     *
+     * 표준 정의 정합: `donchian_lower(n)[i] = min(low[i-n .. i-1])`. donchianUpper 동일 사유로
+     * 현재 봉을 제외해야 `close < donchian_lower(n)` 하향 돌파/지지 비교가 성립.
+     */
     fun donchianLower(
         spec: IndicatorSpec,
         candles: List<Candle>,
     ): IndicatorResult {
         val period = spec.intParam("period", 20)
-        if (candles.size < period) throw IndicatorException.InsufficientCandlesException(period, candles.size)
+        if (candles.size < period + 1) throw IndicatorException.InsufficientCandlesException(period + 1, candles.size)
         val lowMin = KisIndicatorMath.rollingMin(KisIndicatorMath.lows(candles), period)
-        return IndicatorResult(spec, KisIndicatorMath.toSeries(candles, lowMin, "lower"), SOURCE)
+        val priorMin: List<BigDecimal?> = KisIndicatorMath.shift(lowMin, 1)
+        return IndicatorResult(spec, KisIndicatorMath.toSeries(candles, priorMin, "lower"), SOURCE)
     }
 
     /** calc_chop indicators.py:1270-1280 — Choppiness Index */

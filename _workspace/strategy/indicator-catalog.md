@@ -126,8 +126,8 @@
 | `natr` | `calc_natr` | L828 | `period: int = 14` | `{natr}` | period+1 | (ATR / close) * 100 |
 | `keltner_upper` | `calc_keltner_upper` | L836 | `ema_period: int = 20, atr_period: int = 10, multiplier: float = 2.0` | `{upper}` | max(ema_period, atr_period+1) | **주의**: KIS 코드 atr_period default = **10** (기존 카탈로그 14와 상이 — KIS 코드 우선) |
 | `keltner_lower` | `calc_keltner_lower` | L847 | `ema_period: int = 20, atr_period: int = 10, multiplier: float = 2.0` | `{lower}` | max(ema_period, atr_period+1) | **주의**: 동일 — atr_period=10 |
-| `donchian_upper` | `calc_donchian_upper` | L858 | `period: int = 20` | `{upper}` | period | N일 최고가 rolling max |
-| `donchian_lower` | `calc_donchian_lower` | L865 | `period: int = 20` | `{lower}` | period | N일 최저가 rolling min |
+| `donchian_upper` | `calc_donchian_upper` | L858 | `period: int = 20` | `{upper}` | period+1 | **직전 N봉(현재 봉 제외) 최고가** — 표준 breakout 채널. `close > donchian_upper(n)` 돌파 성립(현재 봉 포함 시 close≤high≤max로 항상 false였던 결함 fix, V76 #860) |
+| `donchian_lower` | `calc_donchian_lower` | L865 | `period: int = 20` | `{lower}` | period+1 | **직전 N봉(현재 봉 제외) 최저가** — `close < donchian_lower(n)` 하향 돌파/지지 성립 |
 | `chop` | `calc_chop` | L1270 | `period: int = 14` | `{chop}` | period | ATR(1) sum / high-low range (log10 비율) |
 | `mass_index` | `calc_mass_index` | L1306 | `period: int = 25` | `{mass}` | period | EMA9(HL) / EMA9(EMA9(HL)) ratio rolling sum |
 | `augen` | `calc_augen` | L1501 | `period: int = 14` | `{augen}` | period | log_return / log_return.std rolling |
