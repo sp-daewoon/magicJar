@@ -3,10 +3,10 @@ id: T-20260609-1127-daytrade-discover-screen
 agent: frontend
 model: opus
 branch: agent/frontend/daytrade-discover-screen
-status: RUNNING
+status: DONE
 startedAt: 2026-06-09T11:27:15.901+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-09T11:37:55.314+09:00
+pr: #836
 parentPhase: ?
 ---
 
