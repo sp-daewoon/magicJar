@@ -1,10 +1,12 @@
 package kr.spdaewoon.magicjar.api.screener
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import kotlinx.datetime.Clock
 import kotlinx.datetime.LocalDate
 import kr.spdaewoon.magicjar.api.application.screener.MultiCriteriaRanker
 import kr.spdaewoon.magicjar.api.controller.screener.DaytradeDiscoverRequest
+import kr.spdaewoon.magicjar.api.infrastructure.cache.DaytradeDiscoverCache
 import kr.spdaewoon.magicjar.api.service.screener.DaytradeDiscoverService
 import kr.spdaewoon.magicjar.domain.backtest.port.StrategyEvaluatorPort
 import kr.spdaewoon.magicjar.domain.instrument.Instrument
@@ -53,6 +55,28 @@ class DaytradeDiscoverServiceTest {
     private val kafkaTemplate: KafkaTemplate<String, String> = mock()
     private val objectMapper = ObjectMapper()
 
+    /** in-memory StringRedisTemplate 백킹 — DaytradeDiscoverCache 단위 테스트용 (실 Redis 불필요). */
+    private val redisStore = mutableMapOf<String, String>()
+    private val redisTemplate: org.springframework.data.redis.core.StringRedisTemplate =
+        mock<org.springframework.data.redis.core.StringRedisTemplate>().also { tpl ->
+            val ops = mock<org.springframework.data.redis.core.ValueOperations<String, String>>()
+            whenever(tpl.opsForValue()).thenReturn(ops)
+            whenever(ops.get(any<String>())).thenAnswer { redisStore[it.getArgument(0)] }
+            org.mockito.kotlin
+                .doAnswer {
+                    redisStore[it.getArgument(0)] = it.getArgument(1)
+                    Unit
+                }.whenever(ops)
+                .set(any<String>(), any<String>(), any<java.time.Duration>())
+        }
+    private val discoverCache =
+        DaytradeDiscoverCache(
+            redisTemplate = redisTemplate,
+            objectMapper = ObjectMapper().registerKotlinModule(),
+            ttlMinutes = 60,
+            cacheEnabled = true,
+        )
+
     /** V75 시드 단타 프리셋을 흉내내는 provider — entry_dsl은 일봉 표현 가능 식별자만 사용 (trade_intensity 미포함). */
     private val candidateProvider =
         ResearchCandidateProvider {
@@ -89,10 +113,16 @@ class DaytradeDiscoverServiceTest {
             ranker = ranker,
             kafkaTemplate = kafkaTemplate,
             objectMapper = objectMapper,
+            discoverCache = discoverCache,
             discoveryEnabled = enabled,
             candleLookbackDays = 90,
             minCandles = 20,
         )
+
+    @org.junit.jupiter.api.BeforeEach
+    fun resetCache() {
+        redisStore.clear()
+    }
 
     @Test
     fun `strategyId 없이 빌트인 DAYTRADE 프리셋으로 후보를 발굴한다`() {
@@ -162,6 +192,40 @@ class DaytradeDiscoverServiceTest {
         assertThat(result.skippedReasons).containsKey("캔들 미수집")
     }
 
+    @Test
+    fun `변동성 큰 mover의 마지막 봉 일중 변동이 20퍼센트를 넘어도 ATR 점수는 0이 아니다 (회귀)`() {
+        // 회귀: 단일 캔들 (high-low)/close > 0.20 이면 옛 sweet-spot이 0.0으로 clamp 했음.
+        // 수정 후엔 14봉 smoothed NATR(약 9~10%)로 평가 → 0보다 큰 점수.
+        whenever(instrumentLookup.findActive(any<ScreenerFilter>())).thenReturn(listOf(instrument("089030", "테크윙")))
+        whenever(candleRepository.findLatestByCodeAndInterval(any(), any(), any())).thenReturn(buildVolatileMoverCandles("089030", 60))
+        whenever(evaluator.evaluate(any(), any<DslNode>(), any())).thenReturn(buyResult())
+
+        val result = service().discover(DaytradeDiscoverRequest(userId = 12345678L, startRealtimeWatch = false))
+
+        assertThat(result.matchedCount).isEqualTo(1)
+        val atr = result.matches.first().scoreComponents["atr"]!!
+        assertThat(atr).isGreaterThan(BigDecimal.ZERO)
+    }
+
+    @Test
+    fun `같은 거래일 재호출은 캐시 HIT로 universe 재평가를 생략한다 (perf)`() {
+        whenever(instrumentLookup.findActive(any<ScreenerFilter>())).thenReturn(
+            listOf(instrument("005930", "삼성전자"), instrument("000660", "SK하이닉스")),
+        )
+        whenever(candleRepository.findLatestByCodeAndInterval(any(), any(), any())).thenReturn(buildCandles("X", 60))
+        whenever(evaluator.evaluate(any(), any<DslNode>(), any())).thenReturn(buyResult())
+
+        val svc = service()
+        val first = svc.discover(DaytradeDiscoverRequest(userId = 12345678L, startRealtimeWatch = false))
+        val second = svc.discover(DaytradeDiscoverRequest(userId = 99999999L, startRealtimeWatch = false))
+
+        // 두 호출 결과의 후보는 동일 (userId 무관 캐시)
+        assertThat(second.matches.map { it.instrumentCode }).isEqualTo(first.matches.map { it.instrumentCode })
+        // 2차 호출은 evaluator를 1회도 더 호출하지 않음 (캐시 HIT — universe 재평가 생략)
+        // 1차: universe 2종목 × 프리셋 평가. 2차가 캐시 HIT면 추가 evaluate 0.
+        verify(evaluator, org.mockito.kotlin.times(2)).evaluate(any(), any<DslNode>(), any())
+    }
+
     // ── 픽스처 ──────────────────────────────────────────────────────────────────────────────
 
     private fun buyResult(): StrategyEvalResult =
@@ -209,6 +273,38 @@ class DaytradeDiscoverServiceTest {
                 lowAdj = BigDecimal("69500"),
                 closeAdj = BigDecimal("70500"),
                 volume = 1_000_000L,
+                source = "TEST",
+            )
+        }
+    }
+
+    /**
+     * 변동성 큰 mover 픽스처 — 마지막 봉의 (high-low)/close 가 0.20을 초과하도록 구성하되,
+     * 14봉 평균 TrueRange/close(NATR)는 약 9~10% 수준이 되게 만든다 (실측 089030 패턴 재현).
+     */
+    private fun buildVolatileMoverCandles(
+        code: String,
+        count: Int,
+    ): List<Candle> {
+        val now = Clock.System.now()
+        return (0 until count).map { i ->
+            val isLast = i == count - 1
+            // 평시: 약 6% 범위 (low 9700~high 10300, close 10000). 마지막 봉: 범위 24% (low 8800~high 11200).
+            val high = if (isLast) "11200" else "10300"
+            val low = if (isLast) "8800" else "9700"
+            Candle(
+                code = code,
+                interval = CandleInterval.ONE_DAY,
+                ts = now.minus(kotlin.time.Duration.parse("${count - i}d")),
+                openRaw = BigDecimal("10000"),
+                highRaw = BigDecimal(high),
+                lowRaw = BigDecimal(low),
+                closeRaw = BigDecimal("10000"),
+                openAdj = BigDecimal("10000"),
+                highAdj = BigDecimal(high),
+                lowAdj = BigDecimal(low),
+                closeAdj = BigDecimal("10000"),
+                volume = 5_000_000L,
                 source = "TEST",
             )
         }
