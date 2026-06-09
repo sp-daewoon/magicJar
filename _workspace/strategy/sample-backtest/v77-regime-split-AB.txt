@@ -1,0 +1,25 @@
+# V77 재검증 레짐분할 OOS-A/B 성과 요약 (trade 목록 제외 — 용량 절감)
+### id=63 REGIME-A 2024-06..2025-06
+{"totalReturn": 0.5806, "cagr": 0.5811, "maxDrawdown": 0.2966, "sharpeRatio": -0.2817, "winRate": 0.5035, "totalTrades": 141, "winningTrades": 71, "losingTrades": 70, "profitFactor": 1.1894}
+### id=63 REGIME-B 2025-06..2026-06
+{"totalReturn": 2.5227, "cagr": 2.4317, "maxDrawdown": 0.3096, "sharpeRatio": -0.0883, "winRate": 0.493, "totalTrades": 213, "winningTrades": 105, "losingTrades": 108, "profitFactor": 1.4284}
+### id=64 REGIME-A 2024-06..2025-06
+{"totalReturn": -0.3374, "cagr": -0.3376, "maxDrawdown": 0.6079, "sharpeRatio": -0.3004, "winRate": 0.4667, "totalTrades": 255, "winningTrades": 119, "losingTrades": 136, "profitFactor": 0.9389}
+### id=64 REGIME-B 2025-06..2026-06
+{"totalReturn": 4.8573, "cagr": 4.6461, "maxDrawdown": 0.198, "sharpeRatio": -0.0072, "winRate": 0.4744, "totalTrades": 449, "winningTrades": 213, "losingTrades": 236, "profitFactor": 1.4344}
+### id=65 REGIME-A 2024-06..2025-06
+{"totalReturn": -0.3062, "cagr": -0.3064, "maxDrawdown": 0.5818, "sharpeRatio": -0.2954, "winRate": 0.4659, "totalTrades": 249, "winningTrades": 116, "losingTrades": 133, "profitFactor": 0.945}
+### id=65 REGIME-B 2025-06..2026-06
+{"totalReturn": 4.7869, "cagr": 4.5796, "maxDrawdown": 0.2155, "sharpeRatio": -0.0073, "winRate": 0.4719, "totalTrades": 445, "winningTrades": 210, "losingTrades": 235, "profitFactor": 1.4298}
+### id=66 REGIME-A 2024-06..2025-06
+{"totalReturn": 0.377, "cagr": 0.3773, "maxDrawdown": 0.4442, "sharpeRatio": -0.213, "winRate": 0.4732, "totalTrades": 205, "winningTrades": 97, "losingTrades": 108, "profitFactor": 1.0875}
+### id=66 REGIME-B 2025-06..2026-06
+{"totalReturn": 3.393, "cagr": 3.26, "maxDrawdown": 0.2549, "sharpeRatio": -0.0497, "winRate": 0.4755, "totalTrades": 286, "winningTrades": 136, "losingTrades": 150, "profitFactor": 1.4457}
+### id=67 REGIME-A 2024-06..2025-06
+{"totalReturn": 0.2024, "cagr": 0.2025, "maxDrawdown": 0.521, "sharpeRatio": -0.1481, "winRate": 0.4444, "totalTrades": 504, "winningTrades": 224, "losingTrades": 280, "profitFactor": 1.0353}
+### id=67 REGIME-B 2025-06..2026-06
+{"totalReturn": 1.3815, "cagr": 1.3389, "maxDrawdown": 0.426, "sharpeRatio": -0.1743, "winRate": 0.4448, "totalTrades": 562, "winningTrades": 250, "losingTrades": 312, "profitFactor": 1.1313}
+### id=68 REGIME-A 2024-06..2025-06
+{"totalReturn": 0.1693, "cagr": 0.1695, "maxDrawdown": 0.7876, "sharpeRatio": -0.0903, "winRate": 0.4531, "totalTrades": 576, "winningTrades": 261, "losingTrades": 315, "profitFactor": 1.0286}
+### id=68 REGIME-B 2025-06..2026-06
+{"totalReturn": 6.4995, "cagr": 6.192, "maxDrawdown": 0.1856, "sharpeRatio": 0.0399, "winRate": 0.4715, "totalTrades": 825, "winningTrades": 389, "losingTrades": 436, "profitFactor": 1.337}
