@@ -97,6 +97,8 @@ class OrderRouterKafkaListener(
     private val holdingDemandRegistrarProvider: ObjectProvider<kr.spdaewoon.magicjar.consumer.ingestion.HoldingDemandRegistrar>,
     // ADR 0115 §P2-2 — 같은 전략·종목 SELL 거부 N회 누적 시 자동 정지 + 1회 알림(유령 매도 폭주 차단).
     private val sellRejectAutoPauseTracker: SellRejectAutoPauseTracker,
+    // WS_PREINSERT race 병합 시 누락된 strategy_position 재생. 부재 환경은 기존 주문 흐름 유지.
+    private val strategyPositionExecutionReplayServiceProvider: ObjectProvider<StrategyPositionExecutionReplayService>? = null,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String = "MOCK",
     @Value("\${magicjar.signal.market-hours-gate.enabled:true}")
@@ -415,14 +417,16 @@ class OrderRouterKafkaListener(
             // Step 8·9: ACK 처리
             val ackData = (kisResult as OrderResult.Right).value
             val ackTime = Instant.now()
+            val orderRepoForAck = orderRequestRepositoryProvider.getIfAvailable()
+            val wsPreinsert = findWsPreinsertBeforeAck(orderRepoForAck, ackData.kisOrderNo)
             try {
                 val updated =
-                    orderRequestRepositoryProvider
-                        .getIfAvailable()
+                    orderRepoForAck
                         ?.updateKisAck(savedOrderId, ackData.kisOrderNo, ackData.kisFwdgOrgno, ackTime)
                 if (updated == null) {
                     throw IllegalStateException("OrderRequestRepository.updateKisAck returned null")
                 }
+                replayStrategyPositionAfterWsPreinsertMerge(wsPreinsert, updated)
             } catch (e: Exception) {
                 log.error("updateKisAck 실패: orderId={} err={}", savedOrderId, e.message)
                 handlePostKisDbSyncFailure(
@@ -519,6 +523,49 @@ class OrderRouterKafkaListener(
         } catch (e: Exception) {
             log.error("OrderRequestRepository.save 실패: userId={} signalId={} err={}", intent.userId, intent.signalId, e.message)
             PersistResult.SaveFailed(e.message ?: "unknown")
+        }
+    }
+
+    private fun findWsPreinsertBeforeAck(
+        orderRepo: OrderRequestRepository?,
+        kisOrderNo: String,
+    ): OrderRequest? {
+        if (orderRepo == null) return null
+        return try {
+            orderRepo
+                .findByKisOrderNo(kisOrderNo)
+                ?.takeIf { it.idempotencyKey == "WS_PREINSERT:$kisOrderNo" && it.strategyId == 0L }
+        } catch (e: Exception) {
+            log.warn("WS_PREINSERT 조회 실패 — strategy_position replay 감지 skip: ODNO={} err={}", kisOrderNo, e.message)
+            null
+        }
+    }
+
+    private fun replayStrategyPositionAfterWsPreinsertMerge(
+        wsPreinsert: OrderRequest?,
+        canonicalRequest: OrderRequest,
+    ) {
+        if (wsPreinsert?.id == null) return
+        val replayService = strategyPositionExecutionReplayServiceProvider?.getIfAvailable() ?: return
+        val replayed =
+            runCatching { replayService.replayIfMissing(canonicalRequest, "WS_PREINSERT_ACK_MERGE") }
+                .onFailure { e ->
+                    log.warn(
+                        "WS_PREINSERT strategy_position replay 실패 — ACK 병합은 유지: preinsertOrderId={} canonicalOrderId={} err={}",
+                        wsPreinsert.id,
+                        canonicalRequest.id,
+                        e.message,
+                    )
+                }.getOrDefault(0)
+        if (replayed > 0) {
+            log.warn(
+                "WS_PREINSERT strategy_position replay: preinsertOrderId={} canonicalOrderId={} strategyId={} code={} replayed={}",
+                wsPreinsert.id,
+                canonicalRequest.id,
+                canonicalRequest.strategyId,
+                canonicalRequest.code,
+                replayed,
+            )
         }
     }
 
