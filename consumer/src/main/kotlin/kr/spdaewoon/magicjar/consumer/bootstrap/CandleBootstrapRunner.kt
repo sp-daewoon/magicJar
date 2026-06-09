@@ -9,6 +9,7 @@ import kr.spdaewoon.magicjar.consumer.reconciliation.ManagedCandleUniverseProvid
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.ApplicationArguments
 import org.springframework.boot.ApplicationRunner
 import org.springframework.core.annotation.Order
@@ -45,6 +46,10 @@ class CandleBootstrapRunner(
     private val aggregateBackfillRunner: AggregateBackfillRunner,
     private val instrumentJpaRepository: ConsumerInstrumentJpaRepository,
     private val auditTrailJpaRepository: ConsumerAuditTrailJpaRepository,
+    // 부팅 시 managed universe cold-start/aggregate 트리거 kill-switch (default 활성).
+    // 운영 점검/마이그레이션 창에서 false 로 두면 부팅 cold-start storm(1m 126일 백필 무더기)을 차단한다.
+    // ★ 일봉 wipe 후 1d==0 이 1m cold-start 까지 깨우는 결합 결함의 운영 회피책 (구조 디커플링은 후속 ADR).
+    @Value("\${magicjar.candle.bootstrap.enabled:true}") private val enabled: Boolean = true,
 ) : ApplicationRunner {
     private val log = LoggerFactory.getLogger(CandleBootstrapRunner::class.java)
 
@@ -66,6 +71,10 @@ class CandleBootstrapRunner(
     }
 
     override fun run(args: ApplicationArguments) {
+        if (!enabled) {
+            log.warn("CandleBootstrapRunner 비활성(magicjar.candle.bootstrap.enabled=false) — 부팅 cold-start/aggregate 트리거 건너뜀")
+            return
+        }
         log.info("CandleBootstrapRunner 시작 — managed universe 1d/1m candle 공백·부족 종목 감지")
         val universeEntries = managedUniverseProvider.resolve()
         if (universeEntries.isEmpty()) {
