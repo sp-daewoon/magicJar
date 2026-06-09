@@ -30,6 +30,8 @@ import java.math.BigDecimal
  *   [5]  PRDY_CTRT           — 전일대비율 (%)
  *  [12]  CNTG_VOL            — 체결거래량
  *  [13]  ACML_VOL            — 누적거래량
+ *  [14]  ACML_TR_PBMN        — 누적거래대금(원)        ← R1-A 흡수 (ADR 0117 §3-R1)
+ *  [18]  CTTR                — 체결강도 (KIS 계산 완료값) ← R1-A 흡수 (ADR 0117 §3-R1)
  *  [33]  BSOP_DATE           — 영업일자 (YYYYMMDD)
  *
  * H0NXCNT0 필드 인덱스 (open-trading-api domestic_stock_functions_ws.py ccnl_nxt() cols 배열):
@@ -43,6 +45,8 @@ import java.math.BigDecimal
  *   [4]  PRDY_VRSS           — 전일대비
  *   [5]  PRDY_CTRT           — 전일대비율 (%)
  *  [12]  CNTG_VOL            — 체결거래량
+ *  [14]  ACML_TR_PBMN        — 누적거래대금(원)        ← R1-A 흡수 (ADR 0117 §3-R1, parseH0Stcnt0 재사용)
+ *  [18]  CTTR                — 체결강도 (KIS 계산 완료값) ← R1-A 흡수 (ADR 0117 §3-R1, parseH0Stcnt0 재사용)
  *  [33]  BSOP_DATE           — 영업일자 (YYYYMMDD)
  *
  * NXT 대체거래소 cover 시간: ADR 0063 정합 — 08:00~20:00 KST.
@@ -79,6 +83,14 @@ object KisWsMessageParser {
     private const val IDX_PRDY_VRSS = 4 // 전일대비
     private const val IDX_PRDY_CTRT = 5 // 전일대비율(%)
     private const val IDX_CNTG_VOL = 12
+
+    // R1-A 체결강도 흡수 (ADR 0117 §3-R1 — KIS 계산 완료값 흡수만, 자체 산식 0)
+    // KIS-first raw 출처(2026-06-09 fetch 재검증):
+    //   https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
+    //   ccnl_krx() columns 배열: [14]=ACML_TR_PBMN, [18]=CTTR, [19]=SELN_CNTG_SMTN, [20]=SHNU_CNTG_SMTN
+    private const val IDX_ACML_TR_PBMN = 14 // 누적거래대금(원)
+    private const val IDX_CTTR = 18 // 체결강도 (KIS 계산 완료값)
+
     private const val IDX_BSOP_DATE = 33
 
     /**
@@ -166,8 +178,11 @@ object KisWsMessageParser {
     ): TickEvent? {
         return try {
             val fields = rawData.split("^")
-            if (fields.size < 34) {
-                log.warn("H0STCNT0 필드 수 부족: expected ≥34 got={}", fields.size)
+            // 필드 게이트 (ADR 0117 §3-R1): index 18(CTTR)·14(ACML_TR_PBMN) 추출 보장 위해 < 21.
+            // 기존 < 34는 BSOP_DATE(33) 전제였으나 체결강도 흡수에 과도 → < 21로 완화.
+            // 21~33 구간의 BSOP_DATE/TIME·CTTR 등 누락 필드는 아래 getOrNull로 개별 graceful (전체 tick reject 금지 — 하위호환).
+            if (fields.size < 21) {
+                log.warn("H0STCNT0 필드 수 부족: expected ≥21 got={}", fields.size)
                 return null
             }
 
@@ -195,9 +210,22 @@ object KisWsMessageParser {
                     s.ifBlank { null }?.toBigDecimalOrNull()
                 }
 
+            // R1-A 체결강도 흡수 (ADR 0117 §3-R1) — KIS 계산 완료값 흡수만, 자체 산식 0.
+            // CTTR(18)·ACML_TR_PBMN(14) graceful: blank/파싱불가/필드결손 시 해당 필드만 null (전체 tick reject 금지).
+            // KIS-first raw URL: https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
+            val tradeIntensity =
+                fields.getOrNull(IDX_CTTR)?.trim()?.let { s ->
+                    s.ifBlank { null }?.toBigDecimalOrNull()
+                }
+            val turnoverAccum =
+                fields.getOrNull(IDX_ACML_TR_PBMN)?.trim()?.let { s ->
+                    s.ifBlank { null }?.toBigDecimalOrNull()
+                }
+
             // 시각 파싱: BSOP_DATE(YYYYMMDD) + STCK_CNTG_HOUR(HHMMSS) → KST Instant
-            val dateStr = fields[IDX_BSOP_DATE].trim()
-            val timeStr = fields[IDX_TIME].trim()
+            // 게이트 완화(< 21)로 BSOP_DATE(33) 결손 가능 → getOrNull graceful (없으면 Clock.now() fallback).
+            val dateStr = fields.getOrNull(IDX_BSOP_DATE)?.trim().orEmpty()
+            val timeStr = fields.getOrNull(IDX_TIME)?.trim().orEmpty()
 
             val ts =
                 if (dateStr.length == 8 && timeStr.length == 6) {
@@ -229,6 +257,8 @@ object KisWsMessageParser {
                 priceChange = priceChange,
                 changeRate = changeRate,
                 changeSign = changeSign,
+                tradeIntensity = tradeIntensity,
+                turnoverAccum = turnoverAccum,
             )
         } catch (e: Exception) {
             log.error("H0STCNT0 파싱 실패: rawData={} error={}", rawData.take(100), e.message)
