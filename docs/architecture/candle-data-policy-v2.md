@@ -31,7 +31,7 @@
 7. **NXT 통합 cover 08:00~20:00 KST (ADR 0063·0091)** — `fid_cond_mrkt_div_code` 분기 (`is_kospi200`/`is_kosdaq150` 후보는 `UN` 우선 + `J` fallback, 그 외 `J`). 1m 베이스 720 bar/일 (NXT pre/after-hour 포함). `MIN_1M_CANDLE_THRESHOLD = 700L`
 8. **Mock 합성 금지** — backend 0건/에러 시 "데이터 없음" 명시 표시 (사용자 메모리 `feedback_no_mock_data.md` — 2026-05-11 dogfooding 사용자 결정)
 9. **공식 일봉 마감값 > WS tick 집계 (ADR 0118 Proposed)** — today 1d 봉의 최종 권위는 **공식 마감값**(야간 멀티시세 snapshot `FHKST11300006` 또는 검증용 `FHKST03010100`)이다. 장중 WS tick 집계로 만든 today 1d 봉은 마감 후 야간 snapshot이 `upsertAll`(ON CONFLICT DO UPDATE)로 덮어 교정한다. today **이전** 일봉은 immutable(ON CONFLICT DO NOTHING) 유지.
-10. **MARKET_DAILY universe ≠ active managed universe (ADR 0118 Proposed)** — 전종목(~3,000 보통주) 일봉 적재용 `MARKET_DAILY` universe(`instrument` 테이블 기반·1d 단독·**KIS WS 구독 0**)는 active managed universe(~25, ADR 0105)와 물리 분리된다. 야간 멀티시세 snapshot(30종목/콜·100콜)으로 그날 1d만 적재하며, 스크리너 후보 산출의 raw 데이터일 뿐 **watchlist에 자동 삽입하지 않는다**(원칙 3 정합). 1d gap 복구 universe = MARKET_DAILY catch-up, 1m gap 복구 universe = active(현행 유지).
+10. **MARKET_DAILY universe ≠ active managed universe (ADR 0118 Proposed·결재 완료 2026-06-09)** — 전종목(**~3,000 보통주, ETF·ETN 제외 — 결재 ①**) 일봉 적재용 `MARKET_DAILY` universe(`instrument` 테이블 기반·1d 단독·**KIS WS 구독 0**)는 active managed universe(~25, ADR 0105)와 물리 분리된다. 야간 멀티시세 snapshot(30종목/콜·~100콜/일)으로 그날 1d만 적재(이력 깊이와 무관하게 100콜 불변). **최초 backfill 이력 깊이 = 10년(~2,450 거래일·~7.3M row·파티셔닝 불필요 — 결재 ②)**, 멱등 분산 캠페인(~75,000콜·여러 밤/주말). 스크리너 후보 산출의 raw 데이터일 뿐 **watchlist에 자동 삽입하지 않는다**(원칙 3 정합). 1d gap 복구 universe = MARKET_DAILY catch-up(listed_at clamp로 신규 상장 false gap 0), 1m gap 복구 universe = active(현행 유지). **MARKET_DAILY 10년 이력 깊이는 active universe 1m/1d retention(6개월~1년, ADR 0105)과는 별개 축**이다(혼동 금지).
 
 ## 3. 데이터 매트릭스 (ADR 0057·0062·0063 정합)
 
@@ -43,7 +43,7 @@
 | **1m (1분봉) — 당일** | KIS WS tick → Redis current, closing 시 DB INSERT. REST `FHKST03010200`은 backfill/검증 | Redis `candle:current:{code}:1m` | DB INSERT (분 단위 closing) | NXT 통합 08:00~20:00 KST (720 bar/일) | Redis: 2m |
 | **1m (1분봉) — 장기 backfill/reconciliation** | KIS REST `FHKST03010230` (NXT 후보=`UN`→`J`, 그 외=`J` — ADR 0091) | Redis (당일 current) | **DB 영속 (기본 6개월, 최대 1년; `magicjar.candle.one-minute.*`)** | NXT 통합 08:00~20:00 KST | — |
 | **3m·5m·15m·30m·90m·1h·4h·12h** | **백엔드 precomputed 합산** + 장중 KIS WS tick current candle | Redis `candle:current:{code}:{interval}` | **DB 영속 (1m retention 기준 재생성)** | NXT 통합 08:00~20:00 KST boundary 정렬 | Redis: 24h |
-| **1d (일봉)** | KIS REST `FHKST03010100` (period='D', NXT 후보=`UN`→`J`, 그 외=`J`) + **전종목 야간 멀티시세 snapshot `FHKST11300006` (30종목/콜, today 교정 — ADR 0118 Proposed)** | Redis cache (옵션) | **DB 영속 (today=공식값 `upsertAll`, 과거봉 immutable)** | NXT 종가 통합 (20:00 KST 마감 기준 · 멀티시세 NXT 반환 여부 R2 실측 — ADR 0118 미결 ③) | — |
+| **1d (일봉)** | KIS REST `FHKST03010100` (period='D', NXT 후보=`UN`→`J`, 그 외=`J`) + **전종목 야간 멀티시세 snapshot `FHKST11300006` (30종목/콜, today 교정 — ADR 0118)**. MARKET_DAILY 최초 backfill 이력 깊이 = **10년**(~2,450 거래일, listed_at clamp) | Redis cache (옵션) | **DB 영속 (today=공식값 `upsertAll`, 과거봉 immutable · MARKET_DAILY ~7.3M row·파티셔닝 불필요)** | **NXT 종가 통합 권위 (20:00 KST 마감 기준 — 결재 ③ LOCK)**. 멀티시세 NXT 반환 여부 R2 raw 실측, 정규장만 시 DailyCloseFinalizer 폴백 | — |
 | **1wk (주봉)** | KIS REST `FHKST03010100` (period='W', NXT 후보=`UN`→`J`, 그 외=`J`) | Redis cache (옵션) | **DB 영속** | — | — |
 | **1mo (월봉)** | KIS REST `FHKST03010100` (period='M', NXT 후보=`UN`→`J`, 그 외=`J`) | Redis cache (옵션) | **DB 영속** | — | — |
 | **1y (년봉)** | KIS REST `FHKST03010100` (period='Y', NXT 후보=`UN`→`J`, 그 외=`J`) | Redis cache (옵션) | **DB 영속** | — | — |
