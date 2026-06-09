@@ -3,10 +3,10 @@ id: T-20260610-0344-v77-preset-revalidation
 agent: strategy
 model: opus
 branch: agent/strategy-engine/v77-preset-revalidation
-status: RUNNING
+status: DONE
 startedAt: 2026-06-10T03:44:42.643+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-10T04:02:34.028+09:00
+pr: #865
 parentPhase: ?
 ---
 
