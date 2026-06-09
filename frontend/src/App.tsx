@@ -44,6 +44,7 @@ import { InstrumentUniversePage } from './pages/Instruments/InstrumentUniversePa
 import { StrategyBuilderPage } from './pages/Strategy/StrategyBuilderPage'
 import { BacktestPage } from './pages/Strategy/BacktestPage'
 import { StrategyResearchPage } from './pages/Strategy/StrategyResearchPage'
+import { DaytradeDiscoverPage } from './pages/Strategy/DaytradeDiscoverPage'
 import { StrategyListPage } from './pages/Strategy/StrategyListPage'
 import { ScenarioReplayPage } from './pages/QA/ScenarioReplayPage'
 import { RiskConfigPage } from './pages/Risk/RiskConfigPage'
@@ -135,6 +136,8 @@ export function App() {
           <Route path="/strategy/backtest" element={<BacktestPage />} />
           {/* QA: candle 기반 전략 후보 리서치 — 저장/주문 path 미사용 */}
           <Route path="/strategy/research" element={<StrategyResearchPage />} />
+          {/* R2 단타 발굴: 전략 없이 빌트인 프리셋으로 오늘의 후보 TOP N — ADR 0117 */}
+          <Route path="/strategy/daytrade-discover" element={<DaytradeDiscoverPage />} />
           {/* T-SIG Phase 3: 전략 목록 + 시그널 내역 — ADR 0066 */}
           <Route path="/strategy/list" element={<StrategyListPage />} />
           {/* T-SIM Phase 3: 실제 주문과 분리된 시나리오 리플레이 — ADR 0107 */}
