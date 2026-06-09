@@ -3,10 +3,10 @@ id: T-20260610-0134-discover-empty-state-fix
 agent: frontend
 model: opus
 branch: agent/frontend/discover-empty-state-fix
-status: RUNNING
+status: DONE
 startedAt: 2026-06-10T01:34:10.516+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-10T01:39:16.533+09:00
+pr: #857
 parentPhase: ?
 ---
 
