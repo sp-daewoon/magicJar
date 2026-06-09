@@ -5,6 +5,7 @@ import kr.spdaewoon.magicjar.api.controller.screener.DaytradeDiscoverPresetDto
 import kr.spdaewoon.magicjar.api.controller.screener.DaytradeDiscoverRequest
 import kr.spdaewoon.magicjar.api.controller.screener.DaytradeDiscoverResultDto
 import kr.spdaewoon.magicjar.api.controller.screener.ScreenerMatchDto
+import kr.spdaewoon.magicjar.api.infrastructure.cache.DaytradeDiscoverCache
 import kr.spdaewoon.magicjar.domain.backtest.port.StrategyEvaluatorPort
 import kr.spdaewoon.magicjar.domain.instrument.Instrument
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentMarket
@@ -73,6 +74,7 @@ class DaytradeDiscoverService(
     private val ranker: ScreenerRankerPort,
     private val kafkaTemplate: KafkaTemplate<String, String>,
     private val objectMapper: ObjectMapper,
+    private val discoverCache: DaytradeDiscoverCache,
     @Value("\${magicjar.daytrade.discovery.enabled:true}") private val discoveryEnabled: Boolean,
     @Value("\${magicjar.screener.candle-lookback-days:90}") private val candleLookbackDays: Int,
     @Value("\${magicjar.screener.min-candles:20}") private val minCandles: Int,
@@ -105,6 +107,36 @@ class DaytradeDiscoverService(
                 HttpStatus.UNPROCESSABLE_ENTITY,
                 "단타 발굴 프리셋의 entry_dsl을 평가할 수 없습니다 (모든 프리셋 파싱 실패)",
             )
+        }
+
+        // ── Step 1.5: 캐시 조회 (perf — userId 무관·거래일 동일이면 일봉 결과 동일) ──────────────
+        // 빌트인 단타 프리셋은 userId 무관 + 같은 거래일이면 일봉 기반 결과 동일 → (preset·filter·interval·limit·거래일) 키.
+        // HIT 시 무거운 universe 평가(약 28s)를 생략하고, realtime watch 발행(side-effect)만 매 호출 재수행.
+        val cacheKey =
+            discoverCache.buildKey(
+                presetKey = request.presetKey,
+                filterFingerprint = filterFingerprint(filter),
+                interval = request.interval,
+                limit = request.limit,
+            )
+        val cached = discoverCache.get(cacheKey)
+        if (cached != null) {
+            val watchRegistered =
+                if (request.startRealtimeWatch) {
+                    publishStrategyRealtimeDemands(cached.matches.map { it.toDomainMatch() }, request, interval)
+                } else {
+                    0
+                }
+            val elapsedHit = System.currentTimeMillis() - started
+            log.info(
+                "단타 발굴 캐시 HIT: userId={} key={} matched={} watchRegistered={} elapsedMs={}",
+                request.userId,
+                cacheKey,
+                cached.matchedCount,
+                watchRegistered,
+                elapsedHit,
+            )
+            return cached.copy(elapsedMs = elapsedHit, realtimeWatchRegistered = watchRegistered)
         }
 
         // ── Step 2: 의존 graceful fallback (Phase 미합류 환경) ──────────────────────────────
@@ -151,7 +183,22 @@ class DaytradeDiscoverService(
         // ── Step 5: 랭킹 + limit ────────────────────────────────────────────────────────────
         val ranked = ranker.rank(rawMatches, request.limit)
         val skippedCount = skipCounts.values.sum()
-        val elapsed = System.currentTimeMillis() - started
+        val computeElapsed = System.currentTimeMillis() - started
+
+        // ── Step 5.5: 발굴 계산 결과 캐시 저장 (realtimeWatchRegistered 제외 — side-effect는 매 호출) ──
+        val computedResult =
+            DaytradeDiscoverResultDto(
+                presets = parsedPresets.map { it.toMetaDto() },
+                isBuiltin = parsedPresets.all { it.isBuiltin },
+                universeSize = universe.size,
+                evaluatedCount = evaluatedCount,
+                matchedCount = ranked.size,
+                skippedReasons = skipCounts.toMap(),
+                matches = ranked.map { it.toMatchDto() },
+                elapsedMs = computeElapsed,
+                realtimeWatchRegistered = 0,
+            )
+        discoverCache.put(cacheKey, computedResult)
 
         // ── Step 6: 장중 감시 — STRATEGY owner WS 수요 발행 (watchlist write 0) ────────────────
         val watchRegistered =
@@ -162,7 +209,7 @@ class DaytradeDiscoverService(
             }
 
         log.info(
-            "단타 발굴 완료: userId={} presets={} universeSize={} evaluated={} matched={} skipped={} watchRegistered={} elapsedMs={}",
+            "단타 발굴 완료(캐시 MISS·계산): userId={} presets={} universeSize={} evaluated={} matched={} skipped={} watchRegistered={} elapsedMs={}",
             request.userId,
             parsedPresets.map { it.key },
             universe.size,
@@ -170,20 +217,10 @@ class DaytradeDiscoverService(
             ranked.size,
             skippedCount,
             watchRegistered,
-            elapsed,
+            computeElapsed,
         )
 
-        return DaytradeDiscoverResultDto(
-            presets = parsedPresets.map { it.toMetaDto() },
-            isBuiltin = parsedPresets.all { it.isBuiltin },
-            universeSize = universe.size,
-            evaluatedCount = evaluatedCount,
-            matchedCount = ranked.size,
-            skippedReasons = skipCounts.toMap(),
-            matches = ranked.map { it.toMatchDto() },
-            elapsedMs = elapsed,
-            realtimeWatchRegistered = watchRegistered,
-        )
+        return computedResult.copy(realtimeWatchRegistered = watchRegistered)
     }
 
     // ── 프리셋 resolve / parse ─────────────────────────────────────────────────────────────
@@ -256,20 +293,16 @@ class DaytradeDiscoverService(
     ): ScreenerMatch {
         val last = slice.last()
         val close = (last.closeAdj ?: last.closeRaw).max(BigDecimal.ONE)
-        val high = last.highAdj ?: last.highRaw
-        val low = last.lowAdj ?: last.lowRaw
         val volume = BigDecimal.valueOf(last.volume.coerceAtLeast(0L))
 
         val signalScore = strength.coerceIn(BigDecimal.ZERO, BigDecimal.ONE)
         val turnover = close.multiply(volume)
         val volumeScore = normalizeLog(turnover, MIN_TURNOVER, MAX_TURNOVER)
-        val atrRatio =
-            if (close.compareTo(BigDecimal.ZERO) > 0) {
-                high.subtract(low).divide(close, SCALE, RoundingMode.HALF_EVEN)
-            } else {
-                BigDecimal.ZERO
-            }
-        val atrScore = atrSweetSpot(atrRatio)
+        // ATR 점수: 단일 캔들 (high-low)/close 가 아닌 14봉 smoothed NATR(평균 TrueRange / close).
+        // 단일 캔들 proxy는 노이즈로 단타 movers(마지막 봉 변동 큰 종목)를 ATR_MAX 위로 clamp → 0.0 다발 발생했음
+        // (실측 089030 마지막 봉 0.224 > 0.20 → 0.0이나, 14봉 NATR은 0.099로 정상). spec §3-R2 normalize 재보정.
+        val natr = smoothedNatr(slice, close)
+        val atrScore = atrSweetSpot(natr)
         val capScore = BigDecimal.ONE
 
         val breakdown =
@@ -302,14 +335,59 @@ class DaytradeDiscoverService(
         return BigDecimal.valueOf(ratio.coerceIn(0.0, 1.0))
     }
 
-    private fun atrSweetSpot(atrRatio: BigDecimal): BigDecimal {
-        val r = atrRatio.toDouble()
+    /**
+     * 14봉 smoothed NATR(Normalized ATR) = mean(TrueRange over last [ATR_PERIOD] bars) / lastClose.
+     *
+     * TrueRange = max(high-low, |high-prevClose|, |low-prevClose|) — Wilder 정의의 simple-mean 근사.
+     * (단타 발굴은 read-only 일봉 normalize용 proxy — indicator-impl의 EMA-smoothed ATR과 동일 의도이나,
+     *  api-local 산식으로 모듈 경계 add-only 유지 + IndicatorVolatility는 internal object라 직접 호출 불가.)
+     *
+     * candle 부족(< 2)·close 0 시 0 반환 → atrSweetSpot floor 적용.
+     */
+    private fun smoothedNatr(
+        slice: List<Candle>,
+        lastClose: BigDecimal,
+    ): BigDecimal {
+        if (slice.size < 2 || lastClose.signum() <= 0) return BigDecimal.ZERO
+        val window = slice.takeLast(ATR_PERIOD + 1)
+        var trSum = 0.0
+        var trCount = 0
+        for (i in 1 until window.size) {
+            val cur = window[i]
+            val prev = window[i - 1]
+            val high = (cur.highAdj ?: cur.highRaw).toDouble()
+            val low = (cur.lowAdj ?: cur.lowRaw).toDouble()
+            val prevClose = (prev.closeAdj ?: prev.closeRaw).toDouble()
+            val tr = maxOf(high - low, kotlin.math.abs(high - prevClose), kotlin.math.abs(low - prevClose))
+            trSum += tr
+            trCount++
+        }
+        if (trCount == 0) return BigDecimal.ZERO
+        val natr = (trSum / trCount) / lastClose.toDouble()
+        return BigDecimal.valueOf(natr.coerceAtLeast(0.0))
+    }
+
+    /**
+     * 단타 적합 NATR sweet-spot — 단타는 일중 변동성이 클수록(scalp 여지) 유리.
+     *
+     * 14봉 smoothed NATR 실측 분포(universe 일봉): p10≈4.5% · p50≈8% · p90≈14% · p99≈22%.
+     * 단일-캔들 proxy 시절의 [0.005, 0.20] peak 0.04 밴드는 smoothed NATR에 과대축소 → 중앙값 종목도 하강.
+     * 단타 활성 zone을 plateau로 보상하고 극단(거래정지 risk)에서만 taper:
+     * - NATR < [NATR_FLOOR] (1%)        → 0 (변동성 부족, 단타 부적합)
+     * - [NATR_FLOOR] ~ [NATR_RAMP] (4%) → 0 → 1 ramp up
+     * - [NATR_RAMP] ~ [NATR_PLATEAU] (25%) → 1.0 plateau (단타 적합 zone, p10~p99 포괄)
+     * - [NATR_PLATEAU] ~ [NATR_CEIL] (50%) → 1 → 0 taper down (과변동·정지 risk)
+     * - > [NATR_CEIL]                    → 0
+     */
+    private fun atrSweetSpot(natr: BigDecimal): BigDecimal {
+        val r = natr.toDouble()
         val score =
             when {
-                r < ATR_MIN -> 0.0
-                r > ATR_MAX -> 0.0
-                r < ATR_PEAK -> (r - ATR_MIN) / (ATR_PEAK - ATR_MIN)
-                else -> (ATR_MAX - r) / (ATR_MAX - ATR_PEAK)
+                r < NATR_FLOOR -> 0.0
+                r < NATR_RAMP -> (r - NATR_FLOOR) / (NATR_RAMP - NATR_FLOOR)
+                r <= NATR_PLATEAU -> 1.0
+                r < NATR_CEIL -> (NATR_CEIL - r) / (NATR_CEIL - NATR_PLATEAU)
+                else -> 0.0
             }
         return BigDecimal.valueOf(score.coerceIn(0.0, 1.0))
     }
@@ -393,6 +471,26 @@ class DaytradeDiscoverService(
         return ScreenerFilter(markets = markets, types = types, marketCapMin = dto.marketCapMin, avgVolumeMin = dto.avgVolumeMin)
     }
 
+    /** universe 필터를 캐시 키용 안정 문자열로 직렬화 (markets·types 정렬 → 순서 무관 동일 키). */
+    private fun filterFingerprint(filter: ScreenerFilter): String =
+        buildString {
+            append(
+                filter.markets
+                    .map { it.name }
+                    .sorted()
+                    .joinToString(","),
+            )
+            append("|")
+            append(
+                filter.types
+                    .map { it.name }
+                    .sorted()
+                    .joinToString(","),
+            )
+            append("|cap=").append(filter.marketCapMin ?: "")
+            append("|vol=").append(filter.avgVolumeMin ?: "")
+        }
+
     private fun incrementSkip(
         counts: MutableMap<String, Int>,
         label: String,
@@ -426,6 +524,27 @@ class DaytradeDiscoverService(
             reason = reason,
         )
 
+    /**
+     * 캐시된 DTO match → 도메인 ScreenerMatch (realtime watch 발행용).
+     * publishStrategyRealtimeDemands는 instrumentCode·rank만 사용하므로 breakdown은 0 placeholder로 복원한다.
+     */
+    private fun ScreenerMatchDto.toDomainMatch(): ScreenerMatch =
+        ScreenerMatch(
+            instrumentCode = instrumentCode,
+            instrumentName = instrumentName,
+            rank = rank,
+            score = score,
+            breakdown =
+                ScreenerScoreBreakdown(
+                    signal = scoreComponents["signal"] ?: BigDecimal.ZERO,
+                    volume = scoreComponents["volume"] ?: BigDecimal.ZERO,
+                    atr = scoreComponents["atr"] ?: BigDecimal.ZERO,
+                    cap = scoreComponents["cap"] ?: BigDecimal.ZERO,
+                    total = score,
+                ),
+            reason = reason,
+        )
+
     private data class ParsedPreset(
         val key: String,
         val title: String,
@@ -448,9 +567,15 @@ class DaytradeDiscoverService(
         const val SCALE: Int = 6
         val MIN_TURNOVER: BigDecimal = BigDecimal("1000000")
         val MAX_TURNOVER: BigDecimal = BigDecimal("1000000000000")
-        const val ATR_MIN: Double = 0.005
-        const val ATR_PEAK: Double = 0.04
-        const val ATR_MAX: Double = 0.20
+
+        /** smoothed NATR 윈도우 (TrueRange 평균 봉수). */
+        const val ATR_PERIOD: Int = 14
+
+        /** 단타 NATR sweet-spot 밴드 (smoothed NATR 실측 분포 기반 재보정). */
+        const val NATR_FLOOR: Double = 0.01
+        const val NATR_RAMP: Double = 0.04
+        const val NATR_PLATEAU: Double = 0.25
+        const val NATR_CEIL: Double = 0.50
         const val STRATEGY_REALTIME_DEMAND_MAX = 30
         const val STRATEGY_REALTIME_PRIORITY_BASE = 40
         const val STRATEGY_REALTIME_TTL_SECONDS = 30L * 60L
