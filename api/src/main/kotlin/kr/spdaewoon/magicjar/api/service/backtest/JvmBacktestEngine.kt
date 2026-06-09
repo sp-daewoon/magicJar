@@ -17,6 +17,8 @@ import kr.spdaewoon.magicjar.domain.backtest.BacktestPosition
 import kr.spdaewoon.magicjar.domain.backtest.BacktestRequest
 import kr.spdaewoon.magicjar.domain.backtest.BacktestResult
 import kr.spdaewoon.magicjar.domain.backtest.BacktestTrade
+import kr.spdaewoon.magicjar.domain.backtest.ExitParam
+import kr.spdaewoon.magicjar.domain.backtest.ExitParamOverride
 import kr.spdaewoon.magicjar.domain.backtest.LookaheadGuard
 import kr.spdaewoon.magicjar.domain.backtest.PriceAdjustmentMode
 import kr.spdaewoon.magicjar.domain.backtest.TradeSide
@@ -103,7 +105,9 @@ class JvmBacktestEngine(
             strategyRepository.findById(request.strategyId)
                 ?: throw BacktestException.StrategyNotFoundException(request.strategyId)
 
-        val definition = strategy.definition
+        // 민감도 sweep override(spec §3-R3) — 청산 knob 1개를 메모리에서만 치환(DB write 0).
+        // null(기본·단일 run)이면 전략 정의 그대로. buy/sell DSL AST는 불변 — 청산 시뮬만 영향.
+        val definition = applyExitParamOverride(strategy.definition, request.exitParamOverride)
         val dslDef: DslStrategyDefinition = definition.dsl
 
         val buyAst: DslNode =
@@ -839,5 +843,23 @@ class JvmBacktestEngine(
             current = current.plus(1, DateTimeUnit.DAY)
         }
         return days
+    }
+
+    /**
+     * 민감도 sweep 청산 파라미터 override 적용 (spec §3-R3 — add-only).
+     *
+     * [override]가 null이면 전략 정의를 그대로 반환(현행 동작 무변경). 지정 시 대응 청산 knob 1개만 copy로 치환한다.
+     * DB는 건드리지 않으며(메모리 override), buy/sell DSL은 불변 — 손절·익절·트레일링 시뮬만 영향받는다.
+     */
+    private fun applyExitParamOverride(
+        definition: StrategyDefinition,
+        override: ExitParamOverride?,
+    ): StrategyDefinition {
+        if (override == null) return definition
+        return when (override.target) {
+            ExitParam.FIXED_STOP_LOSS -> definition.copy(fixedStopLoss = override.value)
+            ExitParam.TAKE_PROFIT -> definition.copy(takeProfitPct = override.value)
+            ExitParam.TRAILING_STOP -> definition.copy(trailingStop = override.value)
+        }
     }
 }
