@@ -3,10 +3,10 @@ id: T-20260610-0328-backtest-mdd-mtm-fix
 agent: strategy
 model: opus
 branch: agent/strategy-engine/backtest-mdd-mtm-fix
-status: RUNNING
+status: DONE
 startedAt: 2026-06-10T03:28:09.946+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-10T03:37:40.767+09:00
+pr: #862
 parentPhase: ?
 ---
 
