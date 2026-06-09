@@ -3,10 +3,10 @@ id: T-20260610-0222-v76-preset-validation
 agent: strategy
 model: opus
 branch: agent/strategy-engine/v76-preset-validation
-status: RUNNING
+status: DONE
 startedAt: 2026-06-10T02:22:48.908+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-10T03:07:29.216+09:00
+pr: #860
 parentPhase: ?
 ---
 
