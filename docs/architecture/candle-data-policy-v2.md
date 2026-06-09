@@ -14,11 +14,12 @@
 - 2026-06-01 구현 반영: **ADR 0105 1차 reconciliation 코드 연결**. `SymbolDetailMinuteGapFillService`가 상세 진입 시 1m gap fill을 큐잉하고, `CandleBootstrapRunner`는 managed universe를 대상으로 reconciliation을 시작한다. 1m gap fill 성공 후 합산봉은 `AggregateBackfillRunner`가 upsert로 재생성하며, `RealtimeSignalGenerator`는 data readiness `READY`가 아니면 `SIGNAL_SKIPPED_DATA_NOT_READY`로 fail-closed 한다.
 - 2026-06-01 보강 구현: **SymbolDetail 1m range gap fill 정밀화**. 상세 진입 path는 더 이상 장기 lookback backfill worker를 직접 호출하지 않고, `KisOneMinuteCandleRangePort.fetchOneMinuteCandlesBetween(code, lastDb+1m, previousMinute)`로 필요한 범위만 조회한다. 저장 source는 `KIS-RANGE-GAPFILL`, 삽입 발생 시 3m~12h 합산봉을 재생성한다.
 - 2026-06-01 보강 구현: **range gap fill fail-closed**. `KisOneMinuteCandleRangePort`의 credential/token/rate-limit/HTTP 실패는 empty candle이 아니라 upstream 실패로 보고 예외로 전파한다. `SymbolDetailMinuteGapFillService`는 upstream 실패 또는 합산봉 재생성 실패를 `FAILED` readiness로 닫아 자동매매 평가/주문이 준비되지 않은 데이터 위에서 진행되지 않게 한다.
+- **2026-06-09 갱신 (ADR 0119 — 1분봉 proactive cold-start 백필 폐지 → on-demand 전환)**: `ColdStartExecutor`(126일 1m + 1d·1wk·1mo·1y 5종 fetch)를 전면 은퇴하고 그 트리거 3곳(`CandleBootstrapRunner` cold-start 분기 · `WatchlistChangedKafkaListener` · `LastCandleAtMonitor` 1m stale)을 제거했다. **1m 수집 정책 = 실시간 WS(`TickToMinuteAggregator`, 구독 종목 ~30) + on-demand(`SymbolDetailMinuteGapFillService` 차트 진입 bounded gap fill · `CandleBackfillWorker` admin 수동) 만. proactive 미리 끌어오기 0.** 일봉/주봉/월/년봉은 전종목 일봉 universe(R-BF/R2 · ADR 0118)가 담당. `LastCandleAtMonitor`의 일봉(ONE_DAY) stale 감지 + `CandleBackfillWorker(ONE_DAY)` + Slack 알림은 한국석유 회귀 가드로 **유지**. `KisRestCandleAdapter`의 1m 126일 lookback은 on-demand admin backfill이 공유하므로 보존(제거 시 on-demand 깨짐). 배경: 일봉 wipe(ADR 0118 R-BF)가 managed 전체에 1m cold-start storm(126 거래일×~630콜/종목) 유발 incident.
 - 본 문서는 운영 가이드. 결정 본문은 **ADR 0057 (KIS OpenAPI 단일 데이터 출처)** + **ADR 0062 (합산 interval 백엔드 precomputed)** + **ADR 0063 (NXT/통합거래 cover)** + **ADR 0019 (Accepted, 2026-05-12 §2 재통합)** + **ADR 0028 (Watchlist Ingestion)** + **ADR 0029 (당일 진행 중 캔들 Redis 캐시)** + **ADR 0048 (KIS WS 41 slot + polling fallback)** + **ADR 0105 (캔들 Reconciliation + 장기 1m retention)** 참조.
 
 ## 1. 정책 한 줄 요약
 
-> **KIS OpenAPI 단일 출처 (prod credential 단일 채널). NXT 통합 cover 08:00~20:00 KST (`UN`은 종목 단위 후보만, `J` fallback). DB 영속 = KIS 원천 candle + 1m 기반 합산 candle. 1m은 기본 6개월, 최대 1년 복구 목표. 장중 실시간 = watchlist priority + 별도 owner KIS WS 수요(`DETAIL`/`STRATEGY`) + Redis `candle:current:{code}:{interval}`. Yahoo Finance 폐기. Mock 합성 금지 (`feedback_no_mock_data.md`).**
+> **KIS OpenAPI 단일 출처 (prod credential 단일 채널). NXT 통합 cover 08:00~20:00 KST (`UN`은 종목 단위 후보만, `J` fallback). DB 영속 = KIS 원천 candle + 1m 기반 합산 candle. 1m 수집 = 실시간 KIS WS(구독 종목만) + on-demand(차트 진입 bounded gap fill·admin 수동 backfill) — proactive cold-start 백필 0 (ADR 0119). 일봉/주봉/월/년봉 = 전종목 일봉 universe(R-BF/R2·ADR 0118). 장중 실시간 = watchlist priority + 별도 owner KIS WS 수요(`DETAIL`/`STRATEGY`) + Redis `candle:current:{code}:{interval}`. Yahoo Finance 폐기. Mock 합성 금지 (`feedback_no_mock_data.md`).**
 
 ## 2. 핵심 원칙
 
@@ -103,10 +104,25 @@
 
 **`FHKST03010230` (KIS 1분봉 과거 데이터)**: prod credential 단일 채널 호출. 1m 기본 6개월/최대 1년 영속 + 3m·5m·15m·30m·90m·1h·4h·12h 합산 source로 활용한다. KIS 공식 샘플 기준 1회 최대 120건, `FID_INPUT_DATE_1` + `FID_INPUT_HOUR_1` cursor, 서버 보관 최대 1년.
 
-## 6. cold-start 흐름 (ADR 0028 §2-3 + ADR 0062·0063 정합)
+## 6. 1m 수집 흐름 (ADR 0028 §2-3 + ADR 0062·0063 + ★ ADR 0119 cold-start 폐지)
 
 > **2026-05-12 갱신 (v3.2.3 doc cut — PR #303·#304 구현 인용)**: halt/liquidation skip + market 분기 + AggregateBackfillRunner 호출 + 1m 30 거래일 페이지네이션 명시.
 > **2026-05-31 갱신**: watchlist는 cold-start 트리거 중 하나일 뿐, 실시간 구독의 유일한 source가 아니다. SymbolDetail·Strategy/Screener 후보는 watchlist INSERT 없이 별도 KIS WS 수요를 낸다. ADR 0105 Phase 1에서 1m cold-start/reconciliation target은 기본 6개월, 최대 1년으로 확장한다.
+> **★ 2026-06-09 갱신 (ADR 0119 — proactive cold-start 백필 폐지)**: 아래 "구 cold-start 흐름"의 `ColdStartExecutor` 5종 fetch는 **은퇴**했다. watchlist 추가 시 더 이상 과거 1m·일봉을 무더기로 끌어오지 않는다. 1m 유입은 (Ⓐ)실시간 WS + (Ⓒ)on-demand 두 경로만 남는다.
+
+### 6-0. 현행 1m 유입 지도 (ADR 0119)
+
+| 버킷 | 경로 | 종목 범위 |
+|------|------|-----------|
+| **Ⓐ 실시간** | KIS WS 틱 → Redis 진행봉 → `TickToMinuteAggregator`(매분 마감) → DB 1m + Kafka + `BoundaryAggregator`(상위봉 라이브) | WS 구독 종목만 (최대 `PRICE_TICK_MAX=30` + NXT) |
+| **Ⓒ on-demand** | (a) 차트 진입: `SymbolDetailMinuteGapFillService` → `KisOneMinuteCandleRangePort.fetchOneMinuteCandlesBetween` bounded gap fill / (b) admin 수동: `CandleBackfillWorker` (`/admin/candle-curator/backfill`, 126일 lookback 공유) | 사용자 진입·admin 지정 종목 |
+| ~~Ⓑ 내부 자동 백필~~ | ~~`ColdStartExecutor` 126일 1m + 5 interval~~ | **폐지 (ADR 0119)** |
+
+일봉/주봉/월/년봉은 cold-start가 아닌 **전종목 일봉 universe(R-BF/R2 · ADR 0118)**가 야간 멀티시세 snapshot으로 적재한다.
+
+### 6-1. 구 cold-start 흐름 (ADR 0119로 은퇴 — historical 보존)
+
+> 아래 흐름의 `ColdStartExecutor.submit(code)` → 5종 fetch는 더 이상 동작하지 않는다. `WatchlistChangedKafkaListener`는 이제 `SubscriptionRouter.add`(WS/polling 분배)만 수행하고, 1m은 위 Ⓐ가 실시간으로 채운다.
 
 ```
 사용자 [관심등록 클릭] (frontend /watchlist)
@@ -115,26 +131,13 @@ api POST /api/watchlists  (body: {code})
     ↓
 DB watchlist INSERT + Kafka watchlist.changed.v1
     ↓
-consumer WatchlistChangedKafkaListener → ColdStartExecutor.submit(code) (PR #303·#304 분기)
-    ├─ instrument halt/liquidation 검사 (PR #304):
-    │    └─ tradingHalt=true 또는 liquidation=true → KIS_COLD_START_SKIPPED audit + return
-    ├─ 종목 단위 NXT 후보 분기 → fid_cond_mrkt_div_code 결정 (ADR 0091):
-    │    ├─ is_kospi200=true 또는 is_kosdaq150=true → "UN" 우선, 0건이면 "J" fallback
-    │    └─ 그 외 / UNKNOWN → "J" (market 이름만으로 UN 선택 금지)
-    ├─ SubscriptionRouter.add(code, priority) — slot 1+30+10 분배 (ADR 0048)
-    │    ├─ slot 여유 → KIS WS subscribe(code) — H0STCNT0 체결가
-    │    └─ slot 가득 + priority 낮음 → WatchlistPollingWorker 진입 (5초 주기 KIS REST inquire-price)
-    ├─ KIS_COLD_START_INTERVALS 5종 fetch (prod credential 단일 채널):
-    │    ├─ 1m  : FHKST03010230 — ADR 0105 Phase 1 기본 6개월/최대 1년 설정 → DB INSERT
-    │    ├─ 1d  : FHKST03010100 period='D' → DB INSERT (200건)
-    │    ├─ 1wk : FHKST03010100 period='W' → DB INSERT (200건)
-    │    ├─ 1mo : FHKST03010100 period='M' → DB INSERT (120건)
-    │    └─ 1y  : FHKST03010100 period='Y' → DB INSERT (10건)
-    └─ AggregateBackfillRunner.backfill(code) (ADR 0062 §3 권장안):
-         ├─ 1m 전량 fetch (~10K rows)
-         ├─ CandleAggregator.aggregate(1m, target) × 8종
-         ├─ 3m·5m·15m·30m·90m·1h·4h·12h DB UPSERT (ON CONFLICT DO UPDATE)
-         └─ audit_trail.detail_json.aggregateInserted 필드 기록
+consumer WatchlistChangedKafkaListener
+    └─ SubscriptionRouter.add(code, priority) — slot 1+30+10 분배 (ADR 0048)
+         ├─ slot 여유 → KIS WS subscribe(code) — H0STCNT0 체결가 → Ⓐ 실시간 1m 적재 시작
+         └─ slot 가득 + priority 낮음 → WatchlistPollingWorker 진입 (5초 주기 KIS REST inquire-price)
+    ✗ [폐지 — ADR 0119] ColdStartExecutor.submit(code) → KIS_COLD_START_INTERVALS 5종 fetch
+        (1m FHKST03010230 126일 / 1d·1wk·1mo·1y FHKST03010100 / AggregateBackfillRunner)
+        → 신규 종목 일봉=R-BF/R2 기보유, 1m=Ⓐ 실시간, 과거 1m 정밀 갭=Ⓒ on-demand
     ↓
 사용자 /symbol/{code} 진입 시:
   - POST /api/symbols/{code}/realtime/subscribe → symbol.detail.command.v1

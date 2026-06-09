@@ -1,7 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.bootstrap
 
 import kr.spdaewoon.magicjar.consumer.aggregation.AggregateBackfillRunner
-import kr.spdaewoon.magicjar.consumer.ingestion.ColdStartExecutor
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepository
@@ -16,24 +15,26 @@ import org.springframework.core.annotation.Order
 import org.springframework.stereotype.Component
 
 /**
- * 부팅 시 candle 공백·부족 종목 KIS cold-start 자동 보충 (2026-05-11 — KIS-only 정책).
+ * 부팅 시 managed universe 합산봉(aggregate) 공백 종목 자동 보충 (KIS-only 정책).
  *
- * 목적:
- *   - Yahoo 삭제 또는 신규 배포 후 DB에 1d candle이 없는 managed universe 종목 자동 감지
- *   - 1m candle이 부족한 종목(MIN_1M_CANDLE_THRESHOLD 미만) cold-start 트리거
- *   - 1m 충분하나 합산봉(3m·5m·15m·30m·90m·1h·4h·12h) 미생성 종목 — aggregateBackfillRunner 직접 트리거
- *   - ColdStartExecutor.submit(code)로 비동기 KIS backfill 트리거
+ * ★ proactive 1m cold-start 백필 폐지 (ADR 0119 · 2026-06-09):
+ *   기존에는 1d==0 또는 1m 부족·stale 종목에 ColdStartExecutor.submit(code)로 126일 1m 무더기 KIS
+ *   백필을 트리거했다. 2026-06-09 전종목 일봉 마이그레이션(일봉 wipe → 1d==0) 시 managed 종목 전체가
+ *   동시에 1m cold-start storm(126 거래일×~630콜/종목)을 유발 → KIS 콜 폭증.
+ *
+ *   분석 결과 proactive 1m 백필은 과수집이다:
+ *     - 실시간 1m은 KIS WS 구독 종목(TickToMinuteAggregator, 최대 PRICE_TICK_MAX=30+NXT)만 매분 마감.
+ *     - 일봉/주봉/월/년봉은 전종목 일봉 universe(R-BF/R2 · ADR 0118)가 담당 → cold-start daily 역할 무용.
+ *     - 과거 1m 정밀 갭은 차트 진입 on-demand(SymbolDetailMinuteGapFillService) 또는 admin 수동 도구만 수행.
+ *
+ *   따라서 부팅 cold-start 트리거(1d==0·1m 부족·stale 분기)를 전면 제거한다.
+ *
+ * 잔존 역할 — 합산봉 재생성 (KIS 호출 0):
+ *   - 1m 데이터가 이미 존재하나 합산봉(3m·5m·15m·30m·90m·1h·4h·12h)이 미생성된 종목에 대해
+ *     aggregateBackfillRunner.backfill(code)로 기존 1m 기반 합산만 재실행한다(외부 KIS fetch 없음).
+ *   - 배포 후 첫 부팅에서 합산 누락 자동 보강 보장 (ADR 0062 §9 정합).
  *
  * 실행 순서: PositionBootstrapRunner 이후 실행 (@Order(10)).
- * 빠른 부팅을 위해 submit만 호출 (비동기 — cold-start 완료를 기다리지 않음).
- *
- * 판단 기준:
- *   - 1d candle count == 0 → cold-start 트리거 (전체 interval 재수집 — aggregation 포함)
- *   - 1m candle count < MIN_1M_CANDLE_THRESHOLD (=700) → cold-start 트리거 (aggregation 포함)
- *   - 1m 충분 + 합산 target 중 하나라도 candle count == 0 → aggregateBackfillRunner.backfill 직접 호출
- *     (기존 1m 데이터로 합산만 재실행 — cold-start 중복 호출 없음)
- *
- * ADR 0062 §9 — 합산 target 검사 분기는 배포 후 첫 부팅 시 자동 트리거 보장.
  *
  * 룰 5 위반 금지: LLM provider import 0건.
  */
@@ -42,47 +43,37 @@ import org.springframework.stereotype.Component
 class CandleBootstrapRunner(
     private val managedUniverseProvider: ManagedCandleUniverseProvider,
     private val candleRepository: CandleRepository,
-    private val coldStartExecutor: ColdStartExecutor,
     private val aggregateBackfillRunner: AggregateBackfillRunner,
     private val instrumentJpaRepository: ConsumerInstrumentJpaRepository,
     private val auditTrailJpaRepository: ConsumerAuditTrailJpaRepository,
-    // 부팅 시 managed universe cold-start/aggregate 트리거 kill-switch (default 활성).
-    // 운영 점검/마이그레이션 창에서 false 로 두면 부팅 cold-start storm(1m 126일 백필 무더기)을 차단한다.
-    // ★ 일봉 wipe 후 1d==0 이 1m cold-start 까지 깨우는 결합 결함의 운영 회피책 (구조 디커플링은 후속 ADR).
+    // 부팅 시 managed universe 합산봉 재생성 트리거 kill-switch (default 활성).
+    // ADR 0119로 cold-start 백필 트리거는 제거됐고, 본 toggle 은 잔존 aggregate-only 경로(KIS 호출 0)만 게이트한다.
+    // 운영 점검/마이그레이션 창에서 false 로 두면 부팅 시 합산 재생성 read 부하도 건너뛴다.
     @Value("\${magicjar.candle.bootstrap.enabled:true}") private val enabled: Boolean = true,
 ) : ApplicationRunner {
     private val log = LoggerFactory.getLogger(CandleBootstrapRunner::class.java)
 
     companion object {
         /**
-         * 1m candle 최소 임계치.
+         * 1m candle 최소 임계치 — 합산 재생성 의미 판단용.
          * ADR 0063 threshold=700 정합: NXT cover(08:00~19:55) 기준 1일 최대 720건.
-         * 700건 미만이면 최소 1거래일치 1m도 부족한 상태로 판단 → cold-start 재트리거.
+         * 700건 미만이면 합산 source 가 사실상 비어 있으므로 aggregate-only 트리거도 skip.
          */
         private const val MIN_1M_CANDLE_THRESHOLD = 700L
-
-        /**
-         * hotfix 2026-05-15: stale ts 검사 임계치 (며칠 down 후 부분 gap 헷징).
-         * 1d candle: 2 거래일 (주말 가드) 이상 stale → 재트리거.
-         * 1m candle: 1일 (오늘 09:00 KST 이전) 이상 stale → 재트리거.
-         */
-        private const val STALE_1D_DAYS = 2L
-        private const val STALE_1M_DAYS = 1L
     }
 
     override fun run(args: ApplicationArguments) {
         if (!enabled) {
-            log.warn("CandleBootstrapRunner 비활성(magicjar.candle.bootstrap.enabled=false) — 부팅 cold-start/aggregate 트리거 건너뜀")
+            log.warn("CandleBootstrapRunner 비활성(magicjar.candle.bootstrap.enabled=false) — 부팅 합산 재생성 트리거 건너뜀")
             return
         }
-        log.info("CandleBootstrapRunner 시작 — managed universe 1d/1m candle 공백·부족 종목 감지")
+        log.info("CandleBootstrapRunner 시작 — managed universe 합산봉 누락 종목 감지 (cold-start 백필은 ADR 0119로 폐지)")
         val universeEntries = managedUniverseProvider.resolve()
         if (universeEntries.isEmpty()) {
             log.info("CandleBootstrapRunner — managed universe 종목 없음, 건너뜀")
             return
         }
 
-        var coldStartCount = 0
         var aggregateOnlyCount = 0
         var skippedCount = 0
 
@@ -119,64 +110,24 @@ class CandleBootstrapRunner(
                 continue
             }
 
-            val count1d = candleRepository.countByCodeAndInterval(code, CandleInterval.ONE_DAY)
             val count1m = candleRepository.countByCodeAndInterval(code, CandleInterval.ONE_MIN)
 
-            // hotfix 2026-05-15: stale ts 검사 — 며칠 down 후 부분 gap 헷징
-            // 마지막 ts가 N일 stale 이면 count 충분해도 cold-start 재트리거
-            val maxTs1d = candleRepository.findMaxTsByCodeAndInterval(code, CandleInterval.ONE_DAY)
-            val maxTs1m = candleRepository.findMaxTsByCodeAndInterval(code, CandleInterval.ONE_MIN)
-            val nowKst = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul"))
-            val stale1dThreshold = nowKst.minusDays(STALE_1D_DAYS).atStartOfDay(java.time.ZoneId.of("Asia/Seoul")).toInstant()
-            val stale1mThreshold = nowKst.minusDays(STALE_1M_DAYS).atStartOfDay(java.time.ZoneId.of("Asia/Seoul")).toInstant()
-
-            val needsColdStart =
-                when {
-                    count1d == 0L -> {
-                        log.info("CandleBootstrapRunner — 1d candle 없음, cold-start 트리거: code={}", code)
-                        true
-                    }
-                    count1m < MIN_1M_CANDLE_THRESHOLD -> {
-                        log.info(
-                            "CandleBootstrapRunner — 1m candle 부족 (count={} < threshold={}), cold-start 트리거: code={}",
-                            count1m,
-                            MIN_1M_CANDLE_THRESHOLD,
-                            code,
-                        )
-                        true
-                    }
-                    maxTs1d != null && maxTs1d.isBefore(stale1dThreshold) -> {
-                        log.info(
-                            "CandleBootstrapRunner — 1d candle stale (maxTs={} < threshold={}), cold-start 트리거: code={}",
-                            maxTs1d,
-                            stale1dThreshold,
-                            code,
-                        )
-                        true
-                    }
-                    maxTs1m != null && maxTs1m.isBefore(stale1mThreshold) -> {
-                        log.info(
-                            "CandleBootstrapRunner — 1m candle stale (maxTs={} < threshold={}), cold-start 트리거: code={}",
-                            maxTs1m,
-                            stale1mThreshold,
-                            code,
-                        )
-                        true
-                    }
-                    else -> false
-                }
-
-            if (needsColdStart) {
-                // cold-start는 1m 수집 + AggregateBackfillRunner 내부에서 합산까지 처리
-                coldStartExecutor.submit(code)
-                coldStartCount++
-                // Rate limit 보호: 종목 간 100ms 간격 (각 종목 ~4 call × 30일 × 50ms = ~6s 예상)
-                Thread.sleep(100)
+            // ★ ADR 0119 — cold-start 백필 트리거(1d==0·1m 부족·stale 분기) 전면 제거.
+            //   1m source 가 사실상 비어 있으면(< threshold) 합산 재생성도 의미 없으므로 skip
+            //   (과거 1m 백필은 더 이상 하지 않음 — on-demand 전용).
+            if (count1m < MIN_1M_CANDLE_THRESHOLD) {
+                log.debug(
+                    "CandleBootstrapRunner — 1m source 부족(count={} < threshold={}), 합산 재생성 skip: code={} " +
+                        "(과거 1m 백필은 on-demand 전용 — ADR 0119)",
+                    count1m,
+                    MIN_1M_CANDLE_THRESHOLD,
+                    code,
+                )
                 continue
             }
 
-            // ADR 0062 §9 — 1m 충분하나 합산 candle 일부가 없으면 aggregation만 재실행.
-            // 배포 후 첫 부팅(PR 이전 1m 적재된 상태)에서 자동 트리거됨.
+            // ADR 0062 §9 — 1m 충분하나 합산 candle 일부가 없으면 aggregation만 재실행 (KIS 호출 0).
+            // 배포 후 첫 부팅(1m 적재된 상태)에서 자동 트리거됨.
             val missingAggregateIntervals =
                 AggregateBackfillRunner.TARGET_INTERVALS.filter { interval ->
                     candleRepository.countByCodeAndInterval(code, interval) == 0L
@@ -196,17 +147,15 @@ class CandleBootstrapRunner(
                 }
             } else {
                 log.debug(
-                    "CandleBootstrapRunner — candle 충분: code={} 1d={} 1m={} aggregateTargets={}",
+                    "CandleBootstrapRunner — 합산봉 충분: code={} 1m={} aggregateTargets={}",
                     code,
-                    count1d,
                     count1m,
                     AggregateBackfillRunner.TARGET_INTERVALS.map { it.code },
                 )
             }
         }
         log.info(
-            "CandleBootstrapRunner 완료 — cold-start 트리거 {}건 / aggregate-only {}건 / skip {}건 (total universe={}건)",
-            coldStartCount,
+            "CandleBootstrapRunner 완료 — aggregate-only {}건 / skip {}건 (total universe={}건, cold-start 백필 폐지 — ADR 0119)",
             aggregateOnlyCount,
             skippedCount,
             universeEntries.size,

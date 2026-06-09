@@ -30,7 +30,7 @@ import java.time.ZonedDateTime
  *
  * 햇징 룰 적용 (ADR 0086 §2-1):
  *   - 룰 #6 false positive 가드 (passive):
- *       * 거래정지·정리매매 종목 → empty list 반환 (ColdStartExecutor KIS_COLD_START_SKIPPED 정합)
+ *       * 거래정지·정리매매 종목 → empty list 반환 (KIS_COLD_START_SKIPPED audit action 정합)
  *       * 휴장일 제외 (BusinessDayCalendar.isBusinessDay() 호출)
  *       * NXT 후보(`is_kospi200` 또는 `is_kosdaq150`)는 08:00~20:00 KST expected sequence 사용
  *       * 그 외 종목은 KIS `J` fallback 정합상 KRX 정규장 09:00~15:30 KST expected sequence 사용

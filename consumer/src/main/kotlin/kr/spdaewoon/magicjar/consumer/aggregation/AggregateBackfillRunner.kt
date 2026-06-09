@@ -19,9 +19,10 @@ import org.springframework.stereotype.Component
  * 1m candle 베이스를 3m·5m·15m·30m·90m·1h·4h·12h 로 일괄 합산 + DB UPSERT.
  *
  * 사용 시점:
- *   - [kr.spdaewoon.magicjar.consumer.ingestion.ColdStartExecutor] 1m 적재 직후 (cold-start 확장)
+ *   - [kr.spdaewoon.magicjar.consumer.bootstrap.CandleBootstrapRunner] 부팅 시 합산봉 누락 재생성 (KIS 호출 0)
  *   - [kr.spdaewoon.magicjar.consumer.application.market.DailyCloseFinalizer] 16:00 KST 당일 갱신
  *   - admin REST endpoint 수동 트리거 (단발 운영)
+ *   (구: ColdStartExecutor 1m 적재 직후 — ADR 0119로 cold-start 은퇴)
  *
  * TradingView 정합:
  *   - 입력 1m 중 NXT 통합 세션(KST 08:00~20:00)을 합산한다.
