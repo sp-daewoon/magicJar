@@ -3,10 +3,10 @@ id: T-20260610-0129-preset-research-methodology
 agent: strategy
 model: opus
 branch: agent/strategy-engine/preset-research-methodology
-status: RUNNING
+status: DONE
 startedAt: 2026-06-10T01:29:52.971+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-10T01:40:22.872+09:00
+pr: #858
 parentPhase: ?
 ---
 
