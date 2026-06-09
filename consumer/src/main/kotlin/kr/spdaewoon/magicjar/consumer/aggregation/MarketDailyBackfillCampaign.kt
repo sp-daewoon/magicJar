@@ -1,6 +1,14 @@
 package kr.spdaewoon.magicjar.consumer.aggregation
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kr.spdaewoon.magicjar.consumer.config.MarketDailyBackfillProperties
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaRepository
@@ -17,6 +25,9 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * MarketDailyBackfillCampaign — ADR 0118 R-BF 10년 전종목 일봉 멱등 backfill 캠페인.
@@ -53,6 +64,7 @@ class MarketDailyBackfillCampaign(
     private val auditRepository: ConsumerAuditTrailJpaRepository,
     private val objectMapper: ObjectMapper,
     private val properties: MarketDailyBackfillProperties,
+    private val wipeService: MarketDailyWipeService,
 ) {
     private val log = LoggerFactory.getLogger(MarketDailyBackfillCampaign::class.java)
 
@@ -112,14 +124,28 @@ class MarketDailyBackfillCampaign(
         EMPTY_UNIVERSE, // universe 0종목 (데이터 없음 path — mock 합성 0)
     }
 
+    /**
+     * 캠페인 실행 모드 — ADR 0118 amend.
+     *
+     * - [NORMAL]: 기존 멱등 재개(default). **절대 wipe 하지 않음** — 이미 적재된 일봉 보존.
+     * - [MIGRATE]: 일봉 패밀리(1d·1wk·1mo·1y) wipe 후 J 채널로 전체 재적재. UN/NX stale 동결 일소 1회용.
+     *   wipe 는 [MarketDailyWipeService] 화이트리스트 LOCK 으로 1m·5m 절대 보존.
+     */
+    enum class BackfillMode {
+        NORMAL,
+        MIGRATE,
+    }
+
     data class CampaignResult(
         val runId: String,
         val status: CampaignStatus,
+        val mode: BackfillMode,
+        val wipedRows: Long,
         val universeSize: Int,
         val alreadyComplete: Int,
         val processedSymbols: Int,
         val newlyCompleteSymbols: Int,
-        val insertedRows: Int,
+        val insertedRows: Long,
         val callsConsumed: Int,
         val callCap: Int,
         val failedSymbols: Int,
@@ -132,22 +158,48 @@ class MarketDailyBackfillCampaign(
     /**
      * 멱등 캠페인 1회 실행 — 매 호출마다 progress 이어받아 미완료 종목만 [callCap]까지 처리.
      *
-     * @return 실행 요약 (status·콜 소비·잔여 종목 등 — 운영 evidence).
+     * @param mode [BackfillMode.NORMAL](default)=wipe 0·멱등 재개. [BackfillMode.MIGRATE]=일봉 패밀리 wipe 후
+     *   J 채널 전체 재적재(UN/NX stale 동결 일소 1회용). MIGRATE 도 [MarketDailyBackfillProperties.enabled]
+     *   게이트를 그대로 따른다(off 면 wipe 0).
+     * @return 실행 요약 (status·mode·wipedRows·콜 소비·잔여 종목 등 — 운영 evidence).
      */
-    fun runCampaign(): CampaignResult {
+    fun runCampaign(mode: BackfillMode = BackfillMode.NORMAL): CampaignResult {
         val startMs = System.currentTimeMillis()
         val runId = "mkt-daily-bf:$startMs-${UUID.randomUUID()}"
 
         if (!properties.enabled) {
             log.info("MarketDailyBackfillCampaign DISABLED — ENV magicjar.market-daily-backfill.enabled=false (가동 0)")
-            return emptyResult(runId, CampaignStatus.DISABLED, startMs)
+            return emptyResult(runId, CampaignStatus.DISABLED, mode, 0L, startMs)
+        }
+
+        // ★ MIGRATE 모드 — 일봉 패밀리(1d·1wk·1mo·1y) wipe 선행. 1m·5m 는 화이트리스트 LOCK 으로 절대 보존.
+        // wipe 는 멱등(반환 0까지 배치 삭제) — 부분 완료 후 재호출 시 잔여만 삭제. NORMAL 은 wipe 0(보존).
+        var wipedRows = 0L
+        if (mode == BackfillMode.MIGRATE) {
+            log.warn(
+                "MarketDailyBackfillCampaign MIGRATE — 일봉 패밀리 wipe 선행(1m·5m 보존): runId={} intervals={}",
+                runId,
+                MarketDailyWipeService.MIGRATE_WIPE_INTERVALS,
+            )
+            wipedRows = wipeService.wipeDailyFamily()
+            audit(
+                "MARKET_DAILY_BACKFILL_WIPE",
+                campaignAuditEntityId(runId),
+                mapOf(
+                    "runId" to runId,
+                    "mode" to mode.name,
+                    "wipedRows" to wipedRows,
+                    "intervals" to MarketDailyWipeService.MIGRATE_WIPE_INTERVALS,
+                ),
+            )
+            log.warn("MarketDailyBackfillCampaign MIGRATE wipe 완료 — wipedRows={} runId={}", wipedRows, runId)
         }
 
         val codes = universeProvider.resolveCodes()
         if (codes.isEmpty()) {
             log.warn("MarketDailyBackfillCampaign EMPTY_UNIVERSE — 보통주 0종목 (데이터 없음 — mock 합성 0)")
             audit("MARKET_DAILY_BACKFILL_EMPTY", campaignAuditEntityId(runId), mapOf("runId" to runId))
-            return emptyResult(runId, CampaignStatus.EMPTY_UNIVERSE, startMs)
+            return emptyResult(runId, CampaignStatus.EMPTY_UNIVERSE, mode, wipedRows, startMs)
         }
 
         val callCap = properties.normalizedNightlyCallCap()
@@ -178,63 +230,106 @@ class MarketDailyBackfillCampaign(
             ),
         )
 
-        var alreadyComplete = 0
-        var processed = 0
-        var newlyComplete = 0
-        var insertedRows = 0
-        var callsConsumed = 0
-        var failed = 0
-        var skippedThrottle = 0
-        var coolingDown = 0
-        var capReached = false
+        // ── 원자적 회계 (동시성 보호 · ADR 0118 amend) ──────────────────────────────────
+        // call-cap·progress·no-advance·audit 회계가 coroutine 동시 종목 처리에서 깨지지 않도록 Atomic.
+        val alreadyComplete = AtomicInteger(0)
+        val processed = AtomicInteger(0)
+        val newlyComplete = AtomicInteger(0)
+        val insertedRows = AtomicLong(0L)
+        val callsConsumed = AtomicInteger(0)
+        val failed = AtomicInteger(0)
+        val skippedThrottle = AtomicInteger(0)
+        val coolingDown = AtomicInteger(0)
+        // throttle/circuit OPEN 또는 콜 cap 도달 시 신규 launch 중단(cooperative). 이미 떠있는 종목은 완주.
+        val stopLaunching = AtomicBoolean(false)
 
-        for (code in codes) {
-            // 멱등 — 이미 완료된 종목 skip (candle-row 기반 progress, gap-aware).
-            if (isSymbolComplete(code, historyFloor, toDate)) {
-                alreadyComplete++
-                continue
-            }
+        val concurrency = properties.normalizedConcurrency()
+        val launchDelayMs = properties.normalizedLaunchDelayMs()
+        log.info(
+            "MarketDailyBackfillCampaign 동시성: concurrency={} launchDelayMs={} (rate-limiter hard ceiling 별도 유효)",
+            concurrency,
+            launchDelayMs,
+        )
 
-            // ★ KIS-unavailable 무한 재fetch 가드 (over-fetch 닫기) — 직전 run 들이 fetch 했으나 max_ts 가
-            //   전진하지 못한(KIS 가 신규 데이터 0) 종목은 cooldown 기간 동안 skip. corporate action 해소 후
-            //   데이터 출현 대비 주기적 재시도는 유지(cooldown 만료 후 재진입). audit 기반 마킹(Flyway 0).
-            //   완료(alreadyComplete)와 분리 집계 — 미완료지만 이번 run 만 의도적 이연.
-            if (isInNoAdvanceCooldown(code, today)) {
-                coolingDown++
-                continue
-            }
-
-            // 콜 예산 cap — 다음 fetch가 cap을 넘기면 즉시 종료(이연). 보수적으로 cap 도달 시 중단.
-            if (callsConsumed >= callCap) {
-                capReached = true
-                break
-            }
-
-            val outcome = processSymbol(code, historyFloor, toDate, runId, today)
-            when (outcome) {
-                is SymbolOutcome.Throttled -> {
-                    skippedThrottle++
-                    // throttle/circuit OPEN — 이번 실행은 더 진행해도 동일하게 막힐 가능성. 다음 실행 이연(잔여>0 → CAP_REACHED).
-                    log.warn(
-                        "MarketDailyBackfillCampaign throttle/circuit — 캠페인 run 이월: code={} runId={}",
-                        code,
-                        runId,
-                    )
+        // coroutine Semaphore = throughput shaping(동시 종목 수 제한). KIS hard ceiling 은
+        // ConsumerRedisKisRateLimiterAdapter(Bucket4j Redis bucket)가 어댑터 내부에서 그대로 유효 — 세마포어가
+        // rate limiter 를 우회·중복하지 않음. blocking WebClient .block() 은 Dispatchers.IO 에서 격리 실행.
+        runBlocking {
+            val gate = Semaphore(concurrency)
+            val dispatcher = Dispatchers.IO.limitedParallelism(concurrency)
+            val jobs = mutableListOf<Job>()
+            for (code in codes) {
+                if (stopLaunching.get()) break
+                // 콜 예산 cap — 이미 cap 도달이면 신규 launch 중단(이연). 보수적으로 cap 도달 시 중단.
+                if (callsConsumed.get() >= callCap) {
+                    stopLaunching.set(true)
                     break
                 }
-                is SymbolOutcome.Done -> {
-                    processed++
-                    callsConsumed += outcome.callsUsed
-                    insertedRows += outcome.inserted
-                    if (outcome.complete) newlyComplete++
-                }
-                is SymbolOutcome.Failed -> {
-                    processed++
-                    callsConsumed += outcome.callsUsed
-                    failed++
-                }
+                if (launchDelayMs > 0L) delay(launchDelayMs) // 종목 launch 간 지연 — burst 분산
+                jobs +=
+                    launch(dispatcher) {
+                        gate.withPermit {
+                            // stop 신호(throttle/circuit OPEN·cap 도달) 이후 큐잉된 종목은 처리 0(다음 실행 이연).
+                            // permit fair-FIFO 라 앞선 종목이 stop 을 set 한 뒤 본 permit 이 진입 → 일관 skip.
+                            if (stopLaunching.get()) {
+                                return@withPermit
+                            }
+                            // 멱등 — 이미 완료된 종목 skip (candle-row 기반 progress, gap-aware).
+                            if (isSymbolComplete(code, historyFloor, toDate)) {
+                                alreadyComplete.incrementAndGet()
+                                return@withPermit
+                            }
+                            // ★ KIS-unavailable 무한 재fetch 가드 (over-fetch 닫기) — 직전 run 들이 fetch 했으나
+                            //   max_ts 가 전진하지 못한(KIS 신규 데이터 0) 종목은 cooldown 동안 skip. cooldown 만료
+                            //   후 재진입(corporate action 해소 등 데이터 출현 대비). 완료와 분리 집계.
+                            if (isInNoAdvanceCooldown(code, today)) {
+                                coolingDown.incrementAndGet()
+                                return@withPermit
+                            }
+                            // cap 재확인 — launch 시점 이후 다른 종목이 cap 을 채웠을 수 있음(원자적).
+                            if (callsConsumed.get() >= callCap) {
+                                stopLaunching.set(true)
+                                return@withPermit
+                            }
+
+                            when (val outcome = processSymbol(code, historyFloor, toDate, runId, today)) {
+                                is SymbolOutcome.Throttled -> {
+                                    skippedThrottle.incrementAndGet()
+                                    // throttle/circuit OPEN — 신규 launch 중단(다음 실행 이연·잔여>0 → CAP_REACHED).
+                                    stopLaunching.set(true)
+                                    log.warn(
+                                        "MarketDailyBackfillCampaign throttle/circuit — 신규 launch 중단(이월): code={} runId={}",
+                                        code,
+                                        runId,
+                                    )
+                                }
+                                is SymbolOutcome.Done -> {
+                                    processed.incrementAndGet()
+                                    callsConsumed.addAndGet(outcome.callsUsed)
+                                    insertedRows.addAndGet(outcome.inserted.toLong())
+                                    if (outcome.complete) newlyComplete.incrementAndGet()
+                                }
+                                is SymbolOutcome.Failed -> {
+                                    processed.incrementAndGet()
+                                    callsConsumed.addAndGet(outcome.callsUsed)
+                                    failed.incrementAndGet()
+                                }
+                            }
+                        }
+                    }
             }
+            jobs.joinAll()
         }
+
+        // 원자 카운터 → 최종 스냅샷(불변 로컬). 이후 result·log·audit 는 스냅샷만 사용(읽기 일관성).
+        val alreadyCompleteFinal = alreadyComplete.get()
+        val processedFinal = processed.get()
+        val newlyCompleteFinal = newlyComplete.get()
+        val insertedRowsFinal = insertedRows.get()
+        val callsConsumedFinal = callsConsumed.get()
+        val failedFinal = failed.get()
+        val skippedThrottleFinal = skippedThrottle.get()
+        val coolingDownFinal = coolingDown.get()
 
         val remaining = countRemaining(codes, historyFloor, toDate)
         // 잔여 0 = 전종목 완주(COMPLETED). 잔여>0 = 콜 cap·throttle 이월·cooldown 이연·루프 break 로
@@ -246,34 +341,38 @@ class MarketDailyBackfillCampaign(
             CampaignResult(
                 runId = runId,
                 status = status,
+                mode = mode,
+                wipedRows = wipedRows,
                 universeSize = codes.size,
-                alreadyComplete = alreadyComplete,
-                processedSymbols = processed,
-                newlyCompleteSymbols = newlyComplete,
-                insertedRows = insertedRows,
-                callsConsumed = callsConsumed,
+                alreadyComplete = alreadyCompleteFinal,
+                processedSymbols = processedFinal,
+                newlyCompleteSymbols = newlyCompleteFinal,
+                insertedRows = insertedRowsFinal,
+                callsConsumed = callsConsumedFinal,
                 callCap = callCap,
-                failedSymbols = failed,
-                skippedThrottle = skippedThrottle,
-                coolingDownSymbols = coolingDown,
+                failedSymbols = failedFinal,
+                skippedThrottle = skippedThrottleFinal,
+                coolingDownSymbols = coolingDownFinal,
                 remainingSymbols = remaining,
                 durationMs = durationMs,
             )
 
         log.info(
-            "MarketDailyBackfillCampaign 종료: runId={} status={} universe={} alreadyComplete={} processed={} " +
+            "MarketDailyBackfillCampaign 종료: runId={} status={} mode={} wiped={} universe={} alreadyComplete={} processed={} " +
                 "newlyComplete={} inserted={} calls={}/{} failed={} coolingDown={} remaining={} durationMs={}",
             runId,
             status,
+            mode,
+            wipedRows,
             codes.size,
-            alreadyComplete,
-            processed,
-            newlyComplete,
-            insertedRows,
-            callsConsumed,
+            alreadyCompleteFinal,
+            processedFinal,
+            newlyCompleteFinal,
+            insertedRowsFinal,
+            callsConsumedFinal,
             callCap,
-            failed,
-            coolingDown,
+            failedFinal,
+            coolingDownFinal,
             remaining,
             durationMs,
         )
@@ -283,15 +382,17 @@ class MarketDailyBackfillCampaign(
             mapOf(
                 "runId" to runId,
                 "status" to status.name,
+                "mode" to mode.name,
+                "wipedRows" to wipedRows,
                 "universeSize" to codes.size,
-                "alreadyComplete" to alreadyComplete,
-                "processed" to processed,
-                "newlyComplete" to newlyComplete,
-                "inserted" to insertedRows,
-                "callsConsumed" to callsConsumed,
+                "alreadyComplete" to alreadyCompleteFinal,
+                "processed" to processedFinal,
+                "newlyComplete" to newlyCompleteFinal,
+                "inserted" to insertedRowsFinal,
+                "callsConsumed" to callsConsumedFinal,
                 "callCap" to callCap,
-                "failed" to failed,
-                "coolingDown" to coolingDown,
+                "failed" to failedFinal,
+                "coolingDown" to coolingDownFinal,
                 "remaining" to remaining,
                 "durationMs" to durationMs,
             ),
@@ -302,20 +403,24 @@ class MarketDailyBackfillCampaign(
     /** universe 보통주 카운트 (admin progress 관측 — 콜 0). */
     fun universeCount(): Long = universeProvider.count()
 
-    /** 가동 0 종료(DISABLED·EMPTY_UNIVERSE) 결과 — 0 카운트 + callCap·durationMs 만 채움. */
+    /** 가동 0 종료(DISABLED·EMPTY_UNIVERSE) 결과 — 0 카운트 + mode·wipedRows·callCap·durationMs 만 채움. */
     private fun emptyResult(
         runId: String,
         status: CampaignStatus,
+        mode: BackfillMode,
+        wipedRows: Long,
         startMs: Long,
     ): CampaignResult =
         CampaignResult(
             runId = runId,
             status = status,
+            mode = mode,
+            wipedRows = wipedRows,
             universeSize = 0,
             alreadyComplete = 0,
             processedSymbols = 0,
             newlyCompleteSymbols = 0,
-            insertedRows = 0,
+            insertedRows = 0L,
             callsConsumed = 0,
             callCap = properties.normalizedNightlyCallCap(),
             failedSymbols = 0,
@@ -369,8 +474,10 @@ class MarketDailyBackfillCampaign(
         // ★ no-advance 가드 baseline — fetch 직전 max_ts 캡처. fetch 후 전진 안 하면 cooldown 마킹.
         val preFetchMaxTs = safeMaxTs(code)
 
+        // circuit-only 가드 — 동시성 제어는 campaign 의 coroutine Semaphore, KIS hard ceiling 은 rate-limiter.
+        // serial semaphore(1)·minInterval(1.5s)는 동시성을 무력화하므로 미적용(ADR 0118 amend §동시성).
         val throttledResult =
-            backfillThrottleGate.runThrottled(code) {
+            backfillThrottleGate.runWithCircuitGuard(code) {
                 fetchAndStore(code, fromDate, toDate, runId)
             }
         if (throttledResult == null) {

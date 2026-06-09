@@ -8,7 +8,7 @@
   - **ADR 0105** (캔들 Reconciliation + 장기 1m retention) — `ManagedCandleUniverseProvider`(~25 active) 위에 별도 `MARKET_DAILY` universe layer add. managed universe 흐름 변경 0.
   - **ADR 0086 / 0090** (CandleGapDetector 4축 교차검증) — gap 복구 로직 100% 재사용, universe만 확장.
   - **ADR 0116** (KIS Rate Limit Phase 2 — 3-tier 버킷) — 야간 snapshot은 BG 버킷(BACKFILL/INGESTION_LOW) 소비.
-  - **ADR 0063 / 0091** (NXT 통합 cover + 종목 단위 `UN`→`J` resolver) — 야간 snapshot의 NXT 포함 여부 결정에 직결.
+  - **ADR 0063 / 0091** (NXT 통합 cover + 종목 단위 `UN`→`J` resolver) — 야간 snapshot의 NXT 포함 여부 결정에 직결. **2026-06-09 amend(§9)로 deprecated** — UN/NX 채널 KIS 측 stale 동결 실측 → J 단일 채널로 전환.
   - **ADR 0019** (candle UPSERT — UQ code+interval+ts) — today 보정은 기존 `upsertAll`(ON CONFLICT DO UPDATE) 재사용, 과거봉 immutable(DO NOTHING) 유지.
   - **ADR 0117** (단타 발굴 레이어) — 전종목 일봉 universe는 스크리너/발굴의 데이터 전제. 본 ADR이 그 토대 제공.
   - direction-guard: STRATEGY/DETAIL owner 분리 + watchlist 자동삽입 금지 정책 유지 (§7).
@@ -125,7 +125,7 @@ batch 모듈에 신규 스케줄러 1개(가칭 `MarketDailySnapshotScheduler`)�
 - **결재 ③ 완료(2026-06-09) — today 종가 권위 = NXT 통합 (ADR 0063 정합).**
   - 사용자 결정: today 1d 봉의 권위 종가는 **NXT 통합(08:00~20:00 KST 마감 기준)**으로 한다. candle-data-policy의 1d 정의("NXT 종가 통합, 20:00 KST 마감")와 정합한다.
   - `intstock-multprice` 응답 `inter2_*` 필드가 **정규장(KRX 09:00~15:30) 종가**인지 **NXT 통합(08:00~20:00) 종가**인지는 today close 권위를 가르며, `FID_COND_MRKT_DIV_CODE_N`을 `J`(정규장)로 주면 정규장, `UN`/`NX`로 주면 NXT 통합 가능성 — **멀티시세 endpoint가 시장코드별로 실제 어떤 값을 반환하는지는 R2 구현 전 raw 응답 실측 의무(추론 금지·헌법 §3).**
-  - 적용: ADR 0091 종목 단위 resolver 재사용 — NXT 후보(`is_kospi200`/`is_kosdaq150`)는 NXT 통합 시장코드 우선, 그 외 `J`.
+  - 적용: ~~ADR 0091 종목 단위 resolver 재사용 — NXT 후보(`is_kospi200`/`is_kosdaq150`)는 NXT 통합 시장코드 우선, 그 외 `J`.~~ **2026-06-09 amend(§9)로 변경 — UN/NX 채널 stale 동결 실측 → J 단일 채널 LOCK. today 종가 권위도 J 정규장으로 전환(NXT 통합 권위 deprecated).**
   - **폴백 설계 LOCK (불변)**: 멀티시세가 NXT 통합값을 **안 주고 정규장 종가만 반환**하는 것으로 R2 실측되면, snapshot은 "정규장 마감값 교정"으로 한정하고 NXT after-hour 반영은 **DailyCloseFinalizer(WS 집계 20:00 마감 기준) + 별도 검증 경로**로 남긴다(§6 롤백). 즉 결재는 "NXT 통합 권위 LOCK"이되, 멀티시세가 그 값을 주지 못하면 권위 source만 DailyCloseFinalizer로 폴백(권위 정의 자체는 불변).
 
 ### 2-E. gap 복구 3천 확장 — universe만 교체, 로직 100% 재사용
@@ -237,3 +237,71 @@ batch 모듈에 신규 스케줄러 1개(가칭 `MarketDailySnapshotScheduler`)�
 **status 처리**: 결정은 LOCK이나 구현(R1~) 전이므로 ADR status는 **Proposed 유지**. R1(어댑터·universe·NXT 실측) 구현 완료 시 **Accepted** 전환 예정.
 
 **후속**: 결재 확정으로 R1 디스패치 가능. NXT 실측(③)은 R1에서 raw fetch로 선행 검증 후 R2 배선에 반영.
+
+---
+
+## 9. amend (2026-06-09) — 채널 J-단일 우선 + wipe 마이그레이션 모드 + 동시성 보강
+
+> 라이브 dogfooding 에서 일부 종목 일봉이 2026-02-11 에 동결된 결함의 **근본 원인을 REAL 키 raw 실측으로 확정**하고,
+> 사용자(최고 관리자)가 **J 단일 채널 · 일봉 패밀리만 wipe→재적재 · 장중 즉시 실행**을 결재 완료했다. 본 §가 그 결정을
+> ADR 본문에 LOCK 한다. 관계 ADR 0063/0091(NXT 통합·종목 단위 `UN`→`J` resolver)은 본 amend 로 **deprecated**.
+
+### 9-A. 근본 원인 — UN/NX 채널 stale 동결 (raw 실측 evidence)
+
+036930·047040·098460 일봉이 2026-02-11 에 동결(주봉도 2/02 동결)되었으나, **같은 종목 1분봉은 오늘
+(2026-06-09 13:40) 실시간 체결 정상 유입** → 거래정지/데이터부재 아님. REAL 키로 `inquire-daily-itemchartprice`
+(FHKST03010100)를 **채널별 raw 호출**한 실측:
+
+| code | J(KRX) | NX(NXT) | UN(통합) |
+|------|--------|---------|----------|
+| 036930 | **20260609 정상** | 20260211 stale | 20260211 stale |
+| 047040 | **20260609 정상** | - | 20260211 stale |
+| 098460 | **20260609 정상** | - | 20260211 stale |
+| 138040 | 20260609 | - | 20260609 |
+| 455180 | 20260609 | - | 0 rows |
+
+`KisRestCandleAdapter.resolveMrktDivCodeCandidates(code)`가 KOSPI200/KOSDAQ150 멤버에 `["UN","J"]`(UN 우선)을
+썼다. KIS 측 결함으로 UN(통합) 일봉이 일부 종목에서 2/11 에 동결돼 있는데, fallback 은 "UN 0건"일 때만 J 로
+가므로 UN 이 stale 8행을 주면 그대로 채택하고 J(항상 최신)를 영영 안 본다 → **일부 종목 일봉 영구 동결**.
+J(KRX 본시장)는 전 종목 항상 최신·정상.
+
+### 9-B. 결정 — J 단일 primary (UN/NX deprecated)
+
+- `resolveMrktDivCodeCandidates()`는 **항상 `listOf("J")`** 반환. UN/NX 분기·fallback 전면 제거.
+- `KisMultiPriceAdapter`(R2 today 종가·FHKST11300006)의 `fetchMultiPrice(mrktDivCode = "J")` default 도 J 정합
+  (§2-D 의 "NXT 통합 종가 권위"는 본 amend 로 **J 정규장 권위**로 변경 — UN/NX stale 으로 신뢰 불가).
+- **trade-off 수용**: 일봉 거래량에서 NXT 분 제외(본시장 거래량만). 정합성·신뢰성 우선. 향후 KIS 측 UN/NX
+  stale 해소 시 `resolveMrktDivCodeCandidates()` 단일 지점 교체 + ADR 재amend 로 복원 가능.
+
+### 9-C. wipe→재적재 마이그레이션 모드
+
+UN/NX 로 적재된 stale 일봉을 J 기준으로 일소하기 위해, `MarketDailyBackfillCampaign` 에 명시적 게이트
+`BackfillMode.MIGRATE` 를 add (default `NORMAL` 은 절대 wipe 하지 않음·기존 멱등 재개 그대로):
+
+- **wipe 범위 LOCK**: `interval IN ('1d','1wk','1mo','1y')` 4종만(REST 재생성 가능). `MarketDailyWipeService`
+  화이트리스트 상수(`MIGRATE_WIPE_INTERVALS`)가 컴파일-타임 LOCK + init 단언으로 **`1m`·`5m` 절대 보존**.
+  사유: 실시간 누적 1m·5m 는 KIS REST 로 복구 불가(영구 손실) — 가장 중요한 안전 제약.
+- 대량 삭제는 `ctid` LIMIT 배치(독립 트랜잭션 REQUIRES_NEW)로 long-transaction 회피·멱등 재개.
+- wipe 후 전체 MARKET_DAILY universe 를 J 채널로 재적재(기존 R-BF 멱등 캠페인 재사용). 응답에 `wipedRows`·`mode` 노출.
+- 트리거: `POST /admin/market-daily-backfill/run?mode=MIGRATE` (default·파라미터 없음=NORMAL). 실 wipe 실행은
+  머지·재배포 후 오케스트라가 운영 단계에서 수행.
+
+### 9-D. 동시성 보강
+
+기존 종목별 동기 순차 루프(1.5~2h/run, 단일호출 지연이 주범)를 **coroutine Semaphore(permits=N) + 종목 launch당
+지연** 비동기로 전환. 책임 분리 LOCK:
+
+- coroutine Semaphore = **throughput shaping**(동시 종목 수 제한). ENV `..._CONCURRENCY`(default 10) · `..._LAUNCH_DELAY_MS`(default 100).
+- KIS **hard ceiling 은 `ConsumerRedisKisRateLimiterAdapter`(Bucket4j Redis bucket)가 그대로 유효** — 세마포어가
+  rate limiter 를 우회·중복하지 않음. blocking WebClient `.block()` 은 `Dispatchers.IO.limitedParallelism` 격리.
+- `BackfillThrottleGate` 의 serial semaphore(1)·minInterval(1.5s)는 동시성을 무력화하므로 MARKET_DAILY path 는
+  `runWithCircuitGuard`(circuit breaker만 보존)로 분리. 1m managed-universe path 의 `runThrottled` 는 무변경.
+- call-cap·progress·no-advance·audit 회계는 `AtomicInteger`/`AtomicLong`/`AtomicBoolean` 으로 원자성 보호.
+
+### 9-E. ENV 신규 (`.env.example` 동기)
+
+```
+MAGICJAR_MARKET_DAILY_BACKFILL_CONCURRENCY=10       # 동시 처리 종목 수(coroutine Semaphore permits)
+MAGICJAR_MARKET_DAILY_BACKFILL_LAUNCH_DELAY_MS=100  # 종목 launch 간 지연(ms) — burst 분산
+```
+(직전 머지된 `..._ENABLED`·`..._HISTORY_YEARS`·`..._NIGHTLY_CALL_CAP` example 누락분도 본 사이클에 동기.)

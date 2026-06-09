@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 
 /**
@@ -14,9 +15,21 @@ import org.springframework.web.bind.annotation.RestController
  * consumer 모듈 내부 REST (port 8082). 기존 [CandleBackfillAdminController] 패턴 재사용.
  *
  * ## 멱등 트리거 (시동 1회 → 이후 호출마다 progress 이어받기)
- *   - POST /admin/market-daily-backfill/run — 캠페인 1회 실행(멱등 재개).
+ *   - POST /admin/market-daily-backfill/run — 캠페인 1회 실행(멱등 재개·default NORMAL).
  *     매 호출마다 이미 적재 완료 종목 skip + 밤당 콜 cap까지만 처리 + 미완료분 다음 호출 이연.
+ *     **default(파라미터 없음·mode=NORMAL)는 절대 wipe 하지 않음** — 기존 멱등 재개 그대로.
+ *   - POST /admin/market-daily-backfill/run?mode=MIGRATE — ★ 명시적 게이트. 일봉 패밀리(1d·1wk·1mo·1y)
+ *     wipe 선행 후 J 채널 전체 재적재(UN/NX stale 동결 일소 1회용). **1m·5m 는 화이트리스트 LOCK 으로 절대
+ *     보존**(실시간 누적·KIS REST 복구 불가). 응답에 wipedRows·mode 노출.
  *   - GET  /admin/market-daily-backfill/progress — universe·완료/잔여 종목 수 관측(콜 0 — count만).
+ *
+ * ## ★ MIGRATE 실행 예 (curl — 오케스트라 운영 단계 전용, 머지·재배포 후)
+ * ```
+ * # 일봉 패밀리 wipe → J 채널 전체 재적재 (ENABLED=true 선행 필수)
+ * curl -X POST 'http://localhost:8082/admin/market-daily-backfill/run?mode=MIGRATE'
+ * # 응답: {"mode":"MIGRATE","wipedRows":<삭제 row 수>,"status":"CAP_REACHED|COMPLETED",...}
+ * # cap(default 6,000콜) 도달 시 미완분은 mode 불문 POST /run 반복 호출로 이어서 재적재(멱등).
+ * ```
  *
  * ## ENV gate (시동/중단)
  *   `magicjar.market-daily-backfill.enabled` (MAGICJAR_MARKET_DAILY_BACKFILL_ENABLED)
@@ -41,14 +54,32 @@ class MarketDailyBackfillAdminController(
 ) {
     private val log = LoggerFactory.getLogger(MarketDailyBackfillAdminController::class.java)
 
+    /**
+     * @param mode `NORMAL`(default·wipe 0·멱등 재개) 또는 `MIGRATE`(일봉 패밀리 wipe 후 J 채널 전체 재적재).
+     *   대소문자 무관. 미지정·미인식 값은 안전하게 NORMAL(절대 wipe 0)로 처리.
+     */
     @PostMapping("/run")
-    fun run(): ResponseEntity<CampaignResultResponse> {
-        log.info("admin market-daily-backfill run trigger: enabled={}", properties.enabled)
-        val r = campaign.runCampaign()
+    fun run(
+        @RequestParam(name = "mode", required = false, defaultValue = "NORMAL") mode: String,
+    ): ResponseEntity<CampaignResultResponse> {
+        val resolvedMode =
+            when (mode.trim().uppercase()) {
+                "MIGRATE" -> MarketDailyBackfillCampaign.BackfillMode.MIGRATE
+                else -> MarketDailyBackfillCampaign.BackfillMode.NORMAL // 미인식 값은 안전하게 NORMAL(wipe 0)
+            }
+        log.info(
+            "admin market-daily-backfill run trigger: enabled={} modeParam={} resolvedMode={}",
+            properties.enabled,
+            mode,
+            resolvedMode,
+        )
+        val r = campaign.runCampaign(resolvedMode)
         return ResponseEntity.ok(
             CampaignResultResponse(
                 runId = r.runId,
                 status = r.status.name,
+                mode = r.mode.name,
+                wipedRows = r.wipedRows,
                 universeSize = r.universeSize,
                 alreadyComplete = r.alreadyComplete,
                 processedSymbols = r.processedSymbols,
@@ -83,11 +114,13 @@ class MarketDailyBackfillAdminController(
     data class CampaignResultResponse(
         val runId: String,
         val status: String,
+        val mode: String,
+        val wipedRows: Long,
         val universeSize: Int,
         val alreadyComplete: Int,
         val processedSymbols: Int,
         val newlyCompleteSymbols: Int,
-        val insertedRows: Int,
+        val insertedRows: Long,
         val callsConsumed: Int,
         val callCap: Int,
         val failedSymbols: Int,

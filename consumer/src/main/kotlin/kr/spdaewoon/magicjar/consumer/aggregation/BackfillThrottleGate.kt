@@ -51,6 +51,42 @@ class BackfillThrottleGate(
     private val circuitOpenUntilMillis = AtomicLong(0L)
 
     /**
+     * circuit breaker 가드만 적용 (serial semaphore·minInterval 미적용) — block 후 [block] 실행.
+     *
+     * ## 용도 (ADR 0118 amend — MARKET_DAILY 동시성 보강)
+     *   MARKET_DAILY 전종목 일봉 campaign 은 **coroutine Semaphore(permits=N)** 로 동시 종목 수를 제어하고,
+     *   KIS hard ceiling 은 `ConsumerRedisKisRateLimiterAdapter`(Bucket4j Redis bucket)가 그대로 유효하다.
+     *   따라서 본 gate 의 `maxConcurrentBackfills=1` serial semaphore + 1.5s `minIntervalMillis` 를 적용하면
+     *   동시성이 완전히 무력화되고(1종목씩·1.5s 간격) 1.5~2h/run 슬로우 root cause 가 그대로 남는다.
+     *   본 메서드는 **circuit breaker(연속 rate-limit trip → OPEN)만** 보존하여 KIS 압박 시 자동 차단은 유지하되,
+     *   동시성 제어는 호출자(coroutine Semaphore)에 위임한다. [runThrottled](1m managed-universe path)와 분리.
+     *
+     * @return [block] 결과, 또는 circuit OPEN 시 null(=run skip — 호출자가 다음 사이클로 미룸).
+     */
+    fun <T> runWithCircuitGuard(
+        code: String,
+        block: () -> T,
+    ): T? {
+        val openUntil = circuitOpenUntilMillis.get()
+        if (openUntil > 0L) {
+            val now = System.currentTimeMillis()
+            if (now < openUntil) {
+                log.warn(
+                    "BackfillThrottleGate circuit OPEN(circuit-only) — run 즉시 중단: code={} reopenInMs={} trips={}",
+                    code,
+                    openUntil - now,
+                    consecutiveTrips.get(),
+                )
+                return null
+            }
+            if (circuitOpenUntilMillis.compareAndSet(openUntil, 0L)) {
+                log.info("BackfillThrottleGate circuit half-open(circuit-only) — run 재진입 허용: code={}", code)
+            }
+        }
+        return block()
+    }
+
+    /**
      * permit 획득 + run 간 최소 간격 보장 + circuit breaker 가드. block 후 [block] 실행.
      *
      * @return [block] 결과, 또는 permit timeout·circuit OPEN 시 null(=run skip — 호출자가 다음 사이클로 미룸).
