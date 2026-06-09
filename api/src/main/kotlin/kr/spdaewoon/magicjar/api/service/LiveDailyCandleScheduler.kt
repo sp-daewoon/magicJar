@@ -16,7 +16,8 @@ import java.time.ZoneId
  *
  * 결함 배경 (2026-05-15 hotfix):
  *   - 분봉/시간봉(1m·3m·5m·15m·30m·90m·1h·4h·12h)은 KIS WS + BoundaryAggregator로 실시간 OK
- *   - 일/주/월/년봉은 ColdStartExecutor 1회 backfill 후 polling 부재 → stale
+ *   - 일/주/월/년봉은 전종목 일봉 universe(R-BF/R2 · ADR 0118) backfill 후 장중 polling 부재 → stale
+ *     (구: ColdStartExecutor 1회 backfill — ADR 0119로 은퇴)
  *   - 사용자가 장중 SymbolDetail 진입 시 캔들이 며칠 전 데이터로 표시되는 결함
  *
  * 본 cron:

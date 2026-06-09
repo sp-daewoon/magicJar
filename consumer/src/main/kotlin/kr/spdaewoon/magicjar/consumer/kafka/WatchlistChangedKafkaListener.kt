@@ -4,10 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisQuoteCacheAdapter
 import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisSourceTrackerAdapter
-import kr.spdaewoon.magicjar.consumer.ingestion.ColdStartExecutor
 import kr.spdaewoon.magicjar.consumer.ingestion.SubscriptionRouter
-import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
-import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -20,8 +17,14 @@ import org.springframework.stereotype.Component
  * - groupId: magicjar-consumer-watchlist-ingestion
  * - manual ack (MANUAL_IMMEDIATE — ADR 0045 graceful shutdown 정합)
  * - at-least-once delivery + idempotent 처리
- * - action=ADDED: cold-start + WS/polling 분배 + Redis warm
+ * - action=ADDED: WS/polling 분배 (+ Redis warm은 PollingWorker 첫 tick)
  * - action=REMOVED: unsubscribe + Redis evict
+ *
+ * ★ proactive cold-start 백필 폐지 (ADR 0119 · 2026-06-09):
+ *   watchlist 종목 추가 시 과거 1m·일봉 무더기 KIS 백필을 더 이상 트리거하지 않는다.
+ *   신규 종목의 일봉은 전종목 일봉 universe(R-BF/R2 · ADR 0118)가 이미 보유하고,
+ *   1m은 WS 구독(SubscriptionRouter)이 실시간으로 채운다. 과거 1m 정밀 갭은 차트 진입
+ *   on-demand(SymbolDetailMinuteGapFillService) 또는 admin 수동 backfill(CandleBackfillWorker)만 수행.
  *
  * 41 slot 한도 게이트: SubscriptionRouter.add 내부에서 처리.
  * slot 상태는 응답 payload로 노출하지 않음 (UI 배지는 T-S1에서 별도 endpoint 구현 예정).
@@ -32,28 +35,10 @@ import org.springframework.stereotype.Component
 class WatchlistChangedKafkaListener(
     private val objectMapper: ObjectMapper,
     private val subscriptionRouter: SubscriptionRouter,
-    private val coldStartExecutor: ColdStartExecutor,
     private val redisQuoteCacheAdapter: RedisQuoteCacheAdapter,
     private val redisSourceTracker: RedisSourceTrackerAdapter,
-    private val candleRepository: CandleRepository,
 ) {
     private val log = LoggerFactory.getLogger(WatchlistChangedKafkaListener::class.java)
-
-    companion object {
-        /**
-         * cold-start 존재 여부 판단용 interval 목록.
-         * KIS 미제공 합산 interval(3m·5m·15m·30m·90m·1h·4h·12h)은 제외 (2026-05-11 Yahoo 폐기 — KIS-only 정책).
-         * KIS 제공: 1m·1d·1wk·1mo·1y
-         */
-        private val COLD_START_INTERVALS =
-            listOf(
-                CandleInterval.ONE_MIN,
-                CandleInterval.ONE_DAY,
-                CandleInterval.ONE_WEEK,
-                CandleInterval.ONE_MONTH,
-                CandleInterval.ONE_YEAR,
-            )
-    }
 
     @KafkaListener(
         topics = ["watchlist.changed.v1"],
@@ -104,20 +89,12 @@ class WatchlistChangedKafkaListener(
         val code = event.code
         val userId = event.userId
 
-        // 1. DB candle 부재 검증 → KIS cold-start (idempotent)
-        val needsColdStart =
-            candleRepository.countByCodeAndIntervalIn(code, COLD_START_INTERVALS) == 0L
-        if (needsColdStart) {
-            log.info("cold-start 트리거: code={}", code)
-            coldStartExecutor.submit(code)
-        } else {
-            log.debug("cold-start 생략 (이미 캔들 존재): code={}", code)
-        }
-
-        // 2. SubscriptionRouter에 위임 (slot 여유 검사 + WS/polling 분배 — ADR 0048 §2-6)
+        // 1. SubscriptionRouter에 위임 (slot 여유 검사 + WS/polling 분배 — ADR 0048 §2-6)
+        //    proactive cold-start 백필 폐지 (ADR 0119): 신규 종목 일봉=R-BF/R2 기보유, 1m=WS 실시간.
+        //    과거 1m 정밀 갭은 차트 진입 on-demand(SymbolDetailMinuteGapFillService)만 수행 — 여기서 KIS 백필 0.
         subscriptionRouter.add(userId, code, priority = 100)
 
-        // 3. Redis quote:last warm (즉시 첫 가격 표시 위해)
+        // 2. Redis quote:last warm (즉시 첫 가격 표시 위해)
         // warm은 PollingWorker가 5초 내 갱신하므로 별도 warm 불필요
         // (KIS REST 1회 호출은 WatchlistPollingWorker 첫 tick에서 자동 실행)
 

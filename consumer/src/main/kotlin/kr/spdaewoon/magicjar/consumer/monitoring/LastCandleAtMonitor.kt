@@ -1,8 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.monitoring
 
-import kr.spdaewoon.magicjar.consumer.aggregation.AggregateBackfillRunner
 import kr.spdaewoon.magicjar.consumer.aggregation.CandleBackfillWorker
-import kr.spdaewoon.magicjar.consumer.ingestion.ColdStartExecutor
 import kr.spdaewoon.magicjar.consumer.notification.SlackWebhookSender
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaRepository
@@ -24,18 +22,23 @@ import java.time.temporal.ChronoUnit
  *
  * 목적:
  *   - 한국석유(004090) 일봉 5개월 stale (2025-12-24 → 2026-05-18) dogfooding evidence 재발 방지
- *   - watchlist 등록된 모든 종목 × (일봉·1분봉) 매트릭스 stale 임계치 검증
- *   - 위반 시 ColdStartExecutor.submit() 자동 backfill 트리거 + Slack alert
+ *   - watchlist 등록된 모든 종목 × 일봉(ONE_DAY) stale 임계치 검증
+ *   - 위반 시 CandleBackfillWorker.submit(ONE_DAY) 정밀 backfill 트리거 + Slack alert
+ *
+ * ★ 1분봉(ONE_MIN) 자동 백필 제거 (ADR 0119 · 2026-06-09):
+ *   proactive cold-start 백필 폐지에 정합. 1m stale 감지 → 자동 backfill 트리거를 제거한다.
+ *   실시간 1m은 KIS WS 구독 종목(TickToMinuteAggregator, 최대 PRICE_TICK_MAX=30+NXT)만 매분 마감하므로,
+ *   watchlist 전 종목 1m stale 감지는 WS 비구독 종목에 대해 과수집 백필을 유발했다(126일×N storm).
+ *   과거 1m 정밀 갭은 차트 진입 on-demand(SymbolDetailMinuteGapFillService) 또는 admin 수동 도구만 수행.
+ *   ★일봉(ONE_DAY) stale 감지 + Slack 알림은 유지 (한국석유 회귀 가드).
  *
  * 실행 시점 (KST):
  *   - 매일 18:00 KST (@Scheduled cron — KRX 정규장 15:30 마감 + NXT 진행 중 시각)
  *   - DailyCloseFinalizer(20:00 KST) 이전 — backfill 결과가 daily close 합산에 반영되도록 선행
  *
  * 임계치 (chart-curator skill §캔들 데이터 SLA 매트릭스 정합):
- *   - 일봉(ONE_DAY): 5 거래일 stale → alert + backfill 트리거
+ *   - 일봉(ONE_DAY): 5 거래일 stale → alert + CandleBackfillWorker(ONE_DAY) 트리거
  *     (사용자 dispatch 명시 — 한국석유 case는 ≈100 거래일 stale이었음)
- *   - 1분봉(ONE_MIN): 1 거래일 stale → alert + backfill 트리거
- *     (장중 모니터링 — 분봉 파이프라인 끊김 즉시 감지)
  *
  * Rate Limit 보호 (ADR 0037 — 초당 10건):
  *   - 종목 간 100ms 간격 (cold-start 호출 비동기지만 큐잉 부담 분산)
@@ -65,12 +68,10 @@ import java.time.temporal.ChronoUnit
 class LastCandleAtMonitor(
     private val watchlistJpaRepository: ConsumerWatchlistJpaRepository,
     private val candleRepository: CandleRepository,
-    private val coldStartExecutor: ColdStartExecutor,
-    private val aggregateBackfillRunner: AggregateBackfillRunner,
     private val instrumentJpaRepository: ConsumerInstrumentJpaRepository,
     private val auditRepository: ConsumerAuditTrailJpaRepository,
     private val slackSenderProvider: ObjectProvider<SlackWebhookSender>,
-    // ADR 0086 T-CC Phase 2-A — 정밀 backfill 워커 추가 호출 (cold-start 병행, Phase 1 회귀 risk 0).
+    // ADR 0086 T-CC Phase 2-A — 일봉 정밀 backfill 워커 (ADR 0119로 cold-start 병행 제거 후 단독 트리거).
     private val candleBackfillWorker: CandleBackfillWorker,
 ) {
     private val log = LoggerFactory.getLogger(LastCandleAtMonitor::class.java)
@@ -82,13 +83,6 @@ class LastCandleAtMonitor(
          * 한국석유 case: 약 100 거래일 stale 발생 → 즉시 검출 가능.
          */
         const val STALE_THRESHOLD_DAILY_BUSINESS_DAYS = 5L
-
-        /**
-         * 1분봉 stale 임계치 (거래일).
-         * 1 거래일 = 어제 09:00 KST 이전 → alert.
-         * 한국석유 case: 1분봉 정상(2026-05-18 15:19) → 본 임계치 미위반.
-         */
-        const val STALE_THRESHOLD_MINUTE_BUSINESS_DAYS = 1L
 
         /** Rate limit 보호 — 종목 간 sleep (ms) */
         private const val PER_CODE_INTERVAL_MS = 100L
@@ -112,8 +106,8 @@ class LastCandleAtMonitor(
      * 흐름:
      *   1. watchlist 전 종목 조회
      *   2. 거래정지·정리매매 skip
-     *   3. 종목별 (ONE_DAY · ONE_MIN) 마지막 ts 조회 → stale 검출
-     *   4. stale 발견 시 coldStartExecutor.submit(code) — 비동기 backfill 트리거
+     *   3. 종목별 ONE_DAY 마지막 ts 조회 → stale 검출 (1m 자동 백필은 ADR 0119로 제거)
+     *   4. stale 발견 시 candleBackfillWorker.submit(code, ONE_DAY) — 정밀 backfill 트리거
      *   5. 결과 Slack alert (stale 0건이면 skip)
      *   6. audit_trail CANDLE_LAST_AT_MONITOR row 1건 발행 (운영 audit)
      */
@@ -179,7 +173,7 @@ class LastCandleAtMonitor(
         for (entry in watchlistEntries) {
             val code = entry.code
 
-            // 거래정지·정리매매 skip (ColdStartExecutor 동일 정책 정합)
+            // 거래정지·정리매매 skip (CandleBackfillWorker 동일 정책 정합)
             val instrument = instrumentJpaRepository.findById(code).orElse(null)
             if (instrument != null && (instrument.tradingHalt || instrument.liquidation)) {
                 log.debug(
@@ -192,7 +186,7 @@ class LastCandleAtMonitor(
                 continue
             }
 
-            // ONE_DAY stale 검사
+            // ONE_DAY stale 검사 (★ ONE_MIN stale 검사·자동 백필은 ADR 0119로 제거 — proactive 백필 폐지 정합)
             val dailyStale = detectStale(code, CandleInterval.ONE_DAY, nowKst, STALE_THRESHOLD_DAILY_BUSINESS_DAYS)
             if (dailyStale != null) {
                 staleAccum.add(dailyStale)
@@ -205,43 +199,23 @@ class LastCandleAtMonitor(
                 )
             }
 
-            // ONE_MIN stale 검사
-            val minuteStale = detectStale(code, CandleInterval.ONE_MIN, nowKst, STALE_THRESHOLD_MINUTE_BUSINESS_DAYS)
-            if (minuteStale != null) {
-                staleAccum.add(minuteStale)
-                log.warn(
-                    "LastCandleAtMonitor stale 검출 — code={} interval={} lastTs={} staleBizDays={}",
-                    code,
-                    CandleInterval.ONE_MIN.code,
-                    minuteStale.lastTs,
-                    minuteStale.staleBusinessDays,
-                )
-            }
-
-            // 어느 한쪽이라도 stale → cold-start submit (1m + 1d·1w·1m·1y 일괄 재수집 + aggregation)
-            // 동일 종목 중복 trigger 방지 (set semantics)
-            if ((dailyStale != null || minuteStale != null) && triggeredAccum.add(code)) {
+            // 일봉 stale → 정밀 backfill submit (CandleBackfillWorker ONE_DAY 단독 — cold-start 일괄 재수집 제거).
+            // 동일 종목 중복 trigger 방지 (set semantics).
+            if (dailyStale != null && triggeredAccum.add(code)) {
                 try {
-                    coldStartExecutor.submit(code)
+                    candleBackfillWorker.submit(code, CandleInterval.ONE_DAY, "monitor-daily")
                     log.info(
-                        "LastCandleAtMonitor cold-start submit: code={} reason={}",
+                        "LastCandleAtMonitor 일봉 backfill submit: code={} reason=daily-{}d",
                         code,
-                        listOfNotNull(
-                            dailyStale?.let { "daily-${it.staleBusinessDays}d" },
-                            minuteStale?.let { "minute-${it.staleBusinessDays}d" },
-                        ).joinToString(","),
+                        dailyStale.staleBusinessDays,
                     )
-                    // ADR 0086 Phase 2-A — 정밀 backfill 추가 호출 (cold-start 일괄 재수집 + gap detect 정밀 보강).
-                    // stale interval에 한해서만 호출 (1d만 stale이면 1d만, 둘 다면 둘 다).
-                    dailyStale?.let { candleBackfillWorker.submit(code, CandleInterval.ONE_DAY, "monitor-daily") }
-                    minuteStale?.let { candleBackfillWorker.submit(code, CandleInterval.ONE_MIN, "monitor-minute") }
                 } catch (e: Exception) {
-                    log.warn("LastCandleAtMonitor cold-start submit 실패: code={} err={}", code, e.message)
+                    log.warn("LastCandleAtMonitor 일봉 backfill submit 실패: code={} err={}", code, e.message)
                 }
             }
 
             // Rate limit 보호 — KIS API rate limit (ADR 0037 — 초당 10건) 정합.
-            // ColdStartExecutor.submit 자체는 즉시 반환되나, 큐잉 부담 분산 + DB read 부하 분산.
+            // CandleBackfillWorker.submit 자체는 즉시 반환되나, 큐잉 부담 분산 + DB read 부하 분산.
             try {
                 Thread.sleep(PER_CODE_INTERVAL_MS)
             } catch (e: InterruptedException) {
