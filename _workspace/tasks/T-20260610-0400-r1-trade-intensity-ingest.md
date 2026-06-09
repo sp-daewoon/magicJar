@@ -3,10 +3,10 @@ id: T-20260610-0400-r1-trade-intensity-ingest
 agent: market-data
 model: opus
 branch: agent/market-data/r1-trade-intensity-ingest
-status: IN_PROGRESS
+status: DONE
 startedAt: 2026-06-10T04:00:00.000+09:00
-completedAt:
-pr:
+completedAt: 2026-06-10T04:12:00.000+09:00
+pr: #867
 parentPhase: ADR 0117 R1-A
 ---
 
