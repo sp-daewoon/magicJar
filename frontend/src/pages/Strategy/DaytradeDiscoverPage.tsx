@@ -11,8 +11,11 @@
  * - 룰 기반 — LLM 호출 0 (anthropic·openai import 0건).
  * - 발굴은 후보 출발점 — 자동 주문·자동 watchlist 삽입 0.
  * - 실시간 관찰 토글 ≠ watchlist 등록 (owner 가드 — STRATEGY owner TTL 30분).
- * - 결과 0건/skip 시 mock 합성 0 — "데이터 없음 / 일봉 수집 중 / 후보 없음" 명시.
- *   (현재 일봉 전수 backfill 진행 중이라 부분 데이터일 수 있음 — graceful 처리)
+ * - 결과 0건/skip 시 mock 합성 0 — 정직 표기. 단, "수집 중" 어조 금지:
+ *   · evaluatedCount>0 && matchedCount===0 → "조건 미충족"(정상 안내).
+ *   · evaluatedCount===0 → "평가할 데이터 없음".
+ *   skippedReasons["캔들 미수집"]은 비-보통주(ETF·우선주·리츠·SPAC) 설계상 범위 외이며
+ *   "수집 진행 중"이 아니다 (ADR 0118 §2-A-1 — 보통주 일봉 누락 사실상 0).
  */
 import { useMemo, useState } from 'react'
 import { useDaytradeDiscover } from '../../features/screener/hooks/useDaytradeDiscover'
@@ -40,10 +43,28 @@ function Spinner() {
   )
 }
 
-function hasCandleDataSkips(skippedReasons: Record<string, number>): boolean {
-  return Object.keys(skippedReasons).some(
-    (reason) => reason.includes('캔들') || reason.includes('Candle'),
-  )
+/**
+ * 발굴에 사용된 프리셋명 합성 — 빈 상태 안내 문구용.
+ * presets[].title 우선, 없으면 "단타" fallback.
+ */
+function presetDisplayName(result: DaytradeDiscoverResultDto): string {
+  const titles = result.presets.map((p) => p.title).filter(Boolean)
+  if (titles.length === 0) return '단타'
+  if (titles.length === 1) return titles[0]
+  return `${titles[0]} 외 ${titles.length - 1}건`
+}
+
+/**
+ * "캔들 미수집"(CandleMissing) skip은 비-보통주(ETF·우선주·리츠·SPAC) 설계상 범위 외다.
+ * ADR 0118 §2-A-1 — 보통주 일봉 누락은 사실상 0. "수집 진행 중"으로 해석 금지.
+ */
+function candleMissingCount(skippedReasons: Record<string, number>): number {
+  return Object.entries(skippedReasons)
+    .filter(
+      ([key]) =>
+        key === 'CandleMissing' || key.includes('캔들 미수집'),
+    )
+    .reduce((sum, [, count]) => sum + count, 0)
 }
 
 /** 통계 요약 row */
@@ -113,6 +134,60 @@ function PresetMetaCard({ result }: { result: DaytradeDiscoverResultDto }) {
           )}
         </div>
       ))}
+    </div>
+  )
+}
+
+/**
+ * 빈 상태(후보 0건) 안내 — 응답 필드 기반 정확한 분기.
+ *
+ * - evaluatedCount === 0 → 정말 평가할 데이터가 없음 (드문 케이스).
+ * - evaluatedCount > 0 && matchedCount === 0 → 보통주는 전수 평가됐으나 조건 미충족 (정상).
+ *
+ * "수집 진행 중" 어조 금지. skippedReasons["캔들 미수집"]은
+ * 비-보통주(ETF·우선주·리츠·SPAC) 설계상 범위 외 (ADR 0118 §2-A-1).
+ */
+function DiscoverEmptyState({ result }: { result: DaytradeDiscoverResultDto }) {
+  const noData = result.evaluatedCount === 0
+  const missing = candleMissingCount(result.skippedReasons)
+
+  return (
+    <div className="rounded-xl border border-gray-800 bg-gray-900/40 px-4 py-10 text-center">
+      {noData ? (
+        <>
+          <p className="text-sm text-gray-400">평가할 일봉 데이터가 없습니다.</p>
+          <p className="mt-2 text-xs text-gray-600">
+            아직 평가 대상 종목이 산출되지 않았습니다. 잠시 후 다시 발굴해 주세요. (mock 후보를
+            합성하지 않습니다)
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="text-sm text-gray-300">
+            오늘 '{presetDisplayName(result)}' 조건을 충족한 종목이 없습니다.{' '}
+            <span className="text-gray-500">
+              (보통주 {result.evaluatedCount.toLocaleString()}종목 평가 완료)
+            </span>
+          </p>
+          <p className="mt-2 text-xs text-gray-500">
+            다른 프리셋을 시도하거나, 조건이 완화된 setup을 선택해 보세요. (mock 후보를 합성하지
+            않습니다)
+          </p>
+        </>
+      )}
+
+      {missing > 0 && (
+        <details className="mx-auto mt-4 max-w-md text-left">
+          <summary className="cursor-pointer text-[11px] text-gray-600 hover:text-gray-500">
+            범위 외 {missing.toLocaleString()}종목은 왜 제외되나요?
+          </summary>
+          <p className="mt-1.5 text-[11px] leading-relaxed text-gray-600">
+            ETF·우선주·리츠·SPAC 등 비보통주는 단타 발굴 대상(보통주)이 아니므로 설계상 일봉을
+            적재하지 않습니다 (ADR 0118). 데이터가 덜 모인 것이 아니라 범위 밖이며, 보통주 일봉
+            누락은 사실상 없습니다.
+          </p>
+        </details>
+      )}
     </div>
   )
 }
@@ -272,8 +347,14 @@ export function DaytradeDiscoverPage() {
           {/* skip 매트릭스 (캔들 미수집·부족 등 — mock 0, 정직 표기) */}
           {Object.keys(data.skippedReasons).length > 0 && (
             <div>
-              <p className="mb-1.5 text-xs text-gray-500">skip 사유</p>
+              <p className="mb-1.5 text-xs text-gray-500">평가 제외 사유</p>
               <ScreenerSkipReasonsBadge reasons={data.skippedReasons} />
+              {candleMissingCount(data.skippedReasons) > 0 && (
+                <p className="mt-1.5 text-[11px] text-gray-600">
+                  ※ '캔들 미수집'은 ETF·우선주 등 비보통주(설계상 발굴 범위 외)이며 수집 진행 중이
+                  아닙니다 (ADR 0118).
+                </p>
+              )}
             </div>
           )}
 
@@ -286,19 +367,7 @@ export function DaytradeDiscoverPage() {
               watchedCodes={watchedCodes}
             />
           ) : (
-            <div className="rounded-xl border border-gray-800 bg-gray-900/40 px-4 py-10 text-center">
-              <p className="text-sm text-gray-400">
-                {data.evaluatedCount === 0
-                  ? '평가 가능한 일봉 데이터가 아직 없습니다.'
-                  : hasCandleDataSkips(data.skippedReasons)
-                    ? '일봉 데이터 수집 중인 종목이 제외되어 오늘의 후보가 없습니다.'
-                    : '조건을 충족한 단타 후보가 없습니다.'}
-              </p>
-              <p className="mt-2 text-xs text-gray-600">
-                현재 일봉 전수 수집이 진행 중일 수 있습니다. 수집 완료 후 다시 발굴해 주세요.
-                (mock 후보를 합성하지 않습니다)
-              </p>
-            </div>
+            <DiscoverEmptyState result={data} />
           )}
         </div>
       )}
