@@ -78,6 +78,7 @@ class KisExecutionBackfillService(
     private val accountBalanceChangedKafkaProducer: AccountBalanceChangedKafkaProducer,
     private val executionPersistenceService: ExecutionPersistenceService,
     private val webSocketBridge: KisWebSocketBridge,
+    private val strategyPositionExecutionReplayServiceProvider: ObjectProvider<StrategyPositionExecutionReplayService>? = null,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String,
     @Value("\${magicjar.order.ws-backfill.enabled:true}")
@@ -333,6 +334,7 @@ class KisExecutionBackfillService(
         if (alreadyPersisted) {
             log.debug("backfill skip (event_id dedup): eventId={}", eventId)
             syncOrderStatusAfterBackfill(orderRepo, execRepo, request, null, emitFilledEvent = false)
+            replayStrategyPositionIfMissing(request, "REST_BACKFILL_ALREADY_SYNCED")
             return BackfillRowStatus.ALREADY_SYNCED
         }
 
@@ -353,6 +355,7 @@ class KisExecutionBackfillService(
                 exec.totCcldQty,
             )
             syncOrderStatusAfterBackfill(orderRepo, execRepo, request, null, emitFilledEvent = false)
+            replayStrategyPositionIfMissing(request, "REST_BACKFILL_DELTA_ALREADY_APPLIED")
             return BackfillRowStatus.ALREADY_SYNCED
         }
 
@@ -409,7 +412,24 @@ class KisExecutionBackfillService(
             saved.id,
         )
         syncOrderStatusAfterBackfill(orderRepo, execRepo, request, saved, emitFilledEvent = true)
+        replayStrategyPositionIfMissing(request, "REST_BACKFILL_INSERTED")
         return BackfillRowStatus.INSERTED
+    }
+
+    private fun replayStrategyPositionIfMissing(
+        request: OrderRequest,
+        reason: String,
+    ) {
+        val replayService = strategyPositionExecutionReplayServiceProvider?.getIfAvailable() ?: return
+        runCatching { replayService.replayIfMissing(request, reason) }
+            .onFailure { e ->
+                log.warn(
+                    "strategy_position replay 실패 — backfill 체결 sync는 유지: orderId={} reason={} err={}",
+                    request.id,
+                    reason,
+                    e.message,
+                )
+            }
     }
 
     private fun syncOrderStatusAfterBackfill(

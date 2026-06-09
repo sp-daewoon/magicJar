@@ -122,6 +122,11 @@ class OrderRouterKafkaListenerTest {
 
     // ADR 0115 §P2-2 — SELL 거부 자동정지 tracker. 본 테스트는 12 step 라우팅을 검증하므로 relaxed(부작용 무시).
     private val sellRejectAutoPauseTracker = mockk<SellRejectAutoPauseTracker>(relaxed = true)
+    private val strategyReplayService = mockk<StrategyPositionExecutionReplayService>(relaxed = true)
+    private val strategyReplayServiceProvider =
+        mockk<ObjectProvider<StrategyPositionExecutionReplayService>>().also {
+            every { it.getIfAvailable() } returns strategyReplayService
+        }
 
     // 기존 12 step 흐름 테스트는 장운영시간 게이트를 비활성(enabled=false)으로 격리한다.
     // 게이트 자체 동작은 isWithinTradingHours 단위 테스트 + AUTO/MANUAL 분기 테스트로 별도 검증.
@@ -143,6 +148,7 @@ class OrderRouterKafkaListenerTest {
             objectMapper = objectMapper,
             holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
             sellRejectAutoPauseTracker = sellRejectAutoPauseTracker,
+            strategyPositionExecutionReplayServiceProvider = strategyReplayServiceProvider,
             marketHoursGateEnabled = false,
         )
 
@@ -152,6 +158,7 @@ class OrderRouterKafkaListenerTest {
         every { tradingModeGate.resolveMode("12345678") } returns OrderResult.Right(TradingMode.MOCK)
         every { killSwitchPort.isOn("12345678") } returns false
         every { orderRepo.save(any()) } answers { firstArg<OrderRequest>().copy(id = 99L) }
+        every { orderRepo.findByKisOrderNo("ODNO123") } returns null
         every { kisOrderPort.submit(any(), TradingMode.MOCK) } returns
             OrderResult.Right(
                 KisOrderAck(kisOrderNo = "ODNO123", kisFwdgOrgno = "ORG001", rtCd = "0", msg = "OK"),
@@ -167,6 +174,37 @@ class OrderRouterKafkaListenerTest {
         val auditSlot = mutableListOf<OrderAuditEvent>()
         verify(atLeast = 1) { auditRepo.save(capture(auditSlot)) }
         assertThat(auditSlot.map { it.eventType }).contains(OrderAuditEventType.KIS_ACK)
+        verify(exactly = 1) { ack.acknowledge() }
+    }
+
+    @Test
+    fun `WS_PREINSERT 병합 ACK 후 누락된 strategy_position replay를 호출한다`() {
+        every { idempotencyGuard.acquire(any(), any()) } returns true
+        every { tradingModeGate.resolveMode("12345678") } returns OrderResult.Right(TradingMode.MOCK)
+        every { killSwitchPort.isOn("12345678") } returns false
+        every { orderRepo.save(any()) } answers { firstArg<OrderRequest>().copy(id = 99L) }
+        every { kisOrderPort.submit(any(), TradingMode.MOCK) } returns
+            OrderResult.Right(
+                KisOrderAck(kisOrderNo = "ODNO_RACE", kisFwdgOrgno = "ORG001", rtCd = "0", msg = "OK"),
+            )
+        every { orderRepo.findByKisOrderNo("ODNO_RACE") } returns
+            stubOrderRequest(id = 777L, strategyId = 0L, idempotencyKey = "WS_PREINSERT:ODNO_RACE")
+        val canonical =
+            stubOrderRequest(
+                id = 99L,
+                signalId = 99001L,
+                strategyId = 1L,
+                kisOrderNo = "ODNO_RACE",
+                idempotencyKey = "99001:12345678",
+            )
+        every { orderRepo.updateKisAck(99L, "ODNO_RACE", "ORG001", any()) } returns canonical
+        every { strategyReplayService.replayIfMissing(canonical, "WS_PREINSERT_ACK_MERGE") } returns 1
+
+        val ack = mockk<Acknowledgment>(relaxed = true)
+        listener.onOrderIntent(buildRecord(stubPayload()), ack)
+
+        verify(exactly = 1) { orderRepo.findByKisOrderNo("ODNO_RACE") }
+        verify(exactly = 1) { strategyReplayService.replayIfMissing(canonical, "WS_PREINSERT_ACK_MERGE") }
         verify(exactly = 1) { ack.acknowledge() }
     }
 
@@ -874,6 +912,34 @@ class OrderRouterKafkaListenerTest {
                 "emittedAt" to 1747094405L,
                 "source" to "MANUAL",
             ),
+        )
+
+    private fun stubOrderRequest(
+        id: Long = 99L,
+        signalId: Long = 42L,
+        strategyId: Long = 100L,
+        userId: String = "12345678",
+        code: String = "005930",
+        idempotencyKey: String = "42:12345678",
+        kisOrderNo: String? = null,
+        status: OrderStatus = OrderStatus.ACK,
+    ): OrderRequest =
+        OrderRequest(
+            id = id,
+            userId = userId,
+            signalId = signalId,
+            strategyId = strategyId,
+            code = code,
+            side = OrderSide.BUY,
+            priceType = OrderPriceType.MARKET,
+            quantity = 1,
+            limitPrice = null,
+            status = status,
+            mode = TradingMode.MOCK,
+            kisOrderNo = kisOrderNo,
+            idempotencyKey = idempotencyKey,
+            requestedAt = Instant.ofEpochSecond(1747094405L),
+            source = OrderSource.AUTO,
         )
 
     private fun buildRecord(value: String) = ConsumerRecord<String, String>("order.intent.v1", 0, 0L, "12345678", value)

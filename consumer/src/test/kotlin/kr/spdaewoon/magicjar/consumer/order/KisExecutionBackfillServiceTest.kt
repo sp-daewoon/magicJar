@@ -50,6 +50,11 @@ class KisExecutionBackfillServiceTest {
     private val auditRepo = mockk<OrderAuditEventRepository>(relaxed = true)
     private val orderFilledKafkaProducer = mockk<OrderFilledKafkaProducer>(relaxed = true)
     private val accountBalanceChangedKafkaProducer = mockk<AccountBalanceChangedKafkaProducer>(relaxed = true)
+    private val strategyReplayService = mockk<StrategyPositionExecutionReplayService>(relaxed = true)
+    private val strategyReplayServiceProvider =
+        mockk<ObjectProvider<StrategyPositionExecutionReplayService>>().also {
+            every { it.getIfAvailable() } returns strategyReplayService
+        }
     private val positionUpdater =
         mockk<kr.spdaewoon.magicjar.domain.order.execution.port.ExecutionPositionUpdatePort>(relaxed = true)
     private val strategyPositionUpdaterProvider =
@@ -85,6 +90,7 @@ class KisExecutionBackfillServiceTest {
         accountBalanceChangedKafkaProducer = accountBalanceChangedKafkaProducer,
         executionPersistenceService = executionPersistenceService,
         webSocketBridge = webSocketBridge,
+        strategyPositionExecutionReplayServiceProvider = strategyReplayServiceProvider,
         magicjarMode = magicjarMode,
         backfillEnabled = backfillEnabled,
     )
@@ -131,6 +137,12 @@ class KisExecutionBackfillServiceTest {
         // dedup → save 호출 0건
         verify(exactly = 0) { execRepo.save(any()) }
         verify(exactly = 1) { orderRepo.findByKisOrderNo("ODNO_DUP") }
+        verify(exactly = 1) {
+            strategyReplayService.replayIfMissing(
+                match { it.id == 51L && it.strategyId == 100L && it.code == "005930" },
+                "REST_BACKFILL_ALREADY_SYNCED",
+            )
+        }
     }
 
     @Test
