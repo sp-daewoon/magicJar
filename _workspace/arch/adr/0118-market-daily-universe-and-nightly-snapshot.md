@@ -72,6 +72,24 @@ KIS `intstock-multprice` (TR `FHKST11300006`) 는 **한 콜에 최대 30종목**
   - **결재 ① 완료(2026-06-09) — universe = 보통주 ~3,000 한정, ETF·ETN 제외.** `securities_group` 보통주("ST") 필터로 산출. ETF·ETN은 단타 스크리너 가치가 낮고 콜 수만 늘리므로(~3,500 → ~117콜) 제외 LOCK. 우선주·SPAC·리츠도 동일 사유 제외. 멀티시세 야간 snapshot 기준 콜 수 = ceil(3,000/30) ≈ **100콜/일** 확정.
 - **direction-guard LOCK**: MARKET_DAILY는 WS 구독 universe가 아니며, **watchlist에 자동 삽입하지 않는다**. 전종목 일봉은 스크리너 후보 산출의 raw 데이터일 뿐이고, 사용자가 검증·선택해야 STRATEGY/DETAIL owner로 승격된다 (CLAUDE.md direction guard 정합).
 
+#### 2-A-1. universe 범위 명확화 — "일봉 미수집 N종목"은 커버리지 버그가 아님 (2026-06-10 추가)
+
+> **다른 세션/감사가 `instrument` 전체(~3,600) 또는 발굴 universe(~3,338) 대비 일봉 보유(~2,517)의 차이를 "미수집 커버리지 gap"으로 오인하는 것을 방지하기 위한 명시.**
+
+`instrument` 테이블은 **모든 타입**(보통주·ETF·우선주·리츠·DR·SPAC)을 담지만, **MARKET_DAILY R-BF/R2 대상은 보통주(STOCK)뿐**이다(결재 ① LOCK). 따라서 비-보통주는 **설계상 일봉이 없는 게 정상**이다. 2026-06-10 실측 분해 (instrument 3,600 기준):
+
+| type | 일봉 없음 | 판정 |
+|------|----------|------|
+| ETF (KOSPI) | 874 | **의도적 제외** (보통주 아님 — 콜 절감, 스크리너 가치↓) |
+| PREFERRED 우선주 | 90 | 의도적 제외 |
+| REIT 리츠 | 24 | 의도적 제외 |
+| DR | 9 | 의도적 제외 |
+| **STOCK** (스팩·인프라펀드 등) | ~86 | STOCK 분류지만 SPAC/특수목적 — universe 필터 제외/KIS 데이터 희박. 신규상장(2026) 0건 |
+
+→ **"진짜 일반 보통주"의 일봉 누락은 사실상 0.** 비-보통주·SPAC graceful skip은 발굴·매매에 영향 0(데이터 없음 명시 path). **"미수집 N종목" 알람·로그는 universe 범위(보통주) 정의의 정상 결과로 해석할 것.**
+
+- **deferred(향후 결정)**: ETF(874)는 실거래 활발 — ETF 스크리닝/매매를 도입하면 universe 필터에 ETF 추가 + R-BF 재실행으로 별도 커버 가능(universe 확장 결정 사항). 우선주·리츠·DR·SPAC은 제외 유지. **현행(2026-06-10)은 보통주만 유지 결재.**
+
 ### 2-B. 최초 과거 backfill — 1회성 캠페인, per-symbol FHKST03010100, **10년 스케일 분산 배치**
 
 전종목 일봉을 처음 채울 때는 **과거 이력**이 필요하다. 멀티시세는 "그날 1개"만 주므로 과거는 종목별 기간 일봉(`FHKST03010100`, period='D')을 1회 호출한다(기존 `KisRestPort.fetchCandles` 1d 경로 100% 재사용).
