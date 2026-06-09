@@ -3,10 +3,10 @@ id: T-20260609-1311-market-daily-backfill-source-overflow
 agent: market-data
 model: opus
 branch: hotfix/market-daily-backfill-source-overflow
-status: RUNNING
+status: DONE
 startedAt: 2026-06-09T13:11:49.405+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-09T13:14:53.447+09:00
+pr: #840
 parentPhase: ?
 ---
 
