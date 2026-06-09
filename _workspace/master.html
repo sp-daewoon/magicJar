@@ -70,8 +70,8 @@
   <div class="banner-cards">
     <div class="banner-card release">
       <div class="label">현재 Release</div>
-      <div class="value">v3.12.1</div>
-      <div class="sub">2026-06-09</div>
+      <div class="value">v3.12.2</div>
+      <div class="sub">2026-06-10</div>
     </div>
     <div class="banner-card cycle">
       <div class="label">현재 사이클 단계</div>
@@ -86,7 +86,7 @@
   </div>
   <div class="banner-timeline">
     <div class="label">📍 이번 작업 사이클 timeline</div>
-    <div>chore(release): v3.12.1 patch — 포지션 정합·KIS rate li</div>
+    <div>Merge pull request #857 from sp-daewoon/agent/fron</div>
   </div>
 </div>
 
@@ -112,7 +112,7 @@
       <div class="card">
         <div class="card-title">📄 README.md</div>
         <div class="card-sub">🪄 magicJar Master Index</div>
-        <div class="card-meta">619 lines · 갱신 2026-06-08</div>
+        <div class="card-meta">620 lines · 갱신 2026-06-09</div>
       </div>
     
       <div class="card">
@@ -130,7 +130,7 @@
       <div class="card">
         <div class="card-title">📄 docs/architecture/master-architecture.md</div>
         <div class="card-sub">§1. 시스템 비전 (사용자 정정 2026-05-02 반영)</div>
-        <div class="card-meta">801 lines · 갱신 2026-06-08</div>
+        <div class="card-meta">801 lines · 갱신 2026-06-09</div>
       </div>
     
   </div>
@@ -141,6 +141,24 @@
     
     <h3>최근 ADR 5건</h3>
     <div class="adr-recent">
+      
+        <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0119</div>
+          <div class="adr-title">1분봉 proactive cold-start 백필 폐지 — on-demand 전환</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0118</div>
+          <div class="adr-title">전종목 일봉 universe(MARKET_DAILY) + 야간 멀티시세 snapshot + today 공식 보정</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0117</div>
+          <div class="adr-title">단타 발굴(Discovery) 레이어 + 체결강도 KIS raw 흡수</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
       
         <div class="adr-card" style="border-left:3px solid #4caf50">
           <div class="adr-number">0116</div>
@@ -154,32 +172,35 @@
           <div class="adr-meta">Accepted · -</div>
         </div>
       
-        <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0114</div>
-          <div class="adr-title">주문 집행 정책(marketable limit) + 포지션 청산 "항상" 보장</div>
-          <div class="adr-meta">Accepted · -</div>
-        </div>
-      
-        <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0113</div>
-          <div class="adr-title">캔들 retention 계층화 케이스 분석 (결정 보류)</div>
-          <div class="adr-meta">Accepted · -</div>
-        </div>
-      
-        <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0112</div>
-          <div class="adr-title">AI 종목발굴 Claude CLI bridge + 전략 리서치 후보 탐색</div>
-          <div class="adr-meta">Accepted · -</div>
-        </div>
-      
     </div>
-    <h3>전체 112건 (검색·정렬 가능)</h3>
+    <h3>전체 115건 (검색·정렬 가능)</h3>
     <input class="cat-search" data-cat="C" placeholder="ADR 검색…" />
     <table class="adr-table" data-sortable>
       <thead>
         <tr><th data-sort="number">번호</th><th data-sort="title">제목</th><th data-sort="status">status</th><th data-sort="date">날짜</th></tr>
       </thead>
       <tbody>
+        
+          <tr data-search="119 1분봉 proactive cold-start 백필 폐지 — on-demand 전환 accepted">
+            <td>0119</td>
+            <td><a href="_workspace/arch/adr/0119-coldstart-backfill-retire-ondemand.md">1분봉 proactive cold-start 백필 폐지 — on-demand 전환</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="118 전종목 일봉 universe(market_daily) + 야간 멀티시세 snapshot + today 공식 보정 accepted">
+            <td>0118</td>
+            <td><a href="_workspace/arch/adr/0118-market-daily-universe-and-nightly-snapshot.md">전종목 일봉 universe(MARKET_DAILY) + 야간 멀티시세 snapshot + today 공식 보정</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="117 단타 발굴(discovery) 레이어 + 체결강도 kis raw 흡수 accepted">
+            <td>0117</td>
+            <td><a href="_workspace/arch/adr/0117-daytrade-discovery-layer.md">단타 발굴(Discovery) 레이어 + 체결강도 KIS raw 흡수</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
         
           <tr data-search="116 kis rate limit phase 2 — priority별 별도 버킷 + kis 실제 한도 정합 accepted">
             <td>0116</td>
@@ -1007,7 +1028,7 @@
         <div class="card">
           <div class="card-title">📍 scenario-replay-sandbox</div>
           <div class="card-sub">> **권위**: 본 문서. 변경 시 직접 갱신. > **결정 이력**: ADR 0107 (도입) > **마지막 갱신**: 2026-06-03</div>
-          <div class="card-meta">📄 docs/architecture/policies/scenario-replay-sandbox.md · 갱신 2026-06-02</div>
+          <div class="card-meta">📄 docs/architecture/policies/scenario-replay-sandbox.md · 갱신 2026-06-09</div>
         </div>
       
         <div class="card">
@@ -1031,7 +1052,7 @@
         <div class="card">
           <div class="card-title">📍 candle-data-policy-v2</div>
           <div class="card-sub">- 작성일: TBD - 2026-05-11 갱신: **ADR 0057 KIS-only data source 정합** — Yahoo Finance 전면 폐기. 본 문서 §3·§4·§5·§6 매트릭스 KIS-only로 …</div>
-          <div class="card-meta">📄 docs/architecture/candle-data-policy-v2.md · 갱신 2026-06-01</div>
+          <div class="card-meta">📄 docs/architecture/candle-data-policy-v2.md · 갱신 2026-06-09</div>
         </div>
       
         <div class="card">
@@ -1556,7 +1577,7 @@
 
   <div class="cat-content" data-cat="D" data-group-content-cat="권위" data-active="false">
     
-    <h3>최근 spec 10건 / 전체 84건</h3>
+    <h3>최근 spec 10건 / 전체 86건</h3>
     <input class="cat-search" data-cat="D" placeholder="spec 검색…" />
     <div class="spec-list">
       
@@ -1980,6 +2001,16 @@
           <div class="card-meta">📄 _workspace/specs/2026-05-17-master-html-plan.md · 2026-05-17</div>
         </div>
       
+        <div class="card" data-search="daytrade-discovery-plan.md plan — 단타 발굴(discovery) 레이어 구현 라운드 분할">
+          <div class="card-title">📄 plan — 단타 발굴(Discovery) 레이어 구현 라운드 분할</div>
+          <div class="card-meta">📄 _workspace/specs/daytrade-discovery-plan.md </div>
+        </div>
+      
+        <div class="card" data-search="daytrade-discovery-spec.md spec — 단타 발굴(discovery) 레이어">
+          <div class="card-title">📄 spec — 단타 발굴(Discovery) 레이어</div>
+          <div class="card-meta">📄 _workspace/specs/daytrade-discovery-spec.md </div>
+        </div>
+      
     </div>
   
   </div>
@@ -2034,6 +2065,12 @@
     <div class="adr-recent">
       
         <div class="adr-card" style="border-left:3px solid #ff9800">
+          <div class="adr-number">v3.12.2</div>
+          <div class="adr-title">v3.12.2 — v3.12.2 릴리즈</div>
+          <div class="adr-meta">2026-06-09</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #ff9800">
           <div class="adr-number">v3.12.1</div>
           <div class="adr-title">v3.12.1 — 포지션 정합 안전화 + KIS Rate Limit Phase 2 + 관측 스택 운영 패치</div>
           <div class="adr-meta">2026-06-08</div>
@@ -2057,17 +2094,13 @@
           <div class="adr-meta">2026-06-01</div>
         </div>
       
-        <div class="adr-card" style="border-left:3px solid #ff9800">
-          <div class="adr-number">v3.10.0</div>
-          <div class="adr-title">v3.10.0 — 캔들/오더블럭 후보 스크리닝 minor</div>
-          <div class="adr-meta">2026-05-31</div>
-        </div>
-      
     </div>
     <h3>전체 30건</h3>
     <table>
       <thead><tr><th>tag</th><th>날짜</th><th>title</th></tr></thead>
       <tbody>
+        
+          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.12.2">v3.12.2</a></td><td>2026-06-09</td><td>v3.12.2 — v3.12.2 릴리즈</td></tr>
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.12.1">v3.12.1</a></td><td>2026-06-08</td><td>v3.12.1 — 포지션 정합 안전화 + KIS Rate Limit Phase 2 + 관측 스택 운영 패치</td></tr>
         
@@ -2126,8 +2159,6 @@
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.1">v3.6.1</a></td><td>2026-05-13</td><td>v3.6.1 — v3.6.1 릴리즈</td></tr>
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.0">v3.6.0</a></td><td>2026-05-13</td><td>v3.6.0 — T-O W3 네 번째 트랙 마감 미러스톤 (KIS 주문 실행 + 3중 게이트 자본 보호) (orchestrator)</td></tr>
-        
-          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.5.0">v3.5.0</a></td><td>2026-05-12</td><td>v3.5.0 — T-RISK W3 세 번째 트랙 마감 미러스톤 (리스크 관리 게이트) (orchestrator)</td></tr>
         
       </tbody>
     </table>

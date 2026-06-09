@@ -548,6 +548,7 @@ GitHub 방문자가 한 번에 진입할 수 있도록 release notes(📋) + bas
 
 | 버전 | 날짜 | 미러스톤 | Release | Baseline |
 |------|------|----------|---------|----------|
+| **v3.12.2** | 2026-06-10 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.12.2) | [📊](_workspace/baseline/v3.12.0/html/index.html) |
 | **v3.12.1** | 2026-06-09 | 포지션 정합 안전화 + KIS Rate Limit Phase 2 + 관측 스택 운영 패치 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.12.1) | [📊](_workspace/baseline/v3.12.0/html/index.html) |
 | **v3.12.0** | 2026-06-08 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.12.0) | [📊](_workspace/baseline/v3.12.0/html/index.html) |
 | **v3.11.0** | 2026-06-03 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.11.0) | — |
