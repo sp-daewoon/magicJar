@@ -53,6 +53,10 @@
     <h1>magicJar 백업·복원 가이드</h1>
     <p class="muted">발행 2026-06-06 · 짝 문서: <a href="new-pc-migration-runbook.md">new-pc-migration-runbook.md</a> (새 PC 복원 절차 C-1~C-7) · <a href="backup-setup.md">backup-setup.md</a> (cron 설정) · <code>scripts/backup/README.md</code> (스크립트 매트릭스)</p>
     <p><b>한 줄 요약</b> — 매일 03:00 Postgres 전체 dump(7일 회전) + 03:30 Redis snapshot(3일 회전)이 <code>_workspace/backups/</code>에 남는다. 이 폴더는 <b>git에 올라가지 않으므로</b> 외부 매체 복사가 의무이고, <b><code>.env</code>와 dump는 한 세트</b>다.</p>
+    <div class="callout warn" style="margin-top:12px">
+      <b>★ 2026-06-09 전종목 일봉 마이그레이션 복구 기준점</b><br>
+      KIS 채널 결함(UN/NX 일봉이 일부 종목 2026-02-11 동결) 근본 fix(J 단일, PR #844·#846) 후, 전체 일봉패밀리(1d·1wk·1mo·1y)를 wipe→J 채널로 재적재(보통주 2,517종목·10년). 그 직후 <code>2026-06-09.dump</code>(171MB)가 <b>재구축된 전종목 일봉의 복구 baseline</b>이다. 향후 일봉 손상 시 이 dump 복원 = 수 시간 재적재 없이 즉시 회복. <b>1m·5m 실시간 누적분(209만/43만 행)은 KIS REST 복구 불가</b>이므로 이 dump가 사실상 유일 복원원(ADR 0105 1년 한도와 함께). 외부 매체 복사 권장.
+    </div>
   </header>
 
   <h2>1. 무엇이 남는가 — 백업 산출물 디렉토리 구조</h2>
@@ -60,7 +64,8 @@
 ├── README.md                      <span class="m">← 이 구조 설명 (git 추적 예외)</span>
 ├── postgres/
 │   ├── daily/
-│   │   ├── <span class="g">2026-06-06.dump</span>        <span class="m">← 매일 03:00 생성 · pg_dump custom format(-Fc) · ~56MB</span>
+│   │   ├── <span class="g">2026-06-06.dump</span>        <span class="m">← 매일 03:00 생성 · pg_dump custom format(-Fc) · ~56MB (전종목 일봉 마이그레이션 전)</span>
+│   │   ├── <span class="g">2026-06-09.dump</span>        <span class="m">← ★ 전종목 일봉 마이그레이션 후 · ~171MB (candle 870만행: 1d 전종목 10년 + 1m/5m)</span>
 │   │   ├── <span class="g">2026-06-07.dump</span>        <span class="m">← 날짜 1개당 1파일, 같은 날 재실행 시 덮어씀</span>
 │   │   └── ...                    <span class="m">← 7일 초과분 자동 삭제 (retention rotation)</span>
 │   └── <span class="c">cron.log</span>                   <span class="m">← cron 실행 로그 (성공/실패 추적)</span>
