@@ -9,5 +9,9 @@ import org.springframework.context.annotation.Configuration
  * api 모듈 [kr.spdaewoon.magicjar.api.config.ChartCandleConfiguration]와 1:1.
  */
 @Configuration
-@EnableConfigurationProperties(ChartCandleProperties::class)
+@EnableConfigurationProperties(
+    ChartCandleProperties::class,
+    // ADR 0118 R-BF — MARKET_DAILY 10년 일봉 backfill 캠페인 설정.
+    MarketDailyBackfillProperties::class,
+)
 class ChartCandleConfiguration

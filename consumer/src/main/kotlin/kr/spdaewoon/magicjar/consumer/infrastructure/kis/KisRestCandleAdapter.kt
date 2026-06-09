@@ -5,6 +5,8 @@ import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepositor
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.market.port.KisDailyCandleRangePort
+import kr.spdaewoon.magicjar.domain.market.port.KisDailyRangeUnavailableException
 import kr.spdaewoon.magicjar.domain.market.port.KisOneMinuteCandleRangePort
 import kr.spdaewoon.magicjar.domain.market.port.KisRestPort
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
@@ -82,7 +84,8 @@ class KisRestCandleAdapter(
     @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
     private val kisBaseVps: String,
 ) : KisRestPort,
-    KisOneMinuteCandleRangePort {
+    KisOneMinuteCandleRangePort,
+    KisDailyCandleRangePort {
     private val log = LoggerFactory.getLogger(KisRestCandleAdapter::class.java)
 
     companion object {
@@ -299,6 +302,228 @@ class KisRestCandleAdapter(
             )
         }
         return emptyList()
+    }
+
+    /**
+     * KIS 1d range 조회 (FHKST03010100, period_div_code=D) — **BACKFILL 버킷** (ADR 0118 R-BF).
+     *
+     * [fetchDailyCandles] (INGESTION 버킷·cursor=today 고정)와 분리된 R-BF 캠페인 전용 경로.
+     * 동일 endpoint·페이지네이션 알고리즘이되 (a) 시작 경계를 호출자 clamp([from])로 명시,
+     * (b) acquire 를 BACKFILL 버킷으로 고정(§5-1 LOCK — USER_PATH·INGESTION 침범 0),
+     * (c) rate-limit/credential 결함을 [KisDailyRangeUnavailableException]으로 fail-closed 전파한다.
+     *
+     * KIS-first raw 출처 (헌법 §3):
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
+     *
+     * 페이지네이션: cursor=to 부터 역방향, 응답 oldest-1day 로 advance, [from] 도달 또는 응답<100 시 종료.
+     * mrkt_div 후보(ADR 0091): UN 우선(NXT 통합 후보) + J fallback.
+     */
+    override fun fetchDailyCandlesInRange(
+        code: String,
+        from: LocalDate,
+        to: LocalDate,
+    ): List<Candle> {
+        if (from.isAfter(to)) return emptyList()
+        val mrktDivCodes = resolveMrktDivCodeCandidates(code)
+        for ((index, mrktDivCode) in mrktDivCodes.withIndex()) {
+            val candles = fetchDailyCandlesInRangeForMrktDiv(code, mrktDivCode, from, to)
+            if (candles.isNotEmpty() || index == mrktDivCodes.lastIndex) {
+                return candles
+            }
+            log.warn(
+                "KIS 1d range(BACKFILL) UN 응답 0건 — J fallback 재시도: code={} from={} to={} mrktDivCode={}",
+                code,
+                from,
+                to,
+                mrktDivCode,
+            )
+        }
+        return emptyList()
+    }
+
+    /**
+     * R-BF 1d range fetch — 단일 mrkt_div 페이지네이션 (BACKFILL 버킷).
+     *
+     * 결함 전파 (fail-closed):
+     *   - REAL credential 부재·토큰 발급 실패·rate-limit(EGW00201/429)·HTTP 오류 → [KisDailyRangeUnavailableException]
+     *     (캠페인이 retry/circuit/이연 판단 — 종목 완료 마킹 금지).
+     *   - rt_cd=0 정상 응답이나 해당 구간 0건(상장 이전·거래 부재) → 빈 list 반환(uncovered, 예외 아님).
+     */
+    private fun fetchDailyCandlesInRangeForMrktDiv(
+        code: String,
+        mrktDivCode: String,
+        from: LocalDate,
+        to: LocalDate,
+    ): List<Candle> {
+        val cred =
+            credentialRepository
+                .findAllByAccountType(AccountType.REAL.name)
+                .firstOrNull()
+                ?: throw KisDailyRangeUnavailableException("KIS 1d range(BACKFILL): REAL credential 없음 — code=$code")
+        val userId = cred.id.userId
+        if (userId.isBlank()) {
+            throw KisDailyRangeUnavailableException("KIS 1d range(BACKFILL): credential userId 빈 문자열 — code=$code DB 결함")
+        }
+        val accessToken =
+            try {
+                kisAuthAdapter.getAccessToken(userId, AccountType.REAL)
+            } catch (e: Exception) {
+                throw KisDailyRangeUnavailableException("KIS 1d range(BACKFILL): 토큰 발급 실패 — code=$code", e)
+            }
+
+        var appKey: ByteArray? = null
+        var secretKey: ByteArray? = null
+        return try {
+            appKey = secretCipher.decrypt(cred.appKeyEnc)
+            secretKey = secretCipher.decrypt(cred.secretKeyEnc)
+            val appKeyStr = String(appKey)
+            val secretKeyStr = String(secretKey)
+            val startStr = from.format(DATE_FMT)
+
+            val accumulator = mutableListOf<Candle>()
+            var cursor: LocalDate = to
+            // R-BF 페이지 안전 한도 — 1d 매트릭스(50) 재사용. 10년(~2,450 거래일)/100 ≈ 25 페이지면 충분.
+            val maxPages = chartCandleProperties.getMaxPagesFor(CandleInterval.ONE_DAY.code)
+
+            for (page in 0 until maxPages) {
+                if (cursor.isBefore(from)) break
+
+                val pageCandles =
+                    fetchDailyRangeSinglePageBackfill(
+                        code = code,
+                        mrktDivCode = mrktDivCode,
+                        cursor = cursor,
+                        startStr = startStr,
+                        accessToken = accessToken,
+                        appKeyStr = appKeyStr,
+                        secretKeyStr = secretKeyStr,
+                    )
+                if (pageCandles.isEmpty()) break
+
+                // [from]..[to] 경계 내 봉만 누적 (KIS 가 startStr 이전을 일부 반환할 수 있음).
+                accumulator.addAll(
+                    pageCandles.filter { c ->
+                        val d =
+                            java.time.Instant
+                                .ofEpochSecond(c.ts.epochSeconds)
+                                .atZone(KST_ZONE)
+                                .toLocalDate()
+                        !d.isBefore(from) && !d.isAfter(to)
+                    },
+                )
+
+                if (pageCandles.size < KIS_PAGE_LIMIT) break
+
+                val oldestEpoch = pageCandles.minOf { it.ts.epochSeconds }
+                val oldestDate =
+                    java.time.Instant
+                        .ofEpochSecond(oldestEpoch)
+                        .atZone(KST_ZONE)
+                        .toLocalDate()
+                val newCursor = nextCursor(oldestDate)
+                if (!newCursor.isBefore(cursor)) break // advance 부재 가드
+                if (newCursor.isBefore(from)) break
+                cursor = newCursor
+            }
+
+            accumulator
+                .distinctBy { it.ts.epochSeconds }
+                .sortedBy { it.ts.epochSeconds }
+        } finally {
+            appKey?.fill(0)
+            secretKey?.fill(0)
+        }
+    }
+
+    /**
+     * R-BF 1d 단일 페이지 KIS 호출 (BACKFILL 버킷) — rate-limit/HTTP 결함은 예외 전파(fail-closed).
+     *
+     * 정상 rt_cd=0 + 0건 응답은 빈 list(uncovered). EGW00201/429/HTTP 오류는 [KisDailyRangeUnavailableException].
+     */
+    private fun fetchDailyRangeSinglePageBackfill(
+        code: String,
+        mrktDivCode: String,
+        cursor: LocalDate,
+        startStr: String,
+        accessToken: String,
+        appKeyStr: String,
+        secretKeyStr: String,
+    ): List<Candle> {
+        val cursorStr = cursor.format(DATE_FMT)
+        var signalSent = false
+        var acquired = false
+        try {
+            // §5-1 LOCK — BACKFILL(BG) 버킷 고정. USER_PATH·INGESTION 절대 침범 0.
+            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 5000L, trId = TR_ID_DAILY)
+            acquired = true
+            val body =
+                webClient
+                    .get()
+                    .uri { builder ->
+                        builder
+                            .scheme("https")
+                            .host(kisBaseProd.removePrefix("https://").substringBefore(":"))
+                            .port(kisBaseProd.substringAfterLast(":").toIntOrNull() ?: 9443)
+                            .path(ENDPOINT_DAILY)
+                            // raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
+                            .queryParam("fid_cond_mrkt_div_code", mrktDivCode)
+                            .queryParam("fid_input_iscd", code)
+                            .queryParam("fid_input_date_1", startStr)
+                            .queryParam("fid_input_date_2", cursorStr)
+                            .queryParam("fid_period_div_code", "D")
+                            .queryParam("fid_org_adj_prc", "0")
+                            .build()
+                    }.header("authorization", "Bearer $accessToken")
+                    .header("appkey", appKeyStr)
+                    .header("appsecret", secretKeyStr)
+                    .header("tr_id", TR_ID_DAILY)
+                    .header("custtype", "P")
+                    .retrieve()
+                    .bodyToMono(Map::class.java)
+                    .timeout(Duration.ofSeconds(10))
+                    .block()
+            if (body == null) {
+                kisRateLimiterPort.onSuccess()
+                signalSent = true
+                return emptyList()
+            }
+            val parsed = parseKisDailyResponse(body, code, CandleInterval.ONE_DAY)
+            kisRateLimiterPort.onSuccess()
+            signalSent = true
+            return parsed
+        } catch (e: WebClientResponseException) {
+            if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
+                kisRateLimiterPort.onTpsExceeded()
+                signalSent = true
+                throw KisDailyRangeUnavailableException(
+                    "KIS 1d range(BACKFILL) Rate Limit — code=$code cursor=$cursorStr status=${e.statusCode.value()}",
+                    e,
+                )
+            }
+            log.warn(
+                "KIS 1d range(BACKFILL) HTTP 오류: code={} cursor={} status={}",
+                code,
+                cursorStr,
+                e.statusCode.value(),
+            )
+            throw KisDailyRangeUnavailableException(
+                "KIS 1d range(BACKFILL) HTTP 오류 — code=$code cursor=$cursorStr status=${e.statusCode.value()}",
+                e,
+            )
+        } catch (e: KisDailyRangeUnavailableException) {
+            throw e
+        } catch (e: Exception) {
+            log.warn("KIS 1d range(BACKFILL) 오류: code={} cursor={} err={}", code, cursorStr, e.message)
+            throw KisDailyRangeUnavailableException("KIS 1d range(BACKFILL) 오류 — code=$code cursor=$cursorStr", e)
+        } finally {
+            if (acquired && !signalSent) {
+                log.warn(
+                    "[KisRateLimit] 1d range(BACKFILL) acquire 후 통계 시그널 미발행 — drift risk: code={} cursor={}",
+                    code,
+                    cursorStr,
+                )
+            }
+        }
     }
 
     private fun oneMinuteRangeTargetDays(

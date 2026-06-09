@@ -224,3 +224,52 @@ interface KisCorpActionPort {
 - `AdjustedPriceCalculator.calculateCumulativeFactor(priceDate, corpActions)` — `exDate > priceDate` 인 이벤트만 계수에 반영
 - `exDate <= priceDate` 이면 시장가격에 이미 반영된 것으로 간주(계수 = 1.0)
 - 소급 재계산은 `CorpActionBackfillJob`에서만 수행, 백테스트 런타임에서는 호출 금지
+
+---
+
+## ADR 0118 R-BF — MARKET_DAILY 10년 전종목 일봉 backfill 캠페인
+
+전종목(보통주 ~2,517) 10년 일봉을 멱등 캠페인으로 적재한다. 야간 멀티시세 snapshot(R2, 100콜/일)과 분리된 1회성 분산 backfill.
+
+### KIS endpoint (재사용 — 신규 endpoint 0)
+
+| 항목 | 값 |
+|------|-----|
+| endpoint | `/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice` |
+| tr_id | `FHKST03010100` (period_div_code=`D` 일봉) |
+| raw 출처 | `https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py` |
+| 1콜 한도 | output2[] 최대 100건/페이지 (cursor=fid_input_date_2 역방향 페이지네이션) |
+| mrkt_div | ADR 0091 resolver — NXT 후보 UN 우선 + J fallback |
+| rate-limit 버킷 | **BACKFILL(BG)** 고정 (§5-1 LOCK) — USER_PATH·INGESTION 침범 0 |
+
+### 도메인 포트 (신규 1)
+
+```kotlin
+interface KisDailyCandleRangePort {
+    // BACKFILL 버킷, listed_at clamp 시작 경계 명시. rate-limit/credential 결함은
+    // KisDailyRangeUnavailableException(fail-closed). 정상 0건은 빈 list(uncovered).
+    fun fetchDailyCandlesInRange(code: String, from: LocalDate, to: LocalDate): List<Candle>
+}
+```
+
+### 트리거 / ENV (consumer 모듈, port 8082)
+
+| 트리거 | 설명 |
+|--------|------|
+| `POST /admin/market-daily-backfill/run` | 멱등 캠페인 1회 실행 — progress(candle row 기반) 이어받아 미완료만 콜 cap까지 처리 |
+| `GET /admin/market-daily-backfill/progress` | universe 규모·ENV 관측(콜 0) |
+
+| ENV | default | 의미 |
+|-----|---------|------|
+| `MAGICJAR_MARKET_DAILY_BACKFILL_ENABLED` | false | 시동/중단 게이트(off=가동 0·적재분 보존) |
+| `MAGICJAR_MARKET_DAILY_BACKFILL_HISTORY_YEARS` | 10 | 이력 깊이(결재 ② LOCK) |
+| `MAGICJAR_MARKET_DAILY_BACKFILL_NIGHTLY_CALL_CAP` | 6000 | 한 실행당 KIS 콜 상한(초과분 다음 실행 이연) |
+| `MAGICJAR_MARKET_DAILY_BACKFILL_COMPLETION_MIN_ROWS` | 200 | 종목 완료 판정 최소 row(candle-row progress) |
+| `MAGICJAR_MARKET_DAILY_BACKFILL_RECENCY_GRACE_DAYS` | 7 | 최신 봉이 이 일수 이내면 최근까지 적재됨 판정 |
+
+### 콜 예산·소요 추정 (ADR 0118 §5-1)
+
+- 전종목 10년 ≈ **~75,000콜(1회성)** = ~2,517종목 × ~25콜(2,450 거래일÷100/페이지).
+- BG 버킷 3/s 기준 순수 ~6.9h, jitter·재시도 포함 실효 **8~12h** → 밤당 cap(default 6,000콜 ≈ ~33분 순수)으로 **며칠~한 주 분산 완주**.
+- 야간 snapshot(R2)은 이력 깊이와 무관하게 항상 100콜/일 불변 — R-BF와 별개 경로.
+- ⚠ **full 실행은 사용자 환경 + 명시 go 시점.** ENABLED off default.

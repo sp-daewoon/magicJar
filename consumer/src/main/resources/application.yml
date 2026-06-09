@@ -259,6 +259,18 @@ magicjar:
       circuit-consecutive-trips: ${MAGICJAR_CANDLE_BACKFILL_CIRCUIT_TRIPS:3}
       circuit-open-millis: ${MAGICJAR_CANDLE_BACKFILL_CIRCUIT_OPEN_MS:60000}
 
+  # MARKET_DAILY 10년 전종목 일봉 backfill 캠페인 (ADR 0118 R-BF)
+  #   멱등 캠페인 — 매 run 호출이 progress(candle row 기반) 이어받아 미완료 종목만 cap까지 처리.
+  #   enabled=false(default) 시 가동 0(중단=off, 적재분 보존). 트리거: POST /admin/market-daily-backfill/run.
+  #   모든 KIS 콜 = BACKFILL(BG) 버킷 — USER_PATH·INGESTION 침범 0 (§5-1 LOCK).
+  #   ⚠ full 75,000콜 완주는 여러 밤/주말 반복 호출 — 실 가동은 사용자 환경 + 명시 go 시점.
+  market-daily-backfill:
+    enabled: ${MAGICJAR_MARKET_DAILY_BACKFILL_ENABLED:false}
+    history-years: ${MAGICJAR_MARKET_DAILY_BACKFILL_HISTORY_YEARS:10}
+    nightly-call-cap: ${MAGICJAR_MARKET_DAILY_BACKFILL_NIGHTLY_CALL_CAP:6000}
+    completion-min-rows: ${MAGICJAR_MARKET_DAILY_BACKFILL_COMPLETION_MIN_ROWS:200}
+    recency-grace-days: ${MAGICJAR_MARKET_DAILY_BACKFILL_RECENCY_GRACE_DAYS:7}
+
   # MarketSession 설정 (ADR 0013 §2-2, PR-29a 본격 교체)
   session:
     # KIS chk-holiday(CTCA0903R) + market_calendar DB 기반 (KrxMarketSessionResolver)
