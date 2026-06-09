@@ -273,6 +273,10 @@ magicjar:
     # fetch 했으나 max_ts 전진 0(KIS-unavailable·corporate action 미해소) 종목 재시도 cooldown 일수.
     # 0=cooldown 비활성(매 run 재시도). over-fetch 가드 — cooldown 만료 후 재진입(데이터 출현 시 복구).
     no-advance-cooldown-days: ${MAGICJAR_MARKET_DAILY_BACKFILL_NO_ADVANCE_COOLDOWN_DAYS:7}
+    # 동시성 보강 (ADR 0118 amend §9-D) — coroutine Semaphore throughput shaping.
+    #   KIS hard ceiling(초당 10건)은 ConsumerRedisKisRateLimiterAdapter(Bucket4j)가 별도 유효 — 세마포어가 우회/중복 0.
+    concurrency: ${MAGICJAR_MARKET_DAILY_BACKFILL_CONCURRENCY:10} # 동시 처리 종목 수(1=직렬, 상한 32)
+    launch-delay-ms: ${MAGICJAR_MARKET_DAILY_BACKFILL_LAUNCH_DELAY_MS:100} # 종목 launch 간 지연(ms) — burst 분산
 
   # MarketSession 설정 (ADR 0013 §2-2, PR-29a 본격 교체)
   session:

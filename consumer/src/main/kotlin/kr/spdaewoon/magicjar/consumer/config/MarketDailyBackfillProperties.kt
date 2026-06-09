@@ -18,6 +18,15 @@ import org.springframework.boot.context.properties.ConfigurationProperties
  * | completion-min-rows | MAGICJAR_MARKET_DAILY_BACKFILL_COMPLETION_MIN_ROWS | 200 | 종목 완료 판정 최소 row 수(candle-row 기반 progress) |
  * | recency-grace-days | MAGICJAR_MARKET_DAILY_BACKFILL_RECENCY_GRACE_DAYS | 7 | 최신 봉이 today 로부터 이 일수 이내면 "최근까지 적재됨"으로 본다 |
  * | no-advance-cooldown-days | MAGICJAR_MARKET_DAILY_BACKFILL_NO_ADVANCE_COOLDOWN_DAYS | 7 | fetch 했으나 max_ts 전진 0(KIS-unavailable) 종목 재시도 cooldown 일수(over-fetch 가드) |
+ * | concurrency | MAGICJAR_MARKET_DAILY_BACKFILL_CONCURRENCY | 10 | 동시 처리 종목 수(coroutine Semaphore permits). throughput shaping — KIS hard ceiling 은 별도 |
+ * | launch-delay-ms | MAGICJAR_MARKET_DAILY_BACKFILL_LAUNCH_DELAY_MS | 100 | 종목 launch 간 지연(ms). 동시 burst 분산 — rate-limiter 압박 완화 |
+ *
+ * ## 동시성 보강 (ADR 0118 amend) — Semaphore vs rate-limiter 책임 분리
+ *   기존 종목별 동기 순차 루프(1.5~2h/run)가 단일호출 지연으로 느렸다. coroutine Semaphore([concurrency]
+ *   permits) + 종목 launch 당 [launchDelayMs] 지연으로 비동기 전환하여 throughput 을 높인다.
+ *   **단 KIS hard ceiling 은 `ConsumerRedisKisRateLimiterAdapter`(Bucket4j Redis bucket)가 그대로 유효** —
+ *   세마포어는 동시 종목 수만 제한(throughput shaping)하며 rate limiter 를 우회·중복하지 않는다.
+ *   call-cap·audit·progress·no-advance 회계는 동시성에서 원자적 카운터(AtomicInteger/Long)로 보호.
  *
  * ## nightly-call-cap 산정 근거 (ADR 0118 §2-B·§5-1)
  *   전종목 10년 ≈ 75,000콜. 야간 윈도(snapshot 100콜 선소비 후 잔여)에서 밤당 일정 예산만 소비.
@@ -39,6 +48,8 @@ data class MarketDailyBackfillProperties(
     val completionMinRows: Int = 200,
     val recencyGraceDays: Int = 7,
     val noAdvanceCooldownDays: Int = 7,
+    val concurrency: Int = 10,
+    val launchDelayMs: Long = 100L,
 ) {
     fun normalizedHistoryYears(): Int = historyYears.coerceIn(1, 30)
 
@@ -50,4 +61,10 @@ data class MarketDailyBackfillProperties(
 
     /** no-advance cooldown 일수 — 0 이면 cooldown 비활성(매 run 재시도). */
     fun normalizedNoAdvanceCooldownDays(): Long = noAdvanceCooldownDays.coerceAtLeast(0).toLong()
+
+    /** 동시 처리 종목 수(coroutine Semaphore permits). 1=완전 직렬. 상한 32(KIS 압박·DB 풀 보호). */
+    fun normalizedConcurrency(): Int = concurrency.coerceIn(1, 32)
+
+    /** 종목 launch 간 지연(ms). 0=지연 없음. 상한 10초(과도한 지연 방어). */
+    fun normalizedLaunchDelayMs(): Long = launchDelayMs.coerceIn(0L, 10_000L)
 }

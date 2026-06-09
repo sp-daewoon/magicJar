@@ -222,7 +222,7 @@ class KisRestCandleAdapter(
     }
 
     /**
-     * 종목코드 → KIS fid_cond_mrkt_div_code 결정.
+     * 종목코드 → KIS fid_cond_mrkt_div_code 결정 — **J(KRX 본시장) 단일** (ADR 0118 amend · 2026-06-09).
      *
      * KIS raw spec (헌법 §3 의무 인용):
      *   FHKST03010230: fid_cond_mrkt_div_code = "J:주식, NX:NXT, UN:통합"
@@ -230,30 +230,44 @@ class KisRestCandleAdapter(
      *   FHKST03010100: fid_cond_mrkt_div_code = "J:KRX, NX:NXT, UN:통합"
      *     raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
      *
-     * 분기 결정 (2026-05-20 ADR 0091):
-     *   - KOSPI/KOSDAQ market만으로 UN을 선택하지 않는다. NXT 거래 가능 여부는 종목 단위로 변한다.
-     *   - 현재 instrument에 별도 nxt_tradable 컬럼이 없으므로 is_kospi200/is_kosdaq150을 보수적 allow-list로 사용한다.
-     *   - UN 후보도 응답 0건이면 J(KRX)로 fallback 한다. 캔들 적재 중단보다 KRX 기준 캔들 보존이 우선이다.
-     *   - UNKNOWN/기타: "J" (안전 기본값)
+     * ## ★ 근본 원인 — UN/NX 채널 stale 동결 (2026-06-09 REAL 키 raw 실측 evidence)
+     *   라이브 dogfooding: 036930·047040·098460 일봉이 2026-02-11 에 동결(주봉도 2/02 동결)되었으나,
+     *   같은 종목 1분봉은 오늘(2026-06-09 13:40) 실시간 체결 정상 유입 → 거래정지/데이터부재 아님.
+     *   REAL 키로 FHKST03010100 을 **채널별 raw 호출**한 실측:
      *
-     * ADR 0063의 "market-level UN" 결정은 ADR 0091로 보강되었다.
+     *   | code   | J(KRX)            | NX(NXT)        | UN(통합)        |
+     *   |--------|-------------------|----------------|-----------------|
+     *   | 036930 | **20260609 정상** | 20260211 stale | 20260211 stale  |
+     *   | 047040 | **20260609 정상** | -              | 20260211 stale  |
+     *   | 098460 | **20260609 정상** | -              | 20260211 stale  |
+     *   | 138040 | 20260609          | -              | 20260609        |
+     *   | 455180 | 20260609          | -              | 0 rows          |
+     *
+     *   직전 구현(ADR 0091)은 KOSPI200/KOSDAQ150 멤버에 `["UN","J"]`(UN 우선)을 썼다. KIS 측 결함으로
+     *   UN(통합) 일봉이 일부 종목에서 2/11 에 동결되어 있는데, fallback 은 "UN 0건"일 때만 J 로 가므로
+     *   UN 이 stale 8행을 주면 그대로 채택하고 J(항상 최신)를 영영 안 본다 → 일부 종목 일봉 영구 동결.
+     *
+     * ## 결정 (사용자 결재 2026-06-09) — J 단일 primary, UN/NX deprecated
+     *   - **항상 `listOf("J")` 반환.** UN/NX 분기·fallback 전면 제거.
+     *   - 사유: UN/NX 모두 KIS 측 stale, J(KRX 본시장)만 전 종목 항상 최신·정상. 일봉 OHLC 는 본시장
+     *     권위로 충분.
+     *   - trade-off 수용: 일봉 거래량에서 NXT 분 제외(본시장 거래량만). 정합성·신뢰성 우선.
+     *
+     * ADR 0063("market-level UN")·ADR 0091("종목 단위 UN allow-list")은 ADR 0118 amend 로 deprecated.
      */
     private fun resolveMrktDivCode(code: String): String = resolveMrktDivCodeCandidates(code).first()
 
-    private fun resolveMrktDivCodeCandidates(code: String): List<String> {
-        val instrument = instrumentRepository.findById(code).orElse(null)
-        val isNxtIntegratedCandidate =
-            when (instrument?.market) {
-                "KOSPI" -> instrument.isKospi200
-                "KOSDAQ" -> instrument.isKosdaq150
-                else -> false
-            }
-        return if (isNxtIntegratedCandidate) {
-            listOf("UN", "J")
-        } else {
-            listOf("J")
-        }
-    }
+    /**
+     * J(KRX 본시장) 단일 채널 — ADR 0118 amend (상단 실측 evidence 표 참조).
+     *
+     * 반환은 항상 단일 원소 `["J"]`. fetch 루프(fetchCandles·fetchDailyCandlesInRange 등)의
+     * UN→J fallback 분기는 단일 후보이므로 첫 시도에서 종료(no-op fallback). 향후 NXT 권위가
+     * 필요해지면(KIS 측 UN/NX stale 해소 후) 본 함수만 교체 + ADR amend 의무.
+     *
+     * @param code 종목코드 (현재 미사용 — 전 종목 J 고정. 시그니처는 호출부 무변경 LOCK 위해 유지).
+     */
+    @Suppress("UNUSED_PARAMETER")
+    private fun resolveMrktDivCodeCandidates(code: String): List<String> = listOf("J")
 
     override fun fetchCandles(
         code: String,

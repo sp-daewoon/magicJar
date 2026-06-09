@@ -68,6 +68,9 @@ class MarketDailyBackfillCampaignTest {
         historyYears: Int = 10,
         recencyGraceDays: Int = 7,
         noAdvanceCooldownDays: Int = 7,
+        // 기존 순차 가정 테스트의 결정성 유지 — concurrency=1·delay=0(완전 직렬). 동시성 회계 테스트만 별도로 높임.
+        concurrency: Int = 1,
+        launchDelayMs: Long = 0L,
     ) = MarketDailyBackfillProperties(
         enabled = enabled,
         historyYears = historyYears,
@@ -75,6 +78,8 @@ class MarketDailyBackfillCampaignTest {
         completionMinRows = completionMinRows,
         recencyGraceDays = recencyGraceDays,
         noAdvanceCooldownDays = noAdvanceCooldownDays,
+        concurrency = concurrency,
+        launchDelayMs = launchDelayMs,
     )
 
     private fun newCampaign(
@@ -85,6 +90,7 @@ class MarketDailyBackfillCampaignTest {
         universeRepo: ConsumerMarketDailyUniverseJpaRepository = mockk(relaxed = true),
         throttle: BackfillThrottleGate = passThroughThrottle(),
         audit: ConsumerAuditTrailJpaRepository = mockk(relaxed = true),
+        wipeService: MarketDailyWipeService = mockk(relaxed = true),
     ): MarketDailyBackfillCampaign {
         val worker = mockk<CandleBackfillWorker>()
         // sanity check 재사용 — 본 테스트는 통과 candle을 그대로 반환(정합성 검증은 CandleBackfillWorkerTest 책임).
@@ -99,13 +105,17 @@ class MarketDailyBackfillCampaignTest {
             auditRepository = audit,
             objectMapper = ObjectMapper(),
             properties = properties,
+            wipeService = wipeService,
         )
     }
 
-    /** throttle gate — block을 그대로 실행(통과)하는 stub. */
+    /**
+     * throttle gate — block을 그대로 실행(통과)하는 stub.
+     * 캠페인은 동시성 보강(ADR 0118 amend §9-D)으로 [BackfillThrottleGate.runWithCircuitGuard] 사용.
+     */
     private fun passThroughThrottle(): BackfillThrottleGate {
         val gate = mockk<BackfillThrottleGate>(relaxed = true)
-        every { gate.runThrottled<Any?>(any(), any()) } answers { secondArg<() -> Any?>().invoke() }
+        every { gate.runWithCircuitGuard<Any?>(any(), any()) } answers { secondArg<() -> Any?>().invoke() }
         return gate
     }
 
@@ -295,7 +305,7 @@ class MarketDailyBackfillCampaignTest {
         val r = campaign.runCampaign()
 
         assertThat(r.failedSymbols).isEqualTo(1)
-        assertThat(r.insertedRows).isEqualTo(0)
+        assertThat(r.insertedRows).isEqualTo(0L)
         // saveAll 미호출(fetch 실패) — 종목은 미완료로 남아 다음 실행 재시도.
         verify(exactly = 0) { candleRepo.saveAll(any()) }
         assertThat(r.remainingSymbols).isEqualTo(1)
@@ -309,9 +319,9 @@ class MarketDailyBackfillCampaignTest {
         every { candleRepo.countByCodeAndInterval(any(), any()) } returns 0L
         every { candleRepo.findMaxTsByCodeAndInterval(any(), any()) } returns null
         every { universeRepo.findListedAtByCode(any()) } returns today.minusYears(10)
-        // throttle gate가 null 반환(circuit OPEN/permit timeout) → 캠페인 break.
+        // throttle gate가 null 반환(circuit OPEN) → 캠페인 신규 launch 중단.
         val throttle = mockk<BackfillThrottleGate>(relaxed = true)
-        every { throttle.runThrottled<Any?>(any(), any()) } returns null
+        every { throttle.runWithCircuitGuard<Any?>(any(), any()) } returns null
 
         val campaign =
             newCampaign(props(), provider(listOf("000001", "000002")), rangePort, candleRepo, universeRepo, throttle = throttle)
@@ -477,5 +487,88 @@ class MarketDailyBackfillCampaignTest {
         }
         // START·RUN_DONE 은 짧은 고정 식별자(runId 아님).
         assertThat(saved.map { it.entityId }).contains(MarketDailyBackfillCampaign.CAMPAIGN_ENTITY_ID)
+    }
+
+    // ---- ★ MIGRATE 모드 + 동시성 회계 (ADR 0118 amend §9) -------------------------------------
+
+    @Test
+    fun `MIGRATE 모드 - wipe 선행 후 재적재 + wipedRows·mode 응답 노출`() {
+        val rangePort = mockk<KisDailyCandleRangePort>(relaxed = true)
+        val candleRepo = mockk<CandleRepository>(relaxed = true)
+        val universeRepo = mockk<ConsumerMarketDailyUniverseJpaRepository>(relaxed = true)
+        val wipe = mockk<MarketDailyWipeService>()
+        every { wipe.wipeDailyFamily(any(), any()) } returns 12_345L
+        // 모든 종목 미완료(wipe 직후이므로 row 0).
+        every { candleRepo.countByCodeAndInterval(any(), any()) } returns 0L
+        every { candleRepo.findMaxTsByCodeAndInterval(any(), any()) } returns null
+        every { universeRepo.findListedAtByCode(any()) } returns today.minusYears(10)
+        every { rangePort.fetchDailyCandlesInRange(any(), any(), any()) } returns
+            listOf(candle("005930", today.minusYears(2)))
+        every { candleRepo.saveAll(any()) } returns 1
+
+        val campaign = newCampaign(props(), provider(listOf("005930")), rangePort, candleRepo, universeRepo, wipeService = wipe)
+        val r = campaign.runCampaign(MarketDailyBackfillCampaign.BackfillMode.MIGRATE)
+
+        assertThat(r.mode).isEqualTo(MarketDailyBackfillCampaign.BackfillMode.MIGRATE)
+        assertThat(r.wipedRows).isEqualTo(12_345L)
+        // wipe 선행 1회 + 재적재 fetch 1회.
+        verify(exactly = 1) { wipe.wipeDailyFamily(any(), any()) }
+        verify(exactly = 1) { rangePort.fetchDailyCandlesInRange(any(), any(), any()) }
+    }
+
+    @Test
+    fun `NORMAL 모드(default) - wipe 절대 호출 0 (기존 멱등 재개 보존)`() {
+        val rangePort = mockk<KisDailyCandleRangePort>(relaxed = true)
+        val candleRepo = mockk<CandleRepository>(relaxed = true)
+        val universeRepo = mockk<ConsumerMarketDailyUniverseJpaRepository>(relaxed = true)
+        val wipe = mockk<MarketDailyWipeService>(relaxed = true)
+        every { candleRepo.countByCodeAndInterval(any(), any()) } returns 0L
+        every { candleRepo.findMaxTsByCodeAndInterval(any(), any()) } returns null
+        every { universeRepo.findListedAtByCode(any()) } returns today.minusYears(10)
+        every { rangePort.fetchDailyCandlesInRange(any(), any(), any()) } returns emptyList()
+
+        val campaign = newCampaign(props(), provider(listOf("005930")), rangePort, candleRepo, universeRepo, wipeService = wipe)
+        val r = campaign.runCampaign() // default NORMAL
+
+        assertThat(r.mode).isEqualTo(MarketDailyBackfillCampaign.BackfillMode.NORMAL)
+        assertThat(r.wipedRows).isEqualTo(0L)
+        // ★ NORMAL 은 절대 wipe 하지 않음.
+        verify(exactly = 0) { wipe.wipeDailyFamily(any(), any()) }
+    }
+
+    @Test
+    fun `동시성 회계 불변식 - permits=4·12종목 처리 시 processed·inserted·calls 합산 일관`() {
+        val rangePort = mockk<KisDailyCandleRangePort>(relaxed = true)
+        val candleRepo = mockk<CandleRepository>(relaxed = true)
+        val universeRepo = mockk<ConsumerMarketDailyUniverseJpaRepository>(relaxed = true)
+        val codes = (1..12).map { "%06d".format(it) }
+        // 모든 종목 미완료 → 전부 fetch 대상. cap 충분(이연 0).
+        every { candleRepo.countByCodeAndInterval(any(), any()) } returns 0L
+        every { candleRepo.findMaxTsByCodeAndInterval(any(), any()) } returns null
+        every { universeRepo.findListedAtByCode(any()) } returns today.minusYears(2)
+        // 각 종목 1봉 적재(전진).
+        every { rangePort.fetchDailyCandlesInRange(any(), any(), any()) } answers {
+            listOf(candle(firstArg(), today.minusYears(1)))
+        }
+        every { candleRepo.saveAll(any()) } returns 1
+
+        // permits=4 동시 + launchDelay 0 — 12종목 동시 처리. callCap 충분.
+        val campaign =
+            newCampaign(
+                props(nightlyCallCap = 999_999, concurrency = 4, launchDelayMs = 0L),
+                provider(codes),
+                rangePort,
+                candleRepo,
+                universeRepo,
+            )
+        val r = campaign.runCampaign()
+
+        // 불변식(원자 카운터 보호): 전 종목 처리 + 각 1봉 적재 + 콜 누락/중복 0.
+        // (lost-update 시 processed·inserted 가 12 미만으로 깨짐 — 동시성 회계 회귀 가드.)
+        assertThat(r.processedSymbols).isEqualTo(12)
+        assertThat(r.insertedRows).isEqualTo(12L)
+        assertThat(r.failedSymbols).isEqualTo(0)
+        // 정확히 12 종목 fetch — 동시성에서도 종목당 1회(중복 launch 0·skip 0).
+        verify(exactly = 12) { rangePort.fetchDailyCandlesInRange(any(), any(), any()) }
     }
 }

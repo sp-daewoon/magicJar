@@ -45,6 +45,12 @@ dependencies {
     implementation("com.bucket4j:bucket4j-core:8.10.1")
     implementation("com.bucket4j:bucket4j-redis:8.10.1")
 
+    // kotlinx-coroutines — MARKET_DAILY 일봉 backfill 동시성 보강 (ADR 0118 amend).
+    //   coroutine Semaphore(permits) 로 throughput shaping. KIS hard ceiling 은 ConsumerRedisKisRateLimiterAdapter
+    //   (Bucket4j Redis bucket)가 그대로 유효 — 세마포어는 동시 종목 수만 제한(rate limiter 우회/중복 0).
+    //   blocking KIS WebClient .block() 호출은 Dispatchers.IO 에서 수행(워커 스레드 블로킹 격리).
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
+
     // Flyway 미포함 (api 모듈만 마이그레이션)
 
     // ─────────────────────────────────────────────────────────────────────────

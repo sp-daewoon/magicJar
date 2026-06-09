@@ -83,6 +83,56 @@ interface ConsumerCandleJpaRepository : JpaRepository<ConsumerCandleJpaEntity, L
     ): List<java.time.Instant>
 
     /**
+     * 일봉 패밀리 wipe — ADR 0118 amend MIGRATE 모드 전용 (전 source 대상).
+     *
+     * ## ★ 안전 제약 (가장 중요)
+     *   삭제 대상은 **호출자가 넘긴 [intervals] 화이트리스트로 한정**된다. MIGRATE 캠페인은 이 메서드에
+     *   `['1d','1wk','1mo','1y']`(REST 재생성 가능 패밀리)만 전달한다. **`1m`·`5m` 등 실시간 누적분은
+     *   KIS REST 로 복구 불가(영구 손실)이므로 절대 전달 금지** — 캠페인 상수([MIGRATE_WIPE_INTERVALS])가
+     *   이 화이트리스트를 LOCK 한다.
+     *
+     *   본 쿼리 자체는 `interval IN (:intervals)` 로만 동작하므로(테이블 전체 truncate 아님), 화이트리스트
+     *   밖 interval 은 어떤 경로로도 삭제되지 않는다.
+     *
+     * @param intervals 삭제 대상 interval code 화이트리스트(예: 1d·1wk·1mo·1y). 빈 컬렉션이면 0행 삭제.
+     * @return 삭제된 row 수(wipedRows — 운영 evidence).
+     */
+    @Modifying
+    @Query(
+        nativeQuery = true,
+        value = "DELETE FROM candle WHERE interval IN (:intervals)",
+    )
+    fun deleteByIntervalIn(
+        @Param("intervals") intervals: Collection<String>,
+    ): Int
+
+    /**
+     * 일봉 패밀리 wipe — **배치 삭제** 변형 (대량 테이블 long-transaction 회피).
+     *
+     * `ctid` 기반 [batchSize] 청크 삭제. 캠페인이 반환 0 이 될 때까지 반복 호출하여 누적 wipedRows 산출.
+     * 각 호출은 독립 트랜잭션(adapter `@Transactional(REQUIRES_NEW)`)이라 한 청크 실패가 전체를 막지 않는다.
+     * 안전 제약은 [deleteByIntervalIn] 과 동일 — [intervals] 화이트리스트 밖은 절대 삭제 0 (1m·5m 보존).
+     *
+     * @return 이 청크에서 삭제된 row 수. [batchSize] 미만이면 더 이상 대상 없음(루프 종료 신호).
+     */
+    @Modifying
+    @Query(
+        nativeQuery = true,
+        value = """
+            DELETE FROM candle
+            WHERE ctid IN (
+                SELECT ctid FROM candle
+                WHERE interval IN (:intervals)
+                LIMIT :batchSize
+            )
+        """,
+    )
+    fun deleteByIntervalInBatch(
+        @Param("intervals") intervals: Collection<String>,
+        @Param("batchSize") batchSize: Int,
+    ): Int
+
+    /**
      * 단건 idempotent INSERT (ON CONFLICT DO NOTHING).
      */
     @Modifying

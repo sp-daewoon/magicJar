@@ -249,23 +249,32 @@ class KisRestCandleAdapterPaginationTest {
     }
 
     @Test
-    fun `market-div-resolver KOSPI 전체 UN 금지 — KOSPI200만 UN 후보 후 J fallback`() {
-        val instrumentRepository = mockk<ConsumerInstrumentJpaRepository>()
+    fun `market-div-resolver J 단일 채널 — KOSPI200 포함 전 종목 J 고정 (ADR 0118 amend §9 · UN 폐기)`() {
+        // ★ 근본 fix 회귀 가드 — UN/NX 채널 stale 동결(036930·047040·098460 2/11 동결) 실측 후 J 단일 전환.
+        // 직전 구현은 KOSPI200/KOSDAQ150 멤버에 ["UN","J"](UN 우선)을 썼고, UN stale 8행 채택 → J(최신) 미조회 결함.
+        val instrumentRepository = mockk<ConsumerInstrumentJpaRepository>(relaxed = true)
+        // KOSPI200 멤버여도 UN 후보 0 — 무조건 J 단일.
         every { instrumentRepository.findById("005930") } returns
             Optional.of(instrument("005930", market = "KOSPI", isKospi200 = true))
         every { instrumentRepository.findById("000001") } returns
             Optional.of(instrument("000001", market = "KOSPI", isKospi200 = false))
+        // 실측 stale 종목들도 J 단일.
+        every { instrumentRepository.findById("036930") } returns
+            Optional.of(instrument("036930", market = "KOSDAQ", isKosdaq150 = true))
         val adapter = buildAdapter(instrumentRepository)
 
-        assertThat(invokeResolveMrktDivCode(adapter, "005930")).isEqualTo("UN")
-        assertThat(invokeResolveMrktDivCodeCandidates(adapter, "005930")).containsExactly("UN", "J")
-        assertThat(invokeResolveMrktDivCode(adapter, "000001")).isEqualTo("J")
+        // KOSPI200 멤버(005930) — 직전엔 ["UN","J"]였으나 이제 ["J"] 단일.
+        assertThat(invokeResolveMrktDivCode(adapter, "005930")).isEqualTo("J")
+        assertThat(invokeResolveMrktDivCodeCandidates(adapter, "005930")).containsExactly("J")
+        // 비멤버도 J.
         assertThat(invokeResolveMrktDivCodeCandidates(adapter, "000001")).containsExactly("J")
+        // KOSDAQ150 멤버(036930·stale 실측 종목) — UN 폐기, J 단일.
+        assertThat(invokeResolveMrktDivCodeCandidates(adapter, "036930")).containsExactly("J")
     }
 
     @Test
-    fun `market-div-resolver KOSDAQ 전체 J 고정 금지 — KOSDAQ150은 UN 후보 후 J fallback`() {
-        val instrumentRepository = mockk<ConsumerInstrumentJpaRepository>()
+    fun `market-div-resolver J 단일 — KOSDAQ150 멤버·UNKNOWN 모두 J (UN 후보 0건 회귀 차단)`() {
+        val instrumentRepository = mockk<ConsumerInstrumentJpaRepository>(relaxed = true)
         every { instrumentRepository.findById("091990") } returns
             Optional.of(instrument("091990", market = "KOSDAQ", isKosdaq150 = true))
         every { instrumentRepository.findById("123456") } returns
@@ -273,10 +282,12 @@ class KisRestCandleAdapterPaginationTest {
         every { instrumentRepository.findById("999999") } returns Optional.empty()
         val adapter = buildAdapter(instrumentRepository)
 
-        assertThat(invokeResolveMrktDivCode(adapter, "091990")).isEqualTo("UN")
-        assertThat(invokeResolveMrktDivCodeCandidates(adapter, "091990")).containsExactly("UN", "J")
-        assertThat(invokeResolveMrktDivCode(adapter, "123456")).isEqualTo("J")
-        assertThat(invokeResolveMrktDivCode(adapter, "999999")).isEqualTo("J")
+        // KOSDAQ150 멤버여도 UN 후보 0 — J 단일.
+        assertThat(invokeResolveMrktDivCode(adapter, "091990")).isEqualTo("J")
+        assertThat(invokeResolveMrktDivCodeCandidates(adapter, "091990")).containsExactly("J")
+        assertThat(invokeResolveMrktDivCodeCandidates(adapter, "123456")).containsExactly("J")
+        // instrument 미존재(UNKNOWN)도 J.
+        assertThat(invokeResolveMrktDivCodeCandidates(adapter, "999999")).containsExactly("J")
     }
 
     @Test
