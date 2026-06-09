@@ -481,28 +481,18 @@ class CandleRefreshService(
      *   - FHKST03010230: J:주식, NX:NXT, UN:통합
      *   - FHKST03010100: J:KRX, NX:NXT, UN:통합
      *
-     * ADR 0091:
-     *   - market=KOSPI 전체를 UN으로 보내는 단순화 금지.
-     *   - NXT 거래 가능 여부는 종목 단위로 변하며, NXT 공식 화면도 KOSPI/KOSDAQ 상품군을 함께 표시한다.
-     *   - dedicated nxt_tradable 컬럼 도입 전까지 is_kospi200/is_kosdaq150을 보수적 allow-list로 사용한다.
-     *   - UN 후보가 빈 응답이면 J(KRX)로 fallback 한다.
+     * ## 채널 J 단일화 (2026-06-09 — ADR 0118 amend, consumer PR #844 와 정합)
+     * 직전(ADR 0091)은 KOSPI200/KOSDAQ150 멤버에 `["UN","J"]`(UN 우선)을 썼다. 그러나 REAL 키 raw 실측 결과,
+     * KIS 측 결함으로 **UN(통합)·NX(NXT) 일봉이 일부 종목(036930·047040·098460)에서 2026-02-11 에 동결**돼
+     * 있고, **J(KRX 본시장) 일봉만 항상 최신**이었다. fallback 이 "UN 0건"일 때만 작동하므로 UN 이 stale 8행을
+     * 주면 그대로 채택하고 J 를 영영 안 보는 결함이 있었다. 실시간 1m 은 정상인데 일봉만 멈추던 근본 원인.
+     *   → **항상 `listOf("J")` 반환.** UN/NX 분기·fallback 전면 제거. (consumer KisRestCandleAdapter 와 동일 정책)
+     * trade-off: 일봉 거래량에서 NXT 분 제외 — 차트/지표/메타용 본시장 OHLC 권위로 수용. 실시간 tick 은 별도로
+     * KRX+NXT(H0STCNT0·H0NXCNT0) 동시 구독 유지(분봉 합산은 NXT 포함).
      */
     private fun resolveMrktDivCode(code: String): String = resolveMrktDivCodeCandidates(code).first()
 
-    private fun resolveMrktDivCodeCandidates(code: String): List<String> {
-        val instrument = instrumentJpaRepository.findById(code).orElse(null)
-        val isNxtIntegratedCandidate =
-            when (instrument?.market) {
-                "KOSPI" -> instrument.isKospi200
-                "KOSDAQ" -> instrument.isKosdaq150
-                else -> false
-            }
-        return if (isNxtIntegratedCandidate) {
-            listOf("UN", "J")
-        } else {
-            listOf("J")
-        }
-    }
+    private fun resolveMrktDivCodeCandidates(code: String): List<String> = listOf("J")
 
     private fun refreshDailyCandlesWithFallback(
         code: String,

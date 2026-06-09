@@ -207,7 +207,9 @@ class CandleRefreshServiceAscNormalizeTest {
     }
 
     @Test
-    fun `market-div-resolver KOSPI 전체 UN 금지 — KOSPI200만 UN 후보 후 J fallback`() {
+    fun `market-div-resolver 채널 J 단일화 — KOSPI200 포함 전 종목 J (ADR 0118 amend, UN-stale 결함)`() {
+        // 2026-06-09 J 단일화: KIS UN(통합)/NX(NXT) 일봉이 일부 종목에서 2/11 동결되는 결함으로
+        // KOSPI200 멤버도 더 이상 UN 우선을 쓰지 않고 항상 J(KRX 본시장)만 조회한다. consumer #844 정합.
         val instrumentJpaRepository = mock<InstrumentJpaRepository>()
         whenever(instrumentJpaRepository.findById("005930"))
             .thenReturn(Optional.of(instrument("005930", market = "KOSPI", isKospi200 = true)))
@@ -215,14 +217,15 @@ class CandleRefreshServiceAscNormalizeTest {
             .thenReturn(Optional.of(instrument("000001", market = "KOSPI", isKospi200 = false)))
         val service = buildService(instrumentJpaRepository)
 
-        assertThat(invokeResolveMrktDivCode(service, "005930")).isEqualTo("UN")
-        assertThat(invokeResolveMrktDivCodeCandidates(service, "005930")).containsExactly("UN", "J")
+        // KOSPI200 멤버여도 UN 아님 — 항상 J.
+        assertThat(invokeResolveMrktDivCode(service, "005930")).isEqualTo("J")
+        assertThat(invokeResolveMrktDivCodeCandidates(service, "005930")).containsExactly("J")
         assertThat(invokeResolveMrktDivCode(service, "000001")).isEqualTo("J")
         assertThat(invokeResolveMrktDivCodeCandidates(service, "000001")).containsExactly("J")
     }
 
     @Test
-    fun `market-div-resolver KOSDAQ 전체 J 고정 금지 — KOSDAQ150은 UN 후보 후 J fallback`() {
+    fun `market-div-resolver 채널 J 단일화 — KOSDAQ150 포함 전 종목 J (ADR 0118 amend)`() {
         val instrumentJpaRepository = mock<InstrumentJpaRepository>()
         whenever(instrumentJpaRepository.findById("091990"))
             .thenReturn(Optional.of(instrument("091990", market = "KOSDAQ", isKosdaq150 = true)))
@@ -231,8 +234,9 @@ class CandleRefreshServiceAscNormalizeTest {
         whenever(instrumentJpaRepository.findById("999999")).thenReturn(Optional.empty())
         val service = buildService(instrumentJpaRepository)
 
-        assertThat(invokeResolveMrktDivCode(service, "091990")).isEqualTo("UN")
-        assertThat(invokeResolveMrktDivCodeCandidates(service, "091990")).containsExactly("UN", "J")
+        // KOSDAQ150 멤버여도 UN 아님 — 항상 J.
+        assertThat(invokeResolveMrktDivCode(service, "091990")).isEqualTo("J")
+        assertThat(invokeResolveMrktDivCodeCandidates(service, "091990")).containsExactly("J")
         assertThat(invokeResolveMrktDivCode(service, "123456")).isEqualTo("J")
         assertThat(invokeResolveMrktDivCode(service, "999999")).isEqualTo("J")
     }
