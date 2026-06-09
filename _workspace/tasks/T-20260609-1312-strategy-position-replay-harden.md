@@ -3,10 +3,10 @@ id: T-20260609-1312-strategy-position-replay-harden
 agent: strategy
 model: opus
 branch: hotfix/strategy-position-replay-harden
-status: RUNNING
+status: DONE
 startedAt: 2026-06-09T13:12:02.619+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-09T13:20:28.146+09:00
+pr: #841
 parentPhase: ?
 ---
 
