@@ -202,6 +202,29 @@ abort 시 부분 결과(trades 일부) 보존 + 사유 응답. 사용자 UI는 "
 
 위 식의 변경은 backlog 의제 합류 + 별도 ADR 필요.
 
+#### 2-7-A. amend (2026-06-10, strategy-engine) — `equity[t]`는 mark-to-market 정의
+
+> 상태: amend (결함 수정 — 산식 변경 아님). 작성: strategy-engine. 사유: V76 검증 #860 MDD≈100% 아티팩트 실측.
+
+위 MDD·Sharpe 식의 `equity[t]`는 **mark-to-market 자본**으로 못박는다(산식 자체는 무변경):
+
+```
+equity(t) = cash(t) + Σ(보유 포지션 수량 × 그 시점 종가)   ← 미실현 손익 포함
+```
+
+**결함**: `JvmBacktestEngine`이 종전에는 equity curve를 **체결마다 `cash`만** append 했다(cash-only).
+SizingPolicy.AllCapital 매수 시 cash≈0이 되어 포지션 보유 구간 내내 equity≈0 → drawdown ≈ (peak−0)/peak ≈ **100%**.
+이로 인해 모든 보유형 전략의 MDD가 ≈100% 아티팩트가 되어 과최적화 거름망 게이트 G3(MDD≤8%)가 무력화됐다(H1 프리셋이
+MDD 대신 per-trade 손절+PF 대체 기준으로 통과한 원인).
+
+**fix**: 엔진이 **매 캔들마다** MTM equity 1점을 기록한다(체결 여부 무관). cash·trades 기반 지표
+(totalReturn·CAGR·winRate·profitFactor·avgWin·avgLoss·tradingFrequency)는 **무영향** — MDD·Sharpe만 정정.
+
+**실측**(005930 일봉 2015~2025): 장기 보유 전략 MDD 0.9995→0.4516(totalReturn 3.3474 불변),
+빈번 매매 전략 0.5496→0.1468(totalReturn 0.1499 불변). 상세 `_workspace/strategy/sample-backtest/mdd-mtm-fix-BEFORE-AFTER.md`.
+
+`/api/backtest/run`·`/overfit`·`/sensitivity` 응답 필드 시그니처 무변경(MDD·Sharpe 값만 정상화).
+
 ### 2-8. 검증 의무 (PR-48 backend-core sub-agent)
 
 | 항목 | 검증 방법 |

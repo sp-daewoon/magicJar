@@ -65,6 +65,13 @@ import java.time.temporal.ChronoUnit
  * - 1 universe × 1 종목 순차 진행 (병렬은 post-MVP)
  * - 포지션 중복 불가 — 보유 중 BUY 신호 무시
  * - KOSPI 가정 (세금 모델 market 파라미터)
+ *
+ * ### equity curve = mark-to-market (ADR 0056 §2-7 amend — MDD 결함 fix)
+ * equity(t) = cash(t) + Σ(보유 포지션 수량 × 그 시점 종가)로 **매 캔들마다 1점**씩 기록한다.
+ * 종전 cash-only 곡선(매 체결 후 cash만 append)은 AllCapital 매수 직후 cash≈0 → equity≈0이 되어
+ * 보유 구간 내내 drawdown≈100% 아티팩트를 만들어 MDD 게이트(G3)를 무력화했다(V76 검증 #860 실측).
+ * MTM 곡선은 미실현 손익을 포함하므로 MDD·Sharpe가 실제 자본 변동을 반영한다.
+ * totalReturn·CAGR·winRate·profitFactor 등 cash·trades 기반 지표는 무영향(MDD·Sharpe만 정정).
  */
 @Component
 class JvmBacktestEngine(
@@ -268,7 +275,6 @@ class JvmBacktestEngine(
                         it.trade?.let { trade -> trades.add(trade) }
                         cash = it.cash
                         it.closedPosition?.let { closed -> positions.add(closed) }
-                        equityCurve.add(cash)
                     }
                 } else if (sellResult?.signal == Signal.SELL && openPositions.containsKey(code)) {
                     // SELL 처리 (sellCondition 있을 때)
@@ -287,7 +293,6 @@ class JvmBacktestEngine(
                         )
                     trades.add(result.trade)
                     cash = cash.add(result.proceeds)
-                    equityCurve.add(cash)
                     val closedPos = pos.copy(closedAt = candleTs, realizedPnl = result.realizedPnl)
                     positions.add(closedPos)
                     openPositions.remove(code)
@@ -312,11 +317,15 @@ class JvmBacktestEngine(
                         if (result != null) {
                             trades.add(result.trade)
                             cash = cash.subtract(result.cost)
-                            equityCurve.add(cash)
                             openPositions[code] = result.position
                         }
                     }
                 }
+
+                // 매 캔들 mark-to-market equity 기록 (ADR 0056 §2-7 amend — MDD 결함 fix).
+                // equity(t) = cash + 보유 포지션 수량 × 현재 캔들 평가가(미실현 포함). 체결 발생 여부와 무관하게
+                // 모든 t에서 1점. 보유 구간에서도 cash≈0이 아니라 실제 평가자본을 반영 → MDD·Sharpe 정상화.
+                equityCurve.add(markToMarketEquity(cash, openPositions, evalPrice))
             }
 
             // 시뮬 종료 — 미종료 포지션을 마지막 캔들 가격으로 강제 청산
@@ -339,10 +348,16 @@ class JvmBacktestEngine(
                     )
                 trades.add(result.trade)
                 cash = cash.add(result.proceeds)
-                equityCurve.add(cash)
                 val closedPos = pos.copy(closedAt = lastCandle.ts, realizedPnl = result.realizedPnl)
                 positions.add(closedPos)
                 openPositions.remove(code)
+                // 강제 청산 후 실현 cash로 마지막 equity 점을 갱신(보유 0 → MTM = cash). 직전 t-루프가 기록한
+                // 마지막 MTM(보유 평가가 기준)을 청산 비용 반영 후 실현값으로 대체해 종가 정합.
+                if (equityCurve.isNotEmpty()) {
+                    equityCurve[equityCurve.size - 1] = cash
+                } else {
+                    equityCurve.add(cash)
+                }
             }
         }
 
@@ -806,6 +821,25 @@ class JvmBacktestEngine(
     // =====================================================================
     // 헬퍼
     // =====================================================================
+
+    /**
+     * mark-to-market equity 계산 (ADR 0056 §2-7 amend — MDD 결함 fix).
+     *
+     * equity = cash + Σ(보유 포지션 수량 × 평가가). 평가가는 현재 캔들의 [evalPrice](가격조정 모드 반영 종가)다.
+     * 백테스트는 1 universe × 1 종목을 순차 진행하므로 [openPositions]에는 동일 종목 1건만 존재하지만,
+     * 멀티 포지션 확장 대비 전체 합산으로 둔다. 미실현 손익을 포함하므로 보유 구간 drawdown 아티팩트가 사라진다.
+     */
+    private fun markToMarketEquity(
+        cash: BigDecimal,
+        openPositions: Map<String, BacktestPosition>,
+        evalPrice: BigDecimal,
+    ): BigDecimal {
+        var equity = cash
+        for (pos in openPositions.values) {
+            equity = equity.add(evalPrice.multiply(BigDecimal(pos.quantity)))
+        }
+        return equity
+    }
 
     private fun toDomain(
         entity: CandleJpaEntity,

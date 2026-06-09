@@ -1,0 +1,14 @@
+{
+  "totalReturn": 0.1499,
+  "cagr": 0.0128,
+  "maxDrawdown": 0.1468,
+  "sharpeRatio": -0.1748,
+  "winRate": 0.7477,
+  "totalTrades": 111,
+  "winningTrades": 83,
+  "losingTrades": 28,
+  "avgWin": 109300,
+  "avgLoss": 268574,
+  "profitFactor": 1.2064,
+  "tradingFrequency": 0.0568
+}
