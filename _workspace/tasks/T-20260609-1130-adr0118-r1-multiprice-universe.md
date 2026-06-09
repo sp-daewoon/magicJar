@@ -3,10 +3,10 @@ id: T-20260609-1130-adr0118-r1-multiprice-universe
 agent: market-data
 model: opus
 branch: agent/market-data/adr0118-r1-multiprice-universe
-status: RUNNING
+status: DONE
 startedAt: 2026-06-09T11:30:40.317+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-09T11:43:50.298+09:00
+pr: #837
 parentPhase: ?
 ---
 
