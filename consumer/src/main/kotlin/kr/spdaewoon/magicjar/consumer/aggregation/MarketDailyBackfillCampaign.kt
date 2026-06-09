@@ -58,6 +58,31 @@ class MarketDailyBackfillCampaign(
     companion object {
         private val KST_ZONE: ZoneId = ZoneId.of("Asia/Seoul")
         private val INTERVAL = CandleInterval.ONE_DAY
+
+        /**
+         * candle.source DB 컬럼 한계 — `VARCHAR(20)`
+         * (api/src/main/resources/db/migration/V1__baseline.sql:115).
+         * 이 캠페인 source 마킹이 이 한계를 넘으면 PostgreSQL 22001 (value too long) 으로
+         * saveAll 전건 실패 → 0행 적재. 회귀 방지로 [BACKFILL_SOURCE] 길이를 init 에서 단언.
+         */
+        const val SOURCE_MAX_LEN = 20
+
+        /**
+         * 이 캠페인이 적재하는 일봉의 source 마킹. 기존 candle source 컨벤션 정합
+         * — `"KIS-BACKFILL"`(14자) · `"KIS-RANGE-GAPFILL"`(19자) 와 충돌 없는 별도 값.
+         * `"KIS-MKT-DAILY-BF"` = 16자 ≤ [SOURCE_MAX_LEN] (varchar(20) 안전).
+         * (직전 `"KIS-MARKET-DAILY-BACKFILL"` = 25자 → varchar(20) overflow 결함, hotfix).
+         */
+        const val BACKFILL_SOURCE = "KIS-MKT-DAILY-BF"
+    }
+
+    init {
+        // 회귀 가드 — source 마킹이 candle.source VARCHAR(20) 를 넘으면 부팅 시점 즉시 실패.
+        // (런타임 saveAll 전건 실패로 0행 적재되는 silent 결함을 컴포넌트 생성 단계로 끌어올림)
+        require(BACKFILL_SOURCE.length <= SOURCE_MAX_LEN) {
+            "BACKFILL_SOURCE '$BACKFILL_SOURCE' length=${BACKFILL_SOURCE.length} " +
+                "exceeds candle.source VARCHAR($SOURCE_MAX_LEN)"
+        }
     }
 
     enum class CampaignStatus {
@@ -368,8 +393,9 @@ class MarketDailyBackfillCampaign(
         val sane = candleBackfillWorker.sanityCheck(fetched, runId)
         val inserted =
             try {
-                // 과거봉 immutable — ON CONFLICT DO NOTHING. source 는 KIS-BACKFILL 마킹.
-                candleRepository.saveAll(sane.map { it.copy(source = "KIS-MARKET-DAILY-BACKFILL") })
+                // 과거봉 immutable — ON CONFLICT DO NOTHING. source 마킹 = [BACKFILL_SOURCE]
+                // (varchar(20) 안전 길이 보장 — companion init require 가드).
+                candleRepository.saveAll(sane.map { it.copy(source = BACKFILL_SOURCE) })
             } catch (e: Exception) {
                 log.warn("MarketDailyBackfillCampaign saveAll 실패: code={} err={}", code, e.message)
                 audit(

@@ -240,8 +240,41 @@ class MarketDailyBackfillCampaignTest {
         // upsertAll(ON CONFLICT DO UPDATE)이 아니라 saveAll(DO NOTHING) 사용 — 과거봉 immutable.
         verify(exactly = 1) { candleRepo.saveAll(any()) }
         verify(exactly = 0) { candleRepo.upsertAll(any()) }
-        // source 마킹 검증.
-        assertThat(saveSlot.captured.first().source).isEqualTo("KIS-MARKET-DAILY-BACKFILL")
+        // source 마킹 검증 — 상수 BACKFILL_SOURCE.
+        assertThat(saveSlot.captured.first().source).isEqualTo(MarketDailyBackfillCampaign.BACKFILL_SOURCE)
+    }
+
+    @Test
+    fun `회귀 가드 - BACKFILL_SOURCE 길이 candle source VARCHAR(20) 이내`() {
+        // candle.source = VARCHAR(20) (V1__baseline.sql:115). 마킹이 20자를 넘으면
+        // PostgreSQL 22001(value too long)로 saveAll 전건 실패 → 0행 적재.
+        // 직전 결함 "KIS-MARKET-DAILY-BACKFILL"(25자) 재발 방지.
+        assertThat(MarketDailyBackfillCampaign.BACKFILL_SOURCE.length)
+            .isLessThanOrEqualTo(MarketDailyBackfillCampaign.SOURCE_MAX_LEN)
+        assertThat(MarketDailyBackfillCampaign.SOURCE_MAX_LEN).isEqualTo(20)
+    }
+
+    @Test
+    fun `회귀 가드 - saveAll 에 적재되는 candle source 가 varchar(20) 위반 0`() {
+        val rangePort = mockk<KisDailyCandleRangePort>()
+        val candleRepo = mockk<CandleRepository>(relaxed = true)
+        val universeRepo = mockk<ConsumerMarketDailyUniverseJpaRepository>(relaxed = true)
+        every { candleRepo.countByCodeAndInterval(any(), any()) } returns 0L
+        every { candleRepo.findMaxTsByCodeAndInterval(any(), any()) } returns null
+        every { universeRepo.findListedAtByCode(any()) } returns today.minusYears(10)
+        every { rangePort.fetchDailyCandlesInRange(any(), any(), any()) } returns
+            listOf(candle("005930", today.minusYears(2)), candle("005930", today.minusYears(1)))
+        val saveSlot = slot<List<Candle>>()
+        every { candleRepo.saveAll(capture(saveSlot)) } returns 2
+
+        val campaign = newCampaign(props(nightlyCallCap = 9999), provider(listOf("005930")), rangePort, candleRepo, universeRepo)
+        campaign.runCampaign()
+
+        // 적재되는 모든 candle의 source 가 varchar(20) 한계를 넘지 않음 (전건 길이 위반 0).
+        assertThat(saveSlot.captured).isNotEmpty
+        assertThat(saveSlot.captured).allSatisfy { c ->
+            assertThat(c.source!!.length).isLessThanOrEqualTo(MarketDailyBackfillCampaign.SOURCE_MAX_LEN)
+        }
     }
 
     @Test
