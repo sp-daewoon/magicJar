@@ -53,6 +53,7 @@ class MarketDailyNightlySnapshotService(
     private val auditRepository: ConsumerAuditTrailJpaRepository,
     private val objectMapper: ObjectMapper,
     private val properties: MarketDailySnapshotProperties,
+    private val dailyFamilyRollupRunner: DailyFamilyRollupRunner,
 ) {
     private val log = LoggerFactory.getLogger(MarketDailyNightlySnapshotService::class.java)
 
@@ -103,6 +104,11 @@ class MarketDailyNightlySnapshotService(
         val candlesMapped: Int,
         val upsertedRows: Int,
         val skippedQuotes: Int,
+        // ADR 0120 — today 1d upsert 직후 1wk/1mo/1y 재롤업(1d 합산·KIS 콜 0) 결과.
+        val rollupSymbols: Int,
+        val rollupWeekly: Long,
+        val rollupMonthly: Long,
+        val rollupYearly: Long,
         val durationMs: Long,
     )
 
@@ -194,6 +200,13 @@ class MarketDailyNightlySnapshotService(
             }
         }
 
+        // ── ADR 0120 — today 1d upsert 직후 1wk/1mo/1y 재롤업 (전종목, 1d 합산, KIS 콜 0) ───────
+        // R2 가 today 1d 를 공식 종가로 upsert 한 직후, DB 의 1d 전량(닫힌 봉 + today)에서 상위 봉을
+        // 재합산하여 매일 주/월/년봉을 최신화한다. 오늘 진행 주/월/년봉은 today 1d 까지 반영된
+        // 닫힌-스냅샷으로 upsert 되고, 장중 라이브 갱신은 CandleQueryService.mergeQuoteLastCurrentCandle
+        // (quote:last 병합)이 별도로 담당하므로 실시간 보존 회귀 0 (ADR 0120 §실시간 보존).
+        val rollup = runDailyFamilyRollup(codes, runId)
+
         val durationMs = System.currentTimeMillis() - startMs
         val result =
             SnapshotResult(
@@ -205,11 +218,16 @@ class MarketDailyNightlySnapshotService(
                 candlesMapped = candlesMapped,
                 upsertedRows = upsertedRows,
                 skippedQuotes = skippedQuotes,
+                rollupSymbols = rollup.symbols,
+                rollupWeekly = rollup.weekly,
+                rollupMonthly = rollup.monthly,
+                rollupYearly = rollup.yearly,
                 durationMs = durationMs,
             )
 
         log.info(
-            "MarketDailyNightlySnapshot 종료: runId={} status={} universe={} chunks={} quotes={} mapped={} upserted={} skipped={} durationMs={}",
+            "MarketDailyNightlySnapshot 종료: runId={} status={} universe={} chunks={} quotes={} mapped={} upserted={} " +
+                "skipped={} rollup(sym={} wk={} mo={} y={}) durationMs={}",
             runId,
             result.status,
             result.universeSize,
@@ -218,6 +236,10 @@ class MarketDailyNightlySnapshotService(
             result.candlesMapped,
             result.upsertedRows,
             result.skippedQuotes,
+            result.rollupSymbols,
+            result.rollupWeekly,
+            result.rollupMonthly,
+            result.rollupYearly,
             result.durationMs,
         )
         audit(
@@ -231,10 +253,56 @@ class MarketDailyNightlySnapshotService(
                 "candlesMapped" to result.candlesMapped,
                 "upsertedRows" to result.upsertedRows,
                 "skippedQuotes" to result.skippedQuotes,
+                "rollupSymbols" to result.rollupSymbols,
+                "rollupWeekly" to result.rollupWeekly,
+                "rollupMonthly" to result.rollupMonthly,
+                "rollupYearly" to result.rollupYearly,
                 "durationMs" to result.durationMs,
             ),
         )
         return result
+    }
+
+    private data class RollupTotals(
+        val symbols: Int,
+        val weekly: Long,
+        val monthly: Long,
+        val yearly: Long,
+    )
+
+    /**
+     * 전종목 1wk/1mo/1y 재롤업 — today 1d upsert 직후 1d 전량에서 합산(KIS 콜 0).
+     *
+     * best-effort: 종목별 실패는 다음 영업일 재시도(누락 과거분은 admin /market-daily-rollup/run 으로 복구).
+     */
+    private fun runDailyFamilyRollup(
+        codes: List<String>,
+        runId: String,
+    ): RollupTotals {
+        var symbols = 0
+        var weekly = 0L
+        var monthly = 0L
+        var yearly = 0L
+        for (code in codes) {
+            val detailed =
+                try {
+                    dailyFamilyRollupRunner.rollupDetailed(code)
+                } catch (e: Exception) {
+                    log.warn("MarketDailyNightlySnapshot rollup 실패(다음 영업일 재시도): runId={} code={} err={}", runId, code, e.message)
+                    continue
+                }
+            if (detailed.isEmpty()) continue
+            symbols++
+            detailed.forEach { (interval, r) ->
+                if (r.upserted < 0) return@forEach
+                when (interval) {
+                    CandleInterval.ONE_WEEK.code -> weekly += r.upserted
+                    CandleInterval.ONE_MONTH.code -> monthly += r.upserted
+                    CandleInterval.ONE_YEAR.code -> yearly += r.upserted
+                }
+            }
+        }
+        return RollupTotals(symbols, weekly, monthly, yearly)
     }
 
     /**
@@ -295,6 +363,10 @@ class MarketDailyNightlySnapshotService(
             candlesMapped = 0,
             upsertedRows = 0,
             skippedQuotes = 0,
+            rollupSymbols = 0,
+            rollupWeekly = 0L,
+            rollupMonthly = 0L,
+            rollupYearly = 0L,
             durationMs = System.currentTimeMillis() - startMs,
         )
 

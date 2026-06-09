@@ -70,6 +70,7 @@ class MarketDailyNightlySnapshotServiceTest {
         multiPricePort: KisMultiPricePort,
         candleRepo: CandleRepository,
         auditRepo: ConsumerAuditTrailJpaRepository = mockk(relaxed = true),
+        rollupRunner: DailyFamilyRollupRunner = mockk(relaxed = true),
     ) = MarketDailyNightlySnapshotService(
         universeProvider = provider,
         kisMultiPricePort = multiPricePort,
@@ -77,6 +78,7 @@ class MarketDailyNightlySnapshotServiceTest {
         auditRepository = auditRepo,
         objectMapper = ObjectMapper(),
         properties = properties,
+        dailyFamilyRollupRunner = rollupRunner,
     )
 
     @Test

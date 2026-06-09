@@ -35,6 +35,10 @@ class MarketDailyNightlySnapshotSchedulerTest {
                         candlesMapped = 10,
                         upsertedRows = 10,
                         skippedQuotes = 0,
+                        rollupSymbols = 0,
+                        rollupWeekly = 0L,
+                        rollupMonthly = 0L,
+                        rollupYearly = 0L,
                         durationMs = 5,
                     )
             }
