@@ -13,5 +13,7 @@ import org.springframework.context.annotation.Configuration
     ChartCandleProperties::class,
     // ADR 0118 R-BF — MARKET_DAILY 10년 일봉 backfill 캠페인 설정.
     MarketDailyBackfillProperties::class,
+    // ADR 0118 R2 — MARKET_DAILY 야간 23:00 멀티시세 snapshot + today 공식 보정 설정.
+    MarketDailySnapshotProperties::class,
 )
 class ChartCandleConfiguration

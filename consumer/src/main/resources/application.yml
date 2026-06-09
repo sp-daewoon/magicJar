@@ -271,6 +271,23 @@ magicjar:
     completion-min-rows: ${MAGICJAR_MARKET_DAILY_BACKFILL_COMPLETION_MIN_ROWS:200}
     recency-grace-days: ${MAGICJAR_MARKET_DAILY_BACKFILL_RECENCY_GRACE_DAYS:7}
 
+  # MARKET_DAILY 야간 23:00 멀티시세 snapshot + today 1d 봉 공식 보정 (ADR 0118 R2 — §2-C·§2-D)
+  #   매 영업일 cron 발사 → universe(보통주 ~2,517) 30종목 chunk → FHKST11300006(~84콜·BG 버킷)
+  #   → today 1d 봉 ON CONFLICT DO UPDATE 교정(공식 마감값 > WS tick 집계). 과거봉 immutable(today-only ts).
+  #   authority chain(#833): 장중 WS seed → 20:10 finalizer INSERT(DO NOTHING) → 23:00 snapshot UPDATE.
+  #   ★ enabled=false(default) — canary 전 운영 영향 신중. off 시 야간 갱신 0(기존 흐름 무영향 · §6 롤백 toggle).
+  market-daily-snapshot:
+    # 스케줄러 활성화 게이트. canary 전 신중 default false.
+    enabled: ${MAGICJAR_MARKET_DAILY_SNAPSHOT_ENABLED:false}
+    # 발사 cron(KST 고정 zone). default 23:00 = NXT 20:00 마감 + 3h 여유 · KIS 야간점검 23:40 이전.
+    cron: ${MAGICJAR_MARKET_DAILY_SNAPSHOT_CRON:0 0 23 * * *}
+    # today 종가 권위(§2-D 결재 ③). NXT_INTEGRATED(=멀티시세 "NX", default 결재값) |
+    #   KRX_REGULAR_WITH_FINALIZER_FALLBACK(=멀티시세 "J" 정규장만, NXT는 DailyCloseFinalizer 폴백).
+    #   ⚠ 멀티시세 NXT 반환 여부는 R1 probe(KisMultiPriceNxtProbeIT) PENDING — 실측 후 토글 follow-up.
+    today-close-authority: ${MAGICJAR_MARKET_DAILY_SNAPSHOT_AUTHORITY:NXT_INTEGRATED}
+    # BG 버킷 혼잡 시 rate-limit acquire 대기 상한(ms).
+    acquire-timeout-millis: ${MAGICJAR_MARKET_DAILY_SNAPSHOT_ACQUIRE_TIMEOUT_MS:5000}
+
   # MarketSession 설정 (ADR 0013 §2-2, PR-29a 본격 교체)
   session:
     # KIS chk-holiday(CTCA0903R) + market_calendar DB 기반 (KrxMarketSessionResolver)
