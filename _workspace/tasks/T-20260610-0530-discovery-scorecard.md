@@ -3,10 +3,10 @@ id: T-20260610-0530-discovery-scorecard
 agent: strategy
 model: opus
 branch: agent/strategy-engine/discovery-scorecard
-status: IN_PROGRESS
+status: DONE
 startedAt: 2026-06-10T05:30:00.000+09:00
-completedAt:
-pr:
+completedAt: 2026-06-10T06:10:00.000+09:00
+pr: #870
 parentPhase: ?
 ---
 
@@ -14,11 +14,11 @@ parentPhase: ?
 발굴 스코어카드 — 매일 발굴 기록 + 다음날 자동 채점
 
 ## 결과물 체크리스트
-- [ ] 스코어카드 테이블+Flyway (V77 discovery_scorecard)
-- [ ] 일일 snapshot 스케줄러 (08:30 KST)
-- [ ] 채점 잡 (23:30 KST — R2 야간 일봉 후)
-- [ ] 조회 REST (GET /api/screener/scorecard)
-- [ ] 테스트 (snapshot 멱등·채점 계산·미채점 skip)
+- [x] 스코어카드 테이블+Flyway (V77 discovery_scorecard)
+- [x] 일일 snapshot 스케줄러 (08:30 KST)
+- [x] 채점 잡 (23:30 KST — R2 야간 일봉 후)
+- [x] 조회 REST (GET /api/screener/scorecard)
+- [x] 테스트 (snapshot 멱등·채점 계산·미채점 skip)
 
 ## 의존성
 - DaytradeDiscoverService (발굴 재사용, startRealtimeWatch=false)
