@@ -48,4 +48,31 @@ interface StrategyPositionJpaRepository : JpaRepository<StrategyPositionJpaEntit
     fun findHoldingByCode(
         @Param("code") code: String,
     ): List<StrategyPositionJpaEntity>
+
+    /**
+     * replay TOCTOU 직렬화용 advisory xact lock — (user, strategyId, code) 2개 정수 키.
+     *
+     * `pg_advisory_xact_lock(key1, key2)` 는 현재 트랜잭션 범위 lock 으로, commit/rollback 시 자동 해제(leak 0).
+     * 같은 키의 동시 replay 트랜잭션을 직렬화해 [StrategyPositionExecutionReplayService] 의
+     * 존재확인→가산 read-modify-write 이중 진입(over-count)을 차단한다.
+     *
+     * - key1 = (user_id, strategy_id) 결합 해시 — `('x' || md5(...))::bit(32)::int`.
+     * - key2 = code 해시 — 동.
+     * 32bit int 충돌은 advisory lock 의 한 키에 한해 (다른 종목이 같은 lock 을 공유) 약간의 직렬화만 유발할 뿐
+     * 정합성을 깨지 않는다(보수적 over-lock).
+     *
+     * @Query nativeQuery — JPQL 로 표현 불가한 Postgres 함수. 반드시 활성 트랜잭션 안에서만 호출(xact-scope).
+     */
+    @Query(
+        value =
+            "SELECT pg_advisory_xact_lock(" +
+                "('x' || md5(:userId || ':' || cast(:strategyId as text)))::bit(32)::int, " +
+                "('x' || md5(:code))::bit(32)::int)",
+        nativeQuery = true,
+    )
+    fun acquireReplayAdvisoryLock(
+        @Param("userId") userId: String,
+        @Param("strategyId") strategyId: Long,
+        @Param("code") code: String,
+    )
 }
