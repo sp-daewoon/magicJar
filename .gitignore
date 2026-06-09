@@ -41,6 +41,10 @@ logs/
 .env
 .env.example
 !.env.example
+# IntelliJ HTTP Client — KIS 시크릿 보관 (커밋 금지). public env(http-client.env.json)은 커밋.
+http-client.private.env.json
+**/http-client.private.env.json
+.env.curl
 application-local.yml
 application-local.yaml
 application-secret.*
