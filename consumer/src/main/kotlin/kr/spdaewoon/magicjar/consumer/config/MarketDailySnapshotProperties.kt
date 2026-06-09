@@ -1,0 +1,53 @@
+package kr.spdaewoon.magicjar.consumer.config
+
+import org.springframework.boot.context.properties.ConfigurationProperties
+
+/**
+ * MARKET_DAILY 야간 전종목 일봉 today snapshot 스케줄러 설정 (ADR 0118 R2).
+ *
+ * 매 영업일 야간 1회(default 23:00 KST) 멀티시세(FHKST11300006)로 전종목 보통주(~2,517)의
+ * **그날(today) 일봉 1개**를 KIS 공식 마감값으로 upsert(ON CONFLICT DO UPDATE) 한다.
+ * R-BF(과거 10년 backfill)·managed(DailyCloseFinalizer 20:10·LastCandleAtMonitor 18:00)와 **분업**:
+ *
+ * | 잡 | 시각 | universe | interval | 경로 | 권위 |
+ * |----|------|----------|----------|------|------|
+ * | DailyCloseFinalizer | 20:10 | managed(watchlist) | 1d | Redis WS 집계 INSERT(DO NOTHING) | WS tick 집계 |
+ * | **R2 snapshot(본 설정)** | **23:00** | **전종목 ~2,517** | **today 1d** | **멀티시세 upsert(DO UPDATE)** | **KIS 공식 종가(권위·후행 교정)** |
+ * | R-BF backfill | admin /run·야간 | 전종목 | 과거 1d(10년) | range fetch saveAll(DO NOTHING) | 과거봉 immutable |
+ *
+ * R2 는 **today 1봉만** 전진시킨다(과거 gap 채우기 아님 — 그건 R-BF 소관). 시스템 며칠 down 시 누락
+ * 과거분은 R-BF(`POST /admin/market-daily-backfill/run`)로 메운다.
+ *
+ * ENV 매핑 (`magicjar.market-daily-snapshot.*` — application.yml + 환경변수 override):
+ *
+ * | key | ENV | default | 의미 |
+ * |-----|-----|---------|------|
+ * | enabled | MAGICJAR_MARKET_DAILY_SNAPSHOT_ENABLED | true | 야간 snapshot 시동/중단 kill-switch. off=가동 0(운영 점검 시) |
+ * | cron | MAGICJAR_MARKET_DAILY_SNAPSHOT_CRON | 0 0 23 * * * | 발사 cron (zone=Asia/Seoul 고정). KRX 15:30 + NXT 20:00 마감 후 |
+ * | chunk-spacing-ms | MAGICJAR_MARKET_DAILY_SNAPSHOT_CHUNK_SPACING_MS | 120 | chunk(30종목/콜) 간 가벼운 지연(ms) — burst 분산. rate-limiter hard ceiling 은 별도 |
+ *
+ * ## rate-limit (ADR 0116 · 0118 §2-C·§5-1 LOCK)
+ *   멀티시세는 가벼우나(~84콜) 모든 KIS 콜은 [kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisMultiPriceAdapter]
+ *   내부에서 BACKFILL(BG) 버킷 경유. USER_PATH·INGESTION 절대 침범 0 — 사용자·자본 path 영향 0.
+ *   chunk 간 [chunkSpacingMs] spacing 으로 단일 대량 동시호출 회피(2026-06-09 wipe→재적재 교훈).
+ *
+ * ## cron=23:00 근거 (ADR 0118 §2-C)
+ *   NXT after-hour 마감 20:00 KST(DailyCloseFinalizer 20:10) + 3시간 여유 + KIS 야간 점검(23:40~00:10) 이전.
+ */
+@ConfigurationProperties(prefix = "magicjar.market-daily-snapshot")
+data class MarketDailySnapshotProperties(
+    val enabled: Boolean = true,
+    val cron: String = DEFAULT_CRON,
+    val chunkSpacingMs: Long = 120L,
+) {
+    companion object {
+        /**
+         * default cron — 매일 23:00:00 KST 1회. zone 은 @Scheduled(zone="Asia/Seoul") 에서 고정.
+         * 영업일 가드는 스케줄러가 BusinessDayCalendar 로 2차 필터(공휴일·임시휴장 skip).
+         */
+        const val DEFAULT_CRON = "0 0 23 * * *"
+    }
+
+    /** chunk 간 지연(ms). 0=지연 없음. 상한 5초(과도한 지연 방어). */
+    fun normalizedChunkSpacingMs(): Long = chunkSpacingMs.coerceIn(0L, 5_000L)
+}
