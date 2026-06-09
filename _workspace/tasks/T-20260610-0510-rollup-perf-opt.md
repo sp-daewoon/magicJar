@@ -6,7 +6,7 @@ branch: agent/market-data/rollup-perf-opt2
 status: DONE
 startedAt: 2026-06-10T05:10:00.000+09:00
 completedAt: 2026-06-10T05:40:00.000+09:00
-pr: #TBD
+pr: #869
 parentPhase: ADR-0120-amend
 ---
 
