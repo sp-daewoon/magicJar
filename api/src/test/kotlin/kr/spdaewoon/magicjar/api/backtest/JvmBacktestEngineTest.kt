@@ -524,4 +524,83 @@ class JvmBacktestEngineTest {
         assertEquals(0, success.entrySkip.total, "entryPolicy 미설정 전략은 스킵 집계 0")
         assertTrue(success.trades.any { it.side == TradeSide.BUY }, "정책 없으면 정상 진입")
     }
+
+    // =====================================================================
+    // MDD mark-to-market fix (ADR 0056 §2-7 amend — V76 검증 #860 결함)
+    // equity(t) = cash + 보유 포지션 수량 × 현재 종가. 종전 cash-only는 보유 구간 equity≈0 → MDD≈100% 아티팩트.
+    // =====================================================================
+
+    /** 손절·익절 없는 buy-only 전략(보유 유지 → 미실현 손익이 MTM equity에 반영되는지 검증). */
+    private fun makeBuyOnlyStrategy(buyCondition: kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode): Strategy {
+        val baseDef = makeStrategy(buyCondition).definition
+        return makeStrategy(buyCondition).copy(
+            definition = baseDef.copy(dsl = DslStrategyDefinition(name = "buy-only", buyCondition = buyCondition, sellCondition = null)),
+        )
+    }
+
+    @Test
+    fun `MDD MTM - 보유 중 미실현 손실이 MDD에 반영되고 100퍼센트 아티팩트가 아니다`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        whenever(strategyRepo.findById(1L)).thenReturn(makeBuyOnlyStrategy(buyNode))
+        // t0 1000(전액 진입), t1 800(-20% 미실현), t2 1000(회복) → 강제청산.
+        // MTM equity: ≈[init, ~init, ~init×0.8, ~init] → MDD ≈ 20%. cash-only였다면 진입 직후 ≈0 → MDD ≈ 100%.
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(candlesWithCloses(listOf("1000", "800", "1000")))
+        var idx = 0
+        val results =
+            listOf(
+                StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+            )
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any())).thenAnswer { results[idx++.coerceAtMost(results.size - 1)] }
+
+        val result = engine.run(makeRequest())
+        val success = assertInstanceOf(BacktestResult.Success::class.java, result)
+        val mdd = success.performance.maxDrawdown.toDouble()
+        // 핵심: MDD가 100% 아티팩트가 아니라 미실현 -20% 근방의 합리적 값.
+        assertTrue(mdd < 0.5, "MTM equity MDD는 100% 아티팩트가 아니어야 합니다 (실측 $mdd)")
+        assertTrue(mdd in 0.15..0.25, "MDD는 미실현 -20% 근방이어야 합니다 (실측 $mdd)")
+    }
+
+    @Test
+    fun `MDD MTM - 청산 후 equity는 실현 cash와 일치(미실현 0)`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        // 진입 후 즉시 SELL → 보유 0. 청산 후 equity = cash. 무비용(none) 모델이라 손익 ~0 → MDD ~0.
+        val strategy =
+            makeStrategy(buyNode).copy(
+                definition =
+                    makeStrategy(buyNode).definition.copy(
+                        dsl = DslStrategyDefinition(name = "t", buyCondition = buyNode, sellCondition = buyNode),
+                    ),
+            )
+        whenever(strategyRepo.findById(1L)).thenReturn(strategy)
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(candlesWithCloses(listOf("1000", "1000", "1000")))
+        var idx = 0
+        val results =
+            listOf(
+                StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.SELL, BigDecimal.ONE, mapOf("trigger" to "SELL"), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+            )
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any())).thenAnswer { results[idx++.coerceAtMost(results.size - 1)] }
+
+        val result = engine.run(makeRequest())
+        val success = assertInstanceOf(BacktestResult.Success::class.java, result)
+        // 동일가·무비용 매매라 자본 변동 ~0 → MDD ~0 (보유 구간 아티팩트 없음).
+        assertTrue(success.performance.maxDrawdown.toDouble() < 0.01, "동일가 round-trip MDD는 ~0이어야 합니다")
+    }
+
+    @Test
+    fun `MDD MTM calc 직접 - cash-only였다면 100퍼센트 MTM이면 정상`() {
+        val calc = BacktestPerformanceCalculator()
+        val initial = BigDecimal("10000000")
+        // cash-only 곡선 시뮬: 진입 직후 cash≈0 → 회복. MDD ≈ 100% 아티팩트.
+        val cashOnly = listOf(initial, BigDecimal("100"), BigDecimal("100"), initial)
+        // MTM 곡선: 보유 중 -20% → 회복. MDD ≈ 20%.
+        val mtm = listOf(initial, BigDecimal("10000000"), BigDecimal("8000000"), initial)
+        assertTrue(calc.calculateMaxDrawdown(cashOnly).toDouble() > 0.99, "cash-only는 ~100% 아티팩트(결함 재현)")
+        assertEquals(0.2, calc.calculateMaxDrawdown(mtm).toDouble(), 0.001, "MTM은 미실현 -20% 반영")
+    }
 }
