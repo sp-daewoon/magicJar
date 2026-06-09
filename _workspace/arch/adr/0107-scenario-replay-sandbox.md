@@ -178,7 +178,7 @@ flowchart LR
 2. scenario package에서 `consumer.*` import 0건
 3. scenario package에서 `KafkaTemplate` import 0건
 4. scenario persistence는 `scenario_*` 테이블만 사용
-5. replay endpoint는 `MAGICJAR_SCENARIO_REPLAY_ENABLED=true`일 때만 열림
+5. ~~replay endpoint는 `MAGICJAR_SCENARIO_REPLAY_ENABLED=true`일 때만 열림~~ → **정정(2026-06-09)**: env enable 게이트 미채택. 격리는 구조적(`ScenarioReplayBoundaryTest.FORBIDDEN_TOKENS`가 해당 env 플래그 토큰 자체를 금지) — endpoint 상시 활성이나 1·6·7 + 자본/주문 경로 0 접촉으로 안전 강제
 6. 실제 KIS 주문 TR_ID 문자열 `TTTC0012U`, `TTTC0011U`, `VTTC0012U`, `VTTC0011U`가 scenario 구현 코드에 없음
 7. 실패 메시지에 "실제 주문 실패" 표현 금지. 가상 주문/리플레이 이벤트로 명확히 표기
 
