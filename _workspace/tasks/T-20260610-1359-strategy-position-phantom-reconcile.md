@@ -3,10 +3,10 @@ id: T-20260610-1359-strategy-position-phantom-reconcile
 agent: backend-core
 model: opus
 branch: agent/backend-core/strategy-position-phantom-reconcile
-status: RUNNING
+status: DONE
 startedAt: 2026-06-10T13:59:38.385+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-10T14:02:27.711+09:00
+pr: #886
 parentPhase: ?
 ---
 
