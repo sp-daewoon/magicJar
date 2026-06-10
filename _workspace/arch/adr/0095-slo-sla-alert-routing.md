@@ -2,6 +2,7 @@
 
 - 상태: **Accepted (2026-05-21 — architect 단독 결재, 사용자 의제는 ADR 0094 D-5 운영 단계 v3.8.0 cut 결재에 통합 완료)**
   - **Amended (2026-06-01)**: TRADE 즉시 Slack, SystemEvent Slack bridge, Dozzle WARN/ERROR 보조 alert 추가.
+  - **Amended (2026-06-10)**: §3-2 **S-4(KIS rate limit) windowCount 차등** — 윈도(5분) **1~4건 = INFO**(알림센터만, Slack 0) / **≥5건 = WARN**(현행 frontend toast 경로). 자동 backoff(1s)로 회복되는 산발 EGW00201(12:15~12:18 7→11 실측)이 사용자 알람화되는 노이즈 제거 (최고 관리자 승인 완료 · backend-core 병렬 구현 `agent/backend-core/kis-ratelimit-alarm-tiering`). spec `_workspace/specs/2026-06-10-kis-ratelimit-queue-redesign-spec.md` §5(EGW00201 회복/실패 2-시그널)와 상호 보완.
 - 작성일: 2026-05-21
 - 결정자: architect (ADR 0094 §3-2 P0-OPS-3 task 본문화 의무 정합)
 - 영역: 운영 헌법 §9 (SLA/SLO) + observability + alerting
@@ -109,7 +110,7 @@ ADR 0084 SystemEvent severity P1~P4 매트릭스 정합. 본 ADR이 P1~P4 routin
 | **S-1** 시그널→주문 지연 | P3 WARN (frontend toast `[지연] 시그널→주문 ${latency}s — 평균 5초 초과`) | P1 CRITICAL (Slack alert + KillSwitch 자동 ON 검토 — 자본 path 핵심) |
 | **S-2** KIS WS 연결률 | P2 ERROR (frontend 알람센터 sticky badge `[KIS] WS 연결 불안정 — ${count}건/5분`) | P1 CRITICAL (Slack alert + 사용자 즉시 인지 — 시세 path 단절 risk) |
 | **S-3** account API 지연 | P3 WARN (frontend toast `[성능] account API ${latency}ms — 평균 500ms 초과`) | P2 ERROR (frontend 알람센터 sticky badge — 사용자 UX 차단 risk) |
-| **S-4** KIS rate limit | P3 WARN (frontend toast `[KIS] rate limit ${count}건/5분`) | P2 ERROR (Slack alert 권장 — KIS 차단 risk 가속) |
+| **S-4** KIS rate limit (2026-06-10 amend — windowCount 차등) | **windowCount 1~4 = P4 INFO** (알림센터 audit만, frontend toast·Slack 0 — 자동 backoff 회복 산발 noise 제거) · **windowCount ≥5 = P3 WARN** (frontend toast `[KIS] rate limit ${count}건/5분`) | P2 ERROR (Slack alert 권장 — KIS 차단 risk 가속) |
 | **S-5** KillSwitch 자동 ON | P3 WARN (frontend toast `[자본] KillSwitch 자동 ON 1건/일`) | **P1 CRITICAL** (Slack alert 필수 + 사용자 즉시 인지 — 자본 보호 본질) |
 | **S-AI-1 (2026-05-24 amend) — AI 월 비용** | (P3 default disabled — $5/월 누적 시 frontend toast 권장 옵션) | **P1 CRITICAL** ($10/월 초과 시 Slack alert + AI KillSwitch 자동 검토 — `MAGICJAR_AI_KILLSWITCH` env toggle 권장 · 비용 폭주 차단 path) |
 | **S-MCP-1 (2026-05-24 amend) — MCP 분당 호출** | **P3 WARN** (100/min 초과 → frontend toast `[MCP] 분당 호출 ${count}건 — 외부 client abuse risk`) | (P2 ERROR — 500/min 초과 시 Slack alert + ApiKeyAuthFilter rate limit 강제 검토) |
@@ -377,3 +378,4 @@ ADR 0044 reuse: Alertmanager → webhook → `NotificationDispatcher` Slack chan
 |------|------|--------|
 | 2026-05-21 | **ADR 0095 Accepted — P0-OPS-3 SLO/SLA + alert routing 본문화** (ADR 0094 §3-2 P0-OPS-3 task 본문화 + 운영 헌법 §9-1 측정 매트릭스 amend + 5 SLO × 2 임계 alert sketch + severity 4단 routing matrix + KillSwitch 자동 ON 검토 S-1·S-5 한정 + backend-core 후속 wiring 5건 권고) | architect (ADR 0094 §3-2 task 본문화 의무) |
 | 2026-05-24 | **amend — §3-2 SLO × severity routing 매트릭스 3 신규 row (S-AI-1 AI 월 비용 $10 초과 Slack CRITICAL + AI KillSwitch 자동 검토 · S-MCP-1 MCP 분당 100/500 호출 routing · S-MARKET-1 지수 fetch 실패 5건 연속 Slack ERROR)** — W4 통합 사이클 (T-AI + T-MCP + T-MARKET) brainstorming 결재 cec6a4d6 정합. ADR 0026·0027·0094·0100·0101 amend 동반. orchestrator → architect R0 dispatch. backend-core P0-OPS-3 후속 wiring 추가 권고 3건 (Prometheus alert rule 3 신규 · Slack channel routing wiring · runbook 5 시나리오 amend `AI 비용 폭주`·`MCP abuse`·`지수 fetch 실패` 3 추가 시나리오). 운영 코드 0 touch. (architect, opus 4.7 1M) |
+| 2026-06-10 | **amend — §3-2 S-4(KIS rate limit) windowCount 차등** (윈도 5분 1~4건=P4 INFO 알림센터 audit만/Slack·toast 0 · ≥5건=P3 WARN 현행 toast). 자동 backoff(1s) 회복되는 산발 EGW00201(12:15~12:18 7→11 실측)이 사용자 알람화되는 노이즈 제거 — 최고 관리자 승인 완료. backend-core 병렬 구현 `agent/backend-core/kis-ratelimit-alarm-tiering`. spec `2026-06-10-kis-ratelimit-queue-redesign-spec.md` §5(EGW00201 회복/실패 2-시그널 — recovered=INFO/failed=WARN) 상호 보완. 운영 코드 0 touch (architect 영역은 정의·routing amend만, wiring은 backend-core). (architect, opus 4.8 1M) |
