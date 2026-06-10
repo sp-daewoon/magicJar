@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>magicJar 개발일지 — 2026-06-10</title>
+<style>
+:root{--bg:#0f1117;--card:#171a23;--line:#262b38;--tx:#e6e9f0;--mut:#8b93a7;--ac:#5b8cff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font-family:'SF Pro','Pretendard',-apple-system,sans-serif;line-height:1.6;padding:32px 20px;max-width:1100px;margin:0 auto}
+h1{font-size:1.5rem;border-bottom:2px solid var(--ac);padding-bottom:10px}h2{font-size:1.1rem;color:var(--ac);margin-top:36px}
+table{width:100%;border-collapse:collapse;font-size:.85rem;margin:12px 0}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--card);color:var(--mut);font-weight:600}
+tr:hover{background:#1b1f2b}
+code{background:#222738;padding:1px 6px;border-radius:4px;font-size:.82em}
+.badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:.75rem;font-weight:600}
+.b-ok{background:#143d2b;color:#4ade80}.b-warn{background:#3d3414;color:#facc15}.b-pending{background:#14283d;color:#60a5fa}.b-todo{background:#3d142b;color:#f472b6}.b-mute{background:#262b38;color:#8b93a7}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin:14px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.card h3{margin:0 0 8px;font-size:.95rem}
+.mut{color:var(--mut);font-size:.85rem}
+</style>
+</head>
+<body>
+<h1>magicJar 개발일지 — 2026-06-10 (화) <span class="mut">#1 · 16:25 KST 작성</span></h1>
+<p class="mut">테마: <strong>KIS rate limit 알람 노이즈 정비 → 체결-원장 정합 incident(G1~G7) 본질 진단 → ADR 0115 P2 전체 승인·R1·R2 당일 구현·배포</strong>. 병렬 세션(시세/발굴 트랙)과 동시 진행된 고밀도 날.</p>
+
+<h2>1. 머지 PR 매트릭스 (오늘 31건 — 본 세션 12 + 병렬 세션 19)</h2>
+<table>
+<tr><th>PR</th><th>에이전트</th><th>내용</th><th>비고</th></tr>
+<tr><td>#880</td><td>architect</td><td>KIS rate limit 큐 재설계 spec + 백필 인벤토리 13컴포넌트 + ADR 0095 amend</td><td><span class="badge b-pending">결재 의제 4건 잔존</span></td></tr>
+<tr><td>#883</td><td>backend-core</td><td>rate limit 알람 차등화(윈도 카운터·INFO/WARN 임계) + 주문 체결 Slack 이중 송출(V79)</td><td>#881 CHANGELOG 충돌 r2 재발행</td></tr>
+<tr><td>#886</td><td>backend-core</td><td>strategy_position 유령 over-count reconcile 순회 union 확장</td><td><span class="badge b-ok">5분 주기 탐지 실증</span></td></tr>
+<tr><td>#888</td><td>backend-core</td><td>RiskConfigRepository consumer 빈 부재 fix — 리스크 설정(5M/70%) 무시 결함</td><td><span class="badge b-ok">로그 실증 GREEN</span></td></tr>
+<tr><td>#889</td><td>architect</td><td>체결-원장-리스크 체인 전수 audit spec + 키 사슬 §2-B 보강(2 commit)</td><td>본질=C2 (반영 이력 없는 mutable 원장)</td></tr>
+<tr><td>#891</td><td>strategy-engine</td><td>StrategyPositionRebuild 순수 함수 + WarnUnderflow evidence 완화 (테스트 44)</td><td>대안 B-on-A 핵심</td></tr>
+<tr><td>#894</td><td>architect</td><td>ADR 0115 §2-P2 Accepted + 헌법 §11 + development-rules §3-7 + master §3-5-1</td><td>#892 r2 재발행</td></tr>
+<tr><td>#895</td><td>backend-core</td><td>R1 배선 — backfill CANCELLED 대조·rebuild(ENV 게이트+교차검산)·index refresh·drain 가드</td><td>⑥은 R2 이월</td></tr>
+<tr><td>#896</td><td>qa</td><td>불변식 #5 회귀 LOCK — "매도 후 잔존 0/매수 후 미표시 0" 7케이스</td><td>incident 픽스처 그대로</td></tr>
+<tr><td>#898</td><td>backend-core</td><td>R2 — OrderTrigger 키 사슬(0-sentinel 폐지) + Flyway V80</td><td><span class="badge b-ok">기존 185건 소급 분류·불명 0</span></td></tr>
+<tr><td>#899·#900</td><td>orchestrator</td><td>drain 가드 .env 파싱 fix + 즉시차단→대기형(60s) 전환</td><td>최고 관리자 피드백 즉시 반영</td></tr>
+<tr><td colspan="4" class="mut">병렬 세션: #867~#879(체결강도·롤업 성능·발굴 스코어카드·FixedFractional·V78 재검증·v3.12.4), #882/#884/#885/#887(당일 일봉 seed·KIS 헤더), #890(v3.12.5), #893, #897(ADR 0122 페이퍼 트레이딩 spec)</td></tr>
+</table>
+
+<h2>2. PostgreSQL 변경</h2>
+<table>
+<tr><th>Flyway</th><th>내용</th></tr>
+<tr><td>V79</td><td><code>system_config.notification_slack_webhook_order</code> BYTEA (AES-GCM) — 주문 체결 추가 Slack 채널. 값은 운영자 DB 직접 주입(완료)</td></tr>
+<tr><td>V80</td><td><code>order_request.order_trigger</code>(6값 CHECK) + <code>trigger_ref_id</code> + 인덱스 + 기존 행 best-effort backfill — 키 사슬 소급: STRATEGY_SIGNAL 140 · MANUAL 33 · EXTERNAL 7 · STOP_LOSS 5 · <strong>불명 0</strong></td></tr>
+<tr><td>(수동 정렬)</td><td>strategy_position #8/005930 KIS 권위 정렬 2회(3→0, 0→5귀속→최종 5=5) + 좀비 ACK 4건(#229~232) CANCELLED 사유 명기</td></tr>
+</table>
+
+<h2>3. Kafka 토픽·데이터 흐름</h2>
+<p class="mut">신규 토픽 0. 주문 intent payload에 <code>orderTrigger</code>·<code>triggerRefId</code> 필드 추가(하위호환 — legacy는 fallback 분류). ORDER_FILLED 알림이 추가 Slack 채널로 이중 송출(미설정 시 silent skip, 실패 격리).</p>
+
+<h2>4. Redis 사용처</h2>
+<p class="mut">신규 key pattern 0. rate limit 3-tier 버킷(user/shared/bg) 기존 유지 — 큐 재설계는 spec 결재 대기.</p>
+
+<h2>5. sub-agent 디스패치 내역 (본 세션 10회)</h2>
+<table>
+<tr><th>에이전트</th><th>회</th><th>이슈/복구</th></tr>
+<tr><td>backend-core</td><td>4</td><td>CHANGELOG add-only 충돌 2회 → r2 재발행 패턴 해소. task.mjs worktree 격리 결함 1회(수동 정정)</td></tr>
+<tr><td>architect</td><td>4</td><td>force-push deny rule 차단 1회(일반 push 회수). 브랜치 점유 worktree 해제 1회</td></tr>
+<tr><td>strategy-engine / qa</td><td>1 / 1</td><td>qa가 로컬 main에 stray task-start commit → 흡수 검증 후 reset 제거</td></tr>
+<tr><td colspan="3" class="mut">공통 교훈: 병렬 세션과 main 체크아웃 경합 → git은 <code>-C 절대경로</code> 고정 의무 (메모리 앵커됨)</td></tr>
+</table>
+
+<h2>6. sanity / dogfooding</h2>
+<div class="grid">
+<div class="card"><h3>incident 타임라인 (005930·전략 #8)</h3><p class="mut">13:11 배포 갭 체결 유실 → 유령 3주 알람 폭주 → 14:04 부분체결 6건 중 5주 미귀속 → 14:37 취소-체결 race 11주(#233으로 회수) — G1~G7 전부 실측, spec evidence로 환류</p></div>
+<div class="card"><h3>실증 GREEN</h3><p class="mut">알람 차등화(windowCount=1→INFO) · 리스크 한도 min(abs=5,000,000, pct=8,208,447) 로그 원문 · drift 워커 5분 탐지 · Slack 추가 채널 200 OK · drain 가드 양방향(통과/차단)</p></div>
+<div class="card"><h3>컨테이너</h3><p class="mut">11/11 healthy (api·batch·consumer·frontend + 인프라 7). 재배포 4회(13:16·13:48·15:32·16:08) — 마지막은 V80 포함. 부팅 ERROR=EGW00201 burst(자동회복)만</p></div>
+<div class="card"><h3>운영 상태</h3><p class="mut">전략 #8 PAUSED(14:43) — rebuild 실가동 확인 후 재가동. in-flight 0건. 최종 정합 전략 5주=KIS 5주 <span class="badge b-ok">정합</span></p></div>
+</div>
+
+<h2>7. 다음 세션 일정</h2>
+<table>
+<tr><th>순위</th><th>의제</th><th>사이즈</th><th>상태</th></tr>
+<tr><td>1</td><td>장중 rebuild 실가동 evidence 확인 → 전략 #8 재가동 판단</td><td>S</td><td><span class="badge b-pending">다음 장중</span></td></tr>
+<tr><td>2</td><td>frontend orderTrigger 노출 — 시그널→주문→체결→보유 키 join 화면 (불변식 #4)</td><td>M</td><td><span class="badge b-todo">frontend+qa Visual</span></td></tr>
+<tr><td>3</td><td>KIS rate limit 큐 재설계 spec(PR #880) 결재 의제 4건 (L4 watchlist polling 존치 등)</td><td>결재</td><td><span class="badge b-pending">사용자</span></td></tr>
+<tr><td>4</td><td>Slack order webhook 재발급(채팅 평문 노출) + 재주입</td><td>XS</td><td><span class="badge b-warn">보안 권고</span></td></tr>
+<tr><td>5</td><td>정리 부채: 로컬 브랜치 잔재·이전 task/worktree 누적 일괄</td><td>S</td><td><span class="badge b-mute">backlog</span></td></tr>
+</table>
+</body>
+</html>
