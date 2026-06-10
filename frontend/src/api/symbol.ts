@@ -234,6 +234,11 @@ export interface CandleRecollectOptions {
   from?: string
   to?: string
   paddingTradingDays?: number
+  /**
+   * ADR 0120 §6 재수집 모달 — 1m 기준봉(+합산 파생)만 최근 N 거래일로 제한.
+   * 일봉 패밀리(1d·1wk·1mo·1y)는 전기간 강제 재수집 유지. from/to(리서치 range) 지정 시 백엔드가 무시.
+   */
+  minuteRecentDays?: number
 }
 
 // ──────────────────────────────────────────────
@@ -422,6 +427,7 @@ export const symbolApi = {
     if (options?.from) params.set('from', options.from)
     if (options?.to) params.set('to', options.to)
     if (options?.paddingTradingDays != null) params.set('paddingTradingDays', String(options.paddingTradingDays))
+    if (options?.minuteRecentDays != null) params.set('minuteRecentDays', String(options.minuteRecentDays))
     const res = await apiClient.post<CandleRecollectResponseDto>(
       `/symbols/${encodeURIComponent(code)}/candles/recollect?${params.toString()}`,
     )
@@ -441,6 +447,7 @@ export const symbolApi = {
     if (options?.from) params.set('from', options.from)
     if (options?.to) params.set('to', options.to)
     if (options?.paddingTradingDays != null) params.set('paddingTradingDays', String(options.paddingTradingDays))
+    if (options?.minuteRecentDays != null) params.set('minuteRecentDays', String(options.minuteRecentDays))
     const res = await apiClient.post<CandleRecollectJobResponseDto>(
       `/symbols/${encodeURIComponent(code)}/candles/recollect/jobs?${params.toString()}`,
     )
