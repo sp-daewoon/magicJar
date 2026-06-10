@@ -3,10 +3,10 @@ id: T-20260611-0438-rollup-stale-anchor-cleanup
 agent: market-data
 model: opus
 branch: agent/market-data/rollup-stale-anchor-cleanup
-status: RUNNING
+status: DONE
 startedAt: 2026-06-11T04:38:46.212+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-11T04:46:40.745+09:00
+pr: #917
 parentPhase: ?
 ---
 
