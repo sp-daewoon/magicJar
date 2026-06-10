@@ -7,7 +7,7 @@
  * - candles 0건 → "캔들 데이터 수집 중..." skeleton (spec §10-1 graceful)
  * - hasMore=true → [더 보기] 버튼 표시
  *
- * ADR 0019 §2-3 cold-start: 0건이면 "데이터 수집 중 — 잠시 후 새로고침"
+ * ADR 0019 §2-3 cold-start: 0건이면 "데이터 수집 중" + 1m empty polling fallback
  * ADR 0029 §2-3: 1m interval STOMP candle.minute 실시간 갱신
  * ADR 0062 채택 (2026-05-11): 3m·5m·15m·30m·90m·1h·4h·12h 합산 활성화
  *   - AggregateBackfillRunner 작동 전까지 빈 배열 → 합산별 전용 안내 표시
@@ -1099,7 +1099,7 @@ export function SymbolChart({
                         <p className="text-xs text-gray-500">
                           종목 추가 후 처음 데이터를 수집하고 있습니다.
                           <br />
-                          잠시 후 새로고침해 주세요.
+                          완료되면 차트에 자동으로 표시됩니다.
                         </p>
                       </>
                     )}

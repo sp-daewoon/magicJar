@@ -143,7 +143,8 @@ export function useCandleRecollectJob({
     (event: CandleRecollectProgressDto) => {
       if (completedJobIdsRef.current.has(event.jobId)) return
       completedJobIdsRef.current.add(event.jobId)
-      void queryClient.invalidateQueries({ queryKey: ['symbolCandles', code] })
+      void queryClient.invalidateQueries({ queryKey: ['symbolCandles', code], exact: false })
+      void queryClient.refetchQueries({ queryKey: ['symbolCandles', code], exact: false, type: 'active' })
       if (event.status === 'SUCCEEDED') {
         onSuccess?.(event.deletedCount, event.insertedCount + event.rebuiltCount, event)
       } else {

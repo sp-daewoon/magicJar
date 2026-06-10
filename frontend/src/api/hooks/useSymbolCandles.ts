@@ -4,6 +4,7 @@
  * spec §6-3 LOCK:
  * - queryKey: ['symbolCandles', code, interval, pageSize]
  * - useInfiniteQuery + before cursor 페이지네이션
+ * - 1m cold-start 0건이면 SymbolDetail gap-fill 완료를 따라잡기 위해 짧은 REST polling fallback
  * - getNextPageParam: lastPage.hasMore ? lastPage.nextBefore : undefined
  *
  * ADR 0019 §2-2: interval 확장 (1m·3m·5m·15m·30m·90m·1h·4h·12h·1d...)
@@ -36,6 +37,27 @@ import {
 
 /** 기본 페이지 크기 — props 미지정 시 (현행 동작 회귀 안전) */
 const DEFAULT_PAGE_SIZE = 200
+export const ONE_MINUTE_EMPTY_REFETCH_INTERVAL_MS = 3_000
+
+function candleCountFromPages(data: unknown): number | null {
+  if (!data || typeof data !== 'object' || !('pages' in data)) return null
+  const pages = (data as { pages?: unknown }).pages
+  if (!Array.isArray(pages)) return null
+  return pages.reduce((sum, page) => {
+    if (!page || typeof page !== 'object' || !('candles' in page)) return sum
+    const candles = (page as { candles?: unknown }).candles
+    return sum + (Array.isArray(candles) ? candles.length : 0)
+  }, 0)
+}
+
+export function resolveOneMinuteEmptyRefetchInterval(
+  interval: CandleInterval,
+  data: unknown,
+): number | false {
+  if (interval !== '1m') return false
+  const candleCount = candleCountFromPages(data)
+  return candleCount === 0 ? ONE_MINUTE_EMPTY_REFETCH_INTERVAL_MS : false
+}
 
 export interface UseSymbolCandlesResult {
   /** TanStack useInfiniteQuery 결과 (REST fetch) */
@@ -61,6 +83,7 @@ function useInfiniteQueryForCandles(code: string, interval: CandleInterval, page
     staleTime: 30_000,
     gcTime: 5 * 60_000,
     refetchOnWindowFocus: true,
+    refetchInterval: (query) => resolveOneMinuteEmptyRefetchInterval(interval, query.state.data),
     refetchIntervalInBackground: false,
     retry: 1,
   })
