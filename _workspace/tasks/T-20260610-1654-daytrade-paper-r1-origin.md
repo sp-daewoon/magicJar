@@ -3,10 +3,10 @@ id: T-20260610-1654-daytrade-paper-r1-origin
 agent: strategy
 model: opus
 branch: agent/strategy/daytrade-paper-r1-origin
-status: RUNNING
+status: DONE
 startedAt: 2026-06-10T16:54:31.794+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-10T17:25:12.963+09:00
+pr: #905
 parentPhase: ?
 ---
 
@@ -17,7 +17,7 @@ ADR 0122 R1 StrategyOrigin enum
 - [x] enum
 - [x] Strategy.origin
 - [x] 테스트
-- [ ] PR
+- [x] PR
 
 ## 의존성
 - (필요 시 기록)
