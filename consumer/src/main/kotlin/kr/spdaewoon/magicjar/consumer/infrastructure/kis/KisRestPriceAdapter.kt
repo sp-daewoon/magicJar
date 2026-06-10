@@ -241,6 +241,22 @@ class KisRestPriceAdapter(
                 response["output1"] as? Map<String, Any>
                     ?: error("KIS inquire-daily-itemchartprice (metrics) output1 없음 — code=$code")
 
+            // KIS 영업일자(stck_bsop_date)는 output1에 없고 output2[] 시계열 행에만 있음.
+            //   KIS-first 출처: open-trading-api inquire_daily_itemchartprice output2[] (KisRestCandleAdapter parseKisDailyResponse 정합).
+            //   output2[]는 최신→과거 DESC 순서 → 첫 행이 최신 영업일자.
+            //   용도: seedTodayCandle의 새벽 유령 일봉 방지 가드(영업일자 != 오늘 시드 skip). 추가 KIS 콜 0(같은 응답 재활용).
+            @Suppress("UNCHECKED_CAST")
+            val businessDate =
+                (response["output2"] as? List<Any?>)
+                    ?.asSequence()
+                    ?.mapNotNull {
+                        (it as? Map<String, Any>)
+                            ?.get("stck_bsop_date")
+                            ?.toString()
+                            ?.trim()
+                            ?.ifBlank { null }
+                    }?.firstOrNull()
+
             kisRateLimiterPort.onSuccess()
             signalSent = true
             PriceMetrics(
@@ -261,6 +277,7 @@ class KisRestPriceAdapter(
                 low = output1["stck_lwpr"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
                 open = output1["stck_oprc"]?.toString()?.ifBlank { null }?.toBigDecimalOrNull(),
                 volume = output1["acml_vol"]?.toString()?.ifBlank { null }?.toLongOrNull(),
+                businessDate = businessDate,
             )
         } catch (e: WebClientResponseException) {
             // P0 hotfix (진단 PR #639) — classifyKisError() 분기 통일.
