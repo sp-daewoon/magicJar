@@ -146,6 +146,10 @@ function isKrxRegularSessionMinute(isoString: string): boolean {
   return minOfDay >= KRX_REGULAR_OPEN_MIN && minOfDay < KRX_REGULAR_CLOSE_MIN
 }
 
+function isHigherTimeframeInterval(interval: CandleInterval | undefined): boolean {
+  return interval === '1d' || interval === '1wk' || interval === '1mo' || interval === '1y'
+}
+
 function anchoredKstBoundaryMs(dayStartMs: number, minOfDay: number, intervalMin: number): number {
   const boundedMin = Math.max(minOfDay, KRX_REGULAR_OPEN_MIN)
   const boundaryMin =
@@ -967,11 +971,16 @@ export function LightweightChart({
     try {
       const barTime = barBoundaryTimestamp(liveTick.ts, intervalRef.current)
       const prev = lastBarRef.current
+      const updatesExistingBar = prev != null && prev.time === barTime
 
-      // prev가 없으면 시리즈 데이터가 아직 없는 상태 — open=close=price로 새 bar 생성
-      const open = prev && prev.time === barTime ? prev.open : price
-      const high = prev && prev.time === barTime ? Math.max(prev.high, price) : price
-      const low  = prev && prev.time === barTime ? Math.min(prev.low,  price) : price
+      // 1d 이상은 공식 당일/기간 OHLCV seed가 들어온 bar만 tick close로 보정한다.
+      // 현재가 하나만으로 새 일봉/주봉을 만들면 open/high/low가 모두 현재가가 되어 차트가 오염된다.
+      if (!updatesExistingBar && isHigherTimeframeInterval(intervalRef.current)) return
+
+      // intraday는 current bar가 아직 없을 때만 첫 관측 tick으로 임시 bar를 시작한다.
+      const open = updatesExistingBar ? prev.open : price
+      const high = updatesExistingBar ? Math.max(prev.high, price) : price
+      const low  = updatesExistingBar ? Math.min(prev.low,  price) : price
 
       const updated = {
         time: barTime,

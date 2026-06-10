@@ -50,7 +50,7 @@ class RealtimeSubscriptionRouter(
      * 구독 수립 시점 today-Hash 시드 전용 executor (단일 스레드).
      *
      * 시드는 공식 KIS REST 1콜(blocking ~최대 3s)이므로 router lock·caller path를 막지 않도록
-     * lock 해제 후 비동기로 실행한다(자본/시세 path 지연 0). 시드 자체 실패는 graceful — WS 틱 누적으로 fallback.
+     * lock 해제 후 비동기로 실행한다(자본/시세 path 지연 0). 시드 자체 실패는 graceful — 1d tick-only 합성 없이 DB/quote fallback.
      */
     private val seedExecutor =
         Executors.newSingleThreadExecutor(
@@ -117,9 +117,9 @@ class RealtimeSubscriptionRouter(
                 subscribed
             }
 
-        // ★ 구독 수립 시점 today-Hash 시드 (owner 무관 — DETAIL·HOLDING·WATCHLIST·STRATEGY·PENDING_BUY 균일).
-        //   lock 해제 후 비동기 — KIS REST blocking 호출이 router lock·caller path를 막지 않게 한다.
-        if (newlySubscribed) scheduleSeed(code)
+        // 신규 subscribe는 KisWebSocketBridge.subscribe()가 tick 송신 전에 seed를 먼저 시도한다.
+        // 이미 구독 중인 종목은 watchlist/재연결 등 기존 경로에서 seed가 누락됐을 수 있어 DETAIL·HOLDING·STRATEGY 진입 때 보강한다.
+        if (!newlySubscribed) scheduleSeed(code)
     }
 
     /**
@@ -137,7 +137,7 @@ class RealtimeSubscriptionRouter(
             try {
                 todayCandleSeedPort.seedTodayCandle(code)
             } catch (e: Exception) {
-                log.warn("today-candle seed 비동기 실패(graceful — WS 틱 fallback): code={} err={}", code, e.message)
+                log.warn("today-candle seed 비동기 실패(graceful — DB/quote fallback): code={} err={}", code, e.message)
             }
         }
     }
@@ -211,7 +211,7 @@ class RealtimeSubscriptionRouter(
     }
 
     /**
-     * @return WS 구독을 새로 발사했으면 true (→ caller가 today-Hash 시드 트리거). 이미 구독 중·큐잉이면 false.
+     * @return WS 구독을 새로 발사했으면 true (seed는 KisWsPort.subscribe 내부에서 tick 송신 전 수행). 이미 구독 중·큐잉이면 false.
      */
     private fun ensureSubscribedLocked(
         code: String,

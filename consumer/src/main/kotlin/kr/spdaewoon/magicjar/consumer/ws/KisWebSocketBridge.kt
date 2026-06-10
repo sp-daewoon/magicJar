@@ -397,6 +397,7 @@ class KisWebSocketBridge(
         codes.forEach { code ->
             if (!session.subscribedCodes.contains(code)) {
                 session.subscribedCodes.add(code)
+                seedTodayCandle(code)
                 if (live) {
                     val msg = buildSubscribeMessage(approvalKey, code, trType = "1")
                     sendSink?.tryEmitNext(msg)
@@ -1261,6 +1262,14 @@ class KisWebSocketBridge(
         // seeded=true 이면 open은 공식 9시 시가로 LOCK(틱으로 덮어쓰지 않음), 고/저는 공식 baseline 위 확장만,
         // volume은 공식 누적거래량(acmlBase) + 시드 이후 WS 체결량(CNTG_VOL) 델타 — 이중계상 차단.
         val seeded = sameBar && existing["seeded"] == "true"
+        if (interval == "1d" && !seeded) {
+            log.debug(
+                "KIS WS 1d live candle tick-only 생성 skip — 공식 seed 대기: key={} startTs={}",
+                key,
+                startTs,
+            )
+            return
+        }
 
         val open =
             if (sameBar) {
@@ -1326,6 +1335,7 @@ class KisWebSocketBridge(
      *
      * graceful:
      *  - REST 어댑터 부재(fixture)·magicjar.kis.ws.user-id 미설정·공식값 결손 시 시드 no-op (mock 합성 금지).
+     *  - 시드 없는 1d Hash는 tick 하나로 만들지 않고 DB/quote fallback에 맡긴다.
      *  - 다른 bar(어제 stale)이면 시드값으로 새 bar 세팅(open/고저/거래량 공식값으로 교체).
      */
     override fun seedTodayCandle(code: String) {
@@ -1376,8 +1386,8 @@ class KisWebSocketBridge(
                 acmlVol,
             )
         } catch (e: Exception) {
-            // 시드 실패는 graceful — WS 틱 누적 legacy path로 자연 fallback (구독 자체는 정상).
-            log.warn("[TodayCandleSeed] 시드 실패(WS 틱 누적 fallback): code={} err={}", code, e.message)
+            // 시드 실패는 graceful — 1d tick-only 합성 없이 DB/quote fallback (구독 자체는 정상).
+            log.warn("[TodayCandleSeed] 시드 실패(DB/quote fallback): code={} err={}", code, e.message)
         }
     }
 

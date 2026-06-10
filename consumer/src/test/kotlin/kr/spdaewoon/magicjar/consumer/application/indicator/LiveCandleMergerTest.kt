@@ -76,6 +76,7 @@ class LiveCandleMergerTest {
                 "low" to "69800",
                 "close" to "71200",
                 "volume" to "5000",
+                "seeded" to "true",
             )
         val merger = LiveCandleMerger(redisTemplate)
 
@@ -132,6 +133,7 @@ class LiveCandleMergerTest {
                 "low" to "69800",
                 "close" to "71200",
                 "volume" to "5000",
+                "seeded" to "true",
             )
         val merger = LiveCandleMerger(redisTemplate)
 
@@ -147,5 +149,27 @@ class LiveCandleMergerTest {
         assertThat(last.volume).isEqualTo(5_000L)
         assertThat(last.interval).isEqualTo(CandleInterval.ONE_DAY)
         assertThat(last.code).isEqualTo(code)
+    }
+
+    @Test
+    fun `(d) seeded 마커 없는 1d Redis bar는 tick-only 합성으로 보고 합류하지 않는다`() {
+        val dbCandles =
+            listOf(
+                dbCandle(yesterdayKstMidnight, close = "69500"),
+            )
+        every { hashOps.entries("candle:today:$code:1d") } returns
+            mapOf(
+                "ts" to todayKstMidnight.toString(),
+                "open" to "71200",
+                "high" to "71200",
+                "low" to "71200",
+                "close" to "71200",
+                "volume" to "100",
+            )
+        val merger = LiveCandleMerger(redisTemplate)
+
+        val merged = merger.merge(dbCandles)
+
+        assertThat(merged).isEqualTo(dbCandles)
     }
 }

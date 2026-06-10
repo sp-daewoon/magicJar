@@ -23,6 +23,7 @@
  * - 호가 slot 가득(queued) → "polling fallback 중" 배지 (SymbolOrderbook)
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { useAccountPositions } from '../../api/hooks/useAccountPositions'
 import { useInstrument } from '../../api/hooks/useInstrument'
@@ -73,6 +74,7 @@ function isBEError(status: number | undefined): boolean {
 export function SymbolDetailPage() {
   const { code = '' } = useParams<{ code: string }>()
   const [searchParams] = useSearchParams()
+  const queryClient = useQueryClient()
   const { data: instrument, isLoading: isInstrumentLoading } = useInstrument(code)
   const isDelisted = instrument?.active === false
   // W4 R2 AI 진입점 — userId 1일 토큰 한도 키
@@ -87,6 +89,7 @@ export function SymbolDetailPage() {
   const [lastTickAt, setLastTickAt] = useState<number | null>(null)
   const [watchStartedAt, setWatchStartedAt] = useState(() => Date.now())
   const [nowMs, setNowMs] = useState(() => Date.now())
+  const candlesRefetchedAfterFirstTickRef = useRef(false)
   const stompState = useStompConnectionState({
     enabled: Boolean(code) && !isDelisted,
     enableToast: false,
@@ -161,6 +164,7 @@ export function SymbolDetailPage() {
     setOrderbookSlot(null)
     setSelectedOrderPrice('')
     setLastTickAt(null)
+    candlesRefetchedAfterFirstTickRef.current = false
     const resetAt = Date.now()
     setWatchStartedAt(resetAt)
     setNowMs(resetAt)
@@ -178,7 +182,11 @@ export function SymbolDetailPage() {
       setRealtimeTick(payload)
       setLastTickAt(receivedAt)
       setNowMs(receivedAt)
-    }, [code]),
+      if (!candlesRefetchedAfterFirstTickRef.current) {
+        candlesRefetchedAfterFirstTickRef.current = true
+        void queryClient.invalidateQueries({ queryKey: ['symbolCandles', code], exact: false })
+      }
+    }, [code, queryClient]),
     stompEnabled,
   )
 

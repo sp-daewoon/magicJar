@@ -177,6 +177,62 @@ class CandleQueryServiceLimitClampTest {
     }
 
     @Test
+    fun `getCandles 1d 최신 요청은 unseeded current를 무시하고 seeded today OHLCV를 합류한다`() {
+        val repository = mock<CandleJpaRepository>()
+        val redisTemplate = mock<StringRedisTemplate>()
+        val hashOps = mock<HashOperations<String, String, String>>()
+        val valueOps = mock<ValueOperations<String, String>>()
+        whenever(redisTemplate.opsForHash<String, String>()).thenReturn(hashOps)
+        whenever(redisTemplate.opsForValue()).thenReturn(valueOps)
+        whenever(valueOps.get("quote:last:168360")).thenReturn(null)
+        whenever(hashOps.entries("candle:current:168360:1d")).thenReturn(
+            mapOf(
+                "ts" to "2026-06-09T15:00:00Z",
+                "startTs" to "2026-06-09T15:00:00Z",
+                "open" to "20950",
+                "high" to "20950",
+                "low" to "20950",
+                "close" to "20950",
+                "volume" to "1",
+            ),
+        )
+        whenever(hashOps.entries("candle:today:168360:1d")).thenReturn(
+            mapOf(
+                "ts" to "2026-06-09T15:00:00Z",
+                "startTs" to "2026-06-09T15:00:00Z",
+                "open" to "18430",
+                "high" to "21750",
+                "low" to "18430",
+                "close" to "20950",
+                "volume" to "246000",
+                "seeded" to "true",
+            ),
+        )
+        whenever(repository.findByCodeAndIntervalLatest(eq("168360"), eq("1d"), any())).thenReturn(
+            listOf(
+                candle(ts = "2026-06-08T15:00:00Z", open = 21_300, high = 22_000, low = 21_000, close = 21_450, volume = 900_000L),
+            ),
+        )
+        val service =
+            CandleQueryService(
+                candleJpaRepository = repository,
+                redisTemplate = redisTemplate,
+                objectMapper = ObjectMapper(),
+                chartCandleProperties = ChartCandleProperties(maxResponseLimit = 5000),
+            )
+
+        val response = service.getCandles(code = "168360", interval = "1d", before = null, limit = 10)
+        val last = response.candles.last()
+
+        assertThat(response.candles).hasSize(2)
+        assertThat(last.open).isEqualTo("18430")
+        assertThat(last.high).isEqualTo("21750")
+        assertThat(last.low).isEqualTo("18430")
+        assertThat(last.close).isEqualTo("20950")
+        assertThat(last.volume).isEqualTo(246_000L)
+    }
+
+    @Test
     fun `getCandles 상위봉 최신 요청은 같은 진행 기간이면 quote last로 마지막 close를 보정한다`() {
         val intervals = listOf("1wk", "1mo", "1y")
 

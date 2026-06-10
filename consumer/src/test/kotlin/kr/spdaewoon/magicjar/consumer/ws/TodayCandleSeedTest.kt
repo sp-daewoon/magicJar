@@ -48,6 +48,7 @@ class TodayCandleSeedTest {
 
     private val code = "005930"
     private val todayKey = "candle:today:$code:1d"
+    private val oneMinuteKey = "candle:current:$code:1m"
 
     @BeforeEach
     fun setUp() {
@@ -200,15 +201,33 @@ class TodayCandleSeedTest {
     }
 
     @Test
-    fun `미시드 종목은 기존 WS 누적 동작을 유지한다(graceful)`() {
-        // 시드 없이 틱만 — seeded 마커 없음 → 기존 동작(open=첫 틱, volume=CNTG_VOL 누적).
+    fun `미시드 종목은 1d tick-only 캔들을 만들지 않고 1m 누적은 유지한다(graceful)`() {
+        // 시드 없이 틱만 — 1d는 open=첫 틱인 임시 일봉을 만들지 않는다.
+        // 1m 등 intraday current candle 누적은 기존 동작을 유지한다.
         feedTick(price = "71000", volume = 40L)
         feedTick(price = "71200", volume = 60L)
 
-        val h = store[todayKey]!!
-        assertEquals("71000", h["open"], "미시드: 첫 틱이 open")
+        assertEquals(null, store[todayKey], "미시드 1d: 현재가 하나로 OHLC를 합성하지 않음")
+        val h = store[oneMinuteKey]!!
+        assertEquals("71000", h["open"], "미시드 1m: 첫 틱이 open")
         assertEquals("100", h["volume"], "미시드: CNTG_VOL 단순 누적")
         assertEquals(null, h["seeded"])
+    }
+
+    @Test
+    fun `subscribe는 WS tick 송신 전에 공식 당일 OHLCV seed를 시도한다`() {
+        every { approvalAdapter.getApprovalKey(any(), any()) } returns "mock-approval-key"
+        every { metricsPort.fetchPriceMetrics("user001", code) } returns
+            officialMetrics(open = "70000", high = "72000", low = "69500", close = "71000", vol = 1_234_567L)
+
+        bridge.subscribe(listOf(code))
+
+        val h = store[todayKey]!!
+        assertEquals("70000", h["open"])
+        assertEquals("72000", h["high"])
+        assertEquals("69500", h["low"])
+        assertEquals("71000", h["close"])
+        assertEquals("true", h["seeded"])
     }
 
     @Test
