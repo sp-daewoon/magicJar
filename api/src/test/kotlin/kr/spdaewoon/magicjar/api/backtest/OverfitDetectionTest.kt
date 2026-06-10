@@ -69,7 +69,10 @@ class OverfitDetectionTest {
             durationMs = 1L,
         )
 
-    private fun baseRequest(split: LocalDate? = null): BacktestRequest =
+    private fun baseRequest(
+        split: LocalDate? = null,
+        sizingPolicy: kr.spdaewoon.magicjar.domain.backtest.SizingPolicy = kr.spdaewoon.magicjar.domain.backtest.SizingPolicy.AllCapital,
+    ): BacktestRequest =
         BacktestRequest(
             strategyId = 1L,
             universe = listOf("005930"),
@@ -77,6 +80,7 @@ class OverfitDetectionTest {
             from = LocalDate(2023, 1, 1),
             to = LocalDate(2025, 1, 1),
             initialCapital = BigDecimal("10000000"),
+            sizingPolicy = sizingPolicy,
             outOfSampleSplit = split,
         )
 
@@ -106,6 +110,26 @@ class OverfitDetectionTest {
         assertNull(oosReq.outOfSampleSplit)
 
         assertTrue(result.passed, "OOS 12% + 거래120 + MDD5% → 통과")
+    }
+
+    @Test
+    fun `검증1b_sizingPolicy가 IS OOS 두 run에 copy로 자동 전파 (ADR 0121 §2-3)`() {
+        whenever(engine.run(any()))
+            .doReturn(success(perf("0.20")))
+            .doReturn(success(perf("0.12")))
+
+        val fractional =
+            kr.spdaewoon.magicjar.domain.backtest.SizingPolicy.FixedFractional(
+                positionPercent = BigDecimal("10.00"),
+                maxConcurrent = 5,
+            )
+        overfitDetector.detect(baseRequest(split = LocalDate(2024, 6, 1), sizingPolicy = fractional))
+
+        val captor = argumentCaptor<BacktestRequest>()
+        verify(engine, org.mockito.kotlin.times(2)).run(captor.capture())
+        // IS·OOS 두 run 모두 base의 FixedFractional을 보존(copy가 sizingPolicy를 reset하지 않음).
+        assertEquals(fractional, captor.firstValue.sizingPolicy, "IS run에 사이징 전파")
+        assertEquals(fractional, captor.secondValue.sizingPolicy, "OOS run에 사이징 전파")
     }
 
     @Test

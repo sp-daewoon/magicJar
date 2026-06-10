@@ -15,6 +15,8 @@ import kr.spdaewoon.magicjar.domain.backtest.SizingPolicy
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.argumentCaptor
+import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest
@@ -119,6 +121,7 @@ class BacktestControllerTest {
                 commissionModel = any(),
                 slippageModel = any(),
                 priceAdjustmentMode = any(),
+                sizingPolicy = any(),
             ),
         ).thenReturn(makeSuccessResult())
 
@@ -131,7 +134,83 @@ class BacktestControllerTest {
                 jsonPath("$.status") { value("SUCCESS") }
                 jsonPath("$.finalCapital") { value(11500000) }
                 jsonPath("$.performance") { exists() }
+                // ADR 0121 §2-2 — 사이징 echo. 기본 요청은 AllCapital(미지정 → 회귀 0).
+                jsonPath("$.sizingPolicy.type") { value("ALL_CAPITAL") }
             }
+    }
+
+    @Test
+    fun `검증1c_FixedFractional 요청 DTO → 도메인 SizingPolicy 매핑 + echo (ADR 0121 §2-A)`() {
+        // FixedFractional 10%/5 요청을 보내면 controller가 도메인 SizingPolicy.FixedFractional로 매핑해 서비스에 전달.
+        val fractionalResult =
+            makeSuccessResult().let { base ->
+                base.copy(
+                    request =
+                        base.request.copy(
+                            sizingPolicy =
+                                SizingPolicy.FixedFractional(positionPercent = BigDecimal("10.00"), maxConcurrent = 5),
+                        ),
+                )
+            }
+        whenever(
+            backtestService.runBacktest(
+                strategyId = any(),
+                universe = any(),
+                interval = any(),
+                fromStr = any(),
+                toStr = any(),
+                initialCapital = any(),
+                taxModel = any(),
+                commissionModel = any(),
+                slippageModel = any(),
+                priceAdjustmentMode = any(),
+                sizingPolicy = any(),
+            ),
+        ).thenReturn(fractionalResult)
+
+        val req =
+            validRequest().copy(
+                sizingPolicy =
+                    kr.spdaewoon.magicjar.api.controller.dto.SizingPolicyRequestDto(
+                        positionPercent = BigDecimal("10.00"),
+                        maxConcurrent = 5,
+                    ),
+            )
+
+        mockMvc
+            .post("/api/backtest/run") {
+                contentType = MediaType.APPLICATION_JSON
+                content = objectMapper.writeValueAsString(req)
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.sizingPolicy.type") { value("FIXED_FRACTIONAL") }
+                jsonPath("$.sizingPolicy.positionPercent") { value(10.00) }
+                jsonPath("$.sizingPolicy.maxConcurrent") { value(5) }
+            }
+
+        // controller가 DTO를 도메인 FixedFractional로 매핑해 서비스로 전달했는지 검증.
+        val captor = argumentCaptor<SizingPolicy>()
+        verify(backtestService).runBacktest(
+            strategyId = any(),
+            universe = any(),
+            interval = any(),
+            fromStr = any(),
+            toStr = any(),
+            initialCapital = any(),
+            taxModel = any(),
+            commissionModel = any(),
+            slippageModel = any(),
+            priceAdjustmentMode = any(),
+            sizingPolicy = captor.capture(),
+        )
+        val captured = captor.firstValue
+        org.junit.jupiter.api.Assertions
+            .assertTrue(captured is SizingPolicy.FixedFractional)
+        captured as SizingPolicy.FixedFractional
+        org.junit.jupiter.api.Assertions
+            .assertEquals(0, BigDecimal("10.00").compareTo(captured.positionPercent))
+        org.junit.jupiter.api.Assertions
+            .assertEquals(5, captured.maxConcurrent)
     }
 
     @Test
@@ -168,6 +247,7 @@ class BacktestControllerTest {
                 commissionModel = any(),
                 slippageModel = any(),
                 priceAdjustmentMode = any(),
+                sizingPolicy = any(),
             ),
         ).thenReturn(abortedResult)
 
@@ -216,6 +296,7 @@ class BacktestControllerTest {
                 commissionModel = any(),
                 slippageModel = any(),
                 priceAdjustmentMode = any(),
+                sizingPolicy = any(),
             ),
         ).thenReturn(abortedResult)
 
@@ -243,6 +324,7 @@ class BacktestControllerTest {
                 commissionModel = any(),
                 slippageModel = any(),
                 priceAdjustmentMode = any(),
+                sizingPolicy = any(),
             ),
         ).thenThrow(BacktestException.StrategyNotFoundException(99L))
 
@@ -269,6 +351,7 @@ class BacktestControllerTest {
                 commissionModel = any(),
                 slippageModel = any(),
                 priceAdjustmentMode = any(),
+                sizingPolicy = any(),
             ),
         ).thenThrow(BacktestException.InvalidRequestException("universe는 비어있을 수 없습니다."))
 
@@ -295,6 +378,7 @@ class BacktestControllerTest {
                 commissionModel = any(),
                 slippageModel = any(),
                 priceAdjustmentMode = any(),
+                sizingPolicy = any(),
             ),
         ).thenThrow(BacktestException.InvalidStrategyDslException(1L, "buyCondition이 없습니다."))
 

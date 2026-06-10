@@ -603,4 +603,121 @@ class JvmBacktestEngineTest {
         assertTrue(calc.calculateMaxDrawdown(cashOnly).toDouble() > 0.99, "cash-only는 ~100% 아티팩트(결함 재현)")
         assertEquals(0.2, calc.calculateMaxDrawdown(mtm).toDouble(), 0.001, "MTM은 미실현 -20% 반영")
     }
+
+    // =====================================================================
+    // ADR 0121 §2-A — FixedFractional 고정 슬롯 사이징 (실전 RiskConfig 정합)
+    // 1슬롯 = min(initialCapital × positionPercent/100, maxPositionAmount ?: ∞) / price.
+    // AllCapital 회귀 0 + MDD 분산 환산(슬롯 노출 1/10 → 보유 구간 낙폭 1/10 근사).
+    // =====================================================================
+
+    /** buy-only 전략으로 단일 진입의 매수 수량을 검증하기 위한 무비용 무사이징 요청. */
+    private fun fractionalRequest(policy: SizingPolicy): BacktestRequest = makeRequest().copy(sizingPolicy = policy)
+
+    @Test
+    fun `사이징 - FixedFractional 10퍼센트면 1슬롯 = 초기자본 10퍼센트 고정`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        whenever(strategyRepo.findById(1L)).thenReturn(makeBuyOnlyStrategy(buyNode))
+        // 가격 1000, 무비용. 초기자본 10,000,000 × 10% = 1,000,000 슬롯 → 수량 = 1,000,000 / 1000 = 1000주.
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(candlesWithCloses(listOf("1000", "1000", "1000")))
+        var idx = 0
+        val results =
+            listOf(
+                StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+            )
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any())).thenAnswer { results[idx++.coerceAtMost(results.size - 1)] }
+
+        val result =
+            engine.run(fractionalRequest(SizingPolicy.FixedFractional(positionPercent = BigDecimal("10.00"), maxConcurrent = 5)))
+        val success = assertInstanceOf(BacktestResult.Success::class.java, result)
+        val buy = success.trades.single { it.side == TradeSide.BUY }
+        assertEquals(1000L, buy.quantity, "10% 슬롯 1,000,000 / 1000원 = 1000주여야 합니다")
+    }
+
+    @Test
+    fun `사이징 - AllCapital은 전액 투입(회귀 0)`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        whenever(strategyRepo.findById(1L)).thenReturn(makeBuyOnlyStrategy(buyNode))
+        // 가격 1000, 무비용. AllCapital = 10,000,000 / 1000 = 10,000주(전액).
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(candlesWithCloses(listOf("1000", "1000", "1000")))
+        var idx = 0
+        val results =
+            listOf(
+                StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+            )
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any())).thenAnswer { results[idx++.coerceAtMost(results.size - 1)] }
+
+        val result = engine.run(fractionalRequest(SizingPolicy.AllCapital))
+        val success = assertInstanceOf(BacktestResult.Success::class.java, result)
+        val buy = success.trades.single { it.side == TradeSide.BUY }
+        assertEquals(10_000L, buy.quantity, "AllCapital은 전액 10,000주여야 합니다(회귀 0)")
+    }
+
+    @Test
+    fun `사이징 - maxPositionAmount가 percent 슬롯보다 작으면 min(amount) 적용`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        whenever(strategyRepo.findById(1L)).thenReturn(makeBuyOnlyStrategy(buyNode))
+        // 50% 슬롯 = 5,000,000이지만 maxPositionAmount=2,000,000이 더 작음 → 슬롯 2,000,000 / 1000 = 2000주.
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(candlesWithCloses(listOf("1000", "1000", "1000")))
+        var idx = 0
+        val results =
+            listOf(
+                StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+            )
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any())).thenAnswer { results[idx++.coerceAtMost(results.size - 1)] }
+
+        val result =
+            engine.run(
+                fractionalRequest(
+                    SizingPolicy.FixedFractional(
+                        positionPercent = BigDecimal("50.00"),
+                        maxConcurrent = 5,
+                        maxPositionAmount = BigDecimal("2000000"),
+                    ),
+                ),
+            )
+        val success = assertInstanceOf(BacktestResult.Success::class.java, result)
+        val buy = success.trades.single { it.side == TradeSide.BUY }
+        assertEquals(2000L, buy.quantity, "min(50% 슬롯 5,000,000, amount 2,000,000)=2,000,000 / 1000 = 2000주")
+    }
+
+    @Test
+    fun `사이징 - 동일 데이터에서 FixedFractional MDD가 AllCapital보다 작다(분산 환산)`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        whenever(strategyRepo.findById(1L)).thenReturn(makeBuyOnlyStrategy(buyNode))
+        // t0 1000(진입), t1 800(-20% 미실현), t2 1000(회복) → 강제청산.
+        // AllCapital: 자본 전액 보유 → 보유 구간 자본 -20% → MDD ≈ 20%.
+        // FixedFractional 10%: 자본의 10%만 노출 → 보유 구간 자본 -2% → MDD ≈ 2%.
+        val closes = listOf("1000", "800", "1000")
+
+        fun runWith(policy: SizingPolicy): Double {
+            var idx = 0
+            val results =
+                listOf(
+                    StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L),
+                    StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+                    StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+                )
+            whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+                .thenReturn(candlesWithCloses(closes))
+            whenever(evaluatorBridge.evaluateBacktest(any(), any(), any())).thenAnswer { results[idx++.coerceAtMost(results.size - 1)] }
+            val r = engine.run(fractionalRequest(policy))
+            return (assertInstanceOf(BacktestResult.Success::class.java, r)).performance.maxDrawdown.toDouble()
+        }
+
+        val allCapitalMdd = runWith(SizingPolicy.AllCapital)
+        val fractionalMdd = runWith(SizingPolicy.FixedFractional(positionPercent = BigDecimal("10.00"), maxConcurrent = 5))
+
+        assertTrue(allCapitalMdd in 0.15..0.25, "AllCapital MDD는 미실현 -20% 근방 (실측 $allCapitalMdd)")
+        assertTrue(fractionalMdd in 0.01..0.05, "10% 슬롯 MDD는 -2% 근방 (실측 $fractionalMdd)")
+        assertTrue(fractionalMdd < allCapitalMdd, "FixedFractional MDD($fractionalMdd) < AllCapital MDD($allCapitalMdd) — 분산 환산")
+    }
 }

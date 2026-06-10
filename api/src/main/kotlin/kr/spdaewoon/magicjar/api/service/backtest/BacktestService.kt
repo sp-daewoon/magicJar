@@ -65,6 +65,7 @@ class BacktestService(
         commissionModel: String = "kis_direct",
         slippageModel: String = "fixed_0.05",
         priceAdjustmentMode: String = "ADJUSTED",
+        sizingPolicy: SizingPolicy = SizingPolicy.AllCapital,
     ): BacktestResult {
         // 파라미터 검증
         if (universe.isEmpty()) {
@@ -102,7 +103,7 @@ class BacktestService(
                 commissionModel = commissionModel,
                 slippageModel = slippageModel,
                 priceAdjustmentMode = adjMode,
-                sizingPolicy = SizingPolicy.AllCapital,
+                sizingPolicy = sizingPolicy,
             )
 
         log.info("백테스트 서비스 요청: strategyId={}, universe={}, interval={}, from={}, to={}", strategyId, universe, interval, from, to)
@@ -127,6 +128,7 @@ class BacktestService(
         commissionModel: String = "kis_direct",
         slippageModel: String = "fixed_0.05",
         priceAdjustmentMode: String = "ADJUSTED",
+        sizingPolicy: SizingPolicy = SizingPolicy.AllCapital,
     ): OverfitDiagnostics {
         val request =
             buildRequest(
@@ -141,6 +143,7 @@ class BacktestService(
                 slippageModel = slippageModel,
                 priceAdjustmentMode = priceAdjustmentMode,
                 outOfSampleSplit = parseDate(outOfSampleSplitStr),
+                sizingPolicy = sizingPolicy,
             )
         log.info("과최적화 탐지 요청: strategyId={}, split={}", strategyId, outOfSampleSplitStr)
         return overfitDetector.detect(request)
@@ -164,6 +167,7 @@ class BacktestService(
         commissionModel: String = "kis_direct",
         slippageModel: String = "fixed_0.05",
         priceAdjustmentMode: String = "ADJUSTED",
+        sizingPolicy: SizingPolicy = SizingPolicy.AllCapital,
     ): SensitivityResult {
         val base =
             buildRequest(
@@ -178,6 +182,7 @@ class BacktestService(
                 slippageModel = slippageModel,
                 priceAdjustmentMode = priceAdjustmentMode,
                 outOfSampleSplit = null,
+                sizingPolicy = sizingPolicy,
             )
         val sensitivityRequest =
             try {
@@ -202,6 +207,7 @@ class BacktestService(
         slippageModel: String,
         priceAdjustmentMode: String,
         outOfSampleSplit: kotlinx.datetime.LocalDate?,
+        sizingPolicy: SizingPolicy = SizingPolicy.AllCapital,
     ): BacktestRequest {
         if (universe.isEmpty()) {
             throw BacktestException.InvalidRequestException("universe는 비어있을 수 없습니다.")
@@ -234,7 +240,7 @@ class BacktestService(
                 commissionModel = commissionModel,
                 slippageModel = slippageModel,
                 priceAdjustmentMode = adjMode,
-                sizingPolicy = SizingPolicy.AllCapital,
+                sizingPolicy = sizingPolicy,
                 outOfSampleSplit = outOfSampleSplit,
             )
         } catch (e: IllegalArgumentException) {

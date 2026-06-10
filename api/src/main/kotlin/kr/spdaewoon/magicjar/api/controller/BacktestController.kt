@@ -16,6 +16,8 @@ import kr.spdaewoon.magicjar.api.controller.dto.OverfitDetectResponse
 import kr.spdaewoon.magicjar.api.controller.dto.SensitivityAnalyzeRequest
 import kr.spdaewoon.magicjar.api.controller.dto.SensitivityAnalyzeResponse
 import kr.spdaewoon.magicjar.api.controller.dto.SensitivityPointDto
+import kr.spdaewoon.magicjar.api.controller.dto.SizingPolicyEchoDto
+import kr.spdaewoon.magicjar.api.controller.dto.SizingPolicyRequestDto
 import kr.spdaewoon.magicjar.api.service.backtest.BacktestService
 import kr.spdaewoon.magicjar.domain.backtest.BacktestException
 import kr.spdaewoon.magicjar.domain.backtest.BacktestPerformance
@@ -24,6 +26,7 @@ import kr.spdaewoon.magicjar.domain.backtest.BacktestResult
 import kr.spdaewoon.magicjar.domain.backtest.BacktestTrade
 import kr.spdaewoon.magicjar.domain.backtest.OverfitDiagnostics
 import kr.spdaewoon.magicjar.domain.backtest.SensitivityResult
+import kr.spdaewoon.magicjar.domain.backtest.SizingPolicy
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -103,6 +106,7 @@ class BacktestController(
                     commissionModel = req.commissionModel,
                     slippageModel = req.slippageModel,
                     priceAdjustmentMode = req.priceAdjustmentMode,
+                    sizingPolicy = toSizingPolicy(req.sizingPolicy),
                 )
             } catch (e: BacktestException.StrategyNotFoundException) {
                 throw ResponseStatusException(HttpStatus.BAD_REQUEST, e.message, e)
@@ -127,6 +131,7 @@ class BacktestController(
                         performance = toPerformanceDto(result.performance),
                         abortReason = null,
                         durationMs = result.durationMs,
+                        sizingPolicy = toSizingEcho(result.request.sizingPolicy),
                     )
                 ResponseEntity.ok(response)
             }
@@ -148,6 +153,7 @@ class BacktestController(
                         performance = null,
                         abortReason = result.reason,
                         durationMs = result.durationMs,
+                        sizingPolicy = toSizingEcho(result.request.sizingPolicy),
                     )
                 ResponseEntity.status(httpStatus).body(response)
             }
@@ -204,6 +210,7 @@ class BacktestController(
                     commissionModel = req.commissionModel,
                     slippageModel = req.slippageModel,
                     priceAdjustmentMode = req.priceAdjustmentMode,
+                    sizingPolicy = toSizingPolicy(req.sizingPolicy),
                 )
             } catch (e: BacktestException.StrategyNotFoundException) {
                 throw ResponseStatusException(HttpStatus.BAD_REQUEST, e.message, e)
@@ -259,6 +266,7 @@ class BacktestController(
                     commissionModel = req.commissionModel,
                     slippageModel = req.slippageModel,
                     priceAdjustmentMode = req.priceAdjustmentMode,
+                    sizingPolicy = toSizingPolicy(req.sizingPolicy),
                 )
             } catch (e: BacktestException.StrategyNotFoundException) {
                 throw ResponseStatusException(HttpStatus.BAD_REQUEST, e.message, e)
@@ -301,6 +309,39 @@ class BacktestController(
             returnSpread = r.returnSpread,
             meanAdjacentVariation = r.meanAdjacentVariation,
         )
+
+    // =====================================================================
+    // 사이징 정책 매핑 (ADR 0121 §2-A — DTO ↔ 도메인. 미지정 시 AllCapital 회귀 0)
+    // =====================================================================
+
+    /**
+     * 요청 DTO → 도메인 [SizingPolicy] (ADR 0121 §2-A).
+     *
+     * null 또는 positionPercent 미지정이면 [SizingPolicy.AllCapital](기존 회귀 0). positionPercent가 있으면
+     * [SizingPolicy.FixedFractional]로 매핑한다(범위 검증은 FixedFractional.init이 require — 위반 시 IllegalArgumentException → 400).
+     */
+    private fun toSizingPolicy(dto: SizingPolicyRequestDto?): SizingPolicy {
+        val pct = dto?.positionPercent ?: return SizingPolicy.AllCapital
+        return SizingPolicy.FixedFractional(
+            positionPercent = pct,
+            maxConcurrent = dto.maxConcurrent,
+            maxPositionAmount = dto.maxPositionAmount,
+        )
+    }
+
+    /** 도메인 [SizingPolicy] → echo DTO (ADR 0121 §2-2 — G3 MDD 판정 맥락 노출). */
+    private fun toSizingEcho(policy: SizingPolicy): SizingPolicyEchoDto =
+        when (policy) {
+            is SizingPolicy.FixedFractional ->
+                SizingPolicyEchoDto(
+                    type = "FIXED_FRACTIONAL",
+                    positionPercent = policy.positionPercent,
+                    maxConcurrent = policy.maxConcurrent,
+                    maxPositionAmount = policy.maxPositionAmount,
+                )
+            SizingPolicy.AllCapital -> SizingPolicyEchoDto(type = "ALL_CAPITAL")
+            is SizingPolicy.Kelly -> SizingPolicyEchoDto(type = "KELLY")
+        }
 
     // =====================================================================
     // 도메인 → DTO 변환 (private helper — ADR 0051 Repository body fun 함정 무관, controller helper)
