@@ -24,10 +24,11 @@ import java.util.concurrent.TimeUnit
 /**
  * ADR 0077 G-1 + H-1 + I-1 + J-1 fix 단위 테스트 (v3.6.11 hotfix).
  *
- * 5건 검증 매트릭스:
+ * 검증 매트릭스:
  * - test 1 (G-1): 자격증명 0건 → getApprovalKey() null → doConnect() skip + OPSP8996 발생 0건
- * - test 2 (H-1): MOCK 자격증명만 있어도 시세 WS는 REAL 키 사용 시도 검증 (REAL 고정)
- * - test 3 (H-1): magicjarMode=MOCK 환경에서도 시세 WS URL은 PROD 고정
+ * - test 2 (H-1): MOCK 자격증명만 있어도 시세 WS approval_key는 REAL AccountType 사용 시도 검증 (REAL 고정)
+ * - test 3 (2026-06-10 P1 회귀 fix): magicjarMode=MOCK → WS endpoint vps(:31000) — 체결통보 H0STCNI9
+ *   발송 서버 정합 (e0a88a3f PROD 고정 회귀 역전). + test 3b: REAL → prod(:21000).
  * - test 4 (I-1): OPSP8996 attempt > 3 → dispose + 알림 (cap 3 LOCK)
  * - test 5 (I-1): WS subscribe 성공 → opsp8996RetryCount.get() == 0 검증 (reset)
  *
@@ -121,18 +122,48 @@ class KisWebSocketBridgeOpsp8996FixTest {
     }
 
     /**
-     * test 3 (H-1): 시세 WS URL도 REAL endpoint 고정.
+     * test 3: MOCK 모드 WS endpoint는 vps(:31000) — 체결통보 H0STCNI9 발송 서버 정합 (2026-06-10 P1 회귀 fix).
      *
-     * REAL approval_key를 쓰면서 magicjarMode=MOCK 때문에 VPS(:31000)로 접속하면
-     * KIS가 opening handshake 전에 연결을 닫을 수 있다.
+     * ### 회귀 배경
+     * e0a88a3f(2026-06-06)가 `getWsUrl()=wsUrlProd` 무조건 고정 + 본 테스트를 ":21000 고정"으로 박았다.
+     * 그 결과 MOCK 모드 체결통보(H0STCNI9)가 prod endpoint(:21000)에 구독되어 KIS가 데이터를 영구
+     * 미발송(6/8 WS 체결통보 수신 0). prod·vops 동일 발송인 시세(H0STCNT0)만 살아 회귀가 은폐됐다.
+     *
+     * ### KIS-first (kis_auth.py auth_ws svr) — approval_key·endpoint 동일 svr 파생 의무, 환경 mix 금지
+     * raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+     *
+     * fix: MOCK → vops(:31000) 복원 (endpoint↔executionNoticeTrId 동일 isRealMode 기준 정합).
+     * approval_key 발급은 H-1 정책대로 REAL AccountType 유지(test 2 검증) — 본 테스트는 endpoint 분기만 검증.
      */
     @Test
-    fun `H-1 magicjarMode MOCK 환경에서도 시세 WS URL은 PROD 고정`() {
+    fun `MOCK 모드 WS endpoint는 vps(31000) — 체결통보 H0STCNI9 발송 서버 정합`() {
         every {
             approvalAdapter.getApprovalKey("user001", kr.spdaewoon.magicjar.domain.user.AccountType.REAL)
         } returns "real-approval-key"
 
         bridge = buildBridge(defaultUserId = "user001", magicjarMode = "MOCK")
+
+        bridge.connect()
+        TimeUnit.MILLISECONDS.sleep(100L)
+
+        verify(exactly = 1) {
+            wsClient.execute(match<URI> { it.toString() == "ws://localhost:31000" }, any())
+        }
+        verify(exactly = 0) {
+            wsClient.execute(match<URI> { it.toString() == "ws://localhost:21000" }, any())
+        }
+    }
+
+    /**
+     * test 3b: REAL 모드 WS endpoint는 prod(:21000) — 실전 체결통보 H0STCNI0 발송 서버 정합.
+     */
+    @Test
+    fun `REAL 모드 WS endpoint는 prod(21000)`() {
+        every {
+            approvalAdapter.getApprovalKey("user001", kr.spdaewoon.magicjar.domain.user.AccountType.REAL)
+        } returns "real-approval-key"
+
+        bridge = buildBridge(defaultUserId = "user001", magicjarMode = "REAL")
 
         bridge.connect()
         TimeUnit.MILLISECONDS.sleep(100L)
