@@ -20,6 +20,9 @@ class SystemConfigJpaEntity(
     var dartApiKey: ByteArray? = null,
     @Column(name = "notification_slack_webhook")
     var notificationSlackWebhook: ByteArray? = null,
+    /** 주문 체결 알림 전용 추가 Slack 채널 webhook (V79 · 이중 송출 — 미설정 시 추가 송출 skip). */
+    @Column(name = "notification_slack_webhook_order")
+    var notificationSlackWebhookOrder: ByteArray? = null,
     @Column(name = "created_at", nullable = false, updatable = false)
     val createdAt: Instant = Instant.now(),
     @Column(name = "updated_at", nullable = false)

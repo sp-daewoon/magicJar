@@ -84,9 +84,20 @@ class RedisKisRateLimiterAdapter(
 ) : KisRateLimiterPort {
     private val log = LoggerFactory.getLogger(RedisKisRateLimiterAdapter::class.java)
 
-    /** Phase 1 통계 카운터 (Phase 3 Circuit Breaker에서 권위 위임) */
+    /** Phase 1 통계 카운터 (Phase 3 Circuit Breaker에서 권위 위임) — 부팅 후 누적치(리셋 없음). */
     private val tpsExceededCount = AtomicLong(0L)
     private val successCount = AtomicLong(0L)
+
+    /**
+     * 알람 차등화 윈도 카운터 (2026-06-10 노이즈 진단 hotfix).
+     *
+     * 진보 페르소나 (ADR 0087) 결정:
+     *   - 💡 **AtomicLong getAndSet(0)** — emit 시점에 "이번 윈도 발생 건수" 스냅샷 + lock-free 리셋.
+     *   - 🔄 누적 [tpsExceededCount]는 detailJson이 "최근 5분 건수"로 오인되는 원인 → windowCount로 1차 노출 분리.
+     *   - ✨ 윈도 건수 < [KisRateLimitProperties.tpsExceededWarnThreshold] → INFO(알림센터 기록만),
+     *     ≥ 임계 → WARN(현행 알람). 산발 EGW00201(자동 backoff 회복) 노이즈를 INFO로 격하 — burst만 WARN.
+     */
+    private val windowTpsCount = AtomicLong(0L)
 
     /**
      * 최근 SystemEvent emit 시각 — spam 회피 aggregator (5분당 1회 emit LOCK).
@@ -342,65 +353,102 @@ class RedisKisRateLimiterAdapter(
      * Phase 3 합류 시 Resilience4j Circuit Breaker `onError()` 위임 → 5분 윈도 50% 임계 도달 시 OPEN.
      */
     override fun onTpsExceeded() {
-        val count = tpsExceededCount.incrementAndGet()
+        val cumulative = tpsExceededCount.incrementAndGet()
+        // 윈도 카운터는 emit skip 여부와 무관하게 매 신호마다 누적 (emit 시점 스냅샷+리셋).
+        windowTpsCount.incrementAndGet()
         val lastBucket = lastConsumedBucket.get()
         log.warn(
-            "[KisRateLimit] TPS exceeded signal — count={} lastBucket={} (Phase 3 Circuit Breaker 합류 대기)",
-            count,
+            "[KisRateLimit] TPS exceeded signal — cumulative={} lastBucket={} (Phase 3 Circuit Breaker 합류 대기)",
+            cumulative,
             lastBucket,
         )
         recordTpsExceeded(lastBucket)
-        emitSystemEventIfThresholdReached(count, lastBucket)
+        emitSystemEventIfThresholdReached(cumulative, lastBucket)
     }
 
     /**
-     * SystemEvent emit aggregator — 5분 윈도 1회 LOCK (spam 회피).
+     * SystemEvent emit aggregator — 5분 윈도 1회 LOCK (spam 회피) + 윈도 건수 기반 severity 차등.
      *
      * 알고리즘 (lock-free CAS):
      *   1. 직전 emit 시각과 현재 시각 비교
-     *   2. 5분 미경과 → skip (log debug)
-     *   3. 5분 경과 → AtomicReference CAS 갱신 + emit
+     *   2. 5분 미경과 → skip (윈도 카운터는 [onTpsExceeded]에서 이미 누적 — 다음 emit에 반영)
+     *   3. 5분 경과 → AtomicReference CAS 갱신 → 윈도 카운터 스냅샷+리셋 → severity 차등 emit
      *   4. CAS 실패 (다른 thread가 동시에 갱신) → skip (단일 emit 보장)
+     *
+     * severity 차등 (2026-06-10 노이즈 진단 hotfix):
+     *   - 윈도 건수 < threshold → INFO (dispatcher가 toast/Slack 미발송, 알림센터 기록만)
+     *   - 윈도 건수 ≥ threshold → WARN (현행 알람 경로)
      */
     private fun emitSystemEventIfThresholdReached(
-        currentCount: Long,
+        cumulativeCount: Long,
         lastBucket: String,
     ) {
         val logger = systemEventLogger ?: return
         val now = Instant.now()
         val prev = lastEmittedAt.get()
         if (Duration.between(prev, now) < EMIT_AGGREGATOR_WINDOW) {
-            return // aggregator skip
+            return // aggregator skip — 윈도 카운터는 누적 유지
         }
         if (!lastEmittedAt.compareAndSet(prev, now)) {
             return // race — 다른 thread 가 emit (단일 보장)
         }
 
+        // 이번 윈도 발생 건수 스냅샷 + 리셋 (lock-free).
+        val windowCount = windowTpsCount.getAndSet(0L)
+        val severity =
+            if (windowCount >= props.tpsExceededWarnThreshold) {
+                SystemEventSeverity.WARN
+            } else {
+                SystemEventSeverity.INFO
+            }
+
         runCatching {
             logger.emit(
                 SystemEvent(
                     category = SystemEventCategory.KIS_RATELIMIT,
-                    severity = SystemEventSeverity.WARN,
+                    severity = severity,
                     actor = ACTOR,
                     action = ACTION_TPS_EXCEEDED,
-                    userId = null, // system-wide broadcast (Bucket4j는 단일 글로벌 bucket)
+                    userId = null, // system-wide broadcast
                     correlationId = null,
-                    detailJson =
-                        """{"tpsExceededCount":$currentCount,"bucketKey":"${props.bucketKey}",""" +
-                            """"lastBucket":"$lastBucket","aggregatorWindowMinutes":5}""",
+                    detailJson = buildDetailJson(windowCount, cumulativeCount, lastBucket),
                 ),
             )
             log.warn(
-                "[KisRateLimit] SystemEvent KIS_RATELIMIT emit — count={} window=5min",
-                currentCount,
+                "[KisRateLimit] SystemEvent KIS_RATELIMIT emit — windowCount={} severity={} cumulative={} window=5min",
+                windowCount,
+                severity,
+                cumulativeCount,
             )
         }.onFailure { e ->
             log.error(
-                "[KisRateLimit] SystemEvent emit 실패 — count={} err={}",
-                currentCount,
+                "[KisRateLimit] SystemEvent emit 실패 — windowCount={} err={}",
+                windowCount,
                 e.message,
             )
         }
+    }
+
+    /**
+     * SystemEvent detailJson 합성 — windowCount 1차 노출 + bucketKey 오표기 정정 (2026-06-10).
+     *
+     * bucketKey 정정: 3-tier 활성 시 legacy `:global` base key 대신 실질 모드를 표기
+     * (`mode` + lastBucket suffix). priorityBucketsActive=false면 단일 :global base key 그대로.
+     */
+    private fun buildDetailJson(
+        windowCount: Long,
+        cumulativeCount: Long,
+        lastBucket: String,
+    ): String {
+        val effectiveBucketKey =
+            if (priorityBucketsActive) {
+                "${props.bucketKey}:$lastBucket"
+            } else {
+                props.bucketKey
+            }
+        return """{"windowCount":$windowCount,"cumulativeCount":$cumulativeCount,""" +
+            """"bucketKey":"$effectiveBucketKey","priorityBucketsActive":$priorityBucketsActive,""" +
+            """"lastBucket":"$lastBucket","aggregatorWindowMinutes":5}"""
     }
 
     /**
@@ -497,6 +545,9 @@ class RedisKisRateLimiterAdapter(
     internal fun snapshotTpsExceeded(): Long = tpsExceededCount.get()
 
     internal fun snapshotSuccess(): Long = successCount.get()
+
+    /** 테스트 진입점 — 현재 윈도 미emit 누적 건수 (emit 시 0으로 리셋). */
+    internal fun snapshotWindowTpsCount(): Long = windowTpsCount.get()
 
     /** 테스트 진입점 — 직전 소진 버킷 라벨 (ADR 0116 §2-E last_bucket 검증). */
     internal fun snapshotLastConsumedBucket(): String = lastConsumedBucket.get()

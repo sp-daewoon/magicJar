@@ -90,7 +90,8 @@ class SystemEventNotificationDispatcherTest {
         assertThat(reason).contains("KIS_RATELIMIT/KIS_TPS_EXCEEDED")
         assertThat(reason).contains("모듈: KIS rate limiter")
         assertThat(reason).contains("조치:")
-        assertThat(reason).contains("자동 backoff")
+        // 2026-06-10 알람 차등화 — 가이드 본문이 윈도 건수(windowCount) 기반 안내로 갱신됨
+        assertThat(reason).contains("windowCount")
     }
 
     @Test

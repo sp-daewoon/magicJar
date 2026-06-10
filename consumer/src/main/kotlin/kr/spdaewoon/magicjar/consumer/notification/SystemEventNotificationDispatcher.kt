@@ -118,6 +118,14 @@ class SystemEventNotificationDispatcher(
         }
     }
 
+    /**
+     * severity → Slack outbox priority 매핑 (이미 일반화된 라우팅 — KIS_RATELIMIT 차등화 재사용).
+     *
+     * INFO → null: outbox/Slack/toast 미발송. SystemEventLoggerAdapter가 DB(system_event)에는 이미 영속하므로
+     * 알림센터(`/system`)에는 그대로 기록된다. 2026-06-10 KIS rate limit 알람 차등화에서
+     * 윈도 건수 < threshold 인 산발 EGW00201을 INFO로 emit → 본 매핑이 자동으로 알림센터 기록만 되게 한다
+     * (별도 분기 재발명 0). 윈도 건수 ≥ threshold(WARN)는 현행 P2 Slack 경로 그대로 유지.
+     */
     private fun priorityOf(severity: SystemEventSeverity): NotificationPriority? =
         when (severity) {
             SystemEventSeverity.CRITICAL,

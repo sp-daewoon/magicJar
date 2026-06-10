@@ -55,4 +55,11 @@ data class BatchKisRateLimitProperties(
     val bucketTtlSeconds: Long = 10L,
     /** acquire() polling 간격 (token 부족 시 다음 interval refill 윈도우를 확인하는 sleep). */
     val acquirePollIntervalMillis: Long = 50L,
+    /**
+     * 알람 차등화 윈도 임계 (2026-06-10 노이즈 진단 hotfix · api·consumer Properties 동일 LOCK).
+     *
+     * 5분 aggregator 윈도 내 EGW00201/429 발생 건수가 threshold 미만 → INFO(알림센터 기록만),
+     * 이상 → WARN(현행 알람). env override: MAGICJAR_KIS_RATE_LIMITER_TPS_EXCEEDED_WARN_THRESHOLD.
+     */
+    val tpsExceededWarnThreshold: Int = 5,
 )

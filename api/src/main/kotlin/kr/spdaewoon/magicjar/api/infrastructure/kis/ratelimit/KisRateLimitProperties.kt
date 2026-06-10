@@ -83,6 +83,17 @@ data class KisRateLimitProperties(
      */
     val acquirePollIntervalMillis: Long = 50L,
     /**
+     * 알람 차등화 윈도 임계 (2026-06-10 노이즈 진단 hotfix · ADR 0095 S-4 임계 정렬).
+     *
+     * 5분 aggregator 윈도 내 EGW00201/429 발생 건수가:
+     *   - 1 ~ (threshold-1) → SystemEventSeverity.INFO (알림센터 기록만 — 사용자 toast/Slack 미발송)
+     *   - >= threshold      → SystemEventSeverity.WARN (현행 알람 경로)
+     *
+     * default 5 — 산발 EGW00201(자동 backoff 회복, 운영 무해)은 INFO로 격하, burst만 WARN으로 사용자 도달.
+     * env override: MAGICJAR_KIS_RATE_LIMITER_TPS_EXCEEDED_WARN_THRESHOLD.
+     */
+    val tpsExceededWarnThreshold: Int = 5,
+    /**
      * Circuit Breaker — fail rate 임계 (default 0.5 = 50%). Phase 3 합류.
      */
     val circuitBreakerFailureRate: Double = 0.5,
