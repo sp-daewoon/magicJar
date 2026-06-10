@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.infrastructure.kis
 
 import kotlinx.datetime.Clock
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.market.PriceMetrics
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
@@ -12,6 +13,7 @@ import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
 import kr.spdaewoon.magicjar.domain.market.tick.TickEvent
 import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
+import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -44,6 +46,9 @@ class KisRestPriceAdapter(
     private val webClient: WebClient,
     private val kisAuthAdapter: KisAuthAdapter,
     private val kisRateLimiterPort: KisRateLimiterPort,
+    /** appkey/appsecret 헤더 복원용 (KIS 필수 헤더 — 누락 시 500. KisRestCandleAdapter 패턴 정합). */
+    private val credentialRepository: ConsumerUserKisCredentialJpaRepository,
+    private val secretCipher: SecretCipher,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseProd: String,
     @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
@@ -51,6 +56,29 @@ class KisRestPriceAdapter(
 ) : KisRestPort,
     KisRestPriceMetricsPort {
     private val log = LoggerFactory.getLogger(KisRestPriceAdapter::class.java)
+
+    /**
+     * KIS 필수 헤더 appkey/appsecret resolve — userId 보유 credential 우선, 부재 시 첫 REAL 행 fallback.
+     * KDoc 명세에만 있고 실제 헤더 미전송으로 KIS 500을 받던 결함 복원(2026-06-10 라이브 실측).
+     * ByteArray는 사용 직후 zero-fill wipe (KisRestCandleAdapter 패턴 정합).
+     */
+    private fun resolveAppKeys(userId: String): Pair<String, String> {
+        val creds = credentialRepository.findAllByAccountType(AccountType.REAL.name)
+        val cred =
+            creds.firstOrNull { it.id.userId == userId }
+                ?: creds.firstOrNull()
+                ?: error("KIS REAL credential 없음 — userId=$userId")
+        var appKey: ByteArray? = null
+        var secretKey: ByteArray? = null
+        return try {
+            appKey = secretCipher.decrypt(cred.appKeyEnc)
+            secretKey = secretCipher.decrypt(cred.secretKeyEnc)
+            String(appKey) to String(secretKey)
+        } finally {
+            appKey?.fill(0)
+            secretKey?.fill(0)
+        }
+    }
 
     /**
      * KIS REST 현재가 단건 조회 (FHKST01010100 inquire-price).
@@ -68,6 +96,7 @@ class KisRestPriceAdapter(
         val accountType = AccountType.REAL
         val baseUrl = kisBaseProd
         val token = kisAuthAdapter.getAccessToken(userId, accountType)
+        val (appKeyStr, appSecretStr) = resolveAppKeys(userId)
 
         // D-1 try-finally drift 차단 패턴 (T-D-1):
         //   acquire를 try 안으로 옮기고 signalSent flag로 통계 시그널 미발행 path 감시.
@@ -86,6 +115,8 @@ class KisRestPriceAdapter(
                         "$baseUrl/uapi/domestic-stock/v1/quotations/inquire-price" +
                             "?fid_cond_mrkt_div_code=J&fid_input_iscd=$code",
                     ).header("authorization", "Bearer $token")
+                    .header("appkey", appKeyStr)
+                    .header("appsecret", appSecretStr)
                     .header("tr_id", "FHKST01010100")
                     .header("custtype", "P")
                     .retrieve()
@@ -170,6 +201,7 @@ class KisRestPriceAdapter(
         val accountType = AccountType.REAL
         val baseUrl = kisBaseProd
         val token = kisAuthAdapter.getAccessToken(userId, accountType)
+        val (appKeyStr, appSecretStr) = resolveAppKeys(userId)
 
         val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul"))
         val startDate = today.minusDays(7).format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
@@ -195,6 +227,8 @@ class KisRestPriceAdapter(
                             "&fid_period_div_code=D" +
                             "&fid_org_adj_prc=0",
                     ).header("authorization", "Bearer $token")
+                    .header("appkey", appKeyStr)
+                    .header("appsecret", appSecretStr)
                     .header("tr_id", "FHKST03010100")
                     .header("custtype", "P")
                     .retrieve()
