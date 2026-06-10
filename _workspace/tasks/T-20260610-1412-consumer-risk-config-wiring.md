@@ -3,10 +3,10 @@ id: T-20260610-1412-consumer-risk-config-wiring
 agent: backend-core
 model: opus
 branch: agent/backend-core/consumer-risk-config-wiring
-status: RUNNING
+status: DONE
 startedAt: 2026-06-10T14:12:55.828+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-10T14:21:47.672+09:00
+pr: #888
 parentPhase: ?
 ---
 
