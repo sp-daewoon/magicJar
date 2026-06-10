@@ -3,10 +3,10 @@ id: T-20260610-1231-kis-ratelimit-alarm-tiering
 agent: backend-core
 model: opus
 branch: agent/backend-core/kis-ratelimit-alarm-tiering
-status: RUNNING
+status: DONE
 startedAt: 2026-06-10T12:31:49.581+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-10T12:46:26.359+09:00
+pr: #881
 parentPhase: ?
 ---
 
