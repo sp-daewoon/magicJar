@@ -214,6 +214,20 @@ class KisWebSocketBridge(
 
     private val trIdToAesKey = ConcurrentHashMap<String, KisWsAesKey>()
 
+    /**
+     * 체결통보(H0STCNI0/H0STCNI9) WS 데이터 메시지 수신 누적 카운트 — 영구 진단 (2026-06-10 P1 회귀 fix).
+     *
+     * ### 사유: "안 오는지(수신0) vs 버려지는지(드랍)" 구분
+     * 2026-06-08 회귀 조사 시 체결통보 수신 자체 흔적이 없어 "KIS 미발송 vs 우리 드랍" 판정이 불가했다
+     * (시세 H0STCNT0는 정상 수신 → receiveFlux·handleMessage는 살아있는데 H0STCNI만 0).
+     * 본 카운터는 handleMessage가 H0STCNI 분기에 진입(=KIS가 데이터 메시지를 실제 발송)할 때마다 증가하며,
+     * [handleExecutionNotice]가 listener forward 전 INFO로 누적값을 남긴다. 이후 동일 회귀 재발 시
+     * "수신 카운트 0(=KIS 미발송 또는 endpoint 불일치)"과 "수신 후 복호화/forward 실패(드랍)"를 즉시 가른다.
+     *
+     * AtomicLong 사용 사유: receiveFlux(Reactor thread) 단일이지만 가시성·원자성 보장 + 멀티 thread 안전.
+     */
+    private val executionNoticeReceivedCount = AtomicLong(0L)
+
     private val session = KisWebSocketSession()
     private val scheduler = Executors.newScheduledThreadPool(1)
 
@@ -837,6 +851,19 @@ class KisWebSocketBridge(
             is KisWsMessageParser.ParsedMessage.RealtimeData -> {
                 // hotfix 2026-05-20 — encrypted=true (KIS 첫 필드 1) 시 AES-256-CBC 복호화 후 forward.
                 // H0STCNI0/9 (체결통보)는 항상 encrypted=true. 평문은 그대로 통과.
+                // ★ 체결통보 raw 수신 카운트 (2026-06-10 P1 회귀 진단) — 복호화 전 시점에 잡아
+                // "KIS 미발송(0)" vs "복호화/forward 실패(드랍)"를 가른다. AES key 미저장/복호화 실패로
+                // 아래에서 return되더라도 본 카운트는 이미 증가해 "수신은 했으나 드랍" 판정이 가능하다.
+                if (parsed.trId == "H0STCNI0" || parsed.trId == "H0STCNI9") {
+                    val n = executionNoticeReceivedCount.incrementAndGet()
+                    log.info(
+                        "KIS WS 체결통보 raw 수신 #{}: trId={} encrypted={} rawLen={}",
+                        n,
+                        parsed.trId,
+                        parsed.encrypted,
+                        parsed.rawData.length,
+                    )
+                }
                 val data =
                     if (parsed.encrypted) {
                         val aesKey = trIdToAesKey[parsed.trId]
@@ -1855,13 +1882,28 @@ class KisWebSocketBridge(
     }
 
     /**
-     * 시세·캔들·호가 WS는 REAL approval_key를 사용하므로 URL도 실전 WS로 고정한다.
+     * KIS WS endpoint를 거래 환경(magicjar.mode)에 정합시킨다 — REAL=prod(:21000) / MOCK·PAPER=vps(:31000).
      *
-     * `magicjar.mode=MOCK` 환경에서 URL만 VPS(:31000)로 바뀌면 REAL approval_key와 endpoint가
-     * 불일치해 KIS가 opening handshake 전에 연결을 닫을 수 있다.
-     * 모의/실전 분기는 주문 액션과 체결통보 TR_ID에서만 유지한다.
+     * ### 2026-06-10 P1 자본 path 회귀 fix (체결통보 H0STCNI9 6/8 수신 0 — 라이브 실측 확정)
+     * 직전(e0a88a3f, 2026-06-06) `getWsUrl()=wsUrlProd` 무조건 고정이 회귀 근본 원인이었다.
+     *
+     * - 체결통보 tr_id는 [executionNoticeTrId]가 MOCK 모드에서 H0STCNI9(모의 체결통보)를 발사한다.
+     * - 모의 체결통보(H0STCNI9)는 **모의 WS endpoint(vops:31000)에서만 발송**된다.
+     *   prod endpoint(:21000)에 H0STCNI9를 구독하면 KIS는 형식 검증만 통과시켜 SUBSCRIBE SUCCESS를
+     *   주지만(라이브 실측 확인), 그 사용자의 모의 계좌 체결은 prod 서버가 모르므로 데이터를 영구 미발송한다.
+     * - 시세(H0STCNT0)는 prod·vops 동일 발송이라 캔들은 FRESH였고(회귀 은폐), 자본 path인 체결통보만 끊겼다.
+     *   → 6/5까지 MOCK→vops 연결에서 H0STCNI9 정상 수신 → 6/6 endpoint 고정 후 재배포(6/8)부터 WS 체결통보 0.
+     *
+     * ### KIS-first 출처 (endpoint↔환경 정합 의무)
+     * - kis_auth.py auth_ws(svr): `_cfg["ops" if svr=="prod" else "vops"]` — approval_key·WS endpoint가
+     *   동일 svr(prod/vps)에서 파생되어야 한다. 환경 mix 금지(prod approval_key ↔ vops endpoint 불가).
+     *   raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+     *
+     * ### endpoint↔tr_id 정합 LOCK
+     * 본 분기와 [executionNoticeTrId]는 동일 기준([RuntimeModeParser.isRealMode])을 쓴다 →
+     *   MOCK → vops + H0STCNI9 / REAL → prod + H0STCNI0 으로 항상 짝이 맞는다.
      */
-    private fun getWsUrl(): String = wsUrlProd
+    private fun getWsUrl(): String = if (RuntimeModeParser.isRealMode(magicjarMode)) wsUrlProd else wsUrlVps
 
     /**
      * KIS WS subscribe/unsubscribe 메시지 빌드.

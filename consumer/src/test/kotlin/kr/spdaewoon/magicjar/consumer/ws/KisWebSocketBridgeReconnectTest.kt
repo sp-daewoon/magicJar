@@ -1164,4 +1164,76 @@ class KisWebSocketBridgeReconnectTest {
         field.isAccessible = true
         return field.get(bridge) as Set<String>
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 2026-06-10 P1 회귀 fix — getWsUrl endpoint↔거래환경 정합 (체결통보 H0STCNI9 수신 0 fix)
+    // ─────────────────────────────────────────────────────────────────────
+
+    private fun newBridge(mode: String): KisWebSocketBridge {
+        val executionListenerProvider = mockk<ObjectProvider<KisExecutionWsListener>>(relaxed = true)
+        every { executionListenerProvider.getIfAvailable() } returns null
+        val priceMetricsPortProvider =
+            mockk<ObjectProvider<kr.spdaewoon.magicjar.domain.market.port.KisRestPriceMetricsPort>>(relaxed = true)
+        every { priceMetricsPortProvider.getIfAvailable() } returns null
+        return KisWebSocketBridge(
+            approvalAdapter = approvalAdapter,
+            redisTemplate = redisTemplate,
+            kafkaTemplate = kafkaTemplate,
+            objectMapper = objectMapper,
+            quoteCachePort = quoteCachePort,
+            wsClient = wsClient,
+            wsUrlProd = "ws://localhost:21000",
+            wsUrlVps = "ws://localhost:31000",
+            magicjarMode = mode,
+            defaultUserId = "user001",
+            executionListenerProvider = executionListenerProvider,
+            systemEventLogger = systemEventLogger,
+            priceMetricsPortProvider = priceMetricsPortProvider,
+        )
+    }
+
+    private fun invokeGetWsUrl(bridge: KisWebSocketBridge): String {
+        val method = KisWebSocketBridge::class.java.getDeclaredMethod("getWsUrl")
+        method.isAccessible = true
+        return method.invoke(bridge) as String
+    }
+
+    private fun invokeExecutionNoticeTrId(bridge: KisWebSocketBridge): String {
+        val method = KisWebSocketBridge::class.java.getDeclaredMethod("executionNoticeTrId")
+        method.isAccessible = true
+        return method.invoke(bridge) as String
+    }
+
+    @Test
+    fun `getWsUrl MOCK 모드 — vps endpoint(31000) 반환 (체결통보 H0STCNI9 발송 서버 정합)`() {
+        // 회귀: e0a88a3f가 getWsUrl을 wsUrlProd로 무조건 고정 → MOCK 체결통보(H0STCNI9)가
+        // prod endpoint(:21000)에 구독되어 KIS가 데이터를 영구 미발송 (6/8 수신 0).
+        // fix: MOCK → vops(:31000) 복원.
+        val mock = newBridge("MOCK")
+        assertThat(invokeGetWsUrl(mock)).isEqualTo("ws://localhost:31000")
+    }
+
+    @Test
+    fun `getWsUrl PAPER 모드 — vps endpoint(31000) 반환 (REAL 아님 = 모의 서버)`() {
+        val paper = newBridge("PAPER")
+        assertThat(invokeGetWsUrl(paper)).isEqualTo("ws://localhost:31000")
+    }
+
+    @Test
+    fun `getWsUrl REAL 모드 — prod endpoint(21000) 반환`() {
+        val real = newBridge("REAL")
+        assertThat(invokeGetWsUrl(real)).isEqualTo("ws://localhost:21000")
+    }
+
+    @Test
+    fun `endpoint와 체결통보 tr_id 정합 LOCK — MOCK은 vps+H0STCNI9, REAL은 prod+H0STCNI0`() {
+        // 두 분기가 동일 기준(RuntimeModeParser.isRealMode)을 쓰므로 endpoint↔tr_id 짝이 항상 맞아야 한다.
+        val mock = newBridge("MOCK")
+        assertThat(invokeGetWsUrl(mock)).isEqualTo("ws://localhost:31000")
+        assertThat(invokeExecutionNoticeTrId(mock)).isEqualTo("H0STCNI9")
+
+        val real = newBridge("REAL")
+        assertThat(invokeGetWsUrl(real)).isEqualTo("ws://localhost:21000")
+        assertThat(invokeExecutionNoticeTrId(real)).isEqualTo("H0STCNI0")
+    }
 }
