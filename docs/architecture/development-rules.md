@@ -193,6 +193,15 @@ Husky pre-commit에 author 화이트리스트 가드 적용 (ADR 0036 강제).
 - 같은 트랙 내 sub-agent 동시 실행은 architect 판단 + 메인 세션 승인
 - worktree isolation 부담이 가치 미달 시 단일 worktree 진행
 
+### 3-7. 자본 모듈 장중 배포 drain 절차 (2026-06-10 신설 — ADR 0115 §2-P2-④ / 헌법 §11)
+
+> **권위**: ADR 0115 §2-P2-④(장중 배포 in-flight drain 가드) + 운영 헌법 §9-2(변경 관리)·§11. **입력 evidence**: 2026-06-10 005930·전략8 incident **G1** — 13:11 AUTO SELL 발사 직후 재배포로 consumer가 13:11~13:16 다운되어 KIS WS 체결통보 유실(MOCK은 WS 미지원이라 backfill만이 복구 경로). in-flight 주문이 있는 consumer를 장중에 재배포하면 체결통지가 유실되어 strategy_position 미반영(G2·G4로 연쇄)으로 이어진다.
+
+- **룰**: consumer(체결·자본 경로) 재배포는 **장중(09:00~15:30) in-flight 주문 0 확인 후** 또는 **장 마감 후 배포** 원칙. in-flight 주문(`order_request.status IN (REQUESTED, ACK, PARTIALLY_FILLED)`) count > 0이면 drain 대기 또는 명시 force(`--force-drain`) + 부팅 직후 backfill 흡수 확인.
+- **배포 게이트**: `scripts/build-and-deploy.sh consumer`에 in-flight count 확인 게이트(ENV `magicjar.deploy.drain.in-flight-check.enabled`, default true). count > 0이면 경고 출력 + 사용자 확인. 부팅 직후 `KisExecutionBackfillService` 1회 backfill이 유실 윈도를 흡수하나 완전 방지는 아니므로(MOCK WS 미지원), drain 0 확인이 1순위·force-drain 후 backfill 확인이 차순위다.
+- **적용 범위**: consumer(체결 수신·귀속·정합·리스크·알림 본체). api·batch는 in-flight 주문 보유 모듈이 아니므로 본 절차 면제(단 api KIS producer 재배포 시에도 장중 신규 주문 발의 중단 권장).
+- **헌법 cross-link**: 헌법 §9-2(canary dev→staging→REAL + 30분 staging dwell)에 본 drain 절차 동반. 운영 runbook(`docs/operations/`) 신규/보강 의제.
+
 ---
 
 ## §4. 트랙 진입·종료 체크리스트
@@ -326,6 +335,7 @@ Husky pre-commit에 author 화이트리스트 가드 적용 (ADR 0036 강제).
 
 | 날짜 | 변경 |
 |---|---|
+| 2026-06-10 | **§3-7 신설 — 자본 모듈 장중 배포 drain 절차 (ADR 0115 §2-P2-④ / 헌법 §11 / 최고 관리자 전체 승인)**. 2026-06-10 005930·전략8 incident G1(13:11 AUTO SELL 직후 재배포로 consumer 13:11~13:16 다운 → KIS WS 체결통보 유실) evidence. consumer 재배포는 장중 in-flight 주문(`order_request.status IN REQUESTED·ACK·PARTIALLY_FILLED`) 0 확인 후 또는 장 마감 후 배포 원칙 + build-and-deploy drain 게이트(ENV default true) + 부팅 backfill 흡수 확인. (architect) |
 | 2026-05-03 | 초안 — 베이스라인 룰 + 운영 정책 + 트랙별 매트릭스 |
 | 2026-05-07 (PR-2) | AI 변수명 통일 (`MAGICJAR_AI_OPTION_ENABLED` → `MAGICJAR_AI_ENABLED`, .env.example 정합). (architect) |
 | 2026-05-07 (PR-3c) | §2-8 DSL 등록 검증 sandbox 룰 신규 추가 (ADR 0047 정합) — static 검증 한도(AST depth 32·노드 10000·indicator 50·키워드 화이트리스트), strategy-eval-pool 경유 의무, timeout 100ms/1000ms·auto-disable, complexity 응답 의무, R3 grep 검증. 기존 §2-8 README 항목은 §2-9로 시프트. (architect) |
