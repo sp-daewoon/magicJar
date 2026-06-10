@@ -54,26 +54,47 @@ export PGPASSWORD
 
 SQL="SELECT COUNT(*) FROM order_request WHERE status IN ('REQUESTED','ACK','PARTIALLY_FILLED','PENDING_RECONCILE');"
 
-# 호스트 psql 우선, 없으면 postgres 컨테이너 경유 (개발 호스트 표준 — psql 미설치)
-if command -v psql >/dev/null 2>&1; then
-  INFLIGHT="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -tAc "$SQL" 2>/dev/null || echo "ERR")"
-elif command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^magicjar-postgres$'; then
-  INFLIGHT="$(docker exec magicjar-postgres psql -U "$PGUSER" -d "$PGDB" -tAc "$SQL" 2>/dev/null || echo "ERR")"
-else
+query_inflight() {
+  # 호스트 psql 우선, 없으면 postgres 컨테이너 경유 (개발 호스트 표준 — psql 미설치)
+  if command -v psql >/dev/null 2>&1; then
+    psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -tAc "$SQL" 2>/dev/null || echo "ERR"
+  elif command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^magicjar-postgres$'; then
+    docker exec magicjar-postgres psql -U "$PGUSER" -d "$PGDB" -tAc "$SQL" 2>/dev/null || echo "ERR"
+  else
+    echo "SKIP"
+  fi
+}
+
+INFLIGHT="$(query_inflight)"
+
+if [[ "$INFLIGHT" == "SKIP" ]]; then
   echo "▶ drain 가드 skip — psql/postgres 컨테이너를 찾을 수 없습니다(가드 미적용으로 진행)"
   exit 0
 fi
-
 if [[ "$INFLIGHT" == "ERR" ]]; then
   echo "▶ drain 가드 — order_request 조회 실패(DB 미가동 추정) — 가드 미적용으로 진행"
   exit 0
 fi
 
+# in-flight > 0 — 즉시 차단하지 않고 drain 대기 (in-flight 는 보통 수 초 내 체결/거부로 해소).
+# 치명 결함 긴급 배포가 "무조건 차단"에 막히지 않도록: 대기 → 자동 해소 시 진행, 시한 초과 시에만 중단+우회 안내.
+DRAIN_WAIT_SECONDS="${DRAIN_WAIT_SECONDS:-60}"
+POLL_INTERVAL=5
+waited=0
+while [[ "${INFLIGHT:-0}" -gt 0 && "$waited" -lt "$DRAIN_WAIT_SECONDS" ]]; do
+  echo "▶ in-flight 주문 ${INFLIGHT}건 — drain 대기 중 (${waited}s/${DRAIN_WAIT_SECONDS}s)…"
+  sleep "$POLL_INTERVAL"
+  waited=$((waited + POLL_INTERVAL))
+  INFLIGHT="$(query_inflight)"
+  [[ "$INFLIGHT" == "ERR" || "$INFLIGHT" == "SKIP" ]] && INFLIGHT=0
+done
+
 if [[ "${INFLIGHT:-0}" -gt 0 ]]; then
-  echo "✗ in-flight 주문 ${INFLIGHT}건(REQUESTED·ACK·PARTIALLY_FILLED·PENDING_RECONCILE) — consumer 재배포 중단(체결통지 유실 risk)" >&2
-  echo "  drain 대기 후 재시도하거나, 의도적이면 SKIP_DRAIN_CHECK=1 로 우회하세요." >&2
+  echo "✗ in-flight 주문 ${INFLIGHT}건이 ${DRAIN_WAIT_SECONDS}s 내 해소되지 않음 — consumer 재배포 중단(체결통지 유실 risk)" >&2
+  echo "  긴급 배포(치명 결함)면: SKIP_DRAIN_CHECK=1 scripts/build-and-deploy.sh …  (부팅 backfill 이 체결 회복)" >&2
+  echo "  대기 연장: DRAIN_WAIT_SECONDS=300 …" >&2
   exit 1
 fi
 
-echo "▶ drain 가드 통과 — in-flight 주문 0건"
+echo "▶ drain 가드 통과 — in-flight 주문 0건 (대기 ${waited}s)"
 exit 0
