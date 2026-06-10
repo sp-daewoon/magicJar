@@ -720,4 +720,118 @@ class JvmBacktestEngineTest {
         assertTrue(fractionalMdd in 0.01..0.05, "10% 슬롯 MDD는 -2% 근방 (실측 $fractionalMdd)")
         assertTrue(fractionalMdd < allCapitalMdd, "FixedFractional MDD($fractionalMdd) < AllCapital MDD($allCapitalMdd) — 분산 환산")
     }
+
+    // =====================================================================
+    // ADR 0121 §2-A scale-in 경로 정합 (#871 누락분 hotfix — V78 결함 재발 가드)
+    // #871은 executeBuy(비-scale-in)만 슬롯 환산하고 evaluateScaleInExitSlice를 빠뜨려,
+    // scale_in_config 전략에서 FixedFractional이 AllCapital과 비트 동일(무력화)되던 갭을 메운다.
+    // V77/V78 LOCK 방법론은 TP/SL 발화를 위해 scale-in(totalSlices=1) 경로를 쓰므로 이 경로가 권위.
+    // =====================================================================
+
+    /** totalSlices=1 scale-in 전략(weight=100% 단일 회차 → executeBuy 슬롯과 등가 확인용). */
+    private fun singleSliceScaleInStrategy(buyCondition: kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode): Strategy {
+        val plan = ScaleInPlan(totalSlices = 1, sliceWeights = null, reentryTrigger = ReentryTrigger.SIGNAL_REPEAT, minSliceIntervalSec = 0)
+        // TP/SL 동반 — V77/V78처럼 scale-in 경로를 활성화하되 단일 회차로 격리.
+        return makeScaleInStrategy(buyCondition, scaleIn = plan, fixedStopLoss = BigDecimal("20"), takeProfitPct = BigDecimal("50"))
+    }
+
+    @Test
+    fun `사이징 scale-in - totalSlices=1 FixedFractional 슬롯이 비-scale-in executeBuy와 동일 금액`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        val policy = SizingPolicy.FixedFractional(positionPercent = BigDecimal("10.00"), maxConcurrent = 5)
+
+        // (A) 비-scale-in executeBuy 경로 수량
+        whenever(strategyRepo.findById(1L)).thenReturn(makeBuyOnlyStrategy(buyNode))
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(candlesWithCloses(listOf("1000", "1000", "1000")))
+        run {
+            var idx = 0
+            val results =
+                listOf(
+                    StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L),
+                    StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+                    StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+                )
+            whenever(evaluatorBridge.evaluateBacktest(any(), any(), any())).thenAnswer { results[idx++.coerceAtMost(results.size - 1)] }
+        }
+        val nonScaleInBuy =
+            (assertInstanceOf(BacktestResult.Success::class.java, engine.run(fractionalRequest(policy))))
+                .trades
+                .first { it.side == TradeSide.BUY }
+
+        // (B) totalSlices=1 scale-in 경로 첫 회차 수량
+        whenever(strategyRepo.findById(1L)).thenReturn(singleSliceScaleInStrategy(buyNode))
+        run {
+            whenever(evaluatorBridge.evaluateBacktest(any(), any(), any()))
+                .thenReturn(StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L))
+        }
+        val scaleInBuy =
+            (assertInstanceOf(BacktestResult.Success::class.java, engine.run(fractionalRequest(policy))))
+                .trades
+                .first { it.side == TradeSide.BUY }
+
+        assertEquals(1000L, nonScaleInBuy.quantity, "비-scale-in 10% 슬롯 = 1000주")
+        assertEquals(
+            nonScaleInBuy.quantity,
+            scaleInBuy.quantity,
+            "totalSlices=1 scale-in FixedFractional 슬롯이 executeBuy와 등가여야 합니다(weight 100%)",
+        )
+        // scale-in 경로임을 확인(누락분이 실제 scale-in 경로에서 채워졌음을 입증).
+        assertEquals(0, scaleInBuy.signalReason["sliceIndex"], "scale-in 회차 reason 기록(경로 확인)")
+    }
+
+    @Test
+    fun `사이징 scale-in - FixedFractional vs AllCapital 결과가 달라야 한다(V78 결함 재발 가드)`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        // V78 방법론: scale_in_config(totalSlices=1) + TP/SL로 scale-in 경로 활성. t1 -20% 미실현 → 회복.
+        val closes = listOf("1000", "800", "1000")
+
+        fun runScaleIn(policy: SizingPolicy): Pair<Long, Double> {
+            whenever(strategyRepo.findById(1L)).thenReturn(singleSliceScaleInStrategy(buyNode))
+            whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+                .thenReturn(candlesWithCloses(closes))
+            whenever(evaluatorBridge.evaluateBacktest(any(), any(), any()))
+                .thenReturn(StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L))
+            val s = assertInstanceOf(BacktestResult.Success::class.java, engine.run(fractionalRequest(policy)))
+            return s.trades.first { it.side == TradeSide.BUY }.quantity to s.performance.maxDrawdown.toDouble()
+        }
+
+        val (allCapQty, allCapMdd) = runScaleIn(SizingPolicy.AllCapital)
+        val (fracQty, fracMdd) =
+            runScaleIn(SizingPolicy.FixedFractional(positionPercent = BigDecimal("10.00"), maxConcurrent = 5))
+
+        // 핵심 가드: 비트 동일이면 #871 결함(scale-in FixedFractional 무력화)이 재발한 것 → fail.
+        assertTrue(
+            fracQty != allCapQty,
+            "scale-in 경로에서 FixedFractional 수량($fracQty)이 AllCapital($allCapQty)과 달라야 합니다(무력화 재발 가드)",
+        )
+        assertTrue(fracQty < allCapQty, "10% 슬롯 수량($fracQty) < AllCapital 전액($allCapQty)")
+        assertTrue(
+            fracMdd < allCapMdd,
+            "scale-in FixedFractional MDD($fracMdd) < AllCapital MDD($allCapMdd) — 분산 노출 환산이 scale-in 경로에도 적용",
+        )
+        assertTrue(allCapMdd in 0.15..0.25, "scale-in AllCapital MDD는 -20% 근방 (실측 $allCapMdd)")
+    }
+
+    @Test
+    fun `사이징 scale-in - AllCapital totalSlices=3 기존 균등 분할 결과 회귀 0`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        val plan = ScaleInPlan(totalSlices = 3, sliceWeights = null, reentryTrigger = ReentryTrigger.SIGNAL_REPEAT, minSliceIntervalSec = 0)
+        whenever(strategyRepo.findById(1L)).thenReturn(
+            makeScaleInStrategy(buyNode, scaleIn = plan, fixedStopLoss = BigDecimal("20"), takeProfitPct = BigDecimal("50")),
+        )
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(candlesWithCloses(listOf("1000", "1000", "1000")))
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any()))
+            .thenReturn(StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L))
+
+        // AllCapital sliceBase=초기자본 → 균등 3분할 weight=1/3씩. 1000원 × 10,000,000 가정:
+        // 회차0 = floor(10,000,000 × 33.333…% ) / 1000. 기존 R3 테스트와 동일 경로(회귀 0) 보장.
+        val success = assertInstanceOf(BacktestResult.Success::class.java, engine.run(fractionalRequest(SizingPolicy.AllCapital)))
+        val buys = success.trades.filter { it.side == TradeSide.BUY }
+        assertEquals(3, buys.size, "AllCapital 3분할 진입 = BUY 3건(기존 동작)")
+        assertEquals(listOf(0, 1, 2), buys.map { it.signalReason["sliceIndex"] }, "회차 인덱스 0/1/2(기존 동작)")
+        // 균등 분할 — 초기자본 base로 산정된 각 회차 수량이 양수(슬롯 base가 cash 아닌 초기자본임을 확인).
+        assertTrue(buys.all { it.quantity > 0 }, "AllCapital 각 회차 수량 > 0(회귀 0)")
+    }
 }

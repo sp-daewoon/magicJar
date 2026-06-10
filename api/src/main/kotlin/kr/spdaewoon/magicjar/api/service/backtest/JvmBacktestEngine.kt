@@ -488,17 +488,32 @@ class JvmBacktestEngine(
         cash: BigDecimal,
     ): BigDecimal =
         when (policy) {
-            is SizingPolicy.FixedFractional -> {
-                val percentSlot =
-                    initialCapital
-                        .multiply(policy.positionPercent)
-                        .divide(BigDecimal(100), 0, RoundingMode.DOWN)
-                val slot = policy.maxPositionAmount?.let { percentSlot.min(it) } ?: percentSlot
-                slot.min(cash) // 잔여 cash 부족 시 가용 cash로 클램프(진입 skip 아님).
-            }
+            is SizingPolicy.FixedFractional ->
+                fractionalSlot(policy, initialCapital)
+                    .min(cash) // 잔여 cash 부족 시 가용 cash로 클램프(진입 skip 아님).
             // AllCapital · Kelly(post-MVP fallback) — 보유 현금 전액.
             else -> cash
         }
+
+    /**
+     * 사이징 정책별 1슬롯 자본 노출 base — `min(initialCapital × positionPercent/100, maxPositionAmount ?: ∞)`.
+     *
+     * `buyBudget`(비-scale-in)과 `evaluateScaleInExitSlice`(scale-in 회차 budget)가 **동일 규칙**을 쓰도록 단일 함수로 추출
+     * (ADR 0121 §2-A · §2-2 LOCK — scale-in 경로 정합 보강). 슬롯 base는 **initialCapital 고정**(현재 cash 아님)이라
+     * 복리 누적으로 슬롯이 부풀어 노출이 100%로 수렴하는 것을 막는다(일정 비중 분산 근사). cash clamp는 호출부 책임.
+     *
+     * scale-in totalSlices=1(weight=100%)이면 회차 budget = 슬롯 × 100% = 본 슬롯과 **등가** → executeBuy 경로와 비트 동일 보장.
+     */
+    private fun fractionalSlot(
+        policy: SizingPolicy.FixedFractional,
+        initialCapital: BigDecimal,
+    ): BigDecimal {
+        val percentSlot =
+            initialCapital
+                .multiply(policy.positionPercent)
+                .divide(BigDecimal(100), 0, RoundingMode.DOWN)
+        return policy.maxPositionAmount?.let { percentSlot.min(it) } ?: percentSlot
+    }
 
     private fun executeBuy(
         code: String,
@@ -682,9 +697,17 @@ class JvmBacktestEngine(
                 val weight = decision.weightPct
                 val executedPrice = slippageModel.apply(TradeSide.BUY, evalPrice)
                 if (executedPrice.compareTo(ZERO) == 0) return null
-                // 회차 예산 = 초기자본 × weight% (종목 예산 분배). 보유 현금으로 clamp.
+                // 회차 예산 = 슬롯 base × weight% (종목 예산 분배). 보유 현금으로 clamp.
+                // 슬롯 base는 사이징 정책별로 결정(ADR 0121 §2-A — scale-in 경로 정합 보강, #871 누락분 정정):
+                //  · AllCapital: base = 초기자본 전액 → 기존 동작 무변경(회귀 0).
+                //  · FixedFractional: base = fractionalSlot(executeBuy와 동일 규칙). totalSlices=1·weight=100%이면 슬롯 그대로 → executeBuy와 등가.
+                val sliceBase =
+                    when (val policy = request.sizingPolicy) {
+                        is SizingPolicy.FixedFractional -> fractionalSlot(policy, request.initialCapital)
+                        else -> request.initialCapital
+                    }
                 val sliceBudget =
-                    request.initialCapital
+                    sliceBase
                         .multiply(weight)
                         .divide(BigDecimal(100), 0, RoundingMode.DOWN)
                         .min(cash)
