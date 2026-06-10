@@ -78,15 +78,88 @@ object LedgerAttributedDriftCorrection {
             }
         }
 
-        // 전체 정합 검산 — 보정 후 합이 authority 와 정확히 일치할 때만 정정(모호하면 WARN).
+        // 전체 정합 검산 — 보정 후 합이 authority 와 정확히 일치할 때만 정정(모호하면 WARN 또는 evidence 완화).
         val correctedSum = targetByStrategy.values.sum()
         if (correctedSum != authority) {
-            return DriftCorrectionResult.WarnUnderflow(
-                strategySum = strategySum,
-                authorityQuantity = authority,
-            )
+            // 1차 검산 실패(ledger net 집계 합 ≠ authority) — 단일 전략 + 주문 evidence 로 완화 시도(2026-06-10 amend).
+            //
+            // 오늘 incident: 부분체결 일부 execution 이 ledger net 집계에서까지 누락되면 net 이 부족하게 잡혀 1차 검산이
+            // 깨질 수 있다. 그러나 (a) 그 종목 보유 전체가 단일 전략의 것이고(비-zero leg 단일 — 모호성 0) (b) 그 전략의
+            // FILLED 주문 합계 evidence([SingleStrategyOrderEvidence.netFilledFromOrders])가 authority 와 정합하면,
+            // "없는 물량 인식" risk 없이 그 단일 전략 leg 을 authority 로 채울 수 있다 → Adjust 대칭. 모호하면 WarnUnderflow 유지.
+            return relaxBySingleStrategyOrderEvidence(input, strategySum, authority)
+                ?: DriftCorrectionResult.WarnUnderflow(
+                    strategySum = strategySum,
+                    authorityQuantity = authority,
+                )
         }
 
+        return buildAdjustOrNoChange(input, strategySum, authority, targetByStrategy)
+    }
+
+    /**
+     * 부족 방향 완화 — 단일 전략 + 주문 evidence 정합 시 Adjust(대칭), 그 외 null(호출 측이 WarnUnderflow 로 폴백).
+     *
+     * ## 완화 게이트 (모두 통과해야 보정 — 모호성 0 LOCK)
+     * 1. **evidence 주입**: `input.orderEvidence != null`. R2(consumer)가 해당 user+code 의 전략별 FILLED 주문 합계를
+     *    제공할 때만 본 경로 활성(주입 없으면 현행 WarnUnderflow — 회귀 안전).
+     * 2. **단일 귀속 전략**: 그 종목에서 보유에 기여하는 전략이 정확히 1개. 판정은 "비-zero leg" + "ledger net>0 전략" +
+     *    "evidence 가 가리키는 전략" 의 합집합이 단일 strategyId 여야 한다(다전략 혼재면 귀속 모호 → 완화 거부).
+     * 3. **evidence ↔ authority 정합**: 그 단일 전략의 `netFilledFromOrders == authority`. FILLED 주문 합계가 KIS 권위와
+     *    정확히 일치할 때만 "그 종목 보유 전부가 그 전략의 것" 으로 신뢰(외부·MANUAL 혼재 시 불일치 → 거부).
+     *
+     * 통과 시 그 전략 leg 을 authority 로 set(절대목표 — 멱등). leg 부재면 신규 생성 대상.
+     */
+    private fun relaxBySingleStrategyOrderEvidence(
+        input: LedgerDriftInput,
+        strategySum: Int,
+        authority: Int,
+    ): DriftCorrectionResult? {
+        val evidence = input.orderEvidence ?: return null
+
+        // 보유에 기여할 수 있는 후보 전략 합집합 — 비-zero leg + ledger net>0 + evidence 전략.
+        val candidateStrategies =
+            buildSet {
+                input.legs.filter { it.quantity > 0 }.forEach { add(it.strategyId) }
+                input.attributions.filter { it.netFilledQuantity > 0 }.forEach { add(it.strategyId) }
+                add(evidence.strategyId)
+            }
+        // 단일 전략만 완화(다전략 혼재 → 귀속 모호 → 거부). evidence 전략과 동일해야 함.
+        if (candidateStrategies.size != 1 || candidateStrategies.first() != evidence.strategyId) {
+            return null
+        }
+        // evidence(FILLED 주문 합계)가 KIS 권위와 정확히 일치할 때만 신뢰(외부·MANUAL 혼재 불일치 → 거부).
+        if (evidence.netFilledFromOrders != authority) {
+            return null
+        }
+
+        // 그 단일 전략 leg 을 authority 로 채움(절대목표 set — 멱등). leg 부재면 신규(previous=0).
+        val previous = input.legs.firstOrNull { it.strategyId == evidence.strategyId }?.quantity ?: 0
+        if (previous == authority) {
+            // 이미 정합(방어 — strategySum<authority 였으므로 통상 발생 안 함).
+            return DriftCorrectionResult.NoChange
+        }
+        return DriftCorrectionResult.Adjust(
+            strategySum = strategySum,
+            authorityQuantity = authority,
+            corrections =
+                listOf(
+                    LegCorrection(
+                        strategyId = evidence.strategyId,
+                        previousQuantity = previous,
+                        newQuantity = authority,
+                    ),
+                ),
+        )
+    }
+
+    /** ledger net 검산 통과 후 — 바뀌는 leg 만 [DriftCorrectionResult.Adjust], 없으면 [DriftCorrectionResult.NoChange]. */
+    private fun buildAdjustOrNoChange(
+        input: LedgerDriftInput,
+        strategySum: Int,
+        authority: Int,
+        targetByStrategy: Map<Long, Int>,
+    ): DriftCorrectionResult {
         // 실제 수량이 바뀌는 leg 만 corrections 로(멱등 — 이미 목표면 제외).
         val legQty = input.legs.associate { it.strategyId to it.quantity }
         val corrections =
@@ -122,6 +195,9 @@ object LedgerAttributedDriftCorrection {
  * @param attributions 전략별 귀속 ledger 순매수량(FILLED execution `sum(BUY)-sum(SELL)`, source=AUTO·strategyId≠0).
  *   R2 어댑터가 order_request⨝order_execution JPA 집계로 채운다. **외부·MANUAL 체결은 제외**(귀속 근거 없음 — 보수성 LOCK).
  * @param enabled 보정 활성 토글(ENV `magicjar.position.drift-auto-correct.enabled` 주입 — 초과 보정과 동일 키 공유).
+ * @param orderEvidence 단일 전략 부족 완화용 주문 evidence(2026-06-10 amend). ledger net 집계 1차 검산이 실패해도
+ *   (a) 보유 기여 전략이 단일이고 (b) 그 전략의 FILLED 주문 합계가 authority 와 정합하면 자동 보정한다. null 이면
+ *   현행 WarnUnderflow(회귀 안전). R2 가 evidence 가 명확할 때만 주입(부분체결 일부 누락으로 net 이 부족하게 잡히는 케이스).
  */
 data class LedgerDriftInput(
     val code: String,
@@ -129,6 +205,26 @@ data class LedgerDriftInput(
     val legs: List<StrategyPositionLeg>,
     val attributions: List<LedgerAttribution>,
     val enabled: Boolean = DriftCorrectionDefaults.AUTO_CORRECT_ENABLED,
+    val orderEvidence: SingleStrategyOrderEvidence? = null,
+)
+
+/**
+ * 단일 전략 부족 완화 evidence — 그 종목 보유가 단일 전략의 것임을 입증하는 주문 차원 근거(2026-06-10 amend).
+ *
+ * ledger net 집계(execution 차원)가 부분체결 일부 누락으로 부족하게 잡혀 1차 검산이 깨지는 경우에도,
+ * **그 전략의 FILLED 주문 합계**(주문 차원 — `sum(BUY filled) - sum(SELL filled)`)가 KIS 권위 authority 와 정합하면
+ * "그 종목 보유 전부가 그 전략의 것" 임을 신뢰할 수 있다(외부·MANUAL 혼재 시 불일치 → 완화 거부).
+ *
+ * evidence 판정 자체(어느 전략이 단일인가·FILLED 주문 합계 산정)는 **R2(consumer)의 DB 조회 책임**이며,
+ * 본 순수 함수는 그 산출값을 입력으로 받아 게이트만 판정한다(순수성 LOCK — DB 조회 0).
+ *
+ * @param strategyId 보유 기여 단일 전략(R2 가 "그 종목 비-zero 귀속 전략이 1개" 임을 확인하고 그 id 를 넣는다).
+ * @param netFilledFromOrders 그 전략의 주문 차원 FILLED 순매수량(`sum(BUY filled qty) - sum(SELL filled qty)`).
+ *   authority 와 정확히 일치할 때만 완화 발동(없는 물량 인식 risk 0).
+ */
+data class SingleStrategyOrderEvidence(
+    val strategyId: Long,
+    val netFilledFromOrders: Int,
 )
 
 /**
