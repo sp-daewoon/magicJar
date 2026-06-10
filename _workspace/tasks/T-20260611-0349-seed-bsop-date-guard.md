@@ -3,10 +3,10 @@ id: T-20260611-0349-seed-bsop-date-guard
 agent: market-data
 model: opus
 branch: agent/market-data/seed-bsop-date-guard
-status: RUNNING
+status: DONE
 startedAt: 2026-06-11T03:49:05.707+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-11T03:56:50.118+09:00
+pr: #916
 parentPhase: ?
 ---
 
