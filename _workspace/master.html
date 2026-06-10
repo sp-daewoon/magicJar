@@ -70,7 +70,7 @@
   <div class="banner-cards">
     <div class="banner-card release">
       <div class="label">현재 Release</div>
-      <div class="value">v3.12.3</div>
+      <div class="value">v3.12.4</div>
       <div class="sub">2026-06-10</div>
     </div>
     <div class="banner-card cycle">
@@ -86,7 +86,7 @@
   </div>
   <div class="banner-timeline">
     <div class="label">📍 이번 작업 사이클 timeline</div>
-    <div>chore(strategy): task T-20260610-0344 start → feat(strategy): V77 단타 프리셋 재검증 — 클린 MDD 게이트 + donc → chore(strategy): task T-20260610-0344 done (PR #86 → fix(strategy): V77 H1 비활성 집행 보류 — 사이징↔게이트 불일치 결정 반</div>
+    <div>hotfix(market-data): KIS WS 체결통보(H0STCNI9 MOCK) 6/</div>
   </div>
 </div>
 
@@ -112,7 +112,7 @@
       <div class="card">
         <div class="card-title">📄 README.md</div>
         <div class="card-sub">🪄 magicJar Master Index</div>
-        <div class="card-meta">621 lines · 갱신 2026-06-09</div>
+        <div class="card-meta">622 lines · 갱신 2026-06-10</div>
       </div>
     
       <div class="card">
@@ -143,6 +143,12 @@
     <div class="adr-recent">
       
         <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0121</div>
+          <div class="adr-title">백테스트 사이징 정합(실전 RiskConfig) + G3 게이트 재정의(실전 사이징 기준 포트폴리오 MDD)</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #4caf50">
           <div class="adr-number">0120</div>
           <div class="adr-title">1wk/1mo/1y를 1d 합산으로 전환 — 기준봉/파생봉 통일 모델</div>
           <div class="adr-meta">Accepted · -</div>
@@ -166,20 +172,21 @@
           <div class="adr-meta">Accepted · -</div>
         </div>
       
-        <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0116</div>
-          <div class="adr-title">KIS Rate Limit Phase 2 — priority별 별도 버킷 + KIS 실제 한도 정합</div>
-          <div class="adr-meta">Accepted · -</div>
-        </div>
-      
     </div>
-    <h3>전체 116건 (검색·정렬 가능)</h3>
+    <h3>전체 117건 (검색·정렬 가능)</h3>
     <input class="cat-search" data-cat="C" placeholder="ADR 검색…" />
     <table class="adr-table" data-sortable>
       <thead>
         <tr><th data-sort="number">번호</th><th data-sort="title">제목</th><th data-sort="status">status</th><th data-sort="date">날짜</th></tr>
       </thead>
       <tbody>
+        
+          <tr data-search="121 백테스트 사이징 정합(실전 riskconfig) + g3 게이트 재정의(실전 사이징 기준 포트폴리오 mdd) accepted">
+            <td>0121</td>
+            <td><a href="_workspace/arch/adr/0121-backtest-sizing-alignment-and-g3-portfolio-mdd.md">백테스트 사이징 정합(실전 RiskConfig) + G3 게이트 재정의(실전 사이징 기준 포트폴리오 MDD)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
         
           <tr data-search="120 1wk/1mo/1y를 1d 합산으로 전환 — 기준봉/파생봉 통일 모델 accepted">
             <td>0120</td>
@@ -1584,7 +1591,7 @@
 
   <div class="cat-content" data-cat="D" data-group-content-cat="권위" data-active="false">
     
-    <h3>최근 spec 10건 / 전체 86건</h3>
+    <h3>최근 spec 10건 / 전체 87건</h3>
     <input class="cat-search" data-cat="D" placeholder="spec 검색…" />
     <div class="spec-list">
       
@@ -2018,6 +2025,11 @@
           <div class="card-meta">📄 _workspace/specs/daytrade-discovery-spec.md </div>
         </div>
       
+        <div class="card" data-search="session-function-dsl-spec.md spec — 세션함수 dsl 확장 (당일 vwap · orb · time-of-day rvol) 계약 초안">
+          <div class="card-title">📄 spec — 세션함수 DSL 확장 (당일 VWAP · ORB · time-of-day RVOL) 계약 초안</div>
+          <div class="card-meta">📄 _workspace/specs/session-function-dsl-spec.md </div>
+        </div>
+      
     </div>
   
   </div>
@@ -2072,6 +2084,12 @@
     <div class="adr-recent">
       
         <div class="adr-card" style="border-left:3px solid #ff9800">
+          <div class="adr-number">v3.12.4</div>
+          <div class="adr-title">v3.12.4 — v3.12.4 릴리즈</div>
+          <div class="adr-meta">2026-06-10</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #ff9800">
           <div class="adr-number">v3.12.3</div>
           <div class="adr-title">v3.12.3 — v3.12.3 릴리즈</div>
           <div class="adr-meta">2026-06-09</div>
@@ -2095,17 +2113,13 @@
           <div class="adr-meta">2026-06-08</div>
         </div>
       
-        <div class="adr-card" style="border-left:3px solid #ff9800">
-          <div class="adr-number">v3.11.0</div>
-          <div class="adr-title">v3.11.0 — Scenario Replay Sandbox baseline</div>
-          <div class="adr-meta">2026-06-02</div>
-        </div>
-      
     </div>
     <h3>전체 30건</h3>
     <table>
       <thead><tr><th>tag</th><th>날짜</th><th>title</th></tr></thead>
       <tbody>
+        
+          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.12.4">v3.12.4</a></td><td>2026-06-10</td><td>v3.12.4 — v3.12.4 릴리즈</td></tr>
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.12.3">v3.12.3</a></td><td>2026-06-09</td><td>v3.12.3 — v3.12.3 릴리즈</td></tr>
         
@@ -2164,8 +2178,6 @@
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.3">v3.6.3</a></td><td>2026-05-14</td><td>v3.6.3 — v3.6.3 릴리즈</td></tr>
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.2">v3.6.2</a></td><td>2026-05-13</td><td>v3.6.2 — v3.6.2 릴리즈</td></tr>
-        
-          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.1">v3.6.1</a></td><td>2026-05-13</td><td>v3.6.1 — v3.6.1 릴리즈</td></tr>
         
       </tbody>
     </table>
