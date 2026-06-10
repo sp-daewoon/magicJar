@@ -106,6 +106,11 @@ magicjar:
     ack-resync:
       enabled: ${MAGICJAR_ORDER_ACK_RESYNC_ENABLED:true}
       stale-threshold-seconds: ${MAGICJAR_ORDER_ACK_RESYNC_STALE_THRESHOLD_SECONDS:180}
+    # ADR 0115 §2-P2-② — terminal(특히 CANCELLED) 주문이라도 KIS 일별체결 totCcldQty 가 기록된 체결을 초과하면 흡수.
+    #   취소-체결 race(시스템 CANCELLED·KIS 실체결, G5 11주 영구 미기록) 차단. execution INSERT 는 status 와 독립, status 는 보존.
+    #   false → 현행 terminal skip(체결 누락 risk). 자본 audit 무결성(진실원 완전성 — 대안 B 전제).
+    cancelled-fill-reconcile:
+      enabled: ${MAGICJAR_ORDER_CANCELLED_FILL_RECONCILE_ENABLED:true}
   # 분할매수(scale-in) / 분할익절 "리플레이 먼저" 게이트 (spec §8-1 · ADR 0111 §2-7).
   #   default false — toggle OFF면 RealtimeSignalGenerator가 scaleIn/partialExits 설정 전략도 현행 단일
   #   진입 + 전량 익절 경로로 평가(ScaleInExitCalculator 미사용). qa 2라운드 GREEN(PR #750·#753)으로 2026-06-05 default true 영구화.
@@ -139,6 +144,11 @@ magicjar:
   position:
     drift-auto-correct:
       enabled: ${MAGICJAR_POSITION_DRIFT_AUTO_CORRECT_ENABLED:true}
+    # ADR 0115 §2-P2 R1 — strategy_position 을 order_execution(진실원) 파생 재계산 뷰로 reconcile(대안 B-on-A 1급).
+    #   reconcile 주기에 rebuild + KIS 권위 교차검산(totalQuantity==position) 일치 시만 upsert. 부분체결 N건 정확 N회 귀속(G4).
+    #   false → 현행 증분+drift 보정 경로로 회귀(rebuild no-op). 교차검산 불일치·over-sell clamp 면 미적용(KIS 권위 우선).
+    ledger-rebuild:
+      enabled: ${MAGICJAR_POSITION_LEDGER_REBUILD_ENABLED:true}
   # ADR 0115 §P2-2 — 같은 전략·종목 SELL 거부 N회 누적 시 전략 자동 정지(autoDisable) + 1회 알림(rate limiter 디바운스).
   #   정지는 drift 자동보정(P1-1)이 정합 회복하면 자연 해소, 사용자가 재활성화. 0이면 자동정지 비활성.
   notification:

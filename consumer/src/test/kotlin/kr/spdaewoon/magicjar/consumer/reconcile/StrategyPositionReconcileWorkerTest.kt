@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.reconcile
 
+import kr.spdaewoon.magicjar.consumer.order.HoldingPositionIndex
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerExecutionStrategyPositionAdapter
 import kr.spdaewoon.magicjar.consumer.persistence.PositionJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.PositionJpaRepository
@@ -16,6 +17,7 @@ import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.verifyNoInteractions
 import org.mockito.kotlin.whenever
+import org.springframework.beans.factory.ObjectProvider
 
 /**
  * [StrategyPositionReconcileWorker] 단위 테스트 — ADR 0115 §P1-1 amend (2026-06-10).
@@ -27,13 +29,18 @@ class StrategyPositionReconcileWorkerTest {
     private val positionRepo: PositionJpaRepository = mock()
     private val strategyPositionRepo: StrategyPositionJpaRepository = mock()
     private val adapter: ConsumerExecutionStrategyPositionAdapter = mock()
-    private val worker = StrategyPositionReconcileWorker(positionRepo, strategyPositionRepo, adapter)
+    private val holdingIndex: HoldingPositionIndex = mock()
+    private val holdingIndexProvider: ObjectProvider<HoldingPositionIndex> = mock()
+    private val worker =
+        StrategyPositionReconcileWorker(positionRepo, strategyPositionRepo, adapter, holdingIndexProvider)
 
     @BeforeEach
     fun setUp() {
         // 기본: strategy_position 잔존 종목 0 (대부분 케이스는 position 측만으로 충분).
         whenever(strategyPositionRepo.findDistinctCodesByUserIdAndQuantityPositive(any()))
             .thenReturn(emptyList())
+        // index provider — 정합 후 onFillRefresh 동반 호출(⑤). 빈 합류 가정.
+        whenever(holdingIndexProvider.getIfAvailable()).thenReturn(holdingIndex)
     }
 
     @Test

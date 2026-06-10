@@ -80,6 +80,7 @@ class KisExecutionBackfillServiceTest {
     private fun newService(
         backfillEnabled: Boolean = true,
         magicjarMode: String = "REAL",
+        cancelledFillReconcileEnabled: Boolean = true,
     ) = KisExecutionBackfillService(
         kisOrderInquireCcldHttpAdapter = kisAdapter,
         credentialRepository = credentialRepo,
@@ -93,6 +94,7 @@ class KisExecutionBackfillServiceTest {
         strategyPositionExecutionReplayServiceProvider = strategyReplayServiceProvider,
         magicjarMode = magicjarMode,
         backfillEnabled = backfillEnabled,
+        cancelledFillReconcileEnabled = cancelledFillReconcileEnabled,
     )
 
     @Test
@@ -343,6 +345,58 @@ class KisExecutionBackfillServiceTest {
         assertThat(result.isComplete).isTrue()
         assertThat(result.inserted).isEqualTo(1)
         assertThat(result.accountType).isEqualTo(AccountType.MOCK)
+    }
+
+    @Test
+    fun `(m) ADR 0115 P2-2 G5 — CANCELLED 주문 KIS 실체결 누락 흡수 + status CANCELLED 보존`() {
+        // G5 재현(취소-체결 race): 매도 #229 가 시스템상 CANCELLED·order_execution 0건인데 KIS 11주 실체결.
+        //   기존: isTerminalForBackfill(CANCELLED) → status sync skip + execution!=null 시 PARTIALLY_FILLED 덮어쓰기.
+        //   기대: execution INSERT 는 수행(11주 기록), status 는 CANCELLED 보존(markCompleted/updateStatus 0).
+        val service = newService(magicjarMode = "MOCK")
+        val exec = stubBackfillExec(kisOrderNo = "ODNO_CANCELLED", totCcldQty = 11).copy(sellBuyCls = "01")
+        every { kisAdapter.fetchTodayExecutions("USER_CANCEL", AccountType.MOCK) } returns listOf(exec)
+
+        val cancelledRequest =
+            stubOrderRequest(id = 229L, kisOrderNo = "ODNO_CANCELLED", userId = "USER_CANCEL")
+                .copy(status = OrderStatus.CANCELLED, side = OrderSide.SELL, quantity = 14)
+        every { orderRepo.findByKisOrderNo("ODNO_CANCELLED") } returns cancelledRequest
+        every { execRepo.existsByEventId(any()) } returns false
+        // 기록된 체결 0 → delta 11 신규 INSERT. INSERT 후 sum=11 (재조회는 status sync 진입 안 함 — preserveStatus).
+        every { execRepo.sumExecutedQuantityByOrder(229L) } returns 0 andThen 11
+        every { execRepo.save(any()) } answers { firstArg<OrderExecution>().copy(id = 229_001L) }
+
+        val result = service.syncUserTodayExecutions("USER_CANCEL", AccountType.MOCK, verifyCredential = false)
+
+        // 핵심: 11주 체결 기록(진실원 INSERT) — 역방향 사슬 소실 해소.
+        val savedExec = slot<OrderExecution>()
+        verify(exactly = 1) { execRepo.save(capture(savedExec)) }
+        assertThat(savedExec.captured.executedQuantity).isEqualTo(11)
+        // 핵심: status CANCELLED 보존 — markCompleted/updateStatus 0 (PARTIALLY_FILLED 덮어쓰기 차단).
+        verify(exactly = 0) { orderRepo.markCompleted(any(), any(), any()) }
+        verify(exactly = 0) { orderRepo.updateStatus(any(), any(), any()) }
+        assertThat(result.inserted).isEqualTo(1)
+    }
+
+    @Test
+    fun `(n) ADR 0115 P2-2 토글 off — CANCELLED 체결 대조 비활성 시 현행 terminal skip 동작`() {
+        // 토글 off → CANCELLED 주문은 현행대로 흡수 안 함(execution INSERT 0). 회귀 안전.
+        val service = newService(magicjarMode = "MOCK", cancelledFillReconcileEnabled = false)
+        val exec = stubBackfillExec(kisOrderNo = "ODNO_CANCELLED_OFF", totCcldQty = 11).copy(sellBuyCls = "01")
+        every { kisAdapter.fetchTodayExecutions("USER_CANCEL_OFF", AccountType.MOCK) } returns listOf(exec)
+
+        val cancelledRequest =
+            stubOrderRequest(id = 230L, kisOrderNo = "ODNO_CANCELLED_OFF", userId = "USER_CANCEL_OFF")
+                .copy(status = OrderStatus.CANCELLED, side = OrderSide.SELL, quantity = 14)
+        every { orderRepo.findByKisOrderNo("ODNO_CANCELLED_OFF") } returns cancelledRequest
+        every { execRepo.existsByEventId(any()) } returns false
+        every { execRepo.sumExecutedQuantityByOrder(230L) } returns 0
+
+        service.syncUserTodayExecutions("USER_CANCEL_OFF", AccountType.MOCK, verifyCredential = false)
+
+        // 토글 off → 흡수 안 함(현행 동작).
+        verify(exactly = 0) { execRepo.save(any()) }
+        verify(exactly = 0) { orderRepo.markCompleted(any(), any(), any()) }
+        verify(exactly = 0) { orderRepo.updateStatus(any(), any(), any()) }
     }
 
     @Test

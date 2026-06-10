@@ -145,6 +145,19 @@ if [[ $GRADLE -eq 1 ]]; then
   fi
 fi
 
+# 1.5) ADR 0115 §2-P2-④ — consumer 재배포 전 in-flight 주문 drain 가드.
+#   consumer-app 재배포 대상이면 in-flight(REQUESTED·ACK·PARTIALLY_FILLED) 주문 0 확인.
+#   > 0 이면 체결통지 유실 risk → 중단(우회: SKIP_DRAIN_CHECK=1). 비활성: MAGICJAR_DEPLOY_DRAIN_INFLIGHT_CHECK_ENABLED=false.
+if [[ $DOCKER -eq 1 && ${#SERVICES[@]} -gt 0 ]]; then
+  for s in "${SERVICES[@]}"; do
+    if [[ "$s" == "consumer-app" ]]; then
+      echo "▶ consumer 재배포 — in-flight drain 가드 (ADR 0115 §2-P2-④)"
+      scripts/check-inflight-drain.sh
+      break
+    fi
+  done
+fi
+
 # 2) docker compose build + up -d
 if [[ $DOCKER -eq 1 && ${#SERVICES[@]} -gt 0 ]]; then
   echo "▶ profile: dev,real-kis (default — mock 부팅 path 폐기)"
