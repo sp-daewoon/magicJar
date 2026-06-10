@@ -86,6 +86,10 @@ class LiveCandleMerger(
         return try {
             val hash = redisTemplate.opsForHash<String, String>().entries(key)
             if (hash.isEmpty()) return null
+            if (hash["seeded"] != "true") {
+                log.debug("LiveCandleMerger: unseeded today candle skip code={}", code)
+                return null
+            }
             parseCandleTodayHash(hash, code)
         } catch (e: Exception) {
             log.debug("LiveCandleMerger Redis read 실패: key={} err={}", key, e.message)

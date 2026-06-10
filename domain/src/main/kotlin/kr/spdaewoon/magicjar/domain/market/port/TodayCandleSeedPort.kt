@@ -20,7 +20,7 @@ package kr.spdaewoon.magicjar.domain.market.port
  * 이후 WS 틱은 live close 최신화 + (공식 고/저 초과 시) 고/저 확장만 담당하고,
  * volume은 공식 누적거래량(ACML_VOL)을 권위로 유지해 WS 체결량(CNTG_VOL) 이중계상을 막는다.
  *
- * 공식값을 못 구하면 시드 no-op(graceful) — 구독 안 된 종목은 Hash가 비어 merger가 DB-only fallback.
+ * 공식값을 못 구하면 시드 no-op(graceful) — 1d Hash는 만들지 않고 merger가 DB-only fallback.
  * mock 합성 금지 (헌법 가드 — feedback_no_mock_data).
  */
 interface TodayCandleSeedPort {

@@ -113,8 +113,13 @@ class CandleQueryService(
 
         // Redis current 합류 (장중 마지막 미확정 bar)
         val redisCandle =
-            readRedisCandleHash("candle:current:$code:$effectiveInterval")
-                ?: if (effectiveInterval == "1d") readRedisCandleHash("candle:today:$code:1d") else null
+            listOfNotNull(
+                "candle:current:$code:$effectiveInterval",
+                if (effectiveInterval == "1d") "candle:today:$code:1d" else null,
+            ).asSequence()
+                .mapNotNull { key -> readRedisCandleHash(key)?.let { key to it } }
+                .firstOrNull { (key, candle) -> isTrustedRedisCandle(effectiveInterval, key, candle) }
+                ?.second
 
         if (redisCandle != null && beforeInstant == null) {
             // before 없는 최신 요청일 때만 합류 (페이지네이션 시 제외)
@@ -330,6 +335,19 @@ class CandleQueryService(
             log.debug("Redis candle hash 조회 실패: key={} err={}", key, e.message)
             null
         }
+
+    private fun isTrustedRedisCandle(
+        interval: String,
+        key: String,
+        candle: Map<String, String>,
+    ): Boolean {
+        if (interval != "1d") return true
+        val trusted = candle["seeded"] == "true"
+        if (!trusted) {
+            log.debug("unseeded 1d Redis candle skip: key={}", key)
+        }
+        return trusted
+    }
 
     private companion object {
         val QUOTE_CURRENT_CANDLE_INTERVALS = setOf("1d", "1wk", "1mo", "1y")

@@ -129,35 +129,31 @@ class RealtimeSubscriptionRouterTest {
         assertTrue(kisWsPort.priceUnsubscribed.contains("005930"))
     }
 
-    // ===== 구독 수립 시점 today-Hash 시드 (owner 무관 균일 — root cause fix 핵심) =====
+    // ===== today-Hash seed 보강 (이미 WS 구독 중인 종목의 DETAIL 재진입 복구) =====
 
     @Test
-    fun `DETAIL 구독 수립 시 today-Hash 시드를 트리거한다`() {
+    fun `신규 DETAIL 구독은 KisWsPort subscribe에 seed 책임을 위임하고 라우터 중복 시드는 하지 않는다`() {
         router.request(RealtimeDemandOwner.DETAIL, "detail:user001", "005930")
-        // 시드는 lock 해제 후 비동기 — verify timeout으로 결과 대기.
-        verify(timeout = 2000) { todayCandleSeedPort.seedTodayCandle("005930") }
-    }
-
-    @Test
-    fun `WATCHLIST(HOLDING) 구독 수립 시 today-Hash 시드를 트리거한다`() {
-        // HOLDING owner도 동일 Hash를 먹으므로 동일하게 시드 적용돼야 함.
-        router.request(RealtimeDemandOwner.HOLDING, "holding:005930", "005930")
-        verify(timeout = 2000) { todayCandleSeedPort.seedTodayCandle("005930") }
-    }
-
-    @Test
-    fun `STRATEGY 후보 구독 수립 시 today-Hash 시드를 트리거한다`() {
-        router.request(RealtimeDemandOwner.STRATEGY, "strategy:42", "000660", priority = 40)
-        verify(timeout = 2000) { todayCandleSeedPort.seedTodayCandle("000660") }
-    }
-
-    @Test
-    fun `이미 구독 중인 종목 재요청은 중복 시드를 트리거하지 않는다`() {
-        kisWsPort.priceSubscribed.add("005930")
-        router.request(RealtimeDemandOwner.DETAIL, "detail:user001", "005930")
-        // 이미 구독 중 → ensureSubscribedLocked가 새 subscribe 발사 안 함 → 시드 트리거 0.
         Thread.sleep(300)
         verify(exactly = 0) { todayCandleSeedPort.seedTodayCandle("005930") }
+    }
+
+    @Test
+    fun `이미 구독 중인 종목 재요청은 today-Hash seed를 보강한다`() {
+        kisWsPort.priceSubscribed.add("005930")
+        router.request(RealtimeDemandOwner.DETAIL, "detail:user001", "005930")
+        verify(timeout = 2000) { todayCandleSeedPort.seedTodayCandle("005930") }
+    }
+
+    @Test
+    fun `이미 구독 중인 종목 재요청 seed는 cooldown 내 중복 호출하지 않는다`() {
+        kisWsPort.priceSubscribed.add("005930")
+        router.request(RealtimeDemandOwner.DETAIL, "detail:user001", "005930")
+        verify(timeout = 2000) { todayCandleSeedPort.seedTodayCandle("005930") }
+
+        router.request(RealtimeDemandOwner.HOLDING, "holding:005930", "005930")
+        Thread.sleep(300)
+        verify(exactly = 1) { todayCandleSeedPort.seedTodayCandle("005930") }
     }
 
     class TestKisWsPort : KisWsPort {
