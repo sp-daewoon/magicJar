@@ -14,9 +14,9 @@ parentPhase: ?
 ADR 0122 R1 StrategyOrigin enum
 
 ## 결과물 체크리스트
-- [ ] enum
-- [ ] Strategy.origin
-- [ ] 테스트
+- [x] enum
+- [x] Strategy.origin
+- [x] 테스트
 - [ ] PR
 
 ## 의존성
