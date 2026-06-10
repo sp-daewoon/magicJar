@@ -19,6 +19,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { SymbolDetailPage } from '../SymbolDetailPage'
 import { ToastProvider } from '../../../components/ui/ToastProvider'
 import { useOnboardingStore } from '../../../stores/onboarding'
+import type { DaytradeSignalNavigationState } from '../../../lib/daytrade/signalInterpretation'
 
 // ──────────────────────────────────────────────
 // LWC canvas mock (jsdom 미지원 — graceful)
@@ -236,7 +237,7 @@ afterAll(() => server.close())
 // 헬퍼
 // ──────────────────────────────────────────────
 
-function renderSymbolDetailPage(code: string) {
+function renderSymbolDetailPage(code: string, state?: DaytradeSignalNavigationState) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -246,7 +247,7 @@ function renderSymbolDetailPage(code: string) {
   return render(
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <MemoryRouter initialEntries={[`/symbol/${code}`]}>
+        <MemoryRouter initialEntries={[state ? { pathname: `/symbol/${code}`, state } : `/symbol/${code}`]}>
           <Routes>
             <Route path="/symbol/:code" element={<SymbolDetailPage />} />
             <Route path="/instruments" element={<div>종목검색 페이지</div>} />
@@ -289,6 +290,33 @@ describe('SymbolDetailPage smoke', () => {
 
     expect(screen.getByRole('button', { name: /종목검색 화면으로 돌아가기/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /삼성전자 관심종목 등록/ })).toBeInTheDocument()
+  })
+
+  it('단타 발굴에서 넘어온 종목은 발굴 신호 요약과 AI 시그널 해석 진입점을 표시한다', async () => {
+    renderSymbolDetailPage('005930', {
+      daytradeSignal: {
+        source: 'DAYTRADE_DISCOVER',
+        code: '005930',
+        name: '삼성전자',
+        rank: 1,
+        score: 0.82,
+        scoreComponents: { signal: 0.9, volume: 0.7, atr: 0.5, cap: 1 },
+        reason: '[DAYTRADE_GAP_AND_GO] 갭 앤 고 — {trigger=THRESHOLD}',
+        presetKey: 'DAYTRADE_GAP_AND_GO',
+        presetTitle: '갭 앤 고',
+        summary: '삼성전자는 갭 앤 고 조건에서 BUY 후보로 잡혔습니다.',
+        reasonComments: ['시가가 전일 종가 이상 조건을 통과했습니다.'],
+        scoreComments: ['시그널 축이 가장 크게 기여했습니다.'],
+      },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: '삼성전자' })).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('단타 발굴 신호')).toBeInTheDocument()
+    expect(screen.getByText(/갭 앤 고 조건에서 BUY 후보/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '시그널 해석 요청' })).toBeInTheDocument()
   })
 
   it('캔들이 stale일 때 차트 영역에 수집 사유 1줄이 표시된다 (readiness P1)', async () => {

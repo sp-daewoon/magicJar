@@ -495,6 +495,7 @@ export function DaytradeDiscoverPage() {
                 selectionMode={canPromote}
                 selectedCodes={selectedCodes}
                 onToggleSelect={toggleSelect}
+                userId={registeredUserId}
               />
             </>
           ) : (

@@ -3,6 +3,7 @@
  *
  * columns: rank · 종목명/코드 · 종합점수(bar) · 점수 구성(compact) · 펼침
  * row 펼침 → DaytradeScoreBreakdown 전체 모드(왜 후보인가 수치 분해) + reason + 액션.
+ *             로컬 신호 해석 + 사용자 명시 AI 해석 진입점.
  * sortable column: rank(default 오름차순) · score(내림차순)
  *
  * ### owner 가드 (방향성 보존 — 매우 중요)
@@ -19,6 +20,12 @@ import { Fragment, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { DaytradeMatchDto } from '../api/daytradeDiscoverApi'
 import { DaytradeScoreBreakdown } from './DaytradeScoreBreakdown'
+import { AiExplainEntry } from '../../ai/components/AiExplainEntry'
+import {
+  buildDaytradeSignalAiContext,
+  buildDaytradeSignalContext,
+  buildDaytradeSignalNavigationState,
+} from '../../../lib/daytrade/signalInterpretation'
 
 type SortKey = 'rank' | 'score'
 
@@ -36,6 +43,8 @@ interface Props {
   selectedCodes?: Set<string>
   /** 선택 토글 콜백 (selectionMode=true 일 때) */
   onToggleSelect?: (code: string) => void
+  /** 사용자 명시 AI 해석용 userId. 미제공 시 AI 버튼 disabled. */
+  userId?: number | null
 }
 
 export function DaytradeMatchTable({
@@ -46,6 +55,7 @@ export function DaytradeMatchTable({
   selectionMode = false,
   selectedCodes,
   onToggleSelect,
+  userId = null,
 }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>('rank')
   const [sortAsc, setSortAsc] = useState(true)
@@ -111,6 +121,7 @@ export function DaytradeMatchTable({
             const isAdding = addingCode === match.instrumentCode
             const isSelected = selectedCodes?.has(match.instrumentCode) ?? false
             const scorePct = match.score * 100
+            const signalContext = buildDaytradeSignalContext(match)
             return (
               <Fragment key={match.instrumentCode}>
                 <tr
@@ -176,17 +187,38 @@ export function DaytradeMatchTable({
                         </div>
                         {/* 시그널 사유 + 액션 */}
                         <div className="space-y-3">
+                          <div>
+                            <p className="mb-1 text-xs font-medium text-gray-400">
+                              신호 해석
+                            </p>
+                            <p className="text-xs leading-relaxed text-gray-300">
+                              {signalContext.summary}
+                            </p>
+                            <ul className="mt-2 space-y-1 text-[11px] leading-relaxed text-gray-500">
+                              {signalContext.reasonComments.slice(0, 3).map((comment) => (
+                                <li key={comment}>· {comment}</li>
+                              ))}
+                              {signalContext.scoreComments.slice(0, 2).map((comment) => (
+                                <li key={comment}>· {comment}</li>
+                              ))}
+                            </ul>
+                          </div>
                           {match.reason && (
                             <div>
-                              <p className="mb-1 text-xs font-medium text-gray-400">
-                                시그널 사유
-                              </p>
-                              <p className="text-xs text-gray-300">{match.reason}</p>
+                              <details>
+                                <summary className="cursor-pointer text-xs font-medium text-gray-400 hover:text-gray-300">
+                                  시그널 원문 사유
+                                </summary>
+                                <p className="mt-1 break-words font-mono text-[11px] leading-relaxed text-gray-500">
+                                  {match.reason}
+                                </p>
+                              </details>
                             </div>
                           )}
                           <div className="flex flex-wrap items-center gap-2">
                             <Link
                               to={`/symbol/${match.instrumentCode}`}
+                              state={buildDaytradeSignalNavigationState(match)}
                               onClick={(e) => e.stopPropagation()}
                               className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs text-gray-200 hover:bg-gray-700"
                             >
@@ -211,6 +243,14 @@ export function DaytradeMatchTable({
                                   {isAdding ? '추가 중...' : '관심종목 추가'}
                                 </button>
                               ))}
+                          </div>
+                          <div className="rounded-lg border border-purple-950/60 bg-purple-950/10 p-2">
+                            <AiExplainEntry
+                              type="SIGNAL"
+                              userId={userId}
+                              context={buildDaytradeSignalAiContext(signalContext)}
+                              disabledMessage="사용자 설정 완료 후 단타 신호를 AI로 해석할 수 있습니다."
+                            />
                           </div>
                           <p className="text-[11px] text-gray-600">
                             발굴은 후보 출발점입니다. 자동 매매·자동 등록은 하지 않습니다.

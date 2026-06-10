@@ -24,7 +24,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { useAccountPositions } from '../../api/hooks/useAccountPositions'
 import { useInstrument } from '../../api/hooks/useInstrument'
 import { usePreferredAccountType } from '../../api/hooks/usePreferredAccountType'
@@ -45,6 +45,10 @@ import { CandleHealthBadge } from './CandleHealthBadge'
 import { DisclosurePanel } from '../../features/disclosure/components/DisclosurePanel'
 import { NewsPanel } from '../../features/news/components/NewsPanel'
 import { AiExplainEntry } from '../../features/ai/components/AiExplainEntry'
+import {
+  buildDaytradeSignalAiContext,
+  type DaytradeSignalNavigationState,
+} from '../../lib/daytrade/signalInterpretation'
 import { currentKrxSession } from '../../lib/marketHours'
 import { useStompTopic } from '../../lib/stomp'
 import { useOnboardingStore } from '../../stores/onboarding'
@@ -74,6 +78,7 @@ function isBEError(status: number | undefined): boolean {
 export function SymbolDetailPage() {
   const { code = '' } = useParams<{ code: string }>()
   const [searchParams] = useSearchParams()
+  const location = useLocation()
   const queryClient = useQueryClient()
   const { data: instrument, isLoading: isInstrumentLoading } = useInstrument(code)
   const isDelisted = instrument?.active === false
@@ -131,6 +136,12 @@ export function SymbolDetailPage() {
       takeProfitPct,
     }
   }, [searchParams])
+  const daytradeSignal = useMemo(() => {
+    const state = location.state as DaytradeSignalNavigationState | null
+    const signal = state?.daytradeSignal
+    if (!signal || signal.code !== code) return null
+    return signal
+  }, [code, location.state])
 
   // 상장폐지 종목은 가격 조회 의미 없음 — useSymbol 비활성으로 polling 차단.
   // 정상 실시간 수신 중에는 HTTP polling 0건, STOMP 장애·tick 지연 시에만 30s fallback.
@@ -327,12 +338,46 @@ export function SymbolDetailPage() {
             context={{
               code,
               name: instrument?.name ?? symbol.code,
+              currentPrice: realtimeTick?.price ?? symbol.currentPrice ?? null,
               market: instrument?.market ?? 'UNKNOWN',
               sector: instrument?.sector ?? null,
               industryMedium: instrument?.industryMedium ?? null,
+              indicators: {
+                previousClose: symbol.previousClose ?? null,
+                change: realtimeTick?.priceChange ?? symbol.change ?? null,
+                changeRate: realtimeTick?.changeRate ?? symbol.changeRate ?? null,
+                volume: symbol.volume ?? null,
+                marketCap: symbol.marketCap ?? null,
+                per: symbol.per ?? null,
+                pbr: symbol.pbr ?? null,
+              },
+              patterns: daytradeSignal
+                ? [
+                    daytradeSignal.summary,
+                    ...daytradeSignal.reasonComments.slice(0, 2),
+                  ]
+                : [],
+              news: [],
             }}
           />
         </div>
+
+        {daytradeSignal && (
+          <div className="rounded-lg border border-purple-900/50 bg-gray-900/50 p-3">
+            <div className="mb-2">
+              <p className="text-xs font-semibold text-purple-200">단타 발굴 신호</p>
+              <p className="mt-1 text-xs leading-relaxed text-gray-400">
+                {daytradeSignal.summary}
+              </p>
+            </div>
+            <AiExplainEntry
+              type="SIGNAL"
+              userId={userId}
+              context={buildDaytradeSignalAiContext(daytradeSignal)}
+              disabledMessage="KIS 계좌 설정 후 단타 신호 AI 해석을 사용할 수 있습니다."
+            />
+          </div>
+        )}
 
         {/* ── STOMP 연결 상태 배지 ── */}
         {realtimeStatusMessage && (

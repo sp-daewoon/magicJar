@@ -202,7 +202,8 @@ const MATCHES: DaytradeMatchDto[] = [
     instrumentName: '삼성전자',
     score: 0.82,
     scoreComponents: { signal: 0.8, volume: 0.7, atr: 0.6, cap: 0.9 },
-    reason: 'BUY 강도 충족',
+    reason:
+      '[DAYTRADE_GAP_AND_GO] 갭 앤 고 — {trigger=COMPOSITE, operator=AND, left={trigger=THRESHOLD, operator=>=, lhs=open, lhsValue=70500, rhs=prev_close, rhsValue=69000}, right={trigger=BREAKOUT, lhs=close, lhsValue=71800, rhs=high(20), rhsValue=71200}}',
   },
   {
     rank: 2,
@@ -243,5 +244,22 @@ describe('DaytradeMatchTable — 페이퍼 승격 다중선택 (ADR 0122 §8-1)'
       </MemoryRouter>,
     )
     expect(screen.queryByLabelText('삼성전자 모의 승격 선택')).not.toBeInTheDocument()
+  })
+
+  it('row 펼침 → 로컬 신호 해석 + AI 해석 버튼 표시', async () => {
+    render(
+      <MemoryRouter>
+        <DaytradeMatchTable matches={MATCHES} userId={74683223} />
+      </MemoryRouter>,
+    )
+    const user = userEvent.setup()
+
+    await user.click(screen.getByText('삼성전자'))
+
+    expect(screen.getByText('신호 해석')).toBeInTheDocument()
+    expect(screen.getByText(/갭 앤 고 조건에서 BUY 후보/)).toBeInTheDocument()
+    expect(screen.getByText(/AND 조합/)).toBeInTheDocument()
+    expect(screen.getByText('시그널 원문 사유')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '시그널 해석 요청' })).toBeInTheDocument()
   })
 })
