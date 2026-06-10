@@ -5,19 +5,24 @@
  *
  * 구성:
  *   1. PaperIsolationBanner — "모의 · 실거래 아님" 격리 안내(§6 LOCK)
- *   2. 활성 페이퍼 전략 목록 (presetTitle · 종목 · 가상 자본 · 상태 + 중단 버튼)
+ *   2. 활성 페이퍼 전략 목록 (presetTitle · 종목 · 가상 자본 · 상태 + 중단 + 시그널 보기)
  *   3. 페이퍼 포지션 목록 (종목 · 수량 · 평단 · 실현손익 — 모두 가상 ₩)
+ *   4. 시그널 내역 (SignalListPanel 재사용 + STOMP 실시간) — "전략이 지금 작동 중인가"를
+ *      확인하는 창 (2026-06-10 strategy-mock-paper-flow 보고서 발전점 — 작동 가시성 보강)
  *
  * ### 가드 (방향성 보존 — ADR 0122)
  * - 페이퍼 전략·포지션 표시 전부에 모의 배지(§6 LOCK). 실 계좌 화면과 시각적 분리(amber 톤).
  * - 실 자산 + 가상 자본 합산 표시 금지(§6). 이 화면은 페이퍼 전용 격리 진입점.
  * - 빈 응답은 "데이터 없음"으로 정직 표기(mock 합성 0 — feedback_no_mock_data).
  * - 자동 진입 0 — 이 화면은 조회·중단만. 페이퍼 생성은 발굴 화면 승급 액션에서만.
+ * - 시그널 내역은 기존 조회 path(GET /signals + STOMP) 재사용 — 신규 API 0.
  */
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useOnboardingStore } from '../../stores/onboarding'
 import { useToast } from '../../components/ui/ToastProvider'
+import { SignalListPanel } from '../../components/strategy/SignalListPanel'
+import { useStompSignal } from '../../api/hooks/useStompSignal'
 import {
   useDaytradePaperPositions,
   useDaytradePaperStop,
@@ -54,10 +59,12 @@ function PaperStrategyCard({
   strategy,
   onStop,
   stopping,
+  onShowSignals,
 }: {
   strategy: PaperStrategyDto
   onStop: (strategyId: number) => void
   stopping: boolean
+  onShowSignals: (strategyId: number) => void
 }) {
   return (
     <div
@@ -105,16 +112,26 @@ function PaperStrategyCard({
       </div>
       <div className="mt-3 flex items-center justify-between">
         <span className="text-[11px] text-gray-600">인터벌 {strategy.intervals.join(', ')}</span>
-        {strategy.status === 'ACTIVE' && (
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            disabled={stopping}
-            onClick={() => onStop(strategy.strategyId)}
-            className="rounded-lg border border-gray-700 px-3 py-1 text-xs text-gray-300 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => onShowSignals(strategy.strategyId)}
+            className="rounded-lg border border-amber-800/50 px-3 py-1 text-xs text-amber-300 hover:bg-amber-950/30"
+            title="이 전략의 시그널 내역으로 이동 (작동 확인)"
           >
-            {stopping ? '중단 중...' : '전략 중단'}
+            시그널 보기
           </button>
-        )}
+          {strategy.status === 'ACTIVE' && (
+            <button
+              type="button"
+              disabled={stopping}
+              onClick={() => onStop(strategy.strategyId)}
+              className="rounded-lg border border-gray-700 px-3 py-1 text-xs text-gray-300 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {stopping ? '중단 중...' : '전략 중단'}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -162,6 +179,20 @@ export function PaperDashboardPage() {
   const stop = useDaytradePaperStop(userId)
   const [stoppingId, setStoppingId] = useState<number | null>(null)
 
+  // 시그널 내역 전략 필터 ('' = 전체) — "시그널 보기" 클릭 시 해당 전략으로 진입
+  const [signalStrategyId, setSignalStrategyId] = useState<string>('')
+
+  // 실시간 시그널 prepend (전략 목록 화면과 동일 path 재사용 — ADR 0089 Phase 2)
+  const { signalQueue } = useStompSignal({
+    userId: userId ?? 0,
+    enabled: userId !== null,
+  })
+
+  function handleShowSignals(strategyId: number) {
+    setSignalStrategyId(String(strategyId))
+    document.getElementById('paper-signal-section')?.scrollIntoView({ behavior: 'smooth' })
+  }
+
   function handleStop(strategyId: number) {
     setStoppingId(strategyId)
     stop.mutate(strategyId, {
@@ -182,11 +213,15 @@ export function PaperDashboardPage() {
           <PaperBadge size="md" />
         </div>
         <p className="mt-1 text-sm text-gray-500">
-          발굴 후보를 페이퍼로 승격한 전략의 상태·가상 자본·포지션을 확인합니다. 새 전략은{' '}
+          발굴 후보를 페이퍼로 승격한 전략의 상태·가상 자본·포지션·시그널을 확인합니다. 새 전략은{' '}
           <Link to="/strategy/daytrade-discover" className="text-amber-400 hover:underline">
             단타 발굴
           </Link>{' '}
-          화면에서 "모의로 굴려보기"로 시작합니다.
+          화면에서 "모의로 굴려보기"로 시작합니다. 발굴 프리셋의 forward 적중률은{' '}
+          <Link to="/strategy/scorecard" className="text-amber-400 hover:underline">
+            발굴 스코어카드
+          </Link>
+          에서 확인합니다.
         </p>
       </header>
 
@@ -231,6 +266,7 @@ export function PaperDashboardPage() {
                     strategy={s}
                     onStop={handleStop}
                     stopping={stoppingId === s.strategyId}
+                    onShowSignals={handleShowSignals}
                   />
                 ))}
               </div>
@@ -259,6 +295,14 @@ export function PaperDashboardPage() {
                   전략이 시그널을 발사하면 가상 자본 기준 모의 포지션이 여기에 표시됩니다. 손익은
                   실 시세 기반 실제 시뮬 수치입니다(가상 ₩).
                 </p>
+                <p className="mt-1.5 text-xs text-gray-600">
+                  포지션이 0이어도 고장이 아닐 수 있습니다 — 아래{' '}
+                  <a href="#paper-signal-section" className="text-amber-400 hover:underline">
+                    시그널 내역
+                  </a>
+                  에서 전략이 평가 중인지(조건 대기) 확인하세요. 시그널은 장중 KIS 실시세 캔들이
+                  닫힐 때 평가됩니다.
+                </p>
               </div>
             ) : (
               <div className="overflow-x-auto rounded-xl border border-gray-800 bg-gray-900/40 p-3">
@@ -281,6 +325,24 @@ export function PaperDashboardPage() {
                 </table>
               </div>
             )}
+          </section>
+
+          {/* 시그널 내역 — "전략이 지금 작동 중인가" 확인 창 (기존 path 재사용) */}
+          <section id="paper-signal-section">
+            <div className="mb-2 flex items-center gap-2">
+              <PaperBadge />
+              <p className="text-xs text-gray-500">
+                모의 전략도 일반 전략과 같은 시그널 path로 평가됩니다. 전략 필터에서 모의 전략을
+                선택해 평가·발사 여부를 확인하세요. (시그널 0건 = 조건 대기 중)
+              </p>
+            </div>
+            <SignalListPanel
+              key={signalStrategyId || '__all__'}
+              userId={userId}
+              prependSignals={signalQueue}
+              defaultStrategyId={signalStrategyId}
+              title="시그널 내역 (작동 확인)"
+            />
           </section>
         </div>
       )}

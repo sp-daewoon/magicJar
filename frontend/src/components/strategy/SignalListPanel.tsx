@@ -73,10 +73,22 @@ interface SignalListPanelProps {
   userId: number
   /** 실시간 prepend — useStompSignal signalQueue */
   prependSignals?: SignalDto[]
+  /**
+   * 전략 필터 초기값 (선택) — 페이퍼 대시보드 등에서 특정 전략 시그널로 진입할 때 사용.
+   * 초기 마운트에만 적용되므로 변경 시에는 key 재마운트로 갱신한다.
+   */
+  defaultStrategyId?: string
+  /** 섹션 제목 (default: '시그널 내역') */
+  title?: string
 }
 
-export function SignalListPanel({ userId, prependSignals = [] }: SignalListPanelProps) {
-  const [filter, setFilter] = useState<FilterState>({ code: '', interval: '', side: 'ALL', strategyId: '' })
+export function SignalListPanel({
+  userId,
+  prependSignals = [],
+  defaultStrategyId = '',
+  title = '시그널 내역',
+}: SignalListPanelProps) {
+  const [filter, setFilter] = useState<FilterState>({ code: '', interval: '', side: 'ALL', strategyId: defaultStrategyId })
   const [rangePreset, setRangePreset] = useState<RangePreset>('today')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
@@ -166,7 +178,7 @@ export function SignalListPanel({ userId, prependSignals = [] }: SignalListPanel
       {/* 섹션 헤더 */}
       <div className="flex items-center justify-between">
         <h2 id="signal-list-heading" className="text-base font-semibold text-white">
-          시그널 내역
+          {title}
         </h2>
         <span className="text-xs text-gray-500">
           {data?.pages[0]?.totalElements !== undefined

@@ -19,7 +19,7 @@
  * 룰 5: LLM provider import 0건
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { usePaletteResize } from '../../hooks/usePaletteResize'
 import { useModalBehavior } from '../../hooks/useModalBehavior'
 import { BlockPalette } from '../../components/strategy/BlockPalette'
@@ -696,10 +696,27 @@ export function StrategyBuilderPage() {
             </button>
           )}
 
-          {/* 저장된 전략 정보 */}
+          {/* 저장된 전략 정보 + 다음 단계 도선 (검증 퍼널 — 빌더 → 백테스트) */}
           {strategyId && (
             <div className="rounded-lg bg-gray-900 p-3 text-xs text-gray-500">
-              전략 ID: <code className="text-gray-400">{strategyId}</code>
+              <p>
+                전략 ID: <code className="text-gray-400">{strategyId}</code>
+              </p>
+              <p className="mb-2 mt-2 text-[11px] text-gray-600">
+                다음 단계 — 과거 데이터로 전략을 검증하세요.
+              </p>
+              <Link
+                to={`/strategy/backtest?strategyId=${encodeURIComponent(strategyId)}`}
+                className="block w-full rounded-md bg-blue-600 py-1.5 text-center text-sm font-medium text-white hover:bg-blue-700"
+              >
+                이 전략 백테스트 →
+              </Link>
+              <Link
+                to="/strategy/list"
+                className="mt-1.5 block w-full rounded-md border border-gray-700 py-1.5 text-center text-xs text-gray-400 hover:bg-gray-800"
+              >
+                전략 목록에서 관리
+              </Link>
             </div>
           )}
 

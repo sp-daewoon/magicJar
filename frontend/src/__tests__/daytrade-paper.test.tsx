@@ -16,7 +16,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { PaperDashboardPage } from '../pages/Strategy/PaperDashboardPage'
@@ -24,6 +24,13 @@ import { DaytradeMatchTable } from '../features/screener/components/DaytradeMatc
 import type { DaytradeMatchDto } from '../features/screener/api/daytradeDiscoverApi'
 import { useOnboardingStore } from '../stores/onboarding'
 import { ToastProvider } from '../components/ui/ToastProvider'
+
+// 대시보드 시그널 섹션(useStompSignal → useStompTopic)이 jsdom에서 실 WebSocket을
+// 열지 않도록 STOMP 모듈 mock (useStompAccountBalance.test 패턴 정합)
+vi.mock('../lib/stomp', () => ({
+  useStompTopic: vi.fn(),
+  isStompConnected: () => false,
+}))
 
 // ──────────────────────────────────────────────
 // msw — /api/daytrade/paper/* 스텁
@@ -84,6 +91,13 @@ const server = setupServer(
     lastDeleteUrl = `${params.strategyId}?${new URL(request.url).search}`
     return new HttpResponse(null, { status: 204 })
   }),
+  // 대시보드 시그널 섹션(SignalListPanel)의 조회 — 빈 페이지 (mock 합성 0, 빈 상태 검증용)
+  http.get('/api/signals', () =>
+    HttpResponse.json({ content: [], totalElements: 0, totalPages: 0, number: 0, size: 20 }),
+  ),
+  http.get('/api/strategies', () =>
+    HttpResponse.json({ content: [], totalElements: 0, totalPages: 0, number: 0, size: 20 }),
+  ),
 )
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'bypass' }))

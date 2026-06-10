@@ -10,6 +10,7 @@
  * 룰 5: LLM provider import 0건
  */
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { backtestApi } from '../../api/backtest'
 import type { BacktestRunDetailDto } from '../../api/backtest'
@@ -51,6 +52,17 @@ function MetaRow({ label, value }: { label: string; value: string | null }) {
       <span className="text-gray-300">{value ?? '—'}</span>
     </div>
   )
+}
+
+/**
+ * ruleDsl 요약("strategyId=12 universe=[...] ...")에서 strategyId 추출.
+ * BacktestPersister.buildRuleDslSummary 서버 생성 포맷 정합 — 포맷이 바뀌면 null로
+ * 정직하게 degrade (도선 버튼만 숨김, 오동작 0).
+ */
+function parseStrategyIdFromRuleDsl(ruleDsl: string | null): string | null {
+  if (!ruleDsl) return null
+  const match = /(?:^|\s)strategyId=(\d+)/.exec(ruleDsl)
+  return match?.[1] ?? null
 }
 
 /** ISO 8601 → KST 표시 */
@@ -170,9 +182,37 @@ export function BacktestDetail({ runId, userId, onBack }: BacktestDetailProps) {
         </div>
       )}
 
-      {/* SUCCEEDED: KPI + 차트 + 테이블 */}
+      {/* SUCCEEDED: 다음 단계 도선 + KPI + 차트 + 테이블 */}
       {detail.status === 'SUCCEEDED' && (
         <>
+          {/* 검증 퍼널 다음 단계 (2026-06-10 보고서 — 백테스트 결과 후속 도선 단절 수선).
+              활성화 토글 자체는 전략 목록 화면 단일 진입(보호 상태 로직 중복 회피 — 보수적 보강). */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-900/40 bg-blue-950/10 px-4 py-3">
+            <p className="text-xs text-gray-400">
+              결과가 만족스러우면 <span className="text-gray-300">전략 목록</span>에서 활성화해
+              자동매매 감시를 시작하고, 보완이 필요하면 빌더에서 수정하세요.
+            </p>
+            <div className="flex items-center gap-2">
+              {(() => {
+                const strategyId = parseStrategyIdFromRuleDsl(detail.ruleDsl)
+                return strategyId !== null ? (
+                  <Link
+                    to={`/strategy/builder?strategyId=${strategyId}`}
+                    className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-800"
+                  >
+                    빌더에서 수정
+                  </Link>
+                ) : null
+              })()}
+              <Link
+                to="/strategy/list"
+                className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+              >
+                전략 목록에서 활성화 →
+              </Link>
+            </div>
+          </div>
+
           <BacktestKpiPanel kpi={kpiFromDetail(detail)} />
 
           {resultPage ? (
