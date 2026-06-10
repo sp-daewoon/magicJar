@@ -232,6 +232,21 @@ magicJar는 **server**. AI 클라이언트가 magicJar의 사용자.
 | **시간대** | 영속 시각 TIMESTAMPTZ UTC. 표현·DSL 평가는 KST. `zoneKst()` 헬퍼 단일 진실원 |
 | **이벤트 멱등** | Kafka consumer 모두 idempotency key dedup |
 | **결정 audit** | 모든 order·signal·screener result에 immutable audit row. **AI 호출도 audit (코멘트 자체)** — 매매에 영향 0이지만 비용·드리프트 추적 |
+| **파생 상태 재계산 가능성** (2026-06-10 신설 — ADR 0115 §2-P2) | 보유 수량 등 파생 ledger는 immutable 진실원(`order_execution`)에서 **결정론적으로 재계산 가능**해야 한다. 독립 mutable 증분 원장은 증분 1회 누락이 영구화되므로 금지 방향 — drift reconcile 시 진실원에서 rebuild로 수렴(대안 B-on-A 점진 도입) |
+
+#### 3-5-1. 보유 수량 3중 상태 권위·시차 매트릭스 (ADR 0115 §2-P2 / 최고 관리자 키 사슬 무결성)
+
+같은 보유 수량을 3곳이 각자 다른 권위·갱신주기로 들고 있다. 2026-06-10 005930·전략8 incident(G1~G7)는 모두 이 3중 상태의 **시차(time skew)·배선(wiring) 지점**에 모여 있었다. 정합의 핵심은 **각 상태의 권위 등급과 자기치유 경로를 명시**하는 것이다.
+
+| 상태 | 위치 | 권위 등급 | 갱신 경로 | 갱신 시차 |
+|------|------|----------|-----------|-----------|
+| **`position`** | DB (user+code 합산) | **1차 권위** (KIS 잔고 투영 — ADR 0042) | 체결 시 `ConsumerExecutionPositionUpdateAdapter` + 5분 `BalanceReconcileJob`(KIS 잔고 직접 대조) | 체결 즉시~5분 |
+| **`strategy_position`** | DB (user+strategy+code) | **2차 ledger** (전략 귀속 — ADR 0110) | 체결 시 `applyExecution` + replay + drift 보정 + 5분 worker | 체결 즉시~5분, **replay-skip 시 영구**(누락 발견 전까지) |
+| **in-memory index** | `HoldingPositionIndex` (JVM heap) | **derived cache** (tick 손절 성능용) | 60초 `@Scheduled` refresh + 체결 즉시 `onFillRefresh` | 0~60초, **DB 직접 정정은 미감지** |
+
+**시차의 본질**: `position`은 KIS와 5분마다 강제 대조되어 자기치유 경로가 있다. `strategy_position`은 **이벤트 증분으로만 갱신되는 mutable ledger**여서, 증분이 한 번 누락되면(replay-skip·backfill 우회·취소-체결 race) 다음 정합 사이클이 그 누락을 발견하지 못하는 한 영구화된다(C2 뿌리). in-memory index는 `strategy_position`을 read하므로 그 오염을 상속하되, DB 직접 정정(수동 SQL·drift 보정 worker upsert)은 이벤트가 아니라서 60초 refresh 또는 재기동 전까지 stale.
+
+**목표 방향(ADR 0115 §2-P2 대안 B-on-A 점진 전환 예정)**: `strategy_position`을 `order_execution`(immutable append-only 진실원)의 **결정론적 파생 재계산 뷰**로 전환 — drift reconcile 시 해당 (user,strategy,code)를 진실원에서 rebuild하여 `Σ전략 귀속 == KIS authority`(position) 검산. 이로써 누락이 발생해도 다음 reconcile가 흡수(누락 영구화 불가). drift 보정 시 in-memory index `onFillRefresh` 동반 호출로 3중 상태 동기화.
 
 ---
 
@@ -744,6 +759,7 @@ v1·v2 검토 시점에 누적된 결정 항목과 v3.0.0 베이스라인 컷(20
 
 | 날짜 | 변경 |
 |------|------|
+| 2026-06-10 (ADR 0115 §2-P2) | **§3-5 보유 수량 3중 상태 권위·시차 매트릭스 본문화 (체결-원장-리스크 체인 통합 — 최고 관리자 전체 승인)**. 2026-06-10 005930·전략8 incident(G1~G7)가 `position`(1차 권위·KIS 투영·5분 자기치유)·`strategy_position`(2차 ledger·전략 귀속·replay-skip 시 영구 누락)·in-memory `HoldingPositionIndex`(derived cache·DB 직접 정정 미감지)의 시차·배선 지점에 집중됨을 §3-5-1 매트릭스로 본문화. §3-5 표에 "파생 상태 재계산 가능성" 원칙 추가 — 보유 수량 등 파생 ledger는 immutable 진실원(`order_execution`)에서 결정론적 재계산 가능해야 하며 독립 mutable 증분 원장은 금지 방향. 목표 방향=ADR 0115 §2-P2 대안 B-on-A(strategy_position을 order_execution 파생 재계산 뷰로 점진 전환·drift reconcile rebuild로 Σ전략귀속==KIS authority 검산·drift 보정 시 index onFillRefresh 동반). 동반: ADR 0115 §2-P2 6항목 + 헌법 §11 + development-rules §3-7. 운영 코드 0 touch(docs only). (architect, 사용자 전체 승인) |
 | 2026-06-06 (ADR 0112) | **AI 종목발굴 Claude CLI bridge + 전략 리서치 후보 탐색 Accepted**. 전략 리서치 화면에서 자연어 조건을 입력하면 api가 `claude -p` 직접 실행 또는 local bridge를 호출하고, 응답 후보를 instrument master에 매핑해 matched 후보만 기존 리서치 form/chart로 연결한다. AI는 검증 후보를 제안할 뿐 주문, 전략 저장, watchlist 등록, 실시간 수요 등록을 수행하지 않는다. |
 | 2026-06-05 (ADR 0110·0111) | **분할 매수(scale-in) + 비중 조절 + 익절/손절 청산 + 전략별 포지션 귀속 통합 Accepted**. ADR 0110 — `strategy_position` 1급 도메인(UNIQUE user+strategy+code, V65) 신설로 동일 종목 다전략 시 "이 전략이 산 물량"만 추적·청산(readiness C-2). position(KIS 잔고 권위)은 유지하고 drift 시 KIS 우선. RiskGateway SELL 2룰만 전략별 분기. ADR 0111(0106 amend) — ScaleInPlan(N회·회당 비중·재진입 트리거, V66 JSONB) + 평단 기준 stop-loss exit 신규 + 분할 익절(PartialExit) + ScaleInExitCalculator 단일 순수 함수(live·리플레이·백테스트 공유). DSL 미확장(정책 레이어). 하위호환(scale-in null=현행). canary cap 3종 분할 자동 정합. spec `2026-06-05-scale-in-exit-ownership-spec.md`(R1→R2→R3). |
 | 2026-06-03 (ADR 0107) | **Scenario Replay Sandbox Accepted**. v3.11.0 이후 `T-SIM` 트랙을 신설해 장중이 아니어도 전략 신호·리스크·가상 주문·가상 체결·오류를 QA처럼 재현한다. live 주문 Kafka, KIS 주문 adapter, live 주문·리스크 테이블, Slack TRADE 알림과 분리하고, `scenario_*` namespace만 허용한다. |
