@@ -86,7 +86,7 @@ canary 1회당 아래 값을 **사전 결정·고정**한다. ENV는 ADR 0109 ha
 |---------|--------------|-----------|------|
 | **기간** | 장중 1일 09:00~15:30 KST | 장운영시간 게이트(MarketSessionResolver + BusinessDayCalendar) | 정규장만. NXT 야간장 비대상 |
 | **주문 1건 수량 상한** | 1주 (또는 notional 이내 최소 수량) | `MAGICJAR_CANARY_MAX_ORDER_QTY` (ADR 0109) | 전략 budget과 별개 hard cap |
-| **주문 1건 notional 상한** | 100,000원 (사용자 결재 값) | `MAGICJAR_CANARY_MAX_ORDER_NOTIONAL_KRW` (ADR 0109) | qty × price 상한 |
+| **주문 1건 notional 상한** | **350,000원 (2026-06-11 사용자 결재 amend — 구 100,000은 대상 종목 042700 주가 ~27만원에 1주도 차단되어 상향)** | `MAGICJAR_CANARY_MAX_ORDER_NOTIONAL_KRW` (ADR 0109) | qty × price 상한 |
 | **일일 REAL 주문 횟수 상한** | 5건/일 (사용자 결재 값) | `MAGICJAR_CANARY_MAX_ORDERS_PER_DAY` (ADR 0109) | RiskConfig maxTradesPerDay와 별개 전역 cap |
 | **손실 한도(절대)** | 50,000원 (사용자 결재 값) | RiskConfig `dailyLossLimitAmount` (기존 DAILY_LOSS_LIMIT 룰) | 도달 시 BUY BLOCKED |
 | **staging dwell** | 30분 (헌법 §9-2) | 수동 — §3-1 절차 | dev→staging→REAL 단계 |
