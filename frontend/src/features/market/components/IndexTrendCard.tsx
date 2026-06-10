@@ -40,6 +40,7 @@ export function IndexTrendCard({ index, onClick, selected = false }: Props) {
   const change = formatChangeRate(changeRate)
   const hasQuote = lastClose !== null
   const isOverseasIndex = index.code.startsWith('.')
+  const requiredPeriods = index.periodsUsed.length > 0 ? Math.max(...index.periodsUsed) : 60
 
   const isClickable = onClick !== undefined
   const baseCls =
@@ -78,7 +79,7 @@ export function IndexTrendCard({ index, onClick, selected = false }: Props) {
             <div className="flex flex-wrap justify-end gap-1">
               {index.dataInsufficient && (
                 <span className="text-[10px] text-amber-300">
-                  추세 {Math.max(...index.periodsUsed)}일 수집 중
+                  데이터 부족 · {requiredPeriods}일 이상 수집 필요
                 </span>
               )}
               {index.isUserCustom && (
