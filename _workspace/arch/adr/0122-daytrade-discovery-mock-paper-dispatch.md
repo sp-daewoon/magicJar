@@ -1,10 +1,10 @@
 # ADR 0122 — 발굴(Discovery) → MOCK 페이퍼 트레이딩 dispatch 경로
 
-- **상태**: Proposed (2026-06-10, orchestrator dispatch — "발굴 후보를 MOCK 페이퍼로 굴려보는 경로")
+- **상태**: Accepted (2026-06-10 최고 관리자 결재 — spec §8 4건 권장값 일괄 승인 + R1 착수. 발행: orchestrator dispatch — "발굴 후보를 MOCK 페이퍼로 굴려보는 경로")
 - **작성**: architect
 - **트랙**: 단타 발굴 후속(ADR 0117 §1-4 B층) + 모의 단계(백테스트→모의→실전)
 - **연관 ADR**: 0117(발굴 레이어 — 후보 출발점·결정권 0) · 0121(백테스트 사이징 정합 — 페이퍼 RiskConfig 프로필 권위) · 0067(RiskConfig·RiskGateway 6룰) · 0068(TradingModeGate MOCK/REAL 3중 게이트) · 0110(전략별 포지션 귀속) · 0115 P2-⑥(0-sentinel 폐지 + OrderTrigger 키 사슬 — **구현 선행 의존**)
-- **결재**: 사용자 결재 대기 (spec §8 결정 필요 4건 미결)
+- **결재**: 결재 완료 (2026-06-10 — §8 4건 전부 architect 권장값 채택: 다중선택 일괄 승격 · 가상 자본 1천만원 · RiskConfig 옵션 A `<userId>:paper` · DLL 3%/일 50회 1차)
 - **구현**: 본 ADR은 **문서·계약 only**. 구현은 strategy-engine·backend-core·frontend·qa (spec §4 라운드).
 - **spec/plan**: `_workspace/specs/2026-06-10-daytrade-mock-paper-dispatch-spec.md` (계약 LOCK 권위)
 
