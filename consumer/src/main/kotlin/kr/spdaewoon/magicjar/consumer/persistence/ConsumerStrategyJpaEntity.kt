@@ -67,6 +67,10 @@ class ConsumerStrategyJpaEntity(
     val evalMetricSummary: String? = null,
     @Column(name = "status", nullable = false, length = 16)
     val status: String = "ACTIVE",
+    // V81 추가 컬럼 — ADR 0122 §2-A 전략 출처(USER_DSL/PAPER_DISCOVERY). consumer capital 분기 판정 키.
+    // null=legacy=USER_DSL 취급 → 실 KIS 잔고 경로(현행 zero-regression).
+    @Column(name = "origin", length = 24)
+    val origin: String? = null,
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "codes", columnDefinition = "jsonb")
     val codes: String? = null,

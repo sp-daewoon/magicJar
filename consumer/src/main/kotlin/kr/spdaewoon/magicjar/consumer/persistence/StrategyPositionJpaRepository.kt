@@ -69,6 +69,28 @@ interface StrategyPositionJpaRepository : JpaRepository<StrategyPositionJpaEntit
     ): List<StrategyPositionJpaEntity>
 
     /**
+     * ADR 0122 §2-C — 페이퍼(가상 자본) 실현손익 누적 합.
+     *
+     * 해당 user 의 발굴 페이퍼 전략(`strategy.origin = 'PAPER_DISCOVERY'`)에 귀속된 strategy_position 행의
+     * realized_pnl 합. [kr.spdaewoon.magicjar.consumer.risk.PaperCapitalSnapshotProvider] 가
+     * `가상 자본 잔액 = 초기 default + 페이퍼 실현손익 합(부호 그대로)` 으로 산출하는 입력.
+     *
+     * 실 전략(USER_DSL) row 는 join 조건에서 제외 → 실 잔고·실 리스크 판정 오염 0(spec §1-3 격리 LOCK).
+     * native query(strategy join · origin enum 컬럼은 V81 add). 행 부재 시 COALESCE 0.
+     * @Query 명시 — 헌법 §6 default-fun 추론 함정 회피.
+     */
+    @Query(
+        value =
+            "SELECT COALESCE(SUM(sp.realized_pnl), 0) FROM strategy_position sp " +
+                "JOIN strategy s ON s.id = sp.strategy_id " +
+                "WHERE sp.user_id = :userId AND s.origin = 'PAPER_DISCOVERY'",
+        nativeQuery = true,
+    )
+    fun sumPaperRealizedPnlByUser(
+        @Param("userId") userId: String,
+    ): java.math.BigDecimal
+
+    /**
      * replay TOCTOU 직렬화용 advisory xact lock — (user, strategyId, code) 2개 정수 키.
      *
      * `pg_advisory_xact_lock(key1, key2)` 는 현재 트랜잭션 범위 lock 으로, commit/rollback 시 자동 해제(leak 0).

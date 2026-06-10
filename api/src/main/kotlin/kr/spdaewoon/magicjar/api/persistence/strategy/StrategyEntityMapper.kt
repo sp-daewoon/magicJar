@@ -11,6 +11,7 @@ import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
+import kr.spdaewoon.magicjar.domain.strategy.StrategyOrigin
 import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.Universe
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
@@ -99,6 +100,7 @@ object StrategyEntityMapper {
             definition = definition,
             complexity = complexity,
             disabledReason = disabledReason,
+            origin = safeOrigin(entity.origin),
             status = safeStatus(entity.status),
             codes = safeStringList(entity.codes, objectMapper),
             intervals = safeStringList(entity.intervals, objectMapper),
@@ -131,6 +133,19 @@ object StrategyEntityMapper {
         }
 
     fun safeStatus(value: String): StrategyStatus = runCatching { StrategyStatus.valueOf(value) }.getOrDefault(StrategyStatus.ACTIVE)
+
+    /**
+     * `origin` 문자열(nullable) → enum (ADR 0122 §2-A · V81).
+     *
+     * null(legacy V81 이전 행) 또는 invalid 값은 [StrategyOrigin.USER_DSL] default — 하위호환 zero-regression.
+     * 페이퍼 식별(`PAPER_DISCOVERY`)은 명시 INSERT된 행에서만 나온다(`safe*` 패턴 정합).
+     */
+    fun safeOrigin(value: String?): StrategyOrigin =
+        if (value == null) {
+            StrategyOrigin.USER_DSL
+        } else {
+            runCatching { StrategyOrigin.valueOf(value) }.getOrDefault(StrategyOrigin.USER_DSL)
+        }
 
     private fun safeStringList(
         value: String?,

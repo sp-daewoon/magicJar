@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.domain.strategy.EntryPolicySerde
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
+import kr.spdaewoon.magicjar.domain.strategy.StrategyOrigin
 import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyRepositoryPort
@@ -119,6 +120,8 @@ class StrategyJpaAdapter(
             lastDisabledAt = strategy.lastDisabledAt,
             evalMetricSummary = strategy.evalMetricSummary?.let { objectMapper.writeValueAsString(it) },
             status = strategy.status.name,
+            // V81 — ADR 0122 §2-A 전략 출처 영속. default(USER_DSL)는 컬럼 미기록(null=legacy=USER_DSL 취급).
+            origin = strategy.origin.takeIf { it != StrategyOrigin.USER_DSL }?.name,
             codes = strategy.codes.takeIf { it.isNotEmpty() }?.let { objectMapper.writeValueAsString(it) },
             intervals = strategy.intervals.takeIf { it.isNotEmpty() }?.let { objectMapper.writeValueAsString(it) },
             createdAt = strategy.createdAt,

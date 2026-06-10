@@ -67,6 +67,10 @@ management:
 magicjar:
   mode: ${MAGICJAR_MODE:MOCK}
   allow-real: ${MAGICJAR_ALLOW_REAL:false}
+  # 발굴 → MOCK 페이퍼 트레이딩 (ADR 0122) — PaperCapitalSnapshotProvider 가상 자본 초기 default.
+  daytrade:
+    paper:
+      default-capital-krw: ${MAGICJAR_DAYTRADE_PAPER_DEFAULT_CAPITAL_KRW:10000000}
   # A 의제 hotfix (2026-05-20) — PositionBootstrapRunner trigger 조건 3중 게이트.
   # bootstrap.position-on-startup=false 시 부팅 시 KIS 호출 0 (KillSwitch ON risk 0).
   # default true — 회귀 안전. dev/staging 환경은 magicjar.mode=MOCK 또는 allow-real=false 로 자동 skip.

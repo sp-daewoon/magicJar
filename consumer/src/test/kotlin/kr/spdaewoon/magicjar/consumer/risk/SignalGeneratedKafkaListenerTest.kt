@@ -648,6 +648,8 @@ class SignalGeneratedKafkaListenerTest {
             tradeFrequencyGuard = tradeFrequencyGuard,
             dailyPnlCalculator = dailyPnlCalculator,
             capitalSnapshotProvider = capitalSnapshotProvider,
+            // ADR 0122 — 본 테스트는 USER_DSL(비페이퍼) 시나리오라 페이퍼 provider 부재(isPaper=false → 실 provider 경로 byte 동일).
+            paperCapitalSnapshotProviderProvider = nullableProvider(),
             orderIntentKafkaProducer = orderIntentKafkaProducer,
             riskViolationKafkaProducer = riskViolationKafkaProducer,
             autoPauseGuard = autoPauseGuard,
