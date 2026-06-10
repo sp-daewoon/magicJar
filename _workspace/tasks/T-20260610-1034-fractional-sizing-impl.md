@@ -3,10 +3,10 @@ id: T-20260610-1034-fractional-sizing-impl
 agent: strategy
 model: opus
 branch: agent/strategy-engine/fractional-sizing-impl
-status: RUNNING
+status: DONE
 startedAt: 2026-06-10T10:34:41.972+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-10T10:49:37.135+09:00
+pr: #871
 parentPhase: ?
 ---
 
