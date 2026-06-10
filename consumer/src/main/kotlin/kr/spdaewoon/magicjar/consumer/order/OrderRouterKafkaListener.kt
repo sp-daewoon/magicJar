@@ -816,9 +816,6 @@ class OrderRouterKafkaListener(
     }
 
     /**
-     * Step 3·4 REJECTED 공통 처리 (게이트 단계 — order_request INSERT(REJECTED) + audit + Kafka publish).
-     */
-    /**
      * ADR 0122 §6 GAP-0 hotfix — intent.strategyId의 전략 origin으로 페이퍼 여부 판정.
      *
      * 라우터 단일 관문 판정 — 발행처 4곳(T-RISK·AutoExit·StopLossWatcher·MANUAL)을 전부 커버.
@@ -882,6 +879,9 @@ class OrderRouterKafkaListener(
         return OrderResult.Right(entity.origin == StrategyOrigin.PAPER_DISCOVERY.name)
     }
 
+    /**
+     * Step 3·4 REJECTED 공통 처리 (게이트 단계 — order_request INSERT(REJECTED) + audit + Kafka publish).
+     */
     private fun handleRejected(
         intent: OrderIntent,
         mode: TradingMode,
