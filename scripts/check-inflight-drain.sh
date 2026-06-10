@@ -32,28 +32,37 @@ if [[ "${SKIP_DRAIN_CHECK:-0}" == "1" ]]; then
 fi
 
 # ── .env 로드 (DB 좌표) ───────────────────────────────────────────────────
-if [[ -f .env ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source .env
-  set +a
-fi
+# source 금지 — .env 는 docker compose 파서 기준이라 공백 포함 무인용 값
+# (예: cron 표현식)이 존재하며 bash source 가 이를 명령으로 오해석 (2026-06-10 배포 중단 evidence).
+env_lookup() {
+  [[ -f .env ]] || return 0
+  # 키 부재 시 grep exit 1 이 set -e 로 전파되지 않도록 무실패 보장
+  { grep -E "^${1}=" .env || true; } | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'"
+}
 
-PGHOST="${POSTGRES_HOST:-localhost}"
-PGPORT="${POSTGRES_PORT:-5432}"
-PGDB="${POSTGRES_DB:-magicjar}"
-PGUSER="${POSTGRES_USER:-magicjar}"
-PGPASSWORD="${POSTGRES_PASSWORD:-magicjar}"
+PGHOST="${POSTGRES_HOST:-$(env_lookup POSTGRES_HOST)}"
+PGHOST="${PGHOST:-localhost}"
+PGPORT="${POSTGRES_PORT:-$(env_lookup POSTGRES_PORT)}"
+PGPORT="${PGPORT:-5432}"
+PGDB="${POSTGRES_DB:-$(env_lookup POSTGRES_DB)}"
+PGDB="${PGDB:-magicjar}"
+PGUSER="${POSTGRES_USER:-$(env_lookup POSTGRES_USER)}"
+PGUSER="${PGUSER:-magicjar}"
+PGPASSWORD="${POSTGRES_PASSWORD:-$(env_lookup POSTGRES_PASSWORD)}"
+PGPASSWORD="${PGPASSWORD:-magicjar}"
 export PGPASSWORD
-
-if ! command -v psql >/dev/null 2>&1; then
-  echo "▶ drain 가드 skip — psql 명령을 찾을 수 없습니다(가드 미적용으로 진행)"
-  exit 0
-fi
 
 SQL="SELECT COUNT(*) FROM order_request WHERE status IN ('REQUESTED','ACK','PARTIALLY_FILLED','PENDING_RECONCILE');"
 
-INFLIGHT="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -tAc "$SQL" 2>/dev/null || echo "ERR")"
+# 호스트 psql 우선, 없으면 postgres 컨테이너 경유 (개발 호스트 표준 — psql 미설치)
+if command -v psql >/dev/null 2>&1; then
+  INFLIGHT="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -tAc "$SQL" 2>/dev/null || echo "ERR")"
+elif command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^magicjar-postgres$'; then
+  INFLIGHT="$(docker exec magicjar-postgres psql -U "$PGUSER" -d "$PGDB" -tAc "$SQL" 2>/dev/null || echo "ERR")"
+else
+  echo "▶ drain 가드 skip — psql/postgres 컨테이너를 찾을 수 없습니다(가드 미적용으로 진행)"
+  exit 0
+fi
 
 if [[ "$INFLIGHT" == "ERR" ]]; then
   echo "▶ drain 가드 — order_request 조회 실패(DB 미가동 추정) — 가드 미적용으로 진행"
