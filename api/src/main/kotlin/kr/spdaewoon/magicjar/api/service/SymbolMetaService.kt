@@ -112,6 +112,16 @@ class SymbolMetaService(
         val candleLatest = normalCandles.getOrNull(0)
         val candlePrev = normalCandles.getOrNull(1)
 
+        // 장중 가드 (2026-06-10 실측 결함 fix): 오늘 1d 봉은 야간 R2(23:00) 적재 전까지 DB에 없으므로
+        // 장중 candleLatest = "어제 봉"이다. 이를 당일 시/고/저/거래량·전일종가 source로 쓰면
+        // 헤더가 전일값으로 표시된다(캔들 차트는 #882 seed 경로로 당일 정상 — 헤더만 어긋나는 증상).
+        // → candleLatest가 '오늘(KST)' 봉일 때만 당일 source 자격, 아니면 KIS 당일 metrics 우선.
+        val kstZone = java.time.ZoneId.of("Asia/Seoul")
+        val candleLatestIsToday =
+            candleLatest?.ts?.atZone(kstZone)?.toLocalDate() == java.time.LocalDate.now(kstZone)
+        // 당일 봉 자격이 있는 candle만 시/고/저/거래량에 사용
+        val intradayCandle = if (candleLatestIsToday) candleLatest else null
+
         // 2. Redis quote:last:{code} — 장중 실시간 변동 (NXT 오염 검사 LOCK)
         //    source ∈ {"live", "ws", "tick", ...} 정규장 출처만 허용. "live-nxt"·"nxt-*"는 무시.
         val quoteJson = redisTemplate.opsForValue().get("quote:last:$code")
@@ -197,8 +207,11 @@ class SymbolMetaService(
                     "종목 데이터를 가져올 수 없습니다",
                 )
 
-        // 전일종가: tick 등락 필드가 있으면 tick 기준으로 복원, 없으면 candle DB 1d 2번째 row close 우선.
-        val prevClose = quoteChangeMetrics?.previousClose ?: candlePrev?.closeRaw ?: resolvedMetrics?.previousClose
+        // 전일종가: tick 등락 필드가 있으면 tick 기준으로 복원, 없으면 candle DB 기준.
+        // candleLatest가 오늘 봉이면 2번째 row(어제)가 전일종가, 어제 봉이면 그 자신의 close가 전일종가
+        // (기존 candlePrev 고정은 장중에 '그제 종가'를 전일종가로 쓰던 결함).
+        val prevCloseFromCandle = if (candleLatestIsToday) candlePrev?.closeRaw else candleLatest?.closeRaw
+        val prevClose = quoteChangeMetrics?.previousClose ?: prevCloseFromCandle ?: resolvedMetrics?.previousClose
         val priceDecimal = price.toBigDecimalOrNull()
 
         // 전일대비·등락률 — candle 기반 직접 계산 우선 (정규장 LOCK), KIS 응답값은 NXT 영향 가능
@@ -249,11 +262,12 @@ class SymbolMetaService(
             previousClose = prevClose?.toPlainString() ?: "0",
             change = change,
             changeRate = changeRate,
-            // 고·저·시·거래량: candle DB 1d 최신 row 우선 (정규장 source LOCK), 부재 시 KIS metrics
-            high = candleLatest?.highRaw?.toPlainString() ?: resolvedMetrics?.high?.toPlainString(),
-            low = candleLatest?.lowRaw?.toPlainString() ?: resolvedMetrics?.low?.toPlainString(),
-            open = candleLatest?.openRaw?.toPlainString() ?: resolvedMetrics?.open?.toPlainString(),
-            volume = candleLatest?.volume ?: resolvedMetrics?.volume,
+            // 고·저·시·거래량: '오늘' 1d 봉(intradayCandle)일 때만 candle DB 우선, 장중(어제 봉)엔 KIS 당일 metrics.
+            // 어제 봉 fallback은 두지 않는다 — 전일값을 당일로 표시하던 결함(2026-06-10) 재발 방지, 부재 시 null(정직 표시).
+            high = intradayCandle?.highRaw?.toPlainString() ?: resolvedMetrics?.high?.toPlainString(),
+            low = intradayCandle?.lowRaw?.toPlainString() ?: resolvedMetrics?.low?.toPlainString(),
+            open = intradayCandle?.openRaw?.toPlainString() ?: resolvedMetrics?.open?.toPlainString(),
+            volume = intradayCandle?.volume ?: resolvedMetrics?.volume,
             marketCap = resolvedMetrics?.marketCap?.toPlainString(),
             per = resolvedMetrics?.per?.toPlainString(),
             pbr = resolvedMetrics?.pbr?.toPlainString(),
