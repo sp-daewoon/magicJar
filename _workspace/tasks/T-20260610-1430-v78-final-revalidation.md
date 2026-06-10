@@ -3,10 +3,10 @@ id: T-20260610-1430-v78-final-revalidation
 agent: strategy-engine
 model: opus
 branch: agent/strategy-engine/v78-final-revalidation-r2
-status: IN_PROGRESS
+status: DONE
 startedAt: 2026-06-10T14:30:00+09:00
-completedAt:
-pr:
+completedAt: 2026-06-10T14:55:00+09:00
+pr: #877
 parentPhase: ADR 0121 Wave 3
 ---
 
@@ -23,8 +23,8 @@ ADR 0121 LOCK대로 V78 최종 재검증(재실행) — 사이징 정합 FixedFr
 - [x] 임시 Strategy row(76~81) 정리(DELETE)
 - [x] 리포트 _workspace/strategy/2026-06-10-v78-final-revalidation-report.md + evidence 5건
 - [x] CHANGELOG Wave 3 슬롯 in-place
-- [ ] :api:check GREEN
-- [ ] PR --base main
+- [x] :api:check GREEN
+- [x] PR --base main (#877)
 
 ## 의존성
 - ADR 0121 (사이징 정합 + 신 G3 12% LOCK)
