@@ -41,6 +41,20 @@ class DailyFamilyRollupRunner(
     companion object {
         /** ADR 0120 — 1d 에서 롤업 생성하는 상위 timeframe 3종 (KIS 직접 fetch 폐지). */
         val TARGET_INTERVALS = listOf(ONE_WEEK, ONE_MONTH, ONE_YEAR)
+
+        /**
+         * ADR 0120 amend (2026-06-10) — R2 야간 incremental 기본 윈도우(최근 거래일 수).
+         *
+         * 매일 1wk/1mo/1y 전체 history(10년 ~2,450봉)를 재생성하던 무지성 full-regen 을 대체한다.
+         * 과거 닫힌 주/월/년봉은 1d 가 불변이므로 재계산이 낭비 — **갱신 필요한 봉만** 재롤업하면 충분하다.
+         *
+         * 400 거래일(≈1.6 calendar year)이면 가장 긴 경계인 **연봉**도 안전 커버:
+         *   - 올해 진행 연봉(1y) — today 1d 까지 반영해 매일 갱신 필요.
+         *   - 작년 닫힌 연봉 — 연초 직후(1월) 작년 봉이 막 닫혔을 때 누락 없이 1회 더 갱신.
+         *   주봉·월봉 경계(주초·월초 직후)는 400 거래일 안에 항상 포함 → 경계 갱신 누락 0.
+         * 산출 봉만 upsert 하므로 양 ~95% 절감(1y 는 전체~30봉 → 2봉, 1mo·1wk 도 윈도우 내 봉만).
+         */
+        const val DEFAULT_INCREMENTAL_RECENT_DAYS = 400
     }
 
     data class IntervalRollupResult(
@@ -49,17 +63,44 @@ class DailyFamilyRollupRunner(
     )
 
     /**
-     * 종목 1d candle 전량을 1wk·1mo·1y 로 롤업 + DB UPSERT.
+     * 종목 1d candle 전량을 1wk·1mo·1y 로 롤업 + DB UPSERT (full-regen — admin 1회 복구용).
      *
      * @param code 종목 코드 (KIS 6자리)
      * @return interval code → upsert 건수 (운영 관측)
      */
     fun rollup(code: String): Map<String, Int> = rollupDetailed(code).mapValues { it.value.upserted }
 
-    fun rollupDetailed(code: String): Map<String, IntervalRollupResult> {
+    /**
+     * 종목 1d → 1wk/1mo/1y 롤업 + DB UPSERT.
+     *
+     * @param code 종목 코드 (KIS 6자리)
+     * @param recentDays 최근 N 거래일만 읽어 롤업(incremental). `null`이면 1d 전량 full-regen.
+     *   - **R2 야간**: [DEFAULT_INCREMENTAL_RECENT_DAYS](400) — 갱신 필요한 경계 봉만(연봉 경계까지 커버).
+     *   - **admin /run**: `null`(full-regen) — 1회성 복구 + 수동 재실행(전 history 정합 보증).
+     *   incremental 은 윈도우 밖 과거 봉을 건드리지 않는다(과거 1d 불변 → 과거 상위봉 불변 → 재계산 불필요).
+     *   윈도우 경계에 걸친 주/월/년 봉은 윈도우 안에 그 구간의 1d 가 일부만 들어와도 같은 그룹키로 묶여
+     *   해당 구간 전체 1d 가 들어온 full-regen 과 동일한 OHLCV 가 되도록 보장된다(아래 ★ 경계 정확성).
+     *
+     * ## ★ 경계 정확성 (full-regen 과 동일 결과 보증)
+     *   incremental 윈도우(최근 400 거래일)의 가장 이른 봉이 어떤 주/월/년의 "중간"일 수 있다.
+     *   그 경우 그 경계 봉의 open/누적 거래량이 full-regen(구간 전체 1d 포함)과 달라질 위험이 있다.
+     *   400 거래일 ≈ 1.6년이므로 **연봉**은 "올해 + 작년 일부"만 재계산 대상이 되는데,
+     *   작년 연봉은 이미 닫혀 직전 R2/admin full-regen 으로 정확히 적재되어 있고(불변), 윈도우 부분 재계산이
+     *   그 값을 부정확하게 덮을 수 있다 → 이를 막기 위해 **윈도우의 가장 이른 봉이 속한 그룹 전체가 윈도우 안에
+     *   완전히 포함되지 않는 경계 그룹은 upsert 대상에서 제외**한다([dropLeadingPartialGroup]).
+     *   → 부분 그룹(작년 연봉의 끝자락 등)은 그대로 두고(불변), 완전 포함 그룹만 갱신 → full-regen 과 동일.
+     */
+    fun rollupDetailed(
+        code: String,
+        recentDays: Int? = null,
+    ): Map<String, IntervalRollupResult> {
         val oneDayCandles =
             try {
-                candleRepository.findByCodeAndInterval(code, ONE_DAY)
+                if (recentDays != null) {
+                    candleRepository.findLatestByCodeAndInterval(code, ONE_DAY, recentDays)
+                } else {
+                    candleRepository.findByCodeAndInterval(code, ONE_DAY)
+                }
             } catch (e: Exception) {
                 log.warn("DailyFamilyRollupRunner: 1d 조회 실패 — skip: code={} err={}", code, e.message)
                 return emptyMap()
@@ -69,19 +110,28 @@ class DailyFamilyRollupRunner(
             return emptyMap()
         }
 
+        // incremental(recentDays!=null) + 윈도우가 full 을 잘랐을 때만 경계 부분 그룹 drop.
+        // 반환 size < recentDays 면 그 종목 1d 전량이 윈도우보다 적음(신규 상장 등) → 부분 그룹 없음 → drop 0.
+        val windowTruncated = recentDays != null && oneDayCandles.size >= recentDays
+
         val result = mutableMapOf<String, IntervalRollupResult>()
         for (target in TARGET_INTERVALS) {
             try {
-                val rolled = DailyRollupAggregator.rollup(oneDayCandles, target)
+                val rolledAll = DailyRollupAggregator.rollup(oneDayCandles, target)
+                // ★ 경계 정확성: 윈도우가 잘렸으면 가장 이른 그룹(부분 그룹 가능)을 upsert 에서 제외.
+                //   그 봉은 윈도우 밖 더 이른 1d 를 포함할 수 있어 open/volume 이 full-regen 과 다를 수 있다.
+                //   이미 직전 full-regen/incremental 으로 정확 적재된 불변 봉이므로 건드리지 않는 게 정합.
+                val rolled = if (windowTruncated) rolledAll.drop(1) else rolledAll
                 if (rolled.isNotEmpty()) {
                     val upserted = candleRepository.upsertAll(rolled)
                     result[target.code] = IntervalRollupResult(upserted = upserted, latestBar = rolled.last())
                     log.debug(
-                        "DailyFamilyRollupRunner interval 완료: code={} interval={} rolled={} upserted={}",
+                        "DailyFamilyRollupRunner interval 완료: code={} interval={} rolledAll={} upserted={} windowTruncated={}",
                         code,
                         target.code,
-                        rolled.size,
+                        rolledAll.size,
                         upserted,
+                        windowTruncated,
                     )
                 } else {
                     result[target.code] = IntervalRollupResult(upserted = 0, latestBar = null)

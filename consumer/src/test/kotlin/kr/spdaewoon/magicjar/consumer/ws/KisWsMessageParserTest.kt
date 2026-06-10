@@ -382,4 +382,133 @@ class KisWsMessageParserTest {
             .isEqualTo(totalSlots)
             .describedAs("정규장: H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41 slot 정합")
     }
+
+    // ===== R1-A 체결강도 흡수 테스트 (ADR 0117 §3-R1) =====
+
+    /**
+     * H0STCNT0 체결강도(CTTR)·누적거래대금(ACML_TR_PBMN) 흡수 — KIS 계산 완료값.
+     *
+     * KIS-first raw 출처(2026-06-09 fetch 재검증):
+     *   https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
+     *   ccnl_krx() columns: [14]=ACML_TR_PBMN(누적거래대금) / [18]=CTTR(체결강도)
+     */
+    @Test
+    fun `H0STCNT0 체결강도 CTTR·누적거래대금 ACML_TR_PBMN 흡수`() {
+        val fields =
+            Array(46) { i ->
+                when (i) {
+                    0 -> "005930"
+                    1 -> "100012"
+                    2 -> "61000"
+                    12 -> "100"
+                    14 -> "1234567890000" // ACML_TR_PBMN (누적거래대금 원)
+                    18 -> "152.34" // CTTR (체결강도 — 매수우위)
+                    33 -> "20260609"
+                    else -> "0"
+                }
+            }
+        val tick = KisWsMessageParser.parseH0Stcnt0(fields.joinToString("^"))
+
+        assertThat(tick).isNotNull
+        assertThat(tick!!.tradeIntensity).isEqualByComparingTo(BigDecimal("152.34"))
+        assertThat(tick.turnoverAccum).isEqualByComparingTo(BigDecimal("1234567890000"))
+        // 기존 필드 회귀 0 — 가격·체결량 그대로
+        assertThat(tick.price).isEqualByComparingTo(BigDecimal("61000"))
+        assertThat(tick.volume).isEqualTo(100L)
+    }
+
+    /**
+     * H0STCNT0 체결강도·누적거래대금 blank → null graceful (polling source 호환).
+     */
+    @Test
+    fun `H0STCNT0 체결강도·누적거래대금 blank → null`() {
+        val fields =
+            Array(46) { i ->
+                when (i) {
+                    0 -> "005930"
+                    1 -> "100012"
+                    2 -> "61000"
+                    12 -> "100"
+                    14 -> "" // blank
+                    18 -> "" // blank
+                    33 -> "20260609"
+                    else -> "0"
+                }
+            }
+        val tick = KisWsMessageParser.parseH0Stcnt0(fields.joinToString("^"))
+
+        assertThat(tick).isNotNull
+        assertThat(tick!!.tradeIntensity).isNull()
+        assertThat(tick.turnoverAccum).isNull()
+        // 기존 필드 회귀 0
+        assertThat(tick.price).isEqualByComparingTo(BigDecimal("61000"))
+        assertThat(tick.volume).isEqualTo(100L)
+    }
+
+    /**
+     * 필드 게이트 완화(< 21) graceful — index 18·14는 추출, 결손된 BSOP_DATE(33)·CTTR는 null.
+     *
+     * 게이트 21~33 구간: CTTR(18) 추출 보장 + BSOP_DATE(33) 결손 시 getOrNull null → Clock.now() fallback.
+     * 전체 tick reject 금지 (하위호환 — 기존 < 34 게이트는 체결강도 흡수에 과도).
+     */
+    @Test
+    fun `H0STCNT0 필드 21~33개 → CTTR 추출 + BSOP_DATE 결손 graceful (전체 reject 금지)`() {
+        // 25개 필드만 — index 18(CTTR)·14(ACML_TR_PBMN)는 존재, 33(BSOP_DATE)는 결손
+        val fields =
+            Array(25) { i ->
+                when (i) {
+                    0 -> "005930"
+                    1 -> "100012"
+                    2 -> "61000"
+                    12 -> "100"
+                    14 -> "9999999999" // ACML_TR_PBMN
+                    18 -> "88.5" // CTTR (매도우위)
+                    else -> "0"
+                }
+            }
+        val tick = KisWsMessageParser.parseH0Stcnt0(fields.joinToString("^"))
+
+        // 전체 reject 금지 — tick 생성됨
+        assertThat(tick).isNotNull
+        assertThat(tick!!.tradeIntensity).isEqualByComparingTo(BigDecimal("88.5"))
+        assertThat(tick.turnoverAccum).isEqualByComparingTo(BigDecimal("9999999999"))
+        assertThat(tick.code).isEqualTo("005930")
+        assertThat(tick.price).isEqualByComparingTo(BigDecimal("61000"))
+    }
+
+    /**
+     * 필드 21개 미만 → null reject (게이트 하한 < 21 검증).
+     */
+    @Test
+    fun `H0STCNT0 필드 21개 미만 → null reject`() {
+        val fields = Array(20) { i -> if (i == 0) "005930" else "0" }
+        val tick = KisWsMessageParser.parseH0Stcnt0(fields.joinToString("^"))
+        assertThat(tick).isNull()
+    }
+
+    /**
+     * H0NXCNT0 체결강도 흡수 — parseH0Stcnt0 재사용 → 동일 index 14·18 흡수 + source=live-nxt.
+     */
+    @Test
+    fun `H0NXCNT0 체결강도 CTTR 흡수 + source=live-nxt`() {
+        val fields =
+            Array(44) { i ->
+                when (i) {
+                    0 -> "005930"
+                    1 -> "100012"
+                    2 -> "60200"
+                    12 -> "30"
+                    14 -> "5000000000"
+                    18 -> "110.0"
+                    33 -> "20260609"
+                    else -> "0"
+                }
+            }
+        val tick = KisWsMessageParser.parseH0Nxcnt0(fields.joinToString("^"))
+
+        assertThat(tick).isNotNull
+        assertThat(tick!!.tradeIntensity).isEqualByComparingTo(BigDecimal("110.0"))
+        assertThat(tick.turnoverAccum).isEqualByComparingTo(BigDecimal("5000000000"))
+        assertThat(tick.source).isEqualTo("live-nxt")
+    }
 }
