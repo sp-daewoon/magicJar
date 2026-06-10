@@ -13,6 +13,7 @@
  *   /instruments      -> 전체 종목검색 + 관심종목 필터 + 섹터 그룹
  *   /symbol/:code     -> 종목 상세 (T-S1 — ADR 0040 §2-2 진입점)
  *   /strategy/backtest -> 백테스트 (T-BT R3 — ADR 0061 §4 D-1)
+ *   /strategy/paper   -> 모의(페이퍼) 트레이딩 대시보드 (ADR 0122 R3 — 실거래 아님)
  *   /strategy/research -> 전략 리서치 (QA 전용 후보 생성)
  *   /strategy/scenario-replay -> 시나리오 리플레이 (T-SIM Phase 3 — ADR 0107)
  *   /strategy/list    -> 전략 목록 + 시그널 내역 (T-SIG Phase 3 — ADR 0066)
@@ -45,6 +46,7 @@ import { StrategyBuilderPage } from './pages/Strategy/StrategyBuilderPage'
 import { BacktestPage } from './pages/Strategy/BacktestPage'
 import { StrategyResearchPage } from './pages/Strategy/StrategyResearchPage'
 import { DaytradeDiscoverPage } from './pages/Strategy/DaytradeDiscoverPage'
+import { PaperDashboardPage } from './pages/Strategy/PaperDashboardPage'
 import { StrategyListPage } from './pages/Strategy/StrategyListPage'
 import { ScenarioReplayPage } from './pages/QA/ScenarioReplayPage'
 import { RiskConfigPage } from './pages/Risk/RiskConfigPage'
@@ -138,6 +140,8 @@ export function App() {
           <Route path="/strategy/research" element={<StrategyResearchPage />} />
           {/* R2 단타 발굴: 전략 없이 빌트인 프리셋으로 오늘의 후보 TOP N — ADR 0117 */}
           <Route path="/strategy/daytrade-discover" element={<DaytradeDiscoverPage />} />
+          {/* ADR 0122 R3: 발굴 → MOCK 페이퍼 트레이딩 대시보드 (모의 — 실거래 아님) */}
+          <Route path="/strategy/paper" element={<PaperDashboardPage />} />
           {/* T-SIG Phase 3: 전략 목록 + 시그널 내역 — ADR 0066 */}
           <Route path="/strategy/list" element={<StrategyListPage />} />
           {/* T-SIM Phase 3: 실제 주문과 분리된 시나리오 리플레이 — ADR 0107 */}

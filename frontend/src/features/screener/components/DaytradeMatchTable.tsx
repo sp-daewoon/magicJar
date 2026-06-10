@@ -9,6 +9,11 @@
  * - 발굴 결과를 watchlist에 **자동 삽입하지 않는다**. 자동 삽입 버튼·일괄 등록 0 (WatchlistBulkRegisterButton 미사용).
  * - 종목을 관심종목에 넣고 싶으면 사용자가 row 펼침 → "관심종목 추가" 를 **명시적으로** 클릭해야 한다 (onAddWatchlist 콜백).
  * - 자동 주문 버튼 0 — 발굴은 후보 출발점이지 매매 결정이 아니다.
+ *
+ * ### 페이퍼 승격 다중선택 (ADR 0122 §8-1 LOCK)
+ * - selectionMode=true 면 row 별 체크박스 노출 — 사용자가 종목을 다중선택한다.
+ * - 선택은 페이퍼 승격(모의로 굴려보기)의 입력일 뿐 **자동 승격이 아니다**. 실제 promote 는
+ *   발굴 화면의 명시적 "모의로 굴려보기" 버튼 → 확인 모달에서만 발생(자동 진입 0 — ADR 0122 §1-2).
  */
 import { Fragment, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -25,6 +30,12 @@ interface Props {
   addingCode?: string | null
   /** 이미 관심종목에 등록된 code 집합 (중복 등록 회피 — read only) */
   watchedCodes?: Set<string>
+  /** 페이퍼 승격용 다중선택 모드 — true 면 row 체크박스 노출 (ADR 0122 §8-1) */
+  selectionMode?: boolean
+  /** 선택된 code 집합 (selectionMode=true 일 때) */
+  selectedCodes?: Set<string>
+  /** 선택 토글 콜백 (selectionMode=true 일 때) */
+  onToggleSelect?: (code: string) => void
 }
 
 export function DaytradeMatchTable({
@@ -32,6 +43,9 @@ export function DaytradeMatchTable({
   onAddWatchlist,
   addingCode = null,
   watchedCodes,
+  selectionMode = false,
+  selectedCodes,
+  onToggleSelect,
 }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>('rank')
   const [sortAsc, setSortAsc] = useState(true)
@@ -70,6 +84,7 @@ export function DaytradeMatchTable({
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-gray-800 text-xs text-gray-500">
+            {selectionMode && <th className="pb-2 pr-2 text-center font-medium" aria-label="선택" />}
             <th
               className="cursor-pointer pb-2 pr-3 text-left font-medium hover:text-gray-300"
               onClick={() => handleHeaderClick('rank')}
@@ -94,17 +109,30 @@ export function DaytradeMatchTable({
             const isExpanded = expanded === match.instrumentCode
             const isWatched = watchedCodes?.has(match.instrumentCode) ?? false
             const isAdding = addingCode === match.instrumentCode
+            const isSelected = selectedCodes?.has(match.instrumentCode) ?? false
             const scorePct = match.score * 100
             return (
               <Fragment key={match.instrumentCode}>
                 <tr
                   className={`cursor-pointer transition-colors hover:bg-gray-800/40 ${
                     isExpanded ? 'bg-gray-800/30' : ''
-                  }`}
+                  } ${isSelected ? 'bg-amber-950/20' : ''}`}
                   onClick={() =>
                     setExpanded(isExpanded ? null : match.instrumentCode)
                   }
                 >
+                  {selectionMode && (
+                    <td className="py-2 pr-2 text-center">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={() => onToggleSelect?.(match.instrumentCode)}
+                        aria-label={`${match.instrumentName} 모의 승격 선택`}
+                        className="cursor-pointer accent-amber-500"
+                      />
+                    </td>
+                  )}
                   <td className="py-2 pr-3 text-center tabular-nums text-gray-400">
                     {match.rank}
                   </td>
@@ -135,7 +163,7 @@ export function DaytradeMatchTable({
                 </tr>
                 {isExpanded && (
                   <tr className="bg-gray-900/60">
-                    <td colSpan={5} className="px-3 py-4">
+                    <td colSpan={selectionMode ? 6 : 5} className="px-3 py-4">
                       <div className="grid gap-4 md:grid-cols-2">
                         {/* 점수 분해 — 왜 후보인가 */}
                         <div>

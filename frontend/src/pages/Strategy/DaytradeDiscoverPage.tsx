@@ -18,6 +18,7 @@
  *   "수집 진행 중"이 아니다 (ADR 0118 §2-A-1 — 보통주 일봉 누락 사실상 0).
  */
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useDaytradeDiscover } from '../../features/screener/hooks/useDaytradeDiscover'
 import { DaytradeMatchTable } from '../../features/screener/components/DaytradeMatchTable'
 import { ScreenerSkipReasonsBadge } from '../../features/screener/components/ScreenerSkipReasonsBadge'
@@ -27,6 +28,8 @@ import {
 } from '../../features/screener/api/daytradeDiscoverApi'
 import { useWatchlist, useAddWatchlist } from '../../api/hooks/useWatchlist'
 import { useOnboardingStore } from '../../stores/onboarding'
+import { PaperPromoteModal } from '../../features/daytradePaper/components/PaperPromoteModal'
+import { PaperBadge } from '../../features/daytradePaper/components/PaperBadge'
 
 const DEFAULT_LIMIT = 30
 
@@ -209,9 +212,30 @@ export function DaytradeDiscoverPage() {
   )
   const [addingCode, setAddingCode] = useState<string | null>(null)
 
+  // 페이퍼 승격 다중선택 (ADR 0122 §8-1 — 후보 다중선택 + 일괄 승격)
+  const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set())
+  const [promoteModalOpen, setPromoteModalOpen] = useState(false)
+
+  // 선택한 종목명 lookup (모달 표시용) — 현재 결과 matches 기준
+  const codeNames = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const m of data?.matches ?? []) map[m.instrumentCode] = m.instrumentName
+    return map
+  }, [data])
+
+  function toggleSelect(code: string) {
+    setSelectedCodes((prev) => {
+      const next = new Set(prev)
+      if (next.has(code)) next.delete(code)
+      else next.add(code)
+      return next
+    })
+  }
+
   function handleDiscover() {
     if (registeredUserId === null) return
     reset()
+    setSelectedCodes(new Set()) // 새 발굴 시 선택 초기화
     mutate({
       userId: registeredUserId,
       presetKey,
@@ -220,6 +244,17 @@ export function DaytradeDiscoverPage() {
       startRealtimeWatch,
     })
   }
+
+  // 페이퍼 승격은 특정 setup 필요 — '전체(합집합)' 모드(presetKey=null)는 단일 setup 으로 묶을 수 없어 불가.
+  const canPromote = presetKey !== null
+  const selectedArr = useMemo(() => Array.from(selectedCodes), [selectedCodes])
+  const promotePresetTitle = useMemo(() => {
+    if (presetKey === null) return ''
+    // 응답 presets(서버 권위) 우선, 없으면 UI 옵션 라벨 fallback
+    const fromResult = data?.presets.find((p) => p.presetKey === presetKey)?.title
+    if (fromResult) return fromResult
+    return DAYTRADE_PRESET_OPTIONS.find((o) => o.key === presetKey)?.label ?? presetKey
+  }, [presetKey, data])
 
   function handleAddWatchlist(code: string) {
     if (watchedCodes.has(code)) return
@@ -236,7 +271,15 @@ export function DaytradeDiscoverPage() {
     <div className="mx-auto max-w-4xl px-4 py-6">
       {/* 헤더 */}
       <header className="mb-5">
-        <h1 className="text-xl font-bold text-white">단타 발굴</h1>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h1 className="text-xl font-bold text-white">단타 발굴</h1>
+          <Link
+            to="/strategy/paper"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-700/50 px-3 py-1.5 text-xs text-amber-300 hover:bg-amber-950/30"
+          >
+            모의 트레이딩 대시보드 →
+          </Link>
+        </div>
         <p className="mt-1 text-sm text-gray-500">
           전략을 미리 작성하지 않아도, 시스템 빌트인 단타 setup 프리셋으로 오늘의 후보 TOP{' '}
           {DEFAULT_LIMIT}을 점수와 함께 제시합니다. 장전 setup = 일봉 기준 · KIS 추가 호출 0 · 룰 기반(AI
@@ -360,16 +403,55 @@ export function DaytradeDiscoverPage() {
 
           {/* 후보 리스트 또는 빈 상태 */}
           {data.matches.length > 0 ? (
-            <DaytradeMatchTable
-              matches={data.matches}
-              onAddWatchlist={handleAddWatchlist}
-              addingCode={addingCode}
-              watchedCodes={watchedCodes}
-            />
+            <>
+              {/* 페이퍼 승격 다중선택 툴바 (ADR 0122 §8-1 — 후보 다중선택 + 일괄 승격) */}
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-800/40 bg-amber-950/10 px-4 py-2.5">
+                <div className="flex items-center gap-2 text-xs text-gray-400">
+                  <PaperBadge />
+                  <span>
+                    {canPromote
+                      ? `후보를 선택해 모의(페이퍼)로 묶어 굴려볼 수 있습니다. (${selectedCodes.size}종목 선택)`
+                      : "'전체(합집합)' 모드는 단일 setup 으로 묶을 수 없습니다. 특정 프리셋을 선택해 주세요."}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  disabled={!canPromote || selectedCodes.size === 0 || registeredUserId === null}
+                  onClick={() => setPromoteModalOpen(true)}
+                  className="rounded-lg bg-amber-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500"
+                >
+                  모의로 굴려보기
+                </button>
+              </div>
+
+              <DaytradeMatchTable
+                matches={data.matches}
+                onAddWatchlist={handleAddWatchlist}
+                addingCode={addingCode}
+                watchedCodes={watchedCodes}
+                selectionMode={canPromote}
+                selectedCodes={selectedCodes}
+                onToggleSelect={toggleSelect}
+              />
+            </>
           ) : (
             <DiscoverEmptyState result={data} />
           )}
         </div>
+      )}
+
+      {/* 페이퍼 승격 확인 모달 (사용자 명시 액션 — 자동 진입 0) */}
+      {promoteModalOpen && registeredUserId !== null && presetKey !== null && (
+        <PaperPromoteModal
+          userId={registeredUserId}
+          presetKey={presetKey}
+          presetTitle={promotePresetTitle}
+          codes={selectedArr}
+          codeNames={codeNames}
+          interval="1d"
+          onClose={() => setPromoteModalOpen(false)}
+          onPromoted={() => setSelectedCodes(new Set())}
+        />
       )}
 
       {/* 초기 안내 (아직 발굴 전) */}
