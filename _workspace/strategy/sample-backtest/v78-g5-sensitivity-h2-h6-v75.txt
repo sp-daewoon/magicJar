@@ -1,0 +1,29 @@
+=== H2 take_profit_pct ===
+isPlateau True spread 0.0229 meanAdjVar 0.016904 best 1.75
+  1.5 ret 0.6903 MDD 0.0795 PF 1.4352
+  1.75 ret 0.7132 MDD 0.0813 PF 1.4459
+  2.0 ret 0.7009 MDD 0.0766 PF 1.43
+  2.25 ret 0.704 MDD 0.0805 PF 1.4262
+  2.5 ret 0.713 MDD 0.0881 PF 1.4278
+=== H6 take_profit_pct ===
+isPlateau True spread 0.0164 meanAdjVar 0.01744 best 1.75
+  1.5 ret 0.6676 MDD 0.0881 PF 1.4236
+  1.75 ret 0.6828 MDD 0.0905 PF 1.429
+  2.0 ret 0.6664 MDD 0.0858 PF 1.4104
+  2.25 ret 0.6726 MDD 0.0894 PF 1.4087
+  2.5 ret 0.6818 MDD 0.0965 PF 1.4105
+=== V75_1 take_profit_pct ===
+isPlateau True spread 0.044 meanAdjVar 0.052534 best 1.75
+  1.5 ret 0.4102 MDD 0.0712 PF 1.3598
+  1.75 ret 0.4498 MDD 0.0689 PF 1.3925
+  2.0 ret 0.4135 MDD 0.0701 PF 1.3469
+  2.25 ret 0.4165 MDD 0.0689 PF 1.3458
+  2.5 ret 0.4058 MDD 0.0705 PF 1.3327
+=== V75_3 take_profit_pct ===
+isPlateau True spread 0.0449 meanAdjVar 0.021873 best 2.5
+  1.5 ret 0.746 MDD 0.0599 PF 1.2476
+  1.75 ret 0.7743 MDD 0.0714 PF 1.2527
+  2.0 ret 0.7635 MDD 0.0711 PF 1.2441
+  2.25 ret 0.7718 MDD 0.071 PF 1.2427
+  2.5 ret 0.7909 MDD 0.0695 PF 1.2461
+SENS2_DONE

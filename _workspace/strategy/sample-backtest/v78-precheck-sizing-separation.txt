@@ -1,0 +1,4 @@
+=== PRECHECK A: H1 AllCapital ===
+OOS ret 3.0748 MDD 0.3277 trades 382 PF 1.3177
+=== PRECHECK B: H1 FixedFractional 10%/5 ===
+OOS ret 0.32 MDD 0.0789 trades 370 PF 1.3726
