@@ -14,6 +14,7 @@ import kr.spdaewoon.magicjar.api.service.dto.IntervalRefreshResult
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleAggregator
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.market.candle.DailyRollupAggregator
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
@@ -164,6 +165,23 @@ class CandleRefreshService(
         private val AGGREGATE_INTERVAL_CODES = AGGREGATE_INTERVALS.map { it.code }.toSet()
         private val REFRESH_SUPPORTED_INTERVALS = SUPPORTED_INTERVALS + AGGREGATE_INTERVAL_CODES
         private val RECOLLECT_SUPPORTED_INTERVALS = SUPPORTED_INTERVALS + AGGREGATE_INTERVAL_CODES
+
+        /**
+         * 1d 기준봉에서 롤업 생성하는 일봉 패밀리 파생 interval (ADR 0120 — 기준봉/파생봉 통일 모델).
+         *
+         * KIS 직접 fetch(FHKST03010100 W/M/Y) 폐지 → 이미 보유한 1d(전종목 10년)에서 [DailyRollupAggregator]로
+         * 합산 생성(KIS 콜 0). consumer [DailyFamilyRollupRunner]의 api-측 대칭 경로.
+         *
+         * 재수집(recollect) 시 1wk/1mo/1y 파생이 요청되면 1d를 함께 강제 재수집한 뒤 본 롤업으로 재생성한다.
+         */
+        private val DAILY_FAMILY_INTERVALS =
+            mapOf(
+                "1wk" to CandleInterval.ONE_WEEK,
+                "1mo" to CandleInterval.ONE_MONTH,
+                "1y" to CandleInterval.ONE_YEAR,
+            )
+
+        private val DAILY_FAMILY_INTERVAL_CODES = DAILY_FAMILY_INTERVALS.keys
     }
 
     /**
@@ -295,12 +313,19 @@ class CandleRefreshService(
      * recollect는 사용자가 명시 확인한 경우에만 기존 row를 삭제하고 KIS 원천을 다시 수집한다.
      *
      * 합산 interval(3m~12h)은 KIS가 직접 제공하지 않으므로 1m을 함께 재수집한 뒤 [CandleAggregator]로 재생성한다.
+     * 일봉 패밀리(1wk·1mo·1y)는 KIS W/M/Y fetch 폐지 — 1d 강제 재수집 후 [DailyRollupAggregator]로 롤업한다(ADR 0120).
+     *
+     * @param rangeRequest 전체 interval 공통 범위(리서치 path). 지정 시 모든 fetch/삭제가 이 범위로 제한된다.
+     * @param minuteRangeRequest ADR 0120 §6 재수집 모달 전용 — **1m 기준봉(+ 합산 파생)에만** 적용되는 범위.
+     *   "최근 N 거래일" 콤보를 from/to 로 매핑한 값. 일봉 패밀리(1d·1wk·1mo·1y)는 전기간 강제 재수집 유지.
+     *   `rangeRequest` 가 지정되면 그쪽이 우선(리서치 path 회귀 0) — `minuteRangeRequest` 는 무시한다.
      */
     fun recollect(
         code: String,
         intervals: List<String>,
         priority: KisCallPriority = KisCallPriority.USER_PATH,
         rangeRequest: CandleRecollectRangeRequest? = null,
+        minuteRangeRequest: CandleRecollectRangeRequest? = null,
         progress: ((CandleRefreshProgressUpdate) -> Unit)? = null,
     ): CandleRecollectResponse {
         val startMs = System.currentTimeMillis()
@@ -332,44 +357,73 @@ class CandleRefreshService(
 
         val requestedSet = requested.toSet()
         val aggregateRequested = requestedSet.intersect(AGGREGATE_INTERVAL_CODES)
-        val effectiveRange = rangeRequest?.toEffectiveRange()
-        val resetIntervalSet = linkedSetOf<String>()
-        resetIntervalSet.addAll(requested)
-        if (aggregateRequested.isNotEmpty()) {
-            resetIntervalSet.add(CandleInterval.ONE_MIN.code)
-        }
-        val resetIntervals = resetIntervalSet.toList()
+        // ADR 0120 — 1wk/1mo/1y 는 KIS W/M/Y fetch 폐지, 1d 강제 재수집 후 [DailyRollupAggregator] 롤업으로 재생성.
+        //   파생 1wk/1mo/1y 가 요청되면 1d 를 함께 재수집/삭제 대상에 포함시켜 롤업 베이스를 최신화한다.
+        //   (ADR 0120 §3 — recollect 가 "1d 강제 재수집 후 롤업" 경로를 보존하는 통일 모델 정합.)
+        val dailyFamilyRequested = requestedSet.intersect(DAILY_FAMILY_INTERVAL_CODES)
 
-        val refreshIntervalSet = linkedSetOf<String>()
-        refreshIntervalSet.addAll(requested.filter { it in SUPPORTED_INTERVALS })
-        if (aggregateRequested.isNotEmpty()) {
-            refreshIntervalSet.add(CandleInterval.ONE_MIN.code)
+        // 전체 공통 range(리서치 path) — 지정 시 minuteRange 는 무시(우선순위 LOCK).
+        val effectiveRange = rangeRequest?.toEffectiveRange()
+        // ADR 0120 §6 — 1m 그룹에만 적용되는 범위(재수집 모달 "최근 N 거래일"). effectiveRange 가 있으면 그쪽이 1m 도 커버.
+        val minuteRange = if (effectiveRange != null) effectiveRange else minuteRangeRequest?.toEffectiveRange()
+
+        // ── 1m 그룹(1m 기준봉 + 3m~12h 합산 파생): minuteRange 적용 ──
+        val minuteGroupReset = linkedSetOf<String>()
+        if (aggregateRequested.isNotEmpty() || requestedSet.contains(CandleInterval.ONE_MIN.code)) {
+            minuteGroupReset.add(CandleInterval.ONE_MIN.code)
         }
-        val refreshIntervals = refreshIntervalSet.toList()
+        minuteGroupReset.addAll(aggregateRequested)
+        val minuteFetchIntervals =
+            if (minuteGroupReset.contains(CandleInterval.ONE_MIN.code)) listOf(CandleInterval.ONE_MIN.code) else emptyList()
+
+        // ── 일봉 그룹(1d 기준봉 + 1wk/1mo/1y 롤업 파생): 전기간(effectiveRange 가 있으면 그 범위) ──
+        val dailyGroupReset = linkedSetOf<String>()
+        if (requestedSet.contains(CandleInterval.ONE_DAY.code) || dailyFamilyRequested.isNotEmpty()) {
+            dailyGroupReset.add(CandleInterval.ONE_DAY.code)
+        }
+        dailyGroupReset.addAll(dailyFamilyRequested)
+        val dailyFetchIntervals =
+            if (dailyGroupReset.contains(CandleInterval.ONE_DAY.code)) listOf(CandleInterval.ONE_DAY.code) else emptyList()
+
+        // 삭제 대상 합산(관측·응답용 resetIntervals)
+        val resetIntervals = (minuteGroupReset + dailyGroupReset).toList()
 
         progress?.invoke(
             CandleRefreshProgressUpdate(
                 stage = "DELETING",
                 interval = null,
-                message =
-                    if (effectiveRange == null) {
-                        "기존 캔들 삭제 중"
-                    } else {
-                        "기존 캔들 범위 삭제 중 (${effectiveRange.from}~${effectiveRange.to})"
-                    },
+                message = "기존 캔들 삭제 중",
             ),
         )
-        val deletedCount =
-            if (effectiveRange == null) {
-                candleJpaRepository.deleteByCodeAndIntervalIn(code, resetIntervals)
-            } else {
-                candleJpaRepository.deleteByCodeAndIntervalInAndTsBetween(
-                    code = code,
-                    intervals = resetIntervals,
-                    fromTs = effectiveRange.from,
-                    toTs = effectiveRange.to,
-                )
-            }
+        // 1m 그룹 삭제 (minuteRange 한정)
+        var deletedCount = 0
+        if (minuteGroupReset.isNotEmpty()) {
+            deletedCount +=
+                if (minuteRange == null) {
+                    candleJpaRepository.deleteByCodeAndIntervalIn(code, minuteGroupReset.toList())
+                } else {
+                    candleJpaRepository.deleteByCodeAndIntervalInAndTsBetween(
+                        code = code,
+                        intervals = minuteGroupReset.toList(),
+                        fromTs = minuteRange.from,
+                        toTs = minuteRange.to,
+                    )
+                }
+        }
+        // 일봉 그룹 삭제 (effectiveRange 한정 — 없으면 전기간)
+        if (dailyGroupReset.isNotEmpty()) {
+            deletedCount +=
+                if (effectiveRange == null) {
+                    candleJpaRepository.deleteByCodeAndIntervalIn(code, dailyGroupReset.toList())
+                } else {
+                    candleJpaRepository.deleteByCodeAndIntervalInAndTsBetween(
+                        code = code,
+                        intervals = dailyGroupReset.toList(),
+                        fromTs = effectiveRange.from,
+                        toTs = effectiveRange.to,
+                    )
+                }
+        }
         progress?.invoke(
             CandleRefreshProgressUpdate(
                 stage = "DELETED",
@@ -378,18 +432,40 @@ class CandleRefreshService(
                 message = "기존 캔들 $deletedCount 건 삭제 완료",
             ),
         )
+
         // recollect는 기존 row 삭제 후 재fetch가 본질 → incremental=false 명시 (delta-only 적용 금지).
-        // 다만 리서치 path는 range 옵션으로 필요한 구간만 다시 채운다.
-        val refreshResponse =
-            if (effectiveRange == null) {
-                refresh(code, refreshIntervals, priority, incremental = false, progress = progress)
-            } else {
-                refreshRange(code, refreshIntervals, priority, effectiveRange, progress)
-            }
+        val refreshResults = mutableListOf<IntervalRefreshResult>()
+        // 1m 기준봉 재수집 (minuteRange)
+        if (minuteFetchIntervals.isNotEmpty()) {
+            val minuteResponse =
+                if (minuteRange == null) {
+                    refresh(code, minuteFetchIntervals, priority, incremental = false, progress = progress)
+                } else {
+                    refreshRange(code, minuteFetchIntervals, priority, minuteRange, progress)
+                }
+            refreshResults.addAll(minuteResponse.refreshedIntervals)
+        }
+        // 1d 기준봉 재수집 (effectiveRange — 없으면 전기간 강제)
+        if (dailyFetchIntervals.isNotEmpty()) {
+            val dailyResponse =
+                if (effectiveRange == null) {
+                    refresh(code, dailyFetchIntervals, priority, incremental = false, progress = progress)
+                } else {
+                    refreshRange(code, dailyFetchIntervals, priority, effectiveRange, progress)
+                }
+            refreshResults.addAll(dailyResponse.refreshedIntervals)
+        }
 
         val rebuildTargets =
             aggregateRequested.map { CandleInterval.fromCode(it) }.toSet().sortedBy { it.code }
-        val rebuiltIntervals = rebuildAggregateIntervals(code, rebuildTargets, progress, effectiveRange)
+        val rebuiltAggregateIntervals = rebuildAggregateIntervals(code, rebuildTargets, progress, minuteRange)
+
+        // ADR 0120 — 1wk/1mo/1y 1d 롤업 재생성 (KIS 콜 0). 1d 재수집 직후 DB 의 1d 전량을 입력으로 롤업.
+        val dailyFamilyTargets =
+            dailyFamilyRequested.mapNotNull { DAILY_FAMILY_INTERVALS[it] }.toSet().sortedBy { it.code }
+        val rebuiltDailyFamilyIntervals = rebuildDailyFamilyIntervals(code, dailyFamilyTargets, progress)
+
+        val rebuiltIntervals = rebuiltAggregateIntervals + rebuiltDailyFamilyIntervals
 
         val elapsedMs = System.currentTimeMillis() - startMs
         log.info(
@@ -404,7 +480,7 @@ class CandleRefreshService(
         return CandleRecollectResponse(
             deletedCount = deletedCount,
             resetIntervals = resetIntervals,
-            refreshedIntervals = refreshResponse.refreshedIntervals,
+            refreshedIntervals = refreshResults,
             rebuiltIntervals = rebuiltIntervals,
             elapsedMs = elapsedMs,
         )
@@ -1889,6 +1965,78 @@ class CandleRefreshService(
         }
     }
 
+    /**
+     * 1d 기준봉 → 1wk·1mo·1y 롤업 재생성 (ADR 0120 — KIS W/M/Y fetch 폐지, 1d 합산).
+     *
+     * consumer [DailyFamilyRollupRunner] 의 api-측 대칭 경로. recollect 에서 1d 강제 재수집 직후 호출되어
+     * DB 의 1d 전량(닫힌 봉 + today snapshot)을 입력으로 [DailyRollupAggregator] 롤업 후 upsert(ON CONFLICT DO UPDATE).
+     *
+     * - 1d 0건이면 모든 target SKIPPED (mock 합성 0 — DailyRollupAggregator 가 구간 내 1d 0건 시 bar 생략).
+     * - upsert 경로는 합산봉과 동일한 [upsertAggregateCandles] 재사용 (DO UPDATE — 교정 허용).
+     */
+    private fun rebuildDailyFamilyIntervals(
+        code: String,
+        targets: Collection<CandleInterval>,
+        progress: ((CandleRefreshProgressUpdate) -> Unit)? = null,
+    ): List<IntervalRefreshResult> {
+        if (targets.isEmpty()) return emptyList()
+
+        val oneDayCandles =
+            candleJpaRepository
+                .findByCodeAndIntervalOrderByTsAsc(code, CandleInterval.ONE_DAY.code)
+                .mapNotNull { it.toDailyCandleOrNull() }
+
+        if (oneDayCandles.isEmpty()) {
+            return targets.map { target ->
+                IntervalRefreshResult(target.code, 0, 0, null, "SKIPPED")
+            }
+        }
+
+        return targets.mapIndexed { index, target ->
+            runCatching {
+                progress?.invoke(
+                    CandleRefreshProgressUpdate(
+                        stage = "REBUILDING",
+                        interval = target.code,
+                        processedDays = index,
+                        totalDays = targets.size,
+                        message = "${target.code} 롤업봉 재생성 중",
+                    ),
+                )
+                val rolled = DailyRollupAggregator.rollup(oneDayCandles, target)
+                val inserted = upsertAggregateCandles(rolled)
+                val result =
+                    IntervalRefreshResult(
+                        interval = target.code,
+                        fetchedCount = rolled.size,
+                        insertedCount = inserted,
+                        latestTs = queryLatestTs(code, target.code),
+                        status = "OK",
+                    )
+                progress?.invoke(
+                    CandleRefreshProgressUpdate(
+                        stage = "REBUILT",
+                        interval = target.code,
+                        processedDays = index + 1,
+                        totalDays = targets.size,
+                        fetchedCount = rolled.size,
+                        insertedCount = inserted,
+                        message = "${target.code} 롤업봉 재생성 완료",
+                    ),
+                )
+                result
+            }.getOrElse { ex ->
+                log.warn(
+                    "1d 롤업봉 재생성 실패: code={} interval={} err={}",
+                    code,
+                    target.code,
+                    ex.message,
+                )
+                IntervalRefreshResult(target.code, oneDayCandles.size, 0, null, "FAILED")
+            }
+        }
+    }
+
     private fun upsertAggregateCandles(candles: List<Candle>): Int {
         if (candles.isEmpty()) return 0
         val sql =
@@ -1919,7 +2067,12 @@ class CandleRefreshService(
 
     private fun Array<IntArray>.sumPositiveBatchCounts(): Int = sumOf { batch -> batch.sumOf { count -> count.coerceAtLeast(0) } }
 
-    private fun CandleJpaEntity.toOneMinCandleOrNull(): Candle? {
+    private fun CandleJpaEntity.toOneMinCandleOrNull(): Candle? = toCandleOrNull(CandleInterval.ONE_MIN)
+
+    /** 1d 기준봉 → Candle 도메인 변환 (ADR 0120 롤업 입력). OHLC 누락 row 는 null(롤업에서 자연 제외). */
+    private fun CandleJpaEntity.toDailyCandleOrNull(): Candle? = toCandleOrNull(CandleInterval.ONE_DAY)
+
+    private fun CandleJpaEntity.toCandleOrNull(targetInterval: CandleInterval): Candle? {
         val open = openRaw ?: return null
         val high = highRaw ?: return null
         val low = lowRaw ?: return null
@@ -1927,7 +2080,7 @@ class CandleRefreshService(
         return Candle(
             id = id,
             code = code,
-            interval = CandleInterval.ONE_MIN,
+            interval = targetInterval,
             ts = KtInstant.fromEpochSeconds(ts.epochSecond),
             openRaw = open,
             highRaw = high,

@@ -3,7 +3,7 @@
  *
  * ADR 0093 §결정 LOCK Phase 4-F (frontend 단위 테스트):
  *   - timeframe별 max cap 매트릭스 정합 (의제 §Phase 4-C)
- *   - clampCandleCount: NaN/음수/0 → default 600, 1 미만 → 1, max 초과 → max
+ *   - clampCandleCount: NaN/음수/0 → default 200 (ADR 0120 §6-2), 1 미만 → 1, max 초과 → max
  *   - read/writeStoredCandleCount: localStorage 영속 + invalid 시 default 회귀
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -54,15 +54,15 @@ describe('CANDLE_COUNT_MAX_BY_INTERVAL — ADR 0093 §3-1 매트릭스 LOCK', ()
   })
 })
 
-describe('CANDLE_COUNT_PRESETS — 의제 §Phase 4-A select dropdown', () => {
-  it('preset = [300, 600, 1200, 3000]', () => {
-    expect([...CANDLE_COUNT_PRESETS]).toEqual([300, 600, 1200, 3000])
+describe('CANDLE_COUNT_PRESETS — 의제 §Phase 4-A select dropdown + ADR 0120 §6-2', () => {
+  it('preset = [200, 300, 600, 1200, 3000]', () => {
+    expect([...CANDLE_COUNT_PRESETS]).toEqual([200, 300, 600, 1200, 3000])
   })
 })
 
-describe('DEFAULT_CANDLE_COUNT — 현행 600봉 회귀 안전 LOCK', () => {
-  it('DEFAULT = 600', () => {
-    expect(DEFAULT_CANDLE_COUNT).toBe(600)
+describe('DEFAULT_CANDLE_COUNT — ADR 0120 §6-2 조작 전 default 200', () => {
+  it('DEFAULT = 200', () => {
+    expect(DEFAULT_CANDLE_COUNT).toBe(200)
   })
 })
 
@@ -97,7 +97,7 @@ describe('clampCandleCount', () => {
     expect(clampCandleCount(4000, '12h')).toBe(1200)
   })
 
-  it('NaN/음수/0 → DEFAULT_CANDLE_COUNT (600)', () => {
+  it('NaN/음수/0 → DEFAULT_CANDLE_COUNT (200)', () => {
     expect(clampCandleCount(Number.NaN, '1d')).toBe(DEFAULT_CANDLE_COUNT)
     expect(clampCandleCount(-100, '1d')).toBe(DEFAULT_CANDLE_COUNT)
     expect(clampCandleCount(0, '1d')).toBe(DEFAULT_CANDLE_COUNT)
@@ -124,7 +124,7 @@ describe('readStoredCandleCount / writeStoredCandleCount — localStorage 영속
     window.localStorage.clear()
   })
 
-  it('저장값 없을 때 → DEFAULT_CANDLE_COUNT (600)', () => {
+  it('저장값 없을 때 → DEFAULT_CANDLE_COUNT (200)', () => {
     expect(readStoredCandleCount()).toBe(DEFAULT_CANDLE_COUNT)
   })
 

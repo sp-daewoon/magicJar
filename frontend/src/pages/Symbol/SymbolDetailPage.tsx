@@ -370,6 +370,7 @@ export function SymbolDetailPage() {
           />
           <SymbolChart
             code={code}
+            symbolName={instrument?.name ?? symbol.name ?? code}
             userId={userId}
             realtimeCandle={realtimeCandle}
             riskPlanPreview={riskPlanPreview}
