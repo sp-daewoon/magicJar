@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.api.persistence.risk
+package kr.spdaewoon.magicjar.persistence.shared.risk
 
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
@@ -12,7 +12,11 @@ import java.time.Instant
 /**
  * risk_config JPA 엔티티 — Flyway V16 정합 (ADR 0067 §5-1 H-1).
  *
- * ADR 0051 주의: no-arg constructor 필요 — kotlin-jpa 플러그인(api 모듈 적용) 의존.
+ * 2026-06-10 incident fix: api 모듈 → persistence-shared 이동 (ADR 0088 패턴).
+ * consumer가 RiskConfigRepository 빈을 발견하지 못해 자동매매 경로가 항상
+ * defaultFor(1M/10%)를 평가하던 silent 배선 결함 정정 — api·consumer 공유.
+ *
+ * ADR 0051 주의: no-arg constructor 필요 — kotlin-jpa 플러그인(persistence-shared 적용) 의존.
  * 헌법 §6: body 가진 fun 0건.
  * UQ user_id — 1 row per user.
  *

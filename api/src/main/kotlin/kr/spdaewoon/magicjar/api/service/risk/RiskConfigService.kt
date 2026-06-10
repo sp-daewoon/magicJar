@@ -1,8 +1,8 @@
 package kr.spdaewoon.magicjar.api.service.risk
 
 import kotlinx.datetime.Clock
-import kr.spdaewoon.magicjar.api.persistence.risk.RiskConfigJpaAdapter
 import kr.spdaewoon.magicjar.domain.risk.RiskConfig
+import kr.spdaewoon.magicjar.persistence.shared.risk.RiskConfigJpaAdapter
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional

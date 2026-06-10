@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.api.persistence.risk
+package kr.spdaewoon.magicjar.persistence.shared.risk
 
 import kotlinx.datetime.toJavaInstant
 import kotlinx.datetime.toKotlinInstant
@@ -12,11 +12,17 @@ import kotlinx.datetime.Instant as KInstant
 /**
  * RiskConfigRepository port JPA 어댑터 — Flyway V16 정합 (ADR 0067 §5-1 H-1).
  *
+ * 2026-06-10 incident fix: api 모듈 → persistence-shared 이동 (ADR 0088 패턴).
+ * 기존엔 api 모듈에만 빈이 존재해 consumer 자동매매 경로(SignalGeneratedKafkaListener)의
+ * `ObjectProvider<RiskConfigRepository>.getIfAvailable()`이 항상 null → buildContext가
+ * 사용자 DB 설정(예: 5M/70%)을 무시하고 RiskConfig.defaultFor(1M/10%)만 평가했다.
+ * persistence-shared scan 경로는 api·consumer 양쪽 JpaScanConfiguration에 이미 포함 → 빈 공유.
+ *
  * 헌법 §6 (ADR 0051) 준수: 헬퍼 메서드는 interface 0건, 이 클래스 private fun 위치.
  *
  * ### H-1 getOrDefault 정합
  * user_id 행 부재 시 [RiskConfig.defaultFor] seed 반환 (DB INSERT 0 — 조회 전용).
- * 실제 저장은 [RiskConfigService.save] 또는 [RiskConfigService.getOrDefault] 명시 호출 시.
+ * 실제 저장은 api `RiskConfigService.save`/`getOrDefault` 명시 호출 시.
  *
  * // AI 호출 0 — T-RISK 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8)
  */

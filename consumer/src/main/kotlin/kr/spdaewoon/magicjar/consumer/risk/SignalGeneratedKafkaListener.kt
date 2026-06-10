@@ -733,10 +733,18 @@ class SignalGeneratedKafkaListener(
         }
 
         // 5. AutoPauseGuard — strategy-local 연속 BLOCKED 임계 도달 검사
-        val config =
-            riskConfigRepositoryProvider
-                .getIfAvailable()
-                ?.let { runCatching { it.getOrDefault(signal.userId, nowKst) }.getOrNull() }
+        val configRepo = riskConfigRepositoryProvider.getIfAvailable()
+        if (configRepo == null) {
+            // 2026-06-10 incident: 빈 부재 시 autoPauseThreshold가 사용자 DB값 대신 하드코드 10으로 고정.
+            // buildContext와 동일 silent 결함 — ERROR로 가시화.
+            log.error(
+                "RiskConfigRepository 빈 부재 — autoPauseThreshold 하드코드 10 fallback (userId={}, strategyId={}). " +
+                    "사용자 DB risk_config 미반영 — 배선 결함.",
+                signal.userId,
+                signal.strategyId,
+            )
+        }
+        val config = configRepo?.let { runCatching { it.getOrDefault(signal.userId, nowKst) }.getOrNull() }
         val threshold = config?.autoPauseThreshold ?: 10
         autoPauseGuard.checkAndPauseIfNeeded(signal.strategyId, threshold)
     }
@@ -757,12 +765,31 @@ class SignalGeneratedKafkaListener(
         val configRepo = riskConfigRepositoryProvider.getIfAvailable()
         val config =
             if (configRepo == null) {
+                // 2026-06-10 incident: RiskConfigRepository 빈이 consumer ApplicationContext에 부재하면
+                // 사용자 DB risk_config(예: 5M/70%)를 무시하고 defaultFor(1M/10%)만 평가 → 설정을 좁힐수록
+                // 실제로는 더 느슨하게 거래되는 역방향 자본 위험. 이전엔 silent 진행이었으므로 가시화.
+                if (realMode) {
+                    log.error(
+                        "RiskConfigRepository 빈 부재 — REAL 모드 fail-fast (userId={}). " +
+                            "persistence-shared scan 경로/빈 배선 확인 필요.",
+                        signal.userId,
+                    )
+                    throw RealRiskContextUnavailableException("RISK_CONFIG_REPO_UNAVAILABLE")
+                }
+                log.error(
+                    "RiskConfigRepository 빈 부재 — defaultFor(1M/10%) fallback (userId={}, MOCK). " +
+                        "사용자 DB risk_config 미반영 — 배선 결함. persistence-shared 빈 합류 확인 필요.",
+                    signal.userId,
+                )
                 kr.spdaewoon.magicjar.domain.risk.RiskConfig
                     .defaultFor(signal.userId, nowKst)
             } else {
                 try {
                     configRepo.getOrDefault(signal.userId, nowKst)
                 } catch (e: Exception) {
+                    if (realMode) {
+                        throw RealRiskContextUnavailableException("RISK_CONFIG_UNAVAILABLE:${e.message ?: "UNKNOWN"}")
+                    }
                     log.warn("RiskConfig getOrDefault 실패 — defaultFor seed (userId={} err={})", signal.userId, e.message)
                     kr.spdaewoon.magicjar.domain.risk.RiskConfig
                         .defaultFor(signal.userId, nowKst)

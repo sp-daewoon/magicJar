@@ -103,6 +103,76 @@ class SignalGeneratedKafkaListenerTest {
     }
 
     @Test
+    fun `incident 회귀 — RiskConfigRepository DB값(5M·70%)이 buildContext budget에 반영된다`() {
+        // 2026-06-10 incident: consumer에 RiskConfigRepository 빈이 부재해 항상 defaultFor(1M·10%)만 평가 →
+        //   사용자 DB risk_config(5M·70%)가 자동매매 경로에서 전면 무시되던 silent 배선 결함.
+        //   본 회귀: DB값 5M/70%가 주입되면 budget = min(5M, 10M×70%=7M)=5M → 5M/50000=100주 발행.
+        //   (기존 BUY ALLOWED 테스트의 1M/10%는 20주 — 동일 capital·price에서 config가 수량을 가른다.)
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns
+            sampleConfig(maxPositionAmount = BigDecimal("5000000"), maxPositionPercent = BigDecimal("70.00"))
+        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.record(100L, "user-A", 77L, now) } just Runs
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+
+        listener(entryLimitEnabled = true).onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+
+        verify(exactly = 1) { signalRiskStatusUpdater.markAllowed(77L) }
+        // 5M budget → 100주 (defaultFor 1M였다면 20주). DB값이 실제로 budget을 키웠음을 증명.
+        verify(exactly = 1) {
+            orderIntentKafkaProducer.publish(match { it.id == 77L }, 100, OrderPriceType.LIMIT, BigDecimal("50000"))
+        }
+    }
+
+    @Test
+    fun `incident 가드 — RiskConfigRepository 빈 부재(MOCK) → defaultFor(1M·10%) fallback (silent 아님)`() {
+        // 빈 부재 시 buildContext가 defaultFor(1M/10%)로 fallback. MOCK은 graceful 진행하되 ERROR 로그로 가시화.
+        // budget = min(1M, 10M×10%=1M)=1M → 1M/50000=20주.
+        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.record(100L, "user-A", 77L, now) } just Runs
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+
+        listener(entryLimitEnabled = true, riskConfigProvider = nullableProvider())
+            .onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+
+        // 빈 부재여도 MOCK은 defaultFor로 진행 → 20주. (RiskConfigRepository.getOrDefault 호출 0)
+        verify(exactly = 0) { riskConfigRepository.getOrDefault(any(), any()) }
+        verify(exactly = 1) { signalRiskStatusUpdater.markAllowed(77L) }
+        verify(exactly = 1) {
+            orderIntentKafkaProducer.publish(match { it.id == 77L }, 20, OrderPriceType.LIMIT, BigDecimal("50000"))
+        }
+    }
+
+    @Test
+    fun `incident 가드 — RiskConfigRepository 빈 부재(REAL) → fail-fast BLOCKED (자본 역방향 위험 차단)`() {
+        // REAL 모드에서 빈 부재 시 defaultFor로 조용히 진행하면 사용자 좁은 한도를 무시하는 역방향 위험.
+        // 다른 REAL 게이트(capital·positionPort)와 정합되게 RealRiskContextUnavailableException → BLOCKED.
+        every { riskEventRepository.save(any()) } answers { firstArg<RiskEvent>() }
+
+        listener(
+            magicjarMode = "REAL",
+            executionBackfillProvider = passingSyncProvider("REAL"),
+            riskConfigProvider = nullableProvider(),
+        ).onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+
+        verify(exactly = 1) {
+            signalRiskStatusUpdater.markBlocked(
+                77L,
+                RiskRule.KIS_EXECUTION_SYNC_STALE,
+                match { it.contains("RISK_CONFIG_REPO_UNAVAILABLE") },
+            )
+        }
+        verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any()) }
+    }
+
+    @Test
     fun `BUY ALLOWED — entry_policy 없는 전략 + limit-enabled false(default) → MARKET 발행 (자본 경로 회귀 정정)`() {
         // 회귀 핵심: 과거엔 entry_policy=null이어도 marketable-limit 적용 → 호가 미가용 종목 NO_QUOTE 스킵 → BUY 0.
         // 정정: entry_policy 없는 전략은 MARKET 발행으로 즉시 진입 복구(NO_QUOTE 스킵 0).
@@ -557,6 +627,8 @@ class SignalGeneratedKafkaListenerTest {
             ),
         // opt-in 게이트(hotfix 2026-06-08) — true면 entry_policy 없는 전략도 marketable-limit. default false=MARKET.
         entryLimitEnabled: Boolean = false,
+        // 2026-06-10 incident: consumer ApplicationContext에 RiskConfigRepository 빈 부재(null) 재현용.
+        riskConfigProvider: ObjectProvider<RiskConfigRepository> = providerOf(riskConfigRepository),
     ): SignalGeneratedKafkaListener {
         every { strategyLookupPort.findActiveByCodeAndInterval(any(), any()) } returns strategies
         every { orderRequestRepository.findOpenByUserId(any()) } returns openOrders
@@ -579,7 +651,7 @@ class SignalGeneratedKafkaListenerTest {
             orderIntentKafkaProducer = orderIntentKafkaProducer,
             riskViolationKafkaProducer = riskViolationKafkaProducer,
             autoPauseGuard = autoPauseGuard,
-            riskConfigRepositoryProvider = providerOf(riskConfigRepository),
+            riskConfigRepositoryProvider = riskConfigProvider,
             riskEventRepositoryProvider = providerOf(riskEventRepository),
             riskPositionPortProvider = providerOf(riskPositionPort),
             strategyPositionPortProvider = providerOf(strategyPositionPort),
@@ -639,11 +711,14 @@ class SignalGeneratedKafkaListenerTest {
             source = source,
         )
 
-    private fun sampleConfig(): RiskConfig =
+    private fun sampleConfig(
+        maxPositionAmount: BigDecimal = BigDecimal("1000000"),
+        maxPositionPercent: BigDecimal = BigDecimal("10.00"),
+    ): RiskConfig =
         RiskConfig(
             userId = "user-A",
-            maxPositionAmount = BigDecimal("1000000"),
-            maxPositionPercent = BigDecimal("10.00"),
+            maxPositionAmount = maxPositionAmount,
+            maxPositionPercent = maxPositionPercent,
             dailyLossLimitAmount = null,
             dailyLossLimitPercent = BigDecimal("3.00"),
             maxConcurrentPositions = 5,
