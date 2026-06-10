@@ -43,7 +43,7 @@ class BacktestStrategyToolGracefulTest {
 
     @Test
     fun `StrategyNotFoundException - McpToolException 422 + 한국어 message`() {
-        whenever(backtestService.runBacktest(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        whenever(backtestService.runBacktest(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
             .thenThrow(BacktestException.StrategyNotFoundException(strategyId = 42L))
 
         assertThatThrownBy { tool.execute(validParams, "user-1") }
@@ -60,7 +60,7 @@ class BacktestStrategyToolGracefulTest {
 
     @Test
     fun `InvalidRequestException - McpToolException 400 + 한국어 message`() {
-        whenever(backtestService.runBacktest(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        whenever(backtestService.runBacktest(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
             .thenThrow(BacktestException.InvalidRequestException(detail = "universe는 비어있을 수 없습니다."))
 
         assertThatThrownBy { tool.execute(validParams, "user-1") }
@@ -76,7 +76,7 @@ class BacktestStrategyToolGracefulTest {
 
     @Test
     fun `InsufficientCandleDataException - McpToolException 503 + 한국어 message`() {
-        whenever(backtestService.runBacktest(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        whenever(backtestService.runBacktest(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
             .thenThrow(
                 BacktestException.InsufficientCandleDataException(
                     code = "005930",
@@ -99,7 +99,7 @@ class BacktestStrategyToolGracefulTest {
 
     @Test
     fun `정상 BacktestResult Success - 응답 200 path 회귀 0`() {
-        whenever(backtestService.runBacktest(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        whenever(backtestService.runBacktest(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
             .thenReturn(sampleSuccess())
 
         val response = tool.execute(validParams, "user-1")

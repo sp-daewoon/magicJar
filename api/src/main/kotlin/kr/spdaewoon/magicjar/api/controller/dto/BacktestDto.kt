@@ -3,6 +3,46 @@ package kr.spdaewoon.magicjar.api.controller.dto
 import io.swagger.v3.oas.annotations.media.Schema
 import java.math.BigDecimal
 
+// ─── 사이징 정책 요청 DTO (ADR 0121 §2-A — add-only, 미지정 시 AllCapital 회귀 0) ──────────
+
+/**
+ * 포지션 사이징 정책 요청 DTO (ADR 0121 §2-A LOCK).
+ *
+ * **미지정(null)이면 [kr.spdaewoon.magicjar.domain.backtest.SizingPolicy.AllCapital]** — 기존 호출 회귀 0.
+ * [positionPercent]를 주면 [kr.spdaewoon.magicjar.domain.backtest.SizingPolicy.FixedFractional]로 매핑한다
+ * (1슬롯 = min(initialCapital × positionPercent/100, maxPositionAmount ?: ∞) 고정 슬롯 — 실전 RiskConfig 정합).
+ *
+ * @param positionPercent 1포지션당 가용 자본 비율 (%) — 0.01~100.00. null이면 AllCapital(전액).
+ * @param maxConcurrent   동시 보유 상한 — 1~50 (1차: G3 판정 맥락 메타 echo, 동시보유 시뮬은 post-1차).
+ * @param maxPositionAmount 1포지션 절대 상한 (KRW) — null=비활성. min(percent, amount) 적용.
+ */
+@Schema(description = "포지션 사이징 정책 요청 (ADR 0121 §2-A · 미지정 시 AllCapital 전액)")
+data class SizingPolicyRequestDto(
+    @field:Schema(description = "1포지션당 가용 자본 비율 % (0.01~100.00). null이면 AllCapital(전액).", example = "10.00")
+    val positionPercent: BigDecimal? = null,
+    @field:Schema(description = "동시 보유 포지션 상한 (1~50). 1차는 G3 판정 맥락 메타 echo.", example = "5")
+    val maxConcurrent: Int = 1,
+    @field:Schema(description = "1포지션 절대 상한 KRW (null=비활성, min(percent, amount) 적용)", example = "1000000")
+    val maxPositionAmount: BigDecimal? = null,
+)
+
+/**
+ * 사이징 정책 echo DTO (ADR 0121 §2-2 — G3 판정 맥락 명시).
+ *
+ * 응답에 어떤 사이징으로 시뮬했는지(AllCapital / FixedFractional 슬롯)를 echo해 MDD 게이트 판정 맥락을 노출한다.
+ */
+@Schema(description = "적용 사이징 정책 echo (G3 MDD 판정 맥락)")
+data class SizingPolicyEchoDto(
+    @field:Schema(description = "사이징 유형 (ALL_CAPITAL · FIXED_FRACTIONAL)", example = "FIXED_FRACTIONAL")
+    val type: String,
+    @field:Schema(description = "1포지션 자본 비율 % (FIXED_FRACTIONAL일 때, 아니면 null)", example = "10.00")
+    val positionPercent: BigDecimal? = null,
+    @field:Schema(description = "동시 보유 상한 (FIXED_FRACTIONAL일 때, 아니면 null)", example = "5")
+    val maxConcurrent: Int? = null,
+    @field:Schema(description = "1포지션 절대 상한 KRW (지정 시, 아니면 null)", example = "1000000")
+    val maxPositionAmount: BigDecimal? = null,
+)
+
 // ─── 요청 DTO ────────────────────────────────────────────────────────────────
 
 /**
@@ -30,6 +70,13 @@ data class BacktestRunRequest(
     val slippageModel: String = "fixed_0.05",
     @field:Schema(description = "가격 모드 (RAW · ADJUSTED)", example = "ADJUSTED")
     val priceAdjustmentMode: String = "ADJUSTED",
+    @field:Schema(
+        description =
+            "포지션 사이징 정책 (ADR 0121 §2-A · 미지정 시 AllCapital 전액 — 기존 회귀 0). " +
+                "positionPercent를 주면 고정 슬롯 FixedFractional로 시뮬해 MDD를 분산 포트폴리오에 근사 환산.",
+        required = false,
+    )
+    val sizingPolicy: SizingPolicyRequestDto? = null,
 )
 
 // ─── 응답 DTO ────────────────────────────────────────────────────────────────
@@ -53,6 +100,8 @@ data class BacktestRunResponse(
     val abortReason: String? = null,
     @field:Schema(description = "실행 소요 시간 (ms)", example = "3210")
     val durationMs: Long,
+    @field:Schema(description = "적용 사이징 정책 echo (ADR 0121 §2-2 — G3 MDD 판정 맥락)")
+    val sizingPolicy: SizingPolicyEchoDto,
 )
 
 /**
@@ -166,6 +215,13 @@ data class OverfitDetectRequest(
     val slippageModel: String = "fixed_0.05",
     @field:Schema(description = "가격 모드 (RAW · ADJUSTED)", example = "ADJUSTED")
     val priceAdjustmentMode: String = "ADJUSTED",
+    @field:Schema(
+        description =
+            "포지션 사이징 정책 (ADR 0121 §2-A · 미지정 시 AllCapital). copy로 IS/OOS 두 run에 자동 전파. " +
+                "신 G3(FixedFractional 10%/5 기준 MDD)는 positionPercent 지정 시 측정.",
+        required = false,
+    )
+    val sizingPolicy: SizingPolicyRequestDto? = null,
 )
 
 /**
@@ -234,6 +290,11 @@ data class SensitivityAnalyzeRequest(
     val slippageModel: String = "fixed_0.05",
     @field:Schema(description = "가격 모드", example = "ADJUSTED")
     val priceAdjustmentMode: String = "ADJUSTED",
+    @field:Schema(
+        description = "포지션 사이징 정책 (ADR 0121 §2-A · 미지정 시 AllCapital). copy로 그리드 각 run에 자동 전파.",
+        required = false,
+    )
+    val sizingPolicy: SizingPolicyRequestDto? = null,
 )
 
 /**

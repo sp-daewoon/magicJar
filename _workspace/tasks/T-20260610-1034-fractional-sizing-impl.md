@@ -14,10 +14,10 @@ parentPhase: ?
 ADR 0121 §2-A fractional sizing 구현
 
 ## 결과물 체크리스트
-- [ ] SizingPolicy.FixedFractional 활성화
-- [ ] 엔진 슬롯 환산
-- [ ] overfit/sensitivity 전파
-- [ ] 테스트
+- [x] SizingPolicy.FixedFractional 활성화
+- [x] 엔진 슬롯 환산
+- [x] overfit/sensitivity 전파
+- [x] 테스트
 
 ## 의존성
 - (필요 시 기록)

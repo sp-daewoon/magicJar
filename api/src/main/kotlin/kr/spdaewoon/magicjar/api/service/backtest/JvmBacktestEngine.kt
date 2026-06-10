@@ -21,6 +21,7 @@ import kr.spdaewoon.magicjar.domain.backtest.ExitParam
 import kr.spdaewoon.magicjar.domain.backtest.ExitParamOverride
 import kr.spdaewoon.magicjar.domain.backtest.LookaheadGuard
 import kr.spdaewoon.magicjar.domain.backtest.PriceAdjustmentMode
+import kr.spdaewoon.magicjar.domain.backtest.SizingPolicy
 import kr.spdaewoon.magicjar.domain.backtest.TradeSide
 import kr.spdaewoon.magicjar.domain.backtest.port.BacktestCommissionModel
 import kr.spdaewoon.magicjar.domain.backtest.port.BacktestEngine
@@ -61,7 +62,11 @@ import java.time.temporal.ChronoUnit
  * 7. candle 0건 시 BacktestResult.Aborted(reason="NO_CANDLE_DATA") 반환 (feedback_no_mock_data.md 정합)
  *
  * ### 시뮬레이션 정책 (1차)
- * - SizingPolicy.AllCapital: 매수 시 보유 현금 전액으로 1종목 매수 (최대 수량)
+ * - SizingPolicy.AllCapital: 매수 시 보유 현금 전액으로 1종목 매수 (최대 수량 · default).
+ * - SizingPolicy.FixedFractional (ADR 0121 §2-A): 1슬롯 = min(initialCapital × positionPercent/100, maxPositionAmount ?: ∞)
+ *   고정 슬롯으로 매수 — 1회 진입 자본 노출을 positionPercent로 제한해 MDD를 분산 포트폴리오에 근사 환산.
+ *   슬롯 base는 initialCapital 고정(복리 부풀림 차단). 잔여 cash 부족 시 가용 cash로 클램프(skip 아님).
+ *   maxConcurrent는 1차에서 메타 echo만(동시보유 시뮬은 post-1차 — §2-2 LOCK).
  * - 1 universe × 1 종목 순차 진행 (병렬은 post-MVP)
  * - 포지션 중복 불가 — 보유 중 BUY 신호 무시
  * - KOSPI 가정 (세금 모델 market 파라미터)
@@ -302,11 +307,11 @@ class JvmBacktestEngine(
                     if (skipReason != null) {
                         entrySkip = entrySkip.accumulate(skipReason)
                     } else {
-                        // BUY 처리 — AllCapital 기준 전액 투입
+                        // BUY 처리 — 사이징 정책에 따라 매수 예산 산정(AllCapital=전액 / FixedFractional=고정 슬롯).
                         val result =
                             executeBuy(
                                 code = code,
-                                cash = cash,
+                                buyBudget = buyBudget(request.sizingPolicy, request.initialCapital, cash),
                                 rawPrice = rawPrice,
                                 evalPrice = evalPrice,
                                 candleTs = candleTs,
@@ -467,9 +472,37 @@ class JvmBacktestEngine(
         val position: BacktestPosition,
     )
 
+    /**
+     * 매수 예산 산정 — 사이징 정책별 1회 진입 자본 노출 (ADR 0121 §2-A · §2-2 LOCK).
+     *
+     * - [SizingPolicy.AllCapital]: 보유 현금 전액(`cash`) — 기존 동작 무변경(회귀 0).
+     * - [SizingPolicy.FixedFractional]: 고정 슬롯 = `min(initialCapital × positionPercent/100, maxPositionAmount ?: ∞)`.
+     *   슬롯 base는 **initialCapital 고정**(현재 cash 아님) — 복리 누적으로 슬롯이 부풀어 노출이 100%로 수렴하는 것을 막아
+     *   일정 비중 분산을 근사한다. 산정 슬롯이 보유 cash를 초과하면 가용 cash로 **클램프**(진입 skip 아님 — §2-2).
+     *   `maxConcurrent`는 1차에서 매수 예산에 영향 없음(메타 echo만 — 동시보유 시뮬은 post-1차).
+     * - [SizingPolicy.Kelly]: post-MVP 미지원 — AllCapital과 동일 fallback(보유 cash 전액).
+     */
+    private fun buyBudget(
+        policy: SizingPolicy,
+        initialCapital: BigDecimal,
+        cash: BigDecimal,
+    ): BigDecimal =
+        when (policy) {
+            is SizingPolicy.FixedFractional -> {
+                val percentSlot =
+                    initialCapital
+                        .multiply(policy.positionPercent)
+                        .divide(BigDecimal(100), 0, RoundingMode.DOWN)
+                val slot = policy.maxPositionAmount?.let { percentSlot.min(it) } ?: percentSlot
+                slot.min(cash) // 잔여 cash 부족 시 가용 cash로 클램프(진입 skip 아님).
+            }
+            // AllCapital · Kelly(post-MVP fallback) — 보유 현금 전액.
+            else -> cash
+        }
+
     private fun executeBuy(
         code: String,
-        cash: BigDecimal,
+        buyBudget: BigDecimal,
         rawPrice: BigDecimal,
         evalPrice: BigDecimal,
         candleTs: kotlinx.datetime.Instant,
@@ -482,8 +515,8 @@ class JvmBacktestEngine(
         val executedPrice = slippageModel.apply(TradeSide.BUY, evalPrice)
         if (executedPrice.compareTo(ZERO) == 0) return null
 
-        // AllCapital: 보유 현금으로 최대 수량 매수
-        val quantity = cash.divide(executedPrice, 0, RoundingMode.FLOOR).toLong()
+        // 매수 예산으로 최대 수량 매수 (AllCapital=보유 현금 전액 / FixedFractional=고정 슬롯).
+        val quantity = buyBudget.divide(executedPrice, 0, RoundingMode.FLOOR).toLong()
         if (quantity <= 0) return null
 
         val notional = executedPrice.multiply(BigDecimal(quantity))

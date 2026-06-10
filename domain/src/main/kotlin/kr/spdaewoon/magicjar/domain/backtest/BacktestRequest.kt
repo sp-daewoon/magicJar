@@ -18,7 +18,7 @@ import java.math.BigDecimal
  * @param commissionModel 수수료 모델 키 ("kis_direct" · "none")
  * @param slippageModel 슬리피지 모델 키 ("fixed_0.05" · "none")
  * @param priceAdjustmentMode 가격 모드 (RAW · ADJUSTED)
- * @param sizingPolicy 포지션 사이징 정책 (1차: AllCapital)
+ * @param sizingPolicy 포지션 사이징 정책 (default: AllCapital · ADR 0121 §2-A: FixedFractional 활성). copy로 overfit/sensitivity 자동 전파.
  * @param outOfSampleSplit IS/OOS 분할일 (ADR 0117 §2-6 · spec §3-R3 LOCK). **null이면 단일 run(현행 동작 무변경)**.
  *   지정 시 과최적화 탐지 orchestrator([kr.spdaewoon.magicjar.api.service.backtest.OverfitDetector])가 이 날짜를 경계로
  *   from~splitDate=In-Sample(학습)·splitDate~to=Out-of-Sample(검증) 2 run으로 분할 실행한다. from < splitDate ≤ to 이어야 한다.
@@ -102,18 +102,41 @@ enum class PriceAdjustmentMode {
 }
 
 /**
- * 포지션 사이징 정책 (ADR 0056 §2-1).
+ * 포지션 사이징 정책 (ADR 0056 §2-1 · ADR 0121 §2-A 정합).
  *
- * 1차는 AllCapital만 지원. 후속 ADR 0080+에서 FixedFractional·Kelly 검토.
+ * - [AllCapital] = 1포지션 = 보유 자본 100% (default · 기존 호출 회귀 0 LOCK).
+ * - [FixedFractional] = 실전 RiskConfig 정합 고정 비율 슬롯 (ADR 0121 §2-A — 1차 승격).
+ * - [Kelly] = post-MVP 보류.
  */
 sealed class SizingPolicy {
     /** 전액 투입 — 매수 시 보유 자본 전액을 1종목에 투입 (1차 default) */
     object AllCapital : SizingPolicy()
 
-    /** 고정 비율 — 자본의 fraction 비율만 투입 (post-MVP) */
+    /**
+     * 고정 비율 사이징 — 실전 RiskConfig 정합 (ADR 0121 §2-A LOCK).
+     *
+     * 1슬롯 = `min(initialCapital × positionPercent/100, maxPositionAmount ?: ∞)`(고정 슬롯 — 복리 누적으로 슬롯이
+     * 부풀어 노출이 100%로 수렴하는 것을 막기 위해 base는 `initialCapital` 고정). 이렇게 1회 진입의 자본 노출을
+     * positionPercent로 제한해 단일 cash 풀 순차 곡선의 MDD를 분산 포트폴리오에 근사 환산한다.
+     *
+     * **1차 보수 LOCK (ADR 0121 §2-2)**: 멀티종목 동시 시뮬은 도입하지 않는다. 현 엔진은 한 시점 1종목만 보유하므로
+     * [maxConcurrent]는 G3 판정 맥락("N슬롯 가정")을 위한 **메타데이터 echo**로만 기록되고 실제 동시보유 시뮬은 안 한다.
+     *
+     * @param positionPercent 1포지션당 가용 자본 비율 (%) — 실전 RiskConfig.maxPositionPercent 정합. 0.01~100.00.
+     * @param maxConcurrent    동시 보유 가능 포지션 수 상한 — 실전 RiskConfig.maxConcurrentPositions 정합. 1~50. (1차: 메타 echo)
+     * @param maxPositionAmount 1포지션 절대 상한 (KRW) — 실전 RiskConfig.maxPositionAmount 정합. null=비활성. min(percent, amount) 적용(A-1 정합).
+     */
     data class FixedFractional(
-        val fraction: BigDecimal,
-    ) : SizingPolicy()
+        val positionPercent: BigDecimal,
+        val maxConcurrent: Int = 1,
+        val maxPositionAmount: BigDecimal? = null,
+    ) : SizingPolicy() {
+        init {
+            require(positionPercent in BigDecimal("0.01")..BigDecimal("100.00")) { "positionPercent 0.01~100.00" }
+            require(maxConcurrent in 1..50) { "maxConcurrent 1~50" }
+            maxPositionAmount?.let { require(it > BigDecimal.ZERO) { "maxPositionAmount must be positive" } }
+        }
+    }
 
     /** 켈리 기준 — 승률·배당 기반 최적 비율 (post-MVP) */
     data class Kelly(
