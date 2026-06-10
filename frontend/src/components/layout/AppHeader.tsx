@@ -52,14 +52,17 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    // 검증 퍼널 순서 정렬 (2026-06-10 strategy-mock-paper-flow 보고서 발전점 #5):
+    // 발굴 → 리서치 → 빌더 → 백테스트 → 모의 → 스코어카드 → 목록 → 리플레이
     label: '전략',
     items: [
       { to: '/strategy/daytrade-discover', label: '단타 발굴' },
-      { to: '/strategy/paper', label: '모의 트레이딩' },
       { to: '/strategy/research', label: '전략 리서치' },
       { to: '/strategy/builder', label: '전략 빌더' },
-      { to: '/strategy/list', label: '전략 목록' },
       { to: '/strategy/backtest', label: '백테스트' },
+      { to: '/strategy/paper', label: '모의 트레이딩' },
+      { to: '/strategy/scorecard', label: '발굴 스코어카드' },
+      { to: '/strategy/list', label: '전략 목록' },
       { to: '/strategy/scenario-replay', label: '시나리오 리플레이' },
     ],
   },

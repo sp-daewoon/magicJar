@@ -18,8 +18,15 @@
  *   "수집 진행 중"이 아니다 (ADR 0118 §2-A-1 — 보통주 일봉 누락 사실상 0).
  */
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { useDaytradeDiscover } from '../../features/screener/hooks/useDaytradeDiscover'
+import { strategyResearchApi } from '../../api/strategyResearch'
+import {
+  buildDaytradePresetDraft,
+  storeStrategyResearchDraft,
+} from '../../lib/strategyResearch/builderDraft'
+import { useToast } from '../../components/ui/ToastProvider'
 import { DaytradeMatchTable } from '../../features/screener/components/DaytradeMatchTable'
 import { ScreenerSkipReasonsBadge } from '../../features/screener/components/ScreenerSkipReasonsBadge'
 import {
@@ -109,8 +116,15 @@ function DiscoverSummary({ result }: { result: DaytradeDiscoverResultDto }) {
   )
 }
 
-/** 발굴에 사용된 빌트인 프리셋 메타 + 진입 조건 노출 */
-function PresetMetaCard({ result }: { result: DaytradeDiscoverResultDto }) {
+/** 발굴에 사용된 빌트인 프리셋 메타 + 진입 조건 노출 (+ 빌더 검증 도선) */
+function PresetMetaCard({
+  result,
+  onSendToBuilder,
+}: {
+  result: DaytradeDiscoverResultDto
+  /** 프리셋을 빌더 draft로 보내 백테스트 검증을 이어가는 도선 (미지정 시 버튼 미표시) */
+  onSendToBuilder?: (presetKey: string) => void
+}) {
   if (result.presets.length === 0) return null
   return (
     <div className="space-y-3">
@@ -119,7 +133,7 @@ function PresetMetaCard({ result }: { result: DaytradeDiscoverResultDto }) {
           key={preset.presetKey}
           className="rounded-lg border border-gray-800 bg-gray-900/60 px-4 py-3"
         >
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium text-white">{preset.title}</span>
             <span className="rounded bg-gray-800 px-1.5 py-0.5 text-[10px] text-gray-400">
               빌트인
@@ -127,6 +141,16 @@ function PresetMetaCard({ result }: { result: DaytradeDiscoverResultDto }) {
             <span className="font-mono text-[10px] text-gray-600">
               {preset.presetKey}
             </span>
+            {onSendToBuilder && (
+              <button
+                type="button"
+                onClick={() => onSendToBuilder(preset.presetKey)}
+                className="ml-auto rounded-lg border border-indigo-800/60 px-3 py-1 text-xs text-indigo-300 hover:bg-indigo-950/40"
+                title="프리셋 진입 조건(DB 권위 DSL)을 전략 빌더로 보내 저장·백테스트로 검증합니다"
+              >
+                빌더로 보내기 → 백테스트
+              </button>
+            )}
           </div>
           {preset.entryRules.length > 0 && (
             <ul className="mt-2 list-inside list-disc space-y-0.5 text-xs text-gray-400">
@@ -197,11 +221,41 @@ function DiscoverEmptyState({ result }: { result: DaytradeDiscoverResultDto }) {
 
 export function DaytradeDiscoverPage() {
   const registeredUserId = useOnboardingStore((s) => s.registeredUserId)
+  const navigate = useNavigate()
+  const { showToast } = useToast()
 
   const [presetKey, setPresetKey] = useState<string | null>(null)
   const [startRealtimeWatch, setStartRealtimeWatch] = useState(false)
 
   const { mutate, data, isPending, error, reset } = useDaytradeDiscover()
+
+  // 프리셋 → 빌더 도선용 후보 정의 조회 (strategy_research_candidate — DB 단일 권위)
+  const candidateDefsQuery = useQuery({
+    queryKey: ['strategy-research', 'candidates'],
+    queryFn: () => strategyResearchApi.getCandidates(false),
+    staleTime: 300_000,
+  })
+
+  /**
+   * 프리셋 entry DSL(DB 권위)을 빌더 draft로 보내 저장→백테스트 검증을 이어간다.
+   * 평가 기준 종목은 현재 발굴 결과 1위 후보 — 빌더에서 자유 변경 가능.
+   * 변환 불가(빌더 미등록 식별자 등)면 mock 근사 0 — 사유를 그대로 알린다.
+   */
+  function handleSendPresetToBuilder(targetPresetKey: string) {
+    const candidate = (candidateDefsQuery.data ?? []).find((c) => c.key === targetPresetKey)
+    if (!candidate) {
+      showToast('프리셋 정의를 불러오지 못했습니다. 잠시 후 다시 시도하세요.', 'error')
+      return
+    }
+    const topCode = data?.matches[0]?.instrumentCode ?? ''
+    const result = buildDaytradePresetDraft(candidate, topCode, '1d')
+    if (!result.draft) {
+      showToast(result.reason ?? '빌더 draft 변환에 실패했습니다.', 'error')
+      return
+    }
+    const draftId = storeStrategyResearchDraft(result.draft)
+    navigate(`/strategy/builder?researchDraftId=${encodeURIComponent(draftId)}`)
+  }
 
   // 관심종목 등록 여부 표시 + 명시적 단건 추가 (owner 가드 — 자동 삽입 아님)
   const { data: watchlist } = useWatchlist()
@@ -273,12 +327,21 @@ export function DaytradeDiscoverPage() {
       <header className="mb-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h1 className="text-xl font-bold text-white">단타 발굴</h1>
-          <Link
-            to="/strategy/paper"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-700/50 px-3 py-1.5 text-xs text-amber-300 hover:bg-amber-950/30"
-          >
-            모의 트레이딩 대시보드 →
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              to="/strategy/scorecard"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-800"
+              title="매일 발굴 TOP N의 다음 거래일 실제 적중률 (forward-test)"
+            >
+              발굴 스코어카드
+            </Link>
+            <Link
+              to="/strategy/paper"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-700/50 px-3 py-1.5 text-xs text-amber-300 hover:bg-amber-950/30"
+            >
+              모의 트레이딩 대시보드 →
+            </Link>
+          </div>
         </div>
         <p className="mt-1 text-sm text-gray-500">
           전략을 미리 작성하지 않아도, 시스템 빌트인 단타 setup 프리셋으로 오늘의 후보 TOP{' '}
@@ -385,7 +448,7 @@ export function DaytradeDiscoverPage() {
         <div className="space-y-4">
           <DiscoverSummary result={data} />
 
-          <PresetMetaCard result={data} />
+          <PresetMetaCard result={data} onSendToBuilder={handleSendPresetToBuilder} />
 
           {/* skip 매트릭스 (캔들 미수집·부족 등 — mock 0, 정직 표기) */}
           {Object.keys(data.skippedReasons).length > 0 && (

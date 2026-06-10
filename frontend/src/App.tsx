@@ -14,6 +14,7 @@
  *   /symbol/:code     -> 종목 상세 (T-S1 — ADR 0040 §2-2 진입점)
  *   /strategy/backtest -> 백테스트 (T-BT R3 — ADR 0061 §4 D-1)
  *   /strategy/paper   -> 모의(페이퍼) 트레이딩 대시보드 (ADR 0122 R3 — 실거래 아님)
+ *   /strategy/scorecard -> 발굴 스코어카드 (V77 forward-test — read-only)
  *   /strategy/research -> 전략 리서치 (QA 전용 후보 생성)
  *   /strategy/scenario-replay -> 시나리오 리플레이 (T-SIM Phase 3 — ADR 0107)
  *   /strategy/list    -> 전략 목록 + 시그널 내역 (T-SIG Phase 3 — ADR 0066)
@@ -47,6 +48,7 @@ import { BacktestPage } from './pages/Strategy/BacktestPage'
 import { StrategyResearchPage } from './pages/Strategy/StrategyResearchPage'
 import { DaytradeDiscoverPage } from './pages/Strategy/DaytradeDiscoverPage'
 import { PaperDashboardPage } from './pages/Strategy/PaperDashboardPage'
+import { DiscoveryScorecardPage } from './pages/Strategy/DiscoveryScorecardPage'
 import { StrategyListPage } from './pages/Strategy/StrategyListPage'
 import { ScenarioReplayPage } from './pages/QA/ScenarioReplayPage'
 import { RiskConfigPage } from './pages/Risk/RiskConfigPage'
@@ -142,6 +144,8 @@ export function App() {
           <Route path="/strategy/daytrade-discover" element={<DaytradeDiscoverPage />} />
           {/* ADR 0122 R3: 발굴 → MOCK 페이퍼 트레이딩 대시보드 (모의 — 실거래 아님) */}
           <Route path="/strategy/paper" element={<PaperDashboardPage />} />
+          {/* 발굴 스코어카드: V77 forward-test 데이터의 유일한 화면 (read-only — 매매 결정권 0) */}
+          <Route path="/strategy/scorecard" element={<DiscoveryScorecardPage />} />
           {/* T-SIG Phase 3: 전략 목록 + 시그널 내역 — ADR 0066 */}
           <Route path="/strategy/list" element={<StrategyListPage />} />
           {/* T-SIM Phase 3: 실제 주문과 분리된 시나리오 리플레이 — ADR 0107 */}
