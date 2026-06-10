@@ -107,4 +107,38 @@ interface CandleRepository {
         from: Instant,
         to: Instant,
     ): List<Instant>
+
+    /**
+     * 한 기간 버킷 내에서 정당 앵커([keepTs]) 외의 고아 candle 삭제 (ADR 0120 amend — 2026-06-11).
+     *
+     * ## 왜 필요한가 — 진행봉 앵커 전진 고아 누적 (P1 결함)
+     *   1wk/1mo/1y 롤업 봉의 ts(앵커)는 KIS 관례상:
+     *     - 주봉 = 그 주 **첫** 거래일 / 월·연봉 = 그 기간 **마지막** 거래일 ([DailyRollupAggregator] 표).
+     *   진행 중(미마감) 월/년봉의 앵커는 "현재까지의 마지막 거래일"이라 **매 거래일 전진**한다.
+     *   적재가 `ON CONFLICT(code,interval,ts) DO UPDATE` upsert 뿐이라 앵커가 6/9→6/10 으로 이동하면
+     *   새 ts 행만 생기고 옛 앵커 행(6/9 partial)이 같은 버킷에 **고아로 잔존** → 차트 중복·지표 이중계산.
+     *   주봉도 대칭 케이스(1d 백필로 주 초 거래일이 새로 생기면 앵커가 과거로 이동) 존재.
+     *
+     * ## 삭제 안전 제약 (광역 DELETE 금지 — 버킷 경계 + 앵커 불일치 이중 조건)
+     *   삭제 대상은 **`bucketStart ≤ ts < bucketEnd` 반열린 기간 버킷** ∩ **`ts ≠ keepTs`** 두 조건의 교집합뿐.
+     *   롤업이 이번에 산출한 봉의 버킷만 호출되므로(incremental 윈도우 안), 윈도우 밖 과거 닫힌 봉은 무손상.
+     *   keepTs(이번 산출 앵커)와 일치하는 행은 절대 삭제되지 않는다 — "화요일 첫 거래일 주봉" 같은 정당 봉 보존.
+     *
+     * 기본 구현은 no-op(0 반환) — 롤업을 수행하지 않는 구현체(예: api 조회 어댑터) 호환용.
+     * 실제 정리는 consumer 어댑터가 native DELETE 로 override 한다.
+     *
+     * @param code 종목 코드
+     * @param interval 1wk·1mo·1y (롤업 패밀리)
+     * @param bucketStart 기간 버킷 시작 (inclusive)
+     * @param bucketEnd 기간 버킷 끝 (exclusive)
+     * @param keepTs 보존할 정당 앵커 ts (이번 롤업 산출 봉의 ts) — 이 행은 삭제 제외
+     * @return 삭제된 고아 row 수 (운영 evidence)
+     */
+    fun deleteStaleBucketAnchors(
+        code: String,
+        interval: CandleInterval,
+        bucketStart: Instant,
+        bucketEnd: Instant,
+        keepTs: Instant,
+    ): Int = 0
 }

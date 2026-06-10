@@ -1,6 +1,8 @@
 package kr.spdaewoon.magicjar.consumer.aggregation
 
+import kotlinx.datetime.toJavaInstant
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
+import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.ONE_DAY
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.ONE_MONTH
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.ONE_WEEK
@@ -124,13 +126,19 @@ class DailyFamilyRollupRunner(
                 val rolled = if (windowTruncated) rolledAll.drop(1) else rolledAll
                 if (rolled.isNotEmpty()) {
                     val upserted = candleRepository.upsertAll(rolled)
+                    // ★ 고아 앵커 정리 (ADR 0120 amend — 2026-06-11 P1 fix).
+                    //   진행 월/년봉 앵커가 전진(6/9→6/10)하면 옛 앵커 행이 같은 버킷에 고아로 남는다.
+                    //   이번에 산출한 각 봉의 기간 버킷 안에서 산출 앵커(ts) ≠ 인 같은 (code,interval) 행을 삭제.
+                    //   버킷 경계 + 앵커 불일치 이중 조건이라 윈도우 밖 과거 닫힌 봉은 무손상(광역 DELETE 아님).
+                    val staleDeleted = cleanupStaleAnchors(code, target, rolled)
                     result[target.code] = IntervalRollupResult(upserted = upserted, latestBar = rolled.last())
                     log.debug(
-                        "DailyFamilyRollupRunner interval 완료: code={} interval={} rolledAll={} upserted={} windowTruncated={}",
+                        "DailyFamilyRollupRunner interval 완료: code={} interval={} rolledAll={} upserted={} staleDeleted={} windowTruncated={}",
                         code,
                         target.code,
                         rolledAll.size,
                         upserted,
+                        staleDeleted,
                         windowTruncated,
                     )
                 } else {
@@ -160,5 +168,46 @@ class DailyFamilyRollupRunner(
             result.mapValues { it.value.upserted },
         )
         return result
+    }
+
+    /**
+     * 이번 롤업이 산출한 봉들의 기간 버킷 안에서 산출 앵커 외 고아 행을 삭제 (ADR 0120 amend — 2026-06-11).
+     *
+     * 각 산출 봉마다 [DailyRollupAggregator.bucketRange] 로 KST 기간 버킷 `[start, end)` 를 구하고,
+     * `ts ≠ 산출 앵커(bar.ts)` 인 같은 (code, interval) 행을 [CandleRepository.deleteStaleBucketAnchors] 로 삭제.
+     *
+     * 같은 실행 안에서 두 봉의 버킷이 겹치는 일은 없다(롤업이 버킷당 정확히 1봉 산출). 따라서 버킷별 1회 호출.
+     * 삭제 실패는 정합 위협이 아니므로(다음 실행에서 재정리) 종목 단위 롤업을 막지 않고 0 으로 흡수한다.
+     *
+     * @return 이 interval 에서 삭제된 고아 row 합계.
+     */
+    private fun cleanupStaleAnchors(
+        code: String,
+        interval: CandleInterval,
+        rolled: List<Candle>,
+    ): Int {
+        var deleted = 0
+        for (bar in rolled) {
+            try {
+                val (start, end) = DailyRollupAggregator.bucketRange(bar.ts, interval)
+                deleted +=
+                    candleRepository.deleteStaleBucketAnchors(
+                        code = code,
+                        interval = interval,
+                        bucketStart = start.toJavaInstant(),
+                        bucketEnd = end.toJavaInstant(),
+                        keepTs = bar.ts.toJavaInstant(),
+                    )
+            } catch (e: Exception) {
+                log.warn(
+                    "DailyFamilyRollupRunner 고아 정리 실패(skip): code={} interval={} anchorTs={} err={}",
+                    code,
+                    interval.code,
+                    bar.ts,
+                    e.message,
+                )
+            }
+        }
+        return deleted
     }
 }

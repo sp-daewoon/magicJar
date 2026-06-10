@@ -133,6 +133,36 @@ interface ConsumerCandleJpaRepository : JpaRepository<ConsumerCandleJpaEntity, L
     ): Int
 
     /**
+     * 기간 버킷 내 고아 앵커 삭제 — ADR 0120 amend (2026-06-11 P1 롤업 고아 정리).
+     *
+     * ## ★ 안전 제약 (광역 DELETE 금지 — 버킷 경계 + 앵커 불일치 이중 조건)
+     *   삭제 대상은 `code=? AND interval=?` ∩ `bucketStart ≤ ts < bucketEnd`(반열린 1 버킷) ∩ `ts <> keepTs`.
+     *   keepTs(이번 롤업 산출 앵커)와 일치하는 정당 봉은 절대 삭제되지 않는다. 버킷 밖 과거 닫힌 봉도 무손상.
+     *   호출은 롤업 산출 봉이 만든 버킷에 한정되므로 incremental 윈도우 밖은 건드리지 않는다.
+     *
+     * @return 삭제된 고아 row 수.
+     */
+    @Modifying
+    @Query(
+        nativeQuery = true,
+        value = """
+            DELETE FROM candle
+            WHERE code = :code
+              AND interval = :interval
+              AND ts >= :bucketStart
+              AND ts < :bucketEnd
+              AND ts <> :keepTs
+        """,
+    )
+    fun deleteStaleBucketAnchors(
+        @Param("code") code: String,
+        @Param("interval") interval: String,
+        @Param("bucketStart") bucketStart: java.time.Instant,
+        @Param("bucketEnd") bucketEnd: java.time.Instant,
+        @Param("keepTs") keepTs: java.time.Instant,
+    ): Int
+
+    /**
      * 단건 idempotent INSERT (ON CONFLICT DO NOTHING).
      */
     @Modifying

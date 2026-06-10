@@ -193,6 +193,53 @@ object DailyRollupAggregator {
         return weekYear to week
     }
 
+    /**
+     * [ts] 가 속한 [target] 기간 버킷의 반열린 경계 `[start, end)` 를 KST 기준으로 반환 (ADR 0120 amend — 2026-06-11).
+     *
+     * 고아 앵커 정리([CandleRepository.deleteStaleBucketAnchors])가 "같은 버킷의 다른 ts 행"을 안전하게
+     * 식별하기 위한 경계. 버킷 내 어떤 ts 든(앵커가 첫·마지막 거래일이든) `start ≤ ts < end` 로 동일 버킷에 묶인다.
+     *
+     *   ONE_WEEK : ISO 주(월 00:00 KST) ~ 다음 주 월 00:00 (7일)
+     *   ONE_MONTH: 역월 1일 00:00 KST ~ 다음 달 1일 00:00
+     *   ONE_YEAR : 역년 1/1 00:00 KST ~ 다음 해 1/1 00:00
+     *
+     * 반열린 구간이므로 버킷 마지막 날의 23:59:59 거래일 ts 도 포함되고, 다음 버킷 시작 ts 는 제외된다.
+     *
+     * @return Pair(start inclusive, end exclusive) — KST 자정 경계의 Instant.
+     */
+    fun bucketRange(
+        ts: Instant,
+        target: CandleInterval,
+    ): Pair<Instant, Instant> {
+        require(target in SUPPORTED_TARGETS) {
+            "target=$target — 지원하지 않는 버킷 interval (지원: 1wk·1mo·1y)"
+        }
+        val date = ts.toLocalDateTime(KST).date
+        val (startDate, endDate) =
+            when (target) {
+                CandleInterval.ONE_WEEK -> {
+                    val dow = date.dayOfWeek.isoNumber() // Mon=1..Sun=7
+                    val monday = date.plusDaysSafe(1 - dow) // 그 ISO 주의 월요일
+                    monday to monday.plusDaysSafe(7)
+                }
+                CandleInterval.ONE_MONTH -> {
+                    val first = LocalDate(date.year, date.monthNumber, 1)
+                    val nextMonth =
+                        if (date.monthNumber == 12) {
+                            LocalDate(date.year + 1, 1, 1)
+                        } else {
+                            LocalDate(date.year, date.monthNumber + 1, 1)
+                        }
+                    first to nextMonth
+                }
+                CandleInterval.ONE_YEAR -> {
+                    LocalDate(date.year, 1, 1) to LocalDate(date.year + 1, 1, 1)
+                }
+                else -> throw IllegalArgumentException("bucketRange: 지원하지 않는 target=$target")
+            }
+        return startDate.atStartOfDayIn(KST) to endDate.atStartOfDayIn(KST)
+    }
+
     private fun DayOfWeek.isoNumber(): Int = this.ordinal + 1 // kotlinx MONDAY.ordinal=0 → 1
 
     private fun LocalDate.epochDay(): Long = this.atStartOfDayIn(TimeZone.UTC).epochSeconds / 86_400L
