@@ -75,4 +75,14 @@ data class ConsumerKisRateLimitProperties(
      * interval refill 전환 후에는 다음 1초 윈도우 진입을 짧게 확인한다.
      */
     val acquirePollIntervalMillis: Long = 50L,
+    /**
+     * 알람 차등화 윈도 임계 (2026-06-10 노이즈 진단 hotfix · api·batch Properties 동일 LOCK).
+     *
+     * 5분 aggregator 윈도 내 EGW00201/429 발생 건수가:
+     *   - 1 ~ (threshold-1) → SystemEventSeverity.INFO (알림센터 기록만 — toast/Slack 미발송)
+     *   - >= threshold      → SystemEventSeverity.WARN (현행 알람 경로)
+     *
+     * env override: MAGICJAR_KIS_RATE_LIMITER_TPS_EXCEEDED_WARN_THRESHOLD.
+     */
+    val tpsExceededWarnThreshold: Int = 5,
 )

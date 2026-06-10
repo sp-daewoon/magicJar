@@ -103,6 +103,21 @@ class NotificationDispatcherTest {
         assertThat(slot.captured.payloadJson).contains("75,000원")
         assertThat(slot.captured.payloadJson).contains("익절 전략")
         verify { slackSender.sendOutbox(any()) }
+        // ORDER_FILLED 는 추가 Slack 채널로도 이중 송출 (2026-06-10 V79)
+        verify { slackSender.sendToOrderChannel(any()) }
+    }
+
+    @Test
+    fun `(1-b) ORDER_FILLED — 추가 채널 송출 실패해도 기존 outbox plus 발송 영향 0 (격리)`() {
+        every { slackSender.sendToOrderChannel(any()) } throws RuntimeException("추가 채널 webhook 5xx")
+        val record = record("order.filled.v1", filledPayload("U1", "005930"))
+
+        // 추가 채널 예외가 caller 흐름으로 전파되지 않음 (예외 0 종료)
+        dispatcher.onOrderFilled(record)
+
+        // 기존 채널 흐름은 정상 — outbox INSERT + sendOutbox 호출
+        verify { outboxRepository.save(any()) }
+        verify { slackSender.sendOutbox(any()) }
     }
 
     @Test
@@ -114,6 +129,8 @@ class NotificationDispatcherTest {
         verify { outboxRepository.save(capture(slot)) }
         assertThat(slot.captured.priority).isEqualTo(NotificationPriority.P0)
         verify { slackSender.sendOutbox(any()) }
+        // ORDER_REJECTED 는 추가 채널 이중 송출 대상이 아님 (ORDER_FILLED 한정)
+        verify(exactly = 0) { slackSender.sendToOrderChannel(any()) }
     }
 
     @Test

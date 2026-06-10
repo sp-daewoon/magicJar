@@ -66,9 +66,15 @@ class BatchRedisKisRateLimiterAdapter(
 ) : KisRateLimiterPort {
     private val log = LoggerFactory.getLogger(BatchRedisKisRateLimiterAdapter::class.java)
 
-    /** Phase 1 통계 카운터 (Phase 3 Circuit Breaker에서 권위 위임) */
+    /** Phase 1 통계 카운터 (Phase 3 Circuit Breaker에서 권위 위임) — 부팅 후 누적치(리셋 없음). */
     private val tpsExceededCount = AtomicLong(0L)
     private val successCount = AtomicLong(0L)
+
+    /**
+     * 알람 차등화 윈도 카운터 (2026-06-10 노이즈 진단 hotfix · api·consumer 동일 패턴).
+     * emit 시점에 "이번 윈도 발생 건수" 스냅샷+리셋 → severity 차등(INFO/WARN) 판정.
+     */
+    private val windowTpsCount = AtomicLong(0L)
 
     /** SystemEvent emit aggregator — 5분 윈도 1회 LOCK (spam 회피) */
     private val lastEmittedAt = AtomicReference<Instant>(Instant.EPOCH)
@@ -266,22 +272,25 @@ class BatchRedisKisRateLimiterAdapter(
      * - aggregator 5분 LOCK — spam 회피 (EGW00201 burst 시 1건만 발사)
      */
     override fun onTpsExceeded() {
-        val count = tpsExceededCount.incrementAndGet()
+        val cumulative = tpsExceededCount.incrementAndGet()
+        windowTpsCount.incrementAndGet() // emit skip 여부와 무관하게 매 신호 누적
         val lastBucket = lastConsumedBucket.get()
         log.warn(
-            "[KisRateLimit/batch] TPS exceeded signal — count={} lastBucket={} (Phase 3 Circuit Breaker 합류 대기)",
-            count,
+            "[KisRateLimit/batch] TPS exceeded signal — cumulative={} lastBucket={} (Phase 3 Circuit Breaker 합류 대기)",
+            cumulative,
             lastBucket,
         )
         recordTpsExceeded(lastBucket)
-        emitSystemEventIfThresholdReached(count, lastBucket)
+        emitSystemEventIfThresholdReached(cumulative, lastBucket)
     }
 
     /**
-     * SystemEvent emit aggregator — 5분 윈도 1회 LOCK (spam 회피, api·consumer 동일 패턴).
+     * SystemEvent emit aggregator — 5분 윈도 1회 LOCK + 윈도 건수 severity 차등 (api·consumer 동일 패턴).
+     *
+     * 윈도 건수 < threshold → INFO(알림센터 기록만), ≥ threshold → WARN(현행 알람).
      */
     private fun emitSystemEventIfThresholdReached(
-        currentCount: Long,
+        cumulativeCount: Long,
         lastBucket: String,
     ) {
         val logger = systemEventLogger ?: return
@@ -294,28 +303,40 @@ class BatchRedisKisRateLimiterAdapter(
             return
         }
 
+        val windowCount = windowTpsCount.getAndSet(0L)
+        val severity =
+            if (windowCount >= props.tpsExceededWarnThreshold) {
+                SystemEventSeverity.WARN
+            } else {
+                SystemEventSeverity.INFO
+            }
+        val effectiveBucketKey = if (priorityBucketsActive) "${props.bucketKey}:$lastBucket" else props.bucketKey
+
         runCatching {
             logger.emit(
                 SystemEvent(
                     category = SystemEventCategory.KIS_RATELIMIT,
-                    severity = SystemEventSeverity.WARN,
+                    severity = severity,
                     actor = ACTOR,
                     action = ACTION_TPS_EXCEEDED,
                     userId = null,
                     correlationId = null,
                     detailJson =
-                        """{"tpsExceededCount":$currentCount,"bucketKey":"${props.bucketKey}",""" +
+                        """{"windowCount":$windowCount,"cumulativeCount":$cumulativeCount,""" +
+                            """"bucketKey":"$effectiveBucketKey","priorityBucketsActive":$priorityBucketsActive,""" +
                             """"lastBucket":"$lastBucket","aggregatorWindowMinutes":5,"module":"batch"}""",
                 ),
             )
             log.warn(
-                "[KisRateLimit/batch] SystemEvent KIS_RATELIMIT emit — count={} window=5min",
-                currentCount,
+                "[KisRateLimit/batch] SystemEvent KIS_RATELIMIT emit — windowCount={} severity={} cumulative={} window=5min",
+                windowCount,
+                severity,
+                cumulativeCount,
             )
         }.onFailure { e ->
             log.error(
-                "[KisRateLimit/batch] SystemEvent emit 실패 — count={} err={}",
-                currentCount,
+                "[KisRateLimit/batch] SystemEvent emit 실패 — windowCount={} err={}",
+                windowCount,
                 e.message,
             )
         }
@@ -403,4 +424,7 @@ class BatchRedisKisRateLimiterAdapter(
     internal fun snapshotLastConsumedBucket(): String = lastConsumedBucket.get()
 
     internal fun snapshotTpsExceeded(): Long = tpsExceededCount.get()
+
+    /** 테스트 진입점 — 현재 윈도 미emit 누적 건수 (emit 시 0으로 리셋). */
+    internal fun snapshotWindowTpsCount(): Long = windowTpsCount.get()
 }

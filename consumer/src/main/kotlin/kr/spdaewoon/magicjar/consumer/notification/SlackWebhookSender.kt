@@ -110,17 +110,58 @@ class SlackWebhookSender(
         }
     }
 
+    /**
+     * 주문 체결 알림 전용 추가 Slack 채널 이중 송출 (2026-06-10 최고 관리자 지시 · V79).
+     *
+     * 진보 페르소나 (ADR 0087):
+     *   - ✨ 기존 채널 발송과 **완전 격리** — 본 메서드 실패가 outbox/기존 채널에 절대 영향 주지 않음(caller가 runCatching wrap).
+     *   - 💡 새 키(notification_slack_webhook_order) 미설정 시 null → silent skip (false 반환, 기존 흐름 영향 0).
+     *
+     * @param message 기존 채널과 동일한 본문 (NotificationFormatter 결과)
+     * @return true = 추가 채널 발송 성공, false = 미설정/실패 (기존 흐름에 영향 없음)
+     */
+    fun sendToOrderChannel(message: String): Boolean {
+        val webhookUrl =
+            resolveOrderWebhookUrl() ?: run {
+                log.debug("주문 추가 Slack 채널 미설정 — 이중 송출 skip (기존 채널 영향 0)")
+                return false
+            }
+        return when (val result = post(webhookUrl, message)) {
+            is SlackPostResult.Success -> {
+                log.info("주문 추가 Slack 채널 발송 성공: statusCode={}", result.statusCode)
+                true
+            }
+            is SlackPostResult.Failure -> {
+                log.warn("주문 추가 Slack 채널 발송 실패 (기존 채널 영향 0): err={}", result.error)
+                false
+            }
+        }
+    }
+
     // --- private ---
 
-    private fun resolveWebhookUrl(): String? {
+    private fun resolveWebhookUrl(): String? = resolveWebhook(order = false)
+
+    private fun resolveOrderWebhookUrl(): String? = resolveWebhook(order = true)
+
+    /**
+     * webhook URL resolve 공통 helper (DRY · 진보 페르소나 ADR 0087).
+     * order=true → 주문 추가 채널(notification_slack_webhook_order), false → 기본 채널.
+     */
+    private fun resolveWebhook(order: Boolean): String? {
         val port = systemConfigSlackPortProvider.getIfAvailable()
         if (port == null) {
-            log.warn("SystemConfigSlackPort 미등록 — Slack 발송 skip")
+            log.warn("SystemConfigSlackPort 미등록 — Slack 발송 skip (order={})", order)
             return null
         }
-        val url = port.fetchSlackWebhook()
+        val url = if (order) port.fetchOrderSlackWebhook() else port.fetchSlackWebhook()
         if (url.isNullOrBlank()) {
-            log.warn("system_config.notification_slack_webhook 미설정 — Slack 발송 skip")
+            if (order) {
+                // 추가 채널 미설정은 정상(이중 송출 옵션) — debug.
+                log.debug("system_config.notification_slack_webhook_order 미설정 — 이중 송출 skip")
+            } else {
+                log.warn("system_config.notification_slack_webhook 미설정 — Slack 발송 skip")
+            }
             return null
         }
         return url

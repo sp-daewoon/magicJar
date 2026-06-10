@@ -24,8 +24,8 @@ object SystemEventGuidance {
         mapOf(
             "KIS_TPS_EXCEEDED" to
                 "ℹ️ 모듈: KIS rate limiter · 원인 추정: KIS OpenAPI 초당 호출 한도(TPS) 초과 — 백필/조회 폴링 부하 가능성 · " +
-                "조치: 5분 윈도 1회로 집계된 신호입니다. 단발이면 자동 backoff로 회복되므로 조치 불요. " +
-                "burst가 반복되면 백필 throttle 또는 watchlist 종목 수를 점검하세요.",
+                "조치: 5분 윈도 건수(detail.windowCount)로 집계된 신호입니다. WARN으로 도달했다면 한 윈도에 임계 이상 발생한 burst이므로 " +
+                "백필 throttle 또는 watchlist 종목 수를 점검하세요. (산발 1~4건은 INFO로 격하되어 알림센터에만 기록됩니다.)",
             "CANDLE_BACKFILL_UNRECOVERABLE" to
                 "🛠 모듈: 캔들 백필 워커 · 원인 추정: 재시도 한도 소진 후에도 KIS 응답 누락/오류로 해당 종목 백필 복구 실패 · " +
                 "조치: 종목 코드와 detail의 사유를 확인하세요. KIS rate limit이면 잠시 후 자동 재시도, 지속되면 수동 재수집(관리자 백필)을 검토하세요.",

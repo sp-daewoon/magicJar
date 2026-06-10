@@ -185,9 +185,11 @@ class ConsumerRedisKisRateLimiterAdapterTest {
 
     /**
      * 진단 PR #639 P0 hotfix — SystemEvent KIS_RATELIMIT emit aggregator 검증.
+     *
+     * 2026-06-10 알람 차등화 — 윈도 3건(< threshold 5) → INFO + windowCount detail.
      */
     @Test
-    fun `onTpsExceeded - SystemEvent KIS_RATELIMIT emit (5분 aggregator LOCK)`() {
+    fun `onTpsExceeded - SystemEvent emit 1회 + 윈도 3건 INFO + windowCount detail`() {
         val systemEventLogger = mock<SystemEventLogger>()
         val adapterWithLogger = ConsumerRedisKisRateLimiterAdapter(proxyManager, props, systemEventLogger)
 
@@ -200,9 +202,28 @@ class ConsumerRedisKisRateLimiterAdapterTest {
         verify(systemEventLogger, times(1)).emit(captor.capture())
         val event = captor.firstValue
         assertThat(event.category).isEqualTo(SystemEventCategory.KIS_RATELIMIT)
-        assertThat(event.severity).isEqualTo(SystemEventSeverity.WARN)
+        // 첫 emit windowCount=1 (< threshold 5) → INFO
+        assertThat(event.severity).isEqualTo(SystemEventSeverity.INFO)
         assertThat(event.actor).isEqualTo("ConsumerRedisKisRateLimiterAdapter")
         assertThat(event.action).isEqualTo("KIS_TPS_EXCEEDED")
         assertThat(event.detailJson).contains("\"module\":\"consumer\"")
+        assertThat(event.detailJson).contains("windowCount")
+        assertThat(event.detailJson).contains("cumulativeCount")
+        // emit skip 윈도 누적 검증
+        assertThat(adapterWithLogger.snapshotWindowTpsCount()).isEqualTo(2L)
+    }
+
+    /** 윈도 건수 ≥ threshold → WARN 차등 (threshold=1 로 즉시 검증). */
+    @Test
+    fun `onTpsExceeded - threshold 1 시 첫 윈도 WARN severity`() {
+        val systemEventLogger = mock<SystemEventLogger>()
+        val warnProps = props.copy(tpsExceededWarnThreshold = 1)
+        val adapterWithLogger = ConsumerRedisKisRateLimiterAdapter(proxyManager, warnProps, systemEventLogger)
+
+        adapterWithLogger.onTpsExceeded()
+
+        val captor = argumentCaptor<SystemEvent>()
+        verify(systemEventLogger, times(1)).emit(captor.capture())
+        assertThat(captor.firstValue.severity).isEqualTo(SystemEventSeverity.WARN)
     }
 }
