@@ -3,10 +3,10 @@ id: T-20260610-1726-order-trigger-trace-view
 agent: frontend
 model: opus
 branch: agent/frontend/order-trigger-trace-view
-status: RUNNING
+status: DONE
 startedAt: 2026-06-10T17:26:46.628+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-10T17:46:42.579+09:00
+pr: #906
 parentPhase: ?
 ---
 
