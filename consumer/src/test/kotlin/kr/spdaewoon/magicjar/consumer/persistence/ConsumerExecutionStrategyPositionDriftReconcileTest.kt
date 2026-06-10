@@ -114,6 +114,28 @@ class ConsumerExecutionStrategyPositionDriftReconcileTest {
     }
 
     @Test
+    fun `유령 over-count — 체결 없이 reconcileStrategyPositionDrift 직접 호출, position 0주에 3주 leg 내림 reset`() {
+        // 2026-06-10 오후 incident 재현: AUTO SELL 체결이 strategy_position 에 미반영(차감 누락)으로
+        // KIS(position) 0주인데 strategy_position 3주 잔존. worker 가 체결 없이 reconcileStrategyPositionDrift 를
+        // 직접 호출 → Adjust(초과 전량 내림) 경로가 positionQty=0 에서도 정상 작동해야 한다.
+        port.legs =
+            listOf(leg(strategyId = 8L, quantity = 3, realizedPnl = "0", avgPrice = "55000", filledLots = 1, stages = setOf(0)))
+        whenever(positionRepo.findByUserIdAndCodeAndSource(eq("user-A"), eq("005930"), eq("MOCK")))
+            .thenReturn(positionEntity(quantity = 0))
+
+        port.upsertCount = 0
+        adapter(enabled = true).reconcileStrategyPositionDrift("user-A", "005930", "MOCK")
+
+        // 체결 경로(applySell) 없이 보정 upsert 1회만 — leg 3→0 reset.
+        assertThat(port.upsertCount).isEqualTo(1)
+        val corrected = port.lastUpsert!!
+        assertThat(corrected.quantity).isEqualTo(0)
+        assertThat(corrected.avgPrice).isEqualByComparingTo(BigDecimal.ZERO)
+        assertThat(corrected.filledLots).isEqualTo(0)
+        assertThat(corrected.executedExitStages).isEmpty()
+    }
+
+    @Test
     fun `보정 비활성(ENV off) — 초과여도 보정 upsert 0(현행 WARN-only fallback)`() {
         port.legs = listOf(leg(strategyId = 100L, quantity = 7, realizedPnl = "0", avgPrice = "10000"))
         whenever(positionRepo.findByUserIdAndCodeAndSource(any(), any(), any()))

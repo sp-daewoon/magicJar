@@ -23,6 +23,25 @@ interface StrategyPositionJpaRepository : JpaRepository<StrategyPositionJpaEntit
         code: String,
     ): List<StrategyPositionJpaEntity>
 
+    /**
+     * 주기 reconcile union 측 — 특정 user 의 strategy_position 보유(quantity>0) 종목 distinct code.
+     *
+     * ADR 0115 §P1-1 amend (2026-06-10 over-count incident). [StrategyPositionReconcileWorker] 가
+     * KIS 권위(position quantity>0) 종목과 **합집합**으로 순회 범위를 넓힐 때 사용한다. KIS 가 0주가 된 유령
+     * over-count 종목(strategy_position 만 잔존)도 reconcileStrategyPositionDrift 에 도달시켜 [PositionDriftCorrection]
+     * Adjust(초과 내림)가 작동하게 한다.
+     *
+     * strategy_position 에 mode 컬럼이 없으므로 user 기준 code 만 뽑고, 권위 비교(REAL/MOCK 분기)는 worker 가
+     * position 측 source 키로 수행한다. @Query 명시 — 헌법 §6 default-fun 추론 함정 회피.
+     */
+    @Query(
+        "SELECT DISTINCT sp.code FROM StrategyPositionJpaEntity sp " +
+            "WHERE sp.userId = :userId AND sp.quantity > 0",
+    )
+    fun findDistinctCodesByUserIdAndQuantityPositive(
+        @Param("userId") userId: String,
+    ): List<String>
+
     /** drift 검증용 — user+code 전략별 보유 수량 합(spec §3-1 불변식: == position.quantity). */
     @Query(
         "SELECT COALESCE(SUM(sp.quantity), 0) FROM StrategyPositionJpaEntity sp " +

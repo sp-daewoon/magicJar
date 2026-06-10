@@ -2,22 +2,35 @@ package kr.spdaewoon.magicjar.consumer.reconcile
 
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerExecutionStrategyPositionAdapter
 import kr.spdaewoon.magicjar.consumer.persistence.PositionJpaRepository
+import kr.spdaewoon.magicjar.consumer.persistence.StrategyPositionJpaRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 
 /**
- * strategy_position 부족 drift 주기 정합 워커 — ADR 0115 §P1-1 amend (2026-06-10 incident 재발 방지).
+ * strategy_position drift 주기 정합 워커 — ADR 0115 §P1-1 amend (2026-06-10 incident 재발 방지).
  *
- * ## 왜 별도 worker 인가 (incident 근본)
+ * ## 왜 별도 worker 인가 (incident 근본 — 부족/under-count 방향)
  * 체결 직후 drift 정합([ConsumerExecutionStrategyPositionAdapter.applyExecution] → reconcileDrift)은
- * **그 체결이 strategy_position 에 반영되는 경로가 살아 있을 때만** 작동한다. 그러나 2026-06-10 incident 는
+ * **그 체결이 strategy_position 에 반영되는 경로가 살아 있을 때만** 작동한다. 그러나 2026-06-10 오전 incident 는
  * `StrategyPositionExecutionReplayService` 의 "row 기존재 → replay skip"(over-count 회피 의도)로
  * applyExecution 경로 자체가 우회됐고, 그 strategy_position(qty=0 vs KIS 3주)은 **다음 체결 전까지 영구 잔존**해
  * 시그널 54건이 BLOCKED 됐다.
  *
  * 본 워커는 [BalanceReconcileJob] 주기(시장 OPEN 5분 cron)에 편승해 — **신규 cron 신설 0**(ADR 0115 §2-4 audit:
- * 신규 마이그레이션·토픽·cron 0 원칙) — user 의 KIS 권위 보유 종목 전체를 훑어 체결 이벤트와 무관하게
+ * 신규 마이그레이션·토픽·cron 0 원칙) — user 의 보유 종목을 훑어 체결 이벤트와 무관하게
  * strategy_position drift 를 회복한다. 초과는 [PositionDriftCorrection] 내림, 부족은 귀속 ledger 정정이 자동 작동.
+ *
+ * ## 순회 범위 union (2026-06-10 오후 over-count incident — 본 amend)
+ * 초기 구현은 **KIS 권위 보유(position quantity>0) 종목만** 순회했다. 그러나 그 날 오후 재발한 incident 는
+ * **반대 방향(over-count)**: AUTO SELL 체결(13:11) 직후 consumer 재배포 다운 → MOCK WS 체결통보 부재 →
+ * 부팅 REST 백필이 order_execution·position(KIS 0주)은 복구했으나 strategy_position(3주) 차감이 누락돼
+ * **유령 over-count(strategy 3 vs KIS 0)** 가 잔존했다. position 이 0 이므로 KIS 권위 보유 enumeration 에서
+ * 그 종목이 영구 제외 → drift 가 자기 치유 경로를 영영 못 만나 매 1분 매도 재시도·알람 폭주.
+ *
+ * 해소: 순회 범위를 **position(quantity>0) ∪ strategy_position(quantity>0)** code 합집합으로 확장한다.
+ * KIS 0 인 유령 종목도 [reconcileStrategyPositionDrift] 에 도달해 [PositionDriftCorrection] Adjust(초과 내림)가
+ * 작동(qty 3→0, avgPrice·filledLots·executedExitStages reset). under-count(KIS 3 vs strategy 0) 종목은
+ * 그 반대로 position 측에서 잡힌다 — 두 방향 모두 합집합 한 번으로 커버.
  *
  * ## 보수성 (자본 경로)
  * - DB 귀속 정렬만 — 주문 발행 0. KillSwitch·실주문 게이트 무영향.
@@ -30,48 +43,41 @@ import org.springframework.stereotype.Component
 @Component
 class StrategyPositionReconcileWorker(
     private val positionJpaRepository: PositionJpaRepository,
+    private val strategyPositionJpaRepository: StrategyPositionJpaRepository,
     private val strategyPositionAdapter: ConsumerExecutionStrategyPositionAdapter,
 ) {
     private val log = LoggerFactory.getLogger(StrategyPositionReconcileWorker::class.java)
 
     /**
-     * 단일 user 의 KIS 권위 보유 종목 전체에 대해 strategy_position drift 정합 1회 수행.
+     * 단일 user 의 보유 종목(position ∪ strategy_position) 전체에 대해 strategy_position drift 정합 1회 수행.
      *
      * [BalanceReconcileJob.runForAllActiveUsers] 가 user 별 [BalanceReconcileService.reconcileUser] 직후 호출한다
      * (position 테이블이 KIS 잔고로 최신화된 직후 — strategy_position 정합의 권위 기준이 신선).
      *
+     * 순회 범위는 **position(quantity>0) ∪ strategy_position(quantity>0)** code 합집합(distinct) — under-count(KIS만
+     * 보유)와 over-count(strategy_position 만 잔존하는 유령) 두 방향을 한 번에 커버한다(클래스 doc 참조).
+     *
      * @param userId 정합 대상 사용자.
-     * @param modeName position.source 분기 (REAL/MOCK) — KIS 권위 잔고 조회 키.
+     * @param modeName position.source 분기 (REAL/MOCK) — KIS 권위 잔고 조회 키. strategy_position 측은 mode 무관(user+code).
      * @return 정합 시도한 종목 수(에러 종목 포함). 로깅·테스트용.
      */
     fun reconcileForUser(
         userId: String,
         modeName: String,
     ): Int {
-        val holdings =
-            try {
-                positionJpaRepository.findByUserIdAndSourceAndQuantityGreaterThan(userId, modeName, 0)
-            } catch (e: Exception) {
-                log.warn(
-                    "StrategyPositionReconcileWorker — KIS 권위 보유 조회 실패, skip: userId={} mode={} err={}",
-                    maskUserId(userId),
-                    modeName,
-                    e.message,
-                )
-                return 0
-            }
-        if (holdings.isEmpty()) return 0
+        val codes = collectReconcileCodes(userId, modeName)
+        if (codes.isEmpty()) return 0
 
         var attempted = 0
-        for (holding in holdings) {
+        for (code in codes) {
             try {
-                strategyPositionAdapter.reconcileStrategyPositionDrift(userId, holding.code, modeName)
+                strategyPositionAdapter.reconcileStrategyPositionDrift(userId, code, modeName)
                 attempted++
             } catch (e: Exception) {
                 log.error(
                     "StrategyPositionReconcileWorker — 종목 정합 실패: userId={} code={} mode={} err={}",
                     maskUserId(userId),
-                    holding.code,
+                    code,
                     modeName,
                     e.message,
                 )
@@ -84,6 +90,44 @@ class StrategyPositionReconcileWorker(
             attempted,
         )
         return attempted
+    }
+
+    /**
+     * 정합 순회 대상 code 합집합 — KIS 권위 보유(position quantity>0) ∪ strategy_position 잔존(quantity>0).
+     *
+     * 두 조회는 각자 try-catch 로 격리 — 한쪽 실패(예: position 측 DB 일시 오류)가 나머지 한쪽 정합까지
+     * 막지 않는다(보수적: 부분 집합으로라도 진행). 둘 다 실패하면 빈 집합 → 무동작.
+     * `LinkedHashSet` 으로 삽입 순서 보존 + distinct(같은 code 가 양쪽에 있어도 1회만 정합).
+     */
+    private fun collectReconcileCodes(
+        userId: String,
+        modeName: String,
+    ): Set<String> {
+        val codes = LinkedHashSet<String>()
+        try {
+            positionJpaRepository
+                .findByUserIdAndSourceAndQuantityGreaterThan(userId, modeName, 0)
+                .forEach { codes.add(it.code) }
+        } catch (e: Exception) {
+            log.warn(
+                "StrategyPositionReconcileWorker — KIS 권위 보유 조회 실패, position 측 skip: userId={} mode={} err={}",
+                maskUserId(userId),
+                modeName,
+                e.message,
+            )
+        }
+        try {
+            strategyPositionJpaRepository
+                .findDistinctCodesByUserIdAndQuantityPositive(userId)
+                .forEach { codes.add(it) }
+        } catch (e: Exception) {
+            log.warn(
+                "StrategyPositionReconcileWorker — strategy_position 잔존 조회 실패, 유령 over-count 보강 skip: userId={} err={}",
+                maskUserId(userId),
+                e.message,
+            )
+        }
+        return codes
     }
 
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"
