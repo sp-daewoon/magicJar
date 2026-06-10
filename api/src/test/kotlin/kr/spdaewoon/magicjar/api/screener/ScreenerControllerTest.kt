@@ -52,6 +52,9 @@ class ScreenerControllerTest {
     @MockBean
     lateinit var daytradeDiscoverService: kr.spdaewoon.magicjar.api.service.screener.DaytradeDiscoverService
 
+    @MockBean
+    lateinit var discoveryScorecardQueryService: kr.spdaewoon.magicjar.api.service.screener.DiscoveryScorecardQueryService
+
     // OnboardingGuardFilter 의존성 Mock (StrategyControllerTest 패턴 정합)
     @MockBean
     lateinit var userAccountJpaRepository: kr.spdaewoon.magicjar.api.persistence.UserAccountJpaRepository

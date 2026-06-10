@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
 import jakarta.validation.Valid
 import kr.spdaewoon.magicjar.api.service.screener.DaytradeDiscoverService
+import kr.spdaewoon.magicjar.api.service.screener.DiscoveryScorecardQueryService
 import kr.spdaewoon.magicjar.api.service.screener.ScreenerService
 import org.springframework.data.domain.Page
 import org.springframework.http.HttpStatus
@@ -44,6 +45,7 @@ import org.springframework.web.server.ResponseStatusException
 class ScreenerController(
     private val screenerService: ScreenerService,
     private val daytradeDiscoverService: DaytradeDiscoverService,
+    private val discoveryScorecardQueryService: DiscoveryScorecardQueryService,
 ) {
     /**
      * 전략으로 종목 찾기 (inline 동기 평가).
@@ -178,4 +180,49 @@ class ScreenerController(
     ): ScreeningRunDetailDto =
         screenerService.findDetail(id, userId)
             ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "screening run 미존재 또는 접근 불가 (id=$id, userId=$userId)")
+
+    /**
+     * 발굴 스코어카드 조회 (forward-test hit-rate).
+     *
+     * 매일 장전 발굴 TOP N을 기록하고 다음 거래일 실제 일봉으로 자동 채점한 살아있는 증거를 반환합니다.
+     * 기간(from~to)·프리셋(presetKey)별 요약(평균 다음날 수익률·hit rate=양수 비율·표본 수) + 상세 rows.
+     * 미채점 row(일봉 미수집 등)는 채점 필드 null로 정직하게 노출(mock 0). 관찰·기록 전용 — 매매 결정권 0.
+     */
+    @Operation(
+        summary = "발굴 스코어카드 조회 (forward-test 요약 + 상세)",
+        description = """
+            매일 장전 발굴 TOP N 기록 + 다음 거래일 실제 일봉 자동 채점 결과.
+            from~to(기본 최근 30일)·presetKey(null이면 전체)별 요약 — 평균 다음날 종가/시초가 수익률, hit rate(양수 비율), 표본 수.
+            상세 rows는 snapshot_date DESC·rank ASC. 미채점 row는 채점 필드 null(mock 0).
+            read-only — 자동매매 결정권 0, watchlist write 0, KIS 호출 0.
+        """,
+    )
+    @ApiResponses(
+        value = [
+            ApiResponse(responseCode = "200", description = "발굴 스코어카드 요약 + 상세"),
+            ApiResponse(responseCode = "400", description = "from > to 등 기간 파라미터 오류"),
+        ],
+    )
+    @GetMapping("/scorecard")
+    fun scorecard(
+        @Parameter(description = "조회 시작일 (포함, ISO yyyy-MM-dd). 미지정 시 to-30일", example = "2026-05-10")
+        @RequestParam(required = false)
+        from: java.time.LocalDate?,
+        @Parameter(description = "조회 종료일 (포함, ISO yyyy-MM-dd). 미지정 시 오늘(KST)", example = "2026-06-10")
+        @RequestParam(required = false)
+        to: java.time.LocalDate?,
+        @Parameter(description = "프리셋 key 필터 (null이면 전체 DAYTRADE_* 프리셋)", example = "DAYTRADE_GAP_RVOL_TURNOVER")
+        @RequestParam(required = false)
+        presetKey: String?,
+        @Parameter(description = "상세 rows 최대 개수 (1~2000, default 500)", example = "500")
+        @RequestParam(defaultValue = "500")
+        maxRows: Int,
+    ): DiscoveryScorecardResponseDto {
+        val end = to ?: java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul"))
+        val start = from ?: end.minusDays(30)
+        if (start.isAfter(end)) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "from($start)이 to($end)보다 이후입니다")
+        }
+        return discoveryScorecardQueryService.query(start, end, presetKey, maxRows)
+    }
 }
