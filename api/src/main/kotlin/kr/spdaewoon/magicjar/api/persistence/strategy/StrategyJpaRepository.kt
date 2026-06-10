@@ -27,6 +27,16 @@ interface StrategyJpaRepository : JpaRepository<StrategyJpaEntity, Long> {
         status: String,
     ): StrategyJpaEntity?
 
+    /**
+     * 활성 페이퍼 전략 카운트 (ADR 0122 §5 — _MAX_INSTANCES 상한 가드).
+     * origin(V81) + status 조합 — DELETED 제외 페이퍼 인스턴스 수. 헌법 §6: query inference abstract fun(body 0).
+     */
+    fun countByUserIdAndOriginAndStatusNot(
+        userId: Long,
+        origin: String,
+        status: String,
+    ): Long
+
     @Modifying
     @Query(
         "UPDATE StrategyJpaEntity s " +

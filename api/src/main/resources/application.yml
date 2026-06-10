@@ -84,6 +84,12 @@ management:
 magicjar:
   mode: ${MAGICJAR_MODE:MOCK}
   allow-real: ${MAGICJAR_ALLOW_REAL:false}
+  # 발굴 → MOCK 페이퍼 트레이딩 (ADR 0122) — 가상 자본 격리 + opt-in 승격. 실거래 결정권 0.
+  daytrade:
+    paper:
+      enabled: ${MAGICJAR_DAYTRADE_PAPER_ENABLED:true}
+      default-capital-krw: ${MAGICJAR_DAYTRADE_PAPER_DEFAULT_CAPITAL_KRW:10000000}
+      max-instances: ${MAGICJAR_DAYTRADE_PAPER_MAX_INSTANCES:10}
   ai:
     enabled: ${MAGICJAR_AI_ENABLED:false}
     mock-mode: ${MAGICJAR_AI_MOCK_MODE:auto}

@@ -26,6 +26,9 @@ import kr.spdaewoon.magicjar.domain.risk.RiskEvent
 import kr.spdaewoon.magicjar.domain.risk.RiskGatewayResult
 import kr.spdaewoon.magicjar.domain.risk.RiskRule
 import kr.spdaewoon.magicjar.domain.risk.RiskVerdict
+import kr.spdaewoon.magicjar.domain.risk.port.CapitalSnapshotProvider
+import kr.spdaewoon.magicjar.domain.risk.port.CapitalSnapshotSelector
+import kr.spdaewoon.magicjar.domain.risk.port.PaperCapitalSnapshotProvider
 import kr.spdaewoon.magicjar.domain.risk.port.RiskConfigRepository
 import kr.spdaewoon.magicjar.domain.risk.port.RiskEventRepository
 import kr.spdaewoon.magicjar.domain.risk.port.RiskNotifier
@@ -82,7 +85,9 @@ class SignalGeneratedKafkaListener(
     private val riskGatewayEvaluator: RiskGatewayEvaluator,
     private val tradeFrequencyGuard: TradeFrequencyRedisGuard,
     private val dailyPnlCalculator: DailyPnlCalculator,
-    private val capitalSnapshotProvider: kr.spdaewoon.magicjar.domain.risk.port.CapitalSnapshotProvider,
+    private val capitalSnapshotProvider: CapitalSnapshotProvider,
+    // ADR 0122 §2-C — 페이퍼 가상 자본 provider (페이퍼 비활성 시 부재 가능 → ObjectProvider graceful).
+    private val paperCapitalSnapshotProviderProvider: ObjectProvider<PaperCapitalSnapshotProvider>,
     private val orderIntentKafkaProducer: OrderIntentKafkaProducer,
     private val riskViolationKafkaProducer: RiskViolationKafkaProducer,
     private val autoPauseGuard: AutoPauseGuard,
@@ -762,6 +767,13 @@ class SignalGeneratedKafkaListener(
     private fun buildContext(signal: Signal): RiskContext {
         val nowKst = clock.now()
         val realMode = RuntimeModeParser.isRealMode(magicjarMode)
+
+        // ADR 0122 §2-C — 페이퍼(가상 자본·MOCK) 전략 식별. origin=PAPER_DISCOVERY 면 RiskConfig 키 파생(`<userId>:paper`)
+        // + 가상 자본 provider 선택. 비페이퍼(USER_DSL·legacy null)는 기존 경로와 byte 동일(zero-regression).
+        // 조회 실패·미발견 시 isPaper=false fallback(실 경로 — 보수적 default, 실 잔고 오염 방향 아님).
+        val isPaper = lookupStrategyOrNull(signal)?.isPaperDiscovery() == true
+        val riskConfigKey = if (isPaper) "${signal.userId}:paper" else signal.userId
+
         val configRepo = riskConfigRepositoryProvider.getIfAvailable()
         val config =
             if (configRepo == null) {
@@ -770,40 +782,54 @@ class SignalGeneratedKafkaListener(
                 // 실제로는 더 느슨하게 거래되는 역방향 자본 위험. 이전엔 silent 진행이었으므로 가시화.
                 if (realMode) {
                     log.error(
-                        "RiskConfigRepository 빈 부재 — REAL 모드 fail-fast (userId={}). " +
+                        "RiskConfigRepository 빈 부재 — REAL 모드 fail-fast (riskConfigKey={}). " +
                             "persistence-shared scan 경로/빈 배선 확인 필요.",
-                        signal.userId,
+                        riskConfigKey,
                     )
                     throw RealRiskContextUnavailableException("RISK_CONFIG_REPO_UNAVAILABLE")
                 }
                 log.error(
-                    "RiskConfigRepository 빈 부재 — defaultFor(1M/10%) fallback (userId={}, MOCK). " +
+                    "RiskConfigRepository 빈 부재 — defaultFor(1M/10%) fallback (riskConfigKey={}, MOCK). " +
                         "사용자 DB risk_config 미반영 — 배선 결함. persistence-shared 빈 합류 확인 필요.",
-                    signal.userId,
+                    riskConfigKey,
                 )
                 kr.spdaewoon.magicjar.domain.risk.RiskConfig
-                    .defaultFor(signal.userId, nowKst)
+                    .defaultFor(riskConfigKey, nowKst)
             } else {
                 try {
-                    configRepo.getOrDefault(signal.userId, nowKst)
+                    configRepo.getOrDefault(riskConfigKey, nowKst)
                 } catch (e: Exception) {
                     if (realMode) {
                         throw RealRiskContextUnavailableException("RISK_CONFIG_UNAVAILABLE:${e.message ?: "UNKNOWN"}")
                     }
-                    log.warn("RiskConfig getOrDefault 실패 — defaultFor seed (userId={} err={})", signal.userId, e.message)
+                    log.warn("RiskConfig getOrDefault 실패 — defaultFor seed (riskConfigKey={} err={})", riskConfigKey, e.message)
                     kr.spdaewoon.magicjar.domain.risk.RiskConfig
-                        .defaultFor(signal.userId, nowKst)
+                        .defaultFor(riskConfigKey, nowKst)
                 }
             }
 
+        // ADR 0122 §2-C — capital 분기: 페이퍼면 가상 자본(PaperCapitalSnapshotProvider), 아니면 실 KIS 잔고.
+        // CapitalSnapshotSelector.forStrategy 가 fail-fast(페이퍼인데 provider 미배선 → PaperCapitalProviderUnavailableException)를
+        // 캡슐화 — 실 잔고 silent fallback 금지(헌법 §11 · spec §1-3 격리). 비페이퍼는 realProvider byte 동일.
+        val capitalSelector =
+            CapitalSnapshotSelector.forStrategy(
+                realProvider = capitalSnapshotProvider,
+                paperProvider = paperCapitalSnapshotProviderProvider.getIfAvailable(),
+            )
         val capital =
             try {
-                capitalSnapshotProvider.getCapital(signal.userId)
+                capitalSelector.capitalFor(signal.userId, isPaper)
             } catch (e: Exception) {
-                if (realMode) {
+                if (realMode && !isPaper) {
                     throw RealRiskContextUnavailableException("CAPITAL_UNAVAILABLE:${e.message ?: "UNKNOWN"}")
                 }
-                log.warn("CapitalSnapshotProvider 실패 (fallback 0): userId={} err={}", signal.userId, e.message)
+                // 페이퍼 provider 미배선(fail-fast) 또는 MOCK 실패 → capital 0 (POSITION_LIMIT 으로 BUY 차단 fail-safe).
+                log.warn(
+                    "Capital 산출 실패 (fallback 0): userId={} isPaper={} err={}",
+                    signal.userId,
+                    isPaper,
+                    e.message,
+                )
                 BigDecimal.ZERO
             }
 

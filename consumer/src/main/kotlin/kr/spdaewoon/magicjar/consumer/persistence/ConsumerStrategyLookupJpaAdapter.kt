@@ -7,6 +7,7 @@ import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
+import kr.spdaewoon.magicjar.domain.strategy.StrategyOrigin
 import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.Universe
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
@@ -112,6 +113,7 @@ class ConsumerStrategyLookupJpaAdapter(
             definition = definition,
             complexity = complexity,
             disabledReason = safeDisabledReason(entity.disabledReason),
+            origin = safeOrigin(entity.origin),
             status = safeStatus(entity.status),
             codes = safeStringList(entity.codes),
             intervals = safeStringList(entity.intervals),
@@ -146,6 +148,17 @@ class ConsumerStrategyLookupJpaAdapter(
 
     private fun safeStatus(value: String): StrategyStatus =
         runCatching { StrategyStatus.valueOf(value) }.getOrDefault(StrategyStatus.ACTIVE)
+
+    /**
+     * `origin` JSONB 없는 VARCHAR(V81) → enum (ADR 0122 §2-A · consumer capital 분기 판정 키).
+     * null(legacy)·invalid → [StrategyOrigin.USER_DSL] default(실 KIS 잔고 경로 — zero-regression).
+     */
+    private fun safeOrigin(value: String?): StrategyOrigin =
+        if (value == null) {
+            StrategyOrigin.USER_DSL
+        } else {
+            runCatching { StrategyOrigin.valueOf(value) }.getOrDefault(StrategyOrigin.USER_DSL)
+        }
 
     /**
      * `entry_policy` JSONB(V72) → [kr.spdaewoon.magicjar.domain.strategy.EntryPolicy] (ADR 0114).
