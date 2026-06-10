@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2026-06-10 차기 작업 결정 브리프 — 4개 의제 우선순위·위험도·중복 분석</title>
+<style>
+  :root {
+    --bg: #0f1419; --card: #1a2129; --card2: #212a35; --line: #2e3a47;
+    --text: #d8e1ea; --dim: #8b9aab; --accent: #4fc3f7;
+    --green: #66bb6a; --yellow: #ffca28; --red: #ef5350; --purple: #ab87f5;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Apple SD Gothic Neo','Noto Sans KR',sans-serif; line-height: 1.65; padding: 32px 20px 80px; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; color: #fff; margin-bottom: 6px; }
+  h2 { font-size: 1.15rem; color: var(--accent); margin: 36px 0 14px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  h3 { font-size: 1.0rem; color: #fff; margin: 18px 0 8px; }
+  p.sub { color: var(--dim); font-size: .9rem; margin-bottom: 24px; }
+  .banner { background: linear-gradient(135deg,#1a2c3d,#15222e); border: 1px solid #2a4a66; border-radius: 10px; padding: 18px 22px; margin: 20px 0; }
+  .banner strong { color: var(--yellow); }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: .88rem; }
+  th { background: var(--card2); color: var(--accent); text-align: left; padding: 9px 12px; border: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 9px 12px; border: 1px solid var(--line); vertical-align: top; }
+  tr:nth-child(even) td { background: rgba(255,255,255,.018); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 20px 24px; margin: 16px 0; }
+  .card.rec { border-left: 4px solid var(--green); }
+  .card.warn { border-left: 4px solid var(--yellow); }
+  .card.block { border-left: 4px solid var(--red); }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: .75rem; font-weight: 700; margin-right: 6px; white-space: nowrap; }
+  .b-green { background: rgba(102,187,106,.15); color: var(--green); border: 1px solid var(--green); }
+  .b-yellow { background: rgba(255,202,40,.12); color: var(--yellow); border: 1px solid var(--yellow); }
+  .b-red { background: rgba(239,83,80,.12); color: var(--red); border: 1px solid var(--red); }
+  .b-blue { background: rgba(79,195,247,.12); color: var(--accent); border: 1px solid var(--accent); }
+  .b-purple { background: rgba(171,135,245,.12); color: var(--purple); border: 1px solid var(--purple); }
+  code { background: #11181f; border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; font-size: .82em; color: #9ecbff; font-family: 'SF Mono',Menlo,monospace; }
+  ul, ol { margin: 8px 0 8px 22px; }
+  li { margin: 4px 0; }
+  .muted { color: var(--dim); font-size: .85rem; }
+  .kicker { font-size: .78rem; letter-spacing: .12em; color: var(--purple); font-weight: 700; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+  .flow { background: #11181f; border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px; font-family: 'SF Mono',Menlo,monospace; font-size: .82rem; white-space: pre; overflow-x: auto; color: #a8c7e8; margin: 10px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="kicker">DECISION BRIEF · ORCHESTRATOR → 최고 관리자</p>
+<h1>차기 작업 결정 브리프 — 4개 의제 정밀 분석</h1>
+<p class="sub">2026-06-10 15:10 KST · main = <code>60eedcac</code> (v3.12.5 이후) · 작성: 오케스트라 (3 병렬 조사 + git 실측 evidence 기반)</p>
+
+<div class="banner">
+  ⚡ <strong>가장 중요한 발견 — 다른 세션이 지금 실시간 가동 중입니다.</strong><br>
+  본 브리프 작성 중 7분 전 architect 브랜치 push, 11분 전 strategy 원장 rebuild 머지(PR #892, <code>79f02db3</code>·<code>90062762</code>)가 관측되었습니다.
+  타 세션은 <b>의제 2 (체결-원장-리스크 체인)</b>의 R2 라운드를 진행 중입니다. 따라서 <b>이 세션에서 의제 2를 중복 dispatch하면 충돌</b>합니다.
+  4개 의제 자체는 서로 중복이 아니며(각각 독립 트랙), 다만 <b>의제 1이 의제 2의 일부(P2-⑥ 키 사슬)에 약한 의존</b>이 있습니다.
+</div>
+
+<h2>0. 한눈에 보기 — 의제 비교 매트릭스</h2>
+<table>
+  <tr><th>의제</th><th>한 줄 정의</th><th>준비도</th><th>위험도</th><th>예상 규모</th><th>타 세션 충돌</th><th>권고</th></tr>
+  <tr>
+    <td><b>① H1/H2/H6 MOCK 페이퍼</b></td>
+    <td>검증 통과 단타 프리셋 3종을 MOCK 모드에서 실제 장중 가동</td>
+    <td><span class="badge b-yellow">80%</span></td>
+    <td><span class="badge b-yellow">중</span> 자본 0이나 경로 미완</td>
+    <td>경로 설계 spec 1일 + 구현 3~5일</td>
+    <td><span class="badge b-yellow">간접</span> P2-⑥ 의존</td>
+    <td><b>이번 세션: 경로 spec만</b> (문서, 충돌 0)</td>
+  </tr>
+  <tr>
+    <td><b>② 체결-원장-리스크 체인</b></td>
+    <td>incident 5연쇄 근본 fix — 원장 파생 뷰 전환 + 키 사슬 정비</td>
+    <td><span class="badge b-yellow">40%</span> (진단·설계 100%)</td>
+    <td><span class="badge b-red">높</span> 자본 귀속 직결</td>
+    <td>R2+R3 잔여 약 2주</td>
+    <td><span class="badge b-red">직접</span> 타 세션 진행 중</td>
+    <td><b>이 세션 dispatch 금지</b> — 타 세션에 위임</td>
+  </tr>
+  <tr>
+    <td><b>③ 큐 재설계 spec 결재</b></td>
+    <td>KIS rate limit EGW00201 근본 해소 4의제 — 사용자 승인 대기</td>
+    <td><span class="badge b-green">결재만 남음</span></td>
+    <td><span class="badge b-red">높</span> 미루면 앱키 차단 위험</td>
+    <td>결재 10분 + 구현 R0~R3 약 4주</td>
+    <td><span class="badge b-yellow">부분</span> 구현 시 consumer 겹침</td>
+    <td><b>결재 즉시, 구현은 R0(audit)만 선행</b></td>
+  </tr>
+  <tr>
+    <td><b>④ stash 11건 정리</b></td>
+    <td>살아있는 작업 1건 회생 + 죽은 잔재 9건 폐기</td>
+    <td><span class="badge b-green">즉시 가능</span></td>
+    <td><span class="badge b-green">낮</span></td>
+    <td>반나절</td>
+    <td><span class="badge b-green">없음</span></td>
+    <td><b>이번 세션 처리 적합</b> (특히 stash@{0})</td>
+  </tr>
+</table>
+
+<h2>1. 의제 ① — H1/H2/H6 단타 프리셋 MOCK 페이퍼 가동</h2>
+<div class="card warn">
+  <h3>무엇인가</h3>
+  <p>v3.12.4에서 백테스트 최종판정을 통과한 단타 프리셋 3종을 MOCK 모드에서 실제 장중 데이터로 가동해 forward 검증하는 작업입니다.</p>
+  <table>
+    <tr><th>프리셋</th><th>전략</th><th>OOS 성과</th></tr>
+    <tr><td><b>H1</b> 갭앤고</td><td>전일比 2.5% 갭상승 + RVOL 2.5배 + 거래대금 160억</td><td>+32.0% / PF 1.37 / MDD 7.9%</td></tr>
+    <tr><td><b>H2</b> 거래량 돌파</td><td>20봉 신고가 돌파 + RVOL 2배 + 거래대금 100억</td><td>+70.1% / PF 1.43 / MDD 7.7%</td></tr>
+    <tr><td><b>H6</b> 레인지 돌파</td><td>20봉 신고가 돌파 + ADX>20 추세 게이트 + RVOL 2배</td><td>+66.6% / PF 1.41 / MDD 8.6%</td></tr>
+  </table>
+  <h3>이미 되어 있는 것 (80%)</h3>
+  <ul>
+    <li>프리셋 3종 라이브 DB 적용 완료 (V75~V78 Flyway, <code>is_active=TRUE</code>)</li>
+    <li>발굴 엔진 + REST endpoint (<code>POST /api/screener/daytrade-discover</code>) + 발굴 화면 (PR #836)</li>
+    <li><b>스코어카드 forward-test 이미 자동 가동 중</b> — 매일 장전 TOP N 기록 + 다음 거래일 자동 채점 (V77)</li>
+  </ul>
+  <h3>남은 것 (핵심 갭)</h3>
+  <ul>
+    <li><b>발굴 → MOCK 주문 dispatch 경로가 spec에 없음</b> — 발굴은 "후보 출발점"으로 LOCK되어 있어(자동매매 결정권 0 정책), 페이퍼 트레이딩용 자동 진입 경로는 별도 설계가 필요합니다. 이것이 가장 큰 잔여 작업입니다.</li>
+    <li>RiskConfig MOCK 프로필 (자본·포지션 크기·MDD 임계) 설정 — 1~2일</li>
+    <li>체결강도(B층) tick 게이트 적용은 선택 사항 — 5~7일</li>
+  </ul>
+  <h3>의존·중복 관계</h3>
+  <p>의제 ②의 <b>P2-⑥(키 사슬 정비)</b>가 완료되어야 페이퍼 주문의 시그널→주문 추적이 가능합니다(현재 <code>signal_id=0</code> sentinel). 타 세션이 P2-⑥을 곧 처리할 예정이므로, <b>이번 세션에서는 충돌 없는 "발굴→MOCK 주문 경로 spec 발행"(architect 문서 작업)까지만 하고, 구현은 P2-⑥ 합류 후가 안전</b>합니다. 참고로 forward 검증 자체는 스코어카드가 이미 수행 중이라 페이퍼 가동이 늦어져도 검증 공백은 없습니다.</p>
+</div>
+
+<h2>2. 의제 ② — 체결-원장-리스크 체인 통합 (타 세션 진행 중)</h2>
+<div class="card block">
+  <h3>무엇인가</h3>
+  <p>오늘(06-10) 005930 MOCK 장중 incident 5연쇄의 근본 진단 결과 — <code>strategy_position</code>을 독립 mutable 원장으로 운용하는 구조(C2)가 뿌리이며, 파생 재계산 뷰(B-on-A 대안)로 점진 전환하기로 최고 관리자가 이미 승인한 spec입니다.</p>
+  <h3>진행 매트릭스 (실측)</h3>
+  <table>
+    <tr><th>항목</th><th>상태</th><th>evidence</th></tr>
+    <tr><td>spec 진단 + ADR 0115 P2 정식화 + 헌법 §11</td><td><span class="badge b-green">완료</span></td><td><code>097e488c</code>·<code>15878530</code>·<code>79f02db3</code> (PR #892, 15:06 머지)</td></tr>
+    <tr><td>P2-①③ 원장 rebuild 순수 함수 + 테스트 44건</td><td><span class="badge b-green">완료</span></td><td><code>90062762</code> (strategy-engine R1)</td></tr>
+    <tr><td>P2-⑥ 키 사슬 정비 (0-sentinel 폐지, 1순위)</td><td><span class="badge b-yellow">대기</span></td><td>R2 — Flyway V80+ 예정</td></tr>
+    <tr><td>P2-②④⑤ (CANCELLED 대조·drain 가드·index refresh)</td><td><span class="badge b-yellow">대기</span></td><td>R2</td></tr>
+    <tr><td>P2-R3 회귀 E2E 6시나리오</td><td><span class="badge b-yellow">대기</span></td><td>R3 (전 항목 후 일괄)</td></tr>
+  </table>
+  <h3>왜 이 세션에서 건드리면 안 되는가</h3>
+  <p>타 세션 task 파일 2건이 방금(14:59·15:06) 갱신되었고 브랜치 push가 7분 전입니다. R2 라운드가 그 세션의 자연스러운 다음 스텝이므로, 이 세션에서 같은 항목을 dispatch하면 <b>같은 파일(consumer·persistence) 동시 수정 충돌</b>이 거의 확실합니다. <b>이 의제는 "타 세션 몫"으로 두고 여기서는 제외하는 것이 정답입니다.</b></p>
+</div>
+
+<h2>3. 의제 ③ — KIS 큐 재설계 spec 결재 (4개 소의제)</h2>
+<div class="card rec">
+  <h3>무엇인가</h3>
+  <p><code>_workspace/specs/2026-06-10-kis-ratelimit-queue-redesign-spec.md</code> (Proposed) — EGW00201(rate limit 초과) 근본 해소 설계입니다. <b>코드는 0 touch, 사용자 결재만 대기 중</b>입니다. 결재 대상 4개 소의제:</p>
+  <table>
+    <tr><th>#</th><th>소의제</th><th>내용 요약</th><th>위험도</th><th>규모</th></tr>
+    <tr><td>3-1</td><td><b>버킷 straddle 해소</b></td><td>1초 경계에 2N건 몰림 → 로컬 우선순위 큐 + 100~120ms pacing 스케줄러</td><td><span class="badge b-red">높</span> 실측 06-10 count 7→11 증가</td><td>~350 LOC</td></tr>
+    <tr><td>3-2</td><td><b>원장 API per-TR 게이트</b></td><td>계좌 조회 계열 TR은 글로벌 10TPS와 별개 한도 → Redis TR별 1/s 게이트</td><td><span class="badge b-red">높</span> 잔고조회 job 직격</td><td>~110 LOC</td></tr>
+    <tr><td>3-3</td><td><b>백필 장중 가드</b></td><td>장중 campaign 실행 금지 ENV 가드 + MarketIndex jitter</td><td><span class="badge b-yellow">중</span> 적용 시 빈도 ~50% 완화</td><td>~20 LOC + audit 2h</td></tr>
+    <tr><td>3-4</td><td><b>회복/실패 2-시그널</b></td><td>backoff 자동 회복(INFO) vs 최종 실패(WARN) 분리 — 알람 신뢰도</td><td><span class="badge b-green">낮</span></td><td>catch ~30곳 1~2줄</td></tr>
+  </table>
+  <h3>미루면</h3>
+  <p>EGW00201 반복은 최악의 경우 <b>KIS 앱키 차단(자동매매 전면 중단)</b>까지 갈 수 있는 리스크입니다. 거래량이 늘어나는 MOCK 페이퍼 가동(의제 ①)과 정면으로 맞물리므로, <b>페이퍼 가동 전에 최소 3-3(장중 가드)·3-1은 들어가는 것이 순서상 안전</b>합니다.</p>
+  <h3>중복 확인</h3>
+  <p>직전 사이클의 "알람 차등화(PR #881)"·"주문 Slack 이중 송출"과는 <b>별개</b>입니다(그쪽은 알림 경로, 이쪽은 KIS 호출 스케줄링). 의제 ②와도 직교(ADR 0115 vs 0116)지만, <b>구현 R1~R2는 consumer 모듈을 건드려 타 세션과 겹칠 수 있으니</b> 이번 세션은 결재 + R0 audit(market-data, 충돌 없음)까지가 적정선입니다.</p>
+</div>
+
+<h2>4. 의제 ④ — stash 11건 정리 (살릴 것 1건 확정)</h2>
+<div class="card rec">
+  <h3>실측 판정</h3>
+  <table>
+    <tr><th>stash</th><th>내용</th><th>판정</th><th>근거</th></tr>
+    <tr><td><b>@{0}</b> wip-kis-asking (재보존)</td><td>호가 REST fallback의 credential resolve + 테스트 (91줄)</td><td><span class="badge b-blue">회생 — 유일한 생존 작업</span></td><td><b>main에 미반영 실측 확인</b> (<code>resolveCredentialUserId</code> grep 0건). 오늘 머지된 hotfix(<code>c95b5391</code> 당일 seed userId resolve)와 같은 패턴의 형제 결함 fix — 호가 fallback이 REAL credential 없이 호출되는 구멍</td></tr>
+    <tr><td>@{2}·@{3}</td><td>같은 작업의 이전 부분본</td><td><span class="badge b-red">폐기</span></td><td>@{0}이 최신 통합본</td></tr>
+    <tr><td>@{1} candle-bootstrap</td><td>CandleBootstrapRunner 8줄</td><td><span class="badge b-yellow">내용 확인 후 판정</span></td><td>소형 — ADR 0119(1m 백필 폐지)로 무효화됐을 가능성</td></tr>
+    <tr><td>@{4} codex backfill/ratelimit</td><td>15 파일 리뷰 보존</td><td><span class="badge b-red">폐기 추정</span></td><td>ADR 0119로 1m proactive 백필 자체가 폐지됨 + Codex 외부 처리 가정 정책</td></tr>
+    <tr><td>@{5}~@{10}</td><td>5월 W4 잔재·옛 task·frontend 옛 작업</td><td><span class="badge b-red">폐기</span></td><td>master.html 이후 수회 재생성, frontend는 차트 재설계로 base 소멸</td></tr>
+  </table>
+  <p class="muted">폐기는 되돌릴 수 없으므로 실제 drop 전 각 stash patch를 <code>_workspace/backups/</code>에 export 후 진행하는 것을 전제로 합니다.</p>
+</div>
+
+<h2>5. 권고 — 이번 세션 실행 시나리오</h2>
+<div class="card rec">
+  <div class="flow">우선순위 (위험도 × 충돌 회피 × 의존 순서 종합)
+
+  1순위  의제 ③ 결재         — 10분. 페이퍼 가동의 전제 안전망. 코드 충돌 0
+  2순위  의제 ④ stash@{0} 회생 — 반나절. 호가 credential 구멍 fix + 잔재 폐기. 충돌 0
+  3순위  의제 ① 경로 spec     — 발굴→MOCK 주문 dispatch 경로 architect spec 발행 (문서만)
+  보류    의제 ② 전체          — 타 세션 진행 중. 이 세션 dispatch 금지
+  후속    의제 ① 구현 + ③ 구현 — 타 세션 R2(P2-⑥) 합류 후 다음 사이클에서</div>
+  <p><b>요지:</b> 이번 세션은 "충돌 0 작업(결재·stash·spec)"으로 채우고, 코드 구현 대량 투입은 타 세션의 체인 R2가 끝나는 시점에 합류해서 진행하는 것이 가장 안전하고 빠릅니다. MOCK 페이퍼 검증 공백은 이미 가동 중인 스코어카드 forward-test가 메우고 있습니다.</p>
+</div>
+
+<h2>6. 근거 문서</h2>
+<ul class="muted">
+  <li>의제 ①: <code>_workspace/specs/daytrade-discovery-spec.md</code> · ADR 0117·0121 · V75~V78 마이그레이션</li>
+  <li>의제 ②: <code>_workspace/specs/2026-06-10-execution-ledger-integrity-architecture.md</code> · ADR 0115 (P2 amend) · PR #892</li>
+  <li>의제 ③: <code>_workspace/specs/2026-06-10-kis-ratelimit-queue-redesign-spec.md</code> · ADR 0116·0095</li>
+  <li>의제 ④: <code>git stash list</code> 실측 + main grep 대조 (2026-06-10 15:05)</li>
+</ul>
+
+</div>
+</body>
+</html>
