@@ -30,7 +30,6 @@ import {
 } from '../../features/daytradePaper/hooks/useDaytradePaper'
 import {
   PaperBadge,
-  PaperIsolationBanner,
 } from '../../features/daytradePaper/components/PaperBadge'
 import type {
   PaperPositionDto,
@@ -224,10 +223,6 @@ export function PaperDashboardPage() {
           에서 확인합니다.
         </p>
       </header>
-
-      <div className="mb-5">
-        <PaperIsolationBanner />
-      </div>
 
       {/* userId 미등록 */}
       {userId === null && (

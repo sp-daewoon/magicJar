@@ -118,7 +118,7 @@ describe('StrategyCard 백테스트 핸드오프', () => {
     expect(navigateMock).not.toHaveBeenCalled()
   })
 
-  it('페이퍼 전략은 모의 배지를 표시하고 백테스트 점검 박스를 숨긴다', () => {
+  it('페이퍼 전략은 모의 배지만 표시하고 안내 박스와 백테스트 점검 박스를 숨긴다', () => {
     renderCard({
       ...baseStrategy,
       origin: 'PAPER_DISCOVERY',
@@ -128,7 +128,9 @@ describe('StrategyCard 백테스트 핸드오프', () => {
     })
 
     expect(screen.getByLabelText('모의 페이퍼, 실거래 아님')).toBeInTheDocument()
-    expect(screen.getByText('모의 페이퍼 전략')).toBeInTheDocument()
+    expect(screen.queryByText('모의 페이퍼 전략')).not.toBeInTheDocument()
+    expect(screen.queryByText(/단타 발굴 setup 을 가상 자본으로 검증/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '페이퍼 대시보드에서 보기' })).not.toBeInTheDocument()
     expect(screen.getByText('모의 감시 중')).toBeInTheDocument()
     expect(screen.queryByText('자동매매 점검 필요')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '백테스트 필요' })).not.toBeInTheDocument()

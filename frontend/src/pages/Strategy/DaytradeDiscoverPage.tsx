@@ -4,7 +4,7 @@
  * "전략을 미리 작성하지 않아도 시스템이 오늘의 단타 후보 TOP N을 수치로 제시" 진입점.
  *
  * 흐름:
- *   빌트인 프리셋 선택(3종 + 전체) → 발굴 실행 → 후보 TOP N 랭킹 리스트(점수·breakdown).
+ *   활성 빌트인 프리셋 선택(+ 전체) → 발굴 실행 → 후보 TOP N 랭킹 리스트(점수·breakdown).
  *   startRealtimeWatch 토글 → STRATEGY owner WS 수요 등록(실시간 관찰 30분, watchlist write 0).
  *
  * ### 가드 (방향성 보존)
@@ -17,11 +17,14 @@
  *   skippedReasons["캔들 미수집"]은 비-보통주(ETF·우선주·리츠·SPAC) 설계상 범위 외이며
  *   "수집 진행 중"이 아니다 (ADR 0118 §2-A-1 — 보통주 일봉 누락 사실상 0).
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useDaytradeDiscover } from '../../features/screener/hooks/useDaytradeDiscover'
-import { strategyResearchApi } from '../../api/strategyResearch'
+import {
+  strategyResearchApi,
+  type StrategyResearchCandidateDefinitionDto,
+} from '../../api/strategyResearch'
 import {
   buildDaytradePresetDraft,
   storeStrategyResearchDraft,
@@ -31,6 +34,7 @@ import { DaytradeMatchTable } from '../../features/screener/components/DaytradeM
 import { ScreenerSkipReasonsBadge } from '../../features/screener/components/ScreenerSkipReasonsBadge'
 import {
   DAYTRADE_PRESET_OPTIONS,
+  type DaytradeDiscoverPresetOption,
   type DaytradeDiscoverResultDto,
 } from '../../features/screener/api/daytradeDiscoverApi'
 import { useWatchlist, useAddWatchlist } from '../../api/hooks/useWatchlist'
@@ -39,6 +43,7 @@ import { PaperPromoteModal } from '../../features/daytradePaper/components/Paper
 import { PaperBadge } from '../../features/daytradePaper/components/PaperBadge'
 
 const DEFAULT_LIMIT = 30
+const DAYTRADE_PREFIX = 'DAYTRADE_'
 
 function Spinner() {
   return (
@@ -75,6 +80,41 @@ function candleMissingCount(skippedReasons: Record<string, number>): number {
         key === 'CandleMissing' || key.includes('캔들 미수집'),
     )
     .reduce((sum, [, count]) => sum + count, 0)
+}
+
+function daytradeOptionLabel(candidate: StrategyResearchCandidateDefinitionDto): string {
+  return candidate.title
+    .replace(/^장전\s+/, '')
+    .replace(/\s+setup$/i, '')
+    .trim()
+}
+
+function daytradeOptionDescription(candidate: StrategyResearchCandidateDefinitionDto): string {
+  if (candidate.marketFit.trim().length > 0) return candidate.marketFit
+  return candidate.entryRules.join(' · ')
+}
+
+function buildPresetOptions(
+  candidates: StrategyResearchCandidateDefinitionDto[] | undefined,
+  useServerCandidates: boolean,
+): DaytradeDiscoverPresetOption[] {
+  if (!useServerCandidates) return DAYTRADE_PRESET_OPTIONS
+
+  const activeDaytrade = (candidates ?? [])
+    .filter((candidate) => (
+      candidate.active &&
+      candidate.builtIn &&
+      candidate.key.startsWith(DAYTRADE_PREFIX)
+    ))
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id)
+    .map((candidate) => ({
+      key: candidate.key,
+      label: daytradeOptionLabel(candidate),
+      description: daytradeOptionDescription(candidate),
+    }))
+
+  if (activeDaytrade.length === 0) return DAYTRADE_PRESET_OPTIONS
+  return [DAYTRADE_PRESET_OPTIONS[0], ...activeDaytrade]
 }
 
 /** 통계 요약 row */
@@ -236,6 +276,17 @@ export function DaytradeDiscoverPage() {
     staleTime: 300_000,
   })
 
+  const presetOptions = useMemo(
+    () => buildPresetOptions(candidateDefsQuery.data, candidateDefsQuery.isSuccess),
+    [candidateDefsQuery.data, candidateDefsQuery.isSuccess],
+  )
+
+  useEffect(() => {
+    if (presetKey !== null && !presetOptions.some((option) => option.key === presetKey)) {
+      setPresetKey(null)
+    }
+  }, [presetKey, presetOptions])
+
   /**
    * 프리셋 entry DSL(DB 권위)을 빌더 draft로 보내 저장→백테스트 검증을 이어간다.
    * 평가 기준 종목은 현재 발굴 결과 1위 후보 — 빌더에서 자유 변경 가능.
@@ -307,8 +358,8 @@ export function DaytradeDiscoverPage() {
     // 응답 presets(서버 권위) 우선, 없으면 UI 옵션 라벨 fallback
     const fromResult = data?.presets.find((p) => p.presetKey === presetKey)?.title
     if (fromResult) return fromResult
-    return DAYTRADE_PRESET_OPTIONS.find((o) => o.key === presetKey)?.label ?? presetKey
-  }, [presetKey, data])
+    return presetOptions.find((o) => o.key === presetKey)?.label ?? presetKey
+  }, [presetKey, data, presetOptions])
 
   function handleAddWatchlist(code: string) {
     if (watchedCodes.has(code)) return
@@ -356,7 +407,7 @@ export function DaytradeDiscoverPage() {
         <div>
           <p className="mb-2 text-xs font-medium text-gray-400">빌트인 프리셋</p>
           <div className="flex flex-wrap gap-2">
-            {DAYTRADE_PRESET_OPTIONS.map((option) => {
+            {presetOptions.map((option) => {
               const active = presetKey === option.key
               return (
                 <button
@@ -377,7 +428,7 @@ export function DaytradeDiscoverPage() {
             })}
           </div>
           <p className="mt-2 text-xs text-gray-600">
-            {DAYTRADE_PRESET_OPTIONS.find((o) => o.key === presetKey)?.description}
+            {presetOptions.find((o) => o.key === presetKey)?.description}
           </p>
         </div>
 

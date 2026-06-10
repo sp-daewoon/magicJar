@@ -17,20 +17,21 @@ import type { CandleInterval } from '../../../api/symbol'
 import type { ScreenerFilterDto } from './screenerApi'
 
 // ──────────────────────────────────────────────
-// 빌트인 단타 setup 프리셋 (V75 시드 candidate_key 3종 — spec §3-R2)
+// 빌트인 단타 setup 프리셋 fallback (활성 프리셋 권위는 DB strategy_research_candidate)
 // ──────────────────────────────────────────────
 
 export interface DaytradeDiscoverPresetOption {
-  /** V75 시드 candidate_key — null이면 활성 DAYTRADE_* 전체 합집합 */
+  /** strategy_research_candidate.candidate_key — null이면 활성 DAYTRADE_* 전체 합집합 */
   key: string | null
   label: string
   description: string
 }
 
 /**
- * UI 선택용 빌트인 프리셋 목록.
+ * UI 선택용 빌트인 프리셋 fallback 목록.
+ * 정상 화면은 /api/strategy-research/candidates의 활성 DAYTRADE_* row를 렌더링한다.
  * key=null(전체)는 활성 DAYTRADE_* 프리셋 합집합 발굴을 의미한다.
- * 응답 `presets[]`(서버 권위 = V75 시드 row)와 별개의 진입 옵션이며, 실제 진입 조건은 응답 presets.entryRules로 노출된다.
+ * V76에서 DAYTRADE_VOLATILITY_EXPANSION은 검증 탈락으로 비활성화되었으므로 fallback에도 노출하지 않는다.
  */
 export const DAYTRADE_PRESET_OPTIONS: DaytradeDiscoverPresetOption[] = [
   {
@@ -44,14 +45,24 @@ export const DAYTRADE_PRESET_OPTIONS: DaytradeDiscoverPresetOption[] = [
     description: '장전 갭상승 + 상대거래량(RVOL) + 거래대금 충족 종목.',
   },
   {
-    key: 'DAYTRADE_VOLATILITY_EXPANSION',
-    label: '변동성 확장',
-    description: 'NATR 등 변동성 확장 구간에 진입한 종목.',
+    key: 'DAYTRADE_MOMENTUM_BREAKOUT',
+    label: '모멘텀 양봉',
+    description: '전일 강한 양봉 + 거래량·거래대금 동반 모멘텀 종목.',
   },
   {
-    key: 'DAYTRADE_MOMENTUM_BREAKOUT',
-    label: '모멘텀 돌파',
-    description: '최근 고점 돌파 + 거래량 동반 모멘텀 종목.',
+    key: 'DAYTRADE_GAP_AND_GO',
+    label: '강한 갭상승',
+    description: '전일 종가 대비 강한 갭상승 + RVOL + 거래대금 충족 종목.',
+  },
+  {
+    key: 'DAYTRADE_VOLUME_BREAKOUT',
+    label: '거래량 신고가 돌파',
+    description: '20봉 채널 상단 돌파 + 거래량 폭발 + 거래대금 충족 종목.',
+  },
+  {
+    key: 'DAYTRADE_RANGE_BREAKOUT',
+    label: '박스권 돌파+ADX',
+    description: '20봉 신고가 돌파를 ADX 추세 게이트로 한 번 더 거른 종목.',
   },
 ]
 

@@ -34,23 +34,3 @@ export function PaperBadge({ size = 'sm', className = '' }: PaperBadgeProps) {
     </span>
   )
 }
-
-/**
- * 페이퍼 대시보드 상단 격리 안내 배너 — 실 계좌 화면과 별도 진입점임을 명시(§6).
- */
-export function PaperIsolationBanner() {
-  return (
-    <div className="flex items-start gap-2 rounded-lg border border-amber-700/50 bg-amber-950/30 px-4 py-3">
-      <span className="mt-0.5 text-amber-400" aria-hidden>
-        ◈
-      </span>
-      <div className="text-sm text-amber-200/90">
-        <p className="font-medium text-amber-200">모의(페이퍼) 트레이딩 — 실거래 아님</p>
-        <p className="mt-0.5 text-xs leading-relaxed text-amber-200/70">
-          가상 자본 기준으로 발굴 setup 을 실시간 모의 검증하는 화면입니다. 모든 주문은 MOCK 으로
-          강제되어 실제 계좌·KIS 잔고에 영향을 주지 않습니다. 손익·잔액은 모두 가상 ₩ 입니다.
-        </p>
-      </div>
-    </div>
-  )
-}

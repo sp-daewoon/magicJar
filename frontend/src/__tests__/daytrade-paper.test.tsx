@@ -159,7 +159,7 @@ describe('PaperDashboardPage — 페이퍼 대시보드 (ADR 0122 R3)', () => {
     expect(screen.getByText('+12,000')).toBeInTheDocument()
     // 모의 배지(LOCK) — 실거래 오인 0 보증
     expect(screen.getAllByText('모의 · 실거래 아님').length).toBeGreaterThan(0)
-    expect(screen.getByText('모의(페이퍼) 트레이딩 — 실거래 아님')).toBeInTheDocument()
+    expect(screen.queryByText('모의(페이퍼) 트레이딩 — 실거래 아님')).not.toBeInTheDocument()
   })
 
   it('빈 응답 → "활성 모의 전략이 없습니다" / "모의 포지션이 없습니다" (mock 합성 0)', async () => {

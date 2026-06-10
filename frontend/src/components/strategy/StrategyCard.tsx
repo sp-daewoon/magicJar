@@ -235,21 +235,6 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
         </span>
       </div>
 
-      {isPaper && (
-        <div className="rounded-lg border border-amber-800/60 bg-amber-950/30 px-3 py-2 text-xs leading-5 text-amber-100">
-          <p className="font-semibold text-amber-200">모의 페이퍼 전략</p>
-          <p className="text-amber-100/80">
-            단타 발굴 setup 을 가상 자본으로 검증합니다. 주문 경로는 MOCK 으로 강제되어 실제 계좌 주문이 아닙니다.
-          </p>
-          <Link
-            to="/strategy/paper"
-            className="mt-1 inline-flex font-semibold text-amber-200 underline-offset-2 hover:text-amber-100 hover:underline"
-          >
-            페이퍼 대시보드에서 보기
-          </Link>
-        </div>
-      )}
-
       {strategy.status === 'DISABLED' && (
         <div className="border-l-2 border-amber-500 pl-3 text-xs leading-5 text-amber-100">
           <p className="font-medium">
