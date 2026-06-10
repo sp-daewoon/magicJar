@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.api.persistence.risk
+package kr.spdaewoon.magicjar.persistence.shared.risk
 
 import org.springframework.data.jpa.repository.JpaRepository
 

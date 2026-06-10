@@ -4,10 +4,10 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.datetime.Instant
-import kr.spdaewoon.magicjar.api.persistence.risk.RiskConfigJpaAdapter
 import kr.spdaewoon.magicjar.api.service.risk.RiskConfigService
 import kr.spdaewoon.magicjar.api.service.risk.RiskConfigUpdateRequest
 import kr.spdaewoon.magicjar.domain.risk.RiskConfig
+import kr.spdaewoon.magicjar.persistence.shared.risk.RiskConfigJpaAdapter
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
