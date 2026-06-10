@@ -1,6 +1,7 @@
 # ADR 0115 — 포지션 단일 권위 + 드리프트 자동보정 + 청산 사슬 replay/cooldown 안전화
 
 - **상태**: Accepted (2026-06-08 설계 선행 → **v3.12.1 코드 반영 완료**: R1 드리프트보정·replay-fill 순수함수(`PositionDriftCorrection`·`ReplayFillPolicy`, PR #818) / R2 배선(drift 자동보정·replay 가드·watcher 쿨다운·거부 자동정지·ACK 재조회, PR #820) / R3 incident 재현 e2e 6시나리오(PR #821). 정합·보정은 REAL/MOCK 동일 경로 — 코드 미반영 표기 sunset)
+  - **amend 2026-06-10 (§P1-1 부족 방향 귀속 보정)**: 최초 §P1-1 은 **초과 방향만 내림 보정**하고 부족(strategySum < authority)은 `WarnUnderflow` WARN-only 였다(없는 물량 인식 회피). 그러나 2026-06-10 전략8·005930 실측 incident — WS 체결통보 유실→REST backfill 흡수된 FILLED execution(order#177)이 `StrategyPositionExecutionReplayService` 의 row-기존재 replay-skip(의도적 over-count 회피)으로 strategy_position 에 미반영(qty=0 vs KIS 3주) → 시그널 54건 BLOCKED — 은 **부족 방향이면서 귀속 근거가 명확**(order_request.strategy_id≠0·source=AUTO 의 FILLED execution ledger)한 경우였다. **부족 방향이라도 "우리 전략이 체결시킨 주문의 ledger 미반영"으로 귀속 ledger 가 정확히 KIS 권위를 재구성하면 자동 정정**한다(`LedgerAttributedDriftCorrection`, R2 = `ConsumerExecutionStrategyPositionAdapter.reconcileUnderflowByLedger`). 3중 보수성 게이트(귀속 명확·멱등 절대목표·전체 정합 검산)로 over-count 0. 체결 이벤트 없이도 회복하도록 `StrategyPositionReconcileWorker` 가 BalanceReconcile 주기에 편승 호출(신규 cron 0). 모호(ledger 합 ≠ authority — 외부 주문 혼재)면 현행 WARN-only 유지. 신규 Flyway·Kafka·cron 0(§2-4 audit 원칙 유지). 코드 반영: 본 PR.
 - **작성**: architect
 - **트랙**: T-O (주문·청산 운영) · 입력: `docs/assessments/2026-06-08-mock-alarm-flood-rootcause.html`
 - **관련 ADR**: 0110(strategy_position 1급 도메인) amend · 0111(RiskPlan scale-in/exit) · 0114(주문집행 정책·청산 보장) 보강 · 0070(알림 rate limit) · 0084(WS 재연결 backfill)
@@ -52,7 +53,8 @@ if (strategySum != positionQty) {
 
 **보정 규칙 (명시)**:
 - **권위 출처**: `position.quantity`(user+code+source/mode, KIS 잔고 부트스트랩 ADR 0042 권위). position이 곧 KIS 실잔고의 내부 투영.
-- **보정 방향**: `strategySum > positionQty`(유령 초과 — 이번 incident 7 > 5) → 초과분을 **내림**. `strategySum < positionQty`(미반영 — 외부 HTS 매수 등) → **보정하지 않음**(WARN만 유지). 사유: 초과는 자본 위험(유령 매도 폭주)이지만, 부족은 보수적이며 외부 주문·backfill 지연 등 정상 사유 가능 → 함부로 늘리면 없는 물량 인식 risk.
+- **보정 방향**: `strategySum > positionQty`(유령 초과 — 이번 incident 7 > 5) → 초과분을 **내림**. `strategySum < positionQty`(미반영 — 외부 HTS 매수 등) → 기본 **보정하지 않음**(WARN만 유지). 사유: 초과는 자본 위험(유령 매도 폭주)이지만, 부족은 보수적이며 외부 주문·backfill 지연 등 정상 사유 가능 → 함부로 늘리면 없는 물량 인식 risk.
+  - **(amend 2026-06-10) 부족 방향 예외 — 귀속 근거 명확 시 정정**: 부족이 **우리 전략이 체결시킨 FILLED execution 의 strategy_position 미반영**으로 설명되면(귀속 = order_request.strategy_id≠0 · source=AUTO 의 BUY-SELL net) 정정한다. 3중 보수성 게이트: (1) 각 leg 목표 = 귀속 ledger 순매수량(외부·MANUAL 제외), (2) 멱등 — 절대 목표 set(증분 아님 → over-count 0), (3) 전체 정합 검산 — `sum(목표) == positionQty(KIS)` 정확 일치할 때만. 평단은 ledger BUY 가중평단으로 복원(reset 0 → 실제 진입가), realized_pnl 불변. 모호(ledger 합 ≠ authority)면 정정 안 함 WARN-only. 순수 함수 `LedgerAttributedDriftCorrection`(strategy-engine) + R2 `reconcileUnderflowByLedger`.
 - **다전략 배분**: 동일 종목을 N전략이 운용 중일 때 초과분 내림은 **`updatedAt` 최신 행부터 차감**(가장 최근 잘못 누적된 leg를 우선 정정). 단일 전략(incident #8 — 1전략 1종목)은 그 행만 정정.
 - **하한 가드**: `quantity`는 0 미만으로 내리지 않음(`coerceAtLeast(0)`). 0 도달 시 `avgPrice`·`filledLots`·`executedExitStages` reset(전량 청산과 동일 규칙 — `applySell` nextQty==0 분기 정합).
 - **realized_pnl 보존**: 보정은 **수량 정렬일 뿐 손익 이벤트가 아니다**. `realized_pnl`은 절대 건드리지 않음(체결로만 변동). 보정으로 줄인 수량은 "체결되지 않았던 유령"이므로 손익 0.

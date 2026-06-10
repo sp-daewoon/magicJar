@@ -112,6 +112,36 @@ interface ConsumerOrderRequestJpaRepository : JpaRepository<ConsumerOrderRequest
         @Param("toExclusive") toExclusive: Instant,
     ): Long
 
+    /**
+     * ADR 0115 §P1-1 amend (2026-06-10) — strategy_position **부족 방향** drift 의 귀속 ledger 집계.
+     *
+     * 동일 user+code 의 **우리 자동매매 전략(strategyId≠0·source=AUTO)** 이 체결시킨 order_execution 을
+     * 전략별·side 별로 묶어 `SUM(executedQty)` 를 반환한다. 외부(EXTERNAL)·MANUAL(strategyId=0) 체결은 제외 —
+     * "없는 물량 인식" risk 0 의 귀속 근거([kr.spdaewoon.magicjar.strategy.integrity.LedgerAttributedDriftCorrection] §보수성 가드 1).
+     *
+     * order_execution 은 order_request 에 JPA 관계가 없으므로 `e.orderId = r.id` 명시 조인(implicit join + predicate).
+     * caller([ConsumerExecutionStrategyPositionAdapter.reconcileDrift])가 (strategyId,side)→qty 로 net BUY-SELL 산정.
+     *
+     * 헌법 §6 — interface body 0건, @Query 만 사용.
+     *
+     * @return (strategyId, side, qtySum) 행 목록. 체결 없으면 빈 목록.
+     */
+    @Query(
+        "SELECT r.strategyId AS strategyId, r.side AS side, " +
+            "COALESCE(SUM(e.executedQty), 0) AS qtySum, " +
+            "COALESCE(SUM(e.executedQty * e.executedPrice), 0) AS notionalSum " +
+            "FROM ConsumerOrderRequestJpaEntity r, ConsumerOrderExecutionJpaEntity e " +
+            "WHERE e.orderId = r.id " +
+            "AND r.userId = :userId AND r.code = :code " +
+            "AND r.strategyId <> 0 " +
+            "AND r.source = kr.spdaewoon.magicjar.domain.order.execution.OrderSource.AUTO " +
+            "GROUP BY r.strategyId, r.side",
+    )
+    fun aggregateFilledByStrategyAndSide(
+        @Param("userId") userId: String,
+        @Param("code") code: String,
+    ): List<StrategyLedgerRow>
+
     @Modifying
     @Query(
         value = "UPDATE order_execution SET order_id = :targetId WHERE order_id = :sourceId",
@@ -131,4 +161,18 @@ interface ConsumerOrderRequestJpaRepository : JpaRepository<ConsumerOrderRequest
         @Param("sourceId") sourceId: Long,
         @Param("targetId") targetId: Long,
     ): Int
+}
+
+/**
+ * [ConsumerOrderRequestJpaRepository.aggregateFilledByStrategyAndSide] 행 — Spring Data interface projection.
+ *
+ * (strategyId, side) 그룹의 체결 수량 합. caller 가 BUY-SELL net 으로 strategy_position 부족 보정 귀속 근거 산정.
+ */
+interface StrategyLedgerRow {
+    val strategyId: Long
+    val side: kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+    val qtySum: java.math.BigDecimal
+
+    /** `SUM(executedQty * executedPrice)` — BUY 행에서 가중평단(notional/qty) 산정용. */
+    val notionalSum: java.math.BigDecimal
 }

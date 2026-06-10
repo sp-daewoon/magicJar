@@ -29,6 +29,7 @@ class ConsumerExecutionStrategyPositionDriftReconcileTest {
     private val port = ReconcilingStrategyPositionPort()
     private val jpaRepo: StrategyPositionJpaRepository = mock()
     private val positionRepo: PositionJpaRepository = mock()
+    private val orderRequestRepo: ConsumerOrderRequestJpaRepository = mock()
     private val signalRepo: ConsumerSignalJpaRepository = mock()
 
     private val systemEventProvider: ObjectProvider<kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger> =
@@ -41,6 +42,7 @@ class ConsumerExecutionStrategyPositionDriftReconcileTest {
             strategyPositionPort = port,
             strategyPositionJpaRepository = jpaRepo,
             positionJpaRepository = positionRepo,
+            orderRequestJpaRepository = orderRequestRepo,
             signalJpaRepository = signalRepo,
             systemEventLoggerProvider = systemEventProvider,
             driftAutoCorrectEnabled = enabled,
