@@ -2,6 +2,7 @@
 
 - **상태**: Accepted (2026-06-08 설계 선행 → **v3.12.1 코드 반영 완료**: R1 드리프트보정·replay-fill 순수함수(`PositionDriftCorrection`·`ReplayFillPolicy`, PR #818) / R2 배선(drift 자동보정·replay 가드·watcher 쿨다운·거부 자동정지·ACK 재조회, PR #820) / R3 incident 재현 e2e 6시나리오(PR #821). 정합·보정은 REAL/MOCK 동일 경로 — 코드 미반영 표기 sunset)
   - **amend 2026-06-10 (§P1-1 부족 방향 귀속 보정)**: 최초 §P1-1 은 **초과 방향만 내림 보정**하고 부족(strategySum < authority)은 `WarnUnderflow` WARN-only 였다(없는 물량 인식 회피). 그러나 2026-06-10 전략8·005930 실측 incident — WS 체결통보 유실→REST backfill 흡수된 FILLED execution(order#177)이 `StrategyPositionExecutionReplayService` 의 row-기존재 replay-skip(의도적 over-count 회피)으로 strategy_position 에 미반영(qty=0 vs KIS 3주) → 시그널 54건 BLOCKED — 은 **부족 방향이면서 귀속 근거가 명확**(order_request.strategy_id≠0·source=AUTO 의 FILLED execution ledger)한 경우였다. **부족 방향이라도 "우리 전략이 체결시킨 주문의 ledger 미반영"으로 귀속 ledger 가 정확히 KIS 권위를 재구성하면 자동 정정**한다(`LedgerAttributedDriftCorrection`, R2 = `ConsumerExecutionStrategyPositionAdapter.reconcileUnderflowByLedger`). 3중 보수성 게이트(귀속 명확·멱등 절대목표·전체 정합 검산)로 over-count 0. 체결 이벤트 없이도 회복하도록 `StrategyPositionReconcileWorker` 가 BalanceReconcile 주기에 편승 호출(신규 cron 0). 모호(ledger 합 ≠ authority — 외부 주문 혼재)면 현행 WARN-only 유지. 신규 Flyway·Kafka·cron 0(§2-4 audit 원칙 유지). 코드 반영: 본 PR.
+  - **amend 2026-06-10 (§P2 정식 신설 — 6항목 ①~⑥ + 권고 대안 B-on-A 채택, 최고 관리자 전체 승인)**: 2026-06-10 005930·전략8 MOCK 1m MA10 반나절 incident 5연쇄(G1~G7)를 전 시스템 체결 체인 전수 audit으로 진단한 spec `_workspace/specs/2026-06-10-execution-ledger-integrity-architecture.md`가 **최고 관리자 전체 승인(2026-06-10 — 권고 대안 B-on-A + P2 amend ①~⑥ + 헌법 §11 + development-rules drain 절차 + Flyway 후보 모두 수락)** 을 받아 본 §2-P2(정식)로 편입한다. **진단 본질**: `strategy_position`(2차 ledger)을 immutable `order_execution` 로그의 **결정론적 파생 뷰가 아니라 독립 mutable 증분 원장**으로 운용하는 것(C2 뿌리)이 G2·G4·G7 미귀속 영구화의 씨앗이고, 그 위에 이중 체결 경로 멱등 불일치(C1)·진실원 부재 비대칭 안전망(C3)·필수 cross-module 빈 silent null(C4)·헌법 게이트 부재(C5)가 얹혔다. **목표 아키텍처 = 대안 B(파생 재계산 뷰) 채택 + 점진 도입(B-on-A)**: 즉시는 대안 A(증분 + execution-단위 멱등키)를 보강하되 `LedgerAttributedDriftCorrection`을 부족 방향 예외에서 **양방향 rebuild 정합 1급 메커니즘으로 승격**하는 경로(spec §3 권고). P2 6항목(① replay execution-단위 멱등 / ② backfill CANCELLED 체결 대조 / ③ WarnUnderflow 단일전략+evidence 자동보정 / ④ 장중 배포 in-flight drain 가드 / ⑤ in-memory index 변경감지 refresh / ⑥ 0-sentinel 폐지 + OrderTrigger enum). **우선순위**: ②·④·⑥ 1순위(자본 누락·귀속 직결·⑥은 ①·③의 데이터 전제), ①·③·⑤ 2순위. **최고 관리자 직접 요구 = 키 사슬 무결성**(spec §2-B): "사인→주문→체결→보유" traceability chain이 sentinel·stub로 끊긴 4지점 + 합격 불변식 5건(구현 PR acceptance LOCK). 헌법 §11(모듈 경계 빈 합류 게이트 + silent fallback 금지) + development-rules 장중 drain 절차 동반 신설(본 사이클). 자원 audit: 본 amend 코드 0(docs) · 구현 시 add-only(Flyway 0~1 = ⑥ `order_request.order_trigger`+`trigger_ref_id` 후보 V80+ · ENV 1~2 = drain·index). 코드 반영: §3 라운드 분할 후속 사이클(strategy-engine + backend-core 디스패치 — 사용자 결재 완료).
 - **작성**: architect
 - **트랙**: T-O (주문·청산 운영) · 입력: `docs/assessments/2026-06-08-mock-alarm-flood-rootcause.html`
 - **관련 ADR**: 0110(strategy_position 1급 도메인) amend · 0111(RiskPlan scale-in/exit) · 0114(주문집행 정책·청산 보장) 보강 · 0070(알림 rate limit) · 0084(WS 재연결 backfill)
@@ -144,6 +145,67 @@ if (strategySum != positionQty) {
 **대안 비교**: 기존 `EntryTimeoutCancelWorker`·`KisExecutionBackfillService.syncUserTodayExecutions` 재사용이 권위. 신규 컴포넌트 신설 거부(중복 회피).
 
 ---
+
+## 2-P2. 체결-원장-리스크 체인 통합 P2 (2026-06-10 amend 정식 — 최고 관리자 전체 승인)
+
+> **status**: Accepted (사용자 승인 2026-06-10). **입력 spec(SoT)**: `_workspace/specs/2026-06-10-execution-ledger-integrity-architecture.md`(005930·전략8 incident G1~G7 전수 audit + 본질 진단 C1~C5 + 대안 3안 비교). **채택 아키텍처**: 권고 대안 **B-on-A**(strategy_position을 order_execution 파생 재계산 뷰로 점진 전환 — 즉시는 대안 A 증분+멱등키 보강, reconcile rebuild 1급화 경로). 본 §은 §1·§2-P1 incident(MOCK 알람 폭주)의 후속 — 같은 자본 체결 사슬의 더 깊은 구조 결함(mutable 증분 ledger 뿌리)을 6항목으로 닫는다.
+>
+> **우선순위 LOCK**: **②·④·⑥ 1순위**(자본 누락·귀속 직결 — ⑥은 ①·③ 귀속 판정의 데이터 전제), **①·③·⑤ 2순위**(정합 정밀화 — ⑥ 위에서 효과 발현). 모든 항목 ENV toggle로 현행 복귀 가능(§4-X rollback).
+>
+> **키 사슬 무결성 불변식 5건(spec §2-B-2)** 을 구현 PR acceptance criteria로 LOCK: ① 모든 주문 키 완전성(0-sentinel 폐지) ② 모든 체결 정확히 1회 귀속(event_id 단위 멱등) ③ 검산 가능성(Σ전략 귀속 == KIS authority, 방향 무관 자동 수렴) ④ 화면 추적성(사인→주문→체결→보유 키 join) ⑤ 회귀 시나리오 LOCK(매도 후 포지션 잔존 0·매수 후 미반영 0 qa E2E).
+
+### P2-① replay execution-단위 멱등 (C1·C2 — 대안 A 보강 + B 디딤돌)
+
+- **현행**: `StrategyPositionExecutionReplayService.replayIfMissing`이 `findByUserStrategyCode != null`이면 skip(행 단위 → 부분체결 2주 미귀속, G4). 재현성 입증(14:29 실측): 전략 #8 15주 매수(주문 #223)가 KIS에서 부분체결 6건(1+3+5+1+2+3주)으로 갈려 strategy_position 원장 11주 vs KIS 권위 16주 = 6건 중 2건(5주) 유실 — 분할 수에 비례한 구조 결함.
+- **amend**: replay를 **행 존재가 아니라 execution 단위 멱등**으로. (a) 즉시는 `aggregateFilledByStrategyAndSide` net과 현재 leg quantity를 비교해 **차이만큼만 보강**(절대목표 set — `LedgerAttributedDriftCorrection`이 하는 일을 replay 경로에도 적용). (b) 또는 reconcile 경로 rebuild에 위임하고 replay는 trigger만(대안 B 디딤돌).
+- **대안 관계**: B 채택 시 replay 서비스는 **rebuild에 흡수되어 삭제 가능**. A만 채택 시 추적 컬럼/테이블 필요.
+
+### P2-② backfill CANCELLED 체결 대조 (C1 — G5)
+
+- **현행**: `KisExecutionBackfillService.isTerminalForBackfill()`이 CANCELLED를 terminal로 보고 status sync skip(L630). 취소-체결 race(시스템 CANCELLED 기록, KIS 실체결 — 주문 #220)에서 1주 영구 미기록(G5) → order_execution 진실원에 체결 row 자체가 INSERT 안 됨(역방향 사슬 소실).
+- **amend**: CANCELLED 주문도 **KIS 일별체결조회의 totCcldQty > 0이면 체결 대조**(취소 전 부분체결 흡수). terminal skip은 status 재마킹 방지용이었으나(completed_at 덮어쓰기 회피 — backlog §82-1), **execution INSERT는 status와 독립**이어야 한다. status는 CANCELLED 유지하되 누락 체결 row는 INSERT + position/strategy_position 반영.
+- **대안 관계**: order_execution(진실원)에 누락 체결을 채우는 것 = 대안 B의 전제(진실원 완전성). B의 필수 선행.
+
+### P2-③ WarnUnderflow 단일전략+주문 evidence 시 자동 보정 (C3 — G7)
+
+- **현행**: `LedgerAttributedDriftCorrection`이 `correctedSum == authority` 정확 일치 시만 Adjust, 아니면 WarnUnderflow 방치(G7 "귀속 모호").
+- **amend**: 단일 전략 + 해당 종목에 외부(EXTERNAL)·MANUAL 체결 0(순수 AUTO ledger)인 경우, ledger net을 authority로 **신뢰하고 보정**(모호성 없음 — 그 종목 보유는 전부 그 전략의 것). 다전략·외부 혼재만 WARN 유지.
+- **대안 관계**: 대안 B(rebuild)의 부분 적용. B 전면 채택 시 이 조건은 rebuild 검산 로직에 통합. ⑥(키 사슬 정비)이 선행되어야 "단일 전략 + 외부 0" 판정이 신뢰 가능(sentinel·stub 제거).
+
+### P2-④ 장중 배포 in-flight drain 가드 (C5 — G1) ★ 헌법·runbook 편입
+
+- **현행**: in-flight 주문(ACK·PARTIALLY_FILLED)이 있는 consumer를 재배포하면 체결통지 유실(MOCK은 WS 미지원이라 backfill만이 복구 경로). 절차 룰 0. G1 직접 원인: 13:11 AUTO SELL 발사 직후 재배포로 consumer 13:11~13:16 다운.
+- **amend**: 배포 스크립트(`scripts/build-and-deploy.sh consumer`)에 **in-flight 주문 0 확인 게이트** 추가 — `order_request.status IN (REQUESTED,ACK,PARTIALLY_FILLED)` count > 0이면 경고 + 사용자 확인(또는 `--force-drain`). ENV `magicjar.deploy.drain.in-flight-check.enabled`(default true). 부팅 직후 `KisExecutionBackfillService` 1회 backfill이 이미 흡수 경로이므로, drain 가드는 **유실 윈도를 줄이는 보강**(완전 방지는 아님 — 부팅 backfill과 병행).
+- **대안 관계**: 독립 운영 절차. 대안 무관(C5 메타 갭 직접 해소).
+- **헌법·룰 편입**: 헌법 §11(silent fallback 금지·모듈 경계 빈 합류 게이트)와 동반 + `development-rules.md` 장중 배포 drain 절차 신설 + 운영 runbook 보강.
+
+### P2-⑤ in-memory index DB 변경 감지/리프레시 (G3)
+
+- **현행**: `HoldingPositionIndex`는 60초 refresh + 체결 즉시 `onFillRefresh`. **DB 직접 정정(orchestrator 수동 SQL·drift 보정 worker의 upsert)은 이벤트가 아니라서 onFillRefresh 미발화** → 60초 또는 재기동 전까지 stale(G3 3주 지속).
+- **amend**: drift 보정(`ConsumerExecutionStrategyPositionAdapter.applyDriftCorrection`·`applyLedgerUnderflowCorrection`)이 strategy_position을 변경하면 **그 code에 대해 `HoldingPositionIndex.onFillRefresh(code)` 동반 호출**(보정도 보유 변경 이벤트로 취급). 수동 SQL 정정은 운영 절차로 "정정 후 consumer 재기동 또는 refresh 트리거" 명시.
+- **대안 관계**: 독립. 대안 B로 reconcile가 정밀해질수록 index 동반 갱신의 가치 증가.
+
+### P2-⑥ 키 사슬 정비 — 0-sentinel 폐지 + 주문 출처 enum (C2·C3 전제 / 불변식 1 — 최고 관리자 직접 요구)
+
+- **현행**: 자동청산 `signal_id=0`·백필 stub `strategy_id=0` sentinel로 주문 발사 출처가 데이터 차원에서 소실(spec §2-B-1 4 단절). drift 보정(`LedgerAttributedDriftCorrection`)이 부족 방향을 "AUTO·strategyId≠0 FILLED execution의 net"으로 귀속 판정하려 해도, **sentinel·stub로 인해 "이 체결이 어느 전략 것인가"가 데이터에서 모호**해 WARN-only로 빠진다(G7 "귀속 모호"의 근본 원인 = 키 부재).
+- **amend**: (a) `order_request`의 `signal_id`·`strategy_id` **0-sentinel 폐지** + 주문 발사 출처 enum `OrderTrigger ∈ {STRATEGY_SIGNAL, AUTO_EXIT, STOP_LOSS, MANUAL, EXTERNAL}` 컬럼 추가. (b) AUTO_EXIT·STOP_LOSS 주문도 유발 근거(청산 대상 포지션 id·발동 룰 id)를 실키로 보존 — "signal 없는 주문"은 허용하되 "출처 모르는 주문"은 폐지. (c) 백필 복구 주문은 stub 대신 KIS 일별체결의 odno→원주문 매핑으로 실제 strategy_id 복원, 매핑 불가 시 `EXTERNAL` 명시(귀속 불능을 sentinel로 위장하지 않음). 이로써 **불변식 1(주문 키 완전성)** 충족.
+- **①·③과의 의존 관계 — ⑥은 ①·③의 전제 조건**: ①(replay execution-단위 멱등)과 ③(WarnUnderflow 자동 보정)은 모두 "이 체결을 어느 전략에 귀속할지"를 **명확히 알 수 있다**는 가정 위에 선다. 현행은 sentinel·stub 때문에 그 귀속이 **데이터 차원에서 "모호"**하다 — ③의 `LedgerAttributedDriftCorrection`이 "ledger 합 ≠ authority면 WARN-only"로 빠지는 근본 원인이 이 키 부재다. **⑥(키 사슬 정비)이 선행되어야 ①·③의 귀속 판정이 "모호"에서 "명확"으로 바뀐다.** ⑥ 없이 ①·③만 적용하면 "키가 없어 귀속 불가 → 여전히 WARN-only"로 효과가 반감된다.
+- **대안 관계**: 불변식 1과 직교(키 스키마 차원 — 대안 A/B 무관 선행). 단 ⑥ 완성 시 대안 B(rebuild)의 귀속 정확도가 극대화되며, ③의 "단일 전략 + 외부 0" 판정도 신뢰 가능해진다.
+- **Flyway**: `order_request` 컬럼 추가(`order_trigger` enum + `trigger_ref_id`) 1건 후보(V80+). sentinel 폐지는 기존 데이터 backfill 마이그레이션 동반(0 → 실제 매핑 또는 EXTERNAL).
+
+### 2-P2-X. 운영 ADR 양식 3 슬롯 (헌법 §9-5)
+
+- **SLO 영향**: 직접 수치 0. S-1(시그널→주문) 오발주 reject·알림 폭주 감소. P2-④ drain 가드는 배포 시간에 in-flight 대기 추가(운영 트레이드오프). P2-⑥은 스키마 마이그레이션(sentinel backfill) 1회 다운타임 또는 online 마이그레이션 필요.
+- **rollback plan**: 각 항목 ENV toggle로 현행 복귀. P2-①②③은 보정 비활성 시 현행 WARN-only. P2-④는 `magicjar.deploy.drain.in-flight-check.enabled=false`. P2-⑤는 동반 호출 제거. P2-⑥은 신규 컬럼 nullable 추가(기존 sentinel 컬럼 병존 유지) → 읽기 경로만 enum 우선·미존재 시 legacy fallback으로 점진 전환, 롤백 시 enum 무시.
+- **관측 매트릭스**: `STRATEGY_POSITION_DRIFT_CORRECTED` count(보정 동작) · replay 미귀속 0 · CANCELLED 체결 흡수 count · in-flight drain 경고 발동 · index stale 감지 시간 · **신규 주문 `order_trigger` 미분류(legacy sentinel 잔존) count → 0 수렴 추적**.
+
+### 2-P2-Y. 라운드 분할 (개발 룰 3 — 구현 후속 사이클)
+
+> 1순위(②·④·⑥) → 2순위(①·③·⑤). 본 ADR amend는 docs only(코드 0); 아래는 구현 PR 가이드.
+
+- **R1 (도메인·시그니처)**: ⑥ `OrderTrigger` enum(domain) + `order_request` 키 스키마 시그니처 · ① execution-단위 멱등 판정 순수 함수(`aggregateFilledByStrategyAndSide` net 기준 차이 보강) · ② CANCELLED 체결 대조 판정 순수 함수 · ENV 키 default 선언(drain·index).
+- **R2 (어댑터·영속·배선)**: ⑥ Flyway V80+(`order_trigger`·`trigger_ref_id`) + sentinel backfill 마이그레이션 · ① replay 경로 절대목표 보강 배선 · ② backfill INSERT-status 분리 배선 · ③ 단일전략+evidence 자동보정 배선 · ④ build-and-deploy drain 게이트 · ⑤ 보정 시 index 동반 refresh.
+- **R3 (일괄 테스트)**: 키 사슬 불변식 5건 회귀 일괄 — 부분체결 N건 정확 N회 귀속 / CANCELLED 실체결 흡수 / Σ귀속==KIS authority 검산 / 매도 후 포지션 잔존 0 · 매수 후 미반영 0 (qa E2E 2종) / drain 가드 발동.
 
 ## 3. 라운드 분할 (개발 룰 3 — R1 도메인+시그니처 / R2 어댑터+가드 / R3 일괄 테스트)
 

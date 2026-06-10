@@ -6,7 +6,7 @@
 > **의무 정독 대상**: architect · backend-core · market-data · strategy-engine · ai-engineer · frontend · qa · orchestrator (7 sub-agent + orchestrator — ADR 0094 amend 2026-05-21: chart-curator 해고 + qa Visual 격상 + sre 영입 거절)
 > **변경 정책**: 본 헌법은 architect 단독 PR로만 갱신. sub-agent SKILL은 본 헌법을 참조만 하고 룰 본문 중복 금지.
 
-본 헌법은 **운영 룰의 단일 출처**다. 본문에 명시된 7개 § 룰을 위반하면 운영 부채(hotfix·재작업·사용자 비판) 누적 risk. 각 § 본문은 30~40줄 max — 헌법은 실행 매뉴얼이 아닌 참조 룰북.
+본 헌법은 **운영 룰의 단일 출처**다. 본문에 명시된 핵심 § 룰(§1~§7 개발 룰 + §9 운영 단계 룰 + §11 모듈 경계 빈 합류·silent fallback 금지)을 위반하면 운영 부채(hotfix·재작업·사용자 비판) 누적 risk. 각 § 본문은 30~40줄 max — 헌법은 실행 매뉴얼이 아닌 참조 룰북.
 
 ---
 
@@ -248,6 +248,7 @@ sub-agent가 0 tool uses 종료, 환경 결함(Bash 실패), 또는 명세 위�
 
 | 날짜 | 변경 | 사유 |
 |------|------|------|
+| 2026-06-10 | **§11 신설 — 모듈 경계 빈 합류 검증 + silent fallback 금지 (ADR 0115 §2-P2 / 최고 관리자 전체 승인)** | 입력=spec `_workspace/specs/2026-06-10-execution-ledger-integrity-architecture.md` §5-1(C4·C5 메타 갭) + 2026-06-10 005930·전략8 incident G6 evidence — `RiskConfigJpaAdapter`가 api 모듈에만 `@Component` 존재 → consumer ApplicationContext 빈 부재 → `ObjectProvider.getIfAvailable()` 항상 null → `buildContext`가 `defaultFor(1M/10%)` silent 진행(사용자 5M/70% 설정인데 1M/10%로 더 좁게 평가 = 역방향 자본 위험). 부팅 성공하므로 헌법 §6(부팅 실패 배선 결함)이 못 잡음. ADR 0088이 Outbox 3개에 1회 fix했으나 룰화 안 돼 RiskConfig로 재발 → 헌법 룰화로 영구 차단. **§11-1**: domain port 구현 빈의 모듈별 합류 검증 의무(새 port 구현 시 소비 모듈 전부에 배선 테스트 — PR #888 consumer 정적 검증 2건 선례 LOCK). **§11-2**: silent fallback 금지(빈 부재·null 분기는 최소 ERROR 로그 + REAL 모드 fail-fast 또는 명시 degraded·로그 0 silent 진행 금지·12개 ObjectProvider 분기 점진 확산 backlog). 동반: ADR 0115 §2-P2-④ drain 가드 + development-rules 장중 drain 절차 + master §3-5 3중 상태 권위 매트릭스. 운영 코드 0 touch(docs only). 자본 영향 0 + KIS 호출 0 + AI 호출 0 + mock 합성 0. (architect, 사용자 전체 승인) |
 | 2026-05-21 | **Stage 2 종합 정리 (v3.8.0 cut 전 LOCK) — §1-A chart-curator allowed values archived 마커 추가 + §10 운영 메모 명시 amend (architect 책임 + sub-agent 책임 + orchestrator 책임 정합)** | 사용자 명시 "v3.8.0 cut 전에 Phase C + qa 셋업 완료 + ★★★ ADR·헌법 정리를 한번 했으면 좋겠어. 지금 인덱스, 헌법 adr 많이 변화가 있었을 수도 있고 코드에만 있고 정리안된 것들을 찾아서 싹 정리해서 다시 토큰, 메모리 정제한다음 다시 깨끗한 마음으로 3.8.0 릴리즈부터는 토큰도 적절하게 읽어드릴 수 있을 수 있잖아? 그렇지?" — Stage 1 (P0 OPS 6/6 + KillSwitch race-safe + ADR 0094·0095·0096) 후속 정리 사이클. **본 cleanup PR diff** (architect 단독 11 정리 항목): (1) ADR README audit — README §9·§11·§14 정합 검증 GREEN (이미 Stage 1에서 0094·0095·0096 prepend 완료 + ADR 0080·0087 amend 마커 + ADR 0085 Superseded 마커 본문 정합) (2) 헌법 §1-§10 정합 검증 — 본 row 추가 + §1-A chart-curator archived 마커 + §10 amend (3) master-architecture §10·§13 정합 (Stage 1에서 0094·0095·0096 모두 prepend 완료 — 본 cleanup row 추가) (4) 메모리 audit 보고서 `_workspace/reports/2026-05-21-memory-audit-for-v3.8.0.md` 신규 (사용자 직접 amend 결재 의제) (5) CHANGELOG drift 검사 — Stage 1 6 P0 PR + KillSwitch PR 모두 row 존재 GREEN (6) backlog cleanup — `done/v3.7.x.md` archive 의제 (7) **qa.md 신규 발행** `.claude/agents/qa.md` — Visual QA "품질 헌터" 페르소나 본문 (Playwright + 5 시나리오 + DR drill 정기 + 사용자 dogfooding 변환 + 페르소나 매트릭스 cross-link) (8) **chart-curator.md archive** — `.claude/agents/_archive/chart-curator.md` 이동 + Superseded header amend + dispatch 0 명시 (9) CLAUDE.md amend — 8→7 + chart-curator 제거 + qa Visual 격상 + JVM 7 모듈 매트릭스 + ADR 카운트 93+ (10) **orphan decision audit 보고서** `_workspace/reports/2026-05-21-orphan-decision-audit-for-v3.8.0.md` 신규 — recent hotfix 14건 audit + 사용자 결재 의제 (11) skill SKILL.md 정합 검증 GREEN + magicjar-chart-curator skill archive 의제. **운영 코드 0 touch** (Kotlin/TS/SQL 0 변경 — docs·ADR·메모리 보고서·agent 파일·CLAUDE.md only) + **자본 영향 0** + **KIS endpoint 호출 0** + **AI 호출 0** + **mock 합성 0**. v3.8.0 cut 직전 토큰·메모리 정제 사용자 명시 의제 LOCK. (architect, opus 4.7 1M) |
 | 2026-05-21 | **§9-4 backup·DR 권위 cross-link 추가 — ADR 0096 본문화** | ADR 0094 §3-7 P0-OPS-4 task 본문화 후속. ADR 0096 § PostgreSQL 매트릭스(daily 03:00 KST + 7일 retention + `_workspace/backups/postgres/daily/` LOCK) + § Redis 매트릭스(03:30 KST + 3일 retention + AOF 거부) + RPO 24h + RTO 30분 + R-4 runbook cross-link + DR drill 분기 의무 5 시나리오 + qa Visual E2E 자동 재현 의무 본문화. 본 §9-4 ref 슬롯 보강(산출물 위치·스크립트 경로·사용자 가이드 cross-link 추가) + 서두 권위 ADR 매트릭스 0096 추가. 운영 ADR 양식 3 슬롯 두 번째 적용 사례(SLO 영향·rollback plan·관측 매트릭스). 운영 코드 0 touch. backend-core P0-OPS-4 후속 wiring 5건 권고(Micrometer counter + Slack alert + persistence-shared Outbox monitoring + docker compose service 검토 + DR drill 자동화 script). 사용자 1회 작업 의무: 본 PR 머지 직후 `crontab -e` 4 라인 추가(`docs/operations/backup-setup.md` §2 본문). v3.8.0 운영 baseline P0 진척(P0 OPS 6건 중 4번째 task 완료 — P0-OPS-1·2·3·4). (architect) |
 | 2026-05-21 | **§9-1 SLO 측정 매트릭스 + alert routing 권위 cross-link 추가 — ADR 0095 본문화** | ADR 0094 §3-2 P0-OPS-3 task 본문화 후속. ADR 0095 §2 측정 source(Prometheus query 1순위 + SystemEvent + Kafka 토픽 빈도) + §3 severity 4단 routing matrix(P4 INFO/P3 WARN/P2 ERROR/P1 CRITICAL — ADR 0084 정합) + §3-4 KillSwitch 자동 ON 검토 자동 액션 S-1·S-5 critical 한정(ADR 0043 race-safe 정합) 본문화. v3.8.0 baseline 5건 LOCK + Redis hit ratio·DB pool 활용률 2건은 P1 OPS amend backlog. backend-core P0-OPS-3 후속 wiring 5건 의무. (architect) |
@@ -335,3 +336,25 @@ sub-agent가 0 tool uses 종료, 환경 결함(Bash 실패), 또는 명세 위�
 - **sub-agent 책임**: 본 헌법 정독 의무 + 영역별 특수 룰만 SKILL.md에 명시 (KIS-first는 architect·market-data만 관련 § 강조). **qa는 본 헌법 §9-2·§9-4 추가 정독 의무 (frontend 핵심 화면 PR Visual 자동 dispatch + DR drill 분기 의무 — ADR 0094·0096)**.
 - **orchestrator 책임**: 사이클 시작 시 본 헌법 §1·§2 자동 점검 + sub-agent 디스패치 시 §4·§5 사전 검증 + **운영 단계 진입 후 §9 추가 검증 (frontend PR Visual dispatch 의무 + SLO 영향 ADR slot + rollback plan + qa 의무 dispatch trigger)**. chart-curator dispatch 발사 0 LOCK (해고 — ADR 0094 amend).
 - **사용자 책임**: 본 헌법 룰 위반 발견 시 architect에게 갱신 명시 (운영 룰 흐려짐 신호). DR drill 분기 의무 결재 + cron 등록 1회 작업 의무 (`docs/operations/backup-setup.md`).
+
+---
+
+## §11. 모듈 경계 빈 합류 검증 + silent fallback 금지 (2026-06-10 신설 — ADR 0115 §2-P2 / 최고 관리자 전체 승인)
+
+> **권위**: ADR 0115 §2-P2(체결-원장-리스크 체인 통합) + spec `_workspace/specs/2026-06-10-execution-ledger-integrity-architecture.md` §5-1(C4·C5 메타 갭). **입력 evidence**: 2026-06-10 005930·전략8 incident G6 — `RiskConfigJpaAdapter`가 api 모듈에만 `@Component`로 존재 → consumer ApplicationContext엔 빈 부재 → `ObjectProvider<RiskConfigRepository>.getIfAvailable()`이 항상 null → `buildContext`가 `defaultFor(1M/10%)`로 **silent 진행**. 사용자가 5M/70%로 설정을 넓혔는데 시스템은 1M/10%로 더 좁게 평가 = **역방향 자본 위험**. 부팅은 성공하므로 헌법 §6(부팅 실패하는 배선 결함)이 못 잡는다. ADR 0088이 Outbox 3개에 1회 fix했으나 룰화 안 돼 RiskConfig로 재발.
+>
+> 본 §은 **부팅은 성공하는데 필수 cross-module 빈이 silent null인** 결함을 영구 차단한다. 자본·리스크 결정에 쓰이는 port의 모듈 경계 누락을 정적 테스트 + log 가시화 + REAL fail-fast 3중으로 닫는다.
+
+### 11-1. 도메인 port 구현 빈의 모듈별 합류 검증 의무
+
+- **룰**: domain port의 구현 빈(`@Component`/`@Repository`)이 **그 port를 `ObjectProvider`로 주입받는 모든 앱 모듈(api·consumer·batch)의 ApplicationContext에 실제 합류**하는지 검증하는 정적 테스트를 의무화한다. ADR 0088 `persistence-shared` 패턴(api·consumer 양쪽 빈 합류)이 표준 경로다.
+- **발동**: cross-module 필수 port — 자본·리스크 결정에 쓰이는 port(`RiskConfigRepository`·`PositionPort`·`OrderEventOutboxRepository`·`KillSwitchQueryPort`·`ExecutionStrategyPositionUpdatePort` 등) 신규/이동 PR.
+- **검증 방법**: 각 소비 앱 모듈에 "이 port의 빈이 컨텍스트에 존재하는가"를 단언하는 `@SpringBootTest` 슬라이스 또는 component scan basePackages 정적 검증을 동반한다. PR #888이 추가한 consumer 배선 정적 검증 2건이 선례 — 이를 룰로 LOCK한다.
+- **새 port 구현 시 의무**: 새 도메인 port 구현 빈을 추가하면 그 port를 소비하는 **모듈 전부에 배선 테스트**를 함께 추가한다(한 모듈만 통과는 불완전 — G6 재발 패턴).
+
+### 11-2. silent fallback 금지
+
+- **룰**: `ObjectProvider.getIfAvailable() == null` 분기(빈 부재) 또는 null·empty fallback 분기는 **반드시 최소 ERROR 로그 가시화 + REAL 모드 fail-fast 또는 명시 degraded 표기**. silent 진행(로그 0으로 default 값 사용) 금지.
+- **근거**: silent fallback은 모듈 경계 결함을 숨겨 incident를 늦게 발견하게 한다(G6은 3주 잠복). 빈 부재가 자본·리스크 평가 default를 바꾸면 REAL 모드에서는 즉시 부팅·실행 실패가 더 안전하다(잘못된 한도로 실주문 발사보다 낫다).
+- **적용**: PR #888이 RiskConfig에 적용한 패턴(null 분기 ERROR 로그 + REAL fail-fast)을 `SignalGeneratedKafkaListener` 등의 `ObjectProvider` graceful 분기(config·event·position·notifier·killSwitch·strategyLookup·balance 등 12개) 전체로 점진 확산(backlog). 각 분기는 부재 시 거동을 명시(killSwitch는 fail-true·position은 명시 degraded 등)하고 silent 0건으로 수렴.
+- **MOCK/REAL 분기**: MOCK은 ERROR 로그 + degraded 진행 허용(개발 흐름 유지), REAL은 자본·리스크 결정 port 부재 시 fail-fast LOCK. 모드 무관 silent(로그 0) 금지.
