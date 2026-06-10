@@ -6,11 +6,16 @@
  *
  * W4 R2 (2026-05-24): SIGNAL AI 진입점 추가 — AiExplainEntry "이 시그널 해석"
  * (4번째 진입점 / 5 중 SYMBOL·CHART·STRATEGY·SIGNAL·MARKET).
+ *
+ * ADR 0115 §2-B 불변식 #4 (2026-06-10): 키 사슬 추적 드릴다운 — 행 확장 시 SignalTracePanel
+ * (사인→주문→체결→보유+정합)을 lazy fetch로 렌더.
  */
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { type SignalDto, type SignalSide } from '../../api/signal'
 import { AiExplainEntry } from '../../features/ai/components/AiExplainEntry'
 import { useOnboardingStore } from '../../stores/onboarding'
+import { SignalTracePanel } from './SignalTracePanel'
 
 // ──────────────────────────────────────────────
 // 스타일 헬퍼
@@ -62,6 +67,8 @@ export function SignalCard({ signal, isNew = false }: SignalCardProps) {
   const badge = SIDE_BADGE[signal.side] ?? SIDE_BADGE.HOLD
   // W4 R2 AI 진입점 — userId 1일 토큰 한도 키
   const userId = useOnboardingStore((s) => s.registeredUserId)
+  // ADR 0115 §2-B 키 사슬 추적 드릴다운 (불변식 #4) — 확장 시에만 lazy fetch
+  const [traceOpen, setTraceOpen] = useState(false)
   const instrumentLabel = signal.codeName ? (
     <>
       {signal.codeName}
@@ -143,8 +150,8 @@ export function SignalCard({ signal, isNew = false }: SignalCardProps) {
           </div>
         )}
 
-        {/* W4 R2 AI 진입점: SIGNAL (이 시그널 해석) */}
-        <div className="mt-2">
+        {/* W4 R2 AI 진입점: SIGNAL (이 시그널 해석) + 키 사슬 추적 토글 (ADR 0115 §2-B 불변식 #4) */}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <AiExplainEntry
             type="SIGNAL"
             userId={userId}
@@ -160,7 +167,28 @@ export function SignalCard({ signal, isNew = false }: SignalCardProps) {
               ts: signal.ts,
             }}
           />
+          <button
+            type="button"
+            onClick={() => setTraceOpen((v) => !v)}
+            aria-expanded={traceOpen}
+            aria-label="키 사슬 추적 (사인→주문→체결→보유)"
+            className="inline-flex items-center gap-1 rounded-md border border-gray-700 bg-gray-800 px-2.5 py-1 text-xs font-medium text-gray-300 transition-colors hover:bg-gray-700 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+            title="이 사인이 낸 주문·체결·현재 전략 보유와 정합을 추적합니다"
+          >
+            <span aria-hidden>{traceOpen ? '▾' : '▸'}</span>
+            키 사슬 추적
+          </button>
         </div>
+
+        {/* 드릴다운 패널 — 확장 시에만 lazy fetch (userId 있을 때만) */}
+        {traceOpen && userId != null && (
+          <SignalTracePanel signalId={signal.id} userId={userId} enabled={traceOpen} />
+        )}
+        {traceOpen && userId == null && (
+          <p className="mt-2 rounded-md border border-dashed border-gray-700 bg-gray-900/40 px-3 py-2 text-center text-xs text-gray-500">
+            키 사슬 추적은 KIS 계좌 등록(userId) 후 사용할 수 있습니다.
+          </p>
+        )}
       </div>
     </article>
   )

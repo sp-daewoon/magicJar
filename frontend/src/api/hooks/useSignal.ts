@@ -9,12 +9,20 @@
  * 룰 5: LLM provider import 0건
  */
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { signalApi, type SignalDto, type SignalListParams, type SignalPage } from '../signal'
+import {
+  signalApi,
+  type SignalDto,
+  type SignalListParams,
+  type SignalPage,
+  type SignalTraceDto,
+} from '../signal'
 
 const SIGNAL_LIST_KEY = (params: SignalListParams) =>
   ['signals', 'list', params] as const
 
 const SIGNAL_KEY = (id: string) => ['signals', id] as const
+
+const SIGNAL_TRACE_KEY = (id: string) => ['signals', id, 'trace'] as const
 
 /**
  * 시그널 목록 (무한 스크롤)
@@ -41,5 +49,23 @@ export function useSignal(id: string | undefined, userId: number | null | undefi
     queryFn: () => signalApi.get(id!, userId!),
     enabled: !!id && userId !== null && userId !== undefined,
     staleTime: 60 * 1000,
+  })
+}
+
+/**
+ * 시그널 키 사슬 추적 (ADR 0115 §2-B 불변식 #4)
+ *
+ * 사인 → 주문 → 체결 → 보유 + 정합 드릴다운. `enabled` 로 행 확장 시에만 fetch (lazy).
+ */
+export function useSignalTrace(
+  id: string | undefined,
+  userId: number | null | undefined,
+  enabled = true,
+) {
+  return useQuery<SignalTraceDto>({
+    queryKey: SIGNAL_TRACE_KEY(id ?? ''),
+    queryFn: () => signalApi.trace(id!, userId!),
+    enabled: enabled && !!id && userId !== null && userId !== undefined,
+    staleTime: 15 * 1000,
   })
 }

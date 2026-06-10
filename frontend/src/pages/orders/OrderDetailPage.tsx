@@ -13,6 +13,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useOnboardingStore } from '../../stores/onboarding'
 import { useOrder } from '../../api/hooks/useOrder'
 import { OrderStatusBadge } from '../../components/order/OrderStatusBadge'
+import { OrderTriggerBadge } from '../../components/order/OrderTriggerBadge'
 import { ExecutionTable } from '../../components/order/ExecutionTable'
 import { OrderAuditTimeline } from '../../components/order/OrderAuditTimeline'
 import { CancelOrderButton } from '../../components/order/CancelOrderButton'
@@ -174,6 +175,13 @@ export function OrderDetailPage() {
               <p className="font-mono text-xs text-gray-300">{order.kisOrderNo}</p>
             </div>
           )}
+          {/* ADR 0115 §2-B 발사 출처 — 키 사슬 추적성 (불변식 #1·#4) */}
+          <div>
+            <p className="text-xs text-gray-500">발사 출처</p>
+            <div className="mt-0.5">
+              <OrderTriggerBadge trigger={order.orderTrigger} triggerRefId={order.triggerRefId} />
+            </div>
+          </div>
           {order.rejectReason && (
             <div className="col-span-2 md:col-span-3">
               <p className="text-xs text-gray-500">{isReconcileReason ? '확인 사유' : '거절 사유'}</p>
