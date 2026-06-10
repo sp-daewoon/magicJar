@@ -3,10 +3,10 @@ id: T-20260610-1130-strategy-pos-drift-autocorrect
 agent: backend-core
 model: opus
 branch: agent/backend-core/strategy-pos-drift-autocorrect
-status: RUNNING
+status: DONE
 startedAt: 2026-06-10T11:30:02.566+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-10T11:53:37.748+09:00
+pr: #876
 parentPhase: ?
 ---
 
