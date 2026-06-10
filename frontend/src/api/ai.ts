@@ -12,6 +12,8 @@
  */
 import apiClient from '../lib/axios'
 
+const AI_EXPLAIN_TIMEOUT_MS = 310_000
+
 // ──────────────────────────────────────────────
 // 5 진입점 type (backend AiCommentType enum 1:1)
 // ──────────────────────────────────────────────
@@ -86,6 +88,8 @@ export interface AiResponseEnvelope {
 export async function requestAiExplain(
   request: AiExplainRequest,
 ): Promise<AiExplainResponse> {
-  const { data } = await apiClient.post<AiExplainResponse>('/ai/explain', request)
+  const { data } = await apiClient.post<AiExplainResponse>('/ai/explain', request, {
+    timeout: AI_EXPLAIN_TIMEOUT_MS,
+  })
   return data
 }

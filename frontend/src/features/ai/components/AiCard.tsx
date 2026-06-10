@@ -15,7 +15,7 @@
  *   RECEIVED   → markdown 본문 + provider/model/token/cost 메타
  *   REFUSED    → 한국어 사유 (4단계 가드)
  *   ERROR      → 네트워크/400 사유 + 재시도 권유
- *   TIMEOUT    → 10s 초과 안내 + 재시도
+ *   TIMEOUT    → 장기 응답 지연 안내 + 재시도
  *
  * 매매 결정권 0 — 본 카드는 advisory only (ADR 0026 정합).
  */
@@ -156,7 +156,7 @@ export function AiCard({
         <div className="flex flex-col gap-2 px-3 py-4">
           <div className="flex items-center gap-3">
             <div className="h-4 w-4 animate-pulse rounded-full bg-purple-500" />
-            <span className="text-xs text-gray-300">AI 응답 대기 중 (최대 10초)</span>
+            <span className="text-xs text-gray-300">AI 응답 대기 중 (최대 5분)</span>
           </div>
           <p className="text-[10px] text-gray-500">request: {state.requestId.slice(0, 8)}...</p>
         </div>
@@ -212,7 +212,7 @@ export function AiCard({
       {state.status === 'TIMEOUT' && (
         <div className="flex flex-col gap-2 px-3 py-4">
           <p className="text-xs text-amber-300">
-            AI 응답이 10초 이상 지연되었습니다. 잠시 후 다시 시도해 주세요.
+            AI 응답이 5분 이상 지연되었습니다. 잠시 후 다시 시도해 주세요.
           </p>
           <p className="text-[10px] text-gray-500">request: {state.requestId.slice(0, 8)}...</p>
           <button

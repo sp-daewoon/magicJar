@@ -13,7 +13,7 @@
  * 매매 결정권 0 — 본 hook 호출 결과로 자동 매수·매도 흐름 0건.
  * 1회 1요청 — `trigger()` 호출 시 이전 requestId의 STOMP 구독 해제 + 새 요청 발행.
  *
- * 10초 timeout — backend ai.comment.responded 미도달 시 graceful 표시.
+ * 310초 timeout — Claude CLI/bridge 최대 300초 + 네트워크 여유 10초.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
@@ -38,11 +38,11 @@ interface UseAiExplainOptions {
   type: AiCommentType
   /** 1일 토큰 한도 집계 키. setup 미완 시 null → trigger 비활성. */
   userId: number | null | undefined
-  /** ms — STOMP 응답 도달 timeout. default 10s. */
+  /** ms — STOMP 응답 도달 timeout. default 310s. */
   timeoutMs?: number
 }
 
-const DEFAULT_TIMEOUT_MS = 10_000
+const DEFAULT_TIMEOUT_MS = 310_000
 
 export function useAiExplain({ type, userId, timeoutMs = DEFAULT_TIMEOUT_MS }: UseAiExplainOptions) {
   const [state, setState] = useState<AiExplainState>({ status: 'IDLE' })
@@ -155,7 +155,7 @@ export function useAiExplain({ type, userId, timeoutMs = DEFAULT_TIMEOUT_MS }: U
         if (!client.active) client.activate()
       }
 
-      // 10초 timeout 가드 — 사용자 명시적 안내.
+      // Claude CLI/bridge 장기 응답 대기 가드 — 사용자 명시적 안내.
       timeoutRef.current = setTimeout(() => {
         setState({ status: 'TIMEOUT', requestId })
         cleanup()

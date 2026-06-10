@@ -137,7 +137,7 @@ describe('AiCard 상태 분기', () => {
     expect(trigger).toHaveBeenCalledTimes(1)
   })
 
-  it('TIMEOUT — 10초 안내 + 재시도', () => {
+  it('TIMEOUT — 장기 지연 안내 + 재시도', () => {
     const trigger = vi.fn()
     render(
       <AiCard
@@ -147,7 +147,7 @@ describe('AiCard 상태 분기', () => {
         onReset={noop}
       />,
     )
-    expect(screen.getByText(/10초 이상 지연/)).toBeInTheDocument()
+    expect(screen.getByText(/5분 이상 지연/)).toBeInTheDocument()
     fireEvent.click(screen.getByText('다시 시도'))
     expect(trigger).toHaveBeenCalledTimes(1)
   })

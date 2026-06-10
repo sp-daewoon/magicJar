@@ -23,6 +23,8 @@
  */
 import apiClient from '../lib/axios'
 
+const STRATEGY_EVALUATE_TIMEOUT_MS = 60_000
+
 // ──────────────────────────────────────────────
 // DTO 타입 (backend T-DSL StrategyController LOCK)
 // ──────────────────────────────────────────────
@@ -122,7 +124,9 @@ export const strategyApi = {
    * 단건 종목·인터벌로 DSL 평가 → 신호 결과
    */
   evaluate: async (strategyId: string, req: EvaluateRequest): Promise<EvaluateResponse> => {
-    const res = await apiClient.post<EvaluateResponse>(`/strategy/${strategyId}/evaluate`, req)
+    const res = await apiClient.post<EvaluateResponse>(`/strategy/${strategyId}/evaluate`, req, {
+      timeout: STRATEGY_EVALUATE_TIMEOUT_MS,
+    })
     return res.data
   },
 
