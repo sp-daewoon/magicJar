@@ -86,6 +86,7 @@ V78은 `FixedFractional(positionPercent = 10.00, maxConcurrent = 5, maxPositionA
 **1차 구현 범위 = "per-position 한도 사이징으로 MDD를 포트폴리오 환산"** (LOCK):
 
 - 진입 수량 산식만 바꾼다: `AllCapital`은 `cash / price`(전액), `FixedFractional`은 **`min(initialCapital × positionPercent/100, maxPositionAmount ?? ∞) / price`**(고정 슬롯 크기). 즉 한 종목이 자본 전체를 먹지 않고 "1슬롯 = 자본의 10%"만 쓴다.
+  - **이 슬롯 환산은 비-scale-in(`executeBuy`)과 scale-in(`evaluateScaleInExitSlice` 회차 budget) 두 경로 모두에 적용한다** (2026-06-10 hotfix amend — #871이 `executeBuy`만 환산하고 scale-in 회차 budget을 누락해 scale_in_config 전략에서 FixedFractional이 AllCapital과 비트 동일하게 무력화되던 V78 결함 정정). scale-in 회차 budget = `슬롯 base × weight%`(totalSlices=1·weight=100%이면 `executeBuy` 슬롯과 등가). 두 경로는 단일 `fractionalSlot` 함수를 공유한다.
 - 이렇게 하면 단일 cash 풀 순차 곡선이라도 **1회 진입의 자본 노출이 1/10로 제한**되어, 보유 구간 미실현 낙폭이 자본 대비 1/10로 축소된 equity curve가 만들어진다. → **MDD가 분산 포트폴리오에 근사**한 값으로 측정된다.
 - 슬롯 base는 **`initialCapital` 고정**(현재 cash 아님) — 복리 누적으로 슬롯이 부풀어 노출이 다시 100%로 수렴하는 것을 막는다(고정 슬롯 = 일정 비중 분산 근사). 잔여 cash 부족 시 가용 cash로 floor(진입 skip 아님).
 - `maxConcurrent`는 1차에서 **MDD 환산용 메타데이터로만** 기록한다(현 엔진은 한 시점 1종목만 보유하므로 동시 5보유를 물리적으로 시뮬 못 함). 단, **결과 리포트에 `sizingPolicy` 전체를 echo**해 G3 판정 시 "10%/5슬롯 가정" 맥락을 명시한다. maxConcurrent의 실제 동시보유 시뮬은 **post-1차(별도 ADR)** 로 명시 격하.
