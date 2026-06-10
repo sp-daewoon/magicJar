@@ -1,7 +1,7 @@
 # spec — 발굴(Discovery) → MOCK 페이퍼 트레이딩 dispatch 경로
 
 - 작성: 2026-06-10, architect (orchestrator dispatch — "발굴 후보를 MOCK 페이퍼로 굴려보는 경로")
-- 상태: **Proposed (사용자 결재 대기 — §8 결정 필요 4건 미결)**
+- 상태: **결재됨 (2026-06-10 최고 관리자 — §8 4건 architect 권장값 일괄 승인 + R1 착수 지시)**
 - 출발점: `_workspace/specs/daytrade-discovery-spec.md` §1-4 ("B층 = 체결강도 incremental 검증 MOCK 페이퍼 A/B"로 이미 예정된 후속) · ADR 0117(발굴 레이어) · ADR 0121(백테스트 사이징 정합)
 - 동반 ADR: **ADR 0122** (발굴→페이퍼 승격 경로 — 신규, §7 판단)
 - 데이터 계약 LOCK: 본 §3·§4 계약은 R1~R3 sub-agent가 그대로 따른다. 임의 변경 금지.
@@ -258,6 +258,8 @@ GET    /api/daytrade/paper/strategies     — 활성 페이퍼 전략 목록
 ---
 
 ## §8. 사용자 결정 필요 (임의 진행 금지 — 분리)
+
+> **2026-06-10 최고 관리자 결재 — 4건 전부 architect 권장값 채택 LOCK**: 8-1 후보 다중선택 + 일괄 승격 · 8-2 가상 자본 default 10,000,000원 · 8-3 옵션 A(파생 userId 키 `<userId>:paper` 별 행) · 8-4 defaultFor 정합(DLL 3%·maxTradesPerDay 50) 1차, 단타 빈도 부족 시 R2 상향. R1 착수 동시 지시.
 
 ### 8-1. (중) 페이퍼 승격 opt-in UI 위치
 발굴 결과 TOP N 화면의 후보 행(row)별 "모의로 굴려보기" 버튼 vs 후보 다중선택 후 일괄 승격 vs 발굴 setup 카드 상세 내. **architect 권장 = 후보 다중선택 + 일괄 승격**(발굴은 setup 단위라 종목 묶음 승격이 자연). 사용자 확정 필요.
