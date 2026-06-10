@@ -3,10 +3,10 @@ id: T-20260610-1546-ledger-invariant-regression
 agent: qa
 model: opus
 branch: agent/qa/ledger-invariant-regression
-status: RUNNING
+status: DONE
 startedAt: 2026-06-10T15:46:22.254+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-10T15:51:52.714+09:00
+pr: #896
 parentPhase: ?
 ---
 
