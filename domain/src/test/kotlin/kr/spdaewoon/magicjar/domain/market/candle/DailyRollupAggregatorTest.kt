@@ -289,4 +289,57 @@ class DailyRollupAggregatorTest {
         weekly.first().ts shouldBe dayTs(2025, 12, 29) // 그 주 첫 거래일
         weekly.first().closeRaw shouldBe BigDecimal(125)
     }
+
+    // ── bucketRange (ADR 0120 amend — 2026-06-11 고아 정리 버킷 경계) ──────────────────────
+
+    @Test
+    fun `bucketRange — 월봉 6월 어떤 거래일도 6_1~7_1 반열린 버킷에 묶임`() {
+        // 진행 월봉 앵커(6/9·6/10)와 옛 고아(6/9)가 같은 버킷이어야 정리 ts<>keepTs 가 작동.
+        val (start9, end9) = DailyRollupAggregator.bucketRange(dayTs(2026, 6, 9), CandleInterval.ONE_MONTH)
+        val (start10, end10) = DailyRollupAggregator.bucketRange(dayTs(2026, 6, 10), CandleInterval.ONE_MONTH)
+        start9 shouldBe dayTs(2026, 6, 1)
+        end9 shouldBe dayTs(2026, 7, 1)
+        start10 shouldBe dayTs(2026, 6, 1) // 6/9·6/10 동일 버킷
+        end10 shouldBe dayTs(2026, 7, 1)
+        // 6/30 거래일 포함, 7/1 제외 (반열린).
+        val (start30, _) = DailyRollupAggregator.bucketRange(dayTs(2026, 6, 30), CandleInterval.ONE_MONTH)
+        start30 shouldBe dayTs(2026, 6, 1)
+    }
+
+    @Test
+    fun `bucketRange — 12월 월봉은 다음 해 1_1 로 롤오버`() {
+        val (start, end) = DailyRollupAggregator.bucketRange(dayTs(2025, 12, 30), CandleInterval.ONE_MONTH)
+        start shouldBe dayTs(2025, 12, 1)
+        end shouldBe dayTs(2026, 1, 1)
+    }
+
+    @Test
+    fun `bucketRange — 년봉 2026 어떤 거래일도 2026_1_1~2027_1_1`() {
+        val (start, end) = DailyRollupAggregator.bucketRange(dayTs(2026, 6, 10), CandleInterval.ONE_YEAR)
+        start shouldBe dayTs(2026, 1, 1)
+        end shouldBe dayTs(2027, 1, 1)
+    }
+
+    @Test
+    fun `bucketRange — 주봉 화요일 거래일도 그 주 월요일~다음 월요일 버킷`() {
+        // 05-25 월 휴장·첫 거래일 화(05-26) 케이스: 버킷은 월요일(05-25)~다음 월(06-01) 반열린.
+        val (start, end) = DailyRollupAggregator.bucketRange(dayTs(2026, 5, 26), CandleInterval.ONE_WEEK)
+        start shouldBe dayTs(2026, 5, 25) // ISO 주 월요일
+        end shouldBe dayTs(2026, 6, 1) // 다음 주 월요일
+    }
+
+    @Test
+    fun `bucketRange — 연말연시 ISO 주는 목요일 기준 week-year 경계로 묶임`() {
+        // 2025-12-29 Mon ~ 2026-01-04 Sun 은 동일 ISO 주(목=2026-01-01). 버킷=12/29~1/5.
+        val (start, end) = DailyRollupAggregator.bucketRange(dayTs(2026, 1, 2), CandleInterval.ONE_WEEK)
+        start shouldBe dayTs(2025, 12, 29)
+        end shouldBe dayTs(2026, 1, 5)
+    }
+
+    @Test
+    fun `bucketRange — 미지원 interval 은 IllegalArgumentException`() {
+        shouldThrow<IllegalArgumentException> {
+            DailyRollupAggregator.bucketRange(dayTs(2026, 6, 10), CandleInterval.ONE_DAY)
+        }
+    }
 }

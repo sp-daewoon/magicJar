@@ -194,6 +194,40 @@ class ConsumerCandleRepositoryAdapter(
             toTs = to,
         )
 
+    /**
+     * 기간 버킷 내 고아 앵커 삭제 — ADR 0120 amend (2026-06-11 P1 롤업 고아 정리).
+     * 버킷 경계 `[bucketStart, bucketEnd)` ∩ `ts <> keepTs` 이중 조건의 native DELETE.
+     */
+    @Transactional
+    override fun deleteStaleBucketAnchors(
+        code: String,
+        interval: CandleInterval,
+        bucketStart: Instant,
+        bucketEnd: Instant,
+        keepTs: Instant,
+    ): Int {
+        val deleted =
+            candleJpaRepository.deleteStaleBucketAnchors(
+                code = code,
+                interval = interval.code,
+                bucketStart = bucketStart,
+                bucketEnd = bucketEnd,
+                keepTs = keepTs,
+            )
+        if (deleted > 0) {
+            log.debug(
+                "candle 고아 앵커 삭제 (consumer): code={} interval={} bucket=[{},{}) keepTs={} deleted={}",
+                code,
+                interval.code,
+                bucketStart,
+                bucketEnd,
+                keepTs,
+                deleted,
+            )
+        }
+        return deleted
+    }
+
     private fun ConsumerCandleJpaEntity.toDomain(interval: CandleInterval): Candle =
         Candle(
             id = id,
