@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>전략 검증 퍼널 — flow 리포트 검증 + 화면 연결성 + 다음 작업 흐름 (2026-06-10)</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root { --bg:#0f1419; --card:#1a2129; --line:#2e3a47; --text:#d8e1ea; --dim:#8b9aab; --accent:#4fc3f7; --green:#66bb6a; --yellow:#ffca28; --red:#ef5350; --purple:#ab87f5; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:'Apple SD Gothic Neo','Noto Sans KR',sans-serif;line-height:1.65;padding:32px 20px 80px}
+  .wrap{max-width:1140px;margin:0 auto}
+  h1{font-size:1.45rem;color:#fff;margin-bottom:6px}
+  h2{font-size:1.12rem;color:var(--accent);margin:40px 0 14px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h3{font-size:.98rem;color:#fff;margin:18px 0 8px}
+  p.sub{color:var(--dim);font-size:.9rem;margin-bottom:20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px 24px;margin:14px 0}
+  .card.warn{border-left:4px solid var(--red)}
+  .card.ok{border-left:4px solid var(--green)}
+  .card.note{border-left:4px solid var(--yellow)}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:.88rem}
+  th{background:#212a35;color:var(--accent);text-align:left;padding:9px 12px;border:1px solid var(--line);white-space:nowrap}
+  td{padding:9px 12px;border:1px solid var(--line);vertical-align:top}
+  tr:nth-child(even) td{background:rgba(255,255,255,.018)}
+  code{background:#11181f;border:1px solid var(--line);border-radius:4px;padding:1px 6px;font-size:.82em;color:#9ecbff;font-family:'SF Mono',Menlo,monospace}
+  .badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:.74rem;font-weight:700;margin-right:6px;white-space:nowrap}
+  .b-green{background:rgba(102,187,106,.15);color:var(--green);border:1px solid var(--green)}
+  .b-yellow{background:rgba(255,202,40,.12);color:var(--yellow);border:1px solid var(--yellow)}
+  .b-red{background:rgba(239,83,80,.12);color:var(--red);border:1px solid var(--red)}
+  .b-purple{background:rgba(171,135,245,.12);color:var(--purple);border:1px solid var(--purple)}
+  .mermaid{background:#fbfcfe;border-radius:10px;padding:18px;margin:14px 0;overflow-x:auto}
+  ul,ol{margin:8px 0 8px 22px} li{margin:4px 0}
+  .muted{color:var(--dim);font-size:.85rem}
+  .kicker{font-size:.78rem;letter-spacing:.12em;color:var(--purple);font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="kicker">VERIFICATION + NEXT STEPS · CLAUDE(Cowork) → 최고 관리자</p>
+<h1>전략 검증 퍼널 — flow 리포트 검증 결과 + 화면 연결성 + 다음 작업 흐름</h1>
+<p class="sub">2026-06-10 · 대상: <code>2026-06-10-strategy-mock-paper-flow.html</code> (orchestrator 발행) · main 코드 재실측으로 교차 검증 · task 파일 현황 반영</p>
+
+<div class="card ok">
+  <b>한 줄 결론</b><br><br>
+  기존 flow 리포트는 <b>코드 재실측 결과 전 항목 정확</b>합니다 (GAP-0 포함 — 아래 §1). 제가 별도로 분석한 내용과 모순 없이 <b>상호 보완</b> 관계이고
+  (리포트 = 주문/자본 경로 깊이, 내 분석 = 4개 화면의 역할 구분·KPI 이원화), 합치면 다음 작업 흐름이 명확히 나옵니다 (§4).
+  단, 리포트가 "DONE 처리된 task" 기준으로 본 것과 달리 <b>아직 RUNNING인 task 2건</b>이 있어 착수 순서에 반영했습니다.
+</div>
+
+<h2>1. flow 리포트 검증 결과 — 주장 vs 코드 재실측</h2>
+<table>
+  <tr><th>리포트 주장</th><th>판정</th><th>재실측 근거 (2026-06-10 main)</th></tr>
+  <tr>
+    <td><b>GAP-0</b>: 주문 게이트가 전략 origin을 모름 → REAL 전환 시 페이퍼 주문이 실주문 될 수 있음</td>
+    <td><span class="badge b-green">정확</span></td>
+    <td><code>TradingModeGateImpl.resolveMode(userId)</code> — 시그니처에 strategyId/origin 없음. env mode → ALLOW_REAL → consent 3중 게이트만 판정. <code>OrderRouterKafkaListener</code> Step 3에서 <code>intent.userId</code>만 전달.</td>
+  </tr>
+  <tr>
+    <td>페이퍼 리스크는 가상 자본 1천만 + <code>&lt;userId&gt;:paper</code> RiskConfig로 격리</td>
+    <td><span class="badge b-green">정확</span></td>
+    <td><code>SignalGeneratedKafkaListener.kt:771-830</code> — <code>isPaper</code> 판정 → riskConfigKey 파생 → <code>CapitalSnapshotSelector.capitalFor(userId, isPaper)</code> 분기. <code>PaperCapitalSnapshotProviderAdapter</code> 실존.</td>
+  </tr>
+  <tr>
+    <td>내 전략(USER_DSL) → 페이퍼 경로 끊김 (promote가 presetKey 전용)</td>
+    <td><span class="badge b-green">정확</span></td>
+    <td><code>PaperPromoteRequest</code> — <code>presetKey</code>(@NotBlank, <code>strategy_research_candidate.candidate_key</code>) 필수. 전략 ID를 받는 필드 없음.</td>
+  </tr>
+  <tr>
+    <td>스코어카드는 백엔드만 가동, 화면 0건</td>
+    <td><span class="badge b-green">정확</span></td>
+    <td>backend: <code>DiscoveryScorecardScheduler</code>(08:30 KST)·DTO·Entity·Repository 실존 (V77). frontend: <code>scorecard</code> grep 0건.</td>
+  </tr>
+  <tr>
+    <td>페이퍼 → 실전 승격(졸업) 기준 미정의</td>
+    <td><span class="badge b-green">정확</span></td>
+    <td>승격 게이트 코드·ADR 없음. PaperDashboard는 조회·중단만 (페이지 주석 "자동 진입 0 — 조회·중단만" 명시).</td>
+  </tr>
+</table>
+<p class="muted">⚠ 보충 (재실측 정정): task 파일 2건이 status RUNNING이지만, 산출물은 모두 main에 머지 완료입니다 — <code>T-…-1655-capital-port</code>는 체크리스트 전부 [x]·PR #903 머지, <code>T-…-1836-r3-scenarios</code>는 <code>DaytradePaperPathScenarioTest.kt</code>가 18:44 main 커밋(01613611). 즉 <b>개발 미완이 아니라 task 파일 행정 마감(<code>task.mjs check/done</code>)만 누락</b>된 상태입니다.</p>
+
+<h2>2. 내 분석(이전 대화)과 flow 리포트의 차이 — 무엇이 서로 보완인가</h2>
+<table>
+  <tr><th></th><th>내 분석 (4개 화면 구분)</th><th>flow 리포트 (주문 경로 실측)</th></tr>
+  <tr><td><b>관점</b></td><td>사용자 화면 기준 — 4개 메뉴의 역할·데이터·사용 흐름 구분</td><td>자본·주문 경로 기준 — 시그널→리스크→게이트→KIS 배선 추적</td></tr>
+  <tr><td><b>"모의"의 정의</b></td><td>페이퍼(<code>/strategy/paper</code>)만 다룸</td><td><b>두 가지 모의를 구분</b> — 시스템 MOCK 모드 vs 전략 단위 페이퍼. 이 구분이 사용자 혼동의 진짜 원인이었음 → 리포트가 더 정확</td></tr>
+  <tr><td><b>발견한 갭</b></td><td>KPI 계산기 이원화(<code>BacktestKpiCalculator</code> vs <code>PerformanceCalculator</code>)·캔들 skip 정책 불일치·IS/OOS 가드 미착수·"발굴" 명칭 2곳 중복</td><td>GAP-0(게이트 origin 미인지)·USER_DSL→페이퍼 끊김·스코어카드 화면 0건·졸업 기준 미정의</td></tr>
+  <tr><td><b>겹치는 결론</b></td><td colspan="2">"백테스트 기대 vs 페이퍼 실측 비교 뷰가 퍼널의 마지막 고리" — 양쪽 모두 동일 지적 (리포트 #3 = 내 분석의 'A/B 루프 미닫힘')</td></tr>
+</table>
+<div class="card note">
+  <b>합산 갭 목록 (중복 제거, 총 9건)</b> — GAP-0 게이트 / USER_DSL→페이퍼 / 스코어카드 화면 / 백테스트↔페이퍼 비교 뷰 / 졸업 기준 / 메뉴 퍼널 도선 / KPI 계산기 통일 / 캔들 skip 정책 통일 / IS-OOS 과최적화 가드(R3). 이 9건이 §4 작업 흐름의 입력입니다.
+</div>
+
+<h2>3. 화면 연결성 — 현재 도선 vs 목표 도선</h2>
+<div class="mermaid">
+flowchart LR
+  subgraph NOW["현재 메뉴 (AppHeader 순서)"]
+    direction TB
+    N1["단타 발굴"] ~~~ N2["모의 트레이딩"] ~~~ N3["전략 리서치"] ~~~ N4["백테스트"]
+  end
+  subgraph GOAL["목표 — 퍼널 순서 + 다음 단계 도선"]
+    direction LR
+    G1["① 리서치<br/>아이디어·AI 탐색"] -- "빌더 draft ✅" --> G2["② 빌더<br/>전략 작성"]
+    G2 -- "전략 선택 ✅" --> G3["③ 백테스트<br/>과거 검증"]
+    G3 -. "페이퍼로 검증 ❌ 신설" .-> G5
+    G4["④ 단타 발굴<br/>오늘 후보 TOP N"] -- "승격 ✅ (preset만)" --> G5["⑤ 모의 트레이딩<br/>실시간 가상 검증"]
+    G5 -. "졸업 게이트 ❌ 신설" .-> G6["⑥ 실전<br/>(REAL canary)"]
+    G4 -. "스코어카드 화면 ❌" .-> G4
+  end
+</div>
+<table>
+  <tr><th>연결 도선</th><th>상태</th><th>필요 작업</th></tr>
+  <tr><td>리서치 → 빌더 (draft)</td><td><span class="badge b-green">이어짐</span></td><td>유지</td></tr>
+  <tr><td>발굴 → 페이퍼 승격 (preset)</td><td><span class="badge b-green">이어짐</span></td><td>유지 (R3 e2e 마감만)</td></tr>
+  <tr><td>백테스트 통과 전략(USER_DSL) → 페이퍼</td><td><span class="badge b-red">끊김</span></td><td>promote 입구 확장 (W2 — §4)</td></tr>
+  <tr><td>발굴 → 스코어카드(forward 성과)</td><td><span class="badge b-yellow">반쪽</span></td><td>화면 신설 (W2)</td></tr>
+  <tr><td>페이퍼 → 백테스트 기대치 대조</td><td><span class="badge b-red">없음</span></td><td>KPI 통일 → 비교 뷰 (W3)</td></tr>
+  <tr><td>페이퍼 → 실전 졸업</td><td><span class="badge b-red">없음</span></td><td>졸업 기준 ADR(사용자 결재) → 게이트 (W3)</td></tr>
+  <tr><td>메뉴 순서·명칭 ("발굴" 2곳 중복 포함)</td><td><span class="badge b-yellow">개선</span></td><td>퍼널 순 재배열 + 각 화면 "다음 단계" CTA (W4)</td></tr>
+</table>
+
+<h2>4. 다음 작업 흐름 — Wave 순서 제안 (의존성 기준)</h2>
+<div class="mermaid">
+flowchart TB
+  W0["W0 · 지금 즉시<br/>─────────<br/>GAP-0 hotfix: TradingModeGate origin 인지<br/>+ 페이퍼 RUNNING task 2건 마감 (capital-port·r3 e2e)"]
+  W1["W1 · 안전 마감<br/>─────────<br/>qa: 페이퍼 격리 회귀 시나리오 LOCK<br/>(REAL 전환 전 체크리스트에 GAP-0 항목 등재)"]
+  W2["W2 · 퍼널 입구 확장<br/>─────────<br/>① USER_DSL → 페이퍼 promote 개방<br/>② 스코어카드 화면 신설"]
+  W3["W3 · 루프 닫기<br/>─────────<br/>① KPI 계산기 통일 (Backtest vs Performance)<br/>② 백테스트 기대 vs 페이퍼 실측 비교 뷰<br/>③ 페이퍼 졸업 기준 ADR (사용자 결재 의제)"]
+  W4["W4 · UX 정렬<br/>─────────<br/>① 메뉴 퍼널 순 재배열 + 다음 단계 CTA<br/>② '발굴' 명칭 정리 (AI 종목발굴 vs 단타 발굴)<br/>③ 캔들 skip 정책 통일·IS/OOS 가드 R3"]
+  W0 --> W1 --> W2 --> W3 --> W4
+</div>
+<table>
+  <tr><th>#</th><th>작업</th><th>담당 (오케스트레이터 dispatch)</th><th>선행 조건 / 비고</th></tr>
+  <tr>
+    <td><b>W0-1</b></td>
+    <td><span class="badge b-red">P0</span> GAP-0 hotfix — <code>resolveMode</code>에 전략 origin 전달, <code>PAPER_DISCOVERY</code>면 env 무관 MOCK 강제</td>
+    <td>architect 미니 spec → backend-core (+ direction-guard 선적용 — 자본 흐름 변경)</td>
+    <td><b>착수 전 설계 결정 2건</b>: ① origin 전달 방식 — <code>order.intent.v1</code>에 origin 필드 추가 vs 게이트에서 전략 조회. ② 조회 실패 정책 — REAL 모드에서 origin 불명이면 <b>주문 거부(fail-closed) 권장</b> (fail-open이면 구멍 잔존). <b>REAL canary 전 필수</b></td>
+  </tr>
+  <tr>
+    <td><b>W0-2</b></td>
+    <td><span class="badge b-yellow">P1</span> RUNNING task 2건 <b>행정 마감</b> — 산출물은 main 머지 완료, <code>task.mjs check/done</code> 처리 + T-1836 PR 번호 기록만 잔여</td>
+    <td>orchestrator (장부 정리 — 개발 0)</td>
+    <td>재실측으로 강등: 개발 미완 아님. 5분 작업</td>
+  </tr>
+  <tr>
+    <td><b>W1-1</b></td>
+    <td><span class="badge b-yellow">P1</span> 페이퍼 격리 회귀 시나리오 LOCK — "env=REAL이어도 페이퍼는 MOCK" 단위·E2E 케이스</td>
+    <td>qa (Visual 품질 헌터)</td>
+    <td>W0-1 머지 후. canary checklist 항목으로 등재</td>
+  </tr>
+  <tr>
+    <td><b>W2-1</b></td>
+    <td><span class="badge b-yellow">P1</span> USER_DSL → 페이퍼 — <code>PaperPromoteRequest</code>에 <code>strategyId</code> 입구 추가 + 전략 목록·백테스트 결과 화면에 "페이퍼로 검증" 버튼</td>
+    <td>backend-core + frontend (헌법 §9-2 qa Visual 의무)</td>
+    <td>W0 완료 후. origin 구조 재사용이라 입구만 추가 — 소형. <b>사용자 결재 2건</b>: 백테스트 미통과 전략 허용 여부 · 가상 자본 1천만 전략별 분리 vs 공유</td>
+  </tr>
+  <tr>
+    <td><b>W2-2</b></td>
+    <td><span class="badge b-yellow">P1</span> 스코어카드 화면 — 발굴 forward 채점(V77) 가시화, 발굴 화면 탭 또는 하위 라우트</td>
+    <td>frontend (+ qa Visual)</td>
+    <td>백엔드 API 기존재 — 화면만. 발굴 신뢰도 판단의 유일한 창</td>
+  </tr>
+  <tr>
+    <td><b>W3-1</b></td>
+    <td><span class="badge b-purple">P2</span> KPI 계산기 통일 — <code>BacktestKpiCalculator</code>·<code>PerformanceCalculator</code> 공유 모듈화 (지표 정의 단일화)</td>
+    <td>architect spec → strategy-engine·backend-core</td>
+    <td>W3-2의 전제. 모듈 경계 변경이라 ADR 필요</td>
+  </tr>
+  <tr>
+    <td><b>W3-2</b></td>
+    <td><span class="badge b-purple">P2</span> 백테스트 기대 vs 페이퍼 실측 비교 뷰 — 같은 잣대 PF·MDD·승률 나란히</td>
+    <td>frontend (+ qa Visual)</td>
+    <td>W3-1 + 페이퍼 데이터 누적 필요 (최소 수 거래일)</td>
+  </tr>
+  <tr>
+    <td><b>W3-3</b></td>
+    <td><span class="badge b-purple">P2</span> 페이퍼 졸업 기준 ADR — 예: 20거래일·PF≥1.2·MDD≤8% (수치는 <b>사용자 결재 의제</b>)</td>
+    <td>architect → 사용자 결재</td>
+    <td>W3-2와 병행 가능. canary checklist 연결</td>
+  </tr>
+  <tr>
+    <td><b>W4-1</b></td>
+    <td><span class="badge b-purple">P3</span> 메뉴 퍼널 재배열 + 화면별 "다음 단계" CTA + "발굴" 명칭 정리</td>
+    <td>frontend (+ qa Visual — 핵심 화면 변경)</td>
+    <td>W2·W3로 도선이 다 생긴 뒤에 — 순서 먼저 바꾸면 빈 도선 노출</td>
+  </tr>
+  <tr>
+    <td><b>W4-2</b></td>
+    <td><span class="badge b-purple">P3</span> 캔들 skip 정책 통일 (발굴 graceful skip vs 백테스트 FAILED) + IS/OOS 과최적화 가드 R3</td>
+    <td>strategy-engine · architect</td>
+    <td>독립 — 여유 슬롯에 배치</td>
+  </tr>
+</table>
+
+<div class="card warn">
+  <b>진행 방법 (CLAUDE.md 규약 기준)</b><br><br>
+  W0-1부터가 전부 비트리비얼·자본 흐름 결합 작업이므로 <b><code>magicjar-orchestrator</code> 스킬로 dispatch</b>하고, 각 작업 전
+  <code>magicjar-direction-guard</code>를 선적용합니다. 한 PR = 한 영역(개발 룰 #2), 라운드 분할(룰 #3) 준수.<br><br>
+  <b>착수 전 미결 3건 → 2026-06-10 사용자 결재 완료 2건</b> —
+  ① W0-1 origin 전달 방식 + 실패 시 fail-closed: architect spec으로 해결 (W0 착수 승인됨).
+  ② W2-1 <b>결재 완료</b>: 모든 저장 전략 페이퍼 허용 (백테스트 통과 강제 안 함) + 가상 자본 <b>전략별 분리</b> (RiskConfig 구조 변경 포함 — W2 범위 확대 주의).
+  ③ W3-3 졸업 기준 수치: <b>미결 유지</b> — W3 착수 전 결재.
+  나머지 리스크 가드: W3-1 KPI 통일은 기존 백테스트 결과값 <b>회귀 비교 테스트 필수</b>, W4-1 메뉴 재배열은 qa Visual 의무.
+  오늘 env=MOCK이므로 W0-1 머지로 인한 운영 동작 변화는 0 — REAL 전환 전이 안전한 수정 시점입니다.
+</div>
+
+<p class="muted">근거: 2026-06-10-strategy-mock-paper-flow.html(검증 대상) · TradingModeGateImpl.kt · OrderRouterKafkaListener.kt · SignalGeneratedKafkaListener.kt:771-830 · PaperCapitalSnapshotProviderAdapter.kt · DaytradePaperDto.kt(PaperPromoteRequest) · DiscoveryScorecardScheduler.kt · AppHeader.tsx:57-62 · _workspace/tasks/T-20260610-*(status 실측) · ADR 0056·0061·0071·0117·0121·0122</p>
+
+</div>
+<script>mermaid.initialize({startOnLoad:true,theme:'neutral'});</script>
+</body>
+</html>

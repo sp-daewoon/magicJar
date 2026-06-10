@@ -3,10 +3,10 @@ id: T-20260610-1655-daytrade-paper-r1-capital-port
 agent: backend-core
 model: opus
 branch: agent/backend-core/daytrade-paper-r1-capital-port
-status: RUNNING
+status: DONE
 startedAt: 2026-06-10T16:55:22.581+09:00
-completedAt: null
-pr: 903
+completedAt: 2026-06-11T00:17:53.167+09:00
+pr: #903
 parentPhase: ADR-0122-R1
 ---
 
