@@ -16,6 +16,12 @@ import java.math.BigDecimal
  * - priceChange: 전일대비 (PRDY_VRSS) — nullable: polling source는 미제공
  * - changeRate: 전일대비율 (PRDY_CTRT) — nullable: polling source는 미제공
  * - changeSign: 부호 코드 (PRDY_VRSS_SIGN: 1=상한/2=상승/3=보합/4=하한/5=하락) — nullable
+ *
+ * R1-A 체결강도 흡수 (ADR 0117 §3-R1 — 단타 발굴 레이어 토대, KIS 계산 완료값 흡수만 · 자체 산식 0):
+ *   https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
+ *   ccnl_krx() columns 배열: [14]=ACML_TR_PBMN, [18]=CTTR, [19]=SELN_CNTG_SMTN, [20]=SHNU_CNTG_SMTN
+ * - tradeIntensity: 체결강도 (CTTR — KIS 계산 완료값, 매수체결량/매도체결량×100) — nullable: polling source(WatchlistPollingWorker)·NXT 일부 미제공
+ * - turnoverAccum: 장중 누적거래대금 원 (ACML_TR_PBMN) — nullable: polling source 미제공
  */
 data class TickEvent(
     val code: String,
@@ -30,4 +36,8 @@ data class TickEvent(
     val changeRate: BigDecimal? = null,
     /** 전일대비부호 (PRDY_VRSS_SIGN: 1=상한/2=상승/3=보합/4=하한/5=하락) — KIS H0STCNT0 [3] */
     val changeSign: String? = null,
+    /** 체결강도 (CTTR — KIS 계산 완료값) — KIS H0STCNT0 [18] · polling source 미제공 시 null (ADR 0117 §3-R1) */
+    val tradeIntensity: BigDecimal? = null,
+    /** 장중 누적거래대금 원 (ACML_TR_PBMN) — KIS H0STCNT0 [14] · polling source 미제공 시 null (ADR 0117 §3-R1) */
+    val turnoverAccum: BigDecimal? = null,
 )

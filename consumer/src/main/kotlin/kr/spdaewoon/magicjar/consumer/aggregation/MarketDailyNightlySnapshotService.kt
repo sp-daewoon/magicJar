@@ -200,11 +200,11 @@ class MarketDailyNightlySnapshotService(
             }
         }
 
-        // ── ADR 0120 — today 1d upsert 직후 1wk/1mo/1y 재롤업 (전종목, 1d 합산, KIS 콜 0) ───────
-        // R2 가 today 1d 를 공식 종가로 upsert 한 직후, DB 의 1d 전량(닫힌 봉 + today)에서 상위 봉을
-        // 재합산하여 매일 주/월/년봉을 최신화한다. 오늘 진행 주/월/년봉은 today 1d 까지 반영된
-        // 닫힌-스냅샷으로 upsert 되고, 장중 라이브 갱신은 CandleQueryService.mergeQuoteLastCurrentCandle
-        // (quote:last 병합)이 별도로 담당하므로 실시간 보존 회귀 0 (ADR 0120 §실시간 보존).
+        // ── ADR 0120 (+amend) — today 1d upsert 직후 1wk/1mo/1y 재롤업 (전종목, 1d 합산, KIS 콜 0) ───
+        // R2 가 today 1d 를 공식 종가로 upsert 한 직후, DB 의 1d 최근 400 거래일(incremental)에서 상위 봉을
+        // 재합산하여 갱신 필요한 주/월/년봉만 최신화한다(amend — 매일 전체 history full-regen 폐기, ~95% 절감).
+        // 오늘 진행 주/월/년봉은 today 1d 까지 반영된 닫힌-스냅샷으로 upsert 되고, 장중 라이브 갱신은
+        // CandleQueryService.mergeQuoteLastCurrentCandle(quote:last 병합)이 별도로 담당하므로 실시간 보존 회귀 0.
         val rollup = runDailyFamilyRollup(codes, runId)
 
         val durationMs = System.currentTimeMillis() - startMs
@@ -286,7 +286,9 @@ class MarketDailyNightlySnapshotService(
         for (code in codes) {
             val detailed =
                 try {
-                    dailyFamilyRollupRunner.rollupDetailed(code)
+                    // ADR 0120 amend — R2 야간은 incremental(최근 400 거래일만 재롤업). 매일 전체 history full-regen 폐기.
+                    // 과거 닫힌 주/월/년봉은 1d 불변이라 재계산 낭비 → 갱신 필요한 경계 봉만(연봉 경계까지 커버, ~95% 절감).
+                    dailyFamilyRollupRunner.rollupDetailed(code, DailyFamilyRollupRunner.DEFAULT_INCREMENTAL_RECENT_DAYS)
                 } catch (e: Exception) {
                     log.warn("MarketDailyNightlySnapshot rollup 실패(다음 영업일 재시도): runId={} code={} err={}", runId, code, e.message)
                     continue

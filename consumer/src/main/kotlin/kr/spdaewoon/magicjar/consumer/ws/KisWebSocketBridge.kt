@@ -1479,6 +1479,10 @@ class KisWebSocketBridge(
             tick.priceChange?.let { data["priceChange"] = it.toPlainString() }
             tick.changeRate?.let { data["changeRate"] = it.toPlainString() }
             tick.changeSign?.let { data["changeSign"] = it }
+            // R1-A 체결강도 전파 (ADR 0117 §3-R1) — null이면 key 생략 (등락 필드 패턴 1:1).
+            // 소비처(MarketTickStompForwarder·PositionStopLossTickWatcher)는 Map::class로 역직렬화 → 모르는 key 무시(하위호환).
+            tick.tradeIntensity?.let { data["tradeIntensity"] = it.toPlainString() }
+            tick.turnoverAccum?.let { data["turnoverAccum"] = it.toPlainString() }
 
             val payload = objectMapper.writeValueAsString(data)
             kafkaTemplate.send("market.tick.v1", tick.code, payload)

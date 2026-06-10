@@ -1,6 +1,6 @@
 # ADR 0120 — 1wk/1mo/1y를 1d 합산으로 전환 — 기준봉/파생봉 통일 모델
 
-- 상태: **Accepted (2026-06-10 — 사용자(최고 관리자) 결재 A안 + Phase 1 백엔드 구현 완료)** — 2026-06-09 MIGRATE wipe 가 일봉 패밀리 4종(1d·1wk·1mo·1y)을 전부 삭제했으나 R-BF 캠페인이 1d 만 재적재하여 1wk·1mo·1y 가 15종목만 남은 **년봉 회귀**의 근본 fix. 1wk/1mo/1y 를 KIS 직접 fetch(FHKST03010100 W/M/Y)가 아니라 **이미 보유한 1d(전종목 10년)에서 합산 생성**으로 전환한다(KIS 콜 0).
+- 상태: **Accepted (2026-06-10 — 사용자(최고 관리자) 결재 A안 + Phase 1 백엔드 구현 완료 · amend §9 성능 최적화 2026-06-10)** — 2026-06-09 MIGRATE wipe 가 일봉 패밀리 4종(1d·1wk·1mo·1y)을 전부 삭제했으나 R-BF 캠페인이 1d 만 재적재하여 1wk·1mo·1y 가 15종목만 남은 **년봉 회귀**의 근본 fix. 1wk/1mo/1y 를 KIS 직접 fetch(FHKST03010100 W/M/Y)가 아니라 **이미 보유한 1d(전종목 10년)에서 합산 생성**으로 전환한다(KIS 콜 0). **amend §9**: Phase 1 전종목 백필 실측(~3종목/분·45/2,517) 결함을 batch upsert + R2 incremental + 비동기 병렬 admin 으로 최적화.
 - 작성: market-data
 - 영역: 데이터(A) — candle ingestion / 상위 timeframe 생성 정책. 자본 결정권 0.
 - 관계:
@@ -181,8 +181,38 @@ today 1d snapshot(멀티시세 upsert) 직후 `runDailyFamilyRollup(codes)` 단�
 
 ---
 
-## 8. 변경 이력
+## 9. amend (2026-06-10) — 성능·무지성 재생성 최적화 (실측 결함 fix)
+
+### 9-1. 실측 결함 (Phase 1 전종목 백필 가동)
+
+`POST /admin/market-daily-rollup/run` 전종목 백필 실측:
+- **처리율 ~3종목/분** → curl 10분 타임아웃에 **45/2,517종목만** 처리(나머지 ~2,470 미복구).
+- **병목 = `ConsumerCandleRepositoryAdapter.upsertAll` row-by-row 루프**: 종목당 ~2,000봉(1wk 1,568+1mo 361+1y 30)을 `insertOrUpdate` 단건 호출로 반복 → DB round-trip 폭증(~20초/종목).
+- **무지성 full-regen**: 매 run·매 R2 야간마다 종목별 1d 전량(10년 ~2,450봉) 읽어 1wk/1mo/1y **전체 history 재계산+upsert**. 1회성 복구엔 OK지만 R2 야간(23:00 매일) 전종목 전체 재생성은 낭비(과거 닫힌 주/월/년봉은 1d 불변인데 매일 ~160만 row upsert).
+- 부팅 트리거는 0(admin + R2 23:00뿐)이라 "재기동마다 무조건 도냐"는 무관 확인 — 단 무지성 full-regen·저속은 사실.
+
+### 9-2. 최적화 3종 (사용자 결재)
+
+**① batch upsert** — `ConsumerCandleRepositoryAdapter.upsertAll`을 `NamedParameterJdbcTemplate.batchUpdate`로 전환([UPSERT_SQL] = `insertOrUpdate` @Query 와 1:1 동일 `ON CONFLICT (code,interval,ts) DO UPDATE`). `UPSERT_BATCH_CHUNK`(500) 묶음 → 종목당 ~2,000 round-trip → 수 회. **semantics 보존**: SQL·무조건 DO UPDATE 동일, 반환 affected = batch row count 합산(음수 `SUCCESS_NO_INFO`=-2 는 1 보정). 공유 경로(R2 snapshot·rollup·AggregateBackfillRunner) 회귀 0. 헌법 §6 정합(네이티브 SQL·Repository default fun 0 — JPA `insertOrUpdate` 메서드는 보존). ts 는 pgjdbc `java.time.Instant` 직접 바인딩(`ConsumerRiskPositionAdapter` 정합).
+
+**② R2 야간 incremental** — `DailyFamilyRollupRunner.rollupDetailed(code, recentDays)` 추가. R2 야간은 `DEFAULT_INCREMENTAL_RECENT_DAYS`(400 거래일 ≈1.6 calendar year)만 `findLatestByCodeAndInterval(ONE_DAY, 400)` 로 읽어 롤업 → 갱신 필요한 경계 봉만 upsert(올해 진행 + 작년 닫힌 연봉까지 안전 커버, 주/월 경계도 윈도우 내 포함). **경계 정확성**: 윈도우가 잘렸으면(`oneDayCount >= recentDays`) 가장 이른 그룹(윈도우 밖 더 이른 1d 포함 가능한 부분 그룹)은 upsert 제외 → 이미 정확 적재된 불변 봉을 부정확하게 덮지 않음 → full-regen 과 동일 결과. 양 ~95% 절감(1y 전체~30봉 → 2봉). **admin `/run`은 full-regen 유지**(recentDays=null · 1회성 복구·전 history 정합 보증).
+
+**③ 백필 동시성 + 비동기 admin** — `MarketDailyRollupService.runRollupInternal`을 코루틴 `Semaphore(CONCURRENCY=4)` + `Dispatchers.IO.limitedParallelism(4)` 병렬화(KIS 콜 0 — rate-limiter 무관, hikari pool=5 대비 보수). `MarketDailyBackfillCampaign` 동시성 패턴 정합. admin `POST /run`은 `runRollupAsync()`로 **즉시 202 ACCEPTED + runId 반환 + 백그라운드 실행**(curl 10분 타임아웃 회피) — 동시 1건만(중복은 409 ALREADY_RUNNING). 진행 관측 = 로그 + DB audit + `GET /admin/market-daily-rollup/status`(running 여부 + lastResult).
+
+### 9-3. 가드 (amend)
+
+| 가드 | amend |
+|------|-------|
+| upsertAll 공유 경로 회귀 0 | ✅ SQL·semantics 동일(batchUpdate 만 교체)·R2/AggregateBackfillRunner 무영향 |
+| KIS 콜 0 | ✅ 롤업·병렬·incremental 모두 DB+CPU only |
+| mock 0 · LLM 0 · 자본 0 | ✅ 데이터 적재만 |
+| 실시간 보존 회귀 0 | ✅ CandleQueryService(api) 무변경 — live merge 무영향 |
+| Repository default fun 함정 (ADR 0051) | ✅ 신규 Repository 0 · 네이티브 SQL 인라인(JdbcTemplate) |
+| incremental = full-regen 동일 결과 | ✅ 경계 부분 그룹 drop(단위테스트 검증) |
+
+## 10. 변경 이력
 
 | 날짜 | 변경 |
 |------|------|
 | 2026-06-10 | ADR 0120 Accepted — 1wk/1mo/1y 1d 롤업 전환 + 기준봉/파생봉 통일 모델. Phase 1 백엔드 구현(DailyRollupAggregator·DailyFamilyRollupRunner·MarketDailyRollupService·admin·R2 확장 + 단위테스트). Phase 2 재수집 UI spec deferred. (market-data) |
+| 2026-06-10 | **amend §9** — 성능·무지성 재생성 최적화(실측 ~3종목/분·45/2,517 결함 fix): batch upsert(JDBC batchUpdate·semantics 보존)·R2 incremental(400 거래일·경계 정확성)·비동기 병렬 admin(코루틴 Semaphore 4·202+runId+/status). 공유 경로 upsertAll 회귀 0. (market-data) |
