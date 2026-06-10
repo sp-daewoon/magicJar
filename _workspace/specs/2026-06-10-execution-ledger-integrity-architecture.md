@@ -113,6 +113,7 @@ orchestrator가 제시한 5가설(a~e)을 evidence로 검증한다. **결론: G1
 **evidence**:
 - `ConsumerExecutionStrategyPositionAdapter.applyExecution`은 `current.quantity += fillQty`(증분 가산)다. `StrategyPositionExecutionReplayService` 주석 L31~37이 명시: *"replay는 행 단위 존재만 보고 execution 단위 멱등을 보장하지 않으므로, 이미 행이 있는 상태에서 가산하면 오히려 이중계상(over-count) 위험"* → 그래서 **행이 있으면 skip(under-count를 의도적으로 선택)**.
 - 이 선택이 G4의 직접 원인: 14:04 BUY 3주가 부분체결 1+2주로 갈렸을 때, 1주 체결로 행이 생긴 뒤 2주 체결의 replay가 "행 기존재 → skip"되어 **2주 미귀속**. order_execution(권위 원천)에는 2주가 다 있지만 strategy_position에는 1주만.
+- **G4 재현성·규모 비례 입증(14:29 실측)**: 한도 정상화(PR #888) 직후 전략 #8이 15주 매수(주문 #223, signal 709)를 냈고, KIS가 이를 **부분체결 6건(1+3+5+1+2+3주)**으로 분할 체결했다. 결과: strategy_position 원장 **11주 vs KIS 권위 16주** = 6건 중 **2건(5주)이 유실**. 이는 G4가 14:04 1회성 우연이 아니라 **부분체결 분할 수가 늘수록 유실 확률이 비례 증가**하는 구조적 결함임을 입증한다. 실전(분할매수·대량 주문 → 부분체결 다수)에서 치명적 — 주문 1건당 분할 N건이면 "행 존재 skip" 누락이 N-1회까지 누적 가능.
 - 핵심 통찰: **order_execution은 immutable append-only 이벤트 로그인데, strategy_position은 그것을 증분 적용한 mutable projection**이다. 그런데 그 projection이 **자신이 어떤 execution을 이미 반영했는지 추적하지 않는다**(execution-단위 멱등 키 부재). 그래서 "행 존재"라는 거친 신호로 멱등을 흉내내고, 그 거친 신호가 부분체결·재배정·backfill 경로에서 깨진다.
 
 **판정**: 강하게 동의. 이것이 G2·G4·G7의 공통 뿌리다. `strategy_position`을 **order_execution 로그에서 결정론적으로 재계산 가능한 파생 상태**로 보지 않고 **독립 mutable ledger**로 운용하는 것이 영구 누락의 구조적 씨앗.
@@ -132,6 +133,8 @@ orchestrator가 제시한 5가설(a~e)을 evidence로 검증한다. **결론: G1
 - G6 root cause: `RiskConfigJpaAdapter`가 api 모듈에만 `@Component`로 존재 → consumer ApplicationContext엔 빈 부재 → `ObjectProvider<RiskConfigRepository>.getIfAvailable()`이 **항상 null** → `buildContext`가 `defaultFor(1M/10%)`로 silent 진행. **사용자가 5M/70%로 설정을 넓혔는데 시스템은 1M/10%로 더 좁게 평가** = 역방향 자본 위험.
 - 이것은 ADR 0088이 이미 한 번 잡은 패턴의 **재발**: ADR 0088 §맥락 L41은 *"consumer 컨테이너 부팅 시 ObjectProvider<OrderEventOutboxRepository>는 항상 empty → drain·retry worker가 매 cycle마다 getIfAvailable() == null → skip → outbox 영구 미발행"* — Outbox는 잡았으나 RiskConfig는 같은 모듈에 합류 안 시킴.
 - PR #888이 RiskConfig를 persistence-shared로 이사 + null 분기에 ERROR 로그(MOCK) / fail-fast(REAL) 추가로 fix. 그러나 `SignalGeneratedKafkaListener`에는 **여전히 ObjectProvider graceful 분기가 12개**(config·event·position·notifier·killSwitch·strategyLookup·balance 등). 각각 부재 시 거동이 제각각(killSwitch는 fail-true, position은 empty, config는 defaultFor).
+- **G6 fix 실증(14:32:14 로그 원문)**: PR #888 배포 후 consumer가 사용자 설정을 정상 반영함을 확인 — `min(abs=5000000.0000, pct=8208447.1000)`. 이전 silent defaultFor(1M/10%)가 아니라 사용자가 설정한 5M 절대한도와 70% 비율한도(8,208,447원)가 정확히 평가에 들어왔다. 빈 합류(RiskConfigJpaAdapter → persistence-shared) fix가 실제 거동으로 확인됨.
+- **보유−미체결 가드 정상 작동 evidence**: 같은 시간대 분할매도 5건 중 합계가 보유 수량을 초과한 분(#228, 8주)이 정확히 **REJECTED** 처리됨. 보유 수량에서 미체결(in-flight) 매도 주문을 차감하는 가드가 의도대로 동작 — 같은 종목 중복 매도로 인한 over-sell을 사전 차단. (이 가드는 정상이나, §2-B-1의 키 사슬 단절과 직교 — 가드는 *총량* 초과를 막을 뿐 *귀속*은 보존하지 못함.)
 
 **판정**: 동의. ADR 0088이 만든 `persistence-shared` + `ObjectProvider` 패턴은 **"선택적 모듈 활성화" 의도였으나 실제로는 "필수 빈의 모듈 경계 누락을 silent 통과"시키는 함정**으로 작동. ADR 0088 §맥락이 스스로 *"graceful skip은 모듈 경계 결함 차단 기능을 하지 못함"*이라고 진단했는데, 그 진단이 Outbox 3개에만 적용되고 **RiskConfig 등 나머지 cross-module 필수 port에는 확산되지 않았다**.
 
@@ -159,6 +162,49 @@ C2(mutable 증분 ledger·뿌리) ──→ G2·G4·G7 (미귀속 영구화)
 ```
 
 incident가 "반나절 5개 구멍"으로 보인 이유: **하나의 뿌리(C2)가 입력 경로(WS·backfill·race·배포다운)마다 다른 표면으로 발현**했기 때문. 개별 hotfix(PR #886·#888)는 표면을 막았지만 뿌리는 남아 다음 입력 경로에서 또 발현할 수 있다.
+
+---
+
+## 2-B. 키 사슬 무결성 (Traceability Chain — 최고 관리자 직접 요구 2026-06-10)
+
+> **최고 관리자 원문 요지(2026-06-10)**: *"전략이 사인 내면 몇 주 주문 내고, 몇 주가 해당 전략으로 사지고 팔아졌는지를 키로 매핑 관리해야 한다. 매도했다는데 포지션이 남아있고 매수했다는데 포지션이 안 보이면 자동매매 시스템 실격."*
+
+§2의 본질 진단(C1~C5)이 "왜 누락이 발생·영구화되는가"의 구조 원인이라면, 본 §은 그 위에서 **최고 관리자가 요구하는 합격 기준**을 **검증 가능한 불변식**으로 LOCK한다. 핵심 통찰: incident의 G1~G7은 모두 **"사인 → 주문 → 체결 → 보유"를 잇는 키 사슬(traceability chain)이 어딘가에서 끊겼다"**는 단일 관점으로 재서술된다. C2(mutable 증분 ledger)가 *수량*의 정합을 깨는 뿌리라면, 키 사슬 단절은 *귀속(누가·어느 사인으로)*의 정합을 깨는 뿌리이며, 둘은 동전의 양면이다 — **귀속 키가 없으면 누락이 발생해도 "어느 전략의 몇 주가 빠졌는지" 자체를 특정할 수 없어**(C3의 "부족 방향-귀속 모호" WARN-only가 바로 이것) 안전한 보정이 원천적으로 불가능하다.
+
+### 2-B-1. 현행 사슬 단절 지점 evidence (orchestrator 실측)
+
+키 사슬을 `signal → order_request → order_execution → strategy_position` 4 hop으로 보면, 각 hop의 join 키가 sentinel·stub·미추적으로 끊긴 지점이 4곳 확인된다.
+
+| 단절 지점 | hop | evidence | 사슬 손실 |
+|----------|-----|----------|----------|
+| **자동청산 `signal_id=0` sentinel** | order_request → signal | 자동청산 주문 #185가 `signal_id=0` sentinel로 발사 → "어떤 사인으로 팔았나"가 원장에서 소실 | 매도 주문의 **유발 출처 키 부재** → 청산이 어느 룰·포지션에서 나왔는지 역추적 불가 |
+| **백필 stub `strategy_id=0`** | order_request → strategy | 복구 경로 `preInsertOrderRequestForBackfill`이 `strategy_id=0` stub로 주문 row 선삽입 → 복구된 체결을 어느 전략에 귀속할지 불능 | 복구 체결의 **전략 귀속 키 부재** → strategy_position 반영 불가(G2의 키 측면) |
+| **부분체결 execution-단위 키 미추적** | order_execution → strategy_position | 주문 #219·#223이 부분체결 N건으로 갈렸으나 strategy_position이 execution 단위가 아닌 *행 존재*로 멱등 판정 → 일부 execution 미귀속 | 체결 event의 **귀속 1회성 보장 키 부재**(C2와 동일 뿌리, 키 관점) → 부분체결 미귀속(G4) |
+| **취소-체결 race** | order_execution ← KIS | 주문 #220이 시스템상 `CANCELLED`인데 KIS는 실체결 → backfill이 CANCELLED terminal skip → 체결 row 자체가 INSERT 안 됨 | **역방향 사슬 소실** — order_execution(진실원)에 체결이 없어 어떤 join으로도 복원 불가(G5) |
+
+**evidence 종합**: 4 단절 모두 **"키를 0/stub/미추적으로 두면 join이 끊긴다"**는 동일 패턴. sentinel(`0`)은 "키 없음을 키 값으로 위장"하는 안티패턴이며, 그 결과 §2-C3의 "귀속 모호"가 데이터 차원에서 강제된다.
+
+### 2-B-2. 합격 불변식 5건 (구현 PR acceptance criteria로 LOCK)
+
+아래 5건은 향후 구현 PR(권고 대안 B-on-A)의 **acceptance criteria로 LOCK**한다. 각 불변식은 "최고 관리자 요구 → 검증 가능 조건"의 1:1 번역이다.
+
+1. **모든 주문 키 완전성** — `signal_id`·`strategy_id` **0-sentinel 폐지**. 발사 출처를 명시 enum `OrderTrigger ∈ {STRATEGY_SIGNAL, AUTO_EXIT, STOP_LOSS, MANUAL, EXTERNAL}` + **실키**로 보존. 자동청산(AUTO_EXIT)·손절(STOP_LOSS)도 유발 근거(청산 대상 포지션 id·발동 룰 id) 키를 연결한다 — "signal이 없는 주문"은 있어도 "출처를 모르는 주문"은 없어야 한다.
+2. **모든 체결 정확히 1회 귀속** — `order_execution.event_id` **단위 멱등**. 부분체결 N건이면 귀속도 정확히 N회(행 존재 skip 금지). 같은 event_id 재유입(WS+backfill 이중 경로)은 1회로 dedup, 새 event_id는 반드시 1회 반영.
+3. **검산 가능성** — 임의 시점에 `Σ(전략별 strategy_position 귀속) == KIS 권위 position`(user+code). 위반 시 **방향 무관**(초과·부족 모두) 자동 수렴 — order_execution 진실원에서 rebuild(대안 B)로 일치시킨다. WARN-only 방치 0(C3 비대칭 해소의 키 차원 조건).
+4. **화면 추적성** — 시그널 내역에서 **사인 1건 → 주문 몇 주 → 체결 몇 주 → 현재 그 전략이 보유한 몇 주**가 키 join으로 끊김 없이 추적 가능. (frontend 후속 트랙 명시 — 본 spec은 데이터 키 사슬까지, UI는 후속.)
+5. **회귀 시나리오 LOCK** — qa E2E 의무 2종: **"매도 체결 후 그 전략 포지션 잔존 0건"** / **"매수 체결 후 그 전략 포지션 미반영 0건"**. 최고 관리자 "실격" 정의(매도했는데 포지션 남음·매수했는데 포지션 안 보임)를 자동 재현 테스트로 못박는다.
+
+### 2-B-3. 권고 대안(B-on-A)과의 관계 — 직교/충족 매트릭스
+
+| 불변식 | 대안 B(파생 rebuild)와의 관계 | 비고 |
+|--------|------------------------------|------|
+| 1 (주문 키 완전성) | **직교** — 키 스키마 정비(0-sentinel 폐지 + OrderTrigger enum)는 ledger 모델과 독립. 대안 A/B 무관하게 선행 필요 | order_request·signal 스키마 차원 |
+| 2 (체결 1회 귀속) | **대안 B가 직접 충족** — rebuild는 절대목표 set이므로 부분체결 N건이 자동으로 정확히 반영. 증분(A)은 추적 키 보강 필요 | C2 뿌리 직격 |
+| 3 (검산 가능성) | **대안 B가 직접 충족** — rebuild가 Σ귀속 == KIS authority를 구조적으로 보장(방향 대칭) | C3 비대칭 해소 |
+| 4 (화면 추적성) | **직교** — 키 join 쿼리·UI. 단 불변식 1의 키 완전성이 데이터 전제 | frontend 후속 |
+| 5 (회귀 LOCK) | **대안 B가 직접 충족** — rebuild 정합 위에서 E2E가 안정적으로 GREEN | qa E2E 트랙 |
+
+**결론**: 불변식 **1·4는 대안과 직교**(키 스키마·UI 정비 — 대안 채택과 무관하게 진행)이고, **2·3·5는 대안 B가 직접 충족**한다. 즉 최고 관리자 요구를 완전히 만족하려면 **대안 B(귀속 수량 정합) + 키 스키마 정비(귀속 출처 정합)**가 함께 가야 하며, 이는 §3 권고 B-on-A에 **"+ 키 사슬 정비"**를 1급 동반 작업으로 묶는다(§4-⑥에 amend 항목 신설).
 
 ---
 
@@ -219,6 +265,8 @@ v1/v2 회귀 금지 + 자동매매 적합성 의심 lens 적용. **평가 기준
 ## 4. ADR 0115 P2 amend 초안 (즉시 실행 가능 — 권고 대안 B-on-A 경로)
 
 > 본 §은 ADR 0115에 추가할 **P2 항목 초안**. 사용자 결재 후 ADR 0115 amend로 정식 편입. 각 항목 끝에 권고 대안(§3)과의 관계 명시.
+>
+> **2026-06-10 보강**: 최고 관리자 직접 요구(§2-B 키 사슬 무결성)에 따라 **⑥(키 사슬 정비 — 0-sentinel 폐지 + 주문 출처 enum)** 신설. ⑥은 ①(replay 멱등)·③(WarnUnderflow 자동 보정)의 귀속 판정을 "모호"에서 "명확"으로 바꾸는 **전제 조건**이다(§2-C3 "귀속 모호" WARN-only의 근본 원인 = 키 부재). 권고 우선순위: ②·④·**⑥**이 1순위(자본 누락·귀속 직결), ①·③·⑤가 2순위(⑥ 위에서 효과 발현).
 
 ### P2-① replay execution-단위 멱등 (C1·C2 — 대안 A 보강 + B 디딤돌)
 
@@ -251,11 +299,19 @@ v1/v2 회귀 금지 + 자동매매 적합성 의심 lens 적용. **평가 기준
 - **amend**: drift 보정(`ConsumerExecutionStrategyPositionAdapter.applyDriftCorrection`·`applyLedgerUnderflowCorrection`)이 strategy_position을 변경하면 **그 code에 대해 `HoldingPositionIndex.onFillRefresh(code)` 동반 호출**(보정도 보유 변경 이벤트로 취급). 수동 SQL 정정은 운영 절차로 "정정 후 consumer 재기동 또는 refresh 트리거" 명시.
 - **대안 관계**: 독립. 대안 B로 reconcile가 정밀해질수록 index 동반 갱신의 가치 증가.
 
+### P2-⑥ 키 사슬 정비 — 0-sentinel 폐지 + 주문 출처 enum (C2·C3 전제 / 불변식 1 — 최고 관리자 직접 요구)
+
+- **현행**: 자동청산 `signal_id=0`·백필 stub `strategy_id=0` sentinel로 주문 발사 출처가 데이터 차원에서 소실(§2-B-1 4 단절). drift 보정(`LedgerAttributedDriftCorrection`)이 부족 방향을 "AUTO·strategyId≠0 FILLED execution의 net"으로 귀속 판정하려 해도, **sentinel·stub로 인해 "이 체결이 어느 전략 것인가"가 데이터에서 모호**해 WARN-only로 빠진다(G7 "귀속 모호"의 근본 원인 = 키 부재).
+- **amend**: (a) `order_request`의 `signal_id`·`strategy_id` **0-sentinel 폐지** + 주문 발사 출처 enum `OrderTrigger ∈ {STRATEGY_SIGNAL, AUTO_EXIT, STOP_LOSS, MANUAL, EXTERNAL}` 컬럼 추가. (b) AUTO_EXIT·STOP_LOSS 주문도 유발 근거(청산 대상 포지션 id·발동 룰 id)를 실키로 보존 — "signal 없는 주문"은 허용하되 "출처 모르는 주문"은 폐지. (c) 백필 복구 주문은 stub 대신 KIS 일별체결의 odno→원주문 매핑으로 실제 strategy_id 복원, 매핑 불가 시 `EXTERNAL` 명시(귀속 불능을 sentinel로 위장하지 않음). 이로써 **불변식 1(주문 키 완전성)** 충족.
+- **①·③과의 의존 관계 — ⑥은 ①·③의 전제 조건**: ①(replay execution-단위 멱등)과 ③(WarnUnderflow 자동 보정)은 모두 "이 체결을 어느 전략에 귀속할지"를 **명확히 알 수 있다**는 가정 위에 선다. 그런데 현행은 sentinel·stub 때문에 그 귀속이 **데이터 차원에서 "모호"**하다 — ③의 `LedgerAttributedDriftCorrection`이 "ledger 합 ≠ authority면 WARN-only"로 빠지는 근본 원인이 바로 이 키 부재다. **⑥(키 사슬 정비)이 선행되어야 ①·③의 귀속 판정이 "모호"에서 "명확"으로 바뀐다.** 즉 ⑥은 ①·③의 정합 정밀화가 실제로 작동하기 위한 데이터 전제이며, ⑥ 없이 ①·③만 적용하면 "키가 없어 귀속 불가 → 여전히 WARN-only"로 효과가 반감된다.
+- **대안 관계**: 불변식 1과 직교(키 스키마 차원 — 대안 A/B 무관 선행). 단 ⑥ 완성 시 대안 B(rebuild)의 귀속 정확도가 극대화되며, ③(자동 보정)의 "단일 전략 + 외부 0" 판정도 신뢰 가능해진다. **권고 우선순위: ②·④(자본 누락 직결)와 함께 ⑥을 1순위로 — ⑥이 ①·③ 효과의 전제이므로.**
+- **Flyway**: `order_request` 컬럼 추가(`order_trigger` enum + `trigger_ref_id`) 1건 후보(V80+). sentinel 폐지는 기존 데이터 backfill 마이그레이션 동반(0 → 실제 매핑 또는 EXTERNAL).
+
 ### amend 4-X. 운영 ADR 양식 3 슬롯 (헌법 §9-5)
 
-- **SLO 영향**: 직접 수치 0. S-1(시그널→주문) 오발주 reject·알림 폭주 감소. P2-④ drain 가드는 배포 시간에 in-flight 대기 추가(운영 트레이드오프).
-- **rollback plan**: 각 항목 ENV toggle로 현행 복귀. P2-①②③은 보정 비활성 시 현행 WARN-only. P2-④는 `in-flight-check.enabled=false`. P2-⑤는 동반 호출 제거.
-- **관측 매트릭스**: `STRATEGY_POSITION_DRIFT_CORRECTED` count(보정 동작) · replay 미귀속 0 · CANCELLED 체결 흡수 count · in-flight drain 경고 발동 · index stale 감지 시간.
+- **SLO 영향**: 직접 수치 0. S-1(시그널→주문) 오발주 reject·알림 폭주 감소. P2-④ drain 가드는 배포 시간에 in-flight 대기 추가(운영 트레이드오프). P2-⑥은 스키마 마이그레이션(sentinel backfill) 1회 다운타임 또는 online 마이그레이션 필요.
+- **rollback plan**: 각 항목 ENV toggle로 현행 복귀. P2-①②③은 보정 비활성 시 현행 WARN-only. P2-④는 `in-flight-check.enabled=false`. P2-⑤는 동반 호출 제거. P2-⑥은 신규 컬럼 nullable 추가(기존 sentinel 컬럼 병존 유지) → 읽기 경로만 enum 우선·미존재 시 legacy fallback으로 점진 전환, 롤백 시 enum 무시.
+- **관측 매트릭스**: `STRATEGY_POSITION_DRIFT_CORRECTED` count(보정 동작) · replay 미귀속 0 · CANCELLED 체결 흡수 count · in-flight drain 경고 발동 · index stale 감지 시간 · **신규 주문 `order_trigger` 미분류(legacy sentinel 잔존) count → 0 수렴 추적**.
 
 ---
 
@@ -283,7 +339,7 @@ v1/v2 회귀 금지 + 자동매매 적합성 의심 lens 적용. **평가 기준
 
 | 자원 | main 현황 (audit GREEN) | 본 spec 충돌 |
 |------|------------------------|-------------|
-| **Flyway** | V1~V79 점유(최신 V79 slack webhook). strategy_position=V65 | 본 spec 코드 0 → 충돌 0. amend 구현 시 V80+ (충돌 없음) |
+| **Flyway** | V1~V79 점유(최신 V79 slack webhook). strategy_position=V65. `order_request` 기존 | 본 spec 코드 0 → 충돌 0. amend 구현 시 V80+ (충돌 없음). **§4-⑥ 키 사슬 정비 시 `order_request.order_trigger`(enum)·`trigger_ref_id` 컬럼 추가 + sentinel backfill 1건 후보** |
 | **Kafka** | `order.filled.v1`(fillSource·executedAt)·`order.cancelled.v1`·`signal.generated.v1`·`reconcile.drift.v1` 등 17 topic | 신규 0 — 기존 payload read만 |
 | **Redis** | `reconcile:lock`·`idem:order`·tradeFreq·KIS rate bucket(ADR 0116) | 신규 0 (P2 선택) |
 | **STOMP** | risk·position·order fanout | 변경 0 |
@@ -294,11 +350,12 @@ v1/v2 회귀 금지 + 자동매매 적합성 의심 lens 적용. **평가 기준
 
 ---
 
-## 7. 사용자 결재 의제 (3건)
+## 7. 사용자 결재 의제 (4건)
 
-1. **권고 대안 B-on-A 승인 여부** — strategy_position을 order_execution 파생 재계산 뷰로 점진 전환(reconcile rebuild 1급화). 승인 시 후속 사이클 strategy-engine+backend-core 디스패치.
-2. **P2 amend 5항목 우선순위** — ②(CANCELLED 대조)·④(drain 가드)는 자본 누락 직결 1순위 권고. ①③⑤는 정합 정밀화 2순위.
-3. **헌법 §11(모듈 경계 빈 합류 게이트) + development-rules drain 절차 신설** — C4·C5 재발 차단. architect 단독 PR 영역이나 사용자 인지 의제.
+1. **권고 대안 B-on-A 승인 여부** — strategy_position을 order_execution 파생 재계산 뷰로 점진 전환(reconcile rebuild 1급화). 승인 시 후속 사이클 strategy-engine+backend-core 디스패치. (§2-B-3 — 대안 B는 불변식 2·3·5를 직접 충족.)
+2. **P2 amend 6항목 우선순위** — ②(CANCELLED 대조)·④(drain 가드)·**⑥(키 사슬 정비)**는 자본 누락·귀속 직결 1순위 권고. ①③⑤는 정합 정밀화 2순위(⑥ 위에서 효과 발현 — ⑥이 ①·③의 전제).
+3. **키 사슬 무결성 불변식 5건(§2-B-2) acceptance LOCK 승인** — 최고 관리자 직접 요구. 구현 PR의 합격 기준으로 못박을지(특히 불변식 1 주문 키 완전성·5 회귀 E2E qa 의무).
+4. **헌법 §11(모듈 경계 빈 합류 게이트) + development-rules drain 절차 신설** — C4·C5 재발 차단. architect 단독 PR 영역이나 사용자 인지 의제.
 
 ---
 
@@ -307,3 +364,4 @@ v1/v2 회귀 금지 + 자동매매 적합성 의심 lens 적용. **평가 기준
 | 날짜 | 변경 | 작성 |
 |------|------|------|
 | 2026-06-10 | 초기 발행 (Proposed) — 2026-06-10 005930·전략8 incident 5연쇄 전 시스템 audit. G1~G7 → C1~C5 본질 진단(mutable 증분 ledger 뿌리). 데이터 흐름 맵 + 3중 상태 권위 매트릭스 + 대안 3안(권고 B-on-A) + ADR 0115 P2 amend 5항목 초안 + 헌법 §11·development-rules drain 절차 제안. 코드 0 touch. (architect) | architect |
+| 2026-06-10 | **보강(최고 관리자 직접 요구)** — §2-B 키 사슬 무결성(Traceability Chain) 신설: 사슬 단절 4지점 evidence + 합격 불변식 5건(acceptance LOCK) + 대안 직교/충족 매트릭스. §2 G4 재현성·규모 비례 evidence(14:29 주문 #223 부분체결 6건 중 5주 유실) + G6 fix 실증(14:32:14 `min(abs=5M, pct=8208447)`) + 보유−미체결 가드 정상(#228 REJECTED) 추가. §4 P2-⑥(0-sentinel 폐지 + OrderTrigger enum) amend 신설 — ①·③ 귀속 판정의 전제 조건 명시. §6 audit·§7 결재 의제(4건) 정합. 코드 0 touch. (architect) | architect |
