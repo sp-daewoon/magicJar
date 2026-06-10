@@ -27,6 +27,11 @@ import java.math.BigDecimal
  * - low       → output1.stck_lwpr (당일 최저가)
  * - open      → output1.stck_oprc (당일 시가)
  * - volume    → output1.acml_vol (누적 거래량)
+ * - businessDate → output2[].stck_bsop_date 최신 행 (yyyyMMdd, KST 영업일자) — add-only nullable.
+ *     KIS-first 출처: open-trading-api inquire_daily_itemchartprice output2[] stck_bsop_date.
+ *     output1에는 영업일자 스칼라가 없고 output2 시계열 행에만 있음(KisRestCandleAdapter parseKisDailyResponse 정합).
+ *     용도: 새벽(자정~개장 전) KIS가 직전 영업일 세션값을 반환하는 구간을 시드 측에서 식별 — 서버 시계 단독 판단 금지(KIS-first).
+ *     output1만 쓰는 호출처(SymbolMetaService 등)는 default null로 동작 무변(add-only graceful).
  */
 data class PriceMetrics(
     val per: BigDecimal?,
@@ -46,4 +51,9 @@ data class PriceMetrics(
     val low: BigDecimal?,
     val open: BigDecimal?,
     val volume: Long?,
+    /**
+     * KIS output2[] 최신 행 영업일자 (yyyyMMdd, KST). null = output2 결손/미파싱.
+     * add-only: 기존 호출처는 명시 안 하면 default null → 동작 무변.
+     */
+    val businessDate: String? = null,
 )

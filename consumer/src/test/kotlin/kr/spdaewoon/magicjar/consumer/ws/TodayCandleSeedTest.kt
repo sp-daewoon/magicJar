@@ -23,6 +23,9 @@ import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient
 import java.math.BigDecimal
 import java.time.Duration
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 /**
  * 구독 수립 시점 today-Hash 시드(TodayCandleSeedPort) + WS 틱 합류 정합 단위테스트.
@@ -49,7 +52,19 @@ class TodayCandleSeedTest {
 
     private val code = "005930"
     private val todayKey = "candle:today:$code:1d"
+    private val currentDayKey = "candle:current:$code:1d"
     private val oneMinuteKey = "candle:current:$code:1m"
+
+    /** KIS 영업일자 가드 비교 기준 — 오늘 KST(yyyyMMdd). 장중 happy path 기본값. */
+    private val todayBsop: String = LocalDate.now(ZoneId.of("Asia/Seoul")).format(DateTimeFormatter.BASIC_ISO_DATE)
+
+    /** 오늘 KST 00:00 startTs (유령 키 startTs 정합 — purge 안전조건 검증용). */
+    private val todayStartTs: String =
+        LocalDate
+            .now(ZoneId.of("Asia/Seoul"))
+            .atStartOfDay(ZoneId.of("Asia/Seoul"))
+            .toInstant()
+            .toString()
 
     @BeforeEach
     fun setUp() {
@@ -68,6 +83,12 @@ class TodayCandleSeedTest {
             store.getOrPut(putKeySlot.captured) { HashMap() }.putAll(putMapSlot.captured)
         }
         every { redisTemplate.expire(any<String>(), any<Duration>()) } returns true
+
+        // 유령 키 purge 경로 검증용 — delete(key) fake.
+        val delKeySlot = slot<String>()
+        every { redisTemplate.delete(capture(delKeySlot)) } answers {
+            (store.remove(delKeySlot.captured) != null)
+        }
 
         val execProvider = mockk<ObjectProvider<KisExecutionWsListener>>(relaxed = true)
         every { execProvider.getIfAvailable() } returns null
@@ -107,6 +128,7 @@ class TodayCandleSeedTest {
         low: String,
         close: String,
         vol: Long,
+        businessDate: String? = todayBsop,
     ) = PriceMetrics(
         per = null,
         pbr = null,
@@ -125,6 +147,7 @@ class TodayCandleSeedTest {
         low = BigDecimal(low),
         open = BigDecimal(open),
         volume = vol,
+        businessDate = businessDate,
     )
 
     /** private updateLiveCandles(tick) reflection 호출 — WS 틱 합류 path 재현. */
@@ -249,5 +272,76 @@ class TodayCandleSeedTest {
         bridge.seedTodayCandle(code)
 
         assertEquals(null, store[todayKey], "공식 시가 결손 → Hash 시드 skip(부분 합성 금지)")
+    }
+
+    // ── KIS 영업일자 정합 가드 (새벽 유령 일봉 근본 fix) ─────────────────────────────────
+
+    @Test
+    fun `영업일자가 전일이면(개장 전) 시드를 건너뛰고 오늘로 위장한 유령 시드 키를 purge한다`() {
+        // 새벽 부팅 시점에 어제 OHLCV가 "오늘" startTs로 박혀버린 유령 시드 키 사전 적재.
+        val ghost =
+            mutableMapOf(
+                "interval" to "1d",
+                "open" to "14290",
+                "high" to "16670",
+                "low" to "13810",
+                "close" to "16240",
+                "volume" to "32761114",
+                "startTs" to todayStartTs,
+                "ts" to todayStartTs,
+                "seeded" to "true",
+                "acmlBase" to "32761114",
+                "wsVolDelta" to "0",
+            )
+        store[todayKey] = HashMap(ghost)
+        store[currentDayKey] = HashMap(ghost)
+
+        val yesterday =
+            LocalDate
+                .now(ZoneId.of("Asia/Seoul"))
+                .minusDays(1)
+                .format(DateTimeFormatter.BASIC_ISO_DATE)
+        every { metricsPort.fetchPriceMetrics("user001", code) } returns
+            officialMetrics(open = "14290", high = "16670", low = "13810", close = "16240", vol = 32_761_114L, businessDate = yesterday)
+
+        bridge.seedTodayCandle(code)
+
+        // 시드 skip — 새 값으로 덮어쓰지 않음 + 오늘로 위장한 유령 키는 purge되어 사라진다.
+        assertEquals(null, store[todayKey], "영업일자 != 오늘 → candle:today 유령 키 purge")
+        assertEquals(null, store[currentDayKey], "영업일자 != 오늘 → candle:current 유령 키 purge")
+    }
+
+    @Test
+    fun `영업일자가 오늘이면(장중) 기존대로 정상 시드한다`() {
+        every { metricsPort.fetchPriceMetrics("user001", code) } returns
+            officialMetrics(open = "70000", high = "72000", low = "69500", close = "71000", vol = 1_234_567L, businessDate = todayBsop)
+
+        bridge.seedTodayCandle(code)
+
+        val h = store[todayKey]!!
+        assertEquals("70000", h["open"])
+        assertEquals("71000", h["close"])
+        assertEquals("true", h["seeded"], "영업일자==오늘 → 회귀 0(기존 시드 동작 유지)")
+    }
+
+    @Test
+    fun `영업일자가 결손이면 시드를 건너뛰되 기존 키는 purge하지 않는다(보수적)`() {
+        // live 틱 기반 정상 bar(seeded != true)를 잘못 지우지 않도록 — 영업일자 판정 근거 없으면 purge 보류.
+        val livePartial =
+            mutableMapOf(
+                "interval" to "1d",
+                "close" to "71000",
+                "startTs" to todayStartTs,
+            )
+        store[todayKey] = HashMap(livePartial)
+
+        every { metricsPort.fetchPriceMetrics("user001", code) } returns
+            officialMetrics(open = "70000", high = "72000", low = "69500", close = "71000", vol = 1L, businessDate = null)
+
+        bridge.seedTodayCandle(code)
+
+        // 시드 skip(새 seeded 값 안 씀) + 기존 키 보존(purge 안 함).
+        assertEquals("71000", store[todayKey]?.get("close"), "영업일자 결손 → 기존 키 purge 안 함")
+        assertEquals(null, store[todayKey]?.get("seeded"), "시드 skip — seeded 마커 미기록")
     }
 }

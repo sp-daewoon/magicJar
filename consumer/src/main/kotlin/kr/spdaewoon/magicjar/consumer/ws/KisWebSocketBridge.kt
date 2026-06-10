@@ -1394,6 +1394,36 @@ class KisWebSocketBridge(
                 )
                 return
             }
+            // ── KIS 영업일자 정합 가드 (새벽 유령 일봉 근본 fix) ───────────────────────────────
+            // 자정~개장 전 구간엔 KIS inquire-daily-itemchartprice output1 OHLCV가 **직전 영업일 세션값**을
+            // 반환한다. 서버 시계로 startTs를 "오늘"로 찍으면 어제 OHLCV가 오늘 진행 중 캔들로 합성돼
+            // 차트에 유령 캔들이 보인다(실측: 093370/005930 — 6/10 DB행 복제). KIS-first 정책상 영업일자
+            // 판단도 서버 시계가 아닌 KIS 데이터 기준이어야 한다 → output2[] 최신 행 stck_bsop_date 사용.
+            val today = LocalDate.now(kstZone).format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
+            val bsopDate = metrics.businessDate
+            when {
+                bsopDate == null -> {
+                    // 영업일자 결손(output2 부재/파싱 실패) — mock 금지 원칙대로 시드 skip. purge도 안 함
+                    // (유령인지 정상인지 판정 근거 없음 → live 틱 정상 bar를 잘못 지우지 않도록 보수적).
+                    log.warn("[TodayCandleSeed] KIS 영업일자 결손 — 시드 skip(purge 안 함): code={}", code)
+                    return
+                }
+                bsopDate != today -> {
+                    // 개장 전·휴장일 — KIS 세션값이 아직 오늘 것이 아님. 시드 skip + 기존 유령 키 방어적 purge.
+                    log.info(
+                        "[TodayCandleSeed] KIS 영업일자({}) != 오늘({}) — 개장 전/휴장 시드 skip: code={}",
+                        bsopDate,
+                        today,
+                        code,
+                    )
+                    purgeGhostSeed(code, today)
+                    return
+                }
+                // else: bsopDate == today → 장중. 기존 시드 로직 그대로(장중 회귀 0).
+            }
+            // 자기 치유: 영업일자 != 오늘이면 위에서 skip되지만, 09:00 개장 후 KIS 영업일자가 오늘로
+            // 바뀌면 RealtimeSubscriptionRouter의 1분 demand 갱신 → scheduleSeed(seedCooldownMs=60s)가
+            // 본 메서드를 재호출해 이 분기에 진입, 즉시 정상 시드한다(치유 지연 상한 ≈ 60s).
             val startTs =
                 LocalDate
                     .now(kstZone)
@@ -1468,6 +1498,45 @@ class KisWebSocketBridge(
             ),
         )
         redisTemplate.expire(key, ttl)
+    }
+
+    /**
+     * 개장 전/휴장 시드 skip 시 기존 유령 시드 Hash 방어적 purge.
+     *
+     * 자정 직후 부팅·재구독에서 (이전 가드 부재 시점에) 어제 OHLCV가 "오늘" startTs로 박혀버린
+     * candle:today:{code}:1d / candle:current:{code}:1d 유령 키를 제거한다.
+     *
+     * 안전 조건 (둘 다 충족해야 DEL):
+     *  - startTs == 오늘 KST 00:00 (= 유령이 오늘로 위장한 케이스만. 어제/다른 bar는 별 path가 정리).
+     *  - seeded == "true" (공식 시드가 만든 Hash만. live 틱 기반 bar는 1d에서 seeded=false라 보존 — updateLiveCandleHash 정합).
+     *
+     * @param today KIS 영업일자 비교에 쓴 오늘(yyyyMMdd, KST) — startTs 비교는 동일 zone instant로 환산.
+     */
+    private fun purgeGhostSeed(
+        code: String,
+        today: String,
+    ) {
+        val todayStartTs =
+            LocalDate
+                .now(kstZone)
+                .atStartOfDay(kstZone)
+                .toInstant()
+                .toString()
+        for (key in listOf("candle:today:$code:1d", "candle:current:$code:1d")) {
+            val h = redisTemplate.opsForHash<String, String>().entries(key)
+            if (h.isEmpty()) continue
+            val startTs = h["startTs"] ?: h["ts"]
+            val seeded = h["seeded"]
+            if (startTs == todayStartTs && seeded == "true") {
+                redisTemplate.delete(key)
+                log.info(
+                    "[TodayCandleSeed] 유령 시드 키 purge: key={} startTs={} today={} (영업일자 미도래)",
+                    key,
+                    startTs,
+                    today,
+                )
+            }
+        }
     }
 
     private fun liveCandleStart(
