@@ -170,7 +170,7 @@ class CandleRefreshControllerTest {
     @Test
     fun `POST candles recollect 3m 200 OK`() {
         whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
-        whenever(candleRefreshService.recollect(eq("005930"), any(), any(), anyOrNull(), anyOrNull())).thenReturn(
+        whenever(candleRefreshService.recollect(eq("005930"), any(), any(), anyOrNull(), anyOrNull(), anyOrNull())).thenReturn(
             CandleRecollectResponse(
                 deletedCount = 3900,
                 resetIntervals = listOf("3m", "1m"),
@@ -200,7 +200,7 @@ class CandleRefreshControllerTest {
     @Test
     fun `POST candles recollect jobs 202 Accepted`() {
         whenever(userAccountJpaRepository.existsAny()).thenReturn(true)
-        whenever(candleRecollectJobService.submitRecollect(eq("005930"), any(), anyOrNull())).thenReturn(
+        whenever(candleRecollectJobService.submitRecollect(eq("005930"), any(), anyOrNull(), anyOrNull())).thenReturn(
             CandleRecollectJobResponse(
                 jobId = "job-1",
                 code = "005930",
