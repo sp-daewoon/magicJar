@@ -6,6 +6,7 @@ import kr.spdaewoon.magicjar.api.controller.CandleDto
 import kr.spdaewoon.magicjar.api.controller.CandlesResponseDto
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
+import kr.spdaewoon.magicjar.domain.market.candle.TodayCandleSeedWindow
 import org.slf4j.LoggerFactory
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.redis.core.StringRedisTemplate
@@ -345,8 +346,25 @@ class CandleQueryService(
         val trusted = candle["seeded"] == "true"
         if (!trusted) {
             log.debug("unseeded 1d Redis candle skip: key={}", key)
+            return false
         }
-        return trusted
+
+        val redisTs = candle["startTs"] ?: candle["ts"]
+        val redisInstant =
+            redisTs?.let {
+                runCatching { Instant.parse(it) }.getOrNull()
+            }
+        val now = Instant.now()
+        if (redisInstant != null && TodayCandleSeedWindow.shouldSkipRedisCandle(now, redisInstant, kst)) {
+            log.info(
+                "pre-open today 1d Redis candle skip: key={} redisTs={} nowKst={}",
+                key,
+                redisTs,
+                now.atZone(kst),
+            )
+            return false
+        }
+        return true
     }
 
     private companion object {

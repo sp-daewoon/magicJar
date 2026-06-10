@@ -11,6 +11,7 @@ import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
 import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
 import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.candle.CandleSession
+import kr.spdaewoon.magicjar.domain.market.candle.TodayCandleSeedWindow
 import kr.spdaewoon.magicjar.domain.market.port.KisRestPriceMetricsPort
 import kr.spdaewoon.magicjar.domain.market.port.KisWsPort
 import kr.spdaewoon.magicjar.domain.market.port.QuoteCachePort
@@ -150,6 +151,8 @@ class KisWebSocketBridge(
      * ObjectProvider: qa fixture 등 repo 부재 환경 부팅 보장(시드 no-op graceful 정합).
      */
     private val credentialRepositoryProvider: ObjectProvider<ConsumerUserKisCredentialJpaRepository>,
+    @Value("\${magicjar.kis.today-candle-seed.pre-open-guard-enabled:true}")
+    private val todayCandleSeedPreOpenGuardEnabled: Boolean = true,
 ) : KisWsPort,
     TodayCandleSeedPort {
     companion object {
@@ -1345,11 +1348,22 @@ class KisWebSocketBridge(
      *  - open LOCK(공식 시가 보존), 고/저는 공식 baseline 위 확장만, volume = acmlBase + WS CNTG_VOL 델타.
      *
      * graceful:
+     *  - 장전(08:00 전)·주말에는 KIS 일봉 output1의 전일값을 오늘 bar로 올리지 않는다.
      *  - REST 어댑터 부재(fixture)·magicjar.kis.ws.user-id 미설정·공식값 결손 시 시드 no-op (mock 합성 금지).
      *  - 시드 없는 1d Hash는 tick 하나로 만들지 않고 DB/quote fallback에 맡긴다.
      *  - 다른 bar(어제 stale)이면 시드값으로 새 bar 세팅(open/고저/거래량 공식값으로 교체).
      */
     override fun seedTodayCandle(code: String) {
+        val now = Instant.now()
+        if (todayCandleSeedPreOpenGuardEnabled && TodayCandleSeedWindow.shouldSkipSeed(now, kstZone)) {
+            log.info(
+                "[TodayCandleSeed] 장전/휴장 seed skip: code={} nowKst={} integratedOpen=08:00",
+                code,
+                now.atZone(kstZone),
+            )
+            return
+        }
+
         val metricsPort =
             priceMetricsPortProvider.ifAvailable
                 ?: run {

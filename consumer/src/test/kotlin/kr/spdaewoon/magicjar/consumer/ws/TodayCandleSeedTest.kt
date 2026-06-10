@@ -97,6 +97,7 @@ class TodayCandleSeedTest {
                             it.ifAvailable
                         } returns null
                     },
+                todayCandleSeedPreOpenGuardEnabled = false,
             )
     }
 
