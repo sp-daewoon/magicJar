@@ -2,20 +2,21 @@
 
 > **사용법**: 최고 관리자가 항목을 준비하고 알려주시면, orchestrator가 **실측 검증 후** `[x]` + 검증 evidence를 기록합니다. 전 항목 ✅ + 실행일 결정 = canary 진입 가능.
 > 가이드: [`real-canary-precheck.html`](real-canary-precheck.html) · 절차 권위: [`real-canary-runbook.md`](real-canary-runbook.md)
-> 상태: **준비 단계** (MOCK 관찰 중 — canary 실행일 미정)
+> 상태: **실행일 확정 — 2026-06-11 (목)** · 선세팅 완료 (잔여: U-4 확인·U-7 동의 토글 + 당일 게이트)
+> **결재 amend (2026-06-11 최고 관리자)**: notional cap 100,000 → **350,000** + 종목예산 100,000 → **350,000** (대상 전략 49 xx1 종목 042700이 주당 ~27만원이라 1주 주문이 구 cap에 차단됨 — QTY=1·PER_DAY=5·DLL 50,000은 유지)
 
 ## A. 사용자 준비 항목 (precheck §4와 1:1)
 
 | 체크 | # | 항목 | 검증 방법 | 검증 evidence (orchestrator 기록) |
 |------|---|------|-----------|-----------------------------------|
-| [ ] | U-1 | canary용 전략 1개 생성 + 백테스트 통과 (분할 OFF·손절/익절·Sizing 최소) | strategy row + 백테스트 결과 | |
-| [ ] | U-2 | MOCK 관찰 기간 — 시그널↔주문 정합 확인 (며칠) | 관찰 리포트 (orchestrator 발행) | |
-| [ ] | U-3 | KIS 실전 주문용(vps) 키 등록 (⚙️ SettingsModal) | `user_kis_credential` REAL row + 잔고 200 | |
-| [ ] | U-4 | KIS IP 화이트리스트 등록 | 실키 조회 1회 성공 | |
-| [ ] | U-5 | `.env` hard cap 3종 입력 (QTY=1 · NOTIONAL=100000 · PER_DAY=5) | printenv 3종 | |
-| [ ] | U-6 | RiskConfig 4종 (손실한도 50,000 · 전략당 5건 · 동시 1종목 · 종목예산 100,000) | risk_config row | |
-| [ ] | U-7 | 실거래 동의 토글 | consent API `consented=true` | |
-| [ ] | U-8 | 실행일 결정 + 당일 아침 통보 | — | |
+| [x] | U-1 | canary용 전략 1개 생성 + 백테스트 통과 (분할 OFF·손절/익절·Sizing 최소) | strategy row + 백테스트 결과 | ✅ 2026-06-11 — 전략 49 `xx1` (042700·15m) 단독 ACTIVE. 손절 2.0%·익절 1.8%·scale_in_config NULL 실측. 전략 8·50 PAUSED 처리. 페이퍼 전략 82는 GAP-0 MOCK 강제로 유지(사용자 결정) |
+| [x] | U-2 | MOCK 관찰 기간 — 시그널↔주문 정합 확인 (며칠) | 관찰 리포트 (orchestrator 발행) | ✅ 2026-06-08~06-10 MOCK 운영 — WS 체결통보 라이브 실증(PR #878)·포지션 정합 자동보정 가동·시그널→주문→Slack e2e 다수. 당일 09:00 dwell로 최종 확인 |
+| [x] | U-3 | KIS 실전 주문용(vps) 키 등록 (⚙️ SettingsModal) | `user_kis_credential` REAL row + 잔고 200 | ✅ 2026-06-11 — REAL row 1건 실측. 잔고 200 검증은 당일 아침 G게이트에서 |
+| [ ] | U-4 | KIS IP 화이트리스트 등록 | 실키 조회 1회 성공 | 사용자 확인 대기 (시세 수집 실전 키는 작동 중 — 주문 키 동일 IP 여부 확인) |
+| [x] | U-5 | `.env` hard cap 3종 입력 (QTY=1 · **NOTIONAL=350000(amend)** · PER_DAY=5) | printenv 3종 | ✅ 2026-06-11 .env 기입 (컨테이너 반영은 당일 REAL flip 재배포 시 — printenv 재확인 의무) |
+| [x] | U-6 | RiskConfig 4종 (손실한도 50,000 · 전략당 5건 · 동시 1종목 · **종목예산 350,000(amend)**) | risk_config row | ✅ 2026-06-11 PUT /api/risk-config 적용 실측 — 350000/DLL 50000 active/동시 1/일 5 |
+| [ ] | U-7 | 실거래 동의 토글 | consent API `consented=true` | 실측 `consented=false` — 사용자 ⚙️ 토글 대기 (사용자 단독 권한) |
+| [x] | U-8 | 실행일 결정 + 당일 아침 통보 | — | ✅ 2026-06-11 (목) 확정 — 사용자 직접 지시 |
 
 ## B. 시스템 준비 항목 (orchestrator 책임)
 
@@ -46,4 +47,5 @@
 
 | 일자 | 변경 |
 |------|------|
+| 2026-06-11 | 실행일 확정(6/11 목) + 선세팅 evidence 기록 (U-1·2·3·5·6·8 ✅) + **notional/종목예산 cap 350,000 amend (최고 관리자 결재 — 042700 주가 ~27만원 정합)** + 대상 전략 49 LOCK·전략 8/50 PAUSE·페이퍼 82 유지(GAP-0) |
 | 2026-06-05 | 최초 발행 (orchestrator) — MOCK 관찰 단계 진입, B 6/8 완료 |
