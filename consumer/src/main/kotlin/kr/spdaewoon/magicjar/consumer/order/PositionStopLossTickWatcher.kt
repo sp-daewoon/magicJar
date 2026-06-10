@@ -5,6 +5,7 @@ import kr.spdaewoon.magicjar.consumer.persistence.PositionJpaRepository
 import kr.spdaewoon.magicjar.consumer.risk.OrderIntentKafkaProducer
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import kr.spdaewoon.magicjar.strategy.entry.KrxTickSize
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -174,6 +175,9 @@ class PositionStopLossTickWatcher(
             limitPrice = null,
             priceAtSignal = tickPrice,
             idempotencyKey = idempotencyKey,
+            // ADR 0115 §2-P2-⑥ — tick 손절: 발사 출처 STOP_LOSS + 유발 근거 = 청산 대상 전략 id
+            orderTrigger = OrderTrigger.STOP_LOSS,
+            triggerRefId = position.strategyId,
         )
         // 발행 성공 — cooldown 갱신(상태 signature + 발행 시각). 같은 상태 재tick은 임계까지 차단.
         intentCooldown[cooldownKey(position)] =

@@ -11,6 +11,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderResult
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
+import kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger
 import kr.spdaewoon.magicjar.domain.order.execution.port.KisOrderPort
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import kr.spdaewoon.magicjar.strategy.entry.EntryPricePolicy
@@ -152,6 +153,9 @@ class AutoExitOrderCoordinator(
             limitPrice = targetPrice,
             priceAtSignal = baseAvgPrice,
             idempotencyKey = idempotencyKey,
+            // ADR 0115 §2-P2-⑥ — 자동 익절 선주문: 발사 출처 AUTO_EXIT + 유발 근거 = 청산 대상 전략 id
+            orderTrigger = OrderTrigger.AUTO_EXIT,
+            triggerRefId = event.strategyId,
             signalId = event.signalId,
         )
         log.info(

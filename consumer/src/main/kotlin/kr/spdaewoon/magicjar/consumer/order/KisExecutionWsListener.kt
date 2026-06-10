@@ -13,6 +13,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
+import kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderAuditEventRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderExecutionRepository
@@ -320,6 +321,8 @@ class KisExecutionWsListener(
                 requestedAt = now,
                 acknowledgedAt = now,
                 source = OrderSource.EXTERNAL,
+                // ADR 0115 §2-P2-⑥ — WS 외부 흡수 stub strategy_id=0 sentinel을 EXTERNAL 출처로 명시.
+                orderTrigger = OrderTrigger.EXTERNAL,
             )
 
         val saved =

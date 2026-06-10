@@ -5,6 +5,7 @@ import kr.spdaewoon.magicjar.domain.order.event.OrderEventOutbox
 import kr.spdaewoon.magicjar.domain.order.event.OrderOutboxEventType
 import kr.spdaewoon.magicjar.domain.order.event.port.OrderEventOutboxRepository
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
+import kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger
 import kr.spdaewoon.magicjar.domain.signal.Signal
 import kr.spdaewoon.magicjar.persistence.shared.metric.PersistenceMetrics
 import org.slf4j.LoggerFactory
@@ -86,6 +87,9 @@ class OrderIntentKafkaProducer(
                         "limitPrice" to effectiveLimitPrice?.toPlainString(),
                         "idempotencyKey" to "${signal.id}:${signal.userId}",
                         "source" to "AUTO",
+                        // ADR 0115 §2-P2-⑥ — 시그널 파생 주문: 발사 출처 STRATEGY_SIGNAL + 유발 근거 = signal id
+                        "orderTrigger" to OrderTrigger.STRATEGY_SIGNAL.name,
+                        "triggerRefId" to signal.id,
                         "riskVerdict" to "ALLOWED",
                         "emittedAt" to now,
                     ),
@@ -120,6 +124,8 @@ class OrderIntentKafkaProducer(
      * @param signalId 0L 권장(시그널 비파생). canary notional cap·audit 추적용.
      * @param priceAtSignal MARKET canary cap 단가 source(현재가/평단). LIMIT이면 [limitPrice]가 우선.
      * @param idempotencyKey **이중 발화 방지 핵심** — `auto-sl:`/`auto-tp:` prefix(AutoOrderIdempotencyKeys). 동일 키 재발행은 OrderRouter가 흡수.
+     * @param orderTrigger 발사 출처 enum (ADR 0115 §2-P2-⑥ — AUTO_EXIT/STOP_LOSS/PARTIAL_TAKE_PROFIT). "출처 모르는 주문" 폐지.
+     * @param triggerRefId 유발 근거 실키 (청산 대상 strategy id 등). signal 없는 청산도 근거 키 보존.
      */
     fun publishExitIntent(
         userId: String,
@@ -132,6 +138,8 @@ class OrderIntentKafkaProducer(
         limitPrice: BigDecimal?,
         priceAtSignal: BigDecimal,
         idempotencyKey: String,
+        orderTrigger: OrderTrigger,
+        triggerRefId: Long,
         signalId: Long = 0L,
     ) {
         val now =
@@ -157,6 +165,9 @@ class OrderIntentKafkaProducer(
                         "limitPrice" to effectiveLimitPrice?.toPlainString(),
                         "idempotencyKey" to idempotencyKey,
                         "source" to "AUTO",
+                        // ADR 0115 §2-P2-⑥ — 청산 안전망 주문도 발사 출처·근거 키 보존 (signal_id=0 sentinel 의미 제거)
+                        "orderTrigger" to orderTrigger.name,
+                        "triggerRefId" to triggerRefId,
                         "riskVerdict" to "ALLOWED",
                         "emittedAt" to now,
                     ),

@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.api.messaging.order
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.domain.order.execution.OrderIntent
+import kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.KafkaException
 import org.springframework.kafka.core.KafkaTemplate
@@ -90,6 +91,8 @@ class ManualOrderIntentKafkaProducer(
                         "limitPrice" to intent.limitPrice?.toPlainString(),
                         "idempotencyKey" to intent.idempotencyKey,
                         "source" to intent.source.name,
+                        // ADR 0115 §2-P2-⑥ — 수동 주문 발사 출처 MANUAL (유발 근거 키 없음 — 사용자 직접)
+                        "orderTrigger" to OrderTrigger.MANUAL.name,
                         "emittedAt" to now,
                     ),
                 )

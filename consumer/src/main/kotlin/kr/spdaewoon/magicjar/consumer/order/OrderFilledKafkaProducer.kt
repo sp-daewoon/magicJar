@@ -72,6 +72,9 @@ class OrderFilledKafkaProducer(
                         "partial" to partial,
                         "mode" to request.mode.name,
                         "source" to request.source.name,
+                        // ADR 0115 §2-P2-⑥ — 체결 알림 출처 표기 개선 (자동청산/손절/시그널/외부 구분)
+                        "orderTrigger" to request.orderTrigger?.name,
+                        "triggerRefId" to request.triggerRefId,
                     ),
                 )
             } catch (e: Exception) {
