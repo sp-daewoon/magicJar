@@ -112,8 +112,9 @@ class ConsumerCandleRepositoryAdapter(
         MapSqlParameterSource()
             .addValue("code", candle.code)
             .addValue("interval", candle.interval.code)
-            // ts = candle.ts(timestamptz). pgjdbc 가 java.time.Instant 직접 바인딩(ConsumerRiskPositionAdapter 정합) — 명시 타입 미지정.
-            .addValue("ts", Instant.ofEpochSecond(candle.ts.epochSeconds))
+            // ts = candle.ts(timestamptz). ★ batch 경로는 pgjdbc 가 java.time.Instant 타입 추론을 못해
+            // "could not determine data type" → BadSqlGrammar 전종목 실패(2026-06-10 실측). Timestamp 명시 바인딩 정정.
+            .addValue("ts", java.sql.Timestamp.from(Instant.ofEpochSecond(candle.ts.epochSeconds)), Types.TIMESTAMP)
             .addValue("openRaw", candle.openRaw, Types.NUMERIC)
             .addValue("highRaw", candle.highRaw, Types.NUMERIC)
             .addValue("lowRaw", candle.lowRaw, Types.NUMERIC)
