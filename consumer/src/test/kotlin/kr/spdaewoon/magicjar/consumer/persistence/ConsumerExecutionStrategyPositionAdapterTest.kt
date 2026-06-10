@@ -28,6 +28,7 @@ class ConsumerExecutionStrategyPositionAdapterTest {
     private val port = CapturingStrategyPositionPort()
     private val jpaRepo: StrategyPositionJpaRepository = mock()
     private val positionRepo: PositionJpaRepository = mock()
+    private val orderRequestRepo: ConsumerOrderRequestJpaRepository = mock()
     private val signalRepo: ConsumerSignalJpaRepository = mock()
 
     @Suppress("UNCHECKED_CAST")
@@ -41,6 +42,7 @@ class ConsumerExecutionStrategyPositionAdapterTest {
             strategyPositionPort = port,
             strategyPositionJpaRepository = jpaRepo,
             positionJpaRepository = positionRepo,
+            orderRequestJpaRepository = orderRequestRepo,
             signalJpaRepository = signalRepo,
             systemEventLoggerProvider = systemEventProvider,
             // 본 테스트는 applyExecution upsert 수식만 검증한다 — drift 보정은 별도 reconcile 테스트(아래 클래스).

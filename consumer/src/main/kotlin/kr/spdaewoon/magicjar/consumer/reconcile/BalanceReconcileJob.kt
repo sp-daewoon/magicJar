@@ -4,6 +4,7 @@ import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRe
 import kr.spdaewoon.magicjar.domain.reconcile.ReconcileTriggerSource
 import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
@@ -32,6 +33,11 @@ class BalanceReconcileJob(
     private val balanceReconcileService: BalanceReconcileService,
     private val reconcileLockAdapter: ReconcileLockAdapter,
     private val credentialRepository: ConsumerUserKisCredentialJpaRepository,
+    /**
+     * ADR 0115 §P1-1 amend (2026-06-10) — KIS position 정합 직후 strategy_position 부족 drift 정합.
+     * ObjectProvider graceful — 어댑터 미합류 시 strategy_position 정합 skip(BalanceReconcile 본체는 정상).
+     */
+    private val strategyPositionReconcileWorkerProvider: ObjectProvider<StrategyPositionReconcileWorker>,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String,
 ) {
@@ -72,6 +78,9 @@ class BalanceReconcileJob(
             try {
                 val result = balanceReconcileService.reconcileUser(userId, triggerSource)
                 result.id?.let { reconcileLockAdapter.cacheLastRun(userId, it) }
+                // KIS position 정합 직후 strategy_position 부족 drift 정합 (ADR 0115 §P1-1 amend).
+                // position 테이블이 KIS 잔고로 최신화된 직후라 strategy_position 정렬의 권위 기준이 신선.
+                reconcileStrategyPositions(userId, accountType.name)
             } catch (e: Exception) {
                 log.error("BalanceReconcileJob — user 처리 실패: userId={} err={}", maskUserId(userId), e.message, e)
             } finally {
@@ -80,6 +89,25 @@ class BalanceReconcileJob(
         }
 
         log.info("BalanceReconcileJob — 완료")
+    }
+
+    /**
+     * strategy_position 부족 drift 정합 — ObjectProvider graceful (어댑터 미합류 시 skip).
+     * worker 자체가 종목별 try-catch 이므로 본 wrap 은 worker bean 부재·일괄 호출 실패만 가드.
+     */
+    private fun reconcileStrategyPositions(
+        userId: String,
+        modeName: String,
+    ) {
+        val worker = strategyPositionReconcileWorkerProvider.getIfAvailable() ?: return
+        runCatching { worker.reconcileForUser(userId, modeName) }
+            .onFailure { e ->
+                log.warn(
+                    "BalanceReconcileJob — strategy_position 정합 실패(본체 무영향): userId={} err={}",
+                    maskUserId(userId),
+                    e.message,
+                )
+            }
     }
 
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"
