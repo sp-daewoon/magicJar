@@ -6,6 +6,8 @@ import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.infrastructure.session.SimpleMarketSessionResolver
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaEntity
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.KillSwitchJpaRepository
 import kr.spdaewoon.magicjar.domain.market.session.BusinessDayCalendar
 import kr.spdaewoon.magicjar.domain.order.execution.DenyReason
@@ -37,6 +39,7 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import java.math.BigDecimal
 import java.nio.charset.StandardCharsets
 import java.time.Instant
+import java.util.Optional
 
 /**
  * OrderRouterKafkaListener 단위 테스트 (ADR 0068 §14-2·§14-7 LOCK).
@@ -177,6 +180,87 @@ class OrderRouterKafkaListenerTest {
         verify(exactly = 1) { ack.acknowledge() }
     }
 
+    // ── ADR 0122 §6 GAP-0 hotfix — 페이퍼 전략 MOCK 강제 라우터 배선 ──────────────────────
+
+    private fun paperListener(
+        strategyRepoProvider: ObjectProvider<ConsumerStrategyJpaRepository>,
+        mode: String = "MOCK",
+    ): OrderRouterKafkaListener =
+        OrderRouterKafkaListener(
+            orderRequestRepositoryProvider = orderRepoProvider,
+            orderAuditEventRepositoryProvider = auditRepoProvider,
+            killSwitchQueryPortProvider = killSwitchProvider,
+            tradingModeGate = tradingModeGate,
+            orderIdempotencyGuard = idempotencyGuard,
+            kisOrderPort = kisOrderPort,
+            orderRequestedKafkaProducer = requestedProducer,
+            orderRejectedKafkaProducer = rejectedProducer,
+            accountBalanceChangedKafkaProducer = accountBalanceChangedProducer,
+            executionBackfillServiceProvider = executionBackfillProvider,
+            killSwitchJpaRepositoryProvider = killSwitchJpaRepositoryProvider,
+            marketSessionResolver = marketSessionResolver,
+            businessDayCalendarProvider = businessDayCalendarProvider,
+            objectMapper = objectMapper,
+            holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
+            sellRejectAutoPauseTracker = sellRejectAutoPauseTracker,
+            strategyPositionExecutionReplayServiceProvider = strategyReplayServiceProvider,
+            consumerStrategyJpaRepositoryProvider = strategyRepoProvider,
+            magicjarMode = mode,
+            marketHoursGateEnabled = false,
+        )
+
+    @Test
+    fun `(paper-1) origin=PAPER_DISCOVERY 전략 주문은 게이트에 paperStrategy=true 전달 + MOCK 제출`() {
+        every { idempotencyGuard.acquire(any(), any()) } returns true
+        every { tradingModeGate.resolveMode("12345678", true) } returns OrderResult.Right(TradingMode.MOCK)
+        every { killSwitchPort.isOn("12345678") } returns false
+        every { orderRepo.save(any()) } answers { firstArg<OrderRequest>().copy(id = 99L) }
+        every { orderRepo.findByKisOrderNo("ODNO123") } returns null
+        every { kisOrderPort.submit(any(), TradingMode.MOCK) } returns
+            OrderResult.Right(
+                KisOrderAck(kisOrderNo = "ODNO123", kisFwdgOrgno = "ORG001", rtCd = "0", msg = "OK"),
+            )
+        val paperRepo =
+            mockk<ConsumerStrategyJpaRepository>().also { repo ->
+                every { repo.findById(100L) } returns
+                    Optional.of(mockk<ConsumerStrategyJpaEntity>().also { every { it.origin } returns "PAPER_DISCOVERY" })
+            }
+        val provider =
+            mockk<ObjectProvider<ConsumerStrategyJpaRepository>>().also {
+                every { it.getIfAvailable() } returns paperRepo
+            }
+
+        val ack = mockk<Acknowledgment>(relaxed = true)
+        paperListener(provider).onOrderIntent(buildRecord(stubPayload()), ack)
+
+        verify(exactly = 1) { tradingModeGate.resolveMode("12345678", true) }
+        verify(exactly = 1) { kisOrderPort.submit(any(), TradingMode.MOCK) }
+        verify(exactly = 1) { ack.acknowledge() }
+    }
+
+    @Test
+    fun `(paper-2) REAL 모드에서 strategy repo 미합류 시 fail-closed — PAPER_ORIGIN_UNRESOLVED REJECTED`() {
+        every { idempotencyGuard.acquire(any(), any()) } returns true
+        every { orderRepo.save(any()) } answers { firstArg<OrderRequest>().copy(id = 77L) }
+        val absentProvider =
+            mockk<ObjectProvider<ConsumerStrategyJpaRepository>>().also {
+                every { it.getIfAvailable() } returns null
+            }
+
+        val ack = mockk<Acknowledgment>(relaxed = true)
+        paperListener(absentProvider, mode = "REAL").onOrderIntent(buildRecord(stubPayload()), ack)
+
+        verify(exactly = 0) { tradingModeGate.resolveMode(any(), any()) }
+        verify(exactly = 0) { kisOrderPort.submit(any(), any()) }
+        verify(exactly = 1) {
+            rejectedProducer.publish(any(), match { it.contains("PAPER_ORIGIN_UNRESOLVED:REPO_UNAVAILABLE") })
+        }
+        val auditSlot = mutableListOf<OrderAuditEvent>()
+        verify(atLeast = 1) { auditRepo.save(capture(auditSlot)) }
+        assertThat(auditSlot.map { it.eventType }).contains(OrderAuditEventType.REAL_GATE_DENIED)
+        verify(exactly = 1) { ack.acknowledge() }
+    }
+
     // ── ADR 0115 §2-P2-⑥ 키 사슬 무결성 — OrderTrigger 발사 출처 영속 ──────────────────────
 
     @Test
@@ -272,7 +356,7 @@ class OrderRouterKafkaListenerTest {
         val auditSlot = slot<OrderAuditEvent>()
         verify(exactly = 1) { auditRepo.save(capture(auditSlot)) }
         assertThat(auditSlot.captured.eventType).isEqualTo(OrderAuditEventType.IDEMPOTENCY_SKIPPED)
-        verify(exactly = 0) { tradingModeGate.resolveMode(any()) }
+        verify(exactly = 0) { tradingModeGate.resolveMode(any(), any()) }
         verify(exactly = 0) { kisOrderPort.submit(any(), any()) }
         verify(exactly = 0) { requestedProducer.publish(any()) }
         verify(exactly = 1) { ack.acknowledge() }
@@ -288,7 +372,7 @@ class OrderRouterKafkaListenerTest {
 
         verify(exactly = 1) { orderRepo.save(match { it.status == OrderStatus.REJECTED }) }
         verify(exactly = 1) { rejectedProducer.publish(any(), "IDEMPOTENCY_REDIS_DOWN") }
-        verify(exactly = 0) { tradingModeGate.resolveMode(any()) }
+        verify(exactly = 0) { tradingModeGate.resolveMode(any(), any()) }
         verify(exactly = 0) { kisOrderPort.submit(any(), any()) }
         verify(exactly = 1) { ack.acknowledge() }
     }
@@ -343,6 +427,16 @@ class OrderRouterKafkaListenerTest {
             mockk<ObjectProvider<KisExecutionBackfillService>>().also {
                 every { it.getIfAvailable() } returns executionBackfillService
             }
+        // ADR 0122 §6 GAP-0 — REAL 모드는 paper origin 조회 fail-closed이므로 USER_DSL stub 배선 의무
+        val userDslStrategyRepo =
+            mockk<ConsumerStrategyJpaRepository>().also { repo ->
+                every { repo.findById(100L) } returns
+                    Optional.of(mockk<ConsumerStrategyJpaEntity>().also { every { it.origin } returns "USER_DSL" })
+            }
+        val strategyRepoProvider =
+            mockk<ObjectProvider<ConsumerStrategyJpaRepository>>().also {
+                every { it.getIfAvailable() } returns userDslStrategyRepo
+            }
         val realListener =
             OrderRouterKafkaListener(
                 orderRequestRepositoryProvider = orderRepoProvider,
@@ -361,6 +455,7 @@ class OrderRouterKafkaListenerTest {
                 objectMapper = objectMapper,
                 holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
                 sellRejectAutoPauseTracker = sellRejectAutoPauseTracker,
+                consumerStrategyJpaRepositoryProvider = strategyRepoProvider,
                 magicjarMode = "REAL",
                 marketHoursGateEnabled = false,
             )

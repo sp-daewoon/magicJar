@@ -27,11 +27,14 @@ import org.springframework.stereotype.Component
  * ### Phase 2 graceful fallback
  * RealTradingConsentPort 미합류 시 — REAL 모드 조건 3 충족 불가 → 안전하게 CONSENT_NOT_GIVEN denied.
  *
- * 단위 테스트 4 케이스 LOCK (§14-7):
+ * 단위 테스트 7 케이스 LOCK (§14-7 + ADR 0122 §6 GAP-0 hotfix):
  *   (a) MOCK fallback (env=MOCK)
  *   (b) REAL 정상 (3 조건 모두 true)
  *   (c) ALLOW_REAL=false denied
  *   (d) CONSENT_NOT_GIVEN denied
+ *   (e) paper + REAL 3조건 충족 → MOCK 강제
+ *   (f) paper + env=MOCK → MOCK
+ *   (g) paper 시 consentPort 미호출 (3중 게이트 평가 자체 skip)
  *
  * AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8)
  */
@@ -45,7 +48,21 @@ class TradingModeGateImpl(
 ) : TradingModeGate {
     private val log = LoggerFactory.getLogger(TradingModeGateImpl::class.java)
 
-    override fun resolveMode(userId: String): OrderResult<DenyReason.RealGateDenied, TradingMode> {
+    override fun resolveMode(
+        userId: String,
+        paperStrategy: Boolean,
+    ): OrderResult<DenyReason.RealGateDenied, TradingMode> {
+        // ADR 0122 §6 LOCK (GAP-0 hotfix) — 페이퍼(origin=PAPER_DISCOVERY) 전략 주문은
+        // env 3중 게이트와 무관하게 MOCK 강제. REAL canary 진입 후에도 실 주문 발사 0.
+        if (paperStrategy) {
+            log.info(
+                "TradingModeGate PAPER MOCK 강제: userId={} env.mode={} 무관 (ADR 0122 §6)",
+                userId,
+                magicjarMode,
+            )
+            return OrderResult.Right(TradingMode.MOCK)
+        }
+
         // 조건 1: env mode가 REAL이 아니면 → MOCK 강제 (안전 default — §14-3)
         if (!RuntimeModeParser.isRealMode(magicjarMode)) {
             log.debug("TradingModeGate MOCK fallback: userId={} env.mode={}", userId, magicjarMode)
