@@ -6,7 +6,7 @@
  *
  * 8종 discriminated union:
  *   IndicatorBlock  — ma(14), rsi(14), bb(20,2) 등 지표 호출
- *   CandleBlock     — open, high, low, close, volume 직접 참조
+ *   CandleBlock     — open, high, low, close, prev_close, volume 직접 참조
  *   PatternBlock    — pattern_detected("hammer") 등 패턴 조건
  *   LiteralBlock    — 숫자·문자열·boolean 리터럴
  *   ComparisonBlock — left op right (>, <, >=, <=, ==, !=, crosses_above, crosses_below)
@@ -33,11 +33,14 @@ export interface IndicatorBlock {
   outputKey?: string
 }
 
-/** CandleBlock — OHLCV 직접 참조 */
+/** backend KisYamlDslParser의 캔들 직접 접근 토큰 */
+export type CandleField = 'open' | 'high' | 'low' | 'close' | 'prev_close' | 'volume'
+
+/** CandleBlock — 캔들 직접 참조 */
 export interface CandleBlock {
   kind: 'candle'
-  /** "open" | "high" | "low" | "close" | "volume" */
-  field: 'open' | 'high' | 'low' | 'close' | 'volume'
+  /** "open" | "high" | "low" | "close" | "prev_close" | "volume" */
+  field: CandleField
 }
 
 /** PatternBlock — 패턴 감지 조건 */

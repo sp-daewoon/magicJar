@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import type { StrategyResearchCandidateDto, StrategyResearchReportDto } from '../../../api/strategyResearch'
-import { buildStrategyResearchDraft } from '../builderDraft'
+import type {
+  StrategyResearchCandidateDefinitionDto,
+  StrategyResearchCandidateDto,
+  StrategyResearchReportDto,
+} from '../../../api/strategyResearch'
+import { buildDaytradePresetDraft, buildStrategyResearchDraft } from '../builderDraft'
 
 describe('buildStrategyResearchDraft', () => {
   it('MA10 후보를 전략 빌더 DSL draft로 변환한다', () => {
@@ -57,6 +61,25 @@ describe('buildStrategyResearchDraft', () => {
   })
 })
 
+describe('buildDaytradePresetDraft', () => {
+  it('prev_close를 포함한 단타 프리셋 entry_dsl을 빌더 draft로 변환한다', () => {
+    const result = buildDaytradePresetDraft(
+      daytradeCandidate({
+        entryDsl:
+          'open >= prev_close * 1.025 and volume > volume_ma(20) * 2.5 and close * volume > 16000000000',
+      }),
+      '005930',
+      '1d',
+    )
+
+    expect(result.reason).toBeUndefined()
+    expect(result.draft?.entryDsl).toContain('prev_close')
+    expect(result.draft?.entryDsl).toContain('AND')
+    expect(result.draft?.code).toBe('005930')
+    expect(result.draft?.interval).toBe('1d')
+  })
+})
+
 function report(): StrategyResearchReportDto {
   return {
     request: {
@@ -108,5 +131,26 @@ function candidate(key: string): StrategyResearchCandidateDto {
     },
     trades: [],
     score: 1.2,
+  }
+}
+
+function daytradeCandidate(
+  overrides: Partial<StrategyResearchCandidateDefinitionDto> = {},
+): StrategyResearchCandidateDefinitionDto {
+  return {
+    id: 1,
+    key: 'DAYTRADE_GAP_VOLUME_V78',
+    title: '갭상승 거래대금',
+    marketFit: '장전 일봉 단타',
+    entryRules: [],
+    entryDsl: 'close > open',
+    targetProfitPct: '2.2',
+    stopLossPct: '1.0',
+    maxHoldBars: 3,
+    sortOrder: 200,
+    active: true,
+    builtIn: true,
+    updatedAt: '2026-06-11T00:00:00Z',
+    ...overrides,
   }
 }

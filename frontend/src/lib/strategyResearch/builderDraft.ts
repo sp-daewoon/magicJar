@@ -230,7 +230,7 @@ function toFiniteNumber(value: string | number | null): number | null {
  * (DB = 단일 권위, V78 ★ entry_dsl LOCK: 등록 식별자만)을 그대로 빌더 트리로 파싱한다.
  * 하드코딩 근사 맵을 거치지 않으므로 발굴 판정과 빌더 조건이 1:1로 일치한다.
  *
- * 파싱 불가(예: prev_close 등 빌더 미등록 식별자)면 mock 근사 없이 reason으로
+ * 파싱 불가(예: 향후 서버 DSL에만 추가된 식별자)면 mock 근사 없이 reason으로
  * 정직하게 실패를 알린다 (2026-06-10 보고서 발전점 — 발굴→백테스트 도선 수선).
  */
 export function buildDaytradePresetDraft(

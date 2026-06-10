@@ -3,7 +3,7 @@
  *
  * 8 분기:
  *   indicator  — 지표 함수 호출 (파라미터 인라인 편집)
- *   candle     — OHLCV 직접 참조
+ *   candle     — 캔들 직접 참조
  *   pattern    — 패턴 감지 조건
  *   literal    — 상수값 인라인 편집
  *   comparison — 비교 조건 (left op right)
@@ -222,7 +222,14 @@ function CandleNodeView({
   onChange: (n: BlockNodeType) => void
   onRemove: () => void
 }) {
-  const LABEL = { close: '종가', open: '시가', high: '고가', low: '저가', volume: '거래량' }
+  const LABEL = {
+    close: '종가',
+    prev_close: '전일 종가',
+    open: '시가',
+    high: '고가',
+    low: '저가',
+    volume: '거래량',
+  }
   return (
     <div className={[NODE_BASE, 'border-green-900/50 px-3 py-2'].join(' ')} tabIndex={0}>
       <button className={REMOVE_BTN} onClick={onRemove} aria-label="노드 삭제" tabIndex={0}>

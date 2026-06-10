@@ -40,6 +40,19 @@ describe('parseDslText — KIS 호환 입력 → BlockTree', () => {
     }
   })
 
+  it('prev_close 캔들 식별자를 산술 표현식에서 파싱한다', () => {
+    const tree = parseDslText('open >= prev_close * 1.025')
+
+    expect(tree.kind).toBe('comparison')
+    if (tree.kind === 'comparison') {
+      expect(tree.left).toEqual({ kind: 'candle', field: 'open' })
+      expect(tree.right?.kind).toBe('arithmetic')
+      if (tree.right?.kind === 'arithmetic') {
+        expect(tree.right.left).toEqual({ kind: 'candle', field: 'prev_close' })
+      }
+    }
+  })
+
   it('fixture4 — pattern_detected', () => {
     const tree = parseDslText('pattern_detected("hammer")')
     expect(tree.kind).toBe('pattern')

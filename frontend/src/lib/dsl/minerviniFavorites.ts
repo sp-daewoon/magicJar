@@ -1,4 +1,4 @@
-import type { BlockNode } from './blockTree'
+import type { BlockNode, CandleField } from './blockTree'
 import type { SmartMoneyStrategyPreset } from './smartMoneyPresets'
 
 const floatLiteral = (value: number): BlockNode => ({
@@ -7,7 +7,7 @@ const floatLiteral = (value: number): BlockNode => ({
   value: String(value),
 })
 
-const candle = (field: 'open' | 'high' | 'low' | 'close' | 'volume'): BlockNode => ({
+const candle = (field: CandleField): BlockNode => ({
   kind: 'candle',
   field,
 })

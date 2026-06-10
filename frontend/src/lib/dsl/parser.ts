@@ -48,7 +48,7 @@ interface Token {
 }
 
 const COMPARISON_OPS = new Set(['>', '<', '>=', '<=', '==', '!=', 'crosses_above', 'crosses_below'])
-const CANDLE_FIELDS = new Set(['open', 'high', 'low', 'close', 'volume'])
+const CANDLE_FIELDS = new Set(['open', 'high', 'low', 'close', 'prev_close', 'volume'])
 const LOGICAL_KEYWORDS = new Set(['AND', 'OR', 'NOT'])
 
 /** 멀티-output alias → (지표id, outputKey) 역매핑 */

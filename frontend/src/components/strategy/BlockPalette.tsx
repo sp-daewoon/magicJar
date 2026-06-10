@@ -5,7 +5,7 @@
  *   지표 — INDICATOR_CATALOG 80건 (카테고리 6종 섹션)
  *   즐겨찾기 — 전략 프리셋·사용자 저장 후보
  *   패턴 — PATTERN_CATALOG 57건 (single/double/triple 섹션, R1 active ★)
- *   캔들 — OHLCV 5종 직접 참조
+ *   캔들 — 캔들 직접 참조 6종
  *   연산자/상수 — 비교·논리·산술·상수·패턴 함수
  *
  * ADR 0055 B+C-lite 하이브리드 — 의존 추가 0건
@@ -56,6 +56,7 @@ const PATTERN_GROUP_LABELS: Record<string, string> = {
 
 const CANDLE_FIELDS = [
   { field: 'close' as const, label: '종가 (Close)' },
+  { field: 'prev_close' as const, label: '전일 종가 (Prev Close)' },
   { field: 'open' as const, label: '시가 (Open)' },
   { field: 'high' as const, label: '고가 (High)' },
   { field: 'low' as const, label: '저가 (Low)' },
@@ -352,7 +353,7 @@ export function BlockPalette({
         {tab === 'candle' && (
           <div>
             <div className="sticky top-0 bg-gray-950 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-gray-500">
-              OHLCV 직접 참조
+              캔들 직접 참조
             </div>
             {CANDLE_FIELDS.map(({ field, label }) => (
               <button

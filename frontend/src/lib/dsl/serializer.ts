@@ -41,8 +41,8 @@ const ARITHMETIC_OPS = new Set(['+', '-', '*', '/'])
 /** KIS 호환 논리 연산자 */
 const LOGICAL_OPS = new Set(['AND', 'OR'])
 
-/** OHLCV 직접 참조 토큰 */
-const CANDLE_FIELDS = new Set(['open', 'high', 'low', 'close', 'volume'])
+/** backend KisYamlDslParser 캔들 직접 참조 토큰 */
+const CANDLE_FIELDS = new Set(['open', 'high', 'low', 'close', 'prev_close', 'volume'])
 
 /**
  * multi-output 지표의 outputKey → DSL alias 매핑

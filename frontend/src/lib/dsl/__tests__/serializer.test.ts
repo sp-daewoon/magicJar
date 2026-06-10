@@ -89,6 +89,24 @@ describe('DslSerializer round-trip', () => {
     expect(reDsl).toBe(dsl)
   })
 
+  it('prev_close 캔들 식별자를 직렬화하고 다시 파싱한다', () => {
+    const node: BlockNode = {
+      kind: 'comparison',
+      op: '>=',
+      left: { kind: 'candle', field: 'open' },
+      right: {
+        kind: 'arithmetic',
+        op: '*',
+        left: { kind: 'candle', field: 'prev_close' },
+        right: { kind: 'literal', valueType: 'float', value: '1.025' },
+      },
+    }
+
+    const dsl = serializeNode_(node)
+    expect(dsl).toBe('open >= prev_close * 1.025')
+    expect(serializeNode_(parseDslText(dsl))).toBe(dsl)
+  })
+
   /**
    * fixture 4: pattern_detected("hammer")
    */
