@@ -57,7 +57,7 @@ describe('CandleCountSelector', () => {
     expect(onChange).toHaveBeenCalledWith(5000)
   })
 
-  it('직접입력 음수 → blur 시 default 600 회귀', () => {
+  it('직접입력 음수 → blur 시 default 200 회귀 (ADR 0120 §6-2)', () => {
     const onChange = vi.fn()
     render(<CandleCountSelector value={600} interval="1d" onChange={onChange} />)
 
@@ -68,7 +68,7 @@ describe('CandleCountSelector', () => {
     fireEvent.change(input, { target: { value: '-100' } })
     fireEvent.blur(input)
 
-    expect(onChange).toHaveBeenCalledWith(600)
+    expect(onChange).toHaveBeenCalledWith(200)
   })
 
   it('interval 변경 시 stale value(700)가 1y max(600) 초과 → 자동 clamp 통보', () => {

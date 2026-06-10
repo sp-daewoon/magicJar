@@ -139,7 +139,9 @@ today 1d snapshot(멀티시세 upsert) 직후 `runDailyFamilyRollup(codes)` 단�
 
 ---
 
-## 6. Phase 2 — 재수집 UI spec (deferred · 본 PR 범위 아님)
+## 6. Phase 2 — 재수집 UI (✅ 구현 완료 2026-06-10 — frontend + api additive)
+
+> **status: 구현 완료** (2026-06-10, PR 미정 — frontend `RecollectModal` + api `recollect` additive 보강). 아래 spec 대로 차트 "모든 캔들" 버튼을 체크박스 2그룹 모달로 재구성하고, 1wk/1mo/1y 재수집 경로를 1d 강제 재수집 → 롤업으로 전환했다. 진입 봉수 기억은 6-2 변형(접힘 대신 봉수 마지막값 복원·default 200)으로 확정.
 
 차트 "모든 캔들" 버튼을 통일 모델 정합으로 재구성한다(향후 frontend + backend-core 협업 사이클):
 
@@ -160,9 +162,11 @@ today 1d snapshot(멀티시세 upsert) 직후 `runDailyFamilyRollup(codes)` 단�
 - 1m은 기간 선택(KIS 보관 한도 내), 1d는 강제 재수집(전 기간). 파생은 기준봉 재수집 후 자동 롤업.
 - 파생 체크박스는 기본 전체 체크 — 기준봉만 재수집하고 파생을 끄는 것도 허용(부분 재계산).
 
-### 6-2. ① 진입 count localStorage 기억
+### 6-2. ① 진입 봉수 localStorage 기억 (✅ 구현 — 확정 형태)
 
-종목 상세 차트 진입 횟수를 localStorage에 기억하여, N회 이상 본 종목은 재수집 패널을 접힌(collapsed) 상태로 시작하는 등 UX 보정(상세는 Phase 2 spec에서 확정).
+차트 표시 봉수(CandleCountSelector)의 **사용자가 콤보/직접입력으로 조작한 마지막 값**만 localStorage 전역 키(`magicjar:chart:candleCount`)에 저장하고, 재진입 시 복원한다. 조작 전(저장값 부재) default 는 **200**(직전 ADR 0093 §Phase 4-B 의 600 default 를 "마지막 사용값 우선" 정책으로 일관 정리). `CANDLE_COUNT_PRESETS` 에 200 추가.
+
+(당초 spec 의 "진입 횟수 기억 → N회 이상 패널 접기"는 사용자 결재 단계에서 "마지막 사용 봉수 복원"으로 단순·확정. 패널 접힘 UX 는 v1 범위 외.)
 
 ---
 

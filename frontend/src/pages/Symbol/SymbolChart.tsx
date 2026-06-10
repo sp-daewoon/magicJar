@@ -69,6 +69,7 @@ import { IndicatorOverlay } from './IndicatorOverlay'
 import { SMART_MONEY_INDICATOR_IDS, SmartMoneyZoneOverlay } from './SmartMoneyZoneOverlay'
 import { TrendlineOverlay } from './TrendlineOverlay'
 import { CandleCountSelector } from './CandleCountSelector'
+import { RecollectModal, type RecollectModalSubmit } from './RecollectModal'
 import {
   clampCandleCount,
   readStoredCandleCount,
@@ -143,6 +144,8 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
 
 interface SymbolChartProps {
   code: string
+  /** 종목명 (재수집 모달 헤더 표시용 — 미지정 시 code 만 표시) */
+  symbolName?: string | null
   userId?: number | null
   realtimeCandle?: CandleMinutePayload | null
   riskPlanPreview?: {
@@ -157,11 +160,12 @@ interface SymbolChartProps {
   liveTick?: LiveTick | null
 }
 
-export function SymbolChart({ code, userId, realtimeCandle, riskPlanPreview, liveTick }: SymbolChartProps) {
+export function SymbolChart({ code, symbolName, userId, realtimeCandle, riskPlanPreview, liveTick }: SymbolChartProps) {
   const [interval, setInterval] = useState<CandleInterval>('1d')
-  // ADR 0093 §결정 LOCK Phase 4-B (2026-05-20):
+  // ADR 0093 §결정 LOCK Phase 4-B (2026-05-20) + ADR 0120 §6-2 (2026-06-10):
   //   사용자가 선택한 차트 표시 봉수. localStorage 전역 1개 키(magicjar:chart:candleCount)로
-  //   symbol/timeframe 무관 영속. default 600 (현행 동작 회귀 안전).
+  //   symbol/timeframe 무관 영속. 저장값이 있으면 그 "마지막 사용값"을 복원, 없으면 default 200.
+  //   조작은 콤보/직접입력 시 handlePageSizeChange → writeStoredCandleCount 로만 저장된다.
   //   interval 변경 시 max cap 초과면 CandleCountSelector 내부 useEffect가 clamp 후 통보.
   const [pageSize, setPageSize] = useState<number>(() => readStoredCandleCount())
   const handlePageSizeChange = useCallback(
@@ -209,8 +213,11 @@ export function SymbolChart({ code, userId, realtimeCandle, riskPlanPreview, liv
       showToast(`캔들 갱신 실패: ${msg}`, 'error')
     },
   })
+  // 재수집 모달 (ADR 0120 §6 — 체크박스 2그룹). 기존 window.confirm 단순 트리거 대체.
+  const [isRecollectModalOpen, setIsRecollectModalOpen] = useState(false)
   const { recollect: recollectCandles, isPending: isRecollecting, progress: recollectProgress } = useCandleRecollectJob({
     code,
+    // fallback intervals — 모달 submit 시 런타임 override(input.intervals)가 우선.
     intervals: [interval],
     onSuccess: (deleted, inserted) => {
       showToast(
@@ -223,13 +230,21 @@ export function SymbolChart({ code, userId, realtimeCandle, riskPlanPreview, liv
     },
   })
 
-  const handleRecollectCandles = useCallback(() => {
-    const ok = window.confirm(
-      `${code} ${interval} 캔들을 삭제하고 KIS에서 다시 수집합니다. 진행할까요?`,
-    )
-    if (!ok) return
-    recollectCandles()
-  }, [code, interval, recollectCandles])
+  const handleOpenRecollectModal = useCallback(() => {
+    setIsRecollectModalOpen(true)
+  }, [])
+
+  const handleRecollectSubmit = useCallback(
+    (input: RecollectModalSubmit) => {
+      recollectCandles({
+        intervals: input.intervals,
+        options:
+          input.minuteRecentDays != null ? { minuteRecentDays: input.minuteRecentDays } : undefined,
+      })
+      setIsRecollectModalOpen(false)
+    },
+    [recollectCandles],
+  )
 
   const activeRecollectProgress =
     recollectProgress && (recollectProgress.status === 'QUEUED' || recollectProgress.status === 'RUNNING')
@@ -843,11 +858,11 @@ export function SymbolChart({ code, userId, realtimeCandle, riskPlanPreview, liv
 
           <button
             type="button"
-            onClick={handleRecollectCandles}
+            onClick={handleOpenRecollectModal}
             disabled={isRefreshing || isRecollecting || isLoading}
             className="flex items-center gap-1.5 rounded-md border border-amber-700/60 bg-amber-950/30 px-2.5 py-1 text-xs text-amber-300 hover:bg-amber-900/40 hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500"
-            aria-label="캔들 데이터 초기화 후 재수집"
-            title="현재 선택한 캔들을 삭제하고 KIS에서 다시 수집합니다"
+            aria-label="캔들 데이터 재수집 모달 열기"
+            title="기준봉(1m·1d)과 파생봉을 선택해 KIS에서 다시 수집합니다"
           >
             {isRecollecting ? (
               <>
@@ -1176,6 +1191,17 @@ export function SymbolChart({ code, userId, realtimeCandle, riskPlanPreview, liv
         matches={patternData?.matches ?? []}
         extraMarkers={strategySellMarkers}
       />
+
+      {/* 재수집 모달 (ADR 0120 §6 — 체크박스 2그룹) */}
+      {isRecollectModalOpen && (
+        <RecollectModal
+          code={code}
+          symbolName={symbolName}
+          isSubmitting={isRecollecting}
+          onClose={() => setIsRecollectModalOpen(false)}
+          onSubmit={handleRecollectSubmit}
+        />
+      )}
     </div>
   )
 }

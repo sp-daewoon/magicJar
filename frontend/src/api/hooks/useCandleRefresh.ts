@@ -106,6 +106,17 @@ export interface UseCandleRecollectJobOptions {
   onError?: (msg: string, event?: CandleRecollectProgressDto) => void
 }
 
+/**
+ * recollect 런타임 override (ADR 0120 §6 재수집 모달).
+ *
+ * hook 생성 시점의 intervals/recollectOptions 대신, mutate 호출 시점에 사용자 선택값을 전달.
+ * 미지정 시 hook 옵션 fallback (기존 단일 interval 호출 회귀 안전).
+ */
+export interface CandleRecollectRunInput {
+  intervals?: string[]
+  options?: CandleRecollectOptions
+}
+
 function isTerminal(status: string | undefined | null): boolean {
   return status === 'SUCCEEDED' || status === 'FAILED'
 }
@@ -155,7 +166,12 @@ export function useCandleRecollectJob({
   )
 
   const mutation = useMutation({
-    mutationFn: () => symbolApi.startCandleRecollectJob(code, intervals, recollectOptions),
+    mutationFn: (input: CandleRecollectRunInput | void) =>
+      symbolApi.startCandleRecollectJob(
+        code,
+        input?.intervals ?? intervals,
+        input?.options ?? recollectOptions,
+      ),
     onSuccess: (data) => {
       completedJobIdsRef.current.delete(data.jobId)
       setJob(data)

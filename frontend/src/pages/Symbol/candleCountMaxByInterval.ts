@@ -20,8 +20,15 @@
  */
 import type { CandleInterval } from '../../api/symbol'
 
-/** 전역 default (모든 timeframe 공통) — 현행 600봉 동작 회귀 안전 LOCK */
-export const DEFAULT_CANDLE_COUNT = 600
+/**
+ * 전역 default (모든 timeframe 공통) — 사용자 조작 전 초기 진입 봉수.
+ *
+ * ADR 0120 §6-2 (2026-06-10 사용자 결재): 조작 전 default 200.
+ *   사용자가 콤보/직접입력으로 조작한 마지막 값만 localStorage에 저장되며, 저장값이 있으면 그 값을
+ *   복원하고 없으면 본 default(200)로 진입한다. (직전 ADR 0093 §Phase 4-B 의 600 default 는
+ *   "마지막 사용값 우선" 정책으로 일관 정리 — 저장값 부재 시에만 200.)
+ */
+export const DEFAULT_CANDLE_COUNT = 200
 
 /**
  * timeframe별 max cap (ADR 0093 §3-1 매트릭스 LOCK).
@@ -103,5 +110,5 @@ export function writeStoredCandleCount(value: number): void {
   }
 }
 
-/** preset 옵션 (Phase 4-A select dropdown) — ADR 0093 §결정 LOCK 의제 매트릭스. */
-export const CANDLE_COUNT_PRESETS: ReadonlyArray<number> = [300, 600, 1200, 3000]
+/** preset 옵션 (Phase 4-A select dropdown) — ADR 0093 §결정 LOCK + ADR 0120 §6-2 default 200 추가. */
+export const CANDLE_COUNT_PRESETS: ReadonlyArray<number> = [200, 300, 600, 1200, 3000]

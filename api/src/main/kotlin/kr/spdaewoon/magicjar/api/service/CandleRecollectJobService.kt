@@ -40,6 +40,7 @@ class CandleRecollectJobService(
         code: String,
         intervals: List<String>,
         rangeRequest: CandleRecollectRangeRequest? = null,
+        minuteRangeRequest: CandleRecollectRangeRequest? = null,
     ): CandleRecollectJobResponse {
         val jobId = UUID.randomUUID().toString()
         val now = Instant.now().toString()
@@ -63,7 +64,7 @@ class CandleRecollectJobService(
         publish(initial)
 
         executor.submit {
-            runRecollectJob(initial, rangeRequest)
+            runRecollectJob(initial, rangeRequest, minuteRangeRequest)
         }
 
         return CandleRecollectJobResponse(
@@ -84,6 +85,7 @@ class CandleRecollectJobService(
     private fun runRecollectJob(
         initial: CandleRecollectProgressEvent,
         rangeRequest: CandleRecollectRangeRequest?,
+        minuteRangeRequest: CandleRecollectRangeRequest? = null,
     ) {
         val startedAt = System.currentTimeMillis()
         var latest =
@@ -102,6 +104,7 @@ class CandleRecollectJobService(
                     intervals = initial.intervals,
                     priority = KisCallPriority.USER_PATH,
                     rangeRequest = rangeRequest,
+                    minuteRangeRequest = minuteRangeRequest,
                 ) { update ->
                     latest = latest.merge(update)
                     publish(latest)

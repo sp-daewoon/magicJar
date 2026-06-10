@@ -239,13 +239,20 @@ class SymbolController(
         @RequestParam(required = false) to: String?,
         @Parameter(description = "from/to 앞뒤 거래일 padding. 리서치 기본값은 5.")
         @RequestParam(defaultValue = "0") paddingTradingDays: Int,
+        @Parameter(
+            description =
+                "ADR 0120 §6 재수집 모달 — 1m 기준봉(+합산 파생)만 최근 N 거래일로 제한. " +
+                    "일봉 패밀리(1d·1wk·1mo·1y)는 전기간 강제 재수집 유지. from/to(리서치 range) 지정 시 무시됨.",
+        )
+        @RequestParam(required = false) minuteRecentDays: Int?,
     ): CandleRecollectResponse {
         validateCode(code)
         val intervalList =
             intervals.split(",").map { it.trim() }.filter { it.isNotBlank() }
         val range = parseRecollectRange(from, to, paddingTradingDays)
+        val minuteRange = parseMinuteRecentRange(minuteRecentDays)
         return try {
-            candleRefreshService.recollect(code, intervalList, rangeRequest = range)
+            candleRefreshService.recollect(code, intervalList, rangeRequest = range, minuteRangeRequest = minuteRange)
         } catch (e: ResponseStatusException) {
             throw e
         } catch (e: Exception) {
@@ -284,13 +291,24 @@ class SymbolController(
         @RequestParam(required = false) to: String?,
         @Parameter(description = "from/to 앞뒤 거래일 padding. 리서치 기본값은 5.")
         @RequestParam(defaultValue = "0") paddingTradingDays: Int,
+        @Parameter(
+            description =
+                "ADR 0120 §6 재수집 모달 — 1m 기준봉(+합산 파생)만 최근 N 거래일로 제한. " +
+                    "일봉 패밀리(1d·1wk·1mo·1y)는 전기간 강제 재수집 유지. from/to(리서치 range) 지정 시 무시됨.",
+        )
+        @RequestParam(required = false) minuteRecentDays: Int?,
     ): CandleRecollectJobResponse {
         validateCode(code)
         val intervalList = intervals.split(",").map { it.trim() }.filter { it.isNotBlank() }
         if (intervalList.isEmpty()) {
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "재수집할 interval을 지정해 주세요")
         }
-        return candleRecollectJobService.submitRecollect(code, intervalList, parseRecollectRange(from, to, paddingTradingDays))
+        return candleRecollectJobService.submitRecollect(
+            code = code,
+            intervals = intervalList,
+            rangeRequest = parseRecollectRange(from, to, paddingTradingDays),
+            minuteRangeRequest = parseMinuteRecentRange(minuteRecentDays),
+        )
     }
 
     @Operation(
@@ -456,5 +474,21 @@ class SymbolController(
             to = parsedTo,
             paddingTradingDays = paddingTradingDays.coerceIn(0, 20),
         )
+    }
+
+    /**
+     * ADR 0120 §6 재수집 모달 — "최근 N 거래일" → 1m 전용 [CandleRecollectRangeRequest] 변환.
+     *
+     * from = now - (calendar days ≈ N 거래일 + 주말 여유), to = now. 캘린더 ~N*1.5일을 잡아 거래일 N 을 충분히 커버.
+     * (정밀 거래일 보정은 service layer 의 paddingTradingDays/warmup 이 추가로 처리.)
+     * `minuteRecentDays` 미지정(null·0 이하)이면 null → 1m 전기간 재수집(회귀 안전).
+     */
+    private fun parseMinuteRecentRange(minuteRecentDays: Int?): CandleRecollectRangeRequest? {
+        if (minuteRecentDays == null || minuteRecentDays <= 0) return null
+        val now = Instant.now()
+        // 거래일 N → 캘린더 일수 근사 (주말·휴장 여유 *1.5 + 2일). service warmup 이 부족분을 보강.
+        val calendarDays = (minuteRecentDays.toLong() * 3L / 2L) + 2L
+        val from = now.minus(java.time.Duration.ofDays(calendarDays))
+        return CandleRecollectRangeRequest(from = from, to = now, paddingTradingDays = 0)
     }
 }
