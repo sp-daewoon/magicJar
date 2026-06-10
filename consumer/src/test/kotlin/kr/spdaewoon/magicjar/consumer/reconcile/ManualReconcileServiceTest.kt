@@ -23,7 +23,12 @@ import java.time.Instant
 class ManualReconcileServiceTest {
     private val balanceReconcileService = mockk<BalanceReconcileService>()
     private val lockAdapter = mockk<ReconcileLockAdapter>(relaxed = true)
-    private val service = ManualReconcileService(balanceReconcileService, lockAdapter)
+    private val worker = mockk<StrategyPositionReconcileWorker>(relaxed = true)
+    private val workerProvider =
+        mockk<org.springframework.beans.factory.ObjectProvider<StrategyPositionReconcileWorker>> {
+            every { getIfAvailable() } returns worker
+        }
+    private val service = ManualReconcileService(balanceReconcileService, lockAdapter, workerProvider, "MOCK")
 
     @Test
     fun `(a) lastrun 캐시 hit — Cached 반환 + 실제 KIS 호출 안 함`() {
@@ -70,5 +75,7 @@ class ManualReconcileServiceTest {
         assertThat((outcome as ManualReconcileOutcome.Completed).run.id).isEqualTo(777L)
         verify { lockAdapter.cacheLastRun("U1", 777L) }
         verify { lockAdapter.releaseLock("U1") }
+        // 2026-06-10 drill 결함 회귀 — manual 경로도 CRON과 동일하게 strategy_position 정합 동반 (ADR 0115 §P1-1)
+        verify { worker.reconcileForUser("U1", "MOCK") }
     }
 }

@@ -2,7 +2,10 @@ package kr.spdaewoon.magicjar.consumer.reconcile
 
 import kr.spdaewoon.magicjar.domain.reconcile.ReconcileRun
 import kr.spdaewoon.magicjar.domain.reconcile.ReconcileTriggerSource
+import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 
 /**
@@ -25,6 +28,9 @@ import org.springframework.stereotype.Service
 class ManualReconcileService(
     private val balanceReconcileService: BalanceReconcileService,
     private val reconcileLockAdapter: ReconcileLockAdapter,
+    private val strategyPositionReconcileWorkerProvider: ObjectProvider<StrategyPositionReconcileWorker>,
+    @Value("\${magicjar.mode:MOCK}")
+    private val magicjarMode: String,
 ) {
     private val log = LoggerFactory.getLogger(ManualReconcileService::class.java)
 
@@ -54,10 +60,27 @@ class ManualReconcileService(
         return try {
             val result = balanceReconcileService.reconcileUser(userId, ReconcileTriggerSource.MANUAL)
             result.id?.let { reconcileLockAdapter.cacheLastRun(userId, it) }
+            // KIS position 정합 직후 strategy_position drift 정합 — CRON 경로(BalanceReconcileJob)와 동일 흐름
+            // (ADR 0115 §P1-1 amend). 2026-06-10 drill evidence: manual 경로만 worker 우회 → drift 잔존.
+            reconcileStrategyPositions(userId)
             ManualReconcileOutcome.Completed(result)
         } finally {
             reconcileLockAdapter.releaseLock(userId)
         }
+    }
+
+    /** strategy_position drift 정합 — ObjectProvider graceful (BalanceReconcileJob.reconcileStrategyPositions 정합). */
+    private fun reconcileStrategyPositions(userId: String) {
+        val worker = strategyPositionReconcileWorkerProvider.getIfAvailable() ?: return
+        val modeName = RuntimeModeParser.accountTypeOrMock(magicjarMode).name
+        runCatching { worker.reconcileForUser(userId, modeName) }
+            .onFailure { e ->
+                log.warn(
+                    "ManualReconcileService — strategy_position 정합 실패(본체 무영향): userId={} err={}",
+                    maskUserId(userId),
+                    e.message,
+                )
+            }
     }
 
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"
