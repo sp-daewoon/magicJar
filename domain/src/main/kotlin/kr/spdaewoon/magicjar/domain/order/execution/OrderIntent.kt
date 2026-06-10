@@ -24,8 +24,11 @@ import java.time.Instant
  *   source          — AUTO(자동 path, default) / MANUAL(POST /api/orders/manual 진입) — ADR 0082 B-2-extended LOCK
  *   priceAtSignal   — 평가 시점 종가 (order.intent.v1 payload `priceAtSignal`). MARKET 주문 notional 산정 source
  *                     (ADR 0109 §2-5 — LIMIT는 limitPrice, MARKET은 priceAtSignal). 미발행 시 null (backward compat)
+ *   orderTrigger    — 발사 출처 enum (ADR 0115 §2-P2-⑥ 키 사슬 무결성). payload `orderTrigger` 필드로 흘러
+ *                     OrderRouter가 OrderRequest.orderTrigger로 영속. 미발행 시 null → source·signalId fallback 분류.
+ *   triggerRefId    — 유발 근거 실키 (signal id / strategy id 등). payload `triggerRefId`. 미발행 시 null.
  *
- * AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8 + ADR 0082)
+ * AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8 + ADR 0082 + ADR 0115)
  */
 data class OrderIntent(
     val id: Long,
@@ -42,4 +45,7 @@ data class OrderIntent(
     val source: OrderSource = OrderSource.AUTO,
     // ADR 0109 §2-5 — canary notional hard cap MARKET price source (add-only, default null = backward compat)
     val priceAtSignal: BigDecimal? = null,
+    // ADR 0115 §2-P2-⑥ 키 사슬 무결성 — 발사 출처 enum + 유발 근거 실키 (add-only, default null = backward compat)
+    val orderTrigger: OrderTrigger? = null,
+    val triggerRefId: Long? = null,
 )

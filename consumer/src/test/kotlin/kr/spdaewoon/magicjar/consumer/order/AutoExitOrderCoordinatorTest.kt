@@ -134,6 +134,8 @@ class AutoExitOrderCoordinatorTest {
                 limitPrice = capture(priceSlot),
                 priceAtSignal = BigDecimal("50000"),
                 idempotencyKey = capture(keySlot),
+                orderTrigger = any(),
+                triggerRefId = any(),
                 signalId = 1L,
             )
         }
@@ -172,6 +174,8 @@ class AutoExitOrderCoordinatorTest {
                 any(),
                 any(),
                 any(),
+                any(),
+                any(),
             )
         }
     }
@@ -187,7 +191,7 @@ class AutoExitOrderCoordinatorTest {
         verify(exactly = 0) { kisOrderPort.cancel(any(), any()) }
         verify(
             exactly = 0,
-        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -199,7 +203,7 @@ class AutoExitOrderCoordinatorTest {
         verify(exactly = 1) { registrar.onBuyFilled("005930") }
         verify(
             exactly = 0,
-        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -208,7 +212,7 @@ class AutoExitOrderCoordinatorTest {
         verify(exactly = 1) { registrar.onBuyFilled("005930") }
         verify(
             exactly = 0,
-        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -261,6 +265,8 @@ class AutoExitOrderCoordinatorTest {
                 limitPrice = capture(priceSlot),
                 priceAtSignal = BigDecimal("100000"),
                 idempotencyKey = any(),
+                orderTrigger = any(),
+                triggerRefId = any(),
                 signalId = any(),
             )
         }
@@ -299,6 +305,8 @@ class AutoExitOrderCoordinatorTest {
                 limitPrice = capture(priceSlot),
                 priceAtSignal = BigDecimal("97500"),
                 idempotencyKey = any(),
+                orderTrigger = any(),
+                triggerRefId = any(),
                 signalId = any(),
             )
         }
@@ -334,6 +342,8 @@ class AutoExitOrderCoordinatorTest {
                 any(),
                 any(),
                 any(),
+                any(),
+                any(),
             )
         }
         assertThat(qtySlot.captured).isEqualTo(14)
@@ -353,7 +363,7 @@ class AutoExitOrderCoordinatorTest {
         verify(exactly = 0) { kisOrderPort.cancel(any(), any()) }
         verify(
             exactly = 0,
-        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -362,7 +372,7 @@ class AutoExitOrderCoordinatorTest {
         verify(exactly = 0) { registrar.onBuyFilled(any()) }
         verify(
             exactly = 0,
-        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     // ── ADR 0115 §P1-2 replay 가드 ─────────────────────────────────────────
@@ -381,7 +391,7 @@ class AutoExitOrderCoordinatorTest {
         // TP 선주문은 미발행(replay 중복 익절 차단).
         verify(
             exactly = 0,
-        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -396,7 +406,7 @@ class AutoExitOrderCoordinatorTest {
 
         verify(
             exactly = 0,
-        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -409,7 +419,7 @@ class AutoExitOrderCoordinatorTest {
 
         verify(
             exactly = 1,
-        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     private fun openTp(

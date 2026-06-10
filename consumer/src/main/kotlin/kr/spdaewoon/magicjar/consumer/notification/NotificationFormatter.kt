@@ -196,16 +196,24 @@ object NotificationFormatter {
     ): String? {
         val strategyId = meta["strategyId"]?.toLongOrNull()
         val source = meta["source"]?.uppercase()
-        val manual = source == "MANUAL" || strategyId == 0L
+        // ADR 0115 §2-P2-⑥ — 발사 출처 enum 우선(자동청산/손절/외부 구분). 미발행(legacy)이면 source·strategyId fallback.
+        val trigger = meta["orderTrigger"]?.uppercase()
+        val manual = source == "MANUAL" || trigger == "MANUAL" || strategyId == 0L
         return when (eventType) {
             NotificationEventType.ORDER_FILLED,
             NotificationEventType.ORDER_REJECTED,
             NotificationEventType.ORDER_CANCELLED,
             -> {
-                if (manual) {
-                    "주문출처: 수동 주문"
-                } else {
-                    strategyDisplay(strategyId, meta)?.let { "주문출처: 자동 전략 $it" }
+                val strategyLabel = strategyDisplay(strategyId, meta)
+                when (trigger) {
+                    "STOP_LOSS" -> "주문출처: 자동 손절${strategyLabel?.let { " $it" } ?: ""}"
+                    "AUTO_EXIT" -> "주문출처: 자동 익절${strategyLabel?.let { " $it" } ?: ""}"
+                    "PARTIAL_TAKE_PROFIT" -> "주문출처: 분할 익절${strategyLabel?.let { " $it" } ?: ""}"
+                    "EXTERNAL" -> "주문출처: 외부 주문(HTS·MTS)"
+                    "MANUAL" -> "주문출처: 수동 주문"
+                    "STRATEGY_SIGNAL" -> strategyLabel?.let { "주문출처: 자동 전략 $it" }
+                    // trigger 미발행(legacy) — 기존 분기 보존
+                    else -> if (manual) "주문출처: 수동 주문" else strategyLabel?.let { "주문출처: 자동 전략 $it" }
                 }
             }
             NotificationEventType.RISK_VIOLATION -> strategyDisplay(strategyId, meta)?.let { "전략: $it" }

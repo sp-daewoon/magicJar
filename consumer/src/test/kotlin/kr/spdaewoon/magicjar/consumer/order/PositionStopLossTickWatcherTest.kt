@@ -101,7 +101,7 @@ class PositionStopLossTickWatcherTest {
         watcher().onTick(tickRecord())
         verify(
             exactly = 0,
-        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
         verify(exactly = 0) { orderRepo.findOpenByUserId(any()) }
     }
 
@@ -112,7 +112,7 @@ class PositionStopLossTickWatcherTest {
         watcher().onTick(tickRecord(price = "49000"))
         verify(
             exactly = 0,
-        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -134,6 +134,8 @@ class PositionStopLossTickWatcherTest {
                 limitPrice = null,
                 priceAtSignal = BigDecimal("48000"),
                 idempotencyKey = capture(keySlot),
+                orderTrigger = any(),
+                triggerRefId = any(),
                 signalId = any(),
             )
         }
@@ -147,7 +149,7 @@ class PositionStopLossTickWatcherTest {
         watcher().onTick(tickRecord(price = "48000"))
         verify(
             exactly = 0,
-        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -158,7 +160,7 @@ class PositionStopLossTickWatcherTest {
         verify(exactly = 0) { kisOrderPort.cancel(any(), any()) }
         verify(
             exactly = 0,
-        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -171,7 +173,7 @@ class PositionStopLossTickWatcherTest {
         verify(exactly = 1) { kisOrderPort.cancel(any(), any()) }
         verify(
             exactly = 1,
-        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -183,7 +185,7 @@ class PositionStopLossTickWatcherTest {
         verify(exactly = 0) { kisOrderPort.cancel(any(), any()) }
         verify(
             exactly = 0,
-        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -198,7 +200,7 @@ class PositionStopLossTickWatcherTest {
         watcher().onTick(tickRecord(price = "1"))
         verify(
             exactly = 0,
-        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -223,6 +225,8 @@ class PositionStopLossTickWatcherTest {
                 any(),
                 any(),
                 any(),
+                any(),
+                any(),
             )
         }
     }
@@ -237,7 +241,7 @@ class PositionStopLossTickWatcherTest {
         verify(exactly = 0) { kisOrderPort.cancel(any(), any()) }
         verify(
             exactly = 0,
-        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -267,7 +271,7 @@ class PositionStopLossTickWatcherTest {
 
         verify(
             exactly = 1,
-        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -283,7 +287,7 @@ class PositionStopLossTickWatcherTest {
 
         verify(
             exactly = 2,
-        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -302,7 +306,7 @@ class PositionStopLossTickWatcherTest {
 
         verify(
             exactly = 2,
-        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     // ── ADR 0115 §P2-3 유령 포지션 가드 ────────────────────────────────────
@@ -318,7 +322,7 @@ class PositionStopLossTickWatcherTest {
 
         verify(
             exactly = 0,
-        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -331,7 +335,7 @@ class PositionStopLossTickWatcherTest {
 
         verify(
             exactly = 1,
-        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     private fun openSell(

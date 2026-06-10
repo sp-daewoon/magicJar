@@ -29,8 +29,12 @@ import java.time.Instant
  *   acknowledgedAt    — KIS ACK 응답 시각
  *   completedAt       — FILLED/REJECTED/CANCELLED 종료 시각
  *   source            — AUTO(자동 path, default) / MANUAL(POST /api/orders/manual) — ADR 0082 B-2-extended LOCK
+ *   orderTrigger      — 발사 출처 enum (ADR 0115 §2-P2-⑥ 키 사슬 무결성 — STRATEGY_SIGNAL/AUTO_EXIT/STOP_LOSS/
+ *                       PARTIAL_TAKE_PROFIT/MANUAL/EXTERNAL). 0-sentinel 폐지 — "출처를 모르는 주문" 금지.
+ *                       default null = legacy 미분류(V80 backfill 전 기존 행) — 읽기 경로는 source·signalId로 fallback.
+ *   triggerRefId      — 유발 근거 실키 (signal id / strategy id / position id 등). signal 없는 청산도 근거 키 보존.
  *
- * AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8 + ADR 0082)
+ * AI 호출 0 — T-O 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8 + ADR 0068 §8 + ADR 0082 + ADR 0115)
  */
 data class OrderRequest(
     val id: Long? = null,
@@ -52,4 +56,7 @@ data class OrderRequest(
     val acknowledgedAt: Instant? = null,
     val completedAt: Instant? = null,
     val source: OrderSource = OrderSource.AUTO,
+    // ADR 0115 §2-P2-⑥ 키 사슬 무결성 — 발사 출처 enum + 유발 근거 실키 (add-only, default null = legacy backward compat)
+    val orderTrigger: OrderTrigger? = null,
+    val triggerRefId: Long? = null,
 )

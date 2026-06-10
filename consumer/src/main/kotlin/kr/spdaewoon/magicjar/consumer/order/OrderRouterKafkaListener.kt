@@ -17,6 +17,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderResult
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
+import kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.order.execution.port.KillSwitchQueryPort
 import kr.spdaewoon.magicjar.domain.order.execution.port.KisOrderPort
@@ -517,6 +518,9 @@ class OrderRouterKafkaListener(
                 requestedAt = Instant.now(),
                 // ADR 0082 T-MAN B-2-extended — Kafka payload source 그대로 DB 영속 (AUTO/MANUAL 1급 시민)
                 source = intent.source,
+                // ADR 0115 §2-P2-⑥ — 발사 출처 키 사슬 영속 (미발행 시 source fallback 분류)
+                orderTrigger = resolveOrderTrigger(intent),
+                triggerRefId = resolveTriggerRefId(intent),
             )
         return try {
             PersistResult.Ok(repo.save(request))
@@ -525,6 +529,34 @@ class OrderRouterKafkaListener(
             PersistResult.SaveFailed(e.message ?: "unknown")
         }
     }
+
+    /**
+     * 발사 출처 enum 해석 (ADR 0115 §2-P2-⑥ 키 사슬 무결성).
+     *
+     * intent payload가 명시 [OrderTrigger]를 발행했으면 그대로(STRATEGY_SIGNAL·AUTO_EXIT·STOP_LOSS). 미발행(legacy
+     * producer·구버전 payload)이면 source·signalId 조합으로 fallback 분류 — "출처 모르는 주문" 0 보장:
+     *   MANUAL → MANUAL · EXTERNAL → EXTERNAL · AUTO+signalId>0 → STRATEGY_SIGNAL · AUTO+signalId=0 → AUTO_EXIT.
+     */
+    private fun resolveOrderTrigger(intent: OrderIntent): OrderTrigger =
+        intent.orderTrigger
+            ?: when (intent.source) {
+                OrderSource.MANUAL -> OrderTrigger.MANUAL
+                OrderSource.EXTERNAL -> OrderTrigger.EXTERNAL
+                OrderSource.AUTO -> if (intent.signalId > 0L) OrderTrigger.STRATEGY_SIGNAL else OrderTrigger.AUTO_EXIT
+            }
+
+    /**
+     * 유발 근거 실키 해석 (ADR 0115 §2-P2-⑥). payload 명시 키 우선(0·null은 미보존 취급), 미발행 시
+     * STRATEGY_SIGNAL은 signalId, AUTO 청산은 strategyId로 복원(0 sentinel은 NULL 유지 — "키 없음" 위장 폐지).
+     */
+    private fun resolveTriggerRefId(intent: OrderIntent): Long? =
+        intent.triggerRefId?.takeIf { it != 0L }
+            ?: when (resolveOrderTrigger(intent)) {
+                OrderTrigger.STRATEGY_SIGNAL -> intent.signalId.takeIf { it != 0L }
+                OrderTrigger.AUTO_EXIT, OrderTrigger.STOP_LOSS, OrderTrigger.PARTIAL_TAKE_PROFIT ->
+                    intent.strategyId.takeIf { it != 0L }
+                OrderTrigger.MANUAL, OrderTrigger.EXTERNAL -> null
+            }
 
     private fun findWsPreinsertBeforeAck(
         orderRepo: OrderRequestRepository?,
@@ -798,6 +830,9 @@ class OrderRouterKafkaListener(
                 completedAt = now,
                 // ADR 0082 T-MAN B-2-extended — 게이트 REJECTED도 source 보존 (manual 주문 차단 audit 가능)
                 source = intent.source,
+                // ADR 0115 §2-P2-⑥ — REJECTED도 발사 출처 보존 (차단된 주문도 어느 출처였는지 audit)
+                orderTrigger = resolveOrderTrigger(intent),
+                triggerRefId = resolveTriggerRefId(intent),
             )
 
         val saved =
@@ -1053,6 +1088,16 @@ class OrderRouterKafkaListener(
                     is String -> raw.toBigDecimalOrNull()
                     else -> null
                 }
+            // ADR 0115 §2-P2-⑥ — 발사 출처 enum 매핑 (미발행 시 null → OrderRequest 영속 후 source·signalId fallback 분류).
+            // 비정상 enum 값은 safeEnum 으로 null fallback(poison pill 회피 — 키 부재가 부팅 실패로 번지지 않음).
+            val orderTrigger =
+                payload["orderTrigger"]?.toString()?.let { runCatching { OrderTrigger.valueOf(it) }.getOrNull() }
+            val triggerRefId =
+                when (val raw = payload["triggerRefId"]) {
+                    is Number -> raw.toLong().takeIf { it != 0L }
+                    is String -> raw.toLongOrNull()?.takeIf { it != 0L }
+                    else -> null
+                }
             OrderIntent(
                 id = signalId,
                 userId = userId,
@@ -1067,6 +1112,8 @@ class OrderRouterKafkaListener(
                 requestedAt = Instant.ofEpochSecond(emittedAtSec),
                 source = source,
                 priceAtSignal = priceAtSignal,
+                orderTrigger = orderTrigger,
+                triggerRefId = triggerRefId,
             )
         } catch (e: Exception) {
             log.error("OrderRouterKafkaListener.deserialize 실패: err={}", e.message)

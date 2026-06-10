@@ -73,6 +73,62 @@ class NotificationFormatterTest {
     }
 
     @Test
+    fun `(1-3b) ORDER_FILLED — STOP_LOSS trigger는 자동 손절로 표시한다 (ADR 0115)`() {
+        val msg =
+            NotificationFormatter.format(
+                userId = "12345678",
+                eventType = NotificationEventType.ORDER_FILLED,
+                reason = "체결: [MOCK] 삼성전자(005930) 매도 7주 @ 48,000원",
+                meta =
+                    mapOf(
+                        "strategyId" to "8",
+                        "strategyName" to "단타 전략",
+                        "source" to "AUTO",
+                        "orderTrigger" to "STOP_LOSS",
+                    ),
+            )
+
+        assertThat(msg).contains("주문출처: 자동 손절 단타 전략 (#8)")
+        assertThat(msg).doesNotContain("자동 전략")
+    }
+
+    @Test
+    fun `(1-3c) ORDER_FILLED — AUTO_EXIT trigger는 자동 익절로 표시한다 (ADR 0115)`() {
+        val msg =
+            NotificationFormatter.format(
+                userId = "12345678",
+                eventType = NotificationEventType.ORDER_FILLED,
+                reason = "체결: [MOCK] 삼성전자(005930) 매도 10주 @ 52,500원",
+                meta =
+                    mapOf(
+                        "strategyId" to "8",
+                        "source" to "AUTO",
+                        "orderTrigger" to "AUTO_EXIT",
+                    ),
+            )
+
+        assertThat(msg).contains("주문출처: 자동 익절")
+    }
+
+    @Test
+    fun `(1-3d) ORDER_FILLED — EXTERNAL trigger는 외부 주문으로 표시한다 (ADR 0115)`() {
+        val msg =
+            NotificationFormatter.format(
+                userId = "12345678",
+                eventType = NotificationEventType.ORDER_FILLED,
+                reason = "체결: [REAL] 삼성전자(005930) 매수 5주 @ 70,000원",
+                meta =
+                    mapOf(
+                        "strategyId" to "0",
+                        "source" to "EXTERNAL",
+                        "orderTrigger" to "EXTERNAL",
+                    ),
+            )
+
+        assertThat(msg).contains("주문출처: 외부 주문(HTS·MTS)")
+    }
+
+    @Test
     fun `(1-4) ORDER_FILLED — 수동 주문은 전략 대신 수동 주문으로 표시한다`() {
         val msg =
             NotificationFormatter.format(

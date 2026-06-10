@@ -230,6 +230,9 @@ class OrderRequestRepositoryAdapter(
             acknowledgedAt = domain.acknowledgedAt,
             completedAt = domain.completedAt,
             source = domain.source,
+            // ADR 0115 §2-P2-⑥ — 발사 출처 키 사슬 영속
+            orderTrigger = domain.orderTrigger,
+            triggerRefId = domain.triggerRefId,
         )
 
     private fun toDomain(entity: OrderRequestJpaEntity): OrderRequest =
@@ -253,6 +256,9 @@ class OrderRequestRepositoryAdapter(
             acknowledgedAt = entity.acknowledgedAt,
             completedAt = entity.completedAt,
             source = safeEnum<OrderSource>(entity.source.name) ?: OrderSource.AUTO,
+            // ADR 0115 §2-P2-⑥ — 발사 출처 키 사슬 복원 (legacy 미분류는 null 유지 → 읽기 경로 fallback)
+            orderTrigger = entity.orderTrigger,
+            triggerRefId = entity.triggerRefId,
         )
 
     private inline fun <reified T : Enum<T>> safeEnum(value: String): T? = runCatching { enumValueOf<T>(value) }.getOrNull()

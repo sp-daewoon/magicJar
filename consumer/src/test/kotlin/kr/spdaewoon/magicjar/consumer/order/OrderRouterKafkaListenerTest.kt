@@ -177,6 +177,60 @@ class OrderRouterKafkaListenerTest {
         verify(exactly = 1) { ack.acknowledge() }
     }
 
+    // ── ADR 0115 §2-P2-⑥ 키 사슬 무결성 — OrderTrigger 발사 출처 영속 ──────────────────────
+
+    @Test
+    fun `키사슬 — payload orderTrigger 명시 시 OrderRequest에 그대로 영속 (STRATEGY_SIGNAL + signal ref)`() {
+        every { idempotencyGuard.acquire(any(), any()) } returns true
+        every { tradingModeGate.resolveMode("12345678") } returns OrderResult.Right(TradingMode.MOCK)
+        every { killSwitchPort.isOn("12345678") } returns false
+        every { orderRepo.findByKisOrderNo(any()) } returns null
+        every { kisOrderPort.submit(any(), TradingMode.MOCK) } returns
+            OrderResult.Right(KisOrderAck(kisOrderNo = "ODNO123", kisFwdgOrgno = "ORG001", rtCd = "0", msg = "OK"))
+        val saved = slot<OrderRequest>()
+        every { orderRepo.save(capture(saved)) } answers { firstArg<OrderRequest>().copy(id = 99L) }
+
+        listener.onOrderIntent(buildRecord(triggerPayload("STRATEGY_SIGNAL", 42L)), mockk<Acknowledgment>(relaxed = true))
+
+        assertThat(saved.captured.orderTrigger).isEqualTo(kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger.STRATEGY_SIGNAL)
+        assertThat(saved.captured.triggerRefId).isEqualTo(42L)
+    }
+
+    @Test
+    fun `키사슬 — orderTrigger 미발행(legacy) + AUTO + signalId 0 → AUTO_EXIT fallback (출처 모르는 주문 0)`() {
+        every { idempotencyGuard.acquire(any(), any()) } returns true
+        every { tradingModeGate.resolveMode("12345678") } returns OrderResult.Right(TradingMode.MOCK)
+        every { killSwitchPort.isOn("12345678") } returns false
+        every { orderRepo.findByKisOrderNo(any()) } returns null
+        every { kisOrderPort.submit(any(), TradingMode.MOCK) } returns
+            OrderResult.Right(KisOrderAck(kisOrderNo = "ODNO123", kisFwdgOrgno = "ORG001", rtCd = "0", msg = "OK"))
+        val saved = slot<OrderRequest>()
+        every { orderRepo.save(capture(saved)) } answers { firstArg<OrderRequest>().copy(id = 99L) }
+
+        // signalId=0, strategyId=7, source=AUTO, orderTrigger 미발행 → AUTO_EXIT + triggerRefId=strategyId
+        listener.onOrderIntent(buildRecord(legacyAutoExitPayload()), mockk<Acknowledgment>(relaxed = true))
+
+        assertThat(saved.captured.orderTrigger).isEqualTo(kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger.AUTO_EXIT)
+        assertThat(saved.captured.triggerRefId).isEqualTo(7L)
+    }
+
+    @Test
+    fun `키사슬 — MANUAL source는 orderTrigger 미발행이어도 MANUAL fallback + triggerRefId null`() {
+        every { idempotencyGuard.acquire(any(), any()) } returns true
+        every { tradingModeGate.resolveMode("12345678") } returns OrderResult.Right(TradingMode.MOCK)
+        every { killSwitchPort.isOn("12345678") } returns false
+        every { orderRepo.findByKisOrderNo(any()) } returns null
+        every { kisOrderPort.submit(any(), TradingMode.MOCK) } returns
+            OrderResult.Right(KisOrderAck(kisOrderNo = "ODNO123", kisFwdgOrgno = "ORG001", rtCd = "0", msg = "OK"))
+        val saved = slot<OrderRequest>()
+        every { orderRepo.save(capture(saved)) } answers { firstArg<OrderRequest>().copy(id = 99L) }
+
+        listener.onOrderIntent(buildRecord(manualPayload()), mockk<Acknowledgment>(relaxed = true))
+
+        assertThat(saved.captured.orderTrigger).isEqualTo(kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger.MANUAL)
+        assertThat(saved.captured.triggerRefId).isNull()
+    }
+
     @Test
     fun `WS_PREINSERT 병합 ACK 후 누락된 strategy_position replay를 호출한다`() {
         every { idempotencyGuard.acquire(any(), any()) } returns true
@@ -857,6 +911,54 @@ class OrderRouterKafkaListenerTest {
                 "priceAtSignal" to "78000",
                 "riskVerdict" to "ALLOWED",
                 "emittedAt" to 1747094405L,
+            ),
+        )
+
+    /**
+     * ADR 0115 §2-P2-⑥ — orderTrigger·triggerRefId 명시 payload (키 사슬 영속 검증).
+     */
+    private fun triggerPayload(
+        trigger: String,
+        triggerRefId: Long,
+    ): String =
+        objectMapper.writeValueAsString(
+            mapOf(
+                "signalId" to 42,
+                "strategyId" to 100,
+                "userId" to "12345678",
+                "code" to "005930",
+                "interval" to "M5",
+                "ts" to 1747094400L,
+                "side" to "BUY",
+                "strength" to 80,
+                "priceAtSignal" to "78000",
+                "riskVerdict" to "ALLOWED",
+                "emittedAt" to 1747094405L,
+                "source" to "AUTO",
+                "orderTrigger" to trigger,
+                "triggerRefId" to triggerRefId,
+            ),
+        )
+
+    /**
+     * ADR 0115 §2-P2-⑥ — orderTrigger 미발행(legacy) + AUTO + signalId=0 → AUTO_EXIT fallback 검증용.
+     * triggerRefId fallback = strategyId(7).
+     */
+    private fun legacyAutoExitPayload(): String =
+        objectMapper.writeValueAsString(
+            mapOf(
+                "signalId" to 0,
+                "strategyId" to 7,
+                "userId" to "12345678",
+                "code" to "005930",
+                "interval" to "1m",
+                "ts" to 1747094400L,
+                "side" to "SELL",
+                "strength" to 100,
+                "priceAtSignal" to "78000",
+                "riskVerdict" to "ALLOWED",
+                "emittedAt" to 1747094405L,
+                "source" to "AUTO",
             ),
         )
 

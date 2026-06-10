@@ -657,6 +657,8 @@ class KisExecutionBackfillService(
                 // 2026-06-05 fix — 내부 order_request 부재(findByKisOrderNo == null)인 KIS 일별체결은
                 // 우리 시스템이 발의하지 않은 외부(HTS·MTS) 주문 → AUTO 가 아니라 EXTERNAL 로 분류 (감사 명확성).
                 source = kr.spdaewoon.magicjar.domain.order.execution.OrderSource.EXTERNAL,
+                // ADR 0115 §2-P2-⑥ — 백필 stub strategy_id=0 sentinel을 EXTERNAL 출처로 명시(귀속 불능을 sentinel로 위장 폐지).
+                orderTrigger = kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger.EXTERNAL,
             )
         return try {
             orderRepo.save(stub)

@@ -12,6 +12,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
+import kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import java.math.BigDecimal
 import java.time.Instant
@@ -72,4 +73,10 @@ class OrderRequestJpaEntity(
     @Enumerated(EnumType.STRING)
     @Column(name = "source", nullable = false, updatable = false, length = 20)
     val source: OrderSource = OrderSource.AUTO,
+    // ADR 0115 §2-P2-⑥ 키 사슬 무결성 — 발사 출처 enum + 유발 근거 실키 (Flyway V80, nullable backward compat)
+    @Enumerated(EnumType.STRING)
+    @Column(name = "order_trigger", updatable = false, length = 24)
+    val orderTrigger: OrderTrigger? = null,
+    @Column(name = "trigger_ref_id", updatable = false)
+    val triggerRefId: Long? = null,
 )
