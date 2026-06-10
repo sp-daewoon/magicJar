@@ -3,10 +3,10 @@ id: T-20260610-1240-kis-ratelimit-queue-redesign-spec
 agent: architect
 model: opus
 branch: agent/architect/kis-ratelimit-queue-redesign-spec
-status: RUNNING
+status: DONE
 startedAt: 2026-06-10T12:40:39.285+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-10T12:43:49.932+09:00
+pr: #880
 parentPhase: ?
 ---
 
