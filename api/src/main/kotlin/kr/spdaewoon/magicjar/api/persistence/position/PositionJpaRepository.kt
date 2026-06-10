@@ -33,6 +33,22 @@ interface PositionJpaRepository : JpaRepository<PositionJpaEntity, Long> {
         source: String,
     ): List<PositionJpaEntity>
 
+    /**
+     * ADR 0115 §2-B 정합 검산 (불변식 #3·#4) — user+code KIS 권위 보유 수량 합산 (read-only).
+     *
+     * 시그널 추적 드릴다운에서 "전략 귀속 보유 합 == KIS 권위" 정합 badge 산정에 사용.
+     * 같은 code가 MOCK·REAL 행으로 분리될 수 있어 SUM. 행 없으면 0.
+     * 헌법 §6 — interface body 0건, @Query 만 사용.
+     */
+    @Query(
+        "SELECT COALESCE(SUM(p.qty), 0) FROM PositionJpaEntity p " +
+            "WHERE p.userId = :userId AND p.code = :code",
+    )
+    fun sumQtyByUserIdAndCode(
+        @Param("userId") userId: String,
+        @Param("code") code: String,
+    ): Long
+
     /** 일일 실현 손익 합산 — qty=0(청산) + entry_ts >= kstMidnight. */
     @Query(
         "SELECT COALESCE(SUM((p.avgPrice * -1) * p.qty), 0) FROM PositionJpaEntity p " +

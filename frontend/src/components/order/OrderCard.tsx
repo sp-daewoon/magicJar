@@ -9,6 +9,7 @@
 import { useNavigate } from 'react-router-dom'
 import type { OrderListItemDto } from '../../api/order'
 import { OrderStatusBadge } from './OrderStatusBadge'
+import { OrderTriggerBadge } from './OrderTriggerBadge'
 
 interface OrderCardProps {
   order: OrderListItemDto
@@ -94,6 +95,8 @@ export function OrderCard({ order }: OrderCardProps) {
                 자동
               </span>
             )}
+            {/* ADR 0115 §2-B 발사 출처 badge (전략사인/자동익절/손절/분할익절/수동/외부) — trigger_ref_id hover */}
+            <OrderTriggerBadge trigger={order.orderTrigger} triggerRefId={order.triggerRefId} />
           </div>
           <div className="text-sm text-gray-400">
             {order.qty.toLocaleString('ko-KR')}주 &middot; {formatPrice(order.limitPrice)} &middot;{' '}

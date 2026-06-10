@@ -126,6 +126,25 @@ interface OrderRequestJpaRepository :
         @Param("toExclusive") toExclusive: Instant,
     ): Long
 
+    /**
+     * ADR 0115 §2-B 키 사슬 추적성 (불변식 #4) — 시그널 → 파생 주문 역추적 (read-only).
+     *
+     * 주어진 시그널 id(triggerRefId)와 STRATEGY_SIGNAL trigger로 발사된 주문을 시계열 조회.
+     * `GET /api/signals/{id}/trace` 드릴다운에서 "이 사인이 낸 주문 N건"을 잇는다.
+     * userId 격리 (ADR 0010) — 다른 사용자 row 반환 안 함.
+     * 헌법 §6 — interface body 0건, @Query 만 사용.
+     */
+    @Query(
+        "SELECT e FROM OrderRequestJpaEntity e " +
+            "WHERE e.userId = :userId AND e.triggerRefId = :triggerRefId " +
+            "AND e.orderTrigger = kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger.STRATEGY_SIGNAL " +
+            "ORDER BY e.requestedAt ASC",
+    )
+    fun findByUserIdAndSignalTrigger(
+        @Param("userId") userId: String,
+        @Param("triggerRefId") triggerRefId: Long,
+    ): List<OrderRequestJpaEntity>
+
     @Modifying
     @Query(
         value = "UPDATE order_execution SET order_id = :targetId WHERE order_id = :sourceId",

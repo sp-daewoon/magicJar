@@ -39,10 +39,32 @@ export type TradingMode = 'MOCK' | 'REAL'
  *
  * 사용자 결정 정합: "데이터 상에선 사용자 주문이랑 자동매매주문의 타입이 구분되어야하는거 필수"
  *
- *  - AUTO   : 자동매매 path — signal.generated.v1 → T-RISK ALLOWED → order.intent.v1 (ADR 0068 §14-2)
- *  - MANUAL : 사용자 수동 주문 — POST /api/orders/manual → order.intent.v1 (ADR 0082 T-MAN)
+ *  - AUTO    : 자동매매 path — signal.generated.v1 → T-RISK ALLOWED → order.intent.v1 (ADR 0068 §14-2)
+ *  - MANUAL  : 사용자 수동 주문 — POST /api/orders/manual → order.intent.v1 (ADR 0082 T-MAN)
+ *  - EXTERNAL: 외부(HTS·MTS) 직접 주문 흡수 — backend `OrderSource.EXTERNAL` (ADR 0115 키 사슬)
  */
-export type OrderSource = 'AUTO' | 'MANUAL'
+export type OrderSource = 'AUTO' | 'MANUAL' | 'EXTERNAL'
+
+/**
+ * 발사 출처 (ADR 0115 §2-P2-⑥ 키 사슬 무결성 — 0-sentinel 폐지)
+ *
+ * backend 권위 (`OrderQueryController.kt` OrderListItemDto.orderTrigger / `OrderTrigger.kt`):
+ *  - STRATEGY_SIGNAL     : 시그널 파생 주문 (triggerRefId = signal id)
+ *  - AUTO_EXIT           : 자동 익절 전량 청산 (triggerRefId = strategy id)
+ *  - STOP_LOSS           : 손절 (triggerRefId = position/룰 id)
+ *  - PARTIAL_TAKE_PROFIT : 분할 익절 stage 청산 (triggerRefId = strategy id)
+ *  - MANUAL              : 사용자 수동
+ *  - EXTERNAL            : 외부 직접 주문 흡수 (귀속 불능을 sentinel로 위장하지 않음)
+ *
+ * null = V80 이전 legacy 미분류 (backend backfill 전 row).
+ */
+export type OrderTrigger =
+  | 'STRATEGY_SIGNAL'
+  | 'AUTO_EXIT'
+  | 'STOP_LOSS'
+  | 'PARTIAL_TAKE_PROFIT'
+  | 'MANUAL'
+  | 'EXTERNAL'
 
 /** audit event 유형 (ADR 0068 §5-3 OrderAuditEventType 정합) */
 export type OrderAuditEventType =
@@ -143,6 +165,13 @@ export interface OrderListItemDto {
   completedAt: string | null
   /** T-MAN B-2-extended — backend 필드 합류 전까지 optional. 미수신 시 'AUTO' default 가정. */
   source?: OrderSource
+  /**
+   * 발사 출처 (ADR 0115 §2-P2-⑥ 키 사슬). backend `OrderListItemDto.orderTrigger` 정합.
+   * null/미수신 = legacy 미분류 (V80 이전 row).
+   */
+  orderTrigger?: OrderTrigger | null
+  /** 유발 근거 실키 (signal id / strategy id 등 — 사인·전략 역추적). null=근거 키 없음. */
+  triggerRefId?: number | null
 }
 
 /**

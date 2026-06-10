@@ -177,6 +177,17 @@ class OrderRequestRepositoryAdapter(
         return jpa.findAll(spec, pageable).map { toDomain(it) }
     }
 
+    /**
+     * ADR 0115 §2-B 키 사슬 추적성 (불변식 #4) — 시그널 → 파생 주문 역추적 (read-only).
+     *
+     * SignalTraceService에서 호출 — STRATEGY_SIGNAL trigger + triggerRefId == signalId 주문.
+     */
+    @Transactional(readOnly = true)
+    fun findBySignalTrigger(
+        userId: String,
+        signalId: Long,
+    ): List<OrderRequest> = jpa.findByUserIdAndSignalTrigger(userId, signalId).map { toDomain(it) }
+
     // --- private helper ---
 
     private fun mergeWsPreinsertIfPresent(

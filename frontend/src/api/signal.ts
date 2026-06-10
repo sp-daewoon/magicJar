@@ -8,6 +8,7 @@
  * 룰 5: LLM provider import 0건
  */
 import apiClient from '../lib/axios'
+import type { OrderStatus } from './order'
 
 // ──────────────────────────────────────────────
 // enum / literal
@@ -85,6 +86,78 @@ export interface SignalListParams {
 }
 
 // ──────────────────────────────────────────────
+// 키 사슬 추적 DTO (ADR 0115 §2-B 불변식 #4 — GET /api/signals/{id}/trace)
+// ──────────────────────────────────────────────
+
+/** 발사 출처 enum (order.ts OrderTrigger 와 동일 — signal trace 응답용) */
+export type TraceOrderTrigger =
+  | 'STRATEGY_SIGNAL'
+  | 'AUTO_EXIT'
+  | 'STOP_LOSS'
+  | 'PARTIAL_TAKE_PROFIT'
+  | 'MANUAL'
+  | 'EXTERNAL'
+
+/** 체결 단건 (부분체결 타임라인) — backend TracedExecutionDto 정합 */
+export interface TracedExecutionDto {
+  id: number
+  orderId: number
+  executedQty: number
+  executedPrice: string
+  executedAt: string
+  fee: string
+  tax: string
+}
+
+/** 사인이 발사한 주문 + 체결 타임라인 — backend TracedOrderDto 정합 */
+export interface TracedOrderDto {
+  id: number
+  code: string
+  side: 'BUY' | 'SELL'
+  qty: number
+  priceType: 'MARKET' | 'LIMIT'
+  limitPrice: string | null
+  status: OrderStatus
+  mode: 'MOCK' | 'REAL'
+  kisOrderNo: string | null
+  rejectReason: string | null
+  requestedAt: string
+  completedAt: string | null
+  source: string
+  orderTrigger: TraceOrderTrigger | null
+  triggerRefId: number | null
+  /** 이 주문의 체결 합계 수량 (부분체결 sum) */
+  filledQty: number
+  executions: TracedExecutionDto[]
+}
+
+/** 추적 요약 + 정합 판정 — backend SignalTraceSummaryDto 정합 */
+export interface SignalTraceSummaryDto {
+  orderCount: number
+  /** 주문한 총 수량 (Σ order.qty) */
+  orderedQty: number
+  /** 실제 체결된 총 수량 (Σ execution.qty) */
+  filledQty: number
+  /** 현재 그 전략이 보유한 수량 (strategy_position) */
+  strategyHeldQty: number
+  /** KIS 권위 보유 수량 (position user+code 합산) */
+  authorityHeldQty: number
+  /** 정합 여부 — strategyHeldQty == authorityHeldQty면 true(정합), 다르면 false(보정 대기) */
+  reconciled: boolean
+  strategyAvgPrice: string | null
+  strategyFilledLots: number | null
+  strategyRealizedPnl: string | null
+  strategyPositionUpdatedAt: string | null
+}
+
+/** 시그널 키 사슬 추적 응답 — backend SignalTraceResponse 정합 (사인→주문→체결→보유+정합) */
+export interface SignalTraceDto {
+  signal: SignalDto
+  orders: TracedOrderDto[]
+  summary: SignalTraceSummaryDto
+}
+
+// ──────────────────────────────────────────────
 // API 함수
 // ──────────────────────────────────────────────
 
@@ -118,6 +191,20 @@ export const signalApi = {
   get: async (id: string, userId: number): Promise<SignalDto> => {
     const res = await apiClient.get<SignalBackendDto>(`/signals/${id}?userId=${userId}`)
     return normalizeSignal(res.data)
+  },
+
+  /**
+   * GET /api/signals/{id}/trace?userId=
+   * 키 사슬 추적 (ADR 0115 §2-B 불변식 #4) — 사인→주문→체결→보유+정합 드릴다운.
+   */
+  trace: async (id: string, userId: number): Promise<SignalTraceDto> => {
+    const res = await apiClient.get<
+      Omit<SignalTraceDto, 'signal'> & { signal: SignalBackendDto }
+    >(`/signals/${id}/trace?userId=${userId}`)
+    return {
+      ...res.data,
+      signal: normalizeSignal(res.data.signal),
+    }
   },
 }
 
