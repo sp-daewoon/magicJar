@@ -117,4 +117,21 @@ describe('StrategyCard 백테스트 핸드오프', () => {
     expect(btn).toBeDisabled()
     expect(navigateMock).not.toHaveBeenCalled()
   })
+
+  it('페이퍼 전략은 모의 배지를 표시하고 백테스트 점검 박스를 숨긴다', () => {
+    renderCard({
+      ...baseStrategy,
+      origin: 'PAPER_DISCOVERY',
+      status: 'ACTIVE',
+      activationReady: false,
+      activationBlockedReason: '성공한 백테스트가 있어야 자동매매를 시작할 수 있습니다.',
+    })
+
+    expect(screen.getByLabelText('모의 페이퍼, 실거래 아님')).toBeInTheDocument()
+    expect(screen.getByText('모의 페이퍼 전략')).toBeInTheDocument()
+    expect(screen.getByText('모의 감시 중')).toBeInTheDocument()
+    expect(screen.queryByText('자동매매 점검 필요')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '백테스트 필요' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '모의 감시 중지' })).toBeInTheDocument()
+  })
 })

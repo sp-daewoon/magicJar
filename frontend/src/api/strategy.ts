@@ -181,6 +181,7 @@ export const strategyApi = {
 
 /** 전략 상태 (ADR 0066 §3-A + BUY_BLOCKED risk 보호 상태) */
 export type StrategyStatus = 'ACTIVE' | 'BUY_BLOCKED' | 'PAUSED' | 'DISABLED' | 'DELETED'
+export type StrategyOrigin = 'USER_DSL' | 'PAPER_DISCOVERY'
 
 // ──────────────────────────────────────────────
 // 분할 매수(scale-in) / 분할 익절(partial-exit) DTO — ADR 0111 (분할매수 R3-a)
@@ -217,6 +218,7 @@ export interface SigStrategyDto {
   userId: number
   name: string
   nameKo?: string
+  origin?: StrategyOrigin
   universe?: string
   tf?: string
   /** 감시 종목 코드 배열 (JSONB) */
@@ -446,6 +448,13 @@ function normalizeStatus(raw: SigStrategyBackendDto): StrategyStatus {
   return raw.enabled === false ? 'DISABLED' : 'ACTIVE'
 }
 
+function normalizeOrigin(raw: SigStrategyBackendDto): StrategyOrigin {
+  if (raw.origin === 'PAPER_DISCOVERY') return 'PAPER_DISCOVERY'
+  const label = `${raw.nameKo ?? ''} ${raw.name ?? ''}`.trim()
+  if (label.includes('[모의]') || label.includes('[페이퍼]')) return 'PAPER_DISCOVERY'
+  return 'USER_DSL'
+}
+
 function normalizeSigStrategy(raw: SigStrategyBackendDto): SigStrategyDto {
   const codes = asStringArray(raw.codes)
   const intervals = asStringArray(raw.intervals)
@@ -456,6 +465,7 @@ function normalizeSigStrategy(raw: SigStrategyBackendDto): SigStrategyDto {
     userId: Number(raw.userId),
     name: raw.name ?? `strategy-${raw.id}`,
     nameKo: raw.nameKo,
+    origin: normalizeOrigin(raw),
     universe: raw.universe,
     tf,
     stopLossPct: raw.stopLossPct ?? null,

@@ -18,7 +18,12 @@ export function formatStrategyTargetLabel(
   return `${codes} / ${intervals}`
 }
 
+export function isPaperStrategy(strategy: Pick<SigStrategyDto, 'origin'>): boolean {
+  return strategy.origin === 'PAPER_DISCOVERY'
+}
+
 export function strategyActivationBlockedReason(strategy: SigStrategyDto): string | null {
+  if (isPaperStrategy(strategy)) return null
   if (strategy.activationReady !== false) return null
   return strategy.activationBlockedReason?.trim() || '성공한 백테스트가 있어야 자동매매를 시작할 수 있습니다.'
 }

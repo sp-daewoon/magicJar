@@ -359,6 +359,7 @@ class StrategiesController(
             userId = strategy.userId,
             name = strategy.definition.dsl.name,
             nameKo = strategy.definition.dsl.nameKo ?: "",
+            origin = strategy.origin.name,
             universe = strategy.definition.universe.market,
             tf = strategy.definition.tf,
             stopLossPct = strategy.definition.fixedStopLoss,
@@ -560,6 +561,12 @@ data class StrategyDetailResponse(
     val name: String,
     @field:Schema(description = "전략 한국어명", example = "골든크로스 5·20")
     val nameKo: String = "",
+    @field:Schema(
+        description = "전략 출처 (USER_DSL=일반 전략, PAPER_DISCOVERY=단타 발굴 페이퍼 승격 전략)",
+        example = "USER_DSL",
+        allowableValues = ["USER_DSL", "PAPER_DISCOVERY"],
+    )
+    val origin: String = "USER_DSL",
     @field:Schema(description = "유니버스 시장", example = "KOSPI")
     val universe: String,
     @field:Schema(description = "타임프레임", example = "D1")

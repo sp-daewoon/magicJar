@@ -1,0 +1,118 @@
+package kr.spdaewoon.magicjar.consumer.ingestion
+
+import com.fasterxml.jackson.databind.ObjectMapper
+import jakarta.annotation.PostConstruct
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaRepository
+import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
+import org.springframework.scheduling.annotation.Scheduled
+import org.springframework.stereotype.Component
+
+/**
+ * ACTIVE/BUY_BLOCKED 전략의 대상 종목 WS 구독 보강.
+ *
+ * 전략 목록에서 ACTIVE로 전환된 사용자 전략은 DB의 strategy.codes 배열 전체가 실시간 평가 대상이다.
+ * API가 즉시 realtime demand를 발행하지만, consumer 재시작·Kafka 일시 실패·TTL 만료에 대비해 이 registrar가
+ * active 전략을 주기적으로 읽고 동일 ownerId(`strategy:<id>`)로 갱신한다.
+ */
+@Component
+class ActiveStrategyDemandRegistrar(
+    private val strategyJpaRepository: ConsumerStrategyJpaRepository,
+    private val realtimeSubscriptionRouter: RealtimeSubscriptionRouter,
+    private val objectMapper: ObjectMapper,
+    @Value("\${magicjar.autotrading.strategy-watch.enabled:true}")
+    private val enabled: Boolean = true,
+) {
+    private val log = LoggerFactory.getLogger(ActiveStrategyDemandRegistrar::class.java)
+    private val registeredByStrategy: MutableMap<Long, Set<String>> = linkedMapOf()
+
+    @PostConstruct
+    fun bootstrap() {
+        if (!enabled) return
+        refreshActiveStrategyDemands()
+    }
+
+    @Scheduled(
+        fixedDelayString = "\${magicjar.autotrading.strategy-watch.refresh-delay-ms:60000}",
+        initialDelay = 20_000,
+    )
+    fun refreshActiveStrategyDemands() {
+        if (!enabled) return
+
+        val nextByStrategy =
+            strategyJpaRepository
+                .findActiveWithExplicitCodes()
+                .mapNotNull { entity ->
+                    val id = entity.id ?: return@mapNotNull null
+                    val codes = parseCodes(entity.codes).toSet()
+                    if (codes.isEmpty()) null else id to codes
+                }.toMap()
+
+        nextByStrategy.forEach { (strategyId, codes) ->
+            codes.forEach { code ->
+                runCatching {
+                    realtimeSubscriptionRouter.request(
+                        owner = RealtimeDemandOwner.STRATEGY,
+                        ownerId = ownerId(strategyId),
+                        code = code,
+                        priority = RealtimeDemandOwner.STRATEGY.defaultPriority,
+                        ttlSeconds = STRATEGY_DEMAND_TTL_SECONDS,
+                    )
+                }.onFailure { e ->
+                    log.warn("ACTIVE strategy demand request 실패: strategyId={} code={} err={}", strategyId, code, e.message)
+                }
+            }
+        }
+
+        registeredByStrategy.forEach { (strategyId, previousCodes) ->
+            val nextCodes = nextByStrategy[strategyId].orEmpty()
+            (previousCodes - nextCodes).forEach { code ->
+                runCatching {
+                    realtimeSubscriptionRouter.release(
+                        owner = RealtimeDemandOwner.STRATEGY,
+                        ownerId = ownerId(strategyId),
+                        code = code,
+                    )
+                }.onFailure { e ->
+                    log.warn("ACTIVE strategy demand release 실패: strategyId={} code={} err={}", strategyId, code, e.message)
+                }
+            }
+        }
+
+        registeredByStrategy.clear()
+        registeredByStrategy.putAll(nextByStrategy)
+        if (nextByStrategy.isNotEmpty()) {
+            log.debug(
+                "ACTIVE strategy demand refresh: strategies={} codes={}",
+                nextByStrategy.size,
+                nextByStrategy.values.sumOf { it.size },
+            )
+        }
+    }
+
+    private fun parseCodes(json: String?): List<String> {
+        if (json.isNullOrBlank()) return emptyList()
+        return try {
+            val node = objectMapper.readTree(json)
+            when {
+                node.isArray ->
+                    node
+                        .mapNotNull { child -> child.asText(null) }
+                        .filter { CODE_REGEX.matches(it) }
+                        .distinct()
+                node.isTextual && CODE_REGEX.matches(node.asText()) -> listOf(node.asText())
+                else -> emptyList()
+            }
+        } catch (e: Exception) {
+            log.warn("ACTIVE strategy codes 파싱 실패: err={}", e.message)
+            emptyList()
+        }
+    }
+
+    private fun ownerId(strategyId: Long): String = "strategy:$strategyId"
+
+    private companion object {
+        const val STRATEGY_DEMAND_TTL_SECONDS = 180L
+        val CODE_REGEX = Regex("^\\d{6}$")
+    }
+}

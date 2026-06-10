@@ -6,7 +6,7 @@ import { useRiskConfig } from '../../api/hooks/useRiskConfig'
 import { useRiskEvents } from '../../api/hooks/useRiskEvents'
 import { useSignals } from '../../api/hooks/useSignal'
 import { useSigStrategies } from '../../api/hooks/useSigStrategy'
-import { formatStrategyTargetLabel } from './strategyDisplay'
+import { formatStrategyTargetLabel, isPaperStrategy } from './strategyDisplay'
 
 interface StrategyRunStatusSummaryProps {
   userId: number
@@ -64,6 +64,10 @@ export function StrategyRunStatusSummary({ userId }: StrategyRunStatusSummaryPro
   const strategies = strategyPages?.pages.flatMap((page) => page.content) ?? []
   const activeStrategies = strategies.filter((strategy) => strategy.status === 'ACTIVE')
   const buyBlockedStrategies = strategies.filter((strategy) => strategy.status === 'BUY_BLOCKED')
+  const activePaperStrategies = activeStrategies.filter(isPaperStrategy)
+  const activeLiveStrategies = activeStrategies.filter((strategy) => !isPaperStrategy(strategy))
+  const buyBlockedPaperStrategies = buyBlockedStrategies.filter(isPaperStrategy)
+  const buyBlockedLiveStrategies = buyBlockedStrategies.filter((strategy) => !isPaperStrategy(strategy))
   const monitoringStrategies = [...activeStrategies, ...buyBlockedStrategies]
   const primaryStrategy = monitoringStrategies[0] ?? strategies[0]
   const latestSignal = signalPages?.pages[0]?.content[0]
@@ -76,16 +80,20 @@ export function StrategyRunStatusSummary({ userId }: StrategyRunStatusSummaryPro
     ? '상태 확인 중'
     : killSwitchOn
       ? '주문 정지'
-    : activeStrategies.length > 0
+    : activeLiveStrategies.length > 0
       ? '자동매매 감시 중'
+    : activePaperStrategies.length > 0
+      ? '모의 감시 중'
     : buyBlockedStrategies.length > 0
       ? '매수차단 감시 중'
     : '자동매매중 전략 없음'
 
   const statusClass = killSwitchOn
     ? 'border-gray-700 bg-gray-800 text-gray-300'
-    : activeStrategies.length > 0
+    : activeLiveStrategies.length > 0
       ? 'border-emerald-700 bg-emerald-950/50 text-emerald-300'
+      : activePaperStrategies.length > 0
+        ? 'border-amber-700 bg-amber-950/50 text-amber-300'
       : buyBlockedStrategies.length > 0
         ? 'border-sky-700 bg-sky-950/50 text-sky-300'
         : 'border-amber-700 bg-amber-950/50 text-amber-300'
@@ -134,6 +142,14 @@ export function StrategyRunStatusSummary({ userId }: StrategyRunStatusSummaryPro
           <p className="mt-1 truncate text-xs text-gray-500" title={primaryStrategy ? formatStrategyTargetLabel(primaryStrategy) : undefined}>
             {primaryStrategy
               ? `#${primaryStrategy.id} ${formatStrategyTargetLabel(primaryStrategy)}${
+                  activePaperStrategies.length + buyBlockedPaperStrategies.length > 0
+                    ? ` · 모의 ${activePaperStrategies.length + buyBlockedPaperStrategies.length}개`
+                    : ''
+                }${
+                  activeLiveStrategies.length + buyBlockedLiveStrategies.length > 0
+                    ? ` · 실전 ${activeLiveStrategies.length + buyBlockedLiveStrategies.length}개`
+                    : ''
+                }${
                   buyBlockedStrategies.length > 0 ? ` · 매수차단 ${buyBlockedStrategies.length}개` : ''
                 }`
               : '전략을 자동매매 시작해야 신호를 평가합니다'}

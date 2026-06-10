@@ -13,12 +13,14 @@ import {
 } from '../../api/strategy'
 import { useDeleteSigStrategy, useToggleSigStrategyStatus } from '../../api/hooks/useSigStrategy'
 import { AiExplainEntry } from '../../features/ai/components/AiExplainEntry'
+import { PaperBadge } from '../../features/daytradePaper/components/PaperBadge'
 import { useOnboardingStore } from '../../stores/onboarding'
 import { useToast } from '../ui/ToastProvider'
 import { RiskPlanPreviewPanel } from './RiskPlanPreviewPanel'
 import { StrategyPositionPanel } from './StrategyPositionPanel'
 import {
   formatStrategyCodeLabel,
+  isPaperStrategy,
   resolveStrategyMutationErrorMessage,
   strategyActivationBlockedReason,
 } from './strategyDisplay'
@@ -57,6 +59,7 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
   const badge = STATUS_BADGE[strategy.status] ?? STATUS_BADGE.DISABLED
   const codes = Array.isArray(strategy.codes) ? strategy.codes : []
   const intervals = Array.isArray(strategy.intervals) ? strategy.intervals : []
+  const isPaper = isPaperStrategy(strategy)
   const { showToast } = useToast()
   const navigate = useNavigate()
   // W4 R2 AI 진입점 — userId 1일 토큰 한도 키
@@ -94,7 +97,7 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
       { id: strategy.id, status: nextStatus },
       {
         onSuccess: () => {
-          showToast(statusSuccessMessage(nextStatus), 'success')
+          showToast(statusSuccessMessage(nextStatus, isPaper), 'success')
         },
         onError: (error) => {
           showToast(resolveStrategyMutationErrorMessage(error), 'error')
@@ -108,7 +111,7 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
       { id: strategy.id, status: 'PAUSED' },
       {
         onSuccess: () => {
-          showToast(statusSuccessMessage('PAUSED'), 'success')
+          showToast(statusSuccessMessage('PAUSED', isPaper), 'success')
         },
         onError: (error) => {
           showToast(resolveStrategyMutationErrorMessage(error), 'error')
@@ -138,7 +141,7 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
     : null
   const isRiskViolationProtected = strategy.disabledReason === 'RISK_VIOLATION'
   const disabledAtLabel = formatKst(strategy.lastDisabledAt)
-  const activeNeedsAttention = strategy.status === 'ACTIVE' && activationBlockedReason
+  const activeNeedsAttention = !isPaper && strategy.status === 'ACTIVE' && activationBlockedReason
   const stopLossPct = parsePositiveNumber(strategy.stopLossPct)
   const takeProfitPct = parsePositiveNumber(strategy.takeProfitPct)
   const scaleInLabel = describeScaleIn(strategy.scaleIn)
@@ -158,7 +161,12 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
       : null
 
   return (
-    <article className="flex flex-col gap-3 rounded-xl border border-gray-800 bg-gray-900 p-5 transition-colors hover:border-gray-700">
+    <article
+      className={[
+        'flex flex-col gap-3 rounded-xl border bg-gray-900 p-5 transition-colors',
+        isPaper ? 'border-amber-800/70 hover:border-amber-700/80' : 'border-gray-800 hover:border-gray-700',
+      ].join(' ')}
+    >
       {/* 헤더 */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
@@ -169,6 +177,11 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
             <p className="mt-0.5 truncate text-xs text-gray-400" title={strategy.nameKo}>
               {strategy.nameKo}
             </p>
+          )}
+          {isPaper && (
+            <div className="mt-1">
+              <PaperBadge />
+            </div>
           )}
           <div className="mt-1 flex flex-wrap gap-1">
             {codes.length === 0 && (
@@ -218,9 +231,24 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
       <div className="grid grid-cols-2 gap-2 text-xs text-gray-500">
         <span>전략 ID {strategy.id}</span>
         <span className="text-right">
-          {strategyStatusDescription(strategy.status)}
+          {strategyStatusDescription(strategy.status, isPaper)}
         </span>
       </div>
+
+      {isPaper && (
+        <div className="rounded-lg border border-amber-800/60 bg-amber-950/30 px-3 py-2 text-xs leading-5 text-amber-100">
+          <p className="font-semibold text-amber-200">모의 페이퍼 전략</p>
+          <p className="text-amber-100/80">
+            단타 발굴 setup 을 가상 자본으로 검증합니다. 주문 경로는 MOCK 으로 강제되어 실제 계좌 주문이 아닙니다.
+          </p>
+          <Link
+            to="/strategy/paper"
+            className="mt-1 inline-flex font-semibold text-amber-200 underline-offset-2 hover:text-amber-100 hover:underline"
+          >
+            페이퍼 대시보드에서 보기
+          </Link>
+        </div>
+      )}
 
       {strategy.status === 'DISABLED' && (
         <div className="border-l-2 border-amber-500 pl-3 text-xs leading-5 text-amber-100">
@@ -374,7 +402,7 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
             {toggleMutation.isPending
               ? '처리 중...'
               : strategy.status === 'ACTIVE'
-              ? '자동매매 중지'
+              ? isPaper ? '모의 감시 중지' : '자동매매 중지'
               : strategy.status === 'BUY_BLOCKED'
               ? '매수 재개'
               : isMissingOperationalTargets
@@ -383,7 +411,7 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
               ? isRiskPlanBlockedReason
                 ? 'RiskPlan 필요'
                 : '백테스트 필요'
-              : '자동매매 시작'}
+              : isPaper ? '모의 감시 시작' : '자동매매 시작'}
           </button>
         )}
 
@@ -450,14 +478,14 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
   )
 }
 
-function strategyStatusDescription(status: StrategyStatus): string {
+function strategyStatusDescription(status: StrategyStatus, isPaper: boolean): string {
   switch (status) {
     case 'ACTIVE':
-      return '자동매매 수행 중'
+      return isPaper ? '모의 감시 중' : '자동매매 수행 중'
     case 'BUY_BLOCKED':
-      return '신규 매수 차단'
+      return isPaper ? '모의 신규 매수 차단' : '신규 매수 차단'
     case 'PAUSED':
-      return '자동매매 중지됨'
+      return isPaper ? '모의 감시 중지됨' : '자동매매 중지됨'
     case 'DISABLED':
       return '보호 장치로 중지'
     case 'DELETED':
@@ -465,14 +493,14 @@ function strategyStatusDescription(status: StrategyStatus): string {
   }
 }
 
-function statusSuccessMessage(status: StrategyStatus): string {
+function statusSuccessMessage(status: StrategyStatus, isPaper = false): string {
   switch (status) {
     case 'ACTIVE':
-      return '자동매매가 시작되었습니다.'
+      return isPaper ? '모의 감시가 시작되었습니다.' : '자동매매가 시작되었습니다.'
     case 'BUY_BLOCKED':
       return '신규 매수가 차단되었습니다.'
     case 'PAUSED':
-      return '자동매매가 중지되었습니다.'
+      return isPaper ? '모의 감시가 중지되었습니다.' : '자동매매가 중지되었습니다.'
     case 'DELETED':
       return '전략이 삭제되었습니다.'
     case 'DISABLED':

@@ -741,6 +741,8 @@ export function StrategyBuilderPage() {
           initialUniverse={loadedStrategy?.universe}
           initialTf={evalForm.interval}
           initialCode={evalForm.code}
+          initialCodes={loadedStrategy?.codes}
+          initialCodeNames={loadedStrategy?.codeNames}
           initialStopLossPct={
             loadedStrategy?.stopLossPct ?? researchDraftMeta?.stopLossPct ?? aiDraftMeta?.riskPlan.fixedStopLossPct ?? undefined
           }

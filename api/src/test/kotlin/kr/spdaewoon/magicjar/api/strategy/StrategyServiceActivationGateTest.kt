@@ -12,6 +12,7 @@ import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
+import kr.spdaewoon.magicjar.domain.strategy.StrategyOrigin
 import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.Universe
 import kr.spdaewoon.magicjar.domain.strategy.dsl.Condition
@@ -137,6 +138,19 @@ class StrategyServiceActivationGateTest {
     }
 
     @Test
+    fun `페이퍼 전략은 성공한 백테스트 없이 ACTIVE 전환을 허용한다`() {
+        every { strategyJpaRepository.findByIdAndStatusNot(1L, StrategyStatus.DELETED.name) } returns entity(status = "PAUSED")
+        every { strategyRepositoryPort.findById(1L) } returns
+            strategy(status = StrategyStatus.PAUSED, origin = StrategyOrigin.PAPER_DISCOVERY)
+
+        service.toggleStatus(1L, StrategyStatus.ACTIVE)
+
+        verify(exactly = 0) { backtestRunJpaRepository.existsAutoActivationReadyRun(any(), any()) }
+        verify(exactly = 1) { strategyRepositoryPort.enable(1L) }
+        verify(exactly = 1) { redisStrategyCache.invalidateAll() }
+    }
+
+    @Test
     fun `BUY_BLOCKED to PAUSED는 전체 자동매매 중지로 허용한다`() {
         every { strategyJpaRepository.findByIdAndStatusNot(1L, StrategyStatus.DELETED.name) } returns entity(status = "BUY_BLOCKED")
         every { strategyRepositoryPort.findById(1L) } returns strategy(status = StrategyStatus.PAUSED)
@@ -168,6 +182,7 @@ class StrategyServiceActivationGateTest {
         codes: List<String> = listOf("005930"),
         stopLossPct: BigDecimal? = BigDecimal("5.00"),
         takeProfitPct: BigDecimal? = BigDecimal("10.00"),
+        origin: StrategyOrigin = StrategyOrigin.USER_DSL,
     ) = Strategy(
         id = 1L,
         userId = 1234L,
@@ -188,6 +203,7 @@ class StrategyServiceActivationGateTest {
                 complexityClass = ComplexityClass.LOW,
             ),
         status = status,
+        origin = origin,
         codes = codes,
         intervals = listOf("1d"),
     )

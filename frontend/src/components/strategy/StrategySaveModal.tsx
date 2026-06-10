@@ -50,6 +50,8 @@ interface StrategySaveModalProps {
   initialUniverse?: string
   initialTf?: string
   initialCode?: string
+  initialCodes?: string[]
+  initialCodeNames?: Record<string, string>
   initialStopLossPct?: number | string | null
   initialTakeProfitPct?: number | string | null
   /** 기존 전략의 최소 보유 캔들(잔익절 방어 B안) */
@@ -87,6 +89,20 @@ const TF_OPTIONS = [
   { value: '1y', label: '년봉' },
 ]
 
+function extractInstrumentCode(value: string): string | null {
+  const trimmed = value.trim()
+  const labelMatch = trimmed.match(/\((\d{6})\)\s*$/)
+  if (labelMatch) return labelMatch[1]
+  return /^\d{6}$/.test(trimmed) ? trimmed : null
+}
+
+function normalizeTargetCodes(codes: Array<string | null | undefined>): string[] {
+  return codes
+    .map((code) => code?.trim() ?? '')
+    .filter((code): code is string => /^\d{6}$/.test(code))
+    .filter((code, index, arr) => arr.indexOf(code) === index)
+}
+
 export function StrategySaveModal({
   strategyId,
   userId,
@@ -97,6 +113,8 @@ export function StrategySaveModal({
   initialUniverse,
   initialTf,
   initialCode,
+  initialCodes,
+  initialCodeNames,
   initialStopLossPct,
   initialTakeProfitPct,
   initialMinHoldBars,
@@ -105,11 +123,14 @@ export function StrategySaveModal({
   onSaved,
   onClose,
 }: StrategySaveModalProps) {
+  const initialTargetCodes = normalizeTargetCodes(initialCodes?.length ? initialCodes : [initialCode])
   const [name, setName] = useState(initialName ?? '')
   const [nameKo, setNameKo] = useState(initialNameKo ?? '')
   const [universe, setUniverse] = useState(initialUniverse ?? 'KOSPI')
   const [tf, setTf] = useState(initialTf ?? '1d')
-  const [targetCode, setTargetCode] = useState(initialCode ?? '')
+  const [targetCodeInput, setTargetCodeInput] = useState('')
+  const [targetCodes, setTargetCodes] = useState<string[]>(initialTargetCodes)
+  const [targetCodeNames, setTargetCodeNames] = useState<Record<string, string>>(initialCodeNames ?? {})
   const [stopLossPct, setStopLossPct] = useState(initialStopLossPct?.toString() ?? '5')
   const [takeProfitPct, setTakeProfitPct] = useState(initialTakeProfitPct?.toString() ?? '10')
   // 잔익절 방어 B안 — 최소 보유 캔들(빈 문자열·0 = 비활성 현행)
@@ -147,7 +168,9 @@ export function StrategySaveModal({
     setNameKo(initialNameKo ?? '')
     setUniverse(initialUniverse ?? 'KOSPI')
     setTf(initialTf ?? '1d')
-    setTargetCode(initialCode ?? '')
+    setTargetCodeInput('')
+    setTargetCodes(normalizeTargetCodes(initialCodes?.length ? initialCodes : [initialCode]))
+    setTargetCodeNames(initialCodeNames ?? {})
     setStopLossPct(initialStopLossPct?.toString() ?? '5')
     setTakeProfitPct(initialTakeProfitPct?.toString() ?? '10')
     setMinHoldBars(initialMinHoldBars?.toString() ?? '')
@@ -163,12 +186,37 @@ export function StrategySaveModal({
     initialUniverse,
     initialTf,
     initialCode,
+    initialCodes,
+    initialCodeNames,
     initialStopLossPct,
     initialTakeProfitPct,
     initialMinHoldBars,
     initialScaleIn,
     initialPartialExits,
   ])
+
+  function addTargetCode(rawValue: string, name?: string) {
+    const code = extractInstrumentCode(rawValue)
+    if (!code) {
+      setFormError('검색 결과를 선택하거나 6자리 종목코드를 추가하세요')
+      return
+    }
+    setTargetCodes((prev) => (prev.includes(code) ? prev : [...prev, code]))
+    if (name?.trim()) {
+      setTargetCodeNames((prev) => ({ ...prev, [code]: name.trim() }))
+    }
+    setTargetCodeInput('')
+    setFormError(null)
+  }
+
+  function removeTargetCode(code: string) {
+    setTargetCodes((prev) => prev.filter((item) => item !== code))
+  }
+
+  function targetCodeLabel(code: string): string {
+    const name = targetCodeNames[code]?.trim()
+    return name ? `${name} (${code})` : code
+  }
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
@@ -191,13 +239,14 @@ export function StrategySaveModal({
       setFormError('매수 조건(Entry)이 없습니다')
       return
     }
-    const normalizedCode = targetCode.trim()
-    if (!normalizedCode) {
-      setFormError('자동매매 대상 종목을 선택하세요')
+    const pendingCode = targetCodeInput.trim() ? extractInstrumentCode(targetCodeInput) : null
+    if (targetCodeInput.trim() && !pendingCode) {
+      setFormError('입력 중인 종목은 검색 결과를 선택하거나 6자리 코드로 추가하세요')
       return
     }
-    if (!/^\d{6}$/.test(normalizedCode)) {
-      setFormError('자동매매 대상 종목은 6자리 종목코드로 저장됩니다')
+    const normalizedCodes = normalizeTargetCodes([...targetCodes, pendingCode])
+    if (normalizedCodes.length === 0) {
+      setFormError('자동매매 대상 종목을 선택하세요')
       return
     }
     const parsedStopLossPct = Number(stopLossPct.trim())
@@ -266,7 +315,7 @@ export function StrategySaveModal({
       stopLossPct: parsedStopLossPct,
       takeProfitPct: parsedTakeProfitPct,
       minHoldBars: minHoldBarsPayload,
-      codes: [normalizedCode],
+      codes: normalizedCodes,
       intervals: [tf],
       scaleIn: scaleInPayload,
       partialExits: partialExitsPayload,
@@ -409,16 +458,49 @@ export function StrategySaveModal({
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-400">
               자동매매 대상 종목 <span className="text-red-400">*</span>
+              <span className="ml-1 font-normal text-gray-600">({targetCodes.length}개)</span>
             </label>
             <span className="mb-1 block text-xs text-gray-600">
-              전략 목록과 자동매매는 이 종목 매핑을 기준으로 평가됩니다.
+              전략 목록과 자동매매는 이 종목 매핑 전체를 기준으로 평가됩니다.
             </span>
-            <InstrumentSearchInput
-              value={targetCode}
-              onRawChange={(value) => setTargetCode(value.trim())}
-              onSelect={(result) => setTargetCode(result.code)}
-              placeholder="종목명 또는 코드 검색"
-            />
+            <div className="flex gap-2">
+              <div className="min-w-0 flex-1">
+                <InstrumentSearchInput
+                  value={targetCodeInput}
+                  onRawChange={(value) => setTargetCodeInput(value)}
+                  onSelect={(result) => addTargetCode(result.code, result.name)}
+                  placeholder="종목명 또는 코드 검색"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => addTargetCode(targetCodeInput)}
+                className="h-[42px] shrink-0 rounded-lg border border-gray-700 bg-gray-800 px-3 text-sm font-medium text-gray-200 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-900"
+              >
+                추가
+              </button>
+            </div>
+            {targetCodes.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {targetCodes.map((code) => (
+                  <span
+                    key={code}
+                    className="inline-flex max-w-full items-center gap-1 rounded-md border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-gray-200"
+                    title={targetCodeLabel(code)}
+                  >
+                    <span className="max-w-[14rem] truncate">{targetCodeLabel(code)}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeTargetCode(code)}
+                      className="rounded px-1 text-gray-500 hover:bg-gray-700 hover:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      aria-label={`${targetCodeLabel(code)} 제거`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* mandatory risk plan */}

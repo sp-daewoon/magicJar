@@ -60,6 +60,7 @@ class StrategyService(
     @Value("\${magicjar.dsl.node-count-limit:10000}") private val nodeCountLimit: Int,
     @Value("\${magicjar.dsl.indicator-call-limit:50}") private val indicatorCallLimit: Int,
     @Value("\${magicjar.strategy.scale-in.enabled:false}") private val scaleInEnabled: Boolean = false,
+    private val realtimeDemandPublisher: StrategyRealtimeDemandPublisher? = null,
 ) : EvaluatorAutoDisableCallback {
     private val log = LoggerFactory.getLogger(StrategyService::class.java)
 
@@ -248,6 +249,9 @@ class StrategyService(
         if (!scaleInEnabled && hasScaleInExit) {
             return "SCALE_IN_NOT_ENABLED: 분할매수/분할익절 전략은 리플레이·백테스트 정합 검증 후 활성화됩니다 (현재 비활성)"
         }
+        if (strategy.isPaperDiscovery()) {
+            return null
+        }
         val strategyId = strategy.id ?: return "저장되지 않은 전략은 ACTIVE로 전환할 수 없습니다"
         val ready = backtestRunJpaRepository.existsAutoActivationReadyRun(strategyId, strategy.userId.toString())
         return if (ready) {
@@ -286,8 +290,10 @@ class StrategyService(
      */
     @Transactional
     fun softDelete(id: Long) {
+        val strategy = strategyRepositoryPort.findById(id)
         val updated = strategyJpaRepository.updateStatus(id, StrategyStatus.DELETED.name)
         if (updated == 0) throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
+        strategy?.let { realtimeDemandPublisher?.exit(it) }
         redisStrategyCache.invalidateAll()
         log.info("전략 soft delete: id={}", id)
     }
@@ -314,16 +320,18 @@ class StrategyService(
 
         val currentStatus = runCatching { StrategyStatus.valueOf(entity.status) }.getOrDefault(StrategyStatus.ACTIVE)
         validateTransition(id, currentStatus, newStatus)
+        val strategy =
+            strategyRepositoryPort.findById(id)
+                ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
         if (newStatus == StrategyStatus.ACTIVE) {
-            val strategy =
-                strategyRepositoryPort.findById(id)
-                    ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
             activationBlockedReason(strategy)?.let { reason ->
                 throw ResponseStatusException(HttpStatus.CONFLICT, "$reason: id=$id")
             }
             strategyRepositoryPort.enable(id)
+            realtimeDemandPublisher?.enter(strategy)
         } else {
             strategyJpaRepository.updateStatus(id, newStatus.name)
+            realtimeDemandPublisher?.exit(strategy)
         }
         redisStrategyCache.invalidateAll()
         log.info("전략 status 전환: id={} {} → {}", id, currentStatus, newStatus)
@@ -367,6 +375,7 @@ class StrategyService(
             throw ResponseStatusException(HttpStatus.CONFLICT, "$reason: id=$strategyId")
         }
         strategyRepositoryPort.enable(strategyId)
+        realtimeDemandPublisher?.enter(strategy)
         redisStrategyCache.invalidateAll()
         log.info("전략 재활성화: id={}", strategyId)
     }
