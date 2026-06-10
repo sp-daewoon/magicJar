@@ -37,6 +37,7 @@ import { useStompConnectionState } from '../../api/hooks/useStompConnectionState
 import { useCandleHealth } from '../../api/hooks/useCandleHealth'
 import {
   symbolApi,
+  type CandleInterval,
   type CandleMinutePayload,
   type OrderbookPayload,
   type TickPayload,
@@ -91,6 +92,7 @@ export function SymbolDetailPage() {
   const [orderbook, setOrderbook] = useState<OrderbookPayload | null>(null)
   const [orderbookSlot, setOrderbookSlot] = useState<'live' | 'queued' | null>(null)
   const [selectedOrderPrice, setSelectedOrderPrice] = useState('')
+  const [chartInterval, setChartInterval] = useState<CandleInterval>('1d')
   const [lastTickAt, setLastTickAt] = useState<number | null>(null)
   const [watchStartedAt, setWatchStartedAt] = useState(() => Date.now())
   const [nowMs, setNowMs] = useState(() => Date.now())
@@ -409,6 +411,7 @@ export function SymbolDetailPage() {
               context={{
                 code,
                 name: instrument?.name ?? symbol.code,
+                timeframe: chartInterval,
                 currentPrice: realtimeTick?.price ?? symbol.currentPrice ?? null,
                 changeRate: realtimeTick?.changeRate ?? symbol.changeRate ?? null,
                 source: symbol.source,
@@ -427,6 +430,7 @@ export function SymbolDetailPage() {
             userId={userId}
             realtimeCandle={realtimeCandle}
             riskPlanPreview={riskPlanPreview}
+            onIntervalChange={setChartInterval}
             liveTick={
               realtimeTick
                 ? {

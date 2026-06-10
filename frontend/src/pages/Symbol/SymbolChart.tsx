@@ -158,9 +158,19 @@ interface SymbolChartProps {
    * SymbolDetailPage에서 /topic/market.tick.{code} 수신 후 전달
    */
   liveTick?: LiveTick | null
+  /** 현재 차트 interval을 부모 화면의 AI context와 동기화한다. */
+  onIntervalChange?: (interval: CandleInterval) => void
 }
 
-export function SymbolChart({ code, symbolName, userId, realtimeCandle, riskPlanPreview, liveTick }: SymbolChartProps) {
+export function SymbolChart({
+  code,
+  symbolName,
+  userId,
+  realtimeCandle,
+  riskPlanPreview,
+  liveTick,
+  onIntervalChange,
+}: SymbolChartProps) {
   const [interval, setInterval] = useState<CandleInterval>('1d')
   // ADR 0093 §결정 LOCK Phase 4-B (2026-05-20) + ADR 0120 §6-2 (2026-06-10):
   //   사용자가 선택한 차트 표시 봉수. localStorage 전역 1개 키(magicjar:chart:candleCount)로
@@ -415,8 +425,9 @@ export function SymbolChart({ code, symbolName, userId, realtimeCandle, riskPlan
 
   const handleIntervalChange = useCallback((newInterval: CandleInterval) => {
     setInterval(newInterval)
+    onIntervalChange?.(newInterval)
     // 인터벌 변경 시 선택된 지표는 유지 (staleTime 경과 시 re-fetch)
-  }, [])
+  }, [onIntervalChange])
 
   const handleScrollLeft = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) {

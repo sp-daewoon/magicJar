@@ -26,8 +26,9 @@ class AiExplainServiceTest {
     private val resolver = mockk<PromptTemplateResolver>()
     private val producer = mockk<AiCommentRequestKafkaProducer>(relaxed = true)
     private val recorder = mockk<AiCommentLogRecorder>(relaxed = true)
+    private val chartContextEnricher = mockk<AiChartPromptContextEnricher>()
     private val objectMapper: ObjectMapper = jacksonObjectMapper()
-    private val service = AiExplainService(killSwitch, tokenLimit, resolver, producer, recorder, objectMapper)
+    private val service = AiExplainService(killSwitch, tokenLimit, resolver, producer, recorder, objectMapper, chartContextEnricher)
 
     private val baseRequest =
         AiExplainRequest(
@@ -106,5 +107,47 @@ class AiExplainServiceTest {
         verify(exactly = 1) { producer.publish(any()) }
         // 정상 분기 — recorder refusal 0건 (audit 는 ai.comment.responded.v1 consume 시점)
         verify(exactly = 0) { recorder.recordRefusal(any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `CHART 정상 - 선택 timeframe으로 실측 차트 context 보강 후 prompt resolve`() {
+        val request =
+            AiExplainRequest(
+                type = AiCommentType.CHART,
+                userId = 1L,
+                context = mapOf("code" to "005930", "timeframe" to "1d"),
+            )
+        val enriched =
+            mapOf(
+                "code" to "005930",
+                "timeframe" to "1d(일봉)",
+                "indicators" to "RSI14=55.2",
+                "priceFlow" to "last20=3.4%",
+            )
+        every { killSwitch.check() } returns null
+        every { tokenLimit.check(any()) } returns null
+        every { chartContextEnricher.enrich(request.context) } returns enriched
+        every { resolver.resolve(AiCommentType.CHART, enriched) } returns
+            PromptTemplateResolver.ResolvedPrompt(
+                prompt = "chart final prompt",
+                templateKey = "chart_v2",
+                version = "v2",
+            )
+        every { producer.publish(any()) } just Runs
+
+        val response = service.handle(request)
+        response.status shouldBe "ACCEPTED"
+
+        verify(exactly = 1) { chartContextEnricher.enrich(request.context) }
+        verify(exactly = 1) { resolver.resolve(AiCommentType.CHART, enriched) }
+        verify(exactly = 1) {
+            producer.publish(
+                match {
+                    it.prompt == "chart final prompt" &&
+                        it.promptTemplateKey == "chart_v2" &&
+                        it.contextJson.contains("\"priceFlow\":\"last20=3.4%\"")
+                },
+            )
+        }
     }
 }

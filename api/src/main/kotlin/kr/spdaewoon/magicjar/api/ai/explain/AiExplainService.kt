@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.api.ai.explain
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.ai.AiCommentType
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.util.UUID
@@ -26,6 +27,7 @@ class AiExplainService(
     private val producer: AiCommentRequestKafkaProducer,
     private val recorder: AiCommentLogRecorder,
     private val objectMapper: ObjectMapper,
+    private val chartContextEnricher: AiChartPromptContextEnricher,
 ) {
     private val log = LoggerFactory.getLogger(AiExplainService::class.java)
 
@@ -84,10 +86,17 @@ class AiExplainService(
             )
         }
 
+        val promptContext =
+            if (request.type == AiCommentType.CHART) {
+                chartContextEnricher.enrich(request.context)
+            } else {
+                request.context
+            }
+
         // 3단계 — prompt 해석 (변수 치환)
         val resolved =
             try {
-                promptResolver.resolve(request.type, request.context)
+                promptResolver.resolve(request.type, promptContext)
             } catch (e: PromptTemplateNotFoundException) {
                 log.warn("[AiExplain] prompt template not found — requestId={} type={} err={}", requestId, request.type, e.message)
                 val refuseCode = "PROMPT_NOT_FOUND"
@@ -114,7 +123,7 @@ class AiExplainService(
                 requestId = requestId,
                 userId = request.userId,
                 type = request.type.name,
-                contextJson = objectMapper.writeValueAsString(request.context),
+                contextJson = objectMapper.writeValueAsString(promptContext),
                 promptTemplateKey = resolved.templateKey,
                 prompt = resolved.prompt,
             )
