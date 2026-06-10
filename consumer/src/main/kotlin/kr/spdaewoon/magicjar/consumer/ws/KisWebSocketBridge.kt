@@ -5,6 +5,7 @@ import jakarta.annotation.PreDestroy
 import kotlinx.datetime.Clock
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisApprovalAdapter
 import kr.spdaewoon.magicjar.consumer.order.KisExecutionWsListener
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.event.SystemEvent
 import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
 import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
@@ -139,6 +140,16 @@ class KisWebSocketBridge(
      * (체결통보 listener와 동일 graceful 패턴) — 부재 시 시드 no-op.
      */
     private val priceMetricsPortProvider: ObjectProvider<KisRestPriceMetricsPort>,
+    /**
+     * 당일 시드 REST 자격증명 userId resolve용 credential repository.
+     *
+     * `magicjar.kis.ws.user-id`(WS approval 발급 식별자)는 REST OAuth 자격증명(user_kis_credential)의
+     * user_id와 다를 수 있다 — 라이브 실측(2026-06-10): approval=thdeodns 캐시 정상이나 REST 토큰은
+     * 74683223(키 보유 user)로만 발급되어 시드가 "자격증명 없음"으로 전량 skip. 시드는 REST 경로이므로
+     * REAL 키 보유 userId를 우선 resolve하고, 부재 시 ws.user-id fallback.
+     * ObjectProvider: qa fixture 등 repo 부재 환경 부팅 보장(시드 no-op graceful 정합).
+     */
+    private val credentialRepositoryProvider: ObjectProvider<ConsumerUserKisCredentialJpaRepository>,
 ) : KisWsPort,
     TodayCandleSeedPort {
     companion object {
@@ -1345,12 +1356,13 @@ class KisWebSocketBridge(
                     log.debug("[TodayCandleSeed] REST metrics 어댑터 부재 — 시드 skip: code={}", code)
                     return
                 }
-        if (defaultUserId.isBlank()) {
-            log.debug("[TodayCandleSeed] magicjar.kis.ws.user-id 미설정 — 시드 skip: code={}", code)
+        val seedUserId = resolveSeedUserId()
+        if (seedUserId.isBlank()) {
+            log.debug("[TodayCandleSeed] REST 자격증명 userId resolve 불가 — 시드 skip: code={}", code)
             return
         }
         try {
-            val metrics = metricsPort.fetchPriceMetrics(defaultUserId, code)
+            val metrics = metricsPort.fetchPriceMetrics(seedUserId, code)
             val open = metrics.open
             val high = metrics.high
             val low = metrics.low
@@ -1388,6 +1400,24 @@ class KisWebSocketBridge(
         } catch (e: Exception) {
             // 시드 실패는 graceful — 1d tick-only 합성 없이 DB/quote fallback (구독 자체는 정상).
             log.warn("[TodayCandleSeed] 시드 실패(DB/quote fallback): code={} err={}", code, e.message)
+        }
+    }
+
+    /**
+     * 시드 REST 호출 userId resolve — REAL 자격증명 보유 user 우선, 부재 시 ws.user-id fallback.
+     * (user_kis_credential은 개인용 single-user 전제 — 첫 행 사용. 둘 다 없으면 blank → 시드 skip.)
+     */
+    private fun resolveSeedUserId(): String {
+        val repo = credentialRepositoryProvider.ifAvailable ?: return defaultUserId
+        return try {
+            repo
+                .findAllByAccountType("REAL")
+                .firstOrNull()
+                ?.id
+                ?.userId ?: defaultUserId
+        } catch (e: Exception) {
+            log.debug("[TodayCandleSeed] credential resolve 실패 — ws.user-id fallback: {}", e.message)
+            defaultUserId
         }
     }
 

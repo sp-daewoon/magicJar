@@ -7,6 +7,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisApprovalAdapter
 import kr.spdaewoon.magicjar.consumer.order.KisExecutionWsListener
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.port.QuoteCachePort
 import org.junit.jupiter.api.Test
@@ -186,6 +187,14 @@ class KisWebSocketBridgeExecutionWiringTest {
             executionListenerProvider = executionListenerProvider,
             systemEventLogger = systemEventLogger,
             priceMetricsPortProvider = priceMetricsPortProvider,
+            credentialRepositoryProvider =
+                mockk<ObjectProvider<ConsumerUserKisCredentialJpaRepository>>(
+                    relaxed = true,
+                ).also {
+                    every {
+                        it.ifAvailable
+                    } returns null
+                },
         )
     }
 }

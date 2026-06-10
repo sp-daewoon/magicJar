@@ -7,6 +7,7 @@ import io.mockk.slot
 import kotlinx.datetime.Clock
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisApprovalAdapter
 import kr.spdaewoon.magicjar.consumer.order.KisExecutionWsListener
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.PriceMetrics
 import kr.spdaewoon.magicjar.domain.market.port.KisRestPriceMetricsPort
@@ -88,6 +89,14 @@ class TodayCandleSeedTest {
                 executionListenerProvider = execProvider,
                 systemEventLogger = systemEventLogger,
                 priceMetricsPortProvider = metricsProvider,
+                credentialRepositoryProvider =
+                    mockk<ObjectProvider<ConsumerUserKisCredentialJpaRepository>>(
+                        relaxed = true,
+                    ).also {
+                        every {
+                            it.ifAvailable
+                        } returns null
+                    },
             )
     }
 
