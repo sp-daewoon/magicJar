@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.persistence.shared.notification
 
 import kr.spdaewoon.magicjar.domain.notification.port.SystemConfigSlackPort
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
+import kr.spdaewoon.magicjar.persistence.shared.system.SystemConfigJpaEntity
 import kr.spdaewoon.magicjar.persistence.shared.system.SystemConfigJpaRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
@@ -19,16 +20,30 @@ class SystemConfigSlackAdapter(
 ) : SystemConfigSlackPort {
     private val log = LoggerFactory.getLogger(SystemConfigSlackAdapter::class.java)
 
-    override fun fetchSlackWebhook(): String? {
+    override fun fetchSlackWebhook(): String? = resolveWebhook(column = "notification_slack_webhook") { it.notificationSlackWebhook }
+
+    override fun fetchOrderSlackWebhook(): String? =
+        resolveWebhook(column = "notification_slack_webhook_order") { it.notificationSlackWebhookOrder }
+
+    /**
+     * system_config 단일 row 의 BYTEA webhook 컬럼을 복호화하는 공통 helper (DRY · 진보 페르소나 ADR 0087).
+     *
+     * 기본 채널·주문 추가 채널이 동일 복호화 흐름이라 컬럼 선택 [selector] 만 파라미터화.
+     * NULL/empty/복호화 실패 → null (sender graceful skip).
+     */
+    private fun resolveWebhook(
+        column: String,
+        selector: (SystemConfigJpaEntity) -> ByteArray?,
+    ): String? {
         val config =
             systemConfigJpaRepository.findSingleton() ?: run {
-                log.warn("system_config 레코드 없음 — Slack webhook null 반환")
+                log.warn("system_config 레코드 없음 — {} null 반환", column)
                 return null
             }
 
-        val encrypted = config.notificationSlackWebhook
+        val encrypted = selector(config)
         if (encrypted == null || encrypted.isEmpty()) {
-            log.debug("system_config.notification_slack_webhook 미설정 (NULL)")
+            log.debug("system_config.{} 미설정 (NULL)", column)
             return null
         }
 
@@ -36,13 +51,13 @@ class SystemConfigSlackAdapter(
             val decrypted = secretCipher.decrypt(encrypted)
             val url = String(decrypted, Charsets.UTF_8).trim()
             if (url.isBlank()) {
-                log.warn("system_config.notification_slack_webhook 복호화 결과 empty")
+                log.warn("system_config.{} 복호화 결과 empty", column)
                 null
             } else {
                 url
             }
         } catch (e: Exception) {
-            log.error("Slack webhook 복호화 실패 — null 반환: err={}", e.message)
+            log.error("{} 복호화 실패 — null 반환: err={}", column, e.message)
             null
         }
     }

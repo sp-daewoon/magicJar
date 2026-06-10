@@ -179,6 +179,12 @@ class NotificationDispatcher(
             if (eventType.defaultPriority == NotificationPriority.P0) {
                 sendImmediate(saved, userId, reason, outboxRepository)
             }
+
+            // ORDER_FILLED 추가 채널 이중 송출 (2026-06-10 최고 관리자 지시 · V79).
+            // 기존 채널 발송/outbox 상태와 완전 격리 — 실패해도 위 흐름에 영향 0.
+            if (eventType == NotificationEventType.ORDER_FILLED) {
+                sendOrderFilledToAdditionalChannel(userId, reason, eventType, meta)
+            }
         } catch (e: Exception) {
             log.error(
                 "NotificationDispatcher 처리 실패: topic={} offset={} err={}",
@@ -255,6 +261,30 @@ class NotificationDispatcher(
             sender.sendDirect(message)
         } catch (e: Exception) {
             log.error("direct Slack 발송 예외: userId={}**** err={}", userId.take(4), e.message)
+        }
+    }
+
+    /**
+     * 주문 체결(ORDER_FILLED) 추가 Slack 채널 이중 송출 (2026-06-10 최고 관리자 지시 · V79).
+     *
+     * 진보 페르소나 (ADR 0087):
+     *   - ✨ 기존 채널 발송·outbox 상태와 **완전 격리** — runCatching 으로 어떤 예외도 caller 흐름에 전파 안 함.
+     *   - 💡 추가 채널(notification_slack_webhook_order) 미설정 시 sender 가 silent skip → 기존 흐름 영향 0.
+     *   - 동일 메시지(NotificationFormatter)로 기존 채널과 1:1 동등 본문 발송.
+     */
+    private fun sendOrderFilledToAdditionalChannel(
+        userId: String,
+        reason: String,
+        eventType: NotificationEventType,
+        meta: Map<String, String?>,
+    ) {
+        val sender = slackSenderProvider.getIfAvailable() ?: return
+        runCatching {
+            val message = NotificationFormatter.format(userId, eventType, reason, meta)
+            sender.sendToOrderChannel(message)
+        }.onFailure { e ->
+            // 격리: 추가 채널 실패가 기존 채널/outbox 에 영향 0 — 로그만 남김.
+            log.warn("주문 추가 Slack 채널 이중 송출 예외 (기존 채널 영향 0): userId={}**** err={}", userId.take(4), e.message)
         }
     }
 

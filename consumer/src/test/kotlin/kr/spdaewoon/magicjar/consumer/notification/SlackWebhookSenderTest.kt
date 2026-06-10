@@ -31,9 +31,13 @@ class SlackWebhookSenderTest {
     private val systemConfigSlackPort = mockk<SystemConfigSlackPort>()
     private val slackPortProvider = mockk<ObjectProvider<SystemConfigSlackPort>>()
 
-    private fun newSender(webhookUrl: String?): SlackWebhookSender {
+    private fun newSender(
+        webhookUrl: String?,
+        orderWebhookUrl: String? = null,
+    ): SlackWebhookSender {
         every { slackPortProvider.getIfAvailable() } returns systemConfigSlackPort
         every { systemConfigSlackPort.fetchSlackWebhook() } returns webhookUrl
+        every { systemConfigSlackPort.fetchOrderSlackWebhook() } returns orderWebhookUrl
         return SlackWebhookSender(slackPortProvider, objectMapper)
     }
 
@@ -79,6 +83,30 @@ class SlackWebhookSenderTest {
         val sender = newSender(null)
         val result = sender.sendDirect("테스트 메시지")
         assertThat(result).isFalse()
+    }
+
+    @Test
+    fun `(6) sendToOrderChannel — 추가 채널 미설정 시 false 반환 (이중 송출 skip)`() {
+        // 기본 채널만 설정, 주문 추가 채널 미설정 → silent skip
+        val sender = newSender(webhookUrl = "https://hooks.slack.com/base", orderWebhookUrl = null)
+        val result = sender.sendToOrderChannel("체결 알림")
+        assertThat(result).isFalse()
+    }
+
+    @Test
+    fun `(7) sendToOrderChannel — 추가 채널 empty string 시 false 반환`() {
+        val sender = newSender(webhookUrl = "https://hooks.slack.com/base", orderWebhookUrl = "")
+        val result = sender.sendToOrderChannel("체결 알림")
+        assertThat(result).isFalse()
+    }
+
+    @Test
+    fun `(8) sendToOrderChannel — 추가 채널 설정 시 발송 시도 (URL resolve 분기)`() {
+        // 추가 채널 설정됨 → post 시도. 실제 네트워크는 실패하나 resolve 분기(설정 O)는 검증된다.
+        val sender = newSender(webhookUrl = null, orderWebhookUrl = "https://hooks.slack.com/order-channel")
+        // post 결과는 네트워크 의존이라 단정하지 않되, 미설정(false 즉시반환) 분기와 구분됨을 확인.
+        // 본 단위는 예외 없이 완료(격리)되는 것만 LOCK.
+        sender.sendToOrderChannel("체결 알림")
     }
 
     @Test

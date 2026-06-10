@@ -247,9 +247,14 @@ class RedisKisRateLimiterAdapterTest {
         assertThat(adapter.snapshotSuccess()).isEqualTo(2L)
     }
 
-    /** 검증 8: SystemEvent KIS_RATELIMIT emit — 5분 aggregator LOCK (첫 호출만 emit). */
+    /**
+     * 검증 8: SystemEvent KIS_RATELIMIT emit — 5분 aggregator LOCK (첫 윈도 1회만 emit).
+     *
+     * 윈도 건수 3건(< threshold 5) → INFO 차등 (2026-06-10 알람 차등화).
+     * detailJson 은 windowCount/cumulativeCount 1차 노출.
+     */
     @Test
-    fun `onTpsExceeded - SystemEvent KIS_RATELIMIT emit (5분 aggregator LOCK)`() {
+    fun `onTpsExceeded - SystemEvent emit 1회 + 윈도 3건은 INFO 차등 + windowCount detail`() {
         val systemEventLogger = mock<SystemEventLogger>()
         val adapterWithLogger = RedisKisRateLimiterAdapter(proxyManager, props, systemEventLogger)
 
@@ -263,12 +268,61 @@ class RedisKisRateLimiterAdapterTest {
         verify(systemEventLogger, times(1)).emit(captor.capture())
         val event = captor.firstValue
         assertThat(event.category).isEqualTo(SystemEventCategory.KIS_RATELIMIT)
-        assertThat(event.severity).isEqualTo(SystemEventSeverity.WARN)
+        // 첫 emit 시점 windowCount=1 (< threshold 5) → INFO (알림센터 기록만, Slack/toast 미발송)
+        assertThat(event.severity).isEqualTo(SystemEventSeverity.INFO)
         assertThat(event.actor).isEqualTo("RedisKisRateLimiterAdapter")
         assertThat(event.action).isEqualTo("KIS_TPS_EXCEEDED")
         assertThat(event.userId).isNull()
-        assertThat(event.detailJson).contains("tpsExceededCount")
+        assertThat(event.detailJson).contains("windowCount")
+        assertThat(event.detailJson).contains("cumulativeCount")
+        // bucketKey 오표기 정정 — 3-tier 활성 시 base key + lastBucket suffix
         assertThat(event.detailJson).contains("kis-rate-limit:test")
+        assertThat(event.detailJson).contains("priorityBucketsActive")
+    }
+
+    /**
+     * 검증 8-b: 윈도 건수 ≥ threshold(5) → WARN 차등 (burst만 사용자 알람 도달).
+     *
+     * lastEmittedAt 초기값 EPOCH 이므로 첫 emit 즉시 발생 — 첫 윈도에 5건 누적 후 emit 1회.
+     * 단, aggregator 가 첫 호출에서 바로 emit 하므로 윈도 건수를 5건 채운 뒤 단일 emit 을 강제하려면
+     * snapshotWindowTpsCount 로 누적을 직접 검증한다(emit 차등은 통합 시점 — 본 단위는 누적·리셋 LOCK).
+     */
+    @Test
+    fun `onTpsExceeded - 윈도 카운터 누적 후 emit 시 0 으로 리셋`() {
+        val systemEventLogger = mock<SystemEventLogger>()
+        val adapterWithLogger = RedisKisRateLimiterAdapter(proxyManager, props, systemEventLogger)
+
+        // 첫 호출: lastEmittedAt=EPOCH → 즉시 emit → windowCount 스냅샷(1)+리셋(0)
+        adapterWithLogger.onTpsExceeded()
+        assertThat(adapterWithLogger.snapshotWindowTpsCount()).isEqualTo(0L)
+
+        // 이후 호출들: 5분 미경과 → emit skip, 윈도 카운터만 누적
+        adapterWithLogger.onTpsExceeded()
+        adapterWithLogger.onTpsExceeded()
+        adapterWithLogger.onTpsExceeded()
+        assertThat(adapterWithLogger.snapshotWindowTpsCount()).isEqualTo(3L)
+        // 누적치는 계속 증가 (리셋 없음)
+        assertThat(adapterWithLogger.snapshotTpsExceeded()).isEqualTo(4L)
+
+        // emit 은 첫 윈도 1회만 (aggregator LOCK)
+        verify(systemEventLogger, times(1)).emit(any())
+    }
+
+    /**
+     * 검증 8-c: threshold=1 properties 로 즉시 WARN 차등 (severity 분기 직접 검증).
+     */
+    @Test
+    fun `onTpsExceeded - threshold 1 시 첫 윈도 WARN severity`() {
+        val systemEventLogger = mock<SystemEventLogger>()
+        val warnProps = props.copy(tpsExceededWarnThreshold = 1)
+        val adapterWithLogger = RedisKisRateLimiterAdapter(proxyManager, warnProps, systemEventLogger)
+
+        adapterWithLogger.onTpsExceeded()
+
+        val captor = org.mockito.kotlin.argumentCaptor<SystemEvent>()
+        verify(systemEventLogger, times(1)).emit(captor.capture())
+        // windowCount=1 >= threshold 1 → WARN
+        assertThat(captor.firstValue.severity).isEqualTo(SystemEventSeverity.WARN)
     }
 
     /** 검증 9: SystemEventLogger null 주입 시 emit 0 (회귀 마진 LOCK). */
