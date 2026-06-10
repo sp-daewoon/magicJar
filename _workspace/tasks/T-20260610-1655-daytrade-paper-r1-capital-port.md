@@ -6,7 +6,7 @@ branch: agent/backend-core/daytrade-paper-r1-capital-port
 status: RUNNING
 startedAt: 2026-06-10T16:55:22.581+09:00
 completedAt: null
-pr: null
+pr: 903
 parentPhase: ADR-0122-R1
 ---
 
@@ -17,7 +17,7 @@ ADR 0122 R1 PaperCapitalSnapshotProvider 포트 + capital 분기 시그니처 (�
 - [x] PaperCapitalSnapshotProvider 포트 (domain port, Spring 의존 0)
 - [x] capital 분기 시그니처 (StrategyOrigin enum 직접 의존 0 — CapitalSnapshotSelector selector 계약)
 - [x] 단위 테스트 (CapitalSnapshotSelectorTest 5건 — 시그니처/계약 수준)
-- [ ] PR
+- [x] PR #903
 
 ## 의존성
 - 선행: ADR 0115 P2-⑥ OrderTrigger enum (main 존재 확인됨)
