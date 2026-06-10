@@ -17,7 +17,12 @@ import kr.spdaewoon.magicjar.strategy.integrity.LedgerAttributedDriftCorrection
 import kr.spdaewoon.magicjar.strategy.integrity.LedgerAttribution
 import kr.spdaewoon.magicjar.strategy.integrity.LedgerDriftInput
 import kr.spdaewoon.magicjar.strategy.integrity.PositionDriftCorrection
+import kr.spdaewoon.magicjar.strategy.integrity.RebuildExecution
+import kr.spdaewoon.magicjar.strategy.integrity.RebuildInput
+import kr.spdaewoon.magicjar.strategy.integrity.RebuildSide
+import kr.spdaewoon.magicjar.strategy.integrity.SingleStrategyOrderEvidence
 import kr.spdaewoon.magicjar.strategy.integrity.StrategyPositionLeg
+import kr.spdaewoon.magicjar.strategy.integrity.StrategyPositionRebuild
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Value
@@ -58,6 +63,8 @@ class ConsumerExecutionStrategyPositionAdapter(
     private val systemEventLoggerProvider: ObjectProvider<SystemEventLogger>,
     @Value("\${magicjar.position.drift-auto-correct.enabled:true}")
     private val driftAutoCorrectEnabled: Boolean = true,
+    @Value("\${magicjar.position.ledger-rebuild.enabled:true}")
+    private val ledgerRebuildEnabled: Boolean = true,
     private val clock: Clock = Clock.System,
 ) : ExecutionStrategyPositionUpdatePort {
     private val log = LoggerFactory.getLogger(ConsumerExecutionStrategyPositionAdapter::class.java)
@@ -120,6 +127,165 @@ class ConsumerExecutionStrategyPositionAdapter(
         modeName: String,
     ) {
         reconcileDrift(userId, code, modeName)
+    }
+
+    /**
+     * ★ strategy_position **rebuild** (ADR 0115 §2-P2 R1 — 대안 B-on-A 1급 메커니즘 · spec §3-3 · 2026-06-10).
+     *
+     * `order_execution ⨝ order_request`(진실원)에서 그 user+code 의 strategy_position 을 **전량 재계산**한다
+     * ([StrategyPositionRebuild.rebuild] — 부분체결 N건 정확 N회 귀속 · eventId distinct 멱등 · over-count 구조적 0).
+     * 어떤 경로로 누락돼도(replay-skip·backfill 우회·취소-체결 race) 본 rebuild 가 흡수 — 누락 자체가 영구화 불가(G2·G4 직격).
+     *
+     * ## 교차검산 게이트 (자본 경로 LOCK — KIS 권위 우선)
+     * rebuild 산출 `totalQuantity`(전 전략 합)가 `position.quantity`(KIS 잔고 권위)와 **정확히 일치할 때만** upsert.
+     * 불일치(외부 주문 혼재·진실원 자체 누락·over-sell clamp)면 **미적용 + WARN** — 함부로 덮어쓰지 않는다
+     * (없는 물량 인식 risk 0). [RebuildResult.anyClampedNegativeSell] 도 진실원 정합 의심 신호로 미적용.
+     *
+     * ## 토글 (rollback)
+     * `magicjar.position.ledger-rebuild.enabled=false` 면 no-op(현행 증분+drift 보정 경로로 회귀).
+     *
+     * 모드 무관(REAL/MOCK 동일 — position 권위 공통). DB 귀속 정렬만(주문 발행 0). realized_pnl 은 rebuild 가 진실원에서
+     * 재계산하나(SELL 누적), 정상 흐름에서는 증분 결과와 1:1 정합하므로 손익 왜곡 0.
+     *
+     * @return 적용 시 true(교차검산 통과 + 변경 upsert), 미적용 시 false. caller(worker)가 index refresh 동반.
+     */
+    @Transactional
+    fun rebuildStrategyPositionFromLedger(
+        userId: String,
+        code: String,
+        modeName: String,
+    ): Boolean {
+        if (!ledgerRebuildEnabled) return false
+
+        val authority =
+            try {
+                positionJpaRepository.findByUserIdAndCodeAndSource(userId, code, modeName)?.quantity ?: 0
+            } catch (e: Exception) {
+                log.warn("rebuild position 권위 조회 실패 — skip: userId={} code={} err={}", maskUserId(userId), code, e.message)
+                return false
+            }
+
+        val rows =
+            try {
+                orderRequestJpaRepository.findRebuildExecutionsByUserAndCode(userId, code)
+            } catch (e: Exception) {
+                log.warn("rebuild execution 조회 실패 — skip: userId={} code={} err={}", maskUserId(userId), code, e.message)
+                return false
+            }
+        if (rows.isEmpty()) return false
+
+        val executions =
+            rows.map { row ->
+                RebuildExecution(
+                    eventId = row.eventId ?: "ROWID:${row.orderId}:${row.executedAt.toEpochMilli()}:${row.executedQty.toPlainString()}",
+                    orderId = row.orderId,
+                    strategyId = row.strategyId,
+                    side = if (row.side == OrderSide.BUY) RebuildSide.BUY else RebuildSide.SELL,
+                    quantity = row.executedQty.setScale(0, RoundingMode.DOWN).toInt(),
+                    price = row.executedPrice,
+                    partialExitStage = resolvePartialExitStage(row.side, row.signalId),
+                    executedAtEpochMillis = row.executedAt.toEpochMilli(),
+                )
+            }
+
+        val rebuilt = StrategyPositionRebuild.rebuild(RebuildInput(executions = executions))
+
+        // 교차검산 — KIS 권위와 정확히 일치 + over-sell clamp 0 일 때만 적용(불일치 시 WARN+미적용).
+        if (rebuilt.anyClampedNegativeSell || rebuilt.totalQuantity != authority) {
+            log.warn(
+                "STRATEGY_POSITION_REBUILD_SKIPPED(교차검산 불일치): userId={} code={} rebuildTotal={} authority={} clamped={} — 미적용(KIS 권위 우선)",
+                maskUserId(userId),
+                code,
+                rebuilt.totalQuantity,
+                authority,
+                rebuilt.anyClampedNegativeSell,
+            )
+            return false
+        }
+
+        val existingByStrategy =
+            try {
+                strategyPositionPort.findByUserCode(userId, code).associateBy { it.strategyId }
+            } catch (e: Exception) {
+                log.warn("rebuild 기존 leg 조회 실패 — skip: userId={} code={} err={}", maskUserId(userId), code, e.message)
+                return false
+            }
+
+        val now = clock.now()
+        var applied = 0
+        for ((strategyId, rebuiltPos) in rebuilt.positions) {
+            val existing = existingByStrategy[strategyId]
+            // 멱등 — 이미 동일 수량·평단이면 skip(over-write 0).
+            if (existing != null &&
+                existing.quantity == rebuiltPos.quantity &&
+                existing.avgPrice.compareTo(rebuiltPos.avgPrice) == 0
+            ) {
+                continue
+            }
+            val target =
+                StrategyPosition(
+                    id = existing?.id,
+                    userId = userId,
+                    strategyId = strategyId,
+                    code = code,
+                    quantity = rebuiltPos.quantity,
+                    avgPrice = rebuiltPos.avgPrice,
+                    filledLots = rebuiltPos.filledLots,
+                    realizedPnl = rebuiltPos.realizedPnl,
+                    executedExitStages = rebuiltPos.executedExitStages,
+                    openedAt = existing?.openedAt ?: now,
+                    updatedAt = now,
+                )
+            try {
+                strategyPositionPort.upsert(target)
+                applied++
+            } catch (e: Exception) {
+                log.error(
+                    "STRATEGY_POSITION_REBUILD upsert 실패: userId={} strategyId={} code={} err={}",
+                    maskUserId(userId),
+                    strategyId,
+                    code,
+                    e.message,
+                )
+            }
+        }
+
+        if (applied == 0) return false
+
+        log.warn(
+            "STRATEGY_POSITION_REBUILD: userId={} code={} authority={} legs={} applied={} (order_execution 진실원 재계산)",
+            maskUserId(userId),
+            code,
+            authority,
+            rebuilt.positions.size,
+            applied,
+        )
+        emitSystemEvent(
+            userId = userId,
+            action = "STRATEGY_POSITION_REBUILD",
+            detailJson =
+                """{"code":"$code","authority":$authority,"legs":${rebuilt.positions.size},"applied":$applied}""",
+        )
+        return true
+    }
+
+    /** SELL 체결의 시그널 reason `PARTIAL_TAKE_PROFIT#k` → 단계 k(rebuild fold 의 partialExitStage). BUY·sentinel·미매칭 null. */
+    private fun resolvePartialExitStage(
+        side: OrderSide,
+        signalId: Long,
+    ): Int? {
+        if (side != OrderSide.SELL || signalId == 0L) return null
+        val reason =
+            try {
+                signalJpaRepository.findById(signalId).orElse(null)?.reason
+            } catch (e: Exception) {
+                return null
+            } ?: return null
+        return PARTIAL_TP_REASON
+            .find(reason)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
     }
 
     private fun applyBuy(
@@ -343,6 +509,11 @@ class ConsumerExecutionStrategyPositionAdapter(
                 return
             }
 
+        // ADR 0115 §2-P2-③ (G7 — 단일전략+evidence 자동보정) — execution 차원 ledger net 이 부분체결 누락으로
+        //   부족하게 잡혀 1차 검산이 깨질 때, 주문 차원 FILLED 순합계 evidence 로 완화한다.
+        //   보유 기여 전략이 정확히 1개일 때만 산출(다전략 혼재면 null → 현행 WARN-only 회귀 안전).
+        val orderEvidence = computeSingleStrategyOrderEvidence(userId, code, legs, ledgerByStrategy)
+
         val result =
             LedgerAttributedDriftCorrection.evaluate(
                 LedgerDriftInput(
@@ -358,6 +529,7 @@ class ConsumerExecutionStrategyPositionAdapter(
                         },
                     attributions = ledgerByStrategy.values.map { it.attribution },
                     enabled = driftAutoCorrectEnabled,
+                    orderEvidence = orderEvidence,
                 ),
             )
 
@@ -410,6 +582,73 @@ class ConsumerExecutionStrategyPositionAdapter(
                 avgBuyPrice = avgBuy,
             )
         }
+    }
+
+    /**
+     * 단일 전략 부족 완화 evidence 산출 (ADR 0115 §2-P2-③, 2026-06-10).
+     *
+     * 보유에 기여하는 후보 전략(비-zero leg ∪ ledger net>0)이 **정확히 1개**일 때만, 그 전략의 **주문 차원**
+     * FILLED 순매수량([ConsumerOrderRequestJpaRepository.aggregateOrderFilledNetByStrategy])을 evidence 로 산출한다.
+     *
+     * - 다전략 혼재(후보 ≥2) → null (귀속 모호 — 현행 WARN-only 회귀 안전).
+     * - 후보 0 (전부 외부·MANUAL) → null (귀속 근거 0).
+     * - 주문 차원 집계 조회 실패 → null (graceful — evidence 없이 ledger net 1차 검산만).
+     *
+     * evidence net 이 authority 와 정합하는지는 [LedgerAttributedDriftCorrection] 게이트가 최종 판정한다(본 함수는 산출만).
+     */
+    private fun computeSingleStrategyOrderEvidence(
+        userId: String,
+        code: String,
+        legs: List<StrategyPosition>,
+        ledgerByStrategy: Map<Long, LedgerStrategyAggregate>,
+    ): SingleStrategyOrderEvidence? {
+        val candidateStrategies =
+            buildSet {
+                legs.filter { it.quantity > 0 }.forEach { add(it.strategyId) }
+                ledgerByStrategy.values
+                    .filter { it.attribution.netFilledQuantity > 0 }
+                    .forEach { add(it.attribution.strategyId) }
+            }
+        val singleStrategy = candidateStrategies.singleOrNull() ?: return null
+
+        val orderNetByStrategy =
+            try {
+                aggregateOrderFilledNet(userId, code)
+            } catch (e: Exception) {
+                log.warn(
+                    "single-strategy evidence 주문차원 집계 실패 — evidence 없이 진행: userId={} code={} err={}",
+                    maskUserId(userId),
+                    code,
+                    e.message,
+                )
+                return null
+            }
+        val net = orderNetByStrategy[singleStrategy] ?: return null
+        if (net <= 0) return null
+        return SingleStrategyOrderEvidence(strategyId = singleStrategy, netFilledFromOrders = net)
+    }
+
+    /**
+     * user+code 의 전략별 **주문 차원** FILLED 순매수량 (strategyId → net BUY-SELL).
+     *
+     * [aggregateLedgerAttribution](execution 차원)과 동일 형상이나 status FILLED·PARTIALLY_FILLED 종결 주문 한정 —
+     * execution-단위 누락이 있어도 KIS 권위로 종결된 주문의 체결 의도를 evidence 로 보존한다.
+     */
+    private fun aggregateOrderFilledNet(
+        userId: String,
+        code: String,
+    ): Map<Long, Int> {
+        val rows = orderRequestJpaRepository.aggregateOrderFilledNetByStrategy(userId, code)
+        val buyQty = mutableMapOf<Long, Int>()
+        val sellQty = mutableMapOf<Long, Int>()
+        for (row in rows) {
+            val qty = row.qtySum.setScale(0, RoundingMode.DOWN).toInt()
+            when (row.side) {
+                OrderSide.BUY -> buyQty[row.strategyId] = (buyQty[row.strategyId] ?: 0) + qty
+                OrderSide.SELL -> sellQty[row.strategyId] = (sellQty[row.strategyId] ?: 0) + qty
+            }
+        }
+        return (buyQty.keys + sellQty.keys).associateWith { (buyQty[it] ?: 0) - (sellQty[it] ?: 0) }
     }
 
     /**

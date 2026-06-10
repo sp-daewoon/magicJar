@@ -142,6 +142,71 @@ interface ConsumerOrderRequestJpaRepository : JpaRepository<ConsumerOrderRequest
         @Param("code") code: String,
     ): List<StrategyLedgerRow>
 
+    /**
+     * ADR 0115 §2-P2-③ R1 (2026-06-10) — 단일 전략 부족 완화 evidence 용 **주문 차원** FILLED 순매수량.
+     *
+     * `aggregateFilledByStrategyAndSide`(execution 차원 — 부분체결 execution row 일부 누락 시 under-count)와 달리,
+     * **order_request 차원**으로 종결된 주문(FILLED·PARTIALLY_FILLED)의 그 주문에 귀속된 체결 합을 전략별·side 별로
+     * 집계한다. execution-단위 누락이 있어도 order_request 가 KIS 권위로 종결됐다면(FILLED) 그 주문의 체결 의도가
+     * 보존되므로, 단일 전략 보유의 "주문 차원 evidence"로 쓴다([SingleStrategyOrderEvidence.netFilledFromOrders]).
+     *
+     * R1 구현은 종결 주문에 귀속된 order_execution 합을 사용한다(execution 차원과 동일 집계이나, status FILLED 필터로
+     * 종결성 evidence 부여). 외부(EXTERNAL)·MANUAL(strategyId=0) 제외 — 단일 자동매매 전략 귀속 근거.
+     *
+     * 헌법 §6 — interface body 0건, @Query 만 사용.
+     *
+     * @return (strategyId, side, qtySum) 행 목록. 종결 체결 없으면 빈 목록.
+     */
+    @Query(
+        "SELECT r.strategyId AS strategyId, r.side AS side, " +
+            "COALESCE(SUM(e.executedQty), 0) AS qtySum, " +
+            "COALESCE(SUM(e.executedQty * e.executedPrice), 0) AS notionalSum " +
+            "FROM ConsumerOrderRequestJpaEntity r, ConsumerOrderExecutionJpaEntity e " +
+            "WHERE e.orderId = r.id " +
+            "AND r.userId = :userId AND r.code = :code " +
+            "AND r.strategyId <> 0 " +
+            "AND r.source = kr.spdaewoon.magicjar.domain.order.execution.OrderSource.AUTO " +
+            "AND r.status IN (" +
+            "kr.spdaewoon.magicjar.domain.order.execution.OrderStatus.FILLED, " +
+            "kr.spdaewoon.magicjar.domain.order.execution.OrderStatus.PARTIALLY_FILLED) " +
+            "GROUP BY r.strategyId, r.side",
+    )
+    fun aggregateOrderFilledNetByStrategy(
+        @Param("userId") userId: String,
+        @Param("code") code: String,
+    ): List<StrategyLedgerRow>
+
+    /**
+     * ADR 0115 §2-P2 R1 (2026-06-10) — strategy_position **rebuild**(대안 B) 입력 execution 목록.
+     *
+     * 동일 user+code 의 **우리 자동매매 전략(strategyId≠0·source=AUTO)** 이 체결시킨 order_execution 을
+     * **체결 1건(분할 단위) 단위**로 반환한다([aggregateFilledByStrategyAndSide] 의 GROUP BY 집계와 달리 행 보존).
+     * [kr.spdaewoon.magicjar.strategy.integrity.StrategyPositionRebuild.rebuild] 가 이 목록을 eventId distinct →
+     * 시간순 fold 하여 strategy_position 을 **결정론적으로 전량 재계산**한다(부분체결 N건 정확 N회 귀속 — G4 직격).
+     *
+     * order_execution 은 order_request 에 JPA 관계가 없으므로 `e.orderId = r.id` 명시 조인(implicit join + predicate).
+     * 외부(EXTERNAL)·MANUAL(strategyId=0) 체결은 제외 — rebuild 는 "우리 전략이 체결시킨 순보유량" 만 재계산.
+     *
+     * 헌법 §6 — interface body 0건, @Query 만 사용. 시간순(executedAt) 정렬은 caller 도 재정렬하나 1차 정렬로 결정론 보강.
+     *
+     * @return execution 1건당 [StrategyRebuildExecutionRow] 행 목록. 체결 없으면 빈 목록.
+     */
+    @Query(
+        "SELECT e.eventId AS eventId, e.orderId AS orderId, r.strategyId AS strategyId, " +
+            "r.side AS side, e.executedQty AS executedQty, e.executedPrice AS executedPrice, " +
+            "e.executedAt AS executedAt, r.signalId AS signalId " +
+            "FROM ConsumerOrderRequestJpaEntity r, ConsumerOrderExecutionJpaEntity e " +
+            "WHERE e.orderId = r.id " +
+            "AND r.userId = :userId AND r.code = :code " +
+            "AND r.strategyId <> 0 " +
+            "AND r.source = kr.spdaewoon.magicjar.domain.order.execution.OrderSource.AUTO " +
+            "ORDER BY e.executedAt ASC, e.id ASC",
+    )
+    fun findRebuildExecutionsByUserAndCode(
+        @Param("userId") userId: String,
+        @Param("code") code: String,
+    ): List<StrategyRebuildExecutionRow>
+
     @Modifying
     @Query(
         value = "UPDATE order_execution SET order_id = :targetId WHERE order_id = :sourceId",
@@ -175,4 +240,27 @@ interface StrategyLedgerRow {
 
     /** `SUM(executedQty * executedPrice)` — BUY 행에서 가중평단(notional/qty) 산정용. */
     val notionalSum: java.math.BigDecimal
+}
+
+/**
+ * [ConsumerOrderRequestJpaRepository.findRebuildExecutionsByUserAndCode] 행 — Spring Data interface projection.
+ *
+ * order_execution(진실원) 1행 + 귀속 order_request 메타(strategyId·side·signalId)의 join 투영.
+ * caller([kr.spdaewoon.magicjar.consumer.reconcile] reconcile 경로)가
+ * [kr.spdaewoon.magicjar.strategy.integrity.RebuildExecution] DTO 로 매핑해 rebuild 에 넘긴다.
+ */
+interface StrategyRebuildExecutionRow {
+    /** 체결 멱등 키(`order_execution.event_id`). null 가능(legacy row) — caller 가 fallback 키 합성. */
+    val eventId: String?
+    val orderId: Long
+    val strategyId: Long
+    val side: kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+
+    /** 이 체결 1건의 분할 단위 수량(cumulative 아님). */
+    val executedQty: java.math.BigDecimal
+    val executedPrice: java.math.BigDecimal
+    val executedAt: java.time.Instant
+
+    /** 귀속 시그널 id(부분익절 단계 `PARTIAL_TAKE_PROFIT#k` 해석용 — 0 sentinel 가능). */
+    val signalId: Long
 }

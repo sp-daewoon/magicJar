@@ -14,6 +14,8 @@ import kr.spdaewoon.magicjar.domain.order.execution.port.OrderExecutionRepositor
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import kr.spdaewoon.magicjar.domain.user.AccountType
+import kr.spdaewoon.magicjar.strategy.integrity.BackfillCancelledFillPolicy
+import kr.spdaewoon.magicjar.strategy.integrity.CancelledFillInput
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Value
@@ -85,6 +87,8 @@ class KisExecutionBackfillService(
     private val backfillEnabled: Boolean,
     @Value("\${magicjar.order.ws-backfill.min-interval-seconds:60}")
     private val backfillMinIntervalSeconds: Long = 60L,
+    @Value("\${magicjar.order.cancelled-fill-reconcile.enabled:true}")
+    private val cancelledFillReconcileEnabled: Boolean = true,
     private val clock: Clock = Clock.system(ZoneId.of("Asia/Seoul")),
 ) {
     private val log = LoggerFactory.getLogger(KisExecutionBackfillService::class.java)
@@ -333,7 +337,14 @@ class KisExecutionBackfillService(
             }
         if (alreadyPersisted) {
             log.debug("backfill skip (event_id dedup): eventId={}", eventId)
-            syncOrderStatusAfterBackfill(orderRepo, execRepo, request, null, emitFilledEvent = false)
+            syncOrderStatusAfterBackfill(
+                orderRepo,
+                execRepo,
+                request,
+                null,
+                emitFilledEvent = false,
+                preserveStatus = request.status.isTerminalForBackfill(),
+            )
             replayStrategyPositionIfMissing(request, "REST_BACKFILL_ALREADY_SYNCED")
             return BackfillRowStatus.ALREADY_SYNCED
         }
@@ -345,8 +356,21 @@ class KisExecutionBackfillService(
                 log.error("backfill sumExecutedQuantityByOrder 실패 — skip: orderId={} err={}", orderId, e.message)
                 return BackfillRowStatus.FAILED
             }
-        val deltaQty = exec.totCcldQty - currentExecutedQty
-        if (deltaQty <= 0) {
+
+        // ADR 0115 §2-P2-② (G5 — 취소-체결 race) — terminal(특히 CANCELLED) 주문이라도 KIS 실체결 누락이면 기록.
+        //   execution INSERT 는 status 와 독립. 단 terminal 이면 status·completed_at 은 보존(preserveStatus).
+        val terminal = request.status.isTerminalForBackfill()
+        val decision =
+            BackfillCancelledFillPolicy.decide(
+                CancelledFillInput(
+                    kisTotalCcldQty = exec.totCcldQty,
+                    currentExecutedQty = currentExecutedQty,
+                    terminal = terminal,
+                    enabled = cancelledFillReconcileEnabled,
+                ),
+            )
+        val recordDecision = decision as? BackfillCancelledFillPolicy.Decision.Record
+        if (recordDecision == null) {
             log.info(
                 "backfill skip — KIS 누적체결 이하 이미 반영: orderId={} kisOrderNo={} current={} kisTotal={}",
                 orderId,
@@ -354,9 +378,21 @@ class KisExecutionBackfillService(
                 currentExecutedQty,
                 exec.totCcldQty,
             )
-            syncOrderStatusAfterBackfill(orderRepo, execRepo, request, null, emitFilledEvent = false)
+            syncOrderStatusAfterBackfill(orderRepo, execRepo, request, null, emitFilledEvent = false, preserveStatus = terminal)
             replayStrategyPositionIfMissing(request, "REST_BACKFILL_DELTA_ALREADY_APPLIED")
             return BackfillRowStatus.ALREADY_SYNCED
+        }
+        val deltaQty = recordDecision.deltaQuantity
+        if (terminal) {
+            log.warn(
+                "ADR 0115 §2-P2-② — terminal 주문 KIS 실체결 누락 흡수(status 보존): orderId={} kisOrderNo={} status={} current={} kisTotal={} delta={}",
+                orderId,
+                exec.kisOrderNo,
+                request.status,
+                currentExecutedQty,
+                exec.totCcldQty,
+                deltaQty,
+            )
         }
 
         // 3단계: OrderExecution INSERT — KIS 누적체결에서 이미 반영된 수량을 뺀 delta만 저장.
@@ -411,7 +447,14 @@ class KisExecutionBackfillService(
             exec.avgPrice.toPlainString(),
             saved.id,
         )
-        syncOrderStatusAfterBackfill(orderRepo, execRepo, request, saved, emitFilledEvent = true)
+        syncOrderStatusAfterBackfill(
+            orderRepo,
+            execRepo,
+            request,
+            saved,
+            emitFilledEvent = true,
+            preserveStatus = recordDecision.preserveStatus,
+        )
         replayStrategyPositionIfMissing(request, "REST_BACKFILL_INSERTED")
         return BackfillRowStatus.INSERTED
     }
@@ -438,20 +481,24 @@ class KisExecutionBackfillService(
         request: OrderRequest,
         execution: OrderExecution?,
         emitFilledEvent: Boolean,
+        preserveStatus: Boolean = false,
     ) {
         val orderId = request.id ?: return
 
-        // ADR 0084 P0-3 결함 fix (backlog §82-1, 2026-06-04) —
-        // 신규 execution INSERT 없는 재진입(execution == null, ALREADY_SYNCED 경로)이고
-        // 이미 종결 상태면 no-op. markCompleted 재실행으로 completed_at을 now로 덮어쓰는 결함 차단
-        // (실체결 시각은 order_execution.executed_at 보존, completed_at은 종결 시점 1회만 권위).
-        // 보존: 신규 execution 합류(execution != null)는 PARTIALLY_FILLED→FILLED 정상 전환·
-        //       EXECUTION_OVERFLOW·PENDING_RECONCILE 후속 정상화 경로 모두 종전대로 통과.
-        if (execution == null && request.status.isTerminalForBackfill()) {
+        // ADR 0084 P0-3 결함 fix (backlog §82-1, 2026-06-04) +
+        // ADR 0115 §2-P2-② (2026-06-10) — terminal 주문 status·completed_at 보존.
+        //   기존: execution == null && terminal 일 때만 skip(재마킹 회피). 그러나 G5(취소-체결 race)는
+        //   terminal(CANCELLED) 주문에 **신규 체결 delta 가 있는** 경우 — 이때 execution!=null 이라 종전엔
+        //   PARTIALLY_FILLED 로 status 가 덮어써졌다(CANCELLED 소실). 이제 preserveStatus=true(terminal) 면
+        //   execution 유무와 무관하게 status 전이를 막아 CANCELLED 를 보존한다.
+        //   체결 기록(order_execution INSERT)은 본 메서드 호출 **이전**에 이미 완료됐으므로 누락 0 —
+        //   status 보존과 체결 흡수가 분리된다(spec §4-② "execution INSERT 는 status 와 독립").
+        if (preserveStatus) {
             log.debug(
-                "backfill status sync skip — 이미 종결 상태 + 신규 체결 0: orderId={} status={}",
+                "backfill status sync skip — terminal status 보존(체결은 이미 기록): orderId={} status={} execution={}",
                 orderId,
                 request.status,
+                execution?.id,
             )
             return
         }

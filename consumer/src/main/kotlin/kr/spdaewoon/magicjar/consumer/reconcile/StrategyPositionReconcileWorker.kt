@@ -1,9 +1,11 @@
 package kr.spdaewoon.magicjar.consumer.reconcile
 
+import kr.spdaewoon.magicjar.consumer.order.HoldingPositionIndex
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerExecutionStrategyPositionAdapter
 import kr.spdaewoon.magicjar.consumer.persistence.PositionJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.StrategyPositionJpaRepository
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.stereotype.Component
 
 /**
@@ -45,6 +47,9 @@ class StrategyPositionReconcileWorker(
     private val positionJpaRepository: PositionJpaRepository,
     private val strategyPositionJpaRepository: StrategyPositionJpaRepository,
     private val strategyPositionAdapter: ConsumerExecutionStrategyPositionAdapter,
+    // ADR 0115 §2-P2-⑤ — drift 보정·rebuild 로 strategy_position 이 바뀌면 in-memory 손절 인덱스 동반 갱신
+    //   (DB 직접 변경은 onFillRefresh 미발화 → 60초·재기동 전까지 stale 였음, G3). ObjectProvider 로 느슨 결합.
+    private val holdingPositionIndexProvider: ObjectProvider<HoldingPositionIndex>,
 ) {
     private val log = LoggerFactory.getLogger(StrategyPositionReconcileWorker::class.java)
 
@@ -71,7 +76,15 @@ class StrategyPositionReconcileWorker(
         var attempted = 0
         for (code in codes) {
             try {
+                // 1) 증분 drift 보정(초과 내림·부족 ledger 귀속) — 현행 경로.
                 strategyPositionAdapter.reconcileStrategyPositionDrift(userId, code, modeName)
+                // 2) ★ rebuild(대안 B 1급) — order_execution 진실원 전량 재계산 + KIS 권위 교차검산(ADR 0115 §2-P2).
+                //    토글 off 면 no-op. over-count clamp·교차검산 불일치면 미적용.
+                strategyPositionAdapter.rebuildStrategyPositionFromLedger(userId, code, modeName)
+                // 3) ⑤ in-memory 인덱스 동반 refresh — DB 직접 정정(drift 보정·rebuild upsert)은 onFillRefresh 미발화라
+                //    60초·재기동 전까지 stale(G3) 였다. 정합 사이클이 만진 code 는 단일-code refresh 로 즉시 동기화.
+                //    onFillRefresh 는 단일 code DB 재조회(경량)·멱등 — 변경 0 이어도 안전.
+                refreshHoldingIndex(code)
                 attempted++
             } catch (e: Exception) {
                 log.error(
@@ -128,6 +141,20 @@ class StrategyPositionReconcileWorker(
             )
         }
         return codes
+    }
+
+    /**
+     * ADR 0115 §2-P2-⑤ — 정합으로 strategy_position 이 바뀐 code 의 in-memory 손절 인덱스 동반 갱신(G3 stale 차단).
+     *
+     * [HoldingPositionIndex] 빈이 합류 안 됐으면(tick-watch 비활성) no-op. 갱신 실패는 정합 자체를 막지 않음(격리).
+     */
+    private fun refreshHoldingIndex(code: String) {
+        val index = holdingPositionIndexProvider.getIfAvailable() ?: return
+        try {
+            index.onFillRefresh(code)
+        } catch (e: Exception) {
+            log.warn("StrategyPositionReconcileWorker — index refresh 실패(정합은 유지): code={} err={}", code, e.message)
+        }
     }
 
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"
