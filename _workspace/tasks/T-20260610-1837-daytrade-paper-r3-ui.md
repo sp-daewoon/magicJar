@@ -3,10 +3,10 @@ id: T-20260610-1837-daytrade-paper-r3-ui
 agent: frontend
 model: opus
 branch: agent/frontend/daytrade-paper-r3-ui
-status: RUNNING
+status: DONE
 startedAt: 2026-06-10T18:37:54.145+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-10T18:48:57.242+09:00
+pr: #910
 parentPhase: ?
 ---
 
