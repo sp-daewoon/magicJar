@@ -3,10 +3,10 @@ id: T-20260610-1754-order-trigger-trace
 agent: qa
 model: opus
 branch: agent/qa/order-trigger-trace
-status: RUNNING
+status: DONE
 startedAt: 2026-06-10T17:54:18.047+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-10T18:03:29.455+09:00
+pr: #907
 parentPhase: ?
 ---
 
