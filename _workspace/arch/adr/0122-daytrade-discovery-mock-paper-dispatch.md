@@ -30,6 +30,8 @@ magicJar의 비전은 **백테스트 → 모의 → 실전** 3단 확장(project
 
 페이퍼 setup → `Strategy`(origin=PAPER_DISCOVERY) 인스턴스 1개 생성 → 기존 `RealtimeSignalGenerator` → `signal.generated.v1` → `SignalGeneratedKafkaListener`(RiskGateway 6룰) → `order.intent.v1` → `OrderRouterKafkaListener` → `TradingModeGate`(**MOCK 강제**) → `KisOrderHttpAdapter`(MOCK 분기). 신규 주문 엔진·신규 Kafka 토픽·신규 모듈 0. add-only: `Strategy.origin` enum + `PaperCapitalSnapshotProvider` 포트.
 
+> **구현 노트 (2026-06-11 GAP-0 hotfix)** — "TradingModeGate MOCK 강제"는 R1~R3 시점엔 env=MOCK에 의존한 암묵 강제였고, 게이트가 전략 origin을 인지하지 못했다(REAL 전환 시 페이퍼 주문 실 발사 가능 구멍). hotfix로 `TradingModeGate.resolveMode(userId, paperStrategy=false)` port 확장 + `OrderRouterKafkaListener.resolvePaperStrategy`(strategyId→origin DB 조회, 발행처 4곳 단일 관문 커버) 배선. REAL 모드에서 origin 불명 시 `REAL_GATE_DENIED:PAPER_ORIGIN_UNRESOLVED:*` fail-closed(헌법 §11-2). spec: `_workspace/specs/2026-06-11-gap0-paper-mode-gate-hotfix.md`.
+
 ### 2-C. 가상 자본 격리 + ADR 0121 사이징 정합
 
 - 페이퍼 RiskGateway 평가는 `PaperCapitalSnapshotProvider`(가상 자본)를 쓴다 — 실 `CapitalSnapshotProvider`(KIS 잔고) 미호출. 페이퍼 동작이 실 잔고 기반 리스크 판정을 오염시키지 않는다.

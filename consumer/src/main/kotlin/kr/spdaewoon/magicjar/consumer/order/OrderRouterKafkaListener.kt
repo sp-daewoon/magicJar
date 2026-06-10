@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.consumer.order
 import com.fasterxml.jackson.databind.ObjectMapper
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.KillSwitchJpaRepository
 import kr.spdaewoon.magicjar.domain.market.session.BusinessDayCalendar
 import kr.spdaewoon.magicjar.domain.market.session.MarketSession
@@ -26,6 +27,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.port.OrderIdempotencyGuard
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.TradingModeGate
 import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
+import kr.spdaewoon.magicjar.domain.strategy.StrategyOrigin
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
@@ -45,7 +47,7 @@ import java.time.Instant
  * ```
  * 1. payload deserialize → OrderIntent
  * 2. OrderIdempotencyGuard.acquire (Redis SETNX 60s, key="idem:order:{signalId}:{userId}")
- * 3. TradingModeGate.resolveMode(userId) — 3중 게이트
+ * 3. TradingModeGate.resolveMode(userId, paperStrategy) — 3중 게이트 + 페이퍼 MOCK 강제 (ADR 0122 §6 GAP-0 hotfix)
  * 4. KillSwitch 재검증
  * 5. REAL이면 KIS 당일 체결조회 + DB backfill 완결성 확인
  * 6. order_request INSERT(status=REQUESTED, mode)
@@ -100,6 +102,9 @@ class OrderRouterKafkaListener(
     private val sellRejectAutoPauseTracker: SellRejectAutoPauseTracker,
     // WS_PREINSERT race 병합 시 누락된 strategy_position 재생. 부재 환경은 기존 주문 흐름 유지.
     private val strategyPositionExecutionReplayServiceProvider: ObjectProvider<StrategyPositionExecutionReplayService>? = null,
+    // ADR 0122 §6 GAP-0 hotfix — intent.strategyId → strategy.origin 조회(페이퍼 MOCK 강제 판정).
+    // ObjectProvider graceful — 부재 시 REAL fail-closed / MOCK ERROR 로그 + 진행 (헌법 §11-2).
+    private val consumerStrategyJpaRepositoryProvider: ObjectProvider<ConsumerStrategyJpaRepository>? = null,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String = "MOCK",
     @Value("\${magicjar.signal.market-hours-gate.enabled:true}")
@@ -214,8 +219,16 @@ class OrderRouterKafkaListener(
                 return
             }
 
-            // Step 3: TradingModeGate (3중 게이트)
-            val modeResult = tradingModeGate.resolveMode(intent.userId)
+            // Step 3: TradingModeGate (3중 게이트 + ADR 0122 §6 페이퍼 MOCK 강제 — GAP-0 hotfix)
+            val paperResult = resolvePaperStrategy(intent)
+            if (paperResult is OrderResult.Left) {
+                val reason = "REAL_GATE_DENIED:${paperResult.value.condition}"
+                handleRejected(intent, TradingMode.REAL, reason, OrderAuditEventType.REAL_GATE_DENIED)
+                ack.acknowledge()
+                return
+            }
+            val paperStrategy = (paperResult as OrderResult.Right).value
+            val modeResult = tradingModeGate.resolveMode(intent.userId, paperStrategy)
             if (modeResult is OrderResult.Left) {
                 val reason = "REAL_GATE_DENIED:${modeResult.value.condition}"
                 handleRejected(intent, TradingMode.REAL, reason, OrderAuditEventType.REAL_GATE_DENIED)
@@ -805,6 +818,70 @@ class OrderRouterKafkaListener(
     /**
      * Step 3·4 REJECTED 공통 처리 (게이트 단계 — order_request INSERT(REJECTED) + audit + Kafka publish).
      */
+    /**
+     * ADR 0122 §6 GAP-0 hotfix — intent.strategyId의 전략 origin으로 페이퍼 여부 판정.
+     *
+     * 라우터 단일 관문 판정 — 발행처 4곳(T-RISK·AutoExit·StopLossWatcher·MANUAL)을 전부 커버.
+     * origin 단일 진실원 = strategy 테이블 V81 (payload 복제 0 — ADR 0115 P2-⑥ 발명 0 정합).
+     *
+     *  - strategyId <= 0 (MANUAL sentinel) → false (수동 주문은 env 모드 따름)
+     *  - origin == PAPER_DISCOVERY → true (게이트가 MOCK 강제)
+     *  - origin null/기타 → false (V81 legacy = USER_DSL — zero-regression)
+     *  - 조회 불가(repo 미합류·예외·전략 미존재):
+     *      env=REAL → Left fail-closed (헌법 §11-2 — 잘못된 모드로 실주문 발사보다 거부가 안전)
+     *      env=MOCK → ERROR 로그 + false 진행 (명시 degraded — env=MOCK이 어차피 MOCK 강제)
+     */
+    private fun resolvePaperStrategy(intent: OrderIntent): OrderResult<DenyReason.RealGateDenied, Boolean> {
+        if (intent.strategyId <= 0L) return OrderResult.Right(false)
+        val realMode = RuntimeModeParser.isRealMode(magicjarMode)
+        val repo = consumerStrategyJpaRepositoryProvider?.getIfAvailable()
+        if (repo == null) {
+            log.error(
+                "resolvePaperStrategy ConsumerStrategyJpaRepository 미합류: userId={} strategyId={} realMode={} (헌법 §11-2)",
+                intent.userId,
+                intent.strategyId,
+                realMode,
+            )
+            return if (realMode) {
+                OrderResult.Left(DenyReason.RealGateDenied("PAPER_ORIGIN_UNRESOLVED:REPO_UNAVAILABLE"))
+            } else {
+                OrderResult.Right(false)
+            }
+        }
+        val entity =
+            try {
+                repo.findById(intent.strategyId).orElse(null)
+            } catch (e: Exception) {
+                log.error(
+                    "resolvePaperStrategy strategy 조회 실패: userId={} strategyId={} realMode={} err={}",
+                    intent.userId,
+                    intent.strategyId,
+                    realMode,
+                    e.message,
+                )
+                return if (realMode) {
+                    OrderResult.Left(DenyReason.RealGateDenied("PAPER_ORIGIN_UNRESOLVED:LOOKUP_FAILED"))
+                } else {
+                    OrderResult.Right(false)
+                }
+            }
+        if (entity == null) {
+            log.error(
+                "resolvePaperStrategy strategy 미존재: userId={} strategyId={} realMode={} (intent 발행 후 삭제 추정)",
+                intent.userId,
+                intent.strategyId,
+                realMode,
+            )
+            return if (realMode) {
+                OrderResult.Left(DenyReason.RealGateDenied("PAPER_ORIGIN_UNRESOLVED:STRATEGY_NOT_FOUND"))
+            } else {
+                OrderResult.Right(false)
+            }
+        }
+        // origin null = V81 legacy = USER_DSL 취급 (zero-regression — ConsumerStrategyJpaEntity 주석 정합)
+        return OrderResult.Right(entity.origin == StrategyOrigin.PAPER_DISCOVERY.name)
+    }
+
     private fun handleRejected(
         intent: OrderIntent,
         mode: TradingMode,
