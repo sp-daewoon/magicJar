@@ -3,10 +3,10 @@ id: T-20260611-1437-position-source-trigger
 agent: backend-core
 model: opus
 branch: hotfix/position-source-dimension-trigger-key
-status: RUNNING
+status: DONE
 startedAt: 2026-06-11T14:37:17.124+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-11T15:05:00+09:00
+pr: 923
 parentPhase: ?
 ---
 
@@ -16,7 +16,7 @@ parentPhase: ?
 ## 결과물 체크리스트
 - [x] fix — D1(watcher source 조회 + ledger 3쿼리 mode 차원 + reconcileDrift 권위행 부재 가드) · D2(consumer entity·adapter order_trigger/trigger_ref_id 매핑)
 - [x] 테스트 — watcher D1 + drift D1 + rebuild D1·D2 + adapter D2 round-trip + 기존 suite mode 인자 정합
-- [ ] PR
+- [x] PR — #923
 
 ## 의존성
 - ADR 0115 §2-P2-⑥ (OrderTrigger 키 사슬) · Flyway V80 (order_trigger·trigger_ref_id 컬럼, 기존)
