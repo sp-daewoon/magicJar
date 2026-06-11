@@ -1,7 +1,7 @@
 package kr.spdaewoon.magicjar.domain.market.port
 
 /**
- * KIS WS 41 stream slot 예산 결정 (ADR 0048 §2-1).
+ * KIS WS 40 stream slot 예산 결정 (ADR 0123 — ADR 0048 amend, 41→40 정정).
  * Pure function — Spring 의존 0.
  *
  * 슬롯 구성 (ADR 0048 §2-1 + NXT hotfix):
@@ -9,17 +9,33 @@ package kr.spdaewoon.magicjar.domain.market.port
  *   30 = H0STCNT0 (체결가 실시간 — 관심종목 WS 구독)
  *   10 = H0STASP0 (호가창 LRU — 선택)
  *
- * NXT(H0NXCNT0) 추가 시 슬롯 정합 (ADR 0048 §2-1 — "41건은 stream 수 단위 한도 (sum across TR_IDs)"):
+ * NXT(H0NXCNT0) 추가 시 슬롯 정합 (한도 단위 = "코드 × tr_id" 채널 — ADR 0123 §1-3 KIS-first 정정):
  *   H0STCNT0 종목당 1 slot + H0NXCNT0 종목당 1 slot = 동일 종목 2 slot 소모.
  *   NXT_TICK_MAX = 20: H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41 정합.
- *   Watchlist 풀 ≤ 20 환경(MVP)에서는 안전. 풀 > 20 시 slot 초과 risk → backlog §53 SubscriptionRouter priority 재조정 의제.
+ *   Watchlist 풀 ≤ 20 환경(MVP)에서는 안전. 풀 > 20 시 slot 초과 risk → ADR 0123 R2 owner 우선순위 eviction.
+ *
+ * ★ ADR 0123 §1-3 — TOTAL_SLOTS 41→40 KIS-first 정정 (헌법 §3, 자체 추론 0):
+ *   KIS 공식 예제 `kis_auth.py` `__runner()`가 40을 hard enforce:
+ *     `if len(open_map.keys()) > 40: raise ValueError("Subscription's max is 40")`
+ *   KIS 포털이 명시 한도를 공개하지 않아 UNCERTAIN이나, 예제 코드 enforce 값(40)을 보수적 운영 상한으로 채택.
+ *   상수가 아닌 ENV 설정값(`MAGICJAR_KIS_WS_MAX_SLOTS`, default 40)으로 운영하는 것은 WsSlotBudgetLedger 책임.
+ *   KIS-first raw 출처:
+ *     https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
  *
  * KIS-first 출처: open-trading-api examples_user/domestic_stock/domestic_stock_functions_ws.py
  *   ccnl_nxt() tr_id = "H0NXCNT0" — NXT 대체거래소 체결가
  *   raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
  */
 object SubscriptionPolicy {
-    const val TOTAL_SLOTS = 41
+    /**
+     * KIS WS 동시 구독 한도 (ADR 0123 §1-3 — 41→40 KIS-first 정정).
+     *
+     * 한도 단위 = "코드 × tr_id" 채널 (kis_auth.py open_map key = (tr_id, tr_key) 조합).
+     * 운영 환경에서는 WsSlotBudgetLedger가 `MAGICJAR_KIS_WS_MAX_SLOTS` ENV(default 40)로 덮어쓴다 —
+     * 본 상수는 ENV 미설정 시 default + 단위 산식 helper용.
+     * KIS-first raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+     */
+    const val TOTAL_SLOTS = 40
     const val EXECUTION_NOTICE_RESERVED = 1 // H0STCNI0
     const val PRICE_TICK_MAX = 30 // H0STCNT0 (NXT 미추가 시 최대 30)
     const val ORDERBOOK_MAX = 10 // H0STASP0 (LRU)
@@ -48,4 +64,17 @@ object SubscriptionPolicy {
     const val OVERTIME_SINGLE_PRICE_MAX = 20 // H0STOUP0 (16:00~18:00 KST 한정)
 
     fun priceTickSlotsAvailable(currentSubscribed: Int): Int = (PRICE_TICK_MAX - currentSubscribed).coerceAtLeast(0)
+
+    /**
+     * 단일 회계 산식 helper (ADR 0123 §3-1) — 가용 채널 slot.
+     *
+     * `available = maxSlots - reserved(체결통보 1) - occupiedChannels`.
+     * "코드 × tr_id" 채널 단위. WsSlotBudgetLedger가 maxSlots를 ENV(`MAGICJAR_KIS_WS_MAX_SLOTS`)로 주입.
+     * 음수 방지(coerceAtLeast 0) — 한도 초과 상태에서도 available=0 반환 (선제 차단·eviction 판단은 R2).
+     */
+    fun channelSlotsAvailable(
+        occupiedChannels: Int,
+        maxSlots: Int = TOTAL_SLOTS,
+        reserved: Int = EXECUTION_NOTICE_RESERVED,
+    ): Int = (maxSlots - reserved - occupiedChannels).coerceAtLeast(0)
 }

@@ -293,6 +293,12 @@ class KisWebSocketBridgeOpsp8996FixTest {
                         it.ifAvailable
                     } returns null
                 },
+            slotLedgerProvider =
+                mockk<ObjectProvider<kr.spdaewoon.magicjar.consumer.ingestion.WsSlotBudgetLedger>>(
+                    relaxed = true,
+                ).also {
+                    every { it.ifAvailable } returns null
+                },
         )
     }
 }
