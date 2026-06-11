@@ -358,3 +358,14 @@ sub-agent가 0 tool uses 종료, 환경 결함(Bash 실패), 또는 명세 위�
 - **근거**: silent fallback은 모듈 경계 결함을 숨겨 incident를 늦게 발견하게 한다(G6은 3주 잠복). 빈 부재가 자본·리스크 평가 default를 바꾸면 REAL 모드에서는 즉시 부팅·실행 실패가 더 안전하다(잘못된 한도로 실주문 발사보다 낫다).
 - **적용**: PR #888이 RiskConfig에 적용한 패턴(null 분기 ERROR 로그 + REAL fail-fast)을 `SignalGeneratedKafkaListener` 등의 `ObjectProvider` graceful 분기(config·event·position·notifier·killSwitch·strategyLookup·balance 등 12개) 전체로 점진 확산(backlog). 각 분기는 부재 시 거동을 명시(killSwitch는 fail-true·position은 명시 degraded 등)하고 silent 0건으로 수렴.
 - **MOCK/REAL 분기**: MOCK은 ERROR 로그 + degraded 진행 허용(개발 흐름 유지), REAL은 자본·리스크 결정 port 부재 시 fail-fast LOCK. 모드 무관 silent(로그 0) 금지.
+
+## §12. 주문 액션 승인 매트릭스 (2026-06-11 신설 — 최고 관리자 직접 결재)
+
+> **계기**: 2026-06-11 canary dwell 중 orchestrator가 전략 8 잔존 MOCK 포지션 청산을 위해 수동 MOCK SELL(#283)을 사전 승인 없이 발행. 모의·자본 영향 0·실시간 보고였으나 최고 관리자가 주문 내역에서 발견 후 정책 결정.
+
+| 액션 | 승인 요건 |
+|------|-----------|
+| **REAL 주문 발행·취소·정정** (orchestrator/sub-agent 발의 수동 개입) | **사전 명시 승인 의무** — 발행 전 최고 관리자 확인. 승인 없는 REAL 주문 액션 절대 금지 |
+| **MOCK(모의) 주문 발행·취소** | 사후 보고로 충분 — 발행 즉시 사유·주문 ID·결과를 보고에 명시 |
+| **KillSwitch ON** (비상 차단) | **예외 — 즉시 실행** 후 보고 (자본 보호 방향이므로 지체 금지). OFF는 기존 룰대로 사용자 단독 결재 (R3 §3-2) |
+| 전략 자동매매의 REAL 주문 (시그널 경로) | 본 매트릭스 대상 아님 — canary/운영 결재(체크리스트·runbook)가 승인 권위 |
