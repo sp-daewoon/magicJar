@@ -187,6 +187,9 @@ class ConsumerOrderRequestRepositoryAdapter(
             completedAt = domain.completedAt,
             // hotfix 2026-05-20 — T-MAN Phase 1 PR #510 회귀 매핑 (MANUAL 주문 보존 의무)
             source = domain.source,
+            // hotfix 2026-06-11 — D2 P2-⑥ 회귀 매핑 (발사 출처 키 사슬 영속 — 누락 시 order_trigger·trigger_ref_id NULL).
+            orderTrigger = domain.orderTrigger,
+            triggerRefId = domain.triggerRefId,
         )
 
     private fun toDomain(entity: ConsumerOrderRequestJpaEntity): OrderRequest =
@@ -211,6 +214,9 @@ class ConsumerOrderRequestRepositoryAdapter(
             completedAt = entity.completedAt,
             // hotfix 2026-05-20 — source 매핑 추가 (audit 정합 의무)
             source = safeEnum<OrderSource>(entity.source.name) ?: OrderSource.AUTO,
+            // hotfix 2026-06-11 — D2 P2-⑥ 회귀 읽기 매핑 (rebuild·signal-trace 가 trigger 키로 귀속 판정).
+            orderTrigger = entity.orderTrigger,
+            triggerRefId = entity.triggerRefId,
         )
 
     private inline fun <reified T : Enum<T>> safeEnum(value: String): T? = runCatching { enumValueOf<T>(value) }.getOrNull()

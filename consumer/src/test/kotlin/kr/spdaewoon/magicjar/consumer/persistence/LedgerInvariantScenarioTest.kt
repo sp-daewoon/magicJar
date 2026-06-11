@@ -227,6 +227,42 @@ class LedgerInvariantScenarioTest {
     }
 
     @Test
+    fun `D1·D2 회귀 — REAL rebuild 는 REAL 체결만 fold(MOCK 과거 혼입 0) → strategy_position(85)=1 복원`() {
+        // 라이브 13:35 evidence: rebuildTotal=10 vs authority=1 — MOCK 8번 과거 체결이 REAL rebuild 에 혼입돼
+        // 교차검산이 영영 깨졌다. fix: rebuild ledger 가 mode 차원 정합(REAL 권위↔REAL 체결만).
+        // strategy_position(85) 가 어떤 경로로 0(미표시)이 됐다고 가정.
+        port.upsert(
+            StrategyPosition(
+                id = 85L,
+                userId = USER,
+                strategyId = 85L,
+                code = CODE,
+                quantity = 0,
+                avgPrice = BigDecimal.ZERO,
+                filledLots = 0,
+                realizedPnl = BigDecimal.ZERO,
+                executedExitStages = emptySet(),
+                openedAt = Clock.System.now(),
+                updatedAt = Clock.System.now(),
+            ),
+        )
+        // KIS REAL 권위 = 1주(REAL 체결 1건). MODE="REAL" 로 조회.
+        whenever(positionRepo.findByUserIdAndCodeAndSource(USER, CODE, "REAL"))
+            .thenReturn(PositionJpaEntity(userId = USER, code = CODE, quantity = 1))
+        // ★ REAL mode 의 rebuild ledger 만 stub — REAL BUY 85전략 1주. MOCK 8전략 과거 체결은 본 stub 에 없으므로
+        //   query mode 필터가 정상 작동하면 REAL rebuild 에 절대 섞이지 않는다(mode 무차원이면 빈 리스트 stub 미스).
+        whenever(orderRequestRepo.findRebuildExecutionsByUserAndCode(USER, CODE, TradingMode.REAL))
+            .thenReturn(listOf(buy(85L, 1, "70000", t = 1)))
+        whenever(signalRepo.findById(any())).thenReturn(java.util.Optional.empty())
+
+        val applied = adapter.rebuildStrategyPositionFromLedger(USER, CODE, "REAL")
+
+        // rebuild=1 == REAL authority 1 → 교차검산 통과 → strategy_position(85)=1 복원.
+        assertThat(applied).isTrue()
+        assertThat(port.qty(85L)).isEqualTo(1)
+    }
+
+    @Test
     fun `S-B rebuild 토글 off — ledger-rebuild 비활성 시 no-op(현행 증분 경로 회귀)`() {
         val disabledAdapter =
             ConsumerExecutionStrategyPositionAdapter(
@@ -281,7 +317,7 @@ class LedgerInvariantScenarioTest {
     }
 
     private fun givenLedger(vararg rows: StrategyRebuildExecutionRow) {
-        whenever(orderRequestRepo.findRebuildExecutionsByUserAndCode(USER, CODE))
+        whenever(orderRequestRepo.findRebuildExecutionsByUserAndCode(USER, CODE, TradingMode.MOCK))
             .thenReturn(rows.toList())
         // rebuild 가 partialExitStage 해석 시 signalRepo 를 건드릴 수 있으나 본 픽스처는 signalId=0 → 미조회.
         whenever(signalRepo.findById(any())).thenReturn(java.util.Optional.empty())

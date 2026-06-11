@@ -38,9 +38,10 @@ class PositionStopLossTickWatcherTest {
     private val intentProducer = mockk<OrderIntentKafkaProducer>(relaxed = true)
 
     // ADR 0115 §P2-3 — position(KIS 권위) 잔량 가드. default 로 보유(quantity>0) 반환해 기존 손절 발사 테스트 보존.
+    // hotfix 2026-06-11 (D1): source 차원 조회로 정합 — watcher 가 현재 모드(default MOCK) source 로 좁혀 읽는다.
     private val positionRepo =
         mockk<PositionJpaRepository>(relaxed = true).also {
-            every { it.findByUserIdAndCode(any(), any()) } returns positionEntity(quantity = 10)
+            every { it.findByUserIdAndCodeAndSource(any(), any(), any()) } returns positionEntity(quantity = 10)
         }
 
     // 실제 공용 컴포넌트를 그대로 사용(DRY — listener와 동일 취소 경로 검증). cancel 검증은 wrapped kisOrderPort로 유지.
@@ -140,6 +141,39 @@ class PositionStopLossTickWatcherTest {
             )
         }
         assertThat(keySlot.captured).startsWith("auto-sl:")
+    }
+
+    @Test
+    fun `D1 회귀 — MOCK·REAL position 행 공존 시 현재 모드(source) 행만 조회해 단일 결과 (2 results 예외 0)`() {
+        // 라이브 09:09 evidence: position UQ=(user,code,source) 라 005930 에 MOCK 0주 + REAL 1주 행 공존.
+        // 기존 findByUserIdAndCode(source 무차원)는 2행을 받아 "2 results" 예외 → fail-safe 발사로 빠졌다.
+        // 본 테스트는 source 차원 조회 stub 만 둔다 — source 무차원 경로를 타면 stub 미스로 발화 0 이 되어 실패한다.
+        every { index.heldBy("005930") } returns listOf(held(avgPrice = "50000", stopLossPct = "3"))
+        every { orderRepo.findOpenByUserId("user-A") } returns emptyList()
+        // default 모드(MOCK) source 로 조회 — MOCK 행(보유 가정) 단일 반환. REAL 행은 별도 source 키라 섞이지 않는다.
+        every { positionRepo.findByUserIdAndCodeAndSource("user-A", "005930", "MOCK") } returns positionEntity(quantity = 1)
+
+        watcher().onTick(tickRecord(price = "48000")) // 48,000 ≤ 48,500 stop → 발동
+
+        verify(exactly = 1) {
+            intentProducer.publishExitIntent(
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+            )
+        }
+        // source 무차원 조회는 호출되지 않아야 한다(2 results 경로 폐지 증명).
+        verify(exactly = 0) { positionRepo.findByUserIdAndCode(any(), any()) }
     }
 
     @Test
@@ -315,8 +349,8 @@ class PositionStopLossTickWatcherTest {
     fun `P2-3 — position(KIS 권위) 잔량 0(유령) 이면 손절 미발사`() {
         every { index.heldBy("005930") } returns listOf(held(avgPrice = "50000", stopLossPct = "3"))
         every { orderRepo.findOpenByUserId("user-A") } returns emptyList()
-        // strategy_position 인덱스엔 보유로 잡히지만 KIS position 권위 잔량 0 — 유령.
-        every { positionRepo.findByUserIdAndCode("user-A", "005930") } returns positionEntity(quantity = 0)
+        // strategy_position 인덱스엔 보유로 잡히지만 KIS position 권위 잔량 0 — 유령. (source 차원 조회 — default MOCK)
+        every { positionRepo.findByUserIdAndCodeAndSource("user-A", "005930", "MOCK") } returns positionEntity(quantity = 0)
 
         watcher().onTick(tickRecord(price = "48000"))
 
@@ -329,7 +363,7 @@ class PositionStopLossTickWatcherTest {
     fun `P2-3 — position 권위 잔량 보유면 손절 발사 유지(PAUSED 전략도 실보유 보호)`() {
         every { index.heldBy("005930") } returns listOf(held(avgPrice = "50000", stopLossPct = "3"))
         every { orderRepo.findOpenByUserId("user-A") } returns emptyList()
-        every { positionRepo.findByUserIdAndCode("user-A", "005930") } returns positionEntity(quantity = 10)
+        every { positionRepo.findByUserIdAndCodeAndSource("user-A", "005930", "MOCK") } returns positionEntity(quantity = 10)
 
         watcher().onTick(tickRecord(price = "48000"))
 

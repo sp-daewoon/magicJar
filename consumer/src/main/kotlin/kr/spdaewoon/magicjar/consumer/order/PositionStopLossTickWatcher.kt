@@ -7,6 +7,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
+import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import kr.spdaewoon.magicjar.strategy.entry.KrxTickSize
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
@@ -60,6 +61,10 @@ class PositionStopLossTickWatcher(
     private val enabled: Boolean = true,
     @Value("\${magicjar.autotrading.stop-loss.tick-cooldown-seconds:30}")
     private val tickCooldownSeconds: Long = 30,
+    // hotfix 2026-06-11 — D1: position 권위 잔량 조회의 source(REAL/MOCK) 차원 정합용 현재 거래 모드.
+    // position UQ=(user,code,source) — source 누락 시 MOCK+REAL 행 공존 종목에서 "2 results" 오류.
+    @Value("\${magicjar.mode:MOCK}")
+    private val magicjarMode: String = "MOCK",
 ) {
     private val log = LoggerFactory.getLogger(PositionStopLossTickWatcher::class.java)
 
@@ -208,11 +213,18 @@ class PositionStopLossTickWatcher(
 
     /**
      * position(KIS 권위) 잔량 > 0 확인 — ADR 0115 §P2-3 유령 포지션 발사 가드.
+     *
+     * hotfix 2026-06-11 (D1): position UQ=(user,code,source) 라 MOCK·REAL 행이 의도적으로 공존한다
+     * (005930: MOCK 0주 + REAL 1주 정상). 기존 `findByUserIdAndCode`(source 무차원)는 두 행 공존 시
+     * `Query did not return a unique result: 2 results` 예외 → fail-safe true 로 빠져 **잘못된 행 기준 발사
+     * 위험**(09:09 라이브 로그). 현재 거래 모드(source)로 좁혀 그 모드의 권위 잔량만 본다.
+     *
      * 조회 실패 시 fail-safe로 true(기존 동작 보존 — 손절 안전망 우선, 조회 결함으로 손절을 막지 않음).
      */
     private fun hasAuthorityHolding(position: HoldingPositionIndex.HeldPosition): Boolean =
         runCatching {
-            (positionJpaRepository.findByUserIdAndCode(position.userId, position.code)?.quantity ?: 0) > 0
+            val source = RuntimeModeParser.tradingModeOrMock(magicjarMode).name
+            (positionJpaRepository.findByUserIdAndCodeAndSource(position.userId, position.code, source)?.quantity ?: 0) > 0
         }.getOrElse { e ->
             log.warn(
                 "stop-loss position 권위 조회 실패 — fail-safe 발사 진행: userId={} code={} err={}",
