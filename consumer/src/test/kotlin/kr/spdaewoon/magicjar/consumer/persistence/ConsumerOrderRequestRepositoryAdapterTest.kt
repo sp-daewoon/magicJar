@@ -8,6 +8,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
+import kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -191,5 +192,61 @@ class ConsumerOrderRequestRepositoryAdapterTest {
         val result = adapter.findById(404L)
 
         assertThat(result).isNull()
+    }
+
+    @Test
+    fun `(5) D2 회귀 - save가 orderTrigger·triggerRefId를 entity로 영속하고 read가 도메인으로 복원`() {
+        // 라이브 REAL 286(BUY·signalId=732) evidence: consumer entity·toEntity 매핑에 두 컬럼이 누락돼
+        // OrderRouterKafkaListener 가 산정한 STRATEGY_SIGNAL+732 키가 DB 에 NULL 로 떨어졌다. 매핑 round-trip 검증.
+        val now = Instant.parse("2026-06-11T04:31:00Z")
+        val domain =
+            OrderRequest(
+                userId = "74683223",
+                signalId = 732L,
+                strategyId = 85L,
+                code = "005930",
+                side = OrderSide.BUY,
+                priceType = OrderPriceType.MARKET,
+                quantity = 1,
+                limitPrice = null,
+                status = OrderStatus.REQUESTED,
+                mode = TradingMode.REAL,
+                idempotencyKey = "732:74683223",
+                requestedAt = now,
+                orderTrigger = OrderTrigger.STRATEGY_SIGNAL,
+                triggerRefId = 732L,
+            )
+        val entitySlot = slot<ConsumerOrderRequestJpaEntity>()
+        every { jpa.save(capture(entitySlot)) } answers {
+            val c = entitySlot.captured
+            // 영속 후 read 경로(toDomain) 정합도 함께 검증 — 캡처 entity 그대로 반환(id 채움).
+            ConsumerOrderRequestJpaEntity(
+                id = 286L,
+                signalId = c.signalId,
+                strategyId = c.strategyId,
+                userId = c.userId,
+                code = c.code,
+                side = c.side,
+                qty = c.qty,
+                priceType = c.priceType,
+                limitPrice = c.limitPrice,
+                status = c.status,
+                mode = c.mode,
+                idempotencyKey = c.idempotencyKey,
+                requestedAt = c.requestedAt,
+                source = c.source,
+                orderTrigger = c.orderTrigger,
+                triggerRefId = c.triggerRefId,
+            )
+        }
+
+        val result = adapter.save(domain)
+
+        // 1) toEntity — 두 키가 entity 로 흘렀는가(과거 NULL 결함 폐지).
+        assertThat(entitySlot.captured.orderTrigger).isEqualTo(OrderTrigger.STRATEGY_SIGNAL)
+        assertThat(entitySlot.captured.triggerRefId).isEqualTo(732L)
+        // 2) toDomain — 읽기 경로 복원(rebuild·signal-trace 귀속 판정 입력).
+        assertThat(result.orderTrigger).isEqualTo(OrderTrigger.STRATEGY_SIGNAL)
+        assertThat(result.triggerRefId).isEqualTo(732L)
     }
 }

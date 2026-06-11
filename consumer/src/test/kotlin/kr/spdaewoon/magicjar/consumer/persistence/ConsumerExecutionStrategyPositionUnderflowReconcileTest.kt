@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.consumer.persistence
 
 import kotlinx.datetime.Clock
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.position.StrategyPosition
 import kr.spdaewoon.magicjar.domain.position.port.StrategyPositionPort
 import org.assertj.core.api.Assertions.assertThat
@@ -58,7 +59,7 @@ class ConsumerExecutionStrategyPositionUnderflowReconcileTest {
         whenever(positionRepo.findByUserIdAndCodeAndSource("user-A", "005930", "MOCK"))
             .thenReturn(positionEntity(quantity = 3))
         // ledger 귀속 — 전략8 BUY 3주 @70000, SELL 0
-        whenever(orderRequestRepo.aggregateFilledByStrategyAndSide("user-A", "005930"))
+        whenever(orderRequestRepo.aggregateFilledByStrategyAndSide("user-A", "005930", TradingMode.MOCK))
             .thenReturn(listOf(ledgerRow(8L, OrderSide.BUY, "3", "210000")))
 
         adapter.reconcileStrategyPositionDrift("user-A", "005930", "MOCK")
@@ -79,7 +80,7 @@ class ConsumerExecutionStrategyPositionUnderflowReconcileTest {
         port.legs = mutableListOf(strategyPosition(strategyId = 8L, quantity = 0, avgPrice = "0"))
         whenever(positionRepo.findByUserIdAndCodeAndSource("user-A", "005930", "MOCK"))
             .thenReturn(positionEntity(quantity = 3))
-        whenever(orderRequestRepo.aggregateFilledByStrategyAndSide("user-A", "005930"))
+        whenever(orderRequestRepo.aggregateFilledByStrategyAndSide("user-A", "005930", TradingMode.MOCK))
             .thenReturn(listOf(ledgerRow(8L, OrderSide.BUY, "2", "140000")))
 
         adapter.reconcileStrategyPositionDrift("user-A", "005930", "MOCK")
@@ -97,7 +98,7 @@ class ConsumerExecutionStrategyPositionUnderflowReconcileTest {
         port.legs = mutableListOf(strategyPosition(strategyId = 8L, quantity = 3, avgPrice = "70000"))
         whenever(positionRepo.findByUserIdAndCodeAndSource("user-A", "005930", "MOCK"))
             .thenReturn(positionEntity(quantity = 3))
-        whenever(orderRequestRepo.aggregateFilledByStrategyAndSide("user-A", "005930"))
+        whenever(orderRequestRepo.aggregateFilledByStrategyAndSide("user-A", "005930", TradingMode.MOCK))
             .thenReturn(listOf(ledgerRow(8L, OrderSide.BUY, "3", "210000")))
 
         adapter.reconcileStrategyPositionDrift("user-A", "005930", "MOCK")
@@ -111,7 +112,7 @@ class ConsumerExecutionStrategyPositionUnderflowReconcileTest {
         port.legs = mutableListOf(strategyPosition(strategyId = 8L, quantity = 0, avgPrice = "0"))
         whenever(positionRepo.findByUserIdAndCodeAndSource("user-A", "005930", "MOCK"))
             .thenReturn(positionEntity(quantity = 3))
-        whenever(orderRequestRepo.aggregateFilledByStrategyAndSide("user-A", "005930"))
+        whenever(orderRequestRepo.aggregateFilledByStrategyAndSide("user-A", "005930", TradingMode.MOCK))
             .thenReturn(
                 listOf(
                     ledgerRow(8L, OrderSide.BUY, "5", "350000"),

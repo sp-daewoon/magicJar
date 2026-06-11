@@ -114,6 +114,22 @@ class ConsumerExecutionStrategyPositionDriftReconcileTest {
     }
 
     @Test
+    fun `D1 회귀 — 권위 position 행 부재(null)면 leg 양수여도 내림 보정 0 (정상 귀속 파괴 폐지)`() {
+        // 라이브 13:31:01.963 evidence: REAL 체결로 strategy_position(85)=1 정상 귀속 직후, 잘못된 source(또는
+        // 아직 안 쓰인 권위 행) 조회로 authority=0 판정 → strategySum=1->0 으로 정상 귀속을 즉시 삭제했다.
+        // fix: 그 source 의 position 행이 **부재(null)** 면 "확정 0" 이 아니므로 leg 양수면 보정하지 않고 skip.
+        port.legs = listOf(leg(strategyId = 85L, quantity = 1, realizedPnl = "0", avgPrice = "70000"))
+        // 권위 행 자체 부재 — null 반환(첫 REAL 체결 직후·source 미스 시뮬).
+        whenever(positionRepo.findByUserIdAndCodeAndSource(any(), any(), any())).thenReturn(null)
+
+        port.upsertCount = 0
+        adapter(enabled = true).reconcileStrategyPositionDrift("user-A", "005930", "REAL")
+
+        // 행 부재 + leg 양수 → 보정 upsert 0(정상 귀속 보존). 다음 주기에 권위 행 생기면 정합.
+        assertThat(port.upsertCount).isEqualTo(0)
+    }
+
+    @Test
     fun `유령 over-count — 체결 없이 reconcileStrategyPositionDrift 직접 호출, position 0주에 3주 leg 내림 reset`() {
         // 2026-06-10 오후 incident 재현: AUTO SELL 체결이 strategy_position 에 미반영(차감 누락)으로
         // KIS(position) 0주인데 strategy_position 3주 잔존. worker 가 체결 없이 reconcileStrategyPositionDrift 를

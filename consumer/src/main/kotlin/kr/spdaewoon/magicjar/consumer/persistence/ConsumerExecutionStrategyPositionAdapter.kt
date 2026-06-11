@@ -11,6 +11,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.order.execution.port.ExecutionStrategyPositionUpdatePort
 import kr.spdaewoon.magicjar.domain.position.StrategyPosition
 import kr.spdaewoon.magicjar.domain.position.port.StrategyPositionPort
+import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import kr.spdaewoon.magicjar.strategy.integrity.DriftCorrectionInput
 import kr.spdaewoon.magicjar.strategy.integrity.DriftCorrectionResult
 import kr.spdaewoon.magicjar.strategy.integrity.LedgerAttributedDriftCorrection
@@ -165,9 +166,11 @@ class ConsumerExecutionStrategyPositionAdapter(
                 return false
             }
 
+        // hotfix 2026-06-11 (D1): rebuild fold·교차검산을 권위(position) 와 동일 mode 로 정합 — MOCK 과거 체결 혼입 차단.
+        val mode = RuntimeModeParser.tradingModeOrMock(modeName)
         val rows =
             try {
-                orderRequestJpaRepository.findRebuildExecutionsByUserAndCode(userId, code)
+                orderRequestJpaRepository.findRebuildExecutionsByUserAndCode(userId, code, mode)
             } catch (e: Exception) {
                 log.warn("rebuild execution 조회 실패 — skip: userId={} code={} err={}", maskUserId(userId), code, e.message)
                 return false
@@ -434,11 +437,9 @@ class ConsumerExecutionStrategyPositionAdapter(
                 )
                 return
             }
-        val positionQty =
+        val authorityRow =
             try {
-                positionJpaRepository
-                    .findByUserIdAndCodeAndSource(userId, code, modeName)
-                    ?.quantity ?: 0
+                positionJpaRepository.findByUserIdAndCodeAndSource(userId, code, modeName)
             } catch (e: Exception) {
                 log.warn(
                     "strategy_position drift position 조회 실패 — 정합 skip: userId={} code={} err={}",
@@ -448,6 +449,23 @@ class ConsumerExecutionStrategyPositionAdapter(
                 )
                 return
             }
+
+        // hotfix 2026-06-11 (D1): 이 source(REAL/MOCK) 의 position 행 자체가 **부재**면 "확정 0 보유"가 아니다.
+        // 첫 REAL 체결 직후 권위 행이 아직 없거나, 잘못된 source 로 조회됐을 수 있다. 이때 authority=0 으로 간주해
+        // 초과 내림(Adjust)을 적용하면 방금 정상 귀속된 leg 를 즉시 삭제한다(13:31:01.963 strategySum=1->0 라이브 결함).
+        // 행이 부재한데 strategy_position leg 가 양수면 보정하지 않고 skip — drift 는 권위 행이 생긴 다음 주기에 회복한다
+        // (없는 0 으로 정상 물량을 파괴하지 않는 보수 가드 — 부족 방향 WARN-only 와 동일 철학).
+        if (authorityRow == null && legs.any { it.quantity > 0 }) {
+            log.warn(
+                "strategy_position drift skip(권위 행 부재 — 확정 0 아님): userId={} code={} source={} legSum={} (다음 정합 주기 회복)",
+                maskUserId(userId),
+                code,
+                modeName,
+                legs.sumOf { it.quantity },
+            )
+            return
+        }
+        val positionQty = authorityRow?.quantity ?: 0
 
         val result =
             PositionDriftCorrection.evaluate(
@@ -471,7 +489,7 @@ class ConsumerExecutionStrategyPositionAdapter(
             // 부족 방향 — 귀속 ledger 로 정정 가능한지 먼저 시도(ADR 0115 §P1-1 amend 2026-06-10).
             // 명확한 귀속(전략 FILLED execution)으로 authority 재구성 가능하면 정정, 모호하면 WARN.
             is DriftCorrectionResult.WarnUnderflow ->
-                reconcileUnderflowByLedger(userId, code, legs, positionQty, result)
+                reconcileUnderflowByLedger(userId, code, modeName, legs, positionQty, result)
             // Disabled(ENV off) — 현행 WARN-only 로 fallback. 일치/정합이면 무동작.
             is DriftCorrectionResult.Disabled -> warnIfDisabledDrift(userId, code, positionQty)
             DriftCorrectionResult.NoChange -> Unit
@@ -491,13 +509,16 @@ class ConsumerExecutionStrategyPositionAdapter(
     private fun reconcileUnderflowByLedger(
         userId: String,
         code: String,
+        modeName: String,
         legs: List<StrategyPosition>,
         positionQty: Int,
         underflow: DriftCorrectionResult.WarnUnderflow,
     ) {
+        // hotfix 2026-06-11 (D1): 귀속 ledger 집계를 권위 mode 로 정합(MOCK 과거 체결 혼입 차단).
+        val mode = RuntimeModeParser.tradingModeOrMock(modeName)
         val ledgerByStrategy =
             try {
-                aggregateLedgerAttribution(userId, code)
+                aggregateLedgerAttribution(userId, code, mode)
             } catch (e: Exception) {
                 log.warn(
                     "strategy_position underflow ledger 집계 실패 — WARN-only fallback: userId={} code={} err={}",
@@ -512,7 +533,7 @@ class ConsumerExecutionStrategyPositionAdapter(
         // ADR 0115 §2-P2-③ (G7 — 단일전략+evidence 자동보정) — execution 차원 ledger net 이 부분체결 누락으로
         //   부족하게 잡혀 1차 검산이 깨질 때, 주문 차원 FILLED 순합계 evidence 로 완화한다.
         //   보유 기여 전략이 정확히 1개일 때만 산출(다전략 혼재면 null → 현행 WARN-only 회귀 안전).
-        val orderEvidence = computeSingleStrategyOrderEvidence(userId, code, legs, ledgerByStrategy)
+        val orderEvidence = computeSingleStrategyOrderEvidence(userId, code, mode, legs, ledgerByStrategy)
 
         val result =
             LedgerAttributedDriftCorrection.evaluate(
@@ -550,8 +571,9 @@ class ConsumerExecutionStrategyPositionAdapter(
     private fun aggregateLedgerAttribution(
         userId: String,
         code: String,
+        mode: kr.spdaewoon.magicjar.domain.order.execution.TradingMode,
     ): Map<Long, LedgerStrategyAggregate> {
-        val rows = orderRequestJpaRepository.aggregateFilledByStrategyAndSide(userId, code)
+        val rows = orderRequestJpaRepository.aggregateFilledByStrategyAndSide(userId, code, mode)
         val buyQty = mutableMapOf<Long, Int>()
         val sellQty = mutableMapOf<Long, Int>()
         val buyNotional = mutableMapOf<Long, BigDecimal>()
@@ -599,6 +621,7 @@ class ConsumerExecutionStrategyPositionAdapter(
     private fun computeSingleStrategyOrderEvidence(
         userId: String,
         code: String,
+        mode: kr.spdaewoon.magicjar.domain.order.execution.TradingMode,
         legs: List<StrategyPosition>,
         ledgerByStrategy: Map<Long, LedgerStrategyAggregate>,
     ): SingleStrategyOrderEvidence? {
@@ -613,7 +636,7 @@ class ConsumerExecutionStrategyPositionAdapter(
 
         val orderNetByStrategy =
             try {
-                aggregateOrderFilledNet(userId, code)
+                aggregateOrderFilledNet(userId, code, mode)
             } catch (e: Exception) {
                 log.warn(
                     "single-strategy evidence 주문차원 집계 실패 — evidence 없이 진행: userId={} code={} err={}",
@@ -637,8 +660,9 @@ class ConsumerExecutionStrategyPositionAdapter(
     private fun aggregateOrderFilledNet(
         userId: String,
         code: String,
+        mode: kr.spdaewoon.magicjar.domain.order.execution.TradingMode,
     ): Map<Long, Int> {
-        val rows = orderRequestJpaRepository.aggregateOrderFilledNetByStrategy(userId, code)
+        val rows = orderRequestJpaRepository.aggregateOrderFilledNetByStrategy(userId, code, mode)
         val buyQty = mutableMapOf<Long, Int>()
         val sellQty = mutableMapOf<Long, Int>()
         for (row in rows) {

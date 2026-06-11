@@ -119,6 +119,11 @@ interface ConsumerOrderRequestJpaRepository : JpaRepository<ConsumerOrderRequest
      * 전략별·side 별로 묶어 `SUM(executedQty)` 를 반환한다. 외부(EXTERNAL)·MANUAL(strategyId=0) 체결은 제외 —
      * "없는 물량 인식" risk 0 의 귀속 근거([kr.spdaewoon.magicjar.strategy.integrity.LedgerAttributedDriftCorrection] §보수성 가드 1).
      *
+     * hotfix 2026-06-11 (D1): `r.mode = :mode` 추가 — position 권위(UQ=(user,code,source))는 mode 별로 분리돼
+     * REAL drift 정합은 REAL position 과 비교한다. 그런데 ledger 합산이 mode 무차원이면 MOCK+REAL 체결을 함께 더해
+     * (예: rebuildTotal=10 vs REAL authority=1) 교차검산이 영영 깨져 drift 가 자기치유를 못 만난다. 권위와 동일
+     * mode 의 체결만 집계해 비교축을 정합시킨다.
+     *
      * order_execution 은 order_request 에 JPA 관계가 없으므로 `e.orderId = r.id` 명시 조인(implicit join + predicate).
      * caller([ConsumerExecutionStrategyPositionAdapter.reconcileDrift])가 (strategyId,side)→qty 로 net BUY-SELL 산정.
      *
@@ -134,12 +139,14 @@ interface ConsumerOrderRequestJpaRepository : JpaRepository<ConsumerOrderRequest
             "WHERE e.orderId = r.id " +
             "AND r.userId = :userId AND r.code = :code " +
             "AND r.strategyId <> 0 " +
+            "AND r.mode = :mode " +
             "AND r.source = kr.spdaewoon.magicjar.domain.order.execution.OrderSource.AUTO " +
             "GROUP BY r.strategyId, r.side",
     )
     fun aggregateFilledByStrategyAndSide(
         @Param("userId") userId: String,
         @Param("code") code: String,
+        @Param("mode") mode: TradingMode,
     ): List<StrategyLedgerRow>
 
     /**
@@ -165,6 +172,7 @@ interface ConsumerOrderRequestJpaRepository : JpaRepository<ConsumerOrderRequest
             "WHERE e.orderId = r.id " +
             "AND r.userId = :userId AND r.code = :code " +
             "AND r.strategyId <> 0 " +
+            "AND r.mode = :mode " +
             "AND r.source = kr.spdaewoon.magicjar.domain.order.execution.OrderSource.AUTO " +
             "AND r.status IN (" +
             "kr.spdaewoon.magicjar.domain.order.execution.OrderStatus.FILLED, " +
@@ -174,6 +182,7 @@ interface ConsumerOrderRequestJpaRepository : JpaRepository<ConsumerOrderRequest
     fun aggregateOrderFilledNetByStrategy(
         @Param("userId") userId: String,
         @Param("code") code: String,
+        @Param("mode") mode: TradingMode,
     ): List<StrategyLedgerRow>
 
     /**
@@ -186,6 +195,8 @@ interface ConsumerOrderRequestJpaRepository : JpaRepository<ConsumerOrderRequest
      *
      * order_execution 은 order_request 에 JPA 관계가 없으므로 `e.orderId = r.id` 명시 조인(implicit join + predicate).
      * 외부(EXTERNAL)·MANUAL(strategyId=0) 체결은 제외 — rebuild 는 "우리 전략이 체결시킨 순보유량" 만 재계산.
+     * hotfix 2026-06-11 (D1): `r.mode = :mode` — REAL rebuild 는 REAL 체결만 fold(교차검산 축=REAL position 정합).
+     *   과거 mode 무차원이라 MOCK 과거 체결이 혼입(rebuildTotal=10 vs REAL authority=1) → 교차검산 영구 실패였다.
      *
      * 헌법 §6 — interface body 0건, @Query 만 사용. 시간순(executedAt) 정렬은 caller 도 재정렬하나 1차 정렬로 결정론 보강.
      *
@@ -199,12 +210,14 @@ interface ConsumerOrderRequestJpaRepository : JpaRepository<ConsumerOrderRequest
             "WHERE e.orderId = r.id " +
             "AND r.userId = :userId AND r.code = :code " +
             "AND r.strategyId <> 0 " +
+            "AND r.mode = :mode " +
             "AND r.source = kr.spdaewoon.magicjar.domain.order.execution.OrderSource.AUTO " +
             "ORDER BY e.executedAt ASC, e.id ASC",
     )
     fun findRebuildExecutionsByUserAndCode(
         @Param("userId") userId: String,
         @Param("code") code: String,
+        @Param("mode") mode: TradingMode,
     ): List<StrategyRebuildExecutionRow>
 
     @Modifying

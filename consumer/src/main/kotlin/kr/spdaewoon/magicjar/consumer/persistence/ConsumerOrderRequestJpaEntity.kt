@@ -12,6 +12,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
+import kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import java.math.BigDecimal
 import java.time.Instant
@@ -80,6 +81,15 @@ class ConsumerOrderRequestJpaEntity(
     @Enumerated(EnumType.STRING)
     @Column(name = "source", nullable = false, updatable = false, length = 20)
     val source: OrderSource = OrderSource.AUTO,
+    // hotfix 2026-06-11 — D2 P2-⑥ 회귀: api entity(OrderRequestJpaEntity)에는 V80 두 컬럼이 합류돼 있으나
+    // consumer 사본에 누락 → OrderRouterKafkaListener(consumer 거주)가 INSERT 하는 모든 주문의 order_trigger·
+    // trigger_ref_id 가 영구 NULL(라이브 REAL 286·287 evidence). resolveOrderTrigger/resolveTriggerRefId 가
+    // 도메인 차원에서 키를 산정해도 toEntity 매핑·entity 컬럼 부재로 DB 영속이 소실됐다. api entity 컬럼 정의 정합.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "order_trigger", updatable = false, length = 24)
+    val orderTrigger: OrderTrigger? = null,
+    @Column(name = "trigger_ref_id", updatable = false)
+    val triggerRefId: Long? = null,
 ) {
     protected constructor() : this(
         signalId = 0L,
