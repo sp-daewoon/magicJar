@@ -1,12 +1,16 @@
 package kr.spdaewoon.magicjar.consumer.ingestion
 
 import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisQuoteCacheAdapter
+import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.market.candle.TodayCandleSeedWindow
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import kr.spdaewoon.magicjar.domain.market.port.KisRestPort
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
+import java.time.Instant
+import java.time.ZoneId
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -85,8 +89,22 @@ class WatchlistPollingWorker(
                     )
                     // DB candle upsert — ON CONFLICT DO NOTHING (멱등성 보장, hotfix)
                     // candleRepository.saveAll → ConsumerCandleRepositoryAdapter.saveAll → insertIgnore
-                    val inserted = candleRepository.saveAll(candles)
-                    log.debug("polling DB upsert: code={} fetched={} inserted={}", code, candles.size, inserted)
+                    //
+                    // 개장 전 today stub 가드 (2026-06-11 hotfix): KIS daily-itemchart는 개장 전
+                    // "오늘 날짜" stub 행(시=고=저=종=전일종가·volume=0)을 줄 수 있다. ON CONFLICT DO NOTHING
+                    // 때문에 이 stub가 먼저 들어가면 장중 실데이터 insert가 막힌다. DB 적재 직전에 제외한다.
+                    // (과거 날짜 행은 그대로 적재 — 거래정지 이력 보존)
+                    val now = Instant.now()
+                    val persistable = candles.filterNot { shouldSkipTodayStub(it, now) }
+                    val inserted =
+                        if (persistable.isNotEmpty()) candleRepository.saveAll(persistable) else 0
+                    log.debug(
+                        "polling DB upsert: code={} fetched={} persistable={} inserted={}",
+                        code,
+                        candles.size,
+                        persistable.size,
+                        inserted,
+                    )
                 }
                 // Rate Limit 마진 (ADR 0037 대비 — 1차 MVP: 100ms sleep)
                 Thread.sleep(100)
@@ -97,5 +115,48 @@ class WatchlistPollingWorker(
                 log.warn("polling fetch 실패: code={} err={}", code, e.message)
             }
         }
+    }
+
+    /**
+     * today stub 일봉 적재 가드 (2026-06-11 hotfix).
+     *
+     * 두 조건을 OR 로 판정해 skip 한다 (둘 다 today 행에만 적용 — 과거 행은 항상 적재):
+     *  (1) 시간 가드: ts 의 KST 날짜 == 오늘 && 개장 전(주말 + 08:00 NXT 통합 개장 전).
+     *      판정은 도메인 [TodayCandleSeedWindow.shouldSkipRedisCandle] 재사용 (신규 시간 상수 금지).
+     *  (2) 시그니처 가드: ts == 오늘 && volume == 0 && open == close (KIS 가 개장 직후에도 잠깐
+     *      stub 을 줄 가능성 방어 — 시간 가드와 독립).
+     */
+    private fun shouldSkipTodayStub(
+        candle: Candle,
+        now: Instant,
+    ): Boolean {
+        val candleTsJava = Instant.ofEpochSecond(candle.ts.epochSeconds)
+        val isToday = candleTsJava.atZone(KST).toLocalDate() == now.atZone(KST).toLocalDate()
+        if (!isToday) return false
+
+        // (1) 개장 전 시간 가드 — 도메인 재사용
+        if (TodayCandleSeedWindow.shouldSkipRedisCandle(now, candleTsJava, KST)) {
+            log.debug(
+                "polling skip today stub (pre-open): code={} ts={}",
+                candle.code,
+                candle.ts,
+            )
+            return true
+        }
+
+        // (2) stub 시그니처 가드 (장중 잠깐 stub 방어)
+        if (candle.volume == 0L && candle.openRaw.compareTo(candle.closeRaw) == 0) {
+            log.debug(
+                "polling skip today stub (signature vol=0 open==close): code={} ts={}",
+                candle.code,
+                candle.ts,
+            )
+            return true
+        }
+        return false
+    }
+
+    private companion object {
+        private val KST: ZoneId = ZoneId.of("Asia/Seoul")
     }
 }
