@@ -3,10 +3,10 @@ id: T-20260611-1022-polling-preopen-stub-guard
 agent: market-data
 model: opus
 branch: agent/market-data/polling-preopen-stub-guard
-status: RUNNING
+status: DONE
 startedAt: 2026-06-11T10:22:01.984+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-11T10:27:08.028+09:00
+pr: #918
 parentPhase: ?
 ---
 
