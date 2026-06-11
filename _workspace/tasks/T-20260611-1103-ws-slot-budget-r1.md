@@ -3,10 +3,10 @@ id: T-20260611-1103-ws-slot-budget-r1
 agent: market-data
 model: opus
 branch: agent/market-data/ws-slot-budget-r1
-status: RUNNING
+status: DONE
 startedAt: 2026-06-11T11:03:50.807+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-11T11:16:53.796+09:00
+pr: #922
 parentPhase: ?
 ---
 
