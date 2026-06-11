@@ -151,21 +151,18 @@ class KisWsMessageParserTest {
     }
 
     /**
-     * 41 slot 한도 — H0STCNT0 최대 30 종목 (ADR 0048 §2-1).
-     * 41 slot 예산: 1(H0STCNI0) + 30(H0STCNT0) + 10(H0STASP0) = 41.
+     * KIS WS 슬롯 한도 — ADR 0123 §1-3 KIS-first 정정 (41→40).
+     *
+     * KIS 공식 예제 kis_auth.py __runner()가 40을 hard enforce:
+     *   `if len(open_map.keys()) > 40: raise ValueError("Subscription's max is 40")`
+     * 따라서 SubscriptionPolicy.TOTAL_SLOTS = 40이어야 한다.
+     * raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
      */
     @Test
-    fun `41 slot 예산 상수 검증 — PRICE_TICK_MAX 30 + EXECUTION_NOTICE_RESERVED 1 + ORDERBOOK_MAX 10 = 41`() {
-        // 도메인 port SubscriptionPolicy 상수는 backend-core PR-9a 담당이므로
-        // 여기서는 ADR 0048 §2-1 숫자 자체가 정합인지 확인 (비즈니스 룰 명시)
-        val totalSlots = 41
-        val executionNoticeReserved = 1 // H0STCNI0
-        val priceTickMax = 30 // H0STCNT0
-        val orderbookMax = 10 // H0STASP0 (LRU)
-
-        assertThat(executionNoticeReserved + priceTickMax + orderbookMax)
-            .isEqualTo(totalSlots)
-            .describedAs("ADR 0048 §2-1: 1 + 30 + 10 = 41 slot 예산 정합")
+    fun `TOTAL_SLOTS 40 — ADR 0123 KIS-first 정정 (41에서 40)`() {
+        assertThat(kr.spdaewoon.magicjar.domain.market.port.SubscriptionPolicy.TOTAL_SLOTS)
+            .isEqualTo(40)
+            .describedAs("ADR 0123 §1-3: KIS kis_auth.py __runner() enforce 값 40 정합")
     }
 
     // ===== H0NXCNT0 NXT 구독 추가 테스트 (장외 sync 결함 hotfix) =====
@@ -510,5 +507,55 @@ class KisWsMessageParserTest {
         assertThat(tick!!.tradeIntensity).isEqualByComparingTo(BigDecimal("110.0"))
         assertThat(tick.turnoverAccum).isEqualByComparingTo(BigDecimal("5000000000"))
         assertThat(tick.source).isEqualTo("live-nxt")
+    }
+
+    // ===== ADR 0123 R1 — OPSP0008 MAX SUBSCRIBE OVER 거부 파싱 =====
+
+    /**
+     * OPSP0008 거부 응답 감지 — 2026-06-11 후성(093370) 라이브 실측 evidence (ADR 0123 §1-1).
+     */
+    @Test
+    fun `OPSP0008 MAX SUBSCRIBE OVER 거부 감지`() {
+        val json =
+            """{"header":{"tr_id":"H0STASP0","tr_key":"093370"},""" +
+                """"body":{"rt_cd":"1","msg_cd":"OPSP0008","msg1":"MAX SUBSCRIBE OVER"}}"""
+        assertThat(KisWsMessageParser.isOpsp0008(json)).isTrue()
+        assertThat(KisWsMessageParser.isSubscriptionSuccess(json)).isFalse()
+        // OPSP8996(ALREADY IN USE)과 혼동 금지 — 별개 코드.
+        assertThat(KisWsMessageParser.isOpsp8996(json)).isFalse()
+    }
+
+    /**
+     * 성공 응답·OPSP8996은 OPSP0008로 오탐하지 않음.
+     */
+    @Test
+    fun `OPSP0008 오탐 금지 — 성공·OPSP8996 응답`() {
+        val success = """{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"0","msg_cd":"OPSP0000","msg1":"SUBSCRIBE SUCCESS"}}"""
+        val already = """{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"1","msg_cd":"OPSP8996","msg1":"ALREADY IN USE appkey"}}"""
+        assertThat(KisWsMessageParser.isOpsp0008(success)).isFalse()
+        assertThat(KisWsMessageParser.isOpsp0008(already)).isFalse()
+    }
+
+    /**
+     * 거부 응답 header에서 (trId, trKey) 채널 추출 — ledger 회계 보정 식별자.
+     */
+    @Test
+    fun `OPSP0008 거부 응답에서 trId·trKey 채널 추출`() {
+        val json =
+            """{"header":{"tr_id":"H0NXCNT0","tr_key":"005930"},""" +
+                """"body":{"rt_cd":"1","msg_cd":"OPSP0008","msg1":"MAX SUBSCRIBE OVER"}}"""
+        val channel = KisWsMessageParser.extractRejectedChannel(json)
+        assertThat(channel).isNotNull
+        assertThat(channel!!.first).isEqualTo("H0NXCNT0")
+        assertThat(channel.second).isEqualTo("005930")
+    }
+
+    /**
+     * tr_key 누락 시 추출 null — graceful (호출자 회계 보정 skip).
+     */
+    @Test
+    fun `OPSP0008 거부 응답 trKey 누락 시 null`() {
+        val json = """{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"1","msg_cd":"OPSP0008"}}"""
+        assertThat(KisWsMessageParser.extractRejectedChannel(json)).isNull()
     }
 }

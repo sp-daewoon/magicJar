@@ -153,6 +153,15 @@ class KisWebSocketBridge(
     private val credentialRepositoryProvider: ObjectProvider<ConsumerUserKisCredentialJpaRepository>,
     @Value("\${magicjar.kis.today-candle-seed.pre-open-guard-enabled:true}")
     private val todayCandleSeedPreOpenGuardEnabled: Boolean = true,
+    /**
+     * KIS WS 구독 슬롯 단일 회계기 (ADR 0123 R1 — `WsSlotBudgetLedger`).
+     *
+     * subscribe/unsubscribe 발사 직후 채널(code × trId) 점유 등록/취소, OPSP0008 거부 시 회계 보정.
+     * ObjectProvider 사용 사유: qa fixture 등 ledger 빈 부재 환경에서도 KisWebSocketBridge 부팅 보장
+     * (체결통보 listener·priceMetricsPort와 동일 graceful 패턴) — 부재 시 회계 no-op.
+     * `MAGICJAR_KIS_WS_SLOT_LEDGER_ENABLED=false` 시 ledger 자체가 no-op (롤백 toggle).
+     */
+    private val slotLedgerProvider: ObjectProvider<kr.spdaewoon.magicjar.consumer.ingestion.WsSlotBudgetLedger>,
 ) : KisWsPort,
     TodayCandleSeedPort {
     companion object {
@@ -383,6 +392,23 @@ class KisWebSocketBridge(
     var onReconnect: (() -> Unit)? = null
 
     /**
+     * OPSP0008(MAX SUBSCRIBE OVER) 구독 거부 시 호출되는 graceful fallback hook (ADR 0123 §3-4 R1).
+     *
+     * 거부된 (code, trId) 채널을 ledger 회계 보정 + subscribedCodes 정합 처리한 직후 발사.
+     * 등록자(KisWsRejectFallbackWiring 등 R1 wiring)가 gap-fill(`SymbolDetailMinuteGapFillService.submitIfNeeded`)
+     * + quote polling(`WatchlistPollingWorker.add`)을 연결한다.
+     *
+     * 본 hook은 KisWebSocketBridge가 reconciliation/polling 컴포넌트를 직접 의존하지 않도록(헌법 §6 + onReconnect 패턴)
+     * 콜백으로 분리한다. 미등록 시 graceful(null check) — gap-fill/polling 0 + ledger 회계 보정·WARN은 수행됨.
+     *
+     * 파라미터: (code, trId) — 거부된 채널 식별자.
+     */
+    @Volatile
+    var onSubscribeRejected: ((code: String, trId: String) -> Unit)? = null
+
+    private fun slotLedger(): kr.spdaewoon.magicjar.consumer.ingestion.WsSlotBudgetLedger? = slotLedgerProvider.ifAvailable
+
+    /**
      * KIS WS에 종목 구독 (H0STCNT0 + H0NXCNT0 동시 구독).
      * slot 여유 확인은 SubscriptionRouter 책임 — 여기서는 단순 subscribe 메시지 송신.
      *
@@ -411,6 +437,8 @@ class KisWebSocketBridge(
         codes.forEach { code ->
             if (!session.subscribedCodes.contains(code)) {
                 session.subscribedCodes.add(code)
+                // ADR 0123 R1 — 채널(code × H0STCNT0) 점유 ledger 등록 (회계 단일화).
+                slotLedger()?.register(trId = "H0STCNT0", code = code)
                 seedTodayCandle(code)
                 if (live) {
                     val msg = buildSubscribeMessage(approvalKey, code, trType = "1")
@@ -425,6 +453,8 @@ class KisWebSocketBridge(
             // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
             if (!nxtSubscribedCodes.contains(code)) {
                 nxtSubscribedCodes.add(code)
+                // ADR 0123 R1 — NXT(code × H0NXCNT0)는 H0STCNT0와 별도 채널 = 별도 slot.
+                slotLedger()?.register(trId = "H0NXCNT0", code = code)
                 if (live) {
                     val nxtMsg = buildSubscribeMessage(approvalKey, code, trType = "1", trId = "H0NXCNT0")
                     sendSink?.tryEmitNext(nxtMsg)
@@ -446,6 +476,9 @@ class KisWebSocketBridge(
                 codes.forEach { code ->
                     session.subscribedCodes.remove(code)
                     nxtSubscribedCodes.remove(code)
+                    // ADR 0123 R1 — local state 정리 시 ledger 회계도 함께 release (drift 방지).
+                    slotLedger()?.release(trId = "H0STCNT0", code = code)
+                    slotLedger()?.release(trId = "H0NXCNT0", code = code)
                 }
                 return
             }
@@ -454,6 +487,7 @@ class KisWebSocketBridge(
                 val msg = buildSubscribeMessage(approvalKey, code, trType = "2")
                 sendSink?.tryEmitNext(msg)
                 session.subscribedCodes.remove(code)
+                slotLedger()?.release(trId = "H0STCNT0", code = code) // ADR 0123 R1
                 log.info("KIS WS unsubscribe: code={} trId=H0STCNT0", code)
             }
             // H0NXCNT0 구독 해제
@@ -461,6 +495,7 @@ class KisWebSocketBridge(
                 val nxtMsg = buildSubscribeMessage(approvalKey, code, trType = "2", trId = "H0NXCNT0")
                 sendSink?.tryEmitNext(nxtMsg)
                 nxtSubscribedCodes.remove(code)
+                slotLedger()?.release(trId = "H0NXCNT0", code = code) // ADR 0123 R1
                 log.info("KIS WS unsubscribe: code={} trId=H0NXCNT0", code)
             }
         }
@@ -484,6 +519,7 @@ class KisWebSocketBridge(
                 val msg = buildSubscribeMessage(approvalKey, code, trType = "1", trId = "H0STASP0")
                 sendSink?.tryEmitNext(msg)
                 orderbookSubscribedCodes.add(code)
+                slotLedger()?.register(trId = "H0STASP0", code = code) // ADR 0123 R1 — 호가 채널 점유
                 log.info("KIS WS orderbook subscribe: code={}", code)
             }
         }
@@ -497,7 +533,10 @@ class KisWebSocketBridge(
         val approvalKey =
             getApprovalKey() ?: run {
                 log.warn("KIS WS orderbook unsubscribe — approval_key 발급 불가, local state만 정리: codes={}", codes)
-                codes.forEach { code -> orderbookSubscribedCodes.remove(code) }
+                codes.forEach { code ->
+                    orderbookSubscribedCodes.remove(code)
+                    slotLedger()?.release(trId = "H0STASP0", code = code) // ADR 0123 R1
+                }
                 return
             }
         codes.forEach { code ->
@@ -505,6 +544,7 @@ class KisWebSocketBridge(
                 val msg = buildSubscribeMessage(approvalKey, code, trType = "2", trId = "H0STASP0")
                 sendSink?.tryEmitNext(msg)
                 orderbookSubscribedCodes.remove(code)
+                slotLedger()?.release(trId = "H0STASP0", code = code) // ADR 0123 R1
                 log.info("KIS WS orderbook unsubscribe: code={}", code)
             }
         }
@@ -927,6 +967,10 @@ class KisWebSocketBridge(
                     // ADR 0076 §3 F-1 + ADR 0077 I-1: 1회 retry (1초 대기) → 2회 fail 시 ERROR + reset + skip.
                     // cap 3 초과 시 connection dispose. OPSP8996은 일시적 세션 중복 상태.
                     handleOpsp8996(parsed.rawJson)
+                } else if (!success && KisWsMessageParser.isOpsp0008(parsed.rawJson)) {
+                    // ADR 0123 R1: OPSP0008 "MAX SUBSCRIBE OVER" — 구독 한도(40) 초과 거부.
+                    // ledger 회계 보정 + subscribedCodes 정합 + gap-fill/polling graceful fallback.
+                    handleOpsp0008(parsed.rawJson)
                 } else if (success) {
                     // I-1: subscribe 성공 시 OPSP8996 retry counter reset — 동일 connection 내 사이클 분리.
                     // ADR 0077 §4-3 결함 #2: counter reset 0 누락으로 attempt 무한 누적되던 결함 fix.
@@ -1861,6 +1905,60 @@ class KisWebSocketBridge(
         } else {
             log.warn("KIS WS OPSP8996 retry — 재구독 목록 없음, skip")
             opsp8996RetryCount.set(0) // I-1: 재구독 없음 시에도 reset
+        }
+    }
+
+    /**
+     * OPSP0008(MAX SUBSCRIBE OVER) 구독 거부 처리 (ADR 0123 §3-4 R1 graceful path).
+     *
+     * KIS WS 동시 구독 한도(40)를 초과한 신규 subscribe 요청이 거부됐을 때:
+     * 1. 거부 응답 header에서 (trId, trKey=code) 추출.
+     * 2. **ledger 회계 보정** — 해당 채널 점유 취소 + 거부 카운트 + WARN(1회/주기 throttle).
+     * 3. **subscribedCodes 정합** — 현행 결함(거부돼도 subscribedCodes에 남아 재구독·재시도 0)을 정정:
+     *    거부된 채널이 H0STCNT0면 session.subscribedCodes에서, H0NXCNT0면 nxtSubscribedCodes에서, H0STASP0면
+     *    orderbookSubscribedCodes에서 제거해 "구독 중인데 실제 미점유" stale 상태를 해소. 이후 owner 로직이
+     *    재시도 가능 상태로 둔다(R2 eviction이 slot 확보 후 재등록).
+     * 4. **graceful fallback hook** — onSubscribeRejected(code, trId) 발사 → gap-fill·polling 연결
+     *    (분봉 연속성 보장 — 후성 093370 결함 직접 해소). 미등록 시 graceful skip.
+     *
+     * 헌법 §11-2 정합: silent 금지 — ledger WARN + fallback 명시. REAL 모드라도 시세 누락은 자본 직결 아님
+     * (주문 발사 아님) → fail-fast 아닌 명시 degraded(polling/gap-fill) 진행.
+     *
+     * KIS-first: 거부 응답 format — 2026-06-11 라이브 실측 (ADR 0123 §1-1)
+     *   {"header":{"tr_id":"H0STASP0","tr_key":"093370"},"body":{"rt_cd":"1","msg_cd":"OPSP0008","msg1":"MAX SUBSCRIBE OVER"}}
+     */
+    private fun handleOpsp0008(rawJson: String) {
+        val channel = KisWsMessageParser.extractRejectedChannel(rawJson)
+        if (channel == null) {
+            log.warn(
+                "KIS WS OPSP0008 거부 — (trId, tr_key) 추출 실패, 회계 보정 skip (관측만): json={}",
+                rawJson.take(200),
+            )
+            return
+        }
+        val (trId, code) = channel
+        // 2. ledger 회계 보정 (WARN throttle은 ledger 내부).
+        slotLedger()?.onRejected(trId = trId, code = code)
+
+        // 3. subscribedCodes 정합 — 거부된 채널을 구독 set에서 제거 (stale "구독 중" 상태 해소).
+        when (trId) {
+            "H0STCNT0" -> session.subscribedCodes.remove(code)
+            "H0NXCNT0" -> nxtSubscribedCodes.remove(code)
+            "H0STASP0" -> orderbookSubscribedCodes.remove(code)
+            "H0STOUP0" -> overtimeSinglePriceCodes.remove(code)
+            else -> log.debug("KIS WS OPSP0008 — set 정합 대상 아닌 trId={} (체결통보 등)", trId)
+        }
+
+        // 4. graceful fallback hook — gap-fill + polling 연결 (미등록 시 skip).
+        try {
+            onSubscribeRejected?.invoke(code, trId)
+        } catch (e: Exception) {
+            log.error(
+                "KIS WS OPSP0008 fallback hook 실패 — gap-fill/polling 건너뜀(분봉 연속성 risk): code={} trId={} err={}",
+                code,
+                trId,
+                e.message,
+            )
         }
     }
 

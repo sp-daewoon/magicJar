@@ -353,6 +353,60 @@ object KisWsMessageParser {
         }
 
     /**
+     * 구독 응답에서 OPSP0008 "MAX SUBSCRIBE OVER" 에러 감지 (ADR 0123 R1 — OPSP8996 1:1 패턴).
+     *
+     * KIS WS 동시 구독 한도(40) 초과 시 신규 subscribe 요청이 거부된다.
+     * KIS 응답 예시 (2026-06-11 라이브 실측 evidence — ADR 0123 §1-1):
+     *   {"header":{"tr_id":"H0STASP0","tr_key":"093370"},
+     *    "body":{"rt_cd":"1","msg_cd":"OPSP0008","msg1":"MAX SUBSCRIBE OVER"}}
+     *
+     * msg_cd 문자열 기반 감지 (rt_cd "1" + msg_cd "OPSP0008"). isSubscriptionSuccess=false 분기에서만 평가.
+     */
+    fun isOpsp0008(rawJson: String): Boolean =
+        try {
+            rawJson.contains("OPSP0008")
+        } catch (e: Exception) {
+            false
+        }
+
+    /**
+     * 구독 거부 응답에서 (trId, trKey) 채널 식별자 추출 (ADR 0123 R1 — 회계 보정용).
+     *
+     * KIS 거부 응답 header에 거부된 채널의 tr_id·tr_key가 담긴다:
+     *   {"header":{"tr_id":"H0STASP0","tr_key":"093370"}, "body":{"msg_cd":"OPSP0008",...}}
+     * ledger가 해당 (trId, trKey) 채널 점유를 취소(회계 보정)하기 위해 사용.
+     *
+     * Jackson tree 파싱 — extractAndStoreAesKey와 동일 패턴(KisWebSocketBridge 위임). 본 파서는
+     * objectMapper 의존을 두지 않으므로 정규식 기반 경량 추출(circular dep 회피, isSubscriptionSuccess 패턴 정합).
+     * 추출 실패 시 null 반환 → 호출자(KisWebSocketBridge)가 graceful 처리.
+     *
+     * @return Pair(trId, trKey) — 둘 다 추출 성공 시. 하나라도 누락 시 null.
+     */
+    fun extractRejectedChannel(rawJson: String): Pair<String, String>? =
+        try {
+            val trId =
+                Regex(""""tr_id"\s*:\s*"([^"]+)"""")
+                    .find(rawJson)
+                    ?.groupValues
+                    ?.getOrNull(1)
+                    ?.trim()
+            val trKey =
+                Regex(""""tr_key"\s*:\s*"([^"]+)"""")
+                    .find(rawJson)
+                    ?.groupValues
+                    ?.getOrNull(1)
+                    ?.trim()
+            if (!trId.isNullOrBlank() && !trKey.isNullOrBlank()) {
+                trId to trKey
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            log.debug("KIS WS 거부 채널 추출 실패: err={}", e.message)
+            null
+        }
+
+    /**
      * 구독 해제(unsubscribe) ACK 감지.
      *
      * ADR 0076 E-1: destroy() unsubscribe ACK 2s 대기 시 수신 확인용.

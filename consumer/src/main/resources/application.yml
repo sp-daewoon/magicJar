@@ -199,6 +199,13 @@ magicjar:
       user-id: ${MAGICJAR_KIS_WS_USER_ID:}       # KIS WS approval_key 발급 사용자 ID
       heartbeat-timeout-seconds: ${MAGICJAR_KIS_WS_HEARTBEAT_TIMEOUT:10}
       polling-fallback-timeout-seconds: ${MAGICJAR_KIS_WS_POLLING_FALLBACK_TIMEOUT:30}
+      # ADR 0123 R1 — KIS WS 구독 슬롯 단일 회계기 (WsSlotBudgetLedger).
+      # max-slots: KIS 동시 구독 한도 (KIS-first kis_auth.py __runner() enforce 값 40, 상수 아닌 설정).
+      #   KIS-first raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+      # slot-ledger.enabled=false 시 회계 no-op → 현행 동작 회귀 (롤백 toggle).
+      max-slots: ${MAGICJAR_KIS_WS_MAX_SLOTS:40}
+      slot-ledger:
+        enabled: ${MAGICJAR_KIS_WS_SLOT_LEDGER_ENABLED:true}
     # KIS REST rate limiter — api·batch·consumer 동일 Redis 버킷 share (ADR 0116 Phase 2 3-tier).
     # interval refill로 burst를 완화해 EGW00201 빈도를 낮춘다.
     rate-limiter:

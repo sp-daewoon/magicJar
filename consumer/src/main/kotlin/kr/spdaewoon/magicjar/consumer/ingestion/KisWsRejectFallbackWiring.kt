@@ -1,0 +1,74 @@
+package kr.spdaewoon.magicjar.consumer.ingestion
+
+import kr.spdaewoon.magicjar.consumer.reconciliation.SymbolDetailMinuteGapFillService
+import kr.spdaewoon.magicjar.consumer.ws.KisWebSocketBridge
+import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
+import org.springframework.boot.context.event.ApplicationReadyEvent
+import org.springframework.context.event.EventListener
+import org.springframework.stereotype.Component
+
+/**
+ * KIS WS OPSP0008(MAX SUBSCRIBE OVER) 거부 시 graceful fallback wiring (ADR 0123 §3-4 R1).
+ *
+ * [KisWebSocketBridge.onSubscribeRejected] 콜백을 등록해, 슬롯 한도(40) 초과로 거부된 종목을
+ * 분봉 gap-fill + quote polling으로 보완한다(분봉 연속성 보장 — 후성 093370 결함 직접 해소).
+ *
+ * ## 흐름 (거부된 (code, trId) 1건당)
+ * 1. **분봉 gap-fill** — H0STCNT0/H0NXCNT0(체결가) 거부 시 `SymbolDetailMinuteGapFillService.submitIfNeeded(code)`
+ *    호출로 WS 미수신 구간 1m 분봉을 KIS REST로 보완. 호가(H0STASP0)·시간외(H0STOUP0) 거부는 분봉 영향 없어 skip.
+ * 2. **quote polling** — `WatchlistPollingWorker.add(code)`로 5s 현재가 polling 전환 (시세 degraded 명시).
+ *
+ * ## 헌법 §6 + onReconnect 패턴 정합
+ * KisWebSocketBridge가 reconciliation/polling 컴포넌트를 직접 의존하지 않도록(헌법 §6 ObjectProvider) 콜백으로 분리.
+ * 본 wiring은 ApplicationReadyEvent(부팅 완료 후)에서 hook을 register — KisExecutionBackfillService.onReconnect 패턴 동일.
+ * deps는 ObjectProvider로 graceful(qa fixture·부재 환경 부팅 보장).
+ *
+ * ## R1 범위
+ * 거부 시 fallback만 — 선제 eviction(R2)·채널 다이어트(R3)는 별도 라운드.
+ */
+@Component
+class KisWsRejectFallbackWiring(
+    private val webSocketBridge: KisWebSocketBridge,
+    private val gapFillServiceProvider: ObjectProvider<SymbolDetailMinuteGapFillService>,
+    private val pollingWorkerProvider: ObjectProvider<WatchlistPollingWorker>,
+) {
+    private val log = LoggerFactory.getLogger(KisWsRejectFallbackWiring::class.java)
+
+    @EventListener(ApplicationReadyEvent::class)
+    fun registerOnSubscribeRejected() {
+        webSocketBridge.onSubscribeRejected = { code, trId -> handleReject(code, trId) }
+        log.info("ADR 0123 R1 — KIS WS OPSP0008 거부 fallback hook register 완료 (gap-fill + polling)")
+    }
+
+    /**
+     * 거부 1건 graceful 보완. WS thread에서 호출되므로 예외를 가두고(cascade 차단) 분봉·polling을 보완한다.
+     */
+    internal fun handleReject(
+        code: String,
+        trId: String,
+    ) {
+        try {
+            // 체결가 채널 거부 → 분봉 연속성 risk → gap-fill 트리거. 호가·시간외는 분봉 미영향(skip).
+            if (trId == "H0STCNT0" || trId == "H0NXCNT0") {
+                gapFillServiceProvider.ifAvailable?.submitIfNeeded(code = code, reason = "ws-opsp0008-reject")
+            }
+            // 모든 거부 → quote polling 전환 (시세 degraded 명시 — 헌법 §11 silent 금지).
+            pollingWorkerProvider.ifAvailable?.add(code)
+            log.info(
+                "ADR 0123 R1 — OPSP0008 거부 fallback 적용: code={} trId={} (gap-fill={} polling=add)",
+                code,
+                trId,
+                trId == "H0STCNT0" || trId == "H0NXCNT0",
+            )
+        } catch (e: Exception) {
+            log.error(
+                "ADR 0123 R1 — OPSP0008 fallback 실패(분봉 연속성 risk): code={} trId={} err={}",
+                code,
+                trId,
+                e.message,
+                e,
+            )
+        }
+    }
+}
