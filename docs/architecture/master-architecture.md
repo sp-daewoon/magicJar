@@ -583,7 +583,7 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 
 ---
 
-## §10. 핵심 ADR 인덱스 (0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069·0070·0071·0072·0074·0075·0079·0080·0081·0083·0086·0087·0091·0092·**0094**·**0095**·**0096**·**0097**·**0098**·**0099**·**0100**·**0101**·**0102**·**0103**·**0104**·**0105**·**0106**·**0107**·**0108**·**0109**·**0110**·**0111**·**0112** Accepted + 0084 Accepted P0 baseline + 0064·0076·0077·0078·0082·0088·0089·0090·0093·**0114·0115·0116·0117·0118** Proposed + 0073 Superseded by 0075 + 0035 Superseded by 0080 + **0085 Superseded by 0094**)
+## §10. 핵심 ADR 인덱스 (0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069·0070·0071·0072·0074·0075·0079·0080·0081·0083·0086·0087·0091·0092·**0094**·**0095**·**0096**·**0097**·**0098**·**0099**·**0100**·**0101**·**0102**·**0103**·**0104**·**0105**·**0106**·**0107**·**0108**·**0109**·**0110**·**0111**·**0112** Accepted + 0084 Accepted P0 baseline + 0064·0076·0077·0078·0082·0088·0089·0090·0093·**0114·0115·0116·0117·0118·0123** Proposed + 0073 Superseded by 0075 + 0035 Superseded by 0080 + **0085 Superseded by 0094**)
 
 상세 본문은 `_workspace/arch/adr/<NNNN>-*.md`. 분류 카테고리는 `_workspace/arch/adr/README.md` §1~§10-4 정합. 본 §10은 한 줄 요약 인덱스 — 신규 ADR 발행 시 본 표 + README 동시 갱신 (ADR 0030 SoT 운영 규약).
 
@@ -637,7 +637,8 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 | 0045 | Graceful Shutdown & In-flight 처리 (SIGTERM · Kafka manual commit · idempotency) | 운영·UX fitness | W1 (횡단) |
 | 0046 | Onboarding & Credential Registration (테이블 3종 분리 · 마스터 키 단일 예외) | 운영·UX fitness | W1 ★ (T-ONBOARD) |
 | 0047 | DSL Evaluation Sandbox (정적 검증 + 런타임 timeout/CPU budget + thread pool 격리 + auto-disable) | DSL 안전성 | W2 (T-DSL) · W3 (T-SIG·T-BT) |
-| 0048 | KIS WebSocket 41건 구독 한도 + 우선순위 정책 (slot 1+30+10·priority eviction·polling fallback) | 시장 데이터 | W1 (T-W2 진입 시 발행) |
+| 0048 | KIS WebSocket 41건 구독 한도 + 우선순위 정책 (slot 1+30+10·priority eviction·polling fallback) — **2026-06-11 ADR 0123 amend (41→40 KIS-first 정정·단일 ledger·OPSP0008 graceful)** | 시장 데이터 | W1 (T-W2 진입 시 발행) |
+| 0123 | KIS WS 구독 슬롯 회계 + owner 우선순위 eviction + 채널 다이어트 (단일 ledger·HOLDING 최우선·NXT 선택화·H0UNCNT0 검토·OPSP0008 graceful) — Proposed (ADR 0048 amend) | 시장 데이터 | 운영 고도화 (2026-06-11) |
 | 0049 | GitHub Actions = release 트리거 한정 (일상 검증은 pre-push hook 단독) | 메타·CI/CD | 횡단 |
 | 0050 | CHANGELOG 슬롯 채번룰 (architect 사전 발행 + sub-agent in-place edit) | 메타·하네스 | 횡단 |
 | 0051 | Spring Data Repository default fun 함정 (회피 패턴) | 메타·하네스 | 횡단 (backend-core·market-data 핵심 risk) |

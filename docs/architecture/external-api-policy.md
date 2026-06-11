@@ -39,7 +39,7 @@ magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공
 | 토큰 발급 | **1분당 1회** (계정·앱키당) | EGW00133 |
 | 토큰 유효 | 24시간 | — |
 | **REST 호출** | **초당 10건 (TPS)** (계정·앱키당) | **EGW00201 또는 HTTP 429** |
-| WebSocket 동시 구독 | 41건 | 초과 거부 |
+| WebSocket 동시 구독 | **40건** (msg_cd OPSP0008 "MAX SUBSCRIBE OVER" 시 거부 — 2026-06-11 ADR 0123 KIS-first 정정, 기존 "41건" 1건 과대) | 초과 거부. 한도 단위 = **채널 (code × tr_id)** — 종목당 tr_id별 별도 slot. **출처**: open-trading-api `examples_user/kis_auth.py` `__runner()` `if len(open_map.keys()) > 40: raise ValueError("Subscription's max is 40")` |
 | 모의/실전 키 분리 | 별도 발급 | base URL도 다름 (`openapivts.koreainvestment.com:29443` vs `openapi.koreainvestment.com:9443`) |
 
 **magicJar credential 정책 (사용자 명시 2026-05-11)**: 정보 수집 API(시세·캔들·호가·종목 마스터 등)는 **prod(실전) credential 단일 채널** 사용. `AccountType.REAL` 자격으로 KIS REST/WS 호출. 모의/실전 분기는 **주문 라우터(거래 액션)에만** 적용. 정보 수집에서 모의 credential 사용 0건.
