@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>일일 운영 보고 — 2026-06-12 (canary 2일차)</title>
+<style>
+  body{background:#0f1419;color:#d8e1ea;font-family:'Apple SD Gothic Neo','Noto Sans KR',sans-serif;line-height:1.65;padding:36px 20px;max-width:1080px;margin:0 auto}
+  h1{font-size:1.35rem;color:#fff} h2{font-size:1.05rem;color:#4fc3f7;margin:30px 0 10px;border-bottom:1px solid #2e3a47;padding-bottom:5px}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:.86rem}
+  th{background:#212a35;color:#4fc3f7;text-align:left;padding:7px 11px;border:1px solid #2e3a47}
+  td{padding:7px 11px;border:1px solid #2e3a47;vertical-align:top}
+  .hero{background:linear-gradient(135deg,#15301d,#132619);border:1px solid #2e5a3a;border-radius:10px;padding:16px 20px;margin:14px 0}
+  .b{display:inline-block;padding:1px 9px;border-radius:14px;font-size:.72rem;font-weight:700}
+  .g{background:rgba(102,187,106,.15);color:#66bb6a;border:1px solid #66bb6a}
+  .y{background:rgba(255,202,40,.12);color:#ffca28;border:1px solid #ffca28}
+  .r{background:rgba(239,83,80,.12);color:#ef5350;border:1px solid #ef5350}
+  code{background:#11181f;border:1px solid #2e3a47;border-radius:4px;padding:1px 5px;font-size:.82em;color:#9ecbff}
+  .muted{color:#8b9aab;font-size:.83rem}
+</style>
+</head>
+<body>
+<h1>📒 일일 운영 보고 #1 — 2026-06-12 (목) · REAL canary 2일차</h1>
+<p class="muted">발행: /magicjar-ops-monitor §C · 데이터: scripts/ops-daily-snapshot.sh · 16:00 KST</p>
+
+<h2>① 요약</h2>
+<div class="hero">
+  <b>거래 2왕복 + 수동 정리 1건 · 당일 실현 +2,250원 (누적 +35,750원) · 결함 6건 발굴 → 6건 전부 당일 수선·배포</b><br>
+  종목 교체(삼성전자→후성)·지정가 진입 ON·롱 온리 정책 명문화·<b>큐 재설계 spec 결재 + R0 audit 완료</b>·운영 모니터링 커맨드(/magicjar-ops-monitor) 제도화. 마감 보유 0(flat)·미체결 0.
+</div>
+
+<h2>② 거래 전수 + 체인 무결성</h2>
+<table>
+  <tr><th>주문</th><th>내용</th><th>체인 검증</th></tr>
+  <tr><td>288 SELL</td><td>전일 보유 1주 익절성 매도 @333,000 (09:29, 키사슬 STRATEGY_SIGNAL)</td><td rowspan="4"><span class="b g">GREEN</span> 시그널→주문→체결→원장→Slack 전 구간 1:1 (D2 키사슬 라이브 작동 — order_trigger 전 행 기록)</td></tr>
+  <tr><td>289→291</td><td>왕복2: 매수 333,000 → DSL 청산 332,250 (-750원, 익절 LIMIT 자동취소 후 — 중복매도 방지 실증)</td></tr>
+  <tr><td>293→297</td><td>왕복3: 매수 333,000 → cap 사태로 자동청산 차단 → 수동 LIMIT 매도 336,000 (+3,000원)</td></tr>
+  <tr><td>292·294~296</td><td>유령 1(취소 메아리 — 정정)·cap/NO_QUOTE 거부 3 (아래 결함 매트릭스)</td></tr>
+</table>
+
+<h2>③ 알람 전수 분류 (미지의 알람 0 — GREEN)</h2>
+<table>
+  <tr><th>알람</th><th>건수</th><th>판정</th></tr>
+  <tr><td>MAX_CONCURRENT 중복매수 차단</td><td>42</td><td>정상 가드 (보유 중) — F9로 자동정지 카운트에서 제외됨</td></tr>
+  <tr><td>TRADE_FREQUENCY_DAY</td><td>35</td><td><span class="b r">결함 증상</span> — cap 카운트 의미 결함(매도까지 집계). #927로 당일 해소</td></tr>
+  <tr><td>SELL_QUANTITY/WITHOUT_POSITION</td><td>18</td><td>정상 가드 — Slack mute(#926)·F9 제외 적용</td></tr>
+  <tr><td>POSITION_LIMIT "총자산 0원" (14:12)</td><td>1</td><td><span class="b r">결함</span> — capital 0 fabricate. F10으로 당일 해소</td></tr>
+  <tr><td>SIGNAL_SKIPPED_NO_QUOTE (14:48~)</td><td>5</td><td><span class="b r">결함</span> — 전략 호가 구독 부재. F11로 당일 해소</td></tr>
+</table>
+
+<h2>④ ERROR 분류</h2>
+<p>24h 신규 의심 <b>0건</b> (기지 rate limit 계열만 — 큐 spec R1이 근본 해소 예정)</p>
+
+<h2>⑤ 결함·조치 매트릭스 (당일 6건 — 전부 수선·배포 완료)</h2>
+<table>
+  <tr><th>#</th><th>결함</th><th>수선</th><th>PR</th></tr>
+  <tr><td>cap-1</td><td>일일 주문 cap이 매도·거부까지 집계 → 청산 차단 자본 역전</td><td>BUY만 카운트 (왕복 1=1, 결재 의미)</td><td>#927</td></tr>
+  <tr><td>F8</td><td>notional/qty cap이 매도에 적용 + 시세 실패 시 거부</td><td>SELL 전면 면제 + 매도 가격 산정 실패 → MARKET fallback</td><td>#928</td></tr>
+  <tr><td>F7</td><td>취소 통보를 외부 주문으로 오인 흡수 (유령 행)</td><td>OODER_NO(원주문번호) fallback 매핑 — KIS native 키 활용</td><td>#930</td></tr>
+  <tr><td>F9</td><td>무해 가드 차단 누적으로 모든 전략 10분 자동정지</td><td>자동정지 카운트에서 정상 거동 가드 3종 제외</td><td>#932</td></tr>
+  <tr><td>F10</td><td>잔고조회 실패 → 0원 fabricate (2중 swallow가 fail-fast 무력화)</td><td>sealed CapitalOutcome — 재시도→stale캐시(5분)→조용한 skip. 0 합성 영구 제거</td><td>#936</td></tr>
+  <tr><td>F11</td><td>전략 활성화에 호가 구독 부재 → 지정가 진입 전면 스킵</td><td>STRATEGY owner 호가 구독 자동 enter/exit + REST fallback 자격증명 resolve (3일 전 stash 결함 회생)</td><td>#935</td></tr>
+</table>
+<p class="muted">+ 정책·문서: 롱 온리 명문화(#931 — policies+헌법 §13) · ADR 0109 §7 amend(#929) · Slack mute(#926)</p>
+
+<h2>⑥ 인프라</h2>
+<table>
+  <tr><td>큐 재설계 spec</td><td><span class="b g">결재됨</span> (4의제 전체) + <b>R0 audit 완료</b>(#934): L4 polling 존치(WS fallback 한정)·L2 jitter 기적용 확인·per-TR 화이트리스트 3 TR 확정 · R1 dispatch 매트릭스 준비</td></tr>
+  <tr><td>배포</td><td>consumer 5회 (F9·cap·mute·F8/F7·F10/F11) — 전부 drain 가드/flat 창 준수, WS 재구독·캔들 재개 매회 검증</td></tr>
+  <tr><td>F11 라이브 실증</td><td>15:32 <code>orderbook STRATEGY subscribe: code=093370</code> + H0STASP0 SUBSCRIBE SUCCESS</td></tr>
+  <tr><td>오탐 사전 추가</td><td>15:20~15:30 마감 동시호가 — 1m 캔들 정지 정상 (시세정지 감시 cutoff 15:19로 조정 필요)</td></tr>
+</table>
+
+<h2>⑦ 익일 인계</h2>
+<ul>
+  <li><b>개장 전 점검</b>: 후성 호가 실수신(<code>orderbook:top:093370</code> hit) → 지정가 진입 스킵 해소 라이브 실증 — 첫 BUY가 marketable limit으로 나가는지가 1호 관찰 포인트</li>
+  <li>F10 라이브 실증: 잔고 rate limit 발생 시 stale-cache/skip 동작 확인 (위반 알람 0이어야)</li>
+  <li>큐 재설계 R1 dispatch (R0 매트릭스 준비됨 — R1-a 로컬 큐 코어 선행)</li>
+  <li>잔여 의제: WS 유령 watchdog(F3) · idemKey 차원 설계(F1) · 백업 cron PATH · D2 backfill SQL(승인 대기) · RiskRule benign 1급화 · ADR 0110 amend 문서화 · 시세정지 감시 cutoff 15:19 조정</li>
+  <li>마감 상태: flat · KillSwitch OFF · 전략 86 ACTIVE · cap 5(BUY 왕복 기준) · 지정가 진입 ON</li>
+</ul>
+</body>
+</html>
