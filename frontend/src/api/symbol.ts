@@ -6,7 +6,8 @@
  *   GET  /api/symbols/{code}/candles?interval=...  → CandlesResponseDto
  *   POST /api/symbols/{code}/realtime/subscribe    → RealtimeSubscribeResponseDto
  *   POST /api/symbols/{code}/realtime/unsubscribe  → RealtimeUnsubscribeResponseDto
- *   (호가 subscribe/unsubscribe·STOMP orderbook 토픽은 DETAIL 호가 폐지로 제거)
+ *   POST /api/symbols/{code}/orderbook/subscribe   → OrderbookSubscribeResponseDto
+ *   POST /api/symbols/{code}/orderbook/unsubscribe → OrderbookUnsubscribeResponseDto
  *
  * ADR 0019 §2-2 인터벌 확장: 1m·3m·5m·15m·30m·90m·1h·4h·12h·1d...
  * ADR 0014 stale 배지: source 필드 + stale boolean
@@ -76,10 +77,22 @@ export interface CandlesResponseDto {
   nextBefore?: string
 }
 
+/** POST /api/symbols/{code}/orderbook/subscribe 응답 */
+export interface OrderbookSubscribeResponseDto {
+  subscribed: boolean
+  slot: 'live' | 'queued'
+}
+
+/** POST /api/symbols/{code}/orderbook/unsubscribe 응답 */
+export interface OrderbookUnsubscribeResponseDto {
+  unsubscribed: boolean
+}
+
 /** POST /api/symbols/{code}/realtime/subscribe 응답 */
 export interface RealtimeSubscribeResponseDto {
   subscribed: boolean
   priceSlot: 'live' | 'queued'
+  orderbookSlot: 'live' | 'queued'
 }
 
 /** POST /api/symbols/{code}/realtime/unsubscribe 응답 */
@@ -145,6 +158,19 @@ export type BoundaryInterval = (typeof BOUNDARY_INTERVALS)[number]
 /** CandleInterval이 boundary closed STOMP 구독 대상인지 확인 */
 export function isBoundaryInterval(interval: string): interval is BoundaryInterval {
   return (BOUNDARY_INTERVALS as readonly string[]).includes(interval)
+}
+
+/** /topic/market.orderbook.{code} */
+export interface OrderbookLevel {
+  price: string
+  quantity: number
+}
+
+export interface OrderbookPayload {
+  code: string
+  ts: string
+  bids: OrderbookLevel[]
+  asks: OrderbookLevel[]
 }
 
 // ──────────────────────────────────────────────
@@ -343,6 +369,28 @@ export const symbolApi = {
   unsubscribeRealtime: async (code: string): Promise<RealtimeUnsubscribeResponseDto> => {
     const res = await apiClient.post<RealtimeUnsubscribeResponseDto>(
       `/symbols/${encodeURIComponent(code)}/realtime/unsubscribe`,
+    )
+    return res.data
+  },
+
+  /**
+   * POST /api/symbols/{code}/orderbook/subscribe
+   * 기존 호환 alias.
+   */
+  subscribeOrderbook: async (code: string): Promise<OrderbookSubscribeResponseDto> => {
+    const res = await apiClient.post<OrderbookSubscribeResponseDto>(
+      `/symbols/${encodeURIComponent(code)}/orderbook/subscribe`,
+    )
+    return res.data
+  },
+
+  /**
+   * POST /api/symbols/{code}/orderbook/unsubscribe
+   * 기존 호환 alias.
+   */
+  unsubscribeOrderbook: async (code: string): Promise<OrderbookUnsubscribeResponseDto> => {
+    const res = await apiClient.post<OrderbookUnsubscribeResponseDto>(
+      `/symbols/${encodeURIComponent(code)}/orderbook/unsubscribe`,
     )
     return res.data
   },

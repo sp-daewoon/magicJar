@@ -41,9 +41,25 @@ vi.mock('../../../lib/stomp', () => {
     onWebSocketClose: undefined,
     onStompError: undefined,
   }
+  const orderbookPayload = {
+    code: '005930',
+    ts: '2026-05-26T10:10:00+09:00',
+    asks: [
+      { price: '61000', quantity: 1200 },
+      { price: '61100', quantity: 1800 },
+    ],
+    bids: [
+      { price: '60900', quantity: 2200 },
+      { price: '60800', quantity: 1500 },
+    ],
+  }
   return {
     getStompClient: () => client,
-    useStompTopic: vi.fn(),
+    useStompTopic: vi.fn((topic: string, handler: (payload: unknown) => void, enabled?: boolean) => {
+      if (enabled && topic === '/topic/market.orderbook.005930') {
+        window.setTimeout(() => handler(orderbookPayload), 0)
+      }
+    }),
     isStompConnected: () => false,
   }
 })
@@ -127,9 +143,18 @@ const server = setupServer(
     })
   }),
 
-  // realtime(현재가) subscribe — graceful (백엔드 미완 시 무시)
+  // orderbook subscribe — graceful (백엔드 미완 시 무시)
+  http.post('/api/symbols/005930/orderbook/subscribe', () => {
+    return HttpResponse.json({ subscribed: true, slot: 'live' })
+  }),
+
+  // realtime(현재가+호가) subscribe/unsubscribe — "표시 중에만" 라이프사이클
+  // mount → subscribe(orderbookSlot 통보) / unmount·종목전환 → unsubscribe(이탈 해제)
   http.post('/api/symbols/005930/realtime/subscribe', () => {
-    return HttpResponse.json({ subscribed: true, priceSlot: 'live' })
+    return HttpResponse.json({ subscribed: true, priceSlot: 'live', orderbookSlot: 'live' })
+  }),
+  http.post('/api/symbols/005930/realtime/unsubscribe', () => {
+    return HttpResponse.json({ unsubscribed: true })
   }),
 
   // instrument 마스터 (active=true 정상 종목)
@@ -346,7 +371,36 @@ describe('SymbolDetailPage smoke', () => {
     expect(screen.getByRole('button', { name: /종목검색으로/ })).toBeInTheDocument()
   })
 
-  it('종목상세에서 현재가가 지정가에 시드되어 BUY LIMIT 주문을 접수한다', async () => {
+  it('화면 이탈(unmount) 시 실시간 구독을 해제한다 — 호가 "표시 중에만" 라이프사이클', async () => {
+    // cleanup은 navigator.sendBeacon(/realtime/unsubscribe)을 우선 호출 (탭 닫기 대비)
+    const sendBeaconSpy = vi.fn((_url: string, _data?: BodyInit | null) => true)
+    vi.stubGlobal('navigator', {
+      ...window.navigator,
+      sendBeacon: sendBeaconSpy,
+    })
+
+    const { unmount } = renderSymbolDetailPage('005930')
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: '삼성전자' })).toBeInTheDocument()
+    })
+
+    // 진입 직후엔 해제 호출 0 (표시 중 — 구독 유지)
+    expect(sendBeaconSpy).not.toHaveBeenCalled()
+
+    // 화면 이탈 → cleanup → unsubscribe(beacon) 발동
+    unmount()
+
+    expect(sendBeaconSpy).toHaveBeenCalledTimes(1)
+    expect(sendBeaconSpy).toHaveBeenCalledWith(
+      '/api/symbols/005930/realtime/unsubscribe',
+      expect.anything(),
+    )
+
+    vi.unstubAllGlobals()
+  })
+
+  it('호가 가격을 지정가로 가져와 종목상세에서 BUY LIMIT 주문을 접수한다', async () => {
     renderSymbolDetailPage('005930')
     const user = userEvent.setup()
 
@@ -354,12 +408,11 @@ describe('SymbolDetailPage smoke', () => {
       expect(screen.getByRole('heading', { name: '삼성전자' })).toBeInTheDocument()
     })
 
-    // 호가창 제거 후: OrderTicket이 현재가(60,900)를 지정가에 자동 시드
+    await user.click(await screen.findByRole('button', { name: '60,900원 매수호가 지정가 선택' }))
+
     const priceInput = screen.getByLabelText('주문 가격')
     // 천단위 콤마 표시 포맷 (2026-06-05 가격 input 포맷팅 도입 정합)
-    await waitFor(() => {
-      expect(priceInput).toHaveValue('60,900')
-    })
+    expect(priceInput).toHaveValue('60,900')
 
     const quantityInput = screen.getByLabelText('주문 수량')
     await user.clear(quantityInput)
@@ -394,11 +447,7 @@ describe('SymbolDetailPage smoke', () => {
     })
 
     await user.click(screen.getByRole('button', { name: '매도' }))
-
-    // 호가창 제거 후: 지정가를 OrderTicket에서 직접 입력
-    const priceInput = screen.getByLabelText('주문 가격')
-    await user.clear(priceInput)
-    await user.type(priceInput, '61000')
+    await user.click(await screen.findByRole('button', { name: '61,000원 매도호가 지정가 선택' }))
 
     expect(screen.getByText(/보유 수량을 초과하거나 보유가 확인되지 않은 매도/)).toBeInTheDocument()
 
