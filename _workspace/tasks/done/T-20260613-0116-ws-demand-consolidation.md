@@ -3,9 +3,9 @@ id: T-20260613-0116-ws-demand-consolidation
 agent: market-data
 model: opus
 branch: agent/market-data/ws-demand-consolidation
-status: RUNNING
+status: DONE
 startedAt: 2026-06-13T01:16:00.716+09:00
-completedAt: null
+completedAt: 2026-06-13T01:53:41.895+09:00
 pr: null
 parentPhase: ?
 ---
