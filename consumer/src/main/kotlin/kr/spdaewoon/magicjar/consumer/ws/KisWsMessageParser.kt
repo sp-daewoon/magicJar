@@ -14,49 +14,14 @@ import java.math.BigDecimal
  * 수신 raw 메시지 형식:
  *   {타입}|{TR_ID}|{N}|{데이터}
  *   - 타입: "0" = 실시간 데이터, "1" = 구독 응답, "PINGPONG" = heartbeat
- *   - TR_ID: H0STCNT0(체결가), H0NXCNT0(NXT 체결가), H0UNCNT0(통합 체결가), H0UNASP0(통합 호가), H0STCNI0(체결통보)
+ *   - TR_ID: H0UNCNT0(통합 체결가), H0UNASP0(통합 호가), H0STOUP0(시간외 단일가), H0STCNI0(체결통보)
  *   - N: 데이터 건수
  *   - 데이터: ^(캐럿) 구분 필드열
  *
- * H0STCNT0 필드 인덱스 (open-trading-api domestic_stock_functions_ws.py cols 배열):
- * KIS-first raw 출처:
- *   https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
- *   ccnl_krx() columns 배열 (인덱스 0~45):
- *   [0]  MKSC_SHRN_ISCD      — 종목코드
- *   [1]  STCK_CNTG_HOUR      — 체결시각 (HHMMSS)
- *   [2]  STCK_PRPR           — 현재가(체결가)
- *   [3]  PRDY_VRSS_SIGN      — 전일대비부호 (1=상한/2=상승/3=보합/4=하한/5=하락)
- *   [4]  PRDY_VRSS           — 전일대비
- *   [5]  PRDY_CTRT           — 전일대비율 (%)
- *  [12]  CNTG_VOL            — 체결거래량
- *  [13]  ACML_VOL            — 누적거래량
- *  [14]  ACML_TR_PBMN        — 누적거래대금(원)        ← R1-A 흡수 (ADR 0117 §3-R1)
- *  [18]  CTTR                — 체결강도 (KIS 계산 완료값) ← R1-A 흡수 (ADR 0117 §3-R1)
- *  [33]  BSOP_DATE           — 영업일자 (YYYYMMDD)
- *
- * H0NXCNT0 필드 인덱스 (open-trading-api domestic_stock_functions_ws.py ccnl_nxt() cols 배열):
- * KIS-first raw 출처:
- *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
- *   ccnl_nxt() columns 배열: H0STCNT0와 동일 위치에 동일 필드명 매핑 (44개 필드).
- *   [0]  MKSC_SHRN_ISCD      — 종목코드
- *   [1]  STCK_CNTG_HOUR      — 체결시각 (HHMMSS)
- *   [2]  STCK_PRPR           — 현재가
- *   [3]  PRDY_VRSS_SIGN      — 전일대비부호
- *   [4]  PRDY_VRSS           — 전일대비
- *   [5]  PRDY_CTRT           — 전일대비율 (%)
- *  [12]  CNTG_VOL            — 체결거래량
- *  [14]  ACML_TR_PBMN        — 누적거래대금(원)        ← R1-A 흡수 (ADR 0117 §3-R1, parseH0Stcnt0 재사용)
- *  [18]  CTTR                — 체결강도 (KIS 계산 완료값) ← R1-A 흡수 (ADR 0117 §3-R1, parseH0Stcnt0 재사용)
- *  [33]  BSOP_DATE           — 영업일자 (YYYYMMDD)
- *
- * NXT 대체거래소 cover 시간: ADR 0063 정합 — 08:00~20:00 KST.
- * 전체 46개 필드 (인덱스 0~45) — 자세한 내용은 KIS open-trading-api 레포 domestic_stock/domestic_stock_functions_ws.py 참조.
- *
- * H0UNCNT0 필드 인덱스 (open-trading-api examples_llm/domestic_stock/ccnl_total/ccnl_total.py columns 배열):
+ * 공통 체결가 필드 인덱스 (H0UNCNT0·H0STOUP0 — parseH0Stcnt0가 공유 base parser):
  * KIS-first raw 출처:
  *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/ccnl_total/ccnl_total.py
- *   ccnl_total() tr_id="H0UNCNT0" — 국내주식 실시간체결가 (통합)
- *   H0STCNT0와 동일 위치에 핵심 필드 매핑.
+ *   ccnl_total() tr_id="H0UNCNT0" — 국내주식 실시간체결가 (통합). 필드 인덱스는 ccnl_krx와 동일 위치.
  *   [0]  MKSC_SHRN_ISCD      — 종목코드
  *   [1]  STCK_CNTG_HOUR      — 체결시각 (HHMMSS)
  *   [2]  STCK_PRPR           — 현재가
@@ -283,36 +248,13 @@ object KisWsMessageParser {
     }
 
     /**
-     * H0NXCNT0 NXT 대체거래소 실시간 체결가 데이터 파싱 → TickEvent.
-     *
-     * KIS-first raw 출처:
-     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
-     *   ccnl_nxt() columns 배열 — H0STCNT0(ccnl_krx)와 동일 필드 인덱스 구조 (44개 필드).
-     *   [0] MKSC_SHRN_ISCD / [1] STCK_CNTG_HOUR / [2] STCK_PRPR
-     *   [3] PRDY_VRSS_SIGN / [4] PRDY_VRSS / [5] PRDY_CTRT
-     *   [12] CNTG_VOL / [33] BSOP_DATE
-     *
-     * NXT cover 시간: ADR 0063 — 08:00~20:00 KST.
-     * TickEvent.source = "live-nxt" 로 구분 (H0STCNT0 source="live"와 분리).
-     */
-    fun parseH0Nxcnt0(
-        rawData: String,
-        expectedCode: String? = null,
-    ): TickEvent? {
-        // H0NXCNT0와 H0STCNT0의 필드 인덱스 구조가 동일하므로 동일 파싱 로직 재사용.
-        // source 필드만 "live-nxt"로 오버라이드.
-        val base = parseH0Stcnt0(rawData, expectedCode) ?: return null
-        return base.copy(source = "live-nxt")
-    }
-
-    /**
-     * H0UNCNT0 통합 실시간 체결가 데이터 파싱 → TickEvent.
+     * H0UNCNT0 통합 실시간 체결가 데이터 파싱 → TickEvent (ADR 0124 — 단일 체결가 채널).
      *
      * KIS-first raw 출처:
      *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/ccnl_total/ccnl_total.py
-     *   ccnl_total() columns 배열 — H0STCNT0와 동일 핵심 필드 인덱스 구조.
+     *   ccnl_total() columns 배열 — ccnl_krx와 동일 핵심 필드 인덱스 구조.
      *
-     * TickEvent.source = "live-unified" 로 구분한다. H0STCNT0/H0NXCNT0 이중 채널은 비상 롤백 경로로만 유지된다.
+     * TickEvent.source = "live-unified".
      */
     fun parseH0Uncnt0(
         rawData: String,
@@ -341,15 +283,15 @@ object KisWsMessageParser {
      *  [12]  cntg_vol            — 체결거래량
      *  [33]  bsop_date           — 영업일자 (YYYYMMDD)
      *
-     * TickEvent.source = "live-overtime" 로 구분 (H0STCNT0 "live", H0NXCNT0 "live-nxt"와 분리).
+     * TickEvent.source = "live-overtime" 로 구분 (H0UNCNT0 "live-unified"와 분리).
      *
-     * 필드 인덱스가 H0STCNT0(ccnl_krx)와 동일 위치 매핑이므로 동일 파싱 로직 재사용.
+     * 필드 인덱스가 ccnl_krx와 동일 위치 매핑이므로 parseH0Stcnt0 base parser 재사용.
      */
     fun parseH0Stoup0(
         rawData: String,
         expectedCode: String? = null,
     ): TickEvent? {
-        // H0STOUP0 필드 인덱스 구조가 H0STCNT0(ccnl_krx)와 동일 위치 매핑.
+        // H0STOUP0 필드 인덱스 구조가 ccnl_krx와 동일 위치 매핑.
         // KIS-first: overtime_ccnl_krx.py columns 배열 [0][1][2][3][4][5][12][33] 인덱스 정합.
         // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
         val base = parseH0Stcnt0(rawData, expectedCode) ?: return null
@@ -374,7 +316,7 @@ object KisWsMessageParser {
      *
      * ADR 0076 §3 F-1: OPSP8996 self-heal 진입 판단.
      * KIS 응답 예시:
-     *   {"header":{"tr_id":"H0STCNT0","datetime":"..."},"body":{"rt_cd":"1","msg_cd":"OPSP8996","msg1":"ALREADY IN USE appkey",...}}
+     *   {"header":{"tr_id":"H0UNCNT0","datetime":"..."},"body":{"rt_cd":"1","msg_cd":"OPSP8996","msg1":"ALREADY IN USE appkey",...}}
      *
      * msg_cd 필드 기반 감지 (rt_cd "1" + msg_cd "OPSP8996" 동시 조건).
      */

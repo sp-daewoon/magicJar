@@ -166,86 +166,10 @@ class KisWsMessageParserTest {
             .describedAs("ADR 0123 §1-3: KIS kis_auth.py __runner() enforce 값 40 정합")
     }
 
-    // ===== H0NXCNT0 NXT 구독 추가 테스트 (장외 sync 결함 hotfix) =====
+    // ===== H0UNCNT0 통합 체결가 테스트 (ADR 0124 단일 채널) =====
 
     /**
-     * H0NXCNT0 raw 메시지 파싱 → TickEvent code·price·volume 정합.
-     *
-     * KIS-first 출처:
-     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
-     *   ccnl_nxt() columns: H0STCNT0(ccnl_krx)와 동일 필드 인덱스 구조.
-     *   [0]=MKSC_SHRN_ISCD / [1]=STCK_CNTG_HOUR / [2]=STCK_PRPR / [12]=CNTG_VOL / [33]=BSOP_DATE.
-     *
-     * ADR 0063 NXT cover: 08:00~20:00 KST (시간외 + pre-market).
-     */
-    @Test
-    fun `H0NXCNT0 raw 메시지 파싱 → TickEvent code·price·volume·source=live-nxt 정합`() {
-        // H0NXCNT0 44개 필드: IDX[0]=code, IDX[2]=price, IDX[12]=cntg_vol, IDX[33]=bsop_date
-        val fields =
-            Array(44) { i ->
-                when (i) {
-                    0 -> "005930" // MKSC_SHRN_ISCD (종목코드)
-                    1 -> "163000" // STCK_CNTG_HOUR (시간외 16:30 = after-hour)
-                    2 -> "59800" // STCK_PRPR (현재가)
-                    3 -> "5" // PRDY_VRSS_SIGN (하락)
-                    4 -> "500" // PRDY_VRSS (전일대비 -500)
-                    5 -> "-0.83" // PRDY_CTRT (전일대비율)
-                    12 -> "50" // CNTG_VOL (체결거래량)
-                    33 -> "20260515" // BSOP_DATE (영업일자)
-                    else -> "0"
-                }
-            }
-        val rawData = fields.joinToString("^")
-        val raw = "0|H0NXCNT0|001|$rawData"
-
-        val parsed = KisWsMessageParser.parse(raw)
-        assertThat(parsed).isInstanceOf(KisWsMessageParser.ParsedMessage.RealtimeData::class.java)
-
-        val data = parsed as KisWsMessageParser.ParsedMessage.RealtimeData
-        assertThat(data.trId).isEqualTo("H0NXCNT0")
-
-        val tick = KisWsMessageParser.parseH0Nxcnt0(data.rawData)
-        assertThat(tick).isNotNull
-        assertThat(tick!!.code).isEqualTo("005930")
-        assertThat(tick.price).isEqualByComparingTo(BigDecimal("59800"))
-        assertThat(tick.volume).isEqualTo(50L)
-        assertThat(tick.source).isEqualTo("live-nxt")
-    }
-
-    /**
-     * H0NXCNT0 등락 필드 추출 — NXT 시간외 등락률 정합.
-     *
-     * KIS-first 출처:
-     *   ccnl_nxt() [3]=PRDY_VRSS_SIGN / [4]=PRDY_VRSS / [5]=PRDY_CTRT
-     *   raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
-     */
-    @Test
-    fun `H0NXCNT0 등락 필드 PRDY_VRSS_SIGN·PRDY_VRSS·PRDY_CTRT 추출`() {
-        val fields =
-            Array(44) { i ->
-                when (i) {
-                    0 -> "005930"
-                    1 -> "170000"
-                    2 -> "60200"
-                    3 -> "2" // PRDY_VRSS_SIGN (상승)
-                    4 -> "200" // PRDY_VRSS (+200)
-                    5 -> "0.33" // PRDY_CTRT (+0.33%)
-                    12 -> "30"
-                    33 -> "20260515"
-                    else -> "0"
-                }
-            }
-        val tick = KisWsMessageParser.parseH0Nxcnt0(fields.joinToString("^"))
-
-        assertThat(tick).isNotNull
-        assertThat(tick!!.changeSign).isEqualTo("2")
-        assertThat(tick.priceChange).isEqualByComparingTo(BigDecimal("200"))
-        assertThat(tick.changeRate).isEqualByComparingTo(BigDecimal("0.33"))
-        assertThat(tick.source).isEqualTo("live-nxt")
-    }
-
-    /**
-     * H0UNCNT0 통합 체결가 파싱 — ccnl_total.py columns는 H0STCNT0 핵심 인덱스와 동일하다.
+     * H0UNCNT0 통합 체결가 파싱 — ccnl_total.py columns는 ccnl_krx 핵심 인덱스와 동일하다.
      */
     @Test
     fun `H0UNCNT0 raw 메시지 파싱 → TickEvent source=live-unified 정합`() {
@@ -284,29 +208,22 @@ class KisWsMessageParserTest {
     }
 
     /**
-     * 40 slot 한도 — NXT(H0NXCNT0) full dual tick 상수 검증.
+     * 40 slot 한도 — H0UNCNT0 단일 체결가 채널 상수 검증 (ADR 0124).
      *
-     * ADR 0123 §1-3 정합:
-     *   H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41 slot으로 40 한도를 1 초과한다.
-     *   실제 발사는 WsSlotBudgetLedger/SubscriptionRouter가 점유·우선순위 기준으로 제한한다.
-     *
-     * KIS-first: open-trading-api ccnl_nxt() tr_id=H0NXCNT0
-     * raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
+     * ADR 0123 §1-3 + ADR 0124 정합:
+     *   H0UNCNT0 종목당 1 slot. H0STCNI0(1) + H0UNCNT0(PRICE_TICK_MAX=30) = 31 ≤ 40 안전.
      */
     @Test
-    fun `40 slot 한도에서 NXT full dual tick 20개는 체결통보 포함 1 slot 초과`() {
+    fun `40 slot 한도에서 H0UNCNT0 단일 체결가 + 체결통보는 한도 이내`() {
         val totalSlots = SubscriptionPolicy.TOTAL_SLOTS
         val executionNoticeReserved = SubscriptionPolicy.EXECUTION_NOTICE_RESERVED
-        val nxtTickMax = SubscriptionPolicy.NXT_TICK_MAX
-        // NXT 병행 시 H0STCNT0도 20 종목으로 제한 (각 1 slot)
-        val priceTickMaxWithNxt = 20 // H0STCNT0 (NXT 병행)
-        val usedSlots = executionNoticeReserved + priceTickMaxWithNxt + nxtTickMax
+        val priceTickMax = SubscriptionPolicy.PRICE_TICK_MAX
+        val usedSlots = executionNoticeReserved + priceTickMax
 
         assertThat(totalSlots).isEqualTo(40)
         assertThat(usedSlots)
-            .isEqualTo(41)
-            .isGreaterThan(totalSlots)
-            .describedAs("ADR 0123: H0STCNI0(1) + H0STCNT0(20) + H0NXCNT0(20)은 40 slot 한도 초과")
+            .isLessThanOrEqualTo(totalSlots)
+            .describedAs("ADR 0124: H0STCNI0(1) + H0UNCNT0(30)은 40 slot 한도 이내")
     }
 
     // ===== H0STOUP0 시간외 단일가 구독 테스트 (ADR 0076 Phase 3 B-2) =====
@@ -394,18 +311,18 @@ class KisWsMessageParserTest {
     }
 
     /**
-     * 40 slot 한도 — H0STOUP0 시간 분리 slot 예산 검증 (ADR 0076 Phase 3 B-2).
+     * 40 slot 한도 — H0STOUP0 시간 분리 slot 예산 검증 (ADR 0076 Phase 3 B-2 + ADR 0124).
      *
      * 시간외 단일가(16:00~18:00 KST):
      *   H0STOUP0(OVERTIME_SINGLE_PRICE_MAX=20) + H0STCNI0(1) = 21 ≤ 40 안전.
      * 정규장(09:00~15:30 KST):
-     *   H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41 — full dual tick은 제한 필요.
+     *   H0UNCNT0(PRICE_TICK_MAX=30) + H0STCNI0(1) = 31 ≤ 40 안전 (단일 체결가 채널).
      *
      * KIS-first: overtime_ccnl_krx.py 16:00~18:00 활성 시간 명시.
      * raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
      */
     @Test
-    fun `40 slot H0STOUP0 시간 분리 정합 — 시간외 21 slot 안전, 정규장 full dual tick은 초과`() {
+    fun `40 slot H0STOUP0 시간 분리 정합 — 시간외 21 slot 안전, 정규장 H0UNCNT0 31 slot 안전`() {
         val totalSlots = SubscriptionPolicy.TOTAL_SLOTS
         val executionNoticeReserved = SubscriptionPolicy.EXECUTION_NOTICE_RESERVED
 
@@ -416,12 +333,11 @@ class KisWsMessageParserTest {
             .isLessThanOrEqualTo(totalSlots)
             .describedAs("시간외 단일가: H0STOUP0(20) + H0STCNI0(1) = 21 ≤ 40")
 
-        // 정규장 시간대 (09:00~15:30 KST) — H0STCNT0 + H0NXCNT0 활성, H0STOUP0 = 0
-        val regularUsedSlots = 20 + 20 + executionNoticeReserved // 41
+        // 정규장 시간대 (09:00~15:30 KST) — H0UNCNT0 단일 체결가 활성, H0STOUP0 = 0
+        val regularUsedSlots = SubscriptionPolicy.PRICE_TICK_MAX + executionNoticeReserved // 31
         assertThat(regularUsedSlots)
-            .isEqualTo(41)
-            .isGreaterThan(totalSlots)
-            .describedAs("정규장 full dual tick: H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1)은 40 slot 한도 초과")
+            .isLessThanOrEqualTo(totalSlots)
+            .describedAs("정규장 단일 체결가: H0UNCNT0(30) + H0STCNI0(1) = 31 ≤ 40")
     }
 
     // ===== R1-A 체결강도 흡수 테스트 (ADR 0117 §3-R1) =====
@@ -528,10 +444,10 @@ class KisWsMessageParserTest {
     }
 
     /**
-     * H0NXCNT0 체결강도 흡수 — parseH0Stcnt0 재사용 → 동일 index 14·18 흡수 + source=live-nxt.
+     * H0UNCNT0 체결강도 흡수 — parseH0Stcnt0 base parser 재사용 → 동일 index 14·18 흡수 + source=live-unified.
      */
     @Test
-    fun `H0NXCNT0 체결강도 CTTR 흡수 + source=live-nxt`() {
+    fun `H0UNCNT0 체결강도 CTTR 흡수 + source=live-unified`() {
         val fields =
             Array(44) { i ->
                 when (i) {
@@ -545,12 +461,12 @@ class KisWsMessageParserTest {
                     else -> "0"
                 }
             }
-        val tick = KisWsMessageParser.parseH0Nxcnt0(fields.joinToString("^"))
+        val tick = KisWsMessageParser.parseH0Uncnt0(fields.joinToString("^"))
 
         assertThat(tick).isNotNull
         assertThat(tick!!.tradeIntensity).isEqualByComparingTo(BigDecimal("110.0"))
         assertThat(tick.turnoverAccum).isEqualByComparingTo(BigDecimal("5000000000"))
-        assertThat(tick.source).isEqualTo("live-nxt")
+        assertThat(tick.source).isEqualTo("live-unified")
     }
 
     @Test
@@ -643,11 +559,11 @@ class KisWsMessageParserTest {
     @Test
     fun `OPSP0008 거부 응답에서 trId·trKey 채널 추출`() {
         val json =
-            """{"header":{"tr_id":"H0NXCNT0","tr_key":"005930"},""" +
+            """{"header":{"tr_id":"H0UNCNT0","tr_key":"005930"},""" +
                 """"body":{"rt_cd":"1","msg_cd":"OPSP0008","msg1":"MAX SUBSCRIBE OVER"}}"""
         val channel = KisWsMessageParser.extractRejectedChannel(json)
         assertThat(channel).isNotNull
-        assertThat(channel!!.first).isEqualTo("H0NXCNT0")
+        assertThat(channel!!.first).isEqualTo("H0UNCNT0")
         assertThat(channel.second).isEqualTo("005930")
     }
 

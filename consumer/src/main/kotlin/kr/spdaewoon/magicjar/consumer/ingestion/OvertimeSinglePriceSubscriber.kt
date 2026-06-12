@@ -93,7 +93,7 @@ class OvertimeSinglePriceSubscriber(
      * watchlist 종목 중 OVERTIME_SINGLE_PRICE_MAX 이하로 H0STOUP0 subscribe.
      *
      * priority 오름차순(낮은 값 = 높은 우선순위) 정렬 후 최대 20 종목만 선택.
-     * 40 slot 예산 — 시간외 단일가 시간대에 H0STCNT0·H0NXCNT0 0건이므로 slot 여유 충분.
+     * 40 slot 예산 — 시간외 단일가 시간대에 H0UNCNT0 체결가 0건이므로 slot 여유 충분.
      */
     private fun doSubscribeWatchlist() {
         try {

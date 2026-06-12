@@ -32,7 +32,7 @@ import java.util.concurrent.TimeUnit
  * 1. reconnectGracefully 호출 시 session.connected=false 전환 (기존 연결 종료)
  * 2. reconnectGracefully 호출 시 reconnectCount 리셋 (지수 백오프 초기화)
  * 3. shuttingDown=true 시 reconnect 스킵
- * 4. subscribe(codes) 시 H0STCNT0 + H0NXCNT0 둘 다 구독 메시지 송신 검증 (NXT 장외 sync hotfix)
+ * 4. subscribe(codes) 시 H0UNCNT0 통합 체결가 단일 채널 구독 메시지 송신 검증 (ADR 0124)
  * 5. [ADR 0076 A-1] connect() 시 approvalAdapter.invalidate() 미호출 검증
  *    (doConnect 진입 시 invalidate 제거 — 24h TTL cache reuse 의무 복원)
  * 6. [신규] heartbeat watchdog 트리거 → wsClient.execute 재호출 검증
@@ -155,47 +155,25 @@ class KisWebSocketBridgeReconnectTest {
     }
 
     /**
-     * subscribe(codes) 시 H0STCNT0 + H0NXCNT0 둘 다 구독 등록 검증 (비상 롤백 경로 — integratedTickEnabled=false).
+     * subscribe(codes) 시 H0UNCNT0 통합 체결가 단일 채널 등록 검증 (ADR 0124).
      *
-     * ADR 0124: 통합 채널이 default ON이지만 비상 롤백 시 기존 이중 발사(H0STCNT0+H0NXCNT0) 경로가 보존됨을 검증한다.
-     * NXT 장외 sync 결함 hotfix (ADR 0063 정합 — 08:00~20:00 KST cover).
+     * 체결가는 KRX+NXT 통합 H0UNCNT0 1채널(종목당 1 slot)로만 구독한다.
      * KIS-first 출처:
-     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
-     *   ccnl_nxt() tr_id="H0NXCNT0"
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/ccnl_total/ccnl_total.py
+     *   ccnl_total() tr_id="H0UNCNT0"
      *
-     * 검증: subscribe 후 session.subscribedCodes + nxtSubscribedCodes 둘 다 code 포함.
+     * 검증: subscribe 후 session.subscribedCodes에 code 포함.
      */
     @Test
-    fun `통합 flag OFF(롤백) subscribe 시 H0STCNT0(session) + H0NXCNT0(nxtSubscribedCodes) 둘 다 등록`() {
-        // given: 비상 롤백 bridge (integratedTickEnabled=false) — sendSink 없는 상태 (연결 0)
-        val dualBridge = newBridge("REAL", integratedTickEnabled = false)
+    fun `subscribe 시 H0UNCNT0 통합 체결가 단일 채널로 session에 등록`() {
+        // given: sendSink 없는 상태 (연결 0)
+        val unifiedBridge = newBridge("REAL")
         // when
-        dualBridge.subscribe(listOf("005930", "000660"))
+        unifiedBridge.subscribe(listOf("005930", "000660"))
 
-        // then: H0STCNT0 구독 — session.subscribedCodes 확인
-        val session = getSession(dualBridge)
-        assertThat(session.subscribedCodes).containsExactlyInAnyOrder("005930", "000660")
-
-        // then: H0NXCNT0 구독 — nxtSubscribedCodes 확인 (reflection)
-        val nxtCodes = getNxtSubscribedCodes(dualBridge)
-        assertThat(nxtCodes).containsExactlyInAnyOrder("005930", "000660")
-    }
-
-    @Test
-    fun `통합 체결가 flag OFF는 KRX+NXT, ON은 H0UNCNT0 단일 TR을 선택한다`() {
-        assertThat(KisWebSocketBridge.tickPriceTrIds(false)).containsExactly("H0STCNT0", "H0NXCNT0")
-        assertThat(KisWebSocketBridge.tickPriceTrIds(true)).containsExactly("H0UNCNT0")
-    }
-
-    @Test
-    fun `통합 체결가 flag ON이면 NXT 별도 구독 set을 늘리지 않는다`() {
-        val unifiedBridge = newBridge("REAL", integratedTickEnabled = true)
-
-        unifiedBridge.subscribe(listOf("005930"))
-
+        // then: session.subscribedCodes 확인
         val session = getSession(unifiedBridge)
-        assertThat(session.subscribedCodes).containsExactly("005930")
-        assertThat(getNxtSubscribedCodes(unifiedBridge)).isEmpty()
+        assertThat(session.subscribedCodes).containsExactlyInAnyOrder("005930", "000660")
     }
 
     /**
@@ -343,7 +321,7 @@ class KisWebSocketBridgeReconnectTest {
         retryCount.set(0)
 
         // when: OPSP8996 응답 JSON으로 isOpsp8996 검증
-        val opsp8996Json = """{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"1","msg_cd":"OPSP8996","msg1":"ALREADY IN USE appkey"}}"""
+        val opsp8996Json = """{"header":{"tr_id":"H0UNCNT0"},"body":{"rt_cd":"1","msg_cd":"OPSP8996","msg1":"ALREADY IN USE appkey"}}"""
         assertThat(KisWsMessageParser.isOpsp8996(opsp8996Json)).isTrue()
 
         // when: handleMessage 경로를 통해 OPSP8996 처리 — retryCount 확인으로 간접 검증
@@ -371,7 +349,7 @@ class KisWebSocketBridgeReconnectTest {
         retryCount.set(2)
 
         // when: OPSP8996 응답 감지
-        val opsp8996Json = """{"header":{"tr_id":"H0NXCNT0"},"body":{"rt_cd":"1","msg_cd":"OPSP8996","msg1":"ALREADY IN USE appkey"}}"""
+        val opsp8996Json = """{"header":{"tr_id":"H0UNCNT0"},"body":{"rt_cd":"1","msg_cd":"OPSP8996","msg1":"ALREADY IN USE appkey"}}"""
         assertThat(KisWsMessageParser.isOpsp8996(opsp8996Json)).isTrue()
 
         // then: retryCount가 2이상이면 skip 분기 — incrementAndGet() 후 > 1 조건 검증
@@ -388,15 +366,15 @@ class KisWebSocketBridgeReconnectTest {
     @Test
     fun `isOpsp8996 — OPSP8996 포함 JSON true, 정상 응답 false`() {
         // OPSP8996 응답
-        val opsp8996 = """{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"1","msg_cd":"OPSP8996","msg1":"ALREADY IN USE appkey"}}"""
+        val opsp8996 = """{"header":{"tr_id":"H0UNCNT0"},"body":{"rt_cd":"1","msg_cd":"OPSP8996","msg1":"ALREADY IN USE appkey"}}"""
         assertThat(KisWsMessageParser.isOpsp8996(opsp8996)).isTrue()
 
         // 정상 구독 성공 응답
-        val success = """{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"0","msg_cd":"OPSP0000","msg1":"SUBSCRIBE SUCCESS"}}"""
+        val success = """{"header":{"tr_id":"H0UNCNT0"},"body":{"rt_cd":"0","msg_cd":"OPSP0000","msg1":"SUBSCRIBE SUCCESS"}}"""
         assertThat(KisWsMessageParser.isOpsp8996(success)).isFalse()
 
         // 일반 에러 응답 (OPSP8996 아님)
-        val otherError = """{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"1","msg_cd":"OPSP0001","msg1":"OTHER ERROR"}}"""
+        val otherError = """{"header":{"tr_id":"H0UNCNT0"},"body":{"rt_cd":"1","msg_cd":"OPSP0001","msg1":"OTHER ERROR"}}"""
         assertThat(KisWsMessageParser.isOpsp8996(otherError)).isFalse()
     }
 
@@ -432,19 +410,19 @@ class KisWebSocketBridgeReconnectTest {
     @Test
     fun `E-1 isUnsubscribeAck — OPSP0002 또는 msg1 UNSUB 포함 시 true, 구독 성공 응답은 false`() {
         // OPSP0002 — unsubscribe success (ADR 0076 E-1 명세)
-        val opsp0002 = """{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"0","msg_cd":"OPSP0002","msg1":"UNSUBSCRIBE SUCCESS"}}"""
+        val opsp0002 = """{"header":{"tr_id":"H0UNCNT0"},"body":{"rt_cd":"0","msg_cd":"OPSP0002","msg1":"UNSUBSCRIBE SUCCESS"}}"""
         assertThat(KisWsMessageParser.isUnsubscribeAck(opsp0002)).isTrue()
 
         // msg1 "UNSUB..." — kis_auth.py isUnSub 판별
-        val unsubMsg1 = """{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"0","msg1":"UNSUB SOMETHING"}}"""
+        val unsubMsg1 = """{"header":{"tr_id":"H0UNCNT0"},"body":{"rt_cd":"0","msg1":"UNSUB SOMETHING"}}"""
         assertThat(KisWsMessageParser.isUnsubscribeAck(unsubMsg1)).isTrue()
 
         // 구독 성공 응답 — false (오탐 차단)
-        val subscribeSuccess = """{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"0","msg_cd":"OPSP0000","msg1":"SUBSCRIBE SUCCESS"}}"""
+        val subscribeSuccess = """{"header":{"tr_id":"H0UNCNT0"},"body":{"rt_cd":"0","msg_cd":"OPSP0000","msg1":"SUBSCRIBE SUCCESS"}}"""
         assertThat(KisWsMessageParser.isUnsubscribeAck(subscribeSuccess)).isFalse()
 
         // OPSP8996 — false (오탐 차단)
-        val opsp8996 = """{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"1","msg_cd":"OPSP8996","msg1":"ALREADY IN USE appkey"}}"""
+        val opsp8996 = """{"header":{"tr_id":"H0UNCNT0"},"body":{"rt_cd":"1","msg_cd":"OPSP8996","msg1":"ALREADY IN USE appkey"}}"""
         assertThat(KisWsMessageParser.isUnsubscribeAck(opsp8996)).isFalse()
     }
 
@@ -1141,24 +1119,11 @@ class KisWebSocketBridgeReconnectTest {
         return field.get(bridge) as KisWebSocketSession
     }
 
-    /**
-     * nxtSubscribedCodes Set 접근 (reflection).
-     */
-    @Suppress("UNCHECKED_CAST")
-    private fun getNxtSubscribedCodes(bridge: KisWebSocketBridge): Set<String> {
-        val field = KisWebSocketBridge::class.java.getDeclaredField("nxtSubscribedCodes")
-        field.isAccessible = true
-        return field.get(bridge) as Set<String>
-    }
-
     // ─────────────────────────────────────────────────────────────────────
     // 2026-06-10 P1 회귀 fix — getWsUrl endpoint↔거래환경 정합 (체결통보 H0STCNI9 수신 0 fix)
     // ─────────────────────────────────────────────────────────────────────
 
-    private fun newBridge(
-        mode: String,
-        integratedTickEnabled: Boolean = false,
-    ): KisWebSocketBridge {
+    private fun newBridge(mode: String): KisWebSocketBridge {
         val executionListenerProvider = mockk<ObjectProvider<KisExecutionWsListener>>(relaxed = true)
         every { executionListenerProvider.getIfAvailable() } returns null
         val priceMetricsPortProvider =
@@ -1175,7 +1140,6 @@ class KisWebSocketBridgeReconnectTest {
             wsUrlVps = "ws://localhost:31000",
             magicjarMode = mode,
             defaultUserId = "user001",
-            integratedTickEnabled = integratedTickEnabled,
             executionListenerProvider = executionListenerProvider,
             systemEventLogger = systemEventLogger,
             priceMetricsPortProvider = priceMetricsPortProvider,
