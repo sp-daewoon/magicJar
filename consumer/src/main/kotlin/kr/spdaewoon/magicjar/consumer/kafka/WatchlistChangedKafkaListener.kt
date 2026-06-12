@@ -17,17 +17,18 @@ import org.springframework.stereotype.Component
  * - groupId: magicjar-consumer-watchlist-ingestion
  * - manual ack (MANUAL_IMMEDIATE — ADR 0045 graceful shutdown 정합)
  * - at-least-once delivery + idempotent 처리
- * - action=ADDED: WS/polling 분배 (+ Redis warm은 PollingWorker 첫 tick)
- * - action=REMOVED: unsubscribe + Redis evict
+ * - action=ADDED: polling pool 등록 (+ Redis warm은 PollingWorker 첫 tick)
+ * - action=REMOVED: polling pool 제거 + Redis evict
+ *
+ * ★ watchlist WS 구독 폐지 (ADR 0124 · 2026-06-13):
+ *   watchlist 종목은 처음부터 KIS WS 구독 0 — 5초 REST polling 전용이다(SubscriptionRouter가 polling pool만 관리).
+ *   같은 종목이 STRATEGY/HOLDING/DETAIL demand로 WS 구독 중이면 그 구독은 RealtimeSubscriptionRouter가
+ *   독립 관리하므로 watchlist 제거가 그 경로를 끊지 않는다(공존 무해).
  *
  * ★ proactive cold-start 백필 폐지 (ADR 0119 · 2026-06-09):
  *   watchlist 종목 추가 시 과거 1m·일봉 무더기 KIS 백필을 더 이상 트리거하지 않는다.
  *   신규 종목의 일봉은 전종목 일봉 universe(R-BF/R2 · ADR 0118)가 이미 보유하고,
- *   1m은 WS 구독(SubscriptionRouter)이 실시간으로 채운다. 과거 1m 정밀 갭은 차트 진입
- *   on-demand(SymbolDetailMinuteGapFillService) 또는 admin 수동 backfill(CandleBackfillWorker)만 수행.
- *
- * 40 slot 한도 게이트: SubscriptionRouter.add 내부에서 처리.
- * slot 상태는 응답 payload로 노출하지 않음 (UI 배지는 T-S1에서 별도 endpoint 구현 예정).
+ *   과거 1m 정밀 갭은 차트 진입 on-demand(SymbolDetailMinuteGapFillService) 또는 admin 수동 backfill만 수행.
  *
  * 룰 5 위반 금지: LLM provider import 0건.
  */
@@ -89,10 +90,9 @@ class WatchlistChangedKafkaListener(
         val code = event.code
         val userId = event.userId
 
-        // 1. SubscriptionRouter에 위임 (slot 여유 검사 + WS/polling 분배 — ADR 0048 §2-6)
-        //    proactive cold-start 백필 폐지 (ADR 0119): 신규 종목 일봉=R-BF/R2 기보유, 1m=WS 실시간.
-        //    과거 1m 정밀 갭은 차트 진입 on-demand(SymbolDetailMinuteGapFillService)만 수행 — 여기서 KIS 백필 0.
-        subscriptionRouter.add(userId, code, priority = 100)
+        // 1. SubscriptionRouter에 위임 — watchlist는 WS 구독 0, polling pool 등록 전용 (ADR 0124 결정 2).
+        //    proactive cold-start 백필 폐지 (ADR 0119): 신규 종목 일봉=R-BF/R2 기보유, 1m=차트 진입 on-demand.
+        subscriptionRouter.add(userId, code)
 
         // 2. Redis quote:last warm (즉시 첫 가격 표시 위해)
         // warm은 PollingWorker가 5초 내 갱신하므로 별도 warm 불필요

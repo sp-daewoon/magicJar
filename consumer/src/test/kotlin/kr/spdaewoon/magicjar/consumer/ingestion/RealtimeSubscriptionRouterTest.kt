@@ -1,14 +1,9 @@
 package kr.spdaewoon.magicjar.consumer.ingestion
 
-import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import kotlinx.datetime.Clock
-import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisSourceTrackerAdapter
-import kr.spdaewoon.magicjar.consumer.persistence.ConsumerWatchlistRepositoryAdapter
 import kr.spdaewoon.magicjar.domain.market.port.KisWsPort
 import kr.spdaewoon.magicjar.domain.market.port.SubscriptionPolicy
-import kr.spdaewoon.magicjar.domain.watchlist.WatchlistEntry
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -17,22 +12,15 @@ import java.util.concurrent.CopyOnWriteArraySet
 
 class RealtimeSubscriptionRouterTest {
     private lateinit var kisWsPort: TestKisWsPort
-    private val pollingWorker = mockk<WatchlistPollingWorker>(relaxed = true)
-    private val watchlistRepository = mockk<ConsumerWatchlistRepositoryAdapter>()
-    private val sourceTracker = mockk<RedisSourceTrackerAdapter>(relaxed = true)
     private val todayCandleSeedPort = mockk<kr.spdaewoon.magicjar.domain.market.port.TodayCandleSeedPort>(relaxed = true)
     private lateinit var router: RealtimeSubscriptionRouter
 
     @BeforeEach
     fun setUp() {
         kisWsPort = TestKisWsPort()
-        every { watchlistRepository.findAll() } returns emptyList()
         router =
             RealtimeSubscriptionRouter(
                 kisWsPort = kisWsPort,
-                pollingWorker = pollingWorker,
-                watchlistRepository = watchlistRepository,
-                sourceTracker = sourceTracker,
                 todayCandleSeedPort = todayCandleSeedPort,
             )
     }
@@ -57,32 +45,27 @@ class RealtimeSubscriptionRouterTest {
     }
 
     @Test
-    fun `DETAIL 이탈 시 watchlist 종목이면 가격 WS를 유지한다`() {
-        val now = Clock.System.now()
-        every { watchlistRepository.findAll() } returns
-            listOf(WatchlistEntry(id = 1L, userId = "user001", code = "005930", priority = 100, createdAt = now))
+    fun `STRATEGY 이탈은 demand가 모두 사라지면 가격 WS를 즉시 해제한다`() {
+        // ADR 0124 — watchlist가 WS를 점유하지 않으므로 owner demand 0이면 즉시 unsubscribe.
+        router.request(RealtimeDemandOwner.STRATEGY, "strategy:42", "005930", priority = 10)
+        router.release(RealtimeDemandOwner.STRATEGY, "strategy:42", "005930")
 
-        router.request(RealtimeDemandOwner.DETAIL, "detail:user001", "005930")
-        router.release(RealtimeDemandOwner.DETAIL, "detail:user001", "005930")
-
-        assertTrue(kisWsPort.priceSubscribed.contains("005930"))
-        assertFalse(kisWsPort.priceUnsubscribed.contains("005930"))
+        assertFalse(router.isExternallyDemanded("005930"))
+        assertTrue(kisWsPort.priceUnsubscribed.contains("005930"))
     }
 
     @Test
-    fun `전략 후보는 slot 부족 시 낮은 우선순위 watchlist를 polling으로 내린다`() {
-        val subscribed = (1..SubscriptionPolicy.PRICE_TICK_MAX).map { "1%05d".format(it) }
-        kisWsPort.priceSubscribed.addAll(subscribed)
-        val now = Clock.System.now()
-        every { watchlistRepository.findAll() } returns
-            subscribed.mapIndexed { index, code ->
-                WatchlistEntry(id = index.toLong() + 1L, userId = "user001", code = code, priority = 200 + index, createdAt = now)
-            }
+    fun `slot 포화 시 신규 진입은 demand 없는 잔여 구독을 evict한다 (ADR 0124)`() {
+        // ADR 0124 — eviction victim 후보는 어느 owner demand에도 없는 잔여 구독만.
+        // slot 을 demand 없는 종목으로 가득 채운다.
+        val orphanCodes = (1..SubscriptionPolicy.PRICE_TICK_MAX).map { "1%05d".format(it) }
+        kisWsPort.priceSubscribed.addAll(orphanCodes)
 
-        router.request(RealtimeDemandOwner.STRATEGY, "strategy:42", "005930", priority = 40)
+        router.request(RealtimeDemandOwner.STRATEGY, "strategy:42", "005930", priority = 10)
 
+        // 신규 STRATEGY 구독 발사 + orphan 1건 evict.
         assertTrue(kisWsPort.priceSubscribed.contains("005930"))
-        verify { pollingWorker.add(any()) }
+        assertTrue(kisWsPort.priceUnsubscribed.any { it in orphanCodes })
     }
 
     @Test
@@ -98,21 +81,17 @@ class RealtimeSubscriptionRouterTest {
 
     @Test
     fun `slot 포화 + 신규 진입 시 HOLDING 종목은 evict 후보에서 제외된다 (ADR 0114 P3 LOCK)`() {
-        // 30 slot 중 1개를 HOLDING(보유 종목), 나머지는 낮은 우선순위 watchlist로 채운다.
+        // 30 slot 중 1개를 HOLDING(보유 종목), 나머지는 demand 없는 잔여 구독으로 채운다.
+        // ADR 0124 — evict 후보는 demand 없는 잔여 구독만이지만 HOLDING demand 종목은 절대 victim 아님.
         val holdingCode = "0HOLD0"
-        val watchlistCodes = (1 until SubscriptionPolicy.PRICE_TICK_MAX).map { "1%05d".format(it) }
+        val orphanCodes = (1 until SubscriptionPolicy.PRICE_TICK_MAX).map { "1%05d".format(it) }
         kisWsPort.priceSubscribed.add(holdingCode)
-        kisWsPort.priceSubscribed.addAll(watchlistCodes)
-        val now = Clock.System.now()
-        every { watchlistRepository.findAll() } returns
-            watchlistCodes.mapIndexed { index, code ->
-                WatchlistEntry(id = index.toLong() + 1L, userId = "user001", code = code, priority = 200 + index, createdAt = now)
-            }
+        kisWsPort.priceSubscribed.addAll(orphanCodes)
 
         // HOLDING demand 등록(이미 구독 중이라 재구독 X, demand만 추적).
         router.request(RealtimeDemandOwner.HOLDING, "holding:$holdingCode", holdingCode)
         // slot 포화 상태에서 신규 STRATEGY 진입 → evict가 일어나도 HOLDING은 절대 victim 아님.
-        router.request(RealtimeDemandOwner.STRATEGY, "strategy:42", "005930", priority = 40)
+        router.request(RealtimeDemandOwner.STRATEGY, "strategy:42", "005930", priority = 10)
 
         assertTrue(kisWsPort.priceSubscribed.contains(holdingCode))
         assertFalse(kisWsPort.priceUnsubscribed.contains(holdingCode))
@@ -159,7 +138,7 @@ class RealtimeSubscriptionRouterTest {
     @Test
     fun `snapshotDemands — code별 owner 합집합 + since (관리자 실시간 상태)`() {
         router.request(RealtimeDemandOwner.DETAIL, "user001", "005930")
-        router.request(RealtimeDemandOwner.STRATEGY, "86", "005930", priority = 40)
+        router.request(RealtimeDemandOwner.STRATEGY, "86", "005930", priority = 10)
         router.request(RealtimeDemandOwner.HOLDING, "holding", "000660")
 
         val snap = router.snapshotDemands().associateBy { it.code }
@@ -174,7 +153,7 @@ class RealtimeSubscriptionRouterTest {
     @Test
     fun `snapshotDemands — legacy prefix 포함 ownerId여도 이중 prefix 방어`() {
         // 롤링 배포·미발견 producer가 prefix 포함 ownerId를 넣어도 스냅샷은 단일 prefix(이중 prefix 회피).
-        router.request(RealtimeDemandOwner.STRATEGY, "strategy:86", "005930", priority = 40)
+        router.request(RealtimeDemandOwner.STRATEGY, "strategy:86", "005930", priority = 10)
         router.request(RealtimeDemandOwner.DETAIL, "detail:user001", "005930")
 
         val owners = router.snapshotDemands().first { it.code == "005930" }.owners
@@ -185,10 +164,10 @@ class RealtimeSubscriptionRouterTest {
 
     @Test
     fun `snapshotDemands — since는 재요청에도 최초 구독 시각 보존`() {
-        router.request(RealtimeDemandOwner.STRATEGY, "86", "005930", priority = 40)
+        router.request(RealtimeDemandOwner.STRATEGY, "86", "005930", priority = 10)
         val firstSince = router.snapshotDemands().first { it.code == "005930" }.sinceMs
         Thread.sleep(10)
-        router.request(RealtimeDemandOwner.STRATEGY, "86", "005930", priority = 40)
+        router.request(RealtimeDemandOwner.STRATEGY, "86", "005930", priority = 10)
         val secondSince = router.snapshotDemands().first { it.code == "005930" }.sinceMs
         assertTrue(firstSince == secondSince)
     }

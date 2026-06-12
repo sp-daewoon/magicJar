@@ -1,8 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.ingestion
 
 import jakarta.annotation.PreDestroy
-import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisSourceTrackerAdapter
-import kr.spdaewoon.magicjar.consumer.persistence.ConsumerWatchlistRepositoryAdapter
 import kr.spdaewoon.magicjar.domain.market.port.KisWsPort
 import kr.spdaewoon.magicjar.domain.market.port.SubscriptionPolicy
 import kr.spdaewoon.magicjar.domain.market.port.TodayCandleSeedPort
@@ -16,17 +14,20 @@ import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
 /**
- * 비-watchlist 실시간 가격 구독 라우터.
+ * 실시간 체결가 KIS WS 구독 라우터 — owner demand 단위 (HOLDING/PENDING_BUY/STRATEGY/DETAIL).
  *
- * watchlist는 사용자가 고정해서 보는 목록이고, 종목 상세 진입·전략 후보는 별도 수요다.
- * 이 라우터는 DETAIL/STRATEGY 수요를 owner 단위로 추적해 단순 합집합으로 섞이지 않게 한다.
+ * watchlist는 사용자가 고정해서 보는 목록이고, 종목 상세 진입·전략 후보·보유·미체결은 별도 수요다.
+ * 이 라우터는 그 owner 수요를 단위로 추적해 단순 합집합으로 섞이지 않게 KIS WS slot을 배정한다.
+ *
+ * ## watchlist 분리 (ADR 0124 결정 2 · 2026-06-13)
+ * watchlist는 더 이상 KIS WS를 점유하지 않는다(5초 REST polling 전용 — [SubscriptionRouter]).
+ * 따라서 본 라우터의 KIS WS slot 예산은 owner demand만 소비하고, eviction victim 후보는
+ * "어느 owner demand에도 없는 잔여 구독"만 남는다(과거 watchlist priority 기반 eviction 폐지).
+ * 같은 종목이 owner demand로 WS 구독되면 watchlist 화면은 그 WS tick으로 갱신된 더 신선한 quote를 읽는다.
  */
 @Component
 class RealtimeSubscriptionRouter(
     private val kisWsPort: KisWsPort,
-    private val pollingWorker: WatchlistPollingWorker,
-    private val watchlistRepository: ConsumerWatchlistRepositoryAdapter,
-    private val sourceTracker: RedisSourceTrackerAdapter,
     private val todayCandleSeedPort: TodayCandleSeedPort,
 ) {
     private val log = LoggerFactory.getLogger(RealtimeSubscriptionRouter::class.java)
@@ -248,7 +249,7 @@ class RealtimeSubscriptionRouter(
         if (code in subscribed) return false
 
         if (subscribed.size >= SubscriptionPolicy.PRICE_TICK_MAX) {
-            val victim = findEvictionCandidateLocked(subscribed, priority)
+            val victim = findEvictionCandidateLocked(subscribed)
             if (victim == null) {
                 log.warn(
                     "realtime demand queued: code={} priority={} subscribed={} max={}",
@@ -260,46 +261,29 @@ class RealtimeSubscriptionRouter(
                 return false
             }
             kisWsPort.unsubscribe(listOf(victim))
-            demoteWatchlistToPollingLocked(victim)
-            log.info("realtime demand evict watchlist: victim={} new={} priority={}", victim, code, priority)
+            log.info("realtime demand evict unowned: victim={} new={} priority={}", victim, code, priority)
         }
 
         kisWsPort.subscribe(listOf(code))
         return true
     }
 
-    private fun findEvictionCandidateLocked(
-        subscribed: Set<String>,
-        newPriority: Int,
-    ): String? {
+    /**
+     * eviction victim 후보 — 어느 owner demand에도 없는 잔여 구독 (ADR 0124 결정 2).
+     *
+     * watchlist는 더 이상 WS를 점유하지 않으므로(polling 전용) eviction victim 후보는
+     * "demand 맵에 없는 + HOLDING demand도 아닌" 구독뿐이다(release 누락·재연결 잔여 등 정리 대상).
+     * 데이터를 요구하는 모든 owner는 demandsByCode에 등록되므로, 후보가 없으면(=전부 demand) queued 처리한다.
+     */
+    private fun findEvictionCandidateLocked(subscribed: Set<String>): String? {
         val demandedCodes = demandsByCode.keys
-        val watchlistEntries = watchlistRepository.findAll()
-        val watchlistByCode = watchlistEntries.groupBy { it.code }
         // ADR 0114 §4-3 P3 — HOLDING owner code는 evict 절대 금지(보유 종목 구독 끊김 = 청산 재료 공백 = 자본 risk).
-        // priority 0 비교만으로는 부족(동일 priority 경합 시 후보화 가능) → 명시적 제외 LOCK.
         val holdingCodes = codesWithHoldingDemandLocked()
-
-        return subscribed
-            .filter { it !in demandedCodes && it !in holdingCodes }
-            .map { code ->
-                val watchlistPriority = watchlistByCode[code]?.maxOfOrNull { it.priority } ?: Int.MAX_VALUE
-                code to watchlistPriority
-            }.filter { (_, priority) -> priority > newPriority }
-            .maxByOrNull { (_, priority) -> priority }
-            ?.first
-    }
-
-    private fun demoteWatchlistToPollingLocked(code: String) {
-        val entries = watchlistRepository.findAll().filter { it.code == code }
-        if (entries.isEmpty()) return
-
-        pollingWorker.add(code)
-        entries.forEach { sourceTracker.set(it.userId, code, "polling") }
+        return subscribed.firstOrNull { it !in demandedCodes && it !in holdingCodes }
     }
 
     private fun releaseIfUnownedLocked(code: String) {
         if (demandsByCode[code]?.isNotEmpty() == true) return
-        if (isWatchlistCodeLocked(code)) return
 
         if (code in kisWsPort.subscribedCodes()) {
             kisWsPort.unsubscribe(listOf(code))
@@ -324,8 +308,6 @@ class RealtimeSubscriptionRouter(
         return changedCodes
     }
 
-    private fun isWatchlistCodeLocked(code: String): Boolean = watchlistRepository.findAll().any { it.code == code }
-
     /** HOLDING owner demand가 있는 code 집합 (ADR 0114 §4-3 — evict 후보에서 무조건 제외). 호출자가 lock 보유. */
     private fun codesWithHoldingDemandLocked(): Set<String> =
         demandsByCode
@@ -343,7 +325,9 @@ class RealtimeSubscriptionRouter(
 }
 
 /**
- * 관리자 실시간 상태 스냅샷용 체결가(H0STCNT0) demand 투영 (read-only).
+ * 관리자 실시간 상태 스냅샷용 체결가 demand 투영 (read-only).
+ *
+ * 실제 trId 라벨은 활성 채널(통합 flag ON 시 H0UNCNT0, OFF 시 H0STCNT0)을 publisher가 표기한다(ADR 0124 결정 4).
  *
  * @param code 종목코드.
  * @param owners owner 식별자 목록(`<owner>:<ownerId>`, 정렬).
@@ -372,13 +356,20 @@ internal fun ownerLabel(
 enum class RealtimeDemandOwner(
     val defaultPriority: Int,
 ) {
+    // priority 낮을수록 우선(eviction 후보에서 보호). 재정렬: HOLDING > PENDING_BUY > STRATEGY > DETAIL (ADR 0124).
+    // 근거: 보유 청산(스탑로스) tick 공급 최우선, 매매 경로(STRATEGY) > 관찰 경로(DETAIL).
+
     // ADR 0114 §4-3 P3 — 보유 종목(체결 후 quantity>0). 최우선·evict 절대 금지(findEvictionCandidateLocked 제외 LOCK).
     HOLDING(defaultPriority = 0),
 
     // ADR 0114 §4-3 P3(Codex 흡수) — 주문 제출~체결 사이 pending watch. 체결 전 구독 보장(체결 통보 수신 보장).
     PENDING_BUY(defaultPriority = 5),
-    DETAIL(defaultPriority = 10),
-    STRATEGY(defaultPriority = 40),
+
+    // ADR 0124 — 매매 경로(전략 ACTIVE 평가). 관찰 경로(DETAIL)보다 우선. 40→10.
+    STRATEGY(defaultPriority = 10),
+
+    // ADR 0124 — 관찰 경로(종목 상세 화면 표시 중). 매매 경로 다음. 10→20.
+    DETAIL(defaultPriority = 20),
     ;
 
     companion object {
