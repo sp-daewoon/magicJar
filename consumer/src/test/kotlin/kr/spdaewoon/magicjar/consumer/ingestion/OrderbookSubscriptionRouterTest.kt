@@ -10,13 +10,14 @@ import org.junit.jupiter.api.Test
 import java.util.concurrent.CopyOnWriteArraySet
 
 /**
- * OrderbookSubscriptionRouter 단위 테스트 (ADR 0048 §2-1 LRU 10 slot).
+ * OrderbookSubscriptionRouter 단위 테스트 — STRATEGY owner 전용 (2026-06-12 DETAIL 경로 제거 후).
  *
- * 검증 항목:
- * 1. 1번째 sub → KisWsPort.subscribeOrderbook 호출
- * 2. 11번째 sub → LRU evict + 새 종목 sub
- * 3. 페이지 unmount → unsubscribeOrderbook 호출 + slot 회수
- * 4. 200ms debounce — 동일 종목 빠른 재진입 무시
+ * ## DETAIL 호가 구독 경로 제거 (anchor `detail-orderbook-removal`)
+ * 종목 상세 진입 호가 구독(LRU 10 slot·debounce·idle timeout)은 제거됐다. 호가(H0STASP0)는
+ * 전략 ACTIVE 경로(STRATEGY owner) 전용이다. 본 테스트는 그 경로의 회귀 0을 보증한다:
+ * 1. 전략 ACTIVE → subscribeOrderbook
+ * 2. 전략 비활성 → unsubscribeOrderbook + slot 회수
+ * 3. 다중 전략 합집합 — 하나 빠져도 다른 전략 남으면 WS 유지
  */
 class OrderbookSubscriptionRouterTest {
     private lateinit var mockKisWsPort: TestKisWsPort
@@ -28,126 +29,7 @@ class OrderbookSubscriptionRouterTest {
         router = OrderbookSubscriptionRouter(mockKisWsPort, mockk(relaxed = true))
     }
 
-    @Test
-    fun `1번째 종목 진입 시 subscribeOrderbook 호출`() {
-        router.onSymbolDetailEntered("005930")
-
-        assertTrue(mockKisWsPort.orderbookSubscribed.contains("005930"))
-        assertEquals(1, router.current().size)
-    }
-
-    @Test
-    fun `10종목 진입 시 모두 sub`() {
-        repeat(10) { i ->
-            router.onSymbolDetailEntered("code%02d".format(i))
-        }
-
-        assertEquals(10, router.current().size)
-        assertEquals(10, mockKisWsPort.orderbookSubscribed.size)
-    }
-
-    @Test
-    fun `11번째 종목 진입 시 LRU evict + 새 종목 sub`() {
-        // 10개 진입
-        val firstCode = "code00"
-        router.onSymbolDetailEntered(firstCode)
-        Thread.sleep(10) // 시간차 보장
-        for (i in 1 until 10) {
-            router.onSymbolDetailEntered("code%02d".format(i))
-            Thread.sleep(5)
-        }
-
-        // 11번째
-        router.onSymbolDetailEntered("code10")
-
-        // slot은 여전히 10
-        assertEquals(10, router.current().size)
-        // 첫 번째가 evict됨
-        assertFalse(router.current().contains(firstCode))
-        // 11번째가 구독됨
-        assertTrue(router.current().contains("code10"))
-    }
-
-    @Test
-    fun `페이지 unmount 시 unsubscribeOrderbook + slot 회수`() {
-        router.onSymbolDetailEntered("005930")
-        assertTrue(router.current().contains("005930"))
-
-        router.onSymbolDetailExited("005930")
-
-        assertFalse(router.current().contains("005930"))
-        assertTrue(mockKisWsPort.orderbookUnsubscribed.contains("005930"))
-        assertEquals(0, router.current().size)
-    }
-
-    @Test
-    fun `이미 구독 중인 종목 재진입 시 sub 중복 호출 없음`() {
-        router.onSymbolDetailEntered("005930")
-        val subCountBefore = mockKisWsPort.subscribeOrderbookCount
-
-        router.onSymbolDetailEntered("005930")
-
-        // 중복 subscribeOrderbook 호출 없음
-        assertEquals(subCountBefore, mockKisWsPort.subscribeOrderbookCount)
-        assertEquals(1, router.current().size)
-    }
-
-    /**
-     * backlog §29 #3 — pendingDebounce expired entry 자동 cleanup 검증.
-     *
-     * 시나리오: 종목 1회 진입 후 재진입 없는 stale entry는 다음 진입 시 자동 정리.
-     * 검증: 진입 → 200ms 대기 → 다른 종목 진입 시 stale entry 제거 확인.
-     * pendingDebounce는 private이라 reflection으로 size 검증.
-     */
-    @Test
-    fun `pendingDebounce expired entry는 다음 진입 시 자동 정리`() {
-        router.onSymbolDetailEntered("000001") // entry 1 — pendingUntil = now + 200
-        Thread.sleep(250) // 200ms debounce 만료 대기
-        router.onSymbolDetailEntered("000002") // entry 2 — cleanup 트리거
-
-        val debounceMap = readPendingDebounce(router)
-        // entry 1은 expired로 cleanup, entry 2만 남아야 함
-        assertFalse(debounceMap.containsKey("000001"), "expired entry 000001은 cleanup되어야 함")
-        assertTrue(debounceMap.containsKey("000002"), "신규 entry 000002는 보존")
-        assertEquals(1, debounceMap.size, "stale 미정리 시 size=2가 됨")
-    }
-
-    /**
-     * backlog §29 #3 — unsubscribe 흐름(exit·LRU evict·idle timeout) 시
-     * pendingDebounce 동기 정리 검증 — exit 경로.
-     */
-    @Test
-    fun `onSymbolDetailExited 시 pendingDebounce 동기 정리`() {
-        router.onSymbolDetailEntered("005930")
-        assertTrue(readPendingDebounce(router).containsKey("005930"))
-
-        router.onSymbolDetailExited("005930")
-
-        assertFalse(readPendingDebounce(router).containsKey("005930"))
-    }
-
-    /**
-     * backlog §29 #3 — LRU evict 시 evicted 종목 pendingDebounce 동기 정리.
-     */
-    @Test
-    fun `LRU evict 시 pendingDebounce 동기 정리`() {
-        val firstCode = "code00"
-        router.onSymbolDetailEntered(firstCode)
-        Thread.sleep(250) // debounce 만료 + 시간차 보장
-        for (i in 1 until 10) {
-            router.onSymbolDetailEntered("code%02d".format(i))
-            Thread.sleep(5)
-        }
-
-        // 11번째 — firstCode가 LRU evict 됨
-        router.onSymbolDetailEntered("code10")
-
-        assertFalse(router.current().contains(firstCode), "LRU evict 검증")
-        // pendingDebounce에서도 정리되어야 함 (또는 expired cleanup으로 정리)
-        assertFalse(readPendingDebounce(router).containsKey(firstCode), "evicted 종목의 pendingDebounce 잔존 금지")
-    }
-
-    // ── F11: STRATEGY owner 호가 구독 ─────────────────────────────────────────
+    // ── STRATEGY owner 호가 구독 (전략 ACTIVE 전용) ────────────────────────────
 
     @Test
     fun `전략 ACTIVE 시 호가 구독 시작 (STRATEGY owner)`() {
@@ -155,6 +37,7 @@ class OrderbookSubscriptionRouterTest {
 
         assertTrue(mockKisWsPort.orderbookSubscribed.contains("093370"))
         assertTrue(router.current().contains("093370"))
+        assertEquals(1, router.current().size)
     }
 
     @Test
@@ -166,6 +49,7 @@ class OrderbookSubscriptionRouterTest {
 
         assertFalse(router.current().contains("093370"))
         assertTrue(mockKisWsPort.orderbookUnsubscribed.contains("093370"))
+        assertEquals(0, router.current().size)
     }
 
     @Test
@@ -187,39 +71,22 @@ class OrderbookSubscriptionRouterTest {
     }
 
     @Test
-    fun `DETAIL과 STRATEGY가 같은 종목에 공존 — 한 owner 빠져도 다른 owner 있으면 WS 유지`() {
+    fun `같은 종목 동일 전략 재요청은 멱등 — 중복 subscribe 없음`() {
         router.onStrategyActivated("093370", "strategy:86")
-        router.onSymbolDetailEntered("093370")
-        // 단일 구독 공유 (DETAIL 진입 시 이미 구독 중이라 추가 발사 0)
-        assertEquals(1, mockKisWsPort.subscribeOrderbookCount)
+        val subCountBefore = mockKisWsPort.subscribeOrderbookCount
 
-        // 사용자 페이지 이탈 → DETAIL 회수, STRATEGY 남음 → WS 유지
-        router.onSymbolDetailExited("093370")
-        assertTrue(router.current().contains("093370"))
-        assertFalse(mockKisWsPort.orderbookUnsubscribed.contains("093370"))
+        router.onStrategyActivated("093370", "strategy:86")
 
-        // 전략까지 비활성 → 비로소 unsub
-        router.onStrategyDeactivated("093370", "strategy:86")
-        assertFalse(router.current().contains("093370"))
-        assertTrue(mockKisWsPort.orderbookUnsubscribed.contains("093370"))
+        assertEquals(subCountBefore, mockKisWsPort.subscribeOrderbookCount)
+        assertEquals(1, router.current().size)
     }
 
     @Test
-    fun `idle timeout은 DETAIL slot만 회수 — STRATEGY demand 있으면 WS 유지`() {
-        router.onStrategyActivated("093370", "strategy:86")
-        router.onSymbolDetailEntered("093370")
+    fun `없는 전략 demand 비활성 호출은 no-op`() {
+        router.onStrategyDeactivated("093370", "strategy:86")
 
-        router.evictIdleSubscriptions() // lastAccess 막 갱신돼 idle 아님 — 아무 것도 회수 안 됨
-        assertTrue(router.current().contains("093370"))
-        // STRATEGY demand 있으므로 어떤 경우에도 unsub 발사 0
+        assertFalse(router.current().contains("093370"))
         assertFalse(mockKisWsPort.orderbookUnsubscribed.contains("093370"))
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun readPendingDebounce(router: OrderbookSubscriptionRouter): Map<String, Long> {
-        val field = OrderbookSubscriptionRouter::class.java.getDeclaredField("pendingDebounce")
-        field.isAccessible = true
-        return field.get(router) as Map<String, Long>
     }
 
     /**

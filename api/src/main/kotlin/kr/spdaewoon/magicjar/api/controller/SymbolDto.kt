@@ -76,7 +76,8 @@ data class CandlesResponseDto(
 data class RealtimeSubscribeResponse(
     val subscribed: Boolean,
     val priceSlot: String, // "live" | "queued"
-    val orderbookSlot: String, // "live" | "queued"
+    // 종목 상세 호가 구독 제거(2026-06-12, anchor `detail-orderbook-removal`) → 항상 "none". 호가는 전략 ACTIVE 전용.
+    val orderbookSlot: String,
 )
 
 data class RealtimeUnsubscribeResponse(
@@ -84,11 +85,12 @@ data class RealtimeUnsubscribeResponse(
 )
 
 /**
- * 호가 sub/unsub 응답 DTO. 기존 frontend/API 호환용으로 유지.
+ * 호가 sub/unsub 응답 DTO. deprecated alias 호환용으로만 유지(2026-06-12 호가 DETAIL 구독 제거).
+ * slot은 항상 "none" — 호가는 전략 ACTIVE 경로(STRATEGY owner)에서만 구독된다.
  */
 data class OrderbookSubscribeResponse(
     val subscribed: Boolean,
-    val slot: String, // "live" | "queued"
+    val slot: String, // 항상 "none" (호가 DETAIL 구독 제거)
 )
 
 data class OrderbookUnsubscribeResponse(
